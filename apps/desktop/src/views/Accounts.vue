@@ -228,6 +228,27 @@
       </div>
     </main>
 
+    <!-- 一键检测中央进度提示：检测期间全屏遮罩 + 动态效果，避免长时间无反馈 -->
+    <div
+      v-if="batchCheckAllBusy"
+      class="batch-check-overlay"
+      role="status"
+      aria-live="polite"
+      data-testid="batch-check-overlay"
+    >
+      <div class="batch-check-card">
+        <div class="batch-check-spinner" aria-hidden="true"></div>
+        <div class="batch-check-title">{{ t('accountsPage.batchCheckAllTitle') }}</div>
+        <div class="batch-check-progress">{{ batchCheckAllProgressText }}</div>
+        <div class="batch-check-bar" aria-hidden="true">
+          <div
+            class="batch-check-bar-inner"
+            :style="{ width: batchCheckPercent + '%' }"
+          ></div>
+        </div>
+      </div>
+    </div>
+
     <AccountLoginDialog
       :visible="showAddDialog"
       :platforms="allPlatforms"
@@ -271,7 +292,7 @@ import AccountLoginDialog from '@/features/accounts/components/AccountLoginDialo
 import AccountManagementCard from '@/features/accounts/components/AccountManagementCard.vue'
 import AccountProxyDialog from '@/features/accounts/components/AccountProxyDialog.vue'
 import { useAccountActions } from '@/composables/useAccountActions'
-import { accountBatchCheckLogin } from '@/api/publisher'
+import { accountBatchCheckLogin, accountUpdate } from '@/api/publisher'
 import { getApi } from '@/api/electron-bridge'
 import { useAccountEvents } from '@/composables/useAccountEvents'
 import { useAccountStore } from '@/stores/accounts'
@@ -334,6 +355,11 @@ const batchCheckAllProgressText = computed(() => {
   if (!p.total) return t('accountsPage.batchCheckAllBusy')
   return t('accountsPage.batchCheckAllProgress', { checked: p.checked, total: p.total, platform: p.platform || '' })
 })
+const batchCheckPercent = computed(() => {
+  const p = batchCheckProgress.value
+  if (!p.total) return 0
+  return Math.min(100, Math.round((p.checked / p.total) * 100))
+})
 const verifyingIds = ref(new Set())
   /** 当前会话中被 checkLogin 确认失效的账号 ID */
   const checkedExpiredIds = ref(new Set())
@@ -347,11 +373,9 @@ platformStore.load()
 
 const accountEvents = useAccountEvents({
   onCompleted: async (_data, mode) => {
-    const message = pendingAuthAction.value === 'relogin'
-      ? t('accountsPage.reloginSuccess')
-      : mode === 'qrcode' ? t('accountsPage.qrcodeSuccess') : t('accountsPage.addSuccess')
+    // 成功提示由 useAccountEvents.complete() 统一弹出（「xx 登录凭证已自动保存」），
+    // 此处不再重复提示，仅刷新账号列表。避免登录成功后顶部弹出两个重复提示。
     pendingAuthAction.value = null
-    notifySuccess('accountsPage.addSuccess', { message: message })
     await refresh()
   },
   onStatusChanged: async data => {
@@ -871,6 +895,7 @@ async function batchCheckAllLogins () {
     if (!Array.isArray(results)) throw new Error('invalid batch-check response')
     let validCount = 0
     const invalidIds = []
+    const checkedAt = result.data?.checkedAt || new Date().toISOString()
     for (const item of results) {
       if (!item?.accountId) continue
       if (item.valid) {
@@ -883,7 +908,14 @@ async function batchCheckAllLogins () {
       const account = accounts.find(a => a.id === item.accountId)
       if (account) {
         account.status = item.valid ? 'active' : 'expired'
-        account.last_validated = result.data?.checkedAt || new Date().toISOString()
+        account.last_validated = checkedAt
+        // 持久化检测结果到后端：退出账号管理页再进入时，列表能读到本次检测状态
+        // （toPublicAccount 会尊重最近 2 小时内写回的 expired + last_validated）。
+        // 失败不阻断主流程，仅记录。
+        accountUpdate(account.id, {
+          status: item.valid ? 'active' : 'expired',
+          last_validated: checkedAt,
+        }).catch(() => {})
       }
     }
     if (invalidIds.length === 0) {
@@ -1219,5 +1251,70 @@ onUnmounted(() => {
   .account-sort-controls { flex-wrap: wrap; }
   .account-command-bar { justify-content: flex-start; flex-wrap: wrap; }
   .filter-tabs { max-width: 100%; overflow-x: auto; }
+}
+
+/* 一键检测中央进度提示：全屏半透明遮罩 + 居中卡片 + 旋转动画 + 进度条 */
+.batch-check-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(30, 30, 45, 0.45);
+  backdrop-filter: blur(2px);
+}
+
+.batch-check-card {
+  width: min(360px, calc(100vw - 48px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 32px 28px;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 16px 48px rgba(30, 30, 55, 0.22);
+  text-align: center;
+}
+
+.batch-check-spinner {
+  width: 42px;
+  height: 42px;
+  border: 4px solid #e6e4f7;
+  border-top-color: #5048e5;
+  border-radius: 50%;
+  animation: batch-check-spin 0.9s linear infinite;
+}
+
+@keyframes batch-check-spin {
+  to { transform: rotate(360deg); }
+}
+
+.batch-check-title {
+  color: #2b2b35;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.batch-check-progress {
+  min-height: 18px;
+  color: #85858f;
+  font-size: 13px;
+}
+
+.batch-check-bar {
+  width: 100%;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: #f0f0f5;
+}
+
+.batch-check-bar-inner {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #6a62f0, #5048e5);
+  transition: width 0.3s ease;
 }
 </style>

@@ -1212,6 +1212,7 @@ export default {
     batchAction: 'Batch',
     batchCheckAll: 'Check All',
     batchCheckAllBusy: 'Checking…',
+    batchCheckAllTitle: 'Checking account login status',
     batchCheckAllProgress: (ctx) => 'Checking ' + ctx.named('checked') + '/' + ctx.named('total') + (ctx.named('platform') ? ': ' + ctx.named('platform') : ''),
     batchCheckAllStarted: (ctx) => 'Checking login status of ' + ctx.named('count') + ' accounts…',
     batchCheckAllDone: (ctx) => 'Check complete: ' + ctx.named('valid') + ' valid, ' + ctx.named('invalid') + ' expired',

@@ -25,9 +25,19 @@ describe('http-login-checker', () => {
       expect(checker.isHttpCheckSupported('toutiao')).toBe(true)
     })
 
+    it('公众号已注册（登录页与后台同域，需 HTTP 检测兜底）', () => {
+      expect(checker.isHttpCheckSupported('wechat_mp')).toBe(true)
+    })
+
+    it('视频号已注册（渲染崩溃保护跳过浏览器检测，需 HTTP 检测识别 Cookie 过期）', () => {
+      expect(checker.isHttpCheckSupported('tencent_video')).toBe(true)
+    })
+
+    it('bilibili 已注册（nav API 会话校验）', () => {
+      expect(checker.isHttpCheckSupported('bilibili')).toBe(true)
+    })
+
     it('未注册平台返回 false', () => {
-      expect(checker.isHttpCheckSupported('wechat_mp')).toBe(false)
-      expect(checker.isHttpCheckSupported('bilibili')).toBe(false)
       expect(checker.isHttpCheckSupported('kuaishou')).toBe(false)
     })
   })
@@ -102,6 +112,88 @@ describe('http-login-checker', () => {
       }))
 
       const result = await checker.checkLoginViaHttpApi('toutiao', [{ name: 'session', value: 'valid' }])
+      expect(result).toEqual({ supported: true, valid: true, code: 'CHECK_LOGIN_SUCCESS_HTTP_API' })
+    })
+
+    it('公众号 loginpage HTML 无 token/uin → expired（回归：Cookie 过期但后台骨架仍 200）', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Map(),
+        text: () => Promise.resolve('<html><body>登录</body></html>')
+      }))
+
+      const result = await checker.checkLoginViaHttpApi('wechat_mp', [{ name: 'slave_sid', value: 'expired' }])
+      expect(result).toEqual({ supported: true, valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' })
+    })
+
+    it('公众号 loginpage HTML 含 token 和 uin → valid（对齐蚁小二正则解析）', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Map(),
+        text: () => Promise.resolve('<html><script>window.cgiData = {nick_name: "测试号", uin: "12345678"};</script><a href="/cgi-bin/home?t=home/index&token=abcdef123456">首页</a></html>')
+      }))
+
+      const result = await checker.checkLoginViaHttpApi('wechat_mp', [{ name: 'slave_sid', value: 'valid' }])
+      expect(result).toEqual({ supported: true, valid: true, code: 'CHECK_LOGIN_SUCCESS_HTTP_API' })
+    })
+
+    it('视频号 auth_data 返回 errCode 300333 → expired（对齐蚁小二失效判定）', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Map(),
+        json: () => Promise.resolve({ errCode: 300333, errMsg: '登录失效' })
+      }))
+
+      const result = await checker.checkLoginViaHttpApi('tencent_video', [{ name: 'sessionid', value: 'expired' }])
+      expect(result).toEqual({ supported: true, valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' })
+    })
+
+    it('视频号 auth_data 返回 finderUser → valid', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Map(),
+        json: () => Promise.resolve({ errCode: 0, data: { finderUser: { uniqId: 'wxid_123', nickname: '视频号' } } })
+      }))
+
+      const result = await checker.checkLoginViaHttpApi('tencent_video', [{ name: 'sessionid', value: 'valid' }])
+      expect(result).toEqual({ supported: true, valid: true, code: 'CHECK_LOGIN_SUCCESS_HTTP_API' })
+      // 必须 POST auth_data 接口
+      expect(fetch).toHaveBeenCalledWith(
+        'https://channels.weixin.qq.com/cgi-bin/mmfinderassistant-bin/auth/auth_data',
+        expect.objectContaining({ method: 'POST' })
+      )
+    })
+
+    it('bilibili cookie 缺 bili_jct → expired（对齐蚁小二前置校验）', async () => {
+      const result = await checker.checkLoginViaHttpApi('bilibili', [{ name: 'SESSDATA', value: 'abc' }])
+      expect(result).toEqual({ supported: true, valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' })
+    })
+
+    it('bilibili nav 返回 code -101 → expired', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Map(),
+        json: () => Promise.resolve({ code: -101, message: '账号未登录' })
+      }))
+
+      const result = await checker.checkLoginViaHttpApi('bilibili', [{ name: 'bili_jct', value: 'x' }])
+      expect(result).toEqual({ supported: true, valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' })
+    })
+
+    it('bilibili nav 返回 code 0 且有 mid → valid', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Map(),
+        json: () => Promise.resolve({ code: 0, data: { mid: 123456, uname: 'UP主' } })
+      }))
+
+      const result = await checker.checkLoginViaHttpApi('bilibili', [{ name: 'bili_jct', value: 'x' }])
       expect(result).toEqual({ supported: true, valid: true, code: 'CHECK_LOGIN_SUCCESS_HTTP_API' })
     })
 

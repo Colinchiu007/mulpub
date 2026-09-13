@@ -48,6 +48,32 @@ describe('platform authentication URL boundaries', () => {
     expect(isPlatformLoginSuccessUrl('baijiahao', 'https://baijiahao.baidu.com/bjh/author/index')).toBe(false)
   })
 
+  it('never auto-completes Toutiao from the login page (login page and creator home share the same host)', () => {
+    // 2026-09-13 实测：未登录访问 https://mp.toutiao.com/ 会 302 到 /login。
+    // 登录页与创作后台同域，裸域名模式会把登录页误判为“登录成功”，
+    // 导致登录视图提前关闭并保存无效账号。登录成功后的创作者中心路径为
+    // /profile_v4/...，据此精确匹配。
+    expect(isPlatformLoginSuccessUrl('toutiao', 'https://mp.toutiao.com/login')).toBe(false)
+    expect(isPlatformLoginSuccessUrl('toutiao', 'https://mp.toutiao.com/login?redirect_url=...')).toBe(false)
+    expect(isPlatformLoginSuccessUrl('toutiao', 'https://mp.toutiao.com/profile_v4/graphic/publish')).toBe(true)
+    expect(isPlatformLoginSuccessUrl('toutiao', 'https://mp.toutiao.com/profile_v4/')).toBe(true)
+    // 安全性：非 toutiao 域名即使包含 profile_v4 关键词也不应通过
+    expect(isPlatformLoginSuccessUrl('toutiao', 'https://evil.example/?next=profile_v4')).toBe(false)
+  })
+
+  it('never auto-completes Tencent Video from the login page (login page and creator home share the same host)', () => {
+    // 2026-09-14 实测：视频号登录页为 channels.weixin.qq.com/login.html（蚁小二
+    // authorizeUrl 同款），裸域名模式会把登录页误判为“登录成功”，导致登录视图
+    // 提前关闭并保存只有预登录 localStorage 的无 Cookie 凭证（E2E 实测 cookies=0）。
+    // 登录成功后的创作者后台路径为 /platform，据此精确匹配。
+    expect(isPlatformLoginSuccessUrl('tencent_video', 'https://channels.weixin.qq.com/login.html')).toBe(false)
+    expect(isPlatformLoginSuccessUrl('tencent_video', 'https://channels.weixin.qq.com/')).toBe(false)
+    expect(isPlatformLoginSuccessUrl('tencent_video', 'https://channels.weixin.qq.com/platform')).toBe(true)
+    expect(isPlatformLoginSuccessUrl('tencent_video', 'https://channels.weixin.qq.com/platform/post/create')).toBe(true)
+    // 安全性：非 channels 域名即使包含 platform 关键词也不应通过
+    expect(isPlatformLoginSuccessUrl('tencent_video', 'https://evil.example/?next=channels.weixin.qq.com/platform')).toBe(false)
+  })
+
   it('recognizes explicit YouTube OAuth completion and X success pages without accepting login pages', () => {
     expect(isPlatformLoginSuccessUrl('youtube', 'https://accounts.google.com/o/oauth2/approval?state=done')).toBe(true)
     expect(isPlatformLoginSuccessUrl('youtube', 'https://accounts.google.com/ServiceLogin?service=youtube')).toBe(false)

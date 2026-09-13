@@ -1213,6 +1213,7 @@ export default {
     batchAction: '批量操作',
     batchCheckAll: '一键检测',
     batchCheckAllBusy: '检测中…',
+    batchCheckAllTitle: '正在检测账号登录状态',
     batchCheckAllProgress: (ctx) => '检测中 ' + ctx.named('checked') + '/' + ctx.named('total') + (ctx.named('platform') ? '：' + ctx.named('platform') : ''),
     batchCheckAllStarted: (ctx) => '开始检测 ' + ctx.named('count') + ' 个账号的登录状态…',
     batchCheckAllDone: (ctx) => '检测完成：' + ctx.named('valid') + ' 个正常，' + ctx.named('invalid') + ' 个失效',
