@@ -110,6 +110,43 @@ describe('RateLimiter', () => {
     expect(result.reason).toBe('outside-active-hours')
   })
 
+  // 回归保护：手动采集（manual: true）在非活跃时段应放行（2026-09-13）。
+  // 根因：用户 22 点后手动点击采集知乎被 outside-active-hours 拦截，
+  // 但 url-collector 统一返回「请求频率受限」→ 前端显示「请求过于频繁，被平台限流」。
+  // 手动采集是用户主动行为，不应受「模拟人工活跃时段」限制（与 weekend-throttle 豁免同理）。
+  it('manual mode should bypass active hours check', () => {
+    const offHours = { current: new Date('2026-09-10T23:00:00').getTime() }
+    const nightLimiter = new RateLimiter({
+      now: () => new Date(offHours.current),
+    })
+    const strategy = {
+      platform: 'test', accountId: 'acc1',
+      interval: { min: 5000, max: 5000 },
+      activeHours: { start: 8, end: 22 },
+      weekendFactor: 1,
+      manual: true,
+    }
+    const result = nightLimiter.evaluate(strategy)
+    expect(result.allowed).toBe(true)
+  })
+
+  it('non-manual mode still blocked outside active hours', () => {
+    const offHours = { current: new Date('2026-09-10T23:00:00').getTime() }
+    const nightLimiter = new RateLimiter({
+      now: () => new Date(offHours.current),
+    })
+    const strategy = {
+      platform: 'test', accountId: 'acc1',
+      interval: { min: 5000, max: 5000 },
+      activeHours: { start: 8, end: 22 },
+      weekendFactor: 1,
+      manual: false,
+    }
+    const result = nightLimiter.evaluate(strategy)
+    expect(result.allowed).toBe(false)
+    expect(result.reason).toBe('outside-active-hours')
+  })
+
   it('should reset state', () => {
     const strategy = {
       platform: 'test', accountId: 'acc1',
