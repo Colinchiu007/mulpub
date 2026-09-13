@@ -36,6 +36,12 @@
 - prompt-memory.test.js 27 通过（新增 4：gate 拒绝/通过/_setGate 动态注入/路径穿越）
 - RewriteView.test.js 39 通过（新增 4：stale-data 修复/数组占位/verdict 回退/suggestions 非数组）
 - locale-sync --keys（927 key）/--cjk/--pair-base PASS；eslint 0 error（2 个既有 warning 非本次引入）
+# [未发布] fix(collection): 手动采集豁免活跃时段 + 错误消息区分 — 消除知乎 22 点后误报「请求过于频繁」（2026-09-13）
+
+### 修复
+- **根因**：知乎 activeHours 为 8-22 点，用户 22 点后手动点击采集被 RateLimiter 的 outside-active-hours 拦截，但 url-collector 对所有限流拦截统一返回「请求频率受限」→ 前端 classifyCollectError 误判为 rate_limited（显示「请求过于频繁，被平台限流」）。
+- **修复**：① RateLimiter.evaluate 的 manual 模式豁免活跃时段检查（用户手动点击采集不受「模拟人工活跃时段」限制，与 weekend-throttle 豁免同理）；② url-collector 对 outside-active-hours 错误消息区分，不再误报频率受限。
+- **回归测试**：rate-limiter 2 个（manual 23 点放行 / 非 manual 23 点仍拦截）+ url-collector 1 个（错误消息不含「请求频率受限」）。
 
 # [未发布] feat(rewrite): 改写质量评估报告桌面端闭环（content-quality-eval-desktop，2026-09-13）
 
