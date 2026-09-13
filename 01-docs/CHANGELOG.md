@@ -1,3 +1,19 @@
+## [Unreleased] - 2026-09-13 (视频创作·历史记录「查看文案」改为展示流水线原始文案并自动换行)
+
+### 修复
+- 视频创作·历史记录·任务详情页（`/create/result`）【查看文案】弹窗存在三处缺陷：① 弹窗与复制内容带分段序号 `【1】【2】…`；② 展示的是分句/分段后的 `segments[].text`，原稿段落与换行丢失（不是用户提交的原文）；③ 文本容器 `<pre class="script-text">` 未定义任何换行样式，`white-space: pre` 默认不折行，长行横向溢出弹窗被裁切。根因（引入于 `02d23fcf8`）：取数口径直接复用编辑区的分段结构，且 `script-text`/`script-modal-body` 只有 class 名没有落地 CSS。
+- 修复（取数口径）：computed `scriptText` 改为**优先 `project.sourceText`**（流水线启动时 `run.params.text` 落盘、不参与分句的原文案，`story2video-project-service.js` 的 `saveRun`/`saveEditableRun`/`ensureProjectFromRun`），`trim()` 后非空即原样展示；`sourceText` 缺失的历史项目降级为 `segments[].text` 过滤空段、双换行拼接，**降级路径同样不带序号**；两者皆空则内容为空且【复制】按钮禁用。
+- 修复（样式）：新增 `.script-text { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; font-family: inherit; line-height: 1.75; }`——保留原文换行并自动折行，长 URL/无空格长串兜底断行；纵向滚动交由弹窗既有 `.ui-modal-body`（不叠加第二层滚动条），`.script-modal-body` 仅 `min-width: 0`。
+- 附带：弹窗增加 `test-id="script-modal"`、正文 `data-testid="script-text"`、复制按钮 `data-testid="script-copy-button"`，供稳定回归定位。
+
+### 测试
+- `ResultView.test.js` 新增 `describe("查看文案弹窗（展示流水线原始文案 + 自动换行）")` 5 条回归用例：① 原文案优先且逐字符一致、不含 `【`；② 老项目无 `sourceText` 时回退分段（不带编号、跳过空段）；③ 无原文案且无分段时内容为空 + 复制按钮禁用；④ 复制内容为原文案全文（stub `clipboard.writeText` 断言实参）；⑤ **源码级 CSS 契约**（`fs.readFileSync` 正则断言 `.script-text` 含 `white-space: pre-wrap`/`overflow-wrap: anywhere`/`word-break: break-word`，覆盖 jsdom 不应用 scoped CSS 的盲区）。RED（回退修复前）`5 failed | 125 passed` → GREEN `109 passed`。
+
+### 文档
+- 重写 01-docs/PRD-STORY2VIDEO-HISTORY-VIEW-SCRIPT-2026-09-13.md 至**迭代 2**：作废迭代 1 的「按分段编号【N】组织」需求，改为「展示启动流水线时的原始文案」；新增 §4.2 文案来源（`sourceText` 写入链 + 三级取值优先级 + 降级规则）、§4.4 换行与滚动（CSS 契约）、§5 数据校验 11 项、§6 显示项清单、§7 提示文字、§8 状态机、§9 边界情况、§10 验收标准、§13 变更记录。
+- 新增 01-docs/BUGFIX-STORY2VIDEO-VIEW-SCRIPT-RAW-TEXT-2026-09-13.md（Bug 反思 5 步：根因溯源 `02d23fcf8` / 六层逃逸链 / 系统性漏洞（需求表述漏洞 + 测试覆盖漏洞 + 门禁缺失漏洞 + 取数口径漏洞）/ 修复与 5 条回归测试 / 预防措施 + 交互时序、提示文字、边界情况）。
+- 更新 01-docs/learnings.md（新增 pitfall：展示"原始输入"必须回溯到最初落盘的原始字段；`<pre>` 展示容器必须显式声明 `white-space` 并配源码级契约测试；需求文档不得把实现细节当需求）。
+
 ## [Unreleased] - 2026-09-13 (热门选题一键生成视频：后台运行后可并行发起新任务)
 
 ### 修复
