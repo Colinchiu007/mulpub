@@ -115,6 +115,8 @@ scripts/*.js
 !scripts/ensure-desktop-deps.js
 !scripts/ensure-desktop-deps.test.js
 !scripts/start-desktop-identity.js
+!scripts/detect-unwired-exports.js
+!scripts/detect-unwired-exports.test.js
 screenshot_script*.js
 temp_debug.txt
 coverage/

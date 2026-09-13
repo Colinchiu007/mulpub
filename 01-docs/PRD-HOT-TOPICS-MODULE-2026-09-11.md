@@ -1,7 +1,7 @@
 # PRD — 「更多」菜单新增「热门选题」功能模块
 
 - 文档编号：PRD-HOT-TOPICS-MODULE-2026-09-11
-- 状态：已合并（PR #1701，squash 提交 76e555bf，2026-09-11）；2026-09-12 追加「一键生成视频」（§3.10/§5.6）
+- 状态：已合并（PR #1701，squash 提交 76e555bf，2026-09-11）；2026-09-12 追加「一键生成视频」（§3.10/§5.6）；2026-09-13 修正「后台运行后的并发语义」（前端不再自设单任务锁，支持多任务并行，§3.10/§5.6/§6.6/§6.7）
 - 关联分支：`codex/hot-topics-module`
 - 关联模块：`apps/desktop/src/views/HotTopics.vue`、`apps/desktop/electron/services/hot-topics-service.js`
 - 创建日期：2026-09-11
@@ -138,18 +138,19 @@ ${topic}
 **取消语义**：
 - 改写/启动阶段取消 = 仅中止前端编排（流水线尚未启动，无副作用）；
 - 流水线运行中取消 = 调用 pipelineCancel()（取消当前 run）；
-- 运行中关闭弹窗（右上角 ×）= 后台运行（停止前端跟踪，run 继续在主进程执行，提示可在视频创作页历史记录查看）。
+- 运行中关闭弹窗（右上角 ×）= 后台运行（停止前端跟踪并复位前端态，run 继续在主进程执行，提示可在视频创作页历史记录查看）；
+- 改写/启动阶段关闭弹窗（右上角 ×，此时尚无 run）= 中止前端编排：使在途 aiRewrite / pipelineStartOrchestrated 响应失效（genVideoSeq 递增），弹窗关闭且不产生后台任务（无 run 可脱离，不误报「已转入后台」）。
 
-**后台运行按钮**（2026-09-13 新增，与视频创作页进度弹窗对齐）：
+**后台运行按钮**（2026-09-13 新增，与视频创作页进度弹窗对齐；2026-09-13 修正脱离后的复位语义）：
 
 - 弹窗 footer 在【重试】与【取消】之间新增显式【后台运行】按钮（data-testid="hot-topics-gen-video-background"，文案 hotTopics.genVideoBackgroundRun），仅当 genVideoPhase === 'running' 且持有 runId 时显示；
-- 点击行为与右上角 × 的后台语义完全一致（复用唯一公共脱离路径 handleGenVideoClose）：停止前端跟踪（轮询/订阅/计时器）、弹窗关闭、genVideoPhase='background'、busy 守卫保持（禁止并发新任务）、主进程 run 不受影响继续执行、不调用 pipelineCancelRun；
-- 额外触发**全局居中提示**（见 §6.6）：应用界面正中央显示「如果想查看该任务，请进入视频创作的历史记录」，4 秒后自动消失；
+- 点击行为与右上角 × 的后台语义完全一致（复用唯一公共脱离路径 handleGenVideoClose）：停止前端跟踪（轮询/订阅/计时器）并调用 resetGenVideoFrontendState() 复位前端态（弹窗关闭、phase='idle'、topic/stages/runId/progress/errorText/startedAt 清空、**genVideoBusy 释放**）、主进程 run 不受影响继续执行、不调用 pipelineCancelRun；
+- 额外触发**全局居中提示**（见 §6.6）：应用界面正中央显示「如果想查看该任务，请进入视频创作的历史记录」，4 秒后自动消失；同时顶部 toast 提示 hotTopics.genVideoBackgroundHint；
 - 改写/启动阶段（无主进程 run）与终态（completed/failed/cancelled）不显示该按钮——脱离无意义或已无任务可脱离。
 
 **失败重试**：改写失败 → 重试从改写开始；流水线启动失败 → 重试跳过改写（产物已缓存）直接重启流水线。失败阶段在弹窗中标红显示错误摘要。
 
-**并发约束**：一键生成视频进行中（busy），所有选题的【生成视频】按钮禁用；主进程流水线并发门禁拒绝时按流水线启动失败处理（可重试）。
+**并发约束（2026-09-13 修正）**：热门选题的一键生成视频**支持多任务并行**，与视频创作页流水线语义完全一致——后台脱离（或终态关闭）后前端立即复位，所有选题的【生成视频】按钮恢复可用，用户可对任意选题再次发起任务；并发的权威闸门是**主进程流水线并发门禁**（maxConcurrentRuns，超限返回 PIPELINE_CONCURRENCY_LIMIT，提示「当前已有 N 条流水线正在运行，最多同时运行 M 条」），前端按「流水线启动失败」处理并展示错误摘要 + 【重试】（重试跳过改写）。前端 busy 守卫只在**同一弹窗编排在途时**生效（rewriting/starting/running 且尚未脱离），用于避免同一弹窗内产生两条不受跟踪的编排，不用于限制并行任务数。详见 §6.7。
 
 ## 4. 数据校验
 
@@ -269,7 +270,10 @@ onUnmounted → clearInterval
     │     │     ├─ 阶段推进 → mergeGenStages 更新弹窗各阶段状态/子进度
     │     │     ├─ completed + videoPath → 弹窗关闭 → 跳 /create/result?path=...
     │     │     ├─ failed/cancelled → 终态处理，弹窗提供重试/关闭
-    │     │     └─ 用户点【后台运行】按钮 / 关闭弹窗 → 后台脱离 + 全局居中提示，run 继续执行
+    │     │     ├─ 用户点【后台运行】按钮 / 关闭弹窗 → 后台脱离 + 全局居中提示，run 继续执行
+    │     │     │   → 前端态复位（busy 释放、runId/stages 清空）→ 可立即对其它选题发起并行任务
+    │     │     │   → 并行上限由主进程并发门禁判定（超限 → 启动失败 + 【重试】）
+    │     │     └─ 改写/启动阶段点关闭（×）→ 中止前端编排，不启动流水线、无后台任务
     │     └─ 失败 → split: failed → 弹窗错误提示 + 重试（跳过改写）
     └─ 失败 → rewrite_copy: failed → 弹窗错误提示 + 重试（从改写开始）
 ```
@@ -344,7 +348,7 @@ onUnmounted → clearInterval
 | rewriting（改写中） | ✗ | ✗（无 run，脱离无意义） | ✓ | ✗ | ✗ |
 | starting（流水线启动中） | ✗ | ✗（run 未确认） | ✓ | ✗ | ✗ |
 | running（流水线运行中） | ✗ | ✓ | ✓ | ✗（右上角 × 等价后台运行） | ✗ |
-| background（已后台脱离） | ✗ | ✗（已脱离） | ✗ | ✗（弹窗已关） | ✗ |
+| background（后台脱离；弹窗已关，前端态已复位为 idle） | ✗ | ✗（已脱离） | ✗ | ✗（弹窗已关） | ✗ |
 | failed（失败终态） | ✓ | ✗ | ✗ | ✓ | ✓ |
 | cancelled（取消终态） | ✗ | ✗ | ✗ | ✓ | ✓ |
 | completed（完成） | 弹窗已关闭并跳转结果页 | — | — | — | — |
@@ -352,9 +356,9 @@ onUnmounted → clearInterval
 **【后台运行】按钮交互逻辑**：
 
 1. 显示条件：genVideoCanBackground = genVideoPhase === 'running' 且持有 runId——只有主进程 run 确实存在且正在执行时才提供脱离入口（spec 前端规则 2：可逆操作方法内重校验状态，不依赖模板条件）；
-2. 点击 → detachGenVideoToBackground()：入口重校验 genVideoCanBackground（防终态竞态）→ 复用 handleGenVideoClose()（唯一公共脱离路径：stopGenVideoTracking 停轮询/订阅/tick → 弹窗关闭 → phase='background' → busy 保持 true → notifyInfo 顶部 toast）→ showPipelineBackgroundToast() 触发全局居中提示；
-3. 脱离后：所有选题行的【生成视频】按钮保持禁用（busy 守卫），防止并发第二个流水线任务；run 在主进程继续执行，完成后可在视频创作页「历史记录」查看产物；
-4. 右上角 × 在运行中同样走后台脱离（与按钮同一 handleGenVideoClose），但不触发全局居中提示（避免与按钮路径重复提示）。
+2. 点击 → detachGenVideoToBackground()：入口重校验 genVideoCanBackground（防终态竞态）→ 复用 handleGenVideoClose()（唯一公共脱离路径：判断是否可脱离 → resetGenVideoFrontendState() 停轮询/订阅/tick、弹窗关闭、phase='idle'、runId/stages/progress 清空、**busy 释放** → 可脱离时 notifyInfo 顶部 toast）→ showPipelineBackgroundToast() 触发全局居中提示；
+3. 脱离后：**所有选题行的【生成视频】按钮立即恢复可用**（busy 已释放），可对任意选题发起并行任务；run 在主进程继续执行，完成后可在视频创作页「历史记录」查看产物；
+4. 右上角 × 在运行中同样走后台脱离（与按钮同一 handleGenVideoClose），但不触发全局居中提示（避免与按钮路径重复提示）；在改写/启动阶段（无 run）则走「中止前端编排」语义（不提示已转入后台）。
 
 **全局居中提示规格**（组件 PipelineBackgroundToast.vue，App.vue 全局挂载）：
 
@@ -369,6 +373,73 @@ onUnmounted → clearInterval
 - 无障碍：role="status" aria-live="polite"；
 - 状态承载：模块级单例（stores/pipeline-background-toast.js，与 settings-dialog.js 同模式），脱离触发视图存活——用户点击后台运行后立即切换页面，提示仍正常显示与消失；
 - 防泄漏：文案经 vue-i18n 解析；key 未命中时回退空串（不显示），绝不把 i18n key 原文或硬编码中文泄漏到界面。
+
+### 6.7 一键生成视频：并发任务与前端态复位规格（2026-09-13 修正）
+
+**背景**：2026-09-13 用户报障——点击某选题【生成视频】→ 弹窗内点【后台运行】→ 弹窗消失；再点另一选题的【生成视频】，**无任何反应**。根因是后台脱离路径只置 `genVideoPhase='background'` 而未释放 `genVideoBusy`，而按钮 `:disabled="genVideoBusy"` 且 `startGenerateVideo` 首行 `if (genVideoBusy.value) return`，于是所有选题的入口被永久锁死；同时该行为此前被 PRD 写成「并发约束」需求、并被单测断言固化。修正后语义与视频创作页（CreateView.detachPipelineToBackground → resetPipelineToNewTaskState → resetPipelineUiState）完全一致。
+
+**前端状态机（genVideoPhase）**：
+
+| 值 | 含义 | 进入条件 | 可离开到 |
+|----|------|---------|---------|
+| `idle` | 无在跟踪任务（初始/复位后） | 初始化；后台脱离；终态关闭 | rewriting（点击生成视频） |
+| `rewriting` | aiRewrite 在途 | 点击【生成视频】后立即 | starting / failed / cancelled（取消）/ idle（关闭=中止） |
+| `starting` | pipelineStartOrchestrated 在途 | 改写成功 | running / failed / cancelled / idle（关闭=中止） |
+| `running` | 主进程 run 运行中且持有 runId | 启动成功返回 runId | completed / failed / cancelled / idle（后台脱离） |
+| `completed` | 流水线完成（提取到 videoPath） | 轮询/推送判定 | 跳转结果页并关闭弹窗 |
+| `failed` | 改写/启动/运行失败 | 任一环节失败 | 重试（failed → 重试）/ 关闭 |
+| `cancelled` | 用户取消 | 取消按钮 / 关闭（改写/启动阶段） | 关闭 |
+
+> 不再存在 `background` 滞留态：后台脱离后统一复位为 `idle`，避免「弹窗已关闭但内部仍自认有一个任务在前台」的中间态。
+
+**复位清单（resetGenVideoFrontendState，唯一公共路径）**：
+
+| 字段 | 复位值 | 说明 |
+|------|--------|------|
+| `genVideoSeq` | `+1` | 代际守卫：使在途 aiRewrite / pipelineStartOrchestrated 响应失效，防止脱离后旧响应重新挂回弹窗、或改写成功后静默启动流水线 |
+| 轮询/订阅/tick | 全部清理 | `stopGenVideoTracking()`：clearInterval(3s 轮询) + 退订 onPipelineUpdate + clearInterval(1s 耗时 tick) |
+| `genVideoModalOpen` | `false` | 弹窗关闭 |
+| `genVideoPhase` | `idle` | 见上表 |
+| `genVideoTopic` / `genVideoStages` / `genVideoRunId` | `null` / `[]` / `null` | 下次任务重新初始化，不复用旧选题与阶段 |
+| `genVideoRunProgress` / `genVideoStartedAt` | `null` / `0` | 防止新任务进度/耗时继承旧 run |
+| `genVideoErrorText` / `genVideoRewrittenContent` / `genVideoDraftId` | `''` / `''` / `null` | 错误与改写产物不外溢到新任务 |
+| `genVideoBusy` | `false` | **关键**：释放【生成视频】按钮（修复本次报障） |
+
+**busy 守卫的作用域（保留部分）**：
+
+| 场景 | 守卫是否生效 | 理由 |
+|------|-------------|------|
+| rewriting / starting / running（弹窗在跟踪同一任务） | ✅ 生效（按钮 disabled + 方法内 return） | 避免同一弹窗内产生两条不受跟踪的编排（旧任务会静默失去 UI） |
+| 后台脱离后（idle） | ❌ 不生效 | 与视频创作页一致，允许并行发起新任务 |
+| 运行中取消 / 失败 / 完成 | ❌ 不生效 | 终态已复位 |
+
+**数据校验与竞态守卫**：
+
+1. **入参校验**：`startGenerateVideo(topic)` 校验 `topic?.topic` 非空字符串才继续，否则直接 return（不打开弹窗、不调用 IPC）；`retryGenVideo()` 仅在 `phase==='failed'` 时可用。
+2. **runId 校验**：启动成功判定要求 `code===0` 且 `typeof runId==='string'` 且 `runId.trim()` 非空且 `success!==false`；`genVideoRunId` 存 trim 后的值。
+3. **轮询/推送 runId 守卫**：`pollGenVideoRun(runId)` 与 `handleGenVideoPush(snapshot)` 均先比对当前 `genVideoRunId`，不匹配一律丢弃（脱离后旧 run 的推送不会污染新任务）；`pipelineGetRunContext` 返回的 `runId/id` 与请求不一致时同样丢弃。
+4. **代际守卫**：`genVideoSeq` 在「开新任务 / 重试 / 取消 / 关闭 / 后台脱离 / 组件卸载」时递增，所有 await 之后都要 `seq !== genVideoSeq` 提前返回。
+5. **终态单调性**：`mergeGenStages` 对已处于 completed/skipped/failed/cancelled 的阶段拒绝降级回 running（乱序推送防护）。
+6. **并发上限**：前端不再自设单任务锁；由主进程 `PipelineEngine` 的 `maxConcurrentRuns` 判定，超限返回 `PIPELINE_CONCURRENCY_LIMIT`，前端落到「流水线启动失败」分支（弹窗错误摘要 + 【重试】，重试跳过改写）。
+
+**提示文字（本次未新增 i18n key，沿用既有文案）**：
+
+| 触发点 | key | zh 文案 |
+|--------|-----|---------|
+| 后台脱离（按钮或 ×） | `hotTopics.genVideoBackgroundHint`（顶部 toast） | 任务已转入后台，可在视频创作页「历史记录」中查看进度 |
+| 后台脱离（按钮） | `common.pipelineBackgroundToast`（全局居中，4s） | 如果想查看该任务，请进入视频创作的历史记录 |
+| 流水线启动失败（含并发超限） | `hotTopics.genVideoPipelineFailed`（弹窗错误摘要） | 视频流水线启动失败，请点击重试 |
+| 改写失败 | `hotTopics.genVideoRewriteFailed` | 文案改写失败，请点击重试 |
+| 取消 | `hotTopics.genVideoCancelled` | 已取消生成视频 |
+
+**边界情况**：
+
+1. `pipelineStartOrchestrated` 成功但返回空/非法 runId → 按启动失败处理（不进入 running、不启动跟踪）。
+2. 改写返回成功但内容为空 → 抛错走「改写失败」分支（不启动流水线）。
+3. 草稿保存失败 → 静默忽略，不阻断视频生成（草稿仅为回溯入口）。
+4. 后台脱离瞬间旧 run 恰好完成 → 前端已退订与清空，无事后写回；产物仍可在历史记录/结果页找到。
+5. 组件卸载（切页）→ `onUnmounted` 递增 seq、清理定时器与订阅；主进程 run 不受影响。
+6. 连续快速点击【生成视频】（同一弹窗在途）→ 第二次点击被 busy 守卫拦截，不产生重复编排。
 
 ## 7. 显示项与提示文字（i18n）
 
@@ -457,7 +528,9 @@ onUnmounted → clearInterval
 8. 防反爬组件接入（rate-limiter/circuit-breaker/cache 有测试断言）。
 9. i18n zh/en 成对 + Message Function + 无硬编码中文泄漏到模板。
 10. 【生成视频】按钮渲染于每条选题行；点击后弹窗打开、改写执行、流水线按用户默认选项自动启动；进度实时更新；完成跳转结果页；失败可重试（流水线失败重试不重复改写）；取消/后台运行语义正确（2026-09-12）。
-11. 流水线运行中弹窗 footer 显示【后台运行】按钮；点击后弹窗关闭、run 继续后台执行、busy 守卫保持；应用正中央显示「如果想查看该任务，请进入视频创作的历史记录」4 秒后消失；改写/启动/终态不显示该按钮；视频创作页进度弹窗【后台运行】同样触发全局居中提示（2026-09-13）。
+11. 流水线运行中弹窗 footer 显示【后台运行】按钮；点击后弹窗关闭、run 继续后台执行、前端态复位（phase='idle'、runId/stages 清空、**busy 释放**），不调用 pipelineCancelRun；应用正中央显示「如果想查看该任务，请进入视频创作的历史记录」4 秒后消失；改写/启动/终态不显示该按钮；视频创作页进度弹窗【后台运行】同样触发全局居中提示（2026-09-13）。
+12. **多任务并行**（2026-09-13 修正）：【后台运行】脱离（或终态关闭）后，所有选题的【生成视频】按钮立即可用，对另一条选题点击后能正常打开弹窗、改写并启动**第二条**并行流水线（两条 runId 互不干扰、互不覆盖进度）；并发上限由主进程门禁判定，超限时提示「视频流水线启动失败，请点击重试」并保留【重试】。
+13. **改写/启动阶段关闭弹窗**（2026-09-13 修正）：点击右上角 × 应中止前端编排——弹窗关闭、前端态复位、不调用 pipelineStartOrchestrated、不调用 pipelineCancelRun、不出现「任务已转入后台」提示。
 
 ## 9. 测试覆盖
 
@@ -466,7 +539,7 @@ onUnmounted → clearInterval
 | 测试文件 | 覆盖 |
 |---------|------|
 | `hot-topics-service.test.js` | 渠道解析（7 渠道各一 fixture）、分类映射（原生+规则+综合兜底）、去重、缓存读写 fail-closed、限流/熔断调用断言、SSRF 拒绝 |
-| `HotTopics.test.js` | 渲染（菜单/标题/空态）、勾选与批量按钮态、筛选过滤、刷新交互（mock IPC）、一键发布进度流（mock aiRewrite）、一键生成视频全流程（改写/启动/进度/完成/取消/后台运行按钮与脱离语义，2026-09-13 补充） |
+| `HotTopics.test.js` | 渲染（菜单/标题/空态）、勾选与批量按钮态、筛选过滤、刷新交互（mock IPC）、一键发布进度流（mock aiRewrite）、一键生成视频全流程（改写/启动/进度/完成/取消/后台运行按钮与脱离语义，2026-09-13 补充）。**并发回归 4 例**（2026-09-13 修正）：①运行中关闭 → 后台脱离并复位前端态（busy 释放、runId 清空、不取消 run）；②改写阶段关闭 → 中止前端编排（不启动流水线）；③弹窗在途 busy 守卫仍拦截第二次编排；④【后台运行】脱离后另一选题可立即启动并行流水线（按钮可用 + 第二次 pipelineStartOrchestrated 使用第二条选题的改写产物 + runId 切换） |
 | `pipeline-background-toast.test.js` | 全局居中提示状态机：show 立即可见、4s 自动消失、重复触发重置计时、hide 立即清除定时器 |
 | `PipelineBackgroundToast.test.js` | 全局居中提示组件渲染：zh/en 文案、隐藏后 DOM 移除、key 未命中回退空串不泄漏 |
 | `RewriteView.test.js`（补充） | query.topic 填充、模式切换 create、自动 startRewrite、<20 字补引导语 |

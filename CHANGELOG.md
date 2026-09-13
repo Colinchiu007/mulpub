@@ -20,7 +20,32 @@
 - 新增 `01-docs/FRONTEND-UI-UX-OPTIMIZATION-PLAN.md`（全量诊断 + L0~L4 分层方案 + P0~P5 批次与工时 + DoD + 一致性例外白名单）
 - PRD 追加「前端加载态（骨架屏）统一」章节；`docs/frontend-interaction-spec.md` 更新页面级 Loading 条款并新增第 8 节
 
+# [未发布] feat(scripts): 新增「测试覆盖但未接线」死代码检测脚本（detect-unwired-exports，2026-09-13）
+
+### 新增
+- **detect-unwired-exports.js**：检测「测试覆盖但未接线」的死代码导出——有测试证明其正确但生产代码从未调用（如 governance.runGates 死代码）
+- 检测逻辑：扫描模块导出（仅函数/类）→ 统计生产代码调用（含 require 引用/解构/继承）→ 标记「生产调用 0 次但测试有调用」的导出
+- 用法：`node scripts/detect-unwired-exports.js <dir> [--root <prodRoot>]`
+- 测试：detect-unwired-exports.test.js 6 用例全绿（死代码标记/生产调用/内部辅助/require 引用/继承/常量排除）
+
+### 验证
+- 扫描 electron/services 发现 2 个真实死代码候选：`TasksRepo`（tasks-repo.js）、`SessionRecorder`（user-session-recorder.js）——有测试但生产代码从未调用
+- 误报消除：adapter 类（require 引用）、基类（extends）、内部辅助函数、常量均正确排除
+
+# [未发布] docs(AGENTS): 新增 QM-6 强制 CCG 双模型外部评审（2026-09-13）
+
+### 变更
+- AGENTS.md 新增 QM-6 强制门禁：M+ 复杂度或中/高风险任务提交 PR 前必须执行 CCG 双模型评审（claude 后端 + opencode 前端并行）
+- Critical 必须修复后才能合并；Warning 评估后修复；评审记录写入 .quality-gates.md
+- 补充 QM-2 自审（代码审查必检项），外部交叉审查不可互相替代
+- 与质量节拍 skill 的"日常循环 Step ④ 审查"强制卡点同步固化
+
 # [未发布] fix(ccg-review): CCG 双模型评审修复（claude + opencode，2026-09-13）
+
+## [未发布] fix(core): checkLocalCredentials session cookie 路径修复 — 补齐 session/ 子目录（2026-09-13）
+
+- checkLocalCredentials session cookie 备选路径补齐 startup-compat 重定向的 session/ 前缀
+- 同时检查 session/Partitions/ 和 Partitions/，兼容新旧数据布局
 
 ### 修复（CCG 外部评审发现）
 - **Critical（content-quality-eval）**：`startRewrite()` 未重置 `rewriteQuality`，第二次改写无 quality 时旧质量报告残留（stale-data bug）→ 新增 `rewriteQuality.value = null`

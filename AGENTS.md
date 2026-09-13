@@ -677,6 +677,45 @@ npm run test:all:visual
 
 > 审查时检查：修复 Bug 的 PR / 提交必须包含以上 5 步的产出物。
 
+### QM-6：CCG 双模型外部评审（MUST）
+
+> M+ 复杂度或中/高风险任务，在提交 PR 前必须执行 CCG 双模型外部评审，不得仅依赖本地测试与自审。
+
+#### 触发条件
+
+满足任一即触发（与质量节拍 M5 交付节奏对齐）：
+
+- 新增功能 / 重构 / 跨模块变更（M+ 复杂度或中/高风险）
+- 修改主进程服务（`apps/desktop/electron/services/`）、IPC handler、核心引擎包
+- 修改涉及安全 / 数据校验 / 状态机 / 持久化的逻辑
+
+#### 执行方式（双模型并行，禁止串行）
+
+用 `codeagent-wrapper` 并行启动两个后端模型审查实现 diff（`run_in_background: true`，同一条消息两个调用）：
+
+```
+# 后端模型（逻辑/安全/规格合规审查）
+codeagent-wrapper --backend claude --lite "审查 <change> 实现：正确性/边界/安全/规格合规" <workdir>
+
+# 前端模型（模式/可维护性/集成风险审查）
+codeagent-wrapper --backend opencode --lite "审查 <change> 实现：命名/模式/可维护性/集成" <workdir>
+```
+
+> 后端模型（claude）与前端模型（opencode）由 `.ccg/config.toml` 的 `[routing]` 配置决定；前端模型失败最多重试 2 次（间隔 5 秒），3 次全败才跳过；后端模型结果必须等待（5-15 分钟属正常）。
+
+#### 评审输出与处理
+
+- 两个模型各返回 JSON findings（severity: Critical / Warning / Info）
+- **Critical 必须修复**后才能合并（含回归保护测试）
+- **Warning 评估后修复**（数据校验/安全类 Warning 必须修复）
+- 评审记录写入 `.quality-gates.md`（双模型评审 PASS + 发现项 + 修复项）
+
+#### 与既有门禁的关系
+
+- QM-6 是**外部交叉审查**，补充 QM-2 的自审（代码审查必检项）——两者不可互相替代
+- 质量节拍 skill 的"日常循环 Step ④ 审查"已同步固化此强制卡点（见质量节拍 skill 仓库）
+- 纯文档/流程变更（`openspec/`、`docs/`、`scripts/` 工具脚本）不强制 QM-6，但建议执行
+
 ## 测试质量增强工具（v0.16.0）
 
 ### 新增 npm 命令（`cd apps/desktop` 下执行）

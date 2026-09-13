@@ -60,6 +60,59 @@ describe("UrlCollector 失败日志（回归：采集失败无日志）", () => 
     expect(logger.error).toHaveBeenCalled();
   });
 
+  // 回归保护：知乎采集偶发报「原因未识别」（2026-09-13）。
+  // 根因：stealth 浏览器 page.content() 在页面导航中抛
+  // "Unable to retrieve content because the page is navigating"，错误消息不含已知
+  // 分类关键词 → classifyCollectError 判为 unknown。修复：_readPageContentWithRetry
+  // 导航竞态重试 + collect catch 把导航错误归类为 content_unextractable。
+  describe("UrlCollector 导航竞态（回归：知乎采集原因未识别）", () => {
+    let collector;
+    let logger;
+
+    beforeEach(() => {
+      logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      collector = new UrlCollector({ auditDir: null, log: logger });
+    });
+
+    it("_readPageContentWithRetry：导航竞态后重试成功", async () => {
+      const page = {
+        content: vi.fn()
+          .mockRejectedValueOnce(new Error("Unable to retrieve content because the page is navigating and changing the content."))
+          .mockResolvedValueOnce("<html><body><article><p>正文</p></article></body></html>"),
+      };
+      const html = await collector._readPageContentWithRetry(page);
+      expect(html).toContain("正文");
+      expect(page.content).toHaveBeenCalledTimes(2);
+    });
+
+    it("_readPageContentWithRetry：非导航错误不重试，直接抛出", async () => {
+      const page = {
+        content: vi.fn().mockRejectedValue(new Error("net::ERR_CONNECTION_RESET")),
+      };
+      await expect(collector._readPageContentWithRetry(page)).rejects.toThrow("ERR_CONNECTION_RESET");
+      expect(page.content).toHaveBeenCalledTimes(1);
+    });
+
+    it("collect catch：导航错误归类为 content_unextractable（非 unknown）", async () => {
+      collector._rateLimiter = { evaluate: () => ({ allowed: true }), recordRequest: () => {} };
+      collector._collectViaBrowser = vi.fn().mockRejectedValue(
+        new Error("Unable to retrieve content because the page is navigating and changing the content.")
+      );
+      const result = await collector.collect("https://zhuanlan.zhihu.com/p/2081651053322421603");
+      expect(result.success).toBe(false);
+      expect(result.reason).toBe("content_unextractable");
+      expect(result.error).toContain("采集失败");
+    });
+
+    it("collect catch：非导航错误不附加 reason（保持原样）", async () => {
+      collector._rateLimiter = { evaluate: () => ({ allowed: true }), recordRequest: () => {} };
+      collector._collectViaBrowser = vi.fn().mockRejectedValue(new Error("net::ERR_CONNECTION_RESET"));
+      const result = await collector.collect("https://zhuanlan.zhihu.com/p/2081651053322421603");
+      expect(result.success).toBe(false);
+      expect(result.reason).toBeUndefined();
+    });
+  });
+
   it("构造时注入 auditDir 后 AuditLogger 事件落盘 jsonl", async () => {
     const os = await import("os");
     const path = await import("path");
