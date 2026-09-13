@@ -21,9 +21,9 @@
       </button>
     </div>
 
-    <!-- Loading -->
-    <div v-if="loading" style="padding: 32px 0; text-align: center; color: var(--muted); font-size: 14px;">
-      加载中...
+    <!-- Loading：统一骨架屏 -->
+    <div v-if="loading" style="padding: 8px 0" data-testid="trending-loading">
+      <UiSkeleton variant="list" :count="3" />
     </div>
 
     <!-- Error -->

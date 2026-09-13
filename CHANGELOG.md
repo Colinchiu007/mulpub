@@ -1,3 +1,25 @@
+# [未发布] refactor(desktop-ui): 加载态（骨架屏）统一体系 + UiSkeleton 组件（2026-09-13）
+
+### 重构
+- **新增唯一骨架屏实现**：`styles/skeleton.css`（`--skeleton-*` 令牌 + 唯一 `@keyframes mp-skeleton-shimmer` + `[data-theme="dark"]` 覆盖 + `prefers-reduced-motion` 兜底 + `.mp-skeleton-grid` / `.mp-skeleton-card` 布局工具）+ `components/UiSkeleton.vue`（9 variant：text/paragraph/rect/circle/card/list/table/chart/custom；`role="status"` + `aria-busy` + 视觉隐藏的 i18n `common.loading` 文案；`animated=false` 可关流光但保留骨块）
+- **收敛历史实现**：清除 4 份重名 `@keyframes skeleton-shimmer`（ModelProviders / PipelineBrowser / create-view.css / history-page.css）、删除 3 处死代码骨架样式、`--skeleton-*` 从 `video-creation-tokens.css` 迁出、`ProjectLibrary.vue` 样式块由全局改 `scoped`（消除 `.skeleton-card` 跨文件互相覆盖）
+- **迁移加载点到 UiSkeleton**：ProjectLibrary / PipelineSelector / ModelProviders / PipelineBrowser / Accounts / Publish / PublishHistory（3 处）/ ResultView / ReplayTimeline / ProductionBoard / ContactSheetView / CreateHistory（2 处）/ CreateViewHistory / CreateView（4 处）/ CloudPublish / ViralAnalysis / SceneAssetSelection / PublishDraftList / TrendingPanel / KeywordMonitorPanel（2 处）/ PersonalKnowledgePanel / ViralLibraryTable / BenchmarkChart / TemplatePicker / TitleAssistantPanel / OptimalTimeTip / TagSuggester / LogsSettings / ConfigProfileManager / ApprovalGateModal
+- **统一视觉参数**：1.8s `ease-in-out` 慢速流光（原 1.5s），明暗亮度差约 8%，暗色独立令牌避免"白块闪在深色底上"
+- **可测试性**：`main.js` 全局注册 + `test-setup.js` 镜像注册，`data-testid` 统一为 `<page>-loading`
+
+### 修复
+- `PipelineBrowser.vue` 的 `.pipeline-card:focus-visible` 原先写在样式块结束标签之后，规则从未生效（键盘可达性缺陷）
+- **测试环境语言漂移**：`resolveAppLocale()` 在 `@/i18n` 模块首次 import 时即固定 locale，而 `test-setup.js` 中 `navigator.language` 的钉值晚于该文件自身被提升的 import → 只要有组件链在 test-setup 顶部加载 `@/i18n`，整个测试进程默认语言便从 zh 漂移到 en，中文文案断言随机失败。新增 `test-setup-locale.js` 并置于 vitest `setupFiles` 首位修复
+
+### 验证
+- 新增 `UiSkeleton.test.js` 14 条 + `UiSkeleton.contract.test.js` 8 条源码级契约（令牌唯一来源 / 暗色覆盖 / 共享 keyframes 唯一且历史命名归零 / token 只出现在两处 / 历史内联类名归零）
+- 受影响 5 个测试文件 47 条全绿；契约测试对"再粘一份内联骨架"直接失败
+- locale 门禁零风险：骨架文案走 i18n `common.loading`，未新增硬编码中文
+
+### 文档
+- 新增 `01-docs/FRONTEND-UI-UX-OPTIMIZATION-PLAN.md`（全量诊断 + L0~L4 分层方案 + P0~P5 批次与工时 + DoD + 一致性例外白名单）
+- PRD 追加「前端加载态（骨架屏）统一」章节；`docs/frontend-interaction-spec.md` 更新页面级 Loading 条款并新增第 8 节
+
 # [未发布] fix(ccg-review): CCG 双模型评审修复（claude + opencode，2026-09-13）
 
 ### 修复（CCG 外部评审发现）

@@ -6,8 +6,8 @@
     @close="handleClose"
   >
     <!-- 加载状态 -->
-    <div v-if="loading" class="gate-loading">
-      <span class="spinner"></span> 加载审批门...
+    <div v-if="loading" class="gate-loading" data-testid="approval-gate-loading">
+      <UiSkeleton variant="paragraph" :rows="3" />
     </div>
 
     <!-- 错误状态 -->

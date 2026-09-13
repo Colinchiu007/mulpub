@@ -6,7 +6,6 @@
           <div class="page-title">🔥 爆款分析</div>
           <div class="page-subtitle">
             AI 驱动的内容爆款因子分析 + 文案生成
-            <span v-if="loading" style="margin-left:8px;color:var(--coral)">分析中...</span>
           </div>
         </div>
       </div>
@@ -209,7 +208,10 @@
         </div>
 
         <!-- 空状态 -->
-        <div v-if="!result && !loading" style="text-align:center;padding:48px 0;color:var(--muted)">
+        <div v-if="loading" style="padding:16px 0" data-testid="viral-analysis-loading">
+          <UiSkeleton variant="chart" />
+        </div>
+        <div v-else-if="!result" style="text-align:center;padding:48px 0;color:var(--muted)">
           <div style="font-size:40px;margin-bottom:16px">🔥</div>
           <div style="font-size:14px;font-weight:600;margin-bottom:4px">输入主题开始分析</div>
           <div style="font-size:13px">AI 将从标题结构、情感触发、互动热度等维度分析爆款潜力</div>

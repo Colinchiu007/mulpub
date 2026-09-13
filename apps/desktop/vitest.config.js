@@ -16,7 +16,8 @@ module.exports = defineConfig({
     ...(process.env.CI ? { reporters: ['verbose'] } : {}),
     deps: { inline: ['electron', 'axios'] },
     globals: true,
-    setupFiles: ['./test-setup.js'],
+    // 顺序敏感：语言确定性必须最先执行（详见 test-setup-locale.js 头注释）
+    setupFiles: ['./test-setup-locale.js', './test-setup.js'],
     include: [
       'src/**/*.test.{js,ts}', 'src/**/*.spec.{js,ts}',
       'electron/services/**/*.test.{js,ts}',

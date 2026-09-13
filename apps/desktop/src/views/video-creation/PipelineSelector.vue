@@ -1,14 +1,9 @@
 <template>
   <div class="pipeline-selector">
-    <!-- 加载状态 -->
+    <!-- 加载状态：统一骨架屏（UiSkeleton + styles/skeleton.css 令牌） -->
     <div v-if="loading" class="loading-state" data-testid="pipeline-selector-loading">
-      <div class="skeleton-grid">
-        <div v-for="i in 6" :key="i" class="skeleton-card">
-          <div class="skeleton-header"></div>
-          <div class="skeleton-title"></div>
-          <div class="skeleton-desc"></div>
-          <div class="skeleton-meta"></div>
-        </div>
+      <div class="mp-skeleton-grid">
+        <UiSkeleton v-for="i in 6" :key="i" variant="card" class="mp-skeleton-card" />
       </div>
     </div>
 

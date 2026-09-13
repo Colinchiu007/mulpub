@@ -546,7 +546,7 @@
                     {{ voice.invalid ? voice.name + '（已失效，请重新克隆）' : voice.name }}
                   </option>
                 </select>
-                <span v-if="s2vVoiceCatalogLoading" class="config-hint">正在加载音色目录…</span>
+                <UiSkeleton v-if="s2vVoiceCatalogLoading" variant="text" style="display:inline-block;width:120px;margin-top:6px" />
                 <span v-else-if="s2vVoiceCatalogError" class="inline-error">{{ s2vVoiceCatalogError }}</span>
                 <button
                   v-if="s2vVoiceCatalogRefreshable"
@@ -1160,7 +1160,7 @@
               <span class="material-symbols-outlined" style="font-size:16px">add</span>
               {{ translateWithLocaleFallback('create.story2video.bgmLibrary.add', '添加音乐', 'Add music') }}
             </UiButton>
-            <span v-if="s2vBgmLibraryLoading" class="bgm-library-toolbar-hint">{{ translateWithLocaleFallback('common.loading', '加载中...', 'Loading...') }}</span>
+            <UiSkeleton v-if="s2vBgmLibraryLoading" variant="text" style="display:inline-block;width:96px" />
           </div>
           <p class="bgm-library-toolbar-hint">{{ translateWithLocaleFallback('create.story2video.bgmLibrary.addHint', '添加后将自动选中该音乐。', 'The added track is selected automatically.') }}</p>
         </div>
@@ -1255,7 +1255,7 @@
     >
       <div class="config-profile-list" data-testid="s2v-config-profile-list">
         <p v-if="s2vConfigProfileError" class="config-hint">{{ s2vConfigProfileError }}</p>
-        <span v-if="s2vConfigProfilesLoading" class="bgm-library-toolbar-hint">{{ translateWithLocaleFallback('common.loading', '加载中...', 'Loading...') }}</span>
+        <UiSkeleton v-if="s2vConfigProfilesLoading" variant="list" :count="3" />
         <ul v-else-if="s2vConfigProfiles.length" class="bgm-library-list">
           <li v-for="profile in s2vConfigProfiles" :key="profile.id" class="bgm-library-item">
             <template v-if="s2vConfigProfileRenamingId === profile.id">
@@ -1426,7 +1426,7 @@
         <div class="s2v-batch-status" data-testid="s2v-batch-status">
           <div class="s2v-batch-status-head">
             <span class="s2v-batch-status-title">{{ translateWithLocaleFallback('create.story2video.batch.queueTitle', '任务与排队', 'Tasks & queue') }}</span>
-            <span v-if="s2vBatchLoading" class="config-hint">{{ translateWithLocaleFallback('common.loading', '加载中...', 'Loading...') }}</span>
+            <UiSkeleton v-if="s2vBatchLoading" variant="text" style="display:inline-block;width:72px" />
           </div>
           <p v-if="!s2vBatches.length && !s2vBatchLoading" class="config-hint" data-testid="s2v-batch-status-empty">
             {{ translateWithLocaleFallback('create.story2video.batch.queueEmpty', '暂无批量任务。启动后，任务与排队状态将显示在这里。', 'No batch tasks yet. Start a batch to see its queue status here.') }}

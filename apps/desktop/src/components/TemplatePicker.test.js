@@ -30,7 +30,9 @@ describe("TemplatePicker", () => {
     mockStore.load.mockImplementation(() => new Promise(() => {}));
     const w = mount(TemplatePicker);
     await nextTick();
-    expect(w.text()).toContain("加载模板");
+    // 统一骨架屏：加载态改为骨架（文案只保留给辅助技术）
+    expect(w.find('[data-testid="template-picker-loading"]').exists()).toBe(true);
+    expect(w.findAll(".mp-skeleton-surface").length).toBeGreaterThan(0);
   });
 
   it("shows empty state after load when no templates", async () => {

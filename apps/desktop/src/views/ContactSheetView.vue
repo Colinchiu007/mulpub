@@ -15,8 +15,10 @@
     </div>
 
     <!-- 加载状态 -->
-    <div v-if="loading" class="cs-loading">
-      <span class="spinner"></span> 加载场景...
+    <div v-if="loading" class="cs-loading" data-testid="contact-sheet-loading">
+      <div class="mp-skeleton-grid">
+        <UiSkeleton v-for="i in 6" :key="i" variant="card" class="mp-skeleton-card" />
+      </div>
     </div>
 
     <!-- 错误状态 -->
