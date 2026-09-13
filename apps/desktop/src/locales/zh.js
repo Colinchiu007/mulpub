@@ -2602,6 +2602,20 @@ knowledgeBase: {
     wordCountMinInvalid: '最小字数需为 0-5999 的整数',
     wordCountMaxInvalid: '最大字数需为 1-6000 的整数',
     wordCountMaxLtMin: '最大字数不能小于最小字数',
+    // ── 改写质量评估报告（content-quality-eval 桌面端闭环）──
+    qualitySection: '质量评估',
+    qualitySufficiency: '改写充分度',
+    qualitySemantic: '语义保持度',
+    qualityOriginality: '原创性',
+    qualityVerdict: '结论',
+    qualityVerdictPass: '合格',
+    qualityVerdictWarn: '需注意',
+    qualityVerdictFail: '不合格',
+    qualityMethod: '评估方式',
+    qualityMethodSimhash: 'SimHash 指纹',
+    qualityMethodEmbedding: '语义向量',
+    qualitySuggestions: '改进建议',
+    qualityNone: '本次改写未生成质量评估',
   },
 
   // ── 发布去向弹窗 ──

@@ -135,6 +135,40 @@
           <span>{{ t('rewritePage.metaAiTaste') }}：{{ rewriteMeta.aiTastePct }}</span>
           <span>{{ t('rewritePage.metaLength', { original: rewriteMeta.originalLength, result: rewriteMeta.resultLength }) }}</span>
         </div>
+        <!-- 改写质量评估报告（content-quality-eval 桌面端闭环） -->
+        <div v-if="rewriteQuality" class="rewrite-quality-report" data-testid="rewrite-quality-report">
+          <div class="cohere-section-title">{{ t('rewritePage.qualitySection') }}</div>
+          <div class="rewrite-quality-metrics">
+            <span class="quality-metric">
+              {{ t('rewritePage.qualitySufficiency') }}：
+              <strong>{{ rewriteQuality.sufficiency }}</strong>
+            </span>
+            <span class="quality-metric">
+              {{ t('rewritePage.qualitySemantic') }}：
+              <strong>{{ rewriteQuality.semanticPreservation }}</strong>
+            </span>
+            <span class="quality-metric">
+              {{ t('rewritePage.qualityOriginality') }}：
+              <strong>{{ rewriteQuality.originality }}</strong>
+            </span>
+            <span class="quality-metric">
+              {{ t('rewritePage.qualityVerdict') }}：
+              <strong :class="'quality-verdict-' + rewriteQuality.verdict">
+                {{ t('rewritePage.qualityVerdict' + (rewriteQuality.verdict === 'pass' ? 'Pass' : rewriteQuality.verdict === 'warn' ? 'Warn' : 'Fail')) }}
+              </strong>
+            </span>
+            <span class="quality-metric" v-if="rewriteQuality.method">
+              {{ t('rewritePage.qualityMethod') }}：
+              {{ t(rewriteQuality.method === 'embedding' ? 'rewritePage.qualityMethodEmbedding' : 'rewritePage.qualityMethodSimhash') }}
+            </span>
+          </div>
+          <ul v-if="rewriteQuality.suggestions && rewriteQuality.suggestions.length" class="rewrite-quality-suggestions">
+            <li v-for="(s, i) in rewriteQuality.suggestions" :key="i">{{ s }}</li>
+          </ul>
+        </div>
+        <div v-else-if="rewriteResult" class="rewrite-quality-none" data-testid="rewrite-quality-none">
+          {{ t('rewritePage.qualityNone') }}
+        </div>
         <textarea
           v-model="rewriteResult"
           class="rewrite-textarea result-textarea"
@@ -190,6 +224,8 @@ const rewriting = ref(false)
 const rewriteError = ref('')
 const rewriteResult = ref('')
 const rewriteMeta = ref(null)
+// content-quality-eval 桌面端闭环：改写质量评估报告（RewriteQualityEvaluator 结果）
+const rewriteQuality = ref(null)
 // P2 隐式反馈：本次改写引用的知识条目（保存/发布=采纳 / 再次改写=弃用）
 const rewriteKnowledgeRefs = ref([])
 const contentError = ref('')
@@ -333,6 +369,8 @@ async function startRewrite() {
       invalidateSavedDraft()
       // P2 隐式反馈：记录本次改写引用的知识条目
       rewriteKnowledgeRefs.value = data.knowledgeRefs || []
+      // content-quality-eval：读取改写质量评估报告（RewriteQualityEvaluator 结果）
+      rewriteQuality.value = data.quality && typeof data.quality === 'object' ? data.quality : null
       rewriteMeta.value = {
         strategyName: data.strategy?.name || '',
         aiTastePct: data.metadata?.aiTasteLevel != null ? (data.metadata.aiTasteLevel * 100).toFixed(0) + '%' : 'N/A',
@@ -519,6 +557,41 @@ function onPublishVideo(pipelineId) {
 
 .config-select {
   max-width: 280px;
+}
+
+/* ── 改写质量评估报告（content-quality-eval 桌面端闭环）── */
+.rewrite-quality-report {
+  margin: var(--space-md) 0;
+  padding: var(--space-md);
+  background: var(--surface-secondary, #f8f9fb);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.rewrite-quality-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin-top: var(--space-sm);
+}
+.quality-metric {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.quality-metric strong { font-weight: 600; }
+.quality-verdict-pass { color: #2e9e5b; }
+.quality-verdict-warn { color: #d97706; }
+.quality-verdict-fail { color: #dc2626; }
+.rewrite-quality-suggestions {
+  margin: var(--space-sm) 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.rewrite-quality-suggestions li { margin-bottom: 4px; }
+.rewrite-quality-none {
+  margin: var(--space-sm) 0;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 </style>

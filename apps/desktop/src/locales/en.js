@@ -2601,6 +2601,20 @@ knowledgeBase: {
     wordCountMinInvalid: 'Min must be an integer between 0 and 5999',
     wordCountMaxInvalid: 'Max must be an integer between 1 and 6000',
     wordCountMaxLtMin: 'Max cannot be less than min',
+    // ── Rewrite quality report (content-quality-eval desktop loop) ──
+    qualitySection: 'Quality Assessment',
+    qualitySufficiency: 'Rewrite sufficiency',
+    qualitySemantic: 'Semantic preservation',
+    qualityOriginality: 'Originality',
+    qualityVerdict: 'Verdict',
+    qualityVerdictPass: 'Pass',
+    qualityVerdictWarn: 'Needs attention',
+    qualityVerdictFail: 'Failed',
+    qualityMethod: 'Method',
+    qualityMethodSimhash: 'SimHash fingerprint',
+    qualityMethodEmbedding: 'Semantic vector',
+    qualitySuggestions: 'Suggestions',
+    qualityNone: 'No quality assessment was generated for this rewrite',
   },
 
   // ── Publish destination modal ──
