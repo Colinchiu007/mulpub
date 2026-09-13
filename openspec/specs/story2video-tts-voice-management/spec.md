@@ -1,0 +1,38 @@
+# story2video-tts-voice-management Specification
+
+## Purpose
+TBD - created by archiving change story2video-autopilot-tts-localization. Update Purpose after archive.
+## Requirements
+### Requirement: 按模型绑定的内置音色
+TTS 内置音色 SHALL 按模型绑定枚举，随模型能力表持久化；音色来源、克隆方式、文件限制与 API 模型 MUST 以供应商官方文档与配置为准。
+
+#### Scenario: 内置音色随模型展示
+- **WHEN** 用户选择某 TTS 模型
+- **THEN** 界面仅展示该模型支持的内置音色列表
+
+#### Scenario: 契约变更可配置
+- **WHEN** 供应商官方文档更新音色/能力
+- **THEN** 通过配置更新能力表即可生效，无需修改业务代码
+
+### Requirement: 个人音色槽位与复制
+系统 SHALL 提供个人音色槽位：用户可保存个人音色，并可从内置音色或个人音色复制到个人槽位。
+
+#### Scenario: 保存个人音色
+- **WHEN** 用户配置并保存一个个人音色
+- **THEN** 音色写入个人槽位并绑定来源模型
+
+#### Scenario: 复制音色
+- **WHEN** 用户对内置音色或已有个人音色执行复制
+- **THEN** 生成新的个人槽位条目，来源信息被记录
+
+### Requirement: 模型能力与约束持久化
+TTS 模型能力（克隆支持、文件限制、API 模型名）SHALL 结构化持久化，且在选择音色与上传素材时强制执行约束。
+
+#### Scenario: 约束阻止越权操作
+- **WHEN** 用户尝试使用当前模型不支持的克隆或超限文件
+- **THEN** 操作被阻止并给出明确错误提示
+
+#### Scenario: 持久化重启后保留
+- **WHEN** 应用重启
+- **THEN** 个人音色与能力表从持久化存储恢复
+

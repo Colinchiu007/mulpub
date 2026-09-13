@@ -1,6 +1,6 @@
 # Story2Video 短视频结束方式
 
-## Requirements
+## ADDED Requirements
 
 ### Requirement: 短视频处理配置契约
 Story2Video SHALL accept story2videoTextConfig.video.shortVideoHandling with enum loop or stop-at-end, default loop. Missing/empty values SHALL normalize to loop; unknown explicit values SHALL fail closed with a field-specific error. The normalized value SHALL be passed to select_video_scenes, generate_assets, and compose without allowing arbitrary fields or secrets.

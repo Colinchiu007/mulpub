@@ -67,15 +67,28 @@ film-engineering SHALL 注册为应用流水线（PIPELINES 新增条目），�
 - **THEN** 流水线以失败状态结束，错误信息含阶段名与校验原因，前端显示可操作提示
 
 ### Requirement: IPC 参数校验与 sender 校验
-film-engineering 全部 IPC 通道 SHALL 经过 withSenderCheck 校验（仅受信窗口可调用），并对入参执行运行时校验（film-kit 查询类：sceneId/shotId 为字符串；套用类：script 非空 <=10000、characterMap <=10 键且值非空、shots 数组 <=50 项且每项 prompt 非空 <=20000）；非法入参 SHALL 返回带原因的拒绝错误，不得进入业务逻辑。
+
+film-engineering 全部 IPC 通道 SHALL 经过 withSenderCheck 校验（仅受信窗口可调用），并对入参执行运行时校验（film-kit 查询类：sceneId/shotId 为字符串；套用类：script 非空 <=10000、characterMap <=10 键且值非空、shots 数组 <=50 项且每项 prompt 非空 <=50000）；通过校验的参数化通道 MUST 将原始 IPC event 作为第一个参数、将业务参数按调用顺序转发给业务逻辑；非法入参 SHALL 返回带原因的拒绝错误，不得进入业务逻辑。
 
 #### Scenario: 非受信 sender 拒绝
+
 - **WHEN** 非受信窗口（如外部 file:// 或未注册 sender）调用 film-engineering IPC
 - **THEN** 调用被拒绝并记录安全日志，业务逻辑不执行
 
 #### Scenario: 非法入参拒绝
+
 - **WHEN** script 为空、超过 10000 字符或 shots 数组超过 50 项
 - **THEN** IPC 返回明确校验错误（含字段名与边界），不进入套用逻辑
+
+#### Scenario: 合法参数按原顺序转发
+
+- **WHEN** 受信窗口以合法 sceneId、shotId 或选中分镜参数调用参数化 film-engineering IPC
+- **THEN** 业务逻辑收到原始 IPC event 和未错位的业务参数，调用成功且不返回参数校验错误
+
+#### Scenario: 导出/生成负载可被结构化克隆
+
+- **WHEN** renderer 对选中分镜调用 export 或 generate-selected，且分镜包含 refTokens 数组
+- **THEN** 传给 ipcRenderer.invoke 的负载必须为纯 JSON（可被 structuredClone 复制），不得携带 Vue 响应式代理，也不得触发 “An object could not be cloned”
 
 ### Requirement: 前端交互契约
 前端 SHALL 提供 /film-engineering 路由与三栏视图：场景树（加载骨架/空态+重试/搜索过滤）、分镜详情（提示词全文可折叠、参考图缩略、模型与来源标签、ref 引用解析、复制按钮组）、操作面板（分镜勾选汇总、复制全部、生成图片、导出 JSON/Markdown、剧本套用表单与结果列表）；所有用户可见文案 SHALL 进 locales（zh/en 成对），产品名词（Hell Grind、影视工程、分镜、剧本套用）SHALL 进 i18n-glossary；provider 未配置时勾选生成 SHALL 引导用户到模型设置页并提示原因。
