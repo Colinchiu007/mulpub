@@ -8,8 +8,8 @@
     </div>
 
     <!-- Loading -->
-    <div v-if="loading" style="padding: 32px 0; text-align: center; color: var(--muted); font-size: 14px;">
-      加载中...
+    <div v-if="loading" style="padding: 8px 0" data-testid="benchmark-chart-loading">
+      <UiSkeleton variant="chart" />
     </div>
 
     <!-- Error / insufficient data -->

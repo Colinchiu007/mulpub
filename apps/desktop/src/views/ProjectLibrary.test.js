@@ -29,8 +29,11 @@ describe("ProjectLibrary", () => {
     };
     const w = mountProjectLibrary();
     await nextTick();
-    expect(w.find(".skeleton-grid").exists()).toBe(true);
-    expect(w.findAll(".skeleton-card").length).toBe(6);
+    expect(w.find(".mp-skeleton-grid").exists()).toBe(true);
+    expect(w.findAll(".mp-skeleton-card").length).toBe(6);
+    // 统一骨架屏：每张卡片走 UiSkeleton 的 card 变体（骨块挂 .mp-skeleton-surface）
+    expect(w.findAll('[data-testid="ui-skeleton"]').length).toBe(6);
+    expect(w.findAll(".mp-skeleton-surface").length).toBeGreaterThan(0);
   });
 
   it("shows empty state when no projects", async () => {

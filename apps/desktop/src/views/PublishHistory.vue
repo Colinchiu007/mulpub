@@ -156,7 +156,9 @@
         <span v-if="actionMessage" class="action-message" role="status">{{ actionMessage }}</span>
       </div>
 
-      <div v-if="loading" class="state-panel" role="status">{{ t('historyPage.loadingRecords') }}</div>
+      <div v-if="loading" class="state-panel state-panel--skeleton" data-testid="history-records-loading">
+        <UiSkeleton variant="list" :count="5" />
+      </div>
       <div v-else-if="errorMessage" class="state-panel state-error" role="alert">
         <p>{{ t('historyPage.recordsLoadFailed') }}</p>
         <span>{{ errorMessage }}</span>
@@ -235,7 +237,9 @@
         <span class="record-count">{{ t('historyPage.draftsCount', { count: drafts.length }) }}</span>
         <button class="secondary-action" type="button" @click="loadDrafts">{{ t('historyPage.refresh') }}</button>
       </div>
-      <div v-if="draftLoading" class="state-panel" role="status">{{ t('historyPage.loadingDrafts') }}</div>
+      <div v-if="draftLoading" class="state-panel state-panel--skeleton" data-testid="history-drafts-loading">
+        <UiSkeleton variant="list" :count="3" />
+      </div>
       <div v-else-if="draftError" class="state-panel state-error" role="alert">
         <p>{{ t('historyPage.draftsLoadFailed') }}</p>
         <span>{{ draftError }}</span>
@@ -270,7 +274,9 @@
           <div><span class="record-detail-eyebrow">{{ t('historyPage.detailEyebrow') }}</span><h2 id="record-detail-title">{{ recordTitle(selectedRecord) }}</h2></div>
           <button type="button" class="record-detail-close" data-testid="close-record-detail" :aria-label="t('historyPage.closeDetail')" @click="closeRecordDetail">×</button>
         </header>
-        <div v-if="detailLoading" class="record-detail-state">{{ t('historyPage.loadingDetail') }}</div>
+        <div v-if="detailLoading" class="record-detail-state" data-testid="history-detail-loading">
+          <UiSkeleton variant="paragraph" :rows="4" />
+        </div>
         <div v-else-if="detailError" class="record-detail-state state-error">{{ detailError }}</div>
         <dl v-else class="record-detail-grid">
           <div><dt>{{ t('historyPage.detailPublisher') }}</dt><dd>{{ publisherName(selectedRecord) }}</dd></div>

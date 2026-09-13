@@ -13,6 +13,16 @@
 - 重写 01-docs/PRD-STORY2VIDEO-HISTORY-VIEW-SCRIPT-2026-09-13.md 至**迭代 2**：作废迭代 1 的「按分段编号【N】组织」需求，改为「展示启动流水线时的原始文案」；新增 §4.2 文案来源（`sourceText` 写入链 + 三级取值优先级 + 降级规则）、§4.4 换行与滚动（CSS 契约）、§5 数据校验 11 项、§6 显示项清单、§7 提示文字、§8 状态机、§9 边界情况、§10 验收标准、§13 变更记录。
 - 新增 01-docs/BUGFIX-STORY2VIDEO-VIEW-SCRIPT-RAW-TEXT-2026-09-13.md（Bug 反思 5 步：根因溯源 `02d23fcf8` / 六层逃逸链 / 系统性漏洞（需求表述漏洞 + 测试覆盖漏洞 + 门禁缺失漏洞 + 取数口径漏洞）/ 修复与 5 条回归测试 / 预防措施 + 交互时序、提示文字、边界情况）。
 - 更新 01-docs/learnings.md（新增 pitfall：展示"原始输入"必须回溯到最初落盘的原始字段；`<pre>` 展示容器必须显式声明 `white-space` 并配源码级契约测试；需求文档不得把实现细节当需求）。
+## [Unreleased] - 2026-09-13 (lint 清理：消除唯一 no-useless-assignment)
+
+### 修复
+- `apps/desktop/src/views/HotTopics.vue` 的 `loadFromCacheThenRefresh()` 中 `let cached = null` 的初值在 try/catch 两条路径都会被覆盖，触发 eslint `no-useless-assignment`；经 `pnpm exec eslint src/ --no-ignore` 全量扫描确认这是 `apps/desktop/src` 下的**唯一**一处该规则告警。改为 `let cached`（不写初值）并补注释说明原因，行为完全不变（读取失败仍走 catch → null → 未命中缓存走网络抓取）。
+- 同一行在 main 上属**历史遗留**（非本次改动引入）：`git blame` 与 `eslint` 在修复前的 main 同位置均报同一错误，故本次单独以 lint 清理提交处理，不与其他逻辑混提。
+
+### 测试
+- `HotTopics.test.js` 26 用例全绿（缓存优先渲染/后台静默刷新/无缓存走网络抓取等 SWR 路径均覆盖该函数）。
+- `pnpm exec eslint src/views/HotTopics.vue --no-ignore` → 0 problem（修复前 1 error）；`check-debt-budget.js` 全部在基线内（HotTopics.vue 993 行 < 1000）。
+- 说明：该规则此前不在 CI 门禁内（`.github/workflows/quality-gate.yml` 无 lint 步骤），本次未扩大范围把全局 lint 接入 CI（仓库仍有 `no-unused-vars` 31 处等既有告警，接入需先定阈值/基线）。
 
 ## [Unreleased] - 2026-09-13 (热门选题一键生成视频：后台运行后可并行发起新任务)
 

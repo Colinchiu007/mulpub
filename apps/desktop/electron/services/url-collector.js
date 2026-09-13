@@ -143,7 +143,13 @@ class UrlCollector {
     if (!rateCheck.allowed) {
       this._auditLogger.blocked(platform, 'default', rateCheck.reason, { waitMs: rateCheck.waitMs })
       this._log.warn('url-collect', '采集被拦截：频率控制', { url, platform, reason: rateCheck.reason, waitMs: rateCheck.waitMs })
-      return { success: false, error: '请求频率受限，请稍后再试', reason: rateCheck.reason, waitMs: rateCheck.waitMs }
+      // 非活跃时段拦截与频率限流是不同原因，错误消息必须区分：
+      // 统一返回「请求频率受限」会让前端 classifyCollectError 误判为 rate_limited
+      // （显示「请求过于频繁，被平台限流」，误导用户）。
+      const error = rateCheck.reason === 'outside-active-hours'
+        ? '当前时段不在该平台活跃采集时段内，请稍后再试'
+        : '请求频率受限，请稍后再试'
+      return { success: false, error, reason: rateCheck.reason, waitMs: rateCheck.waitMs }
     }
 
     if (this._contentCache.hasUrl(url)) {

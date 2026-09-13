@@ -6,8 +6,8 @@
     </div>
 
     <!-- Loading -->
-    <div v-if="loading" style="text-align:center;padding:20px 0;font-size:13px;color:var(--muted)">
-      加载模板...
+    <div v-if="loading" style="padding:8px 0" data-testid="template-picker-loading">
+      <UiSkeleton variant="list" :count="3" />
     </div>
 
     <!-- Error -->

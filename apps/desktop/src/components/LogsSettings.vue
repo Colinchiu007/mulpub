@@ -58,7 +58,9 @@
 
     <!-- 文件列表 -->
     <div class="log-file-list">
-      <div v-if="loading" class="log-empty">{{ t('common.loading') }}</div>
+      <div v-if="loading" class="log-empty" data-testid="logs-loading">
+        <UiSkeleton variant="list" :count="4" />
+      </div>
       <div v-else-if="!info.fileCount" class="log-empty">{{ t('settings.logs.empty') }}</div>
       <div v-else>
         <div v-for="file in info.files" :key="file.name" class="log-file-row">

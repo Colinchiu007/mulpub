@@ -70,7 +70,10 @@ class RateLimiter {
   evaluate (strategy) {
     const now = this._now()
 
-    if (!isInActiveHours(now, strategy.activeHours)) {
+    // 手动单次采集（manual: true）豁免活跃时段限制：用户主动点击采集不应受
+    // 「模拟人工活跃时段」约束（与 weekend-throttle 豁免同理）。活跃时段仅约束
+    // 自动批量采集（模拟人类作息，降低封号风险）。
+    if (!strategy.manual && !isInActiveHours(now, strategy.activeHours)) {
       return { allowed: false, reason: 'outside-active-hours' }
     }
 

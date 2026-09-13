@@ -477,6 +477,17 @@ describe("UrlCollector 日志覆盖（P0-P2）+ 手动采集周末豁免", () =>
     expect(JSON.stringify(logger.warn.mock.calls)).toContain("5000");
   });
 
+  // 回归保护：非活跃时段拦截不得误报为「请求过于频繁」（2026-09-13）。
+  // 根因：用户 22 点后手动点击采集知乎被 outside-active-hours 拦截，
+  // 但统一返回「请求频率受限」→ 前端 classifyCollectError 误判为 rate_limited。
+  it("P0: outside-active-hours 拦截错误消息区分（非「请求频率受限」）", async () => {
+    collector._rateLimiter.evaluate = () => ({ allowed: false, reason: "outside-active-hours" });
+    const r = await collector.collect("https://example.com/a");
+    expect(r.reason).toBe("outside-active-hours");
+    expect(r.error).not.toContain("请求频率受限");
+    expect(r.error).toContain("活跃采集时段");
+  });
+
   it("P1: 缓存命中写应用日志（解释为何返回空数据）", async () => {
     // CI 可能跑在周末（UTC 时差），真实 RateLimiter 会触发 weekend-throttle 拦截，
     // 必须 mock 放行才能到达缓存命中分支

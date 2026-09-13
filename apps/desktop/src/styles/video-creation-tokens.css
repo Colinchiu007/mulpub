@@ -104,9 +104,7 @@
   --upload-zone-active-border: var(--primary);
   --upload-zone-active-bg: var(--ep-primary-light);
 
-  /* --- 骨架屏 --- */
-  --skeleton-bg: #e5e7eb;
-  --skeleton-shimmer: #f3f4f6;
+  /* --- 骨架屏令牌已迁至 styles/skeleton.css（唯一来源，含暗色覆盖） --- */
 
   /* --- 暗色模式覆盖 --- */
   /* --- Banner Attention（编排注意力提示） --- */
@@ -140,8 +138,6 @@
     --upload-zone-hover-bg: #1a2632;
     --upload-zone-active-border: var(--primary);
     --upload-zone-active-bg: #1a2632;
-    --skeleton-bg: #27272a;
-    --skeleton-shimmer: #3f3f46;
 
     --status-completed-bg: #064e3b;
     --status-completed-text: #6ee7b7;

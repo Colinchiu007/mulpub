@@ -28,8 +28,8 @@
       🎵 {{ bgmSkippedNotice }}
     </div>
 
-    <div v-if="loading" class="loading-state">
-      <p>加载中...</p>
+    <div v-if="loading" class="loading-state" data-testid="result-view-loading">
+      <UiSkeleton variant="paragraph" :rows="4" />
     </div>
 
     <div v-else-if="!videoPath && !hasEditableContent" class="empty-state">
