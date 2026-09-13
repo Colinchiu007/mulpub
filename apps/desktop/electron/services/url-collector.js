@@ -184,10 +184,18 @@ class UrlCollector {
       this._circuitBreaker.recordFailure(platform, 'default', strategy.circuitBreaker)
       this._healthMonitor.record(platform, 'default', { success: false, reason: 'network_error' })
       this._auditLogger.error(platform, 'default', e, { url })
+      // 导航竞态错误（page.content 在导航中抛错）归类为可重试的 content_unextractable，
+      // 避免渲染层 classifyCollectError 判为 unknown（「原因未识别」，误导用户）。
+      const errMsg = e && e.message ? String(e.message) : ''
+      const isNavigationRace = /navigating/.test(errMsg) || /navigation/i.test(errMsg)
       // 回归保护：采集失败必须写应用日志（此前只写 AuditLogger，而 AuditLogger
       // 无目录时静默丢弃，导致「采集失败」在 app-*.log 里完全无痕）
       this._log.error('url-collect', '采集失败', { url, platform, error: e && e.message ? e.message : String(e) })
-      return { success: false, error: `采集失败: ${e.message}` }
+      return {
+        success: false,
+        error: `采集失败: ${e.message}`,
+        ...(isNavigationRace ? { reason: 'content_unextractable' } : {}),
+      }
     }
   }
 
@@ -369,13 +377,43 @@ class UrlCollector {
     })
     const page = await context.newPage()
     try {
-      await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
+      // 知乎等 SPA 持续轮询，networkidle 可能永不满足（30s 超时后仍导航中），
+      // 改用 load 事件确保首屏 DOM 就绪，避免 page.content() 在导航中抛
+      // "Unable to retrieve content because the page is navigating"。
+      await page.goto(url, { waitUntil: 'load', timeout: 30000 })
+      // SPA 异步渲染正文，等待内容容器出现（最多 10s），再取 HTML
       await page.waitForTimeout(2000)
-      const html = await page.content()
+      const html = await this._readPageContentWithRetry(page)
       return this._parseHtml(html, url)
     } finally {
       await context.close()
     }
+  }
+
+  /**
+   * 读取页面 HTML，导航竞态（page.content 在导航中抛错）时等待后重试。
+   * 知乎 SPA 首次加载后可能仍有延迟导航，直接 page.content() 偶发抛
+   * "Unable to retrieve content because the page is navigating and changing the content"，
+   * 该错误消息不含已知分类关键词，会被 classifyCollectError 判为 unknown（原因未识别）。
+   * @param {object} page - Playwright Page
+   * @param {number} [maxAttempts] - 最大尝试次数
+   * @returns {Promise<string>}
+   */
+  async _readPageContentWithRetry (page, maxAttempts = 3) {
+    let lastError
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        return await page.content()
+      } catch (e) {
+        lastError = e
+        const msg = e && e.message ? String(e.message) : ''
+        const isNavigationRace = /navigating/.test(msg) || /navigation/i.test(msg)
+        if (!isNavigationRace || attempt === maxAttempts) break
+        // 导航竞态：等待导航稳定后重试
+        await new Promise((resolve) => setTimeout(resolve, 1500 * attempt))
+      }
+    }
+    throw lastError
   }
 
   /**
