@@ -14639,3 +14639,28 @@ commit `941b17f1`（feat: browser-style tab bar）在 `webview-manager.js` `crea
   - JS 正则经 apply_patch 传入会丢失反斜杠转义（\. 变 .）——复杂正则改用 new URL() hostname 精确匹配更可靠。
   - Windows 下 /tmp 路径在 node -e 中解析为 D:\tmp 导致 ENOENT——临时文件用 $TEMP 环境变量。
 - **预防**：新增渲染端中文文案一律先写 locales（zh/en 成对）再引用；跨 shell 传中文任务用文件；正则域名匹配优先 URL 解析。
+
+## 全局「回到顶部」浮标与多滚动容器捕获监听复盘（back-to-top-button，2026-09-14）
+
+- **背景**：桌面端长内容页面（列表 / 详情 / 设置）缺少「一键回到顶部」入口。需求要求浮标固定于窗口右侧接近底部、悬浮时图标变化 + 文字提示，并应用于所有内容可能超出一屏的页面（适用范围由实现方自行分析）。
+- **设计决策**：
+  - **全局唯一实例而非逐页引入**：挂在 `App.vue` 的 `v-else` 分支内（与 UpdateNotification / PipelineBackgroundToast 同级）。该位置天然排除全屏路由 `/first-run`（走 `isFullScreenRoute` 独立分支），并让「未来新增页面自动获得能力」，不用逐视图补挂。
+  - **显隐用能力条件而非页面白名单**：`可见 ⇔ 滚动容器.scrollTop > 320px`。内容不足一屏时 scrollTop 恒为 0 → 自动不出现，无需维护「哪些页面要加」的清单。
+  - **捕获阶段监听 scroll 覆盖嵌套滚动容器（本复盘最关键的技术点）**：`scroll` 事件**不冒泡**，只有在**捕获阶段**监听祖先才能拿到后代滚动容器的滚动。实现在主容器 `.yixiaoer-workspace` 上 `addEventListener('scroll', fn, true)` → 一处监听同时覆盖主容器与 PublishHistory / ModelProviders / ResultView / ContactSheetView 等视图内嵌 `overflow:auto` 区块，无需逐个声明。
+  - **回滚目标取「最后产生滚动的容器」**（需 `isConnected === true`），失效回退主容器，再失效则不动作。
+  - **不强制点击后隐藏浮标**：依赖平滑滚动到位后 scrollTop 归零 → onScroll 自然收起，避免「滚动被中断但按钮已消失」的状态不一致。
+  - **z-index 1900**：低于 UiModal overlay / UpdateNotification（2000），模态弹窗打开时浮标被遮罩覆盖，符合模态语义。
+  - **浮层位置冲突处置范式**：UpdateNotification 右下 toast 原 `bottom:16px; right:16px`，与浮标（`bottom:24px; right:24px`，44×44）在水平 24–68px 重叠 → 提示条 `right` 改 88px（判据 `88 > 24+44 = 68`）。选**水平让位**而非垂直让位，因为浮标占据右下角最角落、左移改动最小且保持贴底对齐。
+- **踩坑**：
+  - **含斜杠分支名 ref 在本环境彻底写不进**：`git worktree add -b codex/x <path> main` 报 `fatal: invalid reference`；`git update-ref refs/heads/codex/x <sha>` 返回 **exit 0 但 `.git/refs/heads/codex/` 目录根本没创建**。最坑的是 `git checkout -b codex/x` 会打印 "Switched to a new branch" 却不落盘 ref，导致 **HEAD 悬空**（`rev-parse HEAD` 报 unknown revision、`git status` 显示 "No commits yet" + 数千 staged）。可用绕过：`worktree add --detach` → `update-ref refs/heads/<无斜杠名>` → `symbolic-ref HEAD refs/heads/<无斜杠名>` → `git reset -q`，全程用 `D:/...` 原生正斜杠路径。
+  - **主机 PS 工具 stdout 恒为空**：本机 PS 工具执行成功但 stdout 完全不回传（连 `Write-Output` 都拿不到，只返回 "Command completed with exit code 0"），但命令**确实执行了**（新建 junction 后经 Bash 验证成功）。诊断范式改为「PS 执行 → Bash 验证」，不要反复重试 PS。
+  - **从 Bash 调用 `cmd` 无效**：`cmd //c "mklink /J ..."` 只会启动交互式 shell 后立即退出，即使加 `MSYS2_ARG_CONV_EXCL='*'` 也一样。创建 junction 走 PS `New-Item -ItemType Junction`。
+  - **本地 `origin/main` 引用陈旧且 fetch 不更新**：`git fetch origin main` 输出 `530e8d22..ae72841a main -> origin/main`，但 `git rev-parse origin/main` 仍返回旧值（同 ref 写盘问题）→ 改用 `git ls-remote origin refs/heads/main` 取真实 SHA 再 `git merge <SHA>`。
+  - **多 agent 并发文档冲突**：CHANGELOG / PRD.md / .quality-gates.md 的冲突均为「顶部或末尾追加」型。用 Python **二进制**模式按行扫描，只删除 `<<<<<<<` / `=======` / `>>>>>>>` 三行标记（每文件恰好 1 个冲突块），保留两侧内容原顺序即可；比手工合并安全，尤其 PRD.md 含 NUL + 混合行尾，文本模式编辑会引发整文件 diff。
+- **经验修正（推翻旧结论）**：
+  - **worktree 内可以跑单测**：用 PS junction 把兄弟 worktree 的 `node_modules`、`apps/desktop/node_modules`、`apps/node_modules` 链接过来后，`vitest` 可正常实跑（本次 12 项测试本地通过）。旧结论「worktree 内只做 `node --check`、单测交给 CI」不再成立——不必再盲推 CI 反复试错。命令：`cd apps/desktop && ../../node_modules/.bin/vitest run <file> --pool=threads --no-file-parallelism`。
+  - **`01-docs/PRD.md` 二进制追加可复现**：追加 183 行后 `git diff --numstat` = `183 0`，行尾未被破坏。
+- **预防**：
+  - 新增全局浮层组件一律挂在 `App.vue` 的 `v-else` 分支内，并同步登记到 `docs/frontend-interaction-spec.md` §2 交互原语唯一实现清单，防止后续各视图重复实现。
+  - 新增语义色值一律加进 `styles/tokens.css`（含 `[data-theme="dark"]` 变体），组件内禁止硬编码。
+  - 需要「当前哪个容器在滚动」时，优先用**捕获阶段监听祖先**，而不是遍历子元素逐个注册 scroll 监听。
