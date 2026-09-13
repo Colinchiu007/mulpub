@@ -387,3 +387,21 @@ describe("StageProgress 合成时间说明块（2026-08-17）", () => {
     w.unmount();
   });
 });
+
+describe("活动阶段索引去重（vue/no-reserved-keys 回归，2026-09-14）", () => {
+  // 回归：data 键原为 `_lastActiveStageIndex`，`_` 前缀是 Vue 保留前缀——
+  // 实例代理上读不到该键，watch 去重恒失效（每次 stages 变化都重复 scrollToStage）。
+  it("data 键不以 _ 开头且活动阶段索引可被实例读写", async () => {
+    const w = mountWith({
+      stages: [
+        makeStage({ name: "split", status: "completed" }),
+        makeStage({ name: "scene_context", status: "running" }),
+      ],
+    });
+    // immediate watch + $nextTick 后应记录当前活动阶段索引（currentActiveStageIndex 优先取 running = 1）
+    await w.vm.$nextTick();
+    await w.vm.$nextTick();
+    expect(w.vm.lastActiveStageIndex).toBe(1);
+    w.unmount();
+  });
+});

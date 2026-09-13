@@ -213,7 +213,7 @@ const logger = {
       }
     }
     if (meta.error) metaObj.error = String(meta.error)
-    let metaJson = ''
+    let metaJson // 初值在 try/catch 两条路径都会被赋值，无需初始化（no-useless-assignment）
     try {
       metaJson = ' ' + JSON.stringify(metaObj)
     } catch {

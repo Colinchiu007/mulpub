@@ -1,3 +1,29 @@
+## [Unreleased] - 2026-09-14 (lint 接入 CI：error 级门禁 + 17 处存量清零，挖出 4 个真 bug)
+
+### 修复（no-undef ×4，均为真实功能缺陷）
+- `src/views/AutoPipelineView.vue`：视图调用了 `notifyInfo`，但 `useNotify()` 只解构 notifyError/notifySuccess/notifyWarning——`resumePipeline()` 的提示不在 try 内，**点「恢复流水线」直接 ReferenceError、恢复流程中断**；`cancelPipeline()` 的提示被 try/catch 吞掉。修复：补解构 `notifyInfo`。
+- `electron/ipc-handlers/notify.js`：catch 兜底分支引用未导入的 `EC`（实际导出为 `ERROR`）→ 写日志失败时兜底路径自身抛 ReferenceError。修复：改用 `ERROR.REQUEST_ERROR`。
+- `electron/publishers/account-manager.js`：`extractAccountInfo()` 引用未导入的 `PLATFORM_ACCOUNT_INFO_SELECTORS`（定义于 shared-utils platform-definitions）→ 该函数每次调用都在 try 内抛错并被吞成 `{}`，**账号信息提取功能自引入以来从未生效**。修复：补导入。
+- `src/views/video-creation/StageProgress.vue`：data 键 `_lastActiveStageIndex` 以 `_` 开头是 Vue 保留前缀（实例代理不可见）→ 活动阶段去重恒失效、重复 scrollToStage。修复：改名 `lastActiveStageIndex` 并同步引用。
+
+### 修复（其余 error 级 ×13）
+- `preserve-caught-error` ×4（account-manager / full-auto-pipeline / pattern-extraction-service / llm-tag-generator）：rethrow 补 `{ cause: e }` 保留原始错误。
+- `no-useless-assignment` ×4（knowledge-library-service / logger / rpa-view-platforms / video-clone/asset-generator）：移除在 try/catch 两条路径都被覆盖的无用初值。
+- `no-empty` ×2（services/asset-generator）：空 catch 块补注释；另 1 处位于生成物（见下），随 ignores 排除。
+- `no-control-regex` ×1（tag-suggest/compliance-filter）：有意匹配控制字符的清洗正则，带说明行内豁免。
+
+### 变更（lint 配置 + CI 门禁）
+- `eslint.config.mjs` 全局 ignores 新增 `electron/preload/**/*.bundle.js`（esbuild 生成物不应参与 lint）；`lint`/`lint:fix` 脚本去掉 `--no-ignore`（该参数会绕过 flat config ignores，是 15 条 "File ignored/unused directive" 噪音的根源）；新增 `lint:warnings` 脚本保留 warning 可见性。
+- `.github/workflows/quality-gate.yml` static-gates 新增 **Gate 11 - ESLint (error-level gate)**：`pnpm exec eslint electron/ src/ --quiet`（与本地 `pnpm run lint` 同口径，只拦 error 级；warning 不阻断，后续以 per-rule 基线棘轮单独治理）。
+- 修复后基线：`eslint electron/ src/ --quiet` **0 error**（修复前 17）；warning 393 → 340。
+
+### 测试
+- 新增 `electron/tests/notify-handler.test.js`（4：兜底封包/未知 key drop/白名单写日志/前缀匹配）、`electron/tests/account-manager-extract-info.test.js`（3：平台选择器注入/无平台回退/evaluate 异常降级）、`src/views/AutoPipelineView.test.js`（2：resume 不再 ReferenceError 且提示 resuming、cancel 提示 cancelled）；`StageProgress.test.js` 追加 1 例（活动阶段索引可被实例读写）。4 文件 34 用例全绿。
+- 验证：`tsc --noEmit` 0 error；check-debt-budget / check-locale-sync --cjk / check-frontend-consistency / check-hardcoded-secrets 全 PASS；workflow-contract.test.js 19 pass。
+
+### 文档
+- 新增 OpenSpec change（已归档）：`openspec/changes/archive/2026-09-14-lint-gate-error-zero/`（proposal + specs/ci delta + tasks）。
+
 ## [Unreleased] - 2026-09-13 (视频创作·历史记录「查看文案」改为展示流水线原始文案并自动换行)
 
 ### 修复

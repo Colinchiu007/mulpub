@@ -29,7 +29,7 @@ function createVideoCloneAssetGenerator({ assetGenerator, optimizeVideoPromptsBa
     // 真实视频模型生成动态片段（2026-09-05）：spec.kind === 'video' 时走 generateVideo
     if (spec.kind === 'video') {
       // 优先真实视频模型生成；失败时降级到静态图 + degraded 标记（诚实降级，不阻断流水线）
-      let videoError = null
+      let videoError // 初值在 if/else 与 catch 路径都会被赋值，无需初始化（no-useless-assignment）
       if (typeof assetGenerator.generateVideo === 'function') {
         try {
           // 生成前统一经 prompt-engine 优化视频提示词（PRD §2 generate 链路，2026-09-05）
