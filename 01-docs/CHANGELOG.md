@@ -1,3 +1,14 @@
+## [Unreleased] - 2026-09-13 (lint 清理：消除唯一 no-useless-assignment)
+
+### 修复
+- `apps/desktop/src/views/HotTopics.vue` 的 `loadFromCacheThenRefresh()` 中 `let cached = null` 的初值在 try/catch 两条路径都会被覆盖，触发 eslint `no-useless-assignment`；经 `pnpm exec eslint src/ --no-ignore` 全量扫描确认这是 `apps/desktop/src` 下的**唯一**一处该规则告警。改为 `let cached`（不写初值）并补注释说明原因，行为完全不变（读取失败仍走 catch → null → 未命中缓存走网络抓取）。
+- 同一行在 main 上属**历史遗留**（非本次改动引入）：`git blame` 与 `eslint` 在修复前的 main 同位置均报同一错误，故本次单独以 lint 清理提交处理，不与其他逻辑混提。
+
+### 测试
+- `HotTopics.test.js` 26 用例全绿（缓存优先渲染/后台静默刷新/无缓存走网络抓取等 SWR 路径均覆盖该函数）。
+- `pnpm exec eslint src/views/HotTopics.vue --no-ignore` → 0 problem（修复前 1 error）；`check-debt-budget.js` 全部在基线内（HotTopics.vue 993 行 < 1000）。
+- 说明：该规则此前不在 CI 门禁内（`.github/workflows/quality-gate.yml` 无 lint 步骤），本次未扩大范围把全局 lint 接入 CI（仓库仍有 `no-unused-vars` 31 处等既有告警，接入需先定阈值/基线）。
+
 ## [Unreleased] - 2026-09-13 (热门选题一键生成视频：后台运行后可并行发起新任务)
 
 ### 修复
