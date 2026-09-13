@@ -44,6 +44,7 @@
           </main>
         </div>
       </div>
+      <BackToTop />
     </template>
 
     <UpdateNotification />
@@ -61,6 +62,7 @@ import NavBar from '@/components/NavBar.vue'
 import OfflineIndicator from '@/components/OfflineIndicator.vue'
 import UpdateNotification from '@/components/UpdateNotification.vue'
 import SettingsDialog from '@/components/SettingsDialog.vue'
+import BackToTop from '@/components/BackToTop.vue'
 import PipelineBackgroundToast from '@/components/PipelineBackgroundToast.vue'
 import RouteLoadError from '@/components/RouteLoadError.vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'

@@ -11,6 +11,7 @@ export default {
     success: 'Success',
     error: 'Error',
     close: 'Close',
+    backToTop: 'Back to top',
     pipelineBackgroundToast: 'To check this task, open History in Video Creation',
     pageLoadFailed: 'Failed to load page',
     pageLoadFailedMessage: 'Page resources failed to load. Please retry or refresh the app.',
