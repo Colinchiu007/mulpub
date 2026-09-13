@@ -1,7 +1,20 @@
 
+## 前端自设并发闸门 → 入口永久锁死（热门选题一键生成视频，2026-09-13）
+
+- **现象**：热门选题页点某选题【生成视频】→ 弹窗内点【后台运行】→ 弹窗消失；此时再点**任意**选题的【生成视频】**毫无反应**；不重启应用永久失效。
+- **根因**：后台脱离路径 `handleGenVideoClose()` 只把 `genVideoPhase` 置为 `'background'`，从未复位 `genVideoBusy`；而入口同时有模板禁用 `:disabled="genVideoBusy"` 与方法内守卫 `if (genVideoBusy.value) return`，两处共用一个永不复位的标志 → 双保险变双锁。引入于 PR #1726（commit `0c21d9561`），显式【后台运行】按钮（`d895eada8`）把同一路径暴露得更明显。
+- **教训 1（并发闸门只能有唯一权威源）**：前端要"限制并发"时，先确认后端是否已有权威闸门。本项目主进程 `PipelineEngine.maxConcurrentRuns` 才是唯一权威闸门（超限返回 `PIPELINE_CONCURRENCY_LIMIT`）；前端再加一层"单任务锁"不仅重复，还会比权威闸门更严格从而锁死功能。**同页面多任务并行是产品要求**时，前端闸门只允许覆盖"同一弹窗内编排在途"这一窗口，且必须在脱离/终态时释放。
+- **教训 2（禁用态必须与复位路径成对）**：任何"进入某状态就置 busy=true"的代码，必须存在**唯一**的复位路径（本项目落地为 `resetGenVideoFrontendState()`），并逐字段列出复位清单（seq/定时器/订阅/dom 状态/busy）。半复位（只复一部分）是典型的静默死锁来源。
+- **教训 3（注释与实现不一致时要质疑）**：原注释写「后台态：按钮保持禁用直到用户开新任务」——按钮禁用时用户根本无法开新任务，注释自相矛盾。**审查时把"自相矛盾的注释"当作可疑信号**，而不是当作有意设计。
+- **教训 4（测试可能固化缺陷）**：本次单测用例名 `...keeps busy guard` 直接断言 `genVideoBusy===true` 且断言"第二次启动不生效"，把 Bug 写成了预期行为。**修 Bug 第一步应是核对现有断言是否在保护缺陷**；PRD 同理（§3.10 曾把"所有按钮禁用"写成需求，形成 文档—代码—测试 自洽的错误闭环）。
+- **预防**：修 Bug 时同步改 PRD（新增 §6.7「并发任务与前端态复位规格」：状态机表、复位清单、busy 守卫作用域、竞态守卫、边界情况）+ 新增 4 条并发回归用例（脱离复位 / 改写阶段关闭即中止 / 弹窗在途守卫仍生效 / 脱离后可并行启动第二条）+ 沉淀本条 pitfall。
+
+---
+
 ## glob 工具权限失败根因与规避（2026-09-13）
 
-- **现象**：DSH glob 工具搜索整个仓库时报 g: ./packages\python-backend\.pytest-tmp-logto-final: IO error ... 拒绝访问 (os error 5)，整体失败（exit 2）。
+- **现象**：DSH glob 工具搜索整个仓库时报 
+g: ./packages\python-backend\.pytest-tmp-logto-final: IO error ... 拒绝访问 (os error 5)，整体失败（exit 2）。
 - **根因**：packages/python-backend/.pytest-tmp-logto-final 目录被 ACL 锁定（连管理员 icacls 都无法访问），是 2026-07-21 的 pytest 测试残留。DSH glob 工具用 ripgrep 遍历，**不尊重 .gitignore**（该目录已被 .pytest-tmp-logto*/ 覆盖），遇到不可访问目录就整体报错而非跳过。
 - **规避**：用 Get-ChildItem -Recurse -Filter "*.py" -ErrorAction SilentlyContinue（PowerShell）替代 glob，-ErrorAction SilentlyContinue 跳过不可访问目录；或避免搜索该路径。
 - **根治**：需管理员权限删除该目录（	akeown /F <dir> /A + Remove-Item -Recurse -Force）。当前会话无管理员权限，无法删除。

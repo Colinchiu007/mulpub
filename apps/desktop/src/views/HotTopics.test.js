@@ -431,7 +431,8 @@ describe('HotTopics.vue', () => {
     expect(wrapper.vm.genVideoPhase).toBe('cancelled')
   })
 
-  it('generate-video close during running moves to background and keeps busy guard', async () => {
+  // 回归（2026-09-13）：后台运行后必须释放前端跟踪态，否则按钮永久禁用、无法并行开新任务
+  it('generate-video close during running detaches to background and releases frontend tracking state', async () => {
     hotTopicsFetch.mockResolvedValue({ code: 0, data: { topics: mockTopics, fetchedAt: Date.now(), channelStats: {} } })
     aiRewrite.mockResolvedValue({ code: 0, data: { success: true, result: '后台文案' } })
     draftSave.mockResolvedValue({ code: 0 })
@@ -446,12 +447,57 @@ describe('HotTopics.vue', () => {
     await new Promise(r => setTimeout(r, 50))
 
     expect(wrapper.vm.genVideoPhase).toBe('running')
-    wrapper.vm.handleGenVideoClose()
-    expect(wrapper.vm.genVideoModalOpen).toBe(false)
-    expect(wrapper.vm.genVideoPhase).toBe('background')
     expect(wrapper.vm.genVideoBusy).toBe(true)
-    await wrapper.vm.startGenerateVideo(mockTopics[0])
-    expect(pipelineStartOrchestrated).toHaveBeenCalledTimes(1)
+    wrapper.vm.handleGenVideoClose()
+
+    // 脱离：弹窗关闭 + 前端跟踪态整体复位（busy 释放、runId/stages 清空），主进程 run 不被取消
+    expect(wrapper.vm.genVideoModalOpen).toBe(false)
+    expect(wrapper.vm.genVideoPhase).toBe('idle')
+    expect(wrapper.vm.genVideoBusy).toBe(false)
+    expect(wrapper.vm.genVideoRunId).toBeNull()
+    expect(wrapper.vm.genVideoStages).toHaveLength(0)
+    expect(pipelineCancelRun).not.toHaveBeenCalled()
+
+    // 复位后可立即重复发起（前端已无在跟踪的任务）
+    await wrapper.vm.startGenerateVideo(mockTopics[1])
+    expect(pipelineStartOrchestrated).toHaveBeenCalledTimes(2)
+  })
+
+  // 改写/启动阶段（尚无主进程 run）：关闭 = 中止前端编排，不启动流水线、不产生后台任务
+  it('generate-video close during rewrite aborts frontend orchestration without starting pipeline', async () => {
+    hotTopicsFetch.mockResolvedValue({ code: 0, data: { topics: mockTopics, fetchedAt: Date.now(), channelStats: {} } })
+    aiRewrite.mockImplementation(() => new Promise(() => {}))
+
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.find('[data-testid="hot-topic-generate-video-zhihu:1"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.vm.genVideoPhase).toBe('rewriting')
+    wrapper.vm.handleGenVideoClose()
+
+    expect(wrapper.vm.genVideoModalOpen).toBe(false)
+    expect(wrapper.vm.genVideoPhase).toBe('idle')
+    expect(wrapper.vm.genVideoBusy).toBe(false)
+    expect(pipelineStartOrchestrated).not.toHaveBeenCalled()
+    expect(pipelineCancelRun).not.toHaveBeenCalled()
+  })
+
+  // 弹窗内编排在途时 busy 守卫仍生效：避免同一弹窗内产生两条不受跟踪的编排
+  it('generate-video busy guard still blocks a second orchestration while rewrite is in flight', async () => {
+    hotTopicsFetch.mockResolvedValue({ code: 0, data: { topics: mockTopics, fetchedAt: Date.now(), channelStats: {} } })
+    aiRewrite.mockImplementation(() => new Promise(() => {}))
+
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.find('[data-testid="hot-topic-generate-video-zhihu:1"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.vm.genVideoPhase).toBe('rewriting')
+    expect(wrapper.find('[data-testid="hot-topic-generate-video-toutiao:1"]').attributes('disabled')).toBeDefined()
+    await wrapper.vm.startGenerateVideo(mockTopics[1])
+    expect(aiRewrite).toHaveBeenCalledTimes(1)
+    expect(wrapper.vm.genVideoTopic.id).toBe(mockTopics[0].id)
   })
 
   // ─── 2026-09-12 需求回归：视频流水线弹窗统一【后台运行】按钮 + 全局居中提示 ───
@@ -484,13 +530,79 @@ describe('HotTopics.vue', () => {
 
     bgBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await flushPromises()
-    // 脱离语义：弹窗关闭、phase=background、busy 守卫保持、run 不被取消
+    // 脱离语义：弹窗关闭、前端跟踪态复位（busy 释放）、run 不被取消
     expect(attached.vm.genVideoModalOpen).toBe(false)
-    expect(attached.vm.genVideoPhase).toBe('background')
-    expect(attached.vm.genVideoBusy).toBe(true)
+    expect(attached.vm.genVideoPhase).toBe('idle')
+    expect(attached.vm.genVideoBusy).toBe(false)
+    expect(attached.vm.genVideoRunId).toBeNull()
     expect(pipelineCancelRun).not.toHaveBeenCalled()
     // 全局居中提示已触发（模块级单例，脱离视图存活）
     expect(pipelineBackgroundToastVisible.value).toBe(true)
+    attached.unmount()
+    el.remove()
+    hidePipelineBackgroundToast()
+  })
+
+  // 回归（2026-09-13 用户报障）：【后台运行】后再次点击另一条选题的【生成视频】无反应
+  it('after background-run detach, another topic can start a parallel pipeline immediately', async () => {
+    hotTopicsFetch.mockResolvedValue({ code: 0, data: { topics: mockTopics, fetchedAt: Date.now(), channelStats: {} } })
+    // 按调用序号返回不同产物：序号化实现（非 once 队列）避免用例失败时的实现泄漏
+    const rewriteResults = ['选题A文案', '选题B文案']
+    let rewriteIdx = 0
+    aiRewrite.mockImplementation(async () => ({
+      code: 0,
+      data: { success: true, result: rewriteResults[rewriteIdx++] || '兜底文案' },
+    }))
+    draftSave.mockResolvedValue({ code: 0 })
+    storeGetSetting.mockResolvedValue(null)
+    const runIds = ['run-parallel-1', 'run-parallel-2']
+    let runIdx = 0
+    pipelineStartOrchestrated.mockImplementation(async () => ({
+      code: 0,
+      data: { success: true, runId: runIds[runIdx++] || 'run-extra' },
+    }))
+    pipelineGetRunContext.mockImplementation(async (runId) => ({
+      code: 0,
+      data: { runId, status: { status: 'running', progress: 25 } },
+    }))
+
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    const attached = mount(HotTopics, {
+      attachTo: el,
+      global: { plugins: [i18n], stubs: { 'el-alert': true, 'el-select': true, 'el-option': true, 'el-progress': true, 'el-skeleton': true } },
+    })
+    await flushPromises()
+
+    // 第一条任务：选题 A → 运行中
+    await attached.find('[data-testid="hot-topic-generate-video-zhihu:1"]').trigger('click')
+    await flushPromises()
+    await new Promise(r => setTimeout(r, 50))
+    expect(attached.vm.genVideoPhase).toBe('running')
+    expect(attached.vm.genVideoRunId).toBe('run-parallel-1')
+
+    // 点击【后台运行】脱离（run 在主进程继续，前端不再跟踪）
+    const bgBtn = document.body.querySelector('[data-testid="hot-topics-gen-video-background"]')
+    expect(bgBtn).toBeTruthy()
+    bgBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flushPromises()
+    expect(attached.vm.genVideoBusy).toBe(false)
+    expect(pipelineCancelRun).not.toHaveBeenCalled()
+
+    // 第二条任务：选题 B 的【生成视频】按钮必须可用并能并行启动
+    const secondBtn = attached.find('[data-testid="hot-topic-generate-video-toutiao:1"]')
+    expect(secondBtn.attributes('disabled')).toBeUndefined()
+    await secondBtn.trigger('click')
+    await flushPromises()
+    await new Promise(r => setTimeout(r, 50))
+
+    expect(aiRewrite).toHaveBeenCalledTimes(2)
+    expect(pipelineStartOrchestrated).toHaveBeenCalledTimes(2)
+    expect(pipelineStartOrchestrated.mock.calls[1][1].text).toBe('选题B文案')
+    expect(attached.vm.genVideoModalOpen).toBe(true)
+    expect(attached.vm.genVideoPhase).toBe('running')
+    expect(attached.vm.genVideoRunId).toBe('run-parallel-2')
+
     attached.unmount()
     el.remove()
     hidePipelineBackgroundToast()
