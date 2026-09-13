@@ -22,11 +22,11 @@
 - [x] `node --test packages/video-clone-engine/test/` 全绿
 
 ## 阶段 4：文档
-- [ ] PRD 详细规格：数据校验 / 流程 / 功能逻辑 / 交互逻辑 / 显示项 / 提示文字（zh/en）/ 错误码
-- [ ] CHANGELOG
-- [ ] .quality-gates.md 执行记录
+- [x] PRD 详细规格：数据校验 / 流程 / 功能逻辑 / 交互逻辑 / 显示项 / 提示文字（zh/en）/ 错误码（PRD-VIDEO-CLONE-2026-08-12.md §11-§30，802 行）
+- [x] CHANGELOG（多个 video-clone 条目：相似度真度量/复刻层级自动决定/移除层级下拉/默认链接等）
+- [x] .quality-gates.md 执行记录（video-clone 执行记录）
 - [ ] CCG task 归档 + 记忆更新
 
 ## 阶段 5：交付
 - [ ] commit → push → PR → 合并（核实远程状态）
-- [ ] 后续切片（另行 change）：真实 ingest（yt-dlp/ffprobe）、analyze（ASR/镜头/风格）、plan（改写）、generate（provider 接入）、compose（ffmpeg）、publish（PublisherRouter）、UI 与桌面集成
+- [x] 后续切片（另行 change）：真实 ingest/analyze/plan/generate/compose/publish + UI 与桌面集成（slice2/3/4 代码已通过多个 PR 合并到 main：PR #1418/#1472/#1456/#626/#632/#624 等）

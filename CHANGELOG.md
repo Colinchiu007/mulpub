@@ -1,3 +1,11 @@
+# [未发布] chore(openspec): 归档 video-clone-pipeline 系列 6 个 change（2026-09-13）
+
+### 归档
+- **video-clone-pipeline**：独立视频克隆流水线（ingest→analyze→plan→generate→compose→publish）+ CloneReport 7 层契约 + 相似度自检（F4）+ 阶段执行器（checkpoint/有界重试/fail-closed）
+- **video-clone-pipeline-slice2/3/4**：真实 ingest/analyze/plan + generate/compose/publish + IPC 契约与桌面 UI（代码已通过 PR #1418/#1472/#1456/#626/#632/#624 等合并到 main）
+- **video-clone-analyze-cli / video-clone-dl-hardening**：analyze CLI + URL 时长上限与下载探针
+- 6 个 change 归档至 `openspec/changes/archive/2026-09-13-video-clone-*`；主 spec 同步更新
+
 # [未发布] fix(create): 分镜素材自选等待态测试断言修复——spy 组件方法替代全局 scrollIntoView（2026-09-13）
 
 ### 修复（QM-5 五步）
