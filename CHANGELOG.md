@@ -8,6 +8,11 @@
 
 # [未发布] fix(ccg-review): CCG 双模型评审修复（claude + opencode，2026-09-13）
 
+## [未发布] fix(core): checkLocalCredentials session cookie 路径修复 — 补齐 session/ 子目录（2026-09-13）
+
+- checkLocalCredentials session cookie 备选路径补齐 startup-compat 重定向的 session/ 前缀
+- 同时检查 session/Partitions/ 和 Partitions/，兼容新旧数据布局
+
 ### 修复（CCG 外部评审发现）
 - **Critical（content-quality-eval）**：`startRewrite()` 未重置 `rewriteQuality`，第二次改写无 quality 时旧质量报告残留（stale-data bug）→ 新增 `rewriteQuality.value = null`
 - **Critical（p1b-memory）**：`governance.runGates()` 在生产路径从未被调用（6 规则门禁是死代码）→ 新增 `gate` 注入参数 + `_setGate` 方法，phase1-context 接线 governance.runGates 到 saveLearnt
