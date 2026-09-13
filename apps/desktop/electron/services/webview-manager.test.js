@@ -31,6 +31,8 @@ function createMainWindow () {
   return {
     isDestroyed: () => false,
     getBounds: () => ({ x: 0, y: 0, width: 1440, height: 900 }),
+    // 客户区尺寸（真实 BrowserWindow 会扣除标题栏/菜单栏/边框）
+    getContentBounds: () => ({ x: 8, y: 39, width: 1424, height: 861 }),
     webContents: { send: vi.fn() },
     contentView: { addChildView: vi.fn(), removeChildView: vi.fn() }
   }
@@ -83,6 +85,23 @@ function createFakeQrCodeLogin () {
     _onWindowResize: vi.fn()
   }
 }
+
+describe('内嵌标签页布局（回归：必须用客户区尺寸，外框尺寸会裁掉滚动条与底部内容）', () => {
+  it('浏览器标签 setBounds 基于客户区尺寸（2026-09-13 账号管理打开平台网页 Bug 回归点）', () => {
+    const { wm, view } = createManagerWithBrowserTab()
+    wm.resize()
+    // 外框 1440x900 vs 客户区 1424x861：若误用外框会得到 {width:1240, height:824}，
+    // 视图比可见区域宽出左右边框、高出标题栏+底边框 → 网页垂直滚动条（渲染在视图
+    // 右边缘）与底部内容落在窗口之外被裁掉，且页面已按外框视口布局、无法滚动补救。
+    expect(view.setBounds).toHaveBeenLastCalledWith({ x: 200, y: 76, width: 1224, height: 785 })
+  })
+
+  it('分屏监控布局接收客户区尺寸并按顶部 NAV_HEIGHT=56 计算', () => {
+    const wm = new WebviewManager()
+    const positions = wm._calculatePositions({ width: 1424, height: 861 })
+    expect(positions[0]).toEqual({ x: 200, y: 56, width: 1224, height: 805 })
+  })
+})
 
 describe('WebviewManager 虚拟登录标签（蚁小二对标）', () => {
   it('attachAuthViewManager 绑定开关钩子', () => {

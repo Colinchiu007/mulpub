@@ -14639,3 +14639,17 @@ commit `941b17f1`（feat: browser-style tab bar）在 `webview-manager.js` `crea
   - JS 正则经 apply_patch 传入会丢失反斜杠转义（\. 变 .）——复杂正则改用 new URL() hostname 精确匹配更可靠。
   - Windows 下 /tmp 路径在 node -e 中解析为 D:\tmp 导致 ENOENT——临时文件用 $TEMP 环境变量。
 - **预防**：新增渲染端中文文案一律先写 locales（zh/en 成对）再引用；跨 shell 传中文任务用文件；正则域名匹配优先 URL 解析。
+
+## 内嵌 WebContentsView 视口越界：getBounds(外框) 污染客户区坐标系（2026-09-13，codex/fix-embedded-browser-viewport）
+### 现象
+账号管理点击账号卡片打开平台网页（内嵌浏览器标签）后，右侧没有网页滚动条、底部内容被截断且滚动无效。
+### 根因
+`mainWindow.contentView.addChildView(view)` 的子视图 `setBounds` 使用**客户区坐标系**，但布局用 `mainWindow.getBounds()`（**外框**，含标题栏 ~31px、菜单栏、边框 ~8px×3）的宽高 → 视图比可见区域宽 ~16px、高 ~39px → 滚动条（渲染在视图右边缘）与底部内容落在窗口外被物理裁掉；页面按外框视口布局，滚到底也看不到被裁部分。
+### 逃逸链（关键教训）
+`auth-view-manager.test.js` 原有布局断言 `{1240, 824}` 就是按外框 1440×900 算出来的**错误值**——测试 mock 只提供 `getBounds`，测试与实现共享同一错误假设，把 Bug 钉死成「正确行为」（断言不精确类漏洞）。E2E/视觉回归只覆盖渲染进程 DOM，原生 `WebContentsView` 的窗口合成裁切完全不在覆盖内。
+### 教训与预防（R94）
+1. **坐标系契约必须唯一实现**：新增 `electron/services/view-bounds.js`（`getContentSize` 客户区优先 + 降级链、`computeEmbeddedViewBounds`），四个 manager 全部接入；`contentView` 子视图布局禁止再出现 `mainWindow.getBounds()`（正确先例：`auth-window.js` 的 `getContentBounds()`）。
+2. **测试 mock 要能表达契约**：窗口 mock 必须同时提供 `getBounds`（外框）与 `getContentBounds`（客户区）且数值不同，布局断言必须钉客户区口径——否则测试无法区分对错。
+3. 顺带发现：`oauth-manager.js` 调用了不存在的 `_positionView`，OAuth 内嵌链路一进入就 `TypeError`——「同一布局逻辑复制到多个 manager」模式下，缺一个方法只有运行到才暴露；收敛唯一来源后此类缺失在单测层即可拦截。
+### 关联
+`01-docs/BUGFIX-EMBEDDED-BROWSER-VIEWPORT-2026-09-13.md`（完整 5 步反思 + 布局契约）、`01-docs/PRD-ACCOUNT-LOGIN-WINDOW.md` §13。
