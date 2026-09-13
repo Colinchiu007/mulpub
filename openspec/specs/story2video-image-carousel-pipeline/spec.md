@@ -1,0 +1,53 @@
+# story2video-image-carousel-pipeline Specification
+
+## Purpose
+TBD - created by archiving change story2video-autopilot-tts-localization. Update Purpose after archive.
+## Requirements
+### Requirement: 图片轮播流水线更名与本地化展示
+流水线 SHALL 以"图片轮播"为本地化名称展示，用户可见文案 MUST 由 i18n 资源文件驱动（zh/en），禁止硬编码。
+
+#### Scenario: 中文界面展示
+- **WHEN** 应用以中文语言运行
+- **THEN** 流水线名称与全部操作文案显示为中文资源值
+
+#### Scenario: 英文界面展示
+- **WHEN** 应用以英文语言运行
+- **THEN** 流水线名称与全部操作文案显示为英文资源值
+
+#### Scenario: 缺失资源键失败关闭
+- **WHEN** 渲染文案时资源键缺失
+- **THEN** 界面不得静默显示键名或空串，必须回退到默认语言资源并记录警告
+
+### Requirement: 参数提交后自动连续执行
+用户提交参数后，流水线 SHALL 自动连续执行各阶段，无需逐步手动触发；提交按钮文案 MUST 为"启动流水线"。
+
+#### Scenario: 提交后自动执行
+- **WHEN** 用户点击"启动流水线"
+- **THEN** 流水线自动依次执行全部阶段直至完成或失败
+
+#### Scenario: 进度阶段清单
+- **WHEN** 流水线执行中
+- **THEN** 界面以阶段清单呈现进度，每阶段状态为 pending/running/done/failed
+
+### Requirement: 参数收敛与默认值
+音调、并发数、创意强度参数 SHALL 从界面隐藏，使用默认值或运营后台配置；分句语言 MUST 默认为"自动识别"。
+
+#### Scenario: 隐藏参数使用默认
+- **WHEN** 用户进入参数设置
+- **THEN** 音调/并发数/创意强度不出现在界面，行为使用默认值或已确认的运营后台配置
+
+#### Scenario: 分句语言默认自动识别
+- **WHEN** 用户未显式选择分句语言
+- **THEN** 分句语言使用"自动识别"
+
+### Requirement: 图片风格与提示词风格语义去重
+系统 SHALL 明确图片风格（画面呈现）与提示词风格（文本生成约束）的语义关系，相同语义去重、不同语义保留，配置可持久化。
+
+#### Scenario: 相同语义去重
+- **WHEN** 图片风格与提示词风格表达相同语义
+- **THEN** 系统只保留一份配置，不重复生成
+
+#### Scenario: 不同语义保留
+- **WHEN** 图片风格与提示词风格语义不同
+- **THEN** 两者均保留并分别作用于对应生成环节
+

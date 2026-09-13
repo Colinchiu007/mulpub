@@ -1,0 +1,30 @@
+# story2video-image-fallback-retry Specification
+
+## Purpose
+TBD - created by archiving change story2video-autopilot-tts-localization. Update Purpose after archive.
+## Requirements
+### Requirement: 拒绝类失败的风险分析
+图片生成拒绝类失败时，系统 SHALL 对提示词进行风险分析，识别触发拒绝的维度。
+
+#### Scenario: 识别风险维度
+- **WHEN** 图片生成返回拒绝类失败
+- **THEN** 系统分析提示词并输出风险维度（如风格、内容、措辞）
+
+### Requirement: 受控重写重试
+拒绝类失败 SHALL 触发受控的重写重试，最多 5 次；每次重试使用修正后的提示词。
+
+#### Scenario: 重写重试循环
+- **WHEN** 首次生成被拒绝
+- **THEN** 系统基于风险分析重写提示词并重试，循环最多 5 次
+
+#### Scenario: 重试次数上限
+- **WHEN** 重试已达 5 次
+- **THEN** 系统停止重试，进入失败提示流程
+
+### Requirement: 第五次失败后的可操作提示
+第 5 次失败后，系统 SHALL 给出可操作提示，指明用户可调整的具体维度，而非仅显示通用错误。
+
+#### Scenario: 给出可操作指引
+- **WHEN** 第 5 次生成仍失败
+- **THEN** 界面展示具体可操作提示（如调整风格关键词、移除冲突描述），并保留最后一次失败原因
+
