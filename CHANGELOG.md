@@ -1,3 +1,22 @@
+# [未发布] fix(account): 账号登录态检测对齐蚁小二 HTTP API，修复登录页误判与失效误报（2026-09-14）
+
+### 修复
+- **视频号失效误判**（PR #1817）：视频号凭证只有 localStorage（cookies=0），checkLoginStatus 渲染崩溃保护分支只查本地凭证文件 → 永远判有效。对齐蚁小二 getShipinhaoUserInfo：POST channels.weixin.qq.com/cgi-bin/mmfinderassistant-bin/auth/auth_data，errCode 300333/300334 判失效，data.finderUser 存在判有效
+- **公众号失效误判**：Cookie（slave_sid）过期后访问 cgi-bin/home 仍返回 200 渲染后台骨架，DOM 选择器命中即误判有效。对齐蚁小二 getWeixingongzhonghaoUserInfo：GET mp.weixin.qq.com/cgi-bin/loginpage?url=%2Fcgi-bin%2Fhome，正则解析 HTML 中 token=/uin: 缺失判失效（ret=200003）
+- **bilibili 检测新增**：对齐蚁小二 getBilibiliUserInfo：GET api.bilibili.com/x/web-interface/nav，code === -101 判失效，data.mid 存在判有效；cookie 必须含 bili_jct（缺失即失效）
+- **头条号登录页误判**：PLATFORM_LOGIN_SUCCESS_PATTERNS.toutiao = ['mp.toutiao.com'] 裸域名模式，登录页 mp.toutiao.com/login 命中 → 误判登录成功 → 提前关闭并保存无效账号。改为精确路径 ['profile_v4']
+- **视频号登录页误判（同款）**：tencent_video = ['channels.weixin.qq.com'] 裸域名模式，登录页 login.html 命中 → 提前关闭并保存无 Cookie 凭证。改为精确路径 ['channels.weixin.qq.com/platform']
+- **登录成功重复提示**：Accounts.vue 页面级 notifySuccess 与 useAccountEvents.complete() 全局提示重复。去掉页面级，只保留全局「xx 登录凭证已自动保存」
+- **失效卡片文案**：AccountManagementCard.vue 区分 expired（已失效/红）与 inactive（已登录/灰），失效账号不再显示灰色「已登录」
+- **一键检测中央进度提示**：Accounts.vue 新增 batch-check-overlay（spinner + 标题 + 进度 + 进度条），i18n batchCheckAllTitle（zh/en 成对）
+- **检测结果持久化**：batchCheckAllLogins 调 accountUpdate(id, { status, last_validated }) 写回后端；store-schema.js 加 last_validated 列 + migration + 白名单；toPublicAccount 尊重最近 2 小时写回的 expired（backendExpiredFresh）
+
+### 验证
+- http-login-checker.test.js 21 通过（视频号 auth_data / 公众号 loginpage 正则 / bilibili nav + bili_jct 前置）
+- account-manager.test.js 52 通过（视频号 HTTP 优先 + 本地回退）
+- account.test.js 40 / platform-definitions.test.js 9 / Accounts.test.js 80 / AccountManagementCard.test.js 17 / store.test.js 59 全通过
+- PRD 01-docs/PRD-ACCOUNT-LOGIN-STATUS-CHECK.md 升 v2.0（检测结果持久化 11 节 + 公众号失效检测 12 节）
+
 # [未发布] feat(ui): 新增全局「回到顶部」浮标按钮（back-to-top-button，2026-09-14）
 
 ### 新增
