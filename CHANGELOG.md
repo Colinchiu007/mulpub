@@ -1,3 +1,20 @@
+# [未发布] fix(accounts): 内嵌浏览器视口越界修复——右侧滚动条缺失/底部内容被裁（2026-09-13）
+
+### 修复
+- **根因**：内嵌 `WebContentsView` 的 `setBounds` 使用 `mainWindow.getBounds()`（外框，含标题栏/菜单栏/边框）的宽高，而该坐标系实际是**客户区**——视图比可见区域宽出左右边框（~16px）、高出标题栏+底边框（~39px），导致平台网页垂直滚动条被裁在窗口外、底部内容物理截断且无法滚动查看
+- **新增 `electron/services/view-bounds.js`**：内嵌视图定位唯一来源（`getContentSize` 客户区读取 + 降级链、`computeEmbeddedViewBounds` 布局契约、`normalizeSidebarWidth` 校验、`BROWSER_CHROME_TOP=76` 常量）
+- `webview-manager.js`（创作者中心标签/分屏）、`auth-view-manager.js`（登录视图）、`qrcode-login.js`（扫码视图）全部改用客户区尺寸
+- **顺带崩溃修复**：`oauth-manager.js` 补上缺失的 `_positionView()`——此前 `startAuth` 一进入即抛 `TypeError: this._positionView is not a function`，OAuth 内嵌链路完全不可用
+
+### 测试
+- 新增 `view-bounds.test.js`（客户区优先/降级/异常兜底/布局数学/边界值）
+- `webview-manager.test.js` / `auth-view-manager.test.js` / `qrcode-login.test.js` / `oauth-manager.test.js` 新增「客户区 vs 外框」回归断言，窗口 mock 补 `getContentBounds`
+- 5 文件 95 用例全绿
+
+### 文档
+- `01-docs/BUGFIX-EMBEDDED-BROWSER-VIEWPORT-2026-09-13.md`：完整 Bug 反思 5 步（根因溯源/逃逸链/系统性漏洞/回归保护/预防 R94）+ 布局契约
+- `01-docs/PRD-ACCOUNT-LOGIN-WINDOW.md` 追加「内嵌视图视口契约」章节
+
 # [未发布] feat(scripts): 新增「测试覆盖但未接线」死代码检测脚本（detect-unwired-exports，2026-09-13）
 
 ### 新增

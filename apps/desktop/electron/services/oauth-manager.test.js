@@ -67,3 +67,27 @@ describe('OAuthManager IPC 安全合同', () => {
     expect(oauthManager.currentView).toBeNull()
   })
 })
+
+describe('OAuthManager 内嵌视图布局（回归：_positionView 曾缺失导致 startAuth 一进入就崩溃）', () => {
+  it('_positionView 存在且基于窗口客户区定位（不能用外框尺寸）', () => {
+    const oauthManager = new OAuthManager({})
+    const setBounds = vi.fn()
+    oauthManager.currentView = { setBounds }
+    oauthManager.mainWindow = {
+      getBounds: () => ({ x: 0, y: 0, width: 1440, height: 900 }),
+      getContentBounds: () => ({ x: 8, y: 39, width: 1424, height: 861 }),
+    }
+
+    expect(() => oauthManager._positionView()).not.toThrow()
+    // 客户区 1424x861（而非外框 1440x900），防止右侧滚动条与底部内容被窗口裁掉
+    expect(setBounds).toHaveBeenCalledWith({ x: 200, y: 76, width: 1224, height: 785 })
+  })
+
+  it('无当前视图或无窗口时 _positionView 不抛异常', () => {
+    const oauthManager = new OAuthManager({})
+    expect(() => oauthManager._positionView()).not.toThrow()
+
+    oauthManager.currentView = { setBounds: vi.fn() }
+    expect(() => oauthManager._positionView()).not.toThrow()
+  })
+})
