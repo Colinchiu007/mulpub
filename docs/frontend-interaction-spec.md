@@ -33,7 +33,7 @@
 | 操作成功/失败提示 | `ElMessage.success/error` | 自造 toast、console 提示、静默吞错 |
 | 危险操作确认（删除/批量删除/不可逆操作） | `ElMessageBox.confirm`（经 `confirmDanger` 封装，P1 提供），文案必须说明后果 | **`window.confirm`（CI Gate 10 拦截）**、无确认直接执行 |
 | 表单/内容弹窗 | 复杂表单用 `el-dialog`；轻量确认用 ElMessageBox | 同页面混用三套弹窗体系 |
-| 页面级 Loading | 统一 LoadingState 封装（P2 落地，底层 v-loading） | 各视图自写 spinner CSS |
+| 页面级 Loading | 统一 `<UiSkeleton>` 组件（2026-09-13 落地；令牌与骨块外观见 `src/styles/skeleton.css`） | 各视图自写 spinner / 纯文字 / CSS 渐变骨架、`@keyframes *shimmer*` |
 | 列表空态 | 统一 `<EmptyState>` 组件（P2 落地，tasks 3.3），含说明 + 引导 CTA；落地前暂维持现状样式，禁止新增自造副本 | 空白区域、裸 `<p>` 文本、自造 .empty 样式副本 |
 | 错误文案 | `formatUserError()`（user-facing-error.js，遵循 user-facing-messages spec） | 手工拼接原始 error message 直出给用户 |
 | 长页面回到顶部 | 全局 `components/BackToTop.vue` 唯一实例（App.vue 挂载，2026-09-14 落地） | 各视图自写滚动按钮、自写 `scrollTo(0)` 逻辑、自造浮标样式副本 |
@@ -92,3 +92,53 @@
 ## 7. 死代码处置原则
 
 不可达路由页、零引用组件、未挂载功能模块：先全库检索引用（含 tests、story2video 子目录）→ 无引用即删 → 全量单测验证。同功能双实现合并时保留一份测试并迁移引用方。
+
+## 8. 加载态（骨架屏）规则
+
+> 落地日期 2026-09-13。详细方案与分批计划见 [前端 UI/UX 优化方案](../01-docs/FRONTEND-UI-UX-OPTIMIZATION-PLAN.md)。
+
+### 8.1 唯一实现
+
+- **唯一组件**：`src/components/UiSkeleton.vue`（全局注册于 `main.js`，单测镜像注册于 `test-setup.js`）。
+- **唯一视觉来源**：`src/styles/skeleton.css` 的 `--skeleton-*` 令牌与 `.mp-skeleton-surface`；`@keyframes mp-skeleton-shimmer` 全库仅此一处。
+- **禁止**：自写骨架渐变、`@keyframes *shimmer*`、在 `skeleton.css` / `UiSkeleton.vue` 之外引用 `var(--skeleton-*)`；由 `UiSkeleton.contract.test.js` 8 条契约断言强制。
+
+### 8.2 变体选择规则（页面内容形态 → variant）
+
+| 内容形态 | variant | 建议数量 |
+|----------|---------|---------|
+| 卡片栅格（项目 / 流水线 / 模板 / 场景素材） | `card`（容器配 `.mp-skeleton-grid` + `.mp-skeleton-card`） | 6 |
+| 纵向条目列表（草稿 / 历史 / 收藏 / 榜单 / 日志 / 时间线） | `list` | 3~5 |
+| 明细、详情、弹窗内容 | `paragraph` | 3~4 |
+| 数据表格 | `table`（`tag="tr"` 可用于表格内） | 5 |
+| 图表 / 统计 | `chart` | — |
+| 看板、泳道 | `rect` 或 `card`（高度对齐真实卡片） | 6 |
+| 单字段、单行状态 | `text` | — |
+| 按钮内提交中 | **不用骨架**，用 `UiButton :loading` + 文案切换 | — |
+
+### 8.3 交互与显示项
+
+- 骨架在**数据到达后立即整体替换**为真实内容，不做逐条展开动画，避免"跳动"。
+- 骨架期间**不显示**"加载中"文字（视觉噪音）；文字仅保留给辅助技术（见 8.4）。
+- 加载超过 1 次的同页数据（分页加载更多）用骨架追加在列表尾部，不用全屏替换。
+- 骨架**不进入 tab 焦点序列**，不阻断用户操作其他区域（除提交按钮的 `disabled` 之外不做全局遮罩）。
+- 容器统一带 `data-testid="<page>-loading"`，便于视觉回归与单测定位。
+
+### 8.4 无障碍与动效
+
+- 根节点 `role="status"` + `aria-busy="true"`；内含视觉隐藏文案 `.mp-skeleton__sr`，默认读 i18n `common.loading`（zh「加载中...」/ en「Loading...」），可用 `label` prop 覆盖。
+- 尊重 `prefers-reduced-motion: reduce`：**关闭流光动画但保留骨块**（保持"内容会来"的心理模型）。
+- 明暗两套令牌由 `[data-theme="dark"]` 切换，禁止骨块颜色硬编码。
+
+### 8.5 文案与 i18n
+
+- 骨架屏本身不新增用户可见文案（零硬编码中文风险）；无障碍文案复用既有 key `common.loading`。
+- 若某页面需要"预计耗时"等附加提示，必须走 locale（zh/en 成对）并显示在骨架容器外，不覆盖骨架。
+
+### 8.6 已登记例外
+
+| 例外 | 位置 | 理由 |
+|------|------|------|
+| `@keyframes seg-shimmer` | `styles/history-panel.css` | 流水线进度条活动段扫光（2s 无限），非加载占位 |
+| `<el-dialog>` 内的 `v-loading` | FilmEngineering / PerformanceInsights 等 | Element Plus 表格/卡片局部遮罩，改造收益低 |
+| `UiButton .ui-btn-spinner` | `components/UiButton.vue` | 按钮内提交态，非页面级加载 |

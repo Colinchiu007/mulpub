@@ -1,0 +1,83 @@
+/**
+ * skeleton.css — 加载占位（骨架屏）视觉唯一来源（frontend-skeleton-unification）
+ *
+ * 规则（docs/frontend-interaction-spec.md §1 / 01-docs/FRONTEND-UI-UX-AUDIT.md §3）：
+ * - 骨架屏颜色/圆角/时长/缓动只在这里定义；组件与视图禁止再写渐变或 keyframes
+ * - 明暗两套令牌：暗色模式由 [data-theme="dark"] 覆盖，避免"白色骨架闪在深色底上"
+ * - 动画统一命名 mp-skeleton-shimmer（历史上有 shimmer / skeleton-shimmer 两套重名
+ *   keyframes 跨文件互相覆盖，已全部收敛到本文件）
+ * - 尊重 prefers-reduced-motion：关闭位移，仅保留静态色块
+ *
+ * 导入顺序：main.js 中在 tokens.css / cohere / video-creation-* 之后加载，确保
+ * --skeleton-* 覆盖旧值（旧 --skeleton-bg/--skeleton-shimmer 已从
+ * video-creation-tokens.css 迁出）。
+ */
+
+:root {
+  /* ---- 骨架基色 / 高光色 ---- */
+  --skeleton-bg: #e8eaef;
+  --skeleton-shimmer: #f7f8fb;
+
+  /* ---- 尺寸与形态 ---- */
+  --skeleton-bar-height: 14px;
+  --skeleton-radius: 6px;
+  --skeleton-radius-block: 10px;
+  --skeleton-media-height: 140px;
+
+  /* ---- 动效（慢速流光：明暗交错提示"加载中"）---- */
+  --skeleton-duration: 1.8s;
+  --skeleton-ease: ease-in-out;
+}
+
+[data-theme="dark"] {
+  --skeleton-bg: #2a2c38;
+  --skeleton-shimmer: #3b3e4d;
+}
+
+/**
+ * 骨架"骨块"通用表面：所有占位色块（文本行/方块/头像/媒体区）都挂这个类，
+ * 保证全应用只有一套渐变与动画定义。
+ */
+.mp-skeleton-surface {
+  background-color: var(--skeleton-bg);
+  background-image: linear-gradient(
+    90deg,
+    var(--skeleton-bg) 25%,
+    var(--skeleton-shimmer) 37%,
+    var(--skeleton-bg) 63%
+  );
+  background-size: 400% 100%;
+  animation: mp-skeleton-shimmer var(--skeleton-duration) var(--skeleton-ease) infinite;
+}
+
+@keyframes mp-skeleton-shimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+/**
+ * 骨架栅格与骨架卡片外壳：卡片类页面（项目库/流水线选择/模型服务商等）统一布局，
+ * 避免各页重复写 minmax 列宽或同名 .skeleton-card 互相覆盖。
+ */
+.mp-skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--skeleton-grid-min, 280px), 1fr));
+  gap: var(--skeleton-grid-gap, 16px);
+}
+
+.mp-skeleton-card {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mp-skeleton-surface {
+    animation: none;
+  }
+}

@@ -66,7 +66,9 @@
       @close="closeList"
     >
       <div class="config-profile-list" :data-testid="testIdPrefix + '-list-dialog'">
-        <div v-if="loading" class="config-profile-state">{{ t('common.loading') }}</div>
+        <div v-if="loading" class="config-profile-state" data-testid="config-profile-loading">
+          <UiSkeleton variant="list" :count="3" />
+        </div>
         <p v-else-if="errorMessage" class="config-profile-error">{{ errorMessage }}</p>
         <ul v-else-if="profiles.length" class="config-profile-items">
           <li v-for="profile in profiles" :key="profile.id" class="config-profile-item" :data-testid="testIdPrefix + '-row'">

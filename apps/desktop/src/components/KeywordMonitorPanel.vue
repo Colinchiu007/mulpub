@@ -25,9 +25,9 @@
       最多 20 个关键词
     </div>
 
-    <!-- Loading -->
-    <div v-if="loading" style="padding: 24px 0; text-align: center; color: var(--muted); font-size: 14px;">
-      加载中...
+    <!-- Loading：统一骨架屏 -->
+    <div v-if="loading" style="padding: 8px 0" data-testid="keyword-monitor-loading">
+      <UiSkeleton variant="list" :count="3" />
     </div>
 
     <!-- Empty state -->
@@ -76,8 +76,8 @@
     <UiModal
       :visible="historyVisible" title="监测历史" size="md"
       @close="historyVisible = false">
-      <div v-if="historyLoading" style="padding: 24px; text-align: center; color: var(--muted); font-size: 14px;">
-        加载中...
+      <div v-if="historyLoading" style="padding: 8px 0" data-testid="keyword-history-loading">
+        <UiSkeleton variant="paragraph" :rows="4" />
       </div>
       <div v-else-if="!historyEntries.length" style="padding: 24px; text-align: center; color: var(--muted); font-size: 14px;">
         暂无历史记录

@@ -7496,3 +7496,154 @@ listAccounts → pythonBackend GET /api/accounts → toPublicAccount
 
 其中第 3、8、12 项锁定阈值比较符、防连点时间锁、监听器与定时器清理，为最易被后续重构破坏的行为契约。
 
+
+
+---
+
+# 前端加载态（骨架屏）统一（2026-09-13）
+
+> 关联：`01-docs/FRONTEND-UI-UX-OPTIMIZATION-PLAN.md`（全量诊断与 L0~L4 方案）、`docs/frontend-interaction-spec.md` 第 8 节
+
+## 一、背景与目标
+
+**问题**：桌面端 155 个 `.vue`、30 条路由此前**没有统一的加载态实现**——3 个页面各写了一套骨架（颜色/动画/圆角/暗色/栅格六维互不一致），另有 30+ 处使用 spinner、纯文字「加载中...」、字符 `⟳` 或直接空白；`@keyframes skeleton-shimmer` 存在 4 份重名定义且互相覆盖。用户感知为「每页一套加载体验」。
+
+**目标**：
+
+1. 全应用**一个**骨架屏组件 + **一处**视觉令牌，明暗主题一致、动效一致；
+2. 每个「数据未就绪」的位置都有占位（不得空白），且占位**暗示内容结构**；
+3. 不新增硬编码文案；无障碍可朗读；尊重系统「减少动态效果」。
+
+## 二、功能逻辑
+
+### 2.1 组件能力（`components/UiSkeleton.vue`）
+
+| 属性 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `variant` | String | `text` | 9 种变体（见 2.2）；白名单外取值在开发态告警 |
+| `tag` | String | `div` | 根元素标签，表格内可传 `tr` |
+| `rows` | Number | 3 | `paragraph` 行数，末行自动收口 62% |
+| `count` | Number | 3 | `list` / `table` 条目数 |
+| `columns` | Number | 4 | `table` 列数 |
+| `width` / `height` | String \| Number | `''` | 数字按 px，字符串原样 |
+| `radius` | String | `''` | 覆盖圆角 |
+| `animated` | Boolean | `true` | `false` 时关闭流光、保留骨块 |
+| `label` | String | `''` | 无障碍朗读文案，默认取 i18n `common.loading` |
+
+### 2.2 变体与适用场景
+
+| variant | 结构 | 适用 |
+|---------|------|------|
+| `text` | 1 条文本行 | 单字段、行内状态位 |
+| `paragraph` | N 行（末行 62%） | 明细、弹窗内容、正文 |
+| `rect` / `circle` | 单块（可设宽高圆角） | 媒体位、缩略图、头像 |
+| `card` | 媒体区 140px + 2 行 | 项目库、流水线、模板、场景卡 |
+| `list` | N ×（头像 36px + 3 行 + 右侧操作位） | 草稿、历史、收藏、榜单、日志 |
+| `table` | 表头 + N×M 单元格 | 云端任务、爆款库 |
+| `chart` | 8 根底对齐柱 | 趋势/基准图、分析结果 |
+| `custom` | 默认插槽 | 特殊组合（骨块须挂 `.mp-skeleton-surface`） |
+
+### 2.3 视觉令牌（`styles/skeleton.css`，唯一来源）
+
+| 令牌 | 浅色 | 暗色 | 说明 |
+|------|------|------|------|
+| `--skeleton-bg` | `#e8eaef` | `#2a2c38` | 骨块基色 |
+| `--skeleton-shimmer` | `#f7f8fb` | `#3b3e4d` | 流光高光色（与基色亮度差约 8%） |
+| `--skeleton-bar-height` | 14px | — | 文本行高 |
+| `--skeleton-radius` / `--skeleton-radius-block` | 6px / 10px | — | 行 / 块圆角 |
+| `--skeleton-media-height` | 140px | — | 卡片媒体区高度 |
+| `--skeleton-duration` / `--skeleton-ease` | 1.8s / `ease-in-out` | — | 慢速流光（原 1.5s 偏快） |
+
+## 三、交互逻辑
+
+1. **出现**：页面/区块进入 `loading = true` 即刻渲染骨架，替换原内容区（同一容器内切换，不跳布局）。
+2. **消失**：数据到达（成功/失败/空）后骨架**整体一次性**消失，不做逐条「渐显」，避免跳动。
+3. **与三态的关系**：`loading` > `error` > `empty` > `content` 优先级固定；骨架只表达「正在取数」，**不用骨架表达错误或空**（错误用错误态 + 重试，空用 `EmptyState` + CTA）。
+4. **分页「加载更多」**：骨架追加在列表**尾部**，不整屏替换既有内容。
+5. **提交类操作**：不使用骨架，使用按钮 `loading` + 文案切换（禁用重复提交）。
+6. **不阻断操作**：骨架不做全局遮罩（`v-loading` 仅保留在 Element Plus 表格/卡片局部场景），不进入 tab 焦点序列。
+7. **重复加载**：同一数据的二次加载（如刷新）也显示骨架，不使用旧数据「假保留」，避免误导。
+
+## 四、显示项与页面映射（本次落地）
+
+| 页面/组件 | 形态 | variant |
+|-----------|------|---------|
+| 项目库 `ProjectLibrary` | 卡片栅格 ×6 | `card` |
+| 流水线选择 `PipelineSelector` | 卡片栅格 ×6 | `card` |
+| 流水线浏览 `PipelineBrowser` | 卡片栅格 ×6 | `card` |
+| 模型服务商 `ModelProviders` | 卡片 ×3（上下两段文本） | `paragraph` |
+| 账号管理 `Accounts` | 卡片栅格 ×4 | `card` |
+| 分镜素材 `SceneAssetSelection` | 缩略图位 | `rect` |
+| 场记表 `ContactSheetView` / 看板 `ProductionBoard` | 卡片栅格 ×6 | `card` |
+| 发布草稿 `Publish` / `PublishDraftList` / 发布记录 `PublishHistory` | 条目 ×3~5 | `list` |
+| 创作历史 `CreateHistory` / `CreateViewHistory` | 条目 ×4~5 | `list` |
+| 回放 `ReplayTimeline` | 条目 ×4 | `list` |
+| 云端发布 `CloudPublish` | 表格 4×4 | `table` |
+| 爆款库 `ViralLibraryTable` | 表格 5×6（`td` 内嵌） | `table` |
+| 结果页 `ResultView` | 段落 ×4 | `paragraph` |
+| 爆款分析 `ViralAnalysis` | 图表 | `chart` |
+| 基准图 `BenchmarkChart` | 图表 | `chart` |
+| 榜单 `TrendingPanel` / 关键词面板 `KeywordMonitorPanel` / 个人知识 `PersonalKnowledgePanel` / 模板 `TemplatePicker` / 配置档案 `ConfigProfileManager` / 日志 `LogsSettings` | 条目 ×3~4 | `list` |
+| 标题助手 `TitleAssistantPanel` / 标签建议 `TagSuggester` / 审批门 `ApprovalGateModal` / 监控历史 | 段落 2~4 行 | `paragraph` |
+| 最佳时间 `OptimalTimeTip` | 单行 | `text` |
+| 创作页音色目录 / BGM 库 / 配置档案弹窗 / 批量队列 | 行内状态 | `text` / `list` |
+
+## 五、提示文字（i18n）
+
+| 场景 | 文案 | key |
+|------|------|-----|
+| 无障碍朗读（视觉隐藏） | 加载中... / Loading... | `common.loading`（既有 key，复用，无新增） |
+| 骨架期间可见文字 | **无**（视觉噪音，按设计移除） | — |
+| 例外：不再展示的文案 | 「加载中...」「正在加载音色目录…」「加载审批门…」等 | 保留在 locales 不删除（避免破坏潜在引用方），但界面不再引用 |
+
+> 本次未新增任何硬编码中文，`check-locale-sync.js --cjk` 基线不增长。
+
+## 六、数据校验与状态约定
+
+1. `loading` 必须是**布尔 ref**，且与数据赋值在同一 `try/finally` 内复位（`finally { loading = false }`），禁止只在一处分支复位。
+2. 骨架**不做输入校验**（无用户输入），但需保证：`loading === true` 时不得同时渲染真实内容（避免内容与骨架并存）。
+3. `count` / `rows` / `columns` 必须为正整数；建议与真实数据规模同量级（列表 3~5 条、栅格 6 个），避免「骨架 3 条、真实 20 条」造成的跳动。
+4. 异步失败时必须能落到 error 态；禁止「失败后 loading 永真」（骨架永久停留）。
+
+## 七、流程（区块状态机）
+
+```
+idle ──触发取数──▶ loading（渲染骨架）
+                      ├─ 成功且有数据 ─▶ content
+                      ├─ 成功但为空   ─▶ empty（EmptyState + CTA）
+                      └─ 失败         ─▶ error（错误提示 + 重试）
+```
+
+## 八、非影响范围（明确不变项）
+
+- 主进程 IPC、任务队列、RPA 执行器、发布链路：零改动。
+- 业务流程与路由结构：零改动（本次只替换「取数期间」的占位表现）。
+- Element Plus 表格/卡片局部 `v-loading`：保留，不改造（已登记为例外）。
+- 业务数据字段与接口协议：零改动（纯渲染层）。
+
+## 九、回归保护
+
+| 类型 | 位置 | 覆盖 |
+|------|------|------|
+| 组件单测 | `components/UiSkeleton.test.js` | 14 条：各 variant 结构 / rows / count / columns / 尺寸 px 化 / `animated=false` / label 兜底 / 自定义 tag / custom 插槽 / `role=status` |
+| 源码契约 | `components/UiSkeleton.contract.test.js` | 8 条：令牌唯一来源、暗色覆盖、共享 keyframes 唯一且历史命名归零、`prefers-reduced-motion`、`var(--skeleton-*)` 仅两处、历史内联类名归零、`.mp-skeleton-surface` 唯一归属、variant 白名单 |
+| 页面断言 | `ProjectLibrary.test.js` 等 | 断言 `.mp-skeleton-grid` / `.mp-skeleton-card` / `data-testid="ui-skeleton"` 存在 |
+| 测试环境 | `test-setup-locale.js` | 语言确定性前置，消除依赖 `@/i18n` 的中文断言 flakiness |
+
+## 十、风险与缓解
+
+| 风险 | 等级 | 缓解 |
+|------|------|------|
+| 页面视觉变更引起回归 | 中 | 每批替换后跑视觉回归（浅色/暗色/reduced-motion 三模式） |
+| 测试断言「加载中」文案失效 | 低 | 骨架默认渲染 i18n `common.loading`（zh 即「加载中...」），多数断言自然通过；差异处改为断言「骨架存在」 |
+| 骨架宽高与真实内容差异大导致跳动 | 低 | 数量与真实规模对齐；卡片高度用 `--skeleton-media-height` 统一 |
+| 暗色主题未接线导致暗色令牌无法验证 | 中 | 已实现暗色令牌；主题入口接线列为后续批次（P5），届时补暗色视觉回归 |
+
+## 十一、验收标准
+
+- [ ] 全应用仅存在 1 处 `@keyframes mp-skeleton-shimmer`、1 份 `--skeleton-*` 定义
+- [ ] 本次列出的页面/组件在取数期间均渲染骨架，无空白/纯文字/spinner
+- [ ] 骨架在明暗两套令牌、`prefers-reduced-motion` 下表现正确
+- [ ] `UiSkeleton.test.js` + `UiSkeleton.contract.test.js` + 受影响页面测试全绿
+- [ ] `check-locale-sync.js --cjk / --keys` 通过，无新增硬编码中文
+- [ ] 视觉回归基线更新并随 PR 提交

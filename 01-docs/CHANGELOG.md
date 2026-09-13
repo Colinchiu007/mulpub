@@ -1,4 +1,30 @@
-<<<<<<< HEAD
+## [Unreleased] - 2026-09-13 (lint 清理：消除唯一 no-useless-assignment)
+
+### 修复
+- `apps/desktop/src/views/HotTopics.vue` 的 `loadFromCacheThenRefresh()` 中 `let cached = null` 的初值在 try/catch 两条路径都会被覆盖，触发 eslint `no-useless-assignment`；经 `pnpm exec eslint src/ --no-ignore` 全量扫描确认这是 `apps/desktop/src` 下的**唯一**一处该规则告警。改为 `let cached`（不写初值）并补注释说明原因，行为完全不变（读取失败仍走 catch → null → 未命中缓存走网络抓取）。
+- 同一行在 main 上属**历史遗留**（非本次改动引入）：`git blame` 与 `eslint` 在修复前的 main 同位置均报同一错误，故本次单独以 lint 清理提交处理，不与其他逻辑混提。
+
+### 测试
+- `HotTopics.test.js` 26 用例全绿（缓存优先渲染/后台静默刷新/无缓存走网络抓取等 SWR 路径均覆盖该函数）。
+- `pnpm exec eslint src/views/HotTopics.vue --no-ignore` → 0 problem（修复前 1 error）；`check-debt-budget.js` 全部在基线内（HotTopics.vue 993 行 < 1000）。
+- 说明：该规则此前不在 CI 门禁内（`.github/workflows/quality-gate.yml` 无 lint 步骤），本次未扩大范围把全局 lint 接入 CI（仓库仍有 `no-unused-vars` 31 处等既有告警，接入需先定阈值/基线）。
+
+## [Unreleased] - 2026-09-13 (热门选题一键生成视频：后台运行后可并行发起新任务)
+
+### 修复
+- 热门选题页点某选题【生成视频】→ 弹窗内点【后台运行】→ 弹窗消失后，点**任意**选题的【生成视频】均无反应（按钮永久禁用）。根因：后台脱离路径 `handleGenVideoClose()` 只把 `genVideoPhase` 置为 `'background'`，从未复位 `genVideoBusy`；而入口同时有模板禁用 `:disabled="genVideoBusy"` 与方法内守卫 `if (genVideoBusy.value) return`，两处共用一个永不复位的标志（引入于 PR #1726 / commit `0c21d9561`，显式【后台运行】按钮 `d895eada8` 扩大了触发面）。
+- 修复：抽出唯一复位路径 `resetGenVideoFrontendState()`（seq+1 使在途响应失效 → 停轮询/订阅/tick → 弹窗关闭 → phase='idle' → topic/stages/runId/progress/errorText/startedAt 清空 → **释放 genVideoBusy**），后台脱离与终态关闭共用；与视频创作页「脱离即全量复位」（`resetPipelineToNewTaskState`）语义对齐。热门选题**支持多任务并行**，并发上限由主进程 `PipelineEngine.maxConcurrentRuns`（`PIPELINE_CONCURRENCY_LIMIT`）判定，前端不再自设单任务锁。
+- 同时修正：改写/启动阶段（尚无 run）点右上角 × 由「误报已转入后台（且后端仍会静默启动流水线）」改为「中止前端编排」——弹窗关闭、前端态复位、不启动流水线、无后台任务。
+- 附带修复（文档）：`01-docs/CHANGELOG.md` 顶部残留的 3 行 Git 冲突标记（由 PR #4ab55b22 提交遗留），按"两段均为有效条目"合并保留。
+
+### 测试
+- `HotTopics.test.js` 新增/改写 4 条并发回归用例：①运行中关闭 → 后台脱离并复位前端态（busy 释放、runId 清空、不取消 run）；②改写阶段关闭 → 中止前端编排（不启动流水线）；③弹窗在途 busy 守卫仍拦截第二次编排（修复不过界）；④【后台运行】脱离后另一选题可立即启动并行流水线（按钮可用 + 第二次启动使用第二条选题的改写产物 + runId 切换）。原断言缺陷行为的用例 `keeps busy guard` 已改写；26 用例全绿。
+
+### 文档
+- 更新 01-docs/PRD-HOT-TOPICS-MODULE-2026-09-11.md（§3.10 取消/后台运行/并发约束口径修正、§5.6 流程图补并行与中止分支、§6.6 按钮矩阵与交互逻辑、**新增 §6.7 并发任务与前端态复位规格**、§8 验收标准新增第 12/13 条、§9 测试覆盖）
+- 新增 01-docs/BUGFIX-HOT-TOPICS-GEN-VIDEO-PARALLEL-2026-09-13.md（Bug 反思 5 步：根因溯源 `0c21d9561` / 逃逸链 / 系统性漏洞 / 修复与回归测试 / 预防措施 + 交互时序、提示文字、边界情况）
+- 更新 01-docs/learnings.md（pitfall：前端自设并发闸门、禁用态必须与复位路径成对、注释与实现不一致要质疑、测试可能固化缺陷）
+
 ## [Unreleased] - 2026-09-13 (图片轮播模式人脸种族一致性修复)
 
 ### 修复
@@ -11,7 +37,7 @@
 ### 文档
 - 更新 01-docs/PRD-STORY2VIDEO-SCENE-CONTEXT-2026-08-11.md（§5.3 功能逻辑 + §7 验收标准新增人脸一致性条目）
 - 更新 01-docs/ARCH-STORY2VIDEO-SCENE-CONTEXT-2026-08-11.md（新增人物外观锚默认规则说明）
-=======
+
 ## [Unreleased] - 2026-09-13 (视频创作·历史记录「查看文案」)
 
 ### 新增
@@ -21,7 +47,6 @@
 
 ### 文档
 - 新增 01-docs/PRD-STORY2VIDEO-HISTORY-VIEW-SCRIPT-2026-09-13.md（功能描述/数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字/边界情况）。
->>>>>>> 4ab55b22 (docs: 新增查看文案功能 PRD，更新 CHANGELOG 与 i18n 术语表)
 
 ## [Unreleased] - 2026-09-07 (全自动内容生产与发布管道)
 

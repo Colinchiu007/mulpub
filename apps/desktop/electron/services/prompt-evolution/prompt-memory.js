@@ -71,12 +71,14 @@ function isPlainObject (v) {
  * @param {(templateId:string)=>object|null} [opts.statsProvider]
  * @param {object} [opts.log]
  * @param {()=>Date} [opts.now]
+ * @param {(template:object)=>object} [opts.gate] - 门禁函数（governance.runGates），返回 {pass, results, checksum}；未注入时跳过门禁
  */
 function createPromptMemory (opts) {
   const libraryRoot = opts.libraryRoot
   const log = opts.log || { info: () => {}, warn: () => {}, error: () => {} }
   const statsProvider = opts.statsProvider || (() => null)
   const nowFn = opts.now || (() => new Date())
+  let gate = typeof opts.gate === 'function' ? opts.gate : null
 
   /** @type {Record<string, object>} 内存索引：id -> {index 摘要} */
   let index = { schemaVersion: SCHEMA_VERSION, dictVersion: DICT_VERSION, items: {} }
@@ -306,6 +308,15 @@ function createPromptMemory (opts) {
     const tpl = norm.template
     const checksum = tpl.guard.checksum
 
+    // CCG 评审修复：接入 governance.runGates 门禁（6 规则：structure/compliance/length/noSecrets/dedup/evaluatorVersion）
+    // 门禁失败 → 拒绝入库（fail-closed）；未注入 gate 时跳过（兼容测试/降级路径）
+    if (gate) {
+      const g = gate(tpl)
+      if (!g.pass) return { ok: false, code: 'TEMPLATE_GATE_FAILED' }
+      // 门禁通过后以门禁计算的 checksum 覆盖（dedup 规则产出）
+      if (g.checksum) tpl.guard.checksum = g.checksum
+    }
+
     // 版本优先级（m9）：(1) checksum 完全碰撞拒绝；(2) 同源指纹相似升版；(3) 否则新 id
     let collisionId = null
     let upgradeId = null
@@ -381,8 +392,11 @@ function createPromptMemory (opts) {
     const tpl = templatesCache.get(id)
     if (!tpl) return null
     if (version && version !== tpl.version) {
+      // CCG 评审修复：version 必须为正整数（防路径穿越，如 ../../ 逃出 templates 目录）
+      const v = Number(version)
+      if (!Number.isInteger(v) || v <= 0) return null
       // 读取指定历史版本
-      const p = templatePath(id, version)
+      const p = templatePath(id, v)
       if (!fs.existsSync(p)) return null
       try {
         return JSON.parse(fs.readFileSync(p, 'utf8'))
@@ -460,7 +474,12 @@ function createPromptMemory (opts) {
     return changed
   }
 
-  return { load, list, listActive, get, saveLearnt, activate, deprecate, disable, refreshFingerprints, _writeTemplate, _setState }
+  /** 注入/更新门禁函数（governance.runGates；解决 governance↔memory 循环依赖，由接线方在创建 governance 后调用） */
+  function _setGate (fn) {
+    gate = typeof fn === 'function' ? fn : null
+  }
+
+  return { load, list, listActive, get, saveLearnt, activate, deprecate, disable, refreshFingerprints, _writeTemplate, _setState, _setGate }
 }
 
 module.exports = {

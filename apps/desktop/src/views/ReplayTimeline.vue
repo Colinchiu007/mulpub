@@ -14,8 +14,8 @@
     </div>
 
     <!-- 加载状态 -->
-    <div v-if="loading" class="replay-loading">
-      <span class="spinner"></span> 加载回放数据...
+    <div v-if="loading" class="replay-loading" data-testid="replay-loading">
+      <UiSkeleton variant="list" :count="4" />
     </div>
 
     <!-- 错误状态 -->

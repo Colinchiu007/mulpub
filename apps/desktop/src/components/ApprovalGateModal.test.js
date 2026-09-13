@@ -55,7 +55,10 @@ describe("ApprovalGateModal", () => {
     const w = mountModal();
     await nextTick();
     expect(w.find(".gate-loading").exists()).toBe(true);
-    expect(w.text()).toContain("加载审批门");
+    // 统一骨架屏：断言骨架渲染而非"加载中"文案（文案只保留给辅助技术）
+    expect(w.find('[data-testid="approval-gate-loading"]').exists()).toBe(true);
+    expect(w.findAll(".mp-skeleton-surface").length).toBeGreaterThan(0);
+    expect(w.text()).toContain("加载中");
   });
 
   it("shows empty state when no gate", async () => {

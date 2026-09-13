@@ -9,6 +9,7 @@ import './styles/cohere-design-system.css'
 import './styles/video-creation-tokens.css'
 import './styles/video-creation-buttons.css'
 import './styles/video-creation-shared.css'
+import './styles/skeleton.css'
 import App from './App.vue'
 import i18n from './i18n'
 import router from './router'
@@ -16,6 +17,7 @@ import { reportError } from './utils/report-error'
 import { getApi } from './api/electron-bridge'
 import EmptyState from './components/EmptyState.vue'
 import LoadingState from './components/LoadingState.vue'
+import UiSkeleton from './components/UiSkeleton.vue'
 
 const app = createApp(App)
 
@@ -47,4 +49,5 @@ app.use(ElementPlus)
 app.component('QuillEditor', QuillEditor)
 app.component('EmptyState', EmptyState)
 app.component('LoadingState', LoadingState)
+app.component('UiSkeleton', UiSkeleton)
 app.mount('#app')

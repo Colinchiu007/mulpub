@@ -6,8 +6,8 @@
     </div>
 
     <!-- Loading -->
-    <div v-if="loading" style="text-align:center;padding:20px 0;font-size:13px;color:var(--muted);animation:pulse 1.5s ease-in-out infinite">
-      {{ loadingText }}
+    <div v-if="loading" style="padding:8px 0" data-testid="tag-suggester-loading">
+      <UiSkeleton variant="paragraph" :rows="2" />
     </div>
 
     <!-- Empty / no content -->
@@ -138,12 +138,6 @@ platformStore.load()
 function platformLabel (key) {
   return platformStore.getLabel(key) || key
 }
-
-const loadingText = computed(() =>
-  suggestions.value?.source === 'extractor'
-    ? t('tagSuggest.loadingLocal')
-    : t('tagSuggest.loadingAI')
-)
 
 // Grouped view: prefer byPlatformDetail; fall back to single merged group (old structure)
 const platformGroups = computed(() => {

@@ -15,6 +15,72 @@
 - locale-sync 三项 PASS：`--keys`（927 key）/ `--cjk`（基线 1689 → 1500，无新增硬编码）/ `--pair-base`（zh/en 成对）
 - eslint 0 error（改动 6 文件）
 - 文档同步：`01-docs/PRD.md` 末尾增量章节（183 行）+ 专项 PRD `01-docs/PRD-BACK-TO-TOP-BUTTON-2026-09-14.md` + `docs/desktop-ui-layout-spec.md` §14 + `docs/frontend-interaction-spec.md` §2
+# [未发布] refactor(desktop-ui): 加载态（骨架屏）统一体系 + UiSkeleton 组件（2026-09-13）
+
+### 重构
+- **新增唯一骨架屏实现**：`styles/skeleton.css`（`--skeleton-*` 令牌 + 唯一 `@keyframes mp-skeleton-shimmer` + `[data-theme="dark"]` 覆盖 + `prefers-reduced-motion` 兜底 + `.mp-skeleton-grid` / `.mp-skeleton-card` 布局工具）+ `components/UiSkeleton.vue`（9 variant：text/paragraph/rect/circle/card/list/table/chart/custom；`role="status"` + `aria-busy` + 视觉隐藏的 i18n `common.loading` 文案；`animated=false` 可关流光但保留骨块）
+- **收敛历史实现**：清除 4 份重名 `@keyframes skeleton-shimmer`（ModelProviders / PipelineBrowser / create-view.css / history-page.css）、删除 3 处死代码骨架样式、`--skeleton-*` 从 `video-creation-tokens.css` 迁出、`ProjectLibrary.vue` 样式块由全局改 `scoped`（消除 `.skeleton-card` 跨文件互相覆盖）
+- **迁移加载点到 UiSkeleton**：ProjectLibrary / PipelineSelector / ModelProviders / PipelineBrowser / Accounts / Publish / PublishHistory（3 处）/ ResultView / ReplayTimeline / ProductionBoard / ContactSheetView / CreateHistory（2 处）/ CreateViewHistory / CreateView（4 处）/ CloudPublish / ViralAnalysis / SceneAssetSelection / PublishDraftList / TrendingPanel / KeywordMonitorPanel（2 处）/ PersonalKnowledgePanel / ViralLibraryTable / BenchmarkChart / TemplatePicker / TitleAssistantPanel / OptimalTimeTip / TagSuggester / LogsSettings / ConfigProfileManager / ApprovalGateModal
+- **统一视觉参数**：1.8s `ease-in-out` 慢速流光（原 1.5s），明暗亮度差约 8%，暗色独立令牌避免"白块闪在深色底上"
+- **可测试性**：`main.js` 全局注册 + `test-setup.js` 镜像注册，`data-testid` 统一为 `<page>-loading`
+
+### 修复
+- `PipelineBrowser.vue` 的 `.pipeline-card:focus-visible` 原先写在样式块结束标签之后，规则从未生效（键盘可达性缺陷）
+- **测试环境语言漂移**：`resolveAppLocale()` 在 `@/i18n` 模块首次 import 时即固定 locale，而 `test-setup.js` 中 `navigator.language` 的钉值晚于该文件自身被提升的 import → 只要有组件链在 test-setup 顶部加载 `@/i18n`，整个测试进程默认语言便从 zh 漂移到 en，中文文案断言随机失败。新增 `test-setup-locale.js` 并置于 vitest `setupFiles` 首位修复
+
+### 验证
+- 新增 `UiSkeleton.test.js` 14 条 + `UiSkeleton.contract.test.js` 8 条源码级契约（令牌唯一来源 / 暗色覆盖 / 共享 keyframes 唯一且历史命名归零 / token 只出现在两处 / 历史内联类名归零）
+- 受影响 5 个测试文件 47 条全绿；契约测试对"再粘一份内联骨架"直接失败
+- locale 门禁零风险：骨架文案走 i18n `common.loading`，未新增硬编码中文
+
+### 文档
+- 新增 `01-docs/FRONTEND-UI-UX-OPTIMIZATION-PLAN.md`（全量诊断 + L0~L4 分层方案 + P0~P5 批次与工时 + DoD + 一致性例外白名单）
+- PRD 追加「前端加载态（骨架屏）统一」章节；`docs/frontend-interaction-spec.md` 更新页面级 Loading 条款并新增第 8 节
+
+# [未发布] feat(scripts): 新增「测试覆盖但未接线」死代码检测脚本（detect-unwired-exports，2026-09-13）
+
+### 新增
+- **detect-unwired-exports.js**：检测「测试覆盖但未接线」的死代码导出——有测试证明其正确但生产代码从未调用（如 governance.runGates 死代码）
+- 检测逻辑：扫描模块导出（仅函数/类）→ 统计生产代码调用（含 require 引用/解构/继承）→ 标记「生产调用 0 次但测试有调用」的导出
+- 用法：`node scripts/detect-unwired-exports.js <dir> [--root <prodRoot>]`
+- 测试：detect-unwired-exports.test.js 6 用例全绿（死代码标记/生产调用/内部辅助/require 引用/继承/常量排除）
+
+### 验证
+- 扫描 electron/services 发现 2 个真实死代码候选：`TasksRepo`（tasks-repo.js）、`SessionRecorder`（user-session-recorder.js）——有测试但生产代码从未调用
+- 误报消除：adapter 类（require 引用）、基类（extends）、内部辅助函数、常量均正确排除
+
+# [未发布] docs(AGENTS): 新增 QM-6 强制 CCG 双模型外部评审（2026-09-13）
+
+### 变更
+- AGENTS.md 新增 QM-6 强制门禁：M+ 复杂度或中/高风险任务提交 PR 前必须执行 CCG 双模型评审（claude 后端 + opencode 前端并行）
+- Critical 必须修复后才能合并；Warning 评估后修复；评审记录写入 .quality-gates.md
+- 补充 QM-2 自审（代码审查必检项），外部交叉审查不可互相替代
+- 与质量节拍 skill 的"日常循环 Step ④ 审查"强制卡点同步固化
+
+# [未发布] fix(ccg-review): CCG 双模型评审修复（claude + opencode，2026-09-13）
+
+## [未发布] fix(core): checkLocalCredentials session cookie 路径修复 — 补齐 session/ 子目录（2026-09-13）
+
+- checkLocalCredentials session cookie 备选路径补齐 startup-compat 重定向的 session/ 前缀
+- 同时检查 session/Partitions/ 和 Partitions/，兼容新旧数据布局
+
+### 修复（CCG 外部评审发现）
+- **Critical（content-quality-eval）**：`startRewrite()` 未重置 `rewriteQuality`，第二次改写无 quality 时旧质量报告残留（stale-data bug）→ 新增 `rewriteQuality.value = null`
+- **Critical（p1b-memory）**：`governance.runGates()` 在生产路径从未被调用（6 规则门禁是死代码）→ 新增 `gate` 注入参数 + `_setGate` 方法，phase1-context 接线 governance.runGates 到 saveLearnt
+- **Warning（content-quality-eval）**：`typeof quality === 'object'` 接受数组 → 增加 `!Array.isArray` 守卫；suggestions 未做数组守卫 → 增加 `Array.isArray`；verdict CSS class 未归一化 → 非法值回退 fail
+- **Warning（p1b-memory）**：`get(id, version)` 的 version 参数未校验（路径穿越风险）→ 增加正整数校验
+- **Info（content-quality-eval）**：`qualitySuggestions` key 未使用 → 添加建议列表标题
+
+### 验证
+- prompt-memory.test.js 27 通过（新增 4：gate 拒绝/通过/_setGate 动态注入/路径穿越）
+- RewriteView.test.js 39 通过（新增 4：stale-data 修复/数组占位/verdict 回退/suggestions 非数组）
+- locale-sync --keys（927 key）/--cjk/--pair-base PASS；eslint 0 error（2 个既有 warning 非本次引入）
+# [未发布] fix(collection): 手动采集豁免活跃时段 + 错误消息区分 — 消除知乎 22 点后误报「请求过于频繁」（2026-09-13）
+
+### 修复
+- **根因**：知乎 activeHours 为 8-22 点，用户 22 点后手动点击采集被 RateLimiter 的 outside-active-hours 拦截，但 url-collector 对所有限流拦截统一返回「请求频率受限」→ 前端 classifyCollectError 误判为 rate_limited（显示「请求过于频繁，被平台限流」）。
+- **修复**：① RateLimiter.evaluate 的 manual 模式豁免活跃时段检查（用户手动点击采集不受「模拟人工活跃时段」限制，与 weekend-throttle 豁免同理）；② url-collector 对 outside-active-hours 错误消息区分，不再误报频率受限。
+- **回归测试**：rate-limiter 2 个（manual 23 点放行 / 非 manual 23 点仍拦截）+ url-collector 1 个（错误消息不含「请求频率受限」）。
 
 # [未发布] feat(rewrite): 改写质量评估报告桌面端闭环（content-quality-eval-desktop，2026-09-13）
 

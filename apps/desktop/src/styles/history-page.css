@@ -405,24 +405,7 @@
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* --- Skeleton Loading --- */
-.skeleton {
-  background: var(--apple-surface-tertiary);
-  border-radius: var(--apple-radius-sm);
-  position: relative;
-  overflow: hidden;
-}
-.skeleton::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
-  animation: skeleton-shimmer 1.5s infinite;
-}
-@keyframes skeleton-shimmer {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(100%); }
-}
+/* --- Skeleton Loading：统一改用 <UiSkeleton>（styles/skeleton.css） --- */
 
 /* --- Responsive --- */
 @media (max-width: 720px) {

@@ -876,14 +876,23 @@ function checkLocalCredentials (platform, accountId, options = {}) {
   // 此备选路径让 checkLocalCredentials 把 session Cookie 文件的存在也视为有效凭证。
   if (isSafePathSegment(accountId)) {
     try {
-      const sessionCookiePath = path.join(userDataDir, 'Partitions', 'account-' + accountId, 'Network', 'Cookies')
-      if (fs.existsSync(sessionCookiePath)) {
-        const cookieStats = fs.statSync(sessionCookiePath)
-        if (cookieStats.size > 0) {
-          log.info('AccountManager', 'checkLocalCredentials: OK session-cookie ' + platform + ':' + accountId + ' size=' + cookieStats.size + 'B (fallback from missing encrypted file)')
-          return true
+      // sessionData 路径被 startup-compat.js 重定向到 userDataDir/session，
+      // 因此账号级 persist:account-{id} 分区的 Cookie 实际落在
+      // userDataDir/session/Partitions/account-{id}/Network/Cookies。
+      // 旧版本落在 userDataDir/Partitions/...；两处都检查，兼容历史数据。
+      const sessionCookieCandidates = [
+        path.join(userDataDir, 'session', 'Partitions', 'account-' + accountId, 'Network', 'Cookies'),
+        path.join(userDataDir, 'Partitions', 'account-' + accountId, 'Network', 'Cookies'),
+      ]
+      for (const sessionCookiePath of sessionCookieCandidates) {
+        if (fs.existsSync(sessionCookiePath)) {
+          const cookieStats = fs.statSync(sessionCookiePath)
+          if (cookieStats.size > 0) {
+            log.info('AccountManager', 'checkLocalCredentials: OK session-cookie ' + platform + ':' + accountId + ' size=' + cookieStats.size + 'B path=' + sessionCookiePath + ' (fallback from missing encrypted file)')
+            return true
+          }
+          log.info('AccountManager', 'checkLocalCredentials: session cookie file empty for ' + platform + ':' + accountId + ' path=' + sessionCookiePath)
         }
-        log.info('AccountManager', 'checkLocalCredentials: session cookie file empty for ' + platform + ':' + accountId)
       }
     } catch (e) {
       log.warn('AccountManager', 'checkLocalCredentials: session cookie check error for ' + platform + ':' + accountId + ' ' + (e && e.message ? e.message : String(e)))
