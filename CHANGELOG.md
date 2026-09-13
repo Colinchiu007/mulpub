@@ -17,6 +17,74 @@
 - 新增 `01-docs/BUGFIX-DESKTOP-DEV-ELECTRON-RUN-AS-NODE-2026-09-14.md`、`01-docs/BUGFIX-HOT-TOPICS-CACHE-CLEARED-ON-FETCH-FAILURE-2026-09-14.md`（QM-5 五步反思）
 - 新增 `01-docs/E2E-HOT-TOPICS-ONE-CLICK-VIDEO-2026-09-14.md`（E2E 运行手册：资产、前置、用法、逐步断言、4 条硬约束、宿主环境陷阱排查表、发布步骤设计、已知限制）
 
+# [未发布] refactor(scripts): 死代码清理 + 检测脚本优化与 CI 接入（2026-09-13）
+
+### 删除死代码（「测试覆盖但未接线」——有测试但生产代码从未调用）
+- **`tasks-repo.js` + `tasks-repo.test.js`**：从 MediaTrace 迁移的持久化任务仓库，从未接入生产路径（无任何 require 引用）
+- **`auth-window.js` + `auth-window.test.js`**：独立认证窗口工厂，已被 `identity-auth-window.js` 替代（auth-view-manager.js 注释明确「不再需要」）
+
+### 检测脚本优化（`scripts/detect-unwired-exports.js`）
+- **性能**：`collectCallIdentifiers` 一次性扫描替代逐导出×逐文件正则（O(文件数) 替代 O(导出数×文件数)），electron/services 全量扫描从 120s+ 降至 1.7s
+- **修复 `\b` 前缀 bug**：原 `[^A-Za-z0-9_$]` 消耗前缀字符导致 `if (isLoginSuccess(...))` 等调用丢失（`if (` 消耗 `(` 后 `isLoginSuccess` 无前缀可用），改用零宽 `\b`
+- **DI seam 识别**：`set` 开头 + 测试调用 ≥10 次（如 `setSafeStorage`）判定为测试注入点，非死代码
+- **白名单**：`user-session-recorder.js`（测试辅助工具，BACKLOT_RECORD_SESSION 门控）整体跳过
+
+### CI 接入（`.github/workflows/debt-guard.yml`）
+- 新增「死代码检测（软门禁）」步骤：运行检测脚本输出候选清单，`continue-on-error` 不阻塞 CI（已知 DI seam/动态引用误报需人工确认）
+
+# [未发布] fix(account): 账号登录态检测对齐蚁小二 HTTP API，修复登录页误判与失效误报（2026-09-14）
+
+### 修复
+- **视频号失效误判**（PR #1817）：视频号凭证只有 localStorage（cookies=0），checkLoginStatus 渲染崩溃保护分支只查本地凭证文件 → 永远判有效。对齐蚁小二 getShipinhaoUserInfo：POST channels.weixin.qq.com/cgi-bin/mmfinderassistant-bin/auth/auth_data，errCode 300333/300334 判失效，data.finderUser 存在判有效
+- **公众号失效误判**：Cookie（slave_sid）过期后访问 cgi-bin/home 仍返回 200 渲染后台骨架，DOM 选择器命中即误判有效。对齐蚁小二 getWeixingongzhonghaoUserInfo：GET mp.weixin.qq.com/cgi-bin/loginpage?url=%2Fcgi-bin%2Fhome，正则解析 HTML 中 token=/uin: 缺失判失效（ret=200003）
+- **bilibili 检测新增**：对齐蚁小二 getBilibiliUserInfo：GET api.bilibili.com/x/web-interface/nav，code === -101 判失效，data.mid 存在判有效；cookie 必须含 bili_jct（缺失即失效）
+- **头条号登录页误判**：PLATFORM_LOGIN_SUCCESS_PATTERNS.toutiao = ['mp.toutiao.com'] 裸域名模式，登录页 mp.toutiao.com/login 命中 → 误判登录成功 → 提前关闭并保存无效账号。改为精确路径 ['profile_v4']
+- **视频号登录页误判（同款）**：tencent_video = ['channels.weixin.qq.com'] 裸域名模式，登录页 login.html 命中 → 提前关闭并保存无 Cookie 凭证。改为精确路径 ['channels.weixin.qq.com/platform']
+- **登录成功重复提示**：Accounts.vue 页面级 notifySuccess 与 useAccountEvents.complete() 全局提示重复。去掉页面级，只保留全局「xx 登录凭证已自动保存」
+- **失效卡片文案**：AccountManagementCard.vue 区分 expired（已失效/红）与 inactive（已登录/灰），失效账号不再显示灰色「已登录」
+- **一键检测中央进度提示**：Accounts.vue 新增 batch-check-overlay（spinner + 标题 + 进度 + 进度条），i18n batchCheckAllTitle（zh/en 成对）
+- **检测结果持久化**：batchCheckAllLogins 调 accountUpdate(id, { status, last_validated }) 写回后端；store-schema.js 加 last_validated 列 + migration + 白名单；toPublicAccount 尊重最近 2 小时写回的 expired（backendExpiredFresh）
+
+### 验证
+- http-login-checker.test.js 21 通过（视频号 auth_data / 公众号 loginpage 正则 / bilibili nav + bili_jct 前置）
+- account-manager.test.js 52 通过（视频号 HTTP 优先 + 本地回退）
+- account.test.js 40 / platform-definitions.test.js 9 / Accounts.test.js 80 / AccountManagementCard.test.js 17 / store.test.js 59 全通过
+- PRD 01-docs/PRD-ACCOUNT-LOGIN-STATUS-CHECK.md 升 v2.0（检测结果持久化 11 节 + 公众号失效检测 12 节）
+
+# [未发布] feat(ui): 新增全局「回到顶部」浮标按钮（back-to-top-button，2026-09-14）
+
+### 新增
+- **全局回到顶部浮标**（`components/BackToTop.vue`）：固定于窗口右侧接近底部，滚动超过 320px 后淡入；点击平滑回滚至滚动区顶部。含悬浮（底色加深 + 图标转深色 + 左侧文字提示）/ 按下（底色再加深 + `scale(0.94)`）/ 键盘焦点（2px 主色描边 + 同享提示）三种状态
+- **挂载方式**：`App.vue` 全局唯一实例（`v-else` 分支内），不在各视图单独引入（`docs/frontend-interaction-spec.md` §2 交互原语唯一实现清单新增登记项）
+- **零逐页改动**：显隐条件为「滚动容器 `scrollTop > threshold`」而非页面白名单，内容不足一屏的页面自动不出现；`/first-run` 全屏路由与登录标签页自动排除
+- **多滚动容器覆盖**：在 `.yixiaoer-workspace` 上以**捕获阶段**监听 `scroll`（`scroll` 事件不冒泡），自动覆盖 `PublishHistory` / `ModelProviders` / `ResultView` / `ContactSheetView` 等视图内嵌 `overflow:auto` 区块
+- **无障碍**：原生 `<button type="button">` + `aria-label`；Tab 可聚焦、Enter/Space 触发；`prefers-reduced-motion: reduce` 时关闭过渡并将平滑滚动降级为瞬时跳转
+- **i18n**：zh/en 成对新增 `common.backToTop`（回到顶部 / Back to top）
+- **设计 token**：`styles/tokens.css` 新增 `--color-float-surface*` / `--color-float-icon*` / `--color-float-tooltip-*` / `--shadow-float`（亮/暗双模式）
+- **浮层协调**：`UpdateNotification.vue` 右下角提示条 `right` 由 `16px` 调整为 `88px`，避让浮标占位（原区间水平 24–68px 重叠）
+
+### 验证
+- `BackToTop.test.js` 12 项通过（初始不渲染 / 显隐基本流 / 阈值边界 / 自定义阈值 / 点击回滚参数 / 减少动效降级 / 嵌套滚动容器 / 防重复点击 / 双语与 aria-label / 路由切换重置 / 容器缺失异常 / 卸载清理）
+- locale-sync 三项 PASS：`--keys`（927 key）/ `--cjk`（基线 1689 → 1500，无新增硬编码）/ `--pair-base`（zh/en 成对）
+- eslint 0 error（改动 6 文件）
+- 文档同步：`01-docs/PRD.md` 末尾增量章节（183 行）+ 专项 PRD `01-docs/PRD-BACK-TO-TOP-BUTTON-2026-09-14.md` + `docs/desktop-ui-layout-spec.md` §14 + `docs/frontend-interaction-spec.md` §2
+# [未发布] fix(accounts): 内嵌浏览器视口越界修复——右侧滚动条缺失/底部内容被裁（2026-09-13）
+
+### 修复
+- **根因**：内嵌 `WebContentsView` 的 `setBounds` 使用 `mainWindow.getBounds()`（外框，含标题栏/菜单栏/边框）的宽高，而该坐标系实际是**客户区**——视图比可见区域宽出左右边框（~16px）、高出标题栏+底边框（~39px），导致平台网页垂直滚动条被裁在窗口外、底部内容物理截断且无法滚动查看
+- **新增 `electron/services/view-bounds.js`**：内嵌视图定位唯一来源（`getContentSize` 客户区读取 + 降级链、`computeEmbeddedViewBounds` 布局契约、`normalizeSidebarWidth` 校验、`BROWSER_CHROME_TOP=76` 常量）
+- `webview-manager.js`（创作者中心标签/分屏）、`auth-view-manager.js`（登录视图）、`qrcode-login.js`（扫码视图）全部改用客户区尺寸
+- **顺带崩溃修复**：`oauth-manager.js` 补上缺失的 `_positionView()`——此前 `startAuth` 一进入即抛 `TypeError: this._positionView is not a function`，OAuth 内嵌链路完全不可用
+
+### 测试
+- 新增 `view-bounds.test.js`（客户区优先/降级/异常兜底/布局数学/边界值）
+- `webview-manager.test.js` / `auth-view-manager.test.js` / `qrcode-login.test.js` / `oauth-manager.test.js` 新增「客户区 vs 外框」回归断言，窗口 mock 补 `getContentBounds`
+- 5 文件 95 用例全绿
+
+### 文档
+- `01-docs/BUGFIX-EMBEDDED-BROWSER-VIEWPORT-2026-09-13.md`：完整 Bug 反思 5 步（根因溯源/逃逸链/系统性漏洞/回归保护/预防 R94）+ 布局契约
+- `01-docs/PRD-ACCOUNT-LOGIN-WINDOW.md` 追加「内嵌视图视口契约」章节
+
 # [未发布] refactor(desktop-ui): 加载态（骨架屏）统一体系 + UiSkeleton 组件（2026-09-13）
 
 ### 重构

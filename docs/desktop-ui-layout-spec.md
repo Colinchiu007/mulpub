@@ -402,6 +402,7 @@ mainWindow.on('resize', () => {
 | 2026-09-01 | v1.0 | 初始版本：WebContentsView 定位偏移侧边栏宽度 | `959d65cff` |
 | 2026-09-03 | v1.1 | 补充完整 UI 布局规格文档 | 本文档 |
 | 2026-09-05 | v1.2 | 修复流水线详情页底部操作条与内容区重叠： 从  改为正常流 ，新增  可滚动内容区 | #1405 |
+| 2026-09-14 | v1.3 | 新增「回到顶部」浮标（BackToTop）完整规格（第 14 章）：挂载与定位 / 显隐与滚动容器 / 数据校验 / 交互逻辑 / 显示项与提示文字 / 视觉规范 / 层级协调 | 分支 `back-to-top-button` |
 ## 13. 已知问题修复
 
 ### 13.1 左侧菜单随内容滚动（2026-09-03 修复）
@@ -418,3 +419,173 @@ mainWindow.on('resize', () => {
 - `.yixiaoer-sidebar` 添加 `flex-shrink: 0; overflow-y: auto;`
 
 **关联 PR**：[#1371](https://github.com/Colinchiu007/Multi-Publish/pull/1371)
+
+---
+
+## 14. 回到顶部浮标（BackToTop，2026-09-14 新增）
+
+### 14.1 概述
+
+桌面端长内容页面（列表页 / 详情页 / 设置页）缺少「一键回到顶部」入口。本章定义全局浮标的挂载位置、显隐规则、数据校验、交互逻辑、显示项与视觉规范。
+
+**唯一实现**：`apps/desktop/src/components/BackToTop.vue`，在 `App.vue` 全局挂载一个实例，**不在各视图内单独引入**（见 [前端交互规范](./frontend-interaction-spec.md) §2 交互原语唯一实现清单）。完整需求说明见 `01-docs/PRD-BACK-TO-TOP-BUTTON-2026-09-14.md`。
+
+### 14.2 挂载与定位
+
+| 项 | 值 | 说明 |
+|----|----|------|
+| 挂载点 | `App.vue` 的 `v-else` 分支内（`</div>` 收纳 `.yixiaoer-shell` 之后） | 与 `UpdateNotification` / `PipelineBackgroundToast` 同级，均为全局浮层 |
+| 渲染方式 | `<Teleport to="body">` + `<Transition>` | 脱离内容容器层叠上下文，避免被 `overflow: auto` 裁剪 |
+| 定位 | `position: fixed` | 相对视口，不随滚动移动 |
+| 右偏移 | `var(--spacing-6)` = 24px | — |
+| 下偏移 | `var(--spacing-6)` = 24px | — |
+| 尺寸 | 44 × 44 px | — |
+
+### 14.3 显隐规则与滚动容器
+
+**显隐条件**（唯一条件，无页面白名单）：
+
+```
+可见  ⇔  最后一个产生滚动的容器.scrollTop > threshold（默认 320px）
+```
+
+由于内容不足一屏时 `scrollTop` 恒为 0，该条件自动实现「只有内容超出一屏的页面才出现浮标」，新增页面无需任何额外改动即可获得该能力。
+
+**滚动容器层级**：
+
+| 层级 | 容器 | 监听方式 |
+|------|------|---------|
+| 主容器 | `.yixiaoer-workspace`（`overflow: auto`，App.vue 内联样式 / cohere-design-system.css `.cohere-main`） | 组件挂载时 `querySelector('[data-testid="yixiaoer-workspace"]')`，以**捕获阶段**（`addEventListener('scroll', fn, true)`）监听 |
+| 嵌套容器 | 视图内自带的 `overflow: auto` 区块（如 `PublishHistory.vue`、`ModelProviders.vue`、`ResultView.vue`、`ContactSheetView.vue`） | 由主容器的捕获阶段监听自动覆盖，无需逐视图声明 |
+
+> 设计要点：`scroll` 事件不冒泡，只有在**捕获阶段**监听祖先才能拿到后代滚动容器的滚动。因此不需要为每个嵌套容器单独注册监听，也不会遗漏视图内滚动区。
+
+**排除场景**：
+
+| 场景 | 排除机制 |
+|------|---------|
+| `/first-run` 全屏引导 | 挂载点在 `v-else` 分支，该路由走 `isFullScreenRoute` 独立分支，组件不渲染 |
+| 登录标签页 | 该分支下 `router-view` 不渲染（`v-if="!isLoginTab"`），滚动容器无内容，`scrollTop` 恒为 0 |
+
+### 14.4 数据校验
+
+| 校验项 | 规则 | 位置 | 失败处理 |
+|--------|------|------|---------|
+| `threshold` 类型 | `Number`，默认 `320` | props 定义 | 非数值时比较恒为 false，浮标不显示（fail-safe） |
+| `containerSelector` 命中 | 必须能被 `document.querySelector` 命中 | `onMounted` | `console.warn` + 不注册监听，浮标保持隐藏，不抛异常 |
+| 滚动事件目标 | `event.target` 存在且 `typeof target.scrollTop === 'number'` | `onScroll` | 直接 return，忽略该次事件 |
+| 阈值比较符 | 严格 `>`（等于阈值不触发） | `onScroll` | 避免边界抖动 |
+| 回滚目标有效性 | `activeScroller.isConnected === true` | `resolveScroller` | 回退主容器；主容器不可用则不动作 |
+| 平滑滚动能力 | `try { el.scrollTo({top, behavior}) }` | `handleClick` | 捕获异常后降级为 `el.scrollTop = 0` |
+| 重复点击 | 600ms 时间锁 | `handleClick` | 锁定期内 return，一次滚动只触发一次 |
+
+**数据依赖声明**：本组件**不读写任何持久化数据**（无 SQLite / localStorage / IPC），唯一状态是内存中的 `visible` 与滚动位置，无数据迁移与并发写入风险。
+
+### 14.5 交互逻辑
+
+1. 用户滚动内容区 → 主容器以捕获阶段收到 `scroll` 事件（含嵌套子容器发出的事件）
+2. 解析 `event.target.scrollTop`：`> 320px` 则记录该容器为回滚目标并显示浮标；同一容器回落至阈值以内则隐藏
+3. 用户点击浮标：
+   1. 检查 600ms 点击锁，已锁定则忽略
+   2. `resolveScroller()` 选定回滚目标（最后滚动容器 → 主容器）
+   3. 系统开启「减少动态效果」→ `behavior: 'auto'`（瞬时）；否则 `behavior: 'smooth'`（平滑）
+   4. 平滑滚动使 `scrollTop` 递减至 0，`onScroll` 自然将浮标收起（**不强制在点击时隐藏**，避免滚动被中断时出现「按钮已消失但未回到顶部」的状态不一致）
+4. 路由切换（`route.fullPath` 变化）→ 强制隐藏浮标、清空回滚目标、解除点击锁（新页面默认停在顶部）
+
+### 14.6 显示项与提示文字
+
+| 显示项 | 内容 | 位置 | 备注 |
+|--------|------|------|------|
+| 图标 | 20×20 向上箭头，内联 SVG，`stroke-width: 2`，圆头圆角连接，`currentColor` | 按钮中心 | 零新依赖；与 `CreateView.vue` 等既有内联 SVG 图标写法一致 |
+| 文字提示 | 「回到顶部」 | 按钮**左侧**垂直居中 | 深色圆角气泡 + 指向按钮的右侧小三角 |
+
+| 提示文字 | Key | zh | en |
+|----------|-----|----|----|
+| 回到顶部 | `common.backToTop` | 回到顶部 | Back to top |
+
+**提示展示条件**：
+
+| 条件 | 是否显示提示 |
+|------|-------------|
+| 鼠标悬浮 | ✅ |
+| 键盘聚焦（`:focus-visible`） | ✅（保证键盘用户与鼠标用户信息等价） |
+| 鼠标点击（`focus` 但非 `focus-visible`） | ❌ 避免点击后提示滞留 |
+| 浮标隐藏 | ❌ 元素已移出 DOM |
+
+**缺 key 兜底**：`t()` 返回 key 原文时判定为未翻译 → 气泡文案回退空串（不渲染气泡），`aria-label` 回退英文常量 `Back to top`，保证读屏用户不会遇到无名按钮。此策略与 `PipelineBackgroundToast.vue` 一致。
+
+### 14.7 视觉规范
+
+**几何**
+
+| 项 | 值 |
+|----|----|
+| 按钮尺寸 | 44 × 44 px |
+| 圆角 | `var(--radius-lg)` = 16px（圆角阶梯 4/8/12/16/999 内取值） |
+| 图标 | 20 × 20 px，`stroke-width: 2` |
+| 气泡 | 内边距 6px 10px，圆角 `var(--radius-sm)` = 8px，与按钮间距 10px，右侧 4px 三角 |
+| 焦点描边 | 2px `var(--color-primary)`，`outline-offset: 2px` |
+
+**颜色**（新增语义 token，定义于 `styles/tokens.css`，亮/暗双模式）
+
+| 语义 | Token | 亮色 | 暗色 |
+|------|-------|------|------|
+| 浮标底色 | `--color-float-surface` | `#ececef` | `#2c2c34` |
+| 浮标底色（悬浮） | `--color-float-surface-hover` | `#e0e0e5` | `#383842` |
+| 浮标底色（按下） | `--color-float-surface-active` | `#d4d4dc` | `#44444f` |
+| 图标色 | `--color-float-icon` | `#707080` | `#a0a0b0` |
+| 图标色（悬浮） | `--color-float-icon-hover` | `#1e1b4b` | `#f0f0f5` |
+| 气泡底色 | `--color-float-tooltip-bg` | `#303038` | `#4a4a55` |
+| 气泡文字 | `--color-float-tooltip-text` | `#ffffff` | `#ffffff` |
+| 阴影 | `--shadow-float` | `0 2px 8px rgba(30,27,75,.08)` | `0 2px 10px rgba(0,0,0,.45)` |
+
+暗色模式遵循 `frontend-interaction-spec.md` §1「主色/文字不降级为低对比灰」：浮标表面保持比页面卡片（`--color-bg-card` `#232329`）更亮一档，图标用亮色而非低对比灰。
+
+**状态视觉对照**
+
+| 状态 | 底色 | 图标 | 其他 |
+|------|------|------|------|
+| 常态 | `--color-float-surface` | `--color-float-icon` | 阴影 `--shadow-float` |
+| 悬浮 | `--color-float-surface-hover` | `--color-float-icon-hover` | 左侧提示淡入（140ms） |
+| 按下 | `--color-float-surface-active` | `--color-float-icon-hover` | `scale(0.94)` |
+| 焦点 | 常态底色 | 常态图标 | 2px 主色描边 + 提示显示 |
+| 进入/离开 | — | — | 180ms 透明度 + `translateY(8px)` 自右下方浮起/沉下 |
+
+### 14.8 层级与浮层协调
+
+| 浮层 | z-index | 关系 |
+|------|---------|------|
+| `PipelineBackgroundToast` | 2100 | 屏幕居中，与右下角浮标无空间冲突 |
+| `UpdateNotification` toast / `UiModal` overlay | 2000 | **高于浮标**：模态弹窗打开时应占据最高焦点，浮标被遮罩覆盖符合模态语义 |
+| **`BackToTop`** | **1900** | 低于模态层，高于所有普通页面内容 |
+
+**与右下角 `UpdateNotification` toast 的位置协调**：该提示条原为 `bottom: 16px; right: 16px`，与浮标（`bottom: 24px; right: 24px`，占 44×44）在水平 24–68px、垂直 24–60px 区间重叠。处置：提示条 `right` 由 `16px` 调整为 `88px`（保持贴底）。调整后提示条右边缘距窗口 88px > 浮标左边缘距窗口 68px，完全消除重叠；代价是提示条视觉内缩 72px，因其出现频率低（仅更新检查完成/失败）而可接受。
+
+### 14.9 错误处理
+
+| 异常 | 处理 | 影响 |
+|------|------|------|
+| 滚动容器未找到 | `console.warn`，不注册监听 | 浮标不出现，其余功能不受影响 |
+| 不支持 `scrollTo(options)` | 捕获异常，降级 `el.scrollTop = 0` | 平滑滚动退化为瞬时跳转 |
+| `scrollTop` 非数值 | `onScroll` 提前 return | 该次滚动不改变显隐 |
+| 回滚目标脱离 DOM | `resolveScroller` 回退主容器 | 仍能正常回滚 |
+| i18n key 缺失 | 气泡回退空串 + `aria-label` 回退英文常量 | 浮标仍可用且可被读屏识别 |
+| 平滑滚动中路由切换 | 路由 `watch` 强制隐藏并解锁 | 浮标收起，无残留状态 |
+
+### 14.10 相关文件
+
+| 文件 | 职责 |
+|------|------|
+| `apps/desktop/src/components/BackToTop.vue` | 浮标组件（唯一实现） |
+| `apps/desktop/src/components/BackToTop.test.js` | 单元测试（12 项） |
+| `apps/desktop/src/App.vue` | 全局挂载点（`v-else` 分支） |
+| `apps/desktop/src/styles/tokens.css` | 新增 `--color-float-*` / `--shadow-float` 语义 token |
+| `apps/desktop/src/locales/zh.js` / `en.js` | `common.backToTop` 文案（成对） |
+| `apps/desktop/src/components/UpdateNotification.vue` | 右下角 toast 右偏移 16px → 88px（避让浮标） |
+| `01-docs/PRD-BACK-TO-TOP-BUTTON-2026-09-14.md` | 功能 PRD |
+
+### 14.11 测试覆盖
+
+`apps/desktop/src/components/BackToTop.test.js`（12 项，全部通过）：初始不渲染 / 显隐基本流 / 阈值边界（等于不触发）/ 自定义阈值 / 点击回滚参数 / 减少动效降级 / 嵌套滚动容器 / 防重复点击 / 中英双语文案与 `aria-label` / 路由切换重置 / 容器缺失异常路径 / 卸载清理。
+
+其中「阈值边界」「防重复点击」「卸载清理」三项为最易被后续重构破坏的行为契约，作为回归保护重点。

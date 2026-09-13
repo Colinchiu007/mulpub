@@ -229,7 +229,8 @@ function proxyLabel (account) {
 function accountStatusKind (account) {
   const status = String(account?.status || '').trim().toLowerCase()
   if (status === 'active' || status === 'online') return 'online'
-  if (status === 'inactive' || status === 'offline' || status === 'expired') return 'offline'
+  if (status === 'expired') return 'expired'
+  if (status === 'inactive' || status === 'offline') return 'offline'
   if (status === 'error' || status === 'failed' || status === 'failure') return 'error'
   return 'unknown'
 }
@@ -241,6 +242,7 @@ function isActive (account) {
 function statusLabel (account) {
   const kind = accountStatusKind(account)
   if (kind === 'online') return t('accountsPage.accountCardLabels.statusLoggedIn')
+  if (kind === 'expired') return t('accountsPage.accountCardLabels.statusExpired')
   if (kind === 'offline') return t('accountsPage.accountCardLabels.statusLoggedIn')
   if (kind === 'error') return t('accountsPage.accountCardLabels.statusError')
   return t('accountsPage.accountCardLabels.statusNoCheck')
@@ -414,6 +416,7 @@ function isIconUrl (value) {
 
 .login-badge.online { background: #e7f7ef; color: #18794e; }
 .login-badge.offline { background: #f2f2f4; color: #777985; }
+.login-badge.expired { background: #fff1f0; color: #b42318; }
 .login-badge.error { background: #fff1f0; color: #b42318; }
 .login-badge.unknown { background: #f7f7f8; color: #777985; }
 

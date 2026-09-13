@@ -1,4 +1,16 @@
 
+## 展示「原始输入」必须回溯到最初落盘的原始字段；`<pre>` 展示容器必须声明换行（查看文案，2026-09-13）
+
+- **现象**：视频创作·历史记录任务详情页【查看文案】弹窗展示的不是用户提交的原文案，而是分句/分段后的文本且带 `【1】【2】…` 序号；同时长行不折行、横向溢出被裁切。
+- **根因（`02d23fcf8`，两个独立缺陷叠加）**：① 取数口径直接复用编辑区的 `segments[].text`（split 阶段按 `。！？` 切句 + 按字数合并 scene 的产物），而真正保存用户原文的是项目级 `project.sourceText`（流水线启动时 `run.params.text` 落盘，从不参与分句）；② `<pre class="script-text">` 只有 class 名、`<style scoped>` 里没有任何 `.script-text` 规则，`white-space: pre` 默认不折行。
+- **教训 1（取数口径：展示"原始输入"必须回溯到最初落盘字段）**：同一份内容在本项目有三种形态——`sourceText`（原文）/ `segments[].text`（分句后）/ `story2videoTextConfig.config.prompt`（配置副本）。**凡是"展示用户当初输入的东西"，必须取自最初落盘的原始字段，而不是任何经过加工的中间产物**；加工产物只用于它自己的视图（如编辑区分段列表）。判断方法：问自己"这个字段是流水线启动前写的、还是某个 stage 写的？"
+- **教训 2（编号/装饰不得进入复制内容）**：为"看起来像分段"而拼的 `【N】` 一旦写进 computed，就会同时污染**复制**内容（弹窗与复制共用同一 computed）。**展示装饰与复制内容必须同源时，装饰本身就要接受"会被粘贴到第三方编辑器"的检验**。
+- **教训 3（`<pre>` 类容器必须显式声明换行 + 契约测试）**：jsdom 不应用 scoped CSS，任何纯样式缺陷对单测天生不可见。本项目已有 `fs.readFileSync` 源码契约先例（`UiModal.test.js` 的 sticky padding、`UiSkeleton.contract.test.js` 的 8 条）——**长文本展示容器（`<pre>`/`white-space`）必须补一条源码级 CSS 契约断言**，否则"class 名写了但样式没落地"永远拦不住。
+- **教训 4（需求文档不得把实现细节当需求）**：迭代 1 的 PRD 把「按分段编号【N】组织」直接写成需求 U3，于是 **PRD—代码—测试形成自洽的错误闭环**（审查时照 PRD 核对只会确认"实现符合需求"）。**PRD 应描述"用户要看到什么"（原始文案全文、保留段落），把"怎么组织"留给设计**。
+- **预防**：PRD 增加 §4.2「文案来源（取数口径）」完整写入链 + 三级取值优先级 + 降级规则；新增 5 条回归用例（含 CSS 契约）；learnings 沉淀本条；审查展示类需求时强制追问三问——数据来自哪个字段？是否用户原始输入？展示容器是否声明了换行/溢出策略？
+
+---
+
 ## 前端自设并发闸门 → 入口永久锁死（热门选题一键生成视频，2026-09-13）
 
 - **现象**：热门选题页点某选题【生成视频】→ 弹窗内点【后台运行】→ 弹窗消失；此时再点**任意**选题的【生成视频】**毫无反应**；不重启应用永久失效。
@@ -14640,6 +14652,43 @@ commit `941b17f1`（feat: browser-style tab bar）在 `webview-manager.js` `crea
   - Windows 下 /tmp 路径在 node -e 中解析为 D:\tmp 导致 ENOENT——临时文件用 $TEMP 环境变量。
 - **预防**：新增渲染端中文文案一律先写 locales（zh/en 成对）再引用；跨 shell 传中文任务用文件；正则域名匹配优先 URL 解析。
 
+## 全局「回到顶部」浮标与多滚动容器捕获监听复盘（back-to-top-button，2026-09-14）
+
+- **背景**：桌面端长内容页面（列表 / 详情 / 设置）缺少「一键回到顶部」入口。需求要求浮标固定于窗口右侧接近底部、悬浮时图标变化 + 文字提示，并应用于所有内容可能超出一屏的页面（适用范围由实现方自行分析）。
+- **设计决策**：
+  - **全局唯一实例而非逐页引入**：挂在 `App.vue` 的 `v-else` 分支内（与 UpdateNotification / PipelineBackgroundToast 同级）。该位置天然排除全屏路由 `/first-run`（走 `isFullScreenRoute` 独立分支），并让「未来新增页面自动获得能力」，不用逐视图补挂。
+  - **显隐用能力条件而非页面白名单**：`可见 ⇔ 滚动容器.scrollTop > 320px`。内容不足一屏时 scrollTop 恒为 0 → 自动不出现，无需维护「哪些页面要加」的清单。
+  - **捕获阶段监听 scroll 覆盖嵌套滚动容器（本复盘最关键的技术点）**：`scroll` 事件**不冒泡**，只有在**捕获阶段**监听祖先才能拿到后代滚动容器的滚动。实现在主容器 `.yixiaoer-workspace` 上 `addEventListener('scroll', fn, true)` → 一处监听同时覆盖主容器与 PublishHistory / ModelProviders / ResultView / ContactSheetView 等视图内嵌 `overflow:auto` 区块，无需逐个声明。
+  - **回滚目标取「最后产生滚动的容器」**（需 `isConnected === true`），失效回退主容器，再失效则不动作。
+  - **不强制点击后隐藏浮标**：依赖平滑滚动到位后 scrollTop 归零 → onScroll 自然收起，避免「滚动被中断但按钮已消失」的状态不一致。
+  - **z-index 1900**：低于 UiModal overlay / UpdateNotification（2000），模态弹窗打开时浮标被遮罩覆盖，符合模态语义。
+  - **浮层位置冲突处置范式**：UpdateNotification 右下 toast 原 `bottom:16px; right:16px`，与浮标（`bottom:24px; right:24px`，44×44）在水平 24–68px 重叠 → 提示条 `right` 改 88px（判据 `88 > 24+44 = 68`）。选**水平让位**而非垂直让位，因为浮标占据右下角最角落、左移改动最小且保持贴底对齐。
+- **踩坑**：
+  - **含斜杠分支名 ref 在本环境彻底写不进**：`git worktree add -b codex/x <path> main` 报 `fatal: invalid reference`；`git update-ref refs/heads/codex/x <sha>` 返回 **exit 0 但 `.git/refs/heads/codex/` 目录根本没创建**。最坑的是 `git checkout -b codex/x` 会打印 "Switched to a new branch" 却不落盘 ref，导致 **HEAD 悬空**（`rev-parse HEAD` 报 unknown revision、`git status` 显示 "No commits yet" + 数千 staged）。可用绕过：`worktree add --detach` → `update-ref refs/heads/<无斜杠名>` → `symbolic-ref HEAD refs/heads/<无斜杠名>` → `git reset -q`，全程用 `D:/...` 原生正斜杠路径。
+  - **主机 PS 工具 stdout 恒为空**：本机 PS 工具执行成功但 stdout 完全不回传（连 `Write-Output` 都拿不到，只返回 "Command completed with exit code 0"），但命令**确实执行了**（新建 junction 后经 Bash 验证成功）。诊断范式改为「PS 执行 → Bash 验证」，不要反复重试 PS。
+  - **从 Bash 调用 `cmd` 无效**：`cmd //c "mklink /J ..."` 只会启动交互式 shell 后立即退出，即使加 `MSYS2_ARG_CONV_EXCL='*'` 也一样。创建 junction 走 PS `New-Item -ItemType Junction`。
+  - **本地 `origin/main` 引用陈旧且 fetch 不更新**：`git fetch origin main` 输出 `530e8d22..ae72841a main -> origin/main`，但 `git rev-parse origin/main` 仍返回旧值（同 ref 写盘问题）→ 改用 `git ls-remote origin refs/heads/main` 取真实 SHA 再 `git merge <SHA>`。
+  - **多 agent 并发文档冲突**：CHANGELOG / PRD.md / .quality-gates.md 的冲突均为「顶部或末尾追加」型。用 Python **二进制**模式按行扫描，只删除 `<<<<<<<` / `=======` / `>>>>>>>` 三行标记（每文件恰好 1 个冲突块），保留两侧内容原顺序即可；比手工合并安全，尤其 PRD.md 含 NUL + 混合行尾，文本模式编辑会引发整文件 diff。
+- **经验修正（推翻旧结论）**：
+  - **worktree 内可以跑单测**：用 PS junction 把兄弟 worktree 的 `node_modules`、`apps/desktop/node_modules`、`apps/node_modules` 链接过来后，`vitest` 可正常实跑（本次 12 项测试本地通过）。旧结论「worktree 内只做 `node --check`、单测交给 CI」不再成立——不必再盲推 CI 反复试错。命令：`cd apps/desktop && ../../node_modules/.bin/vitest run <file> --pool=threads --no-file-parallelism`。
+  - **`01-docs/PRD.md` 二进制追加可复现**：追加 183 行后 `git diff --numstat` = `183 0`，行尾未被破坏。
+- **预防**：
+  - 新增全局浮层组件一律挂在 `App.vue` 的 `v-else` 分支内，并同步登记到 `docs/frontend-interaction-spec.md` §2 交互原语唯一实现清单，防止后续各视图重复实现。
+  - 新增语义色值一律加进 `styles/tokens.css`（含 `[data-theme="dark"]` 变体），组件内禁止硬编码。
+  - 需要「当前哪个容器在滚动」时，优先用**捕获阶段监听祖先**，而不是遍历子元素逐个注册 scroll 监听。
+## 内嵌 WebContentsView 视口越界：getBounds(外框) 污染客户区坐标系（2026-09-13，codex/fix-embedded-browser-viewport）
+### 现象
+账号管理点击账号卡片打开平台网页（内嵌浏览器标签）后，右侧没有网页滚动条、底部内容被截断且滚动无效。
+### 根因
+`mainWindow.contentView.addChildView(view)` 的子视图 `setBounds` 使用**客户区坐标系**，但布局用 `mainWindow.getBounds()`（**外框**，含标题栏 ~31px、菜单栏、边框 ~8px×3）的宽高 → 视图比可见区域宽 ~16px、高 ~39px → 滚动条（渲染在视图右边缘）与底部内容落在窗口外被物理裁掉；页面按外框视口布局，滚到底也看不到被裁部分。
+### 逃逸链（关键教训）
+`auth-view-manager.test.js` 原有布局断言 `{1240, 824}` 就是按外框 1440×900 算出来的**错误值**——测试 mock 只提供 `getBounds`，测试与实现共享同一错误假设，把 Bug 钉死成「正确行为」（断言不精确类漏洞）。E2E/视觉回归只覆盖渲染进程 DOM，原生 `WebContentsView` 的窗口合成裁切完全不在覆盖内。
+### 教训与预防（R94）
+1. **坐标系契约必须唯一实现**：新增 `electron/services/view-bounds.js`（`getContentSize` 客户区优先 + 降级链、`computeEmbeddedViewBounds`），四个 manager 全部接入；`contentView` 子视图布局禁止再出现 `mainWindow.getBounds()`（正确先例：`auth-window.js` 的 `getContentBounds()`）。
+2. **测试 mock 要能表达契约**：窗口 mock 必须同时提供 `getBounds`（外框）与 `getContentBounds`（客户区）且数值不同，布局断言必须钉客户区口径——否则测试无法区分对错。
+3. 顺带发现：`oauth-manager.js` 调用了不存在的 `_positionView`，OAuth 内嵌链路一进入就 `TypeError`——「同一布局逻辑复制到多个 manager」模式下，缺一个方法只有运行到才暴露；收敛唯一来源后此类缺失在单测层即可拦截。
+### 关联
+`01-docs/BUGFIX-EMBEDDED-BROWSER-VIEWPORT-2026-09-13.md`（完整 5 步反思 + 布局契约）、`01-docs/PRD-ACCOUNT-LOGIN-WINDOW.md` §13。
 ---
 
 ## 热门选题一键生成视频 E2E 与两处 P1 修复复盘（mp-hottopics-video-e2e，2026-09-14）

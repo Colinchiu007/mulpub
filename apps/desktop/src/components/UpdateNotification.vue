@@ -32,13 +32,13 @@
   <!-- 前台通知条 -->
   <div
     v-if="updateStatus === 'not-available' && showNotAvailable"
-    style="position: fixed; bottom: 16px; right: 16px; z-index: 2000"
+    style="position: fixed; bottom: 16px; right: 88px; z-index: 2000"
   >
     <div class="ui-toast ui-toast-success">✅ 当前已是最新版本</div>
   </div>
   <div
     v-if="updateStatus === 'error' && showError"
-    style="position: fixed; bottom: 16px; right: 16px; z-index: 2000"
+    style="position: fixed; bottom: 16px; right: 88px; z-index: 2000"
   >
     <el-alert :title="'更新失败: ' + updateError" type="warning" show-icon :closable="true" @close="showError = false" />
   </div>

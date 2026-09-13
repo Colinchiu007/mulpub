@@ -64,6 +64,18 @@
   --spacing-8: 32px;
   --spacing-10: 40px;
 
+  /* ---- 悬浮操作浮标（回到顶部等固定于视口的操作控件）----
+   * 语义：与页面内容解耦、始终悬浮在滚动区右下角的轻量操作按钮。
+   * 依据 docs/desktop-ui-layout-spec.md §14；禁止组件内自定义同语义色值。 */
+  --color-float-surface: #ececef;
+  --color-float-surface-hover: #e0e0e5;
+  --color-float-surface-active: #d4d4dc;
+  --color-float-icon: #707080;
+  --color-float-icon-hover: #1e1b4b;
+  --color-float-tooltip-bg: #303038;
+  --color-float-tooltip-text: #ffffff;
+  --shadow-float: 0 2px 8px rgba(30, 27, 75, 0.08);
+
   /* ---- 暗色模式：主色保持品牌可辨识度（修复旧覆盖为浅灰 #e8e8ed 的缺陷）---- */
 }
 
@@ -73,4 +85,14 @@
 
   /* 品牌色暗底亮化变体：仅用于暗色模式下的文字/描边场景（保持紫色相，替代旧蓝系 #4c8bf5/#6b8cff） */
   --color-primary-dark-tint: #7b74ff;
+
+  /* 悬浮操作浮标：暗色下保持「比页面卡片更亮一档」的表面层级，图标用亮色保证对比度 */
+  --color-float-surface: #2c2c34;
+  --color-float-surface-hover: #383842;
+  --color-float-surface-active: #44444f;
+  --color-float-icon: #a0a0b0;
+  --color-float-icon-hover: #f0f0f5;
+  --color-float-tooltip-bg: #4a4a55;
+  --color-float-tooltip-text: #ffffff;
+  --shadow-float: 0 2px 10px rgba(0, 0, 0, 0.45);
 }
