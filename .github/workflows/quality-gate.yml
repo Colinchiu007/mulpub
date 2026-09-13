@@ -58,10 +58,10 @@ jobs:
           if ($errors -gt 0) { exit 1 }
           Write-Host "All Electron JS files pass syntax check"
 
-      # --- Gate 2b: 桌面 dev 启动脚本单测（worktree 独立端口/退出留痕回归保护）---
+      # --- Gate 2b: 桌面 dev 启动脚本单测（worktree 独立端口/退出留痕/Electron 环境净化回归保护）---
       - name: "Gate 2b - Desktop dev scripts (node --test)"
         run: |
-          node --test apps/desktop/scripts/dev-ports.test.js apps/desktop/scripts/dev-launcher.test.js apps/desktop/scripts/dev-exit-log.test.js
+          node --test apps/desktop/scripts/dev-ports.test.js apps/desktop/scripts/dev-launcher.test.js apps/desktop/scripts/dev-exit-log.test.js apps/desktop/scripts/electron-runtime-env.test.js
 
       # --- Gate 3: 硬编码密钥扫描（同时执行 CI workflow 契约测试）---
       - name: "Gate 3 - Hardcoded secrets scan"

@@ -14689,3 +14689,17 @@ commit `941b17f1`（feat: browser-style tab bar）在 `webview-manager.js` `crea
 3. 顺带发现：`oauth-manager.js` 调用了不存在的 `_positionView`，OAuth 内嵌链路一进入就 `TypeError`——「同一布局逻辑复制到多个 manager」模式下，缺一个方法只有运行到才暴露；收敛唯一来源后此类缺失在单测层即可拦截。
 ### 关联
 `01-docs/BUGFIX-EMBEDDED-BROWSER-VIEWPORT-2026-09-13.md`（完整 5 步反思 + 布局契约）、`01-docs/PRD-ACCOUNT-LOGIN-WINDOW.md` §13。
+---
+
+## 热门选题一键生成视频 E2E 与两处 P1 修复复盘（mp-hottopics-video-e2e，2026-09-14）
+
+- **环境变量不都是应用配置**：`ELECTRON_RUN_AS_NODE=1` 是 Electron 二进制的**启动器开关**而非应用配置。`dev.js` / `launch-worktree.js` 原样透传 `{...process.env}` 会让 Electron 退化为纯 Node，所有 Chromium 开关被拒为 `bad option`，现象是「Vite 正常 + Python bridge health 全绿 + 窗口永不出现」。**spawn Electron 前必须剔除该变量**（收敛到 `apps/desktop/scripts/electron-runtime-env.js` 的 `buildElectronEnv`）。排查提示：`electron.exe --version` 打印 Node 版本即为该症状。
+- **聚合型数据源：抓取失败时的空结果是「缺失信息」而不是「真实状态」**：热门选题 8 渠道全失败时 `topics=[]`，旧实现直接覆盖缓存 → 用户已抓到的 138 条被清零；更致命的是 `fetchedAt` 被推进为当前时间，使 10 分钟 TTL 认为缓存「新鲜」，非 force 刷新在 TTL 内直接命中空缓存返回 ⇒ 空态**永不自愈**。正确模式 = 保留旧内容 + **保留旧 `fetchedAt`**（让 TTL 自然过期以持续重试）+ 如实上报本轮 `channelStats` + 打 `preservedStaleCache` 标记。
+- **测试缺口是「组合缺口」而不是「场景缺口」**：既有单测覆盖了"单渠道失败不阻塞其它渠道"，却没覆盖「**全部渠道同时失败** × **上一份缓存非空**」这个组合。写回归用例时先列状态笛卡尔积，再补低频但致命的格子。
+- **`window.electronAPI` 是 contextBridge 冻结对象**（`Object.isFrozen === true`、`Object.isExtensible === false`）：在页面侧 `window.electronAPI.xxx = wrapper` 会**静默失效**，既拿不到 runId 也拿不到参数快照。要识别新增流水线 run，必须用 `pipelineHistory()` 点击前后做**差集**。既有的 `story2video-saved-options-driver.js` 里同款补丁是死代码。
+- **Playwright `connectOverCDP` 在本机（Electron 43 / Chrome 150）稳定握手超时**（15s × 6 全 timeout），而直接对 `/json/list` 取 `webSocketDebuggerUrl` 发 `Runtime.evaluate` 完全正常 → E2E 驱动收敛到零依赖的 `tests/e2e/lib/cdp-client.js`。
+- **SPA hash 路由不要用 hash 值当到达判据**：主进程触发 renderer 重载时 `location.hash` 会被重置为 `#/`，驱动会卡在路由等待直到超时；权威判据是 DOM（`[data-testid="hot-topic-item"]` 数量 > 0）。
+- **本机部分目录存在外部安全软件持锁**：profile 下 `identity-session.json` 的 `rename`/`unlink` 被拒（`*.tmp` 残留 + `IDENTITY_SESSION_CLEAR_FAILED`），应用无法持久化/清理登录会话而卡在身份态 `error`。**处置：把 profile 换到无锁目录并整体复制登录态**（含 `identity-session.json` / `credentials/` / `multi-publish.db` / `backend-data/`），或把该目录加入安全软件白名单。
+- **常驻监督进程的日志路径必须按 PID 唯一**：复用固定日志文件时，上一进程仍持有句柄会让新进程 `EPERM: open` 直接崩掉（表现为「守护进程启动后立刻消失」）。
+- **并发会话会 prune 掉你的 worktree 注册**：`git status` 报 `fatal: not a git repository: (NULL)` 时物理目录与改动都还在——手工重建 `.git/worktrees/<name>/{gitdir,HEAD,commondir}` 三个文件，再 `git reset` 重建索引即可无损恢复（注册被删不会丢工作区文件与已提交内容）。
+- **预防**：新增 Electron spawn 点一律走 `buildElectronEnv`；聚合型数据源写缓存前必须显式声明"零结果时如何处置既有数据"；E2E 驱动不得依赖页面侧补丁，统一用 IPC 状态差分；启动守护的日志路径带 PID。

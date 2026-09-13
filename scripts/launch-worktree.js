@@ -113,9 +113,12 @@ function main() {
   }
 
   let buildElectronArgs
+  let buildElectronEnv
   try {
     // eslint-disable-next-line global-require
     buildElectronArgs = require(path.join(desktopDir, 'scripts/dev-launcher.js')).buildElectronArgs
+    // eslint-disable-next-line global-require
+    buildElectronEnv = require(path.join(desktopDir, 'scripts/electron-runtime-env.js')).buildElectronEnv
   } catch (e) {
     console.error('[launch-worktree] failed to load dev-launcher: ' + (e && e.message ? e.message : String(e)))
     process.exit(1)
@@ -133,8 +136,9 @@ function main() {
     cwd: desktopDir,
     stdio: 'inherit',
     shell: false,
-    env: {
-      ...process.env,
+    // 与 apps/desktop/scripts/dev.js 同源：剔除 ELECTRON_RUN_AS_NODE，
+    // 否则 Electron 退化为纯 Node，Chromium 开关全部 "bad option"（应用无窗口）。
+    env: buildElectronEnv(process.env, {
       ...loadEnvFile(args.envFile),
       ELECTRON_USER_DATA_DIR: profile,
       CALLBACK_SERVER_PORT: args.callbackPort,
@@ -142,7 +146,7 @@ function main() {
       PROMPT_PORT: args.promptPort,
       SPLITTER_PORT: args.splitterPort,
       DEV_SERVER_PORT: args.devServerPort,
-    },
+    }),
   })
 
   child.on('spawn', () => console.log('[launch-worktree] electron spawned pid=' + child.pid + ' worktree=' + repoRoot + ' profile=' + profile))

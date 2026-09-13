@@ -1,3 +1,22 @@
+# [未发布] fix: 开发模式启动失败（Electron 退化为 Node）+ 热门选题缓存被抓取失败清空（2026-09-14）
+
+### 修复
+- **开发模式无法启动应用（P1）**：父环境设置 `ELECTRON_RUN_AS_NODE=1`（Electron 系 IDE 集成终端、部分 CI/工具链会注入）时，`apps/desktop/scripts/dev.js` 与 `scripts/launch-worktree.js` 直接 `{...process.env}` 透传给 Electron 二进制，Electron 退化为纯 Node——所有 Chromium 开关被拒为 `electron.exe: bad option: --user-data-dir=...`，表现为「Vite 正常 + bridge health 全绿 + 窗口永不出现 + CDP 端口不监听」，最终以「150s 内未出现可见主窗口」超时收场。新增 `apps/desktop/scripts/electron-runtime-env.js`（`buildElectronEnv()` 唯一实现：剔除 `ELECTRON_RUN_AS_NODE`，大小写不敏感，overrides 优先），两处 spawn 点接线
+- **热门选题列表被抓取失败清空且不可自愈（P1）**：8 渠道本轮全部失败/被限流跳过时 `topics` 为空数组，旧实现直接 `_writeCache({ topics: [] })` 覆盖掉用户已抓到的选题（实测 138 条被清零），且 `fetchedAt` 被推进为当前时间 ⇒ 10 分钟 TTL 内非 force 刷新直接命中这份空缓存返回，空态**不会自愈**。改为「零结果 + 旧缓存非空」时保留旧 `topics` 与旧 `fetchedAt`（让 TTL 自然过期以持续重试网络），只落盘本轮 `channelStats` 供 UI 展示失败渠道，并打 `preservedStaleCache` 标记
+
+### 新增
+- **E2E 测试资产**：`apps/desktop/tests/e2e/lib/cdp-client.js`（极简 CDP-over-WebSocket 传输层）+ `apps/desktop/tests/e2e/hot-topics-one-click-video-driver.js`（热门选题一键生成视频全链路真实 E2E 驱动：进入 /hot-topics → 逐条 DOM 点击【生成视频】→ 【后台运行】脱离以验证并行发起 → 轮询终态 → 提取成片 + ffprobe，输出结构化报告）
+
+### 验证
+- `node --test apps/desktop/scripts/electron-runtime-env.test.js` → 8 passed（新增，纳入 CI Gate 2b）
+- `vitest run electron/services/hot-topics-service.test.js` → 32 passed（新增 4 例缓存保留回归）
+- 真实实例验证（CDP）：8 渠道全失败时 `hotTopics:fetch` 返回 `topics.length === 138` + `preservedStaleCache === true` + `fetchedAt` 保持旧值；修复后启动契约窗口出现、CDP 端口监听、identity 可读
+
+### 文档
+- PRD 追加 §3.11「抓取失败时的缓存韧性」（R1-R8）、§4.2 三条缓存校验、§5.7 流程与 4 条时序不变式、§6.8 保留态交互与显示项（含 6 条边界）、§7.4 提示文字（明确不新增 i18n key）、§8 验收 14-17、§9.1 用例清单、§9.5 E2E 覆盖、§10.8 实现要点
+- 新增 `01-docs/BUGFIX-DESKTOP-DEV-ELECTRON-RUN-AS-NODE-2026-09-14.md`、`01-docs/BUGFIX-HOT-TOPICS-CACHE-CLEARED-ON-FETCH-FAILURE-2026-09-14.md`（QM-5 五步反思）
+- 新增 `01-docs/E2E-HOT-TOPICS-ONE-CLICK-VIDEO-2026-09-14.md`（E2E 运行手册：资产、前置、用法、逐步断言、4 条硬约束、宿主环境陷阱排查表、发布步骤设计、已知限制）
+
 # [未发布] refactor(scripts): 死代码清理 + 检测脚本优化与 CI 接入（2026-09-13）
 
 ### 删除死代码（「测试覆盖但未接线」——有测试但生产代码从未调用）
