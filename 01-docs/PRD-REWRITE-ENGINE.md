@@ -612,3 +612,50 @@ AI 模板均值 59.83（红线 ≤62 保持）。
 | ~~P1~~ | ~~平台字段传递缺失~~ | ✅ 已于 v1.4 修复（见 13.9） |
 | P1 | 抖音改写脚本标记污染 | short_video 策略 prompt 未约束 LLM 输出纯正文，产出混入「开头…」导演脚本残留 |
 | P2 | 跨进程持久化缺口 | 改写成功后的 quality_report 不自动写入运营中心 quality_eval_records，最近 100 篇均值当前仅统计运营中心手动评估记录 |
+
+### 13.10 改写质量评估报告桌面端闭环（v1.5，2026-09-13）
+
+> 目标：让桌面端改写结果展示质量评估报告，实现「AI 生成内容质量可量化、可运营」的桌面端消费侧闭环。
+
+#### 13.10.1 数据流
+
+```
+RewriteEngine.rewrite()
+  └─ RewriteQualityEvaluator.evaluateAsync(original, rewritten)
+       └─ 返回 quality 字段 { sufficiency, semanticPreservation, originality, simhashDistance, verdict, suggestions, method }
+            └─ aiRewrite IPC 透传 data.quality
+                 └─ RewriteView.vue 从 data.quality 读取并展示质量评估报告
+```
+
+#### 13.10.2 质量报告字段（RewriteQualityEvaluator 返回）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| sufficiency | number 0-100 | 改写充分度（SimHash 海明距离映射） |
+| semanticPreservation | number 0-100 | 语义保持度（Jaccard + 关键词重合，或 embedding 余弦） |
+| originality | number 0-100 | 原创性（充分度×0.5 + (1-Jaccard)×100×0.5） |
+| simhashDistance | number | 原文与改写文的 SimHash 海明距离 |
+| verdict | pass/warn/fail | 结论（距离<3 或语义>90 或语义<30 → fail；距离≤6 或语义<50 → warn；否则 pass） |
+| suggestions | string[] | 改进建议 |
+| method | simhash/embedding | 评估方式（embedding 优先，失败回退 simhash） |
+
+#### 13.10.3 前端展示（RewriteView.vue）
+
+- 改写结果区新增「质量评估」区块（`data-testid="rewrite-quality-report"`），展示充分度/语义保持度/原创性/结论/评估方式/改进建议
+- 结论颜色区分：pass=绿 / warn=黄 / fail=红
+- quality 缺失时显示「本次改写未生成质量评估」（`data-testid="rewrite-quality-none"`）
+- i18n：zh/en 成对新增 `rewritePage.quality*` 12 个 key
+
+#### 13.10.4 数据校验
+
+- quality 必须为对象才展示；非对象/缺失 → 显示占位
+- verdict ∈ { pass, warn, fail }，其他值按 fail 显示
+- method ∈ { simhash, embedding }，其他值按 simhash 显示
+- suggestions 必须为数组，非数组不展示
+
+#### 13.10.5 验收标准
+
+1. 改写成功后质量评估报告展示（充分度/语义保持度/原创性/结论/建议）
+2. quality 缺失时显示占位文案
+3. zh/en 文案成对（CI Gate 7）
+4. RewriteView.test.js 新增 2 用例（质量报告展示 + quality 缺失占位）

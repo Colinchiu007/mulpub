@@ -23,6 +23,16 @@ vi.mock('@/api/publisher', () => ({
       sensitiveHits: [],
       knowledgeRefs: [],
       metadata: { mode: params?.mode, originalLength: 30, resultLength: 18, aiTasteLevel: 0.15 },
+      // content-quality-eval 桌面端闭环：改写质量评估报告
+      quality: {
+        sufficiency: 78.5,
+        semanticPreservation: 65.2,
+        originality: 82.1,
+        simhashDistance: 8,
+        verdict: 'pass',
+        suggestions: ['改写质量良好，充分度与语义保持度均达标'],
+        method: 'simhash',
+      },
     },
   })),
   aiListRewriteStrategies: vi.fn().mockResolvedValue({
@@ -213,6 +223,57 @@ describe('RewriteView', () => {
     // 存入草稿/去发布按钮应该出现
     expect(wrapper.text()).toContain('存入草稿')
     expect(wrapper.text()).toContain('去发布')
+  })
+
+  it('shows quality assessment report after successful rewrite', async () => {
+    const wrapper = factory()
+    const textarea = wrapper.find('textarea.rewrite-textarea')
+    await textarea.setValue('这是一段足够长的测试文案内容，超过二十个字，测试改写功能。')
+    await nextTick()
+    const btn = wrapper.find('.rewrite-start-btn')
+    await btn.trigger('click')
+    await nextTick()
+    await nextTick()
+
+    // 质量报告应显示
+    const report = wrapper.find('[data-testid="rewrite-quality-report"]')
+    expect(report.exists()).toBe(true)
+    const text = report.text()
+    expect(text).toContain('质量评估')
+    expect(text).toContain('78.5') // 充分度
+    expect(text).toContain('65.2') // 语义保持度
+    expect(text).toContain('82.1') // 原创性
+    expect(text).toContain('合格') // verdict=pass
+    expect(text).toContain('改写质量良好') // 建议
+  })
+
+  it('shows quality-none placeholder when quality is absent', async () => {
+    const mocks = await import('@/api/publisher')
+    mocks.aiRewrite.mockResolvedValueOnce({
+      code: 0,
+      data: {
+        success: true,
+        result: '这是改写后的文案内容，用于测试。',
+        strategy: { id: 's1', name: '测试策略', category: 'viral' },
+        warnings: [],
+        sensitiveHits: [],
+        knowledgeRefs: [],
+        metadata: { mode: 'imitate', originalLength: 30, resultLength: 18, aiTasteLevel: 0.15 },
+        quality: null, // 无质量评估
+      },
+    })
+    const wrapper = factory()
+    const textarea = wrapper.find('textarea.rewrite-textarea')
+    await textarea.setValue('这是一段足够长的测试文案内容，超过二十个字，测试改写功能。')
+    await nextTick()
+    const btn = wrapper.find('.rewrite-start-btn')
+    await btn.trigger('click')
+    await nextTick()
+    await nextTick()
+
+    const none = wrapper.find('[data-testid="rewrite-quality-none"]')
+    expect(none.exists()).toBe(true)
+    expect(none.text()).toContain('未生成质量评估')
   })
 
   it('does not show result section before rewrite', () => {

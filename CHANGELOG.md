@@ -1,3 +1,14 @@
+# [未发布] feat(rewrite): 改写质量评估报告桌面端闭环（content-quality-eval-desktop，2026-09-13）
+
+### 新增
+- **改写质量评估报告展示**（RewriteView.vue）：改写结果区新增「质量评估」区块，展示 RewriteQualityEvaluator 的评估结果——改写充分度 / 语义保持度 / 原创性 / 结论（合格/需注意/不合格）/ 评估方式（SimHash/语义向量）/ 改进建议
+- **数据流**：rewrite-engine 已返回 `quality` 字段（充分度/语义保持度/原创性/verdict/suggestions/method），前端从 `data.quality` 读取并展示；quality 缺失时显示「本次改写未生成质量评估」
+- **i18n**：zh/en 成对新增 `rewritePage.quality*` 12 个 key（qualitySection/qualitySufficiency/qualitySemantic/qualityOriginality/qualityVerdict/qualityVerdictPass/qualityVerdictWarn/qualityVerdictFail/qualityMethod/qualityMethodSimhash/qualityMethodEmbedding/qualitySuggestions/qualityNone）
+
+### 验证
+- RewriteView.test.js 35 通过（新增 2：质量报告展示 + quality 缺失占位）
+- locale-sync --keys（926 key）/--cjk PASS；eslint 0 error
+
 # [未发布] chore(openspec): 归档 video-clone-pipeline 系列 6 个 change（2026-09-13）
 
 ### 归档
