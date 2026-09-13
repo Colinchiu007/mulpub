@@ -231,16 +231,19 @@ App.vue 挂载 Home 组件
 公众号登录页与后台同域（mp.weixin.qq.com）。Cookie（slave_sid）过期后访问后台首页可能仍渲染骨架、URL 停在 cgi-bin/home，DOM 选择器检测会误判有效。
 
 ### 12.2 修复
-`http-login-checker.js` 为公众号注册 HTTP API 检测：
-- 访问 `https://mp.weixin.qq.com/cgi-bin/home?t=home/index&lang=zh_CN`
-- 未登录时 302 到 loginpage → 判失效（CHECK_LOGIN_COOKIE_EXPIRED）
-- 200 未重定向 → 判有效（CHECK_LOGIN_SUCCESS_HTTP_API）
-- 响应为 HTML 而非 JSON，`check` 用 null 走重定向/状态码判定
+`http-login-checker.js` 为公众号注册 HTTP API 检测（对齐蚁小二 `getWeixingongzhonghaoUserInfo`）：
+- 访问 `https://mp.weixin.qq.com/cgi-bin/loginpage?url=%2Fcgi-bin%2Fhome`（GET，带 Cookie + Referer）
+- 用 `checkHtml` 正则解析返回 HTML：`&token=[0-9a-zA-Z]{3,}`（或 `token=[0-9a-zA-Z]{3,}`）与 `uin:"[0-9]{3,}"` 同时存在 → 判有效（CHECK_LOGIN_SUCCESS_HTTP_API）
+- token/uin 任一缺失 → 判失效（CHECK_LOGIN_COOKIE_EXPIRED）
+- 采用 loginpage 正则而非「访问后台首页看 302」的原因：Cookie（slave_sid）过期后访问 `cgi-bin/home` 仍可能返回 200 渲染后台骨架，但 loginpage 页面未登录时不会内嵌 token/uin
 
 ### 12.3 数据校验
-- Cookie 数组经 `cookiesToHeader` 转请求头
-- 302/301/303/307 重定向到登录页 → 失效
-- 网络错误返回 `valid: undefined`，降级到浏览器 DOM 检测
+- Cookie 数组经 `cookiesToHeader` 转请求头（过滤空 name/value）
+- 请求前无 Cookie → `CHECK_LOGIN_NO_CREDENTIAL` 判失效
+- 302/301/303/307 重定向到登录页 → 失效（CHECK_LOGIN_COOKIE_EXPIRED）
+- HTTP 非 2xx → 失效
+- 网络错误 / 超时返回 `valid: undefined`，降级到浏览器 DOM 检测（不误判失效）
+- 超时阈值 `HTTP_CHECK_TIMEOUT_MS = 8000`
 
 ## 13. 未来扩展
 
