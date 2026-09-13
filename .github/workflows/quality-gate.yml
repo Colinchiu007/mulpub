@@ -101,6 +101,15 @@ jobs:
           node --test .github/scripts/check-frontend-consistency.test.js
           node .github/scripts/check-frontend-consistency.js
 
+      # --- Gate 11: ESLint（error 级门禁；warning 不阻断，走 pnpm run lint:warnings 观察）---
+      # 2026-09-14 接入：接入前 main 存活 17 个 error 长期无人暴露（含 4 个 no-undef 真 bug）。
+      # 与本地 `pnpm run lint`（--quiet）同口径；生成物 preload bundle 已在 eslint.config.mjs ignores 排除。
+      - name: "Gate 11 - ESLint (error-level gate)"
+        run: |
+          cd apps/desktop
+          pnpm exec eslint electron/ src/ --quiet
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
   unit-tests:
     name: QG Unit Tests
     runs-on: windows-latest

@@ -119,7 +119,8 @@ function sanitize (tag) {
   return String(tag)
     // 零宽字符
     .replace(/[\u200B-\u200D\uFEFF\u2060]/g, '')
-    // 控制字符（保留常见可见字符）
+    // 控制字符（保留常见可见字符）——清洗场景有意匹配控制字符本身，豁免 no-control-regex
+    // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
     .trim()
 }

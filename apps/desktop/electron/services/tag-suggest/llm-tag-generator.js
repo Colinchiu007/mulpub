@@ -88,7 +88,7 @@ function parseAndValidate (rawText) {
   try {
     parsed = JSON.parse(cleaned)
   } catch (e) {
-    throw new Error('LLM 输出非合法 JSON: ' + e.message)
+    throw new Error('LLM 输出非合法 JSON: ' + e.message, { cause: e })
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error('LLM 输出非对象')

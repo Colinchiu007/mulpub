@@ -601,7 +601,7 @@ class FullAutoPipeline extends EventEmitter {
         accounts = await this._accountManager.listAccounts();
         this._logRun(runId, 'info', '获取到 ' + accounts.length + ' 个账号');
       } catch (e) {
-        throw new Error('获取账号列表失败：' + (e && e.message ? e.message : String(e)));
+        throw new Error('获取账号列表失败：' + (e && e.message ? e.message : String(e)), { cause: e });
       }
     }
 

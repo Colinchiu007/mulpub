@@ -102,7 +102,8 @@ export default {
     },
   },
   data() {
-    return { _lastActiveStageIndex: -1 }
+    // 键名不能以 _ 开头（Vue 保留前缀，实例代理上不可见，见 vue/no-reserved-keys）
+    return { lastActiveStageIndex: -1 }
   },
   methods: {
     stageName(name) {
@@ -269,8 +270,8 @@ export default {
       handler() {
         this.$nextTick(() => {
           const idx = this.currentActiveStageIndex
-          if (idx >= 0 && idx !== this._lastActiveStageIndex) {
-            this._lastActiveStageIndex = idx
+          if (idx >= 0 && idx !== this.lastActiveStageIndex) {
+            this.lastActiveStageIndex = idx
             this.scrollToStage(idx)
           }
         })

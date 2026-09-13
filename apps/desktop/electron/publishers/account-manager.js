@@ -53,6 +53,7 @@ const {
   PLATFORM_DASHBOARD_URLS,
   PLATFORM_NAMES,
   PLATFORM_LOGIN_SUCCESS_SELECTORS,
+  PLATFORM_ACCOUNT_INFO_SELECTORS,
   getPlatformName,
   isPlatformCookieDomain,
 } = require('@multi-publish/shared-utils/src/platform-definitions')
@@ -970,7 +971,7 @@ async function updateCapturedAccount (platform, captured, accountId) {
     account = result.data
     if (account.platform !== platform) throw new Error('账号平台不匹配')
   } catch (e) {
-    throw new Error('账号不存在或平台不匹配: ' + e.message)
+    throw new Error('账号不存在或平台不匹配: ' + e.message, { cause: e })
   }
 
   // 更新后端公开元数据（PATCH）
