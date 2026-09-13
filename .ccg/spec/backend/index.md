@@ -29,3 +29,10 @@
 - [ ] SQL 参数化（禁止字符串拼接）
 - [ ] 密钥不硬编码（使用环境变量）
 - [ ] 敏感数据日志脱敏
+
+## 采集引擎（url-collector）导航竞态（2026-09-13，fix-zhihu-stealth-navigation）
+
+- stealth 浏览器采集 page.content() 在页面导航中会抛 Unable to retrieve content because the page is navigating。该错误消息不含已知分类关键词，会被 classifyCollectError 判为 unknown（UI 显示「原因未识别」误导用户）。
+- 强制点：page.content() 必须经 _readPageContentWithRetry（导航竞态等待后重试，最多 3 次）；page.goto 用 waitUntil: 'load' 而非 networkidle（知乎等 SPA 持续轮询下 networkidle 可能永不满足）。
+- 强制点：collect() catch 必须把导航竞态错误（消息含 navigating/navigation）归类为 content_unextractable（可重试），不得让 unknown 泄漏到 UI。
+- 回归保护：新增导航竞态重试成功/非导航不重试/导航错误分类/非导航不附加 reason 四类测试。
