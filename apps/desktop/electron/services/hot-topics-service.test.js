@@ -217,6 +217,88 @@ describe('HotTopicsService', () => {
     expect(store.setSetting).toHaveBeenCalledWith(CACHE_KEY, expect.stringContaining('"topics"'))
   })
 
+  // ── 缓存保护：全渠道失败不得清空已有选题（2026-09-14 缺陷回归保护）──
+  // 缺陷现象：一次网络抖动（8 渠道并发抓取 10s 超时全部 abort）后 topics=[]，
+  // 旧实现直接 `_writeCache({ topics: [] })` 覆盖掉用户已抓到的选题，
+  // UI 掉进「暂无热门选题」空态且不会自愈（需手动刷新且网络恢复）。
+  it('全渠道失败时保留上一次的非空缓存，不用空列表覆盖', async () => {
+    const previousTopics = [
+      { id: 'zhihu:1', topic: 'A', channel: 'zhihu', rank: 1 },
+      { id: 'zhihu:2', topic: 'B', channel: 'zhihu', rank: 2 },
+    ]
+    const store = { getSetting: () => null, setSetting: vi.fn() }
+    const svc = makeService({ settingsStore: store })
+    svc.memCache = { topics: previousTopics, fetchedAt: 1700000000000, channelStats: {} }
+    vi.spyOn(svc, '_collectChannel').mockImplementation(async (cfg) => ({
+      channel: cfg.id, items: null, skipped: false, error: 'This operation was aborted',
+    }))
+
+    const res = await svc.fetchTopics({ force: true })
+
+    expect(res.topics).toHaveLength(2)
+    expect(res.topics.map(t => t.topic)).toEqual(['A', 'B'])
+    expect(res.fetchedAt).toBe(1700000000000) // 保留陈旧 fetchedAt → 下次调用仍会重试网络
+    expect(res.preservedStaleCache).toBe(true)
+    // 落盘的必须是保留后的缓存，而不是空列表
+    const lastCall = store.setSetting.mock.calls[store.setSetting.mock.calls.length - 1]
+    const persisted = JSON.parse(lastCall[1])
+    expect(persisted.topics).toHaveLength(2)
+    expect(persisted.preservedStaleCache).toBe(true)
+    // 失败原因仍需如实上报，供 UI 展示「部分渠道获取失败」
+    expect(res.channelStats.zhihu.ok).toBe(false)
+    expect(res.channelStats.zhihu.error).toBe('This operation was aborted')
+  })
+
+  it('缓存本就为空时，全渠道失败仍写入空结果（不产生伪标记）', async () => {
+    const store = { getSetting: () => null, setSetting: vi.fn() }
+    const svc = makeService({ settingsStore: store })
+    svc.memCache = { topics: [], fetchedAt: 0, channelStats: {} }
+    vi.spyOn(svc, '_collectChannel').mockImplementation(async (cfg) => ({
+      channel: cfg.id, items: null, skipped: false, error: 'HTTP 500',
+    }))
+
+    const res = await svc.fetchTopics({ force: true })
+
+    expect(res.topics).toEqual([])
+    expect(res.preservedStaleCache).toBeUndefined()
+    expect(res.fetchedAt).toBeGreaterThan(0)
+  })
+
+  it('部分渠道成功时正常覆盖缓存（保留新结果，不加保留标记）', async () => {
+    const store = { getSetting: () => null, setSetting: vi.fn() }
+    const svc = makeService({ settingsStore: store })
+    svc.memCache = { topics: [{ id: 'old:1', topic: '旧选题' }], fetchedAt: 1700000000000, channelStats: {} }
+    vi.spyOn(svc, '_collectChannel').mockImplementation(async (cfg) => {
+      if (cfg.id === 'zhihu') {
+        return {
+          channel: 'zhihu',
+          skipped: false,
+          items: [{ channel: 'zhihu', rank: 1, topic: '新选题', hotValue: null, url: null, rawCategory: null }],
+        }
+      }
+      return { channel: cfg.id, items: null, skipped: false, error: 'HTTP 500' }
+    })
+
+    const res = await svc.fetchTopics({ force: true })
+
+    expect(res.topics).toHaveLength(1)
+    expect(res.topics[0].topic).toBe('新选题')
+    expect(res.preservedStaleCache).toBeUndefined()
+  })
+
+  it('全渠道被限流/熔断跳过时同样保留旧缓存（skipped 不等于成功抓取）', async () => {
+    const svc = makeService()
+    svc.memCache = { topics: [{ id: 'zhihu:1', topic: '保留我' }], fetchedAt: 1700000000000, channelStats: {} }
+    vi.spyOn(svc, '_collectChannel').mockImplementation(async (cfg) => ({
+      channel: cfg.id, items: null, skipped: true,
+    }))
+
+    const res = await svc.fetchTopics({ force: true })
+
+    expect(res.topics).toHaveLength(1)
+    expect(res.preservedStaleCache).toBe(true)
+  })
+
   it('container wiring shape: settingsStore adapter maps to store.getSetting/setSetting', () => {
     // 验证 container.setup.js 的注入形态（不启动完整 container，只验证适配器映射）
     const calls = []
