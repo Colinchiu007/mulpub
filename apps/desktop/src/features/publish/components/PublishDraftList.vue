@@ -1,7 +1,7 @@
 <template>
   <section class="publish-draft-list" data-testid="publish-draft-list" aria-label="草稿列表">
-    <div v-if="loading" class="draft-list-state" data-testid="draft-list-loading" role="status">
-      正在加载草稿...
+    <div v-if="loading" class="draft-list-state" data-testid="draft-list-loading">
+      <UiSkeleton variant="list" :count="3" />
     </div>
     <div v-else-if="drafts.length === 0" class="draft-list-state" data-testid="draft-list-empty">
       <strong>暂无草稿</strong>

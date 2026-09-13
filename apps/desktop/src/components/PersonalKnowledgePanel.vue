@@ -14,7 +14,9 @@
     <!-- 搜索 -->
     <input v-model="search" class="cohere-input" :placeholder="t('knowledgeBase.searchPlaceholder')" @input="debouncedSearch" style="margin-bottom:12px" />
     <!-- 卡片列表 -->
-    <div v-if="loading" style="text-align:center;padding:40px;color:var(--muted)">加载中...</div>
+    <div v-if="loading" style="padding:8px 0" data-testid="personal-knowledge-loading">
+      <UiSkeleton variant="list" :count="3" />
+    </div>
     <div v-else-if="!items.length" style="text-align:center;padding:40px;color:var(--muted)">暂无内容，点击右上角添加知识</div>
     <div v-else class="kb-card-grid">
       <div v-for="item in items" :key="item.id" class="cohere-card kb-personal-card">

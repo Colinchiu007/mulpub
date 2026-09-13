@@ -25,8 +25,10 @@
     </div>
 
     <!-- 加载状态 -->
-    <div v-if="!board && loading" class="board-loading">
-      <span class="spinner"></span> 加载看板...
+    <div v-if="!board && loading" class="board-loading" data-testid="board-loading">
+      <div class="mp-skeleton-grid">
+        <UiSkeleton v-for="i in 6" :key="i" variant="card" class="mp-skeleton-card" />
+      </div>
     </div>
 
     <!-- 空看板 -->

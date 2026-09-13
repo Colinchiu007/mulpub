@@ -25,7 +25,9 @@
         </thead>
         <tbody>
           <tr v-if="loading">
-            <td colspan="13" style="text-align:center;padding:24px;color:var(--muted)">加载中...</td>
+            <td colspan="13" style="padding:16px">
+              <UiSkeleton variant="table" :count="5" :columns="6" />
+            </td>
           </tr>
           <tr v-else-if="!items.length">
             <td colspan="13" style="text-align:center;padding:24px;color:var(--muted)">暂无内容</td>

@@ -193,7 +193,11 @@
         </aside>
 
         <section class="account-results-panel" :aria-label="t('accountsPage.accountListAria')">
-          <div v-if="loading" class="loading-state">{{ t('accountsPage.loadingAccounts') }}</div>
+          <div v-if="loading" class="loading-state" data-testid="accounts-loading">
+            <div class="mp-skeleton-grid">
+              <UiSkeleton v-for="i in 4" :key="i" variant="card" class="mp-skeleton-card" />
+            </div>
+          </div>
           <EmptyState v-else-if="visibleAccounts.length === 0" :title="emptyStateTitle">
             <template #icon><UserFilled /></template>
           </EmptyState>

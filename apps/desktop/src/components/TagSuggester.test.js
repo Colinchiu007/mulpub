@@ -115,7 +115,9 @@ describe("TagSuggester", () => {
     await w.setProps({ content: "这是一篇测试文章内容" });
     vi.advanceTimersByTime(900);
     await nextTick();
-    expect(w.text()).toContain("AI 正在分析标签...");
+    // 统一骨架屏：加载态改为骨架（文案只保留给辅助技术）
+    expect(w.find('[data-testid="tag-suggester-loading"]').exists()).toBe(true);
+    expect(w.findAll(".mp-skeleton-surface").length).toBeGreaterThan(0);
   });
 
   it("shows suggestions when API succeeds", async () => {

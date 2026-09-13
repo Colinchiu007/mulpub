@@ -74,7 +74,9 @@
               :data-testid="'sas-preview-' + scene.index + '-' + candidate.id"
               @click="openPreview(scene, candidate)"
             ></video>
-            <span v-else class="sas-thumb sas-thumb-loading">…</span>
+            <span v-else class="sas-thumb sas-thumb-loading">
+              <UiSkeleton variant="rect" height="100%" />
+            </span>
           </label>
         </div>
       </div>

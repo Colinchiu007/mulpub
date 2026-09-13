@@ -78,9 +78,8 @@
       >{{ tr('batchDelete') }}</button>
     </div>
 
-    <div v-if="historyLoading" class="loading-state">
-      <span class="spinner" aria-hidden="true"></span>
-      <span>{{ tr('loading') }}</span>
+    <div v-if="historyLoading" class="loading-state" data-testid="history-loading">
+      <UiSkeleton variant="list" :count="5" />
     </div>
     <EmptyState v-else-if="history.length === 0" :title="tr('emptyTitle')" :description="tr('emptyHint')" icon="" />
     <EmptyState v-else-if="filteredHistory.length === 0" :title="tr('emptyFilter')" compact />
