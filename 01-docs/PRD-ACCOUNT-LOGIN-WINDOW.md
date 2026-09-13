@@ -317,3 +317,62 @@ close()
 三个认证管理器（AuthViewManager / QrCodeLogin / OAuthManager）全部经由 `auth-window.js`
 工厂创建承载窗口，认证视图布局统一为「独立坐标系 + 从 (0,0) 铺满客户区」，应用内不再
 存在任何依赖主窗口 DOM 坐标的可见认证浮层。
+
+## 十三、内嵌视图视口契约（2026-09-13 补充：客户区尺寸修复）
+
+> 本节修复 §2.1 提出的「补丁像素」问题族中尚未覆盖的另一半：**尺寸来源**。
+> 完整根因分析、逃逸链与回归测试见 `01-docs/BUGFIX-EMBEDDED-BROWSER-VIEWPORT-2026-09-13.md`。
+
+### 13.1 问题
+
+认证/浏览器视图后来又从独立窗口迁回主窗口内嵌（浏览器式标签页模式）。迁移后的布局代码
+用 `mainWindow.getBounds()`（**外框**，含系统标题栏、菜单栏、左右与底部边框）的宽高填充
+`contentView` 子视图，而子视图 `setBounds` 实际使用**客户区坐标系**：
+
+- 视图宽出左右边框（Windows 100% DPI 约 +16px）→ 网页垂直滚动条被裁在窗口外 →
+  账号管理点击账号卡片打开平台网页后「右侧没有滚动条」；
+- 视图高出标题栏 + 底边框（约 +39px）→ 底部内容被物理截断且无法滚动查看。
+
+### 13.2 契约（唯一正确写法，新增规则 R94）
+
+```
+内嵌视图 bounds = {
+  x:      sidebarWidth          // 左侧导航栏（渲染进程动态同步，默认 200 / 窄屏 68）
+  y:      76                    // TabBar(36) + NavBar(40)，即 BROWSER_CHROME_TOP
+  width:  客户区宽 − sidebarWidth
+  height: 客户区高 − 76
+}
+尺寸来源：必须 mainWindow.getContentBounds()（客户区），禁止 getBounds()（外框）
+坐标系：  contentView 子视图 setBounds = 客户区坐标系（与渲染进程 DOM 原点一致）
+```
+
+### 13.3 实现与数据流
+
+- **唯一来源**：`apps/desktop/electron/services/view-bounds.js` —— `getContentSize(win)`
+  （降级链 `getContentBounds()` → `getContentSize()` → `getBounds()`，任一步抛错兜底 `{0,0}`）、
+  `computeEmbeddedViewBounds(win, sidebarWidth, topOffset)`、`normalizeSidebarWidth()`。
+- **接入点**：`webview-manager.js`（创作者中心标签 `_repositionAll` + 分屏 `_calculatePositions`）、
+  `auth-view-manager.js`（登录视图 `_positionView`，改为无参）、`qrcode-login.js`（扫码视图）、
+  `oauth-manager.js`（OAuth 授权视图——顺带修复 `_positionView` 方法缺失导致 `startAuth`
+  一进入即抛 `TypeError` 的崩溃）。
+- **侧栏宽度同步（不变）**：`YixiaoerSidebar.vue` ResizeObserver → IPC
+  `page-manager:set-sidebar-width` → 各 manager `setSidebarWidth`（0–600 合法区间，非法值回落 200）。
+- **resize 链路（不变）**：`window.js` `mainWindow.on('resize')` → `webviewManager.resize()` /
+  `authViewManager._onWindowResize()` / `qrCodeLogin._onWindowResize()` → 全部经
+  `view-bounds.js` 重新取客户区尺寸。
+- **显示项（用户可见验收）**：平台网页右侧出现完整垂直滚动条；页面底部设置区完整可见；
+  拖拽缩放窗口后布局保持贴合 TabBar+NavBar 下沿与侧栏右沿。
+
+### 13.4 回归测试
+
+- `view-bounds.test.js`（新增）：客户区优先 / 降级链 / 异常兜底 / 布局数学 / 边界值；
+- `webview-manager.test.js`：浏览器标签 `setBounds` 必须等于客户区口径
+  （外框值 `{1240, 824}` 会使断言失败）；
+- `auth-view-manager.test.js` / `qrcode-login.test.js` / `oauth-manager.test.js`：
+  窗口 mock 补 `getContentBounds`，断言统一为客户区口径。
+
+### 13.5 遗留项
+
+- 分屏监控 `NAV_HEIGHT=56` 与浏览器标签 `TOP=76` 双常量并存（两套历史 DOM 头高度），
+  建议后续统一到 `view-bounds.js`；
+- 原生 `WebContentsView` 不被 jsdom / 视觉回归覆盖，长期可加「真实窗口 setBounds 快照」E2E。

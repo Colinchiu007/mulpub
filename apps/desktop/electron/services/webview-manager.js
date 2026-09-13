@@ -27,6 +27,8 @@ const credentialStore = require('./credential-store')
 const { PLATFORM_DASHBOARD_URLS, getPlatformName } = require('@multi-publish/shared-utils/src/platform-definitions')
 const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('../ipc-handlers/helpers')
+// 内嵌视图定位唯一来源：必须用「客户区」尺寸，禁用 getBounds() 外框尺寸（详见模块注释）
+const { getContentSize, computeEmbeddedViewBounds } = require('./view-bounds')
 
 // 左侧导航栏宽度（与前端 YixiaoerSidebar 的 CSS 变量 --yixiaoer-sidebar-width 保持一致）
 // 默认 200px，窄屏（≤900px）时 68px；由渲染进程通过 IPC 动态同步
@@ -1169,7 +1171,10 @@ class WebviewManager extends EventEmitter {
    */
   _repositionAll () {
     if (!this.mainWindow) return
-    var bounds = this.mainWindow.getBounds()
+    // 内嵌视图的 setBounds 使用「客户区」坐标系，因此尺寸必须取客户区尺寸。
+    // 若用 mainWindow.getBounds()（外框，含标题栏/菜单栏/边框），视图会宽出左右边框、
+    // 高出标题栏+底边框，导致右侧垂直滚动条与底部内容被窗口裁掉（见 view-bounds.js）。
+    var viewport = getContentSize(this.mainWindow)
     var sidebarWidth = this._sidebarWidth || SIDEBAR_WIDTH_DEFAULT
 
     // 登录标签活动态：登录视图由 AuthViewManager 自行定位（全屏 y=76），
@@ -1184,14 +1189,14 @@ class WebviewManager extends EventEmitter {
       // 左侧导航栏为固定区域，WebContentsView 应定位在右侧主体区域
       var activeView = this._tabViews.get(this._activeTabId)
       if (activeView) {
-        activeView.setBounds({ x: sidebarWidth, y: 76, width: bounds.width - sidebarWidth, height: bounds.height - 76 })
+        activeView.setBounds(computeEmbeddedViewBounds(this.mainWindow, sidebarWidth))
         activeView.setVisible(true)
       }
     }
 
     // 处理分屏监控标签（旧系统）
     if (this.tabs.length > 0) {
-      var positions = this._calculatePositions(bounds)
+      var positions = this._calculatePositions(viewport)
       for (var i = 0; i < this.tabs.length; i++) {
         if (i < positions.length) {
           var pos = positions[i]
