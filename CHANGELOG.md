@@ -1,3 +1,15 @@
+# [未发布] feat(scripts): 新增「测试覆盖但未接线」死代码检测脚本（detect-unwired-exports，2026-09-13）
+
+### 新增
+- **detect-unwired-exports.js**：检测「测试覆盖但未接线」的死代码导出——有测试证明其正确但生产代码从未调用（如 governance.runGates 死代码）
+- 检测逻辑：扫描模块导出（仅函数/类）→ 统计生产代码调用（含 require 引用/解构/继承）→ 标记「生产调用 0 次但测试有调用」的导出
+- 用法：`node scripts/detect-unwired-exports.js <dir> [--root <prodRoot>]`
+- 测试：detect-unwired-exports.test.js 6 用例全绿（死代码标记/生产调用/内部辅助/require 引用/继承/常量排除）
+
+### 验证
+- 扫描 electron/services 发现 2 个真实死代码候选：`TasksRepo`（tasks-repo.js）、`SessionRecorder`（user-session-recorder.js）——有测试但生产代码从未调用
+- 误报消除：adapter 类（require 引用）、基类（extends）、内部辅助函数、常量均正确排除
+
 # [未发布] docs(AGENTS): 新增 QM-6 强制 CCG 双模型外部评审（2026-09-13）
 
 ### 变更
