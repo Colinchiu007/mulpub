@@ -1,3 +1,17 @@
+# [未发布] fix(ccg-review): CCG 双模型评审修复（claude + opencode，2026-09-13）
+
+### 修复（CCG 外部评审发现）
+- **Critical（content-quality-eval）**：`startRewrite()` 未重置 `rewriteQuality`，第二次改写无 quality 时旧质量报告残留（stale-data bug）→ 新增 `rewriteQuality.value = null`
+- **Critical（p1b-memory）**：`governance.runGates()` 在生产路径从未被调用（6 规则门禁是死代码）→ 新增 `gate` 注入参数 + `_setGate` 方法，phase1-context 接线 governance.runGates 到 saveLearnt
+- **Warning（content-quality-eval）**：`typeof quality === 'object'` 接受数组 → 增加 `!Array.isArray` 守卫；suggestions 未做数组守卫 → 增加 `Array.isArray`；verdict CSS class 未归一化 → 非法值回退 fail
+- **Warning（p1b-memory）**：`get(id, version)` 的 version 参数未校验（路径穿越风险）→ 增加正整数校验
+- **Info（content-quality-eval）**：`qualitySuggestions` key 未使用 → 添加建议列表标题
+
+### 验证
+- prompt-memory.test.js 27 通过（新增 4：gate 拒绝/通过/_setGate 动态注入/路径穿越）
+- RewriteView.test.js 39 通过（新增 4：stale-data 修复/数组占位/verdict 回退/suggestions 非数组）
+- locale-sync --keys（927 key）/--cjk/--pair-base PASS；eslint 0 error（2 个既有 warning 非本次引入）
+
 # [未发布] feat(rewrite): 改写质量评估报告桌面端闭环（content-quality-eval-desktop，2026-09-13）
 
 ### 新增

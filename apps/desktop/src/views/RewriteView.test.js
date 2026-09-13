@@ -276,6 +276,130 @@ describe('RewriteView', () => {
     expect(none.text()).toContain('未生成质量评估')
   })
 
+  // ── CCG 评审修复（2026-09-13）──
+
+  it('第二次改写无 quality 时旧质量报告不残留（stale-data 修复）', async () => {
+    const mocks = await import('@/api/publisher')
+    // 第一次改写返回 quality
+    mocks.aiRewrite.mockResolvedValueOnce({
+      code: 0,
+      data: {
+        success: true,
+        result: '第一次改写结果',
+        strategy: { id: 's1', name: '测试策略', category: 'viral' },
+        warnings: [], sensitiveHits: [], knowledgeRefs: [],
+        metadata: { mode: 'imitate', originalLength: 30, resultLength: 18, aiTasteLevel: 0.15 },
+        quality: { sufficiency: 80, semanticPreservation: 70, originality: 85, verdict: 'pass', suggestions: ['好'], method: 'simhash' },
+      },
+    })
+    // 第二次改写无 quality
+    mocks.aiRewrite.mockResolvedValueOnce({
+      code: 0,
+      data: {
+        success: true,
+        result: '第二次改写结果',
+        strategy: { id: 's1', name: '测试策略', category: 'viral' },
+        warnings: [], sensitiveHits: [], knowledgeRefs: [],
+        metadata: { mode: 'imitate', originalLength: 30, resultLength: 18, aiTasteLevel: 0.15 },
+        quality: null,
+      },
+    })
+    const wrapper = factory()
+    const textarea = wrapper.find('textarea.rewrite-textarea')
+    await textarea.setValue('这是一段足够长的测试文案内容，超过二十个字，测试改写功能。')
+    await nextTick()
+    const btn = wrapper.find('.rewrite-start-btn')
+    // 第一次改写 → 质量报告显示
+    await btn.trigger('click')
+    await nextTick()
+    await nextTick()
+    expect(wrapper.find('[data-testid="rewrite-quality-report"]').exists()).toBe(true)
+    // 第二次改写 → 质量报告不残留，显示占位
+    await btn.trigger('click')
+    await nextTick()
+    await nextTick()
+    expect(wrapper.find('[data-testid="rewrite-quality-report"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="rewrite-quality-none"]').exists()).toBe(true)
+  })
+
+  it('quality 为数组时显示占位（非对象不展示）', async () => {
+    const mocks = await import('@/api/publisher')
+    mocks.aiRewrite.mockResolvedValueOnce({
+      code: 0,
+      data: {
+        success: true,
+        result: '改写结果',
+        strategy: { id: 's1', name: '测试策略', category: 'viral' },
+        warnings: [], sensitiveHits: [], knowledgeRefs: [],
+        metadata: { mode: 'imitate', originalLength: 30, resultLength: 18, aiTasteLevel: 0.15 },
+        quality: [{ sufficiency: 80 }], // 数组 → 应显示占位
+      },
+    })
+    const wrapper = factory()
+    const textarea = wrapper.find('textarea.rewrite-textarea')
+    await textarea.setValue('这是一段足够长的测试文案内容，超过二十个字，测试改写功能。')
+    await nextTick()
+    const btn = wrapper.find('.rewrite-start-btn')
+    await btn.trigger('click')
+    await nextTick()
+    await nextTick()
+    expect(wrapper.find('[data-testid="rewrite-quality-report"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="rewrite-quality-none"]').exists()).toBe(true)
+  })
+
+  it('verdict 非法值回退为 fail（不合格）', async () => {
+    const mocks = await import('@/api/publisher')
+    mocks.aiRewrite.mockResolvedValueOnce({
+      code: 0,
+      data: {
+        success: true,
+        result: '改写结果',
+        strategy: { id: 's1', name: '测试策略', category: 'viral' },
+        warnings: [], sensitiveHits: [], knowledgeRefs: [],
+        metadata: { mode: 'imitate', originalLength: 30, resultLength: 18, aiTasteLevel: 0.15 },
+        quality: { sufficiency: 80, semanticPreservation: 70, originality: 85, verdict: 'unknown', suggestions: ['好'], method: 'simhash' },
+      },
+    })
+    const wrapper = factory()
+    const textarea = wrapper.find('textarea.rewrite-textarea')
+    await textarea.setValue('这是一段足够长的测试文案内容，超过二十个字，测试改写功能。')
+    await nextTick()
+    const btn = wrapper.find('.rewrite-start-btn')
+    await btn.trigger('click')
+    await nextTick()
+    await nextTick()
+    const report = wrapper.find('[data-testid="rewrite-quality-report"]')
+    expect(report.exists()).toBe(true)
+    expect(report.text()).toContain('不合格') // verdict=unknown → fail
+  })
+
+  it('suggestions 非数组时不展示建议列表', async () => {
+    const mocks = await import('@/api/publisher')
+    mocks.aiRewrite.mockResolvedValueOnce({
+      code: 0,
+      data: {
+        success: true,
+        result: '改写结果',
+        strategy: { id: 's1', name: '测试策略', category: 'viral' },
+        warnings: [], sensitiveHits: [], knowledgeRefs: [],
+        metadata: { mode: 'imitate', originalLength: 30, resultLength: 18, aiTasteLevel: 0.15 },
+        quality: { sufficiency: 80, semanticPreservation: 70, originality: 85, verdict: 'pass', suggestions: '单条建议字符串', method: 'simhash' },
+      },
+    })
+    const wrapper = factory()
+    const textarea = wrapper.find('textarea.rewrite-textarea')
+    await textarea.setValue('这是一段足够长的测试文案内容，超过二十个字，测试改写功能。')
+    await nextTick()
+    const btn = wrapper.find('.rewrite-start-btn')
+    await btn.trigger('click')
+    await nextTick()
+    await nextTick()
+    const report = wrapper.find('[data-testid="rewrite-quality-report"]')
+    expect(report.exists()).toBe(true)
+    // suggestions 非数组 → 不渲染建议列表（不逐字符迭代）
+    expect(report.find('.rewrite-quality-suggestions').exists()).toBe(false)
+  })
+
   it('does not show result section before rewrite', () => {
     const wrapper = factory()
     expect(wrapper.text()).not.toContain('改写结果')
