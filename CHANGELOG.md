@@ -1,3 +1,18 @@
+# [未发布] refactor(scripts): 死代码清理 + 检测脚本优化与 CI 接入（2026-09-13）
+
+### 删除死代码（「测试覆盖但未接线」——有测试但生产代码从未调用）
+- **`tasks-repo.js` + `tasks-repo.test.js`**：从 MediaTrace 迁移的持久化任务仓库，从未接入生产路径（无任何 require 引用）
+- **`auth-window.js` + `auth-window.test.js`**：独立认证窗口工厂，已被 `identity-auth-window.js` 替代（auth-view-manager.js 注释明确「不再需要」）
+
+### 检测脚本优化（`scripts/detect-unwired-exports.js`）
+- **性能**：`collectCallIdentifiers` 一次性扫描替代逐导出×逐文件正则（O(文件数) 替代 O(导出数×文件数)），electron/services 全量扫描从 120s+ 降至 1.7s
+- **修复 `\b` 前缀 bug**：原 `[^A-Za-z0-9_$]` 消耗前缀字符导致 `if (isLoginSuccess(...))` 等调用丢失（`if (` 消耗 `(` 后 `isLoginSuccess` 无前缀可用），改用零宽 `\b`
+- **DI seam 识别**：`set` 开头 + 测试调用 ≥10 次（如 `setSafeStorage`）判定为测试注入点，非死代码
+- **白名单**：`user-session-recorder.js`（测试辅助工具，BACKLOT_RECORD_SESSION 门控）整体跳过
+
+### CI 接入（`.github/workflows/debt-guard.yml`）
+- 新增「死代码检测（软门禁）」步骤：运行检测脚本输出候选清单，`continue-on-error` 不阻塞 CI（已知 DI seam/动态引用误报需人工确认）
+
 # [未发布] fix(account): 账号登录态检测对齐蚁小二 HTTP API，修复登录页误判与失效误报（2026-09-14）
 
 ### 修复
