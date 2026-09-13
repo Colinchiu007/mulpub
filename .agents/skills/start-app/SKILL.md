@@ -284,6 +284,38 @@ node scripts/launch-worktree.js --worktree <dir> --profile 'D:\tmp\Multi-Publish
 - `-CheckIdentity` 会输出登录态 JSON（`identity-session.json` 解密后的状态）。
 - 若 `identity` 输出 `IDENTITY_UNAVAILABLE` / `NO_PAGE`：窗口起来了但登录态不可读，提示用户确认是否已登录。
 
+**账号数据验证（多自媒体账号是否加载，2026-09-13 实测）：**
+
+经 CDP WebSocket 调 `window.electronAPI.listAccounts()`，确认已登录 profile 的账号完整加载：
+
+```js
+// 连 CDP（端口见启动输出，mp-app-live 为 11415），找 vite 页面 target
+const targets = await getJson('http://127.0.0.1:<cdpPort>/json/list')
+const page = targets.find((t) => t.type === 'page' && t.url.startsWith('http://127.0.0.1:<vitePort>'))
+// 经 page.webSocketDebuggerUrl 发 Runtime.evaluate：
+// expression: '(async () => JSON.stringify(await window.electronAPI.listAccounts()))()'
+// awaitPromise: true, returnByValue: true
+```
+
+- 返回 `{"code":0,"data":[{platform,name,status,...}]}`，`data.length` 应为 7（百家号/快手/B站/抖音/公众号/头条/视频号）。
+- `status: "active"` 表示该平台 cookie 有效；`expired` 表示 cookie 过期（数据仍在，需重新登录）。
+- 若 `NO_PAGE`：窗口起来了但 CDP 页面不可达，检查 vite 端口是否被其他 worktree 占用。
+
+## Skill 同步（同步到 skill-repo，2026-09-13 实测）
+
+用户要求「把 start-app skill 同步到 skill repo」时执行。**skill-repo 是本机所有 agent skill 的单一事实源**（Nacos skill-sync local 模式）：
+
+- **位置**：`E:\BaiduSyncdisk\100-Agent-data\skill-repo\start-app\`（Baidu 网盘同步目录，非 git 仓库）。
+- **结构**：`SKILL.md`（完整定义，v1.3.0）+ `agents/openai.yaml`（OpenAI Agents UI 元数据，可选）。
+- **同步步骤**：
+  1. 复制项目内单一事实源：`cp D:/Data/projects/Multi-Publish/.agents/skills/start-app/SKILL.md E:/BaiduSyncdisk/100-Agent-data/skill-repo/start-app/SKILL.md`
+  2. 创建/更新 `agents/openai.yaml`（格式参考 skill-repo 内 `git-cleanup-analysis/agents/openai.yaml`）。
+  3. 验证：`diff <项目内 SKILL.md> <skill-repo SKILL.md>` 应输出 IDENTICAL；`file openai.yaml` 应为 UTF-8 无 BOM。
+
+**⚠️ 编码坑（2026-09-13 实测）**：写含中文的 `.yaml`/`.md` 到 skill-repo 时，**必须用 bash heredoc**（`cat > file << 'EOF'`），不要用 PowerShell `Set-Content -Encoding UTF8`——PowerShell 5.1 会把中文按 GBK 读取再转 UTF-8，产生双重编码乱码（hex 可见 `e9 8d 8f` 等无效序列）。验证：`file` 应显示 `UTF-8 text`（无 BOM），`cat` 回读中文正常。
+
+**⚠️ 全局 agent 目录**：本机 `C:\Users\邱领\.codex\skills` / `.agents\skills` 全局目录**当前不存在**（skill roots 配置 r1/r2 指向它们但目录未创建）。nacos-cli 当前不可用（npm global 里无此命令）。所以「同步到 skill repo」= 更新 skill-repo 文件即可，无需建全局链接。
+
 ## 失败处理
 
 | 现象 | 处理 |
@@ -327,4 +359,5 @@ node scripts/launch-worktree.js --worktree <dir> --profile 'D:\tmp\Multi-Publish
 - **git 写操作走 PowerShell 原生路径**：避免 Git Bash `/d/...` 触发 `D:/d/...` 混写（项目硬纪律）。
 - **WSL/Windows 数据分裂（双环境核心坑）**：项目 node_modules 是 Windows 版，WSL 端必须用独立 Linux 依赖树（`~/mp-wsl-deps/mp-wsl`）；electron 必须显式 `--user-data-dir` 指向共享目录（Linux worktree 上溯不到共享主仓库锚点）；**默认不要设 `ELECTRON_USER_DATA_DIR`**（显式值会绕过共享目录）。
 - **WSL /tmp 是 tmpfs**：`/tmp/mp-electron`、`/tmp/electron-libs`、`/tmp/mp-wsl-profile` 都是临时方案，WSL 重启即清空。持久方案是 `~/mp-wsl-deps/`（electron-libs 库 + mp-wsl worktree）。
+- **Codex 执行环境转义坑（2026-09-13 实测）**：在 Codex exec/fastctx 的 bash 里跑 PowerShell 命令时，`$` 变量（如 `$worktree`、`$_`、`$LASTEXITCODE`）会被 bash 展开为空，导致「变量为 null」「空管道」等诡异错误。**可靠做法**：① 复杂 PowerShell 一律写成 `.ps1` 文件再 `powershell -File` 执行；② 写 .ps1 用 bash heredoc（`cat > file << 'EOF'`），**不要用 apply_patch**——apply_patch 会转义 `\t` 等序列（路径 `C:\tmp\...` 变成 `C:	mp...`）且可能引入 BOM；③ 脚本保持纯 ASCII（无中文注释），避免 PowerShell 5.1 解析异常。
 - **单一事实源**：逻辑修改只改本文件；各 agent 入口只做「指向本文件 + 执行要点」，不要各自维护重复逻辑。
