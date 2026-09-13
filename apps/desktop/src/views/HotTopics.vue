@@ -494,7 +494,8 @@ async function refresh(force = false, { background = false } = {}) {
 
 /** SWR：缓存优先渲染——命中缓存立即显示并后台静默刷新；未命中走网络抓取（中央加载提示） */
 async function loadFromCacheThenRefresh() {
-  let cached = null
+  // 初始化值在 try/catch 两条路径都会被覆盖，故不写初值（eslint no-useless-assignment）
+  let cached
   try {
     cached = await hotTopicsGetCache()
   } catch (_) { cached = null }
