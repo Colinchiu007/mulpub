@@ -440,9 +440,25 @@ async function checkLoginStatus (platform, accountId) {
   if (!loginUrl) return { valid: false, code: 'CHECK_LOGIN_UNSUPPORTED_PLATFORM' }
 
   // 渲染崩溃保护：视频号等平台在隐藏 sandbox 窗口中触发原生渲染崩溃
-  // （crashpad not connected）导致整个应用退出，降级为本地凭证检查。
+  // （crashpad not connected）导致整个应用退出，禁止走浏览器 DOM 检测。
+  // 但本地凭证文件存在 ≠ Cookie 有效（视频号 Cookie 过期后文件仍在，
+  // 仅查本地文件会把失效账号误判为已登录）。因此先尝试 HTTP API 检测
+  // （http-login-checker 已注册 tencent_video，访问后台首页看是否 302 到
+  // 登录页），HTTP 结果不确定或无 Cookie 时再回退本地凭证检查。
   const RENDER_CRASH_PRONE_PLATFORMS = new Set(['tencent_video'])
   if (RENDER_CRASH_PRONE_PLATFORMS.has(platform)) {
+    const credentials = loadSavedCredentials(accountId, platform)
+    const cookies = Array.isArray(credentials?.cookies) ? credentials.cookies : []
+    if (cookies.length > 0) {
+      const httpResult = await tryHttpLoginCheck(platform, cookies, accountId)
+      if (httpResult) {
+        log.info('AccountManager', 'checkLoginStatus: render-crash-prone platform ' + platform + ':' + accountId + ' http-check valid=' + httpResult.valid + ' code=' + httpResult.code)
+        return httpResult
+      }
+      log.info('AccountManager', 'checkLoginStatus: render-crash-prone platform ' + platform + ':' + accountId + ' http-check inconclusive → local fallback')
+    } else {
+      log.info('AccountManager', 'checkLoginStatus: render-crash-prone platform ' + platform + ':' + accountId + ' no cookies → local fallback')
+    }
     const hasLocal = checkLocalCredentials(platform, accountId)
     log.info('AccountManager', 'checkLoginStatus: render-crash-prone platform ' + platform + ':' + accountId + ' local-credential-only valid=' + hasLocal)
     return hasLocal
@@ -876,14 +892,23 @@ function checkLocalCredentials (platform, accountId, options = {}) {
   // 此备选路径让 checkLocalCredentials 把 session Cookie 文件的存在也视为有效凭证。
   if (isSafePathSegment(accountId)) {
     try {
-      const sessionCookiePath = path.join(userDataDir, 'Partitions', 'account-' + accountId, 'Network', 'Cookies')
-      if (fs.existsSync(sessionCookiePath)) {
-        const cookieStats = fs.statSync(sessionCookiePath)
-        if (cookieStats.size > 0) {
-          log.info('AccountManager', 'checkLocalCredentials: OK session-cookie ' + platform + ':' + accountId + ' size=' + cookieStats.size + 'B (fallback from missing encrypted file)')
-          return true
+      // sessionData 路径被 startup-compat.js 重定向到 userDataDir/session，
+      // 因此账号级 persist:account-{id} 分区的 Cookie 实际落在
+      // userDataDir/session/Partitions/account-{id}/Network/Cookies。
+      // 旧版本落在 userDataDir/Partitions/...；两处都检查，兼容历史数据。
+      const sessionCookieCandidates = [
+        path.join(userDataDir, 'session', 'Partitions', 'account-' + accountId, 'Network', 'Cookies'),
+        path.join(userDataDir, 'Partitions', 'account-' + accountId, 'Network', 'Cookies'),
+      ]
+      for (const sessionCookiePath of sessionCookieCandidates) {
+        if (fs.existsSync(sessionCookiePath)) {
+          const cookieStats = fs.statSync(sessionCookiePath)
+          if (cookieStats.size > 0) {
+            log.info('AccountManager', 'checkLocalCredentials: OK session-cookie ' + platform + ':' + accountId + ' size=' + cookieStats.size + 'B path=' + sessionCookiePath + ' (fallback from missing encrypted file)')
+            return true
+          }
+          log.info('AccountManager', 'checkLocalCredentials: session cookie file empty for ' + platform + ':' + accountId + ' path=' + sessionCookiePath)
         }
-        log.info('AccountManager', 'checkLocalCredentials: session cookie file empty for ' + platform + ':' + accountId)
       }
     } catch (e) {
       log.warn('AccountManager', 'checkLocalCredentials: session cookie check error for ' + platform + ':' + accountId + ' ' + (e && e.message ? e.message : String(e)))

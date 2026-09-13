@@ -16,7 +16,7 @@ function registerHandlers(ipcMain, deps) {
     'has_auth_data', 'last_validated', 'created_at', 'updated_at', 'auth_method',
   ]
   const rendererAccountUpdateFields = new Set([
-    'name', 'account_name', 'avatar', 'avatar_url', 'status', 'is_default',
+    'name', 'account_name', 'avatar', 'avatar_url', 'status', 'is_default', 'last_validated',
   ])
   const rendererAccountCreateFields = new Set([
     'id', 'platform', 'name', 'avatar', 'status',

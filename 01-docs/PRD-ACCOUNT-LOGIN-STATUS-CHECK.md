@@ -1,7 +1,7 @@
 # PRD: 账号登录状态自动检测与主页提醒
 
-> 版本: 1.0 | 日期: 2026-09-08 | 状态: 已实现
-> 关联 PR: #1558
+> 版本: 2.0 | 日期: 2026-09-13 | 状态: 已实现
+> 关联 PR: #1558（v1）、#1804（session cookie 路径修复）、#1805（本次：检测反馈 + 失效标识 + 结果持久化 + 公众号 HTTP 检测）
 
 ## 1. 需求背景
 
@@ -78,19 +78,31 @@ App.vue 挂载 Home 组件
       → 按账号持久化 session 分区
 ```
 
-### 4.3 批量检测流程（已有 API，供后续定时任务使用）
+### 4.3 批量检测流程（账号管理页「一键检测」）
 ```
-调用 accountBatchCheckLogin(accountIds?)
-  → IPC: accounts:batch-check-login
-    → 校验 owner subject
-    → AccountManager.listAccounts()
-    → 过滤候选账号（有 platform + id）
-    → 按 accountIds 过滤（缺省全查）
-    → 顺序执行 AccountManager.checkLoginStatus(platform, accountId)
-      → Playwright 无头浏览器加载 Cookie 访问登录页
-      → 等待登录成功选择器 10 秒
-      → 返回 { valid, code }
-    → 返回 { results: [{platform, accountId, valid, code, error?}], checkedAt }
+用户点击【一键检测】（账号管理页）
+  → batchCheckAllLogins()
+    → 校验 batchCheckAllBusy（防重复触发）
+    → 校验账号列表非空
+    → 设置 batchCheckAllBusy = true，verifyingIds = 全部账号
+    → 订阅 accounts:batch-check-progress 事件（逐账号进度）
+    → 调用 accountBatchCheckLogin(全部账号 ID)
+      → IPC: accounts:batch-check-login
+        → 校验 owner subject
+        → AccountManager.listAccounts()
+        → 顺序执行 AccountManager.checkLoginStatus(platform, accountId)
+          → 优先 HTTP API 快速路径（<1s/平台，含公众号）
+          → 无 HTTP 检测的平台走 Playwright 无头浏览器 DOM 检测
+          → 返回 { valid, code }
+        → 返回 { results: [{platform, accountId, valid, code, error?}], checkedAt }
+    → 按结果更新本地 account.status（active / expired）+ last_validated
+    → 调用 accountUpdate(id, { status, last_validated }) 写回后端（持久化）
+    → 更新 checkedExpiredIds（失效账号集合）
+    → 汇总提示正常/失效数量
+    → 复位 batchCheckAllBusy / verifyingIds
+
+检测期间屏幕中央显示进度遮罩（batch-check-overlay）：
+  - 旋转 spinner + 「正在检测账号登录状态」标题 + 「检测中 X/N：平台」进度 + 进度条
 ```
 
 ## 5. 功能逻辑
@@ -187,9 +199,51 @@ App.vue 挂载 Home 组件
 - 已新增 `accounts:batch-check-login` IPC 通道，未来可配合后台定时任务使用
 - 建议未来实现方案：Electron 主进程后台定时任务（如每小时），静默调用 `batch-check-login`，结果通过 `account:status-changed` 事件推送到渲染层
 
-## 11. 未来扩展
+## 11. 检测结果持久化（v2.0 已实现）
+
+一键检测结果通过 `accountUpdate(id, { status, last_validated })` 写回后端数据库（accounts 表新增 `last_validated` 列）。退出账号管理页再进入时，列表加载能读到本次检测结果。
+
+### 11.1 数据校验
+- `accountUpdate` 的 `status` / `last_validated` 字段经 `rendererAccountUpdateFields` 白名单校验
+- `store.updateAccount` 经 `sanitizeUpdateFields` 白名单过滤（防 SQL 注入）
+- `last_validated` 为 ISO 时间戳字符串
+
+### 11.2 状态推导优先级（toPublicAccount）
+```
+后端 status = expired 且 last_validated 在 2 小时内（一键检测写回）
+  → 尊重检测结果，status = expired
+否则
+  → 回退到 checkLocalCredentials（本地凭证文件检测）
+    → hasCred = true → status = active（覆盖陈旧 expired）
+    → hasCred = false → status = expired
+```
+
+### 11.3 失效账号卡片标识
+账号卡片 `statusLabel` 区分三种状态：
+- `active` / `online` → 「已登录」（绿色）
+- `expired` → 「已失效」（红色，v2.0 新增）
+- `inactive` / `offline` → 「已登录」（灰色，未检测语义）
+- `error` → 「异常」（红色）
+
+## 12. 公众号失效检测（v2.0 已实现）
+
+### 12.1 问题
+公众号登录页与后台同域（mp.weixin.qq.com）。Cookie（slave_sid）过期后访问后台首页可能仍渲染骨架、URL 停在 cgi-bin/home，DOM 选择器检测会误判有效。
+
+### 12.2 修复
+`http-login-checker.js` 为公众号注册 HTTP API 检测：
+- 访问 `https://mp.weixin.qq.com/cgi-bin/home?t=home/index&lang=zh_CN`
+- 未登录时 302 到 loginpage → 判失效（CHECK_LOGIN_COOKIE_EXPIRED）
+- 200 未重定向 → 判有效（CHECK_LOGIN_SUCCESS_HTTP_API）
+- 响应为 HTML 而非 JSON，`check` 用 null 走重定向/状态码判定
+
+### 12.3 数据校验
+- Cookie 数组经 `cookiesToHeader` 转请求头
+- 302/301/303/307 重定向到登录页 → 失效
+- 网络错误返回 `valid: undefined`，降级到浏览器 DOM 检测
+
+## 13. 未来扩展
 
 - 定时后台检测：利用 `accounts:batch-check-login` + Electron 主进程定时器
-- 检测结果持久化：将检测结果写入 account store 的 `last_login_check_at` / `login_check_error` 字段
 - 通知提醒：检测到失效时发送系统通知
-- 检测进度指示：批量检测时显示进度条
+- 检测结果过期策略：2 小时窗口可配置化
