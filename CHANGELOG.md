@@ -1,3 +1,20 @@
+# [未发布] feat(ui): 新增全局「回到顶部」浮标按钮（back-to-top-button，2026-09-14）
+
+### 新增
+- **全局回到顶部浮标**（`components/BackToTop.vue`）：固定于窗口右侧接近底部，滚动超过 320px 后淡入；点击平滑回滚至滚动区顶部。含悬浮（底色加深 + 图标转深色 + 左侧文字提示）/ 按下（底色再加深 + `scale(0.94)`）/ 键盘焦点（2px 主色描边 + 同享提示）三种状态
+- **挂载方式**：`App.vue` 全局唯一实例（`v-else` 分支内），不在各视图单独引入（`docs/frontend-interaction-spec.md` §2 交互原语唯一实现清单新增登记项）
+- **零逐页改动**：显隐条件为「滚动容器 `scrollTop > threshold`」而非页面白名单，内容不足一屏的页面自动不出现；`/first-run` 全屏路由与登录标签页自动排除
+- **多滚动容器覆盖**：在 `.yixiaoer-workspace` 上以**捕获阶段**监听 `scroll`（`scroll` 事件不冒泡），自动覆盖 `PublishHistory` / `ModelProviders` / `ResultView` / `ContactSheetView` 等视图内嵌 `overflow:auto` 区块
+- **无障碍**：原生 `<button type="button">` + `aria-label`；Tab 可聚焦、Enter/Space 触发；`prefers-reduced-motion: reduce` 时关闭过渡并将平滑滚动降级为瞬时跳转
+- **i18n**：zh/en 成对新增 `common.backToTop`（回到顶部 / Back to top）
+- **设计 token**：`styles/tokens.css` 新增 `--color-float-surface*` / `--color-float-icon*` / `--color-float-tooltip-*` / `--shadow-float`（亮/暗双模式）
+- **浮层协调**：`UpdateNotification.vue` 右下角提示条 `right` 由 `16px` 调整为 `88px`，避让浮标占位（原区间水平 24–68px 重叠）
+
+### 验证
+- `BackToTop.test.js` 12 项通过（初始不渲染 / 显隐基本流 / 阈值边界 / 自定义阈值 / 点击回滚参数 / 减少动效降级 / 嵌套滚动容器 / 防重复点击 / 双语与 aria-label / 路由切换重置 / 容器缺失异常 / 卸载清理）
+- locale-sync 三项 PASS：`--keys`（927 key）/ `--cjk`（基线 1689 → 1500，无新增硬编码）/ `--pair-base`（zh/en 成对）
+- eslint 0 error（改动 6 文件）
+- 文档同步：`01-docs/PRD.md` 末尾增量章节（183 行）+ 专项 PRD `01-docs/PRD-BACK-TO-TOP-BUTTON-2026-09-14.md` + `docs/desktop-ui-layout-spec.md` §14 + `docs/frontend-interaction-spec.md` §2
 # [未发布] fix(accounts): 内嵌浏览器视口越界修复——右侧滚动条缺失/底部内容被裁（2026-09-13）
 
 ### 修复

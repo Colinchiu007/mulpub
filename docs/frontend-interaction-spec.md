@@ -36,6 +36,7 @@
 | 页面级 Loading | 统一 `<UiSkeleton>` 组件（2026-09-13 落地；令牌与骨块外观见 `src/styles/skeleton.css`） | 各视图自写 spinner / 纯文字 / CSS 渐变骨架、`@keyframes *shimmer*` |
 | 列表空态 | 统一 `<EmptyState>` 组件（P2 落地，tasks 3.3），含说明 + 引导 CTA；落地前暂维持现状样式，禁止新增自造副本 | 空白区域、裸 `<p>` 文本、自造 .empty 样式副本 |
 | 错误文案 | `formatUserError()`（user-facing-error.js，遵循 user-facing-messages spec） | 手工拼接原始 error message 直出给用户 |
+| 长页面回到顶部 | 全局 `components/BackToTop.vue` 唯一实例（App.vue 挂载，2026-09-14 落地） | 各视图自写滚动按钮、自写 `scrollTo(0)` 逻辑、自造浮标样式副本 |
 
 ### 危险操作门禁（最高优先级条款）
 

@@ -11,6 +11,7 @@ export default {
     success: '成功',
     error: '错误',
     close: '关闭',
+    backToTop: '回到顶部',
     pipelineBackgroundToast: '如果想查看该任务，请进入视频创作的历史记录',
     pageLoadFailed: '页面加载失败',
     pageLoadFailedMessage: '页面资源仍未加载成功，请重试或刷新应用。',
