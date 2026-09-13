@@ -26,6 +26,8 @@ const {
 } = require('@multi-publish/shared-utils/src/platform-definitions')
 const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('../ipc-handlers/helpers')
+// 内嵌视图定位唯一来源：必须用「客户区」尺寸，禁用 getBounds() 外框尺寸（见 view-bounds.js）
+const { computeEmbeddedViewBounds } = require('./view-bounds')
 // 独立窗口已不再需要（改为内嵌主窗口）
 
 // 各平台登录页 URL → @multi-publish/shared-utils/src/platform-definitions
@@ -162,7 +164,7 @@ class QrCodeLogin {
 
       // 认证页内嵌主窗口全屏标签（参照 AuthViewManager 内嵌迁移）
       this.mainWindow.contentView.addChildView(view)
-      this._positionView(this.mainWindow.getBounds())
+      this._positionView()
       view.setVisible(true)
       this._fireOpened({ platform, accountId, url: loginUrl })
 
@@ -214,9 +216,8 @@ class QrCodeLogin {
     })
   }
 
-  // 说明：原 _positionView（定位到 TabBar+NavBar 下方、依赖 LOGIN_VIEW_TOP=76 与
-  // 侧边栏宽度的硬编码内嵌布局）已随"独立窗口承载"迁移移除 —— 布局同步由
-  // auth-window.js 的 resize 监听完成，认证视图铺满独立窗口客户区。
+  // 说明：内嵌定位由 _positionView() 完成（定位到 TabBar+NavBar 下方、侧边栏右侧，
+  // 尺寸取自窗口客户区，见 view-bounds.js）——认证视图以全屏标签形式内嵌主窗口。
 
   /**
    * 启动 QR 码定时检测
@@ -553,7 +554,7 @@ class QrCodeLogin {
    */
   _onWindowResize () {
     if (!this.mainWindow || !this.currentView) return
-    this._positionView(this.mainWindow.getBounds())
+    this._positionView()
   }
 
   /**
@@ -564,23 +565,18 @@ class QrCodeLogin {
     if (typeof width !== 'number' || width < 0 || width > 600) return
     this._sidebarWidth = width
     if (this.mainWindow && this.currentView) {
-      this._positionView(this.mainWindow.getBounds())
+      this._positionView()
     }
   }
 
   /**
    * 登录视图布局（TabBar+NavBar 下方），与浏览器标签定位一致。
-   * @param {{ width: number, height: number }} bounds
+   * 尺寸来源必须是窗口客户区（getContentBounds），不能用 getBounds() 外框尺寸，
+   * 否则视图右侧滚动条与底部内容会被窗口边框裁掉（见 view-bounds.js）。
    */
-  _positionView (bounds) {
-    if (!this.currentView) return
-    var sidebarWidth = this._sidebarWidth || 200
-    this.currentView.setBounds({
-      x: sidebarWidth,
-      y: 76,
-      width: Math.max(0, bounds.width - sidebarWidth),
-      height: Math.max(0, bounds.height - 76),
-    })
+  _positionView () {
+    if (!this.currentView || !this.mainWindow) return
+    this.currentView.setBounds(computeEmbeddedViewBounds(this.mainWindow, this._sidebarWidth))
   }
 
   /**
