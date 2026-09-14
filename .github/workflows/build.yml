@@ -84,7 +84,9 @@ jobs:
         shell: bash
         run: |
           VERSION="${GITHUB_REF#refs/tags/v}"
-          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" apps/desktop/package.json
+          # 根 package.json 是版本唯一真相源：先把根对齐到 tag，再同步到 apps/desktop
+          node -e "const fs=require('fs');const p='package.json';const t=fs.readFileSync(p,'utf8').replace(/\"version\":\s*\"[^\"]*\"/, '\"version\": \"'+process.env.VERSION+'\"');fs.writeFileSync(p,t);"
+          node scripts/sync-version.mjs
           VERSION_AFTER=$(node -p "require('./apps/desktop/package.json').version")
           echo "package version = ${VERSION_AFTER}"
 

@@ -248,7 +248,7 @@ describe('AutoUpdater 版本发布策略（运营后台下发）', () => {
     __resetElectronMock()
     __enableElectronMock()
     __electronMock.app.isPackaged = true
-    __electronMock.app.getVersion = () => '2.3.50'
+    __electronMock.app.getVersion = () => '0.1.0'
     __registerMock('./logger', mocks.logger)
     statuses = []
     const imported = await import('./auto-updater')
@@ -269,7 +269,7 @@ describe('AutoUpdater 版本发布策略（运营后台下发）', () => {
   })
 
   it('force_version 高于当前版本 → 跳过灰度直接检查并启用自动下载', () => {
-    autoUpdaterService.applyPolicy({ min_version: '', force_version: '2.3.53', gray_ratio: 0, enabled: true })
+    autoUpdaterService.applyPolicy({ min_version: '', force_version: '0.2.0', gray_ratio: 0, enabled: true })
     autoUpdaterService.check()
     expect(mocks.updater.checkForUpdates).toHaveBeenCalledTimes(1) // 灰度 0% 仍检查（强制）
     expect(mocks.updater.autoDownload).toBe(true) // 强制路径自动下载
@@ -283,10 +283,10 @@ describe('AutoUpdater 版本发布策略（运营后台下发）', () => {
   })
 
   it('gray_ratio=100 全量检查并推送 policy-min-version 提示', () => {
-    autoUpdaterService.applyPolicy({ min_version: '2.3.53', force_version: '', gray_ratio: 100, enabled: true })
+    autoUpdaterService.applyPolicy({ min_version: '0.2.0', force_version: '', gray_ratio: 100, enabled: true })
     autoUpdaterService.check()
     expect(mocks.updater.checkForUpdates).toHaveBeenCalledTimes(1)
-    expect(statuses).toContainEqual({ type: 'policy-min-version', data: { version: '2.3.53' } })
+    expect(statuses).toContainEqual({ type: 'policy-min-version', data: { version: '0.2.0' } })
   })
 
   it('enabled=false 的策略视为未设置', () => {

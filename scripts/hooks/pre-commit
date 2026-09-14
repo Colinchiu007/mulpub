@@ -102,6 +102,16 @@ else
     fi
 fi
 
+# ---------- 1.5 版本号同步（根 -> apps/desktop） ----------
+# 单一真相源 = 根 package.json；提交前把 apps/desktop 对齐，避免两处漂移
+if [ -f "scripts/sync-version.mjs" ]; then
+  node scripts/sync-version.mjs
+  if git diff --name-only | grep -q '^apps/desktop/package.json$'; then
+    git add apps/desktop/package.json
+    echo "版本同步：apps/desktop/package.json 已对齐到根版本并暂存"
+  fi
+fi
+
 # ---------- 2. 质量节拍检查（保留既有逻辑） ----------
 if [ ! -f "scripts/quality-rhythm-wrapper.js" ]; then
     echo "错误：未找到质量节拍wrapper（scripts/quality-rhythm-wrapper.js）"

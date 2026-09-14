@@ -148,11 +148,11 @@
   // 构造完整 IPC API
   const api = {
     // 系统
-    getVersion: makeHandler('getVersion', async () => ok('2.3.53')),
+    getVersion: makeHandler('getVersion', async () => ok('0.1.0')),
     getPlatform: makeHandler('getPlatform', async () => ok('win32')),
 
     // 自动更新
-    updateCheck: makeHandler('updateCheck', async () => ok({ available: false, version: '2.3.53' })),
+    updateCheck: makeHandler('updateCheck', async () => ok({ available: false, version: '0.1.0' })),
     updateDownload: makeHandler('updateDownload', async () => ok({ started: true })),
     updateInstall: makeHandler('updateInstall', async () => ok({ installed: true })),
     onUpdateStatus: makeOn('update:status'),

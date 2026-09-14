@@ -1,3 +1,13 @@
+## 版本管理机制（2026-09-14 起）
+
+全仓使用单一产品版本号，**唯一真相源 = 根 `package.json` 的 `version`**；`apps/desktop/package.json` 的 `version` 由 `scripts/sync-version.mjs` 在提交 / 构建前自动同步，禁止手写、禁止独立演进。
+
+- 当前开发阶段整体控制在 **1.0.0 以下**（`0.Y.Z`）。
+- 改动规模 ↔ 版本级别（MAJOR / MINOR / PATCH）映射、0.x 约定、发布流程：**见 [docs/version-management.md](docs/version-management.md)**。
+- 历史 `v2.3.x` 复盘轮次标签为内部分版号，不代表真实发布版本；后续统一以 `0.Y.Z` 推进。
+
+---
+
 # [未发布] feat(desktop-shell): 侧边栏底部用户菜单 + 应用壳导航精简（2026-09-14）
 
 ### 新增
