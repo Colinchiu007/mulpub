@@ -5,6 +5,7 @@
         <div class="collection-tabs" role="tablist">
           <button role="tab" :aria-selected="activeTab === 'collect'" class="collection-tab-btn" :class="{ active: activeTab === 'collect' }" @click="switchTab('collect')">{{ $t('collection.tabCollect') }}</button>
           <button role="tab" :aria-selected="activeTab === 'records'" class="collection-tab-btn" :class="{ active: activeTab === 'records' }" @click="switchTab('records')">{{ $t('collection.tabRecords') }}</button>
+          <button role="tab" :aria-selected="activeTab === 'library'" class="collection-tab-btn" :class="{ active: activeTab === 'library' }" data-testid="collection-tab-library" @click="switchTab('library')">{{ $t('collection.tabLibrary') }}</button>
         </div>
         <div class="page-subtitle">从各平台采集内容，或快速创建草稿</div>
       </div>
@@ -242,7 +243,7 @@
     </div>
 
     <!-- 采集记录标签页 -->
-    <div v-else class="cohere-content" role="tabpanel" aria-label="采集记录">
+    <div v-else-if="activeTab === 'records'" class="cohere-content" role="tabpanel" :aria-label="$t('collection.tabRecords')">
       <div class="cohere-section-title" style="display:flex;justify-content:space-between;align-items:center">
         <span>{{ $t('collection.recordsTitle') }}（{{ collectedItems.length }} 篇）</span>
         <button class="cohere-btn-secondary" style="font-size:12px;padding:2px 8px" :disabled="collectedItems.length === 0" @click="clearAllRecords">
@@ -280,6 +281,9 @@
       </div>
     </div>
 
+    <!-- 文案库标签页 -->
+    <CopyLibraryPanel v-else-if="activeTab === 'library'" />
+
     <!-- 去发布弹窗 -->
     <PublishDestinationModal
       v-if="showPublishModal"
@@ -308,6 +312,8 @@ import { useWordCountValidation } from '@/composables/useWordCountValidation'
 import { addViralToLibrary } from '@/api/knowledge-library'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
 import WordCountRangeInput from '@/components/WordCountRangeInput.vue'
+import CopyLibraryPanel from '@/components/CopyLibraryPanel.vue'
+import { useCopyLibrary, collectFromKey } from '@/composables/useCopyLibrary'
 
 const router = useRouter()
 const { notifyError, notifySuccess, notifyWarning, notifyInfo, notifyConfirm } = useNotify()
@@ -344,6 +350,31 @@ const usePersonalExperience = ref(false)
 // tone 值为引擎 prompt 模板的语气枚举（非用户可见 UI 文案，走常量；CJK 基线登记见 check-locale-sync）
 // 长度由字数区间控制（main 已移除三档 length 下拉）：min/max → targetWordCount + targetLength 语义映射
 const STYLE_TO_TONE = { '轻松易懂': 'casual', '正式严谨': 'formal', '吸引眼球': 'catchy', '深度分析': 'professional', '认知锚点': 'anchor' }
+
+// 文案库旁路：采集页内的改写结果同步进「文案库」（写入失败静默，不影响改写主流程）
+const { upsertRewrite: upsertCopyRewrite } = useCopyLibrary()
+
+/**
+ * 把页内改写结果同步到文案库（同一采集来源只保留最新一次改写结果）。
+ * @param {string} content - 改写后的正文
+ * @param {object} source - 采集条目（需含 id）
+ */
+async function recordRewriteToLibrary (content, source) {
+  const text = String(content || '').trim()
+  if (!text || !source || !source.id) return
+  try {
+    await upsertCopyRewrite({
+      fromKey: collectFromKey(source.id),
+      fromTitle: source.title || '',
+      title: source.title || '',
+      content: text,
+      platform: source.platform || '',
+      sourceUrl: source.sourceUrl || '',
+    })
+  } catch {
+    // 文案库写入失败不阻塞改写主流程
+  }
+}
 
 async function rewriteViaEngine (content) {
   let res
@@ -840,6 +871,7 @@ async function collectAndRewrite () {
           const rewrite = await rewriteViaEngine(videoRes.content || videoRes.transcript || '')
           if (rewrite && rewrite.result_content) {
             rewriteResult.value = rewrite.result_content
+            recordRewriteToLibrary(rewrite.result_content, videoItem)
             notifySuccess('collection.rewriteSuccess')
           } else {
             // 后端业务错误（resolve 返回）同样必须过 formatUserError：稳定 errorCode → locale 友好文案，
@@ -887,6 +919,7 @@ async function collectAndRewrite () {
         })
         if (rewrite && rewrite.result_content) {
           rewriteResult.value = rewrite.result_content
+          recordRewriteToLibrary(rewrite.result_content, stealthItem)
           notifySuccess('collection.rewriteSuccess')
         } else {
           const formatted = formatUserError(rewrite || {}, { fallback: resolveNotifyText('collection.rewriteFailed').text })
@@ -946,6 +979,7 @@ async function collectAndRewrite () {
       const rewrite = await rewriteViaEngine(res.content || res.description || '')
       if (rewrite && rewrite.result_content) {
         rewriteResult.value = rewrite.result_content
+        recordRewriteToLibrary(rewrite.result_content, item)
         notifySuccess('collection.rewriteSuccess')
       } else {
         // 同上：业务错误 resolve 分支也必须走 formatUserError（i18n + 友好度强制机制）
@@ -986,6 +1020,7 @@ async function rewriteCollected () {
     const result = await rewriteViaEngine(collectedResult.value.content || collectedResult.value.description || '')
     if (result && result.result_content) {
       rewriteResult.value = result.result_content
+      recordRewriteToLibrary(result.result_content, collectedResult.value)
       notifySuccess('collection.rewriteSuccess')
     } else {
       // 同上：业务错误 resolve 分支也必须走 formatUserError（i18n + 友好度强制机制）
@@ -1132,11 +1167,20 @@ async function loadCollectedItems () {
 }
 
 async function saveCollectedItems () {
+  // 采集时间补全：新建条目在落盘时打上 createdAt，作为「采集记录 / 文案库」的时间展示依据。
+  // 历史条目（无 createdAt）在首次再次落盘时补记为本次时间（旧数据无真实采集时间可考）。
+  const now = new Date().toISOString()
+  for (const item of collectedItems.value) {
+    if (item && !item.createdAt) item.createdAt = now
+  }
   await storeSetSetting(COLLECTED_ITEMS_KEY, JSON.stringify(collectedItems.value))
 }
 
+/** 合法标签页：采集 / 采集记录 / 文案库 */
+const TAB_KEYS = ['collect', 'records', 'library']
+
 function switchTab (tab) {
-  if (tab !== 'collect' && tab !== 'records') return
+  if (!TAB_KEYS.includes(tab)) return
   activeTab.value = tab
 }
 

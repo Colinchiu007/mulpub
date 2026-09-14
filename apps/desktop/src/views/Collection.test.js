@@ -21,6 +21,8 @@ function mountCollection(options) {
 }
 
 import CollectionView from "./Collection.vue";
+import CopyLibraryPanel from "@/components/CopyLibraryPanel.vue";
+import i18n from "@/i18n";
 
 describe("CollectionView", () => {
   beforeEach(() => {
@@ -1075,5 +1077,65 @@ describe("CollectionView", () => {
     w.vm.linkUrl = "https://example.com/persist";
     await w.vm.collectUrl();
     expect(storeSet).toHaveBeenCalledWith("collected_items", expect.stringContaining("Persisted"));
+  });
+});
+
+// ── 文案库标签（2026-09-14）：采集页第三个标签，汇总采集正文与改写文案 ──
+describe("CollectionView 文案库标签", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.electronAPI = {};
+    i18n.global.locale.value = "zh";
+  });
+
+  function mountWithI18n() {
+    return mount(CollectionView, { global: { plugins: [i18n] } });
+  }
+
+  it("renders library tab and switches to it", async () => {
+    const w = mountWithI18n();
+    await nextTick();
+    const tab = w.find('[data-testid="collection-tab-library"]');
+    expect(tab.exists()).toBe(true);
+    expect(tab.text()).toBe("文案库");
+    await tab.trigger("click");
+    await nextTick();
+    expect(w.vm.activeTab).toBe("library");
+    expect(w.findComponent(CopyLibraryPanel).exists()).toBe(true);
+  });
+
+  it("unmounts library panel when switching back", async () => {
+    const w = mountWithI18n();
+    await nextTick();
+    await w.vm.switchTab("library");
+    await nextTick();
+    expect(w.findComponent(CopyLibraryPanel).exists()).toBe(true);
+    await w.vm.switchTab("collect");
+    await nextTick();
+    expect(w.findComponent(CopyLibraryPanel).exists()).toBe(false);
+  });
+
+  it("keeps ignoring invalid tab names", async () => {
+    const w = mountWithI18n();
+    await nextTick();
+    await w.vm.switchTab("library");
+    await w.vm.switchTab("unknown");
+    expect(w.vm.activeTab).toBe("library");
+  });
+
+  it("writes in-page rewrite result into the copy library", async () => {
+    const storeSet = vi.fn().mockResolvedValue(undefined);
+    window.electronAPI = {
+      aiRewrite: vi.fn().mockResolvedValue({ code: 0, data: { success: true, result: "改写结果正文" } }),
+      storeSetSetting: storeSet,
+    };
+    const w = mountWithI18n();
+    await nextTick();
+    w.vm.collectedResult = { id: "c1", title: "标题", content: "原始正文内容，长度足够用于改写。", description: "" };
+    await w.vm.rewriteCollected();
+    await new Promise((r) => setTimeout(r, 0));
+    const entry = storeSet.mock.calls.find((c) => c[0] === "copy_library_rewrites");
+    expect(entry).toBeTruthy();
+    expect(JSON.parse(entry[1])[0]).toMatchObject({ fromKey: "collect:c1", content: "改写结果正文" });
   });
 });
