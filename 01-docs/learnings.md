@@ -14729,3 +14729,33 @@ commit `941b17f1`（feat: browser-style tab bar）在 `webview-manager.js` `crea
 - **没有日志的失败分支等于不可诊断**：本次排查最耗时的原因是身份链路把原始错误包了一层就丢掉。凡失败分支都要落 `scope + code + cause 链` 的 WARN 日志（`_logFailure`），注入式 logger 便于单测断言。
 - **环境契约要收敛到唯一实现**：所有 Electron spawn 前都经 `buildElectronEnv()`；它现在同时剔除 `ELECTRON_RUN_AS_NODE` 与宿主 shim 上下文（含 `NODE_OPTIONS` 里的 `--require` 片段、`PATH`/`PYTHONPATH` 里的 shim 目录、`CODEBUDDY_*` 激活变量）。新增 spawn 点登记一次即获得全部净化能力。
 - **诊断小工具值得留存**：`%APPDATA%\<app>\logs` 之外，dev 模式日志在 `ELECTRON_USER_DATA_DIR/logs`；运行实例的 userData 可用 `Get-Process` 的 Path + 进程启动时间反推；CDP `Runtime.evaluate` 可直接对 `window.electronAPI.*` 做端到端取证（无需重启应用、无需改代码）。
+
+
+## 侧边栏「新版本」更新入口：CSP 安全 i18n 不插值 + 单例 composable 的测试隔离（update-available-badge，2026-09-14）
+
+### 现象与决策
+
+用户要求「运行期发现新版本时，在左下角菜单按钮上方常驻一个『新版本』按钮，点击后退出应用并安装」，取代原先启动即弹出的更新模态框。落地中踩到两个非显而易见的坑。
+
+### 坑 1：`src/i18n/index.js` 的所有字符串消息**不做插值**（写成 `{version}` 会原样显示在界面上）
+
+- 根因：该模块为避免 Electron CSP（`script-src 'self'`）拦截运行时 `new Function` 编译，把 locale 里**所有字符串叶子统一转成 Message Function**（`toMessageFunctions`：`(value) => () => value`）。字符串消息因此变成「返回原始字符串的函数」，`{version}` 不会被替换。
+- 现象：单测断言 `title` 含版本号失败，实际输出 `发现新版本 v{version}，点击后退出应用并安装`。
+- 正确写法（模块注释里已声明，`story2video.elapsed` 等已在用）：**需要插值的消息写成函数式** `(ctx) => '下载中 ' + ctx.named('percent') + '%'`（`toMessageFunctions` 对函数原样透传）。
+- 预防：新增带参数文案一律函数式；CI 可加规则扫描 `locales` 中「字符串值内含 `{xxx}`」的叶子（现存 77 处历史占位符属既有债务，未在本任务清理）。
+- 附带收获：`src/i18n/i18n.test.js` 的「zh/en 占位符集合一致」只扫**字符串**叶子，函数式消息不参与该断言，因此中英占位符一致性需靠人工/新增断言保证。
+
+### 坑 2：模块级单例 composable 会让同文件用例互相污染
+
+- 为了让「应用壳结果提示」与「侧边栏入口」共用一份更新状态（并只注册一次 `update:status` 监听），把 `useAutoUpdate` 的状态提升到模块作用域（单例）+ `start()` 幂等。
+- 代价：同一测试文件内前一个用例留下的 `badgeMode` 会泄漏到后一个用例（侧边栏单测里表现为「新版本」入口意外渲染，footer 顺序断言失败）。
+- 处置：导出 `resetAutoUpdateState()`（显式标注「仅测试使用」），在两个测试文件的 `beforeEach/afterEach` 调用；跨测试文件因 vitest 独立模块图不受影响。
+- 教训：**把 composable 单例化的同时，必须一并提供状态复位入口**，否则回归测试会以随机顺序失败。
+
+### 其他可复用结论
+
+- **`data-testid` 只在需要渲染时才存在**：入口用 `v-if` 条件渲染，使既有 footer 顺序契约（`[0] 服务信息 → [1] 登录 banner`）在「无更新」时保持不变，避免既有断言全量改写——把「新增 UI」限制在它真正出现的状态里，是降低契约破坏面的有效手段。
+- **preload 暴露面计数是硬断言**：`electron/preload.test.js` 对 `SYSTEM_METHODS.length` / 合并 API 总键数 / 各子模块方法数均有精确数字断言，新增任何 preload 方法必须同步这三处计数（另加 `preload/access-control.js` 与主进程 `PUBLIC_CHANNELS`）。
+- **`index.bundle.js` 是入库产物**：改 `electron/preload/*.js` 后必须跑 `pnpm run build:preload` 重建，否则产物与源码不一致。
+- **债务熔断 `filesOver500` 是文件个数**：给 `src/api/publisher.js`（原本 497 行）加 4 行即越过 500 触发 FAIL（87 > 基线 86）。解法是压缩为单行并顺手删掉一处重复空行（回到 498），**不要 `--update` 抬基线**。
+- **用户主动动作的失败不得降级成静默语义**：更新检查的后台失败沿用既有「静默当已是最新」策略，但**用户点击安装后的失败必须原样回传 `error`**（否则入口永远停在「下载中」，用户无从重试）。

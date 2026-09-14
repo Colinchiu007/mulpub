@@ -511,6 +511,7 @@
 | `update:check` | IPC invoke | (event, ...args) | { code, data, message } |
 | `update:download` | IPC invoke | (event, ...args) | { code, data, message } |
 | `update:install` | IPC invoke | (event, ...args) | { code, data, message } |
+| `update:install-now` | IPC invoke | (event, ...args) | { code, data, message } — 侧边栏「新版本」入口：未下载则先下载，下载完成后自动退出并安装；`data` 为布尔受理结果（false = 当前无可用更新） |
 
 ## upload
 

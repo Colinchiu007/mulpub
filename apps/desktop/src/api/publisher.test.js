@@ -43,7 +43,7 @@ const exportedNames = [
   // 数据同步
   "syncAll", "syncPlatform",
   // 自动更新
-  "updateCheck", "updateDownload", "updateInstall", "onUpdateStatus",
+  "updateCheck", "updateDownload", "updateInstall", "updateInstallNow", "onUpdateStatus",
   // 全局存储
   "storeGetSetting", "storeSetSetting", "storeAddPublishRecord", "storeListPublishHistory",
   // OAuth
@@ -143,6 +143,7 @@ publishWechat: { args: [{ title: "t", content: "c" }], fallback: undefined, retu
   updateCheck: { args: [], fallback: {}, returns: "object" },
   updateDownload: { args: [], fallback: {}, returns: "object" },
   updateInstall: { args: [], fallback: {}, returns: "object" },
+  updateInstallNow: { args: [], fallback: {}, returns: "object" },
   onUpdateStatus: { args: [vi.fn()], fallback: undefined, returns: "function" },
   storeGetSetting: { args: ["theme"], fallback: null, returns: "null" },
   storeSetSetting: { args: ["theme", "dark"], fallback: undefined, returns: "undefined" },

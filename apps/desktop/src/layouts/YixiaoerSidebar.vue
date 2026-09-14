@@ -48,6 +48,8 @@
       <div class="yixiaoer-sidebar-service">
         <SidebarServiceStatus />
       </div>
+      <!-- 新版本提示：仅在检测到新版本时渲染，紧随登录菜单按钮上方；点击后退出应用并安装 -->
+      <SidebarUpdateButton />
       <!-- 登录区 banner：收起时只显示这一条，点击向上展开菜单（账号操作 / 设置 / 升级 Pro） -->
       <ProfileMenu
         @open-settings="emit('open-settings')"
@@ -83,6 +85,7 @@ import {
 import UpgradeModal from '@/components/UpgradeModal.vue'
 import ProfileMenu from '@/components/ProfileMenu.vue'
 import SidebarServiceStatus from '@/components/SidebarServiceStatus.vue'
+import SidebarUpdateButton from '@/components/SidebarUpdateButton.vue'
 import { invokePageManager } from '@/api/electron-bridge'
 
 const route = useRoute()

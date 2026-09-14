@@ -26,7 +26,7 @@
 
 **全局挂载组件**（两种布局共享）：
 - `OfflineIndicator` — 断网时顶部黄色提示条
-- `UpdateNotification` — 自动更新弹窗
+- `UpdateNotification` — 自动更新**结果提示宿主**（已是最新提示条 / 更新失败告警条；新版本入口已下沉到侧边栏，见 §4.2）
 - `SettingsDialog` — 设置弹窗（由 `showSettingsDialog` 控制）
 - `RouteLoadError` — 路由懒加载失败时替代 `<router-view>`
 
@@ -117,18 +117,19 @@
 | **Tab 列表** | 模型设置（ModelProviders）、通用设置（LogsSettings）、发布设置（🚧 敬请期待）、账号设置（🚧 敬请期待）|
 | **关闭** | 点击 ✕ 或 backdrop |
 
-### 4.2 UpdateNotification（`components/UpdateNotification.vue`，110 行）
+### 4.2 UpdateNotification（`components/UpdateNotification.vue`）+ SidebarUpdateButton（`components/SidebarUpdateButton.vue`）
+
+> 2026-09-14 变更：新版本入口由「自动弹出的模态框」改为「侧边栏底部常驻入口」，模态框已下线。
 
 | 项目 | 内容 |
 |------|------|
-| **入口** | App.vue 全局挂载，由 `useAutoUpdate` composable 驱动 |
-| **触发条件** | electron-updater 检测到新版本 |
-| **状态场景** | |
-| - `available` | 显示版本号 + "下载更新" 按钮 |
-| - `downloading` | 进度条 + 下载速度 |
-| - `downloaded` | "立即重启安装" 按钮 |
-| - `not-available` | Toast 提示 "当前已是最新版本"（底部右下角 3s）|
-| - `error` | el-alert 警告 "更新失败: {原因}" |
+| **入口（新版本）** | 侧边栏 footer `SidebarUpdateButton`（仅在检测到新版本时渲染），位于登录菜单按钮**正上方**；由 `useAutoUpdate`（模块级共享单例）驱动 |
+| **入口（结果提示）** | App.vue 全局挂载 `UpdateNotification`，持有 `start()/cleanup()` 生命周期（唯一注册 `update:status` 监听与启动检查处） |
+| **触发条件** | electron-updater `update-available`（真实新版本）/ `update-not-available` / `error` / 策略事件 |
+| **入口四态** | `available` 图标 +「新版本」（可点击）｜`downloading`「下载中 N%」（禁用）｜`downloaded`「重启安装」｜`error`「重试安装」 |
+| **点击行为** | 提示「正在下载新版本，完成后将自动退出应用并安装」→ IPC `update:install-now` → 未下载先下载，下载完成自动退出并安装（点击即视为同意退出） |
+| **结果提示** | `not-available` → 右下角（`right: 88px`）绿色提示条「当前已是最新版本」（4s）；`error` → 右下角 el-alert 告警条「更新失败：{原因}」 |
+| **已下线** | UiModal sm 更新对话框（原 available/downloading/downloaded 三段式弹窗）、进度条与下载速度展示 |
 
 ### 4.3 UpgradeModal（`components/UpgradeModal.vue`，363 行）
 
@@ -650,7 +651,7 @@
 | # | 弹窗名称 | 触发页面 | 实现方式 | 尺寸 |
 |---|---------|---------|---------|------|
 | 1 | SettingsDialog | App.vue（全局）| UiModal xl | 1100px |
-| 2 | UpdateNotification | App.vue（全局）| UiModal sm | 360px |
+| 2 | ~~UpdateNotification~~ | 已下线（2026-09-14 改为 SidebarUpdateButton 常驻入口） | — | — |
 | 3 | UpgradeModal | AppNavbar | 自建 overlay | 自定义 |
 | 4 | AccountLoginDialog | Accounts | UiModal sm | 360px |
 | 5 | AccountProxyDialog | Accounts (Card) | UiModal | 默认 |
@@ -673,7 +674,7 @@
 |------|------|---------|
 | 离线提示 | OfflineIndicator | `navigator.onLine === false` |
 | 路由加载失败 | RouteLoadError | 路由 chunk 加载异常 |
-| 自动更新 | UpdateNotification | electron-updater 事件 |
+| 自动更新 | SidebarUpdateButton（侧边栏底部「新版本」入口）+ UpdateNotification（结果提示） | electron-updater 事件 |
 | 试用横幅 | TrialBanner | 非 Pro 用户 + 试用期内 |
 
 ### 11.2 页面级 Loading 状态
