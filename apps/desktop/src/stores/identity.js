@@ -15,6 +15,27 @@ function isDisabledError(code) {
   return DISABLED_ERROR_CODES.has(code)
 }
 
+/**
+ * 归一化主进程返回的错误对象。
+ *
+ * `cleanup` 是 2026-09-14 起新增的可选字段：当登录失败后「本地会话清理」也失败时，
+ * 主进程把清理失败降级为附加信息（主错误优先），渲染层据此追加一条可操作提示。
+ *
+ * @param {unknown} value
+ * @returns {{ code: string, message: string, cleanup?: { code: string } } | null}
+ */
+function normalizeError(value) {
+  if (!value || typeof value !== 'object') return null
+  const cleanup = value.cleanup && typeof value.cleanup === 'object' && typeof value.cleanup.code === 'string'
+    ? { code: value.cleanup.code }
+    : null
+  return {
+    code: String(value.code || 'IDENTITY_OPERATION_FAILED'),
+    message: String(value.message || ''),
+    ...(cleanup ? { cleanup } : {}),
+  }
+}
+
 function normalizeState(value) {
   const state = value && typeof value === 'object' ? value : {}
   const user = state.user && typeof state.user === 'object'
@@ -43,9 +64,7 @@ function normalizeState(value) {
     status: allowed.has(state.status) ? state.status : 'signed_out',
     user,
     entitlement,
-    error: state.error && typeof state.error === 'object'
-      ? { code: String(state.error.code || 'IDENTITY_OPERATION_FAILED'), message: String(state.error.message || '') }
-      : null,
+    error: normalizeError(state.error),
   }
 }
 

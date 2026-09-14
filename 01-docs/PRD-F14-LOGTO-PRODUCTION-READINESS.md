@@ -72,3 +72,114 @@
 4. 真实业务 API 部署后普通用户的首次登录、权益同步、重启恢复、退出和账号切换。
 
 仓库交付的目标是把这些步骤变成“一条命令可执行、结果可审计”，不是代替外部账号和审批。
+
+## 8. 登录失败原因透传与本地会话韧性（2026-09-14 迭代）
+
+> 背景：「点登录却提示『退出失败，当前登录仍然有效。』」事故（详见
+> [BUGFIX-IDENTITY-SESSION-CLEAR-FAILED-2026-09-14.md](./BUGFIX-IDENTITY-SESSION-CLEAR-FAILED-2026-09-14.md)）。
+> 本节把「失败必须说清原因」与「本地会话清理不得依赖文件删除能力」上升为可验收需求。
+
+### 8.1 目标
+
+1. 用户看到的每一句失败提示，都必须与**实际失败的操作**一致（登录失败不得显示退出失败）。
+2. 本地会话的「清空/失效化」不得因宿主环境的文件删除限制而整体失败。
+3. 任何身份链路失败都必须可诊断：原始错误码与 cause 链必须进入应用日志。
+
+### 8.2 数据校验
+
+| 校验项 | 规则 | 失败后果 |
+|--------|------|----------|
+| 主进程状态 `error.code` | 必须为非空字符串；渲染层 `normalizeError()` 兜底为 `IDENTITY_OPERATION_FAILED` | 未知码走中性文案，不得复用具体业务文案 |
+| 主进程状态 `error.cleanup` | 可选对象，仅允许 `{ code: string }`；非法形态直接丢弃 | 丢弃后不影响主错误展示 |
+| 会话存储信封 | `ciphertext` 必须为字符串；`cleared === true` 视为「已清空」；其余非法结构触发 best-effort 清理并返回空会话 | 损坏数据不阻塞登录 |
+| 会话内容 | 必须是对象，且非数组 | 违反时按损坏处理（清理 + 空会话） |
+| 重试判定 | 仅 `EPERM / EBUSY / EACCES / EMFILE / ENFILE` 视为瞬时错误并重试（最多 3 次，25/50/100ms） | 其他错误立即上抛，不隐藏真实失败 |
+| 残余临时文件回收 | 仅回收 `identity-session.json.<pid>.tmp` 且 mtime 早于 60 秒 | 正在写入的临时文件不得被误删 |
+
+### 8.3 流程与功能逻辑
+
+**登录（`identitySignIn`）**
+
+1. 前置校验（进行中操作、回调配置、已登录需走切换账号）不通过 → 立即失败，不写会话文件；
+2. 认证成功 → 同步权益 → `authenticated`；
+3. 任一步失败：
+   - 主错误 = 失败原因（如 `IDENTITY_AUTH_WINDOW_LOAD_FAILED` / `IDENTITY_SIGN_IN_FAILED`）；
+   - 执行本地清理，**清理结果不改写 state 的主错误码**，只在 `error.cleanup` 中附带；
+   - 对外抛出的错误保持主错误码，并附 `cleanupCode` 供诊断。
+
+**退出（`identitySignOut`）**：远端撤销失败只作为 `warning`；本地清理失败**是**主错误（`IDENTITY_SESSION_CLEAR_FAILED`），此时保留 `user` 以便重试（与原行为一致）。
+
+**本地会话清空（`SecureTokenStorage.clear()`）**
+
+1. 尝试删除文件（带瞬时错误重试）；
+2. 删除失败 → 覆写「已清空」信封（不依赖删除能力），`load()` 返回 `null`；
+3. 删除与覆写都失败 → 抛 `IDENTITY_SESSION_CLEAR_FAILED` 并保留原始 `cause`；
+4. 成功后回收陈旧临时文件。
+
+**日志**：`signIn` / `signInCleanup` / `tokenStorage.clear` / `clearLocalSession` /
+`clearSignInWindowSession` / `getAccessToken` / `restore` / `signOut.remote` 失败均落一条
+`Identity <scope> failed: code: message <- cause` 级别 WARN 日志。
+
+### 8.4 交互逻辑
+
+| 状态 | 点击头像 | 面板内容 |
+|------|----------|----------|
+| `signed_out` / `expired` | 直接发起登录（不展开面板） | — |
+| `disabled` | 展开面板 | 说明 + 不显示登录按钮 |
+| `authenticated` 等已登录态 | 展开面板 | 会员中心 / 切换账号 / 退出登录 |
+| `signing_out` | 展开面板 | 按钮显示「正在退出…」 |
+| `error`（未登录） | 展开面板 | 状态说明 = `retryHint`；按钮「重试登录」；底部错误 = 按错误码解析的具体原因（如有 `cleanup` 再追加一条） |
+
+### 8.5 显示项与提示文字（错误码 → 文案，zh/en 成对）
+
+| 错误码 | 提示文字（zh） | i18n key |
+|--------|----------------|----------|
+| `IDENTITY_SIGN_IN_FAILED` | 登录失败，请重试。 | `memberCenter.loginFailed` |
+| `IDENTITY_SIGN_IN_CANCELLED` | 登录已取消，可重新登录。 | `memberCenter.loginCancelled` |
+| `IDENTITY_SIGN_IN_IN_PROGRESS` | 登录正在进行中，请稍候。 | `memberCenter.loginInProgress` |
+| `IDENTITY_CALLBACK_TIMEOUT` | 登录超时，请重试。 | `memberCenter.loginTimeout` |
+| `IDENTITY_CALLBACK_PORT_UNAVAILABLE` / `IDENTITY_CALLBACK_STATE_INVALID` / `IDENTITY_CALLBACK_ALREADY_STARTED` | 登录回调失败（本机回调端口不可用），请重试。 | `memberCenter.loginCallbackFailed` |
+| `IDENTITY_AUTH_WINDOW_LOAD_FAILED` / `IDENTITY_AUTH_WINDOW_NAVIGATION_BLOCKED` / `IDENTITY_AUTH_WINDOW_URL_INVALID` | 登录页面加载失败，请检查网络后重试。 | `memberCenter.loginWindowFailed` |
+| `IDENTITY_ACCOUNT_SWITCH_REQUIRED` | 当前已登录其他账号，请使用「切换账号」。 | `memberCenter.switchAccountRequired` |
+| `IDENTITY_ACCOUNT_SWITCH_FAILED` | 切换账号失败，请稍后重试。 | `memberCenter.switchFailed` |
+| `IDENTITY_SIGN_OUT_FAILED` | 退出失败，当前登录仍然有效。 | `memberCenter.signOutFailed` |
+| `IDENTITY_OPERATION_IN_PROGRESS` | 另一个账号操作正在进行中，请稍候重试。 | `memberCenter.operationInProgress` |
+| `IDENTITY_SESSION_EXPIRED` | 会话已过期 | `memberCenter.statusExpired` |
+| `IDENTITY_SESSION_INVALID` | 登录会话无效，请重新登录。 | `memberCenter.sessionInvalid` |
+| `IDENTITY_SESSION_CLEAR_FAILED` / `IDENTITY_AUTH_WINDOW_SESSION_CLEAR_FAILED` | 本地登录信息无法删除或清空，通常是安全软件拦截了应用数据目录里的删除操作。请重试；若反复出现，请把该目录加入白名单后重启应用。 | `memberCenter.sessionStoreBlocked` |
+| `IDENTITY_SECURE_STORAGE_UNAVAILABLE` | 系统安全存储暂时不可用，无法安全保存登录信息。 | `memberCenter.secureStorageUnavailable` |
+| `IDENTITY_NETWORK_UNAVAILABLE` | 网络暂时不可用，请稍后重试。 | `memberCenter.networkUnavailable` |
+| `IDENTITY_LOAD_FAILED` | 身份状态加载失败，请重试。 | `memberCenter.identityLoadFailed` |
+| `IDENTITY_API_UNAVAILABLE` / `IDENTITY_NOT_CONFIGURED` | 当前运行环境未连接身份服务，仅可查看本地版本与许可证信息。 | `memberCenter.identityDisabledHint` |
+| `IDENTITY_CONFIG_INVALID` / `IDENTITY_SDK_INVALID` / `IDENTITY_FETCH_UNAVAILABLE` / `IDENTITY_TOKEN_UNAVAILABLE` | 身份服务暂时不可用，请稍后重试。 | `memberCenter.identityServiceUnavailable` |
+| 未登录态状态说明（`error`） | 上次操作未完成，可重试。 | `memberCenter.retryHint` |
+| **其他/未知错误码** | 操作失败，请重试。 | `memberCenter.operationFailed` |
+
+**契约**：只有 `IDENTITY_SIGN_OUT_FAILED` 允许使用「退出失败…」文案（由单测遍历断言）。
+
+### 8.6 环境契约（启动器）
+
+Electron 主进程 spawn 前必须经 `apps/desktop/scripts/electron-runtime-env.js` 的
+`buildElectronEnv()`，剔除：
+
+- `ELECTRON_RUN_AS_NODE`（否则 Electron 退化为纯 Node）；
+- 宿主 safe-delete shim 的激活变量与守卫上下文（`CODEBUDDY_SESSION_ID`/`CLAUDE_SESSION_ID`/
+  `CODEBUDDY_TOOL_CALL_ID`/`CODEBUDDY_CONVERSATION_REQUEST_ID`/`CODEBUDDY_SAFE_DELETE_*`/`BASH_ENV`）；
+- `NODE_OPTIONS` 中指向 shim 的 `--require` 片段（支持含空格路径与引号两种写法）；
+- `PATH` / `PYTHONPATH` 中指向 `extensions/genie/out/vendor/shim` 的条目。
+
+### 8.7 验收标准
+
+1. 未登录态 `error` 且错误码为登录类时，面板**不得**出现「退出失败」文案（单测断言）。
+2. 登录失败且清理也失败时，渲染层收到的 `error.code` 必须是主错误码，`error.cleanup.code` 为清理错误码。
+3. 「删除被拒绝（错误不带 `.code`）」条件下 `SecureTokenStorage.clear()` 必须成功，且随后 `load()` 返回 `null`。
+4. 删除与覆写都失败时抛出的错误必须带 `cause`。
+5. 身份链路失败必须产生含 scope 与 cause 链的日志行。
+6. `buildElectronEnv()` 对宿主实测注入值（含 `--require="D:/Program Files/.../node-language-shim.cjs"`）净化后不得保留任何 shim 痕迹，且保留其他无关选项与变量。
+7. `zh`/`en` 词条成对；`--cjk` 无新增硬编码中文。
+
+### 8.8 非目标
+
+- 不改变 Logto 认证流程与回调契约；
+- 不实现「会话文件不可删除时告警并引导用户」的独立 UI 流程（仅提示文案）；
+- 不修改宿主 IDE 的 safe-delete 策略（仅做进程环境隔离与本地降级）。
