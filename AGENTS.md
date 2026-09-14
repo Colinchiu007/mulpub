@@ -421,6 +421,7 @@ Code review 时除逻辑正确性外，必须逐项检查：
 - **Prompt 批量结果内容合同**：`OPTIMIZE_BATCH` 不得只校验 prompt-engine 返回数组的数量；每项必须是非空字符串，或按资产阶段实际读取顺序包含非空 `prompt` / `optimized_prompt` / `optimized`。等长的 `{}`、`null`、空白字段必须在 `StageExecutor` 立即 fail closed。回归测试必须经真实 `PromptBridge`、`ServiceBus` 和本机临时 HTTP 服务覆盖包装响应，不能只 mock 最终数组。
 
 - **打包状态优先于开发环境变量**：许可证、调试入口、logger 和开发短路必须以 `app.isPackaged === false` 为前提；`NODE_ENV=development`、`ELECTRON_IS_DEV=1` 等环境变量不得让已打包应用进入开发权限或开发日志路径。测试必须同时覆盖打包/未打包状态和残留环境变量。
+- **发版版本级别 ↔ 改动规模匹配**：合并发版 PR / 打 tag 前，确认 `pnpm version:bump` 的级别与改动匹配（0.x 基线：新功能 / 破坏性变更 bump `minor`，修复 bump `patch`）；`release-gate` 会硬性拦截「未 bump 就打 tag」「CHANGELOG 未收口」，并对「破坏性变更却 `patch` 级」软警告（属人工判断，不阻断）。
 
 - **Adapter capability 单一来源**：修改 `BaseAdapter.KNOWN_METHODS` 后必须检索所有 Adapter 的 `capabilities()` 手动覆盖；已进入 `KNOWN_METHODS` 的能力不得再次 `concat`。回归测试必须断言 `supports(method) === true`、能力只出现一次，并覆盖 `ModelProviderManager` 的调用入口。
 

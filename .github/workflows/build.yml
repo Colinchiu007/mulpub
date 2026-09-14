@@ -79,6 +79,11 @@ jobs:
       # 让安装包文件名与 tag 版本号保持一致
       # electron-builder 的 artifactName 模板用 package.json 的 version 字段
       # 这里仅在 tag 触发时覆盖（bash 兼容 Windows/Linux runner）
+      - name: Release gate (version == tag + CHANGELOG 收口)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: node scripts/release-gate.mjs --tag "${{ github.ref_name }}"
+
       - name: Sync package version with tag
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
