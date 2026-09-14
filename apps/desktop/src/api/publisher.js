@@ -226,8 +226,8 @@ export async function updateDownload () {
 export async function updateInstall () {
   return invokeWithFallback("updateInstall", {})
 }
+export async function updateInstallNow () { return invokeWithFallback("updateInstallNow", {}) }
 export function onUpdateStatus(callback) { return bridgeOn("UpdateStatus", callback) }
-
 
 // ─── 知识库反馈 API（P2 隐式反馈）─────────────────
 export async function applyKnowledgeFeedback(action, refs) {

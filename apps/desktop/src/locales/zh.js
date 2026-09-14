@@ -2584,6 +2584,23 @@ knowledgeBase: {
     exportFailed: '飞书导出失败',
   },
 
+  // 自动更新（侧边栏「新版本」入口 + 全局结果提示）
+  // 需要插值的文案写成 Message Function：CSP 禁止运行时编译，普通字符串不插值（见 src/i18n/index.js）
+  update: {
+    badge: '新版本',
+    badgeReady: '重启安装',
+    badgeRetry: '重试安装',
+    badgeDownloading: (ctx) => '下载中 ' + ctx.named('percent') + '%',
+    badgeTitleAvailable: (ctx) => '发现新版本 v' + ctx.named('version') + '，点击后退出应用并安装',
+    badgeTitleReady: (ctx) => '新版本 v' + ctx.named('version') + ' 已下载，点击后退出应用并安装',
+    badgeTitleDownloading: (ctx) => '正在下载新版本 v' + ctx.named('version') + '，完成后将自动退出应用并安装',
+    badgeTitleRetry: '上次安装未完成，点击重试',
+    badgeAriaLabel: '应用有新版本，点击后退出应用并安装新版本',
+    installingHint: '正在下载新版本，完成后将自动退出应用并安装',
+    latestVersion: '当前已是最新版本',
+    failedPrefix: '更新失败：',
+  },
+
   perfInsights: {
     title: '效果洞察',
     subtitle: '模式效果排行 — 哪种表达模式在你的账号上表现最好（基于发布后回采数据归因）',

@@ -98,7 +98,7 @@ const ACCOUNT_METHODS = [
 
 const SYSTEM_METHODS = [
   'getVersion', 'getPlatform',
-  'updateCheck', 'updateDownload', 'updateInstall', 'onUpdateStatus',
+  'updateCheck', 'updateDownload', 'updateInstall', 'updateInstallNow', 'onUpdateStatus',
   'firstRunCheck', 'onFirstRunStatus',
   'platformList', 'platformGet', 'getPlatformDefinitions',
   'sensitiveCheck', 'sensitiveReplace',
@@ -205,18 +205,19 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(45)
   })
 
-  it('system 模块应导出 152 个方法', () => {
+  it('system 模块应导出 153 个方法', () => {
     const { createSystemApi } = require('./preload/system')
     const r = createSystemApi(ipcRenderer)
     // 136 + opsCenterSyncGet/Save/Now/Runtime/PipelineOptions（运营后台同步 + 运行时策略）
     // + generationFeedback/promptLibraryList（提示词引擎自进化 P0 反馈管道）
     // + notifyLog（通知/日志统一通道，notify:log）
     // + promptLibraryGet/Save/Activate（提示词引擎自进化 P1b 记忆库）
-    expect(Object.keys(r).length).toBe(152)
+    // + updateInstallNow（侧边栏「新版本」点击即退出安装）
+    expect(Object.keys(r).length).toBe(153)
   })
 
-  it('合并后 api 总键数应为 320（P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus + urlCollectNeedsStealth + promptLibraryGet/Save/Activate）', () => {
-    expect(Object.keys(api).length).toBe(320)
+  it('合并后 api 总键数应为 321（P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus + urlCollectNeedsStealth + promptLibraryGet/Save/Activate + updateInstallNow）', () => {
+    expect(Object.keys(api).length).toBe(321)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
@@ -233,8 +234,8 @@ describe('preload 子模块方法数', () => {
     expect(ACCOUNT_METHODS.length).toBe(45)
   })
 
-  it('SYSTEM_METHODS 常量长度应为 133', () => {
-    expect(SYSTEM_METHODS.length).toBe(140)
+  it('SYSTEM_METHODS 常量长度应为 141', () => {
+    expect(SYSTEM_METHODS.length).toBe(141)
   })
 
   it('IDENTITY_METHODS 常量长度应为 5', () => {
