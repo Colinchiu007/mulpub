@@ -60,18 +60,23 @@ window.electronAPI.identitySignIn()
 
    该 shim patch 了 `fs.unlink / fs.rm / fs.rmdir`（含 `fs.promises` 版本），把「删除文件」
    改写为「移入回收站」，并在删除前跑 **safe-delete bulk guard**。
-2. **bulk guard 按 requestId 累计删除数，达阈值 fail-closed**：`requestId = conversationRequestId || toolCallId`，
-   默认阈值 **500**，超过即打印 `[safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED] {...}` 并
-   `exit 2`，shim 收到 stderr 后 **抛出不带 `.code` 的 Error**（不复核、不降级原生删除）。
-3. **Electron 主进程是长生命周期进程**：`CODEBUDDY_TOOL_CALL_ID` 是启动那一刻冻结的旧
-   tool call id，应用运行数小时会持续删除临时/缓存/DB 轮转/日志裁剪文件 ⇒ 该 requestId 的
-   计数越过 500 ⇒ **此后应用内所有 `unlink`/`rm` 全部抛错**。
-   证据：共享状态目录 `D:\Temp\codebuddy-safe-delete-bulk` 中多个 requestId 停在 `499`
-   （如 `chatcmpl-tool-b565128984c0eaee`），并遗留 `signal-*.json`（confirmRequired 信号文件）。
-4. **`SecureTokenStorage.clear()` 强依赖「删除成功」**：`fs.promises.unlink(identity-session.json)`
+   2. **shim 的删除链路一旦失败即 fail-closed**（抛出不带 `.code` 的 Error，**不复核、不降级原生删除**）。
+   实测可产生该错误的形态有**两种**（同属一个故障族）：
+    - **(a) bulk guard 计数越限**：`requestId = conversationRequestId || toolCallId`，默认阈值 **500**，
+      达阈值即打印 `[safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED] {...}` 并 `exit 2`，
+      shim 把 stderr 内容包成 Error 抛出；
+    - **(b) 删除链路本身失败**：guard 助手不可用 / 读状态失败（`SAFE_DELETE_BULK_GUARD_ERROR`）、
+      或 `genie-trash` 回收站二进制退出非 0 或超时（`[safe-delete] 操作失败: ...`）——同样 fail-closed。
+   3. **Electron 主进程是长生命周期进程，会把 (a)/(b) 从偶发放大成持续**：
+    `CODEBUDDY_TOOL_CALL_ID` 是启动那一刻冻结的旧 tool call id，应用运行数小时会持续删除
+    临时/缓存/DB 轮转/日志裁剪文件 ⇒ (a) 的计数有机会累积到阈值；而 (b) 一旦失败，
+    之后**每一次**删除都会重新走同一条链路、持续失败。
+    (a) 的存在有历史证据：共享状态目录 `D:\Temp\codebuddy-safe-delete-bulk` 中多个 requestId
+    停在 `499`（如 `chatcmpl-tool-b565128984c0eaee`），并遗留 `signal-*.json`（confirmRequired 信号文件）。
+   4. **`SecureTokenStorage.clear()` 强依赖「删除成功」**：`fs.promises.unlink(identity-session.json)`
    被拦截 ⇒ 抛非 fs 错误 ⇒ `AuthService` 报 `IDENTITY_SESSION_CLEAR_FAILED`。
    同一原因还解释了 profile 目录里堆积的 `identity-session.json.<pid>.tmp` 残留
-   （`_writeAtomic` 的失败清理同样走 `unlink`）。
+    （`_writeAtomic` 的失败清理同样走 `unlink`）。
 5. **错误被掩盖 + 前端文案映射错误**（本质缺陷，非环境问题）：
    - `_performSignIn` 的 `catch` 用 `throw cleanupError || identityError`，让「清理失败」抢占
      真实失败原因；`_clearLocalSessionOrSetError` 又直接改写 state ⇒ 前端永远只看到
@@ -90,10 +95,29 @@ window.electronAPI.identitySignIn()
 | D | 剥离 shim 环境后重跑 C | 全 OK |
 | E | 修复后的 `SecureTokenStorage` 在 C 的条件下重跑 | `clear=OK`、`loadAfterClear=null`，无 tmp 残留 |
 | F | 直接复现 bulk guard 拒绝（`THRESHOLD=1` + 非临时目录） | `fs.promises.unlink` 抛 `code=undefined` + `SAFE_DELETE_BULK_CONFIRM_REQUIRED` |
+| G | 同一条件下对比**目录位置**（`D:\Temp\...`＝`os.tmpdir()` vs `D:\tmp\...`） | 临时目录下 `clear=OK`、非临时目录下 `clear=FAIL` —— 证明 shim 对系统临时目录直接放行（也解释了「把 profile 复制到无锁目录即可绕过」的真正原因） |
 
-> 结论修正：2026-09-14 早先的 E2E 报告把该现象归因为「profile 目录被安全软件持锁」，
-> 方向不准确。真正的持锁/拦截来源是**宿主 IDE 注入的 safe-delete shim 守护逻辑**，
+> 结论修正一：2026-09-14 早先的 E2E 报告把该现象归因为「profile 目录被安全软件持锁」，
+> 方向不准确。真正的拦截来源是**宿主 IDE 注入的 safe-delete shim 守护逻辑**，
 > 与被保护的文件本身无关（同目录的 PowerShell 删除完全正常）。
+>
+> 结论修正二：C/F 证明的是「该机制能产生与线上**完全相同**的错误形态」，**不等于**证明
+> 本次实例就一定走在 (a) 计数越限这条分支上；详见 §2.3 证据边界。
+
+### 2.3 证据边界（本次未能唯一确定的部分）
+
+| 已证实 | 未证实 / 不可回溯 |
+|--------|-------------------|
+| shim 确实被注入并激活（应用内 `fs.unlink` 抛出的正是 shim 生成的、**不带 `.code`** 的错误）；它只 patch 删除类 API；删除走临时目录时放行；剥离后恢复；修复后在同等条件下 `clear=OK` | 本次实例具体走的是 **(a) 计数越限** 还是 **(b) 删除链路失败** |
+| (a) 的机制真实存在（历史 requestId 停在 `499` + confirmRequired 信号文件） | 应用当次运行的 requestId 计数条目已不可见（`state.json` 中无今天该 requestId 的计数；1 小时空闲 TTL 会清理长期未更新的计数） |
+| (b) 也会产生同族错误（`SAFE_DELETE_BULK_GUARD_ERROR` / `[safe-delete] 操作失败`） | 状态目录中**只有本次诊断探针留下**的 3 个 `signal-*.json`，**没有**应用那次运行的 → 无 confirmRequired 信号 ⇒ 本次**更像 (b)**（signal 文件仅在计数越限/被拒时写，且从不被清理） |
+| — | 历史启动方式（是否每次都由 IDE Agent 终端拉起）、当时 shim 版本是否带 liveness 门（代码注释显示曾修过「僵尸 requestId 一路累加到 500」的问题）均无现场证据 |
+
+补充判据：本机 `CODEBUDDY_CONVERSATION_REQUEST_ID` **未注入**，故 `requestId = toolCallId`，
+即**每次启动基本是一个新计数** —— 这解释了「重启后短期可用、跑久了才坏」的表现。
+
+**两种子路径的修复手段相同**（不把 shim 继承进 Electron 主进程 + 清空会话不依赖删除能力），
+因此本文把它们并列为同一故障族处理，不对二者的发生率做排序断言。
 
 ---
 
