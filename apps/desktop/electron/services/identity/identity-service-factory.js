@@ -105,6 +105,8 @@ async function createIdentityService(options = {}) {
     entitlementService,
     resource,
     redirectUri,
+    // 诊断日志：身份链路失败必须落盘（含底层 cause），否则现场只剩被包装后的错误码。
+    logger: options.logger || require('../logger'),
     callbackServerFactory: ({ expectedState } = {}) => new LoopbackCallbackServer({
       host: '127.0.0.1',
       port: Number(parsedRedirect.port),
