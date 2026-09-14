@@ -172,4 +172,119 @@ describe('SecureTokenStorage', () => {
 
     expect(persisted).toBeNull()
   })
+
+  // —— 2026-09-14 缺陷回归：删除被系统拒绝时不得让「清空会话」整体失败 ——
+
+  it('删除被拒绝（宿主安全删除 shim fail-closed）时降级为覆写「已清空」信封', async () => {
+    let persisted = JSON.stringify({ version: 2, ciphertext: 'c2VjcmV0', encrypted: false })
+    let removeCalls = 0
+    const storage = new SecureTokenStorage({
+      safeStorage,
+      filePath: path.join(os.tmpdir(), 'multi-publish-token-cleared', 'identity-session.json'),
+      read: async () => persisted,
+      write: async (value) => { persisted = value },
+      remove: async () => {
+        removeCalls += 1
+        // 复刻真实错误形态：宿主 shim 的 fail-closed 错误**不带 .code**
+        throw new Error('[safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED] {"count":500,"threshold":500}')
+      },
+    })
+
+    await expect(storage.clear()).resolves.toBeUndefined()
+    expect(removeCalls).toBe(1)
+    expect(JSON.parse(persisted).cleared).toBe(true)
+    await expect(storage.load()).resolves.toBeNull()
+  })
+
+  it('删除遇到瞬时错误（EBUSY）时有界重试，成功后不降级覆写', async () => {
+    tempDirectory = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'multi-publish-token-retry-'))
+    const filePath = path.join(tempDirectory, 'identity-session.json')
+    await fs.promises.writeFile(filePath, JSON.stringify({ version: 2, ciphertext: 'c2VjcmV0', encrypted: false }))
+    const realFs = fs.promises
+    let unlinkAttempts = 0
+    const storage = new SecureTokenStorage({
+      safeStorage,
+      filePath,
+      retryDelaysMs: [1, 1],
+      fs: {
+        mkdir: realFs.mkdir.bind(realFs),
+        writeFile: realFs.writeFile.bind(realFs),
+        readdir: realFs.readdir.bind(realFs),
+        stat: realFs.stat.bind(realFs),
+        rename: realFs.rename.bind(realFs),
+        unlink: async (target) => {
+          unlinkAttempts += 1
+          if (unlinkAttempts < 3) throw Object.assign(new Error('file locked'), { code: 'EBUSY' })
+          return realFs.unlink(target)
+        },
+      },
+    })
+
+    await expect(storage.clear()).resolves.toBeUndefined()
+    expect(unlinkAttempts).toBe(3)
+    await expect(fs.promises.stat(filePath)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('删除与覆写都失败时报 IDENTITY_SESSION_CLEAR_FAILED，并保留原始 cause 便于诊断', async () => {
+    const storage = new SecureTokenStorage({
+      safeStorage,
+      filePath: path.join(os.tmpdir(), 'multi-publish-token-failed', 'identity-session.json'),
+      read: async () => '{}',
+      write: async () => { throw new Error('write denied') },
+      remove: async () => { throw new Error('unlink denied') },
+    })
+
+    const error = await storage.clear().catch((thrown) => thrown)
+    expect(error).toMatchObject({ code: 'IDENTITY_SESSION_CLEAR_FAILED' })
+    expect(error.cause).toBeInstanceOf(Error)
+    expect(error.cause.message).toBe('write denied')
+  })
+
+  it('原子写入 rename 瞬时失败时重试，成功且不残留临时文件', async () => {
+    tempDirectory = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'multi-publish-token-rename-'))
+    const filePath = path.join(tempDirectory, 'identity-session.json')
+    const realFs = fs.promises
+    let renameAttempts = 0
+    const storage = new SecureTokenStorage({
+      safeStorage,
+      filePath,
+      retryDelaysMs: [1, 1],
+      fs: {
+        mkdir: realFs.mkdir.bind(realFs),
+        writeFile: realFs.writeFile.bind(realFs),
+        readdir: realFs.readdir.bind(realFs),
+        stat: realFs.stat.bind(realFs),
+        unlink: realFs.unlink.bind(realFs),
+        rename: async (from, to) => {
+          renameAttempts += 1
+          if (renameAttempts === 1) throw Object.assign(new Error('file locked'), { code: 'EPERM' })
+          return realFs.rename(from, to)
+        },
+      },
+    })
+
+    await storage.save({ refreshToken: 'secret' })
+    expect(renameAttempts).toBe(2)
+    await expect(storage.load()).resolves.toEqual({ refreshToken: 'secret' })
+    const leftovers = (await realFs.readdir(tempDirectory)).filter((name) => name.endsWith('.tmp'))
+    expect(leftovers).toEqual([])
+  })
+
+  it('保存时回收超过保留时间的遗留临时文件（残留自愈）', async () => {
+    tempDirectory = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'multi-publish-token-sweep-'))
+    const filePath = path.join(tempDirectory, 'identity-session.json')
+    const staleTemp = `${filePath}.9999.tmp`
+    await fs.promises.writeFile(staleTemp, 'stale')
+    const oldMtime = new Date(Date.now() - 10 * 60 * 1000)
+    await fs.promises.utimes(staleTemp, oldMtime, oldMtime)
+    const freshTemp = `${filePath}.8888.tmp`
+    await fs.promises.writeFile(freshTemp, 'in-flight')
+    const storage = new SecureTokenStorage({ safeStorage, filePath })
+
+    await storage.save({ refreshToken: 'fresh' })
+
+    await expect(fs.promises.stat(staleTemp)).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(fs.promises.stat(freshTemp)).resolves.toBeDefined()
+    await expect(storage.load()).resolves.toEqual({ refreshToken: 'fresh' })
+  })
 })

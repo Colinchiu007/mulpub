@@ -14716,3 +14716,16 @@ commit `941b17f1`（feat: browser-style tab bar）在 `webview-manager.js` `crea
 - **常驻监督进程的日志路径必须按 PID 唯一**：复用固定日志文件时，上一进程仍持有句柄会让新进程 `EPERM: open` 直接崩掉（表现为「守护进程启动后立刻消失」）。
 - **并发会话会 prune 掉你的 worktree 注册**：`git status` 报 `fatal: not a git repository: (NULL)` 时物理目录与改动都还在——手工重建 `.git/worktrees/<name>/{gitdir,HEAD,commondir}` 三个文件，再 `git reset` 重建索引即可无损恢复（注册被删不会丢工作区文件与已提交内容）。
 - **预防**：新增 Electron spawn 点一律走 `buildElectronEnv`；聚合型数据源写缓存前必须显式声明"零结果时如何处置既有数据"；E2E 驱动不得依赖页面侧补丁，统一用 IPC 状态差分；启动守护的日志路径带 PID。
+
+## 身份态 error / 登录报「退出失败」：宿主 safe-delete shim 击穿本地会话清理（mp-identity-session-clear-failed，2026-09-14）
+
+- **现象与真实状态可以完全脱节，先拿真实状态再动手**：UI 显示「退出失败，当前登录仍然有效。」并重复两次，而主进程真实状态是 `{status:'error', error:{code:'IDENTITY_SESSION_CLEAR_FAILED', message:'登录失败，且本地登录信息未能清理，请重试'}}`。用 CDP（`/json/list` → WebSocket → `Runtime.evaluate` 调 `window.electronAPI.identityGetState()`）直连运行实例取值，比读日志/猜代码快一个数量级；`identitySignIn()` 在同一条件下可 100% 复现失败码。
+- **根因不是「安全软件锁目录」**（对早先结论的修正）：同目录下用 PowerShell/node 删除 `identity-session.json` 完全成功，说明 ACL/属性/占用都正常。真正原因是**宿主 IDE（CodeBuddy 系）注入的 safe-delete shim**：`NODE_OPTIONS=--require=.../node-language-shim.cjs` + `CODEBUDDY_SAFE_DELETE_*`，它 patch `fs.unlink/rm/rmdir`（含 promises），删除前跑 bulk guard，**同一 requestId（conversationRequestId/toolCallId）累计删除数达 500 即 fail-closed**（错误 `[safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED] {...}`，**不带 `.code`**）。Electron 主进程是长生命周期进程，toolCallId 是启动瞬间冻结的旧值，跑几小时后必然越限 ⇒ 之后应用内**所有删除**抛错。证据：共享状态 `D:\Temp\codebuddy-safe-delete-bulk` 里多个 requestId 停在 499 + `signal-*.json` 残留。
+- **判定「环境注入 vs 文件系统」的对照实验范式**（三步，成本低、结论硬）：① 外部进程（PowerShell/node）对同一路径做同样操作 → 正常 ⇒ 排除路径/ACL；② 用真实 Electron 运行时直接调用同一份业务模块 → 正常 ⇒ 排除二进制/运行时；③ 复现宿主上下文（设 `CODEBUDDY_SAFE_DELETE_BULK_THRESHOLD=1` 等价「计数耗尽」）→ 精确复现原错误。三者一摆，责任边界就清楚了。
+- **`unlink` 拦截与 `rename` 未拦截**：shim 只 patch 删除类 API，所以「写文件成功、清理失败」是这类问题的典型指纹（表现为 `*.tmp` 残留 + `IDENTITY_SESSION_CLEAR_FAILED`）。
+- **失败路径的收尾动作不得抢占主错误**：`throw cleanupError || identityError` 让「清理失败」掩盖了真实登录失败原因，前端于是把「点登录失败」显示成「退出失败」。正确做法：主错误码进 `error.code`，收尾失败放独立字段（`error.cleanup` / `cleanupCode`）。
+- **兜底文案必须中性**：`messages[code] || t('signOutFailed')` 让**任何**未知错误都伪装成「退出失败」。错误码映射表的默认值一律用中性文案（`operationFailed`），并用测试遍历断言「只有退出类码映射到退出文案」。
+- **删除能力不能作为正确性前提**：清空本地敏感数据时，「删除文件」应允许降级为「覆写为不可用载荷」（本项目用 `{cleared:true}` 信封，`load()` 直接判空），否则一个环境限制就能让登录/退出整条链路不可用。同时给 `unlink/rename` 加有界重试（`EPERM/EBUSY/EACCES/EMFILE/ENFILE`，3 次 25/50/100ms），并对超过 60s 的 `*.tmp` 残留做自愈回收。
+- **没有日志的失败分支等于不可诊断**：本次排查最耗时的原因是身份链路把原始错误包了一层就丢掉。凡失败分支都要落 `scope + code + cause 链` 的 WARN 日志（`_logFailure`），注入式 logger 便于单测断言。
+- **环境契约要收敛到唯一实现**：所有 Electron spawn 前都经 `buildElectronEnv()`；它现在同时剔除 `ELECTRON_RUN_AS_NODE` 与宿主 shim 上下文（含 `NODE_OPTIONS` 里的 `--require` 片段、`PATH`/`PYTHONPATH` 里的 shim 目录、`CODEBUDDY_*` 激活变量）。新增 spawn 点登记一次即获得全部净化能力。
+- **诊断小工具值得留存**：`%APPDATA%\<app>\logs` 之外，dev 模式日志在 `ELECTRON_USER_DATA_DIR/logs`；运行实例的 userData 可用 `Get-Process` 的 Path + 进程启动时间反推；CDP `Runtime.evaluate` 可直接对 `window.electronAPI.*` 做端到端取证（无需重启应用、无需改代码）。

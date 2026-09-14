@@ -28,6 +28,29 @@
 - `docs/frontend-interaction-spec.md` §2 交互原语登记 + §6.3 模块导航条款更新 + 新增 §6.4「侧边栏底部用户 banner」强制条款
 - OpenSpec change `sidebar-bottom-user-banner`（proposal + design + specs delta + tasks）
 
+# [未发布] fix(identity): 点击登录报「退出失败」——宿主 safe-delete shim 击穿本地会话清理 + 错误码文案映射缺失（2026-09-14）
+
+### 修复
+- **登录失败被显示成「退出失败，当前登录仍然有效。」（P1）**：`ProfileMenu.vue` 与 `MemberCenter.vue` 各自维护一份只登记 6 个错误码的映射表，且 fallback 写成 `signOutFailed`；`statusNote` 对 `status === 'error'` 也无条件用同一句，导致面板把同一句错误显示两次。新增唯一映射 `src/utils/identity-error-messages.js`（28 个错误码 + 中性兜底 `memberCenter.operationFailed`），两个组件共用；新增 `retryHint` 作为未登录态状态说明，避免与详细错误重复
+- **清理错误掩盖真实登录失败原因（P1）**：`AuthService._performSignIn` 原为 `throw cleanupError || identityError`，且 `_clearLocalSessionOrSetError` 直接改写 state ⇒ 前端永远只拿到 `IDENTITY_SESSION_CLEAR_FAILED`。改为「主错误码进 `error.code`、清理失败降级到 `error.cleanup`（抛出对象附 `cleanupCode`）」，退出场景语义不变（清理失败仍是主错误）
+- **本地会话清空强依赖文件删除能力（P1，根因）**：宿主 IDE（CodeBuddy 系）注入的 safe-delete shim 会 patch `fs.unlink/rm`，删除前跑 bulk guard，**同一 requestId 累计删除数达 500 即 fail-closed 抛错**（错误不带 `.code`）；Electron 主进程是长生命周期进程，toolCallId 为启动瞬间冻结的旧值 ⇒ 运行数小时后应用内所有删除抛错 ⇒ `identity-session.json` 无法删除 ⇒ 登录/退出整链路失败（profile 里堆积 `identity-session.json.<pid>.tmp`）。`SecureTokenStorage` 改为「删除失败 ⇒ 降级覆写 `{cleared:true}` 信封（`load()` 判空）」，并给 `unlink/rename` 加瞬时错误有界重试（`EPERM/EBUSY/EACCES/EMFILE/ENFILE`，3 次 25/50/100ms）、对超过 60s 的 `*.tmp` 残留做自愈回收、双失败时保留原始 `cause`
+- **启动链环境净化扩展（根因）**：`apps/desktop/scripts/electron-runtime-env.js` 的 `buildElectronEnv()` 在原有「剔除 `ELECTRON_RUN_AS_NODE`」之上，统一剔除宿主 shim 注入——`CODEBUDDY_SESSION_ID`/`CLAUDE_SESSION_ID`/`CODEBUDDY_TOOL_CALL_ID`/`CODEBUDDY_CONVERSATION_REQUEST_ID`/`CODEBUDDY_SAFE_DELETE_*`/`BASH_ENV`、`NODE_OPTIONS` 中指向 shim 的 `--require` 片段（兼容引号/非引号/含空格路径，保留其他 Node 选项）、`PATH`/`PYTHONPATH` 中的 shim 目录条目
+
+### 新增
+- **身份链路诊断日志**：`AuthService._logFailure()`（实现集中在新增 `auth-diagnostics.js`）记录 `scope + code + cause 链`，埋点覆盖 `signIn`/`signInCleanup`/`tokenStorage.clear`/`clearLocalSession`/`clearSignInWindowSession`/`getAccessToken`(.network/.sessionRejected)/`restore`/`signOut.remote`；logger 由工厂注入（`options.logger` 可覆盖）
+- i18n 新增 `memberCenter` 16 组词条（zh/en 成对）：`retryHint`/`loginFailed`/`loginCancelled`/`loginInProgress`/`loginTimeout`/`loginCallbackFailed`/`loginWindowFailed`/`operationInProgress`/`operationFailed`/`identityServiceUnavailable`/`identityLoadFailed`/`networkUnavailable`/`switchAccountRequired`/`sessionInvalid`/`sessionStoreBlocked`/`secureStorageUnavailable`
+
+### 验证
+- `node --test apps/desktop/scripts/electron-runtime-env.test.js` → **14 passed**（新增 shim 净化断言：变量剔除 / `NODE_OPTIONS` 各形态 / `PATH`·`PYTHONPATH` / 本机实测注入值）
+- `vitest run`（secure-token-storage / auth-service / auth-diagnostics / identity-service-factory / stores·identity / ProfileMenu / utils·identity-error-messages / MemberCenter）→ **8 files / 116 passed**（新增 19 例：存储降级与重试 5、主错误保留与日志 3、诊断纯函数 5、错误码映射 5、ProfileMenu 文案 4、store cleanup 保真 2）
+- **真实条件端到端复现与验证**（Electron 运行时 + shim 生效 + 守卫阈值耗尽）：修复前 `clear=FAIL([safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED])`；修复后 `save=OK / load=OK / clear=OK / loadAfterClear=null`，无 tmp 残留
+- 运行实例取证：CDP `Runtime.evaluate` 读取 `identityGetState()` 得到 `IDENTITY_SESSION_CLEAR_FAILED`，`identitySignIn()` 100% 复现同一码
+
+### 文档
+- 新增 `01-docs/BUGFIX-IDENTITY-SESSION-CLEAR-FAILED-2026-09-14.md`（QM-5 五步：根因溯源含 6 组对照实验 / 逃逸链 / 系统性漏洞 / 修复 + 回归保护 / 6 条预防措施 + 本机处置建议）
+- `01-docs/PRD-F14-LOGTO-PRODUCTION-READINESS.md` 新增 §8「登录失败原因透传与本地会话韧性」（数据校验表 / 流程与功能逻辑 / 交互逻辑表 / 21 行提示文字全表 / 环境契约 / 7 条验收标准 / 非目标）
+- `01-docs/learnings.md` 追加 9 条经验（含对「安全软件锁目录」旧结论的修正）
+
 # [未发布] feat(collection): 采集页新增「文案库」标签（采集正文 + 改写文案聚合 + 行内改写弹窗）（2026-09-14）
 
 ### 新增

@@ -121,6 +121,10 @@ import { ArrowUp } from '@element-plus/icons-vue'
 import { useIdentity } from '@/composables/useIdentity'
 import { useLicenseStore } from '@/stores/license'
 import { useDropdownBehavior } from '@/composables/useDropdownBehavior'
+import {
+  resolveIdentityErrorMessageKey,
+  resolveIdentityStatusNoteKey,
+} from '@/utils/identity-error-messages'
 
 const emit = defineEmits(['open-settings', 'upgrade'])
 
@@ -178,25 +182,16 @@ const statusLabel = computed(() => {
   return t('memberCenter.notLoggedIn')
 })
 
-const statusNote = computed(() => {
-  if (status.value === 'disabled') return t('memberCenter.identityDisabledHint')
-  if (status.value === 'expired') return t('memberCenter.statusExpired')
-  if (status.value === 'error') return t('memberCenter.signOutFailed')
-  return t('memberCenter.notLoggedInHint')
-})
+const statusNote = computed(() => t(resolveIdentityStatusNoteKey(status.value)))
 
 const errorMessage = computed(() => {
-  const code = error.value?.code
-  if (!code) return ''
-  const messages = {
-    IDENTITY_API_UNAVAILABLE: t('memberCenter.identityDisabledHint'),
-    IDENTITY_CALLBACK_TIMEOUT: t('memberCenter.signOutFailed'),
-    IDENTITY_ACCOUNT_SWITCH_FAILED: t('memberCenter.switchFailed'),
-    IDENTITY_SESSION_EXPIRED: t('memberCenter.statusExpired'),
-    IDENTITY_SIGN_OUT_FAILED: t('memberCenter.signOutFailed'),
-    IDENTITY_SESSION_CLEAR_FAILED: t('memberCenter.signOutFailed'),
-  }
-  return messages[code] || t('memberCenter.signOutFailed')
+  const entry = error.value
+  if (!entry?.code) return ''
+  const primary = t(resolveIdentityErrorMessageKey(entry.code))
+  const cleanupCode = entry.cleanup?.code
+  if (!cleanupCode) return primary
+  const secondary = t(resolveIdentityErrorMessageKey(cleanupCode))
+  return secondary === primary ? primary : `${primary} ${secondary}`
 })
 
 async function handleTriggerClick() {

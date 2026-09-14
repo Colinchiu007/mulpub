@@ -173,4 +173,73 @@ describe('ProfileMenu', () => {
     expect(wrapper.find('[data-testid="profile-menu-settings"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="profile-menu-upgrade"]').exists()).toBe(true)
   })
+
+  // —— 2026-09-14 缺陷回归：登录失败不再显示「退出失败」 ——
+
+  it('登录失败（未登录态）显示登录类文案，不显示退出失败文案', async () => {
+    await mountMenu()
+    store.status = 'error'
+    store.user = null
+    store.error = { code: 'IDENTITY_SIGN_IN_FAILED', message: '' }
+    await wrapper.vm.$nextTick()
+    await wrapper.get('[data-testid="yixiaoer-profile"]').trigger('click')
+
+    const text = wrapper.text()
+    expect(text).toContain('memberCenter.loginFailed')
+    expect(text).toContain('memberCenter.retryHint')
+    expect(text).not.toContain('memberCenter.signOutFailed')
+  })
+
+  it('本地会话清理失败时追加可操作提示（主错误 + 清理提示）', async () => {
+    await mountMenu()
+    store.status = 'error'
+    store.user = null
+    store.error = {
+      code: 'IDENTITY_SIGN_IN_FAILED',
+      message: '',
+      cleanup: { code: 'IDENTITY_SESSION_CLEAR_FAILED' },
+    }
+    await wrapper.vm.$nextTick()
+    await wrapper.get('[data-testid="yixiaoer-profile"]').trigger('click')
+
+    const text = wrapper.text()
+    expect(text).toContain('memberCenter.loginFailed')
+    expect(text).toContain('memberCenter.sessionStoreBlocked')
+  })
+
+  it('会话清理失败单独出现时也显示可操作提示而不是退出失败', async () => {
+    await mountMenu()
+    store.status = 'error'
+    store.user = null
+    store.error = { code: 'IDENTITY_SESSION_CLEAR_FAILED', message: '' }
+    await wrapper.vm.$nextTick()
+    await wrapper.get('[data-testid="yixiaoer-profile"]').trigger('click')
+
+    const text = wrapper.text()
+    expect(text).toContain('memberCenter.sessionStoreBlocked')
+    expect(text).not.toContain('memberCenter.signOutFailed')
+  })
+
+  it('已登录态退出失败仍显示退出失败文案', async () => {
+    await mountMenu()
+    store.status = 'error'
+    store.error = { code: 'IDENTITY_SIGN_OUT_FAILED', message: '' }
+    await wrapper.vm.$nextTick()
+    await wrapper.get('[data-testid="yixiaoer-profile"]').trigger('click')
+
+    expect(wrapper.text()).toContain('memberCenter.signOutFailed')
+  })
+
+  it('未知错误码回落到中性文案', async () => {
+    await mountMenu()
+    store.status = 'error'
+    store.user = null
+    store.error = { code: 'SOMETHING_UNMAPPED', message: '' }
+    await wrapper.vm.$nextTick()
+    await wrapper.get('[data-testid="yixiaoer-profile"]').trigger('click')
+
+    const text = wrapper.text()
+    expect(text).toContain('memberCenter.operationFailed')
+    expect(text).not.toContain('memberCenter.signOutFailed')
+  })
 })
