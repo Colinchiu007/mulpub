@@ -136,8 +136,8 @@ describe("HomeView (deep)", () => {
     const w = mount(mod.default, { global: { plugins: [i18n] } });
     await nextTick();
     await new Promise(r => setTimeout(r, 0));
-    // 首页已复刻为蚁小二风格，快捷入口第 2 格为账号管理。
-    const shortcuts = w.findAll(".yixiaoer-home-shortcut");
+    // 首页已复刻为参考产品风格，快捷入口第 2 格为账号管理。
+    const shortcuts = w.findAll(".mp-home-shortcut");
     await shortcuts[1].trigger("click");
     expect(pushSpy).toHaveBeenCalledWith("/accounts");
   });

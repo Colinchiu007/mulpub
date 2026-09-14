@@ -12,10 +12,10 @@
 
 | 布局 | 触发条件 | 组成 |
 |------|---------|------|
-| **Yixiaoer 工作区** | 路由 **不在** `NON_WORKSPACE_ROUTES`（`/first-run`, `/model-providers`, `/keywords`, `/viral-analysis`）| `YixiaoerSidebar` + `TabBar` + `NavBar` + `YixiaoerModuleNav`（仅首页标签） + `<router-view>` |
+| **Mp 工作区** | 路由 **不在** `NON_WORKSPACE_ROUTES`（`/first-run`, `/model-providers`, `/keywords`, `/viral-analysis`）| `MpSidebar` + `TabBar` + `NavBar` + `MpModuleNav`（仅首页标签） + `<router-view>` |
 | **经典布局** | 路由在 `NON_WORKSPACE_ROUTES` 中 | `AppNavbar` + `AppSidebar` + `<router-view>` |
 
-**浏览器式标签栏（Yixiaoer 工作区，对标蚁小二）**：
+**浏览器式标签栏（Mp 工作区，对标参考产品）**：
 
 | 组件 | 内容 |
 |------|------|
@@ -36,24 +36,24 @@
 
 | 路径 | 名称 | 视图组件 | 布局 |
 |------|------|---------|------|
-| `/` | Home | `Home.vue` | Yixiaoer |
-| `/accounts` | Accounts | `Accounts.vue` | Yixiaoer |
-| `/publish` | Publish | `Publish.vue` | Yixiaoer |
-| `/publish/history` | PublishHistory | `PublishHistory.vue` | Yixiaoer |
-| `/dashboard` | Dashboard | `Dashboard.vue` | Yixiaoer |
-| `/collection` | Collection | `Collection.vue` | Yixiaoer |
-| `/monitor` | Monitor | `Monitor.vue` | Yixiaoer |
-| `/comments` | Comments | `Comments.vue` | Yixiaoer |
-| `/create` | Create | `CreateView.vue` | Yixiaoer |
-| `/create/result` | CreateResult | `ResultView.vue` | Yixiaoer |
-| `/create/history` | CreateHistory | `CreateHistory.vue` | Yixiaoer |
-| `/cloud-publish` | CloudPublish | `CloudPublish.vue` | Yixiaoer |
-| `/intelligence` | Intelligence | `Intelligence.vue` | Yixiaoer |
-| `/calendar` | Calendar | `Calendar.vue` | Yixiaoer |
-| `/library` | ProjectLibrary | `ProjectLibrary.vue` | Yixiaoer |
-| `/board/:projectId` | ProductionBoard | `ProductionBoard.vue` | Yixiaoer |
-| `/board/:projectId/contact-sheet` | ContactSheetView | `ContactSheetView.vue` | Yixiaoer |
-| `/replay/:projectId` | ReplayTimeline | `ReplayTimeline.vue` | Yixiaoer |
+| `/` | Home | `Home.vue` | Mp |
+| `/accounts` | Accounts | `Accounts.vue` | Mp |
+| `/publish` | Publish | `Publish.vue` | Mp |
+| `/publish/history` | PublishHistory | `PublishHistory.vue` | Mp |
+| `/dashboard` | Dashboard | `Dashboard.vue` | Mp |
+| `/collection` | Collection | `Collection.vue` | Mp |
+| `/monitor` | Monitor | `Monitor.vue` | Mp |
+| `/comments` | Comments | `Comments.vue` | Mp |
+| `/create` | Create | `CreateView.vue` | Mp |
+| `/create/result` | CreateResult | `ResultView.vue` | Mp |
+| `/create/history` | CreateHistory | `CreateHistory.vue` | Mp |
+| `/cloud-publish` | CloudPublish | `CloudPublish.vue` | Mp |
+| `/intelligence` | Intelligence | `Intelligence.vue` | Mp |
+| `/calendar` | Calendar | `Calendar.vue` | Mp |
+| `/library` | ProjectLibrary | `ProjectLibrary.vue` | Mp |
+| `/board/:projectId` | ProductionBoard | `ProductionBoard.vue` | Mp |
+| `/board/:projectId/contact-sheet` | ContactSheetView | `ContactSheetView.vue` | Mp |
+| `/replay/:projectId` | ReplayTimeline | `ReplayTimeline.vue` | Mp |
 | `/first-run` | FirstRun | `FirstRun.vue` | 经典 |
 | `/model-providers` | ModelProviders | `ModelProviders.vue` | 经典 |
 | `/keywords` | Keywords | `KeywordMonitorView.vue` | 经典 |
@@ -65,7 +65,7 @@
 
 ## 三、布局组件
 
-### 3.1 YixiaoerSidebar（`layouts/YixiaoerSidebar.vue`，376 行）
+### 3.1 MpSidebar（`layouts/MpSidebar.vue`，376 行）
 
 | 元素 | 说明 |
 |------|------|
@@ -75,7 +75,7 @@
 | 「更多」展开菜单 `moreItems` | 监控、发布日历、私信评论、CLI、素材库 |
 | 底部状态栏 | "客户端已连接" |
 
-### 3.2 YixiaoerModuleNav（`layouts/YixiaoerModuleNav.vue`，344 行）
+### 3.2 MpModuleNav（`layouts/MpModuleNav.vue`，344 行）
 
 | 元素 | 说明 |
 |------|------|
@@ -218,7 +218,7 @@
 | 设置代理 | 卡片操作按钮 "设置" | `AccountProxyDialog` |
 | 授权引导 | 首次添加账号时 | `AccountAuthorizationGuide` |
 
-> 注：**分组管理**原为弹窗（`AccountGroupManager`），已改为页面级 Tab 面板 `AccountGroupsPanel`（对标蚁小二）；**收藏分组** Tab 为页面级 `AccountFavoritesPanel`。
+> 注：**分组管理**原为弹窗（`AccountGroupManager`），已改为页面级 Tab 面板 `AccountGroupsPanel`（对标参考产品）；**收藏分组** Tab 为页面级 `AccountFavoritesPanel`。
 
 **特殊状态**：
 | 状态 | 触发条件 | 显示 |
@@ -520,7 +520,7 @@
 | **内容** | 代理类型（HTTP/HTTPS/SOCKS5）+ 地址 + 端口 + 用户名/密码 |
 | **状态** | 当前代理状态显示、清除按钮、表单验证 |
 
-### 6.3 AccountGroupsPanel（页面级分组管理面板，对标蚁小二）
+### 6.3 AccountGroupsPanel（页面级分组管理面板，对标参考产品）
 
 | 项目 | 内容 |
 |------|------|
@@ -530,7 +530,7 @@
 | **分组卡片** | 名称 + 成员统计 + 平台筛选 + 重命名 + 删除 + 成员勾选 |
 | **空态** | 云朵图标 + "暂无数据"（无分组或有分组但筛选无结果时附提示）|
 
-### 6.4 AccountFavoritesPanel（页面级收藏分组面板，对标蚁小二）
+### 6.4 AccountFavoritesPanel（页面级收藏分组面板，对标参考产品）
 
 | 项目 | 内容 |
 |------|------|
@@ -727,14 +727,14 @@
 
 ---
 
-## 十二、蚁小二对标差异备忘
+## 十二、参考产品对标差异备忘
 
-以下为与蚁小二截图（yxe-live-20260810）对比的 UI 差异点及处理状态：
+以下为与参考产品截图（mp-live-20260810）对比的 UI 差异点及处理状态：
 
-1. ✅ **账号页顶层 Tab 导航**：蚁小二有"账号管理/分组管理/分享链接/收藏分组"四个 Tab，`YixiaoerModuleNav` 已实现；**分组管理/收藏分组已从弹窗改为页面级面板**（`AccountGroupsPanel`/`AccountFavoritesPanel`，2026-08-10）
-2. ✅ **分组管理工具栏**：已对齐蚁小二布局 — 搜索分组 + 全部筛选 + 仅看包含我的分组 + 设置排序 + 紫色创建分组按钮
-3. ✅ **空态风格**：分组/收藏面板采用蚁小二同款"云朵 + 暂无数据"空态
-4. ✅ **状态徽章颜色**：已按蚁小二契约分色 — 负责人蓝（`assignee-owner`）/ 运营人灰（`assignee-publisher`）/ 代理紫（`assignee-proxy`），2026-08-10
+1. ✅ **账号页顶层 Tab 导航**：参考产品有"账号管理/分组管理/分享链接/收藏分组"四个 Tab，`MpModuleNav` 已实现；**分组管理/收藏分组已从弹窗改为页面级面板**（`AccountGroupsPanel`/`AccountFavoritesPanel`，2026-08-10）
+2. ✅ **分组管理工具栏**：已对齐参考产品布局 — 搜索分组 + 全部筛选 + 仅看包含我的分组 + 设置排序 + 紫色创建分组按钮
+3. ✅ **空态风格**：分组/收藏面板采用参考产品同款"云朵 + 暂无数据"空态
+4. ✅ **状态徽章颜色**：已按参考产品契约分色 — 负责人蓝（`assignee-owner`）/ 运营人灰（`assignee-publisher`）/ 代理紫（`assignee-proxy`），2026-08-10
 5. ✅ **Publish.vue inline style**：已全部迁移为语义化 class（64 处 → 0），定义收敛至 `<style scoped>`，2026-08-10
-6. **卡片视觉细节**：AccountManagementCard 的底部按钮布局与蚁小二略有差异
-7. **批量模式工具栏**：蚁小二批量选择时工具栏样式更紧凑（发布记录页已对齐：已选择 N 项内容 + 删除 + 取消选择 + 导出）
+6. **卡片视觉细节**：AccountManagementCard 的底部按钮布局与参考产品略有差异
+7. **批量模式工具栏**：参考产品批量选择时工具栏样式更紧凑（发布记录页已对齐：已选择 N 项内容 + 删除 + 取消选择 + 导出）

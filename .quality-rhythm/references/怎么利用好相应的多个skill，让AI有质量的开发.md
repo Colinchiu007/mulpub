@@ -7,7 +7,7 @@
 
 ---
 
-这个文档太有料了！51 个技能全景覆盖。针对蚁小二复用集成这个场景，我按 **使用顺序** 推荐以下技能：
+这个文档太有料了！51 个技能全景覆盖。针对参考产品复用集成这个场景，我按 **使用顺序** 推荐以下技能：
 
 ---
 
@@ -17,7 +17,7 @@
 
 |技能|为什么用|
 |---|---|
-|**`doubt-driven-dev`**|蚁小二代码是 8.4MB webpack 打包产物，很多 API 端点/签名算法需要 **质疑式验证**——每个复用点都问"这个真的能用吗？"|
+|**`doubt-driven-dev`**|参考产品代码是 8.4MB webpack 打包产物，很多 API 端点/签名算法需要 **质疑式验证**——每个复用点都问"这个真的能用吗？"|
 |**`/plan-eng-review`**|架构深度审查——新的 `signer-local.js` 替代远程签名后，需要检查架构是否合理、降级策略是否正确|
 |**`documentation-and-adrs`**|记录架构决策：为什么选本地签名代替远程服务、为什么选这些平台优先实现|
 
@@ -25,10 +25,10 @@
 
 |技能|为什么用|
 |---|---|
-|**`test-driven-development`**|**最核心的技能！** 对每个从蚁小二复制的函数，先写测试再集成。特别是签名算法（CSDN HMAC、小红书 X-s/X-t）——没测试验证就不知道复制的对不对|
+|**`test-driven-development`**|**最核心的技能！** 对每个从参考产品复制的函数，先写测试再集成。特别是签名算法（CSDN HMAC、小红书 X-s/X-t）——没测试验证就不知道复制的对不对|
 |**`testing-anti-patterns`**|禁止 mock 行为——验证签名算法要 **真实计算后对比**，不能 mock 掉 crypto 来"假装"测试通过|
 |**`incremental-impl`**|10 个平台适配器不要一口气写完。一次 1 个平台：写适配器 → 写测试 → 验证 → 下一个|
-|**`code-simplification`**|蚁小二的 webpack 打包代码很冗余。每个复用的函数都要 **简化**——去掉混淆变量名、不必要的 try-catch、死代码|
+|**`code-simplification`**|参考产品的 webpack 打包代码很冗余。每个复用的函数都要 **简化**——去掉混淆变量名、不必要的 try-catch、死代码|
 |**`context-engineering`**|跨文件上下文管理——API 引擎涉及 index.js/signer.js/signer-local.js/base-adapter.js + 10 个适配器，要保证上下文不泄漏|
 
 ### 🔍 阶段三：集成后验证 — 保证"测过了"
@@ -38,7 +38,7 @@
 |**`/review`**|对新集成的代码做审查——逻辑错误、安全风险、边界情况。特别是从逆向工程来的代码，要检查有没有硬编码敏感信息|
 |**`/qa`**|全平台端到端测试——用 `test-publish.js` 逐平台扫码登录 + API 发布验证|
 |**`code-review-and-quality`**|代码质量深度审计——检查复用的代码是否符合项目的编码规范、是否有重复代码|
-|**`/cso`**|安全审计——蚁小二代码中的密钥（CSDN `9znpamsyl2c7cdrr9sas0le9vbc3r6ba`）、签名算法是否有安全风险|
+|**`/cso`**|安全审计——参考产品代码中的密钥（CSDN `9znpamsyl2c7cdrr9sas0le9vbc3r6ba`）、签名算法是否有安全风险|
 |**`/health`**|集成后的代码健康度检查——确保没有引入死代码、类型错误、lint 警告|
 
 ### 🚀 阶段四：集成收尾 — 保证"交付了"
@@ -56,7 +56,7 @@
 如果只能选 5 个，优先级如下：
 
 1. **`test-driven-development`** — 没测试什么复用都是盲人摸象
-2. **`doubt-driven-dev`** — 蚁小二的代码必须质疑每个假设
+2. **`doubt-driven-dev`** — 参考产品的代码必须质疑每个假设
 3. **`/review`** — 逆向工程来的代码必须审查
 4. **`code-simplification`** — webpack 打包的代码太臃肿，必须简化
 5. **`incremental-impl`** — 一个一个平台来，别贪多
@@ -422,7 +422,7 @@ AI 自动执行 **6 步流水线**：
 
 ## 核心差异：两个项目的问题本质不同
 
-|维度|蚁小二集成|OpenMontage 迁移|
+|维度|参考产品集成|OpenMontage 迁移|
 |---|---|---|
 |代码来源|**8.4MB webpack 打包产物**（混淆/压缩/冗余）|**干净的 Python + TypeScript 源码**|
 |集成方式|逆向工程→提取关键函数→重写|直接引用源码 / git submodule|
@@ -436,7 +436,7 @@ AI 自动执行 **6 步流水线**：
 
 ## 详细对比
 
-### Set B（蚁小二方案）的优点 ✅
+### Set B（参考产品方案）的优点 ✅
 
 ```
 1. doubt-driven-dev   ★★★★★  —— 对混淆代码的质疑核心技能
@@ -446,7 +446,7 @@ AI 自动执行 **6 步流水线**：
 5. /review            ★★★★   —— 逆向代码必须过审查
 ```
 
-**最适合的场景**：从混淆/打包的 JS 产物中提取功能。**蚁小二的方案在这一点上完胜。**
+**最适合的场景**：从混淆/打包的 JS 产物中提取功能。**参考产品的方案在这一点上完胜。**
 
 ### Set A（OpenMontage 方案）的优点 ✅
 
@@ -479,7 +479,7 @@ AI 自动执行 **6 步流水线**：
 |---|---|
 |**doubt-driven-dev**|OpenMontage 是干净的源码，不需要质疑"这个函数到底在做什么"，直接读就懂了|
 |**code-simplification**|OpenMontage 的代码结构清晰，不需要大幅简化，只需要选择性引用|
-|**/cso（安全审计）**|OpenMontage 没有硬编码密钥问题（蚁小二有 CSDN `9znpamsyl2c7cdrr9sas0le9vbc3r6ba` 这种），安全风险低一档|
+|**/cso（安全审计）**|OpenMontage 没有硬编码密钥问题（参考产品有 CSDN `9znpamsyl2c7cdrr9sas0le9vbc3r6ba` 这种），安全风险低一档|
 |**/retro（每周复盘）**|单人开发复盘频率过高，改成每 Phase 一次就够了|
 
 ---
@@ -530,7 +530,7 @@ AI 自动执行 **6 步流水线**：
 
 两套组合的核心重叠度很高（TDD、`/review`、`code-simplification`、`incremental-impl` 都出现了），差异在于各自的**领域特异性技能**。以下是我的判断：
 
-### 组合一（蚁小二集成）的优势
+### 组合一（参考产品集成）的优势
 
 逆向工程场景下，**`doubt-driven-dev` + `source-driven-dev`** 是正确的选择——webpack 打包产物每个函数都值得质疑。`/cso` 安全审计也合理（提取了硬编码密钥）。但组合一**缺少规划阶段的架构审查**（没有 `/plan-eng-review`），对 8.4MB 打包产物的模块边界没有前期规划。
 
@@ -560,7 +560,7 @@ AI 自动执行 **6 步流水线**：
 
 | 项目类型 | 推荐 | 不推荐 |
 |---------|------|--------|
-| **逆向工程**（蚁小二） | `doubt-driven-dev` + `source-driven-dev` + `/plan-eng-review` | `spec-driven-dev`（没有 spec 可言） |
+| **逆向工程**（参考产品） | `doubt-driven-dev` + `source-driven-dev` + `/plan-eng-review` | `spec-driven-dev`（没有 spec 可言） |
 | **系统迁移**（OpenMontage） | `spec-driven-dev` + `/plan-eng-review` + `/plan-design-review` | `doubt-driven-dev`（源码在手，不需要质疑） |
 | **新功能开发** | `brainstorming`/`idea-refine` + `writing-plans` | `source-driven-dev`（没有参考源码） |
 
@@ -576,7 +576,7 @@ AI 自动执行 **6 步流水线**：
 
 ## 具体到你的两个项目
 
-### 蚁小二集成：用 7 个
+### 参考产品集成：用 7 个
 
 ```
 /doubt-driven-dev → /plan-eng-review → test-driven-dev → 
@@ -633,7 +633,7 @@ test-driven-dev → incremental-impl → code-simplification →
 
 两个项目实际调用的技能序列合并后：
 
-| 阶段 | 蚁小二（逆向） | OpenMontage（迁移） | 共享？ |
+| 阶段 | 参考产品（逆向） | OpenMontage（迁移） | 共享？ |
 |------|--------------|-------------------|--------|
 | 规划 | doubt-driven → /plan-eng-review | spec-driven → /plan-eng-review → /plan-design-review | `/plan-eng-review` 共享 |
 | 编码 | TDD → incremental-impl → code-simplification | 同左 | **完全一致** |
@@ -658,7 +658,7 @@ test-driven-dev → incremental-impl → code-simplification →
 | 维度 | 我的分析 | 另一个 AI | 谁更准 |
 |------|---------|----------|--------|
 | 核心判断 | 两个组合 70% 重叠，可以合并 | 问题本质不同，侧重不同 | **它更准** — 重叠的是"通用开发习惯"，不是"项目特异性策略" |
-| 蚁小二 | 缺了 `/plan-eng-review` | doubt-driven 是核心，不需要 spec | **它更准** — 逆向工程确实没 spec 可言 |
+| 参考产品 | 缺了 `/plan-eng-review` | doubt-driven 是核心，不需要 spec | **它更准** — 逆向工程确实没 spec 可言 |
 | OpenMontage | 建议用 spec-driven | source-driven + spec-driven 并用 | **它更准** — 有源码时先读源码再推导 spec，两步都有必要 |
 | 合并方案 | 我提了"共享底座 + 领域插件" | 它直接给了 TOP 10 + 精简流程 | **它更实用** — 有优先级有流程，没有抽象层 |
 | 遗漏 | 我没提 subagent-driven/parallel | 它提了并行适配省 2 周 | **它更完整** — 15 个提供商确实该并行 |

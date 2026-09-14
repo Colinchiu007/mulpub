@@ -62,7 +62,7 @@ def save_auth_data(
 ) -> None:
     """保存完整认证数据（cookies + localStorage + IndexedDB）。
 
-    蚁小二关键发现：抖音的 security-sdk 认证需要全部三层数据，
+    参考产品关键发现：抖音的 security-sdk 认证需要全部三层数据，
     仅保存 cookies 会导致发布时登录态频繁失效。
 
     Args:
@@ -157,7 +157,7 @@ async def _capture_local_storage(publisher) -> dict[str, str]:
 async def _capture_indexed_db(publisher) -> dict[str, dict]:
     """从浏览器捕获 IndexedDB 中的数据。
 
-    蚁小二反编译发现抖音在 IndexedDB secure-store 中存储了 SDK 证书：
+    参考产品反编译发现抖音在 IndexedDB secure-store 中存储了 SDK 证书：
     - security-sdk/s_sdk_cert_key
     - security-sdk/s_sdk_sign_data_key/web_protect
     - security-sdk/s_sdk_crypt_sdk
@@ -236,7 +236,7 @@ async def _capture_indexed_db(publisher) -> dict[str, dict]:
 async def login(publisher) -> bool:
     """打开抖音创作服务平台登录页，等待用户扫码登录后捕获完整认证数据。
 
-    捕获范围（蚁小二认证体系）：
+    捕获范围（参考产品认证体系）：
     1. Cookies — sid_tt, sessionid, bd_ticket_guard_client_data 等
     2. localStorage — security-sdk/* 系列键
     3. IndexedDB — secure-store 存储中的 SDK 证书和签名密钥
@@ -335,7 +335,7 @@ async def login(publisher) -> bool:
 async def restore_auth_data(publisher) -> bool:
     """恢复完整认证数据到浏览器上下文。
 
-    恢复顺序（与蚁小二一致）：
+    恢复顺序（与参考产品一致）：
     1. 写入 cookies
     2. 写入 localStorage
     3. 写入 IndexedDB

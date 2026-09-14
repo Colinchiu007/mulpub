@@ -33,7 +33,7 @@
 
 ### 3.1 菜单入口（P0）
 
-- 左侧菜单「更多」分组（`YixiaoerSidebar.vue` 的 `moreItems`）新增一项：`{ key: 'hot-topics', label: t('hotTopics.menuLabel'), to: '/hot-topics', icon: TrendCharts }`。
+- 左侧菜单「更多」分组（`MpSidebar.vue` 的 `moreItems`）新增一项：`{ key: 'hot-topics', label: t('hotTopics.menuLabel'), to: '/hot-topics', icon: TrendCharts }`。
 - 路由 `/hot-topics` 懒加载 `HotTopics.vue`，路由名 `HotTopics`。
 - 菜单 label 走 i18n key `hotTopics.menuLabel`（zh/en 成对）。
 

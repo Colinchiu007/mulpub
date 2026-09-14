@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * WebviewManager 虚拟登录标签测试（对齐蚁小二全屏登录体验）
+ * WebviewManager 虚拟登录标签测试（对齐参考产品全屏登录体验）
  *
  * 场景：账号管理-添加账号-选择平台-打开登录页 → 登录视图以全屏标签
  * 形式呈现在 TabBar 中（而非弹窗），关闭后回退到之前的标签。
@@ -103,7 +103,7 @@ describe('内嵌标签页布局（回归：必须用客户区尺寸，外框尺�
   })
 })
 
-describe('WebviewManager 虚拟登录标签（蚁小二对标）', () => {
+describe('WebviewManager 虚拟登录标签（参考产品对标）', () => {
   it('attachAuthViewManager 绑定开关钩子', () => {
     const wm = new WebviewManager()
     const auth = createFakeAuthViewManager()
@@ -591,7 +591,7 @@ describe('WebviewManager 浏览器标签标题隔离', () => {
   })
 })
 
-describe('WebviewManager 固定首页标签（对齐蚁小二：第1个标签永为应用主页）', () => {
+describe('WebviewManager 固定首页标签（对齐参考产品：第1个标签永为应用主页）', () => {
   it('构造后 _homeTabId 固定为 HOME_TAB_ID，创建浏览器标签不会改变它', () => {
     const wm = new WebviewManager()
     const { HOME_TAB_ID } = require('./webview-manager.js')
@@ -656,7 +656,7 @@ isHome: true,
   })
 })
 
-describe('WebviewManager window.open 拦截（对齐蚁小二：创作者中心链接在当前 tab 内打开）', () => {
+describe('WebviewManager window.open 拦截（对齐参考产品：创作者中心链接在当前 tab 内打开）', () => {
   it('_setupNav 注册 setWindowOpenHandler，intercept foreground-tab 并在当前 tab 内导航', () => {
     const wm = new WebviewManager()
     wm.mainWindow = createMainWindow()

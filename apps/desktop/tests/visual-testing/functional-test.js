@@ -20,9 +20,9 @@ function hashUrl(route) {
 }
 
 const ROUTE_READY_SELECTORS = {
-  '/': '.yixiaoer-home .yixiaoer-home-welcome',
-  '/accounts': '.yixiaoer-workspace .accounts-page',
-  '/publish': '.yixiaoer-workspace .page-title:has-text("一键发布")',
+  '/': '.mp-home .mp-home-welcome',
+  '/accounts': '.mp-workspace .accounts-page',
+  '/publish': '.mp-workspace .page-title:has-text("一键发布")',
   '/collection': '.cohere-main .collection-tab-btn.active',
   '/monitor': '.cohere-main .page-title:has-text("分屏监控")',
   '/comments': '.cohere-main .page-title:has-text("评论管理")',
@@ -82,9 +82,9 @@ const functionalTests = [
     name: 'nav-highlight',
     description: '导航高亮跟随路由',
     async run(runner) {
-      await navigateToReady(runner.page, '/accounts', '[data-testid="yixiaoer-tab-accounts"].active');
+      await navigateToReady(runner.page, '/accounts', '[data-testid="mp-tab-accounts"].active');
       const activeCount = await runner.page.$$eval(
-        '[data-testid^="yixiaoer-tab-"].active, [data-testid^="yixiaoer-tab-"][aria-current="page"]',
+        '[data-testid^="mp-tab-"].active, [data-testid^="mp-tab-"][aria-current="page"]',
         els => els.length,
       );
       return { passed: activeCount > 0, errors: activeCount === 0 ? ['导航项无 active 高亮'] : [] };
@@ -289,8 +289,8 @@ const functionalTests = [
     description: '升级入口（非Pro用户，位于底部用户菜单）',
     async run(runner) {
       // 2026-09-14：升级 Pro 由侧边栏 footer 独立按钮迁入底部用户菜单，需先展开菜单
-      await navigateToReady(runner.page, '/', '[data-testid="yixiaoer-profile"]');
-      await runner.page.click('[data-testid="yixiaoer-profile"]');
+      await navigateToReady(runner.page, '/', '[data-testid="mp-profile"]');
+      await runner.page.click('[data-testid="mp-profile"]');
       await runner.page.waitForSelector('[data-testid="profile-menu-upgrade"]', { state: 'visible', timeout: 5000 });
       const upgradeEntry = await runner.page.$('[data-testid="profile-menu-upgrade"]');
       return { passed: !!upgradeEntry, errors: upgradeEntry ? [] : ['底部用户菜单中未找到升级入口'] };

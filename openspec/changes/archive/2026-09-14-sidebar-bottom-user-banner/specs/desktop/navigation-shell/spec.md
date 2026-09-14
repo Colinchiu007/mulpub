@@ -31,7 +31,7 @@
 
 #### Scenario: 服务连接信息位于 banner 上方
 - **WHEN** 侧边栏渲染
-- **THEN** footer 第一个子元素 SHALL 包含服务连接信息（`data-testid="yixiaoer-service-status"`）
+- **THEN** footer 第一个子元素 SHALL 包含服务连接信息（`data-testid="mp-service-status"`）
 - **AND** footer 第二个子元素 SHALL 是用户 banner 根节点（`data-testid="profile-menu"`）
 
 ### Requirement: 系统级入口归属（设置 / 升级 Pro）
@@ -40,7 +40,7 @@
 
 #### Scenario: 设置入口不在主导航
 - **WHEN** 侧边栏渲染
-- **THEN** 主导航 SHALL NOT 包含设置项（`data-testid="yixiaoer-primary-settings"` 不存在）
+- **THEN** 主导航 SHALL NOT 包含设置项（`data-testid="mp-primary-settings"` 不存在）
 - **AND** 展开用户菜单后 SHALL 存在设置菜单项（`data-testid="profile-menu-settings"`，文案取自 `nav.settings`）
 
 #### Scenario: 点击设置先关菜单再抛事件
@@ -65,7 +65,7 @@
 
 #### Scenario: 工具区零渲染
 - **WHEN** 模块导航在任意路由渲染
-- **THEN** `[data-testid="yixiaoer-module-tools"]`、`.yixiaoer-tool-button`、`[data-testid="yixiaoer-tool-panel"]` MUST NOT 存在
+- **THEN** `[data-testid="mp-module-tools"]`、`.mp-tool-button`、`[data-testid="mp-tool-panel"]` MUST NOT 存在
 - **AND** 模块标签与其激活态下划线 SHALL 保持既有行为
 
 ### Requirement: 键盘与无障碍契约

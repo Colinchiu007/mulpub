@@ -1,5 +1,5 @@
 // Platform-specific HTTP upload endpoint configurations
-// Extracted from 蚁小二 4.0 reverse engineering analysis
+// Extracted from 参考产品 4.0 reverse engineering analysis
 const PLATFORM_CONFIG = {
   douyin: {
     uploadType: "chunk",

@@ -62,7 +62,7 @@ describe('platform authentication URL boundaries', () => {
   })
 
   it('never auto-completes Tencent Video from the login page (login page and creator home share the same host)', () => {
-    // 2026-09-14 实测：视频号登录页为 channels.weixin.qq.com/login.html（蚁小二
+    // 2026-09-14 实测：视频号登录页为 channels.weixin.qq.com/login.html（参考产品
     // authorizeUrl 同款），裸域名模式会把登录页误判为“登录成功”，导致登录视图
     // 提前关闭并保存只有预登录 localStorage 的无 Cookie 凭证（E2E 实测 cookies=0）。
     // 登录成功后的创作者后台路径为 /platform，据此精确匹配。

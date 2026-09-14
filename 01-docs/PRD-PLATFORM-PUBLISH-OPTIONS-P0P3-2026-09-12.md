@@ -4,16 +4,16 @@
 
 ## 背景
 
-基于《全平台发布选项调研 + AI 生成内容能力比对报告》（01-docs/platform-publish-options-audit/REPORT.md，CCG 双模型审查修订版）发现的缺口，实施 P0-P3 计划。实施过程参考蚁小二 4.0 逆向工程（D:/Data/yixiaoer-extracted/）的「统一 publishData 超集字段 + 每平台 worker 按需消费」架构。
+基于《全平台发布选项调研 + AI 生成内容能力比对报告》（01-docs/platform-publish-options-audit/REPORT.md，CCG 双模型审查修订版）发现的缺口，实施 P0-P3 计划。实施过程参考同类产品 4.0 逆向工程（D:/Data/mp-extracted/）的「统一 publishData 超集字段 + 每平台 worker 按需消费」架构。
 
-## 蚁小二实现方法复用清单
+## 参考产品实现方法复用清单
 
-| 蚁小二机制 | Multi-Publish 复用点 |
+| 参考产品机制 | Multi-Publish 复用点 |
 |-----------|---------------------|
 | 统一 publishData 字段容器（title/desc/statement/visibleType/location/collection/subCategory/prePubTime 超集） | platformOverrides + resolvePlatformArticle 统一解析层 |
 | 每平台 Worker 按需消费（DouYinWorker 读 poi_id/mix_id，BiliBiliWorker 读 tid/season_id） | adapter buildPostData 按平台取 taskData 字段 |
 | 声明枚举（DouYinStatementType: AI生成=3/不适=4/虚构=5/危险=6） | zhihu declare 0-5 枚举 + kuaishou/baijiahao ai_generated |
-| collection → {yixiaoerId, yixiaoerName} 统一合集模型 | baijiahao collection{id,name} → bjhtopic_info |
+| collection → {sourceId, sourceName} 统一合集模型 | baijiahao collection{id,name} → bjhtopic_info |
 | createType original→copyright 1 / forward→2（B站版权映射） | bilibili copyright 1=自制 2=转载 |
 | RPA 注入脚本按平台 DOM 选择器填字段 | rpa-view-platforms.js + platform-selectors.js（已有） |
 
@@ -87,11 +87,11 @@
 
 **P3-1 商品字段透传（抖音/小红书）**
 - 数据校验：goods 数组 ≤10 项 {id ≤64字, title ≤100字}，空 id 过滤
-- adapter：douyin goodsInfoList、xiaohongshu shopping_cart.items（蚁小二映射）
+- adapter：douyin goodsInfoList、xiaohongshu shopping_cart.items（参考产品映射）
 
 **P3-2 任务/活动字段透传（抖音）**
 - 数据校验：taskId 安全字符 1-64（A-Za-z0-9_-）
-- adapter：douyin hot_sentence（蚁小二映射 hot_event）
+- adapter：douyin hot_sentence（参考产品映射 hot_event）
 
 **投票/交叉发布：按用户要求不实施（2026-09-12 确认）**
 

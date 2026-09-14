@@ -57,7 +57,7 @@
 - **可发现/防"没生效"**：登录窗是主进程 modal `IdentityAuthWindow`（520×720），感知明确。原 bug 根因就是静态 `div` 无任何点击反馈——修复的最低标准即"点击必有明确反馈"。
 - **误触**：直登的代价是误触会弹系统窗；缓解 = 头像在角落 + loading 护栏 + disabled/error 分流。**统一弹菜单**误触代价更低，但让 90% 用户的常规路径多一步，不值。
 - **一致性**：右上 IdentityMenu 弹菜单、左上直登——两处入口各自局部自洽（左上是"头像"意象动作性强，右上带显性「登录⌄」下拉 affordance），可接受。v1 不重构 IdentityMenu 行为（已有完整单测），P1 只补菜单项。
-- **根因确认**：`yixiaoer-profile` 是 `div`，不可聚焦、无 handler；修复 = 换为 `<button>` 语义的 ProfileMenu（aria-haspopup/menu/expanded）。
+- **根因确认**：`mp-profile` 是 `div`，不可聚焦、无 handler；修复 = 换为 `<button>` 语义的 ProfileMenu（aria-haspopup/menu/expanded）。
 
 ## 3 · 技术方案
 
@@ -74,7 +74,7 @@ apps/desktop/src/composables/useDropdownBehavior.js  # 下拉通用交互
 
 **修改**
 ```
-apps/desktop/src/layouts/YixiaoerSidebar.vue     # 静态 .yixiaoer-profile → <ProfileMenu />；moreItems 加会员中心
+apps/desktop/src/layouts/MpSidebar.vue     # 静态 .mp-profile → <ProfileMenu />；moreItems 加会员中心
 apps/desktop/src/router/index.js                 # 注册 /member-center
 apps/desktop/src/stores/identity.js              # normalizeState 透传 quota（P1）
 apps/desktop/src/locales/zh.js + en.js           # memberCenter 命名空间（成对）
@@ -84,7 +84,7 @@ apps/desktop/src/components/IdentityMenu.vue     # (P1) 补会员中心项 + 测
 **本轮不动**：`electron/`（无 QM-1 门禁）、`UpgradeModal.vue`、`IdentityMenu` 行为。
 
 ### 关键点
-- **路由**：`{ path: '/member-center', name: 'MemberCenter', component: () => import('@/views/MemberCenter.vue') }`，无守卫。进入后 `YixiaoerModuleNav` 因非首页消失 → 页面必须自带登录/切换/退出（账号卡正是此职责）。
+- **路由**：`{ path: '/member-center', name: 'MemberCenter', component: () => import('@/views/MemberCenter.vue') }`，无守卫。进入后 `MpModuleNav` 因非首页消失 → 页面必须自带登录/切换/退出（账号卡正是此职责）。
 - **useDropdownBehavior**：`{ open, toggle, close, openAndFocusFirst }`，内部处理外部点击/Esc/Tab/方向键环游（复用 IdentityMenu 语义）。ProfileMenu 消费它，**不复制逻辑**。
 - **ProfileMenu 触发器**：未登录 `⚡ + 登录`，已登录 `首字母 + displayName + licenseLabel`；≤900px 折叠态沿用现有 media query 隐藏文字保头像，面板 `min-width:220px` 向左展开不越界。
 - **i18n**：新增 `memberCenter` 命名空间，含 `{days}`/`{used}/{total}` 占位符，en 侧必须同 key 同占位符；**所有新文案必须走 locales**（`check-locale-sync --cjk` 会扫 renderer 硬编码中文，现有 IdentityMenu 中文属已基线化存量，新增不在基线内）。
@@ -121,7 +121,7 @@ apps/desktop/src/components/IdentityMenu.vue     # (P1) 补会员中心项 + 测
 
 ---
 SESSION_ID: a321fc03-2ae5-4d35-95ca-5f5fe7f9f370
-��一个 [role="menuitem"]
+��一个 [role="menuitem"]
 ```
 内部：监听 document click（外部关闭）+ keydown Esc/Tab + panel 内 ArrowUp/Down/Home/End 环游焦点（复用 IdentityMenu 现有实现语义）。`ProfileMenu` 用它；`IdentityMenu` 保持原样，不强制重构。
 
@@ -145,7 +145,7 @@ async function handleTriggerClick() {
 }
 ```
 - **不复制 IdentityMenu 逻辑**：身份操作全部走 store（signIn/switchAccount/signOut），下拉交互走 `useDropdownBehavior`。
-- 触发器渲染：未登录显示 `⚡` + 「登录」；已登录显示 `首字母` + displayName + licenseLabel（保持 sidebar 视觉，替换为 `<button>`）。68px 折叠态保留头像点击（现有 media query 已隐藏 `.yixiaoer-profile-copy`，ProfileMenu 需同规则收缩，面板 `min-width: 220px` 向内伸展开不越界）。
+- 触发器渲染：未登录显示 `⚡` + 「登录」；已登录显示 `首字母` + displayName + licenseLabel（保持 sidebar 视觉，替换为 `<button>`）。68px 折叠态保留头像点击（现有 media query 已隐藏 `.mp-profile-copy`，ProfileMenu 需同规则收缩，面板 `min-width: 220px` 向内伸展开不越界）。
 
 ### 3.5 i18n key 结构（zh/en 成对；`{placeholder}` 必须一致）
 ```js
@@ -236,5 +236,5 @@ memberCenter: {
 
 **变更文件汇总**
 - 新增：`views/MemberCenter.vue`、`components/ProfileMenu.vue`、`composables/useDropdownBehavior.js`、两个 test。
-- 修改：`layouts/YixiaoerSidebar.vue`、`router/index.js`、`stores/identity.js`（quota）、`locales/zh.js` + `en.js`、（P1）`components/IdentityMenu.vue`。
+- 修改：`layouts/MpSidebar.vue`、`router/index.js`、`stores/identity.js`（quota）、`locales/zh.js` + `en.js`、（P1）`components/IdentityMenu.vue`。
 - 不动：`electron/`（无 QM-1）、`UpgradeModal.vue`、`IdentityMenu` 行为。

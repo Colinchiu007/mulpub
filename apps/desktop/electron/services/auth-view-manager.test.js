@@ -467,7 +467,7 @@ describe('AuthViewManager 凭证边界', () => {
 })
 
 describe('AuthViewManager 登录页承载方式（回归：主窗口顶部多层内容重叠）', () => {
-  it('openLogin 内嵌登录视图到主窗口（参照蚁小二 isAuth 模式，不再使用独立窗口）', async () => {
+  it('openLogin 内嵌登录视图到主窗口（参照参考产品 isAuth 模式，不再使用独立窗口）', async () => {
     const manager = new AuthViewManager()
     const mainWindow = createMainWindow()
     manager.setMainWindow(mainWindow)
@@ -475,7 +475,7 @@ describe('AuthViewManager 登录页承载方式（回归：主窗口顶部多层
     const loginPromise = manager.openLogin('wechat_mp', 0).catch(() => {})
 
     // 核心回归点：登录视图必须挂到主窗口 contentView（内嵌全屏标签模式）。
-    // 参照蚁小二 isAuth 模式：认证就是普通标签，不需要独立窗口。
+    // 参照参考产品 isAuth 模式：认证就是普通标签，不需要独立窗口。
     // 重叠问题由 App.vue isLoginTab 时隐藏 router-view 解决。
     expect(mainWindow.contentView.addChildView).toHaveBeenCalled()
     expect(manager.currentView).toBeTruthy()

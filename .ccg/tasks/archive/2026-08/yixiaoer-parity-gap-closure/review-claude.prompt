@@ -1,5 +1,0 @@
-ROLE_FILE: C:/Users/邱领/.claude/.ccg/prompts/claude/reviewer.md
-<TASK>
-审查当前专用 worktree C:\tmp\Multi-Publish-yixiaoer-parity-gap-20260804 的全部未提交变更，重点检查安全、数据一致性、IPC sender/owner 边界、Vue 路由与草稿交互、测试覆盖、构建和交付风险。不要修改文件。输出 Critical/Warning/Info 分级报告，给出文件路径和行号。
-</TASK>
-OUTPUT: Critical/Warning/Info 分级审查报告

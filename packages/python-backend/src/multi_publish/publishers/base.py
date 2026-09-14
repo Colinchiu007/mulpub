@@ -14,13 +14,13 @@ from multi_publish.models import PlatformType, PublishPhase, PublishResult
 from multi_publish.publishers.account_paths import build_account_storage_paths
 
 # ═══════════════════════════════════════════════════════════════
-# P1: 进度节流阀（蚁小二 UploadEmitGate）
+# P1: 进度节流阀（参考产品 UploadEmitGate）
 # ═══════════════════════════════════════════════════════════════
 
 
 class ProgressThrottle:
     """
-    进度事件节流阀（蚁小二 UploadEmitGate 风格）
+    进度事件节流阀（参考产品 UploadEmitGate 风格）
 
     大文件上传时，按 5 秒间隔限频；
     小文件/多分片时，按 10% 幅度报一次。
@@ -75,7 +75,7 @@ class ResponseMonitor:
     替代 wait_for_selector() DOM 轮询，通过监听页面 XHR/Fetch 响应
     来判断操作结果。平台 UI 改版不影响，比 DOM 检测更稳定。
 
-    蚁小二使用 Chrome DevTools Protocol Fetch 域拦截网络响应，
+    参考产品使用 Chrome DevTools Protocol Fetch 域拦截网络响应，
     这里用 Playwright 原生 page.on("response") 事件实现，效果相同。
 
     用法:
@@ -160,7 +160,7 @@ class ResponseMonitor:
 
 
 # ═══════════════════════════════════════════════════════════════
-# 重试工具（蚁小二风格）
+# 重试工具（参考产品风格）
 # ═══════════════════════════════════════════════════════════════
 
 
@@ -192,12 +192,12 @@ async def async_retry(fn: Callable[[], Coroutine], max_retries: int = 5, interva
     raise last_exc  # type: ignore
 
 
-# ─── Per-Field 重试状态机（蚁小二 renderTaskMap 风格）───────────
+# ─── Per-Field 重试状态机（参考产品 renderTaskMap 风格）───────────
 
 
 class FieldRetryMap:
     """
-    每字段独立重试状态机（蚁小二 renderTaskMap 风格）
+    每字段独立重试状态机（参考产品 renderTaskMap 风格）
 
     每个操作字段独立维护 retry 计数器：
     - video 上传失败 -> 不影响 title 填写
@@ -271,11 +271,11 @@ class FieldRetryMap:
         return dict(self._map)
 
 
-# ─── XPath 式 DOM 查找工具（蚁小二风格）───────────────────────
+# ─── XPath 式 DOM 查找工具（参考产品风格）───────────────────────
 # 使用 XPath 而不是 CSS 选择器查找元素，更稳定
 
 DOM_XPATH_UTILITIES = """
-// 蚁小二风格的 XPath 元素查找工具
+// 参考产品风格的 XPath 元素查找工具
 // 注入到页面中使用：page.evaluate(getElementByText, ['button', '发布'])
 
 function getElementByText(tag, text, container) {
@@ -299,11 +299,11 @@ function getElementContainingText(tag, text, container) {
 }
 """
 
-# ─── 文件上传工具（蚁小二风格 DataTransfer + dispatchEvent）────
+# ─── 文件上传工具（参考产品风格 DataTransfer + dispatchEvent）────
 # 比 Playwright set_input_files() 更接近真实用户操作
 
 DOM_FILE_UPLOAD_UTILITIES = """
-// 蚁小二风格的 DataTransfer 文件上传
+// 参考产品风格的 DataTransfer 文件上传
 function createFileFromBuffer(uint8Array, fileName, mimeType) {
     var blob = new Blob([uint8Array], { type: mimeType });
     return new File([blob], fileName, { type: mimeType });

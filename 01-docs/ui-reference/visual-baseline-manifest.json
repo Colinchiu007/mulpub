@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "referenceStatus": "CAPTURED_VERIFIED",
+  "referenceCaptureRequirements": [
+    "从已登录的真实参考产品桌面客户端捕获，不读取、复制或提交 Cookie、会话或其他凭据。",
+    "三个页面使用相同的窗口尺寸、显示缩放和登录状态。",
+    "参考图只保留参考产品主内容区域；浏览器外壳和产品最左侧导航不参与比较。",
+    "捕获完成后填写参考图的 SHA-256 和原始尺寸，并将 referenceStatus 更新为 CAPTURED_VERIFIED。"
+  ],
+  "comparison": {
+    "mismatchThreshold": 10,
+    "pixelThreshold": 0.1
+  },
+  "targets": [
+    {
+      "name": "accounts",
+      "reference": "01-docs/ui-reference/screenshots/mp-live-20260724/accounts.png",
+      "current": "apps/desktop/tests/visual-testing/screenshots/mp-parity/accounts-audit.png",
+      "source": "2026-07-24 已登录真实参考产品账号管理主内容",
+      "referenceSha256": "b0bb3958dd265dc417de7a72c97b7495c5267b03f16e26444fd1d53a33b0d3ac",
+      "referenceDimensions": [2280, 1272],
+      "currentCrop": { "x": 280, "y": 56, "width": 2280, "height": 1272 },
+      "ignoreRegions": []
+    },
+    {
+      "name": "publish",
+      "reference": "01-docs/ui-reference/screenshots/mp-live-20260724/publish.png",
+      "current": "apps/desktop/tests/visual-testing/screenshots/mp-parity/publish-audit.png",
+      "source": "2026-07-24 已登录真实参考产品发布记录主内容",
+      "referenceSha256": "b82d26002010b3eee01880c482e2fc0b5f42655bb4a5d76a94d46f42f36e53f0",
+      "referenceDimensions": [2280, 1272],
+      "currentCrop": { "x": 280, "y": 56, "width": 2280, "height": 1272 },
+      "ignoreRegions": []
+    },
+    {
+      "name": "batch-publish",
+      "reference": "01-docs/ui-reference/screenshots/mp-live-20260724/batch-publish.png",
+      "current": "apps/desktop/tests/visual-testing/screenshots/mp-parity/batch-publish-audit.png",
+      "source": "2026-07-24 已登录真实参考产品批量管理主内容",
+      "referenceSha256": "0ba4cec21f200dcfd9cd9ec29ae23a5dc2279e12abedac52fc8e3952ca60a862",
+      "referenceDimensions": [2280, 1272],
+      "currentCrop": { "x": 280, "y": 56, "width": 2280, "height": 1272 },
+      "ignoreRegions": []
+    }
+  ]
+}

@@ -2,7 +2,7 @@
 /**
  * WebviewManager — 分屏监控管理器 + 浏览器标签页管理
  *
- * 蚁小二逆向工程 P0 功能：多平台同时监控
+ * 参考产品逆向分析 P0 功能：多平台同时监控
  * 每个 tab 独立 WebContentsView，独立 session分区，Cookie 互不干扰
  *
  * 浏览器标签页功能：
@@ -30,7 +30,7 @@ const { withSenderCheck } = require('../ipc-handlers/helpers')
 // 内嵌视图定位唯一来源：必须用「客户区」尺寸，禁用 getBounds() 外框尺寸（详见模块注释）
 const { getContentSize, computeEmbeddedViewBounds } = require('./view-bounds')
 
-// 左侧导航栏宽度（与前端 YixiaoerSidebar 的 CSS 变量 --yixiaoer-sidebar-width 保持一致）
+// 左侧导航栏宽度（与前端 MpSidebar 的 CSS 变量 --mp-sidebar-width 保持一致）
 // 默认 200px，窄屏（≤900px）时 68px；由渲染进程通过 IPC 动态同步
 const SIDEBAR_WIDTH_DEFAULT = 200
 
@@ -74,10 +74,10 @@ function normalizeElectronCookie (cookie, fallbackUrl) {
   return normalized
 }
 
-// 固定首页标签 ID（对齐蚁小二：第 1 个标签永远是应用主页，不可关闭，不占用真实 WebContentsView）
+// 固定首页标签 ID（对齐参考产品：第 1 个标签永远是应用主页，不可关闭，不占用真实 WebContentsView）
 const HOME_TAB_ID = 'home'
 
-// 虚拟登录标签 ID（对齐蚁小二：登录页以全屏标签形式呈现在 TabBar 中）
+// 虚拟登录标签 ID（对齐参考产品：登录页以全屏标签形式呈现在 TabBar 中）
 const AUTH_TAB_ID = 'auth-login'
 
 // 各平台创作者中心/后台 URL → @multi-publish/shared-utils/src/platform-definitions
@@ -102,7 +102,7 @@ class WebviewManager extends EventEmitter {
     /** @type {Set<string>} */
     this._subscribers = new Set()
 
-    // ─── 虚拟登录标签（对齐蚁小二全屏登录体验）──────────
+    // ─── 虚拟登录标签（对齐参考产品全屏登录体验）──────────
     /** @type {import('./auth-view-manager')|null} */
     this._authViewManager = null
     /** @type {import('./qrcode-login')|null} */
@@ -753,7 +753,7 @@ class WebviewManager extends EventEmitter {
         platform: state.platform || null
       })
     })
-    // 虚拟登录标签（对齐蚁小二全屏登录）
+    // 虚拟登录标签（对齐参考产品全屏登录）
     var authTab = self._getAuthTab()
     if (authTab) result.push(authTab)
     return result
@@ -1051,7 +1051,7 @@ class WebviewManager extends EventEmitter {
   }
 
   /**
-   * 设置左侧导航栏宽度（由渲染进程同步 CSS 变量 --yixiaoer-sidebar-width）
+   * 设置左侧导航栏宽度（由渲染进程同步 CSS 变量 --mp-sidebar-width）
    * 默认 200px；窄屏（≤900px）时渲染进程传入 68px
    * @param {number} width - 像素宽度
    */
@@ -1138,10 +1138,10 @@ class WebviewManager extends EventEmitter {
      self._broadcastNav(tabId)
    })
 
-    // ─── window.open / target=_blank 拦截（对齐蚁小二）─────────────
+    // ─── window.open / target=_blank 拦截（对齐参考产品）─────────────
     // 平台创作者中心内点击"个人中心"等链接会触发 window.open 或 target=_blank，
     // 默认 Electron 会弹出独立 BrowserWindow。这里拦截并在当前 tab 内直接导航，
-    // 与蚁小二"本页打开"行为保持一致。
+    // 与参考产品"本页打开"行为保持一致。
     if (typeof view.webContents.setWindowOpenHandler === 'function') {
       view.webContents.setWindowOpenHandler(function (details) {
         var targetUrl = details && details.url

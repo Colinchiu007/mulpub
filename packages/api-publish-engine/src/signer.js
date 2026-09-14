@@ -1,7 +1,10 @@
 /**
- * 远程签名服务客户端
- * 集成自蚁小二 qianming.yixiaoer.cn 签名服务
- * 
+ * 远程签名服务客户端（第三方 HTTP 签名服务，端口按平台划分）
+ *
+ * 服务端点默认由常量提供，可用环境变量 MP_SIGNER_BASE 覆盖（部署/自建签名服务场景）。
+ * 远程不可用时：抖音 / 快手 / 小红书 自动回退 signer-local 本地实现；
+ * 百家号无本地回退，远程签名服务属于发布链路的硬依赖，端点不可移除。
+ *
  * 各平台端口:
  *   快手 5008-5011
  *   抖音 5041-5042
@@ -13,7 +16,7 @@
 const axios = require("axios");
 const { getCsdnSign, getXiaohongshuSign, buildDouyinParams, getKuaishouSign } = require("./signer-local");
 
-const SIGNER_BASE = "http://qianming.yixiaoer.cn";
+const SIGNER_BASE = process.env.MP_SIGNER_BASE || "http://qianming.yixiaoer.cn";
 
 // 各平台签名端口映射
 const SIGNER_PORTS = {

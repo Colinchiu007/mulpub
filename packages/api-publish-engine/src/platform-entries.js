@@ -1,4 +1,4 @@
-// 双入口映射 — 视频/图文分离发布入口 (提取自蚁小二 videoPublishUrls/imagePublishUrls)
+// 双入口映射 — 视频/图文分离发布入口 (提取自参考产品 videoPublishUrls/imagePublishUrls)
 
 const videoPublishUrls = {
   douyin: "https://creator.douyin.com/creator-micro/content/upload",

@@ -1,7 +1,7 @@
 """
 抖音发布器（API + RPA 双模式）
 
-基于蚁小二反编译分析的关键优化：
+基于参考产品反编译分析的关键优化：
 1. 登录捕获补全 localStorage + IndexedDB（仅 cookies 不够）
 2. API 模式优先（直接调用抖音内部 API，更快更稳）
 3. RPA 模式作为降级（Playwright 自动化浏览器）
@@ -12,7 +12,7 @@
     ├─ try: _api_publish()       ← 优先 API 模式
     └─ catch: _do_publish()      ← RPA 降级
 
-认证体系（来自蚁小二反编译分析）：
+认证体系（来自参考产品反编译分析）：
   - Cookies: sid_tt, sessionid, bd_ticket_guard_client_data 等
   - localStorage: security-sdk/s_sdk_crypt_sdk, s_sdk_sign_data_key/web_protect
   - IndexedDB (secure-store): s_sdk_cert_key, s_sdk_sign_data_key/web_protect, s_sdk_crypt_sdk
@@ -93,7 +93,7 @@ DEFAULT_SELECTORS = {
     "draft_button": 'button:has-text("草稿")',
 }
 
-# ─── 抖音 API 端点（从蚁小二反编译提取）────────────────────
+# ─── 抖音 API 端点（从参考产品反编译提取）────────────────────
 # 注意：这些端点可能需要随抖音平台更新而调整
 
 DOUYIN_API = {
@@ -191,7 +191,7 @@ class DouyinPublisher(BasePublisher):
         return await _module_login(self)
 
     # ═══════════════════════════════════════════════════════════
-    # 认证数据捕获（蚁小二方案：三层捕获）— 委托到 douyin_auth
+    # 认证数据捕获（参考产品方案：三层捕获）— 委托到 douyin_auth
     # ═══════════════════════════════════════════════════════════
 
     async def _capture_local_storage(self) -> dict[str, str]:
@@ -208,7 +208,7 @@ class DouyinPublisher(BasePublisher):
         """
         从浏览器捕获 IndexedDB 中的数据
 
-        蚁小二反编译发现抖音在 IndexedDB secure-store 中存储了 SDK 证书：
+        参考产品反编译发现抖音在 IndexedDB secure-store 中存储了 SDK 证书：
         - security-sdk/s_sdk_cert_key
         - security-sdk/s_sdk_sign_data_key/web_protect
         - security-sdk/s_sdk_crypt_sdk
@@ -231,7 +231,7 @@ class DouyinPublisher(BasePublisher):
         """
         保存完整认证数据（cookies + localStorage + IndexedDB）
 
-        蚁小二关键发现：抖音的 security-sdk 认证需要全部三层数据，
+        参考产品关键发现：抖音的 security-sdk 认证需要全部三层数据，
         仅保存 cookies 会导致发布时登录态频繁失效。
         """
         _module_save_auth_data(self, cookies, local_storage, indexed_db)
@@ -252,7 +252,7 @@ class DouyinPublisher(BasePublisher):
         """
         恢复完整认证数据到浏览器上下文
 
-        恢复顺序（与蚁小二一致）：
+        恢复顺序（与参考产品一致）：
         1. 写入 cookies
         2. 写入 localStorage
         3. 写入 IndexedDB
@@ -294,7 +294,7 @@ class DouyinPublisher(BasePublisher):
         """
         发布视频到抖音（API 优先，RPA 降级）
 
-        发布策略（蚁小二的 dual-mode 方案）：
+        发布策略（参考产品的 dual-mode 方案）：
         1. 尝试 API 模式 — 直接调用抖音 HTTP API（更快、更稳、无浏览器开销）
         2. API 失败 — 自动降级到 RPA 模式（Playwright 浏览器自动化）
         3. RPA 也失败 — 返回详细失败信息
@@ -369,7 +369,7 @@ class DouyinPublisher(BasePublisher):
             await self.close()
 
     # ═══════════════════════════════════════════════════════════
-    # API 模式发布（蚁小二 dual-mode 的关键优化）
+    # API 模式发布（参考产品 dual-mode 的关键优化）
     # ═══════════════════════════════════════════════════════════
 
     async def _api_publish(
@@ -384,7 +384,7 @@ class DouyinPublisher(BasePublisher):
         """
         API 模式发布 — 直接调用抖音内部 HTTP API
 
-        流程（从蚁小二反向工程）：
+        流程（从参考产品反向工程）：
         1. 加载认证数据（cookies + localStorage + IndexedDB）
         2. 获取上传授权 token
         3. 上传视频文件（multipart/form-data）
@@ -553,7 +553,7 @@ class DouyinPublisher(BasePublisher):
         """
         RPA 模式发布 — Playwright 浏览器自动化
 
-        P0 优化（蚁小二风格）：
+        P0 优化（参考产品风格）：
         1. ResponseMonitor — 替代 DOM 轮询，直接拦截 API 响应判断发布结果
         2. FieldRetryMap — 每个表单字段独立重试，不影响其他字段
         3. ProgressThrottle — 大文件上传进度限频

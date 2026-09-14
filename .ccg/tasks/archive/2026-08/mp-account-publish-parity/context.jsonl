@@ -1,0 +1,12 @@
+{"path":"apps/desktop/src/App.vue","role":"layout-entry","notes":"顶部导航和应用布局入口"}
+{"path":"apps/desktop/src/layouts/AppNavbar.vue","role":"layout","notes":"当前顶部导航，需与参考产品对照"}
+{"path":"apps/desktop/src/layouts/AppSidebar.vue","role":"layout","notes":"当前左侧栏，需与参考产品对照"}
+{"path":"apps/desktop/src/views/Accounts.vue","role":"account-page","notes":"账号主界面及弹窗入口"}
+{"path":"apps/desktop/src/views/Publish.vue","role":"publish-page","notes":"发布主界面及流程入口"}
+{"path":"apps/desktop/src/views/PublishHistory.vue","role":"publish-history","notes":"发布历史和草稿二级页面"}
+{"path":"01-docs/ui-reference/analysis/01-feature-comparison.md","role":"reverse-evidence","notes":"既有功能差异资料"}
+{"path":"01-docs/ui-reference/analysis/02-code-structure.md","role":"reverse-evidence","notes":"既有代码结构资料"}
+{"path":"01-docs/ui-reference/analysis/03-reuse-plan.md","role":"reverse-evidence","notes":"既有复用计划"}
+{"path":"01-docs/ui-reference/prd/PRD-mp-features.md","role":"prd","notes":"既有参考产品功能 PRD"}
+{"path":"01-docs/ui-reference/test-cases/test-cases-full.md","role":"test-matrix","notes":"既有完整测试用例"}
+{"path":"D:/Data/projects/_逆向工程_参考产品4.0","role":"external-reverse-source","notes":"用户更正后的参考产品 4.0 逆向工程目录，包含 renderer/main/preload 与可复用代码分析"}

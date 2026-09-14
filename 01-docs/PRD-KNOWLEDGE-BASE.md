@@ -60,7 +60,7 @@ JSON：{appId, appSecret(加密), enabled, verifiedAt}。App Secret 使用 accou
 ## 三、功能清单
 
 ### 3.1 侧边栏入口
-「更多」菜单末尾添加【知识库】→ /knowledge-base（YixiaoerSidebar.vue moreItems + router）
+「更多」菜单末尾添加【知识库】→ /knowledge-base（MpSidebar.vue moreItems + router）
 
 ### 3.2 知识库主页（KnowledgeBasePage.vue）
 两个 Tab：爆款库 / 个人知识库，默认爆款库，切换保留各自状态（v-show）
@@ -158,7 +158,7 @@ DI 链路：container.setup.js 工厂注入 knowledgeLibraryService → rewriteE
 
 packages/rewrite-engine/src/：viral-library.js、personal-knowledge-base.js、knowledge-context-builder.js、index.js
 apps/desktop/electron/：services/store/knowledge-library-store.js、services/knowledge-library-service.js、services/feishu-client.js、services/file-parser.js、ipc-handlers/knowledge-library.js、ipc-handlers/feishu-settings.js、preload/knowledge-library.js、core/container.setup.js、services/store-schema.js
-apps/desktop/src/：views/KnowledgeBasePage.vue、components/ViralLibraryTable.vue、components/PersonalKnowledgePanel.vue、components/FeishuSettingsTab.vue、api/knowledge-library.js、router/index.js、layouts/YixiaoerSidebar.vue、views/Collection.vue、components/AiWriterPanel.vue、locales/zh.js、locales/en.js
+apps/desktop/src/：views/KnowledgeBasePage.vue、components/ViralLibraryTable.vue、components/PersonalKnowledgePanel.vue、components/FeishuSettingsTab.vue、api/knowledge-library.js、router/index.js、layouts/MpSidebar.vue、views/Collection.vue、components/AiWriterPanel.vue、locales/zh.js、locales/en.js
 
 
 ## 八、自我进化系统（新增）

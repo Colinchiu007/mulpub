@@ -41,14 +41,14 @@ describe('ProfileMenu', () => {
     store.status = 'signed_out'
     store.user = null
     await wrapper.vm.$nextTick()
-    await wrapper.get('[data-testid="yixiaoer-profile"]').trigger('click')
+    await wrapper.get('[data-testid="mp-profile"]').trigger('click')
     expect(store.signIn).toHaveBeenCalledTimes(1)
     expect(wrapper.find('[data-testid="profile-menu-panel"]').exists()).toBe(false)
   })
 
   it('已登录点击头像展开菜单，含会员中心/切换账号/退出登录', async () => {
     await mountMenu()
-    await wrapper.get('[data-testid="yixiaoer-profile"]').trigger('click')
+    await wrapper.get('[data-testid="mp-profile"]').trigger('click')
     expect(wrapper.find('[data-testid="profile-menu-panel"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('memberCenter.menuEntry')
     expect(wrapper.text()).toContain('memberCenter.switchAccount')
@@ -57,7 +57,7 @@ describe('ProfileMenu', () => {
 
   it('菜单点击会员中心跳转路由并关闭菜单', async () => {
     await mountMenu()
-    await wrapper.get('[data-testid="yixiaoer-profile"]').trigger('click')
+    await wrapper.get('[data-testid="mp-profile"]').trigger('click')
     await wrapper.get('[data-testid="profile-menu-member"]').trigger('click')
     expect(push).toHaveBeenCalledWith('/member-center')
     expect(wrapper.find('[data-testid="profile-menu-panel"]').exists()).toBe(false)
@@ -65,10 +65,10 @@ describe('ProfileMenu', () => {
 
   it('菜单点击切换账号与退出登录调用对应操作', async () => {
     await mountMenu()
-    await wrapper.get('[data-testid="yixiaoer-profile"]').trigger('click')
+    await wrapper.get('[data-testid="mp-profile"]').trigger('click')
     await wrapper.get('[data-testid="profile-menu-switch"]').trigger('click')
     expect(store.switchAccount).toHaveBeenCalledTimes(1)
-    await wrapper.get('[data-testid="yixiaoer-profile"]').trigger('click')
+    await wrapper.get('[data-testid="mp-profile"]').trigger('click')
     await wrapper.get('[data-testid="profile-menu-signout"]').trigger('click')
     expect(store.signOut).toHaveBeenCalledTimes(1)
   })
@@ -78,7 +78,7 @@ describe('ProfileMenu', () => {
     store.status = 'disabled'
     store.user = null
     await wrapper.vm.$nextTick()
-    await wrapper.get('[data-testid="yixiaoer-profile"]').trigger('click')
+    await wrapper.get('[data-testid="mp-profile"]').trigger('click')
     expect(store.signIn).not.toHaveBeenCalled()
     expect(wrapper.find('[data-testid="profile-menu-panel"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('memberCenter.identityDisabledHint')
@@ -90,7 +90,7 @@ describe('ProfileMenu', () => {
     store.error = { code: 'IDENTITY_SIGN_OUT_FAILED', message: '' }
     store.user = null
     await wrapper.vm.$nextTick()
-    await wrapper.get('[data-testid="yixiaoer-profile"]').trigger('click')
+    await wrapper.get('[data-testid="mp-profile"]').trigger('click')
     expect(wrapper.find('[data-testid="profile-menu-panel"]').exists()).toBe(true)
     await wrapper.get('[data-testid="profile-menu-signin"]').trigger('click')
     expect(store.signIn).toHaveBeenCalledTimes(1)
@@ -101,10 +101,10 @@ describe('ProfileMenu', () => {
   it('banner 收起态仅显示一条且带身份状态点，点击后展开菜单', async () => {
     await mountMenu()
 
-    expect(wrapper.get('[data-testid="yixiaoer-profile-status"]').classes()).toContain('is-online')
+    expect(wrapper.get('[data-testid="mp-profile-status"]').classes()).toContain('is-online')
     expect(wrapper.find('[data-testid="profile-menu-panel"]').exists()).toBe(false)
 
-    await wrapper.get('[data-testid="yixiaoer-profile"]').trigger('click')
+    await wrapper.get('[data-testid="mp-profile"]').trigger('click')
 
     expect(wrapper.find('[data-testid="profile-menu-panel"]').exists()).toBe(true)
   })
@@ -124,7 +124,7 @@ describe('ProfileMenu', () => {
 
   it('展开菜单含设置入口，点击后向上抛出 open-settings 并关闭菜单', async () => {
     await mountMenu()
-    await wrapper.get('[data-testid="yixiaoer-profile"]').trigger('click')
+    await wrapper.get('[data-testid="mp-profile"]').trigger('click')
 
     const settings = wrapper.get('[data-testid="profile-menu-settings"]')
     expect(settings.text()).toBe('nav.settings')
@@ -138,7 +138,7 @@ describe('ProfileMenu', () => {
 
   it('非 Pro 用户展开菜单含升级 Pro 入口（与菜单项同版式），点击抛出 upgrade 并关闭菜单', async () => {
     await mountMenu()
-    await wrapper.get('[data-testid="yixiaoer-profile"]').trigger('click')
+    await wrapper.get('[data-testid="mp-profile"]').trigger('click')
 
     const upgrade = wrapper.get('[data-testid="profile-menu-upgrade"]')
     expect(upgrade.text()).toContain('memberCenter.upgradePro')
@@ -156,7 +156,7 @@ describe('ProfileMenu', () => {
     licenseStore.info = { type: 'pro', isPro: true, isTrial: false, features: [], daysRemaining: 0 }
     await wrapper.vm.$nextTick()
 
-    await wrapper.get('[data-testid="yixiaoer-profile"]').trigger('click')
+    await wrapper.get('[data-testid="mp-profile"]').trigger('click')
 
     expect(wrapper.find('[data-testid="profile-menu-upgrade"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="profile-menu-settings"]').exists()).toBe(true)
@@ -168,7 +168,7 @@ describe('ProfileMenu', () => {
     store.user = null
     await wrapper.vm.$nextTick()
 
-    await wrapper.get('[data-testid="yixiaoer-profile"]').trigger('click')
+    await wrapper.get('[data-testid="mp-profile"]').trigger('click')
 
     expect(wrapper.find('[data-testid="profile-menu-settings"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="profile-menu-upgrade"]').exists()).toBe(true)
@@ -182,7 +182,7 @@ describe('ProfileMenu', () => {
     store.user = null
     store.error = { code: 'IDENTITY_SIGN_IN_FAILED', message: '' }
     await wrapper.vm.$nextTick()
-    await wrapper.get('[data-testid="yixiaoer-profile"]').trigger('click')
+    await wrapper.get('[data-testid="mp-profile"]').trigger('click')
 
     const text = wrapper.text()
     expect(text).toContain('memberCenter.loginFailed')
@@ -200,7 +200,7 @@ describe('ProfileMenu', () => {
       cleanup: { code: 'IDENTITY_SESSION_CLEAR_FAILED' },
     }
     await wrapper.vm.$nextTick()
-    await wrapper.get('[data-testid="yixiaoer-profile"]').trigger('click')
+    await wrapper.get('[data-testid="mp-profile"]').trigger('click')
 
     const text = wrapper.text()
     expect(text).toContain('memberCenter.loginFailed')
@@ -213,7 +213,7 @@ describe('ProfileMenu', () => {
     store.user = null
     store.error = { code: 'IDENTITY_SESSION_CLEAR_FAILED', message: '' }
     await wrapper.vm.$nextTick()
-    await wrapper.get('[data-testid="yixiaoer-profile"]').trigger('click')
+    await wrapper.get('[data-testid="mp-profile"]').trigger('click')
 
     const text = wrapper.text()
     expect(text).toContain('memberCenter.sessionStoreBlocked')
@@ -225,7 +225,7 @@ describe('ProfileMenu', () => {
     store.status = 'error'
     store.error = { code: 'IDENTITY_SIGN_OUT_FAILED', message: '' }
     await wrapper.vm.$nextTick()
-    await wrapper.get('[data-testid="yixiaoer-profile"]').trigger('click')
+    await wrapper.get('[data-testid="mp-profile"]').trigger('click')
 
     expect(wrapper.text()).toContain('memberCenter.signOutFailed')
   })
@@ -236,7 +236,7 @@ describe('ProfileMenu', () => {
     store.user = null
     store.error = { code: 'SOMETHING_UNMAPPED', message: '' }
     await wrapper.vm.$nextTick()
-    await wrapper.get('[data-testid="yixiaoer-profile"]').trigger('click')
+    await wrapper.get('[data-testid="mp-profile"]').trigger('click')
 
     const text = wrapper.text()
     expect(text).toContain('memberCenter.operationFailed')

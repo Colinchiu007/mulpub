@@ -22,7 +22,7 @@ const { createSession, setCookies, restoreLocalStorage, restoreIndexedDB, create
 const { computeEmbeddedViewBounds } = require('./view-bounds')
 // auth-window.js 独立窗口工厂已不再需要（认证视图改为内嵌主窗口全屏标签）
 
-// 左侧导航栏宽度（与前端 YixiaoerSidebar 的 CSS 变量 --yixiaoer-sidebar-width 保持一致）
+// 左侧导航栏宽度（与前端 MpSidebar 的 CSS 变量 --mp-sidebar-width 保持一致）
 const SIDEBAR_WIDTH_DEFAULT = 200
 const MAX_INDEXED_DB_SNAPSHOT_BYTES = 524288
 
@@ -101,7 +101,7 @@ class AuthViewManager {
   }
 
   /**
-   * 登录视图全屏布局（TabBar+NavBar 下方），对齐蚁小二全屏标签体验。
+   * 登录视图全屏布局（TabBar+NavBar 下方），对齐参考产品全屏标签体验。
    * 尺寸来源必须是窗口客户区（getContentBounds），不能用 getBounds() 外框尺寸，
    * 否则视图右侧滚动条与底部内容会被窗口边框裁掉（见 view-bounds.js）。
    */
@@ -226,7 +226,7 @@ class AuthViewManager {
   }
 
   // _createLoginWindow 已删除。认证视图改回内嵌主窗口全屏标签模式
-  //（参照蚁小二 isAuth 模式：认证就是普通标签，不需要独立窗口）。
+  //（参照参考产品 isAuth 模式：认证就是普通标签，不需要独立窗口）。
 
   /**
    * @param {string} platform
@@ -252,7 +252,7 @@ class AuthViewManager {
       this.currentView = view
       const attempt = this._createLoginAttempt()
 
-      // 认证视图内嵌主窗口全屏标签（参照蚁小二 isAuth 模式：
+      // 认证视图内嵌主窗口全屏标签（参照参考产品 isAuth 模式：
       // 认证就是普通标签，不需要独立窗口。重叠问题由 App.vue 隐藏 router-view 解决）
       // 注意：必须先 addChildView 再 setBounds——Electron 要求视图挂载后才能设置坐标
       this.mainWindow.contentView.addChildView(view)

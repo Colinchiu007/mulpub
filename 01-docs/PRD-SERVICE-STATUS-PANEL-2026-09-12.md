@@ -2,7 +2,7 @@
 
 - 文档编号：PRD-SERVICE-STATUS-PANEL-2026-09-12
 - 状态：开发中（分支 `codex/service-status-panel`）
-- 关联模块：`apps/desktop/src/layouts/YixiaoerSidebar.vue`、`apps/desktop/electron/ipc-handlers/services.js`、`apps/desktop/src/stores/serviceStatus.js`
+- 关联模块：`apps/desktop/src/layouts/MpSidebar.vue`、`apps/desktop/electron/ipc-handlers/services.js`、`apps/desktop/src/stores/serviceStatus.js`
 - 创建日期：2026-09-12
 
 ## 1. 背景与目标
@@ -124,7 +124,7 @@ partialRunning 为 Message Function：`(ctx) => ctx.named('count') + ' 项服务
 
 - ipc-handlers/services.test.js：3 例（聚合结构 / 异常降级 stopped / 不可信 sender 拒绝）
 - stores/serviceStatus.test.js：5 例（归一化 / 非法值 / IPC 不可用 / 乱序快照守卫 / 轮询启停）
-- layouts/YixiaoerSidebar.test.js：7 例（真实身份状态 + 摘要 / 六项列表 / 降级+离线 / 导航回归 4 例）
+- layouts/MpSidebar.test.js：7 例（真实身份状态 + 摘要 / 六项列表 / 降级+离线 / 导航回归 4 例）
 - 门禁：check-locale-sync --cjk / --keys / --pair-base 全过；eslint 0 error 0 warning
 
 ## 7. 边界与已知限制

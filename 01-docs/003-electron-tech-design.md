@@ -502,7 +502,7 @@ async function publishArticle(articleId) {
 | **Tauri + Playwright** | 包体积小（~10MB），性能高 | 生态较新，Playwright 集成复杂 | ⭐⭐⭐ (备选) |
 | **PyWebView + Playwright** | Python 技术栈，开发快 | 功能受限，不支持 Playwright | ❌ (不推荐) |
 
-**结论**：选 **Electron + Playwright**（蚁小二、融媒宝、易媒助手同款方案）
+**结论**：选 **Electron + Playwright**（参考产品、融媒宝、易媒助手同款方案）
 
 ---
 

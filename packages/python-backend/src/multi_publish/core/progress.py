@@ -9,7 +9,7 @@ Progress Callback — 发布进度上报状态机
 2. Python 回调（调用方传入 callback）
 3. 状态机自动流转
 
-架构参考：蚁小二 SetProgressEvent + publishStatusEnum
+架构参考：参考产品 SetProgressEvent + publishStatusEnum
 """
 
 from collections.abc import Callable

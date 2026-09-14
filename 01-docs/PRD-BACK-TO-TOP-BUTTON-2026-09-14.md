@@ -92,7 +92,7 @@
 | 参数 | 类型 | 默认值 | 校验规则 | 非法值处理 |
 |------|------|--------|---------|-----------|
 | `threshold` | `Number` | `320` | 期望为非负数值；语义为「显示阈值（px）」 | 非数值时比较恒为 `false`，按钮不显示（fail-safe，不误弹） |
-| `containerSelector` | `String` | `[data-testid="yixiaoer-workspace"]` | 必须能 `document.querySelector` 命中 | 未命中时 `console.warn` 并**不注册监听**，按钮保持隐藏，不抛异常 |
+| `containerSelector` | `String` | `[data-testid="mp-workspace"]` | 必须能 `document.querySelector` 命中 | 未命中时 `console.warn` 并**不注册监听**，按钮保持隐藏，不抛异常 |
 
 ### 3.2 运行时校验项
 
@@ -119,7 +119,7 @@
 用户滚动内容区
     │
     ▼
-scroll 事件（捕获阶段，在 .yixiaoer-workspace 上监听）
+scroll 事件（捕获阶段，在 .mp-workspace 上监听）
     │   —— scroll 不冒泡，仅在捕获阶段能同时拿到主容器与嵌套子容器的滚动
     ▼
 解析 event.target
@@ -141,7 +141,7 @@ visible = false；activeScroller = null；解除点击锁（新页面默认停�
 
 | 层级 | 容器 | 举例 | 解析方式 |
 |------|------|------|---------|
-| 主容器 | `.yixiaoer-workspace`（`overflow: auto`） | `Accounts.vue`、`HotTopics.vue` | 组件挂载时 `querySelector` 定位，捕获阶段监听 |
+| 主容器 | `.mp-workspace`（`overflow: auto`） | `Accounts.vue`、`HotTopics.vue` | 组件挂载时 `querySelector` 定位，捕获阶段监听 |
 | 嵌套容器 | 视图内自带的 `overflow: auto` 区块 | `PublishHistory.vue`、`ModelProviders.vue`、`ResultView.vue`、`ContactSheetView.vue` | 通过主容器捕获阶段监听自动覆盖，无需逐个声明 |
 
 点击时的回滚目标优先级：

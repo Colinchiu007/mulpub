@@ -1,0 +1,47 @@
+{
+  "name": "mp",
+  "productName": "参考产品4.0",
+  "version": "4.13.19",
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=8"
+  },
+  "author": "Copyright © 2024-2025",
+  "description": "参考产品4.0",
+  "private": true,
+  "main": "packages/main/dist/index.cjs",
+  "dependencies": {
+    "@hello-pangea/dnd": "^18.0.1",
+    "axios": "^1.10.0",
+    "clsx": "^2.1.1",
+    "dayjs": "^1.11.12",
+    "deepmerge": "^4.3.1",
+    "lodash.debounce": "^4.0.8",
+    "lodash.throttle": "^4.1.1",
+    "lucide-react": "^0.517.0",
+    "nanoid": "^3.3.11",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
+    "tailwind-merge": "^3.3.1",
+    "zod": "^4.3.5"
+  },
+  "pnpm": {
+    "allowedDeprecatedVersions": {
+      "boolean": "*",
+      "glob": "*",
+      "inflight": "*",
+      "rimraf": "*",
+      "@npmcli/move-file": "*"
+    },
+    "onlyBuiltDependencies": [
+      "@nestjs/core",
+      "@tailwindcss/oxide",
+      "electron",
+      "electron-winstaller",
+      "esbuild",
+      "tos-crc64-js"
+    ]
+  }
+}

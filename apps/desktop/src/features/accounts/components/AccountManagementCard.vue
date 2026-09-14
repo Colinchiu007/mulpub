@@ -157,7 +157,7 @@ const nameInput = ref(null)
 const accountDisplayName = computed(() => accountName(props.account))
 
 /**
- * 卡片整体点击（对齐蚁小二：点击账号卡片打开该账号创作者中心）。
+ * 卡片整体点击（对齐参考产品：点击账号卡片打开该账号创作者中心）。
  * 批量模式下点击卡片改为切换选中，避免误打开标签页。
  */
 function onCardClick () {
@@ -498,7 +498,7 @@ function isIconUrl (value) {
   text-align: center;
 }
 
-/* 蚁小二契约：负责人蓝 / 运营人灰 / 代理紫 */
+/* 参考产品契约：负责人蓝 / 运营人灰 / 代理紫 */
 .account-assignees .assignee-owner { background: #e8f1ff; color: #2b6cb0; }
 .account-assignees .assignee-publisher { background: #f5f5f7; color: #85858f; }
 .account-assignees .assignee-proxy { background: #eeecff; color: var(--primary, #5048e5); }

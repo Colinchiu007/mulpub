@@ -11,7 +11,7 @@ beforeEach(() => {
   i18n.global.locale.value = 'zh'
 })
 
-describe('NavBar 登录标签态（蚁小二对标）', () => {
+describe('NavBar 登录标签态（参考产品对标）', () => {
   it('默认不显示保存账号按钮', () => {
     const w = mountNavBar()
     expect(w.find('[data-testid="nav-save-account"]').exists()).toBe(false)

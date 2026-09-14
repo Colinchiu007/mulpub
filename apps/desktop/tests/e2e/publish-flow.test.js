@@ -63,8 +63,8 @@ describe.skipIf(!E2E_ENABLED)("E2E: Publish Flow", () => {
   it("should show publish history after submission", async () => {
     if (!E2E_ENABLED) return
     const page = this.page
-    await page.waitForSelector("[data-testid=yixiaoer-tab-publish-history]", { timeout: 5000 })
-    await page.click("[data-testid=yixiaoer-tab-publish-history]")
+    await page.waitForSelector("[data-testid=mp-tab-publish-history]", { timeout: 5000 })
+    await page.click("[data-testid=mp-tab-publish-history]")
     await page.waitForSelector(".publish-history-page")
     const historyItems = await page.locator(".history-item").count()
     expect(historyItems).toBeGreaterThanOrEqual(0)
