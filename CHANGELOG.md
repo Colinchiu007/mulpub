@@ -1,3 +1,25 @@
+# [未发布] feat(collection): 采集页新增「文案库」标签（采集正文 + 改写文案聚合 + 行内改写弹窗）（2026-09-14）
+
+### 新增
+- **采集页第三个标签「文案库」**（`/collection`）：把「采集到的正文」与「改写后的文案」聚合成统一列表，用「采集 / 改写」性质徽标区分；列表头部提供 全部 / 采集 / 改写 三个筛选，计数恒为全部条数
+- **行内【改写】按钮 + 改写弹窗**：每条文案最右侧可发起改写，弹窗（`CopyRewriteModal.vue`）承载改写相关的全部选项——改写模式（imitate/expand/create）、改写风格（tone）、改写参考（爆款库/个人经历）、目标字数区间、目标平台、改写策略（自动匹配 + 手动选择，含匹配预览）；改写成功后结果自动回到文案库
+- **数据层 `useCopyLibrary`**（`src/composables/useCopyLibrary.js`）：采集正文**不复制存储**（由 `collected_items` 实时合成，单一数据源）；改写文案持久化在新增 settings 键 `copy_library_rewrites`，同一来源（`fromKey`）只保留最新一次改写结果，上限 200 条；写入前重读磁盘现状再合并（采集页与面板各持一份 composable 实例，避免内存副本互相覆盖）
+- **采集页内既有改写路径同步入库**：`rewriteCollected` 与 `collectAndRewrite`（视频 / stealth / 聚合三条通道）改写成功后按 `collect:<采集记录 id>` 写入文案库；写入失败静默，不影响既有改写主流程
+- **预览弹窗**（只读全文），`.copy-preview-content` 落地 `white-space: pre-wrap` + `overflow-wrap: anywhere` + `word-break: break-word` 长文本换行契约，并有源码级 CSS 契约测试
+
+### 改进
+- `Collection.vue` 的 `switchTab` 改为 `TAB_KEYS` 白名单（`collect` / `records` / `library`）；「采集记录」分支由 `v-else` 收敛为 `v-else-if`
+- `saveCollectedItems()` 落盘时补全条目 `createdAt`：新建采集条目获得真实采集时间（文案库与「采集记录」的时间展示依据），顺带修复「采集记录」时间列长期为空的问题
+
+### 验证
+- `vitest run src/composables/useCopyLibrary.test.js src/components/CopyRewriteModal.test.js src/components/CopyLibraryPanel.test.js src/views/Collection.test.js` → 4 files / 115 passed（新增 38 例：数据层 16、弹窗 8、面板 10、采集页标签与落库回归 4）
+- `eslint src/components/CopyLibraryPanel.vue src/components/CopyRewriteModal.vue src/composables/useCopyLibrary.js src/views/Collection.vue` → 0 error
+- `node .github/scripts/check-locale-sync.js --cjk` → PASS（当前 1482 条 / 基线 1689 条，无新增硬编码）；`--keys` → PASS（958 key 均存在于 zh/en）；`node scripts/check-debt-budget.js` → PASS
+
+### 文档
+- 新增 `01-docs/PRD-COLLECTION-COPY-LIBRARY-2026-09-14.md`（含背景、术语、功能范围、数据校验、流程与功能逻辑、请求参数契约、交互与显示项、提示文字全表、验收标准、已知边界、实现要点）
+- i18n 新增 `collection.tabLibrary` 与 `collection.library*` 共 32 组词条（zh/en 成对，带参词条统一用 `(ctx) => ctx.named(...)` Message Function 形态）
+
 # [未发布] fix: 开发模式启动失败（Electron 退化为 Node）+ 热门选题缓存被抓取失败清空（2026-09-14）
 
 ### 修复
