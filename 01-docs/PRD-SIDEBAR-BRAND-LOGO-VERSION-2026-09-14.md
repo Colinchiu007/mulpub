@@ -21,7 +21,7 @@
 
 | # | 诉求 | 实现位置 |
 |---|------|---------|
-| 1 | 参考截图左上角效果，把应用左上角改成同样形态 | `YixiaoerSidebar.vue` header |
+| 1 | 参考截图左上角效果，把应用左上角改成同样形态 | `MpSidebar.vue` header |
 | 2 | 左上角区域 = Logo + 版本号 | `header` 内 `logo` (`<img>`) + `version` (`<span>`) |
 | 3 | 原图 3042×1910 尺寸太大，计算左上角合理显示宽度 | 见 §8.1 尺寸推导 → 显示高 36px / 宽 ≈59px（3× 资源 176×108） |
 | 4 | 把透明 PNG 按比例缩小并保存为新资源 | `apps/desktop/src/assets/brand/tom-fish-logo.png`（176×108，13.9KB） |
@@ -41,7 +41,7 @@
 
 ### 2.2 Out of Scope（明确不做）
 
-- 不改动侧边栏宽度（仍为 `--yixiaoer-sidebar-width: 200px`）、不做可折叠侧边栏
+- 不改动侧边栏宽度（仍为 `--mp-sidebar-width: 200px`）、不做可折叠侧边栏
 - 不改动主导航 / 更多菜单 / footer（服务连接信息 + 用户 banner）结构与路由
 - 不改动版本号数据源：仍为 `apps/desktop/package.json` 的 `version`（经主进程 `app:get-version`），**不新增 IPC / 不新增持久化**
 - 不改动自动更新链路（`useAutoUpdate`）、不改动会员中心「关于」卡片
@@ -54,7 +54,7 @@
 
 | 术语 | 说明 |
 |------|------|
-| 品牌区 | 侧边栏 header（`.yixiaoer-sidebar-header`）：左上角 Logo + 版本号 + 「+ 新建发布」 |
+| 品牌区 | 侧边栏 header（`.mp-sidebar-header`）：左上角 Logo + 版本号 + 「+ 新建发布」 |
 | 品牌 Logo | 汤姆鱼矢量图的透明 PNG 位图，落盘于 `src/assets/brand/tom-fish-logo.png` |
 | 应用版本号 | 主进程 `app:get-version` 返回的 semver 字符串（当前 `0.1.0`），渲染为 `v0.1.0` |
 | 版本单一真相源 | 根 `package.json` 的 `version`（见 [版本管理规范](../docs/version-management.md)）；`apps/desktop/package.json` 由 `scripts/sync-version.mjs` 自动派生，pre-commit 钩子保证二者永不漂移 |
@@ -83,9 +83,9 @@ Header : [🐟 汤姆鱼 Logo]  v0.1.0  ............. [+ 新建发布]
 
 | 项 | 要求 |
 |----|------|
-| 移除 | `.yixiaoer-sidebar-brand`（`MP` 渐变徽标）与 `.yixiaoer-sidebar-title`（`Multi-Publish` 文本）的 DOM 与样式 |
-| 新增 | `<img class="yixiaoer-sidebar-logo" :src="brandLogoUrl" :alt="t('sidebar.brandLogoAlt')" data-testid="yixiaoer-sidebar-logo" />` |
-| 新增 | `<span class="yixiaoer-sidebar-version" :title="t('sidebar.appVersionTitle')" data-testid="yixiaoer-sidebar-version">v{{ version }}</span>` |
+| 移除 | `.mp-sidebar-brand`（`MP` 渐变徽标）与 `.mp-sidebar-title`（`Multi-Publish` 文本）的 DOM 与样式 |
+| 新增 | `<img class="mp-sidebar-logo" :src="brandLogoUrl" :alt="t('sidebar.brandLogoAlt')" data-testid="mp-sidebar-logo" />` |
+| 新增 | `<span class="mp-sidebar-version" :title="t('sidebar.appVersionTitle')" data-testid="mp-sidebar-version">v{{ version }}</span>` |
 | 保留 | 「+ 新建发布」圆形按钮（`aria-label/title=新建发布`，点击 `router.push('/publish')`），仍由 `margin-left: auto` 贴右 |
 | 排列 | header 保持 `display:flex; align-items:center; gap:8px; padding:16px 14px 14px`（沿用原内边距，减少无关视觉位移） |
 
@@ -127,7 +127,7 @@ Header : [🐟 汤姆鱼 Logo]  v0.1.0  ............. [+ 新建发布]
 - 失败码（如 `-3 未授权的调用来源`）**不得**把 `message` 当作版本号（曾是对应测试的负向断言）；
 - `loading` 复位在 `finally` 中，保证任何路径都复位。
 
-### 5.2 `src/layouts/YixiaoerSidebar.vue`（改动）
+### 5.2 `src/layouts/MpSidebar.vue`（改动）
 
 | 项 | 说明 |
 |----|------|
@@ -135,7 +135,7 @@ Header : [🐟 汤姆鱼 Logo]  v0.1.0  ............. [+ 新建发布]
 | 新增状态 | `const { version, loadVersion } = useAppVersion()` |
 | `onMounted` | 首行调用 `loadVersion()`（与既有 `ResizeObserver` 宽度同步共存，互不影响） |
 | 对外契约 | **不变**：仍只 emit `open-settings`；props 无新增（避免顶穿债务熔断 `filesOver500`） |
-| 稳定选择器 | 新增 `data-testid="yixiaoer-sidebar-logo"` / `data-testid="yixiaoer-sidebar-version"`；移除的 `.yixiaoer-sidebar-brand` / `.yixiaoer-sidebar-title` 不再被引用（全仓已核验） |
+| 稳定选择器 | 新增 `data-testid="mp-sidebar-logo"` / `data-testid="mp-sidebar-version"`；移除的 `.mp-sidebar-brand` / `.mp-sidebar-title` 不再被引用（全仓已核验） |
 
 ---
 
@@ -148,7 +148,7 @@ Header : [🐟 汤姆鱼 Logo]  v0.1.0  ............. [+ 新建发布]
 | `data` 为空 | `null` / `undefined` / `''` / 纯空白 | `extractAppVersion` | 返回 `''` |
 | 响应类型异常 | 非对象（字符串 / 数组 / `null`） | `extractAppVersion` | 返回 `''` |
 | IPC 抛异常 | `invoke` reject | `useAppVersion.loadVersion` 的 `catch` | 吞掉异常并留空（版本号是装饰性信息，不允许打断应用壳渲染） |
-| 版本号长度 | 无显式截断，由 CSS `text-overflow: ellipsis` 兜底 | `.yixiaoer-sidebar-version` | 超长省略，不撑破 header |
+| 版本号长度 | 无显式截断，由 CSS `text-overflow: ellipsis` 兜底 | `.mp-sidebar-version` | 超长省略，不撑破 header |
 | 资源缺失 | 图片 404（打包漏带） | 浏览器原生行为 | `<img>` 空占位；**不影响**版本号与「+ 新建发布」可用性 |
 | 重复加载 | `loadVersion()` 可重入 | `useAppVersion` | 每次覆盖 `version`，无累加副作用（当前仅在 `onMounted` 调用一次） |
 
@@ -206,11 +206,11 @@ Header : [🐟 汤姆鱼 Logo]  v0.1.0  ............. [+ 新建发布]
 
 | 元素 | 属性 | 值 |
 |------|------|----|
-| `.yixiaoer-sidebar-header` | 布局 | `display:flex; align-items:center; gap:8px; padding:16px 14px 14px` |
-| `.yixiaoer-sidebar-logo` | 尺寸 | `height:36px; width:auto; flex:0 0 auto` |
-| `.yixiaoer-sidebar-logo` | 其它 | `object-fit:contain; user-select:none; -webkit-user-drag:none` |
-| `.yixiaoer-sidebar-version` | 字体 | `font-size:11px; line-height:1; letter-spacing:.2px; color:#9a9cb3` |
-| `.yixiaoer-sidebar-version` | 溢出 | `min-width:0; flex:0 1 auto; overflow:hidden; white-space:nowrap; text-overflow:ellipsis` |
+| `.mp-sidebar-header` | 布局 | `display:flex; align-items:center; gap:8px; padding:16px 14px 14px` |
+| `.mp-sidebar-logo` | 尺寸 | `height:36px; width:auto; flex:0 0 auto` |
+| `.mp-sidebar-logo` | 其它 | `object-fit:contain; user-select:none; -webkit-user-drag:none` |
+| `.mp-sidebar-version` | 字体 | `font-size:11px; line-height:1; letter-spacing:.2px; color:#9a9cb3` |
+| `.mp-sidebar-version` | 溢出 | `min-width:0; flex:0 1 auto; overflow:hidden; white-space:nowrap; text-overflow:ellipsis` |
 | 图片格式 | 透明 PNG（RGBA） | 允许透出侧边栏紫色渐变背景 `linear-gradient(180deg,#f4f2ff,#f0efff)` |
 
 ### 8.3 图片处理规范（源图 → 产物）
@@ -297,7 +297,7 @@ Header : [🐟 汤姆鱼 Logo]  v0.1.0  ............. [+ 新建发布]
 | 测试文件 | 用例 | 覆盖契约 |
 |----------|------|---------|
 | `src/composables/useAppVersion.test.js`（**新增，16 例**） | `extractAppVersion` 成功取值 / 去空白 / 非字符串转串 / 9 类无效输入（失败码、空串、空白串、`data:null`、`data` 缺失、`undefined`、`null`、非对象、数组）；`useAppVersion` 成功、IPC 不可用、IPC 抛错、失败码不落脏值 + `loading` 复位 | §5.1 接口契约 + §6 数据校验全表 |
-| `src/layouts/YixiaoerSidebar.test.js`（**13 例，本次 +4**） | ①品牌 Logo 为 `<img>` 且 `src` 非空、`alt=Multi-Publish`、版本号文本 `v2.3.53`（单测 mock 固定值，与真实版本号解耦）且 `title=当前版本`、旧 `.yixiaoer-sidebar-brand`/`.yixiaoer-sidebar-title` 不存在；②IPC 不可用（`undefined`）→ 只有 Logo 无版本号；③失败码（`code:-1`）→ 不渲染版本号；④IPC reject → 不渲染版本号且侧边栏整体仍在渲染 | §4.1 结构契约 + §11 异常降级 |
+| `src/layouts/MpSidebar.test.js`（**13 例，本次 +4**） | ①品牌 Logo 为 `<img>` 且 `src` 非空、`alt=Multi-Publish`、版本号文本 `v2.3.53`（单测 mock 固定值，与真实版本号解耦）且 `title=当前版本`、旧 `.mp-sidebar-brand`/`.mp-sidebar-title` 不存在；②IPC 不可用（`undefined`）→ 只有 Logo 无版本号；③失败码（`code:-1`）→ 不渲染版本号；④IPC reject → 不渲染版本号且侧边栏整体仍在渲染 | §4.1 结构契约 + §11 异常降级 |
 
 > 既有 9 例（footer 顺序 / 登录区不在 header / 设置移出主导航 / `open-settings` 透传 / `upgrade` 开弹窗 / 服务明细与降级 / 新建发布路由）全部保留并通过，确认本次改动无结构回归。
 
@@ -322,12 +322,12 @@ Header : [🐟 汤姆鱼 Logo]  v0.1.0  ............. [+ 新建发布]
 
 | # | 验收标准（可验证） |
 |---|-------------------|
-| 1 | 侧边栏 header 中不存在 `.yixiaoer-sidebar-brand` / `.yixiaoer-sidebar-title`，存在 `[data-testid="yixiaoer-sidebar-logo"]`（`<img>`）与 `[data-testid="yixiaoer-sidebar-version"]` |
+| 1 | 侧边栏 header 中不存在 `.mp-sidebar-brand` / `.mp-sidebar-title`，存在 `[data-testid="mp-sidebar-logo"]`（`<img>`）与 `[data-testid="mp-sidebar-version"]` |
 | 2 | `apps/desktop/src/assets/brand/tom-fish-logo.png` 存在，尺寸 176×108、RGBA、体积 < 50KB |
 | 3 | 版本号取自 `app:get-version`（`package.json.version`），渲染为 `v{version}`；`code!==0` / `data` 为空 / 无 `electronAPI` / IPC 抛错四种情形**均不渲染**版本节点 |
 | 4 | 版本号加载失败**不产生**控制台报错、不阻塞侧边栏与主导航渲染 |
 | 5 | 新增 i18n key `sidebar.brandLogoAlt` / `sidebar.appVersionTitle` 在 zh/en **成对存在**；`--cjk` 无新增硬编码 |
-| 6 | 测试全绿：`useAppVersion.test.js`(16) + `YixiaoerSidebar.test.js`(13) |
+| 6 | 测试全绿：`useAppVersion.test.js`(16) + `MpSidebar.test.js`(13) |
 | 7 | ESLint error 级 0 问题；`tsc --noEmit` 通过；债务熔断指标不越基线 |
 | 8 | CI 全绿（QG Static/Unit/Coverage/Shards/Visual/E2E、electron-tests、build、doc-sync 等） |
 
@@ -337,8 +337,8 @@ Header : [🐟 汤姆鱼 Logo]  v0.1.0  ............. [+ 新建发布]
 
 | 项 | 说明 |
 |----|------|
-| 改动文件 | `apps/desktop/src/layouts/YixiaoerSidebar.vue`、`apps/desktop/src/composables/useAppVersion.js`（新增）、`apps/desktop/src/composables/useAppVersion.test.js`（新增）、`apps/desktop/src/layouts/YixiaoerSidebar.test.js`、`apps/desktop/src/locales/zh.js`、`apps/desktop/src/locales/en.js`、新增 PNG 资源 |
-| 对外契约 | **零变更**：无新增 props / emit / IPC / store 字段；`YixiaoerSidebar` 仍只 emit `open-settings` |
+| 改动文件 | `apps/desktop/src/layouts/MpSidebar.vue`、`apps/desktop/src/composables/useAppVersion.js`（新增）、`apps/desktop/src/composables/useAppVersion.test.js`（新增）、`apps/desktop/src/layouts/MpSidebar.test.js`、`apps/desktop/src/locales/zh.js`、`apps/desktop/src/locales/en.js`、新增 PNG 资源 |
+| 对外契约 | **零变更**：无新增 props / emit / IPC / store 字段；`MpSidebar` 仍只 emit `open-settings` |
 | 数据/接口 | 仅**只读**消费既有 `app:get-version`；无新增 IPC、无持久化、无 DB |
 | 回滚方式 | 单 PR 纯前端改动，按提交回滚即可；无数据迁移、无状态残留 |
 | 风险等级 | 低（应用壳装饰区；由 2 个测试文件 + 像素门禁保护） |
@@ -349,7 +349,7 @@ Header : [🐟 汤姆鱼 Logo]  v0.1.0  ............. [+ 新建发布]
 
 | 文件 | 职责 |
 |------|------|
-| `apps/desktop/src/layouts/YixiaoerSidebar.vue` | 侧边栏容器：header 品牌区（Logo + 版本号）、主导航、footer |
+| `apps/desktop/src/layouts/MpSidebar.vue` | 侧边栏容器：header 品牌区（Logo + 版本号）、主导航、footer |
 | `apps/desktop/src/composables/useAppVersion.js` | 版本号取数：`extractAppVersion` 纯函数 + `useAppVersion` 组合式函数 |
 | `apps/desktop/src/assets/brand/tom-fish-logo.png` | 品牌 Logo 位图（176×108，RGBA） |
 | `apps/desktop/electron/ipc-handlers/misc.js` | `app:get-version` handler（读 `apps/desktop/package.json.version`） |
