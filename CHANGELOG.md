@@ -1,3 +1,33 @@
+# [未发布] feat(desktop-shell): 侧边栏底部用户菜单 + 应用壳导航精简（2026-09-14）
+
+### 新增
+- **侧边栏底部用户 banner**（`ProfileMenu.vue` 迁移为底部形态）：登录区由顶部 header 迁移到侧边栏 footer，收起时只显示一条 banner（头像 + 存在状态点 + 显示名 + 许可徽标 + `⌃` 展开指示），点击**向上展开**菜单（面板 `bottom` 定位、与 banner 等宽，不溢出侧边栏），`max-height: min(70vh, 420px)` 超出内部滚动
+- **「设置」入口迁入用户菜单**（`data-testid="profile-menu-settings"`，文案复用 `nav.settings`）：任意身份状态均可见；点击先关闭菜单再抛出 `open-settings`，由侧边栏透传 `App.vue` 打开设置弹窗（复用既有链路，零新增 IPC）
+- **「⭐ 升级 Pro」入口迁入用户菜单**（`data-testid="profile-menu-upgrade"`，文案复用 `memberCenter.upgradePro`）：复用 `.profile-menu-action` 版式（仅以金色描边/渐变强调，与其余菜单项结构一致）；仅非 Pro 显示；点击先关闭菜单再抛出 `upgrade`，由侧边栏打开升级弹窗
+- **banner 存在状态点**（`data-testid="yixiaoer-profile-status"`）：`online` 绿 / `busy`·`error` 橙 / 其他灰，`title` 呈现身份状态文案，取代原 footer 独立「客户端状态」文字行
+
+### 改进
+- **侧边栏 header 改为品牌区**：`MP` 标识 + `Multi-Publish` + `+ 新建发布`（登录区移出后填充视觉锚点；ASCII 字面量，无需 i18n）
+- **服务连接信息上移**：footer DOM 顺序固定为 [0] 服务连接信息（`SidebarServiceStatus`）→ [1] 用户 banner，由单测断言钉死
+- **窄屏（≤900px）可用性提升**：服务连接信息隐藏，但用户 banner 仅保留头像继续可用（登录 / 设置 / 升级入口在 68px 侧边栏下仍可达）
+
+### 移除
+- **模块导航右上角 4 个占位工具入口**（移动端预览 / 客服支持 / 使用指南 / 通知）及其工具面板、脚本状态与样式：能力均为占位说明文案（"当前工作区尚未接入在线客服服务""暂无新通知"），保留会误导用户
+- 主导航「设置」按钮、footer 独立「⭐ 升级 Pro」胶囊按钮、footer「客户端状态」独立文字行（分别迁移/合并，见上）
+
+### 验证
+- `vitest run src/layouts/YixiaoerSidebar.test.js src/layouts/YixiaoerModuleNav.test.js src/components/ProfileMenu.test.js` → **3 files / 26 passed**（Sidebar 9 / ModuleNav 5 / ProfileMenu 12）
+- `eslint`（6 个改动文件，`--quiet`）→ **0 error**
+- `node .github/scripts/check-locale-sync.js --cjk` → PASS（当前 1461 / 基线 1689，无新增硬编码）；`--keys` → PASS（958 key 均存在于 zh/en）
+- 桌面端全量单测（worktree 内）与 CI 门禁结果见 PR
+
+### 文档
+- 新增 `01-docs/PRD-SIDEBAR-BOTTOM-USER-MENU-2026-09-14.md`（背景与 5 条诉求映射、变更范围、术语、交互状态机、组件对外契约、数据校验与边界、显示项与 i18n 全表、视觉规范、无障碍、异常降级、测试设计、验收标准、影响面与回滚）
+- `01-docs/PRD.md` 末尾增量章节「应用壳导航与底部用户菜单（2026-09-14）」+ 头部功能文档索引
+- `docs/desktop-ui-layout-spec.md` §2.3 / §2.5（新增底部用户 banner 完整规格）/ §3.3 / §8.1 / §9.2 / §11 + 变更历史 v1.4
+- `docs/frontend-interaction-spec.md` §2 交互原语登记 + §6.3 模块导航条款更新 + 新增 §6.4「侧边栏底部用户 banner」强制条款
+- OpenSpec change `sidebar-bottom-user-banner`（proposal + design + specs delta + tasks）
+
 # [未发布] feat(collection): 采集页新增「文案库」标签（采集正文 + 改写文案聚合 + 行内改写弹窗）（2026-09-14）
 
 ### 新增

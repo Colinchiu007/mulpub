@@ -10,18 +10,16 @@ vi.mock('vue-router', () => ({
   useRouter: () => ({ push }),
 }))
 
-const mockIdentityState = vi.hoisted(() => ({
-  status: 'authenticated',
-  user: { name: '测试用户', username: 'testuser' },
-  displayName: '测试用户',
-  entitlement: null,
-  signIn: vi.fn(),
-  switchAccount: vi.fn(),
-  signOut: vi.fn(),
-}))
-
 vi.mock('@/stores/identity', () => ({
-  useIdentityStore: () => mockIdentityState,
+  useIdentityStore: () => ({
+    status: 'authenticated',
+    user: { name: '测试用户', username: 'testuser' },
+    displayName: '测试用户',
+    entitlement: null,
+    signIn: vi.fn(),
+    switchAccount: vi.fn(),
+    signOut: vi.fn(),
+  }),
 }))
 
 vi.mock('@/stores/license', () => ({
@@ -71,7 +69,16 @@ function mountSidebar (path = '/accounts') {
     global: {
       plugins: [i18n],
       stubs: {
-        ProfileMenu: { template: '<div data-testid="profile-menu-stub" />' },
+        // 登录区已从顶部移到 footer：桩件向上抛事件，用于验证宿主转发
+        ProfileMenu: {
+          emits: ['open-settings', 'upgrade'],
+          template: `
+            <div data-testid="profile-menu-stub" @click="$emit('open-settings')">
+              <button type="button" data-testid="profile-menu-stub-upgrade" @click="$emit('upgrade')">upgrade</button>
+            </div>
+          `,
+        },
+        UpgradeModal: { template: '<div data-testid="upgrade-modal-stub" />' },
         ElPopover: {
           template: '<div class="el-popover-stub"><slot name="reference" /><slot /></div>',
         },
@@ -91,24 +98,39 @@ function mountSidebar (path = '/accounts') {
 }
 
 describe('YixiaoerSidebar', () => {
-  it('renders the account route active with real identity status and service summary', () => {
+  it('renders the account route active with the login banner at the bottom and service info above it', () => {
     const sidebar = mountSidebar('/accounts')
 
-    expect(sidebar.find('[data-testid="profile-menu-stub"]').exists()).toBe(true)
-    const status = sidebar.get('[data-testid="yixiaoer-sidebar-status"]')
-    expect(status.text()).toBe('已连接')
-    expect(status.classes()).toContain('is-online')
+    // 登录区不再出现在顶部 header
+    const header = sidebar.get('.yixiaoer-sidebar-header')
+    expect(header.find('[data-testid="profile-menu-stub"]').exists()).toBe(false)
+
+    // 登录区落在 footer，且位于服务连接信息下方
+    const footer = sidebar.get('.yixiaoer-sidebar-footer')
+    expect(footer.get('[data-testid="profile-menu-stub"]').exists()).toBe(true)
+
+    const footerBlocks = Array.from(footer.element.children)
+    // footer 内的 DOM 顺序即「服务连接信息在上、登录 banner 在下」
+    expect(footerBlocks[0].querySelector('[data-testid="yixiaoer-service-status"]')).toBeTruthy()
+    expect(footerBlocks[1].getAttribute('data-testid')).toBe('profile-menu-stub')
+
     const serviceStatus = sidebar.get('[data-testid="yixiaoer-service-status"]')
     expect(serviceStatus.text()).toBe('服务运行中')
     expect(serviceStatus.classes()).toContain('is-ok')
+
     expect(sidebar.text()).toContain('主页')
     expect(sidebar.text()).toContain('发布')
     expect(sidebar.text()).toContain('账号')
     expect(sidebar.text()).toContain('数据')
     expect(sidebar.text()).toContain('视频创作')
     expect(sidebar.text()).toContain('采集')
-    expect(sidebar.text()).toContain('设置')
     expect(sidebar.get('[data-testid="yixiaoer-primary-accounts"]').classes()).toContain('active')
+  })
+
+  it('moves the settings entry out of the primary navigation into the bottom login menu', () => {
+    const sidebar = mountSidebar('/accounts')
+
+    expect(sidebar.find('[data-testid="yixiaoer-primary-settings"]').exists()).toBe(false)
   })
 
   it('shows per-service status list with names and states', () => {
@@ -125,8 +147,7 @@ describe('YixiaoerSidebar', () => {
     expect(aligner.text()).toContain('待命')
   })
 
-  it('shows degraded summary and offline identity when services fail', () => {
-    mockIdentityState.status = 'signed_out'
+  it('shows degraded summary when services fail', () => {
     const previous = serviceStatusState.services
     const previousRunning = serviceStatusState.runningCount
     const previousAll = serviceStatusState.allRunning
@@ -137,14 +158,11 @@ describe('YixiaoerSidebar', () => {
     try {
       const sidebar = mountSidebar('/accounts')
 
-      const status = sidebar.get('[data-testid="yixiaoer-sidebar-status"]')
-      expect(status.classes()).toContain('is-offline')
       const serviceStatus = sidebar.get('[data-testid="yixiaoer-service-status"]')
       expect(serviceStatus.classes()).toContain('is-degraded')
       const prompt = sidebar.get('[data-testid="yixiaoer-service-promptEngine"]')
       expect(prompt.text()).toContain('已停止')
     } finally {
-      mockIdentityState.status = 'authenticated'
       serviceStatusState.services = previous
       serviceStatusState.runningCount = previousRunning
       serviceStatusState.allRunning = previousAll
@@ -177,12 +195,22 @@ describe('YixiaoerSidebar', () => {
     expect(menuText).toContain('会员中心')
   })
 
-  it('settings button emits open-settings event', async () => {
+  it('forwards the settings entry coming from the bottom login menu', async () => {
     const sidebar = mountSidebar('/accounts')
 
-    await sidebar.get('[aria-label="设置"]').trigger('click')
+    await sidebar.get('[data-testid="profile-menu-stub"]').trigger('click')
 
     expect(sidebar.emitted('open-settings')).toBeTruthy()
+  })
+
+  it('opens the upgrade modal when the bottom login menu requests an upgrade', async () => {
+    const sidebar = mountSidebar('/accounts')
+
+    expect(sidebar.find('[data-testid="upgrade-modal-stub"]').exists()).toBe(false)
+
+    await sidebar.get('[data-testid="profile-menu-stub-upgrade"]').trigger('click')
+
+    expect(sidebar.find('[data-testid="upgrade-modal-stub"]').exists()).toBe(true)
   })
 
   it('routes the add button to the publish editor', async () => {
@@ -193,4 +221,3 @@ describe('YixiaoerSidebar', () => {
     expect(push).toHaveBeenCalledWith('/publish')
   })
 })
-

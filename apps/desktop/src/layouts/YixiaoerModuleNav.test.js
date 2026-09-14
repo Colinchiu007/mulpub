@@ -88,24 +88,17 @@ describe('YixiaoerModuleNav', () => {
     expect(nav.get('[data-testid="yixiaoer-tab-home"]').classes()).toContain('active')
   })
 
-  it('opens an honest local panel for each module tool', async () => {
+  // 右上角 4 个占位工具入口（移动端预览/客服支持/使用指南/通知）已按产品要求整体移除，
+  // 这里做回归保护：模块导航区只保留标签页，不再渲染任何工具按钮或工具面板。
+  it('no longer renders module tool entries or the tool panel', () => {
     const nav = mountNav('/accounts')
-    const tools = [
-      ['preview', '移动端预览', '当前页面将在移动端预览中展示。'],
-      ['support', '客服支持', '当前工作区尚未接入在线客服服务。'],
-      ['guide', '使用指南', '账号管理与发布流程'],
-      ['notifications', '通知', '暂无新通知'],
-    ]
 
-    expect(nav.findAll('.yixiaoer-tool-button')).toHaveLength(4)
-    for (const [key, title, body] of tools) {
-      await nav.get(`[data-testid="yixiaoer-tool-${key}"]`).trigger('click')
-      const panel = nav.get('[data-testid="yixiaoer-tool-panel"]')
-      expect(panel.attributes('data-tool')).toBe(key)
-      expect(panel.text()).toContain(title)
-      expect(panel.text()).toContain(body)
-      await nav.get('[data-testid="yixiaoer-tool-close"]').trigger('click')
-      expect(nav.find('[data-testid="yixiaoer-tool-panel"]').exists()).toBe(false)
-    }
+    expect(nav.find('[data-testid="yixiaoer-module-tools"]').exists()).toBe(false)
+    expect(nav.findAll('.yixiaoer-tool-button')).toHaveLength(0)
+    expect(nav.find('[data-testid="yixiaoer-tool-preview"]').exists()).toBe(false)
+    expect(nav.find('[data-testid="yixiaoer-tool-support"]').exists()).toBe(false)
+    expect(nav.find('[data-testid="yixiaoer-tool-guide"]').exists()).toBe(false)
+    expect(nav.find('[data-testid="yixiaoer-tool-notifications"]').exists()).toBe(false)
+    expect(nav.find('[data-testid="yixiaoer-tool-panel"]').exists()).toBe(false)
   })
 })
