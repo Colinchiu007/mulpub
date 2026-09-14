@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
+import fs from 'node:fs'
 
 const push = vi.hoisted(() => vi.fn())
 vi.mock('vue-router', () => ({ useRouter: () => ({ push }) }))
@@ -8,9 +9,10 @@ vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key) => key }) }))
 
 describe('ProfileMenu', () => {
   let store
+  let licenseStore
   let wrapper
 
-  async function mountMenu(password) {
+  async function mountMenu(props = {}) {
     const pinia = createPinia()
     setActivePinia(pinia)
     const { useIdentityStore } = await import('@/stores/identity')
@@ -21,10 +23,10 @@ describe('ProfileMenu', () => {
     store.switchAccount = vi.fn(async () => true)
     store.signOut = vi.fn(async () => true)
     const { useLicenseStore } = await import('@/stores/license')
-    const licenseStore = useLicenseStore()
+    licenseStore = useLicenseStore()
     licenseStore.info = { type: 'free', isPro: false, isTrial: false, features: [], daysRemaining: 0 }
     const Component = (await import('./ProfileMenu.vue')).default
-    wrapper = mount(Component, { attachTo: document.body, global: { plugins: [pinia] } })
+    wrapper = mount(Component, { attachTo: document.body, global: { plugins: [pinia] }, props })
     return wrapper
   }
 
@@ -92,5 +94,83 @@ describe('ProfileMenu', () => {
     expect(wrapper.find('[data-testid="profile-menu-panel"]').exists()).toBe(true)
     await wrapper.get('[data-testid="profile-menu-signin"]').trigger('click')
     expect(store.signIn).toHaveBeenCalledTimes(1)
+  })
+
+  // ── 侧边栏底部 banner 与菜单内「设置 / 升级 Pro」入口 ──
+
+  it('banner 收起态仅显示一条且带身份状态点，点击后展开菜单', async () => {
+    await mountMenu()
+
+    expect(wrapper.get('[data-testid="yixiaoer-profile-status"]').classes()).toContain('is-online')
+    expect(wrapper.find('[data-testid="profile-menu-panel"]').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="yixiaoer-profile"]').trigger('click')
+
+    expect(wrapper.find('[data-testid="profile-menu-panel"]').exists()).toBe(true)
+  })
+
+  // jsdom 不应用 scoped CSS：用源码级契约断言钉住「面板向上展开且与 banner 等宽」这一布局契约
+  // （readFileSync 相对路径写法沿用仓库既有先例：UiModal.test.js）
+  it('面板样式契约：向上展开（bottom 定位 + 左右铺满），不回归 top 定位', () => {
+    const source = fs.readFileSync('./src/components/ProfileMenu.vue', 'utf8')
+    const panelBlock = source.match(/\.profile-menu-panel \{[\s\S]*?\n\}/)
+
+    expect(panelBlock).toBeTruthy()
+    expect(panelBlock[0]).toContain('bottom: calc(100% + 8px)')
+    expect(panelBlock[0]).toContain('left: 0')
+    expect(panelBlock[0]).toContain('right: 0')
+    expect(/(^|\s)top:/.test(panelBlock[0])).toBe(false)
+  })
+
+  it('展开菜单含设置入口，点击后向上抛出 open-settings 并关闭菜单', async () => {
+    await mountMenu()
+    await wrapper.get('[data-testid="yixiaoer-profile"]').trigger('click')
+
+    const settings = wrapper.get('[data-testid="profile-menu-settings"]')
+    expect(settings.text()).toBe('nav.settings')
+    expect(settings.classes()).toContain('profile-menu-action')
+
+    await settings.trigger('click')
+
+    expect(wrapper.emitted('open-settings')).toBeTruthy()
+    expect(wrapper.find('[data-testid="profile-menu-panel"]').exists()).toBe(false)
+  })
+
+  it('非 Pro 用户展开菜单含升级 Pro 入口（与菜单项同版式），点击抛出 upgrade 并关闭菜单', async () => {
+    await mountMenu()
+    await wrapper.get('[data-testid="yixiaoer-profile"]').trigger('click')
+
+    const upgrade = wrapper.get('[data-testid="profile-menu-upgrade"]')
+    expect(upgrade.text()).toContain('memberCenter.upgradePro')
+    expect(upgrade.classes()).toContain('profile-menu-action')
+    expect(upgrade.classes()).toContain('profile-menu-action-upgrade')
+
+    await upgrade.trigger('click')
+
+    expect(wrapper.emitted('upgrade')).toBeTruthy()
+    expect(wrapper.find('[data-testid="profile-menu-panel"]').exists()).toBe(false)
+  })
+
+  it('Pro 用户展开菜单不显示升级入口，但仍保留设置入口', async () => {
+    await mountMenu()
+    licenseStore.info = { type: 'pro', isPro: true, isTrial: false, features: [], daysRemaining: 0 }
+    await wrapper.vm.$nextTick()
+
+    await wrapper.get('[data-testid="yixiaoer-profile"]').trigger('click')
+
+    expect(wrapper.find('[data-testid="profile-menu-upgrade"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="profile-menu-settings"]').exists()).toBe(true)
+  })
+
+  it('未登录（disabled 身份服务）展开菜单仍提供设置入口', async () => {
+    await mountMenu()
+    store.status = 'disabled'
+    store.user = null
+    await wrapper.vm.$nextTick()
+
+    await wrapper.get('[data-testid="yixiaoer-profile"]').trigger('click')
+
+    expect(wrapper.find('[data-testid="profile-menu-settings"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="profile-menu-upgrade"]').exists()).toBe(true)
   })
 })

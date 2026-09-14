@@ -285,12 +285,15 @@ const functionalTests = [
     }
   },
   {
-    name: 'global-upgrade-btn',
-    description: '升级按钮（非Pro用户）',
+    name: 'global-upgrade-entry',
+    description: '升级入口（非Pro用户，位于底部用户菜单）',
     async run(runner) {
-      await navigateToReady(runner.page, '/', '.pro-btn, button:has-text("升级 Pro")');
-      const upgradeBtn = await runner.page.$('.pro-btn, button:has-text("升级 Pro")');
-      return { passed: !!upgradeBtn, errors: upgradeBtn ? [] : ['升级按钮未找到'] };
+      // 2026-09-14：升级 Pro 由侧边栏 footer 独立按钮迁入底部用户菜单，需先展开菜单
+      await navigateToReady(runner.page, '/', '[data-testid="yixiaoer-profile"]');
+      await runner.page.click('[data-testid="yixiaoer-profile"]');
+      await runner.page.waitForSelector('[data-testid="profile-menu-upgrade"]', { state: 'visible', timeout: 5000 });
+      const upgradeEntry = await runner.page.$('[data-testid="profile-menu-upgrade"]');
+      return { passed: !!upgradeEntry, errors: upgradeEntry ? [] : ['底部用户菜单中未找到升级入口'] };
     }
   },
   {

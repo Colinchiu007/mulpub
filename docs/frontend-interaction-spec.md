@@ -37,6 +37,7 @@
 | 列表空态 | 统一 `<EmptyState>` 组件（P2 落地，tasks 3.3），含说明 + 引导 CTA；落地前暂维持现状样式，禁止新增自造副本 | 空白区域、裸 `<p>` 文本、自造 .empty 样式副本 |
 | 错误文案 | `formatUserError()`（user-facing-error.js，遵循 user-facing-messages spec） | 手工拼接原始 error message 直出给用户 |
 | 长页面回到顶部 | 全局 `components/BackToTop.vue` 唯一实例（App.vue 挂载，2026-09-14 落地） | 各视图自写滚动按钮、自写 `scrollTo(0)` 逻辑、自造浮标样式副本 |
+| 用户/账号入口（含设置、升级 Pro） | 侧边栏底部 `components/ProfileMenu.vue`（向上展开形态，2026-09-14 落地） | 各视图自建用户菜单、自建登录入口、自建「升级 Pro」按钮副本、在主导航另设「设置」入口 |
 
 ### 危险操作门禁（最高优先级条款）
 
@@ -87,7 +88,18 @@
 
 - `YixiaoerModuleNav` 仅在首页标签（`isHomeTab === true`）时显示
 - 当浏览器标签或登录标签激活时，模块导航自动隐藏，WebContentsView 占据右侧主体区域
+- **不含右侧工具区**：原「移动端预览 / 客服支持 / 使用指南 / 通知」4 个占位入口已于 2026-09-14 整体移除。新增入口前必须确认其具备真实能力，禁止再以"占位面板"形式提供入口
 - 详细规格见 [桌面端 UI 布局规格](./desktop-ui-layout-spec.md) 第 3 节
+
+### 6.4 侧边栏底部用户 banner（登录区，2026-09-14 落地）
+
+- **位置唯一**：登录区唯一落点是侧边栏底部 banner（`ProfileMenu placement="top"`），收起时只显示一条 banner；不得放回顶部 header，也不得在页面内另设登录入口
+- **服务连接信息在其上方**：footer DOM 顺序固定为 [0] 服务连接信息 → [1] 用户 banner（`YixiaoerSidebar.test.js` 断言钉死）；新增 footer 元素必须排在 banner 之后
+- **展开方向**：banner 一律向上展开（`bottom` 定位），面板宽度与 banner 等宽、不得溢出侧边栏；该契约由 `ProfileMenu.test.js` 的源码级 CSS 断言钉死
+- **菜单项版式统一**：「设置」「升级 Pro」等新增项必须复用 `.profile-menu-action` 结构（仅可加强调色类），禁止自造按钮样式
+- **入口归属**：`设置` 只从本菜单进入（主导航不得再有设置项）；`升级 Pro` 只在非 Pro 用户的本菜单中出现，禁止在侧边栏/footer 另设独立按钮
+- **事件链路**：菜单项只抛事件（`open-settings` / `upgrade`），由侧边栏承接（`open-settings` 透传给 `App.vue`，`upgrade` 打开 `UpgradeModal`）；菜单项内不得直接操作路由以外的副作用
+- 详细规格见 [桌面端 UI 布局规格](./desktop-ui-layout-spec.md) §2.5；需求见 [PRD：侧边栏底部用户菜单](../01-docs/PRD-SIDEBAR-BOTTOM-USER-MENU-2026-09-14.md)
 
 ## 7. 死代码处置原则
 

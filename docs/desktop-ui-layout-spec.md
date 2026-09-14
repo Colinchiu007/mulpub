@@ -74,15 +74,17 @@ const isFullScreenRoute = computed(() => route.path === '/first-run')
 - 右侧工作区 `.yixiaoer-workspace` 独立滚动（`overflow: auto`），不影响侧边栏
 - **侧边栏不会随右侧内容滚动或移动**
 
-### 2.3 内容组成
+### 2.3 内容组成（2026-09-14 调整）
 
 | 区域 | 内容 | 说明 |
 |------|------|------|
-| Header | `ProfileMenu` + `+` 新建发布按钮 | 用户头像、许可证信息、快捷发布 |
+| Header | 品牌标识 `MP` + `Multi-Publish` + `+` 新建发布按钮 | 登录区已移出（见 2.5），保留快捷发布入口 |
 | 主导航 | 主页、发布、账号、数据、视频创作、采集 | 6 个主要导航项，使用 `router-link` |
-| 设置 | 设置按钮（齿轮图标） | 触发 `open-settings` 事件打开设置弹窗 |
 | 更多菜单 | 监控、发布日历、私信评论、CLI、素材库、关键词监控、爆款分析、提示词评估、模型提供商、会员中心 | 10 个次要导航项，折叠在下拉菜单中 |
-| Footer | 客户端状态指示器 + 服务状态 + 升级 Pro 按钮 | 底部固定区域 |
+| Footer 第 1 行 | 服务连接信息（`SidebarServiceStatus`） | 六服务聚合状态 + hover 明细 |
+| Footer 第 2 行 | 底部用户 banner（`ProfileMenu`） | 收起态仅一条；点击向上展开菜单（账号操作 / 设置 / 升级 Pro） |
+
+> **已移除（2026-09-14）**：主导航「设置」按钮（迁入底部展开菜单）、footer 独立「⭐ 升级 Pro」胶囊按钮（迁入底部展开菜单并统一版式）、footer「客户端状态」独立文字行（合并进 banner 状态点与 `title`）。
 
 ### 2.4 宽度同步机制
 
@@ -107,6 +109,59 @@ if (el) {
 2. Preload API `pageManager.setSidebarWidth(width)` → IPC `page-manager:set-sidebar-width`
 3. 主进程 `WebviewManager.setSidebarWidth(width)` → 更新 `_sidebarWidth` → 同步到 `AuthViewManager` / `QrCodeLogin` → 调用 `_repositionAll()`
 
+### 2.5 底部用户 banner（登录区，2026-09-14 新增）
+
+登录区由侧边栏**顶部**迁移到底部，采用「收起只为一条 banner、点击向上展开完整菜单」的范式（对齐主流桌面客户端）。详细需求见 [PRD：侧边栏底部用户菜单与导航精简](../01-docs/PRD-SIDEBAR-BOTTOM-USER-MENU-2026-09-14.md)。
+
+**唯一实现**：`apps/desktop/src/components/ProfileMenu.vue`（底部向上展开形态）。**禁止**各视图自建用户菜单 / 登录入口副本。
+
+#### 2.5.1 结构与显示项
+
+| 位置 | 元素 | 内容 |
+|------|------|------|
+| banner（收起态） | 头像 + 状态点 + 显示名 + 许可徽标 + 展开指示 `⌃` | 头像右下方 10×10 状态点；`title` = 身份状态文案 |
+| 展开面板（向上） | 菜单标题（显示名 + 状态）| `role="menu"`，`aria-labelledby="profile-menu-trigger"` |
+| 展开面板 | 会员中心 / 切换账号 / 退出登录 | 已登录时；`loading` 中禁用并显示进行中文案 |
+| 展开面板 | 状态说明 + 重试登录 | 未登录/过期/身份服务不可用时 |
+| 展开面板 | 分隔线 `role="separator"` | 账号区与通用区之间 |
+| 展开面板 | 设置（`nav.settings`） | 任意状态均显示，抛出 `open-settings` |
+| 展开面板 | ⭐ 升级 Pro（`memberCenter.upgradePro`） | 非 Pro 显示，抛出 `upgrade` |
+
+#### 2.5.2 展开方向与几何
+
+| 项 | 值 |
+|----|----|
+| banner 宽度 | 100%（footer 内容宽度），`padding: 8px 10px`，圆角 10px |
+| 面板定位 | `absolute`，`bottom: calc(100% + 8px)`，`left/right: 0`（与 banner 同宽，**不溢出侧边栏**） |
+| 面板最大高度 | `min(70vh, 420px)`，超出内部滚动 |
+| 面板层级 | `z-index: 140` |
+| 菜单项版式 | 统一 `.profile-menu-action`（宽 100%、`padding: 8px 10px`、1px 描边、圆角 `--r-xs`）；升级项仅加金色强调，不改结构 |
+
+#### 2.5.3 交互逻辑
+
+| 触发 | 行为 |
+|------|------|
+| 点击 banner（`signed_out` / `expired` 且未登录中） | 直接发起登录，**不展开**菜单；失败才展开展示错误 |
+| 点击 banner（其他状态） | 展开菜单并聚焦首个菜单项 |
+| 点击 banner（已展开） | 收起菜单 |
+| 键盘 `↓` | 展开并聚焦首项 |
+| `Esc` | 收起并回焦 banner |
+| `Tab` | 收起菜单（焦点不落入收起区域） |
+| `↑`/`↓`/`Home`/`End` | 菜单项间循环 |
+| 点击面板外 | 收起菜单 |
+| 选中菜单项 | 先收起菜单，再执行动作（跳转 / 打开弹窗 / 抛出事件） |
+| 服务连接信息 | 始终位于 banner **上方**（footer DOM 顺序 [0] 服务信息 → [1] banner，由单测钉死） |
+
+#### 2.5.4 数据校验与降级
+
+| 校验项 | 规则 | 失败处理 |
+|--------|------|---------|
+| `placement` 枚举 | 仅 `'bottom'` / `'top'` | 非法值回落到默认（向下）定位，不抛异常 |
+| 身份状态 | 9 态枚举，未匹配归 `error` | 橙点 + 错误文案 |
+| 显示名 | 空值 → 头像取 `M`，菜单标题回落 `Multi-Publish` | 不渲染空字符串 |
+| Pro 判定 | `licenseStore.isPro` | 假值一律按非 Pro 显示升级入口（不误隐藏付费入口） |
+| 重复提交 | `pendingAction` 锁 + `disabled` | 进行中文案，防二次触发 |
+
 ---
 
 ## 3. 模块导航栏 (YixiaoerModuleNav)
@@ -125,9 +180,9 @@ if (el) {
 | 账号 | 账号管理、分组管理、分享链接、收藏分组 | `/accounts` |
 | 发布 | 新建发布、发布记录、草稿箱 | `/publish` |
 
-### 3.3 工具按钮
+### 3.3 工具按钮（2026-09-14 移除）
 
-右侧工具区包含：移动端预览、客服支持、使用指南、通知
+原右侧工具区 4 个入口（移动端预览 / 客服支持 / 使用指南 / 通知）的能力均为占位说明文案（如"当前工作区尚未接入在线客服服务""暂无新通知"），已按产品要求整体移除：模块导航现只保留左侧标签区，避免为零能力入口提供视觉热区。
 
 ---
 
@@ -299,10 +354,16 @@ mainWindow.on('resize', () => {
 
 | 显示项 | 文字 | 说明 |
 |--------|------|------|
-| 客户端状态 | `sidebar.clientStatusUnknown`（未知） | 待实现客户端状态检测 |
-| 服务状态 | 服务运行中 | 硬编码中文，待国际化 |
-| 升级按钮 | ⭐ 升级 Pro | 非 Pro 用户显示 |
+| 品牌标识 | `MP` / `Multi-Publish` | 2026-09-14 新增（ASCII 字面量，无需 i18n） |
+| 服务状态 | `sidebar.serviceStatus.allRunning`（服务运行中）/ `partialRunning`（{count}） / `unavailable` | 六服务聚合，hover 展示明细 |
+| 用户 banner 主文案 | 显示名 / 未登录等状态文案 | 收起态唯一入口 |
+| 用户 banner 状态点 | 无文字（`title` = 身份状态文案） | 合并原 footer「客户端状态」独立文字行 |
+| 许可徽标 | `memberCenter.licenseFree` / `licenseTrial` / `licensePro` | 免费 / 试用 / 专业 |
+| 设置（菜单项） | `nav.settings` | 任意身份状态均显示 |
+| 升级 Pro（菜单项） | `memberCenter.upgradePro` | 非 Pro 用户显示（`⭐` 图标，版式与其它菜单项统一） |
 | 更多菜单 | 更多 | 展开/收起次要导航项 |
+
+> 已移除：`sidebar.clientStatusUnknown` 占位状态、独立升级胶囊按钮、主导航设置按钮。
 
 ### 8.2 账号管理
 
@@ -345,9 +406,9 @@ mainWindow.on('resize', () => {
 
 | 断点 | 侧边栏宽度 | 行为 |
 |------|-----------|------|
-| > 900px | 200px | 完整显示，含文字标签 |
-| ≤ 900px | 68px | 仅显示图标，隐藏文字和部分元素 |
-| ≤ 700px | 68px | 模块导航精简，隐藏部分工具按钮 |
+| > 900px | 200px | 完整显示：品牌 + 导航文字 + 服务连接信息 + 完整用户 banner |
+| ≤ 900px | 68px | 仅显示图标：隐藏品牌/标题/`+`/导航文字/服务连接信息；用户 banner **只保留头像**（登录、设置、升级入口仍可达） |
+| ≤ 700px | 68px | 模块导航标签横向滚动（右上角工具按钮已于 2026-09-14 移除） |
 
 ---
 
@@ -378,8 +439,10 @@ mainWindow.on('resize', () => {
 | 文件 | 职责 |
 |------|------|
 | `apps/desktop/src/App.vue` | 根组件，定义整体布局框架 |
-| `apps/desktop/src/layouts/YixiaoerSidebar.vue` | 左侧导航栏组件 |
-| `apps/desktop/src/layouts/YixiaoerModuleNav.vue` | 模块导航栏组件 |
+| `apps/desktop/src/layouts/YixiaoerSidebar.vue` | 左侧导航栏组件（含底部服务连接信息 + 用户 banner） |
+| `apps/desktop/src/components/ProfileMenu.vue` | 底部用户 banner / 向上展开菜单（账号操作 + 设置 + 升级 Pro） |
+| `apps/desktop/src/components/SidebarServiceStatus.vue` | 服务连接信息聚合 + 六服务明细 |
+| `apps/desktop/src/layouts/YixiaoerModuleNav.vue` | 模块导航栏组件（工具区已移除） |
 | `apps/desktop/src/components/TabBar.vue` | 浏览器式标签栏 |
 | `apps/desktop/src/components/NavBar.vue` | 导航/URL 栏 |
 | `apps/desktop/src/stores/tab.js` | 标签页状态管理 (Pinia) |
@@ -403,6 +466,8 @@ mainWindow.on('resize', () => {
 | 2026-09-03 | v1.1 | 补充完整 UI 布局规格文档 | 本文档 |
 | 2026-09-05 | v1.2 | 修复流水线详情页底部操作条与内容区重叠： 从  改为正常流 ，新增  可滚动内容区 | #1405 |
 | 2026-09-14 | v1.3 | 新增「回到顶部」浮标（BackToTop）完整规格（第 14 章）：挂载与定位 / 显隐与滚动容器 / 数据校验 / 交互逻辑 / 显示项与提示文字 / 视觉规范 / 层级协调 | 分支 `back-to-top-button` |
+| 2026-09-14 | v1.4 | 侧边栏底部用户 banner（§2.5）：登录区由顶部迁移到底部并改为向上展开菜单、「设置」与「⭐ 升级 Pro」迁入菜单、服务连接信息上移至 banner 上方；移除模块导航右上角 4 个占位工具入口（§3.3）；同步 §2.3 / §8.1 / §9.2 / §11 | 分支 `codex/sidebar-footer-user-menu` |
+
 ## 13. 已知问题修复
 
 ### 13.1 左侧菜单随内容滚动（2026-09-03 修复）

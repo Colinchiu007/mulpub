@@ -1,7 +1,8 @@
 <template>
   <aside class="yixiaoer-sidebar" data-testid="yixiaoer-sidebar" aria-label="主导航">
     <header class="yixiaoer-sidebar-header">
-      <ProfileMenu />
+      <span class="yixiaoer-sidebar-brand" aria-hidden="true">MP</span>
+      <strong class="yixiaoer-sidebar-title">Multi-Publish</strong>
       <button class="yixiaoer-sidebar-add" type="button" aria-label="新建发布" title="新建发布" @click="goToPublish">
         <Plus />
       </button>
@@ -20,18 +21,6 @@
         <component :is="item.icon" aria-hidden="true" />
         <span>{{ item.label }}</span>
       </router-link>
-
-      <button
-        class="yixiaoer-primary-item"
-        type="button"
-        data-testid="yixiaoer-primary-settings"
-        aria-label="设置"
-        title="设置"
-        @click="emit('open-settings')"
-      >
-        <Setting aria-hidden="true" />
-        <span>设置</span>
-      </button>
 
       <button
         class="yixiaoer-primary-item yixiaoer-more-trigger"
@@ -55,23 +44,16 @@
     </nav>
 
     <footer class="yixiaoer-sidebar-footer">
-      <div class="yixiaoer-sidebar-status-row">
-        <span
-          class="yixiaoer-sidebar-status"
-          :class="'is-' + identityStatus"
-          data-testid="yixiaoer-sidebar-status"
-          :title="clientStatusTitle"
-        >
-          <i aria-hidden="true"></i>{{ clientStatusLabel }}
-        </span>
-      </div>
-      <div class="yixiaoer-sidebar-footer-actions">
+      <!-- 服务连接信息：位于底部登录 banner 上方 -->
+      <div class="yixiaoer-sidebar-service">
         <SidebarServiceStatus />
-        <button v-if="!licenseStore.isPro" type="button" class="yixiaoer-upgrade-btn" data-testid="yixiaoer-upgrade" @click="showUpgradeModal = true">
-          ⭐ 升级 Pro
-        </button>
-        <UpgradeModal v-if="showUpgradeModal" @close="showUpgradeModal = false" />
       </div>
+      <!-- 登录区 banner：收起时只显示这一条，点击向上展开菜单（账号操作 / 设置 / 升级 Pro） -->
+      <ProfileMenu
+        @open-settings="emit('open-settings')"
+        @upgrade="showUpgradeModal = true"
+      />
+      <UpgradeModal v-if="showUpgradeModal" @close="showUpgradeModal = false" />
     </footer>
   </aside>
 </template>
@@ -94,13 +76,10 @@ import {
   MoreFilled,
   Plus,
   Search,
-  Setting,
   TrendCharts,
   User,
   VideoCamera,
 } from '@element-plus/icons-vue'
-import { useLicenseStore } from '@/stores/license'
-import { useIdentityStore } from '@/stores/identity'
 import UpgradeModal from '@/components/UpgradeModal.vue'
 import ProfileMenu from '@/components/ProfileMenu.vue'
 import SidebarServiceStatus from '@/components/SidebarServiceStatus.vue'
@@ -109,8 +88,6 @@ import { invokePageManager } from '@/api/electron-bridge'
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
-const licenseStore = useLicenseStore()
-const identityStore = useIdentityStore()
 const moreOpen = ref(false)
 const showUpgradeModal = ref(false)
 
@@ -136,29 +113,6 @@ onUnmounted(() => {
     _sidebarObserver = null
   }
 })
-
-const identityStatus = computed(() => {
-  const status = identityStore.status
-  return ['authenticated', 'refreshing', 'offline_authenticated'].includes(status) ? 'online'
-    : ['signing_in', 'signing_out'].includes(status) ? 'busy'
-    : status === 'disabled' ? 'disabled'
-    : ['signed_out', 'expired'].includes(status) ? 'offline'
-    : 'error'
-})
-
-const clientStatusLabel = computed(() => {
-  if (identityStatus.value === 'online') return t('memberCenter.statusConnected')
-  if (identityStatus.value === 'busy') return identityStore.status === 'signing_in'
-    ? t('memberCenter.statusSigningIn')
-    : t('memberCenter.statusSigningOut')
-  if (identityStatus.value === 'disabled') return t('memberCenter.identityDisabled')
-  if (identityStatus.value === 'offline') return identityStore.status === 'expired'
-    ? t('memberCenter.statusExpired')
-    : t('memberCenter.notLoggedIn')
-  return t('memberCenter.statusError')
-})
-
-const clientStatusTitle = computed(() => clientStatusLabel.value)
 
 const primaryItems = [
   { key: 'home', label: '主页', to: '/', icon: HomeFilled },
@@ -212,9 +166,32 @@ function goToPublish () {
 .yixiaoer-sidebar-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 16px 14px 18px;
+  gap: 8px;
+  padding: 16px 14px 14px;
+}
+
+.yixiaoer-sidebar-brand {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 7px;
+  background: linear-gradient(140deg, #6c63ff, #4b43d6);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .4px;
+}
+
+.yixiaoer-sidebar-title {
+  min-width: 0;
+  overflow: hidden;
+  color: #4d4f6f;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .yixiaoer-sidebar-add {
@@ -223,6 +200,7 @@ function goToPublish () {
   display: grid;
   place-items: center;
   flex: 0 0 auto;
+  margin-left: auto;
   padding: 0;
   border: 1px solid #bab9d3;
   border-radius: 50%;
@@ -337,97 +315,20 @@ function goToPublish () {
   margin-top: auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 14px;
+  gap: 10px;
+  padding: 12px 14px 14px;
   color: #9294ab;
   font-size: 11px;
 }
 
-.yixiaoer-sidebar-status-row {
+.yixiaoer-sidebar-service {
   display: flex;
-}
-
-.yixiaoer-sidebar-footer-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.yixiaoer-upgrade-btn {
-  flex-shrink: 0;
-  height: 26px;
-  padding: 0 12px;
-  border: 1px solid #d9c98a;
-  border-radius: 13px;
-  background: linear-gradient(180deg, #fff7e0, #ffeec2);
-  color: #8a6d1f;
-  font-size: 12px;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: filter .15s ease;
-}
-
-.yixiaoer-upgrade-btn:hover,
-.yixiaoer-upgrade-btn:focus-visible {
-  filter: brightness(.97);
-  outline: 2px solid #5149e8;
-  outline-offset: 2px;
-}
-
-.yixiaoer-sidebar-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.yixiaoer-sidebar-status i {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #a7a8b5;
-}
-
-.yixiaoer-sidebar-status.is-online i {
-  background: #6fbf73;
-}
-
-.yixiaoer-sidebar-status.is-online {
-  color: #6f9c6f;
-}
-
-.yixiaoer-sidebar-status.is-busy i,
-.yixiaoer-sidebar-status.is-error i {
-  background: #e6a23c;
-}
-
-.yixiaoer-sidebar-status.is-busy,
-.yixiaoer-sidebar-status.is-error {
-  color: #b08a3e;
-}
-
-.yixiaoer-sidebar-settings {
-  width: 20px;
-  height: 20px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 1px solid #c5c4d9;
-  border-radius: 50%;
-  background: transparent;
-  color: #8587a1;
-  cursor: pointer;
-}
-
-.yixiaoer-sidebar-settings svg {
-  width: 12px;
-  height: 12px;
+  padding: 0 2px;
 }
 
 .yixiaoer-primary-item:focus-visible,
 .yixiaoer-more-item:focus-visible,
-.yixiaoer-sidebar-add:focus-visible,
-.yixiaoer-sidebar-settings:focus-visible {
+.yixiaoer-sidebar-add:focus-visible {
   outline: 2px solid #5149e8;
   outline-offset: 2px;
 }
@@ -440,15 +341,21 @@ function goToPublish () {
 
   .yixiaoer-sidebar-header {
     justify-content: center;
-    padding-inline: 8px;
+    padding-inline: 6px;
   }
 
+  .yixiaoer-sidebar-brand,
+  .yixiaoer-sidebar-title,
   .yixiaoer-sidebar-add,
   .yixiaoer-primary-item span,
   .yixiaoer-primary-item > svg:last-child,
   .yixiaoer-more-menu,
-  .yixiaoer-sidebar-footer {
+  .yixiaoer-sidebar-service {
     display: none;
+  }
+
+  .yixiaoer-sidebar-footer {
+    padding-inline: 6px;
   }
 
   .yixiaoer-primary-nav {
