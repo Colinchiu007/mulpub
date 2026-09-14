@@ -1,9 +1,15 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
 import i18n from '@/i18n'
 
 const routeState = vi.hoisted(() => ({ path: '/accounts' }))
 const push = vi.hoisted(() => vi.fn())
+const invokeMock = vi.hoisted(() => vi.fn())
+
+vi.mock('@/api/electron-bridge', () => ({
+  invoke: invokeMock,
+  invokePageManager: vi.fn(),
+}))
 
 vi.mock('vue-router', () => ({
   useRoute: () => routeState,
@@ -55,6 +61,12 @@ vi.mock('@/stores/serviceStatus', () => ({
 import YixiaoerSidebar from './YixiaoerSidebar.vue'
 
 let wrapper
+
+beforeEach(() => {
+  // 默认：主进程返回成功的版本响应；个别用例可覆盖为失败码/不可用/异常
+  invokeMock.mockReset()
+  invokeMock.mockResolvedValue({ code: 0, data: '2.3.53' })
+})
 
 afterEach(() => {
   wrapper?.unmount()
@@ -219,5 +231,54 @@ describe('YixiaoerSidebar', () => {
     await sidebar.get('[data-testid="yixiaoer-sidebar"]').find('button[aria-label="新建发布"]').trigger('click')
 
     expect(push).toHaveBeenCalledWith('/publish')
+  })
+
+  it('renders the fish logo and the app version in the top-left header', async () => {
+    const sidebar = mountSidebar('/accounts')
+    await flushPromises()
+
+    const header = sidebar.get('.yixiaoer-sidebar-header')
+    const logo = header.get('[data-testid="yixiaoer-sidebar-logo"]')
+    expect(logo.element.tagName).toBe('IMG')
+    expect(logo.attributes('src')).toBeTruthy()
+    expect(logo.attributes('alt')).toBe('Multi-Publish')
+
+    const version = header.get('[data-testid="yixiaoer-sidebar-version"]')
+    expect(version.text()).toBe('v2.3.53')
+    expect(version.attributes('title')).toBe('当前版本')
+
+    // 旧的文字品牌标识（MP 徽标 / Multi-Publish 文本）已退役
+    expect(header.find('.yixiaoer-sidebar-brand').exists()).toBe(false)
+    expect(header.find('.yixiaoer-sidebar-title').exists()).toBe(false)
+  })
+
+  it('hides the version badge when the version IPC is unavailable', async () => {
+    invokeMock.mockResolvedValue(undefined)
+
+    const sidebar = mountSidebar('/accounts')
+    await flushPromises()
+
+    // 纯浏览器 / 视觉回归环境没有 window.electronAPI：只保留 logo，不渲染版本号
+    expect(sidebar.find('[data-testid="yixiaoer-sidebar-logo"]').exists()).toBe(true)
+    expect(sidebar.find('[data-testid="yixiaoer-sidebar-version"]').exists()).toBe(false)
+  })
+
+  it('does not render a stale version when the IPC reports a failure code', async () => {
+    invokeMock.mockResolvedValue({ code: -1, message: 'boom' })
+
+    const sidebar = mountSidebar('/accounts')
+    await flushPromises()
+
+    expect(sidebar.find('[data-testid="yixiaoer-sidebar-version"]').exists()).toBe(false)
+  })
+
+  it('keeps the shell rendering when the version IPC rejects', async () => {
+    invokeMock.mockRejectedValue(new Error('ipc down'))
+
+    const sidebar = mountSidebar('/accounts')
+    await flushPromises()
+
+    expect(sidebar.find('[data-testid="yixiaoer-sidebar-version"]').exists()).toBe(false)
+    expect(sidebar.get('[data-testid="yixiaoer-sidebar"]').exists()).toBe(true)
   })
 })

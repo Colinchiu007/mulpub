@@ -56,6 +56,8 @@ export default {
   },
   sidebar: {
     clientStatusUnknown: 'Client status unknown',
+    brandLogoAlt: 'Multi-Publish',
+    appVersionTitle: 'Current version',
     serviceStatus: {
       allRunning: 'Services running',
       partialRunning: (ctx) => ctx.named('count') + ' service(s) running',
