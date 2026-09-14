@@ -11,7 +11,7 @@ const ADMIN_ONLY_METHODS = [
 // 未激活专业许可证时仍可使用的方法。
 const PUBLIC_METHODS = [
   'getVersion', 'getPlatform',
-  'updateCheck', 'updateDownload', 'updateInstall', 'onUpdateStatus',
+  'updateCheck', 'updateDownload', 'updateInstall', 'updateInstallNow', 'onUpdateStatus',
   'firstRunCheck', 'onFirstRunStatus',
   'showNotification', 'onNotification',
   'onNavigate',

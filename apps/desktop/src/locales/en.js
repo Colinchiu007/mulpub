@@ -2585,6 +2585,23 @@ knowledgeBase: {
     exportFailed: 'Feishu export failed',
   },
 
+  // Auto update (sidebar "new version" entry + global result notices)
+  // Messages needing interpolation are Message Functions: CSP forbids runtime compilation (see src/i18n/index.js)
+  update: {
+    badge: 'New version',
+    badgeReady: 'Restart to install',
+    badgeRetry: 'Retry install',
+    badgeDownloading: (ctx) => 'Downloading ' + ctx.named('percent') + '%',
+    badgeTitleAvailable: (ctx) => 'Version v' + ctx.named('version') + ' is available. Click to quit the app and install it.',
+    badgeTitleReady: (ctx) => 'Version v' + ctx.named('version') + ' has been downloaded. Click to quit the app and install it.',
+    badgeTitleDownloading: (ctx) => 'Downloading v' + ctx.named('version') + '; the app will quit and install automatically when done.',
+    badgeTitleRetry: 'The previous install did not finish. Click to retry.',
+    badgeAriaLabel: 'A new version is available. Click to quit the app and install it.',
+    installingHint: 'Downloading the new version; the app will quit and install automatically when done.',
+    latestVersion: 'You are on the latest version',
+    failedPrefix: 'Update failed: ',
+  },
+
   perfInsights: {
     title: 'Performance Insights',
     subtitle: 'Pattern performance ranking — which expression patterns perform best on your accounts (attributed from post-publish recrawl data)',

@@ -7,6 +7,41 @@
 - 历史 `v2.3.x` 复盘轮次标签为内部分版号，不代表真实发布版本；后续统一以 `0.Y.Z` 推进。
 
 ---
+# [未发布] feat(update): 侧边栏「新版本」入口 —— 运行时更新提示 + 点击退出应用并安装（2026-09-14）
+
+### 新增
+- **侧边栏底部「新版本」入口**（`components/SidebarUpdateButton.vue`，`data-testid="yixiaoer-update"`）：位于登录菜单按钮**正上方**（footer 顺序 `[0] 服务连接信息 → [1]「新版本」入口（条件渲染）→ [2] 登录 banner`），仅在检测到新版本时渲染。图标为**圆形底 + 向上箭头**（实心圆 `fill: var(--primary)` + 白色箭头），文字「新版本」，配色按项目设计标准（不使用参考截图的绿色）
+- **四态入口文案**：`新版本`（有待安装版本）→ `下载中 N%`（禁用、`cursor: progress`、`aria-busy`）→ `重启安装`（安装包已下载）→ `重试安装`（上次失败可重试）
+- **点击即退出并安装**：点击入口 → 非阻塞提示「正在下载新版本，完成后将自动退出应用并安装」→ IPC `update:install-now`；已下载直接 `quitAndInstall()`，未下载则先下载、`update-downloaded` 后自动退出安装（点击即视为同意退出）
+- **IPC `update:install-now`**（`ipc-handlers/update.js`，`withSenderCheck` 校验来源）+ preload `updateInstallNow`；加入主进程 `PUBLIC_CHANNELS` 与 `preload/access-control.js` 的 `PUBLIC_METHODS`（与既有 `update:*` 同级：无需登录、要求可信来源）
+- **主进程 `installNow()`**（`services/auto-updater.js`）：新增 `_availableUpdate` / `_updateDownloaded` / `_installRequested` 状态；幂等（重复点击只下载一次）；`autoDownload=true`（force_version 策略已在下载）时不重复触发下载；安装请求进行中并发复查返回 `not-available` 不清空待安装状态
+- **i18n `update.*` 12 条**（zh/en 成对）：`badge` / `badgeReady` / `badgeRetry` / `badgeDownloading` / `badgeTitleAvailable` / `badgeTitleReady` / `badgeTitleDownloading` / `badgeTitleRetry` / `badgeAriaLabel` / `installingHint` / `latestVersion` / `failedPrefix`；带参数文案按 `src/i18n/index.js` 的 CSP 约束写成 **Message Function**（`(ctx) => ... ctx.named('version')`）
+
+### 改进
+- **`useAutoUpdate` 由「组件内局部状态」升级为「应用壳共享单例」**：应用壳结果提示与侧边栏入口读取同一份状态；`start()` 幂等（重复挂载不重复注册监听、不重复检查）；新增 `badgeMode` 状态机与 `showUpdateBadge`；新增 `installRequested` 以主进程 `installing` 事件为准（窗口重载后仍能识别「用户已请求安装」）；导出 `resetAutoUpdateState()`（仅测试使用）
+- **用户主动触发的安装失败保留可重试入口**：`error` 事件在「用户已请求安装」时**原样回传 `error`**（入口变「重试安装」+ 告警条），不再降级为「当前已是最新版本」误导文案；后台静默检查失败仍沿用既有静默降级
+- **窄屏（≤900px）仅显示图标**（隐藏文字标签，保留 `aria-label`）
+- **无障碍**：原生 `<button type="button">`；`aria-label` 全态可用（缺 key 回退英文）；`aria-busy` 标记下载中；`:focus-visible` 主色描边
+
+### 移除
+- **更新模态对话框**（`UpdateNotification.vue` 的 UiModal 三段式：available 下载按钮 / downloading 进度条 / downloaded 立即重启安装）及配套 `.update-progress-bar` / `.update-progress-fill` / `.update-speed` 样式：入口下沉到侧边栏后，不再用模态框打断用户操作。`UpdateNotification` 退化为**结果提示宿主**（右下角「当前已是最新版本」4s 提示条 + 「更新失败：<原因>」告警条，`right: 88px` 避让回到顶部浮标），并继续持有 `start()/cleanup()` 生命周期
+- `useAutoUpdate` 中的 `showUpdateDialog` / `handleDownload` / `handleInstall`（随模态框一并下线；`update:download` / `update:install` 通道与 `publisher.js` 同API 保留，维持既有 IPC 合同）
+
+### 验证
+- `vitest run src/composables/useAutoUpdate.test.js src/components/SidebarUpdateButton.test.js src/layouts/YixiaoerSidebar.test.js src/api/publisher.test.js src/i18n/i18n.test.js electron/services/auto-updater.test.js electron/ipc-handlers/update.test.js electron/preload.test.js tests/ipc-handlers.test.js electron/tests/ipc-contract.test.js` → **10 files / 717 passed**
+- 新增回归：入口四态与点击（11）、状态机与点击即安装（29）、主进程安装链路（9）、IPC sender 校验与 envelope（9）、footer 顺序契约（含「无更新时顺序不变」）、preload 暴露面计数（153 / 321 / 141）
+- `pnpm exec eslint electron/ src/ --quiet` → **0 error**；`tsc --noEmit` → 0 error；`check-ipc-bridge.js` → PASS（391 handlers / 382 preload）；`check-locale-sync --cjk` → PASS（1453 条，无新增硬编码）；`--keys` → PASS；`check-frontend-consistency.js` → PASS；`check-debt-budget.js` → 在基线内
+- `pnpm run build:preload` 重建 `electron/preload/index.bundle.js`（入库产物）
+
+### 文档
+- 新增 `01-docs/PRD-SIDEBAR-UPDATE-ENTRY-2026-09-14.md`（背景与诉求映射、范围与明确不做、用户故事、状态机与决策表、时序、数据与校验、交互逻辑、DOM 顺序、显示项与 i18n 全表、错误与边界、非功能、验收标准、测试映射）
+- `01-docs/PRD.md`：头部功能文档索引 + F8 系统功能「自动更新」行 + §7.4.6.2 新增「版本发布 · 用户入口」行 + 末尾增量章节
+- `01-docs/UI-INVENTORY.md`：全局挂载组件说明、§4.2 重写（入口 + 结果提示）、弹窗总览标注下线、状态显示总览
+- `01-docs/user-manual.md` §7 自动更新改写为侧边栏入口流程（含「安装会关闭应用，建议等任务结束再点」提示）
+- `01-docs/ipc-manifest.md` update 段新增 `update:install-now`
+- `01-docs/PRD-SIDEBAR-BOTTOM-USER-MENU-2026-09-14.md` §4.3 DOM 顺序契约扩展
+- `01-docs/learnings.md`：CSP 安全 i18n 不插值 + 单例 composable 测试隔离 + preload 计数/产物重建/债务熔断/失败语义 5 条教训
+- `.quality-gates.md` 本次执行记录
 
 # [未发布] feat(desktop-shell): 侧边栏底部用户菜单 + 应用壳导航精简（2026-09-14）
 

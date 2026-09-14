@@ -155,6 +155,7 @@
     updateCheck: makeHandler('updateCheck', async () => ok({ available: false, version: '0.1.0' })),
     updateDownload: makeHandler('updateDownload', async () => ok({ started: true })),
     updateInstall: makeHandler('updateInstall', async () => ok({ installed: true })),
+    updateInstallNow: makeHandler('updateInstallNow', async () => ok(true)),
     onUpdateStatus: makeOn('update:status'),
 
     // 首次运行
