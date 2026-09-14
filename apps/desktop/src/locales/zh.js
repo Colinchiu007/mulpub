@@ -56,6 +56,8 @@ export default {
   },
   sidebar: {
     clientStatusUnknown: '客户端状态未知',
+    brandLogoAlt: 'Multi-Publish',
+    appVersionTitle: '当前版本',
     serviceStatus: {
       allRunning: '服务运行中',
       partialRunning: (ctx) => ctx.named('count') + ' 项服务运行中',

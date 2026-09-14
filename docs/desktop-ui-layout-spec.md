@@ -76,15 +76,13 @@ const isFullScreenRoute = computed(() => route.path === '/first-run')
 
 ### 2.3 内容组成（2026-09-14 调整）
 
-| 区域 | 内容 | 说明 |
-|------|------|------|
-| Header | 品牌标识 `MP` + `Multi-Publish` + `+` 新建发布按钮 | 登录区已移出（见 2.5），保留快捷发布入口 |
+| Header | 品牌区：汤姆鱼 Logo + 应用版本号 `vX.Y.Z` + `+` 新建发布按钮 | 登录区已移出（见 2.5），保留快捷发布入口；品牌区细则见 2.6 |
 | 主导航 | 主页、发布、账号、数据、视频创作、采集 | 6 个主要导航项，使用 `router-link` |
 | 更多菜单 | 监控、发布日历、私信评论、CLI、素材库、关键词监控、爆款分析、提示词评估、模型提供商、会员中心 | 10 个次要导航项，折叠在下拉菜单中 |
 | Footer 第 1 行 | 服务连接信息（`SidebarServiceStatus`） | 六服务聚合状态 + hover 明细 |
 | Footer 第 2 行 | 底部用户 banner（`ProfileMenu`） | 收起态仅一条；点击向上展开菜单（账号操作 / 设置 / 升级 Pro） |
 
-> **已移除（2026-09-14）**：主导航「设置」按钮（迁入底部展开菜单）、footer 独立「⭐ 升级 Pro」胶囊按钮（迁入底部展开菜单并统一版式）、footer「客户端状态」独立文字行（合并进 banner 状态点与 `title`）。
+> **已移除（2026-09-14）**：主导航「设置」按钮（迁入底部展开菜单）、footer 独立「⭐ 升级 Pro」胶囊按钮（迁入底部展开菜单并统一版式）、footer「客户端状态」独立文字行（合并进 banner 状态点与 `title`）、header 的 `MP` 文字徽标与 `Multi-Publish` 文本（被正式品牌 Logo + 版本号取代，见 2.6）。
 
 ### 2.4 宽度同步机制
 
@@ -161,6 +159,68 @@ if (el) {
 | 显示名 | 空值 → 头像取 `M`，菜单标题回落 `Multi-Publish` | 不渲染空字符串 |
 | Pro 判定 | `licenseStore.isPro` | 假值一律按非 Pro 显示升级入口（不误隐藏付费入口） |
 | 重复提交 | `pendingAction` 锁 + `disabled` | 进行中文案，防二次触发 |
+
+### 2.6 左上角品牌区（Logo + 版本号，2026-09-14 新增）
+
+侧边栏 header 的品牌区由「`MP` 文字徽标 + `Multi-Publish` 文本」升级为「**品牌 Logo 图片 + 应用版本号**」，对齐参考客户端左上角 *Logo + vX.Y.Z* 的形态。详细需求见 [PRD：侧边栏左上角品牌区](../01-docs/PRD-SIDEBAR-BRAND-LOGO-VERSION-2026-09-14.md)。
+
+**唯一实现**：`apps/desktop/src/layouts/YixiaoerSidebar.vue` 的 `.yixiaoer-sidebar-header`。**禁止**各视图自建品牌标识 / 版本号副本。
+
+#### 2.6.1 结构与显示项
+
+| 位置 | 元素 | 内容 | 选择器 |
+|------|------|------|--------|
+| header | Logo `<img>` | 汤姆鱼 Logo（透明 PNG） | `[data-testid="yixiaoer-sidebar-logo"]` |
+| header | 版本号 `<span>` | `v` + `app:get-version` 返回值（如 `v0.1.0`），`title` = 当前版本 | `[data-testid="yixiaoer-sidebar-version"]` |
+| header | 新建发布按钮 | `+`（`aria-label`/`title` = 新建发布） | `button[aria-label="新建发布"]` |
+
+#### 2.6.2 尺寸推导（200px 侧边栏）
+
+| 步骤 | 计算 | 结果 |
+|------|------|------|
+| ① 可用宽度 | 200px − 14px×2 内边距 | 172px |
+| ② 让位新建发布按钮 | 24px + gap 8px | 剩 140px |
+| ③ 让位版本号 | `v0.1.0`（11px）≈ 38px + gap 8px | 剩 ≈94px |
+| ④ 垂直约束 | 与 40px 导航行对齐且 header 轻量 → Logo 高 **36px** | header 高 66px |
+| ⑤ 内容宽高比 | 源图内容包围盒 2930 / 1798 = **1.6296** | Logo 宽 ≈ **59px** |
+| ⑥ 资源倍率 | 3×（HiDPI/200% 缩放不模糊） | 资源 **176×108** |
+
+| 项 | 值 |
+|----|----|
+| 资源路径 | `apps/desktop/src/assets/brand/tom-fish-logo.png` |
+| 资源规格 | 176×108 RGBA PNG，约 13.9KB（源图 3042×1910 / 1.06MB，裁剪透明边距后等比缩小） |
+| CSS | `height: 36px; width: auto; object-fit: contain`（宽度由固有宽高比自动得出） |
+| 版本号样式 | `font-size: 11px; line-height: 1; letter-spacing: .2px; color: #9a9cb3`；超长省略号截断 |
+| 版本号数据源 | 主进程 IPC `app:get-version`（读 `apps/desktop/package.json` 的 `version`）；该字段由根 `package.json` 单一真相源经 `scripts/sync-version.mjs` 自动派生（见 [版本管理规范](./version-management.md)） |
+| 唯一取数封装 | `apps/desktop/src/composables/useAppVersion.js`（`extractAppVersion` + `useAppVersion`） |
+
+#### 2.6.3 校验与降级
+
+| 校验项 | 规则 | 失败处理 |
+|--------|------|---------|
+| 成功响应 | `code === 0` 且 `data` 非空 | 渲染 `v{data.trim()}` |
+| 失败码 | `code !== 0` | 不渲染版本号（**不得**把 `message` 当版本号） |
+| `data` 为空 | `null` / `undefined` / `''` / 纯空白 | 不渲染版本号 |
+| 非对象响应 | 字符串 / 数组 / `null` | 不渲染版本号 |
+| IPC 不可用 | 无 `window.electronAPI` → `invoke` 返回 `undefined` | 不渲染版本号（纯浏览器 / 视觉回归环境走此路径） |
+| IPC 抛异常 | `loadVersion` 内 `catch` | 吞掉异常，不打断应用壳渲染 |
+| 资源缺失 | 图片 404 | 图片空占位，不影响版本号与新建发布按钮 |
+
+#### 2.6.4 响应式（`max-width: 900px`，侧边栏 68px）
+
+| 元素 | 窄屏行为 |
+|------|---------|
+| Logo | 保留，`height: 28px; max-width: 100%`（≈46px ≤ 可用 56px） |
+| 版本号 | 隐藏（宽度不足） |
+| 新建发布按钮 | 隐藏（沿用原行为） |
+
+#### 2.6.5 交互与无障碍
+
+| 元素 | 属性 |
+|------|------|
+| Logo | 无交互（不跳首页、不可拖拽、不可选中）；`alt` = `sidebar.brandLogoAlt`（`Multi-Publish`） |
+| 版本号 | 无点击行为；`title` = `sidebar.appVersionTitle`（当前版本 / Current version） |
+| 焦点 | 两者均不可聚焦，不进入键盘 Tab 序 |
 
 ---
 
@@ -354,7 +414,8 @@ mainWindow.on('resize', () => {
 
 | 显示项 | 文字 | 说明 |
 |--------|------|------|
-| 品牌标识 | `MP` / `Multi-Publish` | 2026-09-14 新增（ASCII 字面量，无需 i18n） |
+| 品牌 Logo | 无文字（`<img>` 替代文本 `sidebar.brandLogoAlt` = Multi-Publish） | 2026-09-14 由 `MP` 文字徽标升级为正式 Logo（见 2.6） |
+| 应用版本号 | `v` + `app:get-version` 返回值（如 `v0.1.0`） | 2026-09-14 新增；`title` = `sidebar.appVersionTitle`；版本号单一真相源见 [版本管理规范](./version-management.md) |
 | 服务状态 | `sidebar.serviceStatus.allRunning`（服务运行中）/ `partialRunning`（{count}） / `unavailable` | 六服务聚合，hover 展示明细 |
 | 用户 banner 主文案 | 显示名 / 未登录等状态文案 | 收起态唯一入口 |
 | 用户 banner 状态点 | 无文字（`title` = 身份状态文案） | 合并原 footer「客户端状态」独立文字行 |

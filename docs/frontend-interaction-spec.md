@@ -101,6 +101,16 @@
 - **事件链路**：菜单项只抛事件（`open-settings` / `upgrade`），由侧边栏承接（`open-settings` 透传给 `App.vue`，`upgrade` 打开 `UpgradeModal`）；菜单项内不得直接操作路由以外的副作用
 - 详细规格见 [桌面端 UI 布局规格](./desktop-ui-layout-spec.md) §2.5；需求见 [PRD：侧边栏底部用户菜单](../01-docs/PRD-SIDEBAR-BOTTOM-USER-MENU-2026-09-14.md)
 
+### 6.5 侧边栏左上角品牌区（Logo + 版本号，2026-09-14 落地）
+
+- **位置唯一**：产品品牌标识（Logo）与应用版本号的唯一落点是侧边栏 header（布局规格 §2.6）；不得在 NavBar / 模块导航 / 页面内另设品牌标识或版本号副本
+- **资产唯一**：品牌 Logo 唯一资源为 `src/assets/brand/tom-fish-logo.png`（176×108 RGBA）；禁止各视图内联不同 Logo 或另存副本；更换 Logo 必须同步替换该文件并核对 §2.6.2 尺寸推导
+- **版本号取数唯一**：只能经 `@/api/electron-bridge` 的 `invoke('getVersion')` 读取（主进程 `app:get-version` → `apps/desktop/package.json.version`，该字段由根 `package.json` 单一真相源经 `scripts/sync-version.mjs` 派生，见 [版本管理规范](./version-management.md)），统一封装在 `src/composables/useAppVersion.js`；禁止直连 `window.electronAPI`，禁止新增第二个版本号 IPC，**禁止硬编码版本号字面量**
+- **降级必须静默**：版本号缺失（无 `electronAPI` / `code !== 0` / `data` 为空 / IPC 抛错）一律**不渲染**该节点且不抛错——装饰性信息不得阻塞应用壳渲染，也不得把错误 `message` 当版本号展示
+- **无交互原则**：Logo 与版本号均为纯展示（不可聚焦、不可点击、不可拖拽/选中）；点击 Logo **不**跳首页（避免与「主页」导航项语义重复）
+- **文案必须走 i18n**：替代文本用 `sidebar.brandLogoAlt`、悬停提示用 `sidebar.appVersionTitle`（zh/en 成对）
+- 详细规格见 [桌面端 UI 布局规格](./desktop-ui-layout-spec.md) §2.6；需求见 [PRD：侧边栏左上角品牌区](../01-docs/PRD-SIDEBAR-BRAND-LOGO-VERSION-2026-09-14.md)
+
 ## 7. 死代码处置原则
 
 不可达路由页、零引用组件、未挂载功能模块：先全库检索引用（含 tests、story2video 子目录）→ 无引用即删 → 全量单测验证。同功能双实现合并时保留一份测试并迁移引用方。

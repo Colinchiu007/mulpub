@@ -139,6 +139,8 @@ gen_*.py
 *.png
 !01-docs/yixiaoer-reverse/screenshots/yxe-live-20260724/*.png
 !01-docs/assets/story2video-scene-context-architecture.png
+# 产品品牌资产（非测试产物）：侧边栏左上角品牌 Logo，打包时必须随源码入库
+!apps/desktop/src/assets/brand/*.png
 
 # Python build artifacts
 .pytest_cache/

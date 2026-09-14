@@ -1,8 +1,19 @@
 <template>
   <aside class="yixiaoer-sidebar" data-testid="yixiaoer-sidebar" aria-label="主导航">
+    <!-- 左上角品牌区：汤姆鱼 Logo + 应用版本号（版本号来自主进程 app:get-version） -->
     <header class="yixiaoer-sidebar-header">
-      <span class="yixiaoer-sidebar-brand" aria-hidden="true">MP</span>
-      <strong class="yixiaoer-sidebar-title">Multi-Publish</strong>
+      <img
+        class="yixiaoer-sidebar-logo"
+        :src="brandLogoUrl"
+        :alt="t('sidebar.brandLogoAlt')"
+        data-testid="yixiaoer-sidebar-logo"
+      />
+      <span
+        v-if="version"
+        class="yixiaoer-sidebar-version"
+        :title="t('sidebar.appVersionTitle')"
+        data-testid="yixiaoer-sidebar-version"
+      >v{{ version }}</span>
       <button class="yixiaoer-sidebar-add" type="button" aria-label="新建发布" title="新建发布" @click="goToPublish">
         <Plus />
       </button>
@@ -84,18 +95,24 @@ import UpgradeModal from '@/components/UpgradeModal.vue'
 import ProfileMenu from '@/components/ProfileMenu.vue'
 import SidebarServiceStatus from '@/components/SidebarServiceStatus.vue'
 import { invokePageManager } from '@/api/electron-bridge'
+import { useAppVersion } from '@/composables/useAppVersion'
+import brandLogoUrl from '@/assets/brand/tom-fish-logo.png'
 
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const moreOpen = ref(false)
 const showUpgradeModal = ref(false)
+// 左上角品牌区展示的应用版本号（非 Electron 环境取不到时保持为空，不渲染该节点）
+const { version, loadVersion } = useAppVersion()
 
 const emit = defineEmits(['open-settings'])
 
 // ── 左侧导航栏宽度同步到主进程（避免 WebContentsView 遮挡侧边栏）──
 let _sidebarObserver = null
 onMounted(() => {
+  // 版本号是装饰性信息：失败/不可用时静默留空，不阻塞侧边栏渲染
+  loadVersion()
   const el = document.querySelector('.yixiaoer-sidebar')
   if (el) {
     const syncWidth = () => {
@@ -170,26 +187,24 @@ function goToPublish () {
   padding: 16px 14px 14px;
 }
 
-.yixiaoer-sidebar-brand {
-  width: 24px;
-  height: 24px;
-  display: grid;
-  place-items: center;
+/* 品牌 Logo：36px 高，宽高比 1.63 → 约 59px 宽；源图按 3x(176x108) 导出，HiDPI 下不模糊 */
+.yixiaoer-sidebar-logo {
+  height: 36px;
+  width: auto;
   flex: 0 0 auto;
-  border-radius: 7px;
-  background: linear-gradient(140deg, #6c63ff, #4b43d6);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: .4px;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
-.yixiaoer-sidebar-title {
+.yixiaoer-sidebar-version {
   min-width: 0;
   overflow: hidden;
-  color: #4d4f6f;
-  font-size: 13px;
-  font-weight: 600;
+  flex: 0 1 auto;
+  color: #9a9cb3;
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: .2px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -344,8 +359,13 @@ function goToPublish () {
     padding-inline: 6px;
   }
 
-  .yixiaoer-sidebar-brand,
-  .yixiaoer-sidebar-title,
+  /* 折叠态保留品牌标识（等比缩小到栏宽内），版本号空间不足时不展示 */
+  .yixiaoer-sidebar-logo {
+    height: 28px;
+    max-width: 100%;
+  }
+
+  .yixiaoer-sidebar-version,
   .yixiaoer-sidebar-add,
   .yixiaoer-primary-item span,
   .yixiaoer-primary-item > svg:last-child,
