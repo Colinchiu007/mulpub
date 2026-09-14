@@ -1,5 +1,5 @@
 /**
- * 草稿箱功能测试 - 蚁小二复用
+ * 草稿箱功能测试 - 参考产品复用
  * 覆盖：API 层 + IPC 层 + Vue 组件
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";

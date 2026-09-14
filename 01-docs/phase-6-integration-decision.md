@@ -47,7 +47,7 @@ JS 侧专注其独有平台：zhihu / kuaishou / baijiahao / shipinhao / weibo /
 
 ### 独有资产
 
-- **JS 侧**：蚁小二远程签名服务集成（`qianming.yixiaoer.cn`）+ 反编译本地签名算法（`signer-local.js`：CSDN HMAC-SHA256 / 小红书 X-s X-t / 抖音 _signature / 快手 __NS_sig3）
+- **JS 侧**：第三方远程签名服务接入（`qianming.yixiaoer.cn`，可用环境变量 `MP_SIGNER_BASE` 覆盖）+ 反编译本地签名算法（`signer-local.js`：CSDN HMAC-SHA256 / 小红书 X-s X-t / 抖音 _signature / 快手 __NS_sig3）
 - **Python 侧**：Playwright 浏览器上下文（签名由浏览器原生计算，更稳但更慢）
 
 ### 未被消费的预留面
@@ -78,7 +78,7 @@ JS 侧专注其独有平台：zhihu / kuaishou / baijiahao / shipinhao / weibo /
 |------|------|
 | 4 个重叠平台路由标注后，JS 适配器仍可能被旧代码直接调用 | 路由层加 `console.warn` 提示 delegate-to-python；保留 JS 适配器作为回退，不删除 |
 | 平台元数据迁移 YAML 后两端解析不一致 | 写跨包集成测试验证 JS/Python 解析同一 YAML 得到等价配置 |
-| 远程签名服务 `qianming.yixiaoer.cn` 不可用时 JS 侧降级 | 已有 `signer-local.js` 本地回退，保持现状 |
+| 第三方远程签名服务 `qianming.yixiaoer.cn` 不可用时 JS 侧降级 | 已有 `signer-local.js` 本地回退，保持现状；端点可用 `MP_SIGNER_BASE` 环境变量覆盖 |
 
 ---
 

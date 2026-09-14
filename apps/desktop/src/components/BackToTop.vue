@@ -62,8 +62,8 @@ import { useRoute } from 'vue-router'
 const props = defineProps({
   /** 显示阈值（px）：滚动距离超过该值才出现，避免轻微滚动就弹按钮 */
   threshold: { type: Number, default: 320 },
-  /** 主滚动容器选择器；默认取 App.vue 的 <main class="yixiaoer-workspace"> */
-  containerSelector: { type: String, default: '[data-testid="yixiaoer-workspace"]' },
+  /** 主滚动容器选择器；默认取 App.vue 的 <main class="mp-workspace"> */
+  containerSelector: { type: String, default: '[data-testid="mp-workspace"]' },
 })
 
 const { t } = useI18n()

@@ -6,7 +6,7 @@
  * Kept in sync with error-codes.ts.
  *
  * 冲突说明：
- *   packages/api-publish-engine/src/error-codes.js（蚁小二逆向集成，第三方语义，不应修改）
+ *   packages/api-publish-engine/src/error-codes.js（参考产品逆向分析集成，第三方语义，不应修改）
  *   定义 -2=data_error, -3=unknown_error, -4=exception, -5=io_error。
  *   desktop 侧原本 -4=NOT_FOUND / -5=TIMEOUT_ERROR / -6=NETWORK_ERROR / -7=IO_ERROR
  *   与 api-publish-engine 的 -4~-5 语义冲突。

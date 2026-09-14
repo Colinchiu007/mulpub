@@ -52,15 +52,15 @@
 | `affected-report.js` | 受影响文件报告 |
 | `gwm-task.sh` | GWM 任务脚本 |
 
-## 前端工具（Yixiaoer）
+## 前端工具（Mp）
 
 | 脚本 | 用途 |
 |------|------|
-| `yixiaoer-all.ps1` | 全量操作 |
-| `yixiaoer-auto.ps1` | 自动操作 |
-| `yixiaoer-capture.ps1` | 截图捕获 |
-| `yixiaoer-fix.ps1` | 修复操作 |
-| `yxe.cs` | C# 辅助工具 |
+| `mp-all.ps1` | 全量操作 |
+| `mp-auto.ps1` | 自动操作 |
+| `mp-capture.ps1` | 截图捕获 |
+| `mp-fix.ps1` | 修复操作 |
+| `mp.cs` | C# 辅助工具 |
 
 ## 测试
 

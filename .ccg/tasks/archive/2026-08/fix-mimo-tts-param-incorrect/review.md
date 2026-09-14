@@ -9,7 +9,7 @@ Date: 2026-08-23
 
 - PR #1140 已于 `2026-08-23T10:35:47Z` squash 合并，merge SHA 为 `40f32a88b7a2e20cf1b5bb32538a039351162a76`。
 - 所有 required checks 通过；`origin/main` 已核验包含该 merge SHA。
-- 当前运行应用来自 `D:/Data/projects/mp-worktrees/mp-yixiaoer-ue-parity-v2`，本次未杀进程或修改该 worktree；需要重启应用后加载修复。
+- 当前运行应用来自 `D:/Data/projects/mp-worktrees/mp-ue-parity-v2`，本次未杀进程或修改该 worktree；需要重启应用后加载修复。
 - OpenSpec change 已归档至 `openspec/changes/archive/2026-08-23-fix-mimo-tts-param-incorrect`，正式规格已同步至 `openspec/specs/mimo-tts-provider-contract/spec.md`。
 - 本任务的 `openspec validate --archived --strict` 结果为通过；全局 `openspec-sync-check.js` / `validate --archived` 仍报告仓库既有历史任务问题，未归因于本任务。
 - 归档 PR #1141 已于 `2026-08-23T10:48:00Z` squash 合并，merge SHA 为 `11a333ed7e5cbfd4e961f80ece1a989d84e67385`；`origin/main` 已核验包含该 SHA。

@@ -10,8 +10,8 @@
 ## 代码现状（已核实，勿重复探索）
 
 ### 布局
-- apps/desktop/src/layouts/YixiaoerSidebar.vue：左侧栏。顶部 header 有 `.yixiaoer-profile`（头像 `yixiaoer-avatar` + displayName + licenseLabel），**无任何点击 handler（git 历史确认自引入起从未绑定，这就是"没生效"根因）**。侧边栏有主菜单 6 项 + 「更多」下拉（moreItems：监控/发布日历/私信评论/CLI/素材库/关键词监控/爆款分析/提示词评估/模型提供商）。
-- apps/desktop/src/layouts/YixiaoerModuleNav.vue：顶部模块导航（App.vue 中 `v-if="isHomeTab"` 仅首页标签渲染），其 `.yixiaoer-module-tools` 里挂载 `<IdentityMenu />`。
+- apps/desktop/src/layouts/MpSidebar.vue：左侧栏。顶部 header 有 `.mp-profile`（头像 `mp-avatar` + displayName + licenseLabel），**无任何点击 handler（git 历史确认自引入起从未绑定，这就是"没生效"根因）**。侧边栏有主菜单 6 项 + 「更多」下拉（moreItems：监控/发布日历/私信评论/CLI/素材库/关键词监控/爆款分析/提示词评估/模型提供商）。
+- apps/desktop/src/layouts/MpModuleNav.vue：顶部模块导航（App.vue 中 `v-if="isHomeTab"` 仅首页标签渲染），其 `.mp-module-tools` 里挂载 `<IdentityMenu />`。
 - apps/desktop/src/components/IdentityMenu.vue：身份下拉（未登录 ⚡登录 高亮 / 已登录 头像首字母+昵称），菜单项：登录 Multi-Publish / 切换账号 / 退出登录。
 - 路由：apps/desktop/src/router/index.js — hash 路由，约 25 个页面（Home/Publish/Accounts/Dashboard/Create/...）。**无会员/个人中心路由**。
 

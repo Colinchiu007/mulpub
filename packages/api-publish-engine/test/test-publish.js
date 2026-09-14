@@ -5,7 +5,7 @@
 const { chromium } = require("playwright");
 const { publishViaApi, supportsApi } = require("../src/index");
 
-// 29 平台完整登录 URL 映射（来自蚁小二 4.0 分析）
+// 29 平台完整登录 URL 映射（来自参考产品 4.0 分析）
 const LOGIN_URLS = {
   zhihu: "https://www.zhihu.com/signin",
   douyin: "https://creator.douyin.com/",

@@ -1,0 +1,9 @@
+{"path":"apps/desktop/src/features/accounts/components/AccountManagementCard.vue","role":"account-card-implementation","evidence":"字段归一化、状态动作、批量选择与缺省文案"}
+{"path":"apps/desktop/src/views/Accounts.vue","role":"account-page-implementation","evidence":"分组/收藏/分享链接空态、重新登录和批量操作合同"}
+{"path":"apps/desktop/src/views/Publish.vue","role":"publish-page-implementation","evidence":"参考产品发布壳层与入口保持"}
+{"path":"apps/desktop/src/views/PublishHistory.vue","role":"history-implementation","evidence":"工具栏、批量态、详情摘要与筛选回归"}
+{"path":"apps/desktop/src/layouts/MpModuleNav.vue","role":"module-shell","evidence":"账号/发布二级导航壳层"}
+{"path":"apps/desktop/src/layouts/MpSidebar.vue","role":"module-shell","evidence":"参考产品左侧平台/模块侧栏"}
+{"path":"01-docs/PRD.md","role":"product-documentation","evidence":"账号/发布 parity 范围与外部边界"}
+{"path":"01-docs/ui-reference/analysis/04-account-publish-parity-2026-08.md","role":"reverse-analysis","evidence":"差异审计与设计/代码分离结论"}
+{"path":".ccg/tasks/mp-full-parity-closure/test-matrix.md","role":"quality-evidence","evidence":"本轮测试、打包、窗口和外部边界"}

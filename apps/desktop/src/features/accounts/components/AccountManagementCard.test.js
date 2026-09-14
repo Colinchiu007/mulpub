@@ -133,7 +133,7 @@ describe('AccountManagementCard', () => {
     expect(wrapper.get('[data-testid="account-check-account-1"]').text()).toContain('最近检查')
   })
 
-  it('按蚁小二卡片语义展示粉丝数、负责人、运营人和代理字段', () => {
+  it('按参考产品卡片语义展示粉丝数、负责人、运营人和代理字段', () => {
     const wrapper = mountCard({
       account: {
         ...account,
@@ -152,7 +152,7 @@ describe('AccountManagementCard', () => {
     expect(wrapper.get('[data-testid="account-proxy-account-1"]').text()).toContain('127.0.0.1:7890')
   })
 
-  it('缺少蚁小二归属字段时显示未设置而不是伪造数据', () => {
+  it('缺少参考产品归属字段时显示未设置而不是伪造数据', () => {
     const wrapper = mountCard()
 
     expect(wrapper.get('[data-testid="account-followers-account-1"]').text()).toContain('粉丝：暂无数据')
@@ -161,7 +161,7 @@ describe('AccountManagementCard', () => {
     expect(wrapper.get('[data-testid="account-proxy-account-1"]').text()).toContain('未设置')
   })
 
-  it('归属徽章按蚁小二契约分色：负责人蓝、运营人灰、代理紫', () => {
+  it('归属徽章按参考产品契约分色：负责人蓝、运营人灰、代理紫', () => {
     const wrapper = mountCard()
 
     const ownerBadge = wrapper.get('[data-testid="account-owner-account-1"] span')
@@ -193,7 +193,7 @@ describe('AccountManagementCard', () => {
     expect(wrapper.emitted('rename')).toHaveLength(1)
   })
 
-  it('非批量模式点击卡片整体打开创作者中心（对齐蚁小二全屏标签交互）', async () => {
+  it('非批量模式点击卡片整体打开创作者中心（对齐参考产品全屏标签交互）', async () => {
     const wrapper = mountCard({ batchMode: false })
     await wrapper.get('[data-testid="account-card-account-1"]').trigger('click')
 

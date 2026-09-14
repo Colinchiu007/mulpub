@@ -43,13 +43,45 @@
 - `01-docs/learnings.md`：CSP 安全 i18n 不插值 + 单例 composable 测试隔离 + preload 计数/产物重建/债务熔断/失败语义 5 条教训
 - `.quality-gates.md` 本次执行记录
 
+# [未发布] chore(naming): 应用命名空间去品牌化——统一为 `mp` / `Mp` / `MP`（2026-09-15）
+
+### 背景
+- 历史代码与文档中残留对参考产品的品牌指涉（中文品牌名，以及全拼三种大小写与三字母缩写三种大小写共 6 种字面变体），共 **271 个文件、约 1660 处**，分布在：CSS 类名、`data-testid`、CSS 自定义属性、组件与文件/目录名、`.ccg` 任务归档、`01-docs`/`docs`/`openspec` 文档、CHANGELOG、CI 基线。
+- 本次为**纯命名与文案规范化**：不改任何业务逻辑、不改视觉呈现、不改接口契约（唯一行为变化见下）。
+- 下表 `<brand>` / `<Brand>` / `<BRAND>` / `<abbr>` / `<Abbr>` / `<ABBR>` / `<中文品牌名>` 统一指代参考产品品牌词的对应字面变体；为满足残留门禁（`scripts/check-no-brand-residue.js`），本仓库文档不再复现其字面。
+
+### 命名映射（完整规则见 `01-docs/PRD-NAMING-NORMALIZATION-2026-09-15.md`）
+| 旧 | 新 | 说明 |
+| --- | --- | --- |
+| `<brand>-*`（CSS 类 / `data-testid` / CSS 变量） | `mp-*` | 与既有 `mp-skeleton-*` 命名空间一致 |
+| `<Brand>Sidebar.vue` / `<Brand>ModuleNav.vue` | `MpSidebar.vue` / `MpModuleNav.vue` | 组件与文件同步改名，含测试 |
+| `is<Brand>Workspace` | `isMpWorkspace` | App.vue 工作区壳判定 |
+| `collection.<brand>Id` / `<brand>Name` | `collection.sourceId` / `sourceName` | 合集模型字段（baijiahao / bilibili / publisher-router） |
+| 用户信息返回形态 `<brand>Id/Name/ImageUrl` | `userId` / `userName` / `userAvatarUrl` | 仅 docstring 契约描述 |
+| `<中文品牌名>逆向工程` | `参考产品逆向分析` | 注释与文档表述 |
+| `<中文品牌名>` | `参考产品` | 注释与文档表述 |
+| `01-docs/<brand>-reverse/` | `01-docs/ui-reference/` | 逆向资料目录 |
+| `<ABBR>_*` / `<Abbr>*` / `<abbr>-*` | `MP_*` / `Mp*` / `mp-*` | 脚本、捕获工具、任务归档 slug |
+
+### 行为变化（唯一）
+- `packages/api-publish-engine/src/signer.js`：远程签名服务端点改为 `process.env.MP_SIGNER_BASE || 默认端点`，默认值不变；注释改为中性的「第三方远程签名服务」。远程不可用时抖音/快手/小红书仍走 `signer-local.js` 本地回退，百家号无本地回退（端点属发布链路硬依赖，予以保留）。
+
+### 验证
+- 全仓字节级残留扫描（5275 个文本文件，排除锁文件与二进制）→ **品牌残留 0 处、路径残留 0 处**；唯一保留 `qianming.yixiaoer.cn`（第三方服务域名，功能性依赖）。
+- **新增回归门禁 `scripts/check-no-brand-residue.js`**：字节级扫描 tracked 文本文件，品牌词按码点构造（门禁脚本自身零字面品牌词），命中即退出 1，防止品牌词再次进入仓库。
+- `pnpm exec eslint electron/ src/ --quiet`（Gate 11 口径）→ **0 error**。
+- `.github/scripts/check-locale-sync.js --cjk`（基线重建后 1644 条，清理 45 条含品牌词的死条目）→ **PASS**；`--keys` / `--py-cjk` → **PASS**。
+- 桌面端全量单测 / `api-publish-engine` 测试 / `check-frontend-consistency` / `check-debt-budget` 见 PR CI。
+
+---
+
 # [未发布] feat(desktop-shell): 侧边栏底部用户菜单 + 应用壳导航精简（2026-09-14）
 
 ### 新增
 - **侧边栏底部用户 banner**（`ProfileMenu.vue` 迁移为底部形态）：登录区由顶部 header 迁移到侧边栏 footer，收起时只显示一条 banner（头像 + 存在状态点 + 显示名 + 许可徽标 + `⌃` 展开指示），点击**向上展开**菜单（面板 `bottom` 定位、与 banner 等宽，不溢出侧边栏），`max-height: min(70vh, 420px)` 超出内部滚动
 - **「设置」入口迁入用户菜单**（`data-testid="profile-menu-settings"`，文案复用 `nav.settings`）：任意身份状态均可见；点击先关闭菜单再抛出 `open-settings`，由侧边栏透传 `App.vue` 打开设置弹窗（复用既有链路，零新增 IPC）
 - **「⭐ 升级 Pro」入口迁入用户菜单**（`data-testid="profile-menu-upgrade"`，文案复用 `memberCenter.upgradePro`）：复用 `.profile-menu-action` 版式（仅以金色描边/渐变强调，与其余菜单项结构一致）；仅非 Pro 显示；点击先关闭菜单再抛出 `upgrade`，由侧边栏打开升级弹窗
-- **banner 存在状态点**（`data-testid="yixiaoer-profile-status"`）：`online` 绿 / `busy`·`error` 橙 / 其他灰，`title` 呈现身份状态文案，取代原 footer 独立「客户端状态」文字行
+- **banner 存在状态点**（`data-testid="mp-profile-status"`）：`online` 绿 / `busy`·`error` 橙 / 其他灰，`title` 呈现身份状态文案，取代原 footer 独立「客户端状态」文字行
 
 ### 改进
 - **侧边栏 header 改为品牌区**：`MP` 标识 + `Multi-Publish` + `+ 新建发布`（登录区移出后填充视觉锚点；ASCII 字面量，无需 i18n）
@@ -61,7 +93,7 @@
 - 主导航「设置」按钮、footer 独立「⭐ 升级 Pro」胶囊按钮、footer「客户端状态」独立文字行（分别迁移/合并，见上）
 
 ### 验证
-- `vitest run src/layouts/YixiaoerSidebar.test.js src/layouts/YixiaoerModuleNav.test.js src/components/ProfileMenu.test.js` → **3 files / 26 passed**（Sidebar 9 / ModuleNav 5 / ProfileMenu 12）
+- `vitest run src/layouts/MpSidebar.test.js src/layouts/MpModuleNav.test.js src/components/ProfileMenu.test.js` → **3 files / 26 passed**（Sidebar 9 / ModuleNav 5 / ProfileMenu 12）
 - `eslint`（6 个改动文件，`--quiet`）→ **0 error**
 - `node .github/scripts/check-locale-sync.js --cjk` → PASS（当前 1461 / 基线 1689，无新增硬编码）；`--keys` → PASS（958 key 均存在于 zh/en）
 - 桌面端全量单测（worktree 内）与 CI 门禁结果见 PR
@@ -152,12 +184,12 @@
 ### CI 接入（`.github/workflows/debt-guard.yml`）
 - 新增「死代码检测（软门禁）」步骤：运行检测脚本输出候选清单，`continue-on-error` 不阻塞 CI（已知 DI seam/动态引用误报需人工确认）
 
-# [未发布] fix(account): 账号登录态检测对齐蚁小二 HTTP API，修复登录页误判与失效误报（2026-09-14）
+# [未发布] fix(account): 账号登录态检测对齐参考产品 HTTP API，修复登录页误判与失效误报（2026-09-14）
 
 ### 修复
-- **视频号失效误判**（PR #1817）：视频号凭证只有 localStorage（cookies=0），checkLoginStatus 渲染崩溃保护分支只查本地凭证文件 → 永远判有效。对齐蚁小二 getShipinhaoUserInfo：POST channels.weixin.qq.com/cgi-bin/mmfinderassistant-bin/auth/auth_data，errCode 300333/300334 判失效，data.finderUser 存在判有效
-- **公众号失效误判**：Cookie（slave_sid）过期后访问 cgi-bin/home 仍返回 200 渲染后台骨架，DOM 选择器命中即误判有效。对齐蚁小二 getWeixingongzhonghaoUserInfo：GET mp.weixin.qq.com/cgi-bin/loginpage?url=%2Fcgi-bin%2Fhome，正则解析 HTML 中 token=/uin: 缺失判失效（ret=200003）
-- **bilibili 检测新增**：对齐蚁小二 getBilibiliUserInfo：GET api.bilibili.com/x/web-interface/nav，code === -101 判失效，data.mid 存在判有效；cookie 必须含 bili_jct（缺失即失效）
+- **视频号失效误判**（PR #1817）：视频号凭证只有 localStorage（cookies=0），checkLoginStatus 渲染崩溃保护分支只查本地凭证文件 → 永远判有效。对齐参考产品 getShipinhaoUserInfo：POST channels.weixin.qq.com/cgi-bin/mmfinderassistant-bin/auth/auth_data，errCode 300333/300334 判失效，data.finderUser 存在判有效
+- **公众号失效误判**：Cookie（slave_sid）过期后访问 cgi-bin/home 仍返回 200 渲染后台骨架，DOM 选择器命中即误判有效。对齐参考产品 getWeixingongzhonghaoUserInfo：GET mp.weixin.qq.com/cgi-bin/loginpage?url=%2Fcgi-bin%2Fhome，正则解析 HTML 中 token=/uin: 缺失判失效（ret=200003）
+- **bilibili 检测新增**：对齐参考产品 getBilibiliUserInfo：GET api.bilibili.com/x/web-interface/nav，code === -101 判失效，data.mid 存在判有效；cookie 必须含 bili_jct（缺失即失效）
 - **头条号登录页误判**：PLATFORM_LOGIN_SUCCESS_PATTERNS.toutiao = ['mp.toutiao.com'] 裸域名模式，登录页 mp.toutiao.com/login 命中 → 误判登录成功 → 提前关闭并保存无效账号。改为精确路径 ['profile_v4']
 - **视频号登录页误判（同款）**：tencent_video = ['channels.weixin.qq.com'] 裸域名模式，登录页 login.html 命中 → 提前关闭并保存无 Cookie 凭证。改为精确路径 ['channels.weixin.qq.com/platform']
 - **登录成功重复提示**：Accounts.vue 页面级 notifySuccess 与 useAccountEvents.complete() 全局提示重复。去掉页面级，只保留全局「xx 登录凭证已自动保存」
@@ -177,7 +209,7 @@
 - **全局回到顶部浮标**（`components/BackToTop.vue`）：固定于窗口右侧接近底部，滚动超过 320px 后淡入；点击平滑回滚至滚动区顶部。含悬浮（底色加深 + 图标转深色 + 左侧文字提示）/ 按下（底色再加深 + `scale(0.94)`）/ 键盘焦点（2px 主色描边 + 同享提示）三种状态
 - **挂载方式**：`App.vue` 全局唯一实例（`v-else` 分支内），不在各视图单独引入（`docs/frontend-interaction-spec.md` §2 交互原语唯一实现清单新增登记项）
 - **零逐页改动**：显隐条件为「滚动容器 `scrollTop > threshold`」而非页面白名单，内容不足一屏的页面自动不出现；`/first-run` 全屏路由与登录标签页自动排除
-- **多滚动容器覆盖**：在 `.yixiaoer-workspace` 上以**捕获阶段**监听 `scroll`（`scroll` 事件不冒泡），自动覆盖 `PublishHistory` / `ModelProviders` / `ResultView` / `ContactSheetView` 等视图内嵌 `overflow:auto` 区块
+- **多滚动容器覆盖**：在 `.mp-workspace` 上以**捕获阶段**监听 `scroll`（`scroll` 事件不冒泡），自动覆盖 `PublishHistory` / `ModelProviders` / `ResultView` / `ContactSheetView` 等视图内嵌 `overflow:auto` 区块
 - **无障碍**：原生 `<button type="button">` + `aria-label`；Tab 可聚焦、Enter/Space 触发；`prefers-reduced-motion: reduce` 时关闭过渡并将平滑滚动降级为瞬时跳转
 - **i18n**：zh/en 成对新增 `common.backToTop`（回到顶部 / Back to top）
 - **设计 token**：`styles/tokens.css` 新增 `--color-float-surface*` / `--color-float-icon*` / `--color-float-tooltip-*` / `--shadow-float`（亮/暗双模式）
@@ -697,7 +729,7 @@
 - locales（zh/en 成对）：新增 `typeArticleImage` 键；旧键 `typeImage`/`typeArticle`/`typeWechat` 保留不删。
 
 ### 依据
-全链路追踪证实三个类型值在编辑器（都落 `activeMode='article'`）、IPC payload（不含 type）、主进程（按 platform 分发）、持久化（零存储）完全等价。原四入口为蚁小二 UI 对齐引入的纯展示性区分，选项数量与真实行为不一致。
+全链路追踪证实三个类型值在编辑器（都落 `activeMode='article'`）、IPC payload（不含 type）、主进程（按 platform 分发）、持久化（零存储）完全等价。原四入口为参考产品 UI 对齐引入的纯展示性区分，选项数量与真实行为不一致。
 
 ### 验证
 - 发布模块 108 测试通过（含新增：2 卡片断言、平台并集断言、image/wechat/article 归一化用例、无效 type 不显示标签用例）。
@@ -1044,19 +1076,19 @@
 ## [未发布] fix(desktop): 修复左侧菜单区域不固定、随内容滚动的问题（2026-09-03）
 
 ### 根因
-- `.app-root` 缺少 `height: 100%`，导致 CSS 百分比高度链断裂，`.yixiaoer-shell` 的 `height: 100%` 退化为 `auto`
+- `.app-root` 缺少 `height: 100%`，导致 CSS 百分比高度链断裂，`.mp-shell` 的 `height: 100%` 退化为 `auto`
 
 ### 修复
 - **`.app-root`**：添加 `height: 100%; display: flex; flex-direction: column;`
-- **`.yixiaoer-shell`**：改为 `flex: 1; min-height: 0;`（替代 `height: 100%`）
+- **`.mp-shell`**：改为 `flex: 1; min-height: 0;`（替代 `height: 100%`）
 - **`.fullscreen-main`**：改为 `flex: 1; min-height: 0;`（替代 `height: 100%`）
 - **`html, body`**：添加 `overflow: hidden;`，防止视口滚动条
-- **`.yixiaoer-sidebar`**：添加 `flex-shrink: 0;`（防止压缩）+ `overflow-y: auto;`（内容溢出时可独立滚动）
+- **`.mp-sidebar`**：添加 `flex-shrink: 0;`（防止压缩）+ `overflow-y: auto;`（内容溢出时可独立滚动）
 
 ### 文档
 - 新增 `docs/desktop-ui-layout-spec.md`（UI 布局完整规格）
 - 更新 `docs/frontend-interaction-spec.md`（新增布局框架规则）
-- 更新 `01-docs/PRD-yixiaoer-reuse.md`（更新整体布局图）
+- 更新 `01-docs/PRD-mp-reuse.md`（更新整体布局图）
 
 
 ### 功能增强
@@ -1242,14 +1274,14 @@
 - 样式：.stage-time-guidance margin-top 10px→0（列表 flex gap 提供间距），横向 padding 与阶段项对齐（16px）。
 - 回归保护：StageProgress.test.js 新增用例断言说明块父级为 story2video-stage-list 且不在粘性头部内（findAll 跨版本安全断言）；相关套件 28/28 通过。
 
-## [未发布] feat(baijiahao): 百家号视频发布切换为蚁小二 API 直调链（phase-c-real-publish）
+## [未发布] feat(baijiahao): 百家号视频发布切换为参考产品 API 直调链（phase-c-real-publish）
 
-- 逆向蚁小二主进程（yixiaoer-extracted/packages/main/dist/index.cjs）逐行为对齐百家号视频发布 API 链：getBaseToken（BJH__INIT__AUTH__ 正则）→ appinfo（app_id）→ preuploadVideo（video_type=short）→ rsbjh 分片上传（2MiB/片，uploadId 判据，存储服务异常换 rsbjh10/11/12 重试）→ compuploadVideo（bos_url+mediaId）→ pcui/video/process 轮询首帧封面（180×1.5s）→ buildVideoPostData（位置空对象/原创声明/封面三件套/常驻字段全量对齐）→ pcui/article/publish（errno===0 && ret.id）。
+- 逆向参考产品主进程（mp-extracted/packages/main/dist/index.cjs）逐行为对齐百家号视频发布 API 链：getBaseToken（BJH__INIT__AUTH__ 正则）→ appinfo（app_id）→ preuploadVideo（video_type=short）→ rsbjh 分片上传（2MiB/片，uploadId 判据，存储服务异常换 rsbjh10/11/12 重试）→ compuploadVideo（bos_url+mediaId）→ pcui/video/process 轮询首帧封面（180×1.5s）→ buildVideoPostData（位置空对象/原创声明/封面三件套/常驻字段全量对齐）→ pcui/article/publish（errno===0 && ret.id）。
 - 发布路由新增 API 模式：publisher-router ROUTE_TABLE baijiahao: { mode:'api' }，新增 ApiPublisher（凭证加载→cookie 串→ffprobe 横版校验→publishViaApi→postId 规范化），取消信号/超时语义完整，URL 脱敏复用 sanitizePublishResultUrl。
 - 修复历史 RPA 百家号发布失败根因（位置必填/引导弹窗 verification timeout）：API 契约位置可选（position_lat_lng={}），绕开浏览器自动化。
 - 测试：baijiahao-api-chain.test.js 18 用例（RED→GREEN）+ publisher-router.test.js 新增 10 用例；api-publish-engine 全量绿（42 vitest），desktop 受影响套件 42/42、引用方与 shared-utils 全绿。
 - 双模型审查修复（opencode+Claude）：form-data 声明为 api-publish-engine 直接依赖（QM-2 闭包）；任务级 300s 超时落地为 adapter.execute deadline（轮询/发布前强制收口）；cookie 平台域白名单放行 baidu.com 父域（精确匹配，BDUSS 不再被滤掉）；signal 透传分片/轮询循环（可中断）；发行路径错误消息脱敏（仅 errmsg/errno）；headers 统一走 getHeaders（含 UA/Accept）；视频缺失/竖版/自定义封面显式报错；draft 透传（/save 端点）；删除死代码与测试噪音；rsbjh 重试 host 与文档对齐。
-- 文档：01-docs/PRD-yixiaoer-reuse.md 新增 11 章（发布链 8 步/字段契约/校验/交互/限制/测试）；ARCH-F3-baijiahao.md 同步。
+- 文档：01-docs/PRD-mp-reuse.md 新增 11 章（发布链 8 步/字段契约/校验/交互/限制/测试）；ARCH-F3-baijiahao.md 同步。
 - 已知限制与后续：竖版接口、封面上传图片链、快手 API 链待移植；真实发布需账号凭证有效（重新扫码登录）。
 
 ## [未发布] fix(story2video): 移动水印跨镜头连续漂移（成片级统一烧录）
@@ -1319,7 +1351,7 @@
 
 - `ops-center/backend/.env.example` 新增 `OPS_ALLOW_PROXY_BENCHMARK_IPS=false`（#1165 配套）：`198.18.0.0/15`（RFC 2544 基准段）在 Clash/TUN fake-ip 代理环境下用于接管公网流量，仅此类主机可开启；默认 false 保持 SSRF fail-closed，ECS/生产环境请保持关闭。
 
-## [未发布] feat(yixiaoer-ue): 封面裁剪 Phase A（yixiaoer-ue-parity-real-publish-e2e）
+## [未发布] feat(mp-ue): 封面裁剪 Phase A（mp-ue-parity-real-publish-e2e）
 
 - 新增 `cover-cropper.js`：offscreen BrowserWindow + canvas 裁剪（rect 校验/边界收敛/等比缩放），JPEG 质量自适应二分压缩至 ≤512KB（快手限制），纯函数可单测。
 - 新增 IPC `cover:crop` / `cover:read-data` + preload `cropVideoCover`/`readCoverData`（含 index.bundle 重建）。
@@ -1350,9 +1382,9 @@
 
 ## [未发布] refactor(desktop): 单壳导航统一（P2.5）
 
-- 桌面端导航由双壳（Yixiaoer 壳 + cohere 壳 AppNavbar/AppSidebar）统一为单一 Yixiaoer 壳：移除 App.vue 的 `isYixiaoerWorkspace` 分支，仅 `/first-run` 保持脱离外壳的全屏渲染（`.fullscreen-main`），其余路由全部进入主壳。
+- 桌面端导航由双壳（MpSidebar 主应用壳 + cohere 壳 AppNavbar/AppSidebar）统一为单一主应用壳（`MpSidebar` + `MpModuleNav`）：移除 App.vue 的 `isMpWorkspace` 分支，仅 `/first-run` 保持脱离外壳的全屏渲染（`.fullscreen-main`），其余路由全部进入主壳。
 - 删除 `layouts/AppNavbar.vue`、`AppNavbar.test.js`、`layouts/AppSidebar.vue`（约 230 行双壳逻辑/死代码）及 `.cohere-app-body` 样式规则；`.cohere-main` 类在主壳保留，既有选择器兼容不受影响。
-- YixiaoerSidebar 补全"更多"菜单缺失入口（关键词监控、爆款分析、提示词评估、模型提供商）；AppNavbar 的升级 Pro / 服务状态迁入侧边栏 footer（含 UpgradeModal）。
+- MpSidebar 补全"更多"菜单缺失入口（关键词监控、爆款分析、提示词评估、模型提供商）；AppNavbar 的升级 Pro / 服务状态迁入侧边栏 footer（含 UpgradeModal）。
 - E2E 助手 `clickText` 默认 selector 增加 `.fullscreen-main` 候选容器；视觉基线更新 6 个受影响视图并经人工确认预期 diff。
 - 验证：test:visual:pixel 17/17 通过；CJK 基线重生成无新增硬编码中文；src/layouts + src/router 单测 13/13 通过。
 
@@ -1734,13 +1766,13 @@
   - 引入 vitest + jsdom 回归测试 11 例（过期/有效/损坏/无 exp、401 跳转、非 401 不动、Bearer 注入）；`frontend/.npmrc` 固定 `legacy-peer-deps=true`（npm 10.9.x 解析 vitest 4 peer 依赖 arborist 崩溃）。
 - 验证：`npm test` 11/11 通过；`npm run build` 通过；审查降级记录见 `.ccg/tasks/fix-stale-token-401-redirect/review.md`（antigravity 地区不可用、claude CLI 不可用）。
 
-## [2026-08-14] feat(accounts): 平台账号登录全屏标签化——对标蚁小二「添加账号 → 全屏标签加载登录页 + 导航栏保存账号按钮」（account-login-fullscreen-tab）
+## [2026-08-14] feat(accounts): 平台账号登录全屏标签化——对标参考产品「添加账号 → 全屏标签加载登录页 + 导航栏保存账号按钮」（account-login-fullscreen-tab）
 
-- 需求：蚁小二「账号管理 → 添加账号 → 选择抖音」是在标签栏新开全屏标签加载登录页、导航栏右侧蓝色「保存账号」按钮；本项目原为页面内弹窗/横幅式登录视图，改造为一致的全屏标签体验（登录页内容本身不在对齐范围）。
+- 需求：参考产品「账号管理 → 添加账号 → 选择抖音」是在标签栏新开全屏标签加载登录页、导航栏右侧蓝色「保存账号」按钮；本项目原为页面内弹窗/横幅式登录视图，改造为一致的全屏标签体验（登录页内容本身不在对齐范围）。
 - 实现：
   - 主进程：`auth-view-manager.js` 登录视图定位改为全屏（`AUTH_VIEW_TOP = 76` = TabBar 36px + NavBar 40px，不再避让侧边栏）并新增 `onOpened`/`onClosed` 生命周期钩子；`webview-manager.js` 新增 `attachAuthViewManager()`，登录视图注册为虚拟标签 `auth-login`（标题「{平台中文名}登录」+ 平台图标），参与 getAllTabs/getActiveTab/switchToTab/closeTab/resize，广播 tab-created/tab-switched/tab-closed（`isLogin: true`），关闭后回退打开前的活动标签（无则回首页）；`container.setup.js` 工厂装配（容器单例钩子只绑一次）。
   - 渲染进程：`App.vue` NavBar 绑定 `:is-login-tab`/`:saving`/`@save-account`，保存处理器调 `completeLogin('browser')`（防重入，成功「账号已保存」/失败「保存账号失败，请确认已完成登录后重试」）；`NavBar.vue` 新增蓝色「保存账号」按钮（#409eff 圆角，保存中禁用态）；`Accounts.vue` login-state 横幅与浮动关闭按钮限定扫码模式（qrcode）才渲染。
-  - 配置：抖音登录 URL `www.douyin.com` → `creator.douyin.com`（对齐蚁小二创作者中心入口，与 dashboard URL/认证域名表一致）。
+  - 配置：抖音登录 URL `www.douyin.com` → `creator.douyin.com`（对齐参考产品创作者中心入口，与 dashboard URL/认证域名表一致）。
 - 测试：`webview-manager.test.js` 新增 11 例（钩子绑定/虚拟标签注入广播/回退/双向切换/closeTab 委托/resize/未挂载降级）；`auth-view-manager.test.js` 23 例、`NavBar.test.js` 5 例、`Accounts.test.js` 75 例全绿；desktop 全量 7666 例通过；QM-1 本地打包成功 + 启动 10 秒存活且 stderr 干净。
 - 文档：PRD §2.3.2（流程/显示项/提示文字/数据校验/功能逻辑/测试覆盖）、UI-INVENTORY §1.1 虚拟登录标签 + §5.2 状态表同步。
 - i18n：登录标签全部用户可见文案入 locale（zh/en 成对，CI Gate 7 locale-sync）：`nav.saveAccount` / `nav.savingAccount` / `accounts.saved` / `accounts.saveFailed`；路由重试失败文案 `common.pageLoadFailed(Message)` 同步 i18n 化；NavBar 日志文案英文化（CJK 基线扫描不命中非用户可见日志）；测试挂载 i18n 插件断言 zh 文案。
@@ -2830,20 +2862,20 @@
 - 文档：01-docs/PRD.md 7.4.4（字段/校验/交互/调度机制详细合同）；ops-center docs/PRD.md 12A。
 - 边界：桌面端与 ops-center 保持「种子手工对齐 + 文档契约」，无运行时 API 同步（后续项）；真实 provider 每分钟限额行为仍由 governor 429 自适应兜底。
 
-## [未发布] 蚁小二弹窗/特殊状态深度对标：分组管理页面级化 + UI 界面清单（2026-08-10）
+## [未发布] 参考产品弹窗/特殊状态深度对标：分组管理页面级化 + UI 界面清单（2026-08-10）
 
-- 深度盘点：遍历全部 67 个 `.vue` 文件、22 条路由，枚举所有弹窗/模态框/特殊状态（loading/empty/error/批量/进度）及按钮→界面映射，产出 `01-docs/UI-INVENTORY.md`（含弹窗总览、状态总览、蚁小二对标差异备忘）。
-- 复刻：蚁小二「分组管理」是页面级 Tab（搜索分组 + 全部筛选 + 仅看包含我的分组 + 设置排序 + 创建分组），此前我们点 Tab 弹 `AccountGroupManager` 弹窗，交互形态不符；新增页面级 `AccountGroupsPanel.vue`（工具栏 + 内联创建行 + 分组卡片 + 云朵空态）。
+- 深度盘点：遍历全部 67 个 `.vue` 文件、22 条路由，枚举所有弹窗/模态框/特殊状态（loading/empty/error/批量/进度）及按钮→界面映射，产出 `01-docs/UI-INVENTORY.md`（含弹窗总览、状态总览、参考产品对标差异备忘）。
+- 复刻：参考产品「分组管理」是页面级 Tab（搜索分组 + 全部筛选 + 仅看包含我的分组 + 设置排序 + 创建分组），此前我们点 Tab 弹 `AccountGroupManager` 弹窗，交互形态不符；新增页面级 `AccountGroupsPanel.vue`（工具栏 + 内联创建行 + 分组卡片 + 云朵空态）。
 - 复刻：「收藏分组」 Tab 从“收藏筛选器”改为页面级 `AccountFavoritesPanel.vue`（搜索收藏 + 分组名称/账号数/操作表格 + 云朵空态），「查看账号」回到账号列表并按分组筛选；「创建分组」未接入时 disabled（诚实能力边界）。
 - 清理：`Accounts.vue` 移除 `showGroupManager`/弹窗 watcher，groups/favorites Tab 下隐藏账号主列表工具栏；`AccountGroupManager.vue` 保留但不再挂载。
 - 测试：`Accounts.test.js` 重写分组/收藏页签用例 + 新增 4 例（面板渲染、创建携带平台、空分组过滤、收藏表格），77/77 通过；`vite build` 通过。
-- 基线：蚁小二实机截图 19 张（`01-docs/yixiaoer-reverse/screenshots/yxe-live-20260810/`，覆盖首页/账号/分组/分享/收藏/发布记录/草稿/看板/创作/评论/批量/小蚁 AI/团队/素材库/数据）。
-- 复刻：`AccountManagementCard` 归属徽章按蚁小二契约分色 — 负责人蓝（`assignee-owner`）/ 运营人灰（`assignee-publisher`）/ 代理紫（`assignee-proxy`），新增分色回归测试。
+- 基线：参考产品实机截图 19 张（`01-docs/ui-reference/screenshots/mp-live-20260810/`，覆盖首页/账号/分组/分享/收藏/发布记录/草稿/看板/创作/评论/批量/小蚁 AI/团队/素材库/数据）。
+- 复刻：`AccountManagementCard` 归属徽章按参考产品契约分色 — 负责人蓝（`assignee-owner`）/ 运营人灰（`assignee-publisher`）/ 代理紫（`assignee-proxy`），新增分色回归测试。
 - 清理：`Publish.vue` 64 处 inline style 全部迁移为语义化 class（`publish-header-row`/`batch-articles`/`copy-url-button.is-copied` 等约 40 个），定义收敛至 `<style scoped>`；迁移过程中修复一处重复 class 属性导致的模板解析错误（`@vue/compiler-sfc` 0 error 验证）。
 - 视觉基线：因本分支刻意重绘 UI，像素门禁 4 视图（accounts-list/dashboard/create-history/collection）基线失效；本地 dev server + `UPDATE_BASELINE=1` 重新生成并经 CI 同款 2% 阈值回验 0% 通过，基线随代码入库。
-- 视觉门禁修复：home-baseline 就绪超时——首页已重绘为 `.yixiaoer-home` 布局，但 `run-pixel-tests.js` 的 waitFor 仍指向已删除的 `.cohere-main .page-title`，CI 连续 3 次稳定超时（appTextLength=263）；同步修正 run-pixel-tests.js / all-views / functional-test 首页选择器为 `.yixiaoer-home .yixiaoer-home-welcome`，`visual-ci.test.js` 新增合同断言防回归，重生成 home-baseline.png；本地全量 17 视图像素套件 2% 阈值全部通过。
-- GUI 门禁修复（同源）：E2E 路由检查与 flow-2 仍用旧首页文案/选择器——`route-functional-suite.js` home title 改为新首页稳定静态文案“多平台内容一键发布”，`exerciseHome` 改用 `.yixiaoer-home-shortcut` 快捷入口并把已移除的 `getVersion` IPC 断言替换为新首页真实调用的 `historyList`；`integration-flows.js` Flow2.5 平台列表选择器增加 `.yixiaoer-home-platform-tag`；本地完整 `test:e2e` 314/314 checks 通过（18 路由 + 6 集成流）。
-- Electron GUI 门禁修复（同源）：`electron-gui-v9.js` testHomePage 适配新首页——`assertTitle("社媒")`/`statCard×5` 旧断言替换为 `.yixiaoer-home` 根容器+欢迎区存在性与 `.yixiaoer-home-shortcut×6`，新选择器入 `selectors.json`（配置驱动），CI dispatch 60/60 通过。
+- 视觉门禁修复：home-baseline 就绪超时——首页已重绘为 `.mp-home` 布局，但 `run-pixel-tests.js` 的 waitFor 仍指向已删除的 `.cohere-main .page-title`，CI 连续 3 次稳定超时（appTextLength=263）；同步修正 run-pixel-tests.js / all-views / functional-test 首页选择器为 `.mp-home .mp-home-welcome`，`visual-ci.test.js` 新增合同断言防回归，重生成 home-baseline.png；本地全量 17 视图像素套件 2% 阈值全部通过。
+- GUI 门禁修复（同源）：E2E 路由检查与 flow-2 仍用旧首页文案/选择器——`route-functional-suite.js` home title 改为新首页稳定静态文案“多平台内容一键发布”，`exerciseHome` 改用 `.mp-home-shortcut` 快捷入口并把已移除的 `getVersion` IPC 断言替换为新首页真实调用的 `historyList`；`integration-flows.js` Flow2.5 平台列表选择器增加 `.mp-home-platform-tag`；本地完整 `test:e2e` 314/314 checks 通过（18 路由 + 6 集成流）。
+- Electron GUI 门禁修复（同源）：`electron-gui-v9.js` testHomePage 适配新首页——`assertTitle("社媒")`/`statCard×5` 旧断言替换为 `.mp-home` 根容器+欢迎区存在性与 `.mp-home-shortcut×6`，新选择器入 `selectors.json`（配置驱动），CI dispatch 60/60 通过。
 - CI 门禁修复：`views-deep2.test.js` accountStore mock 补 `ensureLoaded`（与存量更正同源遗漏），消除 quality-gate QG Coverage / Desktop Shards(2/2) 的 unhandled rejection；重 dispatch 后 quality-gate 全 9 job 通过。
 - 边界：卡片底部按钮布局等视觉细节待后续复刻；真实平台登录/发布仍属外部验收。
 - 存量更正：此前记录「Home.test.js / Publish.test.js / PublishHistory.test.js / views-deep.test.js 34 例失败属 Round 2 已合并存量」的结论**已被推翻**——main 分支 Electron CI 全绿，34 例实为本分支 UI 重绘/store 改造导致的测试失同步，全部修复如下：
@@ -2851,13 +2883,13 @@
   - `Publish.test.js`：`accountStore` mock 补 `ensureLoaded`（组件 `loadAccounts()` 已从 `load()` 改调 `ensureLoaded()` 修竞态，mock 缺该方法导致 onMounted 抛错级联），36/36 通过。
   - `PublishHistory.test.js`：新增 `@/stores/platforms` mock（组件已统一走 `platformStore.getLabel/getIcon/getContentCategory`，未 mock 导致无 active Pinia 报错），19/19 通过。
 
-## [未发布] 蚁小二账号/发布模块全面对标 Round 2（2026-08-10）
+## [未发布] 参考产品账号/发布模块全面对标 Round 2（2026-08-10）
 
-- 布局：`App.vue` 挂载 `YixiaoerSidebar` 到工作区壳层，`isYixiaoerWorkspace` 从 3 条路由白名单改为排除少数特殊页面的黑名单模式，所有主导航可达路由（首页/账号/发布/发布记录/草稿箱等）统一使用 `YixiaoerSidebar + YixiaoerModuleNav` 双导航布局。
-- 首页：`Home.vue` 完全重写为蚁小二风格仪表盘——问候语+快捷操作、4 列数据概览（从 IPC 读取发布统计）、6 宫格快捷入口、支持平台展示、近期动态列表。
-- 导航动态化：`YixiaoerSidebar.vue` 用户头像/名称从 `identityStore` 动态读取，许可证标签从 `licenseStore` 读取；`YixiaoerModuleNav.vue` 新增 homeTabs 支持首页路由、publishTabs 新增"新建发布" tab。
+- 布局：`App.vue` 挂载 `MpSidebar` 到工作区壳层，`isMpWorkspace` 从 3 条路由白名单改为排除少数特殊页面的黑名单模式，所有主导航可达路由（首页/账号/发布/发布记录/草稿箱等）统一使用 `MpSidebar + MpModuleNav` 双导航布局。
+- 首页：`Home.vue` 完全重写为参考产品风格仪表盘——问候语+快捷操作、4 列数据概览（从 IPC 读取发布统计）、6 宫格快捷入口、支持平台展示、近期动态列表。
+- 导航动态化：`MpSidebar.vue` 用户头像/名称从 `identityStore` 动态读取，许可证标签从 `licenseStore` 读取；`MpModuleNav.vue` 新增 homeTabs 支持首页路由、publishTabs 新增"新建发布" tab。
 - 代码收敛：`accounts.js` 新增 `ensureLoaded()` 幂等加载方法（含并发竞态修复：缓存 in-flight Promise）；`PublishHistory.vue` 平台名/图标/视频判断统一到 `platformStore`（`getLabel`/`getIcon`/`getContentCategory`）；新建 `PublishDraftList.vue` 共享草稿列表组件。
-- 测试：更新 `YixiaoerSidebar.test.js`（动态用户信息断言）、`YixiaoerModuleNav.test.js`（publish 3 tabs + home 路由测试）。
+- 测试：更新 `MpSidebar.test.js`（动态用户信息断言）、`MpModuleNav.test.js`（publish 3 tabs + home 路由测试）。
 - 边界：Vite 完整构建因预存在的 node_modules 损坏（`@ctrl/tinycolor` 解析失败）未通过，Vue SFC 编译验证全部通过；真实平台登录/发布仍属外部验收。
 
 ## [未发布] 重构：BGM 跳过提示单一来源（服务层 warnings 机器码化）（2026-08-10）
@@ -2913,7 +2945,7 @@
 ## [未发布] 修复：最小化不再强制隐藏到托盘，恢复系统常规最小化（2026-08-09）
 
 - 修复：移除 `services/system-tray.js` 中无条件的 `minimize → event.preventDefault() + hide()` 拦截——窗口最小化恢复系统常规行为（任务栏最小化），不再因任何最小化事件被藏进托盘；「运行中有流水线任务且托盘可用时，关闭窗口→隐藏到托盘后台执行」的既有行为（`window-close-policy.js`）保持不变。
-- 根因：`d3cbe6a0`（蚁小二逆向工程集成）引入无条件最小化进托盘；任何 minimize 事件（用户点最小化、系统/自动化触发）都会把窗口隐藏到托盘，用户易误以为应用消失、无法操作。
+- 根因：`d3cbe6a0`（参考产品逆向分析集成）引入无条件最小化进托盘；任何 minimize 事件（用户点最小化、系统/自动化触发）都会把窗口隐藏到托盘，用户易误以为应用消失、无法操作。
 - 回归：`system-tray.test.js` 新增 2 例（init 不注册 minimize 拦截 / 双击托盘图标恢复+显示）；`system-tray` + `window` + `window-close-policy` 相关套件 87 例通过，eslint 0 error/warning。
 - 边界：桌面端单元测试覆盖；真实窗口最小化/托盘交互仍属手动验收。
 
@@ -3331,17 +3363,17 @@
 
 ## [未发布] Story2Video 参数边界与运行错误反馈 (2026-08-01)
 
-## [未发布] 蚁小二账号与发布续作收敛 (2026-08-04)
+## [未发布] 参考产品账号与发布续作收敛 (2026-08-04)
 
 ### 账号管理
-- 账号卡片动作按真实蚁小二截图收敛为“设置、删除”，失效账号额外显示“重新登录”，并复用网页登录 IPC 完成重新授权流程。
+- 账号卡片动作按真实参考产品截图收敛为“设置、删除”，失效账号额外显示“重新登录”，并复用网页登录 IPC 完成重新授权流程。
 - 增加粉丝数、负责人、运营人、代理字段的后端字段归一化；缺失数据使用明确空值文案，不生成团队假数据。
 - 增加分组搜索、全部分组、仅看共享、成员计数和分组空态；收藏页签无结果显示“暂无收藏账号”。
 - 分享链接页显示未接入服务状态并禁用创建按钮，保留团队分享/跨设备能力的外部依赖边界。
 
 ### 质量
 - 账号卡片与账号页面定向回归 `78/78` 通过；Vue 构建通过。
-- 账号、发布、批量发布 desktop/mobile/audit 截图 `9/9` 通过；真实蚁小二参考像素审计 `3/3` 通过。
+- 账号、发布、批量发布 desktop/mobile/audit 截图 `9/9` 通过；真实参考产品参考像素审计 `3/3` 通过。
 - 像素视觉门禁账号页就绪选择器改用稳定的 .accounts-page，并刷新预期账号页基线；CI 同口径像素测试 17/17 通过。
 - 全量 Vitest 为 `6016 passed / 2 failed`；两项失败来自本任务未修改的媒体工具资源环境与既有 spawn 参数断言，详见对标分析报告。
 
@@ -3506,23 +3538,23 @@
 
 ---
 
-## [未发布] 蚁小二发布记录界面对齐 (2026-07-24)
+## [未发布] 参考产品发布记录界面对齐 (2026-07-24)
 
 ### 发布中心
 - 新增独立发布记录页，支持发布状态列表、草稿箱、错误重试、新建发布和继续编辑草稿。
 - 顶部导航与命令面板的“发布记录”进入历史页；一键发布编辑器继续保留在 `/publish`，由新建发布和草稿恢复进入。
-- 批量管理改为发布记录列表的选择状态，与登录后的蚁小二工作流保持一致。
+- 批量管理改为发布记录列表的选择状态，与登录后的参考产品工作流保持一致。
 - 发布记录补齐作品搜索、发布人/作品类型/状态/模式筛选、列表/网格切换、CSV 导出及账号/任务/失败/播放/评论/点赞/收藏/分享指标。
 
 ### 账号管理
 - 主内容改为平台筛选栏和账号卡片网格，保留搜索、状态筛选、收藏、默认账号、登录验证、打开主页和批量选择行为。
-- 账号名称使用可访问的内联编辑，桌面按真实蚁小二信息密度显示四列卡片，并在窄屏自适应降列。
+- 账号名称使用可访问的内联编辑，桌面按真实参考产品信息密度显示四列卡片，并在窄屏自适应降列。
 
 ### 界面与质量
 - 修复身份菜单加入后顶部导航在窄窗口换行重叠的问题，并补充单行滚动布局合同。
-- 新增桌面和移动端蚁小二当前界面截图脚本，覆盖账号管理、发布记录和批量选择；截图只使用测试 fixture。
+- 新增桌面和移动端参考产品当前界面截图脚本，覆盖账号管理、发布记录和批量选择；截图只使用测试 fixture。
 - 修复移动端批量选择时记录主体固定宽度导致的横向溢出，并增加回归测试与 Chromium 布局检查。
-- 用已登录真实蚁小二账号、发布记录和批量管理主内容建立 2280×1272 参考基线；三页审计均低于 10% mismatch，未使用忽略区域。
+- 用已登录真实参考产品账号、发布记录和批量管理主内容建立 2280×1272 参考基线；三页审计均低于 10% mismatch，未使用忽略区域。
 - 固化 desktop/mobile/audit 三种 viewport，一条命令可重复生成 accounts、publish、batch-publish 共 9 张当前图。
 - Electron self-hosted CI 的 Vitest 改为单 worker、关闭文件并行，并增加 20 分钟 watchdog、详细 reporter、测试/钩子/清理超时和失败进程树诊断。
 
@@ -3585,7 +3617,7 @@
 - 本地 file URL、复制路径和打开目录不是公网分享链接；最近 100 项本地历史不是云历史或失败运行断点续作。
 - 旧项目的 Sora/Supabase Remix、membership/quota 和音色克隆依赖未验证外部服务，未以占位成功冒充迁移完成。
 
-## [未发布] 蚁小二账号管理与内容发布对齐 (2026-07-20)
+## [未发布] 参考产品账号管理与内容发布对齐 (2026-07-20)
 
 ### 账号管理
 - 保留顶部导航和最左侧平台账号栏，重构主内容区及二级交互。
@@ -3601,7 +3633,7 @@
 
 ### 架构与界面
 - 页面拆分为展示组件、composable/Pinia、renderer API、preload、IPC 和主进程服务六层。
-- 账号页和发布页主内容区按蚁小二的信息结构与工作流对齐，现有应用外壳保持不变。
+- 账号页和发布页主内容区按参考产品的信息结构与工作流对齐，现有应用外壳保持不变。
 - 修复安装版平台规则/封面预设的配置路径，插件目录改为 Electron 用户数据目录，避免向只读 ASAR 写入。
 
 ### 质量
@@ -3611,9 +3643,9 @@
 
 ---
 
-## [蚁小二复用] v0.17.0 - 账号管理增强 + 内容发布增强 (2026-07-16)
+## [参考产品复用] v0.17.0 - 账号管理增强 + 内容发布增强 (2026-07-16)
 
-基于蚁小二逆向工程分析，增强账号管理和内容发布模块，使其功能接近蚁小二 4.0。
+基于参考产品逆向分析分析，增强账号管理和内容发布模块，使其功能接近参考产品 4.0。
 
 ### 账号管理模块增强 (accounts.js)
 - 新增账号分组管理（创建/删除/按分组筛选），localStorage 持久化
@@ -6255,13 +6287,13 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
   - 引入 vitest + jsdom 回归测试 11 例（过期/有效/损坏/无 exp、401 跳转、非 401 不动、Bearer 注入）；`frontend/.npmrc` 固定 `legacy-peer-deps=true`（npm 10.9.x 解析 vitest 4 peer 依赖 arborist 崩溃）。
 - 验证：`npm test` 11/11 通过；`npm run build` 通过；审查降级记录见 `.ccg/tasks/fix-stale-token-401-redirect/review.md`（antigravity 地区不可用、claude CLI 不可用）。
 
-## [2026-08-14] feat(accounts): 平台账号登录全屏标签化——对标蚁小二「添加账号 → 全屏标签加载登录页 + 导航栏保存账号按钮」（account-login-fullscreen-tab）
+## [2026-08-14] feat(accounts): 平台账号登录全屏标签化——对标参考产品「添加账号 → 全屏标签加载登录页 + 导航栏保存账号按钮」（account-login-fullscreen-tab）
 
-- 需求：蚁小二「账号管理 → 添加账号 → 选择抖音」是在标签栏新开全屏标签加载登录页、导航栏右侧蓝色「保存账号」按钮；本项目原为页面内弹窗/横幅式登录视图，改造为一致的全屏标签体验（登录页内容本身不在对齐范围）。
+- 需求：参考产品「账号管理 → 添加账号 → 选择抖音」是在标签栏新开全屏标签加载登录页、导航栏右侧蓝色「保存账号」按钮；本项目原为页面内弹窗/横幅式登录视图，改造为一致的全屏标签体验（登录页内容本身不在对齐范围）。
 - 实现：
   - 主进程：`auth-view-manager.js` 登录视图定位改为全屏（`AUTH_VIEW_TOP = 76` = TabBar 36px + NavBar 40px，不再避让侧边栏）并新增 `onOpened`/`onClosed` 生命周期钩子；`webview-manager.js` 新增 `attachAuthViewManager()`，登录视图注册为虚拟标签 `auth-login`（标题「{平台中文名}登录」+ 平台图标），参与 getAllTabs/getActiveTab/switchToTab/closeTab/resize，广播 tab-created/tab-switched/tab-closed（`isLogin: true`），关闭后回退打开前的活动标签（无则回首页）；`container.setup.js` 工厂装配（容器单例钩子只绑一次）。
   - 渲染进程：`App.vue` NavBar 绑定 `:is-login-tab`/`:saving`/`@save-account`，保存处理器调 `completeLogin('browser')`（防重入，成功「账号已保存」/失败「保存账号失败，请确认已完成登录后重试」）；`NavBar.vue` 新增蓝色「保存账号」按钮（#409eff 圆角，保存中禁用态）；`Accounts.vue` login-state 横幅与浮动关闭按钮限定扫码模式（qrcode）才渲染。
-  - 配置：抖音登录 URL `www.douyin.com` → `creator.douyin.com`（对齐蚁小二创作者中心入口，与 dashboard URL/认证域名表一致）。
+  - 配置：抖音登录 URL `www.douyin.com` → `creator.douyin.com`（对齐参考产品创作者中心入口，与 dashboard URL/认证域名表一致）。
 - 测试：`webview-manager.test.js` 新增 11 例（钩子绑定/虚拟标签注入广播/回退/双向切换/closeTab 委托/resize/未挂载降级）；`auth-view-manager.test.js` 23 例、`NavBar.test.js` 5 例、`Accounts.test.js` 75 例全绿；desktop 全量 7666 例通过；QM-1 本地打包成功 + 启动 10 秒存活且 stderr 干净。
 - 文档：PRD §2.3.2（流程/显示项/提示文字/数据校验/功能逻辑/测试覆盖）、UI-INVENTORY §1.1 虚拟登录标签 + §5.2 状态表同步。
 - i18n：登录标签全部用户可见文案入 locale（zh/en 成对，CI Gate 7 locale-sync）：`nav.saveAccount` / `nav.savingAccount` / `accounts.saved` / `accounts.saveFailed`；路由重试失败文案 `common.pageLoadFailed(Message)` 同步 i18n 化；NavBar 日志文案英文化（CJK 基线扫描不命中非用户可见日志）；测试挂载 i18n 插件断言 zh 文案。
@@ -7351,20 +7383,20 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 文档：01-docs/PRD.md 7.4.4（字段/校验/交互/调度机制详细合同）；ops-center docs/PRD.md 12A。
 - 边界：桌面端与 ops-center 保持「种子手工对齐 + 文档契约」，无运行时 API 同步（后续项）；真实 provider 每分钟限额行为仍由 governor 429 自适应兜底。
 
-## [未发布] 蚁小二弹窗/特殊状态深度对标：分组管理页面级化 + UI 界面清单（2026-08-10）
+## [未发布] 参考产品弹窗/特殊状态深度对标：分组管理页面级化 + UI 界面清单（2026-08-10）
 
-- 深度盘点：遍历全部 67 个 `.vue` 文件、22 条路由，枚举所有弹窗/模态框/特殊状态（loading/empty/error/批量/进度）及按钮→界面映射，产出 `01-docs/UI-INVENTORY.md`（含弹窗总览、状态总览、蚁小二对标差异备忘）。
-- 复刻：蚁小二「分组管理」是页面级 Tab（搜索分组 + 全部筛选 + 仅看包含我的分组 + 设置排序 + 创建分组），此前我们点 Tab 弹 `AccountGroupManager` 弹窗，交互形态不符；新增页面级 `AccountGroupsPanel.vue`（工具栏 + 内联创建行 + 分组卡片 + 云朵空态）。
+- 深度盘点：遍历全部 67 个 `.vue` 文件、22 条路由，枚举所有弹窗/模态框/特殊状态（loading/empty/error/批量/进度）及按钮→界面映射，产出 `01-docs/UI-INVENTORY.md`（含弹窗总览、状态总览、参考产品对标差异备忘）。
+- 复刻：参考产品「分组管理」是页面级 Tab（搜索分组 + 全部筛选 + 仅看包含我的分组 + 设置排序 + 创建分组），此前我们点 Tab 弹 `AccountGroupManager` 弹窗，交互形态不符；新增页面级 `AccountGroupsPanel.vue`（工具栏 + 内联创建行 + 分组卡片 + 云朵空态）。
 - 复刻：「收藏分组」 Tab 从“收藏筛选器”改为页面级 `AccountFavoritesPanel.vue`（搜索收藏 + 分组名称/账号数/操作表格 + 云朵空态），「查看账号」回到账号列表并按分组筛选；「创建分组」未接入时 disabled（诚实能力边界）。
 - 清理：`Accounts.vue` 移除 `showGroupManager`/弹窗 watcher，groups/favorites Tab 下隐藏账号主列表工具栏；`AccountGroupManager.vue` 保留但不再挂载。
 - 测试：`Accounts.test.js` 重写分组/收藏页签用例 + 新增 4 例（面板渲染、创建携带平台、空分组过滤、收藏表格），77/77 通过；`vite build` 通过。
-- 基线：蚁小二实机截图 19 张（`01-docs/yixiaoer-reverse/screenshots/yxe-live-20260810/`，覆盖首页/账号/分组/分享/收藏/发布记录/草稿/看板/创作/评论/批量/小蚁 AI/团队/素材库/数据）。
-- 复刻：`AccountManagementCard` 归属徽章按蚁小二契约分色 — 负责人蓝（`assignee-owner`）/ 运营人灰（`assignee-publisher`）/ 代理紫（`assignee-proxy`），新增分色回归测试。
+- 基线：参考产品实机截图 19 张（`01-docs/ui-reference/screenshots/mp-live-20260810/`，覆盖首页/账号/分组/分享/收藏/发布记录/草稿/看板/创作/评论/批量/小蚁 AI/团队/素材库/数据）。
+- 复刻：`AccountManagementCard` 归属徽章按参考产品契约分色 — 负责人蓝（`assignee-owner`）/ 运营人灰（`assignee-publisher`）/ 代理紫（`assignee-proxy`），新增分色回归测试。
 - 清理：`Publish.vue` 64 处 inline style 全部迁移为语义化 class（`publish-header-row`/`batch-articles`/`copy-url-button.is-copied` 等约 40 个），定义收敛至 `<style scoped>`；迁移过程中修复一处重复 class 属性导致的模板解析错误（`@vue/compiler-sfc` 0 error 验证）。
 - 视觉基线：因本分支刻意重绘 UI，像素门禁 4 视图（accounts-list/dashboard/create-history/collection）基线失效；本地 dev server + `UPDATE_BASELINE=1` 重新生成并经 CI 同款 2% 阈值回验 0% 通过，基线随代码入库。
-- 视觉门禁修复：home-baseline 就绪超时——首页已重绘为 `.yixiaoer-home` 布局，但 `run-pixel-tests.js` 的 waitFor 仍指向已删除的 `.cohere-main .page-title`，CI 连续 3 次稳定超时（appTextLength=263）；同步修正 run-pixel-tests.js / all-views / functional-test 首页选择器为 `.yixiaoer-home .yixiaoer-home-welcome`，`visual-ci.test.js` 新增合同断言防回归，重生成 home-baseline.png；本地全量 17 视图像素套件 2% 阈值全部通过。
-- GUI 门禁修复（同源）：E2E 路由检查与 flow-2 仍用旧首页文案/选择器——`route-functional-suite.js` home title 改为新首页稳定静态文案“多平台内容一键发布”，`exerciseHome` 改用 `.yixiaoer-home-shortcut` 快捷入口并把已移除的 `getVersion` IPC 断言替换为新首页真实调用的 `historyList`；`integration-flows.js` Flow2.5 平台列表选择器增加 `.yixiaoer-home-platform-tag`；本地完整 `test:e2e` 314/314 checks 通过（18 路由 + 6 集成流）。
-- Electron GUI 门禁修复（同源）：`electron-gui-v9.js` testHomePage 适配新首页——`assertTitle("社媒")`/`statCard×5` 旧断言替换为 `.yixiaoer-home` 根容器+欢迎区存在性与 `.yixiaoer-home-shortcut×6`，新选择器入 `selectors.json`（配置驱动），CI dispatch 60/60 通过。
+- 视觉门禁修复：home-baseline 就绪超时——首页已重绘为 `.mp-home` 布局，但 `run-pixel-tests.js` 的 waitFor 仍指向已删除的 `.cohere-main .page-title`，CI 连续 3 次稳定超时（appTextLength=263）；同步修正 run-pixel-tests.js / all-views / functional-test 首页选择器为 `.mp-home .mp-home-welcome`，`visual-ci.test.js` 新增合同断言防回归，重生成 home-baseline.png；本地全量 17 视图像素套件 2% 阈值全部通过。
+- GUI 门禁修复（同源）：E2E 路由检查与 flow-2 仍用旧首页文案/选择器——`route-functional-suite.js` home title 改为新首页稳定静态文案“多平台内容一键发布”，`exerciseHome` 改用 `.mp-home-shortcut` 快捷入口并把已移除的 `getVersion` IPC 断言替换为新首页真实调用的 `historyList`；`integration-flows.js` Flow2.5 平台列表选择器增加 `.mp-home-platform-tag`；本地完整 `test:e2e` 314/314 checks 通过（18 路由 + 6 集成流）。
+- Electron GUI 门禁修复（同源）：`electron-gui-v9.js` testHomePage 适配新首页——`assertTitle("社媒")`/`statCard×5` 旧断言替换为 `.mp-home` 根容器+欢迎区存在性与 `.mp-home-shortcut×6`，新选择器入 `selectors.json`（配置驱动），CI dispatch 60/60 通过。
 - CI 门禁修复：`views-deep2.test.js` accountStore mock 补 `ensureLoaded`（与存量更正同源遗漏），消除 quality-gate QG Coverage / Desktop Shards(2/2) 的 unhandled rejection；重 dispatch 后 quality-gate 全 9 job 通过。
 - 边界：卡片底部按钮布局等视觉细节待后续复刻；真实平台登录/发布仍属外部验收。
 - 存量更正：此前记录「Home.test.js / Publish.test.js / PublishHistory.test.js / views-deep.test.js 34 例失败属 Round 2 已合并存量」的结论**已被推翻**——main 分支 Electron CI 全绿，34 例实为本分支 UI 重绘/store 改造导致的测试失同步，全部修复如下：
@@ -7372,13 +7404,13 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
   - `Publish.test.js`：`accountStore` mock 补 `ensureLoaded`（组件 `loadAccounts()` 已从 `load()` 改调 `ensureLoaded()` 修竞态，mock 缺该方法导致 onMounted 抛错级联），36/36 通过。
   - `PublishHistory.test.js`：新增 `@/stores/platforms` mock（组件已统一走 `platformStore.getLabel/getIcon/getContentCategory`，未 mock 导致无 active Pinia 报错），19/19 通过。
 
-## [未发布] 蚁小二账号/发布模块全面对标 Round 2（2026-08-10）
+## [未发布] 参考产品账号/发布模块全面对标 Round 2（2026-08-10）
 
-- 布局：`App.vue` 挂载 `YixiaoerSidebar` 到工作区壳层，`isYixiaoerWorkspace` 从 3 条路由白名单改为排除少数特殊页面的黑名单模式，所有主导航可达路由（首页/账号/发布/发布记录/草稿箱等）统一使用 `YixiaoerSidebar + YixiaoerModuleNav` 双导航布局。
-- 首页：`Home.vue` 完全重写为蚁小二风格仪表盘——问候语+快捷操作、4 列数据概览（从 IPC 读取发布统计）、6 宫格快捷入口、支持平台展示、近期动态列表。
-- 导航动态化：`YixiaoerSidebar.vue` 用户头像/名称从 `identityStore` 动态读取，许可证标签从 `licenseStore` 读取；`YixiaoerModuleNav.vue` 新增 homeTabs 支持首页路由、publishTabs 新增"新建发布" tab。
+- 布局：`App.vue` 挂载 `MpSidebar` 到工作区壳层，`isMpWorkspace` 从 3 条路由白名单改为排除少数特殊页面的黑名单模式，所有主导航可达路由（首页/账号/发布/发布记录/草稿箱等）统一使用 `MpSidebar + MpModuleNav` 双导航布局。
+- 首页：`Home.vue` 完全重写为参考产品风格仪表盘——问候语+快捷操作、4 列数据概览（从 IPC 读取发布统计）、6 宫格快捷入口、支持平台展示、近期动态列表。
+- 导航动态化：`MpSidebar.vue` 用户头像/名称从 `identityStore` 动态读取，许可证标签从 `licenseStore` 读取；`MpModuleNav.vue` 新增 homeTabs 支持首页路由、publishTabs 新增"新建发布" tab。
 - 代码收敛：`accounts.js` 新增 `ensureLoaded()` 幂等加载方法（含并发竞态修复：缓存 in-flight Promise）；`PublishHistory.vue` 平台名/图标/视频判断统一到 `platformStore`（`getLabel`/`getIcon`/`getContentCategory`）；新建 `PublishDraftList.vue` 共享草稿列表组件。
-- 测试：更新 `YixiaoerSidebar.test.js`（动态用户信息断言）、`YixiaoerModuleNav.test.js`（publish 3 tabs + home 路由测试）。
+- 测试：更新 `MpSidebar.test.js`（动态用户信息断言）、`MpModuleNav.test.js`（publish 3 tabs + home 路由测试）。
 - 边界：Vite 完整构建因预存在的 node_modules 损坏（`@ctrl/tinycolor` 解析失败）未通过，Vue SFC 编译验证全部通过；真实平台登录/发布仍属外部验收。
 
 ## [未发布] 重构：BGM 跳过提示单一来源（服务层 warnings 机器码化）（2026-08-10）
@@ -7434,7 +7466,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 ## [未发布] 修复：最小化不再强制隐藏到托盘，恢复系统常规最小化（2026-08-09）
 
 - 修复：移除 `services/system-tray.js` 中无条件的 `minimize → event.preventDefault() + hide()` 拦截——窗口最小化恢复系统常规行为（任务栏最小化），不再因任何最小化事件被藏进托盘；「运行中有流水线任务且托盘可用时，关闭窗口→隐藏到托盘后台执行」的既有行为（`window-close-policy.js`）保持不变。
-- 根因：`d3cbe6a0`（蚁小二逆向工程集成）引入无条件最小化进托盘；任何 minimize 事件（用户点最小化、系统/自动化触发）都会把窗口隐藏到托盘，用户易误以为应用消失、无法操作。
+- 根因：`d3cbe6a0`（参考产品逆向分析集成）引入无条件最小化进托盘；任何 minimize 事件（用户点最小化、系统/自动化触发）都会把窗口隐藏到托盘，用户易误以为应用消失、无法操作。
 - 回归：`system-tray.test.js` 新增 2 例（init 不注册 minimize 拦截 / 双击托盘图标恢复+显示）；`system-tray` + `window` + `window-close-policy` 相关套件 87 例通过，eslint 0 error/warning。
 - 边界：桌面端单元测试覆盖；真实窗口最小化/托盘交互仍属手动验收。
 
@@ -7852,17 +7884,17 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 
 ## [未发布] Story2Video 参数边界与运行错误反馈 (2026-08-01)
 
-## [未发布] 蚁小二账号与发布续作收敛 (2026-08-04)
+## [未发布] 参考产品账号与发布续作收敛 (2026-08-04)
 
 ### 账号管理
-- 账号卡片动作按真实蚁小二截图收敛为“设置、删除”，失效账号额外显示“重新登录”，并复用网页登录 IPC 完成重新授权流程。
+- 账号卡片动作按真实参考产品截图收敛为“设置、删除”，失效账号额外显示“重新登录”，并复用网页登录 IPC 完成重新授权流程。
 - 增加粉丝数、负责人、运营人、代理字段的后端字段归一化；缺失数据使用明确空值文案，不生成团队假数据。
 - 增加分组搜索、全部分组、仅看共享、成员计数和分组空态；收藏页签无结果显示“暂无收藏账号”。
 - 分享链接页显示未接入服务状态并禁用创建按钮，保留团队分享/跨设备能力的外部依赖边界。
 
 ### 质量
 - 账号卡片与账号页面定向回归 `78/78` 通过；Vue 构建通过。
-- 账号、发布、批量发布 desktop/mobile/audit 截图 `9/9` 通过；真实蚁小二参考像素审计 `3/3` 通过。
+- 账号、发布、批量发布 desktop/mobile/audit 截图 `9/9` 通过；真实参考产品参考像素审计 `3/3` 通过。
 - 像素视觉门禁账号页就绪选择器改用稳定的 .accounts-page，并刷新预期账号页基线；CI 同口径像素测试 17/17 通过。
 - 全量 Vitest 为 `6016 passed / 2 failed`；两项失败来自本任务未修改的媒体工具资源环境与既有 spawn 参数断言，详见对标分析报告。
 
@@ -8027,23 +8059,23 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 
 ---
 
-## [未发布] 蚁小二发布记录界面对齐 (2026-07-24)
+## [未发布] 参考产品发布记录界面对齐 (2026-07-24)
 
 ### 发布中心
 - 新增独立发布记录页，支持发布状态列表、草稿箱、错误重试、新建发布和继续编辑草稿。
 - 顶部导航与命令面板的“发布记录”进入历史页；一键发布编辑器继续保留在 `/publish`，由新建发布和草稿恢复进入。
-- 批量管理改为发布记录列表的选择状态，与登录后的蚁小二工作流保持一致。
+- 批量管理改为发布记录列表的选择状态，与登录后的参考产品工作流保持一致。
 - 发布记录补齐作品搜索、发布人/作品类型/状态/模式筛选、列表/网格切换、CSV 导出及账号/任务/失败/播放/评论/点赞/收藏/分享指标。
 
 ### 账号管理
 - 主内容改为平台筛选栏和账号卡片网格，保留搜索、状态筛选、收藏、默认账号、登录验证、打开主页和批量选择行为。
-- 账号名称使用可访问的内联编辑，桌面按真实蚁小二信息密度显示四列卡片，并在窄屏自适应降列。
+- 账号名称使用可访问的内联编辑，桌面按真实参考产品信息密度显示四列卡片，并在窄屏自适应降列。
 
 ### 界面与质量
 - 修复身份菜单加入后顶部导航在窄窗口换行重叠的问题，并补充单行滚动布局合同。
-- 新增桌面和移动端蚁小二当前界面截图脚本，覆盖账号管理、发布记录和批量选择；截图只使用测试 fixture。
+- 新增桌面和移动端参考产品当前界面截图脚本，覆盖账号管理、发布记录和批量选择；截图只使用测试 fixture。
 - 修复移动端批量选择时记录主体固定宽度导致的横向溢出，并增加回归测试与 Chromium 布局检查。
-- 用已登录真实蚁小二账号、发布记录和批量管理主内容建立 2280×1272 参考基线；三页审计均低于 10% mismatch，未使用忽略区域。
+- 用已登录真实参考产品账号、发布记录和批量管理主内容建立 2280×1272 参考基线；三页审计均低于 10% mismatch，未使用忽略区域。
 - 固化 desktop/mobile/audit 三种 viewport，一条命令可重复生成 accounts、publish、batch-publish 共 9 张当前图。
 - Electron self-hosted CI 的 Vitest 改为单 worker、关闭文件并行，并增加 20 分钟 watchdog、详细 reporter、测试/钩子/清理超时和失败进程树诊断。
 
@@ -8106,7 +8138,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 本地 file URL、复制路径和打开目录不是公网分享链接；最近 100 项本地历史不是云历史或失败运行断点续作。
 - 旧项目的 Sora/Supabase Remix、membership/quota 和音色克隆依赖未验证外部服务，未以占位成功冒充迁移完成。
 
-## [未发布] 蚁小二账号管理与内容发布对齐 (2026-07-20)
+## [未发布] 参考产品账号管理与内容发布对齐 (2026-07-20)
 
 ### 账号管理
 - 保留顶部导航和最左侧平台账号栏，重构主内容区及二级交互。
@@ -8122,7 +8154,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 
 ### 架构与界面
 - 页面拆分为展示组件、composable/Pinia、renderer API、preload、IPC 和主进程服务六层。
-- 账号页和发布页主内容区按蚁小二的信息结构与工作流对齐，现有应用外壳保持不变。
+- 账号页和发布页主内容区按参考产品的信息结构与工作流对齐，现有应用外壳保持不变。
 - 修复安装版平台规则/封面预设的配置路径，插件目录改为 Electron 用户数据目录，避免向只读 ASAR 写入。
 
 ### 质量
@@ -8132,9 +8164,9 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 
 ---
 
-## [蚁小二复用] v0.17.0 - 账号管理增强 + 内容发布增强 (2026-07-16)
+## [参考产品复用] v0.17.0 - 账号管理增强 + 内容发布增强 (2026-07-16)
 
-基于蚁小二逆向工程分析，增强账号管理和内容发布模块，使其功能接近蚁小二 4.0。
+基于参考产品逆向分析分析，增强账号管理和内容发布模块，使其功能接近参考产品 4.0。
 
 ### 账号管理模块增强 (accounts.js)
 - 新增账号分组管理（创建/删除/按分组筛选），localStorage 持久化
@@ -10560,7 +10592,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 
 - 运行中的视频流水线现在在统一进度弹窗中展示完整阶段信息，并恢复【后台运行】入口；后台化不取消主进程任务，页面回到新建态并提示可在历史记录查看。
 - 进度弹窗仅允许右上角关闭，遮罩/Escape 不关闭，离场使用缩小缩放动画；底部固定操作条保持可用。人工 checkpoint 禁止后台化，普通流水线无稳定 run identity 时不伪造按任务控制。
-## [2026-08-22] feat(desktop): task-051 蚁小二 UE 收口与快手验收准备
+## [2026-08-22] feat(desktop): task-051 参考产品 UE 收口与快手验收准备
 
 - 发布页单篇模式新增 sticky 主操作卡，发布目标、保存草稿、草稿箱、发布和取消任务保持在同一操作区；窄屏下回到正常文档流，并为页头与批量操作增加换行保护。
 - 快手二维码入口在平台 capability 缺失时保留可用回退；非二维码平台仍 fail closed。账号登录弹窗固定文案接入 zh/en locale。

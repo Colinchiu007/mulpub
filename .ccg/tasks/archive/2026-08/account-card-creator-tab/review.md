@@ -5,7 +5,7 @@
 ## 审查时间: 2026-08-23
 
 ### 审查范围
-- AccountManagementCard.vue: 卡片整体可点击，对齐蚁小二全屏标签交互
+- AccountManagementCard.vue: 卡片整体可点击，对齐参考产品全屏标签交互
 - webview-manager.js: createNewTabPage 支持 accountId 登录分区复用
 - Accounts.vue: openCreatorCenter 传 title + creator-hint prop
 - locales: 新增 creatorCardHint / creatorTabTitle zh/en 成对 i18n

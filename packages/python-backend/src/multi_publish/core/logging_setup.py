@@ -1,7 +1,7 @@
 """
 Per-Module 结构化日志 + 轮转（P1-3）
 
-蚁小二风格（log4js DailyRotateFile + winston）：
+参考产品风格（log4js DailyRotateFile + winston）：
 - 每个平台发布器独立日志文件
 - 按日期轮转，保留 15 天
 - 3MB 最大文件大小

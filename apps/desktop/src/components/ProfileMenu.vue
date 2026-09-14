@@ -4,9 +4,9 @@
       id="profile-menu-trigger"
       ref="trigger"
       type="button"
-      class="yixiaoer-profile"
-      :class="{ 'yixiaoer-profile-open': open }"
-      data-testid="yixiaoer-profile"
+      class="mp-profile"
+      :class="{ 'mp-profile-open': open }"
+      data-testid="mp-profile"
       :aria-expanded="open"
       aria-haspopup="menu"
       :aria-busy="loading"
@@ -14,15 +14,15 @@
       @click="handleTriggerClick"
       @keydown.down.prevent="openAndFocusFirst"
     >
-      <span class="yixiaoer-avatar-wrap" aria-hidden="true">
-        <span class="yixiaoer-avatar">{{ hasSessionIdentity ? avatarInitial : '⚡' }}</span>
-        <i class="yixiaoer-avatar-dot" :class="`is-${identityStatus}`" data-testid="yixiaoer-profile-status"></i>
+      <span class="mp-avatar-wrap" aria-hidden="true">
+        <span class="mp-avatar">{{ hasSessionIdentity ? avatarInitial : '⚡' }}</span>
+        <i class="mp-avatar-dot" :class="`is-${identityStatus}`" data-testid="mp-profile-status"></i>
       </span>
-      <span class="yixiaoer-profile-copy">
+      <span class="mp-profile-copy">
         <strong :title="displayName">{{ displayName }}</strong>
         <small class="profile-license-badge" :class="`profile-license-${licenseStore.licenseType}`">{{ licenseLabel }}</small>
       </span>
-      <ArrowUp class="yixiaoer-profile-caret" :class="{ rotated: open }" aria-hidden="true" />
+      <ArrowUp class="mp-profile-caret" :class="{ rotated: open }" aria-hidden="true" />
     </button>
 
     <div
@@ -262,7 +262,7 @@ function handleUpgrade() {
 }
 
 /* 底部 banner 形态：整行卡片，收起时只显示这一条 */
-.yixiaoer-profile {
+.mp-profile {
   width: 100%;
   min-width: 0;
   display: flex;
@@ -280,25 +280,25 @@ function handleUpgrade() {
   transition: background .15s ease, border-color .15s ease;
 }
 
-.yixiaoer-profile:hover,
-.yixiaoer-profile:focus-visible,
-.yixiaoer-profile-open {
+.mp-profile:hover,
+.mp-profile:focus-visible,
+.mp-profile-open {
   border-color: #bab9d3;
   background: rgba(255, 255, 255, .94);
 }
 
-.yixiaoer-profile:focus-visible {
+.mp-profile:focus-visible {
   outline: 2px solid #5149e8;
   outline-offset: 1px;
 }
 
-.yixiaoer-avatar-wrap {
+.mp-avatar-wrap {
   position: relative;
   display: inline-grid;
   flex: 0 0 auto;
 }
 
-.yixiaoer-avatar {
+.mp-avatar {
   width: 30px;
   height: 30px;
   display: grid;
@@ -310,7 +310,7 @@ function handleUpgrade() {
   font-weight: 700;
 }
 
-.yixiaoer-avatar-dot {
+.mp-avatar-dot {
   position: absolute;
   right: -1px;
   bottom: -1px;
@@ -321,12 +321,12 @@ function handleUpgrade() {
   background: #a7a8b5;
 }
 
-.yixiaoer-avatar-dot.is-online { background: #6fbf73; }
+.mp-avatar-dot.is-online { background: #6fbf73; }
 
-.yixiaoer-avatar-dot.is-busy,
-.yixiaoer-avatar-dot.is-error { background: #e6a23c; }
+.mp-avatar-dot.is-busy,
+.mp-avatar-dot.is-error { background: #e6a23c; }
 
-.yixiaoer-profile-copy {
+.mp-profile-copy {
   min-width: 0;
   display: flex;
   flex: 1;
@@ -334,7 +334,7 @@ function handleUpgrade() {
   gap: 2px;
 }
 
-.yixiaoer-profile-copy strong {
+.mp-profile-copy strong {
   overflow: hidden;
   color: #4d4f6f;
   font-size: 12px;
@@ -342,7 +342,7 @@ function handleUpgrade() {
   white-space: nowrap;
 }
 
-.yixiaoer-profile-caret {
+.mp-profile-caret {
   width: 13px;
   height: 13px;
   flex: 0 0 auto;
@@ -350,7 +350,7 @@ function handleUpgrade() {
   transition: transform .15s ease;
 }
 
-.yixiaoer-profile-caret.rotated {
+.mp-profile-caret.rotated {
   transform: rotate(180deg);
 }
 
@@ -471,7 +471,7 @@ function handleUpgrade() {
 }
 
 @media (max-width: 900px) {
-  .yixiaoer-profile-copy {
+  .mp-profile-copy {
     display: none;
   }
 }

@@ -1,0 +1,12 @@
+{
+  "id": "mp-gui-e2e-closure",
+  "title": "收口参考产品账号与发布模块 GUI E2E 稳定性",
+  "status": "completed",
+  "complexity": "L+",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并保留远端交付证据",
+  "createdAt": "2026-08-04T00:00:00Z",
+  "branch": "codex/mp-full-parity-20260804"
+}

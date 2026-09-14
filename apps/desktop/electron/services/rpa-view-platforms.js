@@ -354,7 +354,7 @@ const platformsMixin = {
     if (platform === 'kuaishou') {
       try { await this._prepKuaishou(win, article) } catch (e) { log.warn('RpaView', 'kuaishou prep: ' + e.message) }
     }
-    // P3-6：B站分区 + 版权声明（RPA 模式；蚁小二映射 createType original→1/forward→2）
+    // P3-6：B站分区 + 版权声明（RPA 模式；参考产品映射 createType original→1/forward→2）
     if (platform === 'bilibili') {
       try { await this._prepBilibili(win, article) } catch (e) { log.warn('RpaView', 'bilibili prep: ' + e.message) }
     }

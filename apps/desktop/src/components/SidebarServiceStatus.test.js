@@ -59,24 +59,24 @@ describe('SidebarServiceStatus', () => {
   it('部分运行时显示 degraded 摘要与逐服务明细', () => {
     const cmp = mountComponent()
 
-    const summary = cmp.get('[data-testid="yixiaoer-service-status"]')
+    const summary = cmp.get('[data-testid="mp-service-status"]')
     expect(summary.text()).toBe('4 项服务运行中')
     expect(summary.classes()).toContain('is-degraded')
 
-    const list = cmp.get('[data-testid="yixiaoer-service-list"]')
-    expect(list.findAll('.yixiaoer-service-item')).toHaveLength(6)
-    expect(cmp.get('[data-testid="yixiaoer-service-promptEngine"]').text()).toContain('已停止')
-    expect(cmp.get('[data-testid="yixiaoer-service-alignerEngine"]').text()).toContain('待命')
+    const list = cmp.get('[data-testid="mp-service-list"]')
+    expect(list.findAll('.mp-service-item')).toHaveLength(6)
+    expect(cmp.get('[data-testid="mp-service-promptEngine"]').text()).toContain('已停止')
+    expect(cmp.get('[data-testid="mp-service-alignerEngine"]').text()).toContain('待命')
   })
 
   it('IPC 不可用时显示不可用摘要', () => {
     serviceStatusState.unavailable = true
     try {
       const cmp = mountComponent()
-      const summary = cmp.get('[data-testid="yixiaoer-service-status"]')
+      const summary = cmp.get('[data-testid="mp-service-status"]')
       expect(summary.text()).toBe('服务状态不可用')
       expect(summary.classes()).toContain('is-degraded')
-      expect(cmp.find('[data-testid="yixiaoer-service-list"]').text()).toContain('服务状态不可用')
+      expect(cmp.find('[data-testid="mp-service-list"]').text()).toContain('服务状态不可用')
     } finally {
       serviceStatusState.unavailable = false
     }
@@ -86,8 +86,8 @@ describe('SidebarServiceStatus', () => {
     serviceStatusState.allRunning = true
     try {
       const cmp = mountComponent()
-      expect(cmp.get('[data-testid="yixiaoer-service-status"]').text()).toBe('服务运行中')
-      expect(cmp.get('[data-testid="yixiaoer-service-status"]').classes()).toContain('is-ok')
+      expect(cmp.get('[data-testid="mp-service-status"]').text()).toBe('服务运行中')
+      expect(cmp.get('[data-testid="mp-service-status"]').classes()).toContain('is-ok')
     } finally {
       serviceStatusState.allRunning = false
     }

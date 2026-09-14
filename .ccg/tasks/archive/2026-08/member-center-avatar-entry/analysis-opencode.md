@@ -53,7 +53,7 @@
 |------|-----------|-----------|
 | **可用性** | 未登录时点头像必跳登录流程，用户无法先了解"登录能得到什么"（会员/权益/版本对比都在登录墙后），转化意图被压制 | 菜单含「登录」主项 + 「会员中心」，未登录也可先看权益再决定登录 |
 | **可发现性** | 登录弹窗是 BrowserWindow modal，一上来打断当前工作；用户若误点（头像 30px，紧邻「新建发布」按钮）即弹窗 | 弹菜单是非破坏性操作，误点直接 Esc/点外部关闭 |
-| **与其他入口一致性** | 顶部 `YixiaoerModuleNav` 的 `IdentityMenu` 已是"头像→下拉菜单"心智；侧栏头像若变成"点了就弹登录"，两处入口行为分裂 | 与 `IdentityMenu` 行为一致（菜单模式），学习成本为零 |
+| **与其他入口一致性** | 顶部 `MpModuleNav` 的 `IdentityMenu` 已是"头像→下拉菜单"心智；侧栏头像若变成"点了就弹登录"，两处入口行为分裂 | 与 `IdentityMenu` 行为一致（菜单模式），学习成本为零 |
 | **状态覆盖** | 直接 `signIn()` 只对 `signed_out` 合理；`expired`/`error`/`refreshing` 状态直接弹登录会与 store 的 `runExclusive`（identity.js:72-83）竞争或误触 | 菜单可按 status 分支渲染（已登录→会员中心/切换/退出；未登录→登录/会员中心；disabled→提示身份服务未启用），天然覆盖全状态 |
 | **误触风险** | 高 | 低 |
 
@@ -80,12 +80,12 @@
 
 | 文件 | 改动 |
 |------|------|
-| `apps/desktop/src/layouts/YixiaoerSidebar.vue` | `.yixiaoer-profile`（L4-10）改为可点击 `<button>`/可聚焦容器，挂 `<ProfileMenu />`；`moreItems` 增加 `{ key: 'member-center', label: t('memberCenter.title'), to: '/member-center' }` |
+| `apps/desktop/src/layouts/MpSidebar.vue` | `.mp-profile`（L4-10）改为可点击 `<button>`/可聚焦容器，挂 `<ProfileMenu />`；`moreItems` 增加 `{ key: 'member-center', label: t('memberCenter.title'), to: '/member-center' }` |
 | `apps/desktop/src/components/IdentityMenu.vue` | 抽出下拉逻辑到 `useIdentityMenu.js`（行为不变，回归测试全绿） |
 | `apps/desktop/src/router/index.js` | 增加 `{ path: '/member-center', name: 'MemberCenter', component: () => import('@/views/MemberCenter.vue') }` |
 | `apps/desktop/src/stores/identity.js` | `normalizeState` 补 `quota` 与 `deviceId` 透传（P1，若做） |
 | `apps/desktop/src/locales/zh.js` + `en.js` | 新增 `memberCenter`、`profileMenu` 命名空间（**必须成对，CI Gate 7 拦截**） |
-| `apps/desktop/src/layouts/YixiaoerSidebar.test.js` | 新增：头像可点击、moreItems 含会员中心、未登录点击进入菜单等断言 |
+| `apps/desktop/src/layouts/MpSidebar.test.js` | 新增：头像可点击、moreItems 含会员中心、未登录点击进入菜单等断言 |
 
 ### i18n key 结构（建议）
 
@@ -106,13 +106,13 @@ profileMenu: {
 
 ### 路由注册注意
 
-- hash 路由（`createWebHashHistory`），直接加一条即可；`YixiaoerSidebar.isActive`（L157-160）对 `moreItems` 用 `route.path.startsWith(item.to + '/')`，`/member-center` 是叶子路径无子路由，安全。
-- 会员中心**不在** `YixiaoerModuleNav` 的 tabs 体系内（module 只有 home/accounts/publish），进入会员中心后顶部 tab �erer via the main process state bridge."
+- hash 路由（`createWebHashHistory`），直接加一条即可；`MpSidebar.isActive`（L157-160）对 `moreItems` 用 `route.path.startsWith(item.to + '/')`，`/member-center` 是叶子路径无子路由，安全。
+- 会员中心**不在** `MpModuleNav` 的 tabs 体系内（module 只有 home/accounts/publish），进入会员中心后顶部 tab �erer via the main process state bridge."
 [PROGRESS] message text="Let me verify the access-control public channels for identity/license to ground the report."
 [PROGRESS] message text="Let me check the locale file structure and the sidebar test to understand conventions for the report."
 [PROGRESS] message text="I now have a comprehensive understanding of the codebase. Let me verify one more detail — how `quota` flows (or doesn..."
 [PROGRESS] message text="Let me check licenseManager.getInfo() to see what fields are available for the version card (daysRemaining, isTrial)."
-[PROGRESS] message text="I have all the facts I need. Key confirmations: `.yixiaoer-profile` in `YixiaoerSidebar.vue:4-10` has no click handle..."
+[PROGRESS] message text="I have all the facts I need. Key confirmations: `.mp-profile` in `MpSidebar.vue:4-10` has no click handle..."
 [PROGRESS] message text="Now let me update the task.json to reflect completed analysis and next phase."
 [PROGRESS] message text="Done. Wrote the analysis report to `.ccg/tasks/member-center-avatar-entry/analysis-opencode.md` and advanced the task..."
 [PROGRESS] session_completed total_events=139
@@ -136,7 +136,7 @@ Let me verify the key code facts before writing the report. The context already 
 
 Let me use codegraph to explore the relevant files.
 
-Codegraph timed out. Let me use direct file reads and grep instead.The output got truncated weirdly. Let me use glob to list components.Confirmed: `.yixiaoer-profile` (line 4-10) has no click handler — the "didn't work" root cause. Now let me read IdentityMenu, the identity store, and related files.Now let me look at the useIdentity composable, UpgradeModal, license store, router, and the module nav that hosts IdentityMenu.Now the router, module nav, App.vue layout, and the entitlement/electron identity side.Let me check App.vue layout, git history for the avatar, and the entitlement side + locales.Now let me look at App.vue, the electron identity service, and check entitlement/quota usage in views.Let me check the locales structure and existing tests, plus verify the git history claim about the avatar.Let me verify the "never had a click handler" claim by checking the introducing commit, and look at the IdentityMenu test for patterns.Let me check the identity API layer, and look for any existing entitlement/quota usage in views, plus the ACCESS-CONTROL-MATRIX.Let me check Home.vue's profile area and confirm test coverage for the sidebar.Let me verify how entitlement reaches the renderer via the main process state bridge.Let me verify the access-control public channels for identity/license to ground the report.Let me check the locale file structure and the sidebar test to understand conventions for the report.I now have a comprehensive understanding of the codebase. Let me verify one more detail — how `quota` flows (or doesn't) to the renderer store, since that affects the quota card decision.Let me check licenseManager.getInfo() to see what fields are available for the version card (daysRemaining, isTrial).I have all the facts I need. Key confirmations: `.yixiaoer-profile` in `YixiaoerSidebar.vue:4-10` has no click handler (root cause confirmed — the div was introduced inert in `e3e33af07` and never wired); `IdentityMenu.vue` already implements the full dropdown + login-modal-reuse pattern; `identity.js` store already guards concurrency via `runExclusive`; entitlement `quota` is computed main-process-side but **not** passed through to the renderer store. Now I'll write the structured report.
+Codegraph timed out. Let me use direct file reads and grep instead.The output got truncated weirdly. Let me use glob to list components.Confirmed: `.mp-profile` (line 4-10) has no click handler — the "didn't work" root cause. Now let me read IdentityMenu, the identity store, and related files.Now let me look at the useIdentity composable, UpgradeModal, license store, router, and the module nav that hosts IdentityMenu.Now the router, module nav, App.vue layout, and the entitlement/electron identity side.Let me check App.vue layout, git history for the avatar, and the entitlement side + locales.Now let me look at App.vue, the electron identity service, and check entitlement/quota usage in views.Let me check the locales structure and existing tests, plus verify the git history claim about the avatar.Let me verify the "never had a click handler" claim by checking the introducing commit, and look at the IdentityMenu test for patterns.Let me check the identity API layer, and look for any existing entitlement/quota usage in views, plus the ACCESS-CONTROL-MATRIX.Let me check Home.vue's profile area and confirm test coverage for the sidebar.Let me verify how entitlement reaches the renderer via the main process state bridge.Let me verify the access-control public channels for identity/license to ground the report.Let me check the locale file structure and the sidebar test to understand conventions for the report.I now have a comprehensive understanding of the codebase. Let me verify one more detail — how `quota` flows (or doesn't) to the renderer store, since that affects the quota card decision.Let me check licenseManager.getInfo() to see what fields are available for the version card (daysRemaining, isTrial).I have all the facts I need. Key confirmations: `.mp-profile` in `MpSidebar.vue:4-10` has no click handler (root cause confirmed — the div was introduced inert in `e3e33af07` and never wired); `IdentityMenu.vue` already implements the full dropdown + login-modal-reuse pattern; `identity.js` store already guards concurrency via `runExclusive`; entitlement `quota` is computed main-process-side but **not** passed through to the renderer store. Now I'll write the structured report.
 
 Now let me update the task.json to reflect completed analysis and next phase.Done. Wrote the analysis report to `.ccg/tasks/member-center-avatar-entry/analysis-opencode.md` and advanced the task to design phase.
 

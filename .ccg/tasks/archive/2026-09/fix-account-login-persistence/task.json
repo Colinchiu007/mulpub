@@ -8,5 +8,5 @@
   "currentPhase": "analysis",
   "nextAction": "核对各平台 partition 与账号登录态生命周期",
   "createdAt": "2026-08-23T00:00:00+08:00",
-  "branch": "codex/yixiaoer-ue-parity-v2"
+  "branch": "codex/mp-ue-parity-v2"
 }

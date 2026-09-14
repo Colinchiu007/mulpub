@@ -231,7 +231,7 @@ App.vue 挂载 Home 组件
 公众号登录页与后台同域（mp.weixin.qq.com）。Cookie（slave_sid）过期后访问后台首页可能仍渲染骨架、URL 停在 cgi-bin/home，DOM 选择器检测会误判有效。
 
 ### 12.2 修复
-`http-login-checker.js` 为公众号注册 HTTP API 检测（对齐蚁小二 `getWeixingongzhonghaoUserInfo`）：
+`http-login-checker.js` 为公众号注册 HTTP API 检测（对齐参考产品 `getWeixingongzhonghaoUserInfo`）：
 - 访问 `https://mp.weixin.qq.com/cgi-bin/loginpage?url=%2Fcgi-bin%2Fhome`（GET，带 Cookie + Referer）
 - 用 `checkHtml` 正则解析返回 HTML：`&token=[0-9a-zA-Z]{3,}`（或 `token=[0-9a-zA-Z]{3,}`）与 `uin:"[0-9]{3,}"` 同时存在 → 判有效（CHECK_LOGIN_SUCCESS_HTTP_API）
 - token/uin 任一缺失 → 判失效（CHECK_LOGIN_COOKIE_EXPIRED）

@@ -63,7 +63,7 @@ const PLATFORM_LOGIN_SUCCESS_PATTERNS = {
   douyin: ['douyin.com'],
   xiaohongshu: ['creator.xiaohongshu.com'],
   // 视频号登录页与创作后台同域（channels.weixin.qq.com）：登录页为
-  // /login.html（蚁小二 authorizeUrl 同款），裸域名模式会把预登录登录页
+  // /login.html（参考产品 authorizeUrl 同款），裸域名模式会把预登录登录页
   // 误判为“登录成功”，导致登录视图提前关闭并保存只有预登录 localStorage
   // 的无 Cookie 凭证（E2E 实测 cookies=0）。登录成功后的创作者后台路径为
   // /platform，据此精确匹配。

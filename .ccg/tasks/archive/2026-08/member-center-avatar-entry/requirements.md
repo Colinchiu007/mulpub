@@ -8,7 +8,7 @@
 5. worktree 隔离开发、更新记忆、推送 GitHub 合并、PRD 详细补充、质量节拍。
 
 ## 已核查事实
-- 根因：YixiaoerSidebar 左上角 .yixiaoer-profile 从未绑定点击事件；
+- 根因：MpSidebar 左上角 .mp-profile 从未绑定点击事件；
 - 登录弹窗已存在可用：IdentityAuthWindow（modal 520x720，Logto OIDC），IdentityMenu 触发；
 - 会员中心页面不存在；UpgradeModal/licenseStore/identityStore（user+entitlement）已存在；
 - entitlement.quota 主进程已计算但 renderer normalizeState 未透传（本次修复）。

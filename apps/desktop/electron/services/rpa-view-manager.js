@@ -18,7 +18,7 @@ const { supportsApi, publishViaApi, apiRouter } = require('@multi-publish/api-pu
 const { ProgressThrottle } = require('./rpa-progress-throttle')
 const { FieldRetryState } = require('./rpa-field-retry')
 
-// 桥接 api-publish-engine 的 CancelToken（蚁小二复用：阶段级可恢复取消）
+// 桥接 api-publish-engine 的 CancelToken（参考产品复用：阶段级可恢复取消）
 const { CancelToken } = require('@multi-publish/api-publish-engine/src/base-adapter')
 
 const helpersMixin = require('./rpa-view-helpers')
@@ -29,7 +29,7 @@ class RpaViewManager {
   constructor() {
     this.mainWindow = null; this.windows = {}; this._nextId = 1
     this._progressCallback = null; this._responseListeners = {}
-    // 每个发布会话配一个独立的 CancelToken（蚁小二模式：阶段级可恢复取消）
+    // 每个发布会话配一个独立的 CancelToken（参考产品模式：阶段级可恢复取消）
     this._activeTokens = {}
   }
   setMainWindow(win) { this.mainWindow = win }

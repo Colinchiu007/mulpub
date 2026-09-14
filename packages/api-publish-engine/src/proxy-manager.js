@@ -1,4 +1,4 @@
-// 代理管理 (提取自蚁小二 createProxyAgent)
+// 代理管理 (提取自参考产品 createProxyAgent)
 const { HttpsProxyAgent } = require("https-proxy-agent");
 const { HttpProxyAgent } = require("http-proxy-agent");
 

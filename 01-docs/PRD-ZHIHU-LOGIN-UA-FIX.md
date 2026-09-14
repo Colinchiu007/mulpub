@@ -37,9 +37,9 @@ Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)
 「桌面壳应用」身份，被知乎风控判定为非标准浏览器。全仓检索确认此前无任何
 setUserAgent/userAgentFallback 调用。
 
-### 2.3 参考方案：蚁小二同类实现
+### 2.3 参考方案：参考产品同类实现
 
-蚁小二 4.0（成熟同类多平台发布工具）在 Electron 主进程入口显式设置
+参考产品 4.0（成熟同类多平台发布工具）在 Electron 主进程入口显式设置
 app.userAgentFallback 为标准浏览器 UA（伪装 360 浏览器 Chrome/138），
 彻底去掉 Electron 标记。其登录视图同样使用 WebContentsView + persist:auth
 分区，与本应用架构一致。
@@ -51,7 +51,7 @@ startup-compat.js 新增 configureUserAgentFallback()，在 main.js
 
 - 白名单：Mozilla、Chrome、Safari、AppleWebKit、Gecko、like、Edg
 - 剔除：Electron/x.y.z、Multi-Publish/x.y.z 等非浏览器 token
-- 相比蚁小二的硬编码 UA，本方案动态跟随 Chromium 内核版本（从
+- 相比参考产品的硬编码 UA，本方案动态跟随 Chromium 内核版本（从
   app.userAgent 读取后净化），不会随内核升级而过期
 - 幂等性：UA 无 Electron 标记时不写入
 - 最小侵入：仅设置 userAgentFallback，不改动各 session/视图

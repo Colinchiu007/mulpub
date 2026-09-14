@@ -22,9 +22,9 @@
 
 | # | 诉求 | 实现位置 |
 |---|------|---------|
-| 1 | 右上角几个标识删掉 | `YixiaoerModuleNav.vue` 移除工具区与工具面板 |
-| 2 | 左上角登录区域移到左下角，类似第 2 张截图（点击展开、收起只有一个 banner） | `ProfileMenu.vue` 迁移为底部向上展开 banner + `YixiaoerSidebar.vue` footer 挂载 |
-| 3 | 左下角服务连接信息往上移，移动到左下角 banner 上方 | `YixiaoerSidebar.vue` footer 顺序调整 |
+| 1 | 右上角几个标识删掉 | `MpModuleNav.vue` 移除工具区与工具面板 |
+| 2 | 左上角登录区域移到左下角，类似第 2 张截图（点击展开、收起只有一个 banner） | `ProfileMenu.vue` 迁移为底部向上展开 banner + `MpSidebar.vue` footer 挂载 |
+| 3 | 左下角服务连接信息往上移，移动到左下角 banner 上方 | `MpSidebar.vue` footer 顺序调整 |
 | 4 | 升级 Pro 按钮放进展开菜单，样式与展开菜单统一 | `ProfileMenu.vue` 菜单项 + `profile-menu-action-upgrade` |
 | 5 | 左侧菜单中的设置移到展开菜单中 | 主导航移除「设置」按钮，改由菜单 `profile-menu-settings` 承载 |
 
@@ -42,7 +42,7 @@
 
 ### 2.2 Out of Scope（明确不做）
 
-- 不改动侧边栏宽度（仍为 `--yixiaoer-sidebar-width: 200px`）、不引入可折叠侧边栏
+- 不改动侧边栏宽度（仍为 `--mp-sidebar-width: 200px`）、不引入可折叠侧边栏
 - 不改动「更多」二级菜单的路由清单
 - 不改动设置弹窗（`SettingsDialog`）内部结构，仅改入口位置
 - 不改动升级弹窗（`UpgradeModal`）内部结构，仅改入口位置与版式
@@ -57,8 +57,8 @@
 |------|------|
 | 登录区 / 用户 banner | `ProfileMenu.vue`：头像 + 名称 + 许可徽标 + 展开菜单 |
 | 服务连接信息 | `SidebarServiceStatus.vue`：六服务（主服务/分句引擎/提示词优化引擎/回调服务/媒体服务/对齐引擎）聚合状态 + hover 明细列表 |
-| 模块导航 | `YixiaoerModuleNav.vue`：仅首页标签显示的工作区级标签栏（主页 / 账号管理... / 发布...） |
-| 应用壳 | `App.vue` 的 `.yixiaoer-shell`（侧边栏 + 标签栏 + 导航栏 + 模块导航 + 工作区） |
+| 模块导航 | `MpModuleNav.vue`：仅首页标签显示的工作区级标签栏（主页 / 账号管理... / 发布...） |
+| 应用壳 | `App.vue` 的 `.mp-shell`（侧边栏 + 标签栏 + 导航栏 + 模块导航 + 工作区） |
 
 **改动前的侧边栏结构（自上而下）**：
 
@@ -97,11 +97,11 @@ Footer   : [服务连接信息 六服务聚合状态]          ← 上移
 
 | 项 | 要求 |
 |----|------|
-| 删除对象 | 工具区容器 `.yixiaoer-module-tools`（`data-testid="yixiaoer-module-tools"`）及其 4 个按钮：移动端预览 `▯` / 客服支持 `◉` / 使用指南 `◫` / 通知 `♧` |
-| 删除对象 | 配套的工具面板 `#yixiaoer-tool-panel`（`role="dialog"`，含关闭按钮与三步引导文案） |
+| 删除对象 | 工具区容器 `.mp-module-tools`（`data-testid="mp-module-tools"`）及其 4 个按钮：移动端预览 `▯` / 客服支持 `◉` / 使用指南 `◫` / 通知 `♧` |
+| 删除对象 | 配套的工具面板 `#mp-tool-panel`（`role="dialog"`，含关闭按钮与三步引导文案） |
 | 删除对象 | 相关脚本状态（`activeTool` / `toolPanels` / `activeToolContent` / `toggleTool`）与全部工具样式 |
 | 保留 | 左侧模块标签（主页 / 账号管理、分组管理、分享链接、收藏分组 / 新建发布、发布记录、草稿箱）及其激活态下划线 |
-| 布局 | 工具区移除后模块导航改为单一子元素左对齐（去掉 `justify-content: space-between` 与 `gap`），高度仍为 `var(--yixiaoer-nav-height, 70px)` |
+| 布局 | 工具区移除后模块导航改为单一子元素左对齐（去掉 `justify-content: space-between` 与 `gap`），高度仍为 `var(--mp-nav-height, 70px)` |
 
 **动机**：4 个入口的真实能力均为"占位说明"（面板文案为"当前工作区尚未接入在线客服服务""暂无新通知"等），属未交付能力的前置入口，保留会误导用户。
 
@@ -139,7 +139,7 @@ Footer   : [服务连接信息 六服务聚合状态]          ← 上移
 | 项 | 要求 |
 |----|------|
 | 位置 | footer 内**第一行**，位于登录 banner **上方** |
-| 结构 | 新增容器 `.yixiaoer-sidebar-service`，内部为 `SidebarServiceStatus`（聚合文案 + 六服务 hover 明细） |
+| 结构 | 新增容器 `.mp-sidebar-service`，内部为 `SidebarServiceStatus`（聚合文案 + 六服务 hover 明细） |
 | DOM 顺序契约 | footer 子元素顺序固定为 `[0] 服务连接信息` → `[1] 登录 banner` → （升级弹窗，条件渲染） |
 | DOM 顺序契约扩展（2026-09-14 起，见 [PRD-SIDEBAR-UPDATE-ENTRY-2026-09-14.md](./PRD-SIDEBAR-UPDATE-ENTRY-2026-09-14.md)） | 检测到新版本时在登录 banner **正上方**插入「新版本」入口：`[0] 服务连接信息` → `[1] 新版本入口（条件渲染）` → `[2] 登录 banner` → `[3] 升级弹窗（条件渲染）`；无可用更新时该入口不渲染，原契约不变 |
 | 窄屏 | 视口 ≤900px 时隐藏服务连接信息（保留登录 banner，保证账号入口可用） |
@@ -150,7 +150,7 @@ Footer   : [服务连接信息 六服务聚合状态]          ← 上移
 
 | 项 | 要求 |
 |----|------|
-| 移除 | 主导航中的「设置」按钮（`data-testid="yixiaoer-primary-settings"`，齿轮图标 + 文案） |
+| 移除 | 主导航中的「设置」按钮（`data-testid="mp-primary-settings"`，齿轮图标 + 文案） |
 | 新增 | 展开菜单中的「设置」菜单项（`data-testid="profile-menu-settings"`，文案 `t('nav.settings')`） |
 | 行为 | 点击后**先关闭菜单**，再向宿主抛出 `open-settings` 事件；侧边栏原样透传给 `App.vue` → 打开 `SettingsDialog`（沿用既有链路，0 新增 IPC） |
 | 可见性 | 与身份状态无关，**任何状态都显示**（含身份服务未启用 `disabled`） |
@@ -159,7 +159,7 @@ Footer   : [服务连接信息 六服务聚合状态]          ← 上移
 
 | 项 | 要求 |
 |----|------|
-| 移除 | footer 中原有的独立胶囊按钮 `.yixiaoer-upgrade-btn`（`⭐ 升级 Pro`，金色圆角胶囊） |
+| 移除 | footer 中原有的独立胶囊按钮 `.mp-upgrade-btn`（`⭐ 升级 Pro`，金色圆角胶囊） |
 | 新增 | 展开菜单中的「升级 Pro」菜单项（`data-testid="profile-menu-upgrade"`），`⭐` 图标 + 文案 `t('memberCenter.upgradePro')` |
 | 版式 | 与「设置」「会员中心」等菜单项**同一套** `.profile-menu-action` 结构（同宽、同内边距、同圆角、同焦点态），仅以 `profile-menu-action-upgrade` 增加金色描边/渐变/加粗做强调 |
 | 可见性 | `!licenseStore.isPro` 时显示；Pro 用户不显示（与旧逻辑一致） |
@@ -176,9 +176,9 @@ Footer   : [服务连接信息 六服务聚合状态]          ← 上移
 | emit `open-settings` | — | 用户点击「设置」 |
 | emit `upgrade` | — | 用户点击「升级 Pro」（仅在非 Pro 显示） |
 | 沿用 | — | 原有登录 / 切换账号 / 退出登录 / 会员中心 行为与事件一律不变 |
-| 稳定选择器 | — | `data-testid`：`profile-menu` / `yixiaoer-profile` / `yixiaoer-profile-status` / `profile-menu-panel` / `profile-menu-member` / `profile-menu-switch` / `profile-menu-signout` / `profile-menu-signin` / `profile-menu-settings` / `profile-menu-upgrade` |
+| 稳定选择器 | — | `data-testid`：`profile-menu` / `mp-profile` / `mp-profile-status` / `profile-menu-panel` / `profile-menu-member` / `profile-menu-switch` / `profile-menu-signout` / `profile-menu-signin` / `profile-menu-settings` / `profile-menu-upgrade` |
 
-### 5.2 `YixiaoerSidebar.vue`
+### 5.2 `MpSidebar.vue`
 
 | 项 | 说明 |
 |----|------|
@@ -186,7 +186,7 @@ Footer   : [服务连接信息 六服务聚合状态]          ← 上移
 | 本地状态 | `showUpgradeModal`：由 `ProfileMenu` `@upgrade` 置真，`UpgradeModal` 仍由侧边栏承载 |
 | 移除 | `useIdentityStore` / `useLicenseStore` 依赖与相关 computed（身份状态判定已下沉到 `ProfileMenu`） |
 
-### 5.3 `YixiaoerModuleNav.vue`
+### 5.3 `MpModuleNav.vue`
 
 | 项 | 说明 |
 |----|------|
@@ -319,8 +319,8 @@ Footer   : [服务连接信息 六服务聚合状态]          ← 上移
 
 | 测试文件 | 用例 | 覆盖契约 |
 |----------|------|---------|
-| `src/layouts/YixiaoerModuleNav.test.js` | 「no longer renders module tool entries or the tool panel」 | 工具区/4 个按钮/工具面板全部不渲染（防回归） |
-| `src/layouts/YixiaoerSidebar.test.js` | ①footer 顺序（服务连接信息在上、banner 在下）②登录区不在 header ③设置已移出主导航 ④`@open-settings` 透传 ⑤`@upgrade` → 打开升级弹窗 ⑥服务明细/降级展示 ⑦新建发布路由 | 诉求 2/3/4/5 的结构与事件流 |
+| `src/layouts/MpModuleNav.test.js` | 「no longer renders module tool entries or the tool panel」 | 工具区/4 个按钮/工具面板全部不渲染（防回归） |
+| `src/layouts/MpSidebar.test.js` | ①footer 顺序（服务连接信息在上、banner 在下）②登录区不在 header ③设置已移出主导航 ④`@open-settings` 透传 ⑤`@upgrade` → 打开升级弹窗 ⑥服务明细/降级展示 ⑦新建发布路由 | 诉求 2/3/4/5 的结构与事件流 |
 | `src/components/ProfileMenu.test.js` | ①banner 收起仅一条 + 状态点 + 点击展开 ②面板样式契约（向上展开 / 左右铺满，负向断言不回归 `top` 定位）③设置项抛出并关菜单 ④非 Pro 显示升级项（同版式类）并抛出 ⑤Pro 不显示升级项但保留设置 ⑥禁用身份服务仍提供设置/升级 ⑦既有登录/切换/退出用例全保留 | 组件对外契约与可见性规则 |
 
 ### 11.2 视觉回归
@@ -345,12 +345,12 @@ Footer   : [服务连接信息 六服务聚合状态]          ← 上移
 
 | # | 验收标准（可验证） |
 |---|-------------------|
-| 1 | `YixiaoerModuleNav.vue` 中不存在 `.yixiaoer-module-tools`、`.yixiaoer-tool-button`、`#yixiaoer-tool-panel` 及其脚本状态/样式 |
+| 1 | `MpModuleNav.vue` 中不存在 `.mp-module-tools`、`.mp-tool-button`、`#mp-tool-panel` 及其脚本状态/样式 |
 | 2 | 侧边栏 footer 的 DOM 顺序为 [服务连接信息, 登录 banner]（由单测断言钉死） |
 | 3 | 登录 banner 收起时**仅一条**，展开面板与 banner 同宽且不溢出侧边栏 |
 | 4 | 主导航不再包含「设置」；菜单含「设置」且点击后触发 `open-settings` → 打开 `SettingsDialog` |
 | 5 | 非 Pro 用户菜单含「⭐ 升级 Pro」，点击打开 `UpgradeModal`；Pro 用户不显示该入口 |
-| 6 | 三个测试文件全绿：`YixiaoerSidebar.test.js`(9) / `YixiaoerModuleNav.test.js`(5) / `ProfileMenu.test.js`(12) |
+| 6 | 三个测试文件全绿：`MpSidebar.test.js`(9) / `MpModuleNav.test.js`(5) / `ProfileMenu.test.js`(12) |
 | 7 | ESLint error 级 0 问题；i18n `--cjk` 无新增硬编码、`--keys` 全命中 |
 | 8 | CI 全绿（QG Static/Unit/Coverage/Shards/Visual/E2E、electron-tests、build 等） |
 
@@ -360,8 +360,8 @@ Footer   : [服务连接信息 六服务聚合状态]          ← 上移
 
 | 项 | 说明 |
 |----|------|
-| 改动文件 | `apps/desktop/src/layouts/YixiaoerSidebar.vue`、`apps/desktop/src/layouts/YixiaoerModuleNav.vue`、`apps/desktop/src/components/ProfileMenu.vue` + 3 个单测文件 |
-| 对外契约 | `ProfileMenu` 新增 `open-settings` / `upgrade` 两个 emit（既有 props / emit 语义不变）；`YixiaoerSidebar` 的 `open-settings` 事件语义不变 |
+| 改动文件 | `apps/desktop/src/layouts/MpSidebar.vue`、`apps/desktop/src/layouts/MpModuleNav.vue`、`apps/desktop/src/components/ProfileMenu.vue` + 3 个单测文件 |
+| 对外契约 | `ProfileMenu` 新增 `open-settings` / `upgrade` 两个 emit（既有 props / emit 语义不变）；`MpSidebar` 的 `open-settings` 事件语义不变 |
 | 数据/接口 | 无变更（无 IPC / DB / 持久化改动） |
 | 回滚方式 | 单 PR 纯前端改动，按提交回滚即可；无数据迁移、无状态残留 |
 | 风险等级 | 低—中（仅应用壳布局，无业务逻辑；由 3 个组件测试 + 像素门禁保护） |
@@ -372,10 +372,10 @@ Footer   : [服务连接信息 六服务聚合状态]          ← 上移
 
 | 文件 | 职责 |
 |------|------|
-| `apps/desktop/src/layouts/YixiaoerSidebar.vue` | 侧边栏容器：header 品牌区、主导航、footer（服务信息 + 底部用户 banner） |
+| `apps/desktop/src/layouts/MpSidebar.vue` | 侧边栏容器：header 品牌区、主导航、footer（服务信息 + 底部用户 banner） |
 | `apps/desktop/src/components/ProfileMenu.vue` | 登录区用户菜单：banner 触发 + 展开面板（账号操作 / 设置 / 升级 Pro） |
 | `apps/desktop/src/components/SidebarServiceStatus.vue` | 服务连接信息聚合与明细 |
-| `apps/desktop/src/layouts/YixiaoerModuleNav.vue` | 模块导航（工具区已移除） |
+| `apps/desktop/src/layouts/MpModuleNav.vue` | 模块导航（工具区已移除） |
 | `apps/desktop/src/components/UpgradeModal.vue` | 升级弹窗（由侧边栏承载） |
 | `apps/desktop/src/components/SettingsDialog.vue` | 设置弹窗（由 `App.vue` 承载） |
 | `apps/desktop/src/stores/license.js` | 许可状态（`isPro`） |

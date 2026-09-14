@@ -1745,7 +1745,7 @@ export default {
 .segment-jump-number.active { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
 .segment-jump-nav { display: flex; gap: 8px; margin-left: auto; }
 /* 视频任务编辑页底部操作条：固定在主工作区底部，不跟随页面内容滚动。 */
-.result-action-bar { position: fixed; left: var(--yixiaoer-sidebar-width, 200px); right: 0; bottom: 0; z-index: 110; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; min-height: var(--result-action-bar-space, 88px); margin: 0; padding: 12px max(20px, calc((100vw - var(--yixiaoer-sidebar-width, 200px) - 1040px) / 2 + 24px)); border-top: 1px solid var(--hairline, rgba(0,0,0,0.06)); background: var(--surface, #fff); box-shadow: 0 -2px 12px rgba(0,0,0,0.08); }
+.result-action-bar { position: fixed; left: var(--mp-sidebar-width, 200px); right: 0; bottom: 0; z-index: 110; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; min-height: var(--result-action-bar-space, 88px); margin: 0; padding: 12px max(20px, calc((100vw - var(--mp-sidebar-width, 200px) - 1040px) / 2 + 24px)); border-top: 1px solid var(--hairline, rgba(0,0,0,0.06)); background: var(--surface, #fff); box-shadow: 0 -2px 12px rgba(0,0,0,0.08); }
 .result-action-bar-status { display: flex; align-items: center; gap: 8px; min-height: 30px; }
 .result-action-bar-status .segments-unsaved-chip { margin-left: 0; }
 .result-action-bar-status .action-bar-progress { color: var(--text-muted); font-size: 12px; }

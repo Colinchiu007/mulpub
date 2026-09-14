@@ -103,7 +103,7 @@
 | XMLBuilder | 视频号 XML 构建器 | 10/10 | 已发布 |
 | TokenAcquirer | COS/OSS Token 统一获取 + 缓存 | - | 已发布 |
 | RichTextProcessor | 富文本处理器 (@提及中文支持修复) | 8/8 | 已发布 |
-| CommentMessageService | 评论自动回复 (蚁小二复用) | 8/8 | 已发布 |
+| CommentMessageService | 评论自动回复 (参考产品复用) | 8/8 | 已发布 |
 | ProxyManager | 代理管理 | - | 已发布 |
 | TaskPool | 任务池 | - | 已发布 |
 | ErrorCodes | 统一错误码 (12 个) | 12/12 | 已发布 |
@@ -113,16 +113,16 @@
 | GzipCompression | gzip 压缩 | - | 已发布 |
 | Docker 容器化 | Dockerfile + docker-compose + CLI 环境变量 | - | 已发布 |
 
-### 1.6 从蚁小二复用的代码
+### 1.6 从参考产品复用的代码
 
 | 模块 | 来源 | 适配内容 |
 |------|------|---------|
-| 本地签名算法 | 蚁小二 Signer | B站/微博/头条号本地签名 |
-| COS 上传引擎 | 蚁小二 COSUploader | 小红书/视频号/知乎 COS 上传 |
-| 远程签名集成 | 蚁小二 RemoteSigner | 抖音/快手远程签名 |
-| OSS 上传器 | 蚁小二 OSSUploader | 多平台 OSS 上传 |
-| XML 构建器 | 蚁小二 XMLBuilder | 视频号发布 XML 构建 |
-| 评论回复服务 | 蚁小二 CommentService | Echo/Template 回复生成器 |
+| 本地签名算法 | 参考产品 Signer | B站/微博/头条号本地签名 |
+| COS 上传引擎 | 参考产品 COSUploader | 小红书/视频号/知乎 COS 上传 |
+| 远程签名集成 | 参考产品 RemoteSigner | 抖音/快手远程签名 |
+| OSS 上传器 | 参考产品 OSSUploader | 多平台 OSS 上传 |
+| XML 构建器 | 参考产品 XMLBuilder | 视频号发布 XML 构建 |
+| 评论回复服务 | 参考产品 CommentService | Echo/Template 回复生成器 |
 
 ---
 

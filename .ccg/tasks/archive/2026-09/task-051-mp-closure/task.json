@@ -1,0 +1,15 @@
+{
+  "id": "task-051-mp-closure",
+  "title": "接手 task-051：快手真实发布验收与参考产品 UE 收口（python-bridge 生命周期修复收尾）",
+  "status": "in_progress",
+  "complexity": "L+",
+  "risk": "high",
+  "domain": "frontend-electron-rpa-release-validation",
+  "currentPhase": "review",
+  "nextAction": "python-bridge 生命周期修复已完成审查/测试/QM-1；推送 codex/real-publish-e2e-followup 并创建 PR，记录远端合并状态。快手最终发布仍须用户明确确认。",
+  "createdAt": "2026-08-22T10:20:00+08:00",
+  "branch": "codex/real-publish-e2e-followup",
+  "worktree": "D:/Data/projects/mp-worktrees/mp-ue-parity-real-publish-e2e",
+  "openspecChange": "task-051-mp-closure",
+  "remoteStatus": "2026-08-29 接手会话收尾：python-bridge.js + 集成测试 16/16 + rpa 20/20 + eslint 0 + QM-1 打包启动通过（新产物含新逻辑/config 完整/主窗口显示）；Claude 有界审查无 Critical。待推送分支并创建 PR；快手真实发布待用户确认。"
+}

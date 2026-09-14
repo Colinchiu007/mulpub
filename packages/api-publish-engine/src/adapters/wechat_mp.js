@@ -26,7 +26,7 @@ class WechatMpAdapter extends BasePlatformAdapter {
       content: taskData.content || "",
       tags: (taskData.tags || []).join(","),
       cover_url: taskData.cover || "",
-      // P1-4/P1-5/P3-3：摘要/作者/评论开关（蚁小二 digest/author/need_open_comment）
+      // P1-4/P1-5/P3-3：摘要/作者/评论开关（参考产品 digest/author/need_open_comment）
       digest: String(taskData.digest || "").slice(0, 120),
       author: String(taskData.author || "").slice(0, 60),
       need_open_comment: taskData.openComment === false ? 0 : 1,

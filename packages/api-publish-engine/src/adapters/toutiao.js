@@ -1,4 +1,4 @@
-// 头条号适配器 — 基于蚁小二逆向工程
+// 头条号适配器 — 基于参考产品逆向分析
 const { BasePlatformAdapter } = require("../base-adapter");
 const { upload } = require("../../upload/orchestrator");
 

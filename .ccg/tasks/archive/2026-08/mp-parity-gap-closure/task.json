@@ -1,0 +1,12 @@
+{
+  "id": "mp-parity-gap-closure",
+  "title": "参考产品账号与发布模块差距收口",
+  "status": "completed",
+  "complexity": "L+",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并完成提交、推送、PR 与 main 合入",
+  "createdAt": "2026-08-04T00:00:00Z",
+  "branch": "codex/mp-parity-gap-20260804"
+}

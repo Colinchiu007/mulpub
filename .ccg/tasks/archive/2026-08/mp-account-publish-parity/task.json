@@ -1,0 +1,13 @@
+{
+  "id": "mp-account-publish-parity",
+  "title": "账号管理与内容发布模块参考产品功能流程和界面对齐",
+  "status": "completed",
+  "complexity": "L+",
+  "risk": "high",
+  "domain": "frontend-electron-product-parity",
+  "currentPhase": "completed",
+  "nextAction": "archive task",
+  "createdAt": "2026-08-03T10:00:00+08:00",
+  "branch": "codex/mp-account-publish-parity-20260803",
+  "worktree": "C:/tmp/Multi-Publish-mp-account-publish-parity"
+}

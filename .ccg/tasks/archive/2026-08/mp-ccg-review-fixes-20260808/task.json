@@ -1,0 +1,12 @@
+{
+  "id": "mp-ccg-review-fixes-20260808",
+  "title": "修复 CCG 双模型审查发现的账号/代理/二维码问题",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend-electron",
+  "currentPhase": "completed",
+  "nextAction": "归档",
+  "createdAt": "2026-08-08T00:00:00Z",
+  "branch": "codex/mp-review-fixes-20260808"
+}
