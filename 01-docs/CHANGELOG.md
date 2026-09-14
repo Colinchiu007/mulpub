@@ -1,13 +1,13 @@
 ## [Unreleased] - 2026-09-14 (侧边栏左上角品牌区改为「Logo + 版本号」)
 
 ### 变更（应用壳品牌区）
-- `src/layouts/YixiaoerSidebar.vue` header：移除临时文字占位 `.yixiaoer-sidebar-brand`（`MP` 渐变徽标）与 `.yixiaoer-sidebar-title`（`Multi-Publish` 文本），改为「**汤姆鱼 Logo 图片 + 应用版本号**」：`[data-testid="yixiaoer-sidebar-logo"]`（`<img>`）+ `[data-testid="yixiaoer-sidebar-version"]`（`v` + 版本号，如 `v2.3.53`）；「+ 新建发布」按钮位置与行为不变。
+- `src/layouts/YixiaoerSidebar.vue` header：移除临时文字占位 `.yixiaoer-sidebar-brand`（`MP` 渐变徽标）与 `.yixiaoer-sidebar-title`（`Multi-Publish` 文本），改为「**汤姆鱼 Logo 图片 + 应用版本号**」：`[data-testid="yixiaoer-sidebar-logo"]`（`<img>`）+ `[data-testid="yixiaoer-sidebar-version"]`（`v` + 版本号，如 `v0.1.0`）；「+ 新建发布」按钮位置与行为不变。
 - 新增品牌资产 `src/assets/brand/tom-fish-logo.png`：源图 `Logo矢量图-透明.png`（3042×1910 RGBA / 1.06MB）→ 探测 alpha 包围盒裁剪透明边距（内容 2930×1798，宽高比 1.6296）→ 等比缩小为 **176×108**（约 13.9KB，−98.7%），alpha 预乘加权避免透明边缘发黑；CSS `height: 36px; width: auto` → 实际约 59×36（3× 资源，HiDPI 不模糊）。
 - 尺寸推导（200px 侧边栏）：可用 172px − 新建发布按钮 24px+8px − 版本号≈38px+8px ⇒ Logo ≤ ~94px；垂直与 40px 导航行对齐取高 36px ⇒ 宽 ≈59px，校验 59+8+38=105px ≤ 140px，不挤压按钮。
 
 ### 变更（版本号取数）
 - 新增 `src/composables/useAppVersion.js`：**唯一**取数封装。纯函数 `extractAppVersion(response)`（仅 `code===0` 且 `data` 非空才返回 `String(data).trim()`）+ 组合式函数 `useAppVersion()`（`version`/`loading`/`loadVersion`）。
-- 数据源沿用既有 IPC `app:get-version`（主进程读 `apps/desktop/package.json` 的 `version`），经 `@/api/electron-bridge` 的 `invoke('getVersion')` 调用，**未新增任何 IPC / 持久化 / store 字段**。
+- 数据源沿用既有 IPC `app:get-version`（主进程读 `apps/desktop/package.json` 的 `version`；该字段由根 `package.json` 单一真相源经 `scripts/sync-version.mjs` 自动派生，见 `docs/version-management.md`），经 `@/api/electron-bridge` 的 `invoke('getVersion')` 调用，**未新增任何 IPC / 持久化 / store 字段**。
 - 降级（4 条路径均静默、不抛错、不阻塞渲染）：无 `window.electronAPI`（`invoke` 返回 `undefined`）/ `code !== 0` / `data` 为空或纯空白 / IPC reject ⇒ **不渲染**版本节点，仅保留 Logo。
 
 ### 变更（i18n / 响应式 / a11y）
@@ -17,7 +17,7 @@
 
 ### 测试
 - 新增 `src/composables/useAppVersion.test.js`（16 例）：`extractAppVersion` 成功/去空白/非字符串转串 + 9 类无效输入（失败码、空串、空白串、`data:null`、`data` 缺失、`undefined`、`null`、非对象、数组）；`useAppVersion` 成功取值、IPC 不可用、IPC 抛错、失败码不落脏值 + `loading` 复位。
-- `src/layouts/YixiaoerSidebar.test.js`（13 例，本次 +4）：品牌 Logo 为 `<img>` 且 `src` 非空、`alt=Multi-Publish`、版本号 `v2.3.53` 且 `title=当前版本`、旧品牌类不存在；IPC 不可用 / 失败码 / IPC reject 三种情形均不渲染版本号且侧边栏整体仍在。既有 9 例全绿。
+- `src/layouts/YixiaoerSidebar.test.js`（13 例，本次 +4）：品牌 Logo 为 `<img>` 且 `src` 非空、`alt=Multi-Publish`、版本号 `v2.3.53`（单测 mock 固定值，与真实版本号解耦）且 `title=当前版本`、旧品牌类不存在；IPC 不可用 / 失败码 / IPC reject 三种情形均不渲染版本号且侧边栏整体仍在。既有 9 例全绿。
 - 本地门禁：`vitest` 2 文件 29 例全绿；`eslint --quiet` 0 error；`tsc --noEmit` 0；Gate 6 IPC / Gate 10 前端一致性 / Gate 7 `--cjk`·`--keys`·`--pair-base` / 债务熔断全 PASS；**像素视觉门禁 17/17 通过**（影响区约 200×66px ≈ 全视口 0.64%，阈值 6%）。
 
 ### 文档

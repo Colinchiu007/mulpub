@@ -56,7 +56,8 @@
 |------|------|
 | 品牌区 | 侧边栏 header（`.yixiaoer-sidebar-header`）：左上角 Logo + 版本号 + 「+ 新建发布」 |
 | 品牌 Logo | 汤姆鱼矢量图的透明 PNG 位图，落盘于 `src/assets/brand/tom-fish-logo.png` |
-| 应用版本号 | 主进程 `app:get-version` 返回的 semver 字符串（当前 `2.3.53`），渲染为 `v2.3.53` |
+| 应用版本号 | 主进程 `app:get-version` 返回的 semver 字符串（当前 `0.1.0`），渲染为 `v0.1.0` |
+| 版本单一真相源 | 根 `package.json` 的 `version`（见 [版本管理规范](../docs/version-management.md)）；`apps/desktop/package.json` 由 `scripts/sync-version.mjs` 自动派生，pre-commit 钩子保证二者永不漂移 |
 | 折叠轨 | 视口 ≤900px 时侧边栏收窄为 68px 的形态 |
 
 **改动前的侧边栏 header**：
@@ -69,7 +70,7 @@ Header : [MP]  Multi-Publish .................... [+ 新建发布]
 **改动后**：
 
 ```
-Header : [🐟 汤姆鱼 Logo]  v2.3.53  ............. [+ 新建发布]
+Header : [🐟 汤姆鱼 Logo]  v0.1.0  ............. [+ 新建发布]
           高 36px / 宽 ≈59px  11px 灰字
           （版本号取不到时整段隐藏，仅保留 Logo）
 ```
@@ -92,7 +93,7 @@ Header : [🐟 汤姆鱼 Logo]  v2.3.53  ............. [+ 新建发布]
 
 | 项 | 要求 |
 |----|------|
-| 数据源（唯一） | 主进程 IPC `app:get-version`（`electron/ipc-handlers/misc.js`），读 `apps/desktop/package.json` 的 `version`，返回 `{ code: 0, data: '<semver>' }` |
+| 数据源（唯一） | 主进程 IPC `app:get-version`（`electron/ipc-handlers/misc.js`），读 `apps/desktop/package.json` 的 `version`，返回 `{ code: 0, data: '<semver>' }`；该字段由 [版本管理规范](../docs/version-management.md) 的单一真相源（根 `package.json`）经 `scripts/sync-version.mjs` 自动派生，故界面展示的版本号始终等于产品唯一版本号 |
 | 调用方式（唯一） | 渲染层经 `@/api/electron-bridge` 的 `invoke('getVersion')`，**禁止**直接访问 `window.electronAPI`（CI Gate 10 约束） |
 | 封装 | 新增 `src/composables/useAppVersion.js`，导出纯函数 `extractAppVersion(response)` 与组合式函数 `useAppVersion()` |
 | 时机 | 侧边栏 `onMounted` 调用一次 `loadVersion()`；不做轮询、不监听更新事件 |
@@ -164,14 +165,14 @@ Header : [🐟 汤姆鱼 Logo]  v2.3.53  ............. [+ 新建发布]
   → useAppVersion.loadVersion()
     → loading = true
     → invoke('getVersion')
-        ├─ Electron 环境：preload → IPC 'app:get-version' → 主进程读 package.json.version → { code:0, data:'2.3.53' }
+        ├─ Electron 环境：preload → IPC 'app:get-version' → 主进程读 package.json.version → { code:0, data:'0.1.0' }
         └─ 浏览器环境：electron-bridge 检测无 API → 返回 undefined
     → extractAppVersion(response)
-        ├─ 合法成功响应 → '2.3.53'
+        ├─ 合法成功响应 → '0.1.0'
         └─ 其他 → ''
     → version = 结果
     → loading = false（finally）
-  → 模板 v-if="version" → 渲染 'v2.3.53'
+  → 模板 v-if="version" → 渲染 'v0.1.0'
 ```
 
 ### 7.2 交互逻辑
@@ -194,7 +195,7 @@ Header : [🐟 汤姆鱼 Logo]  v2.3.53  ............. [+ 新建发布]
 |------|------|------|
 | ① 可用宽度 | 侧边栏 200px − header 左右内边距 14px×2 | **172px** |
 | ② 让位「+ 新建发布」 | 按钮 24px + flex gap 8px | 剩 **140px** 给 Logo + 版本号 |
-| ③ 让位版本号 | `v2.3.53`（11px 字重常规）≈ 38px + gap 8px | 剩 **≈94px** 给 Logo |
+| ③ 让位版本号 | `v0.1.0`（11px 字重常规）≈ 38px + gap 8px | 剩 **≈94px** 给 Logo |
 | ④ 垂直约束 | 主导航项行高 40px；header 需保持轻量 → Logo 高 **36px** | header 总高 = 16 + 36 + 14 = **66px** |
 | ⑤ 由宽高比反推宽度 | 内容宽高比 2930 / 1798 = **1.6296** → 36 × 1.6296 | **≈ 58.7px ≈ 59px** |
 | ⑥ 校验 | 59 + 8 + 38 = 105px ≤ 140px ✅ | 不挤压「+ 新建发布」 |
@@ -241,7 +242,7 @@ Header : [🐟 汤姆鱼 Logo]  v2.3.53  ............. [+ 新建发布]
 |------|------|
 | Logo `<img>` | `:alt="t('sidebar.brandLogoAlt')"` → `Multi-Publish`（Logo 为产品标识，语义等同产品名） |
 | 版本号 `<span>` | `:title="t('sidebar.appVersionTitle')"` → 「当前版本」/ `Current version` |
-| 版本号可读性 | 文本形态（非图片），屏幕阅读器可直接朗读 `v2.3.53` |
+| 版本号可读性 | 文本形态（非图片），屏幕阅读器可直接朗读 `v0.1.0` |
 | 对比度 | `#9a9cb3` on `#f4f2ff` 渐变 ≈ 3.3:1，属**装饰性辅助信息**（非导航、非操作），满足非正文文本要求 |
 | 焦点 | Logo 与版本号均不可聚焦（无 `tabindex`），不进入键盘 Tab 序，避免打断「+ 新建发布」的键盘路径 |
 
@@ -260,7 +261,7 @@ Header : [🐟 汤姆鱼 Logo]  v2.3.53  ............. [+ 新建发布]
 
 | 位置 | 文案 | 来源 |
 |------|------|------|
-| 品牌区版本号 | `v` + 版本号（如 `v2.3.53`） | `v` 为 ASCII 字面量前缀 + IPC 动态值 |
+| 品牌区版本号 | `v` + 版本号（如 `v0.1.0`） | `v` 为 ASCII 字面量前缀 + IPC 动态值（跟随后续版本 bump 自动变化） |
 | 版本号悬停 | 当前版本 / Current version | `sidebar.appVersionTitle` |
 | Logo 替代文本 | Multi-Publish | `sidebar.brandLogoAlt` |
 | 「+ 新建发布」 | 新建发布（`aria-label` + `title`） | 既有字面量（未改动） |
@@ -296,7 +297,7 @@ Header : [🐟 汤姆鱼 Logo]  v2.3.53  ............. [+ 新建发布]
 | 测试文件 | 用例 | 覆盖契约 |
 |----------|------|---------|
 | `src/composables/useAppVersion.test.js`（**新增，16 例**） | `extractAppVersion` 成功取值 / 去空白 / 非字符串转串 / 9 类无效输入（失败码、空串、空白串、`data:null`、`data` 缺失、`undefined`、`null`、非对象、数组）；`useAppVersion` 成功、IPC 不可用、IPC 抛错、失败码不落脏值 + `loading` 复位 | §5.1 接口契约 + §6 数据校验全表 |
-| `src/layouts/YixiaoerSidebar.test.js`（**13 例，本次 +4**） | ①品牌 Logo 为 `<img>` 且 `src` 非空、`alt=Multi-Publish`、版本号文本 `v2.3.53` 且 `title=当前版本`、旧 `.yixiaoer-sidebar-brand`/`.yixiaoer-sidebar-title` 不存在；②IPC 不可用（`undefined`）→ 只有 Logo 无版本号；③失败码（`code:-1`）→ 不渲染版本号；④IPC reject → 不渲染版本号且侧边栏整体仍在渲染 | §4.1 结构契约 + §11 异常降级 |
+| `src/layouts/YixiaoerSidebar.test.js`（**13 例，本次 +4**） | ①品牌 Logo 为 `<img>` 且 `src` 非空、`alt=Multi-Publish`、版本号文本 `v2.3.53`（单测 mock 固定值，与真实版本号解耦）且 `title=当前版本`、旧 `.yixiaoer-sidebar-brand`/`.yixiaoer-sidebar-title` 不存在；②IPC 不可用（`undefined`）→ 只有 Logo 无版本号；③失败码（`code:-1`）→ 不渲染版本号；④IPC reject → 不渲染版本号且侧边栏整体仍在渲染 | §4.1 结构契约 + §11 异常降级 |
 
 > 既有 9 例（footer 顺序 / 登录区不在 header / 设置移出主导航 / `open-settings` 透传 / `upgrade` 开弹窗 / 服务明细与降级 / 新建发布路由）全部保留并通过，确认本次改动无结构回归。
 
@@ -351,9 +352,10 @@ Header : [🐟 汤姆鱼 Logo]  v2.3.53  ............. [+ 新建发布]
 | `apps/desktop/src/layouts/YixiaoerSidebar.vue` | 侧边栏容器：header 品牌区（Logo + 版本号）、主导航、footer |
 | `apps/desktop/src/composables/useAppVersion.js` | 版本号取数：`extractAppVersion` 纯函数 + `useAppVersion` 组合式函数 |
 | `apps/desktop/src/assets/brand/tom-fish-logo.png` | 品牌 Logo 位图（176×108，RGBA） |
-| `apps/desktop/electron/ipc-handlers/misc.js` | `app:get-version` handler（读 `package.json.version`） |
+| `apps/desktop/electron/ipc-handlers/misc.js` | `app:get-version` handler（读 `apps/desktop/package.json.version`） |
 | `apps/desktop/electron/preload/system.js` | preload `getVersion` 桥接 |
 | `apps/desktop/src/api/electron-bridge.js` | 渲染层唯一 IPC 通道（`invoke('getVersion')`） |
+| `docs/version-management.md` | 版本管理规范：版本号单一真相源 = 根 `package.json`，`apps/desktop/package.json` 由 `scripts/sync-version.mjs` 自动派生 |
 | `docs/desktop-ui-layout-spec.md` | 布局规格（本次同步 §2.3 / §2.6 / §8.1） |
 | `docs/frontend-interaction-spec.md` | 交互规范（本次同步应用壳品牌区条款） |
 | `01-docs/i18n-glossary.md` | 产品名词与词条表 |

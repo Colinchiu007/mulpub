@@ -171,7 +171,7 @@ if (el) {
 | 位置 | 元素 | 内容 | 选择器 |
 |------|------|------|--------|
 | header | Logo `<img>` | 汤姆鱼 Logo（透明 PNG） | `[data-testid="yixiaoer-sidebar-logo"]` |
-| header | 版本号 `<span>` | `v` + `app:get-version` 返回值（如 `v2.3.53`），`title` = 当前版本 | `[data-testid="yixiaoer-sidebar-version"]` |
+| header | 版本号 `<span>` | `v` + `app:get-version` 返回值（如 `v0.1.0`），`title` = 当前版本 | `[data-testid="yixiaoer-sidebar-version"]` |
 | header | 新建发布按钮 | `+`（`aria-label`/`title` = 新建发布） | `button[aria-label="新建发布"]` |
 
 #### 2.6.2 尺寸推导（200px 侧边栏）
@@ -180,7 +180,7 @@ if (el) {
 |------|------|------|
 | ① 可用宽度 | 200px − 14px×2 内边距 | 172px |
 | ② 让位新建发布按钮 | 24px + gap 8px | 剩 140px |
-| ③ 让位版本号 | `v2.3.53`（11px）≈ 38px + gap 8px | 剩 ≈94px |
+| ③ 让位版本号 | `v0.1.0`（11px）≈ 38px + gap 8px | 剩 ≈94px |
 | ④ 垂直约束 | 与 40px 导航行对齐且 header 轻量 → Logo 高 **36px** | header 高 66px |
 | ⑤ 内容宽高比 | 源图内容包围盒 2930 / 1798 = **1.6296** | Logo 宽 ≈ **59px** |
 | ⑥ 资源倍率 | 3×（HiDPI/200% 缩放不模糊） | 资源 **176×108** |
@@ -191,7 +191,7 @@ if (el) {
 | 资源规格 | 176×108 RGBA PNG，约 13.9KB（源图 3042×1910 / 1.06MB，裁剪透明边距后等比缩小） |
 | CSS | `height: 36px; width: auto; object-fit: contain`（宽度由固有宽高比自动得出） |
 | 版本号样式 | `font-size: 11px; line-height: 1; letter-spacing: .2px; color: #9a9cb3`；超长省略号截断 |
-| 版本号数据源 | 主进程 IPC `app:get-version`（读 `apps/desktop/package.json` 的 `version`） |
+| 版本号数据源 | 主进程 IPC `app:get-version`（读 `apps/desktop/package.json` 的 `version`）；该字段由根 `package.json` 单一真相源经 `scripts/sync-version.mjs` 自动派生（见 [版本管理规范](./version-management.md)） |
 | 唯一取数封装 | `apps/desktop/src/composables/useAppVersion.js`（`extractAppVersion` + `useAppVersion`） |
 
 #### 2.6.3 校验与降级
@@ -415,7 +415,7 @@ mainWindow.on('resize', () => {
 | 显示项 | 文字 | 说明 |
 |--------|------|------|
 | 品牌 Logo | 无文字（`<img>` 替代文本 `sidebar.brandLogoAlt` = Multi-Publish） | 2026-09-14 由 `MP` 文字徽标升级为正式 Logo（见 2.6） |
-| 应用版本号 | `v` + `app:get-version` 返回值（如 `v2.3.53`） | 2026-09-14 新增；`title` = `sidebar.appVersionTitle` |
+| 应用版本号 | `v` + `app:get-version` 返回值（如 `v0.1.0`） | 2026-09-14 新增；`title` = `sidebar.appVersionTitle`；版本号单一真相源见 [版本管理规范](./version-management.md) |
 | 服务状态 | `sidebar.serviceStatus.allRunning`（服务运行中）/ `partialRunning`（{count}） / `unavailable` | 六服务聚合，hover 展示明细 |
 | 用户 banner 主文案 | 显示名 / 未登录等状态文案 | 收起态唯一入口 |
 | 用户 banner 状态点 | 无文字（`title` = 身份状态文案） | 合并原 footer「客户端状态」独立文字行 |

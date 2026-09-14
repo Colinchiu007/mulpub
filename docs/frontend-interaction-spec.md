@@ -105,7 +105,7 @@
 
 - **位置唯一**：产品品牌标识（Logo）与应用版本号的唯一落点是侧边栏 header（布局规格 §2.6）；不得在 NavBar / 模块导航 / 页面内另设品牌标识或版本号副本
 - **资产唯一**：品牌 Logo 唯一资源为 `src/assets/brand/tom-fish-logo.png`（176×108 RGBA）；禁止各视图内联不同 Logo 或另存副本；更换 Logo 必须同步替换该文件并核对 §2.6.2 尺寸推导
-- **版本号取数唯一**：只能经 `@/api/electron-bridge` 的 `invoke('getVersion')` 读取（主进程 `app:get-version` → `package.json.version`），统一封装在 `src/composables/useAppVersion.js`；禁止直连 `window.electronAPI`，禁止新增第二个版本号 IPC
+- **版本号取数唯一**：只能经 `@/api/electron-bridge` 的 `invoke('getVersion')` 读取（主进程 `app:get-version` → `apps/desktop/package.json.version`，该字段由根 `package.json` 单一真相源经 `scripts/sync-version.mjs` 派生，见 [版本管理规范](./version-management.md)），统一封装在 `src/composables/useAppVersion.js`；禁止直连 `window.electronAPI`，禁止新增第二个版本号 IPC，**禁止硬编码版本号字面量**
 - **降级必须静默**：版本号缺失（无 `electronAPI` / `code !== 0` / `data` 为空 / IPC 抛错）一律**不渲染**该节点且不抛错——装饰性信息不得阻塞应用壳渲染，也不得把错误 `message` 当版本号展示
 - **无交互原则**：Logo 与版本号均为纯展示（不可聚焦、不可点击、不可拖拽/选中）；点击 Logo **不**跳首页（避免与「主页」导航项语义重复）
 - **文案必须走 i18n**：替代文本用 `sidebar.brandLogoAlt`、悬停提示用 `sidebar.appVersionTitle`（zh/en 成对）
