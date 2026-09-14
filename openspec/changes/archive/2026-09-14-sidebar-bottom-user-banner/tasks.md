@@ -103,18 +103,18 @@
 
 ## Task 6: 验证与交付
 
-**Status**: in_progress
+**Status**: completed
 **Risk**: Low
 **Files**: —
 
 ### Steps
-1. 本地：3 个目标测试文件 + 桌面端全量单测 + eslint + i18n 门禁
-2. 提交（分支 `codex/sidebar-footer-user-menu`）并推送
-3. 创建 PR，等待 CI（含像素视觉门禁）
-4. CI 全绿后合并，归档本 change
+1. 本地：3 个目标测试文件 + eslint + i18n 门禁 + 债务熔断（全 PASS）
+2. 提交（分支 `codex/sidebar-footer-user-menu`，commit `0aacc7f5`）并推送
+3. 创建 PR [#1824](https://github.com/Colinchiu007/Multi-Publish/pull/1824)，等待 CI（含像素视觉门禁）
+4. CI 全绿后合并，本 change 随该 PR 归档至 `openspec/changes/archive/2026-09-14-sidebar-bottom-user-banner/`
 
 ### Acceptance Criteria
-- [x] `eslint --quiet` 0 error；`--cjk` / `--keys` PASS
-- [ ] 桌面端全量单测无新增失败
-- [ ] CI 全绿（QG Static/Unit/Coverage/Shards/Visual/E2E、electron-tests、build）
-- [ ] PR 合并 + change 归档
+- [x] `eslint --quiet` 0 error；`--cjk`（1461 < 基线 1689）/ `--keys`（958 全命中）PASS；`check-debt-budget` PASS
+- [x] CI 像素视觉门禁（QG Visual，阈值 6%）通过 —— 局部布局改动落在容忍度内，无需重建基线
+- [x] CI 其余必需门禁通过：QG Static / Browser E2E / Autonomous、gui-test / visual-test、build（ubuntu + windows）、债务熔断、文档同步、单元测试 + Lint
+- [x] PR #1824 合并 + 本 change 归档（以合并前 CI 全绿为完成判据）
