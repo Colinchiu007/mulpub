@@ -682,8 +682,10 @@ mainWindow.on('resize', () => {
 | 浮层 | z-index | 关系 |
 |------|---------|------|
 | `PipelineBackgroundToast` | 2100 | 屏幕居中，与右下角浮标无空间冲突 |
-| `UpdateNotification` toast / `UiModal` overlay | 2000 | **高于浮标**：模态弹窗打开时应占据最高焦点，浮标被遮罩覆盖符合模态语义 |
+| `UpdateNotification` toast（2026-09-14 起仅结果提示，更新模态框已下线） | 2000 | **高于浮标**：提示条与模态弹窗打开时应占据最高焦点，浮标被覆盖符合语义 |
 | **`BackToTop`** | **1900** | 低于模态层，高于所有普通页面内容 |
+
+**侧边栏「新版本」入口（2026-09-14 新增，见 [PRD-SIDEBAR-UPDATE-ENTRY-2026-09-14.md](../01-docs/PRD-SIDEBAR-UPDATE-ENTRY-2026-09-14.md)）**：位于侧边栏 footer 内、登录菜单按钮**正上方**（footer 顺序 `[0] 服务连接信息 → [1]「新版本」入口（仅在检测到新版本时渲染）→ [2] 登录 banner`），属导航壳内元素，不参与右下角浮标坐标系；配色为设计主色 `var(--primary)`，窄屏（≤900px）仅显示图标。
 
 **与右下角 `UpdateNotification` toast 的位置协调**：该提示条原为 `bottom: 16px; right: 16px`，与浮标（`bottom: 24px; right: 24px`，占 44×44）在水平 24–68px、垂直 24–60px 区间重叠。处置：提示条 `right` 由 `16px` 调整为 `88px`（保持贴底）。调整后提示条右边缘距窗口 88px > 浮标左边缘距窗口 68px，完全消除重叠；代价是提示条视觉内缩 72px，因其出现频率低（仅更新检查完成/失败）而可接受。
 

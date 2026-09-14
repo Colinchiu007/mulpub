@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
 import i18n from '@/i18n'
+import { resetAutoUpdateState, useAutoUpdate } from '@/composables/useAutoUpdate'
 
 const routeState = vi.hoisted(() => ({ path: '/accounts' }))
 const push = vi.hoisted(() => vi.fn())
@@ -72,6 +74,8 @@ afterEach(() => {
   wrapper?.unmount()
   wrapper = null
   push.mockReset()
+  // 更新状态为模块级共享单例，用例间必须复位，否则「新版本」入口会泄漏到后续用例
+  resetAutoUpdateState()
 })
 
 function mountSidebar (path = '/accounts') {
@@ -137,6 +141,25 @@ describe('YixiaoerSidebar', () => {
     expect(sidebar.text()).toContain('视频创作')
     expect(sidebar.text()).toContain('采集')
     expect(sidebar.get('[data-testid="yixiaoer-primary-accounts"]').classes()).toContain('active')
+  })
+
+  it('shows the new-version entry above the bottom login banner only when an update is available', async () => {
+    const sidebar = mountSidebar('/accounts')
+
+    // 无可用更新时不渲染（footer 顺序契约保持不变：服务信息 → 登录 banner）
+    expect(sidebar.find('[data-testid="yixiaoer-update"]').exists()).toBe(false)
+    expect(Array.from(sidebar.get('.yixiaoer-sidebar-footer').element.children)[1].getAttribute('data-testid'))
+      .toBe('profile-menu-stub')
+
+    useAutoUpdate().handleUpdateStatus({ type: 'available', data: { version: '2.4.0' } })
+    await nextTick()
+
+    // 有新版本时插入到「服务连接信息」与「登录 banner」之间，即底部菜单按钮上方
+    const footerBlocks = Array.from(sidebar.get('.yixiaoer-sidebar-footer').element.children)
+    expect(footerBlocks[0].querySelector('[data-testid="yixiaoer-service-status"]')).toBeTruthy()
+    expect(footerBlocks[1].getAttribute('data-testid')).toBe('yixiaoer-update')
+    expect(footerBlocks[2].getAttribute('data-testid')).toBe('profile-menu-stub')
+    expect(sidebar.get('[data-testid="yixiaoer-update"]').text()).toContain('新版本')
   })
 
   it('moves the settings entry out of the primary navigation into the bottom login menu', () => {

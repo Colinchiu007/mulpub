@@ -295,3 +295,128 @@ describe('AutoUpdater 版本发布策略（运营后台下发）', () => {
     expect(mocks.updater.checkForUpdates).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('AutoUpdater 侧边栏「新版本」点击即退出安装（installNow）', () => {
+  let autoUpdaterService
+  let mainWindow
+  let statuses
+
+  beforeEach(async () => {
+    vi.resetModules()
+    mocks.reset()
+    __resetElectronMock()
+    __enableElectronMock()
+    __electronMock.app.isPackaged = true
+    __registerMock('electron-updater', { autoUpdater: mocks.updater })
+    __registerMock('./logger', mocks.logger)
+    statuses = []
+    const imported = await import('./auto-updater')
+    autoUpdaterService = imported.default || imported
+    mainWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } }
+    autoUpdaterService.init(mainWindow, status => statuses.push(status))
+  })
+
+  afterEach(() => {
+    __electronMock.app.isPackaged = false
+    vi.restoreAllMocks()
+  })
+
+  it('未检测到新版本时不受理安装请求', () => {
+    expect(autoUpdaterService.installNow()).toBe(false)
+    expect(mocks.updater.quitAndInstall).not.toHaveBeenCalled()
+    expect(mocks.updater.downloadUpdate).not.toHaveBeenCalled()
+    expect(statuses.at(-1)).toEqual({ type: 'not-available', data: '当前已是最新版本' })
+  })
+
+  it('检测到新版本但未下载 → 先下载并推送 installing', () => {
+    mocks.updater.emit('update-available', { version: '2.4.0' })
+    mocks.updater.downloadUpdate.mockResolvedValue({})
+
+    expect(autoUpdaterService.installNow()).toBe(true)
+
+    expect(mocks.updater.downloadUpdate).toHaveBeenCalledTimes(1)
+    expect(mocks.updater.quitAndInstall).not.toHaveBeenCalled()
+    expect(statuses.at(-1)).toEqual({
+      type: 'installing',
+      data: { version: '2.4.0', phase: 'downloading' },
+    })
+  })
+
+  it('重复点击只触发一次下载（幂等）', () => {
+    mocks.updater.emit('update-available', { version: '2.4.0' })
+    mocks.updater.downloadUpdate.mockResolvedValue({})
+
+    autoUpdaterService.installNow()
+    autoUpdaterService.installNow()
+
+    expect(mocks.updater.downloadUpdate).toHaveBeenCalledTimes(1)
+  })
+
+  it('下载完成后自动退出并安装', () => {
+    mocks.updater.emit('update-available', { version: '2.4.0' })
+    mocks.updater.downloadUpdate.mockResolvedValue({})
+    autoUpdaterService.installNow()
+
+    mocks.updater.emit('update-downloaded', {})
+
+    expect(mocks.updater.quitAndInstall).toHaveBeenCalledTimes(1)
+    expect(statuses.map(status => status.type)).toEqual([
+      'available',
+      'installing',
+      'downloaded',
+      'installing',
+    ])
+  })
+
+  it('安装包已下载时点击直接退出安装（不再下载）', () => {
+    mocks.updater.emit('update-available', { version: '2.4.0' })
+    mocks.updater.emit('update-downloaded', {})
+
+    expect(autoUpdaterService.installNow()).toBe(true)
+
+    expect(mocks.updater.quitAndInstall).toHaveBeenCalledTimes(1)
+    expect(mocks.updater.downloadUpdate).not.toHaveBeenCalled()
+  })
+
+  it('强制策略已自动下载时不重复触发下载', () => {
+    mocks.updater.emit('update-available', { version: '2.4.0' })
+    mocks.updater.autoDownload = true
+
+    expect(autoUpdaterService.installNow()).toBe(true)
+
+    expect(mocks.updater.downloadUpdate).not.toHaveBeenCalled()
+  })
+
+  it('用户点击后发生网络类错误 → 回传 error 供重试，不降级为「已是最新版本」', () => {
+    mocks.updater.emit('update-available', { version: '2.4.0' })
+    mocks.updater.downloadUpdate.mockResolvedValue({})
+    autoUpdaterService.installNow()
+
+    mocks.updater.emit(
+      'error',
+      new Error('Cannot find latest.yml in the latest release artifacts: HttpError: 404'),
+    )
+
+    expect(statuses.at(-1).type).toBe('error')
+  })
+
+  it('已请求安装时并发复查返回 not-available 不中断安装', () => {
+    mocks.updater.emit('update-available', { version: '2.4.0' })
+    mocks.updater.downloadUpdate.mockResolvedValue({})
+    autoUpdaterService.installNow()
+
+    mocks.updater.emit('update-not-available')
+    mocks.updater.emit('update-downloaded', {})
+
+    expect(mocks.updater.quitAndInstall).toHaveBeenCalledTimes(1)
+  })
+
+  it('未请求安装时的后台检查失败仍静默降级', () => {
+    mocks.updater.emit(
+      'error',
+      new Error('Cannot find latest.yml in the latest release artifacts: HttpError: 404'),
+    )
+
+    expect(statuses.at(-1)).toEqual({ type: 'not-available', data: '当前已是最新版本' })
+  })
+})
