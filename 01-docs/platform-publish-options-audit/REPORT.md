@@ -46,7 +46,7 @@
 | Instagram | 位置、高级设置（隐藏点赞/关闭评论）、交叉发布到 Facebook | 可选 |
 | Facebook | 受众选择（公开/好友/仅自己）、位置、定时、交叉发布到 Instagram | 可选 |
 
-> 必填/可选标注依据：仓库 adapter 字段契约（`packages/api-publish-engine/src/adapters/*.js`）、RPA 选择器（`packages/rpa-engine/src/platform-selectors.js`）、`01-docs/wechat-publisher-api.md`、`01-docs/PRD-yixiaoer-reuse.md`、YouTube 官方帮助页。国内平台发布页实际必填性未逐字段联网核实，标注「待确认」处以平台通用流程推断。
+> 必填/可选标注依据：仓库 adapter 字段契约（`packages/api-publish-engine/src/adapters/*.js`）、RPA 选择器（`packages/rpa-engine/src/platform-selectors.js`）、`01-docs/wechat-publisher-api.md`、`01-docs/PRD-mp-reuse.md`、YouTube 官方帮助页。国内平台发布页实际必填性未逐字段联网核实，标注「待确认」处以平台通用流程推断。
 
 ## 第二部分：项目代码现状（审计结果）
 

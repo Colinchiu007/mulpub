@@ -750,7 +750,7 @@ codeagent-wrapper --backend opencode --lite "审查 <change> 实现：命名/模
 
 ***
 
-## 新增模块（蚁小二逆向工程集成）
+## 新增模块（参考产品逆向分析集成）
 
 - `electron/services/account-state-restorer.js` — 账号登录状态持久化（JSONL）
 

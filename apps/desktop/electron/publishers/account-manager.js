@@ -495,7 +495,7 @@ async function checkLoginStatus (platform, accountId) {
       return { valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' }
     }
 
-    // HTTP API 快速路径（参考蚁小二）：Cookie 直接调平台 API，<1s/平台。
+    // HTTP API 快速路径（参考同类产品）：Cookie 直接调平台 API，<1s/平台。
     const httpResult = await tryHttpLoginCheck(platform, cookies, accountId)
     if (httpResult) return httpResult
 
@@ -698,7 +698,7 @@ async function extractAccountInfo (page, platform = '') {
 
 /**
  * 恢复 Cookie 到 Electron session
- * 基于蚁小二逆向工程 restoreCookies
+ * 基于参考产品逆向分析 restoreCookies
  */
 function restoreCookies (session, cookies, baseUrl) {
   let _restoreFailed = 0
@@ -731,7 +731,7 @@ function restoreCookies (session, cookies, baseUrl) {
 
 /**
  * 恢复 localStorage 到 webContents
- * 基于蚁小二逆向工程 restoreLocalStorage
+ * 基于参考产品逆向分析 restoreLocalStorage
  */
 function restoreLocalStorage (webContents, localStorageObj) {
   if (!localStorageObj || typeof localStorageObj !== 'object') return Promise.resolve()
@@ -823,7 +823,7 @@ function setAccountProxy (accountId, platform, proxy, options = {}) {
 
 /**
  * 打开已保存的账号（恢复登录状态）
- * 基于蚁小二逆向工程 openSavedAccount
+ * 基于参考产品逆向分析 openSavedAccount
  * 
  * @param {string} accountId - 账号ID
  * @param {string} platform - 平台

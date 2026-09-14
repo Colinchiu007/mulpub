@@ -2,7 +2,7 @@
 /**
  * CredentialStore — 凭证双层存储
  * 
- * 基于蚁小二逆向工程的 CookieContainer 双层架构：
+ * 基于参考产品逆向分析的 CookieContainer 双层架构：
  * 
  * 第一层：Session Cookie（Electron session.fromPartition）
  *   - 每个账号独立 session 分区 persist:auth-{accountId}

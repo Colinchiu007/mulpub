@@ -83,7 +83,7 @@ worktree    = D:\Data\projects\mp-worktrees\mp-deep-architecture-refactor-plan
 | OpsCenter frontend | 63 文件 / 7,279 行 | 含测试 |
 | 其余统计代码 | 217 文件 / 44,016 行 | Desktop 根级测试/配置/脚本 128/25,530；Remotion `.tsx` 29/8,526；仓库自动化、部署和工具 60/9,960 |
 
-以上分类与总计严格闭合。统计排除了 `01-docs/yixiaoer-reverse` 下 1 个、182 行的逆向样本；这些数字说明测试投入和功能体量，不证明测试当前通过，也不证明所有代码都在生产路径中。
+以上分类与总计严格闭合。统计排除了 `01-docs/ui-reference` 下 1 个、182 行的逆向样本；这些数字说明测试投入和功能体量，不证明测试当前通过，也不证明所有代码都在生产路径中。
 
 ### 1.3 证据等级
 

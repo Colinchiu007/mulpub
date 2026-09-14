@@ -324,7 +324,7 @@ const zhihuStatements = [
   { value: 5, label: '包含 AI 辅助创作' },
 ]
 
-// B站分区（tid）：常用分区映射（蚁小二 subCategory.yixiaoerId → parseInt → tid）
+// B站分区（tid）：常用分区映射（参考产品 subCategory.sourceId → parseInt → tid）
 const bilibiliCategories = [
   { value: 21, label: '日常' },
   { value: 17, label: '单机游戏' },

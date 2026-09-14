@@ -2,7 +2,7 @@
 /**
  * AccountStateRestorer — 账号登录状态恢复
  * 
- * 基于蚁小二逆向工程的账号状态索引方案。
+ * 基于参考产品逆向分析的账号状态索引方案。
  * 此文件只保存账号公开元数据；Cookie 和浏览器存储由 credential-store 加密保存。
  * 
  * 文件路径: {userData}/accounts/state.jsonl

@@ -27,22 +27,22 @@
 
 **Status**: completed
 **Risk**: Medium
-**Files**: `apps/desktop/src/layouts/YixiaoerSidebar.vue` (MODIFY)
+**Files**: `apps/desktop/src/layouts/MpSidebar.vue` (MODIFY)
 
 ### Steps
 1. header 改为品牌区（`MP` + `Multi-Publish` + `+` 新建发布），移除 `ProfileMenu`
 2. 主导航删除「设置」按钮，移除 `Setting` 图标与 `useIdentityStore` / `useLicenseStore` 依赖
-3. footer 顺序改为 [0] 服务连接信息（新增 `.yixiaoer-sidebar-service` 容器）→ [1] `ProfileMenu placement="top"`
+3. footer 顺序改为 [0] 服务连接信息（新增 `.mp-sidebar-service` 容器）→ [1] `ProfileMenu placement="top"`
 4. 承接事件：`@open-settings` 透传、`@upgrade` 置 `showUpgradeModal`
 5. 清理死样式（状态行 / 升级按钮 / 旧 header）并更新窄屏媒体查询
 
 ### Acceptance Criteria
 - [x] 侧边栏顶部 header 不再含登录区
 - [x] footer DOM 顺序为服务连接信息 → 用户 banner
-- [x] 主导航无 `data-testid="yixiaoer-primary-settings"`
+- [x] 主导航无 `data-testid="mp-primary-settings"`
 - [x] `open-settings` / `upgrade` 事件链路可用（透传 / 打开升级弹窗）
 - [x] 窄屏 ≤900px 下 banner 保留（仅头像），服务连接信息隐藏
-- [x] `YixiaoerSidebar.test.js` 9 用例全绿
+- [x] `MpSidebar.test.js` 9 用例全绿
 
 ---
 
@@ -50,17 +50,17 @@
 
 **Status**: completed
 **Risk**: Low
-**Files**: `apps/desktop/src/layouts/YixiaoerModuleNav.vue` (MODIFY)
+**Files**: `apps/desktop/src/layouts/MpModuleNav.vue` (MODIFY)
 
 ### Steps
-1. 删除 `.yixiaoer-module-tools` 工具区（4 个按钮）与 `#yixiaoer-tool-panel` 工具面板
+1. 删除 `.mp-module-tools` 工具区（4 个按钮）与 `#mp-tool-panel` 工具面板
 2. 删除脚本状态（`activeTool` / `toolPanels` / `activeToolContent` / `toggleTool`）与 `ref` 依赖
 3. 删除全部工具相关样式与媒体查询分支；模块导航改为单子元素左对齐
 
 ### Acceptance Criteria
-- [x] `[data-testid="yixiaoer-module-tools"]` / `.yixiaoer-tool-button` / `[data-testid="yixiaoer-tool-panel"]` 均不渲染
+- [x] `[data-testid="mp-module-tools"]` / `.mp-tool-button` / `[data-testid="mp-tool-panel"]` 均不渲染
 - [x] 模块标签与激活态行为不变
-- [x] `YixiaoerModuleNav.test.js` 5 用例全绿（含零渲染回归断言）
+- [x] `MpModuleNav.test.js` 5 用例全绿（含零渲染回归断言）
 
 ---
 
@@ -68,7 +68,7 @@
 
 **Status**: completed
 **Risk**: Low
-**Files**: `apps/desktop/src/layouts/YixiaoerSidebar.test.js` / `YixiaoerModuleNav.test.js` / `apps/desktop/src/components/ProfileMenu.test.js` (MODIFY)
+**Files**: `apps/desktop/src/layouts/MpSidebar.test.js` / `MpModuleNav.test.js` / `apps/desktop/src/components/ProfileMenu.test.js` (MODIFY)
 
 ### Steps
 1. ModuleNav：把原工具面板用例改写为「零渲染」防回归断言

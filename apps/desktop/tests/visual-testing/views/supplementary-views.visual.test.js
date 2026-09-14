@@ -123,11 +123,11 @@ const supplementaryViewTests = [
     // 这里只验证「底部 banner 可展开且菜单内含升级入口」这一可稳定截图的中间态。
     name: 'user-menu-upgrade-entry',
     route: '/',
-    waitFor: '[data-testid="yixiaoer-profile"]',
-    trigger: '[data-testid="yixiaoer-profile"]',
+    waitFor: '[data-testid="mp-profile"]',
+    trigger: '[data-testid="mp-profile"]',
     afterTrigger: '[data-testid="profile-menu-upgrade"]',
     checks: [
-      check('底部用户 banner', '[data-testid="yixiaoer-profile"]', '左下角显示用户 banner'),
+      check('底部用户 banner', '[data-testid="mp-profile"]', '左下角显示用户 banner'),
       check('升级入口', '[data-testid="profile-menu-upgrade"]', '展开菜单后显示升级 Pro 入口'),
     ],
   },

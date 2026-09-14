@@ -54,7 +54,7 @@ describe('PlatformOverridePanel', () => {
     })
   })
 
-  it('启用知乎时带上蚁小二文章发布默认权限', async () => {
+  it('启用知乎时带上参考产品文章发布默认权限', async () => {
     const wrapper = mount(PlatformOverridePanel, { props: { platforms, modelValue: {} } })
 
     await wrapper.get('[data-testid="override-toggle-zhihu"]').setValue(true)

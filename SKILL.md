@@ -856,7 +856,7 @@ AI 执行:
 
 ### 场景
 
-用户要求对比**两个或多个同领域的竞品**，并出组合方案（例如："对比蚁小二和融媒宝，怎么做结合"）。
+用户要求对比**两个或多个同领域的竞品**，并出组合方案（例如："对比参考产品和融媒宝，怎么做结合"）。
 
 ### 分析方法
 
@@ -958,7 +958,7 @@ docs/XX-<产品A>vs<产品B>全面对比与结合方案.md
 ## Reference Files
 
 - `references/mj-style-database-patterns.md` — Full MJ database extraction patterns, 27-category DB key mapping, noise filtering, Chinese synonym structure, StyleType priority ordering. Refer to this when implementing a style classifier or keyword injection system based on the MJ Style Reference.
-- `references/yixiaoer-vs-rongmeibao-case.md` — 多产品对比实战案例：蚁小二 (Electron) vs 融媒宝 (CEF 原生)。展示了如何对两个同领域竞品做维度对比分析，输出分层架构融合方案。
+- `references/mp-vs-rongmeibao-case.md` — 多产品对比实战案例：参考产品 (Electron) vs 融媒宝 (CEF 原生)。展示了如何对两个同领域竞品做维度对比分析，输出分层架构融合方案。
 - `references/pkuseg-crf-multidomain-case.md` — PKUSeg 实战案例：CRF + Cython + 5 标签 BMES 变体模式识别、7 个固定维度的"与目标项目对比"模板、复用价值筛选启发。
 - `references/agent-skill-distribution-pattern.md` — Agent Skill 作为产品分发的架构模式（discovered from awesome-gpt-image-2）。适用于以 SKILL.md 为核心的竞品分析。
 - `references/prompt-optimizer-analysis.md` — Prompt Optimizer (v2.11.6) 分析案例：模板驱动优化、多模型供应商适配器、评估对比模式。

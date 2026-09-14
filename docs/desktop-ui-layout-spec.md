@@ -12,24 +12,24 @@
 
 ### 1.1 根组件 (App.vue)
 
-桌面应用采用 **左侧固定侧边栏 + 右侧主体区域** 的经典布局，由 `App.vue` 的 `.yixiaoer-shell` 容器承载。
+桌面应用采用 **左侧固定侧边栏 + 右侧主体区域** 的经典布局，由 `App.vue` 的 `.mp-shell` 容器承载。
 
 ```
 ┌─────────────────────────────────────────────────────┐
 │  .app-root                                          │
 │  ┌────────────────────────────────────────────────┐ │
-│  │  .yixiaoer-shell (flex row, height: 100%)       │ │
+│  │  .mp-shell (flex row, height: 100%)       │ │
 │  │  ┌──────────┬─────────────────────────────────┐│ │
-│  │  │ 侧边栏    │  .yixiaoer-shell-main            ││ │
+│  │  │ 侧边栏    │  .mp-shell-main            ││ │
 │  │  │ Sidebar  │  ┌─────────────────────────────┐││ │
 │  │  │          │  │ TabBar (浏览器式标签栏)       │││ │
 │  │  │ 固定宽度  │  ├─────────────────────────────┤││ │
 │  │  │ 200px    │  │ NavBar (导航/URL 栏)          │││ │
 │  │  │          │  ├─────────────────────────────┤││ │
-│  │  │ 不可滚动  │  │ YixiaoerModuleNav (模块导航) │││ │
+│  │  │ 不可滚动  │  │ MpModuleNav (模块导航) │││ │
 │  │  │ 不可移动  │  │ 仅首页标签时显示              │││ │
 │  │  │          │  ├─────────────────────────────┤││ │
-│  │  │          │  │ .yixiaoer-workspace          │││ │
+│  │  │          │  │ .mp-workspace          │││ │
 │  │  │          │  │ (flex: 1, overflow: auto)    │││ │
 │  │  │          │  │ → <router-view />            │││ │
 │  │  │          │  └─────────────────────────────┘││ │
@@ -42,10 +42,10 @@
 
 | 元素 | CSS 规则 | 说明 |
 |------|---------|------|
-| `.yixiaoer-shell` | `height: 100%; display: flex; min-width: 0; overflow: hidden;` | 整个外壳不可滚动，Flex 横向排列 |
-| `.yixiaoer-sidebar` | `width: var(--yixiaoer-sidebar-width, 200px); min-width: var(--yixiaoer-sidebar-width, 200px);` | 固定宽度，不可压缩 |
-| `.yixiaoer-shell-main` | `min-width: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden;` | 右侧主体，纵向 Flex 布局 |
-| `.yixiaoer-workspace` | `min-width: 0; min-height: 0; flex: 1; overflow: auto;` | 内容工作区，独立滚动 |
+| `.mp-shell` | `height: 100%; display: flex; min-width: 0; overflow: hidden;` | 整个外壳不可滚动，Flex 横向排列 |
+| `.mp-sidebar` | `width: var(--mp-sidebar-width, 200px); min-width: var(--mp-sidebar-width, 200px);` | 固定宽度，不可压缩 |
+| `.mp-shell-main` | `min-width: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden;` | 右侧主体，纵向 Flex 布局 |
+| `.mp-workspace` | `min-width: 0; min-height: 0; flex: 1; overflow: auto;` | 内容工作区，独立滚动 |
 | `.fullscreen-main` | `height: 100%; min-height: 0; overflow: auto;` | 全屏路由（如 `/first-run`）独立渲染 |
 
 ### 1.3 全屏路由
@@ -58,20 +58,20 @@ const isFullScreenRoute = computed(() => route.path === '/first-run')
 
 ---
 
-## 2. 左侧导航栏 (YixiaoerSidebar)
+## 2. 左侧导航栏 (MpSidebar)
 
 ### 2.1 概述
 
-- **文件**：`apps/desktop/src/layouts/YixiaoerSidebar.vue`
-- **宽度**：200px（CSS 变量 `--yixiaoer-sidebar-width: 200px`，定义于 `src/styles/cohere-design-system.css:69`）
+- **文件**：`apps/desktop/src/layouts/MpSidebar.vue`
+- **宽度**：200px（CSS 变量 `--mp-sidebar-width: 200px`，定义于 `src/styles/cohere-design-system.css:69`）
 - **窄屏适配**：视口 ≤900px 时折叠为 68px，隐藏文字标签和部分元素
 - **背景**：渐变紫色 `linear-gradient(180deg, #f4f2ff 0%, #f0efff 100%)`
 
 ### 2.2 固定行为
 
 - 侧边栏是 Flex 布局中的固定宽度子元素
-- 父容器 `.yixiaoer-shell` 设置 `overflow: hidden`，整体不可滚动
-- 右侧工作区 `.yixiaoer-workspace` 独立滚动（`overflow: auto`），不影响侧边栏
+- 父容器 `.mp-shell` 设置 `overflow: hidden`，整体不可滚动
+- 右侧工作区 `.mp-workspace` 独立滚动（`overflow: auto`），不影响侧边栏
 - **侧边栏不会随右侧内容滚动或移动**
 
 ### 2.3 内容组成（2026-09-14 调整）
@@ -91,8 +91,8 @@ const isFullScreenRoute = computed(() => route.path === '/first-run')
 侧边栏宽度通过 `ResizeObserver` 实时同步到主进程，确保 WebContentsView 定位准确：
 
 ```javascript
-// YixiaoerSidebar.vue onMounted
-const el = document.querySelector('.yixiaoer-sidebar')
+// MpSidebar.vue onMounted
+const el = document.querySelector('.mp-sidebar')
 if (el) {
   const syncWidth = () => {
     const w = el.getBoundingClientRect().width
@@ -105,7 +105,7 @@ if (el) {
 ```
 
 **数据流**：
-1. 渲染进程 `YixiaoerSidebar` → `invokePageManager('setSidebarWidth', width)`
+1. 渲染进程 `MpSidebar` → `invokePageManager('setSidebarWidth', width)`
 2. Preload API `pageManager.setSidebarWidth(width)` → IPC `page-manager:set-sidebar-width`
 3. 主进程 `WebviewManager.setSidebarWidth(width)` → 更新 `_sidebarWidth` → 同步到 `AuthViewManager` / `QrCodeLogin` → 调用 `_repositionAll()`
 
@@ -164,13 +164,13 @@ if (el) {
 
 ---
 
-## 3. 模块导航栏 (YixiaoerModuleNav)
+## 3. 模块导航栏 (MpModuleNav)
 
 ### 3.1 概述
 
-- **文件**：`apps/desktop/src/layouts/YixiaoerModuleNav.vue`
+- **文件**：`apps/desktop/src/layouts/MpModuleNav.vue`
 - **显示条件**：仅当 `isHomeTab` 为 `true`（当前活动标签为首页标签）时显示
-- **高度**：`var(--yixiaoer-nav-height, 70px)`
+- **高度**：`var(--mp-nav-height, 70px)`
 
 ### 3.2 模块标签
 
@@ -396,11 +396,11 @@ mainWindow.on('resize', () => {
 
 | Token | 值 | 用途 |
 |-------|-----|------|
-| `--yixiaoer-sidebar-width` | 200px | 侧边栏宽度 |
-| `--yixiaoer-nav-height` | 70px | 模块导航高度 |
-| `--yixiaoer-primary` | #5048e5 | 主色调 |
-| `--yixiaoer-muted` | #8b8e9a | 次要文字色 |
-| `--yixiaoer-nav-border` | #e8eaf2 | 导航边框色 |
+| `--mp-sidebar-width` | 200px | 侧边栏宽度 |
+| `--mp-nav-height` | 70px | 模块导航高度 |
+| `--mp-primary` | #5048e5 | 主色调 |
+| `--mp-muted` | #8b8e9a | 次要文字色 |
+| `--mp-nav-border` | #e8eaf2 | 导航边框色 |
 
 ### 9.2 响应式断点
 
@@ -439,10 +439,10 @@ mainWindow.on('resize', () => {
 | 文件 | 职责 |
 |------|------|
 | `apps/desktop/src/App.vue` | 根组件，定义整体布局框架 |
-| `apps/desktop/src/layouts/YixiaoerSidebar.vue` | 左侧导航栏组件（含底部服务连接信息 + 用户 banner） |
+| `apps/desktop/src/layouts/MpSidebar.vue` | 左侧导航栏组件（含底部服务连接信息 + 用户 banner） |
 | `apps/desktop/src/components/ProfileMenu.vue` | 底部用户 banner / 向上展开菜单（账号操作 + 设置 + 升级 Pro） |
 | `apps/desktop/src/components/SidebarServiceStatus.vue` | 服务连接信息聚合 + 六服务明细 |
-| `apps/desktop/src/layouts/YixiaoerModuleNav.vue` | 模块导航栏组件（工具区已移除） |
+| `apps/desktop/src/layouts/MpModuleNav.vue` | 模块导航栏组件（工具区已移除） |
 | `apps/desktop/src/components/TabBar.vue` | 浏览器式标签栏 |
 | `apps/desktop/src/components/NavBar.vue` | 导航/URL 栏 |
 | `apps/desktop/src/stores/tab.js` | 标签页状态管理 (Pinia) |
@@ -474,14 +474,14 @@ mainWindow.on('resize', () => {
 
 **根因**：`.app-root` 缺少 `height: 100%`，导致 CSS 百分比高度链断裂。
 
-**影响**：`.yixiaoer-shell` 的 `height: 100%` 无法解析为视口高度，退化为 `auto`（由内容撑开），整个页面随工作区内容滚动，侧边栏随之移动。
+**影响**：`.mp-shell` 的 `height: 100%` 无法解析为视口高度，退化为 `auto`（由内容撑开），整个页面随工作区内容滚动，侧边栏随之移动。
 
 **修复**：
 - `.app-root` 添加 `height: 100%; display: flex; flex-direction: column;`
-- `.yixiaoer-shell` 改为 `flex: 1; min-height: 0;`
+- `.mp-shell` 改为 `flex: 1; min-height: 0;`
 - `.fullscreen-main` 改为 `flex: 1; min-height: 0;`
 - `html, body` 添加 `overflow: hidden;`
-- `.yixiaoer-sidebar` 添加 `flex-shrink: 0; overflow-y: auto;`
+- `.mp-sidebar` 添加 `flex-shrink: 0; overflow-y: auto;`
 
 **关联 PR**：[#1371](https://github.com/Colinchiu007/Multi-Publish/pull/1371)
 
@@ -499,7 +499,7 @@ mainWindow.on('resize', () => {
 
 | 项 | 值 | 说明 |
 |----|----|------|
-| 挂载点 | `App.vue` 的 `v-else` 分支内（`</div>` 收纳 `.yixiaoer-shell` 之后） | 与 `UpdateNotification` / `PipelineBackgroundToast` 同级，均为全局浮层 |
+| 挂载点 | `App.vue` 的 `v-else` 分支内（`</div>` 收纳 `.mp-shell` 之后） | 与 `UpdateNotification` / `PipelineBackgroundToast` 同级，均为全局浮层 |
 | 渲染方式 | `<Teleport to="body">` + `<Transition>` | 脱离内容容器层叠上下文，避免被 `overflow: auto` 裁剪 |
 | 定位 | `position: fixed` | 相对视口，不随滚动移动 |
 | 右偏移 | `var(--spacing-6)` = 24px | — |
@@ -520,7 +520,7 @@ mainWindow.on('resize', () => {
 
 | 层级 | 容器 | 监听方式 |
 |------|------|---------|
-| 主容器 | `.yixiaoer-workspace`（`overflow: auto`，App.vue 内联样式 / cohere-design-system.css `.cohere-main`） | 组件挂载时 `querySelector('[data-testid="yixiaoer-workspace"]')`，以**捕获阶段**（`addEventListener('scroll', fn, true)`）监听 |
+| 主容器 | `.mp-workspace`（`overflow: auto`，App.vue 内联样式 / cohere-design-system.css `.cohere-main`） | 组件挂载时 `querySelector('[data-testid="mp-workspace"]')`，以**捕获阶段**（`addEventListener('scroll', fn, true)`）监听 |
 | 嵌套容器 | 视图内自带的 `overflow: auto` 区块（如 `PublishHistory.vue`、`ModelProviders.vue`、`ResultView.vue`、`ContactSheetView.vue`） | 由主容器的捕获阶段监听自动覆盖，无需逐视图声明 |
 
 > 设计要点：`scroll` 事件不冒泡，只有在**捕获阶段**监听祖先才能拿到后代滚动容器的滚动。因此不需要为每个嵌套容器单独注册监听，也不会遗漏视图内滚动区。

@@ -9,7 +9,7 @@
   "nextAction": "无（仅验证，无代码修改）",
   "createdAt": "2026-08-10T09:20:00+08:00",
   "completedAt": "2026-08-10T10:10:00+08:00",
-  "branch": "feature/yixiaoer-account-publish-parity-r2@5c2cee46",
+  "branch": "feature/mp-account-publish-parity-r2@5c2cee46",
   "evidence": {
     "app": "Electron dev 可见窗口 社媒管家，CDP 127.0.0.1:9333，userData=C:\\tmp\\Multi-Publish-debug-profile",
     "identity": "authenticated（免费版 free，source=offline）",

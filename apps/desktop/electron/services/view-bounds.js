@@ -28,7 +28,7 @@
  */
 const BROWSER_CHROME_TOP = 76
 
-/** 左侧导航栏默认宽度（与 YixiaoerSidebar 的 CSS 变量 --yixiaoer-sidebar-width 一致） */
+/** 左侧导航栏默认宽度（与 MpSidebar 的 CSS 变量 --mp-sidebar-width 一致） */
 const SIDEBAR_WIDTH_DEFAULT = 200
 
 /** 左侧导航栏宽度合法区间（与各 manager setSidebarWidth 的入参校验保持一致） */

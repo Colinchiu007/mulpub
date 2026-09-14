@@ -61,7 +61,7 @@ const exportedNames = [
   "offlineStatus", "offlineAddToCache", "offlineClearCache", "onOfflineRestored",
   // 通知
   "showNotification",
-  // 草稿箱（蚁小二复用）
+  // 草稿箱（参考产品复用）
   "draftSave", "draftList", "draftDelete",
   "story2videoImportMedia", "story2videoExportZip", "story2videoCreateShareUrl",
   "story2videoCopyPath", "story2videoShowInFolder", "story2videoSaveAs", "story2videoListProjects",

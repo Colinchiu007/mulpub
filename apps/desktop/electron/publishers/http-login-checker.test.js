@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * HTTP API 登录检测测试 — 验证蚁小二逆向的 API 端点调用与判定逻辑
+ * HTTP API 登录检测测试 — 验证参考产品逆向分析的 API 端点调用与判定逻辑
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
@@ -127,7 +127,7 @@ describe('http-login-checker', () => {
       expect(result).toEqual({ supported: true, valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' })
     })
 
-    it('公众号 loginpage HTML 含 token 和 uin → valid（对齐蚁小二正则解析）', async () => {
+    it('公众号 loginpage HTML 含 token 和 uin → valid（对齐参考产品正则解析）', async () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
@@ -139,7 +139,7 @@ describe('http-login-checker', () => {
       expect(result).toEqual({ supported: true, valid: true, code: 'CHECK_LOGIN_SUCCESS_HTTP_API' })
     })
 
-    it('视频号 auth_data 返回 errCode 300333 → expired（对齐蚁小二失效判定）', async () => {
+    it('视频号 auth_data 返回 errCode 300333 → expired（对齐参考产品失效判定）', async () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
@@ -168,7 +168,7 @@ describe('http-login-checker', () => {
       )
     })
 
-    it('bilibili cookie 缺 bili_jct → expired（对齐蚁小二前置校验）', async () => {
+    it('bilibili cookie 缺 bili_jct → expired（对齐参考产品前置校验）', async () => {
       const result = await checker.checkLoginViaHttpApi('bilibili', [{ name: 'SESSDATA', value: 'abc' }])
       expect(result).toEqual({ supported: true, valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' })
     })

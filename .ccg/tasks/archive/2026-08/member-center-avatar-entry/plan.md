@@ -1,7 +1,7 @@
 # 会员中心 + 左上角头像入口 — 需求与实施计划
 
 ## 1. 需求背景
-桌面版无会员中心/个人中心。需新增会员中心页面，并在左上角用户头像与「更多」菜单提供入口；未登录时点头像直接弹出登录弹窗（复用既有 IdentityAuthWindow）。历史"头像点击没生效"根因：`.yixiaoer-profile`（YixiaoerSidebar.vue:4-10）自引入起从未绑定点击事件；IdentityMenu 仅在首页标签模块导航渲染。
+桌面版无会员中心/个人中心。需新增会员中心页面，并在左上角用户头像与「更多」菜单提供入口；未登录时点头像直接弹出登录弹窗（复用既有 IdentityAuthWindow）。历史"头像点击没生效"根因：`.mp-profile`（MpSidebar.vue:4-10）自引入起从未绑定点击事件；IdentityMenu 仅在首页标签模块导航渲染。
 
 ## 2. 功能范围（P0 + P1，全部只读聚合，不新增后端/IPC）
 
@@ -27,7 +27,7 @@
 - 侧边栏折叠态（≤900px）：保留头像、面板 left:0 展开、z-index 高于 workspace
 
 ### 2.3 菜单入口
-- 「更多」菜单（YixiaoerSidebar moreItems）新增「会员中心」router-link → /member-center（未登录可进）
+- 「更多」菜单（MpSidebar moreItems）新增「会员中心」router-link → /member-center（未登录可进）
 - IdentityMenu 补「会员中心」菜单项（与左上行为一致）；不改其既有行为与测试
 
 ### 2.4 i18n
@@ -49,11 +49,11 @@
 - apps/desktop/src/components/ProfileMenu.test.js
 - apps/desktop/src/composables/useDropdownBehavior.test.js
 修改：
-- apps/desktop/src/layouts/YixiaoerSidebar.vue（profile 区替换为 ProfileMenu + moreItems 加会员中心）
+- apps/desktop/src/layouts/MpSidebar.vue（profile 区替换为 ProfileMenu + moreItems 加会员中心）
 - apps/desktop/src/router/index.js（/member-center 路由）
 - apps/desktop/src/stores/identity.js（normalizeState 透传 quota）
 - apps/desktop/src/stores/identity.test.js（quota 透传断言）
-- apps/desktop/src/layouts/YixiaoerSidebar.test.js（如有，更新断言）
+- apps/desktop/src/layouts/MpSidebar.test.js（如有，更新断言）
 - apps/desktop/src/components/IdentityMenu.vue（补会员中心项，P1）
 - apps/desktop/src/locales/zh.js + en.js
 - 01-docs/PRD.md、CHANGELOG.md、01-docs/learnings.md（文档更新在同一分支）
@@ -69,7 +69,7 @@
 - router/index.js 注册 /member-center
 
 ### M3 入口接线与数据透传 ✅
-- layouts/YixiaoerSidebar.vue：头像区换 ProfileMenu + 「更多」菜单加会员中心项；删除从未绑定点击事件的死 CSS .yixiaoer-profile 系列
+- layouts/MpSidebar.vue：头像区换 ProfileMenu + 「更多」菜单加会员中心项；删除从未绑定点击事件的死 CSS .mp-profile 系列
 - components/IdentityMenu.vue：已登录菜单加「会员中心」项 + goMemberCenter 路由跳转
 - stores/identity.js：normalizeState 透传 entitlement.quota（此前 renderer 恒空）
 - locales zh/en：memberCenter.* 54 键成对（含 {date}/{days} 命名插值）

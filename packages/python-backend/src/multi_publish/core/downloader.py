@@ -3,7 +3,7 @@ Download Manager — 文件下载队列管理器
 
 下载封面图、视频素材到本地临时目录，带缓存和并发控制。
 
-架构参考：蚁小二 Yt.downloadFile + downloadingList 去重缓存
+架构参考：参考产品 Yt.downloadFile + downloadingList 去重缓存
 """
 
 import asyncio

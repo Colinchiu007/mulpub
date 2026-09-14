@@ -7,7 +7,7 @@
 
 每个平台分别实现 API 调用，统一回调到服务端或前端。
 
-架构参考：蚁小二 pushDataSyncTask + DataService.SyncDataService
+架构参考：参考产品 pushDataSyncTask + DataService.SyncDataService
 """
 
 import asyncio

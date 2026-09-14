@@ -395,7 +395,7 @@ function registerHandlers(ipcMain, deps) {
     }
   }))
 
-  // ─── 草稿箱 IPC handlers（蚁小二复用）─────────────────
+  // ─── 草稿箱 IPC handlers（参考产品复用）─────────────────
   ipcMain.handle('draftSave', withSenderCheck((_, draft) => {
     try {
       const owner = _getOwnerSubject()

@@ -16,7 +16,7 @@
 - **「⭐ 升级 Pro」迁入菜单**：footer 原独立胶囊按钮移除，改由菜单项 `profile-menu-upgrade`（文案 `memberCenter.upgradePro`）承载，复用 `.profile-menu-action` 版式（仅金色强调），仅非 Pro 显示，点击抛 `upgrade` 由侧边栏打开升级弹窗。
 - **服务连接信息上移**：footer DOM 顺序固定为 [0] 服务连接信息 → [1] 用户 banner。
 - **状态行合并**：footer 原「客户端状态」独立文字行移除，信息下沉为 banner 状态点 + `title` + 菜单标题区状态文案。
-- **占位入口移除**：`YixiaoerModuleNav` 的右侧工具区、工具面板、脚本状态与样式整体删除。
+- **占位入口移除**：`MpModuleNav` 的右侧工具区、工具面板、脚本状态与样式整体删除。
 - **header 改造**：登录区移出后，header 改为品牌区（`MP` 标识 + `Multi-Publish` + `+ 新建发布`）。
 
 ## Capabilities
@@ -31,7 +31,7 @@
 
 ## Impact
 
-- **受影响代码**：`apps/desktop/src/layouts/YixiaoerSidebar.vue`、`apps/desktop/src/layouts/YixiaoerModuleNav.vue`、`apps/desktop/src/components/ProfileMenu.vue` 及对应 3 个单测文件。
-- **不受影响**：账号认证 / 身份服务 / 服务状态轮询的 IPC 与数据契约；`SettingsDialog` 与 `UpgradeModal` 内部结构；侧边栏宽度（`--yixiaoer-sidebar-width: 200px`）；「更多」二级菜单路由清单。
+- **受影响代码**：`apps/desktop/src/layouts/MpSidebar.vue`、`apps/desktop/src/layouts/MpModuleNav.vue`、`apps/desktop/src/components/ProfileMenu.vue` 及对应 3 个单测文件。
+- **不受影响**：账号认证 / 身份服务 / 服务状态轮询的 IPC 与数据契约；`SettingsDialog` 与 `UpgradeModal` 内部结构；侧边栏宽度（`--mp-sidebar-width: 200px`）；「更多」二级菜单路由清单。
 - **依赖**：无新增第三方依赖。
 - **风险**：低—中（纯渲染层布局调整，无业务逻辑与持久化变更；由 3 个组件测试 26 用例 + CI 像素视觉门禁保护）。

@@ -362,7 +362,7 @@ describe("AccountsView", () => {
     expect(w.text()).toContain("添加账号");
   });
 
-  it("工具栏提供蚁小二式平台搜索、批量操作和添加账号入口", async () => {
+  it("工具栏提供参考产品式平台搜索、批量操作和添加账号入口", async () => {
     _testAccounts.push(
       { id: "zh-1", platform: "zhihu", status: "active", account_name: "知乎账号" },
       { id: "dy-1", platform: "douyin", status: "active", account_name: "抖音账号" },

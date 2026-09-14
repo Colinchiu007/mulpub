@@ -1,4 +1,4 @@
-// CancelToken — 任务取消机制 (提取自蚁小二)
+// CancelToken — 任务取消机制 (提取自参考产品)
 class CancelToken {
   constructor() {
     this.isCancelled = false;

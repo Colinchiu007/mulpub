@@ -12,7 +12,7 @@
 | W3 | 全角冒号「：」硬编码漏过 CJK 门禁 | expiresAt 改为 {date} 命名插值（zh/en 成对） |
 | W4 | 会员中心入口零测试覆盖（IdentityMenu 按钮、Sidebar more 项） | 补已登录点击跳转用例 + more-menu 断言「会员中心」 |
 | I2 | moreItems i18n 标签非响应式 | 改 computed |
-| I3 | YixiaoerSidebar 死 CSS（.yixiaoer-profile 系列） | 删除（ProfileMenu 自带 scoped 样式） |
+| I3 | MpSidebar 死 CSS（.mp-profile 系列） | 删除（ProfileMenu 自带 scoped 样式） |
 
 ## 未采纳（记录备查）
 - W5 三入口并存（产品明确要求保留多入口，PRD §2.3.3 已声明）；

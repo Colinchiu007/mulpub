@@ -7,7 +7,7 @@
 
 ## 1. 概述
 
-本文档对蚁小二 4.0（v4.13.19）的反编译代码与 Multi-Publish v2.3.53 的现有代码进行逐模块对比分析，明确哪些模块可以直接复用、需要改造复用、或需要全新开发。
+本文档对参考产品 4.0（v4.13.19）的反编译代码与 Multi-Publish v2.3.53 的现有代码进行逐模块对比分析，明确哪些模块可以直接复用、需要改造复用、或需要全新开发。
 
 ---
 
@@ -15,7 +15,7 @@
 
 ### 2.1 架构对比
 
-| 维度 | 蚁小二 4.0 | Multi-Publish 2.3.53 | 复用策略 |
+| 维度 | 参考产品 4.0 | Multi-Publish 2.3.53 | 复用策略 |
 |------|-----------|---------------------|---------|
 | 前端框架 | React 19 + Webpack 5 Module Federation | Vue 3 + Vite | **架构参考**，不直接复用代码 |
 | 主进程 | Node.js + axios | Node.js + electron | **可复用** HTTP 客户端模式 |
@@ -27,7 +27,7 @@
 
 ### 2.2 代码量估算
 
-| 模块 | 蚁小二（反编译行数） | Multi-Publish（估算行数） | 复用难度 |
+| 模块 | 参考产品（反编译行数） | Multi-Publish（估算行数） | 复用难度 |
 |------|-------------------|------------------------|---------|
 | HTTP 客户端 | ~200 行 | ~500 行（分散） | 低 |
 | Cookie 管理 | ~150 行 | ~300 行 | 低 |
@@ -46,7 +46,7 @@
 
 ### 3.1 HTTP 客户端（ vs api-publish-engine HttpClient）
 
-**蚁小二模式：**
+**参考产品模式：**
 `javascript
 const  = axios.create({
   timeout: 60000,
@@ -72,13 +72,13 @@ const  = axios.create({
 - packages/api-publish-engine/src/retry-middleware.js — 已有重试中间件
 - packages/api-publish-engine/src/publish-api-client.js — 已有 HTTP 客户端封装
 
-**复用决定：** 无需重复实现。Multi-Publish 的 etry-middleware.js 功能更完善，但可以引入蚁小二的 etryCondition 回调模式以支持条件重试。
+**复用决定：** 无需重复实现。Multi-Publish 的 etry-middleware.js 功能更完善，但可以引入参考产品的 etryCondition 回调模式以支持条件重试。
 
 ---
 
 ### 3.2 Cookie 管理
 
-**蚁小二模式：**
+**参考产品模式：**
 `javascript
 // Cookie 提取
 extractCookieValue(cookieStr, key)
@@ -93,13 +93,13 @@ buildStandardHeaders(cookie, referer, origin)
 - pps/desktop/electron/services/credential-store.js — 凭据加密存储
 - pps/desktop/electron/services/account-state-restorer.js — 登录态恢复
 
-**复用决定：** cookie-converter.js 已有类似功能。需补充蚁小二的 parseSetCookie 和 uildStandardHeaders 工具函数。credential-store.js 的 AES-256-GCM 加密方案可以参考。
+**复用决定：** cookie-converter.js 已有类似功能。需补充参考产品的 parseSetCookie 和 uildStandardHeaders 工具函数。credential-store.js 的 AES-256-GCM 加密方案可以参考。
 
 ---
 
 ### 3.3 进度上报系统
 
-**蚁小二模式：**
+**参考产品模式：**
 `javascript
 const publishStatusEnum = {
   init, uploading, uploadSuccess, uploadFail,
@@ -118,13 +118,13 @@ function SetProgressNewEvent(emitter, status, msg, taskId) {
 **Multi-Publish 现有：**
 - packages/api-publish-engine/src/progress-emitter.js — 进度发射器
 
-**复用决定：** 模式高度一致。progress-emitter.js 功能更完善，直接使用。蚁小二的状态枚举可作为补充参考。
+**复用决定：** 模式高度一致。progress-emitter.js 功能更完善，直接使用。参考产品的状态枚举可作为补充参考。
 
 ---
 
 ### 3.4 取消令牌
 
-**蚁小二模式：**
+**参考产品模式：**
 `javascript
 class CancelToken {
   constructor() { this._isCanceled = false }
@@ -136,13 +136,13 @@ class CancelToken {
 **Multi-Publish 现有：**
 - packages/api-publish-engine/src/cancel-token.js — 已有 CancelToken
 
-**复用决定：** 直接使用现有的。蚁小二的实现更简洁，但现有实现已经可用。
+**复用决定：** 直接使用现有的。参考产品的实现更简洁，但现有实现已经可用。
 
 ---
 
 ### 3.5 平台适配器（Publisher 基类）
 
-**蚁小二模式（抽象基类）：**
+**参考产品模式（抽象基类）：**
 `javascript
 class PlatformPublisher {
   constructor(platform) { this.platform = platform }
@@ -168,13 +168,13 @@ class PlatformPublisher {
 - packages/api-publish-engine/src/base-adapter.js — 已有基类
 - packages/api-publish-engine/src/adapters/ — 已有各平台适配器
 
-**复用决定：** 架构理念一致。蚁小二的 execute() 标准化流程（validate-upload-publish）值得参考。Multi-Publish 当前适配器更完善（支持更多平台），但流程可对齐。
+**复用决定：** 架构理念一致。参考产品的 execute() 标准化流程（validate-upload-publish）值得参考。Multi-Publish 当前适配器更完善（支持更多平台），但流程可对齐。
 
 ---
 
 ### 3.6 文件上传（分片上传）
 
-**蚁小二核心模式：**
+**参考产品核心模式：**
 `javascript
 async function uploadFileChunked(filePath, uploadUrl, options) {
   const CHUNK_SIZE = 5 * 1024 * 1024 // 5MB
@@ -200,13 +200,13 @@ async function uploadFileChunked(filePath, uploadUrl, options) {
 - packages/api-publish-engine/src/cos-uploader.js — COS 上传器
 - packages/api-publish-engine/src/oss-uploader.js — OSS 上传器
 
-**复用决定：** 分片上传逻辑可参考蚁小二的 chunk 分割 + 进度报告 + 合并流程。现有的 COS/OSS 上传器可直接使用，但可补充通用分片上传引擎。
+**复用决定：** 分片上传逻辑可参考同类产品的 chunk 分割 + 进度报告 + 合并流程。现有的 COS/OSS 上传器可直接使用，但可补充通用分片上传引擎。
 
 ---
 
 ### 3.7 富文本内容处理
 
-**蚁小二核心：**
+**参考产品核心：**
 `javascript
 // HTML 文档解析 (HtmlDocument)
 // - 提取/替换 <p> 段落
@@ -218,13 +218,13 @@ async function uploadFileChunked(filePath, uploadUrl, options) {
 **Multi-Publish 现有：**
 - packages/api-publish-engine/src/rich-text-processor.js — 已有
 
-**复用决定：** 可直接复用。蚁小二的话题标签（topic）和 @好友（friend）标签处理模式很好，可参考增强。
+**复用决定：** 可直接复用。参考产品的话题标签（topic）和 @好友（friend）标签处理模式很好，可参考增强。
 
 ---
 
 ### 3.8 RPA 发布（executeJS vs Playwright）
 
-**蚁小二模式（webContents.executeJavaScript）：**
+**参考产品模式（webContents.executeJavaScript）：**
 `javascript
 // 1. 创建 BrowserView
 const view = new BrowserView({ webPreferences: { ... } })
@@ -248,7 +248,7 @@ while (true) {
 - packages/rpa-engine/src/ — Playwright 方式
 - pps/desktop/electron/services/rpa-view-manager.js — RPA 视图管理
 
-**复用决定：** 这是**最关键的区别**。建议采纳蚁小二的 executeJS 模式替代 Playwright：
+**复用决定：** 这是**最关键的区别**。建议采纳参考产品的 executeJS 模式替代 Playwright：
 - 移除 Playwright 依赖（节省 ~170MB 浏览器捆绑包）
 - 利用 Electron 自带的 BrowserView 或 webview
 - 需要重写各平台的 DOM 操作脚本
@@ -258,7 +258,7 @@ while (true) {
 
 ### 3.9 前端功能对比
 
-| 功能 | 蚁小二 (React) | Multi-Publish (Vue 3) | 复用策略 |
+| 功能 | 参考产品 (React) | Multi-Publish (Vue 3) | 复用策略 |
 |------|---------------|---------------------|---------|
 | 侧边栏导航 | React Router + 10 项菜单 | Vue Router + 自定义 | **重新实现**，对齐菜单项 |
 | 发布编辑器 | 富文本 + 图片/视频上传 | 编辑器未知 | **参考交互设计** |
@@ -271,11 +271,11 @@ while (true) {
 
 ## 4. 直接可复用代码清单
 
-以下蚁小二代码可通过**重构/适配**后直接引入 Multi-Publish：
+以下参考产品代码可通过**重构/适配**后直接引入 Multi-Publish：
 
 ### 4.1 高价值复用（核心基础设施）
 
-| 代码片段 | 来源（蚁小二） | 目标（Multi-Publish） | 工作量 |
+| 代码片段 | 来源（参考产品） | 目标（Multi-Publish） | 工作量 |
 |---------|--------------|---------------------|--------|
 | HTTP 客户端重试条件模式 | $http 拦截器 | etry-middleware.js | 小（增强） |
 | 分片上传引擎 | uploadFileChunked | 新增 chunked-uploader.js | 中 |
@@ -287,7 +287,7 @@ while (true) {
 
 ### 4.2 中等价值复用（业务逻辑）
 
-| 代码片段 | 来源（蚁小二） | 目标（Multi-Publish） | 工作量 |
+| 代码片段 | 来源（参考产品） | 目标（Multi-Publish） | 工作量 |
 |---------|--------------|---------------------|--------|
 | executeJS RPA 注入代码 | genBaseCode() | 新增 js-injection/ 目录 | 大（核心迁移） |
 | 平台特定 DOM 操作 | 各平台 RPA 代码 | 对应平台适配器 | 大 |
@@ -298,7 +298,7 @@ while (true) {
 
 ### 4.3 架构设计参考（不直接复用代码）
 
-| 设计模式 | 蚁小二方式 | 参考价值 |
+| 设计模式 | 参考产品方式 | 参考价值 |
 |---------|-----------|---------|
 | Cookie 注入流程 | webContents.session.cookies.set() | 完全采纳 |
 | BrowserView 管理 | 动态创建/销毁 View | 参考 |
@@ -329,10 +329,10 @@ while (true) {
 
 ## 6. 关键文件映射
 
-### 6.1 蚁小二 -> Multi-Publish 映射
+### 6.1 参考产品 -> Multi-Publish 映射
 
 `
-蚁小二代码                          ->  Multi-Publish 目标文件
+参考产品代码                          ->  Multi-Publish 目标文件
 ─────────────────────────────────────────────────────────
 packages/main/dist/index.cjs          ->  apps/desktop/electron/
   -  客户端                     ->  packages/api-publish-engine/src/retry-middleware.js
@@ -366,7 +366,7 @@ packages/renderer/dist/               ->  apps/desktop/src/
 
 1. **移除 Python Playwright 依赖**：迁移到 executeJS 后，可减少 ~170MB 打包体积
 2. **统一存储**：将零散 JSONL 迁移到 SQLite（已有 store.js，需统一）
-3. **前端重构**：对齐蚁小二的 10 项导航，重新规划路由
+3. **前端重构**：对齐参考产品的 10 项导航，重新规划路由
 
 ### 7.2 风险缓解
 

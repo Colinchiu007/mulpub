@@ -25,7 +25,7 @@
   font-display: swap;
 }
 
-/* --- 色彩 Tokens (蚁小二对齐 · 蓝紫主题) --- */
+/* --- 色彩 Tokens (参考产品对齐 · 蓝紫主题) --- */
 :root {
   /* 品牌色 → tokens.css 单一来源（别名桥接，禁止在此重定义同语义值） */
   --primary: var(--color-primary);
@@ -83,15 +83,15 @@
 
   /* 布局 */
   --nav-height: 56px;
-  /* Cohere 旧布局侧栏宽度；不要与蚁小二工作区混用。 */
+  /* Cohere 旧布局侧栏宽度；不要与参考产品工作区混用。 */
   --sidebar-width: 240px;
-  /* 蚁小二工作区侧栏宽度；流水线页面固定操作条使用此变量。 */
-  --yixiaoer-sidebar-width: 200px;
+  /* 参考产品工作区侧栏宽度；流水线页面固定操作条使用此变量。 */
+  --mp-sidebar-width: 200px;
 
-  --yixiaoer-nav-height: 70px;
-  --yixiaoer-nav-border: #e8eaf2;
-  --yixiaoer-muted: #8b8e9a;
-  --yixiaoer-primary: var(--primary);
+  --mp-nav-height: 70px;
+  --mp-nav-border: #e8eaf2;
+  --mp-muted: #8b8e9a;
+  --mp-primary: var(--primary);
 }
 
 /* --- 基础重置 --- */

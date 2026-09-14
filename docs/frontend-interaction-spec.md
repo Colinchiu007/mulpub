@@ -71,8 +71,8 @@
 
 ### 6.1 左侧侧边栏固定
 
-- **左侧导航栏（YixiaoerSidebar）是固定区域**，不可滚动、不可移动，不随右侧内容变化而移动
-- 侧边栏宽度由 CSS 变量 `--yixiaoer-sidebar-width` 控制（默认 200px，定义于 `cohere-design-system.css:69`）
+- **左侧导航栏（MpSidebar）是固定区域**，不可滚动、不可移动，不随右侧内容变化而移动
+- 侧边栏宽度由 CSS 变量 `--mp-sidebar-width` 控制（默认 200px，定义于 `cohere-design-system.css:69`）
 - 侧边栏通过 `ResizeObserver` 实时同步宽度到主进程，确保 WebContentsView 定位准确
 - 任何新增路由/视图不得覆盖或遮挡侧边栏区域
 - 详细规格见 [桌面端 UI 布局规格](./desktop-ui-layout-spec.md)
@@ -86,7 +86,7 @@
 
 ### 6.3 模块导航栏
 
-- `YixiaoerModuleNav` 仅在首页标签（`isHomeTab === true`）时显示
+- `MpModuleNav` 仅在首页标签（`isHomeTab === true`）时显示
 - 当浏览器标签或登录标签激活时，模块导航自动隐藏，WebContentsView 占据右侧主体区域
 - **不含右侧工具区**：原「移动端预览 / 客服支持 / 使用指南 / 通知」4 个占位入口已于 2026-09-14 整体移除。新增入口前必须确认其具备真实能力，禁止再以"占位面板"形式提供入口
 - 详细规格见 [桌面端 UI 布局规格](./desktop-ui-layout-spec.md) 第 3 节
@@ -94,7 +94,7 @@
 ### 6.4 侧边栏底部用户 banner（登录区，2026-09-14 落地）
 
 - **位置唯一**：登录区唯一落点是侧边栏底部 banner（`ProfileMenu placement="top"`），收起时只显示一条 banner；不得放回顶部 header，也不得在页面内另设登录入口
-- **服务连接信息在其上方**：footer DOM 顺序固定为 [0] 服务连接信息 → [1] 用户 banner（`YixiaoerSidebar.test.js` 断言钉死）；新增 footer 元素必须排在 banner 之后
+- **服务连接信息在其上方**：footer DOM 顺序固定为 [0] 服务连接信息 → [1] 用户 banner（`MpSidebar.test.js` 断言钉死）；新增 footer 元素必须排在 banner 之后
 - **展开方向**：banner 一律向上展开（`bottom` 定位），面板宽度与 banner 等宽、不得溢出侧边栏；该契约由 `ProfileMenu.test.js` 的源码级 CSS 断言钉死
 - **菜单项版式统一**：「设置」「升级 Pro」等新增项必须复用 `.profile-menu-action` 结构（仅可加强调色类），禁止自造按钮样式
 - **入口归属**：`设置` 只从本菜单进入（主导航不得再有设置项）；`升级 Pro` 只在非 Pro 用户的本菜单中出现，禁止在侧边栏/footer 另设独立按钮
