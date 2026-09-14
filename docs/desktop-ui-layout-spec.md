@@ -164,14 +164,14 @@ if (el) {
 
 侧边栏 header 的品牌区由「`MP` 文字徽标 + `Multi-Publish` 文本」升级为「**品牌 Logo 图片 + 应用版本号**」，对齐参考客户端左上角 *Logo + vX.Y.Z* 的形态。详细需求见 [PRD：侧边栏左上角品牌区](../01-docs/PRD-SIDEBAR-BRAND-LOGO-VERSION-2026-09-14.md)。
 
-**唯一实现**：`apps/desktop/src/layouts/YixiaoerSidebar.vue` 的 `.yixiaoer-sidebar-header`。**禁止**各视图自建品牌标识 / 版本号副本。
+**唯一实现**：`apps/desktop/src/layouts/MpSidebar.vue` 的 `.mp-sidebar-header`。**禁止**各视图自建品牌标识 / 版本号副本。
 
 #### 2.6.1 结构与显示项
 
 | 位置 | 元素 | 内容 | 选择器 |
 |------|------|------|--------|
-| header | Logo `<img>` | 汤姆鱼 Logo（透明 PNG） | `[data-testid="yixiaoer-sidebar-logo"]` |
-| header | 版本号 `<span>` | `v` + `app:get-version` 返回值（如 `v0.1.0`），`title` = 当前版本 | `[data-testid="yixiaoer-sidebar-version"]` |
+| header | Logo `<img>` | 汤姆鱼 Logo（透明 PNG） | `[data-testid="mp-sidebar-logo"]` |
+| header | 版本号 `<span>` | `v` + `app:get-version` 返回值（如 `v0.1.0`），`title` = 当前版本 | `[data-testid="mp-sidebar-version"]` |
 | header | 新建发布按钮 | `+`（`aria-label`/`title` = 新建发布） | `button[aria-label="新建发布"]` |
 
 #### 2.6.2 尺寸推导（200px 侧边栏）

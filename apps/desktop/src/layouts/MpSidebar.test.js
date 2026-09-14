@@ -260,19 +260,19 @@ describe('MpSidebar', () => {
     const sidebar = mountSidebar('/accounts')
     await flushPromises()
 
-    const header = sidebar.get('.yixiaoer-sidebar-header')
-    const logo = header.get('[data-testid="yixiaoer-sidebar-logo"]')
+    const header = sidebar.get('.mp-sidebar-header')
+    const logo = header.get('[data-testid="mp-sidebar-logo"]')
     expect(logo.element.tagName).toBe('IMG')
     expect(logo.attributes('src')).toBeTruthy()
     expect(logo.attributes('alt')).toBe('Multi-Publish')
 
-    const version = header.get('[data-testid="yixiaoer-sidebar-version"]')
+    const version = header.get('[data-testid="mp-sidebar-version"]')
     expect(version.text()).toBe('v2.3.53')
     expect(version.attributes('title')).toBe('当前版本')
 
     // 旧的文字品牌标识（MP 徽标 / Multi-Publish 文本）已退役
-    expect(header.find('.yixiaoer-sidebar-brand').exists()).toBe(false)
-    expect(header.find('.yixiaoer-sidebar-title').exists()).toBe(false)
+    expect(header.find('.mp-sidebar-brand').exists()).toBe(false)
+    expect(header.find('.mp-sidebar-title').exists()).toBe(false)
   })
 
   it('hides the version badge when the version IPC is unavailable', async () => {
@@ -282,8 +282,8 @@ describe('MpSidebar', () => {
     await flushPromises()
 
     // 纯浏览器 / 视觉回归环境没有 window.electronAPI：只保留 logo，不渲染版本号
-    expect(sidebar.find('[data-testid="yixiaoer-sidebar-logo"]').exists()).toBe(true)
-    expect(sidebar.find('[data-testid="yixiaoer-sidebar-version"]').exists()).toBe(false)
+    expect(sidebar.find('[data-testid="mp-sidebar-logo"]').exists()).toBe(true)
+    expect(sidebar.find('[data-testid="mp-sidebar-version"]').exists()).toBe(false)
   })
 
   it('does not render a stale version when the IPC reports a failure code', async () => {
@@ -292,7 +292,7 @@ describe('MpSidebar', () => {
     const sidebar = mountSidebar('/accounts')
     await flushPromises()
 
-    expect(sidebar.find('[data-testid="yixiaoer-sidebar-version"]').exists()).toBe(false)
+    expect(sidebar.find('[data-testid="mp-sidebar-version"]').exists()).toBe(false)
   })
 
   it('keeps the shell rendering when the version IPC rejects', async () => {
@@ -301,7 +301,7 @@ describe('MpSidebar', () => {
     const sidebar = mountSidebar('/accounts')
     await flushPromises()
 
-    expect(sidebar.find('[data-testid="yixiaoer-sidebar-version"]').exists()).toBe(false)
-    expect(sidebar.get('[data-testid="yixiaoer-sidebar"]').exists()).toBe(true)
+    expect(sidebar.find('[data-testid="mp-sidebar-version"]').exists()).toBe(false)
+    expect(sidebar.get('[data-testid="mp-sidebar"]').exists()).toBe(true)
   })
 })
