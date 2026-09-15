@@ -20,11 +20,13 @@ vi.mock("@/stores/identity", () => ({
 }));
 
 const notifyWarningMock = vi.fn();
+const notifyErrorMock = vi.fn();
+const notifySuccessMock = vi.fn();
 vi.mock("@/composables/useNotify", () => ({
   useNotify: () => ({
     notify: vi.fn(),
-    notifyError: vi.fn(),
-    notifySuccess: vi.fn(),
+    notifyError: notifyErrorMock,
+    notifySuccess: notifySuccessMock,
     notifyWarning: notifyWarningMock,
     notifyInfo: vi.fn(),
     notifyConfirm: vi.fn(),
@@ -52,6 +54,7 @@ vi.mock("@/stores/accounts", () => ({
 
 const tabStoreMock = {
   createTab: vi.fn().mockResolvedValue("tab-1"),
+  switchToTab: vi.fn().mockResolvedValue(undefined),
 };
 vi.mock("@/stores/tab", () => ({
   useTabStore: () => tabStoreMock,
@@ -94,6 +97,7 @@ describe("HomeView", () => {
     accountStoreMock.accounts = [];
     accountStoreMock.ensureLoaded.mockResolvedValue(undefined);
     tabStoreMock.createTab.mockResolvedValue("tab-1");
+    tabStoreMock.switchToTab.mockResolvedValue(undefined);
     accountBatchOpenLoginMock.mockResolvedValue({
       code: 0,
       data: {
@@ -304,10 +308,68 @@ describe("HomeView", () => {
     mockCheckResult({ a1: false, a2: false });
     const w = await flushMounted(mountHome());
     await w.find(".banner-btn").trigger("click");
+    // handleBatchLogin 链路含多级 await，trigger 只 flush 部分 microtask，
+    // 需等事件循环排空后再断言最终态
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(accountBatchOpenLoginMock).toHaveBeenCalledWith(["a1", "a2"]);
     expect(tabStoreMock.createTab).toHaveBeenCalledTimes(2);
     expect(tabStoreMock.createTab).toHaveBeenCalledWith(expect.objectContaining({ url: "https://weibo.com/login", platform: "weibo", accountId: "a1" }));
     expect(tabStoreMock.createTab).toHaveBeenCalledWith(expect.objectContaining({ url: "https://creator.douyin.com/", platform: "douyin", accountId: "a2" }));
+    // 新建登录标签页后必须显式激活，否则用户停留在首页感知不到任何变化
+    expect(tabStoreMock.switchToTab).toHaveBeenCalledTimes(2);
+    expect(tabStoreMock.switchToTab).toHaveBeenCalledWith("tab-1");
+  });
+
+  it("shows error feedback when batch login IPC returns non-zero code", async () => {
+    accountStoreMock.accounts = [{ id: "a1", platform: "weibo", status: "active" }];
+    mockCheckResult({ a1: false });
+    accountBatchOpenLoginMock.mockResolvedValue({ code: -3, message: "无法识别当前用户", data: { items: [] } });
+    const w = await flushMounted(mountHome());
+    await w.find(".banner-btn").trigger("click");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(tabStoreMock.createTab).not.toHaveBeenCalled();
+    expect(notifyErrorMock).toHaveBeenCalledWith("home.loginExpiredBanner.batchLoginFailed", expect.objectContaining({
+      message: expect.stringContaining("无法识别当前用户"),
+    }));
+  });
+
+  it("warns when batch login returns empty items", async () => {
+    accountStoreMock.accounts = [{ id: "a1", platform: "weibo", status: "active" }];
+    mockCheckResult({ a1: false });
+    accountBatchOpenLoginMock.mockResolvedValue({ code: 0, data: { items: [] } });
+    const w = await flushMounted(mountHome());
+    await w.find(".banner-btn").trigger("click");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(tabStoreMock.createTab).not.toHaveBeenCalled();
+    expect(notifyWarningMock).toHaveBeenCalledWith("home.loginExpiredBanner.batchLoginNoLoginUrl", expect.any(Object));
+  });
+
+  it("shows error feedback when batch login IPC rejects", async () => {
+    accountStoreMock.accounts = [{ id: "a1", platform: "weibo", status: "active" }];
+    mockCheckResult({ a1: false });
+    accountBatchOpenLoginMock.mockRejectedValue(new Error("LicensePermissionError"));
+    const w = await flushMounted(mountHome());
+    await w.find(".banner-btn").trigger("click");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(tabStoreMock.createTab).not.toHaveBeenCalled();
+    expect(notifyErrorMock).toHaveBeenCalledWith("home.loginExpiredBanner.batchLoginFailed", expect.any(Object));
+  });
+
+  it("disables batch login button while a batch login is in progress", async () => {
+    accountStoreMock.accounts = [{ id: "a1", platform: "weibo", status: "active" }];
+    mockCheckResult({ a1: false });
+    let resolveOpen;
+    accountBatchOpenLoginMock.mockReturnValue(new Promise((resolve) => { resolveOpen = resolve; }));
+    const w = await flushMounted(mountHome());
+    const btn = w.find(".banner-btn");
+    await btn.trigger("click");
+    await nextTick();
+    expect(btn.attributes("disabled")).toBeDefined();
+    // 进行中重复点击不应触发第二次 IPC
+    await btn.trigger("click");
+    expect(accountBatchOpenLoginMock).toHaveBeenCalledTimes(1);
+    resolveOpen({ code: 0, data: { items: [] } });
+    await flushMounted(w);
   });
 
   it("dismisses login expired banner", async () => {
