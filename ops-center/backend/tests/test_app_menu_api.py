@@ -22,7 +22,8 @@ os.environ["OPS_CATALOG_API_KEY"] = "catalog-test-key"
 import models  # noqa: F401
 from config import settings
 
-DEFAULT_PRIMARY = ["home", "publish", "accounts", "dashboard", "create", "collection"]
+# 2026-09-15：rewrite（文案改写）提级到一级导航，与 apps/desktop/src/config/sidebar-menu.js 保持同步
+DEFAULT_PRIMARY = ["home", "publish", "accounts", "dashboard", "create", "collection", "rewrite"]
 FORCED_KEYS = {"publish", "accounts", "create", "collection"}
 CATALOG_SIZE = 20
 
