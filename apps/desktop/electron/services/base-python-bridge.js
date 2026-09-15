@@ -104,7 +104,7 @@ class BasePythonBridge {
       return
     }
 
-    const pythonCmd = process.platform === 'win32' ? 'python' : 'python3'
+    const pythonCmd = process.env.MP_PYTHON || process.env.PYTHON_PATH || (process.platform === 'win32' ? 'python' : 'python3')
     this.log.info(this.name, `Starting ${this.pythonModule}: ${pythonCmd} -m ${this.pythonModule} on port ${this.port}`)
     this.process = await this._launchProcess(pythonCmd)
     await this._waitForHealthy()

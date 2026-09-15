@@ -112,6 +112,26 @@ $env:Path = (Split-Path $nodeExe -Parent) + ';' + $env:Path
 $evidence.node = $nodeExe
 Write-Line "node     : $nodeExe"
 
+# ---- 0c. Python 自定位（与 node 同理：不依赖调用方 PATH，避免 WorkBuddy 托管 Python 截胡裸 python）----
+$pyExe = $null
+$pyLauncher = Get-Command py -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($pyLauncher) {
+  try { $r = & $pyLauncher.Source -3.12 -c 'import sys; print(sys.executable)' 2>$null; if ($r) { $pyExe = $r.Trim() } } catch { }
+}
+if (-not $pyExe) {
+  foreach ($cand in @(
+    'C:\Users\邱领\AppData\Local\Programs\Python\Python312\python.exe',
+    (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\python.exe')
+  )) { if (Test-Path -LiteralPath $cand) { $pyExe = $cand; break } }
+}
+if ($pyExe) {
+  $env:Path = (Split-Path $pyExe -Parent) + ';' + $env:Path
+  $evidence.python = $pyExe
+  Write-Line "python   : $pyExe (已前置到 PATH — 裸 'python' 现指向系统 Python 3.12)"
+} else {
+  Write-Line 'python   : 未定位系统 Python 3.12，依赖调用方 PATH 的 python'
+}
+
 # ---- 1. 工作区校验 ----
 if (-not (Test-Path -LiteralPath $repoRoot)) { Fail "worktree 不存在: $repoRoot" }
 if (-not (Test-Path -LiteralPath (Join-Path $repoRoot 'apps\desktop'))) { Fail "不是 Multi-Publish 仓库根（缺 apps/desktop）: $repoRoot" }
