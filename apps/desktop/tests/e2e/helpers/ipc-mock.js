@@ -285,8 +285,10 @@
       createNewTabPage: makeHandler('pageManagerCreateNewTabPage', async (opts) => ok({ tabId: 'btab_' + Date.now() })),
       closeTab: makeHandler('pageManagerCloseTab', async () => ok(true)),
       switchToTab: makeHandler('pageManagerSwitchTab', async () => ok(true)),
-      getAllTabs: makeHandler('pageManagerGetAllTabs', async () => ok([{ tabId: 'home', url: '', title: '首页', loading: false, canGoBack: false, canGoForward: false, isActive: true, isHome: true }])),
-      getActiveTab: makeHandler('pageManagerGetActiveTab', async () => ok({ tabId: 'home', url: '', title: '首页', loading: false, canGoBack: false, canGoForward: false, isHome: true })),
+      // 查询类返回空态：视觉测试（复用本 mock）依赖 tabStore 空态渲染（与无 pageManager 时代一致），
+      // 若返回 home 标签会让 NavBar/导航状态出现，造成全页像素位移（见 QG Visual create-editor/dashboard 失配）
+      getAllTabs: makeHandler('pageManagerGetAllTabs', async () => ok([])),
+      getActiveTab: makeHandler('pageManagerGetActiveTab', async () => ok(null)),
       getHomeTab: makeHandler('pageManagerGetHomeTab', async () => ok({ tabId: 'home', url: '', title: '首页', loading: false, canGoBack: false, canGoForward: false })),
       navigate: makeHandler('pageManagerNavigate', async () => ok(true)),
       goBack: makeHandler('pageManagerGoBack', async () => ok(true)),
