@@ -40,6 +40,12 @@
         </div>
       </div>
 
+      <!-- 未登录门禁：发布统计/最近发布需登录后可见 -->
+      <div v-if="statsLoginRequired" class="dashboard-login-gate" role="status" data-testid="dashboard-login-gate">
+        <span class="gate-hint">{{ t('dashboard.loginGateHint') }}</span>
+        <button class="gate-sign-in" type="button" data-testid="dashboard-sign-in" @click="signInFromGate">{{ t('dashboard.signInNow') }}</button>
+      </div>
+
       <!-- 发布统计 -->
       <div v-if="statsData" class="cohere-stat-grid" style="margin-bottom:var(--space-md)">
         <div class="cohere-stat-card">
@@ -140,12 +146,14 @@ import UiButton from "../components/UiButton.vue";
 import { getApi } from '@/api/electron-bridge'
 // eslint-disable-next-line no-unused-vars
 import UiInput from "../components/UiInput.vue";
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 // eslint-disable-next-line no-unused-vars
 import { syncAll, syncPlatform } from '@/api/publisher'
 import { usePlatformStore } from '@/stores/platforms'
+import { useIdentity } from '@/composables/useIdentity'
+import { isAuthGateResult } from '@/utils/auth-gate'
 import { getPlatformIconUrl } from '@/composables/usePlatformIconUrl'
 import { formatDateTime } from '@/utils/datetime'
 import BenchmarkChart from '@/components/BenchmarkChart.vue'
@@ -160,6 +168,10 @@ const showUpgradeModal = ref(false)
 const platformData = ref([])
 const statsData = ref(null)
 const recentPublishes = ref([])
+// 未登录门禁态：dashboard:stats / history:list 要求登录（AUTH_REQUIRED），
+// 旧实现静默吞掉导致空数据无引导（2026-09-15，与 publish-history 同范式）。
+const statsLoginRequired = ref(false)
+const { isAuthenticated: identityAuthenticated, signIn: identitySignIn } = useIdentity()
 const platformStore = usePlatformStore()
 platformStore.load()
 
@@ -215,6 +227,11 @@ async function loadStats () {
   if (!api || !api.dashboardStats) return
   try {
     const res = await api.dashboardStats()
+    if (isAuthGateResult(res)) {
+      statsLoginRequired.value = true
+      return
+    }
+    statsLoginRequired.value = false
     if (res.code === 0) statsData.value = res.data
   } catch (e) {
     console.warn('Load stats failed:', e.message)
@@ -227,12 +244,34 @@ async function loadRecent () {
   if (!api || !api.historyList) return
   try {
     const res = await api.historyList({ limit: 5 })
+    if (isAuthGateResult(res)) {
+      statsLoginRequired.value = true
+      return
+    }
     if (res.code === 0) recentPublishes.value = (res.data && res.data.records) || []
   } catch (e) {
     console.warn('Load recent failed:', e.message)
     ElMessage.error(t('dashboard.loadRecentFailed'))
   }
 }
+
+async function signInFromGate () {
+  // 打开登录窗口的唯一正确入口：identity.signIn()（主进程 Logto OAuth）；取消保持门禁态。
+  try {
+    await identitySignIn()
+  } catch {
+    /* 用户取消或登录窗关闭 */
+  }
+}
+
+// 登录成功后自动重载看板数据，无需刷新页面。
+watch(identityAuthenticated, (authed) => {
+  if (authed && statsLoginRequired.value) {
+    statsLoginRequired.value = false
+    loadStats()
+    loadRecent()
+  }
+})
 
 async function loadCached () {
   const api = getApi()
@@ -256,3 +295,27 @@ function doBenchmark () {
 
 onMounted(() => { loadCached(); loadStats(); loadRecent() })
 </script>
+
+<style scoped>
+.dashboard-login-gate {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md, 16px);
+  padding: 12px 16px;
+  margin-bottom: var(--space-md, 16px);
+  border: 0.5px solid var(--border-secondary, rgba(0, 0, 0, 0.3));
+  border-radius: var(--border-radius-lg, 12px);
+  background: var(--bg-secondary, #f6f6f4);
+}
+.gate-hint { font-size: 13px; color: var(--text-primary, #25252b); }
+.gate-sign-in {
+  padding: 6px 16px;
+  border: none;
+  border-radius: 8px;
+  background: var(--brand-primary, #534ab7);
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+}
+</style>

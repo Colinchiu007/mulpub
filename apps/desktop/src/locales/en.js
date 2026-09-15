@@ -917,6 +917,8 @@ export default {
     loadRecentFailed: 'Failed to load recent publishes',
     loadCachedFailed: 'Failed to load platform data',
     syncFailed: 'Platform sync failed. Please try again later',
+    loginGateHint: 'Sign in to view publish stats and recent publishes.',
+    signInNow: 'Sign in',
   },
   promptEval: {
     deleteConfirmTitle: 'Delete eval record',

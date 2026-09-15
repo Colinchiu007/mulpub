@@ -22,6 +22,17 @@
 - `01-docs/PRD-SERVICE-STATUS-PANEL-2026-09-12.md` §8 增强记录
 - openspec change `service-status-actionable`
 
+# [未发布] refactor(auth-gate): 登录门禁判定抽取共享工具并推广到数据看板（2026-09-15）
+
+### 变更
+- **共享工具**：新增 `apps/desktop/src/utils/auth-gate.js` 导出 `isAuthGateResult()`（errorCode 优先判定，code:-3 仅在无 errorCode 时兜底；ENTITLEMENT_REQUIRED 不误判），`PublishHistory.vue` 改为引用
+- **数据看板**：`Dashboard.vue` 对 `dashboard:stats` / `history:list` 的 AUTH_REQUIRED 不再静默吞掉——显示「登录后可查看发布统计与最近发布」引导条 +「去登录」按钮（`identity.signIn`），登录成功 `watch(isAuthenticated)` 自动重载；权益不足保持既有路径不误判
+- **文档**：`01-docs/PRD-PUBLISH-HISTORY-LOGIN-GATE-2026-09-15.md` 增补「范式推广」章节
+
+### 验证
+- 新增 `auth-gate.test.js` 5 例、`Dashboard.test.js` 4 例（门禁态 / 去登录触发 signIn 且自动重载 / 正常态无横幅 / 权益不足不误判）；`PublishHistory.test.js` 23 例回归全绿
+- `check-locale-sync.js --keys` / `--cjk` PASS；eslint 0 errors
+
 # [未发布] fix(publish-history): 未登录访问发布记录由「服务连接失败」改为登录引导门控（2026-09-15）
 
 ### 修复

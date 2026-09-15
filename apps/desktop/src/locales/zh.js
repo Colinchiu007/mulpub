@@ -918,6 +918,8 @@ export default {
     loadRecentFailed: '最近发布加载失败',
     loadCachedFailed: '平台数据加载失败',
     syncFailed: '平台同步失败，请稍后重试',
+    loginGateHint: '登录后可查看发布统计与最近发布。',
+    signInNow: '去登录',
   },
   promptEval: {
     deleteConfirmTitle: '删除评测记录',

@@ -522,6 +522,20 @@ cd ops-center/backend && py -3.12 -m pytest -q
 | L5 | 运营中心前端无 i18n | 页面文案硬编码中文 | 与既有 ops-center 一致，暂不引入 |
 | L6 | 变更无独立审计表 | 仅 `updated_by` / `updated_at` 留痕 | 后续接入 `config_audit_log` |
 
+### 14.1 风险接受记录：D-P0-1（Ed25519 信任锚可被 renderer 覆盖）
+
+> 来源：QA 验证报告 `deliverables/gstack/qa-app-menu-verification-report.md` §6.2.6（定级 🔴 严重）。
+> **既有缺陷，非本功能引入**；本节为按 CSO 要求补齐的形式要件（具名签署 + 复核触发点），避免该风险随时间静默消失。
+
+| 项 | 内容 |
+|---|------|
+| 技术事实 | `opsCenterSyncSave` 位于 `PUBLIC_METHODS`（`apps/desktop/electron/preload/access-control.js`）+ IPC handler 无 sender 校验（`apps/desktop/electron/ipc-handlers/ops-center-sync.js`）+ `saveConfig` 接受并落盘 `runtimePublicKey`（`apps/desktop/electron/services/ops-center-sync.js`）→ 被攻陷的 renderer（XSS / 恶意依赖）可一次性替换验签信任锚，此后**全部运行时策略**（appMenu / pipelineOptions / contentPolicy 词表 / rewriteStrategies / updatePolicy）的验签均可被伪造 |
+| 影响边界 | 本功能四层强制保护中的「渲染层无视下发值」**不依赖签名链**，因此对**网络攻击者有效**；但「签名覆盖 appMenu」对**本地 / renderer 攻击者不成立**。此句必须原样保留，防止把"签名已闭合"误读为"菜单不可被本地攻击者控制" |
+| 处置 | 本次不修，记为**已接受风险** |
+| 具名签署 | **ColinChiu（工程负责人）** · 2026-09-15 · 于会话中确认接受 |
+| 复核触发点 | ① 下次涉足运行时下发链路（runtime/bootstrap、签名、preload 桥、access-control）时**强制重估**；② 季度例行复核 |
+| 窄修复备忘 | 「`runtimePublicKey` 不允许 renderer 覆盖」：从 `PUBLIC_METHODS` 移除 `opsCenterSyncSave`（或拆分保存通道）+ handler 增加 sender 校验。改动小、风险低；若启动，走独立分支 + PR + CI 全流程 |
+
 ---
 
 ## 15. 变更文件清单
