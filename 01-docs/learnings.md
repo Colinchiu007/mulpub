@@ -1,4 +1,33 @@
 
+
+## 主页未登录问候语「请登录」链接：渲染端登录入口的最小正确实现（2026-09-15）
+
+- **需求**：主页未登录态「中午好，登录」→「中午好，请登录」，且「请登录」可点击、直接弹 Logto 登录窗口。
+- **文案歧义根因**：`stores/identity.js` 的 `displayName` 兜底值是 `'登录'`（未登录时），它被问候语当昵称渲染，
+  于是出现「问候语 + 动词」的怪句。本次**不动** identity store（它是多消费方单点），只在新组件层覆盖展示；
+  后续若统一改兜底词，需同步评估侧边栏 ProfileMenu / 会员中心。
+- **登录入口口径（唯一正确做法）**：显式登录意图直接 `identityStore.signIn()`（主进程 AuthViewManager 弹独立窗口），
+  **不要**复用 `useLoginGate`——后者是「主动操作被拦后的渐进式引导」，多一层确认框，语义不符。
+  `status === 'disabled'`（身份服务未配置）必须 fail-closed 不渲染链接，与 ProfileMenu 降级口径一致。
+- **500 行债务熔断的实战规避**：`Home.vue` 原 495 行，直接内联新增必超 500（`check-debt-budget.js`
+  按 `filesOver500` **计数**对比基线，不是白名单）。把问候语整块抽成 `components/HomeGreeting.vue`
+  （模板 + 计算属性 + CSS 随迁），`Home.vue` 降到 470 行——**拆分而非绕过**。
+- **CJK 门禁的隐性拦截**：`reportError('打开登录窗口失败', e)` 这类**日志文案**也会被
+  `check-locale-sync.js --cjk` 当新增硬编码中文拦下（该门禁不分用户可见/日志）。新代码里的字符串字面量
+  一律用英文或走 i18n。
+- **大文件二进制写入（再次验证）**：`PRD.md`（1.15MB、8 个 NUL、LF）与 `CHANGELOG.md`（1.05MB、CRLF）
+  必须走 `open(p,'rb')/'wb'` 字节通道追加/前插；PRD 尾部 `\n` 结尾直接 append，CHANGELOG 前插需把
+  `\n` 换成 `\r\n`。验收口径 `git diff --numstat` = 「新增 N / 删除 0」（本次 PRD 59/0、CHANGELOG 22/0）。
+- **测试锚点**：新交互组件必须给 `data-testid`（`home-login-link` / `home-greeting`）；identity store 的
+  测试 mock 要补 `isAuthenticated/status/loading/signIn` 四个字段——旧 mock 只有 `displayName`，
+  新逻辑用 `isAuthenticated` 判定后会把「已登录」用例误判成未登录。
+- **官方入口失效的备用路径（本机）**：`start-mp-task.ps1` 内层 `session-init.sh` 用 `git -C "<含 .. 路径>"`，
+  经 PowerShell 调 Git Bash 时 PATH 缺 `dirname`/路径转换失败 → 直接
+  `git worktree add -b <无斜杠分支> <D盘路径> HEAD`（PowerShell 原生 `D:\` 路径）一步到位，
+  无需 detach/update-ref/symbolic-ref 三步兜底。
+
+---
+
 ## 全仓命名清理：批量替换必须有三道防线 + 三个 git 陷阱（命名空间去品牌化，2026-09-15）
 
 - **背景**：把 271 个文件、1662 处指向参考产品的品牌词（中文品牌名 + 全拼大小写变体 + 三字母缩写变体）替换为中性命名（`mp` / `Mp` / `MP` / `参考产品`），并同步改 56 项路径名。PRD 见 `01-docs/PRD-NAMING-NORMALIZATION-2026-09-15.md`。**本文档与 PRD 均不复现品牌词字面**（残留门禁 `scripts/check-no-brand-residue.js` 会拦截，品牌词按码点构造进正则）。

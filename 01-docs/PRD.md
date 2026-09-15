@@ -7812,3 +7812,62 @@ idle ──触发取数──▶ loading（渲染骨架）
 - [ ] 检测到新版本不再自动弹模态框
 - [ ] `SidebarUpdateButton.test.js` / `useAutoUpdate.test.js` / `MpSidebar.test.js` / `auto-updater.test.js` / `ipc-handlers/update.test.js` / `preload.test.js` 全绿；CI 全绿（含像素视觉门禁）后合并
 
+
+---
+
+## 附：主页未登录问候语「请登录」可点击链接（2026-09-15，PRD-HOME-LOGIN-LINK-2026-09-15.md）
+
+> 状态：已实现（分支 `home-login-link`）| 类型：UI 交互优化（P1）| 范围：渲染端（无 IPC/后端变更）
+
+### 需求
+
+- 未登录状态下主页问候语由「中午好，登录」改为「中午好，**请登录**」。
+- 「请登录」为可点击链接，点击**直接弹出登录窗口**（Logto OAuth，主进程 AuthViewManager 承载），无中间确认框。
+- 登录成功后主页响应式切换为「问候语 + 昵称」，无需刷新。
+
+### 身份状态 × 渲染矩阵
+
+| status | isAuthenticated | 渲染 | 可点击 |
+|--------|-----------------|------|--------|
+| authenticated / refreshing / offline_authenticated | true | 问候语 + 昵称 | 否 |
+| signed_out / expired / error / signing_in / signing_out | false | 问候语 + **请登录**链接 | 是（signing_in 时被 loading 守卫忽略） |
+| disabled（身份服务未配置） | false | 问候语 + displayName 兜底 | **否（fail-closed，不渲染链接）** |
+
+判定：`showLoginEntry = !isAuthenticated && status !== 'disabled'`（与 ProfileMenu 降级口径一致）。
+
+### 功能与交互逻辑
+
+- 新组件 `components/HomeGreeting.vue` 承载欢迎区问候语（Home.vue 原 495 行，拆分后 470 行，规避 500 行债务熔断）。
+- 点击链路：点击 → `loading` 防重入守卫 → `identityStore.signIn()`（IPC sign-in → 独立登录窗口）→
+  成功：`onIdentityStateChanged` 推送 → 问候语自动变昵称；失败/取消：`notifyWarning('loginGate.loginIncomplete')`；
+  异常：`reportError` 上报 + 同一 warning 兜底。
+- 数据校验：重入守卫（loading）/ 状态守卫（disabled fail-closed）/ 登录结果双重判定（返回值 + isAuthenticated）/
+  异常兜底（try/catch 不外抛）/ displayName 空值回退 `home.user`。
+
+### 显示项与提示文字（i18n，zh/en 成对）
+
+| key | zh | en |
+|-----|----|----|
+| `home.pleaseLogin`（新增） | 请登录 | Sign in |
+| `home.greetings.*`（复用） | 夜深了/早上好/中午好/下午好/晚上好 | Late night/Good morning/Good noon/Good afternoon/Good evening |
+| `loginGate.loginIncomplete`（复用） | 登录未完成，操作已取消 | 登录未完成，操作已取消 |
+
+视觉：`#5048e5` 加粗链接，hover/focus `#3f37c9` + 下划线；原生 `<a>` + `@click.prevent`；`:aria-busy` 绑定 loading；
+测试锚点 `data-testid="home-login-link"` / `data-testid="home-greeting"`。
+
+### 验收标准
+
+1. 未登录启动 → 「（时段问候语），请登录」，链接样式可点击。
+2. 点击 → 弹出独立登录窗口，无中间确认框。
+3. 登录成功 → 问候语自动变昵称，链接消失。
+4. 中途关闭窗口 → 「登录未完成，操作已取消」提示，链接可重试。
+5. 快速连点 → 只弹一个登录窗口。
+6. 身份服务未配置 → 无链接（fail-closed）。
+7. 英文 locale → 「Good afternoon, Sign in」。
+8. 已登录 → 行为与改动前完全一致。
+
+### 测试与门禁
+
+- `Home.test.js` 19 例全绿（新增 6 例：链接显隐/点击触发登录/disabled fail-closed/登录未完成提示/防重入/回归）。
+- 关联回归：`ProfileMenu.test.js` 17 · `identity.test.js` 17 · `useLoginGate.test.js` 8 全绿。
+- 门禁：债务熔断 `filesOver500` 86=86 ✅ · `check-locale-sync --cjk/--keys` ✅ · `check-frontend-consistency` ✅。
