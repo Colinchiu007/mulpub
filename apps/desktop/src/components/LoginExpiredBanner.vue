@@ -7,8 +7,8 @@
         <div class="banner-desc">{{ t('home.loginExpiredBanner.description', { count: expiredCount }) }}</div>
         <div class="banner-hint">{{ t('home.loginExpiredBanner.hint') }}</div>
       </div>
-      <button class="banner-btn" @click="$emit('batch-login')">
-        {{ t('home.loginExpiredBanner.batchLoginBtn') }}
+      <button class="banner-btn" :disabled="batchLoading" @click="$emit('batch-login')">
+        {{ batchLoading ? t('home.loginExpiredBanner.batchLoginBtnLoading') : t('home.loginExpiredBanner.batchLoginBtn') }}
       </button>
       <button class="banner-close" @click="$emit('dismiss')">✕</button>
     </div>
@@ -21,6 +21,7 @@ import { useI18n } from 'vue-i18n'
 defineProps({
   expiredCount: { type: Number, default: 0 },
   visible: { type: Boolean, default: false },
+  batchLoading: { type: Boolean, default: false },
 })
 
 defineEmits(['batch-login', 'dismiss'])
@@ -74,6 +75,10 @@ const { t } = useI18n()
 }
 .banner-btn:hover {
   opacity: 0.9;
+}
+.banner-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 .banner-close {
   background: none;

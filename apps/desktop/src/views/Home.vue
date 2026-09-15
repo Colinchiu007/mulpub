@@ -23,6 +23,7 @@
     <LoginExpiredBanner
       :visible="showExpiredBanner"
       :expired-count="expiredAccountCount"
+      :batch-loading="batchLogging"
       @batch-login="handleBatchLogin"
       @dismiss="showExpiredBanner = false"
     />
@@ -124,6 +125,7 @@ import LoginExpiredBanner from '@/components/LoginExpiredBanner.vue'
 import HomeGreeting from '@/components/HomeGreeting.vue'
 import { getPlatformIconUrl } from '@/composables/usePlatformIconUrl'
 import { useExpiredAccountsBanner } from '@/composables/useExpiredAccountsBanner'
+import { useNotify } from '@/composables/useNotify'
 import { formatDateTime } from '@/utils/datetime'
 import { reportError } from '../utils/report-error'
 
@@ -132,6 +134,7 @@ const { t } = useI18n()
 const platformStore = usePlatformStore()
 const accountStore = useAccountStore()
 const tabStore = useTabStore()
+const { notifySuccess, notifyError, notifyWarning } = useNotify()
 
 const stats = ref({ total: 0, success: 0, failed: 0 })
 const accountCount = ref(0)
@@ -186,15 +189,56 @@ function go(path) {
   router.push(path)
 }
 
+const batchLogging = ref(false)
+
 async function handleBatchLogin() {
+  if (batchLogging.value) return
   const expiredAccountIds = expiredAccounts.value.map(account => account.id)
-  if (expiredAccountIds.length === 0) return
-  const result = await accountBatchOpenLogin(expiredAccountIds)
-  const items = result?.code === 0 ? result.data?.items : []
-  if (!Array.isArray(items)) return
-  for (const item of items) {
-    if (!item?.loginUrl) continue
-    await tabStore.createTab({ url: item.loginUrl, platform: item.platform, accountId: item.accountId, title: t('home.loginExpiredBanner.loginTabTitle', { platform: platformStore.getLabel(item.platform) || item.platform }) })
+  if (expiredAccountIds.length === 0) {
+    notifyWarning('home.loginExpiredBanner.batchLoginNoAccounts', { message: t('home.loginExpiredBanner.batchLoginNoAccounts') })
+    return
+  }
+  batchLogging.value = true
+  try {
+    const result = await accountBatchOpenLogin(expiredAccountIds)
+    if (!result || result.code !== 0) {
+      const detail = result?.message || t('home.loginExpiredBanner.batchLoginUnknownError')
+      notifyError('home.loginExpiredBanner.batchLoginFailed', { message: t('home.loginExpiredBanner.batchLoginFailed', { message: detail }) })
+      return
+    }
+    const items = Array.isArray(result.data?.items) ? result.data.items : []
+    if (items.length === 0) {
+      notifyWarning('home.loginExpiredBanner.batchLoginNoLoginUrl', { message: t('home.loginExpiredBanner.batchLoginNoLoginUrl') })
+      return
+    }
+    let opened = 0
+    let failed = 0
+    for (const item of items) {
+      if (!item?.loginUrl) { failed += 1; continue }
+      const tabId = await tabStore.createTab({
+        url: item.loginUrl,
+        platform: item.platform,
+        accountId: item.accountId,
+        title: t('home.loginExpiredBanner.loginTabTitle', { platform: platformStore.getLabel(item.platform) || item.platform }),
+      })
+      if (tabId) {
+        opened += 1
+        await tabStore.switchToTab(tabId)
+      } else {
+        failed += 1
+      }
+    }
+    if (opened > 0) {
+      notifySuccess('home.loginExpiredBanner.batchLoginSuccess', { message: t('home.loginExpiredBanner.batchLoginSuccess', { count: opened }) })
+    }
+    if (failed > 0) {
+      notifyWarning('home.loginExpiredBanner.batchLoginPartial', { message: t('home.loginExpiredBanner.batchLoginPartial', { count: failed }) })
+    }
+  } catch (e) {
+    reportError('Batch login failed', e)
+    notifyError('home.loginExpiredBanner.batchLoginFailed', { message: t('home.loginExpiredBanner.batchLoginFailed', { message: e?.message || t('home.loginExpiredBanner.batchLoginUnknownError') }) })
+  } finally {
+    batchLogging.value = false
   }
 }
 

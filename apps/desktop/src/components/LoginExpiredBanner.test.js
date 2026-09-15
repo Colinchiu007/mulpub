@@ -40,6 +40,16 @@ describe("LoginExpiredBanner", () => {
     expect(w.emitted("batch-login")).toBeTruthy();
   });
 
+  it("disables batch button and shows loading text while batchLoading", async () => {
+    const w = mountBanner({ batchLoading: true });
+    await nextTick();
+    const btn = w.find(".banner-btn");
+    expect(btn.attributes("disabled")).toBeDefined();
+    expect(btn.text()).toContain("打开中");
+    await btn.trigger("click");
+    expect(w.emitted("batch-login")).toBeFalsy();
+  });
+
   it("emits dismiss on close click", async () => {
     const w = mountBanner();
     await nextTick();
