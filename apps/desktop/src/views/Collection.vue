@@ -299,6 +299,8 @@
 // eslint-disable-next-line no-unused-vars
 import UiButton from "../components/UiButton.vue";
 import { getApi } from '@/api/electron-bridge'
+import { useTabStore } from '@/stores/tab'
+import { PLATFORM_DASHBOARD_URLS, PLATFORM_NAMES } from '@multi-publish/shared-utils/src/platform-definitions'
 // eslint-disable-next-line no-unused-vars
 import UiInput from "../components/UiInput.vue";
 import { ref, computed, onMounted, onUnmounted } from 'vue'
@@ -317,6 +319,7 @@ import { useCopyLibrary, collectFromKey } from '@/composables/useCopyLibrary'
 
 const router = useRouter()
 const { notifyError, notifySuccess, notifyWarning, notifyInfo, notifyConfirm } = useNotify()
+const tabStore = useTabStore()
 const drafts = ref([])
 const linkUrl = ref('')
 const collecting = ref(false)
@@ -501,13 +504,20 @@ async function importFromClipboard () {
   }
 }
 
-function openCollection (platform) {
-  const api = getApi()
-  if (api && api.webviewOpenTab) {
-    api.webviewOpenTab({ platform })
+async function openCollection (platform) {
+  const url = PLATFORM_DASHBOARD_URLS[platform]
+  if (!url) {
+    notifyWarning('collection.platformUnsupported')
+    return
+  }
+  // 在顶部全局标签栏打开平台页（page-manager 体系承载渲染，替代原分屏监控页内嵌视图）
+  const tabId = await tabStore.createTab({
+    url,
+    platform,
+    title: (PLATFORM_NAMES[platform] || platform) + ' 采集页',
+  })
+  if (tabId) {
     notifySuccess('collection.openedPlatform', { params: { platform } })
-  } else {
-    notifyInfo('collection.switchToMonitor')
   }
 }
 

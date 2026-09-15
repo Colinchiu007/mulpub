@@ -7,6 +7,22 @@
 - 历史 `v2.3.x` 复盘轮次标签为内部分版号，不代表真实发布版本；后续统一以 `0.Y.Z` 推进。
 
 ---
+# [未发布] refactor(monitor): 移除「分屏监控」功能，评论/采集网页查看迁移到全局标签栏（2026-09-15）
+
+### 移除
+- **「监控」（分屏监控）功能整体删除**（`/monitor` 路由、侧边栏「更多」菜单入口、`views/Monitor.vue` 及其测试）：多平台 1/2/3/4/6 分屏同时监控页无实际使用场景，产品决策移除
+- **旧分屏监控底层体系删除**：`webview-manager.js` 的 `openTab()` / `setLayout()` / `closeMonitorTab()` / `closeAllMonitorTabs()` / `getTabsInfo()` / `_calculatePositions()` / `_emit()` 与 5 个 `webview:*` IPC handler（set-layout / open-tab / close-tab / close-all / list-tabs）+ 4 个 `webview:*` 事件广播；preload `webviewSetLayout` / `webviewOpenTab` / `webviewCloseTab` / `webviewCloseAll` / `webviewListTabs` / `onWebviewLayoutChanged` / `onWebviewTabOpened` / `onWebviewTabClosed` / `onWebviewNav` / `onWebviewAllClosed` 10 个方法及 `PUBLIC_METHODS` 白名单条目；preload 方法计数契约同步（system 153→143、合并 321→311、SYSTEM_METHODS 141→131）
+
+### 迁移
+- **评论管理**（`Comments.vue`）：点平台打开评论页改走 `tabStore.createTab`（page-manager 全局标签栏承载），保持「一次一个评论标签」（切换平台先 `closeTab` 旧标签）；删除页面内嵌占位容器，改为引导空态「评论页已在顶部标签栏打开，点击上方标签即可查看」；移除离开页面自动关标签（标签持久化，与浏览器标签语义一致）
+- **采集**（`Collection.vue`）：`openCollection` 改走 `tabStore.createTab`（renderer 侧经 `PLATFORM_DASHBOARD_URLS` 解析 URL，标题「<平台名> 采集页」）；新增无 URL 平台告警 `collection.platformUnsupported`；删除失效降级提示 `collection.switchToMonitor`
+- **E2E**：路由矩阵/顺序/报告清单移除 monitor，Flow 4 重写为「评论→全局标签页」，`ipc-mock.js` 移除 webview mock 并新增 `pageManager` 嵌套 mock
+
+### 文档
+- `01-docs/PRD-REMOVE-MONITOR-FEATURE-2026-09-15.md`：完整决策记录（方案对比/依赖矩阵/数据校验/交互/提示文字/验收标准）
+- `docs/desktop-ui-layout-spec.md`：更多菜单清单、内嵌视图清单、偏移表、§4.6 分屏布局节同步移除
+
+---
 # [未发布] chore(ci): 品牌残留门禁接入 CI（Gate 12）+ 补齐 #1837 遗漏的门禁脚本（2026-09-15）
 
 ### 背景

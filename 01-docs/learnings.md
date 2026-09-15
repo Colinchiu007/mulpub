@@ -1,3 +1,10 @@
+## 删除功能前必须穷举消费方矩阵：webview:* 分屏监控体系被 Comments/Collection 静默复用（remove-monitor，2026-09-15）
+
+- **背景**：「监控」（/monitor 分屏监控）功能整体移除。调查发现其底层 `webviewOpenTab`（`webview:open-tab` → `WebviewManager.openTab()`）被私信评论（Comments.vue）与采集（Collection.vue）复用来打开平台页，且打开的 WebContentsView 依赖 Monitor 页面的分屏布局定位——直接删入口会让这两个页面打开的视图变成「无主视图」（view 存在但无 UI 承载，显示错乱）。
+- **教训 1（删除共享底层前先穷举消费方）**：「这个 API 属于功能 X」不可靠。删除前必须做全仓引用矩阵：通道名 + 方法名 + 事件名，覆盖 renderer / 主进程 / 单测断言 / e2e mock 四层；区分「唯一消费者」与「借用消费者」，借用者先迁移再删底层。
+- **教训 2（应用内嵌网页能力收敛到唯一承载层）**：page-manager 标签系统是本应用 WebContentsView 的唯一 UI 承载，新需求「打开某平台页面」一律 `tabStore.createTab({ url, platform, accountId, title })`（范本 Accounts.vue openCreatorCenter），禁止再引入并行视图体系。
+- **教训 3（preload 删除方法五处同步）**：system.js 方法体 + access-control.js PUBLIC_METHODS + preload.test.js（SYSTEM_METHODS 数组与三处计数断言）+ `pnpm run build:preload` 重建 index.bundle.js + e2e ipc-mock.js；漏一处 CI 契约测试即拦截。
+- **教训 4（NUL 字节文件只能字节级编辑）**：learnings.md 含历史 NUL（实测 hasNUL=true），utf8 读写编辑有截残风险；用 Node buffer 插入，且中文内容不能 node -e 内联（控制台 GBK 损坏），必须 UTF-8 脚本文件执行。
 
 ## 全仓命名清理：批量替换必须有三道防线 + 三个 git 陷阱（命名空间去品牌化，2026-09-15）
 

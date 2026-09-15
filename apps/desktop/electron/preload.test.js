@@ -104,8 +104,6 @@ const SYSTEM_METHODS = [
   'sensitiveCheck', 'sensitiveReplace',
   'syncAll', 'syncPlatform', 'syncCached',
   'showNotification', 'onNotification',
-  'webviewSetLayout', 'webviewOpenTab', 'webviewCloseTab', 'webviewCloseAll', 'webviewListTabs',
-  'onWebviewLayoutChanged', 'onWebviewTabOpened', 'onWebviewTabClosed', 'onWebviewNav', 'onWebviewAllClosed',
   'onCallbackReceived',
   'offlineStatus', 'offlineIsOffline', 'offlineCachedTasks', 'offlineAddToCache', 'offlineClearCache', 'onOfflineRestored',
   'onboardingComplete', 'onboardingGetSteps', 'onboardingStatus',
@@ -205,7 +203,7 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(45)
   })
 
-  it('system 模块应导出 153 个方法', () => {
+  it('system 模块应导出 143 个方法', () => {
     const { createSystemApi } = require('./preload/system')
     const r = createSystemApi(ipcRenderer)
     // 136 + opsCenterSyncGet/Save/Now/Runtime/PipelineOptions（运营后台同步 + 运行时策略）
@@ -213,11 +211,12 @@ describe('preload 子模块方法数', () => {
     // + notifyLog（通知/日志统一通道，notify:log）
     // + promptLibraryGet/Save/Activate（提示词引擎自进化 P1b 记忆库）
     // + updateInstallNow（侧边栏「新版本」点击即退出安装）
-    expect(Object.keys(r).length).toBe(153)
+    // - 10（分屏监控 webview:* API 随监控功能移除，网页查看统一走 pageManager）
+    expect(Object.keys(r).length).toBe(143)
   })
 
-  it('合并后 api 总键数应为 321（P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus + urlCollectNeedsStealth + promptLibraryGet/Save/Activate + updateInstallNow）', () => {
-    expect(Object.keys(api).length).toBe(321)
+  it('合并后 api 总键数应为 311（P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus + urlCollectNeedsStealth + promptLibraryGet/Save/Activate + updateInstallNow - webview 分屏监控 API 移除）', () => {
+    expect(Object.keys(api).length).toBe(311)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
@@ -234,8 +233,8 @@ describe('preload 子模块方法数', () => {
     expect(ACCOUNT_METHODS.length).toBe(45)
   })
 
-  it('SYSTEM_METHODS 常量长度应为 141', () => {
-    expect(SYSTEM_METHODS.length).toBe(141)
+  it('SYSTEM_METHODS 常量长度应为 131', () => {
+    expect(SYSTEM_METHODS.length).toBe(131)
   })
 
   it('IDENTITY_METHODS 常量长度应为 5', () => {
@@ -423,13 +422,12 @@ describe('Story2Video 媒体导入桥接', () => {
   })
 })
 
-// === 监听器类方法返回 cancel 函数（抽样 5 个）===
+// === 监听器类方法返回 cancel 函数（抽样 4 个）===
 describe('监听器类方法返回 cancel 函数', () => {
   const LISTENER_CASES = [
     'onProgress',
     'onUpdateStatus',
     'onAuthViewOpened',
-    'onWebviewLayoutChanged',
     'onQrCodeOpened',
   ]
 

@@ -85,7 +85,6 @@ import {
   FolderOpened,
   HomeFilled,
   MagicStick,
-  Monitor,
   MoreFilled,
   Plus,
   Search,
@@ -144,7 +143,6 @@ const primaryItems = [
 ]
 
 const moreItems = computed(() => [
-  { key: 'monitor', label: '监控', to: '/monitor', icon: Monitor },
   { key: 'calendar', label: '发布日历', to: '/calendar', icon: Calendar },
   { key: 'comments', label: '私信评论', to: '/comments', icon: ChatDotRound },
   { key: 'cloud-publish', label: 'CLI', to: '/cloud-publish', icon: FolderOpened },

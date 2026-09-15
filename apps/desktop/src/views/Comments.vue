@@ -39,19 +39,23 @@
           <h3>暂不支持</h3>
           <p>{{ platformName(activePlatform) }} 暂未配置评论页</p>
         </div>
-        <!-- WebContentsView 由主进程渲染到此区域 -->
-        <div v-show="activePlatform && commentUrl" id="comment-view-container" style="width:100%;height:100%;position:absolute;top:0;left:0"></div>
+        <!-- 评论页在顶部全局标签栏（page-manager 体系）打开并渲染，本页仅负责平台选择与引导提示 -->
+        <div v-else class="cohere-empty">
+          <div class="empty-icon">🧭</div>
+          <h3>{{ platformName(activePlatform) }}</h3>
+          <p>评论页已在顶部标签栏打开，点击上方标签即可查看</p>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-// eslint-disable-next-line no-unused-vars
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import { getApi } from '@/api/electron-bridge'
+import { ref, onMounted } from 'vue'
 import { platformList } from '@/api/publisher'
+import { useTabStore } from '@/stores/tab'
 
+const tabStore = useTabStore()
 const activePlatform = ref(null)
 const platforms = ref([])
 const commentUrl = ref('')
@@ -77,12 +81,10 @@ async function loadPlatforms () {
 }
 
 async function openPlatform (p) {
-  const api = getApi()
-  if (!api || !api.webviewOpenTab) return
-
-  // 关闭上一个 tab
+  // 保持「一次一个评论标签」：切换平台时先关闭上一个标签页
   if (currentTabId.value) {
-    await api.webviewCloseTab(currentTabId.value)
+    await tabStore.closeTab(currentTabId.value)
+    currentTabId.value = null
   }
 
   activePlatform.value = p.id
@@ -90,27 +92,19 @@ async function openPlatform (p) {
 
   if (!p.comment_url) return
 
-  // 打开新 tab（使用评论页 URL）
-  const res = await api.webviewOpenTab({
-    platform: p.id,
+  // 在顶部全局标签栏打开评论页（page-manager 体系承载渲染，替代原分屏监控页内嵌视图）
+  const tabId = await tabStore.createTab({
     url: p.comment_url,
+    platform: p.id,
+    title: platformName(p.id) + '评论',
   })
-  if (res.code === 0) {
-    currentTabId.value = res.data.tabId
+  if (tabId) {
+    currentTabId.value = tabId
   }
 }
 
 onMounted(() => {
   loadPlatforms()
-})
-
-onBeforeUnmount(async () => {
-  if (currentTabId.value) {
-    const api = getApi()
-    if (api && api.webviewCloseTab) {
-      await api.webviewCloseTab(currentTabId.value)
-    }
-  }
 })
 </script>
 

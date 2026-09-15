@@ -280,17 +280,27 @@
     showNotification: makeHandler('showNotification', async () => ok(true)),
     onNotification: makeOn('notification'),
 
-    // 分屏监控
-    webviewSetLayout: makeHandler('webviewSetLayout', async (n) => ok({ layout: n })),
-    webviewOpenTab: makeHandler('webviewOpenTab', async (opts) => ok({ tabId: 'tab_' + Date.now(), platform: opts && opts.platform })),
-    webviewCloseTab: makeHandler('webviewCloseTab', async () => ok(true)),
-    webviewCloseAll: makeHandler('webviewCloseAll', async () => ok(true)),
-    webviewListTabs: makeHandler('webviewListTabs', async () => ok([])),
-    onWebviewLayoutChanged: makeOn('webview:layout-changed'),
-    onWebviewTabOpened: makeOn('webview:tab-opened'),
-    onWebviewTabClosed: makeOn('webview:tab-closed'),
-    onWebviewNav: makeOn('webview:navigated'),
-    onWebviewAllClosed: makeOn('webview:all-closed'),
+    // pageManager（应用内浏览器标签栏，嵌套对象；替代原分屏监控 webview:* API）
+    pageManager: {
+      createNewTabPage: makeHandler('pageManagerCreateNewTabPage', async (opts) => ok({ tabId: 'btab_' + Date.now() })),
+      closeTab: makeHandler('pageManagerCloseTab', async () => ok(true)),
+      switchToTab: makeHandler('pageManagerSwitchTab', async () => ok(true)),
+      getAllTabs: makeHandler('pageManagerGetAllTabs', async () => ok([{ tabId: 'home', url: '', title: '首页', loading: false, canGoBack: false, canGoForward: false, isActive: true, isHome: true }])),
+      getActiveTab: makeHandler('pageManagerGetActiveTab', async () => ok({ tabId: 'home', url: '', title: '首页', loading: false, canGoBack: false, canGoForward: false, isHome: true })),
+      getHomeTab: makeHandler('pageManagerGetHomeTab', async () => ok({ tabId: 'home', url: '', title: '首页', loading: false, canGoBack: false, canGoForward: false })),
+      navigate: makeHandler('pageManagerNavigate', async () => ok(true)),
+      goBack: makeHandler('pageManagerGoBack', async () => ok(true)),
+      goForward: makeHandler('pageManagerGoForward', async () => ok(true)),
+      reload: makeHandler('pageManagerReload', async () => ok(true)),
+      searchOrNavigate: makeHandler('pageManagerSearchOrNavigate', async () => ok(true)),
+      subscribeEvents: makeHandler('pageManagerSubscribeEvents', async () => ok({ subscriberId: 'e2e-mock' })),
+      unsubscribeEvents: makeHandler('pageManagerUnsubscribeEvents', async () => ok(true)),
+      setSidebarWidth: makeHandler('pageManagerSetSidebarWidth', async () => ok(true)),
+      saveCookies: makeHandler('pageManagerSaveCookies', async () => ok(true)),
+      onTabEvent: (event, cb) => { void cb; return () => {}; },
+      on: (event, cb) => { void cb; return () => {}; },
+      onNavigationChanged: (cb) => { void cb; return () => {}; }
+    },
 
     // 回调服务器
     onCallbackReceived: makeOn('callback:received'),

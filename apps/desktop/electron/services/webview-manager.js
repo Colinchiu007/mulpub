@@ -1,22 +1,13 @@
 // @ts-check
 /**
- * WebviewManager — 分屏监控管理器 + 浏览器标签页管理
+ * WebviewManager — 应用内浏览器标签页管理
  *
- * 参考产品逆向分析 P0 功能：多平台同时监控
- * 每个 tab 独立 WebContentsView，独立 session分区，Cookie 互不干扰
+ * 每个 tab 独立 WebContentsView，独立 session 分区，Cookie 互不干扰。
  *
- * 浏览器标签页功能：
+ * 功能：
  *   创建/关闭/切换标签页，前进后退刷新，URL 导航，搜索跳转
- *
- * 布局方案:
- *   1: ████████████████  (全屏，默认)
- *   2: ███████│████████  (左右 50/50)
- *   3: ███████│████████  (2+1 布局)
- *      ████████████████
- *   4: ███████│████████  (2×2 网格)
- *      ███████│████████
- *   6: ███│████│██████  (3×2 网格)
- *      ███│████│██████
+ *   虚拟登录标签（AuthViewManager / QrCodeLogin 托管全屏登录）
+ *   左侧导航栏宽度同步
  */
 const { EventEmitter } = require('events')
 const { app, WebContentsView, session, ipcMain } = require('electron')
@@ -24,11 +15,11 @@ const path = require('path')
 const os = require('os')
 const log = require('./logger')
 const credentialStore = require('./credential-store')
-const { PLATFORM_DASHBOARD_URLS, getPlatformName } = require('@multi-publish/shared-utils/src/platform-definitions')
+const { getPlatformName } = require('@multi-publish/shared-utils/src/platform-definitions')
 const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('../ipc-handlers/helpers')
 // 内嵌视图定位唯一来源：必须用「客户区」尺寸，禁用 getBounds() 外框尺寸（详见模块注释）
-const { getContentSize, computeEmbeddedViewBounds } = require('./view-bounds')
+const { computeEmbeddedViewBounds } = require('./view-bounds')
 
 // 左侧导航栏宽度（与前端 MpSidebar 的 CSS 变量 --mp-sidebar-width 保持一致）
 // 默认 200px，窄屏（≤900px）时 68px；由渲染进程通过 IPC 动态同步
@@ -86,10 +77,6 @@ class WebviewManager extends EventEmitter {
   constructor () {
     super()
     this.mainWindow = null
-    /** @type {Array<{id: string, platform: string, accountId: string|null, view: WebContentsView, label: string}>} */
-    this.tabs = []
-    this.layout = 1  // 当前布局数（1/2/3/4/6）
-    this._nextTabId = 1
 
     // ─── 浏览器标签页系统 ──────────────────────
     /** @type {Map<string, WebContentsView>} */
@@ -262,20 +249,6 @@ class WebviewManager extends EventEmitter {
     this._accountManager = accountManager || null
   }
 
-  // ─── 布局控制 ──────────────────────────────────
-
-  /**
-   * 设置分屏布局
-   * @param {number} count - 1/2/3/4/6
-   */
-  setLayout (count) {
-    if (![1, 2, 3, 4, 6].includes(count)) return
-    this.layout = count
-    this._repositionAll()
-    this._emit('webview:layout-changed', { layout: count, tabCount: this.tabs.length })
-    log.info('WebviewManager', 'Layout set to ' + count)
-  }
-
   // ─── 浏览器标签页管理 ──────────────────────────
 
   /**
@@ -284,113 +257,6 @@ class WebviewManager extends EventEmitter {
    */
   _mainWindowAvailable () {
     return !!(this.mainWindow && this._tabViews && this._tabViews.size > 0)
-  }
-
-  // ─── Tab 管理（分屏监控）─────────────────────────
-
-  /**
-   * 打开一个平台监控 tab
-   * @param {string} platform - 平台标识
-   * @param {string|null} [accountId] - 账号 ID（用于隔离 session）
-   * @param {Array} [cookies] - 已保存的 Cookie 数组
-   * @param {Object} [localStorage] - 已保存的 localStorage 数据
-   * @param {string} [customUrl] - 自定义 URL（覆盖默认仪表盘 URL）
-   * @returns {string|null} tabId
-   */
-  openTab (platform, accountId, cookies, localStorage, customUrl) {
-    if (!this.mainWindow) return null
-
-    const url = customUrl || PLATFORM_DASHBOARD_URLS[platform]
-    if (!url) {
-      log.warn('WebviewManager', 'No dashboard URL for platform: ' + platform)
-      return null
-    }
-
-    // 安全：校验 URL 协议（防止 file:// / data:// 等 SSRF/信息泄露）
-    try {
-      const parsed = new URL(url)
-      if (!['http:', 'https:'].includes(parsed.protocol)) {
-        log.warn('WebviewManager', 'Blocked non-http(s) URL: ' + parsed.protocol)
-        return null
-      }
-    } catch (e) {
-      log.warn('WebviewManager', 'Invalid URL: ' + url)
-      return null
-    }
-
-    const tabId = 'tab-' + this._nextTabId++
-    const partition = 'persist:monitor-' + (accountId || (platform + '-' + tabId))
-    const viewSession = session.fromPartition(partition, { cache: true })
-
-    // 恢复已保存 Cookie（必须在 loadURL 之前）
-    if (cookies && cookies.length > 0) {
-      var _cookieFail = 0
-      var _cookiePromises = []
-      for (var i = 0; i < cookies.length; i++) {
-        // eslint-disable-next-line no-unused-vars
-        try {
-          _cookiePromises.push(viewSession.cookies.set(cookies[i]).catch(function (e2) {
-            _cookieFail += 1
-            log.warn('WebviewManager', 'cookie restore failed: ' + ((e2 && e2.message) || 'unknown'))
-          }))
-        } catch (e) {
-          _cookieFail += 1
-          log.warn('WebviewManager', 'cookie restore threw: ' + ((e && e.message) || 'unknown'))
-        }
-      }
-      // 审查修复：聚合日志必须等全部 set 完成后再判定（此前同步读取异步计数器恒为 0）
-      Promise.all(_cookiePromises).then(function () {
-        if (_cookieFail > 0) log.warn('WebviewManager', 'cookie restore: ' + _cookieFail + '/' + cookies.length + ' failed (openTab ' + platform + ')')
-      })
-    }
-
-    // 创建 WebContentsView
-    const view = new WebContentsView({
-      webPreferences: {
-        session: viewSession,
-        preload: path.join(__dirname, '..', 'monitor-preload.js'),
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true,
-        backgroundThrottling: false,
-      }
-    })
-    view.setVisible(true)
-    this.mainWindow.contentView.addChildView(view)
-
-    // 导航到平台页面
-    // R49 修复：loadURL 返回 Promise，必须 .catch()
-    view.webContents.loadURL(url).catch(function (e) {
-      log.warn('WebviewManager', 'nav failed url=' + String(url).slice(0, 200) + ' err=' + ((e && e.message) || 'unknown'))
-    })
-
-    // 页面加载后恢复 localStorage
-    if (localStorage && Object.keys(localStorage).length > 0) {
-      var lsData = JSON.stringify(localStorage)
-      view.webContents.on('did-finish-load', function () {
-        view.webContents.executeJavaScript(
-          '(function() {\n' +
-          '  var data = ' + lsData + ';\n' +
-          '  Object.keys(data).forEach(function(k) {\n' +
-          '    try { localStorage.setItem(k, data[k]); } catch (e) { /* ignore */ }\n' +
-          '  });\n' +
-          '})()'
-        ).catch(function () {})
-      })
-    }
-
-    // 监听导航事件（检测登录状态变化）
-    var self = this
-    view.webContents.on('did-navigate', function (event, navUrl) {
-      self._emit('webview:navigated', { tabId: tabId, platform: platform, url: navUrl })
-    })
-
-    var tab = { id: tabId, platform: platform, accountId: accountId, view: view, label: platform }
-    this.tabs.push(tab)
-    this._repositionAll()
-    this._emit('webview:tab-opened', { tabId: tabId, platform: platform, accountId: accountId, tabCount: this.tabs.length })
-    log.info('WebviewManager', 'Opened tab: ' + tabId + ' (' + platform + ')')
-    return tabId
   }
 
   // ─── 新标签页（浏览器式）──────────────────────
@@ -501,7 +367,7 @@ class WebviewManager extends EventEmitter {
     // 设置导航监听
     self._setupNav(tabId, view)
 
-    // 页面加载后恢复账号 localStorage（与 openTab 的凭证恢复模式一致）
+    // 页面加载后恢复账号 localStorage（与 createNewTabPage 的凭证恢复模式一致）
     var credLocalStorage = (accountCredential && accountCredential.localStorage && typeof accountCredential.localStorage === 'object')
       ? accountCredential.localStorage
       : null
@@ -599,25 +465,7 @@ class WebviewManager extends EventEmitter {
       return true
     }
 
-    // 处理旧分屏标签
-    var idx = -1
-    for (var i = 0; i < self.tabs.length; i++) {
-      if (self.tabs[i].id === tabId) { idx = i; break }
-    }
-    if (idx === -1) return false
-
-    var closedTab = self.tabs[idx]
-    try {
-      if (self.mainWindow && self.mainWindow.contentView) {
-        self.mainWindow.contentView.removeChildView(closedTab.view)
-      }
-      closedTab.view.webContents.close()
-    } catch (e) { /* ignore */ }
-    self.tabs.splice(idx, 1)
-    self._repositionAll()
-    self._emit('webview:tab-closed', { tabId: tabId, tabCount: self.tabs.length })
-    log.info('WebviewManager', 'Closed monitor tab: ' + tabId)
-    return true
+    return false
   }
 
   /**
@@ -997,52 +845,6 @@ class WebviewManager extends EventEmitter {
     }
   }
 
-  // ─── 关闭分屏监控标签 ──────────────────────────
-
-  /**
-   * 关闭指定分屏监控标签
-   * @param {string} tabId
-   */
-  closeMonitorTab (tabId) {
-    var idx = -1
-    for (var i = 0; i < this.tabs.length; i++) {
-      if (this.tabs[i].id === tabId) { idx = i; break }
-    }
-    if (idx === -1) return
-
-    var closedTab = this.tabs[idx]
-    try {
-      if (this.mainWindow && this.mainWindow.contentView) {
-        this.mainWindow.contentView.removeChildView(closedTab.view)
-      }
-      closedTab.view.webContents.close()
-    } catch (e) { /* ignore */ }
-    this.tabs.splice(idx, 1)
-    this._repositionAll()
-    this._emit('webview:tab-closed', { tabId: tabId, tabCount: this.tabs.length })
-    log.info('WebviewManager', 'Closed monitor tab: ' + tabId)
-  }
-
-  /**
-   * 关闭所有分屏监控标签
-   */
-  closeAllMonitorTabs () {
-    var self = this
-    for (var i = self.tabs.length - 1; i >= 0; i--) {
-      var tab = self.tabs[i]
-      try {
-        if (self.mainWindow && self.mainWindow.contentView) {
-          self.mainWindow.contentView.removeChildView(tab.view)
-        }
-        tab.view.webContents.close()
-      } catch (e) { /* ignore */ }
-    }
-    self.tabs = []
-    self._repositionAll()
-    self._emit('webview:all-tabs-closed', {})
-    log.info('WebviewManager', 'All monitor tabs closed')
-  }
-
   // ─── 窗口事件 ──────────────────────────────────
 
   /** 窗口大小变化时重新排列 */
@@ -1171,10 +973,6 @@ class WebviewManager extends EventEmitter {
    */
   _repositionAll () {
     if (!this.mainWindow) return
-    // 内嵌视图的 setBounds 使用「客户区」坐标系，因此尺寸必须取客户区尺寸。
-    // 若用 mainWindow.getBounds()（外框，含标题栏/菜单栏/边框），视图会宽出左右边框、
-    // 高出标题栏+底边框，导致右侧垂直滚动条与底部内容被窗口裁掉（见 view-bounds.js）。
-    var viewport = getContentSize(this.mainWindow)
     var sidebarWidth = this._sidebarWidth || SIDEBAR_WIDTH_DEFAULT
 
     // 登录标签活动态：登录视图由 AuthViewManager 自行定位（全屏 y=76），
@@ -1185,7 +983,7 @@ class WebviewManager extends EventEmitter {
         loginViewManager._onWindowResize()
       }
     } else if (this._tabViews.size > 0) {
-      // 处理浏览器标签页（新系统）
+      // 处理浏览器标签页
       // 左侧导航栏为固定区域，WebContentsView 应定位在右侧主体区域
       var activeView = this._tabViews.get(this._activeTabId)
       if (activeView) {
@@ -1193,85 +991,6 @@ class WebviewManager extends EventEmitter {
         activeView.setVisible(true)
       }
     }
-
-    // 处理分屏监控标签（旧系统）
-    if (this.tabs.length > 0) {
-      var positions = this._calculatePositions(viewport)
-      for (var i = 0; i < this.tabs.length; i++) {
-        if (i < positions.length) {
-          var pos = positions[i]
-          this.tabs[i].view.setBounds({
-            x: pos.x, y: pos.y,
-            width: pos.width, height: pos.height,
-          })
-          this.tabs[i].view.setVisible(true)
-        } else {
-          // 超出当前布局容量 → 隐藏
-          this.tabs[i].view.setVisible(false)
-        }
-      }
-    }
-  }
-
-  /**
-   * 根据当前布局和窗口大小计算各 view 的位置
-   */
-  _calculatePositions (bounds) {
-    var NAV_HEIGHT = 56
-    var GAP = 2
-    var sidebarWidth = this._sidebarWidth || SIDEBAR_WIDTH_DEFAULT
-    // 分屏区域应从左侧导航栏右侧开始，宽度也相应减少
-    var W = bounds.width - sidebarWidth
-    var H = bounds.height - NAV_HEIGHT
-    var OFFSET_X = sidebarWidth
-    var positions = []
-
-    switch (this.layout) {
-      case 1:
-        positions.push({ x: OFFSET_X, y: NAV_HEIGHT, width: W, height: H })
-        break
-      case 2: {
-        const hw = Math.floor((W - GAP) / 2)
-        positions.push({ x: OFFSET_X, y: NAV_HEIGHT, width: hw, height: H })
-        positions.push({ x: OFFSET_X + hw + GAP, y: NAV_HEIGHT, width: W - hw - GAP, height: H })
-        break
-      }
-      case 3: {
-        const hw = Math.floor((W - GAP) / 2)
-        const hh = Math.floor((H - GAP) / 2)
-        positions.push({ x: OFFSET_X, y: NAV_HEIGHT, width: hw, height: hh })
-        positions.push({ x: OFFSET_X + hw + GAP, y: NAV_HEIGHT, width: W - hw - GAP, height: hh })
-        positions.push({ x: OFFSET_X, y: NAV_HEIGHT + hh + GAP, width: W, height: H - hh - GAP })
-        break
-      }
-      case 4: {
-        const hw = Math.floor((W - GAP) / 2)
-        const hh = Math.floor((H - GAP) / 2)
-        const y1 = NAV_HEIGHT
-        const y2 = NAV_HEIGHT + hh + GAP
-        positions.push({ x: OFFSET_X, y: y1, width: hw, height: hh })
-        positions.push({ x: OFFSET_X + hw + GAP, y: y1, width: W - hw - GAP, height: hh })
-        positions.push({ x: OFFSET_X, y: y2, width: hw, height: H - hh - GAP })
-        positions.push({ x: OFFSET_X + hw + GAP, y: y2, width: W - hw - GAP, height: H - hh - GAP })
-        break
-      }
-      case 6: {
-        const tw = Math.floor((W - 2 * GAP) / 3)
-        const hh = Math.floor((H - GAP) / 2)
-        for (let r = 0; r < 2; r++) {
-          for (let c = 0; c < 3; c++) {
-            positions.push({
-              x: OFFSET_X + c * (tw + GAP),
-              y: NAV_HEIGHT + r * (hh + GAP),
-              width: tw,
-              height: hh,
-            })
-          }
-        }
-        break
-      }
-    }
-    return positions
   }
 
   /**
@@ -1445,43 +1164,6 @@ class WebviewManager extends EventEmitter {
       } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
 
-    // ─── webview: IPC handlers（旧分屏系统，保持向后兼容）──
-
-    ipcMain.handle('webview:set-layout', withSenderCheck(function (_, count) {
-      try {
-        self.setLayout(count)
-        return { code: 0, data: { layout: count, tabCount: self.tabs.length } }
-      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
-    }))
-
-    ipcMain.handle('webview:open-tab', withSenderCheck(function (_, arg) {
-      if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: 'Missing args object' }
-      var platform = arg.platform, accountId = arg.accountId, cookies = arg.cookies, localStorage = arg.localStorage, url = arg.url
-      try {
-        var tabId = self.openTab(platform, accountId, cookies, localStorage, url)
-        return tabId ? { code: 0, data: { tabId: tabId } } : { code: EC.REQUEST_ERROR, message: 'Cannot open ' + platform }
-      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
-    }))
-
-    ipcMain.handle('webview:close-tab', withSenderCheck(function (_, tabId) {
-      try {
-        self.closeTab(tabId)
-        return { code: 0 }
-      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
-    }))
-
-    ipcMain.handle('webview:close-all', withSenderCheck(function () {
-      try {
-        self.closeAllMonitorTabs()
-        return { code: 0 }
-      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
-    }))
-
-    ipcMain.handle('webview:list-tabs', withSenderCheck(function () {
-      try { return { code: 0, data: self.getTabsInfo() } }
-      catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
-    }))
-
     // ─── 左侧导航栏宽度同步 ──
 
     ipcMain.handle('page-manager:set-sidebar-width', withSenderCheck(function (_, width) {
@@ -1490,24 +1172,6 @@ class WebviewManager extends EventEmitter {
         return { code: 0 }
       } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
-  }
-
-  getTabsInfo () {
-    return this.tabs.map(function (t) {
-      return {
-        id: t.id,
-        platform: t.platform,
-        accountId: t.accountId,
-        label: t.label,
-      }
-    })
-  }
-
-  /** 安全发射 IPC 事件 */
-  _emit (channel, data) {
-    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      this.mainWindow.webContents.send(channel, data)
-    }
   }
 }
 

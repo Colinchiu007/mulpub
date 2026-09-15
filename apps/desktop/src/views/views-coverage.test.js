@@ -226,38 +226,6 @@ describe("CollectionView (coverage)", () => {
   });
 });
 
-
-// ====== Monitor.vue ======
-describe("MonitorView (coverage)", () => {
-  beforeEach(() => { vi.clearAllMocks(); setActivePinia(createPinia()); window.electronAPI = {}; });
-
-  async function mnt() {
-    const m = await import("./Monitor.vue");
-    return mount(m.default || m, { global: { plugins: [createPinia()] } });
-  }
-
-  it("switches to 2x2 layout", async () => {
-    const w = await mnt();
-    await nextTick();
-    const btns = w.findAll(".layout-btn");
-    expect(btns.length).toBeGreaterThanOrEqual(2);
-    await btns[1].trigger("click");
-    await nextTick();
-    expect(w.vm.currentLayout).toBe(2);
-  });
-
-  it("switches to 3x3 layout", async () => {
-    const w = await mnt();
-    await nextTick();
-    const btns = w.findAll(".layout-btn");
-    if (btns.length >= 3) {
-      await btns[2].trigger("click");
-      await nextTick();
-      expect(w.vm.currentLayout).toBe(3);
-    }
-  });
-});
-
 // ====== CloudPublish.vue ======
 describe("CloudPublish (coverage)", () => {
   beforeEach(() => { vi.clearAllMocks(); setActivePinia(createPinia());
