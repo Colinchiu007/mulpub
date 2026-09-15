@@ -302,10 +302,11 @@ describe('ChunkedUploader', () => {
     const running = new Set()
     const maxConcurrent = { value: 0 }
     const uploadChunkFn = vi.fn(async () => {
-      running.add(true)
+      const token = Symbol('in-flight')  // 必须用唯一令牌：Set 对重复值去重，size 恒 ≤1 会令断言失效
+      running.add(token)
       maxConcurrent.value = Math.max(maxConcurrent.value, running.size)
       await new Promise(r => setTimeout(r, 20))
-      running.delete(true)
+      running.delete(token)
       return { success: true }
     })
     const onProgress = vi.fn()
