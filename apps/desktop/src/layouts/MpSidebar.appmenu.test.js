@@ -13,6 +13,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
 import i18n from '@/i18n'
 import { SIDEBAR_MENU_DEFINITION } from '@/config/sidebar-menu'
 
@@ -64,7 +65,7 @@ async function mountSidebar () {
   i18n.global.locale.value = 'zh'
   wrapper = mount(MpSidebar, {
     global: {
-      plugins: [i18n],
+      plugins: [i18n, createPinia()],
       stubs: {
         ProfileMenu: { template: '<div data-testid="profile-menu-stub" />' },
         SidebarUpdateButton: { template: '<div />' },

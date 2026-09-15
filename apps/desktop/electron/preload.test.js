@@ -205,7 +205,7 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(45)
   })
 
-  it('system 模块应导出 153 个方法', () => {
+  it('system 模块应导出 154 个方法', () => {
     const { createSystemApi } = require('./preload/system')
     const r = createSystemApi(ipcRenderer)
     // 136 + opsCenterSyncGet/Save/Now/Runtime/PipelineOptions（运营后台同步 + 运行时策略）
@@ -213,11 +213,11 @@ describe('preload 子模块方法数', () => {
     // + notifyLog（通知/日志统一通道，notify:log）
     // + promptLibraryGet/Save/Activate（提示词引擎自进化 P1b 记忆库）
     // + updateInstallNow（侧边栏「新版本」点击即退出安装）
-    expect(Object.keys(r).length).toBe(153)
+    expect(Object.keys(r).length).toBe(154)
   })
 
-  it('合并后 api 总键数应为 321（P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus + urlCollectNeedsStealth + promptLibraryGet/Save/Activate + updateInstallNow）', () => {
-    expect(Object.keys(api).length).toBe(321)
+  it('合并后 api 总键数应为 322（P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus + urlCollectNeedsStealth + promptLibraryGet/Save/Activate + updateInstallNow + opsCenterSyncAppMenu）', () => {
+    expect(Object.keys(api).length).toBe(322)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
