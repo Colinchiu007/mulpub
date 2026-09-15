@@ -486,6 +486,11 @@ var require_system = __commonJS({
         // Upload API
         uploadChunked: (filePath) => ipcRenderer2.invoke("upload:chunked", { filePath }),
         uploadCancel: () => ipcRenderer2.invoke("upload:cancel"),
+        onUploadProgress: (callback) => {
+          const h = (_e, payload) => callback(payload);
+          ipcRenderer2.on("upload:progress", h);
+          return () => ipcRenderer2.removeListener("upload:progress", h);
+        },
         // Template API
         templateList: () => ipcRenderer2.invoke("template:list"),
         templateGet: (id) => ipcRenderer2.invoke("template:get", id),

@@ -10,7 +10,7 @@ function registerHandlers(ipcMain, deps) {
   // 安全：校验路径不包含穿越序列（防止 ../../etc/passwd）
   // 修复：原 path.resolve 后不可能含 '..'，校验形同虚设
   // 改为白名单基目录校验（用户媒体目录 + 临时目录）
-  const { app } = require('electron')
+  const { app, BrowserWindow } = require('electron')
   const ALLOWED_BASES = [
     path.resolve(app.getPath('userData'), 'media'),
     path.resolve(app.getPath('temp')),
@@ -23,7 +23,7 @@ function registerHandlers(ipcMain, deps) {
     return ALLOWED_BASES.some(base => normalized === base || normalized.startsWith(base + path.sep))
   }
 
-  ipcMain.handle('upload:chunked', withSenderCheck(async (_, arg) => {
+  ipcMain.handle('upload:chunked', withSenderCheck(async (event, arg) => {
     try {
       // R51 P1：解构保护（CRITICAL 修复 — 原解构在 try 外，arg 为 undefined 时同步抛）
       if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
@@ -39,7 +39,11 @@ function registerHandlers(ipcMain, deps) {
       if (typeof uploadChunkFn !== 'function') {
         return { code: EC.REQUEST_ERROR, message: 'Chunked upload requires desktop adapter config' }
       }
-      const result = await _chunkedUploader.upload(filePath, uploadChunkFn)
+      const win = BrowserWindow ? BrowserWindow.fromWebContents(event.sender) : null
+      const onProgress = win ? (percent, bytesUploaded, totalBytes) => {
+        win.webContents.send('upload:progress', { percent, bytesUploaded, totalBytes, filePath })
+      } : null
+      const result = await _chunkedUploader.upload(filePath, uploadChunkFn, onProgress)
       return { code: result.success ? 0 : EC.REQUEST_ERROR, data: result }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message }

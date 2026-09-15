@@ -949,6 +949,7 @@ export default {
     emptyRecent: 'No publish records yet. Start your first one!',
     untitled: 'Untitled',
     user: 'User',
+    pleaseLogin: 'Sign in',
     greetings: {
       lateNight: 'Late night',
       morning: 'Good morning',
