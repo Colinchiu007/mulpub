@@ -57,7 +57,10 @@ New-Item -ItemType Directory -Force -Path $worktreeRoot | Out-Null
 if ($NoDeps) { $env:GWM_SKIP_DEPS = '1' }
 $env:MP_WORKTREES = $worktreeRoot
 try {
-    $output = & $bash (Join-Path $repo 'scripts/session-init.sh') $TaskName 2>&1
+    # 2026-09-15：Join-Path 产生反斜杠路径，Git Bash 的 dirname/cd 会因转义失败 →
+    # 统一改为正斜杠传入（Git Bash 对 D:/... 形式可正常解析）。
+    $initScript = (Join-Path $repo 'scripts/session-init.sh') -replace '\\', '/'
+    $output = & $bash $initScript $TaskName 2>&1
     $exitCode = $LASTEXITCODE
 } finally {
     Remove-Item Env:GWM_SKIP_DEPS -ErrorAction SilentlyContinue

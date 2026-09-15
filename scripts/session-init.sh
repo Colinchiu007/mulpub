@@ -4,7 +4,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-CURRENT_ROOT="$(git -C "$SCRIPT_DIR/.." rev-parse --show-toplevel)"
+# 2026-09-15：本机 harness 设有 MSYS_NO_PATHCONV=1 / MSYS2_ARG_CONV_EXCL=*，
+# git -C 的 POSIX 路径参数（/d/...）不会被转换 → "not a git repository"。
+# 统一用 cygpath -m 转成 Windows 风格（D:/...）再传给 git -C；无 cygpath 时回退原值。
+GIT_ROOT_ARG="$(cygpath -m "$SCRIPT_DIR/.." 2>/dev/null || echo "$SCRIPT_DIR/..")"
+CURRENT_ROOT="$(git -C "$GIT_ROOT_ARG" rev-parse --show-toplevel)"
 PRIMARY_ROOT="$(git -C "$CURRENT_ROOT" worktree list --porcelain | awk '/^worktree / {print substr($0,10); exit}')"
 
 if [ -z "$PRIMARY_ROOT" ]; then
