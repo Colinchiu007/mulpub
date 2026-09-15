@@ -42,3 +42,13 @@ export async function opsCenterSyncPipelineOptions () {
   if (!api || !api.opsCenterSyncPipelineOptions) return { code: -1, message: 'electronAPI not available', data: null }
   return api.opsCenterSyncPipelineOptions()
 }
+
+/**
+ * 应用端左侧边栏菜单配置（2026-09-15）：运营中心「应用菜单」下发的显示/隐藏与排序。
+ * data 为 null 表示本轮无有效配置 —— 调用方应 fail-open 回退本地默认菜单（不阻塞导航）。
+ */
+export async function opsCenterSyncAppMenu () {
+  const api = getApi()
+  if (!api || !api.opsCenterSyncAppMenu) return { code: -1, message: 'electronAPI not available', data: null }
+  return api.opsCenterSyncAppMenu()
+}

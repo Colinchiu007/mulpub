@@ -1,0 +1,138 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.9 [39m[90mD:/Data/projects/mp-worktrees/mp-remove-monitor-feature/apps/desktop[39m
+
+[90mstdout[2m | electron/tests/e2e-quality-infrastructure.test.js[2m > [22m[2m路由通用扫描[2m > [22m[2m扫描任何控件前先完整重置到定义路由
+[22m[39m  ✓ 初始可用按钮均完成点击扫描
+
+[90mstdout[2m | electron/tests/e2e-quality-infrastructure.test.js[2m > [22m[2m路由通用扫描[2m > [22m[2m扫描任何控件前先完整重置到定义路由
+[22m[39m  ✓ 全部初始可编辑表单字段完成输入扫描
+
+[90mstdout[2m | electron/tests/e2e-quality-infrastructure.test.js[2m > [22m[2m路由通用扫描[2m > [22m[2m扫描任何控件前先完整重置到定义路由
+[22m[39m  ✓ 页面链接完成点击扫描
+
+[90mstdout[2m | electron/tests/e2e-quality-infrastructure.test.js[2m > [22m[2m路由通用扫描[2m > [22m[2m每个初始按钮都在重置后的页面状态中单独执行
+[22m[39m  ✓ 初始可用按钮均完成点击扫描
+
+[90mstdout[2m | electron/tests/e2e-quality-infrastructure.test.js[2m > [22m[2m路由通用扫描[2m > [22m[2m每个初始按钮都在重置后的页面状态中单独执行
+[22m[39m  ✓ 全部初始可编辑表单字段完成输入扫描
+
+[90mstdout[2m | electron/tests/e2e-quality-infrastructure.test.js[2m > [22m[2m路由通用扫描[2m > [22m[2m每个初始按钮都在重置后的页面状态中单独执行
+[22m[39m  ✓ 页面链接完成点击扫描
+
+[90mstdout[2m | electron/tests/e2e-quality-infrastructure.test.js[2m > [22m[2m路由通用扫描[2m > [22m[2m重复文本按钮优先使用各自的 data-testid 重新定位
+[22m[39m  ✓ 初始可用按钮均完成点击扫描
+
+[90mstdout[2m | electron/tests/e2e-quality-infrastructure.test.js[2m > [22m[2m路由通用扫描[2m > [22m[2m重复文本按钮优先使用各自的 data-testid 重新定位
+[22m[39m  ✓ 全部初始可编辑表单字段完成输入扫描
+
+[90mstdout[2m | electron/tests/e2e-quality-infrastructure.test.js[2m > [22m[2m路由通用扫描[2m > [22m[2m重复文本按钮优先使用各自的 data-testid 重新定位
+[22m[39m  ✓ 页面链接完成点击扫描
+
+[90mstdout[2m | electron/tests/e2e-quality-infrastructure.test.js[2m > [22m[2m路由通用扫描[2m > [22m[2m按钮在重渲染中失效时仅重新加载并重试一次
+[22m[39m  ✓ 初始可用按钮均完成点击扫描
+
+[90mstdout[2m | electron/tests/e2e-quality-infrastructure.test.js[2m > [22m[2m路由通用扫描[2m > [22m[2m按钮在重渲染中失效时仅重新加载并重试一次
+[22m[39m  ✓ 全部初始可编辑表单字段完成输入扫描
+
+[90mstdout[2m | electron/tests/e2e-quality-infrastructure.test.js[2m > [22m[2m路由通用扫描[2m > [22m[2m按钮在重渲染中失效时仅重新加载并重试一次
+[22m[39m  ✓ 页面链接完成点击扫描
+
+[90mstdout[2m | electron/tests/e2e-quality-infrastructure.test.js[2m > [22m[2m路由通用扫描[2m > [22m[2m任一初始可编辑字段失败时扫描失败并保留字段详情
+[22m[39m  ✗ 全部初始可编辑表单字段完成输入扫描 {
+  fieldCount: [33m2[39m,
+  sampledFieldCount: [33m2[39m,
+  suppressed: [33m0[39m,
+  editableCount: [33m2[39m,
+  exercised: [33m1[39m,
+  failures: [
+    {
+      index: [33m1[39m,
+      tag: [32m'textarea'[39m,
+      type: [32m''[39m,
+      placeholder: [32m'正文'[39m,
+      name: [32m'content'[39m,
+      testid: [32m'content'[39m,
+      error: [32m'字段被遮挡'[39m
+    }
+  ]
+}
+
+[90mstdout[2m | electron/tests/e2e-quality-infrastructure.test.js[2m > [22m[2m模型服务商 E2E 契约[2m > [22m[2mFlow 3 根据重读列表验证唯一默认项
+[22m[39m
+→ Flow 3: 模型服务商 → AI 写作
+
+[90mstdout[2m | electron/tests/e2e-quality-infrastructure.test.js[2m > [22m[2m模型服务商 E2E 契约[2m > [22m[2mFlow 3 根据重读列表验证唯一默认项
+[22m[39m  ✓ Flow3.1 服务商列表渲染
+
+[90mstdout[2m | electron/tests/e2e-quality-infrastructure.test.js[2m > [22m[2m模型服务商 E2E 契约[2m > [22m[2mFlow 3 根据重读列表验证唯一默认项
+[22m[39m  ✓ Flow3.2 默认服务商切换 IPC 调用
+
+[90mstdout[2m | electron/tests/e2e-quality-infrastructure.test.js[2m > [22m[2m模型服务商 E2E 契约[2m > [22m[2mFlow 3 根据重读列表验证唯一默认项
+[22m[39m  ✗ Flow3.3 重读列表仅有目标唯一默认服务商 { code: [33m0[39m, defaultIds: [ [32m'preset_openai'[39m, [32m'preset_anthropic'[39m ] }
+
+[90mstdout[2m | electron/tests/e2e-quality-infrastructure.test.js[2m > [22m[2m模型服务商 E2E 契约[2m > [22m[2mFlow 3 根据重读列表验证唯一默认项
+[22m[39m  ✓ Flow3.4 发布页面 AI 写作面板加载
+
+[90mstdout[2m | electron/tests/e2e-quality-infrastructure.test.js[2m > [22m[2m模型服务商 E2E 契约[2m > [22m[2mFlow 3 根据重读列表验证唯一默认项
+[22m[39m  ✓ Flow3.5 AI 服务商配置 IPC 已调用
+
+[90mstdout[2m | electron/tests/e2e-quality-infrastructure.test.js[2m > [22m[2m模型服务商 E2E 契约[2m > [22m[2mFlow 3 的 AI 配置检查不能在零次 IPC 调用时硬编码通过
+[22m[39m
+→ Flow 3: 模型服务商 → AI 写作
+
+[90mstdout[2m | electron/tests/e2e-quality-infrastructure.test.js[2m > [22m[2m模型服务商 E2E 契约[2m > [22m[2mFlow 3 的 AI 配置检查不能在零次 IPC 调用时硬编码通过
+[22m[39m  ✓ Flow3.1 服务商列表渲染
+
+[90mstdout[2m | electron/tests/e2e-quality-infrastructure.test.js[2m > [22m[2m模型服务商 E2E 契约[2m > [22m[2mFlow 3 的 AI 配置检查不能在零次 IPC 调用时硬编码通过
+[22m[39m  ✓ Flow3.2 默认服务商切换 IPC 调用
+
+[90mstdout[2m | electron/tests/e2e-quality-infrastructure.test.js[2m > [22m[2m模型服务商 E2E 契约[2m > [22m[2mFlow 3 的 AI 配置检查不能在零次 IPC 调用时硬编码通过
+[22m[39m  ✓ Flow3.3 重读列表仅有目标唯一默认服务商
+
+[90mstdout[2m | electron/tests/e2e-quality-infrastructure.test.js[2m > [22m[2m模型服务商 E2E 契约[2m > [22m[2mFlow 3 的 AI 配置检查不能在零次 IPC 调用时硬编码通过
+[22m[39m  ✓ Flow3.4 发布页面 AI 写作面板加载
+
+[90mstdout[2m | electron/tests/e2e-quality-infrastructure.test.js[2m > [22m[2m模型服务商 E2E 契约[2m > [22m[2mFlow 3 的 AI 配置检查不能在零次 IPC 调用时硬编码通过
+[22m[39m  ✗ Flow3.5 AI 服务商配置 IPC 已调用 { count: [33m0[39m }
+
+[90mstdout[2m | electron/tests/e2e-quality-infrastructure.test.js[2m > [22m[2m模型服务商 E2E 契约[2m > [22m[2mFlow 3 等待 AI 面板可见和配置 IPC 后通过正常路径
+[22m[39m
+→ Flow 3: 模型服务商 → AI 写作
+
+[90mstdout[2m | electron/tests/e2e-quality-infrastructure.test.js[2m > [22m[2m模型服务商 E2E 契约[2m > [22m[2mFlow 3 等待 AI 面板可见和配置 IPC 后通过正常路径
+[22m[39m  ✓ Flow3.1 服务商列表渲染
+
+[90mstdout[2m | electron/tests/e2e-quality-infrastructure.test.js[2m > [22m[2m模型服务商 E2E 契约[2m > [22m[2mFlow 3 等待 AI 面板可见和配置 IPC 后通过正常路径
+[22m[39m  ✓ Flow3.2 默认服务商切换 IPC 调用
+
+[90mstdout[2m | electron/tests/e2e-quality-infrastructure.test.js[2m > [22m[2m模型服务商 E2E 契约[2m > [22m[2mFlow 3 等待 AI 面板可见和配置 IPC 后通过正常路径
+[22m[39m  ✓ Flow3.3 重读列表仅有目标唯一默认服务商
+
+[90mstdout[2m | electron/tests/e2e-quality-infrastructure.test.js[2m > [22m[2m模型服务商 E2E 契约[2m > [22m[2mFlow 3 等待 AI 面板可见和配置 IPC 后通过正常路径
+[22m[39m  ✓ Flow3.4 发布页面 AI 写作面板加载
+
+[90mstdout[2m | electron/tests/e2e-quality-infrastructure.test.js[2m > [22m[2m模型服务商 E2E 契约[2m > [22m[2mFlow 3 等待 AI 面板可见和配置 IPC 后通过正常路径
+[22m[39m  ✓ Flow3.5 AI 服务商配置 IPC 已调用
+
+ [32m✓[39m electron/tests/e2e-quality-infrastructure.test.js [2m([22m[2m48 tests[22m[2m)[22m[33m 385[2mms[22m[39m
+(node:56224) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[90mstdout[2m | electron/tests/visual-view-runner.test.js[2m > [22m[2m单视图视觉门禁合同[2m > [22m[2m任一视图执行失败都会使套件失败，同时仍完成资源关闭
+[22m[39m视觉测试: ok
+
+[90mstdout[2m | electron/tests/visual-view-runner.test.js[2m > [22m[2m单视图视觉门禁合同[2m > [22m[2m任一视图执行失败都会使套件失败，同时仍完成资源关闭
+[22m[39m视觉测试: bad
+
+[90mstdout[2m | electron/tests/visual-view-runner.test.js[2m > [22m[2m像素视觉门禁合同[2m > [22m[2m像素用例失败后仍生成可供视觉判断读取的报告
+[22m[39maccounts-list (/accounts)...
+
+[90mstdout[2m | electron/tests/visual-view-runner.test.js[2m > [22m[2m像素视觉门禁合同[2m > [22m[2m像素用例失败后仍生成可供视觉判断读取的报告
+[22m[39m  FAILED: 像素差异超限
+
+ [32m✓[39m electron/tests/visual-view-runner.test.js [2m([22m[2m6 tests[22m[2m)[22m[32m 34[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m2 passed[39m[22m[90m (2)[39m
+[2m      Tests [22m [1m[32m54 passed[39m[22m[90m (54)[39m
+[2m   Start at [22m 13:55:26
+[2m   Duration [22m 20.17s[2m (transform 850ms, setup 1.91s, import 2.06s, tests 419ms, environment 13.99s)[22m
+

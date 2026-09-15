@@ -310,6 +310,17 @@ async def _get_pipeline_options(db: AsyncSession) -> dict:
     from services import pipeline_option_service
     return await pipeline_option_service.get_bootstrap_options(db)
 
+
+async def _get_app_menu(db: AsyncSession) -> dict:
+    """应用端左侧边栏菜单配置（2026-09-15）——显示/隐藏 + 组内排序。
+
+    注意：本函数的返回值位于 bootstrap 响应的 Ed25519 签名覆盖范围内
+    （sign_runtime_payload 对整个 payload 的 canonical JSON 签名），
+    因此新增字段不会被篡改。改动 payload 结构时不得移除签名步骤。
+    """
+    from services import app_menu_service
+    return await app_menu_service.get_bootstrap_app_menu(db)
+
 async def get_runtime_bootstrap(db: AsyncSession) -> dict:
     from services.feature_flag_service import list_runtime_feature_flags
     from services.platform_def_service import list_runtime_platform_defs
@@ -327,6 +338,7 @@ async def get_runtime_bootstrap(db: AsyncSession) -> dict:
         "keyword_watchlist": await list_runtime_watchlist(db),
         "rewrite_strategies": await list_runtime_rewrite_strategies(db),
         "pipelineOptions": await _get_pipeline_options(db),
+        "appMenu": await _get_app_menu(db),
         "synced_at": _now(),
     }
 

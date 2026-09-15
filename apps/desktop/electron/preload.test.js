@@ -203,7 +203,7 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(45)
   })
 
-  it('system 模块应导出 143 个方法', () => {
+  it('system 模块应导出 144 个方法', () => {
     const { createSystemApi } = require('./preload/system')
     const r = createSystemApi(ipcRenderer)
     // 136 + opsCenterSyncGet/Save/Now/Runtime/PipelineOptions（运营后台同步 + 运行时策略）
@@ -211,12 +211,13 @@ describe('preload 子模块方法数', () => {
     // + notifyLog（通知/日志统一通道，notify:log）
     // + promptLibraryGet/Save/Activate（提示词引擎自进化 P1b 记忆库）
     // + updateInstallNow（侧边栏「新版本」点击即退出安装）
+    // + opsCenterSyncAppMenu（#1839 运营中心侧边栏显隐排序下发）
     // - 10（分屏监控 webview:* API 随监控功能移除，网页查看统一走 pageManager）
-    expect(Object.keys(r).length).toBe(143)
+    expect(Object.keys(r).length).toBe(144)
   })
 
-  it('合并后 api 总键数应为 311（P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus + urlCollectNeedsStealth + promptLibraryGet/Save/Activate + updateInstallNow - webview 分屏监控 API 移除）', () => {
-    expect(Object.keys(api).length).toBe(311)
+  it('合并后 api 总键数应为 312（P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus + urlCollectNeedsStealth + promptLibraryGet/Save/Activate + updateInstallNow + opsCenterSyncAppMenu - webview 分屏监控 API 移除）', () => {
+    expect(Object.keys(api).length).toBe(312)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {

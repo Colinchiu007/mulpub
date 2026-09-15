@@ -1,0 +1,12 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.9 [39m[90mD:/Data/projects/mp-worktrees/mp-remove-monitor-feature/apps/desktop[39m
+
+ [32m✓[39m electron/preload.test.js [2m([22m[2m351 tests[22m[2m)[22m[33m 699[2mms[22m[39m
+ [32m✓[39m src/layouts/MpSidebar.test.js [2m([22m[2m14 tests[22m[2m)[22m[33m 901[2mms[22m[39m
+     [33m[2m✓[22m[39m renders the account route active with the login banner at the bottom and service info above it [33m 314[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m2 passed[39m[22m[90m (2)[39m
+[2m      Tests [22m [1m[32m365 passed[39m[22m[90m (365)[39m
+[2m   Start at [22m 14:12:29
+[2m   Duration [22m 16.90s[2m (transform 1.45s, setup 1.67s, import 9.73s, tests 1.60s, environment 2.86s)[22m
+

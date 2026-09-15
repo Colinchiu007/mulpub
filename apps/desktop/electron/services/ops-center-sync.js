@@ -14,6 +14,8 @@
 
 const crypto = require('./crypto')
 const nodeCrypto = require('crypto') // 内建密码学：Ed25519 验签（与上方 safeStorage 封装区分）
+// 应用菜单配置净化（2026-09-15）：拆出独立模块以控制本文件体量（债务熔断 < 500 行）
+const { normalizeAppMenu } = require('./app-menu-config')
 
 const SETTING_KEY = 'opsCenterSync'
 const RUNTIME_SETTING_KEY = 'opsCenterRuntime'
@@ -47,6 +49,7 @@ function normalizeFeatureFlags(raw) {
   }
   return out
 }
+
 
 function normalizeUrl(value) {
   const text = String(value || '').trim()
@@ -258,6 +261,7 @@ class OpsCenterSync {
       contentPolicy: state.contentPolicy || null,
       featureFlags: normalizeFeatureFlags(state.featureFlags),
       pipelineOptions: (state.pipelineOptions && typeof state.pipelineOptions === 'object') ? state.pipelineOptions : null,
+      appMenu: normalizeAppMenu(state.appMenu),
       syncedAt: state.syncedAt || '',
     }
   }
@@ -276,6 +280,7 @@ class OpsCenterSync {
       contentPolicy: cp ? { name: cp.name, enabled: cp.enabled !== false, updatedAt: cp.updated_at || cp.updatedAt || '' } : null,
       featureFlags: this._runtime.featureFlags || {},
       pipelineOptions: this._runtime.pipelineOptions || null,
+      appMenu: this._runtime.appMenu || null,
       syncedAt: this._runtime.syncedAt || '',
     }
   }
@@ -294,6 +299,14 @@ class OpsCenterSync {
   /** 视频创作流水线选项控制（2026-08-31）：运营中心下发的可见性与默认值 */
   getPipelineOptions() {
     return this._runtime.pipelineOptions || null
+  }
+
+  /**
+   * 应用端左侧边栏菜单配置（2026-09-15）：运营中心「应用菜单」下发的显示/隐藏与排序。
+   * 返回 null 表示本轮无有效配置，渲染端据此 fail-open 回退本地默认菜单。
+   */
+  getAppMenu() {
+    return this._runtime.appMenu || null
   }
 
   /** 读取功能开关 typed value（主进程/引擎消费）；不存在返回 undefined */
@@ -343,6 +356,7 @@ class OpsCenterSync {
       contentPolicy: payload.content_policy && typeof payload.content_policy === 'object' ? payload.content_policy : null,
       featureFlags: normalizeFeatureFlags(payload.feature_flags),
       pipelineOptions: (payload.pipelineOptions && typeof payload.pipelineOptions === 'object') ? payload.pipelineOptions : null,
+      appMenu: normalizeAppMenu(payload.appMenu),
       syncedAt: payload.synced_at || new Date().toISOString(),
     }
     this._runtime = next

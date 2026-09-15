@@ -554,6 +554,7 @@ var require_system = __commonJS({
         opsCenterSyncNow: () => ipcRenderer2.invoke("ops-center-sync:now"),
         opsCenterSyncRuntime: () => ipcRenderer2.invoke("ops-center-sync:runtime"),
         opsCenterSyncPipelineOptions: () => ipcRenderer2.invoke("ops-center-sync:pipelineOptions"),
+        opsCenterSyncAppMenu: () => ipcRenderer2.invoke("ops-center-sync:appMenu"),
         modelProviderGet: (id) => ipcRenderer2.invoke("model-provider:get", id),
         modelProviderCreate: (data) => ipcRenderer2.invoke("model-provider:create", data),
         modelProviderUpdate: (id, data) => ipcRenderer2.invoke("model-provider:update", id, data),

@@ -1,0 +1,11 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.9 [39m[90mD:/Data/projects/mp-worktrees/mp-remove-monitor-feature/apps/desktop[39m
+
+ [32m✓[39m tests/ipc-handlers.test.js [2m([22m[2m15 tests[22m[2m)[22m[33m 1024[2mms[22m[39m
+     [33m[2m✓[22m[39m registers all 74+ handlers [33m 553[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[32m15 passed[39m[22m[90m (15)[39m
+[2m   Start at [22m 13:51:59
+[2m   Duration [22m 12.77s[2m (transform 657ms, setup 1.26s, import 42ms, tests 1.02s, environment 9.14s)[22m
+
