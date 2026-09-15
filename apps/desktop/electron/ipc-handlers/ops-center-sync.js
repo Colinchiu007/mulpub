@@ -45,6 +45,15 @@ function registerHandlers (ipcMain, deps) {
       return { code: 0, data: opsCenterSync.getPipelineOptions() }
     } catch (e) { log.warn('[ipc:ops-center-sync]', ((e && e.message) || String(e))); return { code: -1, message: e.message } }
   })
+
+  // 应用端左侧边栏菜单配置（2026-09-15）：运营中心「应用菜单」下发的显示/隐藏与排序。
+  // data 为 null 表示本轮无有效配置，渲染端据此 fail-open 回退本地默认菜单。
+  ipcMain.handle('ops-center-sync:appMenu', () => {
+    try {
+      if (typeof opsCenterSync.getAppMenu !== 'function') return { code: -1, message: '运行时策略服务未就绪' }
+      return { code: 0, data: opsCenterSync.getAppMenu() }
+    } catch (e) { log.warn('[ipc:ops-center-sync]', ((e && e.message) || String(e))); return { code: -1, message: e.message } }
+  })
 }
 
 module.exports = { registerHandlers }

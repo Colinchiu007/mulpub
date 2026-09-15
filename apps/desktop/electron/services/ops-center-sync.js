@@ -20,6 +20,10 @@ const RUNTIME_SETTING_KEY = 'opsCenterRuntime'
 const MAX_CATALOG_BYTES = 1024 * 1024
 const SYNC_TIMEOUT_MS = 10 * 1000
 const MAX_FEATURE_FLAGS = 100
+/** 应用菜单配置允许的最大条目数（防超大 payload 造成渲染端 DoS） */
+const MAX_APP_MENU_ITEMS = 200
+/** sort_order 允许上限（与渲染端 src/config/sidebar-menu-merge.js 的 MAX_SORT_ORDER 对齐） */
+const MAX_APP_MENU_SORT_ORDER = 9999
 
 /**
  * 内置默认 Ed25519 公钥（DEV KEY，2026-09-02 生成）。
@@ -46,6 +50,42 @@ function normalizeFeatureFlags(raw) {
     }
   }
   return out
+}
+
+/**
+ * 应用菜单配置结构校验（2026-09-15）——运营中心「应用菜单」页面的显隐/排序下发。
+ *
+ * 与其它策略的差异：本函数对「结构非法」返回 **null** 而非空对象。
+ * 渲染端把 null 解读为「本轮未取得有效配置」→ fail-open 回退本地默认菜单；
+ * 空 items 数组则是合法配置（等价于「全部按默认可见」）。
+ */
+function normalizeAppMenu(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const list = raw.items
+  if (!Array.isArray(list)) return null
+  if (list.length > MAX_APP_MENU_ITEMS) return null
+  const items = []
+  for (const entry of list) {
+    if (!entry || typeof entry !== 'object') continue
+    const key = typeof entry.key === 'string' ? entry.key.trim() : ''
+    if (!key) continue
+    // 原型污染防御：整条丢弃（与 normalizeFeatureFlags 同口径）
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue
+    const rawSort = Number(entry.sort_order)
+    let sortOrder = null
+    if (Number.isFinite(rawSort) && rawSort >= 0) {
+      sortOrder = Math.min(Math.trunc(rawSort), MAX_APP_MENU_SORT_ORDER)
+    }
+    items.push({
+      key,
+      visible: entry.visible === true || entry.visible === 1 || entry.visible === '1' || entry.visible === 'true',
+      sort_order: sortOrder,
+    })
+  }
+  return {
+    items,
+    syncedAt: typeof raw.synced_at === 'string' ? raw.synced_at : '',
+  }
 }
 
 function normalizeUrl(value) {
@@ -258,6 +298,7 @@ class OpsCenterSync {
       contentPolicy: state.contentPolicy || null,
       featureFlags: normalizeFeatureFlags(state.featureFlags),
       pipelineOptions: (state.pipelineOptions && typeof state.pipelineOptions === 'object') ? state.pipelineOptions : null,
+      appMenu: normalizeAppMenu(state.appMenu),
       syncedAt: state.syncedAt || '',
     }
   }
@@ -276,6 +317,7 @@ class OpsCenterSync {
       contentPolicy: cp ? { name: cp.name, enabled: cp.enabled !== false, updatedAt: cp.updated_at || cp.updatedAt || '' } : null,
       featureFlags: this._runtime.featureFlags || {},
       pipelineOptions: this._runtime.pipelineOptions || null,
+      appMenu: this._runtime.appMenu || null,
       syncedAt: this._runtime.syncedAt || '',
     }
   }
@@ -294,6 +336,14 @@ class OpsCenterSync {
   /** 视频创作流水线选项控制（2026-08-31）：运营中心下发的可见性与默认值 */
   getPipelineOptions() {
     return this._runtime.pipelineOptions || null
+  }
+
+  /**
+   * 应用端左侧边栏菜单配置（2026-09-15）：运营中心「应用菜单」下发的显示/隐藏与排序。
+   * 返回 null 表示本轮无有效配置，渲染端据此 fail-open 回退本地默认菜单。
+   */
+  getAppMenu() {
+    return this._runtime.appMenu || null
   }
 
   /** 读取功能开关 typed value（主进程/引擎消费）；不存在返回 undefined */
@@ -343,6 +393,7 @@ class OpsCenterSync {
       contentPolicy: payload.content_policy && typeof payload.content_policy === 'object' ? payload.content_policy : null,
       featureFlags: normalizeFeatureFlags(payload.feature_flags),
       pipelineOptions: (payload.pipelineOptions && typeof payload.pipelineOptions === 'object') ? payload.pipelineOptions : null,
+      appMenu: normalizeAppMenu(payload.appMenu),
       syncedAt: payload.synced_at || new Date().toISOString(),
     }
     this._runtime = next

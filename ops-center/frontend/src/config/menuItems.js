@@ -29,6 +29,7 @@ export const MENU_ITEMS = [
   { path: '/keyword-watchlist', label: '关键词监测', icon: Search },
   { path: '/pipeline-deps', label: '流水线依赖', icon: Connection },
   { path: '/pipeline-options', label: '选项控制', icon: Operation, adminOnly: true },
+  { path: '/app-menu', label: '应用菜单', icon: Grid, adminOnly: true },
   { path: '/parameters', label: '项目参数', icon: Operation },
   { path: '/snapshots', label: '配置快照', icon: Camera },
   { path: '/env', label: '环境变量', icon: Monitor },

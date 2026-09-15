@@ -34,6 +34,7 @@
       </button>
 
       <button
+        v-if="moreItems.length"
         class="yixiaoer-primary-item yixiaoer-more-trigger"
         :class="{ active: moreOpen }"
         type="button"
@@ -46,7 +47,7 @@
         <span>更多</span>
         <ArrowDown :class="{ rotated: moreOpen }" aria-hidden="true" />
       </button>
-      <div v-if="moreOpen" class="yixiaoer-more-menu" role="menu">
+      <div v-if="moreOpen && moreItems.length" class="yixiaoer-more-menu" role="menu">
         <router-link v-for="item in moreItems" :key="item.key" :to="item.to" role="menuitem" class="yixiaoer-more-item">
           <component :is="item.icon" aria-hidden="true" />
           <span>{{ item.label }}</span>
@@ -80,31 +81,16 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import {
-  ArrowDown,
-  Calendar,
-  ChatDotRound,
-  Collection,
-  Cpu,
-  DataAnalysis,
-  FolderOpened,
-  HomeFilled,
-  MagicStick,
-  Monitor,
-  MoreFilled,
-  Plus,
-  Search,
-  Setting,
-  TrendCharts,
-  User,
-  VideoCamera,
-} from '@element-plus/icons-vue'
+import { ArrowDown, MoreFilled, Plus, Setting } from '@element-plus/icons-vue'
+import { SIDEBAR_MENU_DEFINITION } from '@/config/sidebar-menu'
+import { resolveSidebarMenu } from '@/config/sidebar-menu-merge'
 import { useLicenseStore } from '@/stores/license'
 import { useIdentityStore } from '@/stores/identity'
 import UpgradeModal from '@/components/UpgradeModal.vue'
 import ProfileMenu from '@/components/ProfileMenu.vue'
 import SidebarServiceStatus from '@/components/SidebarServiceStatus.vue'
 import { invokePageManager } from '@/api/electron-bridge'
+import { opsCenterSyncAppMenu } from '@/api/ops-center-sync'
 
 const route = useRoute()
 const router = useRouter()
@@ -119,6 +105,8 @@ const emit = defineEmits(['open-settings'])
 // ── 左侧导航栏宽度同步到主进程（避免 WebContentsView 遮挡侧边栏）──
 let _sidebarObserver = null
 onMounted(() => {
+  // 运营中心「应用菜单」配置：异步拉取；失败/未下发时保持默认菜单，不阻塞首屏
+  loadAppMenu()
   const el = document.querySelector('.yixiaoer-sidebar')
   if (el) {
     const syncWidth = () => {
@@ -160,31 +148,43 @@ const clientStatusLabel = computed(() => {
 
 const clientStatusTitle = computed(() => clientStatusLabel.value)
 
-const primaryItems = [
-  { key: 'home', label: '主页', to: '/', icon: HomeFilled },
-  { key: 'publish', label: '发布', to: '/publish/history', icon: VideoCamera },
-  { key: 'accounts', label: '账号', to: '/accounts', icon: User },
-  { key: 'dashboard', label: '数据', to: '/dashboard', icon: DataAnalysis },
-  { key: 'create', label: '视频创作', to: '/create', icon: VideoCamera },
-  { key: 'collection', label: '采集', to: '/collection', icon: Collection },
-]
+/**
+ * 运营中心「应用菜单」下发的配置（显示/隐藏 + 组内排序）。
+ * null 表示未下发 / 拉取失败 / 结构非法 —— resolveSidebarMenu 会 fail-open 回退本地默认菜单。
+ */
+const appMenuConfig = ref(null)
 
-const moreItems = computed(() => [
-  { key: 'monitor', label: '监控', to: '/monitor', icon: Monitor },
-  { key: 'calendar', label: '发布日历', to: '/calendar', icon: Calendar },
-  { key: 'comments', label: '私信评论', to: '/comments', icon: ChatDotRound },
-  { key: 'cloud-publish', label: 'CLI', to: '/cloud-publish', icon: FolderOpened },
-  { key: 'library', label: '素材库', to: '/library', icon: FolderOpened },
-  { key: 'keywords', label: '关键词监控', to: '/keywords', icon: Search },
-  { key: 'viral', label: '爆款分析', to: '/viral-analysis', icon: TrendCharts },
-  { key: 'prompt-eval', label: '提示词评估', to: '/prompt-eval', icon: MagicStick },
-  { key: 'rewrite', label: '文案改写', to: '/rewrite', icon: MagicStick },
-  { key: 'hot-topics', label: t('hotTopics.menuLabel'), to: '/hot-topics', icon: TrendCharts },
-  { key: 'model-providers', label: '模型提供商', to: '/model-providers', icon: Cpu },
-  { key: 'knowledge-base', label: t('knowledgeBase.title'), to: '/knowledge-base', icon: Collection },
-  { key: 'performance-insights', label: t('perfInsights.title'), to: '/performance-insights', icon: TrendCharts },
-  { key: 'member-center', label: t('memberCenter.menuEntry'), to: '/member-center', icon: User },
-])
+/**
+ * 拉取运营中心下发的应用菜单配置（IPC：ops-center-sync:appMenu）。
+ * 任何异常都降级为本地默认菜单（fail-open）——运营侧配置异常不能让用户失去导航能力。
+ * 注：桌面端主进程在启动 3s 后自动同步一次；运营侧改配置后需重新同步或重启才生效（无推送）。
+ */
+async function loadAppMenu () {
+  try {
+    const res = await opsCenterSyncAppMenu()
+    const data = res && res.code === 0 && res.data && typeof res.data === 'object' ? res.data : null
+    appMenuConfig.value = data
+  } catch {
+    appMenuConfig.value = null
+  }
+}
+
+const resolvedMenu = computed(() => resolveSidebarMenu(SIDEBAR_MENU_DEFINITION, appMenuConfig.value))
+
+/** 菜单文案：一律取 i18n（labelI18nKey）；key 缺失时退回菜单标识，避免渲染空白 */
+function withLocalizedLabel (item) {
+  return { ...item, label: item.labelI18nKey ? t(item.labelI18nKey) : (item.label || item.key) }
+}
+
+/** 一级导航可见项（运营配置排序 + 隐藏项已过滤） */
+const primaryItems = computed(() =>
+  resolvedMenu.value.primary.filter((item) => item.visible).map(withLocalizedLabel),
+)
+
+/** 「更多」折叠菜单可见项（同上） */
+const moreItems = computed(() =>
+  resolvedMenu.value.more.filter((item) => item.visible).map(withLocalizedLabel),
+)
 
 function isActive (item) {
   if (item.key === 'home') return route.path === '/'

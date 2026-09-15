@@ -209,6 +209,13 @@ const routes = [
     meta: { requiresAuth: true, adminOnly: true },
   },
   {
+    path: '/app-menu',
+    name: 'AppMenu',
+    component: () => import('../views/AppMenu.vue'),
+    // 写操作需管理员权限；页面与「选项控制」同口径限定 adminOnly
+    meta: { requiresAuth: true, adminOnly: true },
+  },
+  {
     path: '/content-quality-eval',
     name: 'ContentQualityEval',
     component: () => import('../views/ContentQualityEval.vue'),

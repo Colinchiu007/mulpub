@@ -88,6 +88,7 @@ export default {
       keywords: 'Keyword Monitoring',
       viral: 'Viral Analysis',
       promptEval: 'Prompt Evaluation',
+      rewrite: 'Rewrite',
       modelProviders: 'Model Providers',
     },
   },

@@ -602,3 +602,117 @@ describe('OpsCenterSync 运行时验签 fail-closed', () => {
     }
   })
 })
+
+describe('OpsCenterSync appMenu（应用菜单配置）', () => {
+  const payload = (items, extra = {}) => ({
+    announcements: [],
+    appMenu: { items, ...extra },
+    synced_at: 't',
+  })
+
+  it('applyRuntime 规范化 appMenu（排序值截断/布尔白名单）并持久化', () => {
+    const store = makeStore()
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    svc.applyRuntime(payload([
+      { key: 'home', visible: false, sort_order: 2 },
+      { key: 'publish', visible: 'false', sort_order: 1e12 },
+      { key: 'accounts', visible: '1', sort_order: '3' },
+    ], { synced_at: '2026-09-15T00:00:00Z' }))
+
+    expect(svc.getAppMenu()).toEqual({
+      items: [
+        { key: 'home', visible: false, sort_order: 2 },
+        // 'false' 不是白名单真值 → false；1e12 被截断到 MAX_SORT_ORDER
+        { key: 'publish', visible: false, sort_order: 9999 },
+        { key: 'accounts', visible: true, sort_order: 3 },
+      ],
+      syncedAt: '2026-09-15T00:00:00Z',
+    })
+    expect(svc.getRuntimeState().appMenu).toBeTruthy()
+    expect(store._getData()).toContain('appMenu')
+  })
+
+  it('结构非法（缺失/非对象/items 非数组/超限）→ null，且不影响其它策略', () => {
+    const store = makeStore()
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+
+    const invalid = [
+      undefined,
+      null,
+      'garbage',
+      [],
+      {},
+      { items: 'nope' },
+      { items: Array.from({ length: 201 }, (_, i) => ({ key: 'k' + i })) },
+    ]
+    for (const appMenu of invalid) {
+      svc.applyRuntime({ announcements: [{ title: 'ok', severity: 'info', content: '' }], appMenu, synced_at: 't' })
+      expect(svc.getAppMenu()).toBeNull()
+      // 其它策略不受影响
+      expect(svc.getRuntimeState().announcements).toHaveLength(1)
+    }
+  })
+
+  it('无 appMenu 字段（旧版运营中心）→ null，其余策略照常应用', () => {
+    const store = makeStore()
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    svc.applyRuntime({ announcements: [{ title: 'x', severity: 'info', content: '' }], synced_at: 't' })
+    expect(svc.getAppMenu()).toBeNull()
+    expect(svc.getRuntimeState().announcements).toHaveLength(1)
+  })
+
+  it('丢弃原型污染 key 与非法条目，保留合法项', () => {
+    const store = makeStore()
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    svc.applyRuntime(payload([
+      { key: '__proto__', visible: true },
+      { key: 'constructor', visible: true },
+      { key: '   ', visible: true },
+      { key: 'prototype', visible: true },
+      null,
+      'string',
+      { key: ' library ', visible: false, sort_order: 4 },
+    ]))
+
+    const items = svc.getAppMenu().items
+    expect(items).toHaveLength(1)
+    expect(items[0]).toEqual({ key: 'library', visible: false, sort_order: 4 })
+    expect(Object.prototype.polluted).toBeUndefined()
+  })
+
+  it('非法 sort_order（负数/非数字）→ null（渲染端视为未配置）', () => {
+    const store = makeStore()
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    svc.applyRuntime(payload([
+      { key: 'home', visible: true, sort_order: -1 },
+      { key: 'monitor', visible: true, sort_order: 'abc' },
+      { key: 'library', visible: true },
+    ]))
+    expect(svc.getAppMenu().items).toEqual([
+      { key: 'home', visible: true, sort_order: null },
+      { key: 'monitor', visible: true, sort_order: null },
+      { key: 'library', visible: true, sort_order: null },
+    ])
+  })
+
+  it('空 items 是合法配置（不是 null）', () => {
+    const store = makeStore()
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    svc.applyRuntime(payload([]))
+    expect(svc.getAppMenu()).toEqual({ items: [], syncedAt: '' })
+  })
+
+  it('重启后从 settings 恢复 appMenu', () => {
+    const store = makeStore()
+    const svc1 = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    svc1.applyRuntime(payload([{ key: 'home', visible: false, sort_order: 0 }]))
+    const svc2 = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    expect(svc2.getAppMenu().items).toEqual([{ key: 'home', visible: false, sort_order: 0 }])
+  })
+
+  it('恢复路径同样归一化：settings 中的非法 appMenu 不进入运行时状态', () => {
+    const store = makeStore(JSON.stringify({ appMenu: { items: 'broken' } }))
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    expect(svc.getAppMenu()).toBeNull()
+  })
+})

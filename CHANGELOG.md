@@ -1,3 +1,24 @@
+# [未发布] feat(ops-center): 应用菜单配置——运营中心管理应用端侧边栏显隐与排序（2026-09-15）
+
+### 新增
+- **运营中心「应用菜单」页面**（`ops-center/frontend/src/views/AppMenu.vue`，路由 `#/app-menu`，菜单入口「应用菜单」，adminOnly）：按「一级导航 / 更多菜单」两组管理应用端左侧边栏菜单项的显示 / 隐藏与组内排序；「发布、账号、采集、视频创作」四项强制显示，开关灰显不可关闭（Tooltip「系统核心入口，强制显示，不可关闭」）
+- **后端模型与 API**：新增表 `app_menu_items`（`ops-center/backend/models.py`，`item_key` 唯一）；新增 `GET|PUT /api/v1/app-menu` 与 `POST /api/v1/app-menu/reset`（`routers/app_menu.py` + `services/app_menu_service.py`）；`GET /api/v1/runtime/bootstrap` payload 新增 `appMenu` 字段（处于 Ed25519 签名覆盖范围内）
+- **应用端菜单定义单一事实源**：`apps/desktop/src/config/sidebar-menu.js`（20 项目录 + `SIDEBAR_FORCED_VISIBLE_KEYS`）；`YixiaoerSidebar.vue` 从硬编码数组改为「本地定义 + 运营配置叠加」
+- **合并算法**：`apps/desktop/src/config/sidebar-menu-merge.js`（C1 fail-open / C2 强制项保护 / C3 未知 key 忽略 / C4 缺失 key 兜底 / C5 组内排序 / C6 输入不可变）
+- **应用端读取链路**：主进程 `normalizeAppMenu()` + `getAppMenu()`（`electron/services/ops-center-sync.js`）→ IPC `ops-center-sync:appMenu` → preload `opsCenterSyncAppMenu` → 渲染端 `src/api/ops-center-sync.js`
+- **文档**：`01-docs/FEATURE-APP-MENU-2026-09-15.md`（数据模型 / API 契约 / 校验规则 / 业务流程 / 功能与交互逻辑 / 显示项 / 提示文字清单 / 验收标准 / 测试覆盖）；`01-docs/PRD.md` 追加「应用菜单」章节
+
+### 安全与兜底
+- **强制项三层保护**：UI 开关灰显 → 服务端强制纠正并回传 `corrections` 留痕 → 应用端渲染层无视下发值恒可见（即使运营中心被绕过或数据库被直接篡改）
+- **fail-open 降级**：应用端未下发 / 结构非法 / 超 200 项 → 全部可见 + 默认顺序，运营侧配置异常不影响用户导航
+- **输入校验**：写入侧 400 fail-closed（未知 key / 同批重复 / 超限 / 非数组 / 条目非对象）；`sort_order` 非法（空/非数字/负数）保留原值不归零；`visible` 白名单为真
+- **防篡改与原型污染**：`appMenu` 在 Ed25519 签名覆盖范围内；服务端与应用端双侧丢弃 `__proto__` / `constructor` / `prototype`
+
+### 验证
+- `apps/desktop`：`sidebar-menu-merge.test.js` 34 通过 · `YixiaoerSidebar.appmenu.test.js` 9 通过 · 既有 `YixiaoerSidebar.test.js` 7 通过（回归零破坏）· `ops-center-sync.test.js` 55 通过（+8 新用例）
+- `ops-center/backend`：`test_app_menu_api.py` 11 通过 · 全量 pytest 342 通过，0 失败
+- 已知限制：无实时推送，运营修改后需桌面端重新同步或重启应用才生效
+
 # [未发布] feat(rewrite): 改写质量评估报告桌面端闭环（content-quality-eval-desktop，2026-09-13）
 
 ### 新增
