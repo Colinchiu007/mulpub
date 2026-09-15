@@ -11,6 +11,7 @@ vi.mock("@/stores/platforms", () => ({
 }));
 
 import CommentsView from "./Comments.vue";
+import i18n from "@/i18n";
 
 describe("CommentsView", () => {
   beforeEach(() => {
@@ -20,7 +21,7 @@ describe("CommentsView", () => {
   });
 
   function createView() {
-    return mount(CommentsView, { global: { plugins: [createPinia()] } });
+    return mount(CommentsView, { global: { plugins: [createPinia(), i18n] } });
   }
 
   it("renders page title", async () => {
@@ -82,48 +83,61 @@ describe("CommentsView", () => {
     expect(w.vm.platforms).toEqual([]);
   });
 
-  it("openPlatform sets activePlatform and opens webview tab", async () => {
-    window.electronAPI.webviewOpenTab = vi.fn().mockResolvedValue({ code: 0, data: { tabId: "tab-1" } });
+  it("openPlatform sets activePlatform and opens a tab via pageManager", async () => {
+    window.electronAPI = {
+      pageManager: {
+        createNewTabPage: vi.fn().mockResolvedValue({ code: 0, data: { tabId: "btab-1" } })
+      }
+    };
     const w = createView();
     await nextTick();
     const platform = { id: "zhihu", name: "\u77e5\u4e4e", comment_url: "https://zhihu.com/comments" };
     await w.vm.openPlatform(platform);
     expect(w.vm.activePlatform).toBe("zhihu");
     expect(w.vm.commentUrl).toBe("https://zhihu.com/comments");
-    expect(window.electronAPI.webviewOpenTab).toHaveBeenCalledWith({
-      platform: "zhihu",
-      url: "https://zhihu.com/comments",
-    });
-    expect(w.vm.currentTabId).toBe("tab-1");
+    expect(window.electronAPI.pageManager.createNewTabPage).toHaveBeenCalledWith(
+      expect.objectContaining({ platform: "zhihu", url: "https://zhihu.com/comments" })
+    );
+    expect(w.vm.currentTabId).toBe("btab-1");
   });
 
   it("openPlatform closes previous tab before opening new one", async () => {
-    window.electronAPI.webviewCloseTab = vi.fn().mockResolvedValue({ code: 0 });
-    window.electronAPI.webviewOpenTab = vi.fn().mockResolvedValue({ code: 0, data: { tabId: "tab-2" } });
+    window.electronAPI = {
+      pageManager: {
+        closeTab: vi.fn().mockResolvedValue({ code: 0 }),
+        createNewTabPage: vi.fn().mockResolvedValue({ code: 0, data: { tabId: "btab-2" } })
+      }
+    };
     const w = createView();
     await nextTick();
-    w.vm.currentTabId = "tab-1";
+    w.vm.currentTabId = "btab-1";
     const platform = { id: "weibo", name: "\u5fae\u535a", comment_url: "https://weibo.com/comments" };
     await w.vm.openPlatform(platform);
-    expect(window.electronAPI.webviewCloseTab).toHaveBeenCalledWith("tab-1");
-    expect(window.electronAPI.webviewOpenTab).toHaveBeenCalled();
+    expect(window.electronAPI.pageManager.closeTab).toHaveBeenCalledWith("btab-1");
+    expect(window.electronAPI.pageManager.createNewTabPage).toHaveBeenCalled();
   });
 
   it("openPlatform handles platform without comment_url", async () => {
-    window.electronAPI.webviewOpenTab = vi.fn().mockResolvedValue({ code: 0, data: { tabId: "t1" } });
+    window.electronAPI = {
+      pageManager: {
+        createNewTabPage: vi.fn().mockResolvedValue({ code: 0, data: { tabId: "t1" } })
+      }
+    };
     const w = createView();
     await nextTick();
     const platform = { id: "weibo", name: "\u5fae\u535a", comment_url: null };
     await w.vm.openPlatform(platform);
     expect(w.vm.activePlatform).toBe("weibo");
     expect(w.vm.commentUrl).toBe("");
+    expect(window.electronAPI.pageManager.createNewTabPage).not.toHaveBeenCalled();
   });
 
-  it("openPlatform handles missing electronAPI", async () => {
+  it("openPlatform handles unavailable pageManager gracefully", async () => {
     window.electronAPI = {};
     const w = createView();
     await nextTick();
-    await w.vm.openPlatform({ id: "test", name: "Test" });
-    expect(w.vm.activePlatform).toBeNull();
+    await w.vm.openPlatform({ id: "test", name: "Test", comment_url: "https://x.com/comments" });
+    expect(w.vm.activePlatform).toBe("test");
+    expect(w.vm.currentTabId).toBeNull();
   });
 });

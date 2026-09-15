@@ -19,7 +19,6 @@ const log = require('./logger')
 
 const SHORTCUTS = {
   'CmdOrCtrl+Alt+P': { route: '/publish', label: '发布' },
-  'CmdOrCtrl+Alt+M': { route: '/monitor', label: '分屏监控' },
   'CmdOrCtrl+Alt+D': { route: '/dashboard', label: '数据看板' },
   'CmdOrCtrl+Alt+C': { route: '/collection', label: '内容采集' },
   'CmdOrCtrl+Alt+H': { route: '/', label: '首页' },

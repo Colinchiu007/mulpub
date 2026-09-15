@@ -1,3 +1,10 @@
+## 删除功能前必须穷举消费方矩阵：webview:* 分屏监控体系被 Comments/Collection 静默复用（remove-monitor，2026-09-15）
+
+- **背景**：「监控」（/monitor 分屏监控）功能整体移除。调查发现其底层 `webviewOpenTab`（`webview:open-tab` → `WebviewManager.openTab()`）被私信评论（Comments.vue）与采集（Collection.vue）复用来打开平台页，且打开的 WebContentsView 依赖 Monitor 页面的分屏布局定位——直接删入口会让这两个页面打开的视图变成「无主视图」（view 存在但无 UI 承载，显示错乱）。
+- **教训 1（删除共享底层前先穷举消费方）**：「这个 API 属于功能 X」不可靠。删除前必须做全仓引用矩阵：通道名 + 方法名 + 事件名，覆盖 renderer / 主进程 / 单测断言 / e2e mock 四层；区分「唯一消费者」与「借用消费者」，借用者先迁移再删底层。
+- **教训 2（应用内嵌网页能力收敛到唯一承载层）**：page-manager 标签系统是本应用 WebContentsView 的唯一 UI 承载，新需求「打开某平台页面」一律 `tabStore.createTab({ url, platform, accountId, title })`（范本 Accounts.vue openCreatorCenter），禁止再引入并行视图体系。
+- **教训 3（preload 删除方法五处同步）**：system.js 方法体 + access-control.js PUBLIC_METHODS + preload.test.js（SYSTEM_METHODS 数组与三处计数断言）+ `pnpm run build:preload` 重建 index.bundle.js + e2e ipc-mock.js；漏一处 CI 契约测试即拦截。
+- **教训 4（NUL 字节文件只能字节级编辑）**：learnings.md 含历史 NUL（实测 hasNUL=true），utf8 读写编辑有截残风险；用 Node buffer 插入，且中文内容不能 node -e 内联（控制台 GBK 损坏），必须 UTF-8 脚本文件执行。
 
 
 ## 主页未登录问候语「请登录」链接：渲染端登录入口的最小正确实现（2026-09-15）
@@ -14825,3 +14832,22 @@ commit `941b17f1`（feat: browser-style tab bar）在 `webview-manager.js` `crea
 - **`index.bundle.js` 是入库产物**：改 `electron/preload/*.js` 后必须跑 `pnpm run build:preload` 重建，否则产物与源码不一致。
 - **债务熔断 `filesOver500` 是文件个数**：给 `src/api/publisher.js`（原本 497 行）加 4 行即越过 500 触发 FAIL（87 > 基线 86）。解法是压缩为单行并顺手删掉一处重复空行（回到 498），**不要 `--update` 抬基线**。
 - **用户主动动作的失败不得降级成静默语义**：更新检查的后台失败沿用既有「静默当已是最新」策略，但**用户点击安装后的失败必须原样回传 `error`**（否则入口永远停在「下载中」，用户无从重试）。
+
+
+## 发布记录未登录误报「服务连接失败」：IPC 业务拒绝必须按 errorCode 分流（publish-history-login-gate，2026-09-15）
+
+### 现象与根因
+
+未登录点击「发布」→ 发布记录页报「发布记录加载失败 / 请检查服务连接后重试」，而服务状态全绿。根因是两层叠加：`history:list` 自 2026-08-11 起要求登录（`LOGIN_ONLY_FEATURE_MAP`），未登录被门禁以 `AUTH_REQUIRED(-3)` 拒绝；但 `PublishHistory.vue` 的 `loadRecords()` catch 把一切失败写死为 `checkService` 文案，权限拒绝被伪装成网络故障。发布记录页 2026-09-11 重构新建时未感知 08-11 的门禁收紧，两者叠加成 bug。
+
+### 逃逸分析
+
+既有测试只覆盖 `mockRejectedValueOnce`（reject 异常）路径；门禁拒绝是「主进程 resolve 但 code:-3」的业务路径，从未有用例覆盖。
+
+### 可复用结论
+
+- **权限拒绝与传输故障必须在渲染端分流**：`AUTH_REQUIRED`/`NOT_SIGNED_IN` → 登录引导态（无重试按钮）；其他非零 code → `formatUserError` 具体原因 + 重试；catch 兜底「请检查服务连接」只属于传输类异常。可复制范式：`isAuthGateResult()` + error 对象携带 `userMessage`（fallback 保持原文案，向后兼容）。
+- **code:-3 是多语义家族**：`AUTH_REQUIRED` 与 `ENTITLEMENT_REQUIRED` 同为 -3，判定必须用 `errorCode`，数值码只在 errorCode 缺失时兜底——本次实现中先踩后修。
+- **登录成功自动重载**：`watch(identityAuthenticated)` 触发重载，消除「登录完还要手点重试」断点；登录入口必须走 `useIdentity().signIn()`。
+- **watcher 泄漏断言不稳**：测试内 mock 的 `isAuthenticated` ref 翻转会触发所有仍挂载组件的 watcher（vitest 不自动 unmount）→ 新用例末尾必须 `wrapper.unmount()`，否则多发的 historyList 调用让 `toHaveBeenCalledTimes` 断言随机失败。
+- **`} catch {` 改 `} catch (e) {` 才能取 e**：本次曾漏改导致测试期 `ReferenceError: e is not defined`（Unhandled Rejection）。

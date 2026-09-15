@@ -16,7 +16,7 @@ const ROUTES_JSON = path.join(REPORTS_DIR, 'routes-list.json');
 
 const ROUTE_ORDER = [
   'home', 'comments', 'first-run', 'publish', 'accounts', 'dashboard',
-  'collection', 'monitor', 'keywords', 'viral-analysis', 'model-providers',
+  'collection', 'keywords', 'viral-analysis', 'model-providers',
   'create', 'result', 'pipeline', 'create-history', 'cloud-publish',
   'intelligence', 'calendar'
 ];

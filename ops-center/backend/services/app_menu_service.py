@@ -46,7 +46,6 @@ CATALOG = (
     ("create", "视频创作", MENU_GROUP_PRIMARY, "强制显示：核心创作入口"),
     ("collection", "采集", MENU_GROUP_PRIMARY, "强制显示：内容采集入口"),
     # ── 「更多」折叠菜单 ────────────────────────────
-    ("monitor", "监控", MENU_GROUP_MORE, "任务运行监控"),
     ("calendar", "发布日历", MENU_GROUP_MORE, "发布排期日历"),
     ("comments", "私信评论", MENU_GROUP_MORE, "平台私信与评论聚合"),
     ("cloud-publish", "CLI", MENU_GROUP_MORE, "命令行发布能力"),

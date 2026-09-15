@@ -76,9 +76,9 @@ describe('E2E 统一入口门禁', () => {
   })
 
   it('各执行模式声明固定的预期报告数量', () => {
-    expect(e2eRunner.expectedResultCount('routes')).toBe(18)
+    expect(e2eRunner.expectedResultCount('routes')).toBe(17)
     expect(e2eRunner.expectedResultCount('flows')).toBe(6)
-    expect(e2eRunner.expectedResultCount('all')).toBe(24)
+    expect(e2eRunner.expectedResultCount('all')).toBe(23)
     expect(e2eRunner.expectedResultCount('report')).toBe(0)
   })
 

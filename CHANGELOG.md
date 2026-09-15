@@ -12,15 +12,29 @@
 ### 修复
 - 对齐引擎此前 `bridgeStatus(null, …)` 恒返回 standby 的隐式空语义，易被误读为「随时可用」
 - splitter/prompt 健康探测由串行（2s×2 最坏 4s）改为 `Promise.all` 并行
-- preload bundle 重建（运行时实际加载 `preload/index.bundle.js`）；`preload.test.js` 合并键数 322→323（叠加本分支新增 servicesRestart）
+- preload bundle 重建（运行时实际加载 `preload/index.bundle.js`）；`preload.test.js` 合并键数 313→314（叠加本分支新增 servicesRestart）
 
 ### 验证
 - services.test.js 14 例 / serviceStatus.test.js 14 例 / SidebarServiceStatus.test.js 11 例全绿；MpSidebar、preload、ipc-contract、build-preload、base-python-bridge 同步通过
-- 门禁：check-locale-sync --keys/--cjk PASS、check-ipc-bridge PASS、check-frontend-consistency PASS、check-hardcoded-secrets PASS；eslint 对改动文件 0 error 0 warning
+- 门禁：check-locale-sync --keys/--cjk PASS、check-ipc-bridge PASS、check-frontend-consistency PASS、check-hardcoded-secrets PASS、check-no-brand-residue PASS；eslint 对改动文件 0 error 0 warning
 
 ### 文档
 - `01-docs/PRD-SERVICE-STATUS-PANEL-2026-09-12.md` §8 增强记录
 - openspec change `service-status-actionable`
+
+# [未发布] fix(publish-history): 未登录访问发布记录由「服务连接失败」改为登录引导门控（2026-09-15）
+
+### 修复
+- **根因**：`history:list` 自 2026-08-11 起要求登录（`LOGIN_ONLY_FEATURE_MAP` → `publish_history`），未登录时主进程返回 `{code:-3, errorCode:'AUTH_REQUIRED'}`；而 `PublishHistory.vue` 的 `loadRecords()` catch 把一切失败写死为「请检查服务连接后重试」，权限拒绝被伪装成网络故障
+- **错误语义分流**（仅首屏加载）：`errorCode ∈ {AUTH_REQUIRED, NOT_SIGNED_IN}`（或无 errorCode 且 code:-3 的遗留形态）→ 登录引导门禁态；其他非零 code → 错误态正文改为 `formatUserError` 具体原因（fallback 仍为服务连接文案）；reject 异常行为不变
+- **登录引导态**：新「登录后查看发布记录」面板（`data-testid=history-login-gate`）+「去登录」按钮（`history-sign-in`，走 `useIdentity().signIn` → Logto OAuth 独立窗口）；`watch(isAuthenticated)` 登录成功后自动重载，无需手动重试；门禁态不渲染重试按钮
+- **数据校验要点**：`ENTITLEMENT_REQUIRED` 同样携带 `code:-3`，门禁判定必须按 errorCode 区分，不能只看数值码
+- **文档**：`01-docs/PRD-PUBLISH-HISTORY-LOGIN-GATE-2026-09-15.md`（根因链 / 分流规则 / 状态机 / 显示项与提示文字 / 测试覆盖）
+
+### 验证
+- `PublishHistory.test.js` 23/23 通过（+3：AUTH_REQUIRED 门禁态 / 去登录触发 signIn 且登录成功自动重载 / ENTITLEMENT_REQUIRED 显示具体原因）
+- `check-locale-sync.js --keys` / `--cjk` PASS；eslint 0 errors（1 个既有 warning 非本次引入）
+- 零 IPC / preload / 主进程变更，不触发契约快照同步
 
 # [未发布] feat(desktop): 主页未登录问候语「请登录」可点击链接（2026-09-15）
 
@@ -71,6 +85,23 @@
 - 当前开发阶段整体控制在 **1.0.0 以下**（`0.Y.Z`）。
 - 改动规模 ↔ 版本级别（MAJOR / MINOR / PATCH）映射、0.x 约定、发布流程：**见 [docs/version-management.md](docs/version-management.md)**。
 - 历史 `v2.3.x` 复盘轮次标签为内部分版号，不代表真实发布版本；后续统一以 `0.Y.Z` 推进。
+
+---
+# [未发布] refactor(monitor): 移除「分屏监控」功能，评论/采集网页查看迁移到全局标签栏（2026-09-15）
+
+### 移除
+- **「监控」（分屏监控）功能整体删除**（`/monitor` 路由、侧边栏「更多」菜单入口、`views/Monitor.vue` 及其测试）：多平台 1/2/3/4/6 分屏同时监控页无实际使用场景，产品决策移除
+- **旧分屏监控底层体系删除**：`webview-manager.js` 的 `openTab()` / `setLayout()` / `closeMonitorTab()` / `closeAllMonitorTabs()` / `getTabsInfo()` / `_calculatePositions()` / `_emit()` 与 5 个 `webview:*` IPC handler（set-layout / open-tab / close-tab / close-all / list-tabs）+ 4 个 `webview:*` 事件广播；preload `webviewSetLayout` / `webviewOpenTab` / `webviewCloseTab` / `webviewCloseAll` / `webviewListTabs` / `onWebviewLayoutChanged` / `onWebviewTabOpened` / `onWebviewTabClosed` / `onWebviewNav` / `onWebviewAllClosed` 10 个方法及 `PUBLIC_METHODS` 白名单条目；preload 方法计数契约同步（最终值 system 145、合并 api 313、`SYSTEM_METHODS` 132——含 #1839/#1853 基线增量）
+- **全局快捷键** `Ctrl+Alt+M`（分屏监控）与运营中心默认菜单目录的 monitor 项一并移除
+
+### 迁移
+- **评论管理**（`Comments.vue`）：点平台打开评论页改走 `tabStore.createTab`（page-manager 全局标签栏承载），保持「一次一个评论标签」（切换平台先 `closeTab` 旧标签）；删除页面内嵌占位容器，改为引导空态「评论页已在顶部标签栏打开，点击上方标签即可查看」；移除离开页面自动关标签（标签持久化，与浏览器标签语义一致）
+- **采集**（`Collection.vue`）：`openCollection` 改走 `tabStore.createTab`（renderer 侧经 `PLATFORM_DASHBOARD_URLS` 解析 URL，标题「<平台名> 采集页」）；新增无 URL 平台告警 `collection.platformUnsupported`；删除失效降级提示 `collection.switchToMonitor`
+- **E2E**：路由矩阵/顺序/报告清单移除 monitor，Flow 4 重写为「评论→全局标签页」，`ipc-mock.js` 移除 webview mock 并新增 `pageManager` 嵌套 mock（查询类空态，避免视觉测试渲染状态漂移）
+
+### 文档
+- `01-docs/PRD-REMOVE-MONITOR-FEATURE-2026-09-15.md`：完整决策记录（方案对比/依赖矩阵/数据校验/交互/提示文字/验收标准）
+- `docs/desktop-ui-layout-spec.md`：更多菜单清单、内嵌视图清单、偏移表、§4.6 分屏布局节同步移除
 
 ---
 # [未发布] feat(upload): 分片上传增强 — MD5/重试/进度门控/真并发/实时进度（2026-09-15）

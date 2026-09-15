@@ -187,14 +187,14 @@ describe('MpSidebar — 应用菜单配置生效', () => {
       data: {
         items: [
           { key: 'member-center', visible: true, sort_order: 0 },
-          { key: 'monitor', visible: true, sort_order: 1 },
+          { key: 'keywords', visible: true, sort_order: 1 },
         ],
       },
     }
     const sidebar = await mountSidebar()
     await sidebar.get('[data-testid="mp-primary-more"]').trigger('click')
 
-    expect(moreHrefs(sidebar).slice(0, 2)).toEqual(['/member-center', '/monitor'])
+    expect(moreHrefs(sidebar).slice(0, 2)).toEqual(['/member-center', '/keywords'])
   })
 
   it('payload 项数超限（>200）→ 整体拒绝，降级为默认菜单', async () => {
