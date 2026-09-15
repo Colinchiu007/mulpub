@@ -351,7 +351,7 @@ mainWindow.on('resize', () => {
 
 | 校验项 | 规则 | 位置 |
 |--------|------|------|
-| 宽度范围 | 0 ≤ width ≤ 600px | `WebviewManager.setSidebarWidth()` |
+| 宽度范围 | 1 ≤ width ≤ 600px（0 视为非法，回落默认 200；见 2026-09-15 防御性收口） | `WebviewManager.setSidebarWidth()` 及各 manager 守卫（统一取自 `view-bounds.MIN_SIDEBAR_WIDTH` / `MAX_SIDEBAR_WIDTH`） |
 | 类型校验 | `typeof width === 'number'` | `WebviewManager.setSidebarWidth()` |
 | 无效值处理 | 日志警告，忽略更新 | `log.warn('WebviewManager', 'Invalid sidebar width ignored: ' + width)` |
 | 重复值跳过 | 宽度未变化时跳过更新和重排 | `if (this._sidebarWidth !== width)` |

@@ -31,8 +31,14 @@ const BROWSER_CHROME_TOP = 76
 /** 左侧导航栏默认宽度（与 MpSidebar 的 CSS 变量 --mp-sidebar-width 一致） */
 const SIDEBAR_WIDTH_DEFAULT = 200
 
-/** 左侧导航栏宽度合法区间（与各 manager setSidebarWidth 的入参校验保持一致） */
-const MIN_SIDEBAR_WIDTH = 0
+/**
+ * 左侧导航栏宽度合法区间下限。
+ * ⚠️ 下限取 1 而非 0：宽度 = 0 会让内嵌 WebContentsView 的 x 落到 0，与位于 x=0 的
+ * MpSidebar 完全重叠，从而拦截侧边栏全部点击（即 2026-09-15 修复的「平台链接浮层盖住
+ * 侧边栏」同类 Bug）。故 0 与负值一律视为非法、回落默认 200。与 WebviewManager.
+ * setSidebarWidth 的入参守卫（width <= 0 拒绝）保持一致。
+ */
+const MIN_SIDEBAR_WIDTH = 1
 const MAX_SIDEBAR_WIDTH = 600
 
 /**
@@ -95,13 +101,16 @@ function getContentSize(win) {
 }
 
 /**
- * 归一化左侧导航栏宽度：非法值（非数字 / NaN / 越界）一律回落默认值，
- * 避免把 undefined、负值或异常上报值直接拼进 setBounds 造成视图错位。
+ * 归一化左侧导航栏宽度：非法值（非数字 / NaN / <=0 / 越界）一律回落默认值，
+ * 避免把 undefined、负值、0 或异常上报值直接拼进 setBounds 造成视图错位。
+ * 注意：width=0 会让内嵌视图的 x 落到 0，与 x=0 的 MpSidebar 重叠、拦截其全部点击
+ * （2026-09-15 修复的同类 Bug），因此 0 与负值均按非法处理（见 MIN_SIDEBAR_WIDTH）。
  * @param {number} [width]
  * @returns {number}
  */
 function normalizeSidebarWidth(width) {
   if (typeof width !== 'number' || !Number.isFinite(width)) return SIDEBAR_WIDTH_DEFAULT
+  // 关键防御：宽度必须严格 > 0（见 MIN_SIDEBAR_WIDTH 注释），0 会让视图盖住侧边栏
   if (width < MIN_SIDEBAR_WIDTH || width > MAX_SIDEBAR_WIDTH) return SIDEBAR_WIDTH_DEFAULT
   return Math.round(width)
 }

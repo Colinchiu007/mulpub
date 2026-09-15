@@ -19,7 +19,7 @@ const { getPlatformName } = require('@multi-publish/shared-utils/src/platform-de
 const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('../ipc-handlers/helpers')
 // 内嵌视图定位唯一来源：必须用「客户区」尺寸，禁用 getBounds() 外框尺寸（详见模块注释）
-const { computeEmbeddedViewBounds } = require('./view-bounds')
+const { computeEmbeddedViewBounds, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } = require('./view-bounds')
 
 // 左侧导航栏宽度（与前端 MpSidebar 的 CSS 变量 --mp-sidebar-width 保持一致）
 // 默认 200px，窄屏（≤900px）时 68px；由渲染进程通过 IPC 动态同步
@@ -858,7 +858,10 @@ class WebviewManager extends EventEmitter {
    * @param {number} width - 像素宽度
    */
   setSidebarWidth (width) {
-    if (typeof width !== 'number' || width < 0 || width > 600) {
+    // 守卫：宽度必须严格 > 0。width <= 0 会让内嵌视图 x 落到 0、覆盖 x=0 的 MpSidebar，
+    // 拦截侧边栏全部点击（2026-09-15「平台链接浮层盖住侧边栏」同类 Bug 的防御层之一）。
+    // 阈值统一取自 view-bounds.js 的 MIN_SIDEBAR_WIDTH / MAX_SIDEBAR_WIDTH 单一真源，避免漂移。
+    if (typeof width !== 'number' || width < MIN_SIDEBAR_WIDTH || width > MAX_SIDEBAR_WIDTH) {
       log.warn('WebviewManager', 'Invalid sidebar width ignored: ' + width)
       return
     }
