@@ -22,8 +22,8 @@
           <NavBar
             :current-url="navigation.url"
             :current-title="navigation.title"
-            :can-go-back="navigation.canGoBack"
-            :can-go-forward="navigation.canGoForward"
+            :can-go-back="navCanGoBack"
+            :can-go-forward="navCanGoForward"
             :is-home="isHomeTab"
             :loading="navigation.loading"
             :is-login-tab="isLoginTab"
@@ -69,6 +69,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { useAccountActions } from '@/composables/useAccountActions'
+import { useSpaNavHistory } from '@/composables/useSpaNavHistory'
 import { formatUserError } from '@/utils/user-facing-error'
 import { useRoute, useRouter } from 'vue-router'
 import { clearRouteLoadError, routeLoadError } from '@/router'
@@ -95,6 +96,19 @@ const isLoginTab = computed(() => {
   return tab?.isLogin === true || (tab?.accountId != null && !tab.isHome)
 })
 const savingAccount = ref(false)
+
+// ── NavBar 左右箭头可用性（2026-09-15 修复）──
+// home 标签是虚拟标签（无 WebContentsView），主进程对其 canGoBack/canGoForward
+// 恒为 false，导致 NavBar 左右箭头在所有 SPA 页面（均运行于 home 标签）永久禁用。
+// 修复：home 标签下以 vue-router 历史栈（useSpaNavHistory）为准；
+// 浏览器标签下仍用主进程上报的 WebContentsView 历史状态。
+const spaNav = useSpaNavHistory(router)
+const navCanGoBack = computed(() =>
+  isHomeTab.value ? spaNav.canGoBack.value : navigation.value.canGoBack
+)
+const navCanGoForward = computed(() =>
+  isHomeTab.value ? spaNav.canGoForward.value : navigation.value.canGoForward
+)
 
 async function onSaveAccount () {
   if (savingAccount.value) return
@@ -180,10 +194,16 @@ function onCloseTab(tabId) {
     tabStore.goForward()
   }
 
-function goHome() {
+// 返回主页：切回首页标签 + 确保 SPA 路由回到首页。
+// 原实现仅 switchToTab('home')：当用户已在首页标签时为 no-op（点击无效）；
+// 且从浏览器标签返回时未恢复首页路由。现统一「切标签 + 路由归位」两步。
+async function goHome () {
   const homeTab = tabStore.tabs.find(t => t.isHome)
-  if (homeTab) {
-    tabStore.switchToTab(homeTab.tabId)
+  if (homeTab && activeTabId.value !== homeTab.tabId) {
+    try { await tabStore.switchToTab(homeTab.tabId) } catch (error) { console.warn('[tab] switch home failed', error) }
+  }
+  if (route.path !== '/') {
+    try { router.push('/') } catch (error) { console.warn('[tab] goHome push failed', error) }
   }
 }
 
@@ -221,6 +241,7 @@ onMounted(() => {
   licenseStore.load()
   identityStore.load()
   tabStore.init()
+  spaNav.attach()
 
   const api = getApi()
   if (api && api.onNavigate) {
@@ -241,6 +262,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  spaNav.dispose()
   if (typeof unsubscribeNavigate === 'function') unsubscribeNavigate()
   unsubscribeNavigate = null
   if (typeof _routeGuard === 'function') {
