@@ -91,6 +91,7 @@ export default {
       keywords: '关键词监控',
       viral: '爆款分析',
       promptEval: '提示词评估',
+      rewrite: '文案改写',
       modelProviders: '模型提供商',
     },
   },
