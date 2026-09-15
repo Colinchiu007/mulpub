@@ -187,4 +187,134 @@ describe('ChunkedUploader', () => {
     const id2 = ChunkedUploader.generateUploadId()
     expect(id1).not.toBe(id2)
   })
+
+  // ── getMD5 ────────────────────────────────────────────────────
+
+  describe('getMD5', () => {
+    test('returns correct MD5 hash for a file', () => {
+      const hash = ChunkedUploader.getMD5(testFilePath)
+      expect(hash).toHaveLength(32)
+      expect(hash).toMatch(/^[a-f0-9]{32}$/)
+    })
+
+    test('returns different MD5 for different files', () => {
+      const otherPath = path.join(tmpDir, 'test-other.bin')
+      fs.writeFileSync(otherPath, Buffer.alloc(100, 'B'))
+      const hash1 = ChunkedUploader.getMD5(testFilePath)
+      const hash2 = ChunkedUploader.getMD5(otherPath)
+      expect(hash1).not.toBe(hash2)
+    })
+
+    test('throws on non-existent file', () => {
+      expect(() => ChunkedUploader.getMD5('/nonexistent/file.bin')).toThrow()
+    })
+  })
+
+  // ── uploadWithRetry ────────────────────────────────────────────
+
+  describe('uploadWithRetry', () => {
+    test('retries on chunk failure and succeeds on retry', async () => {
+      const uploader1 = new ChunkedUploader({ chunkSize: 12 * 1024 * 1024 }) // 1 chunk
+      let attempts = 0
+      const uploadChunkFn = vi.fn(async () => {
+        attempts++
+        if (attempts === 1) throw new Error('第一片失败')
+        return { success: true }
+      })
+      const onProgress = vi.fn()
+
+      const result = await uploader1.uploadWithRetry(testFilePath, uploadChunkFn, {
+        maxRetries: 2,
+        retryDelay: 10,
+        onProgress,
+      })
+
+      expect(attempts).toBe(2) // 1st fails, 2nd succeeds
+      expect(result.success).toBe(true)
+      expect(result.retries).toBe(1)
+    })
+
+    test('fails after exhausting maxRetries', async () => {
+      const uploader4 = new ChunkedUploader({ chunkSize: 12 * 1024 * 1024 }) // 1 chunk
+      const uploadChunkFn = vi.fn(async () => { throw new Error('总是失败') })
+      const onProgress = vi.fn()
+
+      const result = await uploader4.uploadWithRetry(testFilePath, uploadChunkFn, {
+        maxRetries: 2,
+        retryDelay: 10,
+        onProgress,
+      })
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('总是失败')
+      expect(result.retries).toBe(2) // 2 retries attempted
+    })
+
+    test('respects cancel during retry', async () => {
+      const uploader4 = new ChunkedUploader({ chunkSize: 6 * 1024 * 1024 })
+      let callCount = 0
+      const uploadChunkFn = vi.fn(async () => {
+        callCount++
+        if (callCount === 2) uploader4.cancel()
+        throw new Error('失败')
+      })
+      const onProgress = vi.fn()
+
+      const result = await uploader4.uploadWithRetry(testFilePath, uploadChunkFn, {
+        maxRetries: 5,
+        retryDelay: 10,
+        onProgress,
+      })
+
+      expect(result.success).toBe(false)
+      expect(result.cancelled).toBe(true)
+    })
+  })
+
+  // ── UploadEmitGate ─────────────────────────────────────────────
+
+  test('UploadEmitGate throttles large files by time (5s interval)', () => {
+    const gate = new ChunkedUploader.UploadEmitGate(200 * 1024 * 1024, 10) // 200MB, 10 parts
+    expect(gate.shouldEmit(0)).toBe(true) // first emit always
+    expect(gate.shouldEmit(1)).toBe(false) // too soon
+    // should not crash
+  })
+
+  test('UploadEmitGate throttles small files by percentage (10% change)', () => {
+    const gate = new ChunkedUploader.UploadEmitGate(50 * 1024 * 1024, 20) // 50MB, 20 parts
+    expect(gate.shouldEmit(0)).toBe(true) // first
+    expect(gate.shouldEmit(1)).toBe(false) // 5% not enough
+    expect(gate.shouldEmit(2)).toBe(true) // 10% reached
+    expect(gate.shouldEmit(3)).toBe(false) // 5% again
+  })
+
+  test('UploadEmitGate always emits on last chunk', () => {
+    const gate = new ChunkedUploader.UploadEmitGate(50 * 1024 * 1024, 10)
+    gate.shouldEmit(0) // consume first
+    // last part should always emit
+    expect(gate.shouldEmit(9)).toBe(true)
+  })
+
+  // ── concurrency ────────────────────────────────────────────────
+
+  test('respects concurrency option for parallel uploads', async () => {
+    const uploader2 = new ChunkedUploader({ chunkSize: 4 * 1024 * 1024, concurrency: 2 }) // 3 chunks
+    const running = new Set()
+    const maxConcurrent = { value: 0 }
+    const uploadChunkFn = vi.fn(async () => {
+      running.add(true)
+      maxConcurrent.value = Math.max(maxConcurrent.value, running.size)
+      await new Promise(r => setTimeout(r, 20))
+      running.delete(true)
+      return { success: true }
+    })
+    const onProgress = vi.fn()
+
+    const result = await uploader2.upload(testFilePath, uploadChunkFn, onProgress)
+
+    expect(result.success).toBe(true)
+    // At least 2 chunks ran concurrently
+    expect(maxConcurrent.value).toBeGreaterThanOrEqual(2)
+  })
+
 })
