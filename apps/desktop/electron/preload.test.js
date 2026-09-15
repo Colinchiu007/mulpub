@@ -116,7 +116,7 @@ const SYSTEM_METHODS = [
   'keywordStart', 'keywordStop', 'keywordStatus', 'keywordHistory', 'keywordStopAll',
   'proxyAdd', 'proxyAddBatch', 'proxyList', 'proxyRemove', 'proxyTest', 'proxyTestAll',
   'proxyStatus', 'proxyGetNext', 'proxyReset', 'proxyRemoveDead',
-  'uploadChunked', 'uploadCancel',
+  'uploadChunked', 'uploadCancel', 'onUploadProgress',
   'templateList', 'templateGet', 'templateAdd', 'templateUpdate', 'templateDelete',
   'templateListByCategory', 'templateGetPresets',
   'licenseInfo', 'licenseActivate', 'licenseDeactivate', 'licenseActivateTrial',
@@ -205,7 +205,7 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(45)
   })
 
-  it('system 模块应导出 154 个方法', () => {
+  it('system 模块应导出 155 个方法', () => {
     const { createSystemApi } = require('./preload/system')
     const r = createSystemApi(ipcRenderer)
     // 136 + opsCenterSyncGet/Save/Now/Runtime/PipelineOptions（运营后台同步 + 运行时策略）
@@ -213,11 +213,13 @@ describe('preload 子模块方法数', () => {
     // + notifyLog（通知/日志统一通道，notify:log）
     // + promptLibraryGet/Save/Activate（提示词引擎自进化 P1b 记忆库）
     // + updateInstallNow（侧边栏「新版本」点击即退出安装）
-    expect(Object.keys(r).length).toBe(154)
+    expect(Object.keys(r).length).toBe(155)
   })
 
-  it('合并后 api 总键数应为 323（P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus/servicesRestart + urlCollectNeedsStealth + promptLibraryGet/Save/Activate + updateInstallNow + opsCenterSyncAppMenu）', () => {
-    expect(Object.keys(api).length).toBe(323)
+  it('合并后 api 总键数应为 324（P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus/servicesRestart + urlCollectNeedsStealth + promptLibraryGet/Save/Activate + updateInstallNow + opsCenterSyncAppMenu + onUploadProgress）', () => {
+    // + onUploadProgress（分片上传实时进度事件）
+    // + servicesRestart（服务状态面板按服务重试）
+    expect(Object.keys(api).length).toBe(324)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
@@ -234,8 +236,8 @@ describe('preload 子模块方法数', () => {
     expect(ACCOUNT_METHODS.length).toBe(45)
   })
 
-  it('SYSTEM_METHODS 常量长度应为 141', () => {
-    expect(SYSTEM_METHODS.length).toBe(141)
+  it('SYSTEM_METHODS 常量长度应为 142', () => {
+    expect(SYSTEM_METHODS.length).toBe(142)
   })
 
   it('IDENTITY_METHODS 常量长度应为 5', () => {

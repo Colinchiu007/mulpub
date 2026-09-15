@@ -73,6 +73,31 @@
 - 历史 `v2.3.x` 复盘轮次标签为内部分版号，不代表真实发布版本；后续统一以 `0.Y.Z` 推进。
 
 ---
+# [未发布] feat(upload): 分片上传增强 — MD5/重试/进度门控/真并发/实时进度（2026-09-15）
+
+> 接管 #1489：变基 origin/main + 去品牌化表述 + 修复变基暴露的问题。
+
+### 新增
+- **ChunkedUploader.getMD5**：文件哈希（去重/断点续传标识）
+- **uploadWithRetry**：分片级重试 + `chunk:retry` 事件
+- **UploadEmitGate**：大文件时间门控(5s) / 小文件百分比门控(10%)（整数百分比避免浮点误差）
+- **concurrency 真并发**：worker 池并行分片（不再是串行假并发）
+- **IPC 链路**：`upload.js` 实时转发 `upload:progress`；preload `system.js` 新增 `onUploadProgress` 事件监听（暴露面契约同步：system 方法数 153→154、合并 api 321→322、`SYSTEM_METHODS` 141→142）
+- **测试**：13 个 TDD 用例覆盖上述能力
+
+### 修复（变基暴露）
+- **取消语义**：worker 循环顶部的取消由静默 `break` 改为显式返回 `cancelled` 标记——此前"最后一片上传完成后取消"会被误判为上传成功
+- **失败/取消路径回报 `retries`**：此前仅成功路径回报，调用方无法感知重试消耗
+- **并发统计测试用唯一令牌**：原实现 `running.add(true)` 对 Set 去重，`size` 恒 ≤1，并发断言恒失效
+- **门禁中文变体盲区**：latin1 扫描通道下中文品牌词模式必须转字节表示；新增 `scripts/check-no-brand-residue.test.js` 自测（fixture 仓库验证 7 类变体 / 域名豁免 / 二进制跳过）并接入 Gate 12（自测先于扫描）
+
+### 验证
+- `packages/shared-utils` chunked-uploader：**27 用例全绿**
+- `electron/preload.test.js` + `tests/ipc-handlers.test.js`：**全绿**
+- `node --test scripts/check-no-brand-residue.test.js` → 6 pass；`workflow-contract.test.js` → 20 pass
+- 品牌残留门禁 PASS（5438 个 tracked 文件）；eslint（改动文件）0 error
+
+---
 # [未发布] chore(ci): 品牌残留门禁接入 CI（Gate 12）+ 补齐 #1837 遗漏的门禁脚本（2026-09-15）
 
 ### 背景
