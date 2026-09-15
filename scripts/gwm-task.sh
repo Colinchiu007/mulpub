@@ -35,7 +35,9 @@ case "$cmd" in
             echo -e "${RED}任务名必须是小写 kebab-case: $TASK_NAME${NC}"
             exit 4
         fi
-        BRANCH="codex/$TASK_NAME"
+        BRANCH="${MP_BRANCH_PREFIX:+${MP_BRANCH_PREFIX}/}$TASK_NAME"
+        # 2026-09-15：含斜杠分支名（codex/x）在本机 ref 写入不可靠（实测 fatal: invalid
+        # reference），默认无斜杠分支名；需要前缀时以 MP_BRANCH_PREFIX 覆盖。
         WT_PATH="$MP_WORKTREES/mp-$TASK_NAME"
         mkdir -p "$MP_WORKTREES"
         COMMON_DIR="$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir)"
