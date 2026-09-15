@@ -19,7 +19,7 @@
         <span v-if="fav.topic" class="tag category-tag" :class="'cat-' + fav.topic.category">{{ t('hotTopics.categories.' + fav.topic.category) }}</span>
         <span v-if="fav.topic" class="tag channel-tag">{{ t('hotTopics.channels.' + fav.topic.channel) }}</span>
         <span v-if="fav.favoritedAt" class="fav-date">{{ formatFavoritedAt(fav.favoritedAt) }}</span>
-        <button class="cohere-btn-secondary item-create-btn" @click="$emit('remove-favorite', fav.topic?.id)">
+        <button class="cohere-btn-secondary item-create-btn" @click="onRemove(fav)">
           {{ t('hotTopics.unfavorite') }}
         </button>
       </div>
@@ -40,5 +40,11 @@ const props = defineProps({
   formatFavoritedAt: { type: Function, required: true },
 })
 
-defineEmits(['remove-favorite'])
+const emit = defineEmits(['remove-favorite'])
+
+function onRemove(fav) {
+  // 损坏数据（fav.topic 为 null）仍允许清理：传 favoritedAt 作备用 ID
+  emit('remove-favorite', (fav.topic && fav.topic.id) || (fav.favoritedAt ? String(fav.favoritedAt) : undefined))
+}
 </script>
+
