@@ -216,12 +216,14 @@ const SIGNER_BASE = process.env.MP_SIGNER_BASE || "http://<signer-host>";
 
 ## 8. 回归保护
 
-1. **残留门禁（已落地）**：`scripts/check-no-brand-residue.js`
+1. **残留门禁（已落地并接入 CI）**：`scripts/check-no-brand-residue.js`
    - 字节级（latin1 保真）扫描全部 tracked 文本文件，兼容含 NUL 字节与非 UTF-8 文件；
    - 跳过锁文件与二进制扩展名；
    - 品牌词**按码点构造**进正则（门禁脚本自身零字面品牌词，不自证违规）；
    - 唯一豁免 `<signer-host>`；
-   - 命中即 `exit 1`，并输出 `文件 @byte 位置 + 上下文` 便于定位。
+   - 命中即 `exit 1`，并输出 `文件 @byte 位置 + 上下文` 便于定位；
+   - **CI 接线**：`quality-gate.yml` static-gates **Gate 12 - Brand residue (naming normalization)**（`node scripts/check-no-brand-residue.js`，与本地同口径），接线契约由 `.github/scripts/workflow-contract.test.js` 钉死。
+   - **交付更正**：该脚本在 #1837 中被 `.gitignore` 的 `scripts/*.js` 白名单型忽略规则静默吞掉（三次 `git add -A` 均未入库，PR 合并而脚本缺席），于随后的 CI 接线 PR 中补齐 `.gitignore` 白名单并入库。
 2. **命名空间约定**：应用层 DOM/CSS 命名空间一律 `mp-`，组件 `Mp*`，常量 `MP_*`；禁止再引入第三方产品名作为命名空间。
 3. **文档写法约定**：涉及品牌词的文档（PRD/CHANGELOG/learnings）一律用占位符指代（见 §0），不复现字面。
 4. **learnings 沉淀**：`01-docs/learnings.md` 新增「全仓命名清理三道防线」（字节级兜底 / 编码安全校验 / 二进制排除 + gitignore 补暂存 + 占位符配对还原）。

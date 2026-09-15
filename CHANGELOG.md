@@ -7,6 +7,23 @@
 - 历史 `v2.3.x` 复盘轮次标签为内部分版号，不代表真实发布版本；后续统一以 `0.Y.Z` 推进。
 
 ---
+# [未发布] chore(ci): 品牌残留门禁接入 CI（Gate 12）+ 补齐 #1837 遗漏的门禁脚本（2026-09-15）
+
+### 背景
+- #1837 落地去品牌化时，`scripts/check-no-brand-residue.js` 被 `.gitignore` 的 `scripts/*.js` 白名单型忽略规则静默吞掉（新脚本未加 `!` 例外，三次 `git add -A` 均不入库且 commit 无任何告警）→ **门禁脚本从未进入仓库**，#1837 PR 描述与 CHANGELOG 中的承诺落空。
+
+### 变更
+- `.gitignore`：`scripts/*.js` 白名单补 `!scripts/check-no-brand-residue.js`
+- 补齐 `scripts/check-no-brand-residue.js`（与 #1837 描述一致的实现：字节级 latin1 保真 / 跳过锁文件与二进制 / 品牌词按码点构造零字面 / 唯一豁免第三方签名域名）
+- `quality-gate.yml` static-gates 新增 **Gate 12 - Brand residue (naming normalization)**（置于 Gate 11 之后，`node scripts/check-no-brand-residue.js`，与本地同口径）
+- `.github/scripts/workflow-contract.test.js` 新增 Gate 12 接线契约：步骤存在、位于 Gate 11 之后、脚本真实存在、**脚本自身零品牌词字面量**（断言按码点构造，避免契约测试自证违规）
+
+### 验证
+- `node --test .github/scripts/workflow-contract.test.js` → **20 pass**（新增 1 条）
+- `node scripts/check-no-brand-residue.js` → **PASS**（5437 个 tracked 文件，内容与路径命中均 0）
+- `git ls-files scripts/check-no-brand-residue.js` 确认已 tracked
+
+---
 # [未发布] feat(update): 侧边栏「新版本」入口 —— 运行时更新提示 + 点击退出应用并安装（2026-09-14）
 
 ### 新增
