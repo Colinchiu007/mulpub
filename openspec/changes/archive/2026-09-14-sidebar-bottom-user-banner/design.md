@@ -6,7 +6,7 @@
 
 约束：
 
-- 侧边栏宽度固定 200px（`--yixiaoer-sidebar-width`），不得引入可折叠侧边栏；
+- 侧边栏宽度固定 200px（`--mp-sidebar-width`），不得引入可折叠侧边栏；
 - `ProfileMenu` 已被复用为唯一用户菜单实现，禁止新增同类组件副本（见 `docs/frontend-interaction-spec.md` §2）；
 - 设置弹窗（`SettingsDialog`）由 `App.vue` 承载、升级弹窗（`UpgradeModal`）由侧边栏承载 —— 入口迁移不得改变这两个宿主归属；
 - 渲染层禁止直接调用 `window.electronAPI`；用户可见文案必须走 i18n；
@@ -53,13 +53,13 @@
 
 ### D4：删除 footer「客户端状态」独立文字行，信息下沉进 banner
 
-- **选择**：移除 `.yixiaoer-sidebar-status` 行，改为 banner 头像右下角状态点 + banner `title` + 菜单标题区状态文案。
+- **选择**：移除 `.mp-sidebar-status` 行，改为 banner 头像右下角状态点 + banner `title` + 菜单标题区状态文案。
 - **理由**：该行与登录 banner 属同一语义域（在线/未登录/过期/异常），位置相邻时同时显示属重复信息；下沉后信息量不变（点色 + 悬停文案 + 面板内文案三处可见）。
-- **代价**：原 `data-testid="yixiaoer-sidebar-status"` 消失，相关断言迁移到 `ProfileMenu` 的状态点（`data-testid="yixiaoer-profile-status"`）。
+- **代价**：原 `data-testid="mp-sidebar-status"` 消失，相关断言迁移到 `ProfileMenu` 的状态点（`data-testid="mp-profile-status"`）。
 
 ### D5：整块删除模块导航工具区（而非隐藏或置灰）
 
-- **选择**：删除 `.yixiaoer-module-tools`、4 个按钮、工具面板、`activeTool` / `toolPanels` / `activeToolContent` / `toggleTool` 与全部相关样式，并把原测试改写为**零渲染回归断言**。
+- **选择**：删除 `.mp-module-tools`、4 个按钮、工具面板、`activeTool` / `toolPanels` / `activeToolContent` / `toggleTool` 与全部相关样式，并把原测试改写为**零渲染回归断言**。
 - **理由**：4 个入口的能力均为占位说明文案，不是"暂未展示"，而是"尚未实现"。置灰仍会占用视觉热区并暗示能力存在；删除是最诚实的表达。
 - **替代方案**：保留但禁用 —— 会持续占据右上角视觉热区并引发"为什么不能点"的困惑，弃用。
 
@@ -75,15 +75,15 @@
 |------|------|------|
 | 像素视觉门禁越阈 | CI Gate 7 失败 | 变更区域集中（侧边栏 ≈200×250px + 模块导航右端 ≈130×70px），阈值 6% 具备容忍度；越阈时按 `test:visual:update-baseline` 重建基线 |
 | 窄屏（≤900px）下入口可达性 | 68px 侧边栏可能看不到设置入口 | 窄屏保留 banner（仅头像），菜单仍可展开，入口不丢失；服务连接信息在窄屏隐藏（信息可在宽屏查看） |
-| 移除 `data-testid="yixiaoer-sidebar-status"` 影响既有测试/E2E | 断言失败 | 同步更新 `YixiaoerSidebar.test.js`；状态语义迁移到 `ProfileMenu.test.js` 新增断言 |
+| 移除 `data-testid="mp-sidebar-status"` 影响既有测试/E2E | 断言失败 | 同步更新 `MpSidebar.test.js`；状态语义迁移到 `ProfileMenu.test.js` 新增断言 |
 | 组件不再支持向下展开 | 未来若需在页面内复用需改造 | 当前登录区唯一落点在底部 banner，无第二处用法；需要时按 YAGNI 扩展，避免预埋死代码 |
 | 菜单项增加导致面板变高 | 小屏（<400px 高）滚动 | 面板 `max-height: min(70vh, 420px)` + `overflow-y: auto` |
 
 ## Migration Plan
 
 1. 修改 `ProfileMenu.vue`（placement + 菜单项 + 事件 + banner 视觉）；
-2. 修改 `YixiaoerSidebar.vue`（header 品牌区、主导航去设置、footer 重排、事件承接）；
-3. 修改 `YixiaoerModuleNav.vue`（删除工具区/面板/状态/样式）；
+2. 修改 `MpSidebar.vue`（header 品牌区、主导航去设置、footer 重排、事件承接）；
+3. 修改 `MpModuleNav.vue`（删除工具区/面板/状态/样式）；
 4. 更新 3 个单测文件（含 4 条防回归硬契约）；
 5. 同步文档（专项 PRD、主 PRD 章节、布局规格、交互规范、CHANGELOG）；
 6. 推送 PR → CI（含像素门禁）→ 合并后 `openspec archive`。

@@ -78,9 +78,9 @@ publishArticle(article)
 > **注意**：百家号编辑器页面可能有嵌套 iframe，需要额外处理。
 ---
 
-## 四、方案更新：蚁小二 API 直调链（2026-08-28，Phase C）
+## 四、方案更新：参考产品 API 直调链（2026-08-28，Phase C）
 
-> 原方案 A（Playwright RPA）在真实发布中反复失败（「用户须知」引导弹窗、位置必填选择器、publish verification timeout）。逆向蚁小二 4.0 主进程确认百家号为 **API 直调**（非浏览器 RPA），本文档自 Phase C 起**视频发布切换到 API 模式**，作为发布路由首选。
+> 原方案 A（Playwright RPA）在真实发布中反复失败（「用户须知」引导弹窗、位置必填选择器、publish verification timeout）。逆向参考产品 4.0 主进程确认百家号为 **API 直调**（非浏览器 RPA），本文档自 Phase C 起**视频发布切换到 API 模式**，作为发布路由首选。
 
 ### 4.1 端到端调用链（8 步）
 

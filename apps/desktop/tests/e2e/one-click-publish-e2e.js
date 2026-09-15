@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * yixiaoer-ue-parity Phase C：真实发布 E2E
+ * mp-ue-parity Phase C：真实发布 E2E
  *
  * Playwright _electron 启动（挂 debug profile），走真实 UI 流程：
  * /publish 视频模式 → 上传 D:/01.mp4 → 提取+裁剪封面 → 选账号 → 标题/标签 → 发布
@@ -17,7 +17,7 @@ const DESKTOP = path.resolve(__dirname, '..', '..')
 const REPO_ROOT = path.resolve(DESKTOP, '..', '..')
 const PROFILE = process.env.MP_PROFILE || 'D:\\tmp\\Multi-Publish-debug-profile'
 const VITE_PORT = process.env.MP_VITE_PORT || '5174'
-const OUTPUT_DIR = path.join(REPO_ROOT, 'apps', 'desktop', 'tests', 'e2e-output', 'yixiaoer-phase-c-' + Date.now())
+const OUTPUT_DIR = path.join(REPO_ROOT, 'apps', 'desktop', 'tests', 'e2e-output', 'mp-phase-c-' + Date.now())
 const VIDEO = process.env.MP_VIDEO || 'D:\\01.mp4'
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 

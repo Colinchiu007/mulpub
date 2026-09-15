@@ -383,11 +383,11 @@ describe('visual-ci 像素门禁', () => {
 describe('视觉门禁路由选择器', () => {
   it('账号页使用稳定的页面容器而不是隐藏标题选择器', () => {
     const accountsTest = pixelTests.find((test) => test.name === 'accounts-list')
-    expect(accountsTest?.waitFor).toBe('.yixiaoer-workspace .accounts-page')
+    expect(accountsTest?.waitFor).toBe('.mp-workspace .accounts-page')
   })
 
-  it('首页使用蚁小二复刻后的页面容器而不是旧版 cohere 标题选择器', () => {
+  it('首页使用参考产品复刻后的页面容器而不是旧版 cohere 标题选择器', () => {
     const homeTest = pixelTests.find((test) => test.name === 'home-baseline')
-    expect(homeTest?.waitFor).toBe('.yixiaoer-home .yixiaoer-home-welcome')
+    expect(homeTest?.waitFor).toBe('.mp-home .mp-home-welcome')
   })
 })

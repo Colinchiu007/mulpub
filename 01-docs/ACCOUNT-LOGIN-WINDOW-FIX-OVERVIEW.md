@@ -88,4 +88,4 @@ const SIDEBAR_WIDTH_DEFAULT = 200
 
 分支名未用 `codex/` 前缀：本环境 `codex/*` 命名空间 ref 静默写盘失败
 （`git worktree add -b codex/...` → `invalid reference`），改用无斜杠分支名
-（仓库有 `mp-yixiaoer-upload` 先例）。该坑已记入项目记忆。
+（仓库有 `mp-upload` 先例）。该坑已记入项目记忆。

@@ -7,7 +7,7 @@ const REGISTRY = {
   wechat_mp: require("./adapters/wechat_mp"),
   tencent_video: require("./adapters/shipinhao"),
   weibo: require("./adapters/weibo"),
-  // New platform adapters (蚁小二逆向工程复用)
+  // New platform adapters (参考产品逆向分析复用)
   xiaohongshu: require("./adapters/xiaohongshu"),
   toutiao: require("./adapters/toutiao"),
   bilibili: require("./adapters/bilibili"),

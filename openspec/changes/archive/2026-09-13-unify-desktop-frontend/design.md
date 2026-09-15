@@ -36,8 +36,8 @@
 ### D4: IPC 单轨——以 electron-bridge.js 扩展函数为准，不重写 api/publisher.js
 现有两轨中 electron-bridge 是声明规范所在；把 14 个视图的直调迁为 bridge 导出函数 + 显式 fallback 表。CI 卡点扫描 src/{views,components,composables,stores,features} 下 `window.electronAPI` 字面量（api/ 目录白名单）。
 
-### D5: 单壳迁移方向——4 条路由迁入蚁小二主壳
-App.vue:123-124 现状仅 /first-run、/model-providers、/keywords、/viral-analysis 走侧边栏壳。迁移 = 删除 isYixiaoerWorkspace 分支判断，4 条路由挂到主壳 TabBar 体系。FirstRun 属首启流程需保留全屏无导航特性（验证其路由 meta 是否已处理，未处理则补 meta.fullscreen）。
+### D5: 单壳迁移方向——4 条路由迁入参考产品主壳
+App.vue:123-124 现状仅 /first-run、/model-providers、/keywords、/viral-analysis 走侧边栏壳。迁移 = 删除 isMpWorkspace 分支判断，4 条路由挂到主壳 TabBar 体系。FirstRun 属首启流程需保留全屏无导航特性（验证其路由 meta 是否已处理，未处理则补 meta.fullscreen）。
 
 ### D6: i18n 迁移顺序——先小视图后基线收紧
 19 个视图按"小→大"批量迁移并跑 --single 视觉回归；CreateView/ResultView 登记为延后项，中文扫描基线文件记录当前存量数，卡点断言"不增长"。

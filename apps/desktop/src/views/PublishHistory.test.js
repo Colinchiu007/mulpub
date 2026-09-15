@@ -103,7 +103,7 @@ describe('PublishHistory', () => {
     expect(wrapper.text()).toContain('发布成功')
   })
 
-  it('提供蚁小二对齐的搜索、四类筛选、视图切换和导出工具', async () => {
+  it('提供参考产品对齐的搜索、四类筛选、视图切换和导出工具', async () => {
     const wrapper = mountView()
     await nextTick()
     await nextTick()
@@ -169,7 +169,7 @@ describe('PublishHistory', () => {
   })
 
 
-  it('平台和时间筛选与蚁小二工具栏一致', async () => {
+  it('平台和时间筛选与参考产品工具栏一致', async () => {
     historyListMock.mockResolvedValue({ code: 0, data: { records: [
       { id: 'today', title: '今天记录', platform: 'zhihu', status: 'success', timestamp: new Date().toISOString() },
       { id: 'old', title: '旧记录', platform: 'weibo', status: 'success', timestamp: '2020-01-01T00:00:00.000Z' },
@@ -220,7 +220,7 @@ describe('PublishHistory', () => {
     expect(wrapper.text()).toContain('120')
   })
 
-  it('详情弹窗显示蚁小二记录统计和发布配置字段', async () => {
+  it('详情弹窗显示参考产品记录统计和发布配置字段', async () => {
     historyGetMock.mockResolvedValue({
       code: 0,
       data: {

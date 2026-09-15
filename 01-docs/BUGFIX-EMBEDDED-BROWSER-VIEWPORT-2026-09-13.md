@@ -87,7 +87,7 @@ activeView.setBounds({
 | `qrcode-login.js` | `_positionView()` 同上；修正 217 行过时注释（该注释声称 `_positionView` 已删除，实际仍存在） |
 | `oauth-manager.js` | **补上缺失的 `_positionView()`** —— 修复 `startAuth` 一进入就 `TypeError: this._positionView is not a function` 的崩溃 |
 
-不改动：`y=76` 语义、侧栏 200/68 动态同步机制（`YixiaoerSidebar` ResizeObserver → `setSidebarWidth` IPC）、`auth-window.js`（本来就正确）。
+不改动：`y=76` 语义、侧栏 200/68 动态同步机制（`MpSidebar` ResizeObserver → `setSidebarWidth` IPC）、`auth-window.js`（本来就正确）。
 
 ### 4.3 布局契约（修复后的唯一正确写法）
 

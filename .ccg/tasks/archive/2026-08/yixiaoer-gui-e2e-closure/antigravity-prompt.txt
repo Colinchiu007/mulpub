@@ -1,5 +1,0 @@
-ROLE_FILE: C:/Users/邱领/.claude/.ccg/prompts/antigravity/analyzer.md
-<TASK>
-分析当前工作树 C:/tmp/Multi-Publish-yixiaoer-full-parity-20260804 的蚁小二账号/发布 parity GUI E2E 失败。重点检查 apps/desktop/tests/e2e/helpers/integration-flows.js、route-functional-suite.js、ipc-mock.js，以及 src/views/Publish.vue、Accounts.vue。不要修改代码。请结合 git diff 和现有测试，判断 /publish 3 个失败、/accounts 2 个失败、Flow 1/2/5/6 失败的根因，给出最小修复方案、应新增/调整的稳定选择器和 IPC mock 合同，输出 Critical/Warning/Info 分级分析。
-</TASK>
-OUTPUT: 结构化根因分析

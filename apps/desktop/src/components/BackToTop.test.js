@@ -5,7 +5,7 @@ import { createRouter, createMemoryHistory } from 'vue-router'
 import BackToTop from './BackToTop.vue'
 import i18n from '@/i18n'
 
-const CONTAINER_TESTID = 'yixiaoer-workspace'
+const CONTAINER_TESTID = 'mp-workspace'
 
 function createTestRouter () {
   return createRouter({

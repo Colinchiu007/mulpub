@@ -2,7 +2,7 @@
 /**
  * PublishMonitor — 发布后状态监控
  * 
- * 基于蚁小二逆向工程的发布后状态查询（QueryStateTaskScheduler）：
+ * 基于参考产品逆向分析的发布后状态查询（QueryStateTaskScheduler）：
  * - 发布完成后自动查询发布结果
  * - 轮询检查：草稿→已发布→审核中→已上线/驳回
  * - 失败重试 + 超时处理

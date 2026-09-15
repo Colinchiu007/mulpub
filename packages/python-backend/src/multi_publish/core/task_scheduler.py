@@ -4,7 +4,7 @@ Task Scheduler — 定时状态轮询调度器
 发布后每隔 n 秒自动查询审核状态，支持重试和动态延迟。
 与 PublishScheduler 分离：PublishScheduler 管"定时发布"，这个管"发布后状态追踪"。
 
-架构参考：蚁小二 QueryStateScheduledTask + stateQuerySchedulerService
+架构参考：参考产品 QueryStateScheduledTask + stateQuerySchedulerService
 """
 
 import asyncio

@@ -8,7 +8,7 @@ const path = require('path');
 
 // 并行 worktree 时 Vite 端口不再固定 5174：显式 TEST_URL 覆盖（见 learnings 截图连错旧 Vite 复盘）
 const BASE_URL = process.env.TEST_URL || 'http://127.0.0.1:5174';
-const OUTPUT_DIR = path.join(__dirname, '../../01-docs/yixiaoer-reverse/screenshots/mp-round2');
+const OUTPUT_DIR = path.join(__dirname, '../../01-docs/ui-reference/screenshots/mp-round2');
 
 // 所有路由（hash 模式）
 const routes = [

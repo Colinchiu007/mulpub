@@ -147,7 +147,7 @@ function configureGraphics ({
  * 净化 Electron 默认 UA，去掉 Electron/<version> 与 <AppName>/<version> 标记。
  *
  * 背景：知乎等平台的登录风控会识别 UA 中的 Electron 标记并拒绝下发短信验证码
- * （报错 10001:请求参数异常，请升级客户端后重试）。蚁小二通过设置
+ * （报错 10001:请求参数异常，请升级客户端后重试）。参考产品通过设置
  * app.userAgentFallback 为标准浏览器 UA 解决同类问题。本函数采用动态方案：
  * 读取当前 app.userAgent（跟随 Chromium 内核版本），仅剔除 Electron 相关 token，
  * 避免硬编码 UA 版本随内核升级而过期。

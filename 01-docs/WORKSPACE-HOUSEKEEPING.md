@@ -26,7 +26,7 @@
 ## 三、清理判定规则
 
 - **可回收**：分支已合并进 `origin/main`（`git branch --merged origin/main`）+ 无未推送提交（非 `ahead`）+ 远程 PR 已 merged。
-- **保留**：`ahead`（本地有未推送提交）、并发会话当前分支、已登录 profile、验收证据（截图/报告目录，如 `yixiaoer-gui-e2e-ci-artifacts`、`worktree-evidence-backup-*`）、当前交付 worktree。
+- **保留**：`ahead`（本地有未推送提交）、并发会话当前分支、已登录 profile、验收证据（截图/报告目录，如 `mp-gui-e2e-ci-artifacts`、`worktree-evidence-backup-*`）、当前交付 worktree。
 - **行尾噪音**：`packages/ai-writer/src/cli.js`、`packages/api-publish-engine/bin/publish-api` 等在所有 worktree 中恒为 `M` 的是 EOL 差异（非真实改动），归档时可直接丢弃；删除前用 `git diff` 确认。
 
 ## 四、磁盘告警

@@ -2,10 +2,10 @@
 /**
  * HTTP API 登录检测 — 用保存的 Cookie 直接调用平台内部 API 判断登录态
  *
- * 参考蚁小二 checkAccountAlive 逆向：不打开浏览器窗口，纯 HTTP 请求，
+ * 参考同类产品 checkAccountAlive 逆向：不打开浏览器窗口，纯 HTTP 请求，
  * 每次检测 <1 秒（浏览器窗口方案需 4-8 秒/平台）。
  *
- * API 端点来源：蚁小二 4.0 逆向（packages/main/dist/index.cjs）。
+ * API 端点来源：参考产品 4.0 逆向（packages/main/dist/index.cjs）。
  * 各平台判断逻辑：
  * - douyin: GET /aweme/v1/creator/pc/user/info/ → status_code === 0 且有 user 数据
  * - toutiao: GET /mp/agw/media/get_media_info → code === 0 且有 user.id
@@ -41,7 +41,7 @@ const HTTP_CHECK_APIS = {
     },
     check: (data) => Boolean(data && data.code === 0 && data.data && data.data.user && data.data.user.id)
   },
-  // 公众号：对齐蚁小二 getWeixingongzhonghaoUserInfo —— GET loginpage 页（带 cookie），
+  // 公众号：对齐参考产品 getWeixingongzhonghaoUserInfo —— GET loginpage 页（带 cookie），
   // 登录态由 HTML 内嵌的 token=/uin:/nick_name 正则体现；未登录时这些字段缺失。
   // 这比「访问后台首页看是否 302」更可靠：Cookie（slave_sid）过期后访问 cgi-bin/home
   // 仍可能返回 200 渲染骨架，但 loginpage 页面未登录时不会内嵌 token。
@@ -53,13 +53,13 @@ const HTTP_CHECK_APIS = {
     },
     checkHtml: (html) => {
       if (!html || typeof html !== 'string') return false
-      // 对齐蚁小二正则：&token=[0-9a-zA-Z]{3,} 与 uin:"[0-9]{3,}" 同时存在 → 已登录
+      // 对齐参考产品正则：&token=[0-9a-zA-Z]{3,} 与 uin:"[0-9]{3,}" 同时存在 → 已登录
       const hasToken = /&token=[0-9a-zA-Z]{3,}/.test(html) || /token=[0-9a-zA-Z]{3,}/.test(html)
       const hasUin = /uin:\s{0,}"[0-9]{3,}"/.test(html)
       return hasToken && hasUin
     }
   },
-  // 视频号：对齐蚁小二 getShipinhaoUserInfo —— POST auth_data 接口（带 cookie），
+  // 视频号：对齐参考产品 getShipinhaoUserInfo —— POST auth_data 接口（带 cookie），
   // errCode 300333/300334 判失效，data.finderUser 存在判有效。
   // 这比「访问后台首页看 302」更可靠，且渲染崩溃保护下视频号只能走 HTTP 检测。
   tencent_video: {
@@ -71,12 +71,12 @@ const HTTP_CHECK_APIS = {
     contentType: 'application/json',
     body: JSON.stringify({ timestamp: Date.now().toString().substring(0, 13), _log_finder_uin: '', _log_finder_id: '', rawKeyBuff: null, pluginSessionId: null, scene: 7, reqScene: 7 }),
     check: (data) => {
-      // errCode 300333/300334 = 登录失效（蚁小二判定）
+      // errCode 300333/300334 = 登录失效（参考产品判定）
       if (data && (data.errCode === 300333 || data.errCode === 300334)) return false
       return Boolean(data && data.data && data.data.finderUser)
     }
   },
-  // bilibili：对齐蚁小二 getBilibiliUserInfo —— GET nav 接口（带 cookie + Referer），
+  // bilibili：对齐参考产品 getBilibiliUserInfo —— GET nav 接口（带 cookie + Referer），
   // code === -101 判失效，data.mid 存在判有效；cookie 必须含 bili_jct（缺失即失效）。
   bilibili: {
     url: 'https://api.bilibili.com/x/web-interface/nav',

@@ -46,9 +46,9 @@ function maskCookie(value) {
 }
 
 /**
- * BaijiahaoAdapter — 百家号 API 发布（移植蚁小二逆向实现）
+ * BaijiahaoAdapter — 百家号 API 发布（移植参考产品逆向分析实现）
  *
- * 发布链（参考 yixiaoer-extracted/packages/main/dist/index.cjs）：
+ * 发布链（参考 mp-extracted/packages/main/dist/index.cjs）：
  *  1. getBaseToken      GET /?source=inner → 正则提取 BJH__INIT__AUTH__
  *  2. getAppId          GET /builder/app/appinfo → data.user.app_id
  *  3. preuploadVideo    POST /builder/author/video/preuploadVideo?app_id → upload_key
@@ -90,7 +90,7 @@ class BaijiahaoAdapter extends BasePlatformAdapter {
   getReferer() { return "https://baijiahao.baidu.com/builder/rc/edit?type=videoV2"; }
   getOrigin() { return "https://baijiahao.baidu.com"; }
 
-  // P3-7：拉取当前用户的合集列表（bjhtopic，蚁小二 collection.yixiaoerId 对应 bjhtopic_id）
+  // P3-7：拉取当前用户的合集列表（bjhtopic，参考产品 collection.sourceId 对应 bjhtopic_id）
   async listCollections(cookie) {
     const h = this.getHeaders(cookie, { Accept: "application/json" });
     const resp = await this.http.get(this.apiBase + "/pcui/topic/list", { headers: h, params: { pn: 1, rn: 50 } });
@@ -117,7 +117,7 @@ class BaijiahaoAdapter extends BasePlatformAdapter {
     });
   }
 
-  /** 从首页 HTML 提取 BJH__INIT__AUTH__ token（蚁小二 getBaijiahaoBaseToken） */
+  /** 从首页 HTML 提取 BJH__INIT__AUTH__ token（参考产品 getBaijiahaoBaseToken） */
   async getBaseToken(cookie, opts = {}) {
     const stepStart = Date.now()
     const resp = await this.http.get("https://baijiahao.baidu.com/?source=inner", {
@@ -130,7 +130,7 @@ class BaijiahaoAdapter extends BasePlatformAdapter {
     return m ? m[2] : ""
   }
 
-  /** appinfo → data.user.app_id（蚁小二 getBaijiahaoUserInfoAsync） */
+  /** appinfo → data.user.app_id（参考产品 getBaijiahaoUserInfoAsync） */
   async getAppId(cookie, opts = {}) {
     const stepStart = Date.now()
     const resp = await this.http.get(this.apiBase + "/builder/app/appinfo", {
@@ -143,7 +143,7 @@ class BaijiahaoAdapter extends BasePlatformAdapter {
     return appId
   }
 
-  /** 预上传：拿 upload_key（蚁小二 getUploadArgsResponse$6；横版视频 video_type=short） */
+  /** 预上传：拿 upload_key（参考产品 getUploadArgsResponse$6；横版视频 video_type=short） */
   async preuploadVideo(cookie, appId, token, md5, videoType = "short") {
     const body = qs.stringify({ app_id: appId, md5, is_pay_column: 0, video_type: videoType })
     const stepStart = Date.now()
@@ -155,7 +155,7 @@ class BaijiahaoAdapter extends BasePlatformAdapter {
     return data
   }
 
-  /** 分片上传（蚁小二 uploadVideoPart） */
+  /** 分片上传（参考产品 uploadVideoPart） */
   async uploadVideoPart(cookie, buffer, chunkIndex, uploadKey, appId, md5, size, name, chunks, chunk, videoType = "mp4") {
     const FormData = require("form-data")
     const fd = new FormData()
@@ -175,7 +175,7 @@ class BaijiahaoAdapter extends BasePlatformAdapter {
     let url = "https://rsbjh.baidu.com/builder/author/video/uploadVideo?app_id=" + appId
     const stepStart = Date.now()
     let resp = await this.http.post(url, fd, { headers: { ...this.getHeaders(cookie, { Referer: "https://baijiahao.baidu.com" }), ...fd.getHeaders() } })
-    // 存储服务异常时换 rsbjh10/11/12 重试（蚁小二 uploadVideoPart 原样逻辑）
+    // 存储服务异常时换 rsbjh10/11/12 重试（参考产品 uploadVideoPart 原样逻辑）
     if (resp && resp.data && String(resp.data.error_msg || "").includes("存储服务异常")) {
       for (let i = 0; i < 3; i++) {
         url = "https://rsbjh1" + (i % 3) + ".baidu.com/materialui/video/uploadvideo?app_id=" + appId
@@ -188,7 +188,7 @@ class BaijiahaoAdapter extends BasePlatformAdapter {
     return data
   }
 
-  /** 上传完成：拿 mediaId/bos_url（蚁小二 uploadCompleteResponse；横版 video_type=short） */
+  /** 上传完成：拿 mediaId/bos_url（参考产品 uploadCompleteResponse；横版 video_type=short） */
   async completeUpload(cookie, appId, token, uploadKey, chunks, name, size, videoType = "short") {
     const body = qs.stringify({
       upload_key: uploadKey,
@@ -209,7 +209,7 @@ class BaijiahaoAdapter extends BasePlatformAdapter {
     return data
   }
 
-  /** 轮询视频处理直到 editVideo.coverImage 出现（蚁小二 getVideoCover）；deadline/signal 支持任务级超时与取消 */
+  /** 轮询视频处理直到 editVideo.coverImage 出现（参考产品 getVideoCover）；deadline/signal 支持任务级超时与取消 */
   async waitVideoProcess(cookie, token, mediaId, maxAttempts = 180, delayMs = 1500, deadline = 0, signal = null) {
     let errorStreak = 0
     for (let i = 0; i < maxAttempts; i++) {
@@ -240,7 +240,7 @@ class BaijiahaoAdapter extends BasePlatformAdapter {
     return null
   }
 
-  /** 视频发布 postData（蚁小二 buildPostData$r；位置可选，无则空对象） */
+  /** 视频发布 postData（参考产品 buildPostData$r；位置可选，无则空对象） */
   buildVideoPostData(taskData, uploadResult, verticalCover = "", videoName = "", draftId = "") {
     const parts = []
     // 百家号标题上限按 UTF-8 字节数校验（后端 /pcui/article/publish 用
@@ -280,7 +280,7 @@ class BaijiahaoAdapter extends BasePlatformAdapter {
     } else {
       parts.push("position_lat_lng=%7B%7D")
     }
-    // 封面（蚁小二格式：cover_layout/cover_images/_cover_images_map）
+    // 封面（参考产品格式：cover_layout/cover_images/_cover_images_map）
     if (uploadResult && uploadResult.coverUrl) {
       const cover = { src: uploadResult.coverUrl, cropData: { x: 0, y: 0, width: 0, height: 0 }, machine_chooseimg: 0, isLegal: 1 }
       parts.push("cover_layout=one")
@@ -290,7 +290,7 @@ class BaijiahaoAdapter extends BasePlatformAdapter {
       parts.push("_cover_images_map=")
     }
     parts.push("vertical_cover=" + (verticalCover ? encodeURIComponent(verticalCover) : ""))
-    // 常驻字段（蚁小二 buildPostData$r 尾部）
+    // 常驻字段（参考产品 buildPostData$r 尾部）
     parts.push("isBeautify=false")
     // AI 生成内容声明（aigc_bjh_status）：默认勾选「AI 生成内容」。
     // 平台要求内容创作声明如实选择，AI 生成内容必须勾选，否则违规。
@@ -298,17 +298,17 @@ class BaijiahaoAdapter extends BasePlatformAdapter {
     const aiGenerated = taskData.aiGenerated !== false
     parts.push("activity_list%5B0%5D%5Bid%5D=aigc_bjh_status&activity_list%5B0%5D%5Bis_checked%5D=" + (aiGenerated ? 1 : 0))
     parts.push("fe_from=BJH_CMS_PC")
-    // P2-1：合集（bjhtopic_info/bjhtopic_id，蚁小二映射 collection → {id, name}）
+    // P2-1：合集（bjhtopic_info/bjhtopic_id，参考产品映射 collection → {id, name}）
     const collection = taskData.collection
-    if (collection && (collection.id || collection.yixiaoerId)) {
-      const topicId = String(collection.id || collection.yixiaoerId)
-      const topicInfo = JSON.stringify({ topic_id: topicId, topic_name: collection.name || collection.yixiaoerName || "" })
+    if (collection && (collection.id || collection.sourceId)) {
+      const topicId = String(collection.id || collection.sourceId)
+      const topicInfo = JSON.stringify({ topic_id: topicId, topic_name: collection.name || collection.sourceName || "" })
       parts.push("bjhtopic_info=" + encodeURIComponent(topicInfo))
       parts.push("bjhtopic_id=" + encodeURIComponent(topicId))
     } else {
       parts.push("bjhtopic_info=&bjhtopic_id=")
     }
-    // 原创声明（蚁小二 original_status：original → 2）
+    // 原创声明（参考产品 original_status：original → 2）
     parts.push("original_status=" + (taskData.original ? 2 : 0))
     if (taskData.original) {
       parts.push("announce_id=0")
@@ -324,7 +324,7 @@ class BaijiahaoAdapter extends BasePlatformAdapter {
     return parts.join("&")
   }
 
-  /** 发布（蚁小二 publish$9：pcui/article/publish 或 save） */
+  /** 发布（参考产品 publish$9：pcui/article/publish 或 save） */
   async publishVideo(cookie, token, postData, opts = {}) {
     const isDraft = opts.draft === true
     const url = this.apiBase + "/pcui/article/" + (isDraft ? "save" : "publish")
@@ -377,7 +377,7 @@ class BaijiahaoAdapter extends BasePlatformAdapter {
     if (!token) throw new Error("getBaseToken 返回空（Cookie 无效或页面结构变更）")
     const pre = await this.preuploadVideo(cookie, appId, token, md5, "short")
     if (!pre || !pre.upload_key) throw new Error("preuploadVideo 失败: " + this.errSummary(pre))
-    // 分片上传（蚁小二 2MB/片，Oe=2097152；每片响应需含 uploadId）
+    // 分片上传（参考产品 2MB/片，Oe=2097152；每片响应需含 uploadId）
     const CHUNK = 2097152
     const chunks = Math.max(1, Math.ceil(stat.size / CHUNK))
     for (let i = 0; i < chunks; i++) {
@@ -423,7 +423,7 @@ class BaijiahaoAdapter extends BasePlatformAdapter {
     try {
       if (!taskData.video) throw new Error("缺少视频信息")
       if (!taskData.video.width || !taskData.video.height) {
-        // 未提供宽高时尝试 ffprobe 探测；失败则报错（蚁小二要求必填）
+        // 未提供宽高时尝试 ffprobe 探测；失败则报错（参考产品要求必填）
         throw new Error("视频宽高不能为空（需先探测视频宽高）")
       }
       if (taskData.video.width < taskData.video.height) {

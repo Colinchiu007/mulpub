@@ -1,5 +1,5 @@
 // CommentMessageService — 评论自动回复服务
-// 基于蚁小二 4.0 CommentMessageService 分析实现
+// 基于参考产品 4.0 CommentMessageService 分析实现
 
 // CommentProvider 基类 — 各平台需继承
 class CommentProvider {

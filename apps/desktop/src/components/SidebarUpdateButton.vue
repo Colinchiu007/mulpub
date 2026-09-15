@@ -2,22 +2,22 @@
   <button
     v-if="showUpdateBadge"
     type="button"
-    class="yixiaoer-update"
+    class="mp-update"
     :class="`is-${badgeMode}`"
-    data-testid="yixiaoer-update"
+    data-testid="mp-update"
     :disabled="busy"
     :title="tooltip"
     :aria-label="accessibilityLabel"
     :aria-busy="busy ? 'true' : 'false'"
     @click="handleClick"
   >
-    <span class="yixiaoer-update-icon" aria-hidden="true">
+    <span class="mp-update-icon" aria-hidden="true">
       <svg viewBox="0 0 24 24" focusable="false">
         <circle cx="12" cy="12" r="11" />
         <path d="M12 17.2V8.2M12 8.2L8.2 12M12 8.2l3.8 3.8" />
       </svg>
     </span>
-    <span class="yixiaoer-update-label" data-testid="yixiaoer-update-label">{{ label }}</span>
+    <span class="mp-update-label" data-testid="mp-update-label">{{ label }}</span>
   </button>
 </template>
 
@@ -77,7 +77,7 @@ async function handleClick () {
 </script>
 
 <style scoped>
-.yixiaoer-update {
+.mp-update {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -95,39 +95,39 @@ async function handleClick () {
   transition: background-color 160ms ease-out, border-color 160ms ease-out;
 }
 
-.yixiaoer-update:hover,
-.yixiaoer-update:focus-visible {
+.mp-update:hover,
+.mp-update:focus-visible {
   border-color: var(--primary);
   background: rgba(80, 72, 229, 0.16);
 }
 
-.yixiaoer-update:focus-visible {
+.mp-update:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
 
-.yixiaoer-update:disabled {
+.mp-update:disabled {
   cursor: progress;
   opacity: 0.72;
 }
 
-.yixiaoer-update-icon {
+.mp-update-icon {
   display: block;
   width: 24px;
   height: 24px;
 }
 
-.yixiaoer-update-icon svg {
+.mp-update-icon svg {
   display: block;
   width: 100%;
   height: 100%;
 }
 
-.yixiaoer-update-icon circle {
+.mp-update-icon circle {
   fill: var(--primary);
 }
 
-.yixiaoer-update-icon path {
+.mp-update-icon path {
   fill: none;
   stroke: #fff;
   stroke-width: 2;
@@ -135,18 +135,18 @@ async function handleClick () {
   stroke-linejoin: round;
 }
 
-.yixiaoer-update-label {
+.mp-update-label {
   font-weight: 600;
   white-space: nowrap;
 }
 
 /* 窄屏（图标栏）：只保留图标与可访问名，避免文字挤压导航 */
 @media (max-width: 900px) {
-  .yixiaoer-update {
+  .mp-update {
     padding: 6px 0;
   }
 
-  .yixiaoer-update-label {
+  .mp-update-label {
     display: none;
   }
 }

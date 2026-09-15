@@ -137,10 +137,10 @@ function resolvePlatformArticle (task, platform) {
   } else if (platform === 'wechat_mp') {
     resolved.massSend = resolveBooleanOption(override, base, 'massSend')
   }
-  // P0-3：平台特有字段透传（参考蚁小二统一 publishData 超集 + 每平台按需消费的架构）。
+  // P0-3：平台特有字段透传（参考同类产品统一 publishData 超集 + 每平台按需消费的架构）。
   // 字段从 platformOverrides[platform] 或文章基础字段解析，adapter 侧按平台消费。
   if (platform === 'bilibili') {
-    // B站分区 tid + 版权声明（1=自制 2=转载）；蚁小二映射：createType original→1, forward→2
+    // B站分区 tid + 版权声明（1=自制 2=转载）；参考产品映射：createType original→1, forward→2
     const category = Number(override.category ?? base.category)
     if (Number.isInteger(category) && category > 0) resolved.category = category
     const copyright = Number(override.copyright ?? base.copyright)
@@ -175,7 +175,7 @@ function resolvePlatformArticle (task, platform) {
   const playlistId = String(override.playlistId ?? base.playlistId ?? '').trim()
   if (/^[A-Za-z0-9_-]{5,60}$/.test(playlistId)) resolved.playlistId = playlistId
   const collection = override.collection ?? base.collection
-  if (collection && typeof collection === 'object' && (collection.id || collection.yixiaoerId)) {
+  if (collection && typeof collection === 'object' && (collection.id || collection.sourceId)) {
     resolved.collection = collection
   }
   // UI 侧百家号合集输入 'ID' 或 'ID:名称' → collection 对象
@@ -226,7 +226,7 @@ function buildPublishArticle (task, platform) {
     article.declare = resolved.declare
   }
   if (platform === 'wechat_mp') article.massSend = resolved.massSend
-  // P1-4 + P3-3：公众号摘要 + 评论开关（蚁小二 digest/need_open_comment 映射）
+  // P1-4 + P3-3：公众号摘要 + 评论开关（参考产品 digest/need_open_comment 映射）
   if (platform === 'wechat_mp') {
     const digest = String(override_digest(resolved) || '').trim()
     if (digest) article.digest = digest.slice(0, 120)
@@ -443,7 +443,7 @@ class ApiPublisher {
   }
 
   /**
-   * API 直调发布（BaijiahaoAdapter 移植蚁小二发布链）。
+   * API 直调发布（BaijiahaoAdapter 移植参考产品发布链）。
    * 流程：凭证 → ffprobe 横版校验 → publishViaApi（上传/处理/发布）。
    */
   async publish (task, options = {}) {

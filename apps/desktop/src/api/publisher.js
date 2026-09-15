@@ -234,7 +234,7 @@ export async function applyKnowledgeFeedback(action, refs) {
   return invokeWithFallback("applyKnowledgeFeedback", { code: -1, message: 'electronAPI not available' }, action, refs)
 }
 
-// ─── 草稿箱 API（蚁小二复用）─────────────────
+// ─── 草稿箱 API（参考产品复用）─────────────────
 export async function draftSave(draft) { return invokeWithFallback("draftSave", { code: -1, message: 'electronAPI not available' }, draft) }
 
 export async function draftList() { return invokeWithFallback("draftList", { code: 0, data: [] }) }

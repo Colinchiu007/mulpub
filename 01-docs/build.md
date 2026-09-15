@@ -46,7 +46,7 @@ sleep 8 && kill $!
 ## 新增模块清单
 
 
-### packages/shared-utils/src/（v1.6.0，蚁小二复用）
+### packages/shared-utils/src/（v1.6.0，参考产品复用）
 
 - `chunked-uploader.js` — 通用分片上传器（init→upload chunks→complete, 进度回调, 取消）
 - `proxy-pool.js` — 代理池轮换 + 健康检查（round-robin, 自动移除失效, 事件通知）

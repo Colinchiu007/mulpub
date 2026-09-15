@@ -15,7 +15,7 @@
 - **错误处理修复**：Dashboard 空 catch 补用户可见反馈；裸奔 async 操作补 try/catch（遵循 user-facing-messages spec 的 formatUserError 映射）
 - **工具去重**：formatTime 系列 17 份复制收敛到 utils 单一实现
 - **死代码清理**：Providers.vue（路由不可达）、UiCard/UiBadge（零使用）、useKeyboard/CommandPalette（未挂载）处置；CreateHistory/CreateViewHistory 双文件合并
-- **单壳导航统一**：AppNavbar/AppSidebar 壳退役，仅存的 4 条侧边栏壳路由迁入蚁小二主壳（经用户决策纳入）
+- **单壳导航统一**：AppNavbar/AppSidebar 壳退役，仅存的 4 条侧边栏壳路由迁入参考产品主壳（经用户决策纳入）
 - **i18n 补齐**：19 个未接入视图批量迁移 $t()（zh/en 成对）；CreateView/ResultView 词条迁移随未来巨石拆解批次执行
 
 明确不在本范围：CreateView.vue(5,556行)/ResultView.vue(1,746行) 结构性拆解（独立立项评估）；ops-center/frontend 改造（第二阶段）。

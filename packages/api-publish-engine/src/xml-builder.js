@@ -1,5 +1,5 @@
 /**
- * 视频号 XML 内容构建器 (提取自蚁小二 FinderXmlBuilder)
+ * 视频号 XML 内容构建器 (提取自参考产品 FinderXmlBuilder)
  */
 class FinderXmlBuilder {
   buildContent(content) {

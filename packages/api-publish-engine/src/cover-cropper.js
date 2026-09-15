@@ -1,6 +1,6 @@
 /**
  * 封面裁剪 — 各平台封面图适配
- * 参考蚁小二 coverRequirements + sharp
+ * 参考同类产品 coverRequirements + sharp
  */
 const REQUIREMENTS = {
   bilibili: { width: 1146, height: 717, ratio: "16:10" },

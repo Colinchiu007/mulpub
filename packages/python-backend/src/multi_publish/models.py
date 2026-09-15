@@ -55,7 +55,7 @@ class PublishMode(Enum):
 
 
 class PublishPhase(Enum):
-    """发布阶段（蚁小二风格进度管理）"""
+    """发布阶段（参考产品风格进度管理）"""
 
     PREPARING = "preparing"  # 准备中
     AUTHENTICATING = "authenticating"  # 验证登录态
@@ -70,7 +70,7 @@ class AuthData:
     """
     平台认证数据（cookies + localStorage + IndexedDB）
 
-    从蚁小二反编译发现，仅保存 cookies 不足以维持抖音登录态，
+    从参考产品反编译发现，仅保存 cookies 不足以维持抖音登录态，
     必须同步保存 localStorage 中的 security-sdk/* 值和 IndexedDB secure-store 数据。
     """
 
