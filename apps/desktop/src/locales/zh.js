@@ -2094,6 +2094,7 @@ export default {
     importedLines: '已导入 {count} 行内容',
     openedPlatform: '已打开 {platform} 采集页面',
     platformUnsupported: '该平台暂不支持网页查看',
+    platformTabTitle: (ctx) => ctx.named('platform') + ' 采集页',
     confirmDeleteDraft: '确定删除这篇草稿吗？',
     confirmTitle: '确认',
     deleted: '已删除',
@@ -2338,6 +2339,10 @@ export default {
     startFailed: '启动失败',
     cancelled: '管道已取消',
     unavailable: '全自动管道功能不可用',
+  },
+  comments: {
+    tabTitle: (ctx) => ctx.named('platform') + '评论',
+    openedInTab: '评论页已在顶部标签栏打开，点击上方标签即可查看',
   },
   intelligence: {
     insertedRef: '已插入引用: {title}',

@@ -11,6 +11,7 @@ vi.mock("@/stores/platforms", () => ({
 }));
 
 import CommentsView from "./Comments.vue";
+import i18n from "@/i18n";
 
 describe("CommentsView", () => {
   beforeEach(() => {
@@ -20,7 +21,7 @@ describe("CommentsView", () => {
   });
 
   function createView() {
-    return mount(CommentsView, { global: { plugins: [createPinia()] } });
+    return mount(CommentsView, { global: { plugins: [createPinia(), i18n] } });
   }
 
   it("renders page title", async () => {

@@ -299,6 +299,7 @@
 // eslint-disable-next-line no-unused-vars
 import UiButton from "../components/UiButton.vue";
 import { getApi } from '@/api/electron-bridge'
+import { useI18n } from 'vue-i18n'
 import { useTabStore } from '@/stores/tab'
 import { PLATFORM_DASHBOARD_URLS, PLATFORM_NAMES } from '@multi-publish/shared-utils/src/platform-definitions'
 // eslint-disable-next-line no-unused-vars
@@ -320,6 +321,7 @@ import { useCopyLibrary, collectFromKey } from '@/composables/useCopyLibrary'
 const router = useRouter()
 const { notifyError, notifySuccess, notifyWarning, notifyInfo, notifyConfirm } = useNotify()
 const tabStore = useTabStore()
+const { t } = useI18n()
 const drafts = ref([])
 const linkUrl = ref('')
 const collecting = ref(false)
@@ -514,7 +516,7 @@ async function openCollection (platform) {
   const tabId = await tabStore.createTab({
     url,
     platform,
-    title: (PLATFORM_NAMES[platform] || platform) + ' 采集页',
+    title: t('collection.platformTabTitle', { platform: PLATFORM_NAMES[platform] || platform }),
   })
   if (tabId) {
     notifySuccess('collection.openedPlatform', { params: { platform } })

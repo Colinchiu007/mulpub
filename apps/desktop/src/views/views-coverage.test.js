@@ -212,7 +212,7 @@ describe("CollectionView (coverage)", () => {
 
   async function mnt() {
     const m = await import("./Collection.vue");
-    return mount(m.default || m, { global: { mocks: { $t: (key) => key } } });
+    return mount(m.default || m, { global: { mocks: { $t: (key) => key }, plugins: [i18n] } });
   }
 
   it("can delete draft from list", async () => {

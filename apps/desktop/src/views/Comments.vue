@@ -43,7 +43,7 @@
         <div v-else class="cohere-empty">
           <div class="empty-icon">🧭</div>
           <h3>{{ platformName(activePlatform) }}</h3>
-          <p>评论页已在顶部标签栏打开，点击上方标签即可查看</p>
+          <p>{{ t('comments.openedInTab') }}</p>
         </div>
       </div>
     </div>
@@ -52,9 +52,11 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { platformList } from '@/api/publisher'
 import { useTabStore } from '@/stores/tab'
 
+const { t } = useI18n()
 const tabStore = useTabStore()
 const activePlatform = ref(null)
 const platforms = ref([])
@@ -96,7 +98,7 @@ async function openPlatform (p) {
   const tabId = await tabStore.createTab({
     url: p.comment_url,
     platform: p.id,
-    title: platformName(p.id) + '评论',
+    title: t('comments.tabTitle', { platform: platformName(p.id) }),
   })
   if (tabId) {
     currentTabId.value = tabId

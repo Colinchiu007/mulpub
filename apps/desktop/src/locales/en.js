@@ -2093,6 +2093,7 @@ export default {
     importedLines: 'Imported {count} lines',
     openedPlatform: 'Opened {platform} collection page',
     platformUnsupported: 'Web view is not available for this platform',
+    platformTabTitle: (ctx) => ctx.named('platform') + ' collection page',
     confirmDeleteDraft: 'Delete this draft?',
     confirmTitle: 'Confirm',
     deleted: 'Deleted',
@@ -2337,6 +2338,10 @@ export default {
     startFailed: 'Start failed',
     cancelled: 'Pipeline cancelled',
     unavailable: 'Full auto pipeline is unavailable',
+  },
+  comments: {
+    tabTitle: (ctx) => ctx.named('platform') + ' comments',
+    openedInTab: 'The comments page is open in the tab bar above — click its tab to view it',
   },
   intelligence: {
     insertedRef: 'Inserted reference: {title}',
