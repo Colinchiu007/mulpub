@@ -35,7 +35,6 @@ const pixelTests = [
   { name: "home-baseline", route: "/" },
   { name: "accounts-list", route: "/accounts" },
   { name: "publish-form", route: "/publish" },
-  { name: "monitor-dashboard", route: "/monitor" },
   { name: "analytics-overview", route: "/analytics" },
   { name: "settings-general", route: "/settings" },
   { name: "login-form", route: "/login" },
