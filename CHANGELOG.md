@@ -1,3 +1,27 @@
+# [未发布] feat(desktop): 服务状态面板增加故障归因、按服务重试与轮询退避（2026-09-15）
+
+### 新增
+- **故障归因**：`services:get-status` 每项新增 `reason` 字段（ok / not_started / on_demand / connection_refused / timeout / http_error / unhealthy / unknown）；`BasePythonBridge` 新增 `healthCheckDetail()` 返回 `{ ok, reason, statusCode }`，`healthCheck()` 改为委托以保持布尔语义不变
+- **按服务重试**：新增 IPC `services:restart`（白名单 + `restartingKeys` 并发去重 + 启动入口能力探测 `ensureRunning()`→`start()`→`startPythonBackend()`）；面板服务行可展开详情（归因 + 上次运行时间 + 「重试连接」按钮），权限保持 authenticated 写操作（不进入未登录白名单）
+- **诚实标注按需服务**：对齐引擎增加 `onDemand: true` 与 `reason: 'on_demand'`，UI 状态文字由「待命」改为「按需」
+- **紧凑摘要**：降级时显示「X 项服务不可用（M/6 运行中）」（故障数前置），状态点 pulse 动画（尊重 prefers-reduced-motion）
+- **轮询退避**：健康 10s；降级 10s→20s→40s→60s 封顶；恢复健康立即回落
+- **状态历史**：store 记录 `lastSeenRunning` 时间戳（running 刷新，故障保留旧值），供「上次运行」展示
+- **i18n**：zh/en 成对新增 degradedSummary / retry / retrying / lastSeen / states.onDemand / reasons.*（8）/ restartErrors.*（6）
+
+### 修复
+- 对齐引擎此前 `bridgeStatus(null, …)` 恒返回 standby 的隐式空语义，易被误读为「随时可用」
+- splitter/prompt 健康探测由串行（2s×2 最坏 4s）改为 `Promise.all` 并行
+- preload bundle 重建（运行时实际加载 `preload/index.bundle.js`）；`preload.test.js` 合并键数 320→321
+
+### 验证
+- services.test.js 14 例 / serviceStatus.test.js 14 例 / SidebarServiceStatus.test.js 11 例全绿；YixiaoerSidebar、preload、ipc-contract、build-preload、base-python-bridge 同步通过
+- 门禁：check-locale-sync --keys/--cjk PASS、check-ipc-bridge PASS、check-frontend-consistency PASS、check-hardcoded-secrets PASS；eslint 对改动文件 0 error 0 warning
+
+### 文档
+- `01-docs/PRD-SERVICE-STATUS-PANEL-2026-09-12.md` §8 增强记录
+- openspec change `service-status-actionable`
+
 # [未发布] feat(rewrite): 改写质量评估报告桌面端闭环（content-quality-eval-desktop，2026-09-13）
 
 ### 新增
