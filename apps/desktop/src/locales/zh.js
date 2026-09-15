@@ -61,7 +61,11 @@ export default {
     serviceStatus: {
       allRunning: '服务运行中',
       partialRunning: (ctx) => ctx.named('count') + ' 项服务运行中',
+      degradedSummary: (ctx) => ctx.named('stopped') + ' 项服务不可用（' + ctx.named('running') + '/' + ctx.named('total') + ' 运行中）',
       unavailable: '服务状态不可用',
+      retry: '重试连接',
+      retrying: '重试中…',
+      lastSeen: (ctx) => '上次运行：' + ctx.named('time'),
       services: {
         mainBackend: '主服务',
         splitterEngine: '分句引擎',
@@ -74,6 +78,25 @@ export default {
         running: '运行中',
         stopped: '已停止',
         standby: '待命',
+        onDemand: '按需',
+      },
+      reasons: {
+        ok: '服务正常',
+        notStarted: '进程未启动',
+        onDemand: '按需激活，使用时自动启动',
+        connectionRefused: '端口无响应（进程未启动或已退出）',
+        timeout: '响应超时（进程可能已卡死）',
+        httpError: '服务返回错误状态码',
+        unhealthy: '服务自报异常',
+        unknown: '状态未知，可尝试重试',
+      },
+      restartErrors: {
+        AUTH_REQUIRED: '需要登录后才能重启服务',
+        SERVICES_RESTART_IN_PROGRESS: '该服务正在重启，请稍候',
+        SERVICES_RESTART_UNAVAILABLE: '该服务不支持重试',
+        SERVICES_RESTART_UNSUPPORTED_KEY: '不支持的服务',
+        SERVICES_RESTART_FAILED: '重启失败，请查看运行日志',
+        fallback: '操作失败，请重试',
       },
     },
     nav: {

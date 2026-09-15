@@ -61,7 +61,11 @@ export default {
     serviceStatus: {
       allRunning: 'Services running',
       partialRunning: (ctx) => ctx.named('count') + ' service(s) running',
+      degradedSummary: (ctx) => ctx.named('stopped') + ' service(s) unavailable (' + ctx.named('running') + '/' + ctx.named('total') + ' running)',
       unavailable: 'Service status unavailable',
+      retry: 'Retry connection',
+      retrying: 'Retrying...',
+      lastSeen: (ctx) => 'Last ran: ' + ctx.named('time'),
       services: {
         mainBackend: 'Main service',
         splitterEngine: 'Sentence splitter engine',
@@ -74,6 +78,25 @@ export default {
         running: 'Running',
         stopped: 'Stopped',
         standby: 'Standby',
+        onDemand: 'On demand',
+      },
+      reasons: {
+        ok: 'Service healthy',
+        notStarted: 'Process not started',
+        onDemand: 'Activated on demand, starts automatically when used',
+        connectionRefused: 'Port not responding (process not started or already exited)',
+        timeout: 'Response timed out (process may be stuck)',
+        httpError: 'Service returned an error status code',
+        unhealthy: 'Service reports itself unhealthy',
+        unknown: 'Unknown state, try retrying',
+      },
+      restartErrors: {
+        AUTH_REQUIRED: 'Sign in is required to restart services',
+        SERVICES_RESTART_IN_PROGRESS: 'This service is already restarting, please wait',
+        SERVICES_RESTART_UNAVAILABLE: 'This service does not support retry',
+        SERVICES_RESTART_UNSUPPORTED_KEY: 'Unsupported service',
+        SERVICES_RESTART_FAILED: 'Restart failed, check the runtime logs',
+        fallback: 'Operation failed, please try again',
       },
     },
     nav: {
