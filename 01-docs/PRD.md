@@ -7815,6 +7815,48 @@ idle ──触发取数──▶ loading（渲染骨架）
 
 ---
 
+## NavBar 浏览器操作区导航修复（2026-09-15 增量）
+
+**功能文档**: [NAVBAR-NAVIGATION-FIX-2026-09-15.md](./NAVBAR-NAVIGATION-FIX-2026-09-15.md)
+
+### 背景
+
+应用所有页面中，TabBar 标签栏下方的 NavBar 浏览器操作区，「←」后退、「→」前进、「🏠」返回首页三个按钮点击均无反应。
+
+### 根因
+
+home 标签是虚拟标签（无 WebContentsView），主进程 `webview-manager.js` 的 `getAllTabs()/getActiveTab()/getHomeTab()` 对其 `canGoBack/canGoForward` 均硬编码 `false`；渲染端 NavBar 按钮 `:disabled="!canGoBack"` 因此在 home 标签（承载全部 SPA 页面）上**永久禁用**。`goHome()` 仅 `switchToTab('home')`，已在首页标签时为 no-op 且不恢复 SPA 首页路由。
+
+### 修复方案（零 IPC/preload 变更）
+
+- 新增 `src/composables/useSpaNavHistory.js`：通过 `window.history.state.position`（vue-router 4 单调递增栈索引）跟踪 SPA 历史栈；`canGoBack = position > 0`、`canGoForward = position < maxSeen`；新导航（push）截断前进栈（maxSeen 收缩），popstate（back/forward）不收缩；`lastPos` 防重入避免误判。
+- `App.vue`：`navCanGoBack/Forward = isHomeTab ? spaNav.* : navigation.*`（按标签类型选数据源）；`goHome()` 改为「切回首页标签 + `router.push('/')` 路由归位」两步，每步独立 try/catch。
+
+### 数据校验与边界
+
+- `window.history.state` 为 null 或 `position` 非数字：`sync()` 跳过，保持上一次按钮态。
+- `router.back()` 在栈首：浏览器不触发 popstate，状态不变（按钮本就禁用）。
+- 组件卸载 `dispose()` 解绑 popstate 与 afterEach，无监听泄漏。
+- 主进程 / preload / IPC **零变更**，不触发 4 处契约快照同步。
+
+### 交互逻辑（修复后）
+
+| 当前标签 | 箭头可用性数据源 | 点击行为 |
+|----------|-----------------|----------|
+| home 标签（SPA 页面） | vue-router 历史栈 | `router.back()/forward()` |
+| 浏览器标签 | 主进程上报 canGoBack/canGoForward | IPC go-back/go-forward |
+
+🏠 返回首页：浏览器标签 → 切回首页标签并路由归位 `/`；首页标签子页面 → `router.push('/')`；已在 `/` → 无操作。
+
+### 验收标准
+
+- [ ] 首页标签内 SPA 页面间导航后，「←」可点击并回退到上一路由
+- [ ] 回退后「→」恢复可用，可前进；前进到栈顶后「→」禁用
+- [ ] 回退到首条路由后「←」禁用
+- [ ] 回退后发起新导航，「→」被截断禁用
+- [ ] 任意标签点「🏠」→ 落在首页标签且路由为 `/`；已在首页 `/` 时点击无跳变无报错
+- [ ] 浏览器标签（账号页等）内返回/前进仍走主进程链路，行为不变
+- [ ] `useSpaNavHistory.test.js`（7 用例）/ `NavBar.test.js` / `tab.test.js` 全绿
 ## 附：主页未登录问候语「请登录」可点击链接（2026-09-15，PRD-HOME-LOGIN-LINK-2026-09-15.md）
 
 > 状态：已实现（分支 `home-login-link`）| 类型：UI 交互优化（P1）| 范围：渲染端（无 IPC/后端变更）
