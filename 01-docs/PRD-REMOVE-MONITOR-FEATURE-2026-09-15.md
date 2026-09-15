@@ -59,7 +59,7 @@
 | 视图测试 | `apps/desktop/src/views/Monitor.test.js` | 整文件删除 |
 | 覆盖测试 | `apps/desktop/src/views/views-coverage.test.js` | 删除 `MonitorView (coverage)` describe 块 |
 | 路由 | `apps/desktop/src/router/index.js` | 删除 `{ path: '/monitor', name: 'Monitor' }` |
-| 导航 | `apps/desktop/src/layouts/YixiaoerSidebar.vue` | 删除 moreItems 中 `monitor` 项与 `Monitor` 图标 import |
+| 导航 | `apps/desktop/src/layouts/MpSidebar.vue`（#1837 应用命名空间统一时的改名产物，本 PR 对旧侧边栏文件的修改经 rename-detection 迁移至此） | 删除 moreItems 中 `monitor` 项与 `Monitor` 图标 import |
 | 主进程 | `apps/desktop/electron/services/webview-manager.js` | 删除 `openTab()`、`setLayout()`、`closeMonitorTab()`、`closeAllMonitorTabs()`、`getTabsInfo()`、`_calculatePositions()`、`_emit()`、constructor 的 `tabs/layout/_nextTabId` 状态、`closeTab()` 旧分屏分支、`_repositionAll()` 旧分屏分支、5 个 `webview:*` IPC handler、头部品牌残留注释 |
 | preload | `apps/desktop/electron/preload/system.js` | 删除 10 个方法：`webviewSetLayout` / `webviewOpenTab` / `webviewCloseTab` / `webviewCloseAll` / `webviewListTabs` / `onWebviewLayoutChanged` / `onWebviewTabOpened` / `onWebviewTabClosed` / `onWebviewNav` / `onWebviewAllClosed` |
 | 鉴权白名单 | `apps/desktop/electron/preload/access-control.js` | `PUBLIC_METHODS` 同步移除上述 10 个方法 |
