@@ -1,12 +1,59 @@
+## 删除功能前必须穷举消费方矩阵：webview:* 分屏监控体系被 Comments/Collection 静默复用（remove-monitor，2026-09-15）
+
+- **背景**：「监控」（/monitor 分屏监控）功能整体移除。调查发现其底层 `webviewOpenTab`（`webview:open-tab` → `WebviewManager.openTab()`）被私信评论（Comments.vue）与采集（Collection.vue）复用来打开平台页，且打开的 WebContentsView 依赖 Monitor 页面的分屏布局定位——直接删入口会让这两个页面打开的视图变成「无主视图」（view 存在但无 UI 承载，显示错乱）。
+- **教训 1（删除共享底层前先穷举消费方）**：「这个 API 属于功能 X」不可靠。删除前必须做全仓引用矩阵：通道名 + 方法名 + 事件名，覆盖 renderer / 主进程 / 单测断言 / e2e mock 四层；区分「唯一消费者」与「借用消费者」，借用者先迁移再删底层。
+- **教训 2（应用内嵌网页能力收敛到唯一承载层）**：page-manager 标签系统是本应用 WebContentsView 的唯一 UI 承载，新需求「打开某平台页面」一律 `tabStore.createTab({ url, platform, accountId, title })`（范本 Accounts.vue openCreatorCenter），禁止再引入并行视图体系。
+- **教训 3（preload 删除方法五处同步）**：system.js 方法体 + access-control.js PUBLIC_METHODS + preload.test.js（SYSTEM_METHODS 数组与三处计数断言）+ `pnpm run build:preload` 重建 index.bundle.js + e2e ipc-mock.js；漏一处 CI 契约测试即拦截。
+- **教训 4（NUL 字节文件只能字节级编辑）**：learnings.md 含历史 NUL（实测 hasNUL=true），utf8 读写编辑有截残风险；用 Node buffer 插入，且中文内容不能 node -e 内联（控制台 GBK 损坏），必须 UTF-8 脚本文件执行。
+
+
+## 主页未登录问候语「请登录」链接：渲染端登录入口的最小正确实现（2026-09-15）
+
+- **需求**：主页未登录态「中午好，登录」→「中午好，请登录」，且「请登录」可点击、直接弹 Logto 登录窗口。
+- **文案歧义根因**：`stores/identity.js` 的 `displayName` 兜底值是 `'登录'`（未登录时），它被问候语当昵称渲染，
+  于是出现「问候语 + 动词」的怪句。本次**不动** identity store（它是多消费方单点），只在新组件层覆盖展示；
+  后续若统一改兜底词，需同步评估侧边栏 ProfileMenu / 会员中心。
+- **登录入口口径（唯一正确做法）**：显式登录意图直接 `identityStore.signIn()`（主进程 AuthViewManager 弹独立窗口），
+  **不要**复用 `useLoginGate`——后者是「主动操作被拦后的渐进式引导」，多一层确认框，语义不符。
+  `status === 'disabled'`（身份服务未配置）必须 fail-closed 不渲染链接，与 ProfileMenu 降级口径一致。
+- **500 行债务熔断的实战规避**：`Home.vue` 原 495 行，直接内联新增必超 500（`check-debt-budget.js`
+  按 `filesOver500` **计数**对比基线，不是白名单）。把问候语整块抽成 `components/HomeGreeting.vue`
+  （模板 + 计算属性 + CSS 随迁），`Home.vue` 降到 470 行——**拆分而非绕过**。
+- **CJK 门禁的隐性拦截**：`reportError('打开登录窗口失败', e)` 这类**日志文案**也会被
+  `check-locale-sync.js --cjk` 当新增硬编码中文拦下（该门禁不分用户可见/日志）。新代码里的字符串字面量
+  一律用英文或走 i18n。
+- **大文件二进制写入（再次验证）**：`PRD.md`（1.15MB、8 个 NUL、LF）与 `CHANGELOG.md`（1.05MB、CRLF）
+  必须走 `open(p,'rb')/'wb'` 字节通道追加/前插；PRD 尾部 `\n` 结尾直接 append，CHANGELOG 前插需把
+  `\n` 换成 `\r\n`。验收口径 `git diff --numstat` = 「新增 N / 删除 0」（本次 PRD 59/0、CHANGELOG 22/0）。
+- **测试锚点**：新交互组件必须给 `data-testid`（`home-login-link` / `home-greeting`）；identity store 的
+  测试 mock 要补 `isAuthenticated/status/loading/signIn` 四个字段——旧 mock 只有 `displayName`，
+  新逻辑用 `isAuthenticated` 判定后会把「已登录」用例误判成未登录。
+- **官方入口失效的备用路径（本机）**：`start-mp-task.ps1` 内层 `session-init.sh` 用 `git -C "<含 .. 路径>"`，
+  经 PowerShell 调 Git Bash 时 PATH 缺 `dirname`/路径转换失败 → 直接
+  `git worktree add -b <无斜杠分支> <D盘路径> HEAD`（PowerShell 原生 `D:\` 路径）一步到位，
+  无需 detach/update-ref/symbolic-ref 三步兜底。
+
+---
+
+## 移除发布域快捷标签行 + git 远程读数在 PowerShell 管道下的静默错乱（2026-09-15）
+
+- **变更**：`MpModuleNav` 发布域（非 `/`、非 `/accounts*` 的全部 SPA 路由，含 `/collection`）整行不渲染（删 `publishTabs` + `tabs` 空数组 + `<nav v-if="tabs.length">`）；主页/账号域不变。动机：该行在采集页等无关页面渲染、与侧边栏职责重复。PRD 见 `01-docs/PRD-REMOVE-PUBLISH-QUICKNAV-2026-09-15.md`。
+- **消费方矩阵先行**：删共享 UI 前全仓 grep `mp-module-nav|mp-tab-*` 锁定 6 处引用——组件自身/测试/e2e 发布记录跳转/视觉布局检查（`if (nav && main)` 容错，nav 消失自动跳过）/GUI 冒烟（仅 `/accounts` 断言，不受影响）。视觉基线录制于 ipc-mock 空态（`isHomeTab === false`），模块导航本不在基线中 → **零像素影响，无需重建基线**（改动前先验证基线录制态，别默认"改壳必动基线"）。
+- **坑（git 远程读数假数据）**：同一 PowerShell 会话里，`git grep <ref> -- <path>`（pathspec 语法）与 `git show <ref>:<file> | Select-Object -Skip ... | Out-File`（多级管道）的组合输出会**静默错乱**——曾同时得出"origin/main 上存在 `旧命名前缀的 testid` 文件与品牌中文"（假）与"同文件 297 行是 `mp-module-nav`"（真）两个互相矛盾的读数，误导排查近十分钟。**可靠做法**：远程内容核验一律用 tree-ish 语法直接 stdout（`git ls-tree <commit>:<dir>`、`git show <commit>:<path>`）落盘后用 node `fs` 读；**同一事实用两种语法交叉验证**，矛盾时以 tree-ish 直读为准，绝不基于单次管道输出下"main 被回退/门禁失效"之类重结论。
+- **共享根陈旧 main 的处理**：本工作区 main 落后 origin/main 32 个提交（ahead 0，纯落后）。三个本地 untracked 文件与 main 新增 tracked 路径冲突 → 先 SHA256 比对（行尾归一化后仍不同）→ 按 R4 备份到 `%TEMP%` → 删除 untracked 副本 → `git merge --ff-only origin/main` 快进 → 再建 worktree（`start-mp-task.ps1` 从快进后的 main 起分支，避免基于陈旧基线开发）。
+
+---
 
 ## 全仓命名清理：批量替换必须有三道防线 + 三个 git 陷阱（命名空间去品牌化，2026-09-15）
 
 - **背景**：把 271 个文件、1662 处指向参考产品的品牌词（中文品牌名 + 全拼大小写变体 + 三字母缩写变体）替换为中性命名（`mp` / `Mp` / `MP` / `参考产品`），并同步改 56 项路径名。PRD 见 `01-docs/PRD-NAMING-NORMALIZATION-2026-09-15.md`。**本文档与 PRD 均不复现品牌词字面**（残留门禁 `scripts/check-no-brand-residue.js` 会拦截，品牌词按码点构造进正则）。
 - **防线 1（字节级兜底）**：文本通道（`readFileSync utf8 → replace → writeFileSync`）会**静默跳过含 NUL 字节的"文本"文件**——`01-docs/learnings.md`（1.4MB）与 `01-docs/PRD.md` 因个别 NUL 字节被 `buf.includes(0)` 判成二进制而漏改，且残留扫描用了同一判断，**假阴性叠加**导致"残留 0"是假的。正确做法：字节通道用 `latin1`（1 字节 ↔ 1 字符，可逆）做字符串替换再转回 Buffer，对全量 tracked 文件兜底。
 - **防线 2（编码安全校验）**：改写前对每个文件取 `git show HEAD:<file>` 原始字节，校验 `Buffer.compare(orig, Buffer.from(orig.toString('utf8'),'utf8')) === 0`；非 UTF-8（如 GBK）文件用 utf8 读写会把无法映射的字节变成 U+FFFD（数据丢失）。本次发现 2 份 GBK 归档 md，按 UTF-8 归一（改善）并明确记录丢失量。
+- **防线 4（扫描通道与模式必须同表示域）**：常驻门禁在 latin1 字节串上扫描，**中文品牌词的模式也必须先经 toL 转成字节表示**——直接用 Unicode 字符串构造正则，ASCII 变体能命中、中文变体永远匹配不上（#1489 接管时发现 chunked-uploader.js 三处中文品牌词漏检）。防线：用自测（fixture 仓库验证 7 类变体 / 豁免 / 二进制跳过）证明**检出能力**，"当前仓库干净"只证明存量、不证明检出器有效。
 - **防线 3（二进制排除）**：`.mp4` / `.png` 等压缩数据里存在与品牌词**相同的随机字节序列**，字节级替换会直接损坏文件（PNG CRC 校验失败、MP4 无法播放）；二进制扩展名必须显式排除，其"命中"不构成可读品牌痕迹。
 - **git 陷阱 1（.gitignore 命中的改名文件不会被 `git add -A` 收录）**：`.gitignore` 有 `.ccg/tasks/*`，改名后的新路径属"新增 + 被忽略"→ 不入库，而旧路径被记录为删除，最终 **86 个文件以纯删除形态进暂存区**、索引条目数 5421→5335。修复：按删除项经同一套规则推导新路径后 `git add -f -- <path>` 精确补齐，并核对 `git ls-files | measure` 与 HEAD 一致。
-- **git 陷阱 2（占位符保护必须配对还原）**：为保护功能性依赖 `qianming.yixiaoer.cn`（第三方远程签名服务，百家号签名无本地回退）不被通用规则改坏，先替换成 `qianming.__SIGNER_HOST__` 占位符——但**漏写还原步骤**会让端点在仓库里保持损坏态，且残留扫描发现不了（占位符不含品牌词）。占位符方案必须与还原步骤写在同一脚本里并有断言；另注意还原必须是**定点还原**（只还原"保护期"产生的占位符），否则会把文档正文里**有意书写的占位符名**也一并替换掉（本次 learnings 正文即被全局还原弄混）。
+- **git 陷阱 2（占位符保护必须配对还原）**：为保护第三方远程签名域名不被通用规则改坏，先替换成 `qianming.__SIGNER_HOST__` 占位符——但**漏写还原步骤**会让端点在仓库里保持损坏态，且残留扫描发现不了（占位符不含品牌词）。占位符方案必须与还原步骤写在同一脚本里并有断言；另注意还原必须是**定点还原**（只还原"保护期"产生的占位符），否则会把文档正文里**有意书写的占位符名**也一并替换掉（本次 learnings 正文即被全局还原弄混），且**措辞修正类规则同样会误伤"描述该修正本身的文档"**（PRD 里"参考同类产品 → 参考同类产品"即此因）。
+- **复核教训（依赖面结论必须落到调用链）**：#1837 曾断言"百家号签名无本地回退属硬依赖，端点不可移除"——该判断只看了 signer.js 内部的函数设计（`getBaijiahaoSignature` 确无回退），**没有验证它有没有生产调用方**。实际 `getBaijiahaoSignature`/`getXiaohongshuToken` 均无调用方（百家号适配器走自身上传链、小红书适配器直用本地签名），真实依赖面只有抖音/快手且均有本地回退。"X 无回退"≠"X 是硬依赖"——**先证明"X 被调用"，再谈依赖强度**。基于此，签名已在收口 PR 全部本地化，域名仅剩抖音验证开关（`MP_SIGNER_BASE`）。
 - **git 陷阱 3（`scripts/*.js` 白名单型 ignore 规则让新脚本静默不入库）**：`.gitignore` 对 `scripts/*.js` 整体忽略 + 显式 `!scripts/xxx.js` 白名单。新增脚本若忘加白名单，`git add -A` **静默跳过、commit 照样成功、无任何告警**——#1837 的品牌残留门禁脚本因此三次提交全部落空，PR 已合并而脚本不在仓库（直到 CI 接线 PR 才发现：CI 步骤引用的脚本在 checkout 后不存在）。防线：新增要入库的脚本后必须 `git ls-files <path>` 确认 tracked（或 `git check-ignore -v <path>` 看命中规则）；CI 侧用 workflow 契约测试断言"门禁脚本真实存在"双保险。
 - **措辞复查不可省**：机械替换会产生叠词与语义错误——"参考 + 中文品牌名" → "参考参考产品"（17 处，二次修正为"参考同类产品"）；`aria-label="<中文品牌名>主导航"` → "参考产品主导航"（无障碍标签是用户可见文案，语义应为"主导航"）。替换后必须抽查**用户可见文案**与**高频语境**。
 - **基线联动**：`.github/scripts/locale-cjk-baseline.json`（`file||content` 格式）会被同一套规则改写，本次顺带 `--update-baseline` 重建（1689 → 1644），清掉 45 条含品牌词的死条目；门禁为增量式，重建不会掩盖新增硬编码。
@@ -14795,3 +14842,22 @@ commit `941b17f1`（feat: browser-style tab bar）在 `webview-manager.js` `crea
 - **`index.bundle.js` 是入库产物**：改 `electron/preload/*.js` 后必须跑 `pnpm run build:preload` 重建，否则产物与源码不一致。
 - **债务熔断 `filesOver500` 是文件个数**：给 `src/api/publisher.js`（原本 497 行）加 4 行即越过 500 触发 FAIL（87 > 基线 86）。解法是压缩为单行并顺手删掉一处重复空行（回到 498），**不要 `--update` 抬基线**。
 - **用户主动动作的失败不得降级成静默语义**：更新检查的后台失败沿用既有「静默当已是最新」策略，但**用户点击安装后的失败必须原样回传 `error`**（否则入口永远停在「下载中」，用户无从重试）。
+
+
+## 发布记录未登录误报「服务连接失败」：IPC 业务拒绝必须按 errorCode 分流（publish-history-login-gate，2026-09-15）
+
+### 现象与根因
+
+未登录点击「发布」→ 发布记录页报「发布记录加载失败 / 请检查服务连接后重试」，而服务状态全绿。根因是两层叠加：`history:list` 自 2026-08-11 起要求登录（`LOGIN_ONLY_FEATURE_MAP`），未登录被门禁以 `AUTH_REQUIRED(-3)` 拒绝；但 `PublishHistory.vue` 的 `loadRecords()` catch 把一切失败写死为 `checkService` 文案，权限拒绝被伪装成网络故障。发布记录页 2026-09-11 重构新建时未感知 08-11 的门禁收紧，两者叠加成 bug。
+
+### 逃逸分析
+
+既有测试只覆盖 `mockRejectedValueOnce`（reject 异常）路径；门禁拒绝是「主进程 resolve 但 code:-3」的业务路径，从未有用例覆盖。
+
+### 可复用结论
+
+- **权限拒绝与传输故障必须在渲染端分流**：`AUTH_REQUIRED`/`NOT_SIGNED_IN` → 登录引导态（无重试按钮）；其他非零 code → `formatUserError` 具体原因 + 重试；catch 兜底「请检查服务连接」只属于传输类异常。可复制范式：`isAuthGateResult()` + error 对象携带 `userMessage`（fallback 保持原文案，向后兼容）。
+- **code:-3 是多语义家族**：`AUTH_REQUIRED` 与 `ENTITLEMENT_REQUIRED` 同为 -3，判定必须用 `errorCode`，数值码只在 errorCode 缺失时兜底——本次实现中先踩后修。
+- **登录成功自动重载**：`watch(identityAuthenticated)` 触发重载，消除「登录完还要手点重试」断点；登录入口必须走 `useIdentity().signIn()`。
+- **watcher 泄漏断言不稳**：测试内 mock 的 `isAuthenticated` ref 翻转会触发所有仍挂载组件的 watcher（vitest 不自动 unmount）→ 新用例末尾必须 `wrapper.unmount()`，否则多发的 historyList 调用让 `toHaveBeenCalledTimes` 断言随机失败。
+- **`} catch {` 改 `} catch (e) {` 才能取 e**：本次曾漏改导致测试期 `ReferenceError: e is not defined`（Unhandled Rejection）。

@@ -117,6 +117,8 @@ jobs:
       # 本地同口径：node scripts/check-no-brand-residue.js
       - name: "Gate 12 - Brand residue (naming normalization)"
         run: |
+          node --test scripts/check-no-brand-residue.test.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/check-no-brand-residue.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 

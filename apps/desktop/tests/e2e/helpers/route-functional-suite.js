@@ -145,8 +145,8 @@ async function exerciseComments(r) {
   record(r, '评论平台列表有数据', await item.count() > 0);
   if (await item.count()) {
     await item.click();
-    record(r, '评论容器在选择平台后显示', await waitForVisible(r.page.locator('#comment-view-container')));
-    await expectIpc(r, 'webviewOpenTab', '选择平台打开评论页');
+    record(r, '选择平台后显示标签栏引导', await bodyHas(r, '顶部标签栏'));
+    await expectIpc(r, 'pageManagerCreateNewTabPage', '选择平台在全局标签栏打开评论页');
   }
 }
 
@@ -246,26 +246,6 @@ async function exerciseCollection(r) {
     await expectIpc(r, 'urlCollectFetch', '采集调用 IPC');
   }
   record(r, '新建草稿按钮可点击', await clickText(r, '新建草稿'));
-}
-
-async function exerciseMonitor(r) {
-  const layouts = r.page.locator('.layout-btn');
-  for (let i = 0; i < await layouts.count(); i++) await layouts.nth(i).click();
-  record(r, '所有分屏布局可切换', await layouts.count() === 5, { count: await layouts.count() });
-  await expectIpc(r, 'webviewSetLayout', '分屏布局调用 IPC');
-  const opened = await clickText(r, '添加监控');
-  if (opened) {
-    const modal = r.page.locator('.ui-modal, .el-dialog').first();
-    const modalVisible = await waitForVisible(modal);
-    record(r, '添加监控打开弹窗', modalVisible);
-    // 关闭弹窗以便后续通用扫描
-    const closeButton = r.page.locator('.ui-modal-close').first();
-    if (await waitForVisible(closeButton, 1000)) await closeButton.click();
-    else await r.page.keyboard.press('Escape');
-    record(r, '添加监控弹窗可关闭', await waitForHidden(modal));
-  } else {
-    record(r, '添加监控打开弹窗', false);
-  }
 }
 
 async function exerciseKeywords(r) {
@@ -532,7 +512,6 @@ const definitions = {
   accounts: { route: '/accounts', title: '账号管理', exercise: exerciseAccounts, initialAuditStrategy: 'semantic' },
   dashboard: { route: '/dashboard', title: '数据看板', exercise: exerciseDashboard },
   collection: { route: '/collection', title: '内容采集', exercise: exerciseCollection },
-  monitor: { route: '/monitor', title: '分屏监控', exercise: exerciseMonitor },
   keywords: { route: '/keywords', title: '关键词监测', exercise: exerciseKeywords },
   'viral-analysis': { route: '/viral-analysis', title: '爆款分析', exercise: exerciseViral },
   'model-providers': { route: '/model-providers', title: '模型服务商设置', exercise: exerciseModelProviders },

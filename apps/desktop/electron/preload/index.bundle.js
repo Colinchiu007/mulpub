@@ -389,37 +389,6 @@ var require_system = __commonJS({
           ipcRenderer2.on("notification", h);
           return () => ipcRenderer2.removeListener("notification", h);
         },
-        // 分屏监控 API
-        webviewSetLayout: (count) => ipcRenderer2.invoke("webview:set-layout", count),
-        webviewOpenTab: (opts) => ipcRenderer2.invoke("webview:open-tab", opts),
-        webviewCloseTab: (tabId) => ipcRenderer2.invoke("webview:close-tab", tabId),
-        webviewCloseAll: () => ipcRenderer2.invoke("webview:close-all"),
-        webviewListTabs: () => ipcRenderer2.invoke("webview:list-tabs"),
-        onWebviewLayoutChanged: (cb) => {
-          const h = (_, d) => cb(d);
-          ipcRenderer2.on("webview:layout-changed", h);
-          return () => ipcRenderer2.removeListener("webview:layout-changed", h);
-        },
-        onWebviewTabOpened: (cb) => {
-          const h = (_, d) => cb(d);
-          ipcRenderer2.on("webview:tab-opened", h);
-          return () => ipcRenderer2.removeListener("webview:tab-opened", h);
-        },
-        onWebviewTabClosed: (cb) => {
-          const h = (_, d) => cb(d);
-          ipcRenderer2.on("webview:tab-closed", h);
-          return () => ipcRenderer2.removeListener("webview:tab-closed", h);
-        },
-        onWebviewNav: (cb) => {
-          const h = (_, d) => cb(d);
-          ipcRenderer2.on("webview:navigated", h);
-          return () => ipcRenderer2.removeListener("webview:navigated", h);
-        },
-        onWebviewAllClosed: (cb) => {
-          const h = () => cb();
-          ipcRenderer2.on("webview:all-closed", h);
-          return () => ipcRenderer2.removeListener("webview:all-closed", h);
-        },
         // 回调服务器 API
         onCallbackReceived: (cb) => {
           const h = (_, d) => cb(d);
@@ -486,6 +455,11 @@ var require_system = __commonJS({
         // Upload API
         uploadChunked: (filePath) => ipcRenderer2.invoke("upload:chunked", { filePath }),
         uploadCancel: () => ipcRenderer2.invoke("upload:cancel"),
+        onUploadProgress: (callback) => {
+          const h = (_e, payload) => callback(payload);
+          ipcRenderer2.on("upload:progress", h);
+          return () => ipcRenderer2.removeListener("upload:progress", h);
+        },
         // Template API
         templateList: () => ipcRenderer2.invoke("template:list"),
         templateGet: (id) => ipcRenderer2.invoke("template:get", id),
@@ -905,7 +879,8 @@ var require_services = __commonJS({
   "electron/preload/services.js"(exports2, module2) {
     function createServicesApi2(ipcRenderer2) {
       return {
-        servicesGetStatus: () => ipcRenderer2.invoke("services:get-status")
+        servicesGetStatus: () => ipcRenderer2.invoke("services:get-status"),
+        servicesRestart: (key) => ipcRenderer2.invoke("services:restart", { key })
       };
     }
     module2.exports = { createServicesApi: createServicesApi2 };
@@ -1105,16 +1080,6 @@ var require_access_control = __commonJS({
       "syncAll",
       "syncPlatform",
       "syncCached",
-      "webviewSetLayout",
-      "webviewOpenTab",
-      "webviewCloseTab",
-      "webviewCloseAll",
-      "webviewListTabs",
-      "onWebviewLayoutChanged",
-      "onWebviewTabOpened",
-      "onWebviewTabClosed",
-      "onWebviewNav",
-      "onWebviewAllClosed",
       "modelProviderList",
       "modelProviderGet",
       "opsCenterSyncGet",

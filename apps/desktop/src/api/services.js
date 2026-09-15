@@ -8,3 +8,10 @@ export async function servicesGetStatus() {
     ? api.servicesGetStatus()
     : { code: -1, message: 'SERVICES_API_UNAVAILABLE' }
 }
+
+export async function servicesRestart(key) {
+  const api = getApi()
+  return api && typeof api.servicesRestart === 'function'
+    ? api.servicesRestart(key)
+    : { code: -1, message: 'SERVICES_API_UNAVAILABLE' }
+}

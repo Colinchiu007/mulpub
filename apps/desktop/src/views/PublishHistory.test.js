@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { nextTick } from 'vue'
+import { nextTick, ref } from 'vue'
 import fs from 'node:fs'
 import path from 'node:path'
 import i18n from '@/i18n'
@@ -11,6 +11,16 @@ const pushMock = vi.fn()
 const historyGetMock = vi.fn()
 const historyDeleteMock = vi.fn()
 const retryTaskMock = vi.fn()
+
+// 未登录门禁态测试：用 ref 驱动 isAuthenticated，可模拟「登录成功 → 自动重载」。
+const identityAuthenticatedRef = ref(false)
+const identitySignInMock = vi.fn(async () => true)
+vi.mock('@/composables/useIdentity', () => ({
+  useIdentity: () => ({
+    isAuthenticated: identityAuthenticatedRef,
+    signIn: (...args) => identitySignInMock(...args),
+  }),
+}))
 
 vi.mock('@/api/publisher', () => ({
   historyList: (...args) => historyListMock(...args),
@@ -85,6 +95,8 @@ describe('PublishHistory', () => {
     historyGetMock.mockReset().mockResolvedValue({ code: 0, data: {} })
     historyDeleteMock.mockReset().mockResolvedValue({ code: 0, data: { deleted: 1 } })
     retryTaskMock.mockReset().mockResolvedValue({ code: 0 })
+    identityAuthenticatedRef.value = false
+    identitySignInMock.mockClear()
     draftListMock.mockReset().mockResolvedValue({
       code: 0,
       data: [{ id: 'draft-1', title: '待完成草稿', created_at: '2026-07-23T08:00:00.000Z' }],
@@ -372,6 +384,62 @@ describe('PublishHistory', () => {
     await nextTick()
     await nextTick()
     expect(historyListMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('未登录被门禁拒绝（AUTH_REQUIRED）时显示登录引导，而不是服务连接失败', async () => {
+    historyListMock.mockResolvedValueOnce({
+      code: -3,
+      errorCode: 'AUTH_REQUIRED',
+      message: '当前许可证无权访问该功能，请先登录并确认账号已开通所需权益后重试。',
+    })
+    const wrapper = mountView()
+    await flushHistory()
+
+    expect(wrapper.find('[data-testid="history-login-gate"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('登录后查看发布记录')
+    expect(wrapper.text()).toContain('去登录')
+    expect(wrapper.text()).not.toContain('发布记录加载失败')
+    expect(wrapper.text()).not.toContain('请检查服务连接后重试')
+    expect(wrapper.find('[data-testid="retry-history"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('点击去登录触发 identity.signIn，登录成功后自动重载发布记录', async () => {
+    historyListMock.mockResolvedValueOnce({ code: -3, errorCode: 'AUTH_REQUIRED', message: 'auth required' })
+    const wrapper = mountView()
+    await flushHistory()
+    expect(wrapper.find('[data-testid="history-login-gate"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="history-sign-in"]').trigger('click')
+    expect(identitySignInMock).toHaveBeenCalledTimes(1)
+
+    identityAuthenticatedRef.value = true
+    await flushHistory()
+    expect(historyListMock).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('[data-testid="history-login-gate"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('已发布文章')
+    wrapper.unmount()
+  })
+
+  it('登录后权益不足（ENTITLEMENT_REQUIRED）显示具体原因，不误报服务连接失败', async () => {
+    historyListMock.mockResolvedValueOnce({
+      code: -3,
+      errorCode: 'ENTITLEMENT_REQUIRED',
+      message: '当前账号没有所需权益，无法使用该功能。请升级或开通对应权益后重试。',
+    })
+    const wrapper = mountView()
+    await flushHistory()
+
+    expect(wrapper.find('[data-testid="history-login-gate"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('发布记录加载失败')
+    // formatUserError 按运行语言映射权益文案（zh/en），两语言任一命中即算具体原因
+    const text = wrapper.text()
+    expect(
+      text.includes('当前账号没有所需权益') || text.includes('does not have the required plan'),
+    ).toBe(true)
+    expect(text).not.toContain('请检查服务连接后重试')
+    expect(wrapper.find('[data-testid="retry-history"]').exists()).toBe(true)
+    wrapper.unmount()
   })
 
   it('切换草稿箱后加载草稿，并进入编辑器继续编辑', async () => {

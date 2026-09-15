@@ -212,7 +212,7 @@ describe("CollectionView (coverage)", () => {
 
   async function mnt() {
     const m = await import("./Collection.vue");
-    return mount(m.default || m, { global: { mocks: { $t: (key) => key } } });
+    return mount(m.default || m, { global: { mocks: { $t: (key) => key }, plugins: [i18n] } });
   }
 
   it("can delete draft from list", async () => {
@@ -223,38 +223,6 @@ describe("CollectionView (coverage)", () => {
     w.vm.drafts.splice(0, 1);
     await nextTick();
     expect(w.vm.drafts.length).toBe(0);
-  });
-});
-
-
-// ====== Monitor.vue ======
-describe("MonitorView (coverage)", () => {
-  beforeEach(() => { vi.clearAllMocks(); setActivePinia(createPinia()); window.electronAPI = {}; });
-
-  async function mnt() {
-    const m = await import("./Monitor.vue");
-    return mount(m.default || m, { global: { plugins: [createPinia()] } });
-  }
-
-  it("switches to 2x2 layout", async () => {
-    const w = await mnt();
-    await nextTick();
-    const btns = w.findAll(".layout-btn");
-    expect(btns.length).toBeGreaterThanOrEqual(2);
-    await btns[1].trigger("click");
-    await nextTick();
-    expect(w.vm.currentLayout).toBe(2);
-  });
-
-  it("switches to 3x3 layout", async () => {
-    const w = await mnt();
-    await nextTick();
-    const btns = w.findAll(".layout-btn");
-    if (btns.length >= 3) {
-      await btns[2].trigger("click");
-      await nextTick();
-      expect(w.vm.currentLayout).toBe(3);
-    }
   });
 });
 

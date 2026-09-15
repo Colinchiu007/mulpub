@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mount } from "@vue/test-utils";
 import { nextTick } from "vue";
+import { setActivePinia, createPinia } from "pinia";
 
 vi.mock("element-plus", () => ({
   ElMessage: { warning: vi.fn(), success: vi.fn(), error: vi.fn(), info: vi.fn() },
@@ -15,7 +16,7 @@ vi.mock("vue-router", () => ({
 
 function mountCollection(options) {
   return mount(CollectionView, {
-    global: { mocks: { $t: (key) => key } },
+    global: { mocks: { $t: (key) => key }, plugins: [createPinia(), i18n] },
     ...options,
   });
 }
@@ -27,6 +28,7 @@ import i18n from "@/i18n";
 describe("CollectionView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    setActivePinia(createPinia());
     window.electronAPI = {};
   });
 
@@ -145,25 +147,35 @@ describe("CollectionView", () => {
     expect(ElMessage.warning).toHaveBeenCalled();
   });
 
-  it("openCollection opens webview tab when API available", async () => {
+  it("openCollection opens a tab via pageManager when dashboard URL is available", async () => {
+    const { PLATFORM_DASHBOARD_URLS } = await import("@multi-publish/shared-utils/src/platform-definitions");
     window.electronAPI = {
-      webviewOpenTab: vi.fn().mockResolvedValue(undefined)
+      pageManager: {
+        createNewTabPage: vi.fn().mockResolvedValue({ code: 0, data: { tabId: "btab-1" } })
+      }
     };
     const w = mountCollection();
     await nextTick();
     await w.vm.openCollection("weibo");
-    expect(window.electronAPI.webviewOpenTab).toHaveBeenCalledWith({ platform: "weibo" });
+    expect(window.electronAPI.pageManager.createNewTabPage).toHaveBeenCalledWith(
+      expect.objectContaining({ url: PLATFORM_DASHBOARD_URLS.weibo, platform: "weibo" })
+    );
     const { ElMessage } = await import("element-plus");
     expect(ElMessage.success).toHaveBeenCalled();
   });
 
-  it("openCollection shows info when no webview API", async () => {
-    window.electronAPI = {};
+  it("openCollection warns and skips when platform has no dashboard URL", async () => {
+    window.electronAPI = {
+      pageManager: {
+        createNewTabPage: vi.fn()
+      }
+    };
     const w = mountCollection();
     await nextTick();
-    await w.vm.openCollection("zhihu");
+    await w.vm.openCollection("unknown_platform");
+    expect(window.electronAPI.pageManager.createNewTabPage).not.toHaveBeenCalled();
     const { ElMessage } = await import("element-plus");
-    expect(ElMessage.info).toHaveBeenCalled();
+    expect(ElMessage.warning).toHaveBeenCalled();
   });
 
   it("editDraft navigates to publish", async () => {
@@ -1084,12 +1096,13 @@ describe("CollectionView", () => {
 describe("CollectionView 文案库标签", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    setActivePinia(createPinia());
     window.electronAPI = {};
     i18n.global.locale.value = "zh";
   });
 
   function mountWithI18n() {
-    return mount(CollectionView, { global: { plugins: [i18n] } });
+    return mount(CollectionView, { global: { plugins: [i18n, createPinia()] } });
   }
 
   it("renders library tab and switches to it", async () => {

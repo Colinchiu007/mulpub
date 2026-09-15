@@ -10,7 +10,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-CURRENT_ROOT="$(git -C "$SCRIPT_DIR/.." rev-parse --show-toplevel)"
+# 2026-09-15：MSYS_NO_PATHCONV=1 环境下 git -C 的 POSIX 路径参数不转换（见 session-init.sh 同款注释）
+GIT_ROOT_ARG="$(cygpath -m "$SCRIPT_DIR/.." 2>/dev/null || echo "$SCRIPT_DIR/..")"
+CURRENT_ROOT="$(git -C "$GIT_ROOT_ARG" rev-parse --show-toplevel)"
 REPO_ROOT="$(git -C "$CURRENT_ROOT" worktree list --porcelain | awk '/^worktree / {print substr($0,10); exit}')"
 REPO_PARENT="$(dirname "$REPO_ROOT")"
 MP_WORKTREES="${MP_WORKTREES:-$REPO_PARENT/mp-worktrees}"
@@ -33,7 +35,9 @@ case "$cmd" in
             echo -e "${RED}任务名必须是小写 kebab-case: $TASK_NAME${NC}"
             exit 4
         fi
-        BRANCH="codex/$TASK_NAME"
+        BRANCH="${MP_BRANCH_PREFIX:+${MP_BRANCH_PREFIX}/}$TASK_NAME"
+        # 2026-09-15：含斜杠分支名（codex/x）在本机 ref 写入不可靠（实测 fatal: invalid
+        # reference），默认无斜杠分支名；需要前缀时以 MP_BRANCH_PREFIX 覆盖。
         WT_PATH="$MP_WORKTREES/mp-$TASK_NAME"
         mkdir -p "$MP_WORKTREES"
         COMMON_DIR="$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir)"

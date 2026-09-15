@@ -7857,3 +7857,91 @@ home 标签是虚拟标签（无 WebContentsView），主进程 `webview-manager
 - [ ] 任意标签点「🏠」→ 落在首页标签且路由为 `/`；已在首页 `/` 时点击无跳变无报错
 - [ ] 浏览器标签（账号页等）内返回/前进仍走主进程链路，行为不变
 - [ ] `useSpaNavHistory.test.js`（7 用例）/ `NavBar.test.js` / `tab.test.js` 全绿
+## 附：主页未登录问候语「请登录」可点击链接（2026-09-15，PRD-HOME-LOGIN-LINK-2026-09-15.md）
+
+> 状态：已实现（分支 `home-login-link`）| 类型：UI 交互优化（P1）| 范围：渲染端（无 IPC/后端变更）
+
+### 需求
+
+- 未登录状态下主页问候语由「中午好，登录」改为「中午好，**请登录**」。
+- 「请登录」为可点击链接，点击**直接弹出登录窗口**（Logto OAuth，主进程 AuthViewManager 承载），无中间确认框。
+- 登录成功后主页响应式切换为「问候语 + 昵称」，无需刷新。
+
+### 身份状态 × 渲染矩阵
+
+| status | isAuthenticated | 渲染 | 可点击 |
+|--------|-----------------|------|--------|
+| authenticated / refreshing / offline_authenticated | true | 问候语 + 昵称 | 否 |
+| signed_out / expired / error / signing_in / signing_out | false | 问候语 + **请登录**链接 | 是（signing_in 时被 loading 守卫忽略） |
+| disabled（身份服务未配置） | false | 问候语 + displayName 兜底 | **否（fail-closed，不渲染链接）** |
+
+判定：`showLoginEntry = !isAuthenticated && status !== 'disabled'`（与 ProfileMenu 降级口径一致）。
+
+### 功能与交互逻辑
+
+- 新组件 `components/HomeGreeting.vue` 承载欢迎区问候语（Home.vue 原 495 行，拆分后 470 行，规避 500 行债务熔断）。
+- 点击链路：点击 → `loading` 防重入守卫 → `identityStore.signIn()`（IPC sign-in → 独立登录窗口）→
+  成功：`onIdentityStateChanged` 推送 → 问候语自动变昵称；失败/取消：`notifyWarning('loginGate.loginIncomplete')`；
+  异常：`reportError` 上报 + 同一 warning 兜底。
+- 数据校验：重入守卫（loading）/ 状态守卫（disabled fail-closed）/ 登录结果双重判定（返回值 + isAuthenticated）/
+  异常兜底（try/catch 不外抛）/ displayName 空值回退 `home.user`。
+
+### 显示项与提示文字（i18n，zh/en 成对）
+
+| key | zh | en |
+|-----|----|----|
+| `home.pleaseLogin`（新增） | 请登录 | Sign in |
+| `home.greetings.*`（复用） | 夜深了/早上好/中午好/下午好/晚上好 | Late night/Good morning/Good noon/Good afternoon/Good evening |
+| `loginGate.loginIncomplete`（复用） | 登录未完成，操作已取消 | 登录未完成，操作已取消 |
+
+视觉：`#5048e5` 加粗链接，hover/focus `#3f37c9` + 下划线；原生 `<a>` + `@click.prevent`；`:aria-busy` 绑定 loading；
+测试锚点 `data-testid="home-login-link"` / `data-testid="home-greeting"`。
+
+### 验收标准
+
+1. 未登录启动 → 「（时段问候语），请登录」，链接样式可点击。
+2. 点击 → 弹出独立登录窗口，无中间确认框。
+3. 登录成功 → 问候语自动变昵称，链接消失。
+4. 中途关闭窗口 → 「登录未完成，操作已取消」提示，链接可重试。
+5. 快速连点 → 只弹一个登录窗口。
+6. 身份服务未配置 → 无链接（fail-closed）。
+7. 英文 locale → 「Good afternoon, Sign in」。
+8. 已登录 → 行为与改动前完全一致。
+
+### 测试与门禁
+
+- `Home.test.js` 19 例全绿（新增 6 例：链接显隐/点击触发登录/disabled fail-closed/登录未完成提示/防重入/回归）。
+- 关联回归：`ProfileMenu.test.js` 17 · `identity.test.js` 17 · `useLoginGate.test.js` 8 全绿。
+- 门禁：债务熔断 `filesOver500` 86=86 ✅ · `check-locale-sync --cjk/--keys` ✅ · `check-frontend-consistency` ✅。
+
+---
+
+## 补充：发布记录未登录门禁态（2026-09-15）
+
+未登录点击侧边栏「发布」→ 发布记录页时，不再误报「请检查服务连接后重试」：`history:list` 等 `publish_history` 通道要求登录（`LOGIN_ONLY_FEATURE_MAP`），未登录时主进程返回 `AUTH_REQUIRED`，渲染端按错误码分流为「登录后查看发布记录」引导态 +「去登录」按钮（走 `identity.signIn()`，登录成功自动重载发布记录）；权益不足（ENTITLEMENT_REQUIRED）等业务拒绝展示 formatUserError 具体原因；仅传输类异常保留「请检查服务连接后重试」。详细规格（根因五环节链 / 分流规则表 / 状态机 / 显示项与提示文字 zh-en / 测试覆盖 / 已知局限）见 `01-docs/PRD-PUBLISH-HISTORY-LOGIN-GATE-2026-09-15.md`。
+
+---
+
+## 应用壳模块导航：移除发布域快捷标签行（2026-09-15 增量）
+
+> 完整规格见 **[PRD-REMOVE-PUBLISH-QUICKNAV-2026-09-15.md](./PRD-REMOVE-PUBLISH-QUICKNAV-2026-09-15.md)**（功能逻辑 / 交互逻辑 / 显示项 / 边界 / 影响面 / 回滚）。布局规格见 `docs/desktop-ui-layout-spec.md` §3.4。
+
+**需求**：发布域快捷标签行（「新建发布 / 发布记录 / 草稿箱」）在采集页等与发布无关的页面同样渲染，与左侧边栏导航职责重复，属界面噪音——**整行移除**。
+
+**功能与交互逻辑**
+
+| # | 规则 |
+|---|------|
+| 1 | 发布域路由（`module === 'publish'`，即除 `/` 与 `/accounts*` 外的全部 SPA 路由）下模块导航**整行不渲染**：无标签、无 70px 占位、无底部分隔线；`NavBar` 直接衔接 `.mp-workspace` |
+| 2 | 主页域（`/`，「主页」标签）与账号域（`/accounts*`，账号四标签 + `?tab=` 激活切换）行为不变 |
+| 3 | 实现唯一方式：`publishTabs` 删除 + `tabs` 发布域返回空数组 + `<nav v-if="tabs.length > 0">`；禁止用 CSS 隐藏等假性移除 |
+| 4 | 发布域导航入口由侧边栏唯一承担（发布 / 草稿 / 采集直达）；发布记录经发布页内入口或地址路由到达；禁止在页面内重建并行标签行 |
+| 5 | 纯展示层变更：零后端 / 零数据 / 零 IPC / 零新增文案（不涉及 i18n）；未知路由归入发布域 fail-safe 不渲染 |
+
+**验收标准**
+
+- [ ] 采集页、发布页、发布记录页、草稿箱顶部均无该行且无空白占位
+- [ ] 主页与账号管理页的模块导航标签行显示与激活态不变
+- [ ] 发布域路由下 DOM 中无 `[data-testid="mp-module-nav"]` 且无任何 `role="tab"` 节点
+- [ ] `MpModuleNav.test.js`（含发布域四路由回归保护）与全量 desktop 单测通过；e2e `publish-flow.test.js` hash 导航可达发布记录
+

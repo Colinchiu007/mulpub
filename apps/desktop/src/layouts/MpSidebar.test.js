@@ -40,20 +40,25 @@ vi.mock('@/stores/license', () => ({
 
 const serviceStatusState = vi.hoisted(() => ({
   services: [
-    { key: 'mainBackend', name: '主服务', status: 'running', port: 8299 },
-    { key: 'splitterEngine', name: '分句引擎', status: 'running', port: 8002 },
-    { key: 'promptEngine', name: '提示词优化引擎', status: 'running', port: 8013 },
-    { key: 'callbackServer', name: '回调服务', status: 'running', port: 16521 },
-    { key: 'mediaServer', name: '媒体服务', status: 'running', port: 0 },
-    { key: 'alignerEngine', name: '对齐引擎', status: 'standby', port: 8004 },
+    { key: 'mainBackend', name: '主服务', status: 'running', port: 8299, reason: 'ok', restartable: true, onDemand: false },
+    { key: 'splitterEngine', name: '分句引擎', status: 'running', port: 8002, reason: 'ok', restartable: true, onDemand: false },
+    { key: 'promptEngine', name: '提示词优化引擎', status: 'running', port: 8013, reason: 'ok', restartable: true, onDemand: false },
+    { key: 'callbackServer', name: '回调服务', status: 'running', port: 16521, reason: 'ok', restartable: false, onDemand: false },
+    { key: 'mediaServer', name: '媒体服务', status: 'running', port: 0, reason: 'ok', restartable: true, onDemand: false },
+    { key: 'alignerEngine', name: '对齐引擎', status: 'standby', port: 8004, reason: 'on_demand', restartable: false, onDemand: true },
   ],
   loaded: true,
   unavailable: false,
   runningCount: 5,
+  stoppedCount: 0,
   allRunning: true,
+  hasDegradation: false,
+  lastSeenRunning: {},
+  restarting: {},
   startPolling: vi.fn(),
   stopPolling: vi.fn(),
   refresh: vi.fn(async () => true),
+  restart: vi.fn(async () => ({ ok: true })),
 }))
 
 vi.mock('@/stores/serviceStatus', () => ({
@@ -179,15 +184,17 @@ describe('MpSidebar', () => {
     expect(items[1].text()).toContain('分句引擎')
     expect(items[2].text()).toContain('提示词优化引擎')
     const aligner = sidebar.get('[data-testid="mp-service-alignerEngine"]')
-    expect(aligner.text()).toContain('待命')
+    expect(aligner.text()).toContain('按需')
   })
 
   it('shows degraded summary when services fail', () => {
     const previous = serviceStatusState.services
     const previousRunning = serviceStatusState.runningCount
+    const previousStopped = serviceStatusState.stoppedCount
     const previousAll = serviceStatusState.allRunning
     serviceStatusState.services = previous.map((s) => s.key === 'promptEngine' ? { ...s, status: 'stopped' } : s)
     serviceStatusState.runningCount = 4
+    serviceStatusState.stoppedCount = 1
     serviceStatusState.allRunning = false
 
     try {
@@ -200,6 +207,7 @@ describe('MpSidebar', () => {
     } finally {
       serviceStatusState.services = previous
       serviceStatusState.runningCount = previousRunning
+      serviceStatusState.stoppedCount = previousStopped
       serviceStatusState.allRunning = previousAll
     }
   })

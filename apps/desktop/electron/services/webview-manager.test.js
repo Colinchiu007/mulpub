@@ -95,15 +95,9 @@ describe('内嵌标签页布局（回归：必须用客户区尺寸，外框尺�
     // 右边缘）与底部内容落在窗口之外被裁掉，且页面已按外框视口布局、无法滚动补救。
     expect(view.setBounds).toHaveBeenLastCalledWith({ x: 200, y: 76, width: 1224, height: 785 })
   })
-
-  it('分屏监控布局接收客户区尺寸并按顶部 NAV_HEIGHT=56 计算', () => {
-    const wm = new WebviewManager()
-    const positions = wm._calculatePositions({ width: 1424, height: 861 })
-    expect(positions[0]).toEqual({ x: 200, y: 56, width: 1224, height: 805 })
-  })
 })
 
-describe('WebviewManager 虚拟登录标签（参考产品对标）', () => {
+describe('WebviewManager 虚拟登录标签', () => {
   it('attachAuthViewManager 绑定开关钩子', () => {
     const wm = new WebviewManager()
     const auth = createFakeAuthViewManager()

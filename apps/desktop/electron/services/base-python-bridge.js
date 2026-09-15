@@ -239,17 +239,55 @@ class BasePythonBridge {
    * @returns {Promise<boolean>}
    */
   healthCheck () {
+    return this.healthCheckDetail().then((detail) => detail.ok)
+  }
+
+  /**
+   * 健康检查（含失败归因）— GET /health
+   *
+   * 与 healthCheck() 探测同一端点，额外返回失败原因，供服务状态面板区分
+   * 「从未启动」「已启动但无响应」「端口被占用」等故障模式。
+   *
+   * @returns {Promise<{ ok: boolean, reason: string, statusCode: number|null }>}
+   *   reason 取值：
+   *     ok                 — 存活（HTTP 200 或 body.status 为 ok/healthy）
+   *     connection_refused — 端口无监听（进程未启动 / 已退出）
+   *     timeout            — 2s 内无响应（进程存活但卡死）
+   *     http_error         — 返回 4xx/5xx
+   *     unhealthy          — 返回 2xx 但 body 明确报告不健康
+   *     unknown            — 其他网络错误
+   */
+  healthCheckDetail () {
     return new Promise((resolve) => {
-      const req = http.get(`http://${this.host}:${this.port}/health`, { timeout: 2000 }, (res) => {
-        let data = ''
-        res.on('data', chunk => { data += chunk })
-        res.on('end', () => {
-          try { const p = JSON.parse(data); resolve(p.status === 'ok' || p.status === 'healthy' || res.statusCode === 200) }
-          catch { resolve(res.statusCode === 200) }
+      // Promise 的 resolve 幂等：error 与 timeout 可能先后触发，先到者胜出
+      const settle = (ok, reason, statusCode) => resolve({ ok, reason, statusCode: Number.isInteger(statusCode) ? statusCode : null })
+      let req
+      try {
+        req = http.get(`http://${this.host}:${this.port}/health`, { timeout: 2000 }, (res) => {
+          let data = ''
+          res.on('data', chunk => { data += chunk })
+          res.on('end', () => {
+            let bodyOk = false
+            try {
+              const p = JSON.parse(data)
+              bodyOk = p.status === 'ok' || p.status === 'healthy'
+            } catch { /* 非 JSON body：仅以状态码判定（与原 healthCheck 行为一致） */ }
+            if (res.statusCode === 200 || bodyOk) return settle(true, 'ok', res.statusCode)
+            if (res.statusCode >= 400) return settle(false, 'http_error', res.statusCode)
+            return settle(false, 'unhealthy', res.statusCode)
+          })
         })
+      } catch {
+        return settle(false, 'unknown', null)
+      }
+      req.on('error', (e) => {
+        const code = e && e.code
+        if (code === 'ECONNREFUSED' || code === 'ENOTFOUND' || code === 'EADDRNOTAVAIL') {
+          return settle(false, 'connection_refused', null)
+        }
+        settle(false, 'unknown', null)
       })
-      req.on('error', () => resolve(false))
-      req.on('timeout', () => { req.destroy(); resolve(false) })
+      req.on('timeout', () => { req.destroy(); settle(false, 'timeout', null) })
     })
   }
 

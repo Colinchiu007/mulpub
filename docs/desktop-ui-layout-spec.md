@@ -27,7 +27,7 @@
 │  │  │ 200px    │  │ NavBar (导航/URL 栏)          │││ │
 │  │  │          │  ├─────────────────────────────┤││ │
 │  │  │ 不可滚动  │  │ MpModuleNav (模块导航) │││ │
-│  │  │ 不可移动  │  │ 仅首页标签时显示              │││ │
+│  │  │ 不可移动  │  │ 仅首页标签时显示；发布域不渲染 │││ │
 │  │  │          │  ├─────────────────────────────┤││ │
 │  │  │          │  │ .mp-workspace          │││ │
 │  │  │          │  │ (flex: 1, overflow: auto)    │││ │
@@ -78,7 +78,7 @@ const isFullScreenRoute = computed(() => route.path === '/first-run')
 
 | Header | 品牌区：汤姆鱼 Logo + 应用版本号 `vX.Y.Z` + `+` 新建发布按钮 | 登录区已移出（见 2.5），保留快捷发布入口；品牌区细则见 2.6 |
 | 主导航 | 主页、发布、账号、数据、视频创作、采集 | 6 个主要导航项，使用 `router-link` |
-| 更多菜单 | 监控、发布日历、私信评论、CLI、素材库、关键词监控、爆款分析、提示词评估、模型提供商、会员中心 | 10 个次要导航项，折叠在下拉菜单中 |
+| 更多菜单 | 发布日历、私信评论、CLI、素材库、关键词监控、爆款分析、提示词评估、文案改写、热门选题、模型提供商、知识库、性能洞察、会员中心 | 13 个次要导航项，折叠在下拉菜单中；原「分屏监控」入口已随功能移除 |
 | Footer 第 1 行 | 服务连接信息（`SidebarServiceStatus`） | 六服务聚合状态 + hover 明细 |
 | Footer 第 2 行 | 底部用户 banner（`ProfileMenu`） | 收起态仅一条；点击向上展开菜单（账号操作 / 设置 / 升级 Pro） |
 
@@ -229,20 +229,34 @@ if (el) {
 ### 3.1 概述
 
 - **文件**：`apps/desktop/src/layouts/MpModuleNav.vue`
-- **显示条件**：仅当 `isHomeTab` 为 `true`（当前活动标签为首页标签）时显示
-- **高度**：`var(--mp-nav-height, 70px)`
+- **显示条件**：仅当 `isHomeTab` 为 `true`（当前活动标签为首页标签）时挂载（`App.vue` 中 `v-if="isHomeTab"`）
+- **域级显示条件**：组件内部再按路由域过滤——发布域路由（`/publish`、`/publish/history`、`/publish?tab=drafts`、`/collection` 等非首页且非账号域路由）不渲染任何标签，导航整行不占位（含底部分隔线）；主页域与账号域正常渲染
+- **高度**：`var(--mp-nav-height, 70px)`（渲染时）
 
 ### 3.2 模块标签
 
-| 模块 | 标签 | 路由 |
-|------|------|------|
-| 首页 | 主页 | `/` |
-| 账号 | 账号管理、分组管理、分享链接、收藏分组 | `/accounts` |
-| 发布 | 新建发布、发布记录、草稿箱 | `/publish` |
+| 模块 | 标签 | 路由 | 状态 |
+|------|------|------|------|
+| 首页 | 主页 | `/` | 显示 |
+| 账号 | 账号管理、分组管理、分享链接、收藏分组 | `/accounts`（含 `?tab=` 查询参数切换） | 显示 |
+| 发布 | 新建发布、发布记录、草稿箱 | `/publish` | **2026-09-15 整行移除** |
 
 ### 3.3 工具按钮（2026-09-14 移除）
 
 原右侧工具区 4 个入口（移动端预览 / 客服支持 / 使用指南 / 通知）的能力均为占位说明文案（如"当前工作区尚未接入在线客服服务""暂无新通知"），已按产品要求整体移除：模块导航现只保留左侧标签区，避免为零能力入口提供视觉热区。
+
+### 3.4 发布域快捷标签行移除（2026-09-15）
+
+**背景**：发布域快捷标签行（「新建发布 / 发布记录 / 草稿箱」）在采集页等非发布页面同样渲染，与左侧边栏导航职责重复，且与当前页面内容无关联，造成界面噪音。用户要求整行移除。
+
+**行为规格**：
+
+- **移除范围**：发布域路由下（`module === 'publish'`，即除 `/` 与 `/accounts*` 外的全部 SPA 路由）不再渲染模块导航整行——无标签、无 70px 占位高度、无底部分隔线；主内容区上移，`NavBar` 直接衔接 `.mp-workspace`
+- **保留范围**：主页域（`/`，显示「主页」标签）与账号域（`/accounts*`，显示账号四标签）不受影响
+- **导航替代**：发布域页面的导航入口完全由左侧边栏承担——「发布」（`/publish`）、「草稿」（`/publish?tab=drafts`）、「采集」（`/collection`）等；发布记录（`/publish/history`）经发布页内「发布记录」入口或地址 hash 路由到达，e2e 已同步改为 hash 导航（`tests/e2e/publish-flow.test.js`）
+- **实现方式**：`publishTabs` 数据删除；`tabs` 计算属性在发布域返回空数组；`<nav v-if="tabs.length > 0">` 空标签时整行不渲染；`isTabActive` 的发布域分支同步删除
+- **无障碍**：随整行移除，`role="tablist"` 与 `role="tab"` 热区同步消失，不残留空 tab 语义节点
+- **回归保护**：`MpModuleNav.test.js` 断言 `/publish`、`/publish/history`、`/publish?tab=drafts`、`/collection` 四条路由下 `[data-testid="mp-module-nav"]` 不存在且无任何 `role="tab"` 节点；主页/账号域用例保持不变
 
 ---
 
@@ -259,7 +273,6 @@ if (el) {
 | 默认侧边栏宽度 | 200px | 常量 `SIDEBAR_WIDTH_DEFAULT` |
 | 窄屏侧边栏宽度 | 68px | 视口 ≤900px 时由渲染进程同步 |
 | 顶部偏移 (浏览器标签) | 76px | TabBar(36px) + NavBar(40px) |
-| 顶部偏移 (分屏监控) | 56px | 旧版监控布局 |
 | 动态宽度 | 由渲染进程通过 IPC 实时同步 | `page-manager:set-sidebar-width` |
 
 ### 4.3 三个管理器定位
@@ -269,7 +282,6 @@ if (el) {
 | WebviewManager (浏览器标签) | `electron/services/webview-manager.js` | `_repositionAll()` | `sidebarWidth` | 76px |
 | AuthViewManager (登录视图) | `electron/services/auth-view-manager.js` | `_positionView()` | `sidebarWidth` | 76px |
 | QrCodeLogin (扫码登录) | `electron/services/qrcode-login.js` | `_positionView()` | `sidebarWidth` | 76px |
-| WebviewManager (分屏监控) | `electron/services/webview-manager.js` | `_calculatePositions()` | `sidebarWidth` | 56px |
 
 ### 4.4 浏览器标签页定位
 
@@ -293,17 +305,6 @@ this.currentView.setBounds({
   width: Math.max(0, bounds.width - sidebarWidth),    // 防止负值
   height: Math.max(0, bounds.height - AUTH_VIEW_TOP)  // 防止负值
 })
-```
-
-### 4.6 分屏监控布局
-
-分屏监控（旧系统）支持 1/2/3/4/6 屏布局，所有分屏区域均从侧边栏右侧开始：
-
-```javascript
-// webview-manager.js _calculatePositions()
-var W = bounds.width - sidebarWidth   // 可用宽度 = 窗口宽度 - 侧边栏宽度
-var H = bounds.height - NAV_HEIGHT    // 可用高度 = 窗口高度 - 导航高度
-var OFFSET_X = sidebarWidth           // X 偏移 = 侧边栏宽度
 ```
 
 ---
@@ -503,13 +504,13 @@ mainWindow.on('resize', () => {
 | `apps/desktop/src/layouts/MpSidebar.vue` | 左侧导航栏组件（含底部服务连接信息 + 用户 banner） |
 | `apps/desktop/src/components/ProfileMenu.vue` | 底部用户 banner / 向上展开菜单（账号操作 + 设置 + 升级 Pro） |
 | `apps/desktop/src/components/SidebarServiceStatus.vue` | 服务连接信息聚合 + 六服务明细 |
-| `apps/desktop/src/layouts/MpModuleNav.vue` | 模块导航栏组件（工具区已移除） |
+| `apps/desktop/src/layouts/MpModuleNav.vue` | 模块导航栏组件（工具区与发布域标签行已移除） |
 | `apps/desktop/src/components/TabBar.vue` | 浏览器式标签栏 |
 | `apps/desktop/src/components/NavBar.vue` | 导航/URL 栏 |
 | `apps/desktop/src/stores/tab.js` | 标签页状态管理 (Pinia) |
 | `apps/desktop/src/api/electron-bridge.js` | IPC 桥接层 |
 | `apps/desktop/src/styles/cohere-design-system.css` | 设计 Token 定义 |
-| `apps/desktop/electron/services/webview-manager.js` | WebContentsView 标签管理 + 分屏监控 |
+| `apps/desktop/electron/services/webview-manager.js` | WebContentsView 标签管理（浏览器标签 + 虚拟登录标签） |
 | `apps/desktop/electron/services/auth-view-manager.js` | 内嵌浏览器登录管理器 |
 | `apps/desktop/electron/services/qrcode-login.js` | 二维码扫码登录管理器 |
 | `apps/desktop/electron/preload/page-manager.js` | Preload API 定义 |
@@ -528,6 +529,7 @@ mainWindow.on('resize', () => {
 | 2026-09-05 | v1.2 | 修复流水线详情页底部操作条与内容区重叠： 从  改为正常流 ，新增  可滚动内容区 | #1405 |
 | 2026-09-14 | v1.3 | 新增「回到顶部」浮标（BackToTop）完整规格（第 14 章）：挂载与定位 / 显隐与滚动容器 / 数据校验 / 交互逻辑 / 显示项与提示文字 / 视觉规范 / 层级协调 | 分支 `back-to-top-button` |
 | 2026-09-14 | v1.4 | 侧边栏底部用户 banner（§2.5）：登录区由顶部迁移到底部并改为向上展开菜单、「设置」与「⭐ 升级 Pro」迁入菜单、服务连接信息上移至 banner 上方；移除模块导航右上角 4 个占位工具入口（§3.3）；同步 §2.3 / §8.1 / §9.2 / §11 | 分支 `codex/sidebar-footer-user-menu` |
+| 2026-09-15 | v1.5 | 移除发布域快捷标签行（§3.4、§3.2）：发布域路由下模块导航整行不渲染，导航职责归左侧边栏；同步 §2 / §3.1 / §11 | 分支 `codex/remove-publish-quicknav` |
 
 ## 13. 已知问题修复
 

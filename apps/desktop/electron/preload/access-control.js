@@ -32,8 +32,6 @@ const PUBLIC_METHODS = [
   'hotkeysList',
   'sensitiveCheck', 'sensitiveReplace',
   'syncAll', 'syncPlatform', 'syncCached',
-  'webviewSetLayout', 'webviewOpenTab', 'webviewCloseTab', 'webviewCloseAll', 'webviewListTabs',
-  'onWebviewLayoutChanged', 'onWebviewTabOpened', 'onWebviewTabClosed', 'onWebviewNav', 'onWebviewAllClosed',
   'modelProviderList', 'modelProviderGet',
   'opsCenterSyncGet', 'opsCenterSyncSave', 'opsCenterSyncNow', 'opsCenterSyncRuntime',
   // 模型服务商：读方法未登录可用（离线查看/测试已配置模型）；

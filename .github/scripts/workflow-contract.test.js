@@ -317,15 +317,24 @@ test('Quality Gate Gate 12 品牌残留门禁接线（naming-normalization）', 
   const workflow = fs.readFileSync(qualityGatePath, 'utf8');
   const gate = workflow.match(/- name: "Gate 12 - Brand residue[\s\S]*?(?=\r?\n\s*- name:|\r?\n  [a-z][-\w]*:)/)?.[0];
   assert.ok(gate, 'Gate 12 workflow step must exist');
+  assert.match(gate, /node --test scripts\/check-no-brand-residue\.test\.js/);
   assert.match(gate, /node scripts\/check-no-brand-residue\.js/);
+  assert.ok(
+    gate.indexOf('check-no-brand-residue.test.js') < gate.indexOf('node scripts/check-no-brand-residue.js'),
+    '自测必须先于扫描运行（先证明检出能力，再扫当前仓库）',
+  );
   // Gate 12 必须位于 Gate 11 之后（静态门禁序列）
   const gate11 = workflow.indexOf('Gate 11 - ESLint');
   const gate12 = workflow.indexOf('Gate 12 - Brand residue');
   assert.ok(gate11 >= 0 && gate12 > gate11, 'Gate 12 必须在 Gate 11 之后');
-  // 契约：门禁脚本必须真实存在
+  // 契约：门禁脚本与自测必须真实存在
   assert.ok(
     fs.existsSync(path.join(__dirname, '..', '..', 'scripts', 'check-no-brand-residue.js')),
     'checkpoint script must exist',
+  );
+  assert.ok(
+    fs.existsSync(path.join(__dirname, '..', '..', 'scripts', 'check-no-brand-residue.test.js')),
+    'checkpoint self-test must exist',
   );
   // 契约：门禁脚本自身不得包含品牌词字面量（按码点构造进正则，避免门禁自证违规）
   const script = fs.readFileSync(path.join(__dirname, '..', '..', 'scripts', 'check-no-brand-residue.js'), 'utf8');

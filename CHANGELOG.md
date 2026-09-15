@@ -1,3 +1,98 @@
+# [未发布] feat(desktop): 服务状态面板增加故障归因、按服务重试与轮询退避（2026-09-15）
+
+### 新增
+- **故障归因**：`services:get-status` 每项新增 `reason` 字段（ok / not_started / on_demand / connection_refused / timeout / http_error / unhealthy / unknown）；`BasePythonBridge` 新增 `healthCheckDetail()` 返回 `{ ok, reason, statusCode }`，`healthCheck()` 改为委托以保持布尔语义不变
+- **按服务重试**：新增 IPC `services:restart`（白名单 + `restartingKeys` 并发去重 + 启动入口能力探测 `ensureRunning()`→`start()`→`startPythonBackend()`）；面板服务行可展开详情（归因 + 上次运行时间 + 「重试连接」按钮），权限保持 authenticated 写操作（不进入未登录白名单）
+- **诚实标注按需服务**：对齐引擎增加 `onDemand: true` 与 `reason: 'on_demand'`，UI 状态文字由「待命」改为「按需」
+- **紧凑摘要**：降级时显示「X 项服务不可用（M/6 运行中）」（故障数前置），状态点 pulse 动画（尊重 prefers-reduced-motion）
+- **轮询退避**：健康 10s；降级 10s→20s→40s→60s 封顶；恢复健康立即回落
+- **状态历史**：store 记录 `lastSeenRunning` 时间戳（running 刷新，故障保留旧值），供「上次运行」展示
+- **i18n**：zh/en 成对新增 degradedSummary / retry / retrying / lastSeen / states.onDemand / reasons.*（8）/ restartErrors.*（6）
+
+### 修复
+- 对齐引擎此前 `bridgeStatus(null, …)` 恒返回 standby 的隐式空语义，易被误读为「随时可用」
+- splitter/prompt 健康探测由串行（2s×2 最坏 4s）改为 `Promise.all` 并行
+- preload bundle 重建（运行时实际加载 `preload/index.bundle.js`）；`preload.test.js` 合并键数 313→314（叠加本分支新增 servicesRestart）
+
+### 验证
+- services.test.js 14 例 / serviceStatus.test.js 14 例 / SidebarServiceStatus.test.js 11 例全绿；MpSidebar、preload、ipc-contract、build-preload、base-python-bridge 同步通过
+- 门禁：check-locale-sync --keys/--cjk PASS、check-ipc-bridge PASS、check-frontend-consistency PASS、check-hardcoded-secrets PASS、check-no-brand-residue PASS；eslint 对改动文件 0 error 0 warning
+
+### 文档
+- `01-docs/PRD-SERVICE-STATUS-PANEL-2026-09-12.md` §8 增强记录
+- openspec change `service-status-actionable`
+
+# [未发布] refactor(signer): 签名本地化收口——移除第三方远程签名依赖（2026-09-15）
+
+### 背景
+- `packages/api-publish-engine/src/signer.js` 的 `SIGNER_BASE` 指向第三方远程签名服务（复刻自参考产品客户端的调用方式）：客户端把签名原料发到别人服务器换取签名参数——**明文 HTTP、发布元数据外发、无 SLA**，属非正常调用方式。
+- 依赖面复核：真实运行时只有**抖音 / 快手**两个 API 直调适配器在用且**均有本地回退**；`getBaijiahaoSignature`（无本地回退）与 `getXiaohongshuToken` 无任何生产调用方——#1837 时代"百家号硬依赖"的判断不成立（只看了函数设计、没验证调用链）。
+
+### 变更
+- **快手 `__NS_sig3` 本地计算**（`MD5(api_ph|body)`，`api_ph` 取自登录 cookie），`kuaishou.js` 适配器补传 cookie。⚠️ 复核发现此前未传 cookie，本地兜底恒产出**空签名**——"远程失败即本地兜底"从未真正生效
+- **移除无生产调用方的远程函数**：`getXiaohongshuToken` / `getBaijiahaoSignature`；移除小红书/百家号/头条端口映射
+- **抖音 `_signature` 默认纯本地**（本地实现为「浏览器参数 + 占位签名」，真实有效性待真机发布验证）；`MP_SIGNER_BASE` 环境变量转为**验证对比通道**（设置后远程优先、本地兜底）
+- `signer.test.js` 重写：端口表（仅抖音）/ 导出面（死代码断言为 undefined）/ 本地计算正确性 / 验证开关行为
+- 文档修正：`PRD-NAMING-NORMALIZATION` §3.1 两阶段行为变化 + §2.4/§6 被"叠词修正规则"误改的描述恢复、`phase-6-integration-decision` 决策更新、`learnings` 新增「依赖面结论必须落到调用链」教训
+
+### 行为变化（需真机发布验证）
+- 默认**不再对任何第三方服务器发起请求**；抖音/快手 API 直调发布完全依赖本地签名算法
+- 验证方式：设置 `MP_SIGNER_BASE`（远程优先）与不设置（纯本地）各真实发布一条，对比签名通过率
+- 如本地签名被风控拦截：短期设 `MP_SIGNER_BASE` 恢复远程路径；长期需提取参考产品签名 JS 在主进程内本地执行（路 A）
+
+### 验证
+- `packages/api-publish-engine` `node scripts/run-tests.js` → **11 个测试文件全绿**（signer.test.js 重写 + e2e 链路 mock 兼容）
+- 品牌残留门禁 PASS（5452 个 tracked 文件）；`check-frontend-consistency` / 债务熔断 PASS
+
+---
+
+# [未发布] refactor(auth-gate): 登录门禁判定抽取共享工具并推广到数据看板（2026-09-15）
+
+### 变更
+- **共享工具**：新增 `apps/desktop/src/utils/auth-gate.js` 导出 `isAuthGateResult()`（errorCode 优先判定，code:-3 仅在无 errorCode 时兜底；ENTITLEMENT_REQUIRED 不误判），`PublishHistory.vue` 改为引用
+- **数据看板**：`Dashboard.vue` 对 `dashboard:stats` / `history:list` 的 AUTH_REQUIRED 不再静默吞掉——显示「登录后可查看发布统计与最近发布」引导条 +「去登录」按钮（`identity.signIn`），登录成功 `watch(isAuthenticated)` 自动重载；权益不足保持既有路径不误判
+- **文档**：`01-docs/PRD-PUBLISH-HISTORY-LOGIN-GATE-2026-09-15.md` 增补「范式推广」章节
+
+### 验证
+- 新增 `auth-gate.test.js` 5 例、`Dashboard.test.js` 4 例（门禁态 / 去登录触发 signIn 且自动重载 / 正常态无横幅 / 权益不足不误判）；`PublishHistory.test.js` 23 例回归全绿
+- `check-locale-sync.js --keys` / `--cjk` PASS；eslint 0 errors
+
+# [未发布] fix(publish-history): 未登录访问发布记录由「服务连接失败」改为登录引导门控（2026-09-15）
+
+### 修复
+- **根因**：`history:list` 自 2026-08-11 起要求登录（`LOGIN_ONLY_FEATURE_MAP` → `publish_history`），未登录时主进程返回 `{code:-3, errorCode:'AUTH_REQUIRED'}`；而 `PublishHistory.vue` 的 `loadRecords()` catch 把一切失败写死为「请检查服务连接后重试」，权限拒绝被伪装成网络故障
+- **错误语义分流**（仅首屏加载）：`errorCode ∈ {AUTH_REQUIRED, NOT_SIGNED_IN}`（或无 errorCode 且 code:-3 的遗留形态）→ 登录引导门禁态；其他非零 code → 错误态正文改为 `formatUserError` 具体原因（fallback 仍为服务连接文案）；reject 异常行为不变
+- **登录引导态**：新「登录后查看发布记录」面板（`data-testid=history-login-gate`）+「去登录」按钮（`history-sign-in`，走 `useIdentity().signIn` → Logto OAuth 独立窗口）；`watch(isAuthenticated)` 登录成功后自动重载，无需手动重试；门禁态不渲染重试按钮
+- **数据校验要点**：`ENTITLEMENT_REQUIRED` 同样携带 `code:-3`，门禁判定必须按 errorCode 区分，不能只看数值码
+- **文档**：`01-docs/PRD-PUBLISH-HISTORY-LOGIN-GATE-2026-09-15.md`（根因链 / 分流规则 / 状态机 / 显示项与提示文字 / 测试覆盖）
+
+### 验证
+- `PublishHistory.test.js` 23/23 通过（+3：AUTH_REQUIRED 门禁态 / 去登录触发 signIn 且登录成功自动重载 / ENTITLEMENT_REQUIRED 显示具体原因）
+- `check-locale-sync.js --keys` / `--cjk` PASS；eslint 0 errors（1 个既有 warning 非本次引入）
+- 零 IPC / preload / 主进程变更，不触发契约快照同步
+
+# [未发布] feat(desktop): 主页未登录问候语「请登录」可点击链接（2026-09-15）
+
+### 背景
+- 主页未登录态渲染「中午好，登录」：「登录」来自 `stores/identity.js` 的 displayName 兜底值，文案歧义且不可点击，主页缺少直达登录窗口的入口。
+
+### 新增
+- `apps/desktop/src/components/HomeGreeting.vue`：欢迎区问候语子组件，承载问候语 + 登录链接/昵称 + 副标题与登录入口逻辑。
+- i18n `home.pleaseLogin`（zh「请登录」/ en「Sign in」，zh/en 成对）。
+
+### 变更
+- `views/Home.vue`：问候语块替换为 `<HomeGreeting />`，移除 `greetingText`/`displayName` 计算属性与问候语 CSS（495 → 470 行，规避 500 行债务熔断）。
+- 交互：未登录（`signed_out`/`expired`/`error`）点击「请登录」→ 直接 `identityStore.signIn()` 弹 Logto 登录窗口；`loading` 防重入；失败走 `loginGate.loginIncomplete` warning；`disabled` 态 fail-closed 不渲染链接。
+
+### 安全与兜底
+- 不新增 IPC/preload/主进程服务（零契约变更）；登录结果以 `signIn()` 返回值 + `isAuthenticated` 双重判定；异常 `reportError` 上报并兜底提示。
+
+### 验证
+- `Home.test.js` 19 例全绿（+6 新用例）；`ProfileMenu.test.js` 17 / `identity.test.js` 17 / `useLoginGate.test.js` 8 回归全绿。
+- 门禁：债务熔断（filesOver500 86=86）、`check-locale-sync --cjk/--keys`、`check-frontend-consistency` 全部通过。
+- 详细规格：`01-docs/PRD-HOME-LOGIN-LINK-2026-09-15.md`
+
+---
 # [未发布] feat(ops-center): 应用菜单配置——运营中心管理应用端侧边栏显隐与排序（2026-09-15）
 
 ### 新增
@@ -18,6 +113,18 @@
 - `apps/desktop`：`sidebar-menu-merge.test.js` 34 通过 · `MpSidebar.appmenu.test.js` 9 通过 · 既有 `MpSidebar.test.js` 7 通过（回归零破坏）· `ops-center-sync.test.js` 55 通过（+8 新用例）
 - `ops-center/backend`：`test_app_menu_api.py` 11 通过 · 全量 pytest 342 通过，0 失败
 - 已知限制：无实时推送，运营修改后需桌面端重新同步或重启应用才生效
+# [未发布] refactor(desktop): 移除发布域快捷标签行「新建发布 / 发布记录 / 草稿箱」（2026-09-15）
+
+### 变更
+- **模块导航发布域整行移除**（`apps/desktop/src/layouts/MpModuleNav.vue`）：发布域路由（`/publish`、`/publish/history`、`/publish?tab=drafts`、`/collection` 等非首页非账号域路由）下不再渲染模块导航整行——无标签、无 70px 占位高度、无底部分隔线，`NavBar` 直接衔接主内容区；删除 `publishTabs` 数据与 `isTabActive` 发布域分支，`<nav v-if="tabs.length > 0">` 空标签不渲染
+- **动机**：该行在采集页等与发布无关的页面同样渲染，与左侧边栏导航职责重复，属界面噪音（用户反馈整行移除）
+- **保留**：主页域（`/`，「主页」标签）与账号域（`/accounts*`，账号四标签 + `?tab=` 激活切换）行为不变；浏览器/登录标签激活时的自动隐藏不变
+- **导航可达性**：发布、草稿箱、采集由侧边栏直达；发布记录经发布页内入口或地址路由到达；e2e `publish-flow.test.js` 的发布记录跳转同步改为 hash 导航
+- **文档**：`01-docs/PRD-REMOVE-PUBLISH-QUICKNAV-2026-09-15.md`（功能逻辑/交互逻辑/显示项/边界/验收标准/影响面）；`docs/desktop-ui-layout-spec.md` §2/§3.1/§3.2/§3.4/§11/§12；`docs/frontend-interaction-spec.md` §6.3
+
+### 验证
+- `MpModuleNav.test.js` 5 通过（新增发布域四路由零 `role="tab"` 回归保护）；全量 desktop 单测通过；定向 eslint 0 error；品牌残留门禁 PASS；债务熔断 PASS；视觉基线零影响（基线录制于 ipc-mock 空态，`isHomeTab === false`，模块导航本不在基线中）
+
 ## 版本管理机制（2026-09-14 起）
 
 全仓使用单一产品版本号，**唯一真相源 = 根 `package.json` 的 `version`**；`apps/desktop/package.json` 的 `version` 由 `scripts/sync-version.mjs` 在提交 / 构建前自动同步，禁止手写、禁止独立演进。
@@ -25,6 +132,48 @@
 - 当前开发阶段整体控制在 **1.0.0 以下**（`0.Y.Z`）。
 - 改动规模 ↔ 版本级别（MAJOR / MINOR / PATCH）映射、0.x 约定、发布流程：**见 [docs/version-management.md](docs/version-management.md)**。
 - 历史 `v2.3.x` 复盘轮次标签为内部分版号，不代表真实发布版本；后续统一以 `0.Y.Z` 推进。
+
+---
+# [未发布] refactor(monitor): 移除「分屏监控」功能，评论/采集网页查看迁移到全局标签栏（2026-09-15）
+
+### 移除
+- **「监控」（分屏监控）功能整体删除**（`/monitor` 路由、侧边栏「更多」菜单入口、`views/Monitor.vue` 及其测试）：多平台 1/2/3/4/6 分屏同时监控页无实际使用场景，产品决策移除
+- **旧分屏监控底层体系删除**：`webview-manager.js` 的 `openTab()` / `setLayout()` / `closeMonitorTab()` / `closeAllMonitorTabs()` / `getTabsInfo()` / `_calculatePositions()` / `_emit()` 与 5 个 `webview:*` IPC handler（set-layout / open-tab / close-tab / close-all / list-tabs）+ 4 个 `webview:*` 事件广播；preload `webviewSetLayout` / `webviewOpenTab` / `webviewCloseTab` / `webviewCloseAll` / `webviewListTabs` / `onWebviewLayoutChanged` / `onWebviewTabOpened` / `onWebviewTabClosed` / `onWebviewNav` / `onWebviewAllClosed` 10 个方法及 `PUBLIC_METHODS` 白名单条目；preload 方法计数契约同步（最终值 system 145、合并 api 313、`SYSTEM_METHODS` 132——含 #1839/#1853 基线增量）
+- **全局快捷键** `Ctrl+Alt+M`（分屏监控）与运营中心默认菜单目录的 monitor 项一并移除
+
+### 迁移
+- **评论管理**（`Comments.vue`）：点平台打开评论页改走 `tabStore.createTab`（page-manager 全局标签栏承载），保持「一次一个评论标签」（切换平台先 `closeTab` 旧标签）；删除页面内嵌占位容器，改为引导空态「评论页已在顶部标签栏打开，点击上方标签即可查看」；移除离开页面自动关标签（标签持久化，与浏览器标签语义一致）
+- **采集**（`Collection.vue`）：`openCollection` 改走 `tabStore.createTab`（renderer 侧经 `PLATFORM_DASHBOARD_URLS` 解析 URL，标题「<平台名> 采集页」）；新增无 URL 平台告警 `collection.platformUnsupported`；删除失效降级提示 `collection.switchToMonitor`
+- **E2E**：路由矩阵/顺序/报告清单移除 monitor，Flow 4 重写为「评论→全局标签页」，`ipc-mock.js` 移除 webview mock 并新增 `pageManager` 嵌套 mock（查询类空态，避免视觉测试渲染状态漂移）
+
+### 文档
+- `01-docs/PRD-REMOVE-MONITOR-FEATURE-2026-09-15.md`：完整决策记录（方案对比/依赖矩阵/数据校验/交互/提示文字/验收标准）
+- `docs/desktop-ui-layout-spec.md`：更多菜单清单、内嵌视图清单、偏移表、§4.6 分屏布局节同步移除
+
+---
+# [未发布] feat(upload): 分片上传增强 — MD5/重试/进度门控/真并发/实时进度（2026-09-15）
+
+> 接管 #1489：变基 origin/main + 去品牌化表述 + 修复变基暴露的问题。
+
+### 新增
+- **ChunkedUploader.getMD5**：文件哈希（去重/断点续传标识）
+- **uploadWithRetry**：分片级重试 + `chunk:retry` 事件
+- **UploadEmitGate**：大文件时间门控(5s) / 小文件百分比门控(10%)（整数百分比避免浮点误差）
+- **concurrency 真并发**：worker 池并行分片（不再是串行假并发）
+- **IPC 链路**：`upload.js` 实时转发 `upload:progress`；preload `system.js` 新增 `onUploadProgress` 事件监听（暴露面契约同步：system 方法数 153→154、合并 api 321→322、`SYSTEM_METHODS` 141→142）
+- **测试**：13 个 TDD 用例覆盖上述能力
+
+### 修复（变基暴露）
+- **取消语义**：worker 循环顶部的取消由静默 `break` 改为显式返回 `cancelled` 标记——此前"最后一片上传完成后取消"会被误判为上传成功
+- **失败/取消路径回报 `retries`**：此前仅成功路径回报，调用方无法感知重试消耗
+- **并发统计测试用唯一令牌**：原实现 `running.add(true)` 对 Set 去重，`size` 恒 ≤1，并发断言恒失效
+- **门禁中文变体盲区**：latin1 扫描通道下中文品牌词模式必须转字节表示；新增 `scripts/check-no-brand-residue.test.js` 自测（fixture 仓库验证 7 类变体 / 域名豁免 / 二进制跳过）并接入 Gate 12（自测先于扫描）
+
+### 验证
+- `packages/shared-utils` chunked-uploader：**27 用例全绿**
+- `electron/preload.test.js` + `tests/ipc-handlers.test.js`：**全绿**
+- `node --test scripts/check-no-brand-residue.test.js` → 6 pass；`workflow-contract.test.js` → 20 pass
+- 品牌残留门禁 PASS（5438 个 tracked 文件）；eslint（改动文件）0 error
 
 ---
 # [未发布] chore(ci): 品牌残留门禁接入 CI（Gate 12）+ 补齐 #1837 遗漏的门禁脚本（2026-09-15）
