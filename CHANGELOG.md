@@ -22,6 +22,30 @@
 - `01-docs/PRD-SERVICE-STATUS-PANEL-2026-09-12.md` §8 增强记录
 - openspec change `service-status-actionable`
 
+# [未发布] refactor(signer): 签名本地化收口——移除第三方远程签名依赖（2026-09-15）
+
+### 背景
+- `packages/api-publish-engine/src/signer.js` 的 `SIGNER_BASE` 指向第三方远程签名服务（复刻自参考产品客户端的调用方式）：客户端把签名原料发到别人服务器换取签名参数——**明文 HTTP、发布元数据外发、无 SLA**，属非正常调用方式。
+- 依赖面复核：真实运行时只有**抖音 / 快手**两个 API 直调适配器在用且**均有本地回退**；`getBaijiahaoSignature`（无本地回退）与 `getXiaohongshuToken` 无任何生产调用方——#1837 时代"百家号硬依赖"的判断不成立（只看了函数设计、没验证调用链）。
+
+### 变更
+- **快手 `__NS_sig3` 本地计算**（`MD5(api_ph|body)`，`api_ph` 取自登录 cookie），`kuaishou.js` 适配器补传 cookie。⚠️ 复核发现此前未传 cookie，本地兜底恒产出**空签名**——"远程失败即本地兜底"从未真正生效
+- **移除无生产调用方的远程函数**：`getXiaohongshuToken` / `getBaijiahaoSignature`；移除小红书/百家号/头条端口映射
+- **抖音 `_signature` 默认纯本地**（本地实现为「浏览器参数 + 占位签名」，真实有效性待真机发布验证）；`MP_SIGNER_BASE` 环境变量转为**验证对比通道**（设置后远程优先、本地兜底）
+- `signer.test.js` 重写：端口表（仅抖音）/ 导出面（死代码断言为 undefined）/ 本地计算正确性 / 验证开关行为
+- 文档修正：`PRD-NAMING-NORMALIZATION` §3.1 两阶段行为变化 + §2.4/§6 被"叠词修正规则"误改的描述恢复、`phase-6-integration-decision` 决策更新、`learnings` 新增「依赖面结论必须落到调用链」教训
+
+### 行为变化（需真机发布验证）
+- 默认**不再对任何第三方服务器发起请求**；抖音/快手 API 直调发布完全依赖本地签名算法
+- 验证方式：设置 `MP_SIGNER_BASE`（远程优先）与不设置（纯本地）各真实发布一条，对比签名通过率
+- 如本地签名被风控拦截：短期设 `MP_SIGNER_BASE` 恢复远程路径；长期需提取参考产品签名 JS 在主进程内本地执行（路 A）
+
+### 验证
+- `packages/api-publish-engine` `node scripts/run-tests.js` → **11 个测试文件全绿**（signer.test.js 重写 + e2e 链路 mock 兼容）
+- 品牌残留门禁 PASS（5452 个 tracked 文件）；`check-frontend-consistency` / 债务熔断 PASS
+
+---
+
 # [未发布] refactor(auth-gate): 登录门禁判定抽取共享工具并推广到数据看板（2026-09-15）
 
 ### 变更
@@ -89,6 +113,18 @@
 - `apps/desktop`：`sidebar-menu-merge.test.js` 34 通过 · `MpSidebar.appmenu.test.js` 9 通过 · 既有 `MpSidebar.test.js` 7 通过（回归零破坏）· `ops-center-sync.test.js` 55 通过（+8 新用例）
 - `ops-center/backend`：`test_app_menu_api.py` 11 通过 · 全量 pytest 342 通过，0 失败
 - 已知限制：无实时推送，运营修改后需桌面端重新同步或重启应用才生效
+# [未发布] refactor(desktop): 移除发布域快捷标签行「新建发布 / 发布记录 / 草稿箱」（2026-09-15）
+
+### 变更
+- **模块导航发布域整行移除**（`apps/desktop/src/layouts/MpModuleNav.vue`）：发布域路由（`/publish`、`/publish/history`、`/publish?tab=drafts`、`/collection` 等非首页非账号域路由）下不再渲染模块导航整行——无标签、无 70px 占位高度、无底部分隔线，`NavBar` 直接衔接主内容区；删除 `publishTabs` 数据与 `isTabActive` 发布域分支，`<nav v-if="tabs.length > 0">` 空标签不渲染
+- **动机**：该行在采集页等与发布无关的页面同样渲染，与左侧边栏导航职责重复，属界面噪音（用户反馈整行移除）
+- **保留**：主页域（`/`，「主页」标签）与账号域（`/accounts*`，账号四标签 + `?tab=` 激活切换）行为不变；浏览器/登录标签激活时的自动隐藏不变
+- **导航可达性**：发布、草稿箱、采集由侧边栏直达；发布记录经发布页内入口或地址路由到达；e2e `publish-flow.test.js` 的发布记录跳转同步改为 hash 导航
+- **文档**：`01-docs/PRD-REMOVE-PUBLISH-QUICKNAV-2026-09-15.md`（功能逻辑/交互逻辑/显示项/边界/验收标准/影响面）；`docs/desktop-ui-layout-spec.md` §2/§3.1/§3.2/§3.4/§11/§12；`docs/frontend-interaction-spec.md` §6.3
+
+### 验证
+- `MpModuleNav.test.js` 5 通过（新增发布域四路由零 `role="tab"` 回归保护）；全量 desktop 单测通过；定向 eslint 0 error；品牌残留门禁 PASS；债务熔断 PASS；视觉基线零影响（基线录制于 ipc-mock 空态，`isHomeTab === false`，模块导航本不在基线中）
+
 ## 版本管理机制（2026-09-14 起）
 
 全仓使用单一产品版本号，**唯一真相源 = 根 `package.json` 的 `version`**；`apps/desktop/package.json` 的 `version` 由 `scripts/sync-version.mjs` 在提交 / 构建前自动同步，禁止手写、禁止独立演进。
