@@ -10,8 +10,8 @@
  * - 进度回调 + EventEmitter 事件
  * - 支持取消
  * - 文件 MD5 哈希（去重/断点续传标识）
- * - 分片级重试（uploadWithRetry，借鉴蚁小二 uploadWithRetry 模式）
- * - 上传进度门控（UploadEmitGate，借鉴蚁小二：大文件时间门控 / 小文件百分比门控）
+ * - 分片级重试（uploadWithRetry，参考同类产品成熟上传器的重试模式）
+ * - 上传进度门控（UploadEmitGate：大文件时间门控 / 小文件百分比门控）
  */
 const fs = require('fs')
 const crypto = require('crypto')
@@ -20,7 +20,7 @@ const EventEmitter = require('events')
 
 const DEFAULT_CHUNK_SIZE = 5 * 1024 * 1024  // 5MB
 const DEFAULT_CONCURRENCY = 1
-const LARGE_FILE_THRESHOLD = 100 * 1024 * 1024  // 100MB（与蚁小二一致）
+const LARGE_FILE_THRESHOLD = 100 * 1024 * 1024  // 100MB（大/小文件门控策略分界）
 
 /**
  * 上传进度门控 — 避免过于频繁的上报
@@ -124,7 +124,7 @@ class ChunkedUploader extends EventEmitter {
   }
 
   /**
-   * 带重试的分片上传（借鉴蚁小二 uploadWithRetry 模式）
+   * 带重试的分片上传（参考同类产品成熟上传器的重试模式）
    *
    * @param {string} filePath - 本地文件路径
    * @param {Function} uploadChunkFn - async (chunk, index, total, uploadId) => { success }
@@ -200,7 +200,9 @@ class ChunkedUploader extends EventEmitter {
 
       const worker = async () => {
         while (cursor < totalChunks) {
-          if (this._cancelled) break
+          // 取消必须显式上报：静默 break 会让 workerResults 里没有 cancelled 标记，
+          // 上传被误判为成功（回归用例「cancel stops upload and returns partial result」）
+          if (this._cancelled) return { cancelled: true }
           const index = cursor++
           const chunk = chunks[index]
           try {
@@ -228,10 +230,11 @@ class ChunkedUploader extends EventEmitter {
       const failure = workerResults.find(r => r && r.error)
       const cancelled = workerResults.some(r => r && r.cancelled)
       if (cancelled) {
-        return { success: false, bytesUploaded, chunksTotal: totalChunks, cancelled: true }
+        return { success: false, bytesUploaded, chunksTotal: totalChunks, cancelled: true, retries }
       }
       if (failure) {
-        return { success: false, bytesUploaded, chunksTotal: totalChunks, error: failure.error }
+        // 失败路径同样回报 retries，调用方才能感知重试消耗（回归用例「fails after exhausting maxRetries」）
+        return { success: false, bytesUploaded, chunksTotal: totalChunks, error: failure.error, retries }
       }
 
       this.emit('upload:complete', { uploadId, bytesUploaded, chunksTotal: totalChunks })
