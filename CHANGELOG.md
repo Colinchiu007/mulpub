@@ -22,6 +22,26 @@
 - `01-docs/PRD-SERVICE-STATUS-PANEL-2026-09-12.md` §8 增强记录
 - openspec change `service-status-actionable`
 
+# [未发布] fix(runtime): bootstrap 载荷卫生——NaN 守卫三层化 + appMenu 去 group（2026-09-15）
+
+### 背景（QA 复审报告 §6.2.5 / §6.2.7）
+- **D-7.3（🟠 既有缺陷）**：`PUT /pipeline-options` 的 `default_value` 原样存字符串（无校验）→ `"NaN"` 可落库 → bootstrap 时 `json.loads` 默认放行裸 `NaN` 字面量 → `canonical_json` 输出裸 `NaN`（非法 JSON）→ 桌面端 `JSON.parse` 抛错、**整包 bootstrap 被丢弃** → content_policy（内容安全敏感词）等全部运行时策略失效且运营端零告警
+- **D-GRP（🟡 规格偏差）**：bootstrap 下发的 `appMenu.items` 含被签名但被忽略的 `group` 字段，与 PRD §2.4.4「不下发 group」不符
+
+### 变更
+- `runtime_service.canonical_json` 显式 `allow_nan=False`：合法数据输出逐字节不变（Ed25519 签名兼容）；混入非有限浮点时服务端显式失败
+- `pipeline_option_service`：写入侧 `_validate_default_value` 拒绝裸 NaN/Infinity/-Infinity（含嵌套，parse_constant 钩子）；下发侧对历史脏行降级为原字符串——**存量脏数据免清洗即恢复安全**
+- `app_menu_service.get_bootstrap_app_menu`：下发项只含 `key` / `visible` / `sort_order`（group 保留在管理 API `GET /api/v1/app-menu`）
+- 顺带修复 `test_app_menu_api.py` 的 `CATALOG_SIZE=20` 未随 #1840（monitor 移除，目录 20→19）同步导致的 3 例假红
+
+### 验证
+- `ops-center/backend`：`py -3.12 -m pytest tests/ -q` → **350 passed**（新增 `test_pipeline_options_nan_guard.py` 8 例；app_menu 3 例假红转绿）
+- `apps/desktop` 定向 5 测试文件 → **125 passed**（载荷去 group 对桌面端透明：normalize 仅读取 key/visible/sort_order）
+
+### 影响
+- 桌面端无代码改动；`appMenu` 载荷字段收窄为 `{key, visible, sort_order}`（向前/向后兼容）
+- 历史含 NaN 的脏数据无需清洗：下发侧自动降级；写入侧今后直接拒绝
+
 # [未发布] refactor(signer): 签名本地化收口——移除第三方远程签名依赖（2026-09-15）
 
 ### 背景

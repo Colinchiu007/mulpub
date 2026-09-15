@@ -18,6 +18,28 @@ def _validate_option_key(key: str) -> None:
     if group not in OPTION_GROUPS:
         raise ValueError(f"option_key 的 group 必须为 {OPTION_GROUPS} 之一，收到: {group}")
 
+
+def _reject_nonfinite_constant(name: str):
+    """json.loads 的 parse_constant 钩子：裸 NaN/Infinity/-Infinity 字面量一律拒绝。
+
+    D-7.3 背景：这类字面量被 Python json 默认放行 → 落库后 bootstrap 时 json.loads
+    产出 float('nan') → canonical_json 输出裸 NaN（非法 JSON）→ 桌面端整包丢弃
+    bootstrap，内容安全等全部运行时策略随之失效且运营端零告警。
+    """
+    raise ValueError(f"default_value 含非法数值字面量（{name}），禁止写入")
+
+
+def _validate_default_value(value: str) -> None:
+    """写入侧守卫：default_value 允许任意字符串，但含裸 NaN/Infinity 字面量（含嵌套）时拒绝。"""
+    try:
+        json.loads(value, parse_constant=_reject_nonfinite_constant)
+    except ValueError as e:
+        if "非法数值字面量" in str(e):
+            raise
+        # 其余 ValueError 是普通 JSON 语法错误——default_value 允许任意字符串，放行
+    except (TypeError, RecursionError):
+        pass
+
 async def list_options(db: AsyncSession) -> list[dict]:
     result = await db.execute(
         sa.select(PipelineOption).order_by(PipelineOption.sort_order, PipelineOption.option_key)
@@ -38,6 +60,7 @@ async def upsert_options(db: AsyncSession, items: list[dict], updated_by: str = 
         label = str(item.get("label", "")).strip()
         visible = 1 if item.get("visible") in (True, 1, "1", "true") else 0
         default_value = str(item.get("default_value", "") or "")
+        _validate_default_value(default_value)
         description = str(item.get("description", "")).strip()
         sort_order = int(item.get("sort_order", 0) or 0)
 
@@ -85,8 +108,12 @@ async def get_bootstrap_options(db: AsyncSession) -> dict:
         visibility[r.option_key] = bool(r.visible)
         if r.default_value:
             try:
-                defaults[r.option_key] = json.loads(r.default_value)
-            except (json.JSONDecodeError, TypeError):
+                # D-7.3 下发侧守卫：parse_constant 拒绝裸 NaN/Infinity——历史脏行
+                # （守卫生效前落库）降级为原字符串下发，绝不产出非有限浮点。
+                defaults[r.option_key] = json.loads(
+                    r.default_value, parse_constant=_reject_nonfinite_constant
+                )
+            except (json.JSONDecodeError, TypeError, ValueError, RecursionError):
                 defaults[r.option_key] = r.default_value
     return {"visibility": visibility, "defaults": defaults}
 

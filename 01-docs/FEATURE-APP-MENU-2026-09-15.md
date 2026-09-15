@@ -48,7 +48,7 @@
 | fail-open | 应用端在配置缺失/异常时回退本地默认（全部可见 + 定义顺序），不阻塞导航 |
 | fail-closed | 运营端在写入非法数据时拒绝请求（400），不落库 |
 
-### 2.1 菜单目录（契约，共 20 项）
+### 2.1 菜单目录（契约，共 19 项）
 
 | # | key | 展示名 | 分组 | 强制显示 | 应用端路由 |
 |---|-----|--------|------|:--------:|-----------|
@@ -133,7 +133,7 @@
       "updated_at": "2026-09-15T04:00:00Z", "updated_by": "admin"
     }
   ],
-  "count": 20,
+  "count": 19,
   "forced_visible_keys": ["publish", "accounts", "create", "collection"],
   "max_items": 200
 }
@@ -163,7 +163,7 @@
 {
   "items": [ /* 保存后的全量列表，同 GET */ ],
   "corrections": ["publish"],
-  "count": 20
+  "count": 19
 }
 ```
 
@@ -177,7 +177,7 @@
 恢复默认：全部可见 + 目录默认顺序。
 
 - **鉴权**：`require_admin`
-- **响应 200**：`{ "items": [...], "count": 20 }`
+- **响应 200**：`{ "items": [...], "count": 19 }`
 
 ### 4.4 下发：`GET /api/v1/runtime/bootstrap`（既有端点扩展）
 
@@ -189,7 +189,7 @@
   "...其他策略...": "...",
   "appMenu": {
     "items": [
-      { "key": "home", "group": "primary", "visible": false, "sort_order": 0 }
+      { "key": "home", "visible": false, "sort_order": 0 }
     ],
     "synced_at": "2026-09-15T04:00:00Z"
   },
@@ -199,6 +199,11 @@
 
 - **关键约束**：`appMenu` 位于**签名覆盖范围内**（`sign_runtime_payload` 对整个 payload 的 canonical JSON 签名），因此无法被中间人单独篡改。
 - **下发前二次纠正**：即使数据库被直接改坏（`publish.visible=0`），`get_bootstrap_app_menu` 也会把强制项纠正为 `visible=true` 再下发。
+- **载荷卫生（D-GRP，PRD §2.4.4）**：下发项**只含** `key` / `visible` / `sort_order` 三个字段。
+  `group` 是运营端管理字段（仅 `GET /api/v1/app-menu` 返回），**不得进入被签名的下发载荷**——
+  「被签名但被忽略」的字段会诱导后续实现者把它当契约去读取，从而打开跨分组穿插
+  （UI 层不可能、数据层却可达）的口子。守卫测试：
+  `test_bootstrap_app_menu_items_have_no_signed_but_ignored_fields`。
 
 ---
 
@@ -212,7 +217,7 @@
 | V2 | 条目数量 | 长度 ≤ 200 | 400 | `菜单项数量超过上限 200` |
 | V3 | 条目类型 | 每项必须为对象 | 400 | `items 中的每一项都必须是对象` |
 | V4 | `item_key` 非空 | 去空格后非空 | 400 | `item_key 不能为空` |
-| V5 | `item_key` 合法性 | 必须存在于目录（20 项） | 400 | `未知菜单项：<key>` |
+| V5 | `item_key` 合法性 | 必须存在于目录（19 项） | 400 | `未知菜单项：<key>` |
 | V6 | 重复提交 | 同批内 `item_key` 不可重复 | 400 | `菜单项重复提交：<key>` |
 | V7 | `sort_order` 非法 | 空 / 非数字 / 负数 → **保留原值**（不归零） | — | 无（静默保留，避免误改排序） |
 | V8 | `sort_order` 上限 | > 9999 → 截断为 9999 | — | 无 |
@@ -253,15 +258,15 @@
 
 ```
 管理员进入 运营中心 → 应用菜单
-  → GET /api/v1/app-menu（首次自动播种 20 项）
+  → GET /api/v1/app-menu（首次自动播种 19 项）
   → 页面按 primary / more 两组渲染
   → 管理员切换开关（强制项灰显）/ 点击 ↑↓ 调整组内顺序
   → 标记「有未保存的修改」
-  → 点击「保存」→ PUT /api/v1/app-menu（全量 20 项）
+  → 点击「保存」→ PUT /api/v1/app-menu（全量 19 项）
   → 服务端校验 → 强制项纠正 → 落库
   → 返回全量列表 + corrections
   → 页面刷新为服务端返回数据，清除脏标记
-  → Toast 提示「已保存 20 项」
+  → Toast 提示「已保存 19 项」
 ```
 
 ### 6.2 下发流程
@@ -369,7 +374,7 @@ el-card
 |------|------|------|----------|
 | 刷新 | 工具栏 | 重新 GET，覆盖当前编辑（脏数据静默丢弃） | 保存中 / 恢复中 |
 | 恢复默认 | 工具栏 | 弹出确认框 → 确认后 POST `/reset` → 刷新列表 | 保存中 / 加载中 |
-| 保存 | 工具栏 | 收集全量 20 项 → PUT → 用响应覆盖列表 | 保存中 |
+| 保存 | 工具栏 | 收集全量 19 项 → PUT → 用响应覆盖列表 | 保存中 |
 | 显示开关 | 表格「显示」列 | 切换 `row.visible`，置脏标记 | **强制项始终 disabled** |
 | 上移 ↑ | 表格「顺序」列 | 与上一行交换位置并归一化 `sort_order`，置脏标记 | 组内第一行 |
 | 下移 ↓ | 表格「顺序」列 | 与下一行交换位置并归一化 `sort_order`，置脏标记 | 组内最后一行 |
@@ -446,7 +451,7 @@ el-card
 
 | 维度 | 要求 | 落实 |
 |------|------|------|
-| 性能 | 配置项 ≤ 200，页面渲染 < 200ms | 20 项固定目录；表格无虚拟滚动需求 |
+| 性能 | 配置项 ≤ 200，页面渲染 < 200ms | 19 项固定目录；表格无虚拟滚动需求 |
 | 安全 | 写操作仅管理员 | `require_admin`（非 admin 403） |
 | 安全 | 下发不可篡改 | Ed25519 签名，`appMenu` 在签名覆盖范围内 |
 | 安全 | 防 payload DoS | 服务端与主进程双侧 200 项上限，超限拒绝 |
@@ -463,7 +468,7 @@ el-card
 
 | # | 场景 | 期望 |
 |---|------|------|
-| A1 | Given 运营中心首次打开「应用菜单」, When 页面加载 | 显示 20 项，分 primary / more 两组，全部可见 |
+| A1 | Given 运营中心首次打开「应用菜单」, When 页面加载 | 显示 19 项，分 primary / more 两组，全部可见 |
 | A2 | Given 「发布」为强制项, When 查看其开关 | 开关 `disabled`，hover 显示「系统核心入口，强制显示，不可关闭」 |
 | A3 | Given 管理员隐藏「主页」, When 保存 | 200，返回列表 `home.visible=false` |
 | A4 | Given 管理员尝试隐藏「发布」, When 保存 | 200，`corrections` 含 `publish`，返回列表中 `publish.visible=true` |
@@ -536,6 +541,16 @@ cd ops-center/backend && py -3.12 -m pytest -q
 | 复核触发点 | ① 下次涉足运行时下发链路（runtime/bootstrap、签名、preload 桥、access-control）时**强制重估**；② 季度例行复核 |
 | 窄修复备忘 | 「`runtimePublicKey` 不允许 renderer 覆盖」：从 `PUBLIC_METHODS` 移除 `opsCenterSyncSave`（或拆分保存通道）+ handler 增加 sender 校验。改动小、风险低；若启动，走独立分支 + PR + CI 全流程 |
 
+### 14.2 载荷卫生修复记录（2026-09-15，QA 复审驱动）
+
+QA 验证报告 §6.2.5（D-7.3 🟠）/ §6.2.7（D-GRP 🟡）的落地修复：
+
+| 编号 | 缺陷 | 修复 | 守卫测试 |
+|---|---|---|---|
+| D-7.3 | `canonical_json` 无 `allow_nan=False`：历史脏数据（如 pipeline option `default_value="NaN"`）经 json.loads 还原为 float('nan') 后，签名串含裸 `NaN`（非法 JSON）→ 桌面端 `JSON.parse` 整包丢弃 bootstrap，content_policy 等全部运行时策略失效且零告警 | ① `canonical_json` 显式 `allow_nan=False`（合法数据输出逐字节不变，签名兼容）；② `PUT /pipeline-options` 写入侧拒绝裸 NaN/Infinity/-Infinity 字面量（含嵌套）；③ bootstrap 下发侧对历史脏行降级为原字符串（存量数据免清洗即恢复安全） | `tests/test_pipeline_options_nan_guard.py`（8 例：写入 3 / 下发 1 / 序列化 2 / 合法回归 1 / API 端到端 1） |
+| D-GRP | bootstrap 下发的 appMenu items 含被签名但被忽略的 `group` 字段（与 PRD §2.4.4 不符） | `get_bootstrap_app_menu` 只输出 `key` / `visible` / `sort_order`；group 保留在管理 API（§4.1） | `test_bootstrap_app_menu_items_have_no_signed_but_ignored_fields` |
+| 顺带 | `test_app_menu_api.py` 的 `CATALOG_SIZE=20` 未随 #1840（移除 monitor，目录 20→19）同步 → main 上 3 例既有假红 | `CATALOG_SIZE` 改 19，本文档 §2.1/§4/§6 与 PRD 目录表同步 20→19 | `test_seed_catalog_and_forced_flags` 等 3 例转绿 |
+
 ---
 
 ## 15. 变更文件清单
@@ -544,7 +559,7 @@ cd ops-center/backend && py -3.12 -m pytest -q
 
 | 文件 | 类型 | 说明 |
 |------|------|------|
-| `src/config/sidebar-menu.js` | 新增 | 菜单定义单一事实源（20 项 + 强制项常量） |
+| `src/config/sidebar-menu.js` | 新增 | 菜单定义单一事实源（19 项 + 强制项常量） |
 | `src/config/sidebar-menu-merge.js` | 新增 | 合并算法（C1–C6） |
 | `src/config/sidebar-menu-merge.test.js` | 新增 | 34 个单测 |
 | `src/layouts/MpSidebar.vue` | 修改 | 改为「定义 + 运营配置叠加」 |
