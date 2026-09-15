@@ -110,6 +110,16 @@ jobs:
           pnpm exec eslint electron/ src/ --quiet
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # --- Gate 12: 品牌残留门禁（naming-normalization：防止参考产品品牌词再次进入仓库）---
+      # 2026-09-15 接入：字节级（latin1 保真）扫描全部 tracked 文本文件，兼容含 NUL 字节与非 UTF-8 文件；
+      # 跳过锁文件与二进制扩展名；品牌词按码点构造进正则（门禁脚本自身零字面品牌词）；
+      # 唯一豁免第三方远程签名服务域名（signer.js 默认端点，发布链路硬依赖）。
+      # 本地同口径：node scripts/check-no-brand-residue.js
+      - name: "Gate 12 - Brand residue (naming normalization)"
+        run: |
+          node scripts/check-no-brand-residue.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
   unit-tests:
     name: QG Unit Tests
     runs-on: windows-latest
