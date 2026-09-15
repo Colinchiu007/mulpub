@@ -13,8 +13,6 @@
  *   - 敏感词预检：sensitiveCheck / sensitiveReplace
  *   - 数据同步：syncAll / syncPlatform / syncCached
  *   - 通知：showNotification / onNotification
- *   - 分屏监控：webviewSetLayout / webviewOpenTab / webviewCloseTab / webviewCloseAll / webviewListTabs
- *               onWebviewLayoutChanged / onWebviewTabOpened / onWebviewTabClosed / onWebviewNav / onWebviewAllClosed
  *   - 回调服务器：onCallbackReceived
  *   - 离线模式：offlineStatus / offlineIsOffline / offlineCachedTasks / offlineAddToCache
  *               offlineClearCache / onOfflineRestored
@@ -98,28 +96,6 @@ function createSystemApi(ipcRenderer) {
       const h = (_, data) => cb(data)
       ipcRenderer.on('notification', h)
       return () => ipcRenderer.removeListener('notification', h)
-    },
-
-    // 分屏监控 API
-    webviewSetLayout: (count) => ipcRenderer.invoke('webview:set-layout', count),
-    webviewOpenTab: (opts) => ipcRenderer.invoke('webview:open-tab', opts),
-    webviewCloseTab: (tabId) => ipcRenderer.invoke('webview:close-tab', tabId),
-    webviewCloseAll: () => ipcRenderer.invoke('webview:close-all'),
-    webviewListTabs: () => ipcRenderer.invoke('webview:list-tabs'),
-    onWebviewLayoutChanged: (cb) => {
-      const h = (_, d) => cb(d); ipcRenderer.on('webview:layout-changed', h); return () => ipcRenderer.removeListener('webview:layout-changed', h)
-    },
-    onWebviewTabOpened: (cb) => {
-      const h = (_, d) => cb(d); ipcRenderer.on('webview:tab-opened', h); return () => ipcRenderer.removeListener('webview:tab-opened', h)
-    },
-    onWebviewTabClosed: (cb) => {
-      const h = (_, d) => cb(d); ipcRenderer.on('webview:tab-closed', h); return () => ipcRenderer.removeListener('webview:tab-closed', h)
-    },
-    onWebviewNav: (cb) => {
-      const h = (_, d) => cb(d); ipcRenderer.on('webview:navigated', h); return () => ipcRenderer.removeListener('webview:navigated', h)
-    },
-    onWebviewAllClosed: (cb) => {
-      const h = () => cb(); ipcRenderer.on('webview:all-closed', h); return () => ipcRenderer.removeListener('webview:all-closed', h)
     },
 
     // 回调服务器 API

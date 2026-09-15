@@ -161,7 +161,7 @@ describe('视觉测试条件等待合同', () => {
         + supplementaryViewTests.length
         + workflowTests.length
         + supplementaryWorkflowTests.length,
-    ).toBe(103);
+    ).toBe(102);
   });
 
   it('浏览器原生文本变化轮询只使用标准 CSS 选择器', () => {

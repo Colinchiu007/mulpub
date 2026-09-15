@@ -194,7 +194,7 @@ describe("CollectionView (deep)", () => {
 
   it("creates draft and navigates", async () => {
     const { mod } = await setupView("Collection.vue");
-    const w = mount(mod.default, { global: { mocks: { $t: (key) => key } } });
+    const w = mount(mod.default, { global: { mocks: { $t: (key) => key }, plugins: [i18n] } });
     await nextTick();
     w.vm.createDraft();
     await nextTick();
@@ -204,7 +204,7 @@ describe("CollectionView (deep)", () => {
 
   it("imports from clipboard", async () => {
     const { mod } = await setupView("Collection.vue");
-    const w = mount(mod.default, { global: { mocks: { $t: (key) => key } } });
+    const w = mount(mod.default, { global: { mocks: { $t: (key) => key }, plugins: [i18n] } });
     await nextTick();
     await w.vm.importFromClipboard();
     await nextTick();
@@ -215,7 +215,7 @@ describe("CollectionView (deep)", () => {
   it("handles clipboard failure", async () => {
     navigator.clipboard.readText = vi.fn().mockRejectedValue(new Error("denied"));
     const { mod } = await setupView("Collection.vue");
-    const w = mount(mod.default, { global: { mocks: { $t: (key) => key } } });
+    const w = mount(mod.default, { global: { mocks: { $t: (key) => key }, plugins: [i18n] } });
     await nextTick();
     await w.vm.importFromClipboard();
     await nextTick();

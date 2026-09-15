@@ -339,36 +339,30 @@ async function flowProviderToAI(r) {
 }
 
 /**
- * Flow 4: 监控 → 评论回复
- * 1. /monitor 看到有评论的文章
- * 2. 点评论图标跳 /comments
- * 3. 点回复
- * 4. 验证评论状态变"已回复"
+ * Flow 4: 评论 → 全局标签页
+ * 1. /comments 平台列表渲染
+ * 2. 点平台 → 在顶部全局标签栏打开评论页（page-manager 体系）
+ * 3. 验证 pageManagerCreateNewTabPage IPC 已调用
  */
-async function flowMonitorToComments(r) {
-  console.log('\n→ Flow 4: 监控 → 评论回复');
+async function flowCommentsToPageManager(r) {
+  console.log('\n→ Flow 4: 评论 → 全局标签页');
 
-  // Step 1: /monitor 加载
-  await r.goto('/monitor');
-  const monitorCards = await r.page.locator('.cohere-main .cohere-card, .platform-card, [class*="monitor"]').count();
-  record(r, 'Flow4.1 监控页加载完成', await bodyHas(r, '监控') || monitorCards > 0);
-
-  // Step 2: 跳到 /comments
+  // Step 1: /comments 加载
   await r.goto('/comments');
   await waitForVisible(r.page.locator('.comment-platform-item').first());
   const commentItems = await r.page.locator('.comment-platform-item').count();
-  record(r, 'Flow4.2 评论平台列表渲染', commentItems > 0, { count: commentItems });
+  record(r, 'Flow4.1 评论平台列表渲染', commentItems > 0, { count: commentItems });
 
-  // Step 3: 选择平台、查看评论
+  // Step 2: 选择平台 → 在顶部标签栏打开评论页
   if (commentItems > 0) {
     await r.page.locator('.comment-platform-item').first().click();
-    record(r, 'Flow4.3 评论页面可选择平台', await waitForVisible(r.page.locator('#comment-view-container')));
+    record(r, 'Flow4.2 选择平台后显示标签栏引导', await bodyHas(r, '顶部标签栏'));
   }
 
-  // Step 4: 选择评论平台会通过 WebView 打开对应平台页面
-  if (commentItems > 0) await waitForIpcCall(r, 'webviewOpenTab');
-  const openTabCalls = await r.getIpcCalls('webviewOpenTab');
-  record(r, 'Flow4.4 webviewOpenTab IPC 已调用', openTabCalls > 0, { count: openTabCalls });
+  // Step 3: pageManager 打开标签 IPC 已调用
+  if (commentItems > 0) await waitForIpcCall(r, 'pageManagerCreateNewTabPage');
+  const createTabCalls = await r.getIpcCalls('pageManagerCreateNewTabPage');
+  record(r, 'Flow4.3 pageManagerCreateNewTabPage IPC 已调用', createTabCalls > 0, { count: createTabCalls });
 }
 
 /**
@@ -525,7 +519,7 @@ const flows = {
   'flow-1': { name: 'Flow 1: 创建→发布→看板', exercise: flowCreateToDashboard },
   'flow-2': { name: 'Flow 2: 账号管理→侧栏→发布', exercise: flowAccountToPublish },
   'flow-3': { name: 'Flow 3: 模型服务商→AI 写作', exercise: flowProviderToAI },
-  'flow-4': { name: 'Flow 4: 监控→评论回复', exercise: flowMonitorToComments },
+  'flow-4': { name: 'Flow 4: 评论→全局标签页', exercise: flowCommentsToPageManager },
   'flow-5': { name: 'Flow 5: 设置变更级联', exercise: flowSettingCascade },
   'flow-6': { name: 'Flow 6: 错误路径', exercise: flowErrorPaths }
 };

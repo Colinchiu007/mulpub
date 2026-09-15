@@ -31,7 +31,6 @@ import {
   FolderOpened,
   HomeFilled,
   MagicStick,
-  Monitor,
   Search,
   TrendCharts,
   User,
@@ -79,7 +78,6 @@ export const SIDEBAR_MENU_DEFINITION = Object.freeze([
   { key: 'collection', group: SIDEBAR_GROUP_PRIMARY, labelI18nKey: 'sidebar.nav.collection', to: '/collection', icon: Collection },
 
   // ── 「更多」折叠菜单 ────────────────────────────
-  { key: 'monitor', group: SIDEBAR_GROUP_MORE, labelI18nKey: 'sidebar.nav.monitor', to: '/monitor', icon: Monitor },
   { key: 'calendar', group: SIDEBAR_GROUP_MORE, labelI18nKey: 'sidebar.nav.calendar', to: '/calendar', icon: Calendar },
   { key: 'comments', group: SIDEBAR_GROUP_MORE, labelI18nKey: 'sidebar.nav.comments', to: '/comments', icon: ChatDotRound },
   { key: 'cloud-publish', group: SIDEBAR_GROUP_MORE, labelI18nKey: 'sidebar.nav.cloudPublish', to: '/cloud-publish', icon: FolderOpened },

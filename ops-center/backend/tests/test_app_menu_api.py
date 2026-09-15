@@ -140,13 +140,13 @@ async def test_invalid_sort_order_keeps_previous_value():
             "/api/v1/app-menu",
             json={"items": [
                 {"item_key": "library", "visible": True, "sort_order": -3},
-                {"item_key": "monitor", "visible": True, "sort_order": "abc"},
+                {"item_key": "keywords", "visible": True, "sort_order": "abc"},
             ]},
             headers=h,
         )
         after = {i["item_key"]: i["sort_order"] for i in (await client.get("/api/v1/app-menu", headers=h)).json()["items"]}
         assert after["library"] == before["library"]
-        assert after["monitor"] == before["monitor"]
+        assert after["keywords"] == before["keywords"]
 
 
 # ─── 强制项保护 ────────────────────────────────────────────
@@ -270,7 +270,7 @@ async def test_reset_restores_defaults():
             "/api/v1/app-menu",
             json={"items": [
                 {"item_key": "home", "visible": False, "sort_order": 99},
-                {"item_key": "monitor", "visible": False, "sort_order": 98},
+                {"item_key": "keywords", "visible": False, "sort_order": 98},
             ]},
             headers=h,
         )
@@ -278,7 +278,7 @@ async def test_reset_restores_defaults():
 
         by_key = {i["item_key"]: i for i in data["items"]}
         assert by_key["home"]["visible"] is True
-        assert by_key["monitor"]["visible"] is True
+        assert by_key["keywords"]["visible"] is True
         primary = [i["item_key"] for i in data["items"] if i["group"] == "primary"]
         assert primary == DEFAULT_PRIMARY
 

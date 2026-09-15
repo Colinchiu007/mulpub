@@ -83,7 +83,6 @@ export default {
       dashboard: '数据',
       create: '视频创作',
       collection: '采集',
-      monitor: '监控',
       calendar: '发布日历',
       comments: '私信评论',
       cloudPublish: 'CLI',
@@ -2096,7 +2095,8 @@ export default {
     clipboardEmpty: '剪贴板为空',
     importedLines: '已导入 {count} 行内容',
     openedPlatform: '已打开 {platform} 采集页面',
-    switchToMonitor: '请先切换到分屏监控页查看',
+    platformUnsupported: '该平台暂不支持网页查看',
+    platformTabTitle: (ctx) => ctx.named('platform') + ' 采集页',
     confirmDeleteDraft: '确定删除这篇草稿吗？',
     confirmTitle: '确认',
     deleted: '已删除',
@@ -2342,11 +2342,9 @@ export default {
     cancelled: '管道已取消',
     unavailable: '全自动管道功能不可用',
   },
-  monitor: {
-    selectPlatform: '请选择平台',
-    addedMonitor: '已添加 {platform} 监控',
-    addFailed: '添加失败',
-    closedAll: '已关闭所有监控',
+  comments: {
+    tabTitle: (ctx) => ctx.named('platform') + '评论',
+    openedInTab: '评论页已在顶部标签栏打开，点击上方标签即可查看',
   },
   intelligence: {
     insertedRef: '已插入引用: {title}',

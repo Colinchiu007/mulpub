@@ -83,7 +83,6 @@ export default {
       dashboard: 'Dashboard',
       create: 'Video Creation',
       collection: 'Collection',
-      monitor: 'Monitor',
       calendar: 'Publish Calendar',
       comments: 'Messages & Comments',
       cloudPublish: 'CLI',
@@ -2095,7 +2094,8 @@ export default {
     clipboardEmpty: 'Clipboard is empty',
     importedLines: 'Imported {count} lines',
     openedPlatform: 'Opened {platform} collection page',
-    switchToMonitor: 'Please switch to the split-screen monitor view',
+    platformUnsupported: 'Web view is not available for this platform',
+    platformTabTitle: (ctx) => ctx.named('platform') + ' collection page',
     confirmDeleteDraft: 'Delete this draft?',
     confirmTitle: 'Confirm',
     deleted: 'Deleted',
@@ -2341,11 +2341,9 @@ export default {
     cancelled: 'Pipeline cancelled',
     unavailable: 'Full auto pipeline is unavailable',
   },
-  monitor: {
-    selectPlatform: 'Please select a platform',
-    addedMonitor: 'Added {platform} monitor',
-    addFailed: 'Failed to add',
-    closedAll: 'Closed all monitors',
+  comments: {
+    tabTitle: (ctx) => ctx.named('platform') + ' comments',
+    openedInTab: 'The comments page is open in the tab bar above — click its tab to view it',
   },
   intelligence: {
     insertedRef: 'Inserted reference: {title}',

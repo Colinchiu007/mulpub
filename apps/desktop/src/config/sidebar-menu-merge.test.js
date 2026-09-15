@@ -163,7 +163,7 @@ describe('resolveSidebarMenu — 强制项保护（C2）', () => {
   it('非强制项标记 forcedVisible=false', () => {
     const resolved = resolveSidebarMenu(SIDEBAR_MENU_DEFINITION, null)
     expect(findItem(resolved, 'home').forcedVisible).toBe(false)
-    expect(findItem(resolved, 'monitor').forcedVisible).toBe(false)
+    expect(findItem(resolved, 'keywords').forcedVisible).toBe(false)
   })
 })
 
@@ -174,12 +174,12 @@ describe('resolveSidebarMenu — 显隐合并（C3/C4）', () => {
       items: [
         { key: 'home', visible: false, sort_order: 0 },
         { key: 'dashboard', visible: false, sort_order: 1 },
-        { key: 'monitor', visible: false, sort_order: 0 },
+        { key: 'keywords', visible: false, sort_order: 0 },
       ],
     })
     expect(findItem(resolved, 'home').visible).toBe(false)
     expect(findItem(resolved, 'dashboard').visible).toBe(false)
-    expect(findItem(resolved, 'monitor').visible).toBe(false)
+    expect(findItem(resolved, 'keywords').visible).toBe(false)
     // 未提及的项保持可见
     expect(findItem(resolved, 'library').visible).toBe(true)
   })
@@ -221,12 +221,12 @@ describe('resolveSidebarMenu — 组内排序（C5）', () => {
   it('两组互不影响（more 组排序不改变 primary 组）', () => {
     const resolved = resolveSidebarMenu(SIDEBAR_MENU_DEFINITION, {
       items: [
-        { key: 'monitor', visible: true, sort_order: 99 },
+        { key: 'keywords', visible: true, sort_order: 99 },
         { key: 'member-center', visible: true, sort_order: 0 },
       ],
     })
-    // 已配置项优先：member-center(sort 0) → monitor(sort 99)；未配置项全部排在其后
-    expect(keysOf(resolved[SIDEBAR_GROUP_MORE]).slice(0, 2)).toEqual(['member-center', 'monitor'])
+    // 已配置项优先：member-center(sort 0) → keywords(sort 99)；未配置项全部排在其后
+    expect(keysOf(resolved[SIDEBAR_GROUP_MORE]).slice(0, 2)).toEqual(['member-center', 'keywords'])
     expect(keysOf(resolved[SIDEBAR_GROUP_MORE]).at(-1)).toBe('performance-insights')
     expect(keysOf(resolved[SIDEBAR_GROUP_PRIMARY])).toEqual(
       keysOf(SIDEBAR_MENU_DEFINITION.filter((i) => i.group === SIDEBAR_GROUP_PRIMARY)),

@@ -26,7 +26,6 @@ const ROUTE_LIST = [
   { spec: 'accounts', route: '/accounts', title: '账号管理' },
   { spec: 'dashboard', route: '/dashboard', title: '数据看板' },
   { spec: 'collection', route: '/collection', title: '内容采集' },
-  { spec: 'monitor', route: '/monitor', title: '文章监控' },
   { spec: 'keywords', route: '/keywords', title: '关键词监控' },
   { spec: 'viral-analysis', route: '/viral-analysis', title: '爆款分析' },
   { spec: 'model-providers', route: '/model-providers', title: '模型服务商' },

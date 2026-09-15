@@ -78,7 +78,7 @@ const isFullScreenRoute = computed(() => route.path === '/first-run')
 
 | Header | 品牌区：汤姆鱼 Logo + 应用版本号 `vX.Y.Z` + `+` 新建发布按钮 | 登录区已移出（见 2.5），保留快捷发布入口；品牌区细则见 2.6 |
 | 主导航 | 主页、发布、账号、数据、视频创作、采集 | 6 个主要导航项，使用 `router-link` |
-| 更多菜单 | 监控、发布日历、私信评论、CLI、素材库、关键词监控、爆款分析、提示词评估、模型提供商、会员中心 | 10 个次要导航项，折叠在下拉菜单中 |
+| 更多菜单 | 发布日历、私信评论、CLI、素材库、关键词监控、爆款分析、提示词评估、文案改写、热门选题、模型提供商、知识库、性能洞察、会员中心 | 13 个次要导航项，折叠在下拉菜单中；原「分屏监控」入口已随功能移除 |
 | Footer 第 1 行 | 服务连接信息（`SidebarServiceStatus`） | 六服务聚合状态 + hover 明细 |
 | Footer 第 2 行 | 底部用户 banner（`ProfileMenu`） | 收起态仅一条；点击向上展开菜单（账号操作 / 设置 / 升级 Pro） |
 
@@ -259,7 +259,6 @@ if (el) {
 | 默认侧边栏宽度 | 200px | 常量 `SIDEBAR_WIDTH_DEFAULT` |
 | 窄屏侧边栏宽度 | 68px | 视口 ≤900px 时由渲染进程同步 |
 | 顶部偏移 (浏览器标签) | 76px | TabBar(36px) + NavBar(40px) |
-| 顶部偏移 (分屏监控) | 56px | 旧版监控布局 |
 | 动态宽度 | 由渲染进程通过 IPC 实时同步 | `page-manager:set-sidebar-width` |
 
 ### 4.3 三个管理器定位
@@ -269,7 +268,6 @@ if (el) {
 | WebviewManager (浏览器标签) | `electron/services/webview-manager.js` | `_repositionAll()` | `sidebarWidth` | 76px |
 | AuthViewManager (登录视图) | `electron/services/auth-view-manager.js` | `_positionView()` | `sidebarWidth` | 76px |
 | QrCodeLogin (扫码登录) | `electron/services/qrcode-login.js` | `_positionView()` | `sidebarWidth` | 76px |
-| WebviewManager (分屏监控) | `electron/services/webview-manager.js` | `_calculatePositions()` | `sidebarWidth` | 56px |
 
 ### 4.4 浏览器标签页定位
 
@@ -293,17 +291,6 @@ this.currentView.setBounds({
   width: Math.max(0, bounds.width - sidebarWidth),    // 防止负值
   height: Math.max(0, bounds.height - AUTH_VIEW_TOP)  // 防止负值
 })
-```
-
-### 4.6 分屏监控布局
-
-分屏监控（旧系统）支持 1/2/3/4/6 屏布局，所有分屏区域均从侧边栏右侧开始：
-
-```javascript
-// webview-manager.js _calculatePositions()
-var W = bounds.width - sidebarWidth   // 可用宽度 = 窗口宽度 - 侧边栏宽度
-var H = bounds.height - NAV_HEIGHT    // 可用高度 = 窗口高度 - 导航高度
-var OFFSET_X = sidebarWidth           // X 偏移 = 侧边栏宽度
 ```
 
 ---
@@ -509,7 +496,7 @@ mainWindow.on('resize', () => {
 | `apps/desktop/src/stores/tab.js` | 标签页状态管理 (Pinia) |
 | `apps/desktop/src/api/electron-bridge.js` | IPC 桥接层 |
 | `apps/desktop/src/styles/cohere-design-system.css` | 设计 Token 定义 |
-| `apps/desktop/electron/services/webview-manager.js` | WebContentsView 标签管理 + 分屏监控 |
+| `apps/desktop/electron/services/webview-manager.js` | WebContentsView 标签管理（浏览器标签 + 虚拟登录标签） |
 | `apps/desktop/electron/services/auth-view-manager.js` | 内嵌浏览器登录管理器 |
 | `apps/desktop/electron/services/qrcode-login.js` | 二维码扫码登录管理器 |
 | `apps/desktop/electron/preload/page-manager.js` | Preload API 定义 |
