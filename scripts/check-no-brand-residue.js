@@ -48,6 +48,11 @@ const BRAND_FULL = String.fromCharCode(0x79, 0x69, 0x78, 0x69, 0x61, 0x6f, 0x65,
 const BRAND_ZH = String.fromCharCode(0x8681, 0x5c0f, 0x4e8c);
 const BRAND_ABBR = BRAND_FULL[0] + BRAND_FULL[2] + BRAND_FULL[6];
 
+// 字符串 → latin1 字节串（1 字节 = 1 字符，可逆）。
+// 扫描通道是 latin1 字节串，因此**所有**变体（含中文）都必须先转成字节表示，
+// 否则中文品牌词在压缩前的 UTF-8 字节序列永远匹配不上（已踩坑：中文变体漏检）。
+const toL = (s) => Buffer.from(s, 'utf8').toString('latin1');
+
 const BRAND_VARIANTS = [
   BRAND_ZH,
   BRAND_FULL,
@@ -56,10 +61,7 @@ const BRAND_VARIANTS = [
   BRAND_ABBR,
   BRAND_ABBR[0].toUpperCase() + BRAND_ABBR.slice(1),
   BRAND_ABBR.toUpperCase(),
-];
-
-// 字符串 → latin1 字节串（1 字节 = 1 字符，可逆）
-const toL = (s) => Buffer.from(s, 'utf8').toString('latin1');
+].map(toL);
 
 const BRAND_RESIDUAL = new RegExp(
   BRAND_VARIANTS.map((v) => '(?<![A-Za-z])' + v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'),

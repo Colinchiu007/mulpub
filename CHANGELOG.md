@@ -1,3 +1,25 @@
+# [未发布] feat(desktop): 主页未登录问候语「请登录」可点击链接（2026-09-15）
+
+### 背景
+- 主页未登录态渲染「中午好，登录」：「登录」来自 `stores/identity.js` 的 displayName 兜底值，文案歧义且不可点击，主页缺少直达登录窗口的入口。
+
+### 新增
+- `apps/desktop/src/components/HomeGreeting.vue`：欢迎区问候语子组件，承载问候语 + 登录链接/昵称 + 副标题与登录入口逻辑。
+- i18n `home.pleaseLogin`（zh「请登录」/ en「Sign in」，zh/en 成对）。
+
+### 变更
+- `views/Home.vue`：问候语块替换为 `<HomeGreeting />`，移除 `greetingText`/`displayName` 计算属性与问候语 CSS（495 → 470 行，规避 500 行债务熔断）。
+- 交互：未登录（`signed_out`/`expired`/`error`）点击「请登录」→ 直接 `identityStore.signIn()` 弹 Logto 登录窗口；`loading` 防重入；失败走 `loginGate.loginIncomplete` warning；`disabled` 态 fail-closed 不渲染链接。
+
+### 安全与兜底
+- 不新增 IPC/preload/主进程服务（零契约变更）；登录结果以 `signIn()` 返回值 + `isAuthenticated` 双重判定；异常 `reportError` 上报并兜底提示。
+
+### 验证
+- `Home.test.js` 19 例全绿（+6 新用例）；`ProfileMenu.test.js` 17 / `identity.test.js` 17 / `useLoginGate.test.js` 8 回归全绿。
+- 门禁：债务熔断（filesOver500 86=86）、`check-locale-sync --cjk/--keys`、`check-frontend-consistency` 全部通过。
+- 详细规格：`01-docs/PRD-HOME-LOGIN-LINK-2026-09-15.md`
+
+---
 # [未发布] feat(ops-center): 应用菜单配置——运营中心管理应用端侧边栏显隐与排序（2026-09-15）
 
 ### 新增
@@ -31,16 +53,42 @@
 
 ### 移除
 - **「监控」（分屏监控）功能整体删除**（`/monitor` 路由、侧边栏「更多」菜单入口、`views/Monitor.vue` 及其测试）：多平台 1/2/3/4/6 分屏同时监控页无实际使用场景，产品决策移除
-- **旧分屏监控底层体系删除**：`webview-manager.js` 的 `openTab()` / `setLayout()` / `closeMonitorTab()` / `closeAllMonitorTabs()` / `getTabsInfo()` / `_calculatePositions()` / `_emit()` 与 5 个 `webview:*` IPC handler（set-layout / open-tab / close-tab / close-all / list-tabs）+ 4 个 `webview:*` 事件广播；preload `webviewSetLayout` / `webviewOpenTab` / `webviewCloseTab` / `webviewCloseAll` / `webviewListTabs` / `onWebviewLayoutChanged` / `onWebviewTabOpened` / `onWebviewTabClosed` / `onWebviewNav` / `onWebviewAllClosed` 10 个方法及 `PUBLIC_METHODS` 白名单条目；preload 方法计数契约同步（system 153→143、合并 321→311、SYSTEM_METHODS 141→131）
+- **旧分屏监控底层体系删除**：`webview-manager.js` 的 `openTab()` / `setLayout()` / `closeMonitorTab()` / `closeAllMonitorTabs()` / `getTabsInfo()` / `_calculatePositions()` / `_emit()` 与 5 个 `webview:*` IPC handler（set-layout / open-tab / close-tab / close-all / list-tabs）+ 4 个 `webview:*` 事件广播；preload `webviewSetLayout` / `webviewOpenTab` / `webviewCloseTab` / `webviewCloseAll` / `webviewListTabs` / `onWebviewLayoutChanged` / `onWebviewTabOpened` / `onWebviewTabClosed` / `onWebviewNav` / `onWebviewAllClosed` 10 个方法及 `PUBLIC_METHODS` 白名单条目；preload 方法计数契约同步（最终值 system 145、合并 api 313、`SYSTEM_METHODS` 132——含 #1839/#1853 基线增量）
+- **全局快捷键** `Ctrl+Alt+M`（分屏监控）与运营中心默认菜单目录的 monitor 项一并移除
 
 ### 迁移
 - **评论管理**（`Comments.vue`）：点平台打开评论页改走 `tabStore.createTab`（page-manager 全局标签栏承载），保持「一次一个评论标签」（切换平台先 `closeTab` 旧标签）；删除页面内嵌占位容器，改为引导空态「评论页已在顶部标签栏打开，点击上方标签即可查看」；移除离开页面自动关标签（标签持久化，与浏览器标签语义一致）
 - **采集**（`Collection.vue`）：`openCollection` 改走 `tabStore.createTab`（renderer 侧经 `PLATFORM_DASHBOARD_URLS` 解析 URL，标题「<平台名> 采集页」）；新增无 URL 平台告警 `collection.platformUnsupported`；删除失效降级提示 `collection.switchToMonitor`
-- **E2E**：路由矩阵/顺序/报告清单移除 monitor，Flow 4 重写为「评论→全局标签页」，`ipc-mock.js` 移除 webview mock 并新增 `pageManager` 嵌套 mock
+- **E2E**：路由矩阵/顺序/报告清单移除 monitor，Flow 4 重写为「评论→全局标签页」，`ipc-mock.js` 移除 webview mock 并新增 `pageManager` 嵌套 mock（查询类空态，避免视觉测试渲染状态漂移）
 
 ### 文档
 - `01-docs/PRD-REMOVE-MONITOR-FEATURE-2026-09-15.md`：完整决策记录（方案对比/依赖矩阵/数据校验/交互/提示文字/验收标准）
 - `docs/desktop-ui-layout-spec.md`：更多菜单清单、内嵌视图清单、偏移表、§4.6 分屏布局节同步移除
+
+---
+# [未发布] feat(upload): 分片上传增强 — MD5/重试/进度门控/真并发/实时进度（2026-09-15）
+
+> 接管 #1489：变基 origin/main + 去品牌化表述 + 修复变基暴露的问题。
+
+### 新增
+- **ChunkedUploader.getMD5**：文件哈希（去重/断点续传标识）
+- **uploadWithRetry**：分片级重试 + `chunk:retry` 事件
+- **UploadEmitGate**：大文件时间门控(5s) / 小文件百分比门控(10%)（整数百分比避免浮点误差）
+- **concurrency 真并发**：worker 池并行分片（不再是串行假并发）
+- **IPC 链路**：`upload.js` 实时转发 `upload:progress`；preload `system.js` 新增 `onUploadProgress` 事件监听（暴露面契约同步：system 方法数 153→154、合并 api 321→322、`SYSTEM_METHODS` 141→142）
+- **测试**：13 个 TDD 用例覆盖上述能力
+
+### 修复（变基暴露）
+- **取消语义**：worker 循环顶部的取消由静默 `break` 改为显式返回 `cancelled` 标记——此前"最后一片上传完成后取消"会被误判为上传成功
+- **失败/取消路径回报 `retries`**：此前仅成功路径回报，调用方无法感知重试消耗
+- **并发统计测试用唯一令牌**：原实现 `running.add(true)` 对 Set 去重，`size` 恒 ≤1，并发断言恒失效
+- **门禁中文变体盲区**：latin1 扫描通道下中文品牌词模式必须转字节表示；新增 `scripts/check-no-brand-residue.test.js` 自测（fixture 仓库验证 7 类变体 / 域名豁免 / 二进制跳过）并接入 Gate 12（自测先于扫描）
+
+### 验证
+- `packages/shared-utils` chunked-uploader：**27 用例全绿**
+- `electron/preload.test.js` + `tests/ipc-handlers.test.js`：**全绿**
+- `node --test scripts/check-no-brand-residue.test.js` → 6 pass；`workflow-contract.test.js` → 20 pass
+- 品牌残留门禁 PASS（5438 个 tracked 文件）；eslint（改动文件）0 error
 
 ---
 # [未发布] chore(ci): 品牌残留门禁接入 CI（Gate 12）+ 补齐 #1837 遗漏的门禁脚本（2026-09-15）

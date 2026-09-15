@@ -8,8 +8,27 @@ vi.mock("vue-router", () => ({
   useRouter: () => ({ push: pushSpy }),
 }));
 
+const identityStoreMock = {
+  displayName: "测试用户",
+  status: "authenticated",
+  isAuthenticated: true,
+  loading: false,
+  signIn: vi.fn().mockResolvedValue(true),
+};
 vi.mock("@/stores/identity", () => ({
-  useIdentityStore: () => ({ displayName: "测试用户" }),
+  useIdentityStore: () => identityStoreMock,
+}));
+
+const notifyWarningMock = vi.fn();
+vi.mock("@/composables/useNotify", () => ({
+  useNotify: () => ({
+    notify: vi.fn(),
+    notifyError: vi.fn(),
+    notifySuccess: vi.fn(),
+    notifyWarning: notifyWarningMock,
+    notifyInfo: vi.fn(),
+    notifyConfirm: vi.fn(),
+  }),
 }));
 
 const platformStoreMock = {
@@ -66,6 +85,11 @@ describe("HomeView", () => {
   beforeEach(() => {
     i18n.global.locale.value = "zh";
     vi.clearAllMocks();
+    identityStoreMock.displayName = "测试用户";
+    identityStoreMock.status = "authenticated";
+    identityStoreMock.isAuthenticated = true;
+    identityStoreMock.loading = false;
+    identityStoreMock.signIn.mockResolvedValue(true);
     platformStoreMock.platforms = [];
     accountStoreMock.accounts = [];
     accountStoreMock.ensureLoaded.mockResolvedValue(undefined);
@@ -92,6 +116,54 @@ describe("HomeView", () => {
     expect(text).toContain("多平台内容一键发布");
     expect(text).toContain("测试用户");
     expect(text).toMatch(/夜深了|早上好|中午好|下午好|晚上好/);
+  });
+
+  it("hides login link when authenticated and shows display name instead", async () => {
+    const w = await flushMounted(mountHome());
+    expect(w.find('[data-testid="home-login-link"]').exists()).toBe(false);
+    expect(w.text()).toContain("测试用户");
+  });
+
+  it("shows clickable 请登录 link when signed out and opens login window on click", async () => {
+    identityStoreMock.isAuthenticated = false;
+    identityStoreMock.status = "signed_out";
+    identityStoreMock.displayName = "登录";
+    const w = await flushMounted(mountHome());
+    const link = w.find('[data-testid="home-login-link"]');
+    expect(link.exists()).toBe(true);
+    expect(link.text()).toBe("请登录");
+    expect(w.text()).toMatch(/夜深了|早上好|中午好|下午好|晚上好/);
+    expect(w.text()).toContain("，请登录");
+    await link.trigger("click");
+    expect(identityStoreMock.signIn).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not render login link when identity service is disabled (fail-closed)", async () => {
+    identityStoreMock.isAuthenticated = false;
+    identityStoreMock.status = "disabled";
+    identityStoreMock.displayName = "用户";
+    const w = await flushMounted(mountHome());
+    expect(w.find('[data-testid="home-login-link"]').exists()).toBe(false);
+    expect(identityStoreMock.signIn).not.toHaveBeenCalled();
+  });
+
+  it("warns via notify when sign-in does not complete", async () => {
+    identityStoreMock.isAuthenticated = false;
+    identityStoreMock.status = "signed_out";
+    identityStoreMock.signIn.mockResolvedValue(false);
+    const w = await flushMounted(mountHome());
+    await w.find('[data-testid="home-login-link"]').trigger("click");
+    expect(identityStoreMock.signIn).toHaveBeenCalledTimes(1);
+    expect(notifyWarningMock).toHaveBeenCalledWith("loginGate.loginIncomplete", expect.any(Object));
+  });
+
+  it("ignores repeated clicks while a sign-in is already in progress", async () => {
+    identityStoreMock.isAuthenticated = false;
+    identityStoreMock.status = "signed_out";
+    identityStoreMock.loading = true;
+    const w = await flushMounted(mountHome());
+    await w.find('[data-testid="home-login-link"]').trigger("click");
+    expect(identityStoreMock.signIn).not.toHaveBeenCalled();
   });
 
   it("shows six shortcut entries", async () => {

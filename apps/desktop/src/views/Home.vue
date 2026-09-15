@@ -2,10 +2,7 @@
   <div class="mp-home" data-testid="mp-home">
     <!-- 欢迎区 -->
     <section class="mp-home-welcome">
-      <div class="mp-home-greeting">
-        <h2>{{ greetingText }}，{{ displayName }}</h2>
-        <p>{{ t('home.subtitle') }}</p>
-      </div>
+      <HomeGreeting />
       <div class="mp-home-quick-actions">
         <button class="mp-home-action-btn mp-home-action-btn--primary" data-testid="home-new-publish" @click="go('/publish')">
           <span class="action-icon">✏️</span>
@@ -120,11 +117,11 @@ import { getApi } from '@/api/electron-bridge'
 import { accountBatchOpenLogin } from '@/api/publisher'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { useIdentityStore } from '@/stores/identity'
 import { usePlatformStore } from '@/stores/platforms'
 import { useAccountStore } from '@/stores/accounts'
 import { useTabStore } from '@/stores/tab'
 import LoginExpiredBanner from '@/components/LoginExpiredBanner.vue'
+import HomeGreeting from '@/components/HomeGreeting.vue'
 import { getPlatformIconUrl } from '@/composables/usePlatformIconUrl'
 import { useExpiredAccountsBanner } from '@/composables/useExpiredAccountsBanner'
 import { formatDateTime } from '@/utils/datetime'
@@ -132,7 +129,6 @@ import { reportError } from '../utils/report-error'
 
 const router = useRouter()
 const { t } = useI18n()
-const identityStore = useIdentityStore()
 const platformStore = usePlatformStore()
 const accountStore = useAccountStore()
 const tabStore = useTabStore()
@@ -144,14 +140,6 @@ const {
   expiredAccounts, expiredAccountCount, showExpiredBanner,
   refresh: refreshExpiredAccounts, subscribeAutoRefresh, dispose: disposeExpiredBanner,
 } = useExpiredAccountsBanner(accountStore)
-
-const displayName = computed(() => identityStore.displayName || t('home.user'))
-
-const greetingText = computed(() => {
-  const hour = new Date().getHours()
-  const key = hour < 6 ? 'lateNight' : hour < 12 ? 'morning' : hour < 14 ? 'noon' : hour < 18 ? 'afternoon' : 'evening'
-  return t('home.greetings.' + key)
-})
 
 const platforms = computed(() => {
   if (platformStore.platforms.length > 0) {
@@ -256,19 +244,6 @@ onUnmounted(() => {
   justify-content: space-between;
   gap: 24px;
   margin-bottom: 32px;
-}
-
-.mp-home-greeting h2 {
-  margin: 0 0 4px;
-  color: #25252b;
-  font-size: 22px;
-  font-weight: 600;
-}
-
-.mp-home-greeting p {
-  margin: 0;
-  color: #8b8e9a;
-  font-size: 14px;
 }
 
 .mp-home-quick-actions {

@@ -6,11 +6,41 @@
 - **教训 3（preload 删除方法五处同步）**：system.js 方法体 + access-control.js PUBLIC_METHODS + preload.test.js（SYSTEM_METHODS 数组与三处计数断言）+ `pnpm run build:preload` 重建 index.bundle.js + e2e ipc-mock.js；漏一处 CI 契约测试即拦截。
 - **教训 4（NUL 字节文件只能字节级编辑）**：learnings.md 含历史 NUL（实测 hasNUL=true），utf8 读写编辑有截残风险；用 Node buffer 插入，且中文内容不能 node -e 内联（控制台 GBK 损坏），必须 UTF-8 脚本文件执行。
 
+
+## 主页未登录问候语「请登录」链接：渲染端登录入口的最小正确实现（2026-09-15）
+
+- **需求**：主页未登录态「中午好，登录」→「中午好，请登录」，且「请登录」可点击、直接弹 Logto 登录窗口。
+- **文案歧义根因**：`stores/identity.js` 的 `displayName` 兜底值是 `'登录'`（未登录时），它被问候语当昵称渲染，
+  于是出现「问候语 + 动词」的怪句。本次**不动** identity store（它是多消费方单点），只在新组件层覆盖展示；
+  后续若统一改兜底词，需同步评估侧边栏 ProfileMenu / 会员中心。
+- **登录入口口径（唯一正确做法）**：显式登录意图直接 `identityStore.signIn()`（主进程 AuthViewManager 弹独立窗口），
+  **不要**复用 `useLoginGate`——后者是「主动操作被拦后的渐进式引导」，多一层确认框，语义不符。
+  `status === 'disabled'`（身份服务未配置）必须 fail-closed 不渲染链接，与 ProfileMenu 降级口径一致。
+- **500 行债务熔断的实战规避**：`Home.vue` 原 495 行，直接内联新增必超 500（`check-debt-budget.js`
+  按 `filesOver500` **计数**对比基线，不是白名单）。把问候语整块抽成 `components/HomeGreeting.vue`
+  （模板 + 计算属性 + CSS 随迁），`Home.vue` 降到 470 行——**拆分而非绕过**。
+- **CJK 门禁的隐性拦截**：`reportError('打开登录窗口失败', e)` 这类**日志文案**也会被
+  `check-locale-sync.js --cjk` 当新增硬编码中文拦下（该门禁不分用户可见/日志）。新代码里的字符串字面量
+  一律用英文或走 i18n。
+- **大文件二进制写入（再次验证）**：`PRD.md`（1.15MB、8 个 NUL、LF）与 `CHANGELOG.md`（1.05MB、CRLF）
+  必须走 `open(p,'rb')/'wb'` 字节通道追加/前插；PRD 尾部 `\n` 结尾直接 append，CHANGELOG 前插需把
+  `\n` 换成 `\r\n`。验收口径 `git diff --numstat` = 「新增 N / 删除 0」（本次 PRD 59/0、CHANGELOG 22/0）。
+- **测试锚点**：新交互组件必须给 `data-testid`（`home-login-link` / `home-greeting`）；identity store 的
+  测试 mock 要补 `isAuthenticated/status/loading/signIn` 四个字段——旧 mock 只有 `displayName`，
+  新逻辑用 `isAuthenticated` 判定后会把「已登录」用例误判成未登录。
+- **官方入口失效的备用路径（本机）**：`start-mp-task.ps1` 内层 `session-init.sh` 用 `git -C "<含 .. 路径>"`，
+  经 PowerShell 调 Git Bash 时 PATH 缺 `dirname`/路径转换失败 → 直接
+  `git worktree add -b <无斜杠分支> <D盘路径> HEAD`（PowerShell 原生 `D:\` 路径）一步到位，
+  无需 detach/update-ref/symbolic-ref 三步兜底。
+
+---
+
 ## 全仓命名清理：批量替换必须有三道防线 + 三个 git 陷阱（命名空间去品牌化，2026-09-15）
 
 - **背景**：把 271 个文件、1662 处指向参考产品的品牌词（中文品牌名 + 全拼大小写变体 + 三字母缩写变体）替换为中性命名（`mp` / `Mp` / `MP` / `参考产品`），并同步改 56 项路径名。PRD 见 `01-docs/PRD-NAMING-NORMALIZATION-2026-09-15.md`。**本文档与 PRD 均不复现品牌词字面**（残留门禁 `scripts/check-no-brand-residue.js` 会拦截，品牌词按码点构造进正则）。
 - **防线 1（字节级兜底）**：文本通道（`readFileSync utf8 → replace → writeFileSync`）会**静默跳过含 NUL 字节的"文本"文件**——`01-docs/learnings.md`（1.4MB）与 `01-docs/PRD.md` 因个别 NUL 字节被 `buf.includes(0)` 判成二进制而漏改，且残留扫描用了同一判断，**假阴性叠加**导致"残留 0"是假的。正确做法：字节通道用 `latin1`（1 字节 ↔ 1 字符，可逆）做字符串替换再转回 Buffer，对全量 tracked 文件兜底。
 - **防线 2（编码安全校验）**：改写前对每个文件取 `git show HEAD:<file>` 原始字节，校验 `Buffer.compare(orig, Buffer.from(orig.toString('utf8'),'utf8')) === 0`；非 UTF-8（如 GBK）文件用 utf8 读写会把无法映射的字节变成 U+FFFD（数据丢失）。本次发现 2 份 GBK 归档 md，按 UTF-8 归一（改善）并明确记录丢失量。
+- **防线 4（扫描通道与模式必须同表示域）**：常驻门禁在 latin1 字节串上扫描，**中文品牌词的模式也必须先经 toL 转成字节表示**——直接用 Unicode 字符串构造正则，ASCII 变体能命中、中文变体永远匹配不上（#1489 接管时发现 chunked-uploader.js 三处中文品牌词漏检）。防线：用自测（fixture 仓库验证 7 类变体 / 豁免 / 二进制跳过）证明**检出能力**，"当前仓库干净"只证明存量、不证明检出器有效。
 - **防线 3（二进制排除）**：`.mp4` / `.png` 等压缩数据里存在与品牌词**相同的随机字节序列**，字节级替换会直接损坏文件（PNG CRC 校验失败、MP4 无法播放）；二进制扩展名必须显式排除，其"命中"不构成可读品牌痕迹。
 - **git 陷阱 1（.gitignore 命中的改名文件不会被 `git add -A` 收录）**：`.gitignore` 有 `.ccg/tasks/*`，改名后的新路径属"新增 + 被忽略"→ 不入库，而旧路径被记录为删除，最终 **86 个文件以纯删除形态进暂存区**、索引条目数 5421→5335。修复：按删除项经同一套规则推导新路径后 `git add -f -- <path>` 精确补齐，并核对 `git ls-files | measure` 与 HEAD 一致。
 - **git 陷阱 2（占位符保护必须配对还原）**：为保护功能性依赖 `qianming.yixiaoer.cn`（第三方远程签名服务，百家号签名无本地回退）不被通用规则改坏，先替换成 `qianming.__SIGNER_HOST__` 占位符——但**漏写还原步骤**会让端点在仓库里保持损坏态，且残留扫描发现不了（占位符不含品牌词）。占位符方案必须与还原步骤写在同一脚本里并有断言；另注意还原必须是**定点还原**（只还原"保护期"产生的占位符），否则会把文档正文里**有意书写的占位符名**也一并替换掉（本次 learnings 正文即被全局还原弄混）。

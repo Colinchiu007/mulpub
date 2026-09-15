@@ -168,6 +168,11 @@ function createSystemApi(ipcRenderer) {
     // Upload API
     uploadChunked: (filePath) => ipcRenderer.invoke('upload:chunked', { filePath }),
     uploadCancel: () => ipcRenderer.invoke('upload:cancel'),
+    onUploadProgress: (callback) => {
+      const h = (_e, payload) => callback(payload)
+      ipcRenderer.on('upload:progress', h)
+      return () => ipcRenderer.removeListener('upload:progress', h)
+    },
 
     // Template API
     templateList: () => ipcRenderer.invoke('template:list'),
