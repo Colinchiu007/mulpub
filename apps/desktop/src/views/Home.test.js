@@ -14,6 +14,7 @@ const identityStoreMock = {
   isAuthenticated: true,
   loading: false,
   signIn: vi.fn().mockResolvedValue(true),
+  signInOrSwitch: vi.fn().mockResolvedValue(true),
 };
 vi.mock("@/stores/identity", () => ({
   useIdentityStore: () => identityStoreMock,
@@ -135,7 +136,7 @@ describe("HomeView", () => {
     expect(w.text()).toMatch(/夜深了|早上好|中午好|下午好|晚上好/);
     expect(w.text()).toContain("，请登录");
     await link.trigger("click");
-    expect(identityStoreMock.signIn).toHaveBeenCalledTimes(1);
+    expect(identityStoreMock.signInOrSwitch).toHaveBeenCalledTimes(1);
   });
 
   it("does not render login link when identity service is disabled (fail-closed)", async () => {
@@ -153,7 +154,7 @@ describe("HomeView", () => {
     identityStoreMock.signIn.mockResolvedValue(false);
     const w = await flushMounted(mountHome());
     await w.find('[data-testid="home-login-link"]').trigger("click");
-    expect(identityStoreMock.signIn).toHaveBeenCalledTimes(1);
+    expect(identityStoreMock.signInOrSwitch).toHaveBeenCalledTimes(1);
     expect(notifyWarningMock).toHaveBeenCalledWith("loginGate.loginIncomplete", expect.any(Object));
   });
 

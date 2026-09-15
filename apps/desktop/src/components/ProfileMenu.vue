@@ -131,7 +131,7 @@ const emit = defineEmits(['open-settings', 'upgrade'])
 const router = useRouter()
 const { t } = useI18n()
 const licenseStore = useLicenseStore()
-const { status, user, displayName, loading, error, signIn, switchAccount, signOut } = useIdentity()
+const { status, user, displayName, loading, error, signIn, signInOrSwitch, switchAccount, signOut } = useIdentity()
 const { open, root, trigger, panel, toggle, close, openAndFocusFirst, handleMenuKeydown } = useDropdownBehavior()
 
 const pendingAction = ref(null)
@@ -202,7 +202,7 @@ async function handleTriggerClick() {
   // 未登录（含会话过期）→ 直接打开登录弹窗；失败时展开菜单展示错误
   const idleUnauthenticated = status.value === 'signed_out' || status.value === 'expired'
   if (idleUnauthenticated && !loading.value) {
-    const ok = await signIn()
+    const ok = await signInOrSwitch()
     if (!ok) openAndFocusFirst()
     return
   }
@@ -210,7 +210,8 @@ async function handleTriggerClick() {
 }
 
 async function handleSignInFromMenu() {
-  const ok = await signIn()
+  // signInOrSwitch: 被拒（残留旧会话）时自动降级为切换账号，避免卡死
+  const ok = await signInOrSwitch()
   if (ok) close()
 }
 
