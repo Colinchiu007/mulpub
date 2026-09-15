@@ -91,6 +91,7 @@ describe('normalizeSidebarWidth', () => {
     expect(normalizeSidebarWidth(undefined)).toBe(SIDEBAR_WIDTH_DEFAULT)
     expect(normalizeSidebarWidth(NaN)).toBe(SIDEBAR_WIDTH_DEFAULT)
     expect(normalizeSidebarWidth(-1)).toBe(SIDEBAR_WIDTH_DEFAULT)
+    expect(normalizeSidebarWidth(0)).toBe(SIDEBAR_WIDTH_DEFAULT)
     expect(normalizeSidebarWidth(601)).toBe(SIDEBAR_WIDTH_DEFAULT)
   })
 
@@ -125,5 +126,19 @@ describe('computeEmbeddedViewBounds（内嵌视图布局契约）', () => {
   it('支持自定义顶部偏移（分屏监控 NAV_HEIGHT=56 场景）', () => {
     const bounds = computeEmbeddedViewBounds(createRealShapeWindow(), 200, 56)
     expect(bounds).toEqual({ x: 200, y: 56, width: 1224, height: 805 })
+  })
+})
+
+describe('computeEmbeddedViewBounds 侧栏宽度=0 防御（回归 2026-09-15 平台链接浮层盖住侧边栏）', () => {
+  it('侧栏宽度=0 时回落默认 200，绝不 x=0 覆盖侧边栏', () => {
+    const bounds = computeEmbeddedViewBounds(createRealShapeWindow(), 0)
+    // 关键：x 必须是 200（默认侧栏宽），不能是 0——否则 WebContentsView 盖住 x=0 的 MpSidebar
+    expect(bounds.x).toBe(SIDEBAR_WIDTH_DEFAULT)
+    expect(bounds).toEqual({ x: 200, y: 76, width: 1224, height: 785 })
+  })
+
+  it('侧栏宽度为非法负值同样回落默认 200', () => {
+    const bounds = computeEmbeddedViewBounds(createRealShapeWindow(), -3)
+    expect(bounds.x).toBe(SIDEBAR_WIDTH_DEFAULT)
   })
 })

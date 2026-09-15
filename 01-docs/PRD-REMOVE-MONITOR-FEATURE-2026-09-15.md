@@ -153,3 +153,4 @@ zh/en 成对修改，通过 CI Gate 7 locale 同步校验。
 1. **删除共享底层前必须穷举消费方**：`webviewOpenTab` 表面是"监控的 API"，实际被 Comments/Collection 借用；直接删除会让打开的 WebContentsView 成为"无主视图"（有 view、无 UI 承载）。任何"整个移除"都要先做全仓引用矩阵（本 PRD §1）。
 2. **新旧行为对齐看既有范本**：迁移直接复用 `Accounts.vue` 的 `tabStore.createTab({ url, platform, accountId, title })` 模式，不发明新调用形态。
 3. **"打开网页"这类能力应收敛到唯一承载层**：page-manager 标签系统是本应用内嵌网页的唯一 UI 承载；任何新的"打开某平台页面"需求都应走 `tabStore.createTab`，禁止再引入并行视图体系。
+4. **迁移后务必复查被移除功能的「假设边界」**：#1840 把 Monitor 浮层删了，`collection.switchToMonitor` 也随之移除，但 `view-bounds.normalizeSidebarWidth` 仍把侧栏宽度 `0` 当合法（`MIN_SIDEBAR_WIDTH=0`），等于给「x=0 覆盖侧边栏」这类回归留了口子。后续在 `fix-platformlink-sidebar` 分支（见 `01-docs/BUGFIX-PLATFORMLINK-SIDEBAR-OVERLAY-2026-09-15.md`）已把下限收紧为 1，并对 `webview-manager` / `auth-view-manager` / `qrcode-login` 三处 `setSidebarWidth` 守卫做双保险。教训：**移除功能时，连同它依赖的「非法值边界假设」一起清理**。

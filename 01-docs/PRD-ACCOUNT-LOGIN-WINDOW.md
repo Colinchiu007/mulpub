@@ -356,7 +356,7 @@ close()
   `oauth-manager.js`（OAuth 授权视图——顺带修复 `_positionView` 方法缺失导致 `startAuth`
   一进入即抛 `TypeError` 的崩溃）。
 - **侧栏宽度同步（不变）**：`MpSidebar.vue` ResizeObserver → IPC
-  `page-manager:set-sidebar-width` → 各 manager `setSidebarWidth`（0–600 合法区间，非法值回落 200）。
+  `page-manager:set-sidebar-width` → 各 manager `setSidebarWidth`（1–600 合法区间，0 拒绝并回落 200；阈值统一取自 `view-bounds.MIN_SIDEBAR_WIDTH` / `MAX_SIDEBAR_WIDTH`，见 2026-09-15 防御性收口）。
 - **resize 链路（不变）**：`window.js` `mainWindow.on('resize')` → `webviewManager.resize()` /
   `authViewManager._onWindowResize()` / `qrCodeLogin._onWindowResize()` → 全部经
   `view-bounds.js` 重新取客户区尺寸。
