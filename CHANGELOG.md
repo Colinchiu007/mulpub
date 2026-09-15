@@ -89,6 +89,18 @@
 - `apps/desktop`：`sidebar-menu-merge.test.js` 34 通过 · `MpSidebar.appmenu.test.js` 9 通过 · 既有 `MpSidebar.test.js` 7 通过（回归零破坏）· `ops-center-sync.test.js` 55 通过（+8 新用例）
 - `ops-center/backend`：`test_app_menu_api.py` 11 通过 · 全量 pytest 342 通过，0 失败
 - 已知限制：无实时推送，运营修改后需桌面端重新同步或重启应用才生效
+# [未发布] refactor(desktop): 移除发布域快捷标签行「新建发布 / 发布记录 / 草稿箱」（2026-09-15）
+
+### 变更
+- **模块导航发布域整行移除**（`apps/desktop/src/layouts/MpModuleNav.vue`）：发布域路由（`/publish`、`/publish/history`、`/publish?tab=drafts`、`/collection` 等非首页非账号域路由）下不再渲染模块导航整行——无标签、无 70px 占位高度、无底部分隔线，`NavBar` 直接衔接主内容区；删除 `publishTabs` 数据与 `isTabActive` 发布域分支，`<nav v-if="tabs.length > 0">` 空标签不渲染
+- **动机**：该行在采集页等与发布无关的页面同样渲染，与左侧边栏导航职责重复，属界面噪音（用户反馈整行移除）
+- **保留**：主页域（`/`，「主页」标签）与账号域（`/accounts*`，账号四标签 + `?tab=` 激活切换）行为不变；浏览器/登录标签激活时的自动隐藏不变
+- **导航可达性**：发布、草稿箱、采集由侧边栏直达；发布记录经发布页内入口或地址路由到达；e2e `publish-flow.test.js` 的发布记录跳转同步改为 hash 导航
+- **文档**：`01-docs/PRD-REMOVE-PUBLISH-QUICKNAV-2026-09-15.md`（功能逻辑/交互逻辑/显示项/边界/验收标准/影响面）；`docs/desktop-ui-layout-spec.md` §2/§3.1/§3.2/§3.4/§11/§12；`docs/frontend-interaction-spec.md` §6.3
+
+### 验证
+- `MpModuleNav.test.js` 5 通过（新增发布域四路由零 `role="tab"` 回归保护）；全量 desktop 单测通过；定向 eslint 0 error；品牌残留门禁 PASS；债务熔断 PASS；视觉基线零影响（基线录制于 ipc-mock 空态，`isHomeTab === false`，模块导航本不在基线中）
+
 ## 版本管理机制（2026-09-14 起）
 
 全仓使用单一产品版本号，**唯一真相源 = 根 `package.json` 的 `version`**；`apps/desktop/package.json` 的 `version` 由 `scripts/sync-version.mjs` 在提交 / 构建前自动同步，禁止手写、禁止独立演进。

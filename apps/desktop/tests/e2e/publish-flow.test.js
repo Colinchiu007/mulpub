@@ -63,8 +63,8 @@ describe.skipIf(!E2E_ENABLED)("E2E: Publish Flow", () => {
   it("should show publish history after submission", async () => {
     if (!E2E_ENABLED) return
     const page = this.page
-    await page.waitForSelector("[data-testid=mp-tab-publish-history]", { timeout: 5000 })
-    await page.click("[data-testid=mp-tab-publish-history]")
+    // 发布域快捷标签行（含「发布记录」入口）已移除，改经地址 hash 导航到发布记录
+    await page.evaluate(() => { window.location.hash = "#/publish/history" })
     await page.waitForSelector(".publish-history-page")
     const historyItems = await page.locator(".history-item").count()
     expect(historyItems).toBeGreaterThanOrEqual(0)

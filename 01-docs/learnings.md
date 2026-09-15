@@ -35,6 +35,15 @@
 
 ---
 
+## 移除发布域快捷标签行 + git 远程读数在 PowerShell 管道下的静默错乱（2026-09-15）
+
+- **变更**：`MpModuleNav` 发布域（非 `/`、非 `/accounts*` 的全部 SPA 路由，含 `/collection`）整行不渲染（删 `publishTabs` + `tabs` 空数组 + `<nav v-if="tabs.length">`）；主页/账号域不变。动机：该行在采集页等无关页面渲染、与侧边栏职责重复。PRD 见 `01-docs/PRD-REMOVE-PUBLISH-QUICKNAV-2026-09-15.md`。
+- **消费方矩阵先行**：删共享 UI 前全仓 grep `mp-module-nav|mp-tab-*` 锁定 6 处引用——组件自身/测试/e2e 发布记录跳转/视觉布局检查（`if (nav && main)` 容错，nav 消失自动跳过）/GUI 冒烟（仅 `/accounts` 断言，不受影响）。视觉基线录制于 ipc-mock 空态（`isHomeTab === false`），模块导航本不在基线中 → **零像素影响，无需重建基线**（改动前先验证基线录制态，别默认"改壳必动基线"）。
+- **坑（git 远程读数假数据）**：同一 PowerShell 会话里，`git grep <ref> -- <path>`（pathspec 语法）与 `git show <ref>:<file> | Select-Object -Skip ... | Out-File`（多级管道）的组合输出会**静默错乱**——曾同时得出"origin/main 上存在 `旧命名前缀的 testid` 文件与品牌中文"（假）与"同文件 297 行是 `mp-module-nav`"（真）两个互相矛盾的读数，误导排查近十分钟。**可靠做法**：远程内容核验一律用 tree-ish 语法直接 stdout（`git ls-tree <commit>:<dir>`、`git show <commit>:<path>`）落盘后用 node `fs` 读；**同一事实用两种语法交叉验证**，矛盾时以 tree-ish 直读为准，绝不基于单次管道输出下"main 被回退/门禁失效"之类重结论。
+- **共享根陈旧 main 的处理**：本工作区 main 落后 origin/main 32 个提交（ahead 0，纯落后）。三个本地 untracked 文件与 main 新增 tracked 路径冲突 → 先 SHA256 比对（行尾归一化后仍不同）→ 按 R4 备份到 `%TEMP%` → 删除 untracked 副本 → `git merge --ff-only origin/main` 快进 → 再建 worktree（`start-mp-task.ps1` 从快进后的 main 起分支，避免基于陈旧基线开发）。
+
+---
+
 ## 全仓命名清理：批量替换必须有三道防线 + 三个 git 陷阱（命名空间去品牌化，2026-09-15）
 
 - **背景**：把 271 个文件、1662 处指向参考产品的品牌词（中文品牌名 + 全拼大小写变体 + 三字母缩写变体）替换为中性命名（`mp` / `Mp` / `MP` / `参考产品`），并同步改 56 项路径名。PRD 见 `01-docs/PRD-NAMING-NORMALIZATION-2026-09-15.md`。**本文档与 PRD 均不复现品牌词字面**（残留门禁 `scripts/check-no-brand-residue.js` 会拦截，品牌词按码点构造进正则）。
