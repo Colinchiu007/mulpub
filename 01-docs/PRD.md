@@ -7945,3 +7945,23 @@ home 标签是虚拟标签（无 WebContentsView），主进程 `webview-manager
 - [ ] 发布域路由下 DOM 中无 `[data-testid="mp-module-nav"]` 且无任何 `role="tab"` 节点
 - [ ] `MpModuleNav.test.js`（含发布域四路由回归保护）与全量 desktop 单测通过；e2e `publish-flow.test.js` hash 导航可达发布记录
 
+
+---
+
+## 2026-09-15 · 改写策略 UI 补齐与入口提级（A/B/C）
+
+详细 PRD：`01-docs/PRD-REWRITE-STRATEGY-UI-2026-09-15.md`
+
+| # | 变更 | 说明 |
+|---|------|------|
+| A | 采集页接入 RewriteStrategyPicker | Collection.vue 结果面板新增「改写策略」区块；rewriteViaEngine 补传 strategyId（手动=所选 id，自动/未选=null 走引擎自动匹配），覆盖改写/一键改写（图文+视频转写）三条链路 |
+| B | /rewrite 默认手动模式 + 入口提级 | RewriteView 默认展开策略下拉（未选仍传 null 无回归）；sidebar-menu.js rewrite 提级 primary，ops-center app_menu_service.py 种子同步 |
+| C | 文案统一「改写策略」 | rewritePage/rewriteEngine.strategyLabel zh→改写策略、en→Rewrite strategy（成对）；AiWriterPanel 硬编码标签 i18n 化（消一笔 CJK 存量债务） |
+
+**数据校验**：策略列表加载失败降级空列表；推荐预览失败降级 --；strategyId 空串降级 null。
+
+**验收标准**
+
+- [ ] 采集页结果面板可见「改写策略」区块，手动选策略后改写请求携带对应 strategyId
+- [ ] /rewrite 默认展开策略下拉；侧边栏一级导航出现「文案改写」
+- [ ] 四处策略区块标题统一「改写策略」；desktop 全量单测通过

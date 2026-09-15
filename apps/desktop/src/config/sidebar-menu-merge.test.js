@@ -214,7 +214,8 @@ describe('resolveSidebarMenu — 组内排序（C5）', () => {
       ],
     })
     expect(keysOf(resolved[SIDEBAR_GROUP_PRIMARY])).toEqual([
-      'publish', 'home', 'accounts', 'dashboard', 'create', 'collection',
+      // 6 项已配置按 sort_order 升序；rewrite 提级后无 sort_order → 排在已配置项之后
+      'publish', 'home', 'accounts', 'dashboard', 'create', 'collection', 'rewrite',
     ])
   })
 
@@ -255,7 +256,7 @@ describe('resolveSidebarMenu — 组内排序（C5）', () => {
       items: [{ key: 'dashboard', visible: true, sort_order: 0 }],
     })
     expect(keysOf(resolved[SIDEBAR_GROUP_PRIMARY])).toEqual([
-      'dashboard', 'home', 'publish', 'accounts', 'create', 'collection',
+      'dashboard', 'home', 'publish', 'accounts', 'create', 'collection', 'rewrite',
     ])
   })
 
@@ -269,7 +270,7 @@ describe('resolveSidebarMenu — 组内排序（C5）', () => {
     })
     expect(keysOf(resolved[SIDEBAR_GROUP_PRIMARY])[0]).toBe('home')
     expect(resolved[SIDEBAR_GROUP_PRIMARY].slice(1).map((i) => i.sortOrder)).toEqual([
-      null, null, null, null, null,
+      null, null, null, null, null, null,
     ])
   })
 })

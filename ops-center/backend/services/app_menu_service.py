@@ -45,6 +45,7 @@ CATALOG = (
     ("dashboard", "数据", MENU_GROUP_PRIMARY, "本地数据看板"),
     ("create", "视频创作", MENU_GROUP_PRIMARY, "强制显示：核心创作入口"),
     ("collection", "采集", MENU_GROUP_PRIMARY, "强制显示：内容采集入口"),
+    ("rewrite", "文案改写", MENU_GROUP_PRIMARY, "改写策略应用入口（2026-09-15 提级到一级导航，与应用端 sidebar-menu.js 同步）"),
     # ── 「更多」折叠菜单 ────────────────────────────
     ("calendar", "发布日历", MENU_GROUP_MORE, "发布排期日历"),
     ("comments", "私信评论", MENU_GROUP_MORE, "平台私信与评论聚合"),
@@ -53,7 +54,6 @@ CATALOG = (
     ("keywords", "关键词监控", MENU_GROUP_MORE, "关键词监测目录"),
     ("viral", "爆款分析", MENU_GROUP_MORE, "爆款内容分析"),
     ("prompt-eval", "提示词评估", MENU_GROUP_MORE, "提示词效果评估"),
-    ("rewrite", "文案改写", MENU_GROUP_MORE, "改写策略应用入口"),
     ("hot-topics", "热门选题", MENU_GROUP_MORE, "多平台热门选题聚合"),
     ("model-providers", "模型提供商", MENU_GROUP_MORE, "模型服务商配置"),
     ("knowledge-base", "知识库", MENU_GROUP_MORE, "本地知识库"),

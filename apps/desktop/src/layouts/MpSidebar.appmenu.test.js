@@ -143,7 +143,8 @@ describe('MpSidebar — 应用菜单配置生效', () => {
     const sidebar = await mountSidebar()
 
     expect(primaryKeys(sidebar)).toEqual([
-      'collection', 'create', 'accounts', 'publish', 'dashboard', 'home',
+      // 6 项按下发 sort_order 重排；rewrite 未下发（无 sort_order）→ 排在其后
+      'collection', 'create', 'accounts', 'publish', 'dashboard', 'home', 'rewrite',
     ])
   })
 

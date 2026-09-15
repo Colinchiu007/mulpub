@@ -22,7 +22,8 @@ os.environ["OPS_CATALOG_API_KEY"] = "catalog-test-key"
 import models  # noqa: F401
 from config import settings
 
-DEFAULT_PRIMARY = ["home", "publish", "accounts", "dashboard", "create", "collection"]
+# 2026-09-15：rewrite（文案改写）提级到一级导航，与 apps/desktop/src/config/sidebar-menu.js 保持同步
+DEFAULT_PRIMARY = ["home", "publish", "accounts", "dashboard", "create", "collection", "rewrite"]
 FORCED_KEYS = {"publish", "accounts", "create", "collection"}
 # 2026-09-15：#1840 移除「分屏监控」后 CATALOG 20 → 19（与 app_menu_service.CATALOG 同步）
 CATALOG_SIZE = 19
@@ -217,7 +218,8 @@ async def test_sort_order_persists_and_is_returned_in_order():
         )
         data = (await client.get("/api/v1/app-menu", headers=h)).json()
         primary = [i["item_key"] for i in data["items"] if i["group"] == "primary"]
-        assert primary == ["collection", "create", "accounts", "publish", "dashboard", "home"]
+        # rewrite 未配置 sort_order → 排在已配置项之后
+        assert primary == ["collection", "create", "accounts", "publish", "dashboard", "home", "rewrite"]
 
 
 # ─── bootstrap 契约 ────────────────────────────────────────

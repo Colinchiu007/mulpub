@@ -55,6 +55,23 @@
             <span v-if="collectedResult.coverImage"> · 有封面图</span>
             <span v-if="collectedResult.mediaType === 'video'"> · 🎬 {{ $t('collection.videoTranscriptLabel') }}<template v-if="collectedResult.duration"> · {{ formatVideoDuration(collectedResult.duration) }}</template><template v-if="collectedResult.platform && PLATFORM_KEYS.includes(collectedResult.platform)"> · {{ platformLabel(collectedResult.platform) }}</template></span>
           </div>
+          <!-- 改写策略选择（2026-09-15 补齐）：与 /rewrite 页同组件同契约，此前采集页改写无策略入口 -->
+          <RewriteStrategyPicker
+            style="margin-top:8px"
+            v-model:strategy-mode="strategyMode"
+            v-model:strategy-id="rewriteStrategyId"
+            :strategies="rewriteStrategies"
+            :preview-name="previewStrategyName"
+            :disabled="rewriting || oneClickRewriting"
+            :labels="{
+              label: $t('rewritePage.strategyLabel'),
+              auto: $t('rewritePage.strategyAuto'),
+              manual: $t('rewritePage.strategyManual'),
+              preview: $t('rewritePage.strategyPreview'),
+              previewColon: $t('rewritePage.strategyPreviewColon'),
+              placeholder: $t('rewritePage.strategySelectPlaceholder'),
+            }"
+          />
           <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
             <button class="cohere-btn-primary" @click="createFromCollected">创建草稿</button>
             <button
@@ -304,17 +321,18 @@ import { useTabStore } from '@/stores/tab'
 import { PLATFORM_DASHBOARD_URLS, PLATFORM_NAMES } from '@multi-publish/shared-utils/src/platform-definitions'
 // eslint-disable-next-line no-unused-vars
 import UiInput from "../components/UiInput.vue";
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useNotify } from '@/composables/useNotify'
 import { resolveNotifyText } from '@/utils/notifyCore'
-import { storeGetSetting, storeSetSetting, aiRewrite } from '@/api/publisher'
+import { storeGetSetting, storeSetSetting, aiRewrite, aiListRewriteStrategies, aiGetRecommendedStrategies } from '@/api/publisher'
 import { formatUserError } from '@/utils/user-facing-error'
 import { classifyCollectError } from '@/utils/collect-error'
 import { useWordCountValidation } from '@/composables/useWordCountValidation'
 import { addViralToLibrary } from '@/api/knowledge-library'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
 import WordCountRangeInput from '@/components/WordCountRangeInput.vue'
+import RewriteStrategyPicker from '@/components/RewriteStrategyPicker.vue'
 import CopyLibraryPanel from '@/components/CopyLibraryPanel.vue'
 import { useCopyLibrary, collectFromKey } from '@/composables/useCopyLibrary'
 
@@ -348,6 +366,13 @@ const rewriteWordCountMax = ref(2000)
 const rewriteResult = ref('')
 const useViralLibrary = ref(true)
 const usePersonalExperience = ref(false)
+// 改写策略（2026-09-15 补齐）：与 RewriteView / AiWriterPanel 同契约
+// —— 手动模式传所选 strategyId（空串降级 null），自动模式传 null 走引擎 _resolveStrategy 匹配
+const strategyMode = ref('auto')
+const rewriteStrategyId = ref('')
+const rewriteStrategies = ref([])
+const previewStrategyName = ref('--')
+let strategyPreviewSeq = 0
 
 // 改写走 Node 引擎（aiRewrite）：采集→入库→改写参考闭环的最后一块拼图。
 // Python 链路（aggregationRewrite）对桌面 SQLite 爆款库不可见、不接收 knowledgeOptions。
@@ -355,6 +380,40 @@ const usePersonalExperience = ref(false)
 // tone 值为引擎 prompt 模板的语气枚举（非用户可见 UI 文案，走常量；CJK 基线登记见 check-locale-sync）
 // 长度由字数区间控制（main 已移除三档 length 下拉）：min/max → targetWordCount + targetLength 语义映射
 const STYLE_TO_TONE = { '轻松易懂': 'casual', '正式严谨': 'formal', '吸引眼球': 'catchy', '深度分析': 'professional', '认知锚点': 'anchor' }
+
+// ── 改写策略：列表加载 + 自动匹配预览（与 RewriteView 同模式）──
+// 策略列表加载失败静默降级为空列表，改写仍可用自动匹配
+async function loadRewriteStrategies () {
+  try {
+    const res = await aiListRewriteStrategies()
+    if (res && res.code === 0) rewriteStrategies.value = res.data || []
+  } catch (_e) { /* 自动匹配兜底 */ }
+}
+
+// 自动匹配预览：取推荐列表第一名；失败降级 '--'，不阻塞改写
+// 序列号防竞态：并发请求只保留最后一次结果；携带采集结果的 platform（无采集时 undefined=通用），与实际改写匹配口径一致
+async function refreshStrategyPreview () {
+  const seq = ++strategyPreviewSeq
+  const p = collectedResult.value && collectedResult.value.platform ? collectedResult.value.platform : undefined
+  try {
+    const res = await aiGetRecommendedStrategies({ platform: p })
+    if (seq !== strategyPreviewSeq) return
+    if (res && res.code === 0 && Array.isArray(res.data) && res.data.length > 0) {
+      previewStrategyName.value = res.data[0].name || '--'
+    } else {
+      previewStrategyName.value = '--'
+    }
+  } catch (_e) {
+    if (seq === strategyPreviewSeq) previewStrategyName.value = '--'
+  }
+}
+
+// 切回自动模式时刷新预览：manual 期间推荐结果可能已过期（与 RewriteView 行为对齐）
+watch(strategyMode, (m) => {
+  if (m === 'auto') refreshStrategyPreview()
+})
+// 新采集结果到达 → 按新平台刷新推荐预览
+watch(collectedResult, () => refreshStrategyPreview())
 
 // 文案库旁路：采集页内的改写结果同步进「文案库」（写入失败静默，不影响改写主流程）
 const { upsertRewrite: upsertCopyRewrite } = useCopyLibrary()
@@ -400,6 +459,8 @@ async function rewriteViaEngine (content) {
           usePersonalKnowledge: usePersonalExperience.value,
         },
       },
+      // 策略传参契约（与 RewriteView / AiWriterPanel 一致）：手动=所选 id（未选 null），自动=null 走引擎匹配
+      strategyId: strategyMode.value === 'manual' ? (rewriteStrategyId.value || null) : null,
     }
     res = await aiRewrite(params)
   } catch (e) {
@@ -453,6 +514,8 @@ const { error: rewriteWordCountError } = useWordCountValidation(
 onMounted(async () => {
   await loadDrafts();
   await loadCollectedItems()
+  void loadRewriteStrategies()
+  void refreshStrategyPreview()
 })
 
 onUnmounted(() => {

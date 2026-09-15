@@ -152,10 +152,10 @@
           </select>
         </div>
         <div class="cohere-form-item">
-          <label class="cohere-form-label">策略选择</label>
+          <label class="cohere-form-label">{{ t('rewritePage.strategyLabel') }}</label>
           <div style="display:flex;gap:10px;align-items:center;margin-bottom:4px">
-            <label style="font-size:12px;cursor:pointer"><input type="radio" v-model="strategyMode" value="auto" /> 自动匹配</label>
-            <label style="font-size:12px;cursor:pointer"><input type="radio" v-model="strategyMode" value="manual" /> 手动选择</label>
+            <label style="font-size:12px;cursor:pointer"><input type="radio" v-model="strategyMode" value="auto" /> {{ t('rewritePage.strategyAuto') }}</label>
+            <label style="font-size:12px;cursor:pointer"><input type="radio" v-model="strategyMode" value="manual" /> {{ t('rewritePage.strategyManual') }}</label>
           </div>
           <select v-if="strategyMode === 'manual'" v-model="rewriteStrategyId" class="cohere-input" style="margin-top:4px">
             <option value="">-- 选择策略 --</option>
@@ -188,6 +188,7 @@
 <script setup>
 import { ref, onMounted } from "vue"
 import { useRouter } from "vue-router"
+import { useI18n } from "vue-i18n"
 import {
   aiEnhanceContent,
   aiGenerateSummary,
@@ -204,6 +205,7 @@ import { formatUserError } from '@/utils/user-facing-error'
 
 const emit = defineEmits(["close", "apply-title", "apply-content", "apply-rewrite"])
 const router = useRouter()
+const { t } = useI18n()
 const { ensureLogin } = useLoginGate()
 
 const configured = ref(false)

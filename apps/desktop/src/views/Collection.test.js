@@ -538,6 +538,32 @@ describe("CollectionView", () => {
     expect(w.vm.formatVideoDuration(65)).toBe("1:05");
     expect(w.vm.formatVideoDuration(185)).toBe("3:05");  });
 
+  it("rewriteViaEngine 策略传参契约：手动传所选 id，自动/未选传 null（2026-09-15 补齐）", async () => {
+    window.electronAPI = {
+      aiRewrite: vi.fn().mockResolvedValue({ code: 0, data: { success: true, result: "改写后的文案" } }),
+    };
+    const w = mountCollection();
+    await nextTick();
+    // 自动模式 → strategyId = null（引擎 _resolveStrategy 自动匹配）
+    await w.vm.rewriteViaEngine("测试内容足够长");
+    expect(window.electronAPI.aiRewrite).toHaveBeenCalledWith(
+      expect.objectContaining({ strategyId: null })
+    );
+    // 手动模式 → strategyId = 所选 id
+    w.vm.strategyMode = "manual";
+    w.vm.rewriteStrategyId = "strategy-douyin-viral";
+    await w.vm.rewriteViaEngine("测试内容足够长");
+    expect(window.electronAPI.aiRewrite).toHaveBeenLastCalledWith(
+      expect.objectContaining({ strategyId: "strategy-douyin-viral" })
+    );
+    // 手动模式未选择 → 降级 null
+    w.vm.rewriteStrategyId = "";
+    await w.vm.rewriteViaEngine("测试内容足够长");
+    expect(window.electronAPI.aiRewrite).toHaveBeenLastCalledWith(
+      expect.objectContaining({ strategyId: null })
+    );
+  });
+
   it("collectUrl 失败时错误横幅显示细分文案（安全验证类）", async () => {
     window.electronAPI = {
       aggregationCollect: vi.fn().mockResolvedValue({ code: -99, message: "URL 触发安全验证，请尝试在浏览器环境采集" }),
