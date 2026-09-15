@@ -217,7 +217,8 @@ async def test_sort_order_persists_and_is_returned_in_order():
         )
         data = (await client.get("/api/v1/app-menu", headers=h)).json()
         primary = [i["item_key"] for i in data["items"] if i["group"] == "primary"]
-        assert primary == ["collection", "create", "accounts", "publish", "dashboard", "home"]
+        # rewrite 未配置 sort_order → 排在已配置项之后
+        assert primary == ["collection", "create", "accounts", "publish", "dashboard", "home", "rewrite"]
 
 
 # ─── bootstrap 契约 ────────────────────────────────────────
