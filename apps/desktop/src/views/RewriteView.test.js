@@ -590,16 +590,28 @@ describe('RewriteView — 策略选择与匹配预览', () => {
     mockRouteQuery.value = {}
   })
 
-  it('renders strategy section with auto mode by default and no dropdown', async () => {
+  it('renders strategy section with manual mode by default and dropdown visible', async () => {
     const wrapper = factory()
     await nextTick()
     await nextTick()
-    // 默认「自动匹配」radio 选中
+    // 2026-09-15：默认改为「手动选择」——下拉直接展开，降低策略发现成本
     const radios = wrapper.findAll('input[type="radio"][name="strategy-mode"]')
     expect(radios.length).toBe(2)
-    expect(radios[0].element.checked).toBe(true)
-    // 默认不渲染策略下拉
-    expect(wrapper.find('select.strategy-select').exists()).toBe(false)
+    expect(radios[1].element.checked).toBe(true)
+    // 默认渲染策略下拉
+    expect(wrapper.find('select.strategy-select').exists()).toBe(true)
+  })
+
+  it('shows auto preview after switching to auto mode', async () => {
+    const wrapper = factory()
+    await nextTick()
+    await nextTick()
+    // 切回自动模式后显示匹配预览
+    const radios = wrapper.findAll('input[type="radio"][name="strategy-mode"]')
+    await radios[0].setValue('auto')
+    await nextTick()
+    await nextTick()
+    expect(wrapper.find('.strategy-preview').exists()).toBe(true)
   })
 
   it('shows strategy dropdown when switching to manual mode', async () => {
@@ -620,6 +632,9 @@ describe('RewriteView — 策略选择与匹配预览', () => {
 
   it('previews auto-matched strategy name on mount', async () => {
     const wrapper = factory()
+    // 默认 manual 不显示预览 → 切到 auto 验证
+    const radios = wrapper.findAll('input[type="radio"][name="strategy-mode"]')
+    await radios[0].setValue('auto')
     await nextTick()
     await nextTick()
     await nextTick()
@@ -630,6 +645,9 @@ describe('RewriteView — 策略选择与匹配预览', () => {
 
   it('refreshes preview when platform changes', async () => {
     const wrapper = factory()
+    // 默认 manual 不显示预览 → 切到 auto 验证
+    const radios = wrapper.findAll('input[type="radio"][name="strategy-mode"]')
+    await radios[0].setValue('auto')
     await nextTick()
     await nextTick()
     await nextTick()
@@ -646,6 +664,9 @@ describe('RewriteView — 策略选择与匹配预览', () => {
     const { aiGetRecommendedStrategies } = await import('@/api/publisher')
     aiGetRecommendedStrategies.mockRejectedValueOnce(new Error('ipc down'))
     const wrapper = factory()
+    // 默认 manual 不显示预览 → 切到 auto 验证
+    const radios = wrapper.findAll('input[type="radio"][name="strategy-mode"]')
+    await radios[0].setValue('auto')
     await nextTick()
     await nextTick()
     await nextTick()
@@ -734,6 +755,9 @@ describe('RewriteView — 策略选择与匹配预览', () => {
       return { code: 0, data: [{ id: 'strategy-douyin-viral', name: '抖音爆款策略' }] }
     })
     const wrapper = factory()
+    // 默认 manual 不显示预览 → 切到 auto 验证竞态守卫
+    const radios = wrapper.findAll('input[type="radio"][name="strategy-mode"]')
+    await radios[0].setValue('auto')
     await nextTick()
     await nextTick()
     // 平台切换触发第二次（快）请求 → 显示抖音策略

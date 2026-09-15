@@ -76,6 +76,8 @@ export const SIDEBAR_MENU_DEFINITION = Object.freeze([
   { key: 'dashboard', group: SIDEBAR_GROUP_PRIMARY, labelI18nKey: 'sidebar.nav.dashboard', to: '/dashboard', icon: DataAnalysis },
   { key: 'create', group: SIDEBAR_GROUP_PRIMARY, labelI18nKey: 'sidebar.nav.create', to: '/create', icon: VideoCamera },
   { key: 'collection', group: SIDEBAR_GROUP_PRIMARY, labelI18nKey: 'sidebar.nav.collection', to: '/collection', icon: Collection },
+  // 文案改写提级到一级导航（2026-09-15）：改写策略是核心入口，原先藏在「更多」折叠菜单里难以发现
+  { key: 'rewrite', group: SIDEBAR_GROUP_PRIMARY, labelI18nKey: 'sidebar.nav.rewrite', to: '/rewrite', icon: MagicStick },
 
   // ── 「更多」折叠菜单 ────────────────────────────
   { key: 'calendar', group: SIDEBAR_GROUP_MORE, labelI18nKey: 'sidebar.nav.calendar', to: '/calendar', icon: Calendar },
@@ -85,7 +87,6 @@ export const SIDEBAR_MENU_DEFINITION = Object.freeze([
   { key: 'keywords', group: SIDEBAR_GROUP_MORE, labelI18nKey: 'sidebar.nav.keywords', to: '/keywords', icon: Search },
   { key: 'viral', group: SIDEBAR_GROUP_MORE, labelI18nKey: 'sidebar.nav.viral', to: '/viral-analysis', icon: TrendCharts },
   { key: 'prompt-eval', group: SIDEBAR_GROUP_MORE, labelI18nKey: 'sidebar.nav.promptEval', to: '/prompt-eval', icon: MagicStick },
-  { key: 'rewrite', group: SIDEBAR_GROUP_MORE, labelI18nKey: 'sidebar.nav.rewrite', to: '/rewrite', icon: MagicStick },
   { key: 'hot-topics', group: SIDEBAR_GROUP_MORE, labelI18nKey: 'hotTopics.menuLabel', to: '/hot-topics', icon: TrendCharts },
   { key: 'model-providers', group: SIDEBAR_GROUP_MORE, labelI18nKey: 'sidebar.nav.modelProviders', to: '/model-providers', icon: Cpu },
   { key: 'knowledge-base', group: SIDEBAR_GROUP_MORE, labelI18nKey: 'knowledgeBase.title', to: '/knowledge-base', icon: Collection },
