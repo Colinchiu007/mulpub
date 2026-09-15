@@ -47,7 +47,8 @@ const showLoginEntry = computed(() => !identityStore.isAuthenticated && identity
 async function handleLoginClick() {
   if (identityStore.loading) return
   try {
-    const ok = await identityStore.signIn()
+    // signInOrSwitch: 被拒（主进程残留旧会话）时自动降级为切换账号
+    const ok = await identityStore.signInOrSwitch()
     if (!ok || !identityStore.isAuthenticated) {
       notifyWarning('loginGate.loginIncomplete', { message: t('loginGate.loginIncomplete') })
     }

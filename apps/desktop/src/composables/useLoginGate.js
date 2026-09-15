@@ -24,7 +24,8 @@ export function useLoginGate () {
 
   async function openSignIn () {
     if (activeSignIn) return activeSignIn
-    activeSignIn = identityStore.signIn().finally(() => { activeSignIn = null })
+    // signInOrSwitch: 主进程残留旧会话拒绝 signIn 时自动降级为切换账号
+    activeSignIn = identityStore.signInOrSwitch().finally(() => { activeSignIn = null })
     return activeSignIn
   }
 

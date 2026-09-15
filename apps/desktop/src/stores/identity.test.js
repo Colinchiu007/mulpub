@@ -27,6 +27,39 @@ describe('identity store', () => {
     expect(store.entitlement).toBeNull()
   })
 
+  it('signInOrSwitch: signIn 成功 → 直接返回，不触发切换账号', async () => {
+    const { useIdentityStore } = await import('./identity')
+    const store = useIdentityStore()
+    await expect(store.signInOrSwitch()).resolves.toBe(true)
+    expect(window.electronAPI.identitySwitchAccount).not.toHaveBeenCalled()
+  })
+
+  it('signInOrSwitch: 被拒（残留旧会话）→ 自动降级 switchAccount 完成登录', async () => {
+    window.electronAPI.identitySignIn.mockResolvedValue({
+      code: -3,
+      message: 'IDENTITY_ACCOUNT_SWITCH_REQUIRED',
+      data: { status: 'error', user: null },
+    })
+    const { useIdentityStore } = await import('./identity')
+    const store = useIdentityStore()
+    await expect(store.signInOrSwitch()).resolves.toBe(true)
+    expect(window.electronAPI.identitySwitchAccount).toHaveBeenCalledTimes(1)
+    expect(store.status).toBe('authenticated')
+    expect(store.subject).toBe('sub-2')
+  })
+
+  it('signInOrSwitch: 其他登录错误 → 不降级，返回 false', async () => {
+    window.electronAPI.identitySignIn.mockResolvedValue({
+      code: -1,
+      message: 'IDENTITY_API_UNAVAILABLE',
+      data: { status: 'disabled', user: null },
+    })
+    const { useIdentityStore } = await import('./identity')
+    const store = useIdentityStore()
+    await expect(store.signInOrSwitch()).resolves.toBe(false)
+    expect(window.electronAPI.identitySwitchAccount).not.toHaveBeenCalled()
+  })
+
   it('恢复、登录和退出状态，并保持错误可见', async () => {
     const { useIdentityStore } = await import('./identity')
     const store = useIdentityStore()

@@ -20,6 +20,7 @@ describe('ProfileMenu', () => {
     store.status = 'authenticated'
     store.user = { sub: 'sub-1', name: '用户甲', username: 'user-a', picture: '' }
     store.signIn = vi.fn(async () => true)
+    store.signInOrSwitch = vi.fn(async () => true)
     store.switchAccount = vi.fn(async () => true)
     store.signOut = vi.fn(async () => true)
     const { useLicenseStore } = await import('@/stores/license')
@@ -42,7 +43,7 @@ describe('ProfileMenu', () => {
     store.user = null
     await wrapper.vm.$nextTick()
     await wrapper.get('[data-testid="mp-profile"]').trigger('click')
-    expect(store.signIn).toHaveBeenCalledTimes(1)
+    expect(store.signInOrSwitch).toHaveBeenCalledTimes(1)
     expect(wrapper.find('[data-testid="profile-menu-panel"]').exists()).toBe(false)
   })
 
@@ -79,7 +80,7 @@ describe('ProfileMenu', () => {
     store.user = null
     await wrapper.vm.$nextTick()
     await wrapper.get('[data-testid="mp-profile"]').trigger('click')
-    expect(store.signIn).not.toHaveBeenCalled()
+    expect(store.signInOrSwitch).not.toHaveBeenCalled()
     expect(wrapper.find('[data-testid="profile-menu-panel"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('memberCenter.identityDisabledHint')
   })
@@ -93,7 +94,27 @@ describe('ProfileMenu', () => {
     await wrapper.get('[data-testid="mp-profile"]').trigger('click')
     expect(wrapper.find('[data-testid="profile-menu-panel"]').exists()).toBe(true)
     await wrapper.get('[data-testid="profile-menu-signin"]').trigger('click')
-    expect(store.signIn).toHaveBeenCalledTimes(1)
+    expect(store.signInOrSwitch).toHaveBeenCalledTimes(1)
+  })
+
+  it('面板内登录走 signInOrSwitch 自愈（被拒时降级切换账号）', async () => {
+    await mountMenu()
+    store.status = 'error'
+    store.error = { code: 'IDENTITY_SIGN_OUT_FAILED', message: '' }
+    store.user = null
+    // 模拟主进程残留旧会话：signInOrSwitch 内部完成 signIn 被拒 → switchAccount 成功
+    // 注意：组件 setup 时已解构捕获 mountMenu 里的 mock 引用，覆写 store 属性无效，
+    // 必须用 mockImplementation 在同一引用上配置行为
+    store.signInOrSwitch.mockImplementation(async () => {
+      store.status = 'authenticated'
+      store.user = { sub: 'sub-2', name: '用户乙', username: 'user-b', picture: '' }
+      return true
+    })
+    await wrapper.vm.$nextTick()
+    await wrapper.get('[data-testid="mp-profile"]').trigger('click')
+    await wrapper.get('[data-testid="profile-menu-signin"]').trigger('click')
+    expect(store.signInOrSwitch).toHaveBeenCalledTimes(1)
+    expect(store.status).toBe('authenticated')
   })
 
   // ── 侧边栏底部 banner 与菜单内「设置 / 升级 Pro」入口 ──

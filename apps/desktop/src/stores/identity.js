@@ -189,6 +189,21 @@ export const useIdentityStore = defineStore('identity', () => {
     unsubscribe = null
   }
 
+  /**
+   * 登录自愈入口：signIn 被主进程以 IDENTITY_ACCOUNT_SWITCH_REQUIRED 拒绝时
+   * （主进程残留旧账号会话、渲染端状态不同步的 error 态），自动降级为
+   * switchAccount（先登出旧会话再重新登录），避免用户被「请使用切换账号」
+   * 提示卡死但界面无该入口。其他错误码原样返回 false。
+   */
+  async function signInOrSwitch() {
+    const ok = await signIn()
+    if (ok) return true
+    if (error.value?.code === 'IDENTITY_ACCOUNT_SWITCH_REQUIRED') {
+      return switchAccount()
+    }
+    return false
+  }
+
   const authenticatedStatuses = new Set(['authenticated', 'refreshing', 'offline_authenticated'])
   const isAuthenticated = computed(() => Boolean(user.value?.sub) && authenticatedStatuses.has(status.value))
   const subject = computed(() => user.value?.sub || '')
@@ -196,6 +211,6 @@ export const useIdentityStore = defineStore('identity', () => {
 
   return {
     status, user, entitlement, error, loading, isAuthenticated, subject, displayName,
-    load, signIn, switchAccount, signOut, dispose,
+    load, signIn, switchAccount, signOut, signInOrSwitch, dispose,
   }
 })

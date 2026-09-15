@@ -28,6 +28,7 @@ function makeStore (overrides = {}) {
     status: 'signed_out',
     isAuthenticated: false,
     signIn: vi.fn(async () => true),
+    signInOrSwitch: vi.fn(async () => true),
     ...overrides,
   }
 }
@@ -48,7 +49,7 @@ describe('useLoginGate 主动操作登录门', () => {
     const { ensureLogin } = useLoginGate()
     await expect(ensureLogin()).resolves.toBe(true)
     expect(mockNotifyConfirm).not.toHaveBeenCalled()
-    expect(mockStore.signIn).not.toHaveBeenCalled()
+    expect(mockStore.signInOrSwitch).not.toHaveBeenCalled()
   })
 
   it('未登录：确认后调 signIn，登录成功且 authenticated → 放行', async () => {
@@ -61,25 +62,25 @@ describe('useLoginGate 主动操作登录门', () => {
         confirmButtonText: '立即登录',
       }),
     )
-    mockStore.signIn.mockImplementation(async () => {
+    mockStore.signInOrSwitch.mockImplementation(async () => {
       mockStore.status = 'authenticated'
       mockStore.isAuthenticated = true
       return true
     })
     await expect(result).resolves.toBe(true)
-    expect(mockStore.signIn).toHaveBeenCalledTimes(1)
+    expect(mockStore.signInOrSwitch).toHaveBeenCalledTimes(1)
   })
 
   it('未登录：确认框取消 → 拒绝且不调 signIn', async () => {
     mockNotifyConfirm.mockResolvedValue(false)
     const { ensureLogin } = useLoginGate()
     await expect(ensureLogin()).resolves.toBe(false)
-    expect(mockStore.signIn).not.toHaveBeenCalled()
+    expect(mockStore.signInOrSwitch).not.toHaveBeenCalled()
   })
 
   it('未登录：signIn 失败 → 提示并拒绝', async () => {
     const { ensureLogin } = useLoginGate()
-    mockStore.signIn.mockResolvedValue(false)
+    mockStore.signInOrSwitch.mockResolvedValue(false)
     await expect(ensureLogin()).resolves.toBe(false)
     expect(mockNotifyWarning).toHaveBeenCalledWith('loginGate.loginIncomplete', expect.any(Object))
   })
@@ -94,7 +95,7 @@ describe('useLoginGate 主动操作登录门', () => {
 
   it('并发触发：signIn 只调一次（单例防重入）', async () => {
     const { ensureLogin } = useLoginGate()
-    mockStore.signIn.mockImplementation(async () => {
+    mockStore.signInOrSwitch.mockImplementation(async () => {
       await new Promise(r => setTimeout(r, 20))
       mockStore.status = 'authenticated'
       mockStore.isAuthenticated = true
@@ -103,11 +104,11 @@ describe('useLoginGate 主动操作登录门', () => {
     const [a, b] = await Promise.all([ensureLogin(), ensureLogin()])
     expect(a).toBe(true)
     expect(b).toBe(true)
-    expect(mockStore.signIn).toHaveBeenCalledTimes(1)
+    expect(mockStore.signInOrSwitch).toHaveBeenCalledTimes(1)
   })
 
   it('requireLogin：登录成功后执行 action 并返回其结果', async () => {
-    mockStore.signIn.mockImplementation(async () => {
+    mockStore.signInOrSwitch.mockImplementation(async () => {
       mockStore.status = 'authenticated'
       mockStore.isAuthenticated = true
       return true
