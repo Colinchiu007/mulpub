@@ -36,8 +36,8 @@ class KuaishouAdapter extends BasePlatformAdapter {
 
   async publish(cookie, postData, opts = {}) {
     const h = this.getHeaders(cookie);
-    // Get __NS_sig3 from remote signer
-    const sig = await getKuaishouSignature("/rest/cp/works/v2/video/pc/upload/finish", postData);
+    // 本地计算 __NS_sig3（MD5(api_ph|body)，api_ph 取自登录 cookie；此前经第三方远程签名服务）
+    const sig = await getKuaishouSignature("/rest/cp/works/v2/video/pc/upload/finish", postData, cookie);
     const params = sig ? { __NS_sig3: sig.signature || sig.__NS_sig3 || "" } : {};
     
     const resp = await this.http.post(this.apiBase + "/rest/cp/works/v2/video/pc/upload/finish", postData, {
