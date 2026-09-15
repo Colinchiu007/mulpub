@@ -1,3 +1,25 @@
+# [未发布] feat(desktop): 主页未登录问候语「请登录」可点击链接（2026-09-15）
+
+### 背景
+- 主页未登录态渲染「中午好，登录」：「登录」来自 `stores/identity.js` 的 displayName 兜底值，文案歧义且不可点击，主页缺少直达登录窗口的入口。
+
+### 新增
+- `apps/desktop/src/components/HomeGreeting.vue`：欢迎区问候语子组件，承载问候语 + 登录链接/昵称 + 副标题与登录入口逻辑。
+- i18n `home.pleaseLogin`（zh「请登录」/ en「Sign in」，zh/en 成对）。
+
+### 变更
+- `views/Home.vue`：问候语块替换为 `<HomeGreeting />`，移除 `greetingText`/`displayName` 计算属性与问候语 CSS（495 → 470 行，规避 500 行债务熔断）。
+- 交互：未登录（`signed_out`/`expired`/`error`）点击「请登录」→ 直接 `identityStore.signIn()` 弹 Logto 登录窗口；`loading` 防重入；失败走 `loginGate.loginIncomplete` warning；`disabled` 态 fail-closed 不渲染链接。
+
+### 安全与兜底
+- 不新增 IPC/preload/主进程服务（零契约变更）；登录结果以 `signIn()` 返回值 + `isAuthenticated` 双重判定；异常 `reportError` 上报并兜底提示。
+
+### 验证
+- `Home.test.js` 19 例全绿（+6 新用例）；`ProfileMenu.test.js` 17 / `identity.test.js` 17 / `useLoginGate.test.js` 8 回归全绿。
+- 门禁：债务熔断（filesOver500 86=86）、`check-locale-sync --cjk/--keys`、`check-frontend-consistency` 全部通过。
+- 详细规格：`01-docs/PRD-HOME-LOGIN-LINK-2026-09-15.md`
+
+---
 # [未发布] feat(ops-center): 应用菜单配置——运营中心管理应用端侧边栏显隐与排序（2026-09-15）
 
 ### 新增

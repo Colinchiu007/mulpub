@@ -950,6 +950,7 @@ export default {
     emptyRecent: '暂无发布记录，开始你的第一次发布吧！',
     untitled: '无标题',
     user: '用户',
+    pleaseLogin: '请登录',
     greetings: {
       lateNight: '夜深了',
       morning: '早上好',
