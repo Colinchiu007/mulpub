@@ -24,7 +24,8 @@ from config import settings
 
 DEFAULT_PRIMARY = ["home", "publish", "accounts", "dashboard", "create", "collection"]
 FORCED_KEYS = {"publish", "accounts", "create", "collection"}
-CATALOG_SIZE = 20
+# 2026-09-15：#1840 移除「分屏监控」后 CATALOG 20 → 19（与 app_menu_service.CATALOG 同步）
+CATALOG_SIZE = 19
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -250,6 +251,20 @@ async def test_bootstrap_app_menu_payload_is_signed_and_complete():
         # 每项至少含 key / visible / sort_order（应用端契约字段）
         for item in app_menu["items"]:
             assert {"key", "visible", "sort_order"} <= set(item.keys())
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_app_menu_items_have_no_signed_but_ignored_fields():
+    """D-GRP：PRD §2.4.4 —— group 是运营端管理字段，不得进入被签名的下发载荷。
+
+    「被签名但被忽略」的字段比没有更危险：它会诱导后续实现者把它当契约的一部分
+    去读取（既然签名下发了它），从而打开「跨分组穿插」这类 UI 层不可能、
+    数据层却可达的口子。"""
+    async with _client() as client:
+        resp = await client.get("/api/v1/runtime/bootstrap", headers=_catalog_headers())
+        data = resp.json()
+        for item in data["appMenu"]["items"]:
+            assert set(item.keys()) == {"key", "visible", "sort_order"}, item
 
 
 @pytest.mark.asyncio

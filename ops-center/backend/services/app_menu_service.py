@@ -224,13 +224,16 @@ async def get_bootstrap_app_menu(db: AsyncSession) -> dict:
     """运行时下发载荷：仅包含目录内的 key（数据库中可能存在的历史脏 key 不下发）。
 
     强制显示项在下发前再做一次纠正，保证「无论数据库里是什么，应用端收到的都是可见」。
+    下发项只含 key / visible / sort_order（D-GRP，PRD §2.4.4）：group 是运营端管理字段，
+    「被签名但被忽略」的字段会诱导后续实现者把它当契约去读取，从而打开跨分组穿插
+    （UI 层不可能、数据层却可达）的口子。
     """
     await _seed_if_empty(db)
     rows = (await db.execute(sa.select(AppMenuItem))).scalars().all()
     by_key = {row.item_key: row for row in rows}
 
     items = []
-    for key, _label, group, _description in CATALOG:
+    for key, _label, _group, _description in CATALOG:
         row = by_key.get(key)
         visible = bool(row.visible) if row is not None else True
         if is_forced_visible(key):
@@ -239,7 +242,6 @@ async def get_bootstrap_app_menu(db: AsyncSession) -> dict:
         items.append(
             {
                 "key": key,
-                "group": group,
                 "visible": visible,
                 "sort_order": min(max(sort_order, 0), MAX_SORT_ORDER),
             }

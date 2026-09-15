@@ -344,8 +344,16 @@ async def get_runtime_bootstrap(db: AsyncSession) -> dict:
 
 
 def canonical_json(payload: dict) -> str:
-    """canonical JSON 序列化（与桌面端 ops-center-sync.js canonicalJson 对齐）。"""
-    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    """canonical JSON 序列化（与桌面端 ops-center-sync.js canonicalJson 对齐）。
+
+    D-7.3：显式 ``allow_nan=False``。合法数据输出逐字节不变（Ed25519 签名兼容）；
+    一旦混入非有限浮点（NaN/Infinity，如历史脏数据 "NaN" 字面量经 json.loads 还原），
+    宁可在服务端显式失败，也不产出裸 ``NaN`` 这种非法 JSON 令所有客户端整包丢弃
+    bootstrap（content_policy 等运行时策略随之失效且零告警）。
+    """
+    return json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
+    )
 
 
 def sign_runtime_payload(payload: dict, signing_key) -> dict:
