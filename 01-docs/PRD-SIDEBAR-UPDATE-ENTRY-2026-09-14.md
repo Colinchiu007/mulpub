@@ -2,7 +2,7 @@
 
 > **立项日期**: 2026-09-14 | **状态**: 已交付（分支 `codex/update-available-badge`）
 > **关联**: [PRD.md](./PRD.md) §7.4.6 版本发布策略 / F8 系统功能 · [PRD-SIDEBAR-BOTTOM-USER-MENU-2026-09-14.md](./PRD-SIDEBAR-BOTTOM-USER-MENU-2026-09-14.md) §4.3 footer 顺序契约
-> **影响模块**: `apps/desktop/electron/services/auto-updater.js`、`apps/desktop/electron/ipc-handlers/update.js`、`apps/desktop/src/composables/useAutoUpdate.js`、`apps/desktop/src/components/SidebarUpdateButton.vue`、`apps/desktop/src/components/UpdateNotification.vue`、`apps/desktop/src/layouts/YixiaoerSidebar.vue`
+> **影响模块**: `apps/desktop/electron/services/auto-updater.js`、`apps/desktop/electron/ipc-handlers/update.js`、`apps/desktop/src/composables/useAutoUpdate.js`、`apps/desktop/src/components/SidebarUpdateButton.vue`、`apps/desktop/src/components/UpdateNotification.vue`、`apps/desktop/src/layouts/MpSidebar.vue`
 
 ---
 
@@ -241,8 +241,8 @@
 
 | 编号 | 验收项 | 判定方式 |
 |------|--------|---------|
-| AC-1 | 无可用更新时侧边栏不渲染「新版本」入口，footer 顺序为 [服务信息, 登录 banner] | `YixiaoerSidebar.test.js` 断言 |
-| AC-2 | 检测到新版本时入口渲染在服务信息与登录 banner 之间（登录菜单按钮上方），文案「新版本」 | `YixiaoerSidebar.test.js` / `SidebarUpdateButton.test.js` |
+| AC-1 | 无可用更新时侧边栏不渲染「新版本」入口，footer 顺序为 [服务信息, 登录 banner] | `MpSidebar.test.js` 断言 |
+| AC-2 | 检测到新版本时入口渲染在服务信息与登录 banner 之间（登录菜单按钮上方），文案「新版本」 | `MpSidebar.test.js` / `SidebarUpdateButton.test.js` |
 | AC-3 | 点击入口调用 `update:install-now` 并提示将自动退出安装 | `SidebarUpdateButton.test.js` |
 | AC-4 | 未下载时点击 → 先下载（`downloadUpdate` 调用一次）→ 下载完成自动 `quitAndInstall()` | `auto-updater.test.js` |
 | AC-5 | 已下载时点击 → 直接 `quitAndInstall()`，不再下载 | `auto-updater.test.js` |
@@ -262,7 +262,7 @@
 |------|---------|------|
 | 入口显隐与四态文案 | `src/components/SidebarUpdateButton.test.js` | 无更新不渲染 / 出现「新版本」/ 已最新不渲染 / 圆形底+向上箭头 / 点击调用并提示 / 已下载「重启安装」/ 下载中「下载中 50%」且禁用 / 失败「重试安装」可重试 / 样式契约 ×3 |
 | 状态机与点击流程 | `src/composables/useAutoUpdate.test.js` | 初始态 / available / installing / downloading / downloaded / 点击后失败可重试 / 后台失败不显示 / not-available / 4s 自动隐藏 / policy-min-version / skipped-by-policy / 点击即安装 / 重复点击 / 错误码 / 异常 / 重试成功 / start 幂等 / cleanup |
-| footer 顺序契约 | `src/layouts/YixiaoerSidebar.test.js` | 无更新时顺序不变 + 有更新时插入位置 |
+| footer 顺序契约 | `src/layouts/MpSidebar.test.js` | 无更新时顺序不变 + 有更新时插入位置 |
 | 主进程安装链路 | `electron/services/auto-updater.test.js` | 无更新不受理 / 未下载先下载 / 重复点击幂等 / 下载完成自动退出安装 / 已下载直接安装 / 强制策略不重复下载 / 点击后网络错误回传 error / 并发 not-available 不中断 / 后台失败静默降级 |
 | IPC 合同 | `electron/ipc-handlers/update.test.js`、`tests/ipc-handlers.test.js`、`electron/tests/ipc-contract.test.js` | 拒绝外部来源 / 可信来源受理 / data=false / 异常 envelope / 注册存在 / 通道与 handler 对应 |
 | preload 暴露面 | `electron/preload.test.js` | `updateInstallNow` 存在（SYSTEM_METHODS / 合并 API 计数） |

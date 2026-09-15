@@ -12,14 +12,14 @@
 - [x] `src/api/publisher.js`：新增 `updateInstallNow()`
 - [x] `src/composables/useAutoUpdate.js`：升级为应用壳共享单例；`badgeMode` 状态机 + `showUpdateBadge` + `handleInstallNow()` + `start()` 幂等 + `resetAutoUpdateState()`
 - [x] `src/components/SidebarUpdateButton.vue`（新增）：四态入口 + 点击退出安装 + 无障碍 + 响应式 + 设计标准配色
-- [x] `src/layouts/YixiaoerSidebar.vue`：footer 中在登录 banner 上方插入入口
+- [x] `src/layouts/MpSidebar.vue`：footer 中在登录 banner 上方插入入口
 - [x] `src/components/UpdateNotification.vue`：移除 UiModal，退化为结果提示宿主
 - [x] `src/locales/{zh,en}.js`：新增 `update.*` 12 条（插值文案用 Message Function）
 
 ## 3. 测试（TDD）
 - [x] `src/components/SidebarUpdateButton.test.js`（新增 11 用例：显隐 / 点击 / 四态 / 样式契约）
 - [x] `src/composables/useAutoUpdate.test.js`（重写 29 用例：状态机 / 点击即安装 / 幂等 / 生命周期）
-- [x] `src/layouts/YixiaoerSidebar.test.js`：footer 顺序契约扩展（无更新顺序不变 + 有更新插入位置）
+- [x] `src/layouts/MpSidebar.test.js`：footer 顺序契约扩展（无更新顺序不变 + 有更新插入位置）
 - [x] `electron/services/auto-updater.test.js`：新增 9 用例覆盖安装链路
 - [x] `electron/ipc-handlers/update.test.js`：新增 4 用例（sender 校验 / 受理 / data=false / 异常 envelope）
 - [x] `electron/preload.test.js` / `tests/ipc-handlers.test.js` / `src/api/publisher.test.js` / `tests/e2e/helpers/ipc-mock.js` 同步暴露面

@@ -6,7 +6,7 @@
 
 ## What Changes
 
-- **新增侧边栏底部「新版本」入口** `apps/desktop/src/components/SidebarUpdateButton.vue`（`data-testid="yixiaoer-update"`）：仅在检测到新版本时渲染，位于登录菜单按钮正上方（footer 顺序 `[0] 服务连接信息 → [1]「新版本」入口（条件渲染）→ [2] 登录 banner`）；图标为圆形底（`var(--primary)`）+ 白色向上箭头，文字「新版本」。
+- **新增侧边栏底部「新版本」入口** `apps/desktop/src/components/SidebarUpdateButton.vue`（`data-testid="mp-update"`）：仅在检测到新版本时渲染，位于登录菜单按钮正上方（footer 顺序 `[0] 服务连接信息 → [1]「新版本」入口（条件渲染）→ [2] 登录 banner`）；图标为圆形底（`var(--primary)`）+ 白色向上箭头，文字「新版本」。
 - **四态入口**：`available`「新版本」/ `downloading`「下载中 N%」（禁用）/ `ready`「重启安装」/ `error`「重试安装」。
 - **点击即退出并安装**：新增 IPC `update:install-now`（`withSenderCheck`）+ preload `updateInstallNow`；主进程 `auto-updater.installNow()`：已下载 → 直接 `quitAndInstall()`；未下载 → 下载 → `update-downloaded` 后自动退出安装；幂等（重复点击只下载一次）。
 - **状态共享**：`useAutoUpdate` 由组件局部状态升级为应用壳共享单例（模块级状态 + `start()` 幂等 + `resetAutoUpdateState()` 供测试复位），引入 `badgeMode` 状态机。
@@ -24,6 +24,6 @@
 
 ## Impact
 
-- 运行时代码：`apps/desktop/src/components/SidebarUpdateButton.vue`（新增）、`UpdateNotification.vue`、`composables/useAutoUpdate.js`、`layouts/YixiaoerSidebar.vue`、`api/publisher.js`、`locales/{zh,en}.js`；`electron/services/auto-updater.js`、`electron/ipc-handlers/update.js`、`electron/ipc-handlers/license-access-control.js`、`electron/preload/system.js`、`electron/preload/access-control.js`、`electron/preload/index.bundle.js`（重建产物）。
-- 测试：新增 `src/components/SidebarUpdateButton.test.js`；修订 `src/composables/useAutoUpdate.test.js`、`src/layouts/YixiaoerSidebar.test.js`、`src/api/publisher.test.js`、`electron/services/auto-updater.test.js`、`electron/ipc-handlers/update.test.js`、`electron/preload.test.js`、`tests/ipc-handlers.test.js`、`tests/e2e/helpers/ipc-mock.js`。
+- 运行时代码：`apps/desktop/src/components/SidebarUpdateButton.vue`（新增）、`UpdateNotification.vue`、`composables/useAutoUpdate.js`、`layouts/MpSidebar.vue`、`api/publisher.js`、`locales/{zh,en}.js`；`electron/services/auto-updater.js`、`electron/ipc-handlers/update.js`、`electron/ipc-handlers/license-access-control.js`、`electron/preload/system.js`、`electron/preload/access-control.js`、`electron/preload/index.bundle.js`（重建产物）。
+- 测试：新增 `src/components/SidebarUpdateButton.test.js`；修订 `src/composables/useAutoUpdate.test.js`、`src/layouts/MpSidebar.test.js`、`src/api/publisher.test.js`、`electron/services/auto-updater.test.js`、`electron/ipc-handlers/update.test.js`、`electron/preload.test.js`、`tests/ipc-handlers.test.js`、`tests/e2e/helpers/ipc-mock.js`。
 - 文档：`01-docs/PRD-SIDEBAR-UPDATE-ENTRY-2026-09-14.md`（新增）、`01-docs/PRD.md`、`01-docs/UI-INVENTORY.md`、`01-docs/user-manual.md`、`01-docs/ipc-manifest.md`、`01-docs/PRD-SIDEBAR-BOTTOM-USER-MENU-2026-09-14.md`、`CHANGELOG.md`、`01-docs/learnings.md`、`.quality-gates.md`。

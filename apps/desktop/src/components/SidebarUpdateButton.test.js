@@ -53,14 +53,14 @@ afterEach(() => {
 describe('SidebarUpdateButton — 显隐', () => {
   it('无可用更新时不渲染', () => {
     const button = mountButton()
-    expect(button.find('[data-testid="yixiaoer-update"]').exists()).toBe(false)
+    expect(button.find('[data-testid="mp-update"]').exists()).toBe(false)
   })
 
   it('检测到新版本时渲染「新版本」入口', () => {
     setStatus({ type: 'available', data: { version: '2.4.0' } })
     const button = mountButton()
 
-    const el = button.get('[data-testid="yixiaoer-update"]')
+    const el = button.get('[data-testid="mp-update"]')
     expect(el.text()).toContain('新版本')
     expect(el.attributes('title')).toContain('2.4.0')
     expect(el.attributes('aria-label')).toContain('新版本')
@@ -71,14 +71,14 @@ describe('SidebarUpdateButton — 显隐', () => {
     setStatus({ type: 'available', data: { version: '2.4.0' } })
     setStatus({ type: 'not-available' })
     const button = mountButton()
-    expect(button.find('[data-testid="yixiaoer-update"]').exists()).toBe(false)
+    expect(button.find('[data-testid="mp-update"]').exists()).toBe(false)
   })
 
   it('图标为「圆形底 + 向上箭头」', () => {
     setStatus({ type: 'available', data: { version: '2.4.0' } })
     const button = mountButton()
 
-    const svg = button.get('[data-testid="yixiaoer-update"] svg')
+    const svg = button.get('[data-testid="mp-update"] svg')
     expect(svg.find('circle').exists()).toBe(true)
     const path = svg.get('path').attributes('d')
     // 向上箭头：起点在下、终点在上（y 递减）
@@ -91,7 +91,7 @@ describe('SidebarUpdateButton — 点击退出并安装', () => {
     setStatus({ type: 'available', data: { version: '2.4.0' } })
     const button = mountButton()
 
-    await button.get('[data-testid="yixiaoer-update"]').trigger('click')
+    await button.get('[data-testid="mp-update"]').trigger('click')
 
     expect(updateInstallNow).toHaveBeenCalledTimes(1)
     expect(ElMessage.info).toHaveBeenCalledTimes(1)
@@ -103,7 +103,7 @@ describe('SidebarUpdateButton — 点击退出并安装', () => {
     setStatus({ type: 'downloaded', data: {} })
     const button = mountButton()
 
-    const el = button.get('[data-testid="yixiaoer-update"]')
+    const el = button.get('[data-testid="mp-update"]')
     expect(el.text()).toContain('重启安装')
 
     await el.trigger('click')
@@ -117,7 +117,7 @@ describe('SidebarUpdateButton — 下载与失败态', () => {
     setStatus({ type: 'downloading', data: { percent: 50, bytesPerSecond: 2048 } })
     const button = mountButton()
 
-    const el = button.get('[data-testid="yixiaoer-update"]')
+    const el = button.get('[data-testid="mp-update"]')
     expect(el.text()).toContain('下载中 50%')
     expect(el.attributes('disabled')).toBeDefined()
     expect(el.attributes('aria-busy')).toBe('true')
@@ -131,25 +131,25 @@ describe('SidebarUpdateButton — 下载与失败态', () => {
     setStatus({ type: 'available', data: { version: '2.4.0' } })
     const button = mountButton()
 
-    await button.get('[data-testid="yixiaoer-update"]').trigger('click')
+    await button.get('[data-testid="mp-update"]').trigger('click')
     await vi.waitFor(() => {
-      expect(button.get('[data-testid="yixiaoer-update"]').text()).toContain('重试安装')
+      expect(button.get('[data-testid="mp-update"]').text()).toContain('重试安装')
     })
 
-    await button.get('[data-testid="yixiaoer-update"]').trigger('click')
+    await button.get('[data-testid="mp-update"]').trigger('click')
     expect(updateInstallNow).toHaveBeenCalledTimes(2)
   })
 })
 
 describe('SidebarUpdateButton — 样式契约', () => {
   it('图标底色与文字使用设计标准主色（非截图绿色）', () => {
-    expect(SOURCE).toMatch(/\.yixiaoer-update-icon circle\s*\{[^}]*fill:\s*var\(--primary\)/)
-    expect(SOURCE).toMatch(/\.yixiaoer-update\s*\{[\s\S]*?color:\s*var\(--primary\)/)
+    expect(SOURCE).toMatch(/\.mp-update-icon circle\s*\{[^}]*fill:\s*var\(--primary\)/)
+    expect(SOURCE).toMatch(/\.mp-update\s*\{[\s\S]*?color:\s*var\(--primary\)/)
     expect(SOURCE).not.toMatch(/#22c55e|#16a34a|#4ade80|green/i)
   })
 
   it('窄屏（≤900px）隐藏文字标签，仅保留图标', () => {
-    expect(SOURCE).toMatch(/@media \(max-width: 900px\)\s*\{[\s\S]*?\.yixiaoer-update-label\s*\{\s*display:\s*none/)
+    expect(SOURCE).toMatch(/@media \(max-width: 900px\)\s*\{[\s\S]*?\.mp-update-label\s*\{\s*display:\s*none/)
   })
 
   it('不引入额外关键帧动画（避免与骨架屏契约冲突）', () => {

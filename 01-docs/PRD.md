@@ -7737,5 +7737,5 @@ idle ──触发取数──▶ loading（渲染骨架）
 - [ ] 点击后失败 → 「重试安装」可重试；后台静默失败不影响入口
 - [ ] 入口配色为设计主色（`var(--primary)`），不含绿色硬编码；窄屏仅图标
 - [ ] 检测到新版本不再自动弹模态框
-- [ ] `SidebarUpdateButton.test.js` / `useAutoUpdate.test.js` / `YixiaoerSidebar.test.js` / `auto-updater.test.js` / `ipc-handlers/update.test.js` / `preload.test.js` 全绿；CI 全绿（含像素视觉门禁）后合并
+- [ ] `SidebarUpdateButton.test.js` / `useAutoUpdate.test.js` / `MpSidebar.test.js` / `auto-updater.test.js` / `ipc-handlers/update.test.js` / `preload.test.js` 全绿；CI 全绿（含像素视觉门禁）后合并
 

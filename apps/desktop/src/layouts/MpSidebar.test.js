@@ -147,19 +147,19 @@ describe('MpSidebar', () => {
     const sidebar = mountSidebar('/accounts')
 
     // 无可用更新时不渲染（footer 顺序契约保持不变：服务信息 → 登录 banner）
-    expect(sidebar.find('[data-testid="yixiaoer-update"]').exists()).toBe(false)
-    expect(Array.from(sidebar.get('.yixiaoer-sidebar-footer').element.children)[1].getAttribute('data-testid'))
+    expect(sidebar.find('[data-testid="mp-update"]').exists()).toBe(false)
+    expect(Array.from(sidebar.get('.mp-sidebar-footer').element.children)[1].getAttribute('data-testid'))
       .toBe('profile-menu-stub')
 
     useAutoUpdate().handleUpdateStatus({ type: 'available', data: { version: '2.4.0' } })
     await nextTick()
 
     // 有新版本时插入到「服务连接信息」与「登录 banner」之间，即底部菜单按钮上方
-    const footerBlocks = Array.from(sidebar.get('.yixiaoer-sidebar-footer').element.children)
-    expect(footerBlocks[0].querySelector('[data-testid="yixiaoer-service-status"]')).toBeTruthy()
-    expect(footerBlocks[1].getAttribute('data-testid')).toBe('yixiaoer-update')
+    const footerBlocks = Array.from(sidebar.get('.mp-sidebar-footer').element.children)
+    expect(footerBlocks[0].querySelector('[data-testid="mp-service-status"]')).toBeTruthy()
+    expect(footerBlocks[1].getAttribute('data-testid')).toBe('mp-update')
     expect(footerBlocks[2].getAttribute('data-testid')).toBe('profile-menu-stub')
-    expect(sidebar.get('[data-testid="yixiaoer-update"]').text()).toContain('新版本')
+    expect(sidebar.get('[data-testid="mp-update"]').text()).toContain('新版本')
   })
 
   it('moves the settings entry out of the primary navigation into the bottom login menu', () => {

@@ -10,7 +10,7 @@
 # [未发布] feat(update): 侧边栏「新版本」入口 —— 运行时更新提示 + 点击退出应用并安装（2026-09-14）
 
 ### 新增
-- **侧边栏底部「新版本」入口**（`components/SidebarUpdateButton.vue`，`data-testid="yixiaoer-update"`）：位于登录菜单按钮**正上方**（footer 顺序 `[0] 服务连接信息 → [1]「新版本」入口（条件渲染）→ [2] 登录 banner`），仅在检测到新版本时渲染。图标为**圆形底 + 向上箭头**（实心圆 `fill: var(--primary)` + 白色箭头），文字「新版本」，配色按项目设计标准（不使用参考截图的绿色）
+- **侧边栏底部「新版本」入口**（`components/SidebarUpdateButton.vue`，`data-testid="mp-update"`）：位于登录菜单按钮**正上方**（footer 顺序 `[0] 服务连接信息 → [1]「新版本」入口（条件渲染）→ [2] 登录 banner`），仅在检测到新版本时渲染。图标为**圆形底 + 向上箭头**（实心圆 `fill: var(--primary)` + 白色箭头），文字「新版本」，配色按项目设计标准（不使用参考截图的绿色）
 - **四态入口文案**：`新版本`（有待安装版本）→ `下载中 N%`（禁用、`cursor: progress`、`aria-busy`）→ `重启安装`（安装包已下载）→ `重试安装`（上次失败可重试）
 - **点击即退出并安装**：点击入口 → 非阻塞提示「正在下载新版本，完成后将自动退出应用并安装」→ IPC `update:install-now`；已下载直接 `quitAndInstall()`，未下载则先下载、`update-downloaded` 后自动退出安装（点击即视为同意退出）
 - **IPC `update:install-now`**（`ipc-handlers/update.js`，`withSenderCheck` 校验来源）+ preload `updateInstallNow`；加入主进程 `PUBLIC_CHANNELS` 与 `preload/access-control.js` 的 `PUBLIC_METHODS`（与既有 `update:*` 同级：无需登录、要求可信来源）
@@ -28,7 +28,7 @@
 - `useAutoUpdate` 中的 `showUpdateDialog` / `handleDownload` / `handleInstall`（随模态框一并下线；`update:download` / `update:install` 通道与 `publisher.js` 同API 保留，维持既有 IPC 合同）
 
 ### 验证
-- `vitest run src/composables/useAutoUpdate.test.js src/components/SidebarUpdateButton.test.js src/layouts/YixiaoerSidebar.test.js src/api/publisher.test.js src/i18n/i18n.test.js electron/services/auto-updater.test.js electron/ipc-handlers/update.test.js electron/preload.test.js tests/ipc-handlers.test.js electron/tests/ipc-contract.test.js` → **10 files / 717 passed**
+- `vitest run src/composables/useAutoUpdate.test.js src/components/SidebarUpdateButton.test.js src/layouts/MpSidebar.test.js src/api/publisher.test.js src/i18n/i18n.test.js electron/services/auto-updater.test.js electron/ipc-handlers/update.test.js electron/preload.test.js tests/ipc-handlers.test.js electron/tests/ipc-contract.test.js` → **10 files / 717 passed**
 - 新增回归：入口四态与点击（11）、状态机与点击即安装（29）、主进程安装链路（9）、IPC sender 校验与 envelope（9）、footer 顺序契约（含「无更新时顺序不变」）、preload 暴露面计数（153 / 321 / 141）
 - `pnpm exec eslint electron/ src/ --quiet` → **0 error**；`tsc --noEmit` → 0 error；`check-ipc-bridge.js` → PASS（391 handlers / 382 preload）；`check-locale-sync --cjk` → PASS（1453 条，无新增硬编码）；`--keys` → PASS；`check-frontend-consistency.js` → PASS；`check-debt-budget.js` → 在基线内
 - `pnpm run build:preload` 重建 `electron/preload/index.bundle.js`（入库产物）
