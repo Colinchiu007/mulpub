@@ -1,23 +1,28 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import i18n from '@/i18n'
 
 const serviceStatusState = vi.hoisted(() => ({
   services: [
-    { key: 'mainBackend', name: '主服务', status: 'running', port: 8299 },
-    { key: 'splitterEngine', name: '分句引擎', status: 'running', port: 8002 },
-    { key: 'promptEngine', name: '提示词优化引擎', status: 'stopped', port: 8013 },
-    { key: 'callbackServer', name: '回调服务', status: 'running', port: 16521 },
-    { key: 'mediaServer', name: '媒体服务', status: 'running', port: 0 },
-    { key: 'alignerEngine', name: '对齐引擎', status: 'standby', port: 8004 },
+    { key: 'mainBackend', name: '主服务', status: 'running', port: 8299, reason: 'ok', restartable: true, onDemand: false },
+    { key: 'splitterEngine', name: '分句引擎', status: 'running', port: 8002, reason: 'ok', restartable: true, onDemand: false },
+    { key: 'promptEngine', name: '提示词优化引擎', status: 'stopped', port: 8013, reason: 'connection_refused', restartable: true, onDemand: false },
+    { key: 'callbackServer', name: '回调服务', status: 'running', port: 16521, reason: 'ok', restartable: false, onDemand: false },
+    { key: 'mediaServer', name: '媒体服务', status: 'running', port: 0, reason: 'ok', restartable: true, onDemand: false },
+    { key: 'alignerEngine', name: '对齐引擎', status: 'standby', port: 8004, reason: 'on_demand', restartable: false, onDemand: true },
   ],
   loaded: true,
   unavailable: false,
   runningCount: 4,
+  stoppedCount: 1,
   allRunning: false,
+  hasDegradation: true,
+  lastSeenRunning: { promptEngine: 1700000000000 },
+  restarting: {},
   startPolling: vi.fn(),
   stopPolling: vi.fn(),
   refresh: vi.fn(async () => true),
+  restart: vi.fn(async () => ({ ok: true })),
 }))
 
 vi.mock('@/stores/serviceStatus', () => ({
@@ -31,6 +36,9 @@ let wrapper
 afterEach(() => {
   wrapper?.unmount()
   wrapper = null
+  serviceStatusState.restart.mockReset()
+  serviceStatusState.restart.mockResolvedValue({ ok: true })
+  serviceStatusState.restarting = {}
 })
 
 function mountComponent () {
@@ -60,13 +68,14 @@ describe('SidebarServiceStatus', () => {
     const cmp = mountComponent()
 
     const summary = cmp.get('[data-testid="yixiaoer-service-status"]')
-    expect(summary.text()).toBe('4 项服务运行中')
+    expect(summary.text()).toBe('1 项服务不可用（4/6 运行中）')
     expect(summary.classes()).toContain('is-degraded')
 
     const list = cmp.get('[data-testid="yixiaoer-service-list"]')
     expect(list.findAll('.yixiaoer-service-item')).toHaveLength(6)
     expect(cmp.get('[data-testid="yixiaoer-service-promptEngine"]').text()).toContain('已停止')
-    expect(cmp.get('[data-testid="yixiaoer-service-alignerEngine"]').text()).toContain('待命')
+    // 按需服务显示「按需」而非「待命」，避免被误读为随时可用
+    expect(cmp.get('[data-testid="yixiaoer-service-alignerEngine"]').text()).toContain('按需')
   })
 
   it('IPC 不可用时显示不可用摘要', () => {
@@ -91,5 +100,74 @@ describe('SidebarServiceStatus', () => {
     } finally {
       serviceStatusState.allRunning = false
     }
+  })
+
+  it('点击服务项展开详情，展示故障归因与上次运行时间', async () => {
+    const cmp = mountComponent()
+    expect(cmp.find('[data-testid="yixiaoer-service-detail-promptEngine"]').exists()).toBe(false)
+
+    await cmp.get('[data-testid="yixiaoer-service-promptEngine"]').trigger('click')
+
+    const detail = cmp.get('[data-testid="yixiaoer-service-detail-promptEngine"]')
+    expect(detail.text()).toContain('端口无响应')
+    expect(detail.text()).toContain('上次运行')
+  })
+
+  it('再次点击同一服务项折叠详情', async () => {
+    const cmp = mountComponent()
+    const item = cmp.get('[data-testid="yixiaoer-service-promptEngine"]')
+
+    await item.trigger('click')
+    expect(cmp.find('[data-testid="yixiaoer-service-detail-promptEngine"]').exists()).toBe(true)
+
+    await item.trigger('click')
+    expect(cmp.find('[data-testid="yixiaoer-service-detail-promptEngine"]').exists()).toBe(false)
+  })
+
+  it('可重启服务展开后展示重试按钮并调用 restart', async () => {
+    const cmp = mountComponent()
+    await cmp.get('[data-testid="yixiaoer-service-promptEngine"]').trigger('click')
+
+    const retry = cmp.get('[data-testid="yixiaoer-service-retry-promptEngine"]')
+    await retry.trigger('click')
+
+    expect(serviceStatusState.restart).toHaveBeenCalledWith('promptEngine')
+  })
+
+  it('不可重启服务不展示重试按钮', async () => {
+    const cmp = mountComponent()
+    await cmp.get('[data-testid="yixiaoer-service-alignerEngine"]').trigger('click')
+
+    expect(cmp.find('[data-testid="yixiaoer-service-detail-alignerEngine"]').exists()).toBe(true)
+    expect(cmp.find('[data-testid="yixiaoer-service-retry-alignerEngine"]').exists()).toBe(false)
+  })
+
+  it('运行中的服务展开后不展示重试按钮', async () => {
+    const cmp = mountComponent()
+    await cmp.get('[data-testid="yixiaoer-service-mainBackend"]').trigger('click')
+
+    expect(cmp.find('[data-testid="yixiaoer-service-retry-mainBackend"]').exists()).toBe(false)
+  })
+
+  it('重试失败时展示对应错误文案', async () => {
+    serviceStatusState.restart.mockResolvedValue({ ok: false, message: 'AUTH_REQUIRED' })
+    const cmp = mountComponent()
+
+    await cmp.get('[data-testid="yixiaoer-service-promptEngine"]').trigger('click')
+    await cmp.get('[data-testid="yixiaoer-service-retry-promptEngine"]').trigger('click')
+    await flushPromises()
+
+    expect(cmp.get('[data-testid="yixiaoer-service-detail-promptEngine"]').text()).toContain('需要登录')
+  })
+
+  it('未知错误码回退到通用失败文案', async () => {
+    serviceStatusState.restart.mockResolvedValue({ ok: false, message: 'SOMETHING_WEIRD' })
+    const cmp = mountComponent()
+
+    await cmp.get('[data-testid="yixiaoer-service-promptEngine"]').trigger('click')
+    await cmp.get('[data-testid="yixiaoer-service-retry-promptEngine"]').trigger('click')
+    await flushPromises()
+
+    expect(cmp.get('[data-testid="yixiaoer-service-detail-promptEngine"]').text()).toContain('操作失败')
   })
 })

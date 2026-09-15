@@ -215,8 +215,8 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(152)
   })
 
-  it('合并后 api 总键数应为 320（P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus + urlCollectNeedsStealth + promptLibraryGet/Save/Activate）', () => {
-    expect(Object.keys(api).length).toBe(320)
+  it('合并后 api 总键数应为 321（P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus/servicesRestart + urlCollectNeedsStealth + promptLibraryGet/Save/Activate）', () => {
+    expect(Object.keys(api).length).toBe(321)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {

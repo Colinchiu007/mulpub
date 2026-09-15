@@ -902,7 +902,8 @@ var require_services = __commonJS({
   "electron/preload/services.js"(exports2, module2) {
     function createServicesApi2(ipcRenderer2) {
       return {
-        servicesGetStatus: () => ipcRenderer2.invoke("services:get-status")
+        servicesGetStatus: () => ipcRenderer2.invoke("services:get-status"),
+        servicesRestart: (key) => ipcRenderer2.invoke("services:restart", { key })
       };
     }
     module2.exports = { createServicesApi: createServicesApi2 };

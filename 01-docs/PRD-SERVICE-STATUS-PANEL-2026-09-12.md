@@ -1,7 +1,7 @@
 # PRD — 侧边栏服务运行状态面板（多服务细化 + 客户端真实状态）
 
 - 文档编号：PRD-SERVICE-STATUS-PANEL-2026-09-12
-- 状态：开发中（分支 `codex/service-status-panel`）
+- 状态：已增强（2026-09-15 追加第 8 节：故障归因 / 可操作性 / 轮询退避）
 - 关联模块：`apps/desktop/src/layouts/YixiaoerSidebar.vue`、`apps/desktop/electron/ipc-handlers/services.js`、`apps/desktop/src/stores/serviceStatus.js`
 - 创建日期：2026-09-12
 
@@ -132,5 +132,73 @@ partialRunning 为 Message Function：`(ctx) => ctx.named('count') + ' 项服务
 - splitterEngine/promptEngine 的 healthCheck 是主动 HTTP 探测（各 2s 超时），轮询周期 10s；服务刚崩溃时最长 10s 内面板仍显示旧状态
 - alignerEngine 的 standby 不区分"目录缺失功能禁用"与"尚未触发懒启动"（两者对用户语义相同：当前未激活）
 - mediaServer 端口为动态分配，仅用于展示，不承诺稳定
-- 面板为只读展示，不提供服务启停操作（服务由 BasePythonBridge watchdog 自动守护重启）
+- ~~面板为只读展示，不提供服务启停操作（服务由 BasePythonBridge watchdog 自动守护重启）~~
+  → 2026-09-15 起支持按服务「重试连接」（见第 8 节）；watchdog 仍是自动守护的第一道防线，手动重试是其补充而非替代
+
+## 8. 增强记录（2026-09-15）：故障归因 + 可操作性 + 轮询退避
+
+### 8.1 背景
+
+原面板只能回答「是否运行」，无法回答「为什么没起来」「我该怎么办」。用户看到 3 项「已停止」时无从下手；且「对齐引擎 → 待命」易被误读为「随时可用」。
+
+### 8.2 数据契约扩展（向后兼容）
+
+`services:get-status` 每项新增 3 个字段（旧消费方忽略即可）：
+
+| 字段 | 类型 | 含义 |
+|---|---|---|
+| `reason` | string | 故障归因：`ok` / `not_started` / `on_demand` / `connection_refused` / `timeout` / `http_error` / `unhealthy` / `unknown` |
+| `restartable` | boolean | 该服务是否暴露了启动入口（决定 UI 是否显示重试按钮） |
+| `onDemand` | boolean | 是否为按需懒启动服务（对齐引擎为 true） |
+
+归因来源：
+
+- `mainBackend` / `callbackServer` / `mediaServer`：进程/套接字标志，未运行即 `not_started`
+- `splitterEngine` / `promptEngine`：`healthCheckDetail()`（新增于 base-python-bridge.js）返回 `{ ok, reason, statusCode }`；若 bridge 的 `isRunning` 为 false 则优先归因 `not_started`，否则采用探测给出的具体原因（如 `timeout` / `http_error`）
+- 探测改为 `Promise.all` 并行，避免两个 2s 超时串行叠加成 4s
+
+### 8.3 新增 IPC 通道 `services:restart`
+
+- 入参 `{ key }`，白名单：`mainBackend` / `splitterEngine` / `promptEngine` / `callbackServer` / `mediaServer`
+- 启动入口优先级：`ensureRunning()` → `start()` → `startPythonBackend()`
+- 同一 key 并发请求返回 `SERVICES_RESTART_IN_PROGRESS`；不在白名单返回 `SERVICES_RESTART_UNSUPPORTED_KEY`；无可用入口返回 `SERVICES_RESTART_UNAVAILABLE`
+- **权限**：不在 `PUBLIC_CHANNELS` / `PUBLIC_METHODS`，属 authenticated 写操作——未登录调用被 preload 许可证守卫以 AUTH_ERROR(-3) 拒绝，前端提示「需要登录后才能重启服务」
+
+### 8.4 渲染端 store
+
+- **轮询退避**：健康时 10s；降级时 10s→20s→40s→60s 封顶；恢复健康立即回落 10s
+- **lastSeenRunning**：每服务最近一次观测到 running 的时间戳，故障时保留旧值供 UI 展示「上次运行」
+- 新增计算属性 `stoppedCount`、`hasDegradation`；新增动作 `restart(key)`（含防重复与 AUTH 归一）
+
+### 8.5 UI 变更
+
+| 项 | 变更 |
+|---|---|
+| 触发方式 | hover → **click**（面板内含可交互内容，避免 hover 丢失） |
+| 摘要（降级） | 「N 项服务运行中」→ **「X 项服务不可用（M/6 运行中）」**（故障数前置） |
+| 摘要指示 | 降级时状态点 pulse 动画（`prefers-reduced-motion` 下自动关闭） |
+| 服务行 | 可点击展开详情：故障归因文案 + 上次运行时间 + 「重试连接」按钮 |
+| 对齐引擎 | 状态文字「待命」→ **「按需」**（`onDemand` 标记，避免误读为随时可用） |
+| 可访问性 | `aria-expanded`（面板与服务行）、`aria-label` 摘要、重试按钮 disabled 态 |
+
+### 8.6 新增文案（zh/en 成对）
+
+`degradedSummary` / `retry` / `retrying` / `lastSeen` / `states.onDemand` / `reasons.*`（8 项）/ `restartErrors.*`（6 项）。
+
+`reason` 为 snake_case，组件内通过 `REASON_KEY` 映射为 camelCase i18n key，并用 `te()` 判存避免 intlify 回退告警。
+
+### 8.7 测试覆盖（本次增补）
+
+- `ipc-handlers/services.test.js`：14 例（新增归因、healthCheckDetail 降级回退、restart 成功/白名单/不可用/失败/并发/不可信 sender）
+- `stores/serviceStatus.test.js`：13 例（新增 reason 透传与未知归一、退避、lastSeenRunning、restart 成功/失败/AUTH/防重复）
+- `components/SidebarServiceStatus.test.js`：11 例（新增展开/折叠、重试按钮显隐、错误文案回退）
+- `layouts/YixiaoerSidebar.test.js`：同步 mock 字段与「按需」断言
+- `preload.test.js`：合并后 api 键数 320 → 321（新增 servicesRestart）
+- 门禁：check-locale-sync --keys 通过；eslint 0 error 0 warning
+
+### 8.8 已知限制
+
+- `restart` 对 `mainBackend` 依赖 `startPythonBackend()`；若 Python 环境本身缺失（依赖未安装），重试仍会失败并回显错误消息，不解决根因
+- `splitterEngine` / `promptEngine` 的重试走 `ensureRunning()`，可能触发 `_waitForHealthy` 最长 10s；UI 期间显示「重试中…」
+- 对齐引擎不支持重试（无全局实例，按需懒启动）
 
