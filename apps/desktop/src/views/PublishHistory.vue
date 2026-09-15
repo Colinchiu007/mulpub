@@ -333,6 +333,7 @@ import { PLATFORM_ICONS, PLATFORM_NAMES } from '@multi-publish/shared-utils/src/
 import { getPlatformIconUrl } from '@/composables/usePlatformIconUrl'
 import { usePlatformStore } from '@/stores/platforms'
 import { useIdentity } from '@/composables/useIdentity'
+import { isAuthGateResult } from '@/utils/auth-gate'
 import { formatUserError } from '@/utils/user-facing-error'
 import { confirmDanger } from '@/utils/confirm-danger'
 import PublishTypeDialog from '@/features/publish/components/PublishTypeDialog.vue'
@@ -425,14 +426,7 @@ function normalizeRecords (result) {
   return { total, records: pageRecords }
 }
 
-// 登录门禁拒绝：主进程 license-access-control 对非公开通道返回 AUTH_REQUIRED（code:-3）。
-// 注意 ENTITLEMENT_REQUIRED 同样携带 code:-3，必须按 errorCode 区分，不能只看数值码。
-function isAuthGateResult (result) {
-  if (!result || typeof result !== 'object') return false
-  if (result.errorCode === 'AUTH_REQUIRED' || result.errorCode === 'NOT_SIGNED_IN') return true
-  return result.errorCode == null && result.code === -3
-}
-
+// 登录门禁判定收敛到共享工具（Dashboard 等页面复用同一范式）。
 function stableRecordId (record) {
   const id = record?.id
   return id === undefined || id === null || id === '' ? null : String(id)

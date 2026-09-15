@@ -142,3 +142,11 @@
 2. **append 分页失败**不区分门禁（首屏已确认登录，实际影响极小）。
 3. **formatUserError 语言依赖运行环境**：测试对权益文案做了 zh/en 双语命中断言；如后续统一测试语言需同步调整。
 4. 方向 B（本地只读放行）如产品后续需要，参照 `story2video` owner 隔离 + `__legacy__` 回退范式单独立项。
+---
+
+## 11. 范式推广：数据看板（2026-09-15，分支 dashboard-auth-gate）
+
+- **共享工具**：`isAuthGateResult()` 抽取到 `apps/desktop/src/utils/auth-gate.js`（单测 5 例锁定「errorCode 优先、code:-3 仅兜底」语义）；`PublishHistory.vue` 改为引用，判定逻辑单一事实源。
+- **Dashboard.vue**：排查确认看板对 AUTH_REQUIRED 是「静默吞掉 → 空数据无引导」（非误报）。补齐引导：`dashboard:stats` / `history:list` 返回门禁拒绝时显示登录引导条（`data-testid=dashboard-login-gate` + `dashboard-sign-in`），登录成功 `watch(isAuthenticated)` 自动重载 `loadStats()`/`loadRecent()`；权益不足（ENTITLEMENT_REQUIRED）不误判，保持既有行为。
+- **文案（zh/en 成对）**：`dashboard.loginGateHint`「登录后可查看发布统计与最近发布。」/ `dashboard.signInNow`「去登录」。
+- **测试**：`Dashboard.test.js` 4 例（正常态无横幅 / 门禁态渲染 / 点击去登录触发 signIn 且登录成功自动重载 / 权益不足不误判）；子组件 TrialBanner/UpgradeModal/BenchmarkChart 以 stubs 隔离。
