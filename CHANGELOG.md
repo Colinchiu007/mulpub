@@ -1,3 +1,17 @@
+# [未发布] fix(publish-history): 未登录访问发布记录由「服务连接失败」改为登录引导门控（2026-09-15）
+
+### 修复
+- **根因**：`history:list` 自 2026-08-11 起要求登录（`LOGIN_ONLY_FEATURE_MAP` → `publish_history`），未登录时主进程返回 `{code:-3, errorCode:'AUTH_REQUIRED'}`；而 `PublishHistory.vue` 的 `loadRecords()` catch 把一切失败写死为「请检查服务连接后重试」，权限拒绝被伪装成网络故障
+- **错误语义分流**（仅首屏加载）：`errorCode ∈ {AUTH_REQUIRED, NOT_SIGNED_IN}`（或无 errorCode 且 code:-3 的遗留形态）→ 登录引导门禁态；其他非零 code → 错误态正文改为 `formatUserError` 具体原因（fallback 仍为服务连接文案）；reject 异常行为不变
+- **登录引导态**：新「登录后查看发布记录」面板（`data-testid=history-login-gate`）+「去登录」按钮（`history-sign-in`，走 `useIdentity().signIn` → Logto OAuth 独立窗口）；`watch(isAuthenticated)` 登录成功后自动重载，无需手动重试；门禁态不渲染重试按钮
+- **数据校验要点**：`ENTITLEMENT_REQUIRED` 同样携带 `code:-3`，门禁判定必须按 errorCode 区分，不能只看数值码
+- **文档**：`01-docs/PRD-PUBLISH-HISTORY-LOGIN-GATE-2026-09-15.md`（根因链 / 分流规则 / 状态机 / 显示项与提示文字 / 测试覆盖）
+
+### 验证
+- `PublishHistory.test.js` 23/23 通过（+3：AUTH_REQUIRED 门禁态 / 去登录触发 signIn 且登录成功自动重载 / ENTITLEMENT_REQUIRED 显示具体原因）
+- `check-locale-sync.js --keys` / `--cjk` PASS；eslint 0 errors（1 个既有 warning 非本次引入）
+- 零 IPC / preload / 主进程变更，不触发契约快照同步
+
 # [未发布] feat(ops-center): 应用菜单配置——运营中心管理应用端侧边栏显隐与排序（2026-09-15）
 
 ### 新增
