@@ -3,9 +3,10 @@
     <h2 class="section-title">视频创作流水线</h2>
     <p class="section-desc">选择一种视频创作模式，AI 将自动完成从脚本到成片的全流程</p>
 
-    <div v-if="loading" class="loading-state">
-      <span class="spinner"></span>
-      <span>加载流水线列表...</span>
+    <div v-if="loading" class="loading-state loading-state--skeleton" data-testid="pipeline-browser-loading">
+      <div class="mp-skeleton-grid">
+        <UiSkeleton v-for="i in 6" :key="i" variant="card" class="mp-skeleton-card" />
+      </div>
     </div>
 
     <div v-else-if="error" class="error-state">
@@ -142,19 +143,15 @@ export default {
 .stability-dot.beta { background: var(--stability-beta); }
 .stability-dot.production { background: var(--stability-production); }
 .loading-state, .error-state { display: flex; align-items: center; gap: 8px; padding: 24px; color: var(--text-muted); }
+/* 骨架屏栅格需要块级布局（.mp-skeleton-grid 由 styles/skeleton.css 提供） */
+.loading-state--skeleton { display: block; }
 .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--hairline); border-top-color: var(--stability-beta); border-radius: 50%; animation: spin 0.6s linear infinite; }
 .error-state { color: var(--error); }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* 骨架屏加载 */
-.skeleton { background: var(--skeleton-bg); border-radius: 4px; position: relative; overflow: hidden; }
-.skeleton::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, var(--skeleton-shimmer), transparent); animation: skeleton-shimmer 1.5s infinite; }
-@keyframes skeleton-shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
-</style>
-
-
-/* 键盘导航焦点样式 */
+/* 键盘导航焦点样式（原先误置于样式块结束标签之后，规则从未生效，本次一并修复） */
 .pipeline-card:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
+</style>

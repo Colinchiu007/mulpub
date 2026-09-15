@@ -22,6 +22,8 @@ const { config: appConfig } = require('../config/app-config')
 const Store = require('./store')
 const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('../ipc-handlers/helpers')
+// 内嵌视图定位唯一来源：必须用「客户区」尺寸，禁用 getBounds() 外框尺寸（见 view-bounds.js）
+const { computeEmbeddedViewBounds } = require('./view-bounds')
 // 独立窗口已不再需要（改为内嵌主窗口）
 
 // OAuth 平台配置
@@ -71,6 +73,17 @@ class OAuthManager {
 
   setMainWindow (win) {
     this.mainWindow = win
+  }
+
+  /**
+   * 授权视图布局（TabBar+NavBar 下方、侧边栏右侧），与其他内嵌视图一致。
+   * 修复：startAuth 曾调用不存在的 this._positionView(...)，导致 OAuth 内嵌链路
+   * 一进入就抛 "this._positionView is not a function"。
+   * 尺寸来源必须是窗口客户区（见 view-bounds.js）。
+   */
+  _positionView () {
+    if (!this.currentView || !this.mainWindow) return
+    this.currentView.setBounds(computeEmbeddedViewBounds(this.mainWindow))
   }
 
   /**
@@ -131,7 +144,7 @@ class OAuthManager {
 
       // OAuth 授权页内嵌主窗口全屏标签（参照 AuthViewManager 内嵌迁移）
       this.mainWindow.contentView.addChildView(view)
-      this._positionView(this.mainWindow.getBounds())
+      this._positionView()
       view.setVisible(true)
       // R49 修复：loadURL 返回 Promise，必须 .catch()
       view.webContents.loadURL(authUrl).catch(function () { /* ignore nav errors */ })

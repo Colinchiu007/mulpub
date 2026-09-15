@@ -18,11 +18,11 @@ const {
 } = require('@multi-publish/shared-utils/src/platform-definitions')
 const { attachCdpDetection } = require('./auth-view-cdp')
 const { createSession, setCookies, restoreLocalStorage, restoreIndexedDB, createAuthView } = require('./auth-view-session')
+// 内嵌视图定位唯一来源：必须用「客户区」尺寸，禁用 getBounds() 外框尺寸（见 view-bounds.js）
+const { computeEmbeddedViewBounds } = require('./view-bounds')
 // auth-window.js 独立窗口工厂已不再需要（认证视图改为内嵌主窗口全屏标签）
 
-const AUTH_VIEW_TOP = 76 // TabBar(36px) + NavBar(40px)
-// 左侧导航栏宽度（与前端 YixiaoerSidebar 的 CSS 变量 --yixiaoer-sidebar-width 保持一致）
-// eslint-disable-next-line no-unused-vars
+// 左侧导航栏宽度（与前端 MpSidebar 的 CSS 变量 --mp-sidebar-width 保持一致）
 const SIDEBAR_WIDTH_DEFAULT = 200
 const MAX_INDEXED_DB_SNAPSHOT_BYTES = 524288
 
@@ -101,19 +101,14 @@ class AuthViewManager {
   }
 
   /**
-   * 登录视图全屏布局（TabBar+NavBar 下方），对齐蚁小二全屏标签体验。
-   * @param {{ width: number, height: number }} bounds
+   * 登录视图全屏布局（TabBar+NavBar 下方），对齐参考产品全屏标签体验。
+   * 尺寸来源必须是窗口客户区（getContentBounds），不能用 getBounds() 外框尺寸，
+   * 否则视图右侧滚动条与底部内容会被窗口边框裁掉（见 view-bounds.js）。
    */
-  _positionView(bounds) {
-    if (!this.currentView) return
-    var sidebarWidth = this._sidebarWidth || SIDEBAR_WIDTH_DEFAULT
+  _positionView() {
+    if (!this.currentView || !this.mainWindow) return
     // 左侧导航栏为固定区域，登录视图应定位在右侧主体区域
-    this.currentView.setBounds({
-      x: sidebarWidth,
-      y: AUTH_VIEW_TOP,
-      width: Math.max(0, bounds.width - sidebarWidth),
-      height: Math.max(0, bounds.height - AUTH_VIEW_TOP),
-    })
+    this.currentView.setBounds(computeEmbeddedViewBounds(this.mainWindow, this._sidebarWidth || SIDEBAR_WIDTH_DEFAULT))
   }
 
   /** 显示登录视图（虚拟标签切换回来时调用） */
@@ -143,7 +138,7 @@ class AuthViewManager {
    */
   _onWindowResize() {
     if (!this.mainWindow || !this.currentView) return
-    this._positionView(this.mainWindow.getBounds())
+    this._positionView()
   }
 
   /**
@@ -155,7 +150,7 @@ class AuthViewManager {
     if (this._sidebarWidth !== width) {
       this._sidebarWidth = width
       if (this.mainWindow && this.currentView) {
-        this._positionView(this.mainWindow.getBounds())
+        this._positionView()
       }
     }
   }
@@ -231,7 +226,7 @@ class AuthViewManager {
   }
 
   // _createLoginWindow 已删除。认证视图改回内嵌主窗口全屏标签模式
-  //（参照蚁小二 isAuth 模式：认证就是普通标签，不需要独立窗口）。
+  //（参照参考产品 isAuth 模式：认证就是普通标签，不需要独立窗口）。
 
   /**
    * @param {string} platform
@@ -257,11 +252,11 @@ class AuthViewManager {
       this.currentView = view
       const attempt = this._createLoginAttempt()
 
-      // 认证视图内嵌主窗口全屏标签（参照蚁小二 isAuth 模式：
+      // 认证视图内嵌主窗口全屏标签（参照参考产品 isAuth 模式：
       // 认证就是普通标签，不需要独立窗口。重叠问题由 App.vue 隐藏 router-view 解决）
       // 注意：必须先 addChildView 再 setBounds——Electron 要求视图挂载后才能设置坐标
       this.mainWindow.contentView.addChildView(view)
-      this._positionView(this.mainWindow.getBounds())
+      this._positionView()
       view.setVisible(true)
       // R49 修复：loadURL 返回 Promise，必须 .catch()
       view.webContents.loadURL(loginUrl).catch(function () { /* ignore nav errors */ })
@@ -450,7 +445,7 @@ class AuthViewManager {
     const view = createAuthView(accountId, this._getPreloadPath(), authSession)
     this.currentView = view
 
-    this._positionView(this.mainWindow.getBounds())
+    this._positionView()
     this.mainWindow.contentView.addChildView(view)
     view.setVisible(true)
     const restorations = []

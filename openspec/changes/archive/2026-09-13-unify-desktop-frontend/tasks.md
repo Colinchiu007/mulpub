@@ -30,8 +30,8 @@
 
 ## 4. P2.5 单壳导航统一
 
-- [x] 4.1 AppNavbar/AppSidebar 壳退役：删除 isYixiaoerWorkspace 分支，4 条路由迁入主壳；FirstRun 保持全屏特性
-- [x] 4.2 TabBar 路由注册与图标核对；侧边栏专属交互（升级Pro/服务状态自 AppNavbar 迁入 YixiaoerSidebar footer，设置入口已存于主壳）
+- [x] 4.1 AppNavbar/AppSidebar 壳退役：删除 isMpWorkspace 分支，4 条路由迁入主壳；FirstRun 保持全屏特性
+- [x] 4.2 TabBar 路由注册与图标核对；侧边栏专属交互（升级Pro/服务状态自 AppNavbar 迁入 MpSidebar footer，设置入口已存于主壳）
 - [x] 4.3 门禁：test:visual:pixel 全量通过（17/17，6 个受影响视图基线已更新并人工确认预期 diff）
 - [x] 4.4 【子代理审查】壳迁移 diff 审查后提交（审查结论 CLEAN，无阻断项）
 

@@ -1,5 +1,5 @@
 /**
- * 本地签名算法 - 提取自蚁小二 4.0 反编译代码
+ * 本地签名算法 - 提取自参考产品 4.0 反编译代码
  * 覆盖 CSDN / 小红书(X-s/X-t) / 抖音(_signature 浏览器参数)
  */
 const crypto = require("crypto");

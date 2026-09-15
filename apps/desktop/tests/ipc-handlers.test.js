@@ -107,6 +107,7 @@ describe('IPC Handlers', () => {
     expect(handlers['update:check']).toBeDefined()
     expect(handlers['update:download']).toBeDefined()
     expect(handlers['update:install']).toBeDefined()
+    expect(handlers['update:install-now']).toBeDefined()
   })
 
   // ─── misc ─────

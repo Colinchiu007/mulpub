@@ -163,6 +163,46 @@ describe('identity store', () => {
     expect(window.electronAPI.identitySignIn).toHaveBeenCalledTimes(1)
   })
 
+  it('归一化主进程错误时保留 cleanup 附加信息（登录失败 + 清理失败）', async () => {
+    window.electronAPI.identityGetState.mockResolvedValue({
+      code: 0,
+      data: {
+        status: 'error',
+        user: null,
+        error: {
+          code: 'IDENTITY_SIGN_IN_FAILED',
+          message: '',
+          cleanup: { code: 'IDENTITY_SESSION_CLEAR_FAILED' },
+        },
+      },
+    })
+    const { useIdentityStore } = await import('./identity')
+    const store = useIdentityStore()
+
+    await store.load()
+
+    expect(store.status).toBe('error')
+    expect(store.error).toEqual({
+      code: 'IDENTITY_SIGN_IN_FAILED',
+      message: '',
+      cleanup: { code: 'IDENTITY_SESSION_CLEAR_FAILED' },
+    })
+  })
+
+  it('无 cleanup 字段时错误对象保持原形（不产生多余键）', async () => {
+    window.electronAPI.identityGetState.mockResolvedValue({
+      code: 0,
+      data: { status: 'error', user: null, error: { code: 'IDENTITY_SIGN_IN_FAILED', message: '' } },
+    })
+    const { useIdentityStore } = await import('./identity')
+    const store = useIdentityStore()
+
+    await store.load()
+
+    expect(store.error).toEqual({ code: 'IDENTITY_SIGN_IN_FAILED', message: '' })
+    expect(store.error).not.toHaveProperty('cleanup')
+  })
+
   it('dispose 会注销主进程状态监听器', async () => {
     const unsubscribe = vi.fn()
     window.electronAPI.onIdentityStateChanged.mockReturnValue(unsubscribe)

@@ -270,14 +270,14 @@ describe('OpsCenterSync 运行时策略（公告/版本/内容安全）', () => 
     const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
     svc.applyRuntime({
       announcements: [{ title: '维护', severity: 'maintenance', content: 'x' }],
-      update_policy: { min_version: '2.3.50', force_version: '2.3.53', gray_ratio: 50, enabled: true },
+      update_policy: { min_version: '0.1.0', force_version: '0.1.0', gray_ratio: 50, enabled: true },
       content_policy: { name: '默认', word_list: ['远程词甲', '远程词乙'], replacement: '***', enabled: true },
       synced_at: '2026-08-10T00:00:00Z',
     })
     const state = svc.getRuntimeState()
     expect(state.announcements).toHaveLength(1)
     expect(state.announcements[0].severity).toBe('maintenance')
-    expect(state.updatePolicy.force_version).toBe('2.3.53')
+    expect(state.updatePolicy.force_version).toBe('0.1.0')
     // 渲染端最小权限：词库/替换串不下发
     expect(state.contentPolicy).not.toHaveProperty('word_list')
     expect(state.contentPolicy).not.toHaveProperty('replacement')
@@ -307,8 +307,8 @@ describe('OpsCenterSync 运行时策略（公告/版本/内容安全）', () => 
     const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
     const consumer = vi.fn()
     svc.setUpdatePolicyConsumer(consumer)
-    svc.applyRuntime({ announcements: [], update_policy: { min_version: '2.3.50', enabled: true } })
-    expect(consumer).toHaveBeenCalledWith(expect.objectContaining({ min_version: '2.3.50' }))
+    svc.applyRuntime({ announcements: [], update_policy: { min_version: '0.1.0', enabled: true } })
+    expect(consumer).toHaveBeenCalledWith(expect.objectContaining({ min_version: '0.1.0' }))
   })
 
   it('syncNow 目录成功时 best-effort 拉取 runtime（失败仅 warn，目录结果不受影响）', async () => {

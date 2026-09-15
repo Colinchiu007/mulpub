@@ -28,8 +28,8 @@
       🎵 {{ bgmSkippedNotice }}
     </div>
 
-    <div v-if="loading" class="loading-state">
-      <p>加载中...</p>
+    <div v-if="loading" class="loading-state" data-testid="result-view-loading">
+      <UiSkeleton variant="paragraph" :rows="4" />
     </div>
 
     <div v-else-if="!videoPath && !hasEditableContent" class="empty-state">
@@ -431,12 +431,12 @@
       <p v-if="!sceneMaterialPreview.url" class="scene-material-preview-empty">{{ sceneMaterialPreview.label }}</p>
     </div>
   </UiModal>
-  <UiModal :visible="scriptModalVisible" :title="tOrKey('story2video.script_modal_title')" size="lg" @close="closeScriptModal">
+  <UiModal :visible="scriptModalVisible" :title="tOrKey('story2video.script_modal_title')" size="lg" test-id="script-modal" @close="closeScriptModal">
     <div class="script-modal-body">
-      <pre class="script-text">{{ scriptText }}</pre>
+      <pre class="script-text" data-testid="script-text">{{ scriptText }}</pre>
     </div>
     <template #footer>
-      <UiButton :disabled="!scriptText" @click="copyScript">{{ copyingScript ? tOrKey('story2video.script_copied_button') : tOrKey('story2video.script_copy_button') }}</UiButton>
+      <UiButton :disabled="!scriptText" data-testid="script-copy-button" @click="copyScript">{{ copyingScript ? tOrKey('story2video.script_copied_button') : tOrKey('story2video.script_copy_button') }}</UiButton>
       <UiButton variant="secondary" @click="closeScriptModal">{{ tOrKey('common.close') }}</UiButton>
     </template>
   </UiModal>
@@ -664,14 +664,20 @@ export default {
       if (!this.pipelineRunStatus) return ''
       return this.tOrKey('create.history.statuses.' + this.pipelineRunStatus)
     },
+    // 弹窗与复制共用同一份文本：优先原始文案（分句/分段之前的完整输入）。
+    // sourceText 由流水线启动时 params.text 落盘（story2video-project-service.js），
+    // 是用户在创作页提交的原文；segments[].text 是分句后的分段，带编号会污染复制内容。
     scriptText() {
+      const sourceText = (this.project && typeof this.project.sourceText === 'string')
+        ? this.project.sourceText.trim()
+        : ''
+      if (sourceText) return sourceText
+      // 兼容缺失 sourceText 的历史项目（老版本落盘）：回退为分段文字拼接，且不带分段编号。
       if (!Array.isArray(this.segments) || !this.segments.length) return ''
-      return this.segments.map((segment, index) => {
-        const text = (segment && typeof segment.text === 'string') ? segment.text.trim() : ''
-        return text ? '【' + (index + 1) + '】' + text : '【' + (index + 1) + '】（无文案）'
-      }).join('\n\n')
-
-
+      return this.segments
+        .map(segment => (segment && typeof segment.text === 'string') ? segment.text.trim() : '')
+        .filter(Boolean)
+        .join('\n\n')
     },
   },
   methods: {
@@ -1739,7 +1745,7 @@ export default {
 .segment-jump-number.active { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
 .segment-jump-nav { display: flex; gap: 8px; margin-left: auto; }
 /* 视频任务编辑页底部操作条：固定在主工作区底部，不跟随页面内容滚动。 */
-.result-action-bar { position: fixed; left: var(--yixiaoer-sidebar-width, 200px); right: 0; bottom: 0; z-index: 110; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; min-height: var(--result-action-bar-space, 88px); margin: 0; padding: 12px max(20px, calc((100vw - var(--yixiaoer-sidebar-width, 200px) - 1040px) / 2 + 24px)); border-top: 1px solid var(--hairline, rgba(0,0,0,0.06)); background: var(--surface, #fff); box-shadow: 0 -2px 12px rgba(0,0,0,0.08); }
+.result-action-bar { position: fixed; left: var(--mp-sidebar-width, 200px); right: 0; bottom: 0; z-index: 110; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; min-height: var(--result-action-bar-space, 88px); margin: 0; padding: 12px max(20px, calc((100vw - var(--mp-sidebar-width, 200px) - 1040px) / 2 + 24px)); border-top: 1px solid var(--hairline, rgba(0,0,0,0.06)); background: var(--surface, #fff); box-shadow: 0 -2px 12px rgba(0,0,0,0.08); }
 .result-action-bar-status { display: flex; align-items: center; gap: 8px; min-height: 30px; }
 .result-action-bar-status .segments-unsaved-chip { margin-left: 0; }
 .result-action-bar-status .action-bar-progress { color: var(--text-muted); font-size: 12px; }
@@ -1788,6 +1794,11 @@ export default {
 .scene-material-preview-body { display: flex; align-items: center; justify-content: center; min-height: 260px; }
 .scene-material-preview-body img, .scene-material-preview-body video { max-width: 100%; max-height: 75vh; border-radius: 6px; }
 .scene-material-preview-empty { color: var(--text-muted); }
+/* 查看文案弹窗：原文案含原始换行与超长行。pre 默认 white-space: pre 不折行，
+   长行会横向溢出弹窗（内容被裁切）。pre-wrap 保留原始换行并自动折行；
+   overflow-wrap/word-break 兜底 URL 等无空格长串。滚动交给 .ui-modal-body，不叠第二层滚动条。 */
+.script-modal-body { min-width: 0; }
+.script-text { margin: 0; color: var(--text); font-family: inherit; font-size: 13px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
 .segment-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .segment-status { padding: 3px 6px; border-radius: 4px; background: var(--border-light); color: var(--text-muted); font-size: 11px; }
 .segment-status-reason { flex: 1 1 auto; min-width: 0; color: var(--status-failed-text, var(--danger, #d93025)); font-size: 12px; line-height: 1.45; word-break: break-word; }

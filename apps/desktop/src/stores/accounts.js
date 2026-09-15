@@ -5,7 +5,7 @@ import { usePlatformStore } from '@/stores/platforms'
 import { formatUserError } from '@/utils/user-facing-error'
 
 /**
- * 账号管理 Store（增强版 - 蚁小二复用）
+ * 账号管理 Store（增强版 - 参考产品复用）
  * 支持：按平台分组展示、账号分组管理、批量操作、搜索过滤、排序
  */
 export const useAccountStore = defineStore('accounts', () => {

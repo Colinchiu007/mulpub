@@ -1,5 +1,5 @@
 /**
- * COS/OSS 分片上传引擎 (提取自蚁小二)
+ * COS/OSS 分片上传引擎 (提取自参考产品)
  */
 const crypto = require("crypto"); const fs = require("fs");
 const axios = require("axios");

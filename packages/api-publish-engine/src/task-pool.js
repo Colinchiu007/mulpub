@@ -1,4 +1,4 @@
-// 任务并行池 (参考蚁小二 TaskPool)
+// 任务并行池 (参考同类产品 TaskPool)
 
 class TaskPool {
   constructor(opts) {

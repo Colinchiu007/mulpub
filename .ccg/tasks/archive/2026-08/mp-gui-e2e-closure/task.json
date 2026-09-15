@@ -1,0 +1,13 @@
+{
+  "id": "mp-gui-e2e-closure",
+  "title": "收口参考产品账号发布模块 GUI E2E 失败",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend-e2e",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并等待远程门禁",
+  "createdAt": "2026-08-04T00:00:00Z",
+  "branch": "codex/mp-full-parity-20260804",
+  "worktree": "C:/tmp/Multi-Publish-mp-full-parity-20260804"
+}

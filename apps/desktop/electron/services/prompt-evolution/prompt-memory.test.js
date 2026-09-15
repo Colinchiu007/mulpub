@@ -312,3 +312,60 @@ describe('prompt-memory: listActive 与状态流转', () => {
     expect(tpl.sourceText.length).toBe(2000)
   })
 })
+
+describe('prompt-memory: CCG 评审修复', () => {
+  it('注入 gate 后门禁失败拒绝入库（fail-closed）', () => {
+    const root = tmpRoot()
+    const memory = createPromptMemory({
+      libraryRoot: path.join(root, 'prompt-library'),
+      config: {},
+      statsProvider: () => null,
+      log: { info: () => {}, warn: () => {}, error: () => {} },
+      gate: () => ({ pass: false, results: { structure: 'fail' } }),
+    })
+    memory.load()
+    const r = memory.saveLearnt(validFragment())
+    expect(r.ok).toBe(false)
+    expect(r.code).toBe('TEMPLATE_GATE_FAILED')
+  })
+
+  it('注入 gate 且门禁通过后正常入库', () => {
+    const root = tmpRoot()
+    const memory = createPromptMemory({
+      libraryRoot: path.join(root, 'prompt-library'),
+      config: {},
+      statsProvider: () => null,
+      log: { info: () => {}, warn: () => {}, error: () => {} },
+      gate: () => ({ pass: true, results: {}, checksum: 'abc' }),
+    })
+    memory.load()
+    const r = memory.saveLearnt(validFragment())
+    expect(r.ok).toBe(true)
+    expect(r.state).toBe('draft')
+  })
+
+  it('_setGate 可动态注入门禁（解决 governance↔memory 循环依赖）', () => {
+    const { memory } = makeMemory()
+    // 初始无 gate → 正常入库
+    const r1 = memory.saveLearnt(validFragment())
+    expect(r1.ok).toBe(true)
+    // 注入拒绝门禁 → 后续入库被拒
+    memory._setGate(() => ({ pass: false, results: {} }))
+    const r2 = memory.saveLearnt(validFragment({ eventId: 'evt_' + 'z'.repeat(16), content: { compositionType: '概念隐喻', action: '融合', object: '河流', creativeLevel: 6 } }))
+    expect(r2.ok).toBe(false)
+    expect(r2.code).toBe('TEMPLATE_GATE_FAILED')
+  })
+
+  it('get 历史版本拒绝非法 version（防路径穿越）', () => {
+    const { memory } = makeMemory()
+    const r = memory.saveLearnt(validFragment())
+    expect(r.ok).toBe(true)
+    // 非法 version（路径穿越）→ 返回 null
+    expect(memory.get(r.id, '../../etc/passwd')).toBeNull()
+    expect(memory.get(r.id, '-1')).toBeNull()
+    expect(memory.get(r.id, '0')).toBeNull()
+    expect(memory.get(r.id, '1.5')).toBeNull()
+    // 合法 version（当前版本）→ 正常返回
+    expect(memory.get(r.id, 1)).not.toBeNull()
+  })
+})

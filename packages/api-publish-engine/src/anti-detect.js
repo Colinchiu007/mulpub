@@ -1,6 +1,6 @@
 /**
  * 反检测模块 — UA池/随机延迟/Header随机化
- * 参考蚁小二风险分析报告中改进建议
+ * 参考同类产品风险分析报告中改进建议
  */
 const UA_POOL = [
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",

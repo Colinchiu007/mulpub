@@ -8,12 +8,12 @@ try { require('dotenv').config({ path: __dirname + '/../.env' }); } catch (_) {}
 const { VisualTestRunner } = require('../test-runner');
 
 const pixelTests = [
-  // 首页已复刻为蚁小二风格 .yixiaoer-home 布局，旧版 .cohere-main .page-title 选择器已不存在。
-  { name: 'home-baseline', route: '/', waitFor: '.yixiaoer-home .yixiaoer-home-welcome' },
-  { name: 'accounts-list', route: '/accounts', waitFor: '.yixiaoer-workspace .accounts-page' },
+  // 首页已复刻为参考产品风格 .mp-home 布局，旧版 .cohere-main .page-title 选择器已不存在。
+  { name: 'home-baseline', route: '/', waitFor: '.mp-home .mp-home-welcome' },
+  { name: 'accounts-list', route: '/accounts', waitFor: '.mp-workspace .accounts-page' },
   // 发布目标由 IPC 异步加载；等待平台选项，避免在空列表状态截图。
-  { name: 'publish-form', route: '/publish', waitFor: '.yixiaoer-workspace .target-selector [data-testid^="platform-"]' },
-  { name: 'publish-history', route: '/publish/history', waitFor: '.yixiaoer-workspace .publish-history-page h1:has-text("发布记录")' },
+  { name: 'publish-form', route: '/publish', waitFor: '.mp-workspace .target-selector [data-testid^="platform-"]' },
+  { name: 'publish-history', route: '/publish/history', waitFor: '.mp-workspace .publish-history-page h1:has-text("发布记录")' },
   { name: 'create-editor', route: '/create', waitFor: '.cohere-main h1:has-text("视频创作")' },
   { name: 'model-providers', route: '/model-providers', waitFor: '.cohere-main .page-title:has-text("模型服务商设置")' },
   { name: 'first-run', route: '/first-run', waitFor: '.fullscreen-main h2:has-text("欢迎使用社媒管家")' },

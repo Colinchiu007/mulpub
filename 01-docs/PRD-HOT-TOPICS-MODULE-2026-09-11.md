@@ -1,7 +1,7 @@
 # PRD — 「更多」菜单新增「热门选题」功能模块
 
 - 文档编号：PRD-HOT-TOPICS-MODULE-2026-09-11
-- 状态：已合并（PR #1701，squash 提交 76e555bf，2026-09-11）；2026-09-12 追加「一键生成视频」（§3.10/§5.6）
+- 状态：已合并（PR #1701，squash 提交 76e555bf，2026-09-11）；2026-09-12 追加「一键生成视频」（§3.10/§5.6）；2026-09-13 修正「后台运行后的并发语义」（前端不再自设单任务锁，支持多任务并行，§3.10/§5.6/§6.6/§6.7）
 - 关联分支：`codex/hot-topics-module`
 - 关联模块：`apps/desktop/src/views/HotTopics.vue`、`apps/desktop/electron/services/hot-topics-service.js`
 - 创建日期：2026-09-11
@@ -33,7 +33,7 @@
 
 ### 3.1 菜单入口（P0）
 
-- 左侧菜单「更多」分组（`YixiaoerSidebar.vue` 的 `moreItems`）新增一项：`{ key: 'hot-topics', label: t('hotTopics.menuLabel'), to: '/hot-topics', icon: TrendCharts }`。
+- 左侧菜单「更多」分组（`MpSidebar.vue` 的 `moreItems`）新增一项：`{ key: 'hot-topics', label: t('hotTopics.menuLabel'), to: '/hot-topics', icon: TrendCharts }`。
 - 路由 `/hot-topics` 懒加载 `HotTopics.vue`，路由名 `HotTopics`。
 - 菜单 label 走 i18n key `hotTopics.menuLabel`（zh/en 成对）。
 
@@ -138,18 +138,44 @@ ${topic}
 **取消语义**：
 - 改写/启动阶段取消 = 仅中止前端编排（流水线尚未启动，无副作用）；
 - 流水线运行中取消 = 调用 pipelineCancel()（取消当前 run）；
-- 运行中关闭弹窗（右上角 ×）= 后台运行（停止前端跟踪，run 继续在主进程执行，提示可在视频创作页历史记录查看）。
+- 运行中关闭弹窗（右上角 ×）= 后台运行（停止前端跟踪并复位前端态，run 继续在主进程执行，提示可在视频创作页历史记录查看）；
+- 改写/启动阶段关闭弹窗（右上角 ×，此时尚无 run）= 中止前端编排：使在途 aiRewrite / pipelineStartOrchestrated 响应失效（genVideoSeq 递增），弹窗关闭且不产生后台任务（无 run 可脱离，不误报「已转入后台」）。
 
-**后台运行按钮**（2026-09-13 新增，与视频创作页进度弹窗对齐）：
+**后台运行按钮**（2026-09-13 新增，与视频创作页进度弹窗对齐；2026-09-13 修正脱离后的复位语义）：
 
 - 弹窗 footer 在【重试】与【取消】之间新增显式【后台运行】按钮（data-testid="hot-topics-gen-video-background"，文案 hotTopics.genVideoBackgroundRun），仅当 genVideoPhase === 'running' 且持有 runId 时显示；
-- 点击行为与右上角 × 的后台语义完全一致（复用唯一公共脱离路径 handleGenVideoClose）：停止前端跟踪（轮询/订阅/计时器）、弹窗关闭、genVideoPhase='background'、busy 守卫保持（禁止并发新任务）、主进程 run 不受影响继续执行、不调用 pipelineCancelRun；
-- 额外触发**全局居中提示**（见 §6.6）：应用界面正中央显示「如果想查看该任务，请进入视频创作的历史记录」，4 秒后自动消失；
+- 点击行为与右上角 × 的后台语义完全一致（复用唯一公共脱离路径 handleGenVideoClose）：停止前端跟踪（轮询/订阅/计时器）并调用 resetGenVideoFrontendState() 复位前端态（弹窗关闭、phase='idle'、topic/stages/runId/progress/errorText/startedAt 清空、**genVideoBusy 释放**）、主进程 run 不受影响继续执行、不调用 pipelineCancelRun；
+- 额外触发**全局居中提示**（见 §6.6）：应用界面正中央显示「如果想查看该任务，请进入视频创作的历史记录」，4 秒后自动消失；同时顶部 toast 提示 hotTopics.genVideoBackgroundHint；
 - 改写/启动阶段（无主进程 run）与终态（completed/failed/cancelled）不显示该按钮——脱离无意义或已无任务可脱离。
 
 **失败重试**：改写失败 → 重试从改写开始；流水线启动失败 → 重试跳过改写（产物已缓存）直接重启流水线。失败阶段在弹窗中标红显示错误摘要。
 
-**并发约束**：一键生成视频进行中（busy），所有选题的【生成视频】按钮禁用；主进程流水线并发门禁拒绝时按流水线启动失败处理（可重试）。
+**并发约束（2026-09-13 修正）**：热门选题的一键生成视频**支持多任务并行**，与视频创作页流水线语义完全一致——后台脱离（或终态关闭）后前端立即复位，所有选题的【生成视频】按钮恢复可用，用户可对任意选题再次发起任务；并发的权威闸门是**主进程流水线并发门禁**（maxConcurrentRuns，超限返回 PIPELINE_CONCURRENCY_LIMIT，提示「当前已有 N 条流水线正在运行，最多同时运行 M 条」），前端按「流水线启动失败」处理并展示错误摘要 + 【重试】（重试跳过改写）。前端 busy 守卫只在**同一弹窗编排在途时**生效（rewriting/starting/running 且尚未脱离），用于避免同一弹窗内产生两条不受跟踪的编排，不用于限制并行任务数。详见 §6.7。
+
+### 3.11 抓取失败时的缓存韧性（P0，2026-09-14 新增）
+
+**背景（实测缺陷）**：热门选题列表依赖 8 个外部渠道的并发抓取。当**全部渠道**在同一轮刷新中失败或跳过时（网络抖动、请求被 10 秒 `AbortController` 超时中断、渠道限流/熔断跳过、代理不可用等），聚合结果是「零选题」。修复前该空结果会**直接覆盖**上一次成功抓取的缓存，导致：
+
+- 用户已抓到的选题（实测 138 条）被清空；
+- 列表立即落入「暂无热门选题」空态；
+- 空态**不可自愈**：定时刷新（30 分钟）依赖网络恢复，而缓存的 `fetchedAt` 已被刷新为新时间，10 分钟 TTL 内 `fetchTopics({ force: false })` 会继续命中这份空缓存直接返回，必须用户手动点【刷新】才可能恢复。
+
+**需求**：抓取失败可以降级，但**不得销毁已有数据**；陈旧数据必须继续可读，且必须让用户看见「这批数据是旧的、且本次抓取失败了」。
+
+**规则**：
+
+| # | 规则 | 说明 |
+|---|------|------|
+| R1 | 零结果不覆盖非空缓存 | 本轮解析出的 `topics.length === 0` 且上一份缓存 `topics.length > 0` 时，**保留**上次 `topics` 数组（元素引用不重新构造，保持 `id/topic/channel/category/rank/hotValue/url/fetchedAt` 原值） |
+| R2 | 保留陈旧 `fetchedAt` | 保留上次的 `fetchedAt`（**不**写成当前时间）。这样 10 分钟 TTL 判定为「已过期」，下一次非 force 调用会继续重试网络，而不是命中空缓存直接返回 |
+| R3 | 失败原因如实上报 | 本轮 `channelStats`（各渠道 `ok/skipped/error/count`）**照常落盘并返回**，供 UI 展示「部分渠道获取失败：xxx」告警条，不得因为保留缓存而掩盖失败 |
+| R4 | 显式标记 | 保留态结果带 `preservedStaleCache: true`，供上层（渲染层/诊断）区分「真实抓取结果」与「保留的陈旧缓存」 |
+| R5 | 空→空不变 | 上一份缓存本就为空时，行为与修复前一致：写入本轮空结果（`topics: []` + 当前 `fetchedAt`），且**不**产生 `preservedStaleCache` 标记 |
+| R6 | 部分成功正常覆盖 | 只要本轮有任意一条选题解析成功，就正常覆盖缓存（不加保留标记），不做「新旧合并」——避免同一 `id`（`channel:rank`）在新旧批次中含义漂移 |
+| R7 | 跳过不算成功 | 渠道被限流节流（`skipped: true`）或熔断 OPEN 跳过时，`items` 为 null，不产生选题；全渠道皆为跳过时同样命中 R1 保留规则 |
+| R8 | 内存与持久化一致 | 保留结果经 `_writeCache` 同时写入内存 `memCache` 与 owner-scoped SQLite settings（key `hot_topics_cache`），保证重启后仍可读到保留内容 |
+
+**非目标**：不做新旧批次合并、不做渠道级局部保留（渠道 A 新一轮成功但 B 失败时，仍整体覆盖为新结果）、不引入本地离线素材兜底。
 
 ## 4. 数据校验
 
@@ -174,6 +200,9 @@ ${topic}
 - **XSS**：选题文本一律经 Vue 转义渲染（`{{ }}`），禁止 v-html。
 - **批量上限**：单次批量改写最多 20 条（超出提示「一次最多批量处理 20 条选题，请减少选择」）。
 - **空选择守卫**：【创作文案】/【一键发布】未勾选任何选题时提示「请先勾选至少一条选题」。
+- **缓存保留判定（2026-09-14 新增，对应 §3.11）**：写缓存前必须做一次「零结果 + 旧缓存非空」判定，命中时保留旧 `topics`/`fetchedAt` 并打 `preservedStaleCache` 标记；判定失败（如旧缓存字段缺失/非数组）时按空数组处理，**不得**因为保留逻辑抛错而中断刷新流程。
+- **保留态字段完整性**：保留的 `topics` 元素必须仍满足 §4.1 的字段校验（原样透传自上一次通过校验的批次，不在保留路径上二次加工）；`channelStats` 必须逐渠道给出 `{ ok: boolean, skipped: boolean, error: string|null, count: number }` 四字段，缺一不可。
+- **保留态不得伪造成「新鲜」**：`preservedStaleCache === true` 时 `fetchedAt` 必须早于当前时间（等于上一次的真实抓取时间），禁止写成 `Date.now()`。
 
 ## 5. 流程与功能逻辑
 
@@ -269,10 +298,54 @@ onUnmounted → clearInterval
     │     │     ├─ 阶段推进 → mergeGenStages 更新弹窗各阶段状态/子进度
     │     │     ├─ completed + videoPath → 弹窗关闭 → 跳 /create/result?path=...
     │     │     ├─ failed/cancelled → 终态处理，弹窗提供重试/关闭
-    │     │     └─ 用户点【后台运行】按钮 / 关闭弹窗 → 后台脱离 + 全局居中提示，run 继续执行
+    │     │     ├─ 用户点【后台运行】按钮 / 关闭弹窗 → 后台脱离 + 全局居中提示，run 继续执行
+    │     │     │   → 前端态复位（busy 释放、runId/stages 清空）→ 可立即对其它选题发起并行任务
+    │     │     │   → 并行上限由主进程并发门禁判定（超限 → 启动失败 + 【重试】）
+    │     │     └─ 改写/启动阶段点关闭（×）→ 中止前端编排，不启动流水线、无后台任务
     │     └─ 失败 → split: failed → 弹窗错误提示 + 重试（跳过改写）
     └─ 失败 → rewrite_copy: failed → 弹窗错误提示 + 重试（从改写开始）
 ```
+
+### 5.7 抓取失败与缓存保留流程（2026-09-14 新增）
+
+```text
+fetchTopics({ force })
+  │
+  ├─ 读缓存 getCache()（内存 → SQLite settings['hot_topics_cache']；解析失败 fail-closed 空结构）
+  │
+  ├─ 非 force 且 (fetchedAt > 0) 且 (0 <= now-fetchedAt < 10min) → 直接返回缓存（fromCache=true，不发网络请求）
+  │
+  └─ 发起本轮抓取（inFlight 去重：同一时刻只允许一个 fetch 在飞）
+       │
+       ├─ 8 渠道并发 _collectChannel（各自的 限流 → 熔断 → fetch → 解析 → 分类）
+       │     ├─ 限流未到间隔 / 熔断 OPEN → skipped=true, items=null（不算失败）
+       │     └─ 异常 → error=<message>, items=null（计入熔断失败计数）
+       │
+       ├─ 汇总：channelStats（逐渠道 ok/skipped/error/count）+ 跨渠道按 topic.trim() 去重 → topics（≤160）
+       │
+       └─ 写缓存判定（§3.11）
+            ├─ topics.length > 0
+            │     → 覆盖写 { topics, fetchedAt: now, channelStats }
+            │     → info 日志：fetched N topics from K/8 channels
+            │
+            ├─ topics.length === 0 且 cache.topics.length > 0        ← 本次新增的韧性命中分支
+            │     → 保留写 { topics: cache.topics, fetchedAt: cache.fetchedAt,
+            │                channelStats, preservedStaleCache: true }
+            │     → warn 日志：all channels failed; preserved N cached topics (stale)
+            │     → 前端：列表内容不变（仍是旧选题），告警条展示本轮失败渠道
+            │     → 下一次非 force 调用因 fetchedAt 过期会继续重试网络
+            │
+            └─ topics.length === 0 且 cache.topics.length === 0
+                  → 覆盖写 { topics: [], fetchedAt: now, channelStats }（与修复前一致）
+                  → 前端：空态「暂无热门选题」+【立即刷新】
+```
+
+**关键时序不变式**：
+
+1. **失败不清空**：任何一轮抓取失败都不得使已展示的选题数量下降（仅在上一批为空时允许保持为空）。
+2. **保留即过期**：保留态下 `fetchedAt` 保持旧值 ⇒ 下一次非 force 调用必然重新尝试网络（不会因为命中"新鲜"缓存而永久停留在陈旧数据）。
+3. **失败可见**：保留态下 `channelStats` 必须是本轮真实结果，前端告警条（§6.2 部分渠道失败警告）照常展示。
+4. **并发安全**：`inFlight` 去重保证同一时刻只有一次写缓存；保留判定读取的 `cache` 是进入本轮前的快照，不会被本轮部分写入污染。
 
 ## 6. 交互逻辑
 
@@ -344,7 +417,7 @@ onUnmounted → clearInterval
 | rewriting（改写中） | ✗ | ✗（无 run，脱离无意义） | ✓ | ✗ | ✗ |
 | starting（流水线启动中） | ✗ | ✗（run 未确认） | ✓ | ✗ | ✗ |
 | running（流水线运行中） | ✗ | ✓ | ✓ | ✗（右上角 × 等价后台运行） | ✗ |
-| background（已后台脱离） | ✗ | ✗（已脱离） | ✗ | ✗（弹窗已关） | ✗ |
+| background（后台脱离；弹窗已关，前端态已复位为 idle） | ✗ | ✗（已脱离） | ✗ | ✗（弹窗已关） | ✗ |
 | failed（失败终态） | ✓ | ✗ | ✗ | ✓ | ✓ |
 | cancelled（取消终态） | ✗ | ✗ | ✗ | ✓ | ✓ |
 | completed（完成） | 弹窗已关闭并跳转结果页 | — | — | — | — |
@@ -352,9 +425,9 @@ onUnmounted → clearInterval
 **【后台运行】按钮交互逻辑**：
 
 1. 显示条件：genVideoCanBackground = genVideoPhase === 'running' 且持有 runId——只有主进程 run 确实存在且正在执行时才提供脱离入口（spec 前端规则 2：可逆操作方法内重校验状态，不依赖模板条件）；
-2. 点击 → detachGenVideoToBackground()：入口重校验 genVideoCanBackground（防终态竞态）→ 复用 handleGenVideoClose()（唯一公共脱离路径：stopGenVideoTracking 停轮询/订阅/tick → 弹窗关闭 → phase='background' → busy 保持 true → notifyInfo 顶部 toast）→ showPipelineBackgroundToast() 触发全局居中提示；
-3. 脱离后：所有选题行的【生成视频】按钮保持禁用（busy 守卫），防止并发第二个流水线任务；run 在主进程继续执行，完成后可在视频创作页「历史记录」查看产物；
-4. 右上角 × 在运行中同样走后台脱离（与按钮同一 handleGenVideoClose），但不触发全局居中提示（避免与按钮路径重复提示）。
+2. 点击 → detachGenVideoToBackground()：入口重校验 genVideoCanBackground（防终态竞态）→ 复用 handleGenVideoClose()（唯一公共脱离路径：判断是否可脱离 → resetGenVideoFrontendState() 停轮询/订阅/tick、弹窗关闭、phase='idle'、runId/stages/progress 清空、**busy 释放** → 可脱离时 notifyInfo 顶部 toast）→ showPipelineBackgroundToast() 触发全局居中提示；
+3. 脱离后：**所有选题行的【生成视频】按钮立即恢复可用**（busy 已释放），可对任意选题发起并行任务；run 在主进程继续执行，完成后可在视频创作页「历史记录」查看产物；
+4. 右上角 × 在运行中同样走后台脱离（与按钮同一 handleGenVideoClose），但不触发全局居中提示（避免与按钮路径重复提示）；在改写/启动阶段（无 run）则走「中止前端编排」语义（不提示已转入后台）。
 
 **全局居中提示规格**（组件 PipelineBackgroundToast.vue，App.vue 全局挂载）：
 
@@ -369,6 +442,97 @@ onUnmounted → clearInterval
 - 无障碍：role="status" aria-live="polite"；
 - 状态承载：模块级单例（stores/pipeline-background-toast.js，与 settings-dialog.js 同模式），脱离触发视图存活——用户点击后台运行后立即切换页面，提示仍正常显示与消失；
 - 防泄漏：文案经 vue-i18n 解析；key 未命中时回退空串（不显示），绝不把 i18n key 原文或硬编码中文泄漏到界面。
+
+### 6.7 一键生成视频：并发任务与前端态复位规格（2026-09-13 修正）
+
+**背景**：2026-09-13 用户报障——点击某选题【生成视频】→ 弹窗内点【后台运行】→ 弹窗消失；再点另一选题的【生成视频】，**无任何反应**。根因是后台脱离路径只置 `genVideoPhase='background'` 而未释放 `genVideoBusy`，而按钮 `:disabled="genVideoBusy"` 且 `startGenerateVideo` 首行 `if (genVideoBusy.value) return`，于是所有选题的入口被永久锁死；同时该行为此前被 PRD 写成「并发约束」需求、并被单测断言固化。修正后语义与视频创作页（CreateView.detachPipelineToBackground → resetPipelineToNewTaskState → resetPipelineUiState）完全一致。
+
+**前端状态机（genVideoPhase）**：
+
+| 值 | 含义 | 进入条件 | 可离开到 |
+|----|------|---------|---------|
+| `idle` | 无在跟踪任务（初始/复位后） | 初始化；后台脱离；终态关闭 | rewriting（点击生成视频） |
+| `rewriting` | aiRewrite 在途 | 点击【生成视频】后立即 | starting / failed / cancelled（取消）/ idle（关闭=中止） |
+| `starting` | pipelineStartOrchestrated 在途 | 改写成功 | running / failed / cancelled / idle（关闭=中止） |
+| `running` | 主进程 run 运行中且持有 runId | 启动成功返回 runId | completed / failed / cancelled / idle（后台脱离） |
+| `completed` | 流水线完成（提取到 videoPath） | 轮询/推送判定 | 跳转结果页并关闭弹窗 |
+| `failed` | 改写/启动/运行失败 | 任一环节失败 | 重试（failed → 重试）/ 关闭 |
+| `cancelled` | 用户取消 | 取消按钮 / 关闭（改写/启动阶段） | 关闭 |
+
+> 不再存在 `background` 滞留态：后台脱离后统一复位为 `idle`，避免「弹窗已关闭但内部仍自认有一个任务在前台」的中间态。
+
+**复位清单（resetGenVideoFrontendState，唯一公共路径）**：
+
+| 字段 | 复位值 | 说明 |
+|------|--------|------|
+| `genVideoSeq` | `+1` | 代际守卫：使在途 aiRewrite / pipelineStartOrchestrated 响应失效，防止脱离后旧响应重新挂回弹窗、或改写成功后静默启动流水线 |
+| 轮询/订阅/tick | 全部清理 | `stopGenVideoTracking()`：clearInterval(3s 轮询) + 退订 onPipelineUpdate + clearInterval(1s 耗时 tick) |
+| `genVideoModalOpen` | `false` | 弹窗关闭 |
+| `genVideoPhase` | `idle` | 见上表 |
+| `genVideoTopic` / `genVideoStages` / `genVideoRunId` | `null` / `[]` / `null` | 下次任务重新初始化，不复用旧选题与阶段 |
+| `genVideoRunProgress` / `genVideoStartedAt` | `null` / `0` | 防止新任务进度/耗时继承旧 run |
+| `genVideoErrorText` / `genVideoRewrittenContent` / `genVideoDraftId` | `''` / `''` / `null` | 错误与改写产物不外溢到新任务 |
+| `genVideoBusy` | `false` | **关键**：释放【生成视频】按钮（修复本次报障） |
+
+**busy 守卫的作用域（保留部分）**：
+
+| 场景 | 守卫是否生效 | 理由 |
+|------|-------------|------|
+| rewriting / starting / running（弹窗在跟踪同一任务） | ✅ 生效（按钮 disabled + 方法内 return） | 避免同一弹窗内产生两条不受跟踪的编排（旧任务会静默失去 UI） |
+| 后台脱离后（idle） | ❌ 不生效 | 与视频创作页一致，允许并行发起新任务 |
+| 运行中取消 / 失败 / 完成 | ❌ 不生效 | 终态已复位 |
+
+**数据校验与竞态守卫**：
+
+1. **入参校验**：`startGenerateVideo(topic)` 校验 `topic?.topic` 非空字符串才继续，否则直接 return（不打开弹窗、不调用 IPC）；`retryGenVideo()` 仅在 `phase==='failed'` 时可用。
+2. **runId 校验**：启动成功判定要求 `code===0` 且 `typeof runId==='string'` 且 `runId.trim()` 非空且 `success!==false`；`genVideoRunId` 存 trim 后的值。
+3. **轮询/推送 runId 守卫**：`pollGenVideoRun(runId)` 与 `handleGenVideoPush(snapshot)` 均先比对当前 `genVideoRunId`，不匹配一律丢弃（脱离后旧 run 的推送不会污染新任务）；`pipelineGetRunContext` 返回的 `runId/id` 与请求不一致时同样丢弃。
+4. **代际守卫**：`genVideoSeq` 在「开新任务 / 重试 / 取消 / 关闭 / 后台脱离 / 组件卸载」时递增，所有 await 之后都要 `seq !== genVideoSeq` 提前返回。
+5. **终态单调性**：`mergeGenStages` 对已处于 completed/skipped/failed/cancelled 的阶段拒绝降级回 running（乱序推送防护）。
+6. **并发上限**：前端不再自设单任务锁；由主进程 `PipelineEngine` 的 `maxConcurrentRuns` 判定，超限返回 `PIPELINE_CONCURRENCY_LIMIT`，前端落到「流水线启动失败」分支（弹窗错误摘要 + 【重试】，重试跳过改写）。
+
+**提示文字（本次未新增 i18n key，沿用既有文案）**：
+
+| 触发点 | key | zh 文案 |
+|--------|-----|---------|
+| 后台脱离（按钮或 ×） | `hotTopics.genVideoBackgroundHint`（顶部 toast） | 任务已转入后台，可在视频创作页「历史记录」中查看进度 |
+| 后台脱离（按钮） | `common.pipelineBackgroundToast`（全局居中，4s） | 如果想查看该任务，请进入视频创作的历史记录 |
+| 流水线启动失败（含并发超限） | `hotTopics.genVideoPipelineFailed`（弹窗错误摘要） | 视频流水线启动失败，请点击重试 |
+| 改写失败 | `hotTopics.genVideoRewriteFailed` | 文案改写失败，请点击重试 |
+| 取消 | `hotTopics.genVideoCancelled` | 已取消生成视频 |
+
+**边界情况**：
+
+1. `pipelineStartOrchestrated` 成功但返回空/非法 runId → 按启动失败处理（不进入 running、不启动跟踪）。
+2. 改写返回成功但内容为空 → 抛错走「改写失败」分支（不启动流水线）。
+3. 草稿保存失败 → 静默忽略，不阻断视频生成（草稿仅为回溯入口）。
+4. 后台脱离瞬间旧 run 恰好完成 → 前端已退订与清空，无事后写回；产物仍可在历史记录/结果页找到。
+5. 组件卸载（切页）→ `onUnmounted` 递增 seq、清理定时器与订阅；主进程 run 不受影响。
+6. 连续快速点击【生成视频】（同一弹窗在途）→ 第二次点击被 busy 守卫拦截，不产生重复编排。
+
+### 6.8 缓存保留态下的交互与显示项（2026-09-14 新增）
+
+保留态（§3.11 R4）对用户是**透明降级**：列表内容、筛选、勾选、创作、生成视频等一切能力保持可用（用的是上一批选题），只有告警条与「上次刷新」时间体现「本轮抓取失败」。
+
+| 位置 | 保留态表现 | 依据 |
+|------|-----------|------|
+| 选题列表 | 内容 = 上一次成功抓取的选题（数量不减少、顺序不变、`id` 不变） | R1 |
+| 「上次刷新 HH:mm」 | 显示**上一次成功抓取**的时间（保留的 `fetchedAt`），不是本轮失败时间 | R2 |
+| 部分渠道失败告警条 | 照常按本轮 `channelStats` 展示：`部分渠道获取失败：微信(tophub)`（`hotTopics.partialFail`，`el-alert type=warning`，可关闭） | R3 |
+| 渠道下拉不可用标记 | 照常按本轮 `channelStats[ch].ok === false` 追加 `（不可用）` | R3 |
+| 空态「暂无热门选题」 | **不出现**（列表非空）；仅在「上一批也为空 + 本轮失败」时出现 | R5 |
+| 中央加载提示 | 与修复前一致：首次无缓存 / 手动刷新时展示，后台静默刷新不展示 | 不变 |
+| 定时刷新（30 分钟） | 照常触发；因保留态 `fetchedAt` 已过期，会真实重试网络；成功后自动覆盖为最新选题 | R2 + §5.5 |
+| 平台账号/发布/生成视频入口 | 全部照常可用（不因抓取失败降级） | — |
+
+**边界情况**：
+
+1. **首次进入即全渠道失败且无缓存** → 空态 + 告警条「部分渠道获取失败：…」（沿用 `hotTopics.loadFailed` toast 与空态文案）。
+2. **保留态下用户手动点【刷新】** → 触发 `force=true`，若本轮成功则覆盖为新选题（可能数量变化、顺序变化）；若仍失败则继续保留（用户看到"刷了但没变 + 告警条"）。
+3. **保留态跨应用重启** → 保留内容已持久化到 SQLite settings，重启后仍可读到（R8）。
+4. **保留态下进入某渠道筛选** → 旧数据中该渠道条目照常展示；若该渠道本轮失败，下拉项带「（不可用）」标记但不影响已有条目展示。
+5. **上一批恰为空且本轮部分渠道成功** → 正常覆盖（可能只有少数条目），不命中保留分支。
+6. **`preservedStaleCache` 标记对 UI 不可见** → 该字段仅用于诊断/测试断言，不在界面上呈现任何"陈旧"字样（避免制造焦虑）；用户通过告警条与刷新时间自行判断。
 
 ## 7. 显示项与提示文字（i18n）
 
@@ -445,6 +609,20 @@ onUnmounted → clearInterval
 
 所有含 `{param}` 的文案必须写成 `(ctx) => 'xxx' + ctx.named('param')` 形式（zh/en 两侧一致），禁止静态字符串带占位符。
 
+### 7.4 缓存保留态的提示文字（2026-09-14 新增）
+
+**本次变更不新增任何 i18n key**，保留态复用既有文案，zh/en 成对性不变（CI Gate 7 无需变更）：
+
+| 场景 | 文案 key | 文案（zh） | 呈现方式 |
+|------|---------|-----------|---------|
+| 本轮有渠道失败（保留态或部分成功） | `hotTopics.partialFail` | `部分渠道获取失败：{channels}` | 列表顶部 `el-alert type=warning`，可关闭 |
+| 渠道本轮失败（下拉标记） | `hotTopics.channelUnavailable` | `不可用` | 渠道下拉项后缀 `（不可用）` |
+| 上一批为空 + 本轮全失败 | `hotTopics.loadFailed` | `加载失败，请稍后重试` | 顶部 toast（既有行为） |
+| 上一批为空 + 本轮全失败 | `hotTopics.emptyTitle` / `emptyDesc` / `emptyAction` | `暂无热门选题` / `点击刷新按钮获取最新选题，或等待自动刷新` / `立即刷新` | 列表区空态 |
+| 「上次刷新」时间 | `hotTopics.lastRefresh` | `上次刷新 {time}` | 页头右侧（保留态为旧时间） |
+
+**判定依据**：如果未来需要在界面上显式区分「陈旧数据」（例如加一条 `数据为上次抓取结果，本次刷新失败` 的常驻提示），必须先在本表补齐 zh/en 双语文案与 Message Function 约定，再改 UI；本期不做。
+
 ## 8. 验收标准
 
 1. 「更多」菜单出现「热门选题」入口，点击进入 `/hot-topics` 页面。
@@ -457,7 +635,13 @@ onUnmounted → clearInterval
 8. 防反爬组件接入（rate-limiter/circuit-breaker/cache 有测试断言）。
 9. i18n zh/en 成对 + Message Function + 无硬编码中文泄漏到模板。
 10. 【生成视频】按钮渲染于每条选题行；点击后弹窗打开、改写执行、流水线按用户默认选项自动启动；进度实时更新；完成跳转结果页；失败可重试（流水线失败重试不重复改写）；取消/后台运行语义正确（2026-09-12）。
-11. 流水线运行中弹窗 footer 显示【后台运行】按钮；点击后弹窗关闭、run 继续后台执行、busy 守卫保持；应用正中央显示「如果想查看该任务，请进入视频创作的历史记录」4 秒后消失；改写/启动/终态不显示该按钮；视频创作页进度弹窗【后台运行】同样触发全局居中提示（2026-09-13）。
+11. 流水线运行中弹窗 footer 显示【后台运行】按钮；点击后弹窗关闭、run 继续后台执行、前端态复位（phase='idle'、runId/stages 清空、**busy 释放**），不调用 pipelineCancelRun；应用正中央显示「如果想查看该任务，请进入视频创作的历史记录」4 秒后消失；改写/启动/终态不显示该按钮；视频创作页进度弹窗【后台运行】同样触发全局居中提示（2026-09-13）。
+12. **多任务并行**（2026-09-13 修正）：【后台运行】脱离（或终态关闭）后，所有选题的【生成视频】按钮立即可用，对另一条选题点击后能正常打开弹窗、改写并启动**第二条**并行流水线（两条 runId 互不干扰、互不覆盖进度）；并发上限由主进程门禁判定，超限时提示「视频流水线启动失败，请点击重试」并保留【重试】。
+13. **改写/启动阶段关闭弹窗**（2026-09-13 修正）：点击右上角 × 应中止前端编排——弹窗关闭、前端态复位、不调用 pipelineStartOrchestrated、不调用 pipelineCancelRun、不出现「任务已转入后台」提示。
+14. **抓取失败不清空选题**（2026-09-14 新增）：8 渠道本轮全部失败（超时/异常/限流跳过）且上一批缓存非空时，列表仍展示上一批选题（数量、顺序、`id` 均不变），不出现「暂无热门选题」空态；「上次刷新」时间保持为上一次成功抓取时间；顶部告警条如实展示本轮失败渠道并标注「（不可用）」。
+15. **保留态可自愈**（2026-09-14 新增）：保留态下缓存 `fetchedAt` 未被刷新，因此下一次非 force 刷新（含 30 分钟定时刷新）必定重新发起网络请求；网络恢复后自动覆盖为最新选题，无需用户手动干预。
+16. **保留态字段契约**（2026-09-14 新增）：`hot-topics:fetch` 返回的 `data.preservedStaleCache === true`、`data.topics` 非空、`data.fetchedAt` 等于保留的旧时间（早于当前时间）、`data.channelStats` 逐渠道四字段齐全；上一批为空时上述标记**不得**出现。
+17. **缓存内容不因失败被改写**（2026-09-14 新增）：全渠道失败后读取 `hot_topics_cache`（SQLite settings）应仍为保留内容（`topics` 非空 + `preservedStaleCache: true`），重启应用后依然可读。
 
 ## 9. 测试覆盖
 
@@ -465,8 +649,8 @@ onUnmounted → clearInterval
 
 | 测试文件 | 覆盖 |
 |---------|------|
-| `hot-topics-service.test.js` | 渠道解析（7 渠道各一 fixture）、分类映射（原生+规则+综合兜底）、去重、缓存读写 fail-closed、限流/熔断调用断言、SSRF 拒绝 |
-| `HotTopics.test.js` | 渲染（菜单/标题/空态）、勾选与批量按钮态、筛选过滤、刷新交互（mock IPC）、一键发布进度流（mock aiRewrite）、一键生成视频全流程（改写/启动/进度/完成/取消/后台运行按钮与脱离语义，2026-09-13 补充） |
+| `hot-topics-service.test.js` | 渠道解析（7 渠道各一 fixture）、分类映射（原生+规则+综合兜底）、去重、缓存读写 fail-closed、限流/熔断调用断言、SSRF 拒绝。**缓存保留回归 4 例（2026-09-14 新增）**：①全渠道失败 → 保留旧 `topics` 与旧 `fetchedAt`、落盘为保留值、`preservedStaleCache: true`、失败原因仍如实上报（`channelStats.zhihu.ok === false`）；②缓存本就为空 → 仍写空结果且无 `preservedStaleCache` 标记；③部分渠道成功 → 正常覆盖且无保留标记；④全渠道被限流/熔断跳过（`skipped: true`）→ 同样保留旧缓存 |
+| `HotTopics.test.js` | 渲染（菜单/标题/空态）、勾选与批量按钮态、筛选过滤、刷新交互（mock IPC）、一键发布进度流（mock aiRewrite）、一键生成视频全流程（改写/启动/进度/完成/取消/后台运行按钮与脱离语义，2026-09-13 补充）。**并发回归 4 例**（2026-09-13 修正）：①运行中关闭 → 后台脱离并复位前端态（busy 释放、runId 清空、不取消 run）；②改写阶段关闭 → 中止前端编排（不启动流水线）；③弹窗在途 busy 守卫仍拦截第二次编排；④【后台运行】脱离后另一选题可立即启动并行流水线（按钮可用 + 第二次 pipelineStartOrchestrated 使用第二条选题的改写产物 + runId 切换） |
 | `pipeline-background-toast.test.js` | 全局居中提示状态机：show 立即可见、4s 自动消失、重复触发重置计时、hide 立即清除定时器 |
 | `PipelineBackgroundToast.test.js` | 全局居中提示组件渲染：zh/en 文案、隐藏后 DOM 移除、key 未命中回退空串不泄漏 |
 | `RewriteView.test.js`（补充） | query.topic 填充、模式切换 create、自动 startRewrite、<20 字补引导语 |
@@ -483,6 +667,21 @@ onUnmounted → clearInterval
 ### 9.4 手动验证清单
 
 - 打包启动 → 更多菜单 → 热门选题 → 刷新 → 勾选 → 创作文案（跳转自动改写）→ 一键发布（图文/视频各一次全流程）。
+- **抓取失败韧性（2026-09-14 新增）**：先正常抓到选题 → 断开外网或让渠道不可达 → 点【刷新】→ 期望：列表条数与内容不变、「上次刷新」时间不变、顶部出现「部分渠道获取失败：…」告警条、控制台可见 `[hot-topics] all channels failed; preserved N cached topics (stale)` 警告日志；恢复网络后再次【刷新】→ 列表更新为新选题。
+
+### 9.5 端到端（CDP 真实实例）覆盖（2026-09-14 新增）
+
+| 资产 | 路径 | 说明 |
+|------|------|------|
+| CDP 客户端 | `apps/desktop/tests/e2e/lib/cdp-client.js` | 极简 CDP-over-WebSocket 传输层（`Runtime.evaluate` + `waitFor` 轮询）。**不使用** Playwright `connectOverCDP`：本机（Electron 43 / Chrome 150）实测其侧握手会稳定超时（15s × 6 次全 timeout），而直连 `webSocketDebuggerUrl` 完全正常 |
+| 一键生成视频驱动 | `apps/desktop/tests/e2e/hot-topics-one-click-video-driver.js` | 连接**已运行**的 Electron 实例（CDP），走真实 UI：进入 `/hot-topics` → 读取前 N 条选题 → 逐条 DOM 点击【生成视频】→ 等 `hot-topics-gen-video-background` 出现（= phase running 且持有 runId）→ 点【后台运行】脱离以发起下一条（受 `E2E_MAX_ACTIVE` 约束）→ 轮询 `pipelineGetRunContext` 至终态 → 深度搜索 `videoPath/outputPath` → 拷贝成片 + `ffprobe` 校验，产出 `*-generate-report.json` |
+
+**运行方式**：`E2E_CDP_URL` / `E2E_VITE_ORIGIN` / `E2E_TOPIC_COUNT` / `E2E_MAX_ACTIVE` / `E2E_LABEL` / `E2E_OUT_DIR` / `E2E_RUN_TIMEOUT_MS` 见文件头注释；驱动退出码 0 表示至少产出一条真实成片。
+
+**驱动必须遵守的两条硬约束（实测得出）**：
+
+1. **`window.electronAPI` 是 contextBridge 冻结对象**（`Object.isFrozen(api) === true`、`Object.isExtensible(api) === false`）→ **不能**通过在页面侧包一层 `pipelineStartOrchestrated` 来截获 `runId`；必须改用「点击前记录 `pipelineHistory()` → 点击后取新增的 `story2video-compose` run」的方式获取 runId。
+2. **路由用客户端 hash 切换**（`location.hash = '#/hot-topics'`）并**以 DOM 出现为准**判断到达（`[data-testid="hot-topic-item"]` 数量 > 0），不要依赖 hash 值本身——主进程触发 renderer 重载时 hash 会被重置为 `#/`。
 
 ## 10. 技术实现说明（附录）
 
@@ -549,4 +748,37 @@ onUnmounted → clearInterval
 
 - 新增 10 个 i18n key（zh/en 成对）：`tabHot`、`tabFavorites`、`favorite`、`unfavorite`、`favoritesEmptyTitle`、`favoritesEmptyDesc`、`updateTime`、`favoritedAt`、`topicSummary`。
 - 涉及文件：`apps/desktop/src/locales/zh.js`、`en.js`。
+
+### 10.8 缓存保留实现要点（2026-09-14 新增）
+
+**改动位置**：`apps/desktop/electron/services/hot-topics-service.js` 的 `fetchTopics()` 汇总段（`const topics = allTopics.slice(0, MAX_TOPICS)` 之后）。
+
+**实现骨架**：
+
+```js
+const topics = allTopics.slice(0, MAX_TOPICS)
+const previous = Array.isArray(cache.topics) ? cache.topics : []
+if (topics.length === 0 && previous.length > 0) {
+  const preserved = {
+    topics: previous,
+    fetchedAt: cache.fetchedAt,      // 保留旧时间 → 下次非 force 调用仍会重试网络
+    channelStats,                    // 本轮真实结果，供 UI 展示失败渠道
+    preservedStaleCache: true,
+  }
+  this._writeCache(preserved)
+  this.log.warn && this.log.warn('[hot-topics] all channels failed; preserved ' +
+    previous.length + ' cached topics (stale) instead of overwriting with an empty list')
+  return preserved
+}
+const newCache = { topics, fetchedAt, channelStats }
+this._writeCache(newCache)
+```
+
+**为什么用「进入本轮前的 `cache` 快照」而不是重新 `getCache()`**：`cache` 是 `fetchTopics()` 开头读取的权威快照（与 `inFlight` 去重配合），重新读取会把本轮可能的其它写入引入判定，破坏确定性。
+
+**为什么不写 `fetchedAt: Date.now()`**：那会让 10 分钟 TTL 认为缓存「新鲜」，`fetchTopics({ force: false })` 会在 TTL 窗口内直接命中这份陈旧缓存返回（`fromCache: true`），既不重试网络也不暴露失败——「保留」会退化成「永久陈旧」。保留旧 `fetchedAt` 让 TTL 自然过期，实现「保留内容 + 持续重试」。
+
+**为什么不合并新旧批次**：`id = channel + ':' + rank` 在新旧批次之间含义会漂移（同一 `zhihu:1` 在不同时间指向不同话题），合并会产出语义混乱的列表；同时 UI 的 `:key="topic.id"` 复用与勾选 `Set<id>` 也会错乱。因此只在「本轮零结果」时整体保留，不做逐条 merge。
+
+**改动边界**：**零渲染层改动、零新增 i18n key、零 IPC 契约变更**（`hot-topics:fetch` 返回结构只在零结果且保留时多一个可选字段 `preservedStaleCache`）。`HotTopics.vue` 的 `refresh()` 已按 `res.data.topics` 渲染，保留态返回的即上一次的选题数组，可直接渲染；顶部告警条依据 `channelStats` 计算，无需改动。
 

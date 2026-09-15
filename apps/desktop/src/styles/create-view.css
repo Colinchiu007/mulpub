@@ -419,9 +419,4 @@
 .upload-zone.drag-over { border-color: var(--upload-zone-hover-border); background: var(--upload-zone-hover-bg); }
 .upload-zone:active { border-color: var(--upload-zone-active-border); background: var(--upload-zone-active-bg); }
 
-/* 骨架屏加载 */
-.skeleton { background: var(--skeleton-bg); border-radius: 4px; position: relative; overflow: hidden; }
-.skeleton::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, var(--skeleton-shimmer), transparent); animation: skeleton-shimmer 1.5s infinite; }
-@keyframes skeleton-shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
-.skeleton-text { height: 14px; margin-bottom: 8px; }
-.skeleton-card { height: 120px; border-radius: 12px; }
+/* 骨架屏加载：统一改用 <UiSkeleton>（styles/skeleton.css 提供骨块外观） */

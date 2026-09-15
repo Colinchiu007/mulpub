@@ -38,9 +38,9 @@ packages/python-backend/ — Python FastAPI 后端
 
 ---
 
-### 1.2 蚁小二逆向集成 (v1.0.13)
+### 1.2 参考产品逆向分析集成 (v1.0.13)
 
-从蚁小二逆向工程提取的8个可复用模块：
+从参考产品逆向分析提取的8个可复用模块：
 - `account-state-restorer` — JSONL 持久化
 - `credential-store` — AES-256-GCM 加密
 - `api-platform-adapter` — HTTP API 发布
@@ -149,8 +149,8 @@ Level 3: AI 看图 (预留)
 
 ## 四、竞品分析
 
-### 蚁小二逆向
-- 路径: `C:\Users\邱领\projects\yixiaoer-reverse\`
+### 参考产品逆向分析
+- 路径: `C:\Users\邱领\projects\ui-reference\`
 - 架构: Electron + React 19 + Node 22 + webpack + TypeScript + Tailwind
 - 核心发现: WebContentsView + session.fromPartition() 替代 Playwright 弹出窗口
 - 6大模块: 登录/Session/发布适配器/视频上传/Cookie管理

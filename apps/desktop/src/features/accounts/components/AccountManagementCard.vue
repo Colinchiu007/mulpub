@@ -157,7 +157,7 @@ const nameInput = ref(null)
 const accountDisplayName = computed(() => accountName(props.account))
 
 /**
- * 卡片整体点击（对齐蚁小二：点击账号卡片打开该账号创作者中心）。
+ * 卡片整体点击（对齐参考产品：点击账号卡片打开该账号创作者中心）。
  * 批量模式下点击卡片改为切换选中，避免误打开标签页。
  */
 function onCardClick () {
@@ -229,7 +229,8 @@ function proxyLabel (account) {
 function accountStatusKind (account) {
   const status = String(account?.status || '').trim().toLowerCase()
   if (status === 'active' || status === 'online') return 'online'
-  if (status === 'inactive' || status === 'offline' || status === 'expired') return 'offline'
+  if (status === 'expired') return 'expired'
+  if (status === 'inactive' || status === 'offline') return 'offline'
   if (status === 'error' || status === 'failed' || status === 'failure') return 'error'
   return 'unknown'
 }
@@ -241,6 +242,7 @@ function isActive (account) {
 function statusLabel (account) {
   const kind = accountStatusKind(account)
   if (kind === 'online') return t('accountsPage.accountCardLabels.statusLoggedIn')
+  if (kind === 'expired') return t('accountsPage.accountCardLabels.statusExpired')
   if (kind === 'offline') return t('accountsPage.accountCardLabels.statusLoggedIn')
   if (kind === 'error') return t('accountsPage.accountCardLabels.statusError')
   return t('accountsPage.accountCardLabels.statusNoCheck')
@@ -414,6 +416,7 @@ function isIconUrl (value) {
 
 .login-badge.online { background: #e7f7ef; color: #18794e; }
 .login-badge.offline { background: #f2f2f4; color: #777985; }
+.login-badge.expired { background: #fff1f0; color: #b42318; }
 .login-badge.error { background: #fff1f0; color: #b42318; }
 .login-badge.unknown { background: #f7f7f8; color: #777985; }
 
@@ -495,7 +498,7 @@ function isIconUrl (value) {
   text-align: center;
 }
 
-/* 蚁小二契约：负责人蓝 / 运营人灰 / 代理紫 */
+/* 参考产品契约：负责人蓝 / 运营人灰 / 代理紫 */
 .account-assignees .assignee-owner { background: #e8f1ff; color: #2b6cb0; }
 .account-assignees .assignee-publisher { background: #f5f5f7; color: #85858f; }
 .account-assignees .assignee-proxy { background: #eeecff; color: var(--primary, #5048e5); }

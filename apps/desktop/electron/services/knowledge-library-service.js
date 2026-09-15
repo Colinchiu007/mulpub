@@ -266,7 +266,7 @@ class KnowledgeLibraryService {
       if (item.url) md += '**链接**：' + item.url + '\n\n'
       if (item.platform) md += '**平台**：' + item.platform + '\n\n'
       md += '**正文**：\n' + (item.content || '') + '\n\n'
-      let tagList = []
+      let tagList // 初值在 try/catch 两条路径都会被赋值，无需初始化（no-useless-assignment）
       try { tagList = JSON.parse(item.tags || '[]') } catch { tagList = [] }
       if (tagList.length) md += '**标签**：' + tagList.map(t => '#' + t).join(' ') + '\n\n'
       md += '**数据**：👍' + (item.likes || 0) + ' ⭐' + (item.collections || 0) + ' 💬' + (item.comments || 0) + '\n\n'

@@ -1,4 +1,4 @@
-// 哔哩哔哩适配器 — 基于蚁小二逆向工程
+// 哔哩哔哩适配器 — 基于参考产品逆向分析
 const { BasePlatformAdapter } = require("../base-adapter");
 const { upload } = require("../../upload/orchestrator");
 
@@ -10,7 +10,7 @@ class BilibiliAdapter extends BasePlatformAdapter {
   getReferer() { return "https://member.bilibili.com/platform/upload/video/frame"; }
   getOrigin() { return "https://member.bilibili.com"; }
 
-  // P3-7：拉取当前用户的合集/season 列表（arc/search API，蚁小二 collection.yixiaoerId 对应 season_id）
+  // P3-7：拉取当前用户的合集/season 列表（arc/search API，参考产品 collection.sourceId 对应 season_id）
   async listCollections(cookie) {
     const h = this.getHeaders(cookie, { Accept: "application/json" });
     const resp = await this.http.get(this.apiBase + "/x/vupre/web/archives/seasons", { headers: h, params: { pn: 1, ps: 50 } });
@@ -37,11 +37,11 @@ class BilibiliAdapter extends BasePlatformAdapter {
       copyright: taskData.copyright || 2,
       tid: taskData.category || 17,
     };
-    // P2-1：合集（season_id，蚁小二映射 collection.yixiaoerId → season_id）
+    // P2-1：合集（season_id，参考产品映射 collection.sourceId → season_id）
     const seasonId = Number(taskData.collectionId)
     if (Number.isInteger(seasonId) && seasonId > 0) {
       data.season_id = seasonId
-      // 蚁小二：加入合集默认同时开启「选集」
+      // 参考产品：加入合集默认同时开启「选集」
       data.new_draft = 1
     }
     return data

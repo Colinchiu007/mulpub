@@ -10,7 +10,9 @@
           <UiButton data-testid="publish-drafts-back" variant="secondary" @click="goToPublish">{{ t('publishPage.backToPublish') }}</UiButton>
         </header>
 
-        <div v-if="loadingDrafts" class="publish-drafts-state" data-testid="publish-drafts-loading" role="status">{{ t('publishPage.loadingDrafts') }}</div>
+        <div v-if="loadingDrafts" class="publish-drafts-state" data-testid="publish-drafts-loading">
+          <UiSkeleton variant="list" :count="3" />
+        </div>
         <div v-else-if="drafts.length === 0" class="publish-drafts-state" data-testid="publish-drafts-empty">
           <strong>{{ t('publishPage.noDrafts') }}</strong>
           <span>{{ t('publishPage.draftsHint') }}</span>

@@ -62,9 +62,18 @@ const PLATFORM_LOGIN_SUCCESS_PATTERNS = {
   weibo: ['weibo.com/home', 'weibo.com/u/'],
   douyin: ['douyin.com'],
   xiaohongshu: ['creator.xiaohongshu.com'],
-  tencent_video: ['channels.weixin.qq.com'],
+  // 视频号登录页与创作后台同域（channels.weixin.qq.com）：登录页为
+  // /login.html（参考产品 authorizeUrl 同款），裸域名模式会把预登录登录页
+  // 误判为“登录成功”，导致登录视图提前关闭并保存只有预登录 localStorage
+  // 的无 Cookie 凭证（E2E 实测 cookies=0）。登录成功后的创作者后台路径为
+  // /platform，据此精确匹配。
+  tencent_video: ['channels.weixin.qq.com/platform'],
   kuaishou: ['cp.kuaishou.com', 'passport.kuaishou.com'],
-  toutiao: ['mp.toutiao.com'],
+  // 头条号登录页与创作后台同域（mp.toutiao.com）：未登录访问会 302 到
+  // /login（2026-09-13 实测），裸域名模式会把预登录登录页误判为“登录成功”，
+  // 导致登录视图提前关闭并保存无效账号（与百家号同款 bug）。
+  // 登录成功后的创作者中心路径为 /profile_v4/...，据此精确匹配。
+  toutiao: ['profile_v4'],
   bilibili: ['www.bilibili.com/', 'member.bilibili.com/'],
   // 百家号登录页与创作后台同域：未登录访问 baijiahao.baidu.com/ 会 302 到
   // /pcui/register/index 与 /builder/theme/bjh/login（2026-08-12 实测），裸域名

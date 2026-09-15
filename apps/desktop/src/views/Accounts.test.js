@@ -362,7 +362,7 @@ describe("AccountsView", () => {
     expect(w.text()).toContain("添加账号");
   });
 
-  it("工具栏提供蚁小二式平台搜索、批量操作和添加账号入口", async () => {
+  it("工具栏提供参考产品式平台搜索、批量操作和添加账号入口", async () => {
     _testAccounts.push(
       { id: "zh-1", platform: "zhihu", status: "active", account_name: "知乎账号" },
       { id: "dy-1", platform: "douyin", status: "active", account_name: "抖音账号" },
@@ -811,7 +811,7 @@ describe("AccountsView", () => {
   });
 
   it("batchCheckAllLogins 一键检测全部账号并按结果更新本地状态", async () => {
-    const { accountBatchCheckLogin } = await import("@/api/publisher");
+    const { accountBatchCheckLogin, accountUpdate } = await import("@/api/publisher");
     accountBatchCheckLogin.mockResolvedValue({
       code: 0,
       data: {
@@ -836,6 +836,9 @@ describe("AccountsView", () => {
     const a2 = _testAccounts.find(a => a.id === "a2");
     expect(a1.status).toBe("active");
     expect(a2.status).toBe("expired");
+    // 检测结果写回后端（持久化：退出重进后仍保持检测状态）
+    expect(accountUpdate).toHaveBeenCalledWith("a1", expect.objectContaining({ status: "active" }));
+    expect(accountUpdate).toHaveBeenCalledWith("a2", expect.objectContaining({ status: "expired" }));
     // checkedExpiredIds 同步
     expect(w.vm.checkedExpiredIds.has("a2")).toBe(true);
     expect(w.vm.checkedExpiredIds.has("a1")).toBe(false);
@@ -1061,7 +1064,7 @@ describe("AccountsView", () => {
     expect(ElMessage.warning).toHaveBeenCalledWith("2 个账号登录已失效");
   });
 
-  it("登录完成事件会关闭登录视图、提示成功并刷新账号", async () => {
+  it("登录完成事件会关闭登录视图、提示凭证已自动保存并刷新账号", async () => {
     const w = await mountView();
     _spies.load.mockClear();
     w.vm.authViewVisible = true;
@@ -1072,11 +1075,12 @@ describe("AccountsView", () => {
 
     const { ElMessage } = await import("element-plus");
     expect(w.vm.authViewVisible).toBe(false);
-    expect(ElMessage.success).toHaveBeenCalledWith("账号添加成功");
+    // 成功提示由 useAccountEvents.complete() 统一弹出（凭证已自动保存），页面不再重复提示
+    expect(ElMessage.success).toHaveBeenCalledWith("zhihu 登录凭证已自动保存");
     expect(_spies.load).toHaveBeenCalledTimes(1);
   });
 
-  it("重新登录完成事件使用重新登录成功提示", async () => {
+  it("重新登录完成事件使用凭证已自动保存提示", async () => {
     const w = await mountView();
     _spies.load.mockClear();
     await w.vm.reloginAccount({ id: "expired-1", platform: "zhihu", status: "inactive" });
@@ -1087,7 +1091,7 @@ describe("AccountsView", () => {
     await nextTick();
 
     const { ElMessage } = await import("element-plus");
-    expect(ElMessage.success).toHaveBeenCalledWith("账号重新登录成功");
+    expect(ElMessage.success).toHaveBeenCalledWith("zhihu 登录凭证已自动保存");
     expect(_spies.load).toHaveBeenCalledTimes(1);
     expect(w.vm.pendingAuthAction).toBeNull();
   });

@@ -357,6 +357,8 @@ var require_system = __commonJS({
         updateCheck: () => ipcRenderer2.invoke("update:check"),
         updateDownload: () => ipcRenderer2.invoke("update:download"),
         updateInstall: () => ipcRenderer2.invoke("update:install"),
+        // 侧边栏「新版本」入口：未下载则先下载，下载完成后自动退出并安装
+        updateInstallNow: () => ipcRenderer2.invoke("update:install-now"),
         onUpdateStatus: (callback) => {
           const handler = (_event, payload) => callback(payload);
           ipcRenderer2.on("update:status", handler);
@@ -1047,6 +1049,7 @@ var require_access_control = __commonJS({
       "updateCheck",
       "updateDownload",
       "updateInstall",
+      "updateInstallNow",
       "onUpdateStatus",
       "firstRunCheck",
       "onFirstRunStatus",

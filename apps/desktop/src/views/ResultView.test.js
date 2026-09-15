@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import fs from "node:fs";
 import { mount } from "@vue/test-utils";
 import { nextTick } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
@@ -1972,6 +1973,91 @@ describe("ResultView", () => {
       expect(w.find('[data-testid="segment-video-prompt-textarea"]').attributes("placeholder")).toContain("emptySlot");
       expect(w.find('[data-testid="narration-placeholder"]').text()).toContain("emptySlot");
       w.unmount();
+    });
+  });
+
+  // 回归保护（2026-09-13 Bug 修复）：查看文案弹窗原实现用 segments[].text 拼「【N】」编号，
+  // 既丢失了分句前的原始文案，又把分段序号带进弹窗与复制内容；且 <pre> 无 CSS 导致不换行。
+  describe("查看文案弹窗（展示流水线原始文案 + 自动换行）", () => {
+    beforeEach(() => { document.body.innerHTML = ""; });
+    afterEach(() => { document.body.innerHTML = ""; });
+
+    async function openScriptModal(w) {
+      w.vm.viewScript();
+      await nextTick();
+      return document.body.querySelector('[data-testid="script-text"]');
+    }
+
+    it("展示流水线原始文案（分句前全文），不包含分段编号", async () => {
+      const w = await createView();
+      w.vm.project = { projectId: "p1", sourceText: "第一句原文。第二句原文！\n\n第三段原文？" };
+      w.vm.segments = [
+        { id: "s1", text: "第一句原文。", status: "completed" },
+        { id: "s2", text: "第二句原文！", status: "completed" },
+      ];
+      await nextTick();
+      const el = await openScriptModal(w);
+      expect(el).not.toBeNull();
+      expect(el.textContent).toBe("第一句原文。第二句原文！\n\n第三段原文？");
+      expect(el.textContent).not.toContain("【");
+      w.unmount();
+    });
+
+    it("历史项目缺失 sourceText 时回退分段文字（不带编号、跳过空段）", async () => {
+      const w = await createView();
+      w.vm.project = { projectId: "p1" };
+      w.vm.segments = [
+        { id: "s1", text: " 甲段 ", status: "completed" },
+        { id: "s2", text: "   ", status: "completed" },
+        { id: "s3", text: "乙段", status: "completed" },
+      ];
+      await nextTick();
+      const el = await openScriptModal(w);
+      expect(el).not.toBeNull();
+      expect(el.textContent).toBe("甲段\n\n乙段");
+      expect(el.textContent).not.toContain("【");
+      w.unmount();
+    });
+
+    it("既无原始文案也无分段时内容为空且复制按钮禁用", async () => {
+      const w = await createView();
+      w.vm.project = { projectId: "p1", sourceText: "   " };
+      w.vm.segments = [];
+      await nextTick();
+      const el = await openScriptModal(w);
+      expect(el).not.toBeNull();
+      expect(el.textContent).toBe("");
+      const copy = document.body.querySelector('[data-testid="script-copy-button"]');
+      expect(copy).not.toBeNull();
+      expect(copy.hasAttribute("disabled")).toBe(true);
+      w.unmount();
+    });
+
+    it("复制内容为原始文案全文（不含分段编号）", async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      const previousClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+      Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+      try {
+        const w = await createView();
+        w.vm.project = { projectId: "p1", sourceText: "原始文案全文" };
+        w.vm.segments = [{ id: "s1", text: "分段后的第一句。", status: "completed" }];
+        await nextTick();
+        await w.vm.copyScript();
+        expect(writeText).toHaveBeenCalledWith("原始文案全文");
+        w.unmount();
+      } finally {
+        if (previousClipboard) Object.defineProperty(navigator, "clipboard", previousClipboard);
+        else delete navigator.clipboard;
+      }
+    });
+
+    it("弹窗文本容器声明自动换行（源码契约：jsdom 不应用 scoped CSS）", () => {
+      const source = fs.readFileSync("./src/views/ResultView.vue", "utf8");
+      const rule = source.match(/\.script-text\s*\{([^}]*)\}/);
+      expect(rule).toBeTruthy();
+      expect(rule[1]).toMatch(/white-space:\s*pre-wrap/);
+      expect(rule[1]).toMatch(/overflow-wrap:\s*anywhere/);
+      expect(rule[1]).toMatch(/word-break:\s*break-word/);
     });
   });
 });

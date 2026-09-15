@@ -159,12 +159,20 @@ function registerHandlers(ipcMain, deps) {
       credCheckReason = AccountManager.checkLocalCredentials ? 'missing-platform-or-id' : 'checkLocalCredentials-not-function'
     }
    const derivedStatus = !hasCred ? 'expired' : (safeAccount.status || (safeAccount.is_active === false ? 'inactive' : 'active'))
-    // 本地凭证检测到的真实登录状态优先于后端 DB 残留的 expired（LoginMonitor
-    // 周期性检测写入的旧值），防止 hasCred=true 但后端 status='expired' 时列表
-    // 仍展示过期。
-    const effectiveStatus = hasCred && safeAccount.status === 'expired'
-      ? 'active'
-      : derivedStatus
+    // 一键检测（accounts:batch-check-login）会把检测结果写回后端 status + last_validated。
+    // 若后端 status 为 expired 且 last_validated 是最近（2 小时内）主动检测写入的，
+    // 应尊重该检测结果（浏览器/HTTP 检测比本地凭证文件更可靠，能识别 Cookie 过期）。
+    // 否则回退到本地凭证检测（checkLocalCredentials），避免 DB 残留 expired 误报。
+    let backendExpiredFresh = false
+    if (safeAccount.status === 'expired' && safeAccount.last_validated) {
+      const ts = new Date(safeAccount.last_validated).getTime()
+      if (Number.isFinite(ts) && (Date.now() - ts) < 2 * 60 * 60 * 1000) {
+        backendExpiredFresh = true
+      }
+    }
+    const effectiveStatus = backendExpiredFresh
+      ? 'expired'
+      : (hasCred && safeAccount.status === 'expired' ? 'active' : derivedStatus)
     const backendStatus = safeAccount.status || 'absent'
     ipcLog('info', 'account:status-derive',
      'id=' + safeAccount.id + ' platform=' + safeAccount.platform + ' name=' + (safeAccount.account_name || safeAccount.name || '?') + ' hasCred=' + hasCred + ' backendStatus=' + backendStatus + ' derivedStatus=' + derivedStatus +

@@ -33,6 +33,7 @@ const OWNER_TABLE_SCHEMA_SQL = {
     localStorage_enc BLOB,
     avatar_url    TEXT,
     status        TEXT DEFAULT "active",
+    last_validated TEXT,
     is_default    INTEGER DEFAULT 0,
     created_at    TEXT DEFAULT '',
     updated_at    TEXT DEFAULT '',
@@ -225,7 +226,7 @@ function buildUpdateQuery(fields, jsonKeys = ["articles"]) {
  * 仅允许这些字段名出现在 UPDATE 的 SET 子句中
  */
 const UPDATE_WHITELIST = {
-  accounts: ["platform", "name", "account_name", "avatar", "avatar_url", "status", "is_default"],
+  accounts: ["platform", "name", "account_name", "avatar", "avatar_url", "status", "is_default", "last_validated"],
   publish_history: ["platform", "title", "content", "task_id", "article_id", "status", "result", "error"],
   scheduled_tasks: ["platform", "article", "publish_time", "status"],
   settings: ["value"],
@@ -255,7 +256,7 @@ function sanitizeUpdateFields(tableName, fields) {
 }
 
 const OWNER_TABLE_COLUMNS = {
-  accounts: ["owner_subject", "id", "platform", "account_name", "name", "avatar", "cookies", "localStorage", "cookies_enc", "localStorage_enc", "avatar_url", "status", "is_default", "created_at", "updated_at"],
+  accounts: ["owner_subject", "id", "platform", "account_name", "name", "avatar", "cookies", "localStorage", "cookies_enc", "localStorage_enc", "avatar_url", "status", "last_validated", "is_default", "created_at", "updated_at"],
   publish_history: ["owner_subject", "id", "platform", "article_id", "title", "content", "task_id", "status", "result", "error", "created_at"],
   scheduled_tasks: ["owner_subject", "id", "platform", "article", "publish_time", "status", "created_at"],
   batch_jobs: ["owner_subject", "id", "name", "articles", "total", "completed", "failed", "status", "created_at"],
@@ -394,6 +395,9 @@ function migrateAccountCredentialSchema(db) {
   }
   if (!colNames.includes('localStorage_enc')) {
     execSchemaSql(db, "ALTER TABLE accounts ADD COLUMN localStorage_enc BLOB")
+  }
+  if (!colNames.includes('last_validated')) {
+    execSchemaSql(db, "ALTER TABLE accounts ADD COLUMN last_validated TEXT")
   }
 }
 

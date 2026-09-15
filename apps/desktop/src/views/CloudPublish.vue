@@ -76,7 +76,9 @@
           <button class="cohere-btn-ghost" @click="refreshTasks" :disabled="loadingTasks">⟳ 刷新</button>
         </div>
 
-        <div v-if="loadingTasks" style="text-align:center;padding:20px;color:var(--muted)">加载中...</div>
+        <div v-if="loadingTasks" style="padding:16px 0" data-testid="cloud-publish-loading">
+          <UiSkeleton variant="table" :count="4" :columns="4" />
+        </div>
 
         <table v-else-if="tasks.length" class="cohere-table" style="width:100%">
           <thead>

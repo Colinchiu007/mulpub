@@ -812,6 +812,8 @@ describe('checkLoginStatus 多选择器回归（数组选择器逐个尝试）',
   it('公众号登录页与后台同域：URL 含 login 特征必须判失效（回归：域名兜底先于 login 检查导致恒真）', async () => {
     const playwrightPath = require.resolve('../services/playwright-manager')
     const actualPlaywrightManager = require(playwrightPath)
+    const httpCheckerPath = require.resolve('./http-login-checker')
+    const actualHttpChecker = require(httpCheckerPath)
     const page = {
       context: () => ({ addCookies: vi.fn() }),
       addInitScript: vi.fn().mockResolvedValue(undefined),
@@ -823,6 +825,8 @@ describe('checkLoginStatus 多选择器回归（数组选择器逐个尝试）',
     }
     const getContext = vi.fn().mockResolvedValue({ newPage: vi.fn().mockResolvedValue(page) })
     global.__registerMock(playwrightPath, { getContext })
+    // 公众号已注册 HTTP 检测；此测试聚焦浏览器 URL login 判定，故 mock HTTP 检测不适用
+    global.__registerMock(httpCheckerPath, { tryHttpLoginCheck: vi.fn(() => null) })
 
     try {
       const accountManager = loadAccountManager()
@@ -838,6 +842,32 @@ describe('checkLoginStatus 多选择器回归（数组选择器逐个尝试）',
         .resolves.toMatchObject({ valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' })
     } finally {
       global.__registerMock(playwrightPath, actualPlaywrightManager)
+      global.__registerMock(httpCheckerPath, actualHttpChecker)
+    }
+  })
+
+  it('公众号 Cookie 过期：HTTP 检测识别 302 到 loginpage → 判失效（回归：DOM 骨架误判有效）', async () => {
+    const httpCheckerPath = require.resolve('./http-login-checker')
+    const actualHttpChecker = require(httpCheckerPath)
+    // 公众号 HTTP 检测：302 到 loginpage → expired
+    global.__registerMock(httpCheckerPath, {
+      tryHttpLoginCheck: vi.fn().mockResolvedValue({ valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' }),
+    })
+
+    try {
+      const accountManager = loadAccountManager()
+      vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue({
+        platform: 'wechat_mp',
+        cookies: [{ name: 'slave_sid', value: 'expired-24h', domain: '.weixin.qq.com' }],
+        localStorage: { token: 'stale' },
+        accountInfo: {},
+      })
+      vi.spyOn(accountManager.accountStateRestorer, 'getAccountRecord').mockReturnValue(null)
+
+      await expect(accountManager.checkLoginStatus('wechat_mp', 'acc-wx-http'))
+        .resolves.toMatchObject({ valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' })
+    } finally {
+      global.__registerMock(httpCheckerPath, actualHttpChecker)
     }
   })
 
@@ -873,7 +903,58 @@ describe('checkLoginStatus 多选择器回归（数组选择器逐个尝试）',
 })
 
 describe('checkLoginStatus 渲染崩溃平台降级', () => {
-  it('tencent_video 跳过浏览器检测，走本地凭证检查（E2E 回归：视频号页面崩溃带崩整个应用）', async () => {
+  it('tencent_video 有 Cookie 时优先 HTTP 检测：302 到登录页 → 判失效（回归：本地凭证文件仍在但 Cookie 已过期）', async () => {
+    const httpCheckerPath = require.resolve('./http-login-checker')
+    const actualHttpChecker = require(httpCheckerPath)
+    // 视频号 HTTP 检测：访问后台首页 302 到登录页 → expired
+    global.__registerMock(httpCheckerPath, {
+      tryHttpLoginCheck: vi.fn().mockResolvedValue({ valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' }),
+    })
+
+    try {
+      const accountManager = loadAccountManager()
+      vi.spyOn(accountManager.credentialStore, 'hasCredential').mockReturnValue(true)
+      vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue({
+        platform: 'tencent_video',
+        cookies: [{ name: 'sessionid', value: 'expired', domain: '.weixin.qq.com' }],
+        localStorage: { token: 'stale' },
+        accountInfo: {},
+      })
+      vi.spyOn(accountManager.accountStateRestorer, 'getAccountRecord').mockReturnValue(null)
+
+      const result = await accountManager.checkLoginStatus('tencent_video', 'acc-tv')
+      expect(result).toEqual({ valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' })
+    } finally {
+      global.__registerMock(httpCheckerPath, actualHttpChecker)
+    }
+  })
+
+  it('tencent_video HTTP 检测有效 → 判有效（不降级到浏览器 DOM 检测）', async () => {
+    const httpCheckerPath = require.resolve('./http-login-checker')
+    const actualHttpChecker = require(httpCheckerPath)
+    global.__registerMock(httpCheckerPath, {
+      tryHttpLoginCheck: vi.fn().mockResolvedValue({ valid: true, code: 'CHECK_LOGIN_SUCCESS_HTTP_API' }),
+    })
+
+    try {
+      const accountManager = loadAccountManager()
+      vi.spyOn(accountManager.credentialStore, 'hasCredential').mockReturnValue(true)
+      vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue({
+        platform: 'tencent_video',
+        cookies: [{ name: 'sessionid', value: 'valid', domain: '.weixin.qq.com' }],
+        localStorage: { token: 'valid' },
+        accountInfo: {},
+      })
+      vi.spyOn(accountManager.accountStateRestorer, 'getAccountRecord').mockReturnValue(null)
+
+      const result = await accountManager.checkLoginStatus('tencent_video', 'acc-tv-valid')
+      expect(result).toEqual({ valid: true, code: 'CHECK_LOGIN_SUCCESS_HTTP_API' })
+    } finally {
+      global.__registerMock(httpCheckerPath, actualHttpChecker)
+    }
+  })
+
+  it('tencent_video 无 Cookie 时回退本地凭证检查（E2E 回归：视频号页面崩溃带崩整个应用）', async () => {
     const accountManager = loadAccountManager()
     vi.spyOn(accountManager.credentialStore, 'hasCredential').mockReturnValue(true)
     vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue({
@@ -888,7 +969,7 @@ describe('checkLoginStatus 渲染崩溃平台降级', () => {
     expect(result).toEqual({ valid: true, code: 'CHECK_LOGIN_SUCCESS_LOCAL_ONLY' })
   })
 
-  it('tencent_video 无本地凭证时返回 NO_CREDENTIAL', async () => {
+  it('tencent_video 无 Cookie 且无本地凭证时返回 NO_CREDENTIAL', async () => {
     const accountManager = loadAccountManager()
     vi.spyOn(accountManager.credentialStore, 'hasCredential').mockReturnValue(false)
     vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue(null)

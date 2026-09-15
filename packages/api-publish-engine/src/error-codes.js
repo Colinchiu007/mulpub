@@ -1,4 +1,4 @@
-// 统一错误码体系 (提取自蚁小二 errorCode + PublishResult)
+// 统一错误码体系 (提取自参考产品 errorCode + PublishResult)
 const errorCode = {
   success: 0,
   request_error: -1,

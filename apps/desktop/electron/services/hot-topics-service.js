@@ -224,6 +224,24 @@ class HotTopicsService {
         }
       }
       const topics = allTopics.slice(0, MAX_TOPICS)
+      const previous = Array.isArray(cache.topics) ? cache.topics : []
+      // 全渠道失败/被限流跳过 → 本轮零选题。此时**不能**用空结果覆盖上一次的非空缓存：
+      // 一次网络抖动（或 10s 抓取超时）会把用户已抓到的选题全部清空，UI 直接掉进
+      // 「暂无热门选题」空态，需要重新手动刷新才可能恢复（2026-09-14 实测缺陷）。
+      // 保守策略：保留上一次的选题与 fetchedAt（保留陈旧值 = 下次非 force 调用仍会重试网络），
+      // 只把本轮 channelStats 落盘供 UI 展示失败原因，并打上 preservedStaleCache 标记。
+      if (topics.length === 0 && previous.length > 0) {
+        const preserved = {
+          topics: previous,
+          fetchedAt: cache.fetchedAt,
+          channelStats,
+          preservedStaleCache: true,
+        }
+        this._writeCache(preserved)
+        this.log.warn && this.log.warn('[hot-topics] all channels failed; preserved ' + previous.length +
+          ' cached topics (stale) instead of overwriting with an empty list')
+        return preserved
+      }
       const newCache = { topics, fetchedAt, channelStats }
       this._writeCache(newCache)
       this.log.info && this.log.info('[hot-topics] fetched ' + topics.length + ' topics from ' +

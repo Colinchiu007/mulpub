@@ -57,6 +57,7 @@ function createMockDeps(overrides = {}) {
       check: vi.fn(),
       download: vi.fn(),
       quitAndInstall: vi.fn(),
+      installNow: vi.fn(() => true),
     },
     ...overrides,
   }
@@ -86,6 +87,18 @@ describe('update IPC 写操作 sender 校验', () => {
     const result = await handler(UNTRUSTED_EVENT)
 
     expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
+  })
+
+  it('update:install-now 拒绝外部网页调用', async () => {
+    const deps = createMockDeps()
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const handler = ipcMain._get('update:install-now')
+
+    const result = await handler(UNTRUSTED_EVENT)
+
+    expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
+    expect(deps.autoUpdater.installNow).not.toHaveBeenCalled()
   })
 })
 
@@ -126,5 +139,41 @@ describe('update IPC 可信来源正常工作', () => {
 
     expect(result).toEqual({ code: 0, data: true })
     expect(deps.autoUpdater.quitAndInstall).toHaveBeenCalled()
+  })
+
+  it('update:install-now 可信来源调用 autoUpdater.installNow 并回传受理结果', async () => {
+    const deps = createMockDeps()
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const handler = ipcMain._get('update:install-now')
+
+    const result = await handler(TRUSTED_EVENT)
+
+    expect(result).toEqual({ code: 0, data: true })
+    expect(deps.autoUpdater.installNow).toHaveBeenCalledTimes(1)
+  })
+
+  it('update:install-now 无可用更新时 data=false（入口隐藏）', async () => {
+    const deps = createMockDeps()
+    deps.autoUpdater.installNow = vi.fn(() => false)
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const handler = ipcMain._get('update:install-now')
+
+    const result = await handler(TRUSTED_EVENT)
+
+    expect(result).toEqual({ code: 0, data: false })
+  })
+
+  it('update:install-now 内部异常返回统一错误 envelope', async () => {
+    const deps = createMockDeps()
+    deps.autoUpdater.installNow = vi.fn(() => { throw new Error('updater crashed') })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const handler = ipcMain._get('update:install-now')
+
+    const result = await handler(TRUSTED_EVENT)
+
+    expect(result).toEqual({ code: -1, message: 'updater crashed' })
   })
 })

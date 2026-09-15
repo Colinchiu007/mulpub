@@ -34,7 +34,9 @@ function createView(cookies = [], localStorage = {}, indexedDB = {}) {
 
 function createMainWindow() {
   return {
-    getBounds: () => ({ width: 1440, height: 900 }),
+    getBounds: () => ({ x: 0, y: 0, width: 1440, height: 900 }),
+    // 客户区尺寸（真实 BrowserWindow 会扣除标题栏/菜单栏/边框）
+    getContentBounds: () => ({ x: 8, y: 39, width: 1424, height: 861 }),
     isDestroyed: () => false,
     webContents: { send: vi.fn() },
     contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },
@@ -90,7 +92,7 @@ describe('AuthViewManager 凭证边界', () => {
     const position = vi.spyOn(manager, '_positionView')
 
     expect(() => manager._onWindowResize()).not.toThrow()
-    expect(position).toHaveBeenCalledWith(mainWindow.getBounds())
+    expect(position).toHaveBeenCalledWith()
   })
 
   it('无当前视图时 _onWindowResize 不抛异常', () => {
@@ -406,20 +408,16 @@ describe('AuthViewManager 凭证边界', () => {
     expect(result).toBe(true)
   })
 
-  it('登录视图全屏布局（TabBar+NavBar 下方），不保留侧栏空间', () => {
+  it('登录视图全屏布局（TabBar+NavBar 下方），基于客户区尺寸而非窗口外框', () => {
     const manager = new AuthViewManager()
     const setBounds = vi.fn()
     manager.currentView = { setBounds }
+    // 外框 1440x900 vs 客户区 1424x861：若误用外框会得到 1240x824，
+    // 视图右侧滚动条与底部内容会被窗口边框裁掉（2026-09-13 Bug 回归点）。
+    manager.mainWindow = createMainWindow()
 
-    manager._positionView({ width: 1440, height: 900 })
-    expect(setBounds).toHaveBeenLastCalledWith({ x: 200, y: 76, width: 1240, height: 824 })
-
-    manager._positionView({ width: 1200, height: 800 })
-    expect(setBounds).toHaveBeenLastCalledWith({ x: 200, y: 76, width: 1000, height: 724 })
-
-    // 窄窗口同样偏移侧栏宽度
-    manager._positionView({ width: 1000, height: 700 })
-    expect(setBounds).toHaveBeenLastCalledWith({ x: 200, y: 76, width: 800, height: 624 })
+    manager._positionView()
+    expect(setBounds).toHaveBeenLastCalledWith({ x: 200, y: 76, width: 1224, height: 785 })
   })
 
   it('show()/hide() 切换视图可见性', () => {
@@ -469,7 +467,7 @@ describe('AuthViewManager 凭证边界', () => {
 })
 
 describe('AuthViewManager 登录页承载方式（回归：主窗口顶部多层内容重叠）', () => {
-  it('openLogin 内嵌登录视图到主窗口（参照蚁小二 isAuth 模式，不再使用独立窗口）', async () => {
+  it('openLogin 内嵌登录视图到主窗口（参照参考产品 isAuth 模式，不再使用独立窗口）', async () => {
     const manager = new AuthViewManager()
     const mainWindow = createMainWindow()
     manager.setMainWindow(mainWindow)
@@ -477,7 +475,7 @@ describe('AuthViewManager 登录页承载方式（回归：主窗口顶部多层
     const loginPromise = manager.openLogin('wechat_mp', 0).catch(() => {})
 
     // 核心回归点：登录视图必须挂到主窗口 contentView（内嵌全屏标签模式）。
-    // 参照蚁小二 isAuth 模式：认证就是普通标签，不需要独立窗口。
+    // 参照参考产品 isAuth 模式：认证就是普通标签，不需要独立窗口。
     // 重叠问题由 App.vue isLoginTab 时隐藏 router-view 解决。
     expect(mainWindow.contentView.addChildView).toHaveBeenCalled()
     expect(manager.currentView).toBeTruthy()

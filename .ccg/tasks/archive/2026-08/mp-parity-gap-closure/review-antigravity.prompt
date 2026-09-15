@@ -1,0 +1,5 @@
+ROLE_FILE: C:/Users/邱领/.claude/.ccg/prompts/antigravity/reviewer.md
+<TASK>
+审查当前专用 worktree C:\tmp\Multi-Publish-mp-parity-gap-20260804 的全部未提交变更，重点检查参考产品账号/发布 parity、Vue 路由与草稿交互、IPC owner 隔离、JSONL 原子重写、preload bundle、测试覆盖、构建和交付风险。不要修改文件。输出 Critical/Warning/Info 分级报告，给出文件路径和行号。
+</TASK>
+OUTPUT: Critical/Warning/Info 分级审查报告

@@ -96,7 +96,7 @@ describe("HomeView", () => {
 
   it("shows six shortcut entries", async () => {
     const w = await flushMounted(mountHome());
-    const shortcuts = w.findAll(".yixiaoer-home-shortcut");
+    const shortcuts = w.findAll(".mp-home-shortcut");
     expect(shortcuts.length).toBe(6);
     expect(w.text()).toContain("一键发布");
     expect(w.text()).toContain("账号管理");
@@ -105,7 +105,7 @@ describe("HomeView", () => {
 
   it("falls back to built-in platform tags when platform store is empty", async () => {
     const w = await flushMounted(mountHome());
-    const tags = w.findAll(".yixiaoer-home-platform-tag");
+    const tags = w.findAll(".mp-home-platform-tag");
     expect(tags.length).toBeGreaterThan(0);
     expect(w.text()).toContain("微信公众号");
   });
@@ -114,7 +114,7 @@ describe("HomeView", () => {
     platformStoreMock.platforms = [{ id: "weibo", label: "微博" }];
     platformStoreMock.getIcon.mockImplementation((id) => (id === "weibo" ? "✧" : ""));
     const w = await flushMounted(mountHome());
-    const tags = w.findAll(".yixiaoer-home-platform-tag");
+    const tags = w.findAll(".mp-home-platform-tag");
     expect(tags.length).toBe(1);
     expect(tags[0].text()).toContain("微博");
   });
@@ -143,7 +143,7 @@ describe("HomeView", () => {
 
   it("navigates on shortcut and quick action click", async () => {
     const w = await flushMounted(mountHome());
-    await w.findAll(".yixiaoer-home-shortcut")[0].trigger("click");
+    await w.findAll(".mp-home-shortcut")[0].trigger("click");
     expect(pushSpy).toHaveBeenCalledWith("/publish");
     await w.get('[data-testid="home-add-account"]').trigger("click");
     expect(pushSpy).toHaveBeenCalledWith("/accounts");
@@ -152,7 +152,7 @@ describe("HomeView", () => {
   it("handles missing electronAPI gracefully", async () => {
     delete window.electronAPI;
     const w = await flushMounted(mountHome());
-    expect(w.find(".yixiaoer-home").exists()).toBe(true);
+    expect(w.find(".mp-home").exists()).toBe(true);
     expect(w.text()).toContain("暂无发布记录，开始你的第一次发布吧！");
   });
 

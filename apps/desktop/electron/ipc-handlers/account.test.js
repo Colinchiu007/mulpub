@@ -276,6 +276,45 @@ describe('account IPC 可信来源正常工作', () => {
     }))
   })
 
+  it('accounts:list 尊重最近 2 小时内写回的 expired（一键检测结果持久化）', async () => {
+    const deps = createMockDeps()
+    // 本地有凭证（hasCred=true），但后端 status=expired 且 last_validated 是最近写回的
+    deps.AccountManager.checkLocalCredentials.mockReturnValue(true)
+    deps.AccountManager.listAccounts.mockResolvedValue([{
+      id: 'acc-fresh-expired',
+      platform: 'wechat_mp',
+      name: '公众号',
+      status: 'expired',
+      last_validated: new Date().toISOString(),
+    }])
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('accounts:list')(TRUSTED_EVENT)
+
+    // 最近写回的 expired 应被尊重（浏览器/HTTP 检测比本地凭证文件更可靠）
+    expect(result.data[0].status).toBe('expired')
+  })
+
+  it('accounts:list 超过 2 小时的 expired 回退到本地凭证检测（避免陈旧误报）', async () => {
+    const deps = createMockDeps()
+    deps.AccountManager.checkLocalCredentials.mockReturnValue(true)
+    deps.AccountManager.listAccounts.mockResolvedValue([{
+      id: 'acc-stale-expired',
+      platform: 'wechat_mp',
+      name: '公众号',
+      status: 'expired',
+      last_validated: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+    }])
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('accounts:list')(TRUSTED_EVENT)
+
+    // 陈旧 expired + 本地有凭证 → 回退为 active
+    expect(result.data[0].status).toBe('active')
+  })
+
   it('accounts:list 优先使用当前用户的默认账号设置，不能读取 legacy 全局默认值', async () => {
     const scopedStore = {
       getUserSetting: vi.fn(() => 'other-account'),

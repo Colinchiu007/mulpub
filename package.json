@@ -1,6 +1,6 @@
 {
   "name": "multi-publish",
-  "version": "2.3.53",
+  "version": "0.1.0",
   "private": true,
   "description": "多平台内容一键发布 — Monorepo",
   "packageManager": "pnpm@11.13.1",
@@ -15,7 +15,11 @@
     "test:rpa-selectors": "cd packages/rpa-engine && pnpm exec vitest run tests/platform-selectors.test.js tests/platform-selectors-cross-platform.test.js",
     "test:ai-autonomous-tester": "pnpm --filter @multi-publish/ai-autonomous-tester test",
     "test:affected": "nx affected -t test --base=origin/main --parallel=1",
-    "test:all": "nx run-many -t test --all --parallel=1"
+    "test:all": "nx run-many -t test --all --parallel=1",
+    "version:sync": "node scripts/sync-version.mjs",
+    "version:bump": "node scripts/bump-version.mjs",
+    "version:check": "node scripts/release-gate.mjs",
+    "version:release": "node scripts/release.mjs"
   },
   "workspaces": [
     "apps/*",

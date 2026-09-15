@@ -32,7 +32,8 @@ const execFileAsync = promisify(execFile)
 function downloadVideoFile (url, dest, maxRedirects = 5) {
   return new Promise((resolve, reject) => {
     if (maxRedirects < 0) {
-      try { fs.unlinkSync(dest) } catch (_) {}
+      // 清理半成品文件失败可忽略（文件可能尚未创建）
+      try { fs.unlinkSync(dest) } catch (_) { /* noop */ }
       reject(new Error('视频下载重定向次数过多'))
       return
     }
@@ -50,7 +51,11 @@ function downloadVideoFile (url, dest, maxRedirects = 5) {
       response.pipe(file)
       file.on('finish', () => file.close(() => resolve(dest)))
     })
-    request.on('error', (error) => { try { fs.unlinkSync(dest) } catch (_) {} reject(error) })
+    request.on('error', (error) => {
+      // 清理半成品文件失败可忽略（错误已向调用方抛出）
+      try { fs.unlinkSync(dest) } catch (_) { /* noop */ }
+      reject(error)
+    })
   })
 }
 const MAX_PROVIDER_IMAGE_BYTES = 25 * 1024 * 1024

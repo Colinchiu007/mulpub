@@ -4,6 +4,7 @@ const path = require('path');
 const { buildElectronArgs, resolveUserDataDir } = require('./dev-launcher');
 const { resolveDevPorts } = require('./dev-ports');
 const { appendDevExitLog } = require('./dev-exit-log');
+const { buildElectronEnv } = require('./electron-runtime-env');
 
 const desktopDir = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(desktopDir, '..', '..');
@@ -111,12 +112,14 @@ function waitForVite(remainingMs) {
         cwd: desktopDir,
         stdio: 'inherit',
         shell: false,
-        env: {
-          ...process.env,
+        // 必须剔除 ELECTRON_RUN_AS_NODE：否则 Electron 退化为纯 Node，
+        // 所有 Chromium 开关（--user-data-dir/--remote-debugging-port/...）被拒为
+        // "bad option"，表现为「Vite 正常、窗口永不出现」。
+        env: buildElectronEnv(process.env, {
           ELECTRON_USER_DATA_DIR: electronUserDataDir,
           // 主进程按该端口加载 renderer + IPC 来源校验，避免回退到 5174 连到别的 worktree
           DEV_SERVER_PORT: String(vitePort),
-        },
+        }),
       });
       electron.on('spawn', () => {
         console.log(`[dev] electron userData: ${electronUserDataDir}`);

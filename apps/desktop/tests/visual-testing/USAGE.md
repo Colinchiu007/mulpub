@@ -23,7 +23,7 @@ apps/desktop/tests/visual-testing/
 │   └── ocr.js          # Tesseract.js OCR 文字提取
 ├── base-screenshots/   # 基准图（8 张核心视图，人工审核）
 ├── screenshots/        # 当前测试截图（运行时生成）
-├── reports/            # 测试报告（diff 图 + judge-report.md + JSON + 蚁小二审计结果）
+├── reports/            # 测试报告（diff 图 + judge-report.md + JSON + 参考产品审计结果）
 ├── scripts/            # 启动/执行脚本
 └── test-runner.js      # 主入口
 ```
@@ -76,11 +76,11 @@ npm run test:visual:agent
 
 Agent 在会话中读 `judge-report.md` + 用 `view_image` 加载截图,自己判断每项是否预期变化。
 
-### 4. 真实蚁小二对照审计（独立于常规视觉门禁）
+### 4. 真实参考产品对照审计（独立于常规视觉门禁）
 
 ```bash
-npm run test:visual:yixiaoer:capture
-npm run test:visual:yixiaoer
+npm run test:visual:mp:capture
+npm run test:visual:mp
 ```
 
 捕获命令固定生成三个语义场景：`accounts` 对应账号管理，`publish` 对应发布记录普通态，
@@ -94,20 +94,20 @@ npm run test:visual:yixiaoer
 ```powershell
 npm run dev:vue -- --host 127.0.0.1 --port 5181 --strictPort
 $env:TEST_URL = 'http://127.0.0.1:5181'
-npm run test:visual:yixiaoer:capture
+npm run test:visual:mp:capture
 ```
 
 若目标页面没有渲染预期路由，捕获会明确提示检查当前 worktree 与 `TEST_URL`，而不是把旧页面的 HTTP 200 当作可用基线。
 
-配置位于 `01-docs/yixiaoer-reverse/visual-baseline-manifest.json`，报告写入：
+配置位于 `01-docs/ui-reference/visual-baseline-manifest.json`，报告写入：
 
 ```text
-reports/yixiaoer-pixel-audit.md
-reports/yixiaoer-pixel-audit.json
-reports/yixiaoer-pixel-diff/
+reports/mp-pixel-audit.md
+reports/mp-pixel-audit.json
+reports/mp-pixel-diff/
 ```
 
-`REFERENCE_UNVERIFIED` 表示没有经过核验的真实蚁小二参考图，命令必须非零退出。
+`REFERENCE_UNVERIFIED` 表示没有经过核验的真实参考产品参考图，命令必须非零退出。
 初始 manifest 的 `referenceStatus` 为 `PENDING_REAL_CAPTURE`；即使图片文件已经存在，也必须先更新为
 `CAPTURED_VERIFIED`，并为每个视图填写 SHA-256 与尺寸，审计才会比较像素。
 它是外部人工验收阻断，不纳入 `test:visual:pixel`、`test:all:visual` 或常规 CI；不得用
@@ -136,7 +136,7 @@ CI 自动完成:装 Playwright → 启 Vite → 跑像素对比 → 生成 Agent
 3. **PR 合入前必须通过 `test:visual:pixel`**,非零退出码禁止合入
 4. **发版前必须通过 `test:all:visual`**
 5. **baseline 截图**统一存在 `base-screenshots/`,更新需人工审核 diff 图
-6. **蚁小二真实对照**仅使用 `01-docs/yixiaoer-reverse/` 下已核验的真实截图；参考图缺失、
+6. **参考产品真实对照**仅使用 `01-docs/ui-reference/` 下已核验的真实截图；参考图缺失、
    尺寸不符或指纹不符均为阻断，不能更新为 Multi-Publish 基准图
 
 ---
@@ -150,7 +150,7 @@ CI 自动完成:装 Playwright → 启 Vite → 跑像素对比 → 生成 Agent
 | 我只是改了一个 UI,想快速验证 | `--single <view-name>` |
 | 我要合入 PR | `npm run test:visual:pixel` |
 | 像素测试失败,需要 Agent 判断 | `npm run test:visual:agent` |
-| 已捕获真实蚁小二参考图,需要对照审计 | `npm run test:visual:yixiaoer` |
+| 已捕获真实参考产品参考图,需要对照审计 | `npm run test:visual:mp` |
 | 我要发版 | `npm run test:all:visual` |
 | 我在 CI 流水线 | `npm run test:visual:ci` |
 
@@ -196,8 +196,8 @@ cp tests/visual-testing/screenshots/<view-name>-current.png \
 > 3. 像素失败后:`cd apps/desktop && npm run test:visual:agent` 生成报告,然后读 `reports/judge-report.md` + 用 `view_image` 看图判断
 > 4. 发版前:`cd apps/desktop && npm run test:all:visual`(必须通过)
 > 5. CI 环境:`cd apps/desktop && npm run test:visual:ci`
-> 6. 真实蚁小二已捕获参考图后:`cd apps/desktop && npm run test:visual:yixiaoer`；读
->    `reports/yixiaoer-pixel-audit.md`，`REFERENCE_UNVERIFIED` 不得视为通过。
+> 6. 真实参考产品已捕获参考图后:`cd apps/desktop && npm run test:visual:mp`；读
+>    `reports/mp-pixel-audit.md`，`REFERENCE_UNVERIFIED` 不得视为通过。
 >
 > 所有命令必须 `cd` 到 `apps/desktop/` 下执行。
 > 无需启动 dev server,框架直接基于 `base-screenshots/` 下的基准图做对比。

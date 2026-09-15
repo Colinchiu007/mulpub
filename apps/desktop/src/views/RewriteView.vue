@@ -162,9 +162,12 @@
               {{ t(rewriteQuality.method === 'embedding' ? 'rewritePage.qualityMethodEmbedding' : 'rewritePage.qualityMethodSimhash') }}
             </span>
           </div>
-          <ul v-if="rewriteQuality.suggestions && rewriteQuality.suggestions.length" class="rewrite-quality-suggestions">
-            <li v-for="(s, i) in rewriteQuality.suggestions" :key="i">{{ s }}</li>
-          </ul>
+          <div v-if="Array.isArray(rewriteQuality.suggestions) && rewriteQuality.suggestions.length" class="rewrite-quality-suggestions">
+            <div class="quality-suggestions-title">{{ t('rewritePage.qualitySuggestions') }}</div>
+            <ul>
+              <li v-for="(s, i) in rewriteQuality.suggestions" :key="i">{{ s }}</li>
+            </ul>
+          </div>
         </div>
         <div v-else-if="rewriteResult" class="rewrite-quality-none" data-testid="rewrite-quality-none">
           {{ t('rewritePage.qualityNone') }}
@@ -341,6 +344,8 @@ async function startRewrite() {
   rewriteResult.value = ''
   rewriteMeta.value = null
   rewriteKnowledgeRefs.value = []
+  // CCG 评审修复：新改写开始前重置质量报告，避免上一次改写（无 quality）的旧报告残留
+  rewriteQuality.value = null
 
   try {
     const params = {
@@ -370,7 +375,14 @@ async function startRewrite() {
       // P2 隐式反馈：记录本次改写引用的知识条目
       rewriteKnowledgeRefs.value = data.knowledgeRefs || []
       // content-quality-eval：读取改写质量评估报告（RewriteQualityEvaluator 结果）
-      rewriteQuality.value = data.quality && typeof data.quality === 'object' ? data.quality : null
+      // CCG 评审修复：quality 必须为纯对象（非数组）；verdict/method 非法值归一化；suggestions 必须为数组
+      const q = data.quality && typeof data.quality === 'object' && !Array.isArray(data.quality) ? data.quality : null
+      rewriteQuality.value = q ? {
+        ...q,
+        verdict: ['pass', 'warn', 'fail'].includes(q.verdict) ? q.verdict : 'fail',
+        method: q.method === 'embedding' ? 'embedding' : 'simhash',
+        suggestions: Array.isArray(q.suggestions) ? q.suggestions : [],
+      } : null
       rewriteMeta.value = {
         strategyName: data.strategy?.name || '',
         aiTastePct: data.metadata?.aiTasteLevel != null ? (data.metadata.aiTasteLevel * 100).toFixed(0) + '%' : 'N/A',

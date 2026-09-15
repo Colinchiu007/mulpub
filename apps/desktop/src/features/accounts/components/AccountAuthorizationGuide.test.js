@@ -4,7 +4,7 @@ import { mount } from '@vue/test-utils'
 import AccountAuthorizationGuide from './AccountAuthorizationGuide.vue'
 
 describe('AccountAuthorizationGuide', () => {
-  it('展示蚁小二一致的授权说明并发出确认事件', async () => {
+  it('展示参考产品一致的授权说明并发出确认事件', async () => {
     const wrapper = mount(AccountAuthorizationGuide, {
       props: { visible: true, platformName: '微信公众号' },
     })

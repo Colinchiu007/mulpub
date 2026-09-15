@@ -278,12 +278,12 @@ async function flowAccountToPublish(r) {
 
   // Step 2: 跳回首页
   await r.goto('/');
-  // 首页已复刻为蚁小二风格，支持平台区域改用 .yixiaoer-home-platform-tag（保留旧选择器兼容）。
-  await waitForVisible(r.page.locator('.yixiaoer-home-platform-tag, .platform-item, .cohere-platform-item').first(), FEATURE_READY_TIMEOUT);
+  // 首页已复刻为参考产品风格，支持平台区域改用 .mp-home-platform-tag（保留旧选择器兼容）。
+  await waitForVisible(r.page.locator('.mp-home-platform-tag, .platform-item, .cohere-platform-item').first(), FEATURE_READY_TIMEOUT);
   record(r, 'Flow2.4 跳回首页', (await r.currentRoute()) === '/' || (await r.currentRoute()) === '');
 
   // Step 3: 验证首页平台列表显示
-  const sidebarPlatforms = await r.page.locator('.yixiaoer-home-platform-tag, .platform-item, .cohere-platform-item').count();
+  const sidebarPlatforms = await r.page.locator('.mp-home-platform-tag, .platform-item, .cohere-platform-item').count();
   record(r, 'Flow2.5 首页平台列表显示', sidebarPlatforms > 0, { count: sidebarPlatforms });
 
   // Step 4: 跳到 /publish

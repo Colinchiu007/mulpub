@@ -135,12 +135,12 @@ async function testHomePage(win) {
   console.log("\n═══ 首页 ═══");
   await win.evaluate((r) => { window.location.hash = "#" + r; }, ROUTES.home);
   await wait(3000);
-  // 首页已复刻为蚁小二风格 .yixiaoer-home 布局，旧版 .page-title 已不存在
+  // 首页已复刻为参考产品风格 .mp-home 布局，旧版 .page-title 已不存在
   const home = await win.evaluate((sel) => ({
-    root: !!document.querySelector(sel.yixiaoerHome),
-    welcome: !!document.querySelector(sel.yixiaoerHomeWelcome),
+    root: !!document.querySelector(sel.mpHome),
+    welcome: !!document.querySelector(sel.mpHomeWelcome),
   }), SEL);
-  assert("蚁小二风格首页（根容器 + 欢迎区）", home.root && home.welcome);
+  assert("参考产品风格首页（根容器 + 欢迎区）", home.root && home.welcome);
   const shortcuts = await win.evaluate((sel) => document.querySelectorAll(sel.homeShortcut).length, SEL);
   assert(`快捷入口 6 个`, shortcuts === 6);
   await win.screenshot({ path: path.join(SS, "v9-04-home.png") });
@@ -294,13 +294,13 @@ async function testSidebar(win) {
   await win.evaluate((r) => { window.location.hash = '#' + r; }, ROUTES.accounts);
   await injectAccounts(win);
   await wait(1000);
-  const yixiaoerNav = await win.evaluate(() => !!document.querySelector('[data-testid="yixiaoer-module-nav"]'));
-  if (yixiaoerNav) {
-    const tabs = await win.evaluate(() => Array.from(document.querySelectorAll('[data-testid^="yixiaoer-tab-"]')).map(tab => ({
+  const mpNav = await win.evaluate(() => !!document.querySelector('[data-testid="mp-module-nav"]'));
+  if (mpNav) {
+    const tabs = await win.evaluate(() => Array.from(document.querySelectorAll('[data-testid^="mp-tab-"]')).map(tab => ({
       active: tab.classList.contains('active'),
       label: tab.textContent.trim(),
     })));
-    assert('蚁小二模块导航存在', tabs.length >= 3);
+    assert('参考产品模块导航存在', tabs.length >= 3);
     assert('账号模块标签激活', tabs.some(tab => tab.active && tab.label === '账号管理'));
     await win.screenshot({ path: path.join(SS, 'v9-14-sidebar.png') });
     return;
@@ -333,14 +333,14 @@ async function testSidebar(win) {
 
 async function testTopNav(win) {
   console.log("\n╔══ 顶部导航 ══╗");
-  const yixiaoerNav = await win.evaluate(() => !!document.querySelector('[data-testid="yixiaoer-module-nav"]'));
-  if (yixiaoerNav) {
+  const mpNav = await win.evaluate(() => !!document.querySelector('[data-testid="mp-module-nav"]'));
+  if (mpNav) {
     const navState = await win.evaluate(() => ({
-      navItems: document.querySelectorAll('[data-testid^="yixiaoer-tab-"]').length,
-      activeAccountTab: !!document.querySelector('[data-testid="yixiaoer-tab-accounts"].active'),
+      navItems: document.querySelectorAll('[data-testid^="mp-tab-"]').length,
+      activeAccountTab: !!document.querySelector('[data-testid="mp-tab-accounts"].active'),
     }));
-    assert('蚁小二顶部模块导航存在', navState.navItems >= 3);
-    assert('蚁小二账号标签高亮', navState.activeAccountTab);
+    assert('参考产品顶部模块导航存在', navState.navItems >= 3);
+    assert('参考产品账号标签高亮', navState.activeAccountTab);
     await win.screenshot({ path: path.join(SS, 'v9-15-topnav.png') });
     return;
   }

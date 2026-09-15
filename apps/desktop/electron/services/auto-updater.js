@@ -15,6 +15,14 @@ let _policy = null
 let _listenersRegistered = false
 const _reportedUnavailableErrors = new WeakSet()
 
+// ─── 侧边栏「新版本」入口状态 ──────────────────────────
+// _availableUpdate: 最近一次检测到的新版本信息（仅 update-available 写入）
+// _updateDownloaded: 该版本安装包是否已下载完成
+// _installRequested: 用户已点击「新版本」，下载完成后自动退出并安装
+let _availableUpdate = null
+let _updateDownloaded = false
+let _installRequested = false
+
 // 网络超时/阻断错误特征码（GFW 场景）
 const NETWORK_ERROR_PATTERNS = [
   'ERR_INTERNET_DISCONNECTED',
@@ -124,14 +132,21 @@ function init (win, onStatus) {
   })
 
   autoUpdater.on('update-available', (info) => {
-    _sendStatus('available', {
+    _availableUpdate = {
       version: info.version,
       releaseDate: info.releaseDate,
       releaseNotes: info.releaseNotes
-    })
+    }
+    _updateDownloaded = false
+    _sendStatus('available', _availableUpdate)
   })
 
   autoUpdater.on('update-not-available', () => {
+    // 保留正在进行的「点击即安装」请求：并发复查返回 not-available 不应中断安装
+    if (!_installRequested) {
+      _availableUpdate = null
+      _updateDownloaded = false
+    }
     _sendStatus('not-available', '当前已是最新版本')
   })
 
@@ -145,11 +160,21 @@ function init (win, onStatus) {
   })
 
   autoUpdater.on('update-downloaded', () => {
+    _updateDownloaded = true
     _sendStatus('downloaded', '更新已下载，重启后生效')
+    // 用户已点击「新版本」→ 下载完成即退出应用并安装（点击即视为同意）
+    if (_installRequested) {
+      _installRequested = false
+      _sendStatus('installing', { version: _availableUpdate ? _availableUpdate.version : '' })
+      quitAndInstall()
+    }
   })
 
   autoUpdater.on('error', (err) => {
-    if (isUpdateCheckUnavailable(err)) {
+    const installInterrupted = _installRequested
+    _installRequested = false
+    // 用户主动触发的安装失败必须回传 error（让入口可重试），不能降级成「已是最新版本」
+    if (isUpdateCheckUnavailable(err) && !installInterrupted) {
       sendUnavailableOnce(err)
       return
     }
@@ -245,6 +270,35 @@ function quitAndInstall () {
 }
 
 /**
+ * 退出应用并安装新版本（侧边栏「新版本」按钮入口，点击即视为同意退出）
+ *
+ * 三种情况：
+ *   1. 安装包已下载完成 → 直接 quitAndInstall
+ *   2. 检测到新版本但尚未下载 → 启动下载，下载完成后自动退出并安装
+ *   3. 当前没有可用更新 → 回落 not-available（入口自动隐藏）
+ *
+ * 幂等：重复点击只保留一次安装请求，不会重复触发下载。
+ * @returns {boolean} 是否受理安装请求（false = 当前没有可安装的新版本）
+ */
+function installNow () {
+  if (_updateDownloaded) {
+    _sendStatus('installing', { version: _availableUpdate ? _availableUpdate.version : '' })
+    quitAndInstall()
+    return true
+  }
+  if (!_availableUpdate) {
+    _sendStatus('not-available', '当前已是最新版本')
+    return false
+  }
+  if (_installRequested) return true
+  _installRequested = true
+  _sendStatus('installing', { version: _availableUpdate.version, phase: 'downloading' })
+  // autoDownload=true（force_version 策略）时 electron-updater 已在下载，重复调用会二次下载
+  if (!autoUpdater.autoDownload) download()
+  return true
+}
+
+/**
  * 发送状态给主窗口和回调
  */
 function _sendStatus (type, data) {
@@ -257,4 +311,4 @@ function _sendStatus (type, data) {
   }
 }
 
-module.exports = { init, check, download, quitAndInstall, applyPolicy, _compareVersions }
+module.exports = { init, check, download, quitAndInstall, installNow, applyPolicy, _compareVersions }

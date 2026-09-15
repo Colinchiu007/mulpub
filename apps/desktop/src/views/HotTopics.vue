@@ -298,7 +298,7 @@ const genVideoBusy = ref(false)
 const genVideoTopic = ref(null)
 const genVideoStages = ref([])
 const genVideoRunId = ref(null)
-const genVideoPhase = ref('idle') // idle | rewriting | starting | running | completed | failed | cancelled
+const genVideoPhase = ref('idle') // idle | rewriting | starting | running | completed | failed | cancelled（后台脱离后复位为 idle，无 background 滞留态）
 const genVideoErrorText = ref('')
 const genVideoStartedAt = ref(0)
 const genVideoRewrittenContent = ref('')
@@ -494,7 +494,8 @@ async function refresh(force = false, { background = false } = {}) {
 
 /** SWR：缓存优先渲染——命中缓存立即显示并后台静默刷新；未命中走网络抓取（中央加载提示） */
 async function loadFromCacheThenRefresh() {
-  let cached = null
+  // 初始化值在 try/catch 两条路径都会被覆盖，故不写初值（eslint no-useless-assignment）
+  let cached
   try {
     cached = await hotTopicsGetCache()
   } catch (_) { cached = null }
@@ -926,17 +927,34 @@ async function cancelGenVideo() {
   genVideoBusy.value = false
 }
 
-/** 弹窗关闭（右上角 ×）：运行中 = 后台运行提示；终态 = 直接关闭 */
+/** 前端跟踪态复位（唯一公共路径）：停跟踪 + 清空本次编排前端态 + 释放 busy。
+ *  主进程 run 不受影响；必须释放 busy 以支持多任务并行（否则脱离后按钮永久禁用，PRD §6.7）。 */
+function resetGenVideoFrontendState() {
+  genVideoSeq++ // 使在途改写/启动响应失效，避免脱离后旧响应重新挂回弹窗
+  stopGenVideoTracking()
+  genVideoModalOpen.value = false
+  genVideoPhase.value = 'idle'
+  genVideoTopic.value = null
+  genVideoStages.value = []
+  genVideoRunId.value = null
+  genVideoRunProgress.value = null
+  genVideoStartedAt.value = 0
+  genVideoErrorText.value = ''
+  genVideoRewrittenContent.value = ''
+  genVideoDraftId.value = null
+  genVideoBusy.value = false
+}
+
+/** 弹窗关闭（右上角 × / 遮罩 / ESC 统一入口）：运行中（有 runId）= 后台运行；
+ *  改写/启动（无 run）= 中止前端编排；终态 = 直接复位关闭。 */
 function handleGenVideoClose() {
-  if (!genVideoTerminal.value) {
-    // 后台运行：停止前端跟踪，run 继续在主进程执行
-    stopGenVideoTracking()
-    genVideoModalOpen.value = false
-    genVideoPhase.value = 'background' // 后台态：按钮保持禁用直到用户开新任务（run 由主进程继续）
-    notifyInfo('hotTopics.genVideoBackgroundHint')
-  } else {
-    closeGenVideoModal()
+  if (genVideoTerminal.value) {
+    resetGenVideoFrontendState()
+    return
   }
+  const detached = genVideoCanBackground.value
+  resetGenVideoFrontendState()
+  if (detached) notifyInfo('hotTopics.genVideoBackgroundHint')
 }
 
 /** 显式【后台运行】按钮：与右上角 × 同一后台语义（复用唯一公共脱离路径），
@@ -947,16 +965,8 @@ function detachGenVideoToBackground() {
   showPipelineBackgroundToast()
 }
 
-function closeGenVideoModal() {
-  genVideoModalOpen.value = false
-  genVideoPhase.value = 'idle'
-  genVideoTopic.value = null
-  genVideoStages.value = []
-  genVideoRunId.value = null
-  genVideoErrorText.value = ''
-  genVideoRewrittenContent.value = ''
-  genVideoDraftId.value = null
-}
+/** footer【关闭】按钮（仅终态显示）：语义别名，复用唯一复位路径。 */
+const closeGenVideoModal = resetGenVideoFrontendState
 
 // ── 生命周期 ──
 onMounted(() => {
