@@ -60,24 +60,26 @@ describe('MpModuleNav', () => {
     expect(nav.get('[data-testid="mp-tab-accounts"]').classes()).not.toContain('active')
   })
 
-  it('renders publish tabs with route-aware active state', () => {
-    const nav = mountNav('/publish/history')
+  // 发布域快捷标签行（新建发布/发布记录/草稿箱）已按产品要求整体移除，
+  // 发布域导航职责由左侧边栏承担；这里做回归保护：发布域路由不再渲染模块导航。
+  it('renders no module navigation on publish-domain routes', () => {
+    for (const [path, query] of [
+      ['/publish', {}],
+      ['/publish/history', {}],
+      ['/publish', { tab: 'drafts' }],
+      ['/collection', {}],
+    ]) {
+      const nav = mountNav(path, query)
 
-    expect(nav.findAll('[role="tab"]')).toHaveLength(3)
-    expect(nav.text()).toContain('新建发布')
-    expect(nav.text()).toContain('发布记录')
-    expect(nav.text()).toContain('草稿箱')
-    expect(nav.get('[data-testid="mp-tab-publish-history"]').classes()).toContain('active')
-    expect(nav.get('[data-testid="mp-tab-drafts"]').classes()).not.toContain('active')
+      expect(nav.find('[data-testid="mp-module-nav"]').exists()).toBe(false)
+      expect(nav.findAll('[role="tab"]')).toHaveLength(0)
+      expect(nav.text()).not.toContain('新建发布')
+      expect(nav.text()).not.toContain('发布记录')
+      expect(nav.text()).not.toContain('草稿箱')
 
-    nav.unmount()
-    wrapper = mountNav('/publish', { tab: 'drafts' })
-    expect(wrapper.get('[data-testid="mp-tab-drafts"]').classes()).toContain('active')
-
-    wrapper.unmount()
-    wrapper = mountNav('/publish')
-    expect(wrapper.get('[data-testid="mp-tab-new-publish"]').classes()).toContain('active')
-    expect(wrapper.get('[data-testid="mp-tab-publish-history"]').classes()).not.toContain('active')
+      nav.unmount()
+      wrapper = null
+    }
   })
 
   it('renders home tab when on the root route', () => {

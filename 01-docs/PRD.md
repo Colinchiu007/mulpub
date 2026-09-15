@@ -7871,8 +7871,35 @@ idle ──触发取数──▶ loading（渲染骨架）
 - `Home.test.js` 19 例全绿（新增 6 例：链接显隐/点击触发登录/disabled fail-closed/登录未完成提示/防重入/回归）。
 - 关联回归：`ProfileMenu.test.js` 17 · `identity.test.js` 17 · `useLoginGate.test.js` 8 全绿。
 - 门禁：债务熔断 `filesOver500` 86=86 ✅ · `check-locale-sync --cjk/--keys` ✅ · `check-frontend-consistency` ✅。
+
 ---
 
 ## 补充：发布记录未登录门禁态（2026-09-15）
 
 未登录点击侧边栏「发布」→ 发布记录页时，不再误报「请检查服务连接后重试」：`history:list` 等 `publish_history` 通道要求登录（`LOGIN_ONLY_FEATURE_MAP`），未登录时主进程返回 `AUTH_REQUIRED`，渲染端按错误码分流为「登录后查看发布记录」引导态 +「去登录」按钮（走 `identity.signIn()`，登录成功自动重载发布记录）；权益不足（ENTITLEMENT_REQUIRED）等业务拒绝展示 formatUserError 具体原因；仅传输类异常保留「请检查服务连接后重试」。详细规格（根因五环节链 / 分流规则表 / 状态机 / 显示项与提示文字 zh-en / 测试覆盖 / 已知局限）见 `01-docs/PRD-PUBLISH-HISTORY-LOGIN-GATE-2026-09-15.md`。
+
+---
+
+## 应用壳模块导航：移除发布域快捷标签行（2026-09-15 增量）
+
+> 完整规格见 **[PRD-REMOVE-PUBLISH-QUICKNAV-2026-09-15.md](./PRD-REMOVE-PUBLISH-QUICKNAV-2026-09-15.md)**（功能逻辑 / 交互逻辑 / 显示项 / 边界 / 影响面 / 回滚）。布局规格见 `docs/desktop-ui-layout-spec.md` §3.4。
+
+**需求**：发布域快捷标签行（「新建发布 / 发布记录 / 草稿箱」）在采集页等与发布无关的页面同样渲染，与左侧边栏导航职责重复，属界面噪音——**整行移除**。
+
+**功能与交互逻辑**
+
+| # | 规则 |
+|---|------|
+| 1 | 发布域路由（`module === 'publish'`，即除 `/` 与 `/accounts*` 外的全部 SPA 路由）下模块导航**整行不渲染**：无标签、无 70px 占位、无底部分隔线；`NavBar` 直接衔接 `.mp-workspace` |
+| 2 | 主页域（`/`，「主页」标签）与账号域（`/accounts*`，账号四标签 + `?tab=` 激活切换）行为不变 |
+| 3 | 实现唯一方式：`publishTabs` 删除 + `tabs` 发布域返回空数组 + `<nav v-if="tabs.length > 0">`；禁止用 CSS 隐藏等假性移除 |
+| 4 | 发布域导航入口由侧边栏唯一承担（发布 / 草稿 / 采集直达）；发布记录经发布页内入口或地址路由到达；禁止在页面内重建并行标签行 |
+| 5 | 纯展示层变更：零后端 / 零数据 / 零 IPC / 零新增文案（不涉及 i18n）；未知路由归入发布域 fail-safe 不渲染 |
+
+**验收标准**
+
+- [ ] 采集页、发布页、发布记录页、草稿箱顶部均无该行且无空白占位
+- [ ] 主页与账号管理页的模块导航标签行显示与激活态不变
+- [ ] 发布域路由下 DOM 中无 `[data-testid="mp-module-nav"]` 且无任何 `role="tab"` 节点
+- [ ] `MpModuleNav.test.js`（含发布域四路由回归保护）与全量 desktop 单测通过；e2e `publish-flow.test.js` hash 导航可达发布记录
+

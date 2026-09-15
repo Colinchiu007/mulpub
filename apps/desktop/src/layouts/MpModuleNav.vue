@@ -1,5 +1,6 @@
 <template>
   <nav
+    v-if="tabs.length > 0"
     class="mp-module-nav"
     data-testid="mp-module-nav"
     aria-label="工作区导航"
@@ -39,11 +40,8 @@ const accountTabs = [
   { key: 'favorites', label: '收藏分组', to: { path: '/accounts', query: { tab: 'favorites' } } },
 ]
 
-const publishTabs = [
-  { key: 'new-publish', label: '新建发布', to: '/publish' },
-  { key: 'publish-history', label: '发布记录', to: '/publish/history' },
-  { key: 'drafts', label: '草稿箱', to: { path: '/publish', query: { tab: 'drafts' } } },
-]
+// 发布域快捷标签行（新建发布/发布记录/草稿箱）已按产品要求整体移除，
+// 发布域导航职责由左侧边栏承担：发布域路由下本组件不渲染任何标签。
 
 const homeTabs = [
   { key: 'home', label: '主页', to: '/' },
@@ -57,7 +55,7 @@ const module = computed(() => {
 const tabs = computed(() => {
   if (module.value === 'home') return homeTabs
   if (module.value === 'accounts') return accountTabs
-  return publishTabs
+  return []
 })
 
 function isTabActive (tab) {
@@ -67,9 +65,7 @@ function isTabActive (tab) {
     return route.path === '/accounts' && route.query?.tab === tab.key
   }
 
-  if (tab.key === 'new-publish') return route.path === '/publish' && !route.query?.tab
-  if (tab.key === 'publish-history') return route.path === '/publish/history'
-  return route.path === '/publish' && route.query?.tab === 'drafts'
+  return false
 }
 </script>
 
