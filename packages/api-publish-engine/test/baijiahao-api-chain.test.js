@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * BaijiahaoAdapter API 发布链测试（移植蚁小二逆向实现）
+ * BaijiahaoAdapter API 发布链测试（移植参考产品逆向分析实现）
  *
  * 覆盖：token 获取 / app_id / preupload / 分片上传 / complete / video process 轮询 /
  *       buildVideoPostData（位置空对象/原创声明）/ publish 发布端点
@@ -57,7 +57,7 @@ describe("BaijiahaoAdapter API 发布链", () => {
         expect(body).toContain("video_type=short")
         expect(opts.headers["User-Agent"]).toBeDefined()
         expect(opts.headers.Cookie).toContain("cookie=abc")
-        // 浏览器指纹头（对齐蚁小二 HttpConfig，防玄武风控误判非浏览器环境）
+        // 浏览器指纹头（对齐参考产品 HttpConfig，防玄武风控误判非浏览器环境）
         expect(opts.headers["Sec-CH-UA"]).toBeDefined()
         expect(opts.headers["Sec-Fetch-Site"]).toBe("same-origin")
         expect(opts.headers["Accept-Encoding"]).toBe("gzip, deflate, br")

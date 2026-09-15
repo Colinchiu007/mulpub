@@ -118,14 +118,17 @@ const supplementaryViewTests = [
     ],
   },
   {
-    name: 'upgrade-modal',
+    // 2026-09-14：升级入口由侧边栏 footer 独立按钮迁入底部用户菜单，
+    // 「点击后显示弹窗」的断言改由单测覆盖（ProfileMenu.test.js 断言 upgrade 事件 → 侧边栏打开 UpgradeModal），
+    // 这里只验证「底部 banner 可展开且菜单内含升级入口」这一可稳定截图的中间态。
+    name: 'user-menu-upgrade-entry',
     route: '/',
-    waitFor: 'button:has-text("升级 Pro")',
-    trigger: 'button:has-text("升级 Pro")',
-    afterTrigger: '.upgrade-modal, [role="dialog"]:has-text("升级")',
+    waitFor: '[data-testid="mp-profile"]',
+    trigger: '[data-testid="mp-profile"]',
+    afterTrigger: '[data-testid="profile-menu-upgrade"]',
     checks: [
-      check('升级按钮', 'button:has-text("升级 Pro")', '显示升级按钮'),
-      check('升级弹窗', '.upgrade-modal, [role="dialog"]:has-text("升级")', '点击后显示升级弹窗'),
+      check('底部用户 banner', '[data-testid="mp-profile"]', '左下角显示用户 banner'),
+      check('升级入口', '[data-testid="profile-menu-upgrade"]', '展开菜单后显示升级 Pro 入口'),
     ],
   },
   {

@@ -153,5 +153,5 @@ New baselines will be captured for:
 ## Open Questions
 
 1. Should the pple-style opt-in prop be used during migration, or should we update defaults directly?
-2. How to handle the YixiaoerSidebar layout (current: 376 lines, complex) - inline or separate task?
+2. How to handle the MpSidebar layout (current: 376 lines, complex) - inline or separate task?
 3. Dark mode priority: implement token mapping now or defer to after all pages migrated?

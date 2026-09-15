@@ -261,7 +261,7 @@ publishDestination 区块（发布去向弹窗）：
 - apps/desktop/src/views/RewriteView.test.js 新增：12 个单元测试
 - apps/desktop/src/components/PublishDestinationModal.vue 新增：发布去向选择弹窗
 - apps/desktop/src/router/index.js 修改：+1 行 /rewrite 路由
-- apps/desktop/src/layouts/YixiaoerSidebar.vue 修改：+1 行菜单项
+- apps/desktop/src/layouts/MpSidebar.vue 修改：+1 行菜单项
 - apps/desktop/src/views/Collection.vue 修改：checkbox + 按钮 + 弹窗
 - apps/desktop/src/views/CreateView.vue 修改：草稿预填充
 - apps/desktop/src/locales/zh.js 修改：rewritePage + publishDestination

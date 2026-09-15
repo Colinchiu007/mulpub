@@ -1,7 +1,7 @@
 # Claude 有界审查：python-bridge 生命周期修复（2026-08-29）
 
 > 审查方式：codeagent-wrapper --lite --backend claude，只读精确 diff
-> diff：D:\Temp\yixiaoer-python-bridge-review-diff-20260829-final.txt（SHA256 509C138EC37BAFAC6CCF874274B9D200A2B1C7F51DFD65C971CE2F51EA809EB8）
+> diff：D:\Temp\mp-python-bridge-review-diff-20260829-final.txt（SHA256 509C138EC37BAFAC6CCF874274B9D200A2B1C7F51DFD65C971CE2F51EA809EB8）
 > 会话：781c3214-e975-4886-9057-5ff0ce6405c5；模型实际读取 diff 并完成互锁推演；遇 API 429 限流多次退避后完成。
 > 以下为规范化报告，原始 stdout 见文件尾部。
 
@@ -132,7 +132,7 @@ Let me structure the report.</think>I have the full diff and have traced the key
 
 ## 审查报告：python-bridge 生命周期修复
 
-审查对象：`D:\Temp\yixiaoer-python-bridge-review-diff-20260829-final.txt`（python-bridge.js 增量 + 测试）。以下 line 指 diff 文件行号。
+审查对象：`D:\Temp\mp-python-bridge-review-diff-20260829-final.txt`（python-bridge.js 增量 + 测试）。以下 line 指 diff 文件行号。
 
 ### Critical
 

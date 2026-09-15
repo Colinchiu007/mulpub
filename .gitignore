@@ -67,6 +67,8 @@ apps/desktop/stryker.identity.conf.json
 !packages/api-publish-engine/test/test-publish-api-server.test.js
 # test-setup.js 是 vitest setupFiles 引用的源文件，必须纳入版本控制
 !apps/desktop/test-setup.js
+# test-setup-locale.js 同属 vitest setupFiles（首项，语言确定性），必须纳入版本控制
+!apps/desktop/test-setup-locale.js
 !apps/desktop/tests/visual-testing/test-runner.js
 !apps/desktop/tests/visual-testing/test-runner.test.js
 !packages/visual-test-runner/src/test-runner.js
@@ -113,6 +115,9 @@ scripts/*.js
 !scripts/ensure-desktop-deps.js
 !scripts/ensure-desktop-deps.test.js
 !scripts/start-desktop-identity.js
+!scripts/check-no-brand-residue.js
+!scripts/detect-unwired-exports.js
+!scripts/detect-unwired-exports.test.js
 screenshot_script*.js
 temp_debug.txt
 coverage/
@@ -133,8 +138,10 @@ gen_*.py
 
 # Test artifacts
 *.png
-!01-docs/yixiaoer-reverse/screenshots/yxe-live-20260724/*.png
+!01-docs/ui-reference/screenshots/mp-live-20260724/*.png
 !01-docs/assets/story2video-scene-context-architecture.png
+# 产品品牌资产（非测试产物）：侧边栏左上角品牌 Logo，打包时必须随源码入库
+!apps/desktop/src/assets/brand/*.png
 
 # Python build artifacts
 .pytest_cache/

@@ -1,4 +1,4 @@
-// 小红书适配器 — 基于蚁小二逆向工程 COS 上传协议
+// 小红书适配器 — 基于参考产品逆向分析 COS 上传协议
 const { BasePlatformAdapter } = require("../base-adapter");
 const { upload } = require("../../upload/orchestrator");
 const { getXiaohongshuSign } = require("../signer-local");
@@ -27,7 +27,7 @@ class XiaohongshuAdapter extends BasePlatformAdapter {
       tags: taskData.tags || [],
       type: taskData.video_path ? "video" : "dynamic",
     };
-    // P3-1：商品（蚁小二映射 shopping_cart）
+    // P3-1：商品（参考产品映射 shopping_cart）
     if (Array.isArray(taskData.goods) && taskData.goods.length > 0) {
       data.shopping_cart = { items: taskData.goods.map(function (g) { return { item_id: g.id, name: g.title } }) }
     }

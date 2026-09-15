@@ -1,31 +1,10 @@
 const { IdentityError, toIdentityError } = require('./identity-errors')
-
-function errorSignals(error) {
-  const values = []
-  let current = error
-  for (let depth = 0; current && depth < 5; depth += 1) {
-    if (current.code) values.push(String(current.code).toLowerCase())
-    if (current.message) values.push(String(current.message).toLowerCase())
-    current = current.cause
-  }
-  return values.join(' ')
-}
-
-function isNetworkError(error) {
-  const value = errorSignals(error)
-  return ['network', 'fetch failed', 'econnreset', 'econnrefused', 'enotfound', 'eai_again', 'etimedout', 'timeout']
-    .some((signal) => value.includes(signal))
-}
-
-function isSessionRejected(error) {
-  const value = errorSignals(error)
-  return ['invalid_grant', 'not_authenticated', 'token_revoked', 'session_expired']
-    .some((signal) => value.includes(signal))
-}
-
-function claimsExpired(claims, now) {
-  return Boolean(claims && Number.isFinite(claims.exp) && claims.exp <= now)
-}
+const {
+  claimsExpired,
+  isNetworkError,
+  isSessionRejected,
+  logIdentityFailure,
+} = require('./auth-diagnostics')
 
 class AuthService {
   constructor(options = {}) {
@@ -38,6 +17,8 @@ class AuthService {
     this._callbackServerFactory = options.callbackServerFactory
     this._redirectUri = options.redirectUri
     this._now = typeof options.now === 'function' ? options.now : () => Math.floor(Date.now() / 1000)
+    /** 诊断日志（可注入；默认由工厂注入 electron/services/logger）。 */
+    this._logger = options.logger || null
     this._offlineGraceSeconds = Number.isFinite(options.offlineGraceSeconds)
       ? Math.max(0, options.offlineGraceSeconds)
       : 7 * 24 * 60 * 60
@@ -77,6 +58,16 @@ class AuthService {
     return queued
   }
 
+  /**
+   * 诊断日志（scope + code + 完整 cause 链），实现见 auth-diagnostics.js。
+   * @param {string} scope
+   * @param {unknown} error
+   * @param {Record<string, unknown>} [extra]
+   */
+  _logFailure(scope, error, extra = {}) {
+    logIdentityFailure(this._logger, scope, error, extra)
+  }
+
   async getAccessToken(options = {}) {
     if (this._accessTokenPromise) return this._accessTokenPromise
     const operationId = this._operationId
@@ -93,17 +84,20 @@ class AuthService {
       })
       .catch(async (error) => {
         if (isNetworkError(error)) {
+          this._logFailure('getAccessToken.network', error)
           if (operationId === this._operationId && this._state.user) {
             this._setState({ status: 'offline_authenticated', error: null })
           }
           throw new IdentityError('IDENTITY_NETWORK_UNAVAILABLE', '网络暂时不可用', error)
         }
         if (isSessionRejected(error)) {
+          this._logFailure('getAccessToken.sessionRejected', error)
           const cleanupError = await this._clearLocalSessionOrSetError(undefined, operationId)
           if (cleanupError) throw cleanupError
           throw new IdentityError('IDENTITY_SESSION_EXPIRED', '登录会话已失效，请重新登录', error)
         }
         const identityError = toIdentityError(error, 'IDENTITY_TOKEN_UNAVAILABLE')
+        this._logFailure('getAccessToken', identityError)
         if (operationId === this._operationId) {
           this._setState({
             status: 'error',
@@ -123,7 +117,11 @@ class AuthService {
       try {
         await this._tokenStorage.clear()
       } catch (error) {
+        // 关键诊断点：这里拿到的是「删除/清空本地会话」的原始错误（可能不带 .code，
+        // 例如宿主安全删除 shim 的 fail-closed 错误）。必须落盘，否则只能看到上层
+        // 被包装后的 IDENTITY_SESSION_CLEAR_FAILED，无法定位真实原因。
         clearError = error
+        this._logFailure('tokenStorage.clear', error)
       }
       if (operationId !== null && operationId !== this._operationId) return false
       if (this._entitlementService && typeof this._entitlementService.clear === 'function') {
@@ -147,8 +145,30 @@ class AuthService {
     } catch (error) {
       if (operationId !== null && operationId !== this._operationId) return null
       const identityError = toIdentityError(error, 'IDENTITY_SESSION_CLEAR_FAILED')
+      this._logFailure('clearLocalSession', identityError, { message })
       this._setState({ status: 'error', error: { code: identityError.code, message } })
       return identityError
+    }
+  }
+
+  /**
+   * 登录失败后的本地清理（不改写 state，只回报清理结果）。
+   *
+   * 与 `_clearLocalSessionOrSetError` 的关键区别：清理失败不是本次操作的**主错误**，
+   * 因此不得覆盖真正的登录失败原因（2026-09-14 事故根因之一：
+   * `throw cleanupError || identityError` 让「清理失败」抢占了主错误码，
+   * 前端于是把「点登录失败」显示成「退出失败」）。
+   *
+   * @param {number|null} operationId
+   * @returns {Promise<import('./identity-errors').IdentityError | null>}
+   */
+  async _clearLocalSessionAfterSignInFailure(operationId) {
+    try {
+      await this._clearLocalSession(operationId)
+      return null
+    } catch (error) {
+      if (operationId !== null && operationId !== this._operationId) return null
+      return toIdentityError(error, 'IDENTITY_SESSION_CLEAR_FAILED')
     }
   }
 
@@ -159,6 +179,7 @@ class AuthService {
       return null
     } catch (error) {
       const identityError = toIdentityError(error, 'IDENTITY_AUTH_WINDOW_SESSION_CLEAR_FAILED')
+      this._logFailure('clearSignInWindowSession', identityError)
       this._setState({
         status: 'error',
         error: { code: identityError.code, message: '退出失败，认证窗口会话未能清理，请重试' },
@@ -224,6 +245,7 @@ class AuthService {
     } catch (error) {
       if (!isCurrentOperation()) return this.getState()
       if (isNetworkError(error) || (error && error.code === 'IDENTITY_SECURE_STORAGE_UNAVAILABLE')) {
+        this._logFailure('restore', error)
         const code = error && error.code === 'IDENTITY_SECURE_STORAGE_UNAVAILABLE'
           ? error.code
           : 'IDENTITY_NETWORK_UNAVAILABLE'
@@ -335,11 +357,24 @@ class AuthService {
       return this.getState()
     } catch (error) {
       const identityError = toIdentityError(error, 'IDENTITY_SIGN_IN_FAILED')
-      const cleanupError = await this._clearLocalSessionOrSetError('登录失败，且本地登录信息未能清理，请重试', operationId)
-      if (!cleanupError && operationId === this._operationId) {
-        this._setState({ status: 'error', error: { code: identityError.code, message: '登录失败，请重试' } })
+      this._logFailure('signIn', identityError)
+      const cleanupError = await this._clearLocalSessionAfterSignInFailure(operationId)
+      if (operationId === this._operationId) {
+        this._setState({
+          status: 'error',
+          error: {
+            code: identityError.code,
+            message: '登录失败，请重试',
+            ...(cleanupError ? { cleanup: { code: cleanupError.code } } : {}),
+          },
+        })
       }
-      throw cleanupError || identityError
+      if (cleanupError) {
+        // 主错误优先：清理失败降级为附加信息，避免掩盖真正的登录失败原因。
+        identityError.cleanupCode = cleanupError.code
+        this._logFailure('signInCleanup', cleanupError, { primaryCode: identityError.code })
+      }
+      throw identityError
     } finally {
       if (this._activeCallbackServer === callbackServer) this._activeCallbackServer = null
       if (typeof this._client.closeSignInWindow === 'function') {
@@ -374,6 +409,7 @@ class AuthService {
       await this._client.signOut()
     } catch (error) {
       warning = toIdentityError(error).code
+      this._logFailure('signOut.remote', error, { warning })
     }
     const authWindowCleanupError = await this._clearSignInWindowSessionOrSetError()
     if (authWindowCleanupError) throw authWindowCleanupError

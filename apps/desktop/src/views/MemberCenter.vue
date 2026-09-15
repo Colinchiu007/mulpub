@@ -126,6 +126,7 @@ import { useI18n } from 'vue-i18n'
 import { useIdentity } from '@/composables/useIdentity'
 import { useIdentityStore } from '@/stores/identity'
 import { useLicenseStore } from '@/stores/license'
+import { resolveIdentityErrorMessageKey } from '@/utils/identity-error-messages'
 import { getApi } from '@/api/electron-bridge'
 import UpgradeModal from '@/components/UpgradeModal.vue'
 
@@ -141,17 +142,13 @@ const version = ref('')
 const hasSessionIdentity = computed(() => Boolean(user.value?.sub) && !['disabled', 'signed_out', 'expired'].includes(status.value))
 const isSigningOut = computed(() => status.value === 'signing_out')
 const errorMessage = computed(() => {
-  const code = error.value?.code
-  if (!code) return ''
-  const messages = {
-    IDENTITY_API_UNAVAILABLE: t('memberCenter.identityDisabledHint'),
-    IDENTITY_CALLBACK_TIMEOUT: t('memberCenter.signOutFailed'),
-    IDENTITY_ACCOUNT_SWITCH_FAILED: t('memberCenter.switchFailed'),
-    IDENTITY_SESSION_EXPIRED: t('memberCenter.statusExpired'),
-    IDENTITY_SIGN_OUT_FAILED: t('memberCenter.signOutFailed'),
-    IDENTITY_SESSION_CLEAR_FAILED: t('memberCenter.signOutFailed'),
-  }
-  return messages[code] || t('memberCenter.signOutFailed')
+  const entry = error.value
+  if (!entry?.code) return ''
+  const primary = t(resolveIdentityErrorMessageKey(entry.code))
+  const cleanupCode = entry.cleanup?.code
+  if (!cleanupCode) return primary
+  const secondary = t(resolveIdentityErrorMessageKey(cleanupCode))
+  return secondary === primary ? primary : `${primary} ${secondary}`
 })
 const entitlement = computed(() => identityStore.entitlement)
 

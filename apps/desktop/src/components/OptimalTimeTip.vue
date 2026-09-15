@@ -5,8 +5,8 @@
     </div>
 
     <!-- Loading -->
-    <div v-if="loading" style="text-align:center;padding:20px 0;font-size:13px;color:var(--muted)">
-      分析关键词...
+    <div v-if="loading" style="padding:20px 0" data-testid="optimal-time-loading">
+      <UiSkeleton variant="text" width="60%" style="margin:0 auto" />
     </div>
 
     <!-- Short keyword -->

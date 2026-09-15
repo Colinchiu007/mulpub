@@ -4,13 +4,13 @@
     placement="top-start"
     :width="300"
     trigger="click"
-    popper-class="yixiaoer-service-popover"
+    popper-class="mp-service-popover"
   >
     <template #reference>
       <span
-        class="yixiaoer-service-status"
+        class="mp-service-status"
         :class="summaryClass"
-        data-testid="yixiaoer-service-status"
+        data-testid="mp-service-status"
         role="button"
         tabindex="0"
         aria-haspopup="true"
@@ -21,48 +21,48 @@
       </span>
     </template>
     <div
-      class="yixiaoer-service-list"
-      data-testid="yixiaoer-service-list"
+      class="mp-service-list"
+      data-testid="mp-service-list"
       :aria-busy="String(serviceStatusStore.unavailable)"
     >
-      <div v-if="serviceStatusStore.unavailable" class="yixiaoer-service-unavailable">
+      <div v-if="serviceStatusStore.unavailable" class="mp-service-unavailable">
         {{ t('sidebar.serviceStatus.unavailable') }}
       </div>
       <template v-else>
         <div
           v-for="svc in serviceStatusStore.services"
           :key="svc.key"
-          class="yixiaoer-service-row"
+          class="mp-service-row"
         >
           <button
             type="button"
-            class="yixiaoer-service-item"
+            class="mp-service-item"
             :class="{ 'is-expanded': expandedKey === svc.key }"
-            :data-testid="'yixiaoer-service-' + svc.key"
+            :data-testid="'mp-service-' + svc.key"
             :aria-expanded="String(expandedKey === svc.key)"
             @click="toggle(svc)"
           >
-            <i class="yixiaoer-service-dot" :class="'is-' + svc.status" aria-hidden="true"></i>
-            <span class="yixiaoer-service-name">{{ serviceLabel(svc) }}</span>
-            <span class="yixiaoer-service-state">{{ serviceStateLabel(svc) }}</span>
+            <i class="mp-service-dot" :class="'is-' + svc.status" aria-hidden="true"></i>
+            <span class="mp-service-name">{{ serviceLabel(svc) }}</span>
+            <span class="mp-service-state">{{ serviceStateLabel(svc) }}</span>
           </button>
 
           <div
             v-if="expandedKey === svc.key"
-            class="yixiaoer-service-detail"
-            :data-testid="'yixiaoer-service-detail-' + svc.key"
+            class="mp-service-detail"
+            :data-testid="'mp-service-detail-' + svc.key"
           >
-            <p class="yixiaoer-service-reason">{{ reasonLabel(svc) }}</p>
-            <p v-if="lastSeenLabel(svc)" class="yixiaoer-service-since">
+            <p class="mp-service-reason">{{ reasonLabel(svc) }}</p>
+            <p v-if="lastSeenLabel(svc)" class="mp-service-since">
               {{ lastSeenLabel(svc) }}
             </p>
-            <p v-if="restartError" class="yixiaoer-service-error">{{ restartError }}</p>
+            <p v-if="restartError" class="mp-service-error">{{ restartError }}</p>
             <button
               v-if="svc.restartable && svc.status !== 'running'"
               type="button"
-              class="yixiaoer-service-retry"
+              class="mp-service-retry"
               :disabled="!!serviceStatusStore.restarting[svc.key]"
-              :data-testid="'yixiaoer-service-retry-' + svc.key"
+              :data-testid="'mp-service-retry-' + svc.key"
               @click.stop="onRestart(svc)"
             >
               {{ serviceStatusStore.restarting[svc.key]
@@ -164,7 +164,7 @@ async function onRestart (svc) {
 </script>
 
 <style scoped>
-.yixiaoer-service-status {
+.mp-service-status {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -172,47 +172,47 @@ async function onRestart (svc) {
   cursor: pointer;
 }
 
-.yixiaoer-service-status i {
+.mp-service-status i {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: #6fbf73;
 }
 
-.yixiaoer-service-status.is-degraded {
+.mp-service-status.is-degraded {
   color: #b08a3e;
 }
 
-.yixiaoer-service-status.is-degraded i {
+.mp-service-status.is-degraded i {
   background: #e6a23c;
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .yixiaoer-service-status.is-degraded i {
-    animation: yixiaoer-service-pulse 1.8s ease-in-out infinite;
+  .mp-service-status.is-degraded i {
+    animation: mp-service-pulse 1.8s ease-in-out infinite;
   }
 }
 
-@keyframes yixiaoer-service-pulse {
+@keyframes mp-service-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
 }
 </style>
 
 <style>
-/* el-popover 渲染在 body 下，scoped 样式无法命中，需全局样式（yixiaoer- 命名空间防冲突） */
-.yixiaoer-service-popover .yixiaoer-service-list {
+/* el-popover 渲染在 body 下，scoped 样式无法命中，需全局样式（mp- 命名空间防冲突） */
+.mp-service-popover .mp-service-list {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
-.yixiaoer-service-popover .yixiaoer-service-row {
+.mp-service-popover .mp-service-row {
   display: flex;
   flex-direction: column;
 }
 
-.yixiaoer-service-popover .yixiaoer-service-item {
+.mp-service-popover .mp-service-item {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -228,36 +228,36 @@ async function onRestart (svc) {
   cursor: pointer;
 }
 
-.yixiaoer-service-popover .yixiaoer-service-item:hover,
-.yixiaoer-service-popover .yixiaoer-service-item.is-expanded {
+.mp-service-popover .mp-service-item:hover,
+.mp-service-popover .mp-service-item.is-expanded {
   background: rgba(0, 0, 0, 0.04);
 }
 
-.yixiaoer-service-popover .yixiaoer-service-dot {
+.mp-service-popover .mp-service-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
   flex: 0 0 auto;
 }
 
-.yixiaoer-service-popover .yixiaoer-service-dot.is-running {
+.mp-service-popover .mp-service-dot.is-running {
   background: #6fbf73;
 }
 
-.yixiaoer-service-popover .yixiaoer-service-dot.is-stopped {
+.mp-service-popover .mp-service-dot.is-stopped {
   background: #f56c6c;
 }
 
-.yixiaoer-service-popover .yixiaoer-service-dot.is-standby {
+.mp-service-popover .mp-service-dot.is-standby {
   background: #c0c2cf;
 }
 
-.yixiaoer-service-popover .yixiaoer-service-state {
+.mp-service-popover .mp-service-state {
   margin-left: auto;
   color: #9294ab;
 }
 
-.yixiaoer-service-popover .yixiaoer-service-detail {
+.mp-service-popover .mp-service-detail {
   margin: 2px 0 6px 21px;
   padding: 6px 8px;
   border-radius: 6px;
@@ -267,21 +267,21 @@ async function onRestart (svc) {
   color: #5a5c73;
 }
 
-.yixiaoer-service-popover .yixiaoer-service-reason {
+.mp-service-popover .mp-service-reason {
   margin: 0;
 }
 
-.yixiaoer-service-popover .yixiaoer-service-since {
+.mp-service-popover .mp-service-since {
   margin: 2px 0 0;
   color: #9294ab;
 }
 
-.yixiaoer-service-popover .yixiaoer-service-error {
+.mp-service-popover .mp-service-error {
   margin: 4px 0 0;
   color: #f56c6c;
 }
 
-.yixiaoer-service-popover .yixiaoer-service-retry {
+.mp-service-popover .mp-service-retry {
   margin-top: 6px;
   padding: 3px 12px;
   border: 1px solid #d9d9d9;
@@ -293,17 +293,17 @@ async function onRestart (svc) {
   cursor: pointer;
 }
 
-.yixiaoer-service-popover .yixiaoer-service-retry:hover:not(:disabled) {
+.mp-service-popover .mp-service-retry:hover:not(:disabled) {
   border-color: #b08a3e;
   color: #b08a3e;
 }
 
-.yixiaoer-service-popover .yixiaoer-service-retry:disabled {
+.mp-service-popover .mp-service-retry:disabled {
   cursor: not-allowed;
   opacity: 0.6;
 }
 
-.yixiaoer-service-popover .yixiaoer-service-unavailable {
+.mp-service-popover .mp-service-unavailable {
   font-size: 12px;
   color: #b08a3e;
 }

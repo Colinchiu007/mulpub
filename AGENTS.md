@@ -421,6 +421,7 @@ Code review 时除逻辑正确性外，必须逐项检查：
 - **Prompt 批量结果内容合同**：`OPTIMIZE_BATCH` 不得只校验 prompt-engine 返回数组的数量；每项必须是非空字符串，或按资产阶段实际读取顺序包含非空 `prompt` / `optimized_prompt` / `optimized`。等长的 `{}`、`null`、空白字段必须在 `StageExecutor` 立即 fail closed。回归测试必须经真实 `PromptBridge`、`ServiceBus` 和本机临时 HTTP 服务覆盖包装响应，不能只 mock 最终数组。
 
 - **打包状态优先于开发环境变量**：许可证、调试入口、logger 和开发短路必须以 `app.isPackaged === false` 为前提；`NODE_ENV=development`、`ELECTRON_IS_DEV=1` 等环境变量不得让已打包应用进入开发权限或开发日志路径。测试必须同时覆盖打包/未打包状态和残留环境变量。
+- **发版版本级别 ↔ 改动规模匹配**：合并发版 PR / 打 tag 前，确认 `pnpm version:bump` 的级别与改动匹配（0.x 基线：新功能 / 破坏性变更 bump `minor`，修复 bump `patch`）；`release-gate` 会硬性拦截「未 bump 就打 tag」「CHANGELOG 未收口」，并对「破坏性变更却 `patch` 级」软警告（属人工判断，不阻断）。
 
 - **Adapter capability 单一来源**：修改 `BaseAdapter.KNOWN_METHODS` 后必须检索所有 Adapter 的 `capabilities()` 手动覆盖；已进入 `KNOWN_METHODS` 的能力不得再次 `concat`。回归测试必须断言 `supports(method) === true`、能力只出现一次，并覆盖 `ModelProviderManager` 的调用入口。
 
@@ -677,6 +678,45 @@ npm run test:all:visual
 
 > 审查时检查：修复 Bug 的 PR / 提交必须包含以上 5 步的产出物。
 
+### QM-6：CCG 双模型外部评审（MUST）
+
+> M+ 复杂度或中/高风险任务，在提交 PR 前必须执行 CCG 双模型外部评审，不得仅依赖本地测试与自审。
+
+#### 触发条件
+
+满足任一即触发（与质量节拍 M5 交付节奏对齐）：
+
+- 新增功能 / 重构 / 跨模块变更（M+ 复杂度或中/高风险）
+- 修改主进程服务（`apps/desktop/electron/services/`）、IPC handler、核心引擎包
+- 修改涉及安全 / 数据校验 / 状态机 / 持久化的逻辑
+
+#### 执行方式（双模型并行，禁止串行）
+
+用 `codeagent-wrapper` 并行启动两个后端模型审查实现 diff（`run_in_background: true`，同一条消息两个调用）：
+
+```
+# 后端模型（逻辑/安全/规格合规审查）
+codeagent-wrapper --backend claude --lite "审查 <change> 实现：正确性/边界/安全/规格合规" <workdir>
+
+# 前端模型（模式/可维护性/集成风险审查）
+codeagent-wrapper --backend opencode --lite "审查 <change> 实现：命名/模式/可维护性/集成" <workdir>
+```
+
+> 后端模型（claude）与前端模型（opencode）由 `.ccg/config.toml` 的 `[routing]` 配置决定；前端模型失败最多重试 2 次（间隔 5 秒），3 次全败才跳过；后端模型结果必须等待（5-15 分钟属正常）。
+
+#### 评审输出与处理
+
+- 两个模型各返回 JSON findings（severity: Critical / Warning / Info）
+- **Critical 必须修复**后才能合并（含回归保护测试）
+- **Warning 评估后修复**（数据校验/安全类 Warning 必须修复）
+- 评审记录写入 `.quality-gates.md`（双模型评审 PASS + 发现项 + 修复项）
+
+#### 与既有门禁的关系
+
+- QM-6 是**外部交叉审查**，补充 QM-2 的自审（代码审查必检项）——两者不可互相替代
+- 质量节拍 skill 的"日常循环 Step ④ 审查"已同步固化此强制卡点（见质量节拍 skill 仓库）
+- 纯文档/流程变更（`openspec/`、`docs/`、`scripts/` 工具脚本）不强制 QM-6，但建议执行
+
 ## 测试质量增强工具（v0.16.0）
 
 ### 新增 npm 命令（`cd apps/desktop` 下执行）
@@ -711,7 +751,7 @@ npm run test:all:visual
 
 ***
 
-## 新增模块（蚁小二逆向工程集成）
+## 新增模块（参考产品逆向分析集成）
 
 - `electron/services/account-state-restorer.js` — 账号登录状态持久化（JSONL）
 

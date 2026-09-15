@@ -610,6 +610,27 @@ class PipelineOption(Base):
     updated_by = Column(String(100), default="")
 
 
+class AppMenuItem(Base):
+    """应用端左侧边栏菜单项 — 运营中心「应用菜单」页管理显示/隐藏与排序（2026-09-15）。
+
+    item_key 与桌面端 apps/desktop/src/config/sidebar-menu.js 的 key 一一对应，
+    是跨端唯一契约；一旦发布不得改名（改名会导致旧配置失效并被应用端忽略）。
+    """
+
+    __tablename__ = "app_menu_items"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    item_key = Column(String(64), unique=True, nullable=False)
+    label = Column(String(100), default="")
+    group = Column(String(16), nullable=False)  # primary（一级导航）| more（「更多」折叠菜单）
+    visible = Column(Integer, default=1)
+    forced_visible = Column(Integer, default=0)  # 1 = 强制显示（运营端开关灰显不可关闭）
+    sort_order = Column(Integer, default=0)
+    description = Column(String(200), default="")
+    updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    updated_by = Column(String(100), default="")
+
+
 class RewriteStrategy(Base):
     """改写策略模板 — 运营端管理桌面端改写引擎的策略配置。"""
 

@@ -38,7 +38,9 @@ function createView() {
 
 function createMainWindow() {
   return {
-    getBounds: () => ({ width: 1200, height: 800 }),
+    getBounds: () => ({ x: 0, y: 0, width: 1200, height: 800 }),
+    // 客户区尺寸（真实 BrowserWindow 会扣除标题栏/菜单栏/边框）
+    getContentBounds: () => ({ x: 8, y: 39, width: 1184, height: 761 }),
     isDestroyed: () => false,
     webContents: { send: vi.fn() },
     contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },
@@ -379,6 +381,10 @@ describe('QrCodeLogin 凭证边界', () => {
       accountId: expect.stringMatching(/^auth-kuaishou-/),
       url: expect.stringContaining('kuaishou'),
     }))
+
+    // 定位基于客户区尺寸（外框 1200x800 vs 客户区 1184x761）：
+    // 若误用外框会得到 1000x724，右侧滚动条与底部内容会被窗口边框裁掉。
+    expect(view.setBounds).toHaveBeenCalledWith({ x: 200, y: 76, width: 984, height: 685 })
 
     qrCodeLogin.hide()
     expect(view.setVisible).toHaveBeenLastCalledWith(false)

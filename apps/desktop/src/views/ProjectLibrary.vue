@@ -5,14 +5,10 @@
       <p class="text-muted">所有视频生产项目档案</p>
     </div>
 
-    <!-- 加载状态 -->
-    <div v-if="loading" class="loading-state">
-      <div class="skeleton-grid">
-        <div v-for="i in 6" :key="i" class="skeleton-card">
-          <div class="skeleton-thumb"></div>
-          <div class="skeleton-line"></div>
-          <div class="skeleton-line short"></div>
-        </div>
+    <!-- 加载状态：统一骨架屏（UiSkeleton + styles/skeleton.css 令牌） -->
+    <div v-if="loading" class="loading-state" data-testid="project-library-loading">
+      <div class="mp-skeleton-grid" style="--skeleton-grid-min: 240px">
+        <UiSkeleton v-for="i in 6" :key="i" variant="card" class="mp-skeleton-card" />
       </div>
     </div>
 
@@ -82,7 +78,7 @@ onMounted(() => {
 })
 </script>
 
-<style>
+<style scoped>
 .library-page {
   padding: 24px;
 }
@@ -100,39 +96,7 @@ onMounted(() => {
   margin: 0;
 }
 
-/* 加载骨架屏 */
-.skeleton-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 16px;
-}
-.skeleton-card {
-  background: var(--bg-card, #fff);
-  border: 1px solid var(--border-color, #e4e7ed);
-  border-radius: 12px;
-  overflow: hidden;
-  padding: 0 0 12px 0;
-}
-.skeleton-thumb {
-  width: 100%;
-  height: 140px;
-  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
-}
-.skeleton-line {
-  height: 14px;
-  margin: 12px 14px 8px;
-  background: #f0f0f0;
-  border-radius: 4px;
-}
-.skeleton-line.short {
-  width: 60%;
-}
-@keyframes shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
+/* 加载骨架屏：外壳样式来自 styles/skeleton.css（.mp-skeleton-card / .mp-skeleton-grid） */
 
 /* 错误状态 */
 .error-state {

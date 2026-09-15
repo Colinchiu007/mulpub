@@ -1,4 +1,98 @@
-<<<<<<< HEAD
+## [Unreleased] - 2026-09-14 (侧边栏左上角品牌区改为「Logo + 版本号」)
+
+### 变更（应用壳品牌区）
+- `src/layouts/MpSidebar.vue` header：移除临时文字占位 `.mp-sidebar-brand`（`MP` 渐变徽标）与 `.mp-sidebar-title`（`Multi-Publish` 文本），改为「**汤姆鱼 Logo 图片 + 应用版本号**」：`[data-testid="mp-sidebar-logo"]`（`<img>`）+ `[data-testid="mp-sidebar-version"]`（`v` + 版本号，如 `v0.1.0`）；「+ 新建发布」按钮位置与行为不变。
+- 新增品牌资产 `src/assets/brand/tom-fish-logo.png`：源图 `Logo矢量图-透明.png`（3042×1910 RGBA / 1.06MB）→ 探测 alpha 包围盒裁剪透明边距（内容 2930×1798，宽高比 1.6296）→ 等比缩小为 **176×108**（约 13.9KB，−98.7%），alpha 预乘加权避免透明边缘发黑；CSS `height: 36px; width: auto` → 实际约 59×36（3× 资源，HiDPI 不模糊）。
+- 尺寸推导（200px 侧边栏）：可用 172px − 新建发布按钮 24px+8px − 版本号≈38px+8px ⇒ Logo ≤ ~94px；垂直与 40px 导航行对齐取高 36px ⇒ 宽 ≈59px，校验 59+8+38=105px ≤ 140px，不挤压按钮。
+
+### 变更（版本号取数）
+- 新增 `src/composables/useAppVersion.js`：**唯一**取数封装。纯函数 `extractAppVersion(response)`（仅 `code===0` 且 `data` 非空才返回 `String(data).trim()`）+ 组合式函数 `useAppVersion()`（`version`/`loading`/`loadVersion`）。
+- 数据源沿用既有 IPC `app:get-version`（主进程读 `apps/desktop/package.json` 的 `version`；该字段由根 `package.json` 单一真相源经 `scripts/sync-version.mjs` 自动派生，见 `docs/version-management.md`），经 `@/api/electron-bridge` 的 `invoke('getVersion')` 调用，**未新增任何 IPC / 持久化 / store 字段**。
+- 降级（4 条路径均静默、不抛错、不阻塞渲染）：无 `window.electronAPI`（`invoke` 返回 `undefined`）/ `code !== 0` / `data` 为空或纯空白 / IPC reject ⇒ **不渲染**版本节点，仅保留 Logo。
+
+### 变更（i18n / 响应式 / a11y）
+- 新增 i18n 词条（zh/en 成对）：`sidebar.brandLogoAlt`（Multi-Publish，Logo 替代文本）、`sidebar.appVersionTitle`（当前版本 / Current version，版本号悬停提示）。
+- 窄屏（≤900px，侧边栏 68px）：Logo 保留并缩为 `height: 28px; max-width: 100%`；版本号隐藏；新建发布按钮沿用原隐藏行为。
+- a11y：Logo `alt` 走 i18n；版本号为文本（可被朗读）；两者均不可聚焦、不进 Tab 序；Logo 禁拖拽/禁选中。
+
+### 测试
+- 新增 `src/composables/useAppVersion.test.js`（16 例）：`extractAppVersion` 成功/去空白/非字符串转串 + 9 类无效输入（失败码、空串、空白串、`data:null`、`data` 缺失、`undefined`、`null`、非对象、数组）；`useAppVersion` 成功取值、IPC 不可用、IPC 抛错、失败码不落脏值 + `loading` 复位。
+- `src/layouts/MpSidebar.test.js`（13 例，本次 +4）：品牌 Logo 为 `<img>` 且 `src` 非空、`alt=Multi-Publish`、版本号 `v2.3.53`（单测 mock 固定值，与真实版本号解耦）且 `title=当前版本`、旧品牌类不存在；IPC 不可用 / 失败码 / IPC reject 三种情形均不渲染版本号且侧边栏整体仍在。既有 9 例全绿。
+- 本地门禁：`vitest` 2 文件 29 例全绿；`eslint --quiet` 0 error；`tsc --noEmit` 0；Gate 6 IPC / Gate 10 前端一致性 / Gate 7 `--cjk`·`--keys`·`--pair-base` / 债务熔断全 PASS；**像素视觉门禁 17/17 通过**（影响区约 200×66px ≈ 全视口 0.64%，阈值 6%）。
+
+### 文档
+- 新增 `01-docs/PRD-SIDEBAR-BRAND-LOGO-VERSION-2026-09-14.md`（15 节：背景目标 / 变更范围 / 术语 / 需求明细 / 组件接口契约 / 数据校验与边界 / 流程与交互 / 视觉规范含尺寸推导与图片处理规范 / 响应式 / a11y / 显示项与 i18n / 异常降级 / 测试设计 / 验收标准 / 影响面与回滚）。
+- `docs/desktop-ui-layout-spec.md`：§2.3 header 行改为品牌区、新增 **§2.6 左上角品牌区**（结构显示项 / 尺寸推导 / 校验降级 / 响应式 / 交互 a11y）、§8.1 显示项表更新（移除 `MP` / `Multi-Publish`，新增品牌 Logo 与版本号两行）。
+- `docs/frontend-interaction-spec.md`：新增 **§6.5 侧边栏左上角品牌区**（位置唯一 / 资产唯一 / 取数唯一 / 降级静默 / 无交互 / 文案走 i18n）。
+
+## [Unreleased] - 2026-09-14 (lint 接入 CI：error 级门禁 + 17 处存量清零，挖出 4 个真 bug)
+
+### 修复（no-undef ×4，均为真实功能缺陷）
+- `src/views/AutoPipelineView.vue`：视图调用了 `notifyInfo`，但 `useNotify()` 只解构 notifyError/notifySuccess/notifyWarning——`resumePipeline()` 的提示不在 try 内，**点「恢复流水线」直接 ReferenceError、恢复流程中断**；`cancelPipeline()` 的提示被 try/catch 吞掉。修复：补解构 `notifyInfo`。
+- `electron/ipc-handlers/notify.js`：catch 兜底分支引用未导入的 `EC`（实际导出为 `ERROR`）→ 写日志失败时兜底路径自身抛 ReferenceError。修复：改用 `ERROR.REQUEST_ERROR`。
+- `electron/publishers/account-manager.js`：`extractAccountInfo()` 引用未导入的 `PLATFORM_ACCOUNT_INFO_SELECTORS`（定义于 shared-utils platform-definitions）→ 该函数每次调用都在 try 内抛错并被吞成 `{}`，**账号信息提取功能自引入以来从未生效**。修复：补导入。
+- `src/views/video-creation/StageProgress.vue`：data 键 `_lastActiveStageIndex` 以 `_` 开头是 Vue 保留前缀（实例代理不可见）→ 活动阶段去重恒失效、重复 scrollToStage。修复：改名 `lastActiveStageIndex` 并同步引用。
+
+### 修复（其余 error 级 ×13）
+- `preserve-caught-error` ×4（account-manager / full-auto-pipeline / pattern-extraction-service / llm-tag-generator）：rethrow 补 `{ cause: e }` 保留原始错误。
+- `no-useless-assignment` ×4（knowledge-library-service / logger / rpa-view-platforms / video-clone/asset-generator）：移除在 try/catch 两条路径都被覆盖的无用初值。
+- `no-empty` ×2（services/asset-generator）：空 catch 块补注释；另 1 处位于生成物（见下），随 ignores 排除。
+- `no-control-regex` ×1（tag-suggest/compliance-filter）：有意匹配控制字符的清洗正则，带说明行内豁免。
+
+### 变更（lint 配置 + CI 门禁）
+- `eslint.config.mjs` 全局 ignores 新增 `electron/preload/**/*.bundle.js`（esbuild 生成物不应参与 lint）；`lint`/`lint:fix` 脚本去掉 `--no-ignore`（该参数会绕过 flat config ignores，是 15 条 "File ignored/unused directive" 噪音的根源）；新增 `lint:warnings` 脚本保留 warning 可见性。
+- `.github/workflows/quality-gate.yml` static-gates 新增 **Gate 11 - ESLint (error-level gate)**：`pnpm exec eslint electron/ src/ --quiet`（与本地 `pnpm run lint` 同口径，只拦 error 级；warning 不阻断，后续以 per-rule 基线棘轮单独治理）。
+- 修复后基线：`eslint electron/ src/ --quiet` **0 error**（修复前 17）；warning 393 → 340。
+
+### 测试
+- 新增 `electron/tests/notify-handler.test.js`（4：兜底封包/未知 key drop/白名单写日志/前缀匹配）、`electron/tests/account-manager-extract-info.test.js`（3：平台选择器注入/无平台回退/evaluate 异常降级）、`src/views/AutoPipelineView.test.js`（2：resume 不再 ReferenceError 且提示 resuming、cancel 提示 cancelled）；`StageProgress.test.js` 追加 1 例（活动阶段索引可被实例读写）。4 文件 34 用例全绿。
+- 验证：`tsc --noEmit` 0 error；check-debt-budget / check-locale-sync --cjk / check-frontend-consistency / check-hardcoded-secrets 全 PASS；workflow-contract.test.js 19 pass。
+
+### 文档
+- 新增 OpenSpec change（已归档）：`openspec/changes/archive/2026-09-14-lint-gate-error-zero/`（proposal + specs/ci delta + tasks）。
+
+## [Unreleased] - 2026-09-13 (视频创作·历史记录「查看文案」改为展示流水线原始文案并自动换行)
+
+### 修复
+- 视频创作·历史记录·任务详情页（`/create/result`）【查看文案】弹窗存在三处缺陷：① 弹窗与复制内容带分段序号 `【1】【2】…`；② 展示的是分句/分段后的 `segments[].text`，原稿段落与换行丢失（不是用户提交的原文）；③ 文本容器 `<pre class="script-text">` 未定义任何换行样式，`white-space: pre` 默认不折行，长行横向溢出弹窗被裁切。根因（引入于 `02d23fcf8`）：取数口径直接复用编辑区的分段结构，且 `script-text`/`script-modal-body` 只有 class 名没有落地 CSS。
+- 修复（取数口径）：computed `scriptText` 改为**优先 `project.sourceText`**（流水线启动时 `run.params.text` 落盘、不参与分句的原文案，`story2video-project-service.js` 的 `saveRun`/`saveEditableRun`/`ensureProjectFromRun`），`trim()` 后非空即原样展示；`sourceText` 缺失的历史项目降级为 `segments[].text` 过滤空段、双换行拼接，**降级路径同样不带序号**；两者皆空则内容为空且【复制】按钮禁用。
+- 修复（样式）：新增 `.script-text { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; font-family: inherit; line-height: 1.75; }`——保留原文换行并自动折行，长 URL/无空格长串兜底断行；纵向滚动交由弹窗既有 `.ui-modal-body`（不叠加第二层滚动条），`.script-modal-body` 仅 `min-width: 0`。
+- 附带：弹窗增加 `test-id="script-modal"`、正文 `data-testid="script-text"`、复制按钮 `data-testid="script-copy-button"`，供稳定回归定位。
+
+### 测试
+- `ResultView.test.js` 新增 `describe("查看文案弹窗（展示流水线原始文案 + 自动换行）")` 5 条回归用例：① 原文案优先且逐字符一致、不含 `【`；② 老项目无 `sourceText` 时回退分段（不带编号、跳过空段）；③ 无原文案且无分段时内容为空 + 复制按钮禁用；④ 复制内容为原文案全文（stub `clipboard.writeText` 断言实参）；⑤ **源码级 CSS 契约**（`fs.readFileSync` 正则断言 `.script-text` 含 `white-space: pre-wrap`/`overflow-wrap: anywhere`/`word-break: break-word`，覆盖 jsdom 不应用 scoped CSS 的盲区）。RED（回退修复前）`5 failed | 125 passed` → GREEN `109 passed`。
+
+### 文档
+- 重写 01-docs/PRD-STORY2VIDEO-HISTORY-VIEW-SCRIPT-2026-09-13.md 至**迭代 2**：作废迭代 1 的「按分段编号【N】组织」需求，改为「展示启动流水线时的原始文案」；新增 §4.2 文案来源（`sourceText` 写入链 + 三级取值优先级 + 降级规则）、§4.4 换行与滚动（CSS 契约）、§5 数据校验 11 项、§6 显示项清单、§7 提示文字、§8 状态机、§9 边界情况、§10 验收标准、§13 变更记录。
+- 新增 01-docs/BUGFIX-STORY2VIDEO-VIEW-SCRIPT-RAW-TEXT-2026-09-13.md（Bug 反思 5 步：根因溯源 `02d23fcf8` / 六层逃逸链 / 系统性漏洞（需求表述漏洞 + 测试覆盖漏洞 + 门禁缺失漏洞 + 取数口径漏洞）/ 修复与 5 条回归测试 / 预防措施 + 交互时序、提示文字、边界情况）。
+- 更新 01-docs/learnings.md（新增 pitfall：展示"原始输入"必须回溯到最初落盘的原始字段；`<pre>` 展示容器必须显式声明 `white-space` 并配源码级契约测试；需求文档不得把实现细节当需求）。
+## [Unreleased] - 2026-09-13 (lint 清理：消除唯一 no-useless-assignment)
+
+### 修复
+- `apps/desktop/src/views/HotTopics.vue` 的 `loadFromCacheThenRefresh()` 中 `let cached = null` 的初值在 try/catch 两条路径都会被覆盖，触发 eslint `no-useless-assignment`；经 `pnpm exec eslint src/ --no-ignore` 全量扫描确认这是 `apps/desktop/src` 下的**唯一**一处该规则告警。改为 `let cached`（不写初值）并补注释说明原因，行为完全不变（读取失败仍走 catch → null → 未命中缓存走网络抓取）。
+- 同一行在 main 上属**历史遗留**（非本次改动引入）：`git blame` 与 `eslint` 在修复前的 main 同位置均报同一错误，故本次单独以 lint 清理提交处理，不与其他逻辑混提。
+
+### 测试
+- `HotTopics.test.js` 26 用例全绿（缓存优先渲染/后台静默刷新/无缓存走网络抓取等 SWR 路径均覆盖该函数）。
+- `pnpm exec eslint src/views/HotTopics.vue --no-ignore` → 0 problem（修复前 1 error）；`check-debt-budget.js` 全部在基线内（HotTopics.vue 993 行 < 1000）。
+- 说明：该规则此前不在 CI 门禁内（`.github/workflows/quality-gate.yml` 无 lint 步骤），本次未扩大范围把全局 lint 接入 CI（仓库仍有 `no-unused-vars` 31 处等既有告警，接入需先定阈值/基线）。
+
+## [Unreleased] - 2026-09-13 (热门选题一键生成视频：后台运行后可并行发起新任务)
+
+### 修复
+- 热门选题页点某选题【生成视频】→ 弹窗内点【后台运行】→ 弹窗消失后，点**任意**选题的【生成视频】均无反应（按钮永久禁用）。根因：后台脱离路径 `handleGenVideoClose()` 只把 `genVideoPhase` 置为 `'background'`，从未复位 `genVideoBusy`；而入口同时有模板禁用 `:disabled="genVideoBusy"` 与方法内守卫 `if (genVideoBusy.value) return`，两处共用一个永不复位的标志（引入于 PR #1726 / commit `0c21d9561`，显式【后台运行】按钮 `d895eada8` 扩大了触发面）。
+- 修复：抽出唯一复位路径 `resetGenVideoFrontendState()`（seq+1 使在途响应失效 → 停轮询/订阅/tick → 弹窗关闭 → phase='idle' → topic/stages/runId/progress/errorText/startedAt 清空 → **释放 genVideoBusy**），后台脱离与终态关闭共用；与视频创作页「脱离即全量复位」（`resetPipelineToNewTaskState`）语义对齐。热门选题**支持多任务并行**，并发上限由主进程 `PipelineEngine.maxConcurrentRuns`（`PIPELINE_CONCURRENCY_LIMIT`）判定，前端不再自设单任务锁。
+- 同时修正：改写/启动阶段（尚无 run）点右上角 × 由「误报已转入后台（且后端仍会静默启动流水线）」改为「中止前端编排」——弹窗关闭、前端态复位、不启动流水线、无后台任务。
+- 附带修复（文档）：`01-docs/CHANGELOG.md` 顶部残留的 3 行 Git 冲突标记（由 PR #4ab55b22 提交遗留），按"两段均为有效条目"合并保留。
+
+### 测试
+- `HotTopics.test.js` 新增/改写 4 条并发回归用例：①运行中关闭 → 后台脱离并复位前端态（busy 释放、runId 清空、不取消 run）；②改写阶段关闭 → 中止前端编排（不启动流水线）；③弹窗在途 busy 守卫仍拦截第二次编排（修复不过界）；④【后台运行】脱离后另一选题可立即启动并行流水线（按钮可用 + 第二次启动使用第二条选题的改写产物 + runId 切换）。原断言缺陷行为的用例 `keeps busy guard` 已改写；26 用例全绿。
+
+### 文档
+- 更新 01-docs/PRD-HOT-TOPICS-MODULE-2026-09-11.md（§3.10 取消/后台运行/并发约束口径修正、§5.6 流程图补并行与中止分支、§6.6 按钮矩阵与交互逻辑、**新增 §6.7 并发任务与前端态复位规格**、§8 验收标准新增第 12/13 条、§9 测试覆盖）
+- 新增 01-docs/BUGFIX-HOT-TOPICS-GEN-VIDEO-PARALLEL-2026-09-13.md（Bug 反思 5 步：根因溯源 `0c21d9561` / 逃逸链 / 系统性漏洞 / 修复与回归测试 / 预防措施 + 交互时序、提示文字、边界情况）
+- 更新 01-docs/learnings.md（pitfall：前端自设并发闸门、禁用态必须与复位路径成对、注释与实现不一致要质疑、测试可能固化缺陷）
+
 ## [Unreleased] - 2026-09-13 (图片轮播模式人脸种族一致性修复)
 
 ### 修复
@@ -11,7 +105,7 @@
 ### 文档
 - 更新 01-docs/PRD-STORY2VIDEO-SCENE-CONTEXT-2026-08-11.md（§5.3 功能逻辑 + §7 验收标准新增人脸一致性条目）
 - 更新 01-docs/ARCH-STORY2VIDEO-SCENE-CONTEXT-2026-08-11.md（新增人物外观锚默认规则说明）
-=======
+
 ## [Unreleased] - 2026-09-13 (视频创作·历史记录「查看文案」)
 
 ### 新增
@@ -21,7 +115,6 @@
 
 ### 文档
 - 新增 01-docs/PRD-STORY2VIDEO-HISTORY-VIEW-SCRIPT-2026-09-13.md（功能描述/数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字/边界情况）。
->>>>>>> 4ab55b22 (docs: 新增查看文案功能 PRD，更新 CHANGELOG 与 i18n 术语表)
 
 ## [Unreleased] - 2026-09-07 (全自动内容生产与发布管道)
 
@@ -52,8 +145,8 @@
 - 测试发现：4 个平台本地凭证文件存在但服务端 Cookie 均已过期，需重新登录
 - 3 个无凭证平台（百家号/快手/B站）正确标记为 `status=expired`
 
-### 蚁小二逆向
-- 完成蚁小二 4.0 多平台发布逆向分析（抖音/头条/B站/微信公众号/百家号/快手/视频号/小红书/知乎/CSDN/雪球）
+### 参考产品逆向分析
+- 完成参考产品 4.0 多平台发布逆向分析（抖音/头条/B站/微信公众号/百家号/快手/视频号/小红书/知乎/CSDN/雪球）
 - 抖音认证体系（三层凭证：Cookie+localStorage+IndexedDB）已完整提取并复用
 
 ### E2E 测试（第二轮，2026-09-07）

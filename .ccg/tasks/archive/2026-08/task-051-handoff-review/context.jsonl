@@ -1,7 +1,7 @@
-{"path":"D:/Data/projects/mp-worktrees/mp-yixiaoer-ue-parity-v2","kind":"worktree","evidence":"codex/yixiaoer-ue-parity-v2 @ 7a9ff6589; clean"}
-{"path":"D:/Data/projects/mp-worktrees/mp-yixiaoer-ue-parity-v2/apps/desktop/src/views/Publish.vue","kind":"source","evidence":"video mode, cover extraction UI, progress rendering"}
-{"path":"D:/Data/projects/mp-worktrees/mp-yixiaoer-ue-parity-v2/apps/desktop/src/features/accounts/components/AccountLoginDialog.vue","kind":"source","evidence":"kuaishou QR button condition"}
-{"path":"D:/Data/projects/mp-worktrees/mp-yixiaoer-ue-parity-v2/packages/shared-utils/src/platform-definitions.js","kind":"source","evidence":"kuaishou login/dashboard/auth host definitions"}
-{"path":"D:/Data/projects/mp-worktrees/mp-yixiaoer-ue-parity-v2/apps/desktop/src/composables/usePublishFlow.test.js","kind":"test","evidence":"targeted run: 174 passed, 2 failed overall"}
-{"path":"D:/Data/projects/mp-worktrees/mp-yixiaoer-ue-parity-v2/packages/shared-utils/src/__tests__/platform-definitions.test.js","kind":"test","evidence":"targeted run: baijiahao cookie-domain assertion failed"}
-{"path":"D:/Data/projects/mp-worktrees/mp-yixiaoer-ue-parity-v2/scripts/start-desktop.ps1","kind":"tooling","evidence":"isolated startup contract, profile/port/worktree checks"}
+{"path":"D:/Data/projects/mp-worktrees/mp-ue-parity-v2","kind":"worktree","evidence":"codex/mp-ue-parity-v2 @ 7a9ff6589; clean"}
+{"path":"D:/Data/projects/mp-worktrees/mp-ue-parity-v2/apps/desktop/src/views/Publish.vue","kind":"source","evidence":"video mode, cover extraction UI, progress rendering"}
+{"path":"D:/Data/projects/mp-worktrees/mp-ue-parity-v2/apps/desktop/src/features/accounts/components/AccountLoginDialog.vue","kind":"source","evidence":"kuaishou QR button condition"}
+{"path":"D:/Data/projects/mp-worktrees/mp-ue-parity-v2/packages/shared-utils/src/platform-definitions.js","kind":"source","evidence":"kuaishou login/dashboard/auth host definitions"}
+{"path":"D:/Data/projects/mp-worktrees/mp-ue-parity-v2/apps/desktop/src/composables/usePublishFlow.test.js","kind":"test","evidence":"targeted run: 174 passed, 2 failed overall"}
+{"path":"D:/Data/projects/mp-worktrees/mp-ue-parity-v2/packages/shared-utils/src/__tests__/platform-definitions.test.js","kind":"test","evidence":"targeted run: baijiahao cookie-domain assertion failed"}
+{"path":"D:/Data/projects/mp-worktrees/mp-ue-parity-v2/scripts/start-desktop.ps1","kind":"tooling","evidence":"isolated startup contract, profile/port/worktree checks"}

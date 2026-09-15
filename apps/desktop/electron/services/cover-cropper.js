@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * cover-cropper.js —— 封面裁剪（蚁小二 UE 对标 Phase A）
+ * cover-cropper.js —— 封面裁剪（参考产品 UE 对标 Phase A）
  *
  * 渲染层拖拽裁剪框后，经 IPC cover:crop 调主进程：
  *  - offscreen BrowserWindow 加载原图 → canvas 按 rect 裁剪 → JPEG 编码

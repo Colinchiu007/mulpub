@@ -357,6 +357,8 @@ var require_system = __commonJS({
         updateCheck: () => ipcRenderer2.invoke("update:check"),
         updateDownload: () => ipcRenderer2.invoke("update:download"),
         updateInstall: () => ipcRenderer2.invoke("update:install"),
+        // 侧边栏「新版本」入口：未下载则先下载，下载完成后自动退出并安装
+        updateInstallNow: () => ipcRenderer2.invoke("update:install-now"),
         onUpdateStatus: (callback) => {
           const handler = (_event, payload) => callback(payload);
           ipcRenderer2.on("update:status", handler);
@@ -583,6 +585,7 @@ var require_system = __commonJS({
         opsCenterSyncNow: () => ipcRenderer2.invoke("ops-center-sync:now"),
         opsCenterSyncRuntime: () => ipcRenderer2.invoke("ops-center-sync:runtime"),
         opsCenterSyncPipelineOptions: () => ipcRenderer2.invoke("ops-center-sync:pipelineOptions"),
+        opsCenterSyncAppMenu: () => ipcRenderer2.invoke("ops-center-sync:appMenu"),
         modelProviderGet: (id) => ipcRenderer2.invoke("model-provider:get", id),
         modelProviderCreate: (data) => ipcRenderer2.invoke("model-provider:create", data),
         modelProviderUpdate: (id, data) => ipcRenderer2.invoke("model-provider:update", id, data),
@@ -1048,6 +1051,7 @@ var require_access_control = __commonJS({
       "updateCheck",
       "updateDownload",
       "updateInstall",
+      "updateInstallNow",
       "onUpdateStatus",
       "firstRunCheck",
       "onFirstRunStatus",

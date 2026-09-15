@@ -9,9 +9,9 @@
     </template>
 
     <template v-else>
-      <div class="yixiaoer-shell" data-testid="yixiaoer-shell">
-        <YixiaoerSidebar @open-settings="showSettingsDialog = true" />
-        <div class="yixiaoer-shell-main">
+      <div class="mp-shell" data-testid="mp-shell">
+        <MpSidebar @open-settings="showSettingsDialog = true" />
+        <div class="mp-shell-main">
           <!-- 浏览器式标签栏 -->
           <TabBar
             @switch-tab="onSwitchTab"
@@ -36,14 +36,15 @@
             @save-account="onSaveAccount"
           />
           <!-- 模块导航（仅首页标签显示） -->
-          <YixiaoerModuleNav v-if="isHomeTab" />
+          <MpModuleNav v-if="isHomeTab" />
           <!-- 主内容区 -->
-          <main class="yixiaoer-workspace cohere-main" data-testid="yixiaoer-workspace">
+          <main class="mp-workspace cohere-main" data-testid="mp-workspace">
             <RouteLoadError v-if="routeLoadError" v-bind="routeLoadError" @retry="retryRouteLoad" @refresh="refreshRouteLoad" />
             <router-view v-if="!isLoginTab" />
           </main>
         </div>
       </div>
+      <BackToTop />
     </template>
 
     <UpdateNotification />
@@ -54,13 +55,14 @@
 
 <script setup>
 import { getApi } from '@/api/electron-bridge'
-import YixiaoerModuleNav from '@/layouts/YixiaoerModuleNav.vue'
-import YixiaoerSidebar from '@/layouts/YixiaoerSidebar.vue'
+import MpModuleNav from '@/layouts/MpModuleNav.vue'
+import MpSidebar from '@/layouts/MpSidebar.vue'
 import TabBar from '@/components/TabBar.vue'
 import NavBar from '@/components/NavBar.vue'
 import OfflineIndicator from '@/components/OfflineIndicator.vue'
 import UpdateNotification from '@/components/UpdateNotification.vue'
 import SettingsDialog from '@/components/SettingsDialog.vue'
+import BackToTop from '@/components/BackToTop.vue'
 import PipelineBackgroundToast from '@/components/PipelineBackgroundToast.vue'
 import RouteLoadError from '@/components/RouteLoadError.vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
@@ -85,7 +87,7 @@ const { navigation, isHomeTab, activeTabId } = storeToRefs(tabStore)
 const accountActions = useAccountActions()
 const { t } = useI18n()
 
-// ── 登录标签（蚁小二式全屏登录视图）──
+// ── 登录标签（参考产品式全屏登录视图）──
 // 「保存账号」按钮显示条件：认证登录标签（isLogin）或账号浏览器标签（accountId，
 // 首页批量登录打开的普通标签，同样需要手动保存凭证入口）
 const isLoginTab = computed(() => {
@@ -255,8 +257,8 @@ body { margin: 0; padding: 0; }
 html, body { height: 100%; overflow: hidden; }
 #app { height: 100%; }
 .app-root { height: 100%; display: flex; flex-direction: column; }
-.yixiaoer-shell { min-height: 0; flex: 1; display: flex; min-width: 0; overflow: hidden; background: #f7f7fb; }
-.yixiaoer-shell-main { min-width: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-.yixiaoer-workspace { min-width: 0; min-height: 0; flex: 1; overflow: auto; }
+.mp-shell { min-height: 0; flex: 1; display: flex; min-width: 0; overflow: hidden; background: #f7f7fb; }
+.mp-shell-main { min-width: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.mp-workspace { min-width: 0; min-height: 0; flex: 1; overflow: auto; }
 .fullscreen-main { min-height: 0; flex: 1; overflow: auto; }
 </style>

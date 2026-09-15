@@ -43,7 +43,7 @@ const exportedNames = [
   // 数据同步
   "syncAll", "syncPlatform",
   // 自动更新
-  "updateCheck", "updateDownload", "updateInstall", "onUpdateStatus",
+  "updateCheck", "updateDownload", "updateInstall", "updateInstallNow", "onUpdateStatus",
   // 全局存储
   "storeGetSetting", "storeSetSetting", "storeAddPublishRecord", "storeListPublishHistory",
   // OAuth
@@ -61,7 +61,7 @@ const exportedNames = [
   "offlineStatus", "offlineAddToCache", "offlineClearCache", "onOfflineRestored",
   // 通知
   "showNotification",
-  // 草稿箱（蚁小二复用）
+  // 草稿箱（参考产品复用）
   "draftSave", "draftList", "draftDelete",
   "story2videoImportMedia", "story2videoExportZip", "story2videoCreateShareUrl",
   "story2videoCopyPath", "story2videoShowInFolder", "story2videoSaveAs", "story2videoListProjects",
@@ -143,6 +143,7 @@ publishWechat: { args: [{ title: "t", content: "c" }], fallback: undefined, retu
   updateCheck: { args: [], fallback: {}, returns: "object" },
   updateDownload: { args: [], fallback: {}, returns: "object" },
   updateInstall: { args: [], fallback: {}, returns: "object" },
+  updateInstallNow: { args: [], fallback: {}, returns: "object" },
   onUpdateStatus: { args: [vi.fn()], fallback: undefined, returns: "function" },
   storeGetSetting: { args: ["theme"], fallback: null, returns: "null" },
   storeSetSetting: { args: ["theme", "dark"], fallback: undefined, returns: "undefined" },

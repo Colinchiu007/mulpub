@@ -104,18 +104,18 @@ describe('像素视觉门禁合同', () => {
   it('发布页必须等待异步平台选项后截图', () => {
     const publishView = viewRunner.viewTests.find(test => test.name === 'publish-form')
 
-    expect(publishView.waitFor).toBe('.yixiaoer-workspace .target-selector [data-testid^="platform-"]')
+    expect(publishView.waitFor).toBe('.mp-workspace .target-selector [data-testid^="platform-"]')
     expect(publishView.checks).toEqual(expect.arrayContaining([
       expect.objectContaining({
         name: '页面主标题',
-        selector: '.yixiaoer-workspace .page-title:has-text("一键发布")',
+        selector: '.mp-workspace .page-title:has-text("一键发布")',
       }),
       expect.objectContaining({
         name: '发布目标平台已加载',
-        selector: '.yixiaoer-workspace .target-selector [data-testid^="platform-"]',
+        selector: '.mp-workspace .target-selector [data-testid^="platform-"]',
       }),
     ]))
-    expect(pixelRunnerSource).toContain("waitFor: '.yixiaoer-workspace .target-selector [data-testid^=\"platform-\"]'")
+    expect(pixelRunnerSource).toContain("waitFor: '.mp-workspace .target-selector [data-testid^=\"platform-\"]'")
     expect(pixelRunnerSource).not.toContain('.el-checkbox-group .el-checkbox')
   })
 

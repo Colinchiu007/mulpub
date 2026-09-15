@@ -7,7 +7,7 @@
  *
  * 涵盖方法（与原 preload.js 完全一致，不改变方法名/IPC 通道/参数顺序）：
  *   - 系统：getVersion / getPlatform
- *   - 自动更新：updateCheck / updateDownload / updateInstall / onUpdateStatus
+ *   - 自动更新：updateCheck / updateDownload / updateInstall / updateInstallNow / onUpdateStatus
  *   - 首次运行引导：firstRunCheck / onFirstRunStatus
  *   - 平台配置：platformList / platformGet / getPlatformDefinitions
  *   - 敏感词预检：sensitiveCheck / sensitiveReplace
@@ -62,6 +62,8 @@ function createSystemApi(ipcRenderer) {
     updateCheck: () => ipcRenderer.invoke('update:check'),
     updateDownload: () => ipcRenderer.invoke('update:download'),
     updateInstall: () => ipcRenderer.invoke('update:install'),
+    // 侧边栏「新版本」入口：未下载则先下载，下载完成后自动退出并安装
+    updateInstallNow: () => ipcRenderer.invoke('update:install-now'),
     onUpdateStatus: (callback) => {
       const handler = (_event, payload) => callback(payload)
       ipcRenderer.on('update:status', handler)
@@ -270,6 +272,7 @@ function createSystemApi(ipcRenderer) {
     opsCenterSyncNow: () => ipcRenderer.invoke('ops-center-sync:now'),
     opsCenterSyncRuntime: () => ipcRenderer.invoke('ops-center-sync:runtime'),
     opsCenterSyncPipelineOptions: () => ipcRenderer.invoke('ops-center-sync:pipelineOptions'),
+    opsCenterSyncAppMenu: () => ipcRenderer.invoke('ops-center-sync:appMenu'),
     modelProviderGet: (id) => ipcRenderer.invoke('model-provider:get', id),
     modelProviderCreate: (data) => ipcRenderer.invoke('model-provider:create', data),
     modelProviderUpdate: (id, data) => ipcRenderer.invoke('model-provider:update', id, data),

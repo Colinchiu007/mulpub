@@ -58,10 +58,10 @@ jobs:
           if ($errors -gt 0) { exit 1 }
           Write-Host "All Electron JS files pass syntax check"
 
-      # --- Gate 2b: 桌面 dev 启动脚本单测（worktree 独立端口/退出留痕回归保护）---
+      # --- Gate 2b: 桌面 dev 启动脚本单测（worktree 独立端口/退出留痕/Electron 环境净化回归保护）---
       - name: "Gate 2b - Desktop dev scripts (node --test)"
         run: |
-          node --test apps/desktop/scripts/dev-ports.test.js apps/desktop/scripts/dev-launcher.test.js apps/desktop/scripts/dev-exit-log.test.js
+          node --test apps/desktop/scripts/dev-ports.test.js apps/desktop/scripts/dev-launcher.test.js apps/desktop/scripts/dev-exit-log.test.js apps/desktop/scripts/electron-runtime-env.test.js
 
       # --- Gate 3: 硬编码密钥扫描（同时执行 CI workflow 契约测试）---
       - name: "Gate 3 - Hardcoded secrets scan"
@@ -100,6 +100,25 @@ jobs:
         run: |
           node --test .github/scripts/check-frontend-consistency.test.js
           node .github/scripts/check-frontend-consistency.js
+
+      # --- Gate 11: ESLint（error 级门禁；warning 不阻断，走 pnpm run lint:warnings 观察）---
+      # 2026-09-14 接入：接入前 main 存活 17 个 error 长期无人暴露（含 4 个 no-undef 真 bug）。
+      # 与本地 `pnpm run lint`（--quiet）同口径；生成物 preload bundle 已在 eslint.config.mjs ignores 排除。
+      - name: "Gate 11 - ESLint (error-level gate)"
+        run: |
+          cd apps/desktop
+          pnpm exec eslint electron/ src/ --quiet
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # --- Gate 12: 品牌残留门禁（naming-normalization：防止参考产品品牌词再次进入仓库）---
+      # 2026-09-15 接入：字节级（latin1 保真）扫描全部 tracked 文本文件，兼容含 NUL 字节与非 UTF-8 文件；
+      # 跳过锁文件与二进制扩展名；品牌词按码点构造进正则（门禁脚本自身零字面品牌词）；
+      # 唯一豁免第三方远程签名服务域名（signer.js 默认端点，发布链路硬依赖）。
+      # 本地同口径：node scripts/check-no-brand-residue.js
+      - name: "Gate 12 - Brand residue (naming normalization)"
+        run: |
+          node scripts/check-no-brand-residue.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   unit-tests:
     name: QG Unit Tests

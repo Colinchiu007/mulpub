@@ -1,0 +1,5 @@
+ROLE_FILE: C:/Users/邱领/.claude/.ccg/prompts/antigravity/reviewer.md
+<TASK>
+审查当前工作树中针对视觉门禁账号页选择器和账号页基线的变更。检查测试合同、基线更新是否与预期 UI 改版一致，并按 Critical/Warning/Info 输出。若 agy 不可用，记录真实错误。
+</TASK>
+OUTPUT: Critical/Warning/Info 分级审查报告。

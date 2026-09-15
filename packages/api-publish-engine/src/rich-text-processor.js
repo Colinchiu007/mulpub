@@ -1,4 +1,4 @@
-// 富文本处理器 — 话题/@好友占位符替换 (提取自蚁小二 RichTextProcessor)
+// 富文本处理器 — 话题/@好友占位符替换 (提取自参考产品 RichTextProcessor)
 
 function readAttribute (attributes, name) {
   const re = /(?:^|\s)([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g

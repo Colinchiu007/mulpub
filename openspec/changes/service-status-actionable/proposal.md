@@ -38,5 +38,5 @@
   - `apps/desktop/src/api/services.js`、`src/stores/serviceStatus.js`、`src/components/SidebarServiceStatus.vue`
   - `apps/desktop/src/locales/zh.js` + `en.js`（成对新增文案）
 - 权限：`services:restart` 不进入 `PUBLIC_CHANNELS` / `PUBLIC_METHODS`，保持 authenticated 写操作语义；`services:get-status` 维持未登录可见。
-- 测试：`services.test.js`、`serviceStatus.test.js`、`SidebarServiceStatus.test.js`、`YixiaoerSidebar.test.js`、`preload.test.js`
+- 测试：`services.test.js`、`serviceStatus.test.js`、`SidebarServiceStatus.test.js`、`MpSidebar.test.js`、`preload.test.js`
 - 文档：`01-docs/PRD-SERVICE-STATUS-PANEL-2026-09-12.md` §8、本 change

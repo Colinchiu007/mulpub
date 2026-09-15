@@ -1,0 +1,12 @@
+{
+  "id": "mp-account-sort-status-parity",
+  "title": "补齐参考产品账号排序与登录状态可见性合同",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "已归档",
+  "createdAt": "2026-08-04T00:00:00Z",
+  "branch": "codex/mp-parity-followup-20260804"
+}

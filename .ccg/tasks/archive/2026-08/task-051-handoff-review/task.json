@@ -1,6 +1,6 @@
 {
   "id": "task-051-handoff-review",
-  "title": "审计 task-051 蚁小二 UE 改造与快手发布交接",
+  "title": "审计 task-051 参考产品 UE 改造与快手发布交接",
   "status": "completed",
   "complexity": "M",
   "risk": "medium",
@@ -8,7 +8,7 @@
   "currentPhase": "completed",
   "nextAction": "审查完成；真实快手发布、测试修复、UX change 与 PR 仍由后续开发任务处理",
   "createdAt": "2026-08-22T09:30:00+08:00",
-  "branch": "codex/yixiaoer-ue-parity-v2",
-  "worktree": "D:/Data/projects/mp-worktrees/mp-yixiaoer-ue-parity-v2",
+  "branch": "codex/mp-ue-parity-v2",
+  "worktree": "D:/Data/projects/mp-worktrees/mp-ue-parity-v2",
   "remoteStatus": "同名远端分支已推送；未发现 PR；相对 origin/main 落后 8、领先 3"
 }

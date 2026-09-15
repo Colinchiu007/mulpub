@@ -312,3 +312,25 @@ test('Quality Gate Gate 7 locale 卡点包含 key 存在性检查（i18n-user-fa
   assert.ok(fs.existsSync(path.join(__dirname, 'check-locale-sync.js')), 'check-locale-sync.js must exist');
   assert.ok(fs.existsSync(path.join(__dirname, 'check-locale-sync.test.js')), 'check-locale-sync.test.js must exist');
 });
+
+test('Quality Gate Gate 12 品牌残留门禁接线（naming-normalization）', () => {
+  const workflow = fs.readFileSync(qualityGatePath, 'utf8');
+  const gate = workflow.match(/- name: "Gate 12 - Brand residue[\s\S]*?(?=\r?\n\s*- name:|\r?\n  [a-z][-\w]*:)/)?.[0];
+  assert.ok(gate, 'Gate 12 workflow step must exist');
+  assert.match(gate, /node scripts\/check-no-brand-residue\.js/);
+  // Gate 12 必须位于 Gate 11 之后（静态门禁序列）
+  const gate11 = workflow.indexOf('Gate 11 - ESLint');
+  const gate12 = workflow.indexOf('Gate 12 - Brand residue');
+  assert.ok(gate11 >= 0 && gate12 > gate11, 'Gate 12 必须在 Gate 11 之后');
+  // 契约：门禁脚本必须真实存在
+  assert.ok(
+    fs.existsSync(path.join(__dirname, '..', '..', 'scripts', 'check-no-brand-residue.js')),
+    'checkpoint script must exist',
+  );
+  // 契约：门禁脚本自身不得包含品牌词字面量（按码点构造进正则，避免门禁自证违规）
+  const script = fs.readFileSync(path.join(__dirname, '..', '..', 'scripts', 'check-no-brand-residue.js'), 'utf8');
+  const brandFull = String.fromCharCode(0x79, 0x69, 0x78, 0x69, 0x61, 0x6f, 0x65, 0x72);
+  const brandAbbr = brandFull[0] + brandFull[2] + brandFull[6];
+  assert.doesNotMatch(script, new RegExp(brandFull, 'i'));
+  assert.doesNotMatch(script, new RegExp('(?<![A-Za-z])' + brandAbbr, 'i'));
+});

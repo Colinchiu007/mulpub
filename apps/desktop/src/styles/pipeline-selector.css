@@ -201,26 +201,8 @@
 .availability-badge.ready { background: var(--status-completed-bg); color: var(--status-completed-text); }
 .availability-badge.dev { background: var(--status-waiting-bg); color: var(--status-waiting-text); }
 
-/* 加载骨架屏 */
+/* 加载骨架屏：栅格与卡片外壳统一走 styles/skeleton.css 的 .mp-skeleton-grid / .mp-skeleton-card */
 .loading-state { padding: 20px 0; }
-
-.skeleton-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 16px;
-}
-
-.skeleton-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 16px 20px;
-}
-
-.skeleton-header { height: 20px; width: 60px; background: var(--skeleton-bg); border-radius: 4px; margin-bottom: 12px; }
-.skeleton-title { height: 24px; width: 80%; background: var(--skeleton-bg); border-radius: 4px; margin-bottom: 8px; }
-.skeleton-desc { height: 16px; width: 100%; background: var(--skeleton-bg); border-radius: 4px; margin-bottom: 12px; }
-.skeleton-meta { height: 16px; width: 60%; background: var(--skeleton-bg); border-radius: 4px; }
 
 /* 错误状态 */
 .error-state { text-align: center; padding: 40px 20px; color: var(--text-muted); }

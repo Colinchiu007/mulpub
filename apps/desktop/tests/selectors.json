@@ -146,8 +146,8 @@
                       "sidebarList":  ".cohere-sidebar-list",
                       "emptyState":  ".cohere-empty",
                       "sidebar":  ".cohere-sidebar",
-                      "yixiaoerHome":  ".yixiaoer-home",
-                      "yixiaoerHomeWelcome":  ".yixiaoer-home-welcome",
-                      "homeShortcut":  ".yixiaoer-home-shortcut"
+                      "mpHome":  ".mp-home",
+                      "mpHomeWelcome":  ".mp-home-welcome",
+                      "homeShortcut":  ".mp-home-shortcut"
                   }
 }

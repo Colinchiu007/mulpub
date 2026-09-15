@@ -126,7 +126,7 @@ class PatternExtractionService {
     try {
       parsed = JSON.parse(cleaned)
     } catch (e) {
-      throw new Error('pattern JSON parse failed: ' + (e && e.message))
+      throw new Error('pattern JSON parse failed: ' + (e && e.message), { cause: e })
     }
     if (!parsed || typeof parsed !== 'object') throw new Error('pattern response not an object')
 

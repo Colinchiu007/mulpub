@@ -40,7 +40,7 @@
 
 ## 6. 质量与交付
 
-- [x] 6.1 相关套件回归：ipc-handlers/services、stores/serviceStatus、components/SidebarServiceStatus、layouts/YixiaoerSidebar、electron/preload、electron/services/base-python-bridge、electron/tests/ipc-contract、electron/tests/build-preload 全绿
+- [x] 6.1 相关套件回归：ipc-handlers/services、stores/serviceStatus、components/SidebarServiceStatus、layouts/MpSidebar、electron/preload、electron/services/base-python-bridge、electron/tests/ipc-contract、electron/tests/build-preload 全绿
 - [x] 6.2 eslint 对改动文件 0 error 0 warning
 - [x] 6.3 `preload.test.js` 合并键数断言 320 → 321
 - [x] 6.4 文档：PRD-SERVICE-STATUS-PANEL §8 增强记录 + 本 openspec change

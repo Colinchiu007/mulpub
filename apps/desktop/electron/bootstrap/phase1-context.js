@@ -408,6 +408,10 @@ function extractContext(container) {
       statsProvider: (_templateId) => null,
       log,
     })
+    // CCG 评审修复：接入 governance.runGates 门禁（6 规则），解决 governance↔memory 循环依赖
+    if (promptMemory && typeof promptMemory._setGate === 'function') {
+      promptMemory._setGate((tpl) => governance.runGates(tpl))
+    }
   }
 
   // ─── 平台配置 + 敏感词 + 横切服务 ───

@@ -1,0 +1,5 @@
+ROLE_FILE: C:/Users/邱领/.claude/.ccg/prompts/claude/reviewer.md
+<TASK>
+审查当前工作树相对于 HEAD 的全部变更，重点关注账号管理、发布、历史、Electron preload/IPC、UI 交互、测试与文档。请先运行 git diff --check，并按 Critical/Warning/Info 输出问题；若无法启动外部模型或命令不存在，必须明确写出失败原因，不要假装通过。
+</TASK>
+OUTPUT: Critical/Warning/Info 分级审查报告，附文件和行号。

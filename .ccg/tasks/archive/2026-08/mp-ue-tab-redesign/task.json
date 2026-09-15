@@ -1,0 +1,12 @@
+{
+  "id": "mp-ue-tab-redesign",
+  "title": "参考产品 UE 重构：浏览器式标签系统 + 登录流程改造",
+  "status": "in_progress",
+  "complexity": "L+",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "analysis",
+  "nextAction": "分析完成，开始实施",
+  "createdAt": "2026-08-10T10:00:00Z",
+  "branch": "main"
+}

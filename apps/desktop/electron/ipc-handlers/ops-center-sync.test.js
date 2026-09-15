@@ -20,7 +20,7 @@ describe('ops-center-sync IPC handlers', () => {
 
   beforeEach(() => { registerHandlers = require('./ops-center-sync').registerHandlers })
 
-  it('注册 get/save/now/runtime/pipelineOptions 五个通道并透传服务结果', async () => {
+  it('注册 get/save/now/runtime/pipelineOptions/appMenu 六个通道并透传服务结果', async () => {
     const { ipcMain, call, handlers } = makeIpcMain()
     const opsCenterSync = {
       getConfig: vi.fn(() => ({ url: 'https://ops.example.com', apiKeyConfigured: true, autoSync: true, lastSyncedAt: 't1' })),
@@ -28,10 +28,11 @@ describe('ops-center-sync IPC handlers', () => {
       syncNow: vi.fn(async () => ({ code: 0, updated: 3, syncedAt: 't2' })),
       getRuntimeState: vi.fn(() => ({ announcements: [], updatePolicy: null, contentPolicy: null, syncedAt: '' })),
       getPipelineOptions: vi.fn(() => ({ visibility: { 'basic.resolution': true }, defaults: { 'basic.resolution': '1920x1080' } })),
+      getAppMenu: vi.fn(() => ({ items: [{ key: 'home', visible: false, sort_order: 0 }], syncedAt: 't1' })),
     }
     registerHandlers(ipcMain, { opsCenterSync, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
 
-    expect(Object.keys(handlers).sort()).toEqual(['ops-center-sync:get', 'ops-center-sync:now', 'ops-center-sync:pipelineOptions', 'ops-center-sync:runtime', 'ops-center-sync:save'])
+    expect(Object.keys(handlers).sort()).toEqual(['ops-center-sync:appMenu', 'ops-center-sync:get', 'ops-center-sync:now', 'ops-center-sync:pipelineOptions', 'ops-center-sync:runtime', 'ops-center-sync:save'])
 
     const get = await call('ops-center-sync:get')
     expect(get.code).toBe(0)

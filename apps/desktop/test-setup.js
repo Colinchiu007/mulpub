@@ -14,13 +14,10 @@
 const Module = require('module')
 
 // ─── 语言确定性 ───
-// 测试环境固定系统语言为 zh-CN，避免 i18n 系统语言检测（user-facing-messages 规范）
-// 随 jsdom navigator.language（通常 en-US）漂移，保证中文文案断言可复现。
-try {
-  if (typeof navigator !== 'undefined') {
-    Object.defineProperty(navigator, 'language', { value: 'zh-CN', configurable: true })
-  }
-} catch (_) {}
+// 测试环境固定系统语言为 zh-CN（user-facing-messages 规范），保证中文文案断言可复现。
+// 该赋值已抽到 setupFiles 的**第一项** test-setup-locale.js：本文件顶部的 import 会被
+// ESM 提升到文件体之前执行，若写在这里，任何在顶部 import 链里加载 @/i18n 的组件
+// （如 UiSkeleton.vue）都会先按 jsdom 默认 en-US 初始化 locale，导致默认语言漂移。
 
 // ─── electron mock 单例 ───
 const electronMock = {
@@ -254,13 +251,15 @@ global.__resetElectronMock = resetElectronMock
 // 不在此处自动调用 reset，避免干扰测试文件自己的 beforeEach 顺序
 
 // ─── 全局组件注册（镜像 main.js 的全局注册） ───
-// 确保 <EmptyState>/<LoadingState> 在单测中可被解析，与运行态一致。
+// 确保 <EmptyState>/<LoadingState>/<UiSkeleton> 在单测中可被解析，与运行态一致。
 // 否则 3.3 收编的视图测试会因组件无法解析而断言失败。
 import { config as vtConfig } from '@vue/test-utils'
 import EmptyState from './src/components/EmptyState.vue'
 import LoadingState from './src/components/LoadingState.vue'
+import UiSkeleton from './src/components/UiSkeleton.vue'
 vtConfig.global.components = {
   ...(vtConfig.global.components || {}),
   EmptyState,
   LoadingState,
+  UiSkeleton,
 }

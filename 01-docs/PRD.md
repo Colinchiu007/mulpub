@@ -1,4 +1,4 @@
-# PROJECT-003：多平台一键发布 — PRD> **立项日期**: 2026-06-03> **最后更新**: 2026-08-27> **当前版本**: v2.3.60 (2026-08-27) | **上一版本**: v2.3.59 (2026-08-27)> **功能文档**: [PRD-MODEL-PROVIDER-TEST-REAL-CALL.md](./PRD-MODEL-PROVIDER-TEST-REAL-CALL.md)（模型设置测试按钮-真实API调用验证） | [PRD-SERVICE-STATUS-PANEL-2026-09-12.md](./PRD-SERVICE-STATUS-PANEL-2026-09-12.md)（侧边栏服务状态面板：六服务真实状态 + 客户端登录态）> **产品定位**: 为内容生产者提供"采集 → 改写 → 发布"全流程闭环的一键发布桌面工具> **目标用户**: 自媒体运营者、MCN 机构、企业内容团队> **技术架构**: Electron 33 + Vue 3 + Python FastAPI + RpaViewManager RPA（Monorepo）> **需求确认**: ✅ CEO 已签字（见 [REQUIREMENTS-SIGNOFF.md](./REQUIREMENTS-SIGNOFF.md)）> **市场调研**: [MARKET-RESEARCH.md](./MARKET-RESEARCH.md) | **设计评审**: [DESIGN-REVIEW.md](./DESIGN-REVIEW.md)---## 一、产品概述### 1.1 核心价值内容生产者每天需要在多个平台发布相同或相似的内容。手动操作耗时、易出错、格式不统一。PROJECT-003 提供：1. **统一入口**：一个桌面应用管理所有平台的发布2. **自动适配**：通过 RPA 自动化填表发布，适配各平台 UI3. **异步队列**：后台批量发布，实时追踪状态4. **Cookie 管理**：安全存储各平台登录凭证5. **定时发布**：设定时间自动发布6. **平台分类**：短视频/图文/混合三类，发布策略自动适配7. **单 RPA 引擎**：RpaViewManager（Electron 原生 executeJavaScript）统一引擎### 1.2 产品边界| 范围 | 说明 ||------|------|||| ✅ 微信公众号 | RPA 发布，支持草稿编辑 → 群发 |||| ✅ 知乎 | RPA 文章发布 + 话题标签 |||| ✅ 微博 | RPA 图文发布 |||| ✅ 抖音 | RPA 图文/视频发布 |||| ✅ 小红书 | RPA 标题+正文+标签 |||| ✅ 视频号 | RPA 视频/图文发布 |||| ✅ 快手 | RPA 视频/图文发布 |||| ✅ 今日头条 | RPA 图文/视频发布 |||| ✅ YouTube | RPA 视频发布 |||| ✅ TikTok | RPA 视频发布 |||| ✅ Twitter/X | RPA 图文发布 |||| ✅ B站 | API+RPA 双模式，专栏/视频发布 |||| ✅ Instagram | RPA 图片/视频/Reels 发布 |||| ✅ Facebook | RPA 图文/视频/链接发布 |||| ✅ 包含 | AI 视频/图像/音频创作（OpenMontage 集成）、Pipeline 管线编排、Remotion 渲染 |||| ✅ 不包含 | 掘金、CSDN（由 PROJECT-002 负责）、✅ 内容聚合改写（Phase 1 集成中，PR #1496） |---## 二、平台策略### 2.1 平台支持矩阵| 平台 | 优先级 | 技术路线 | 状态 ||------|--------|----------|------|| **微信公众号** | P0 | RPA | ✅ v1.0.0 || **抖音** | P0 | API + RPA 双模式（API 优先，RPA 降级） | ✅ v1.2.0 || **知乎** | P1 | RPA | ✅ v1.0.0 || **微博** | P2 | RPA | ✅ v1.0.0 || **B站** | P1 | RPA + API | ✅ v2.0.0 || **小红书** | P1 | RPA | ✅ v2.0.0 || **抖音** | P2 | RPA | ✅ v1.0.0 || **小红书** | P4 | RPA | ✅ v1.0.0 || **视频号** | P1 | RPA | ✅ v1.0.2 || **快手** | P1 | RPA | ✅ v1.0.2 || **今日头条** | P1 | RPA | ✅ v1.0.3 || **YouTube** | P1 | RPA | ✅ v1.0.3 || **TikTok** | P1 | RPA | ✅ v1.0.3 || **Twitter/X** | P2 | RPA | ✅ v1.3.0 || **B站** | P1 | API+RPA 双模式 | ✅ v1.0.13 || **Instagram** | P2 | RPA | ✅ v1.3.0 || **Facebook** | P2 | RPA | ✅ v1.3.0 || **百家号** | P1 | RPA | ✅ v1.1.0 |### 2.2 技术路线所有平台支持 **RpaViewManager**（Electron 原生 executeJavaScript）模拟浏览器操作，通过 Cookie 保持登录状态。所有平台统一使用 **RpaViewManager**（隐藏 BrowserWindow + executeJavaScript），无需独立浏览器进程。Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 API 模式使用。**统一发布路由：**1. **RpaViewManager executeJavaScript RPA** — 所有平台（隐藏 BrowserWindow + CDP 文件上传）2. **Python 后端 API** — 预留，B 站 API 模式**三种认证模式：**1. **独立窗口登录** — 独立 BrowserWindow 承载 WebContentsView（AuthViewManager，2026-09-08 由内嵌改为独立窗口，修复账号页顶部多层重叠）2. **隐藏 BrowserWindow 静默验证** — 后台恢复 Cookie 检测登录态（loginSilent）3. **扫码登录** — 二维码自动检测（QrCodeLogin）### 2.3 用户认证与账号管理 (User Auth & Account Management)用户认证系统管理所有平台的登录凭证，支持 Cookie/Token/OAuth 三种认证模式。| Feature | Description | Priority | Status ||---------|-------------|----------|--------|| Platform Binding | Cookie/Token/OAuth account binding | P0 | Done || Secure Storage | AES-256-GCM encrypted store | P0 | Done || OAuth 2.0 | YouTube/TikTok OAuth flow | P2 | Done || QR Login | Auto-detect + scan to login | P2 | Done || Multi-account | Multiple accounts per platform | P1 | Done || Expiry Monitor | Auto-detect cookie expiration | P1 | Done || Re-login | One-click re-login flow | P1 | Done |---## 三、功能需求### 3.1 核心功能#### F1：平台账号管理| 子功能 | 描述 | 状态 ||--------|------|------|| 添加平台 | 选择平台类型，打开浏览器窗口完成登录 | ✅ || Cookie 加密 | 所有 Cookie AES-256-GCM 加密存储 | ✅ || 登录状态检测 | 每 30 分钟定期检测 Cookie 是否过期（login-status-monitor，v2.3.43），支持一键重新登录 | ✅ v2.3.43 || 多账号支持 | **同平台管理多个账号**，侧栏下拉切换，发布时选账号 | ✅ || 默认账号 | 每个平台可设默认账号，发布时自动使用 | ✅ || 扫码登录 | 微信生态平台二维码自动检测+扫码登录（img/canvas 策略） | ✅ || OAuth 2.0 认证 | YouTube/TikTok/微博/抖音 API Token 授权 | ✅ || 独立窗口登录 | 独立 BrowserWindow 承载 WebContentsView 登录，凭证捕获能力不变（2026-09-08 由内嵌改为独立窗口） | ✅ |#### F2：内容发布| 子功能 | 描述 | 状态 ||--------|------|------|| 单篇发布 | 手动输入标题 + 内容 → 选择平台 + 账号 → 发布 | ✅ || 批量发布 | 选择多平台 → 一次点击全部发布 | ✅ || **多账号同时发** | **同平台选多个账号，一次发到所有账号** | ✅ || 定时发布 | 设置发布时间 → 后台定时任务执行（持久化，重启恢复） | ✅ || 富文本编辑器 | Quill 编辑器，支持格式、图片、排版 | ✅ || 批量编辑模式 | 多篇文章同时编辑，每篇独立选平台+定时 | ✅ || 批量复制 | 复制已有文章作为模板 | ✅ |#### F3：发布任务管理| 子功能 | 描述 | 状态 ||--------|------|------|| 任务队列 | 并发3任务执行 + 自动重试（可配置） | ✅ || 任务中断恢复 | 进程崩溃后恢复未完成队列（JSON 持久化） | ✅ || 任务取消 | 取消等待中或执行中的任务 | ✅ || 实时进度 | IPC 推送发布进度（当前阶段/结果/错误） | ✅ || 结果通知 | 成功/失败通知 + 托盘闪烁告警 | ✅ || 重试机制 | 失败自动重试，通知重试进度 | ✅ |#### F4：分屏监控| 子功能 | 描述 | 状态 ||--------|------|------|| 多分屏布局 | 2/3/4/6 分屏实时监控多平台 | ✅ || 独立 Session | 每个 tab 独立 Cookie/Session 隔离 | ✅ || 实时回调 | HTTP POST 回调服务器（可配置端口，默认 :16521），59s 心跳（低于 60s 避免负载均衡断开） | ✅ || 评论/数据监控 | 回调记录自动写入 SQLite，前端实时展示 | ✅ |#### F5：内容采集| 子功能 | 描述 | 状态 ||--------|------|------|| 剪贴板导入 | 从剪贴板粘贴内容，自动提取标题+正文 | ✅ || URL 内容采集 | 输入链接自动提取 og:title/description/image | ✅ || 浏览器渲染采集 | HTTP 采集（P2-E 已移除 Playwright 降级） | ✅ || 草稿箱 | 保存/编辑/删除草稿，一键跳转到发布页 | ✅ |#### F6：发布历史与统计| 子功能 | 描述 | 状态 ||--------|------|------|| 历史记录 | SQLite 持久化发布历史 | ✅ || 统计看板 | 总发布数、各平台分布、成功率、趋势图 | ✅ || 历史筛选 | 按平台/时间/状态筛选 | ✅ || 发布后监控 | 发布完成后自动轮询平台审核状态 | ✅ |#### F6：视频创作（v2.0.0 — OpenMontage 集成）| 子功能 | 描述 | 状态 ||--------|------|------|| AI 视频生成 | 15+ 提供商：Hunyuan/Kling/Runway/VEO/WAN/CogVideo/MiniMax/Grok/HeyGen 等 | ✅ Phase 1-3 || AI 图像生成 | 14 提供商：Flux/DALL-E/Grok/Imagen/Recraft/Pixabay/Pexels/本地扩散 | ✅ Phase 1-3 || 语音合成 TTS | 5 提供商：ElevenLabs/OpenAI/豆包/Google/Piper（原 PRD 称 7 个，实际实现 5 个） | ✅ Phase 1-3（5/7） || 音乐生成 | 5 种：Suno/Pixabay/Freesound/音乐库/生成器 | ✅ Phase 1-3 || 视频分析 | 场景检测/人脸跟踪/帧采样/转写/视频理解 | ✅ Phase 4 || 绿幕合成/增强 | 绿幕处理/字幕生成/屏幕录制/人脸修复 | ✅ Phase 5 || Pipeline 编排 | 13 种视频制作管线（解释/电影/口播/数字人等） | ✅ Phase 6+7 || Remotion 渲染 | 13 种 Composition，Electron 后端渲染 | ✅ v1.0.0 || 图片提示词统一优化 | 所有图片提示词统一经 prompt-engine（8013）完成风格检测 → 改写 → 输出校验；Story2Video optimize 阶段不再直连默认 LLM（详见 PRD-video-creation §3.1.2.1） | ✅ 2026-08-09 |
+# PROJECT-003：多平台一键发布 — PRD> **立项日期**: 2026-06-03> **最后更新**: 2026-08-27> **当前版本**: v2.3.60 (2026-08-27) | **上一版本**: v2.3.59 (2026-08-27)> **功能文档**: [PRD-MODEL-PROVIDER-TEST-REAL-CALL.md](./PRD-MODEL-PROVIDER-TEST-REAL-CALL.md)（模型设置测试按钮-真实API调用验证） | [PRD-SERVICE-STATUS-PANEL-2026-09-12.md](./PRD-SERVICE-STATUS-PANEL-2026-09-12.md)（侧边栏服务状态面板：六服务真实状态 + 客户端登录态） | [PRD-SIDEBAR-BOTTOM-USER-MENU-2026-09-14.md](./PRD-SIDEBAR-BOTTOM-USER-MENU-2026-09-14.md)（侧边栏底部用户菜单：登录区下移为可展开 banner + 设置/升级 Pro 并入菜单 + 服务信息上移 + 模块导航右上角占位入口移除） | [PRD-SIDEBAR-UPDATE-ENTRY-2026-09-14.md](./PRD-SIDEBAR-UPDATE-ENTRY-2026-09-14.md)（侧边栏「新版本」入口：运行时更新提示 + 点击退出应用并安装 + 全局更新弹窗下线）> **产品定位**: 为内容生产者提供"采集 → 改写 → 发布"全流程闭环的一键发布桌面工具> **目标用户**: 自媒体运营者、MCN 机构、企业内容团队> **技术架构**: Electron 33 + Vue 3 + Python FastAPI + RpaViewManager RPA（Monorepo）> **需求确认**: ✅ CEO 已签字（见 [REQUIREMENTS-SIGNOFF.md](./REQUIREMENTS-SIGNOFF.md)）> **市场调研**: [MARKET-RESEARCH.md](./MARKET-RESEARCH.md) | **设计评审**: [DESIGN-REVIEW.md](./DESIGN-REVIEW.md)---## 一、产品概述### 1.1 核心价值内容生产者每天需要在多个平台发布相同或相似的内容。手动操作耗时、易出错、格式不统一。PROJECT-003 提供：1. **统一入口**：一个桌面应用管理所有平台的发布2. **自动适配**：通过 RPA 自动化填表发布，适配各平台 UI3. **异步队列**：后台批量发布，实时追踪状态4. **Cookie 管理**：安全存储各平台登录凭证5. **定时发布**：设定时间自动发布6. **平台分类**：短视频/图文/混合三类，发布策略自动适配7. **单 RPA 引擎**：RpaViewManager（Electron 原生 executeJavaScript）统一引擎### 1.2 产品边界| 范围 | 说明 ||------|------|||| ✅ 微信公众号 | RPA 发布，支持草稿编辑 → 群发 |||| ✅ 知乎 | RPA 文章发布 + 话题标签 |||| ✅ 微博 | RPA 图文发布 |||| ✅ 抖音 | RPA 图文/视频发布 |||| ✅ 小红书 | RPA 标题+正文+标签 |||| ✅ 视频号 | RPA 视频/图文发布 |||| ✅ 快手 | RPA 视频/图文发布 |||| ✅ 今日头条 | RPA 图文/视频发布 |||| ✅ YouTube | RPA 视频发布 |||| ✅ TikTok | RPA 视频发布 |||| ✅ Twitter/X | RPA 图文发布 |||| ✅ B站 | API+RPA 双模式，专栏/视频发布 |||| ✅ Instagram | RPA 图片/视频/Reels 发布 |||| ✅ Facebook | RPA 图文/视频/链接发布 |||| ✅ 包含 | AI 视频/图像/音频创作（OpenMontage 集成）、Pipeline 管线编排、Remotion 渲染 |||| ✅ 不包含 | 掘金、CSDN（由 PROJECT-002 负责）、✅ 内容聚合改写（Phase 1 集成中，PR #1496） |---## 二、平台策略### 2.1 平台支持矩阵| 平台 | 优先级 | 技术路线 | 状态 ||------|--------|----------|------|| **微信公众号** | P0 | RPA | ✅ v1.0.0 || **抖音** | P0 | API + RPA 双模式（API 优先，RPA 降级） | ✅ v1.2.0 || **知乎** | P1 | RPA | ✅ v1.0.0 || **微博** | P2 | RPA | ✅ v1.0.0 || **B站** | P1 | RPA + API | ✅ v2.0.0 || **小红书** | P1 | RPA | ✅ v2.0.0 || **抖音** | P2 | RPA | ✅ v1.0.0 || **小红书** | P4 | RPA | ✅ v1.0.0 || **视频号** | P1 | RPA | ✅ v1.0.2 || **快手** | P1 | RPA | ✅ v1.0.2 || **今日头条** | P1 | RPA | ✅ v1.0.3 || **YouTube** | P1 | RPA | ✅ v1.0.3 || **TikTok** | P1 | RPA | ✅ v1.0.3 || **Twitter/X** | P2 | RPA | ✅ v1.3.0 || **B站** | P1 | API+RPA 双模式 | ✅ v1.0.13 || **Instagram** | P2 | RPA | ✅ v1.3.0 || **Facebook** | P2 | RPA | ✅ v1.3.0 || **百家号** | P1 | RPA | ✅ v1.1.0 |### 2.2 技术路线所有平台支持 **RpaViewManager**（Electron 原生 executeJavaScript）模拟浏览器操作，通过 Cookie 保持登录状态。所有平台统一使用 **RpaViewManager**（隐藏 BrowserWindow + executeJavaScript），无需独立浏览器进程。Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 API 模式使用。**统一发布路由：**1. **RpaViewManager executeJavaScript RPA** — 所有平台（隐藏 BrowserWindow + CDP 文件上传）2. **Python 后端 API** — 预留，B 站 API 模式**三种认证模式：**1. **独立窗口登录** — 独立 BrowserWindow 承载 WebContentsView（AuthViewManager，2026-09-08 由内嵌改为独立窗口，修复账号页顶部多层重叠）2. **隐藏 BrowserWindow 静默验证** — 后台恢复 Cookie 检测登录态（loginSilent）3. **扫码登录** — 二维码自动检测（QrCodeLogin）### 2.3 用户认证与账号管理 (User Auth & Account Management)用户认证系统管理所有平台的登录凭证，支持 Cookie/Token/OAuth 三种认证模式。| Feature | Description | Priority | Status ||---------|-------------|----------|--------|| Platform Binding | Cookie/Token/OAuth account binding | P0 | Done || Secure Storage | AES-256-GCM encrypted store | P0 | Done || OAuth 2.0 | YouTube/TikTok OAuth flow | P2 | Done || QR Login | Auto-detect + scan to login | P2 | Done || Multi-account | Multiple accounts per platform | P1 | Done || Expiry Monitor | Auto-detect cookie expiration | P1 | Done || Re-login | One-click re-login flow | P1 | Done |---## 三、功能需求### 3.1 核心功能#### F1：平台账号管理| 子功能 | 描述 | 状态 ||--------|------|------|| 添加平台 | 选择平台类型，打开浏览器窗口完成登录 | ✅ || Cookie 加密 | 所有 Cookie AES-256-GCM 加密存储 | ✅ || 登录状态检测 | 每 30 分钟定期检测 Cookie 是否过期（login-status-monitor，v2.3.43），支持一键重新登录 | ✅ v2.3.43 || 多账号支持 | **同平台管理多个账号**，侧栏下拉切换，发布时选账号 | ✅ || 默认账号 | 每个平台可设默认账号，发布时自动使用 | ✅ || 扫码登录 | 微信生态平台二维码自动检测+扫码登录（img/canvas 策略） | ✅ || OAuth 2.0 认证 | YouTube/TikTok/微博/抖音 API Token 授权 | ✅ || 独立窗口登录 | 独立 BrowserWindow 承载 WebContentsView 登录，凭证捕获能力不变（2026-09-08 由内嵌改为独立窗口） | ✅ |#### F2：内容发布| 子功能 | 描述 | 状态 ||--------|------|------|| 单篇发布 | 手动输入标题 + 内容 → 选择平台 + 账号 → 发布 | ✅ || 批量发布 | 选择多平台 → 一次点击全部发布 | ✅ || **多账号同时发** | **同平台选多个账号，一次发到所有账号** | ✅ || 定时发布 | 设置发布时间 → 后台定时任务执行（持久化，重启恢复） | ✅ || 富文本编辑器 | Quill 编辑器，支持格式、图片、排版 | ✅ || 批量编辑模式 | 多篇文章同时编辑，每篇独立选平台+定时 | ✅ || 批量复制 | 复制已有文章作为模板 | ✅ |#### F3：发布任务管理| 子功能 | 描述 | 状态 ||--------|------|------|| 任务队列 | 并发3任务执行 + 自动重试（可配置） | ✅ || 任务中断恢复 | 进程崩溃后恢复未完成队列（JSON 持久化） | ✅ || 任务取消 | 取消等待中或执行中的任务 | ✅ || 实时进度 | IPC 推送发布进度（当前阶段/结果/错误） | ✅ || 结果通知 | 成功/失败通知 + 托盘闪烁告警 | ✅ || 重试机制 | 失败自动重试，通知重试进度 | ✅ |#### F4：分屏监控| 子功能 | 描述 | 状态 ||--------|------|------|| 多分屏布局 | 2/3/4/6 分屏实时监控多平台 | ✅ || 独立 Session | 每个 tab 独立 Cookie/Session 隔离 | ✅ || 实时回调 | HTTP POST 回调服务器（可配置端口，默认 :16521），59s 心跳（低于 60s 避免负载均衡断开） | ✅ || 评论/数据监控 | 回调记录自动写入 SQLite，前端实时展示 | ✅ |#### F5：内容采集| 子功能 | 描述 | 状态 ||--------|------|------|| 剪贴板导入 | 从剪贴板粘贴内容，自动提取标题+正文 | ✅ || URL 内容采集 | 输入链接自动提取 og:title/description/image | ✅ || 浏览器渲染采集 | HTTP 采集（P2-E 已移除 Playwright 降级） | ✅ || 草稿箱 | 保存/编辑/删除草稿，一键跳转到发布页 | ✅ |#### F6：发布历史与统计| 子功能 | 描述 | 状态 ||--------|------|------|| 历史记录 | SQLite 持久化发布历史 | ✅ || 统计看板 | 总发布数、各平台分布、成功率、趋势图 | ✅ || 历史筛选 | 按平台/时间/状态筛选 | ✅ || 发布后监控 | 发布完成后自动轮询平台审核状态 | ✅ |#### F6：视频创作（v2.0.0 — OpenMontage 集成）| 子功能 | 描述 | 状态 ||--------|------|------|| AI 视频生成 | 15+ 提供商：Hunyuan/Kling/Runway/VEO/WAN/CogVideo/MiniMax/Grok/HeyGen 等 | ✅ Phase 1-3 || AI 图像生成 | 14 提供商：Flux/DALL-E/Grok/Imagen/Recraft/Pixabay/Pexels/本地扩散 | ✅ Phase 1-3 || 语音合成 TTS | 5 提供商：ElevenLabs/OpenAI/豆包/Google/Piper（原 PRD 称 7 个，实际实现 5 个） | ✅ Phase 1-3（5/7） || 音乐生成 | 5 种：Suno/Pixabay/Freesound/音乐库/生成器 | ✅ Phase 1-3 || 视频分析 | 场景检测/人脸跟踪/帧采样/转写/视频理解 | ✅ Phase 4 || 绿幕合成/增强 | 绿幕处理/字幕生成/屏幕录制/人脸修复 | ✅ Phase 5 || Pipeline 编排 | 13 种视频制作管线（解释/电影/口播/数字人等） | ✅ Phase 6+7 || Remotion 渲染 | 13 种 Composition，Electron 后端渲染 | ✅ v1.0.0 || 图片提示词统一优化 | 所有图片提示词统一经 prompt-engine（8013）完成风格检测 → 改写 → 输出校验；Story2Video optimize 阶段不再直连默认 LLM（详见 PRD-video-creation §3.1.2.1） | ✅ 2026-08-09 |
 | Python 聚合采集 | 后端 aggregation API（多源采集+AI改写），Phase 1 已集成 | ✅ v2.3.60 (PR #1496) |
 | 视频提示词统一优化 | 所有视频提示词的产出/改写/校验统一经 prompt-engine（8013）`domain=video`：videogen `videogen_generate` 前批量优化（数量/空项 fail-closed，未注入 PromptBridge 明确失败）、Story2Video 混合模式视频场景提示词改写后再提交 `generateVideo`（失败按混合语义回退图片轮播）；结构化 video 字段（shot/camera/motion_intensity/scene_transition/continuity_token）；契约文件 `video-prompt-engine-contract.js` 与图片契约分文件分命名（详见 PRD-video-creation §3.1.2.2） | ✅ 2026-08-12 || 视频创作历史本地模式 | 未登录可查看本机创作历史（本地只读 IPC 通道放行 + owner 隔离回退 __legacy__ + 本地模式提示条 + 失败原因可操作建议；详见 PRD-video-creation §3.1.4.1） | ✅ 2026-08-09 || Agnes 视频生成适配 | agnes-video-v2.0：提交 POST /v1/videos；状态查询 GET /agnesapi（域名根，非 /v1/agnesapi，2026-08-10 修复）；callAdapter 以 { videoId, taskId } 对象调用 getVideoStatus；流水线 merge 兼容 generate/merge/animate 上下文键（PR #476） | ✅ 2026-08-10 || videogen 生成选项生效 | animation/character-animation/avatar-spokesperson/hybrid 的生成参数（numFrames/frameRate/width/height + storyboard duration）经 stageOptions 真实作用于最终合成视频；2026-08-10 修复参数契约（num_frames 下划线丢失→双写）+ duration→帧数映射（PR 待合） | ✅ 2026-08-10 |#### F7：数据存储（SQLite）| 子功能 | 描述 | 状态 ||--------|------|------|| 账号存储 | accounts 表（含多账号、默认标记） | ✅ || 发布历史 | publish_history 表 | ✅ || 定时任务 | scheduled_tasks 表 | ✅ || 回调日志 | callback_logs 表 | ✅ || 批量任务 | batch_jobs 表 | ✅ || 设置存储 | settings 键值表（含队列状态持久化） | ✅ |#### F11：内容智能（v2.0.0）| 子功能 | 描述 | 状态 ||--------|------|------|| 热点趋势 | 实时热点话题追踪与推荐 | ✅ || 标题助手 | AI 生成/优化标题 | ✅ || 标签推荐 | 智能标签生成 | ✅ || 爆款分析 | 分析平台爆款内容特征 | ✅ v2.3.43（orchestrator + 本地 fallback） || AI Writer | AI 辅助写作面板 | ✅ || 关键词监控 | 监控关键词在各平台的表现 | ✅ |#### F12：多平台实时监控（v2.0.0）| 子功能 | 描述 | 状态 ||--------|------|------|| 多分屏布局 | 2/3/4/6 分屏实时监控 | ✅ || 独立 Session | 每个 tab 独立 Cookie/Session | ✅ || 实时回调 | HTTP POST 回调，59s 心跳 | ✅ |#### F13：评论管理（v2.0.0）| 子功能 | 描述 | 状态 ||--------|------|------|| 评论聚合 | 多平台评论统一管理 | ✅ v2.3.43（webview + IPC comment:list） || 评论回复 | 在应用内直接回复 | ✅ v2.3.43（IPC comment:reply + 后台轮询 comment:start-polling） |#### F14：云端发布（v2.0.0）| 子功能 | 描述 | 状态 ||--------|------|------|| 远程发布 API | HTTP API 触发发布 | ✅ || 任务队列 | 异步发布队列 | ✅ |#### F15：Pro 版本（v2.0.0）| 子功能 | 描述 | 状态 ||--------|------|------|| 许可证管理 | 离线验证 + 限时试用 | ✅ || 功能门禁 | Pro 功能按 license 解锁 | ✅ || 支付集成 | 支付宝/微信支付（当前为模拟模式，真实 SDK 预留接口） | ✅ 模拟模式 |#### F16：插件系统（v2.0.0）| 子功能 | 描述 | 状态 ||--------|------|------|| 插件 manifest | 声明式配置 | ✅ || 动态加载 | 运行时热加载 | ✅ || 生命周期钩子 | beforePublish/afterPublish + onLoad/onEnable/onDisable/onUnload | ✅ v2.3.43 |#### F17：日历与计划（v2.0.0）| 子功能 | 描述 | 状态 ||--------|------|------|| 发布日历 | 日历视图展示计划 | ✅ || 内容收藏 | 草稿/模板管理 | ✅ || 定时调度 | setTimeout 单次定时 + 持久化队列（非 cron，重启恢复） | ✅ setTimeout 模式 |#### F8：系统功能| 子功能 | 描述 | 状态 ||--------|------|------|| 系统托盘 | 最小化到托盘，后台运行，托盘菜单 | ✅ || 全局快捷键 | 6组快捷键：发布/监控/看板/采集/首页/退出 | ✅ || 自动更新 | 启动检测 GitHub Release，后台下载静默安装 | ✅ || 首次运行引导 | 自动检测 Python 依赖 | ✅ || 数据迁移 | JSONL → SQLite 迁移（migrateFromJsonl，v2.3.43 实现） | ✅ v2.3.43 || 静默登录验证 | 隐藏 BrowserWindow 后台验证 Cookie 有效性（loginSilent） | ✅ |#### F9：平台分类（v1.2.0, v2.3.43 完整实现）| 子功能 | 描述 | 状态 ||--------|------|------|| 平台分类枚举 | `PlatformCategory`：VIDEO / IMAGE_TEXT / MIXED（v2.3.43） | ✅ v2.3.43 || 分类映射 | 15 平台自动归类到三类（抖音/快手/视频号/B站/YouTube/TikTok=VIDEO） | ✅ v2.3.43 || API 透传 | `/api/platforms` + `platform:definitions` IPC 返回 content_categories 字段 | ✅ v2.3.43 || 前端显示 | platform store 暴露 getContentCategory / getPlatformsByContentCategory | ✅ v2.3.43 |#### F10：Electron 原生 RPA 引擎（v1.2.0）| 子功能 | 描述 | 状态 ||--------|------|------|| RpaViewManager | 隐藏 BrowserWindow + executeJavaScript RPA 引擎（P2-E 统一引擎） | ✅ || CDP 文件上传 | `DOM.setFileInputFiles` 绕过浏览器安全限制上传文件 | ✅ || DOM 操作工具集 | `_waitForElement` / `_fillInput` / `_click` / `_waitForCondition` | ✅ || 网络响应监控 | webRequest.onCompleted 网络响应监听 | ✅ || Playwright → RpaViewManager 全量迁移 | 15 平台从 Playwright 统一迁移到 RpaViewManager | ✅ || 每账号 Session 隔离 | `session.fromPartition()` 独立 Cookie 分区 | ✅ || 进度事件上报 | IPC rpa:progress → 前端实时展示 | ✅ || CDP/JS 双文件上传 | 大文件走 CDP，CDP 失败回退 JS File API / DataTransfer（v2.3.43） | ✅ v2.3.43 |#### F1a：内容编辑字段规范| 字段 | 最大长度 / 格式 | 说明 ||------|---------------|------|| **标题** | 各平台上限不同（微信 64、抖音 55、B站 80、微博 140） | 发布时按平台自动截断，超出字符弹窗警告 || **正文/HTML** | 30,000 字符 | HTML 白名单：p/br/strong/em/a/img/ul/ol/li/blockquote/h2-h4；自动过滤 script/style/iframe || **标签** | 每平台 2-10 个，每标签 ≤30 字符 | 自动去重、按平台上限截断，无合法标签时生成默认标签 || **封面图** | JPEG/PNG，≤5MB，1920×1080 以内 | sharp 中心裁剪 + 质量 85% 压缩；视频号/快手需 1:1 自动补边 || **视频** | MP4/H.264，≤4GB（平台差异：B站 8GB，抖音 2GB） | 超过平台上限时弹窗提示，不自动压缩 || **多图上传** | 每篇 ≤9 张，格式同封面图 | 按平台顺序上传，失败时跳过不阻塞发布 |**平台标题上限配置（config/platforms.yaml）：**`yamlplatforms:  wechat_mp: { title_max: 64, body_max: 30000, tags_max: 8, tag_length: 30, image_max: 9, video_max_mb: 1024 }  douyin:    { title_max: 55, body_max: 2000,  tags_max: 10, tag_length: 30, image_max: 35, video_max_mb: 2048 }  bilibili:  { title_max: 80, body_max: 20000, tags_max: 10, tag_length: 30, video_max_mb: 8192 }  # ... 其他平台`**发布前校验流程：**1. 读取目标平台配置 platforms.yaml 获取字段上限2. 对标题/正文/标签逐项校验，超限自动截断并记录日志3. 封面图自动压缩（sharp），视频仅检查大小不自动转换4. 校验失败项汇总弹窗，用户确认后继续或取消### 3.2 非功能需求|| 需求 | 指标 | 状态 |||------|------|------|| 并发发布 | 3 任务并发执行（maxConcurrent=3），每 RPA Tab ~80MB 内存，3 并发 + 主进程 < 500MB | ✅ || 离线运行 | 安装包自带 Chromium，无需联网；自动更新网络失败静默 | ✅ || 任务持久化 | SQLite 持久化队列状态，崩溃自动恢复 | ✅ ||| 数据加密 | Cookie AES-256-GCM 加密存储 | ✅ ||| 存储引擎 | SQLite（better-sqlite3） | ✅ ||| 跨平台 | Windows + Linux（macOS 待支持） | ✅ ||| 代码规范 | ESLint v9 flat config + Prettier，0 errors / 0 warnings | ✅ Phase C3 ||| 自动构建 | GitHub Actions 双平台 CI + 自动 Release | ✅ ||| 自动更新 | electron-updater，从 GitHub Release 拉取 | ✅ |#### 错误分类| 分类 | 编码 | 处理策略 ||------|------|---------|| 认证过期 | AUTH_EXPIRED | 检测到过期 -> 弹窗重新登录 || 网络超时 | NETWORK_TIMEOUT | 重试 3 次(指数退避) -> 最终报错 || 平台拒绝 | PLATFORM_REJECT | 不重试，记录原因到 task || RPA 失败 | RPA_FAILED | 截图保存 -> 降级 -> 人工接管 || 校验失败 | VALIDATION_FAILED | 弹窗提示具体原因 |#### 审计日志每次发布操作记录到 SQLite audit_log 表：| 字段 | 说明 ||------|------|| id(UUID), timestamp, user | 操作标识 || platform, account_id, action | 发布/重试/取消/删除 || content_hash(SHA-256), result | 成功/失败/部分 || error_code, duration_ms, metadata(JSON) | 错误分类/耗时/上下文 |保留策略：本地 90 天，超期自动归档。### 3.3 并发与资源约束 (Concurrency & Resource Constraints)系统资源约束定义了并发发布的最大容量，确保在有限硬件资源下稳定运行。| Resource | Limit | Notes ||----------|-------|-------|| Concurrent RPA tabs | Max 6 | 2/3/4/6 layout, ~400MB RAM per tab || Concurrent tasks | Max 3 per run | TaskQueue maxConcurrent=3 || Publish interval | 5 min min | Configurable per platform || Batch queue | No hard limit | Memory-bound, ~1MB per task || Electron main mem | ~200MB idle | Chromium + 25 services || WebSocket port | 16521 | Single instance, fallback on conflict || API timeout | Default 120s | Video platforms 300s |#### Rate Limiting（频率限制）- Per-platform: max 10 publishes/minute- Accounts: max 3 logins/minute per platform- API calls: respect upstream rate limits (TikHub, etc.)- Queue: tasks wait if limit exceeded---## 四、技术架构### 4.1 架构图```┌──────────────────────────────────────────────────┐│              apps/desktop/electron/               ││              Electron Shell + Vue 3 UI            ││  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌───────────┐│  │ 发布界面   │  │ 账号管理  │  │ 统计看板  │  │ 采集/监控  ││  └─────┬────┘  └────┬─────┘  └─────┬────┘  └──────┬────┘│        │            │              │              ││  ┌─────┴────────────┴──────────────┴─────┐│  │        IPC Bridge (preload.js)        ││  └────────────────┬──────────────────────┘│                   ││  ┌────────────────┼──────────────────────┐│  │    Task Queue  │   Scheduler          ││  │  (并发3,持久化)  │  (定时/恢复)          ││  │  @shared-utils                        ││  └────────────────┴──────────────────────┘│                   ││  ┌────────────────┴──────────────────────┐│  │     Publisher Registry                 ││  │   13 platforms (+B站)                  ││  │   + API+RPA 双模式                     ││  │   + OAuth 2.0 (YT/TT)                 ││  └────────────────┴──────────────────────┘│                   ││  ┌────────────────┴──────────────────────┐│  │     RPA Engine（统一引擎）               ││  │                                       ││  │  ┌─────────────────────────────┐      ││  │  │  RpaViewManager (Electron)  │      ││  │  │  15 platforms + B站         │      ││  │  │  隐藏 BrowserWindow         │      ││  │  │  + executeJavaScript        │      ││  │  │  + CDP 文件上传              │      ││  │  └─────────────────────────────┘      ││  │                                       ││  │  + WebviewManager（分屏）             ││  │  + QrCodeLogin（扫码登录）            ││  │  + CallbackServer（回调 :16521，config.yaml 可配）      ││  └───────────────────────────────────────┘││  ┌──────────────────────────────────────┐│  │  SQLite (better-sqlite3)             ││  │  ├─ accounts（含多账号）               ││  │  ├─ publish_history                  ││  │  ├─ scheduled_tasks                  ││  │  ├─ batch_jobs                       ││  │  ├─ callback_logs                    ││  │  └─ settings（队列持久化）              ││  └──────────────────────────────────────┘││  ┌──────────────────────────────────────┐│  │  System / UX                         ││  │  ├─ SystemTray（托盘）                ││  │  ├─ HotKeys（6组快捷键）               ││  │  ├─ AutoUpdater                      ││  │  └─ UrlCollector（URL采集）            ││  └──────────────────────────────────────┘└──────────────────────────────────────────────────┘```### 4.2 Monorepo 目录结构```multi-publish/├── apps/desktop/                # Electron 桌面应用│   ├── electron/                # Electron 主进程 + IPC│   │   ├── main.js              # 入口：窗口管理、IPC 注册│   │   ├── preload.js           # 预加载脚本（contextBridge）│   │   ├── store.js             # SQLite 统一存储（better-sqlite3）│   │   ├── webview-manager.js   # 分屏监控（P0）│   │   ├── auth-view-manager.js # 独立窗口登录（BrowserWindow + WebContentsView）│   │   ├── rpa-view-manager.js  # executeJavaScript RPA 引擎（v1.2.0）│   │   ├── callback-server.js   # 实时回调（P1）│   │   ├── qrcode-login.js      # 扫码登录（P2）│   │   ├── oauth-manager.js     # OAuth 2.0 认证│   │   ├── batch-manager.js     # 批量发布管理器│   │   ├── url-collector.js     # URL 内容采集│   │   ├── hotkeys.js           # 全局快捷键│   │   ├── system-tray.js       # 系统托盘│   │   ├── python-bridge.js     # Python 后端子进程管理│   │   ├── task-queue.js → packages/shared-utils│   │   ├── scheduler.js         # 定时发布│   │   ├── publish-history.js   # 发布记录│   │   ├── publish-monitor.js   # 发布后状态监控│   │   ├── account-state-restorer.js  # 账号状态恢复│   │   ├── credential-store.js  # 凭证加密存储│   │   ├── video-uploader.js    # 视频分片上传│   │   ├── content-aggregator-bridge.js  # 001 集成│   │   ├── api-platform-adapter.js  # API 模式适配器│   │   ├── auto-updater.js      # electron-updater│   │   └── first-run.js         # 首次运行引导│   ├── src/                     # Vue 3 前端│   │   ├── views/               # 页面：Home/Dashboard/Publish/Accounts/Collection/Monitor/FirstRun│   │   ├── components/          # 组件：ArticleEditor│   │   ├── api/                 # API 封装（publisher.js）│   │   ├── router/              # Vue Router│   │   ├── styles/              # Cohere 风格 CSS│   │   └── App.vue├── packages/│   ├── rpa-engine/              # RPA 引擎（独立 npm 包）│   │   ├── src/playwright-manager.js  # （已移除，P2-E）│   │   ├── src/cookie-store.js        # Cookie 存储│   │   ├── src/publishers/            # 平台注册（P2-E 简化）│   │   │   └── registry.js            # 平台注册 stub（已迁移到 RpaViewManager）│   │   └── package.json│   ├── shared-utils/          # 共享工具库│   │   ├── src/task-queue.js    # 任务队列（并发3+持久化）│   │   ├── src/aggregator-bridge.js  # 001 集成│   │   ├── src/format-adapter.js     # 格式适配器│   │   ├── src/cover-processor.js    # 封面处理│   │   └── package.json│   │   ├── src/aggregator-bridge.js  # PROJECT-001 集成│   │   └── package.json│   └── python-backend/        # Python 后端（FastAPI）│       ├── src/server.py        # FastAPI 入口│       ├── src/multi_publish/   # 核心模块│       │   ├── core/            # PublisherManager / QueryWorker / TaskScheduler│       │   └── publishers/      # Python 发布器（插件化）│       │       ├── platform_registry.py  # 动态注册表（JSON 驱动发现）│       │       ├── platforms.json        # 外部配置，新增平台只需加一行│       │       ├── base.py              # BasePublisher + async_retry│       │       ├── douyin.py            # 抖音（API+RPA 双模式）│       │       └── wechat_mp.py         # 微信公众号（RPA）│       └── pyproject.toml├── package.json               # 根 workspaces 配置└── .github/workflows/build.yml # CI/CD```### 4.3 发布器接口规范```javascript// 发布结果接口// interface PublishResult { success, error, partialResult, platformData, durationMs }class BaseRpaPublisher {  constructor() { /* 加载 Cookie, 初始化浏览器 Context */ }  async publishArticle({ title, content, coverUrl }) {    /* 登录态检查 → 导航到创作页 → 填写内容 → 发布 → 返回结果 */  }  async checkLoginStatus() { /* 打开平台检查 Cookie 是否有效 */ }  async cleanup() { /* 关闭浏览器 Context */ }  onProgress(callback) { /* 注册进度回调 */ }}// 所有平台发布器继承 BaseRpaPublisher，差异化部分覆盖```### 4.4 内容字段规范 (Content Field Specification)各平台对发布内容有不同字段限制。发布器在发送前自动按目标平台规则校验并截断/转换内容。| Field | Max Length | Format | Per-Platform Notes ||-------|-----------|--------|-------------------|| Title | 64 chars | Plain text, no HTML | WeChat(64), Weibo(140), Bilibili(80) || Content | 10000 chars | Markdown or HTML | WeChat public(20000), Weibo(10000) || Tags | 10 per article | Comma-separated | Douyin(10), Weibo(2), Bilibili(12) || Cover | 10MB max | JPG/PNG/WebP 16:9 | Douyin(9:16), WeChat(16:9) || Video | 500MB max | MP4/H.264 | Douyin(15min), Bilibili(4h) |#### Content Format Rules（内容格式规则）- HTML allowed tags: p, br, strong, em, a, img, blockquote- Script/iframe/object tags stripped before publish- External images auto-download and re-upload to platform CDN- Markdown converted to per-platform format via format-adapter---## 五、首次使用流程首次启动时，系统自动执行以下步骤：### 5.1 环境检测- [自动] 检测 Python 3.12+ → 安装 pip 依赖- [自动] 检测 Remotion 渲染引擎 → 安装缺失的 node_modules 依赖### 5.2 平台账号登录通过独立登录窗口（BrowserWindow 承载 WebContentsView）登录各发布平台，支持扫码登录（微信生态），Cookie 自动 AES-256-GCM 加密保存。### 5.3 模型服务商配置（必选）在「模型服务商设置」页配置 AI 模型的 API Key。支持 7 类模型：| 类别 | 用途 | 预设服务商 ||------|------|----------|| 推理模型 (LLM) | AI 写稿、标题生成、内容智能 | Anthropic / OpenAI / Gemini / OpenRouter / Ollama / 豆包 / DeepSeek || TTS 语音 | 视频配音、语音合成 | ElevenLabs / OpenAI TTS / 豆包 TTS / Google TTS / Piper || 语音识别 | 字幕生成、语音转文字 | OpenAI Whisper / Google STT / 豆包语音识别 / 百度语音识别 / 本地 Whisper || 图片生成 | 封面图、配图、AI 图像 | Flux / DALL-E / Recraft / Imagen / Grok Image / Pixabay / Pexels / 本地扩散 / ComfyUI || 视频模型 | AI 视频生成 | 混元 / CogVideo / Grok Video / HeyGen / Kling / Runway / Veo / Wan / MiniMax / LTX / Seedance / Higgsfield || 多模态模型 | 一个 API Key 覆盖文字推理/TTS/生图/视频等多个能力 | MiniMax（能力：文字推理 / TTS语音 / 生图 / 生成视频） |每个类别可添加多个服务商，并选择一个设为默认。### 5.4 模型类别与功能关联| 功能模块 | 依赖模型类别 | 说明 ||----------|------------|------|| AI 写稿 | 推理模型 | 视频脚本、文章改写、标题生成 || 标题助手 | 推理模型 | AI 生成/优化标题 || 内容智能 | 推理模型 | 内容分析、关键词提取、摘要生成 || 视频配音 | TTS 语音 | 文本转语音、多语言配音 || 字幕生成 | 语音识别 | 音频/视频转文字、字幕文件生成 || 封面生成 | 图片生成 | AI 生成封面图、配图 || 视频生成 | 视频模型 | 文本/图片生成视频片段 |### 5.5 开始使用完成引导后进入首页，即可使用发布、视频创作、内容智能等全部功能。> 详细流程见：**第 7-11 节**（视频创作 / 内容采集 / 内容智能 / 发布日历 / 云端发布）## 六、发布流程### 6.1 单平台发布1. 在富文本编辑器撰写文章（标题 + 正文 + 封面图）2. 选择目标平台3. 点击发布 → 任务加入队列 → RpaViewManager 自动化执行 → 结果通知### 6.2 多平台批量发布1. 撰写一篇文章2. 勾选多个平台（如微信+知乎+微博）3. 点击发布 → 每个平台依次执行 → 实时进度推送### 6.3 定时发布**约束：** 最大提前 30 天，同平台间隔 >= 5 分钟，使用本地时区，断网标记 missed。1. 撰写文章 + 选择平台2. 勾选「定时发布」→ 设置时间3. 到点时自动执行，支持 App 关闭后重启恢复4. 任务持久化在 `tasks/scheduled-tasks.jsonl`### 6.4 多平台批量发布（v1.1.0）1. 撰写一篇文章2. 勾选 2-10 个平台3. 点击发布 → 每个平台依次执行（队列顺序） → 失败自动重试 2 次 → 全部完成4. 发布失败平台不影响其他平台继续执行---### 6.5 发布回滚与降级策略#### 回滚策略| 场景 | 处理方式 | 数据安全 ||------|---------|---------|| **RPA 发布失败**（表单提交时报错） | 标记发布任务为 ailed，保留预填草稿截图，返回错误信息 | 内容保留在草稿箱，不自动重试 || **半成功状态**（标题已填但图片未传） | 检测 DOM 中的已填字段，匹配 last_successful_step → 从断点恢复 | SQLite 记录每步状态 {step, status, snapshot} || **API 发布失败**（B站 API 400） | 捕获 HTTP 状态码 + 错误体 → 自动切换 RPA 降级 | 降级标记记录在 task 中 || **平台拒绝**（审核不通过） | 读取审核状态 → denied，原内容保留可编辑重新发布 | 原文不删除，随 task 存档 || **用户取消发布** | 中断当前步骤 → 已提交部分不做回滚（平台侧无撤回 API） | 仅停止当前操作，后续步骤取消 |#### 降级策略1. **API → RPA 降级**：抖音/B站 优先走 API，API 连续失败 3 次后自动切换 RPA 模式2. **RPA → 人工降级**：RPA 连续失败 2 次（相同平台）→ 弹窗提示手动发布，提供预填草稿截图3. **跨平台降级**：批量发布中某个平台失败 → 标记失败，不影响其他平台继续发布#### 状态机（发布任务）`pending → publishing → { success | failed | partial | denied | cancelled }                              ↓                        (partial 可恢复)`## 七、视频创作流程### 7.1 图片轮播（原 Story2Video 文案成片）```进入「视频创作」→ 选择「图片轮播」    │    ├─ 输入完整视频文案    │   └─ 可选：点击「AI 写稿」自动生成脚本    ├─ 8002 smart-sentence-splitter 生成场景边界    │   └─ 仅服务不可用时使用本地 TypeScript 场景降级    ├─ 每个场景在本地二次切分为字幕页    ├─ 逐场景生成图片、TTS，并由 prompt-engine 优化图片提示词    ├─ 选择图片风格、提示词风格、语音模型与音色    ├─ 点击「启动流水线」    │   ├─ Electron StageExecutor 编排六阶段流水线    │   ├─ ffmpeg 合成，ffprobe 真实 TTS 时长驱动字幕时间轴    │   ├─ 以阶段清单显示文案拆分、内容增强、提示词、素材、合成、发布状态    │   └─ 渲染完成 → 预览/保存；发布阶段未启用时明确显示跳过    └─ 仅对明确的图片 Content Policy 拒绝按场景安全化重试（最多 5 次总尝试）；耗尽后进入“需要处理”，用户取消旧运行、修改文案后重新启动```#### 7.1.1 场景、字幕与 TTS 同步合同| 合同 | 要求 ||------|------|| 场景层 | 8002 返回的 `scenes` 是图片、视频提示词和逐场景 TTS 的唯一边界，Multi-Publish 不得再次改写 || 降级 | 只允许连接拒绝、超时、连接重置或服务未运行等不可用错误降级；业务错误和缺少 `scenes` 的非法响应必须失败 || 字幕层 | 本地 TypeScript 在每个场景内部独立二次分页，目标每页 8-15 字，字幕不得跨场景，拼接后必须保持场景原文 || 时间轴 | ffprobe 的逐场景真实音频时长是权威值；字幕区间连续、互不重叠，首屏从 0 开始，末屏精确结束 || 场景时长与动效 | 场景成片时长跟随 ffprobe 真实旁白音频（`-shortest`），不强制截断旁白；`defaultSceneDuration`（内部默认 6 秒，UI 不暴露）仅作音频时长不可探测时的回退。图片动效按“有效时长 = audioDuration || reportedDuration || defaultSceneDuration”归一化（zoompan `d=总帧数` + 进度 `min(1, on/T)`），短场景不切走、长场景不定格 || 来源追踪 | 持久化 `sceneSource`、`subtitleSource`、`degraded`、`fallbackReason`、`subtitleBlocks`、`subtitleTimeline` |Story2Video 的句长、时长、语速、场景字数、句界和单句溢出参数必须映射到 8002 `SplitRequest.config.sentence_tokenizer/scene`，字幕参数只在本地消费。8002 的兼容字段 `min_words/max_words` 在中文场景算法中按字数/字符数计量。当前 TTS Provider 没有统一的词级时间戳，因此字幕同步是“真实总时长 + 文本/标点权重”的分页近似同步，不宣称逐词精准对齐。
 | 视频画面无文字伪影防护 | 三层防护机制防止视频模型在画面中生成文字/字幕/水印伪影：(1) prompt-engine `generic.py` 视频策略新增 "Zero Text Artifacts (HIGHEST PRIORITY)" 强制段落，要求所有输出 prompt 以 "clean frame, no text, no subtitles, no watermarks, no logos" 结尾；(2) `videogen-stages.js` 的 `buildConceptPrompt` 和 `buildStoryboardPrompt` 系统提示注入【最高优先级约束】；(3) `video-prompt-engine-contract.js` 新增 `BUILT_IN_VIDEO_NO_TEXT_NEGATIVE` 内置负面提示词常量，自动合并到所有视频优化请求的 `negative_prompt` 字段。已知受影响模型：MiniMax、Seedance、Kling 等会在画面中随机生成乱码文字/伪字幕。详见 PRD-video-content-fidelity §无文字伪影防护 | ✅ 2026-08-13 |
@@ -686,7 +686,7 @@ Click multimodal capability default chip (e.g. llm) showed error: provider.confi
 
 **验证边界**：74 项 collection-engine 单元/集成测试全绿；真实平台登录采集、住宅 IP 池效果、封禁率长期指标需真实账号/代理资源，属外部验收。
 
-### 8.2 剪贴板导入```点击「从剪贴板导入」    └─ 自动提取剪贴板内容的标题 + 正文 → 创建草稿```### 8.3 平台内容采集支持从微博、知乎、今日头条等平台采集内容，一键创建草稿后进行二次编辑和发布。### 8.4 草稿箱管理```草稿箱（内容采集页面内）    ├─ 查看所有草稿（标题预览、采集来源）    ├─ 编辑草稿 → 跳转到发布页    ├─ 删除草稿    └─ 新建空白草稿```---## 九、内容智能工作流### 9.1 热点趋势```进入「内容情报」页面    │    ├─ 查看热门趋势面板（数据源：Reddit / Hacker News / GitHub）    ├─ 搜索特定主题 → 跨平台高互动内容结果    │   ├─ 按来源筛选（Reddit/HN/GitHub）    │   ├─ 按真实互动评分排序（非 SEO）    │   └─ 查看搜索结果详情    └─ 热点数据为创作选题提供参考```### 9.2 标题助手与标签推荐在发布页编辑文章时：```├─ AI 生成标题（基于正文内容）├─ AI 优化标题（提升点击率）└─ 智能标签推荐（匹配平台热门标签）```### 9.3 爆款分析```进入「爆款分析」页面    ├─ 分析各平台爆款内容特征    ├─ 查看互动数据、发布时间、内容类型分布    └─ 为创作策略提供数据支撑```> **实现说明（v2.3.43）**：爆款分析由 `viral-engine.js` 桥接到外部 orchestrator> (`ORCHESTRATOR_URL`，默认 `http://localhost:8000`)，提供 AI 驱动的深度分析。> 当 orchestrator 不可用时（未配置或连接失败），自动回退到**本地启发式分析**> （`_localAnalyze` / `_localGenerate` / `_localTrending`），基于输入文章的互动> 数据、标题特征和关键词多样性计算爆款潜力分，确保功能在离线/无 orchestrator> 环境下仍可使用。本地 fallback 返回数据带 `mode: 'local-fallback'` 标记。### 9.4 关键词监控```进入「关键词监控」页面    ├─ 设置监控关键词    ├─ 追踪关键词在各平台的表现趋势    └─ 实时查看相关内容的互动数据```---## 十、发布日历流程```进入「发布日历」页面    │    ├─ 日历视图（月视图）    │   ├─ 左右切换月份    │   ├─ 「今天」快速定位    │   └─ 有发布计划的日期显示事件标记    │    ├─ 选择日期 → 查看当天发布计划    │   ├─ 已发布的文章（带状态）    │   └─ 定时任务（待发布）    │    └─ 日历数据来源：        ├─ 已发布的 publish_history（SQLite）        └─ 待执行的 scheduled_tasks```---## 十一、云端发布流程```进入「云端发布」页面    │    ├─ 填写发布表单    │   ├─ 视频 URL（存储链接）    │   ├─ 目标平台    │   ├─ 标题（最多 80 字）    │   ├─ 描述    │   ├─ 标签（逗号分隔，点击删除单个标签）    │   └─ 封面图 URL（可选）    │    ├─ 提交云端发布任务    │   ├─ 任务发送到 ECS 服务器 orchestrator    │   ├─ 不依赖本地环境（可在任意设备提交）    │   └─ 查看 orchestrator 在线状态    │    └─ 发布结果在任务完成后推送```---## 十二、与 PROJECT-001 的集成```PROJECT-001（内容聚合改写）    │    │ WebSocket 推送改写后的内容    ▼Aggregator Bridge (aggregator-bridge.js)    │    │ 调用 taskQueue.addBatch()（单次不超 20 篇，超出自动拆分） 添加多平台任务    ▼Task Queue → 各平台发布器 → 发布完成```**集成点：**1. **WebSocket 通信**：PROJECT-001 通过 WebSocket 将改写后的文章推送到 Multi-Publish2. **自动批量发布**：接收到文章后自动加入任务队列，按平台顺序执行3. **状态反馈**：发布进度实时回传---## 十三、CI/CD| 环节 | 说明 | 状态 ||------|------|------|| GitHub Actions | 推送 main/develop 触发构建 | ✅ || 构建产物 | Windows (.exe) + Linux (.AppImage) | ✅ || ESLint 检查 | GitHub Actions quality-gate PR 门禁，ESLint 0 errors | ✅ Phase C3 || 自动更新 | electron-updater + GitHub Release | ✅（待首次 Release） |---## 十四、风险与应对### 自动化风险| 风险 | 影响 | 应对 ||------|------|------|| RPA 被平台封禁 | 高 | 随机延迟 300-800ms + Cookie 轮换 || 平台 UI 变更 | 中 | 模块化设计，单发布器变更不影响整体 || Cookie 过期 | 低 | 自动检测 + 一键重新登录 || 浏览器兼容性 | 低 | Electron 内嵌 Chromium 版本锁定 |### RPA 合规性评估| 平台 | 风险 | 缓解 ||------|------|------|| 微信/视频号 | 中 | 频率 <= 人工操作 || 抖音/TikTok | 高 | 随机延迟 + 单次 <= 3 篇，间隔 >= 5 分钟 || 小红书 | 中 | 同抖音，单账号日 <= 20 篇 || B站 | 中 | 优先 API，RPA 仅降级 |**通用原则：** RPA 间隔 >= 300ms；不绕过付费墙；应用内提示账号风险。---## 十五、验收标准### v1.2.0 验收（Electron 原生 RPA + 平台分类）- [x] **平台分类**：12 平台分 VIDEO / IMAGE_TEXT / MIXED 三类，API 透传- [x] **RpaViewManager**：隐藏 BrowserWindow + executeJavaScript RPA 引擎- [x] **CDP 文件上传**：`DOM.setFileInputFiles` CDP 文件上传- [x] **Playwright → RpaViewManager 全量迁移（P2-E）**：15 平台从 Playwright 统一迁移到 RpaViewManager- [x] **隐藏 BrowserView**：静默登录验证（loginSilent）- [x] **每账号 Session 隔离**：`session.fromPartition()` 独立分区- [x] **25 回归测试通过**：Python 后端全量通过- [x] **11 RpaViewManager 测试通过**：模块加载 + API 签名验证- [ ] 抖音发布选择器需实际页面验证（依赖真实抖音创作者后台）- [x] **15 个平台**：微信/知乎/微博/抖音/小红书/视频号/快手/头条/YouTube/TikTok/**Twitter/X**/B站/**百家号**/Instagram/Facebook- [x] **格式适配器**：14 平台格式转换（HTML 白名单/截断/标签格式化）- [x] **封面图自动处理**：sharp 中心裁剪 + 质量压缩 + 格式转换- [x] **平台 URL 配置化**：config/platforms.yaml 统一管理- [x] **敏感词预检**：DFA 算法 + 内置词库，发布前弹窗- [x] **数据同步系统**：5 平台框架 + SQLite 缓存 + Dashboard- [x] **评论统一管理**：WebContentsView 内嵌各平台评论页- [x] **端到端测试** — 全部测试套件通过- [x] **CI 自动 Release** — GitHub Actions auto-tag + release- [ ] Pending: 端到端测试（需真实账号凭证）### v1.1.0 目标（Roadmap）详见 `docs/roadmap-v1.1.0.md` — 产品稳定 → 运营启动 → 付费闭环 → 迭代增长---## 十六、Roadmap| 阶段 | 内容 | 状态 ||------|------|------|| P0-P3 | 基础发布 + 任务队列 + 定时 + 统计 | ✅ || **蚁小二集成** | 分屏/回调/扫码/OAuth/SQLite/批量/B站/URL采集/托盘/快捷键/多账号 | ✅ || **Phase C（代码质量）** | ESLint v9 flat config + Prettier，201 个问题修复 | ✅ Phase C3 || **V1.0 发布** | 首版 Release、运营启动 | ⏳ 待进行 || V1.1 格式适配 | Markdown → 各平台格式转换、封面---## 十七、安全审计与质量门禁 (Security Audit & Quality Gates)### 17.1 安全审计修复（v2.3.42, 2026-07-09）按 `project_memory.md` 的 `/cso + /guard` 触发器执行全面审计后，修复 11 CRITICAL + 9 MAJOR，详见 [CHANGELOG v2.3.42](../CHANGELOG.md) 和 [decision-log D-030](./decision-log.md)。**修复要点**：- 硬编码密钥（master_password / jwt_secret / API Key / 生产 IP）→ 环境变量- SQL 注入防护（字段名白名单 `sanitizeUpdateFields`）+ 事务包裹- Electron 安全（contextIsolation: true）+ IPC 来源校验（`_assertTrustedSender`）- callback-server 鉴权（随机 token + Origin 限制 + body 上限）- 文件原子写 + 路径穿越校验 + chmod 600- 62 个 IPC handler 补 try-catch + 删除 22 个 .ts 死代码### 17.2 质量门禁（QM-1 ~ QM-3）详见 [AGENTS.md](../AGENTS.md) 强制质量门禁：| 门禁 | 要求 | 状态 ||------|------|:----:|| QM-1 | Electron 主进程代码本地打包验证 | ⏳ 沙箱环境无法执行 || QM-2 | Code review 必检项（require 路径/注释语法/模块导出/glob 覆盖） | ✅ || QM-3 | 测试策略（单元 + 打包 + 启动） | ✅ 本轮串行全量 357 files / 6120 tests passed |### 17.3 测试基线| 包 | 测试数 | 状态 ||----|--------|:----:|| apps/desktop | 历史基线 1791 passed / 10 skipped；本轮串行全量 357 files / 6120 tests passed | ✅ || ai-writer-api | 10 passed / 0 failed | ✅ |---## 十八、蚁小二账号管理与内容发布对齐### 18.1 范围约束- 顶部主菜单和最左侧平台账号列表保持现有结构，不复制蚁小二外壳。- 重构范围限定为主内容区域、账号管理页、内容发布页及动态加载内容。- 蚁小二逆向工程产物只作为字段、状态、交互和视觉证据，不在运行时加载其 bundle。### 18.2 功能验收| 能力 | 验收标准 | 状态 ||------|----------|------|| 多账号管理 | 分组、收藏、筛选、排序、批量删除、默认账号、登录状态刷新 | 已实现 || 登录方式 | 内嵌浏览器、二维码登录、OAuth/API 登录入口 | 已实现 || 多账号发布 | 同平台多个账号展开为独立发布目标 | 已实现 || 定时发布 | 校验过去时间、30 天上限和平台频率间隔，支持取消 | 已实现 || 批量发布 | 每篇文章独立选择平台/账号，支持执行、排期、进度和终态轮询 | 已实现 || 草稿 | 保存并恢复正文、媒体、平台账号、定时和差异化内容 | 已实现 || 差异化内容 | 每个平台独立标题/正文在 RPA 与 backend 路由中生效 | 已实现 || 取消与退出 | 运行中任务可取消；应用退出时停止队列和延迟任务 | 已实现 |### 18.2.1 2026-08-04 续作验收补充| 能力 | 本轮验收合同 | 状态 ||------|--------------|------|| 账号卡片动作 | 活动账号显示“设置、验证、删除”；失效账号显示“设置、重新登录、删除”；不显示与蚁小二不一致的“设默认、打开主页” | 本地已实现 || 账号归属字段 | 粉丝数、负责人、运营人、代理按多种后端字段名归一化；缺失值显示“暂无数据/未设置” | 本地已实现 || 账号重新登录 | 复用 browser auth IPC；取消、业务失败、异常均关闭登录视图并保留错误提示；完成事件显示“账号重新登录成功”并刷新 | 本地合同已实现，真实平台授权待外部验证 || 分组侧栏 | 搜索分组、全部分组、共享筛选、成员计数、无分组空态；筛选后只展示分组成员 | 本地已实现，团队共享待后端合同 || 收藏空态 | 收藏页签无结果时显示“暂无收藏账号”，不把“没有匹配的账号”误作收藏服务成功 | 本地已实现 || 分享链接 | 未接入团队分享服务时显示“未接入服务”，创建按钮禁用，不伪造链接或成员数据 | 本地已实现，后端能力待外部合同 |### 18.2.2 2026-08-04 parity gap closure| 能力 | 本轮实现与合同 | 状态 ||------|----------------|------|| 模块工具按钮 | 顶部“移动端预览、客服支持、使用指南、通知”均有独立 testid、可关闭本地面板和明确状态；未从逆向 bundle 推断未经证实的外链或 IPC | 本地已实现，真实蚁小二点击目标仍待运行时验收 || 草稿箱二级页签 | `/publish?tab=drafts` 首屏进入独立草稿工作区，显示加载/空态/列表，支持返回发布、继续编辑和删除；`/publish?draft=...` 保留编辑器恢复流程 | 本地已实现 || 发布进度回归合同 | 进度卡固定 `publish-progress` testid，供功能 E2E 和视觉回归使用；不以通用卡片数量代替状态断言 | 本地已实现 || 发布记录删除 | 选择发布记录后可批量删除；renderer API、preload、`history:delete` IPC 和 JSONL service 均按 owner 隔离，删除后刷新并保留结果提示 | 本地已实现，真实多用户共享存储待外部验收 || 设计与代码分层 | 本轮新增导航面板、草稿页和反馈状态使用模块级 class/token；未对既有发布表单做无证据的大规模 CSS 重排，遗留 inline style 记录为后续拆分项 | 本轮新增代码已分层，遗留项已记录 |### 18.2.3 2026-08-10 浏览器式标签栏与导航系统| 能力 | 实现与合同 | 状态 ||------|-----------|------|| 浏览器式标签栏 (TabBar) | 新增 TabBar.vue 组件：标签页创建/关闭/切换，平台图标自动识别（15 个平台 emoji），加载状态 spinner，Home 标签不可关闭，ARIA role=tablist 无障碍 | 本地已实现 || 导航栏 (NavBar) | 新增 NavBar.vue 组件：后退/前进/刷新/首页按钮，URL 搜索栏（支持 URL 直接访问和 Bing 搜索），复制网址，加载状态指示，焦点态样式 | 本地已实现 || 标签页 Store (tab.js) | 新增 Pinia Store：tabs/activeTabId/navigation 响应式状态，IPC 事件订阅（tab-created/closed/switched/navigation-changed/loading），init/dispose 生命周期 | 本地已实现 || page-manager IPC 桥接 | 新增 preload/page-manager.js：14 个 IPC 方法（CRUD + 导航 + 查询 + 事件订阅），所有 handler 使用 withSenderCheck 安全校验 | 本地已实现 || WebviewManager 浏览器标签页 | 继承 EventEmitter，新增 createNewTabPage/closeTab/switchToTab/navigate/searchOrNavigate/goBack/goForward/reload 方法，独立 session 分区，Cookie 互不干扰 | 本地已实现 || App.vue 集成 | TabBar + NavBar 集成到蚁小二工作区 shell，YixiaoerModuleNav 仅首页标签显示，tab store init/dispose 生命周期管理 | 本地已实现 || CreateHistory 空状态增强 | 渲染记录空态显示 🎬 图标 + 提示文案；流水线记录空态显示 🔄 图标 + 提示文案；修复 style 标签闭合位置 | 本地已实现 || 账号"去登录"按钮 | AccountManagementCard 新增"去登录"按钮（Monitor 图标），触发 open-creator 事件，Accounts.vue 处理事件并导航到创作者中心 | 本地已实现 || 构建修复 | platform-definitions.browser.js 补充 PLATFORM_DASHBOARD_URLS 导出 | 本地已实现 || 内存泄漏修复 | webview-manager.js unsubscribe-events 未传 subscriberId 时清理所有订阅者 | 本地已实现 |**数据校验**：- URL 导航：协议校验仅允许 http/https/file；域名正则匹配标准域名格式；非 URL 输入走 Bing 搜索编码- IPC 参数：所有 handler 使用 withSenderCheck 校验发送者来源；参数缺失返回 VALIDATION_ERROR- 标签页 ID：浏览器标签使用 btab- 前缀，分屏监控使用 tab- 前缀，避免 ID 冲突- Home tab：tabId 固定为 'home'，不创建 WebContentsView，关闭操作返回 false- 创作者中心 URL：必须在 PLATFORM_DASHBOARD_URLS 白名单中，不存在时提示"暂不支持该平台"**交互逻辑**：- 点击标签页 → switchToTab → 隐藏当前视图 + 显示目标视图 + 更新导航状态- 关闭标签页 → closeTab → 移除视图 + 切换到下一个标签（无标签时广播 all-tabs-closed）- URL 输入 → enter → 判断 URL/域名/搜索词 → 导航或 Bing 搜索- 首页标签 → 隐藏 NavBar 导航按钮，显示模块导航 (YixiaoerModuleNav)- Home tab 保护：closeTab 拒绝关闭 Home tab（返回 false），确保首页始终存在- switchToTab(Home)：隐藏所有 WebContentsView，显示 router-view 内容，activeTabId 设为 'home'- tabStore 初始化：自动创建 Home tab（tabId='home', title='首页'），不调用 IPC 创建 WebContentsView- 打开创作者中心：点击账号卡片"去登录"按钮 → openCreatorCenter(platform) → 获取 PLATFORM_DASHBOARD_URLS[platform] → createTab({ url, platform, accountId }) → 新标签页全屏显示创作者中心**显示项**：- 标签栏高度 36px，背景 #e8eaf2，活跃标签白色背景 + 阴影- 导航栏高度 40px，URL 搜索栏圆角 15px，焦点态紫色光晕- 平台图标：微信/抖音/小红书/微博/B站 等 15 个平台**提示文字**：- 渲染记录空态："暂无渲染记录" + "创作你的第一个视频，记录将在这里显示"- 流水线记录空态："暂无流水线运行记录" + "选择创作模式开始流水线，运行记录将在这里显示"- URL 搜索栏 placeholder："搜索或输入网址"- 标签页 title："新标签页"（about:blank）或 hostname### 18.3 设计与代码分层```textVue 展示组件  -> composables / Pinia（页面状态和用例编排）  -> src/api/publisher.js（统一 renderer API）  -> preload（最小能力暴露）  -> IPC handlers（来源校验、参数白名单）  -> 主进程 services / publishers（发布、存储、队列）```展示组件不直接访问 `window.electronAPI`；业务数据通过 props/emits 和 composable 进入组件。Electron 账号查询只返回公开字段，渲染层不能写入 cookies、localStorage 或 Token。详细计划见 `docs/plans/2026-07-20-yixiaoer-account-publish-parity.md`。### 18.4 验证口径最终交付必须同时通过桌面单元测试、覆盖率、故障注入、Monkey、功能 E2E、视觉回归、真实蚁小二像素门禁、preload sandbox 双模式、Windows 打包、ASAR/require 链和应用启动。2026-08-04 parity gap closure 新增的定向门禁覆盖导航工具面板、草稿独立页、发布进度 testid、发布记录删除 API/IPC/service owner 隔离；定向 Vitest 648/648 通过。全量、功能 E2E、视觉、打包和真实蚁小二操作必须以本轮实际命令结果为准，不得沿用旧报告数字。真实第三方平台授权、实际上传/发布、团队分享和跨设备同步仍属于外部验收，不以 mock 结果替代。实际命令和结果记录在 `.quality-gates.md`、`01-docs/yixiaoer-reverse/analysis/04-account-publish-parity-2026-08.md` 以及本任务 `.ccg/tasks/yixiaoer-parity-gap-closure/`。## 十九、文档体系 (Documentation Index)### 19.1 前期流程文档| 阶段 | 文档 ||------|------|| 市场调研 | [MARKET-RESEARCH.md](./MARKET-RESEARCH.md) || 创意构思 | [viral-copy-product-concept.md](./viral-copy-product-concept.md) || 需求确认 | [REQUIREMENTS-SIGNOFF.md](./REQUIREMENTS-SIGNOFF.md) || 项目计划 | [roadmap-v1.1.0.md](./roadmap-v1.1.0.md) || 技术架构 | [ARCHITECTURE-PLAYWRIGHT.md](./ARCHITECTURE-PLAYWRIGHT.md) / [003-electron-tech-design.md](./003-electron-tech-design.md) || 设计评审 | [DESIGN-REVIEW.md](./DESIGN-REVIEW.md) / [DESIGN.md](./DESIGN.md) || 开发计划 | [P0](./P0-IMPLEMENTATION-PLAN.md) / [P1](./P1-IMPLEMENTATION-PLAN.md) / [P2](./P2-IMPLEMENTATION-PLAN.md) / [P3](./P3-IMPLEMENTATION-PLAN.md) |### 19.2 子 PRD- [PM-PRD-v1.1.md](./PM-PRD-v1.1.md) — F1 格式适配器 / F2 封面图 / F3 百家号 / F4 运营启动- [PM-PRD-rongmeibao.md](./PM-PRD-rongmeibao.md) — 融媒宝差距分析 → F1-F4 集成规划- [PRD-remotion.md](./PRD-remotion.md) — Remotion 视频渲染- [PRD-video-creation.md](./PRD-video-creation.md) — 视频创作模块### 19.3 架构决策记录（ADR）- [ADR-001-render-engine-extension.md](./ADR-001-render-engine-extension.md) — RenderEngine 扩展方案- [ADR-002-module-layering.md](./ADR-002-module-layering.md) — Electron 主进程模块分层### 19.4 质量与流程- [decision-log.md](./decision-log.md) — 决策日志（D-001 ~ D-038）- [learnings.md](./learnings.md) — 复盘记录- [review-process.md](./review-process.md) — 代码评审流程 L1/L2/L3- [security-audit-2026-07-08.md](./security-audit-2026-07-08.md) — 安全审计报告（历史）- [PRD-AUDIT-2026-07-08.md](./PRD-AUDIT-2026-07-08.md) — PRD 审计报告- [UAT-PLAN.md](./UAT-PLAN.md) / [UAT-REPORT-2026-07-08.md](./UAT-REPORT-2026-07-08.md) — UAT---## 更新历史| 版本 | 日期 | 主要变更 ||------|------|----------|| v2.1.2 | 2026-07-05 | PRD 全面修复 14 项 + TODOs 清空（基线版本） || v2.3.42 | 2026-07-09 | 恢复 mojibake 乱码（从 bba83b0 干净版本）+ 合并 §2.3/§3.3/§4.4 增量 + 新增 §17 安全审计 / §18 文档体系 + 版本号更新 || v2.3.53 | 2026-07-20 | 账号管理与内容发布按蚁小二交互对齐；完成前端分层、多账号发布、草稿、排期、差异化内容、二维码登录、取消/重试及安全边界 || v2.3.54 | 2026-08-04 | 续作收敛账号卡片动作、失效账号重新登录、粉丝/归属字段、分组筛选、收藏空态和分享服务边界；补充真实蚁小二像素审计证据 || v2.3.55 | 2026-08-04 | 收口顶部工具面板、草稿独立页签、发布进度稳定选择器和发布记录 owner-scoped 批量删除；同步测试与外部能力边界 || v2.3.56 | 2026-08-10 | 浏览器式标签栏(TabBar/NavBar/tab store)、page-manager IPC、WebviewManager 标签页系统、CreateHistory 空状态增强、账号去登录入口、构建和内存泄漏修复 |## 图片轮播合同补充（2026-08-04）- `story2video-compose` 是稳定内部 ID，外显名称由 i18n 提供：中文“图片轮播”、英文“Image Carousel”。- 音色目录和偏好按 provider/model 作用域；清除偏好恢复安全默认/Provider 默认，删除克隆音色先使偏好失效并使后续读取不可见。- OpsCenter 当前无已确认租户/音色同步 API，且受保护仓库禁止本任务写入；未来跨仓库 API 与安全合同另立任务定义。- Doubao 无后端 connector 时不持有高权限 secret、不生成或展示伪造个人音色列表。item 11 与最近 20 轮记录属于 TBD/审计限制；UE item 15 已获确认，当前按快速模式与五个折叠区实施。- **用户音色样本归属**：用户上传、保存、删除、设默认的克隆样本管理完全由桌面端前台及其 owner-scoped userData/SQLite 最小元数据负责；OpsCenter 不保存、不管理用户音频样本，仅用于运营受控默认值和未来后台高权限凭据/目录同步。## 图片轮播 UE 与路由错误边界补充（2026-08-05）- **已确认的交互方案**：story2video-compose 在创作端采用“基础 / 外观 / 声音 / 高级 / 发布”五个可折叠区，仅“基础”默认展开；用户确认文案和参数后点击“启动流水线”，不再经过人为 checkpoint。- **多语言**：折叠区标题、启动按钮和流水线标签通过 locale 读取；默认中文显示“图片轮播”和“启动流水线”，英文显示 “Image Carousel” 和 “Start pipeline”。稳定机器 ID、IPC 参数和历史数据仍使用 story2video-compose。- **空白页处理**：/create 等懒加载路由失败时，router 将错误写入共享响应式状态，应用根布局显示错误占位、错误摘要、“重试”和“刷新应用”操作；错误不会因 App 挂载时序而丢失，也不吞掉 renderer console。- **阶段反馈**：图片轮播运行态继续使用六项阶段清单，不显示 S2V 百分比；取消后清理 run、上下文、轮询和阶段状态，避免下一次运行继承旧状态。- **验收边界**：Vue 构建、定向 Vitest 和本地 Electron 可验证路由/界面合同；真实 TTS provider 音色目录、个人槽位、用户克隆上传和图片内容政策降级仍须带真实账号的外部验收，统一标记 PENDING_EXTERNAL。- **i18n 与 CSP 约束（2026-08-06）**：Electron 渲染进程执行严格 CSP（`script-src 'self'`，不含 `unsafe-eval`）；vue-i18n 不得在运行时编译消息（`new Function`），否则视频创作等动态翻译页面渲染抛 `EvalError` 白屏。应用内全部静态消息在加载时转换为 Message Function；新增插值文案时必须直接使用函数形式（如 `(ctx) => ctx.named('name')`），禁止依赖运行时消息编译。## 视频创作流水线可用性与表单组织（2026-08-06）- **可用性标识**：`pipeline:list` 返回的每条流水线附带 `available` 布尔字段。已实现真实执行引擎（有 stageDefs）的流水线为 `available=true`（story2video-compose / animated-explainer / talking-head / cinematic / clip-factory / framework-smoke；documentary-montage 等后续实现流水线随各自分支落地为 true），未实现引擎的其余流水线为 `available=false`。- **列表卡片**：卡片显示「可用 / 开发中」徽标（i18n：zh pipelines.availability.*）；vailable=false 卡片弱化显示并提示悬停说明。- **未实现流水线禁用启动**：vailable=false 时详情页【启动流水线】按钮灰显，下方显示提示「该流水线尚未实现执行引擎，暂不能生成视频」；canStartPipeline 与 startPipeline 双重守卫，兜底弹窗使用通知 key story2video.pipeline_not_implemented。消除原 state_machine 占位流水线点击启动后 0% 假运行的误导。- **高级区子分组**：story2video-compose「高级」折叠区拆为两个子组——「分句与时长」（分句语言/分句模式/单句最大长度/分镜目标时长/无旁白场景时长/负向提示词）与「模板与输出」（模板分类/视频模板/自定义模板/输出分辨率/帧率/格式），降低同一折叠区认知负担。- **阶段名映射**：自动流水线的阶段清单按流水线名映射（AUTO_PIPELINE_STAGES），避免列表接口不含 stages 时回退显示图片轮播的六阶段名。## 视频创作流水线真实引擎扩展（2026-08-06）### documentary-montage（纪录蒙太奇）真实执行引擎- **输入**：文案/主题（text），与图片轮播、AI 讲解一致走全自动编排（autoAdvance，无 checkpoint）。- **阶段链**：`research`（默认 LLM 生成纪录片风格解说大纲）→ `ingest`（默认 LLM 生成场景数组，纪实画面提示词 + 纪录片口吻旁白，JSON 解析容错 + 行级兜底）→ `edit`（复用 `story2video_generate_assets`：真实图片 provider + TTS，含内容政策重试）→ `narrate`（旁白与资源清单校验，缺旁白 fail closed）→ `render`（复用 compose：FFmpeg 合成，默认 1920x1080/30fps/mp4）。- **阶段名映射**：自动流水线前端阶段清单按 `AUTO_PIPELINE_STAGES` 按流水线名映射，不再回退显示图片轮播六阶段名。- **验收边界**：LLM/图片/TTS 均使用已配置默认 provider；未配置模型时 fail closed 并提示去设置。真实 E2E 验收：输入主题「中国高铁的发展历程，从引进到自主创新的故事」→ 12 图 + 12 TTS + video.mp4（h264 1920x1080 56.97s）完成。## 图片轮播启动反馈合同与后台执行（2026-08-06 Bug 修复）- **启动即反馈**：点击【启动流水线】后，pipeline:startOrchestrated 必须立即返回（utoAdvance: true + ackground: true 时主进程后台推进，不得同步等待整个流水线）。前端收到 runId 后立即：按钮切换为【✕ 取消】、渲染阶段清单（条目式，非百分比）、每 3s 轮询 pipelineGetRunContext 更新阶段状态。- **参数合同**：ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标志；丢失任一标志都会导致启动 IPC 阻塞（数十秒到数分钟无反馈）。- **完成跳转**：轮询发现 status=completed 后跳转结果页；ailed/cancelled 弹应用内提示。- **回归**：单元测试覆盖「background 模式立即返回 runId 且后台推进到完成」「normalizer 透传 background」；前端契约测试断言启动参数含 ackground: true。## 视频预览/动效/布局三处修复（2026-08-06）- **返回流水线列表**：视频预览页（ResultView）头部新增显式【← 返回流水线列表】按钮（data-testid=back-to-pipeline-list），点击回到 /create 流水线列表；原「重新创作」按钮保留。- **图片动效修复**：buildImageEffectFilter 的 zoompan 必须使用 d=输出总帧数（时长×帧率）。此前 d=1 且输入为 -loop 1 静态图时 zoom 状态不累积，「慢慢放大/平移/缩放」等动效在成片中不可见；修复后 _createSegment 在有动效时改用单帧图片输入（zoompan 自行生成 d 帧），实测早/晚帧差异 0.05 → 28（动效清晰可见）。- **页面宽度回归**：启动流水线后渲染的「中间结果」面板包含 200 字符 JSON 长字符串（路径/提示词），无换行约束会把页面从 609px 撑宽到 977px。新增 .orchestration-context/.context-value 的 overflow-wrap:anywhere + word-break:break-word + min-width:0 约束，实测启动后页面宽度保持 696px 不再变宽。## MiniMax TTS 音色目录与克隆 + 语音/画面/抖动修复（2026-08-06）- **MiniMax TTS 默认模型**：speech-2.8-turbo（异步长文本 T2A Async）；模型设置隐藏模型 ID 输入（单模型收敛，含存量数据迁移）。- **音色目录**：音色列表来自 MiniMax 官方系统音色清单（system-voice-id，327 个），adapter listVoices 返回；语音/音色 ID 下拉可选并可持久化用户选择。- **音色克隆**：按官方 API（上传 POST /v1/files/upload purpose=voice_clone → 复刻 POST /v1/voice_clone）实现；前端上传提示与校验：格式 mp3/m4a/wav、时长 10 秒-5 分钟、大小 ≤20MB（数据驱动展示与本地校验）。  - **voice_id 合规（2026-08-08 修复）**：复刻接口自定义 voice_id 必须满足长度 `[8,256]`、首字符为英文字母、仅 `[A-Za-z0-9_-]`、末位非 `-/_`；`cloneVoice` 用 `buildMiniMaxCloneVoiceId` 生成合规 id，存量非法克隆标记失效并让偏好回退默认音色（见 7.1.16）。- **错误友好化**：VOICE_CATALOG_UNSUPPORTED 等 VOICE_*/VOICE_CLONE_* 技术错误码不再直出，映射为多语言友好提示；全项目排查同类泄露。- **UI 调整**：外观→画面；字幕默认启用；高级区「输出分辨率」改「比例与分辨率」移入画面区，选项括号只标注横屏/竖屏；移除「中间结果」原始 JSON 调试面板。- **动效抖动修复**：zoompan 先 2x 上采样再执行、后下采样，消除亚像素抖动（帧间差异 stddev 0.89→0.11）。- **分段编辑**：结果页分段编辑显示每段对应图片预览。  - **CSP 图片放行（2026-08-08 修复）**：分段图片与成片预览均来自本机媒体服务（`http://127.0.0.1:<port>/media/...`）。此前 CSP 仅 `media-src` 放行本机来源而 `img-src` 未放行，导致 `<video>`（媒体）正常、`<img>`（分段图片）被拦截不显示。修复：`apps/desktop/src/index.html` CSP `img-src` 增加 `http://127.0.0.1:* http://localhost:*`（与 `connect-src`/`media-src` 对齐），`index.test.js` 断言同步。## 提示词优化阶段性能（2026-08-06）- **根因**：story2video_optimize 逐场景串行调用默认 LLM，N 个场景耗时 ≈ N × 单次推理延迟（用户长文案 6 场景约 2.7 分钟）。- **修复**：改为 _mapWithConcurrency 有界并发（默认 3）并行优化；保留逐场景错误定位。实测 6 场景：优化阶段 162s → 54s。- **剩余耗时边界**：每场景 LLM 推理约 20-30s（provider 自身延迟，max_tokens 500 请求很小）；剩余时长属模型推理固有成本，非应用阻塞。## 提示词优化失败健壮性与多语言（2026-08-06）- **optimize 重试**：逐场景 LLM 调用对瞬态 provider 错误做有界重试（maxRetries 默认 2，退避 0.8s×次数）；持久失败才 fail closed 并定位场景。- **多语言**：错误/确认对话框标题使用当前流水线本地化名（中文「图片轮播 提示」/英文「Image Carousel Notice」），不再硬编码 Story2Video；消息体不嵌入英文专名。- **英文名**：图片轮播流水线英文名统一为 Image Carousel（pipelines.names locales），Story2Video 仅作为内部稳定 ID 保留。## 中文字幕渲染合同（2026-08-06 Bug 修复）- **问题**：Windows 静态 ffmpeg 的 drawtext 默认字体无 CJK 字形，中文/日文/韩文等烧录成豆腐块（用户确认）。- **修复**：drawtext（字幕+水印）显式注入 fontfile——按优先级解析系统 CJK 字体（msyh.ttc → simhei.ttf → simsun.ttc → msjh.ttc）；字体路径统一为正斜杠并用单反斜杠转义冒号（C\\:/Windows/Fonts/msyh.ttc）。- **回归**：buildSubtitleFilter 断言含 msyh fontfile；实测字幕区像素密度 2496（豆腐块）→ 3979（正常字形）。非 Windows 由 fontconfig 处理，不注入 fontfile。## 应用日志 log 合同（2026-08-06）### 需求概述为便于 AI 开发工具排查 bug 原因、用户自查问题或向官方反馈，桌面应用新增本地日志功能：控制台与文件双写、按日期滚动、敏感信息脱敏、单文件 500MB 自动清理、设置页手动清理与查看。### 1. 日志记录范围（行为清单）- **进程生命周期**：应用启动/主窗口创建、退出清理完成；未捕获异常（uncaughtException）、未处理拒绝（unhandledRejection）、渲染进程全局错误（Vue errorHandler / window error / unhandledrejection 经 logs:error 上报）。- **流水线与任务**：流水线启动/完成/失败/取消、各阶段推进与耗时、断点恢复、任务队列操作。- **敏感操作**：登录/登出/账号切换（不含凭据）、发布动作、许可证激活/变更、模型服务商配置变更（API Key 只记录掩码）。- **Provider 调用**：模型供应商调用结果与错误码（不含完整 API Key、Bearer Token）。- **服务生命周期**：Bridge 启动/停止、回调服务器、媒体服务器、自动更新检查结果等关键服务事件。- **错误与异常**：所有 log.error / log.warn 路径，附错误码与上下文。### 2. 日志格式与敏感信息脱敏- **文件行格式**：<ISO8601 时间> [级别] <模块> <消息> [JSON meta]，每行一条；级别 DEBUG/INFO/WARN/ERROR。- **控制台**：保持原有 [时间] [级别] 模块 消息 [meta] 输出，行为不变。- **脱敏规则（落盘前统一 redact）**：  - Authorization: <token> / Bearer <token> → Bearer ***；  - apiKey / api_key / authorization 字段值 → ***；  - sk- 前缀密钥保留前 7 位（sk-xxxx***）其余掩码。- **meta 规则**：第三参为对象时 JSON 序列化（超过 8000 字符截断加 …）；为 Error 时记录 stack/message；为字符串时按原文拼接（兼容既有 log.level('模块', '消息') 调用约定，不产生多余引号）。### 3. 保存规则与路径- **滚动规则**：按日期单文件 app-YYYY-MM-DD.log；同日追加同文件，跨日自动新建。- **路径**：userData/logs/（app.getPath('userData')/logs）。userData 位于用户目录（非程序安装目录），满足未来安装包在 Program Files 等只读目录部署时仍可写入；开发/测试环境可用 setLogOptions({dir}) 注入隔离目录。- **大小规则**：默认单文件上限 500MB（maxFileBytes，可注入覆盖用于测试）。每追加约 64KB 核对一次真实文件大小，超限自动删除该日期文件并从头重建；启动首次写入时也会核对历史超限文件并重建。- **写入方式**：异步队列，不阻塞主进程；磁盘写失败静默回退控制台，不影响主流程。- **退出保证**：应用退出清理阶段调用 log.flush() 排空写入队列后再退出。### 4. 设置页交互（设置-通用设置）- **入口**：设置对话框「通用设置」Tab（原为禁用占位，本次启用）。- **显示项**：  - 标题「应用日志」、副标题「查看与管理本地日志文件，便于排查问题或反馈给官方」；  - 日志目录完整路径；  - 日志文件数、日志总大小、单文件上限（500 MB）；  - 文件列表：文件名 + 单文件大小（按文件名排序）；  - 空态「暂无日志文件」。- **操作项**：  - 【刷新】重新读取日志信息；  - 【清理日志】调用 logs:clear 删除全部 app-*.log；清理中按钮禁用防重复提交；清理后自动刷新列表。- **提示文字（固定展示）**：「Log 文件达到 500M 时，系统会自动清理。」（i18n：zh/en）。- **多语言**：上述文案走 locale（settings.logs.*），默认中文、英文可用。### 5. IPC 与数据合同- logs:info → { code: 0, data: { dir, totalBytes, fileCount, maxFileBytes, files: [{ name, size }] } }；失败 { code: -1, message }。- logs:clear → { code: 0, data: { removed } }（removed=删除文件数）；成功后记录 log.info('Logs', '用户手动清理日志文件', { removed })。- logs:error → 入参 { message }，主进程以 ERROR 级写入模块 Renderer；无 message 时使用默认文案「未知渲染进程错误」；返回 { code: 0, data: true }。- 三个通道均加入 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（logsGetInfo / logsClear / logError），登录与否均可访问；renderer 统一经 src/api/publisher.js 封装，无 electronAPI 时 fallback 返回错误码。### 6. 数据校验与容错- setLogOptions({ maxBytes })：非有限数或小于等于 0 不生效，保留原值。- 目录创建失败/不可写：仅控制台输出，不抛错。- 单文件统计失败：跳过该文件，不中断列表。- 清理只匹配 app-*.log，不删除其他文件。- 手动清理与 500MB 自动清理后 currentLogPath 置空，下一次写入重建文件。### 7. 验收标准- 单元测试：electron/services/logger.test.js（日期滚动/脱敏/超限自动删/启动核对/clearLogs/getLogsInfo/非法 maxBytes）、electron/ipc-handlers/logs.test.js（三通道）、electron/preload.test.js（方法数与存在性）、shutdown.test.js（flush）。- 打包后：启动应用并在 userData/logs/ 看到当日 app-*.log；设置页可查看/刷新/清理；500MB 上限行为可用小上限注入验证。- 外部边界：真实 provider 调用日志内容为灰度验证项，不纳入自动验收。## 技术债务 W1/W2/W3 闭环（2026-08-06）来源：`01-docs/QUALITY-RHYTHM-BACKFILL-2026-08-06.md` 集中代码审查的三项 WARNING/INFO，本次全部闭环。### W1：run-state 快照 owner 隔离- **问题**：`RunStateStore` 快照按 runId 平铺落盘（`userData/run-state/<runId>.json`），同机多账号场景下泄露 runId 即可读取他人恢复上下文。- **修复**：已登录时快照写入 `userData/run-state/owners/{sha256(subject)}/<runId>.json`；owner 由 `setOwnerProvider(provider)` 注入（与 store/offline-manager 一致），在 `phase3-services.js` 使用同一 `ownerSubjectProvider` 接线并随身份切换更新。- **兼容**：未登录/身份不可用时回退 legacy 平铺路径；`load` 优先读 owner 目录，命中 legacy 平铺快照时自动迁移（copyFileSync + 清理旧文件）；`remove` 同时清理两处路径。- **数据约束**：ownerHash 为 `sha256(subject)` 完整 hex；快照额外记录 `owner`（subject）便于追溯；快照仍不含密钥。- **验收**：`run-state-store.test.js` 覆盖 owner 保存/读取、跨账号隔离（A 读不到 B）、legacy 迁移、双路径 remove、provider 校验与抛错回退。### W2：governor 排队超时统一回收- **问题**：`_acquireSlot` 中已过截止时间的 waiter 仅在 `_pump`（下次释放）时被拒绝；若某 key 无后续释放，过期 waiter 会悬挂到任务链结束。- **修复**：  - 新增 `_sweepExpired(key, st)`：按绝对截止时间回收该 key 全部过期 waiter（不仅队首）；`_pump` 复用该方法。  - 每次 `run()` 入口先 sweep 该 key（新请求到达即回收，不依赖释放）。  - 新增 `sweepAll()`：统一回收所有 key 的过期 waiter；`PipelineEngine._finalizeRun`（完成/失败/取消统一出口）调用 `governor.sweepAll()`（governor 经 container 注入 pipelineEngine）。- **验收**：governor 单测覆盖「无释放时 sweepAll 回收」「新请求到达回收过期 waiter」；resume-orchestration 测试覆盖「失败/取消时调用 sweepAll」。### W3：governor 默认 RPM 按 provider 配置化- **问题**：`DEFAULT_LIMITS` 按类别（llm/tts/image/video/audio）固定，真实供应商限额差异大。- **修复**：新增 `governor-provider-limits.js`，为 52 个已知 provider 提供 `{ rpm, maxConcurrent, cooldownMs, retry429 }` 预算（保守估计，非官方保证；本地类 provider 给高预算）；`ApiUsageGovernor` 支持 `setProviderLimits(providerId, limits)` 与构造函数 `providerLimits` 注入，container 启动时注入 `PROVIDER_LIMITS`。- **优先级**：精确 key 覆盖 > provider 级 > 类别默认 > 全局默认；429 自适应（rateFactor 0.75）仍兜底真实限流。- **验收**：governor 单测覆盖「provider 级 rpm 生效」「未配置 provider 回退类别默认」「构造函数注入」。## 音色目录/克隆校验修复合同（2026-08-07）### Bug 1：MiniMax 系统音色选择（VOICE_CATALOG_INVALID_ARGUMENTS）- **背景**：选择「沉稳高管」「搞笑大爷」等 MiniMax 系统音色报 `VOICE_CATALOG_INVALID_ARGUMENTS`。根因：MiniMax 官方 system voice id 含空格与括号（如 `Chinese (Mandarin)_Reliable_Executive`），而 `selectVoice` 的 voiceId 校验只允许 `/^[a-zA-Z0-9._-]+$/`。- **数据校验合同（voiceId）**：  - 允许字符集：任意非控制字符文本（含空格、括号、中文等），长度 ≤256；  - 拒绝：控制字符（U+0000-U+001F、U+007F）、路径分隔符（`/`、`\`）、遍历序列（`..`）；  - providerId / model 仍使用严格 ASCII 白名单（`/^[a-zA-Z0-9._-]+$/`）不变；  - voiceId 只用于偏好持久化与传给 adapter 合成参数（MiniMax `voice_setting.voice_id`），不进入文件路径。- **交互逻辑**：目录可展示并选择全部 MiniMax 系统音色（327 个，含空格括号 id）；选择后保存偏好并在下次进入时作为默认。- **回归保护**：`tts-voice-service.test.js` 覆盖「含空格括号 id 选择成功」「路径分隔符/遍历序列拒绝」。### Bug 2：音色克隆样本时长误报（VOICE_CLONE_SAMPLE_DURATION_INVALID）- **背景**：符合要求（mp3/m4a/wav、10s-5min、≤20MB）的 wav 上传后仍报「上传的音频文件时长不符合要求」。根因：`ffprobe` 从 stdin（pipe:0）流式探测部分 PCM wav（如带 `LIST` chunk 的 RIFF）拿不到 `format.duration`（文件模式正常）。- **流程与功能逻辑（时长探测）**：  1. 首选 pipe 探测（mp3/m4a 等流式可解析路径）；  2. **有音频流但 duration 缺失/无效** → 回退写临时文件（`os.tmpdir()/voice-clone-probe-<random>.wav`，`mode 0o600`）用文件模式探测，`finally` 删除临时文件；  3. **明确无音频流** → fail closed（`VOICE_CLONE_SAMPLE_DURATION_INVALID`），不回退；  4. pipe 与文件模式都失败 → 返回无效（不伪造时长）。- **数据约束**：临时文件仅存在于 `os.tmpdir()`、随机名、600 权限、探测后必删；样本时长校验阈值不变（10s-5min，MiniMax）。- **提示文字**：不变（「上传的音频文件时长不符合要求，请按提示调整时长后重试」）；真实原因（探测失败）不再误报为时长不符，而是正常完成校验。- **回归保护**：`tts-voice-clone-service.test.js` 覆盖「pipe 无 duration 回退文件探测」「pipe 成功不回退」「双失败返回 null」「无音频流 fail closed 且不落盘」；端到端验证用户 wav（27.12s）通过。## 视频创作后台运行与并发合同（2026-08-07）### 需求概述流水线启动后应在后台持续运行：用户返回流水线列表或切换模块不影响执行；历史记录可查看运行中未完成的任务及其实时流程状态；同一应用支持多个流水线并行，但设上限防止资源过载。### 1. 后台运行（已具备，本次固化合同）- **启动即后台**：`pipeline:startOrchestrated` 传 `autoAdvance: true, background: true` 时，主进程后台推进整条流水线并立即返回 `runId`；renderer 每 3s 轮询 `pipeline:getRunContext` 刷新阶段状态。- **页面无关性**：运行绑定在主进程 `PipelineEngine._runs`（runId 驱动），不依赖任何页面/组件生命周期。CreateView `beforeUnmount` 仅清理轮询 timer 与时钟，**不取消 run**。- **返回恢复查看**：CreateView `mounted` 调用 `resumeRunningOrchestration()`——遍历候选流水线名，用 `pipeline:status` 找到 `status=running && orchestrationMode=orchestrator` 的运行并自动恢复阶段清单查看（含轮询）。renderer 重载/切页返回均适用。- **断点恢复**：失败 run 落 `RunStateStore` 快照，`pipeline:resumeOrchestration` 从失败阶段继续（并发槽位占用，见下）。- **运行中任务持久化（2026-08-09 新增）**：运行中编排 run 阶段级落盘 running 快照（`saveRunning`）+ 退出兜底 `saveRunningState()`；应用退出/强杀重启后，任务以「运行中」状态继续显示在历史记录并可「从断点继续」（见 7.1.21）。### 2. 历史记录显示运行中任务- **数据源**：`pipeline:history`（`PipelineEngine.getHistory()`）现在返回「运行中 run（在前）+ 终态历史」；`_runs` 中 `<runId>` 与 `_<pipelineName>` 指向同一对象，返回前去重。- **显示项（创作历史-流水线记录）**：  - 运行中卡片：状态圆点（running 蓝）、流水线名（i18n 名称）、时间（`completedAt || startedAt || createdAt`，运行中显示创建时间）、阶段标签（completed/running/pending 色块）、状态文案「运行中」、提示「返回创作页查看进度」。  - **轮询刷新**：列表存在 `status=running` 任务时每 5s 自动刷新（阶段状态实时更新）；全部结束后自动停止轮询；`beforeUnmount` 清理 timer。- **可发现性（2026-08-07 修订）**：进入创作历史页时同时加载流水线记录；存在运行中任务时自动切到「流水线记录」tab 直接展示运行中卡片；「渲染记录」tab 顶部显示横幅「有 N 条流水线正在后台运行，点击查看运行状态」（点击切到流水线记录）。避免用户进入历史页默认看渲染记录而误以为运行中任务未出现。- **CreateView 内部历史记录视图（2026-08-07 修订）**：【视频创作】-【历史记录】是 `CreateView` 内部视图（非 `/create/history` 独立页）：`loadHistory()` 合并项目记录与 `pipeline:history`（含运行中 run），运行中流水线**置顶**展示（优先于已完成项目/终态 run）。  - **展示（2026-08-07 二次修订，修复布局错乱）**：运行中项为**卡片式**——主信息行（名称/状态「进行中」/「返回流水线创作查看进度」提示/时间）+ 独立「阶段进度条」（每阶段一个分段，done 绿 / active 蓝高亮 / pending 灰 / failed 红，语义同流水线页阶段清单），不再内联标签挤占单行。  - **刷新（2026-08-07 二次修订，修复闪烁；三次修订，修复运行结束任务消失）**：存在运行中任务时每 5s 执行 `refreshRunningHistory()` **原地更新**运行中项的 stages/currentStage（保持列表对象身份），不重建整表、不重刷项目记录；**运行中项结束后（不在 `pipelineHistory` 运行集中）触发一次完整 `loadHistory()`，以终态（已完成/失败/已取消）保留显示，不直接消失**。  - 点击运行中项切回流水线创作视图并自动恢复查看该 run。  - **失败任务持久展示（2026-08-08 修订）**：流水线执行失败的任务也必须显示在历史记录中，状态文案为「生成失败」。    - **数据源**：失败时 `RunStateStore.saveFailed(run)` 持久化快照（新增 `createdAt` 字段）；`PipelineEngine.getHistory()` 在内存 `_runs`/`_history` 之外，合并 `runStateStore.listFailed()` 的持久化失败快照（按 runId 与内存条目去重）。    - **重启保持**：应用重启后内存历史清空，但失败快照仍从 run-state 目录读取，失败任务继续显示在历史记录中（状态「生成失败」、时间取 `completedAt/updatedAt/createdAt`）。    - **状态文案**：`failed` 状态在【历史记录】显示为「生成失败」（CreateView 内部历史视图 `historyStatusLabel` 与 `/create/history` 独立页 `statusLabel` 同步；状态筛选项「失败」改为「生成失败」）。    - **交互（2026-08-08 二次修订，新增断点继续）**：失败且可恢复（非内容政策类）的卡片显示「从断点继续」按钮，点击调用 `pipeline:resumeOrchestration` 从失败阶段续跑，自动切回流水线创作视图并展示实时进度；续跑后该任务以「进行中」状态继续留在历史记录（不再消失）。内容政策类失败（需修改文案）不显示该按钮，保持仅展示状态。点击失败卡片本体同样触发续跑（与运行中卡片点击行为一致）。    - **终态记录唯一性（2026-08-08 二次修订）**：断点续跑复用同一 runId，`PipelineEngine._finalizeRun` 写入 `_history` 时按 runId 去重（同 id 只保留最新一条终态，避免新旧终态重复展示）。    - **终态快照扩展（2026-08-08 二次修订）**：编排模式取消（cancelled）与失败（failed）一样调用 `RunStateStore.saveFailed` 持久化终态快照——续跑时会删除旧失败快照，若续跑后再次取消必须保留新终态，否则应用重启后该任务在历史中丢失；取消快照状态为 `cancelled`，不可恢复（`resumeOrchestration` 仅允许 `failed`/`running`）。    - **运行中任务持久化（2026-08-09 新增，见 7.1.21）**：运行中编排 run 在启动与每个阶段执行前落盘 `status='running'` 快照（`endedAt=null`），退出/强杀时 `saveRunningState()` 兜底；应用重启后 `getHistory()` 经 `listRunning()` 合并这些快照，任务以「运行中」显示并带「继续生成」按钮——点击调用 `resumeOrchestration` 从中断阶段重建并自动续跑（同会话内幂等返回 `alreadyRunning`，仅附加实时进度，不重复创建运行）。已完成 run 的 running 快照在 `_finalizeRun(completed)` 时删除，杜绝「已完成任务以运行中重现」。- **交互逻辑**：  - 点击运行中卡片 → 跳转 `/create`（CreateView 自动恢复查看该 run 进度）。  - 点击已完成卡片 → 跳转 `/create/result?path=<成片路径>` 预览。  - 失败/取消卡片：保持仅展示状态，不跳转。- **数据校验**：`pipeline:history` 失败返回 `{ code: -1, message, data: [] }`；前端 5s 加载超时提示「流水线记录加载超时，请重试」。### 3. 并发限制- **上限**：默认按机器资源自适应（`computeDefaultMaxConcurrentRuns`，取值 1–4：可用并行度 ≥8 且可用内存 ≥8GB → 4；≥4 且 ≥4GB → 3；<2 核或 <2GB → 1；其余 → 2）。**固定上限开关（2026-08-07）**：环境变量 `STORY2VIDEO_MAX_CONCURRENT_RUNS`（正整数 1–8，非法/空回退自适应）可强制固定上限（如设 `2` 即固定 2 条），`deps.maxConcurrentRuns` 注入仍最优先（测试/调优）。依据：每条流水线的资源生成阶段并发调用模型 API（受 api-usage-governor 限流），compose 阶段跑 ffmpeg 合成（CPU/内存密集，27 场景曾触发 x264 OOM）；自适应保证低配机器 1 条兜底、高配放宽，封顶 4 不放任资源占用。- **统计口径**：`_countActiveRuns()` 统计 `_runs` 中 `orchestrationMode=orchestrator && status=running` 的独立 run（去重 `_<name>` 索引）。- **启动/恢复统一门禁**：`startOrchestrated`（创建 run 前）与 `resumeOrchestration`（恢复前）都调用 `_assertConcurrencyBudget()`；达到上限返回：  - `{ success: false, errorCode: 'PIPELINE_CONCURRENCY_LIMIT', error: '当前已有 N 条流水线正在后台运行，最多同时运行 M 条，请等待其中一条完成后再启动。', errorParams: { count: N, max: M } }`- **槽位释放**：run 进入终态（completed/failed/cancelled）即从 `_runs` 移除，槽位释放。- **提示文字（前端）**：`story2video-notifications.js` 新增 `PIPELINE_CONCURRENCY_LIMIT`（zh/en），通过 `errorCode` 显式映射 + 中文错误文本正则兜底解析；弹窗展示友好文案，不展示技术细节。### 4. 验收标准- 引擎单测：`getHistory` 含运行中且无重复；上限 2 拒绝第 3 条；注入 1 时第 2 条拒绝、取消后释放；`resumeOrchestration` 超限拒绝；`computeDefaultMaxConcurrentRuns` 覆盖 1/2/3/4 资源档位与注入覆盖。- 前端单测：CreateHistory 运行中任务显示 + 5s 轮询 + 结束后停止 + 点击跳 `/create`；notifications 并发文案解析（zh/en/errorCode/正则）。- 交互验收（人工）：启动图片轮播 → 返回列表/切模块 → 历史-流水线记录可见运行中任务且阶段实时刷新 → 点击卡片回创作页恢复查看 → 再启动另一条流水线至 2 条并行 → 第 3 条弹并发提示。- 交互验收（人工）：启动图片轮播 → 返回列表/切模块 → 历史-流水线记录可见运行中任务且阶段实时刷新 → 点击卡片回创作页恢复查看 → 再启动另一条流水线至 2 条并行 → 第 3 条弹并发提示。## 真实链路修复合同（2026-08-07，E2E 暴露）### 1. MiniMax Image 空结果降级见 7.1.5「空响应重试合同」修订：HTTP 200 但无 `image_urls` → adapter 显式抛错（内容安全信号→`CONTENT_POLICY`，否则 `PROVIDER_ERROR`）；asset-generator 在内容政策重试循环内校验，前 2 次同提示词重试、第 3 次起安全改写、第 5 次仍空 → `needs_user_input(reason=empty_result)` 友好提示。防止「1/2 场景已生成、第 2 个场景空结果导致整条流水线失败」。### 2. compose 转场滤镜 transition=undefined- **根因**：`buildTransitionPlan` 返回的计划对象不含 `transitionName` 字段，而 `_xfadeMerge` 从 `plan.transitionName` 构造 `xfade=transition=<name>` 滤镜 → 得到 `xfade=transition=undefined`，ffmpeg 报 `const_values array too small for transition` / `Not yet implemented`，compose 阶段失败。- **修复**：`buildTransitionPlan(segmentDurations, requestedDuration, transitionName)` 在所有返回路径携带 `transitionName`（默认 `fade`）；`_concatSegments`（≤8 段直连）与 `_concatSegmentsChunked`（分块）均传递该值；`_xfadeMerge` 使用 `plan.transitionName` 构造滤镜。- **数据约束**：`transition` 取值必须命中 `TRANSITION_NAMES`（fade/slide-left/right/up/down），非法值按 `none` 走无损拼接，不进入 xfade；转场时长仍按相邻片段真实时长收敛（不直接用用户配置值）。- **回归保护**：compose-engine 测试断言 `buildTransitionPlan` 携带 `transitionName`、直连/分块路径传给 `_xfadeMerge` 的计划均含 `transitionName='fade'`。### 3. 并发上限固定开关见「视频创作后台运行与并发合同 §3」修订：环境变量 `STORY2VIDEO_MAX_CONCURRENT_RUNS`（1–8，非法回退自适应）可固定上限（如 `2`）；优先级 deps 注入 > 环境变量 > 机器资源自适应。回归：resume-orchestration 覆盖设 2/非法回退/deps 优先/封顶 8。## Podcast 转视频流水线引擎合同（2026-08-07）### 1. 流水线- 名称：`podcast-repurpose`（播客转视频，音频 → 可视化视频），category=hybrid，`available=true`（2026-08-07 实现引擎）。- 阶段：`analyze` → `visualize` → `assemble` → `render`。### 2. 阶段合同| 阶段 | 类型 | 输入 | 输出 | 说明 ||------|------|------|------|------|| analyze | `podcast_analyze` | `params.audio`/`params.audioPath`（受控媒体根目录，wav/m4a/mp3）；`params.transcript` 可选 | `{ audioPath, duration, transcript, segments:[{index,text,start,end}] }` | ffprobe 探测时长；文案优先 `params.transcript`（按行分句、均分时长，最多 30 段），否则走 `story2videoProjectService.transcribeFile`（需已配置语音识别供应商）；两者皆无 → fail closed「需要文案或语音识别服务」 || visualize | `podcast_visualize` | `context.analyze` | `{ ...analyze, images:[{index,success,path,error?}] }` | 每段文案经 AssetGenerator.generateImage 生成配图；图片 provider 优先级 params.imageProvider > stage.options.imageProvider > 默认 image provider；aspect 默认 16:9 || assemble | `podcast_assemble` | `context.visualize` | `{ scenes:[{index,text,imagePath,audioPath,duration}] }` | ffmpeg 按 start/end 切分音频为 m4a 片段（`os.tmpdir()/story2video/podcast/<runId>/seg_XXXX.m4a`）；单段切分失败跳过；全部失败 → fail closed || render | `compose`（内置） | `context.assemble`（`inputFrom: 'assemble'`） | 成片 mp4 | Story2Video 合成引擎；transition=fade、subtitleEnabled=false、720x1280、fps 30 |### 3. 数据与安全约束- 音频路径必须经 `resolveReadableMediaFile(kind='audio')` 校验（受控媒体根目录 + 扩展名 + 大小）；运行目录 runId 走 `safeRunId` 语义（`story2video/podcast/<runId>`）。- 切分产物为运行隔离临时文件；流水线结束由 compose 引擎的 session 清理机制覆盖（`_cleanupSession`）。- 无真实语音识别供应商时，analyze 不伪造转写，明确提示提供文案。### 4. 验收- 引擎单测 11 例：注册/分句/analyze（缺音频、不可读、真实 wav+文案、无文案失败）/visualize（配图、缺 segments）/assemble（真实切分、缺 context）。- E2E（待办 B）：真实音频（可先提供文案）→ 4 阶段 → 成片 mp4；语音识别转写路径需配置 whisper 供应商后验收。## 字幕样式与位置合同（2026-08-07 修订）| 合同 | 要求 ||------|------|| 字体 | 中文必须显式指定 CJK fontfile（Windows 静态 ffmpeg 默认字体无中文字形），否则渲染成豆腐块/乱码；Linux 无 Windows 字体时不注入但仍合法。 || 字号 | `subtitleStyle.size`（size1-6 / sm-xl）映射 16-40px，`fontSize` 优先；范围 12-96。 || 样式 | `style2` 加黑底 `box`（0.55 透明度 + 10px 边框）；`style3` 描边加粗（borderw=4）。 || **位置（2026-08-07 修订）** | 字幕底边默认位于画面 **80% 高度**（即**距底部 20%**，`bottomMarginRatio=0.2`，范围 0.05-0.5，可经 `subtitleStyle.bottomMarginRatio` 覆盖）；y 表达式 `y=h*(1-bottomMarginRatio)-th`。原固定 `h-th-40`（约 3%）废弃。 || 水平 | 恒居中 `x=(w-text_w)/2`。 |---## 提示词优化效果评估系统（PromptEval，2026-08-11）> 完整 PRD：`01-docs/PRD-PROMPT-EVAL-SYSTEM-2026-08-11.md`；架构：`01-docs/ARCH-PROMPT-EVAL-SYSTEM-2026-08-11.md`；OpenSpec：`openspec/changes/prompt-image-eval-system/`。v1 只支持图片，视频扩展预留。### 背景与目标prompt-engine（8013）优化出的图片提示词生成图片后，缺乏量化反馈闭环。本系统对「生成图片 + 该图对应的原始文案/整个文案上下文/优化后提示词/负向提示」进行多维度评估：打分（0-100）、问题归因（原文/上下文/优化后提示词/负向提示）、产出提示词优化点清单，并通过持久化与聚合分析支撑 prompt-engine 的持续迭代。### 评估维度与权重（图片模式）| id | 维度 | 权重 | 说明 ||----|------|------|------|| relevance | 提示-输出关联度 | 30% | 图片与「原文+上下文+优化后提示词」整体语义吻合度 || content_accuracy | 内容准确性 | 30% | 关键元素（主体/动作/场景/数量/风格/色彩/文字/道具）准确度与幻觉检测 || aesthetic_quality | 视觉审美质量 | 20% | 构图/光影/色彩和谐/清晰度/风格执行度 || cross_image_consistency | 跨图上下文一致性 | 20% | ≥2 张同文案图片：角色/风格/色调/场景连续性（单图不参与，权重归一化为 0.375/0.375/0.25） |等级：≥85 优秀 / ≥70 良好 / ≥50 一般 / <50 差。总体分为参与维度加权和。### 问题类别与归因问题类别 11 类：content_missing / content_wrong / style_deviation / layout_composition / color_lighting / text_rendering / ambiguity / context_loss / consistency_break / quality_defect / unknown。归因 promptPart 5 类：source_text / context / optimized_prompt / negative_prompt / unknown。严重度 critical / major / minor。### 提示词优化点类型（可回馈 prompt-engine）add_specificity（补充明确细节）/ resolve_ambiguity（消除歧义）/ enforce_style（强化风格约束）/ align_context（对齐文案上下文）/ add_negative（补充负向提示）/ structure_ordering（结构化/顺序化）/ consistency_anchor（一致性锚点）。### 数据校验（fail closed）- mediaType=image（video → `EVAL_MEDIA_TYPE_NOT_SUPPORTED`「视频评估暂未实现」）；- items 非空且 ≤20；imagePath 存在、可读、非目录、单图 ≤8MB；- optimizedPrompt 非空且 ≤5000；sourceText/context 至少一个非空；context 敏感键（password/token/secret/api_key/credential 等）拒绝；- options.language ∈ {zh,en}；temperature 收敛 [0,2]；- 评估器输出契约校验：overall 0-100、维度 id 白名单且不重复、score 0-100、evidence 非空、problems/promptOptimizationPoints 白名单；任一违反 → `EVAL_LLM_INVALID_RESPONSE` 整次失败，不静默降级。### 持久化与聚合`<userData>/prompt-eval/{index.json, records/<id>.json, reports/<id>.md}`，原子写（Windows 瞬时锁错误有界重试 ≤3 次），索引自愈。聚合分析输出：记录数/平均分/等级分布/维度均值/问题类别分布/归因分布/优化点汇总/推荐动作。### 使用入口- CLI：`node apps/desktop/electron/services/prompt-eval/cli.js --image <path> --source-text "..." [--optimized-prompt "..."] [--evaluator <模块>] [--json]`；`--batch input.json`；`--analyze`。- 桌面 IPC：`prompt-eval:run/list/get/delete/analyze/dimensions`（withSenderCheck，默认 authenticated 级）。- Vue 视图：`/prompt-eval`（运行评估 / 历史记录 / 聚合分析 三个 Tab），导航「提示词评估」。### 验收标准单图/多图评估、输入校验矩阵、LLM 输出 fail closed、CLI 批处理、IPC 全通道、Vue 三 Tab、聚合分析、视频拒绝、聚焦回归通过（prompt-eval 服务 45+ IPC 4+ preload 2+ composable 3+，Vue build 通过）。
+### 8.2 剪贴板导入```点击「从剪贴板导入」    └─ 自动提取剪贴板内容的标题 + 正文 → 创建草稿```### 8.3 平台内容采集支持从微博、知乎、今日头条等平台采集内容，一键创建草稿后进行二次编辑和发布。### 8.4 草稿箱管理```草稿箱（内容采集页面内）    ├─ 查看所有草稿（标题预览、采集来源）    ├─ 编辑草稿 → 跳转到发布页    ├─ 删除草稿    └─ 新建空白草稿```---## 九、内容智能工作流### 9.1 热点趋势```进入「内容情报」页面    │    ├─ 查看热门趋势面板（数据源：Reddit / Hacker News / GitHub）    ├─ 搜索特定主题 → 跨平台高互动内容结果    │   ├─ 按来源筛选（Reddit/HN/GitHub）    │   ├─ 按真实互动评分排序（非 SEO）    │   └─ 查看搜索结果详情    └─ 热点数据为创作选题提供参考```### 9.2 标题助手与标签推荐在发布页编辑文章时：```├─ AI 生成标题（基于正文内容）├─ AI 优化标题（提升点击率）└─ 智能标签推荐（匹配平台热门标签）```### 9.3 爆款分析```进入「爆款分析」页面    ├─ 分析各平台爆款内容特征    ├─ 查看互动数据、发布时间、内容类型分布    └─ 为创作策略提供数据支撑```> **实现说明（v2.3.43）**：爆款分析由 `viral-engine.js` 桥接到外部 orchestrator> (`ORCHESTRATOR_URL`，默认 `http://localhost:8000`)，提供 AI 驱动的深度分析。> 当 orchestrator 不可用时（未配置或连接失败），自动回退到**本地启发式分析**> （`_localAnalyze` / `_localGenerate` / `_localTrending`），基于输入文章的互动> 数据、标题特征和关键词多样性计算爆款潜力分，确保功能在离线/无 orchestrator> 环境下仍可使用。本地 fallback 返回数据带 `mode: 'local-fallback'` 标记。### 9.4 关键词监控```进入「关键词监控」页面    ├─ 设置监控关键词    ├─ 追踪关键词在各平台的表现趋势    └─ 实时查看相关内容的互动数据```---## 十、发布日历流程```进入「发布日历」页面    │    ├─ 日历视图（月视图）    │   ├─ 左右切换月份    │   ├─ 「今天」快速定位    │   └─ 有发布计划的日期显示事件标记    │    ├─ 选择日期 → 查看当天发布计划    │   ├─ 已发布的文章（带状态）    │   └─ 定时任务（待发布）    │    └─ 日历数据来源：        ├─ 已发布的 publish_history（SQLite）        └─ 待执行的 scheduled_tasks```---## 十一、云端发布流程```进入「云端发布」页面    │    ├─ 填写发布表单    │   ├─ 视频 URL（存储链接）    │   ├─ 目标平台    │   ├─ 标题（最多 80 字）    │   ├─ 描述    │   ├─ 标签（逗号分隔，点击删除单个标签）    │   └─ 封面图 URL（可选）    │    ├─ 提交云端发布任务    │   ├─ 任务发送到 ECS 服务器 orchestrator    │   ├─ 不依赖本地环境（可在任意设备提交）    │   └─ 查看 orchestrator 在线状态    │    └─ 发布结果在任务完成后推送```---## 十二、与 PROJECT-001 的集成```PROJECT-001（内容聚合改写）    │    │ WebSocket 推送改写后的内容    ▼Aggregator Bridge (aggregator-bridge.js)    │    │ 调用 taskQueue.addBatch()（单次不超 20 篇，超出自动拆分） 添加多平台任务    ▼Task Queue → 各平台发布器 → 发布完成```**集成点：**1. **WebSocket 通信**：PROJECT-001 通过 WebSocket 将改写后的文章推送到 Multi-Publish2. **自动批量发布**：接收到文章后自动加入任务队列，按平台顺序执行3. **状态反馈**：发布进度实时回传---## 十三、CI/CD| 环节 | 说明 | 状态 ||------|------|------|| GitHub Actions | 推送 main/develop 触发构建 | ✅ || 构建产物 | Windows (.exe) + Linux (.AppImage) | ✅ || ESLint 检查 | GitHub Actions quality-gate PR 门禁，ESLint 0 errors | ✅ Phase C3 || 自动更新 | electron-updater + GitHub Release | ✅（待首次 Release） |---## 十四、风险与应对### 自动化风险| 风险 | 影响 | 应对 ||------|------|------|| RPA 被平台封禁 | 高 | 随机延迟 300-800ms + Cookie 轮换 || 平台 UI 变更 | 中 | 模块化设计，单发布器变更不影响整体 || Cookie 过期 | 低 | 自动检测 + 一键重新登录 || 浏览器兼容性 | 低 | Electron 内嵌 Chromium 版本锁定 |### RPA 合规性评估| 平台 | 风险 | 缓解 ||------|------|------|| 微信/视频号 | 中 | 频率 <= 人工操作 || 抖音/TikTok | 高 | 随机延迟 + 单次 <= 3 篇，间隔 >= 5 分钟 || 小红书 | 中 | 同抖音，单账号日 <= 20 篇 || B站 | 中 | 优先 API，RPA 仅降级 |**通用原则：** RPA 间隔 >= 300ms；不绕过付费墙；应用内提示账号风险。---## 十五、验收标准### v1.2.0 验收（Electron 原生 RPA + 平台分类）- [x] **平台分类**：12 平台分 VIDEO / IMAGE_TEXT / MIXED 三类，API 透传- [x] **RpaViewManager**：隐藏 BrowserWindow + executeJavaScript RPA 引擎- [x] **CDP 文件上传**：`DOM.setFileInputFiles` CDP 文件上传- [x] **Playwright → RpaViewManager 全量迁移（P2-E）**：15 平台从 Playwright 统一迁移到 RpaViewManager- [x] **隐藏 BrowserView**：静默登录验证（loginSilent）- [x] **每账号 Session 隔离**：`session.fromPartition()` 独立分区- [x] **25 回归测试通过**：Python 后端全量通过- [x] **11 RpaViewManager 测试通过**：模块加载 + API 签名验证- [ ] 抖音发布选择器需实际页面验证（依赖真实抖音创作者后台）- [x] **15 个平台**：微信/知乎/微博/抖音/小红书/视频号/快手/头条/YouTube/TikTok/**Twitter/X**/B站/**百家号**/Instagram/Facebook- [x] **格式适配器**：14 平台格式转换（HTML 白名单/截断/标签格式化）- [x] **封面图自动处理**：sharp 中心裁剪 + 质量压缩 + 格式转换- [x] **平台 URL 配置化**：config/platforms.yaml 统一管理- [x] **敏感词预检**：DFA 算法 + 内置词库，发布前弹窗- [x] **数据同步系统**：5 平台框架 + SQLite 缓存 + Dashboard- [x] **评论统一管理**：WebContentsView 内嵌各平台评论页- [x] **端到端测试** — 全部测试套件通过- [x] **CI 自动 Release** — GitHub Actions auto-tag + release- [ ] Pending: 端到端测试（需真实账号凭证）### v1.1.0 目标（Roadmap）详见 `docs/roadmap-v1.1.0.md` — 产品稳定 → 运营启动 → 付费闭环 → 迭代增长---## 十六、Roadmap| 阶段 | 内容 | 状态 ||------|------|------|| P0-P3 | 基础发布 + 任务队列 + 定时 + 统计 | ✅ || **参考产品集成** | 分屏/回调/扫码/OAuth/SQLite/批量/B站/URL采集/托盘/快捷键/多账号 | ✅ || **Phase C（代码质量）** | ESLint v9 flat config + Prettier，201 个问题修复 | ✅ Phase C3 || **V1.0 发布** | 首版 Release、运营启动 | ⏳ 待进行 || V1.1 格式适配 | Markdown → 各平台格式转换、封面---## 十七、安全审计与质量门禁 (Security Audit & Quality Gates)### 17.1 安全审计修复（v2.3.42, 2026-07-09）按 `project_memory.md` 的 `/cso + /guard` 触发器执行全面审计后，修复 11 CRITICAL + 9 MAJOR，详见 [CHANGELOG v2.3.42](../CHANGELOG.md) 和 [decision-log D-030](./decision-log.md)。**修复要点**：- 硬编码密钥（master_password / jwt_secret / API Key / 生产 IP）→ 环境变量- SQL 注入防护（字段名白名单 `sanitizeUpdateFields`）+ 事务包裹- Electron 安全（contextIsolation: true）+ IPC 来源校验（`_assertTrustedSender`）- callback-server 鉴权（随机 token + Origin 限制 + body 上限）- 文件原子写 + 路径穿越校验 + chmod 600- 62 个 IPC handler 补 try-catch + 删除 22 个 .ts 死代码### 17.2 质量门禁（QM-1 ~ QM-3）详见 [AGENTS.md](../AGENTS.md) 强制质量门禁：| 门禁 | 要求 | 状态 ||------|------|:----:|| QM-1 | Electron 主进程代码本地打包验证 | ⏳ 沙箱环境无法执行 || QM-2 | Code review 必检项（require 路径/注释语法/模块导出/glob 覆盖） | ✅ || QM-3 | 测试策略（单元 + 打包 + 启动） | ✅ 本轮串行全量 357 files / 6120 tests passed |### 17.3 测试基线| 包 | 测试数 | 状态 ||----|--------|:----:|| apps/desktop | 历史基线 1791 passed / 10 skipped；本轮串行全量 357 files / 6120 tests passed | ✅ || ai-writer-api | 10 passed / 0 failed | ✅ |---## 十八、参考产品账号管理与内容发布对齐### 18.1 范围约束- 顶部主菜单和最左侧平台账号列表保持现有结构，不复制参考产品外壳。- 重构范围限定为主内容区域、账号管理页、内容发布页及动态加载内容。- 参考产品逆向分析产物只作为字段、状态、交互和视觉证据，不在运行时加载其 bundle。### 18.2 功能验收| 能力 | 验收标准 | 状态 ||------|----------|------|| 多账号管理 | 分组、收藏、筛选、排序、批量删除、默认账号、登录状态刷新 | 已实现 || 登录方式 | 内嵌浏览器、二维码登录、OAuth/API 登录入口 | 已实现 || 多账号发布 | 同平台多个账号展开为独立发布目标 | 已实现 || 定时发布 | 校验过去时间、30 天上限和平台频率间隔，支持取消 | 已实现 || 批量发布 | 每篇文章独立选择平台/账号，支持执行、排期、进度和终态轮询 | 已实现 || 草稿 | 保存并恢复正文、媒体、平台账号、定时和差异化内容 | 已实现 || 差异化内容 | 每个平台独立标题/正文在 RPA 与 backend 路由中生效 | 已实现 || 取消与退出 | 运行中任务可取消；应用退出时停止队列和延迟任务 | 已实现 |### 18.2.1 2026-08-04 续作验收补充| 能力 | 本轮验收合同 | 状态 ||------|--------------|------|| 账号卡片动作 | 活动账号显示“设置、验证、删除”；失效账号显示“设置、重新登录、删除”；不显示与参考产品不一致的“设默认、打开主页” | 本地已实现 || 账号归属字段 | 粉丝数、负责人、运营人、代理按多种后端字段名归一化；缺失值显示“暂无数据/未设置” | 本地已实现 || 账号重新登录 | 复用 browser auth IPC；取消、业务失败、异常均关闭登录视图并保留错误提示；完成事件显示“账号重新登录成功”并刷新 | 本地合同已实现，真实平台授权待外部验证 || 分组侧栏 | 搜索分组、全部分组、共享筛选、成员计数、无分组空态；筛选后只展示分组成员 | 本地已实现，团队共享待后端合同 || 收藏空态 | 收藏页签无结果时显示“暂无收藏账号”，不把“没有匹配的账号”误作收藏服务成功 | 本地已实现 || 分享链接 | 未接入团队分享服务时显示“未接入服务”，创建按钮禁用，不伪造链接或成员数据 | 本地已实现，后端能力待外部合同 |### 18.2.2 2026-08-04 parity gap closure| 能力 | 本轮实现与合同 | 状态 ||------|----------------|------|| 模块工具按钮 | 顶部“移动端预览、客服支持、使用指南、通知”均有独立 testid、可关闭本地面板和明确状态；未从逆向 bundle 推断未经证实的外链或 IPC | 本地已实现，真实参考产品点击目标仍待运行时验收 || 草稿箱二级页签 | `/publish?tab=drafts` 首屏进入独立草稿工作区，显示加载/空态/列表，支持返回发布、继续编辑和删除；`/publish?draft=...` 保留编辑器恢复流程 | 本地已实现 || 发布进度回归合同 | 进度卡固定 `publish-progress` testid，供功能 E2E 和视觉回归使用；不以通用卡片数量代替状态断言 | 本地已实现 || 发布记录删除 | 选择发布记录后可批量删除；renderer API、preload、`history:delete` IPC 和 JSONL service 均按 owner 隔离，删除后刷新并保留结果提示 | 本地已实现，真实多用户共享存储待外部验收 || 设计与代码分层 | 本轮新增导航面板、草稿页和反馈状态使用模块级 class/token；未对既有发布表单做无证据的大规模 CSS 重排，遗留 inline style 记录为后续拆分项 | 本轮新增代码已分层，遗留项已记录 |### 18.2.3 2026-08-10 浏览器式标签栏与导航系统| 能力 | 实现与合同 | 状态 ||------|-----------|------|| 浏览器式标签栏 (TabBar) | 新增 TabBar.vue 组件：标签页创建/关闭/切换，平台图标自动识别（15 个平台 emoji），加载状态 spinner，Home 标签不可关闭，ARIA role=tablist 无障碍 | 本地已实现 || 导航栏 (NavBar) | 新增 NavBar.vue 组件：后退/前进/刷新/首页按钮，URL 搜索栏（支持 URL 直接访问和 Bing 搜索），复制网址，加载状态指示，焦点态样式 | 本地已实现 || 标签页 Store (tab.js) | 新增 Pinia Store：tabs/activeTabId/navigation 响应式状态，IPC 事件订阅（tab-created/closed/switched/navigation-changed/loading），init/dispose 生命周期 | 本地已实现 || page-manager IPC 桥接 | 新增 preload/page-manager.js：14 个 IPC 方法（CRUD + 导航 + 查询 + 事件订阅），所有 handler 使用 withSenderCheck 安全校验 | 本地已实现 || WebviewManager 浏览器标签页 | 继承 EventEmitter，新增 createNewTabPage/closeTab/switchToTab/navigate/searchOrNavigate/goBack/goForward/reload 方法，独立 session 分区，Cookie 互不干扰 | 本地已实现 || App.vue 集成 | TabBar + NavBar 集成到参考产品工作区 shell，MpModuleNav 仅首页标签显示，tab store init/dispose 生命周期管理 | 本地已实现 || CreateHistory 空状态增强 | 渲染记录空态显示 🎬 图标 + 提示文案；流水线记录空态显示 🔄 图标 + 提示文案；修复 style 标签闭合位置 | 本地已实现 || 账号"去登录"按钮 | AccountManagementCard 新增"去登录"按钮（Monitor 图标），触发 open-creator 事件，Accounts.vue 处理事件并导航到创作者中心 | 本地已实现 || 构建修复 | platform-definitions.browser.js 补充 PLATFORM_DASHBOARD_URLS 导出 | 本地已实现 || 内存泄漏修复 | webview-manager.js unsubscribe-events 未传 subscriberId 时清理所有订阅者 | 本地已实现 |**数据校验**：- URL 导航：协议校验仅允许 http/https/file；域名正则匹配标准域名格式；非 URL 输入走 Bing 搜索编码- IPC 参数：所有 handler 使用 withSenderCheck 校验发送者来源；参数缺失返回 VALIDATION_ERROR- 标签页 ID：浏览器标签使用 btab- 前缀，分屏监控使用 tab- 前缀，避免 ID 冲突- Home tab：tabId 固定为 'home'，不创建 WebContentsView，关闭操作返回 false- 创作者中心 URL：必须在 PLATFORM_DASHBOARD_URLS 白名单中，不存在时提示"暂不支持该平台"**交互逻辑**：- 点击标签页 → switchToTab → 隐藏当前视图 + 显示目标视图 + 更新导航状态- 关闭标签页 → closeTab → 移除视图 + 切换到下一个标签（无标签时广播 all-tabs-closed）- URL 输入 → enter → 判断 URL/域名/搜索词 → 导航或 Bing 搜索- 首页标签 → 隐藏 NavBar 导航按钮，显示模块导航 (MpModuleNav)- Home tab 保护：closeTab 拒绝关闭 Home tab（返回 false），确保首页始终存在- switchToTab(Home)：隐藏所有 WebContentsView，显示 router-view 内容，activeTabId 设为 'home'- tabStore 初始化：自动创建 Home tab（tabId='home', title='首页'），不调用 IPC 创建 WebContentsView- 打开创作者中心：点击账号卡片"去登录"按钮 → openCreatorCenter(platform) → 获取 PLATFORM_DASHBOARD_URLS[platform] → createTab({ url, platform, accountId }) → 新标签页全屏显示创作者中心**显示项**：- 标签栏高度 36px，背景 #e8eaf2，活跃标签白色背景 + 阴影- 导航栏高度 40px，URL 搜索栏圆角 15px，焦点态紫色光晕- 平台图标：微信/抖音/小红书/微博/B站 等 15 个平台**提示文字**：- 渲染记录空态："暂无渲染记录" + "创作你的第一个视频，记录将在这里显示"- 流水线记录空态："暂无流水线运行记录" + "选择创作模式开始流水线，运行记录将在这里显示"- URL 搜索栏 placeholder："搜索或输入网址"- 标签页 title："新标签页"（about:blank）或 hostname### 18.3 设计与代码分层```textVue 展示组件  -> composables / Pinia（页面状态和用例编排）  -> src/api/publisher.js（统一 renderer API）  -> preload（最小能力暴露）  -> IPC handlers（来源校验、参数白名单）  -> 主进程 services / publishers（发布、存储、队列）```展示组件不直接访问 `window.electronAPI`；业务数据通过 props/emits 和 composable 进入组件。Electron 账号查询只返回公开字段，渲染层不能写入 cookies、localStorage 或 Token。详细计划见 `docs/plans/2026-07-20-mp-account-publish-parity.md`。### 18.4 验证口径最终交付必须同时通过桌面单元测试、覆盖率、故障注入、Monkey、功能 E2E、视觉回归、真实参考产品像素门禁、preload sandbox 双模式、Windows 打包、ASAR/require 链和应用启动。2026-08-04 parity gap closure 新增的定向门禁覆盖导航工具面板、草稿独立页、发布进度 testid、发布记录删除 API/IPC/service owner 隔离；定向 Vitest 648/648 通过。全量、功能 E2E、视觉、打包和真实参考产品操作必须以本轮实际命令结果为准，不得沿用旧报告数字。真实第三方平台授权、实际上传/发布、团队分享和跨设备同步仍属于外部验收，不以 mock 结果替代。实际命令和结果记录在 `.quality-gates.md`、`01-docs/ui-reference/analysis/04-account-publish-parity-2026-08.md` 以及本任务 `.ccg/tasks/mp-parity-gap-closure/`。## 十九、文档体系 (Documentation Index)### 19.1 前期流程文档| 阶段 | 文档 ||------|------|| 市场调研 | [MARKET-RESEARCH.md](./MARKET-RESEARCH.md) || 创意构思 | [viral-copy-product-concept.md](./viral-copy-product-concept.md) || 需求确认 | [REQUIREMENTS-SIGNOFF.md](./REQUIREMENTS-SIGNOFF.md) || 项目计划 | [roadmap-v1.1.0.md](./roadmap-v1.1.0.md) || 技术架构 | [ARCHITECTURE-PLAYWRIGHT.md](./ARCHITECTURE-PLAYWRIGHT.md) / [003-electron-tech-design.md](./003-electron-tech-design.md) || 设计评审 | [DESIGN-REVIEW.md](./DESIGN-REVIEW.md) / [DESIGN.md](./DESIGN.md) || 开发计划 | [P0](./P0-IMPLEMENTATION-PLAN.md) / [P1](./P1-IMPLEMENTATION-PLAN.md) / [P2](./P2-IMPLEMENTATION-PLAN.md) / [P3](./P3-IMPLEMENTATION-PLAN.md) |### 19.2 子 PRD- [PM-PRD-v1.1.md](./PM-PRD-v1.1.md) — F1 格式适配器 / F2 封面图 / F3 百家号 / F4 运营启动- [PM-PRD-rongmeibao.md](./PM-PRD-rongmeibao.md) — 融媒宝差距分析 → F1-F4 集成规划- [PRD-remotion.md](./PRD-remotion.md) — Remotion 视频渲染- [PRD-video-creation.md](./PRD-video-creation.md) — 视频创作模块### 19.3 架构决策记录（ADR）- [ADR-001-render-engine-extension.md](./ADR-001-render-engine-extension.md) — RenderEngine 扩展方案- [ADR-002-module-layering.md](./ADR-002-module-layering.md) — Electron 主进程模块分层### 19.4 质量与流程- [decision-log.md](./decision-log.md) — 决策日志（D-001 ~ D-038）- [learnings.md](./learnings.md) — 复盘记录- [review-process.md](./review-process.md) — 代码评审流程 L1/L2/L3- [security-audit-2026-07-08.md](./security-audit-2026-07-08.md) — 安全审计报告（历史）- [PRD-AUDIT-2026-07-08.md](./PRD-AUDIT-2026-07-08.md) — PRD 审计报告- [UAT-PLAN.md](./UAT-PLAN.md) / [UAT-REPORT-2026-07-08.md](./UAT-REPORT-2026-07-08.md) — UAT---## 更新历史| 版本 | 日期 | 主要变更 ||------|------|----------|| v2.1.2 | 2026-07-05 | PRD 全面修复 14 项 + TODOs 清空（基线版本） || v2.3.42 | 2026-07-09 | 恢复 mojibake 乱码（从 bba83b0 干净版本）+ 合并 §2.3/§3.3/§4.4 增量 + 新增 §17 安全审计 / §18 文档体系 + 版本号更新 || v2.3.53 | 2026-07-20 | 账号管理与内容发布按参考产品交互对齐；完成前端分层、多账号发布、草稿、排期、差异化内容、二维码登录、取消/重试及安全边界 || v2.3.54 | 2026-08-04 | 续作收敛账号卡片动作、失效账号重新登录、粉丝/归属字段、分组筛选、收藏空态和分享服务边界；补充真实参考产品像素审计证据 || v2.3.55 | 2026-08-04 | 收口顶部工具面板、草稿独立页签、发布进度稳定选择器和发布记录 owner-scoped 批量删除；同步测试与外部能力边界 || v2.3.56 | 2026-08-10 | 浏览器式标签栏(TabBar/NavBar/tab store)、page-manager IPC、WebviewManager 标签页系统、CreateHistory 空状态增强、账号去登录入口、构建和内存泄漏修复 |## 图片轮播合同补充（2026-08-04）- `story2video-compose` 是稳定内部 ID，外显名称由 i18n 提供：中文“图片轮播”、英文“Image Carousel”。- 音色目录和偏好按 provider/model 作用域；清除偏好恢复安全默认/Provider 默认，删除克隆音色先使偏好失效并使后续读取不可见。- OpsCenter 当前无已确认租户/音色同步 API，且受保护仓库禁止本任务写入；未来跨仓库 API 与安全合同另立任务定义。- Doubao 无后端 connector 时不持有高权限 secret、不生成或展示伪造个人音色列表。item 11 与最近 20 轮记录属于 TBD/审计限制；UE item 15 已获确认，当前按快速模式与五个折叠区实施。- **用户音色样本归属**：用户上传、保存、删除、设默认的克隆样本管理完全由桌面端前台及其 owner-scoped userData/SQLite 最小元数据负责；OpsCenter 不保存、不管理用户音频样本，仅用于运营受控默认值和未来后台高权限凭据/目录同步。## 图片轮播 UE 与路由错误边界补充（2026-08-05）- **已确认的交互方案**：story2video-compose 在创作端采用“基础 / 外观 / 声音 / 高级 / 发布”五个可折叠区，仅“基础”默认展开；用户确认文案和参数后点击“启动流水线”，不再经过人为 checkpoint。- **多语言**：折叠区标题、启动按钮和流水线标签通过 locale 读取；默认中文显示“图片轮播”和“启动流水线”，英文显示 “Image Carousel” 和 “Start pipeline”。稳定机器 ID、IPC 参数和历史数据仍使用 story2video-compose。- **空白页处理**：/create 等懒加载路由失败时，router 将错误写入共享响应式状态，应用根布局显示错误占位、错误摘要、“重试”和“刷新应用”操作；错误不会因 App 挂载时序而丢失，也不吞掉 renderer console。- **阶段反馈**：图片轮播运行态继续使用六项阶段清单，不显示 S2V 百分比；取消后清理 run、上下文、轮询和阶段状态，避免下一次运行继承旧状态。- **验收边界**：Vue 构建、定向 Vitest 和本地 Electron 可验证路由/界面合同；真实 TTS provider 音色目录、个人槽位、用户克隆上传和图片内容政策降级仍须带真实账号的外部验收，统一标记 PENDING_EXTERNAL。- **i18n 与 CSP 约束（2026-08-06）**：Electron 渲染进程执行严格 CSP（`script-src 'self'`，不含 `unsafe-eval`）；vue-i18n 不得在运行时编译消息（`new Function`），否则视频创作等动态翻译页面渲染抛 `EvalError` 白屏。应用内全部静态消息在加载时转换为 Message Function；新增插值文案时必须直接使用函数形式（如 `(ctx) => ctx.named('name')`），禁止依赖运行时消息编译。## 视频创作流水线可用性与表单组织（2026-08-06）- **可用性标识**：`pipeline:list` 返回的每条流水线附带 `available` 布尔字段。已实现真实执行引擎（有 stageDefs）的流水线为 `available=true`（story2video-compose / animated-explainer / talking-head / cinematic / clip-factory / framework-smoke；documentary-montage 等后续实现流水线随各自分支落地为 true），未实现引擎的其余流水线为 `available=false`。- **列表卡片**：卡片显示「可用 / 开发中」徽标（i18n：zh pipelines.availability.*）；vailable=false 卡片弱化显示并提示悬停说明。- **未实现流水线禁用启动**：vailable=false 时详情页【启动流水线】按钮灰显，下方显示提示「该流水线尚未实现执行引擎，暂不能生成视频」；canStartPipeline 与 startPipeline 双重守卫，兜底弹窗使用通知 key story2video.pipeline_not_implemented。消除原 state_machine 占位流水线点击启动后 0% 假运行的误导。- **高级区子分组**：story2video-compose「高级」折叠区拆为两个子组——「分句与时长」（分句语言/分句模式/单句最大长度/分镜目标时长/无旁白场景时长/负向提示词）与「模板与输出」（模板分类/视频模板/自定义模板/输出分辨率/帧率/格式），降低同一折叠区认知负担。- **阶段名映射**：自动流水线的阶段清单按流水线名映射（AUTO_PIPELINE_STAGES），避免列表接口不含 stages 时回退显示图片轮播的六阶段名。## 视频创作流水线真实引擎扩展（2026-08-06）### documentary-montage（纪录蒙太奇）真实执行引擎- **输入**：文案/主题（text），与图片轮播、AI 讲解一致走全自动编排（autoAdvance，无 checkpoint）。- **阶段链**：`research`（默认 LLM 生成纪录片风格解说大纲）→ `ingest`（默认 LLM 生成场景数组，纪实画面提示词 + 纪录片口吻旁白，JSON 解析容错 + 行级兜底）→ `edit`（复用 `story2video_generate_assets`：真实图片 provider + TTS，含内容政策重试）→ `narrate`（旁白与资源清单校验，缺旁白 fail closed）→ `render`（复用 compose：FFmpeg 合成，默认 1920x1080/30fps/mp4）。- **阶段名映射**：自动流水线前端阶段清单按 `AUTO_PIPELINE_STAGES` 按流水线名映射，不再回退显示图片轮播六阶段名。- **验收边界**：LLM/图片/TTS 均使用已配置默认 provider；未配置模型时 fail closed 并提示去设置。真实 E2E 验收：输入主题「中国高铁的发展历程，从引进到自主创新的故事」→ 12 图 + 12 TTS + video.mp4（h264 1920x1080 56.97s）完成。## 图片轮播启动反馈合同与后台执行（2026-08-06 Bug 修复）- **启动即反馈**：点击【启动流水线】后，pipeline:startOrchestrated 必须立即返回（utoAdvance: true + ackground: true 时主进程后台推进，不得同步等待整个流水线）。前端收到 runId 后立即：按钮切换为【✕ 取消】、渲染阶段清单（条目式，非百分比）、每 3s 轮询 pipelineGetRunContext 更新阶段状态。- **参数合同**：ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标志；丢失任一标志都会导致启动 IPC 阻塞（数十秒到数分钟无反馈）。- **完成跳转**：轮询发现 status=completed 后跳转结果页；ailed/cancelled 弹应用内提示。- **回归**：单元测试覆盖「background 模式立即返回 runId 且后台推进到完成」「normalizer 透传 background」；前端契约测试断言启动参数含 ackground: true。## 视频预览/动效/布局三处修复（2026-08-06）- **返回流水线列表**：视频预览页（ResultView）头部新增显式【← 返回流水线列表】按钮（data-testid=back-to-pipeline-list），点击回到 /create 流水线列表；原「重新创作」按钮保留。- **图片动效修复**：buildImageEffectFilter 的 zoompan 必须使用 d=输出总帧数（时长×帧率）。此前 d=1 且输入为 -loop 1 静态图时 zoom 状态不累积，「慢慢放大/平移/缩放」等动效在成片中不可见；修复后 _createSegment 在有动效时改用单帧图片输入（zoompan 自行生成 d 帧），实测早/晚帧差异 0.05 → 28（动效清晰可见）。- **页面宽度回归**：启动流水线后渲染的「中间结果」面板包含 200 字符 JSON 长字符串（路径/提示词），无换行约束会把页面从 609px 撑宽到 977px。新增 .orchestration-context/.context-value 的 overflow-wrap:anywhere + word-break:break-word + min-width:0 约束，实测启动后页面宽度保持 696px 不再变宽。## MiniMax TTS 音色目录与克隆 + 语音/画面/抖动修复（2026-08-06）- **MiniMax TTS 默认模型**：speech-2.8-turbo（异步长文本 T2A Async）；模型设置隐藏模型 ID 输入（单模型收敛，含存量数据迁移）。- **音色目录**：音色列表来自 MiniMax 官方系统音色清单（system-voice-id，327 个），adapter listVoices 返回；语音/音色 ID 下拉可选并可持久化用户选择。- **音色克隆**：按官方 API（上传 POST /v1/files/upload purpose=voice_clone → 复刻 POST /v1/voice_clone）实现；前端上传提示与校验：格式 mp3/m4a/wav、时长 10 秒-5 分钟、大小 ≤20MB（数据驱动展示与本地校验）。  - **voice_id 合规（2026-08-08 修复）**：复刻接口自定义 voice_id 必须满足长度 `[8,256]`、首字符为英文字母、仅 `[A-Za-z0-9_-]`、末位非 `-/_`；`cloneVoice` 用 `buildMiniMaxCloneVoiceId` 生成合规 id，存量非法克隆标记失效并让偏好回退默认音色（见 7.1.16）。- **错误友好化**：VOICE_CATALOG_UNSUPPORTED 等 VOICE_*/VOICE_CLONE_* 技术错误码不再直出，映射为多语言友好提示；全项目排查同类泄露。- **UI 调整**：外观→画面；字幕默认启用；高级区「输出分辨率」改「比例与分辨率」移入画面区，选项括号只标注横屏/竖屏；移除「中间结果」原始 JSON 调试面板。- **动效抖动修复**：zoompan 先 2x 上采样再执行、后下采样，消除亚像素抖动（帧间差异 stddev 0.89→0.11）。- **分段编辑**：结果页分段编辑显示每段对应图片预览。  - **CSP 图片放行（2026-08-08 修复）**：分段图片与成片预览均来自本机媒体服务（`http://127.0.0.1:<port>/media/...`）。此前 CSP 仅 `media-src` 放行本机来源而 `img-src` 未放行，导致 `<video>`（媒体）正常、`<img>`（分段图片）被拦截不显示。修复：`apps/desktop/src/index.html` CSP `img-src` 增加 `http://127.0.0.1:* http://localhost:*`（与 `connect-src`/`media-src` 对齐），`index.test.js` 断言同步。## 提示词优化阶段性能（2026-08-06）- **根因**：story2video_optimize 逐场景串行调用默认 LLM，N 个场景耗时 ≈ N × 单次推理延迟（用户长文案 6 场景约 2.7 分钟）。- **修复**：改为 _mapWithConcurrency 有界并发（默认 3）并行优化；保留逐场景错误定位。实测 6 场景：优化阶段 162s → 54s。- **剩余耗时边界**：每场景 LLM 推理约 20-30s（provider 自身延迟，max_tokens 500 请求很小）；剩余时长属模型推理固有成本，非应用阻塞。## 提示词优化失败健壮性与多语言（2026-08-06）- **optimize 重试**：逐场景 LLM 调用对瞬态 provider 错误做有界重试（maxRetries 默认 2，退避 0.8s×次数）；持久失败才 fail closed 并定位场景。- **多语言**：错误/确认对话框标题使用当前流水线本地化名（中文「图片轮播 提示」/英文「Image Carousel Notice」），不再硬编码 Story2Video；消息体不嵌入英文专名。- **英文名**：图片轮播流水线英文名统一为 Image Carousel（pipelines.names locales），Story2Video 仅作为内部稳定 ID 保留。## 中文字幕渲染合同（2026-08-06 Bug 修复）- **问题**：Windows 静态 ffmpeg 的 drawtext 默认字体无 CJK 字形，中文/日文/韩文等烧录成豆腐块（用户确认）。- **修复**：drawtext（字幕+水印）显式注入 fontfile——按优先级解析系统 CJK 字体（msyh.ttc → simhei.ttf → simsun.ttc → msjh.ttc）；字体路径统一为正斜杠并用单反斜杠转义冒号（C\\:/Windows/Fonts/msyh.ttc）。- **回归**：buildSubtitleFilter 断言含 msyh fontfile；实测字幕区像素密度 2496（豆腐块）→ 3979（正常字形）。非 Windows 由 fontconfig 处理，不注入 fontfile。## 应用日志 log 合同（2026-08-06）### 需求概述为便于 AI 开发工具排查 bug 原因、用户自查问题或向官方反馈，桌面应用新增本地日志功能：控制台与文件双写、按日期滚动、敏感信息脱敏、单文件 500MB 自动清理、设置页手动清理与查看。### 1. 日志记录范围（行为清单）- **进程生命周期**：应用启动/主窗口创建、退出清理完成；未捕获异常（uncaughtException）、未处理拒绝（unhandledRejection）、渲染进程全局错误（Vue errorHandler / window error / unhandledrejection 经 logs:error 上报）。- **流水线与任务**：流水线启动/完成/失败/取消、各阶段推进与耗时、断点恢复、任务队列操作。- **敏感操作**：登录/登出/账号切换（不含凭据）、发布动作、许可证激活/变更、模型服务商配置变更（API Key 只记录掩码）。- **Provider 调用**：模型供应商调用结果与错误码（不含完整 API Key、Bearer Token）。- **服务生命周期**：Bridge 启动/停止、回调服务器、媒体服务器、自动更新检查结果等关键服务事件。- **错误与异常**：所有 log.error / log.warn 路径，附错误码与上下文。### 2. 日志格式与敏感信息脱敏- **文件行格式**：<ISO8601 时间> [级别] <模块> <消息> [JSON meta]，每行一条；级别 DEBUG/INFO/WARN/ERROR。- **控制台**：保持原有 [时间] [级别] 模块 消息 [meta] 输出，行为不变。- **脱敏规则（落盘前统一 redact）**：  - Authorization: <token> / Bearer <token> → Bearer ***；  - apiKey / api_key / authorization 字段值 → ***；  - sk- 前缀密钥保留前 7 位（sk-xxxx***）其余掩码。- **meta 规则**：第三参为对象时 JSON 序列化（超过 8000 字符截断加 …）；为 Error 时记录 stack/message；为字符串时按原文拼接（兼容既有 log.level('模块', '消息') 调用约定，不产生多余引号）。### 3. 保存规则与路径- **滚动规则**：按日期单文件 app-YYYY-MM-DD.log；同日追加同文件，跨日自动新建。- **路径**：userData/logs/（app.getPath('userData')/logs）。userData 位于用户目录（非程序安装目录），满足未来安装包在 Program Files 等只读目录部署时仍可写入；开发/测试环境可用 setLogOptions({dir}) 注入隔离目录。- **大小规则**：默认单文件上限 500MB（maxFileBytes，可注入覆盖用于测试）。每追加约 64KB 核对一次真实文件大小，超限自动删除该日期文件并从头重建；启动首次写入时也会核对历史超限文件并重建。- **写入方式**：异步队列，不阻塞主进程；磁盘写失败静默回退控制台，不影响主流程。- **退出保证**：应用退出清理阶段调用 log.flush() 排空写入队列后再退出。### 4. 设置页交互（设置-通用设置）- **入口**：设置对话框「通用设置」Tab（原为禁用占位，本次启用）。- **显示项**：  - 标题「应用日志」、副标题「查看与管理本地日志文件，便于排查问题或反馈给官方」；  - 日志目录完整路径；  - 日志文件数、日志总大小、单文件上限（500 MB）；  - 文件列表：文件名 + 单文件大小（按文件名排序）；  - 空态「暂无日志文件」。- **操作项**：  - 【刷新】重新读取日志信息；  - 【清理日志】调用 logs:clear 删除全部 app-*.log；清理中按钮禁用防重复提交；清理后自动刷新列表。- **提示文字（固定展示）**：「Log 文件达到 500M 时，系统会自动清理。」（i18n：zh/en）。- **多语言**：上述文案走 locale（settings.logs.*），默认中文、英文可用。### 5. IPC 与数据合同- logs:info → { code: 0, data: { dir, totalBytes, fileCount, maxFileBytes, files: [{ name, size }] } }；失败 { code: -1, message }。- logs:clear → { code: 0, data: { removed } }（removed=删除文件数）；成功后记录 log.info('Logs', '用户手动清理日志文件', { removed })。- logs:error → 入参 { message }，主进程以 ERROR 级写入模块 Renderer；无 message 时使用默认文案「未知渲染进程错误」；返回 { code: 0, data: true }。- 三个通道均加入 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（logsGetInfo / logsClear / logError），登录与否均可访问；renderer 统一经 src/api/publisher.js 封装，无 electronAPI 时 fallback 返回错误码。### 6. 数据校验与容错- setLogOptions({ maxBytes })：非有限数或小于等于 0 不生效，保留原值。- 目录创建失败/不可写：仅控制台输出，不抛错。- 单文件统计失败：跳过该文件，不中断列表。- 清理只匹配 app-*.log，不删除其他文件。- 手动清理与 500MB 自动清理后 currentLogPath 置空，下一次写入重建文件。### 7. 验收标准- 单元测试：electron/services/logger.test.js（日期滚动/脱敏/超限自动删/启动核对/clearLogs/getLogsInfo/非法 maxBytes）、electron/ipc-handlers/logs.test.js（三通道）、electron/preload.test.js（方法数与存在性）、shutdown.test.js（flush）。- 打包后：启动应用并在 userData/logs/ 看到当日 app-*.log；设置页可查看/刷新/清理；500MB 上限行为可用小上限注入验证。- 外部边界：真实 provider 调用日志内容为灰度验证项，不纳入自动验收。## 技术债务 W1/W2/W3 闭环（2026-08-06）来源：`01-docs/QUALITY-RHYTHM-BACKFILL-2026-08-06.md` 集中代码审查的三项 WARNING/INFO，本次全部闭环。### W1：run-state 快照 owner 隔离- **问题**：`RunStateStore` 快照按 runId 平铺落盘（`userData/run-state/<runId>.json`），同机多账号场景下泄露 runId 即可读取他人恢复上下文。- **修复**：已登录时快照写入 `userData/run-state/owners/{sha256(subject)}/<runId>.json`；owner 由 `setOwnerProvider(provider)` 注入（与 store/offline-manager 一致），在 `phase3-services.js` 使用同一 `ownerSubjectProvider` 接线并随身份切换更新。- **兼容**：未登录/身份不可用时回退 legacy 平铺路径；`load` 优先读 owner 目录，命中 legacy 平铺快照时自动迁移（copyFileSync + 清理旧文件）；`remove` 同时清理两处路径。- **数据约束**：ownerHash 为 `sha256(subject)` 完整 hex；快照额外记录 `owner`（subject）便于追溯；快照仍不含密钥。- **验收**：`run-state-store.test.js` 覆盖 owner 保存/读取、跨账号隔离（A 读不到 B）、legacy 迁移、双路径 remove、provider 校验与抛错回退。### W2：governor 排队超时统一回收- **问题**：`_acquireSlot` 中已过截止时间的 waiter 仅在 `_pump`（下次释放）时被拒绝；若某 key 无后续释放，过期 waiter 会悬挂到任务链结束。- **修复**：  - 新增 `_sweepExpired(key, st)`：按绝对截止时间回收该 key 全部过期 waiter（不仅队首）；`_pump` 复用该方法。  - 每次 `run()` 入口先 sweep 该 key（新请求到达即回收，不依赖释放）。  - 新增 `sweepAll()`：统一回收所有 key 的过期 waiter；`PipelineEngine._finalizeRun`（完成/失败/取消统一出口）调用 `governor.sweepAll()`（governor 经 container 注入 pipelineEngine）。- **验收**：governor 单测覆盖「无释放时 sweepAll 回收」「新请求到达回收过期 waiter」；resume-orchestration 测试覆盖「失败/取消时调用 sweepAll」。### W3：governor 默认 RPM 按 provider 配置化- **问题**：`DEFAULT_LIMITS` 按类别（llm/tts/image/video/audio）固定，真实供应商限额差异大。- **修复**：新增 `governor-provider-limits.js`，为 52 个已知 provider 提供 `{ rpm, maxConcurrent, cooldownMs, retry429 }` 预算（保守估计，非官方保证；本地类 provider 给高预算）；`ApiUsageGovernor` 支持 `setProviderLimits(providerId, limits)` 与构造函数 `providerLimits` 注入，container 启动时注入 `PROVIDER_LIMITS`。- **优先级**：精确 key 覆盖 > provider 级 > 类别默认 > 全局默认；429 自适应（rateFactor 0.75）仍兜底真实限流。- **验收**：governor 单测覆盖「provider 级 rpm 生效」「未配置 provider 回退类别默认」「构造函数注入」。## 音色目录/克隆校验修复合同（2026-08-07）### Bug 1：MiniMax 系统音色选择（VOICE_CATALOG_INVALID_ARGUMENTS）- **背景**：选择「沉稳高管」「搞笑大爷」等 MiniMax 系统音色报 `VOICE_CATALOG_INVALID_ARGUMENTS`。根因：MiniMax 官方 system voice id 含空格与括号（如 `Chinese (Mandarin)_Reliable_Executive`），而 `selectVoice` 的 voiceId 校验只允许 `/^[a-zA-Z0-9._-]+$/`。- **数据校验合同（voiceId）**：  - 允许字符集：任意非控制字符文本（含空格、括号、中文等），长度 ≤256；  - 拒绝：控制字符（U+0000-U+001F、U+007F）、路径分隔符（`/`、`\`）、遍历序列（`..`）；  - providerId / model 仍使用严格 ASCII 白名单（`/^[a-zA-Z0-9._-]+$/`）不变；  - voiceId 只用于偏好持久化与传给 adapter 合成参数（MiniMax `voice_setting.voice_id`），不进入文件路径。- **交互逻辑**：目录可展示并选择全部 MiniMax 系统音色（327 个，含空格括号 id）；选择后保存偏好并在下次进入时作为默认。- **回归保护**：`tts-voice-service.test.js` 覆盖「含空格括号 id 选择成功」「路径分隔符/遍历序列拒绝」。### Bug 2：音色克隆样本时长误报（VOICE_CLONE_SAMPLE_DURATION_INVALID）- **背景**：符合要求（mp3/m4a/wav、10s-5min、≤20MB）的 wav 上传后仍报「上传的音频文件时长不符合要求」。根因：`ffprobe` 从 stdin（pipe:0）流式探测部分 PCM wav（如带 `LIST` chunk 的 RIFF）拿不到 `format.duration`（文件模式正常）。- **流程与功能逻辑（时长探测）**：  1. 首选 pipe 探测（mp3/m4a 等流式可解析路径）；  2. **有音频流但 duration 缺失/无效** → 回退写临时文件（`os.tmpdir()/voice-clone-probe-<random>.wav`，`mode 0o600`）用文件模式探测，`finally` 删除临时文件；  3. **明确无音频流** → fail closed（`VOICE_CLONE_SAMPLE_DURATION_INVALID`），不回退；  4. pipe 与文件模式都失败 → 返回无效（不伪造时长）。- **数据约束**：临时文件仅存在于 `os.tmpdir()`、随机名、600 权限、探测后必删；样本时长校验阈值不变（10s-5min，MiniMax）。- **提示文字**：不变（「上传的音频文件时长不符合要求，请按提示调整时长后重试」）；真实原因（探测失败）不再误报为时长不符，而是正常完成校验。- **回归保护**：`tts-voice-clone-service.test.js` 覆盖「pipe 无 duration 回退文件探测」「pipe 成功不回退」「双失败返回 null」「无音频流 fail closed 且不落盘」；端到端验证用户 wav（27.12s）通过。## 视频创作后台运行与并发合同（2026-08-07）### 需求概述流水线启动后应在后台持续运行：用户返回流水线列表或切换模块不影响执行；历史记录可查看运行中未完成的任务及其实时流程状态；同一应用支持多个流水线并行，但设上限防止资源过载。### 1. 后台运行（已具备，本次固化合同）- **启动即后台**：`pipeline:startOrchestrated` 传 `autoAdvance: true, background: true` 时，主进程后台推进整条流水线并立即返回 `runId`；renderer 每 3s 轮询 `pipeline:getRunContext` 刷新阶段状态。- **页面无关性**：运行绑定在主进程 `PipelineEngine._runs`（runId 驱动），不依赖任何页面/组件生命周期。CreateView `beforeUnmount` 仅清理轮询 timer 与时钟，**不取消 run**。- **返回恢复查看**：CreateView `mounted` 调用 `resumeRunningOrchestration()`——遍历候选流水线名，用 `pipeline:status` 找到 `status=running && orchestrationMode=orchestrator` 的运行并自动恢复阶段清单查看（含轮询）。renderer 重载/切页返回均适用。- **断点恢复**：失败 run 落 `RunStateStore` 快照，`pipeline:resumeOrchestration` 从失败阶段继续（并发槽位占用，见下）。- **运行中任务持久化（2026-08-09 新增）**：运行中编排 run 阶段级落盘 running 快照（`saveRunning`）+ 退出兜底 `saveRunningState()`；应用退出/强杀重启后，任务以「运行中」状态继续显示在历史记录并可「从断点继续」（见 7.1.21）。### 2. 历史记录显示运行中任务- **数据源**：`pipeline:history`（`PipelineEngine.getHistory()`）现在返回「运行中 run（在前）+ 终态历史」；`_runs` 中 `<runId>` 与 `_<pipelineName>` 指向同一对象，返回前去重。- **显示项（创作历史-流水线记录）**：  - 运行中卡片：状态圆点（running 蓝）、流水线名（i18n 名称）、时间（`completedAt || startedAt || createdAt`，运行中显示创建时间）、阶段标签（completed/running/pending 色块）、状态文案「运行中」、提示「返回创作页查看进度」。  - **轮询刷新**：列表存在 `status=running` 任务时每 5s 自动刷新（阶段状态实时更新）；全部结束后自动停止轮询；`beforeUnmount` 清理 timer。- **可发现性（2026-08-07 修订）**：进入创作历史页时同时加载流水线记录；存在运行中任务时自动切到「流水线记录」tab 直接展示运行中卡片；「渲染记录」tab 顶部显示横幅「有 N 条流水线正在后台运行，点击查看运行状态」（点击切到流水线记录）。避免用户进入历史页默认看渲染记录而误以为运行中任务未出现。- **CreateView 内部历史记录视图（2026-08-07 修订）**：【视频创作】-【历史记录】是 `CreateView` 内部视图（非 `/create/history` 独立页）：`loadHistory()` 合并项目记录与 `pipeline:history`（含运行中 run），运行中流水线**置顶**展示（优先于已完成项目/终态 run）。  - **展示（2026-08-07 二次修订，修复布局错乱）**：运行中项为**卡片式**——主信息行（名称/状态「进行中」/「返回流水线创作查看进度」提示/时间）+ 独立「阶段进度条」（每阶段一个分段，done 绿 / active 蓝高亮 / pending 灰 / failed 红，语义同流水线页阶段清单），不再内联标签挤占单行。  - **刷新（2026-08-07 二次修订，修复闪烁；三次修订，修复运行结束任务消失）**：存在运行中任务时每 5s 执行 `refreshRunningHistory()` **原地更新**运行中项的 stages/currentStage（保持列表对象身份），不重建整表、不重刷项目记录；**运行中项结束后（不在 `pipelineHistory` 运行集中）触发一次完整 `loadHistory()`，以终态（已完成/失败/已取消）保留显示，不直接消失**。  - 点击运行中项切回流水线创作视图并自动恢复查看该 run。  - **失败任务持久展示（2026-08-08 修订）**：流水线执行失败的任务也必须显示在历史记录中，状态文案为「生成失败」。    - **数据源**：失败时 `RunStateStore.saveFailed(run)` 持久化快照（新增 `createdAt` 字段）；`PipelineEngine.getHistory()` 在内存 `_runs`/`_history` 之外，合并 `runStateStore.listFailed()` 的持久化失败快照（按 runId 与内存条目去重）。    - **重启保持**：应用重启后内存历史清空，但失败快照仍从 run-state 目录读取，失败任务继续显示在历史记录中（状态「生成失败」、时间取 `completedAt/updatedAt/createdAt`）。    - **状态文案**：`failed` 状态在【历史记录】显示为「生成失败」（CreateView 内部历史视图 `historyStatusLabel` 与 `/create/history` 独立页 `statusLabel` 同步；状态筛选项「失败」改为「生成失败」）。    - **交互（2026-08-08 二次修订，新增断点继续）**：失败且可恢复（非内容政策类）的卡片显示「从断点继续」按钮，点击调用 `pipeline:resumeOrchestration` 从失败阶段续跑，自动切回流水线创作视图并展示实时进度；续跑后该任务以「进行中」状态继续留在历史记录（不再消失）。内容政策类失败（需修改文案）不显示该按钮，保持仅展示状态。点击失败卡片本体同样触发续跑（与运行中卡片点击行为一致）。    - **终态记录唯一性（2026-08-08 二次修订）**：断点续跑复用同一 runId，`PipelineEngine._finalizeRun` 写入 `_history` 时按 runId 去重（同 id 只保留最新一条终态，避免新旧终态重复展示）。    - **终态快照扩展（2026-08-08 二次修订）**：编排模式取消（cancelled）与失败（failed）一样调用 `RunStateStore.saveFailed` 持久化终态快照——续跑时会删除旧失败快照，若续跑后再次取消必须保留新终态，否则应用重启后该任务在历史中丢失；取消快照状态为 `cancelled`，不可恢复（`resumeOrchestration` 仅允许 `failed`/`running`）。    - **运行中任务持久化（2026-08-09 新增，见 7.1.21）**：运行中编排 run 在启动与每个阶段执行前落盘 `status='running'` 快照（`endedAt=null`），退出/强杀时 `saveRunningState()` 兜底；应用重启后 `getHistory()` 经 `listRunning()` 合并这些快照，任务以「运行中」显示并带「继续生成」按钮——点击调用 `resumeOrchestration` 从中断阶段重建并自动续跑（同会话内幂等返回 `alreadyRunning`，仅附加实时进度，不重复创建运行）。已完成 run 的 running 快照在 `_finalizeRun(completed)` 时删除，杜绝「已完成任务以运行中重现」。- **交互逻辑**：  - 点击运行中卡片 → 跳转 `/create`（CreateView 自动恢复查看该 run 进度）。  - 点击已完成卡片 → 跳转 `/create/result?path=<成片路径>` 预览。  - 失败/取消卡片：保持仅展示状态，不跳转。- **数据校验**：`pipeline:history` 失败返回 `{ code: -1, message, data: [] }`；前端 5s 加载超时提示「流水线记录加载超时，请重试」。### 3. 并发限制- **上限**：默认按机器资源自适应（`computeDefaultMaxConcurrentRuns`，取值 1–4：可用并行度 ≥8 且可用内存 ≥8GB → 4；≥4 且 ≥4GB → 3；<2 核或 <2GB → 1；其余 → 2）。**固定上限开关（2026-08-07）**：环境变量 `STORY2VIDEO_MAX_CONCURRENT_RUNS`（正整数 1–8，非法/空回退自适应）可强制固定上限（如设 `2` 即固定 2 条），`deps.maxConcurrentRuns` 注入仍最优先（测试/调优）。依据：每条流水线的资源生成阶段并发调用模型 API（受 api-usage-governor 限流），compose 阶段跑 ffmpeg 合成（CPU/内存密集，27 场景曾触发 x264 OOM）；自适应保证低配机器 1 条兜底、高配放宽，封顶 4 不放任资源占用。- **统计口径**：`_countActiveRuns()` 统计 `_runs` 中 `orchestrationMode=orchestrator && status=running` 的独立 run（去重 `_<name>` 索引）。- **启动/恢复统一门禁**：`startOrchestrated`（创建 run 前）与 `resumeOrchestration`（恢复前）都调用 `_assertConcurrencyBudget()`；达到上限返回：  - `{ success: false, errorCode: 'PIPELINE_CONCURRENCY_LIMIT', error: '当前已有 N 条流水线正在后台运行，最多同时运行 M 条，请等待其中一条完成后再启动。', errorParams: { count: N, max: M } }`- **槽位释放**：run 进入终态（completed/failed/cancelled）即从 `_runs` 移除，槽位释放。- **提示文字（前端）**：`story2video-notifications.js` 新增 `PIPELINE_CONCURRENCY_LIMIT`（zh/en），通过 `errorCode` 显式映射 + 中文错误文本正则兜底解析；弹窗展示友好文案，不展示技术细节。### 4. 验收标准- 引擎单测：`getHistory` 含运行中且无重复；上限 2 拒绝第 3 条；注入 1 时第 2 条拒绝、取消后释放；`resumeOrchestration` 超限拒绝；`computeDefaultMaxConcurrentRuns` 覆盖 1/2/3/4 资源档位与注入覆盖。- 前端单测：CreateHistory 运行中任务显示 + 5s 轮询 + 结束后停止 + 点击跳 `/create`；notifications 并发文案解析（zh/en/errorCode/正则）。- 交互验收（人工）：启动图片轮播 → 返回列表/切模块 → 历史-流水线记录可见运行中任务且阶段实时刷新 → 点击卡片回创作页恢复查看 → 再启动另一条流水线至 2 条并行 → 第 3 条弹并发提示。- 交互验收（人工）：启动图片轮播 → 返回列表/切模块 → 历史-流水线记录可见运行中任务且阶段实时刷新 → 点击卡片回创作页恢复查看 → 再启动另一条流水线至 2 条并行 → 第 3 条弹并发提示。## 真实链路修复合同（2026-08-07，E2E 暴露）### 1. MiniMax Image 空结果降级见 7.1.5「空响应重试合同」修订：HTTP 200 但无 `image_urls` → adapter 显式抛错（内容安全信号→`CONTENT_POLICY`，否则 `PROVIDER_ERROR`）；asset-generator 在内容政策重试循环内校验，前 2 次同提示词重试、第 3 次起安全改写、第 5 次仍空 → `needs_user_input(reason=empty_result)` 友好提示。防止「1/2 场景已生成、第 2 个场景空结果导致整条流水线失败」。### 2. compose 转场滤镜 transition=undefined- **根因**：`buildTransitionPlan` 返回的计划对象不含 `transitionName` 字段，而 `_xfadeMerge` 从 `plan.transitionName` 构造 `xfade=transition=<name>` 滤镜 → 得到 `xfade=transition=undefined`，ffmpeg 报 `const_values array too small for transition` / `Not yet implemented`，compose 阶段失败。- **修复**：`buildTransitionPlan(segmentDurations, requestedDuration, transitionName)` 在所有返回路径携带 `transitionName`（默认 `fade`）；`_concatSegments`（≤8 段直连）与 `_concatSegmentsChunked`（分块）均传递该值；`_xfadeMerge` 使用 `plan.transitionName` 构造滤镜。- **数据约束**：`transition` 取值必须命中 `TRANSITION_NAMES`（fade/slide-left/right/up/down），非法值按 `none` 走无损拼接，不进入 xfade；转场时长仍按相邻片段真实时长收敛（不直接用用户配置值）。- **回归保护**：compose-engine 测试断言 `buildTransitionPlan` 携带 `transitionName`、直连/分块路径传给 `_xfadeMerge` 的计划均含 `transitionName='fade'`。### 3. 并发上限固定开关见「视频创作后台运行与并发合同 §3」修订：环境变量 `STORY2VIDEO_MAX_CONCURRENT_RUNS`（1–8，非法回退自适应）可固定上限（如 `2`）；优先级 deps 注入 > 环境变量 > 机器资源自适应。回归：resume-orchestration 覆盖设 2/非法回退/deps 优先/封顶 8。## Podcast 转视频流水线引擎合同（2026-08-07）### 1. 流水线- 名称：`podcast-repurpose`（播客转视频，音频 → 可视化视频），category=hybrid，`available=true`（2026-08-07 实现引擎）。- 阶段：`analyze` → `visualize` → `assemble` → `render`。### 2. 阶段合同| 阶段 | 类型 | 输入 | 输出 | 说明 ||------|------|------|------|------|| analyze | `podcast_analyze` | `params.audio`/`params.audioPath`（受控媒体根目录，wav/m4a/mp3）；`params.transcript` 可选 | `{ audioPath, duration, transcript, segments:[{index,text,start,end}] }` | ffprobe 探测时长；文案优先 `params.transcript`（按行分句、均分时长，最多 30 段），否则走 `story2videoProjectService.transcribeFile`（需已配置语音识别供应商）；两者皆无 → fail closed「需要文案或语音识别服务」 || visualize | `podcast_visualize` | `context.analyze` | `{ ...analyze, images:[{index,success,path,error?}] }` | 每段文案经 AssetGenerator.generateImage 生成配图；图片 provider 优先级 params.imageProvider > stage.options.imageProvider > 默认 image provider；aspect 默认 16:9 || assemble | `podcast_assemble` | `context.visualize` | `{ scenes:[{index,text,imagePath,audioPath,duration}] }` | ffmpeg 按 start/end 切分音频为 m4a 片段（`os.tmpdir()/story2video/podcast/<runId>/seg_XXXX.m4a`）；单段切分失败跳过；全部失败 → fail closed || render | `compose`（内置） | `context.assemble`（`inputFrom: 'assemble'`） | 成片 mp4 | Story2Video 合成引擎；transition=fade、subtitleEnabled=false、720x1280、fps 30 |### 3. 数据与安全约束- 音频路径必须经 `resolveReadableMediaFile(kind='audio')` 校验（受控媒体根目录 + 扩展名 + 大小）；运行目录 runId 走 `safeRunId` 语义（`story2video/podcast/<runId>`）。- 切分产物为运行隔离临时文件；流水线结束由 compose 引擎的 session 清理机制覆盖（`_cleanupSession`）。- 无真实语音识别供应商时，analyze 不伪造转写，明确提示提供文案。### 4. 验收- 引擎单测 11 例：注册/分句/analyze（缺音频、不可读、真实 wav+文案、无文案失败）/visualize（配图、缺 segments）/assemble（真实切分、缺 context）。- E2E（待办 B）：真实音频（可先提供文案）→ 4 阶段 → 成片 mp4；语音识别转写路径需配置 whisper 供应商后验收。## 字幕样式与位置合同（2026-08-07 修订）| 合同 | 要求 ||------|------|| 字体 | 中文必须显式指定 CJK fontfile（Windows 静态 ffmpeg 默认字体无中文字形），否则渲染成豆腐块/乱码；Linux 无 Windows 字体时不注入但仍合法。 || 字号 | `subtitleStyle.size`（size1-6 / sm-xl）映射 16-40px，`fontSize` 优先；范围 12-96。 || 样式 | `style2` 加黑底 `box`（0.55 透明度 + 10px 边框）；`style3` 描边加粗（borderw=4）。 || **位置（2026-08-07 修订）** | 字幕底边默认位于画面 **80% 高度**（即**距底部 20%**，`bottomMarginRatio=0.2`，范围 0.05-0.5，可经 `subtitleStyle.bottomMarginRatio` 覆盖）；y 表达式 `y=h*(1-bottomMarginRatio)-th`。原固定 `h-th-40`（约 3%）废弃。 || 水平 | 恒居中 `x=(w-text_w)/2`。 |---## 提示词优化效果评估系统（PromptEval，2026-08-11）> 完整 PRD：`01-docs/PRD-PROMPT-EVAL-SYSTEM-2026-08-11.md`；架构：`01-docs/ARCH-PROMPT-EVAL-SYSTEM-2026-08-11.md`；OpenSpec：`openspec/changes/prompt-image-eval-system/`。v1 只支持图片，视频扩展预留。### 背景与目标prompt-engine（8013）优化出的图片提示词生成图片后，缺乏量化反馈闭环。本系统对「生成图片 + 该图对应的原始文案/整个文案上下文/优化后提示词/负向提示」进行多维度评估：打分（0-100）、问题归因（原文/上下文/优化后提示词/负向提示）、产出提示词优化点清单，并通过持久化与聚合分析支撑 prompt-engine 的持续迭代。### 评估维度与权重（图片模式）| id | 维度 | 权重 | 说明 ||----|------|------|------|| relevance | 提示-输出关联度 | 30% | 图片与「原文+上下文+优化后提示词」整体语义吻合度 || content_accuracy | 内容准确性 | 30% | 关键元素（主体/动作/场景/数量/风格/色彩/文字/道具）准确度与幻觉检测 || aesthetic_quality | 视觉审美质量 | 20% | 构图/光影/色彩和谐/清晰度/风格执行度 || cross_image_consistency | 跨图上下文一致性 | 20% | ≥2 张同文案图片：角色/风格/色调/场景连续性（单图不参与，权重归一化为 0.375/0.375/0.25） |等级：≥85 优秀 / ≥70 良好 / ≥50 一般 / <50 差。总体分为参与维度加权和。### 问题类别与归因问题类别 11 类：content_missing / content_wrong / style_deviation / layout_composition / color_lighting / text_rendering / ambiguity / context_loss / consistency_break / quality_defect / unknown。归因 promptPart 5 类：source_text / context / optimized_prompt / negative_prompt / unknown。严重度 critical / major / minor。### 提示词优化点类型（可回馈 prompt-engine）add_specificity（补充明确细节）/ resolve_ambiguity（消除歧义）/ enforce_style（强化风格约束）/ align_context（对齐文案上下文）/ add_negative（补充负向提示）/ structure_ordering（结构化/顺序化）/ consistency_anchor（一致性锚点）。### 数据校验（fail closed）- mediaType=image（video → `EVAL_MEDIA_TYPE_NOT_SUPPORTED`「视频评估暂未实现」）；- items 非空且 ≤20；imagePath 存在、可读、非目录、单图 ≤8MB；- optimizedPrompt 非空且 ≤5000；sourceText/context 至少一个非空；context 敏感键（password/token/secret/api_key/credential 等）拒绝；- options.language ∈ {zh,en}；temperature 收敛 [0,2]；- 评估器输出契约校验：overall 0-100、维度 id 白名单且不重复、score 0-100、evidence 非空、problems/promptOptimizationPoints 白名单；任一违反 → `EVAL_LLM_INVALID_RESPONSE` 整次失败，不静默降级。### 持久化与聚合`<userData>/prompt-eval/{index.json, records/<id>.json, reports/<id>.md}`，原子写（Windows 瞬时锁错误有界重试 ≤3 次），索引自愈。聚合分析输出：记录数/平均分/等级分布/维度均值/问题类别分布/归因分布/优化点汇总/推荐动作。### 使用入口- CLI：`node apps/desktop/electron/services/prompt-eval/cli.js --image <path> --source-text "..." [--optimized-prompt "..."] [--evaluator <模块>] [--json]`；`--batch input.json`；`--analyze`。- 桌面 IPC：`prompt-eval:run/list/get/delete/analyze/dimensions`（withSenderCheck，默认 authenticated 级）。- Vue 视图：`/prompt-eval`（运行评估 / 历史记录 / 聚合分析 三个 Tab），导航「提示词评估」。### 验收标准单图/多图评估、输入校验矩阵、LLM 输出 fail closed、CLI 批处理、IPC 全通道、Vue 三 Tab、聚合分析、视频拒绝、聚焦回归通过（prompt-eval 服务 45+ IPC 4+ preload 2+ composable 3+，Vue build 通过）。
 # PROJECT-003：多平台一键发布 — PRD
 
 > **立项日期**: 2026-06-03
@@ -836,13 +836,13 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 - `CreateView.startPipeline` 方法本体**不**内置登录门（保持同步时序语义，供测试/程序化调用）；登录门在 UI 点击层 `handleStartPipeline`。
 - 被动 IPC 仍由主进程通道级鉴权兜底（`AUTH_REQUIRED`），登录门只是 UX 前置，不替代主进程安全边界。
 
-#### 2.3.2 平台账号登录全屏标签化（对标蚁小二，2026-08-14）
+#### 2.3.2 平台账号登录全屏标签化（对标参考产品，2026-08-14）
 
-**背景与目标**：对标蚁小二「账号管理 → 添加账号 → 选择抖音 → 打开抖音登录页」的交互——蚁小二在标签栏新开一个全屏标签加载平台登录页，导航栏右侧提供蓝色「保存账号」按钮。本项目此前为**页面内弹窗/横幅**式登录视图，与蚁小二差异大。本次将网页登录视图改造为 **TabBar 虚拟登录标签**，实现与蚁小二一致的全屏标签体验（抖音登录页面内容本身不受控，不在对齐范围）。
+**背景与目标**：对标参考产品「账号管理 → 添加账号 → 选择抖音 → 打开抖音登录页」的交互——参考产品在标签栏新开一个全屏标签加载平台登录页，导航栏右侧提供蓝色「保存账号」按钮。本项目此前为**页面内弹窗/横幅**式登录视图，与参考产品差异大。本次将网页登录视图改造为 **TabBar 虚拟登录标签**，实现与参考产品一致的全屏标签体验（抖音登录页面内容本身不受控，不在对齐范围）。
 
 **交互前后对比**：
 
-| 环节 | 改造前 | 改造后（对齐蚁小二） |
+| 环节 | 改造前 | 改造后（对齐参考产品） |
 |------|--------|----------------------|
 | 打开登录 | 页面内浮层/横幅提示 + 侧边区域视图 | TabBar 新增「{平台中文名}登录」标签，全屏加载登录页 |
 | 完成登录入口 | 账号页 login-state 横幅「我已完成登录」按钮 | 导航栏右侧蓝色「保存账号」按钮 |
@@ -888,7 +888,7 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 
 **功能逻辑（关键实现）**：
 
-- `packages/shared-utils/src/platform-definitions.js`：抖音登录 URL 由 `https://www.douyin.com/` 改为 `https://creator.douyin.com/`（对齐蚁小二的抖音创作者中心入口，与 dashboard URL / 认证域名表一致）。
+- `packages/shared-utils/src/platform-definitions.js`：抖音登录 URL 由 `https://www.douyin.com/` 改为 `https://creator.douyin.com/`（对齐参考产品的抖音创作者中心入口，与 dashboard URL / 认证域名表一致）。
 - `electron/services/auth-view-manager.js`：登录视图定位常量改为 `AUTH_VIEW_TOP = 76`（全屏，不再避让侧边栏）；新增 `onOpened` / `onClosed` 生命周期钩子。
 - `electron/services/webview-manager.js`：新增 `attachAuthViewManager()` 装配钩子；虚拟登录标签参与 `getAllTabs` / `getActiveTab` / `switchToTab` / `closeTab` / 窗口 resize；切离登录标签时隐藏登录视图，切回时恢复。
 - `electron/core/container.setup.js`：`webviewManager` 工厂注入 `authViewManager` 完成装配（容器单例，钩子只绑定一次）。
@@ -909,13 +909,13 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 
 | 主题 | 说明 | 决策依据 |
 |------|------|----------|
-| 登录页内容本身 | 抖音/快手/B站/小红书等平台的登录页 DOM、布局、交互不在控制范围 | 对标蚁小二同样不控制这些；只复用平台默认登录页，避免逆向、问卷式状态推断导致脆弱 |
+| 登录页内容本身 | 抖音/快手/B站/小红书等平台的登录页 DOM、布局、交互不在控制范围 | 对标参考产品同样不控制这些；只复用平台默认登录页，避免逆向、问卷式状态推断导致脆弱 |
 | 登录成功智能检测 | 仅依据跳转后 URL 模式匹配判定成功；不做 DOM 状态识别（「出现头像元素即视为已登录」等强状态检测） | 平台页面迭代快、DOM 选择器易失效；URL 模式是相对稳定的契约，避免每轮平台迭代修复检测逻辑 |
 | 跨平台/同平台多账号会话同步 | 单账号单次会话；多账号需重复走「添加账号」流程 | 会话隔离避免重复设置同一平台多个账号时的 Cookie 互相覆盖；后续可在「账号管理」提供“添加另一账号”入口扩展 |
-| 重新登录（relogin）独立通道 | 本次仅复用打开登录标签的主路径；relogin 由账户设置页另调 `openLogin('browser', platform)` 触发同一视图，不为 re-login 创建独立标签 | 交互一致，与蚁小二一致（同一个“保存账号”动作）；避免重复实现同一套全屏标签呈现 |
+| 重新登录（relogin）独立通道 | 本次仅复用打开登录标签的主路径；relogin 由账户设置页另调 `openLogin('browser', platform)` 触发同一视图，不为 re-login 创建独立标签 | 交互一致，与参考产品一致（同一个“保存账号”动作）；避免重复实现同一套全屏标签呈现 |
 | 登录会话长期持久化 | 用户关闭应用后下次启动需重新走 OAuth，不“记住会话 7 天” | Cookie 在主进程 AES-256-GCM 加密存储（V1 §F1），会话有效期内复用；会话过期则重新登录；不含长期会话续期策略是本期设计 |
 | 多窗口/多实例会话共享 | 每窗口独立会话，不跨窗口共享 WebContentsView | 会话隔离防止多窗口凭据冲突；平台风控策略不允许同账号并发多会话 |
-| 键盘与屏幕阅读器可用性 | 仅鼠标交互；保存按钮未接入 ARIA live 区域 | 属于 a11y 改进专项；本期重点是 UI 交互对齐蚁小二，未计入交付指标 |
+| 键盘与屏幕阅读器可用性 | 仅鼠标交互；保存按钮未接入 ARIA live 区域 | 属于 a11y 改进专项；本期重点是 UI 交互对齐参考产品，未计入交付指标 |
 | 平台登录页本身的多语种 | 不控制平台页面默认语言，依赖平台自动跳转 | 平台通常根据浏览器 Accept-Language 自动选语，本项目不干预 |
 | 代理/私有部署登录页 | 不提供「自定义登录 URL」入口 | 主流使用场景是公开平台；代理场景作为后续可能扩展（见下表） |
 
@@ -1031,7 +1031,7 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 3. 会员中心显示版本卡（免费版 + 升级 Pro / Pro 显示 ✓）、权益卡、配额卡（有数据时）；未登录只显示空态与本地版本卡；
 4. zh/en 切换后全部文案正确，{date} / {days} 插值生效；
 5. 切换账号失败显示「切换账号失败，请稍后重试。」而非退出文案；
-6. 相关测试通过：ProfileMenu / MemberCenter / IdentityMenu / YixiaoerSidebar / identity store / i18n；check-locale-sync.js --cjk PASS；build:vue 通过。
+6. 相关测试通过：ProfileMenu / MemberCenter / IdentityMenu / MpSidebar / identity store / i18n；check-locale-sync.js --cjk PASS；build:vue 通过。
 ### 3.1 核心功能
 
 #### F1：平台账号管理
@@ -1191,7 +1191,7 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 |--------|------|------|
 | 系统托盘 | 最小化到托盘，后台运行，托盘菜单 | ✅ |
 | 全局快捷键 | 6组快捷键：发布/监控/看板/采集/首页/退出 | ✅ |
-| 自动更新 | 启动检测 GitHub Release，后台下载静默安装 | ✅ |
+| 自动更新 | 启动检测 GitHub Release（3s 后）+ **运行期侧边栏底部「新版本」入口**：检测到新版本即常驻显示，点击后退出应用并安装（未下载则先下载、完成后自动退出安装）；无更新时不渲染，不再自动弹模态框。详见 [PRD-SIDEBAR-UPDATE-ENTRY-2026-09-14.md](./PRD-SIDEBAR-UPDATE-ENTRY-2026-09-14.md) | ✅ |
 | 首次运行引导 | 自动检测 Python 依赖 | ✅ |
 | 数据迁移 | JSONL → SQLite 迁移（migrateFromJsonl，v2.3.43 实现） | ✅ v2.3.43 |
 | 静默登录验证 | 隐藏 BrowserWindow 后台验证 Cookie 有效性（loginSilent） | ✅ |
@@ -4162,6 +4162,7 @@ ops-center【模型预设】：
 | 公告 | 存 settings(`opsCenterRuntime`) + 内存；IPC `ops-center-sync:runtime` 暴露；App 顶部 `AnnouncementBanner` 展示：info/warning 可关闭（localStorage 记忆），maintenance 常驻强提示不可关闭 |
 | 内容安全 | `content_policy` 启用且词非空 → 重建 `SensitiveFilter`（内置词库 + 远程词，去重）；`sensitive:check/replace` IPC 自动使用远程过滤器（未配置回退内置） |
 | 版本发布 | `update_policy` → auto-updater `applyPolicy`：force_version 高于当前版本 → 跳过灰度强制检查；gray_ratio<100 → 按概率跳过检查（灰度）；min_version → 状态 `policy-min-version` 提示升级；enabled=false → 不生效 |
+| 版本发布 · 用户入口（2026-09-14） | 策略判定通过后，electron-updater `update-available` → 侧边栏底部「新版本」入口常驻显示（点击走 `update:install-now`）；force_version 触发的后台自动下载不改变入口语义（下载完成后仍需用户点击才安装，`autoInstallOnAppQuit` 保留兜底） |
 | 安全 | 端点复用目录同步 Key；管理 CRUD require_admin；词库/公告不含用户隐私 |
 
 ##### 7.4.6.2.1 运行时配置完整性（Ed25519 签名验签，2026-09-02 新增，Stage -1.6）
@@ -4845,7 +4846,7 @@ Task Queue → 各平台发布器 → 发布完成
 | 阶段 | 内容 | 状态 |
 |------|------|------|
 | P0-P3 | 基础发布 + 任务队列 + 定时 + 统计 | ✅ |
-| **蚁小二集成** | 分屏/回调/扫码/OAuth/SQLite/批量/B站/URL采集/托盘/快捷键/多账号 | ✅ |
+| **参考产品集成** | 分屏/回调/扫码/OAuth/SQLite/批量/B站/URL采集/托盘/快捷键/多账号 | ✅ |
 | **Phase C（代码质量）** | ESLint v9 flat config + Prettier，201 个问题修复 | ✅ Phase C3 |
 | **V1.0 发布** | 首版 Release、运营启动 | ⏳ 待进行 |
 | V1.1 格式适配 | Markdown → 各平台格式转换、封面
@@ -4885,13 +4886,13 @@ Task Queue → 各平台发布器 → 发布完成
 
 ---
 
-## 十八、蚁小二账号管理与内容发布对齐
+## 十八、参考产品账号管理与内容发布对齐
 
 ### 18.1 范围约束
 
-- 顶部主菜单和最左侧平台账号列表保持现有结构，不复制蚁小二外壳。
+- 顶部主菜单和最左侧平台账号列表保持现有结构，不复制参考产品外壳。
 - 重构范围限定为主内容区域、账号管理页、内容发布页及动态加载内容。
-- 蚁小二逆向工程产物只作为字段、状态、交互和视觉证据，不在运行时加载其 bundle。
+- 参考产品逆向分析产物只作为字段、状态、交互和视觉证据，不在运行时加载其 bundle。
 
 ### 18.2 功能验收
 
@@ -4910,7 +4911,7 @@ Task Queue → 各平台发布器 → 发布完成
 
 | 能力 | 本轮验收合同 | 状态 |
 |------|--------------|------|
-| 账号卡片动作 | 活动账号显示“设置、验证、删除”；失效账号显示“设置、重新登录、删除”；不显示与蚁小二不一致的“设默认、打开主页” | 本地已实现 |
+| 账号卡片动作 | 活动账号显示“设置、验证、删除”；失效账号显示“设置、重新登录、删除”；不显示与参考产品不一致的“设默认、打开主页” | 本地已实现 |
 | 账号归属字段 | 粉丝数、负责人、运营人、代理按多种后端字段名归一化；缺失值显示“暂无数据/未设置” | 本地已实现 |
 | 账号重新登录 | 复用 browser auth IPC；取消、业务失败、异常均关闭登录视图并保留错误提示；完成事件显示“账号重新登录成功”并刷新 | 本地合同已实现，真实平台授权待外部验证 |
 | 分组侧栏 | 搜索分组、全部分组、共享筛选、成员计数、无分组空态；筛选后只展示分组成员 | 本地已实现，团队共享待后端合同 |
@@ -4921,7 +4922,7 @@ Task Queue → 各平台发布器 → 发布完成
 
 | 能力 | 本轮实现与合同 | 状态 |
 |------|----------------|------|
-| 模块工具按钮 | 顶部“移动端预览、客服支持、使用指南、通知”均有独立 testid、可关闭本地面板和明确状态；未从逆向 bundle 推断未经证实的外链或 IPC | 本地已实现，真实蚁小二点击目标仍待运行时验收 |
+| 模块工具按钮 | 顶部“移动端预览、客服支持、使用指南、通知”均有独立 testid、可关闭本地面板和明确状态；未从逆向 bundle 推断未经证实的外链或 IPC | 本地已实现，真实参考产品点击目标仍待运行时验收 |
 | 草稿箱二级页签 | `/publish?tab=drafts` 首屏进入独立草稿工作区，显示加载/空态/列表，支持返回发布、继续编辑和删除；`/publish?draft=...` 保留编辑器恢复流程 | 本地已实现 |
 | 发布进度回归合同 | 进度卡固定 `publish-progress` testid，供功能 E2E 和视觉回归使用；不以通用卡片数量代替状态断言 | 本地已实现 |
 | 发布记录删除 | 选择发布记录后可批量删除；renderer API、preload、`history:delete` IPC 和 JSONL service 均按 owner 隔离，删除后刷新并保留结果提示 | 本地已实现，真实多用户共享存储待外部验收 |
@@ -4937,7 +4938,7 @@ Task Queue → 各平台发布器 → 发布完成
 | 标签页 Store (tab.js) | 新增 Pinia Store：tabs/activeTabId/navigation 响应式状态，IPC 事件订阅（tab-created/closed/switched/navigation-changed/loading），init/dispose 生命周期 | 本地已实现 |
 | page-manager IPC 桥接 | 新增 preload/page-manager.js：14 个 IPC 方法（CRUD + 导航 + 查询 + 事件订阅），所有 handler 使用 withSenderCheck 安全校验 | 本地已实现 |
 | WebviewManager 浏览器标签页 | 继承 EventEmitter，新增 createNewTabPage/closeTab/switchToTab/navigate/searchOrNavigate/goBack/goForward/reload 方法，独立 session 分区，Cookie 互不干扰 | 本地已实现 |
-| App.vue 集成 | TabBar + NavBar 集成到蚁小二工作区 shell，YixiaoerModuleNav 仅首页标签显示，tab store init/dispose 生命周期管理 | 本地已实现 |
+| App.vue 集成 | TabBar + NavBar 集成到参考产品工作区 shell，MpModuleNav 仅首页标签显示，tab store init/dispose 生命周期管理 | 本地已实现 |
 | CreateHistory 空状态增强 | 渲染记录空态显示 🎬 图标 + 提示文案；流水线记录空态显示 🔄 图标 + 提示文案；修复 style 标签闭合位置 | 本地已实现 |
 | 账号"去登录"按钮 | AccountManagementCard 新增"去登录"按钮（Monitor 图标），触发 open-creator 事件，Accounts.vue 处理事件并导航到创作者中心 | 本地已实现 |
 | 构建修复 | platform-definitions.browser.js 补充 PLATFORM_DASHBOARD_URLS 导出 | 本地已实现 |
@@ -4954,7 +4955,7 @@ Task Queue → 各平台发布器 → 发布完成
 - 点击标签页 → switchToTab → 隐藏当前视图 + 显示目标视图 + 更新导航状态
 - 关闭标签页 → closeTab → 移除视图 + 切换到下一个标签（无标签时广播 all-tabs-closed）
 - URL 输入 → enter → 判断 URL/域名/搜索词 → 导航或 Bing 搜索
-- 首页标签 → 隐藏 NavBar 导航按钮，显示模块导航 (YixiaoerModuleNav)
+- 首页标签 → 隐藏 NavBar 导航按钮，显示模块导航 (MpModuleNav)
 - Home tab 保护：closeTab 拒绝关闭 Home tab（返回 false），确保首页始终存在
 - switchToTab(Home)：隐藏所有 WebContentsView，显示 router-view 内容，activeTabId 设为 'home'
 - tabStore 初始化：自动创建 Home tab（tabId='home', title='首页'），不调用 IPC 创建 WebContentsView
@@ -4975,7 +4976,7 @@ Task Queue → 各平台发布器 → 发布完成
 
 **问题**：
 1. 首页标签被第一个浏览器标签错误污染：`createNewTabPage` 将首个浏览器 WebContentsView 设为 `_homeTabId`，导致第 2+ 个平台的内容（如百家号）覆盖首页标签、点击首页标签却切回 Vue router-view
-2. 平台创作者中心内点击链接（如头条号个人中心）弹出独立 BrowserWindow，不符合蚁小二「本页打开」行为
+2. 平台创作者中心内点击链接（如头条号个人中心）弹出独立 BrowserWindow，不符合参考产品「本页打开」行为
 
 **修复**：
 
@@ -4990,7 +4991,7 @@ Task Queue → 各平台发布器 → 发布完成
 - Home tab tabId 固定为 'home'，无 WebContentsView，closeTab 返回 false
 - getAllTabs 始终在列表首位包含 `{tabId:'home', title:'首页', isHome:true}`
 - window.open 拦截仅在 tab 内导航 http/https URL；`new-window` disposition 仍拒绝（保持默认行为）
-- 与蚁小二逆向代码 (`index.cjs:120753-120793`) 对齐：普通 tab 内 target=_blank/前景标签默认在当前 tab 内 loadURL
+- 与参考产品逆向分析代码 (`index.cjs:120753-120793`) 对齐：普通 tab 内 target=_blank/前景标签默认在当前 tab 内 loadURL
 
 ### 18.3 设计与代码分层
 
@@ -5003,11 +5004,11 @@ Vue 展示组件
   -> 主进程 services / publishers（发布、存储、队列）
 ```
 
-展示组件不直接访问 `window.electronAPI`；业务数据通过 props/emits 和 composable 进入组件。Electron 账号查询只返回公开字段，渲染层不能写入 cookies、localStorage 或 Token。详细计划见 `docs/plans/2026-07-20-yixiaoer-account-publish-parity.md`。
+展示组件不直接访问 `window.electronAPI`；业务数据通过 props/emits 和 composable 进入组件。Electron 账号查询只返回公开字段，渲染层不能写入 cookies、localStorage 或 Token。详细计划见 `docs/plans/2026-07-20-mp-account-publish-parity.md`。
 
 ### 18.4 验证口径
 
-最终交付必须同时通过桌面单元测试、覆盖率、故障注入、Monkey、功能 E2E、视觉回归、真实蚁小二像素门禁、preload sandbox 双模式、Windows 打包、ASAR/require 链和应用启动。2026-08-04 parity gap closure 新增的定向门禁覆盖导航工具面板、草稿独立页、发布进度 testid、发布记录删除 API/IPC/service owner 隔离；定向 Vitest 648/648 通过。全量、功能 E2E、视觉、打包和真实蚁小二操作必须以本轮实际命令结果为准，不得沿用旧报告数字。真实第三方平台授权、实际上传/发布、团队分享和跨设备同步仍属于外部验收，不以 mock 结果替代。实际命令和结果记录在 `.quality-gates.md`、`01-docs/yixiaoer-reverse/analysis/04-account-publish-parity-2026-08.md` 以及本任务 `.ccg/tasks/yixiaoer-parity-gap-closure/`。
+最终交付必须同时通过桌面单元测试、覆盖率、故障注入、Monkey、功能 E2E、视觉回归、真实参考产品像素门禁、preload sandbox 双模式、Windows 打包、ASAR/require 链和应用启动。2026-08-04 parity gap closure 新增的定向门禁覆盖导航工具面板、草稿独立页、发布进度 testid、发布记录删除 API/IPC/service owner 隔离；定向 Vitest 648/648 通过。全量、功能 E2E、视觉、打包和真实参考产品操作必须以本轮实际命令结果为准，不得沿用旧报告数字。真实第三方平台授权、实际上传/发布、团队分享和跨设备同步仍属于外部验收，不以 mock 结果替代。实际命令和结果记录在 `.quality-gates.md`、`01-docs/ui-reference/analysis/04-account-publish-parity-2026-08.md` 以及本任务 `.ccg/tasks/mp-parity-gap-closure/`。
 
 ## 十九、文档体系 (Documentation Index)
 
@@ -5053,18 +5054,18 @@ Vue 展示组件
 |------|------|----------|
 | v2.1.2 | 2026-07-05 | PRD 全面修复 14 项 + TODOs 清空（基线版本） |
 | v2.3.42 | 2026-07-09 | 恢复 mojibake 乱码（从 bba83b0 干净版本）+ 合并 §2.3/§3.3/§4.4 增量 + 新增 §17 安全审计 / §18 文档体系 + 版本号更新 |
-| v2.3.53 | 2026-07-20 | 账号管理与内容发布按蚁小二交互对齐；完成前端分层、多账号发布、草稿、排期、差异化内容、二维码登录、取消/重试及安全边界 |
-| v2.3.54 | 2026-08-04 | 续作收敛账号卡片动作、失效账号重新登录、粉丝/归属字段、分组筛选、收藏空态和分享服务边界；补充真实蚁小二像素审计证据 |
+| v2.3.53 | 2026-07-20 | 账号管理与内容发布按参考产品交互对齐；完成前端分层、多账号发布、草稿、排期、差异化内容、二维码登录、取消/重试及安全边界 |
+| v2.3.54 | 2026-08-04 | 续作收敛账号卡片动作、失效账号重新登录、粉丝/归属字段、分组筛选、收藏空态和分享服务边界；补充真实参考产品像素审计证据 |
 | v2.3.55 | 2026-08-04 | 收口顶部工具面板、草稿独立页签、发布进度稳定选择器和发布记录 owner-scoped 批量删除；同步测试与外部能力边界 |
 | v2.3.56 | 2026-08-10 | 浏览器式标签栏(TabBar/NavBar/tab store)、page-manager IPC、WebviewManager 标签页系统、CreateHistory 空状态增强、账号去登录入口、构建和内存泄漏修复 |
 | v2.3.57 | 2026-08-13 | 多语言内容同步机制（i18n-content-sync）：单一事实源 + 键对称/占位符/diff 配对/硬编码扫描门禁 + 术语词典；PRD §3.2 新增小节 + 独立设计文档 `01-docs/i18n-sync-mechanism.md` + OpenSpec change |
 | v2.3.65 | 2026-09-11 | E2E 真实环境修复：视频号（tencent_video）等渲染崩溃平台降级本地凭证检查——隐藏 sandbox 检测窗口加载 channels.weixin.qq.com 触发原生渲染崩溃导致整个应用退出，降级后一键检测不再崩溃（E2E 8 步全通过） |
 | v2.3.66 | 2026-09-11 | 一键检测体验优化：按钮实时显示「检测中 X/N：平台名」阶段性进度（主进程逐账号广播 accounts:batch-check-progress）+ 检测耗时 27.2s→8.3s（-70%）：goto 超时 15s→8s、SPA 固定等待 2s→500ms、选择器超时 10s→3s、头条/百家号无 Cookie 快速路径跳过注定未登录的浏览器检测 |
-| v2.3.67 | 2026-09-11 | HTTP API 登录检测（复用蚁小二逆向端点）：新增 http-login-checker.js，抖音（creator.douyin.com/aweme/v1/creator/pc/user/info/）和头条（mp.toutiao.com/mp/agw/media/get_media_info）用 Cookie 直接调平台 API 判断登录态，不打开浏览器窗口，<1s/平台；网络错误自动降级浏览器检测。checkLoginStatus 接入 tryHttpLoginCheck 快速路径 |
+| v2.3.67 | 2026-09-11 | HTTP API 登录检测（复用参考产品逆向分析端点）：新增 http-login-checker.js，抖音（creator.douyin.com/aweme/v1/creator/pc/user/info/）和头条（mp.toutiao.com/mp/agw/media/get_media_info）用 Cookie 直接调平台 API 判断登录态，不打开浏览器窗口，<1s/平台；网络错误自动降级浏览器检测。checkLoginStatus 接入 tryHttpLoginCheck 快速路径 |
 | v2.3.64 | 2026-09-11 | 账号管理页新增「一键检测」：批量检测全部账号登录状态（复用 accounts:batch-check-login IPC），检测期间全部卡片 verifying 态，完成后按结果更新本地 status/checkedExpiredIds 并汇总提示正常/失效数量，+4 回归测试。同批：公众号登录页同域误判修复（login URL 检查先于域名兜底）、账号浏览器标签「保存账号」按钮 + save-account-tab-credentials IPC、自动保存全局成功提示（autoSaved/autoSavedWithPlatform）、首页失效横幅订阅 auth:completed/account:status-changed 自动刷新 |
 | v2.3.63 | 2026-09-11 | 修复「已登录却提示失效」：checkLocalCredentials 增加 Electron session 分区 Cookie（persist:account-{accountId}）备选凭证检测，加密凭据文件缺失但浏览器登录态仍存时不再误报 expired + 登录状态判定全链路细粒度诊断日志 |
 | v2.3.62 | 2026-09-10 | 修复登录状态检测选择器系统缺陷：playwright-manager waitForSelector 支持数组选择器（逐个尝试候选 CSS 选择器）+ checkLoginStatus 增加 SPA 渲染等待 2s + 超时延长到 10s，+3 回归测试 |
-| v2.3.61 | 2026-09-10 | 修复首页标签被浏览器标签污染 + 平台创作者中心内 window.open/target=_blank 改本页导航（对齐蚁小二）：webview-manager 固定 HOME_TAB_ID、浏览器标签注册 setWindowOpenHandler，+8 回归测试 |
+| v2.3.61 | 2026-09-10 | 修复首页标签被浏览器标签污染 + 平台创作者中心内 window.open/target=_blank 改本页导航（对齐参考产品）：webview-manager 固定 HOME_TAB_ID、浏览器标签注册 setWindowOpenHandler，+8 回归测试 |
 | v2.3.60 | 2026-08-27 | 桌面端会员中心页面（账号 / 版本许可证 / 会员权益 / 资源配额 / 关于）+ 左上角头像账号入口（未登录直接弹登录、已登录弹菜单、disabled fail-closed）、「更多」菜单与身份菜单新增会员中心入口、entitlement.quota 透传修复、视觉门禁与 CJK 基线同步 |
 | v2.3.59 | 2026-08-27 | 双默认模型 ID（运营预设 default_model + 用户自选 user_default_model）：桌面端供应商「默认模型」下拉选择（模型列表只读，唯一维护入口运营中心）、resolveProviderDefaultModel 全链路接线、ops-center 种子自动 fetch + 批量获取模型 ID、7.4.5.5 定稿 |
 | v2.3.58 | 2026-08-27 | 模型默认选择逻辑分工（供应商级默认 vs 模型 ID 默认）需求登记：桌面端只选预设供应商（is_default / capability_defaults），运营后台 default_model 为调用默认模型 ID 权威来源，需接线 llmModelFor 优先消费 config.default_model |
@@ -5491,7 +5492,7 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 数据校验和安全边界：runId 必须是非空字符串；阶段必须为数组/对象结构；progress 只接受有限数值并归一化到 0..100；响应必须通过 runId、request/action generation 和组件存活守卫；非法字段按安全降级隐藏，不把技术错误、路径、请求 ID、token 或堆栈回显。普通流水线若没有稳定 run identity，只统一视觉壳和清理，不伪造按任务恢复/取消。
 
 产品优化例外：素材选择、内容策略、waiting_approval、needs_user_input 和 needsCheckpoint 状态需要用户完成输入，不能后台化或关闭；关闭按钮 disabled，不显示后台入口，用户必须完成确认/修改或取消，避免任务被隐藏后静默卡死。
-#### task-051 蚁小二 UE 收口与真实发布验收（2026-08-22）
+#### task-051 参考产品 UE 收口与真实发布验收（2026-08-22）
 
 - 发布页单篇模式使用独立主操作区承载发布目标、保存草稿、草稿箱、发布和取消任务；桌面长表单滚动时操作区保持可见，宽度不超过 1080px 时回到正常流，页头与批量操作支持窄屏换行。
 - 账号登录弹窗的固定文案通过 accountsPage 的 zh/en locale 提供；快手在平台二维码 capability 缺失时仍允许选择二维码并提交，其他不支持平台继续禁用。
@@ -6513,11 +6514,11 @@ checkLogin 检测到失效后，通过 accountStore.accounts[accountIndex] = { .
 **视频号按钮选择器扩展（platform-selectors.js）**：
 - 新增 `button:has-text("发表")` 等选择器
 
-#### 蚁小二逆向工程复用
+#### 参考产品逆向分析复用
 
-通过逆向分析蚁小二 4.0（D:\Data\yixiaoer-extracted\），确认了以下平台的技术方案：
+通过逆向分析参考产品 4.0（D:\Data\mp-extracted\），确认了以下平台的技术方案：
 
-| 平台 | 蚁小二方案 | Multi-Publish 现状 | 复用状态 |
+| 平台 | 参考产品方案 | Multi-Publish 现状 | 复用状态 |
 |------|-----------|-------------------|---------|
 | 抖音 | Cookie+security-sdk+HTTP API（三层认证） | API+RPA 双模式 | ✅ 认证体系已对齐 |
 | 微信公众号 | Cookie+mp.weixin.qq.com 内部 API | RPA（BrowserView） | ⚠️ 方式不同 |
@@ -6590,9 +6591,9 @@ checkLogin 检测到失效后，通过 accountStore.accounts[accountIndex] = { .
 - 发布前增加 DOM 级登录态探测（等待工作台特征元素），探测失败时明确报"登录态恢复失败"而非继续发布；
 - 微信公众号编辑器选择器继续按新版 DOM 扩展，并增加登录态前置检查。
 
-#### 蚁小二逆向工程补充：三层凭证恢复机制
+#### 参考产品逆向分析补充：三层凭证恢复机制
 
-蚁小二 4.0（D:\Data\yixiaoer-extracted\）逆向分析确认，平台登录态由三层凭证构成：
+参考产品 4.0（D:\Data\mp-extracted\）逆向分析确认，平台登录态由三层凭证构成：
 
 | 层级 | 内容 | 存储位置 | 恢复方式 |
 |------|------|---------|---------|
@@ -7252,9 +7253,9 @@ listAccounts → pythonBackend GET /api/accounts → toPublicAccount
 | 主进程 | 按 `task.platform` 分发，类型值不进入队列/执行器 | bootstrap.js executor 只读 platform |
 | 持久化 | 历史表无 type 列；草稿快照不含 type | store-schema.js / usePublishDrafts.js |
 
-三个入口给用户的差异化暗示（"我要发公众号"）在后续流程中完全没有兑现：选"公众号"进入编辑页后并不会预选微信公众号平台。这是蚁小二 UI 对齐时（commit e3e33af0，2026-08-04）引入的纯展示性区分。
+三个入口给用户的差异化暗示（"我要发公众号"）在后续流程中完全没有兑现：选"公众号"进入编辑页后并不会预选微信公众号平台。这是参考产品 UI 对齐时（commit e3e33af0，2026-08-04）引入的纯展示性区分。
 
-**决策**：选项数量与真实行为对齐优先于视觉对齐，三类合并为"图文文章发布"。蚁小二对齐度下降为有意的产品取舍。
+**决策**：选项数量与真实行为对齐优先于视觉对齐，三类合并为"图文文章发布"。参考产品对齐度下降为有意的产品取舍。
 
 ### 功能规格
 
@@ -7310,6 +7311,504 @@ listAccounts → pythonBackend GET /api/accounts → toPublicAccount
 
 | 风险 | 等级 | 缓解 |
 |------|------|------|
-| 蚁小二 UI 对齐度下降（4→2 入口） | 中 | 有意的产品决策，文档留痕 |
+| 参考产品 UI 对齐度下降（4→2 入口） | 中 | 有意的产品决策，文档留痕 |
 | 用户习惯旧入口找不到 | 低 | 合并入口覆盖原三入口全部平台；旧链接向后兼容 |
 | 旧键残留 locales | 低 | 保留不删，避免破坏未知引用方；后续清理另起任务 |
+
+
+---
+
+## 应用菜单（运营中心 → 应用端侧边栏）
+
+> **详细设计文档**：`01-docs/FEATURE-APP-MENU-2026-09-15.md`
+> （含完整数据模型、API 契约、逐条校验规则、业务流程、交互逻辑、显示项、全部提示文字、验收标准、测试覆盖）
+>
+> **版本** v1.0 · **日期** 2026-09-15 · **状态** 已实现
+
+### 目标
+
+在运营中心新增入口「应用菜单」，管理应用端（桌面端）左侧边栏菜单项的**显示 / 隐藏**与**组内排序**。
+其中「发布、账号、采集、视频创作」为系统核心入口，**强制显示**（运营端开关灰显不可关闭）。
+应用端左侧边栏按运营中心设置的顺序渲染。
+
+### 菜单目录（20 项，key 为跨端唯一契约）
+
+| 分组 | 菜单项 |
+|------|--------|
+| 一级导航 `primary` | `home` 主页、`publish` 发布（强制）、`accounts` 账号（强制）、`dashboard` 数据、`create` 视频创作（强制）、`collection` 采集（强制） |
+| 更多菜单 `more` | `monitor` 监控、`calendar` 发布日历、`comments` 私信评论、`cloud-publish` CLI、`library` 素材库、`keywords` 关键词监控、`viral` 爆款分析、`prompt-eval` 提示词评估、`rewrite` 文案改写、`hot-topics` 热门选题、`model-providers` 模型提供商、`knowledge-base` 知识库、`performance-insights` 数据洞察、`member-center` 会员中心 |
+
+### 核心结论卡片
+
+| 项目 | 内容 |
+|------|------|
+| 新增数据表 | `app_menu_items`（ops-center SQLite，11 个字段，`item_key` 唯一） |
+| 新增 API | `GET /api/v1/app-menu`、`PUT /api/v1/app-menu`、`POST /api/v1/app-menu/reset` |
+| 下发通道 | 复用 `GET /api/v1/runtime/bootstrap`，新增 `appMenu` 字段（**在 Ed25519 签名覆盖范围内**） |
+| 应用端读取 | IPC `ops-center-sync:appMenu` → `resolveSidebarMenu()` 合并 → 侧边栏渲染 |
+| 权限 | 读需登录；写需管理员（非 admin → 403） |
+| 强制项保护 | **三层**：UI 开关灰显 / 服务端强制纠正 + `corrections` 留痕 / 应用端渲染层无条件可见 |
+| 失败降级 | **fail-open**：未下发或结构非法 → 全部可见 + 默认顺序（绝不阻塞导航） |
+| 生效时机 | 桌面端启动 3s 后自动同步；运营修改后需重新同步或重启（无实时推送） |
+
+### 数据校验要点
+
+| 位置 | 规则 | 失败处理 |
+|------|------|----------|
+| 运营端写入 | `items` 必须为数组、≤200 项、条目必须为对象、`item_key` 非空且存在于目录、同批不重复 | **400 fail-closed**，整批不写入 |
+| 运营端写入 | `sort_order` 为空/非数字/负数 | **保留原值**（不归零），避免误改排序 |
+| 运营端写入 | `visible` 白名单为真（`true`/`1`/`"1"`/`"true"`） | 其余一律视为隐藏 |
+| 运营端写入 | 强制项提交 `visible=false` | 200 + **强制纠正为可见** + 记入 `corrections` |
+| 应用端主进程 | 结构非法 / >200 项 | 返回 `null`（渲染端 fail-open） |
+| 应用端主进程 | `__proto__` / `constructor` / `prototype` key | 丢弃该条 |
+| 应用端渲染 | 强制项 | 无视下发值，**永远可见** |
+| 应用端渲染 | 下发里本地不存在的 key | 静默忽略（不新增菜单项） |
+| 应用端渲染 | 本地有、下发无 | 可见 + 排在该组已配置项之后 |
+
+### 排序语义
+
+- **组内排序**：`primary` 与 `more` 两组各自独立排序（UI 结构为平铺导航 + 折叠面板，无法跨组穿插）。
+- 比较器：`sort_order` 升序 → 相同按定义顺序 → 无值排在最后并保持定义顺序。
+- 运营端点击 ↑↓ 后，该组 `sort_order` 归一化为 `0..n-1`。
+
+### 兜底规则
+
+| 场景 | 行为 |
+|------|------|
+| 配置未下发 / 拉取失败 / 结构非法 | 全部菜单项可见 + 定义顺序 |
+| 「更多」组全部隐藏 | 「更多」按钮与折叠面板均不渲染 |
+| 一级导航全部隐藏 | 不会发生（4 个强制项恒可见） |
+| 当前所在路由被隐藏 | 页面仍可通过 URL 访问；菜单不再高亮（隐藏 ≠ 禁用） |
+| 隐藏「主页」 | 应用启动仍进入主页（`/` 为默认路由） |
+
+### 验收要点
+
+- A4/A5：尝试隐藏「发布」→ 被纠正为可见并记入 `corrections`。
+- A6：直接改库 `create.visible=0` → 下发前被纠正为可见。
+- A9：提交 201 项 → 400「菜单项数量超过上限 200」。
+- A10：提交负数 `sort_order` → 该项排序值保持原值。
+- A12：应用端未拿到配置 → 全部可见、默认顺序。
+- A14：`more` 组全部隐藏 → 「更多」按钮消失。
+- A15：下发 201 项（超限）→ 应用端整体降级为默认菜单。
+- A17：payload 被篡改 → 验签失败，整体拒绝并保留上次快照。
+## §BackToTop 全局「回到顶部」浮标（2026-09-14 新增）
+
+> 变更标识：`back-to-top-button`。完整 PRD 见 `01-docs/PRD-BACK-TO-TOP-BUTTON-2026-09-14.md`；
+> 布局规格见 `docs/desktop-ui-layout-spec.md` §14；交互原语登记见 `docs/frontend-interaction-spec.md` §2。
+
+### 一、需求概述
+
+桌面端多个页面的内容高度超过一屏（发布历史 / 账号管理 / 模型服务商 / 创作历史 / 热榜 / 收藏 / 情报等列表页与详情页）。用户滚动到列表底部后，若想修改顶部筛选项或切换模块，必须手动长距离回滚，操作成本高且易丢失上下文。此前应用**不存在任何回到顶部入口**（全库检索 `back-to-top` / `backToTop` / `回到顶部` / `scrollToTop` 零命中）。
+
+本次新增全局「回到顶部」浮标按钮：固定于窗口**右侧接近底部**，滚动超过阈值后出现，点击后平滑回滚至滚动区顶部，并具备悬浮 / 按下 / 焦点三态视觉反馈与文字提示。
+
+**目标**
+
+- 提供统一的回到顶部入口，覆盖所有内容可能超出一屏的页面
+- 零逐页改动、零页面白名单维护成本；内容不足一屏的页面自动不出现
+- 满足无障碍要求（键盘可达、可访问名、减少动效降级）
+
+**非目标（明确不做）**
+
+| 项 | 理由 |
+|----|------|
+| 「回到底部」按钮 | 无需求；长列表底部通常已有分页/加载更多入口 |
+| 各视图单独引入浮标 | 违反 `frontend-interaction-spec.md` §2 交互原语唯一实现清单 |
+| 改变各页面既有滚动实现 | 本需求只做回滚入口，不动视图内滚动容器结构 |
+| 虚拟滚动 / 分页重构 | 属性能域独立议题 |
+| 全局 `window` 滚动支持 | `html, body` 为 `overflow: hidden`（App.vue 内联样式），滚动只发生在内容容器上 |
+
+### 二、数据校验（配置契约）
+
+**组件入参校验**
+
+| 参数 | 类型 | 默认值 | 校验规则 | 非法值处理 |
+|------|------|--------|---------|-----------|
+| `threshold` | Number | 320 | 期望非负数值，语义为显示阈值（px） | 非数值时比较恒为 false，浮标不显示（fail-safe，不误弹） |
+| `containerSelector` | String | `[data-testid="mp-workspace"]` | 必须能被 `document.querySelector` 命中 | 未命中时 `console.warn` 且不注册监听，浮标保持隐藏，不抛异常 |
+
+**运行时校验项**
+
+| 校验项 | 规则 | 位置 | 失败处理 |
+|--------|------|------|---------|
+| 滚动事件目标有效性 | `event.target` 存在且 `typeof target.scrollTop === 'number'` | `onScroll` | 直接 return，忽略该次事件 |
+| 阈值比较 | 严格 `>`（等于阈值不触发） | `onScroll` | 避免边界抖动 |
+| 回滚目标可用性 | `activeScroller.isConnected === true` | `resolveScroller` | 回退主容器；主容器亦不可用则不动作 |
+| 平滑滚动能力 | `try { el.scrollTo({top, behavior}) }` | `handleClick` | 捕获异常后降级 `el.scrollTop = 0` 并 `console.warn` |
+| 重复点击 | 600ms 时间锁 | `handleClick` | 锁定期内 return，一次滚动只触发一次 |
+| 定时器清理 | `unlockTimer` 在卸载/路由切换时清理 | `onBeforeUnmount` / 路由 watch | 防止解锁回调在销毁后执行 |
+
+**数据依赖声明**：本功能**不读写任何持久化数据**（不涉及 SQLite / localStorage / IPC）。唯一状态是组件内存中的 `visible` 布尔量与滚动位置，属纯视图层临时状态，应用关闭或刷新后自然重置，无数据迁移、脏数据、并发写入风险。
+
+### 三、流程与功能逻辑
+
+**显隐流程**
+
+1. 用户在内容区产生滚动
+2. 主滚动容器 `.mp-workspace` 以**捕获阶段**收到 `scroll` 事件（`scroll` 不冒泡，仅捕获阶段能同时拿到主容器与任意嵌套 `overflow:auto` 子容器的滚动）
+3. 解析 `event.target.scrollTop`：
+   - `> 320px` → 记录该容器为回滚目标，浮标淡入
+   - `≤ 320px` 且该容器正是当前回滚目标 → 清空回滚目标，浮标淡出
+4. 路由切换（`route.fullPath` 变化）→ 强制隐藏、清空回滚目标、解除点击锁
+
+> 显隐条件为「最后一个产生滚动的容器是否超过阈值」，而非「页面是否有滚动条」。一个页面可能同时存在主容器与视图内嵌滚动区，用「最后滚动者」更贴近用户意图。
+
+**多滚动容器解析**
+
+| 层级 | 容器 | 举例 | 解析方式 |
+|------|------|------|---------|
+| 主容器 | `.mp-workspace` | Accounts.vue、HotTopics.vue | 挂载时 `querySelector` 定位 + 捕获阶段监听 |
+| 嵌套容器 | 视图内自带 `overflow:auto` 区块 | PublishHistory.vue、ModelProviders.vue、ResultView.vue、ContactSheetView.vue | 由主容器捕获阶段监听自动覆盖，无需逐个声明 |
+
+点击回滚目标优先级：① `activeScroller` 且 `isConnected` → ② 主容器 → ③ 皆不可用则不执行。
+
+**点击回滚流程**
+
+1. 检查 600ms 点击锁：已锁定则忽略本次点击（防连点）
+2. 上锁并启动 600ms 解锁定时器
+3. `resolveScroller()` 选定回滚目标
+4. 判定系统「减少动态效果」：开启则 `behavior: 'auto'`（瞬时），否则 `behavior: 'smooth'`（平滑）
+5. 平滑滚动使 `scrollTop` 递减至 0，`onScroll` 自然将浮标收起
+
+> **不强制在点击时隐藏浮标**：依赖滚动到位后自然收起，避免「滚动被中断但按钮已消失」的状态不一致。
+
+### 四、交互与显示项
+
+**指针交互**
+
+| 操作 | 行为 |
+|------|------|
+| 悬浮 | 底色加深 + 图标转深色 + 左侧文字提示淡入（140ms） |
+| 按下 | 底色再加深 + `scale(0.94)` 轻微内收 |
+| 单击 | 平滑回滚至顶部；600ms 内重复点击被忽略 |
+| 指针离开 | 恢复常态，提示淡出（提示 `pointer-events: none`，不拦截鼠标事件） |
+
+**显示项**
+
+| 显示项 | 内容 | 位置 |
+|--------|------|------|
+| 图标 | 20×20 向上箭头，内联 SVG，`stroke-width: 2`，圆头圆角连接，`currentColor` | 按钮中心 |
+| 文字提示 | 「回到顶部」/「Back to top」 | 按钮左侧垂直居中（深色圆角气泡 + 指向按钮的右侧小三角） |
+
+**键盘交互**
+
+| 按键 | 行为 |
+|------|------|
+| `Tab` | 可聚焦（原生 `<button type="button">`） |
+| `Enter` / `Space` | 触发回滚（原生按钮行为） |
+| 聚焦（`:focus-visible`） | 显示 2px 主色描边，并同样弹出文字提示 |
+
+**提示展示条件**
+
+| 条件 | 是否显示提示 |
+|------|-------------|
+| 鼠标悬浮 | 是 |
+| 键盘聚焦（`:focus-visible`） | 是 |
+| 鼠标点击（`focus` 但非 `focus-visible`） | 否（避免点击后提示滞留） |
+| 浮标隐藏 | 否（元素已移出 DOM） |
+
+### 五、提示文字清单（zh / en）
+
+| Key | zh | en | 用途 |
+|-----|----|----|------|
+| `common.backToTop` | 回到顶部 | Back to top | 按钮文字提示气泡 + `aria-label` 无障碍名 |
+
+**i18n 约束**（CI Gate 7）：zh/en 必须成对提交（`--pair-base`）；渲染端不得新增硬编码中文（`--cjk`，基线只减不增）；`t()` 引用的 key 必须在 zh/en 同时存在（`--keys`）。
+
+**缺 key 兜底**：`vue-i18n` 缺 key 时返回 key 原文，组件据此判定为未翻译 → 气泡文案回退空串（不渲染气泡），`aria-label` 回退英文常量 `Back to top`，保证读屏用户不会遇到无名按钮。与 `PipelineBackgroundToast.vue` 既有处理一致。
+
+### 六、视觉与层级规范
+
+**几何**：按钮 44×44px；圆角 `var(--radius-lg)`=16px；图标 20×20px；右/下边距 `var(--spacing-6)`=24px；气泡内边距 6px 10px、圆角 `var(--radius-sm)`=8px、与按钮间距 10px、右侧 4px 三角。
+
+**颜色**（新增语义 token，见 `styles/tokens.css`，亮/暗双模式）
+
+| 语义 | Token | 亮色 | 暗色 |
+|------|-------|------|------|
+| 浮标底色 | `--color-float-surface` | `#ececef` | `#2c2c34` |
+| 浮标底色（悬浮） | `--color-float-surface-hover` | `#e0e0e5` | `#383842` |
+| 浮标底色（按下） | `--color-float-surface-active` | `#d4d4dc` | `#44444f` |
+| 图标色 | `--color-float-icon` | `#707080` | `#a0a0b0` |
+| 图标色（悬浮） | `--color-float-icon-hover` | `#1e1b4b` | `#f0f0f5` |
+| 气泡底色 | `--color-float-tooltip-bg` | `#303038` | `#4a4a55` |
+| 气泡文字 | `--color-float-tooltip-text` | `#ffffff` | `#ffffff` |
+| 阴影 | `--shadow-float` | `0 2px 8px rgba(30,27,75,.08)` | `0 2px 10px rgba(0,0,0,.45)` |
+
+**层级**：浮标 `z-index: 1900`，低于 `UiModal` overlay 与 `UpdateNotification`（2000），高于页面普通内容——模态弹窗打开时浮标被遮罩覆盖，符合模态语义。
+
+**与右下角 UpdateNotification toast 的位置协调**：该提示条原为 `bottom:16px; right:16px`，与浮标（`bottom:24px; right:24px`，占 44×44）在水平 24–68px、垂直 24–60px 区间重叠。处置为提示条 `right` 由 `16px` 调整为 `88px`（保持贴底），调整后提示条右边缘距窗口 88px > 浮标左边缘距窗口 68px，完全消除重叠；代价是提示条视觉内缩 72px，因其出现频率低（仅更新检查完成/失败）而可接受。
+
+### 七、错误处理与降级
+
+| 异常场景 | 处理 | 影响 |
+|---------|------|------|
+| 滚动容器未找到 | `console.warn`，不注册监听 | 浮标不出现，其余功能不受影响 |
+| 不支持 `scrollTo(options)` | 捕获异常，降级 `el.scrollTop = 0` | 平滑滚动退化为瞬时跳转 |
+| `scrollTop` 非数值 | `onScroll` 提前 return | 该次滚动不改变显隐 |
+| 回滚目标脱离 DOM | `resolveScroller` 回退主容器 | 仍能正常回滚 |
+| i18n key 缺失 | 气泡回退空串 + `aria-label` 回退英文常量 | 浮标仍可用且可被读屏识别 |
+| 平滑滚动中路由切换 | 路由 watch 强制隐藏并解锁 | 浮标收起，无残留状态 |
+
+### 八、测试覆盖
+
+测试文件 `apps/desktop/src/components/BackToTop.test.js`，12 项全部通过：
+
+| # | 场景 | 类型 |
+|---|------|------|
+| 1 | 初始不渲染（内容未滚动） | 正常路径 |
+| 2 | 显隐基本流（319 不显示 → 321 显示 → 100 隐藏） | 正常路径 |
+| 3 | 阈值边界（恰好 320 不显示，321 显示） | 边界值 |
+| 4 | 自定义阈值（threshold=10） | 配置契约 |
+| 5 | 点击回滚参数 `{top:0, behavior:'smooth'}` | 正常路径 |
+| 6 | 减少动效时降级 `behavior:'auto'` | 无障碍/降级 |
+| 7 | 嵌套滚动容器可触发且回滚内层容器 | 组合场景 |
+| 8 | 防重复点击（连续 3 次仅触发 1 次） | 竞态/幂等 |
+| 9 | zh/en 双语文案与 `aria-label` 同步 | 提示文字 |
+| 10 | 路由切换后按钮收起 | 状态隔离 |
+| 11 | 容器缺失时不崩溃、保持隐藏并告警 | 异常路径 |
+| 12 | 卸载后清理监听，按钮不复活 | 资源释放 |
+
+其中第 3、8、12 项锁定阈值比较符、防连点时间锁、监听器与定时器清理，为最易被后续重构破坏的行为契约。
+
+
+
+---
+
+# 前端加载态（骨架屏）统一（2026-09-13）
+
+> 关联：`01-docs/FRONTEND-UI-UX-OPTIMIZATION-PLAN.md`（全量诊断与 L0~L4 方案）、`docs/frontend-interaction-spec.md` 第 8 节
+
+## 一、背景与目标
+
+**问题**：桌面端 155 个 `.vue`、30 条路由此前**没有统一的加载态实现**——3 个页面各写了一套骨架（颜色/动画/圆角/暗色/栅格六维互不一致），另有 30+ 处使用 spinner、纯文字「加载中...」、字符 `⟳` 或直接空白；`@keyframes skeleton-shimmer` 存在 4 份重名定义且互相覆盖。用户感知为「每页一套加载体验」。
+
+**目标**：
+
+1. 全应用**一个**骨架屏组件 + **一处**视觉令牌，明暗主题一致、动效一致；
+2. 每个「数据未就绪」的位置都有占位（不得空白），且占位**暗示内容结构**；
+3. 不新增硬编码文案；无障碍可朗读；尊重系统「减少动态效果」。
+
+## 二、功能逻辑
+
+### 2.1 组件能力（`components/UiSkeleton.vue`）
+
+| 属性 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `variant` | String | `text` | 9 种变体（见 2.2）；白名单外取值在开发态告警 |
+| `tag` | String | `div` | 根元素标签，表格内可传 `tr` |
+| `rows` | Number | 3 | `paragraph` 行数，末行自动收口 62% |
+| `count` | Number | 3 | `list` / `table` 条目数 |
+| `columns` | Number | 4 | `table` 列数 |
+| `width` / `height` | String \| Number | `''` | 数字按 px，字符串原样 |
+| `radius` | String | `''` | 覆盖圆角 |
+| `animated` | Boolean | `true` | `false` 时关闭流光、保留骨块 |
+| `label` | String | `''` | 无障碍朗读文案，默认取 i18n `common.loading` |
+
+### 2.2 变体与适用场景
+
+| variant | 结构 | 适用 |
+|---------|------|------|
+| `text` | 1 条文本行 | 单字段、行内状态位 |
+| `paragraph` | N 行（末行 62%） | 明细、弹窗内容、正文 |
+| `rect` / `circle` | 单块（可设宽高圆角） | 媒体位、缩略图、头像 |
+| `card` | 媒体区 140px + 2 行 | 项目库、流水线、模板、场景卡 |
+| `list` | N ×（头像 36px + 3 行 + 右侧操作位） | 草稿、历史、收藏、榜单、日志 |
+| `table` | 表头 + N×M 单元格 | 云端任务、爆款库 |
+| `chart` | 8 根底对齐柱 | 趋势/基准图、分析结果 |
+| `custom` | 默认插槽 | 特殊组合（骨块须挂 `.mp-skeleton-surface`） |
+
+### 2.3 视觉令牌（`styles/skeleton.css`，唯一来源）
+
+| 令牌 | 浅色 | 暗色 | 说明 |
+|------|------|------|------|
+| `--skeleton-bg` | `#e8eaef` | `#2a2c38` | 骨块基色 |
+| `--skeleton-shimmer` | `#f7f8fb` | `#3b3e4d` | 流光高光色（与基色亮度差约 8%） |
+| `--skeleton-bar-height` | 14px | — | 文本行高 |
+| `--skeleton-radius` / `--skeleton-radius-block` | 6px / 10px | — | 行 / 块圆角 |
+| `--skeleton-media-height` | 140px | — | 卡片媒体区高度 |
+| `--skeleton-duration` / `--skeleton-ease` | 1.8s / `ease-in-out` | — | 慢速流光（原 1.5s 偏快） |
+
+## 三、交互逻辑
+
+1. **出现**：页面/区块进入 `loading = true` 即刻渲染骨架，替换原内容区（同一容器内切换，不跳布局）。
+2. **消失**：数据到达（成功/失败/空）后骨架**整体一次性**消失，不做逐条「渐显」，避免跳动。
+3. **与三态的关系**：`loading` > `error` > `empty` > `content` 优先级固定；骨架只表达「正在取数」，**不用骨架表达错误或空**（错误用错误态 + 重试，空用 `EmptyState` + CTA）。
+4. **分页「加载更多」**：骨架追加在列表**尾部**，不整屏替换既有内容。
+5. **提交类操作**：不使用骨架，使用按钮 `loading` + 文案切换（禁用重复提交）。
+6. **不阻断操作**：骨架不做全局遮罩（`v-loading` 仅保留在 Element Plus 表格/卡片局部场景），不进入 tab 焦点序列。
+7. **重复加载**：同一数据的二次加载（如刷新）也显示骨架，不使用旧数据「假保留」，避免误导。
+
+## 四、显示项与页面映射（本次落地）
+
+| 页面/组件 | 形态 | variant |
+|-----------|------|---------|
+| 项目库 `ProjectLibrary` | 卡片栅格 ×6 | `card` |
+| 流水线选择 `PipelineSelector` | 卡片栅格 ×6 | `card` |
+| 流水线浏览 `PipelineBrowser` | 卡片栅格 ×6 | `card` |
+| 模型服务商 `ModelProviders` | 卡片 ×3（上下两段文本） | `paragraph` |
+| 账号管理 `Accounts` | 卡片栅格 ×4 | `card` |
+| 分镜素材 `SceneAssetSelection` | 缩略图位 | `rect` |
+| 场记表 `ContactSheetView` / 看板 `ProductionBoard` | 卡片栅格 ×6 | `card` |
+| 发布草稿 `Publish` / `PublishDraftList` / 发布记录 `PublishHistory` | 条目 ×3~5 | `list` |
+| 创作历史 `CreateHistory` / `CreateViewHistory` | 条目 ×4~5 | `list` |
+| 回放 `ReplayTimeline` | 条目 ×4 | `list` |
+| 云端发布 `CloudPublish` | 表格 4×4 | `table` |
+| 爆款库 `ViralLibraryTable` | 表格 5×6（`td` 内嵌） | `table` |
+| 结果页 `ResultView` | 段落 ×4 | `paragraph` |
+| 爆款分析 `ViralAnalysis` | 图表 | `chart` |
+| 基准图 `BenchmarkChart` | 图表 | `chart` |
+| 榜单 `TrendingPanel` / 关键词面板 `KeywordMonitorPanel` / 个人知识 `PersonalKnowledgePanel` / 模板 `TemplatePicker` / 配置档案 `ConfigProfileManager` / 日志 `LogsSettings` | 条目 ×3~4 | `list` |
+| 标题助手 `TitleAssistantPanel` / 标签建议 `TagSuggester` / 审批门 `ApprovalGateModal` / 监控历史 | 段落 2~4 行 | `paragraph` |
+| 最佳时间 `OptimalTimeTip` | 单行 | `text` |
+| 创作页音色目录 / BGM 库 / 配置档案弹窗 / 批量队列 | 行内状态 | `text` / `list` |
+
+## 五、提示文字（i18n）
+
+| 场景 | 文案 | key |
+|------|------|-----|
+| 无障碍朗读（视觉隐藏） | 加载中... / Loading... | `common.loading`（既有 key，复用，无新增） |
+| 骨架期间可见文字 | **无**（视觉噪音，按设计移除） | — |
+| 例外：不再展示的文案 | 「加载中...」「正在加载音色目录…」「加载审批门…」等 | 保留在 locales 不删除（避免破坏潜在引用方），但界面不再引用 |
+
+> 本次未新增任何硬编码中文，`check-locale-sync.js --cjk` 基线不增长。
+
+## 六、数据校验与状态约定
+
+1. `loading` 必须是**布尔 ref**，且与数据赋值在同一 `try/finally` 内复位（`finally { loading = false }`），禁止只在一处分支复位。
+2. 骨架**不做输入校验**（无用户输入），但需保证：`loading === true` 时不得同时渲染真实内容（避免内容与骨架并存）。
+3. `count` / `rows` / `columns` 必须为正整数；建议与真实数据规模同量级（列表 3~5 条、栅格 6 个），避免「骨架 3 条、真实 20 条」造成的跳动。
+4. 异步失败时必须能落到 error 态；禁止「失败后 loading 永真」（骨架永久停留）。
+
+## 七、流程（区块状态机）
+
+```
+idle ──触发取数──▶ loading（渲染骨架）
+                      ├─ 成功且有数据 ─▶ content
+                      ├─ 成功但为空   ─▶ empty（EmptyState + CTA）
+                      └─ 失败         ─▶ error（错误提示 + 重试）
+```
+
+## 八、非影响范围（明确不变项）
+
+- 主进程 IPC、任务队列、RPA 执行器、发布链路：零改动。
+- 业务流程与路由结构：零改动（本次只替换「取数期间」的占位表现）。
+- Element Plus 表格/卡片局部 `v-loading`：保留，不改造（已登记为例外）。
+- 业务数据字段与接口协议：零改动（纯渲染层）。
+
+## 九、回归保护
+
+| 类型 | 位置 | 覆盖 |
+|------|------|------|
+| 组件单测 | `components/UiSkeleton.test.js` | 14 条：各 variant 结构 / rows / count / columns / 尺寸 px 化 / `animated=false` / label 兜底 / 自定义 tag / custom 插槽 / `role=status` |
+| 源码契约 | `components/UiSkeleton.contract.test.js` | 8 条：令牌唯一来源、暗色覆盖、共享 keyframes 唯一且历史命名归零、`prefers-reduced-motion`、`var(--skeleton-*)` 仅两处、历史内联类名归零、`.mp-skeleton-surface` 唯一归属、variant 白名单 |
+| 页面断言 | `ProjectLibrary.test.js` 等 | 断言 `.mp-skeleton-grid` / `.mp-skeleton-card` / `data-testid="ui-skeleton"` 存在 |
+| 测试环境 | `test-setup-locale.js` | 语言确定性前置，消除依赖 `@/i18n` 的中文断言 flakiness |
+
+## 十、风险与缓解
+
+| 风险 | 等级 | 缓解 |
+|------|------|------|
+| 页面视觉变更引起回归 | 中 | 每批替换后跑视觉回归（浅色/暗色/reduced-motion 三模式） |
+| 测试断言「加载中」文案失效 | 低 | 骨架默认渲染 i18n `common.loading`（zh 即「加载中...」），多数断言自然通过；差异处改为断言「骨架存在」 |
+| 骨架宽高与真实内容差异大导致跳动 | 低 | 数量与真实规模对齐；卡片高度用 `--skeleton-media-height` 统一 |
+| 暗色主题未接线导致暗色令牌无法验证 | 中 | 已实现暗色令牌；主题入口接线列为后续批次（P5），届时补暗色视觉回归 |
+
+## 十一、验收标准
+
+- [ ] 全应用仅存在 1 处 `@keyframes mp-skeleton-shimmer`、1 份 `--skeleton-*` 定义
+- [ ] 本次列出的页面/组件在取数期间均渲染骨架，无空白/纯文字/spinner
+- [ ] 骨架在明暗两套令牌、`prefers-reduced-motion` 下表现正确
+- [ ] `UiSkeleton.test.js` + `UiSkeleton.contract.test.js` + 受影响页面测试全绿
+- [ ] `check-locale-sync.js --cjk / --keys` 通过，无新增硬编码中文
+- [ ] 视觉回归基线更新并随 PR 提交
+
+## 应用壳导航与底部用户菜单（2026-09-14）
+
+> 类型：🎨 UI/UX 布局调整 | 详细需求：[PRD-SIDEBAR-BOTTOM-USER-MENU-2026-09-14.md](./PRD-SIDEBAR-BOTTOM-USER-MENU-2026-09-14.md) | 布局规格：[桌面端 UI 布局规格 §2.5](../docs/desktop-ui-layout-spec.md) | 交互规范：[前端交互规范 §6.4](../docs/frontend-interaction-spec.md)
+
+**背景**：应用壳原先把登录区放在左上角，服务连接信息与「升级 Pro」散落在左下角，模块导航右上角还有 4 个无真实能力的占位入口（移动端预览 / 客服支持 / 使用指南 / 通知）。本次把这些入口收敛为「侧边栏底部一条可展开的登录 banner」。
+
+**用户流程（改动后）**：
+
+```
+打开应用
+  ├─ 侧边栏左上角：品牌标识 MP + Multi-Publish + 「+ 新建发布」
+  ├─ 侧边栏底部第 1 行：服务连接信息
+  │     （服务运行中 / 部分服务运行中（N）/ 服务状态不可用；hover 展示六服务明细与端口状态）
+  └─ 侧边栏底部第 2 行：用户 banner（头像 + 状态点 + 显示名 + 许可徽标 + ⌃）
+        ├─ 未登录（signed_out / expired）点击 → 直接唤起登录；失败才展开菜单展示错误
+        └─ 其他状态点击 → 向上展开菜单
+              ├─ 菜单标题：显示名 + 连接状态
+              ├─ 已登录：会员中心 / 切换账号 / 退出登录（动作进行中禁用并显示进行中文案）
+              ├─ 未登录或身份服务不可用：状态说明 + 重试登录
+              ├─ ── 分隔线 ──
+              ├─ 设置（nav.settings）→ 关闭菜单 → 打开设置弹窗
+              └─ ⭐ 升级 Pro（memberCenter.upgradePro，仅非 Pro）→ 关闭菜单 → 打开升级弹窗
+```
+
+**功能与交互逻辑**：
+
+| # | 规则 |
+|---|------|
+| 1 | 登录区唯一落点为底部 banner；收起态只显示一条；展开面板与 banner 同宽、向上展开、不溢出侧边栏 |
+| 2 | footer DOM 顺序固定为 [0] 服务连接信息 → [1] 用户 banner（由单测断言钉死） |
+| 3 | 点击菜单项一律「先关闭菜单，再执行动作」；点击面板外 / `Esc` / `Tab` 关闭；`Esc` 关闭后焦点回到 banner |
+| 4 | 键盘：banner 上 `↓` 展开并聚焦首项；面板内 `↑`/`↓`/`Home`/`End` 在菜单项间循环 |
+| 5 | 「设置」从主导航迁入菜单，任意身份状态可见，抛出 `open-settings` → `App.vue` 打开 `SettingsDialog` |
+| 6 | 「⭐ 升级 Pro」从 footer 独立胶囊按钮迁入菜单，复用 `.profile-menu-action` 版式（仅以金色强调），仅非 Pro 用户显示，抛出 `upgrade` → 侧边栏打开 `UpgradeModal` |
+| 7 | 原 footer「客户端状态」独立文字行移除，信息合并为 banner 状态点 + `title` + 菜单标题区状态文案（避免同一语义重复显示） |
+| 8 | 模块导航右上角 4 个占位工具入口及其工具面板整体移除（能力均为占位说明文案，保留会误导用户） |
+
+**显示项与提示文字**：全部复用既有 i18n key（`nav.settings`、`memberCenter.upgradePro`、`memberCenter.menuEntry`、`memberCenter.switchAccount` / `signingOut` / `signOut` / `loginRetry`、`memberCenter.status*`、`memberCenter.license*`、`sidebar.serviceStatus.*`），**不新增硬编码中文**（CI Gate 7 `--cjk` 无新增命中；`--keys` 全部命中）。
+
+**数据校验与边界**：面板展开方向恒为向上（由源码级 CSS 契约断言锁定，不溢出侧边栏）；身份状态 9 态归一（未匹配归 `error`，不出现无样式状态点）；显示名空值兜底（头像取 `M`、菜单标题回落 `Multi-Publish`）；`isPro` 假值按非 Pro 处理（不误隐藏付费入口）；`pendingAction` 锁防重复提交。本改动**不新增任何持久化读写**，仅消费身份 / 许可 / 服务状态既有 store。
+
+**验收标准**：
+
+- [ ] 模块导航右上角无任何工具按钮与工具面板，标签与激活态正常
+- [ ] 侧边栏 footer 顺序为「服务连接信息 → 用户 banner」
+- [ ] 点击 banner 向上展开菜单；再次点击 / 点击外部 / `Esc` 均可收起
+- [ ] 菜单含「设置」与「⭐ 升级 Pro」（非 Pro 用户），两者版式与其它菜单项一致
+- [ ] 主导航中不再有「设置」入口
+- [ ] `MpSidebar.test.js`(9) / `MpModuleNav.test.js`(5) / `ProfileMenu.test.js`(12) 全绿
+- [ ] `check-locale-sync.js --cjk / --keys` 通过，无新增硬编码中文
+- [ ] CI 全绿（含像素视觉门禁）后再合并
+
+---
+
+## 应用壳更新入口：侧边栏「新版本」按钮（2026-09-14 增量）
+
+> 完整规格见 **[PRD-SIDEBAR-UPDATE-ENTRY-2026-09-14.md](./PRD-SIDEBAR-UPDATE-ENTRY-2026-09-14.md)**（功能逻辑 / 数据校验 / 交互逻辑 / 显示项与文案全表 / 异常降级 / 验收标准 / 测试映射）。本节为 PRD 主文档内的摘要与强制约束。
+
+**需求**：用户已安装的应用在**运行期间**检测到新版本时，在侧边栏底部**登录菜单按钮正上方**常驻显示一个「新版本」提示按钮（图标：圆形底 + 向上箭头；文字：新版本；配色按项目设计标准 `var(--primary)`，不使用参考截图的绿色）。**点击后退出应用并安装新版本**。
+
+**功能与交互逻辑**
+
+| # | 规则 |
+|---|------|
+| 1 | 入口仅在 `badgeMode !== 'hidden'` 时渲染（无可用更新 / 已是最新 / 灰度跳过 → DOM 中不存在） |
+| 2 | footer DOM 顺序：`[0] 服务连接信息` → `[1]「新版本」入口（条件渲染）` → `[2] 登录 banner` → `[3] 升级弹窗（条件渲染）`；入口在登录菜单按钮正上方 |
+| 3 | 点击入口 → 非阻塞提示「正在下载新版本，完成后将自动退出应用并安装」→ IPC `update:install-now`；**点击即视为同意退出**，下载完成后自动 `quitAndInstall()` |
+| 4 | 四态文案：`新版本`（有待安装版本）/ `下载中 N%`（禁用）/ `重启安装`（已下载）/ `重试安装`（上次失败） |
+| 5 | 幂等双保险：渲染层 `installRequested && downloading` 忽略重复点击；主进程 `_installRequested` 保证只下载一次 |
+| 6 | 已下载 → 直接安装；未下载 → 先下载后安装；`autoDownload=true`（force_version 策略）时不重复触发下载 |
+| 7 | 用户点击后失败 → 入口保留并变「重试安装」+ 右下角告警条；**后台静默检查失败不显示入口**，不打扰用户 |
+| 8 | 不再自动弹出更新模态框（原 `UiModal` 流程下线）；`UpdateNotification` 退化为结果提示宿主（已是最新 4s 提示条 / 更新失败告警条），并继续持有 `start/cleanup` 生命周期 |
+| 9 | 存量 IPC `update:check` / `update:download` / `update:install` 保持不变；新增 `update:install-now`，与既有 `update:*` 同为「无需登录 + 要求可信来源」 |
+| 10 | 窄屏（≤900px）入口仅显示图标（保留 `aria-label`），文字隐藏 |
+
+**显示项与提示文字**：全部走新增 `update.*` i18n key（zh/en 成对，12 条：`badge` / `badgeReady` / `badgeRetry` / `badgeDownloading` / `badgeTitleAvailable` / `badgeTitleReady` / `badgeTitleDownloading` / `badgeTitleRetry` / `badgeAriaLabel` / `installingHint` / `latestVersion` / `failedPrefix`）。**带参数的文案必须写成 Message Function**（`(ctx) => ... ctx.named('version')`）——`src/i18n/index.js` 为规避 CSP 禁 `new Function` 把所有字符串消息转为函数，普通字符串不插值。渲染端非 locales 文件**零新增硬编码中文**（CI Gate 7 `--cjk`）。
+
+**数据校验与边界**：版本号仅用于展示（是否「有更新」由 electron-updater 判定）；IPC 来源经 `withSenderCheck` 校验，不可信来源返回 `{code:-3}`；`code !== 0` 或异常 → 入口进入「重试安装」；用户点击后安装过程中的网络类错误**原样回传 `error`**（不得降级成「已是最新版本」误导文案），未点击时的网络/GFW/`latest.yml` 404 仍静默降级；窗口重载后以主进程 `installing` 事件作为「已请求安装」依据；安装请求进行中并发复查返回 `not-available` 不清空待安装状态。
+
+**验收标准**
+
+- [ ] 无可用更新时侧边栏不出现「新版本」入口，footer 顺序为 [服务信息, 登录 banner]
+- [ ] 有新版本时入口出现在服务信息与登录 banner 之间（登录菜单按钮上方），文案「新版本」
+- [ ] 点击入口 → 调用 `update:install-now` → 下载完成后应用自动退出并安装
+- [ ] 已下载时点击直接安装；下载中重复点击只下载一次
+- [ ] 点击后失败 → 「重试安装」可重试；后台静默失败不影响入口
+- [ ] 入口配色为设计主色（`var(--primary)`），不含绿色硬编码；窄屏仅图标
+- [ ] 检测到新版本不再自动弹模态框
+- [ ] `SidebarUpdateButton.test.js` / `useAutoUpdate.test.js` / `MpSidebar.test.js` / `auto-updater.test.js` / `ipc-handlers/update.test.js` / `preload.test.js` 全绿；CI 全绿（含像素视觉门禁）后合并
+

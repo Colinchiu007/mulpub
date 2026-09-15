@@ -354,7 +354,7 @@ const platformsMixin = {
     if (platform === 'kuaishou') {
       try { await this._prepKuaishou(win, article) } catch (e) { log.warn('RpaView', 'kuaishou prep: ' + e.message) }
     }
-    // P3-6：B站分区 + 版权声明（RPA 模式；蚁小二映射 createType original→1/forward→2）
+    // P3-6：B站分区 + 版权声明（RPA 模式；参考产品映射 createType original→1/forward→2）
     if (platform === 'bilibili') {
       try { await this._prepBilibili(win, article) } catch (e) { log.warn('RpaView', 'bilibili prep: ' + e.message) }
     }
@@ -505,7 +505,7 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
     // AI 生成内容声明：默认勾选「AI 生成内容」，仅当 article.aiGenerated === false 时取消勾选。
     // 快手平台要求内容创作声明如实选择，AI 生成内容必须勾选，否则违规。
     const aiGenerated = !article || article.aiGenerated !== false
-    let state = 'unknown'
+    let state // 初值在 try/catch 两条路径都会被赋值，无需初始化（no-useless-assignment）
     let selectedValue = ''
     try {
       // 快手发布页的 AI 创作声明通常是一个 checkbox 或 switch 开关

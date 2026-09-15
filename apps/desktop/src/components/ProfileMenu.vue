@@ -4,20 +4,25 @@
       id="profile-menu-trigger"
       ref="trigger"
       type="button"
-      class="yixiaoer-profile"
-      data-testid="yixiaoer-profile"
-      :class="{ 'yixiaoer-profile-open': open }"
+      class="mp-profile"
+      :class="{ 'mp-profile-open': open }"
+      data-testid="mp-profile"
       :aria-expanded="open"
       aria-haspopup="menu"
       :aria-busy="loading"
+      :title="clientStatusTitle"
       @click="handleTriggerClick"
       @keydown.down.prevent="openAndFocusFirst"
     >
-      <span class="yixiaoer-avatar" aria-hidden="true">{{ hasSessionIdentity ? avatarInitial : '⚡' }}</span>
-      <span class="yixiaoer-profile-copy">
+      <span class="mp-avatar-wrap" aria-hidden="true">
+        <span class="mp-avatar">{{ hasSessionIdentity ? avatarInitial : '⚡' }}</span>
+        <i class="mp-avatar-dot" :class="`is-${identityStatus}`" data-testid="mp-profile-status"></i>
+      </span>
+      <span class="mp-profile-copy">
         <strong :title="displayName">{{ displayName }}</strong>
         <small class="profile-license-badge" :class="`profile-license-${licenseStore.licenseType}`">{{ licenseLabel }}</small>
       </span>
+      <ArrowUp class="mp-profile-caret" :class="{ rotated: open }" aria-hidden="true" />
     </button>
 
     <div
@@ -81,6 +86,28 @@
         </button>
       </template>
 
+      <div class="profile-menu-sep" role="separator"></div>
+
+      <button
+        class="profile-menu-action"
+        type="button"
+        role="menuitem"
+        data-testid="profile-menu-settings"
+        @click="handleOpenSettings"
+      >
+        {{ t('nav.settings') }}
+      </button>
+      <button
+        v-if="!licenseStore.isPro"
+        class="profile-menu-action profile-menu-action-upgrade"
+        type="button"
+        role="menuitem"
+        data-testid="profile-menu-upgrade"
+        @click="handleUpgrade"
+      >
+        <span class="profile-menu-action-icon" aria-hidden="true">⭐</span>{{ t('memberCenter.upgradePro') }}
+      </button>
+
       <p v-if="errorMessage" class="profile-menu-error" role="alert">{{ errorMessage }}</p>
     </div>
   </div>
@@ -90,9 +117,16 @@
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { ArrowUp } from '@element-plus/icons-vue'
 import { useIdentity } from '@/composables/useIdentity'
 import { useLicenseStore } from '@/stores/license'
 import { useDropdownBehavior } from '@/composables/useDropdownBehavior'
+import {
+  resolveIdentityErrorMessageKey,
+  resolveIdentityStatusNoteKey,
+} from '@/utils/identity-error-messages'
+
+const emit = defineEmits(['open-settings', 'upgrade'])
 
 const router = useRouter()
 const { t } = useI18n()
@@ -112,6 +146,30 @@ const licenseLabel = computed(() => {
 })
 const shouldOpenMenuOnClick = computed(() => ['authenticated', 'offline_authenticated', 'refreshing', 'disabled', 'error'].includes(status.value))
 
+// banner 头像右下角的存在状态点（与展开菜单内的状态文案同源，取代旧的侧边栏状态行）
+const identityStatus = computed(() => {
+  const current = status.value
+  return ['authenticated', 'refreshing', 'offline_authenticated'].includes(current) ? 'online'
+    : ['signing_in', 'signing_out'].includes(current) ? 'busy'
+    : current === 'disabled' ? 'disabled'
+    : ['signed_out', 'expired'].includes(current) ? 'offline'
+    : 'error'
+})
+
+const clientStatusLabel = computed(() => {
+  if (identityStatus.value === 'online') return t('memberCenter.statusConnected')
+  if (identityStatus.value === 'busy') return status.value === 'signing_in'
+    ? t('memberCenter.statusSigningIn')
+    : t('memberCenter.statusSigningOut')
+  if (identityStatus.value === 'disabled') return t('memberCenter.identityDisabled')
+  if (identityStatus.value === 'offline') return status.value === 'expired'
+    ? t('memberCenter.statusExpired')
+    : t('memberCenter.notLoggedIn')
+  return t('memberCenter.statusError')
+})
+
+const clientStatusTitle = computed(() => clientStatusLabel.value)
+
 const statusLabel = computed(() => {
   if (status.value === 'authenticated') return t('memberCenter.statusConnected')
   if (status.value === 'offline_authenticated') return t('memberCenter.statusOffline')
@@ -124,25 +182,16 @@ const statusLabel = computed(() => {
   return t('memberCenter.notLoggedIn')
 })
 
-const statusNote = computed(() => {
-  if (status.value === 'disabled') return t('memberCenter.identityDisabledHint')
-  if (status.value === 'expired') return t('memberCenter.statusExpired')
-  if (status.value === 'error') return t('memberCenter.signOutFailed')
-  return t('memberCenter.notLoggedInHint')
-})
+const statusNote = computed(() => t(resolveIdentityStatusNoteKey(status.value)))
 
 const errorMessage = computed(() => {
-  const code = error.value?.code
-  if (!code) return ''
-  const messages = {
-    IDENTITY_API_UNAVAILABLE: t('memberCenter.identityDisabledHint'),
-    IDENTITY_CALLBACK_TIMEOUT: t('memberCenter.signOutFailed'),
-    IDENTITY_ACCOUNT_SWITCH_FAILED: t('memberCenter.switchFailed'),
-    IDENTITY_SESSION_EXPIRED: t('memberCenter.statusExpired'),
-    IDENTITY_SIGN_OUT_FAILED: t('memberCenter.signOutFailed'),
-    IDENTITY_SESSION_CLEAR_FAILED: t('memberCenter.signOutFailed'),
-  }
-  return messages[code] || t('memberCenter.signOutFailed')
+  const entry = error.value
+  if (!entry?.code) return ''
+  const primary = t(resolveIdentityErrorMessageKey(entry.code))
+  const cleanupCode = entry.cleanup?.code
+  if (!cleanupCode) return primary
+  const secondary = t(resolveIdentityErrorMessageKey(cleanupCode))
+  return secondary === primary ? primary : `${primary} ${secondary}`
 })
 
 async function handleTriggerClick() {
@@ -189,49 +238,71 @@ function goMemberCenter() {
   close()
   router.push('/member-center')
 }
+
+// 设置入口：关闭菜单后交回宿主（侧边栏 → App.vue 打开设置弹窗）
+function handleOpenSettings() {
+  close()
+  emit('open-settings')
+}
+
+// 升级入口：关闭菜单后交回宿主（侧边栏 → 打开升级弹窗）
+function handleUpgrade() {
+  close()
+  emit('upgrade')
+}
 </script>
 
 <style scoped>
 .profile-menu {
   position: relative;
+  width: 100%;
   min-width: 0;
-  display: flex;
-  flex: 1;
+  flex: 0 0 auto;
+  display: block;
 }
 
-.yixiaoer-profile {
+/* 底部 banner 形态：整行卡片，收起时只显示这一条 */
+.mp-profile {
+  width: 100%;
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex: 1;
-  padding: 0;
-  border: 0;
-  background: transparent;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid #e3e1f2;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .72);
+  box-shadow: 0 2px 8px rgba(99, 91, 195, .06);
   color: inherit;
   font-family: inherit;
   text-align: left;
   cursor: pointer;
-  border-radius: 8px;
+  transition: background .15s ease, border-color .15s ease;
 }
 
-.yixiaoer-profile:hover,
-.yixiaoer-profile:focus-visible,
-.yixiaoer-profile-open {
-  background: rgba(255, 255, 255, 0.6);
+.mp-profile:hover,
+.mp-profile:focus-visible,
+.mp-profile-open {
+  border-color: #bab9d3;
+  background: rgba(255, 255, 255, .94);
 }
 
-.yixiaoer-profile:focus-visible {
+.mp-profile:focus-visible {
   outline: 2px solid #5149e8;
   outline-offset: 1px;
 }
 
-.yixiaoer-avatar {
+.mp-avatar-wrap {
+  position: relative;
+  display: inline-grid;
+  flex: 0 0 auto;
+}
+
+.mp-avatar {
   width: 30px;
   height: 30px;
   display: grid;
   place-items: center;
-  flex: 0 0 auto;
   border-radius: 50%;
   background: linear-gradient(140deg, #ffcf80, #ef9e68);
   color: #5d3824;
@@ -239,19 +310,48 @@ function goMemberCenter() {
   font-weight: 700;
 }
 
-.yixiaoer-profile-copy {
+.mp-avatar-dot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 10px;
+  height: 10px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #a7a8b5;
+}
+
+.mp-avatar-dot.is-online { background: #6fbf73; }
+
+.mp-avatar-dot.is-busy,
+.mp-avatar-dot.is-error { background: #e6a23c; }
+
+.mp-profile-copy {
   min-width: 0;
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 2px;
 }
 
-.yixiaoer-profile-copy strong {
+.mp-profile-copy strong {
   overflow: hidden;
   color: #4d4f6f;
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.mp-profile-caret {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+  color: #a5a6bd;
+  transition: transform .15s ease;
+}
+
+.mp-profile-caret.rotated {
+  transform: rotate(180deg);
 }
 
 .profile-license-badge {
@@ -273,13 +373,16 @@ function goMemberCenter() {
   color: #27618a;
 }
 
+/* 面板向上展开，且与 banner 等宽（不溢出侧边栏） */
 .profile-menu-panel {
   position: absolute;
-  top: calc(100% + 8px);
+  bottom: calc(100% + 8px);
   left: 0;
+  right: 0;
   z-index: 140;
   box-sizing: border-box;
-  width: min(240px, calc(100vw - 24px));
+  max-height: min(70vh, 420px);
+  overflow-y: auto;
   padding: 12px;
   border: 1px solid var(--card-border);
   border-radius: var(--r-sm);
@@ -318,6 +421,12 @@ function goMemberCenter() {
   text-align: left;
 }
 
+.profile-menu-action:hover,
+.profile-menu-action:focus-visible {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
 .profile-menu-action-primary {
   border-color: var(--primary);
   color: var(--primary);
@@ -326,6 +435,29 @@ function goMemberCenter() {
 .profile-menu-action:disabled {
   cursor: wait;
   opacity: 0.6;
+}
+
+/* 升级 Pro 与「设置 / 账号操作」共用同一菜单项版式，仅以金色强调 */
+.profile-menu-action-upgrade {
+  border-color: #d9c98a;
+  background: linear-gradient(180deg, #fff7e0, #ffeec2);
+  color: #8a6d1f;
+  font-weight: 600;
+}
+
+.profile-menu-action-upgrade:hover,
+.profile-menu-action-upgrade:focus-visible {
+  border-color: #c9b46a;
+  color: #7a5d15;
+}
+
+.profile-menu-action-icon {
+  margin-right: 6px;
+}
+
+.profile-menu-sep {
+  margin-top: 10px;
+  border-top: 1px solid var(--hairline);
 }
 
 .profile-menu-note,
@@ -339,12 +471,8 @@ function goMemberCenter() {
 }
 
 @media (max-width: 900px) {
-  .yixiaoer-profile-copy {
+  .mp-profile-copy {
     display: none;
-  }
-
-  .profile-menu-panel {
-    left: 0;
   }
 }
 </style>

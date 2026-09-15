@@ -4,7 +4,7 @@ QueryWorker — 平台插件化架构
 每个平台一个 Worker 类，统一查询接口。
 与 BasePublisher 分离：Publisher = 发布，QueryWorker = 查询/验证/数据拉取。
 
-架构参考：蚁小二 QueryWorker 模式
+架构参考：参考产品 QueryWorker 模式
 """
 
 from abc import ABC, abstractmethod
@@ -33,7 +33,7 @@ class AuditStatus:
 
 
 class AuditStatusEnum:
-    """审核状态枚举（与蚁小二对齐）"""
+    """审核状态枚举（与参考产品对齐）"""
 
     IN_AUDIT = "inAudit"  # 审核中
     PUBLISHED = "published"  # 已发布
@@ -159,7 +159,7 @@ class QueryWorker(ABC):
         获取用户信息
 
         Returns:
-            { code, msg, yixiaoerId, yixiaoerName, yixiaoerImageUrl, ... }
+            { code, msg, sourceId, sourceName, userAvatarUrl, ... }
         """
         ...
 

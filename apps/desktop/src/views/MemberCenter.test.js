@@ -28,7 +28,7 @@ async function mountMemberCenter() {
   licenseStore.info = { type: 'free', isPro: false, isTrial: false, features: [], daysRemaining: 7 }
   licenseStore.load = vi.fn()
   window.electronAPI = {
-    getVersion: vi.fn().mockResolvedValue({ code: 0, data: '2.3.59' }),
+    getVersion: vi.fn().mockResolvedValue({ code: 0, data: '0.1.0' }),
   }
   const Component = (await import('./MemberCenter.vue')).default
   return mount(Component, {
@@ -76,7 +76,7 @@ describe('MemberCenter', () => {
     expect(wrapper.get('[data-testid="member-center-entitlement-plan"]').text()).toContain('memberCenter.planPro')
     expect(wrapper.get('[data-testid="member-center-features"]').findAll('li')).toHaveLength(2)
     expect(wrapper.get('[data-testid="member-center-quota"]').exists()).toBe(true)
-    expect(wrapper.get('[data-testid="member-center-version"]').text()).toBe('2.3.59')
+    expect(wrapper.get('[data-testid="member-center-version"]').text()).toBe('0.1.0')
   })
 
   it('无 entitlement 时不渲染权益卡与配额卡', async () => {

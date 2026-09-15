@@ -940,4 +940,75 @@ describe('AuthService', () => {
     await expect(requiring).rejects.toMatchObject({ code: 'ENTITLEMENT_REQUIRED' })
     expect(service.getState()).toMatchObject({ status: 'signed_out', user: null, entitlement: null })
   })
+
+  // —— 2026-09-14 缺陷回归：登录失败时清理错误不得掩盖主错误 ——
+
+  it('登录失败且本地会话清理也失败时，主错误码不被清理错误掩盖', async () => {
+    const { AuthService } = require('./auth-service')
+    const callbackServer = {
+      start: async () => {},
+      waitForCallback: () => new Promise(() => {}),
+      stop: async () => {},
+    }
+    const service = new AuthService({
+      client: {
+        prepareSignInState: async () => 'state-1234567890123456',
+        // 复刻宿主安全删除 shim 的 fail-closed 错误：不带 .code
+        signIn: async () => { throw new Error('[safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED] {"count":500}') },
+      },
+      tokenStorage: { clear: async () => { throw new Error('unlink denied') } },
+      callbackServerFactory: () => callbackServer,
+      redirectUri: 'http://127.0.0.1:16526/auth/callback',
+    })
+
+    const error = await service.signIn().catch((thrown) => thrown)
+    expect(error.code).toBe('IDENTITY_SIGN_IN_FAILED')
+    expect(error.cleanupCode).toBe('IDENTITY_SESSION_CLEAR_FAILED')
+    expect(service.getState()).toMatchObject({
+      status: 'error',
+      error: {
+        code: 'IDENTITY_SIGN_IN_FAILED',
+        cleanup: { code: 'IDENTITY_SESSION_CLEAR_FAILED' },
+      },
+    })
+  })
+
+  it('登录失败但清理成功时不带 cleanup 附加信息', async () => {
+    const { AuthService } = require('./auth-service')
+    const service = new AuthService({
+      client: {
+        prepareSignInState: async () => 'state-1234567890123456',
+        signIn: async () => { throw new Error('boot failed') },
+      },
+      tokenStorage: { clear: async () => {} },
+      callbackServerFactory: () => ({ start: async () => {}, waitForCallback: () => new Promise(() => {}), stop: async () => {} }),
+      redirectUri: 'http://127.0.0.1:16526/auth/callback',
+    })
+
+    const error = await service.signIn().catch((thrown) => thrown)
+    expect(error.code).toBe('IDENTITY_SIGN_IN_FAILED')
+    expect(error.cleanupCode).toBeUndefined()
+    expect(service.getState().error).not.toHaveProperty('cleanup')
+  })
+
+  it('身份失败写诊断日志（含原始 cause 文本），不改变对外错误码', async () => {
+    const { AuthService } = require('./auth-service')
+    const warn = vi.fn()
+    const service = new AuthService({
+      client: {
+        isAuthenticated: async () => true,
+        getIdTokenClaims: async () => ({ sub: 'sub-1', name: '测试用户' }),
+        signOut: async () => {},
+      },
+      tokenStorage: { clear: async () => { throw new Error('[safe-delete] 操作失败: genie-trash exited 1') } },
+      logger: { warn },
+    })
+    await service.restore()
+
+    const error = await service.signOut().catch((thrown) => thrown)
+    expect(error.code).toBe('IDENTITY_SESSION_CLEAR_FAILED')
+    const logged = warn.mock.calls.map((call) => String(call[1])).join(' | ')
+    expect(logged).toContain('tokenStorage.clear')
+    expect(logged).toContain('safe-delete')
+  })
 })

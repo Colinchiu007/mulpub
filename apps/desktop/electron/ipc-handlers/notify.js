@@ -106,7 +106,7 @@ function registerHandlers(ipcMain, deps) {
       return { code: 0, data: true }
     } catch (e) {
       // 日志失败不得影响 renderer 主流程
-      return { code: EC.REQUEST_ERROR, message: e.message }
+      return { code: ERROR.REQUEST_ERROR, message: e.message }
     }
   })
 }

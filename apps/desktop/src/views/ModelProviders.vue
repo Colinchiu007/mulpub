@@ -94,21 +94,14 @@
     </div>
     <!-- 内容区 -->
     <div class="cohere-content" style="margin-top: var(--space-lg)">
-      <!-- P1: 骨架屏加载 -->
-      <div v-if="loading" class="provider-grid" aria-live="polite">
+      <!-- P1: 骨架屏加载（统一 UiSkeleton + styles/skeleton.css 令牌） -->
+      <div v-if="loading" class="provider-grid" aria-live="polite" data-testid="model-providers-loading">
         <div v-for="i in 3" :key="'skeleton-' + i" class="provider-card skeleton-card">
           <div class="card-top">
-            <div class="card-header">
-              <div class="skeleton-bar" style="width: 60px; height: 20px;"></div>
-              <div class="skeleton-bar" style="width: 16px; height: 16px; border-radius: 50%;"></div>
-            </div>
-            <div class="skeleton-bar" style="width: 120px; height: 18px; margin: 8px 0;"></div>
-            <div class="skeleton-bar" style="width: 80px; height: 14px;"></div>
+            <UiSkeleton variant="paragraph" :rows="3" />
           </div>
           <div class="card-body">
-            <div class="skeleton-bar" style="width: 100%; height: 14px; margin-bottom: 8px;"></div>
-            <div class="skeleton-bar" style="width: 80%; height: 14px; margin-bottom: 8px;"></div>
-            <div class="skeleton-bar" style="width: 60%; height: 14px;"></div>
+            <UiSkeleton variant="paragraph" :rows="3" />
           </div>
         </div>
       </div>
@@ -863,23 +856,9 @@ onMounted(() => {
   filter: grayscale(0.5);
 }
 
-/* P1: 骨架屏 */
+/* P1: 骨架屏外壳（骨块外观统一由 UiSkeleton + styles/skeleton.css 提供） */
 .skeleton-card {
   pointer-events: none;
-}
-.skeleton-bar {
-  background: linear-gradient(90deg, var(--hairline, #e0e0e0) 25%, var(--soft-stone, #f0f0f0) 50%, var(--hairline, #e0e0e0) 75%);
-  background-size: 200% 100%;
-  border-radius: 4px;
-  animation: skeleton-shimmer 1.5s infinite;
-}
-@keyframes skeleton-shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
-[data-theme="dark"] .skeleton-bar {
-  background: linear-gradient(90deg, #2a2a2a 25%, #3a3a3a 50%, #2a2a2a 75%);
-  background-size: 200% 100%;
 }
 
 .card-top {

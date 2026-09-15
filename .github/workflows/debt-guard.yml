@@ -20,3 +20,10 @@ jobs:
 
       - name: 检查债务预算
         run: node scripts/check-debt-budget.js
+
+      - name: 死代码检测（软门禁，报告供人工审查）
+        continue-on-error: true
+        run: |
+          echo "=== 「测试覆盖但未接线」死代码检测（软门禁）==="
+          node scripts/detect-unwired-exports.js apps/desktop/electron/services
+          echo "=== 说明：以上候选需人工确认（DI seam/动态引用可能误报），不阻塞 CI ==="

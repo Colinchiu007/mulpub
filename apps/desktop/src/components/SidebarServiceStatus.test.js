@@ -67,25 +67,25 @@ describe('SidebarServiceStatus', () => {
   it('部分运行时显示 degraded 摘要与逐服务明细', () => {
     const cmp = mountComponent()
 
-    const summary = cmp.get('[data-testid="yixiaoer-service-status"]')
+    const summary = cmp.get('[data-testid="mp-service-status"]')
     expect(summary.text()).toBe('1 项服务不可用（4/6 运行中）')
     expect(summary.classes()).toContain('is-degraded')
 
-    const list = cmp.get('[data-testid="yixiaoer-service-list"]')
-    expect(list.findAll('.yixiaoer-service-item')).toHaveLength(6)
-    expect(cmp.get('[data-testid="yixiaoer-service-promptEngine"]').text()).toContain('已停止')
+    const list = cmp.get('[data-testid="mp-service-list"]')
+    expect(list.findAll('.mp-service-item')).toHaveLength(6)
+    expect(cmp.get('[data-testid="mp-service-promptEngine"]').text()).toContain('已停止')
     // 按需服务显示「按需」而非「待命」，避免被误读为随时可用
-    expect(cmp.get('[data-testid="yixiaoer-service-alignerEngine"]').text()).toContain('按需')
+    expect(cmp.get('[data-testid="mp-service-alignerEngine"]').text()).toContain('按需')
   })
 
   it('IPC 不可用时显示不可用摘要', () => {
     serviceStatusState.unavailable = true
     try {
       const cmp = mountComponent()
-      const summary = cmp.get('[data-testid="yixiaoer-service-status"]')
+      const summary = cmp.get('[data-testid="mp-service-status"]')
       expect(summary.text()).toBe('服务状态不可用')
       expect(summary.classes()).toContain('is-degraded')
-      expect(cmp.find('[data-testid="yixiaoer-service-list"]').text()).toContain('服务状态不可用')
+      expect(cmp.find('[data-testid="mp-service-list"]').text()).toContain('服务状态不可用')
     } finally {
       serviceStatusState.unavailable = false
     }
@@ -95,8 +95,8 @@ describe('SidebarServiceStatus', () => {
     serviceStatusState.allRunning = true
     try {
       const cmp = mountComponent()
-      expect(cmp.get('[data-testid="yixiaoer-service-status"]').text()).toBe('服务运行中')
-      expect(cmp.get('[data-testid="yixiaoer-service-status"]').classes()).toContain('is-ok')
+      expect(cmp.get('[data-testid="mp-service-status"]').text()).toBe('服务运行中')
+      expect(cmp.get('[data-testid="mp-service-status"]').classes()).toContain('is-ok')
     } finally {
       serviceStatusState.allRunning = false
     }
@@ -104,31 +104,31 @@ describe('SidebarServiceStatus', () => {
 
   it('点击服务项展开详情，展示故障归因与上次运行时间', async () => {
     const cmp = mountComponent()
-    expect(cmp.find('[data-testid="yixiaoer-service-detail-promptEngine"]').exists()).toBe(false)
+    expect(cmp.find('[data-testid="mp-service-detail-promptEngine"]').exists()).toBe(false)
 
-    await cmp.get('[data-testid="yixiaoer-service-promptEngine"]').trigger('click')
+    await cmp.get('[data-testid="mp-service-promptEngine"]').trigger('click')
 
-    const detail = cmp.get('[data-testid="yixiaoer-service-detail-promptEngine"]')
+    const detail = cmp.get('[data-testid="mp-service-detail-promptEngine"]')
     expect(detail.text()).toContain('端口无响应')
     expect(detail.text()).toContain('上次运行')
   })
 
   it('再次点击同一服务项折叠详情', async () => {
     const cmp = mountComponent()
-    const item = cmp.get('[data-testid="yixiaoer-service-promptEngine"]')
+    const item = cmp.get('[data-testid="mp-service-promptEngine"]')
 
     await item.trigger('click')
-    expect(cmp.find('[data-testid="yixiaoer-service-detail-promptEngine"]').exists()).toBe(true)
+    expect(cmp.find('[data-testid="mp-service-detail-promptEngine"]').exists()).toBe(true)
 
     await item.trigger('click')
-    expect(cmp.find('[data-testid="yixiaoer-service-detail-promptEngine"]').exists()).toBe(false)
+    expect(cmp.find('[data-testid="mp-service-detail-promptEngine"]').exists()).toBe(false)
   })
 
   it('可重启服务展开后展示重试按钮并调用 restart', async () => {
     const cmp = mountComponent()
-    await cmp.get('[data-testid="yixiaoer-service-promptEngine"]').trigger('click')
+    await cmp.get('[data-testid="mp-service-promptEngine"]').trigger('click')
 
-    const retry = cmp.get('[data-testid="yixiaoer-service-retry-promptEngine"]')
+    const retry = cmp.get('[data-testid="mp-service-retry-promptEngine"]')
     await retry.trigger('click')
 
     expect(serviceStatusState.restart).toHaveBeenCalledWith('promptEngine')
@@ -136,38 +136,38 @@ describe('SidebarServiceStatus', () => {
 
   it('不可重启服务不展示重试按钮', async () => {
     const cmp = mountComponent()
-    await cmp.get('[data-testid="yixiaoer-service-alignerEngine"]').trigger('click')
+    await cmp.get('[data-testid="mp-service-alignerEngine"]').trigger('click')
 
-    expect(cmp.find('[data-testid="yixiaoer-service-detail-alignerEngine"]').exists()).toBe(true)
-    expect(cmp.find('[data-testid="yixiaoer-service-retry-alignerEngine"]').exists()).toBe(false)
+    expect(cmp.find('[data-testid="mp-service-detail-alignerEngine"]').exists()).toBe(true)
+    expect(cmp.find('[data-testid="mp-service-retry-alignerEngine"]').exists()).toBe(false)
   })
 
   it('运行中的服务展开后不展示重试按钮', async () => {
     const cmp = mountComponent()
-    await cmp.get('[data-testid="yixiaoer-service-mainBackend"]').trigger('click')
+    await cmp.get('[data-testid="mp-service-mainBackend"]').trigger('click')
 
-    expect(cmp.find('[data-testid="yixiaoer-service-retry-mainBackend"]').exists()).toBe(false)
+    expect(cmp.find('[data-testid="mp-service-retry-mainBackend"]').exists()).toBe(false)
   })
 
   it('重试失败时展示对应错误文案', async () => {
     serviceStatusState.restart.mockResolvedValue({ ok: false, message: 'AUTH_REQUIRED' })
     const cmp = mountComponent()
 
-    await cmp.get('[data-testid="yixiaoer-service-promptEngine"]').trigger('click')
-    await cmp.get('[data-testid="yixiaoer-service-retry-promptEngine"]').trigger('click')
+    await cmp.get('[data-testid="mp-service-promptEngine"]').trigger('click')
+    await cmp.get('[data-testid="mp-service-retry-promptEngine"]').trigger('click')
     await flushPromises()
 
-    expect(cmp.get('[data-testid="yixiaoer-service-detail-promptEngine"]').text()).toContain('需要登录')
+    expect(cmp.get('[data-testid="mp-service-detail-promptEngine"]').text()).toContain('需要登录')
   })
 
   it('未知错误码回退到通用失败文案', async () => {
     serviceStatusState.restart.mockResolvedValue({ ok: false, message: 'SOMETHING_WEIRD' })
     const cmp = mountComponent()
 
-    await cmp.get('[data-testid="yixiaoer-service-promptEngine"]').trigger('click')
-    await cmp.get('[data-testid="yixiaoer-service-retry-promptEngine"]').trigger('click')
+    await cmp.get('[data-testid="mp-service-promptEngine"]').trigger('click')
+    await cmp.get('[data-testid="mp-service-retry-promptEngine"]').trigger('click')
     await flushPromises()
 
-    expect(cmp.get('[data-testid="yixiaoer-service-detail-promptEngine"]').text()).toContain('操作失败')
+    expect(cmp.get('[data-testid="mp-service-detail-promptEngine"]').text()).toContain('操作失败')
   })
 })

@@ -1,4 +1,4 @@
-// 进度上报系统 (提取自蚁小二 SetProgressEvent/SetProgressNewEvent)
+// 进度上报系统 (提取自参考产品 SetProgressEvent/SetProgressNewEvent)
 const { EventEmitter } = require("events");
 
 const publishStatusEnum = {

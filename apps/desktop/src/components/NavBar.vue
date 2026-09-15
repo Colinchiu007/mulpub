@@ -104,7 +104,7 @@ const props = defineProps({
   canGoForward: { type: Boolean, default: false },
   isHome: { type: Boolean, default: true },
   loading: { type: Boolean, default: false },
-  // 登录标签态（对齐蚁小二）：导航栏右侧显示「保存账号」蓝色按钮
+  // 登录标签态（对齐参考产品）：导航栏右侧显示「保存账号」蓝色按钮
   isLoginTab: { type: Boolean, default: false },
   saving: { type: Boolean, default: false }
 })

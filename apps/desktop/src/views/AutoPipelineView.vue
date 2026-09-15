@@ -201,7 +201,7 @@ import { useNotify } from '@/composables/useNotify'
 import { resolveNotifyText } from '@/utils/notifyCore'
 import { formatUserError } from '@/utils/user-facing-error'
 
-const { notifyError, notifySuccess, notifyWarning } = useNotify()
+const { notifyError, notifySuccess, notifyWarning, notifyInfo } = useNotify()
 
 // ─── 配置 ───
 const config = ref({

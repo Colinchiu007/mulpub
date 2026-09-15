@@ -18,7 +18,7 @@
 
 ### 2.1 底部固定操作条
 - `action-bar`（含「启动流水线」「批量创作」「恢复默认选项」「▶ 继续」「⏸ 暂停」「✅ 确认并继续」「Run in background」「✕ 取消」等）固定显示在视口底部，不随页面滚动。
-- 实现：`position: fixed; bottom: 0`（滚动容器 `main.yixiaoer-workspace` 无 transform，fixed 相对视口生效）+ 页面内容底部预留等高校度 padding（避免内容被遮挡）。若 fixed 实测异常，回退 `position: sticky; bottom: 0`。
+- 实现：`position: fixed; bottom: 0`（滚动容器 `main.mp-workspace` 无 transform，fixed 相对视口生效）+ 页面内容底部预留等高校度 padding（避免内容被遮挡）。若 fixed 实测异常，回退 `position: sticky; bottom: 0`。
 - 窄屏（<=720px）下保持可用：操作条允许换行，高度自适应，padding 同步。
 
 ### 2.2 运行进度区固定

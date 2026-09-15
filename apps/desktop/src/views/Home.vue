@@ -1,21 +1,21 @@
 <template>
-  <div class="yixiaoer-home" data-testid="yixiaoer-home">
+  <div class="mp-home" data-testid="mp-home">
     <!-- 欢迎区 -->
-    <section class="yixiaoer-home-welcome">
-      <div class="yixiaoer-home-greeting">
+    <section class="mp-home-welcome">
+      <div class="mp-home-greeting">
         <h2>{{ greetingText }}，{{ displayName }}</h2>
         <p>{{ t('home.subtitle') }}</p>
       </div>
-      <div class="yixiaoer-home-quick-actions">
-        <button class="yixiaoer-home-action-btn yixiaoer-home-action-btn--primary" data-testid="home-new-publish" @click="go('/publish')">
+      <div class="mp-home-quick-actions">
+        <button class="mp-home-action-btn mp-home-action-btn--primary" data-testid="home-new-publish" @click="go('/publish')">
           <span class="action-icon">✏️</span>
           <span>{{ t('home.newPublish') }}</span>
         </button>
-        <button class="yixiaoer-home-action-btn" data-testid="home-add-account" @click="go('/accounts')">
+        <button class="mp-home-action-btn" data-testid="home-add-account" @click="go('/accounts')">
           <span class="action-icon">👤</span>
           <span>{{ t('home.addAccount') }}</span>
         </button>
-        <button class="yixiaoer-home-action-btn" @click="go('/publish/history')">
+        <button class="mp-home-action-btn" @click="go('/publish/history')">
           <span class="action-icon">📋</span>
           <span>{{ t('home.publishHistory') }}</span>
         </button>
@@ -31,50 +31,50 @@
     />
 
     <!-- 数据概览 -->
-    <section class="yixiaoer-home-stats" data-testid="yixiaoer-home-stats">
-      <div class="yixiaoer-home-stat-card">
+    <section class="mp-home-stats" data-testid="mp-home-stats">
+      <div class="mp-home-stat-card">
         <div class="stat-number">{{ stats.total }}</div>
         <div class="stat-label">{{ t('home.statTotal') }}</div>
       </div>
-      <div class="yixiaoer-home-stat-card yixiaoer-home-stat-card--success">
+      <div class="mp-home-stat-card mp-home-stat-card--success">
         <div class="stat-number">{{ stats.success }}</div>
         <div class="stat-label">{{ t('home.statSuccess') }}</div>
       </div>
-      <div class="yixiaoer-home-stat-card yixiaoer-home-stat-card--danger">
+      <div class="mp-home-stat-card mp-home-stat-card--danger">
         <div class="stat-number">{{ stats.failed }}</div>
         <div class="stat-label">{{ t('home.statFailed') }}</div>
       </div>
-      <div class="yixiaoer-home-stat-card yixiaoer-home-stat-card--info">
+      <div class="mp-home-stat-card mp-home-stat-card--info">
         <div class="stat-number">{{ accountCount }}</div>
         <div class="stat-label">{{ t('home.boundAccounts') }}</div>
       </div>
     </section>
 
     <!-- 快捷入口 -->
-    <section class="yixiaoer-home-shortcuts" data-testid="yixiaoer-home-shortcuts">
-      <h3 class="yixiaoer-home-section-title">{{ t('home.shortcuts') }}</h3>
-      <div class="yixiaoer-home-shortcut-grid">
-        <div class="yixiaoer-home-shortcut" @click="go('/publish')">
+    <section class="mp-home-shortcuts" data-testid="mp-home-shortcuts">
+      <h3 class="mp-home-section-title">{{ t('home.shortcuts') }}</h3>
+      <div class="mp-home-shortcut-grid">
+        <div class="mp-home-shortcut" @click="go('/publish')">
           <span class="shortcut-icon">🚀</span>
           <span class="shortcut-label">{{ t('home.quickPublish') }}</span>
         </div>
-        <div class="yixiaoer-home-shortcut" @click="go('/accounts')">
+        <div class="mp-home-shortcut" @click="go('/accounts')">
           <span class="shortcut-icon">🔐</span>
           <span class="shortcut-label">{{ t('home.accountManage') }}</span>
         </div>
-        <div class="yixiaoer-home-shortcut" @click="go('/publish/history')">
+        <div class="mp-home-shortcut" @click="go('/publish/history')">
           <span class="shortcut-icon">📊</span>
           <span class="shortcut-label">{{ t('home.publishHistory') }}</span>
         </div>
-        <div class="yixiaoer-home-shortcut" @click="go('/dashboard')">
+        <div class="mp-home-shortcut" @click="go('/dashboard')">
           <span class="shortcut-icon">📈</span>
           <span class="shortcut-label">{{ t('home.dashboard') }}</span>
         </div>
-        <div class="yixiaoer-home-shortcut" @click="go('/collection')">
+        <div class="mp-home-shortcut" @click="go('/collection')">
           <span class="shortcut-icon">📋</span>
           <span class="shortcut-label">{{ t('home.collection') }}</span>
         </div>
-        <div class="yixiaoer-home-shortcut" @click="go('/comments')">
+        <div class="mp-home-shortcut" @click="go('/comments')">
           <span class="shortcut-icon">💬</span>
           <span class="shortcut-label">{{ t('home.comments') }}</span>
         </div>
@@ -82,10 +82,10 @@
     </section>
 
     <!-- 支持平台 -->
-    <section class="yixiaoer-home-platforms" data-testid="yixiaoer-home-platforms">
-      <h3 class="yixiaoer-home-section-title">{{ t('home.supportedPlatforms') }}</h3>
-      <div class="yixiaoer-home-platform-list">
-        <span v-for="p in platforms" :key="p.id" class="yixiaoer-home-platform-tag">
+    <section class="mp-home-platforms" data-testid="mp-home-platforms">
+      <h3 class="mp-home-section-title">{{ t('home.supportedPlatforms') }}</h3>
+      <div class="mp-home-platform-list">
+        <span v-for="p in platforms" :key="p.id" class="mp-home-platform-tag">
           <img v-if="p.iconUrl" :src="p.iconUrl" class="home-platform-icon" :alt="p.label" width="18" height="18">
           <span v-else>{{ p.icon }}</span> {{ p.label }}
         </span>
@@ -93,13 +93,13 @@
     </section>
 
     <!-- 近期动态 -->
-    <section class="yixiaoer-home-recent" data-testid="yixiaoer-home-recent">
-      <h3 class="yixiaoer-home-section-title">{{ t('home.recentActivity') }}</h3>
-      <div v-if="recentItems.length === 0" class="yixiaoer-home-empty">
+    <section class="mp-home-recent" data-testid="mp-home-recent">
+      <h3 class="mp-home-section-title">{{ t('home.recentActivity') }}</h3>
+      <div v-if="recentItems.length === 0" class="mp-home-empty">
         <span>{{ t('home.emptyRecent') }}</span>
       </div>
-      <div v-else class="yixiaoer-home-recent-list">
-        <div v-for="item in recentItems" :key="item.id" class="yixiaoer-home-recent-item">
+      <div v-else class="mp-home-recent-list">
+        <div v-for="item in recentItems" :key="item.id" class="mp-home-recent-item">
           <div class="recent-item-info">
             <span class="recent-item-title">{{ item.title || t('home.untitled') }}</span>
             <span class="recent-item-platform">{{ getPlatformLabel(item.platform) }}</span>
@@ -244,13 +244,13 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.yixiaoer-home {
+.mp-home {
   max-width: 960px;
   margin: 0 auto;
   padding: 32px 24px;
 }
 
-.yixiaoer-home-welcome {
+.mp-home-welcome {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -258,25 +258,25 @@ onUnmounted(() => {
   margin-bottom: 32px;
 }
 
-.yixiaoer-home-greeting h2 {
+.mp-home-greeting h2 {
   margin: 0 0 4px;
   color: #25252b;
   font-size: 22px;
   font-weight: 600;
 }
 
-.yixiaoer-home-greeting p {
+.mp-home-greeting p {
   margin: 0;
   color: #8b8e9a;
   font-size: 14px;
 }
 
-.yixiaoer-home-quick-actions {
+.mp-home-quick-actions {
   display: flex;
   gap: 10px;
 }
 
-.yixiaoer-home-action-btn {
+.mp-home-action-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -290,18 +290,18 @@ onUnmounted(() => {
   transition: all 0.15s ease;
 }
 
-.yixiaoer-home-action-btn:hover {
+.mp-home-action-btn:hover {
   border-color: #5048e5;
   color: #5048e5;
 }
 
-.yixiaoer-home-action-btn--primary {
+.mp-home-action-btn--primary {
   border-color: #5048e5;
   background: #5048e5;
   color: #fff;
 }
 
-.yixiaoer-home-action-btn--primary:hover {
+.mp-home-action-btn--primary:hover {
   background: #3f37c9;
   color: #fff;
 }
@@ -311,14 +311,14 @@ onUnmounted(() => {
 }
 
 /* 数据概览 */
-.yixiaoer-home-stats {
+.mp-home-stats {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 16px;
   margin-bottom: 32px;
 }
 
-.yixiaoer-home-stat-card {
+.mp-home-stat-card {
   padding: 20px;
   border: 1px solid #e8eaf2;
   border-radius: 12px;
@@ -338,29 +338,29 @@ onUnmounted(() => {
   font-size: 13px;
 }
 
-.yixiaoer-home-stat-card--success .stat-number { color: #2fc27a; }
-.yixiaoer-home-stat-card--danger .stat-number { color: #f56c6c; }
-.yixiaoer-home-stat-card--info .stat-number { color: #5048e5; }
+.mp-home-stat-card--success .stat-number { color: #2fc27a; }
+.mp-home-stat-card--danger .stat-number { color: #f56c6c; }
+.mp-home-stat-card--info .stat-number { color: #5048e5; }
 
 /* 快捷入口 */
-.yixiaoer-home-section-title {
+.mp-home-section-title {
   margin: 0 0 16px;
   color: #25252b;
   font-size: 16px;
   font-weight: 600;
 }
 
-.yixiaoer-home-shortcuts {
+.mp-home-shortcuts {
   margin-bottom: 32px;
 }
 
-.yixiaoer-home-shortcut-grid {
+.mp-home-shortcut-grid {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
   gap: 12px;
 }
 
-.yixiaoer-home-shortcut {
+.mp-home-shortcut {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -373,7 +373,7 @@ onUnmounted(() => {
   transition: all 0.15s ease;
 }
 
-.yixiaoer-home-shortcut:hover {
+.mp-home-shortcut:hover {
   border-color: #5048e5;
   box-shadow: 0 4px 12px rgba(80, 72, 229, 0.08);
 }
@@ -388,17 +388,17 @@ onUnmounted(() => {
 }
 
 /* 平台列表 */
-.yixiaoer-home-platforms {
+.mp-home-platforms {
   margin-bottom: 32px;
 }
 
-.yixiaoer-home-platform-list {
+.mp-home-platform-list {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 
-.yixiaoer-home-platform-tag {
+.mp-home-platform-tag {
   padding: 6px 14px;
   border: 1px solid #e8eaf2;
   border-radius: 20px;
@@ -408,11 +408,11 @@ onUnmounted(() => {
 }
 
 /* 近期动态 */
-.yixiaoer-home-recent {
+.mp-home-recent {
   margin-bottom: 32px;
 }
 
-.yixiaoer-home-empty {
+.mp-home-empty {
   padding: 40px 20px;
   border: 1px dashed #e8eaf2;
   border-radius: 10px;
@@ -422,13 +422,13 @@ onUnmounted(() => {
   font-size: 14px;
 }
 
-.yixiaoer-home-recent-list {
+.mp-home-recent-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.yixiaoer-home-recent-item {
+.mp-home-recent-item {
   display: flex;
   align-items: center;
   gap: 16px;
@@ -483,13 +483,13 @@ onUnmounted(() => {
 }
 
 @media (max-width: 768px) {
-  .yixiaoer-home-stats { grid-template-columns: repeat(2, 1fr); }
-  .yixiaoer-home-shortcut-grid { grid-template-columns: repeat(3, 1fr); }
-  .yixiaoer-home-welcome { flex-direction: column; align-items: flex-start; }
+  .mp-home-stats { grid-template-columns: repeat(2, 1fr); }
+  .mp-home-shortcut-grid { grid-template-columns: repeat(3, 1fr); }
+  .mp-home-welcome { flex-direction: column; align-items: flex-start; }
 }
 
 @media (max-width: 480px) {
-  .yixiaoer-home { padding: 16px 12px; }
-  .yixiaoer-home-shortcut-grid { grid-template-columns: repeat(2, 1fr); }
+  .mp-home { padding: 16px 12px; }
+  .mp-home-shortcut-grid { grid-template-columns: repeat(2, 1fr); }
 }
 </style>
