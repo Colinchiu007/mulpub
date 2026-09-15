@@ -3,7 +3,7 @@
 ### 新增
 - **运营中心「应用菜单」页面**（`ops-center/frontend/src/views/AppMenu.vue`，路由 `#/app-menu`，菜单入口「应用菜单」，adminOnly）：按「一级导航 / 更多菜单」两组管理应用端左侧边栏菜单项的显示 / 隐藏与组内排序；「发布、账号、采集、视频创作」四项强制显示，开关灰显不可关闭（Tooltip「系统核心入口，强制显示，不可关闭」）
 - **后端模型与 API**：新增表 `app_menu_items`（`ops-center/backend/models.py`，`item_key` 唯一）；新增 `GET|PUT /api/v1/app-menu` 与 `POST /api/v1/app-menu/reset`（`routers/app_menu.py` + `services/app_menu_service.py`）；`GET /api/v1/runtime/bootstrap` payload 新增 `appMenu` 字段（处于 Ed25519 签名覆盖范围内）
-- **应用端菜单定义单一事实源**：`apps/desktop/src/config/sidebar-menu.js`（20 项目录 + `SIDEBAR_FORCED_VISIBLE_KEYS`）；`YixiaoerSidebar.vue` 从硬编码数组改为「本地定义 + 运营配置叠加」
+- **应用端菜单定义单一事实源**：`apps/desktop/src/config/sidebar-menu.js`（20 项目录 + `SIDEBAR_FORCED_VISIBLE_KEYS`）；`MpSidebar.vue` 从硬编码数组改为「本地定义 + 运营配置叠加」
 - **合并算法**：`apps/desktop/src/config/sidebar-menu-merge.js`（C1 fail-open / C2 强制项保护 / C3 未知 key 忽略 / C4 缺失 key 兜底 / C5 组内排序 / C6 输入不可变）
 - **应用端读取链路**：主进程 `normalizeAppMenu()` + `getAppMenu()`（`electron/services/ops-center-sync.js`）→ IPC `ops-center-sync:appMenu` → preload `opsCenterSyncAppMenu` → 渲染端 `src/api/ops-center-sync.js`
 - **文档**：`01-docs/FEATURE-APP-MENU-2026-09-15.md`（数据模型 / API 契约 / 校验规则 / 业务流程 / 功能与交互逻辑 / 显示项 / 提示文字清单 / 验收标准 / 测试覆盖）；`01-docs/PRD.md` 追加「应用菜单」章节
@@ -15,7 +15,7 @@
 - **防篡改与原型污染**：`appMenu` 在 Ed25519 签名覆盖范围内；服务端与应用端双侧丢弃 `__proto__` / `constructor` / `prototype`
 
 ### 验证
-- `apps/desktop`：`sidebar-menu-merge.test.js` 34 通过 · `YixiaoerSidebar.appmenu.test.js` 9 通过 · 既有 `YixiaoerSidebar.test.js` 7 通过（回归零破坏）· `ops-center-sync.test.js` 55 通过（+8 新用例）
+- `apps/desktop`：`sidebar-menu-merge.test.js` 34 通过 · `MpSidebar.appmenu.test.js` 9 通过 · 既有 `MpSidebar.test.js` 7 通过（回归零破坏）· `ops-center-sync.test.js` 55 通过（+8 新用例）
 - `ops-center/backend`：`test_app_menu_api.py` 11 通过 · 全量 pytest 342 通过，0 失败
 - 已知限制：无实时推送，运营修改后需桌面端重新同步或重启应用才生效
 ## 版本管理机制（2026-09-14 起）
@@ -104,7 +104,7 @@
 - `packages/api-publish-engine/src/signer.js`：远程签名服务端点改为 `process.env.MP_SIGNER_BASE || 默认端点`，默认值不变；注释改为中性的「第三方远程签名服务」。远程不可用时抖音/快手/小红书仍走 `signer-local.js` 本地回退，百家号无本地回退（端点属发布链路硬依赖，予以保留）。
 
 ### 验证
-- 全仓字节级残留扫描（5275 个文本文件，排除锁文件与二进制）→ **品牌残留 0 处、路径残留 0 处**；唯一保留 `qianming.yixiaoer.cn`（第三方服务域名，功能性依赖）。
+- 全仓字节级残留扫描（5275 个文本文件，排除锁文件与二进制）→ **品牌残留 0 处、路径残留 0 处**；唯一保留 `qianming.mp.cn`（第三方服务域名，功能性依赖）。
 - **新增回归门禁 `scripts/check-no-brand-residue.js`**：字节级扫描 tracked 文本文件，品牌词按码点构造（门禁脚本自身零字面品牌词），命中即退出 1，防止品牌词再次进入仓库。
 - `pnpm exec eslint electron/ src/ --quiet`（Gate 11 口径）→ **0 error**。
 - `.github/scripts/check-locale-sync.js --cjk`（基线重建后 1644 条，清理 45 条含品牌词的死条目）→ **PASS**；`--keys` / `--py-cjk` → **PASS**。

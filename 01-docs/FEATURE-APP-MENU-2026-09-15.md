@@ -10,7 +10,7 @@
 
 ### 1.1 问题
 
-应用端（桌面端）左侧边栏的菜单项此前**完全硬编码**在 `apps/desktop/src/layouts/YixiaoerSidebar.vue` 中：
+应用端（桌面端）左侧边栏的菜单项此前**完全硬编码**在 `apps/desktop/src/layouts/MpSidebar.vue` 中：
 
 - 无法按客户/客户群灰度调整可见菜单；
 - 无法调整菜单顺序以突出业务重点；
@@ -280,7 +280,7 @@
 ### 6.3 应用端生效流程
 
 ```
-侧边栏组件挂载（App.vue → YixiaoerSidebar.vue）
+侧边栏组件挂载（App.vue → MpSidebar.vue）
   → onMounted → loadAppMenu()
   → IPC invoke 'ops-center-sync:appMenu'
   → 主进程返回 { code: 0, data: { items, syncedAt } | null }
@@ -489,8 +489,8 @@ el-card
 | 层 | 文件 | 用例数 | 覆盖 |
 |----|------|--------|------|
 | 合并算法（单元） | `apps/desktop/src/config/sidebar-menu-merge.test.js` | 34 | C1–C6、V7/V8/V9 渲染侧、原型污染、不可变性 |
-| 侧边栏组件（集成） | `apps/desktop/src/layouts/YixiaoerSidebar.appmenu.test.js` | 9 | A12–A15、强制项保护、组内排序、「更多」全隐藏 |
-| 侧边栏既有回归 | `apps/desktop/src/layouts/YixiaoerSidebar.test.js` | 7 | 既有菜单渲染 / 服务状态 / 设置按钮 |
+| 侧边栏组件（集成） | `apps/desktop/src/layouts/MpSidebar.appmenu.test.js` | 9 | A12–A15、强制项保护、组内排序、「更多」全隐藏 |
+| 侧边栏既有回归 | `apps/desktop/src/layouts/MpSidebar.test.js` | 7 | 既有菜单渲染 / 服务状态 / 设置按钮 |
 | 主进程同步（单元） | `apps/desktop/electron/services/ops-center-sync.test.js` | 55（+8） | N1–N6、持久化、重启恢复、旧版兼容 |
 | 运营中心 API（集成） | `ops-center/backend/tests/test_app_menu_api.py` | 11 | V1–V10、A3–A11、A18、bootstrap 签名与鉴权 |
 
@@ -500,8 +500,8 @@ el-card
 # 桌面端
 cd apps/desktop && ../../node_modules/.bin/vitest run \
   src/config/sidebar-menu-merge.test.js \
-  src/layouts/YixiaoerSidebar.appmenu.test.js \
-  src/layouts/YixiaoerSidebar.test.js \
+  src/layouts/MpSidebar.appmenu.test.js \
+  src/layouts/MpSidebar.test.js \
   electron/services/ops-center-sync.test.js \
   --pool=threads --no-file-parallelism
 
@@ -533,8 +533,8 @@ cd ops-center/backend && py -3.12 -m pytest -q
 | `src/config/sidebar-menu.js` | 新增 | 菜单定义单一事实源（20 项 + 强制项常量） |
 | `src/config/sidebar-menu-merge.js` | 新增 | 合并算法（C1–C6） |
 | `src/config/sidebar-menu-merge.test.js` | 新增 | 34 个单测 |
-| `src/layouts/YixiaoerSidebar.vue` | 修改 | 改为「定义 + 运营配置叠加」 |
-| `src/layouts/YixiaoerSidebar.appmenu.test.js` | 新增 | 9 个组件测试 |
+| `src/layouts/MpSidebar.vue` | 修改 | 改为「定义 + 运营配置叠加」 |
+| `src/layouts/MpSidebar.appmenu.test.js` | 新增 | 9 个组件测试 |
 | `src/api/ops-center-sync.js` | 修改 | 新增 `opsCenterSyncAppMenu()` |
 | `electron/services/ops-center-sync.js` | 修改 | `normalizeAppMenu` + `appMenu` 状态 + `getAppMenu()` |
 | `electron/services/ops-center-sync.test.js` | 修改 | +8 个用例 |

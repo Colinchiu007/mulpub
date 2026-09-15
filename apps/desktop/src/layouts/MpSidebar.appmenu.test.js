@@ -9,7 +9,7 @@
  * - 「更多」组全部隐藏 → 触发器按钮消失
  * - payload 超限 → 整体降级为默认菜单
  *
- * 注：本文件与 main 的品牌改造（yixiaoer-* → mp-*）对齐，选择器使用 mp-* 前缀。
+ * 注：本文件与 main 的品牌改造（旧品牌前缀 → mp-*）对齐，选择器使用 mp-* 前缀。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
