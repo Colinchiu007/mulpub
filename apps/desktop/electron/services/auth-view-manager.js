@@ -19,7 +19,7 @@ const {
 const { attachCdpDetection } = require('./auth-view-cdp')
 const { createSession, setCookies, restoreLocalStorage, restoreIndexedDB, createAuthView } = require('./auth-view-session')
 // 内嵌视图定位唯一来源：必须用「客户区」尺寸，禁用 getBounds() 外框尺寸（见 view-bounds.js）
-const { computeEmbeddedViewBounds } = require('./view-bounds')
+const { computeEmbeddedViewBounds, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } = require('./view-bounds')
 // auth-window.js 独立窗口工厂已不再需要（认证视图改为内嵌主窗口全屏标签）
 
 // 左侧导航栏宽度（与前端 MpSidebar 的 CSS 变量 --mp-sidebar-width 保持一致）
@@ -146,7 +146,9 @@ class AuthViewManager {
    * @param {number} width - 像素宽度
    */
   setSidebarWidth(width) {
-    if (typeof width !== 'number' || width < 0 || width > 600) return
+    // 与 WebviewManager.setSidebarWidth 对齐：宽度必须严格 > 0（见 view-bounds MIN_SIDEBAR_WIDTH），
+    // 拒绝 0 与负值，避免内嵌登录视图 x 落到 0 覆盖侧边栏。
+    if (typeof width !== 'number' || width < MIN_SIDEBAR_WIDTH || width > MAX_SIDEBAR_WIDTH) return
     if (this._sidebarWidth !== width) {
       this._sidebarWidth = width
       if (this.mainWindow && this.currentView) {

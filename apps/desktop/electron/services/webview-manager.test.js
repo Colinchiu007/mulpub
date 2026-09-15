@@ -97,6 +97,43 @@ describe('内嵌标签页布局（回归：必须用客户区尺寸，外框尺�
   })
 })
 
+describe('setSidebarWidth 守卫（回归 2026-09-15：宽度=0 不能让内嵌视图盖住侧边栏）', () => {
+  it('合法宽度（68 / 200）被接受并更新 _sidebarWidth', () => {
+    const { wm } = createManagerWithBrowserTab()
+    wm.setSidebarWidth(68)
+    expect(wm._sidebarWidth).toBe(68)
+    wm.setSidebarWidth(200)
+    expect(wm._sidebarWidth).toBe(200)
+  })
+
+  it('宽度=0 被拒绝，_sidebarWidth 保持上一个合法值，视图不以 x=0 重排', () => {
+    const { wm, view } = createManagerWithBrowserTab()
+    wm.setSidebarWidth(68)
+    wm.setSidebarWidth(0)
+    expect(wm._sidebarWidth).toBe(68)
+    const calls = view.setBounds.mock.calls
+    expect(calls.length).toBeGreaterThan(0)
+    // 所有重排调用的 x 都不为 0（不覆盖 x=0 的侧边栏）
+    calls.forEach((c) => expect(c[0].x).not.toBe(0))
+    // 最近一次重排仍以合法侧栏宽 68 定位
+    expect(calls[calls.length - 1][0].x).toBe(68)
+  })
+
+  it('负宽度被拒绝，_sidebarWidth 保持上一个合法值', () => {
+    const { wm } = createManagerWithBrowserTab()
+    wm.setSidebarWidth(68)
+    wm.setSidebarWidth(-5)
+    expect(wm._sidebarWidth).toBe(68)
+  })
+
+  it('超出上限 600 的宽度被拒绝', () => {
+    const { wm } = createManagerWithBrowserTab()
+    wm.setSidebarWidth(68)
+    wm.setSidebarWidth(700)
+    expect(wm._sidebarWidth).toBe(68)
+  })
+})
+
 describe('WebviewManager 虚拟登录标签', () => {
   it('attachAuthViewManager 绑定开关钩子', () => {
     const wm = new WebviewManager()

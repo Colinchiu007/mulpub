@@ -1,3 +1,16 @@
+# [未发布] fix(embedded-view): 防御性收紧侧栏宽度校验，杜绝内嵌视图覆盖侧边栏（2026-09-15）
+
+### 修复
+- **根因**：内嵌 WebContentsView 的 x 坐标由侧栏宽度决定；侧栏宽度=0 时视图 x 落到 0，与位于 x=0 的 MpSidebar 重叠，拦截侧边栏全部点击（即「采集页平台链接浮层盖住侧边栏」同类 Bug）。旧「分屏监控」浮层已随 #1840 移除并迁移到全局标签栏，结构上已无遮挡；本次为防御性回归守卫。
+- **修复**：`view-bounds.js` 将 `MIN_SIDEBAR_WIDTH` 下限收紧为 1（0/负值回落默认 200）；`webview-manager` / `auth-view-manager` / `qrcode-login` 三处 `setSidebarWidth` 守卫统一导入 `MIN_SIDEBAR_WIDTH` / `MAX_SIDEBAR_WIDTH` 单一真源，拒绝 `width < MIN_SIDEBAR_WIDTH`（≤0 及亚 1 浮点）；`computeEmbeddedViewBounds` 作为兜底。
+
+### 验证
+- `view-bounds.test.js` / `webview-manager.test.js` 新增回归用例（侧栏宽度=0 时 x 必须=200 而非 0；三处守卫拒绝 0/负值/超上限）；`auth-view-manager.test.js` / `qrcode-login.test.js` 回归全绿（共 94 例）。
+- eslint 0 errors；无 i18n 新增（复用既有 collection.* 键）。
+- 文档：`01-docs/BUGFIX-PLATFORMLINK-SIDEBAR-OVERLAY-2026-09-15.md`、`docs/desktop-ui-layout-spec.md` §6.1、`01-docs/PRD-ACCOUNT-LOGIN-WINDOW.md` 侧栏宽度同步区间同步更新。
+
+---
+
 # [未发布] refactor(signer): 签名本地化收口——移除第三方远程签名依赖（2026-09-15）
 
 ### 背景
