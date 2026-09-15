@@ -159,6 +159,11 @@
       <div v-if="loading" class="state-panel state-panel--skeleton" data-testid="history-records-loading">
         <UiSkeleton variant="list" :count="5" />
       </div>
+      <div v-else-if="loginRequired" class="state-panel state-login-gate" role="status" data-testid="history-login-gate">
+        <p>{{ t('historyPage.loginRequiredTitle') }}</p>
+        <span>{{ t('historyPage.loginRequiredHint') }}</span>
+        <button class="primary-action" type="button" data-testid="history-sign-in" @click="signInFromGate">{{ t('historyPage.signInNow') }}</button>
+      </div>
       <div v-else-if="errorMessage" class="state-panel state-error" role="alert">
         <p>{{ t('historyPage.recordsLoadFailed') }}</p>
         <span>{{ errorMessage }}</span>
@@ -327,6 +332,7 @@ import { formatDateTime } from '@/utils/datetime'
 import { PLATFORM_ICONS, PLATFORM_NAMES } from '@multi-publish/shared-utils/src/platform-definitions'
 import { getPlatformIconUrl } from '@/composables/usePlatformIconUrl'
 import { usePlatformStore } from '@/stores/platforms'
+import { useIdentity } from '@/composables/useIdentity'
 import { formatUserError } from '@/utils/user-facing-error'
 import { confirmDanger } from '@/utils/confirm-danger'
 import PublishTypeDialog from '@/features/publish/components/PublishTypeDialog.vue'
@@ -341,6 +347,10 @@ const drafts = ref([])
 const loading = ref(false)
 const draftLoading = ref(false)
 const errorMessage = ref('')
+// 未登录门禁态：history:list 等通道要求登录（license-access-control AUTH_REQUIRED），
+// 与「服务连接失败」必须区分展示，避免把权限拒绝伪装成网络故障（2026-09-15）。
+const loginRequired = ref(false)
+const { isAuthenticated: identityAuthenticated, signIn: identitySignIn } = useIdentity()
 const draftError = ref('')
 const selectionMode = ref(false)
 const selectedIds = ref([])
@@ -401,12 +411,26 @@ const allSelected = computed(() => (
 const hasMoreRecords = computed(() => !paginationExhausted.value && records.value.length < totalRecords.value)
 
 function normalizeRecords (result) {
-  if (!result || result.code !== 0) throw new Error(result?.message || t('historyPage.recordsReadFailed'))
+  if (!result || result.code !== 0) {
+    const error = new Error(result?.message || t('historyPage.recordsReadFailed'))
+    if (result?.errorCode) error.errorCode = result.errorCode
+    // 业务拒绝（权益不足/限流等）走 formatUserError 给出具体原因；其余保持通用文案。
+    error.userMessage = formatUserError(result || {}, { fallback: t('historyPage.checkService') }).message
+    throw error
+  }
   const data = result.data
   if (Array.isArray(data)) return { total: data.length, records: data }
   const pageRecords = Array.isArray(data?.records) ? data.records : []
   const total = Number.isFinite(Number(data?.total)) ? Math.max(0, Number(data.total)) : pageRecords.length
   return { total, records: pageRecords }
+}
+
+// 登录门禁拒绝：主进程 license-access-control 对非公开通道返回 AUTH_REQUIRED（code:-3）。
+// 注意 ENTITLEMENT_REQUIRED 同样携带 code:-3，必须按 errorCode 区分，不能只看数值码。
+function isAuthGateResult (result) {
+  if (!result || typeof result !== 'object') return false
+  if (result.errorCode === 'AUTH_REQUIRED' || result.errorCode === 'NOT_SIGNED_IN') return true
+  return result.errorCode == null && result.code === -3
 }
 
 function stableRecordId (record) {
@@ -442,9 +466,15 @@ async function loadRecords (options = {}) {
   if (append) loadingMore.value = true
   else loading.value = true
   errorMessage.value = ''
+  loginRequired.value = false
   try {
     const offset = append ? records.value.length : 0
-    const page = normalizeRecords(await historyList({ limit: PAGE_SIZE, offset }))
+    const result = await historyList({ limit: PAGE_SIZE, offset })
+    if (!append && isAuthGateResult(result)) {
+      loginRequired.value = true
+      return false
+    }
+    const page = normalizeRecords(result)
     const signature = pageSignature(page.records)
     const repeatedPage = append && loadedPageSignatures.has(signature)
     const recordsToAppend = repeatedPage ? [] : appendDistinctRecords(records.value, page.records)
@@ -468,20 +498,35 @@ async function loadRecords (options = {}) {
     void attachPerformanceSnapshots()
     if (!append && hasActiveFilters.value) void loadRemainingRecordsForFilters()
     return page.records.length > 0 && (!append || addedCount > 0)
-  } catch {
+  } catch (e) {
     if (!append) {
       records.value = []
       totalRecords.value = 0
       paginationExhausted.value = true
       loadedPageSignatures.clear()
     }
-    errorMessage.value = t('historyPage.checkService')
+    errorMessage.value = e?.userMessage || t('historyPage.checkService')
     return false
   } finally {
     if (append) loadingMore.value = false
     else loading.value = false
   }
 }
+
+async function signInFromGate () {
+  // 打开登录窗口的唯一正确入口：identity.signIn()（内部走 identityStore.signIn → 主进程 Logto OAuth）。
+  // 用户主动取消（返回 false / 抛错）不打断页面，保持门禁态等待下一次尝试。
+  try {
+    await identitySignIn()
+  } catch {
+    /* 用户取消或登录窗关闭，保持引导态 */
+  }
+}
+
+// 登录成功后自动重载发布记录，无需用户手动点重试。
+watch(identityAuthenticated, (authed) => {
+  if (authed && loginRequired.value) void loadRecords()
+})
 
 // ── P2 效果闭环：表现数据合并 ──
 const manualDialogVisible = ref(false)
@@ -1017,6 +1062,7 @@ onMounted(loadRecords)
 }
 .state-panel p { margin: 0; color: var(--text-primary, #25252b); font-size: 15px; font-weight: 600; }
 .state-panel span { font-size: 13px; }
+.state-panel .primary-action, .state-panel .secondary-action { margin-top: 8px; }
 .state-error p { color: #b33b3b; }
 
 .record-list { display: flex; flex-direction: column; gap: 16px; }

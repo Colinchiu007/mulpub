@@ -7871,3 +7871,8 @@ idle ──触发取数──▶ loading（渲染骨架）
 - `Home.test.js` 19 例全绿（新增 6 例：链接显隐/点击触发登录/disabled fail-closed/登录未完成提示/防重入/回归）。
 - 关联回归：`ProfileMenu.test.js` 17 · `identity.test.js` 17 · `useLoginGate.test.js` 8 全绿。
 - 门禁：债务熔断 `filesOver500` 86=86 ✅ · `check-locale-sync --cjk/--keys` ✅ · `check-frontend-consistency` ✅。
+---
+
+## 补充：发布记录未登录门禁态（2026-09-15）
+
+未登录点击侧边栏「发布」→ 发布记录页时，不再误报「请检查服务连接后重试」：`history:list` 等 `publish_history` 通道要求登录（`LOGIN_ONLY_FEATURE_MAP`），未登录时主进程返回 `AUTH_REQUIRED`，渲染端按错误码分流为「登录后查看发布记录」引导态 +「去登录」按钮（走 `identity.signIn()`，登录成功自动重载发布记录）；权益不足（ENTITLEMENT_REQUIRED）等业务拒绝展示 formatUserError 具体原因；仅传输类异常保留「请检查服务连接后重试」。详细规格（根因五环节链 / 分流规则表 / 状态机 / 显示项与提示文字 zh-en / 测试覆盖 / 已知局限）见 `01-docs/PRD-PUBLISH-HISTORY-LOGIN-GATE-2026-09-15.md`。
