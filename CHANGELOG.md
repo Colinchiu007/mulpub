@@ -1,3 +1,19 @@
+# [未发布] fix(desktop): 账号登录态 HTTP 检测改黑名单语义，修复抖音「已失效」假阳性（2026-09-16）
+
+### 修复
+- **根因**：`http-login-checker.js` 白名单语义缺陷——仅响应完全符合预期才判有效，302/非 2xx/JSON 结构不符一律判失效；抖音风控拦截 Node fetch 检测请求（TLS 指纹/固定 UA 与登录浏览器不符）返回非预期响应，Cookie 实际有效却被标记「已失效」（主页横幅提示失效、批量登录打开却仍是登录态）
+- **三态判定**：`check` 返回值扩为 `boolean|undefined`——明确有效 / 明确失效（平台明确告知未登录：douyin `status_code===8` 或 msg 含「未登录」、HTTP 401/403、3xx 且 Location 含登录特征）/ 不确定（`CHECK_LOGIN_INCONCLUSIVE`，v2.1 新增结果码）
+- **不确定即降级**：风控页/结构变更/404/429/5xx/非登录 3xx 一律返回 undefined，经 `tryHttpLoginCheck` 既有降级链进入 Playwright 浏览器真实检测，不再误判失效
+- **系统性消除同类误报**：HTTP 状态码黑名单化对全部 5 平台生效（其他平台 JSON 判定零变化；公众号 checkHtml/bilibili precheck/视频号 errCode 黑名单不变）
+
+### 验证
+- `http-login-checker.test.js` 28 例（新增 8 例：status_msg 未登录/风控码 9/非 JSON/非登录 3xx/无 Location/401/403/404/429/500 判定矩阵）；`account-manager.test.js` 52 例降级链路回归，全绿
+- eslint 0 error；`check-locale-sync --cjk` PASS（1410 < 基线 1644，无新增硬编码中文）；无 i18n/IPC/preload 变更
+- 代价说明：不确定场景账号检测 +4-8s（浏览器降级）；正常/真失效账号 <1s 不变
+- 文档：`01-docs/BUGFIX-LOGIN-CHECK-FALSE-EXPIRED-2026-09-16.md`（根因证据链/判定矩阵/数据校验/流程/交互/显示项/提示文字/QM-5）；`PRD-ACCOUNT-LOGIN-STATUS-CHECK.md` v2.1（§12.3 语义修正 + §14）
+
+---
+
 # [未发布] feat(desktop): 采集页「采集记录」与「文案库」合并为单一「文案库」标签（2026-09-16）
 
 ### 变更
