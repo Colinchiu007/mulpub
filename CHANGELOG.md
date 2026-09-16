@@ -1,3 +1,18 @@
+# [未发布] feat(ops-center): 左侧菜单「设置」改名为「菜单设置」并支持菜单项拖拽排序（2026-09-16）
+
+### 变更
+- **侧边栏改名**：`ops-center/frontend/src/config/menuItems.js` 中 path `/settings` 的菜单项 label 由「设置」改为「菜单设置」（仅改左侧菜单项，其它页面文案如「预设模型设置」「模型设置」「默认设置」不属于侧边栏项，保持原样）。
+- **菜单排序支持拖拽**：`SettingsView.vue` 的「菜单排序」页由纯「上移/下移」按钮升级为原生 HTML5 拖拽列表（`draggable` + `dragstart/dragover/drop`），拖拽手柄用 `Rank` 图标；保留上移/下移按钮作为无障碍回退，拖拽落点高亮、拖拽中半透明。
+- **store 新增 `reorder(from, to)`**：`stores/menu.js` 新增按索引重排方法（越界/相等安全忽略，落点写入 `localStorage` 的 `ops_menu_order`），与既有 `move`/`moveBefore`/`reset` 并列导出。
+- **新增单元测试**：`src/stores/menu.test.js`（vitest + 内存版 localStorage mock，无需 jsdom），覆盖 `reorder`/`move`/`reset` 共 9 例，全绿。
+
+### 验证
+- `vitest run`：`src/stores/menu.test.js` 9/9 通过。
+- `vite build`：编译通过（仅 chunk 体积与 pure 注释告警，无错误）。
+- 视觉回归：拖拽交互为纯前端 UI 增强，未改变数据模型（`ops_menu_order` 仅顺序变化）；「菜单设置」改名在侧边栏（`App.vue` 渲染 `item.label`）即时生效。
+
+---
+
 # [未发布] fix(ops-center): 获取模型 SSRF 拒绝文案区分 fake-IP 代理基准段，给出可操作指引（2026-09-16）
 
 ### 修复

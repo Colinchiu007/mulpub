@@ -52,10 +52,23 @@ export const useMenuStore = defineStore('menu', () => {
     persist()
   }
 
+  function reorder(from, to) {
+    if (
+      from < 0 || to < 0 ||
+      from >= order.value.length || to >= order.value.length ||
+      from === to
+    ) return
+    const next = [...order.value]
+    const [item] = next.splice(from, 1)
+    next.splice(to, 0, item)
+    order.value = next
+    persist()
+  }
+
   function reset() {
     order.value = [...DEFAULT_MENU_ORDER]
     persist()
   }
 
-  return { order, orderedItems, move, moveBefore, reset }
+  return { order, orderedItems, move, moveBefore, reorder, reset }
 })
