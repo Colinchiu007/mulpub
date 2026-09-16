@@ -4,8 +4,7 @@
       <div>
         <div class="collection-tabs" role="tablist">
           <button role="tab" :aria-selected="activeTab === 'collect'" class="collection-tab-btn" :class="{ active: activeTab === 'collect' }" @click="switchTab('collect')">{{ $t('collection.tabCollect') }}</button>
-          <button role="tab" :aria-selected="activeTab === 'records'" class="collection-tab-btn" :class="{ active: activeTab === 'records' }" @click="switchTab('records')">{{ $t('collection.tabRecords') }}</button>
-          <button role="tab" :aria-selected="activeTab === 'library'" class="collection-tab-btn" :class="{ active: activeTab === 'library' }" data-testid="collection-tab-library" @click="switchTab('library')">{{ $t('collection.tabLibrary') }}</button>
+          <button role="tab" :aria-selected="activeTab === 'records'" class="collection-tab-btn" :class="{ active: activeTab === 'records' }" data-testid="collection-tab-library" @click="switchTab('records')">{{ $t('collection.tabRecords') }}</button>
         </div>
         <div class="page-subtitle">从各平台采集内容，或快速创建草稿</div>
       </div>
@@ -259,47 +258,104 @@
       </div>
     </div>
 
-    <!-- 采集记录标签页 -->
-    <div v-else-if="activeTab === 'records'" class="cohere-content" role="tabpanel" :aria-label="$t('collection.tabRecords')">
-      <div class="cohere-section-title" style="display:flex;justify-content:space-between;align-items:center">
-        <span>{{ $t('collection.recordsTitle') }}（{{ collectedItems.length }} 篇）</span>
+    <!-- 文案库标签页（2026-09-16 合并：原「采集记录」+「文案库」两标签合一，以采集记录卡片为准） -->
+    <div v-else-if="activeTab === 'records'" class="cohere-content" role="tabpanel" :aria-label="$t('collection.recordsTitle')">
+      <div class="cohere-section-title" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+        <span>{{ $t('collection.recordsTitle') }} · {{ $t('collection.libraryCount', { count: libraryItems.length }) }}</span>
+        <div class="library-filters" role="group" :aria-label="$t('collection.libraryFilterLabel')">
+          <button
+            v-for="f in LIBRARY_FILTERS"
+            :key="f.value"
+            type="button"
+            class="library-filter-btn"
+            :class="{ active: libraryFilter === f.value }"
+            :aria-pressed="libraryFilter === f.value"
+            :data-testid="'copy-library-filter-' + f.value"
+            @click="libraryFilter = f.value"
+          >{{ $t(f.labelKey) }}</button>
+        </div>
         <button class="cohere-btn-secondary" style="font-size:12px;padding:2px 8px" :disabled="collectedItems.length === 0" @click="clearAllRecords">
           {{ $t('collection.recordsClearAll') }}
         </button>
       </div>
       <EmptyState
-        v-if="collectedItems.length === 0"
+        v-if="libraryItems.length === 0"
         icon="📰"
         :title="$t('collection.recordsEmptyTitle')"
         :description="$t('collection.recordsEmptyDesc')"
       />
-      <div v-else class="cohere-card-grid">
-        <div v-for="item in collectedItems" :key="item.id" class="cohere-card collection-record-card" role="button" tabindex="0" @click="openRecordForEdit(item)" @keyup.enter="openRecordForEdit(item)">
-          <div class="card-top">
-            <div class="card-icon">{{ item.mediaType === 'video' ? '🎬' : '📰' }}</div>
-            <div class="card-info">
-              <div class="card-platform">{{ item.title || $t('collection.recordsUntitled') }}</div>
-              <div class="card-account">
-                {{ formatRecordSource(item) }} · {{ formatRecordWordCount(item) }}
-                <template v-if="item.mediaType === 'video' && item.duration"> · {{ formatVideoDuration(item.duration) }}</template>
-                <template v-if="item.mediaType === 'video' && item.platform && PLATFORM_KEYS.includes(item.platform)"> · {{ platformLabel(item.platform) }}</template>
-                · {{ formatRecordTime(item) }}
+      <EmptyState
+        v-else-if="filteredLibraryItems.length === 0"
+        icon="🔍"
+        :title="$t('collection.libraryFilterEmptyTitle')"
+        :description="$t('collection.libraryFilterEmptyDesc')"
+      />
+      <div v-else class="cohere-card-grid" data-testid="copy-library-list">
+        <template v-for="entry in filteredLibraryItems" :key="entry.key">
+          <!-- 采集正文卡片：信息与操作以原「采集记录」为准，新增【改写】跳转改写页直接改写 -->
+          <div v-if="entry.origin === 'collect'" class="cohere-card collection-record-card" role="button" tabindex="0" :data-testid="'copy-library-item-' + entry.item.id" @click="openRecordForEdit(entry.item)" @keyup.enter="openRecordForEdit(entry.item)">
+            <div class="card-top">
+              <div class="card-icon">{{ entry.item.mediaType === 'video' ? '🎬' : '📰' }}</div>
+              <div class="card-info">
+                <div class="card-platform">{{ entry.item.title || $t('collection.recordsUntitled') }}</div>
+                <div class="card-account">
+                  {{ formatRecordSource(entry.item) }} · {{ formatRecordWordCount(entry.item) }}
+                  <template v-if="entry.item.mediaType === 'video' && entry.item.duration"> · {{ formatVideoDuration(entry.item.duration) }}</template>
+                  <template v-if="entry.item.mediaType === 'video' && entry.item.platform && PLATFORM_KEYS.includes(entry.item.platform)"> · {{ platformLabel(entry.item.platform) }}</template>
+                  · {{ formatRecordTime(entry.item) }}
+                </div>
               </div>
             </div>
+            <div class="card-actions">
+              <button @click.stop="openRecordForEdit(entry.item)">{{ $t('collection.recordsEdit') }}</button>
+              <button @click.stop="createFromItem(entry.item)">{{ $t('collection.recordsCreateDraft') }}</button>
+              <button @click.stop="sendItemToPipeline(entry.item)">{{ $t('collection.recordsToVideo') }}</button>
+              <button @click.stop="goPublishFromItem(entry.item)">{{ $t('collection.recordsPublish') }}</button>
+              <button class="primary" :data-testid="'copy-library-rewrite-' + entry.item.id" @click.stop="rewriteFromLibrary(entry)">{{ $t('collection.libraryRewrite') }}</button>
+              <button class="danger" @click.stop="deleteRecord(entry.item)">{{ $t('collection.recordsDelete') }}</button>
+            </div>
           </div>
-          <div class="card-actions">
-            <button @click.stop="openRecordForEdit(item)">{{ $t('collection.recordsEdit') }}</button>
-            <button @click.stop="createFromItem(item)">{{ $t('collection.recordsCreateDraft') }}</button>
-            <button @click.stop="sendItemToPipeline(item)">{{ $t('collection.recordsToVideo') }}</button>
-            <button @click.stop="goPublishFromItem(item)">{{ $t('collection.recordsPublish') }}</button>
-            <button class="danger" @click.stop="deleteRecord(item)">{{ $t('collection.recordsDelete') }}</button>
+          <!-- 改写文案卡片：来自文案库改写闭环（采集页内改写 / 改写页交接改写） -->
+          <div v-else class="cohere-card collection-record-card" :data-testid="'copy-library-item-' + entry.record.id">
+            <div class="card-top">
+              <div class="card-icon">✨</div>
+              <div class="card-info">
+                <div class="card-platform card-platform-badge">
+                  <span class="copy-origin-badge is-rewrite" :data-testid="'copy-library-badge-' + entry.record.id">{{ $t('collection.libraryOriginRewrite') }}</span>
+                  <span class="copy-library-title">{{ entry.record.title || $t('collection.libraryUntitled') }}</span>
+                </div>
+                <div class="card-account">{{ rewriteMetaText(entry.record) }}</div>
+              </div>
+            </div>
+            <div class="card-actions">
+              <button @click.stop="previewRewrite = entry.record">{{ $t('collection.libraryView') }}</button>
+              <button class="primary" :data-testid="'copy-library-rewrite-r' + entry.record.id" @click.stop="rewriteFromLibrary(entry)">{{ $t('collection.libraryRewrite') }}</button>
+              <button class="danger" @click.stop="deleteLibraryRewrite(entry.record)">{{ $t('collection.recordsDelete') }}</button>
+            </div>
           </div>
+        </template>
+      </div>
+
+      <!-- 改写文案内容预览（只读） -->
+      <div v-if="previewRewrite" class="copy-preview-overlay" data-testid="copy-preview-overlay" @click.self="previewRewrite = null">
+        <div class="copy-preview-modal" role="dialog" aria-modal="true" :aria-label="$t('collection.libraryPreviewTitle')">
+          <header class="copy-preview-header">
+            <h3 class="copy-preview-title">{{ previewRewrite.title || $t('collection.libraryUntitled') }}</h3>
+            <button
+              type="button"
+              class="copy-preview-close"
+              :aria-label="$t('collection.libraryClose')"
+              data-testid="copy-preview-close"
+              @click="previewRewrite = null"
+            >✕</button>
+          </header>
+          <div class="copy-preview-meta">
+            <span class="copy-origin-badge is-rewrite">{{ $t('collection.libraryOriginRewrite') }}</span>
+          </div>
+          <pre class="copy-preview-content" data-testid="copy-preview-content">{{ previewRewrite.content }}</pre>
         </div>
       </div>
     </div>
-
-    <!-- 文案库标签页 -->
-    <CopyLibraryPanel v-else-if="activeTab === 'library'" />
 
     <!-- 去发布弹窗 -->
     <PublishDestinationModal
@@ -333,8 +389,8 @@ import { addViralToLibrary } from '@/api/knowledge-library'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
 import WordCountRangeInput from '@/components/WordCountRangeInput.vue'
 import RewriteStrategyPicker from '@/components/RewriteStrategyPicker.vue'
-import CopyLibraryPanel from '@/components/CopyLibraryPanel.vue'
-import { useCopyLibrary, collectFromKey } from '@/composables/useCopyLibrary'
+import { useCopyLibrary, collectFromKey, ORIGIN_COLLECT, ORIGIN_REWRITE, compareByCreatedAtDesc } from '@/composables/useCopyLibrary'
+import { setRewriteHandoff } from '@/utils/rewrite-handoff'
 
 const router = useRouter()
 const { notifyError, notifySuccess, notifyWarning, notifyInfo, notifyConfirm } = useNotify()
@@ -352,7 +408,7 @@ const rewriteError = ref(null)
 const collectedItems = ref([])  // 累计采集列表
 const addedToViral = ref(false)  // 当前采集结果是否已加入爆款库
 const collectSourceType = ref('url')
-const activeTab = ref('collect')  // 标签页: 'collect' | 'records'
+const activeTab = ref('collect')  // 标签页: 'collect' | 'records'(文案库)
 const collectSources = ref([
   { type: 'url', name: 'URL 正文提取' },
   { type: 'rss', name: 'RSS 订阅源' },
@@ -416,7 +472,7 @@ watch(strategyMode, (m) => {
 watch(collectedResult, () => refreshStrategyPreview())
 
 // 文案库旁路：采集页内的改写结果同步进「文案库」（写入失败静默，不影响改写主流程）
-const { upsertRewrite: upsertCopyRewrite } = useCopyLibrary()
+const { upsertRewrite: upsertCopyRewrite, removeRewrite, rewrites, load: loadCopyRewrites } = useCopyLibrary()
 
 /**
  * 把页内改写结果同步到文案库（同一采集来源只保留最新一次改写结果）。
@@ -514,6 +570,7 @@ const { error: rewriteWordCountError } = useWordCountValidation(
 onMounted(async () => {
   await loadDrafts();
   await loadCollectedItems()
+  void loadCopyRewrites()
   void loadRewriteStrategies()
   void refreshStrategyPreview()
 })
@@ -1251,8 +1308,8 @@ async function saveCollectedItems () {
   await storeSetSetting(COLLECTED_ITEMS_KEY, JSON.stringify(collectedItems.value))
 }
 
-/** 合法标签页：采集 / 采集记录 / 文案库 */
-const TAB_KEYS = ['collect', 'records', 'library']
+/** 合法标签页：采集 / 文案库（2026-09-16 原三个标签合并为两个） */
+const TAB_KEYS = ['collect', 'records']
 
 function switchTab (tab) {
   if (!TAB_KEYS.includes(tab)) return
@@ -1284,6 +1341,7 @@ async function deleteRecord (item) {
 async function clearAllRecords () {
   const confirmed = await notifyConfirm('collection.recordsClearAllConfirm', { title: resolveNotifyText('collection.confirmTitle').text })
   if (!confirmed) return
+  // 只清 collected_items（采集正文）；改写文案（copy_library_rewrites）保留，需逐条删除
   collectedItems.value = []
   collectedResult.value = null
   rewriteResult.value = ''
@@ -1306,6 +1364,87 @@ function formatRecordTime (item) {
   if (item.createdAt) return item.createdAt
   if (item.collectedAt) return item.collectedAt
   return item.created_at || ''
+}
+
+// ─── 文案库合并视图（采集正文 + 改写文案，2026-09-16 两标签合一）───
+
+/** 文案筛选：全部 / 采集 / 改写 */
+const LIBRARY_FILTERS = [
+  { value: 'all', labelKey: 'collection.libraryFilterAll' },
+  { value: ORIGIN_COLLECT, labelKey: 'collection.libraryOriginCollect' },
+  { value: ORIGIN_REWRITE, labelKey: 'collection.libraryOriginRewrite' },
+]
+const libraryFilter = ref('all')
+const previewRewrite = ref(null)
+
+/**
+ * 合并文案库列表：采集正文（collected_items 中有正文的条目，保留完整字段）
+ * + 改写文案（copy_library_rewrites），按时间倒序统一排序。
+ * ⚠️ 过滤条件与时间回退链须与 useCopyLibrary.buildCopyLibraryItems 保持一致
+ * （此处不复用该函数是因为模板需要 entry.item 原始引用而非扁平副本）。
+ * entry = { key, origin, item(采集原文), record(改写记录), createdAt }
+ */
+const libraryItems = computed(() => {
+  const collect = collectedItems.value
+    .filter((it) => it && it.id && (it.content || it.description))
+    .map((it) => ({ key: ORIGIN_COLLECT + ':' + it.id, origin: ORIGIN_COLLECT, item: it, record: null, createdAt: it.createdAt || it.collectedAt || it.created_at || '' }))
+  const rewrite = rewrites.value
+    .filter((it) => it && it.id && it.content)
+    .map((it) => ({ key: ORIGIN_REWRITE + ':' + it.id, origin: ORIGIN_REWRITE, item: null, record: it, createdAt: it.createdAt || '' }))
+  return [...rewrite, ...collect].sort(compareByCreatedAtDesc)
+})
+
+const filteredLibraryItems = computed(() => (
+  libraryFilter.value === 'all' ? libraryItems.value : libraryItems.value.filter((e) => e.origin === libraryFilter.value)
+))
+
+/** 改写卡片元信息：字数 · 改写时间 · 改写自 */
+function rewriteMetaText (record) {
+  const parts = [resolveNotifyText('collection.libraryWordCount', { count: record.wordCount || (record.content || '').length }).text]
+  if (record.createdAt) {
+    const d = new Date(record.createdAt)
+    const time = Number.isNaN(d.getTime()) ? String(record.createdAt) : d.toLocaleString()
+    parts.push(resolveNotifyText('collection.libraryRewrittenAt', { time }).text)
+  }
+  if (record.fromTitle) parts.push(resolveNotifyText('collection.libraryFrom', { title: record.fromTitle }).text)
+  return parts.join(' · ')
+}
+
+/**
+ * 【改写】按钮（合并版文案库）：把文案经 sessionStorage 交接给改写页并跳转，
+ * 改写页挂载后自动填入正文（仿写模式、平台带入）并直接开始改写；
+ * 改写成功后由改写页按 fromKey 回写文案库（同一来源只保留最新结果）。
+ */
+function rewriteFromLibrary (entry) {
+  if (!entry) return
+  const src = entry.origin === ORIGIN_REWRITE ? entry.record : entry.item
+  const content = String((src && (src.content || src.description)) || '').trim()
+  if (!content) {
+    notifyWarning('collection.libraryRewriteNoContent')
+    return
+  }
+  const ok = setRewriteHandoff({
+    content,
+    title: (src && src.title) || '',
+    platform: (src && src.platform) || '',
+    sourceUrl: (src && src.sourceUrl) || '',
+    fromKey: entry.origin === ORIGIN_REWRITE ? ORIGIN_REWRITE + ':' + String(src.id) : collectFromKey(src.id),
+    fromTitle: (src && src.title) || '',
+  })
+  if (!ok) {
+    notifyError('collection.rewriteHandoffFailed')
+    return
+  }
+  router.push('/rewrite?from=collection')
+}
+
+/** 删除一条改写文案（仅移除改写记录，不动采集原文） */
+async function deleteLibraryRewrite (record) {
+  if (!record || !record.id) return
+  const confirmed = await notifyConfirm('collection.recordsDeleteConfirm', { title: resolveNotifyText('collection.confirmTitle').text })
+  if (!confirmed) return
+  await removeRewrite(record.id)
+  notifySuccess('collection.recordsDeleted')
 }
 
 // ─── 批量采集 ─────────────────────────────────────────────
@@ -1491,6 +1630,91 @@ function cancelBatchCollect () {
 .collection-record-card { cursor: pointer; transition: box-shadow 0.2s; }
 .collection-record-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
 .collection-record-card:focus-visible { outline: 2px solid var(--primary, #ea580c); outline-offset: 2px; }
+
+/* ── 文案库合并视图样式（原 CopyLibraryPanel 迁入）── */
+.library-filters {
+  display: flex;
+  gap: 4px;
+  background: var(--soft-stone, #f5f5f5);
+  border-radius: 8px;
+  padding: 3px;
+}
+.library-filter-btn {
+  padding: 4px 12px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text-secondary, #666);
+  transition: all 0.15s;
+}
+.library-filter-btn:hover { color: var(--text-primary, #333); }
+.library-filter-btn.active {
+  background: #fff;
+  color: var(--primary, #ea580c);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+.card-platform-badge { display: flex; align-items: center; gap: 6px; }
+.copy-library-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.copy-origin-badge {
+  flex-shrink: 0;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+}
+.copy-origin-badge.is-rewrite { background: #fef2f2; color: var(--coral, #ea580c); }
+
+.copy-preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(23, 23, 32, 0.45);
+  padding: 20px;
+}
+.copy-preview-modal {
+  width: min(720px, 100%);
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface, #fff);
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.22);
+  padding: 18px 24px 22px;
+}
+.copy-preview-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.copy-preview-title { margin: 0; font-size: 16px; font-weight: 600; color: var(--text-primary, #25252b); }
+.copy-preview-close {
+  border: none;
+  background: transparent;
+  color: var(--muted, #73777d);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+.copy-preview-close:hover { background: var(--soft-stone, #f5f5f5); color: var(--text-primary); }
+.copy-preview-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 10px 0 12px; font-size: 12px; color: var(--muted, #73777d); }
+/* 长文本展示契约：显式换行 + 任意位置断词，避免长串英文/链接撑破弹窗 */
+.copy-preview-content {
+  margin: 0;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--soft-stone, #f7f7f8);
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-primary, #25252b);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 
 .collection-record-card .card-actions button.danger {
   color: #d32f2f;

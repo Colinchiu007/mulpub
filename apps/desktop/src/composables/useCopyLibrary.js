@@ -92,7 +92,8 @@ export function buildCopyLibraryItems (collectedItems, rewrites) {
   return [...rewrite, ...collect].sort(compareByCreatedAtDesc)
 }
 
-function compareByCreatedAtDesc (a, b) {
+/** 按 createdAt 倒序比较（无时间的排末尾，保持稳定）；供文案库合并视图复用 */
+export function compareByCreatedAtDesc (a, b) {
   const ka = a.createdAt || ''
   const kb = b.createdAt || ''
   if (!ka && !kb) return 0

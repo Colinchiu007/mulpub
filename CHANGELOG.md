@@ -1,16 +1,27 @@
 # [未发布] feat(viral): 爆款分析/文案生成 × 改写引擎/评估机制集成 P0（2026-09-16）
-
 ### 新增
 - **爆款分析结果存入爆款库**：`ViralAnalysis.vue` 分析成功后可一键落库（复用既有 `knowledge-library:add-viral` IPC，无新增通道）；`title` 取 `analyzedTopic` 快照，`content` 为 i18n 组装的分析报告 Markdown（天然可被改写引擎三层知识库第 2 层「结合爆款库」检索），`tags` = 平台+推荐角度+上升关键词去重。
 - **生成标题一键去改写（titleHint 链路）**：生成标题列表每行「去改写」→ `/rewrite?titleHint=<标题>` → RewriteView 显示可移除 chip → `ai:rewrite` params 携带 `titleHint` → 引擎 `_sanitizeTitleHint`（空白折叠/200 字截断/非字符串忽略）后作为软约束追加到 userPrompt（模板替换后追加，防 `{placeholder}` 二次展开）。
 - **改写质量评估第 4 维「爆款潜力」**：`RewriteEngine` 新增可选 `viralScorer` 注入；改写前后各评一次，输出 `result.viral = { original, rewritten, delta, mode }`（`Number.isFinite` + 跨 mode 一致性校验，失败 fail-open 不阻塞）。主进程 `ViralEngine.scoreText`：orchestrator 优先、本地启发式回退、**独立 8s 短超时**；`container.setup.js` 完成注入。渲染端质量报告新增「爆款潜力：改写前 X → 改写后 Y（变化 Z）」指标。
 - i18n：新增 `viralAnalysis.*`（14 键）与 `rewritePage` 6 键，zh/en 严格成对。
-
 ### 验证
 - TDD：`packages/rewrite-engine` 21/21（含 V1-V9：注入/截断/忽略/fail-open/跨 mode 丢弃/NaN 防护/未注入回归）；渲染端+electron 75/75（落库守卫/快照/chip/params/viral 展示/scoreText 6 用例）；views-coverage2+ai handler+ipc-contract 23/23。
 - 双模型外部评审（双子代理并行）：0 Critical；4 Warning + 部分 Info 全部修复并回归（8s 短超时/mode 一致性/日志与 clamp/analyzedTopic 快照）。
 - 门禁：CJK 基线扫描 PASS（零新增硬编码）；无新增 IPC 通道（preload bundle 无需重打包）。
 - 文档：`01-docs/PRD-VIRAL-REWRITE-INTEGRATION.md`（含数据校验/流程/交互/显示项/提示文字/P1-P2 规划）；openspec change `viral-rewrite-integration`；EverOS knowledge `everos/data/knowledge/viral-rewrite-integration/`。
+
+# [未发布] feat(desktop): 采集页「采集记录」与「文案库」合并为单一「文案库」标签（2026-09-16）
+### 变更
+- **标签合并**：采集页三个标签收敛为两个（内容采集 / 文案库）；文案库以原「采集记录」卡片为准——完整显示项（来源/字数/视频时长/平台/采集时间）+ 全部操作（编辑/创建草稿/视频创作/发布/删除），并保留原文案库的「全部/采集/改写」筛选与改写文案条目（✨ 徽标：查看/再改写/删除）
+- **新增【改写】按钮**：采集卡与改写卡均可一键跳转改写页并**直接开始改写**——经 sessionStorage 一次性交接（`rewrite_handoff_v1`，正文可上万字避免 URL 超长），改写页 `/rewrite?from=collection` 挂载后自动填入正文、智能仿写模式、平台带入（白名单内）并触发改写（读后即焚，刷新不重复触发；与 `?topic=` 热门选题带入互斥，topic 优先）
+- **改写闭环**：改写页改写成功后按 `fromKey`（`collect:<id>` / `rewrite:<id>`）回写文案库，同一来源只保留最新结果；回写失败静默不影响改写主流程
+- **提示文字更新**：标签名/空态/删除与清空确认全部改为「文案」口径（zh/en 成对）；新增 `collection.rewriteHandoffFailed`
+- **技术债清理**：删除不再使用的 `CopyLibraryPanel.vue`（341 行，列表逻辑迁入 Collection.vue 合并视图）；`CopyRewriteModal` 解除引用但组件保留（记录于 PRD §10 待清理）
+### 验证
+- 新增 `utils/rewrite-handoff.test.js`（4 例）+ `useCopyLibrary.compareByCreatedAtDesc` 导出复用
+- `Collection.test.js` 文案库合并块重写为 9 例（双标签结构/合并列表/筛选/两种改写交接/空正文拦截/删除/页内改写回写回归）；`RewriteView.test.js` 新增交接块 4 例
+- desktop 全量单测通过；CI quality-gate 由 PR 门禁验证
+- 文档：`01-docs/PRD-COLLECTION-LIBRARY-MERGE-2026-09-16.md`（完整数据校验/流程/交互/显示项/提示文字）；`PRD-COLLECTION-COPY-LIBRARY-2026-09-14.md` 标记被取代
 
 ---
 
