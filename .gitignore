@@ -232,3 +232,21 @@ apps/desktop/tests/e2e-output/
 # Shared user data dir (WSL/Windows 共享运行时数据，锚点文件用于自动检测)
 shared-user-data/
 .ccg/tasks/*
+
+# 嵌入式 Agent 子项目：各自为独立 git 仓库（含自有 .git），非本应用源码，不纳入版本控制
+/caura/
+/eion/
+/everos/
+/memx/
+/mnemoverse/
+/mnemory/
+/rcll/
+
+# 本地分析/交付文档产物（任务报告，非源码；保留 01-docs 下图片放行规则）
+/01-docs/*.md
+/01-docs/**/*.md
+/deliverables/
+
+# 项目记忆与自动化产物（机器生成，不入库）
+.workbuddy/artifacts/
+.workbuddy/automations/
