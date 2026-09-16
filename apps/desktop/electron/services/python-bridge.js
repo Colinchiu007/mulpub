@@ -96,7 +96,8 @@ function resolveIdentityEnvForBackend () {
 function launchProcess (port) {
   return new Promise((resolve, reject) => {
     const backendDir = getBackendDir()
-    const pythonCmd = process.env.MP_PYTHON || process.env.PYTHON_PATH || (process.platform === 'win32' ? 'python' : 'python3')
+    // 仅 MP_PYTHON 作为解释器覆盖；PYTHON_PATH 是 Python 模块搜索路径（目录），绝不可当作可执行文件。
+    const pythonCmd = process.env.MP_PYTHON || (process.platform === 'win32' ? 'python' : 'python3')
     // 后端数据目录绑定到用户 profile（而非代码 checkout），保证账号等元数据跨 worktree 持久化
     const userDataDir = resolveUserDataDir()
     const backendDataDir = userDataDir ? path.join(userDataDir, 'backend-data') : undefined

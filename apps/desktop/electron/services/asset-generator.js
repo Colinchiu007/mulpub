@@ -466,7 +466,9 @@ function readEdgeTtsTimings (timingsPath) {
 }
 
 function getPythonCommands () {
-  const configured = firstNonEmptyString(process.env.PYTHON_PATH, process.env.PYTHON)
+  // 仅 MP_PYTHON 作为解释器覆盖；PYTHON_PATH 是 Python 模块搜索路径（目录），绝不可当作可执行文件。
+  // 未设置时回退到 python / py -3 / python3 候选列表（由 start-desktop.ps1 前置系统 Python 3.12 保证解析正确）。
+  const configured = process.env.MP_PYTHON || ''
   const candidates = configured
     ? [{ command: configured, args: [] }]
     : [{ command: 'python', args: [] }, { command: 'py', args: ['-3'] }, { command: 'python3', args: [] }]

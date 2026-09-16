@@ -104,7 +104,9 @@ class BasePythonBridge {
       return
     }
 
-    const pythonCmd = process.env.MP_PYTHON || process.env.PYTHON_PATH || (process.platform === 'win32' ? 'python' : 'python3')
+    // 仅 MP_PYTHON 作为解释器覆盖；PYTHON_PATH 是 Python 模块搜索路径（目录），绝不可当作可执行文件。
+    // 回退到 python/python3，由 start-desktop.ps1 前置系统 Python 3.12 到 PATH 保证解析正确。
+    const pythonCmd = process.env.MP_PYTHON || (process.platform === 'win32' ? 'python' : 'python3')
     this.log.info(this.name, `Starting ${this.pythonModule}: ${pythonCmd} -m ${this.pythonModule} on port ${this.port}`)
     this.process = await this._launchProcess(pythonCmd)
     await this._waitForHealthy()
