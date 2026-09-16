@@ -5,7 +5,7 @@
       管理应用端（桌面端）左侧边栏的菜单项：控制显示 / 隐藏，调整顺序，并可在
       <strong>「一级导航」与「更多」之间互相拖动</strong>（跨组移动）。
       「发布、账号、采集、视频创作」为系统核心入口，<strong>强制显示且锁定在一级导航</strong>，不可关闭、不可移出（但可在一级导航内拖动排序）。
-      拖动即自动重排顺序；修改后点「保存」生效。
+      拖动即自动重排顺序；修改后点「保存」生效。组内排序：把菜单项拖到同组另一项上即可；<strong>跨组移动（一级导航 ↔ 更多）需拖到目标分组的空白处</strong>，拖到具体菜单项上不会跨组。
       配置随运行时 bootstrap 下发；桌面端启动 3 秒后自动同步一次，
       <strong>修改后需在桌面端重新同步（或重启应用）才会生效</strong>（当前无实时推送）。
     </p>
@@ -45,7 +45,7 @@
             @dragstart="onDragStart(row)"
             @dragend="onDragEnd"
             @dragover.prevent
-            @drop.prevent="onDrop(row, group.name)"
+            @drop.stop.prevent="onDrop(row, group.name)"
           >
             <span class="drag-handle" :title="row.forced_visible ? '锁定一级导航，可拖动排序' : '拖动调整位置或跨组'">
               {{ row.forced_visible ? '⠿' : '⠿' }}
@@ -116,6 +116,7 @@ const dirty = ref(false)
 // 拖拽状态
 const dragKey = ref(null)
 const dragOverGroup = ref(null)
+const dragSrcGroup = ref(null)
 
 const hiddenCount = computed(() => items.value.filter((item) => !item.visible).length)
 
@@ -154,11 +155,13 @@ function move(row, delta) {
 
 function onDragStart(row) {
   dragKey.value = row.item_key
+  dragSrcGroup.value = row.group
 }
 
 function onDragEnd() {
   dragKey.value = null
   dragOverGroup.value = null
+  dragSrcGroup.value = null
 }
 
 function onGroupDragOver(groupName) {
@@ -169,20 +172,27 @@ function onGroupDragLeave(groupName) {
   if (dragOverGroup.value === groupName) dragOverGroup.value = null
 }
 
-/** 拖到某个具体行上：插入到该行之前（跨组则移动到目标组） */
+/** 拖到某个具体行上：仅允许「同组内」排序（插入到该行之前）。
+ *  跨组移动必须拖到目标分组的空白处（见 onDropOnGroup），
+ *  否则会误把目标组的菜单项「连坐」重排——这正是之前“拖知识库却带动 CLI”的根因。 */
 function onDrop(targetRow, targetGroup) {
-  dragOverGroup.value = null
   const key = dragKey.value
   dragKey.value = null
+  dragOverGroup.value = null
   if (!key || key === targetRow.item_key) return
+  if (targetGroup !== dragSrcGroup.value) {
+    ElMessage.warning('跨组移动请拖到目标分组（一级导航 / 更多）的空白处，而非具体菜单项上')
+    return
+  }
   moveItem(key, targetRow.item_key, targetGroup)
 }
 
-/** 拖到分组空白区：追加到该组末尾 */
+/** 拖到分组空白区：跨组移动，追加到该组末尾 */
 function onDropOnGroup(targetGroup) {
   dragOverGroup.value = null
   const key = dragKey.value
   dragKey.value = null
+  dragSrcGroup.value = null
   if (!key) return
   moveItem(key, null, targetGroup)
 }
