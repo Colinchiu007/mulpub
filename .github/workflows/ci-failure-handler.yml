@@ -33,6 +33,11 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: 解析 CI 失败原因
         id: parse-failure
         run: |
