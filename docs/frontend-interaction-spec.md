@@ -173,3 +173,42 @@
 | `@keyframes seg-shimmer` | `styles/history-panel.css` | 流水线进度条活动段扫光（2s 无限），非加载占位 |
 | `<el-dialog>` 内的 `v-loading` | FilmEngineering / PerformanceInsights 等 | Element Plus 表格/卡片局部遮罩，改造收益低 |
 | `UiButton .ui-btn-spinner` | `components/UiButton.vue` | 按钮内提交态，非页面级加载 |
+
+## 9. 路由入口登记规则
+
+> 落地日期 2026-09-17（desktop-ui-consistency T0-5）。背景：`src/router/index.js` 只声明「路由怎么匹配」，不回答「用户从哪进来」，历史沉淀出一批没有任何导航入口的暗路由（运营中心「应用菜单」也配置不到它们）。
+
+### 9.1 强制条款
+
+**新增页面必须先在 `src/config/route-registry.js` 登记，再在 `src/router/index.js` 加路由。** 顺序反了 CI 会拦：Quality Gate 的 **Gate 13 - Route registry completeness**（`.github/scripts/check-route-registry.js`）会在未登记时 exit 1，并在日志里给出补登记指引。
+
+本地同口径验证：
+
+```bash
+node .github/scripts/check-route-registry.js          # 期望输出 [route-registry] PASS
+node --test .github/scripts/check-route-registry.test.js
+```
+
+### 9.2 登记字段
+
+每条路由登记一个对象，六个字段必须填全：
+
+| 字段 | 含义 | 填写规则 |
+|------|------|----------|
+| `path` | 路由路径 | 与 `router/index.js` **逐字一致**（含 `:param`） |
+| `name` | vue-router 路由名 | redirect 路由无 name，填 `null` |
+| `view` | 视图文件名 | 如 `Home.vue`；redirect 路由填 `''`（空串即 redirect 标记） |
+| `navEntry` | 侧边栏菜单项 | 不进侧边栏填 `null`；否则 `{ key, group, labelI18nKey, to, icon }` |
+| `internal` | 是否暗路由 | `true` = 无侧边栏菜单入口，只能从其它页面进入 |
+| `entryFrom` | 宿主入口路径 | `internal: true` 时**必填**，且必须指向表内已登记的 path |
+
+### 9.3 internal / entryFrom 判定
+
+- **有侧边栏入口** → 填 `navEntry`（`key` 同时加进 `SIDEBAR_MENU_KEY_ORDER`，并同步运营中心 `ops-center/backend/services/app_menu_service.py` 的 `CATALOG`），`internal: false`。
+- **无侧边栏入口**（暗路由）→ `navEntry: null` + `internal: true` + `entryFrom`。`entryFrom` 要写**真实宿主页面**：去对应视图里查它是从哪个页面 `router.push` 进来的；查不到就填 `'/'` 并在 PR 说明里标注「入口待确认」（登记表的注释里也要写明）。
+- **redirect 路由** → `view: ''` + `navEntry: null` + `internal: false`，不填 `entryFrom`。
+- `navEntry` 与 `internal: true` **互斥**，二者只能选一个；CI 会拦。
+
+### 9.4 与侧边栏的关系
+
+`src/config/sidebar-menu.js` 的 `SIDEBAR_MENU_DEFINITION` 由登记表派生（`deriveSidebarMenu(ROUTE_REGISTRY)`），菜单渲染顺序由 `SIDEBAR_MENU_KEY_ORDER` 决定（不是路由顺序）。因此**改登记表等于改运营中心菜单种子**：`sidebar-menu.test.js` 里的 `EXPECTED_DERIVED_MENU` 冻结了 19 项的 `key/group/labelI18nKey/to` 与顺序，有意变更菜单时必须同步改该基线并在 PR 说明中写明对运营侧配置的影响。
