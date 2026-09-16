@@ -10,7 +10,7 @@ const PROVIDER_DISPLAY_NAMES = Object.freeze({
   'grok-video': 'Grok Video', runway: 'Runway', veo: 'Veo',
   heygen: 'HeyGen', hunyuan: 'Hunyuan', cogvideo: 'CogVideo',
   agnes: 'Agnes', 'agnes-image': 'Agnes Image', 'agnes-video': 'Agnes Video',
-  'agnes-llm': 'Agnes AI', suno: 'Suno', elevenlabs: 'ElevenLabs',
+  'agnes-llm': 'Agnes AI', 'agnes-multimodal': 'Agnes-AI', suno: 'Suno', elevenlabs: 'ElevenLabs',
   'openai-tts': 'OpenAI TTS', openai: 'OpenAI', anthropic: 'Anthropic',
   gemini: 'Gemini', deepseek: 'DeepSeek', pixabay: 'Pixabay',
   pexels: 'Pexels', ltx: 'LTX Video', seedance: 'Seedance',

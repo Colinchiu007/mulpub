@@ -1,3 +1,25 @@
+# [未发布] feat(model-providers): 新增 Agnes-AI 多模态预设（文字推理+图片生成+视频生成，中国站统一端点）（2026-09-16）
+
+### 新增
+- **多模态预设 `agnes-multimodal`（显示名 Agnes-AI）**：把 Agnes 原有三类独立服务商（agnes-llm / agnes-image / agnes-video）合并为一个多模态能力入口，同一 API Key 覆盖三种能力，用户在模型设置中只需配置一次即可在文字推理、图片生成、视频生成三类选择器中使用：
+  - 文字推理（llm）：`agnes-3.0-flash`（OpenAI 兼容 `POST /chat/completions`，512K 上下文）
+  - 图片生成（image）：`agnes-image-2.5-flash`（OpenAI 兼容 `POST /images/generations`，1K-4K 档位）
+  - 视频生成（video）：`agnes-video-2.5-flash`（OpenAI Videos 兼容 `POST /videos`，720P 异步任务）
+  - 统一 Base URL（中国站）：`https://api.agnes-ai.cn/v1`（区别于既有国际站预设的 `apihub.agnes-ai.com`）
+- **新增 Adapter `AgnesMultimodalAdapter`**（`apps/desktop/electron/services/adapters/agnes-multimodal.js`）：
+  - LLM / 生图能力委托既有 `AgnesLlmAdapter` / `AgnesImageAdapter`（协议不变，共享 credentials）
+  - 视频 2.5 Flash 为全新协议（与 v2.0 的 width/num_frames 协议不兼容），本类内实现：提交体 `{ model, prompt, mode, seconds, size: '720P', aspect_ratio, seed }`；`seconds` 由 numFrames/frameRate 推导并 clamp 到官方允许的 "4"–"12"（字符串）；`aspect_ratio` 由像素宽高推导最近支持画幅（21:9/16:9/4:3/1:1/3:4/9:16）
+  - 任务查询 `GET {apiRoot}/agnesapi?video_id=<ID>&model_name=<模型ID>`：提交时记录 taskId→model 映射（有界 200 条），查询必须回传 model_name（keyframe/reference 模式任务不带回 model_name 查不到）
+  - 沿用 agnes-video.js 的 503/429/500 有界重试（6 次递增退避）与 ProviderError 错误转换
+- **注册与展示**：`model-provider-manager.js` 注册 adapter 工厂；`provider-name-map.js` 增加 `agnes-multimodal: 'Agnes-AI'` 显示名；seeds 声明 `capabilities: ['llm','image','video']` 与 `capability_models`，限流预算 `rate_per_minute: 20`（与 minimax-multimodal 同级）
+
+### 验证
+- 新增 `agnes-multimodal.test.js` **23/23 通过**：默认中国站 baseUrl / validateConfig / 静态模型列表 / v2.5 请求体契约（mode/size/seconds 推导与 clamp、旧协议字段不得出现）/ video_id 优先与 id/task_id 兼容 / keyframe+reference 模式映射与校验 / 503 重试成功、400 不重试 / getVideoStatus 带 model_name 与 metadata.url 解析 / chatCompletion 与 generateImage 默认模型与端点 / 预设契约（capabilities ≥2、capability_models ⊆ models、限流预算登记）
+- 回归：`model-provider-seeds` / `model-provider-multimodal` / `agnes-llm` / `agnes-image` / `agnes-video` / `resolve-default` / `pipeline-error-formatter` / `provider-anomaly` 全绿；`model-provider-multimodal.test.js` 中一处按 `listProviders('multimodal')[0]` 索引取 MiniMax 的断言改为按 id 查找（新增第二个多模态预设后索引假设失效）
+- `asset-generator.test.js` 5 个失败经共享根 main 对照确认为存量环境依赖失败（edge-tts spawn），与本次改动无关
+
+---
+
 # [未发布] fix(ops-center): 获取模型 SSRF 拒绝文案区分 fake-IP 代理基准段，给出可操作指引（2026-09-16）
 
 ### 修复
