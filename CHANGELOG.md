@@ -12,6 +12,18 @@
 
 ---
 
+# [未发布] fix(ops-center): 获取模型 SSRF 拒绝文案区分 fake-IP 代理基准段，给出可操作指引（2026-09-16）
+
+### 修复
+- **根因**：开启 fake-IP / DNS 劫持的代理（Clash/TUN 等）环境下，官方公网模型 API 域名被解析到 `198.18.x.x`（RFC 2544 基准测试段，Python ≥3.12 标记为 is_private）。`fetch_models_from_url` 默认 `OPS_ALLOW_PROXY_BENCHMARK_IPS=false` 把该段按保留/私网拒绝，但旧文案笼统报「解析到私网/保留地址」，用户无法区分真实内网与代理假象、无法自助解决（如 agnes-llm 点击「获取模型」误报）。
+- **修复**：新增 `_is_benchmark_segment(ip)`；DNS 拒绝循环中，对「命中 198.18.0.0/15 且开关关闭」单独抛出明确指向代理场景与两种放行方式的可操作错误；真实私网文案保持原样。安全边界不变——默认仍 fail-closed，仅 `OPS_ALLOW_PROXY_BENCHMARK_IPS=true` 放行该段，真实私网始终拒绝。
+
+### 验证
+- `tests/test_model_presets_api.py`：更新 `test_fetch_models_proxy_benchmark_segment_rejected_when_disabled` 断言新文案（含 `198.18` / `fake-IP` / `OPS_ALLOW_PROXY_BENCHMARK_IPS`）；新增 `test_fetch_models_benchmark_off_message_distinct_from_real_private` 验证两类拒绝文案可区分（基准段不含「私网」、真实私网不含 `fake-IP`）。
+- 文档：`ops-center/docs/PRD.md` 12A.3/12A.3.1（fake-IP 场景、数据校验、流程、功能逻辑、交互逻辑、显示项、提示文字、两条解决路径）、`ops-center/openspec/specs/ops-center/model-preset-info/spec.md` 同步；`01-docs/BUGFIX-SSRF-FETCH-MODELS-FAKEIP-2026-09-16.md` 完整复盘。
+
+---
+
 # [未发布] fix(rewrite): 质量结论中性化 + i18n 插值根因修复 + 评分口径修正 + 结果区复制按钮（2026-09-16）
 
 ### 修复

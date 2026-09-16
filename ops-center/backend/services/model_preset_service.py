@@ -797,6 +797,19 @@ def _is_private_or_reserved(ip: str) -> bool:
             or addr.is_reserved or addr.is_unspecified or addr in _CGNAT_V4)
 
 
+def _is_benchmark_segment(ip: str) -> bool:
+    """是否为 RFC 2544 基准测试段 198.18.0.0/15。
+
+    该段被 Clash/TUN 类 fake-ip 代理用于接管公网流量：公网模型 API 域名在代理
+    DNS 劫持下会解析到该段。它不是真实内网目标，仅因代理存在才出现；用于区分
+    「真实私网/保留地址」与「代理基准段」，从而给出可操作的拒绝提示。
+    """
+    try:
+        return ipaddress.ip_address(ip) in _BENCHMARK_V4
+    except ValueError:
+        return False
+
+
 def _extract_model_ids(payload: object) -> list[str]:
     """从常见模型列表响应中提取字符串模型ID：
     {models:[...]} / {data:[{id:...}]} / {data:[...]} / 纯数组 / {model_ids|modelIds} / {items}；
@@ -879,6 +892,15 @@ async def fetch_models_from_url(db: AsyncSession, preset_id: str, models_url_ove
         for entry in resolved:
             ip = entry[4][0]
             if _is_private_or_reserved(ip):
+                # 区分「真实私网/保留地址」与「fake-ip 代理基准段」：后者不是真实内网目标，
+                # 仅因代理 DNS 劫持才解析到 198.18.x.x，给出可操作的指引而非笼统拒绝。
+                if _is_benchmark_segment(ip) and not settings.allow_proxy_benchmark_ips:
+                    raise ValueError(
+                        "获取模型ID URL 在 fake-IP 代理环境下解析到 198.18.x.x（RFC 2544 基准测试段），"
+                        "被 SSRF 守卫按保留地址拒绝。这不是真实内网目标，而是 Clash/TUN 类代理接管公网流量的正常现象。"
+                        "请二选一解决：① 在运行 ops-center 的环境设置 OPS_ALLOW_PROXY_BENCHMARK_IPS=true 后重启服务；"
+                        "② 关闭代理的 fake-IP / DNS 劫持模式后重试。"
+                    )
                 raise ValueError("获取模型ID URL 解析到私网/保留地址，已拒绝（防 SSRF）")
 
     headers = {"Accept": "application/json", "User-Agent": "ops-center-model-presets/0.1"}
