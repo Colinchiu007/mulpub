@@ -12,6 +12,21 @@
 
 ---
 
+# [未发布] feat(desktop): 登录页会话级网络诊断日志——二维码加载失败可观测化（2026-09-16）
+
+### 变更
+- **背景**：微信公众号登录二维码由 iframe 加载（open.weixin.qq.com/mpqrconnect → long.open.weixin.qq.com），iframe 内部请求失败不触发 `did-fail-load`，应用对该类故障完全无感知（当日实际案例：代理分流导致二维码加载失败，排障缺证据）
+- **新增 `electron/services/login-network-diagnostics.js`**：`attachLoginNetworkDiagnostics(ses, {platform, accountId})` 用 **session.webRequest 会话级监听**（可观测 iframe 内部请求）——`onErrorOccurred` 记录失败请求（跳过 ERR_ABORTED 噪音）+ `classifyNetError` 错误分类排查提示（代理不可达/DNS fake-IP 残留建议 flushdns/连接失败）；`onCompleted` 对二维码关键端点（mpqrconnect/qrconnect）HTTP≥400 打 warn；挂接时 `resolveProxy('open.weixin.qq.com')` 探测并记录「二维码请求实际走 DIRECT 还是哪个代理」
+- **挂接点**：`webview-manager.js` `createNewTabPage` 仅对账号分区（`persist:account-*`）挂接，home/浏览标签不挂；幂等标记防同分区复用翻倍；try/catch 防御不影响登录主流程
+- **零 UI/零文案/零新增 IPC**（纯主进程日志，grep tag `LoginNetDiag`）；URL filter 限定微信登录链路域名（*.weixin.qq.com / *.wx.qq.com 共 4 条）
+
+### 验证
+- 新增 `login-network-diagnostics.test.js` 14 例（幂等/filter/错误分类/ABORTED 静默/端点 warn/resolveProxy 路径）；`webview-manager.test.js` 37 例回归，定向合计 51/51 全绿
+- eslint 0 error；`check-locale-sync --cjk` PASS（1410 < 基线 1644）；无 i18n/IPC/preload 变更
+- 文档：`01-docs/FEATURE-LOGIN-NETWORK-DIAG-2026-09-16.md`（方案/日志样例/边界/扩展）
+
+---
+
 # [未发布] fix(desktop): 账号登录态 HTTP 检测改黑名单语义，修复抖音「已失效」假阳性（2026-09-16）
 
 ### 修复
@@ -29,12 +44,14 @@
 ---
 
 # [未发布] feat(desktop): 采集页「采集记录」与「文案库」合并为单一「文案库」标签（2026-09-16）
+
 ### 变更
 - **标签合并**：采集页三个标签收敛为两个（内容采集 / 文案库）；文案库以原「采集记录」卡片为准——完整显示项（来源/字数/视频时长/平台/采集时间）+ 全部操作（编辑/创建草稿/视频创作/发布/删除），并保留原文案库的「全部/采集/改写」筛选与改写文案条目（✨ 徽标：查看/再改写/删除）
 - **新增【改写】按钮**：采集卡与改写卡均可一键跳转改写页并**直接开始改写**——经 sessionStorage 一次性交接（`rewrite_handoff_v1`，正文可上万字避免 URL 超长），改写页 `/rewrite?from=collection` 挂载后自动填入正文、智能仿写模式、平台带入（白名单内）并触发改写（读后即焚，刷新不重复触发；与 `?topic=` 热门选题带入互斥，topic 优先）
 - **改写闭环**：改写页改写成功后按 `fromKey`（`collect:<id>` / `rewrite:<id>`）回写文案库，同一来源只保留最新结果；回写失败静默不影响改写主流程
 - **提示文字更新**：标签名/空态/删除与清空确认全部改为「文案」口径（zh/en 成对）；新增 `collection.rewriteHandoffFailed`
 - **技术债清理**：删除不再使用的 `CopyLibraryPanel.vue`（341 行，列表逻辑迁入 Collection.vue 合并视图）；`CopyRewriteModal` 解除引用但组件保留（记录于 PRD §10 待清理）
+
 ### 验证
 - 新增 `utils/rewrite-handoff.test.js`（4 例）+ `useCopyLibrary.compareByCreatedAtDesc` 导出复用
 - `Collection.test.js` 文案库合并块重写为 9 例（双标签结构/合并列表/筛选/两种改写交接/空正文拦截/删除/页内改写回写回归）；`RewriteView.test.js` 新增交接块 4 例
