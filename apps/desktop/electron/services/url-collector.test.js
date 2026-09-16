@@ -389,6 +389,105 @@ describe("UrlCollector _parseHtml", () => {
   });
 });
 
+/**
+ * 回归保护（2026-09-16）：采集页正文丢失原文换行/分段。
+ *
+ * 根因：通用回退分支用 `.text().trim().replace(/\s+/g, ' ')`，把包括换行在内的所有连续
+ * 空白压成单个半角空格 → 正文变成一整行，用户侧表现为「采集到的文字没有分行和分段，
+ * 一整篇看着非常乱」，送进 AI 改写的正文也同时失去段落结构。
+ *
+ * 逃逸原因（为什么旧测试没拦住）：此前所有正文断言都是 `toContain` 子串匹配，
+ * 没有任何一条锁定段落结构 —— 整篇压成一行时，每个子串依然命中。
+ * 因此本 describe 一律用 `toBe` 精确锁定段落结构，旧实现必然失败。
+ */
+describe("UrlCollector 正文换行/分段保留（回归：正文被压成一整行）", () => {
+  let collector;
+
+  beforeEach(() => {
+    collector = new UrlCollector();
+  });
+
+  it("通用站点：段落之间保留空行，列表项之间单换行（精确匹配）", () => {
+    const html = `<html><head><title>T</title></head><body><article>
+      <h2>小标题</h2>
+      <p>第一段。</p>
+      <p>第二段。</p>
+      <ul><li>要点一</li><li>要点二</li></ul>
+    </article></body></html>`;
+    const result = collector._parseHtml(html, "https://example.com/post/98");
+    // 旧实现：整篇被压成 "小标题 第一段。 第二段。 要点一 要点二"（零换行）
+    expect(result.content).toBe("小标题\n\n第一段。\n\n第二段。\n\n要点一\n要点二");
+  });
+
+  it("<br> 强制换行保留为单个换行（不产生空行）", () => {
+    const html = `<html><body><article><p>第一行<br>第二行<br>第三行</p></article></body></html>`;
+    const result = collector._parseHtml(html, "https://example.com/post/99");
+    expect(result.content).toBe("第一行\n第二行\n第三行");
+  });
+
+  it("行内多余空白仍被压缩为单个空格（换行不受影响）", () => {
+    const html = `<html><body><article><p>甲   乙\t丙\u3000丁</p></article></body></html>`;
+    const result = collector._parseHtml(html, "https://example.com/post/100");
+    expect(result.content).toBe("甲 乙 丙 丁");
+  });
+
+  it("连续 3 个以上换行压缩为 1 个空行，首尾换行被去除", () => {
+    // 真实页面源码缩进会在块级元素之间产生大量空白
+    const html = `<html><body><article>\n\n\n<p>甲</p>\n\n\n\n\n<p>乙</p>\n\n</article></body></html>`;
+    const result = collector._parseHtml(html, "https://example.com/post/101");
+    expect(result.content).toBe("甲\n\n乙");
+  });
+
+  it("<pre> 代码块保留内部换行与缩进（不被行内空白压缩抹平）", () => {
+    const html = `<html><body><article><p>示例：</p><pre>function a() {\n  return 1\n}</pre><p>结束。</p></article></body></html>`;
+    const result = collector._parseHtml(html, "https://example.com/post/102");
+    expect(result.content).toBe("示例：\n\nfunction a() {\n  return 1\n}\n\n结束。");
+  });
+
+  it("表格单元格不粘连（同一行内以空格分隔，行与行之间换行）", () => {
+    const html = `<html><body><article><table><tr><td>甲</td><td>乙</td></tr><tr><td>丙</td><td>丁</td></tr></table></article></body></html>`;
+    const result = collector._parseHtml(html, "https://example.com/post/103");
+    expect(result.content).toBe("甲 乙\n丙 丁");
+  });
+
+  it("噪声节点（导航/页脚/脚本/侧栏）不进入正文，也不制造伪换行", () => {
+    const html = `<html><body><article><nav>导航</nav><p>正文。</p><script>var a=1</script><aside>侧栏</aside><footer>页脚</footer></article></body></html>`;
+    const result = collector._parseHtml(html, "https://example.com/post/104");
+    expect(result.content).toBe("正文。");
+  });
+
+  it("知乎分支（.Post-RichTextContainer）同样保留段落换行", () => {
+    const html = `<html><head><meta property="og:site_name" content="知乎"></head><body>
+      <div class="Post-RichTextContainer"><div class="RichText ztext Post-RichText"><p>知乎第一段。</p><p>知乎第二段。</p></div></div>
+    </body></html>`;
+    const result = collector._parseHtml(html, "https://zhuanlan.zhihu.com/p/1");
+    expect(result.content).toBe("知乎第一段。\n\n知乎第二段。");
+  });
+
+  it("百家号：段落之间为空行（与通用站点格式统一）", () => {
+    const html = `<html><head><title>百家号</title></head><body>
+      <div class="_2jN0Z"><p>百家号第一段。</p><p>百家号第二段。</p></div>
+    </body></html>`;
+    const result = collector._parseHtml(html, "https://baijiahao.baidu.com/s?id=1");
+    expect(result.content).toBe("百家号第一段。\n\n百家号第二段。");
+  });
+
+  it("空正文容器返回空串且不抛错", () => {
+    const result = collector._parseHtml("<html><body></body></html>", "https://example.com/empty");
+    expect(result.content).toBe("");
+  });
+
+  it("超长正文截断到 50000 字符后仍保留段落结构", () => {
+    const para = "这是一段用于验证截断行为的正文。";
+    const html = `<html><body><article>${Array.from({ length: 3000 }, () => `<p>${para}</p>`).join("")}</article></body></html>`;
+    const result = collector._parseHtml(html, "https://example.com/long");
+    expect(result.content.length).toBeLessThanOrEqual(50000);
+    // 截断后仍是多段落，而非一整行
+    expect(result.content).toContain("\n\n");
+    expect(result.content.startsWith(para)).toBe(true);
+  });
+});
+
 describe("UrlCollector SSRF 防护", () => {
   let collector;
 

@@ -511,6 +511,10 @@ Code review 时除逻辑正确性外，必须逐项检查：
 
 - **Bridge 启动回归测试**：Bridge 子类的测试必须包含 `pythonModule` 值断言（不能只断言字符串，还要验证目标模块路径指向的包能被 `python -m` 启动）。已有用例如用例 13b。
 
+- **文本结构断言（MUST）**：凡断言**文本结构**（换行 / 分段 / 分隔符 / 字段顺序 / 序列化格式）的测试，必须**至少一条 `toBe` / `toEqual` 精确断言或结构断言**（如 `expect(out.split("\n")).toEqual([...])`），`toContain` 仅可作为补充。原因：纯 `toContain` 子串匹配对结构性回归**完全免疫** —— 正文被压成一整行时每个子串依然命中（2026-09-16 采集页正文换行全丢即由此逃逸，见 `01-docs/BUGFIX-COLLECT-NEWLINE-PRESERVE-2026-09-16.md`）。新增/修改文本提取、解析、格式化类代码时必须同时补一条精确断言，并用「修复前实现副本」实测确认该断言能抓住 Bug。
+
+- **文本空白归一化（MUST NOT）**：清理 HTML 源码缩进噪声时**禁止**用 `replace(/\s+/g, ' ')` —— `\s` 含 `\n`/`\r`/`\u2028`/`\u2029`/全角空格 `\u3000`/NBSP `\u00a0`/BOM `\ufeff`，会把**语义换行一起压掉**，正文变成一整行。正确口径：行内空白压缩用 `[^\S\n]+`（显式排除换行）；块级结构（`p`/`h1-h6`/`blockquote` → 段间空行，`div`/`li`/`tr` → 单换行，`td`/`th` → 制表符，`<br>` → 换行，`<pre>` → 原样保留）在 DOM 层转成换行，最后只做「连续 3 个以上换行压成 1 个空行」收口。正文提取统一复用 `apps/desktop/electron/services/readable-text.js`（`extractReadableText` / `normalizeExtractedText`），禁止在采集通道里另写一套。
+
 ### QM-4：视觉回归测试
 
 **框架位置**：`apps/desktop/tests/visual-testing/`
