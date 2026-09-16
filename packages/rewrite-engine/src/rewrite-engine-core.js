@@ -108,12 +108,14 @@ class RewriteEngine {
     const postCheck = this._sensitiveCheck(processed, 'post')
 
     // 8. 改写质量评估（优先 embedding 语义 → 回退 SimHash/Jaccard 本地算法）
+    // BUGFIX-REWRITE-QUALITY-UX：把改写模式透传给评估器——选题创作(create) 的输入是主题种子，
+    // 语义保持度天然偏低，不能套用智能仿写(imitate) 的"偏离原意 → 不合格"判据。
     let quality
     try {
-      quality = await this._qualityEvaluator.evaluateAsync(content, processed)
+      quality = await this._qualityEvaluator.evaluateAsync(content, processed, { mode })
     } catch {
       try {
-        quality = this._qualityEvaluator.evaluate(content, processed)
+        quality = this._qualityEvaluator.evaluate(content, processed, { mode })
       } catch {
         quality = null
       }

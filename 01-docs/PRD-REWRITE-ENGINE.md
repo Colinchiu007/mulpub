@@ -629,6 +629,9 @@ RewriteEngine.rewrite()
 
 #### 13.10.2 质量报告字段（RewriteQualityEvaluator 返回）
 
+> ⚠️ **v1.6 已修订**（2026-09-16，见 13.11）：`semanticPreservation` 口径、`verdict` 判据与新增字段
+> `mode` / `textSimilarity` 以 §13.11 为准。本表为 v1.5 历史记录。
+
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | sufficiency | number 0-100 | 改写充分度（SimHash 海明距离映射） |
@@ -659,3 +662,173 @@ RewriteEngine.rewrite()
 2. quality 缺失时显示占位文案
 3. zh/en 文案成对（CI Gate 7）
 4. RewriteView.test.js 新增 2 用例（质量报告展示 + quality 缺失占位）
+
+---
+
+### 13.11 质量评估口径修正 + 结论文案中性化 + 结果区复制按钮（v1.6，2026-09-16）
+
+> 触发：用户实际反馈——输入「秋天来了」4 字、选题创作模式、输出约 831 字成文，质量报告显示
+> 「语义保持度 9.89 / 结论：不合格」，字数栏显示 `{original} 字 → {result} 字`，且结果区无一键复制入口。
+> 完整根因追溯与 QM-5 五步反思见 [BUGFIX-REWRITE-QUALITY-UX-2026-09-16.md](./BUGFIX-REWRITE-QUALITY-UX-2026-09-16.md)。
+
+#### 13.11.1 语义保持度：对称 Jaccard → 非对称覆盖率
+
+| 项 | v1.5（旧） | v1.6（新） |
+|----|-----------|-----------|
+| 公式 | `charJaccard × 70 + keywordOverlap × 30` | `charCoverage × 70 + keywordCoverage × 30` |
+| 字符分量 | `|A∩B| / |A∪B|`（对称，被输出长度稀释） | `|A∩B| / |A|`（非对称，对长度增长鲁棒） |
+| 关键词分量 | `∩ / max(|kwA|, |kwB|)`（分母被长文放大） | `∩ / |kwA|`（以原文关键词为分母） |
+| 语义含义 | 两段文本整体有多像 | **原文内容有多少被结果保留** |
+| 事故数值 | 4 字 → 831 字 = **9.89** | 同组文本 = **100** |
+
+新增导出：`charCoverage`、`keywordCoverage`、`normalizeMode`。
+
+#### 13.11.2 新增 `textSimilarity`：独立承担「是否没改够」判据
+
+覆盖率口径下，任何足够长的输出都会包含原文全部字符（实测 4 字 → 831 字覆盖率恒为 100），
+因此**不能再以「语义保持度高」判「改动过少」**。新增 `textSimilarity`（对称 Jaccard，0-100）
+承担该判据：`similarity > 0.9` → `fail`。若只换口径不分离该判据，会把「没改够」误判扩散到全部长文扩写场景。
+
+#### 13.11.3 模式分档判定（`determineVerdict`）
+
+新增第三参数 `{ mode }`（`'imitate' | 'expand' | 'create'`，缺省 `imitate`），由
+`rewrite-engine-core.js` 从 `rewrite(params).mode` 透传。
+
+| 模式 | `fail` 条件 | `warn` 条件 |
+|------|------------|------------|
+| **任意** | `distance < 3` **或** `similarity > 0.9` | — |
+| `create` 选题创作 | 无（除上条） | 语义分 < `band.offTopic` |
+| `expand` 扩写 | 语义分 < `band.weak`（原文信息丢失） | `distance ≤ 6`（扩写幅度不足） |
+| `imitate` 智能仿写 | 语义分 < `band.weak` | `distance ≤ 6` 或语义分 < `band.moderate` |
+
+**依据**：`create` 模式输入是**主题种子**（常仅几字），输出是据此新写的成文，语义保持度天然偏低属预期；
+套用 `imitate` 的「语义保持度 < 30 → 偏离原意 → fail」等价于要求新文章与几个字的主题高度相似，逻辑不成立。
+
+##### 13.11.3.1 语义分标度分组（`SEMANTIC_BANDS`，CCG 评审 W-1 修复）
+
+`semanticPreservation` 在两条评估路径上的**标度不同**，不能共用一组阈值：
+
+| 路径 | 标度 | 关键锚点 |
+|------|------|---------|
+| `simhash`（覆盖率口径） | `charCoverage×70 + keywordCoverage×30` | 0 = 原文内容完全丢失；100 = 完全保留 |
+| `embedding`（余弦映射） | `((cos + 1) / 2) × 100` | **余弦 0（完全无关）→ 50**；-1 → 0；1 → 100 |
+
+**缺陷**：若 embedding 路径套用覆盖率阈值（`<15 / <30 / <50`），"完全无关"的 50 分会越过全部 fail 阈值，
+使 embedding 路径几乎恒定 `pass`（`create` 模式下尤其明显）。
+
+**修复**：阈值按标度分组（`SEMANTIC_BANDS`，`determineVerdict` / `buildSuggestions` 均按 `method` 选取）：
+
+| 阈值组 | `offTopic` | `weak` | `moderate` |
+|--------|-----------|--------|-----------|
+| `simhash` | 15 | 30 | 50 |
+| `embedding` | 30 | 45 | 60 |
+
+`embedding` 组整体上移：以余弦 -0.1（≈45）作为"内容大量丢失"分界、余弦 0（50）作为"需注意"起点。
+`method` 经 `normalizeMethod` 归一化（非法/缺省/`null` → `simhash`）。
+
+#### 13.11.4 质量报告字段（v1.6）
+
+| 字段 | 类型 | 变化 |
+|------|------|------|
+| sufficiency | number 0-100 | 不变 |
+| semanticPreservation | number 0-100 | **口径变更**（覆盖率） |
+| textSimilarity | number 0-100 | **新增**（对称 Jaccard，判"没改够"） |
+| originality | number 0-100 | 不变（内部改用 `charJaccard` 变量直接计算） |
+| simhashDistance | number | 不变 |
+| mode | string | **新增**（实际生效的改写模式，非法值回退 `imitate`） |
+| verdict | pass/warn/fail | **判据按 mode 分档** |
+| suggestions | string[] | **措辞按 mode 分派**，移除「偏离原意」类负面表述 |
+| method | simhash/embedding | 不变 |
+
+#### 13.11.5 结论文案与配色中性化（RewriteView.vue + locales）
+
+| 键 | v1.5 | v1.6（zh / en） |
+|----|------|-----------------|
+| `rewritePage.qualityVerdictPass` | 合格 | 合格 / `Pass` |
+| `rewritePage.qualityVerdictWarn` | 需注意 | 需注意 / `Needs attention` |
+| `rewritePage.qualityVerdictFail` | **不合格** / `Failed` | **建议优化** / `Suggestions available` |
+
+配色：`.quality-verdict-fail` 由错误红 `#dc2626` → 暖橙 `#ea580c`（去"失败/不可用"观感）。
+
+原则：结论栏只承载"有没有可改进的地方"，不承载"合格/不合格"的判决语义；第三态与下方「改进建议」区块语义连贯。
+
+#### 13.11.6 i18n 命名插值根因修复（全仓影响）
+
+`apps/desktop/src/i18n/index.js` 的 `toMessageFunctions` 原把**所有**字符串叶子包成 `() => source`，
+丢弃 vue-i18n 传入的插值参数 → 含 `{param}` 的语料在 `t()` 通道原样输出花括号。
+
+修复：含 `{param}` 的字符串编译为命名插值 Message Function（纯正则替换，**不使用 `new Function`**，CSP 安全）；
+无占位符的字符串维持常量函数。缺参回退空串，与 `utils/notifyCore.js` 语义对齐。
+
+**影响面**：locales 中 68 条 `{param}` 叶子 / 16 处 `t(key, params)` 调用点一次性恢复，含
+`rewritePage.metaLength`（本次事故）、`memberCenter.daysRemaining`、`accountsPage.creatorTabTitle`、
+`story2video.sceneMaterial.*`、`knowledgeBase.importResult`、`tagSuggest.hotMatch`、`stageProgress.composeSegments` 等。
+
+**为什么长期未被发现**：`notifyCore.interpolateMessage` 读取的是 locales **原始树**并自行正则插值，
+通知通道一直正常 → 形成"`{param}` 可用"的虚假安全感。
+
+#### 13.11.7 结果区复制按钮
+
+- 位置：结果文本框正下方、动作行（存入草稿/视频创作/去发布）之上
+- 新增共享工具 `apps/desktop/src/utils/clipboard.js`：异步 Clipboard API 优先 → 隐藏 textarea + `execCommand` 回退 → 失败返回 `false`（不抛异常）；空串直接拒绝；临时节点 `finally` 清理
+- 删除 `useFilmEngineering.js` 的本地重复实现改为复用（全仓共 **9 个**非测试源码文件使用剪贴板 API，已迁移 2 个 → **剩余 7 处**登记为 P1 后续项）
+- 交互：成功 toast「已复制到剪贴板」+ 按钮切「✅ 已复制」1.5s；失败 toast「复制失败，请手动选中文本后复制」且**立即复位**；无内容时 warning；组件卸载清计时器
+- i18n 新增 zh/en 成对 5 键：`copyResult` / `copyResultDone` / `copySuccess` / `copyFailed` / `copyEmpty`
+
+#### 13.11.8 验收标准
+
+1. 结果栏字数概览显示「原文 N 字 → 结果 M 字」，界面任何位置不含 `{}`
+2. 选题创作「短种子 → 长成文」不再判 `fail`；离题种子判 `warn`
+3. 近似重复文本在三种模式下**仍判 `fail`**
+4. 结论第三态显示「建议优化」，界面不再出现「不合格」
+5. 复制按钮可用且失败时不误显"已复制"
+6. `packages/rewrite-engine` **132 例**（基线 102 → +30）、桌面端定向 **74 例**（+19）全绿
+7. i18n 全量插值守卫测试通过（哨兵注入法，覆盖未来新增语料）
+8. embedding 路径按独立阈值组判定（余弦 0 → 语义分 50 不再被误判达标）
+
+#### 13.11.9 已知局限
+
+| 优先级 | 项 |
+|--------|----|
+| P1 | 另有 **7 处**剪贴板重复实现待迁移（`NavBar.vue` / `TagSuggester.vue` / `usePublishFlow.js` / `Collection.vue` / `FilmEngineeringView.vue` / `PromptEvalView.vue` / `ResultView.vue`）；其中 `NavBar.vue` 无回退分支、`TagSuggester.vue` 与 `usePublishFlow.js` 的回退分支缺 `finally` 清理（`execCommand` 抛异常时临时 textarea 不被移除） |
+| P1 | JS↔Python 双评估器无 parity 测试：仓库有两套独立评估器（JS 3 维 SimHash / Python 15 维启发式），Python 侧早已修过同类"短文被长文标准误判"问题（`test_evaluator_shorttext_calibration.py`），JS 侧直到本次才修 |
+| P2 | 数字类内容假阴性：纯数字/参数化文本（价格、日期、指标）仅数字改变时覆盖率仍高 → 判 `pass` |
+| P2 | Markdown / 标点噪声虚高：标点与结构性符号大量进入 2-gram top-N，抬高分值 → 噪声虚高。需在 `tokenize` 阶段过滤 |
+| P2 | `extractKeywords` 走字符 2-gram，未做拉丁词切分 → 英文长文关键词覆盖率偏弱（实测语义保持度 73 vs 中文 100；`charCoverage` 占 70% 已兜住） |
+| P2 | `create` 模式的 `band.offTopic → warn` 仍是覆盖率/余弦近似，更准确应引入「主题相关性」独立判据 |
+| P2 | `distance < 3` 与 `gramSize = 4` 在超短文本（< 10 字）上区分度弱（4 字种子经 `gramSize=4` 只切出 1 个 token，指纹退化） |
+| P2 | `scoreSufficiency` 分辨力有限：距离→分数是人为分段线性映射，实测 96% 相似的英文文本充分度仅 60、完全不同文本 100（未作为主判据，故不阻塞） |
+| P3 | 无单位浮点数（`9.89` / `99.37`）直接展示给普通内容创作者，信息层级待优化；「评估方式：SimHash 指纹」对普通用户无意义，可下沉为次要信息 |
+| P3 | 桌面端 `AIGenerator.getEmbedding()` 未配置 embedding 模型时抛错 → `evaluateAsync` 静默回退 SimHash，用户侧长期显示「SimHash 指纹」 |
+
+#### 13.11.10 CCG 双模型评审记录（2026-09-16）
+
+按质量节拍「M+ 复杂度双模型外部审查」要求，对本次改动并行执行两个独立后端审查：
+
+| 后端 | Critical | Warning | Info | 处置 |
+|------|----------|---------|------|------|
+| claude | 0 | 3 | 6 | W-1 / W-2 / W-3 已修；Info 已修 4 条，1 条经核实为误报 |
+| codex | 0 | 5 | 7 | W-1 / W-5 已修；W-2 / W-3 / W-4 经核实为"预存/误报/风格建议"，登记不改 |
+
+**已修复项**：
+
+| 编号 | 问题 | 修复 |
+|------|------|------|
+| W-1（claude） | embedding 路径语义分标度与覆盖率共用阈值 → "完全无关"（50 分）越过全部 fail 阈值，embedding 路径几乎恒定 pass | 引入 `SEMANTIC_BANDS` 按 `method` 分组选阈值；新增 5 例回归测试（余弦 0 → warn、余弦 -1 → fail、create 不误报"切题"等） |
+| W-2（claude） | 占位符正则提取为模块级带 `g` 标志常量，存在 `lastIndex` 共享状态风险 | 内联到 `replace` 调用点，每次新建正则；新增 2 例连续插值一致性测试 |
+| W-3（claude） | `evaluate()` 未向 `buildSuggestions` 传 `method`，与 `evaluateAsync` 不对称 | 显式传 `method: 'simhash'`；新增对照测试（simhash 路径不出 embedding 说明、embedding 路径出） |
+| W-1（codex） | `notifyError` 传冗余 `{ fallback: t(...) }`，key 存在时 fallback 永不触发且多一次 i18n 查找 | 简化为 `notifyError('rewritePage.copyFailed')` |
+| W-5（codex） | `evaluateBatch` 的 JSDoc `@returns` 缺新字段 | 补齐 `textSimilarity` / `mode` |
+| I-1（claude） | `new Set(str)` 按 UTF-16 code unit 建集，BMP 外字符（emoji）被拆成代理对 → 覆盖率/相似度失真 | 新增 `charSet()` 用 `Array.from()` 按码点建集；纯 BMP 文本结果不变（零回归）；新增 2 例 emoji 测试 |
+| I（claude/codex） | 剪贴板重复实现数量登记为 4 处，实际为 9 处（剩 7 处） | 修正 `clipboard.js` 头注释与本文档 §13.11.7 / §13.11.9 |
+| I-2（codex） | `clipboard.js` 的 `default export` 无消费方 | 移除，仅保留 named export |
+| I-3 / I-4（codex） | `textSimilarity` 精度选择无说明；`determineVerdict` / `buildSuggestions` 未标内部 API | 补充精度设计注释；加 `@internal` 标记 |
+
+**经核实未采纳项**：
+
+| 编号 | 原判 | 核实结论 |
+|------|------|---------|
+| W-4（codex） | `zh.js:2325 photo.metaLength` 被本次改动同步修改但未记录 | **误报**：该行在本次改动前即为 `'原文 {original} 字 → 结果 {result} 字'`，未被本次修改触及（本次仅改 `rewritePage.metaLength`）。已用 `git diff` 核对 |
+| W-2（codex） | 同一组件混用 `collection.*` 与 `rewritePage.*` 通知命名空间 | 属实但为**预存风格问题**（改写主流程通知键早于本次变更），迁移需同步评估 `errorCategory` 日志归类影响，登记为后续项，不在本 PR 扩大范围 |
+| W-3（codex） | `usePublishFlow.js` 回退分支缺 `finally` 清理 | 属实但为**预存缺陷**，已登记于 §13.11.9 P1（迁移时一并修复） |
+| I-6（claude） | `buildSuggestions` 中 `method` 为死代码 | **误报**：`method` 用于输出 embedding 口径说明（该函数的**必要**参数）。恰恰因 `evaluate()` 未传而暴露不对称，已由 W-3 修复 |

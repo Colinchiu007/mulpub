@@ -197,3 +197,125 @@ describe("zh/en 内容同步（i18n-content-sync）", () => {
     }
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BUGFIX-REWRITE-QUALITY-UX 回归保护（2026-09-16）
+//
+// 事故现场：改写页结果栏原样显示「{original} 字 → {result} 字」——模板占位符泄漏到 UI。
+// 根因：toMessageFunctions 把**所有**字符串叶子都包成 `() => source`，丢弃了 vue-i18n
+// 传入的插值参数，于是含 {param} 的字符串原样输出。
+// 全仓影响面：locales 中 68 条「普通字符串 + {param}」叶子 / 16 处 t(key, params) 调用点。
+// 本组用例做全量守卫，防止同类泄漏再次进入语料。
+// ─────────────────────────────────────────────────────────────────────────────
+describe("i18n {param} 命名插值（BUGFIX-REWRITE-QUALITY-UX 回归）", () => {
+  const SENTINEL = "SENTINELVALUE";
+
+  /** 抽取字符串叶子里的占位符名（去重） */
+  function paramNames(value) {
+    const tokens = String(value).match(/\{([^{}]+)\}/g) || [];
+    return [...new Set(tokens.map((t) => t.slice(1, -1)))];
+  }
+
+  it("全量守卫：普通字符串叶子里的 {param} 都会被替换，不泄漏原始占位符（zh/en）", () => {
+    try {
+      for (const [locale, tree] of [
+        ["zh", zh],
+        ["en", en],
+      ]) {
+        i18n.global.locale.value = locale;
+        const braced = collectStringLeaves(tree).filter(
+          (l) => paramNames(l.value).length > 0
+        );
+        // 语料中确实存在这类叶子（否则本守卫形同虚设）
+        expect(braced.length).toBeGreaterThan(0);
+        for (const leaf of braced) {
+          const params = {};
+          for (const name of paramNames(leaf.value)) params[name] = SENTINEL;
+          const text = i18n.global.t(leaf.path, params);
+          expect(text, `${locale}.${leaf.path} 仍残留占位符`).not.toMatch(
+            /\{[^{}]+\}/
+          );
+          expect(text, `${locale}.${leaf.path} 未注入参数值`).toContain(
+            SENTINEL
+          );
+        }
+      }
+    } finally {
+      i18n.global.locale.value = "zh";
+    }
+  });
+
+  it("事故用例：rewritePage.metaLength 渲染为可读字数概览", () => {
+    try {
+      i18n.global.locale.value = "zh";
+      expect(
+        i18n.global.t("rewritePage.metaLength", { original: 8, result: 720 })
+      ).toBe("原文 8 字 → 结果 720 字");
+      i18n.global.locale.value = "en";
+      expect(
+        i18n.global.t("rewritePage.metaLength", { original: 8, result: 720 })
+      ).toBe("Source 8 → Result 720 chars");
+    } finally {
+      i18n.global.locale.value = "zh";
+    }
+  });
+
+  it("缺参回退空串（与 notifyCore 插值语义一致）且不泄漏花括号", () => {
+    i18n.global.locale.value = "zh";
+    const text = i18n.global.t("rewritePage.metaLength");
+    expect(text).not.toMatch(/\{[^{}]+\}/);
+  });
+
+  it("边界值 0 不被当成缺参", () => {
+    i18n.global.locale.value = "zh";
+    expect(
+      i18n.global.t("rewritePage.metaLength", { original: 0, result: 0 })
+    ).toBe("原文 0 字 → 结果 0 字");
+  });
+
+  it("同一 key 在不同调用间不串参（占位符模板不被缓存污染）", () => {
+    i18n.global.locale.value = "zh";
+    const a = i18n.global.t("rewritePage.metaLength", { original: 1, result: 2 });
+    const b = i18n.global.t("rewritePage.metaLength", { original: 300, result: 400 });
+    expect(a).toBe("原文 1 字 → 结果 2 字");
+    expect(b).toBe("原文 300 字 → 结果 400 字");
+  });
+
+  // CCG 评审 W-2：占位符正则已内联到 replace 调用点，不共享模块级 `g` 正则实例。
+  // 若共享带 g 标志的 RegExp，`lastIndex` 会在多次调用间残留，导致间歇性漏替换。
+  it("连续多次插值结果完全一致（无共享正则 lastIndex 残留）", () => {
+    i18n.global.locale.value = "zh";
+    const results = [];
+    for (let i = 0; i < 5; i++) {
+      results.push(
+        i18n.global.t("rewritePage.metaLength", { original: 7, result: 99 })
+      );
+    }
+    expect(new Set(results).size).toBe(1);
+    expect(results[0]).toBe("原文 7 字 → 结果 99 字");
+  });
+
+  it("同一字符串内多个不同占位符全部被替换（g 语义未退化）", () => {
+    i18n.global.locale.value = "zh";
+    // knowledgeBase.importResult 含 3 个不同占位符
+    const text = i18n.global.t("knowledgeBase.importResult", {
+      total: 3,
+      succeeded: 2,
+      failed: 1,
+    });
+    expect(text).not.toMatch(/\{[^{}]+\}/);
+    expect(text).toContain("3");
+    expect(text).toContain("2");
+    expect(text).toContain("1");
+  });
+
+  it("无占位符的字符串仍走常量路径（CSP 安全，不引入运行时编译）", () => {
+    i18n.global.locale.value = "zh";
+    expect(i18n.global.t("rewritePage.title")).toBe("文案改写");
+    // 语料叶子依然全部是 Message Function（CSP 硬约束）
+    const leaves = collectLeaves(i18n.global.getLocaleMessage("zh"));
+    for (const leaf of leaves) {
+      expect(typeof leaf.value, `zh.${leaf.path}`).toBe("function");
+    }
+  });
+});

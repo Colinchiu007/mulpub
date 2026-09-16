@@ -16,6 +16,7 @@
 import { ref, reactive } from 'vue'
 import { getApi } from '@/api/electron-bridge'
 import { formatUserError } from '@/utils/user-facing-error'
+import { writeClipboard } from '@/utils/clipboard'
 import i18n from '@/i18n'
 import { useNotify } from './useNotify'
 import {
@@ -48,31 +49,7 @@ function normalizeCharacterEntries (entries) {
   return output
 }
 
-/** 剪贴板写入：优先 navigator.clipboard，失败回退 textarea 复制 */
-async function writeClipboard (text) {
-  const nav = (typeof window !== 'undefined' && window.navigator) || (typeof navigator !== 'undefined' && navigator) || null
-  try {
-    if (nav && nav.clipboard && typeof nav.clipboard.writeText === 'function') {
-      await nav.clipboard.writeText(text)
-      return true
-    }
-  } catch (_) { /* 继续回退 */ }
-  try {
-    const doc = typeof document !== 'undefined' ? document : null
-    if (!doc) return false
-    const ta = doc.createElement('textarea')
-    ta.value = text
-    ta.style.position = 'fixed'
-    ta.style.opacity = '0'
-    doc.body.appendChild(ta)
-    ta.select()
-    const ok = doc.execCommand('copy')
-    doc.body.removeChild(ta)
-    return ok
-  } catch (_) {
-    return false
-  }
-}
+// 剪贴板写入已抽取为共享工具 @/utils/clipboard（BUGFIX-REWRITE-QUALITY-UX / DRY）
 
 function unwrap (res) {
   if (res && res.code === 0) return { ok: true, data: res.data }
