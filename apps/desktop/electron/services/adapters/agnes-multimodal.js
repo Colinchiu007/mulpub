@@ -102,7 +102,8 @@ class AgnesMultimodalAdapter extends BaseAdapter {
    * @param {string} [credentials.baseUrl] - 自定义端点（默认中国站 https://api.agnes-ai.cn/v1）
    * @param {object} [options]
    * @param {number} [options.timeout=120000] - 请求超时（ms）
-   * @param {number} [options.maxRetries=2] - 最大重试次数
+   * @param {number} [options.maxRetries=2] - 最大重试次数（BaseAdapter 通用请求重试）
+   * @param {number} [options.maxVideoAttempts=6] - 视频提交的最大尝试次数（含首次；503/429 退避重试窗口）
    */
   constructor(credentials, options = {}) {
     super(credentials, options)
@@ -253,9 +254,10 @@ class AgnesMultimodalAdapter extends BaseAdapter {
       // Flash 专属：size 固定 "720P"，其他值返回 HTTP 400（size must be 720P）
       size: '720P',
       aspect_ratio: params.aspect_ratio || params.aspectRatio || pickAspectRatio(params.width, params.height),
-      // 显式 seconds（官方为字符串 "4"–"12"）优先；否则由 numFrames/frameRate 推导
-      seconds: params.seconds || pickSeconds(params.numFrames ?? params.num_frames, params.frameRate ?? params.frame_rate),
-      seed: params.seed || undefined,
+      // 显式 seconds 优先（官方要求字符串 "4"–"12"，调用方传数字时归一化为字符串）；否则由 numFrames/frameRate 推导
+      seconds: String(params.seconds || pickSeconds(params.numFrames ?? params.num_frames, params.frameRate ?? params.frame_rate)),
+      // seed=0 是合法随机种子，必须用 != null 判空而非 ||（避免 0 被静默丢弃）
+      seed: params.seed != null ? params.seed : undefined,
     }
     if (mode === 'keyframe') {
       body.first_frame = params.first_frame || params.image || undefined
@@ -268,6 +270,13 @@ class AgnesMultimodalAdapter extends BaseAdapter {
         )
       }
     } else if (mode === 'reference') {
+      // Flash 专属上限（服务端超限返回 HTTP 400），客户端预校验避免浪费一次请求
+      if (hasImages && params.images.length > 5) {
+        throw new ProviderError(ERROR_CODES.INVALID_CONFIG, 'images length must not exceed 5', { providerId: this.id })
+      }
+      if (hasAudios && params.audios.length > 3) {
+        throw new ProviderError(ERROR_CODES.INVALID_CONFIG, 'audios length must not exceed 3', { providerId: this.id })
+      }
       body.images = hasImages ? params.images : (params.image ? [params.image] : undefined)
       body.audios = hasAudios ? params.audios : undefined
       if (!body.images && !body.audios) {
@@ -281,7 +290,11 @@ class AgnesMultimodalAdapter extends BaseAdapter {
 
     // 真实运行经验（agnes-video-v2.0，2026-08-11 W7）：Agnes 提交偶发 503 队列满载 /
     // 429 限流，均为瞬时条件。有界重试 + 递增退避；非重试错误（401/403/402/400）立即抛出。
-    const maxAttempts = 6
+    // 提交重试次数经 maxVideoAttempts 配置（默认 6 次尝试；options.maxRetries 是
+    // BaseAdapter 通用请求重试，与视频提交的重试窗口不同，不混用）。
+    const maxAttempts = Number.isFinite(Number(this.options.maxVideoAttempts)) && Number(this.options.maxVideoAttempts) > 0
+      ? Number(this.options.maxVideoAttempts)
+      : 6
     const backoffMs = this.options.retryBackoffMs
     let lastError = null
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -337,7 +350,7 @@ class AgnesMultimodalAdapter extends BaseAdapter {
     const rawTaskId = (taskIdOrParams && typeof taskIdOrParams === 'object')
       ? (taskIdOrParams.videoId || taskIdOrParams.taskId || taskIdOrParams.id)
       : taskIdOrParams
-    if (!rawTaskId) {
+    if (!rawTaskId || !String(rawTaskId).trim()) {
       throw new ProviderError(ERROR_CODES.INVALID_CONFIG, 'taskId is required')
     }
 
@@ -377,7 +390,11 @@ class AgnesMultimodalAdapter extends BaseAdapter {
     const status = statusMap[data.status] || 'processing'
     // 完成时下载 URL 位于 metadata.url（官方响应结构）；兼容旧版顶层 url
     const videoUrl = (status === 'completed' && ((data.metadata && data.metadata.url) || data.url || '')) || ''
-    const progress = data.progress !== undefined ? Number(data.progress) : (status === 'completed' ? 100 : 0)
+    // progress 兜底：非有限数值（如 "80%" / null）回退到状态隐含值，避免 NaN 透传
+    const parsedProgress = Number(data.progress)
+    const progress = Number.isFinite(parsedProgress)
+      ? parsedProgress
+      : (status === 'completed' ? 100 : 0)
 
     return { status, videoUrl, progress }
   }

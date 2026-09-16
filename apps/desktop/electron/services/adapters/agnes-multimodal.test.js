@@ -348,4 +348,64 @@ describe('AgnesMultimodalAdapter — Agnes-AI 多模态（中国站）', () => {
       expect(PRESET_RATE_LIMITS['agnes-multimodal'].rate_per_minute).toBeGreaterThanOrEqual(1)
     })
   })
+
+  describe('审查修复回归（2026-09-16 双模型外部审查）', () => {
+    it('seed:0 是合法值，不得被静默丢弃', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({ video_id: 'vid-seed' })])
+      global.fetch = fetchMock
+      const adapter = new AgnesMultimodalAdapter({ id: 'agnes-multimodal', apiKey: 'sk-test' })
+      await adapter.generateVideo({ prompt: 'p', seed: 0 })
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.seed).toBe(0)
+    })
+
+    it('seconds 传数字时归一化为字符串（官方要求 "4"–"12"）', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({ video_id: 'vid-sec' })])
+      global.fetch = fetchMock
+      const adapter = new AgnesMultimodalAdapter({ id: 'agnes-multimodal', apiKey: 'sk-test' })
+      await adapter.generateVideo({ prompt: 'p', seconds: 6 })
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.seconds).toBe('6')
+    })
+
+    it('reference 模式 images > 5 抛 INVALID_CONFIG，不发起请求', async () => {
+      const fetchMock = createFetchMock()
+      global.fetch = fetchMock
+      const adapter = new AgnesMultimodalAdapter({ id: 'agnes-multimodal', apiKey: 'sk-test' })
+      const images = ['https://a.png', 'https://b.png', 'https://c.png', 'https://d.png', 'https://e.png', 'https://f.png']
+      await expect(adapter.generateVideo({ prompt: 'p', images }))
+        .rejects.toMatchObject({ code: ERROR_CODES.INVALID_CONFIG })
+      expect(fetchMock.calls).toHaveLength(0)
+    })
+
+    it('reference 模式 audios > 3 抛 INVALID_CONFIG，不发起请求', async () => {
+      const fetchMock = createFetchMock()
+      global.fetch = fetchMock
+      const adapter = new AgnesMultimodalAdapter({ id: 'agnes-multimodal', apiKey: 'sk-test' })
+      const audios = ['https://a.mp3', 'https://b.mp3', 'https://c.mp3', 'https://d.mp3']
+      await expect(adapter.generateVideo({ prompt: 'p', audios }))
+        .rejects.toMatchObject({ code: ERROR_CODES.INVALID_CONFIG })
+      expect(fetchMock.calls).toHaveLength(0)
+    })
+
+    it('getVideoStatus 纯空白 taskId 抛 INVALID_CONFIG', async () => {
+      const adapter = new AgnesMultimodalAdapter({ id: 'agnes-multimodal', apiKey: 'sk-test' })
+      await expect(adapter.getVideoStatus('   ')).rejects.toMatchObject({ code: ERROR_CODES.INVALID_CONFIG })
+    })
+
+    it('progress 为非有限数值（如 "80%"）时回退状态隐含值，不透传 NaN', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({ status: 'in_progress', progress: '80%' })])
+      global.fetch = fetchMock
+      const adapter = new AgnesMultimodalAdapter({ id: 'agnes-multimodal', apiKey: 'sk-test' })
+      const status = await adapter.getVideoStatus('vid-nan')
+      expect(status.progress).toBe(0)
+      expect(Number.isFinite(status.progress)).toBe(true)
+    })
+
+    it('governor 静态表包含 agnes-multimodal（rpm 20）', () => {
+      const { PROVIDER_LIMITS } = require('../governor-provider-limits')
+      expect(PROVIDER_LIMITS['agnes-multimodal']).toBeDefined()
+      expect(PROVIDER_LIMITS['agnes-multimodal'].rpm).toBe(20)
+    })
+  })
 })
