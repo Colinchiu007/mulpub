@@ -8097,8 +8097,10 @@ home 标签是虚拟标签（无 WebContentsView），主进程 `webview-manager
 
 | 位置 | 修复前 | 修复后 |
 |------|--------|--------|
-| 结果栏字数概览 | `{original} 字 → {result} 字` | `原文 4 字 → 结果 831 字` |
+| 结果栏字数概览（仿写/扩写） | `{original} 字 → {result} 字` | `原文 4 字 → 结果 831 字` |
+| 结果栏字数概览（**选题创作**） | 同上（未区分模式） | `主题 4 字 → 结果 831 字` |
 | 质量结论（第三态） | 不合格 | 建议优化 |
+| 结论配色 | 文字与强调条均为错误红 `#dc2626` | 文字保持中性 `--ink`（对比度达标），颜色仅由强调条承载（`#ea580c` 暖橙） |
 | 结果文本框下方 | 无 | `📋 复制` / `✅ 已复制` |
 
 新增 i18n 键（zh/en 成对）：`rewritePage.copyResult`、`copyResultDone`、`copySuccess`、`copyFailed`、`copyEmpty`。修改键：`rewritePage.metaLength`、`rewritePage.qualityVerdictFail`。
@@ -8111,8 +8113,11 @@ home 标签是虚拟标签（无 WebContentsView），主进程 `webview-manager
 - [ ] 选题创作模式下「短种子 → 长成文」不再被判 `fail`
 - [ ] 质量结论第三态显示「建议优化」，界面不再出现「不合格」
 - [ ] 近似重复文本在三种模式下**仍判 `fail`**（不因口径调整放过真实问题）
-- [ ] 结果文本框下方复制按钮可用，点击后内容进入系统剪贴板；复制失败不复显"已复制"
+- [ ] 结果文本框下方复制按钮可用，点击后内容进入系统剪贴板；复制失败不复显"已复制"；按钮与动作行次按钮左对齐
+- [ ] 结论文本保持中性色（对比度达标），三态颜色仅由强调条承载
+- [ ] 选题创作模式字数概览显示「主题 N 字 → 结果 M 字」（其余模式显示「原文」）
 - [ ] embedding 路径按独立阈值组判定（余弦 0 → 语义分 50 不再被误判达标）
 - [ ] i18n 全量插值守卫测试通过（遍历 zh/en 全部含 `{param}` 叶子，断言无残留 `{}` 且参数值生效）
-- [ ] `packages/rewrite-engine` 132 例 + 桌面端定向 74 例全绿；eslint 0 error；locale-sync / CJK / ipc-bridge / frontend-consistency 门禁 PASS
+- [ ] `packages/rewrite-engine` 132 例 + 桌面端定向 90 例全绿；eslint 0 error；locale-sync / CJK / ipc-bridge / frontend-consistency 门禁 PASS
 - [ ] CCG 双模型外部审查（claude + codex）均无 Critical；Warning/Info 逐条处置并记录结论（详见 PRD-REWRITE-ENGINE.md §13.11.10）
+- [ ] 设计评审（Design Review）新增 0 Critical；采纳项（对比度/对齐/用词）已修，未采纳项登记并记录理由（详见 PRD-REWRITE-ENGINE.md §13.11.11）

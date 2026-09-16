@@ -145,7 +145,9 @@
         <div class="rewrite-result-meta" v-if="rewriteMeta">
           <span>{{ t('rewritePage.metaStrategy') }}：{{ rewriteMeta.strategyName }}</span>
           <span>{{ t('rewritePage.metaAiTaste') }}：{{ rewriteMeta.aiTastePct }}</span>
-          <span>{{ t('rewritePage.metaLength', { original: rewriteMeta.originalLength, result: rewriteMeta.resultLength }) }}</span>
+          <!-- 字数概览按模式分派用词：选题创作的输入是「主题种子」而非待改写正文，
+               标成「原文」会把种子误读为需保留语义的原文（设计评审 Q5，与评分口径同一概念陷阱） -->
+          <span>{{ t(rewriteMeta.mode === 'create' ? 'rewritePage.metaLengthFromTopic' : 'rewritePage.metaLength', { original: rewriteMeta.originalLength, result: rewriteMeta.resultLength }) }}</span>
         </div>
         <!-- 改写质量评估报告（content-quality-eval 桌面端闭环）
              视觉：用左侧强调条表达结论等级，替代原先「卡片内再套一个带边框的卡片」 -->
@@ -481,6 +483,8 @@ async function startRewrite() {
         aiTastePct: data.metadata?.aiTasteLevel != null ? (data.metadata.aiTasteLevel * 100).toFixed(0) + '%' : 'N/A',
         originalLength: data.metadata?.originalLength || 0,
         resultLength: data.metadata?.resultLength || 0,
+        // 实际生效的改写模式（用于字数概览的用词分派；缺省 imitate）
+        mode: data.metadata?.mode || 'imitate',
       }
       if (data.warnings && data.warnings.length > 0) {
         rewriteError.value = data.warnings.join('；')
@@ -847,11 +851,14 @@ function onPublishVideo(pipelineId) {
   color: var(--muted);
 }
 .quality-metric strong { font-weight: 600; color: var(--ink); }
-.rewrite-quality-metrics .quality-verdict-pass { color: #2e9e5b; }
-.rewrite-quality-metrics .quality-verdict-warn { color: #d97706; }
-/* 结论文案已由「不合格」改为中性的「建议优化」：同步去掉错误红（#dc2626），
-   降级为暖橙提示色，避免"失败/不可用"的错误观感（BUGFIX-REWRITE-QUALITY-UX） */
-.rewrite-quality-metrics .quality-verdict-fail { color: #ea580c; }
+/* 结论区配色（与 #1892 视觉重构整合后的最终方案）：
+   #1892 已将结论文字统一为中性 --ink，并由左侧 3px 强调条（.quality-accent-*）承载三态颜色。
+   本次沿用该设计，**不再给结论文字上色**，原因：
+   ① 三态色在 12-13px 小字号下对比度均低于 WCAG AA 4.5:1（实测 pass 3.23:1 / warn 3.02:1 /
+      fail 3.37:1），彩色文字反而降低可读性；
+   ② 三态中 warn 与 fail 色相仅差约 12°，小字号下几乎无法区分，颜色信息本就不该由文字承载；
+   ③ 颜色信号已由强调条承担（非文本图形，仅需 3:1，暖橙 #ea580c 对白底 3.37:1 达标）。
+   本次中性化的是**文案**（不合格 → 建议优化），颜色中性化体现为强调条去红（见下）。 */
 .rewrite-quality-suggestions {
   margin: var(--space-sm) 0 0;
   padding-left: 18px;
@@ -875,7 +882,10 @@ function onPublishVideo(pipelineId) {
 /* ── 改写结果快捷操作：复制（BUGFIX-REWRITE-QUALITY-UX）── */
 .rewrite-copy-row {
   display: flex;
-  justify-content: flex-end;
+  /* 与下方动作行的次按钮**同为左对齐**：动作行是 flex + gap、次按钮靠左，
+     仅主按钮「去发布」用 margin-left:auto 推到右侧。若复制行右对齐，会与
+     紧邻的动作行形成 Z 形错位（设计评审 Q4）。 */
+  justify-content: flex-start;
   margin-top: var(--space-sm);
 }
 /* 固定最小宽度：按钮文案在「复制 / 已复制」间切换时不产生宽度跳动
