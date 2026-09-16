@@ -193,6 +193,22 @@ jobs:
           }
 
           if ($env:TEST_MODE -eq "affected") {
+            # 探测受影响项目（排除 desktop）；为空则跳过，避免 nx 空集挂起 30 分钟超时
+            # 关键：必须区分「nx 执行失败」与「确实无受影响项目」——失败不能静默跳过，否则测试被假绿关闭
+            $affectedRaw = & pnpm exec nx show projects --affected --base=origin/main --exclude=@multi-publish/desktop --json 2>$null
+            $nxExit = $LASTEXITCODE
+            $affected = $affectedRaw | ConvertFrom-Json -ErrorAction SilentlyContinue
+            if ($nxExit -ne 0 -or $null -eq $affected) {
+              Write-Host "::warning::nx affected detection failed (exit $nxExit); running tests:affected normally rather than skipping."
+            } else {
+              $affectedArr = @($affected)
+              if ($affectedArr.Count -gt 0) {
+                Write-Host "Affected non-desktop projects: $($affectedArr -join ', ')"
+              } else {
+                Write-Host "No non-desktop projects affected by this PR; skipping workspace unit tests (Gate 4) to avoid nx empty-set hang."
+                exit 0
+              }
+            }
             $testArgs = @("run", "test:affected", "--", "--exclude=@multi-publish/desktop")
           } else {
             $testArgs = @("run", "test:all", "--", "--exclude=@multi-publish/desktop")
@@ -467,7 +483,7 @@ jobs:
             apps/desktop/tests/visual-testing/screenshots/**
             apps/desktop/vite-visual.*.log
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 5
 
   e2e:
     name: QG Browser E2E
@@ -564,7 +580,7 @@ jobs:
             apps/desktop/tests/e2e/reports/**
             apps/desktop/vite-e2e.*.log
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 5
 
   autonomous:
     name: QG Autonomous
@@ -666,7 +682,7 @@ jobs:
           path: |
             apps/desktop/tests/visual-testing/reports/**
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 5
 
   gate-result:
     name: Gate Result

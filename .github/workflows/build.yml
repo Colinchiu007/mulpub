@@ -134,7 +134,7 @@ jobs:
         with:
           name: Multi-Publish-Windows
           path: apps/desktop/dist-electron/Multi-Publish*.exe
-          retention-days: 30
+          retention-days: 7
 
       - name: Run film engineering E2E contract
         if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v')
@@ -167,7 +167,7 @@ jobs:
           name: film-engineering-real-e2e
           path: apps/desktop/tests/e2e/reports/film-engineering-real/**
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 5
 
   release:
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
