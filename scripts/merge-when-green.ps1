@@ -11,6 +11,8 @@
         -> 全部成功才合并；任何失败 / 超时 / 无检查 都拒绝合并并以非零退出。
   背景: 本仓为私有免费仓，GitHub 不允许设置 required status checks（403），
         故 `gh pr merge --auto` 因“无必需检查”而立即合并。此脚本用显式等待替代 --auto。
+  注意: gh pr checks --json 的 state 为大写（PENDING/IN_PROGRESS/QUEUED/SUCCESS/FAILURE…）；
+        合并改用 REST API（gh api -X PUT .../merge），避免本环境 gh pr merge 无 --yes 的问题。
 #>
 [CmdletBinding()]
 param(
@@ -50,15 +52,16 @@ if ($mergeable -ne 'MERGEABLE') { Fail "PR #$PrNumber 当前不可合并 ($merge
 # 2) 轮询等待所有检查结束（带硬截止，避免单 runner 拥堵时无限阻塞）
 Write-Host "==> 等待 PR #$PrNumber 的 CI 检查完成（最多 $TimeoutMinutes 分钟）..." -ForegroundColor Cyan
 $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
+$IncompleteStates = @('PENDING', 'IN_PROGRESS', 'QUEUED', 'WAITING', 'REQUESTED')
 while ($true) {
   $now = Get-Date
   if ($now -ge $deadline) { Fail "超时：CI 检查在 $TimeoutMinutes 分钟内未全部结束。" 2 }
 
-  $cur = gh pr checks $PrNumber --json name, state, conclusion 2>&1
+  $cur = gh pr checks $PrNumber --json name, state 2>&1
   if ($LASTEXITCODE -ne 0) { Start-Sleep -Seconds 10; continue }
   $checks = $cur | ConvertFrom-Json
   $all = @($checks)
-  $pending = @($all | Where-Object { $_.state -in @('pending', 'in_progress', 'queued', 'waiting') })
+  $pending = @($all | Where-Object { $_.state -in $IncompleteStates })
   if ($all.Count -gt 0 -and $pending.Count -eq 0) { break }
   if ($all.Count -eq 0) {
     Write-Host "  尚未产生 CI 检查（runner 可能离线），继续等待..."
@@ -69,19 +72,17 @@ while ($true) {
   Start-Sleep -Seconds $PollSeconds
 }
 
-# 3) 解析最终结论
-$checks = (gh pr checks $PrNumber --json name, state, conclusion 2>&1 | ConvertFrom-Json)
-$all = @($checks)
+# 3) 解析最终结论（仅用 state，不依赖 conclusion 字段）
+$final = gh pr checks $PrNumber --json name, state 2>&1
+if ($LASTEXITCODE -ne 0) { Fail "无法获取 PR #$PrNumber 最终检查状态。" 5 }
+$all = @($final | ConvertFrom-Json)
 $total = $all.Count
 if ($total -eq 0) {
   Fail "PR #$PrNumber 没有任何 CI 检查（runner 可能离线）。出于安全不自动合并。" 5
 }
 
-$pending = @($all | Where-Object { $_.state -in @('pending', 'in_progress', 'queued', 'waiting') })
-$failed  = @($all | Where-Object {
-  $_.conclusion -eq 'failure' -or $_.state -eq 'error' -or
-  $_.conclusion -eq 'timed_out' -or $_.conclusion -eq 'cancelled'
-})
+$pending = @($all | Where-Object { $_.state -in $IncompleteStates })
+$failed  = @($all | Where-Object { $_.state -in @('FAILURE', 'CANCELLED', 'TIMED_OUT', 'ERROR') })
 
 if ($pending.Count -gt 0) {
   $names = ($pending | ForEach-Object { $_.name }) -join ', '
@@ -89,14 +90,16 @@ if ($pending.Count -gt 0) {
 }
 if ($failed.Count -gt 0) {
   Write-Host "CI 检查失败清单:" -ForegroundColor Red
-  $failed | ForEach-Object { Write-Host "  - $($_.name): $($_.conclusion)" }
+  $failed | ForEach-Object { Write-Host "  - $($_.name): $($_.state)" }
   Fail "CI 检查未通过，拒绝合并 PR #$PrNumber。" 4
 }
 
-# 4) 全部通过 -> 合并
-$mergeArgs = @('pr', 'merge', "$PrNumber", "--$Method", '--yes')
-if ($DeleteBranch) { $mergeArgs += '--delete-branch' }
+# 4) 全部通过 -> 合并（REST API 直接合并，无需 --yes，原子且可靠）
+$repo = (gh pr view $PrNumber --json repository --jq '.repository.nameWithOwner' 2>$null)
+if (-not $repo) { $repo = 'Colinchiu007/Multi-Publish' }
+$mergeApiArgs = @('-X', 'PUT', "repos/$repo/pulls/$PrNumber/merge", '-f', "merge_method=$Method")
+if ($DeleteBranch) { $mergeApiArgs += @('-f', 'delete_branch=true') }
 Write-Host "==> 所有 CI 检查通过，合并 PR #$PrNumber ($Method)$(if ($DeleteBranch) { ' 并删除分支' })..." -ForegroundColor Green
-gh @mergeArgs 2>&1
-if ($LASTEXITCODE -ne 0) { Fail "gh pr merge 失败。" 6 }
+gh api @mergeApiArgs 2>&1
+if ($LASTEXITCODE -ne 0) { Fail "gh api 合并失败（PR 可能已不可合并或有冲突），未合并。" 6 }
 Write-Host "✓ PR #$PrNumber 已合并。" -ForegroundColor Green
