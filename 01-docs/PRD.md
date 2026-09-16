@@ -8049,3 +8049,70 @@ home 标签是虚拟标签（无 WebContentsView），主进程 `webview-manager
 - [ ] 普通站点（Python 通道）与降级路径（Node 通道）均正常分行
 - [ ] `readable-text.test.js` 18 例 + `url-collector.test.js` 57 例全绿（合计 75 例）；eslint 0 error；`filesOver500` 与基线一致（零新增债务）
 - [ ] 修复前实现副本实测被新断言抓住（回归保护有效性验证通过）
+**改写页视觉重构与列宽稳定性修复（2026-09-16）**：修复「点击改写后右侧内容宽度被撑宽」并重做设置区信息架构与视觉层级。**根因**：`.cohere-main` 是 `flex-direction: column` 容器，`.rewrite-page` 仅声明 `max-width: 900px; margin: 0 auto` 而未显式声明 `width`——flex 交叉轴方向上的 auto margin 会抑制 `align-self: stretch`，宽度因此退化为 `fit-content(max-content)`，由「最宽的后代元素」决定；改写结果卡片出现后整列从 474.11px 跳到 543.69px（Chromium 实测 1440×900，父容器恒为 1240）。**修复**：`.rewrite-page` 改为 `width: 100%` + `box-sizing: border-box`，列宽只由容器与 max-width 决定。**视觉重构**：① 卡片标题建立 15px/600 层级（全局 `.cohere-section-title` 此前在 CSS 中无任何定义，退化为继承字号，卡片内所有内容层级相同）；② 内容依据改为两列并排开关，勾选框固定 16×16 左置（原 `.config-checkbox` 为 `flex-direction: column` 容器，`<input type=checkbox>` 作为 flex item 被 `align-self: stretch` 拉伸至整行宽，原生勾选框因而绘制在行中央、脱离文字）；③ 字段行统一为「标签独占一行 + 控件下一行」（原「目标平台」是全页唯一标签与控件同行的字段）；④ 字数控制与目标平台两列并排，消除宽卡片右半侧闲置；⑤ 质量评估改用左侧结论强调条（pass/warn/fail 三色）替代「结果卡片内再套一个带边框卡片」；⑥ 结果动作区主次分离（次操作靠左、主操作靠右 + 1px 分隔线）；⑦ 表单卡片回归静态容器语义（覆盖全局 `.cohere-card` 的 `cursor: pointer` 与 `:hover` 变色浮起）；⑧ 清理改写页对未定义 CSS 变量（`--text-primary` / `--text-secondary` / `--surface-secondary` / `--border` / `--coral-bg`）的引用，全部改用设计系统确有定义的令牌。**间距规格**：段间 24px、字段间 16px、开关并排 gap 8px、下拉类控件统一 280px 宽、响应式断点 820px 回落单列。**零行为变更**：IPC 调用、入参契约、数据校验规则、i18n 文案 key 全部未变。**回归保护**：`src/styles/cohere-design-system.test.js` 新增「改写页列宽合同」2 条 CSS 契约断言；`src/views/RewriteView.test.js` 新增 11 条视觉与结构契约（按 .vue 源码断言样式规则 + 渲染 DOM 断言结构）。详见 `01-docs/PRD-REWRITE-PAGE-UI-2026-09-16.md`。
+
+---
+
+## 附：改写页质量评估结论中性化 + 字数概览显示修复 + 评分口径修正（BUGFIX-REWRITE-QUALITY-UX，2026-09-16）
+
+**详细文档**：[BUGFIX-REWRITE-QUALITY-UX-2026-09-16.md](./BUGFIX-REWRITE-QUALITY-UX-2026-09-16.md)（含根因 commit 追溯、数值复现、QM-5 五步反思、完整规格与验收标准）
+
+**背景（用户实际反馈）**：文案改写页输入「秋天来了」4 字、选题创作模式、输出约 831 字成文。质量评估显示「语义保持度 9.89 / 结论：不合格」，字数栏显示 `{original} 字 → {result} 字`，且改写结果没有一键复制入口。用户据此怀疑改写引擎可用性。
+
+**功能逻辑**：三处独立修复 + 一项体验补齐。
+
+1. **结论文案中性化**：第三态由「不合格」改为「建议优化」（英文 `Failed` → `Suggestions available`），配色由错误红 `#dc2626` 降级为暖橙 `#ea580c`。结论栏只承载"有没有可改进的地方"，不承载"合格/不合格"的判决语义，与下方「改进建议」区块语义连贯。
+2. **i18n 命名插值根因修复**：`toMessageFunctions` 原把**所有**字符串叶子包成 `() => source`，丢弃 vue-i18n 传入的插值参数，导致含 `{param}` 的语料在 `t()` 通道原样输出花括号。改为：含 `{param}` 的字符串编译为命名插值 Message Function（纯正则替换，仍不使用 `new Function`，CSP 安全）；无占位符的字符串维持常量函数（零额外开销）。缺参回退空串，与 `utils/notifyCore.js` 插值语义完全对齐。一处修复即覆盖全仓 68 条 `{param}` 语料 / 16 处 `t(key, params)` 调用点。
+3. **评分口径修正（P0 数据正确性）**：
+   - 语义保持度由**对称 Jaccard** 改为**非对称覆盖率**（`charCoverage × 70 + keywordCoverage × 30`）。语义含义从"两段文本整体有多像"纠正为"原文内容有多少被结果保留"，对输出长度增长鲁棒。
+   - 新增 `textSimilarity`（对称 Jaccard）独立承担"是否没改够"判据——覆盖率口径下长文必然覆盖满分，不能再以高覆盖率判"改动过少"。
+   - 判定按改写模式分档：`create` 选题创作的输入是主题种子而非待保留正文，语义保持度天然偏低属预期，不再判 `fail`（仅覆盖率 < 15 时 `warn`）；`expand` 扩写以覆盖率 < 30 判 `fail`；`imitate` 智能仿写保持原严格度。
+   - 改进建议措辞同步按模式分派，移除「偏离原意」等负面表述。
+4. **复制按钮**：结果文本框下方新增 `📋 复制` 按钮（成功切 `✅ 已复制` 1.5s）。新增共享工具 `apps/desktop/src/utils/clipboard.js`（异步 Clipboard API 优先 → `execCommand` 回退 → 失败返回 `false` 不抛异常），并消除 `useFilmEngineering.js` 的第 4 处重复实现。
+
+**系统性影响面**：
+
+- 改写页（RewriteView）结果栏元信息、质量评估区、结果操作区
+- 全局 i18n 插值通道：修复后以下位置由"显示花括号"恢复为正常插值——`MemberCenter`（权益到期日 / 剩余天数）、`AccountManagementCard`（账号名称 / 添加日期）、`Accounts`（创作者中心标签页标题）、`ResultView`（分镜无障碍标签 4 处）、`KnowledgeBasePage`（导入结果 / 导出成功 / 文件过大）、`TagSuggester`（匹配热门话题）、`StageProgress`（合成片段进度）
+- 改写引擎质量评估器（`packages/rewrite-engine`）：报告新增 `mode`、`textSimilarity` 字段（向后兼容，旧消费方忽略）
+- 受影响消费方清点：`verdict` / `semanticPreservation` 仅被 `RewriteView.vue` 消费（未用于门禁 / 自动重试 / 拦截），`Collection.vue` 与 ops-center 不消费，故口径调整无下游连锁影响
+
+**数据校验**：
+
+- `mode` 白名单 `['imitate','expand','create']`，非法 / 缺省 / `null` / 空串一律回退 `imitate`
+- `evaluate(a, b)` 旧签名保持可用，新增第三参数 `{ mode }` 可选
+- 插值缺参 → 空串（不泄漏 `{}`）；`0` / `false` / 空串视为有效值，仅 `null` / `undefined` 走缺参
+- `charCoverage` / `keywordCoverage` 在原文（或关键词集）为空时返回 `1`，结果恒在 `[0, 1]`
+- 评估分数统一两位小数；`textSimilarity` 保留四位（`Math.round(x * 10000) / 100`）
+- 剪贴板入参非字符串按 `String(v)` 处理，`''` 直接拒绝不写入
+
+**流程**：`RewriteView.startRewrite()` 收集 `{ mode, content, userSettings, strategyId }` → IPC `aiRewrite` → `RewriteEngine.rewrite()` 解构 `mode` → `qualityEvaluator.evaluateAsync(content, processed, { mode })`（失败回退同步 `evaluate`）→ 前端归一化 `quality`（`verdict` / `method` 白名单 + `suggestions` 数组校验）→ 渲染元信息栏 + 质量报告 + 结果文本框 + 复制按钮。
+
+**交互逻辑**：
+
+- 复制：点击写剪贴板 → 成功 toast「已复制到剪贴板」且按钮切「✅ 已复制」1.5s；无内容时 warning「暂无可复制的内容」；失败时 error「复制失败，请手动选中文本后复制」并**立即复位**按钮，不回显"已复制"；连续点击重置计时器；组件卸载清计时器；内容为空时按钮 `disabled`
+- 质量报告渲染分支不变：`quality` 非纯对象 → 占位「本次改写未生成质量评估」；`verdict` 非法 → 归一化 `fail`（显示「建议优化」）；`suggestions` 非数组 → 不渲染建议列表
+
+**显示项与提示文字**：
+
+| 位置 | 修复前 | 修复后 |
+|------|--------|--------|
+| 结果栏字数概览 | `{original} 字 → {result} 字` | `原文 4 字 → 结果 831 字` |
+| 质量结论（第三态） | 不合格 | 建议优化 |
+| 结果文本框下方 | 无 | `📋 复制` / `✅ 已复制` |
+
+新增 i18n 键（zh/en 成对）：`rewritePage.copyResult`、`copyResultDone`、`copySuccess`、`copyFailed`、`copyEmpty`。修改键：`rewritePage.metaLength`、`rewritePage.qualityVerdictFail`。
+
+**事故用例修复前后对照（实测）**：语义保持度 `9.89 → 100`；`textSimilarity`（新增）`1.27`；结论 `不合格 → 合格`；建议由「语义保持度过低，改写可能偏离原意…」变为「改写充分度良好，内容已围绕主题充分展开」。
+
+**验收标准**
+
+- [ ] 结果栏字数概览显示「原文 N 字 → 结果 M 字」，界面任何位置不含 `{}` 字符
+- [ ] 选题创作模式下「短种子 → 长成文」不再被判 `fail`
+- [ ] 质量结论第三态显示「建议优化」，界面不再出现「不合格」
+- [ ] 近似重复文本在三种模式下**仍判 `fail`**（不因口径调整放过真实问题）
+- [ ] 结果文本框下方复制按钮可用，点击后内容进入系统剪贴板；复制失败不复显"已复制"
+- [ ] embedding 路径按独立阈值组判定（余弦 0 → 语义分 50 不再被误判达标）
+- [ ] i18n 全量插值守卫测试通过（遍历 zh/en 全部含 `{param}` 叶子，断言无残留 `{}` 且参数值生效）
+- [ ] `packages/rewrite-engine` 132 例 + 桌面端定向 74 例全绿；eslint 0 error；locale-sync / CJK / ipc-bridge / frontend-consistency 门禁 PASS
+- [ ] CCG 双模型外部审查（claude + codex）均无 Critical；Warning/Info 逐条处置并记录结论（详见 PRD-REWRITE-ENGINE.md §13.11.10）

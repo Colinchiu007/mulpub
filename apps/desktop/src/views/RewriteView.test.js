@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import fs from 'node:fs'
+import path from 'node:path'
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { setActivePinia, createPinia } from 'pinia'
@@ -347,7 +349,7 @@ describe('RewriteView', () => {
     expect(wrapper.find('[data-testid="rewrite-quality-none"]').exists()).toBe(true)
   })
 
-  it('verdict 非法值回退为 fail（不合格）', async () => {
+  it('verdict 非法值回退为 fail，文案为中性「建议优化」而非「不合格」', async () => {
     const mocks = await import('@/api/publisher')
     mocks.aiRewrite.mockResolvedValueOnce({
       code: 0,
@@ -370,7 +372,9 @@ describe('RewriteView', () => {
     await nextTick()
     const report = wrapper.find('[data-testid="rewrite-quality-report"]')
     expect(report.exists()).toBe(true)
-    expect(report.text()).toContain('不合格') // verdict=unknown → fail
+    expect(report.text()).toContain('建议优化') // verdict=unknown → fail，但用词中性
+    // BUGFIX-REWRITE-QUALITY-UX 回归：负面结论用词不得回归
+    expect(report.text()).not.toContain('不合格')
   })
 
   it('suggestions 非数组时不展示建议列表', async () => {
@@ -398,6 +402,73 @@ describe('RewriteView', () => {
     expect(report.exists()).toBe(true)
     // suggestions 非数组 → 不渲染建议列表（不逐字符迭代）
     expect(report.find('.rewrite-quality-suggestions').exists()).toBe(false)
+  })
+
+  // ── 结果区元信息与复制按钮（BUGFIX-REWRITE-QUALITY-UX）──
+
+  /** 跑一次改写，返回 wrapper 与结果文本框 */
+  async function runRewrite() {
+    const wrapper = factory()
+    const input = wrapper.find('textarea.rewrite-textarea')
+    await input.setValue('这是一段足够长的测试文案内容，超过二十个字，测试改写功能。')
+    await nextTick()
+    await wrapper.find('.rewrite-start-btn').trigger('click')
+    await nextTick()
+    await nextTick()
+    return wrapper
+  }
+
+  it('元信息栏渲染字数概览（占位符已被插值，不泄漏 {original}/{result}）', async () => {
+    const wrapper = await runRewrite()
+    const meta = wrapper.find('.rewrite-result-meta')
+    expect(meta.exists()).toBe(true)
+    expect(meta.text()).toContain('原文 30 字 → 结果 18 字')
+    expect(meta.text()).not.toMatch(/\{[^{}]+\}/)
+  })
+
+  it('复制按钮渲染在结果文本框下方', async () => {
+    const wrapper = await runRewrite()
+    const btn = wrapper.find('[data-testid="btn-copy-result"]')
+    expect(btn.exists()).toBe(true)
+    // 按钮位于结果 textarea 之后（同一结果卡片内、动作行之前）
+    const html = wrapper.find('.rewrite-result-card').html()
+    expect(html.indexOf('result-textarea')).toBeLessThan(html.indexOf('btn-copy-result'))
+    expect(btn.text()).toContain('复制')
+  })
+
+  it('点击复制把改写结果写入剪贴板，并切换按钮反馈态', async () => {
+    const writeText = vi.fn(async () => undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, writable: true, configurable: true })
+    try {
+      const wrapper = await runRewrite()
+      const btn = wrapper.find('[data-testid="btn-copy-result"]')
+      await btn.trigger('click')
+      await nextTick()
+      expect(writeText).toHaveBeenCalledTimes(1)
+      expect(writeText).toHaveBeenCalledWith('这是改写后的文案内容，用于测试。')
+      expect(wrapper.find('[data-testid="btn-copy-result"]').text()).toContain('已复制')
+    } finally {
+      Object.defineProperty(navigator, 'clipboard', { value: undefined, writable: true, configurable: true })
+    }
+  })
+
+  it('复制失败时按钮保持「复制」态并复位（不回显已复制）', async () => {
+    const writeText = vi.fn(async () => { throw new Error('NotAllowedError') })
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, writable: true, configurable: true })
+    const originalExec = document.execCommand
+    document.execCommand = vi.fn(() => false)
+    try {
+      const wrapper = await runRewrite()
+      await wrapper.find('[data-testid="btn-copy-result"]').trigger('click')
+      await nextTick()
+      const btn = wrapper.find('[data-testid="btn-copy-result"]')
+      expect(btn.text()).toContain('复制')
+      expect(btn.text()).not.toContain('已复制')
+    } finally {
+      Object.defineProperty(navigator, 'clipboard', { value: undefined, writable: true, configurable: true })
+      if (originalExec) document.execCommand = originalExec
+      else delete document.execCommand
+    }
   })
 
   it('does not show result section before rewrite', () => {
@@ -935,5 +1006,125 @@ describe('RewriteView — 文案库交接带入（合并版文案库【改写】
     expect(aiRewrite.mock.calls[0][0].mode).toBe('create')
     // 交接载荷未被消费，保留给后续真实入口
     expect(sessionStorage.getItem('rewrite_handoff_v1')).not.toBeNull()
+  })
+})
+
+/**
+ * 改写页视觉契约（2026-09-16 视觉优化）
+ *
+ * 与 src/styles/cohere-design-system.test.js 的「改写页列宽合同」配套：
+ * 那里锁定全局 CSS 的宽度修复，这里锁定 RewriteView 自身的样式与结构，
+ * 防止「勾选框被 flex 拉伸」「质量报告卡片套卡片」「设置区无分组」等问题回退。
+ */
+describe('RewriteView — 视觉契约', () => {
+  const source = fs.readFileSync(path.resolve(process.cwd(), 'src/views/RewriteView.vue'), 'utf8')
+
+  function ruleBody (selector) {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const match = source.match(new RegExp(escaped + '\\s*\\{([^}]+)\\}'))
+    return match?.[1] || ''
+  }
+
+  it('勾选框固定尺寸：阻止 flex 把它拉伸到整行宽而脱离文字', () => {
+    const body = ruleBody('.config-switch input[type="checkbox"]')
+    expect(body).toMatch(/flex:\s*0\s+0\s+auto/)
+    expect(body).toMatch(/width:\s*16px/)
+    expect(body).toMatch(/height:\s*16px/)
+  })
+
+  it('卡片回归静态容器语义：不显示手型光标、不随悬停浮起', () => {
+    expect(source).toMatch(/cursor:\s*default/)
+    expect(source).toMatch(/box-shadow:\s*none/)
+  })
+
+  it('质量评估用左侧强调条替代「卡片套卡片」', () => {
+    const body = ruleBody('.rewrite-quality-report')
+    expect(body).toMatch(/background:\s*transparent/)
+    expect(body).toMatch(/border-left:\s*3px/)
+  })
+
+  it('卡片标题建立字号层级（全局 .cohere-section-title 原本无样式）', () => {
+    const body = ruleBody('.cohere-section-title')
+    expect(body).toMatch(/font-size:\s*15px/)
+    expect(body).toMatch(/font-weight:\s*600/)
+  })
+})
+
+describe('RewriteView — 设置区结构与布局契约', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockRouteQuery.value = {}
+  })
+
+  it('内容依据是两个并排开关，勾选框位于开关内部首位（左置）', () => {
+    const wrapper = factory()
+    const switches = wrapper.findAll('.config-switch')
+    expect(switches.length).toBe(2)
+    for (const sw of switches) {
+      expect(sw.element.firstElementChild.tagName).toBe('INPUT')
+      expect(sw.element.firstElementChild.getAttribute('type')).toBe('checkbox')
+    }
+  })
+
+  it('勾选态以 is-on 表达（未勾选为白底灰边，可被视觉与测试识别）', async () => {
+    const wrapper = factory()
+    const switches = wrapper.findAll('.config-switch')
+    expect(switches.length).toBe(2)
+    // 结合爆款库默认勾选 → 带 is-on；结合个人经历默认未勾选 → 不带
+    expect(switches[0].classes()).toContain('is-on')
+    expect(switches[1].classes()).not.toContain('is-on')
+    // 勾选第二个 → is-on 跟随状态（勾选态是纯视觉信号，必须与真实状态同步）
+    await switches[1].find('input[type="checkbox"]').setValue(true)
+    await nextTick()
+    expect(wrapper.findAll('.config-switch')[1].classes()).toContain('is-on')
+  })
+
+  it('短字段并排：字数控制与目标平台同处一个两列容器', () => {
+    const wrapper = factory()
+    const grid = wrapper.find('.config-grid')
+    expect(grid.exists()).toBe(true)
+    expect(grid.findAll('.config-row').length).toBe(2)
+  })
+
+  it('执行区分段：改写按钮位于带分隔线的提交区', () => {
+    const wrapper = factory()
+    const submit = wrapper.find('.rewrite-submit')
+    expect(submit.exists()).toBe(true)
+    expect(submit.find('.rewrite-start-btn').exists()).toBe(true)
+  })
+
+  it('质量报告带结论强调条 class（pass/warn/fail）', async () => {
+    // 显式提供带 quality 的返回：本用例不依赖前序用例遗留的 mock 实现
+    // （vi.clearAllMocks 只清调用记录、不清 mockResolvedValue 设定的实现）
+    const { aiRewrite } = await import('@/api/publisher')
+    aiRewrite.mockResolvedValueOnce({
+      code: 0,
+      data: {
+        success: true,
+        result: '这是改写后的文案内容，用于测试。',
+        strategy: { id: 's1', name: '测试策略', category: 'viral' },
+        warnings: [],
+        sensitiveHits: [],
+        knowledgeRefs: [],
+        metadata: { mode: 'imitate', originalLength: 30, resultLength: 18, aiTasteLevel: 0.15 },
+        quality: {
+          sufficiency: 78.5,
+          semanticPreservation: 65.2,
+          originality: 82.1,
+          verdict: 'pass',
+          suggestions: ['改写质量良好'],
+          method: 'simhash',
+        },
+      },
+    })
+    const wrapper = factory()
+    await wrapper.find('textarea.rewrite-textarea').setValue('这是一段足够长的测试文案内容，超过二十个字，测试改写功能。')
+    await nextTick()
+    await wrapper.find('.rewrite-start-btn').trigger('click')
+    await nextTick()
+    await nextTick()
+    const report = wrapper.find('[data-testid="rewrite-quality-report"]')
+    expect(report.exists()).toBe(true)
+    expect(report.classes()).toContain('quality-accent-pass')
   })
 })

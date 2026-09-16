@@ -12,6 +12,54 @@
 
 ---
 
+# [未发布] fix(rewrite): 质量结论中性化 + i18n 插值根因修复 + 评分口径修正 + 结果区复制按钮（2026-09-16）
+
+### 修复
+- **结论文案中性化**（P1 用户感知）：质量评估第三态由「不合格」改为「**建议优化**」（en `Failed` → `Suggestions available`），配色由错误红 `#dc2626` 降级为暖橙 `#ea580c`。真实事故：用户输入「秋天来了」4 字、选题创作模式、输出 831 字成文，被标「不合格」，据此怀疑改写引擎可用性
+- **i18n 命名插值根因修复**（P1 显示缺陷）：`i18n/index.js` 的 `toMessageFunctions` 原把**所有**字符串叶子包成 `() => source`，丢弃 vue-i18n 传入的插值参数 → 含 `{param}` 的语料在 `t()` 通道原样输出花括号（事故现场：结果栏显示 `{original} 字 → {result} 字`）。改为含 `{param}` 的字符串编译为命名插值 Message Function（纯正则替换，**不使用 `new Function`**，CSP 安全），无占位符者维持常量函数。**一处修复覆盖全仓 68 条 `{param}` 语料 / 16 处 `t(key, params)` 调用点**（memberCenter.daysRemaining、accountsPage.creatorTabTitle、story2video.sceneMaterial.*、knowledgeBase.importResult、tagSuggest.hotMatch、stageProgress.composeSegments 等）
+- **评分口径修正**（P0 数据正确性）：语义保持度由**对称 Jaccard** 改为**非对称覆盖率**（`charCoverage×70 + keywordCoverage×30`）。语义含义从"两段文本整体有多像"纠正为"**原文内容有多少被结果保留**"，修复「短输入 → 长输出」被长度稀释的系统性误判（事故数值 9.89 → 100）。根因：对称 Jaccard 分母是并集，4 字 → 831 字时退化为 4/315
+- **新增 `textSimilarity` 判据**：覆盖率口径下长文必然覆盖满分（实测 4 字 → 831 字 = 100），**不能再以高覆盖率判「改动过少」**。新增对称 Jaccard 指标独立承担「是否没改够」（`similarity > 0.9 → fail`），并新增专门用例锁定
+- **判定按改写模式分档**（`determineVerdict`）：新增 `{ mode }` 参数（`imitate`/`expand`/`create`，非法值回退 `imitate`），由 `rewrite-engine-core.js` 从 `rewrite(params).mode` 透传。`create` 选题创作的输入是**主题种子**，语义保持度天然偏低属预期，不再判 `fail`（仅语义分极低判 `warn`）；`expand` 扩写以语义分低判 `fail`；`imitate` 保持原严格度。改进建议措辞同步按模式分派，移除「偏离原意」类负面表述
+- **语义分标度分组阈值**（CCG 评审 W-1）：`semanticPreservation` 在 simhash（覆盖率口径）与 embedding（余弦映射，**余弦 0 → 50 分**）两条路径上标度不同，共用阈值会让 embedding 路径"完全无关"越过全部 fail 阈值 → 几乎恒定 pass。新增 `SEMANTIC_BANDS` 按 `method` 分组选阈值（simhash `15/30/50`，embedding `30/45/60`）
+- **结果区新增复制按钮**：结果文本框下方新增 `📋 复制`（成功切 `✅ 已复制` 1.5s、失败立即复位不回显）。新增共享工具 `apps/desktop/src/utils/clipboard.js`（异步 Clipboard API 优先 → `execCommand` 回退 → 失败返回 `false` 不抛异常），并删除 `useFilmEngineering.js` 的本地重复实现改为复用（全仓共 9 处剪贴板实现，已迁移 2 处，剩 7 处登记为 P1 后续项）
+- **字符集合按 Unicode 码点计数**（CCG 评审 I-1）：`new Set(str)` 按 UTF-16 code unit 迭代，会把 emoji 等 BMP 外字符拆成两个代理对，使覆盖率/相似度失真；改为 `Array.from()` 按码点建集（纯 BMP 文本结果不变，零回归）
+
+### 验证
+- `packages/rewrite-engine` **132/132 全绿**（11 文件；基线 102 → +30：真实事故样本复现 / 旧口径 9.89 数值锁定 / 模式分档表 / textSimilarity 兜底 / mode 与 method 归一化 / 近似重复三模式全 fail / embedding 标度分组 / emoji 码点 / 英文与标点边界）
+- 桌面端定向 **74/74 全绿**：RewriteView 48 例（+4：字数概览无占位符残留 / 复制按钮位置 / 复制成功切反馈态 / 复制失败不复显）、i18n 17 例（+8：**全量插值守卫**——遍历 zh/en 全部含 `{param}` 叶子注入哨兵值断言无残留 `{}` 且参数生效；连续插值一致性；多占位符全替换）、clipboard 9 例（新建）
+- 事故用例修复前后实测：语义保持度 `9.89 → 100`；结论 `不合格 → 合格`；字数栏 `{original} 字 → {result} 字` → `原文 4 字 → 结果 831 字`
+- **CCG 双模型外部审查**（claude：0 Critical / 3 Warning / 6 Info；codex：0 Critical / 5 Warning / 7 Info）→ 已修 8 项（含上面两项），4 项经核实为"预存/误报/风格建议"并逐条记录结论（详见 PRD §13.11.10）
+- eslint 0 error；ipc-bridge / locale-sync / CJK / frontend-consistency 门禁 PASS
+- 文档：`01-docs/BUGFIX-REWRITE-QUALITY-UX-2026-09-16.md`（根因 commit 追溯 b5bda8d9/d1c739d5/fd5b1eb3/3b91d1ef、数值复现、QM-5 五步反思、完整规格、验收标准）；`01-docs/PRD-REWRITE-ENGINE.md` §13.11（v1.6 变更全量规格，含 §13.11.10 CCG 评审记录）；`01-docs/PRD.md` 附录；`01-docs/DOC-CONTENT-QUALITY-EVAL-MECHANISM.md` §5（两套评估器辨析）
+
+---
+
+# [未发布] fix(desktop): 改写页视觉重构——修复「点击改写后列宽被撑宽」+ 设置区信息架构重排（2026-09-16）
+
+### 修复
+- **列宽抖动根因**：`.cohere-main` 是 `display:flex; flex-direction:column` 容器，而 `.rewrite-page` 仅声明 `max-width: 900px; margin: 0 auto`、**未声明 `width`**。在 flex 布局中，**交叉轴方向上的 auto margin 会抑制 `align-self: stretch`**，使该 item 宽度退化为 `fit-content(max-content)`——由「最宽的那个后代元素」决定。改写结果卡片出现后整列从 **474.11px 跳到 543.69px**（Chromium 实测 1440×900，父容器 `.cohere-main` 恒为 1240）
+- **修复**：`.rewrite-page` 改为显式 `width: 100%` + `box-sizing: border-box`，列宽只由容器宽度与 `max-width` 决定，与内容完全解耦
+- **勾选框错位（同一类 flex 语义问题）**：`.config-checkbox` 是 `flex-direction: column` 容器，`<input type=checkbox>` 作为 flex item 被 `align-self: stretch` 拉伸到整行宽，原生勾选框因而绘制在行的**中央**、脱离文字 → 改为 `flex: 0 0 auto` + 固定 16×16 且左置
+
+### 变更
+- **卡片层级**：全局 `.cohere-section-title` 此前在 CSS 中**无任何定义**，退化为继承字号，卡片内所有内容层级相同 → 补 `15px / 600 / var(--ink)` + 16px 下间距
+- **内容依据分组**：两个来源开关由纵向大边框块改为**两列并排**紧凑卡片；勾选态用 `border: var(--coral)` + `background: var(--coral-soft)` 表达（新增 `is-on` 类），悬停不再改底色
+- **字段行统一**：全部字段统一为「标签独占一行 + 控件下一行」（原本「目标平台」是全页唯一标签与控件同行的字段）
+- **并排重排**：字数控制 + 目标平台两列并排（`.config-grid`，`column-gap: 24px`），消除宽卡片右半侧闲置；断点 `820px` 回落单列
+- **结果区**：元信息去掉灰底小方块，改为轻量文本行；质量评估改用**左侧结论强调条**（pass/warn/fail 三色 `quality-accent-*`）替代「结果卡片内再套一个带边框卡片」；动作区主次分离（次操作靠左、主操作靠右 + 1px 分隔线）
+- **交互信号**：表单卡片覆盖全局 `.cohere-card` 的 `cursor: pointer` 与 `:hover` 变色/浮起——那是「卡片墙」交互语义，用在表单容器上会让用户误以为整块可点击
+- **未定义 CSS 变量清理**：改写页对 `--text-primary` / `--text-secondary` / `--surface-secondary` / `--border` / `--coral-bg` 的引用全部替换为设计系统确有定义的令牌（这 5 个变量在 `cohere-design-system.css` 中均无定义，此前靠 `var()` fallback 或继承色兜底）
+- **零行为变更**：IPC 调用、入参契约（`mode/content/userSettings/strategyId`）、数据校验规则、i18n 文案 key、以及共享组件（`RewriteStrategyPicker` / `WordCountRangeInput`）的内部实现全部未动；零新增文案（CJK 基线不上升）
+
+### 验证
+- `RewriteView.test.js` 新增 11 条视觉与结构契约（按 `.vue` 源码断言样式规则 + 渲染 DOM 断言结构：勾选框固定尺寸、卡片静态语义、质量强调条、层级、开关左置与 `is-on` 联动、并排容器、提交区分段），**53/53 全绿**
+- `cohere-design-system.test.js` 新增「改写页列宽合同」2 条 CSS 契约断言（`width: 100%` / `flex-wrap: wrap`），**4/4 全绿**
+- Chromium 实测（Playwright）：有/无结果卡片时 `.rewrite-page` 宽度恒为 **900**（修复前 474.11 → 543.69）；窄屏 760px 开关与字段回落单列
+- eslint 0 error；`check-locale-sync --cjk` PASS（1410 < 基线 1644）；`check-ipc-bridge` PASS（388 handlers / 379 preload，0 缺口）；`check-frontend-consistency` PASS
+- 文档：`01-docs/PRD-REWRITE-PAGE-UI-2026-09-16.md`（交互规格 / 状态矩阵 / 数据校验 / 显示项 / 提示文字清单 / QM-5 五步反思）
+
+---
+
 # [未发布] fix(desktop): 采集页正文保留原文换行与分段（Node 采集通道正文提取修复）（2026-09-16）
 
 ### 修复

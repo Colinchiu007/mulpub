@@ -171,6 +171,77 @@ describe('RewriteEngine', function () {
     await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: { wordCountRange: { min: 2000, max: 100 } } })
     expect(captured.sys).not.toContain('字数要求')
   })
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // BUGFIX-REWRITE-QUALITY-UX 集成层回归（2026-09-16）
+  //
+  // 事故：评估器判定与改写模式无关，导致「选题创作」的短种子→长成文被判 fail。
+  // 修复分两处：① 评估器按 mode 分档；② 本文件被测的 rewrite() 把 params.mode 透传给评估器。
+  // 独立复核指出此前**集成层无任何覆盖**该透传链，故补以下用例。
+  // ───────────────────────────────────────────────────────────────────────────
+
+  test('M1 rewrite() 把 mode 透传给 evaluateAsync（选题创作）', async function () {
+    var captured = null
+    var ev = {
+      evaluateAsync: async function (original, rewritten, opts) {
+        captured = { original: original, opts: opts }
+        return { method: 'embedding', verdict: 'pass' }
+      },
+      evaluate: function () { return { method: 'simhash', verdict: 'pass' } }
+    }
+    var engine = new RewriteEngine({ llmClient: mockLlmClient('rewritten'), qualityEvaluator: ev, knowledgeBase: new KnowledgeBase() })
+    wireStrategy(engine)
+    var result = await engine.rewrite({ mode: 'create', content: '秋天来了', userSettings: {} })
+    expect(result.success).toBe(true)
+    expect(captured).not.toBeNull()
+    expect(captured.opts).toEqual({ mode: 'create' })
+    expect(captured.original).toBe('秋天来了')
+  })
+
+  test('M2 embedding 失败回退 evaluate 时同样透传 mode', async function () {
+    var captured = null
+    var ev = {
+      evaluateAsync: async function () { throw new Error('embedding unavailable') },
+      evaluate: function (original, rewritten, opts) {
+        captured = opts
+        return { method: 'simhash', verdict: 'pass' }
+      }
+    }
+    var engine = new RewriteEngine({ llmClient: mockLlmClient('rewritten'), qualityEvaluator: ev, knowledgeBase: new KnowledgeBase() })
+    wireStrategy(engine)
+    var result = await engine.rewrite({ mode: 'create', content: '秋天来了', userSettings: {} })
+    expect(result.success).toBe(true)
+    expect(result.quality.method).toBe('simhash')
+    expect(captured).toEqual({ mode: 'create' })
+  })
+
+  test('M3 端到端：选题创作「短种子 → 长成文」不再判 fail（真实事故回归）', async function () {
+    var seed = '秋天来了'
+    // 约 320 字的成文，包含种子的全部字符（模拟"主题种子 → 成文"）
+    var article = '秋天来了。窗外的树叶一片一片往下掉，风吹过的时候，它们打着旋儿落在人行道上。'.repeat(8)
+    var engine = new RewriteEngine({ llmClient: mockLlmClient(article), knowledgeBase: new KnowledgeBase() })
+    wireStrategy(engine)
+    var result = await engine.rewrite({ mode: 'create', content: seed, userSettings: {} })
+    expect(result.success).toBe(true)
+    expect(result.quality.mode).toBe('create')
+    // 覆盖率口径下种子内容被完整保留 → 不得判 fail（修复前此处为 fail）
+    expect(result.quality.semanticPreservation).toBeGreaterThan(60)
+    expect(result.quality.verdict).not.toBe('fail')
+    // 措辞不得暗示"偏离原意"而使用户怀疑引擎
+    expect(result.quality.suggestions.join('')).not.toContain('偏离原意')
+    expect(result.quality.suggestions.join('')).not.toContain('不合格')
+  })
+
+  test('M4 端到端：智能仿写模式仍按原严格度判定（未被放松）', async function () {
+    var text = '这是一段关于电商运营的原文内容，包含了丰富的营销策略与增长方法'
+    var engine = new RewriteEngine({ llmClient: mockLlmClient(text), knowledgeBase: new KnowledgeBase() })
+    wireStrategy(engine)
+    // 返回与原文几乎完全相同 → 仍应判 fail（近似重复）
+    var result = await engine.rewrite({ mode: 'imitate', content: text, userSettings: {} })
+    expect(result.success).toBe(true)
+    expect(result.quality.mode).toBe('imitate')
+    expect(result.quality.verdict).toBe('fail')
+  })
 })
 
 

@@ -38,33 +38,40 @@
       <div class="cohere-card rewrite-config-card">
         <div class="cohere-section-title">{{ t('rewritePage.configSection') }}</div>
 
-        <!-- 结合爆款库 / 结合个人经历 -->
-        <div class="config-checkboxes">
-          <label class="config-checkbox" :class="{ disabled: rewriting }">
+        <!-- 内容依据：两个来源开关并排（勾选框左置 + 固定尺寸；标题与说明纵向排列）
+             勾选框必须显式固定尺寸：父级是 flex 容器，checkbox 作为 flex item
+             会被 align-self:stretch 拉伸到整行宽，原生勾选框因而被绘制到行的中央、
+             脱离文字——这是改写设置区最主要的「错位 / 混乱」观感来源。 -->
+        <div class="config-switches">
+          <label class="config-switch" :class="{ disabled: rewriting, 'is-on': useViralLibrary }">
             <input
               type="checkbox"
               v-model="useViralLibrary"
               :disabled="rewriting"
               class="coral-check"
             />
-            <span class="checkbox-label">
-              <span class="checkbox-icon">🔥</span>
-              <span>{{ t('rewritePage.useViralLibrary') }}</span>
+            <span class="switch-body">
+              <span class="checkbox-label switch-title">
+                <span class="checkbox-icon switch-icon" aria-hidden="true">🔥</span>
+                <span>{{ t('rewritePage.useViralLibrary') }}</span>
+              </span>
+              <span class="checkbox-hint switch-hint">{{ t('rewritePage.useViralLibraryHint') }}</span>
             </span>
-            <span class="checkbox-hint">{{ t('rewritePage.useViralLibraryHint') }}</span>
           </label>
-          <label class="config-checkbox" :class="{ disabled: rewriting }">
+          <label class="config-switch" :class="{ disabled: rewriting, 'is-on': usePersonalExperience }">
             <input
               type="checkbox"
               v-model="usePersonalExperience"
               :disabled="rewriting"
               class="coral-check"
             />
-            <span class="checkbox-label">
-              <span class="checkbox-icon">📝</span>
-              <span>{{ t('rewritePage.usePersonalExperience') }}</span>
+            <span class="switch-body">
+              <span class="checkbox-label switch-title">
+                <span class="checkbox-icon switch-icon" aria-hidden="true">📝</span>
+                <span>{{ t('rewritePage.usePersonalExperience') }}</span>
+              </span>
+              <span class="checkbox-hint switch-hint">{{ t('rewritePage.usePersonalExperienceHint') }}</span>
             </span>
-            <span class="checkbox-hint">{{ t('rewritePage.usePersonalExperienceHint') }}</span>
           </label>
         </div>
 
@@ -82,31 +89,34 @@
           </div>
         </div>
 
-        <!-- 字数控制 -->
-        <div class="config-row">
-          <label class="cohere-form-label">{{ t('rewritePage.wordCountLabel') }}</label>
-          <WordCountRangeInput
-            v-model:min="wordCountMin"
-            v-model:max="wordCountMax"
-            :min-placeholder="t('rewritePage.wordCountMinPlaceholder')"
-            :max-placeholder="t('rewritePage.wordCountMaxPlaceholder')"
-            :unit="t('rewritePage.wordCountUnit')"
-            :error="wordCountError"
-            :disabled="rewriting"
-          />
-        </div>
+        <!-- 字数控制 + 目标平台：两个短字段并排，避免单列堆叠在宽卡片右侧留下大片空白 -->
+        <div class="config-grid">
+          <!-- 字数控制 -->
+          <div class="config-row">
+            <label class="cohere-form-label">{{ t('rewritePage.wordCountLabel') }}</label>
+            <WordCountRangeInput
+              v-model:min="wordCountMin"
+              v-model:max="wordCountMax"
+              :min-placeholder="t('rewritePage.wordCountMinPlaceholder')"
+              :max-placeholder="t('rewritePage.wordCountMaxPlaceholder')"
+              :unit="t('rewritePage.wordCountUnit')"
+              :error="wordCountError"
+              :disabled="rewriting"
+            />
+          </div>
 
-        <!-- 目标平台 -->
-        <div class="config-row">
-          <label class="cohere-form-label">{{ t('rewritePage.platformLabel') }}</label>
-          <select v-model="platform" class="cohere-input config-select" :disabled="rewriting">
-            <option value="">{{ t('rewriteEngine.platformGeneral') }}</option>
-            <option value="douyin">{{ t('rewriteEngine.platformDouyin') }}</option>
-            <option value="xiaohongshu">{{ t('rewriteEngine.platformXiaohongshu') }}</option>
-            <option value="wechat_mp">{{ t('rewriteEngine.platformWechatMp') }}</option>
-            <option value="bilibili">{{ t('rewriteEngine.platformBilibili') }}</option>
-            <option value="zhihu">{{ t('rewriteEngine.platformZhihu') }}</option>
-          </select>
+          <!-- 目标平台 -->
+          <div class="config-row">
+            <label class="cohere-form-label">{{ t('rewritePage.platformLabel') }}</label>
+            <select v-model="platform" class="cohere-input config-select" :disabled="rewriting">
+              <option value="">{{ t('rewriteEngine.platformGeneral') }}</option>
+              <option value="douyin">{{ t('rewriteEngine.platformDouyin') }}</option>
+              <option value="xiaohongshu">{{ t('rewriteEngine.platformXiaohongshu') }}</option>
+              <option value="wechat_mp">{{ t('rewriteEngine.platformWechatMp') }}</option>
+              <option value="bilibili">{{ t('rewriteEngine.platformBilibili') }}</option>
+              <option value="zhihu">{{ t('rewriteEngine.platformZhihu') }}</option>
+            </select>
+          </div>
         </div>
 
         <!-- 策略选择（自动匹配默认 + 手动下拉，与 AiWriterPanel 行为一致） -->
@@ -126,14 +136,16 @@
           }"
         />
 
-        <!-- 改写按钮 -->
-        <button
-          class="cohere-btn-primary rewrite-start-btn"
-          :disabled="rewriting || !canStartRewrite"
-          @click="startRewrite"
-        >
-          {{ rewriting ? t('rewritePage.rewritingBtn') : t('rewritePage.rewriteBtn') }}
-        </button>
+        <!-- 改写按钮：与上方配置字段用分隔线隔开，明确「先配置 → 后执行」的分段 -->
+        <div class="rewrite-submit">
+          <button
+            class="cohere-btn-primary rewrite-start-btn"
+            :disabled="rewriting || !canStartRewrite"
+            @click="startRewrite"
+          >
+            {{ rewriting ? t('rewritePage.rewritingBtn') : t('rewritePage.rewriteBtn') }}
+          </button>
+        </div>
         <div v-if="rewriteError" class="rewrite-error" role="alert">{{ rewriteError }}</div>
       </div>
 
@@ -145,9 +157,15 @@
           <span>{{ t('rewritePage.metaAiTaste') }}：{{ rewriteMeta.aiTastePct }}</span>
           <span>{{ t('rewritePage.metaLength', { original: rewriteMeta.originalLength, result: rewriteMeta.resultLength }) }}</span>
         </div>
-        <!-- 改写质量评估报告（content-quality-eval 桌面端闭环） -->
-        <div v-if="rewriteQuality" class="rewrite-quality-report" data-testid="rewrite-quality-report">
-          <div class="cohere-section-title">{{ t('rewritePage.qualitySection') }}</div>
+        <!-- 改写质量评估报告（content-quality-eval 桌面端闭环）
+             视觉：用左侧强调条表达结论等级，替代原先「卡片内再套一个带边框的卡片」 -->
+        <div
+          v-if="rewriteQuality"
+          class="rewrite-quality-report"
+          :class="'quality-accent-' + rewriteQuality.verdict"
+          data-testid="rewrite-quality-report"
+        >
+          <div class="quality-head">{{ t('rewritePage.qualitySection') }}</div>
           <div class="rewrite-quality-metrics">
             <span class="quality-metric">
               {{ t('rewritePage.qualitySufficiency') }}：
@@ -191,6 +209,17 @@
           class="rewrite-textarea result-textarea"
           rows="8"
         ></textarea>
+        <!-- 改写结果快捷操作：复制到剪贴板（BUGFIX-REWRITE-QUALITY-UX） -->
+        <div class="rewrite-copy-row">
+          <button
+            class="cohere-btn-secondary rewrite-copy-btn"
+            data-testid="btn-copy-result"
+            :disabled="!rewriteResult.trim()"
+            @click="copyResult"
+          >
+            {{ copied ? t('rewritePage.copyResultDone') : t('rewritePage.copyResult') }}
+          </button>
+        </div>
         <div class="rewrite-result-actions">
           <button class="cohere-btn-secondary" @click="saveToDraft">
             {{ t('rewritePage.saveDraft') }}
@@ -217,7 +246,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { aiRewrite, aiListRewriteStrategies, aiGetRecommendedStrategies, draftSave, applyKnowledgeFeedback } from '@/api/publisher'
@@ -227,6 +256,7 @@ import { useLoginGate } from '@/composables/useLoginGate'
 import { useWordCountValidation } from '@/composables/useWordCountValidation'
 import { useCopyLibrary } from '@/composables/useCopyLibrary'
 import { takeRewriteHandoff } from '@/utils/rewrite-handoff'
+import { writeClipboard } from '@/utils/clipboard'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
 import RewriteStrategyPicker from '@/components/RewriteStrategyPicker.vue'
 import WordCountRangeInput from '@/components/WordCountRangeInput.vue'
@@ -234,7 +264,7 @@ import WordCountRangeInput from '@/components/WordCountRangeInput.vue'
 const router = useRouter()
 const route = useRoute()
 const { t } = useI18n()
-const { notifySuccess, notifyError } = useNotify()
+const { notifySuccess, notifyError, notifyWarning } = useNotify()
 const { ensureLogin } = useLoginGate()
 
 // ── 状态 ──
@@ -248,6 +278,9 @@ const rewriteQuality = ref(null)
 // P2 隐式反馈：本次改写引用的知识条目（保存/发布=采纳 / 再次改写=弃用）
 const rewriteKnowledgeRefs = ref([])
 const contentError = ref('')
+// 复制按钮瞬时反馈态：复制成功后按钮文案切换为「已复制」，1.5s 后复位（BUGFIX-REWRITE-QUALITY-UX）
+const copied = ref(false)
+let copiedTimer = null
 
 // viral-rewrite-integration：标题参考（爆款分析页生成标题经路由 query 带入）+ 爆款潜力对比
 const titleHint = ref('')
@@ -383,6 +416,14 @@ onMounted(() => {
   if (route.query.from === 'collection') consumeLibraryHandoff()
 })
 
+// 组件卸载时清掉复制反馈定时器，避免卸载后 setState（BUGFIX-REWRITE-QUALITY-UX）
+onUnmounted(() => {
+  if (copiedTimer) {
+    clearTimeout(copiedTimer)
+    copiedTimer = null
+  }
+})
+
 // ── 计算 ──
 const canStartRewrite = computed(() => {
   return content.value.trim().length > 0 && !wordCountError.value
@@ -500,6 +541,39 @@ async function startRewrite() {
   }
 }
 
+/**
+ * 复制改写结果到系统剪贴板（BUGFIX-REWRITE-QUALITY-UX）
+ *
+ * - 结果为空时不动作，仅提示（避免把空串写进剪贴板覆盖用户已有内容）
+ * - 复制成功：toast + 按钮文案切「已复制」1.5s
+ * - 复制失败：提示用户手动选中复制，并立即复位按钮态
+ */
+async function copyResult() {
+  const text = rewriteResult.value
+  if (!text || !text.trim()) {
+    notifyWarning('rewritePage.copyEmpty')
+    return
+  }
+  const ok = await writeClipboard(text)
+  if (!ok) {
+    if (copiedTimer) {
+      clearTimeout(copiedTimer)
+      copiedTimer = null
+    }
+    copied.value = false
+    // key 已在 locales 成对登记，无需冗余 fallback（CCG 评审 I-4）
+    notifyError('rewritePage.copyFailed')
+    return
+  }
+  notifySuccess('rewritePage.copySuccess')
+  copied.value = true
+  if (copiedTimer) clearTimeout(copiedTimer)
+  copiedTimer = setTimeout(() => {
+    copied.value = false
+    copiedTimer = null
+  }, 1500)
+}
+
 /** 存入草稿 */
 async function saveToDraft() {
   if (!rewriteResult.value.trim()) return
@@ -593,107 +667,269 @@ function onPublishVideo(pipelineId) {
 </script>
 
 <style scoped>
-.rewrite-input-card, .rewrite-config-card, .rewrite-result-card {
+/* ═══════════════════════════════════════════════════════════════════
+   改写页视觉重构（2026-09-16）
+   设计原则（交互设计师视角）：
+   1. 一组内容 = 一组字段：配置项按「内容依据 → 改写模式 → 输出控制」
+      三段组织；段内每个字段行布局完全统一（标签独占一行 + 控件下一行）。
+   2. 一个控件只有一个视觉焦点：卡片标题建立层级；开关在勾选态用校色边框 +
+      浅底表达「已启用」，未勾选为白底灰边。
+   3. 交互信号不得误导：表单卡片不显示手型光标、不随悬停浮起（全局
+      .cohere-card 是「卡片墙」语义，用在表单容器上会让人误以为整块可点）。
+   4. 结果区有主次：元信息（轻文本）→ 质量评估（结论强调条）→ 动作（主次分离）。
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── 卡片与标题 ──
+   特异性取到 (0,3,0) 以稳定覆盖全局 .cohere-card:hover（(0,2,0)），
+   不依赖样式表加载顺序。 */
+.rewrite-input-card,
+.rewrite-config-card,
+.rewrite-result-card {
   margin-bottom: var(--space-lg);
-  padding: var(--space-md);
+  padding: var(--space-xl);
+  cursor: default;
+}
+.rewrite-input-card.cohere-card:hover,
+.rewrite-config-card.cohere-card:hover,
+.rewrite-result-card.cohere-card:hover {
+  background: var(--canvas);
+  box-shadow: none;
 }
 
-.config-checkboxes {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-bottom: var(--space-md);
+/* 卡片标题：全局 .cohere-section-title 没有任何样式定义，此前退化为正文字号，
+   卡片内所有内容层级相同——这是「界面混乱」的根因之一。 */
+.cohere-section-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.4;
+  letter-spacing: -0.1px;
+  margin-bottom: var(--space-lg);
 }
-.config-checkbox {
+
+/* ── 内容依据：两个来源开关并排（两列网格，窄屏回落单列）── */
+.config-switches {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-sm);
+  margin-bottom: var(--space-xl);
+}
+@media (max-width: 820px) {
+  .config-switches { grid-template-columns: minmax(0, 1fr); }
+}
+.config-switch {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 10px 14px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--r-sm);
+  background: var(--canvas);
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
 }
-.config-checkbox:hover { border-color: var(--coral); background: var(--coral-bg, #fef2f2); }
-.config-checkbox.disabled { opacity: 0.6; cursor: default; }
-.config-checkbox.disabled:hover { border-color: var(--border); background: transparent; }
-.checkbox-label {
+.config-switch:hover { border-color: var(--coral); }
+.config-switch.is-on {
+  border-color: var(--coral);
+  background: var(--coral-soft);
+}
+.config-switch.disabled { opacity: 0.6; cursor: default; }
+.config-switch.disabled:hover { border-color: var(--border-light); }
+.config-switch.disabled.is-on { background: var(--coral-soft); }
+
+/* 关键修复：勾选框固定尺寸。
+   .config-switch 是 flex 容器，checkbox 作为 flex item 默认 align-self:stretch，
+   会被拉伸到整行宽，原生勾选框因而绘制在行的中央、与文字脱离。 */
+.config-switch input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--coral);
+}
+.switch-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.switch-title {
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: 14px;
   font-weight: 500;
-  color: var(--text-primary);
+  color: var(--ink);
+  line-height: 1.4;
 }
-.checkbox-icon { font-size: 16px; }
-.checkbox-hint {
+.switch-icon { font-size: 15px; line-height: 1; }
+.switch-hint {
   font-size: 12px;
+  line-height: 1.5;
   color: var(--muted);
-  margin-left: 24px;
+}
+
+/* ── 字段行：标签独占一行、控件在下一行。
+   原实现里「目标平台」是唯一样式不同的字段（标签与下拉同一行），
+   字段布局不统一正是「混乱」的来源；此处一次性拉齐，
+   并用 :deep() 覆盖子组件（策略选择器）内部的同名标签。 ── */
+.rewrite-config-card :deep(.cohere-form-label) {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1.4;
+  margin-bottom: 6px;
 }
 
 .mode-chips {
   display: flex;
-  gap: 8px;
+  gap: var(--space-sm);
   flex-wrap: wrap;
 }
 .mode-chip {
   padding: 6px 14px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--r-sm);
+  background: var(--canvas);
   cursor: pointer;
   font-size: 13px;
-  color: var(--text-primary);
-  transition: all 0.15s;
+  color: var(--ink);
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
-.mode-chip:hover { border-color: var(--coral); }
+.mode-chip:hover:not(:disabled) { border-color: var(--coral); }
 .mode-chip.active {
   border-color: var(--coral);
-  background: var(--coral-bg, #fef2f2);
+  background: var(--coral-soft);
   color: var(--coral);
   font-weight: 500;
 }
 .mode-chip:disabled { opacity: 0.5; cursor: default; }
 
-.config-select {
-  max-width: 280px;
+/* 字数区间：label 传空串时隐藏，避免 flex gap 留下 8px 视觉空隙 */
+.config-row :deep(.word-count-label:empty) { display: none; }
+/* 校验错误独占一行，避免把「- 2000 字」挤到下一行 */
+.config-row :deep(.word-count-error) { flex-basis: 100%; margin-top: 2px; }
+
+/* 短字段并排：字数控制 + 目标平台。只设列间距，行距交给 .config-row 的
+   margin-bottom，保证与其它字段的垂直节奏一致。 */
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: var(--space-xl);
+}
+@media (max-width: 820px) {
+  .config-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
-/* ── 改写质量评估报告（content-quality-eval 桌面端闭环）── */
+/* 策略选择器内部的单选文案字号与其它字段保持一致（子组件默认 12px） */
+.rewrite-config-card :deep(.strategy-radio) { font-size: 13px; }
+.rewrite-config-card :deep(.strategy-mode-row) { gap: var(--space-lg); }
+
+/* 字段控件宽度对齐（下拉类统一 280px） */
+.config-select {
+  max-width: 280px;
+  width: 100%;
+}
+.rewrite-config-card :deep(.strategy-select) {
+  max-width: 280px;
+  width: 100%;
+}
+.rewrite-config-card :deep(.strategy-preview) {
+  margin-top: 6px;
+  display: inline-block;
+}
+
+/* ── 执行区：与配置字段用分隔线断开，明确「先配置 → 后执行」 ── */
+.rewrite-submit {
+  margin-top: var(--space-lg);
+  padding-top: var(--space-lg);
+  border-top: 1px solid var(--border-light);
+}
+.rewrite-submit .rewrite-start-btn { margin-top: 0; }
+
+/* ── 结果区 ── */
+.rewrite-result-card .result-textarea { margin-top: var(--space-md); }
+
+/* 质量评估：左侧结论强调条取代原先「结果卡片内再套一个带边框的卡片」，
+   结论等级用颜色直接编码（合格 / 需注意 / 建议优化）。 */
 .rewrite-quality-report {
-  margin: var(--space-md) 0;
-  padding: var(--space-md);
-  background: var(--surface-secondary, #f8f9fb);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  margin: 0 0 var(--space-md);
+  padding: 2px 0 2px var(--space-lg);
+  background: transparent;
+  border: none;
+  border-left: 3px solid var(--border-light);
+  border-radius: 0;
+}
+.quality-accent-pass { border-left-color: #2e9e5b; }
+.quality-accent-warn { border-left-color: #d97706; }
+/* 结论=「建议优化」：去错误红，与 .quality-verdict-fail 同步降级为暖橙提示色
+   （BUGFIX-REWRITE-QUALITY-UX 与 #1892 视觉重构的整合） */
+.quality-accent-fail { border-left-color: #ea580c; }
+.quality-head {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 6px;
 }
 .rewrite-quality-metrics {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 20px;
-  margin-top: var(--space-sm);
+  gap: 4px 20px;
 }
 .quality-metric {
-  font-size: 13px;
-  color: var(--text-primary);
+  font-size: 12px;
+  color: var(--muted);
 }
-.quality-metric strong { font-weight: 600; }
-.quality-verdict-pass { color: #2e9e5b; }
-.quality-verdict-warn { color: #d97706; }
-.quality-verdict-fail { color: #dc2626; }
+.quality-metric strong { font-weight: 600; color: var(--ink); }
+.rewrite-quality-metrics .quality-verdict-pass { color: #2e9e5b; }
+.rewrite-quality-metrics .quality-verdict-warn { color: #d97706; }
+/* 结论文案已由「不合格」改为中性的「建议优化」：同步去掉错误红（#dc2626），
+   降级为暖橙提示色，避免"失败/不可用"的错误观感（BUGFIX-REWRITE-QUALITY-UX） */
+.rewrite-quality-metrics .quality-verdict-fail { color: #ea580c; }
 .rewrite-quality-suggestions {
   margin: var(--space-sm) 0 0;
   padding-left: 18px;
-  font-size: 13px;
-  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--muted);
 }
-.rewrite-quality-suggestions li { margin-bottom: 4px; }
+.rewrite-quality-suggestions li { margin-bottom: 2px; }
+.quality-suggestions-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
 .rewrite-quality-none {
-  margin: var(--space-sm) 0;
+  margin: 0 0 var(--space-md);
   font-size: 12px;
   color: var(--muted);
 }
 
+/* ── 改写结果快捷操作：复制（BUGFIX-REWRITE-QUALITY-UX）── */
+.rewrite-copy-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-sm);
+}
+/* 固定最小宽度：按钮文案在「复制 / 已复制」间切换时不产生宽度跳动
+   （88px 可容纳较宽的「✅ 已复制」，且远小于卡片宽度，不影响 BUGFIX-REWRITE-PAGE-WIDTH 的列宽稳定） */
+.rewrite-copy-btn { min-width: 88px; }
+.rewrite-copy-btn:disabled { opacity: 0.5; cursor: default; }
+
+/* 结果区次操作按钮：全局 .cohere-btn-secondary 是零内边距的纯文本样式，
+   在动作行与复制行中补内边距与悬停底色，使其成为可识别的按钮。 */
+.rewrite-result-actions .cohere-btn-secondary,
+.rewrite-copy-row .cohere-btn-secondary {
+  padding: 8px 12px;
+  border-radius: var(--r-sm);
+  transition: background 0.15s, color 0.15s;
+}
+.rewrite-result-actions .cohere-btn-secondary:hover,
+.rewrite-copy-row .cohere-btn-secondary:hover {
+  background: var(--coral-soft);
+  color: var(--coral);
+}
 </style>
 

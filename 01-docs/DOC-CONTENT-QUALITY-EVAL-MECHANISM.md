@@ -385,6 +385,24 @@
 
 ## 五、数据流
 
+> **⚠️ 两套评估器辨析（2026-09-16 补充）**
+> 本仓库存在**两个互不相同**的内容质量评估实现，切勿混淆：
+>
+> | | 本文件描述的评估器 | 桌面端改写页评估器 |
+> |---|---|---|
+> | 实现 | Python `ContentQualityEvaluator` | JS `packages/rewrite-engine/src/rewrite-quality-evaluator.js` |
+> | 维度 | 15 维度加权归一化 | 3 维度（改写充分度 / 语义保持度 / 原创性） |
+> | 算法 | 启发式规则 + 词表 | SimHash 指纹 + 覆盖率 / Jaccard |
+> | 消费方 | 运营中心（ops-center）单篇评估 / 批量统计 | 桌面端改写页质量评估区块 |
+> | 结论粒度 | A+/A/B/C/D 五档综合分 | pass / warn / fail 三态 |
+>
+> 二者共享的只有"内容质量可量化"这一产品目标，**算法与阈值完全独立**。
+> 桌面端评估器于 2026-09-16 做过一次口径修正与模式分档改造
+> （语义保持度由对称 Jaccard 改为非对称覆盖率、新增 `textSimilarity`、判定按改写模式分档），
+> 详见 [PRD-REWRITE-ENGINE.md §13.11](./PRD-REWRITE-ENGINE.md) 与
+> [BUGFIX-REWRITE-QUALITY-UX-2026-09-16.md](./BUGFIX-REWRITE-QUALITY-UX-2026-09-16.md)。
+> **本次修正不影响本文件所述的 15 维度机制**，运营中心评分逻辑零变化。
+
 ### 5.1 改写引擎自动评估
 
 ```

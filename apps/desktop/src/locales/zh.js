@@ -2687,10 +2687,17 @@ knowledgeBase: {
     resultSection: '改写结果',
     metaStrategy: '策略',
     metaAiTaste: 'AI味等级',
-    metaLength: '{original} 字 → {result} 字',
+    // 字数概览：原文 → 结果。经 i18n 命名插值渲染为「原文 8 字 → 结果 720 字」
+    metaLength: '原文 {original} 字 → 结果 {result} 字',
     saveDraft: '💾 存入草稿',
     goPublish: '🚀 去发布',
     goVideo: '🎬 视频创作',
+    // 改写结果快捷操作（BUGFIX-REWRITE-QUALITY-UX：结果文本框下方新增复制按钮）
+    copyResult: '📋 复制',
+    copyResultDone: '✅ 已复制',
+    copySuccess: '已复制到剪贴板',
+    copyFailed: '复制失败，请手动选中文本后复制',
+    copyEmpty: '暂无可复制的内容',
     draftSaved: '草稿已创建',
     draftSaveFailed: '存入草稿失败',
     needLogin: 'AI 改写需要登录后使用，是否立即登录？',
@@ -2709,9 +2716,12 @@ knowledgeBase: {
     qualitySemantic: '语义保持度',
     qualityOriginality: '原创性',
     qualityVerdict: '结论',
+    // 结论用词必须中性、无负面暗示：旧文案「不合格」使用户怀疑改写引擎可用性
+    // （真实案例：选题创作模式下输入 4 字主题种子、输出 700 字成文，语义保持度天然偏低，
+    //   被误判为不合格。详见 BUGFIX-REWRITE-QUALITY-UX）
     qualityVerdictPass: '合格',
     qualityVerdictWarn: '需注意',
-    qualityVerdictFail: '不合格',
+    qualityVerdictFail: '建议优化',
     qualityMethod: '评估方式',
     qualityMethodSimhash: 'SimHash 指纹',
     qualityMethodEmbedding: '语义向量',
