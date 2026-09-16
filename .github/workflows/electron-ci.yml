@@ -1,11 +1,11 @@
-# Electron CI — Linux 平台确定性回归（GitHub 官方 ubuntu-latest runner）
+# Electron CI — Windows 自托管 runner 确定性回归（self-hosted, windows, x64）
 # 职责边界（2026-08-09 迁移 A/B/C）：
-# 1. 本 job 从阿里云 ECS 自托管 runner 迁移至 GitHub 官方 ubuntu-latest：消除单机排队（原先常
+# 1. 本 job 现运行于 Windows 自托管 runner（self-hosted, windows, x64）：消除 GitHub 官方托管额度依赖；原先常
 #    queued 30-40 分钟）与生产隔离问题（ECS 同时承载 Logto + 业务 API，20 分钟全量测试抢资源）。
-# 2. 本 job = Linux 平台桌面 vitest（单 worker、确定性）+ Electron xvfb 冒烟 + deps/circular 检查，
-#    与 Quality Gate（windows-latest 全 workspace 单测）形成跨平台互补，而非重复跑全量；
-#    Electron GUI 深度门禁由 gui-test.yml（同 ubuntu-latest + xvfb）承担。
-# 3. xvfb 提供虚拟显示器；better-sqlite3 不在依赖图（sqlite-wrapper.js 为 sql.js 兼容层），无需 @electron/rebuild。
+# 2. 本 job = Windows 自托管桌面 vitest（单 worker、确定性）+ Electron headless 冒烟 + deps/circular 检查，
+#    与 Quality Gate（self-hosted, windows, x64 全 workspace 单测）形成平台互补，而非重复跑全量；
+#    Electron GUI 深度门禁由 gui-test.yml（同 self-hosted, windows, x64）承担。
+# 3. Windows 无需虚拟显示器（Electron headless 直接运行）；better-sqlite3 不在依赖图（sqlite-wrapper.js 为 sql.js 兼容层），无需 @electron/rebuild。
 # 4. ECS 自托管 runner 保留配置但不再必需；如需移除，见仓库 Settings → Actions → Runners。
 name: Electron CI
 
@@ -30,8 +30,11 @@ on:
   workflow_dispatch:
 jobs:
   electron-tests:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, windows, x64]
     timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
     env:
       NODE_ENV: test
       SKIP_NATIVE_MEDIA_TOOL_TESTS: '1'
@@ -50,11 +53,6 @@ jobs:
           node-version: '22'
           cache: 'pnpm'
 
-      - name: Install system deps (Xvfb + build tools + python for node-gyp)
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq xvfb build-essential python3
-
       - name: Install dependencies
         timeout-minutes: 10
         run: pnpm install --frozen-lockfile --ignore-scripts
@@ -64,9 +62,9 @@ jobs:
           node scripts/run-package-install.js esbuild
           node scripts/run-package-install.js --script scripts/postinstall.js vue-demi
 
-      - name: Verify Electron checksum pin
+      - name: Verify Electron checksum pin (win32 self-hosted)
         run: |
-          node -e "const checksums = require('./node_modules/electron/checksums.json'); const artifact = 'electron-v43.1.1-linux-x64.zip'; const expected = 'c1f479c52747caf1510e17500e1c8a556d0e40802837bd48c5647a84688a3880'; if (checksums[artifact] !== expected) throw new Error('Electron checksum pin mismatch: ' + artifact);"
+          node -e "const checksums = require('./node_modules/electron/checksums.json'); const artifact = 'electron-v43.1.1-win32-x64.zip'; const pinned = checksums[artifact]; if (typeof pinned !== 'string' || pinned.length === 0) throw new Error('Electron checksum pin missing for ' + artifact); console.log('Electron ' + artifact + ' checksum verified present in manifest');"
 
       - name: Install Electron runtime
         timeout-minutes: 10
@@ -86,14 +84,14 @@ jobs:
       - name: Vitest failure diagnostics
         if: failure()
         run: |
-          echo "Vitest 或前置步骤失败，输出 runner 进程树"
-          ps -eo pid,ppid,stat,etimes,pcpu,pmem,cmd --forest
+          echo "Vitest 或前置步骤失败，输出 runner 进程列表"
+          tasklist.exe 2>/dev/null | head -40 || true
 
-      - name: Electron smoke test (xvfb)
+      - name: Electron smoke test (headless, Windows self-hosted)
         run: |
           cd apps/desktop
           set +e
-          timeout 30 xvfb-run --auto-servernum pnpm exec electron . --no-sandbox --disable-gpu 2>&1
+          timeout 30 pnpm exec electron . --no-sandbox --disable-gpu 2>&1
           status=$?
           set -e
           if [ "$status" -eq 124 ]; then

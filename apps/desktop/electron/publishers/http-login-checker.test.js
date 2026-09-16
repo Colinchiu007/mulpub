@@ -91,7 +91,7 @@ describe('http-login-checker', () => {
       )
     })
 
-    it('抖音 status_code 非 0 → expired', async () => {
+    it('抖音 status_code 8（明确未登录）→ expired（对齐参考产品 checkAccountAlive）', async () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
@@ -101,6 +101,42 @@ describe('http-login-checker', () => {
 
       const result = await checker.checkLoginViaHttpApi('douyin', [{ name: 'sid', value: 'expired' }])
       expect(result).toEqual({ supported: true, valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' })
+    })
+
+    it('抖音 status_msg/msg 含「未登录」→ expired（黑名单语义）', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ status_code: 2, msg: '当前用户未登录，请重新登录' }),
+        headers: new Map()
+      }))
+
+      const result = await checker.checkLoginViaHttpApi('douyin', [{ name: 'sid', value: 'expired' }])
+      expect(result).toEqual({ supported: true, valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' })
+    })
+
+    it('抖音 status_code 非 0 且非 8（风控码）→ inconclusive（降级浏览器检测，修复假阳性）', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ status_code: 9, status_msg: '请完成安全验证' }),
+        headers: new Map()
+      }))
+
+      const result = await checker.checkLoginViaHttpApi('douyin', [{ name: 'sid', value: 'valid' }])
+      expect(result).toEqual({ supported: true, valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE' })
+    })
+
+    it('抖音 200 但响应非 JSON（data=null）→ inconclusive（风控页降级）', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.reject(new Error('invalid json')),
+        headers: new Map()
+      }))
+
+      const result = await checker.checkLoginViaHttpApi('douyin', [{ name: 'sid', value: 'valid' }])
+      expect(result).toEqual({ supported: true, valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE' })
     })
 
     it('头条 code 0 且有 user.id → valid', async () => {
@@ -197,7 +233,7 @@ describe('http-login-checker', () => {
       expect(result).toEqual({ supported: true, valid: true, code: 'CHECK_LOGIN_SUCCESS_HTTP_API' })
     })
 
-    it('302 重定向到登录页 → expired', async () => {
+    it('302 重定向且 Location 指向登录页 → expired', async () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
         ok: false,
         status: 302,
@@ -206,6 +242,52 @@ describe('http-login-checker', () => {
 
       const result = await checker.checkLoginViaHttpApi('douyin', [{ name: 'sid', value: 'expired' }])
       expect(result).toEqual({ supported: true, valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' })
+    })
+
+    it('302 重定向但 Location 无登录特征 → inconclusive（可能是风控跳转，降级）', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: false,
+        status: 302,
+        headers: new Map([['location', 'https://creator.douyin.com/verify']])
+      }))
+
+      const result = await checker.checkLoginViaHttpApi('douyin', [{ name: 'sid', value: 'valid' }])
+      expect(result).toEqual({ supported: true, valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE' })
+    })
+
+    it('302 重定向且拿不到 Location → inconclusive（降级）', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: false,
+        status: 302,
+        headers: new Map()
+      }))
+
+      const result = await checker.checkLoginViaHttpApi('douyin', [{ name: 'sid', value: 'valid' }])
+      expect(result).toEqual({ supported: true, valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE' })
+    })
+
+    it('401/403 → expired（平台明确未授权）', async () => {
+      for (const status of [401, 403]) {
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+          ok: false,
+          status,
+          headers: new Map()
+        }))
+        const result = await checker.checkLoginViaHttpApi('douyin', [{ name: 'sid', value: 'expired' }])
+        expect(result).toEqual({ supported: true, valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' })
+      }
+    })
+
+    it('404/429/500 → inconclusive（可能是风控/临时故障，降级浏览器检测）', async () => {
+      for (const status of [404, 429, 500]) {
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+          ok: false,
+          status,
+          headers: new Map()
+        }))
+        const result = await checker.checkLoginViaHttpApi('douyin', [{ name: 'sid', value: 'valid' }])
+        expect(result).toEqual({ supported: true, valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE' })
+      }
     })
 
     it('网络错误返回 valid: undefined（降级到浏览器检测）', async () => {

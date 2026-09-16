@@ -10,8 +10,11 @@ on:
 jobs:
   test:
     name: ops-center 后端测试
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, windows, x64]
     timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - uses: actions/checkout@v4

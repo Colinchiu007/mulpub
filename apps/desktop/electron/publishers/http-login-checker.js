@@ -6,8 +6,13 @@
  * 每次检测 <1 秒（浏览器窗口方案需 4-8 秒/平台）。
  *
  * API 端点来源：参考产品 4.0 逆向（packages/main/dist/index.cjs）。
- * 各平台判断逻辑：
- * - douyin: GET /aweme/v1/creator/pc/user/info/ → status_code === 0 且有 user 数据
+ * 各平台判断逻辑采用黑名单语义：仅平台明确告知未登录才判失效；
+ * 其余不确定响应（风控页/结构变更/非预期状态码）返回 undefined，
+ * 由调用方（account-manager.checkLoginStatus）降级到浏览器检测，
+ * 避免平台风控拦截检测请求时把有效 Cookie 误判为已失效（假阳性）。
+ * - douyin: GET /aweme/v1/creator/pc/user/info/ → status_code === 0 且有 user
+ *   数据判有效；status_code === 8 或 status_msg/msg 含「未登录」判失效
+ *   （对齐参考产品 checkAccountAlive）；其余一切 → 不确定，降级
  * - toutiao: GET /mp/agw/media/get_media_info → code === 0 且有 user.id
  */
 const log = require('../services/logger')
@@ -19,7 +24,7 @@ const log = require('../services/logger')
  * @property {'GET'|'POST'} [method] - 默认 GET
  * @property {string} [body] - POST JSON body（视频号 auth_data）
  * @property {string} [contentType] - POST Content-Type（默认 application/json）
- * @property {(data:any)=>boolean} [check] - JSON 响应判定；check 与 checkHtml 互斥
+ * @property {(data:any)=>boolean|undefined} [check] - JSON 响应判定；undefined=不确定（降级浏览器检测）；check 与 checkHtml 互斥
  * @property {(html:string)=>boolean} [checkHtml] - HTML 响应判定（公众号 loginpage 正则）
  * @property {(cookieHeader:string)=>boolean} [precheck] - 请求前 cookie 预检（如 bilibili 必须含 bili_jct）
  */
@@ -32,7 +37,17 @@ const HTTP_CHECK_APIS = {
       Referer: 'https://creator.douyin.com/creator-micro/home',
       Origin: 'https://creator.douyin.com'
     },
-    check: (data) => Boolean(data && data.status_code === 0 && data.data && (data.data.uid || data.data.user_id || data.data.nickname !== undefined))
+    check: (data) => {
+      // 黑名单语义（对齐参考产品 checkAccountAlive）：只有平台明确告知
+      // 未登录才判失效；风控拦截/结构变更/其他状态码一律返回 undefined
+      // 交由调用方降级浏览器检测，避免把有效 Cookie 误判为已失效。
+      if (!data || typeof data !== 'object') return undefined // 风控页/非 JSON → 不确定，降级
+      if (data.status_code === 0 && data.data && (data.data.uid || data.data.user_id || data.data.nickname !== undefined)) return true
+      if (data.status_code === 8) return false // 对齐参考产品 checkAccountAlive：8=明确未登录
+      const msg = data.status_msg || data.msg || data.message
+      if (typeof msg === 'string' && msg.includes('未登录')) return false
+      return undefined // 其余一切（其他码/缺字段/结构变更）→ 不确定，降级
+    }
   },
   toutiao: {
     url: 'https://mp.toutiao.com/mp/agw/media/get_media_info',
@@ -138,16 +153,27 @@ async function checkLoginViaHttpApi (platform, cookies) {
     const response = await fetch(api.url, fetchOptions)
     clearTimeout(timer)
 
-    // 平台重定向到登录页 = Cookie 失效
+    // 3xx：Location 指向登录页 = Cookie 失效；其他重定向（含拿不到 Location）
+    // 可能是风控跳转，不判失效 → 不确定，降级浏览器检测（黑名单语义）
     if (response.status === 301 || response.status === 302 || response.status === 303 || response.status === 307) {
       const location = response.headers.get('location') || ''
-      log.info('HttpLoginChecker', platform + ': redirect to ' + location.slice(0, 80) + ' → expired')
-      return { supported: true, valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' }
+      if (/login|passport|signin|sso/i.test(location)) {
+        log.info('HttpLoginChecker', platform + ': redirect to ' + location.slice(0, 80) + ' → expired')
+        return { supported: true, valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' }
+      }
+      log.info('HttpLoginChecker', platform + ': redirect to ' + location.slice(0, 80) + ' → inconclusive → fallback')
+      return { supported: true, valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE' }
     }
 
     if (!response.ok) {
-      log.info('HttpLoginChecker', platform + ': HTTP ' + response.status + ' → expired')
-      return { supported: true, valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' }
+      // 401/403 = 平台明确未授权 → Cookie 失效；其余非 2xx（404/429/5xx 等）
+      // 可能是风控/临时故障，不判失效 → 不确定，降级浏览器检测
+      if (response.status === 401 || response.status === 403) {
+        log.info('HttpLoginChecker', platform + ': HTTP ' + response.status + ' → expired')
+        return { supported: true, valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' }
+      }
+      log.info('HttpLoginChecker', platform + ': HTTP ' + response.status + ' → inconclusive → fallback')
+      return { supported: true, valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE' }
     }
 
     // HTML 响应判定（公众号 loginpage 正则）
@@ -161,6 +187,11 @@ async function checkLoginViaHttpApi (platform, cookies) {
     // JSON 响应判定
     const data = await response.json().catch(() => null)
     const valid = typeof api.check === 'function' ? api.check(data) : false
+    if (valid === undefined) {
+      // 判定不确定（风控页/结构变更/非预期状态码）→ 不判失效，降级浏览器检测
+      log.info('HttpLoginChecker', platform + ': API check → inconclusive (data keys: ' + (data ? Object.keys(data).slice(0, 5).join(',') : 'null') + ')')
+      return { supported: true, valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE' }
+    }
     log.info('HttpLoginChecker', platform + ': API check → ' + (valid ? 'valid' : 'expired') + ' (data keys: ' + (data ? Object.keys(data).slice(0, 5).join(',') : 'null') + ')')
     return { supported: true, valid, code: valid ? 'CHECK_LOGIN_SUCCESS_HTTP_API' : 'CHECK_LOGIN_COOKIE_EXPIRED' }
   } catch (e) {

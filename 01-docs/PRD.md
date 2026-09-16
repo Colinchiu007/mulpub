@@ -7965,3 +7965,27 @@ home 标签是虚拟标签（无 WebContentsView），主进程 `webview-manager
 - [ ] 采集页结果面板可见「改写策略」区块，手动选策略后改写请求携带对应 strategyId
 - [ ] /rewrite 默认展开策略下拉；侧边栏一级导航出现「文案改写」
 - [ ] 四处策略区块标题统一「改写策略」；desktop 全量单测通过
+
+---
+
+## 2026-09-16 · 账号登录态 HTTP 检测三态判定（修复抖音「已失效」假阳性）
+
+详细 PRD：`01-docs/BUGFIX-LOGIN-CHECK-FALSE-EXPIRED-2026-09-16.md`；特性 PRD 升级 v2.1：`01-docs/PRD-ACCOUNT-LOGIN-STATUS-CHECK.md`（§12.3 语义修正 / §14 三态判定）
+
+| # | 变更 | 说明 |
+|---|------|------|
+| A | 判定语义黑名单化 | http-login-checker.js 仅平台明确告知未登录才判失效（douyin status_code===8 或 msg 含「未登录」、HTTP 401/403、3xx 且 Location 含登录特征）；不确定响应新增 CHECK_LOGIN_INCONCLUSIVE 结果码 |
+| B | 不确定即降级 | 风控页/结构变更/404/429/5xx/非登录 3xx 一律 valid=undefined → 既有 tryHttpLoginCheck 降级链 → Playwright 浏览器真实检测（+4-8s，正常/真失效账号 <1s 不变） |
+| C | 系统性影响面 | HTTP 状态码黑名单化对全部 5 平台生效（404/429/5xx 不再误判失效）；其他平台 JSON 判定零变化；公众号 checkHtml/bilibili precheck/视频号 errCode 黑名单不变 |
+
+**数据校验**：无 Cookie（CHECK_LOGIN_NO_CREDENTIAL）判失效不变；bilibili precheck 不变；JSON 解析失败（data=null）douyin 走降级；检测结果持久化白名单校验与 toPublicAccount 状态推导优先级不变。
+
+**功能逻辑**：check 返回值扩为 boolean|undefined 三态；失效判定必须有平台明确证据（黑名单）；30 分钟周期监控与一键检测复用同一链路自动获益。
+
+**交互/显示项/提示文字**：零新增 UI 与文案；横幅与账号卡片「已失效」语义更准（仅代表明确未登录或浏览器确认失效）；zh/en 无变化。
+
+**验收标准**
+
+- [ ] 抖音 Cookie 有效账号不再被横幅标记「已失效」（风控拦截场景走浏览器降级确认）
+- [ ] 真失效账号仍 <1s 判失效（8/未登录/401/403/登录页 302 快速路径保留）
+- [ ] http-login-checker.test.js 28 例 + account-manager.test.js 52 例全绿；eslint/CJK 门禁通过

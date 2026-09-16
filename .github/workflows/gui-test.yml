@@ -22,8 +22,11 @@ on:
 
 jobs:
   gui-test:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, windows, x64]
     timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - uses: actions/checkout@v4
@@ -39,32 +42,27 @@ jobs:
           node-version: '22'
           cache: 'pnpm'
 
-      - name: Install system deps (Xvfb + libvips)
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq xvfb libvips libvips-dev build-essential python3
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Install content-aggregator (shared collection engine)
-        run: python3 -m pip install "git+https://github.com/Colinchiu007/content-aggregator.git"
+        run: python -m pip install "git+https://github.com/Colinchiu007/content-aggregator.git"
 
       - name: Install content-aggregator-shared (auth/wechat/proxy)
-        run: python3 -m pip install "git+https://github.com/Colinchiu007/content-aggregator-shared.git"
+        run: python -m pip install "git+https://github.com/Colinchiu007/content-aggregator-shared.git"
 
       - name: Install Python backend runtime and test dependencies
-        run: python3 -m pip install -e "packages/python-backend[web,video,aggregation]" pytest
+        run: python -m pip install -e "packages/python-backend[web,video,aggregation]" pytest
 
       - name: Verify optional Python provider imports
-        run: python3 -m pytest packages/python-backend/tests/test_video_provider_imports.py -q
+        run: python -m pytest packages/python-backend/tests/test_video_provider_imports.py -q
 
       - name: Verify Python backend imports
         working-directory: packages/python-backend/src
-        run: python3 -c "import server, uvicorn, yaml; print('Python backend entrypoint imports ready')"
+        run: python -c "import server, uvicorn, yaml; print('Python backend entrypoint imports ready')"
 
       - name: Install Playwright (for GUI tests)
-        run: pnpm exec playwright install --with-deps chromium
+        run: pnpm exec playwright install chromium
 
       - name: Build Vue frontend
         run: pnpm --filter @multi-publish/desktop build:vue
@@ -78,7 +76,7 @@ jobs:
             exec pnpm exec vite --host 127.0.0.1 --port 5174
           ) > apps/desktop/vite-ci.log 2>&1 &
           vite_pid=$!
-          echo "$vite_pid" > "$RUNNER_TEMP/multi-publish-vite.pid"
+          echo "$vite_pid" > "./multi-publish-vite.pid"
 
           vite_ready=0
           for i in $(seq 1 30); do
@@ -113,17 +111,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # L1: 硬看门狗 — 超时 8 分钟强制终止，避免 CI 虚拟环境下 Electron 启动僵尸化挂死整小时
+          # L1: 硬看门狗 — 超时 8 分钟强制终止，避免 Electron 启动僵尸化挂死整小时（Windows 自托管无需 xvfb）
           timeout --signal=TERM --kill-after=30s 8m \
-            xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
-              node apps/desktop/tests/electron-gui-v9.js
+            node apps/desktop/tests/electron-gui-v9.js
 
       - name: Stop Vite server
         if: always()
         shell: bash
         run: |
-          if [ -f "$RUNNER_TEMP/multi-publish-vite.pid" ]; then
-            vite_pid=$(cat "$RUNNER_TEMP/multi-publish-vite.pid")
+          if [ -f "./multi-publish-vite.pid" ]; then
+            vite_pid=$(cat "./multi-publish-vite.pid")
             kill "$vite_pid" 2>/dev/null || true
             wait "$vite_pid" 2>/dev/null || true
           fi
