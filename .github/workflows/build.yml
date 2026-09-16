@@ -23,12 +23,7 @@ on:
   workflow_dispatch:
 jobs:
   build:
-    strategy:
-      matrix:
-        os: [self-hosted, windows, x64]
-      fail-fast: false
-
-    runs-on: ${{ matrix.os }}
+    runs-on: [self-hosted, windows, x64]
     timeout-minutes: 60
     outputs:
       package-relevant: ${{ steps.changes.outputs.package-relevant }}
