@@ -1,7 +1,7 @@
 # PRD: 账号登录状态自动检测与主页提醒
 
-> 版本: 2.0 | 日期: 2026-09-13 | 状态: 已实现
-> 关联 PR: #1558（v1）、#1804（session cookie 路径修复）、#1805（本次：检测反馈 + 失效标识 + 结果持久化 + 公众号 HTTP 检测）
+> 版本: 2.1 | 日期: 2026-09-16 | 状态: 已实现
+> 关联 PR: #1558（v1）、#1804（session cookie 路径修复）、#1805（v2.0：检测反馈 + 失效标识 + 结果持久化 + 公众号 HTTP 检测）、v2.1（2026-09-16 三态判定修复：HTTP 检测黑名单语义，修复抖音假阳性，详见 BUGFIX-LOGIN-CHECK-FALSE-EXPIRED-2026-09-16.md 与本文 §14）
 
 ## 1. 需求背景
 
@@ -240,13 +240,42 @@ App.vue 挂载 Home 组件
 ### 12.3 数据校验
 - Cookie 数组经 `cookiesToHeader` 转请求头（过滤空 name/value）
 - 请求前无 Cookie → `CHECK_LOGIN_NO_CREDENTIAL` 判失效
-- 302/301/303/307 重定向到登录页 → 失效（CHECK_LOGIN_COOKIE_EXPIRED）
-- HTTP 非 2xx → 失效
+- **v2.1 语义**（黑名单）：
+  - 302/301/303/307 且 Location 含登录特征（`/login|passport|signin|sso/i`）→ 失效；其他重定向 → `CHECK_LOGIN_INCONCLUSIVE` 降级浏览器检测
+  - HTTP 401/403（明确未授权）→ 失效；其余非 2xx（404/429/5xx）→ `CHECK_LOGIN_INCONCLUSIVE` 降级
+  - JSON 判定返回 `undefined`（不确定：风控页/结构变更/非预期状态码）→ `CHECK_LOGIN_INCONCLUSIVE` 降级
 - 网络错误 / 超时返回 `valid: undefined`，降级到浏览器 DOM 检测（不误判失效）
 - 超时阈值 `HTTP_CHECK_TIMEOUT_MS = 8000`
+
+> ⚠️ v2.0 原语义「HTTP 非 2xx → 失效」「重定向 → 失效」已在 v2.1 废弃：非预期响应 ≠ Cookie 失效（抖音风控假阳性根因，见 §14）。
 
 ## 13. 未来扩展
 
 - 定时后台检测：利用 `accounts:batch-check-login` + Electron 主进程定时器
 - 通知提醒：检测到失效时发送系统通知
 - 检测结果过期策略：2 小时窗口可配置化
+
+## 14. HTTP 检测三态判定（v2.1，2026-09-16）
+
+> 详细根因证据链、判定矩阵、测试清单见 `01-docs/BUGFIX-LOGIN-CHECK-FALSE-EXPIRED-2026-09-16.md`。
+
+### 14.1 问题
+抖音账号 Cookie 实际有效（批量登录打开页面仍为登录态），但被主页横幅标记「已失效」。根因：`http-login-checker.js` 白名单语义——仅响应完全符合预期才判有效，302/非 2xx/JSON 结构不符一律判失效；抖音风控拦截 Node fetch 检测请求（TLS 指纹/固定 UA 与登录浏览器不符）返回非预期响应 → 假阳性。参考产品逆向语义为黑名单（仅 `code===8`/「未登录」判失效 + 4 端点轮询），本项目搬运端点时反转了语义。
+
+### 14.2 三态判定模型
+| check 返回 | 语义 | 结果码 | 下游 |
+|---|---|---|---|
+| `true` | 明确有效 | `CHECK_LOGIN_SUCCESS_HTTP_API` | 直接采用 |
+| `false` | 平台明确告知未登录 | `CHECK_LOGIN_COOKIE_EXPIRED` | 直接采用 |
+| `undefined` | 不确定（风控页/结构变更/非预期状态码） | `CHECK_LOGIN_INCONCLUSIVE`（v2.1 新增） | 降级 Playwright 浏览器检测（既有链路零修改承接） |
+
+明确失效证据（黑名单）：douyin `status_code===8` 或 status_msg/msg 含「未登录」；HTTP 401/403；3xx 且 Location 含 `/login|passport|signin|sso/i`。
+
+### 14.3 影响面
+- douyin JSON 判定改三分支；HTTP 状态码黑名单化对**全部平台**生效（404/429/5xx 从误判失效改为降级确认，同类潜在误报一并消除）
+- 其他平台 JSON 判定零变化；公众号 checkHtml / bilibili precheck / 视频号 errCode 黑名单均不变
+- 代价：不确定场景 +4-8s（浏览器降级）；正常/真失效账号检测速度不变
+- 已知债：toutiao JSON 判定仍为白名单语义，后续按需复制三态模式
+
+### 14.4 测试
+`http-login-checker.test.js` 28 例（新增 8 例覆盖判定矩阵）；`account-manager.test.js` 52 例降级链路回归；eslint 0 error；CJK 门禁无新增。
