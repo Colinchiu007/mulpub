@@ -169,6 +169,7 @@ async function copyUrl() {
 .nav-bar {
   display: flex;
   align-items: center;
+  flex-shrink: 0;
   height: 40px;
   gap: 8px;
   padding: 0 10px;

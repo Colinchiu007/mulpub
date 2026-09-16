@@ -142,3 +142,67 @@ describe('computeEmbeddedViewBounds 侧栏宽度=0 防御（回归 2026-09-15 �
     expect(bounds.x).toBe(SIDEBAR_WIDTH_DEFAULT)
   })
 })
+
+/**
+ * 联动契约（2026-09-16 加固）：
+ * BROWSER_CHROME_TOP 是与渲染进程 DOM 的 TabBar/NavBar CSS 高度**手工同步**的常量。
+ * WebContentsView 是原生图层，不受 CSS overflow 裁剪——若组件高度改动而常量未同步，
+ * 浏览器标签会覆盖 TabBar/NavBar 或留下缝隙。本组测试直接读取 .vue 源码里的
+ * 根容器 height，与常量对账，任何一侧单改都会失败。
+ */
+describe('BROWSER_CHROME_TOP 与 TabBar/NavBar CSS 高度联动', () => {
+  const fs = require('fs')
+  const path = require('path')
+
+  const SRC_COMPONENTS = path.join(__dirname, '..', '..', 'src', 'components')
+
+  /** 读 .vue 源码并剥离块注释（slash-star 注释），避免注释中的示例选择器干扰正则 */
+  function readComponentCss(fileName) {
+    const source = fs.readFileSync(path.join(SRC_COMPONENTS, fileName), 'utf8')
+    return source.replace(/\/\*[\s\S]*?\*\//g, '')
+  }
+
+  /**
+   * 提取指定根选择器规则块（到首个 `}` 为止，根选择器均为无嵌套的顶层规则，
+   * 若未来被挪进 @media / CSS 嵌套需同步调整本提取逻辑）。
+   */
+  function readRootRule(fileName, selector) {
+    const match = readComponentCss(fileName).match(new RegExp(`${selector}\\s*\\{([^}]*)\\}`))
+    if (!match) throw new Error(`${fileName} 中未找到根选择器 ${selector} 的规则块`)
+    return match[1]
+  }
+
+  /** height 带词边界：排除 min-height / max-height / line-height 等误匹配 */
+  function readRootHeightPx(ruleBody, fileName, selector) {
+    const height = ruleBody.match(/(?<![\w-])height:\s*(\d+(?:\.\d+)?)px/)
+    if (!height) throw new Error(`${fileName} 的 ${selector} 未声明固定 px 高度`)
+    return Number(height[1])
+  }
+
+  function assertNotFlexShrinkable(fileName, selector) {
+    const ruleBody = readRootRule(fileName, selector)
+    // 精确匹配 0（排除 0.5 等非零值），根容器失守会连带破坏 76px 契约
+    expect(ruleBody).toMatch(/flex-shrink:\s*0(?![.\d])/)
+  }
+
+  it('TabBar(36) + NavBar(40) === BROWSER_CHROME_TOP(76)，与渲染进程 DOM 顶高一致', () => {
+    const tabBarHeight = readRootHeightPx(readRootRule('TabBar.vue', '\\.tab-bar'), 'TabBar.vue', '.tab-bar')
+    const navBarHeight = readRootHeightPx(readRootRule('NavBar.vue', '\\.nav-bar'), 'NavBar.vue', '.nav-bar')
+    expect(tabBarHeight).toBe(36)
+    expect(navBarHeight).toBe(40)
+    expect(tabBarHeight + navBarHeight).toBe(BROWSER_CHROME_TOP)
+  })
+
+  it('TabBar/NavBar 根容器均不可被 flex 压缩（flex-shrink: 0）', () => {
+    assertNotFlexShrinkable('TabBar.vue', '\\.tab-bar')
+    assertNotFlexShrinkable('NavBar.vue', '\\.nav-bar')
+  })
+
+  it('前提：全局 box-sizing: border-box 重置存在（否则 border 使实高超出 76px 契约）', () => {
+    const resetCss = fs.readFileSync(
+      path.join(__dirname, '..', '..', 'src', 'styles', 'cohere-design-system.css'),
+      'utf8',
+    )
+    expect(resetCss).toMatch(/\*,\s*\*::before,\s*\*::after\s*\{[^}]*box-sizing:\s*border-box/)
+  })
+})
