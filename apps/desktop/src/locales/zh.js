@@ -144,6 +144,11 @@ export default {
     deleteConfirmTitle: '删除项目',
     deleteConfirmMessage: '即将永久删除项目「{name}」，该项目下的看板与生产记录会一并移除，且不可恢复。',
     deleteConfirmButton: '确认删除',
+    empty: {
+      title: '暂无项目',
+      message: '开始第一次视频生产后，项目档案会显示在这里',
+      action: '浏览流水线',
+    },
   },
   onboarding: {
     welcome: '欢迎使用 Multi-Publish',
@@ -2536,13 +2541,6 @@ export default {
     signingIn: '正在打开登录...'
   },
 
-projectLibrary: {
-  empty: {
-    title: '暂无项目',
-    message: '开始第一次视频生产后，项目档案会显示在这里',
-    action: '浏览流水线',
-  },
-},
 viralAnalysis: {
   empty: {
     title: '输入主题开始分析',

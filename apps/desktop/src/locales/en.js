@@ -144,6 +144,11 @@ export default {
     deleteConfirmTitle: 'Delete project',
     deleteConfirmMessage: 'About to permanently delete the project "{name}". Its board and production records will be removed and this cannot be undone.',
     deleteConfirmButton: 'Delete',
+    empty: {
+      title: 'No projects yet',
+      message: 'Project archives will appear here after your first video production',
+      action: 'Browse pipelines',
+    },
   },
   onboarding: {
     welcome: 'Welcome to Multi-Publish',
@@ -2534,14 +2539,6 @@ export default {
     statusUnknown: 'Unknown',
     signingIn: 'Opening sign-in...'
   },
-
-projectLibrary: {
-  empty: {
-    title: 'No projects yet',
-    message: 'Project archives appear here after your first video production',
-    action: 'Browse pipelines',
-  },
-},
 viralAnalysis: {
   empty: {
     title: 'Enter a topic to start',
