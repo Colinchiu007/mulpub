@@ -120,6 +120,7 @@ function getDomainForPlatform(platform) {
 .tab-bar {
   display: flex;
   align-items: stretch;
+  flex-shrink: 0;
   height: 36px;
   background: #e8eaf2;
   border-bottom: 1px solid #d5d7e0;
