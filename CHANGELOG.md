@@ -1,3 +1,18 @@
+# [未发布] feat(desktop): 登录页会话级网络诊断日志——二维码加载失败可观测化（2026-09-16）
+
+### 变更
+- **背景**：微信公众号登录二维码由 iframe 加载（open.weixin.qq.com/mpqrconnect → long.open.weixin.qq.com），iframe 内部请求失败不触发 `did-fail-load`，应用对该类故障完全无感知（当日实际案例：代理分流导致二维码加载失败，排障缺证据）
+- **新增 `electron/services/login-network-diagnostics.js`**：`attachLoginNetworkDiagnostics(ses, {platform, accountId})` 用 **session.webRequest 会话级监听**（可观测 iframe 内部请求）——`onErrorOccurred` 记录失败请求（跳过 ERR_ABORTED 噪音）+ `classifyNetError` 错误分类排查提示（代理不可达/DNS fake-IP 残留建议 flushdns/连接失败）；`onCompleted` 对二维码关键端点（mpqrconnect/qrconnect）HTTP≥400 打 warn；挂接时 `resolveProxy('open.weixin.qq.com')` 探测并记录「二维码请求实际走 DIRECT 还是哪个代理」
+- **挂接点**：`webview-manager.js` `createNewTabPage` 仅对账号分区（`persist:account-*`）挂接，home/浏览标签不挂；幂等标记防同分区复用翻倍；try/catch 防御不影响登录主流程
+- **零 UI/零文案/零新增 IPC**（纯主进程日志，grep tag `LoginNetDiag`）；URL filter 限定微信登录链路域名（*.weixin.qq.com / *.wx.qq.com 共 4 条）
+
+### 验证
+- 新增 `login-network-diagnostics.test.js` 14 例（幂等/filter/错误分类/ABORTED 静默/端点 warn/resolveProxy 路径）；`webview-manager.test.js` 37 例回归，定向合计 51/51 全绿
+- eslint 0 error；`check-locale-sync --cjk` PASS（1410 < 基线 1644）；无 i18n/IPC/preload 变更
+- 文档：`01-docs/FEATURE-LOGIN-NETWORK-DIAG-2026-09-16.md`（方案/日志样例/边界/扩展）
+
+---
+
 # [未发布] fix(desktop): 账号登录态 HTTP 检测改黑名单语义，修复抖音「已失效」假阳性（2026-09-16）
 
 ### 修复

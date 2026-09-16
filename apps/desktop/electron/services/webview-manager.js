@@ -20,6 +20,8 @@ const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('../ipc-handlers/helpers')
 // 内嵌视图定位唯一来源：必须用「客户区」尺寸，禁用 getBounds() 外框尺寸（详见模块注释）
 const { computeEmbeddedViewBounds, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } = require('./view-bounds')
+// 登录页会话级网络诊断（iframe 内部请求失败不触发 did-fail-load，详见模块注释）
+const { attachLoginNetworkDiagnostics } = require('./login-network-diagnostics')
 
 // 左侧导航栏宽度（与前端 MpSidebar 的 CSS 变量 --mp-sidebar-width 保持一致）
 // 默认 200px，窄屏（≤900px）时 68px；由渲染进程通过 IPC 动态同步
@@ -284,6 +286,15 @@ class WebviewManager extends EventEmitter {
       : 'persist:browse-' + tabId
     var viewSession = session.fromPartition(partition, { cache: true })
     var cookieRestorations = []
+
+    // 账号 session 挂接登录网络诊断：webRequest 能观察到登录页 iframe 内部
+    // 请求（二维码 mpqrconnect 等）的失败，弥补 did-fail-load 不触发的盲区。
+    // 仅对 account 分区挂接，home/普通浏览标签不挂；模块内幂等，复用同分区不翻倍。
+    if (useAccountSession) {
+      try {
+        attachLoginNetworkDiagnostics(viewSession, { platform: platform || 'unknown', accountId: accountId || 'unknown' })
+      } catch (e) { log.warn('WebviewManager', 'login network diag attach failed: ' + ((e && e.message) || 'unknown')) }
+    }
 
     // 从当前身份命名空间的加密凭证恢复账号会话。旧版本没有 AccountManager
     // 接线时回退到 legacy credential-store，兼容已有本地账号。
