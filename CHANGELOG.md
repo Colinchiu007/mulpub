@@ -1,3 +1,29 @@
+# [未发布] fix(desktop): 改写页视觉重构——修复「点击改写后列宽被撑宽」+ 设置区信息架构重排（2026-09-16）
+
+### 修复
+- **列宽抖动根因**：`.cohere-main` 是 `display:flex; flex-direction:column` 容器，而 `.rewrite-page` 仅声明 `max-width: 900px; margin: 0 auto`、**未声明 `width`**。在 flex 布局中，**交叉轴方向上的 auto margin 会抑制 `align-self: stretch`**，使该 item 宽度退化为 `fit-content(max-content)`——由「最宽的那个后代元素」决定。改写结果卡片出现后整列从 **474.11px 跳到 543.69px**（Chromium 实测 1440×900，父容器 `.cohere-main` 恒为 1240）
+- **修复**：`.rewrite-page` 改为显式 `width: 100%` + `box-sizing: border-box`，列宽只由容器宽度与 `max-width` 决定，与内容完全解耦
+- **勾选框错位（同一类 flex 语义问题）**：`.config-checkbox` 是 `flex-direction: column` 容器，`<input type=checkbox>` 作为 flex item 被 `align-self: stretch` 拉伸到整行宽，原生勾选框因而绘制在行的**中央**、脱离文字 → 改为 `flex: 0 0 auto` + 固定 16×16 且左置
+
+### 变更
+- **卡片层级**：全局 `.cohere-section-title` 此前在 CSS 中**无任何定义**，退化为继承字号，卡片内所有内容层级相同 → 补 `15px / 600 / var(--ink)` + 16px 下间距
+- **内容依据分组**：两个来源开关由纵向大边框块改为**两列并排**紧凑卡片；勾选态用 `border: var(--coral)` + `background: var(--coral-soft)` 表达（新增 `is-on` 类），悬停不再改底色
+- **字段行统一**：全部字段统一为「标签独占一行 + 控件下一行」（原本「目标平台」是全页唯一标签与控件同行的字段）
+- **并排重排**：字数控制 + 目标平台两列并排（`.config-grid`，`column-gap: 24px`），消除宽卡片右半侧闲置；断点 `820px` 回落单列
+- **结果区**：元信息去掉灰底小方块，改为轻量文本行；质量评估改用**左侧结论强调条**（pass/warn/fail 三色 `quality-accent-*`）替代「结果卡片内再套一个带边框卡片」；动作区主次分离（次操作靠左、主操作靠右 + 1px 分隔线）
+- **交互信号**：表单卡片覆盖全局 `.cohere-card` 的 `cursor: pointer` 与 `:hover` 变色/浮起——那是「卡片墙」交互语义，用在表单容器上会让用户误以为整块可点击
+- **未定义 CSS 变量清理**：改写页对 `--text-primary` / `--text-secondary` / `--surface-secondary` / `--border` / `--coral-bg` 的引用全部替换为设计系统确有定义的令牌（这 5 个变量在 `cohere-design-system.css` 中均无定义，此前靠 `var()` fallback 或继承色兜底）
+- **零行为变更**：IPC 调用、入参契约（`mode/content/userSettings/strategyId`）、数据校验规则、i18n 文案 key、以及共享组件（`RewriteStrategyPicker` / `WordCountRangeInput`）的内部实现全部未动；零新增文案（CJK 基线不上升）
+
+### 验证
+- `RewriteView.test.js` 新增 11 条视觉与结构契约（按 `.vue` 源码断言样式规则 + 渲染 DOM 断言结构：勾选框固定尺寸、卡片静态语义、质量强调条、层级、开关左置与 `is-on` 联动、并排容器、提交区分段），**53/53 全绿**
+- `cohere-design-system.test.js` 新增「改写页列宽合同」2 条 CSS 契约断言（`width: 100%` / `flex-wrap: wrap`），**4/4 全绿**
+- Chromium 实测（Playwright）：有/无结果卡片时 `.rewrite-page` 宽度恒为 **900**（修复前 474.11 → 543.69）；窄屏 760px 开关与字段回落单列
+- eslint 0 error；`check-locale-sync --cjk` PASS（1410 < 基线 1644）；`check-ipc-bridge` PASS（388 handlers / 379 preload，0 缺口）；`check-frontend-consistency` PASS
+- 文档：`01-docs/PRD-REWRITE-PAGE-UI-2026-09-16.md`（交互规格 / 状态矩阵 / 数据校验 / 显示项 / 提示文字清单 / QM-5 五步反思）
+
+---
+
 # [未发布] fix(desktop): 采集页正文保留原文换行与分段（Node 采集通道正文提取修复）（2026-09-16）
 
 ### 修复
