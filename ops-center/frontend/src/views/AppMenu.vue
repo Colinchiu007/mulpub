@@ -2,8 +2,10 @@
   <div>
     <h1 style="margin-bottom:16px">应用菜单</h1>
     <p style="color:#888;margin-bottom:16px;font-size:13px">
-      管理应用端（桌面端）左侧边栏的菜单项：控制显示 / 隐藏，并调整菜单项在所属分组内的顺序。
-      「发布、账号、采集、视频创作」为系统核心入口，<strong>强制显示</strong>，开关灰显不可关闭。
+      管理应用端（桌面端）左侧边栏的菜单项：控制显示 / 隐藏，调整顺序，并可在
+      <strong>「一级导航」与「更多」之间互相拖动</strong>（跨组移动）。
+      「发布、账号、采集、视频创作」为系统核心入口，<strong>强制显示且锁定在一级导航</strong>，不可关闭、不可移出（但可在一级导航内拖动排序）。
+      拖动即自动重排顺序；修改后点「保存」生效。
       配置随运行时 bootstrap 下发；桌面端启动 3 秒后自动同步一次，
       <strong>修改后需在桌面端重新同步（或重启应用）才会生效</strong>（当前无实时推送）。
     </p>
@@ -21,25 +23,40 @@
         </div>
       </div>
 
-      <div v-for="group in GROUP_META" :key="group.name" style="margin-bottom:24px">
+      <div
+        v-for="group in GROUP_META"
+        :key="group.name"
+        class="menu-group"
+        :class="{ 'drag-over': dragOverGroup === group.name }"
+        @dragover.prevent="onGroupDragOver(group.name)"
+        @dragleave="onGroupDragLeave(group.name)"
+        @drop.prevent="onDropOnGroup(group.name)"
+      >
         <h3 style="margin:0 0 4px;font-size:15px">{{ group.label }}</h3>
         <p style="margin:0 0 8px;color:#909399;font-size:12px">{{ group.hint }}</p>
-        <el-table
-          v-loading="loading"
-          :data="groupRows(group.name)"
-          border
-          size="small"
-          :row-class-name="rowHiddenClass"
-        >
-          <el-table-column label="顺序" width="110" align="center">
-            <template #default="{ row }">
+
+        <div class="menu-list">
+          <div
+            v-for="row in groupRows(group.name)"
+            :key="row.item_key"
+            class="menu-row"
+            :class="{ 'row-hidden': !row.visible, 'row-dragging': dragKey === row.item_key, 'row-forced': row.forced_visible }"
+            :draggable="true"
+            @dragstart="onDragStart(row)"
+            @dragend="onDragEnd"
+            @dragover.prevent
+            @drop.prevent="onDrop(row, group.name)"
+          >
+            <span class="drag-handle" :title="row.forced_visible ? '锁定一级导航，可拖动排序' : '拖动调整位置或跨组'">
+              {{ row.forced_visible ? '⠿' : '⠿' }}
+            </span>
+
+            <span class="order-btns">
               <el-button size="small" :disabled="isFirst(group.name, row)" @click="move(row, -1)">↑</el-button>
               <el-button size="small" :disabled="isLast(group.name, row)" @click="move(row, 1)">↓</el-button>
-            </template>
-          </el-table-column>
+            </span>
 
-          <el-table-column label="显示" width="90" align="center">
-            <template #default="{ row }">
+            <span class="row-switch">
               <el-tooltip
                 v-if="row.forced_visible"
                 content="系统核心入口，强制显示，不可关闭"
@@ -54,20 +71,19 @@
                 :model-value="row.visible"
                 @change="(value) => { row.visible = value; dirty = true }"
               />
-            </template>
-          </el-table-column>
+            </span>
 
-          <el-table-column prop="label" label="菜单项" min-width="150">
-            <template #default="{ row }">
+            <span class="row-label">
               <span :style="!row.visible ? 'color:#999;text-decoration:line-through' : ''">{{ row.label }}</span>
               <el-tag v-if="row.forced_visible" size="small" type="warning" style="margin-left:6px">强制显示</el-tag>
-            </template>
-          </el-table-column>
+            </span>
 
-          <el-table-column prop="item_key" label="标识" width="150" />
+            <span class="row-key">{{ row.item_key }}</span>
+            <span class="row-desc">{{ row.description }}</span>
+          </div>
 
-          <el-table-column prop="description" label="说明" min-width="220" show-overflow-tooltip />
-        </el-table>
+          <div v-if="groupRows(group.name).length === 0" class="empty-hint">（空）</div>
+        </div>
       </div>
     </el-card>
   </div>
@@ -97,9 +113,13 @@ const saving = ref(false)
 const resetting = ref(false)
 const dirty = ref(false)
 
+// 拖拽状态
+const dragKey = ref(null)
+const dragOverGroup = ref(null)
+
 const hiddenCount = computed(() => items.value.filter((item) => !item.visible).length)
 
-/** 组内按 sort_order 排序的行（元素与 items 中同一对象引用，可直接改） */
+/** 某分组内、按 sort_order 排序的行（元素与 items 中同一对象引用，可直接改） */
 function groupRows(groupName) {
   return items.value
     .filter((item) => item.group === groupName)
@@ -109,18 +129,18 @@ function groupRows(groupName) {
 
 function isFirst(groupName, row) {
   const rows = groupRows(groupName)
-  return rows.length === 0 || rows[0].id === row.id
+  return rows.length === 0 || rows[0].item_key === row.item_key
 }
 
 function isLast(groupName, row) {
   const rows = groupRows(groupName)
-  return rows.length === 0 || rows[rows.length - 1].id === row.id
+  return rows.length === 0 || rows[rows.length - 1].item_key === row.item_key
 }
 
 /** 组内上移 / 下移：重排后把 sort_order 归一化为 0..n-1 */
 function move(row, delta) {
   const rows = groupRows(row.group)
-  const index = rows.findIndex((item) => item.id === row.id)
+  const index = rows.findIndex((item) => item.item_key === row.item_key)
   const target = index + delta
   if (index < 0 || target < 0 || target >= rows.length) return
   const reordered = rows.slice()
@@ -130,8 +150,73 @@ function move(row, delta) {
   dirty.value = true
 }
 
-function rowHiddenClass({ row }) {
-  return row.visible ? '' : 'app-menu-row-hidden'
+// ─── 原生 HTML5 拖拽：区内排序 + 跨组移动 ───────────────────
+
+function onDragStart(row) {
+  dragKey.value = row.item_key
+}
+
+function onDragEnd() {
+  dragKey.value = null
+  dragOverGroup.value = null
+}
+
+function onGroupDragOver(groupName) {
+  dragOverGroup.value = groupName
+}
+
+function onGroupDragLeave(groupName) {
+  if (dragOverGroup.value === groupName) dragOverGroup.value = null
+}
+
+/** 拖到某个具体行上：插入到该行之前（跨组则移动到目标组） */
+function onDrop(targetRow, targetGroup) {
+  dragOverGroup.value = null
+  const key = dragKey.value
+  dragKey.value = null
+  if (!key || key === targetRow.item_key) return
+  moveItem(key, targetRow.item_key, targetGroup)
+}
+
+/** 拖到分组空白区：追加到该组末尾 */
+function onDropOnGroup(targetGroup) {
+  dragOverGroup.value = null
+  const key = dragKey.value
+  dragKey.value = null
+  if (!key) return
+  moveItem(key, null, targetGroup)
+}
+
+/** 核心：把 key 项移动到 targetGroup，插入到 beforeKey 之前（null=末尾）。重算受影响组的 sort_order。 */
+function moveItem(key, beforeKey, targetGroup) {
+  const all = items.value
+  const moved = all.find((item) => item.item_key === key)
+  if (!moved) return
+  const srcGroup = moved.group
+
+  // 强制显示项锁定在一级导航（防御纵深）：仅允许在一级导航内排序，
+  // 不允许拖入「更多」分组，避免破坏系统核心入口的常驻性。
+  if (moved.forced_visible && targetGroup !== 'primary') {
+    ElMessage.warning('核心入口锁定在一级导航，仅可在一级导航内拖动排序，不可移入「更多」')
+    return
+  }
+  moved.group = targetGroup
+
+  // 目标组有序列表（先排除被移动项）
+  const targetList = all.filter((item) => item.group === moved.group && item.item_key !== key)
+  const idx = beforeKey == null
+    ? targetList.length
+    : targetList.findIndex((item) => item.item_key === beforeKey)
+  targetList.splice(idx < 0 ? targetList.length : idx, 0, moved)
+  targetList.forEach((item, order) => { item.sort_order = order })
+
+  // 若跨组，源组剩余项需重新归顺 sort_order
+  if (moved.group !== srcGroup) {
+    all.filter((item) => item.group === srcGroup)
+      .forEach((item, order) => { item.sort_order = order })
+  }
+
+  dirty.value = true
 }
 
 onMounted(load)
@@ -156,13 +241,14 @@ async function saveAll() {
       item_key: item.item_key,
       visible: item.visible,
       sort_order: item.sort_order,
+      group: item.group,
     }))
     const result = await saveAppMenu(payload)
     items.value = (result.items || []).map((item) => ({ ...item }))
     dirty.value = false
     const corrected = result.corrections || []
     if (corrected.length) {
-      ElMessage.warning('已保存。以下强制显示项被系统纠正为「显示」：' + corrected.join('、'))
+      ElMessage.warning('已保存。以下核心入口被系统纠正为「显示在一级导航」：' + corrected.join('、'))
     } else {
       ElMessage.success('已保存 ' + (result.count ?? payload.length) + ' 项')
     }
@@ -176,7 +262,7 @@ async function saveAll() {
 async function resetAll() {
   try {
     await ElMessageBox.confirm(
-      '将恢复为默认设置：全部菜单项显示，并恢复默认顺序。此操作会立即覆盖当前配置，是否继续？',
+      '将恢复为默认设置：全部菜单项显示，并恢复默认分组与顺序。此操作会立即覆盖当前配置，是否继续？',
       '恢复默认',
       { type: 'warning', confirmButtonText: '恢复默认', cancelButtonText: '取消' },
     )
@@ -198,7 +284,79 @@ async function resetAll() {
 </script>
 
 <style scoped>
-:deep(.app-menu-row-hidden) {
+.menu-group {
+  margin-bottom: 24px;
+  border: 1px dashed transparent;
+  border-radius: 8px;
+  padding: 8px;
+  transition: background 0.15s, border-color 0.15s;
+}
+.menu-group.drag-over {
+  border-color: #409eff;
+  background: #ecf5ff;
+}
+.menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.menu-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid #ebeef5;
+  border-radius: 6px;
+  background: #fff;
+  cursor: grab;
+}
+.menu-row.row-dragging {
+  opacity: 0.5;
+}
+.menu-row.row-hidden {
   background: #fafafa;
+}
+.menu-row.row-forced {
+  background: #fdf6ec;
+}
+.menu-row.row-forced .drag-handle {
+  color: #e6a23c;
+}
+.drag-handle {
+  font-size: 16px;
+  color: #c0c4cc;
+  user-select: none;
+}
+.order-btns {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.row-switch {
+  min-width: 44px;
+  text-align: center;
+}
+.row-label {
+  min-width: 120px;
+  font-weight: 500;
+}
+.row-key {
+  font-family: monospace;
+  color: #909399;
+  font-size: 12px;
+}
+.row-desc {
+  color: #909399;
+  font-size: 12px;
+  margin-left: auto;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.empty-hint {
+  color: #c0c4cc;
+  font-size: 12px;
+  padding: 6px 2px;
 }
 </style>

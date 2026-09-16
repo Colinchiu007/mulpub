@@ -199,11 +199,12 @@
 
 - **关键约束**：`appMenu` 位于**签名覆盖范围内**（`sign_runtime_payload` 对整个 payload 的 canonical JSON 签名），因此无法被中间人单独篡改。
 - **下发前二次纠正**：即使数据库被直接改坏（`publish.visible=0`），`get_bootstrap_app_menu` 也会把强制项纠正为 `visible=true` 再下发。
-- **载荷卫生（D-GRP，PRD §2.4.4）**：下发项**只含** `key` / `visible` / `sort_order` 三个字段。
-  `group` 是运营端管理字段（仅 `GET /api/v1/app-menu` 返回），**不得进入被签名的下发载荷**——
-  「被签名但被忽略」的字段会诱导后续实现者把它当契约去读取，从而打开跨分组穿插
-  （UI 层不可能、数据层却可达）的口子。守卫测试：
-  `test_bootstrap_app_menu_items_have_no_signed_but_ignored_fields`。
+- **载荷含 `group`（2026-09-16 撤销 D-GRP）**：下发项含 `key` / `visible` / `sort_order` / `group` 四个字段。
+  原 D-GRP（仅下发三者、剥离 group）于 2026-09-15 落地，理由是避免「被签名但被忽略」字段诱导跨分组穿插；
+  但 2026-09-16 上线「一级导航 ↔ 更多 跨组移动」管理后，group 成为跨端契约的必要字段，故撤销该限制，
+  `get_bootstrap_app_menu` 现随载荷下发 `group`，由应用端 `sidebar-menu-merge` 据下发值决定菜单项归属
+  （配置 group 非法/缺失时 fail-open 回退本地定义）。守卫测试：
+  `test_bootstrap_app_menu_items_include_group`。
 
 ---
 
@@ -548,7 +549,7 @@ QA 验证报告 §6.2.5（D-7.3 🟠）/ §6.2.7（D-GRP 🟡）的落地修复�
 | 编号 | 缺陷 | 修复 | 守卫测试 |
 |---|---|---|---|
 | D-7.3 | `canonical_json` 无 `allow_nan=False`：历史脏数据（如 pipeline option `default_value="NaN"`）经 json.loads 还原为 float('nan') 后，签名串含裸 `NaN`（非法 JSON）→ 桌面端 `JSON.parse` 整包丢弃 bootstrap，content_policy 等全部运行时策略失效且零告警 | ① `canonical_json` 显式 `allow_nan=False`（合法数据输出逐字节不变，签名兼容）；② `PUT /pipeline-options` 写入侧拒绝裸 NaN/Infinity/-Infinity 字面量（含嵌套）；③ bootstrap 下发侧对历史脏行降级为原字符串（存量数据免清洗即恢复安全） | `tests/test_pipeline_options_nan_guard.py`（8 例：写入 3 / 下发 1 / 序列化 2 / 合法回归 1 / API 端到端 1） |
-| D-GRP | bootstrap 下发的 appMenu items 含被签名但被忽略的 `group` 字段（与 PRD §2.4.4 不符） | `get_bootstrap_app_menu` 只输出 `key` / `visible` / `sort_order`；group 保留在管理 API（§4.1） | `test_bootstrap_app_menu_items_have_no_signed_but_ignored_fields` |
+| D-GRP（已撤销，2026-09-16） | 原 D-GRP 限制 bootstrap 下发的 appMenu 不得含 `group`（PRD §2.4.4）。2026-09-16 因上线「跨组移动」管理，group 成为必要契约字段，撤销该限制 | `get_bootstrap_app_menu` 现随载荷下发 `group`；管理 API 仍返回 group（§4.1）；应用端 `sidebar-menu-merge` 据下发 group 决定归属（fail-open 回退本地） | `test_bootstrap_app_menu_items_include_group`（原 `..._have_no_signed_but_ignored_fields` 已更名反转） |
 | 顺带 | `test_app_menu_api.py` 的 `CATALOG_SIZE=20` 未随 #1840（移除 monitor，目录 20→19）同步 → main 上 3 例既有假红 | `CATALOG_SIZE` 改 19，本文档 §2.1/§4/§6 与 PRD 目录表同步 20→19 | `test_seed_catalog_and_forced_flags` 等 3 例转绿 |
 
 ---

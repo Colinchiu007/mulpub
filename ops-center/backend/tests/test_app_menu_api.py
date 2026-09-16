@@ -222,6 +222,62 @@ async def test_sort_order_persists_and_is_returned_in_order():
         assert primary == ["collection", "create", "accounts", "publish", "dashboard", "home", "rewrite"]
 
 
+# ─── 跨组移动（一级 ↔ 更多）──────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_cross_group_move_persists_and_propagates_to_bootstrap():
+    """将「更多」组的 calendar 移到一级导航，应持久化并在下发载荷中体现。"""
+    async with _client() as client:
+        h = _admin_headers()
+        # calendar 默认在 more
+        before = {i["item_key"]: i for i in (await client.get("/api/v1/app-menu", headers=h)).json()["items"]}
+        assert before["calendar"]["group"] == "more"
+
+        await client.put(
+            "/api/v1/app-menu",
+            json={"items": [{"item_key": "calendar", "visible": True, "sort_order": 0, "group": "primary"}]},
+            headers=h,
+        )
+        after = {i["item_key"]: i for i in (await client.get("/api/v1/app-menu", headers=h)).json()["items"]}
+        assert after["calendar"]["group"] == "primary"
+
+        # 下发载荷应反映 group=primary
+        data = (await client.get("/api/v1/runtime/bootstrap", headers=_catalog_headers())).json()
+        by_key = {i["key"]: i for i in data["appMenu"]["items"]}
+        assert by_key["calendar"]["group"] == "primary"
+
+
+@pytest.mark.asyncio
+async def test_unknown_group_rejected():
+    """group 取值非法应被拒绝（fail-closed，与未知 key 同口径）。"""
+    async with _client() as client:
+        h = _admin_headers()
+        resp = await client.put(
+            "/api/v1/app-menu",
+            json={"items": [{"item_key": "home", "visible": True, "sort_order": 0, "group": "bogus"}]},
+            headers=h,
+        )
+        assert resp.status_code == 400, resp.text
+
+
+@pytest.mark.asyncio
+async def test_forced_visible_pinned_to_primary_on_cross_group():
+    """强制显示项即便被请求移到 more，服务端也纠正回 primary 并留痕。"""
+    async with _client() as client:
+        h = _admin_headers()
+        resp = await client.put(
+            "/api/v1/app-menu",
+            json={"items": [{"item_key": "publish", "visible": True, "sort_order": 0, "group": "more"}]},
+            headers=h,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert "publish" in body["corrections"]
+        by_key = {i["item_key"]: i for i in body["items"]}
+        assert by_key["publish"]["group"] == "primary"
+
+
 # ─── bootstrap 契约 ────────────────────────────────────────
 
 
@@ -250,23 +306,21 @@ async def test_bootstrap_app_menu_payload_is_signed_and_complete():
         assert by_key["home"]["visible"] is False
         for key in FORCED_KEYS:
             assert by_key[key]["visible"] is True
-        # 每项至少含 key / visible / sort_order（应用端契约字段）
+        # 每项至少含 key / visible / sort_order / group（应用端契约字段）
         for item in app_menu["items"]:
-            assert {"key", "visible", "sort_order"} <= set(item.keys())
+            assert {"key", "visible", "sort_order", "group"} <= set(item.keys())
 
 
 @pytest.mark.asyncio
-async def test_bootstrap_app_menu_items_have_no_signed_but_ignored_fields():
-    """D-GRP：PRD §2.4.4 —— group 是运营端管理字段，不得进入被签名的下发载荷。
-
-    「被签名但被忽略」的字段比没有更危险：它会诱导后续实现者把它当契约的一部分
-    去读取（既然签名下发了它），从而打开「跨分组穿插」这类 UI 层不可能、
-    数据层却可达的口子。"""
+async def test_bootstrap_app_menu_items_include_group():
+    """跨组管理契约（2026-09-16 撤销 D-GRP）：下发载荷必须含 group 字段，
+    且取值只能是 primary / more，不得出现「被签名但被忽略」之外的杂字段。"""
     async with _client() as client:
         resp = await client.get("/api/v1/runtime/bootstrap", headers=_catalog_headers())
         data = resp.json()
         for item in data["appMenu"]["items"]:
-            assert set(item.keys()) == {"key", "visible", "sort_order"}, item
+            assert set(item.keys()) == {"key", "visible", "sort_order", "group"}, item
+            assert item["group"] in ("primary", "more"), item
 
 
 @pytest.mark.asyncio

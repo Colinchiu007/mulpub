@@ -185,6 +185,19 @@ async def upsert_items(db: AsyncSession, items: list, updated_by: str = "") -> d
             corrections.append(key)
             visible = True
 
+        # 分组：仅接受已知分组，未知分组视为非法输入（fail-closed，与 key 校验同口径）。
+        # 该字段现在会进入下发载荷（见 get_bootstrap_app_menu），是跨组管理的契约一部分。
+        raw_group = raw.get("group")
+        if raw_group is not None:
+            if raw_group not in MENU_GROUPS:
+                raise ValueError(f"未知分组：{raw_group}（仅允许 {', '.join(MENU_GROUPS)}）")
+            row.group = raw_group
+
+        # 强制显示项锁定在一级导航（防御纵深：即使前端越权把其拖入「更多」也不允许）
+        if is_forced_visible(key) and row.group != MENU_GROUP_PRIMARY:
+            corrections.append(key)
+            row.group = MENU_GROUP_PRIMARY
+
         row.visible = 1 if visible else 0
         row.sort_order = _to_sort_order(raw.get("sort_order"), int(row.sort_order or 0))
         row.forced_visible = 1 if is_forced_visible(key) else 0
@@ -224,9 +237,10 @@ async def get_bootstrap_app_menu(db: AsyncSession) -> dict:
     """运行时下发载荷：仅包含目录内的 key（数据库中可能存在的历史脏 key 不下发）。
 
     强制显示项在下发前再做一次纠正，保证「无论数据库里是什么，应用端收到的都是可见」。
-    下发项只含 key / visible / sort_order（D-GRP，PRD §2.4.4）：group 是运营端管理字段，
-    「被签名但被忽略」的字段会诱导后续实现者把它当契约去读取，从而打开跨分组穿插
-    （UI 层不可能、数据层却可达）的口子。
+
+    下发项含 key / visible / sort_order / group：group 是跨组管理的契约字段
+    （2026-09-16 起撤销原 D-GRP 限制）——应用端 sidebar-menu-merge 据此决定菜单项落在
+    一级导航还是「更多」折叠菜单。group 非法/缺失时应用端 fail-open 回退本地定义（C1）。
     """
     await _seed_if_empty(db)
     rows = (await db.execute(sa.select(AppMenuItem))).scalars().all()
@@ -239,11 +253,16 @@ async def get_bootstrap_app_menu(db: AsyncSession) -> dict:
         if is_forced_visible(key):
             visible = True
         sort_order = int(row.sort_order) if row is not None and row.sort_order is not None else 0
+        group = row.group if row is not None and row.group else _group
+        # 防御纵深：强制显示项永远落在一级导航
+        if is_forced_visible(key):
+            group = MENU_GROUP_PRIMARY
         items.append(
             {
                 "key": key,
                 "visible": visible,
                 "sort_order": min(max(sort_order, 0), MAX_SORT_ORDER),
+                "group": group,
             }
         )
     return {"items": items, "synced_at": _now()}
