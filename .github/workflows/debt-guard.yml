@@ -12,8 +12,11 @@ on:
 jobs:
   debt-guard:
     name: 债务熔断检查
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, windows, x64]
     timeout-minutes: 5
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - uses: actions/checkout@v4

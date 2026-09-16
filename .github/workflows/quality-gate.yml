@@ -670,7 +670,7 @@ jobs:
 
   gate-result:
     name: Gate Result
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, windows, x64]
     needs: [static-gates, unit-tests, desktop-shards, coverage, visual, e2e, autonomous]
     if: always()
     timeout-minutes: 5

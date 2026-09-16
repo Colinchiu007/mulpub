@@ -24,7 +24,10 @@ permissions:
 jobs:
   handle-ci-failure:
     if: ${{ github.event.workflow_run.conclusion == 'failure' }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, windows, x64]
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - name: 检出代码
@@ -75,7 +78,7 @@ jobs:
           REPO="${{ github.repository }}"
 
           # Issue body 写入临时文件
-          cat > /tmp/issue-body.md << 'ISSUE_BODY_END'
+          cat > ./ci-issue-body.md << 'ISSUE_BODY_END'
           ## CI 失败 - Level 4 自动检测
 
           - 工作流: WORKFLOW_PLACEHOLDER
@@ -106,14 +109,14 @@ jobs:
           ISSUE_BODY_END
 
           # 替换占位符
-          sed -i "s|WORKFLOW_PLACEHOLDER|$WORKFLOW|g" /tmp/issue-body.md
-          sed -i "s|SHA_PLACEHOLDER|$SHA|g" /tmp/issue-body.md
-          sed -i "s|PR_PLACEHOLDER|#$PR|g" /tmp/issue-body.md
-          sed -i "s|RUN_URL_PLACEHOLDER|$RUN_URL|g" /tmp/issue-body.md
+          sed -i "s|WORKFLOW_PLACEHOLDER|$WORKFLOW|g" ./ci-issue-body.md
+          sed -i "s|SHA_PLACEHOLDER|$SHA|g" ./ci-issue-body.md
+          sed -i "s|PR_PLACEHOLDER|#$PR|g" ./ci-issue-body.md
+          sed -i "s|RUN_URL_PLACEHOLDER|$RUN_URL|g" ./ci-issue-body.md
 
           gh issue create \
             --title "ci-failure-$SHA: $WORKFLOW 失败" \
-            --body-file /tmp/issue-body.md \
+            --body-file ./ci-issue-body.md \
             --label "bug,ci-failure,level-4" \
             --assignee "${{ github.actor }}"
 
@@ -124,7 +127,7 @@ jobs:
         run: |
           PR="${{ steps.parse-failure.outputs.PR_NUMBER }}"
 
-          cat > /tmp/pr-comment.md << 'PR_COMMENT_END'
+          cat > ./ci-pr-comment.md << 'PR_COMMENT_END'
           ## Level 4: CI 失败已检测
 
           - 已自动创建 Bug Issue
@@ -143,7 +146,7 @@ jobs:
           4. 触发 CI 重跑
           PR_COMMENT_END
 
-          gh pr comment "$PR" --body-file /tmp/pr-comment.md
+          gh pr comment "$PR" --body-file ./ci-pr-comment.md
 
       - name: 完成
         run: |
