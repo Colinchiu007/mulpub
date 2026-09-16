@@ -22,6 +22,7 @@ const {
   HealthMonitor,
 } = require('@multi-publish/collection-engine')
 const path = require('path')
+const { extractReadableText } = require('./readable-text')
 
 class UrlCollector {
   /**
@@ -274,7 +275,8 @@ class UrlCollector {
     }
 
     // 百家号：SPA 渲染，class 名每次构建混淆变化，正文稳定在 <p> 段落标签中。
-    // 采用「段落聚合」策略：取包含最多 <p> 的元素作为正文容器，再聚合其内所有非空段落。
+    // 采用「段落聚合」策略：取包含最多 <p> 的元素作为正文容器，再交同一套可读文本
+    // 提取器收口（保留段落换行 —— 此前只 join <p>，与其它站点格式不一致且会丢标题）。
     if (hostname === 'baijiahao.baidu.com') {
       const containers = $('[class]').get()
       let bestContainer = null
@@ -287,12 +289,7 @@ class UrlCollector {
         }
       }
       if (bestContainer && bestParagraphCount > 0) {
-        const paragraphs = []
-        $(bestContainer).find('p').each((_i, p) => {
-          const t = $(p).text().trim()
-          if (t) paragraphs.push(t)
-        })
-        textContent = paragraphs.join('\n').slice(0, 50000)
+        textContent = extractReadableText($(bestContainer)).slice(0, 50000)
       }
       // 百家号标题回退到 h1 或 title
       if (!title) title = $('h1').first().text().trim() || title
@@ -309,7 +306,7 @@ class UrlCollector {
       if (!contentEl || !contentEl.length) {
         contentEl = $('body')
       }
-      textContent = contentEl.text().trim().replace(/\s+/g, ' ').slice(0, 50000)
+      textContent = extractReadableText(contentEl).slice(0, 50000)
     }
 
     return {

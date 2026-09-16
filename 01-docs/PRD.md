@@ -7989,3 +7989,63 @@ home 标签是虚拟标签（无 WebContentsView），主进程 `webview-manager
 - [ ] 抖音 Cookie 有效账号不再被横幅标记「已失效」（风控拦截场景走浏览器降级确认）
 - [ ] 真失效账号仍 <1s 判失效（8/未登录/401/403/登录页 302 快速路径保留）
 - [ ] http-login-checker.test.js 28 例 + account-manager.test.js 52 例全绿；eslint/CJK 门禁通过
+
+
+---
+
+## 2026-09-16 · 采集页正文保留原文换行与分段（Node 采集通道正文提取修复）
+
+详细 PRD：`01-docs/BUGFIX-COLLECT-NEWLINE-PRESERVE-2026-09-16.md`
+
+| # | 变更 | 说明 |
+|---|------|------|
+| A | 新增正文格式契约模块 | `apps/desktop/electron/services/readable-text.js`：块级结构 → 换行映射集中一处（`extractReadableText` + `normalizeExtractedText`），供所有采集通道复用 |
+| B | 修复通用回退分支 | `url-collector.js` 的 `_parseHtml` 通用回退不再用 `.replace(/\s+/g, ' ')` 压掉换行，改调 `extractReadableText`；知乎分支随之修复 |
+| C | 统一百家号格式 | 百家号由「只 `join('<p>')`」改调同一提取器：段落之间空行与其它站点一致，并额外纳入标题 |
+
+**正文文本格式契约（新增）**：`<br>` → 换行；段落级标签（`p` / `h1`-`h6` / `blockquote` / `figcaption`）→ 段间**空行**（分段）；行级标签（`div` / `li` / `tr` / `ul` / `table` / `section` / `article` / `main` 等）→ **单换行**（分行但不空行，列表项不被撑成段落）；`td` / `th` → 制表符（同行内不粘连）；`<pre>` → 内部换行与缩进**原样保留**；行内标签（`span` / `a` / `strong` 等）原样透传；噪声节点（`script` / `style` / `noscript` / `template` / `iframe` / `svg` / `canvas` / `form` / `button` / `nav` / `footer` / `header` / `aside`）整体剔除。
+
+**空白归一化规则（新增，6 步）**：① CRLF / CR / U+2028 / U+2029 → LF；② 去 BOM；③ 行内连续空白（缩进 / 制表符 / 全角空格 / NBSP）→ 单个半角空格（**换行不受影响**）；④ 逐行去首尾空白；⑤ 连续 3 个以上换行 → 压成 1 个空行；⑥ 去首尾换行。
+
+**数据校验**：归一化后 `slice(0, 50000)` 截断（与修复前一致，截断后仍保留段落结构）；空容器 / `null` / 全噪声容器返回空串且不抛错；非字符串输入安全返回空串；`<pre>` 占位符按序还原、序号越界替换为空串、不残留占位符；提取异常仍走 `collect()` 既有 try/catch 失败链路（记 error 日志 + 熔断计数）。
+
+**功能逻辑**：采集页正文有两条通道——Python 聚合通道（`content-aggregator v1` + trafilatura 2.1.0，实测本就保留换行）与 Node 采集通道（反爬站点知乎/百家号走 stealth，以及 Python 失败或命中安全验证页时的降级路径）。本 Bug 仅出现在 Node 通道：旧实现把包括换行在内的所有连续空白压成单个半角空格，正文变成一整行；相邻 `<li>` 甚至零分隔粘连（实测输出 `要点一要点二`）。修复后 Node 通道同时提供「分行 + 分段」。
+
+**交互/显示项/提示文字**：**零 UI 改动、零新增文案、零 locale 改动、零 IPC/preload 契约变更**。展示层 `<textarea class="compare-textarea">`（`readonly`）原生保留 `\n`，且 CSS 未覆盖 `white-space`，因此正文带上换行后渲染端立即正确分段显示。`description`（正文前 120 字摘要）与 `wordCount` 逻辑不变（段落空行带来每段约 +1 字符，量级可忽略）。下游收益：送进 AI 改写的正文恢复段落结构，改写输出的分段与逻辑层次更贴近原文；文案库落库 `content` 同样带段落结构。
+
+**验收标准**
+
+- [ ] 采集知乎专栏/回答、百家号文章，正文按段落分段显示（段落之间有空行、列表项各自一行），不再整篇一行
+- [ ] 普通站点（Python 通道）与降级路径（Node 通道）均正常分行
+- [ ] `readable-text.test.js` 18 例 + `url-collector.test.js` 57 例全绿（合计 75 例）；eslint 0 error；`filesOver500` 与基线一致（零新增债务）
+- [ ] 修复前实现副本实测被新断言抓住（回归保护有效性验证通过）
+
+
+---
+
+## 2026-09-16 · 采集页正文保留原文换行与分段（Node 采集通道正文提取修复）
+
+详细 PRD：`01-docs/BUGFIX-COLLECT-NEWLINE-PRESERVE-2026-09-16.md`
+
+| # | 变更 | 说明 |
+|---|------|------|
+| A | 新增正文格式契约模块 | `apps/desktop/electron/services/readable-text.js`：块级结构 → 换行映射集中一处（`extractReadableText` + `normalizeExtractedText`），供所有采集通道复用 |
+| B | 修复通用回退分支 | `url-collector.js` 的 `_parseHtml` 通用回退不再用 `.replace(/\s+/g, ' ')` 压掉换行，改调 `extractReadableText`；知乎分支随之修复 |
+| C | 统一百家号格式 | 百家号由「只 `join('<p>')`」改调同一提取器：段落之间空行与其它站点一致，并额外纳入标题 |
+
+**正文文本格式契约（新增）**：`<br>` → 换行；段落级标签（`p` / `h1`-`h6` / `blockquote` / `figcaption`）→ 段间**空行**（分段）；行级标签（`div` / `li` / `tr` / `ul` / `table` / `section` / `article` / `main` 等）→ **单换行**（分行但不空行，列表项不被撑成段落）；`td` / `th` → 制表符（同行内不粘连）；`<pre>` → 内部换行与缩进**原样保留**；行内标签（`span` / `a` / `strong` 等）原样透传；噪声节点（`script` / `style` / `noscript` / `template` / `iframe` / `svg` / `canvas` / `form` / `button` / `nav` / `footer` / `header` / `aside`）整体剔除。
+
+**空白归一化规则（新增，6 步）**：① CRLF / CR / U+2028 / U+2029 → LF；② 去 BOM；③ 行内连续空白（缩进 / 制表符 / 全角空格 / NBSP）→ 单个半角空格（**换行不受影响**）；④ 逐行去首尾空白；⑤ 连续 3 个以上换行 → 压成 1 个空行；⑥ 去首尾换行。
+
+**数据校验**：归一化后 `slice(0, 50000)` 截断（与修复前一致，截断后仍保留段落结构）；空容器 / `null` / 全噪声容器返回空串且不抛错；非字符串输入安全返回空串；`<pre>` 占位符按序还原、序号越界替换为空串、不残留占位符；提取异常仍走 `collect()` 既有 try/catch 失败链路（记 error 日志 + 熔断计数）。
+
+**功能逻辑**：采集页正文有两条通道——Python 聚合通道（`content-aggregator v1` + trafilatura 2.1.0，实测本就保留换行）与 Node 采集通道（反爬站点知乎/百家号走 stealth，以及 Python 失败或命中安全验证页时的降级路径）。本 Bug 仅出现在 Node 通道：旧实现把包括换行在内的所有连续空白压成单个半角空格，正文变成一整行；相邻 `<li>` 甚至零分隔粘连（实测输出 `要点一要点二`）。修复后 Node 通道同时提供「分行 + 分段」。
+
+**交互/显示项/提示文字**：**零 UI 改动、零新增文案、零 locale 改动、零 IPC/preload 契约变更**。展示层 `<textarea class="compare-textarea">`（`readonly`）原生保留 `\n`，且 CSS 未覆盖 `white-space`，因此正文带上换行后渲染端立即正确分段显示。`description`（正文前 120 字摘要）与 `wordCount` 逻辑不变（段落空行带来每段约 +1 字符，量级可忽略）。下游收益：送进 AI 改写的正文恢复段落结构，改写输出的分段与逻辑层次更贴近原文；文案库落库 `content` 同样带段落结构。
+
+**验收标准**
+
+- [ ] 采集知乎专栏/回答、百家号文章，正文按段落分段显示（段落之间有空行、列表项各自一行），不再整篇一行
+- [ ] 普通站点（Python 通道）与降级路径（Node 通道）均正常分行
+- [ ] `readable-text.test.js` 18 例 + `url-collector.test.js` 57 例全绿（合计 75 例）；eslint 0 error；`filesOver500` 与基线一致（零新增债务）
+- [ ] 修复前实现副本实测被新断言抓住（回归保护有效性验证通过）

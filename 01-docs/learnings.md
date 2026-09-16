@@ -1,3 +1,17 @@
+## 文本提取类 Bug：`replace(/\s+/g, ' ')` 会连语义换行一起杀掉，而 `toContain` 断言对此完全免疫（2026-09-16）
+
+- **根因模式（pitfall）**：`\s` 在 JS 正则中含 `\n` / `\r` / `\u2028` / `\u2029` / 全角空格 `\u3000` / NBSP `\u00a0` / BOM `\ufeff`。用 `text.trim().replace(/\s+/g, ' ')` 清 HTML 源码缩进噪声时，会把**换行一起压掉**，正文被压成一整行（用户侧「没有分行和分段，一整篇看着非常乱」）。正确做法是把「排版噪声」与「语义换行」分开：行内空白压缩用 `[^\S\n]+`（显式排除换行），块级边界在 DOM 层转成换行，最后只做「3 连以上换行压成 1 空行」收口。
+- **断言模式（pitfall，本次逃逸主因）**：`url-collector.test.js` 对 `content` 的断言 100% 是 `toContain` 子串匹配 —— **整篇压成一行时每个子串依然命中**，所以「换行全丢」这类结构性回归对现有断言完全免疫。凡涉及**文本结构**（换行 / 分段 / 分隔符 / 字段顺序）的断言，必须至少一条 `toBe` / `toEqual` 精确断言或结构断言，`toContain` 只能作为补充。
+- **多渠道一致（pattern）**：同一用户功能若有多条实现通道（本例：Python 聚合通道 `aggregationCollect` + trafilatura 与 Node 采集通道 `urlCollector`），定位 Bug 必须先确认**哪条通道坏了**再动手。实测 trafilatura 2.1.0 的 plain 输出本就保留换行（块间单个 `\n`），Node 通道才是坏点 —— 只修坏的那条，避免「以为全坏、顺手把好的一条也改了」引入新差异。
+- **格式契约集中化（pattern）**：正文 / 文本提取规则原先内联在 `_parseHtml` 的三个平台分支里各写各的（百家号 `join('\n')` vs 通用回退压空格），没有单一契约可被测试锚定。抽成独立模块 `readable-text.js`（表驱动常量 `PARAGRAPH_TAGS` / `LINE_TAGS` / `CELL_TAGS` / `PREFORMATTED_TAGS`）后，规则可被单测直接锁定，也让同类缺陷（`packages/collection-engine` 的 platform-adapters 剥标签粘连）有了可复用实现。
+- **500 行债务熔断（再次验证）**：`url-collector.js` 修复后 466 → 623 行，`check-debt-budget.js` 的 `filesOver500` 86 → 88。其中 **+1 来自本文件跨过 500 行，另 +1 系基线自身陈旧**：在纯净 `origin/main` 上实测已是 87 > 86（基线 `scannedAt` 2026-09-12，已落后 4 天）。处置 = **抽取模块而非更新基线**（`--update` 会把既有债务一并藏掉），抽完回到 463 行、`filesOver500` 与基线持平。
+- **NUL 占位符的适用边界（tool）**：往 cheerio DOM 的文本节点里插入 `\u0000` 会被 HTML 解析阶段剔除（实测 `.text()` 里 NUL 消失）；但在**自建 JS 字符串**里用 NUL 做占位符是安全的，且因 NUL 不可能出现在解析后的文本节点中而**与真实正文零碰撞** —— 这是保护 `<pre>` 代码块缩进不被空白归一化抹平的可靠手段。
+- **shallow clone 下 QM-5 溯源（operational）**：本仓库为 shallow clone（`{git}/shallow` 存在，`git rev-list --count` 仅 4）。`git log -S` / `git blame` 只能触到边界提交（blame 行前缀 `^`、`git rev-list --parents -n 1 <sha>` 无父提交即为边界），**「真实引入提交」在本地不可达**。`git fetch --deepen=<N>` 可逐段加深（实测 600 → 2432 提交），但再往深处会被代理截断（`early EOF` / `fetch-pack: invalid index-pack output`）。**替代方案（本次实测有效）**：走 GitHub API 按路径分页回溯最旧一页 —— 先 `gh api "repos/<o>/<r>/commits?path=<file>&per_page=1" -i` 读 `Link` 头的 `rel="last"` 拿总页数，再取该页即得该路径的最早提交；文件若经历目录迁移（本例 `electron/url-collector.js` → `electron/services/url-collector.js`），需对**每个历史路径**各查一次，并用 `contents?ref=<sha>` + `base64 -d` 校验目标行确实存在于该提交。本例据此定案：缺陷是「URL 内容采集」**功能首提交 `46d4f88d`（2026-06-12）出生即带**，不是后期回归。仍不足时须在文档中如实标注「受浅克隆限制，下界提交为 X」，**不可编造 hash**。
+- **工具层观察（tool）**：`Write` 工具写入的临时文件与 `Bash` 内进程偶发**文件系统视图不一致**（Write 报成功、`ls` 看不到，但随后同一路径的 python 读取/写入实际生效）。校验改动是否真正落盘，**以 `git status` / `git diff --numstat` 为准**，不要只看 `ls` 结果就判定失败。
+
+---
+
+
 ## 删除功能前必须穷举消费方矩阵：webview:* 分屏监控体系被 Comments/Collection 静默复用（remove-monitor，2026-09-15）
 
 - **背景**：「监控」（/monitor 分屏监控）功能整体移除。调查发现其底层 `webviewOpenTab`（`webview:open-tab` → `WebviewManager.openTab()`）被私信评论（Comments.vue）与采集（Collection.vue）复用来打开平台页，且打开的 WebContentsView 依赖 Monitor 页面的分屏布局定位——直接删入口会让这两个页面打开的视图变成「无主视图」（view 存在但无 UI 承载，显示错乱）。
