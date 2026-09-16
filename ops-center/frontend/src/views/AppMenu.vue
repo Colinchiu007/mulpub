@@ -172,18 +172,17 @@ function onGroupDragLeave(groupName) {
   if (dragOverGroup.value === groupName) dragOverGroup.value = null
 }
 
-/** 拖到某个具体行上：仅允许「同组内」排序（插入到该行之前）。
- *  跨组移动必须拖到目标分组的空白处（见 onDropOnGroup），
- *  否则会误把目标组的菜单项「连坐」重排——这正是之前“拖知识库却带动 CLI”的根因。 */
+/** 拖到某个具体行上：
+ *  - 同组内 → 排序（插入到该行之前）；
+ *  - 跨组 → 移动到目标分组，并插入到该行所在位置（一级导航 ↔ 更多均支持）。
+ *  这是最直观的拖拽语义；移除早期“跨组必须落空白”的限制，
+ *  因分组几乎被行填满、空白极难命中，导致跨组几乎无法成功。 */
 function onDrop(targetRow, targetGroup) {
   const key = dragKey.value
   dragKey.value = null
   dragOverGroup.value = null
+  dragSrcGroup.value = null
   if (!key || key === targetRow.item_key) return
-  if (targetGroup !== dragSrcGroup.value) {
-    ElMessage.warning('跨组移动请拖到目标分组（一级导航 / 更多）的空白处，而非具体菜单项上')
-    return
-  }
   moveItem(key, targetRow.item_key, targetGroup)
 }
 
@@ -313,6 +312,7 @@ async function resetAll() {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-height: 40px;
 }
 .menu-row {
   display: flex;
