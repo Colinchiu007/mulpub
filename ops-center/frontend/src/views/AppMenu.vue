@@ -200,7 +200,10 @@ function onDropOnGroup(targetGroup) {
   moveItem(key, null, targetGroup)
 }
 
-/** 核心：把 key 项移动到 targetGroup，插入到 beforeKey 之前（null=末尾）。重算受影响组的 sort_order。 */
+/** 核心：把 key 项移动到 targetGroup，插入到 beforeKey 之前（null=末尾）。重算受影响组的 sort_order。
+ *  关键修复：targetList / 源组重排都基于「视觉顺序」(groupRows，即按 sort_order 排序)，
+ *  而非 items 原始扁平数组顺序——否则当后端返回顺序与视觉顺序不一致（或多次拖拽后两者脱节）时，
+ *  拖拽落点会算错，导致项目「跳到很远的位置」。 */
 function moveItem(key, beforeKey, targetGroup) {
   const all = items.value
   const moved = all.find((item) => item.item_key === key)
@@ -215,18 +218,17 @@ function moveItem(key, beforeKey, targetGroup) {
   }
   moved.group = targetGroup
 
-  // 目标组有序列表（先排除被移动项）
-  const targetList = all.filter((item) => item.group === moved.group && item.item_key !== key)
+  // 目标组（按视觉顺序，排除被移动项）后再插入 —— 保证落点与用户所见一致
+  const targetList = groupRows(moved.group).filter((item) => item.item_key !== key)
   const idx = beforeKey == null
     ? targetList.length
     : targetList.findIndex((item) => item.item_key === beforeKey)
   targetList.splice(idx < 0 ? targetList.length : idx, 0, moved)
   targetList.forEach((item, order) => { item.sort_order = order })
 
-  // 若跨组，源组剩余项需重新归顺 sort_order
+  // 若跨组，源组剩余项也按视觉顺序重新归顺 sort_order
   if (moved.group !== srcGroup) {
-    all.filter((item) => item.group === srcGroup)
-      .forEach((item, order) => { item.sort_order = order })
+    groupRows(srcGroup).forEach((item, order) => { item.sort_order = order })
   }
 
   dirty.value = true
