@@ -139,6 +139,12 @@ export default {
     saved: 'Account saved',
     saveFailed: 'Failed to save account. Please confirm you have completed login and try again.',
   },
+  projectLibrary: {
+    // Dangerous-action confirm gate (docs/frontend-interaction-spec.md §2, 2026-09-16)
+    deleteConfirmTitle: 'Delete project',
+    deleteConfirmMessage: 'About to permanently delete the project "{name}". Its board and production records will be removed and this cannot be undone.',
+    deleteConfirmButton: 'Delete',
+  },
   onboarding: {
     welcome: 'Welcome to Multi-Publish',
     step1: 'Add Accounts',
@@ -416,6 +422,10 @@ export default {
         cloneStatusPending: 'Selected {count} sample(s). Uploading and cloning the voice... (usually 10-60 s, please wait)',
         clonePendingLabel: 'Creating...',
         cloneSuccessToast: 'Cloned voice "{name}" added',
+        // Dangerous-action confirm gate (docs/frontend-interaction-spec.md §2, 2026-09-16)
+        cloneDeleteConfirmTitle: 'Delete cloned voice',
+        cloneDeleteConfirmMessage: 'About to permanently delete the cloned voice "{name}". Its saved voice samples will be removed and this cannot be undone.',
+        cloneDeleteConfirmButton: 'Delete',
       },
     },
     history: {

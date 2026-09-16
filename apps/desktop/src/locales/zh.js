@@ -139,6 +139,12 @@ export default {
     saved: '账号已保存',
     saveFailed: '保存账号失败，请确认已完成登录后重试',
   },
+  projectLibrary: {
+    // 危险操作确认门禁（docs/frontend-interaction-spec.md §2，2026-09-16）
+    deleteConfirmTitle: '删除项目',
+    deleteConfirmMessage: '即将永久删除项目「{name}」，该项目下的看板与生产记录会一并移除，且不可恢复。',
+    deleteConfirmButton: '确认删除',
+  },
   onboarding: {
     welcome: '欢迎使用 Multi-Publish',
     step1: '添加账号',
@@ -416,6 +422,10 @@ export default {
         cloneStatusPending: '已选择 {count} 个样本，正在上传并克隆音色…（通常需要 10~60 秒，请勿重复操作）',
         clonePendingLabel: '创建中…',
         cloneSuccessToast: '已添加克隆音色「{name}」',
+        // 危险操作确认门禁（docs/frontend-interaction-spec.md §2，2026-09-16）
+        cloneDeleteConfirmTitle: '删除克隆音色',
+        cloneDeleteConfirmMessage: '即将永久删除克隆音色「{name}」，其已保存的声音样本会一并移除，且不可恢复。',
+        cloneDeleteConfirmButton: '确认删除',
       },
     },
     history: {
