@@ -298,6 +298,14 @@ class WebviewManager extends EventEmitter {
 
     // 从当前身份命名空间的加密凭证恢复账号会话。旧版本没有 AccountManager
     // 接线时回退到 legacy credential-store，兼容已有本地账号。
+    //
+    // ⚠️ cleanSession（cleanSession:true，批量登录/失效账号打开登录页传入）：
+    // 跳过凭证恢复并清空分区残留 Cookie。根因（2026-09-16 微信公众号实测）：
+    // 失效账号的旧身份 Cookie（wxuin/ua_id 等）被恢复进登录页 session 后，
+    // 微信服务端校验身份与登录态不符，在 getqrcode 环节返回 200 空体，
+    // 页面显示「二维码加载失败」。登录页必须以干净身份加载。
+    // 详见 01-docs/BUGFIX-LOGIN-QR-STALE-COOKIE-2026-09-16.md。
+    var cleanSession = Boolean(useAccountSession && opts && opts.cleanSession === true)
     var accountCredential = null
     if (useAccountSession) {
       try {
@@ -310,16 +318,33 @@ class WebviewManager extends EventEmitter {
         log.warn('WebviewManager', 'loadSavedCredentials failed ' + platform + ':' + accountId + ' err=' + ((e && e.message) || 'unknown'))
         accountCredential = null
       }
-      var credCookies = (accountCredential && Array.isArray(accountCredential.cookies)) ? accountCredential.cookies : []
-      var initialUrlForCookies = initialUrl === 'about:blank' ? '' : initialUrl
-      for (var ci = 0; ci < credCookies.length; ci++) {
-        var cookieToSet = normalizeElectronCookie(credCookies[ci], initialUrlForCookies)
-        if (!cookieToSet) continue
-        try {
-          cookieRestorations.push(Promise.resolve(viewSession.cookies.set(cookieToSet)).catch(function (e2) {
-            log.warn('WebviewManager', 'credential cookie restore failed name=' + (cookieToSet.name || '') + ' err=' + ((e2 && e2.message) || 'unknown'))
-          }))
-        } catch (e) { log.warn('WebviewManager', 'credential cookie restore threw name=' + (cookieToSet.name || '') + ' err=' + ((e && e.message) || 'unknown')) }
+      if (!cleanSession) {
+        var credCookies = (accountCredential && Array.isArray(accountCredential.cookies)) ? accountCredential.cookies : []
+        var initialUrlForCookies = initialUrl === 'about:blank' ? '' : initialUrl
+        for (var ci = 0; ci < credCookies.length; ci++) {
+          var cookieToSet = normalizeElectronCookie(credCookies[ci], initialUrlForCookies)
+          if (!cookieToSet) continue
+          try {
+            cookieRestorations.push(Promise.resolve(viewSession.cookies.set(cookieToSet)).catch(function (e2) {
+              log.warn('WebviewManager', 'credential cookie restore failed name=' + (cookieToSet.name || '') + ' err=' + ((e2 && e2.message) || 'unknown'))
+            }))
+          } catch (e) { log.warn('WebviewManager', 'credential cookie restore threw name=' + (cookieToSet.name || '') + ' err=' + ((e && e.message) || 'unknown')) }
+        }
+      } else {
+        // 清空持久分区里的残留 Cookie（可能是上次打开时恢复/写入的失效身份 Cookie），
+        // 必须在首个导航请求前完成，故挂入 cookieRestorations 由 navigateAfterCookies 等待。
+        cookieRestorations.push(viewSession.cookies.get({}).then(function (existing) {
+          var stale = existing || []
+          var removals = stale.map(function (c) {
+            var removeUrl = (c.secure ? 'https' : 'http') + '://' + String(c.domain || '').replace(/^\./, '') + (c.path || '/')
+            return Promise.resolve(viewSession.cookies.remove(removeUrl, c.name)).catch(function () {})
+          })
+          return Promise.all(removals).then(function () {
+            log.info('WebviewManager', '[' + (platform || 'unknown') + ':' + (accountId || '') + '] clean login session: skipped credential restore, cleared ' + stale.length + ' stale cookies')
+          })
+        }).catch(function (e) {
+          log.warn('WebviewManager', 'clean session clear failed ' + (platform || '') + ':' + (accountId || '') + ' err=' + ((e && e.message) || 'unknown'))
+        }))
       }
     }
 
@@ -379,7 +404,8 @@ class WebviewManager extends EventEmitter {
     self._setupNav(tabId, view)
 
     // 页面加载后恢复账号 localStorage（与 createNewTabPage 的凭证恢复模式一致）
-    var credLocalStorage = (accountCredential && accountCredential.localStorage && typeof accountCredential.localStorage === 'object')
+    // cleanSession 模式下跳过：失效账号的旧 localStorage 同样可能让平台按已登录态走异常流程
+    var credLocalStorage = (!cleanSession && accountCredential && accountCredential.localStorage && typeof accountCredential.localStorage === 'object')
       ? accountCredential.localStorage
       : null
     if (credLocalStorage && Object.keys(credLocalStorage).length > 0) {

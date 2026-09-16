@@ -959,7 +959,10 @@ async function openLoginPage (account) {
     notifyWarning('accountsPage.loginUnsupported')
     return
   }
-  await tabStore.createTab({ url, platform: account.platform, accountId: account.id, title: t('accountsPage.loginTab', { platform: platformLabel(account.platform) }) })
+  // 失效账号打开登录页必须用干净会话：旧身份 Cookie（如微信 wxuin）会让平台
+  // 在二维码环节静默拒绝（getqrcode 200 空体）；有效账号仍恢复 Cookie 以便免登录
+  const cleanSession = account?.status === 'expired'
+  await tabStore.createTab({ url, platform: account.platform, accountId: account.id, cleanSession, title: t('accountsPage.loginTab', { platform: platformLabel(account.platform) }) })
 }
 
 async function removeAccount (account) {

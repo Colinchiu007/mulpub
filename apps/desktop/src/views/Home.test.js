@@ -314,8 +314,10 @@ describe("HomeView", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(accountBatchOpenLoginMock).toHaveBeenCalledWith(["a1", "a2"]);
     expect(tabStoreMock.createTab).toHaveBeenCalledTimes(2);
-    expect(tabStoreMock.createTab).toHaveBeenCalledWith(expect.objectContaining({ url: "https://weibo.com/login", platform: "weibo", accountId: "a1" }));
-    expect(tabStoreMock.createTab).toHaveBeenCalledWith(expect.objectContaining({ url: "https://creator.douyin.com/", platform: "douyin", accountId: "a2" }));
+    // 批量登录目标全是失效账号：必须 cleanSession 以干净会话打开登录页
+    // （恢复旧身份 Cookie 会让微信在二维码环节静默拒绝，getqrcode 200 空体）
+    expect(tabStoreMock.createTab).toHaveBeenCalledWith(expect.objectContaining({ url: "https://weibo.com/login", platform: "weibo", accountId: "a1", cleanSession: true }));
+    expect(tabStoreMock.createTab).toHaveBeenCalledWith(expect.objectContaining({ url: "https://creator.douyin.com/", platform: "douyin", accountId: "a2", cleanSession: true }));
     // 新建登录标签页后必须显式激活，否则用户停留在首页感知不到任何变化
     expect(tabStoreMock.switchToTab).toHaveBeenCalledTimes(2);
     expect(tabStoreMock.switchToTab).toHaveBeenCalledWith("tab-1");

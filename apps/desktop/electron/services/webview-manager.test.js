@@ -397,13 +397,17 @@ function patchViewAndSessionMocks () {
   }
   const partitions = []
   __electronMock.session._partitions = partitions
+  // 测试可预设「分区残留 Cookie」：cleanSession 用例据此断言清除行为
+  __electronMock.session._staleCookies = null
   __electronMock.session.fromPartition = function (partition) {
     const created = {
       partition,
       cookies: {
         setCalls: [],
+        removeCalls: [],
         set: function (cookie) { created.cookies.setCalls.push(cookie); return Promise.resolve() },
-        get: function () { return Promise.resolve([]) },
+        get: function () { return Promise.resolve(__electronMock.session._staleCookies || []) },
+        remove: function (url, name) { created.cookies.removeCalls.push({ url, name }); return Promise.resolve() },
       },
       on: function () {},
     }
@@ -593,6 +597,87 @@ describe('WebviewManager.createNewTabPage 账号登录态恢复', () => {
 
     const tabId2 = wm.createNewTabPage({ url: 'https://creator.zhihu.com', accountId: 'account-2' })
     expect(wm._tabStates.get(tabId2).title).toBe('New Tab')
+  })
+})
+
+describe('WebviewManager.createNewTabPage cleanSession（失效账号登录页干净会话）', () => {
+  beforeEach(() => {
+    credentialLoadMock.mockReset()
+    credentialLoadMock.mockReturnValue(null)
+  })
+
+  it('cleanSession:true 时跳过凭证 Cookie 恢复并清空分区残留 Cookie', async () => {
+    const partitions = patchViewAndSessionMocks()
+    // 持久分区里残留上次打开时写入的失效身份 Cookie（微信 wxuin 等）
+    __electronMock.session._staleCookies = [
+      { domain: '.mp.weixin.qq.com', name: 'wxuin', value: '88xxx', secure: true, path: '/' },
+      { domain: '.mp.weixin.qq.com', name: 'ua_id', value: 'abc=', secure: true, path: '/' },
+    ]
+    credentialLoadMock.mockReturnValue({
+      cookies: [{ url: 'https://mp.weixin.qq.com', name: 'slave_sid', value: 'dead-session' }],
+    })
+    const mod = await import('./webview-manager.js')
+    const WM = mod.default || mod
+    const wm = new WM()
+    wm.mainWindow = createMainWindow()
+
+    const tabId = wm.createNewTabPage({ url: 'https://mp.weixin.qq.com/', platform: 'wechat_mp', accountId: 'mp-1', cleanSession: true })
+
+    expect(tabId).toBeTruthy()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const created = partitions[partitions.length - 1]
+    expect(created.partition).toBe('persist:account-mp-1')
+    // 凭证 Cookie 不得注入
+    expect(created.cookies.setCalls).toEqual([])
+    // 残留 Cookie 全部清除
+    expect(created.cookies.removeCalls).toEqual([
+      { url: 'https://mp.weixin.qq.com/', name: 'wxuin' },
+      { url: 'https://mp.weixin.qq.com/', name: 'ua_id' },
+    ])
+    // 清除完成后导航
+    const view = wm._tabViews.get(wm._activeTabId)
+    expect(view.webContents.loadURL).toHaveBeenCalledWith('https://mp.weixin.qq.com/')
+  })
+
+  it('cleanSession:true 时跳过凭证 localStorage 恢复', async () => {
+    const partitions = patchViewAndSessionMocks()
+    credentialLoadMock.mockReturnValue({
+      cookies: [],
+      localStorage: { token: 'stale-token' },
+    })
+    const mod = await import('./webview-manager.js')
+    const WM = mod.default || mod
+    const wm = new WM()
+    wm.mainWindow = createMainWindow()
+
+    wm.createNewTabPage({ url: 'https://mp.weixin.qq.com/', platform: 'wechat_mp', accountId: 'mp-2', cleanSession: true })
+
+    const view = wm._tabViews.get(wm._activeTabId)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    // did-finish-load 未注册 localStorage 写入钩子（executeJavaScript 不被调用）
+    const js = view.webContents.executeJavaScript.mock.calls.map(c => c[0]).join('')
+    expect(js).not.toContain('stale-token')
+  })
+
+  it('未传 cleanSession 的账号标签保持原有凭证恢复行为（回归保护）', async () => {
+    const partitions = patchViewAndSessionMocks()
+    __electronMock.session._staleCookies = [
+      { domain: '.mp.weixin.qq.com', name: 'wxuin', value: '88xxx', secure: true, path: '/' },
+    ]
+    credentialLoadMock.mockReturnValue({
+      cookies: [{ url: 'https://mp.weixin.qq.com', name: 'slave_sid', value: 'valid-session' }],
+    })
+    const mod = await import('./webview-manager.js')
+    const WM = mod.default || mod
+    const wm = new WM()
+    wm.mainWindow = createMainWindow()
+
+    wm.createNewTabPage({ url: 'https://mp.weixin.qq.com/', platform: 'wechat_mp', accountId: 'mp-3' })
+
+    const created = partitions[partitions.length - 1]
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(created.cookies.setCalls).toEqual([{ url: 'https://mp.weixin.qq.com', name: 'slave_sid', value: 'valid-session' }])
+    expect(created.cookies.removeCalls).toEqual([])
   })
 })
 
