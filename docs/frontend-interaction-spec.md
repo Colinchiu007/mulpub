@@ -41,13 +41,21 @@
 
 ### 危险操作门禁（最高优先级条款）
 
-以下操作当前**无确认直接执行**，P1 必须补齐：
+判定标准：操作不可逆 **或** 影响面 >1 条数据 → 必须确认。确认框须说明后果，并列出受影响对象名/数量。
 
-- 批量删除发布记录（PublishHistory.vue `deleteSelectedRecords`）
-- 删除项目（useBacklot.deleteProject 调用链）
-- 删除音色
+| 危险操作 | 状态 | 唯一确认落点（调用方视图） |
+|----------|------|---------------------------|
+| 批量删除发布记录 | ✅ 已接入（2026-09-16 复核：已调用 `confirmDanger`，文案带 `count`） | `views/PublishHistory.vue` `deleteSelectedRecords` |
+| 删除项目 | ✅ 2026-09-16 补齐（原为视图自造确认弹窗，违反「唯一实现」条款，已改 `confirmDanger`，文案带项目名） | `views/ProjectLibrary.vue` `handleDelete` |
+| 删除音色（TTS 克隆音色） | ✅ 2026-09-16 补齐（文案带音色名 + 不可恢复说明） | `views/CreateView.vue` `deleteS2VVoiceClone` |
 
-判定标准：操作不可逆 **或** 影响面 >1 条数据 → 必须确认。确认框需列出影响数量。
+分层约定：store / composable 层（如 `stores/backlot.js` 的 `deleteProject`）**不内嵌确认**——确认一律由调用方视图负责，store 保持可测且可被非交互场景复用。
+
+调用契约（单测钉死）：
+
+- 取消（`confirmDanger` resolve `false`）时**不得**调用底层删除 API；
+- 确认时底层删除 API 只调用一次；
+- 确认文案必须说明后果并点名受影响对象（名称 / 数量），禁止「确定删除吗？」这类无信息文案。
 
 ## 3. IPC 访问单轨制
 

@@ -9,6 +9,11 @@ vi.mock("vue-router", () => ({
   useRouter: () => ({ push: pushSpy }),
 }));
 
+const confirmDangerMock = vi.hoisted(() => vi.fn(async () => true));
+vi.mock("@/utils/confirm-danger", () => ({
+  confirmDanger: confirmDangerMock,
+}));
+
 import ProjectLibrary from "./ProjectLibrary.vue";
 
 function mountProjectLibrary() {
@@ -114,61 +119,118 @@ describe("ProjectLibrary", () => {
     expect(w.text()).toContain("Project C");
   });
 
-  it("shows delete confirmation when delete emitted", async () => {
-    const mockProjects = [
-      { id: "p1", name: "Project A", status: "draft" },
-    ];
-    window.electronAPI = {
-      project: { list: vi.fn().mockResolvedValue({ code: 0, data: mockProjects }) },
-      project_del: vi.fn(),
-    };
-    const w = mountProjectLibrary();
-    await flushPromises();
-    await nextTick();
-    // Click delete button on the card
-    await w.find(".delete-btn").trigger("click");
-    expect(w.find(".confirm-dialog").exists()).toBe(true);
-    expect(w.text()).toContain("Project A");
-  });
+  // ─── 危险操作门禁（docs/frontend-interaction-spec.md §2）───
+  // 删除项目不可逆：必须经 confirmDanger 二次确认，取消时不得调用底层删除 API。
+  // 视图内自造确认弹窗已移除（交互原语唯一实现：ElMessageBox / confirmDanger）。
 
-  it("cancels delete when cancel clicked", async () => {
-    const mockProjects = [
-      { id: "p1", name: "Project A", status: "draft" },
-    ];
+  it("删除走统一确认原语 confirmDanger，且视图内不再自造确认弹窗", async () => {
+    confirmDangerMock.mockResolvedValue(true);
     window.electronAPI = {
-      project: { list: vi.fn().mockResolvedValue({ code: 0, data: mockProjects }) },
+      project: {
+        list: vi.fn().mockResolvedValue({ code: 0, data: [{ id: "p1", name: "Project A", status: "draft" }] }),
+        del: vi.fn().mockResolvedValue({ code: 0 }),
+      },
     };
     const w = mountProjectLibrary();
     await flushPromises();
     await nextTick();
     await w.find(".delete-btn").trigger("click");
-    expect(w.find(".confirm-dialog").exists()).toBe(true);
-    // Click cancel
-    const buttons = w.findAll("button");
-    const cancelBtn = buttons.find(b => b.text() === "取消");
-    await cancelBtn.trigger("click");
+    await flushPromises();
+
+    expect(confirmDangerMock).toHaveBeenCalledTimes(1);
+    // 自造确认弹窗（.confirm-overlay / .confirm-dialog）必须归零
+    expect(w.find(".confirm-overlay").exists()).toBe(false);
     expect(w.find(".confirm-dialog").exists()).toBe(false);
   });
 
-  it("confirms delete and calls electronAPI.project.del", async () => {
-    const mockProjects = [
-      { id: "p1", name: "Project A", status: "draft" },
-    ];
+  it("确认文案点名受影响项目并说明不可恢复", async () => {
+    confirmDangerMock.mockResolvedValue(true);
+    window.electronAPI = {
+      project: {
+        list: vi.fn().mockResolvedValue({ code: 0, data: [{ id: "p1", name: "Project A", status: "draft" }] }),
+        del: vi.fn().mockResolvedValue({ code: 0 }),
+      },
+    };
+    const w = mountProjectLibrary();
+    await flushPromises();
+    await nextTick();
+    await w.find(".delete-btn").trigger("click");
+    await flushPromises();
+
+    const options = confirmDangerMock.mock.calls[0][0];
+    // 结构类断言（QM-3）：与 i18n 期望值逐字相等，而非宽松子串
+    expect(options.message).toBe(i18n.global.t("projectLibrary.deleteConfirmMessage", { name: "Project A" }));
+    expect(options.title).toBe(i18n.global.t("projectLibrary.deleteConfirmTitle"));
+    expect(options.confirmText).toBe(i18n.global.t("projectLibrary.deleteConfirmButton"));
+    expect(options.message).toContain("Project A");
+  });
+
+  it("确认后调用一次删除 API", async () => {
+    confirmDangerMock.mockResolvedValue(true);
     const delFn = vi.fn().mockResolvedValue({ code: 0 });
+    window.electronAPI = {
+      project: {
+        list: vi.fn().mockResolvedValue({ code: 0, data: [{ id: "p1", name: "Project A", status: "draft" }] }),
+        del: delFn,
+      },
+    };
+    const w = mountProjectLibrary();
+    await flushPromises();
+    await nextTick();
+    await w.find(".delete-btn").trigger("click");
+    await flushPromises();
+
+    expect(delFn).toHaveBeenCalledTimes(1);
+    expect(delFn).toHaveBeenCalledWith("p1");
+    expect(w.findAll(".project-card").length).toBe(0);
+  });
+
+  it("取消确认时不调用删除 API，项目仍在列表中", async () => {
+    confirmDangerMock.mockResolvedValue(false);
+    const delFn = vi.fn().mockResolvedValue({ code: 0 });
+    const mockProjects = [{ id: "p1", name: "Project A", status: "draft" }];
     window.electronAPI = {
       project: { list: vi.fn().mockResolvedValue({ code: 0, data: mockProjects }), del: delFn },
     };
     const w = mountProjectLibrary();
     await flushPromises();
     await nextTick();
+    const before = [...w.vm.projects];
+
     await w.find(".delete-btn").trigger("click");
-    // Click delete confirm
-    const buttons = w.findAll("button");
-    const deleteBtn = buttons.find(b => b.text() === "删除");
-    await deleteBtn.trigger("click");
     await flushPromises();
+
+    expect(confirmDangerMock).toHaveBeenCalledTimes(1);
+    expect(delFn).not.toHaveBeenCalled();
+    // 结构类断言（QM-3）：列表整体不变
+    expect(w.vm.projects).toEqual(before);
+    expect(w.findAll(".project-card").length).toBe(1);
+  });
+
+  it("取消后再次点击可重新确认并删除（取消不产生残留状态）", async () => {
+    const delFn = vi.fn().mockResolvedValue({ code: 0 });
+    window.electronAPI = {
+      project: {
+        list: vi.fn().mockResolvedValue({ code: 0, data: [{ id: "p1", name: "Project A", status: "draft" }] }),
+        del: delFn,
+      },
+    };
+    const w = mountProjectLibrary();
+    await flushPromises();
+    await nextTick();
+
+    confirmDangerMock.mockResolvedValueOnce(false);
+    await w.find(".delete-btn").trigger("click");
+    await flushPromises();
+    expect(delFn).not.toHaveBeenCalled();
+
+    confirmDangerMock.mockResolvedValueOnce(true);
+    await w.find(".delete-btn").trigger("click");
+    await flushPromises();
+
+    expect(confirmDangerMock).toHaveBeenCalledTimes(2);
+    expect(delFn).toHaveBeenCalledTimes(1);
     expect(delFn).toHaveBeenCalledWith("p1");
-    expect(w.find(".confirm-dialog").exists()).toBe(false);
   });
 
   it("retry button reloads projects", async () => {

@@ -1524,6 +1524,7 @@ import {
   listTtsVoiceClones,
   renameTtsVoiceClone,
 } from '@/api/tts-voice-clone'
+import { confirmDanger } from '@/utils/confirm-danger'
 import {
   getPipelineCategory,
   getPipelineDescription,
@@ -4602,6 +4603,17 @@ export default {
       this.s2vVoiceCloneLoading = true
       this.s2vVoiceCloneError = ''
       try {
+        // 危险操作门禁（docs/frontend-interaction-spec.md §2）：删除克隆音色不可逆，
+        // 确认文案须说明后果并点名受影响音色；取消时直接返回，不调用删除 API。
+        const target = this.s2vVoiceClones.find(item => item.id === normalizedVoiceId)
+        const voiceName = target?.name || normalizedVoiceId
+        const confirmed = await confirmDanger({
+          title: this.$t('create.story2video.voice.cloneDeleteConfirmTitle'),
+          message: this.$t('create.story2video.voice.cloneDeleteConfirmMessage', { name: voiceName }),
+          confirmText: this.$t('create.story2video.voice.cloneDeleteConfirmButton'),
+        })
+        if (!confirmed) return
+
         const result = await deleteTtsVoiceClone(this.cloneForIpc({ ...context, voiceId: normalizedVoiceId }))
         if (!this.isCurrentS2VVoiceCloneRequest(requestId, context)) return
         if (result?.code !== 0) {
