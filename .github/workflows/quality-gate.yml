@@ -19,7 +19,7 @@ on:
 jobs:
   static-gates:
     name: QG Static
-    runs-on: windows-latest
+    runs-on: [self-hosted, windows, x64]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -124,7 +124,7 @@ jobs:
 
   unit-tests:
     name: QG Unit Tests
-    runs-on: windows-latest
+    runs-on: [self-hosted, windows, x64]
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
@@ -229,7 +229,7 @@ jobs:
 
   desktop-shards:
     name: QG Desktop Shards
-    runs-on: windows-latest
+    runs-on: [self-hosted, windows, x64]
     timeout-minutes: 40
     strategy:
       fail-fast: false
@@ -322,7 +322,7 @@ jobs:
 
   coverage:
     name: QG Coverage
-    runs-on: windows-latest
+    runs-on: [self-hosted, windows, x64]
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
@@ -349,7 +349,7 @@ jobs:
 
   visual:
     name: QG Visual
-    runs-on: windows-latest
+    runs-on: [self-hosted, windows, x64]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -471,7 +471,7 @@ jobs:
 
   e2e:
     name: QG Browser E2E
-    runs-on: windows-latest
+    runs-on: [self-hosted, windows, x64]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -568,7 +568,7 @@ jobs:
 
   autonomous:
     name: QG Autonomous
-    runs-on: windows-latest
+    runs-on: [self-hosted, windows, x64]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -670,7 +670,7 @@ jobs:
 
   gate-result:
     name: Gate Result
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, windows, x64]
     needs: [static-gates, unit-tests, desktop-shards, coverage, visual, e2e, autonomous]
     if: always()
     timeout-minutes: 5
