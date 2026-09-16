@@ -211,6 +211,8 @@ import { useNotify } from '@/composables/useNotify'
 import { formatUserError } from '@/utils/user-facing-error'
 import { useLoginGate } from '@/composables/useLoginGate'
 import { useWordCountValidation } from '@/composables/useWordCountValidation'
+import { useCopyLibrary } from '@/composables/useCopyLibrary'
+import { takeRewriteHandoff } from '@/utils/rewrite-handoff'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
 import RewriteStrategyPicker from '@/components/RewriteStrategyPicker.vue'
 import WordCountRangeInput from '@/components/WordCountRangeInput.vue'
@@ -252,6 +254,45 @@ const previewStrategyName = ref('--')
 // 弹窗
 const showPublishModal = ref(false)
 let savedDraftId = null
+
+// ── 文案库交接（合并版「文案库」的【改写】按钮 → 本页）──
+// 载荷含 fromKey：改写成功后把结果回写文案库（同一来源只保留最新一次改写结果）。
+const libraryHandoff = ref(null)
+const { upsertRewrite: upsertCopyRewrite } = useCopyLibrary()
+// 本页平台下拉白名单：交接平台不在白名单时不带入（保持「通用」）
+const REWRITE_PAGE_PLATFORMS = ['douyin', 'xiaohongshu', 'wechat_mp', 'bilibili', 'zhihu']
+
+/** 消费文案库交接载荷：填入正文 → 仿写模式 → 平台带入（白名单内）→ 自动开始改写 */
+function consumeLibraryHandoff () {
+  const handoff = takeRewriteHandoff()
+  if (!handoff || typeof handoff.content !== 'string' || !handoff.content.trim()) return
+  rewriteMode.value = 'imitate'
+  content.value = handoff.content
+  if (REWRITE_PAGE_PLATFORMS.includes(handoff.platform)) platform.value = handoff.platform
+  libraryHandoff.value = handoff
+  // 等登录门禁与 DOM 就绪后自动触发（与 topic 带入同模式）
+  Promise.resolve().then(() => startRewrite())
+}
+
+/**
+ * 改写成功后回写文案库（同一 fromKey 覆盖为最新结果；失败静默，不影响改写主流程）。
+ * @param {object|null} handoff - 本次改写对应的交接载荷（一次性，由 startRewrite 捕获后传入）
+ */
+async function syncHandoffToLibrary (handoff) {
+  if (!handoff || !handoff.fromKey || !rewriteResult.value.trim()) return
+  try {
+    await upsertCopyRewrite({
+      fromKey: handoff.fromKey,
+      fromTitle: handoff.fromTitle || '',
+      title: handoff.title || '',
+      content: rewriteResult.value,
+      platform: handoff.platform || '',
+      sourceUrl: handoff.sourceUrl || '',
+    })
+  } catch {
+    // 文案库回写失败不阻塞改写主流程
+  }
+}
 // 跳转防重入（单一互斥锁）：连点/跨按钮并发点击不会重复存草稿、不会产生双草稿
 let navigatingToDestination = false
 
@@ -303,16 +344,22 @@ watch(rewriteResult, (next, prev) => {
 })
 
 // ── 热门选题带入：/rewrite?topic=xxx → 填入输入框 + 选题创作模式 + 自动开始 ──
+// ── 文案库交接带入：/rewrite?from=collection → 取 sessionStorage 交接载荷，仿写模式 + 自动开始 ──
+// 交接载荷由 Collection.vue 合并版「文案库」的【改写】按钮写入（正文可能上万字，避免 URL 超长）。
 onMounted(() => {
   void loadRewriteStrategies()
   void refreshStrategyPreview()
   const topic = typeof route.query.topic === 'string' ? route.query.topic.trim() : ''
-  if (!topic) return
-  rewriteMode.value = 'create'
-  // 选题带入：不再有 ≥20 字符限制（2026-09-12 移除最少字数）
-  content.value = topic
-  // 等登录门禁与 DOM 就绪后自动触发（nextTick 保证 textarea 绑定完成）
-  Promise.resolve().then(() => startRewrite())
+  if (topic) {
+    rewriteMode.value = 'create'
+    // 选题带入：不再有 ≥20 字符限制（2026-09-12 移除最少字数）
+    content.value = topic
+    // 等登录门禁与 DOM 就绪后自动触发（nextTick 保证 textarea 绑定完成）
+    Promise.resolve().then(() => startRewrite())
+    return
+  }
+  // 选题带入与文案库交接互斥：topic 优先（老入口），否则尝试文案库交接
+  if (route.query.from === 'collection') consumeLibraryHandoff()
 })
 
 // ── 计算 ──
@@ -338,6 +385,10 @@ async function startRewrite() {
 
   rewriting.value = true
   rewriteError.value = ''
+  // 交接一次性语义（审查 W-1）：无论本次改写成败都消费掉交接载荷，
+  // 防止失败后残留的 fromKey 被后续无关改写静默覆盖文案库记录
+  const handoffForRun = libraryHandoff.value
+  libraryHandoff.value = null
   // P2 隐式反馈：上次改写结果未被保存/发布就再次改写 → 弃用上次引用的知识条目
   if (rewriteResult.value && rewriteKnowledgeRefs.value.length > 0) {
     sendKnowledgeFeedback('rejected', rewriteKnowledgeRefs.value)
@@ -394,6 +445,8 @@ async function startRewrite() {
         rewriteError.value = data.warnings.join('；')
       }
       notifySuccess('collection.rewriteSuccess')
+      // 文案库交接：来自合并版「文案库」的改写 → 结果回写文案库（旁路，失败静默）
+      void syncHandoffToLibrary(handoffForRun)
     } else if (res && res.code === 0 && res.data && res.data.error) {
       rewriteError.value = res.data.error
       notifyError('collection.rewriteFailed', { message: res.data.error })

@@ -22,7 +22,6 @@ function mountCollection(options) {
 }
 
 import CollectionView from "./Collection.vue";
-import CopyLibraryPanel from "@/components/CopyLibraryPanel.vue";
 import i18n from "@/i18n";
 
 describe("CollectionView", () => {
@@ -1118,48 +1117,132 @@ describe("CollectionView", () => {
   });
 });
 
-// ── 文案库标签（2026-09-14）：采集页第三个标签，汇总采集正文与改写文案 ──
-describe("CollectionView 文案库标签", () => {
+// ── 文案库合并标签（2026-09-16）：采集记录 + 文案库两标签合一，以采集记录卡片为准 ──
+describe("CollectionView 文案库合并标签", () => {
+  const RW = {
+    id: "rw1",
+    fromKey: "collect:c1",
+    fromTitle: "原标题",
+    title: "改写稿标题",
+    content: "改写后的正文内容",
+    wordCount: 8,
+    platform: "",
+    sourceUrl: "",
+    createdAt: "2026-09-16T03:00:00.000Z",
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     setActivePinia(createPinia());
     window.electronAPI = {};
     i18n.global.locale.value = "zh";
+    sessionStorage.clear();
   });
 
   function mountWithI18n() {
     return mount(CollectionView, { global: { plugins: [i18n, createPinia()] } });
   }
 
-  it("renders library tab and switches to it", async () => {
+  it("renders two tabs only and the copy library tab switches to records", async () => {
     const w = mountWithI18n();
     await nextTick();
-    const tab = w.find('[data-testid="collection-tab-library"]');
-    expect(tab.exists()).toBe(true);
-    expect(tab.text()).toBe("文案库");
-    await tab.trigger("click");
+    expect(w.find('[data-testid="collection-tab-library"]').exists()).toBe(true);
+    expect(w.text()).toContain("文案库");
+    // 原独立「文案库」第三个标签已移除（tabLibrary 不再出现在标签栏）
+    expect(w.findAll(".collection-tab-btn").length).toBe(2);
+    await w.find('[data-testid="collection-tab-library"]').trigger("click");
     await nextTick();
-    expect(w.vm.activeTab).toBe("library");
-    expect(w.findComponent(CopyLibraryPanel).exists()).toBe(true);
+    expect(w.vm.activeTab).toBe("records");
   });
 
-  it("unmounts library panel when switching back", async () => {
+  it("keeps ignoring invalid tab names after merge", async () => {
     const w = mountWithI18n();
     await nextTick();
-    await w.vm.switchTab("library");
-    await nextTick();
-    expect(w.findComponent(CopyLibraryPanel).exists()).toBe(true);
-    await w.vm.switchTab("collect");
-    await nextTick();
-    expect(w.findComponent(CopyLibraryPanel).exists()).toBe(false);
-  });
-
-  it("keeps ignoring invalid tab names", async () => {
-    const w = mountWithI18n();
-    await nextTick();
+    await w.vm.switchTab("records");
     await w.vm.switchTab("library");
     await w.vm.switchTab("unknown");
-    expect(w.vm.activeTab).toBe("library");
+    expect(w.vm.activeTab).toBe("records");
+  });
+
+  it("merges collect items and rewrite records in one list with origin badges", async () => {
+    const w = mountWithI18n();
+    await nextTick();
+    w.vm.collectedItems = [{ id: "c1", title: "采集标题", content: "采集正文", source: "url", createdAt: "2026-09-16T01:00:00.000Z" }];
+    w.vm.rewrites = [RW];
+    await w.vm.switchTab("records");
+    await nextTick();
+    const list = w.find('[data-testid="copy-library-list"]');
+    expect(list.exists()).toBe(true);
+    // 采集卡与改写卡同网格展示
+    expect(w.find('[data-testid="copy-library-item-rw1"]').exists()).toBe(true);
+    expect(list.findAll(".collection-record-card").length).toBe(2);
+    expect(w.find('[data-testid="copy-library-badge-rw1"]').text()).toBe("改写");
+    // 采集卡带完整操作（含新增改写按钮），改写卡带查看/改写/删除
+    expect(w.find('[data-testid="copy-library-rewrite-c1"]').exists()).toBe(true);
+    expect(w.find('[data-testid="copy-library-rewrite-rrw1"]').exists()).toBe(true);
+  });
+
+  it("origin filter narrows the merged list", async () => {
+    const w = mountWithI18n();
+    await nextTick();
+    w.vm.collectedItems = [{ id: "c1", title: "采集标题", content: "采集正文", source: "url" }];
+    w.vm.rewrites = [RW];
+    await w.vm.switchTab("records");
+    await nextTick();
+    await w.find('[data-testid="copy-library-filter-rewrite"]').trigger("click");
+    await nextTick();
+    const cards = w.findAll('[data-testid="copy-library-list"] .collection-record-card');
+    expect(cards.length).toBe(1);
+    expect(w.find('[data-testid="copy-library-item-rw1"]').exists()).toBe(true);
+  });
+
+  it("rewrite button on collect card hands off via sessionStorage and jumps to rewrite page", async () => {
+    const w = mountWithI18n();
+    await nextTick();
+    w.vm.collectedItems = [{ id: "c1", title: "采集标题", content: "要改写的正文", source: "url", platform: "douyin" }];
+    await w.vm.switchTab("records");
+    await nextTick();
+    await w.find('[data-testid="copy-library-rewrite-c1"]').trigger("click");
+    const handoff = JSON.parse(sessionStorage.getItem("rewrite_handoff_v1"));
+    expect(handoff).toMatchObject({ content: "要改写的正文", fromKey: "collect:c1", platform: "douyin", title: "采集标题" });
+    expect(pushSpy).toHaveBeenCalledWith("/rewrite?from=collection");
+  });
+
+  it("rewrite button on rewrite card chains via rewrite:<id> fromKey", async () => {
+    const w = mountWithI18n();
+    await nextTick();
+    w.vm.rewrites = [RW];
+    await w.vm.switchTab("records");
+    await nextTick();
+    await w.find('[data-testid="copy-library-rewrite-rrw1"]').trigger("click");
+    const handoff = JSON.parse(sessionStorage.getItem("rewrite_handoff_v1"));
+    expect(handoff).toMatchObject({ content: "改写后的正文内容", fromKey: "rewrite:rw1" });
+    expect(pushSpy).toHaveBeenCalledWith("/rewrite?from=collection");
+  });
+
+  it("rewrite button warns instead of navigating when content is empty", async () => {
+    const w = mountWithI18n();
+    await nextTick();
+    w.vm.collectedItems = [{ id: "c1", title: "无正文", content: "" }];
+    await w.vm.switchTab("records");
+    await nextTick();
+    await w.vm.rewriteFromLibrary({ origin: "collect", item: w.vm.collectedItems[0] });
+    expect(sessionStorage.getItem("rewrite_handoff_v1")).toBeNull();
+    expect(pushSpy).not.toHaveBeenCalledWith("/rewrite?from=collection");
+  });
+
+  it("deleteLibraryRewrite removes the rewrite record only", async () => {
+    const { ElMessageBox } = await import("element-plus");
+    ElMessageBox.confirm.mockResolvedValue(undefined);
+    const storeSet = vi.fn().mockResolvedValue(undefined);
+    window.electronAPI = { storeSetSetting: storeSet };
+    const w = mountWithI18n();
+    await nextTick();
+    w.vm.rewrites = [RW];
+    await w.vm.deleteLibraryRewrite(RW);
+    const entry = storeSet.mock.calls.find((c) => c[0] === "copy_library_rewrites");
+    expect(entry).toBeTruthy();
+    expect(JSON.parse(entry[1]).find((it) => it.id === "rw1")).toBeUndefined();
   });
 
   it("writes in-page rewrite result into the copy library", async () => {
