@@ -187,13 +187,17 @@ function onDrop(targetRow, targetGroup) {
   moveItem(key, targetRow.item_key, targetGroup)
 }
 
-/** 拖到分组空白区：跨组移动，追加到该组末尾 */
+/** 拖到分组空白区：仅「跨组移动」时追加到目标组末尾；
+ *  同组空白 drop 不重排（排序请拖到同组具体菜单项上），避免误移到末尾导致大范围位移。 */
 function onDropOnGroup(targetGroup) {
   dragOverGroup.value = null
   const key = dragKey.value
+  const src = dragSrcGroup.value
   dragKey.value = null
   dragSrcGroup.value = null
   if (!key) return
+  // 同组空白 drop：忽略，避免把项误移到该组末尾（这正是“拖动连坐很多位”的根因）
+  if (src === targetGroup) return
   moveItem(key, null, targetGroup)
 }
 
