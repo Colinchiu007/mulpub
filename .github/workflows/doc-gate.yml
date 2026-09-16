@@ -63,7 +63,7 @@ jobs:
         with:
           name: changelog-draft-${{ github.event.pull_request.number }}
           path: team/inbox/changelog-draft-${{ github.event.pull_request.number }}.md
-          retention-days: 30
+          retention-days: 5
 
   ci-tests:
     name: 单元测试 + Lint

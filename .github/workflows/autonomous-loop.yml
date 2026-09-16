@@ -159,7 +159,7 @@ jobs:
             apps/desktop/tests/visual-testing/screenshots/
             apps/desktop/tests/visual-testing/base-screenshots/
             apps/desktop/patches/
-          retention-days: 14
+          retention-days: 5
           if-no-files-found: warn
 
       - name: Report final status
