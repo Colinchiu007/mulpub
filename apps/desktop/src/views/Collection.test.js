@@ -699,7 +699,11 @@ describe("CollectionView", () => {
     const w = mountCollection();
     await new Promise(r => setTimeout(r, 0));
     await nextTick();
-    expect(w.text()).toContain("暂无草稿");
+    // 空态统一走 EmptyState（T0-3）：文案全部来自 i18n key（$t 在测试中返回 key 本身）
+    const empty = w.get('[data-testid="collection-drafts-empty"]');
+    expect(empty.classes()).toContain("mp-empty-state");
+    expect(empty.text()).toContain("collection.draftsEmptyTitle");
+    expect(empty.get("button.mp-empty-state__action").text()).toBe("collection.draftsEmptyAction");
   });
 
   it("shows drafts list", async () => {

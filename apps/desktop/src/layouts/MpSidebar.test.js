@@ -312,4 +312,24 @@ describe('MpSidebar', () => {
     expect(sidebar.find('[data-testid="mp-sidebar-version"]').exists()).toBe(false)
     expect(sidebar.get('[data-testid="mp-sidebar"]').exists()).toBe(true)
   })
+
+  // T0-2：暗色主题下结构必须与亮色完全一致（颜色由 token 承接，DOM 不随主题变化）
+  it('renders the same structure under the dark theme', async () => {
+    const light = mountSidebar('/accounts')
+    await flushPromises()
+    const lightKeys = light.findAll('.mp-primary-item').map((item) => item.attributes('data-testid'))
+
+    light.unmount()
+    document.documentElement.setAttribute('data-theme', 'dark')
+    try {
+      const dark = mountSidebar('/accounts')
+      await flushPromises()
+      const darkKeys = dark.findAll('.mp-primary-item').map((item) => item.attributes('data-testid'))
+
+      expect(darkKeys).toEqual(lightKeys)
+      expect(dark.get('[data-testid="mp-sidebar"]').classes()).toEqual(['mp-sidebar'])
+    } finally {
+      document.documentElement.removeAttribute('data-theme')
+    }
+  })
 })

@@ -43,8 +43,35 @@ describe("ProjectLibrary", () => {
     const w = mountProjectLibrary();
     await flushPromises();
     await nextTick();
-    expect(w.find(".mp-empty-state").exists()).toBe(true);
-    expect(w.text()).toContain("暂无项目");
+    const empty = w.get('[data-testid="project-library-empty"]');
+    expect(empty.classes()).toContain("mp-empty-state");
+    expect(empty.get(".mp-empty-state__title").text()).toBe(i18n.global.t("projectLibrary.empty.title"));
+    expect(empty.text()).toContain(i18n.global.t("projectLibrary.empty.message"));
+  });
+
+  it("empty state CTA navigates to the pipeline page", async () => {
+    window.electronAPI = {
+      project: { list: vi.fn().mockResolvedValue({ code: 0, data: [] }) },
+    };
+    const w = mountProjectLibrary();
+    await flushPromises();
+    await nextTick();
+
+    await w.get('[data-testid="project-library-empty"] button.mp-empty-state__action').trigger("click");
+    expect(pushSpy).toHaveBeenCalledWith("/create");
+  });
+
+  it("does not render empty state when projects exist", async () => {
+    window.electronAPI = {
+      project: {
+        list: vi.fn().mockResolvedValue({ code: 0, data: [{ id: "p1", name: "项目一" }] }),
+      },
+    };
+    const w = mountProjectLibrary();
+    await flushPromises();
+    await nextTick();
+
+    expect(w.find('[data-testid="project-library-empty"]').exists()).toBe(false);
   });
 
   it("shows error state on failure", async () => {

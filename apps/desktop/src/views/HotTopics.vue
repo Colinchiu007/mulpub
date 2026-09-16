@@ -115,11 +115,15 @@
       </div>
 
       <!-- 选题列表（加载态由中央提示覆盖，此处仅空态/列表） -->
-      <div v-if="filteredTopics.length === 0 && !loading" class="empty-box" data-testid="hot-topics-empty">
-        <div class="empty-title">{{ t('hotTopics.emptyTitle') }}</div>
-        <div class="empty-desc">{{ t('hotTopics.emptyDesc') }}</div>
-        <button class="cohere-btn-primary" @click="refresh(true)">{{ t('hotTopics.emptyAction') }}</button>
-      </div>
+      <EmptyState
+        v-if="filteredTopics.length === 0 && !loading"
+        data-testid="hot-topics-empty"
+        icon="🔥"
+        :title="t('hotTopics.emptyTitle')"
+        :description="t('hotTopics.emptyDesc')"
+        :action-text="t('hotTopics.emptyAction')"
+        @action="refresh(true)"
+      />
       <div v-else class="topics-list">
         <div
           v-for="(topic, viewIndex) in filteredTopics"

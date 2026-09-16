@@ -425,6 +425,8 @@ export default {
       emptyTitle: '暂无创作记录',
       emptyHint: '开始创作后，记录将在此显示。',
       emptyFilter: '没有符合条件的记录。',
+      emptyAction: '开始创作',
+      emptyFilterAction: '查看全部记录',
       records: '条记录',
       contentPreview: '文案预览',
       promptPreview: '文案预览',
@@ -1323,6 +1325,8 @@ export default {
     emptyNoFavorite: '暂无收藏账号',
     emptyNoGroup: '分组内暂无账号',
     emptyNoMatch: '没有匹配的账号',
+    emptyMessage: '添加账号后可在此统一管理登录状态与分组',
+    emptyAction: '新建账号',
     reloginSuccess: '账号重新登录成功',
     qrcodeSuccess: '扫码登录成功',
     addSuccess: '账号添加成功',
@@ -1567,6 +1571,25 @@ export default {
     csvHeaderLikes: '点赞',
     csvHeaderFavorites: '收藏',
     csvHeaderShares: '分享',
+  },
+  publishHistory: {
+    empty: {
+      records: {
+        title: '暂无发布记录',
+        message: '还没有发布过内容，发布后可在「发布记录」查看数据表现',
+        action: '新建发布',
+      },
+      filtered: {
+        title: '没有匹配的记录',
+        message: '当前筛选条件下没有记录，清空筛选可查看全部',
+        action: '清空筛选',
+      },
+      drafts: {
+        title: '暂无草稿',
+        message: '编辑中的内容会自动存为草稿，方便下次继续',
+        action: '新建发布',
+      },
+    },
   },
   publishType: {
     title: '选择发布类型',
@@ -2227,6 +2250,10 @@ export default {
     recordsTitle: '文案库',
     recordsEmptyTitle: '暂无文案',
     recordsEmptyDesc: '在「内容采集」标签页采集内容后，会在这里生成文案列表',
+    recordsEmptyAction: '去采集内容',
+    draftsEmptyTitle: '暂无草稿',
+    draftsEmptyDesc: '点击「新建草稿」或从平台采集内容开始',
+    draftsEmptyAction: '新建草稿',
     recordsUntitled: '无标题',
     recordsEdit: '编辑',
     recordsCreateDraft: '创建草稿',
@@ -2248,6 +2275,7 @@ export default {
     libraryOriginRewrite: '改写',
     libraryFilterEmptyTitle: '当前筛选下暂无文案',
     libraryFilterEmptyDesc: '切换筛选条件查看其他文案',
+    libraryFilterEmptyAction: '查看全部文案',
     libraryUntitled: '无标题',
     libraryWordCount: (ctx) => ctx.named('count') + ' 字',
     libraryCollectedAt: (ctx) => '采集于 ' + ctx.named('time'),
@@ -2377,6 +2405,16 @@ export default {
   comments: {
     tabTitle: (ctx) => ctx.named('platform') + '评论',
     openedInTab: '评论页已在顶部标签栏打开，点击上方标签即可查看',
+    empty: {
+      selectPlatform: {
+        title: '选择平台',
+        message: '从左侧选择一个平台查看评论',
+      },
+      unsupported: {
+        title: '暂不支持',
+        message: '{platform} 暂未配置评论页',
+      },
+    },
   },
   intelligence: {
     insertedRef: '已插入引用: {title}',
@@ -2475,8 +2513,33 @@ export default {
     signingIn: '正在打开登录...'
   },
 
+projectLibrary: {
+  empty: {
+    title: '暂无项目',
+    message: '开始第一次视频生产后，项目档案会显示在这里',
+    action: '浏览流水线',
+  },
+},
+viralAnalysis: {
+  empty: {
+    title: '输入主题开始分析',
+    message: 'AI 将从标题结构、情感触发、互动热度等维度分析爆款潜力',
+  },
+},
 knowledgeBase: {
     title: '知识库',
+    empty: {
+      viral: {
+        title: '暂无爆款内容',
+        message: '采集或新增爆款内容后，可在此统一管理并做模式分析',
+        action: '新增爆款',
+      },
+      personal: {
+        title: '暂无知识内容',
+        message: '添加个人知识后，可在创作时自动引用你的表达风格',
+        action: '新增知识',
+      },
+    },
     tabViral: '爆款库',
     viralSubtitle: '爆款内容库 — 搜集管理自媒体爆款内容',
     tabPattern: '模式分析',

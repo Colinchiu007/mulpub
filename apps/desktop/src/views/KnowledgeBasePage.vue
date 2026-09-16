@@ -20,9 +20,9 @@
         <button class="kb-tab-btn" :class="{ active: activeTab === 'personal' }" @click="activeTab = 'personal'">{{ t('knowledgeBase.tabPersonal') }}</button>
       </div>
 
-      <ViralLibraryTable v-if="activeTab === 'viral'" ref="viralRef" />
+      <ViralLibraryTable v-if="activeTab === 'viral'" ref="viralRef" @create="showViralForm = true" />
       <PatternAnalysisPanel v-if="activeTab === 'pattern'" ref="patternRef" />
-      <PersonalKnowledgePanel v-if="activeTab === 'personal'" ref="personalRef" />
+      <PersonalKnowledgePanel v-if="activeTab === 'personal'" ref="personalRef" @create="showPersonalForm = true" />
 
       <ViralFormDialog v-if="showViralForm" :item="editingViral" @close="showViralForm = false; editingViral = null" @saved="onViralSaved" />
       <PersonalFormDialog v-if="showPersonalForm" :item="editingPersonal" @close="showPersonalForm = false; editingPersonal = null" @saved="onPersonalSaved" />

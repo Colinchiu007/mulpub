@@ -81,8 +81,24 @@
     <div v-if="historyLoading" class="loading-state" data-testid="history-loading">
       <UiSkeleton variant="list" :count="5" />
     </div>
-    <EmptyState v-else-if="history.length === 0" :title="tr('emptyTitle')" :description="tr('emptyHint')" icon="" />
-    <EmptyState v-else-if="filteredHistory.length === 0" :title="tr('emptyFilter')" compact />
+    <EmptyState
+      v-else-if="history.length === 0"
+      data-testid="create-history-empty"
+      :title="tr('emptyTitle')"
+      :description="tr('emptyHint')"
+      :action-text="tr('emptyAction')"
+      icon=""
+      @action="$emit('create-content')"
+    />
+    <EmptyState
+      v-else-if="filteredHistory.length === 0"
+      compact
+      data-testid="create-history-filter-empty"
+      :title="tr('emptyFilter')"
+      :action-text="tr('emptyFilterAction')"
+      icon=""
+      @action="$emit('reset-history-filter')"
+    />
 
     <div v-else class="history-list" role="list">
       <div
@@ -302,7 +318,7 @@ export default {
     story2videoResuming: { type: Boolean, default: false },
     deleting: { type: Boolean, default: false },
   },
-  emits: ['update:historyFilter', 'resume-history', 'open-result', 'delete-history', 'delete-history-batch', 'publish-history', 'download-history'],
+  emits: ['update:historyFilter', 'resume-history', 'open-result', 'delete-history', 'delete-history-batch', 'publish-history', 'download-history', 'create-content', 'reset-history-filter'],
   data () {
     return {
       activeFilter: HISTORY_STATUSES.includes(this.historyFilter) ? this.historyFilter : 'all',

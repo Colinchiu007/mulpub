@@ -19,9 +19,15 @@
     </div>
 
     <!-- 空状态 -->
-    <EmptyState v-else-if="projects.length === 0" icon="🎬" title="暂无项目，开始第一次视频生产吧">
+    <EmptyState
+      v-else-if="projects.length === 0"
+      data-testid="project-library-empty"
+      icon="🎬"
+      :title="t('projectLibrary.empty.title')"
+      :description="t('projectLibrary.empty.message')"
+    >
       <template #actions>
-        <UiButton @click="$router.push('/create')">浏览流水线</UiButton>
+        <UiButton @click="$router.push('/create')">{{ t('projectLibrary.empty.action') }}</UiButton>
       </template>
     </EmptyState>
 
@@ -50,10 +56,12 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useProjectList } from '@/composables/useBacklot'
 import ProjectCard from '@/components/ProjectCard.vue'
 import UiButton from '@/components/UiButton.vue'
 
+const { t } = useI18n()
 const { projects, loading, error, refresh, deleteProject } = useProjectList()
 
 const deleteTarget = ref(null)

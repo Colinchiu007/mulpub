@@ -169,15 +169,28 @@
         <span>{{ errorMessage }}</span>
         <button class="secondary-action" type="button" data-testid="retry-history" @click="loadRecords()">{{ t('historyPage.retry') }}</button>
       </div>
-      <div v-else-if="records.length === 0" class="state-panel">
-        <p>{{ t('historyPage.noRecords') }}</p>
-        <span>{{ t('historyPage.noRecordsHint') }}</span>
-      </div>
+      <EmptyState
+        v-else-if="records.length === 0"
+        data-testid="publish-history-empty"
+        :title="t('publishHistory.empty.records.title')"
+        :description="t('publishHistory.empty.records.message')"
+        :action-text="t('publishHistory.empty.records.action')"
+        @action="goToEditor()"
+      >
+        <template #icon><Tickets /></template>
+      </EmptyState>
       <div v-else-if="hasActiveFilters && loadingMore" class="state-panel" role="status">{{ t('historyPage.searchingAll') }}</div>
-      <div v-else-if="filteredRecords.length === 0" class="state-panel">
-        <p>{{ t('historyPage.noMatchingRecords') }}</p>
-        <button class="secondary-action" type="button" @click="clearFilters">{{ t('historyPage.clearFilters') }}</button>
-      </div>
+      <EmptyState
+        v-else-if="filteredRecords.length === 0"
+        compact
+        data-testid="publish-history-filter-empty"
+        :title="t('publishHistory.empty.filtered.title')"
+        :description="t('publishHistory.empty.filtered.message')"
+        :action-text="t('publishHistory.empty.filtered.action')"
+        @action="clearFilters"
+      >
+        <template #icon><Search /></template>
+      </EmptyState>
       <div v-else class="record-list" :class="{ 'grid-view': viewMode === 'grid' }">
         <article v-for="record in filteredRecords" :key="record.id" class="record-card">
           <label v-if="selectionMode" class="record-selector">
@@ -240,7 +253,7 @@
     <section v-else id="drafts-panel" class="history-panel drafts-panel" role="tabpanel" aria-labelledby="drafts-tab">
       <div class="panel-toolbar">
         <span class="record-count">{{ t('historyPage.draftsCount', { count: drafts.length }) }}</span>
-        <button class="secondary-action" type="button" @click="loadDrafts">{{ t('historyPage.refresh') }}</button>
+        <button class="secondary-action" type="button" data-testid="refresh-drafts" @click="loadDrafts">{{ t('historyPage.refresh') }}</button>
       </div>
       <div v-if="draftLoading" class="state-panel state-panel--skeleton" data-testid="history-drafts-loading">
         <UiSkeleton variant="list" :count="3" />
@@ -250,10 +263,16 @@
         <span>{{ draftError }}</span>
         <button class="secondary-action" type="button" @click="loadDrafts">重试</button>
       </div>
-      <div v-else-if="drafts.length === 0" class="state-panel">
-        <p>{{ t('historyPage.noDrafts') }}</p>
-        <span>{{ t('historyPage.noDraftsHint') }}</span>
-      </div>
+      <EmptyState
+        v-else-if="drafts.length === 0"
+        data-testid="publish-history-drafts-empty"
+        :title="t('publishHistory.empty.drafts.title')"
+        :description="t('publishHistory.empty.drafts.message')"
+        :action-text="t('publishHistory.empty.drafts.action')"
+        @action="goToEditor()"
+      >
+        <template #icon><FolderOpened /></template>
+      </EmptyState>
       <div v-else class="record-list">
         <article v-for="draft in drafts" :key="draft.id" class="record-card draft-card">
           <div class="record-preview draft-preview" aria-hidden="true"><span>{{ t('historyPage.draftMark') }}</span></div>
@@ -322,7 +341,7 @@
 
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { CirclePlus, Clock, Close, Delete, Download, Grid, List, Operation, Search, User } from '@element-plus/icons-vue'
+import { CirclePlus, Clock, Close, Delete, Download, FolderOpened, Grid, List, Operation, Search, Tickets, User } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { getAppLocale } from '@/i18n'
 import { useRouter } from 'vue-router'

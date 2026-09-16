@@ -29,22 +29,28 @@
 
       <!-- 右侧评论区域 -->
       <div style="flex:1;position:relative;background:var(--border-light,var(--border-light));display:flex;align-items:center;justify-content:center">
-        <div v-if="!activePlatform" class="cohere-empty">
-          <div class="empty-icon">💬</div>
-          <h3>选择平台</h3>
-          <p>从左侧选择一个平台查看评论</p>
-        </div>
-        <div v-else-if="!commentUrl" class="cohere-empty">
-          <div class="empty-icon">📭</div>
-          <h3>暂不支持</h3>
-          <p>{{ platformName(activePlatform) }} 暂未配置评论页</p>
-        </div>
+        <EmptyState
+          v-if="!activePlatform"
+          data-testid="comments-select-empty"
+          icon="💬"
+          :title="t('comments.empty.selectPlatform.title')"
+          :description="t('comments.empty.selectPlatform.message')"
+        />
+        <EmptyState
+          v-else-if="!commentUrl"
+          data-testid="comments-unsupported-empty"
+          icon="📭"
+          :title="t('comments.empty.unsupported.title')"
+          :description="t('comments.empty.unsupported.message', { platform: platformName(activePlatform) })"
+        />
         <!-- 评论页在顶部全局标签栏（page-manager 体系）打开并渲染，本页仅负责平台选择与引导提示 -->
-        <div v-else class="cohere-empty">
-          <div class="empty-icon">🧭</div>
-          <h3>{{ platformName(activePlatform) }}</h3>
-          <p>{{ t('comments.openedInTab') }}</p>
-        </div>
+        <EmptyState
+          v-else
+          data-testid="comments-opened-empty"
+          icon="🧭"
+          :title="platformName(activePlatform)"
+          :description="t('comments.openedInTab')"
+        />
       </div>
     </div>
   </div>

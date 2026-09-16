@@ -30,7 +30,16 @@
             </td>
           </tr>
           <tr v-else-if="!items.length">
-            <td colspan="13" style="text-align:center;padding:24px;color:var(--muted)">暂无内容</td>
+            <td colspan="13">
+              <EmptyState
+                data-testid="viral-library-empty"
+                icon="🔥"
+                :title="t('knowledgeBase.empty.viral.title')"
+                :description="t('knowledgeBase.empty.viral.message')"
+                :action-text="t('knowledgeBase.empty.viral.action')"
+                @action="emit('create')"
+              />
+            </td>
           </tr>
           <tr v-for="(item, idx) in items" :key="item.id">
             <td>{{ (page - 1) * pageSize + idx + 1 }}</td>
@@ -78,6 +87,8 @@ import { listViralItems, deleteViralItem } from '@/api/knowledge-library'
 import ViralFormDialog from '@/components/ViralFormDialog.vue'
 
 const { t } = useI18n()
+// 空态 CTA：由宿主（KnowledgeBasePage）决定「新建」入口，面板不自建弹窗
+const emit = defineEmits(['create'])
 
 const items = ref([])
 const total = ref(0)

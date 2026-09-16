@@ -425,6 +425,8 @@ export default {
       emptyTitle: 'No creation records yet',
       emptyHint: 'Records will appear here after you start creating.',
       emptyFilter: 'No records match this status.',
+      emptyAction: 'Start creating',
+      emptyFilterAction: 'View all records',
       records: 'records',
       contentPreview: 'Content preview',
       promptPreview: 'Content preview',
@@ -1322,6 +1324,8 @@ export default {
     emptyNoFavorite: 'No favorite accounts',
     emptyNoGroup: 'No accounts in this group',
     emptyNoMatch: 'No matching accounts',
+    emptyMessage: 'Add an account to manage sign-in state and groups here',
+    emptyAction: 'Add account',
     reloginSuccess: 'Account re-signed in successfully',
     qrcodeSuccess: 'QR login successful',
     addSuccess: 'Account added',
@@ -1566,6 +1570,25 @@ export default {
     csvHeaderLikes: 'Likes',
     csvHeaderFavorites: 'Favorites',
     csvHeaderShares: 'Shares',
+  },
+  publishHistory: {
+    empty: {
+      records: {
+        title: 'No publish history yet',
+        message: 'Nothing has been published yet. After publishing you can review performance here',
+        action: 'Create publish task',
+      },
+      filtered: {
+        title: 'No matching records',
+        message: 'No record matches the current filters — clear them to see all records',
+        action: 'Clear filters',
+      },
+      drafts: {
+        title: 'No drafts yet',
+        message: 'Content being edited is saved as a draft so you can continue later',
+        action: 'Create publish task',
+      },
+    },
   },
   publishType: {
     title: 'Select publish type',
@@ -2226,6 +2249,10 @@ export default {
     recordsTitle: 'Copy Library',
     recordsEmptyTitle: 'No copies yet',
     recordsEmptyDesc: 'Collected content will appear here as copies after collecting from the Collection tab',
+    recordsEmptyAction: 'Go collect content',
+    draftsEmptyTitle: 'No drafts yet',
+    draftsEmptyDesc: 'Click "New draft" or collect content from a platform to start',
+    draftsEmptyAction: 'New draft',
     recordsUntitled: 'Untitled',
     recordsEdit: 'Edit',
     recordsCreateDraft: 'Create Draft',
@@ -2247,6 +2274,7 @@ export default {
     libraryOriginRewrite: 'Rewritten',
     libraryFilterEmptyTitle: 'No copy matches the current filter',
     libraryFilterEmptyDesc: 'Switch the filter to view other copy',
+    libraryFilterEmptyAction: 'View all copies',
     libraryUntitled: 'Untitled',
     libraryWordCount: (ctx) => ctx.named('count') + ' chars',
     libraryCollectedAt: (ctx) => 'Collected ' + ctx.named('time'),
@@ -2376,6 +2404,16 @@ export default {
   comments: {
     tabTitle: (ctx) => ctx.named('platform') + ' comments',
     openedInTab: 'The comments page is open in the tab bar above — click its tab to view it',
+    empty: {
+      selectPlatform: {
+        title: 'Select a platform',
+        message: 'Choose a platform on the left to view its comments',
+      },
+      unsupported: {
+        title: 'Not supported yet',
+        message: '{platform} has no comments page configured',
+      },
+    },
   },
   intelligence: {
     insertedRef: 'Inserted reference: {title}',
@@ -2474,8 +2512,33 @@ export default {
     signingIn: 'Opening sign-in...'
   },
 
+projectLibrary: {
+  empty: {
+    title: 'No projects yet',
+    message: 'Project archives appear here after your first video production',
+    action: 'Browse pipelines',
+  },
+},
+viralAnalysis: {
+  empty: {
+    title: 'Enter a topic to start',
+    message: 'AI will score viral potential across title structure, emotional triggers and engagement',
+  },
+},
 knowledgeBase: {
     title: 'Knowledge Base',
+    empty: {
+      viral: {
+        title: 'No viral content yet',
+        message: 'Collect or add viral content to manage it and run pattern analysis here',
+        action: 'Add viral content',
+      },
+      personal: {
+        title: 'No knowledge yet',
+        message: 'Add personal knowledge so creation can reuse your own writing style',
+        action: 'Add knowledge',
+      },
+    },
     tabViral: 'Viral Library',
     tabPattern: 'Pattern Analysis',
     patternSubtitle: 'Viral pattern cards — structured expression patterns extracted by LLM (hook/emotion/narrative/CTA/quotes/title formula)',

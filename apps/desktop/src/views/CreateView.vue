@@ -963,6 +963,8 @@
         @publish-history="publishHistoryItem"
         @delete-history="requestHistoryDeletion"
         @download-history="downloadHistoryVideo"
+        @create-content="switchView('pipelines')"
+        @reset-history-filter="historyFilter = 'all'"
         :deleting="deleting"
         @delete-history-batch="requestHistoryBatchDeletion"
       />
