@@ -55,6 +55,15 @@ class RewriteEngineService {
     this._engine = null
   }
 
+  /**
+   * 设置爆款潜力评分器（viral-rewrite-integration：第 4 评估维度；可选依赖）
+   * @param {function} fn - async (text) => { score: number, mode: string }
+   */
+  setViralScorer(fn) {
+    this._viralScorer = typeof fn === 'function' ? fn : null
+    this._engine = null
+  }
+
   _ensureEngine(force) {
     // 首次构建后复用引擎实例，避免每次 rewrite() 重建知识库/评估器
     if (this._engine && !force) return this._engine
@@ -162,6 +171,8 @@ class RewriteEngineService {
       knowledgeBase: kb,
       qualityEvaluator,
       knowledgeLibrary,
+      // viral-rewrite-integration：爆款潜力评分器（未注入时引擎跳过第 4 维）
+      viralScorer: this._viralScorer || undefined,
     })
     // 将策略管理器中的策略注入引擎的策略管理器
     if (engine._strategyManager && typeof engine._strategyManager.mergeRemote === "function") {

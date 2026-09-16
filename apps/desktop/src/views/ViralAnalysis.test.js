@@ -18,7 +18,13 @@ describe("ViralAnalysisView", () => {
   });
 
   function createView() {
-    return mount(ViralAnalysisView, { global: { plugins: [createPinia()] } });
+    return mount(ViralAnalysisView, {
+      global: {
+        plugins: [createPinia()],
+        // viral-rewrite-integration 新模板段使用 $t；未装 i18n 插件的旧用例以 mock 兜底避免渲染报错
+        mocks: { $t: (key) => key },
+      },
+    });
   }
 
   it("renders page title", async () => {
@@ -165,5 +171,148 @@ describe("ViralAnalysisView", () => {
     expect(w.vm.loading).toBe(false);
     expect(w.vm.result).toBeNull();
     expect(w.vm.genResult).toBeNull();
+  });
+});
+
+// ── viral-rewrite-integration：分析结果落库 + 生成标题去改写 ──
+vi.mock("@/api/knowledge-library", () => ({
+  addViralToLibrary: vi.fn().mockResolvedValue({ code: 0, data: { id: "v1" } }),
+}));
+
+import { addViralToLibrary } from "@/api/knowledge-library";
+
+describe("ViralAnalysisView viral integration", () => {
+  const pushMock = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setActivePinia(createPinia());
+    window.electronAPI = {};
+  });
+
+  function createView2() {
+    return mount(ViralAnalysisView, {
+      global: {
+        plugins: [createPinia()],
+        mocks: {
+          $t: (key, params) => key + (params ? JSON.stringify(params) : ""),
+          $router: { push: pushMock },
+        },
+      },
+    });
+  }
+
+  it("saveToLibrary builds item and calls addViralToLibrary", async () => {
+    const w = createView2();
+    await nextTick();
+    w.vm.topic = "AI 工具";
+    w.vm.analyzedTopic = "AI 工具";
+    w.vm.platform = "小红书";
+    w.vm.result = {
+      overall_score: 72,
+      trend_direction: "rising",
+      suggested_angles: ["深度解析", "避坑指南"],
+      rising_keywords: [{ word: "AI" }, { word: "效率" }],
+      factors: [{ name: "engagement", label: "互动热度", score: 0.7 }],
+    };
+    await w.vm.saveToLibrary();
+    expect(addViralToLibrary).toHaveBeenCalledTimes(1);
+    const item = addViralToLibrary.mock.calls[0][0];
+    expect(item.title).toBe("AI 工具");
+    expect(item.source).toBe("manual");
+    expect(item.platform).toBe("小红书");
+    expect(item.content).toContain("AI 工具");
+    expect(item.content.length).toBeGreaterThan(0);
+    expect(item.tags).toEqual(expect.arrayContaining(["小红书", "深度解析", "避坑指南", "AI", "效率"]));
+    expect(w.vm.savedToLibrary).toBe(true);
+    expect(w.vm.savingLibrary).toBe(false);
+  });
+
+  it("saveToLibrary skips when no result", async () => {
+    const w = createView2();
+    await nextTick();
+    await w.vm.saveToLibrary();
+    expect(addViralToLibrary).not.toHaveBeenCalled();
+  });
+
+  it("saveToLibrary skips when analyzedTopic empty (topic edited after analyze)", async () => {
+    const w = createView2();
+    await nextTick();
+    w.vm.result = { overall_score: 60 };
+    w.vm.analyzedTopic = "";
+    await w.vm.saveToLibrary();
+    expect(addViralToLibrary).not.toHaveBeenCalled();
+  });
+
+  it("saveToLibrary skips when already saved", async () => {
+    const w = createView2();
+    await nextTick();
+    w.vm.result = { overall_score: 60 };
+    w.vm.savedToLibrary = true;
+    await w.vm.saveToLibrary();
+    expect(addViralToLibrary).not.toHaveBeenCalled();
+  });
+
+  it("saveToLibrary shows failure message on API error", async () => {
+    addViralToLibrary.mockResolvedValueOnce({ code: -1, message: "db locked" });
+    const w = createView2();
+    await nextTick();
+    w.vm.topic = "AI";
+    w.vm.analyzedTopic = "AI";
+    w.vm.result = { overall_score: 60 };
+    await w.vm.saveToLibrary();
+    expect(w.vm.savedToLibrary).toBe(false);
+    expect(w.vm.libraryMessage).toBe("db locked");
+  });
+
+  it("saveToLibrary shows fallback message on exception", async () => {
+    addViralToLibrary.mockRejectedValueOnce(new Error("network down"));
+    const w = createView2();
+    await nextTick();
+    w.vm.topic = "AI";
+    w.vm.analyzedTopic = "AI";
+    w.vm.result = { overall_score: 60 };
+    await w.vm.saveToLibrary();
+    expect(w.vm.savedToLibrary).toBe(false);
+    expect(w.vm.libraryMessage).toContain("network down");
+  });
+
+  it("doAnalyze resets library save state", async () => {
+    const { viralAnalyze } = await import("@/api/publisher");
+    viralAnalyze.mockResolvedValue({ code: 0, data: { overall_score: 50 } });
+    const w = createView2();
+    await nextTick();
+    w.vm.savedToLibrary = true;
+    w.vm.libraryMessage = "old message";
+    w.vm.topic = "AI";
+    await w.vm.doAnalyze();
+    expect(w.vm.savedToLibrary).toBe(false);
+    expect(w.vm.libraryMessage).toBe("");
+  });
+
+  it("goRewrite pushes /rewrite with titleHint query", () => {
+    const w = createView2();
+    w.vm.goRewrite("AI 工具推荐 TOP5");
+    expect(pushMock).toHaveBeenCalledWith({
+      path: "/rewrite",
+      query: { titleHint: "AI 工具推荐 TOP5" },
+    });
+  });
+
+  it("goRewrite truncates titleHint over 200 chars", () => {
+    const w = createView2();
+    w.vm.goRewrite("x".repeat(300));
+    expect(pushMock).toHaveBeenCalledWith({
+      path: "/rewrite",
+      query: { titleHint: "x".repeat(200) },
+    });
+  });
+
+  it("goRewrite ignores empty/invalid title", () => {
+    const w = createView2();
+    w.vm.goRewrite("");
+    w.vm.goRewrite("   ");
+    w.vm.goRewrite(42);
+    expect(pushMock).not.toHaveBeenCalled();
   });
 });

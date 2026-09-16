@@ -41,11 +41,11 @@ class ViralEngine {
     return this._axios
   }
 
-  async _callApi (method, path, body) {
+  async _callApi (method, path, body, timeoutMs) {
     const axios = this._getAxios()
     const url = `${ORCHESTRATOR_BASE}${path}`
     try {
-      const response = await axios({ method, url, data: body, timeout: 120000 })
+      const response = await axios({ method, url, data: body, timeout: timeoutMs || 120000 })
       return { code: 0, data: response.data, message: 'ok' }
     } catch (err) {
       const status = err.response?.status
@@ -90,6 +90,32 @@ class ViralEngine {
     return this._callApi('post', '/api/viral/trending', {
       articles: articles || [],
     })
+  }
+
+  /**
+   * 文本爆款潜力评分（viral-rewrite-integration：供改写引擎第 4 评估维度注入）
+   * 优先 orchestrator（文本因子驱动：标题结构/情感/长度），不可用时回退本地启发式。
+   * 纯评分语义：互动维度置零，original/rewritten 两侧同口径，delta 才有可比性。
+   * 走独立 8s 短超时：被动评分维度不得拖慢改写主流程（双模型评审 W-1）。
+   * @param {string} text - 待评分文本
+   * @returns {Promise<{score: number, mode: string}|null>} score 0-100；空文本返回 null
+   */
+  async scoreText (text) {
+    const trimmed = typeof text === 'string' ? text.trim() : ''
+    if (!trimmed) return null
+    const article = { title: trimmed.slice(0, 120), content_text: trimmed, like_count: 0, comment_count: 0, platform_code: 'general' }
+    try {
+      const res = await this._callApi('post', '/api/viral/analyze', { articles: [article], topic: '' }, 8000)
+      const raw = res && res.code === 0 && res.data ? res.data.overall_score : null
+      if (typeof raw === 'number' && Number.isFinite(raw)) {
+        return { score: Math.min(Math.max(raw, 0), 100), mode: (res.data && res.data.mode) || 'orchestrator' }
+      }
+      log.warn('ViralEngine', 'scoreText orchestrator response invalid, fallback to local: ' + ((res && res.message) || 'unknown'))
+    } catch (e) {
+      log.warn('ViralEngine', 'scoreText orchestrator call failed, fallback to local: ' + (e && e.message))
+    }
+    const local = this._localAnalyze([article], '')
+    return { score: local.overall_score, mode: 'local-fallback' }
   }
 
   // ========== v2.3.43 本地启发式 fallback ==========
