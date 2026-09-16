@@ -663,10 +663,45 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 **SSRF 防护清单**：
 1. URL 必须是 `http(s)` 且长度 ≤500（`ftp://` 等拒绝）；
 2. 仅本机环回主机（`localhost` / `127.0.0.1` / `::1`）允许 `http`（供本地 ollama 等）；非环回主机必须 `https`；
-3. DNS 解析后任一地址为私网/环回/链路本地/组播/保留/未指定 → 拒绝「解析到私网/保留地址」；
+3. DNS 解析后任一地址为私网/环回/链路本地/组播/保留/未指定 → 拒绝；**拒绝文案区分两类场景**：
+   - **真实私网/保留地址**（10.x / 192.168.x / 172.16–31.x / 127.x / 169.254.x / 100.64–127.x CGNAT / 224.x 组播 / 0.0.0.0 未指定等）→ 提示「获取模型ID URL 解析到私网/保留地址，已拒绝（防 SSRF）」；
+   - **fake-IP 代理基准段 198.18.0.0/15（RFC 2544）** → 提示明确指向代理场景与放行方式（见 12A.3.1），默认开关 `OPS_ALLOW_PROXY_BENCHMARK_IPS=false` 仍按保留地址拒绝（fail-closed，不削弱 SSRF）。
 4. `follow_redirects=False`：任何 3xx 重定向视为失败（HTTP ≥300 → 400）；
 5. 超时 10s；响应体 ≤512KB；
 6. JSON 契约：支持 `{models:[...]}` / `{data:[...]}` / `{data:[{id:...}]}` / `{model_ids|modelIds}` / `{items}` / 纯数组；元素提取优先级 id（OpenAI 兼容）→ model_id/modelId（ElevenLabs 真实 API 标识）→ name（Gemini `models/xxx` 自动剥离前缀、Ollama tags）；非空去重，最多 500 个；无模型 ID → 400「未找到任何模型ID」。
+
+### 12A.3.1 fake-IP 代理（Clash/TUN）场景与放行（2026-09-16 修复）
+
+**现象**：在开启 fake-IP / DNS 劫持模式的代理（Clash、Surge、Mihomo、sing-box 等）环境下，点击「获取模型」拉取官方公网模型 API（如 agnes-llm、MiniMax、OpenAI 等），报错：
+> 获取模型ID URL 解析到私网/保留地址，已拒绝（防 SSRF）
+
+但这是**误报**——域名解析到的 `198.18.x.x` 并非真实内网目标。
+
+**根因**：`198.18.0.0/15` 是 RFC 2544 基准测试段（TEST-NET-2）。Clash/TUN 类代理用该段接管公网流量：开启 fake-IP 后，所有公网域名经系统解析会被改写为 `198.18.x.x`（IANA 保留段，Python ≥3.12 将其标记为 `is_private=True`）。`fetch_models_from_url` 的 `_is_private_or_reserved` 默认（`OPS_ALLOW_PROXY_BENCHMARK_IPS=false`）把该段按保留/私网拒绝，于是报「私网/保留地址」。原报错文案笼统，用户无法判断是真实内网还是代理假象，无法自助解决。
+
+**修复（代码）**：在 `ops-center/backend/services/model_preset_service.py`：
+- 新增 `_is_benchmark_segment(ip)` 判定 IP 是否落在 `198.18.0.0/15`；
+- `fetch_models_from_url` 的 DNS 解析拒绝循环中，对「命中基准段且开关关闭」单独抛**可操作错误**，与真实私网明确区分：
+  - 基准段（开关关闭）：`ValueError("获取模型ID URL 在 fake-IP 代理环境下解析到 198.18.x.x（RFC 2544 基准测试段），被 SSRF 守卫按保留地址拒绝。这不是真实内网目标，而是 Clash/TUN 类代理接管公网流量的正常现象。请二选一解决：① 在运行 ops-center 的环境设置 OPS_ALLOW_PROXY_BENCHMARK_IPS=true 后重启服务；② 关闭代理的 fake-IP / DNS 劫持模式后重试。")`
+  - 真实私网/保留地址：`ValueError("获取模型ID URL 解析到私网/保留地址，已拒绝（防 SSRF）")`（保持原样）。
+
+**两条解决路径（运营/用户自助）**：
+1. **放行基准段（推荐，保留 SSRF 默认）**：在运行 ops-center 的环境设置 `OPS_ALLOW_PROXY_BENCHMARK_IPS=true` 并重启服务。该开关仅放行 `198.18.0.0/15`（代理假象段），真实私网（`10.x` / `192.168.x` / `172.16–31.x` / `127.x` / `169.254.x` / CGNAT `100.64–127.x` / 组播 / 未指定）仍严格拒绝，不削弱 SSRF 防护。**生产/ECS 环境请保持关闭。**
+2. **关闭代理 fake-IP / DNS 劫持**：让公网域名解析到真实公网 IP，SSRF 守卫自然放行（前提是域名确为合法公网 HTTPS 端点）。
+
+**数据校验 / 流程**：
+- 校验顺序不变：`http(s)`+长度 ≤500 → 环回放行 http 否则强制 https → `socket.getaddrinfo` 解析 → 逐条 IP 判私网/保留（区分基准段）→ `follow_redirects=False` 取响应 → 10s 超时 → ≤512KB → JSON 契约提取。
+- DNS 解析与 httpx 实际连接为两次独立解析（已知 TOCTOU 窗口，follow_redirects=False 已防 3xx 跳转），本端点不声称阻断 DNS 重绑定；`198.18.0.0/15` 判别仅在「解析结果」层生效。
+- 开关 `allow_proxy_benchmark_ips` 由 `OPS_ALLOW_PROXY_BENCHMARK_IPS` 经 pydantic-settings `env_prefix="OPS_"` 映射，默认 `False`。
+
+**交互逻辑 / 显示项 / 提示文字**：
+- 前端「获取模型」按钮点击后调用 `POST .../fetch-models`；失败时后端返回 `400 + detail`（上述中文错误），前端 `ElMessage` 弹窗直接展示 `detail` 全文（错误详情不改写）。
+- 两种文案在 UI 上的差异：**基准段文案会明确出现「fake-IP」「198.18」「OPS_ALLOW_PROXY_BENCHMARK_IPS」** 三个关键词，便于运营一眼识别为「代理假象」而非「真实内网」；真实私网文案仅含「私网/保留地址」。
+- 建议运营处理 SOP：看到「fake-IP / 198.18」→ 设 `OPS_ALLOW_PROXY_BENCHMARK_IPS=true` 或关代理 fake-IP；看到「私网/保留地址」→ 确认 `models_url` 是否误填内网地址。
+
+**回归保护测试**：`tests/test_model_presets_api.py` 新增/更新断言——
+- `test_fetch_models_proxy_benchmark_segment_rejected_when_disabled`：开关关闭，`198.18.0.241` 仍 400，且 `detail` 含 `198.18` / `fake-IP` / `OPS_ALLOW_PROXY_BENCHMARK_IPS`；
+- 新增 `test_fetch_models_benchmark_off_message_distinct_from_real_private`：验证基准段文案含 `fake-IP`+`OPS_ALLOW_PROXY_BENCHMARK_IPS` 且**不含**「私网」，而真实私网 `10.0.0.1` 文案含「私网」且**不含** `fake-IP`，确保两类提示可区分。
 
 ### 12A.4 多模态分能力技术文档 URL
 

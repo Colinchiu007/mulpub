@@ -770,7 +770,51 @@ async def test_fetch_models_proxy_benchmark_segment_rejected_when_disabled():
             await client.post("/api/v1/model-presets", json=body, headers=headers)
             resp = await client.post("/api/v1/model-presets/fetch-proxybench-off/fetch-models", headers=headers)
             assert resp.status_code == 400
-            assert "私网" in resp.json()["detail"]
+            # 关闭开关时 198.18.0.0/15 仍被拒绝，但提示必须明确为 fake-IP 代理场景（可操作）
+            detail = resp.json()["detail"]
+            assert "198.18" in detail
+            assert "fake-IP" in detail
+            assert "OPS_ALLOW_PROXY_BENCHMARK_IPS" in detail
+
+
+@pytest.mark.asyncio
+async def test_fetch_models_benchmark_off_message_distinct_from_real_private():
+    """回归保护：198.18.0.0/15（代理基准段，开关关闭）必须给出 fake-IP 指引，
+    而真实私网 10.x 必须给出「私网」提示，两者文案必须可区分（Bug #agnes-llm 获取模型误报）。"""
+    import socket
+    from unittest.mock import patch
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    headers = {"Authorization": f"Bearer {_admin_token()}"}
+
+    # 1) 代理基准段（开关默认关闭）
+    bench_body = {"id": "fetch-bench-guidance", "name": "Fetch Bench Guidance", "category": "llm",
+                  "models_url": "https://api.example.com/v1/models", "models": [], "default_model": ""}
+    fake = _FakeResponse(status_code=200, json_data={"models": ["m1", "m2"]})
+    with patch("socket.getaddrinfo", return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("198.18.0.241", 443))]), \
+         patch("httpx.AsyncClient", return_value=_fake_async_client(fake)):
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            await client.post("/api/v1/model-presets", json=bench_body, headers=headers)
+            resp = await client.post("/api/v1/model-presets/fetch-bench-guidance/fetch-models", headers=headers)
+            assert resp.status_code == 400
+            bench_detail = resp.json()["detail"]
+            assert "fake-IP" in bench_detail and "OPS_ALLOW_PROXY_BENCHMARK_IPS" in bench_detail
+            assert "私网" not in bench_detail  # 明确区分：不是真实私网
+
+    # 2) 真实私网 10.x：提示必须含「私网」，且不应出现 fake-IP 代理指引
+    priv_body = {"id": "fetch-priv-distinct", "name": "Fetch Priv Distinct", "category": "llm",
+                 "models_url": "https://internal.example.com/v1/models", "models": [], "default_model": ""}
+    with patch("socket.getaddrinfo", return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.1", 443))]), \
+         patch("httpx.AsyncClient", return_value=_fake_async_client(fake)):
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            await client.post("/api/v1/model-presets", json=priv_body, headers=headers)
+            resp = await client.post("/api/v1/model-presets/fetch-priv-distinct/fetch-models", headers=headers)
+            assert resp.status_code == 400
+            priv_detail = resp.json()["detail"]
+            assert "私网" in priv_detail
+            assert "fake-IP" not in priv_detail  # 明确区分：真实私网不应出现代理指引
 
 
 @pytest.mark.asyncio

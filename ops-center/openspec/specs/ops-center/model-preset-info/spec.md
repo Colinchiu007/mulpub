@@ -35,7 +35,7 @@
 
 #### Scenario: 获取模型失败
 - **WHEN** models_url 不可达/超时/非 JSON/被 SSRF 规则拒绝
-- **THEN** 返回 400/502 且不修改已有 models
+- **THEN** 返回 400/502 且不修改已有 models；SSRF 拒绝文案区分真实私网（「解析到私网/保留地址」）与 fake-IP 代理基准段 198.18.0.0/15（明确提示设 OPS_ALLOW_PROXY_BENCHMARK_IPS=true 或关闭代理 fake-IP）
 
 ### Requirement: 多模态分能力技术文档URL
 多模态模型必须按 7 类能力显示技术文档 URL 输入框：文字推理接口(llm)、图片生成(image)、视频生成(video)、TTS语音生成(tts)、TTS语音克隆(voice_clone)、语音识别(speech_recognition)、视觉识别(vision)。
