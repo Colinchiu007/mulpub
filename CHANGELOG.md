@@ -12,6 +12,21 @@
 
 ---
 
+# [未发布] fix(desktop): 失效账号登录页以干净会话打开，修复微信「二维码加载失败」（2026-09-16）
+
+### 修复
+- **根因**（CDP 活体取证定案）：批量登录把失效账号的旧身份 Cookie（微信 `wxuin`/`ua_id`/`xid` 等，有效期 2027）恢复进登录页 session；微信服务端校验「身份 Cookie ↔ 登录态」不符，在 `scanloginqrcode?action=getqrcode` 环节返回 **200 空体**（真码 ~7.6KB）→ 页面显示「二维码加载失败」。Chrome 干净 profile 正常出码。网络/UA/Client-Hints 均已逐一排除
+- **修复**：新增 `cleanSession` 选项——账号标签打开登录页时**跳过凭证 Cookie/localStorage 恢复并清空分区残留 Cookie**（清除在首个导航请求前完成）；登录成功后关闭标签仍回写新 Cookie，账号自愈闭环不变
+- **接入点**：主页【批量登录】（目标全是失效账号，强制 cleanSession）；账号管理页【打开登录页】（`status==='expired'` 时启用）。**有效账号行为完全不变**（仍恢复 Cookie 免登录）
+- **零契约变更**：`cleanSession` 经既有 `page-manager:create-new-tab-page` payload 透传（无新增 IPC/preload/文案）
+
+### 验证
+- `webview-manager.test.js` 40 例（新增 3：跳过恢复+清除残留/跳过 localStorage/未传回归保护）；Home.test.js 断言扩展 cleanSession；合计 63/63 全绿（双跑）
+- eslint 0 error；`check-locale-sync --cjk` PASS（1410 < 基线 1644）
+- 文档：`01-docs/BUGFIX-LOGIN-QR-STALE-COOKIE-2026-09-16.md`（CDP 证据链/判定矩阵/流程/QM-5）
+
+---
+
 # [未发布] feat(desktop): 登录页会话级网络诊断日志——二维码加载失败可观测化（2026-09-16）
 
 ### 变更

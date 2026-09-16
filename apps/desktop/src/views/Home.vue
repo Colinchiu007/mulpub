@@ -219,6 +219,9 @@ async function handleBatchLogin() {
         url: item.loginUrl,
         platform: item.platform,
         accountId: item.accountId,
+        // 批量登录目标全是失效账号：必须以干净会话打开登录页。
+        // 若恢复旧身份 Cookie，微信等平台会在二维码环节静默拒绝（getqrcode 200 空体）。
+        cleanSession: true,
         title: t('home.loginExpiredBanner.loginTabTitle', { platform: platformStore.getLabel(item.platform) || item.platform }),
       })
       if (tabId) {
