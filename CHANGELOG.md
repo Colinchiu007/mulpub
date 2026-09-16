@@ -12,6 +12,25 @@
 
 ---
 
+# [未发布] fix(desktop): 采集页正文保留原文换行与分段（Node 采集通道正文提取修复）（2026-09-16）
+
+### 修复
+- **根因**：`url-collector.js` 的 `_parseHtml` 通用回退分支 `contentEl.text().trim().replace(/\s+/g, ' ')` —— `\s` 含换行/全角空格/NBSP/BOM，把**包括换行在内的所有连续空白**压成单个半角空格，正文被压成一整行（「没有分行和分段，一整篇看着非常乱」）。相邻 `<li>` 更是零分隔粘连（实测旧输出 `要点一要点二`）；知乎分支只设 `contentEl` 后同样落入该分支，一起中招
+- **影响面（仅 Node 采集通道）**：采集页有两条通道——Python 聚合通道（`content-aggregator v1` + trafilatura 2.1.0，**实测本就保留换行**）与 Node 采集通道（反爬站点知乎/百家号走 stealth + Python 失败/命中安全验证页的降级路径）。本 Bug 只在 Node 通道生效
+- **修复**：新增正文格式契约模块 **`apps/desktop/electron/services/readable-text.js`** —— 把「HTML 块级结构 → 换行」集中一处（`extractReadableText` + `normalizeExtractedText`）。段落级标签（p/h1-h6/blockquote）→ 段间**空行**（分段）；行级标签（div/li/tr/ul/table/section…）→ **单换行**（列表项分行但不空行）；`<br>` → 换行；`td`/`th` → 制表符；`<pre>` → 内部换行与缩进**原样保留**（NUL 占位符绕开空白归一化后还原）；噪声节点（nav/footer/header/aside/script…）整体剔除
+- **空白归一化 6 步**：统一行尾（CRLF/CR/U+2028/U+2029 → LF）→ 去 BOM → 行内连续空白（缩进/制表符/全角空格/NBSP）压缩为单空格（**换行不受影响**）→ 逐行去首尾空白 → 连续 3 个以上换行压成 1 个空行 → 去首尾换行
+- **格式统一**：百家号分支由「只 `join('<p>')`」改调同一提取器（与其它站点分段一致，并额外纳入标题）
+- **零契约变更**：零新增 IPC/preload、零 UI 改动、零新增文案、零 locale 改动（展示层 `<textarea class="compare-textarea">` 原生保留 `\n` 且 CSS 未覆盖 `white-space`，正文带上换行后渲染端立即正确分段显示）
+- **零新增债务**：`url-collector.js` 623 → 463 行（回到 500 行阈值内），`filesOver500` 与纯净 origin/main 一致
+
+### 验证
+- `readable-text.test.js` 新增 18 例（模块级）+ `url-collector.test.js` 新增 11 例（端到端精确断言），合计 **75/75 全绿**（`--pool=threads --no-file-parallelism`）
+- **回归保护有效性实测**：用修复前的实现副本对跑，4 组代表性用例**全部被新断言抓住**。新增断言一律用 `toBe` 精确匹配，取代此前清一色 `toContain` 子串匹配 —— 这正是本 Bug 逃逸的根因（整篇压成一行时每个子串仍命中）
+- eslint 0 error；`check-debt-budget.js` 零新增债务；无 IPC/locale 契约测试影响
+- 文档：`01-docs/BUGFIX-COLLECT-NEWLINE-PRESERVE-2026-09-16.md`（现象/双通道影响面/根因/格式契约/数据校验/流程/显示项/QM-5 五步）
+
+---
+
 # [未发布] fix(desktop): 失效账号登录页以干净会话打开，修复微信「二维码加载失败」（2026-09-16）
 
 ### 修复
