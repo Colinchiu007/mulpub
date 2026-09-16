@@ -25,7 +25,7 @@ jobs:
   build:
     strategy:
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [self-hosted, windows, x64]
       fail-fast: false
 
     runs-on: ${{ matrix.os }}
@@ -94,13 +94,6 @@ jobs:
           node scripts/sync-version.mjs
           VERSION_AFTER=$(node -p "require('./apps/desktop/package.json').version")
           echo "package version = ${VERSION_AFTER}"
-
-      # Linux 需要 libvips（sharp 依赖）和 C++ 编译工具（better-sqlite3）
-      - name: Install Linux system deps
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq libvips libvips-dev build-essential python3
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -180,12 +173,6 @@ jobs:
           path: apps/desktop/tests/e2e/reports/film-engineering-real/**
           if-no-files-found: warn
           retention-days: 14
-
-      - name: Build Electron app (Linux)
-        if: runner.os == 'Linux' && steps.changes.outputs.package-relevant == 'true'
-        run: cd apps/desktop && pnpm exec electron-builder --linux --x64 --dir
-        env:
-          NODE_OPTIONS: "--max_old_space_size=4096"
 
   release:
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
