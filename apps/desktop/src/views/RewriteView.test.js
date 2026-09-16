@@ -773,3 +773,85 @@ describe('RewriteView — 策略选择与匹配预览', () => {
     expect(wrapper.find('.strategy-preview').text()).not.toContain('通用慢策略')
   })
 })
+
+describe('RewriteView — 文案库交接带入（合并版文案库【改写】按钮）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockRouteQuery.value = {}
+    sessionStorage.clear()
+  })
+
+  const HANDOFF = {
+    content: '从文案库交接过来的正文内容，用于改写。',
+    title: '采集标题',
+    platform: 'douyin',
+    sourceUrl: 'https://example.com/a',
+    fromKey: 'collect:c1',
+    fromTitle: '采集标题',
+  }
+
+  function seedHandoff (payload = HANDOFF) {
+    sessionStorage.setItem('rewrite_handoff_v1', JSON.stringify(payload))
+  }
+
+  it('from=collection 时取交接载荷：仿写模式 + 自动开始 + 平台带入', async () => {
+    mockRouteQuery.value = { from: 'collection' }
+    seedHandoff()
+    const { aiRewrite } = await import('@/api/publisher')
+    aiRewrite.mockClear()
+    const wrapper = factory()
+    await nextTick()
+    await nextTick()
+    const textarea = wrapper.find('textarea.rewrite-textarea')
+    expect(textarea.element.value).toBe(HANDOFF.content)
+    // 自动触发改写，且为仿写模式（交接语义=基于原文改写）
+    expect(aiRewrite).toHaveBeenCalledTimes(1)
+    const params = aiRewrite.mock.calls[0][0]
+    expect(params.mode).toBe('imitate')
+    expect(params.userSettings.platform).toBe('douyin')
+    // 一次性语义：读后即焚
+    expect(sessionStorage.getItem('rewrite_handoff_v1')).toBeNull()
+  })
+
+  it('改写成功后按 fromKey 回写文案库（同一来源只保留最新结果）', async () => {
+    mockRouteQuery.value = { from: 'collection' }
+    seedHandoff()
+    const { aiRewrite, storeSetSetting, storeGetSetting } = await import('@/api/publisher')
+    aiRewrite.mockClear()
+    storeGetSetting.mockResolvedValue(null)
+    storeSetSetting.mockClear()
+    const wrapper = factory()
+    await nextTick()
+    await nextTick()
+    await new Promise((r) => setTimeout(r, 0))
+    const entry = storeSetSetting.mock.calls.find((c) => c[0] === 'copy_library_rewrites')
+    expect(entry).toBeTruthy()
+    const saved = JSON.parse(entry[1])
+    expect(saved[0]).toMatchObject({ fromKey: 'collect:c1', fromTitle: '采集标题', title: '采集标题', platform: 'douyin', sourceUrl: 'https://example.com/a' })
+    expect(saved[0].content).toContain('这是改写后的文案内容')
+  })
+
+  it('无交接载荷时不自动改写（直接访问 /rewrite?from=collection 不误触发）', async () => {
+    mockRouteQuery.value = { from: 'collection' }
+    const { aiRewrite } = await import('@/api/publisher')
+    aiRewrite.mockClear()
+    factory()
+    await nextTick()
+    await nextTick()
+    expect(aiRewrite).not.toHaveBeenCalled()
+  })
+
+  it('topic 优先于交接载荷（两入口互斥）', async () => {
+    mockRouteQuery.value = { topic: '这是一个足够长的热门选题标题超过二十个字用于测试自动改写触发场景', from: 'collection' }
+    seedHandoff()
+    const { aiRewrite } = await import('@/api/publisher')
+    aiRewrite.mockClear()
+    const wrapper = factory()
+    await nextTick()
+    await nextTick()
+    expect(aiRewrite).toHaveBeenCalledTimes(1)
+    expect(aiRewrite.mock.calls[0][0].mode).toBe('create')
+    // 交接载荷未被消费，保留给后续真实入口
+    expect(sessionStorage.getItem('rewrite_handoff_v1')).not.toBeNull()
+  })
+})

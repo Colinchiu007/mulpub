@@ -1,3 +1,20 @@
+# [未发布] feat(desktop): 采集页「采集记录」与「文案库」合并为单一「文案库」标签（2026-09-16）
+
+### 变更
+- **标签合并**：采集页三个标签收敛为两个（内容采集 / 文案库）；文案库以原「采集记录」卡片为准——完整显示项（来源/字数/视频时长/平台/采集时间）+ 全部操作（编辑/创建草稿/视频创作/发布/删除），并保留原文案库的「全部/采集/改写」筛选与改写文案条目（✨ 徽标：查看/再改写/删除）
+- **新增【改写】按钮**：采集卡与改写卡均可一键跳转改写页并**直接开始改写**——经 sessionStorage 一次性交接（`rewrite_handoff_v1`，正文可上万字避免 URL 超长），改写页 `/rewrite?from=collection` 挂载后自动填入正文、智能仿写模式、平台带入（白名单内）并触发改写（读后即焚，刷新不重复触发；与 `?topic=` 热门选题带入互斥，topic 优先）
+- **改写闭环**：改写页改写成功后按 `fromKey`（`collect:<id>` / `rewrite:<id>`）回写文案库，同一来源只保留最新结果；回写失败静默不影响改写主流程
+- **提示文字更新**：标签名/空态/删除与清空确认全部改为「文案」口径（zh/en 成对）；新增 `collection.rewriteHandoffFailed`
+- **技术债清理**：删除不再使用的 `CopyLibraryPanel.vue`（341 行，列表逻辑迁入 Collection.vue 合并视图）；`CopyRewriteModal` 解除引用但组件保留（记录于 PRD §10 待清理）
+
+### 验证
+- 新增 `utils/rewrite-handoff.test.js`（4 例）+ `useCopyLibrary.compareByCreatedAtDesc` 导出复用
+- `Collection.test.js` 文案库合并块重写为 9 例（双标签结构/合并列表/筛选/两种改写交接/空正文拦截/删除/页内改写回写回归）；`RewriteView.test.js` 新增交接块 4 例
+- desktop 全量单测通过；CI quality-gate 由 PR 门禁验证
+- 文档：`01-docs/PRD-COLLECTION-LIBRARY-MERGE-2026-09-16.md`（完整数据校验/流程/交互/显示项/提示文字）；`PRD-COLLECTION-COPY-LIBRARY-2026-09-14.md` 标记被取代
+
+---
+
 # [未发布] fix(embedded-view): 防御性收紧侧栏宽度校验，杜绝内嵌视图覆盖侧边栏（2026-09-15）
 
 ### 修复

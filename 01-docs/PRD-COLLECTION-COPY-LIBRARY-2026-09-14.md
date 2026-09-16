@@ -1,7 +1,9 @@
 # PRD — 采集页「文案库」标签页
 
+> **⚠️ 已被取代（2026-09-16）**：本 PRD 的三标签设计已由 `PRD-COLLECTION-LIBRARY-MERGE-2026-09-16.md`（采集记录 + 文案库两标签合并）取代。本文档 §4 数据校验与 §10 存储契约（`collected_items` / `copy_library_rewrites` / fromKey 形态）仍然有效，作为合并版的数据契约引用。
+
 - 文档编号：PRD-COLLECTION-COPY-LIBRARY-2026-09-14
-- 状态：已实现（待合并）
+- 状态：已实现（被合并版取代）
 - 关联分支：`codex/collection-copy-library`
 - 关联模块：`apps/desktop/src/views/Collection.vue`、`apps/desktop/src/components/CopyLibraryPanel.vue`、`apps/desktop/src/components/CopyRewriteModal.vue`、`apps/desktop/src/composables/useCopyLibrary.js`
 - 创建日期：2026-09-14
