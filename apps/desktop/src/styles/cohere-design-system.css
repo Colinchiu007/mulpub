@@ -506,9 +506,18 @@ body {
 .cohere-btn-secondary:hover { color: var(--action-blue); }
 
 /* ── 文案改写页（RewriteView）── */
+/* 列宽稳定性（BUGFIX-REWRITE-PAGE-WIDTH，2026-09-16）：
+   父容器 .cohere-main 是 flex column，本元素又用了左右 auto margin。在 flex
+   布局中，交叉轴方向上的 auto margin 会抑制 align-self:stretch，使本元素宽度
+   退化为 fit-content(max-content)——宽度由「最宽的子元素」决定。改写前最宽内容
+   只有输入框（实测 474.11px），改写结果卡片一出现就把整列撑到 543.69px，造成
+   点击改写后页面横向抖动、内容重心漂移。
+   显式声明 width 后，列宽只由 max-width 与容器宽度决定，与内容解耦。 */
 .rewrite-page {
+  width: 100%;
   max-width: 900px;
   margin: 0 auto;
+  box-sizing: border-box;
 }
 
 .rewrite-textarea {
@@ -527,17 +536,22 @@ body {
 .rewrite-textarea:focus { border-color: var(--coral); }
 .rewrite-textarea:disabled { background: var(--soft-stone); opacity: 0.7; }
 
+/* 输入区底部信息行：字数计数左、校验错误右，两端对齐；
+   min-height 固定，避免错误出现/消失时卡片高度跳动。 */
 .rewrite-input-meta {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 6px;
+  gap: var(--space-md);
+  margin-top: var(--space-sm);
+  min-height: 18px;
 }
-.char-count { font-size: 12px; color: var(--muted); }
+.char-count { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .content-error { font-size: 12px; color: #d32f2f; }
 
+/* 配置字段行统一节奏：每个字段（含自定义组件）统一 16px 下行间距 */
 .config-row {
-  margin-bottom: var(--space-sm);
+  margin-bottom: var(--space-lg);
 }
 
 .rewrite-error {
@@ -556,16 +570,15 @@ body {
 }
 .rewrite-start-btn:disabled { opacity: 0.5; cursor: default; }
 
+/* 结果元信息：去掉灰底小方块（它在结果卡片内形成「卡片套卡片」的视觉噪音），
+   改为轻量文本行，仅靠间距分组。 */
 .rewrite-result-meta {
   display: flex;
-  gap: 16px;
+  gap: 4px 20px;
   flex-wrap: wrap;
   font-size: 12px;
   color: var(--muted);
-  margin-bottom: var(--space-sm);
-  padding: 6px 10px;
-  background: var(--soft-stone);
-  border-radius: 6px;
+  margin-bottom: var(--space-md);
 }
 .rewrite-result-meta span {
   white-space: nowrap;
@@ -575,11 +588,17 @@ body {
   min-height: 200px;
 }
 
+/* 结果区动作：次操作（存入草稿 / 视频创作）靠左，主操作（去发布）靠右，
+   并用一条分隔线与结果正文分层——原实现三个按钮等权重并排，主次不分。 */
 .rewrite-result-actions {
   display: flex;
-  gap: 10px;
-  margin-top: var(--space-sm);
+  align-items: center;
+  gap: var(--space-lg);
+  margin-top: var(--space-lg);
+  padding-top: var(--space-lg);
+  border-top: 1px solid var(--border-light);
 }
+.rewrite-result-actions .cohere-btn-primary { margin-left: auto; }
 
 .cohere-btn-outline {
   font-family: 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
