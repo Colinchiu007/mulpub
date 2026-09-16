@@ -1,3 +1,25 @@
+# [未发布] fix(rewrite): 质量结论中性化 + i18n 插值根因修复 + 评分口径修正 + 结果区复制按钮（2026-09-16）
+
+### 修复
+- **结论文案中性化**（P1 用户感知）：质量评估第三态由「不合格」改为「**建议优化**」（en `Failed` → `Suggestions available`），配色由错误红 `#dc2626` 降级为暖橙 `#ea580c`。真实事故：用户输入「秋天来了」4 字、选题创作模式、输出 831 字成文，被标「不合格」，据此怀疑改写引擎可用性
+- **i18n 命名插值根因修复**（P1 显示缺陷）：`i18n/index.js` 的 `toMessageFunctions` 原把**所有**字符串叶子包成 `() => source`，丢弃 vue-i18n 传入的插值参数 → 含 `{param}` 的语料在 `t()` 通道原样输出花括号（事故现场：结果栏显示 `{original} 字 → {result} 字`）。改为含 `{param}` 的字符串编译为命名插值 Message Function（纯正则替换，**不使用 `new Function`**，CSP 安全），无占位符者维持常量函数。**一处修复覆盖全仓 68 条 `{param}` 语料 / 16 处 `t(key, params)` 调用点**（memberCenter.daysRemaining、accountsPage.creatorTabTitle、story2video.sceneMaterial.*、knowledgeBase.importResult、tagSuggest.hotMatch、stageProgress.composeSegments 等）
+- **评分口径修正**（P0 数据正确性）：语义保持度由**对称 Jaccard** 改为**非对称覆盖率**（`charCoverage×70 + keywordCoverage×30`）。语义含义从"两段文本整体有多像"纠正为"**原文内容有多少被结果保留**"，修复「短输入 → 长输出」被长度稀释的系统性误判（事故数值 9.89 → 100）。根因：对称 Jaccard 分母是并集，4 字 → 831 字时退化为 4/315
+- **新增 `textSimilarity` 判据**：覆盖率口径下长文必然覆盖满分（实测 4 字 → 831 字 = 100），**不能再以高覆盖率判「改动过少」**。新增对称 Jaccard 指标独立承担「是否没改够」（`similarity > 0.9 → fail`），并新增专门用例锁定
+- **判定按改写模式分档**（`determineVerdict`）：新增 `{ mode }` 参数（`imitate`/`expand`/`create`，非法值回退 `imitate`），由 `rewrite-engine-core.js` 从 `rewrite(params).mode` 透传。`create` 选题创作的输入是**主题种子**，语义保持度天然偏低属预期，不再判 `fail`（仅语义分极低判 `warn`）；`expand` 扩写以语义分低判 `fail`；`imitate` 保持原严格度。改进建议措辞同步按模式分派，移除「偏离原意」类负面表述
+- **语义分标度分组阈值**（CCG 评审 W-1）：`semanticPreservation` 在 simhash（覆盖率口径）与 embedding（余弦映射，**余弦 0 → 50 分**）两条路径上标度不同，共用阈值会让 embedding 路径"完全无关"越过全部 fail 阈值 → 几乎恒定 pass。新增 `SEMANTIC_BANDS` 按 `method` 分组选阈值（simhash `15/30/50`，embedding `30/45/60`）
+- **结果区新增复制按钮**：结果文本框下方新增 `📋 复制`（成功切 `✅ 已复制` 1.5s、失败立即复位不回显）。新增共享工具 `apps/desktop/src/utils/clipboard.js`（异步 Clipboard API 优先 → `execCommand` 回退 → 失败返回 `false` 不抛异常），并删除 `useFilmEngineering.js` 的本地重复实现改为复用（全仓共 9 处剪贴板实现，已迁移 2 处，剩 7 处登记为 P1 后续项）
+- **字符集合按 Unicode 码点计数**（CCG 评审 I-1）：`new Set(str)` 按 UTF-16 code unit 迭代，会把 emoji 等 BMP 外字符拆成两个代理对，使覆盖率/相似度失真；改为 `Array.from()` 按码点建集（纯 BMP 文本结果不变，零回归）
+
+### 验证
+- `packages/rewrite-engine` **132/132 全绿**（11 文件；基线 102 → +30：真实事故样本复现 / 旧口径 9.89 数值锁定 / 模式分档表 / textSimilarity 兜底 / mode 与 method 归一化 / 近似重复三模式全 fail / embedding 标度分组 / emoji 码点 / 英文与标点边界）
+- 桌面端定向 **74/74 全绿**：RewriteView 48 例（+4：字数概览无占位符残留 / 复制按钮位置 / 复制成功切反馈态 / 复制失败不复显）、i18n 17 例（+8：**全量插值守卫**——遍历 zh/en 全部含 `{param}` 叶子注入哨兵值断言无残留 `{}` 且参数生效；连续插值一致性；多占位符全替换）、clipboard 9 例（新建）
+- 事故用例修复前后实测：语义保持度 `9.89 → 100`；结论 `不合格 → 合格`；字数栏 `{original} 字 → {result} 字` → `原文 4 字 → 结果 831 字`
+- **CCG 双模型外部审查**（claude：0 Critical / 3 Warning / 6 Info；codex：0 Critical / 5 Warning / 7 Info）→ 已修 8 项（含上面两项），4 项经核实为"预存/误报/风格建议"并逐条记录结论（详见 PRD §13.11.10）
+- eslint 0 error；ipc-bridge / locale-sync / CJK / frontend-consistency 门禁 PASS
+- 文档：`01-docs/BUGFIX-REWRITE-QUALITY-UX-2026-09-16.md`（根因 commit 追溯 b5bda8d9/d1c739d5/fd5b1eb3/3b91d1ef、数值复现、QM-5 五步反思、完整规格、验收标准）；`01-docs/PRD-REWRITE-ENGINE.md` §13.11（v1.6 变更全量规格，含 §13.11.10 CCG 评审记录）；`01-docs/PRD.md` 附录；`01-docs/DOC-CONTENT-QUALITY-EVAL-MECHANISM.md` §5（两套评估器辨析）
+
+---
+
 # [未发布] fix(desktop): 改写页视觉重构——修复「点击改写后列宽被撑宽」+ 设置区信息架构重排（2026-09-16）
 
 ### 修复

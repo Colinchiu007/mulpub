@@ -195,6 +195,17 @@
           class="rewrite-textarea result-textarea"
           rows="8"
         ></textarea>
+        <!-- 改写结果快捷操作：复制到剪贴板（BUGFIX-REWRITE-QUALITY-UX） -->
+        <div class="rewrite-copy-row">
+          <button
+            class="cohere-btn-secondary rewrite-copy-btn"
+            data-testid="btn-copy-result"
+            :disabled="!rewriteResult.trim()"
+            @click="copyResult"
+          >
+            {{ copied ? t('rewritePage.copyResultDone') : t('rewritePage.copyResult') }}
+          </button>
+        </div>
         <div class="rewrite-result-actions">
           <button class="cohere-btn-secondary" @click="saveToDraft">
             {{ t('rewritePage.saveDraft') }}
@@ -221,7 +232,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { aiRewrite, aiListRewriteStrategies, aiGetRecommendedStrategies, draftSave, applyKnowledgeFeedback } from '@/api/publisher'
@@ -231,6 +242,7 @@ import { useLoginGate } from '@/composables/useLoginGate'
 import { useWordCountValidation } from '@/composables/useWordCountValidation'
 import { useCopyLibrary } from '@/composables/useCopyLibrary'
 import { takeRewriteHandoff } from '@/utils/rewrite-handoff'
+import { writeClipboard } from '@/utils/clipboard'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
 import RewriteStrategyPicker from '@/components/RewriteStrategyPicker.vue'
 import WordCountRangeInput from '@/components/WordCountRangeInput.vue'
@@ -238,7 +250,7 @@ import WordCountRangeInput from '@/components/WordCountRangeInput.vue'
 const router = useRouter()
 const route = useRoute()
 const { t } = useI18n()
-const { notifySuccess, notifyError } = useNotify()
+const { notifySuccess, notifyError, notifyWarning } = useNotify()
 const { ensureLogin } = useLoginGate()
 
 // ── 状态 ──
@@ -252,6 +264,9 @@ const rewriteQuality = ref(null)
 // P2 隐式反馈：本次改写引用的知识条目（保存/发布=采纳 / 再次改写=弃用）
 const rewriteKnowledgeRefs = ref([])
 const contentError = ref('')
+// 复制按钮瞬时反馈态：复制成功后按钮文案切换为「已复制」，1.5s 后复位（BUGFIX-REWRITE-QUALITY-UX）
+const copied = ref(false)
+let copiedTimer = null
 
 // 配置
 const useViralLibrary = ref(true)
@@ -380,6 +395,14 @@ onMounted(() => {
   if (route.query.from === 'collection') consumeLibraryHandoff()
 })
 
+// 组件卸载时清掉复制反馈定时器，避免卸载后 setState（BUGFIX-REWRITE-QUALITY-UX）
+onUnmounted(() => {
+  if (copiedTimer) {
+    clearTimeout(copiedTimer)
+    copiedTimer = null
+  }
+})
+
 // ── 计算 ──
 const canStartRewrite = computed(() => {
   return content.value.trim().length > 0 && !wordCountError.value
@@ -481,6 +504,39 @@ async function startRewrite() {
     // 的用户历史（userHistory）在每次改写后更新，会影响下次自动匹配的推荐结果
     refreshStrategyPreview()
   }
+}
+
+/**
+ * 复制改写结果到系统剪贴板（BUGFIX-REWRITE-QUALITY-UX）
+ *
+ * - 结果为空时不动作，仅提示（避免把空串写进剪贴板覆盖用户已有内容）
+ * - 复制成功：toast + 按钮文案切「已复制」1.5s
+ * - 复制失败：提示用户手动选中复制，并立即复位按钮态
+ */
+async function copyResult() {
+  const text = rewriteResult.value
+  if (!text || !text.trim()) {
+    notifyWarning('rewritePage.copyEmpty')
+    return
+  }
+  const ok = await writeClipboard(text)
+  if (!ok) {
+    if (copiedTimer) {
+      clearTimeout(copiedTimer)
+      copiedTimer = null
+    }
+    copied.value = false
+    // key 已在 locales 成对登记，无需冗余 fallback（CCG 评审 I-4）
+    notifyError('rewritePage.copyFailed')
+    return
+  }
+  notifySuccess('rewritePage.copySuccess')
+  copied.value = true
+  if (copiedTimer) clearTimeout(copiedTimer)
+  copiedTimer = setTimeout(() => {
+    copied.value = false
+    copiedTimer = null
+  }, 1500)
 }
 
 /** 存入草稿 */
@@ -761,7 +817,7 @@ function onPublishVideo(pipelineId) {
 .rewrite-result-card .result-textarea { margin-top: var(--space-md); }
 
 /* 质量评估：左侧结论强调条取代原先「结果卡片内再套一个带边框的卡片」，
-   结论等级用颜色直接编码（合格 / 待优化 / 不合格）。 */
+   结论等级用颜色直接编码（合格 / 需注意 / 建议优化）。 */
 .rewrite-quality-report {
   margin: 0 0 var(--space-md);
   padding: 2px 0 2px var(--space-lg);
@@ -772,7 +828,9 @@ function onPublishVideo(pipelineId) {
 }
 .quality-accent-pass { border-left-color: #2e9e5b; }
 .quality-accent-warn { border-left-color: #d97706; }
-.quality-accent-fail { border-left-color: #dc2626; }
+/* 结论=「建议优化」：去错误红，与 .quality-verdict-fail 同步降级为暖橙提示色
+   （BUGFIX-REWRITE-QUALITY-UX 与 #1892 视觉重构的整合） */
+.quality-accent-fail { border-left-color: #ea580c; }
 .quality-head {
   font-size: 13px;
   font-weight: 600;
@@ -789,9 +847,11 @@ function onPublishVideo(pipelineId) {
   color: var(--muted);
 }
 .quality-metric strong { font-weight: 600; color: var(--ink); }
-.quality-verdict-pass { color: #2e9e5b; }
-.quality-verdict-warn { color: #d97706; }
-.quality-verdict-fail { color: #dc2626; }
+.rewrite-quality-metrics .quality-verdict-pass { color: #2e9e5b; }
+.rewrite-quality-metrics .quality-verdict-warn { color: #d97706; }
+/* 结论文案已由「不合格」改为中性的「建议优化」：同步去掉错误红（#dc2626），
+   降级为暖橙提示色，避免"失败/不可用"的错误观感（BUGFIX-REWRITE-QUALITY-UX） */
+.rewrite-quality-metrics .quality-verdict-fail { color: #ea580c; }
 .rewrite-quality-suggestions {
   margin: var(--space-sm) 0 0;
   padding-left: 18px;
@@ -812,14 +872,27 @@ function onPublishVideo(pipelineId) {
   color: var(--muted);
 }
 
+/* ── 改写结果快捷操作：复制（BUGFIX-REWRITE-QUALITY-UX）── */
+.rewrite-copy-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-sm);
+}
+/* 固定最小宽度：按钮文案在「复制 / 已复制」间切换时不产生宽度跳动
+   （88px 可容纳较宽的「✅ 已复制」，且远小于卡片宽度，不影响 BUGFIX-REWRITE-PAGE-WIDTH 的列宽稳定） */
+.rewrite-copy-btn { min-width: 88px; }
+.rewrite-copy-btn:disabled { opacity: 0.5; cursor: default; }
+
 /* 结果区次操作按钮：全局 .cohere-btn-secondary 是零内边距的纯文本样式，
-   在动作行中补内边距与悬停底色，使其成为可识别的按钮。 */
-.rewrite-result-actions .cohere-btn-secondary {
+   在动作行与复制行中补内边距与悬停底色，使其成为可识别的按钮。 */
+.rewrite-result-actions .cohere-btn-secondary,
+.rewrite-copy-row .cohere-btn-secondary {
   padding: 8px 12px;
   border-radius: var(--r-sm);
   transition: background 0.15s, color 0.15s;
 }
-.rewrite-result-actions .cohere-btn-secondary:hover {
+.rewrite-result-actions .cohere-btn-secondary:hover,
+.rewrite-copy-row .cohere-btn-secondary:hover {
   background: var(--coral-soft);
   color: var(--coral);
 }

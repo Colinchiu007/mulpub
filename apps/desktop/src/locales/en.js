@@ -2686,10 +2686,18 @@ knowledgeBase: {
     resultSection: 'Result',
     metaStrategy: 'Strategy',
     metaAiTaste: 'AI-taste level',
-    metaLength: '{original} → {result} chars',
+    // Length overview: source → result. Rendered via i18n named interpolation,
+    // e.g. "Source 8 → Result 720 chars".
+    metaLength: 'Source {original} → Result {result} chars',
     saveDraft: '💾 Save draft',
     goPublish: '🚀 Publish',
     goVideo: '🎬 Create Video',
+    // Result quick actions (BUGFIX-REWRITE-QUALITY-UX: copy button under the result box)
+    copyResult: '📋 Copy',
+    copyResultDone: '✅ Copied',
+    copySuccess: 'Copied to clipboard',
+    copyFailed: 'Copy failed. Please select the text and copy manually',
+    copyEmpty: 'Nothing to copy yet',
     draftSaved: 'Draft created',
     draftSaveFailed: 'Failed to save draft',
     needLogin: 'AI rewrite requires login. Sign in now?',
@@ -2708,9 +2716,13 @@ knowledgeBase: {
     qualitySemantic: 'Semantic preservation',
     qualityOriginality: 'Originality',
     qualityVerdict: 'Verdict',
+    // Neutral wording only: the previous "Failed" made users doubt the rewrite engine
+    // (real case: topic-creation mode with a 4-char seed produced a 700-char article whose
+    //  semantic preservation is naturally low, yet was flagged as a failure.
+    //  See BUGFIX-REWRITE-QUALITY-UX)
     qualityVerdictPass: 'Pass',
     qualityVerdictWarn: 'Needs attention',
-    qualityVerdictFail: 'Failed',
+    qualityVerdictFail: 'Suggestions available',
     qualityMethod: 'Method',
     qualityMethodSimhash: 'SimHash fingerprint',
     qualityMethodEmbedding: 'Semantic vector',

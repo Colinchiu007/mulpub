@@ -349,7 +349,7 @@ describe('RewriteView', () => {
     expect(wrapper.find('[data-testid="rewrite-quality-none"]').exists()).toBe(true)
   })
 
-  it('verdict 非法值回退为 fail（不合格）', async () => {
+  it('verdict 非法值回退为 fail，文案为中性「建议优化」而非「不合格」', async () => {
     const mocks = await import('@/api/publisher')
     mocks.aiRewrite.mockResolvedValueOnce({
       code: 0,
@@ -372,7 +372,9 @@ describe('RewriteView', () => {
     await nextTick()
     const report = wrapper.find('[data-testid="rewrite-quality-report"]')
     expect(report.exists()).toBe(true)
-    expect(report.text()).toContain('不合格') // verdict=unknown → fail
+    expect(report.text()).toContain('建议优化') // verdict=unknown → fail，但用词中性
+    // BUGFIX-REWRITE-QUALITY-UX 回归：负面结论用词不得回归
+    expect(report.text()).not.toContain('不合格')
   })
 
   it('suggestions 非数组时不展示建议列表', async () => {
@@ -400,6 +402,73 @@ describe('RewriteView', () => {
     expect(report.exists()).toBe(true)
     // suggestions 非数组 → 不渲染建议列表（不逐字符迭代）
     expect(report.find('.rewrite-quality-suggestions').exists()).toBe(false)
+  })
+
+  // ── 结果区元信息与复制按钮（BUGFIX-REWRITE-QUALITY-UX）──
+
+  /** 跑一次改写，返回 wrapper 与结果文本框 */
+  async function runRewrite() {
+    const wrapper = factory()
+    const input = wrapper.find('textarea.rewrite-textarea')
+    await input.setValue('这是一段足够长的测试文案内容，超过二十个字，测试改写功能。')
+    await nextTick()
+    await wrapper.find('.rewrite-start-btn').trigger('click')
+    await nextTick()
+    await nextTick()
+    return wrapper
+  }
+
+  it('元信息栏渲染字数概览（占位符已被插值，不泄漏 {original}/{result}）', async () => {
+    const wrapper = await runRewrite()
+    const meta = wrapper.find('.rewrite-result-meta')
+    expect(meta.exists()).toBe(true)
+    expect(meta.text()).toContain('原文 30 字 → 结果 18 字')
+    expect(meta.text()).not.toMatch(/\{[^{}]+\}/)
+  })
+
+  it('复制按钮渲染在结果文本框下方', async () => {
+    const wrapper = await runRewrite()
+    const btn = wrapper.find('[data-testid="btn-copy-result"]')
+    expect(btn.exists()).toBe(true)
+    // 按钮位于结果 textarea 之后（同一结果卡片内、动作行之前）
+    const html = wrapper.find('.rewrite-result-card').html()
+    expect(html.indexOf('result-textarea')).toBeLessThan(html.indexOf('btn-copy-result'))
+    expect(btn.text()).toContain('复制')
+  })
+
+  it('点击复制把改写结果写入剪贴板，并切换按钮反馈态', async () => {
+    const writeText = vi.fn(async () => undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, writable: true, configurable: true })
+    try {
+      const wrapper = await runRewrite()
+      const btn = wrapper.find('[data-testid="btn-copy-result"]')
+      await btn.trigger('click')
+      await nextTick()
+      expect(writeText).toHaveBeenCalledTimes(1)
+      expect(writeText).toHaveBeenCalledWith('这是改写后的文案内容，用于测试。')
+      expect(wrapper.find('[data-testid="btn-copy-result"]').text()).toContain('已复制')
+    } finally {
+      Object.defineProperty(navigator, 'clipboard', { value: undefined, writable: true, configurable: true })
+    }
+  })
+
+  it('复制失败时按钮保持「复制」态并复位（不回显已复制）', async () => {
+    const writeText = vi.fn(async () => { throw new Error('NotAllowedError') })
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, writable: true, configurable: true })
+    const originalExec = document.execCommand
+    document.execCommand = vi.fn(() => false)
+    try {
+      const wrapper = await runRewrite()
+      await wrapper.find('[data-testid="btn-copy-result"]').trigger('click')
+      await nextTick()
+      const btn = wrapper.find('[data-testid="btn-copy-result"]')
+      expect(btn.text()).toContain('复制')
+      expect(btn.text()).not.toContain('已复制')
+    } finally {
+      Object.defineProperty(navigator, 'clipboard', { value: undefined, writable: true, configurable: true })
+      if (originalExec) document.execCommand = originalExec
+      else delete document.execCommand
+    }
   })
 
   it('does not show result section before rewrite', () => {
