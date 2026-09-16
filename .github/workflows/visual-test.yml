@@ -103,4 +103,4 @@ jobs:
             apps/desktop/tests/visual-testing/screenshots
             apps/desktop/tests/visual-testing/reports
             apps/desktop/vite-visual.*.log
-          retention-days: 7
+          retention-days: 5
