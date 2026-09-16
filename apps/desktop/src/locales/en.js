@@ -973,6 +973,16 @@ export default {
     supportedPlatforms: 'Supported Platforms',
     recentActivity: 'Recent Activity',
     emptyRecent: 'No publish records yet. Start your first one!',
+    todo: {
+      expired: '{count} expired login(s)',
+      failed: '{count} failed task(s)',
+      allClear: 'All clear — publish your first post',
+    },
+    empty: {
+      title: 'No publish data yet',
+      desc: 'Stats will appear after your first publish',
+      action: 'Create post',
+    },
     untitled: 'Untitled',
     user: 'User',
     pleaseLogin: 'Sign in',

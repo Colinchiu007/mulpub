@@ -25,11 +25,9 @@
       icon="🎬"
       :title="t('projectLibrary.empty.title')"
       :description="t('projectLibrary.empty.message')"
-    >
-      <template #actions>
-        <UiButton @click="$router.push('/create')">{{ t('projectLibrary.empty.action') }}</UiButton>
-      </template>
-    </EmptyState>
+      :action-text="t('projectLibrary.empty.action')"
+      @action="router.push('/create')"
+    />
 
     <!-- 项目列表 -->
     <div v-else class="project-grid">
@@ -57,11 +55,13 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import { useProjectList } from '@/composables/useBacklot'
 import ProjectCard from '@/components/ProjectCard.vue'
 import UiButton from '@/components/UiButton.vue'
 
 const { t } = useI18n()
+const router = useRouter()
 const { projects, loading, error, refresh, deleteProject } = useProjectList()
 
 const deleteTarget = ref(null)

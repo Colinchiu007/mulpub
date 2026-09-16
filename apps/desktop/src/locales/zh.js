@@ -974,6 +974,16 @@ export default {
     supportedPlatforms: '支持平台',
     recentActivity: '近期动态',
     emptyRecent: '暂无发布记录，开始你的第一次发布吧！',
+    todo: {
+      expired: '登录失效 {count}',
+      failed: '失败任务 {count}',
+      allClear: '一切正常，去发布第一条内容吧',
+    },
+    empty: {
+      title: '还没有发布数据',
+      desc: '完成第一次发布后，这里会显示统计数据',
+      action: '立即新建发布',
+    },
     untitled: '无标题',
     user: '用户',
     pleaseLogin: '请登录',
