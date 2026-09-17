@@ -12,6 +12,9 @@ vi.mock("vue-router", () => ({
 }));
 
 import ContactSheetView from "./ContactSheetView.vue";
+import { config as vtuConfig } from '@vue/test-utils'
+import i18n from '@/i18n'
+vtuConfig.global.plugins = [i18n]
 
 describe("ContactSheetView", () => {
   let listFn, approveFn, rejectFn, onApprovalFn;

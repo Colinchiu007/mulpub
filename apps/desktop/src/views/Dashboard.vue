@@ -107,7 +107,7 @@
 
       <!-- 各平台数据 -->
       <div class="cohere-section-title">各平台数据</div>
-      <EmptyState v-if="platformData.length === 0" icon="📊" title="暂无数据" description="点击「刷新数据」同步各平台信息" />
+      <EmptyState v-if="platformData.length === 0" icon="📊" :title="$t('emptyStates.dashboard.title')" :description="$t('emptyStates.dashboard.message')" />
       <div v-else class="cohere-card-grid" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))">
         <div v-for="item in platformData" :key="item.platform" class="cohere-card">
           <div class="card-top">

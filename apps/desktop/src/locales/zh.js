@@ -2527,12 +2527,6 @@ export default {
     signingIn: '正在打开登录...'
   },
 
-viralAnalysis: {
-  empty: {
-    title: '输入主题开始分析',
-    message: 'AI 将从标题结构、情感触发、互动热度等维度分析爆款潜力',
-  },
-},
 knowledgeBase: {
     title: '知识库',
     empty: {
@@ -2841,6 +2835,44 @@ knowledgeBase: {
   },
 
   // ── 热门选题页面 ──
+  // ── EmptyState 空状态集中文案（存量硬编码迁移）──
+  emptyStates: {
+    cloudPublish: {
+      title: '暂无发布记录',
+    },
+    contactSheet: {
+      title: '暂无待审批场景',
+      message: '场景素材生成完成后将自动显示在此',
+    },
+    createHistoryRenders: {
+      title: '暂无渲染记录',
+      message: '创作你的第一个视频，记录将在这里显示',
+    },
+    createHistoryPipelines: {
+      title: '暂无流水线运行记录',
+      message: '选择创作模式开始流水线，运行记录将在这里显示',
+    },
+    dashboard: {
+      title: '暂无数据',
+      message: '点击「刷新数据」同步各平台信息',
+    },
+    intelligence: {
+      title: '暂无结果，试试其他关键词',
+    },
+    productionBoardBoard: {
+      title: '暂无看板数据',
+    },
+    productionBoardScenes: {
+      title: '当前阶段暂无场景',
+    },
+    promptEvalRecords: {
+      title: '暂无评估记录，先运行一次评估吧。',
+    },
+    promptEvalStats: {
+      title: '暂无数据，先运行评估再来看聚合分析。',
+    },
+  },
+
   hotTopics: {
     menuLabel: '热门选题',
     pageTitle: '热门选题',

@@ -1,3 +1,19 @@
+# [未发布] fix(i18n): 清理 #1899 遗留的 locale 重复 viralAnalysis 残缺块 + 12 处 EmptyState 存量硬编码迁移 locale（2026-09-18）
+
+### 修复
+- **locale 重复键结构隐患**：#1899 在 zh/en 各引入一个**顶格重复的 `viralAnalysis` 残缺块**（仅含 `empty` 子键），与既有完整块构成重复键——JS 后键覆盖前键，残缺块内容不可达且后续向其加键会被静默覆盖。已删除残缺块（zh/en 各 6 行）。（QG Static 的 2 处 fresh 由 #1924 修复，本 PR 为其后的增量清理。）
+
+### 变更
+- 全仓 7 文件 **12 处** EmptyState 属性硬编码中文（基线内存量同类债）迁移到 `$t`：新增集中式 `emptyStates.*` 命名空间（10 组键）zh/en 成对；空态渲染文案不变。
+- 5 个测试文件（CloudPublish/ContactSheetView/CreateHistory/ProductionBoard/views-coverage）注入 i18n（`config.global.plugins` 或 mount plugins），修复裸 mount 下模板 `$t` 渲染崩溃。
+
+### 验证
+- `check-locale-sync --cjk` PASS（CJK 硬编码净减 12 条）；`--keys` PASS（1002 keys）；check-locale-sync.test.js 6/6（含行号漂移回归用例）。
+- 受影响 view 测试回归：CloudPublish 16/16、ContactSheetView 18/18、CreateHistory 23/23、ProductionBoard 28/28、Dashboard 13/13、Intelligence 16/16、ViralAnalysis 24/24、views-coverage 7/9（2 例为本地 Junction 环境 workspace 包解析限制，完整环境对照 PASS）、EmptyState 组件 7/7。
+
+---
+
+
 # [未发布] chore(desktop): 清理文案库孤儿组件 CopyLibraryPanel / CopyRewriteModal 及专用死键（2026-09-18）
 
 ### 变更
