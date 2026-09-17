@@ -1,3 +1,5 @@
+name: quality-gate
+
 on:
   push:
     branches: [main]
@@ -16,6 +18,13 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+
+# 并发控制：同一 PR 多次推送只保留最新一次（避免旧 run 继续占用并发额度）；
+# main push 不取消（保发布链路完整性）。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   static-gates:
     name: QG Static

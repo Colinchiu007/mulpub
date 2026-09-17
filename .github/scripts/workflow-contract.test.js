@@ -343,3 +343,63 @@ test('Quality Gate Gate 12 品牌残留门禁接线（naming-normalization）', 
   assert.doesNotMatch(script, new RegExp(brandFull, 'i'));
   assert.doesNotMatch(script, new RegExp('(?<![A-Za-z])' + brandAbbr, 'i'));
 });
+
+test('CI 提速契约：并发控制、quality-gate 显示名与重复流水线去重', () => {
+  const wfDir = path.join(__dirname, '..', 'workflows');
+  const readWf = (n) => yaml.load(fs.readFileSync(path.join(wfDir, n), 'utf8'));
+
+  // 1) quality-gate 必须有顶层 name：ci-failure-handler 的 workflow_run.workflows 白名单按
+  //    显示名匹配，缺失时显示为文件路径，导致 QG 失败永不触发 Issue 创建。
+  const qg = readWf('quality-gate.yml');
+  assert.equal(
+    qg.name,
+    'quality-gate',
+    'quality-gate.yml 必须有 name: quality-gate（ci-failure-handler 白名单按显示名匹配）',
+  );
+
+  // 2) 所有 PR 触发的 workflow 必须配置 concurrency：否则同一 PR 重复推送时旧 run 不取消，
+  //    持续占用并发额度并造成排队（实测单次 PR 曾达 17 个 job）。
+  const prWorkflows = [
+    'quality-gate.yml', 'electron-ci.yml', 'build.yml', 'doc-gate.yml',
+    'gui-test.yml', 'visual-test.yml', 'debt-guard.yml', 'agent-judge.yml',
+    'ops-center-ci.yml', 'autonomous-loop.yml',
+  ];
+  for (const name of prWorkflows) {
+    const wf = readWf(name);
+    assert.ok(
+      wf.concurrency && wf.concurrency.group,
+      `${name} 必须配置 concurrency（同一 PR 重复推送时取消旧 run）`,
+    );
+    assert.match(
+      String(wf.concurrency['cancel-in-progress']),
+      /pull_request/,
+      `${name} 的 cancel-in-progress 必须仅对 PR 生效（main push 不得被取消）`,
+    );
+  }
+
+  // 3) visual-test 不得由 pull_request 触发：它与 quality-gate 的 QG Visual（Gate 7）逐行同构，
+  //    每次改 apps/desktop/** 会跑两遍。保留 push 以维持「代码默认 readiness 超时」路径的覆盖。
+  const vt = readWf('visual-test.yml');
+  assert.equal(
+    vt.on.pull_request,
+    undefined,
+    'visual-test.yml 不得由 pull_request 触发（与 QG Visual 重复；PR 上由 QG Visual 承担）',
+  );
+  assert.ok(vt.on.push, 'visual-test.yml 必须保留 push 触发（维持默认 readiness 超时路径的覆盖）');
+
+  // 4) doc-gate 的 stale-check 占位 job 不得恢复（纯 echo 却每次 PR 起一台 runner）。
+  const dg = readWf('doc-gate.yml');
+  assert.ok(!dg.jobs['stale-check'], 'doc-gate.yml 的 stale-check 占位 job 已删除，不得恢复');
+  assert.ok(
+    dg.jobs['ci-tests'],
+    'doc-gate.yml 必须保留 ci-tests job（其 job 名为历史 required-check context 名）',
+  );
+
+  // 5) electron-ci 的桌面 vitest 步必须仅在非 PR 事件执行（PR 交给 QG desktop-shards 分片）。
+  const ec = fs.readFileSync(path.join(wfDir, 'electron-ci.yml'), 'utf8');
+  assert.match(
+    ec,
+    /if: github\.event_name != 'pull_request'/,
+    'electron-ci 的桌面 vitest 步必须限定为非 PR 事件（避免同一批桌面测试在 PR 上重复执行）',
+  );
+});

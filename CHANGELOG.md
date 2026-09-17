@@ -1,3 +1,26 @@
+# [未发布] ci: 流水线提速 P0 —— 消除重复流水线、补并发控制、修复质量门禁失效（2026-09-17）
+
+### 变更
+- **`quality-gate.yml` 补顶层 `name: quality-gate`**：此前缺失导致显示名为 `.github/workflows/quality-gate.yml`，使 `ci-failure-handler.yml` 的 `workflow_run.workflows` 白名单里的 `"quality-gate"` **永不匹配 —— QG 失败从不自动建 Issue**（失败可见性盲区）。补名后白名单自动匹配，无需改 handler。
+- **`electron-ci.yml` 的桌面 vitest 步收敛为仅 main push / workflow_dispatch**：该步与 `quality-gate` 的 `desktop-shards` 跑同一批桌面测试（同 `--maxWorkers=1 --no-file-parallelism`）。实测单次 PR 中该套件被执行 **4 遍**（shards 1/2 + 2/2 + coverage + electron-ci）。同步更新该文件第 5–7 行注释（原表述已与实际不符）。
+- **`doc-gate.yml` 去除两个空转 job**：删除 `stale-check`（纯 `echo` 占位，每次 PR 却启动一台 Windows runner）；`ci-tests` 原两步因仓库无 `requirements.txt`、根目录无 `tests/` 而条件永不成立（且 `pytest ... || echo` 会把失败吞掉，属假门禁），改为「保留 job 名 + 清空 steps」形态并迁 `ubuntu-latest`（该 job 名在 `.quality-gates.md` 中记为历史 required-check context 名，保留成本为零）。
+- **`gui-test.yml` 移除与 QG Browser E2E（Gate 8）重复的 `test:e2e` 步**：两者跑同一套 `test:e2e` + 同一个 vite:5174。保留 `e2e-smoke.js` 与 5 个 Python 后端验证步骤（**全仓唯一入口，红线不可删**）。
+- **`visual-test.yml` 摘除 `pull_request` 触发**：它与 quality-gate 的 QG Visual（Gate 7）是逐行同构实现（同 TEST_URL/HEADLESS/PIXEL_THRESHOLD、同 playwright→build:vue→vite:5174→test:visual:pixel）。PR 上改由 QG Visual 承担；保留 push/dispatch 以维持「代码默认 readiness 超时」路径的覆盖（QG 侧硬编码 `VISUAL_READY_TIMEOUT: "15000"`）。
+- **12 个 workflow 全部新增 `concurrency`**（此前一个都没有）：`group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}`，`cancel-in-progress` 仅对 PR 生效（**main push 不取消**，保发布链路完整）。
+
+### 验证
+- 契约测试 `.github/scripts/workflow-contract.test.js` 21 例：**20 pass**；唯一失败为既有用例 6（`xvfb-run` 断言与 gui-test 现状不符，属 main 既有破窗，由 PR #1907 修复），**本改动未新增任何失败**。
+- 新增回归保护用例「CI 提速契约」：断言 quality-gate 的 `name`、10 个 PR workflow 必须配 `concurrency`、visual-test 不得由 PR 触发、doc-gate 不得恢复 stale-check、electron-ci 的 vitest 步必须限定非 PR —— 防止后续被无意改回。
+- Gate 3 其余契约测试：`autonomous-loop-workflow.test.js` 9/9、`agent-review-gate.test.js` 8/8；硬编码密钥扫描通过。
+- YAML 有效性：12 个 workflow 全部解析通过。
+- `check-docs-sync.sh`：本 PR 变更全部落在 `.github/`，按脚本规则属「仅文档/流程变更」，无需额外文档同步。
+
+### 预期收益（按墙钟延迟口径）
+- 单次代码 PR：**17 job → 约 8–9 job**；桌面测试套件执行次数 **4 → 2**；每 PR 减少 2 台 Windows VM 空转（doc-gate 两个占位 job）；重复的视觉/E2E 流水线各减 1 条。
+- 迭代场景：同一 PR 重复推送不再累积并发占用（此前 12 个 workflow 全无并发控制，是「分批启动空档」8–12 分钟的直接成因）。
+
+---
+
 # [未发布] feat(viral): 爆款分析/文案生成 × 改写引擎/评估机制集成 P0（2026-09-16）
 ### 新增
 - **爆款分析结果存入爆款库**：`ViralAnalysis.vue` 分析成功后可一键落库（复用既有 `knowledge-library:add-viral` IPC，无新增通道）；`title` 取 `analyzedTopic` 快照，`content` 为 i18n 组装的分析报告 Markdown（天然可被改写引擎三层知识库第 2 层「结合爆款库」检索），`tags` = 平台+推荐角度+上升关键词去重。
