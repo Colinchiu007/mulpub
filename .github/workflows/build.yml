@@ -129,7 +129,7 @@ jobs:
           NODE_OPTIONS: "--max_old_space_size=4096"
 
       - name: Upload Windows artifact
-        if: runner.os == 'Windows' && steps.changes.outputs.package-relevant == 'true'
+        if: runner.os == 'Windows' && steps.changes.outputs.package-relevant == 'true' && startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v4
         with:
           name: Multi-Publish-Windows
