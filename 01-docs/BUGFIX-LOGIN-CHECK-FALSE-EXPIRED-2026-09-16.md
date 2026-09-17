@@ -45,7 +45,7 @@ Home.vue 挂载 → useExpiredAccountsBanner.refresh()（src/composables/useExpi
 
 ### 2.4 意图溯源（参考产品对照）
 
-参考产品逆向（`01-docs/yixiaoer-reverse/asar-extract/app/packages/main/dist/index.cjs`）：
+参考产品逆向（`01-docs/ref-product-reverse/asar-extract/app/packages/main/dist/index.cjs`）：
 
 | 项 | 参考产品 checkAccountAlive | 本项目修复前 |
 |---|---|---|
