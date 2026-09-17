@@ -64,6 +64,29 @@
   --spacing-8: 32px;
   --spacing-10: 40px;
 
+  /* ---- 侧边栏语义槽（T0-2；消费方：styles/sidebar.css ← layouts/MpSidebar.vue）----
+   * 背景为 180deg 品牌淡紫渐变，文字分 4 档（正文 / 导航项 / 次级 / 版本号），
+   * hover 与 active 用半透明白叠加，active 文字与焦点环一律取品牌主色。
+   * 暗色值经对比度核算：在 --color-sidebar-bg-start 上均 ≥ 4.5:1（WCAG AA 正文）。 */
+  --color-sidebar-bg-start: #f4f2ff;
+  --color-sidebar-bg-end: #f0efff;
+  --color-sidebar-border: #e9e8f6;
+  --color-sidebar-divider: #d9d7ed;
+  --color-sidebar-text: #7a7d99;
+  --color-sidebar-text-secondary: #777a96;
+  --color-sidebar-text-tertiary: #8587a1;
+  --color-sidebar-text-muted: #9a9cb3;
+  --color-sidebar-text-footer: #9294ab;
+  --color-sidebar-icon: #777997;
+  --color-sidebar-border-strong: #bab9d3;
+  /* 品牌主色：hover/active 文字与焦点环统一取品牌主色（禁止侧边栏内联自造紫） */
+  --color-sidebar-accent: var(--color-primary);
+  --color-sidebar-active-text: var(--color-sidebar-accent);
+  --color-sidebar-hover-bg: rgba(255, 255, 255, .65);
+  --color-sidebar-hover-bg-strong: rgba(255, 255, 255, .68);
+  --color-sidebar-active-bg: rgba(255, 255, 255, .9);
+  --shadow-sidebar-active: 0 2px 9px rgba(99, 91, 195, .08);
+
   /* ---- 悬浮操作浮标（回到顶部等固定于视口的操作控件）----
    * 语义：与页面内容解耦、始终悬浮在滚动区右下角的轻量操作按钮。
    * 依据 docs/desktop-ui-layout-spec.md §14；禁止组件内自定义同语义色值。 */
@@ -95,4 +118,28 @@
   --color-float-tooltip-bg: #4a4a55;
   --color-float-tooltip-text: #ffffff;
   --shadow-float: 0 2px 10px rgba(0, 0, 0, 0.45);
+
+  /* ---- 侧边栏暗色槽位 ----
+   * 背景改深紫灰（保留品牌色相），文字整体提亮；全部文字档在 bg-start #211f2e 上 ≥ 4.5:1：
+   *   --color-sidebar-text 9.7:1 / text-secondary 9.0:1 / text-tertiary 7.8:1 / text-muted 6.9:1
+   * accent 取品牌主色的暗底亮化变体 #a5a0ff（基色 #5048E5 在深底仅 2.8:1 不达标）：
+   *   底 6.9:1 / hover 底 5.9:1 / active 底 5.5:1。
+   * active 底色改用品牌淡紫半透明叠加（而非白叠加），保证 accent 文字可读。 */
+  --color-sidebar-bg-start: #211f2e;
+  --color-sidebar-bg-end: #1b1a25;
+  --color-sidebar-border: #302e40;
+  --color-sidebar-divider: #3b3852;
+  --color-sidebar-text: #c9c7d6;
+  --color-sidebar-text-secondary: #c2c0d2;
+  --color-sidebar-text-tertiary: #b4b2c6;
+  --color-sidebar-text-muted: #a9a7bd;
+  --color-sidebar-text-footer: #b0aec4;
+  --color-sidebar-icon: #c2c0d2;
+  --color-sidebar-border-strong: #4a4761;
+  --color-sidebar-accent: #a5a0ff;
+  --color-sidebar-active-text: var(--color-sidebar-accent);
+  --color-sidebar-hover-bg: rgba(255, 255, 255, .06);
+  --color-sidebar-hover-bg-strong: rgba(255, 255, 255, .08);
+  --color-sidebar-active-bg: rgba(123, 116, 255, .18);
+  --shadow-sidebar-active: 0 2px 9px rgba(0, 0, 0, .35);
 }

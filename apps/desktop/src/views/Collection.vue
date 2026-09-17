@@ -239,7 +239,15 @@
 
       <!-- 草稿列表 -->
       <div class="cohere-section-title">草稿箱</div>
-      <EmptyState v-if="drafts.length === 0" icon="📝" title="暂无草稿" description="点击「新建草稿」或从平台采集内容开始" />
+      <EmptyState
+        v-if="drafts.length === 0"
+        data-testid="collection-drafts-empty"
+        icon="📝"
+        :title="$t('collection.draftsEmptyTitle')"
+        :description="$t('collection.draftsEmptyDesc')"
+        :action-text="$t('collection.draftsEmptyAction')"
+        @action="createDraft"
+      />
       <div v-else class="cohere-card-grid">
         <div v-for="d in drafts" :key="d.id" class="cohere-card">
           <div class="card-top">
@@ -280,15 +288,22 @@
       </div>
       <EmptyState
         v-if="libraryItems.length === 0"
+        data-testid="collection-library-empty"
         icon="📰"
         :title="$t('collection.recordsEmptyTitle')"
         :description="$t('collection.recordsEmptyDesc')"
+        :action-text="$t('collection.recordsEmptyAction')"
+        @action="activeTab = 'collect'"
       />
       <EmptyState
         v-else-if="filteredLibraryItems.length === 0"
+        compact
+        data-testid="collection-library-filter-empty"
         icon="🔍"
         :title="$t('collection.libraryFilterEmptyTitle')"
         :description="$t('collection.libraryFilterEmptyDesc')"
+        :action-text="$t('collection.libraryFilterEmptyAction')"
+        @action="libraryFilter = 'all'"
       />
       <div v-else class="cohere-card-grid" data-testid="copy-library-list">
         <template v-for="entry in filteredLibraryItems" :key="entry.key">

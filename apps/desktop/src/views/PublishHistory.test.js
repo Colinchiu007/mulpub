@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { nextTick, ref } from 'vue'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -357,17 +357,52 @@ describe('PublishHistory', () => {
     expect(wrapper.get('[data-testid="view-grid"]').attributes('aria-pressed')).toBe('true')
   })
 
-  it('空记录时提供新建发布入口并打开发布类型选择', async () => {
+  it('空记录时用 EmptyState 提供新建发布入口并打开发布类型选择', async () => {
     historyListMock.mockResolvedValue({ code: 0, data: { total: 0, records: [] } })
     const wrapper = mountView()
     await nextTick()
     await nextTick()
 
-    expect(wrapper.text()).toContain('暂无发布记录')
-    await wrapper.get('[data-testid="new-publish"]').trigger('click')
+    // 空态统一走 EmptyState（T0-3）：标题取 i18n，CTA 复用页面原有「新建发布」流程
+    const empty = wrapper.get('[data-testid="publish-history-empty"]')
+    expect(empty.classes()).toContain('mp-empty-state')
+    expect(empty.get('.mp-empty-state__title').text()).toBe(i18n.global.t('publishHistory.empty.records.title'))
+    expect(empty.get('.mp-empty-state__hint').text()).toBe(i18n.global.t('publishHistory.empty.records.message'))
+
+    await empty.get('button.mp-empty-state__action').trigger('click')
     expect(wrapper.get('[data-testid="publish-type-dialog"]').exists()).toBe(true)
     expect(wrapper.get('[data-testid="publish-type-dialog-title"]').text()).toBe('选择发布类型')
     expect(wrapper.findAll('[data-testid^="publish-type-card-"]')).toHaveLength(2)
+  })
+
+  it('有记录但筛选无结果时用紧凑空态提供清空筛选 CTA', async () => {
+    const wrapper = mountView()
+    await flushHistory()
+    await wrapper.get('[data-testid="history-search"]').setValue('不存在的标题')
+
+    const filtered = wrapper.get('[data-testid="publish-history-filter-empty"]')
+    expect(filtered.classes()).toContain('mp-empty-state--compact')
+    expect(wrapper.find('[data-testid="publish-history-empty"]').exists()).toBe(false)
+
+    await filtered.get('button.mp-empty-state__action').trigger('click')
+    expect(wrapper.get('[data-testid="history-search"]').element.value).toBe('')
+  })
+
+  it('草稿为空时渲染 EmptyState，有草稿时不渲染', async () => {
+    draftListMock.mockResolvedValue({ code: 0, data: [] })
+    const wrapper = mountView()
+    await nextTick()
+    await wrapper.get('[data-testid="drafts-tab"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="publish-history-drafts-empty"]').exists()).toBe(true)
+
+    draftListMock.mockResolvedValue({ code: 0, data: [{ id: 'd1', title: '草稿一', updated_at: '2026-09-01 10:00:00' }] })
+    await wrapper.get('[data-testid="refresh-drafts"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="publish-history-drafts-empty"]').exists()).toBe(false)
+    expect(wrapper.findAll('.draft-card')).toHaveLength(1)
   })
 
   it('加载失败时显示错误并允许重试', async () => {

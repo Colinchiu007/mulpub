@@ -122,6 +122,19 @@ jobs:
           node scripts/check-no-brand-residue.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # --- Gate 13: 路由入口登记（desktop-ui-consistency T0-5：拦住新增暗路由）---
+      # 2026-09-17 接入：src/router/index.js 新增非 redirect 路由却未在
+      # src/config/route-registry.js 登记（含 internal/entryFrom）即失败。
+      # 与 Gate 6/7/12 同模式：每条命令后显式检查退出码（PowerShell 多行 step 只取最后一条
+      # 命令的退出码，中间命令失败会被静默吞掉 —— 见 PR #1719/#1732 事故）。
+      # 本地同口径：node .github/scripts/check-route-registry.js
+      - name: "Gate 13 - Route registry completeness (route entry registry)"
+        run: |
+          node --test .github/scripts/check-route-registry.test.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .github/scripts/check-route-registry.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
   unit-tests:
     name: QG Unit Tests
     runs-on: [self-hosted, windows, x64]

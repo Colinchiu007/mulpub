@@ -230,11 +230,13 @@
         <div v-if="loading" style="padding:16px 0" data-testid="viral-analysis-loading">
           <UiSkeleton variant="chart" />
         </div>
-        <div v-else-if="!result" style="text-align:center;padding:48px 0;color:var(--muted)">
-          <div style="font-size:40px;margin-bottom:16px">🔥</div>
-          <div style="font-size:14px;font-weight:600;margin-bottom:4px">输入主题开始分析</div>
-          <div style="font-size:13px">AI 将从标题结构、情感触发、互动热度等维度分析爆款潜力</div>
-        </div>
+        <EmptyState
+          v-else-if="!result"
+          data-testid="viral-analysis-empty"
+          icon="🔥"
+          title="输入主题开始分析"
+          description="AI 将从标题结构、情感触发、互动热度等维度分析爆款潜力"
+        />
       </div>
     </div>
   </div>

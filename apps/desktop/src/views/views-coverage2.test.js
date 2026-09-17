@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mount } from "@vue/test-utils";
 import { nextTick } from "vue";
 import { setActivePinia, createPinia } from "pinia";
+import i18n from "@/i18n";
 
 const pushSpy = vi.hoisted(() => vi.fn());
 vi.mock("vue-router", () => ({ useRouter: () => ({ push: pushSpy }), useRoute: () => ({ query: {} }) }));
@@ -96,7 +97,7 @@ describe("ViralAnalysisView (coverage)", () => {
 
   async function mnt() {
     const m = await import("./ViralAnalysis.vue");
-    return mount(m.default || m, { global: { components: {} } });
+    return mount(m.default || m, { global: { components: {}, plugins: [i18n] } });
   }
 
   it("renders page title", async () => {

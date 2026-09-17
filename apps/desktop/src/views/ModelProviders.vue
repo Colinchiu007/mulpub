@@ -109,14 +109,15 @@
       <!-- ===== 已配置模式：引导 + 已配置卡片 + 快速添加 ===== -->
       <template v-else-if="viewMode === 'configured'">
         <!-- 引导状态：一个都没配置 -->
-        <div v-if="configuredProviders.length === 0" class="onboarding-empty">
-          <div class="onboarding-icon">🚀</div>
-          <h3>{{ t('modelProviders.noProvidersTitle') }}</h3>
-          <p>{{ t('modelProviders.noProvidersHint') }}</p>
-          <button class="cohere-btn-primary" @click="viewMode = 'all'">
-            <span>{{ t('modelProviders.browseAll') }}</span>
-          </button>
-        </div>
+        <EmptyState
+          v-if="configuredProviders.length === 0"
+          data-testid="model-providers-onboarding-empty"
+          icon="🚀"
+          :title="t('modelProviders.noProvidersTitle')"
+          :description="t('modelProviders.noProvidersHint')"
+          :action-text="t('modelProviders.browseAll')"
+          @action="viewMode = 'all'"
+        />
 
         <!-- 已配置卡片 -->
         <div v-else>
@@ -254,11 +255,15 @@
 
       <!-- ===== 全部服务商模式：平铺展示 ===== -->
       <template v-else>
-        <div v-if="filteredProviders.length === 0" class="cohere-empty">
-          <div class="empty-icon">🔌</div>
-          <h3>{{ t('modelProviders.noProvidersEmpty') }}</h3>
-          <p>{{ t('modelProviders.noProvidersEmptyHint') }}</p>
-        </div>
+        <EmptyState
+          v-if="filteredProviders.length === 0"
+          data-testid="model-providers-empty"
+          icon="🔌"
+          :title="t('modelProviders.noProvidersEmpty')"
+          :description="t('modelProviders.noProvidersEmptyHint')"
+          :action-text="t('modelProviders.addProvider')"
+          @action="openAdd"
+        />
         <div v-else class="provider-grid">
           <div
             v-for="p in filteredProviders" :key="p.id"
