@@ -515,6 +515,13 @@ Code review 时除逻辑正确性外，必须逐项检查：
 
 - **文本空白归一化（MUST NOT）**：清理 HTML 源码缩进噪声时**禁止**用 `replace(/\s+/g, ' ')` —— `\s` 含 `\n`/`\r`/`\u2028`/`\u2029`/全角空格 `\u3000`/NBSP `\u00a0`/BOM `\ufeff`，会把**语义换行一起压掉**，正文变成一整行。正确口径：行内空白压缩用 `[^\S\n]+`（显式排除换行）；块级结构（`p`/`h1-h6`/`blockquote` → 段间空行，`div`/`li`/`tr` → 单换行，`td`/`th` → 制表符，`<br>` → 换行，`<pre>` → 原样保留）在 DOM 层转成换行，最后只做「连续 3 个以上换行压成 1 个空行」收口。正文提取统一复用 `apps/desktop/electron/services/readable-text.js`（`extractReadableText` / `normalizeExtractedText`），禁止在采集通道里另写一套。
 
+- **门禁断言随「平台/实现迁移」同步（MUST）**：凡改动 **runner / OS / 工作流步骤名 / 组件实现细节 / 工具抽取 / locale 值**，必须全仓检索并**同 PR 更新**锁死旧前提的门禁断言与基线，否则会留下长期不可自愈的假红灯。已知必须同步的文件：
+  - `.github/scripts/workflow-contract.test.js`（workflow 结构；含 GUI gate 的 `xvfb-run` 断言 —— xvfb 是 Linux-only，迁 `windows-latest` 后必须反转）
+  - `apps/desktop/tests/gui-ci-exit-contract.test.js`（Electron CI 结构：`runs-on` / step 名 / 归档文件名 `linux-x64`↔`win32-x64` / 诊断命令 `ps -eo`↔`tasklist.exe` / `|| true` 的范围）
+  - `scripts/debt-baseline.json`（`filesOver500` / `maxFileLines` / `modelProviderRequireFanOut`；指标**逐项**核对，别只改前两项）
+  - 渲染端测试：断言 **i18n 键**而**不是 locale 字面量**（字面量会在文案调整时假红）；mock **被测代码真正调用的依赖**（如 `@/utils/clipboard` 的 `writeClipboard`），而不是它曾经的底层浏览器 API
+  - 反例与实证：2026-09-18「迁云 + 统一空态 + 剪贴板抽取」三处改动漏更 → main 上 Electron CI 与 Quality Gate 长期红灯（3 failed / 542 passed），详见 `01-docs/BUGFIX-CI-GATE-REMEDIATION-2026-09-18.md`。
+
 ### QM-4：视觉回归测试
 
 **框架位置**：`apps/desktop/tests/visual-testing/`

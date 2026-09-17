@@ -1,6 +1,11 @@
 // @ts-check
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { useFilmEngineering } from './useFilmEngineering'
+import { writeClipboard } from '@/utils/clipboard'
+
+// 剪贴板写入已抽取为共享工具 @/utils/clipboard（BUGFIX-REWRITE-QUALITY-UX / DRY），
+// 不再直连 window.navigator.clipboard.writeText —— mock 共享工具而非浏览器 API。
+vi.mock('@/utils/clipboard', () => ({ writeClipboard: vi.fn(async () => true) }))
 
 function installMockApi () {
   const api = {
@@ -90,7 +95,7 @@ describe('useFilmEngineering', () => {
     c.copyMode.value = 'blocks'
     await c.copySelected()
     expect(api.copyTexts).toHaveBeenCalledWith(['shot-1'], 'blocks')
-    expect(window.navigator.clipboard.writeText).toHaveBeenCalledWith('multi')
+    expect(writeClipboard).toHaveBeenCalledWith('multi')
   })
 
   it('单镜复制：copyText 转发 shotId+mode 并写剪贴板', async () => {
@@ -99,7 +104,7 @@ describe('useFilmEngineering', () => {
     const c = useFilmEngineering()
     await c.copyText('shot-1', 'full')
     expect(api.copyText).toHaveBeenCalledWith('shot-1', 'full')
-    expect(window.navigator.clipboard.writeText).toHaveBeenCalledWith('copied-full')
+    expect(writeClipboard).toHaveBeenCalledWith('copied-full')
   })
 
   it('剧本套用：请求映射为 script+characterMap+llmEnabled，结果进入 adaptedShots', async () => {

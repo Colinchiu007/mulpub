@@ -1,3 +1,22 @@
+# [未发布] fix(ci): 治理 main 分支 CI 红灯——迁云遗留契约 + 门禁断言漂移（2026-09-18）
+
+### 修复
+- **背景**：main 上 Electron CI 与 Quality Gate 长期红灯。补跑 CI 实测：`Unit tests (Vitest, non-Electron)` = **3 failed / 542 passed / 1 skipped (546)**（套件跑完、非超时）；同类 job 在**我触发之前的 main run `35241593445` 已红**，且 09-17 的 `ci-pipeline-optimize` 分支 electron-ci 为 success → 属 main 既有红灯，非任何单个功能 PR 引入
+- **共性根因**：2026-09-17「全量迁 GitHub 官方 `windows-latest` 云 runner」+ #1899「统一空态」+ #1891「剪贴板工具抽取」三次改动，**都没同步更新锁死旧前提的契约测试与门禁基线**
+- **`.github/scripts/workflow-contract.test.js`**：移除 `assert.match(gateStep, /xvfb-run/)` —— xvfb 是 Linux-only 虚拟帧缓冲，迁云后 GUI gate 直接 `node apps/desktop/tests/electron-gui-v9.js`；契约反转为「**不得**依赖 xvfb + **必须**直接启动 GUI 测试」（锁意图而非锁某平台实现手段）
+- **`apps/desktop/tests/gui-ci-exit-contract.test.js`** 5 处断言对齐真实 workflow：① `|| true` 断言由「整份 workflow 文本」收窄到**仅冒烟步骤内**（诊断步骤合法吞错）；② `runs-on` `ubuntu-latest` → `windows-latest`；③ checksum step 名 → `Verify Electron checksum pin (win32, windows-latest)`；④ 归档 `linux-x64` → `win32-x64` 并**删除硬编码 sha256**（清单由 `checksums.json` 提供，重复写死是第二处漂移源）；⑤ 诊断命令 `ps -eo` → `tasklist.exe`
+- **`src/components/CopyLibraryPanel.test.js`**：空态断言由硬编码 `'暂无文案'` 改为断言 **i18n 键** `i18n.global.t('collection.libraryEmptyTitle')`（#1899 起统一空态走 locale）；同类脆弱的筛选空态断言一并改键
+- **`src/composables/useFilmEngineering.test.js`**：剪贴板断言由 `window.navigator.clipboard.writeText` 改为 mock/断言共享工具 `@/utils/clipboard` 的 `writeClipboard`（#1891 已抽取）
+- **`scripts/debt-baseline.json`**：基线 `scannedAt` 停在 2026-09-12，4 天自然增长未记录 → 重新采样 `maxFileLines 6497→6511`、`filesOver500 86→87`、`modelProviderRequireFanOut 64→65`。**注：上游 PR #1907 只更新了前 2 项，漏了 fanOut，故它即使合并仍会红灯**
+- **零生产代码变更**：不动任何 `.vue` 业务组件、不动 locale、不动 workflow、不动 IPC/preload → 零契约风险、零文案变更
+
+### 验证
+- `.github/scripts/*.test.js`（8 文件，QG Static 范围）**全绿**：workflow-contract 20/20、locale-sync 6/6、route-registry 14/14、autonomous-loop 9/9、frontend-consistency 8/8、agent-review-gate 8/8、hardcoded-secrets 3/3、ipc-bridge 1/1
+- 3 个原失败桌面测试文件 **55/55 全绿**；`check-debt-budget.js` **5/5 指标在基线内**；eslint 0 error
+- 文档：`01-docs/BUGFIX-CI-GATE-REMEDIATION-2026-09-18.md`（逐项根因 / 断言对照表 / 数据校验 / 已知局限）
+
+---
+
 # [未发布] feat(model-providers): 新增 Agnes-AI 多模态预设（文字推理+图片生成+视频生成，中国站统一端点）（2026-09-16）
 
 ### 新增

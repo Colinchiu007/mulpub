@@ -75,7 +75,9 @@ describe('CopyLibraryPanel', () => {
     const w = factory({ collected_items: '[]', copy_library_rewrites: '[]' })
     await flush()
     expect(w.vm.items).toHaveLength(0)
-    expect(w.text()).toContain('暂无文案')
+    // 空态文案走 locale（#1899 起统一空态），断言 i18n 键而非硬编码字面量，
+    // 避免 locale 文案调整时测试假红（原断言 '暂无文案' 已被 locale 值变更打破）。
+    expect(w.text()).toContain(i18n.global.t('collection.libraryEmptyTitle'))
     expect(w.find('[data-testid="copy-library-list"]').exists()).toBe(false)
   })
 
@@ -100,7 +102,7 @@ describe('CopyLibraryPanel', () => {
     w.vm.filter = 'collect'
     await nextTick()
     expect(w.vm.filteredItems).toHaveLength(0)
-    expect(w.text()).toContain('当前筛选下暂无文案')
+    expect(w.text()).toContain(i18n.global.t('collection.libraryFilterEmptyTitle'))
   })
 
   it('点击行内「改写」打开弹窗并携带来源键', async () => {
