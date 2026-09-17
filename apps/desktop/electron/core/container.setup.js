@@ -219,6 +219,8 @@ function createContainer(options) {
     svc.setStore(c.get("store"))
     svc.setKnowledgeLibrary(c.get("knowledgeLibraryService"))
     svc.setPerformanceStore(c.get("store"))
+    // viral-rewrite-integration：爆款潜力评分器（ViralEngine.scoreText，orchestrator 优先/本地回退）
+    svc.setViralScorer((text) => c.get("viralEngine").scoreText(text))
     return svc
   });
   container.register("knowledgeLibraryService", function(c) {

@@ -2727,6 +2727,30 @@ knowledgeBase: {
     qualityMethodEmbedding: '语义向量',
     qualitySuggestions: '改进建议',
     qualityNone: '本次改写未生成质量评估',
+    // ── viral-rewrite-integration：标题参考 chip + 爆款潜力第 4 维（纯静态键，插值在模板拼接）──
+    titleHintLabel: '标题参考',
+    titleHintRemove: '移除',
+    qualityViralLabel: '爆款潜力',
+    qualityViralBefore: '改写前',
+    qualityViralAfter: '改写后',
+    qualityViralDelta: '变化',
+  },
+
+  // ── 爆款分析页（viral-rewrite-integration）──
+  viralAnalysis: {
+    saveToLibrary: '存入爆款库',
+    savedToLibrary: '已存入爆款库，改写时可被「结合爆款库」检索引用',
+    saveToLibraryHint: '将本次分析结果存入爆款库，供改写引擎参考',
+    saveFailed: '存入爆款库失败',
+    goRewrite: '去改写',
+    reportTitle: '爆款分析报告',
+    reportTopic: '主题',
+    reportScore: '爆款潜力分',
+    reportTrend: '趋势方向',
+    reportAngles: '推荐写作角度',
+    reportKeywords: '上升关键词',
+    reportFactors: '因子分解',
+    reportPlatform: '目标平台',
   },
 
   // ── 发布去向弹窗 ──

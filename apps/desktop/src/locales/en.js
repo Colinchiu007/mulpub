@@ -2728,6 +2728,30 @@ knowledgeBase: {
     qualityMethodEmbedding: 'Semantic vector',
     qualitySuggestions: 'Suggestions',
     qualityNone: 'No quality assessment was generated for this rewrite',
+    // ── viral-rewrite-integration: title hint chip + viral potential 4th dimension (static keys, interpolation in template) ──
+    titleHintLabel: 'Title hint',
+    titleHintRemove: 'Remove',
+    qualityViralLabel: 'Viral potential',
+    qualityViralBefore: 'Before',
+    qualityViralAfter: 'After',
+    qualityViralDelta: 'Delta',
+  },
+
+  // ── Viral analysis page (viral-rewrite-integration) ──
+  viralAnalysis: {
+    saveToLibrary: 'Save to viral library',
+    savedToLibrary: 'Saved to viral library; retrievable via "Use viral library" when rewriting',
+    saveToLibraryHint: 'Save this analysis to the viral library for the rewrite engine',
+    saveFailed: 'Failed to save to viral library',
+    goRewrite: 'Rewrite',
+    reportTitle: 'Viral analysis report',
+    reportTopic: 'Topic',
+    reportScore: 'Viral potential score',
+    reportTrend: 'Trend',
+    reportAngles: 'Suggested angles',
+    reportKeywords: 'Rising keywords',
+    reportFactors: 'Factors',
+    reportPlatform: 'Target platform',
   },
 
   // ── Publish destination modal ──

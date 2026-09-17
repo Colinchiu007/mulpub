@@ -11,6 +11,16 @@
       <!-- 文本输入区 -->
       <div class="cohere-card rewrite-input-card">
         <div class="cohere-section-title">{{ t('rewritePage.inputSection') }}</div>
+        <!-- 标题参考 chip（viral-rewrite-integration：爆款分析页生成标题带入） -->
+        <div v-if="titleHint" class="rewrite-title-hint" data-testid="rewrite-title-hint">
+          <span class="title-hint-text">{{ t('rewritePage.titleHintLabel') }}：{{ titleHint }}</span>
+          <button
+            class="cohere-btn-secondary title-hint-remove"
+            data-testid="rewrite-title-hint-remove"
+            :disabled="rewriting"
+            @click="titleHint = ''"
+          >{{ t('rewritePage.titleHintRemove') }}</button>
+        </div>
         <textarea
           v-model="content"
           class="rewrite-textarea"
@@ -179,6 +189,10 @@
               {{ t('rewritePage.qualityMethod') }}：
               {{ t(rewriteQuality.method === 'embedding' ? 'rewritePage.qualityMethodEmbedding' : 'rewritePage.qualityMethodSimhash') }}
             </span>
+            <!-- 爆款潜力第 4 维（viral-rewrite-integration）：改写前后对比；delta 缺失显示占位符 -->
+            <span class="quality-metric" v-if="viralInfo" data-testid="rewrite-viral-info">
+              {{ t('rewritePage.qualityViralLabel') }}：{{ t('rewritePage.qualityViralBefore') }} {{ viralInfo.original }} → {{ t('rewritePage.qualityViralAfter') }} {{ viralInfo.rewritten }}（{{ t('rewritePage.qualityViralDelta') }} {{ viralInfo.delta === null ? '-' : viralInfo.delta }}）
+            </span>
           </div>
           <div v-if="Array.isArray(rewriteQuality.suggestions) && rewriteQuality.suggestions.length" class="rewrite-quality-suggestions">
             <div class="quality-suggestions-title">{{ t('rewritePage.qualitySuggestions') }}</div>
@@ -267,6 +281,10 @@ const contentError = ref('')
 // 复制按钮瞬时反馈态：复制成功后按钮文案切换为「已复制」，1.5s 后复位（BUGFIX-REWRITE-QUALITY-UX）
 const copied = ref(false)
 let copiedTimer = null
+
+// viral-rewrite-integration：标题参考（爆款分析页生成标题经路由 query 带入）+ 爆款潜力对比
+const titleHint = ref('')
+const viralInfo = ref(null)
 
 // 配置
 const useViralLibrary = ref(true)
@@ -377,11 +395,14 @@ watch(rewriteResult, (next, prev) => {
 })
 
 // ── 热门选题带入：/rewrite?topic=xxx → 填入输入框 + 选题创作模式 + 自动开始 ──
+// ── 标题参考带入：/rewrite?titleHint=xxx → 显示可移除 chip，改写时作为软约束注入引擎 ──
 // ── 文案库交接带入：/rewrite?from=collection → 取 sessionStorage 交接载荷，仿写模式 + 自动开始 ──
 // 交接载荷由 Collection.vue 合并版「文案库」的【改写】按钮写入（正文可能上万字，避免 URL 超长）。
 onMounted(() => {
   void loadRewriteStrategies()
   void refreshStrategyPreview()
+  const hint = typeof route.query.titleHint === 'string' ? route.query.titleHint.trim().slice(0, 200) : ''
+  if (hint) titleHint.value = hint
   const topic = typeof route.query.topic === 'string' ? route.query.topic.trim() : ''
   if (topic) {
     rewriteMode.value = 'create'
@@ -439,6 +460,7 @@ async function startRewrite() {
   rewriteKnowledgeRefs.value = []
   // CCG 评审修复：新改写开始前重置质量报告，避免上一次改写（无 quality）的旧报告残留
   rewriteQuality.value = null
+  viralInfo.value = null
 
   try {
     const params = {
@@ -457,6 +479,8 @@ async function startRewrite() {
       },
       // 策略传参契约（与 AiWriterPanel 一致）：手动=所选 id（未选 null），自动=null 走引擎匹配
       strategyId: strategyMode.value === 'manual' ? (rewriteStrategyId.value || null) : null,
+      // viral-rewrite-integration：标题参考软约束（引擎侧清洗：空白折叠 + 200 字截断）
+      titleHint: titleHint.value || undefined,
     }
 
     const res = await aiRewrite(params)
@@ -476,6 +500,17 @@ async function startRewrite() {
         method: q.method === 'embedding' ? 'embedding' : 'simhash',
         suggestions: Array.isArray(q.suggestions) ? q.suggestions : [],
       } : null
+      // viral-rewrite-integration：爆款潜力对比（引擎 viralScorer 注入时才有；无效值归 null）
+      const v = data.viral && typeof data.viral === 'object' && !Array.isArray(data.viral) ? data.viral : null
+      viralInfo.value = v
+        && typeof v.original === 'number' && Number.isFinite(v.original)
+        && typeof v.rewritten === 'number' && Number.isFinite(v.rewritten)
+        ? {
+            original: v.original,
+            rewritten: v.rewritten,
+            delta: typeof v.delta === 'number' && Number.isFinite(v.delta) ? v.delta : null,
+          }
+        : null
       rewriteMeta.value = {
         strategyName: data.strategy?.name || '',
         aiTastePct: data.metadata?.aiTasteLevel != null ? (data.metadata.aiTasteLevel * 100).toFixed(0) + '%' : 'N/A',

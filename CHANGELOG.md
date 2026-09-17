@@ -1,3 +1,17 @@
+# [未发布] feat(viral): 爆款分析/文案生成 × 改写引擎/评估机制集成 P0（2026-09-16）
+### 新增
+- **爆款分析结果存入爆款库**：`ViralAnalysis.vue` 分析成功后可一键落库（复用既有 `knowledge-library:add-viral` IPC，无新增通道）；`title` 取 `analyzedTopic` 快照，`content` 为 i18n 组装的分析报告 Markdown（天然可被改写引擎三层知识库第 2 层「结合爆款库」检索），`tags` = 平台+推荐角度+上升关键词去重。
+- **生成标题一键去改写（titleHint 链路）**：生成标题列表每行「去改写」→ `/rewrite?titleHint=<标题>` → RewriteView 显示可移除 chip → `ai:rewrite` params 携带 `titleHint` → 引擎 `_sanitizeTitleHint`（空白折叠/200 字截断/非字符串忽略）后作为软约束追加到 userPrompt（模板替换后追加，防 `{placeholder}` 二次展开）。
+- **改写质量评估第 4 维「爆款潜力」**：`RewriteEngine` 新增可选 `viralScorer` 注入；改写前后各评一次，输出 `result.viral = { original, rewritten, delta, mode }`（`Number.isFinite` + 跨 mode 一致性校验，失败 fail-open 不阻塞）。主进程 `ViralEngine.scoreText`：orchestrator 优先、本地启发式回退、**独立 8s 短超时**；`container.setup.js` 完成注入。渲染端质量报告新增「爆款潜力：改写前 X → 改写后 Y（变化 Z）」指标。
+- i18n：新增 `viralAnalysis.*`（14 键）与 `rewritePage` 6 键，zh/en 严格成对。
+### 验证
+- TDD：`packages/rewrite-engine` 21/21（含 V1-V9：注入/截断/忽略/fail-open/跨 mode 丢弃/NaN 防护/未注入回归）；渲染端+electron 75/75（落库守卫/快照/chip/params/viral 展示/scoreText 6 用例）；views-coverage2+ai handler+ipc-contract 23/23。
+- 双模型外部评审（双子代理并行）：0 Critical；4 Warning + 部分 Info 全部修复并回归（8s 短超时/mode 一致性/日志与 clamp/analyzedTopic 快照）。
+- 门禁：CJK 基线扫描 PASS（零新增硬编码）；无新增 IPC 通道（preload bundle 无需重打包）。
+- 文档：`01-docs/PRD-VIRAL-REWRITE-INTEGRATION.md`（含数据校验/流程/交互/显示项/提示文字/P1-P2 规划）；openspec change `viral-rewrite-integration`；EverOS knowledge `everos/data/knowledge/viral-rewrite-integration/`。
+
+---
+
 # [未发布] feat(ops-center): 左侧菜单「设置」改名为「菜单设置」并支持菜单项拖拽排序（2026-09-16）
 
 ### 变更
