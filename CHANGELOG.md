@@ -1,3 +1,29 @@
+# [未发布] docs(agents): QM-3 新增 MUST——门禁断言必须随平台/实现迁移同步更新（2026-09-18）
+
+### 变更
+- **背景**：main 上 Electron CI 与 Quality Gate 曾长期红灯（`Unit tests = 3 failed / 542 passed / 1 skipped`，546），根因不是功能缺陷，而是三处「平台/实现迁移」都**没同步更新锁死旧前提的门禁断言/基线**：① 全量迁 `windows-latest` 云 runner（`xvfb-run` / `ubuntu-latest` / `ps -eo` / `linux-x64` 归档 / 旧 step 名）；② #1899 统一空态走 locale（测试仍断言旧字面量 `暂无文案`）；③ #1891 剪贴板抽取到 `@/utils/clipboard`（测试仍断言底层 `navigator.clipboard`）。最终由 #1907 + #1924 + #1927 才收口，期间**至少两个会话重复诊断同一根因**
+- **`AGENTS.md` QM-3 新增 MUST「门禁断言随平台/实现迁移同步」**：明确触发条件（runner / OS / 工作流步骤名 / 组件实现细节 / 工具抽取 / locale 值 / 文件增删）+ 必须同步核查的文件清单（`workflow-contract.test.js`、`autonomous-loop-workflow.test.js`、`check-route-registry.test.js`、`gui-ci-exit-contract.test.js`、`scripts/debt-baseline.json`）+ 两条断言原则（断言 i18n 键而非 locale 字面量；mock 当前真正调用的依赖而非旧底层 API；组件删除时同步删专用测试与专用 locale 死键）+ 「判定红灯是否本 PR 引入」的标准路径（查本 PR 之前的 main run → 读 `.steps[]` → 下 job 日志 → 比对 `git show --name-only`）
+- **纯文档改动**：`AGENTS.md` +9 行、无代码变更（`git diff --numstat` = 9/0）
+
+### 验证
+- 复核既有 QM-3 规则未被破坏：`文本空白归一化（MUST NOT）` × 1、`文本结构断言（MUST）` × 1、`### QM-4` × 1
+- 本条目即为满足文档同步门禁所需（`AGENTS.md` 被该门禁视为代码变更，须同 PR 携带 `CHANGELOG.md`）
+
+---
+
+# [未发布] docs(agents): QM-3 新增 MUST——门禁断言必须随平台/实现迁移同步更新（2026-09-18）
+
+### 变更
+- **背景**：main 上 Electron CI 与 Quality Gate 曾长期红灯（`Unit tests = 3 failed / 542 passed / 1 skipped`，546），根因不是功能缺陷，而是三处「平台/实现迁移」都**没同步更新锁死旧前提的门禁断言/基线**：① 全量迁 `windows-latest` 云 runner（`xvfb-run` / `ubuntu-latest` / `ps -eo` / `linux-x64` 归档 / 旧 step 名）；② #1899 统一空态走 locale（测试仍断言旧字面量 `暂无文案`）；③ #1891 剪贴板抽取到 `@/utils/clipboard`（测试仍断言底层 `navigator.clipboard`）。最终由 #1907 + #1924 + #1927 才收口，期间**至少两个会话重复诊断同一根因**
+- **`AGENTS.md` QM-3 新增 MUST「门禁断言随平台/实现迁移同步」**：明确触发条件（runner / OS / 工作流步骤名 / 组件实现细节 / 工具抽取 / locale 值 / 文件增删）+ 必须同步核查的文件清单（`workflow-contract.test.js`、`autonomous-loop-workflow.test.js`、`check-route-registry.test.js`、`gui-ci-exit-contract.test.js`、`scripts/debt-baseline.json`）+ 两条断言原则（断言 i18n 键而非 locale 字面量；mock 当前真正调用的依赖而非旧底层 API；组件删除时同步删专用测试与专用 locale 死键）+ 「判定红灯是否本 PR 引入」的标准路径（查本 PR 之前的 main run → 读 `.steps[]` → 下 job 日志 → 比对 `git show --name-only`）
+- **纯文档改动**：`AGENTS.md` +9 行、无代码变更（`git diff --numstat` = 9/0）
+
+### 验证
+- 复核既有 QM-3 规则未被破坏：`文本空白归一化（MUST NOT）` × 1、`文本结构断言（MUST）` × 1、`### QM-4` × 1
+- 本条目即为满足文档同步门禁所需（`AGENTS.md` 被该门禁视为代码变更，须同 PR 携带 `CHANGELOG.md`）
+
+---
+
 # [未发布] fix(i18n): 清理 #1899 遗留的 locale 重复 viralAnalysis 残缺块 + 12 处 EmptyState 存量硬编码迁移 locale（2026-09-18）
 
 ### 修复
