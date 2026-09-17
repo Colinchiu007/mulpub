@@ -12,7 +12,7 @@ on:
 jobs:
   debt-guard:
     name: 债务熔断检查
-    runs-on: [self-hosted, windows, x64]
+    runs-on: windows-latest
     timeout-minutes: 5
     defaults:
       run:
