@@ -75,7 +75,7 @@ describe('CopyLibraryPanel', () => {
     const w = factory({ collected_items: '[]', copy_library_rewrites: '[]' })
     await flush()
     expect(w.vm.items).toHaveLength(0)
-    expect(w.text()).toContain('暂无文案')
+    expect(w.text()).toContain(i18n.global.t('collection.libraryEmptyTitle'))
     expect(w.find('[data-testid="copy-library-list"]').exists()).toBe(false)
   })
 
