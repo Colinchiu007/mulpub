@@ -1,3 +1,17 @@
+# [未发布] chore(desktop): 清理文案库孤儿组件 CopyLibraryPanel / CopyRewriteModal 及专用死键（2026-09-18）
+
+### 变更
+- 删除 `CopyLibraryPanel.vue`（340 行）+ `CopyLibraryPanel.test.js`（167 行）：合并版文案库（PR #1880）落地后无人引用；PR #1895 曾将其误恢复进 main（提案未使用、未接线），本 PR 再次移除
+- 删除 `CopyRewriteModal.vue` + `CopyRewriteModal.test.js`：弹窗式改写入口已被「跳转改写页直接改写」取代（PR #1880），成为孤儿组件
+- 删除 14 个专用 i18n 死键（zh/en 成对）：`libraryRewriteModal*` 系列 11 键 + `libraryTitle`/`libraryEmptyTitle`/`libraryEmptyDesc`；`libraryRewriteNoContent`（合并版空正文拦截）与 `wordCount*`/`rewriteStyle*`（多页共享）保留
+- RewriteView.vue 注释同步（移除对已删组件的提及）；PRD §10 技术债务清零并记录 #1895 误恢复事件
+
+### 验证
+- 受影响 4 测试文件 172 例全绿；`check-locale-sync --keys` PASS（990 个使用中 key 均存在）；CJK 基线 PASS；eslint 0 errors
+- 文档：`01-docs/PRD-COLLECTION-LIBRARY-MERGE-2026-09-16.md` §10 更新
+
+---
+
 # [未发布] feat(model-providers): 新增 Agnes-AI 多模态预设（文字推理+图片生成+视频生成，中国站统一端点）（2026-09-16）
 
 ### 新增
