@@ -37,7 +37,7 @@ permissions:
 
 jobs:
   agent-judge:
-    runs-on: [self-hosted, windows, x64]
+    runs-on: windows-latest
     timeout-minutes: 15
     env:
       LLM_PROVIDER: ${{ github.event.inputs.llm_provider || 'none' }}

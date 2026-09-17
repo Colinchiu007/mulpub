@@ -82,7 +82,7 @@ jobs:
   loop:
     if: github.event_name != 'pull_request' || github.event.label.name == 'autonomous-loop'
     name: "Autonomous Loop (迭代 ${{ inputs.iterations || 3 }} 轮)"
-    runs-on: [self-hosted, windows, x64]
+    runs-on: windows-latest
     timeout-minutes: 30
     env:
       MAX_ITER: ${{ inputs.iterations || 3 }}
