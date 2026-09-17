@@ -27,6 +27,14 @@ on:
       - 'openspec/**'
   pull_request:
     branches: [main]
+    paths:
+      # 仅桌面相关改动合并前才跑 Electron 自托管回归，避免每个 PR 都占用 Windows runner（此前 pull_request 无 paths 过滤，与 push 的 paths-ignore 不对称，是日常 CI 噪音的根因）
+      - 'apps/desktop/**'
+      - 'packages/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/electron-ci.yml'
   workflow_dispatch:
 jobs:
   electron-tests:
