@@ -2292,9 +2292,6 @@ export default {
     recordsCleared: 'Collected copies cleared',
     recordsEditCreated: 'Opened content editor',
     rewriteHandoffFailed: 'Rewrite handoff failed, please retry',
-    libraryTitle: 'Copy library',
-    libraryEmptyTitle: 'The copy library is empty',
-    libraryEmptyDesc: 'Collected and rewritten copy will be saved here for reuse',
     libraryCount: (ctx) => ctx.named('count') + ' items',
     libraryFilterLabel: 'Copy filter',
     libraryFilterAll: 'All',
@@ -2312,17 +2309,6 @@ export default {
     libraryRewrite: 'Rewrite',
     libraryPreviewTitle: 'Copy content',
     libraryClose: 'Close',
-    libraryRewriteModalTitle: 'Rewrite copy',
-    libraryRewriteOptions: 'Rewrite options',
-    libraryRewriteStyle: 'Rewrite style',
-    libraryRewriteKnowledge: 'Rewrite reference',
-    libraryRewriteLength: 'Target length',
-    libraryRewritePlatform: 'Target platform',
-    librarySourceSection: 'Source',
-    libraryResultSection: 'Rewrite result',
-    libraryRewriteStart: 'Start rewriting',
-    libraryRewriteStarting: 'Rewriting...',
-    libraryRewriteDone: 'Rewrite finished and saved to the copy library',
     libraryRewriteNoContent: 'This copy has no content and cannot be rewritten',
   },
   rewriteEngine: {
@@ -2539,12 +2525,6 @@ export default {
     statusUnknown: 'Unknown',
     signingIn: 'Opening sign-in...'
   },
-viralAnalysis: {
-  empty: {
-    title: 'Enter a topic to start',
-    message: 'AI will score viral potential across title structure, emotional triggers and engagement',
-  },
-},
 knowledgeBase: {
     title: 'Knowledge Base',
     empty: {
@@ -2841,6 +2821,9 @@ knowledgeBase: {
     reportKeywords: 'Rising keywords',
     reportFactors: 'Factors',
     reportPlatform: 'Target platform',
+    // Empty state (2026-09-18): was hardcoded Chinese, blocked by CI check-locale-sync --cjk
+    emptyTitle: 'Enter a topic to start analysis',
+    emptyDescription: 'AI will analyze viral potential across title structure, emotional triggers and engagement heat',
   },
 
   // ── Publish destination modal ──

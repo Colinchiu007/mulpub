@@ -175,7 +175,7 @@ describe('多模态模型类别与 MiniMax 预设', () => {
     const config = JSON.parse(row.config)
     expect(config.capabilities).toContain('tts')
     expect(config.capability_models.image).toBe('image-01')
-    const listed = manager.listProviders('multimodal')[0]
+    const listed = manager.listProviders('multimodal').find(p => p.id === 'minimax-multimodal')
     expect([...listed.capabilities].sort()).toEqual(['image', 'llm', 'tts', 'video'])
     expect(listed.capability_models.video).toBe('MiniMax-Hailuo-2.3')
   })

@@ -2293,9 +2293,6 @@ export default {
     recordsCleared: '采集正文已清空',
     recordsEditCreated: '已进入内容编辑页',
     rewriteHandoffFailed: '改写交接失败，请重试',
-    libraryTitle: '文案库',
-    libraryEmptyTitle: '文案库还是空的',
-    libraryEmptyDesc: '采集或改写的内容会保存在这里，可随时查看和复用',
     libraryCount: (ctx) => '共 ' + ctx.named('count') + ' 篇',
     libraryFilterLabel: '文案筛选',
     libraryFilterAll: '全部',
@@ -2313,17 +2310,6 @@ export default {
     libraryRewrite: '改写',
     libraryPreviewTitle: '文案内容',
     libraryClose: '关闭',
-    libraryRewriteModalTitle: '改写文案',
-    libraryRewriteOptions: '改写选项',
-    libraryRewriteStyle: '改写风格',
-    libraryRewriteKnowledge: '改写参考',
-    libraryRewriteLength: '目标字数',
-    libraryRewritePlatform: '目标平台',
-    librarySourceSection: '原文',
-    libraryResultSection: '改写结果',
-    libraryRewriteStart: '开始改写',
-    libraryRewriteStarting: '改写中...',
-    libraryRewriteDone: '改写完成，已存入文案库',
     libraryRewriteNoContent: '该文案没有正文内容，无法改写',
   },
   rewriteEngine: {
@@ -2541,12 +2527,6 @@ export default {
     signingIn: '正在打开登录...'
   },
 
-viralAnalysis: {
-  empty: {
-    title: '输入主题开始分析',
-    message: 'AI 将从标题结构、情感触发、互动热度等维度分析爆款潜力',
-  },
-},
 knowledgeBase: {
     title: '知识库',
     empty: {
@@ -2841,6 +2821,9 @@ knowledgeBase: {
     reportKeywords: '上升关键词',
     reportFactors: '因子分解',
     reportPlatform: '目标平台',
+    // 空状态（2026-09-18）：原为硬编码中文，被 CI check-locale-sync --cjk 拦截
+    emptyTitle: '输入主题开始分析',
+    emptyDescription: 'AI 将从标题结构、情感触发、互动热度等维度分析爆款潜力',
   },
 
   // ── 发布去向弹窗 ──

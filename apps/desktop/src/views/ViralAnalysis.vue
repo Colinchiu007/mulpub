@@ -234,8 +234,8 @@
           v-else-if="!result"
           data-testid="viral-analysis-empty"
           icon="🔥"
-          :title="$t('viralAnalysis.empty.title')"
-          :description="$t('viralAnalysis.empty.message')"
+          :title="$t('viralAnalysis.emptyTitle')"
+          :description="$t('viralAnalysis.emptyDescription')"
         />
       </div>
     </div>

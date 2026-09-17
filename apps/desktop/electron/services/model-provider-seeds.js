@@ -385,6 +385,19 @@ const PRESET_PROVIDERS = [
       video: 'MiniMax-Hailuo-2.3',
     },
   },
+  {
+    // Agnes-AI 多模态：合并 Agnes 文字推理 / 图片生成 / 视频生成三类模型（中国站）
+    id: 'agnes-multimodal', name: 'Agnes-AI', category: 'multimodal',
+    base_url: 'https://api.agnes-ai.cn/v1',
+    models: ['agnes-3.0-flash', 'agnes-image-2.5-flash', 'agnes-video-2.5-flash'],
+    is_preset: 1,
+    capabilities: ['llm', 'image', 'video'],
+    capability_models: {
+      llm: 'agnes-3.0-flash',
+      image: 'agnes-image-2.5-flash',
+      video: 'agnes-video-2.5-flash',
+    },
+  },
 ];
 
 /**
@@ -450,6 +463,7 @@ const PRESET_RATE_LIMITS = {
   musicgen: { rate_per_minute: 6 },
   // ── 多模态 ──
   'minimax-multimodal': { rate_per_minute: 20 },
+  'agnes-multimodal': { rate_per_minute: 20 },
 };
 
 module.exports = {
