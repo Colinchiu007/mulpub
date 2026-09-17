@@ -2772,6 +2772,8 @@ knowledgeBase: {
     // Length overview: source → result. Rendered via i18n named interpolation,
     // e.g. "Source 8 → Result 720 chars".
     metaLength: 'Source {original} → Result {result} chars',
+    // Same metric for topic-creation mode: the input is a topic seed, not the source text
+    metaLengthFromTopic: 'Topic {original} → Result {result} chars',
     saveDraft: '💾 Save draft',
     goPublish: '🚀 Publish',
     goVideo: '🎬 Create Video',

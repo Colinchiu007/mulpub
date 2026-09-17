@@ -406,9 +406,19 @@ describe('RewriteView', () => {
 
   // ── 结果区元信息与复制按钮（BUGFIX-REWRITE-QUALITY-UX）──
 
-  /** 跑一次改写，返回 wrapper 与结果文本框 */
-  async function runRewrite() {
+  /** 改写模式 chip 顺序与组件内 rewriteModes 一致：imitate / expand / create */
+  const MODE_CHIP_INDEX = { imitate: 0, expand: 1, create: 2 }
+
+  /**
+   * 跑一次改写并返回 wrapper。
+   * @param {string} [mode] 指定改写模式（不传则用组件默认值 create）
+   */
+  async function runRewrite(mode) {
     const wrapper = factory()
+    if (mode) {
+      await wrapper.findAll('.mode-chip')[MODE_CHIP_INDEX[mode]].trigger('click')
+      await nextTick()
+    }
     const input = wrapper.find('textarea.rewrite-textarea')
     await input.setValue('这是一段足够长的测试文案内容，超过二十个字，测试改写功能。')
     await nextTick()
@@ -419,11 +429,43 @@ describe('RewriteView', () => {
   }
 
   it('元信息栏渲染字数概览（占位符已被插值，不泄漏 {original}/{result}）', async () => {
-    const wrapper = await runRewrite()
+    const wrapper = await runRewrite('imitate')
     const meta = wrapper.find('.rewrite-result-meta')
     expect(meta.exists()).toBe(true)
     expect(meta.text()).toContain('原文 30 字 → 结果 18 字')
     expect(meta.text()).not.toMatch(/\{[^{}]+\}/)
+  })
+
+  // 设计评审 Q5：选题创作模式的输入是「主题种子」而非待改写正文，
+  // 字数概览若标成「原文」会把种子误读为需保留语义的原文（与评分口径同一概念陷阱）
+  it('选题创作模式下字数概览用「主题」（组件默认模式即 create）', async () => {
+    const wrapper = await runRewrite() // 不指定模式 → 组件默认 create
+    const meta = wrapper.find('.rewrite-result-meta')
+    expect(meta.text()).toContain('主题 30 字 → 结果 18 字')
+    expect(meta.text()).not.toContain('原文')
+    expect(meta.text()).not.toMatch(/\{[^{}]+\}/)
+  })
+
+  it('扩写模式下字数概览用「原文」', async () => {
+    const wrapper = await runRewrite('expand')
+    expect(wrapper.find('.rewrite-result-meta').text()).toContain('原文 30 字 → 结果 18 字')
+  })
+
+  it('元信息缺少 mode 时回退「原文」（向后兼容旧后端）', async () => {
+    const mocks = await import('@/api/publisher')
+    mocks.aiRewrite.mockResolvedValueOnce({
+      code: 0,
+      data: {
+        success: true,
+        result: '这是改写后的文案内容，用于测试。',
+        strategy: { id: 's1', name: '测试策略', category: 'viral' },
+        warnings: [], sensitiveHits: [], knowledgeRefs: [],
+        metadata: { originalLength: 30, resultLength: 18, aiTasteLevel: 0.15 }, // 无 mode 字段
+        quality: { sufficiency: 78.5, semanticPreservation: 65.2, originality: 82.1, verdict: 'pass', suggestions: ['好'], method: 'simhash' },
+      },
+    })
+    const wrapper = await runRewrite()
+    expect(wrapper.find('.rewrite-result-meta').text()).toContain('原文 30 字 → 结果 18 字')
   })
 
   it('复制按钮渲染在结果文本框下方', async () => {

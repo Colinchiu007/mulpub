@@ -2773,6 +2773,8 @@ knowledgeBase: {
     metaAiTaste: 'AI味等级',
     // 字数概览：原文 → 结果。经 i18n 命名插值渲染为「原文 8 字 → 结果 720 字」
     metaLength: '原文 {original} 字 → 结果 {result} 字',
+    // 选题创作模式的同项文案：输入是「主题种子」而非待改写正文，用「原文」会造成概念误读
+    metaLengthFromTopic: '主题 {original} 字 → 结果 {result} 字',
     saveDraft: '💾 存入草稿',
     goPublish: '🚀 去发布',
     goVideo: '🎬 视频创作',

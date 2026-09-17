@@ -496,7 +496,7 @@ evaluate(original, rewritten, { mode })
 | 范围 | 结果 |
 |------|------|
 | `packages/rewrite-engine` 全量 | **132/132 通过**（11 文件；基线 102 → +30） |
-| 桌面端定向（RewriteView + i18n + clipboard） | **74/74 通过** |
+| 桌面端定向（RewriteView + i18n + clipboard + design-system） | **90/90 通过**（RewriteView 60 / i18n 17 / clipboard 9 / cohere-design-system 4） |
 | 桌面端全量 / CI 全量 | 见 PR CI |
 
 ### 7.2 事故用例修复前后对照（实测）
@@ -555,6 +555,22 @@ evaluate(original, rewritten, { mode })
 | W-2(codex) | 同一组件混用 `collection.*` 与 `rewritePage.*` 通知命名空间 | 属实但为**预存风格问题**；迁移需评估 `errorCategory` 日志归类影响，登记后续项 |
 | W-3(codex) | `usePublishFlow.js` 回退分支缺 `finally` 清理 | 属实但为**预存缺陷**，已登记 §8 P1（迁移时一并修复） |
 
+### 7.6 设计评审（Design Review）
+
+由团队「设计顾问」做只读设计/文案评审（含对比度实测）。**0 Critical 新增，3 项判定采纳并已修**：
+
+| 编号 | 评审结论 | 处置 |
+|------|---------|------|
+| Q2 | 三态色在 12-13px 下对比度均 < WCAG AA 4.5:1（实测 pass 3.23 / warn 3.02 / fail 3.37），且 warn 与 fail 色相仅差 ≈12° 难区分 | **已修**：取消结论文本上色（保持 `--ink`），颜色信号仅由 3px 强调条承担（非文本图形 3:1 达标）；强调条失败态 `#dc2626` → `#ea580c` |
+| Q4 | 复制行右对齐、而动作行次按钮左对齐 → 紧邻形成 **Z 形错位** | **已修**：复制行改 `justify-content: flex-start` |
+| Q5 | `create` 模式下输入是「主题种子」却标为「原文」——**与 semantic 9.89 误判同源的概念陷阱** | **已修**：新增 `metaLengthFromTopic`，create 显示「主题 4 字 → 结果 831 字」 |
+| Q1 | 三态存在**混轴**（合格=评价 / 需注意=提示 / 建议优化=动作），建议整体改单轴三档 | **部分采纳**：本次仅按用户明确诉求中性化第三态；混轴属更大范围的文案统一，登记后续项 |
+| Q3 | 结论区信息过载：结论排第 4 位、无单位浮点数伪精度、评估方式对创作者无意义 | **登记 P2**：#1892 刚重构该区域，本 PR 不重复改动 |
+| Q4-④ | `v-if="rewriteResult"` 导致清空文本框会整块丢失结果卡 | **登记 P2**（**预存行为**，非本次引入，待 UX 决策） |
+| 另 | 该组件曾引用 `--surface-secondary` / `--text-primary` / `--text-secondary` 未定义令牌 | **已由 #1892 一并修复**（核实当前用到的 11 个变量全部有定义） |
+
+**评审价值**：Q2（对比度实测）与 Q5（「原文」用词语义）是本轮**未自查出**的两处真实问题；Q4 的 Z 形错位为真实视觉缺陷。完整记录见 `PRD-REWRITE-ENGINE.md` §13.11.11。
+
 ---
 
 ## 八、已知局限与后续项
@@ -568,6 +584,9 @@ evaluate(original, rewritten, { mode })
 | P1 | 剪贴板实现迁移 | 全仓共 **9 个**非测试源码文件使用剪贴板 API，已迁移 2 个（`RewriteView.vue`、`useFilmEngineering.js`）→ **剩 7 处待迁移**：`NavBar.vue`（无回退分支）、`TagSuggester.vue`、`usePublishFlow.js`（后两者回退分支缺 `finally` 清理）、`Collection.vue`、`FilmEngineeringView.vue`、`PromptEvalView.vue`、`ResultView.vue` |
 | P1 | JS↔Python 双评估器 parity | 仓库有两套独立评估器（JS `RewriteQualityEvaluator` 3 维 / Python `ContentQualityEvaluator` 15 维）。**Python 侧早已修过同类"短文被长文标准误判"问题**（`test_evaluator_shorttext_calibration.py`），JS 侧直到本次才修，且**跨实现无任何 parity 冒烟测试** → 典型双实现漂移。建议补一条对照冒烟：同一组文本两套实现结论不矛盾 |
 | P2 | 拉丁文分词 | `extractKeywords` 走字符 2-gram，未做词切分；英文长文的关键词覆盖率天然偏低（实测英文用例语义保持度 73 vs 中文 100）。占比 70% 的 `charCoverage` 已兜住，但指标对英文不敏感 |
+| P2 | 结论区信息层级（设计评审 Q3） | 结论排在 5 项中的第 4 位、视觉权重与单个数字相同；`9.89` / `99.37` 这类**无单位高精度浮点数**对普通内容创作者是「伪精度」（4 字输入上的两位小数无决策价值）；「评估方式：SimHash 指纹」对创作者无意义。建议重构为主/次/辅助三级，数值降级为等级或加 tooltip |
+| P2 | 清空文本框丢失结果卡（设计评审 Q4-④） | 结果卡 `v-if="rewriteResult"`，用户清空文本框（或全选删除）会**整块丢失**结果卡与质量报告，无草稿兜底。属**预存行为**非本次引入，待 UX 决策（如改为 `v-if="hasResult || draftSaved"` 或加「结果已清空，点此恢复」） |
+| P2 | 三态结论文案混轴（设计评审 Q1） | 「合格」(评价) / 「需注意」(提示) / 「建议优化」(动作) 三种语用混一条轴。建议整体改为单轴三档（质量优秀/良好/尚可）。本次仅按用户诉求中性化第三态，未扩大范围 |
 | P2 | 数字类内容假阴性 | 纯数字/参数化文本（如价格、日期、指标）仅数字改变时，覆盖率仍高 → 判 `pass`。实测：「事实已变」的纯数字样例语义保持度 72.44 → `pass`。**本次未修复**，需引入实体/数字一致性校验 |
 | P2 | Markdown / 标点噪声虚高 | 标点与 Markdown 符号大量重复进入 2-gram top-N，抬高分值。实测标点密集样例语义保持度 73.94 → `pass`（噪声虚高）。**本次未修复**，需在 `tokenize` 阶段过滤标点与结构性符号 |
 | P2 | 主题相关性判据 | `create` 模式的 `semantic < 15 → warn` 仍是覆盖率近似。更准确的做法是用 embedding 语义向量做「主题相关性」判定（`evaluateAsync` 已有 embedding 分支，可复用）；独立复核亦建议 `create` 改用 `topicRel` 而非覆盖率 |
@@ -589,6 +608,9 @@ evaluate(original, rewritten, { mode })
 - [ ] 复制失败时按钮不复显"已复制"
 - [ ] `rewritePage.metaLength` zh/en 占位符集合一致（CI locale-sync 门禁）
 - [ ] i18n 全量插值守卫测试通过（68 条语料 / 16 处调用点无泄漏）
-- [ ] `packages/rewrite-engine` 119 例、桌面端定向 72 例全绿
+- [ ] 结论文本保持中性色（对比度达标）；三态颜色仅由强调条承载，强调条失败态为暖橙（非错误红）
+- [ ] 复制按钮与动作行次按钮**左对齐**（无 Z 形错位）
+- [ ] 选题创作模式字数概览显示「**主题** N 字 → 结果 M 字」；其余模式显示「原文」
+- [ ] `packages/rewrite-engine` 132 例、桌面端定向 90 例全绿
 - [ ] eslint 0 error；CJK 硬编码门禁 PASS
 - [ ] 报告字段 `mode` / `textSimilarity` 可被前端读取（向后兼容：旧消费方忽略新增字段）
