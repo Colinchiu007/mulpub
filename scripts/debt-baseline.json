@@ -5,7 +5,7 @@
   "filesOver1000": 31,
   "filesOver500": 87,
   "modelProviderLines": 1241,
-  "modelProviderRequireFanOut": 64,
+  "modelProviderRequireFanOut": 65,
   "circularDeps": 0,
   "circularDepDetails": []
 }
