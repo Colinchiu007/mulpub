@@ -2837,6 +2837,9 @@ knowledgeBase: {
     reportKeywords: 'Rising keywords',
     reportFactors: 'Factors',
     reportPlatform: 'Target platform',
+    // Empty state (2026-09-18): was hardcoded Chinese, blocked by CI check-locale-sync --cjk
+    emptyTitle: 'Enter a topic to start analysis',
+    emptyDescription: 'AI will analyze viral potential across title structure, emotional triggers and engagement heat',
   },
 
   // ── Publish destination modal ──

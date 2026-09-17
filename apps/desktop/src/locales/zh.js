@@ -2837,6 +2837,9 @@ knowledgeBase: {
     reportKeywords: '上升关键词',
     reportFactors: '因子分解',
     reportPlatform: '目标平台',
+    // 空状态（2026-09-18）：原为硬编码中文，被 CI check-locale-sync --cjk 拦截
+    emptyTitle: '输入主题开始分析',
+    emptyDescription: 'AI 将从标题结构、情感触发、互动热度等维度分析爆款潜力',
   },
 
   // ── 发布去向弹窗 ──
