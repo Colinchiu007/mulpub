@@ -20,6 +20,22 @@
 
 ---
 
+# [未发布] fix(i18n): EmptyState 空态硬编码中文迁移 locale + 修复 #1899 遗留的 locale 重复键（2026-09-18）
+
+### 修复
+- **QG Static 根因**：#1899 将 ViralAnalysis.vue 空状态改为 EmptyState 组件时引入 2 处属性硬编码中文（`title="输入主题开始分析"` / `description="AI 将从…"`），未走 locale → `check-locale-sync --cjk` fresh 2 → CI 挂。
+- **locale 结构缺陷**：#1899 在 zh/en 各加了一个**顶格重复的 `viralAnalysis` 残缺块**（仅含 empty 子键），与既有完整块形成重复键（后者覆盖前者，empty 键实际不可达）——已删除残缺块，将 `viralAnalysis.empty.{title,message}` 并入完整块。
+
+### 变更
+- 全仓 8 文件 **14 处** EmptyState 属性硬编码中文迁移到 `$t`（2 处 fresh + 12 处基线内存量同类债）：新增 `viralAnalysis.empty.*` 与集中式 `emptyStates.*`（10 组键）zh/en 成对；空态文案渲染值不变。
+- 5 个受影响测试文件（CloudPublish/ContactSheetView/CreateHistory/ProductionBoard/views-coverage）通过 `@vue/test-utils` `config.global.plugins` 注入 i18n，修复裸 mount 渲染崩溃。
+
+### 验证
+- `check-locale-sync --cjk` PASS（CJK 硬编码**净减 11 条**：1644 基线 → 1393 当前）；`--keys` PASS（1035 keys）；check-locale-sync.test.js 6/6（含行号漂移回归用例）。
+- 受影响 view 测试回归：CloudPublish 16/16、ContactSheetView 18/18、CreateHistory 23/23、ProductionBoard 28/28、Dashboard 13/13、Intelligence 16/16、ViralAnalysis 24/24、views-coverage2 7/7、EmptyState 7/7（views-coverage 中 Accounts/Collection 2 例为 worktree Junction 环境下 workspace 包解析限制，共享根完整环境对照 PASS）。
+
+---
+
 # [未发布] feat(viral): 爆款分析/文案生成 × 改写引擎/评估机制集成 P0（2026-09-16）
 ### 新增
 - **爆款分析结果存入爆款库**：`ViralAnalysis.vue` 分析成功后可一键落库（复用既有 `knowledge-library:add-viral` IPC，无新增通道）；`title` 取 `analyzedTopic` 快照，`content` 为 i18n 组装的分析报告 Markdown（天然可被改写引擎三层知识库第 2 层「结合爆款库」检索），`tags` = 平台+推荐角度+上升关键词去重。

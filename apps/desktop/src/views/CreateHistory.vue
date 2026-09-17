@@ -31,7 +31,7 @@
       </div>
       <div v-else>
         <div v-if="renderError" class="history-error"><p>{{ renderError }}</p><UiButton size="sm" @click="loadRenders">重试</UiButton></div>
-        <EmptyState v-if="renders.length === 0" icon="🎬" title="暂无渲染记录" description="创作你的第一个视频，记录将在这里显示">
+        <EmptyState v-if="renders.length === 0" icon="🎬" :title="$t('emptyStates.createHistoryRenders.title')" :description="$t('emptyStates.createHistoryRenders.message')">
           <template #actions>
             <UiButton @click="$router.push('/create')">去创作</UiButton>
           </template>
@@ -62,7 +62,7 @@
       </div>
       <div v-else>
         <div v-if="pipelineError" class="history-error pipeline-history-error"><p>{{ pipelineError }}</p><UiButton size="sm" @click="loadPipelines">重试</UiButton></div>
-        <EmptyState v-if="pipelines.length === 0" icon="🔄" title="暂无流水线运行记录" description="选择创作模式开始流水线，运行记录将在这里显示">
+        <EmptyState v-if="pipelines.length === 0" icon="🔄" :title="$t('emptyStates.createHistoryPipelines.title')" :description="$t('emptyStates.createHistoryPipelines.message')">
           <template #actions>
             <UiButton @click="$router.push('/create')">浏览流水线</UiButton>
           </template>

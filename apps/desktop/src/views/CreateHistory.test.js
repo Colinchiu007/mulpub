@@ -18,6 +18,10 @@ vi.mock('vue-router', () => ({
 
 import CreateHistory from './CreateHistory.vue'
 import i18n from '@/i18n'
+import { config as vtuConfig } from '@vue/test-utils'
+import i18n from '@/i18n'
+// EmptyState 文案迁移 i18n 后模板使用 $t：为裸 mount 的旧用例全局注入 i18n 插件
+vtuConfig.global.plugins = [i18n]
 
 describe('CreateHistory', () => {
   beforeEach(() => {

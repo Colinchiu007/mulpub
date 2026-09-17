@@ -4,6 +4,10 @@ import { nextTick } from "vue";
 import { setActivePinia, createPinia } from "pinia";
 import { ElMessage } from "element-plus";
 import i18n from "@/i18n";
+import { config as vtuConfig } from '@vue/test-utils'
+import i18n from '@/i18n'
+// EmptyState 文案迁移 i18n 后模板使用 $t：为裸 mount 的旧用例全局注入 i18n 插件
+vtuConfig.global.plugins = [i18n]
 
 const pushSpy = vi.fn();
 vi.mock("vue-router", () => ({ useRouter: () => ({ push: pushSpy }), useRoute: () => ({ query: {} }) }));

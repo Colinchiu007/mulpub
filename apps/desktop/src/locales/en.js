@@ -2539,12 +2539,6 @@ export default {
     statusUnknown: 'Unknown',
     signingIn: 'Opening sign-in...'
   },
-viralAnalysis: {
-  empty: {
-    title: 'Enter a topic to start',
-    message: 'AI will score viral potential across title structure, emotional triggers and engagement',
-  },
-},
 knowledgeBase: {
     title: 'Knowledge Base',
     empty: {
@@ -2824,6 +2818,11 @@ knowledgeBase: {
 
   // ── Viral analysis page (viral-rewrite-integration) ──
   viralAnalysis: {
+    // ── Empty state (EmptyState component copy, migrated from #1899 hardcode) ──
+    empty: {
+      title: 'Enter a topic to start',
+      message: 'AI will score viral potential across title structure, emotional triggers and engagement',
+    },
     saveToLibrary: 'Save to viral library',
     savedToLibrary: 'Saved to viral library; retrievable via "Use viral library" when rewriting',
     saveToLibraryHint: 'Save this analysis to the viral library for the rewrite engine',
@@ -2852,6 +2851,44 @@ knowledgeBase: {
   },
 
   // ── Hot topics page ──
+  // ── EmptyState centralized copy (migrated from #1899 inline hardcode) ──
+  emptyStates: {
+    cloudPublish: {
+      title: 'No publish records yet',
+    },
+    contactSheet: {
+      title: 'No scenes pending approval',
+      message: 'Scenes will appear here automatically once assets are generated',
+    },
+    createHistoryRenders: {
+      title: 'No render records yet',
+      message: 'Create your first video and records will show up here',
+    },
+    createHistoryPipelines: {
+      title: 'No pipeline runs yet',
+      message: 'Pick a creation mode to start a pipeline; runs will show up here',
+    },
+    dashboard: {
+      title: 'No data yet',
+      message: 'Click "Refresh data" to sync platform information',
+    },
+    intelligence: {
+      title: 'No results, try other keywords',
+    },
+    productionBoardBoard: {
+      title: 'No board data yet',
+    },
+    productionBoardScenes: {
+      title: 'No scenes in this stage',
+    },
+    promptEvalRecords: {
+      title: 'No evaluation records yet. Run an evaluation first.',
+    },
+    promptEvalStats: {
+      title: 'No data yet. Run an evaluation to see aggregate analysis.',
+    },
+  },
+
   hotTopics: {
     menuLabel: 'Hot Topics',
     pageTitle: 'Hot Topics',
