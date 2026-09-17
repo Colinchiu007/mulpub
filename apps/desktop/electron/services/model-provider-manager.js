@@ -505,6 +505,7 @@ class ModelProviderManager {
       wan: require('./adapters/wan').WanAdapter,
       minimax: require('./adapters/minimax').MiniMaxAdapter,
       'minimax-multimodal': require('./adapters/minimax-multimodal').MinimaxMultimodalAdapter,
+      'agnes-multimodal': require('./adapters/agnes-multimodal').AgnesMultimodalAdapter,
       ltx: require('./adapters/ltx').LtxAdapter,
       seedance: require('./adapters/seedance').SeedanceAdapter,
       higgsfield: require('./adapters/higgsfield').HiggsfieldAdapter,
