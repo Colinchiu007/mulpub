@@ -97,7 +97,7 @@
 
     <!-- ==================== 历史记录 ==================== -->
     <div v-if="tab === 'history'" class="eval-history card">
-      <EmptyState v-if="!records.length" title="暂无评估记录，先运行一次评估吧。" />
+      <EmptyState v-if="!records.length" :title="$t('emptyStates.promptEvalRecords.title')" />
       <table v-else class="record-table">
         <thead><tr><th>时间</th><th>ID</th><th>总分</th><th>等级</th><th>图片数</th><th>操作</th></tr></thead>
         <tbody>
@@ -122,7 +122,7 @@
 
     <!-- ==================== 聚合分析 ==================== -->
     <div v-if="tab === 'analyze'" class="eval-analyze card">
-      <EmptyState v-if="!stats" title="暂无数据，先运行评估再来看聚合分析。" />
+      <EmptyState v-if="!stats" :title="$t('emptyStates.promptEvalStats.title')" />
       <template v-else>
         <div class="stat-cards">
           <div class="stat-card"><span class="stat-num">{{ stats.recordCount }}</span>评估记录</div>

@@ -28,7 +28,7 @@
     </div>
 
     <!-- 空状态 -->
-    <EmptyState v-else-if="scenes.length === 0" title="暂无待审批场景" description="场景素材生成完成后将自动显示在此" />
+    <EmptyState v-else-if="scenes.length === 0" :title="$t('emptyStates.contactSheet.title')" :description="$t('emptyStates.contactSheet.message')" />
 
     <!-- 场景列表 -->
     <div v-else class="scene-list">

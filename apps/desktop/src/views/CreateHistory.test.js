@@ -18,6 +18,9 @@ vi.mock('vue-router', () => ({
 
 import CreateHistory from './CreateHistory.vue'
 import i18n from '@/i18n'
+import { config as vtuConfig } from '@vue/test-utils'
+import i18n from '@/i18n'
+vtuConfig.global.plugins = [i18n]
 
 describe('CreateHistory', () => {
   beforeEach(() => {
