@@ -276,6 +276,42 @@ describe('resolveSidebarMenu — 组内排序（C5）', () => {
 })
 
 // ─────────────────────────────────────────────────────────
+describe('resolveSidebarMenu — 跨组归属（下发 group 覆盖本地，2026-09-16 撤销 D-GRP）', () => {
+  it('下发 group=primary 把本地 more 项提到一级导航', () => {
+    const resolved = resolveSidebarMenu(SIDEBAR_MENU_DEFINITION, {
+      items: [{ key: 'keywords', visible: true, sort_order: 0, group: 'primary' }],
+    })
+    expect(keysOf(resolved[SIDEBAR_GROUP_PRIMARY])).toContain('keywords')
+    expect(keysOf(resolved[SIDEBAR_GROUP_MORE])).not.toContain('keywords')
+  })
+
+  it('下发 group=more 把本地 primary 项降入「更多」', () => {
+    const resolved = resolveSidebarMenu(SIDEBAR_MENU_DEFINITION, {
+      items: [{ key: 'dashboard', visible: true, sort_order: 0, group: 'more' }],
+    })
+    expect(keysOf(resolved[SIDEBAR_GROUP_MORE])).toContain('dashboard')
+    expect(keysOf(resolved[SIDEBAR_GROUP_PRIMARY])).not.toContain('dashboard')
+  })
+
+  it('下发 group 非法/缺失时 fail-open 回退本地定义', () => {
+    const resolved = resolveSidebarMenu(SIDEBAR_MENU_DEFINITION, {
+      items: [{ key: 'keywords', visible: true, sort_order: 0, group: 'bogus' }],
+    })
+    // 本地定义 keywords 在 more → 回退后仍属 more
+    expect(keysOf(resolved[SIDEBAR_GROUP_MORE])).toContain('keywords')
+    expect(keysOf(resolved[SIDEBAR_GROUP_PRIMARY])).not.toContain('keywords')
+  })
+
+  it('强制显示项即使下发 group=more 仍锁定一级导航', () => {
+    const resolved = resolveSidebarMenu(SIDEBAR_MENU_DEFINITION, {
+      items: [{ key: 'publish', visible: true, sort_order: 0, group: 'more' }],
+    })
+    expect(keysOf(resolved[SIDEBAR_GROUP_PRIMARY])).toContain('publish')
+    expect(keysOf(resolved[SIDEBAR_GROUP_MORE])).not.toContain('publish')
+  })
+})
+
+// ─────────────────────────────────────────────────────────
 describe('resolveSidebarMenu — 不可变性与健壮性（C6）', () => {
   it('不修改传入的 definition', () => {
     const snapshot = JSON.stringify(SIDEBAR_MENU_DEFINITION.map((i) => i.key))
