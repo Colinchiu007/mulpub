@@ -37,7 +37,7 @@ permissions:
 
 jobs:
   agent-judge:
-    runs-on: [self-hosted, windows, x64]
+    runs-on: windows-latest
     timeout-minutes: 15
     env:
       LLM_PROVIDER: ${{ github.event.inputs.llm_provider || 'none' }}
@@ -102,7 +102,7 @@ jobs:
           path: |
             apps/desktop/tests/visual-testing/reports/agent-judge-*.json
             apps/desktop/tests/visual-testing/reports/agent-judge-*.md
-          retention-days: 30
+          retention-days: 5
           if-no-files-found: warn
 
       # ---- PR 评论: 仅 verdict 可用时 ----
@@ -217,6 +217,11 @@ jobs:
         if: github.event_name == 'pull_request'
         shell: pwsh
         run: |
+          # 未配置 LLM 时 Agent Judge 无法产出真实 verdict，降级为非阻塞（设计意图：NEED_HUMAN 仅告警）
+          if ($env:LLM_PROVIDER -eq 'none') {
+            Write-Host "::warning::Agent Judge LLM not configured; skipping coverage gate (non-blocking). Configure OPENAI_API_KEY / LLM_BASE_URL / LLM_MODEL to enable verdict."
+            exit 0
+          }
           $gateArgs = @(
             ".github/scripts/agent-review-gate.js",
             "agent-judge",

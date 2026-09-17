@@ -406,9 +406,19 @@ describe('RewriteView', () => {
 
   // ── 结果区元信息与复制按钮（BUGFIX-REWRITE-QUALITY-UX）──
 
-  /** 跑一次改写，返回 wrapper 与结果文本框 */
-  async function runRewrite() {
+  /** 改写模式 chip 顺序与组件内 rewriteModes 一致：imitate / expand / create */
+  const MODE_CHIP_INDEX = { imitate: 0, expand: 1, create: 2 }
+
+  /**
+   * 跑一次改写并返回 wrapper。
+   * @param {string} [mode] 指定改写模式（不传则用组件默认值 create）
+   */
+  async function runRewrite(mode) {
     const wrapper = factory()
+    if (mode) {
+      await wrapper.findAll('.mode-chip')[MODE_CHIP_INDEX[mode]].trigger('click')
+      await nextTick()
+    }
     const input = wrapper.find('textarea.rewrite-textarea')
     await input.setValue('这是一段足够长的测试文案内容，超过二十个字，测试改写功能。')
     await nextTick()
@@ -419,11 +429,43 @@ describe('RewriteView', () => {
   }
 
   it('元信息栏渲染字数概览（占位符已被插值，不泄漏 {original}/{result}）', async () => {
-    const wrapper = await runRewrite()
+    const wrapper = await runRewrite('imitate')
     const meta = wrapper.find('.rewrite-result-meta')
     expect(meta.exists()).toBe(true)
     expect(meta.text()).toContain('原文 30 字 → 结果 18 字')
     expect(meta.text()).not.toMatch(/\{[^{}]+\}/)
+  })
+
+  // 设计评审 Q5：选题创作模式的输入是「主题种子」而非待改写正文，
+  // 字数概览若标成「原文」会把种子误读为需保留语义的原文（与评分口径同一概念陷阱）
+  it('选题创作模式下字数概览用「主题」（组件默认模式即 create）', async () => {
+    const wrapper = await runRewrite() // 不指定模式 → 组件默认 create
+    const meta = wrapper.find('.rewrite-result-meta')
+    expect(meta.text()).toContain('主题 30 字 → 结果 18 字')
+    expect(meta.text()).not.toContain('原文')
+    expect(meta.text()).not.toMatch(/\{[^{}]+\}/)
+  })
+
+  it('扩写模式下字数概览用「原文」', async () => {
+    const wrapper = await runRewrite('expand')
+    expect(wrapper.find('.rewrite-result-meta').text()).toContain('原文 30 字 → 结果 18 字')
+  })
+
+  it('元信息缺少 mode 时回退「原文」（向后兼容旧后端）', async () => {
+    const mocks = await import('@/api/publisher')
+    mocks.aiRewrite.mockResolvedValueOnce({
+      code: 0,
+      data: {
+        success: true,
+        result: '这是改写后的文案内容，用于测试。',
+        strategy: { id: 's1', name: '测试策略', category: 'viral' },
+        warnings: [], sensitiveHits: [], knowledgeRefs: [],
+        metadata: { originalLength: 30, resultLength: 18, aiTasteLevel: 0.15 }, // 无 mode 字段
+        quality: { sufficiency: 78.5, semanticPreservation: 65.2, originality: 82.1, verdict: 'pass', suggestions: ['好'], method: 'simhash' },
+      },
+    })
+    const wrapper = await runRewrite()
+    expect(wrapper.find('.rewrite-result-meta').text()).toContain('原文 30 字 → 结果 18 字')
   })
 
   it('复制按钮渲染在结果文本框下方', async () => {
@@ -842,6 +884,88 @@ describe('RewriteView — 策略选择与匹配预览', () => {
     await nextTick()
     expect(wrapper.find('.strategy-preview').text()).toContain('抖音爆款策略')
     expect(wrapper.find('.strategy-preview').text()).not.toContain('通用慢策略')
+  })
+})
+
+// ── viral-rewrite-integration：标题参考 chip + 爆款潜力第 4 维展示 ──
+describe('RewriteView viral integration', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockRouteQuery.value = {}
+    mockRouterPush.mockClear()
+  })
+
+  it('titleHint query prefills removable chip', async () => {
+    mockRouteQuery.value = { titleHint: 'AI工具推荐TOP5' }
+    const wrapper = factory()
+    await nextTick()
+    const chip = wrapper.find('[data-testid="rewrite-title-hint"]')
+    expect(chip.exists()).toBe(true)
+    expect(chip.text()).toContain('AI工具推荐TOP5')
+    await wrapper.find('[data-testid="rewrite-title-hint-remove"]').trigger('click')
+    await nextTick()
+    expect(wrapper.find('[data-testid="rewrite-title-hint"]').exists()).toBe(false)
+  })
+
+  it('startRewrite passes titleHint to aiRewrite', async () => {
+    mockRouteQuery.value = { titleHint: 'AI工具推荐TOP5' }
+    const wrapper = factory()
+    await nextTick()
+    await wrapper.find('textarea.rewrite-textarea').setValue('需要改写的原始文案内容')
+    await wrapper.find('button.rewrite-start-btn').trigger('click')
+    await nextTick()
+    const { aiRewrite } = await import('@/api/publisher')
+    expect(aiRewrite).toHaveBeenCalledWith(expect.objectContaining({ titleHint: 'AI工具推荐TOP5' }))
+  })
+
+  it('startRewrite omits titleHint when chip removed', async () => {
+    mockRouteQuery.value = { titleHint: 'AI工具推荐TOP5' }
+    const wrapper = factory()
+    await nextTick()
+    await wrapper.find('[data-testid="rewrite-title-hint-remove"]').trigger('click')
+    await wrapper.find('textarea.rewrite-textarea').setValue('需要改写的原始文案内容')
+    await wrapper.find('button.rewrite-start-btn').trigger('click')
+    await nextTick()
+    const { aiRewrite } = await import('@/api/publisher')
+    const params = aiRewrite.mock.calls[0][0]
+    expect(params.titleHint).toBeUndefined()
+  })
+
+  it('renders viral potential metric when engine returns viral field', async () => {
+    const { aiRewrite } = await import('@/api/publisher')
+    aiRewrite.mockImplementationOnce(async () => ({
+      code: 0,
+      data: {
+        success: true,
+        result: '改写后的文案。',
+        strategy: { id: 'auto', name: '测试策略', category: 'viral' },
+        warnings: [],
+        sensitiveHits: [],
+        knowledgeRefs: [],
+        metadata: { mode: 'imitate', originalLength: 10, resultLength: 8, aiTasteLevel: 0.1 },
+        quality: { sufficiency: 80, semanticPreservation: 60, originality: 70, simhashDistance: 7, verdict: 'pass', suggestions: [], method: 'simhash' },
+        viral: { original: 62.5, rewritten: 78.3, delta: 15.8, mode: 'local-fallback' },
+      },
+    }))
+    const wrapper = factory()
+    await nextTick()
+    await wrapper.find('textarea.rewrite-textarea').setValue('需要改写的原始文案内容')
+    await wrapper.find('button.rewrite-start-btn').trigger('click')
+    await nextTick()
+    const viralEl = wrapper.find('[data-testid="rewrite-viral-info"]')
+    expect(viralEl.exists()).toBe(true)
+    expect(viralEl.text()).toContain('62.5')
+    expect(viralEl.text()).toContain('78.3')
+    expect(viralEl.text()).toContain('15.8')
+  })
+
+  it('hides viral metric when engine returns no viral field (regression)', async () => {
+    const wrapper = factory()
+    await nextTick()
+    await wrapper.find('textarea.rewrite-textarea').setValue('需要改写的原始文案内容')
+    await wrapper.find('button.rewrite-start-btn').trigger('click')
+    await nextTick()
+    expect(wrapper.find('[data-testid="rewrite-viral-info"]').exists()).toBe(false)
   })
 })
 

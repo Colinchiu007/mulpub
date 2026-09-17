@@ -19,11 +19,15 @@
     </div>
 
     <!-- 空状态 -->
-    <EmptyState v-else-if="projects.length === 0" icon="🎬" title="暂无项目，开始第一次视频生产吧">
-      <template #actions>
-        <UiButton @click="$router.push('/create')">浏览流水线</UiButton>
-      </template>
-    </EmptyState>
+    <EmptyState
+      v-else-if="projects.length === 0"
+      data-testid="project-library-empty"
+      icon="🎬"
+      :title="t('projectLibrary.empty.title')"
+      :description="t('projectLibrary.empty.message')"
+      :action-text="t('projectLibrary.empty.action')"
+      @action="router.push('/create')"
+    />
 
     <!-- 项目列表 -->
     <div v-else class="project-grid">
@@ -34,43 +38,35 @@
         @delete="handleDelete"
       />
     </div>
-
-    <!-- 删除确认弹窗 -->
-    <div v-if="deleteTarget" class="confirm-overlay" @click.self="deleteTarget = null">
-      <div class="confirm-dialog">
-        <p>确定要删除项目"{{ deleteTargetName }}"吗？此操作不可撤销。</p>
-        <div class="confirm-actions">
-          <UiButton variant="ghost" @click="deleteTarget = null">取消</UiButton>
-          <UiButton variant="danger" @click="confirmDelete">删除</UiButton>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import { useProjectList } from '@/composables/useBacklot'
 import ProjectCard from '@/components/ProjectCard.vue'
 import UiButton from '@/components/UiButton.vue'
+import { confirmDanger } from '@/utils/confirm-danger'
 
+const { t } = useI18n()
+const router = useRouter()
 const { projects, loading, error, refresh, deleteProject } = useProjectList()
 
-const deleteTarget = ref(null)
-const deleteTargetName = computed(() => {
-  if (!deleteTarget.value) return ''
-  const p = projects.value.find(x => x.id === deleteTarget.value)
-  return p ? p.name : ''
-})
-
-function handleDelete(projectId) {
-  deleteTarget.value = projectId
-}
-
-async function confirmDelete() {
-  if (!deleteTarget.value) return
-  await deleteProject(deleteTarget.value)
-  deleteTarget.value = null
+// 危险操作门禁（docs/frontend-interaction-spec.md §2）：删除项目为不可逆操作，
+// 必须经 confirmDanger 二次确认，取消时不得触发底层删除 API。
+async function handleDelete(projectId) {
+  if (!projectId) return
+  const target = projects.value.find(x => x && x.id === projectId)
+  const name = target && target.name ? target.name : projectId
+  const confirmed = await confirmDanger({
+    title: t('projectLibrary.deleteConfirmTitle'),
+    message: t('projectLibrary.deleteConfirmMessage', { name }),
+    confirmText: t('projectLibrary.deleteConfirmButton'),
+  })
+  if (!confirmed) return
+  await deleteProject(projectId)
 }
 
 onMounted(() => {
@@ -113,36 +109,5 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 16px;
-}
-
-/* 删除确认弹窗 */
-.confirm-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0,0,0,0.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-.confirm-dialog {
-  background: var(--bg-card, #fff);
-  border-radius: 12px;
-  padding: 24px;
-  max-width: 400px;
-  width: 90%;
-}
-.confirm-dialog p {
-  margin: 0 0 20px 0;
-  font-size: 15px;
-  line-height: 1.6;
-}
-.confirm-actions {
-  display: flex;
-  gap: 12px;
-  justify-content: flex-end;
 }
 </style>

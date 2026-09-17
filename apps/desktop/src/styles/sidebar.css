@@ -1,0 +1,252 @@
+/**
+ * sidebar.css — 侧边栏（layouts/MpSidebar.vue）样式唯一来源（T0-2）
+ *
+ * 从 MpSidebar.vue 的 <style scoped> 抽出为全局文件的原因：
+ * - 暗色覆盖需要落在 `[data-theme="dark"]` 作用域下，scoped 样式无法被外部主题选择器覆盖；
+ * - 与 T1「全库 token 化」范式一致：组件只挂 class，颜色一律来自 styles/tokens.css。
+ *
+ * 硬编码色 → token 映射表（全库迁移参照；旧值仅出现在本注释，代码内不再出现）：
+ * | 旧硬编码值                      | 新 token                                | 位置                          |
+ * |--------------------------------|-----------------------------------------|-------------------------------|
+ * | #f4f2ff（渐变起点）             | --color-sidebar-bg-start                | .mp-sidebar 背景              |
+ * | #f0efff（渐变终点）             | --color-sidebar-bg-end                  | .mp-sidebar 背景              |
+ * | #7a7d99                        | --color-sidebar-text                    | .mp-sidebar 正文色            |
+ * | #e9e8f6                        | --color-sidebar-border                  | .mp-sidebar 右边框            |
+ * | #9a9cb3                        | --color-sidebar-text-muted              | .mp-sidebar-version           |
+ * | #9294ab                        | --color-sidebar-text-footer             | .mp-sidebar-footer            |
+ * | #bab9d3                        | --color-sidebar-border-strong           | .mp-sidebar-add 边框          |
+ * | #777997                        | --color-sidebar-icon                    | .mp-sidebar-add 图标          |
+ * | #5149e8（hover/active 文字、焦点环）| --color-sidebar-accent（= var(--color-primary)）| 导航项/更多项/新建按钮 |
+ * | #777a96                        | --color-sidebar-text-secondary          | .mp-primary-item              |
+ * | rgba(255,255,255,.65)          | --color-sidebar-hover-bg                | .mp-primary-item:hover        |
+ * | rgba(255,255,255,.9)           | --color-sidebar-active-bg               | .mp-primary-item.active       |
+ * | 0 2px 9px rgba(99,91,195,.08)  | --shadow-sidebar-active                 | .mp-primary-item.active 阴影  |
+ * | #d9d7ed                        | --color-sidebar-divider                 | .mp-more-menu 左分隔线        |
+ * | #8587a1                        | --color-sidebar-text-tertiary           | .mp-more-item                 |
+ * | rgba(255,255,255,.68)          | --color-sidebar-hover-bg-strong         | .mp-more-item:hover           |
+ *
+ * 约束（改动前后必须一致）：
+ * - 布局尺寸/间距/base 字号一律保持原值，本轮只换颜色来源；
+ * - `--mp-sidebar-width` 与 `@media (max-width: 900px)` 折叠逻辑不得改动；
+ * - 品牌主色统一取 var(--color-primary)，禁止在组件内自造紫（旧 #5149e8 属越界值）。
+ */
+
+.mp-sidebar {
+  width: var(--mp-sidebar-width, 200px);
+  min-width: var(--mp-sidebar-width, 200px);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  background: linear-gradient(180deg, var(--color-sidebar-bg-start) 0%, var(--color-sidebar-bg-end) 100%);
+  color: var(--color-sidebar-text);
+  border-right: 1px solid var(--color-sidebar-border);
+}
+
+.mp-sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 14px 14px;
+}
+
+/* 品牌 Logo：36px 高，宽高比 1.63 → 约 59px 宽；源图按 3x(176x108) 导出，HiDPI 下不模糊 */
+.mp-sidebar-logo {
+  height: 36px;
+  width: auto;
+  flex: 0 0 auto;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.mp-sidebar-version {
+  min-width: 0;
+  overflow: hidden;
+  flex: 0 1 auto;
+  color: var(--color-sidebar-text-muted);
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: .2px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mp-sidebar-add {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 0;
+  border: 1px solid var(--color-sidebar-border-strong);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-sidebar-icon);
+  cursor: pointer;
+}
+
+.mp-sidebar-add svg {
+  width: 14px;
+  height: 14px;
+}
+
+.mp-sidebar-add:hover,
+.mp-sidebar-add:focus-visible {
+  border-color: var(--color-sidebar-accent);
+  color: var(--color-sidebar-accent);
+}
+
+.mp-primary-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 10px;
+}
+
+.mp-primary-item {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  border-radius: 8px;
+  color: var(--color-sidebar-text-secondary);
+  font-size: 14px;
+  text-decoration: none;
+  transition: background .15s ease, color .15s ease;
+}
+
+.mp-primary-item svg {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+}
+
+.mp-primary-item:hover,
+.mp-primary-item:focus-visible {
+  background: var(--color-sidebar-hover-bg);
+  color: var(--color-sidebar-accent);
+}
+
+.mp-primary-item.active {
+  background: var(--color-sidebar-active-bg);
+  color: var(--color-sidebar-active-text);
+  font-weight: 600;
+  box-shadow: var(--shadow-sidebar-active);
+}
+
+.mp-more-trigger {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mp-more-trigger > svg:last-child {
+  width: 13px;
+  height: 13px;
+  margin-left: auto;
+  transition: transform .15s ease;
+}
+
+.mp-more-trigger > svg:last-child.rotated {
+  transform: rotate(180deg);
+}
+
+.mp-more-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: -1px 0 2px 22px;
+  padding: 4px 0 4px 12px;
+  border-left: 1px solid var(--color-sidebar-divider);
+}
+
+.mp-more-item {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  border-radius: 6px;
+  color: var(--color-sidebar-text-tertiary);
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.mp-more-item svg {
+  width: 14px;
+  height: 14px;
+}
+
+.mp-more-item:hover,
+.mp-more-item:focus-visible {
+  background: var(--color-sidebar-hover-bg-strong);
+  color: var(--color-sidebar-accent);
+}
+
+.mp-sidebar-footer {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px 14px;
+  color: var(--color-sidebar-text-footer);
+  font-size: 11px;
+}
+
+.mp-sidebar-service {
+  display: flex;
+  padding: 0 2px;
+}
+
+.mp-primary-item:focus-visible,
+.mp-more-item:focus-visible,
+.mp-sidebar-add:focus-visible {
+  outline: 2px solid var(--color-sidebar-accent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 900px) {
+  .mp-sidebar {
+    width: 68px;
+    min-width: 68px;
+  }
+
+  .mp-sidebar-header {
+    justify-content: center;
+    padding-inline: 6px;
+  }
+
+  /* 折叠态保留品牌标识（等比缩小到栏宽内），版本号空间不足时不展示 */
+  .mp-sidebar-logo {
+    height: 28px;
+    max-width: 100%;
+  }
+
+  .mp-sidebar-version,
+  .mp-sidebar-add,
+  .mp-primary-item span,
+  .mp-primary-item > svg:last-child,
+  .mp-more-menu,
+  .mp-sidebar-service {
+    display: none;
+  }
+
+  .mp-sidebar-footer {
+    padding-inline: 6px;
+  }
+
+  .mp-primary-nav {
+    padding-inline: 8px;
+  }
+
+  .mp-primary-item {
+    justify-content: center;
+    padding-inline: 0;
+  }
+}

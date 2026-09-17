@@ -247,7 +247,8 @@ class PromptBridge extends BasePythonBridge {
       this.log.info(this.name, `CLI fallback: python ${pyArgs.slice(0, 5).join(' ')}... traceId=${traceId || '-'}`)
       const childEnv = { ...process.env, PYTHONPATH: PROMPT_DIR }
       if (apiKey) childEnv.PROMPT_ENGINE_API_KEY = apiKey
-      execFile(process.env.MP_PYTHON || process.env.PYTHON_PATH || 'python', pyArgs, { cwd: PROMPT_DIR, timeout: 120000, windowsHide: true, env: childEnv }, (err, stdout, stderr) => {
+      // 仅 MP_PYTHON 作为解释器覆盖；PYTHON_PATH 是 Python 模块搜索路径（目录），绝不可当作可执行文件。
+      execFile(process.env.MP_PYTHON || 'python', pyArgs, { cwd: PROMPT_DIR, timeout: 120000, windowsHide: true, env: childEnv }, (err, stdout, stderr) => {
         if (err) {
           // logging-coverage-audit：stderr 参数此前被丢弃，CLI 真实报错不可见
           this.log.warn(this.name, `CLI fallback failed: ${err.message} stderr=${String(stderr || '').trim().slice(0, 500)}`)

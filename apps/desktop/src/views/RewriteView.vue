@@ -11,6 +11,16 @@
       <!-- 文本输入区 -->
       <div class="cohere-card rewrite-input-card">
         <div class="cohere-section-title">{{ t('rewritePage.inputSection') }}</div>
+        <!-- 标题参考 chip（viral-rewrite-integration：爆款分析页生成标题带入） -->
+        <div v-if="titleHint" class="rewrite-title-hint" data-testid="rewrite-title-hint">
+          <span class="title-hint-text">{{ t('rewritePage.titleHintLabel') }}：{{ titleHint }}</span>
+          <button
+            class="cohere-btn-secondary title-hint-remove"
+            data-testid="rewrite-title-hint-remove"
+            :disabled="rewriting"
+            @click="titleHint = ''"
+          >{{ t('rewritePage.titleHintRemove') }}</button>
+        </div>
         <textarea
           v-model="content"
           class="rewrite-textarea"
@@ -145,7 +155,9 @@
         <div class="rewrite-result-meta" v-if="rewriteMeta">
           <span>{{ t('rewritePage.metaStrategy') }}：{{ rewriteMeta.strategyName }}</span>
           <span>{{ t('rewritePage.metaAiTaste') }}：{{ rewriteMeta.aiTastePct }}</span>
-          <span>{{ t('rewritePage.metaLength', { original: rewriteMeta.originalLength, result: rewriteMeta.resultLength }) }}</span>
+          <!-- 字数概览按模式分派用词：选题创作的输入是「主题种子」而非待改写正文，
+               标成「原文」会把种子误读为需保留语义的原文（设计评审 Q5，与评分口径同一概念陷阱） -->
+          <span>{{ t(rewriteMeta.mode === 'create' ? 'rewritePage.metaLengthFromTopic' : 'rewritePage.metaLength', { original: rewriteMeta.originalLength, result: rewriteMeta.resultLength }) }}</span>
         </div>
         <!-- 改写质量评估报告（content-quality-eval 桌面端闭环）
              视觉：用左侧强调条表达结论等级，替代原先「卡片内再套一个带边框的卡片」 -->
@@ -178,6 +190,10 @@
             <span class="quality-metric" v-if="rewriteQuality.method">
               {{ t('rewritePage.qualityMethod') }}：
               {{ t(rewriteQuality.method === 'embedding' ? 'rewritePage.qualityMethodEmbedding' : 'rewritePage.qualityMethodSimhash') }}
+            </span>
+            <!-- 爆款潜力第 4 维（viral-rewrite-integration）：改写前后对比；delta 缺失显示占位符 -->
+            <span class="quality-metric" v-if="viralInfo" data-testid="rewrite-viral-info">
+              {{ t('rewritePage.qualityViralLabel') }}：{{ t('rewritePage.qualityViralBefore') }} {{ viralInfo.original }} → {{ t('rewritePage.qualityViralAfter') }} {{ viralInfo.rewritten }}（{{ t('rewritePage.qualityViralDelta') }} {{ viralInfo.delta === null ? '-' : viralInfo.delta }}）
             </span>
           </div>
           <div v-if="Array.isArray(rewriteQuality.suggestions) && rewriteQuality.suggestions.length" class="rewrite-quality-suggestions">
@@ -267,6 +283,10 @@ const contentError = ref('')
 // 复制按钮瞬时反馈态：复制成功后按钮文案切换为「已复制」，1.5s 后复位（BUGFIX-REWRITE-QUALITY-UX）
 const copied = ref(false)
 let copiedTimer = null
+
+// viral-rewrite-integration：标题参考（爆款分析页生成标题经路由 query 带入）+ 爆款潜力对比
+const titleHint = ref('')
+const viralInfo = ref(null)
 
 // 配置
 const useViralLibrary = ref(true)
@@ -377,11 +397,14 @@ watch(rewriteResult, (next, prev) => {
 })
 
 // ── 热门选题带入：/rewrite?topic=xxx → 填入输入框 + 选题创作模式 + 自动开始 ──
+// ── 标题参考带入：/rewrite?titleHint=xxx → 显示可移除 chip，改写时作为软约束注入引擎 ──
 // ── 文案库交接带入：/rewrite?from=collection → 取 sessionStorage 交接载荷，仿写模式 + 自动开始 ──
 // 交接载荷由 Collection.vue 合并版「文案库」的【改写】按钮写入（正文可能上万字，避免 URL 超长）。
 onMounted(() => {
   void loadRewriteStrategies()
   void refreshStrategyPreview()
+  const hint = typeof route.query.titleHint === 'string' ? route.query.titleHint.trim().slice(0, 200) : ''
+  if (hint) titleHint.value = hint
   const topic = typeof route.query.topic === 'string' ? route.query.topic.trim() : ''
   if (topic) {
     rewriteMode.value = 'create'
@@ -439,6 +462,7 @@ async function startRewrite() {
   rewriteKnowledgeRefs.value = []
   // CCG 评审修复：新改写开始前重置质量报告，避免上一次改写（无 quality）的旧报告残留
   rewriteQuality.value = null
+  viralInfo.value = null
 
   try {
     const params = {
@@ -457,6 +481,8 @@ async function startRewrite() {
       },
       // 策略传参契约（与 AiWriterPanel 一致）：手动=所选 id（未选 null），自动=null 走引擎匹配
       strategyId: strategyMode.value === 'manual' ? (rewriteStrategyId.value || null) : null,
+      // viral-rewrite-integration：标题参考软约束（引擎侧清洗：空白折叠 + 200 字截断）
+      titleHint: titleHint.value || undefined,
     }
 
     const res = await aiRewrite(params)
@@ -476,11 +502,24 @@ async function startRewrite() {
         method: q.method === 'embedding' ? 'embedding' : 'simhash',
         suggestions: Array.isArray(q.suggestions) ? q.suggestions : [],
       } : null
+      // viral-rewrite-integration：爆款潜力对比（引擎 viralScorer 注入时才有；无效值归 null）
+      const v = data.viral && typeof data.viral === 'object' && !Array.isArray(data.viral) ? data.viral : null
+      viralInfo.value = v
+        && typeof v.original === 'number' && Number.isFinite(v.original)
+        && typeof v.rewritten === 'number' && Number.isFinite(v.rewritten)
+        ? {
+            original: v.original,
+            rewritten: v.rewritten,
+            delta: typeof v.delta === 'number' && Number.isFinite(v.delta) ? v.delta : null,
+          }
+        : null
       rewriteMeta.value = {
         strategyName: data.strategy?.name || '',
         aiTastePct: data.metadata?.aiTasteLevel != null ? (data.metadata.aiTasteLevel * 100).toFixed(0) + '%' : 'N/A',
         originalLength: data.metadata?.originalLength || 0,
         resultLength: data.metadata?.resultLength || 0,
+        // 实际生效的改写模式（用于字数概览的用词分派；缺省 imitate）
+        mode: data.metadata?.mode || 'imitate',
       }
       if (data.warnings && data.warnings.length > 0) {
         rewriteError.value = data.warnings.join('；')
@@ -847,11 +886,14 @@ function onPublishVideo(pipelineId) {
   color: var(--muted);
 }
 .quality-metric strong { font-weight: 600; color: var(--ink); }
-.rewrite-quality-metrics .quality-verdict-pass { color: #2e9e5b; }
-.rewrite-quality-metrics .quality-verdict-warn { color: #d97706; }
-/* 结论文案已由「不合格」改为中性的「建议优化」：同步去掉错误红（#dc2626），
-   降级为暖橙提示色，避免"失败/不可用"的错误观感（BUGFIX-REWRITE-QUALITY-UX） */
-.rewrite-quality-metrics .quality-verdict-fail { color: #ea580c; }
+/* 结论区配色（与 #1892 视觉重构整合后的最终方案）：
+   #1892 已将结论文字统一为中性 --ink，并由左侧 3px 强调条（.quality-accent-*）承载三态颜色。
+   本次沿用该设计，**不再给结论文字上色**，原因：
+   ① 三态色在 12-13px 小字号下对比度均低于 WCAG AA 4.5:1（实测 pass 3.23:1 / warn 3.02:1 /
+      fail 3.37:1），彩色文字反而降低可读性；
+   ② 三态中 warn 与 fail 色相仅差约 12°，小字号下几乎无法区分，颜色信息本就不该由文字承载；
+   ③ 颜色信号已由强调条承担（非文本图形，仅需 3:1，暖橙 #ea580c 对白底 3.37:1 达标）。
+   本次中性化的是**文案**（不合格 → 建议优化），颜色中性化体现为强调条去红（见下）。 */
 .rewrite-quality-suggestions {
   margin: var(--space-sm) 0 0;
   padding-left: 18px;
@@ -875,7 +917,10 @@ function onPublishVideo(pipelineId) {
 /* ── 改写结果快捷操作：复制（BUGFIX-REWRITE-QUALITY-UX）── */
 .rewrite-copy-row {
   display: flex;
-  justify-content: flex-end;
+  /* 与下方动作行的次按钮**同为左对齐**：动作行是 flex + gap、次按钮靠左，
+     仅主按钮「去发布」用 margin-left:auto 推到右侧。若复制行右对齐，会与
+     紧邻的动作行形成 Z 形错位（设计评审 Q4）。 */
+  justify-content: flex-start;
   margin-top: var(--space-sm);
 }
 /* 固定最小宽度：按钮文案在「复制 / 已复制」间切换时不产生宽度跳动

@@ -22,7 +22,7 @@ on:
 
 jobs:
   gui-test:
-    runs-on: [self-hosted, windows, x64]
+    runs-on: windows-latest
     timeout-minutes: 30
     defaults:
       run:
@@ -141,4 +141,4 @@ jobs:
             apps/desktop/tests/visual-testing/reports/**
             apps/desktop/vite-ci.log
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 5

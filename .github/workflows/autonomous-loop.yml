@@ -82,7 +82,7 @@ jobs:
   loop:
     if: github.event_name != 'pull_request' || github.event.label.name == 'autonomous-loop'
     name: "Autonomous Loop (迭代 ${{ inputs.iterations || 3 }} 轮)"
-    runs-on: [self-hosted, windows, x64]
+    runs-on: windows-latest
     timeout-minutes: 30
     env:
       MAX_ITER: ${{ inputs.iterations || 3 }}
@@ -159,7 +159,7 @@ jobs:
             apps/desktop/tests/visual-testing/screenshots/
             apps/desktop/tests/visual-testing/base-screenshots/
             apps/desktop/patches/
-          retention-days: 14
+          retention-days: 5
           if-no-files-found: warn
 
       - name: Report final status

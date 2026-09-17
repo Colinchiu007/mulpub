@@ -198,7 +198,14 @@
               <UiSkeleton v-for="i in 4" :key="i" variant="card" class="mp-skeleton-card" />
             </div>
           </div>
-          <EmptyState v-else-if="visibleAccounts.length === 0" :title="emptyStateTitle">
+          <EmptyState
+            v-else-if="visibleAccounts.length === 0"
+            data-testid="accounts-empty"
+            :title="emptyStateTitle"
+            :description="t('accountsPage.emptyMessage')"
+            :action-text="t('accountsPage.emptyAction')"
+            @action="showAddDialog = true"
+          >
             <template #icon><UserFilled /></template>
           </EmptyState>
           <div v-else class="account-card-grid" :class="{ 'account-list-view': accountViewMode === 'list' }">

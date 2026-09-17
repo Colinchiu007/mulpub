@@ -17,7 +17,15 @@
     <div v-if="loading" style="padding:8px 0" data-testid="personal-knowledge-loading">
       <UiSkeleton variant="list" :count="3" />
     </div>
-    <div v-else-if="!items.length" style="text-align:center;padding:40px;color:var(--muted)">暂无内容，点击右上角添加知识</div>
+    <EmptyState
+      v-else-if="!items.length"
+      data-testid="personal-knowledge-empty"
+      icon="📚"
+      :title="t('knowledgeBase.empty.personal.title')"
+      :description="t('knowledgeBase.empty.personal.message')"
+      :action-text="t('knowledgeBase.empty.personal.action')"
+      @action="emit('create')"
+    />
     <div v-else class="kb-card-grid">
       <div v-for="item in items" :key="item.id" class="cohere-card kb-personal-card">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
@@ -57,6 +65,8 @@ import { listPersonalItems, deletePersonalItem, PERSONAL_CATEGORIES, PERSONAL_CA
 import PersonalFormDialog from '@/components/PersonalFormDialog.vue'
 
 const { t } = useI18n()
+// 空态 CTA：由宿主（KnowledgeBasePage）决定「新增知识」入口，面板不自建弹窗
+const emit = defineEmits(['create'])
 
 const categories = PERSONAL_CATEGORIES
 const catLabels = PERSONAL_CATEGORY_LABELS

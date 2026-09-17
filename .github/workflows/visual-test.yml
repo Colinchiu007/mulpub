@@ -22,7 +22,7 @@ on:
 
 jobs:
   visual-test:
-    runs-on: [self-hosted, windows, x64]
+    runs-on: windows-latest
     timeout-minutes: 20
     env:
       TEST_URL: http://127.0.0.1:5174
@@ -103,4 +103,4 @@ jobs:
             apps/desktop/tests/visual-testing/screenshots
             apps/desktop/tests/visual-testing/reports
             apps/desktop/vite-visual.*.log
-          retention-days: 7
+          retention-days: 5

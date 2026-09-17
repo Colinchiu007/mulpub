@@ -84,6 +84,19 @@
             </div>
           </div>
 
+          <!-- 存入爆款库（viral-rewrite-integration：分析结果落库 → 改写引擎三层知识库第 2 层可检索） -->
+          <div v-if="result && !result.error" style="margin-top:var(--space-sm);display:flex;align-items:center;gap:var(--space-sm);flex-wrap:wrap">
+            <UiButton
+              v-if="!savedToLibrary"
+              :disabled="savingLibrary"
+              data-testid="viral-save-library"
+              @click="saveToLibrary"
+            >💾 {{ $t('viralAnalysis.saveToLibrary') }}</UiButton>
+            <span v-else data-testid="viral-saved-library" style="font-size:13px;color:var(--muted)">✅ {{ $t('viralAnalysis.savedToLibrary') }}</span>
+            <span v-if="libraryMessage" data-testid="viral-library-message" aria-live="polite" style="font-size:12px;color:var(--muted)">{{ libraryMessage }}</span>
+            <span v-if="!savedToLibrary" style="font-size:12px;color:var(--muted)">{{ $t('viralAnalysis.saveToLibraryHint') }}</span>
+          </div>
+
           <!-- 因子分解 -->
           <div v-if="result.factors && result.factors.length" style="margin-top:var(--space-md)">
             <div style="font-size:14px;font-weight:600;margin-bottom:var(--space-sm)">📊 因子分解</div>
@@ -163,10 +176,16 @@
                 <div style="font-size:13px;font-weight:600;color:var(--muted);min-width:24px">#{{ idx + 1 }}</div>
                 <div style="flex:1">
                   <div style="font-size:15px;font-weight:600;margin-bottom:2px">{{ t.title }}</div>
-                  <div style="display:flex;gap:8px;font-size:12px;color:var(--muted);flex-wrap:wrap">
+                  <div style="display:flex;gap:8px;font-size:12px;color:var(--muted);flex-wrap:wrap;align-items:center">
                     <span v-if="t.structure" class="cohere-tag">{{ t.structure }}</span>
                     <span v-if="t.emotion" class="cohere-tag">{{ t.emotion }}</span>
                     <span v-if="t.predicted_score" style="color:var(--coral);font-weight:600">预测分 {{ t.predicted_score }}</span>
+                    <button
+                      class="cohere-btn-secondary"
+                      style="font-size:12px;padding:2px 10px"
+                      data-testid="viral-go-rewrite"
+                      @click="goRewrite(t.title)"
+                    >{{ $t('viralAnalysis.goRewrite') }}</button>
                   </div>
                   <div v-if="t.reasoning" style="font-size:12px;color:var(--muted);margin-top:2px">{{ t.reasoning }}</div>
                 </div>
@@ -211,11 +230,13 @@
         <div v-if="loading" style="padding:16px 0" data-testid="viral-analysis-loading">
           <UiSkeleton variant="chart" />
         </div>
-        <div v-else-if="!result" style="text-align:center;padding:48px 0;color:var(--muted)">
-          <div style="font-size:40px;margin-bottom:16px">🔥</div>
-          <div style="font-size:14px;font-weight:600;margin-bottom:4px">输入主题开始分析</div>
-          <div style="font-size:13px">AI 将从标题结构、情感触发、互动热度等维度分析爆款潜力</div>
-        </div>
+        <EmptyState
+          v-else-if="!result"
+          data-testid="viral-analysis-empty"
+          icon="🔥"
+          title="输入主题开始分析"
+          description="AI 将从标题结构、情感触发、互动热度等维度分析爆款潜力"
+        />
       </div>
     </div>
   </div>
@@ -223,10 +244,11 @@
 
 <script>
 import { viralAnalyze, viralGenerate } from '@/api/publisher'
+import { addViralToLibrary } from '@/api/knowledge-library'
 import UiButton from '../components/UiButton.vue'
 import { formatUserError } from '@/utils/user-facing-error'
 export default {
-  
+
   components: { UiButton },
   data () {
     return {
@@ -236,6 +258,12 @@ export default {
       loading: false,
       result: null,
       genResult: null,
+      // viral-rewrite-integration：分析结果落库状态
+      savingLibrary: false,
+      savedToLibrary: false,
+      libraryMessage: '',
+      // 双模型评审 W-1：分析成功时快照主题，落库 title/报告始终与分析时的输入一致
+      analyzedTopic: '',
     }
   },
   methods: {
@@ -244,6 +272,11 @@ export default {
       this.loading = true
       this.result = null
       this.genResult = null
+      // 新分析开始 → 重置落库状态（上一次的分析结果已过期）
+      this.savingLibrary = false
+      this.savedToLibrary = false
+      this.libraryMessage = ''
+      this.analyzedTopic = ''
 
       try {
         let articles = []
@@ -262,6 +295,7 @@ export default {
         const res = await viralAnalyze(articles, this.topic)
         if (res?.code === 0) {
           this.result = res.data
+          this.analyzedTopic = this.topic.trim()
         } else {
           this.result = { overall_score: 0, error: formatUserError(res, { fallback: '分析失败' }).message }
         }
@@ -297,6 +331,88 @@ export default {
     trendIcon (direction) {
       const icons = { rising: '📈', declining: '📉', stable: '➡️' }
       return icons[direction] || '➡️'
+    },
+
+    // ========== viral-rewrite-integration：分析结果落库 + 生成标题去改写 ==========
+
+    /** 将本次分析结果存入爆款库（复用 addViralToLibrary 既有 IPC，无新增通道） */
+    async saveToLibrary () {
+      if (!this.result || this.result.error || this.savingLibrary || this.savedToLibrary) return
+      if (!this.analyzedTopic) return
+      this.savingLibrary = true
+      this.libraryMessage = ''
+      try {
+        const res = await addViralToLibrary(this._buildLibraryItem())
+        if (res && res.code === 0) {
+          // 成功态由 ✅ + savedToLibrary 文案表达，不再重复写 libraryMessage（评审 I-2）
+          this.savedToLibrary = true
+        } else {
+          this.libraryMessage = (res && res.message) || this.$t('viralAnalysis.saveFailed')
+        }
+      } catch (err) {
+        this.libraryMessage = formatUserError(err, { fallback: this.$t('viralAnalysis.saveFailed') }).message
+      } finally {
+        this.savingLibrary = false
+      }
+    },
+
+    /** 组装爆款库条目：title=分析时快照的主题；content=分析报告（服务端要求 content 非空）；tags=平台+角度+关键词 */
+    _buildLibraryItem () {
+      const r = this.result || {}
+      const angles = Array.isArray(r.suggested_angles)
+        ? r.suggested_angles.filter(a => typeof a === 'string' && a.trim())
+        : []
+      const keywords = Array.isArray(r.rising_keywords)
+        ? r.rising_keywords.map(k => (k && typeof k === 'object' && k.word) ? k.word : k)
+          .filter(k => typeof k === 'string' && k.trim())
+        : []
+      const tags = [...new Set([this.platform, ...angles, ...keywords])]
+        .filter(s => typeof s === 'string' && s.trim())
+        .slice(0, 50)
+      return {
+        title: this.analyzedTopic.slice(0, 500),
+        content: this._buildAnalysisReport(r),
+        tags,
+        platform: (this.platform || '').slice(0, 50),
+        source: 'manual',
+        likes: 0,
+        comments: 0,
+      }
+    },
+
+    /** 分析报告 Markdown（纯静态 i18n 键 + 模板拼接；项目语料不支持 {param} 插值） */
+    _buildAnalysisReport (r) {
+      const lines = []
+      lines.push('## ' + this.$t('viralAnalysis.reportTitle'))
+      lines.push(this.$t('viralAnalysis.reportTopic') + ': ' + this.analyzedTopic)
+      lines.push(this.$t('viralAnalysis.reportScore') + ': ' + (r.overall_score ?? '-') + '/100')
+      if (r.trend_direction) {
+        lines.push(this.$t('viralAnalysis.reportTrend') + ': ' + this.trendLabel(r.trend_direction))
+      }
+      const angles = Array.isArray(r.suggested_angles) ? r.suggested_angles.slice(0, 6) : []
+      if (angles.length) {
+        lines.push(this.$t('viralAnalysis.reportAngles') + ': ' + angles.join(' | '))
+      }
+      const kws = Array.isArray(r.rising_keywords)
+        ? r.rising_keywords.slice(0, 10).map(k => (k && typeof k === 'object' && k.word) ? k.word : k).filter(Boolean)
+        : []
+      if (kws.length) {
+        lines.push(this.$t('viralAnalysis.reportKeywords') + ': ' + kws.join(' | '))
+      }
+      const factors = Array.isArray(r.factors)
+        ? r.factors.map(f => `${((f && (f.label || f.name)) || '?')}: ${typeof (f && f.score) === 'number' ? Math.round(f.score * 100) : '-'}`)
+        : []
+      if (factors.length) {
+        lines.push(this.$t('viralAnalysis.reportFactors') + ': ' + factors.join(' | '))
+      }
+      lines.push(this.$t('viralAnalysis.reportPlatform') + ': ' + this.platform)
+      return lines.join('\n')
+    },
+
+    /** 携带生成标题跳转改写页（query.titleHint → RewriteView 预填 chip → 引擎软约束） */
+    goRewrite (title) {
+      if (typeof title !== 'string' || !title.trim()) return
+      this.$router.push({ path: '/rewrite', query: { titleHint: title.trim().slice(0, 200) } })
     },
 
     trendLabel (direction) {

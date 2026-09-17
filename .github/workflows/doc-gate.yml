@@ -16,7 +16,7 @@ on:
 jobs:
   doc-sync:
     name: 文档同步检查
-    runs-on: [self-hosted, windows, x64]
+    runs-on: windows-latest
     defaults:
       run:
         shell: bash
@@ -63,11 +63,11 @@ jobs:
         with:
           name: changelog-draft-${{ github.event.pull_request.number }}
           path: team/inbox/changelog-draft-${{ github.event.pull_request.number }}.md
-          retention-days: 30
+          retention-days: 5
 
   ci-tests:
     name: 单元测试 + Lint
-    runs-on: [self-hosted, windows, x64]
+    runs-on: windows-latest
     defaults:
       run:
         shell: bash
@@ -93,7 +93,7 @@ jobs:
 
   stale-check:
     name: Stale Issue 检查（每日）
-    runs-on: [self-hosted, windows, x64]
+    runs-on: windows-latest
     permissions:
       issues: write
     if: github.event_name == 'pull_request'  # 仅在 PR 时触发（占位）

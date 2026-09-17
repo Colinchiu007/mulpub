@@ -11,13 +11,14 @@
  * C3 未知 key 忽略：下发配置里出现本地定义没有的 key 时静默丢弃（不新增菜单项）。
  * C4 缺失 key 兜底：本地定义有、下发配置没有的项按「可见 + 定义顺序靠后」处理，
  *    保证应用端新增菜单项不会因运营中心未同步而消失。
- * C5 组内排序：primary 组与 more 组各自排序（两组在 UI 上是平铺导航与折叠菜单，无法跨组穿插）。
+ * C5 组内排序：primary 组与 more 组各自排序。跨组归属以下发 group 为准（见下），
  *    排序规则：sort_order 升序 → sort_order 相同按定义顺序 → 无 sort_order 的排在最后并保持定义顺序。
  * C6 输入不可变：不修改传入的 definition 与 rawConfig。
  */
 
 import {
   SIDEBAR_FORCED_VISIBLE_KEYS,
+  SIDEBAR_GROUP_PRIMARY,
   SIDEBAR_MENU_GROUPS,
   isForcedVisibleKey,
 } from './sidebar-menu'
@@ -54,6 +55,14 @@ export function normalizeVisible (value) {
 }
 
 /**
+ * 把任意输入解析为合法的 group（'primary' | 'more'）。
+ * @returns {string|null} 非法或缺失值返回 null（调用方 fail-open 回退本地定义）
+ */
+export function normalizeGroup (value) {
+  return SIDEBAR_MENU_GROUPS.includes(value) ? value : null
+}
+
+/**
  * 规范化运营中心下发的 appMenu 配置。
  *
  * @param {unknown} raw 下发原始值，期望形如 { items: [{ key, visible, sort_order }], synced_at }
@@ -76,6 +85,7 @@ export function normalizeAppMenuConfig (raw) {
     map[key] = {
       visible: normalizeVisible(entry.visible),
       sortOrder: normalizeSortOrder(entry.sort_order),
+      group: normalizeGroup(entry.group),
     }
   }
   return { map }
@@ -100,6 +110,7 @@ function compareBySortOrder (a, b) {
  * @returns {{ primary: Array<object>, more: Array<object> }} 每组内元素为
  *          { key, group, label, labelI18nKey?, to, icon, visible, forcedVisible, sortOrder }
  *          —— 包含被隐藏项（visible=false），由调用方决定是否渲染。
+ *          其中 group 以「下发值优先、本地定义兜底」解析（fail-open，C1）。
  */
 export function resolveSidebarMenu (definition, rawConfig) {
   const config = normalizeAppMenuConfig(rawConfig)
@@ -109,8 +120,8 @@ export function resolveSidebarMenu (definition, rawConfig) {
   const items = Array.isArray(definition) ? definition : []
   items.forEach((item, index) => {
     if (!item || typeof item !== 'object') return
-    const group = SIDEBAR_MENU_GROUPS.includes(item.group) ? item.group : null
-    if (!group) return
+    const localGroup = SIDEBAR_MENU_GROUPS.includes(item.group) ? item.group : null
+    if (!localGroup) return
 
     const forcedVisible = isForcedVisibleKey(item.key)
     const entry = config ? config.map[item.key] : undefined
@@ -118,9 +129,15 @@ export function resolveSidebarMenu (definition, rawConfig) {
     const visible = forcedVisible ? true : (entry ? entry.visible : true)
     const sortOrder = entry ? entry.sortOrder : null
 
-    result[group].push({
+    // 跨组归属：下发 group 有效时覆盖本地定义；强制项锁定一级导航；配置异常回退本地（fail-open）。
+    const deliveredGroup = entry ? entry.group : undefined
+    const resolvedGroup = forcedVisible
+      ? SIDEBAR_GROUP_PRIMARY
+      : (deliveredGroup && SIDEBAR_MENU_GROUPS.includes(deliveredGroup) ? deliveredGroup : localGroup)
+
+    result[resolvedGroup].push({
       key: item.key,
-      group: item.group,
+      group: resolvedGroup,
       label: item.label,
       labelI18nKey: item.labelI18nKey,
       to: item.to,

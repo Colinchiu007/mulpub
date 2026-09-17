@@ -244,3 +244,156 @@ describe('RewriteEngine', function () {
   })
 })
 
+
+// ── V: 爆款集成（viral-rewrite-integration）──
+// V1-V3: titleHint 参数注入 userPrompt（来自爆款文案生成的标题参考）
+// V4-V6: viralScorer 注入 → result.viral（改写前后爆款潜力对比，第 4 评估维度）
+describe('RewriteEngine viral integration', function () {
+  function sampleStrategy2() {
+    return {
+      id: 'viral-imitate-v1',
+      name: 'viral-test-rewrite',
+      category: 'imitate',
+      systemPrompt: 'professional rewrite assistant.',
+      userPromptTemplate: 'rewrite: {content}',
+      industry: ['generic'],
+      tone: ['casual'],
+      platforms: ['generic'],
+      postProcess: { removeAITaste: false, maxLength: 6000 }
+    }
+  }
+  function wireStrategy2(engine) {
+    var strategy = sampleStrategy2()
+    engine._strategyManager._strategies = [strategy]
+    engine._strategyManager.listEnabled = function () { return [strategy] }
+    engine._strategyManager.get = function () { return strategy }
+    engine._strategyManager.clearRemote = function () {}
+    engine._strategyManager.mergeRemote = function () {}
+  }
+
+  test('V1 titleHint 注入 userPrompt（空白折叠后完整出现）', async function () {
+    var captured = null
+    var llm = { chat: async function (sys, user) { captured = user; return '结果内容' } }
+    var engine = new RewriteEngine({ llmClient: llm, knowledgeBase: new KnowledgeBase() })
+    wireStrategy2(engine)
+    var result = await engine.rewrite({ mode: 'imitate', content: '原始内容', titleHint: '  AI工具  10个技巧  \n', userSettings: {} })
+    expect(result.success).toBe(true)
+    expect(captured).toContain('AI工具 10个技巧')
+    expect(captured).toContain('rewrite: 原始内容') // 模板正文不受影响
+  })
+
+  test('V2 titleHint 超过 200 字符被截断', async function () {
+    var captured = null
+    var llm = { chat: async function (sys, user) { captured = user; return '结果' } }
+    var engine = new RewriteEngine({ llmClient: llm, knowledgeBase: new KnowledgeBase() })
+    wireStrategy2(engine)
+    var longHint = 'x'.repeat(300)
+    await engine.rewrite({ mode: 'imitate', content: '原始内容', titleHint: longHint, userSettings: {} })
+    expect(captured).toContain('x'.repeat(200))
+    expect(captured).not.toContain('x'.repeat(201))
+  })
+
+  test('V3 titleHint 非字符串/空白被忽略', async function () {
+    var captured = null
+    var llm = { chat: async function (sys, user) { captured = user; return '结果' } }
+    var engine = new RewriteEngine({ llmClient: llm, knowledgeBase: new KnowledgeBase() })
+    wireStrategy2(engine)
+    await engine.rewrite({ mode: 'imitate', content: '原始内容', titleHint: 42, userSettings: {} })
+    await engine.rewrite({ mode: 'imitate', content: '原始内容', titleHint: '   ', userSettings: {} })
+    await engine.rewrite({ mode: 'imitate', content: '原始内容', titleHint: null, userSettings: {} })
+    expect(captured).not.toContain('titleHint')
+    // 三次调用均无 hint 标记段
+    expect(captured.split('##').length).toBeLessThanOrEqual(2)
+  })
+
+  test('V4 viralScorer 注入 → result.viral 含 original/rewritten/delta/mode', async function () {
+    var calls = []
+    var scorer = async function (text) {
+      calls.push(text)
+      return calls.length === 1 ? { score: 62.5, mode: 'local-fallback' } : { score: 78.34, mode: 'local-fallback' }
+    }
+    var engine = new RewriteEngine({ llmClient: { chat: async function () { return '改写后的内容' } }, viralScorer: scorer, knowledgeBase: new KnowledgeBase() })
+    wireStrategy2(engine)
+    var result = await engine.rewrite({ mode: 'imitate', content: '原始文章内容', userSettings: {} })
+    expect(result.success).toBe(true)
+    expect(calls).toEqual(['原始文章内容', '改写后的内容'])
+    expect(result.viral).toBeDefined()
+    expect(result.viral.original).toBe(62.5)
+    expect(result.viral.rewritten).toBe(78.3)
+    expect(result.viral.delta).toBe(15.8)
+    expect(result.viral.mode).toBe('local-fallback')
+    // 原有质量维度不受影响
+    expect(result.quality).toBeDefined()
+    expect(result.quality.verdict).toBeDefined()
+  })
+
+  test('V5 viralScorer 抛错不阻塞改写主流程（fail-open）', async function () {
+    var scorer = async function () { throw new Error('scorer unavailable') }
+    var engine = new RewriteEngine({ llmClient: { chat: async function () { return '改写结果' } }, viralScorer: scorer, knowledgeBase: new KnowledgeBase() })
+    wireStrategy2(engine)
+    var result = await engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
+    expect(result.success).toBe(true)
+    expect(result.viral).toBeUndefined()
+    expect(result.quality).toBeDefined()
+  })
+
+  test('V6 viralScorer 返回无效值（缺 score）不产生 result.viral', async function () {
+    var scorer = async function () { return { mode: 'local-fallback' } }
+    var engine = new RewriteEngine({ llmClient: { chat: async function () { return '改写结果' } }, viralScorer: scorer, knowledgeBase: new KnowledgeBase() })
+    wireStrategy2(engine)
+    var result = await engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
+    expect(result.success).toBe(true)
+    expect(result.viral).toBeUndefined()
+  })
+
+  test('V7 未注入 viralScorer → 无 result.viral（回归保护）', async function () {
+    var engine = new RewriteEngine({ llmClient: { chat: async function () { return '改写结果' } }, knowledgeBase: new KnowledgeBase() })
+    wireStrategy2(engine)
+    var result = await engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
+    expect(result.success).toBe(true)
+    expect(result.viral).toBeUndefined()
+  })
+})
+
+// 双模型评审 W-2：跨模式（orchestrator vs local-fallback）delta 量纲不可比 → fail-open 丢弃
+describe('RewriteEngine viral integration (review fixes)', function () {
+  function wireStrategy3(engine) {
+    var strategy = {
+      id: 'viral-fix-v1', name: 'viral-fix', category: 'imitate',
+      systemPrompt: 'assistant.', userPromptTemplate: 'rewrite: {content}',
+      industry: ['generic'], tone: ['casual'], platforms: ['generic'],
+      postProcess: { removeAITaste: false, maxLength: 6000 }
+    }
+    engine._strategyManager._strategies = [strategy]
+    engine._strategyManager.listEnabled = function () { return [strategy] }
+    engine._strategyManager.get = function () { return strategy }
+    engine._strategyManager.clearRemote = function () {}
+    engine._strategyManager.mergeRemote = function () {}
+  }
+
+  test('V8 mode mismatch drops viral result', async function () {
+    var calls = 0
+    var scorer = async function () {
+      calls++
+      return calls === 1 ? { score: 60, mode: 'orchestrator' } : { score: 20, mode: 'local-fallback' }
+    }
+    var engine = new RewriteEngine({ llmClient: { chat: async function () { return '改写结果' } }, viralScorer: scorer, knowledgeBase: new KnowledgeBase() })
+    wireStrategy3(engine)
+    var result = await engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
+    expect(result.success).toBe(true)
+    expect(result.viral).toBeUndefined()
+  })
+
+  test('V9 NaN/Infinity score is dropped', async function () {
+    var calls = 0
+    var scorer = async function () {
+      calls++
+      return { score: calls === 1 ? NaN : 80, mode: 'local-fallback' }
+    }
+    var engine = new RewriteEngine({ llmClient: { chat: async function () { return '改写结果' } }, viralScorer: scorer, knowledgeBase: new KnowledgeBase() })
+    wireStrategy3(engine)
+    var result = await engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
+    expect(result.success).toBe(true)
+    expect(result.viral).toBeUndefined()
+  })
+})

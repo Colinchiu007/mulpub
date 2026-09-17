@@ -24,7 +24,7 @@ permissions:
 jobs:
   handle-ci-failure:
     if: ${{ github.event.workflow_run.conclusion == 'failure' }}
-    runs-on: [self-hosted, windows, x64]
+    runs-on: windows-latest
     defaults:
       run:
         shell: bash

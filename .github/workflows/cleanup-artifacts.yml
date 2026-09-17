@@ -1,0 +1,34 @@
+name: Cleanup Artifacts
+
+# 定时清理过期 CI artifact，避免免费额度耗尽导致后续上传失败（infra 失败源之一）。
+# 跑在 GitHub 托管的 ubuntu-latest，不挤占唯一的 Windows 自托管 runner。
+on:
+  schedule:
+    - cron: '23 3 * * *'   # 每日 03:23 UTC
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete artifacts older than 5 days
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          DAYS: 5
+        run: |
+          set -euo pipefail
+          cutoff=$(date -u -d "-${DAYS} days" +%Y-%m-%dT%H:%M:%SZ)
+          echo "Deleting artifacts created before $cutoff"
+          gh api --paginate "repos/${REPO}/actions/artifacts?per_page=100" \
+            --jq ".artifacts[] | select(.expired==false) | select(.created_at < \"${cutoff}\") | .id" \
+            | while read -r id; do
+                [ -z "$id" ] && continue
+                gh api -X DELETE "repos/${REPO}/actions/artifacts/${id}" \
+                  && echo "deleted artifact $id"
+              done
+          echo "Cleanup done."

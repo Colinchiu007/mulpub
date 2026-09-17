@@ -24,6 +24,7 @@ class RewriteEngine {
    * @param {object} options.knowledgeBase - 知识库实例
    * @param {object} options.strategyManager - 策略管理器实例（可选）
    * @param {object} options.qualityEvaluator - 改写质量评估器实例（可选）
+   * @param {function} [options.viralScorer] - 爆款潜力评分器 async (text) => { score: number(0-100), mode: string }（可选，viral-rewrite-integration）
    */
   constructor(options = {}) {
     this._llmClient = options.llmClient || null
@@ -34,6 +35,8 @@ class RewriteEngine {
     this._qualityEvaluator = options.qualityEvaluator || new RewriteQualityEvaluator()
     // 三层知识库 Prompt 构建器（用户偏好 + 爆款库 + 个人知识库）
     this._knowledgeLibrary = options.knowledgeLibrary || null
+    // 爆款潜力评分器（可选注入；失败 fail-open 不阻塞改写）
+    this._viralScorer = options.viralScorer || null
     this._logger = options.logger || logger
   }
 
@@ -81,8 +84,11 @@ class RewriteEngine {
       return { success: false, error: '未找到合适的改写策略', errorCode: 'NO_STRATEGY' }
     }
 
+    // 3.5 标题参考（viral-rewrite-integration）：爆款文案生成的标题约束，注入 Prompt
+    const titleHint = this._sanitizeTitleHint(params.titleHint)
+
     // 4. 构建 Prompt（内部含三层知识库上下文，P0 后为 async——LLM 关键词兜底）
-    const { systemPrompt, userPrompt } = await this._buildPrompt(strategy, content, mode, userSettings, knowledgeOptions)
+    const { systemPrompt, userPrompt } = await this._buildPrompt(strategy, content, mode, userSettings, knowledgeOptions, titleHint)
 
     // 5. LLM 推理
     if (!this._llmClient) {
@@ -121,6 +127,40 @@ class RewriteEngine {
       }
     }
 
+    // 8.5 爆款潜力对比（viral-rewrite-integration 第 4 评估维度）：改写前 vs 改写后
+    //     viralScorer 可选注入；抛错/返回无效值 fail-open —— 不产生 result.viral、不阻塞主流程
+    let viral
+    if (this._viralScorer) {
+      try {
+        const [vOrig, vNew] = await Promise.all([
+          this._viralScorer(content),
+          this._viralScorer(processed),
+        ])
+        if (
+          vOrig && vNew &&
+          typeof vOrig.score === 'number' && Number.isFinite(vOrig.score) &&
+          typeof vNew.score === 'number' && Number.isFinite(vNew.score)
+        ) {
+          // 双模型评审 W-2：original/rewritten 必须同模式（orchestrator vs local-fallback 量纲不同），
+          // 跨模式 delta 无可比性 → fail-open 丢弃，不输出误导性对比
+          const modeA = (vOrig && vOrig.mode) || 'unknown'
+          const modeB = (vNew && vNew.mode) || 'unknown'
+          if (modeA === modeB) {
+            viral = {
+              original: Math.round(vOrig.score * 10) / 10,
+              rewritten: Math.round(vNew.score * 10) / 10,
+              delta: Math.round((vNew.score - vOrig.score) * 10) / 10,
+              mode: modeB,
+            }
+          } else {
+            this._logger.warn('rewrite-engine', 'viral scorer mode mismatch, drop viral result', { modeA, modeB })
+          }
+        }
+      } catch (e) {
+        this._logger.warn('rewrite-engine', 'viral scorer failed, fail-open', { error: (e && e.message) || 'unknown' })
+      }
+    }
+
     // 9. 记录到知识库（持久化失败不影响主流程）
     if (preCheck.hits.length === 0 && postCheck.hits.length === 0) {
       try {
@@ -144,6 +184,8 @@ class RewriteEngine {
       warnings: postCheck.hits.length > 0 ? ['改写结果可能包含敏感内容，请人工审核'] : [],
       sensitiveHits: postCheck.hits,
       quality,
+      // 爆款潜力对比（viral-rewrite-integration）：仅 viralScorer 注入且评分有效时存在
+      viral,
       // P2 反馈闭环：本次改写引用的知识条目（供前端采纳/拒绝时驱动 feedbackBoost）
       knowledgeRefs: this._lastKnowledgeRefs || [],
       metadata: {
@@ -223,7 +265,7 @@ class RewriteEngine {
     return recommended.length > 0 ? recommended[0] : null
   }
 
-  async _buildPrompt(strategy, content, mode, userSettings, knowledgeOptions) {
+  async _buildPrompt(strategy, content, mode, userSettings, knowledgeOptions, titleHint) {
     // 三层知识库上下文：优先使用 KnowledgeContextBuilder，缺省回退到用户偏好摘要
     const effectiveKnowledgeOptions = knowledgeOptions || userSettings.knowledgeOptions || null
     const kbContext = await this._buildKnowledgeContext(content, effectiveKnowledgeOptions)
@@ -246,11 +288,29 @@ class RewriteEngine {
       mode,
       targetLength: userSettings.targetLength || 'medium',
     }
-    const userPrompt = strategy.userPromptTemplate.replace(/\{(\w+)\}/g, (match, key) => (
+    let userPrompt = strategy.userPromptTemplate.replace(/\{(\w+)\}/g, (match, key) => (
       Object.prototype.hasOwnProperty.call(vars, key) ? vars[key] : match
     ))
 
+    // 标题参考约束（viral-rewrite-integration）：模板替换后追加，避免 hint 中 {placeholder} 被二次展开
+    if (titleHint) {
+      userPrompt += `\n\n## 标题参考（来自爆款文案生成，软约束）\n改写结果的主题方向、关键词与开头钩子应与以下标题保持一致（学习其结构与关键词，不要逐字复制）：\n「${titleHint}」`
+    }
+
     return { systemPrompt, userPrompt }
+  }
+
+  /**
+   * 清洗标题参考（viral-rewrite-integration）：
+   * 非字符串 → null；空白折叠；trim 后为空 → null；超过 200 字符截断。
+   * @param {unknown} hint - 待清洗的标题参考
+   * @returns {string|null} 清洗后的标题参考（无效时 null）
+   */
+  _sanitizeTitleHint(hint) {
+    if (typeof hint !== 'string') return null
+    const collapsed = hint.replace(/\s+/g, ' ').trim()
+    if (!collapsed) return null
+    return collapsed.slice(0, 200)
   }
 
   _getModeInstructions(mode, userSettings) {

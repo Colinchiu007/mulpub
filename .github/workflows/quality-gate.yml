@@ -19,7 +19,7 @@ on:
 jobs:
   static-gates:
     name: QG Static
-    runs-on: [self-hosted, windows, x64]
+    runs-on: windows-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -122,9 +122,22 @@ jobs:
           node scripts/check-no-brand-residue.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # --- Gate 13: 路由入口登记（desktop-ui-consistency T0-5：拦住新增暗路由）---
+      # 2026-09-17 接入：src/router/index.js 新增非 redirect 路由却未在
+      # src/config/route-registry.js 登记（含 internal/entryFrom）即失败。
+      # 与 Gate 6/7/12 同模式：每条命令后显式检查退出码（PowerShell 多行 step 只取最后一条
+      # 命令的退出码，中间命令失败会被静默吞掉 —— 见 PR #1719/#1732 事故）。
+      # 本地同口径：node .github/scripts/check-route-registry.js
+      - name: "Gate 13 - Route registry completeness (route entry registry)"
+        run: |
+          node --test .github/scripts/check-route-registry.test.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .github/scripts/check-route-registry.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
   unit-tests:
     name: QG Unit Tests
-    runs-on: [self-hosted, windows, x64]
+    runs-on: windows-latest
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
@@ -193,6 +206,22 @@ jobs:
           }
 
           if ($env:TEST_MODE -eq "affected") {
+            # 探测受影响项目（排除 desktop）；为空则跳过，避免 nx 空集挂起 30 分钟超时
+            # 关键：必须区分「nx 执行失败」与「确实无受影响项目」——失败不能静默跳过，否则测试被假绿关闭
+            $affectedRaw = & pnpm exec nx show projects --affected --base=origin/main --exclude=@multi-publish/desktop --json 2>$null
+            $nxExit = $LASTEXITCODE
+            $affected = $affectedRaw | ConvertFrom-Json -ErrorAction SilentlyContinue
+            if ($nxExit -ne 0 -or $null -eq $affected) {
+              Write-Host "::warning::nx affected detection failed (exit $nxExit); running tests:affected normally rather than skipping."
+            } else {
+              $affectedArr = @($affected)
+              if ($affectedArr.Count -gt 0) {
+                Write-Host "Affected non-desktop projects: $($affectedArr -join ', ')"
+              } else {
+                Write-Host "No non-desktop projects affected by this PR; skipping workspace unit tests (Gate 4) to avoid nx empty-set hang."
+                exit 0
+              }
+            }
             $testArgs = @("run", "test:affected", "--", "--exclude=@multi-publish/desktop")
           } else {
             $testArgs = @("run", "test:all", "--", "--exclude=@multi-publish/desktop")
@@ -229,7 +258,7 @@ jobs:
 
   desktop-shards:
     name: QG Desktop Shards
-    runs-on: [self-hosted, windows, x64]
+    runs-on: windows-latest
     timeout-minutes: 40
     strategy:
       fail-fast: false
@@ -322,7 +351,7 @@ jobs:
 
   coverage:
     name: QG Coverage
-    runs-on: [self-hosted, windows, x64]
+    runs-on: windows-latest
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
@@ -349,7 +378,7 @@ jobs:
 
   visual:
     name: QG Visual
-    runs-on: [self-hosted, windows, x64]
+    runs-on: windows-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -467,11 +496,11 @@ jobs:
             apps/desktop/tests/visual-testing/screenshots/**
             apps/desktop/vite-visual.*.log
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 5
 
   e2e:
     name: QG Browser E2E
-    runs-on: [self-hosted, windows, x64]
+    runs-on: windows-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -564,11 +593,11 @@ jobs:
             apps/desktop/tests/e2e/reports/**
             apps/desktop/vite-e2e.*.log
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 5
 
   autonomous:
     name: QG Autonomous
-    runs-on: [self-hosted, windows, x64]
+    runs-on: windows-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -666,11 +695,11 @@ jobs:
           path: |
             apps/desktop/tests/visual-testing/reports/**
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 5
 
   gate-result:
     name: Gate Result
-    runs-on: [self-hosted, windows, x64]
+    runs-on: windows-latest
     needs: [static-gates, unit-tests, desktop-shards, coverage, visual, e2e, autonomous]
     if: always()
     timeout-minutes: 5

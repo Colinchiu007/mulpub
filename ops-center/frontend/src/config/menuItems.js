@@ -39,7 +39,7 @@ export const MENU_ITEMS = [
   { path: '/prompt-eval-workbench', label: '提示词评测', icon: MagicStick },
   { path: '/content-quality-eval', label: '内容质量评估', icon: TrendCharts },
   { path: '/model-keys', label: '模型密钥', icon: Key, adminOnly: true },
-  { path: '/settings', label: '设置', icon: Setting },
+  { path: '/settings', label: '菜单设置', icon: Setting },
 ]
 
 export const DEFAULT_MENU_ORDER = MENU_ITEMS.map((item) => item.path)
