@@ -5,7 +5,6 @@ import { setActivePinia, createPinia } from "pinia";
 import { ElMessage } from "element-plus";
 import i18n from "@/i18n";
 import { config as vtuConfig } from '@vue/test-utils'
-import i18n from '@/i18n'
 vtuConfig.global.plugins = [i18n]
 
 const pushSpy = vi.fn();
