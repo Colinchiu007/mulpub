@@ -94,8 +94,12 @@ jobs:
           echo "=== Agent Visual Judge ==="
           node apps/desktop/tests/visual-testing/scripts/agent-visual-judge.js
 
+      # 上传失败时（如 Actions artifact 配额被打满）仅告警、不置红：
+      # 截图/报告仅供人工查看，视觉对比结论已由上方 pixel-diff 步骤打印，
+      # 不应因配额波动误伤合并门禁（见 PR #1901 并行矩阵顶满 500MB 配额致假失败）。
       - name: Upload screenshots and reports
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: visual-test-reports
