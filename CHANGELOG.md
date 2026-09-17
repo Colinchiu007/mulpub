@@ -1,27 +1,28 @@
-# [未发布] docs(agents): QM-3 新增 MUST——门禁断言必须随平台/实现迁移同步更新（2026-09-18）
-
-### 变更
-- **背景**：main 上 Electron CI 与 Quality Gate 曾长期红灯（`Unit tests = 3 failed / 542 passed / 1 skipped`，546），根因不是功能缺陷，而是三处「平台/实现迁移」都**没同步更新锁死旧前提的门禁断言/基线**：① 全量迁 `windows-latest` 云 runner（`xvfb-run` / `ubuntu-latest` / `ps -eo` / `linux-x64` 归档 / 旧 step 名）；② #1899 统一空态走 locale（测试仍断言旧字面量 `暂无文案`）；③ #1891 剪贴板抽取到 `@/utils/clipboard`（测试仍断言底层 `navigator.clipboard`）。最终由 #1907 + #1924 + #1927 才收口，期间**至少两个会话重复诊断同一根因**
-- **`AGENTS.md` QM-3 新增 MUST「门禁断言随平台/实现迁移同步」**：明确触发条件（runner / OS / 工作流步骤名 / 组件实现细节 / 工具抽取 / locale 值 / 文件增删）+ 必须同步核查的文件清单（`workflow-contract.test.js`、`autonomous-loop-workflow.test.js`、`check-route-registry.test.js`、`gui-ci-exit-contract.test.js`、`scripts/debt-baseline.json`）+ 两条断言原则（断言 i18n 键而非 locale 字面量；mock 当前真正调用的依赖而非旧底层 API；组件删除时同步删专用测试与专用 locale 死键）+ 「判定红灯是否本 PR 引入」的标准路径（查本 PR 之前的 main run → 读 `.steps[]` → 下 job 日志 → 比对 `git show --name-only`）
-- **纯文档改动**：`AGENTS.md` +9 行、无代码变更（`git diff --numstat` = 9/0）
-
+# [未发布] feat(viral): P1 模式卡片本地规则预填兜底 + 爆款分析落库来源标记（2026-09-18）
+### 新增
+- **P1-D 模式卡片本地规则预填兜底**：PatternExtractionService 在 LLM 连续失败 2 次后，用零成本启发式正则（hook_type 优先级链 / 尾部 CTA 信号 / 段落结构启发 / title_formula 数字占位符化）预填卡片 status=done——卡片不再进入 failed 终态，`buildViralContext` 的聚合风格指导（buildPatternGuidance）覆盖率显著提升；保守原则：无显著信号的字段留空，不稀释聚合统计；预填值经 `hook_analysis` 前缀「（本地规则预填）」标注，LLM 恢复后可人工重置 pending 重提取。
+- **P1 落库来源标记**：`normalizeViralItem` source 枚举扩展 `analysis`（collection/manual/analysis）；爆款分析页「存入爆款库」落库条目改带 `source: 'analysis'`，与真实采集内容区分。
 ### 验证
-- 复核既有 QM-3 规则未被破坏：`文本空白归一化（MUST NOT）` × 1、`文本结构断言（MUST）` × 1、`### QM-4` × 1
-- 本条目即为满足文档同步门禁所需（`AGENTS.md` 被该门禁视为代码变更，须同 PR 携带 `CHANGELOG.md`）
-
+- 新增 pattern-extraction-service.test.js 7 例（LLM 正常回归 / 预填触发 / attempts 门槛 / hook·CTA·公式规则 / 源缺失 failed 回归）；ViralAnalysis.test.js 断言同步；合计 31/31 绿。
 ---
 
 # [未发布] docs(agents): QM-3 新增 MUST——门禁断言必须随平台/实现迁移同步更新（2026-09-18）
-
 ### 变更
 - **背景**：main 上 Electron CI 与 Quality Gate 曾长期红灯（`Unit tests = 3 failed / 542 passed / 1 skipped`，546），根因不是功能缺陷，而是三处「平台/实现迁移」都**没同步更新锁死旧前提的门禁断言/基线**：① 全量迁 `windows-latest` 云 runner（`xvfb-run` / `ubuntu-latest` / `ps -eo` / `linux-x64` 归档 / 旧 step 名）；② #1899 统一空态走 locale（测试仍断言旧字面量 `暂无文案`）；③ #1891 剪贴板抽取到 `@/utils/clipboard`（测试仍断言底层 `navigator.clipboard`）。最终由 #1907 + #1924 + #1927 才收口，期间**至少两个会话重复诊断同一根因**
 - **`AGENTS.md` QM-3 新增 MUST「门禁断言随平台/实现迁移同步」**：明确触发条件（runner / OS / 工作流步骤名 / 组件实现细节 / 工具抽取 / locale 值 / 文件增删）+ 必须同步核查的文件清单（`workflow-contract.test.js`、`autonomous-loop-workflow.test.js`、`check-route-registry.test.js`、`gui-ci-exit-contract.test.js`、`scripts/debt-baseline.json`）+ 两条断言原则（断言 i18n 键而非 locale 字面量；mock 当前真正调用的依赖而非旧底层 API；组件删除时同步删专用测试与专用 locale 死键）+ 「判定红灯是否本 PR 引入」的标准路径（查本 PR 之前的 main run → 读 `.steps[]` → 下 job 日志 → 比对 `git show --name-only`）
 - **纯文档改动**：`AGENTS.md` +9 行、无代码变更（`git diff --numstat` = 9/0）
-
 ### 验证
 - 复核既有 QM-3 规则未被破坏：`文本空白归一化（MUST NOT）` × 1、`文本结构断言（MUST）` × 1、`### QM-4` × 1
 - 本条目即为满足文档同步门禁所需（`AGENTS.md` 被该门禁视为代码变更，须同 PR 携带 `CHANGELOG.md`）
-
+---
+# [未发布] docs(agents): QM-3 新增 MUST——门禁断言必须随平台/实现迁移同步更新（2026-09-18）
+### 变更
+- **背景**：main 上 Electron CI 与 Quality Gate 曾长期红灯（`Unit tests = 3 failed / 542 passed / 1 skipped`，546），根因不是功能缺陷，而是三处「平台/实现迁移」都**没同步更新锁死旧前提的门禁断言/基线**：① 全量迁 `windows-latest` 云 runner（`xvfb-run` / `ubuntu-latest` / `ps -eo` / `linux-x64` 归档 / 旧 step 名）；② #1899 统一空态走 locale（测试仍断言旧字面量 `暂无文案`）；③ #1891 剪贴板抽取到 `@/utils/clipboard`（测试仍断言底层 `navigator.clipboard`）。最终由 #1907 + #1924 + #1927 才收口，期间**至少两个会话重复诊断同一根因**
+- **`AGENTS.md` QM-3 新增 MUST「门禁断言随平台/实现迁移同步」**：明确触发条件（runner / OS / 工作流步骤名 / 组件实现细节 / 工具抽取 / locale 值 / 文件增删）+ 必须同步核查的文件清单（`workflow-contract.test.js`、`autonomous-loop-workflow.test.js`、`check-route-registry.test.js`、`gui-ci-exit-contract.test.js`、`scripts/debt-baseline.json`）+ 两条断言原则（断言 i18n 键而非 locale 字面量；mock 当前真正调用的依赖而非旧底层 API；组件删除时同步删专用测试与专用 locale 死键）+ 「判定红灯是否本 PR 引入」的标准路径（查本 PR 之前的 main run → 读 `.steps[]` → 下 job 日志 → 比对 `git show --name-only`）
+- **纯文档改动**：`AGENTS.md` +9 行、无代码变更（`git diff --numstat` = 9/0）
+### 验证
+- 复核既有 QM-3 规则未被破坏：`文本空白归一化（MUST NOT）` × 1、`文本结构断言（MUST）` × 1、`### QM-4` × 1
+- 本条目即为满足文档同步门禁所需（`AGENTS.md` 被该门禁视为代码变更，须同 PR 携带 `CHANGELOG.md`）
 ---
 
 # [未发布] fix(i18n): 清理 #1899 遗留的 locale 重复 viralAnalysis 残缺块 + 12 处 EmptyState 存量硬编码迁移 locale（2026-09-18）

@@ -374,7 +374,7 @@ export default {
         content: this._buildAnalysisReport(r),
         tags,
         platform: (this.platform || '').slice(0, 50),
-        source: 'manual',
+        source: 'analysis',
         likes: 0,
         comments: 0,
       }
