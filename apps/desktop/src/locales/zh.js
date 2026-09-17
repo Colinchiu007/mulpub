@@ -2804,6 +2804,10 @@ knowledgeBase: {
 
   // ── 爆款分析页（viral-rewrite-integration）──
   viralAnalysis: {
+    empty: {
+      title: '输入主题开始分析',
+      message: 'AI 将从标题结构、情感触发、互动热度等维度分析爆款潜力',
+    },
     saveToLibrary: '存入爆款库',
     savedToLibrary: '已存入爆款库，改写时可被「结合爆款库」检索引用',
     saveToLibraryHint: '将本次分析结果存入爆款库，供改写引擎参考',
