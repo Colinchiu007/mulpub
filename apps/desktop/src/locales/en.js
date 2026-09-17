@@ -2824,6 +2824,10 @@ knowledgeBase: {
 
   // ── Viral analysis page (viral-rewrite-integration) ──
   viralAnalysis: {
+    empty: {
+      title: 'Enter a topic to start',
+      message: 'AI will score viral potential across title structure, emotional triggers and engagement',
+    },
     saveToLibrary: 'Save to viral library',
     savedToLibrary: 'Saved to viral library; retrievable via "Use viral library" when rewriting',
     saveToLibraryHint: 'Save this analysis to the viral library for the rewrite engine',
