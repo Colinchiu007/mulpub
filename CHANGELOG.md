@@ -1,3 +1,15 @@
+# [未发布] feat(viral): P1 模式卡片本地规则预填兜底 + 爆款分析落库来源标记（2026-09-18）
+
+### 新增
+- **P1-D 模式卡片本地规则预填兜底**：PatternExtractionService 在 LLM 连续失败 2 次后，用零成本启发式正则（hook_type 优先级链 / 尾部 CTA 信号 / 段落结构启发 / title_formula 数字占位符化）预填卡片 status=done——卡片不再进入 failed 终态，`buildViralContext` 的聚合风格指导（buildPatternGuidance）覆盖率显著提升；保守原则：无显著信号的字段留空，不稀释聚合统计；预填值经 `hook_analysis` 前缀「（本地规则预填）」标注，LLM 恢复后可人工重置 pending 重提取。
+- **P1 落库来源标记**：`normalizeViralItem` source 枚举扩展 `analysis`（collection/manual/analysis）；爆款分析页「存入爆款库」落库条目改带 `source: 'analysis'`，与真实采集内容区分。
+
+### 验证
+- 新增 pattern-extraction-service.test.js 7 例（LLM 正常回归 / 预填触发 / attempts 门槛 / hook·CTA·公式规则 / 源缺失 failed 回归）；ViralAnalysis.test.js 断言同步；合计 31/31 绿。
+
+---
+
+
 # [未发布] fix(i18n): 清理 #1899 遗留的 locale 重复 viralAnalysis 残缺块 + 12 处 EmptyState 存量硬编码迁移 locale（2026-09-18）
 
 ### 修复
