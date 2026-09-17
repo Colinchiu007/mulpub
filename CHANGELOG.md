@@ -20,6 +20,35 @@
 
 ---
 
+# [未发布] feat(viral): 爆款分析/文案生成 × 改写引擎/评估机制集成 P0（2026-09-16）
+### 新增
+- **爆款分析结果存入爆款库**：`ViralAnalysis.vue` 分析成功后可一键落库（复用既有 `knowledge-library:add-viral` IPC，无新增通道）；`title` 取 `analyzedTopic` 快照，`content` 为 i18n 组装的分析报告 Markdown（天然可被改写引擎三层知识库第 2 层「结合爆款库」检索），`tags` = 平台+推荐角度+上升关键词去重。
+- **生成标题一键去改写（titleHint 链路）**：生成标题列表每行「去改写」→ `/rewrite?titleHint=<标题>` → RewriteView 显示可移除 chip → `ai:rewrite` params 携带 `titleHint` → 引擎 `_sanitizeTitleHint`（空白折叠/200 字截断/非字符串忽略）后作为软约束追加到 userPrompt（模板替换后追加，防 `{placeholder}` 二次展开）。
+- **改写质量评估第 4 维「爆款潜力」**：`RewriteEngine` 新增可选 `viralScorer` 注入；改写前后各评一次，输出 `result.viral = { original, rewritten, delta, mode }`（`Number.isFinite` + 跨 mode 一致性校验，失败 fail-open 不阻塞）。主进程 `ViralEngine.scoreText`：orchestrator 优先、本地启发式回退、**独立 8s 短超时**；`container.setup.js` 完成注入。渲染端质量报告新增「爆款潜力：改写前 X → 改写后 Y（变化 Z）」指标。
+- i18n：新增 `viralAnalysis.*`（14 键）与 `rewritePage` 6 键，zh/en 严格成对。
+### 验证
+- TDD：`packages/rewrite-engine` 21/21（含 V1-V9：注入/截断/忽略/fail-open/跨 mode 丢弃/NaN 防护/未注入回归）；渲染端+electron 75/75（落库守卫/快照/chip/params/viral 展示/scoreText 6 用例）；views-coverage2+ai handler+ipc-contract 23/23。
+- 双模型外部评审（双子代理并行）：0 Critical；4 Warning + 部分 Info 全部修复并回归（8s 短超时/mode 一致性/日志与 clamp/analyzedTopic 快照）。
+- 门禁：CJK 基线扫描 PASS（零新增硬编码）；无新增 IPC 通道（preload bundle 无需重打包）。
+- 文档：`01-docs/PRD-VIRAL-REWRITE-INTEGRATION.md`（含数据校验/流程/交互/显示项/提示文字/P1-P2 规划）；openspec change `viral-rewrite-integration`；EverOS knowledge `everos/data/knowledge/viral-rewrite-integration/`。
+
+---
+
+# [未发布] feat(ops-center): 左侧菜单「设置」改名为「菜单设置」并支持菜单项拖拽排序（2026-09-16）
+
+### 变更
+- **侧边栏改名**：`ops-center/frontend/src/config/menuItems.js` 中 path `/settings` 的菜单项 label 由「设置」改为「菜单设置」（仅改左侧菜单项，其它页面文案如「预设模型设置」「模型设置」「默认设置」不属于侧边栏项，保持原样）。
+- **菜单排序支持拖拽**：`SettingsView.vue` 的「菜单排序」页由纯「上移/下移」按钮升级为原生 HTML5 拖拽列表（`draggable` + `dragstart/dragover/drop`），拖拽手柄用 `Rank` 图标；保留上移/下移按钮作为无障碍回退，拖拽落点高亮、拖拽中半透明。
+- **store 新增 `reorder(from, to)`**：`stores/menu.js` 新增按索引重排方法（越界/相等安全忽略，落点写入 `localStorage` 的 `ops_menu_order`），与既有 `move`/`moveBefore`/`reset` 并列导出。
+- **新增单元测试**：`src/stores/menu.test.js`（vitest + 内存版 localStorage mock，无需 jsdom），覆盖 `reorder`/`move`/`reset` 共 9 例，全绿。
+
+### 验证
+- `vitest run`：`src/stores/menu.test.js` 9/9 通过。
+- `vite build`：编译通过（仅 chunk 体积与 pure 注释告警，无错误）。
+- 视觉回归：拖拽交互为纯前端 UI 增强，未改变数据模型（`ops_menu_order` 仅顺序变化）；「菜单设置」改名在侧边栏（`App.vue` 渲染 `item.label`）即时生效。
+
+---
+
 # [未发布] fix(ops-center): 获取模型 SSRF 拒绝文案区分 fake-IP 代理基准段，给出可操作指引（2026-09-16）
 
 ### 修复
@@ -43,12 +72,17 @@
 - **语义分标度分组阈值**（CCG 评审 W-1）：`semanticPreservation` 在 simhash（覆盖率口径）与 embedding（余弦映射，**余弦 0 → 50 分**）两条路径上标度不同，共用阈值会让 embedding 路径"完全无关"越过全部 fail 阈值 → 几乎恒定 pass。新增 `SEMANTIC_BANDS` 按 `method` 分组选阈值（simhash `15/30/50`，embedding `30/45/60`）
 - **结果区新增复制按钮**：结果文本框下方新增 `📋 复制`（成功切 `✅ 已复制` 1.5s、失败立即复位不回显）。新增共享工具 `apps/desktop/src/utils/clipboard.js`（异步 Clipboard API 优先 → `execCommand` 回退 → 失败返回 `false` 不抛异常），并删除 `useFilmEngineering.js` 的本地重复实现改为复用（全仓共 9 处剪贴板实现，已迁移 2 处，剩 7 处登记为 P1 后续项）
 - **字符集合按 Unicode 码点计数**（CCG 评审 I-1）：`new Set(str)` 按 UTF-16 code unit 迭代，会把 emoji 等 BMP 外字符拆成两个代理对，使覆盖率/相似度失真；改为 `Array.from()` 按码点建集（纯 BMP 文本结果不变，零回归）
+- **与设计评审（Design Review）的整合**（3 项）：
+  1. **结论文字回归中性色**：设计评审实测三态色在 12-13px 小字号下对比度均低于 WCAG AA 4.5:1（pass 3.23:1 / warn 3.02:1 / fail 3.37:1），且 warn 与 fail 色相仅差约 12° 几乎无法区分；叠加 #1892 已将结论文字统一定为 `--ink` 并由左侧强调条承载三态颜色——故**取消结论文本上色**，颜色信号仅由 3px 强调条承担（非文本图形 3:1 门槛达标）。中性化的是**文案**，颜色中性化体现为强调条去红
+  2. **复制按钮行改左对齐**：动作行是 flex + gap、次按钮靠左（仅主按钮「去发布」用 `margin-left:auto` 推右），原右对齐的复制行会与紧邻动作行形成 Z 形错位
+  3. **字数概览按模式分派用词**：新增 `metaLengthFromTopic`，选题创作模式显示「主题 4 字 → 结果 831 字」而非「原文」——输入是主题种子而非待改写正文，标成「原文」正是与评分口径同源的概念陷阱
 
 ### 验证
 - `packages/rewrite-engine` **132/132 全绿**（11 文件；基线 102 → +30：真实事故样本复现 / 旧口径 9.89 数值锁定 / 模式分档表 / textSimilarity 兜底 / mode 与 method 归一化 / 近似重复三模式全 fail / embedding 标度分组 / emoji 码点 / 英文与标点边界）
-- 桌面端定向 **74/74 全绿**：RewriteView 48 例（+4：字数概览无占位符残留 / 复制按钮位置 / 复制成功切反馈态 / 复制失败不复显）、i18n 17 例（+8：**全量插值守卫**——遍历 zh/en 全部含 `{param}` 叶子注入哨兵值断言无残留 `{}` 且参数生效；连续插值一致性；多占位符全替换）、clipboard 9 例（新建）
+- 桌面端定向 **90/90 全绿**：RewriteView **60** 例（#1892 用例 + 本次 7 例：字数概览无占位符残留 / 选题创作用「主题」/ 扩写用「原文」/ 缺 mode 向后兼容 / 复制按钮位置 / 复制成功切反馈态 / 复制失败不复显）、i18n 17 例（+8：**全量插值守卫**——遍历 zh/en 全部含 `{param}` 叶子注入哨兵值断言无残留 `{}` 且参数生效；连续插值一致性；多占位符全替换）、clipboard 9 例（新建）、cohere-design-system 4 例
 - 事故用例修复前后实测：语义保持度 `9.89 → 100`；结论 `不合格 → 合格`；字数栏 `{original} 字 → {result} 字` → `原文 4 字 → 结果 831 字`
 - **CCG 双模型外部审查**（claude：0 Critical / 3 Warning / 6 Info；codex：0 Critical / 5 Warning / 7 Info）→ 已修 8 项（含上面两项），4 项经核实为"预存/误报/风格建议"并逐条记录结论（详见 PRD §13.11.10）
+- **设计评审（Design Review）**：0 Critical 新增；3 项判定采纳并已修（结论文字对比度/复制行对齐/字数概览用词），1 项建议（结论区信息层级：无单位浮点数伪精度、评估方式对创作者无意义）登记为 P2 后续项；另 1 条 Finding 经核实**已由 #1892 一并修复**（该组件曾引用 `--surface-secondary` / `--text-primary` / `--text-secondary` 等未定义令牌，现用变量全部有定义）
 - eslint 0 error；ipc-bridge / locale-sync / CJK / frontend-consistency 门禁 PASS
 - 文档：`01-docs/BUGFIX-REWRITE-QUALITY-UX-2026-09-16.md`（根因 commit 追溯 b5bda8d9/d1c739d5/fd5b1eb3/3b91d1ef、数值复现、QM-5 五步反思、完整规格、验收标准）；`01-docs/PRD-REWRITE-ENGINE.md` §13.11（v1.6 变更全量规格，含 §13.11.10 CCG 评审记录）；`01-docs/PRD.md` 附录；`01-docs/DOC-CONTENT-QUALITY-EVAL-MECHANISM.md` §5（两套评估器辨析）
 
