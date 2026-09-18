@@ -164,6 +164,6 @@ GET https://api.agnes-ai.cn/agnesapi?video_id=<ID>&model_name=agnes-video-2.5-fl
 
 ## 8. 后续可选项（非本次范围）
 
-- 运营后台（ops-center）预设目录同步 `agnes-multimodal`；
+- ~~运营后台（ops-center）预设目录同步 `agnes-multimodal`~~ → **已于 2026-09-18 补齐**：`ops-center/backend/services/model_preset_service.py` 的 `PRESET_CATALOG` 新增 `agnes-multimodal` 条目（中国站统一端点、capabilities/capability_models 与桌面端 seeds 一致、rpm 20、官方文档链接；不预置 models_url——多模态全量列表会覆盖能力映射模型，与 minimax-multimodal 同语义）。`ensure_catalog_seeded` 启动时自动插入存量库（is_visible=1），运营中心后端重启后「预设模型 → 多模态模型」标签即出现 Agnes-AI；新增 `test_catalog_agnes_multimodal_facts` 锚定跨端一致性；
 - 流水线 storyboard 支持首尾帧（keyframe）与音频参考（reference）模式透传 UI；
 - 既有国际站三个 Agnes 预设的弃用评估（观察一段时间使用量后再定）。
