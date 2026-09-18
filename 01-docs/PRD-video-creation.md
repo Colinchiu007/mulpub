@@ -1822,6 +1822,50 @@ SettingsDialog 关闭（App.vue @close）
 6. **提示文字（zh / en 成对，create.story2video.configProfile.*）**：saveButton 保存配置 / manageButton 我的配置 / saveTitle 保存配置 / listTitle 我的配置 / saveHint 保存当前流水线的所有选项，稍后可一键应用到新任务。 / namePlaceholder 配置名称（如：口播竖屏 1080p） / nameRequired 请输入配置名称 / duplicateName 已存在同名配置，再次点击保存将覆盖它 / overwriteSave 覆盖保存 / save 保存 / cancel 取消 / close 关闭 / apply 应用 / applyTitle 应用配置 / applyConfirm 应用配置将覆盖当前已调整的选项，是否继续？ / delete 删除 / deleteTitle 删除配置 / deleteConfirm 确定删除该配置吗？此操作不可恢复。 / empty 暂无保存的配置。在流水线页面点击『保存配置』即可创建。 / saved 配置已保存 / applied 已应用配置 / renamed 配置已重命名 / deleted 配置已删除 / wrongPipeline 该配置属于其他流水线，无法在当前流水线应用；后端校验失败与 IO 失败透出可读 message。
 7. **测试与验收边界**：服务单测覆盖普通对象/Date 与数组拒绝、Unicode 名称、pipeline/profile ID、64KiB、容量 50、CRUD、原子写、不可解析索引重建、结构/条目部分损坏读合法写保护、重名覆盖；IPC 单测覆盖 4 通道参数非法、不可信 sender 无副作用、未登录可用；CreateView/专用页面组件测试覆盖保存弹窗/空名校验/重名两段确认/列表加载非空数据与倒序/应用含 provider 失效回退与枚举归一化/跨流水线禁用/重命名/删除确认/legacy、video-clone、film-engineering 快照与保留原有页面动作；publisher wrapper fallback 测试。**不覆盖**：跨设备云同步（明确排除）、真实第三方登录态下的保存行为（public 通道语义已由单测覆盖）、真实第三方 provider 接受或发布成功。真实桌面应用验收：各入口保存→改动选项→应用恢复；旧版本无存量数据、空库和可重建损坏索引均不崩溃。
 
+### 3.1.41 快速渲染「文案生成」接入 AI 视频生成 + Remotion 进度解析修复（2026-09-18）
+
+**需求来源**：用户反馈「视频创作 → 快速渲染 → 输入文案『夏天的风』→ 点击【开始渲染】→ 底部进度条一直 0%，几分钟后突然变成『渲染完成』；且完成后的视频是静态文字，没有调用视频生成模型生成视频」。
+
+**根因**：
+
+1. **进度条 0%**：`apps/desktop/electron/services/render-engine.js` 用正则 `/Rendered frame (\d+)\/(\d+)/` 解析 Remotion CLI 输出，但 Remotion CLI 实际输出格式为 `Rendered 45/900`（`getGuiProgressSubtitle`，无 "frame" 字样）或 `Rendered frames 45/900`（`makeRenderingProgress`，复数 "frames" 且带 ANSI 颜色码）。正则要求单数 "frame"，永远匹配不上 → 进度条一直 0%，直到渲染完成事件才跳到完成态。
+2. **静态文字**：快速渲染「文案生成」模式（`CreateView.vue` 的 `startQuickRender`）把每行文案直接生成为 `text_card` cut，用本地 Remotion 静态渲染文字卡片，**完全不调用视频生成模型**。而流水线模式（story2video-compose）的 `generate_assets` 阶段会调用 `generateVideo` 生成真实 AI 视频。
+
+**修复方案**：
+
+1. **进度解析修复（render-engine.js）**：新增纯函数 `parseRenderProgress(text)`，剥离 ANSI 转义码后同时兼容 `Rendered 45/900`、`Rendered frames 45/900`、`Rendering frames 45/900`、`Encoded 45/900` 四种格式；`total=0` 时返回 0 而非 Infinity；stdout/stderr 两处进度解析统一调用该函数。函数导出供单元测试。
+2. **快速渲染「文案生成」接入 AI 视频生成**：
+   - 主进程新增 IPC `render:start-ai-video`（`apps/desktop/electron/ipc-handlers/render.js`）：入参 `{ prompt }`；复用 `story2video-stages.js` 导出的 `generateSceneVideo`（提交 `generateVideo` → 轮询 `getVideoStatus`（≤10 分钟）→ 下载落盘 → ffprobe 校验），返回 `{ success: true, outputPath }`；进度经 `render:progress` 事件推送（percent 0-100 + stage 文案）。视频供应商解析：`modelProviderManager.getDefault('video')` + `resolveProviderDefaultModel`（用户默认 > 运营默认 > capability_models.video > models[0]）。默认 9:16 竖屏（720×1280，长边封顶 1280）、fps 30、时长 8 秒、轮询间隔 10s。
+   - preload 暴露 `renderStartAiVideo`（`electron/preload/publish.js`），renderer API 新增 `renderStartAiVideo`（`src/api/publisher.js`）。
+   - `CreateView.vue` 的 `startQuickRender`：text 模式调用 `renderStartAiVideo({ prompt })`（多行文案以「。」合并为一段），成功即 `quickResult = res.data` 且复位 `quickRendering`；gallery 模式保持原有 Remotion 图片轮播路径（`renderStart`）。
+3. **数据校验**：
+   - `render:start-ai-video`：`prompt` 必须为非空字符串（trim 后非空），否则返回校验错误；`modelProviderManager` 不可用或未配置视频供应商时返回可读错误（不崩溃）。
+   - `generateSceneVideo` 内部既有守卫：`prompt` 非空、提交 `code !== 0` 透传、任务 ID 缺失报错、轮询超时（≤10 分钟）报错、下载非空文件 + ffprobe 可解码校验。
+4. **流程**：
+   ```
+   用户输入文案 → 点击【开始渲染】
+     -> renderer startQuickRender（text 模式）
+       -> IPC render:start-ai-video { prompt }
+         -> 主进程解析默认 video provider + model
+         -> generateSceneVideo：提交 generateVideo → 轮询 getVideoStatus（≤10 分钟）→ 下载 mp4 → ffprobe 校验
+         -> render:progress 推送（提交 1% → 轮询中 → 完成 100%）
+         -> render:complete 推送 { success: true, outputPath }
+       -> renderer quickResult = outputPath，quickRendering = false
+     -> 展示「视频渲染完成」+【查看视频】按钮
+   ```
+5. **交互逻辑**：
+   - 渲染中：按钮显示「渲染中...」，进度条实时更新（percent + stage 文案），【取消】按钮可用（`renderCancel` 仅取消本地 Remotion 渲染，AI 视频生成轮询阶段取消不中断主进程任务——与既有 `render:cancel` 语义一致）。
+   - 成功：进度条消失，展示「视频渲染完成」+【查看视频】。
+   - 失败：展示可读错误 +【重试】按钮（点击清空错误）。
+6. **显示项**：进度条（`quickProgress` 0-100%）+ 阶段文案（`quickStage`：开始渲染 / 提交视频生成任务 / 渲染中 / 编码中 / 计算中 / 启动渲染）；结果横幅「视频渲染完成」；错误横幅。
+7. **提示文字**：复用既有 `quickStage` 文案（开始渲染 / 渲染中 / 编码中 / 计算中 / 启动渲染）与「视频渲染完成」「渲染失败」「渲染异常」等既有文案；新增主进程错误文案（「AI 视频生成服务不可用，请在模型设置中启用视频供应商」「未配置可用的视频供应商，请在模型设置中启用视频生成能力」）——这些是主进程侧错误消息，不进入 renderer locale（renderer 经 `formatUserError` 归一化展示）。
+8. **测试**：
+   - `render-engine.test.js`：`parseRenderProgress` 覆盖 `Rendered 45/900`、`Rendered frames 45/900`、`Rendering frames 45/900`、`Encoded 45/900`、ANSI 码剥离、total=0 边界、非进度文本返回 null（7 例）。
+   - `render.test.js`：`render:start-ai-video` 覆盖缺少 prompt 校验、未配置视频供应商、成功路径（deps 注入 mock `generateSceneVideo`）、失败路径推送 `render:error`（4 例）。
+   - `CreateView.test.js`：text 模式调用 `renderStartAiVideo`（断言 prompt 合并）、gallery 模式仍调用 `renderStart`、失败复位（3 例更新 + 1 例新增）。
+   - `preload.test.js` / `publisher.test.js`：新增 `renderStartAiVideo` 键数断言与 API 元数据。
+9. **验收边界**：真实 AI 视频生成（provider 提交/轮询/下载）依赖已配置的视频供应商与真实第三方服务，属外部验收；本地单测覆盖 IPC 契约、参数校验、错误处理与 renderer 行为。
+
 
 **需求**：全能创作（Story2Video）的背景音乐从「每次选文件」升级为**设备级素材库**：可添加（自动入库并选中）、修改名称、删除；支持多个条目，通过下拉选择。库中条目的路径在媒体白名单内，继续受既有格式/大小/受控路径约束（WAV / M4A / MP3，单文件 ≤15MB）。
 
