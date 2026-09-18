@@ -1,8 +1,8 @@
 <template>
   <div>
     <div class="cohere-page-header">
-      <div style="display:flex;align-items:center;gap:var(--space-md);width:100%">
-        <div style="flex:1">
+      <div class="cp-header-row">
+        <div class="cp-flex1">
           <div class="page-title">云端发布</div>
           <div class="page-subtitle">提交发布任务到 ECS 服务器，不依赖本地环境</div>
         </div>
@@ -12,23 +12,23 @@
       </div>
     </div>
 
-    <div class="cohere-content" style="display:flex;flex-direction:column;gap:var(--space-md)">
+    <div class="cohere-content cp-content-col">
       <!-- 提交新任务 -->
-      <div class="cohere-card" style="cursor:default">
+      <div class="cohere-card cp-card-static">
         <div class="cohere-form" @submit.prevent="handleSubmit">
           <div class="cohere-form-item">
             <label class="cohere-form-label">视频 URL</label>
             <UiInput v-model="form.videoUrl" placeholder="https://storage.example.com/videos/xxx.mp4" />
           </div>
 
-          <div class="cohere-form-row" style="display:flex;gap:var(--space-md)">
-            <div class="cohere-form-item" style="flex:1">
+          <div class="cohere-form-row cp-form-row">
+            <div class="cohere-form-item cp-form-item-1">
               <label class="cohere-form-label">目标平台</label>
               <select class="cohere-input" v-model="form.platform">
                 <option v-for="p in platforms" :key="p.id" :value="p.id">{{ p.name || p.id }}</option>
               </select>
             </div>
-            <div class="cohere-form-item" style="flex:2">
+            <div class="cohere-form-item cp-form-item-2">
               <label class="cohere-form-label">标题</label>
               <UiInput v-model="form.title" placeholder="视频标题" maxlength="80" />
             </div>
@@ -36,14 +36,14 @@
 
           <div class="cohere-form-item">
             <label class="cohere-form-label">描述</label>
-            <UiInput type="textarea" v-model="form.desc" placeholder="视频描述" rows="3" style="resize:vertical;font-family:inherit;line-height:1.6"/>
+            <UiInput type="textarea" v-model="form.desc" placeholder="视频描述" rows="3" class="cp-textarea"/>
           </div>
 
           <div class="cohere-form-item">
             <label class="cohere-form-label">标签</label>
             <UiInput v-model="tagsInput" placeholder="标签（逗号分隔）" @keydown.enter.prevent="addTag" />
-            <div v-if="form.tags.length" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:var(--space-xs)">
-              <span v-for="(tag, idx) in form.tags" :key="tag" class="cohere-tag cohere-tag-info" style="cursor:pointer" @click="form.tags.splice(idx, 1)">
+            <div v-if="form.tags.length" class="cp-tag-row">
+              <span v-for="(tag, idx) in form.tags" :key="tag" class="cohere-tag cohere-tag-info cp-tag-click" @click="form.tags.splice(idx, 1)">
                 {{ tag }} ✕
               </span>
             </div>
@@ -54,13 +54,13 @@
             <UiInput v-model="form.coverUrl" placeholder="https://storage.example.com/covers/xxx.jpg（可选）" />
           </div>
 
-          <div style="display:flex;gap:var(--space-sm);margin-top:var(--space-md)">
+          <div class="cp-actions">
             <UiButton @click="handleSubmit" :disabled="submitting">
               {{ submitting ? '提交中...' : '提交云端发布' }}
             </UiButton>
           </div>
 
-          <div v-if="submitResult" class="cohere-form-item" style="margin-top:var(--space-sm)">
+          <div v-if="submitResult" class="cohere-form-item cp-result-item">
             <div v-if="submitResult.ok" class="cohere-tag cohere-tag-success">任务已创建: {{ submitResult.data?.task_id }}</div>
             <div v-else class="cohere-tag cohere-tag-error">提交失败: {{ submitResult.message }}</div>
           </div>
@@ -68,19 +68,19 @@
       </div>
 
       <!-- 发布记录 -->
-      <div class="cohere-card" style="cursor:default">
-        <div style="display:flex;align-items:center;gap:var(--space-sm);margin-bottom:var(--space-md)">
+      <div class="cohere-card cp-card-static">
+        <div class="cp-list-head">
           <span class="cohere-tag cohere-tag-info">发布记录</span>
-          <span style="font-size:13px;color:var(--muted)">{{ tasks.length }} 条</span>
-          <div style="flex:1"></div>
+          <span class="cp-note">{{ tasks.length }} 条</span>
+          <div class="cp-flex1"></div>
           <button class="cohere-btn-ghost" @click="refreshTasks" :disabled="loadingTasks">⟳ 刷新</button>
         </div>
 
-        <div v-if="loadingTasks" style="padding:16px 0" data-testid="cloud-publish-loading">
+        <div v-if="loadingTasks" class="cp-loading" data-testid="cloud-publish-loading">
           <UiSkeleton variant="table" :count="4" :columns="4" />
         </div>
 
-        <table v-else-if="tasks.length" class="cohere-table" style="width:100%">
+        <table v-else-if="tasks.length" class="cohere-table cp-table-full">
           <thead>
             <tr>
               <th>状态</th>
@@ -96,10 +96,10 @@
                 <span class="cohere-tag" :class="statusClass(t.status)">{{ statusLabel(t.status) }}</span>
               </td>
               <td>{{ t.input_data?.platform || '-' }}</td>
-              <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ t.input_data?.title || '-' }}</td>
-              <td style="font-size:12px;color:var(--muted)">{{ formatTime(t.created_at) }}</td>
+              <td class="cp-td-ellipsis">{{ t.input_data?.title || '-' }}</td>
+              <td class="cp-note-xs">{{ formatTime(t.created_at) }}</td>
               <td>
-                <button v-if="t.status === 'failed'" class="cohere-btn-ghost" @click="retryTask(t)" style="font-size:12px">重试</button>
+                <button v-if="t.status === 'failed'" class="cohere-btn-ghost cp-btn-retry" @click="retryTask(t)">重试</button>
               </td>
             </tr>
           </tbody>
@@ -285,3 +285,27 @@ export default {
   },
 }
 </script>
+
+
+<style scoped>
+/* T1-3e：原 21 处内联样式全部类化；颜色一律 var(--color-*)。 */
+.cp-header-row { display: flex; align-items: center; gap: var(--space-md); width: 100%; }
+.cp-flex1 { flex: 1; }
+.cp-content-col { display: flex; flex-direction: column; gap: var(--space-md); }
+.cp-card-static { cursor: default; }
+.cp-form-row { display: flex; gap: var(--space-md); }
+.cp-form-item-1 { flex: 1; }
+.cp-form-item-2 { flex: 2; }
+.cp-textarea { resize: vertical; font-family: inherit; line-height: 1.6; }
+.cp-tag-row { display: flex; gap: 4px; flex-wrap: wrap; margin-top: var(--space-xs); }
+.cp-tag-click { cursor: pointer; }
+.cp-actions { display: flex; gap: var(--space-sm); margin-top: var(--space-md); }
+.cp-result-item { margin-top: var(--space-sm); }
+.cp-list-head { display: flex; align-items: center; gap: var(--space-sm); margin-bottom: var(--space-md); }
+.cp-note { font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.cp-note-xs { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.cp-loading { padding: 16px 0; }
+.cp-table-full { width: 100%; }
+.cp-td-ellipsis { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp-btn-retry { font-size: var(--font-size-xs); }
+</style>

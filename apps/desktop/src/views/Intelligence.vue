@@ -1,35 +1,34 @@
 <template>
   <div>
     <div class="cohere-page-header">
-      <div style="display:flex;align-items:center;gap:var(--space-md);width:100%">
-        <div style="flex:1">
+      <div class="int-header-row">
+        <div class="int-header-main">
           <div class="page-title">内容情报</div>
           <div class="page-subtitle">
             跨平台搜索主题热度、高互动内容，为创作提供数据参考
-            <span v-if="searching" style="margin-left:8px;color:var(--coral)">搜索中...</span>
+            <span v-if="searching" class="int-searching">搜索中...</span>
           </div>
         </div>
-        <div style="font-size:12px;color:var(--muted)">
+        <div class="int-note">
           数据源: Reddit · HN · GitHub
         </div>
       </div>
     </div>
 
     <!-- 热门趋势面板 -->
-    <TrendingPanel style="margin-bottom:var(--space-md)" />
+    <TrendingPanel class="int-mb-md" />
 
     <!-- 搜索栏 -->
     <div class="cohere-content">
-      <div class="cohere-card" style="cursor:default">
-        <div style="display:flex;gap:var(--space-sm);align-items:flex-end">
-          <div style="flex:1">
+      <div class="cohere-card int-card-static">
+        <div class="int-search-row">
+          <div class="int-header-main">
             <label class="cohere-form-label">搜索主题</label>
             <input
-              class="cohere-input"
+              class="cohere-input int-input-md"
               v-model="query"
               placeholder="输入关键词，搜索各平台的高互动内容..."
               @keyup.enter="doSearch"
-              style="font-size:14px"
             />
           </div>
           <button class="cohere-btn-primary" @click="doSearch" :disabled="!query.trim() || searching">
@@ -41,23 +40,23 @@
         </div>
 
         <!-- 来源筛选 -->
-        <div style="display:flex;gap:12px;margin-top:var(--space-sm);flex-wrap:wrap">
-          <label v-for="s in sourceOptions" :key="s.id" style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer">
-            <input type="checkbox" :value="s.id" v-model="selectedSources" style="accent-color:var(--coral)" />
+        <div class="int-source-row">
+          <label v-for="s in sourceOptions" :key="s.id" class="int-check-label">
+            <input type="checkbox" :value="s.id" v-model="selectedSources" class="int-check-accent" />
             {{ s.label }}
           </label>
-          <span style="margin-left:auto;font-size:12px;color:var(--muted)">
+          <span class="int-note int-note--auto">
             按真实互动评分排序（非 SEO）
           </span>
         </div>
       </div>
 
       <!-- 搜索结果 -->
-      <div v-if="result" class="cohere-card" style="cursor:default;margin-top:var(--space-md)">
-        <div style="display:flex;align-items:center;gap:var(--space-sm);margin-bottom:var(--space-md)">
-          <span style="font-weight:600;font-size:15px">📊 搜索结果</span>
+      <div v-if="result" class="cohere-card int-card-static int-mt-md">
+        <div class="int-result-head">
+          <span class="int-result-title">📊 搜索结果</span>
           <span class="cohere-tag cohere-tag-info">{{ result.total }} 条</span>
-          <span style="font-size:12px;color:var(--muted);margin-left:auto">
+          <span class="int-note int-note--auto">
             搜索于 {{ formatTime(result.timestamp) }}
           </span>
         </div>
@@ -73,35 +72,33 @@
             paddingBottom: 'var(--space-sm)',
             borderBottom: '1px solid var(--border)'
           }">
-          <div style="display:flex;align-items:flex-start;gap:var(--space-sm)">
-            <div style="flex:1;min-width:0">
-              <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-                <span class="source-badge" :style="{ background: sourceColor(item.source) + '20', color: sourceColor(item.source), fontSize: '11px', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }">
+          <div class="int-item-row">
+            <div class="int-item-main">
+              <div class="int-badge-row">
+                <span class="source-badge" :style="{ background: sourceColor(item.source) + '20', color: sourceColor(item.source) }">
                   {{ sourceLabel(item.source) }}
                 </span>
-                <span style="font-size:12px;color:var(--muted)">{{ item.author }}</span>
+                <span class="int-note">{{ item.author }}</span>
               </div>
               <a :href="item.url" target="_blank" rel="noopener"
-                style="font-size:14px;font-weight:600;color:var(--text);text-decoration:none;display:block;margin-bottom:4px"
-                @mouseover="e => e.target.style.color = 'var(--coral)'"
-                @mouseout="e => e.target.style.color = 'var(--text)'">
+                class="int-link">
                 {{ item.title }}
               </a>
-              <div v-if="item.snippet" style="font-size:13px;color:var(--muted);margin-bottom:4px;line-height:1.4">
+              <div v-if="item.snippet" class="int-snippet">
                 {{ item.snippet.slice(0, 150) }}<span v-if="item.snippet.length > 150">...</span>
               </div>
-              <div style="display:flex;gap:12px;font-size:12px;color:var(--muted)">
+              <div class="int-meta-row">
                 <span>👍 {{ item.upvotes }}</span>
                 <span>💬 {{ item.comments }}</span>
                 <span v-if="item.extra?.labels">🏷 {{ item.extra.labels.join(', ') }}</span>
               </div>
             </div>
-            <div style="text-align:right;flex-shrink:0">
+            <div class="int-score-side">
               <div class="engagement-score" :style="{ color: scoreColor(item.engagement) }">
                 {{ item.engagement.toFixed(1) }}
               </div>
-              <div style="font-size:10px;color:var(--muted)">互动分</div>
-              <button class="cohere-btn-ghost" @click="useAsReference(item)" title="作为参考" style="margin-top:4px;font-size:12px">
+              <div class="int-score-hint">互动分</div>
+              <button class="cohere-btn-ghost int-ref-btn" @click="useAsReference(item)" title="作为参考">
                 📋 参考
               </button>
             </div>
@@ -110,18 +107,18 @@
       </div>
 
       <!-- 标题分析 -->
-      <div v-if="titleAnalysis" class="cohere-card" style="cursor:default;margin-top:var(--space-md)">
-        <div style="font-weight:600;font-size:15px;margin-bottom:var(--space-sm)">📝 标题分析</div>
-        <div v-if="titleAnalysis.patterns" style="margin-bottom:var(--space-sm)">
-          <div style="font-size:13px;color:var(--muted);margin-bottom:6px">高互动标题高频词：</div>
-          <div style="display:flex;flex-wrap:wrap;gap:6px">
+      <div v-if="titleAnalysis" class="cohere-card int-card-static int-mt-md">
+        <div class="int-result-title int-result-title--block">📝 标题分析</div>
+        <div v-if="titleAnalysis.patterns" class="int-mb-sm">
+          <div class="int-pattern-hint">高互动标题高频词：</div>
+          <div class="int-tag-row">
             <span v-for="[word, count] in titleAnalysis.patterns" :key="word"
               class="cohere-tag" :class="count >= 3 ? 'cohere-tag-success' : 'cohere-tag-info'">
               {{ word }} ({{ count }})
             </span>
           </div>
         </div>
-        <div v-if="titleAnalysis.suggestion" class="intel-tip" style="background:var(--surface)3e0;border-radius:8px;padding:12px;font-size:13px">
+        <div v-if="titleAnalysis.suggestion" class="intel-tip int-tip-fix">
           💡 {{ titleAnalysis.suggestion.tip }}
         </div>
       </div>
@@ -167,14 +164,14 @@ function sourceLabel (s) {
 }
 
 function sourceColor (s) {
-  const map = { reddit: '#FF4500', hackernews: '#FF6600', github: 'var(--ink)' }
-  return map[s] || 'var(--text-muted)'
+  const map = { reddit: 'var(--color-source-reddit)', hackernews: 'var(--color-source-hn)', github: 'var(--color-text-primary)' }
+  return map[s] || 'var(--color-text-muted)'
 }
 
 function scoreColor (score) {
   if (score >= 2.0) return '#2e7d32'
   if (score >= 1.0) return '#f57c00'
-  return 'var(--text-muted)'
+  return 'var(--color-text-muted)'
 }
 
 async function doSearch () {
@@ -234,4 +231,41 @@ function insertRef (ref) {
   border-left: 3px solid var(--coral,#f57c00);
   border-left: 3px solid #f57c00;
 }
+
+/* T1-3e：原 36 处内联样式全部类化；颜色一律 var(--color-*)。
+ * 来源品牌色/情报分值色收编 tokens.css（--color-source-*/--color-intel-score-*）；
+ * 链接 hover 由 JS mouseover/out 改为 CSS :hover；修复 .intel-tip 损坏的 var(--surface)3e0。 */
+.int-header-row { display: flex; align-items: center; gap: var(--space-md); width: 100%; }
+.int-header-main { flex: 1; }
+.int-searching { margin-left: 8px; color: var(--color-danger); }
+.int-note { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.int-note--auto { margin-left: auto; }
+.int-mb-md { margin-bottom: var(--space-md); }
+.int-mb-sm { margin-bottom: var(--space-sm); }
+.int-mt-md { margin-top: var(--space-md); }
+.int-card-static { cursor: default; }
+.int-search-row { display: flex; gap: var(--space-sm); align-items: flex-end; }
+.int-search-main { flex: 1; }
+.int-input-md { font-size: 14px; }
+.int-source-row { display: flex; gap: 12px; margin-top: var(--space-sm); flex-wrap: wrap; }
+.int-check-label { display: flex; align-items: center; gap: 4px; font-size: var(--font-size-sm); cursor: pointer; }
+.int-check-accent { accent-color: var(--color-danger); }
+.int-result-head { display: flex; align-items: center; gap: var(--space-sm); margin-bottom: var(--space-md); }
+.int-result-title { font-weight: 600; font-size: var(--font-size-base); }
+.int-result-title--block { margin-bottom: var(--space-sm); }
+.int-item-row { display: flex; align-items: flex-start; gap: var(--space-sm); }
+.int-item-main { flex: 1; min-width: 0; }
+.int-badge-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.int-link { font-size: 14px; font-weight: 600; color: var(--color-text-primary); text-decoration: none; display: block; margin-bottom: 4px; }
+.int-link:hover { color: var(--color-danger); }
+.int-snippet { font-size: var(--font-size-sm); color: var(--color-text-muted); margin-bottom: 4px; line-height: 1.4; }
+.int-meta-row { display: flex; gap: 12px; font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.int-score-side { text-align: right; flex-shrink: 0; }
+.int-score-hint { font-size: 10px; color: var(--color-text-muted); }
+.int-ref-btn { margin-top: 4px; font-size: var(--font-size-xs); }
+.int-pattern-hint { font-size: var(--font-size-sm); color: var(--color-text-muted); margin-bottom: 6px; }
+.int-tag-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.int-tip-fix { background: var(--color-bg-inset); border-radius: var(--r-sm); padding: 12px; font-size: var(--font-size-sm); }
+.source-badge { font-size: 11px; padding: 2px 8px; border-radius: var(--r-xs); font-weight: 600; }
+
 </style>
