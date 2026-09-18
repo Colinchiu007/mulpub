@@ -1265,6 +1265,22 @@ describe("CreateView - quick render", () => {
     w.unmount();
   });
 
+  it("_loadDraftForRewrite 草稿带 title 时带入发布标题字段（≤20 字）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.draftList.mockResolvedValueOnce({
+      code: 0,
+      data: [{ id: "draft_title", content: "改写后的文案内容", title: "夏天来了" }],
+    });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await w.vm._loadDraftForRewrite("draft_title");
+    await nextTick();
+    expect(w.vm.pipelineText).toBe("改写后的文案内容");
+    expect(w.vm.s2vConfig.title).toBe("夏天来了");
+    w.unmount();
+  });
+
   it("_loadDraftForRewrite 草稿不存在时显示失败提示且不置灰显 flag", async () => {
     const mocks = await import("@/api/publisher");
     mocks.draftList.mockResolvedValueOnce({ code: 0, data: [] });

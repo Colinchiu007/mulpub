@@ -210,13 +210,18 @@
         <div v-else-if="rewriteResult" class="rewrite-quality-none" data-testid="rewrite-quality-none">
           {{ t('rewritePage.qualityNone') }}
         </div>
+        <!-- 改写结果标题（2026-09-18）：引擎从改写结果提炼 ≤20 字标题，纯文字展示（非输入框） -->
+        <div v-if="rewriteTitle" class="rewrite-result-title" data-testid="rewrite-result-title">
+          <span class="rewrite-result-title-label">{{ t('rewritePage.resultTitleLabel') }}</span>
+          <span class="rewrite-result-title-text">{{ rewriteTitle }}</span>
+        </div>
         <textarea
           v-model="rewriteResult"
           class="rewrite-textarea result-textarea"
           rows="8"
         ></textarea>
-        <!-- 改写结果快捷操作：复制到剪贴板（BUGFIX-REWRITE-QUALITY-UX） -->
-        <div class="rewrite-copy-row">
+        <div class="rewrite-result-actions">
+          <!-- 复制按钮移到动作行最左侧（2026-09-18 用户要求） -->
           <button
             class="cohere-btn-secondary rewrite-copy-btn"
             data-testid="btn-copy-result"
@@ -225,8 +230,6 @@
           >
             {{ copied ? t('rewritePage.copyResultDone') : t('rewritePage.copyResult') }}
           </button>
-        </div>
-        <div class="rewrite-result-actions">
           <button class="cohere-btn-secondary" @click="saveToDraft">
             {{ t('rewritePage.saveDraft') }}
           </button>
@@ -279,6 +282,8 @@ const content = ref('')
 const rewriting = ref(false)
 const rewriteError = ref('')
 const rewriteResult = ref('')
+// 改写结果标题（2026-09-18）：引擎从改写结果提炼 ≤20 字标题，纯文字展示
+const rewriteTitle = ref('')
 const rewriteMeta = ref(null)
 // content-quality-eval 桌面端闭环：改写质量评估报告（RewriteQualityEvaluator 结果）
 const rewriteQuality = ref(null)
@@ -345,7 +350,7 @@ async function syncHandoffToLibrary (handoff) {
     await upsertCopyRewrite({
       fromKey: handoff.fromKey,
       fromTitle: handoff.fromTitle || '',
-      title: handoff.title || '',
+      title: rewriteTitle.value || handoff.title || '',
       content: rewriteResult.value,
       platform: handoff.platform || '',
       sourceUrl: handoff.sourceUrl || '',
@@ -353,6 +358,44 @@ async function syncHandoffToLibrary (handoff) {
   } catch {
     // 文案库回写失败不阻塞改写主流程
   }
+}
+
+/**
+ * 改写成功后写入文案库（2026-09-18 用户要求：改写完成后的文案应进入文案库）。
+ *
+ * 与 syncHandoffToLibrary 的区别：
+ * - syncHandoffToLibrary 仅处理「从文案库进入改写」的交接场景（按 fromKey 覆盖原记录）；
+ * - syncResultToLibrary 覆盖所有改写成功场景，按「正文哈希」稳定 key 写入：
+ *   同一正文连续改写视为更新（覆盖），不同正文追加新记录，避免文案库被重复改写刷屏。
+ * 交接场景（libraryHandoff 存在）由 syncHandoffToLibrary 按 fromKey 更新原记录，
+ * 此处跳过，避免同一条改写产生双份记录（双模型评审 MAJOR-2/3）。
+ * 失败静默，不影响改写主流程。
+ */
+async function syncResultToLibrary () {
+  if (!rewriteResult.value.trim()) return
+  try {
+    // 稳定 key：基于改写结果正文的简单哈希（同一正文连续改写 → 覆盖更新）
+    const contentKey = hashString(rewriteResult.value)
+    await upsertCopyRewrite({
+      fromKey: 'rewrite:' + contentKey,
+      fromTitle: '',
+      title: rewriteTitle.value || '',
+      content: rewriteResult.value,
+      platform: platform.value || '',
+      sourceUrl: '',
+    })
+  } catch {
+    // 文案库回写失败不阻塞改写主流程
+  }
+}
+
+/** 简单字符串哈希（djb2）：用于文案库稳定 key，避免同一正文重复改写刷屏 */
+function hashString (str) {
+  let h = 5381
+  for (let i = 0; i < str.length; i++) {
+    h = ((h << 5) + h + str.charCodeAt(i)) >>> 0
+  }
+  return h.toString(36)
 }
 // 跳转防重入（单一互斥锁）：连点/跨按钮并发点击不会重复存草稿、不会产生双草稿
 let navigatingToDestination = false
@@ -400,8 +443,18 @@ watch(platform, refreshStrategyPreview)
 
 // 改写结果被用户编辑（textarea v-model）→ 已存草稿内容过期：置空 id，下次操作按当前内容重存
 // （saveToDraft 成功后 savedDraftId 更新，此处仅在内容再次变化时失效，不构成循环）
+// 双模型评审 MINOR-7：手动编辑结果后标题与正文可能不一致 → 同步清空标题（存草稿时回退原文前 64 字）。
+// 程序赋值（startRewrite 成功分支）通过 suppressTitleClear 标志跳过，避免刚生成的标题被误清。
+let suppressTitleClear = false
 watch(rewriteResult, (next, prev) => {
-  if (savedDraftId && next !== prev) invalidateSavedDraft()
+  if (next !== prev) {
+    if (savedDraftId) invalidateSavedDraft()
+    if (suppressTitleClear) {
+      suppressTitleClear = false
+    } else if (rewriteTitle.value) {
+      rewriteTitle.value = ''
+    }
+  }
 })
 
 // ── 热门选题带入：/rewrite?topic=xxx → 填入输入框 + 选题创作模式 + 自动开始 ──
@@ -483,6 +536,7 @@ async function startRewrite() {
     sendKnowledgeFeedback('rejected', rewriteKnowledgeRefs.value)
   }
   rewriteResult.value = ''
+  rewriteTitle.value = ''
   rewriteMeta.value = null
   rewriteKnowledgeRefs.value = []
   // CCG 评审修复：新改写开始前重置质量报告，避免上一次改写（无 quality）的旧报告残留
@@ -516,7 +570,11 @@ async function startRewrite() {
     const res = await aiRewrite(params)
     if (res && res.code === 0 && res.data && res.data.success) {
       const data = res.data
+      // 程序赋值结果：跳过 watch 的标题清空（用户编辑才清空标题）
+      suppressTitleClear = true
       rewriteResult.value = data.result || ''
+      // 改写结果标题（2026-09-18）：引擎返回 ≤20 字标题；缺失/非法回退空串
+      rewriteTitle.value = (typeof data.title === 'string' && data.title.trim()) ? [...data.title.trim()].slice(0, 20).join('') : ''
       // 新改写结果产生：旧草稿（如有）内容已过期，置空 id 让发布/视频创作按当前文案重存
       invalidateSavedDraft()
       // P2 隐式反馈：记录本次改写引用的知识条目
@@ -553,8 +611,14 @@ async function startRewrite() {
         rewriteError.value = data.warnings.join('；')
       }
       notifySuccess('collection.rewriteSuccess')
-      // 文案库交接：来自合并版「文案库」的改写 → 结果回写文案库（旁路，失败静默）
-      void syncHandoffToLibrary(handoffForRun)
+      // 文案库回写（2026-09-18 用户要求：改写完成后的文案应进入文案库）：
+      // 交接场景按 fromKey 更新原记录；普通改写按正文哈希稳定 key 写入。
+      // 两者互斥（双模型评审 MAJOR-2：避免同一条改写产生双份记录），旁路触发不阻塞改写主流程。
+      if (handoffForRun && handoffForRun.fromKey) {
+        void syncHandoffToLibrary(handoffForRun)
+      } else {
+        void syncResultToLibrary()
+      }
     } else if (res && res.code === 0 && res.data && res.data.error) {
       rewriteError.value = res.data.error
       notifyError('collection.rewriteFailed', { message: res.data.error })
@@ -612,7 +676,8 @@ async function saveToDraft() {
   try {
     const saved = {
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-      title: content.value.trim().slice(0, 64) || t('rewritePage.title'),
+      // 标题优先用改写结果标题（≤20 字，2026-09-18）；缺失时回退原文前 64 字
+      title: rewriteTitle.value || content.value.trim().slice(0, 64) || t('rewritePage.title'),
       content: rewriteResult.value,
       source: 'rewrite',
       createdAt: new Date().toISOString(),
@@ -882,6 +947,30 @@ function onPublishVideo(pipelineId) {
 
 /* ── 结果区 ── */
 .rewrite-result-card .result-textarea { margin-top: var(--space-md); }
+
+/* 改写结果标题（2026-09-18）：引擎提炼 ≤20 字标题，纯文字展示（非输入框） */
+.rewrite-result-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: var(--space-md);
+  padding: 10px 12px;
+  background: var(--coral-soft);
+  border-radius: var(--r-sm);
+}
+.rewrite-result-title-label {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--coral);
+}
+.rewrite-result-title-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.4;
+  word-break: break-all;
+}
 
 /* 质量评估：左侧结论强调条取代原先「结果卡片内再套一个带边框的卡片」，
    结论等级用颜色直接编码（合格 / 需注意 / 建议优化）。 */

@@ -20,6 +20,8 @@ vi.mock('@/api/publisher', () => ({
     data: {
       success: true,
       result: '这是改写后的文案内容，用于测试。',
+      // 改写结果标题（2026-09-18）：引擎提炼 ≤20 字标题
+      title: '这是改写后的标题',
       strategy: { id: params?.strategyId || 'auto-strategy', name: params?.strategyId === 'strategy-douyin-viral' ? '抖音爆款策略' : '测试策略', category: 'viral' },
       warnings: [],
       sensitiveHits: [],
@@ -1160,6 +1162,34 @@ describe('RewriteView — 设置区结构与布局契约', () => {
     mockRouteQuery.value = {}
   })
 
+  // 局部 helper：执行一次改写并返回 wrapper（本 describe 独立定义，不依赖外层 runRewrite）
+  async function runRewrite() {
+    // vi.clearAllMocks 会清掉 aiRewrite 的默认实现（mockReset 语义），
+    // 因此用 mockResolvedValue 设置默认实现（各用例可用 mockResolvedValueOnce 覆盖）
+    const { aiRewrite } = await import('@/api/publisher')
+    aiRewrite.mockResolvedValue({
+      code: 0,
+      data: {
+        success: true,
+        result: '这是改写后的文案内容，用于测试。',
+        title: '这是改写后的标题',
+        strategy: { id: 's1', name: '测试策略', category: 'viral' },
+        warnings: [],
+        sensitiveHits: [],
+        knowledgeRefs: [],
+        metadata: { mode: 'imitate', originalLength: 30, resultLength: 18, aiTasteLevel: 0.15 },
+        quality: null,
+      },
+    })
+    const wrapper = factory()
+    await wrapper.find('textarea.rewrite-textarea').setValue('这是一段足够长的测试文案内容，超过二十个字，测试改写功能。')
+    await nextTick()
+    await wrapper.find('.rewrite-start-btn').trigger('click')
+    await nextTick()
+    await nextTick()
+    return wrapper
+  }
+
   it('内容依据是两个并排开关，勾选框位于开关内部首位（左置）', () => {
     const wrapper = factory()
     const switches = wrapper.findAll('.config-switch')
@@ -1230,5 +1260,105 @@ describe('RewriteView — 设置区结构与布局契约', () => {
     const report = wrapper.find('[data-testid="rewrite-quality-report"]')
     expect(report.exists()).toBe(true)
     expect(report.classes()).toContain('quality-accent-pass')
+  })
+
+  // ── 改写结果标题 + 复制按钮移位 + 文案库回写（2026-09-18）──
+
+  it('改写成功后展示结果标题（纯文字，非输入框）', async () => {
+    // 显式提供带 title 的返回，避免依赖默认 mock（vi.clearAllMocks 不清实现但显式更稳）
+    const { aiRewrite } = await import('@/api/publisher')
+    aiRewrite.mockResolvedValueOnce({
+      code: 0,
+      data: {
+        success: true,
+        result: '这是改写后的文案内容，用于测试。',
+        title: '这是改写后的标题',
+        strategy: { id: 's1', name: '测试策略', category: 'viral' },
+        warnings: [],
+        sensitiveHits: [],
+        knowledgeRefs: [],
+        metadata: { mode: 'imitate', originalLength: 30, resultLength: 18, aiTasteLevel: 0.15 },
+        quality: null,
+      },
+    })
+    const wrapper = await runRewrite()
+    const title = wrapper.find('[data-testid="rewrite-result-title"]')
+    expect(title.exists()).toBe(true)
+    expect(title.text()).toContain('标题')
+    expect(title.text()).toContain('这是改写后的标题')
+    // 标题是纯文字展示，不是输入框
+    expect(title.find('input').exists()).toBe(false)
+    expect(title.find('textarea').exists()).toBe(false)
+  })
+
+  it('引擎未返回标题时不展示标题行', async () => {
+    const { aiRewrite } = await import('@/api/publisher')
+    aiRewrite.mockResolvedValueOnce({
+      code: 0,
+      data: {
+        success: true,
+        result: '这是改写后的文案内容，用于测试。',
+        strategy: { id: 's1', name: '测试策略', category: 'viral' },
+        warnings: [],
+        sensitiveHits: [],
+        knowledgeRefs: [],
+        metadata: { mode: 'imitate', originalLength: 30, resultLength: 18, aiTasteLevel: 0.15 },
+        quality: null,
+      },
+    })
+    const wrapper = factory()
+    await wrapper.find('textarea.rewrite-textarea').setValue('这是一段足够长的测试文案内容，超过二十个字，测试改写功能。')
+    await nextTick()
+    await wrapper.find('.rewrite-start-btn').trigger('click')
+    await nextTick()
+    await nextTick()
+    expect(wrapper.find('[data-testid="rewrite-result-title"]').exists()).toBe(false)
+  })
+
+  it('复制按钮与存入草稿/视频创作在同一动作行（最左侧）', async () => {
+    const wrapper = await runRewrite()
+    const actions = wrapper.find('.rewrite-result-actions')
+    expect(actions.exists()).toBe(true)
+    // 复制按钮在动作行内
+    expect(actions.find('[data-testid="btn-copy-result"]').exists()).toBe(true)
+    expect(actions.find('[data-testid="btn-video-create"]').exists()).toBe(true)
+    // 复制按钮是动作行第一个按钮（最左侧）
+    const html = actions.html()
+    const copyIdx = html.indexOf('btn-copy-result')
+    const draftIdx = html.indexOf('存入草稿')
+    const videoIdx = html.indexOf('btn-video-create')
+    expect(copyIdx).toBeGreaterThan(-1)
+    expect(copyIdx).toBeLessThan(draftIdx)
+    expect(copyIdx).toBeLessThan(videoIdx)
+  })
+
+  it('存入草稿携带改写结果标题', async () => {
+    const { draftSave } = await import('@/api/publisher')
+    draftSave.mockClear()
+    const wrapper = await runRewrite()
+    // 复制按钮已移到动作行最左侧；存入草稿按钮按文本定位
+    const saveBtn = wrapper.findAll('.rewrite-result-actions button').find((b) => b.text().includes('存入草稿'))
+    await saveBtn.trigger('click')
+    await nextTick()
+    expect(draftSave).toHaveBeenCalledTimes(1)
+    const saved = draftSave.mock.calls[0][0]
+    expect(saved.title).toBe('这是改写后的标题')
+    expect(saved.content).toContain('这是改写后的文案内容')
+  })
+
+  it('改写成功后写入文案库（storeSetSetting 携带改写记录）', async () => {
+    const { storeSetSetting } = await import('@/api/publisher')
+    storeSetSetting.mockClear()
+    const wrapper = await runRewrite()
+    await nextTick()
+    // syncResultToLibrary 异步执行，等待微任务
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(storeSetSetting).toHaveBeenCalled()
+    const key = storeSetSetting.mock.calls.find((c) => c[0] === 'copy_library_rewrites')
+    expect(key).toBeTruthy()
+    const records = JSON.parse(key[1])
+    expect(records.length).toBeGreaterThan(0)
+    expect(records[0].title).toBe('这是改写后的标题')
+    expect(records[0].content).toContain('这是改写后的文案内容')
   })
 })
