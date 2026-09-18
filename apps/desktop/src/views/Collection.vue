@@ -677,7 +677,7 @@ async function zhihuFavlistBatchCollect () {
     zhihuFavlistResults.value = items
     zhihuFavlistProgress.value = resolveNotifyText('collection.zhihuFavlist.batchDone', {
       completed: String(completed), failed: String(failed),
-    }).text + (cancelled ? '（已取消）' : '') + (circuitBroken ? '（熔断停止）' : '')
+    }).text + (cancelled ? resolveNotifyText('collection.zhihuFavlist.cancelledSuffix').text : '') + (circuitBroken ? resolveNotifyText('collection.zhihuFavlist.circuitBrokenSuffix').text : '')
     notifySuccess('collection.collectSuccess')
   } catch (e) {
     zhihuFavlistError.value = String(e && e.message || e)
@@ -718,7 +718,7 @@ async function zhihuFavlistBatchRewrite () {
     }
     zhihuFavlistProgress.value = resolveNotifyText('collection.zhihuFavlist.batchDone', {
       completed: String(completed), failed: String(failed),
-    }).text + (cancelled ? '（已取消）' : '') + (circuitBroken ? '（熔断停止）' : '')
+    }).text + (cancelled ? resolveNotifyText('collection.zhihuFavlist.cancelledSuffix').text : '') + (circuitBroken ? resolveNotifyText('collection.zhihuFavlist.circuitBrokenSuffix').text : '')
     notifySuccess('collection.rewriteSuccess')
   } catch (e) {
     zhihuFavlistError.value = String(e && e.message || e)
