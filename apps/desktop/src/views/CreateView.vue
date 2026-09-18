@@ -1489,7 +1489,7 @@ import {
 } from '@multi-publish/story2video-engine/template-library'
 
 import {
-  renderStart, renderCancel, renderGetStatus, renderInstallDeps,
+  renderStart, renderStartAiVideo, renderCancel, renderGetStatus, renderInstallDeps,
   onRenderProgress, onRenderComplete, onRenderError, onRenderInstallProgress, onPipelineUpdate,
   pipelineList, pipelineStart, pipelinePause, pipelineResume, pipelineCancel,
   pipelineStatus, pipelineAdvance, pipelineHistory,
@@ -5957,12 +5957,19 @@ export default {
     async startQuickRender() {
       this.quickRendering = true; this.quickProgress = 0; this.quickStage = '开始渲染'; this.quickError = null; this.quickResult = null
       try {
-        const cuts = this.quickMode === 'text'
-          ? this.quickText.split('\n').filter(l => l.trim()).map((t, i) => ({ id: 'scene-' + i, type: 'text_card', text: t.trim(), in_seconds: i * 8, out_seconds: (i + 1) * 8 - 0.5 }))
-          : this.quickImages.map((img, i) => ({ id: 'scene-' + i, type: 'anime_scene', images: [img.preview], animation: 'ken-burns', in_seconds: i * 5, out_seconds: (i + 1) * 5 - 0.5 }))
-        const res = await renderStart({ props: { cuts, theme: this.quickTheme, renderer_family: 'explainer-data' }, profile: this.quickProfile })
-        if (res?.code === 0) { this.quickResult = res.data }
-        else { this.quickError = formatUserError(res, { fallback: '渲染失败' }).message; this.quickRendering = false }
+        if (this.quickMode === 'text') {
+          // 文案生成：调用 AI 视频生成模型（主进程提交 + 轮询 + 下载），产出真实 AI 视频
+          const prompt = this.quickText.split('\n').filter(l => l.trim()).join('。').trim()
+          const res = await renderStartAiVideo({ prompt })
+          if (res?.code === 0) { this.quickResult = res.data; this.quickRendering = false }
+          else { this.quickError = formatUserError(res, { fallback: '渲染失败' }).message; this.quickRendering = false }
+        } else {
+          // 图片轮播：本地 Remotion 渲染静态图片轮播（不调用视频生成模型）
+          const cuts = this.quickImages.map((img, i) => ({ id: 'scene-' + i, type: 'anime_scene', images: [img.preview], animation: 'ken-burns', in_seconds: i * 5, out_seconds: (i + 1) * 5 - 0.5 }))
+          const res = await renderStart({ props: { cuts, theme: this.quickTheme, renderer_family: 'explainer-data' }, profile: this.quickProfile })
+          if (res?.code === 0) { this.quickResult = res.data }
+          else { this.quickError = formatUserError(res, { fallback: '渲染失败' }).message; this.quickRendering = false }
+        }
       } catch (e) { this.quickError = '渲染异常: ' + formatUserError(e, { fallback: '未知错误' }).message; this.quickRendering = false }
     },
     cancelQuickRender() { renderCancel(); this.quickRendering = false },

@@ -57,6 +57,7 @@ function createPublishApi(ipcRenderer, options = {}) {
 
     // 渲染 API
     renderStart: (data) => ipcRenderer.invoke('render:start', data),
+    renderStartAiVideo: (data) => ipcRenderer.invoke('render:start-ai-video', data),
     renderCancel: () => ipcRenderer.invoke('render:cancel'),
     renderGetStatus: () => ipcRenderer.invoke('render:status'),
     renderInstallDeps: () => ipcRenderer.invoke('render:install-deps'),

@@ -16,6 +16,7 @@ vi.mock("@/composables/useLoginGate", () => ({
 
 vi.mock("@/api/publisher", () => ({
   renderStart: vi.fn(),
+  renderStartAiVideo: vi.fn(),
   renderCancel: vi.fn(),
   renderGetStatus: vi.fn().mockResolvedValue({ code: 0, data: { ready: true } }),
   renderInstallDeps: vi.fn().mockResolvedValue({ code: 0, data: { success: true } }),
@@ -1177,9 +1178,9 @@ describe("CreateView - quick render", () => {
     window.electronAPI = {};
   });
 
-  it("startQuickRender calls renderStart with text cuts", async () => {
+  it("startQuickRender text 模式调用 renderStartAiVideo 生成 AI 视频", async () => {
     const mocks = await import("@/api/publisher");
-    mocks.renderStart.mockResolvedValue({ code: 0, data: { outputPath: "/tmp/test.mp4" } });
+    mocks.renderStartAiVideo.mockResolvedValue({ code: 0, data: { outputPath: "/tmp/ai-video.mp4" } });
     const w = mount(CreateView, {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
@@ -1188,15 +1189,35 @@ describe("CreateView - quick render", () => {
     w.vm.quickText = "scene1\nscene2\nscene3";
     await w.vm.startQuickRender();
     await nextTick();
-    expect(mocks.renderStart).toHaveBeenCalled();
-    const arg = mocks.renderStart.mock.calls[0][0];
-    expect(arg.props.cuts.length).toBe(3);
-    expect(arg.props.cuts[0].text).toBe("scene1");
+    expect(mocks.renderStartAiVideo).toHaveBeenCalled();
+    const arg = mocks.renderStartAiVideo.mock.calls[0][0];
+    expect(arg.prompt).toBe("scene1。scene2。scene3");
+    expect(w.vm.quickResult.outputPath).toBe("/tmp/ai-video.mp4");
+    expect(w.vm.quickRendering).toBe(false);
   });
 
-  it("startQuickRender sets quickError on failure", async () => {
+  it("startQuickRender gallery 模式调用 renderStart 渲染图片轮播", async () => {
     const mocks = await import("@/api/publisher");
-    mocks.renderStart.mockResolvedValue({ code: 1, message: "render failed" });
+    mocks.renderStart.mockResolvedValue({ code: 0, data: { outputPath: "/tmp/gallery.mp4" } });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    w.vm.view = "quick";
+    w.vm.quickMode = "gallery";
+    w.vm.quickImages = [{ preview: "blob:1" }, { preview: "blob:2" }];
+    await w.vm.startQuickRender();
+    await nextTick();
+    expect(mocks.renderStartAiVideo).not.toHaveBeenCalled();
+    expect(mocks.renderStart).toHaveBeenCalled();
+    const arg = mocks.renderStart.mock.calls[0][0];
+    expect(arg.props.cuts.length).toBe(2);
+    expect(arg.props.cuts[0].type).toBe("anime_scene");
+  });
+
+  it("startQuickRender text 模式失败时展示错误并复位", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.renderStartAiVideo.mockResolvedValue({ code: 1, message: "render failed" });
     const w = mount(CreateView, {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
@@ -1349,9 +1370,9 @@ describe("CreateView - quick render", () => {
     w.unmount();
   });
 
-  it("renderStart 拒绝时展示异常并复位渲染状态", async () => {
+  it("renderStartAiVideo 拒绝时展示异常并复位渲染状态", async () => {
     const mocks = await import("@/api/publisher");
-    mocks.renderStart.mockRejectedValueOnce(new Error("渲染 IPC 缺失"));
+    mocks.renderStartAiVideo.mockRejectedValueOnce(new Error("渲染 IPC 缺失"));
     const w = mount(CreateView, {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
@@ -1365,9 +1386,9 @@ describe("CreateView - quick render", () => {
     expect(w.vm.quickResult).toBeNull();
   });
 
-  it("renderStart 返回异常格式时展示默认错误并复位", async () => {
+  it("renderStartAiVideo 返回异常格式时展示默认错误并复位", async () => {
     const mocks = await import("@/api/publisher");
-    mocks.renderStart.mockResolvedValueOnce({});
+    mocks.renderStartAiVideo.mockResolvedValueOnce({});
     const w = mount(CreateView, {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });

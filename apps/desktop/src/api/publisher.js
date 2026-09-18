@@ -124,6 +124,9 @@ export function onAccountStatusChanged(callback) { return bridgeOn("AccountStatu
 // ─── 渲染 API ────────────────────────────
 export async function renderStart(data) { return invoke("renderStart", data) }
 
+// 快速渲染 text 模式：调用 AI 视频生成模型（主进程提交 + 轮询 + 下载），返回本地视频路径
+export async function renderStartAiVideo(data) { return invoke("renderStartAiVideo", data) }
+
 export async function renderCancel () {
   return invokeWithFallback("renderCancel", {})
 }

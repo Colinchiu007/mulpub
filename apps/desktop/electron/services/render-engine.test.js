@@ -64,4 +64,37 @@ describe('RenderEngine', () => {
       remotionPackageJson: 'C:/runtime/node_modules/remotion/package.json',
     })
   })
+
+  describe('parseRenderProgress — Remotion CLI 进度解析', () => {
+    it('解析 Remotion 实际输出 "Rendered 45/900"（无 frame 字样）', () => {
+      expect(RenderEngine.parseRenderProgress('Rendered 45/900')).toEqual({ percent: 5, stage: '渲染中' })
+    })
+
+    it('解析 Remotion makeRenderingProgress 输出 "Rendered frames 45/900"（复数 frames）', () => {
+      expect(RenderEngine.parseRenderProgress('Rendered frames 45/900')).toEqual({ percent: 5, stage: '渲染中' })
+    })
+
+    it('解析渲染中阶段 "Rendering frames 45/900"', () => {
+      expect(RenderEngine.parseRenderProgress('Rendering frames 45/900')).toEqual({ percent: 5, stage: '渲染中' })
+    })
+
+    it('解析拼接阶段 "Encoded 45/900"', () => {
+      expect(RenderEngine.parseRenderProgress('Encoded 450/900')).toEqual({ percent: 50, stage: '编码中' })
+    })
+
+    it('剥离 ANSI 转义码后仍能解析', () => {
+      const ansi = '\u001b[2K\u001b[0G\u001b[36mRendered frames 45/900\u001b[0m'
+      expect(RenderEngine.parseRenderProgress(ansi)).toEqual({ percent: 5, stage: '渲染中' })
+    })
+
+    it('total=0 时返回 0 而非 Infinity（除零边界）', () => {
+      expect(RenderEngine.parseRenderProgress('Rendered 0/0')).toEqual({ percent: 0, stage: '渲染中' })
+    })
+
+    it('非进度文本返回 null', () => {
+      expect(RenderEngine.parseRenderProgress('Bundling 50%')).toBeNull()
+      expect(RenderEngine.parseRenderProgress('')).toBeNull()
+      expect(RenderEngine.parseRenderProgress(null)).toBeNull()
+    })
+  })
 })
