@@ -20,6 +20,10 @@ on:
       - '.github/workflows/gui-test.yml'
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   gui-test:
     runs-on: windows-latest
@@ -103,12 +107,15 @@ jobs:
             exit 1
           fi
 
+      # 2026-09-17 CI 提速：原第 2 条命令 `pnpm --filter @multi-publish/desktop test:e2e`
+      # 与 quality-gate 的 QG Browser E2E（Gate 8）完全重复（同一 test:e2e、同一个 vite:5174），已移除。
+      # 保留 e2e-smoke.js（本 workflow 独有）。
+      # ⚠️ 红线：本文件上方的 5 个 Python 后端验证步骤是全仓唯一入口，不得删除或迁移。
       - name: Browser E2E gates
         shell: bash
         run: |
           set -euo pipefail
           node apps/desktop/tests/e2e-smoke.js
-          pnpm --filter @multi-publish/desktop test:e2e
 
       # L2: Electron GUI gate 仅发布 tag 时触发（CI 虚拟环境无真实 GPU/显示，日常 PR 用 headless Chromium 浏览器 E2E 兜底）
       - name: Electron GUI gate (release-only)

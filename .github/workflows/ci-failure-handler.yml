@@ -21,6 +21,11 @@ permissions:
   issues: write
   pull-requests: write
 
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   handle-ci-failure:
     if: ${{ github.event.workflow_run.conclusion == 'failure' }}
