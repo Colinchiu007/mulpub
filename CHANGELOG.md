@@ -1,3 +1,17 @@
+# [未发布] fix(ops-center): 菜单拖拽排序改为按 path 定位，修复 adminOnly 造成的下标漂移（2026-09-18）
+
+### 修复
+- **根因**：`SettingsView.vue` 的 `visibleItems` 是过滤掉 `adminOnly` 后的**可见**列表（31 项），而 `stores/menu.js` 的 `reorder(from, to)` 按**完整 order（35 项，含 `/pipeline-options`、`/app-menu`、`/feedback`、`/model-keys`）**的下标 splice。拖拽事件传的是可见列表下标 → 只要被拖行之前存在 adminOnly 项，下标即漂移，**用户拖 A 实际移动 B**。管理员视角更明显：侧边栏渲染 35 项、设置页只渲染 31 项，两者本就不同源。
+- **修复**：新增 `reorderByPath(fromPath, toPath)`，内部用 `indexOf` 把 path 换算为完整 order 下标再 splice（splice 数学与原 `reorder` 一致，方向语义不变）；视图侧 `dragIndex/dragOverIndex` 改为 `dragPath/dragOverPath`，事件传 `item.path`。原 `reorder` 的下标语义**保留不动**——`menu.test.js` 有 7 处按下标调用，替换为 path 语义会破坏既有 9 条用例。
+- 「上移/下移」按钮本就走 `move(path, ±1)` 按 path 定位，不受该缺陷影响，是安全回退路径。
+
+### 验证
+- TDD：`ops-center/frontend` 先加 4 条用例确认红（`reorderByPath is not a function`），实现后 **13/13 全绿**（原 9 + 新增 4）。其中「含 adminOnly 项时按 path 重排，移动的是被拖拽的项本身」直接锁定本次漂移缺陷。
+- `vite build` 编译通过（仅 chunk 体积与 pure 注释告警）。
+- 说明：本仓 CI 当前**不执行** ops-center 前端测试（唯一提及 ops-center 的 `ops-center-ci.yml` 只跑后端 pytest），以上为本地验证结果；前端 CI 覆盖缺口已登记待补。
+
+---
+
 # [未发布] fix(i18n): 清理 #1899 遗留的 locale 重复 viralAnalysis 残缺块 + 12 处 EmptyState 存量硬编码迁移 locale（2026-09-18）
 
 ### 修复
