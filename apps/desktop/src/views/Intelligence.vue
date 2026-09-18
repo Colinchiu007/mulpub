@@ -234,7 +234,7 @@ function insertRef (ref) {
 }
 
 /* T1-3e：原 36 处内联样式全部类化；颜色一律 var(--color-*)。
- * 来源品牌色/情报分值色收编 tokens.css（--color-source-*/--color-intel-score-*）；
+ * 来源品牌色/情报分值色收编 tokens.css（--color-source-* 与 --color-intel-score-*）；
  * 链接 hover 由 JS mouseover/out 改为 CSS :hover；修复 .intel-tip 损坏的 var(--surface)3e0。 */
 .int-header-row { display: flex; align-items: center; gap: var(--space-md); width: 100%; }
 .int-header-main { flex: 1; }
