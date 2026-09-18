@@ -129,6 +129,10 @@
   --color-apple-info-bg: rgba(0, 122, 255, 0.10);
   --color-apple-border: #d2d2d7;
   --color-apple-border-subtle: #e5e5ea;
+  /* 分析分值语义色（原 ViralAnalysis.scoreColor 硬编码，T1-3a 收编） */
+  --color-score-high: #e74c3c;
+  --color-score-mid: #e67e22;
+  --color-score-low: #95a5a6;
 
   /* ---- 暗色模式：主色保持品牌可辨识度（修复旧覆盖为浅灰 #e8e8ed 的缺陷）---- */
 }
