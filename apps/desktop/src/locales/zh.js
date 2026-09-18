@@ -936,6 +936,9 @@ export default {
     syncFailed: '平台同步失败，请稍后重试',
     loginGateHint: '登录后可查看发布统计与最近发布。',
     signInNow: '去登录',
+    trendTitle: '发布趋势（近 14 天）',
+    platformDistTitle: '平台分布',
+    recentTitle: '最近发布',
   },
   promptEval: {
     deleteConfirmTitle: '删除评测记录',
@@ -2453,6 +2456,10 @@ export default {
   },
   intelligence: {
     insertedRef: '已插入引用: {title}',
+    searchLabel: '搜索',
+    searchResults: '搜索结果',
+    reference: '参考',
+    titleAnalysis: '标题分析',
   },
 
   tagSuggest: {

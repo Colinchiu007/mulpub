@@ -32,7 +32,7 @@
             />
           </div>
           <button class="cohere-btn-primary" @click="doSearch" :disabled="!query.trim() || searching">
-            <el-icon><Search /></el-icon> 搜索
+            <el-icon><Search /></el-icon> {{ $t('intelligence.searchLabel') }}
           </button>
           <button class="cohere-btn-ghost" @click="clearSearch" :disabled="!query.trim()" title="清空">
             ✕
@@ -54,7 +54,7 @@
       <!-- 搜索结果 -->
       <div v-if="result" class="cohere-card int-card-static int-mt-md">
         <div class="int-result-head">
-          <span class="int-result-title"><el-icon><DataLine /></el-icon> 搜索结果</span>
+          <span class="int-result-title"><el-icon><DataLine /></el-icon> {{ $t('intelligence.searchResults') }}</span>
           <span class="cohere-tag cohere-tag-info">{{ result.total }} 条</span>
           <span class="int-note int-note--auto">
             搜索于 {{ formatTime(result.timestamp) }}
@@ -99,7 +99,7 @@
               </div>
               <div class="int-score-hint">互动分</div>
               <button class="cohere-btn-ghost int-ref-btn" @click="useAsReference(item)" title="作为参考">
-                <el-icon><DocumentCopy /></el-icon> 参考
+                <el-icon><DocumentCopy /></el-icon> {{ $t('intelligence.reference') }}
               </button>
             </div>
           </div>
@@ -108,7 +108,7 @@
 
       <!-- 标题分析 -->
       <div v-if="titleAnalysis" class="cohere-card int-card-static int-mt-md">
-        <div class="int-result-title int-result-title--block"><el-icon><EditPen /></el-icon> 标题分析</div>
+        <div class="int-result-title int-result-title--block"><el-icon><EditPen /></el-icon> {{ $t('intelligence.titleAnalysis') }}</div>
         <div v-if="titleAnalysis.patterns" class="int-mb-sm">
           <div class="int-pattern-hint">高互动标题高频词：</div>
           <div class="int-tag-row">

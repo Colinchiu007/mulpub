@@ -935,6 +935,9 @@ export default {
     syncFailed: 'Platform sync failed. Please try again later',
     loginGateHint: 'Sign in to view publish stats and recent publishes.',
     signInNow: 'Sign in',
+    trendTitle: 'Publishing trend (last 14 days)',
+    platformDistTitle: 'Platform distribution',
+    recentTitle: 'Recent publishes',
   },
   promptEval: {
     deleteConfirmTitle: 'Delete eval record',
@@ -2452,6 +2455,10 @@ export default {
   },
   intelligence: {
     insertedRef: 'Inserted reference: {title}',
+    searchLabel: 'Search',
+    searchResults: 'Search results',
+    reference: 'Reference',
+    titleAnalysis: 'Title analysis',
   },
 
   tagSuggest: {
