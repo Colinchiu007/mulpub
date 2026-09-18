@@ -1,4 +1,4 @@
-#requires -Version 7
+﻿#requires -Version 7
 <#
 .SYNOPSIS
   Multi-Publish 桌面启动契约：保证每次启动 = 最新代码 + 正确工作区。
@@ -113,16 +113,29 @@ $evidence.node = $nodeExe
 Write-Line "node     : $nodeExe"
 
 # ---- 0c. Python 自定位（与 node 同理：不依赖调用方 PATH，避免 WorkBuddy 托管 Python 截胡裸 python）----
+# 2026-09-18 缺陷修复：固定路径优先于 py launcher。父会话 PATH 里 py 可能被
+# GitHub Actions runner 工具缓存（_work/_tool/Python）等裸解释器截胡，其无
+# pydantic/splitter 业务依赖，导致 SplitterBridge/PromptBridge 启动失败。
 $pyExe = $null
-$pyLauncher = Get-Command py -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($pyLauncher) {
-  try { $r = & $pyLauncher.Source -3.12 -c 'import sys; print(sys.executable)' 2>$null; if ($r) { $pyExe = $r.Trim() } } catch { }
-}
+foreach ($cand in @(
+  (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\python.exe')
+)) { if (Test-Path -LiteralPath $cand) { $pyExe = $cand; break } }
 if (-not $pyExe) {
-  foreach ($cand in @(
-    'C:\Users\邱领\AppData\Local\Programs\Python\Python312\python.exe',
-    (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\python.exe')
-  )) { if (Test-Path -LiteralPath $cand) { $pyExe = $cand; break } }
+  $pyLauncher = Get-Command py -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($pyLauncher) {
+    try {
+      $r = & $pyLauncher.Source -3.12 -c 'import sys; print(sys.executable)' 2>$null
+      if ($r) {
+        # 取首行并强制字符串（py 输出可能多行/数组，避免 Trim/Test-Path 收到数组）
+        $candidate = ([string]$r).Trim() -split '\r?\n' | Select-Object -First 1
+        # 排除工具缓存/沙箱裸解释器（github-runner/_work/_tool/hostedtoolcache 等），
+        # 与 electron-runtime-env.js UNTRUSTED_PYTHON_MARKERS 保持一致（两侧需同步更新）
+        if ($candidate -notmatch 'github-runner|_work[\/]_tool|hostedtoolcache') {
+          if (Test-Path -LiteralPath $candidate) { $pyExe = $candidate }
+        }
+      }
+    } catch { }
+  }
 }
 if ($pyExe) {
   $env:Path = (Split-Path $pyExe -Parent) + ';' + $env:Path
