@@ -144,6 +144,19 @@ jobs:
           node .github/scripts/check-route-registry.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # --- Gate 14: 历史品牌色字面量（desktop-ui-consistency T1-1：拦住四套 token 收编后的复辟）---
+      # 2026-09-18 接入：cohere/apple 旧 token 文件已全部转发 tokens.css 后，
+      # 历史色（#5048e5/#5149e8/#409eff/#3a7be5/#007aff/#f472b6）只允许出现在
+      # tokens.css 收编槽位区；组件/视图新增历史色字面量即失败。
+      # 基线 frontend-consistency-baseline.json colorLiterals 只降不升（存量 145 由后续批次清零）。
+      # 本地同口径：node .github/scripts/check-color-literals.js
+      - name: "Gate 14 - Color literals guard (token alias consolidation)"
+        run: |
+          node --test .github/scripts/check-color-literals.test.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .github/scripts/check-color-literals.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
   unit-tests:
     name: QG Unit Tests
     runs-on: windows-latest

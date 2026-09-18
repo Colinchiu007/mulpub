@@ -99,6 +99,37 @@
   --color-float-tooltip-text: #ffffff;
   --shadow-float: 0 2px 8px rgba(30, 27, 75, 0.08);
 
+  /* ---- 历史槽位收编（T1-1 结构收敛）----
+   * 承接 cohere/apple 旧 token 文件的原始色值，值冻结（零视觉回归），
+   * 旧文件一律转发到这里；这些值与品牌主色/语义色的合并或替换
+   * 由后续批次统一拍板，拍板后本区是唯一需要改动的位置。 */
+  /* cohere 系 */
+  --color-secondary: #f472b6;
+  --color-secondary-light: #fce7f3;
+  --color-danger-soft: #fef0f0;
+  --color-success-soft: #d1fae5;
+  --color-warning-soft: #fef3c7;
+  --color-canvas-translucent: rgba(255, 255, 255, 0.95);
+  --color-module-nav-text: #8b8e9a;
+  /* apple 系（与全局语义色值不同的历史色，前缀保留域归属） */
+  --color-apple-surface-secondary: #f5f5f7;
+  --color-apple-surface-tertiary: #e8e8ed;
+  --color-apple-ink-primary: #1d1d1f;
+  --color-apple-ink-secondary: #6e6e73;
+  --color-apple-ink-tertiary: #aeaeb2;
+  --color-apple-accent: #007aff;
+  --color-apple-accent-hover: #0056cc;
+  --color-apple-success: #34c759;
+  --color-apple-success-bg: rgba(52, 199, 89, 0.10);
+  --color-apple-warning: #ff9500;
+  --color-apple-warning-bg: rgba(255, 149, 0, 0.10);
+  --color-apple-error: #ff3b30;
+  --color-apple-error-bg: rgba(255, 59, 48, 0.10);
+  --color-apple-info: #007aff;
+  --color-apple-info-bg: rgba(0, 122, 255, 0.10);
+  --color-apple-border: #d2d2d7;
+  --color-apple-border-subtle: #e5e5ea;
+
   /* ---- 暗色模式：主色保持品牌可辨识度（修复旧覆盖为浅灰 #e8e8ed 的缺陷）---- */
 }
 

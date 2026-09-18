@@ -2,36 +2,39 @@
    Apple-Inspired Design Tokens
    For Multi-Publish desktop app
    Imported BEFORE cohere-design-system.css
+   T1-1 结构收敛：色值全部转发 tokens.css（--color-apple-* 槽位），
+   值冻结零视觉回归；是否与全局语义色合并由后续批次拍板。
+   @deprecated 只读别名层 —— 新代码禁止消费 --apple-* 变量。
    ============================================ */
 
 :root {
   /* === Color: Surfaces === */
-  --apple-surface-primary: #FFFFFF;
-  --apple-surface-secondary: #F5F5F7;
-  --apple-surface-tertiary: #E8E8ED;
+  --apple-surface-primary: var(--color-bg-card);
+  --apple-surface-secondary: var(--color-apple-surface-secondary);
+  --apple-surface-tertiary: var(--color-apple-surface-tertiary);
 
   /* === Color: Ink (Text) === */
-  --apple-ink-primary: #1D1D1F;
-  --apple-ink-secondary: #6E6E73;
-  --apple-ink-tertiary: #AEAEB2;
+  --apple-ink-primary: var(--color-apple-ink-primary);
+  --apple-ink-secondary: var(--color-apple-ink-secondary);
+  --apple-ink-tertiary: var(--color-apple-ink-tertiary);
 
   /* === Color: Accent === */
-  --apple-accent: #007AFF;
-  --apple-accent-hover: #0056CC;
+  --apple-accent: var(--color-apple-accent);
+  --apple-accent-hover: var(--color-apple-accent-hover);
 
   /* === Color: Semantic States === */
-  --apple-success: #34C759;
-  --apple-success-bg: rgba(52, 199, 89, 0.10);
-  --apple-warning: #FF9500;
-  --apple-warning-bg: rgba(255, 149, 0, 0.10);
-  --apple-error: #FF3B30;
-  --apple-error-bg: rgba(255, 59, 48, 0.10);
-  --apple-info: #007AFF;
-  --apple-info-bg: rgba(0, 122, 255, 0.10);
+  --apple-success: var(--color-apple-success);
+  --apple-success-bg: var(--color-apple-success-bg);
+  --apple-warning: var(--color-apple-warning);
+  --apple-warning-bg: var(--color-apple-warning-bg);
+  --apple-error: var(--color-apple-error);
+  --apple-error-bg: var(--color-apple-error-bg);
+  --apple-info: var(--color-apple-info);
+  --apple-info-bg: var(--color-apple-info-bg);
 
   /* === Color: Borders === */
-  --apple-border: #D2D2D7;
-  --apple-border-subtle: #E5E5EA;
+  --apple-border: var(--color-apple-border);
+  --apple-border-subtle: var(--color-apple-border-subtle);
 
   /* === Typography === */
   --apple-font-display: 'SF Pro Display', 'Inter', 'PingFang SC', system-ui, sans-serif;
