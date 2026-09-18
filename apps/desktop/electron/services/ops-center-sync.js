@@ -355,6 +355,14 @@ class OpsCenterSync {
     this._rewriteHardConstraintManager = rhcm && typeof rhcm.applyRemote === 'function' ? rhcm : null
   }
 
+  /**
+   * 注入改写引擎服务（rewrite-hard-constraints 审查 M2）：
+   * 硬约束运行中更新时使引擎缓存失效，下次改写按新约束构建 systemPrompt。
+   */
+  setRewriteEngineService(res) {
+    this._rewriteEngineService = res || null
+  }
+
   /** 应用运行时策略：公告缓存 + 敏感词重建 + 更新策略推送 */
   applyRuntime(payload) {
     if (!payload || typeof payload !== 'object') return
@@ -410,11 +418,17 @@ class OpsCenterSync {
       }
     }
     // 改写硬约束运行时下发（rewrite-hard-constraints，2026-09-19）：
-    // bootstrap 携带默认版本时应用；未携带/未注入管理器时跳过（保持本地现状）
+    // bootstrap 携带默认版本时应用；未携带/未注入管理器时跳过（保持本地现状）。
+    // 内容变化时通知改写引擎服务失效缓存（审查 M2：否则运行中 re-sync 后引擎沿用旧约束直到重启）
     if (payload.rewrite_hard_constraints && this._rewriteHardConstraintManager) {
       try {
         const changed = this._rewriteHardConstraintManager.applyRemote(payload.rewrite_hard_constraints)
         this._log.info('OpsCenterSync', 'rewrite hard constraints applied: ' + (changed ? 'updated' : 'unchanged'))
+        if (changed && this._rewriteEngineService && typeof this._rewriteEngineService.setHardConstraintManager === 'function') {
+          // 重新注入使引擎缓存失效，下次改写按新硬约束构建 systemPrompt
+          this._rewriteEngineService.setHardConstraintManager(this._rewriteHardConstraintManager)
+          this._log.info('OpsCenterSync', 'rewrite engine cache invalidated for new hard constraints')
+        }
       } catch (e) {
         this._log.warn('OpsCenterSync', 'rewrite hard constraints apply error: ' + String((e && e.message) || e))
       }

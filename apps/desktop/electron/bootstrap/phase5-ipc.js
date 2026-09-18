@@ -179,6 +179,8 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     BACKEND_PLATFORMS, templateManager, licenseManager, aiWriter,
     compositionManager, aiGenerator, assetGenerator, videoEngine, pipelineEngine, modelProviderManager,
     story2videoBatchQueue, runStateStore,
+    // rewriteHardConstraintManager：当前无直接 IPC handler 消费（审查 m4），
+    // 保留传递为后续桌面端管理入口预留；引擎注入经 container 单例完成
     opsCenterSync, rewriteStrategyManager, rewriteHardConstraintManager, rewriteEngineService,
     projectService, boardService, contactSheetService, approvalGateService,
     executionRecorder, usageTracker, cloudPublisher, identityService,
@@ -204,6 +206,8 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     BACKEND_PLATFORMS, templateManager, licenseManager, aiWriter,
     compositionManager, aiGenerator, assetGenerator, videoEngine, pipelineEngine, modelProviderManager,
     story2videoBatchQueue, runStateStore,
+    // rewriteHardConstraintManager：当前无直接 IPC handler 消费（审查 m4），
+    // 保留传递为后续桌面端管理入口预留；引擎注入经 container 单例完成
     opsCenterSync, rewriteStrategyManager, rewriteHardConstraintManager, rewriteEngineService,
     projectService, boardService, contactSheetService, approvalGateService,
     executionRecorder, identityService, credentialStore, accountStateRestorer,

@@ -16,6 +16,15 @@ const logger = require('./logger-fallback')
 // 无显式字数控制时的默认输出上限（3000 字以下）
 const DEFAULT_MAX_OUTPUT_LENGTH = 3000
 
+// 引擎内置默认硬约束（rewrite-hard-constraints 审查 M1）：
+// 运营中心未配置/未同步/离线场景的回退，保证独立部署桌面端仍有提示词级纯文案约束。
+// 内容与运营中心种子 hard-constraint-default-v1 一致（单一事实源在运营中心，此处仅为缺失回退）。
+const BUILTIN_DEFAULT_HARD_CONSTRAINTS = [
+  '1. 只输出改写后的文案本身，不要包含任何小节标题（如「开头」「中间」「结尾」「悬念钩子」「情感转折」「共鸣与号召」等）、结构说明、写作指导或 Markdown 标题。',
+  '2. 文案内部如需分段，使用空行分隔即可。',
+  '3. 不要输出任何与文案内容无关的说明、注释或元信息。',
+].join('\n')
+
 class RewriteEngine {
   /**
    * @param {object} options
@@ -304,9 +313,9 @@ class RewriteEngine {
 
     // 改写硬约束（最高优先级）：注入 systemPrompt 最前置段落，位于策略 systemPrompt 之前。
     // 显式声明冲突裁决规则——与后续任何策略/模式指令冲突时，以硬约束为准。
-    const hardConstraintPrompt = this._hardConstraints
-      ? `【改写硬约束（最高优先级，冲突时以此为准）】\n${this._hardConstraints}\n以上硬约束优先级最高：无论后续的策略要求、模式指令或字数要求与本段有何冲突或矛盾，一律以本段为准。`
-      : ''
+    // 运营中心未下发时回退引擎内置默认（审查 M1：独立/离线桌面仍有提示词级约束）
+    const effectiveHardConstraints = this._hardConstraints || BUILTIN_DEFAULT_HARD_CONSTRAINTS
+    const hardConstraintPrompt = `【改写硬约束（最高优先级，冲突时以此为准）】\n${effectiveHardConstraints}\n以上硬约束优先级最高：无论后续的策略要求、模式指令或字数要求与本段有何冲突或矛盾，一律以本段为准。`
 
     const systemPrompt = [hardConstraintPrompt, strategy.systemPrompt, modeInstructions, wordCountInstruction].filter(Boolean).join('\n\n')
 

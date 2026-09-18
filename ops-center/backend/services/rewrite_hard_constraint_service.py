@@ -119,6 +119,7 @@ async def get_default_runtime(db: AsyncSession) -> dict | None:
                 RewriteHardConstraint.is_default == 1,
                 RewriteHardConstraint.enabled == 1,
             )
+            .order_by(RewriteHardConstraint.id.asc())
             .limit(1)
         )
     ).scalar_one_or_none()
@@ -134,19 +135,36 @@ async def create_constraint(db: AsyncSession, payload: dict, updated_by: str = "
     existing = await db.get(RewriteHardConstraint, safe["id"])
     if existing and existing.deleted_at is None:
         return None, f"硬约束 {safe['id']} 已存在"
+    if existing and existing.deleted_at is not None:
+        # 软删除行恢复激活（与 rewrite_strategy_service 模式一致，避免主键冲突 500）
+        existing.deleted_at = None
+        existing.title = safe["title"]
+        existing.content = safe["content"]
+        existing.description = safe.get("description", "")
+        existing.is_default = 0
+        existing.enabled = safe.get("enabled", 1)
+        existing.updated_at = _now()
+        existing.updated_by = updated_by
+        await db.commit()
+        await db.refresh(existing)
+        return _to_dict(existing), ""
     row = RewriteHardConstraint(
         id=safe["id"],
         title=safe["title"],
         content=safe["content"],
         description=safe.get("description", ""),
         is_default=0,
-        enabled=1,
+        enabled=safe.get("enabled", 1),
         created_at=_now(),
         updated_at=_now(),
         updated_by=updated_by,
     )
     db.add(row)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        return None, f"硬约束 {safe['id']} 已存在"
     await db.refresh(row)
     return _to_dict(row), ""
 
@@ -190,11 +208,11 @@ async def set_default(db: AsyncSession, constraint_id: str, updated_by: str = ""
         return None, "硬约束不存在"
     if not row.enabled:
         return None, "已停用的硬约束不能设为默认"
-    # 唯一默认：先清空所有默认
+    # 唯一默认：先清空所有默认（仅清标志，不污染其他行审计——审查 m2）
     await db.execute(
         sa.update(RewriteHardConstraint)
         .where(RewriteHardConstraint.is_default == 1)
-        .values(is_default=0, updated_at=_now(), updated_by=updated_by)
+        .values(is_default=0)
     )
     row.is_default = 1
     row.updated_at = _now()
