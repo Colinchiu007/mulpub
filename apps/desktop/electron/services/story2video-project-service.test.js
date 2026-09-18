@@ -477,7 +477,7 @@ describe('Story2VideoProjectService', () => {
         id: 'segment-1',
         selectedMaterial: 'video2',
         videoMeta: { altSceneVideoPath: outsideVideo },
-      }])).toThrow('视频2素材不存在')
+      }])).toThrow('第 1 个场景的视频素材不存在')
       fs.rmSync(outsideRoot, { recursive: true, force: true })
     })
 
@@ -2055,8 +2055,10 @@ describe('Story2VideoProjectService', () => {
 
   it('按选中态映射 compose 输入（video/image1/image2/缺失 四态）', () => {
     const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+    const projectDir = service._projectDir('scenes-map')
+    const video0 = writeFile(path.join(projectDir, 'v0.mp4'), 'video')
     const segments = [
-      { id: 's0', imagePath: 'img1.png', alternateImages: [{ path: 'img2.png' }], videoPath: 'v0.mp4', selectedMaterial: 'video' },
+      { id: 's0', imagePath: 'img1.png', alternateImages: [{ path: 'img2.png' }], videoPath: video0, selectedMaterial: 'video' },
       { id: 's1', imagePath: 'img1.png', alternateImages: [{ path: 'img2.png' }], videoPath: 'v1.mp4', selectedMaterial: 'image1' },
       { id: 's2', imagePath: 'img1.png', alternateImages: [{ path: 'img2.png' }], videoPath: 'v2.mp4', selectedMaterial: 'image2' },
       { id: 's3', imagePath: 'img1.png', alternateImages: [{ path: 'img2.png' }], videoPath: 'v3.mp4' },
@@ -2064,10 +2066,14 @@ describe('Story2VideoProjectService', () => {
 
     const scenes = service._scenesForCompose(segments)
 
-    expect(scenes[0]).toMatchObject({ imagePath: 'img1.png', videoPath: 'v0.mp4' })
+    expect(scenes[0]).toMatchObject({ imagePath: 'img1.png', videoPath: video0 })
     expect(scenes[1]).toMatchObject({ imagePath: 'img1.png', videoPath: null })
     expect(scenes[2]).toMatchObject({ imagePath: 'img2.png', videoPath: null })
     expect(scenes[3]).toMatchObject({ imagePath: 'img1.png', videoPath: 'v3.mp4' })
+
+    // 显式选中视频但素材缺失：抛带场景号的视频素材缺失错误（2026-09-18 审查 C1 回归）
+    expect(() => service._scenesForCompose([{ id: 's4', videoPath: 'missing.mp4', selectedMaterial: 'video' }]))
+      .toThrow('第 1 个场景的视频素材不存在')
   })
 
   it('manual 完成运行持久化未选素材（图2 备选、未选视频、选中态）', () => {
