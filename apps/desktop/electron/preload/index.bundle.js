@@ -28,6 +28,7 @@ var require_publish = __commonJS({
         listAccounts: () => ipcRenderer2.invoke("accounts:list"),
         // 渲染 API
         renderStart: (data) => ipcRenderer2.invoke("render:start", data),
+        renderStartAiVideo: (data) => ipcRenderer2.invoke("render:start-ai-video", data),
         renderCancel: () => ipcRenderer2.invoke("render:cancel"),
         renderGetStatus: () => ipcRenderer2.invoke("render:status"),
         renderInstallDeps: () => ipcRenderer2.invoke("render:install-deps"),
@@ -922,11 +923,12 @@ var require_aggregation = __commonJS({
         aggregationRewrite: (payload) => ipcRenderer2.invoke("aggregation:rewrite", payload),
         aggregationSources: () => ipcRenderer2.invoke("aggregation:sources"),
         aggregationTaskStatus: (taskId) => ipcRenderer2.invoke("aggregation:task-status", taskId),
+        // 知乎收藏夹（官方 API + 批量频率控制）
         zhihuFavlistList: () => ipcRenderer2.invoke("zhihu-favlist:list"),
         zhihuFavlistContents: (payload) => ipcRenderer2.invoke("zhihu-favlist:contents", payload),
         zhihuFavlistBatchCollect: (payload) => ipcRenderer2.invoke("zhihu-favlist:batch-collect", payload),
         zhihuFavlistBatchRewrite: (payload) => ipcRenderer2.invoke("zhihu-favlist:batch-rewrite", payload),
-        zhihuFavlistCancel: (type) => ipcRenderer2.invoke("zhihu-favlist:cancel", { type: type })
+        zhihuFavlistCancel: (type) => ipcRenderer2.invoke("zhihu-favlist:cancel", { type })
       };
     }
     module2.exports = { createAggregationApi: createAggregationApi2 };
