@@ -24,12 +24,12 @@
           <div class="stat-label">总发布</div>
         </div>
         <div class="cohere-stat-card">
-          <div class="stat-icon">👁️</div>
+          <div class="stat-icon"><el-icon><View /></el-icon></div>
           <div class="stat-value">{{ totalViews > 10000 ? (totalViews / 10000).toFixed(1) + '万' : totalViews }}</div>
           <div class="stat-label">总阅读</div>
         </div>
         <div class="cohere-stat-card">
-          <div class="stat-icon">💬</div>
+          <div class="stat-icon"><el-icon><ChatDotRound /></el-icon></div>
           <div class="stat-value">{{ totalComments }}</div>
           <div class="stat-label">评论</div>
         </div>
@@ -68,7 +68,7 @@
 
       <!-- 发布趋势（最近 14 天） -->
       <div v-if="statsData && statsData.daily && statsData.daily.length > 0" class="cohere-card dash-panel">
-        <div class="dash-panel-title">📈 发布趋势（近 14 天）</div>
+        <div class="dash-panel-title"><el-icon><TrendCharts /></el-icon> 发布趋势（近 14 天）</div>
         <div class="dash-trend-track">
           <div v-for="d in last14Days" :key="d.date" :title="d.date + ': ' + d.total + ' 篇'" class="dash-trend-col">
             <div class="dash-trend-bar" :style="{width:'100%', height: Math.max(4, (d.total / dailyMax) * 60) + 'px', background: d.total > 0 ? 'var(--color-danger)' : 'var(--color-border)', opacity: d.total > 0 ? 0.7 + (d.total / dailyMax) * 0.3 : 0.3}"></div>
@@ -79,7 +79,7 @@
 
       <!-- 平台分布 -->
       <div v-if="statsData && platformStats.length > 0" class="cohere-card dash-panel">
-        <div class="dash-panel-title">📊 平台分布</div>
+        <div class="dash-panel-title"><el-icon><DataLine /></el-icon> 平台分布</div>
         <div class="dash-dist-list">
           <div v-for="p in platformStats" :key="p.platform" class="dash-dist-row">
             <span class="dash-dist-name">{{ platformName(p.platform) }}</span>
@@ -93,7 +93,7 @@
 
       <!-- 最近发布 -->
       <div v-if="recentPublishes.length > 0" class="cohere-card dash-panel">
-        <div class="dash-panel-title">⚡ 最近发布</div>
+        <div class="dash-panel-title"><el-icon><Timer /></el-icon> 最近发布</div>
         <ul class="cohere-timeline">
           <li v-for="r in recentPublishes" :key="r.id" class="cohere-timeline-item" :class="r.success !== false ? 'success' : 'danger'">
             <span class="tl-time">{{ formatTime(r.timestamp) }}</span>
@@ -107,7 +107,9 @@
 
       <!-- 各平台数据 -->
       <div class="cohere-section-title">各平台数据</div>
-      <EmptyState v-if="platformData.length === 0" icon="📊" :title="$t('emptyStates.dashboard.title')" :description="$t('emptyStates.dashboard.message')" />
+      <EmptyState v-if="platformData.length === 0" :title="$t('emptyStates.dashboard.title')" :description="$t('emptyStates.dashboard.message')">
+        <template #icon><el-icon><DataLine /></el-icon></template>
+      </EmptyState>
       <div v-else class="cohere-card-grid dash-grid-280">
         <div v-for="item in platformData" :key="item.platform" class="cohere-card">
           <div class="card-top">
@@ -131,7 +133,7 @@
     </div>
 
     <!-- 内容基准比较 -->
-    <div class="cohere-section-title dash-mt-xl">📊 内容基准比较</div>
+    <div class="cohere-section-title dash-mt-xl"><el-icon><DataLine /></el-icon> 内容基准比较</div>
     <div class="dash-bench-row">
       <input class="cohere-input dash-bench-input" v-model="benchmarkTitle" placeholder="输入文章标题进行基准比较..." @keyup.enter="doBenchmark" />
       <button class="cohere-btn-primary" @click="doBenchmark" :disabled="!benchmarkTitle.trim()">分析</button>
@@ -147,6 +149,7 @@ import { getApi } from '@/api/electron-bridge'
 // eslint-disable-next-line no-unused-vars
 import UiInput from "../components/UiInput.vue";
 import { ref, computed, onMounted, watch } from 'vue'
+import { ChatDotRound, DataLine, Timer, TrendCharts, View } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 // eslint-disable-next-line no-unused-vars
@@ -176,7 +179,7 @@ const platformStore = usePlatformStore()
 platformStore.load()
 
 function platformName (id) { return platformStore.getLabel(id) || id }
-function platformIcon (id) { return getPlatformIconUrl(id) || platformStore.getIcon(id) || '📊' }
+function platformIcon (id) { return getPlatformIconUrl(id) || platformStore.getIcon(id) || '' }
 function isIconUrl (value) { return typeof value === 'string' && (value.startsWith('/') || value.startsWith('data:') || value.startsWith('http')) }
 const formatTime = (iso) => formatDateTime(iso, { style: 'hour-minute' })
 
