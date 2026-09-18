@@ -14875,3 +14875,20 @@ commit `941b17f1`（feat: browser-style tab bar）在 `webview-manager.js` `crea
 - **登录成功自动重载**：`watch(identityAuthenticated)` 触发重载，消除「登录完还要手点重试」断点；登录入口必须走 `useIdentity().signIn()`。
 - **watcher 泄漏断言不稳**：测试内 mock 的 `isAuthenticated` ref 翻转会触发所有仍挂载组件的 watcher（vitest 不自动 unmount）→ 新用例末尾必须 `wrapper.unmount()`，否则多发的 historyList 调用让 `toHaveBeenCalledTimes` 断言随机失败。
 - **`} catch {` 改 `} catch (e) {` 才能取 e**：本次曾漏改导致测试期 `ReferenceError: e is not defined`（Unhandled Rejection）。
+
+
+## 文案改写结果混入结构标题：提示词输出格式约束缺失（copy-rewrite-result-title-library，2026-09-18）
+
+### 现象与根因
+
+改写「夏天来了」输出混入「开头（悬念钩子）/中间（情感转折）/结尾（共鸣与号召）」结构标题。根因：`packages/rewrite-engine/src/strategy-manager.js` 内置策略模板要求编号结构（「1. 以悬念或冲突开头」等），但 `_buildPrompt` 从未约束输出格式——没有「只输出文案本身、不要包含小节标题/结构说明」的指令。与改写模式（`create` 模式指令「自动注入爆款要素：钩子、情绪转折、金句」诱导模型把要素名写成小节标题）和改写策略（编号要求）均有直接关系。
+
+### 可复用结论
+
+- **提示词必须显式约束输出格式**：策略模板要求内容结构 ≠ 要求输出结构。任何「按结构生成」的提示词都必须追加「只输出最终文案、不含结构说明/小节标题/写作指导」的硬约束。
+- **后处理剥离必须用「标题位匹配」而非 `includes` 全行匹配**：`includes('结尾')` + 长度 ≤30 会误删「故事的结尾不需要太多解释。」等正文句子。正确做法：剥离 Markdown 标记后，仅当行首命中结构关键词且紧跟结构标记（`（`/`：`/`「`/行尾）才判定为标题行。必须配反向回归测试（普通句子含关键词不误删）。
+- **文案库回写用稳定 key 防刷屏**：每次改写都追加新记录会绕过 `fromKey` 去重契约。用 `rewrite:<正文 djb2 哈希>` 作稳定 key，同一正文连续改写覆盖更新；交接场景按原 fromKey 互斥（if/else），避免同一条改写产生双份记录。
+- **`await` 异步旁路会阻塞主流程时序**：`startRewrite` 成功分支 `await syncResultToLibrary()` 使测试的 `await nextTick()` 两次不够（quality 报告断言随机失败）。旁路副作用用 `void fn()` 触发，不 await。
+- **partial clone（blob:none）仓库 merge-base 计算失败**：`git merge-base HEAD origin/main` 返回空、merge 报「refusing to merge unrelated histories」。`git fetch --unshallow` 补全历史对象后解决。
+- **worktree 提交需显式 git config**：worktree 不继承共享仓库本地 config（`git config user.name` 为空），提交前必须 `git config user.name/email`。
+- **债务熔断 `filesOver500` 的 +1 可能是 main 侧引入**：main 提交 #1962 明确「使两个 .vue 文件越过 500 行阈值」，baseline 未同步。合并前确认债务 fail 归属，避免误判为自己的代码。
