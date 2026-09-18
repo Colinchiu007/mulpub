@@ -2,11 +2,11 @@
 
 ## MODIFIED Requirements
 
-### Requirement: 重新合成（recompose-project）
+### Requirement: 再次合成视频（recompose-project）
 
 【重新合成】SHALL 复用既有 `story2video:recompose-project`（`composeEngine.compose({scenes: _scenesForCompose(project.segments)}, options)`），使用当前选定素材与既有 TTS 语音音频、字幕文本、背景音乐音频生成新成片；成功后 `dirty` 置 false。结果页底部操作条 SHALL 仅保留一个【重新合成】按钮（2026-09-18 合并功能重复的「再次合成视频」入口），按钮 hover 提示 SHALL 说明「使用当前选定的素材与已有旁白、字幕、背景音乐重新生成成片」。recompose 失败 SHALL 把真实错误 message 交给通知归一化处理：命中已知失败类别（余额/限流/API Key/素材缺失等）SHALL 显示对应本地化文案，未命中 SHALL 回退 operation_failed 通用文案；SHALL NOT 固定显示「当前操作未能完成」而丢弃错误文本。
 
-#### Scenario: 重新合成成功
+#### Scenario: 再次合成成功
 
 - **WHEN** 用户更换素材后点击【重新合成】
 - **THEN** 以当前选中素材组合重新合成成片，结果视频替换输出，`dirty=false`，toast 提示成功

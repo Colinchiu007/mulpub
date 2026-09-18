@@ -26,6 +26,8 @@
 - **WHEN** 重试图片失败或 recompose 失败，且错误文本不匹配任何已知失败类别
 - **THEN** 弹窗回退 operation_failed 通用文案，不展示内部路径或堆栈
 
+## ADDED Requirements
+
 ### Requirement: 视频素材缺失失败类别归一化（2026-09-18）
 
 通知归一化 SHALL 提供 `story2video.scene_video_missing` 失败类别，覆盖「视频素材不存在/不可读/超出限制」类错误文本（含带场景号的中文文案与英文 `video material/asset missing|unavailable|unreadable` 模式）；该类别 SHALL 在 `scene_image_missing` 判定之后、`scene_slot_empty` 之前匹配，避免与图片素材缺失类别互相误归。文案 SHALL 写入 locales zh/en 成对。
