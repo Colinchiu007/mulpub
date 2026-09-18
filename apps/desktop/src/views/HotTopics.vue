@@ -172,7 +172,11 @@
       :getTopicSummary="getTopicSummary"
       :displayTopic="displayTopic"
       :formatFavoritedAt="formatFavoritedAt"
+      :formatHotValue="formatHotValue"
+      :genVideoBusy="genVideoBusy"
       @remove-favorite="removeFavorite"
+      @create-copy="createCopySingle"
+      @generate-video="startGenerateVideo"
     />
     </div>
 
@@ -995,3 +999,4 @@ onUnmounted(() => {
 </script>
 
 <style scoped src="./HotTopics.css"></style>
+<style scoped src="../styles/hot-topics-list.css"></style>

@@ -1,7 +1,7 @@
 # PRD — 「更多」菜单新增「热门选题」功能模块
 
 - 文档编号：PRD-HOT-TOPICS-MODULE-2026-09-11
-- 状态：已合并（PR #1701，squash 提交 76e555bf，2026-09-11）；2026-09-12 追加「一键生成视频」（§3.10/§5.6）；2026-09-13 修正「后台运行后的并发语义」（前端不再自设单任务锁，支持多任务并行，§3.10/§5.6/§6.6/§6.7）
+- 状态：已合并（PR #1701，squash 提交 76e555bf，2026-09-11）；2026-09-12 追加「一键生成视频」（§3.10/§5.6）；2026-09-13 修正「后台运行后的并发语义」（前端不再自设单任务锁，支持多任务并行，§3.10/§5.6/§6.6/§6.7）；2026-09-19 修正「收藏列表 UI 与行样式作用域缺陷」并补齐创作/生成视频入口（§10.7.6）
 - 关联分支：`codex/hot-topics-module`
 - 关联模块：`apps/desktop/src/views/HotTopics.vue`、`apps/desktop/electron/services/hot-topics-service.js`
 - 创建日期：2026-09-11
@@ -748,6 +748,36 @@ fetchTopics({ force })
 
 - 新增 10 个 i18n key（zh/en 成对）：`tabHot`、`tabFavorites`、`favorite`、`unfavorite`、`favoritesEmptyTitle`、`favoritesEmptyDesc`、`updateTime`、`favoritedAt`、`topicSummary`。
 - 涉及文件：`apps/desktop/src/locales/zh.js`、`en.js`。
+
+#### 10.7.6 收藏列表 UI 对齐与操作入口补齐（2026-09-19 新增）
+
+**问题（用户报障）**：收藏选题列表中，正文、分类/渠道标签、收藏时间、取消收藏按钮挤在一起，无间距、无标签底色，与热门选题行视觉割裂。
+
+**根因**：列表行样式（`.topic-item` / `.topic-text` / `.tag` / `.rank-badge` 等）原先只写在 `apps/desktop/src/views/HotTopics.css`，而该文件以 `<style scoped>` 编译到 `HotTopics.vue`。Vue scoped 样式不穿透子组件，收藏列表却由子组件 `components/HotTopicsFavorites.vue` 渲染 → 该组件内部元素匹配不到任何行样式，flex/gap/padding 全部丢失，退化为无间距的行内流。
+
+**修复方案**：
+
+- 新增共用样式表 `apps/desktop/src/styles/hot-topics-list.css`，把列表行、标签、分类配色（`cat-*`）、热度、更新时间、行内按钮等共用规则从 `views/HotTopics.css` 迁出；
+- `views/HotTopics.vue` 与 `components/HotTopicsFavorites.vue` 各自以 `<style scoped src>` 引入该文件 —— 单一来源、零全局泄漏（避免把 61 条页面级规则变成全局样式）；
+- 删除因改用 `EmptyState` 而失效的 `.empty-box` / `.empty-title` / `.empty-desc` 死样式。
+
+**收藏行结构（与热门行同构）**：
+`♥ 星标徽章` → `正文（单行省略）` → `分类标签（cat-* 配色）` → `渠道标签` → `热度` → `收藏时间（右对齐）` → `取消收藏` → `创作文案` → `生成视频`（主按钮，与热门行同级）。
+
+**新增操作入口**：
+
+- 【创作文案】跳转 `/rewrite?topic=<encodeURIComponent(topic)>`，与热门行同一路由契约（复用 `createCopySingle`）；
+- 【生成视频】复用热门行同一 story2video 一键编排（复用 `startGenerateVideo`）；`genVideoBusy` 由父级透传，编排进行中所有收藏行的该按钮统一禁用（避免并发编排互踩）；
+- 【取消收藏】保留原语义与调用链（`removeFavorite`）。
+
+**空态与边界**：
+
+- 收藏为空时改用公共 `EmptyState` 组件（与热门选题空态同一视觉），文案沿用 `favoritesEmptyTitle` / `favoritesEmptyDesc`；
+- 损坏收藏数据（`topic` 为 null）：行仍渲染（正文显示 `—`），【取消收藏】可用（以 `favoritedAt` 作备用 ID），【创作文案】/【生成视频】置灰不可点。
+
+**i18n**：不新增 key —— 复用既有 `hotTopics.createCopy` / `generateVideo` / `unfavorite` / `favoritedAt`。
+
+**测试**：`apps/desktop/src/views/HotTopics.test.js` 新增 9 例，其中「子组件必须自带 scoped 引入共用样式表」为源码级契约断言，作为本根因的回归保护。
 
 ### 10.8 缓存保留实现要点（2026-09-14 新增）
 

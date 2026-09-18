@@ -1,3 +1,30 @@
+# [未发布] fix(desktop): 收藏选题列表与热门选题行样式对齐 + 补「创作文案 / 生成视频」入口（2026-09-19）
+
+### 变更
+
+- **根因**：收藏选题列表由子组件 `components/HotTopicsFavorites.vue` 渲染，但列表行样式（`.topic-item` / `.topic-text` / `.tag` / `.rank-badge` …）原先只写在 `views/HotTopics.css`，而该文件以 `<style scoped>` 编译进 `HotTopics.vue`。Vue scoped 样式不穿透子组件，子组件内部元素一条都匹配不到 → flex/gap/padding 全丢，正文、分类、渠道、收藏时间、取消收藏按钮退化为无间距的行内流，用户侧表现为「挤成一团」。
+- **抽取共用样式表** `apps/desktop/src/styles/hot-topics-list.css`：把列表行、标签、分类配色（`cat-*`）、热度、更新时间、行内按钮等共用规则从 `views/HotTopics.css` 迁出；`views/HotTopics.vue` 与 `components/HotTopicsFavorites.vue` 各自以 `<style scoped src>` 引入 —— 单一来源、零全局泄漏（避免把 61 条页面级规则改成全局样式）。
+- **收藏行结构与热门行对齐**：`♥ 星标徽章` → `正文（单行省略）` → `分类标签（cat-* 配色）` → `渠道标签` → `热度` → `收藏时间（右对齐）` → `取消收藏` → `创作文案` → `生成视频`（主按钮）。
+- **新增两个操作入口**：每行补【创作文案】（跳转 `/rewrite?topic=…`，与热门行同一路由契约）与【生成视频】（复用热门行同一 story2video 一键编排）；`genVideoBusy` 由父级透传，编排进行中所有收藏行该按钮统一禁用；【取消收藏】保留原语义。
+- **空态统一**：收藏为空改用公共 `EmptyState` 组件（与热门选题空态同一视觉），删除因此失效的 `.empty-box` / `.empty-title` / `.empty-desc` 死样式。
+- **损坏数据守卫**：`topic` 为 null 的收藏条目仍渲染行、仍可取消收藏，依赖话题的两个按钮置灰。
+- **i18n**：不新增 key，复用既有 `hotTopics.createCopy` / `generateVideo` / `unfavorite` / `favoritedAt`。
+
+### 验证
+
+- `apps/desktop/src/views/HotTopics.test.js` **35/35 通过**（新增 9 例：源码级样式引入契约、行结构与标签、三个操作按钮存在性、【创作文案】跳转、【生成视频】启动流水线、busy 互斥禁用、【取消收藏】删除行、损坏数据守卫、空态）
+- `eslint src/views/HotTopics.vue src/views/HotTopics.test.js src/components/HotTopicsFavorites.vue` 无告警
+- 产物级根因反证：用隔离探针配置单独构建本次两个 SFC，产物 CSS 中 `.topic-item` / `.topic-text` / `.fav-star` / `.fav-date` / `.item-unfav-btn` 等规则同时存在于**两个**作用域哈希下（父视图 + 收藏子组件）；改动前仅有一个作用域
+- `check-color-literals.js` 145/145 PASS（迁移未新增历史品牌色字面量，`#5149e8` 计数 10→10 不变）；`check-frontend-consistency.js` PASS；`check-locale-sync.js --keys` PASS（1006 个在用 key 均存在）
+- PRD：`01-docs/PRD-HOT-TOPICS-MODULE-2026-09-11.md` §10.7.6 已补充
+
+### 已知无关红灯（与本次改动无关，勿认领）
+
+- `vite build` 在 main 末端 e3b1ea2ca 已失败：`src/views/Intelligence.vue` 样式块 PostCSS 解析报 `Unknown word hover`（#2003 引入）；本次未触碰该文件。
+- `check-locale-sync.js --cjk` 在 e3b1ea2ca 已失败：报 Dashboard.vue / Intelligence.vue 共 7 处「新增」硬编码中文，实为 #2003 改动导致 file:line 基线漂移（基线 1562 条 / 当前命中 1382 条），本次未触碰这两个文件。
+
+---
+
 # [未发布] feat(ops-center): 预设模型目录同步 Agnes-AI 多模态预设（2026-09-18）
 
 ### 新增

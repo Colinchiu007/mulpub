@@ -25,6 +25,9 @@ vi.mock('vue-i18n', async (importOriginal) => {
 vi.mock('@/api/hot-topics', () => ({
   hotTopicsFetch: vi.fn(),
   hotTopicsGetCache: vi.fn(),
+  hotTopicsFavoriteList: vi.fn(),
+  hotTopicsFavoriteAdd: vi.fn(),
+  hotTopicsFavoriteRemove: vi.fn(),
 }))
 
 vi.mock('@/api/publisher', () => ({
@@ -49,8 +52,10 @@ import HotTopics from './HotTopics.vue'
 import i18n from '@/i18n'
 import { hotTopicsFetch } from '@/api/hot-topics'
 import { hotTopicsGetCache } from '@/api/hot-topics'
+import { hotTopicsFavoriteList, hotTopicsFavoriteRemove } from '@/api/hot-topics'
 import { aiRewrite, draftSave, storeGetSetting, pipelineStartOrchestrated, pipelineGetRunContext, pipelineCancelRun } from '@/api/publisher'
 import { pipelineBackgroundToastVisible, hidePipelineBackgroundToast } from '@/stores/pipeline-background-toast'
+import { readFileSync } from 'node:fs'
 
 const mockTopics = [
   { id: 'zhihu:1', topic: 'AI大模型最新突破进展', channel: 'zhihu', category: 'tech', rank: 1, hotValue: 12000000, url: null, fetchedAt: '2026-09-11T00:00:00Z' },
@@ -70,6 +75,8 @@ describe('HotTopics.vue', () => {
     pushSpy.mockClear()
     // 默认无缓存：走网络抓取路径（与旧行为兼容）
     hotTopicsGetCache.mockResolvedValue({ code: 0, data: { topics: [], fetchedAt: 0, channelStats: {} } })
+    // 默认无收藏：收藏 tab 用例各自覆盖该实现
+    hotTopicsFavoriteList.mockResolvedValue({ code: 0, data: [] })
     document.body.innerHTML = '' // 清理 Teleport 到 body 的弹窗/按钮残留，隔离用例
   })
 
@@ -640,5 +647,144 @@ describe('HotTopics.vue', () => {
       { name: 'rewrite_copy', status: 'running' },
     ])
     expect(wrapper.vm.genVideoStages.find(s => s.name === 'rewrite_copy').status).toBe('completed')
+  })
+})
+
+// ─── 收藏选题 tab ───
+// 回归背景（2026-09-19 用户报障）：收藏列表行内正文/标签/时间/按钮挤成一团。
+// 根因：列表行样式只写在 views/HotTopics.css，而该文件以 <style scoped> 编译到
+// HotTopics.vue；Vue scoped 样式不穿透子组件，components/HotTopicsFavorites.vue
+// 内部元素一条都匹配不到，flex/gap 全丢 → 退化为无间距的行内流。
+const mockFavorites = [
+  { topic: mockTopics[0], favoritedAt: 1757770440000 },
+  { topic: mockTopics[1], favoritedAt: 1757819100000 },
+]
+
+/** 挂载并切到「收藏选题」tab；favorites 可覆盖以构造边界数据 */
+async function mountFavoritesTab(favorites = mockFavorites) {
+  hotTopicsFetch.mockResolvedValue({ code: 0, data: { topics: mockTopics, fetchedAt: Date.now(), channelStats: {} } })
+  hotTopicsFavoriteList.mockResolvedValue({ code: 0, data: favorites })
+  const wrapper = mountPage()
+  await flushPromises()
+  const tabs = wrapper.findAll('.tab-btn')
+  await tabs[1].trigger('click')
+  await flushPromises()
+  return wrapper
+}
+
+describe('HotTopics 收藏选题 tab', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    pushSpy.mockClear()
+    hotTopicsGetCache.mockResolvedValue({ code: 0, data: { topics: [], fetchedAt: 0, channelStats: {} } })
+    hotTopicsFavoriteList.mockResolvedValue({ code: 0, data: [] })
+    document.body.innerHTML = ''
+  })
+
+  // 根因回归保护：子组件必须自带 scoped 引入共用的列表样式表，否则行布局会再次塌成一行
+  it('favorites child component imports the shared list stylesheet as its own scoped style', () => {
+    // 相对路径读取沿用仓库既有源码级契约断言先例（UiModal.test.js / ProfileMenu.test.js）
+    const child = readFileSync('./src/components/HotTopicsFavorites.vue', 'utf8')
+    const parent = readFileSync('./src/views/HotTopics.vue', 'utf8')
+    expect(child).toContain('<style scoped src="../styles/hot-topics-list.css"></style>')
+    expect(parent).toContain('<style scoped src="../styles/hot-topics-list.css"></style>')
+  })
+
+  it('renders favorite rows with the same list/tag structure as hot rows', async () => {
+    const wrapper = await mountFavoritesTab()
+    const rows = wrapper.findAll('[data-testid="hot-topic-favorite-item"]')
+    expect(rows).toHaveLength(2)
+
+    const first = rows[0]
+    expect(first.classes()).toContain('topic-item')
+    expect(first.find('.fav-star').exists()).toBe(true)
+    expect(first.find('.topic-text').text()).toContain('AI大模型最新突破进展')
+    // 分类/渠道标签复用热门页同名 class（cat-tech 等分类色亦同源）
+    expect(first.find('.tag.category-tag').classes()).toContain('cat-tech')
+    expect(first.find('.tag.channel-tag').exists()).toBe(true)
+    expect(first.find('.hot-value').exists()).toBe(true) // hotValue=12000000 → 显示
+    expect(first.find('.fav-date').exists()).toBe(true)
+  })
+
+  it('every favorite row exposes unfavorite / create-copy / generate-video actions', async () => {
+    const wrapper = await mountFavoritesTab()
+    expect(wrapper.findAll('[data-testid^="hot-topic-favorite-unfav-"]')).toHaveLength(2)
+    expect(wrapper.findAll('[data-testid^="hot-topic-favorite-create-copy-"]')).toHaveLength(2)
+    expect(wrapper.findAll('[data-testid^="hot-topic-favorite-generate-video-"]')).toHaveLength(2)
+    expect(wrapper.find('[data-testid="hot-topic-favorite-create-copy-zhihu:1"]').text()).toContain('createCopy')
+    // 生成视频为行内主按钮（与热门行保持同一视觉层级）
+    expect(wrapper.find('[data-testid="hot-topic-favorite-generate-video-zhihu:1"]').classes()).toContain('cohere-btn-primary')
+  })
+
+  it('create-copy on a favorite row navigates to /rewrite with that topic', async () => {
+    const wrapper = await mountFavoritesTab()
+    await wrapper.find('[data-testid="hot-topic-favorite-create-copy-toutiao:1"]').trigger('click')
+    expect(pushSpy).toHaveBeenCalledWith('/rewrite?topic=' + encodeURIComponent('A股大涨沪指重返3000点'))
+  })
+
+  it('generate-video on a favorite row rewrites and starts the story2video pipeline', async () => {
+    aiRewrite.mockResolvedValue({ code: 0, data: { success: true, result: '收藏选题改写文案' } })
+    draftSave.mockResolvedValue({ code: 0 })
+    storeGetSetting.mockResolvedValue(null)
+    pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { success: true, runId: 'run-fav-1' } })
+    pipelineGetRunContext.mockResolvedValue({ code: 0, data: { runId: 'run-fav-1', status: { status: 'running', progress: 10 } } })
+
+    const wrapper = await mountFavoritesTab()
+    await wrapper.find('[data-testid="hot-topic-favorite-generate-video-toutiao:1"]').trigger('click')
+    await flushPromises()
+
+    expect(aiRewrite).toHaveBeenCalledWith(expect.objectContaining({
+      mode: 'create',
+      content: expect.stringContaining('A股大涨沪指重返3000点'),
+    }))
+    expect(pipelineStartOrchestrated).toHaveBeenCalledWith('story2video-compose', expect.objectContaining({ text: '收藏选题改写文案' }))
+    expect(wrapper.vm.genVideoModalOpen).toBe(true)
+  })
+
+  it('generate-video disabled while another favorites-row orchestration is busy', async () => {
+    aiRewrite.mockImplementation(() => new Promise(() => {}))
+    const wrapper = await mountFavoritesTab()
+    await wrapper.find('[data-testid="hot-topic-favorite-generate-video-zhihu:1"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.vm.genVideoBusy).toBe(true)
+    expect(wrapper.find('[data-testid="hot-topic-favorite-generate-video-toutiao:1"]').attributes('disabled')).toBeDefined()
+  })
+
+  it('unfavorite removes the row after IPC success', async () => {
+    hotTopicsFavoriteRemove.mockResolvedValue({ code: 0 })
+    const wrapper = await mountFavoritesTab()
+    await wrapper.find('[data-testid="hot-topic-favorite-unfav-zhihu:1"]').trigger('click')
+    await flushPromises()
+
+    expect(hotTopicsFavoriteRemove).toHaveBeenCalledWith('zhihu:1')
+    expect(wrapper.findAll('[data-testid="hot-topic-favorite-item"]')).toHaveLength(1)
+    expect(wrapper.text()).not.toContain('AI大模型最新突破进展')
+  })
+
+  // 损坏收藏数据（topic 为 null）：布局不塌、清理入口保留、依赖话题的操作禁用
+  it('broken favorite entry keeps its row, allows cleanup, and disables topic-dependent actions', async () => {
+    hotTopicsFavoriteRemove.mockResolvedValue({ code: 0 })
+    const wrapper = await mountFavoritesTab([{ topic: null, favoritedAt: 1757770440000 }])
+    const row = wrapper.find('[data-testid="hot-topic-favorite-item"]')
+    expect(row.exists()).toBe(true)
+    expect(row.find('.topic-text').text()).toBe('—')
+    expect(wrapper.find('[data-testid="hot-topic-favorite-create-copy-1757770440000"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="hot-topic-favorite-generate-video-1757770440000"]').attributes('disabled')).toBeDefined()
+    const unfav = wrapper.find('[data-testid="hot-topic-favorite-unfav-1757770440000"]')
+    expect(unfav.attributes('disabled')).toBeUndefined()
+    await unfav.trigger('click')
+    await flushPromises()
+    expect(hotTopicsFavoriteRemove).toHaveBeenCalledWith('1757770440000')
+  })
+
+  it('empty favorites renders the shared EmptyState component', async () => {
+    const wrapper = await mountFavoritesTab([])
+    const empty = wrapper.find('[data-testid="hot-topics-favorites-empty"]')
+    expect(empty.exists()).toBe(true)
+    expect(empty.classes()).toContain('mp-empty-state')
+    expect(empty.text()).toContain('favoritesEmptyTitle')
+    expect(empty.text()).toContain('favoritesEmptyDesc')
+    expect(wrapper.findAll('[data-testid="hot-topic-favorite-item"]')).toHaveLength(0)
   })
 })

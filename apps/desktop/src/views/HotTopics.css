@@ -1,3 +1,9 @@
+/* 热门选题页 —— 页面外壳样式（页头 / 标签页 / 筛选 / 批量条 / 进度区 / 弹窗）
+ *
+ * 列表行、标签、空态等与「收藏选题」共用的样式已迁到 styles/hot-topics-list.css，
+ * 由本视图与 components/HotTopicsFavorites.vue 各自以 <style scoped src> 引入
+ * （scoped 样式不穿透子组件，共用样式必须放在双方都能引入的独立文件里）。
+ */
 .hot-topics-page { padding: 20px; }
 /* 标签页 */
 .tab-bar { display: flex; gap: 0; border-bottom: 2px solid #eee; margin-bottom: 16px; }
@@ -5,15 +11,6 @@
 .tab-btn:hover { color: #5149e8; }
 .tab-btn.active { color: #5149e8; border-bottom-color: #5149e8; font-weight: 600; }
 .fav-count { margin-left: 6px; background: #5149e8; color: #fff; border-radius: 10px; padding: 0 7px; font-size: 11px; line-height: 18px; display: inline-block; vertical-align: middle; }
-/* 收藏按钮 */
-.item-fav-btn { font-size: 14px; padding: 4px 8px; flex-shrink: 0; border: none; background: transparent; cursor: pointer; color: #ccc; transition: color 0.15s; }
-.item-fav-btn:hover { color: #e91e63; }
-/* 收藏列表 */
-.favorite-item .fav-star { background: #fff0f5; color: #e91e63; }
-.fav-date { font-size: 11px; color: #999; flex-shrink: 0; white-space: nowrap; }
-.favorites-section { margin-top: 0; }
-/* 更新时间 */
-.update-time { font-size: 11px; color: #aaa; flex-shrink: 0; white-space: nowrap; width: 42px; text-align: right; }
 .header-actions { display: flex; align-items: center; gap: 12px; }
 .last-refresh { font-size: 12px; color: #999; }
 .filter-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
@@ -24,32 +21,8 @@
 .select-all-label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #666; cursor: pointer; }
 .selected-count { font-size: 13px; color: #5149e8; }
 .batch-actions { margin-left: auto; display: flex; gap: 8px; }
-.topics-list { display: flex; flex-direction: column; gap: 6px; }
-.topic-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: #fff; border: 1px solid #eee; border-radius: 8px; }
-.topic-item.selected { border-color: #5149e8; background: #f7f6ff; }
-.rank-badge { min-width: 26px; height: 26px; display: grid; place-items: center; border-radius: 6px; background: #f0efff; color: #5149e8; font-size: 12px; font-weight: 700; }
-.topic-text { flex: 1; font-size: 14px; color: #333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tag { padding: 2px 8px; border-radius: 4px; font-size: 11px; flex-shrink: 0; }
-.category-tag { background: #f5f5f5; color: #666; }
-.cat-general { background: #f5f5f5; color: #666; }
-.cat-society { background: #e8f4ff; color: #1976d2; }
-.cat-finance { background: #fff4e5; color: #f57c00; }
-.cat-tech { background: #f3e8ff; color: #7b1fa2; }
-.cat-entertainment { background: #ffe4f1; color: #c2185b; }
-.cat-sports { background: #e8f7e8; color: #388e3c; }
-.cat-emotion { background: #ffe8e8; color: #d32f2f; }
-.cat-education { background: #e0f7fa; color: #0097a7; }
-.cat-health { background: #e0f2f1; color: #00796b; }
-.cat-international { background: #e3f2fd; color: #1565c0; }
-.channel-tag { background: #f0f2f5; color: #888; }
-.hot-value { font-size: 12px; color: #ff5722; flex-shrink: 0; }
-.item-create-btn { font-size: 12px; padding: 4px 10px; flex-shrink: 0; }
-.item-gen-video-btn { font-size: 12px; padding: 4px 10px; flex-shrink: 0; }
 .gen-video-modal-content { min-height: 200px; }
 .gen-video-error-text { margin-right: auto; font-size: 13px; color: #d32f2f; align-self: center; }
-.empty-box { text-align: center; padding: 60px 20px; }
-.empty-title { font-size: 16px; font-weight: 600; color: #555; margin-bottom: 8px; }
-.empty-desc { font-size: 13px; color: #999; margin-bottom: 16px; }
 .publish-progress { padding: 12px 14px; background: #fafaff; border: 1px solid #e9e8f6; border-radius: 8px; margin-bottom: 12px; }
 .progress-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: 13px; color: #5149e8; }
 .progress-items { margin-top: 10px; max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
