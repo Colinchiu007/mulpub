@@ -230,6 +230,17 @@
 - 语速为 range：最小 0.5、最大 2.0、步长 0.1，右侧显示当前值；与流水线启动页的语速交互一致。
 - 删除“重试图片”“重试视频”；保留“替换旁白”和下载图片/音频/视频动作。
 
+#### 4.3.1 MiMo TTS 语音模型下拉隐藏（2026-09-18）
+
+- 当「语音生成器」为 MiMo TTS（provider id `mimo-tts`）时，「语音模型」下拉选择栏**不显示**。
+- 原因：`mimo-v2.5-tts` 与 `mimo-v2.5-tts-voiceclone` 两个模型由「语音 / 音色 ID」下拉区分——选择预置音色走 `mimo-v2.5-tts`，选择克隆音色走 `mimo-v2.5-tts-voiceclone`。
+- 音色 ID 下拉显示 9 个官方预置音色（mimo_default/冰糖/茉莉/苏打/白桦/Mia/Chloe/Milo/Dean）+ 用户克隆音色。
+- 克隆面板显示（选择本地 mp3/wav 音频文件 → 自动克隆，默认名「音色XXX」）。
+- 其他 provider（如 MiniMax）语音模型下拉保留（MiniMax 克隆音色自动切换 `speech-02-hd` 模型）。
+- 前端判定：`s2vVoiceModelHidden` computed（provider 为 mimo-tts 时 true）；catalog 请求固定用 `mimo-v2.5-tts`，capability/克隆请求用 `mimo-v2.5-tts-voiceclone`。
+- MiMo 克隆音色样本要求：mp3/wav、Base64 后 ≤10MB（本地校验按原始字节 ≤10MB 保守执行），由 `getRequirements` 数据驱动展示。
+
+
 ### 4.4 无成片任务编辑
 
 只要存在 projectId 且 segments 非空，即使 videoPath 为空、任务为 failed/paused/尚未合成，也进入编辑区域。仅在既无可编辑 project 又无可预览 path 时显示空状态。
