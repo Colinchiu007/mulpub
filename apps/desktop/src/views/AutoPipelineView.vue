@@ -436,7 +436,7 @@ onUnmounted(() => {
 
 <style scoped>
 /* T1-3b：原 56 处内联样式全部类化；颜色一律 var(--color-*)（tokens.css 语义槽，
- * 阶段状态/终端日志色已收编 --color-stage-*/--color-terminal-*）。 */
+ * 阶段状态/终端日志色已收编 --color-stage-* 与 --color-terminal-*）。 */
 .ap-card-panel { padding: var(--space-md); margin-bottom: var(--space-lg); }
 .ap-card-panel--flush { margin-bottom: 0; }
 
