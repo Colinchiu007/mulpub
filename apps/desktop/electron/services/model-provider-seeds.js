@@ -147,7 +147,9 @@ const PRESET_PROVIDERS = [
   {
     id: 'mimo-tts', name: 'MiMo TTS', category: 'tts',
     base_url: 'https://api.xiaomimimo.com/v1',
-    models: ['mimo-v2.5-tts', 'mimo-v2.5-tts-voicedesign', 'mimo-v2.5-tts-voiceclone'],
+    // 需求：mimo-v2.5-tts-voicedesign 项目用不到，已移除；
+    // 语音模型下拉在 Mimo 下隐藏（模型由「语音/音色 ID」区分：预置→tts，克隆→voiceclone）
+    models: ['mimo-v2.5-tts', 'mimo-v2.5-tts-voiceclone'],
     is_preset: 1,
   },
   {

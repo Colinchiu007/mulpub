@@ -257,10 +257,10 @@ describe('MimoTtsAdapter — 小米 MiMo TTS Adapter', () => {
       global.fetch = fetchMock
 
       const adapter = new MimoTtsAdapter({ id: 'mimo-tts', apiKey: 'mimo-test' })
-      await adapter.synthesize({ text: 'Hi', model: 'mimo-v2.5-tts-voicedesign' })
+      await adapter.synthesize({ text: 'Hi', model: 'mimo-v2.5-tts-voiceclone' })
 
       const body = JSON.parse(fetchMock.calls[0].opts.body)
-      expect(body.model).toBe('mimo-v2.5-tts-voicedesign')
+      expect(body.model).toBe('mimo-v2.5-tts-voiceclone')
     })
 
     it('无 text 参数抛错误', async () => {
@@ -315,11 +315,12 @@ describe('MimoTtsAdapter — 小米 MiMo TTS Adapter', () => {
     it('返回静态预定义的 MiMo TTS 模型列表', async () => {
       const adapter = new MimoTtsAdapter({ id: 'mimo-tts', apiKey: 'mimo-test' })
       const models = await adapter.listModels()
-      expect(models).toHaveLength(3)
+      // mimo-v2.5-tts-voicedesign 项目用不到，已从代码中移除（2026-09-18）
+      expect(models).toHaveLength(2)
       const ids = models.map(m => m.id)
       expect(ids).toContain('mimo-v2.5-tts')
-      expect(ids).toContain('mimo-v2.5-tts-voicedesign')
       expect(ids).toContain('mimo-v2.5-tts-voiceclone')
+      expect(ids).not.toContain('mimo-v2.5-tts-voicedesign')
     })
 
     it('不发起 HTTP 请求（静态列表）', async () => {
@@ -336,7 +337,7 @@ describe('MimoTtsAdapter — 小米 MiMo TTS Adapter', () => {
       list1.push({ id: 'injected', name: 'malicious' })
 
       const list2 = await adapter.listModels()
-      expect(list2).toHaveLength(3)
+      expect(list2).toHaveLength(2)
       expect(list2.map(m => m.id)).not.toContain('injected')
     })
   })
@@ -354,6 +355,120 @@ describe('MimoTtsAdapter — 小米 MiMo TTS Adapter', () => {
       expect(result.success).toBe(false)
       expect(result.error).toBeInstanceOf(ProviderError)
       expect(result.error.code).toBe(ERROR_CODES.INVALID_CONFIG)
+    })
+  })
+
+  describe('listVoices — MiMo 预置音色', () => {
+    it('返回 9 个官方预置音色', async () => {
+      const adapter = new MimoTtsAdapter({ id: 'mimo-tts', apiKey: 'mimo-test' })
+      const voices = await adapter.listVoices()
+      expect(voices).toHaveLength(9)
+      const ids = voices.map(v => v.id)
+      expect(ids).toContain('mimo_default')
+      expect(ids).toContain('冰糖')
+      expect(ids).toContain('茉莉')
+      expect(ids).toContain('苏打')
+      expect(ids).toContain('白桦')
+      expect(ids).toContain('Mia')
+      expect(ids).toContain('Chloe')
+      expect(ids).toContain('Milo')
+      expect(ids).toContain('Dean')
+    })
+
+    it('不发起 HTTP 请求（静态列表）', async () => {
+      const fetchMock = createFetchMock([])
+      global.fetch = fetchMock
+      const adapter = new MimoTtsAdapter({ id: 'mimo-tts', apiKey: 'mimo-test' })
+      await adapter.listVoices()
+      expect(fetchMock.calls).toHaveLength(0)
+    })
+  })
+
+  describe('cloneVoice — MiMo 本地克隆音色', () => {
+    it('返回本地 voice_id（mimo-clone- 前缀），不调用远端', async () => {
+      const fetchMock = createFetchMock([])
+      global.fetch = fetchMock
+      const adapter = new MimoTtsAdapter({
+        id: 'mimo-tts',
+        apiKey: 'mimo-test',
+      }, {
+        randomUUID: () => 'test-uuid-1234',
+      })
+      const result = await adapter.cloneVoice({
+        name: '我的克隆音色',
+        samples: [{ blob: new Blob(['audio-data'], { type: 'audio/mpeg' }), fileName: 'sample.mp3', contentType: 'audio/mpeg' }],
+      })
+      expect(result.id).toBe('mimo-clone-test-uuid-1234')
+      expect(result.name).toBe('我的克隆音色')
+      expect(fetchMock.calls).toHaveLength(0)
+    })
+
+    it('无样本时抛 INVALID_CONFIG', async () => {
+      const adapter = new MimoTtsAdapter({ id: 'mimo-tts', apiKey: 'mimo-test' })
+      await expect(adapter.cloneVoice({ name: 'x' }))
+        .rejects.toThrow(/样本/)
+    })
+
+    it('非 mp3/wav 格式抛 INVALID_CONFIG', async () => {
+      const adapter = new MimoTtsAdapter({ id: 'mimo-tts', apiKey: 'mimo-test' })
+      await expect(adapter.cloneVoice({
+        name: 'x',
+        samples: [{ blob: new Blob(['x'], { type: 'audio/ogg' }), fileName: 's.ogg', contentType: 'audio/ogg' }],
+      })).rejects.toThrow('mp3/wav')
+    })
+  })
+
+  describe('synthesize — 克隆音色自动切模型 + 注入样本', () => {
+    it('克隆音色（mimo-clone- 前缀）自动用 voiceclone 模型并注入 cloneSampleData', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ choices: [{ message: { audio: { data: 'base64-audio' } } }] }),
+      ])
+      global.fetch = fetchMock
+      const adapter = new MimoTtsAdapter({ id: 'mimo-tts', apiKey: 'mimo-test' })
+      await adapter.synthesize({
+        text: 'Hello',
+        voice: 'mimo-clone-abc',
+        cloneSampleData: 'data:audio/mpeg;base64,U29tZUF1ZGlv',
+      })
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.model).toBe('mimo-v2.5-tts-voiceclone')
+      expect(body.audio.voice).toBe('data:audio/mpeg;base64,U29tZUF1ZGlv')
+    })
+
+    it('克隆音色缺 cloneSampleData 抛 INVALID_CONFIG', async () => {
+      const adapter = new MimoTtsAdapter({ id: 'mimo-tts', apiKey: 'mimo-test' })
+      await expect(adapter.synthesize({ text: 'Hi', voice: 'mimo-clone-abc' }))
+        .rejects.toThrow(/cloneSampleData/)
+    })
+
+    it('预置音色用 mimo-v2.5-tts 模型，voice 原样透传', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ choices: [{ message: { audio: { data: 'x' } } }] }),
+      ])
+      global.fetch = fetchMock
+      const adapter = new MimoTtsAdapter({ id: 'mimo-tts', apiKey: 'mimo-test' })
+      await adapter.synthesize({ text: 'Hi', voice: '冰糖' })
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.model).toBe('mimo-v2.5-tts')
+      expect(body.audio.voice).toBe('冰糖')
+    })
+  })
+
+  describe('能力协商 — 新增 listVoices/cloneVoice', () => {
+    it('supports listVoices 和 cloneVoice', () => {
+      const adapter = new MimoTtsAdapter({ id: 'mimo-tts', apiKey: 'mimo-test' })
+      expect(adapter.supports('listVoices')).toBe(true)
+      expect(adapter.supports('cloneVoice')).toBe(true)
+      expect(adapter.supports('deleteVoice')).toBe(false)
+    })
+
+    it('capabilities() 包含 synthesize/listVoices/cloneVoice', () => {
+      const adapter = new MimoTtsAdapter({ id: 'mimo-tts', apiKey: 'mimo-test' })
+      const caps = adapter.capabilities()
+      expect(caps).toContain('synthesize')
+      expect(caps).toContain('listVoices')
+      expect(caps).toContain('cloneVoice')
+      expect(caps).not.toContain('deleteVoice')
     })
   })
 })

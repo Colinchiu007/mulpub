@@ -1671,4 +1671,85 @@ describe("replaceCloneVoiceId — 重克隆后持久化迁移", () => {
       nodeFs.rmSync(userDataPath, { recursive: true, force: true });
     }
   });
+
+  describe("MiMo TTS 克隆样本限制（2026-09-18）", () => {
+    const MIMO_PROVIDER = "mimo-tts";
+    const MIMO_MODEL = "mimo-v2.5-tts-voiceclone";
+
+    function createMimoService() {
+      const store = createOwnerStore();
+      const manager = {
+        getProvider: vi.fn(() => ({
+          id: MIMO_PROVIDER,
+          category: "tts",
+          models: ["mimo-v2.5-tts", "mimo-v2.5-tts-voiceclone"],
+        })),
+        callAdapter: vi.fn(async (_providerId, method) => {
+          if (method === "cloneVoice")
+            return { code: 0, data: { id: "mimo-clone-test-uuid", name: "音色001" } };
+          return { code: 0, data: null };
+        }),
+      };
+      const userDataPath = nodeFs.mkdtempSync(path.join(os.tmpdir(), "s2v-mimo-clone-test-"));
+      const service = new TtsVoiceCloneService({
+        store,
+        modelProviderManager: manager,
+        userDataPath,
+        getVoiceCapability: () => ({
+          type: "user_clone",
+          canListVoices: true,
+          defaultVoiceId: null,
+          clone: { enabled: true, entry: "desktop_upload", implementation: "adapter_implemented", messageKey: "tts.voice.clone.desktopUpload" },
+        }),
+        now: () => 1000,
+        createSampleStorageId: () => "storage-mimo-1",
+        createSelectionToken: () => "selection-mimo-1",
+        probeDuration: async () => 30,
+      });
+      return { store, manager, service, userDataPath };
+    }
+
+    it("getRequirements 返回 MiMo 样本限制（单文件、mp3/wav、≤10MB）", () => {
+      const { service } = createMimoService();
+      const requirements = service.getRequirements({ providerId: MIMO_PROVIDER, model: MIMO_MODEL });
+      expect(requirements).toMatchObject({
+        code: 0,
+        data: {
+          maxSampleCount: 1,
+          maxSampleBytes: 10 * 1024 * 1024,
+          allowedExtensions: [".mp3", ".wav"],
+          sampleLimitScope: "local_safety",
+        },
+      });
+    });
+
+    it("mimo-v2.5-tts（预置音色模型）同样返回克隆样本限制", () => {
+      const { service } = createMimoService();
+      const requirements = service.getRequirements({ providerId: MIMO_PROVIDER, model: "mimo-v2.5-tts" });
+      expect(requirements).toMatchObject({
+        code: 0,
+        data: {
+          maxSampleCount: 1,
+          allowedExtensions: [".mp3", ".wav"],
+        },
+      });
+    });
+
+    it("mp3 样本可通过 createSampleSelection（provider 限制在 add 阶段由 _assertPreparedSample 校验）", async () => {
+      const { service, userDataPath } = createMimoService();
+      const mp3Path = path.join(userDataPath, "voice.mp3");
+      nodeFs.writeFileSync(mp3Path, "audio-data");
+      try {
+        const result = await service.createSampleSelection(
+          { providerId: MIMO_PROVIDER, model: MIMO_MODEL },
+          [mp3Path],
+          SENDER_KEY,
+        );
+        expect(result).toMatchObject({ code: 0 });
+        expect(result.data.samples).toHaveLength(1);
+      } finally {
+        nodeFs.rmSync(userDataPath, { recursive: true, force: true });
+      }
+    });
+  });
 });

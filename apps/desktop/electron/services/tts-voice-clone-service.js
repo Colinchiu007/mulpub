@@ -31,6 +31,12 @@ const LOCAL_CLONE_SAMPLE_LIMITS = Object.freeze({
     eleven_turbo_v2_5: Object.freeze({ maxSampleCount: 5 }),
     eleven_monolingual_v1: Object.freeze({ maxSampleCount: 5 }),
   }),
+  // MiMo 官方音色复刻要求（speech-synthesis-v2.5）：
+  // 单文件、mp3/wav、Base64 后 ≤10MB（本地校验按原始字节 ≤10MB 保守执行）
+  'mimo-tts': Object.freeze({
+    'mimo-v2.5-tts': Object.freeze({ maxSampleCount: 1, maxSampleBytes: 10 * 1024 * 1024, allowedExtensions: ['.mp3', '.wav'] }),
+    'mimo-v2.5-tts-voiceclone': Object.freeze({ maxSampleCount: 1, maxSampleBytes: 10 * 1024 * 1024, allowedExtensions: ['.mp3', '.wav'] }),
+  }),
   // MiniMax 官方音色快速复刻要求（speech-voice-clone）：
   // 单文件、mp3/m4a/wav、时长 10s-5min、大小 ≤20MB
   'minimax-tts': Object.freeze({
@@ -640,9 +646,15 @@ class TtsVoiceCloneService {
     if (!this._store || !voiceId) return null
     const owner = this._captureOwner()
     if (!owner) return null
-    // Try exact model key first, then fall back to known MiniMax TTS models
-    // (handles case where pipeline resumes without voiceModel or model changed)
-    const candidateModels = [model, 'speech-2.8-turbo', 'speech-02-hd', 'speech-2.8-hd', 'speech-2.6-hd', 'speech-2.6-turbo'].filter(Boolean)
+    // Try exact model key first, then fall back to known TTS models
+    // (handles case where pipeline resumes without voiceModel or model changed).
+    // MiniMax 克隆音色 registry 绑定在 speech-2.8-turbo 等模型下；
+    // MiMo 克隆音色 registry 绑定在 mimo-v2.5-tts-voiceclone 下。
+    const candidateModels = [
+      model,
+      'speech-2.8-turbo', 'speech-02-hd', 'speech-2.8-hd', 'speech-2.6-hd', 'speech-2.6-turbo',
+      'mimo-v2.5-tts-voiceclone', 'mimo-v2.5-tts',
+    ].filter(Boolean)
     const triedKeys = new Set()
     for (const m of candidateModels) {
       const key = cloneRegistrySettingKey(providerId, m)
@@ -1276,16 +1288,21 @@ async renameClone(input) {
 
   async _withRemoteCloneCompensation(providerId, voiceId, result, cleanup) {
     /** @type {boolean} */
-    let remoteDeleted;
-    try {
-      const compensation = await this._modelProviderManager.callAdapter(
-        providerId,
-        "deleteVoice",
-        voiceId,
-      );
-      remoteDeleted = this._isDeleteSuccess(compensation);
-    } catch (_) {
-      remoteDeleted = false;
+    let remoteDeleted = true;
+    // MiMo 等纯本地克隆 provider 无远端 deleteVoice：跳过远端补偿，只做本地样本清理
+    // （远端无残留，补偿语义退化为「本地清理成功即视为补偿完成」）。
+    const isLocalOnlyCloneProvider = providerId === "mimo-tts";
+    if (!isLocalOnlyCloneProvider) {
+      try {
+        const compensation = await this._modelProviderManager.callAdapter(
+          providerId,
+          "deleteVoice",
+          voiceId,
+        );
+        remoteDeleted = this._isDeleteSuccess(compensation);
+      } catch (_) {
+        remoteDeleted = false;
+      }
     }
     let samplesCleaned = true;
     if (typeof cleanup === "function") {

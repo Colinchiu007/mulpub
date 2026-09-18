@@ -1775,7 +1775,9 @@ class Story2VideoProjectService {
         try {
           const voiceId = voice.voice_id
           const providerId = voice.voice_provider
-          const model = voice.voice_model || 'speech-02-hd'
+          // 克隆恢复的模型兜底按 provider 区分（MiMo 克隆 registry 绑定 mimo-v2.5-tts-voiceclone）
+          const model = voice.voice_model
+            || (providerId === 'mimo-tts' ? 'mimo-v2.5-tts-voiceclone' : 'speech-02-hd')
           const samples = await this.ttsVoiceCloneService.findCloneSamples(voiceId, providerId, model)
           if (samples && samples.sampleStorage && this.assetGenerator && typeof this.assetGenerator.generateTTS === 'function') {
             const _fs = require('fs')

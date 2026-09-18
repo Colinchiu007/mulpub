@@ -206,11 +206,12 @@ describe('TtsVoiceService', () => {
   })
 
   it('对不支持或未配置的 provider fail closed，且不写入 cache 或偏好', async () => {
-    const unsupported = await service.getCatalog({ providerId: 'mimo-tts', model: 'mimo-v2.5-tts' })
+    // MiMo TTS 现已支持音色列表（BUILTIN，9 个预置音色）；改用不在白名单的模型验证 fail closed
+    const unsupported = await service.getCatalog({ providerId: 'mimo-tts', model: 'mimo-v2.5-tts-voicedesign' })
     manager.callAdapter.mockResolvedValueOnce({ code: -1, message: 'Bearer token leaked by upstream' })
     const unavailable = await service.getCatalog({ providerId: 'openai-tts', model: 'tts-1' })
 
-    expect(unsupported).toMatchObject({ code: -1, message: 'VOICE_CATALOG_UNSUPPORTED' })
+    expect(unsupported).toMatchObject({ code: -1, message: 'VOICE_MODEL_MISMATCH' })
     expect(unavailable).toMatchObject({ code: -1, message: 'VOICE_CATALOG_UNAVAILABLE' })
     expect(manager.callAdapter).toHaveBeenCalledTimes(1)
     expect(store.setUserSetting).not.toHaveBeenCalled()
@@ -495,5 +496,92 @@ describe('getCatalog — 多模态模型（minimax-multimodal）承担 TTS 能�
     const result = await service.getCatalog({ providerId: 'minimax-multimodal', model: 'speech-3.0-experimental' })
     expect(result).toMatchObject({ code: -1, message: 'VOICE_MODEL_MISMATCH' })
     expect(manager.callAdapter).not.toHaveBeenCalled()
+  })
+
+  describe('MiMo TTS catalog（2026-09-18）', () => {
+    function createMimoService({ cloneVoices = [] } = {}) {
+      const now = 1_700_000_000_000
+      const store = createUserStore()
+      const manager = {
+        getProvider: vi.fn(() => ({
+          id: 'mimo-tts',
+          category: 'tts',
+          models: ['mimo-v2.5-tts', 'mimo-v2.5-tts-voiceclone'],
+        })),
+        callAdapter: vi.fn(async () => ({
+          code: 0,
+          data: [
+            { id: 'mimo_default', name: 'MiMo-默认' },
+            { id: '冰糖', name: '冰糖' },
+            { id: 'Mia', name: 'Mia' },
+          ],
+        })),
+      }
+      const cloneService = {
+        listClones: vi.fn(async () => ({
+          code: 0,
+          data: { voices: cloneVoices },
+        })),
+      }
+      const service = new TtsVoiceService({
+        store,
+        modelProviderManager: manager,
+        cloneService,
+        now: () => now,
+        cacheTtlMs: 60_000,
+      })
+      return { store, manager, cloneService, service }
+    }
+
+    it('mimo-v2.5-tts catalog 返回预置音色并合并 voiceclone 克隆音色', async () => {
+      const { service, cloneService } = createMimoService({
+        cloneVoices: [
+          { id: 'mimo-clone-abc', name: '音色001', source: 'user_clone' },
+        ],
+      })
+      const result = await service.getCatalog({ providerId: 'mimo-tts', model: 'mimo-v2.5-tts' })
+      expect(result.code).toBe(0)
+      const voiceIds = result.data.voices.map(v => v.id)
+      expect(voiceIds).toContain('mimo_default')
+      expect(voiceIds).toContain('冰糖')
+      expect(voiceIds).toContain('Mia')
+      // 克隆音色从 voiceclone 模型 registry 合并
+      expect(voiceIds).toContain('mimo-clone-abc')
+      // 克隆列表查询用 voiceclone 模型
+      expect(cloneService.listClones).toHaveBeenCalledWith({
+        providerId: 'mimo-tts',
+        model: 'mimo-v2.5-tts-voiceclone',
+      })
+      expect(result.data.selectedVoiceId).toBe('mimo_default')
+    })
+
+    it('mimo 下选择克隆音色后 catalog 回填克隆偏好（voiceclone 键）', async () => {
+      const { store, service } = createMimoService({
+        cloneVoices: [
+          { id: 'mimo-clone-abc', name: '音色001', source: 'user_clone' },
+        ],
+      })
+      // 先选择克隆音色（写入 voiceclone 偏好键）
+      const selectResult = await service.selectVoice({
+        providerId: 'mimo-tts',
+        model: 'mimo-v2.5-tts-voiceclone',
+        voiceId: 'mimo-clone-abc',
+      })
+      expect(selectResult.code).toBe(0)
+      // catalog（tts 模型）应回填 voiceclone 键的克隆偏好
+      const catalogResult = await service.getCatalog({ providerId: 'mimo-tts', model: 'mimo-v2.5-tts' })
+      expect(catalogResult.code).toBe(0)
+      expect(catalogResult.data.selectedVoiceId).toBe('mimo-clone-abc')
+    })
+
+    it('mimo 下清除偏好同时清 tts 与 voiceclone 键', async () => {
+      const { store, service } = createMimoService()
+      const cleared = await service.clearVoicePreference({ providerId: 'mimo-tts', model: 'mimo-v2.5-tts' })
+      expect(cleared.code).toBe(0)
+      const setCalls = store.setUserSetting.mock.calls
+      const clearedKeys = setCalls.filter(([, value]) => value === null).map(([key]) => key)
+      expect(clearedKeys).toContain('tts-voice-preference:v1:mimo-tts:mimo-v2.5-tts')
+      expect(clearedKeys).toContain('tts-voice-preference:v1:mimo-tts:mimo-v2.5-tts-voiceclone')
+    })
   })
 })

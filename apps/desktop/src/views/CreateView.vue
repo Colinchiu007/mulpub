@@ -519,7 +519,7 @@
                 </select>
                 <p v-if="s2vVoiceProviders.length === 0" class="config-hint">未配置 TTS 模型时将使用自动 Edge TTS（免费）；如需 MiniMax 等语音模型与音色克隆能力，请先在「模型服务商」中配置。<a href="#/model-providers" class="config-hint-link">前往配置 →</a></p>
               </div>
-              <div v-if="s2vConfig.voiceProvider" class="config-item">
+              <div v-if="s2vConfig.voiceProvider && !s2vVoiceModelHidden" class="config-item">
                 <label>语音模型</label>
                 <select
                   v-if="s2vVoiceModelOptions.length > 0"
@@ -532,7 +532,7 @@
                 </select>
                 <span v-else class="config-hint">当前服务商没有可用的语音模型。</span>
               </div>
-              <div v-if="s2vConfig.voiceProvider && s2vConfig.voiceModel" class="config-item">
+              <div v-if="s2vConfig.voiceProvider && (s2vConfig.voiceModel || s2vVoiceModelHidden)" class="config-item">
                 <label>语音 / 音色 ID</label>
                 <select
                   id="s2v-voice-catalog"
@@ -1846,6 +1846,8 @@ export default {
       if (!provider) return []
       const models = Array.isArray(provider.models) ? provider.models : []
       const strings = models.filter(model => typeof model === 'string' && model)
+      // MiMo TTS：语音模型下拉隐藏（模型由「语音/音色 ID」区分：预置→mimo-v2.5-tts，克隆→mimo-v2.5-tts-voiceclone）
+      if (provider.id === 'mimo-tts') return []
       // 多模态：只展示声明支持 TTS 的默认模型（capability_models.tts），
       // 避免把 image/video/llm 模型混入「语音模型」下拉。
       if (provider.category === 'multimodal' && provider.capability_models && typeof provider.capability_models.tts === 'string') {
@@ -1853,6 +1855,18 @@ export default {
         return strings.includes(ttsModel) ? [ttsModel] : [ttsModel, ...strings]
       }
       return strings
+    },
+    // MiMo TTS 的「语音模型」下拉隐藏：mimo-v2.5-tts 与 mimo-v2.5-tts-voiceclone
+    // 由「语音 / 音色 ID」下拉区分（预置音色 → tts，克隆音色 → voiceclone）。
+    s2vVoiceModelHidden() {
+      const provider = this.getS2VVoiceProvider()
+      return Boolean(provider && provider.id === 'mimo-tts')
+    },
+    // MiMo TTS 下 catalog 请求使用的模型：预置音色目录用 mimo-v2.5-tts
+    // （克隆音色由 tts-voice-clone-service 单独按 provider:model 管理）。
+    s2vVoiceContextModel() {
+      if (this.s2vVoiceModelHidden) return 'mimo-v2.5-tts'
+      return typeof this.s2vConfig.voiceModel === 'string' ? this.s2vConfig.voiceModel.trim() : ''
     },
     s2vVoiceOptions() {
       const voices = [
@@ -3716,8 +3730,19 @@ export default {
     },
     getS2VVoiceContext() {
       const providerId = typeof this.s2vConfig.voiceProvider === 'string' ? this.s2vConfig.voiceProvider.trim() : ''
-      const model = typeof this.s2vConfig.voiceModel === 'string' ? this.s2vConfig.voiceModel.trim() : ''
+      // MiMo TTS：语音模型下拉隐藏，catalog 请求固定用 mimo-v2.5-tts（预置音色目录）
+      const model = this.s2vVoiceModelHidden
+        ? 'mimo-v2.5-tts'
+        : (typeof this.s2vConfig.voiceModel === 'string' ? this.s2vConfig.voiceModel.trim() : '')
       return providerId && model ? { providerId, model } : null
+    },
+    // MiMo TTS 克隆上下文：克隆 registry/偏好绑定在 voiceclone 模型下
+    getS2VVoiceCloneContext() {
+      const context = this.getS2VVoiceContext()
+      if (!context) return null
+      return this.s2vVoiceModelHidden
+        ? { providerId: context.providerId, model: 'mimo-v2.5-tts-voiceclone' }
+        : context
     },
     getS2VVoiceProvider(providerId = this.s2vConfig.voiceProvider) {
       return this.s2vVoiceProviders.find(provider => provider?.id === providerId) || null
@@ -3727,6 +3752,8 @@ export default {
       const models = Array.isArray(provider?.models)
         ? provider.models.filter(model => typeof model === 'string' && model)
         : []
+      // MiMo TTS：语音模型下拉隐藏，voiceModel 置空（模型由「语音/音色 ID」区分）
+      if (provider?.id === 'mimo-tts') return ''
       // 多模态：默认取 capability_models.tts（能力默认模型），models 首项可能是 image/video/llm 模型。
       if (provider?.category === 'multimodal' && provider.capability_models && typeof provider.capability_models.tts === 'string') {
         const ttsModel = provider.capability_models.tts
@@ -3759,17 +3786,21 @@ export default {
     isCurrentS2VVoiceRequest(requestId, context) {
       return requestId === this.s2vVoiceRequestId
         && this.s2vConfig.voiceProvider === context.providerId
-        && this.s2vConfig.voiceModel === context.model
+        && this.s2vVoiceContextModel === context.model
     },
     isCurrentS2VVoiceCloneRequest(requestId, context) {
+      // MiMo TTS：克隆请求的 context.model 是 mimo-v2.5-tts-voiceclone（与 catalog 的 tts 模型不同）
+      const expectedModel = this.s2vVoiceModelHidden ? 'mimo-v2.5-tts-voiceclone' : this.s2vVoiceContextModel
       return requestId === this.s2vVoiceCloneRequestId
         && this.s2vConfig.voiceProvider === context.providerId
-        && this.s2vConfig.voiceModel === context.model
+        && expectedModel === context.model
     },
     isCurrentS2VVoiceSelectionRequest(requestId, context, voiceId) {
+      // MiMo TTS：克隆音色选择请求的 context.model 是 mimo-v2.5-tts-voiceclone
+      const expectedModel = this.s2vVoiceModelHidden ? 'mimo-v2.5-tts-voiceclone' : this.s2vVoiceContextModel
       return requestId === this.s2vVoiceSelectionRequestId
         && this.s2vConfig.voiceProvider === context.providerId
-        && this.s2vConfig.voiceModel === context.model
+        && expectedModel === context.model
         && this.s2vConfig.voiceId === voiceId
     },
     toS2VVoiceOption(voice) {
@@ -3891,10 +3922,14 @@ export default {
 
       this.s2vVoiceCatalogLoading = true
       const catalogInput = this.cloneForIpc({ ...context, refresh: options.refresh === true })
-      const capabilityInput = this.cloneForIpc(context)
+      // MiMo TTS：catalog 用 mimo-v2.5-tts（预置音色），capability/克隆用 mimo-v2.5-tts-voiceclone
+      // （音色复刻能力由 voiceclone 模型声明）。语音模型下拉隐藏，模型由音色类型区分。
+      const cloneContext = this.s2vVoiceModelHidden
+        ? { providerId: context.providerId, model: 'mimo-v2.5-tts-voiceclone' }
+        : context
       const [catalogResult, capabilityResult] = await Promise.allSettled([
         getTtsVoiceCatalog(catalogInput),
-        getTtsVoiceCapability(capabilityInput),
+        getTtsVoiceCapability(this.cloneForIpc(cloneContext)),
       ])
       if (!this.isCurrentS2VVoiceRequest(requestId, context)) return
 
@@ -3929,11 +3964,11 @@ export default {
         const cloneRequestId = ++this.s2vVoiceCloneRequestId
         this.s2vVoiceCloneLoading = true
         const [requirementsResult, clonesResult] = await Promise.allSettled([
-          getTtsVoiceCloneRequirements(this.cloneForIpc(context)),
-          listTtsVoiceClones(this.cloneForIpc(context)),
+          getTtsVoiceCloneRequirements(this.cloneForIpc(cloneContext)),
+          listTtsVoiceClones(this.cloneForIpc(cloneContext)),
         ])
         if (!this.isCurrentS2VVoiceRequest(requestId, context)
-          || !this.isCurrentS2VVoiceCloneRequest(cloneRequestId, context)) return
+          || !this.isCurrentS2VVoiceCloneRequest(cloneRequestId, cloneContext)) return
 
         const requirementsResponse = requirementsResult.status === 'fulfilled' ? requirementsResult.value : null
         const clonesResponse = clonesResult.status === 'fulfilled' ? clonesResult.value : null
@@ -4066,12 +4101,16 @@ export default {
     },
     async selectS2VVoice(voiceId = this.s2vConfig.voiceId) {
       const context = this.getS2VVoiceContext()
+      // MiMo TTS：克隆音色的偏好持久化到 voiceclone 模型下（与克隆 registry 同键域）
+      const selectContext = this.s2vVoiceModelHidden && typeof voiceId === 'string' && voiceId.startsWith('mimo-clone-')
+        ? { providerId: context?.providerId, model: 'mimo-v2.5-tts-voiceclone' }
+        : context
       const normalizedVoiceId = typeof voiceId === 'string' ? voiceId.trim() : ''
-      if (!context) return false
+      if (!selectContext) return false
       if (!normalizedVoiceId) {
         const requestId = ++this.s2vVoiceSelectionRequestId
-        const result = await clearTtsVoicePreference(this.cloneForIpc(context))
-        if (!this.isCurrentS2VVoiceSelectionRequest(requestId, context, this.s2vConfig.voiceId)) return false
+        const result = await clearTtsVoicePreference(this.cloneForIpc(selectContext))
+        if (!this.isCurrentS2VVoiceSelectionRequest(requestId, selectContext, this.s2vConfig.voiceId)) return false
         if (result?.code !== 0) {
           this.s2vVoiceCatalogError = this.friendlyVoiceCatalogError(result?.message) || formatUserError(result, { fallback: '音色目录加载失败' }).message
             ? this.friendlyVoiceCatalogError(result?.message)
@@ -4095,8 +4134,8 @@ export default {
       this.s2vConfig.voiceId = normalizedVoiceId
 
       const requestId = ++this.s2vVoiceSelectionRequestId
-      const result = await selectTtsVoice(this.cloneForIpc({ ...context, voiceId: normalizedVoiceId }))
-      if (!this.isCurrentS2VVoiceSelectionRequest(requestId, context, normalizedVoiceId)) return false
+      const result = await selectTtsVoice(this.cloneForIpc({ ...selectContext, voiceId: normalizedVoiceId }))
+      if (!this.isCurrentS2VVoiceSelectionRequest(requestId, selectContext, normalizedVoiceId)) return false
       if (result?.code !== 0) {
         // 保存失败：回滚下拉与徽标，避免显示一个从未持久化的「默认」音色
         this.s2vConfig.voiceId = previousVoiceId
@@ -4112,7 +4151,7 @@ export default {
       return true
     },
     async chooseS2VVoiceCloneSamples() {
-      const context = this.getS2VVoiceContext()
+      const context = this.getS2VVoiceCloneContext()
       const cloneEnabled = this.s2vVoiceCapability?.type === 'user_clone'
         && this.s2vVoiceCapability?.clone?.enabled === true
       if (!context || !cloneEnabled) return
@@ -4167,7 +4206,7 @@ export default {
       return '音色' + String(nextIndex).padStart(3, '0')
     },
     async addS2VVoiceClone(name = this.nextS2VVoiceCloneName()) {
-      const context = this.getS2VVoiceContext()
+      const context = this.getS2VVoiceCloneContext()
       const selectionId = this.s2vVoiceCloneSelection?.selectionId
       const normalizedName = String(name || '').trim()
       if (!context || !selectionId || !normalizedName || this.s2vVoiceCloneLoading) return
@@ -4238,7 +4277,7 @@ export default {
       )
     },
     async deleteS2VVoiceClone(voiceId) {
-      const context = this.getS2VVoiceContext()
+      const context = this.getS2VVoiceCloneContext()
       const normalizedVoiceId = typeof voiceId === 'string' ? voiceId.trim() : ''
       if (!context || !normalizedVoiceId || this.s2vVoiceCloneLoading) return
 
@@ -4288,7 +4327,7 @@ export default {
       this.s2vVoiceCloneError = ''
     },
     async renameS2VVoiceClone(voiceId) {
-      const context = this.getS2VVoiceContext()
+      const context = this.getS2VVoiceCloneContext()
       const normalizedVoiceId = typeof voiceId === 'string' ? voiceId.trim() : ''
       const name = String(this.s2vVoiceCloneRenameDraft || '').trim()
       if (!context || !normalizedVoiceId || !name || this.s2vVoiceCloneLoading) return

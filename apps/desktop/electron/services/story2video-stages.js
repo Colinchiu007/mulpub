@@ -3259,7 +3259,11 @@ function registerStory2VideoStages(pipelineEngine) {
             return { index, success: false, error: e.message };
           }
           // Unified re-clone via shared tryReCloneVoice helper (2026-08-18)
-          const _voiceModel = resolvedVoiceModel || 'speech-02-hd'
+          // 克隆恢复的模型兜底按 provider 区分：MiniMax 克隆 registry 绑定 speech-02-hd，
+          // MiMo 克隆 registry 绑定 mimo-v2.5-tts-voiceclone（语音模型下拉在 Mimo 下隐藏，
+          // resolvedVoiceModel 为空时不能回退到 MiniMax 模型）。
+          const _voiceModel = resolvedVoiceModel
+            || (resolvedVoiceProvider === 'mimo-tts' ? 'mimo-v2.5-tts-voiceclone' : 'speech-02-hd')
           const _reCloneResult = await tryReCloneVoice({
             pipelineEngine, error: e, text,
             voiceId, voiceProvider: resolvedVoiceProvider,
