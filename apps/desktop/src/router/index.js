@@ -28,6 +28,7 @@ const routes = [
   { path: '/accounts', name: 'Accounts', component: () => import('@/views/Accounts.vue') },
   { path: '/dashboard', name: 'Dashboard', component: () => import('@/views/Dashboard.vue') },
   { path: '/collection', name: 'Collection', component: () => import('@/views/Collection.vue') },
+  { path: '/copy-library', name: 'CopyLibrary', component: () => import('@/views/CopyLibraryView.vue') },
   { path: '/keywords', name: 'Keywords', component: () => import('@/views/KeywordMonitorView.vue') },
   { path: '/viral-analysis', name: 'ViralAnalysis', component: () => import('@/views/ViralAnalysis.vue') },
   { path: '/providers', redirect: '/model-providers' },

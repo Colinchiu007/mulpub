@@ -8201,9 +8201,6 @@ home 标签是虚拟标签（无 WebContentsView），主进程 `webview-manager
 - [ ] 复制按钮在动作行最左侧，与存入草稿/视频创作同行
 - [ ] 引擎 146 例 + RewriteView 70 例 + CreateView 283 例全绿；eslint 0 error；locale-sync / CJK 门禁 PASS
 - [ ] CCG 双模型审查：opencode 审查 0 Critical（CRITICAL-1 已修复 + 回归测试）；Claude 审查因环境不可用降级为主代理自审
-
----
-
 ## 2026-09-19 · 改写硬约束系统：引擎最前置注入 + 运营中心多版本管理（唯一默认）
 
 **背景（用户需求）**：改写引擎需要一套硬约束内容——不管选什么改写模式和改写策略都强制包含的一段提示词，优先级最高（与模式/策略内容冲突时以硬约束为准），且可在运营中心自定义维护多个版本（唯一默认）。
@@ -8283,3 +8280,34 @@ is_default: 1
 - [ ] 种子数据初始化默认硬约束（纯文案输出 v1）
 - [ ] 默认版本不可删除；停用版本不可设为默认
 - [ ] 引擎 154 例 + Manager 8 例 + 后端 6 例 + 桌面端接线测试全绿；ops-center 前端 build 通过
+
+---
+
+## 2026-09-19 · 一级菜单「文案库」：全应用文案来源聚合
+
+> 专项 PRD：[PRD-COPY-LIBRARY-PRIMARY-MENU-2026-09-19.md](./PRD-COPY-LIBRARY-PRIMARY-MENU-2026-09-19.md)
+
+### 功能概述
+
+一级菜单在「采集」与「文案改写」之间新增「文案库」（key=copy-library，路由 /copy-library），聚合 4 个文案来源：
+
+| 来源 | 存储 | 说明 |
+|------|------|------|
+| 采集正文 | settings `collected_items` | URL/RSS/API/批量采集产物 |
+| 改写文案 | settings `copy_library_rewrites` | 改写闭环产物（上限 200，同 fromKey 覆盖） |
+| 草稿 | settings `drafts` | 含热门选题页文案创作产物 |
+| 视频创作文案 | story2video 项目 `sourceText` | CreateView 流水线 + 热门选题一键生成视频 |
+
+### 核心契约
+
+- 数据层：useCopyLibrarySources.js 统一条目形状（id/origin/title/content/wordCount/createdAt/metadata），createdAt 倒序，单源失败不阻塞（Promise.allSettled）
+- 视频文案预览截断 500 字（SOURCE_PREVIEW_LIMIT），metadata.truncated 标记
+- 交互：来源筛选（全部/采集/改写/草稿/视频创作）+ 关键词搜索（标题+内容），可叠加
+- 菜单：route-registry 登记 → SIDEBAR_MENU_KEY_ORDER（collection→copy-library→rewrite）→ sidebar-menu.test 冻结基线 → ops-center CATALOG 同步
+- 双入口：与采集页文案库 tab 共享 useCopyLibrary 数据契约，写操作经 readCurrent() 磁盘重读保证最终一致
+
+### 暂缓来源（v2）
+
+- rewrite_history（与改写文案重复，需先修 owner 过滤）
+- publish_history（写入端无正文，仅 title）
+- AiWriter 瞬态产物（不落盘）

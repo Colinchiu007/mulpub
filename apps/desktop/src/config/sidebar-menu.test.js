@@ -91,6 +91,7 @@ const EXPECTED_DERIVED_MENU = Object.freeze([
   { key: 'dashboard', group: 'primary', labelI18nKey: 'sidebar.nav.dashboard', to: '/dashboard' },
   { key: 'create', group: 'primary', labelI18nKey: 'sidebar.nav.create', to: '/create' },
   { key: 'collection', group: 'primary', labelI18nKey: 'sidebar.nav.collection', to: '/collection' },
+  { key: 'copy-library', group: 'primary', labelI18nKey: 'sidebar.nav.copyLibrary', to: '/copy-library' },
   { key: 'rewrite', group: 'primary', labelI18nKey: 'sidebar.nav.rewrite', to: '/rewrite' },
   { key: 'calendar', group: 'more', labelI18nKey: 'sidebar.nav.calendar', to: '/calendar' },
   { key: 'comments', group: 'more', labelI18nKey: 'sidebar.nav.comments', to: '/comments' },
