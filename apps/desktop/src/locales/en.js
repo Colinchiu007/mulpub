@@ -2275,6 +2275,8 @@ export default {
       collectingProgress: 'Batch collecting ({count} items, serial + interval anti-ban)...',
       rewritingProgress: 'Batch rewriting ({count} items)...',
       batchDone: 'Done: {completed} succeeded, {failed} failed',
+      batchDoneCancelledSuffix: ' (cancelled)',
+      batchDoneCircuitBrokenSuffix: ' (circuit broken)',
       noRewritable: 'No rewritable content (collect articles first)',
       hint: 'Uses the official Zhihu API. Batch operations use serial execution + random intervals (~8-12s/item) + exponential backoff + circuit breaker to minimize anti-crawling risk. The official API cannot distinguish created vs followed favorites; all public favorites are listed.',
     },
