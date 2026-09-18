@@ -961,6 +961,29 @@ async def test_catalog_minimax_multimodal_facts():
     assert mm["default_model"] == "MiniMax-M2.7"
     assert mm["rate_per_minute"] == 20
 
+
+def test_catalog_agnes_multimodal_facts():
+    """Agnes-AI 多模态能力映射与桌面端一致（2026-09-18 同步，中国站统一端点）。"""
+    from services.model_preset_service import PRESET_CATALOG
+
+    ag = next(x for x in PRESET_CATALOG if x["id"] == "agnes-multimodal")
+    assert ag["name"] == "Agnes-AI"
+    assert ag["category"] == "multimodal"
+    assert ag["base_url"] == "https://api.agnes-ai.cn/v1"
+    assert ag["is_multimodal"] == 1
+    assert ag["models"] == ["agnes-3.0-flash", "agnes-image-2.5-flash", "agnes-video-2.5-flash"]
+    assert ag["capabilities"] == ["llm", "image", "video"]
+    assert ag["capability_models"] == {
+        "llm": "agnes-3.0-flash", "image": "agnes-image-2.5-flash", "video": "agnes-video-2.5-flash",
+    }
+    assert ag["default_model"] == "agnes-3.0-flash"
+    assert ag["rate_per_minute"] == 20
+    # 与桌面端 model-provider-seeds.js 的能力声明一致（跨端同步锚定；cwd=ops-center/backend）
+    seeds_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "apps", "desktop", "electron", "services", "model-provider-seeds.js")
+    desktop_seeds = open(seeds_path, encoding="utf-8").read()
+    assert "agnes-multimodal" in desktop_seeds and "api.agnes-ai.cn/v1" in desktop_seeds, \
+        "桌面端预设种子必须包含 agnes-multimodal（跨端同步前提）"
+
 def test_extract_model_ids_supported_shapes():
     """解析器支持 id / model_id / name（Gemini models/ 前缀剥离、Ollama tags、ElevenLabs 真实形状）。"""
     from services.model_preset_service import _extract_model_ids

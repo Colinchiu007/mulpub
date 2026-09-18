@@ -149,6 +149,19 @@ PRESET_CATALOG = [
         "doc_links": ["https://platform.minimaxi.com/docs/guides/text-generation","https://platform.minimaxi.com/docs/guides/speech-t2a-async","https://platform.minimaxi.com/docs/guides/speech-voice-clone","https://platform.minimaxi.com/docs/guides/image-generation","https://platform.minimaxi.com/docs/guides/video-generation"],
         "capability_doc_links": {"llm":["https://platform.minimaxi.com/docs/guides/text-generation"],"tts":["https://platform.minimaxi.com/docs/guides/speech-t2a-async","https://platform.minimaxi.com/docs/guides/speech-voice-clone"],"image":["https://platform.minimaxi.com/docs/guides/image-generation"],"video":["https://platform.minimaxi.com/docs/guides/video-generation"]},
     },
+    # Agnes-AI 多模态（2026-09-18 同步桌面端 agnes-multimodal 预设，中国站统一端点；
+    # 与桌面端 model-provider-seeds.js 的 capabilities/capability_models 保持一致）
+    {
+        "id": "agnes-multimodal", "name": "Agnes-AI", "category": "multimodal",
+        "base_url": "https://api.agnes-ai.cn/v1",
+        "is_multimodal": 1,
+        "models": ["agnes-3.0-flash","agnes-image-2.5-flash","agnes-video-2.5-flash"], "default_model": "agnes-3.0-flash",
+        "capabilities": ["llm","image","video"],
+        "capability_models": {"llm":"agnes-3.0-flash","image":"agnes-image-2.5-flash","video":"agnes-video-2.5-flash"},
+        "rate_per_minute": 20,
+        "doc_links": ["https://www.agnes-ai.cn/zh-Hans/docs/agnes-30-flash","https://www.agnes-ai.cn/zh-Hans/docs/agnes-image-25-flash","https://www.agnes-ai.cn/zh-Hans/docs/agnes-video-25-flash"],
+        "capability_doc_links": {"llm":["https://www.agnes-ai.cn/zh-Hans/docs/agnes-30-flash"],"image":["https://www.agnes-ai.cn/zh-Hans/docs/agnes-image-25-flash"],"video":["https://www.agnes-ai.cn/zh-Hans/docs/agnes-video-25-flash"]},
+    },
     # ─── LLM 推理 ─────────────────────────────
     {
         "id": "anthropic", "name": "Anthropic", "category": "llm",
