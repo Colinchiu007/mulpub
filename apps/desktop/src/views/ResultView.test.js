@@ -2059,5 +2059,71 @@ describe("ResultView", () => {
       expect(rule[1]).toMatch(/overflow-wrap:\s*anywhere/);
       expect(rule[1]).toMatch(/word-break:\s*break-word/);
     });
+
+    it("滚动时右侧分段导航自动高亮当前所在分段（getBoundingClientRect 计算）", async () => {
+      const w = await createView();
+      w.vm.projectId = "p1";
+      w.vm.segments = [
+        { id: "s1", text: "A", status: "completed" },
+        { id: "s2", text: "B", status: "completed" },
+        { id: "s3", text: "C", status: "completed" },
+      ];
+      await nextTick();
+      const items = w.findAll(".segment-item");
+      expect(items.length).toBe(3);
+      // 第 1 段在视口下方，第 2 段顶部进入视口上方区域，第 3 段已滚过视口顶部
+      items[0].element.getBoundingClientRect = () => ({ top: 600, bottom: 1000, height: 400 });
+      items[1].element.getBoundingClientRect = () => ({ top: 80, bottom: 480, height: 400 });
+      items[2].element.getBoundingClientRect = () => ({ top: -320, bottom: 80, height: 400 });
+      window.dispatchEvent(new Event("scroll"));
+      await nextTick();
+      // 顶部进入视口上方最近的分段是第 2 段（index 1）
+      expect(w.vm.activeSegmentIndex).toBe(1);
+      // 对应数字按钮高亮
+      const numbers = w.find('[data-testid="segment-jump-bar"]').findAll(".segment-jump-number");
+      expect(numbers[1].classes()).toContain("active");
+      w.unmount();
+    });
+
+    it("滚动到最下方时高亮最后一个分段", async () => {
+      const w = await createView();
+      w.vm.projectId = "p1";
+      w.vm.segments = [
+        { id: "s1", text: "A", status: "completed" },
+        { id: "s2", text: "B", status: "completed" },
+      ];
+      await nextTick();
+      const items = w.findAll(".segment-item");
+      // 两段都已滚过视口顶部
+      items[0].element.getBoundingClientRect = () => ({ top: -800, bottom: -400, height: 400 });
+      items[1].element.getBoundingClientRect = () => ({ top: -300, bottom: 100, height: 400 });
+      window.dispatchEvent(new Event("scroll"));
+      await nextTick();
+      expect(w.vm.activeSegmentIndex).toBe(1);
+      w.unmount();
+    });
+
+    it("delete segment recalculates scroll highlight without out-of-bounds", async () => {
+      const w = await createView();
+      w.vm.projectId = "p1";
+      w.vm.segments = [
+        { id: "s1", text: "A", status: "completed" },
+        { id: "s2", text: "B", status: "completed" },
+        { id: "s3", text: "C", status: "completed" },
+      ];
+      await nextTick();
+      w.vm.activeSegmentIndex = 2;
+      w.vm.removeSegment(2);
+      await nextTick();
+      expect(w.vm.segments).toHaveLength(2);
+      const items = w.findAll(".segment-item");
+      expect(items.length).toBe(2);
+      items[0].element.getBoundingClientRect = () => ({ top: 500, bottom: 900, height: 400 });
+      items[1].element.getBoundingClientRect = () => ({ top: 100, bottom: 500, height: 400 });
+      window.dispatchEvent(new Event("scroll"));
+      await nextTick();
+      expect(w.vm.activeSegmentIndex).toBe(1);
+      w.unmount();
+    });
   });
 });
