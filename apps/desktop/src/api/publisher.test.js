@@ -27,6 +27,7 @@ const exportedNames = [
   "onAuthCompleted", "onAuthViewClosed",
   // 渲染
   "renderStart", "renderCancel", "renderGetStatus", "renderInstallDeps",
+  "renderStartAiVideo",
   "onRenderProgress", "onRenderComplete", "onRenderError", "onRenderInstallProgress",
   // 内容情报
   "intelligenceSearch", "intelligenceSearchTitles", "intelligenceFetchTrending",
@@ -133,6 +134,7 @@ publishWechat: { args: [{ title: "t", content: "c" }], fallback: undefined, retu
   onAuthCompleted: { args: [vi.fn()], fallback: undefined, returns: "function" },
   onAuthViewClosed: { args: [vi.fn()], fallback: undefined, returns: "function" },
   renderStart: { args: [{ type: "video" }], fallback: undefined, returns: "undefined" },
+  renderStartAiVideo: { args: [{ prompt: "test" }], fallback: undefined, returns: "undefined" },
   renderCancel: { args: [], fallback: {}, returns: "object" },
   renderGetStatus: { args: [], fallback: {}, returns: "object" },
   renderInstallDeps: { args: [], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },

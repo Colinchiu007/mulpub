@@ -15,6 +15,48 @@ const log = require('./logger');
 const COMPOSER_DIR = getComposerDir();
 const QUICK_RENDER_DIR = path.join(os.tmpdir(), 'story2video', 'quick-render');
 
+/**
+ * 解析 Remotion CLI 渲染进度文本，返回 { percent, stage } 或 null。
+ *
+ * Remotion CLI 实际输出的进度格式（@remotion/cli/dist/progress-bar.js）：
+ *   - getGuiProgressSubtitle → "Rendered 45/900"（无 "frame" 字样）
+ *   - makeRenderingProgress   → "Rendered frames 45/900"（复数 "frames"，带 ANSI 颜色码）
+ *   - 拼接阶段                → "Encoded 45/900"
+ *   - 渲染阶段                → "Rendering frames 45/900"
+ *
+ * 旧实现用 /Rendered frame (\d+)\/(\d+)/ 匹配单数 "frame"，与 Remotion 实际
+ * 输出（无 "frame" 或复数 "frames"）永远不匹配，导致进度条一直停在 0%。
+ * 本函数剥离 ANSI 转义码后同时兼容两种格式，并处理 total=0 除零边界。
+ *
+ * @param {string} text 单块输出文本
+ * @returns {{ percent: number, stage: string } | null}
+ */
+function parseRenderProgress(text) {
+  if (typeof text !== 'string' || !text) return null;
+  // 剥离 ANSI 转义码（Remotion 输出带颜色/光标控制码）
+  const ESC = String.fromCharCode(27); // ESC 0x1b
+  const clean = text
+    .replace(new RegExp(ESC + '\\[[0-9;]*[A-Za-z]', 'g'), '')
+    .replace(new RegExp(ESC + '\\][^' + ESC + ']*' + ESC, 'g'), '');
+  // 兼容 "Rendered 45/900"、"Rendered frames 45/900"、"Rendering frames 45/900"
+  const match = /(?:Rendered|Rendering)(?: frames?)?\s+(\d+)\/(\d+)/.exec(clean);
+  if (match) {
+    const done = parseInt(match[1], 10);
+    const total = parseInt(match[2], 10);
+    const percent = total > 0 ? Math.round((done / total) * 100) : 0;
+    return { percent, stage: '渲染中' };
+  }
+  // 拼接阶段 "Encoded 45/900"
+  const encoded = /Encoded\s+(\d+)\/(\d+)/.exec(clean);
+  if (encoded) {
+    const done = parseInt(encoded[1], 10);
+    const total = parseInt(encoded[2], 10);
+    const percent = total > 0 ? Math.round((done / total) * 100) : 0;
+    return { percent, stage: '编码中' };
+  }
+  return null;
+}
+
 function getDefaultOutputPath(timestamp = Date.now()) {
   return path.join(QUICK_RENDER_DIR, `remotion_${timestamp}.mp4`);
 }
@@ -145,14 +187,10 @@ class RenderEngine {
         const text = data.toString();
         stdout += text;
 
-        // 解析进度: "Rendered frame 45/900"
-        const match = text.match(/Rendered frame (\d+)\/(\d+)/);
-        if (match) {
-          const done = parseInt(match[1], 10);
-          const total = parseInt(match[2], 10);
-          // 边界修复：total=0 时除零得 Infinity，Math.round(Infinity)=Infinity 会破坏进度条 UI
-          const percent = total > 0 ? Math.round((done / total) * 100) : 0;
-          onProgress(percent, '渲染中');
+        // 解析进度: Remotion 实际输出 "Rendered 45/900" / "Rendered frames 45/900"
+        const parsed = parseRenderProgress(text);
+        if (parsed) {
+          onProgress(parsed.percent, parsed.stage);
         }
 
         // 解析渲染阶段
@@ -166,19 +204,15 @@ class RenderEngine {
       });
 
       // logging-coverage-audit：收集 stderr 尾部，失败时进日志（此前完全丢弃）
-      let stderrTail = [];
+      const stderrTail = [];
       child.stderr.on('data', (data) => {
         // Remotion 可能在 stderr 输出进度
         const text = data.toString();
         stderrTail.push(text);
         if (stderrTail.length > 20) stderrTail.shift();
-        const match = text.match(/Rendered frame (\d+)\/(\d+)/);
-        if (match) {
-          const done = parseInt(match[1], 10);
-          const total = parseInt(match[2], 10);
-          // 边界修复：total=0 时除零得 Infinity，传播到 onProgress 破坏 UI
-          const percent = total > 0 ? Math.round((done / total) * 100) : 0;
-          onProgress(percent, '渲染中');
+        const parsed = parseRenderProgress(text);
+        if (parsed) {
+          onProgress(parsed.percent, parsed.stage);
         }
       });
 
@@ -235,5 +269,6 @@ class RenderEngine {
 RenderEngine.getDefaultOutputPath = getDefaultOutputPath;
 RenderEngine.QUICK_RENDER_DIR = QUICK_RENDER_DIR;
 RenderEngine.resolveRemotionCli = resolveRemotionCli;
+RenderEngine.parseRenderProgress = parseRenderProgress;
 
 module.exports = RenderEngine
