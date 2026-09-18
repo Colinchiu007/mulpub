@@ -14909,3 +14909,20 @@ commit `941b17f1`（feat: browser-style tab bar）在 `webview-manager.js` `crea
 - **partial clone（blob:none）仓库 merge-base 计算失败**：`git merge-base HEAD origin/main` 返回空、merge 报「refusing to merge unrelated histories」。`git fetch --unshallow` 补全历史对象后解决。
 - **worktree 提交需显式 git config**：worktree 不继承共享仓库本地 config（`git config user.name` 为空），提交前必须 `git config user.name/email`。
 - **债务熔断 `filesOver500` 的 +1 可能是 main 侧引入**：main 提交 #1962 明确「使两个 .vue 文件越过 500 行阈值」，baseline 未同步。合并前确认债务 fail 归属，避免误判为自己的代码。
+
+
+## 改写硬约束系统：软删除重建与运行时缓存失效（rewrite-hard-constraints，2026-09-19）
+
+### 现象与根因
+
+opencode 双模型审查发现三个问题：① 后端 `create_constraint` 对软删除行直接 `db.add` 新行 → 主键冲突 IntegrityError → HTTP 500（实证复现）；② 引擎移除硬编码约束后未注入时无任何提示词级约束（独立/离线桌面行为回退）；③ 运行中 re-sync 硬约束后引擎缓存未失效（旧约束直到重启）。
+
+### 可复用结论
+
+- **软删除 + 同 id 重建必须「恢复激活」**：项目既有模式（rewrite_strategy / content_template / keyword_watchlist）都是命中软删除行时清 `deleted_at` + setattr 恢复，而非新增。新增 CRUD 服务时先读对等服务的 create 语义。
+- **运行时配置变化必须失效下游缓存**：`RewriteEngineService` 惰性构建引擎（`_engine` 快照），配置同步后需显式置空缓存（setter 复用即可），否则「下次同步生效」的文案是假的。
+- **引擎级配置删除硬编码时必须留回退**：把硬编码配置升级为远端可配置时，引擎侧保留内置默认（BUILTIN_*），保证未配置/离线/首次同步前行为不回退。
+- **`set_default` 批量清默认不要污染审计**：`UPDATE ... SET is_default=0` 即可，不要顺手刷 `updated_at/updated_by`（否则原默认行看似被当前操作者编辑）。
+- **测试断言避免与通用字样误撞**：断言「不含某指令段」用带标记的完整段名（如 `【字数要求】`），裸词会与冲突裁决声明等新文案误撞。
+- **fastctx replace 的 replacement 中 `${...}` 是 capture group 引用**：字面量需写 `$$`。
+- **worktree gitdir 损坏恢复流程**：备份修改文件 → 共享主目录基线快照（R1）→ junction 扫描（R3）→ `git worktree prune` → 删旧目录重建 → `git fetch && reset --hard origin/main` → 恢复文件 → 重装依赖。全程代码零丢失。
