@@ -219,7 +219,7 @@ describe("ViralAnalysisView viral integration", () => {
     expect(addViralToLibrary).toHaveBeenCalledTimes(1);
     const item = addViralToLibrary.mock.calls[0][0];
     expect(item.title).toBe("AI 工具");
-    expect(item.source).toBe("manual");
+    expect(item.source).toBe("analysis");
     expect(item.platform).toBe("小红书");
     expect(item.content).toContain("AI 工具");
     expect(item.content.length).toBeGreaterThan(0);

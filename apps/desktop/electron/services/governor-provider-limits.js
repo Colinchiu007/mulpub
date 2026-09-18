@@ -78,6 +78,9 @@ const PROVIDER_LIMITS = Object.freeze({
   'pixabay-music': Object.freeze({ rpm: 30, maxConcurrent: 2, cooldownMs: 30000, retry429: 3 }),
   freesound: Object.freeze({ rpm: 30, maxConcurrent: 2, cooldownMs: 30000, retry429: 3 }),
   'music-library': Object.freeze({ rpm: 120, maxConcurrent: 2, cooldownMs: 30000, retry429: 3 }), // 本地
+
+  // ── 多模态 ──
+  'agnes-multimodal': Object.freeze({ rpm: 20, maxConcurrent: 2, cooldownMs: 60000, retry429: 3 }),
 })
 
 /** 将 provider 限流预算注入 governor（幂等，可在构造后调用） */

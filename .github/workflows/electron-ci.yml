@@ -1,10 +1,11 @@
-# Electron CI — Windows 自托管 runner 确定性回归（self-hosted, windows, x64）
+# Electron CI — Windows 自托管 runner 确定性回归（windows-latest）
 # 职责边界（2026-08-09 迁移 A/B/C）：
-# 1. 本 job 现运行于 Windows 自托管 runner（self-hosted, windows, x64）：消除 GitHub 官方托管额度依赖；原先常
+# 1. 本 job 现运行于 Windows 自托管 runner（windows-latest）：依赖 GitHub 托管 windows-latest（公开仓无限免费额度）；原先常
 #    queued 30-40 分钟）与生产隔离问题（ECS 同时承载 Logto + 业务 API，20 分钟全量测试抢资源）。
-# 2. 本 job = Windows 自托管桌面 vitest（单 worker、确定性）+ Electron headless 冒烟 + deps/circular 检查，
-#    与 Quality Gate（self-hosted, windows, x64 全 workspace 单测）形成平台互补，而非重复跑全量；
-#    Electron GUI 深度门禁由 gui-test.yml（同 self-hosted, windows, x64）承担。
+# 2. 本 job = Electron headless 冒烟 + Electron checksum pin 校验 + deps/circular 检查；
+#    Electron GUI 深度门禁由 gui-test.yml（同 windows-latest）承担。
+#    2026-09-17 CI 提速：桌面 vitest 步已收敛为「仅 main push / workflow_dispatch」执行，
+#    PR 上由 Quality Gate 的 desktop-shards 承担 —— 避免同一批桌面测试在单次 PR 中重复执行。
 # 3. Windows 无需虚拟显示器（Electron headless 直接运行）；better-sqlite3 不在依赖图（sqlite-wrapper.js 为 sql.js 兼容层），无需 @electron/rebuild。
 # 4. ECS 自托管 runner 保留配置但不再必需；如需移除，见仓库 Settings → Actions → Runners。
 name: Electron CI
@@ -28,9 +29,14 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   electron-tests:
-    runs-on: [self-hosted, windows, x64]
+    runs-on: windows-latest
     timeout-minutes: 45
     defaults:
       run:
@@ -62,7 +68,7 @@ jobs:
           node scripts/run-package-install.js esbuild
           node scripts/run-package-install.js --script scripts/postinstall.js vue-demi
 
-      - name: Verify Electron checksum pin (win32 self-hosted)
+      - name: Verify Electron checksum pin (win32, windows-latest)
         run: |
           node -e "const checksums = require('./node_modules/electron/checksums.json'); const artifact = 'electron-v43.1.1-win32-x64.zip'; const pinned = checksums[artifact]; if (typeof pinned !== 'string' || pinned.length === 0) throw new Error('Electron checksum pin missing for ' + artifact); console.log('Electron ' + artifact + ' checksum verified present in manifest');"
 
@@ -74,7 +80,10 @@ jobs:
           unset electron_use_remote_checksums npm_config_electron_use_remote_checksums
           node node_modules/electron/install.js
 
+      # 2026-09-17：PR 上跳过本步（同一批桌面测试已由 QG desktop-shards 分片执行），
+      # 仅在 main push / workflow_dispatch 运行，保留「单 worker 串行确定性模式」的 CI 覆盖与第二次独立运行的 flake 检出。
       - name: Unit tests (Vitest, non-Electron, single-worker deterministic)
+        if: github.event_name != 'pull_request'
         run: |
           timeout --signal=TERM --kill-after=30s 20m \
             pnpm --filter @multi-publish/desktop test -- \
@@ -87,7 +96,7 @@ jobs:
           echo "Vitest 或前置步骤失败，输出 runner 进程列表"
           tasklist.exe 2>/dev/null | head -40 || true
 
-      - name: Electron smoke test (headless, Windows self-hosted)
+      - name: Electron smoke test (headless, windows-latest)
         run: |
           cd apps/desktop
           set +e

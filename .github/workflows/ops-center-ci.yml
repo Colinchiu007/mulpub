@@ -7,10 +7,15 @@ on:
       - 'ops-center/**'
       - '.github/workflows/ops-center-ci.yml'
 
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     name: ops-center 后端测试
-    runs-on: [self-hosted, windows, x64]
+    runs-on: windows-latest
     timeout-minutes: 10
     defaults:
       run:

@@ -90,7 +90,10 @@ test('GUI gate Electron 步骤仅发布 tag 触发且带硬看门狗', () => {
   assert.ok(gateStep, 'Electron GUI gate step must exist');
   assert.match(gateStep, /startsWith\(github\.ref, 'refs\/tags\/v'\)/, 'Electron GUI gate 必须仅发布 tag 触发');
   assert.match(gateStep, /timeout --signal=TERM --kill-after=30s 8m/, 'Electron GUI gate 必须带 8 分钟硬看门狗');
-  assert.match(gateStep, /xvfb-run/, 'Electron GUI gate 必须经 xvfb 虚拟显示');
+  // Windows 自托管 runner 拥有真实显示，xvfb 是 Linux-only 虚拟帧缓冲，在此不适用；
+  // 契约改为断言该步骤直接启动 Electron GUI 测试，而非经 Linux-only 的 xvfb-run。
+  assert.doesNotMatch(gateStep, /xvfb-run/, 'Windows 自托管 Electron GUI gate 不得依赖 Linux-only 的 xvfb-run');
+  assert.match(gateStep, /node apps\/desktop\/tests\/electron-gui-v9\.js/, 'Electron GUI gate 必须直接启动 Electron GUI 测试');
 });
 
 test('桌面覆盖率门禁串行运行，避免全量 V8 coverage 资源竞争', () => {
@@ -342,4 +345,64 @@ test('Quality Gate Gate 12 品牌残留门禁接线（naming-normalization）', 
   const brandAbbr = brandFull[0] + brandFull[2] + brandFull[6];
   assert.doesNotMatch(script, new RegExp(brandFull, 'i'));
   assert.doesNotMatch(script, new RegExp('(?<![A-Za-z])' + brandAbbr, 'i'));
+});
+
+test('CI 提速契约：并发控制、quality-gate 显示名与重复流水线去重', () => {
+  const wfDir = path.join(__dirname, '..', 'workflows');
+  const readWf = (n) => yaml.load(fs.readFileSync(path.join(wfDir, n), 'utf8'));
+
+  // 1) quality-gate 必须有顶层 name：ci-failure-handler 的 workflow_run.workflows 白名单按
+  //    显示名匹配，缺失时显示为文件路径，导致 QG 失败永不触发 Issue 创建。
+  const qg = readWf('quality-gate.yml');
+  assert.equal(
+    qg.name,
+    'quality-gate',
+    'quality-gate.yml 必须有 name: quality-gate（ci-failure-handler 白名单按显示名匹配）',
+  );
+
+  // 2) 所有 PR 触发的 workflow 必须配置 concurrency：否则同一 PR 重复推送时旧 run 不取消，
+  //    持续占用并发额度并造成排队（实测单次 PR 曾达 17 个 job）。
+  const prWorkflows = [
+    'quality-gate.yml', 'electron-ci.yml', 'build.yml', 'doc-gate.yml',
+    'gui-test.yml', 'visual-test.yml', 'debt-guard.yml', 'agent-judge.yml',
+    'ops-center-ci.yml', 'autonomous-loop.yml',
+  ];
+  for (const name of prWorkflows) {
+    const wf = readWf(name);
+    assert.ok(
+      wf.concurrency && wf.concurrency.group,
+      `${name} 必须配置 concurrency（同一 PR 重复推送时取消旧 run）`,
+    );
+    assert.match(
+      String(wf.concurrency['cancel-in-progress']),
+      /pull_request/,
+      `${name} 的 cancel-in-progress 必须仅对 PR 生效（main push 不得被取消）`,
+    );
+  }
+
+  // 3) visual-test 不得由 pull_request 触发：它与 quality-gate 的 QG Visual（Gate 7）逐行同构，
+  //    每次改 apps/desktop/** 会跑两遍。保留 push 以维持「代码默认 readiness 超时」路径的覆盖。
+  const vt = readWf('visual-test.yml');
+  assert.equal(
+    vt.on.pull_request,
+    undefined,
+    'visual-test.yml 不得由 pull_request 触发（与 QG Visual 重复；PR 上由 QG Visual 承担）',
+  );
+  assert.ok(vt.on.push, 'visual-test.yml 必须保留 push 触发（维持默认 readiness 超时路径的覆盖）');
+
+  // 4) doc-gate 的 stale-check 占位 job 不得恢复（纯 echo 却每次 PR 起一台 runner）。
+  const dg = readWf('doc-gate.yml');
+  assert.ok(!dg.jobs['stale-check'], 'doc-gate.yml 的 stale-check 占位 job 已删除，不得恢复');
+  assert.ok(
+    dg.jobs['ci-tests'],
+    'doc-gate.yml 必须保留 ci-tests job（其 job 名为历史 required-check context 名）',
+  );
+
+  // 5) electron-ci 的桌面 vitest 步必须仅在非 PR 事件执行（PR 交给 QG desktop-shards 分片）。
+  const ec = fs.readFileSync(path.join(wfDir, 'electron-ci.yml'), 'utf8');
+  assert.match(
+    ec,
+    /if: github\.event_name != 'pull_request'/,
+    'electron-ci 的桌面 vitest 步必须限定为非 PR 事件（避免同一批桌面测试在 PR 上重复执行）',
+  );
 });

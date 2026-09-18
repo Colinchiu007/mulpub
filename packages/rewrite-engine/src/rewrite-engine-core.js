@@ -84,11 +84,13 @@ class RewriteEngine {
       return { success: false, error: '未找到合适的改写策略', errorCode: 'NO_STRATEGY' }
     }
 
-    // 3.5 标题参考（viral-rewrite-integration）：爆款文案生成的标题约束，注入 Prompt
+    // 3.5 标题参考 + 爆款信号（viral-rewrite-integration）：软约束注入 Prompt
     const titleHint = this._sanitizeTitleHint(params.titleHint)
+    const viralAngles = this._sanitizeStringList(params.viralAngles, 6, 60)
+    const viralKeywords = this._sanitizeStringList(params.viralKeywords, 6, 60)
 
     // 4. 构建 Prompt（内部含三层知识库上下文，P0 后为 async——LLM 关键词兜底）
-    const { systemPrompt, userPrompt } = await this._buildPrompt(strategy, content, mode, userSettings, knowledgeOptions, titleHint)
+    const { systemPrompt, userPrompt } = await this._buildPrompt(strategy, content, mode, userSettings, knowledgeOptions, titleHint, viralAngles, viralKeywords)
 
     // 5. LLM 推理
     if (!this._llmClient) {
@@ -265,7 +267,7 @@ class RewriteEngine {
     return recommended.length > 0 ? recommended[0] : null
   }
 
-  async _buildPrompt(strategy, content, mode, userSettings, knowledgeOptions, titleHint) {
+  async _buildPrompt(strategy, content, mode, userSettings, knowledgeOptions, titleHint, viralAngles, viralKeywords) {
     // 三层知识库上下文：优先使用 KnowledgeContextBuilder，缺省回退到用户偏好摘要
     const effectiveKnowledgeOptions = knowledgeOptions || userSettings.knowledgeOptions || null
     const kbContext = await this._buildKnowledgeContext(content, effectiveKnowledgeOptions)
@@ -297,6 +299,15 @@ class RewriteEngine {
       userPrompt += `\n\n## 标题参考（来自爆款文案生成，软约束）\n改写结果的主题方向、关键词与开头钩子应与以下标题保持一致（学习其结构与关键词，不要逐字复制）：\n「${titleHint}」`
     }
 
+    // 爆款信号参考（P1-E）：推荐角度 + 上升关键词软约束（模板替换后追加，同 titleHint 防二次展开；
+    // 条目「」包裹限定语义边界，阻断自然语言指令级注入，评审 I-3）
+    if ((viralAngles && viralAngles.length) || (viralKeywords && viralKeywords.length)) {
+      const signalParts = []
+      if (viralAngles && viralAngles.length) signalParts.push('推荐写作角度：' + viralAngles.map(a => '「' + a + '」').join(' | '))
+      if (viralKeywords && viralKeywords.length) signalParts.push('上升关键词：' + viralKeywords.map(k => '「' + k + '」').join(' | '))
+      userPrompt += `\n\n## 爆款信号参考（来自爆款分析，软约束）\n改写结果应体现以下爆款分析信号（择优融入，不必全部覆盖）：\n${signalParts.join('\n')}`
+    }
+
     return { systemPrompt, userPrompt }
   }
 
@@ -311,6 +322,23 @@ class RewriteEngine {
     const collapsed = hint.replace(/\s+/g, ' ').trim()
     if (!collapsed) return null
     return collapsed.slice(0, 200)
+  }
+
+  /**
+   * 清洗字符串列表（P1-E 爆款信号）：非数组 → []；过滤非字符串/空白；
+   * 每条空白折叠 + 截断 maxLen；最多保留 maxCount 条。
+   * @param {unknown} list - 待清洗列表
+   * @param {number} maxCount - 最大条数
+   * @param {number} maxLen - 单条最大长度
+   * @returns {string[]} 清洗后的字符串列表
+   */
+  _sanitizeStringList(list, maxCount, maxLen) {
+    if (!Array.isArray(list)) return []
+    return list
+      .filter(s => typeof s === 'string' && s.trim())
+      // 评审 I-3：过滤控制字符（含换行），阻断跨行注入
+.map(s => s.replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim().slice(0, maxLen))
+      .slice(0, maxCount)
   }
 
   _getModeInstructions(mode, userSettings) {

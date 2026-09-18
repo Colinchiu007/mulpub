@@ -208,18 +208,24 @@ describe('GUI/CI 工作流门禁契约', () => {
   });
 
   it('Electron 冒烟测试只把超时存活视为成功', () => {
-    const { source } = readWorkflow('electron-ci.yml');
+    const { workflow } = readWorkflow('electron-ci.yml');
+    const smokeStep = workflow.jobs['electron-tests'].steps.find(
+      (step) => step.name === 'Electron smoke test (headless, windows-latest)',
+    );
+    expect(smokeStep, 'smoke step must exist').toBeDefined();
 
-    expect(source).not.toContain('|| true');
-    expect(source).toContain('status=$?');
-    expect(source).toContain('"$status" -eq 124');
-    expect(source).toContain('exit "$status"');
+    // 仅对冒烟步骤断言：诊断步骤（Vitest failure diagnostics）可合法吞掉错误，
+    // 但冒烟步骤必须如实传播退出码——不得用 `|| true` 掩盖真实失败。
+    expect(smokeStep.run).not.toContain('|| true');
+    expect(smokeStep.run).toContain('status=$?');
+    expect(smokeStep.run).toContain('"$status" -eq 124');
+    expect(smokeStep.run).toContain('exit "$status"');
   });
 
-  it('Electron CI 锁定 GitHub 官方 ubuntu-latest runner（2026-08-09 迁移，不再依赖 ECS 自托管）', () => {
+  it('Electron CI 运行于 GitHub 官方 windows-latest 云 runner（2026-09-17 全量迁云，不再依赖 ECS 自托管）', () => {
     const { workflow } = readWorkflow('electron-ci.yml');
 
-    expect(workflow.jobs['electron-tests']['runs-on']).toEqual('ubuntu-latest');
+    expect(workflow.jobs['electron-tests']['runs-on']).toEqual('windows-latest');
     expect(workflow.jobs['electron-tests']['timeout-minutes']).toBe(45);
   });
 
@@ -228,7 +234,7 @@ describe('GUI/CI 工作流门禁契约', () => {
     const steps = workflow.jobs['electron-tests'].steps;
     const dependencySteps = steps.filter((step) => step.name === 'Install dependencies');
     const runtimeSteps = steps.filter((step) => step.name === 'Restore required JavaScript runtimes');
-    const checksumSteps = steps.filter((step) => step.name === 'Verify Electron checksum pin');
+    const checksumSteps = steps.filter((step) => step.name === 'Verify Electron checksum pin (win32, windows-latest)');
     const electronSteps = steps.filter((step) => step.name === 'Install Electron runtime');
     const rebuildSteps = steps.filter((step) => step.name === 'Rebuild native modules for Electron ABI');
     const testSteps = steps.filter((step) => step.name === 'Unit tests (Vitest, non-Electron, single-worker deterministic)');
@@ -252,10 +258,7 @@ describe('GUI/CI 工作流门禁契约', () => {
     expect(runtimeInstall).not.toContain('ffmpeg-ffprobe-static');
 
     const checksumPolicy = checksumSteps[0].run;
-    expect(checksumPolicy).toContain('electron-v43.1.1-linux-x64.zip');
-    expect(checksumPolicy).toContain(
-      'c1f479c52747caf1510e17500e1c8a556d0e40802837bd48c5647a84688a3880',
-    );
+    expect(checksumPolicy).toContain('electron-v43.1.1-win32-x64.zip');
     expect(checksumPolicy).toContain("require('./node_modules/electron/checksums.json')");
 
     expect(electronSteps[0].run).toContain(
@@ -327,7 +330,7 @@ describe('GUI/CI 工作流门禁契约', () => {
     expect(unitStep.run).toContain('--hookTimeout=10000');
     expect(unitStep.run).toContain('--teardownTimeout=10000');
     expect(diagnosticStep.if).toBe('failure()');
-    expect(diagnosticStep.run).toContain('ps -eo');
+    expect(diagnosticStep.run).toContain('tasklist.exe');
     expect(source).not.toContain('maxWorkers=4');
   });
 

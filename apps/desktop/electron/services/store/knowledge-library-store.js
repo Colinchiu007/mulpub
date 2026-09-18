@@ -39,7 +39,8 @@ function normalizeViralItem (item) {
     like_collect_ratio: ratio,
     published_at: String(item.published_at || ''),
     platform: String(item.platform || '').slice(0, 50),
-    source: item.source === 'collection' ? 'collection' : 'manual',
+    // 枚举：collection（采集）/ analysis（爆款分析报告落库，P1 来源标记）/ manual（人工新增）
+    source: item.source === 'collection' ? 'collection' : item.source === 'analysis' ? 'analysis' : 'manual',
   }
 }
 

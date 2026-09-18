@@ -105,7 +105,7 @@
           </tbody>
         </table>
 
-        <EmptyState v-else title="暂无发布记录" compact />
+        <EmptyState v-else :title="$t('emptyStates.cloudPublish.title')" compact />
       </div>
     </div>
   </div>

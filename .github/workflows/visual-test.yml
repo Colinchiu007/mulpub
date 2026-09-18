@@ -1,17 +1,18 @@
 name: Visual Tests
 
 # 视觉回归测试（仅跑本地像素对比 + OCR，无需任何 API Key）
-# - 触发：PR / push 主分支 / 手动 dispatch
+# - 触发：push 主分支 / 手动 dispatch（2026-09-17 起不再由 PR 触发，见下方说明）
 # - 默认行为：跑像素对比 + 生成 Agent 判断报告（本地全部完成）
 # - 判断：Agent 在 PR review 时读取 judge-report.md 并用 view_image 看截图
+#
+# 2026-09-17 CI 提速：移除 pull_request 触发。
+# 原因：本 workflow 与 quality-gate 的 QG Visual（Gate 7）是逐行同构的重复实现
+#（同 TEST_URL / HEADLESS / PIXEL_THRESHOLD，同 playwright install → build:vue → vite:5174 →
+#  test:visual:pixel → agent-visual-judge），每次改 apps/desktop/** 都会跑两遍、占两台 runner。
+# PR 上改由 QG Visual 承担；本 workflow 保留 push / dispatch，以维持「代码默认 readiness 超时」这条
+# 路径的覆盖（QG 侧硬编码了 VISUAL_READY_TIMEOUT: "15000"，本处不设该变量）。
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'apps/desktop/**'
-      - '.github/workflows/visual-test.yml'
-      - '.github/scripts/workflow-contract.test.js'
   push:
     branches: [main]
     paths:
@@ -20,9 +21,13 @@ on:
       - '.github/scripts/workflow-contract.test.js'
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   visual-test:
-    runs-on: [self-hosted, windows, x64]
+    runs-on: windows-latest
     timeout-minutes: 20
     env:
       TEST_URL: http://127.0.0.1:5174

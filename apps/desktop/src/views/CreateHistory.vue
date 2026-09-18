@@ -31,7 +31,7 @@
       </div>
       <div v-else>
         <div v-if="renderError" class="history-error"><p>{{ renderError }}</p><UiButton size="sm" @click="loadRenders">重试</UiButton></div>
-        <EmptyState v-if="renders.length === 0" icon="🎬" title="暂无渲染记录" description="创作你的第一个视频，记录将在这里显示">
+        <EmptyState v-if="renders.length === 0" icon="🎬" :title="$t('emptyStates.createHistoryRenders.title')" :description="$t('emptyStates.createHistoryRenders.message')">
           <template #actions>
             <UiButton @click="$router.push('/create')">去创作</UiButton>
           </template>

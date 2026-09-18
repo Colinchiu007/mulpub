@@ -1,3 +1,5 @@
+name: quality-gate
+
 on:
   push:
     branches: [main]
@@ -16,10 +18,17 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+
+# 并发控制：同一 PR 多次推送只保留最新一次（避免旧 run 继续占用并发额度）；
+# main push 不取消（保发布链路完整性）。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   static-gates:
     name: QG Static
-    runs-on: [self-hosted, windows, x64]
+    runs-on: windows-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -137,7 +146,7 @@ jobs:
 
   unit-tests:
     name: QG Unit Tests
-    runs-on: [self-hosted, windows, x64]
+    runs-on: windows-latest
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
@@ -258,7 +267,7 @@ jobs:
 
   desktop-shards:
     name: QG Desktop Shards
-    runs-on: [self-hosted, windows, x64]
+    runs-on: windows-latest
     timeout-minutes: 40
     strategy:
       fail-fast: false
@@ -351,7 +360,7 @@ jobs:
 
   coverage:
     name: QG Coverage
-    runs-on: [self-hosted, windows, x64]
+    runs-on: windows-latest
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
@@ -378,7 +387,7 @@ jobs:
 
   visual:
     name: QG Visual
-    runs-on: [self-hosted, windows, x64]
+    runs-on: windows-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -500,7 +509,7 @@ jobs:
 
   e2e:
     name: QG Browser E2E
-    runs-on: [self-hosted, windows, x64]
+    runs-on: windows-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -597,7 +606,7 @@ jobs:
 
   autonomous:
     name: QG Autonomous
-    runs-on: [self-hosted, windows, x64]
+    runs-on: windows-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -699,7 +708,7 @@ jobs:
 
   gate-result:
     name: Gate Result
-    runs-on: [self-hosted, windows, x64]
+    runs-on: windows-latest
     needs: [static-gates, unit-tests, desktop-shards, coverage, visual, e2e, autonomous]
     if: always()
     timeout-minutes: 5

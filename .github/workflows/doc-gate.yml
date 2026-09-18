@@ -13,10 +13,15 @@ on:
         description: 'Head branch name (default: dispatched ref)'
         required: false
         default: ''
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   doc-sync:
     name: 文档同步检查
-    runs-on: [self-hosted, windows, x64]
+    runs-on: windows-latest
     defaults:
       run:
         shell: bash
@@ -65,43 +70,20 @@ jobs:
           path: team/inbox/changelog-draft-${{ github.event.pull_request.number }}.md
           retention-days: 5
 
+  # 2026-09-17 CI 提速：本 job 原为通用模板残留 —— 两个步骤的条件均不成立而空转
+  #（仓库根无 requirements.txt、无 tests/ 目录），且 `pytest ... || echo` 会把失败吞掉，属假门禁。
+  # 本仓库单元测试已由 quality-gate 的 Gate 4 / desktop-shards 覆盖，此处无需重复。
+  # 保留 job 名与调用形态：`.quality-gates.md` 将「单元测试 + Lint」记为历史 required-check context 名，
+  # 保留成本为零，可避免将来启用 required checks 时 context 名失配。
   ci-tests:
     name: 单元测试 + Lint
-    runs-on: [self-hosted, windows, x64]
-    defaults:
-      run:
-        shell: bash
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: no-op（保留 job 名以稳定 required-check context 名）
+        run: echo "单元测试 + Lint 已由 quality-gate 覆盖；本 job 保留 job 名以稳定 required-check context。"
 
-      - name: 设置 Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: 安装依赖（如有）
-        run: |
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          fi
-
-      - name: 运行测试（如有）
-        run: |
-          if [ -d tests ]; then
-            pytest tests/ -q || echo "⚠️ 测试失败，但不阻塞文档门禁"
-          fi
-
-  stale-check:
-    name: Stale Issue 检查（每日）
-    runs-on: [self-hosted, windows, x64]
-    permissions:
-      issues: write
-    if: github.event_name == 'pull_request'  # 仅在 PR 时触发（占位）
-    steps:
-      - name: 标记 Stale Issues
-        run: |
-          echo "⚠️ Stale 检查将由独立 cron 触发（避免 PR 时执行）"
-          echo "详见 .github/workflows/stale.yml（待创建）"
+  # 2026-09-17 CI 提速：已删除原 stale-check job —— 它是纯 echo 占位（仅打印两行提示），
+  # 却每次 PR 都启动一台 Windows runner。如需 stale 检查，应另建 schedule 触发的独立 workflow。
 
 # ===== 说明 =====
 #

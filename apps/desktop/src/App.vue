@@ -18,8 +18,13 @@
             @close-tab="onCloseTab"
             @create-tab="onCreateTab"
           />
-          <!-- 导航栏（后退/前进/刷新/URL） -->
+          <!-- 导航栏（后退/前进/刷新/URL）。
+               壳态收敛 6a（T0-6a）：工作台壳态（首页虚拟标签，SPA 渲染）下 NavBar 的
+               地址栏/刷新/前进后退语义失效且误导用户，整行不渲染；改为与 .nav-bar
+               等高（40px）的占位行，保证主进程 WebContentsView TOP=76px 定位不变。
+               浏览器/登录标签（含「保存账号」入口）仍渲染完整 NavBar。 -->
           <NavBar
+            v-if="!isHomeTab"
             :current-url="navigation.url"
             :current-title="navigation.title"
             :can-go-back="navCanGoBack"
@@ -35,6 +40,12 @@
             @navigate="onNavigate"
             @save-account="onSaveAccount"
           />
+          <div
+            v-else
+            class="mp-shell-nav-placeholder"
+            data-testid="mp-nav-placeholder"
+            aria-hidden="true"
+          ></div>
           <!-- 模块导航（仅首页标签显示） -->
           <MpModuleNav v-if="isHomeTab" />
           <!-- 主内容区 -->
@@ -281,6 +292,13 @@ html, body { height: 100%; overflow: hidden; }
 .app-root { height: 100%; display: flex; flex-direction: column; }
 .mp-shell { min-height: 0; flex: 1; display: flex; min-width: 0; overflow: hidden; background: #f7f7fb; }
 .mp-shell-main { min-width: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+/* 壳态收敛 6a：工作台壳态下 NavBar 的等高占位行（40px 与 .nav-bar 一致），
+   保持 TabBar(36px) + 占位(40px) = 76px 的主进程 WebContentsView TOP 偏移不变 */
+.mp-shell-nav-placeholder {
+  flex-shrink: 0;
+  height: 40px;
+  background: #f7f7fb;
+}
 .mp-workspace { min-width: 0; min-height: 0; flex: 1; overflow: auto; }
 .fullscreen-main { min-height: 0; flex: 1; overflow: auto; }
 </style>
