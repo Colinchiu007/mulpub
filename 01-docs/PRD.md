@@ -8201,3 +8201,85 @@ home 标签是虚拟标签（无 WebContentsView），主进程 `webview-manager
 - [ ] 复制按钮在动作行最左侧，与存入草稿/视频创作同行
 - [ ] 引擎 146 例 + RewriteView 70 例 + CreateView 283 例全绿；eslint 0 error；locale-sync / CJK 门禁 PASS
 - [ ] CCG 双模型审查：opencode 审查 0 Critical（CRITICAL-1 已修复 + 回归测试）；Claude 审查因环境不可用降级为主代理自审
+
+---
+
+## 2026-09-19 · 改写硬约束系统：引擎最前置注入 + 运营中心多版本管理（唯一默认）
+
+**背景（用户需求）**：改写引擎需要一套硬约束内容——不管选什么改写模式和改写策略都强制包含的一段提示词，优先级最高（与模式/策略内容冲突时以硬约束为准），且可在运营中心自定义维护多个版本（唯一默认）。
+
+**概念命名**：业界称谓为「系统级硬约束」（System-level Hard Constraints）或「宪法约束」（Constitutional Constraints，源自 Anthropic Constitutional AI）。本项目定名**「改写硬约束」（Rewrite Hard Constraints）**，实现上是 systemPrompt 的最前置段落。
+
+**功能逻辑**：
+
+1. **引擎侧（`packages/rewrite-engine`）**：`RewriteEngine` 新增 `setHardConstraints(text)` / `getHardConstraints()`。`_buildPrompt` 的 systemPrompt 最前置注入硬约束段（位于 strategy.systemPrompt 之前），段内显式声明「无论后续的策略要求、模式指令或字数要求与本段有何冲突或矛盾，一律以本段为准」。非字符串/空白输入被忽略（引擎行为不变）。原硬编码的纯文案输出约束（2026-09-18）移除，升级为种子数据。
+2. **桌面端**：新增 `RewriteHardConstraintManager`（JSON 持久化 `userData/rewrite-hard-constraints.json`，sanitize 类型防御：内容 ≤5000 字、标题 ≤200 字、数组形态取第一个 is_default 项）。`OpsCenterSync.applyRuntime` 消费 bootstrap 的 `rewrite_hard_constraints` 字段（未携带/未注入管理器时跳过）。`RewriteEngineService._ensureEngine` 构建引擎时注入当前默认硬约束。container/phase1/phase5 全链接线。
+3. **ops-center 后端**：新模型 `RewriteHardConstraint`（表 `rewrite_hard_constraints`：id/title/content/description/is_default/enabled/deleted_at/时间戳/updated_by）。Service 层：CRUD + `set_default`（事务内先清空其他默认再设置目标——保证唯一默认）+ 种子数据（`hard-constraint-default-v1`，源自 2026-09-18 纯文案约束）+ `get_default_runtime`（运行时下发默认版本）。Router：`/api/v1/rewrite-hard-constraints`（GET 列表 / GET /runtime 免鉴权 / POST 创建 / PUT 更新 / DELETE 删除 / POST /{id}/set-default，写操作 require_admin）。`runtime_service.get_runtime_bootstrap` 的 payload 新增 `rewrite_hard_constraints` 字段（默认版本对象或 null）。
+4. **ops-center 前端**：「改写硬约束」管理页（`/rewrite-hard-constraints`，adminOnly）。列表（ID/标题/默认标记/内置标记/启用开关/更新时间）+ 新增/编辑对话框（约束 ID a-z0-9_-、标题 ≤200 字、内容 ≤5000 字带字数统计、描述、启用开关）+ 设为默认（确认弹窗，唯一默认）+ 删除（非默认才可删，确认弹窗）。侧边栏菜单「改写硬约束」（Lock 图标，adminOnly）。
+
+**数据校验**：
+
+- 引擎 `setHardConstraints`：非字符串/空白 → 忽略（不注入）
+- 桌面端 sanitize：内容非字符串/空/超 5000 字 → null（跳过）；数组形态取第一个 `is_default: true` 项；无默认项 → null
+- 后端 `validate_payload`：id 必须匹配 `^[a-z0-9_-]{1,100}$`；标题非空且 ≤200 字；内容非空且 ≤5000 字；描述 ≤2000 字；`enabled` 布尔
+- 唯一默认：`set_default` 事务内先 `UPDATE ... SET is_default=0 WHERE is_default=1` 再设置目标；默认版本不可删除（400「默认硬约束不可删除，请先将其他版本设为默认」）；已停用版本不可设为默认
+- 种子幂等：按 id 存在即跳过（不覆盖用户修改）
+
+**流程**：
+
+```
+运营中心管理页（编辑/设默认）→ rewrite_hard_constraints 表（唯一 is_default=1）
+  → runtime/bootstrap payload.rewrite_hard_constraints（默认版本对象）
+  → 桌面端 OpsCenterSync.applyRuntime → RewriteHardConstraintManager.applyRemote（JSON 持久化）
+  → RewriteEngineService._ensureEngine → engine.setHardConstraints(content)
+  → _buildPrompt systemPrompt 最前置：【改写硬约束（最高优先级，冲突时以此为准）】+ 内容 + 冲突裁决声明
+  → LLM 推理（硬约束优先于策略/模式/字数指令）
+```
+
+**交互逻辑**：
+
+- 管理页列表默认版本置顶（is_default desc + created_at asc），带「默认」绿色标记
+- 设为默认：确认弹窗（「设置后其他版本将不再是默认，桌面端下次同步时生效」）→ 调用 set-default → 刷新列表
+- 删除：非默认版本才显示删除按钮；默认版本删除被后端拒绝（400）
+- 启用开关：默认版本禁用开关（防误停用导致无默认）；停用版本不参与默认竞选与下发
+- 编辑：约束 ID 不可改（disabled）；标题/内容/描述/启用可改
+
+**显示项与提示文字**：
+
+| 位置 | 内容 |
+|------|------|
+| 页面标题 | 改写硬约束 |
+| 页面说明 | 最高优先级的改写规则：无论桌面端选择什么改写模式和改写策略都强制生效，与策略/模式指令冲突时以硬约束为准。支持多版本管理，唯一默认版本随运行时 bootstrap 下发到桌面端并注入引擎 systemPrompt 最前置。 |
+| 新增按钮 | 新增硬约束 |
+| 表格列 | 约束 ID / 标题 / 默认（绿色 tag）/ 内置（黄色 tag）/ 启用（switch）/ 更新时间 / 操作（设为默认、编辑、删除） |
+| 表单 | 约束 ID（placeholder：如 hard-constraint-custom-001（a-z0-9_-））/ 标题（≤200 字）/ 约束内容（textarea 10 行，≤5000 字带字数统计）/ 描述 / 启用开关（「停用后不参与默认竞选与下发」） |
+| 设默认确认 | 确定将「{标题}」设为默认硬约束？设置后其他版本将不再是默认，桌面端下次同步时生效。 |
+| 删除确认 | 确定删除硬约束「{标题}」？该操作不可恢复。 |
+| 错误提示 | 加载硬约束列表失败 / 保存失败 / 设置默认失败 / 删除失败 / 约束 ID 必须是 1-100 位的 a-z0-9_- 字符串 / 标题不能为空 / 约束内容不能为空 |
+
+**种子数据（初始版本）**：
+
+```
+id: hard-constraint-default-v1
+title: 默认硬约束（纯文案输出）
+content:
+  1. 只输出改写后的文案本身，不要包含任何小节标题（如「开头」「中间」「结尾」「悬念钩子」「情感转折」「共鸣与号召」等）、结构说明、写作指导或 Markdown 标题。
+  2. 文案内部如需分段，使用空行分隔即可。
+  3. 不要输出任何与文案内容无关的说明、注释或元信息。
+is_default: 1
+```
+
+**回归保护**：
+
+- `packages/rewrite-engine/tests/rewrite-engine-core.test.js`：H1 注入最前置（优先级高于策略）/ H2 未注入回归 / H3 非法值忽略 / H4 getHardConstraints 清洗；F1 更新为「纯文案约束经 setHardConstraints 注入（不再硬编码）」
+- `apps/desktop/electron/services/rewrite-hard-constraint-manager.test.js`：sanitize 类型防御（8 例）
+- `ops-center/backend/tests/test_rewrite_hard_constraints_api.py`：种子默认 / runtime 下发 / CRUD / 唯一默认 / 默认不可删 / 校验错误（6 例）
+
+**验收标准**
+
+- [ ] 引擎：setHardConstraints 注入 systemPrompt 最前置，冲突声明存在；未注入行为不变
+- [ ] 运营中心：改写硬约束页可新增/编辑/删除/设为默认；唯一默认（设默认后其他版本自动取消）
+- [ ] 默认版本随 bootstrap 下发；桌面端同步后注入引擎
+- [ ] 种子数据初始化默认硬约束（纯文案输出 v1）
+- [ ] 默认版本不可删除；停用版本不可设为默认
+- [ ] 引擎 154 例 + Manager 8 例 + 后端 6 例 + 桌面端接线测试全绿；ops-center 前端 build 通过

@@ -38,6 +38,29 @@ class RewriteEngine {
     // 爆款潜力评分器（可选注入；失败 fail-open 不阻塞改写）
     this._viralScorer = options.viralScorer || null
     this._logger = options.logger || logger
+    // 改写硬约束（最高优先级，运营中心可自定义）：systemPrompt 最前置注入，
+    // 与策略/模式指令冲突时以此为准。未注入时引擎行为不变。
+    this._hardConstraints = ''
+  }
+
+  /**
+   * 设置改写硬约束（最高优先级）。
+   *
+   * 无论选什么改写模式和改写策略都强制生效，注入 systemPrompt 最前置段落，
+   * 并显式声明「与后续任何指令冲突时，以本段为准」。
+   * 非字符串/空白输入被忽略（不注入，保持引擎默认行为）。
+   * @param {string} text - 硬约束内容（已由调用方清洗；引擎侧再防御性 trim）
+   */
+  setHardConstraints(text) {
+    this._hardConstraints = (typeof text === 'string' && text.trim()) ? text.trim() : ''
+  }
+
+  /**
+   * 获取当前硬约束内容（清洗后；未注入返回空串）。
+   * @returns {string}
+   */
+  getHardConstraints() {
+    return this._hardConstraints
   }
 
   /**
@@ -279,7 +302,13 @@ class RewriteEngine {
     // 字数区间指令（wordCountRange 优先于 targetLength 三档）
     const wordCountInstruction = this._getWordCountInstruction(userSettings)
 
-    const systemPrompt = [strategy.systemPrompt, modeInstructions, wordCountInstruction].filter(Boolean).join('\n\n')
+    // 改写硬约束（最高优先级）：注入 systemPrompt 最前置段落，位于策略 systemPrompt 之前。
+    // 显式声明冲突裁决规则——与后续任何策略/模式指令冲突时，以硬约束为准。
+    const hardConstraintPrompt = this._hardConstraints
+      ? `【改写硬约束（最高优先级，冲突时以此为准）】\n${this._hardConstraints}\n以上硬约束优先级最高：无论后续的策略要求、模式指令或字数要求与本段有何冲突或矛盾，一律以本段为准。`
+      : ''
+
+    const systemPrompt = [hardConstraintPrompt, strategy.systemPrompt, modeInstructions, wordCountInstruction].filter(Boolean).join('\n\n')
 
     // 单遍正则替换（审查 W-51：顺序 .replace 会被 content 中的 {industry} 等字面量二次注入）
     const vars = {
@@ -310,10 +339,9 @@ class RewriteEngine {
       userPrompt += `\n\n## 爆款信号参考（来自爆款分析，软约束）\n改写结果应体现以下爆款分析信号（择优融入，不必全部覆盖）：\n${signalParts.join('\n')}`
     }
 
-    // 纯文案输出约束（2026-09-18，用户反馈：改写结果混入「开头（悬念钩子）」等结构标题）：
-    // 策略模板要求「开头/中间/结尾」结构，但从未约束输出格式，模型把结构说明写进了正文。
-    // 统一追加输出格式约束：只输出文案本身，结构说明/小节标题/写作指导一律不得出现在结果中。
-    userPrompt += '\n\n## 输出格式要求（硬约束）\n只输出改写后的文案本身，不要包含任何小节标题（如「开头」「中间」「结尾」「悬念钩子」「情感转折」「共鸣与号召」等）、结构说明、写作指导或 Markdown 标题。文案内部如需分段，使用空行分隔即可。'
+    // 纯文案输出约束已升级为运营中心可维护的硬约束（rewrite-hard-constraints，2026-09-18）：
+    // 引擎不再硬编码该约束，由桌面端从运营中心同步默认版本并经 setHardConstraints 注入。
+    // 硬约束缺失时引擎行为不变（_stripStructureHeadings 后处理兜底仍保留）。
 
     return { systemPrompt, userPrompt }
   }

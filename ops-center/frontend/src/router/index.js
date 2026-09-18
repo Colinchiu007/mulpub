@@ -203,6 +203,12 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/rewrite-hard-constraints',
+    name: 'RewriteHardConstraints',
+    component: () => import('../views/RewriteHardConstraints.vue'),
+    meta: { requiresAuth: true, adminOnly: true },
+  },
+  {
     path: '/pipeline-options',
     name: 'PipelineOptions',
     component: () => import('../views/PipelineOptions.vue'),

@@ -64,6 +64,17 @@ class RewriteEngineService {
     this._engine = null
   }
 
+  /**
+   * 设置改写硬约束管理器（rewrite-hard-constraints，2026-09-19）。
+   * 硬约束是最高优先级的改写规则（运营中心可自定义，唯一默认版本），
+   * 每次构建引擎时把当前默认硬约束注入（systemPrompt 最前置）。
+   * @param {object} rhcm - RewriteHardConstraintManager 实例
+   */
+  setHardConstraintManager(rhcm) {
+    this._hardConstraintManager = rhcm || null
+    this._engine = null
+  }
+
   _ensureEngine(force) {
     // 首次构建后复用引擎实例，避免每次 rewrite() 重建知识库/评估器
     if (this._engine && !force) return this._engine
@@ -178,6 +189,16 @@ class RewriteEngineService {
     if (engine._strategyManager && typeof engine._strategyManager.mergeRemote === "function") {
       engine._strategyManager.clearRemote()
       engine._strategyManager.mergeRemote(this._strategyManager.listRemote())
+    }
+    // 改写硬约束注入（rewrite-hard-constraints，2026-09-19）：
+    // 运营中心下发的默认版本 → 引擎 systemPrompt 最前置（优先级最高）。
+    // 管理器未注入/未配置时跳过（引擎行为不变）。
+    if (this._hardConstraintManager && typeof engine.setHardConstraints === "function") {
+      try {
+        engine.setHardConstraints(this._hardConstraintManager.getContent())
+      } catch (e) {
+        log.warn("RewriteEngine", "hard constraint inject failed: " + String((e && e.message) || e))
+      }
     }
     this._engine = engine
     return engine

@@ -655,3 +655,24 @@ class RewriteStrategy(Base):
     created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
     updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
     updated_by = Column(String(100), default="")
+
+
+class RewriteHardConstraint(Base):
+    """改写硬约束 — 最高优先级的改写规则，无论模式/策略如何选择都强制生效。
+
+    多版本管理，唯一默认（is_default=1 的记录至多一条，由 service 层事务保证）。
+    桌面端经 runtime/bootstrap 下发默认版本，注入引擎 systemPrompt 最前置。
+    """
+
+    __tablename__ = "rewrite_hard_constraints"
+
+    id = Column(String(100), primary_key=True)
+    title = Column(String(200), nullable=False, default="")
+    content = Column(Text, nullable=False, default="")
+    description = Column(Text, default="")
+    is_default = Column(Integer, default=0)
+    enabled = Column(Integer, default=1)
+    deleted_at = Column(String, nullable=True)
+    created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    updated_by = Column(String(100), default="")

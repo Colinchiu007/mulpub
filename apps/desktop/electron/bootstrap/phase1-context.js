@@ -143,6 +143,7 @@ function extractContext(container) {
   const templateManager = container.get('templateManager')
   templateManager.seedDefaults()
   const rewriteStrategyManager = container.get('rewriteStrategyManager')
+  const rewriteHardConstraintManager = container.get('rewriteHardConstraintManager')
   const rewriteEngineService = container.get('rewriteEngineService')
   const knowledgeLibraryService = container.get('knowledgeLibraryService')
   const patternExtractionService = container.get('patternExtractionService')
@@ -216,6 +217,10 @@ function extractContext(container) {
   // 改写策略运行时下发 → RewriteStrategyManager.applyRemote（先注入再启动自动同步）
   if (opsCenterSync && typeof opsCenterSync.setRewriteStrategyManager === 'function') {
     opsCenterSync.setRewriteStrategyManager(rewriteStrategyManager)
+  }
+  // 改写硬约束运行时下发（rewrite-hard-constraints，2026-09-19）→ 默认版本注入引擎
+  if (opsCenterSync && typeof opsCenterSync.setRewriteHardConstraintManager === 'function') {
+    opsCenterSync.setRewriteHardConstraintManager(rewriteHardConstraintManager)
   }
   if (opsCenterSync && typeof opsCenterSync.autoSyncOnStart === 'function') {
     opsCenterSync.autoSyncOnStart()
@@ -454,7 +459,7 @@ function extractContext(container) {
       AccountManager, history, autoUpdater, hotkeys, firstRun,
       systemTray, offlineManager, publishMonitor,
       templateManager, licenseManager, aiWriter,
-      rewriteStrategyManager, rewriteEngineService,
+      rewriteStrategyManager, rewriteHardConstraintManager, rewriteEngineService,
       knowledgeLibraryService, patternExtractionService,
       performanceRecrawlService, patternAttributionService,
       renderEngine, compositionManager, aiGenerator, assetGenerator, videoEngine, pipelineEngine,

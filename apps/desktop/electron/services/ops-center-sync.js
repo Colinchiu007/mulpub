@@ -347,6 +347,14 @@ class OpsCenterSync {
     this._rewriteStrategyManager = rsm && typeof rsm.applyRemote === 'function' ? rsm : null
   }
 
+  /**
+   * 注入改写硬约束管理器（rewrite-hard-constraints，2026-09-19）
+   * bootstrap 下发默认硬约束版本；未注入时跳过（不影响其他运行时策略）。
+   */
+  setRewriteHardConstraintManager(rhcm) {
+    this._rewriteHardConstraintManager = rhcm && typeof rhcm.applyRemote === 'function' ? rhcm : null
+  }
+
   /** 应用运行时策略：公告缓存 + 敏感词重建 + 更新策略推送 */
   applyRuntime(payload) {
     if (!payload || typeof payload !== 'object') return
@@ -399,6 +407,16 @@ class OpsCenterSync {
         this._log.info('OpsCenterSync', 'rewrite strategies applied: ' + n + ' strategies')
       } catch (e) {
         this._log.warn('OpsCenterSync', 'rewrite strategies apply error: ' + String((e && e.message) || e))
+      }
+    }
+    // 改写硬约束运行时下发（rewrite-hard-constraints，2026-09-19）：
+    // bootstrap 携带默认版本时应用；未携带/未注入管理器时跳过（保持本地现状）
+    if (payload.rewrite_hard_constraints && this._rewriteHardConstraintManager) {
+      try {
+        const changed = this._rewriteHardConstraintManager.applyRemote(payload.rewrite_hard_constraints)
+        this._log.info('OpsCenterSync', 'rewrite hard constraints applied: ' + (changed ? 'updated' : 'unchanged'))
+      } catch (e) {
+        this._log.warn('OpsCenterSync', 'rewrite hard constraints apply error: ' + String((e && e.message) || e))
       }
     }
     this._log.info('OpsCenterSync', 'runtime applied: ' + next.announcements.length + ' announcements, policy=' + (next.updatePolicy ? 'set' : 'none'))

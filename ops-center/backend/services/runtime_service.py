@@ -327,6 +327,7 @@ async def get_runtime_bootstrap(db: AsyncSession) -> dict:
     from services.content_template_service import list_runtime_content_templates
     from services.keyword_watchlist_service import list_runtime_watchlist
     from services.rewrite_strategy_service import list_runtime_rewrite_strategies
+    from services.rewrite_hard_constraint_service import get_default_runtime as get_default_hard_constraint
 
     return {
         "announcements": await list_active_announcements(db),
@@ -337,6 +338,7 @@ async def get_runtime_bootstrap(db: AsyncSession) -> dict:
         "content_templates": await list_runtime_content_templates(db),
         "keyword_watchlist": await list_runtime_watchlist(db),
         "rewrite_strategies": await list_runtime_rewrite_strategies(db),
+        "rewrite_hard_constraints": await get_default_hard_constraint(db),
         "pipelineOptions": await _get_pipeline_options(db),
         "appMenu": await _get_app_menu(db),
         "synced_at": _now(),
