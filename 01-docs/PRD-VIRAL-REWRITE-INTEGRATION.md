@@ -191,13 +191,14 @@ params.titleHint
 - 落库条目的 `likes/comments=0` 会在爆款库按互动排序时沉底——设计如此（分析报告不是真实爆款内容），后续可考虑独立"分析报告"来源标记（见 §9-E）；
 - titleHint 为 LLM 软约束，无法保证改写结果严格遵循（prompt 注明"学习结构，不要逐字复制"）。
 
-## 9. P1 规划（后续 PR）
+## 9. P1 规划（✅ 已全部交付：#1940 / #1942 / #1947，2026-09-18）
 
-- **D. 模式卡片自动预填**：用 orchestrator `ViralFactorAnalyzer` 的 12 种标题结构 + 9 种情感触发分类，自动预填 `pattern_cards` 的 `hook_type/title_formula`（title_formula 须含 `{占位符}` 格式才被聚合指导采纳），流程从「人工 done」变「机器预填 + 人工确认」，提升卡片覆盖率（当前覆盖率低时 buildViralContext 回退浅层特征）；
-- **E. 策略推荐接因子**：`StrategyMatcher` 推荐输入加入爆款分析 `suggested_structures` 信号；需要跨页传递（Pinia store 或落库后经检索带出）；
-- **爆款库来源标记**：normalizeViralItem `source` 枚举扩展 `'analysis'`，列表页可筛选/区分分析报告与真实爆款。
+- **✅ D. 模式卡片本地规则预填兜底**（#1940 + #1947 评审加固）：PatternExtractionService 在 LLM 失败 2 次后用本地启发式预填 `pattern_cards`（hook_type 优先级链/尾部 CTA 信号/段落结构启发/title_formula 数字占位符化），卡片不再进 failed 终态；无显著信号字段留空不稀释聚合统计；`hook_analysis` 前缀「（本地规则预填）」+ `last_error` 来源标记可辨。单测 8 例。
+- **✅ E. 爆款信号跨页注入**（#1942 + #1947 评审加固）：Pinia store `viral-signal`（会话内存）承接分析成功信号 → `/rewrite?titleHint=` 带入时快照 → `aiRewrite` params 携带 `viralAngles/viralKeywords` → 引擎「## 爆款信号参考（软约束）」段。**实现形态调整**：规划原文为「策略推荐排序」，实际为「信号注入 Prompt」——策略库无 angle 维度可调，注入引导更直接。单测：引擎 E1-E4 + store 3 例 + 集成 3 例。
+- **✅ 爆款库来源标记**（#1940）：normalizeViralItem `source` 枚举扩展 `'analysis'`，爆款分析落库带 `source: 'analysis'` 与真实采集区分（列表筛选 UI 留待后续按需）。
+- **评审加固**（#1947）：chip 移除同步清信号、信号注入计数标识（signalBadge）、title_formula 单位保留、注入边界加固（控制字符过滤 + 条目「」包裹）。
 
-## 10. P2 规划（跨仓库/数据回流，另立专项）
+## 10. P2 规划（跨仓库/数据回流，另立专项——P1 已全部交付，P2 待排期）
 
 - **F. 真实互动数据回流校准**：`rewrite_history` 已持久化（rewriteHistoryId）→ 发布后真实表现回写 → 按 knowledge-evolution 的 `scoreQuality/feedbackBoost` 钩子校准爆款权重与策略推荐——即产品概念文档 Phase 2 的"互动分预测模型（基于历史数据训练）"；
 - **G. 消除双实现**：标题结构/情感检测目前 JS（orchestrator 侧 Python 12 种正则）与 Electron 侧浅层正则各一套，统一为单一真源（Node 调 orchestrator，或规则下沉共享包），杜绝漂移。orchestrator 仓库（platform-orchestrator）独立版本管理，需另立 PR。
