@@ -2796,6 +2796,7 @@ knowledgeBase: {
     // ── viral-rewrite-integration：标题参考 chip + 爆款潜力第 4 维（纯静态键，插值在模板拼接）──
     titleHintLabel: '标题参考',
     titleHintRemove: '移除',
+    signalBadge: '已注入爆款信号',
     qualityViralLabel: '爆款潜力',
     qualityViralBefore: '改写前',
     qualityViralAfter: '改写后',

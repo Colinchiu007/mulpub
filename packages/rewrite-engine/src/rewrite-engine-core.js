@@ -299,11 +299,12 @@ class RewriteEngine {
       userPrompt += `\n\n## 标题参考（来自爆款文案生成，软约束）\n改写结果的主题方向、关键词与开头钩子应与以下标题保持一致（学习其结构与关键词，不要逐字复制）：\n「${titleHint}」`
     }
 
-    // 爆款信号参考（P1-E）：推荐角度 + 上升关键词软约束（模板替换后追加，同 titleHint 防二次展开）
+    // 爆款信号参考（P1-E）：推荐角度 + 上升关键词软约束（模板替换后追加，同 titleHint 防二次展开；
+    // 条目「」包裹限定语义边界，阻断自然语言指令级注入，评审 I-3）
     if ((viralAngles && viralAngles.length) || (viralKeywords && viralKeywords.length)) {
       const signalParts = []
-      if (viralAngles && viralAngles.length) signalParts.push('推荐写作角度：' + viralAngles.join(' | '))
-      if (viralKeywords && viralKeywords.length) signalParts.push('上升关键词：' + viralKeywords.join(' | '))
+      if (viralAngles && viralAngles.length) signalParts.push('推荐写作角度：' + viralAngles.map(a => '「' + a + '」').join(' | '))
+      if (viralKeywords && viralKeywords.length) signalParts.push('上升关键词：' + viralKeywords.map(k => '「' + k + '」').join(' | '))
       userPrompt += `\n\n## 爆款信号参考（来自爆款分析，软约束）\n改写结果应体现以下爆款分析信号（择优融入，不必全部覆盖）：\n${signalParts.join('\n')}`
     }
 
@@ -335,7 +336,8 @@ class RewriteEngine {
     if (!Array.isArray(list)) return []
     return list
       .filter(s => typeof s === 'string' && s.trim())
-      .map(s => s.replace(/\s+/g, ' ').trim().slice(0, maxLen))
+      // 评审 I-3：过滤控制字符（含换行），阻断跨行注入
+.map(s => s.replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim().slice(0, maxLen))
       .slice(0, maxCount)
   }
 
