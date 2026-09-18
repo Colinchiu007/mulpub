@@ -2755,6 +2755,8 @@ knowledgeBase: {
     rewriteBtn: '🔄 开始改写',
     rewritingBtn: '改写中...',
     resultSection: '改写结果',
+    // 改写结果标题（2026-09-18）：引擎提炼 ≤20 字标题，纯文字展示
+    resultTitleLabel: '标题',
     metaStrategy: '策略',
     metaAiTaste: 'AI味等级',
     // 字数概览：原文 → 结果。经 i18n 命名插值渲染为「原文 8 字 → 结果 720 字」

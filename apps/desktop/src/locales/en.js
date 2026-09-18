@@ -2753,6 +2753,8 @@ knowledgeBase: {
     rewriteBtn: '🔄 Rewrite',
     rewritingBtn: 'Rewriting...',
     resultSection: 'Result',
+    // Rewrite result title (2026-09-18): engine-generated <=20 char title, text display only
+    resultTitleLabel: 'Title',
     metaStrategy: 'Strategy',
     metaAiTaste: 'AI-taste level',
     // Length overview: source → result. Rendered via i18n named interpolation,

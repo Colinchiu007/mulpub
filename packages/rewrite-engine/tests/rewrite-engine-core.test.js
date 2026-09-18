@@ -397,3 +397,79 @@ describe('RewriteEngine viral integration (review fixes)', function () {
     expect(result.viral).toBeUndefined()
   })
 })
+
+// ── F: 改写结果纯文案约束 + 标题生成 + 结构标题剥离（2026-09-18）──
+describe('RewriteEngine pure-copy output contract', function () {
+  function mockLlmClient(t) { return { chat: async function () { return t } } }
+
+  function wireStrategy5(engine) {
+    var strategy = {
+      id: 'pure-copy-v1', name: 'pure-copy', category: 'imitate',
+      systemPrompt: 'assistant.', userPromptTemplate: 'rewrite: {content}',
+      industry: ['generic'], tone: ['casual'], platforms: ['generic'],
+      postProcess: { removeAITaste: false, maxLength: 6000 }
+    }
+    engine._strategyManager._strategies = [strategy]
+    engine._strategyManager.listEnabled = function () { return [strategy] }
+    engine._strategyManager.get = function () { return strategy }
+    engine._strategyManager.clearRemote = function () {}
+    engine._strategyManager.mergeRemote = function () {}
+  }
+
+  test('F1 提示词包含纯文案输出约束（不含小节标题/结构说明）', async function () {
+    var captured = null
+    var llm = { chat: async function (sys, user) { captured = user; return '结果' } }
+    var engine = new RewriteEngine({ llmClient: llm, knowledgeBase: new KnowledgeBase() })
+    wireStrategy5(engine)
+    await engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
+    // 输出格式约束注入 userPrompt
+    expect(captured).toContain('只输出改写后的文案本身')
+    expect(captured).toContain('不要包含')
+    expect(captured).toContain('小节标题')
+  })
+
+  test('F2 改写结果剥离结构标题行（开头/中间/结尾等小节标题）', async function () {
+    var raw = '## 开头（悬念钩子）\n昨天半夜我被热醒了。\n\n**中间（情感转折）**\n说实话，我对夏天的感情很复杂。\n\n**结尾（共鸣与号召）**\n所以夏天来了。'
+    var engine = new RewriteEngine({ llmClient: mockLlmClient(raw), knowledgeBase: new KnowledgeBase() })
+    wireStrategy5(engine)
+    var result = await engine.rewrite({ mode: 'imitate', content: '夏天来了', userSettings: {} })
+    expect(result.success).toBe(true)
+    expect(result.result).not.toContain('开头（悬念钩子）')
+    expect(result.result).not.toContain('中间（情感转折）')
+    expect(result.result).not.toContain('结尾（共鸣与号召）')
+    expect(result.result).toContain('昨天半夜我被热醒了')
+    expect(result.result).toContain('所以夏天来了')
+  })
+
+  test('F2b 普通句子含关键词不被误删（标题位匹配回归保护）', async function () {
+    var engine = new RewriteEngine({ llmClient: mockLlmClient('x'), knowledgeBase: new KnowledgeBase() })
+    wireStrategy5(engine)
+    // 关键词在句中/句尾 → 保留；关键词在行首且带结构标记 → 剥离
+    expect(engine._stripStructureHeadings('故事的结尾不需要太多解释。')).toBe('故事的结尾不需要太多解释。')
+    expect(engine._stripStructureHeadings('我们中间出了叛徒。')).toBe('我们中间出了叛徒。')
+    expect(engine._stripStructureHeadings('引发共鸣，才有传播。')).toBe('引发共鸣，才有传播。')
+    expect(engine._stripStructureHeadings('要号召大家一起行动。')).toBe('要号召大家一起行动。')
+    expect(engine._stripStructureHeadings('结尾要有反转。')).toBe('结尾要有反转。')
+    // 行首结构标题 → 剥离
+    expect(engine._stripStructureHeadings('开头（悬念钩子）\n正文内容')).toBe('正文内容')
+    expect(engine._stripStructureHeadings('**中间（情感转折）**\n正文内容')).toBe('正文内容')
+    expect(engine._stripStructureHeadings('## 结尾（共鸣与号召）\n正文内容')).toBe('正文内容')
+  })
+
+  test('F3 改写结果返回 title 字段（≤20 字）', async function () {
+    var engine = new RewriteEngine({ llmClient: mockLlmClient('改写后的完整文案内容，用于测试标题生成。'), knowledgeBase: new KnowledgeBase() })
+    wireStrategy5(engine)
+    var result = await engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
+    expect(result.success).toBe(true)
+    expect(typeof result.title).toBe('string')
+    expect(result.title.length).toBeGreaterThan(0)
+    expect(result.title.length).toBeLessThanOrEqual(20)
+  })
+
+  test('F4 标题生成在结果过短时回退为空串', async function () {
+    var engine = new RewriteEngine({ llmClient: mockLlmClient('改写后的完整文案内容，用于测试标题生成。'), knowledgeBase: new KnowledgeBase() })
+    wireStrategy5(engine)
+    expect(engine._generateTitle('   ')).toBe('')
+    expect(engine._generateTitle('')).toBe('')
+  })
+})

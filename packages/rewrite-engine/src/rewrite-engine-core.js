@@ -176,6 +176,8 @@ class RewriteEngine {
     return {
       success: true,
       result: processed,
+      // 改写结果标题（≤20 字，2026-09-18）：从改写结果首段提炼；失败回退空串
+      title: this._generateTitle(processed),
       strategy: {
         id: strategy.id,
         name: strategy.name,
@@ -297,6 +299,11 @@ class RewriteEngine {
       userPrompt += `\n\n## 标题参考（来自爆款文案生成，软约束）\n改写结果的主题方向、关键词与开头钩子应与以下标题保持一致（学习其结构与关键词，不要逐字复制）：\n「${titleHint}」`
     }
 
+    // 纯文案输出约束（2026-09-18，用户反馈：改写结果混入「开头（悬念钩子）」等结构标题）：
+    // 策略模板要求「开头/中间/结尾」结构，但从未约束输出格式，模型把结构说明写进了正文。
+    // 统一追加输出格式约束：只输出文案本身，结构说明/小节标题/写作指导一律不得出现在结果中。
+    userPrompt += '\n\n## 输出格式要求（硬约束）\n只输出改写后的文案本身，不要包含任何小节标题（如「开头」「中间」「结尾」「悬念钩子」「情感转折」「共鸣与号召」等）、结构说明、写作指导或 Markdown 标题。文案内部如需分段，使用空行分隔即可。'
+
     return { systemPrompt, userPrompt }
   }
 
@@ -404,7 +411,66 @@ class RewriteEngine {
       result = codePoints.slice(0, maxLength).join('')
     }
 
+    // 结构标题剥离兜底（2026-09-18）：即使提示词已约束输出格式，模型仍可能输出
+    // 「开头（悬念钩子）」「**中间（情感转折）**」「## 结尾」等小节标题行。
+    // 逐行识别结构标题行并移除（仅剥离标题行本身，不触碰正文内容）。
+    result = this._stripStructureHeadings(result)
+
     return result.trim()
+  }
+
+  /**
+   * 剥离改写结果中的结构标题行（纯文案输出契约兜底）。
+   *
+   * 识别规则（按行）：
+   * - 行首可选 Markdown 标记（#、##、**、-、数字序号等）
+   * - 行内含结构关键词：开头 / 中间 / 结尾 / 悬念 / 钩子 / 情感转折 / 共鸣 / 号召 / 正文 / 结尾段
+   * - 行长度 ≤ 30 字符（结构标题短，正文长句不误伤）
+   *
+   * 仅移除标题行本身；标题行后的正文内容原样保留。
+   * @param {string} text
+   * @returns {string}
+   */
+  _stripStructureHeadings(text) {
+    if (typeof text !== 'string' || !text) return text
+    const lines = text.split('\n')
+    // 结构标题关键词：仅在「标题位」（行首）命中才剥离，避免误删正文中出现的普通句子
+    // （如「故事的结尾不需要太多解释。」「引发共鸣，才有传播。」——关键词不在行首，不剥离）
+    // 匹配模式（去 Markdown 标记后）：
+    //   1. 行首即关键词，且关键词后紧跟结构标记（（ ： ( : 「或行尾）
+    //   2. 关键词带装饰（**开头**、## 开头、- 开头 等）由前面的标记剥离处理
+    const STRUCTURE_HEADING_RE = /^(开头|中间|结尾|悬念|钩子|情感转折|共鸣|号召|正文|结尾段)(?=[（(:「:]|$|\s)/u
+    const kept = lines.filter((line) => {
+      const trimmed = line.trim()
+      if (!trimmed) return true
+      // 剥离 Markdown 标记后判断（# ## ** - 1. 等）
+      const stripped = trimmed.replace(/^[#*\-\d.\s]+/, '').replace(/[*#]+$/, '').trim()
+      if (!stripped) return false
+      // 仅当剥离后的行以结构关键词开头（标题位）且行长短（≤30 字）才判定为结构标题行
+      if (stripped.length > 30) return true
+      return !STRUCTURE_HEADING_RE.test(stripped)
+    })
+    return kept.join('\n')
+  }
+
+  /**
+   * 生成改写结果标题（≤20 字）。
+   *
+   * 策略：优先从改写结果中提取核心句（首段第一句，截断到 20 字）；
+   * 结果为空/过短时回退为空串（不阻塞主流程）。
+   * @param {string} text - 改写后的文案
+   * @returns {string} 标题（≤20 字，可能为空串）
+   */
+  _generateTitle(text) {
+    if (typeof text !== 'string' || !text.trim()) return ''
+    const firstLine = text.split('\n').map((l) => l.trim()).find((l) => l.length > 0) || ''
+    // 取第一句（。！？…结尾），无标点则取整行
+    const sentenceMatch = firstLine.match(/^[^。！？…]*[。！？…]/)
+    const sentence = sentenceMatch ? sentenceMatch[0] : firstLine
+    const title = sentence.replace(/[。！？…\s]+$/, '').trim()
+    if (!title) return ''
+    // 截断到 20 字（Unicode 码点）
+    return [...title].slice(0, 20).join('')
   }
 
   _getAITasteLevel(text, strategy) {
