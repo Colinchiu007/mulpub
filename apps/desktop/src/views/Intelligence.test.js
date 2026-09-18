@@ -77,10 +77,10 @@ describe("IntelligenceView", () => {
   it("sourceColor returns correct colors", async () => {
     const w = createView();
     await nextTick();
-    expect(w.vm.sourceColor("reddit")).toBe("#FF4500");
-    expect(w.vm.sourceColor("hackernews")).toBe("#FF6600");
-    expect(w.vm.sourceColor("github")).toBe("var(--ink)");
-    expect(w.vm.sourceColor("unknown")).toBe("var(--text-muted)");
+    expect(w.vm.sourceColor("reddit")).toBe("var(--color-source-reddit)");
+    expect(w.vm.sourceColor("hackernews")).toBe("var(--color-source-hn)");
+    expect(w.vm.sourceColor("github")).toBe("var(--color-text-primary)");
+    expect(w.vm.sourceColor("unknown")).toBe("var(--color-text-muted)");
   });
 
   it("scoreColor returns color based on score threshold", async () => {
@@ -90,7 +90,7 @@ describe("IntelligenceView", () => {
     expect(w.vm.scoreColor(2.0)).toBe("#2e7d32");
     expect(w.vm.scoreColor(1.5)).toBe("#f57c00");
     expect(w.vm.scoreColor(1.0)).toBe("#f57c00");
-    expect(w.vm.scoreColor(0.5)).toBe("var(--text-muted)");
+    expect(w.vm.scoreColor(0.5)).toBe("var(--color-text-muted)");
   });
 
   it("selectedSources defaults to all sources", async () => {

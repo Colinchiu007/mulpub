@@ -152,6 +152,11 @@
   --color-info-soft: #f0f7ff;
   --color-info-text: #1976d2;
   --color-progress-track: #e0e0e0;
+  /* 情报页来源品牌色/分值色（原 Intelligence.vue 硬编码，T1-3e 收编） */
+  --color-source-reddit: #ff4500;
+  --color-source-hn: #ff6600;
+  --color-intel-score-high: #2e7d32;
+  --color-intel-score-mid: #f57c00;
 
   /* ---- 暗色模式：主色保持品牌可辨识度（修复旧覆盖为浅灰 #e8e8ed 的缺陷）---- */
 }

@@ -47,17 +47,17 @@
       </div>
 
       <!-- 发布统计 -->
-      <div v-if="statsData" class="cohere-stat-grid" style="margin-bottom:var(--space-md)">
+      <div v-if="statsData" class="cohere-stat-grid dash-mb-md">
         <div class="cohere-stat-card">
           <div class="stat-value">{{ statsData.total }}</div>
           <div class="stat-label">累计发布</div>
         </div>
         <div class="cohere-stat-card">
-          <div class="stat-value" style="color:var(--success)">{{ statsData.success }}</div>
+          <div class="stat-value dash-stat-success">{{ statsData.success }}</div>
           <div class="stat-label">成功</div>
         </div>
         <div class="cohere-stat-card">
-          <div class="stat-value" style="color:var(--coral)">{{ statsData.failed }}</div>
+          <div class="stat-value dash-stat-danger">{{ statsData.failed }}</div>
           <div class="stat-label">失败</div>
         </div>
         <div class="cohere-stat-card">
@@ -67,38 +67,38 @@
       </div>
 
       <!-- 发布趋势（最近 14 天） -->
-      <div v-if="statsData && statsData.daily && statsData.daily.length > 0" class="cohere-card" style="cursor:default;margin-bottom:var(--space-md);padding:16px">
-        <div style="font-weight:600;font-size:14px;margin-bottom:var(--space-md)">📈 发布趋势（近 14 天）</div>
-        <div style="display:flex;align-items:flex-end;gap:4px;height:80px;padding:0 4px">
-          <div v-for="d in last14Days" :key="d.date" :title="d.date + ': ' + d.total + ' 篇'" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">
-            <div :style="{width:'100%', height: Math.max(4, (d.total / dailyMax) * 60) + 'px', background: d.total > 0 ? 'var(--coral, #f56c6c)' : 'var(--border, #e0e0e0)', borderRadius: '3px 3px 0 0', opacity: d.total > 0 ? 0.7 + (d.total / dailyMax) * 0.3 : 0.3, transition: 'height 0.3s'}"></div>
-            <span style="font-size:9px;color:var(--muted);white-space:nowrap">{{ d.date.slice(5) }}</span>
+      <div v-if="statsData && statsData.daily && statsData.daily.length > 0" class="cohere-card dash-panel">
+        <div class="dash-panel-title">📈 发布趋势（近 14 天）</div>
+        <div class="dash-trend-track">
+          <div v-for="d in last14Days" :key="d.date" :title="d.date + ': ' + d.total + ' 篇'" class="dash-trend-col">
+            <div class="dash-trend-bar" :style="{width:'100%', height: Math.max(4, (d.total / dailyMax) * 60) + 'px', background: d.total > 0 ? 'var(--color-danger)' : 'var(--color-border)', opacity: d.total > 0 ? 0.7 + (d.total / dailyMax) * 0.3 : 0.3}"></div>
+            <span class="dash-trend-date">{{ d.date.slice(5) }}</span>
           </div>
         </div>
       </div>
 
       <!-- 平台分布 -->
-      <div v-if="statsData && platformStats.length > 0" class="cohere-card" style="cursor:default;margin-bottom:var(--space-md);padding:16px">
-        <div style="font-weight:600;font-size:14px;margin-bottom:var(--space-md)">📊 平台分布</div>
-        <div style="display:flex;flex-direction:column;gap:8px">
-          <div v-for="p in platformStats" :key="p.platform" style="display:flex;align-items:center;gap:8px">
-            <span style="width:60px;font-size:12px;text-overflow:ellipsis;overflow:hidden;white-space:nowrap">{{ platformName(p.platform) }}</span>
-            <div style="flex:1;height:16px;background:var(--border);border-radius:8px;overflow:hidden">
-              <div :style="{width: (p.total / maxPlatformTotal) * 100 + '%', height: '100%', background: 'var(--coral, #f56c6c)', borderRadius: '8px', opacity: 0.8, transition: 'width 0.3s'}"></div>
+      <div v-if="statsData && platformStats.length > 0" class="cohere-card dash-panel">
+        <div class="dash-panel-title">📊 平台分布</div>
+        <div class="dash-dist-list">
+          <div v-for="p in platformStats" :key="p.platform" class="dash-dist-row">
+            <span class="dash-dist-name">{{ platformName(p.platform) }}</span>
+            <div class="dash-dist-track">
+              <div class="dash-dist-fill" :style="{width: (p.total / maxPlatformTotal) * 100 + '%'}"></div>
             </div>
-            <span style="width:50px;text-align:right;font-size:12px;color:var(--muted)">{{ p.total }} 篇</span>
+            <span class="dash-dist-count">{{ p.total }} 篇</span>
           </div>
         </div>
       </div>
 
       <!-- 最近发布 -->
-      <div v-if="recentPublishes.length > 0" class="cohere-card" style="cursor:default;margin-bottom:var(--space-md);padding:16px">
-        <div style="font-weight:600;font-size:14px;margin-bottom:var(--space-md)">⚡ 最近发布</div>
+      <div v-if="recentPublishes.length > 0" class="cohere-card dash-panel">
+        <div class="dash-panel-title">⚡ 最近发布</div>
         <ul class="cohere-timeline">
           <li v-for="r in recentPublishes" :key="r.id" class="cohere-timeline-item" :class="r.success !== false ? 'success' : 'danger'">
             <span class="tl-time">{{ formatTime(r.timestamp) }}</span>
             <span class="tl-text">
-              <span :style="{color: r.success !== false ? 'var(--success)' : 'var(--coral)'}">{{ r.success !== false ? '✅' : '❌' }}</span>
+              <span :style="{color: r.success !== false ? 'var(--color-success)' : 'var(--color-danger)'}">{{ r.success !== false ? '✅' : '❌' }}</span>
               {{ platformName(r.platform) }}: {{ r.title || r.article?.title || '(无标题)' }}
             </span>
           </li>
@@ -108,7 +108,7 @@
       <!-- 各平台数据 -->
       <div class="cohere-section-title">各平台数据</div>
       <EmptyState v-if="platformData.length === 0" icon="📊" :title="$t('emptyStates.dashboard.title')" :description="$t('emptyStates.dashboard.message')" />
-      <div v-else class="cohere-card-grid" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))">
+      <div v-else class="cohere-card-grid dash-grid-280">
         <div v-for="item in platformData" :key="item.platform" class="cohere-card">
           <div class="card-top">
             <div class="card-icon"><img v-if="isIconUrl(platformIcon(item.platform))" :src="platformIcon(item.platform)" :alt="platformName(item.platform)" width="24" height="24"><span v-else>{{ platformIcon(item.platform) }}</span></div>
@@ -117,7 +117,7 @@
               <div v-if="!item.error" class="card-meta">
                 更新于 {{ formatTime(item.syncedAt) }}
               </div>
-              <div v-else style="font-size:12px;color:var(--coral)">数据获取失败</div>
+              <div v-else class="dash-fail-note">数据获取失败</div>
             </div>
           </div>
           <div v-if="!item.error" class="card-stats">
@@ -131,9 +131,9 @@
     </div>
 
     <!-- 内容基准比较 -->
-    <div class="cohere-section-title" style="margin-top: var(--space-xl);">📊 内容基准比较</div>
-    <div style="display:flex;gap:var(--space-sm);margin-bottom:var(--space-md);align-items:center">
-      <input class="cohere-input" v-model="benchmarkTitle" placeholder="输入文章标题进行基准比较..." style="flex:1;font-size:14px" @keyup.enter="doBenchmark" />
+    <div class="cohere-section-title dash-mt-xl">📊 内容基准比较</div>
+    <div class="dash-bench-row">
+      <input class="cohere-input dash-bench-input" v-model="benchmarkTitle" placeholder="输入文章标题进行基准比较..." @keyup.enter="doBenchmark" />
       <button class="cohere-btn-primary" @click="doBenchmark" :disabled="!benchmarkTitle.trim()">分析</button>
     </div>
     <BenchmarkChart v-if="benchmarkActiveTitle" :title="benchmarkActiveTitle" :key="benchmarkActiveTitle" />
@@ -318,4 +318,28 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
   font-size: 13px;
   cursor: pointer;
 }
+
+/* T1-3e：原 25 处内联样式全部类化；颜色一律 var(--color-*)（旧别名 fallback 值
+ * #f56c6c/#e0e0e0 均为未生效 fallback，直接丢弃零视觉回归）。 */
+.dash-mb-md { margin-bottom: var(--space-md); }
+.dash-mt-xl { margin-top: var(--space-xl); }
+.dash-stat-success { color: var(--color-success); }
+.dash-stat-danger { color: var(--color-danger); }
+.dash-panel { cursor: default; margin-bottom: var(--space-md); padding: 16px; }
+.dash-panel-title { font-weight: 600; font-size: 14px; margin-bottom: var(--space-md); }
+.dash-trend-track { display: flex; align-items: flex-end; gap: 4px; height: 80px; padding: 0 4px; }
+.dash-trend-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.dash-trend-bar { border-radius: 3px 3px 0 0; transition: height 0.3s; }
+.dash-trend-date { font-size: 9px; color: var(--color-text-muted); white-space: nowrap; }
+.dash-dist-list { display: flex; flex-direction: column; gap: 8px; }
+.dash-dist-row { display: flex; align-items: center; gap: 8px; }
+.dash-dist-name { width: 60px; font-size: var(--font-size-xs); text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
+.dash-dist-track { flex: 1; height: 16px; background: var(--color-border); border-radius: 8px; overflow: hidden; }
+.dash-dist-fill { height: 100%; background: var(--color-danger); border-radius: 8px; opacity: 0.8; transition: width 0.3s; }
+.dash-dist-count { width: 50px; text-align: right; font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.dash-fail-note { font-size: var(--font-size-xs); color: var(--color-danger); }
+.dash-grid-280 { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+.dash-bench-row { display: flex; gap: var(--space-sm); margin-bottom: var(--space-md); align-items: center; }
+.dash-bench-input { flex: 1; font-size: 14px; }
+
 </style>
