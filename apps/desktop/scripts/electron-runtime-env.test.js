@@ -31,6 +31,8 @@ const {
   buildElectronEnv,
   ELECTRON_STRIPPED_ENV_KEYS,
   isHostileShimPath,
+  isTrustedPythonPath,
+  resolveSystemPython,
   sanitizeNodeOptions,
   sanitizePathList,
 } = require('./electron-runtime-env')
@@ -78,10 +80,20 @@ test('overrides 中 undefined 的键被跳过（不产生空串变量）', () =>
   assert.equal(env.C, '3')
 })
 
-test('baseEnv 为 null/undefined 时只返回 overrides', () => {
-  assert.deepEqual(buildElectronEnv(null, { A: '1' }), { A: '1' })
-  assert.deepEqual(buildElectronEnv(undefined, { A: '1' }), { A: '1' })
-  assert.deepEqual(buildElectronEnv(null), {})
+test('baseEnv 为 null/undefined 时返回 overrides（并注入系统 MP_PYTHON）', (t) => {
+  const systemPython = resolveSystemPython()
+  if (!systemPython) {
+    t.skip('本机无法定位系统 Python 3.12，跳过注入断言')
+    return
+  }
+  const envA = buildElectronEnv(null, { A: '1' })
+  assert.equal(envA.A, '1')
+  assert.equal(envA.MP_PYTHON, systemPython, 'null baseEnv 也应注入系统 MP_PYTHON')
+  const envB = buildElectronEnv(undefined, { A: '1' })
+  assert.equal(envB.A, '1')
+  assert.equal(envB.MP_PYTHON, systemPython)
+  const envC = buildElectronEnv(null)
+  assert.equal(envC.MP_PYTHON, systemPython)
 })
 
 test('ELECTRON_STRIPPED_ENV_KEYS 契约：至少包含 ELECTRON_RUN_AS_NODE', () => {
@@ -184,4 +196,50 @@ test('真实宿主环境形态：净化后不含任何 shim 注入（端到端�
   assert.equal(env.ELECTRON_USER_DATA_DIR, 'D:\\tmp\\profile')
   assert.equal(env.DEV_SERVER_PORT, '7367')
   assert.equal(env.PATH, 'C:\\Windows\\System32')
+})
+
+// —— MP_PYTHON 系统 Python 自定位注入（2026-09-18 缺陷回归保护）——
+// 背景：父会话 PATH 里 python/py 被工具缓存裸解释器（github-runner/_work/_tool）截胡时，
+// SplitterBridge（8002）No module named 'splitter'、PromptBridge（8013）No module named 'pydantic'，
+// 视频创作流水线 optimize 阶段健康检查超时 → 项目 failed。
+
+const fs = require('node:fs')
+
+test('MP_PYTHON：baseEnv 未显式设置时注入系统 Python 3.12', (t) => {
+  const systemPython = resolveSystemPython()
+  if (!systemPython) {
+    t.skip('本机无法定位系统 Python 3.12（无 LOCALAPPDATA Python312 且无可信 py），跳过注入断言')
+    return
+  }
+  const env = buildElectronEnv({ PATH: 'C:\\Windows\\System32', HOME: '/home/u' })
+  assert.equal(env.MP_PYTHON, systemPython, '应注入 resolveSystemPython() 解析出的系统 Python')
+  assert.ok(fs.existsSync(env.MP_PYTHON), 'MP_PYTHON 必须是真实存在的可执行文件: ' + env.MP_PYTHON)
+})
+
+test('MP_PYTHON：baseEnv 显式设置时不被覆盖（保留调用方主动选择）', () => {
+  const env = buildElectronEnv({ MP_PYTHON: 'C:\\Program Files\\Custom\\python.exe', PATH: 'C:\\Windows' })
+  assert.equal(env.MP_PYTHON, 'C:\\Program Files\\Custom\\python.exe')
+})
+
+test('MP_PYTHON：大小写变体（mp_python）也被视为显式设置', () => {
+  const env = buildElectronEnv({ mp_python: 'C:\\Program Files\\Custom\\python.exe' })
+  assert.equal(env.mp_python, 'C:\\Program Files\\Custom\\python.exe', '小写变体原样保留')
+  assert.equal('MP_PYTHON' in env, false, '已存在显式设置时不得再注入大写 MP_PYTHON')
+})
+
+test('MP_PYTHON：overrides 显式值优先于自动注入', () => {
+  const env = buildElectronEnv({ PATH: 'C:\\Windows' }, { MP_PYTHON: 'D:\\Program Files\\Override\\python.exe' })
+  assert.equal(env.MP_PYTHON, 'D:\\Program Files\\Override\\python.exe')
+})
+
+test('isTrustedPythonPath：工具缓存裸解释器被排除，系统 Python 被接受', () => {
+  // 自托管 runner 工具缓存（正/反斜杠形态）
+  assert.equal(isTrustedPythonPath('D:\\Data\\github-runner\\_work\\_tool\\Python\\3.12.10\\x64\\python.exe'), false)
+  assert.equal(isTrustedPythonPath('D:/Data/github-runner/_work/_tool/Python/3.12.10/x64/python.exe'), false)
+  // GitHub hosted runner 工具缓存（C:\hostedtoolcache\windows\Python\...）
+  assert.equal(isTrustedPythonPath('C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\python.exe'), false)
+  assert.equal(isTrustedPythonPath('C:/hostedtoolcache/windows/Python/3.12.10/x64/python.exe'), false)
+  // 系统 Python 3.12（用户级安装）
+  assert.equal(isTrustedPythonPath('C:\\Users\\u\\AppData\\Local\\Programs\\Python\\Python312\\python.exe'), true)
+  assert.equal(isTrustedPythonPath(''), false)
 })

@@ -38,6 +38,8 @@
  * 显式 overrides 仍可覆盖（保留用户/脚本主动设置该变量的能力）。
  */
 const path = require('path')
+const fs = require('fs')
+const { execFileSync } = require('child_process')
 
 /** 需要从 Electron 主进程环境中剔除的变量名（不区分大小写，Windows 环境变量名不区分大小写）。 */
 const ELECTRON_STRIPPED_ENV_KEYS = Object.freeze([
@@ -177,6 +179,87 @@ function sanitizePathList(value) {
   return kept.join(path.delimiter)
 }
 
+/** 工具缓存/沙箱目录标记：这些位置的 Python 是裸解释器（无 pydantic/splitter 等业务依赖），
+ *  被 PATH 截胡时会导致 SplitterBridge/PromptBridge 启动失败（ModuleNotFoundError）。 */
+const UNTRUSTED_PYTHON_MARKERS = Object.freeze([
+  'github-runner',
+  // GitHub Actions hosted runner 工具缓存（C:\hostedtoolcache\windows\Python\...）也是裸解释器
+  'hostedtoolcache',
+  // 自托管 runner 工具缓存（_work/_tool）；normalizeForMatch 已统一为 '/'，无需再列反斜杠变体
+  '_work/_tool',
+])
+
+/** Windows 标准用户级 Python 3.12 安装候选路径（按优先级）。 */
+function systemPythonCandidates() {
+  const localAppData = process.env.LOCALAPPDATA || ''
+  const candidates = []
+  if (localAppData) {
+    candidates.push(path.join(localAppData, 'Programs', 'Python', 'Python312', 'python.exe'))
+  }
+  return candidates
+}
+
+/**
+ * 判断某个 Python 可执行文件路径是否可信（排除工具缓存/沙箱裸解释器）。
+ * @param {string} filePath
+ * @returns {boolean}
+ */
+function isTrustedPythonPath(filePath) {
+  const normalized = normalizeForMatch(filePath)
+  if (!normalized) return false
+  if (UNTRUSTED_PYTHON_MARKERS.some((marker) => normalized.includes(marker.toLowerCase()))) return false
+  return true
+}
+
+/** 模块级缓存：避免每次 buildElectronEnv 重复探测。 */
+let cachedSystemPython = undefined
+
+/**
+ * 定位系统 Python 3.12（自定位，不依赖调用方 PATH 的裸 python/py）。
+ *
+ * 背景（2026-09-18 实测缺陷）：开发模式（scripts/dev.js）直接透传父进程 PATH，
+ * 若父会话 PATH 里 python/py 被 GitHub Actions runner 工具缓存（_work/_tool/Python）
+ * 或类似裸解释器截胡，SplitterBridge（8002）报 No module named 'splitter'、
+ * PromptBridge（8013）报 No module named 'pydantic'，两个 Python 后端起不来，
+ * 视频创作流水线 optimize 阶段健康检查超时 → 项目 failed。
+ *
+ * 定位顺序：
+ *  1. Windows 标准用户级安装路径（%LOCALAPPDATA%\Programs\Python\Python312\python.exe）
+ *     —— 本机系统 Python 3.12（含 pydantic 等业务依赖）所在，优先于 PATH 探测；
+ *  2. py launcher（py -3.12）解析结果，但仅当解析出的路径真实存在且非工具缓存路径才接受。
+ *
+ * 纯函数（有模块级缓存）；任何一步失败返回 null，调用方保持原有回退语义。
+ * @returns {string | null}
+ */
+function resolveSystemPython() {
+  if (cachedSystemPython !== undefined) return cachedSystemPython
+  let resolved = null
+  for (const candidate of systemPythonCandidates()) {
+    try {
+      if (fs.existsSync(candidate)) {
+        resolved = candidate
+        break
+      }
+    } catch (_) { /* 忽略单点失败，继续探测 */ }
+  }
+  if (!resolved && process.platform === 'win32') {
+    try {
+      const output = execFileSync('py', ['-3.12', '-c', 'import sys; print(sys.executable)'], {
+        encoding: 'utf8',
+        windowsHide: true,
+        timeout: 5000,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      })
+      const candidate = String(output || '').trim().split(/\r?\n/)[0]
+      if (candidate && isTrustedPythonPath(candidate) && fs.existsSync(candidate)) {
+        resolved = candidate
+      }
+    } catch (_) { /* py launcher 不可用或解析异常，回退 null */ }
+  }
+  cachedSystemPython = resolved
+  return resolved
+}
+
 /**
  * 构造 Electron 主进程 spawn 环境变量。
  *
@@ -184,7 +267,10 @@ function sanitizePathList(value) {
  *  1. 复制 baseEnv，剔除 ELECTRON_STRIPPED_ENV_KEYS 中的键（大小写不敏感）；
  *  2. `NODE_OPTIONS` 过滤掉宿主 shim 的 `--require` 注入（清空则删除该变量）；
  *  3. `PATH` / `PYTHONPATH` 过滤掉宿主 shim 目录条目（清空则删除该变量）；
- *  4. 叠加 overrides（值为 `undefined` 的键跳过，避免把变量写成空串）；
+ *  4. 若 baseEnv 未显式设置 `MP_PYTHON` 且能定位到系统 Python 3.12，注入
+ *     `MP_PYTHON`（指向系统 Python 绝对路径）——避免父会话 PATH 里裸 python/py
+ *     被工具缓存解释器截胡导致 SplitterBridge/PromptBridge 启动失败；
+ *  5. 叠加 overrides（值为 `undefined` 的键跳过，避免把变量写成空串）；
  *     overrides 在剔除之后应用 —— 调用方显式设置的值优先。
  *
  * 纯函数：不修改 baseEnv / overrides。
@@ -215,6 +301,13 @@ function buildElectronEnv(baseEnv, overrides = {}) {
     }
     out[key] = value
   }
+  // MP_PYTHON 注入：仅当 baseEnv 未显式设置（含大小写变体）且能定位到系统 Python 时。
+  // overrides 里显式设置的 MP_PYTHON 在下方叠加时优先，天然保留调用方主动覆盖能力。
+  const hasMpPython = Object.keys(out).some((key) => key.toLowerCase() === 'mp_python')
+  if (!hasMpPython) {
+    const systemPython = resolveSystemPython()
+    if (systemPython) out.MP_PYTHON = systemPython
+  }
   const extra = overrides && typeof overrides === 'object' ? overrides : {}
   for (const key of Object.keys(extra)) {
     if (extra[key] === undefined) continue
@@ -228,7 +321,9 @@ module.exports = {
   ELECTRON_STRIPPED_ENV_KEYS,
   HOSTILE_SHIM_DIR_MARKER,
   HOSTILE_SHIM_MODULE_MARKERS,
+  isTrustedPythonPath,
   isHostileShimPath,
+  resolveSystemPython,
   sanitizeNodeOptions,
   sanitizePathList,
 }
