@@ -2276,6 +2276,8 @@ export default {
       collectingProgress: '批量采集中（共 {count} 条，串行 + 间隔防封）...',
       rewritingProgress: '批量改写中（共 {count} 条）...',
       batchDone: '完成：成功 {completed} 条，失败 {failed} 条',
+      batchDoneCancelledSuffix: '（已取消）',
+      batchDoneCircuitBrokenSuffix: '（熔断停止）',
       noRewritable: '没有可改写的内容（需先采集到正文）',
       hint: '通过知乎官方 API 获取您的收藏夹。批量操作采用串行 + 随机间隔（约 8-12 秒/条）+ 指数退避 + 熔断保护，最大限度降低反爬风险。官方 API 无法区分自建与关注的收藏夹，列表显示全部公开收藏夹。',
     },
