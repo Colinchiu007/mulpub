@@ -3,6 +3,15 @@
 - **根因模式（pitfall）**：`agnes-video.js` 的 `generateVideo()` 提取 taskId 用 `data.id || data.task_id`，漏掉 Agnes 网关实际返回的 `video_id`。Agnes `POST /videos` 返回 `{ video_id: '<任务ID>', id: '<请求ID>' }`——`video_id` 才是用于 `/agnesapi?video_id=` 查询的任务 ID，`id` 是请求 ID。用请求 ID 去查询 → `task not found`，历史记录详情页「生成 AI 视频」报「当前模型账号的 AI 视频生成失败」。
 - **断言模式（pitfall）**：adapter 测试只覆盖 `id`/`task_id`（OpenAI 兼容假设），未覆盖 provider 实际返回的 `video_id` 字段。同一网关的 `agnes-multimodal.js` 正确实现了 `data.video_id || data.id || data.task_id` 且测试锁定了 `video_id` 优先，而 `agnes-video.js` 漏掉——两个 adapter 测试覆盖不对称，bug 逃逸。
 - **跨 adapter 一致性（pattern）**：同一 provider 的多个 adapter（如 agnes-video 与 agnes-multimodal）对同一字段命名处理必须一致；新增 adapter 时回查既有 adapter 是否已覆盖其实际返回字段。PRD 写明的字段契约（video_id > id > task_id）应反向校验既有实现。
+## MiMo TTS 音色克隆机制与 MiniMax 完全不同：能力表/适配器/前端三处联动（mimo-tts-voice-clone，2026-09-18）
+
+- **根因（pitfall）**：能力表（tts-voice-catalog.js）曾把 mimo 三个模型全部声明为 UNSUPPORTED，导致「语音模型」选 mimo-v2.5-tts-voiceclone 时提示「暂不支持音色列表与克隆」。但 MiMo 官方文档明确支持预置音色列表与基于音频样本的音色复刻。**能力表是 provider/model 能力的单一来源，新增/修改 provider 能力必须同步 adapter 实现 + 能力表 + 前端 UI 三处。**
+- **MiMo 克隆机制（tool）**：与 MiniMax 不同，MiMo 无远端 voice_id——每次合成时把音频样本 Base64 直接放 audio.voice 字段（data:{mime};base64,...，≤10MB，仅 mp3/wav）。克隆音色 voice_id 为本地 ID（mimo-clone-<uuid>），样本由 tts-voice-clone-service 持久化，合成时由 asset-generator 读取样本注入 cloneSampleData 参数，adapter 自动切 voiceclone 模型。**不要假设所有 TTS 提供方克隆机制一致。**
+- **语音模型下拉隐藏（pattern）**：当 provider 的模型由「音色类型」区分（预置→tts，克隆→voiceclone）时，「语音模型」下拉应隐藏，避免用户困惑。前端通过 `s2vVoiceModelHidden` computed 判断，catalog 请求固定用预置模型，capability/克隆请求用 voiceclone 模型。**模型选择逻辑与音色类型耦合时，下拉隐藏比保留更清晰。**
+- **克隆恢复模型兜底按 provider 区分（pitfall）**：story2video 克隆恢复的模型兜底曾硬编码 speech-02-hd（MiniMax），MiMo 下会查不到克隆样本。改为按 provider 区分（MiMo→voiceclone，MiniMax→speech-02-hd）。**provider 特定逻辑不要硬编码单一 provider 的模型。**
+- **纯本地克隆 provider 的补偿语义（pattern）**：MiMo 无远端 deleteVoice，克隆失败补偿应跳过远端删除，只做本地样本清理。`_withRemoteCloneCompensation` 对纯本地克隆 provider 退化为「本地清理成功即视为补偿完成」。
+- **CHANGELOG 编码陷阱（pitfall）**：CHANGELOG.md 是 UTF-16LE 带 BOM，但远端 main 是 UTF-8。用 PowerShell Unicode 编码写入会改变文件编码，导致 git 二进制冲突（无冲突标记、保留一方）。**大文件/编码敏感文件修改前先确认远端编码，用与远端一致的编码写入。**
+- **债务熔断基线的陈旧性（pattern）**：check-debt-budget.js 的基线文件（debt-baseline.json）可能落后于远端 main。当 filesOver1000/500 增加时，先确认是「我的改动」还是「远端 main 新增文件」导致——用 `git show origin/main:<file> | wc -l` 对比。若为远端新增，更新基线是合理处置；若为自己新增，应抽取模块而非更新基线。
 
 ---
 

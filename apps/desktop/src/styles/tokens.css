@@ -147,6 +147,7 @@
   --color-terminal-muted: #888888;
   --color-terminal-error: #f44336;
   --color-terminal-warn: #ff9800;
+  --color-notice-error: #f87171;
 
   /* ---- 暗色模式：主色保持品牌可辨识度（修复旧覆盖为浅灰 #e8e8ed 的缺陷）---- */
 }

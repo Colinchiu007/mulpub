@@ -85,9 +85,13 @@ const PROVIDER_MODEL_CAPABILITIES = Object.freeze({
     piper: catalogCapability(CAPABILITY_TYPES.BUILTIN, { canListVoices: true, clone: NOT_SUPPORTED }),
   }),
   'mimo-tts': Object.freeze({
-    'mimo-v2.5-tts': catalogCapability(CAPABILITY_TYPES.UNSUPPORTED, { clone: NOT_SUPPORTED }),
-    'mimo-v2.5-tts-voicedesign': catalogCapability(CAPABILITY_TYPES.UNSUPPORTED, { clone: NOT_SUPPORTED }),
-    'mimo-v2.5-tts-voiceclone': catalogCapability(CAPABILITY_TYPES.UNSUPPORTED, { clone: NOT_SUPPORTED }),
+    // MiMo 官方文档（speech-synthesis-v2.5）：
+    // - mimo-v2.5-tts 使用 9 个预置音色（mimo_default/冰糖/茉莉/苏打/白桦/Mia/Chloe/Milo/Dean）
+    // - mimo-v2.5-tts-voiceclone 基于音频样本复刻任意音色（每次合成注入 base64 样本，
+    //   无远端 voice_id；本地样本由 tts-voice-clone-service 管理，adapter 已实现 cloneVoice）
+    // - mimo-v2.5-tts-voicedesign 项目用不到，已从代码中移除
+    'mimo-v2.5-tts': catalogCapability(CAPABILITY_TYPES.BUILTIN, { canListVoices: true, defaultVoiceId: 'mimo_default' }),
+    'mimo-v2.5-tts-voiceclone': catalogCapability(CAPABILITY_TYPES.USER_CLONE, { canListVoices: true, clone: DESKTOP_UPLOAD_CLONE }),
   }),
   'minimax-tts': Object.freeze({
     // MiniMax 官方支持 100+ 系统音色与音色快速复刻（speech-voice-clone）；
