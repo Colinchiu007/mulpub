@@ -1,3 +1,15 @@
+## MiMo TTS 音色克隆机制与 MiniMax 完全不同：能力表/适配器/前端三处联动（mimo-tts-voice-clone，2026-09-18）
+
+- **根因（pitfall）**：能力表（tts-voice-catalog.js）曾把 mimo 三个模型全部声明为 UNSUPPORTED，导致「语音模型」选 mimo-v2.5-tts-voiceclone 时提示「暂不支持音色列表与克隆」。但 MiMo 官方文档明确支持预置音色列表与基于音频样本的音色复刻。**能力表是 provider/model 能力的单一来源，新增/修改 provider 能力必须同步 adapter 实现 + 能力表 + 前端 UI 三处。**
+- **MiMo 克隆机制（tool）**：与 MiniMax 不同，MiMo 无远端 voice_id——每次合成时把音频样本 Base64 直接放 audio.voice 字段（data:{mime};base64,...，≤10MB，仅 mp3/wav）。克隆音色 voice_id 为本地 ID（mimo-clone-<uuid>），样本由 tts-voice-clone-service 持久化，合成时由 asset-generator 读取样本注入 cloneSampleData 参数，adapter 自动切 voiceclone 模型。**不要假设所有 TTS 提供方克隆机制一致。**
+- **语音模型下拉隐藏（pattern）**：当 provider 的模型由「音色类型」区分（预置→tts，克隆→voiceclone）时，「语音模型」下拉应隐藏，避免用户困惑。前端通过 `s2vVoiceModelHidden` computed 判断，catalog 请求固定用预置模型，capability/克隆请求用 voiceclone 模型。**模型选择逻辑与音色类型耦合时，下拉隐藏比保留更清晰。**
+- **克隆恢复模型兜底按 provider 区分（pitfall）**：story2video 克隆恢复的模型兜底曾硬编码 speech-02-hd（MiniMax），MiMo 下会查不到克隆样本。改为按 provider 区分（MiMo→voiceclone，MiniMax→speech-02-hd）。**provider 特定逻辑不要硬编码单一 provider 的模型。**
+- **纯本地克隆 provider 的补偿语义（pattern）**：MiMo 无远端 deleteVoice，克隆失败补偿应跳过远端删除，只做本地样本清理。`_withRemoteCloneCompensation` 对纯本地克隆 provider 退化为「本地清理成功即视为补偿完成」。
+- **CHANGELOG 编码陷阱（pitfall）**：CHANGELOG.md 是 UTF-16LE 带 BOM，但远端 main 是 UTF-8。用 PowerShell Unicode 编码写入会改变文件编码，导致 git 二进制冲突（无冲突标记、保留一方）。**大文件/编码敏感文件修改前先确认远端编码，用与远端一致的编码写入。**
+- **债务熔断基线的陈旧性（pattern）**：check-debt-budget.js 的基线文件（debt-baseline.json）可能落后于远端 main。当 filesOver1000/500 增加时，先确认是「我的改动」还是「远端 main 新增文件」导致——用 `git show origin/main:<file> | wc -l` 对比。若为远端新增，更新基线是合理处置；若为自己新增，应抽取模块而非更新基线。
+
+---
+
 ## 文本提取类 Bug：`replace(/\s+/g, ' ')` 会连语义换行一起杀掉，而 `toContain` 断言对此完全免疫（2026-09-16）
 
 - **根因模式（pitfall）**：`\s` 在 JS 正则中含 `\n` / `\r` / `\u2028` / `\u2029` / 全角空格 `\u3000` / NBSP `\u00a0` / BOM `\ufeff`。用 `text.trim().replace(/\s+/g, ' ')` 清 HTML 源码缩进噪声时，会把**换行一起压掉**，正文被压成一整行（用户侧「没有分行和分段，一整篇看着非常乱」）。正确做法是把「排版噪声」与「语义换行」分开：行内空白压缩用 `[^\S\n]+`（显式排除换行），块级边界在 DOM 层转成换行，最后只做「3 连以上换行压成 1 空行」收口。

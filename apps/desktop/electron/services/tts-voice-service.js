@@ -327,6 +327,10 @@ class TtsVoiceService {
     if (catalogResult.code !== 0) return catalogResult
     try {
       this._store.setUserSetting(preferenceSettingKey(request.providerId, request.model), null, ownerSubject)
+      // MiMo TTS：克隆音色偏好保存在 voiceclone 模型下，一并清除
+      if (request.providerId === 'mimo-tts') {
+        this._store.setUserSetting(preferenceSettingKey(request.providerId, 'mimo-v2.5-tts-voiceclone'), null, ownerSubject)
+      }
     } catch (_) {
       return failure('VOICE_PREFERENCE_STORE_UNAVAILABLE')
     }
@@ -397,7 +401,10 @@ class TtsVoiceService {
     const invalidVoices = []
     if (this._cloneService && typeof this._cloneService.listClones === 'function') {
       try {
-        const clones = await this._cloneService.listClones({ providerId: catalog.providerId, model: catalog.model })
+        // MiMo TTS：克隆 registry 绑定在 mimo-v2.5-tts-voiceclone 模型下
+        // （catalog 请求模型是 mimo-v2.5-tts 预置音色，但克隆音色由 voiceclone 模型管理）
+        const cloneModel = catalog.providerId === 'mimo-tts' ? 'mimo-v2.5-tts-voiceclone' : catalog.model
+        const clones = await this._cloneService.listClones({ providerId: catalog.providerId, model: cloneModel })
         if (clones?.code === 0 && Array.isArray(clones.data?.voices)) {
           for (const clone of clones.data.voices) {
             if (clone?.source !== CAPABILITY_TYPES.USER_CLONE || typeof clone.id !== 'string' || typeof clone.name !== 'string') continue
@@ -415,21 +422,33 @@ class TtsVoiceService {
     const voiceIds = new Set(voices.map((voice) => voice.id))
     let preference
     try {
-      preference = this._store.getUserSetting(preferenceSettingKey(catalog.providerId, catalog.model), null, ownerSubject)
+      // MiMo TTS：预置音色偏好存 tts 键，克隆音色偏好存 voiceclone 键，两者都读取
+      if (catalog.providerId === 'mimo-tts') {
+        preference = this._store.getUserSetting(preferenceSettingKey(catalog.providerId, 'mimo-v2.5-tts'), null, ownerSubject)
+          || this._store.getUserSetting(preferenceSettingKey(catalog.providerId, 'mimo-v2.5-tts-voiceclone'), null, ownerSubject)
+      } else {
+        preference = this._store.getUserSetting(preferenceSettingKey(catalog.providerId, catalog.model), null, ownerSubject)
+      }
     } catch (_) {
       return failure('VOICE_PREFERENCE_STORE_UNAVAILABLE')
     }
 
     let selectedVoiceId
-    if (isSafePreference(preference, catalog.providerId, catalog.model, voiceIds)) {
+    // MiMo TTS：偏好可能来自 tts 或 voiceclone 键，校验时按实际来源的 model
+    const preferenceModel = catalog.providerId === 'mimo-tts'
+      ? (isSafePreference(preference, catalog.providerId, 'mimo-v2.5-tts', voiceIds)
+        ? 'mimo-v2.5-tts'
+        : 'mimo-v2.5-tts-voiceclone')
+      : catalog.model
+    if (isSafePreference(preference, catalog.providerId, preferenceModel, voiceIds)) {
       selectedVoiceId = preference.voiceId
     } else {
       selectedVoiceId = defaultVoiceId(voices, capability)
       if (selectedVoiceId && preference !== null && preference !== undefined) {
         try {
-          this._store.setUserSetting(preferenceSettingKey(catalog.providerId, catalog.model), {
+          this._store.setUserSetting(preferenceSettingKey(catalog.providerId, preferenceModel), {
             providerId: catalog.providerId,
-            model: catalog.model,
+            model: preferenceModel,
             voiceId: selectedVoiceId,
             selectedAt: this._now(),
           }, ownerSubject)

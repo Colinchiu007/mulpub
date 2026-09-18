@@ -360,7 +360,13 @@ function createContainer(options) {
   // AssetGenerator - 资源生成（图片 + TTS），供 generate_assets 阶段使用
   container.register("assetGenerator", function(c) {
     const { AssetGenerator } = require('../services/asset-generator');
-    return new AssetGenerator({ log: c.get("logger"), aiGenerator: c.get("aiGenerator") });
+    // ttsVoiceCloneService 注入：MiMo 克隆音色合成时需读取本地样本注入 base64
+    // （MiMo 无远端 voice_id，样本每次合成时直接放 audio.voice 字段）
+    return new AssetGenerator({
+      log: c.get("logger"),
+      aiGenerator: c.get("aiGenerator"),
+      ttsVoiceCloneService: c.get("ttsVoiceCloneService"),
+    });
   });
   // ServiceBus 统一聚合所有 Bridge
   container.register("serviceBus", function(c) {

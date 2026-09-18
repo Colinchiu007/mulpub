@@ -1,139 +1,124 @@
 <template>
-  <div v-if="showNotification" :style="{position:'fixed',top:'20px',right:'20px',zIndex:9999,padding:'12px 24px',borderRadius:'8px',color:'#fff',fontSize:'14px',boxShadow:'0 4px 12px rgba(0,0,0,0.15)',background:notificationType==='success'?'#34d399':'#f87171'}">{{ notificationMsg }}</div>
-<div class="cohere-content" style="display:flex;align-items:center;justify-content:center">
-    <div style="max-width:600px;width:100%;margin:40px auto">
-      <div class="cohere-card" style="cursor:default;padding:var(--space-xxl)">
+  <div v-if="showNotification" class="fr-toast" :class="notificationType === 'success' ? 'fr-toast--success' : 'fr-toast--error'">{{ notificationMsg }}</div>
+<div class="cohere-content fr-page">
+    <div class="fr-wrap">
+      <div class="cohere-card fr-card">
 
         <!-- Step 0: Welcome -->
-        <div v-if="currentStep === 0" style="text-align:center">
-          <div style="font-size:64px;margin-bottom:var(--space-lg)">🚀</div>
-          <h2 style="font-size:24px;font-weight:600;color:var(--primary);margin-bottom:8px">欢迎使用社媒管家</h2>
-          <p style="font-size:14px;color:var(--muted);margin-bottom:var(--space-xl)">
+        <div v-if="currentStep === 0" class="fr-step">
+          <div class="fr-step-icon-lg">🚀</div>
+          <h2 class="fr-step-title">欢迎使用社媒管家</h2>
+          <p class="fr-step-desc">
             三步完成配置，即可开始多平台一键发布
           </p>
-          <div style="display:flex;flex-direction:column;gap:12px;text-align:left;max-width:400px;margin:0 auto var(--space-xl)">
-            <div style="display:flex;gap:12px;padding:12px;background:var(--soft-stone);border-radius:8px">
-              <span style="font-size:18px">①</span>
-              <div><strong>环境检测</strong><br><span style="font-size:13px;color:var(--muted)">自动安装 Python 依赖和 Playwright</span></div>
+          <div class="fr-step-list">
+            <div class="fr-step-item">
+              <span class="fr-step-num">①</span>
+              <div><strong>环境检测</strong><br><span class="fr-step-item-desc">自动安装 Python 依赖和 Playwright</span></div>
             </div>
-            <div style="display:flex;gap:12px;padding:12px;background:var(--soft-stone);border-radius:8px">
-              <span style="font-size:18px">②</span>
-              <div><strong>添加账号</strong><br><span style="font-size:13px;color:var(--muted)">登录你的社交媒体平台账号</span></div>
+            <div class="fr-step-item">
+              <span class="fr-step-num">②</span>
+              <div><strong>添加账号</strong><br><span class="fr-step-item-desc">登录你的社交媒体平台账号</span></div>
             </div>
-            <div style="display:flex;gap:12px;padding:12px;background:var(--soft-stone);border-radius:8px">
-              <span style="font-size:18px">③</span>
-              <div><strong>首次发布</strong><br><span style="font-size:13px;color:var(--muted)">写一篇文章发布到各平台</span></div>
+            <div class="fr-step-item">
+              <span class="fr-step-num">③</span>
+              <div><strong>首次发布</strong><br><span class="fr-step-item-desc">写一篇文章发布到各平台</span></div>
             </div>
           </div>
           <button class="cohere-btn-primary" @click="currentStep = 1">开始配置 →</button>
         </div>
 
         <!-- Step 1: Dependencies -->
-        <div v-else-if="currentStep === 1" style="text-align:center">
-          <div style="font-size:48px;margin-bottom:var(--space-lg)">⚙️</div>
-          <h2 style="font-size:22px;font-weight:500;color:var(--primary);margin-bottom:8px">环境检测</h2>
-          <p style="font-size:14px;color:var(--muted);margin-bottom:var(--space-xl)">自动安装依赖，可能需要几分钟</p>
+        <div v-else-if="currentStep === 1" class="fr-step">
+          <div class="fr-step-icon">⚙️</div>
+          <h2 class="fr-step-title-sm">环境检测</h2>
+          <p class="fr-step-desc">自动安装依赖，可能需要几分钟</p>
 
-          <div style="display:flex;flex-direction:column;gap:var(--space-md)">
+          <div class="fr-dep-list">
             <div v-for="(step, idx) in depSteps" :key="idx"
-              :style="{
-                display:'flex',alignItems:'flex-start',gap:'12px',
-                padding:'12px',borderRadius:'8px',
-                background: step.status === 'done' ? 'var(--teal-soft,#e8f5e9)' :
-                            step.status === 'active' ? 'var(--pale-blue,#e3f2fd)' :
-                            step.status === 'error' ? 'var(--coral-soft,#ffebee)' : 'var(--soft-stone,var(--bg))',
-                textAlign:'left'
-              }">
-              <span style="font-size:20px;line-height:24px">
+              class="fr-dep-item"
+              :class="'fr-dep-item--' + step.status"
+            >
+              <span class="fr-dep-icon">
                 <span v-if="step.status === 'done'">✅</span>
                 <span v-else-if="step.status === 'active'">⏳</span>
                 <span v-else-if="step.status === 'error'">❌</span>
                 <span v-else>⬜</span>
               </span>
-              <div style="flex:1">
-                <div style="font-weight:500;font-size:14px">{{ step.label }}</div>
-                <div v-if="step.message" style="font-size:13px;color:var(--muted);margin-top:4px">{{ step.message }}</div>
+              <div class="fr-dep-body">
+                <div class="fr-dep-label">{{ step.label }}</div>
+                <div v-if="step.message" class="fr-dep-msg">{{ step.message }}</div>
               </div>
             </div>
           </div>
 
-          <div v-if="allDepsDone" style="margin-top:var(--space-xl)">
-            <p style="color:var(--teal);margin-bottom:var(--space-lg)">✅ 环境就绪</p>
+          <div v-if="allDepsDone" class="fr-step-actions">
+            <p class="fr-ready-text">✅ 环境就绪</p>
             <button class="cohere-btn-primary" @click="currentStep = 2">下一步：添加账号 →</button>
           </div>
-          <div v-if="depError" style="margin-top:var(--space-xl)">
-            <p style="color:var(--coral);margin-bottom:var(--space-md)">❌ 安装出错：{{ depErrorMessage }}</p>
+          <div v-if="depError" class="fr-step-actions">
+            <p class="fr-error-text">❌ 安装出错：{{ depErrorMessage }}</p>
             <button class="cohere-btn-secondary" @click="retryDeps">重试</button>
-            <button class="cohere-btn-primary" style="margin-left:12px" @click="currentStep = 2">跳过</button>
+            <button class="cohere-btn-primary fr-btn-skip" @click="currentStep = 2">跳过</button>
           </div>
         </div>
 
         <!-- Step 2: Add Account -->
-        <div v-else-if="currentStep === 2" style="text-align:center">
-          <div style="font-size:48px;margin-bottom:var(--space-lg)">🔑</div>
-          <h2 style="font-size:22px;font-weight:500;color:var(--primary);margin-bottom:8px">添加你的第一个账号</h2>
-          <p style="font-size:14px;color:var(--muted);margin-bottom:var(--space-xl)">
+        <div v-else-if="currentStep === 2" class="fr-step">
+          <div class="fr-step-icon">🔑</div>
+          <h2 class="fr-step-title-sm">添加你的第一个账号</h2>
+          <p class="fr-step-desc">
             选择平台后，在弹出的页面中完成登录
           </p>
 
-          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;max-width:450px;margin:0 auto var(--space-xl)">
+          <div class="fr-platform-grid">
             <button v-for="p in quickPlatforms" :key="p.id"
-              :style="{
-                padding:'14px 12px',border:'1px solid var(--hairline)',
-                borderRadius:'8px',background:'var(--canvas,var(--surface))',cursor:'pointer',
-                fontSize:'14px',display:'flex',alignItems:'center',gap:'8px',
-                ...(addingPlatform === p.id ? {opacity:0.6} : {})
-              }"
+              class="fr-platform-btn"
+              :class="{ 'fr-platform-btn--adding': addingPlatform === p.id }"
               :disabled="addingPlatform === p.id"
               @click="addAccount(p.id)">
-              <img v-if="p.iconUrl" :src="p.iconUrl" :alt="p.label" width="20" height="20" style="vertical-align:middle">
+              <img v-if="p.iconUrl" :src="p.iconUrl" :alt="p.label" width="20" height="20" class="fr-platform-icon">
               <span v-else>{{ p.icon }}</span> {{ p.label }}
             </button>
           </div>
 
-          <div style="margin-top:var(--space-md)">
+          <div class="fr-step-next">
             <button class="cohere-btn-secondary" @click="currentStep = 3">已添加账号，下一步 →</button>
           </div>
         </div>
 
         <!-- Step 3: Quick Publish Tutorial -->
-        <div v-else-if="currentStep === 3" style="text-align:center">
-          <div style="font-size:48px;margin-bottom:var(--space-lg)">✍️</div>
-          <h2 style="font-size:22px;font-weight:500;color:var(--primary);margin-bottom:8px">准备完毕！</h2>
-          <p style="font-size:14px;color:var(--muted);margin-bottom:var(--space-xl)">
+        <div v-else-if="currentStep === 3" class="fr-step">
+          <div class="fr-step-icon">✍️</div>
+          <h2 class="fr-step-title-sm">准备完毕！</h2>
+          <p class="fr-step-desc">
             现在你可以开始多平台发布
           </p>
 
-          <div style="display:flex;flex-direction:column;gap:12px;text-align:left;max-width:400px;margin:0 auto var(--space-xl)">
-            <div style="display:flex;gap:12px;padding:12px;background:var(--soft-stone,var(--bg));border-radius:8px">
+          <div class="fr-step-list">
+            <div class="fr-step-item">
               <span>📝</span>
-              <div><strong>写文章</strong><br><span style="font-size:13px;color:var(--muted)">在发布页面编辑标题和正文</span></div>
+              <div><strong>写文章</strong><br><span class="fr-step-item-desc">在发布页面编辑标题和正文</span></div>
             </div>
-            <div style="display:flex;gap:12px;padding:12px;background:var(--soft-stone,var(--bg));border-radius:8px">
+            <div class="fr-step-item">
               <span>🎯</span>
-              <div><strong>选平台</strong><br><span style="font-size:13px;color:var(--muted)">勾选要发布的平台</span></div>
+              <div><strong>选平台</strong><br><span class="fr-step-item-desc">勾选要发布的平台</span></div>
             </div>
-            <div style="display:flex;gap:12px;padding:12px;background:var(--soft-stone,var(--bg));border-radius:8px">
+            <div class="fr-step-item">
               <span>🚀</span>
-              <div><strong>一键发布</strong><br><span style="font-size:13px;color:var(--muted)">后台自动分发到所有选中的平台</span></div>
+              <div><strong>一键发布</strong><br><span class="fr-step-item-desc">后台自动分发到所有选中的平台</span></div>
             </div>
           </div>
 
-          <div style="display:flex;gap:12px;justify-content:center">
+          <div class="fr-final-actions">
             <button class="cohere-btn-secondary" @click="$router.push('/accounts')">管理账号</button>
             <button class="cohere-btn-primary" @click="$router.push('/publish')">开始发布 →</button>
           </div>
         </div>
 
         <!-- Step progress dots -->
-        <div style="display:flex;justify-content:center;gap:8px;margin-top:var(--space-xl)">
-          <div v-for="i in 4" :key="i"
-            :style="{
-              width:'8px',height:'8px',borderRadius:'50%',
-              background: currentStep >= i-1 ? 'var(--action-blue)' : 'var(--hairline)',
-              transition:'background 0.3s'
-            }"
-          ></div>
+        <div class="fr-dots">
+          <div v-for="i in 4" :key="i" class="fr-dot" :class="{ 'fr-dot--active': currentStep >= i-1 }"></div>
         </div>
       </div>
     </div>
@@ -242,3 +227,75 @@ function retryDeps () {
   firstRunCheck()
 }
 </script>
+<style scoped>
+/* T1-3c：原 55 处内联样式全部类化；颜色一律 var(--color-*)（tokens.css 语义槽）。
+ * 依赖步骤状态底色等价映射：teal-soft→--color-success-soft、pale-blue→--color-primary-light、
+ * coral-soft→--color-danger-soft、soft-stone→--color-bg-inset（T1-1 转发等值）。 */
+.fr-toast {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 9999;
+  padding: 12px 24px;
+  border-radius: var(--r-sm);
+  color: var(--color-on-primary);
+  font-size: var(--font-size-base);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+.fr-toast--success { background: var(--color-success); }
+.fr-toast--error { background: var(--color-notice-error); }
+
+.fr-page { display: flex; align-items: center; justify-content: center; }
+.fr-wrap { max-width: 600px; width: 100%; margin: 40px auto; }
+.fr-card { cursor: default; padding: var(--space-xxl); }
+
+.fr-step { text-align: center; }
+.fr-step-icon-lg { font-size: 64px; margin-bottom: var(--space-lg); }
+.fr-step-icon { font-size: 48px; margin-bottom: var(--space-lg); }
+.fr-step-title { font-size: var(--font-size-xl); font-weight: 600; color: var(--color-primary); margin-bottom: 8px; }
+.fr-step-title-sm { font-size: 22px; font-weight: 500; color: var(--color-primary); margin-bottom: 8px; }
+.fr-step-desc { font-size: 14px; color: var(--color-text-muted); margin-bottom: var(--space-xl); }
+
+.fr-step-list { display: flex; flex-direction: column; gap: 12px; text-align: left; max-width: 400px; margin: 0 auto var(--space-xl); }
+.fr-step-item { display: flex; gap: 12px; padding: 12px; background: var(--color-bg-inset); border-radius: var(--r-sm); }
+.fr-step-num { font-size: 18px; }
+.fr-step-item-desc { font-size: var(--font-size-sm); color: var(--color-text-muted); }
+
+.fr-dep-list { display: flex; flex-direction: column; gap: var(--space-md); }
+.fr-dep-item { display: flex; align-items: flex-start; gap: 12px; padding: 12px; border-radius: var(--r-sm); text-align: left; }
+.fr-dep-item--done { background: var(--color-success-soft); }
+.fr-dep-item--active { background: var(--color-primary-light); }
+.fr-dep-item--error { background: var(--color-danger-soft); }
+.fr-dep-item--pending { background: var(--color-bg-inset); }
+.fr-dep-icon { font-size: 20px; line-height: 24px; }
+.fr-dep-body { flex: 1; }
+.fr-dep-label { font-weight: 500; font-size: 14px; }
+.fr-dep-msg { font-size: var(--font-size-sm); color: var(--color-text-muted); margin-top: 4px; }
+
+.fr-step-actions { margin-top: var(--space-xl); }
+.fr-ready-text { color: var(--color-success); margin-bottom: var(--space-lg); }
+.fr-error-text { color: var(--color-danger); margin-bottom: var(--space-md); }
+.fr-btn-skip { margin-left: 12px; }
+
+.fr-platform-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; max-width: 450px; margin: 0 auto var(--space-xl); }
+.fr-platform-btn {
+  padding: 14px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-sm);
+  background: var(--color-bg-canvas);
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.fr-platform-btn--adding { opacity: 0.6; }
+.fr-platform-icon { vertical-align: middle; }
+.fr-step-next { margin-top: var(--space-md); }
+
+.fr-final-actions { display: flex; gap: 12px; justify-content: center; }
+
+.fr-dots { display: flex; justify-content: center; gap: 8px; margin-top: var(--space-xl); }
+.fr-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-border); transition: background 0.3s; }
+.fr-dot--active { background: var(--color-primary); }
+</style>

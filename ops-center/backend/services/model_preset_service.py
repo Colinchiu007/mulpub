@@ -285,7 +285,8 @@ PRESET_CATALOG = [
     {
         "id": "mimo-tts", "name": "MiMo TTS", "category": "tts",
         "base_url": "https://api.xiaomimimo.com/v1",
-        "models": ["mimo-v2.5-tts","mimo-v2.5-tts-voicedesign","mimo-v2.5-tts-voiceclone"], "default_model": "mimo-v2.5-tts",
+        # mimo-v2.5-tts-voicedesign 项目用不到，已移除（2026-09-18）
+        "models": ["mimo-v2.5-tts","mimo-v2.5-tts-voiceclone"], "default_model": "mimo-v2.5-tts",
         "rate_per_minute": 20,
         "doc_links": ["https://dev.mi.com/xiaomimimo/"],
     },
