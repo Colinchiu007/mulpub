@@ -148,3 +148,38 @@ async def test_validation_errors():
             "id": "hard-constraint-default-v1", "title": "t", "content": "x",
         })
         assert r.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_soft_delete_then_recreate_same_id():
+    """审查 C1 回归：软删除后同 id 重建应恢复激活（不 500）。"""
+    headers = _admin_headers()
+    async with _client() as c:
+        # 创建 → 删除 → 同 id 重建
+        r = await c.post("/api/v1/rewrite-hard-constraints", headers=headers, json={
+            "id": "hc-recreate", "title": "v1", "content": "规则X",
+        })
+        assert r.status_code == 200
+        r = await c.delete("/api/v1/rewrite-hard-constraints/hc-recreate", headers=headers)
+        assert r.status_code == 200
+        r = await c.post("/api/v1/rewrite-hard-constraints", headers=headers, json={
+            "id": "hc-recreate", "title": "v2", "content": "规则Y",
+        })
+        assert r.status_code == 200, r.text
+        assert r.json()["title"] == "v2"
+        # 列表可见（恢复激活）
+        r = await c.get("/api/v1/rewrite-hard-constraints", headers=headers)
+        ids = [x["id"] for x in r.json()["items"]]
+        assert "hc-recreate" in ids
+
+
+@pytest.mark.asyncio
+async def test_create_consumes_enabled_payload():
+    """审查 m1 回归：创建时消费载荷 enabled。"""
+    headers = _admin_headers()
+    async with _client() as c:
+        r = await c.post("/api/v1/rewrite-hard-constraints", headers=headers, json={
+            "id": "hc-disabled", "title": "停用版", "content": "规则Z", "enabled": False,
+        })
+        assert r.status_code == 200
+        assert r.json()["enabled"] is False

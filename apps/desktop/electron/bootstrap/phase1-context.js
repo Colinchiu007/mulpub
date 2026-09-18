@@ -222,6 +222,10 @@ function extractContext(container) {
   if (opsCenterSync && typeof opsCenterSync.setRewriteHardConstraintManager === 'function') {
     opsCenterSync.setRewriteHardConstraintManager(rewriteHardConstraintManager)
   }
+  // 硬约束运行中更新 → 引擎缓存失效（审查 M2：sync 后新约束立即生效，无需重启）
+  if (opsCenterSync && typeof opsCenterSync.setRewriteEngineService === 'function') {
+    opsCenterSync.setRewriteEngineService(rewriteEngineService)
+  }
   if (opsCenterSync && typeof opsCenterSync.autoSyncOnStart === 'function') {
     opsCenterSync.autoSyncOnStart()
   }
