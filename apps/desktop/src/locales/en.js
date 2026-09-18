@@ -2292,9 +2292,6 @@ export default {
     recordsCleared: 'Collected copies cleared',
     recordsEditCreated: 'Opened content editor',
     rewriteHandoffFailed: 'Rewrite handoff failed, please retry',
-    libraryTitle: 'Copy library',
-    libraryEmptyTitle: 'The copy library is empty',
-    libraryEmptyDesc: 'Collected and rewritten copy will be saved here for reuse',
     libraryCount: (ctx) => ctx.named('count') + ' items',
     libraryFilterLabel: 'Copy filter',
     libraryFilterAll: 'All',
@@ -2312,17 +2309,6 @@ export default {
     libraryRewrite: 'Rewrite',
     libraryPreviewTitle: 'Copy content',
     libraryClose: 'Close',
-    libraryRewriteModalTitle: 'Rewrite copy',
-    libraryRewriteOptions: 'Rewrite options',
-    libraryRewriteStyle: 'Rewrite style',
-    libraryRewriteKnowledge: 'Rewrite reference',
-    libraryRewriteLength: 'Target length',
-    libraryRewritePlatform: 'Target platform',
-    librarySourceSection: 'Source',
-    libraryResultSection: 'Rewrite result',
-    libraryRewriteStart: 'Start rewriting',
-    libraryRewriteStarting: 'Rewriting...',
-    libraryRewriteDone: 'Rewrite finished and saved to the copy library',
     libraryRewriteNoContent: 'This copy has no content and cannot be rewritten',
   },
   rewriteEngine: {
@@ -2539,12 +2525,6 @@ export default {
     statusUnknown: 'Unknown',
     signingIn: 'Opening sign-in...'
   },
-viralAnalysis: {
-  empty: {
-    title: 'Enter a topic to start',
-    message: 'AI will score viral potential across title structure, emotional triggers and engagement',
-  },
-},
 knowledgeBase: {
     title: 'Knowledge Base',
     empty: {
@@ -2824,6 +2804,10 @@ knowledgeBase: {
 
   // ── Viral analysis page (viral-rewrite-integration) ──
   viralAnalysis: {
+    empty: {
+      title: 'Enter a topic to start',
+      message: 'AI will score viral potential across title structure, emotional triggers and engagement',
+    },
     saveToLibrary: 'Save to viral library',
     savedToLibrary: 'Saved to viral library; retrievable via "Use viral library" when rewriting',
     saveToLibraryHint: 'Save this analysis to the viral library for the rewrite engine',
@@ -2837,6 +2821,9 @@ knowledgeBase: {
     reportKeywords: 'Rising keywords',
     reportFactors: 'Factors',
     reportPlatform: 'Target platform',
+    // Empty state (2026-09-18): was hardcoded Chinese, blocked by CI check-locale-sync --cjk
+    emptyTitle: 'Enter a topic to start analysis',
+    emptyDescription: 'AI will analyze viral potential across title structure, emotional triggers and engagement heat',
   },
 
   // ── Publish destination modal ──
@@ -2852,6 +2839,44 @@ knowledgeBase: {
   },
 
   // ── Hot topics page ──
+  // ── EmptyState centralized copy (migrated from inline hardcode) ──
+  emptyStates: {
+    cloudPublish: {
+      title: 'No publish records yet',
+    },
+    contactSheet: {
+      title: 'No scenes pending approval',
+      message: 'Scenes will appear here automatically once assets are generated',
+    },
+    createHistoryRenders: {
+      title: 'No render records yet',
+      message: 'Create your first video and records will show up here',
+    },
+    createHistoryPipelines: {
+      title: 'No pipeline runs yet',
+      message: 'Pick a creation mode to start a pipeline; runs will show up here',
+    },
+    dashboard: {
+      title: 'No data yet',
+      message: 'Click "Refresh data" to sync platform information',
+    },
+    intelligence: {
+      title: 'No results, try other keywords',
+    },
+    productionBoardBoard: {
+      title: 'No board data yet',
+    },
+    productionBoardScenes: {
+      title: 'No scenes in this stage',
+    },
+    promptEvalRecords: {
+      title: 'No evaluation records yet. Run an evaluation first.',
+    },
+    promptEvalStats: {
+      title: 'No data yet. Run an evaluation to see aggregate analysis.',
+    },
+  },
+
   hotTopics: {
     menuLabel: 'Hot Topics',
     pageTitle: 'Hot Topics',

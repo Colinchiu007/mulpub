@@ -515,6 +515,15 @@ Code review 时除逻辑正确性外，必须逐项检查：
 
 - **文本空白归一化（MUST NOT）**：清理 HTML 源码缩进噪声时**禁止**用 `replace(/\s+/g, ' ')` —— `\s` 含 `\n`/`\r`/`\u2028`/`\u2029`/全角空格 `\u3000`/NBSP `\u00a0`/BOM `\ufeff`，会把**语义换行一起压掉**，正文变成一整行。正确口径：行内空白压缩用 `[^\S\n]+`（显式排除换行）；块级结构（`p`/`h1-h6`/`blockquote` → 段间空行，`div`/`li`/`tr` → 单换行，`td`/`th` → 制表符，`<br>` → 换行，`<pre>` → 原样保留）在 DOM 层转成换行，最后只做「连续 3 个以上换行压成 1 个空行」收口。正文提取统一复用 `apps/desktop/electron/services/readable-text.js`（`extractReadableText` / `normalizeExtractedText`），禁止在采集通道里另写一套。
 
+- **门禁断言随「平台/实现迁移」同步（MUST）**：凡改动 **runner / OS / 工作流步骤名 / 组件实现细节 / 工具抽取 / locale 值 / 文件增删**，必须全仓检索并**同 PR 更新**锁死旧前提的门禁断言与基线，否则会留下**长期不可自愈的假红灯**（无人认领、且与本 PR 无关）。已知必须同步的文件：
+  - `.github/scripts/workflow-contract.test.js` —— workflow 结构；含 GUI gate 的 `xvfb-run` 断言（xvfb 是 Linux-only，迁 `windows-latest` 后必须反转为 `doesNotMatch`）
+  - `.github/scripts/autonomous-loop-workflow.test.js` / `check-route-registry.test.js` —— 同类结构断言
+  - `apps/desktop/tests/gui-ci-exit-contract.test.js` —— Electron CI 结构：`runs-on`、step 名、归档文件名（`linux-x64`↔`win32-x64`）、诊断命令（`ps -eo`↔`tasklist.exe`）、`|| true` 断言的**作用范围**（诊断步骤可合法吞错，冒烟步骤不可）
+  - `scripts/debt-baseline.json` —— `maxFileLines` / `filesOver500` / `modelProviderRequireFanOut` 等指标须**逐项**核对，**别只改前两项**；更新即「如实记录现状」，须在 PR 说明是接受漂移而非清理
+  - 渲染端测试 —— 断言 **i18n 键**而**不是 locale 字面量**（字面量会在文案调整时假红）；mock **被测代码当前真正调用的依赖**（如 `@/utils/clipboard` 的 `writeClipboard`），而非它曾经的底层浏览器 API；组件被删除时同步删除其专用测试与专用 locale 死键
+  - **判定「红灯是否本 PR 引入」的标准路径**：① `gh run list --workflow=<wf> --limit 8` 看**同一 job 在本 PR 之前的 main run 是否已红**；② `gh api .../actions/jobs/<job_id>` 读 `.steps[]` 定位失败步骤；③ 下该 job 日志取失败文件清单（大日志须 `curl --max-time 900`，`gh run view --log-failed` 对大日志静默返回空）；④ `git show --name-only <my-sha>` 比对是否在本 PR diff 内。**别只看结论就认领**。
+  - 实证：2026-09-17~18「全量迁 windows-latest 云 runner」+ #1899「统一空态」+ #1891「剪贴板工具抽取」三处改动漏更 → main 上 Electron CI 与 Quality Gate **长期红灯**（`3 failed / 542 passed`），最终由 #1907 + #1924 + #1927 才收口；期间至少两个会话重复诊断同一根因。
+
 ### QM-4：视觉回归测试
 
 **框架位置**：`apps/desktop/tests/visual-testing/`

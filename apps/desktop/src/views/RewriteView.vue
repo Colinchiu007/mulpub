@@ -298,7 +298,7 @@ const wordCountMin = ref(800)
 const wordCountMax = ref(2000)
 
 // 策略选择（2026-09-15 改为默认「手动选择」展开下拉，降低发现成本；未选时仍传 null 走引擎自动匹配）
-// 注：CopyRewriteModal / AiWriterPanel / Collection 采集页保持默认 auto，不受影响
+// 注：AiWriterPanel / Collection 采集页保持默认 auto，不受影响
 const strategyMode = ref('manual')
 const rewriteStrategyId = ref('')
 const rewriteStrategies = ref([])

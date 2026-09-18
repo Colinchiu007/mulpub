@@ -234,8 +234,8 @@
           v-else-if="!result"
           data-testid="viral-analysis-empty"
           icon="🔥"
-          title="输入主题开始分析"
-          description="AI 将从标题结构、情感触发、互动热度等维度分析爆款潜力"
+          :title="$t('viralAnalysis.emptyTitle')"
+          :description="$t('viralAnalysis.emptyDescription')"
         />
       </div>
     </div>
@@ -374,7 +374,7 @@ export default {
         content: this._buildAnalysisReport(r),
         tags,
         platform: (this.platform || '').slice(0, 50),
-        source: 'manual',
+        source: 'analysis',
         likes: 0,
         comments: 0,
       }

@@ -20,26 +20,82 @@
 - 迭代场景：同一 PR 重复推送不再累积并发占用（此前 12 个 workflow 全无并发控制，是「分批启动空档」8–12 分钟的直接成因）。
 
 ---
+# [未发布] feat(viral): P1 模式卡片本地规则预填兜底 + 爆款分析落库来源标记（2026-09-18）
+### 新增
+- **P1-D 模式卡片本地规则预填兜底**：PatternExtractionService 在 LLM 连续失败 2 次后，用零成本启发式正则（hook_type 优先级链 / 尾部 CTA 信号 / 段落结构启发 / title_formula 数字占位符化）预填卡片 status=done——卡片不再进入 failed 终态，`buildViralContext` 的聚合风格指导（buildPatternGuidance）覆盖率显著提升；保守原则：无显著信号的字段留空，不稀释聚合统计；预填值经 `hook_analysis` 前缀「（本地规则预填）」标注，LLM 恢复后可人工重置 pending 重提取。
+- **P1 落库来源标记**：`normalizeViralItem` source 枚举扩展 `analysis`（collection/manual/analysis）；爆款分析页「存入爆款库」落库条目改带 `source: 'analysis'`，与真实采集内容区分。
+### 验证
+- 新增 pattern-extraction-service.test.js 7 例（LLM 正常回归 / 预填触发 / attempts 门槛 / hook·CTA·公式规则 / 源缺失 failed 回归）；ViralAnalysis.test.js 断言同步；合计 31/31 绿。
+---
 
-# [未发布] feat(model-providers): 新增 Agnes-AI 多模态预设（文字推理+图片生成+视频生成，中国站统一端点）（2026-09-16）
-
-### 新增
-- **多模态预设 `agnes-multimodal`（显示名 Agnes-AI）**：把 Agnes 原有三类独立服务商（agnes-llm / agnes-image / agnes-video）合并为一个多模态能力入口，同一 API Key 覆盖三种能力，用户在模型设置中只需配置一次即可在文字推理、图片生成、视频生成三类选择器中使用：
-  - 文字推理（llm）：`agnes-3.0-flash`（OpenAI 兼容 `POST /chat/completions`，512K 上下文）
-  - 图片生成（image）：`agnes-image-2.5-flash`（OpenAI 兼容 `POST /images/generations`，1K-4K 档位）
-  - 视频生成（video）：`agnes-video-2.5-flash`（OpenAI Videos 兼容 `POST /videos`，720P 异步任务）
-  - 统一 Base URL（中国站）：`https://api.agnes-ai.cn/v1`（区别于既有国际站预设的 `apihub.agnes-ai.com`）
-- **新增 Adapter `AgnesMultimodalAdapter`**（`apps/desktop/electron/services/adapters/agnes-multimodal.js`）：
-  - LLM / 生图能力委托既有 `AgnesLlmAdapter` / `AgnesImageAdapter`（协议不变，共享 credentials）
-  - 视频 2.5 Flash 为全新协议（与 v2.0 的 width/num_frames 协议不兼容），本类内实现：提交体 `{ model, prompt, mode, seconds, size: '720P', aspect_ratio, seed }`；`seconds` 由 numFrames/frameRate 推导并 clamp 到官方允许的 "4"–"12"（字符串）；`aspect_ratio` 由像素宽高推导最近支持画幅（21:9/16:9/4:3/1:1/3:4/9:16）
-  - 任务查询 `GET {apiRoot}/agnesapi?video_id=<ID>&model_name=<模型ID>`：提交时记录 taskId→model 映射（有界 200 条），查询必须回传 model_name（keyframe/reference 模式任务不带回 model_name 查不到）
-  - 沿用 agnes-video.js 的 503/429/500 有界重试（6 次递增退避）与 ProviderError 错误转换
-- **注册与展示**：`model-provider-manager.js` 注册 adapter 工厂；`provider-name-map.js` 增加 `agnes-multimodal: 'Agnes-AI'` 显示名；seeds 声明 `capabilities: ['llm','image','video']` 与 `capability_models`，限流预算 `rate_per_minute: 20`（与 minimax-multimodal 同级）
-
-### 验证
-- 新增 `agnes-multimodal.test.js` **23/23 通过**：默认中国站 baseUrl / validateConfig / 静态模型列表 / v2.5 请求体契约（mode/size/seconds 推导与 clamp、旧协议字段不得出现）/ video_id 优先与 id/task_id 兼容 / keyframe+reference 模式映射与校验 / 503 重试成功、400 不重试 / getVideoStatus 带 model_name 与 metadata.url 解析 / chatCompletion 与 generateImage 默认模型与端点 / 预设契约（capabilities ≥2、capability_models ⊆ models、限流预算登记）
-- 回归：`model-provider-seeds` / `model-provider-multimodal` / `agnes-llm` / `agnes-image` / `agnes-video` / `resolve-default` / `pipeline-error-formatter` / `provider-anomaly` 全绿；`model-provider-multimodal.test.js` 中一处按 `listProviders('multimodal')[0]` 索引取 MiniMax 的断言改为按 id 查找（新增第二个多模态预设后索引假设失效）
-- `asset-generator.test.js` 5 个失败经共享根 main 对照确认为存量环境依赖失败（edge-tts spawn），与本次改动无关
+# [未发布] docs(agents): QM-3 新增 MUST——门禁断言必须随平台/实现迁移同步更新（2026-09-18）
+### 变更
+- **背景**：main 上 Electron CI 与 Quality Gate 曾长期红灯（`Unit tests = 3 failed / 542 passed / 1 skipped`，546），根因不是功能缺陷，而是三处「平台/实现迁移」都**没同步更新锁死旧前提的门禁断言/基线**：① 全量迁 `windows-latest` 云 runner（`xvfb-run` / `ubuntu-latest` / `ps -eo` / `linux-x64` 归档 / 旧 step 名）；② #1899 统一空态走 locale（测试仍断言旧字面量 `暂无文案`）；③ #1891 剪贴板抽取到 `@/utils/clipboard`（测试仍断言底层 `navigator.clipboard`）。最终由 #1907 + #1924 + #1927 才收口，期间**至少两个会话重复诊断同一根因**
+- **`AGENTS.md` QM-3 新增 MUST「门禁断言随平台/实现迁移同步」**：明确触发条件（runner / OS / 工作流步骤名 / 组件实现细节 / 工具抽取 / locale 值 / 文件增删）+ 必须同步核查的文件清单（`workflow-contract.test.js`、`autonomous-loop-workflow.test.js`、`check-route-registry.test.js`、`gui-ci-exit-contract.test.js`、`scripts/debt-baseline.json`）+ 两条断言原则（断言 i18n 键而非 locale 字面量；mock 当前真正调用的依赖而非旧底层 API；组件删除时同步删专用测试与专用 locale 死键）+ 「判定红灯是否本 PR 引入」的标准路径（查本 PR 之前的 main run → 读 `.steps[]` → 下 job 日志 → 比对 `git show --name-only`）
+- **纯文档改动**：`AGENTS.md` +9 行、无代码变更（`git diff --numstat` = 9/0）
+### 验证
+- 复核既有 QM-3 规则未被破坏：`文本空白归一化（MUST NOT）` × 1、`文本结构断言（MUST）` × 1、`### QM-4` × 1
+- 本条目即为满足文档同步门禁所需（`AGENTS.md` 被该门禁视为代码变更，须同 PR 携带 `CHANGELOG.md`）
+---
+# [未发布] docs(agents): QM-3 新增 MUST——门禁断言必须随平台/实现迁移同步更新（2026-09-18）
+### 变更
+- **背景**：main 上 Electron CI 与 Quality Gate 曾长期红灯（`Unit tests = 3 failed / 542 passed / 1 skipped`，546），根因不是功能缺陷，而是三处「平台/实现迁移」都**没同步更新锁死旧前提的门禁断言/基线**：① 全量迁 `windows-latest` 云 runner（`xvfb-run` / `ubuntu-latest` / `ps -eo` / `linux-x64` 归档 / 旧 step 名）；② #1899 统一空态走 locale（测试仍断言旧字面量 `暂无文案`）；③ #1891 剪贴板抽取到 `@/utils/clipboard`（测试仍断言底层 `navigator.clipboard`）。最终由 #1907 + #1924 + #1927 才收口，期间**至少两个会话重复诊断同一根因**
+- **`AGENTS.md` QM-3 新增 MUST「门禁断言随平台/实现迁移同步」**：明确触发条件（runner / OS / 工作流步骤名 / 组件实现细节 / 工具抽取 / locale 值 / 文件增删）+ 必须同步核查的文件清单（`workflow-contract.test.js`、`autonomous-loop-workflow.test.js`、`check-route-registry.test.js`、`gui-ci-exit-contract.test.js`、`scripts/debt-baseline.json`）+ 两条断言原则（断言 i18n 键而非 locale 字面量；mock 当前真正调用的依赖而非旧底层 API；组件删除时同步删专用测试与专用 locale 死键）+ 「判定红灯是否本 PR 引入」的标准路径（查本 PR 之前的 main run → 读 `.steps[]` → 下 job 日志 → 比对 `git show --name-only`）
+- **纯文档改动**：`AGENTS.md` +9 行、无代码变更（`git diff --numstat` = 9/0）
+### 验证
+- 复核既有 QM-3 规则未被破坏：`文本空白归一化（MUST NOT）` × 1、`文本结构断言（MUST）` × 1、`### QM-4` × 1
+- 本条目即为满足文档同步门禁所需（`AGENTS.md` 被该门禁视为代码变更，须同 PR 携带 `CHANGELOG.md`）
+---
+
+# [未发布] fix(i18n): 清理 #1899 遗留的 locale 重复 viralAnalysis 残缺块 + 12 处 EmptyState 存量硬编码迁移 locale（2026-09-18）
+
+### 修复
+- **locale 重复键结构隐患**：#1899 在 zh/en 各引入一个**顶格重复的 `viralAnalysis` 残缺块**（仅含 `empty` 子键），与既有完整块构成重复键——JS 后键覆盖前键，残缺块内容不可达且后续向其加键会被静默覆盖。已删除残缺块（zh/en 各 6 行）。（QG Static 的 2 处 fresh 由 #1924 修复，本 PR 为其后的增量清理。）
+
+### 变更
+- 全仓 7 文件 **12 处** EmptyState 属性硬编码中文（基线内存量同类债）迁移到 `$t`：新增集中式 `emptyStates.*` 命名空间（10 组键）zh/en 成对；空态渲染文案不变。
+- 5 个测试文件（CloudPublish/ContactSheetView/CreateHistory/ProductionBoard/views-coverage）注入 i18n（`config.global.plugins` 或 mount plugins），修复裸 mount 下模板 `$t` 渲染崩溃。
+
+### 验证
+- `check-locale-sync --cjk` PASS（CJK 硬编码净减 12 条）；`--keys` PASS（1002 keys）；check-locale-sync.test.js 6/6（含行号漂移回归用例）。
+- 受影响 view 测试回归：CloudPublish 16/16、ContactSheetView 18/18、CreateHistory 23/23、ProductionBoard 28/28、Dashboard 13/13、Intelligence 16/16、ViralAnalysis 24/24、views-coverage 7/9（2 例为本地 Junction 环境 workspace 包解析限制，完整环境对照 PASS）、EmptyState 组件 7/7。
+
+---
+
+
+# [未发布] chore(desktop): 清理文案库孤儿组件 CopyLibraryPanel / CopyRewriteModal 及专用死键（2026-09-18）
+
+### 变更
+- 删除 `CopyLibraryPanel.vue`（340 行）+ `CopyLibraryPanel.test.js`（167 行）：合并版文案库（PR #1880）落地后无人引用；PR #1895 曾将其误恢复进 main（提案未使用、未接线），本 PR 再次移除
+- 删除 `CopyRewriteModal.vue` + `CopyRewriteModal.test.js`：弹窗式改写入口已被「跳转改写页直接改写」取代（PR #1880），成为孤儿组件
+- 删除 14 个专用 i18n 死键（zh/en 成对）：`libraryRewriteModal*` 系列 11 键 + `libraryTitle`/`libraryEmptyTitle`/`libraryEmptyDesc`；`libraryRewriteNoContent`（合并版空正文拦截）与 `wordCount*`/`rewriteStyle*`（多页共享）保留
+- RewriteView.vue 注释同步（移除对已删组件的提及）；PRD §10 技术债务清零并记录 #1895 误恢复事件
+
+### 验证
+- 受影响 4 测试文件 172 例全绿；`check-locale-sync --keys` PASS（990 个使用中 key 均存在）；CJK 基线 PASS；eslint 0 errors
+- 文档：`01-docs/PRD-COLLECTION-LIBRARY-MERGE-2026-09-16.md` §10 更新
+
+---
+
+# [未发布] feat(model-providers): 新增 Agnes-AI 多模态预设（文字推理+图片生成+视频生成，中国站统一端点）（2026-09-16）
+
+### 新增
+- **多模态预设 `agnes-multimodal`（显示名 Agnes-AI）**：把 Agnes 原有三类独立服务商（agnes-llm / agnes-image / agnes-video）合并为一个多模态能力入口，同一 API Key 覆盖三种能力，用户在模型设置中只需配置一次即可在文字推理、图片生成、视频生成三类选择器中使用：
+  - 文字推理（llm）：`agnes-3.0-flash`（OpenAI 兼容 `POST /chat/completions`，512K 上下文）
+  - 图片生成（image）：`agnes-image-2.5-flash`（OpenAI 兼容 `POST /images/generations`，1K-4K 档位）
+  - 视频生成（video）：`agnes-video-2.5-flash`（OpenAI Videos 兼容 `POST /videos`，720P 异步任务）
+  - 统一 Base URL（中国站）：`https://api.agnes-ai.cn/v1`（区别于既有国际站预设的 `apihub.agnes-ai.com`）
+- **新增 Adapter `AgnesMultimodalAdapter`**（`apps/desktop/electron/services/adapters/agnes-multimodal.js`）：
+  - LLM / 生图能力委托既有 `AgnesLlmAdapter` / `AgnesImageAdapter`（协议不变，共享 credentials）
+  - 视频 2.5 Flash 为全新协议（与 v2.0 的 width/num_frames 协议不兼容），本类内实现：提交体 `{ model, prompt, mode, seconds, size: '720P', aspect_ratio, seed }`；`seconds` 由 numFrames/frameRate 推导并 clamp 到官方允许的 "4"–"12"（字符串）；`aspect_ratio` 由像素宽高推导最近支持画幅（21:9/16:9/4:3/1:1/3:4/9:16）
+  - 任务查询 `GET {apiRoot}/agnesapi?video_id=<ID>&model_name=<模型ID>`：提交时记录 taskId→model 映射（有界 200 条），查询必须回传 model_name（keyframe/reference 模式任务不带回 model_name 查不到）
+  - 沿用 agnes-video.js 的 503/429/500 有界重试（6 次递增退避）与 ProviderError 错误转换
+- **注册与展示**：`model-provider-manager.js` 注册 adapter 工厂；`provider-name-map.js` 增加 `agnes-multimodal: 'Agnes-AI'` 显示名；seeds 声明 `capabilities: ['llm','image','video']` 与 `capability_models`，限流预算 `rate_per_minute: 20`（与 minimax-multimodal 同级）
+
+### 验证
+- 新增 `agnes-multimodal.test.js` **23/23 通过**：默认中国站 baseUrl / validateConfig / 静态模型列表 / v2.5 请求体契约（mode/size/seconds 推导与 clamp、旧协议字段不得出现）/ video_id 优先与 id/task_id 兼容 / keyframe+reference 模式映射与校验 / 503 重试成功、400 不重试 / getVideoStatus 带 model_name 与 metadata.url 解析 / chatCompletion 与 generateImage 默认模型与端点 / 预设契约（capabilities ≥2、capability_models ⊆ models、限流预算登记）
+- 回归：`model-provider-seeds` / `model-provider-multimodal` / `agnes-llm` / `agnes-image` / `agnes-video` / `resolve-default` / `pipeline-error-formatter` / `provider-anomaly` 全绿；`model-provider-multimodal.test.js` 中一处按 `listProviders('multimodal')[0]` 索引取 MiniMax 的断言改为按 id 查找（新增第二个多模态预设后索引假设失效）
+- `asset-generator.test.js` 5 个失败经共享根 main 对照确认为存量环境依赖失败（edge-tts spawn），与本次改动无关
 
 ---
 

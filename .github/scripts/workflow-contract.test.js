@@ -90,7 +90,10 @@ test('GUI gate Electron 步骤仅发布 tag 触发且带硬看门狗', () => {
   assert.ok(gateStep, 'Electron GUI gate step must exist');
   assert.match(gateStep, /startsWith\(github\.ref, 'refs\/tags\/v'\)/, 'Electron GUI gate 必须仅发布 tag 触发');
   assert.match(gateStep, /timeout --signal=TERM --kill-after=30s 8m/, 'Electron GUI gate 必须带 8 分钟硬看门狗');
-  assert.match(gateStep, /xvfb-run/, 'Electron GUI gate 必须经 xvfb 虚拟显示');
+  // Windows 自托管 runner 拥有真实显示，xvfb 是 Linux-only 虚拟帧缓冲，在此不适用；
+  // 契约改为断言该步骤直接启动 Electron GUI 测试，而非经 Linux-only 的 xvfb-run。
+  assert.doesNotMatch(gateStep, /xvfb-run/, 'Windows 自托管 Electron GUI gate 不得依赖 Linux-only 的 xvfb-run');
+  assert.match(gateStep, /node apps\/desktop\/tests\/electron-gui-v9\.js/, 'Electron GUI gate 必须直接启动 Electron GUI 测试');
 });
 
 test('桌面覆盖率门禁串行运行，避免全量 V8 coverage 资源竞争', () => {

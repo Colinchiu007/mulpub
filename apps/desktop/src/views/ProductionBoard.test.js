@@ -26,6 +26,9 @@ vi.mock("@/composables/useBacklot", () => ({
 }));
 
 import ProductionBoard from "./ProductionBoard.vue";
+import { config as vtuConfig } from '@vue/test-utils'
+import i18n from '@/i18n'
+vtuConfig.global.plugins = [i18n]
 
 describe("ProductionBoard", () => {
   beforeEach(() => {

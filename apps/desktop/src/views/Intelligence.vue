@@ -62,7 +62,7 @@
           </span>
         </div>
 
-        <EmptyState v-if="result.total === 0" title="暂无结果，试试其他关键词" />
+        <EmptyState v-if="result.total === 0" :title="$t('emptyStates.intelligence.title')" />
 
         <div v-for="item in result.results" :key="`${item.source}-${item.id}`"
           class="intel-item"

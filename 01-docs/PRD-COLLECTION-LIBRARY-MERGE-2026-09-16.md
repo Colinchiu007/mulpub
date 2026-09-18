@@ -226,4 +226,5 @@ CJK 门禁：本次新增用户可见文案全部走 i18n zh/en 成对，`src/` 
 
 ## 10. 技术债务
 
-- `CopyRewriteModal.vue` + `CopyRewriteModal.test.js`：弹窗式改写入口被「跳转改写页」取代后不再被引用，组件与测试保留（绿色但冗余）。后续清理：删组件+测试+`libraryRewriteModal*` 系列独占 i18n key（预估 -600 行）。
+- ~~`CopyRewriteModal.vue` + `CopyRewriteModal.test.js`~~：**已清理（2026-09-18，本 PR）**。弹窗式改写入口被「跳转改写页」取代后成为孤儿组件，连同 `CopyLibraryPanel.vue`/`CopyLibraryPanel.test.js` 与 14 个专用 i18n 死键（zh/en 成对：`libraryRewriteModal*` 系列 11 键 + `libraryTitle`/`libraryEmptyTitle`/`libraryEmptyDesc` 3 键）一并删除；`libraryRewriteNoContent` 因合并版改写空正文拦截仍在使用而保留；`wordCount*`/`rewriteStyle*` 为多页共享键未动。
+- **事件记录**：PR #1895（activate-viral-library，2026-09-16）曾将 `CopyLibraryPanel.vue`/`CopyLibraryPanel.test.js` 误恢复进 main——该提案（爆款库检索修复/模式卡片/效果闭环）并未使用这两个组件，属分支基于旧 main 导致的误带入。本 PR 将其再次移除；若后续确需恢复旧面板，必须基于合并版架构重新接线，而非原样复活。
