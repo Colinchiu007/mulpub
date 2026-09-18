@@ -921,7 +921,12 @@ var require_aggregation = __commonJS({
         aggregationCollectBatch: (payload) => ipcRenderer2.invoke("aggregation:collect-batch", payload),
         aggregationRewrite: (payload) => ipcRenderer2.invoke("aggregation:rewrite", payload),
         aggregationSources: () => ipcRenderer2.invoke("aggregation:sources"),
-        aggregationTaskStatus: (taskId) => ipcRenderer2.invoke("aggregation:task-status", taskId)
+        aggregationTaskStatus: (taskId) => ipcRenderer2.invoke("aggregation:task-status", taskId),
+        zhihuFavlistList: () => ipcRenderer2.invoke("zhihu-favlist:list"),
+        zhihuFavlistContents: (payload) => ipcRenderer2.invoke("zhihu-favlist:contents", payload),
+        zhihuFavlistBatchCollect: (payload) => ipcRenderer2.invoke("zhihu-favlist:batch-collect", payload),
+        zhihuFavlistBatchRewrite: (payload) => ipcRenderer2.invoke("zhihu-favlist:batch-rewrite", payload),
+        zhihuFavlistCancel: (type) => ipcRenderer2.invoke("zhihu-favlist:cancel", { type: type })
       };
     }
     module2.exports = { createAggregationApi: createAggregationApi2 };
