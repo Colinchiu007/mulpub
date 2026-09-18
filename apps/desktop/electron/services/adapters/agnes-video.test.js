@@ -214,6 +214,18 @@ describe('AgnesVideoAdapter — Agnes Video V2.0', () => {
       expect(result.taskId).toBe('vid-only')
     })
 
+    it('三字段并存时 video_id 优先于 id 与 task_id（完整优先级链锁定）', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ video_id: 'vid-first', id: 'id-second', task_id: 'tid-third' }),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new AgnesVideoAdapter({ id: 'agnes-video', apiKey: 'sk-test' })
+      const result = await adapter.generateVideo({ prompt: 'test' })
+      // 锁定 video_id > id > task_id 的完整回退链，防止未来重排 || 操作数
+      expect(result.taskId).toBe('vid-first')
+    })
+
     it('image 参数映射到请求体（图生视频）', async () => {
       const fetchMock = createFetchMock([
         createFetchResponse({ id: 't2' }),
@@ -296,7 +308,7 @@ describe('AgnesVideoAdapter — Agnes Video V2.0', () => {
         .rejects.toThrow(/prompt.*required/i)
     })
 
-    it('响应缺少 id/task_id → ProviderError(PROVIDER_ERROR)', async () => {
+    it('响应缺少 video_id/id/task_id → ProviderError(PROVIDER_ERROR)', async () => {
       const fetchMock = createFetchMock([
         createFetchResponse({ foo: 'bar' }),
       ])
