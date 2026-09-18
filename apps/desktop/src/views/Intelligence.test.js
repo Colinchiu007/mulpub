@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mount } from "@vue/test-utils";
 import { nextTick } from "vue";
 import { setActivePinia, createPinia } from "pinia";
+import i18n from "@/i18n";
 
 vi.mock("@/components/TrendingPanel.vue", () => ({ default: { template: "<div>trending-panel</div>" } }));
 vi.mock("@/components/ReferenceFinder.vue", () => ({ default: { template: "<div v-if='visible'>ref-finder</div>", props: ["visible", "searchText"] } }));
@@ -25,7 +26,7 @@ describe("IntelligenceView", () => {
   });
 
   function createView() {
-    return mount(IntelligenceView, { global: { plugins: [createPinia()] } });
+    return mount(IntelligenceView, { global: { plugins: [createPinia(), i18n] } });
   }
 
   it("renders page title", async () => {
