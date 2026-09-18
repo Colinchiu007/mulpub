@@ -32,7 +32,7 @@
             />
           </div>
           <button class="cohere-btn-primary" @click="doSearch" :disabled="!query.trim() || searching">
-            🔍 搜索
+            <el-icon><Search /></el-icon> 搜索
           </button>
           <button class="cohere-btn-ghost" @click="clearSearch" :disabled="!query.trim()" title="清空">
             ✕
@@ -54,7 +54,7 @@
       <!-- 搜索结果 -->
       <div v-if="result" class="cohere-card int-card-static int-mt-md">
         <div class="int-result-head">
-          <span class="int-result-title">📊 搜索结果</span>
+          <span class="int-result-title"><el-icon><DataLine /></el-icon> 搜索结果</span>
           <span class="cohere-tag cohere-tag-info">{{ result.total }} 条</span>
           <span class="int-note int-note--auto">
             搜索于 {{ formatTime(result.timestamp) }}
@@ -99,7 +99,7 @@
               </div>
               <div class="int-score-hint">互动分</div>
               <button class="cohere-btn-ghost int-ref-btn" @click="useAsReference(item)" title="作为参考">
-                📋 参考
+                <el-icon><DocumentCopy /></el-icon> 参考
               </button>
             </div>
           </div>
@@ -108,7 +108,7 @@
 
       <!-- 标题分析 -->
       <div v-if="titleAnalysis" class="cohere-card int-card-static int-mt-md">
-        <div class="int-result-title int-result-title--block">📝 标题分析</div>
+        <div class="int-result-title int-result-title--block"><el-icon><EditPen /></el-icon> 标题分析</div>
         <div v-if="titleAnalysis.patterns" class="int-mb-sm">
           <div class="int-pattern-hint">高互动标题高频词：</div>
           <div class="int-tag-row">
@@ -119,7 +119,7 @@
           </div>
         </div>
         <div v-if="titleAnalysis.suggestion" class="intel-tip int-tip-fix">
-          💡 {{ titleAnalysis.suggestion.tip }}
+          <el-icon><InfoFilled /></el-icon> {{ titleAnalysis.suggestion.tip }}
         </div>
       </div>
     </div>
@@ -136,6 +136,7 @@ import UiButton from "../components/UiButton.vue";
 import UiInput from "../components/UiInput.vue";
 // eslint-disable-next-line no-unused-vars
 import { ref, computed } from 'vue'
+import { DocumentCopy, DataLine, EditPen, InfoFilled, Search } from '@element-plus/icons-vue'
 import { useNotify } from '@/composables/useNotify'
 import TrendingPanel from '@/components/TrendingPanel.vue'
 import ReferenceFinder from '@/components/ReferenceFinder.vue'
