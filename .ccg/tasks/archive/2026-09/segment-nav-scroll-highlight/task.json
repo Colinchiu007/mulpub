@@ -1,0 +1,12 @@
+{
+  "id": "segment-nav-scroll-highlight",
+  "title": "segment nav scroll highlight",
+  "status": "in_progress",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "等待 CI 全绿后合并 PR #1970",
+  "createdAt": "2026-09-18T00:00:00Z",
+  "branch": "codex/segment-nav-scroll-highlight"
+}
