@@ -1,3 +1,17 @@
+# [未发布] feat(viral): P1-E 爆款信号跨页注入改写软约束（2026-09-18）
+
+### 新增
+- **爆款信号跨页传递**：新增 Pinia store `viral-signal`（会话内存）——爆款分析成功后记录最近一次分析的推荐角度与上升关键词（清洗 ≤6 条/条 ≤60 字）。
+- **改写软约束注入**：RewriteView 经 `/rewrite?titleHint=` 带入时从 store 快照信号，`aiRewrite` params 携带 `viralAngles`/`viralKeywords`；引擎 `_sanitizeStringList` 清洗后注入「## 爆款信号参考（软约束）」段（与标题参考段并存，均在模板替换后追加）。
+- 无信号/空数组不注入，既有调用方行为不变（回归锁定）；PRD §9-E 实现形态由「策略推荐排序」调整为「信号注入 Prompt」——策略库无 angle 维度可调，注入对生成内容的引导更直接。
+
+### 验证
+- 引擎 E1-E4 新例（注入/清洗/并存/回归）+ 既有 V/W 全部：rewrite-engine **145/145**；
+- 新 store 测试 3 例 + RewriteView P1-E 集成 2 例（含 pinia 时序修复：factory 接受可选 pinia 实例）；views-coverage 2 例为 Junction 环境限制（已定性）。
+
+---
+
+
 # [未发布] feat(viral): P1 模式卡片本地规则预填兜底 + 爆款分析落库来源标记（2026-09-18）
 ### 新增
 - **P1-D 模式卡片本地规则预填兜底**：PatternExtractionService 在 LLM 连续失败 2 次后，用零成本启发式正则（hook_type 优先级链 / 尾部 CTA 信号 / 段落结构启发 / title_formula 数字占位符化）预填卡片 status=done——卡片不再进入 failed 终态，`buildViralContext` 的聚合风格指导（buildPatternGuidance）覆盖率显著提升；保守原则：无显著信号的字段留空，不稀释聚合统计；预填值经 `hook_analysis` 前缀「（本地规则预填）」标注，LLM 恢复后可人工重置 pending 重提取。

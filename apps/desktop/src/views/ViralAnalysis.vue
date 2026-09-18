@@ -247,6 +247,7 @@ import { viralAnalyze, viralGenerate } from '@/api/publisher'
 import { addViralToLibrary } from '@/api/knowledge-library'
 import UiButton from '../components/UiButton.vue'
 import { formatUserError } from '@/utils/user-facing-error'
+import { useViralSignalStore } from '@/stores/viral-signal'
 export default {
 
   components: { UiButton },
@@ -296,6 +297,16 @@ export default {
         if (res?.code === 0) {
           this.result = res.data
           this.analyzedTopic = this.topic.trim()
+          // P1-E：记录爆款信号（推荐角度 + 上升关键词），改写页经 /rewrite?titleHint= 消费注入软约束
+          try {
+            useViralSignalStore().setSignal({
+              topic: this.analyzedTopic,
+              angles: Array.isArray(this.result.suggested_angles) ? this.result.suggested_angles : [],
+              keywords: Array.isArray(this.result.rising_keywords)
+                ? this.result.rising_keywords.map(k => (k && typeof k === 'object' && k.word) ? k.word : k)
+                : [],
+            })
+          } catch { /* 信号记录失败不影响分析主流程 */ }
         } else {
           this.result = { overall_score: 0, error: formatUserError(res, { fallback: '分析失败' }).message }
         }

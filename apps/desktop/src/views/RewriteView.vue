@@ -258,6 +258,7 @@ import { useLoginGate } from '@/composables/useLoginGate'
 import { useWordCountValidation } from '@/composables/useWordCountValidation'
 import { useCopyLibrary } from '@/composables/useCopyLibrary'
 import { takeRewriteHandoff } from '@/utils/rewrite-handoff'
+import { useViralSignalStore } from '@/stores/viral-signal'
 import { writeClipboard } from '@/utils/clipboard'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
 import RewriteStrategyPicker from '@/components/RewriteStrategyPicker.vue'
@@ -287,6 +288,9 @@ let copiedTimer = null
 // viral-rewrite-integration：标题参考（爆款分析页生成标题经路由 query 带入）+ 爆款潜力对比
 const titleHint = ref('')
 const viralInfo = ref(null)
+// P1-E：爆款分析信号（推荐角度 + 上升关键词）——titleHint 带入时从 Pinia store 快照
+const viralAngles = ref([])
+const viralKeywords = ref([])
 
 // 配置
 const useViralLibrary = ref(true)
@@ -404,7 +408,17 @@ onMounted(() => {
   void loadRewriteStrategies()
   void refreshStrategyPreview()
   const hint = typeof route.query.titleHint === 'string' ? route.query.titleHint.trim().slice(0, 200) : ''
-  if (hint) titleHint.value = hint
+  if (hint) {
+    titleHint.value = hint
+    // P1-E：标题来自爆款分析页 → 快照该次分析的爆款信号（角度 + 关键词），改写时注入软约束
+    try {
+      const signal = useViralSignalStore().signal
+      if (signal && Array.isArray(signal.angles)) {
+        viralAngles.value = signal.angles
+        viralKeywords.value = Array.isArray(signal.keywords) ? signal.keywords : []
+      }
+    } catch { /* 信号快照失败不影响改写主流程 */ }
+  }
   const topic = typeof route.query.topic === 'string' ? route.query.topic.trim() : ''
   if (topic) {
     rewriteMode.value = 'create'
@@ -483,6 +497,9 @@ async function startRewrite() {
       strategyId: strategyMode.value === 'manual' ? (rewriteStrategyId.value || null) : null,
       // viral-rewrite-integration：标题参考软约束（引擎侧清洗：空白折叠 + 200 字截断）
       titleHint: titleHint.value || undefined,
+      // P1-E：爆款信号软约束（推荐角度 + 上升关键词；引擎侧清洗，空数组不注入）
+      viralAngles: viralAngles.value.length ? viralAngles.value : undefined,
+      viralKeywords: viralKeywords.value.length ? viralKeywords.value : undefined,
     }
 
     const res = await aiRewrite(params)
