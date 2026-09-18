@@ -605,6 +605,7 @@ export default {
     material_selected: '已切换使用素材。',
     scene_audio_missing: '该场景没有旁白音频，无法生成视频。',
     scene_image_missing: '该场景没有可用的图片素材，请先生成图片。',
+    scene_video_missing: '该场景的视频素材不存在或不可读，请重新生成视频素材后再合成。',
     scene_slot_empty: '该素材槽位暂无素材，请先生成素材。',
     scene_subtitle_regenerated: '字幕已重新生成，请保存分段后重新合成。',
     scene_subtitle_regenerate_failed: '字幕重新生成失败，请稍后再试。',
@@ -758,9 +759,7 @@ export default {
       recomposing: '重新合成中...',
       saveSegments: '保存分段',
       recompose: '重新合成',
-      recomposeFinal: '再次合成视频',
-      recomposingFinal: '合成中...',
-      recomposeFinalHint: '使用当前选定的素材与已有旁白、字幕、背景音乐重新生成成片',
+      recomposeHint: '使用当前选定的素材与已有旁白、字幕、背景音乐重新生成成片',
       editRecomposeHint: '修改文案、字幕、语音或优化词后，点击「保存分段」，再点击「重新合成」生成新视频',
       subtitleLabel: '字幕（每行一句）',
       regenerateSubtitle: '重新生成字幕',
@@ -937,6 +936,9 @@ export default {
     syncFailed: '平台同步失败，请稍后重试',
     loginGateHint: '登录后可查看发布统计与最近发布。',
     signInNow: '去登录',
+    trendTitle: '发布趋势（近 14 天）',
+    platformDistTitle: '平台分布',
+    recentTitle: '最近发布',
   },
   promptEval: {
     deleteConfirmTitle: '删除评测记录',
@@ -2454,6 +2456,10 @@ export default {
   },
   intelligence: {
     insertedRef: '已插入引用: {title}',
+    searchLabel: '搜索',
+    searchResults: '搜索结果',
+    reference: '参考',
+    titleAnalysis: '标题分析',
   },
 
   tagSuggest: {

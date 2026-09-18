@@ -1152,16 +1152,44 @@ describe("ResultView", () => {
     w.unmount();
   });
 
-  it("再次合成按钮复用重新合成流程（recomposeProject）", async () => {
+  it("重新合成按钮调用 recomposeProject 流程", async () => {
     const mocks = await import("@/api/publisher");
     mocks.story2videoRecomposeProject.mockResolvedValue({ code: 0, data: { videoPath: "C:/new.mp4", segments: [] } });
     const w = await createView();
     w.vm.projectId = "p1";
     w.vm.segments = [{ id: "s1", imagePath: "C:/img1.png", status: "completed" }];
     await nextTick();
-    await w.find('[data-testid="recompose-final-button"]').trigger("click");
+    await w.find('[data-testid="recompose-button"]').trigger("click");
     await nextTick();
     expect(mocks.story2videoRecomposeProject).toHaveBeenCalledWith("p1");
+    w.unmount();
+  });
+
+  it("重新合成失败透传真实错误并归一化为具体提示（2026-09-18 已取消项目修复）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoRecomposeProject.mockResolvedValue({ code: -1, message: "第 2 个场景的视频素材不存在、不可读或超出限制" });
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [{ id: "s1", imagePath: "C:/img1.png", status: "completed" }];
+    await nextTick();
+    await w.vm.recomposeProject();
+    await nextTick();
+    expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.scene_video_missing");
+    expect(w.vm.story2videoNotificationDialogMessage).toContain("视频素材");
+    w.unmount();
+  });
+
+  it("重新合成失败未映射错误回退 operation_failed 通用文案（2026-09-18 审查 S4）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoRecomposeProject.mockResolvedValue({ code: -1, message: "internal fsync error on device" });
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [{ id: "s1", imagePath: "C:/img1.png", status: "completed" }];
+    await nextTick();
+    await w.vm.recomposeProject();
+    await nextTick();
+    expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.operation_failed");
+    expect(w.vm.story2videoNotificationDialogMessage).toContain("当前操作未能完成");
     w.unmount();
   });
 
@@ -1473,7 +1501,7 @@ describe("ResultView", () => {
     w.vm.segments = [{ id: "s1", status: "completed" }];
     await nextTick();
     const saveBtn = w.find('[data-testid="save-segments-button"]');
-    const recomposeBtn = w.find('[data-testid="recompose-final-button"]');
+    const recomposeBtn = w.find('[data-testid="recompose-button"]');
     expect(saveBtn.attributes("disabled")).toBeUndefined();
     expect(recomposeBtn.attributes("disabled")).toBeUndefined();
     w.vm.segmentBusy = { s1: "tts" };
@@ -1932,7 +1960,7 @@ describe("ResultView", () => {
       w.unmount();
     });
 
-    it("保存分段/重新合成/再次合成视频移入底部固定操作条", async () => {
+    it("保存分段/重新合成移入底部固定操作条（2026-09-18 合并重复的再次合成视频按钮）", async () => {
       const w = await createView();
       w.vm.projectId = "p1";
       w.vm.segments = [{ id: "s1", status: "completed" }];
@@ -1941,8 +1969,9 @@ describe("ResultView", () => {
       expect(bar.exists()).toBe(true);
       expect(bar.find('[data-testid="save-segments-button"]').exists()).toBe(true);
       expect(bar.find('[data-testid="recompose-button"]').exists()).toBe(true);
-      expect(bar.find('[data-testid="recompose-final-button"]').exists()).toBe(true);
-      // 分段编辑 section-heading 内不再有这三个按钮
+      // 2026-09-18：合并功能重复的「再次合成视频」按钮，仅保留「重新合成」
+      expect(bar.find('[data-testid="recompose-final-button"]').exists()).toBe(false);
+      // 分段编辑 section-heading 内不再有这两个按钮
       expect(w.find(".project-section .section-heading [data-testid='save-segments-button']").exists()).toBe(false);
       w.unmount();
     });

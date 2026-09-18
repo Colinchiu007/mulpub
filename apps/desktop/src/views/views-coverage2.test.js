@@ -57,7 +57,7 @@ describe("IntelligenceView (coverage)", () => {
 
   function mnt() {
     return mount(IntelligenceView, {
-      global: { stubs: { UiModal: { template: "<div v-if='visible'><slot/></div>", props: ["visible"] } } }
+      global: { plugins: [createPinia(), i18n], stubs: { UiModal: { template: "<div v-if='visible'><slot/></div>", props: ["visible"] } } }
     });
   }
 

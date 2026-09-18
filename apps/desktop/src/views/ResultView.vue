@@ -387,7 +387,7 @@
       </div>
     </section>
 
-    <!-- 底部固定操作条（2026-08-17 UX 统一）：保存分段/重新合成/再次合成视频 不随页面滚动 -->
+    <!-- 底部固定操作条（2026-08-17 UX 统一）：保存分段/重新合成 不随页面滚动（2026-09-18 合并重复的再次合成视频按钮） -->
     <div v-if="projectId && segments.length" class="result-action-bar" data-testid="result-action-bar">
       <div class="result-action-bar-status">
         <span v-if="segmentsDirty" class="segments-unsaved-chip">{{ tOrKey('story2video.sceneMaterial.unsavedChanges') }}</span>
@@ -397,11 +397,8 @@
         <UiButton :disabled="saving || anySegmentBusy" data-testid="save-segments-button" @click="saveSegments">
           {{ saving ? tOrKey('story2video.sceneMaterial.saving') : tOrKey('story2video.sceneMaterial.saveSegments') }}
         </UiButton>
-        <UiButton variant="secondary" :disabled="recomposing || anySegmentBusy" data-testid="recompose-button" @click="recomposeProject">
+        <UiButton variant="secondary" :disabled="recomposing || anySegmentBusy" data-testid="recompose-button" :title="$t('story2video.sceneMaterial.recomposeHint')" @click="recomposeProject">
           {{ recomposing ? tOrKey('story2video.sceneMaterial.recomposing') : tOrKey('story2video.sceneMaterial.recompose') }}
-        </UiButton>
-        <UiButton variant="secondary" :disabled="recomposing || anySegmentBusy" data-testid="recompose-final-button" :title="$t('story2video.sceneMaterial.recomposeFinalHint')" @click="recomposeProject">
-          {{ recomposing ? $t('story2video.sceneMaterial.recomposingFinal') : $t('story2video.sceneMaterial.recomposeFinal') }}
         </UiButton>
       </div>
     </div>
@@ -1729,8 +1726,10 @@ export default {
         this.projectId = result.data.projectId || this.projectId
         this.segmentsDirty = false
         this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PROJECT_RECOMPOSED })
-      } catch (_error) {
-        this.showStory2VideoOperationFailure()
+      } catch (error) {
+        // 透传真实错误走通知归一化（余额/限流/API Key/素材缺失等已映射类别显示具体原因），未映射回退 operation_failed
+        const rawError = error && error.message ? error.message : String(error || '')
+        this.showStory2VideoNotification({ error: rawError })
       } finally {
         this.recomposing = false
       }

@@ -68,7 +68,7 @@
 
       <!-- 发布趋势（最近 14 天） -->
       <div v-if="statsData && statsData.daily && statsData.daily.length > 0" class="cohere-card dash-panel">
-        <div class="dash-panel-title"><el-icon><TrendCharts /></el-icon> 发布趋势（近 14 天）</div>
+        <div class="dash-panel-title"><el-icon><TrendCharts /></el-icon> {{ $t('dashboard.trendTitle') }}</div>
         <div class="dash-trend-track">
           <div v-for="d in last14Days" :key="d.date" :title="d.date + ': ' + d.total + ' 篇'" class="dash-trend-col">
             <div class="dash-trend-bar" :style="{width:'100%', height: Math.max(4, (d.total / dailyMax) * 60) + 'px', background: d.total > 0 ? 'var(--color-danger)' : 'var(--color-border)', opacity: d.total > 0 ? 0.7 + (d.total / dailyMax) * 0.3 : 0.3}"></div>
@@ -79,7 +79,7 @@
 
       <!-- 平台分布 -->
       <div v-if="statsData && platformStats.length > 0" class="cohere-card dash-panel">
-        <div class="dash-panel-title"><el-icon><DataLine /></el-icon> 平台分布</div>
+        <div class="dash-panel-title"><el-icon><DataLine /></el-icon> {{ $t('dashboard.platformDistTitle') }}</div>
         <div class="dash-dist-list">
           <div v-for="p in platformStats" :key="p.platform" class="dash-dist-row">
             <span class="dash-dist-name">{{ platformName(p.platform) }}</span>
@@ -93,7 +93,7 @@
 
       <!-- 最近发布 -->
       <div v-if="recentPublishes.length > 0" class="cohere-card dash-panel">
-        <div class="dash-panel-title"><el-icon><Timer /></el-icon> 最近发布</div>
+        <div class="dash-panel-title"><el-icon><Timer /></el-icon> {{ $t('dashboard.recentTitle') }}</div>
         <ul class="cohere-timeline">
           <li v-for="r in recentPublishes" :key="r.id" class="cohere-timeline-item" :class="r.success !== false ? 'success' : 'danger'">
             <span class="tl-time">{{ formatTime(r.timestamp) }}</span>
