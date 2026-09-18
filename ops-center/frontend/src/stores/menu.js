@@ -65,10 +65,23 @@ export const useMenuStore = defineStore('menu', () => {
     persist()
   }
 
+  // 拖拽排序专用：视图渲染的是过滤掉 adminOnly 后的可见列表，其下标与完整 order
+  // 的下标并不一致（adminOnly 项会造成漂移），因此拖拽必须按 path 定位而非按下标。
+  function reorderByPath(fromPath, toPath) {
+    const from = order.value.indexOf(fromPath)
+    const to = order.value.indexOf(toPath)
+    if (from < 0 || to < 0 || from === to) return
+    const next = [...order.value]
+    const [item] = next.splice(from, 1)
+    next.splice(to, 0, item)
+    order.value = next
+    persist()
+  }
+
   function reset() {
     order.value = [...DEFAULT_MENU_ORDER]
     persist()
   }
 
-  return { order, orderedItems, move, moveBefore, reorder, reset }
+  return { order, orderedItems, move, moveBefore, reorder, reorderByPath, reset }
 })

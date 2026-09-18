@@ -13,12 +13,12 @@
               v-for="(item, index) in visibleItems"
               :key="item.path"
               class="menu-order-row"
-              :class="{ 'drag-over': dragOverIndex === index && dragIndex !== index, 'dragging': dragIndex === index }"
+              :class="{ 'drag-over': dragOverPath === item.path && dragPath !== item.path, 'dragging': dragPath === item.path }"
               draggable="true"
-              @dragstart="onDragStart(index)"
-              @dragover.prevent="onDragOver(index)"
-              @dragleave="onDragLeave(index)"
-              @drop="onDrop(index)"
+              @dragstart="onDragStart(item.path)"
+              @dragover.prevent="onDragOver(item.path)"
+              @dragleave="onDragLeave(item.path)"
+              @drop="onDrop(item.path)"
               @dragend="onDragEnd"
             >
               <el-icon class="drag-handle"><Rank /></el-icon>
@@ -47,29 +47,31 @@ const menuStore = useMenuStore()
 
 const visibleItems = computed(() => menuStore.orderedItems.filter((item) => !item.adminOnly))
 
-const dragIndex = ref(-1)
-const dragOverIndex = ref(-1)
+// 拖拽用 path 而非下标定位：visibleItems 过滤掉了 adminOnly 项，
+// 其下标与 store 的完整 order 下标不一致，按下标重排会移动错项。
+const dragPath = ref('')
+const dragOverPath = ref('')
 
-function onDragStart(index) {
-  dragIndex.value = index
+function onDragStart(path) {
+  dragPath.value = path
 }
-function onDragOver(index) {
-  dragOverIndex.value = index
+function onDragOver(path) {
+  dragOverPath.value = path
 }
-function onDragLeave(index) {
-  if (dragOverIndex.value === index) dragOverIndex.value = -1
+function onDragLeave(path) {
+  if (dragOverPath.value === path) dragOverPath.value = ''
 }
-function onDrop(index) {
-  const from = dragIndex.value
-  if (from >= 0 && from !== index) {
-    menuStore.reorder(from, index)
+function onDrop(path) {
+  const from = dragPath.value
+  if (from && from !== path) {
+    menuStore.reorderByPath(from, path)
   }
-  dragIndex.value = -1
-  dragOverIndex.value = -1
+  dragPath.value = ''
+  dragOverPath.value = ''
 }
 function onDragEnd() {
-  dragIndex.value = -1
-  dragOverIndex.value = -1
+  dragPath.value = ''
+  dragOverPath.value = ''
 }
 </script>
 
