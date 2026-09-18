@@ -2066,7 +2066,9 @@ describe('Story2VideoProjectService', () => {
 
     const scenes = service._scenesForCompose(segments)
 
-    expect(scenes[0]).toMatchObject({ imagePath: 'img1.png', videoPath: video0 })
+    // _scenesForCompose 对显式选中 video 返回 realpathSync.native 规范化路径；
+    // Windows CI 上 8.3 短名（RUNNER~1）与 os.tmpdir() 长名不同，须用 realpath 断言（2026-09-18）
+    expect(scenes[0]).toMatchObject({ imagePath: 'img1.png', videoPath: fs.realpathSync.native(video0) })
     expect(scenes[1]).toMatchObject({ imagePath: 'img1.png', videoPath: null })
     expect(scenes[2]).toMatchObject({ imagePath: 'img2.png', videoPath: null })
     expect(scenes[3]).toMatchObject({ imagePath: 'img1.png', videoPath: 'v3.mp4' })
