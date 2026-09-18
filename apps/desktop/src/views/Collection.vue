@@ -16,16 +16,16 @@
 
     <div v-if="activeTab === 'collect'" class="cohere-content">
       <!-- URL 采集输入 -->
-      <div class="cohere-card" style="padding:var(--space-md);margin-bottom:var(--space-lg)">
-        <div style="display:flex;gap:var(--space-sm);align-items:center;flex-wrap:wrap">
-          <span style="font-size:1.2rem">🔗</span>
-          <select v-model="collectSourceType" style="border:1px solid var(--border);border-radius:6px;padding:8px;font-size:14px">
+      <div class="cohere-card col-panel">
+        <div class="col-toolbar">
+          <span class="col-toolbar-icon">🔗</span>
+          <select v-model="collectSourceType" class="col-select">
             <option v-for="s in collectSources" :key="s.type" :value="s.type">{{ s.name }}</option>
           </select>
           <input
             v-model="linkUrl"
             placeholder="输入文章链接，自动采集标题、正文、封面..."
-            style="flex:1;border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:14px"
+            class="col-input col-input--grow"
             @keyup.enter="collectUrl"
           />
           <button data-testid="collection-collect-btn" class="cohere-btn-primary" @click="collectUrl" :disabled="collecting || oneClickRewriting">
@@ -34,29 +34,29 @@
           <button class="cohere-btn-primary" @click="collectAndRewrite" :disabled="collecting || oneClickRewriting">
             {{ oneClickRewriting ? $t('collection.oneClickRewriting') : $t('collection.oneClickRewrite') }}
           </button>
-          <button v-if="collectError && RETRYABLE_CODES.has(collectError.code)" class="cohere-btn-secondary" @click="retryCollect" :disabled="collecting" style="font-size:13px;padding:8px 12px">
+          <button v-if="collectError && RETRYABLE_CODES.has(collectError.code)" class="cohere-btn-secondary col-btn-retry" @click="retryCollect" :disabled="collecting">
             🔄 重试
           </button>
         </div>
-        <div v-if="collectError" style="margin-top:8px;padding:6px 10px;background:#fff3f3;border-radius:4px;font-size:12px;color:#d32f2f">
+        <div v-if="collectError" class="col-error-banner">
           {{ collectErrorDetail }}
-          <button v-if="collectError && collectErrorRetryable" class="cohere-btn-secondary" @click="retryCollect" :disabled="collecting" style="font-size:12px;padding:4px 10px;margin-left:8px">
+          <button v-if="collectError && collectErrorRetryable" class="cohere-btn-secondary col-btn-retry-sm" @click="retryCollect" :disabled="collecting">
             🔄 重试
           </button>
         </div>
-        <div v-if="videoCollectStage" data-testid="collection-video-stage" style="margin-top:8px;padding:6px 10px;background:#f0f7ff;border-radius:4px;font-size:12px;color:#1976d2">
+        <div v-if="videoCollectStage" data-testid="collection-video-stage" class="col-stage-banner">
           {{ videoStageText(videoCollectStage) }}
         </div>
-        <div v-if="collectedResult" style="margin-top:var(--space-sm);padding:var(--space-sm);background:var(--soft-stone);border-radius:6px">
-          <div style="font-weight:600;margin-bottom:4px">✅ {{ collectedResult.title || '无标题' }}</div>
-          <div style="font-size:12px;color:var(--text-secondary)">
+        <div v-if="collectedResult" class="col-result-box">
+          <div class="col-result-title">✅ {{ collectedResult.title || '无标题' }}</div>
+          <div class="col-result-meta">
             {{ collectedResult.description ? collectedResult.description.slice(0, 120) + '...' : '' }}
             <span v-if="collectedResult.coverImage"> · 有封面图</span>
             <span v-if="collectedResult.mediaType === 'video'"> · 🎬 {{ $t('collection.videoTranscriptLabel') }}<template v-if="collectedResult.duration"> · {{ formatVideoDuration(collectedResult.duration) }}</template><template v-if="collectedResult.platform && PLATFORM_KEYS.includes(collectedResult.platform)"> · {{ platformLabel(collectedResult.platform) }}</template></span>
           </div>
           <!-- 改写策略选择（2026-09-15 补齐）：与 /rewrite 页同组件同契约，此前采集页改写无策略入口 -->
           <RewriteStrategyPicker
-            style="margin-top:8px"
+            class="col-mt8"
             v-model:strategy-mode="strategyMode"
             v-model:strategy-id="rewriteStrategyId"
             :strategies="rewriteStrategies"
@@ -71,7 +71,7 @@
               placeholder: $t('rewritePage.strategySelectPlaceholder'),
             }"
           />
-          <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+          <div class="col-chip-row">
             <button class="cohere-btn-primary" @click="createFromCollected">创建草稿</button>
             <button
               class="cohere-btn-secondary"
@@ -81,13 +81,13 @@
             >
               {{ addedToViral ? '✓ ' + $t('knowledgeBase.addedToViral') : $t('knowledgeBase.addToViral') }}
             </button>
-            <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;cursor:pointer" :class="{ 'o-disabled': rewriting || oneClickRewriting }">
+            <label class="col-check-label" :class="{ 'o-disabled': rewriting || oneClickRewriting }">
               <input type="checkbox" v-model="useViralLibrary" class="coral-check" :disabled="rewriting || oneClickRewriting" /> 结合爆款库
             </label>
-            <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;cursor:pointer" :class="{ 'o-disabled': rewriting || oneClickRewriting }">
+            <label class="col-check-label" :class="{ 'o-disabled': rewriting || oneClickRewriting }">
               <input type="checkbox" v-model="usePersonalExperience" class="coral-check" :disabled="rewriting || oneClickRewriting" /> 结合个人经历
             </label>
-            <select v-model="rewriteStyle" style="border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:13px" :disabled="rewriting || oneClickRewriting">
+            <select v-model="rewriteStyle" class="col-select-sm" :disabled="rewriting || oneClickRewriting">
               <option v-for="s in getRewriteStyles()" :key="s.value" :value="s.value">{{ s.label }}</option>
             </select>
             <!-- 字数区间控制（2026-09-12）：替换原 keep/compress/expand 三档 -->
@@ -104,7 +104,7 @@
             <button class="cohere-btn-secondary" @click="rewriteCollected" :disabled="rewriting || oneClickRewriting || !collectedResult || !!rewriteWordCountError">
               {{ rewriting ? $t('collection.rewriting') : $t('collection.rewrite') }}
             </button>
-            <button v-if="rewriteError && RETRYABLE_CODES.has(rewriteError.code)" class="cohere-btn-secondary" @click="retryRewrite" :disabled="rewriting" style="font-size:13px">
+            <button v-if="rewriteError && RETRYABLE_CODES.has(rewriteError.code)" class="cohere-btn-secondary col-btn-retry" @click="retryRewrite" :disabled="rewriting">
               🔄 重试
             </button>
             <template v-if="rewriteResult">
@@ -112,18 +112,18 @@
               <button class="cohere-btn-primary" @click="goPublishAfterRewrite">🚀 去发布</button>
             </template>
             <button class="cohere-btn-secondary" @click="clearResult">取消</button>
-            <div v-if="rewriteError" style="margin-top:6px;padding:6px 10px;background:#fff3f3;border-radius:4px;font-size:12px;color:#d32f2f">
+            <div v-if="rewriteError" class="col-error-banner">
               {{ rewriteError.message }}
             </div>
           </div>
           <!-- 改写结果对比：原文 vs 改写后 -->
-          <div v-if="rewriteResult" class="rewrite-compare" style="margin-top:var(--space-sm);display:grid;grid-template-columns:1fr 1fr;gap:var(--space-sm)">
+          <div v-if="rewriteResult" class="rewrite-compare col-compare">
             <div>
-              <div style="font-weight:600;font-size:13px;margin-bottom:4px">📄 {{ $t('collection.originalContent') }}</div>
+              <div class="col-compare-title">📄 {{ $t('collection.originalContent') }}</div>
               <textarea class="compare-textarea" readonly :value="(collectedResult && (collectedResult.content || collectedResult.description)) || ''"></textarea>
             </div>
             <div>
-              <div style="font-weight:600;font-size:13px;margin-bottom:4px">✨ {{ $t('collection.rewrittenContent') }}</div>
+              <div class="col-compare-title">✨ {{ $t('collection.rewrittenContent') }}</div>
               <textarea class="compare-textarea" v-model="rewriteResult"></textarea>
             </div>
           </div>
@@ -131,17 +131,17 @@
       </div>
 
       <!-- 批量采集区域 -->
-      <div class="cohere-card" style="padding:var(--space-md);margin-bottom:var(--space-lg)">
-        <div class="cohere-section-title" style="margin-bottom:var(--space-sm)">{{ $t('collection.batchCollectTitle') }}</div>
+      <div class="cohere-card col-panel">
+        <div class="cohere-section-title col-section-title">{{ $t('collection.batchCollectTitle') }}</div>
 
         <!-- RSS 批量采集 -->
-        <div style="margin-bottom:var(--space-sm)">
-          <div style="font-weight:600;font-size:13px;margin-bottom:4px">{{ $t('collection.rssBatch') }}</div>
-          <div style="display:flex;gap:var(--space-sm);align-items:center">
+        <div class="col-block">
+          <div class="col-block-title">{{ $t('collection.rssBatch') }}</div>
+          <div class="col-source-row">
             <input
               v-model="rssUrl"
               :placeholder="$t('collection.rssPlaceholder')"
-              style="flex:1;border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:14px"
+              class="col-input col-input--grow"
             />
             <button class="cohere-btn-primary" @click="collectBatch('rss')" :disabled="batchCollecting">
               {{ batchCollecting ? $t('collection.batchCollecting') : $t('collection.batchCollect') }}
@@ -150,48 +150,48 @@
         </div>
 
         <!-- URL 列表批量采集 -->
-        <div style="margin-bottom:var(--space-sm)">
-          <div style="font-weight:600;font-size:13px;margin-bottom:4px">{{ $t('collection.urlListBatch') }}</div>
+        <div class="col-block">
+          <div class="col-block-title">{{ $t('collection.urlListBatch') }}</div>
           <textarea
             v-model="urlListInput"
             :placeholder="$t('collection.urlListPlaceholder')"
             rows="3"
-            style="width:100%;border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:14px;resize:vertical"
+            class="col-input col-input--block col-textarea"
           ></textarea>
-          <div style="display:flex;gap:var(--space-sm);align-items:center;margin-top:4px">
+          <div class="col-url-actions">
             <button class="cohere-btn-primary" @click="collectBatch('batch')" :disabled="batchCollecting || !urlListInput.trim()">
               {{ batchCollecting ? $t('collection.batchCollecting') : $t('collection.batchCollect') }}
             </button>
-            <span style="font-size:12px;color:var(--text-secondary)">{{ $t('collection.urlListHint') }}</span>
+            <span class="col-hint">{{ $t('collection.urlListHint') }}</span>
           </div>
         </div>
 
         <!-- 批量采集进度 -->
-        <div v-if="batchTaskId" style="margin-top:var(--space-sm);padding:var(--space-sm);background:var(--soft-stone);border-radius:6px">
-          <div style="font-weight:600;font-size:13px;margin-bottom:4px">{{ $t('collection.batchProgress') }}</div>
-          <div style="background:#e0e0e0;border-radius:4px;height:8px;overflow:hidden;margin-bottom:4px">
-            <div :style="{ width: batchProgress + '%', background: 'var(--primary)', height:'100%', transition:'width 0.3s' }"></div>
+        <div v-if="batchTaskId" class="col-result-box">
+          <div class="col-block-title">{{ $t('collection.batchProgress') }}</div>
+          <div class="col-progress-track">
+            <div class="col-progress-fill" :style="{ width: batchProgress + '%' }"></div>
           </div>
-          <div style="font-size:12px;color:var(--text-secondary)">
+          <div class="col-result-meta">
             {{ batchProgressText }}
           </div>
-          <button v-if="batchCollecting" class="cohere-btn-secondary" style="margin-top:4px;font-size:12px;padding:2px 8px" @click="cancelBatchCollect">
+          <button v-if="batchCollecting" class="cohere-btn-secondary col-btn-cancel" @click="cancelBatchCollect">
             {{ $t('collection.cancelBatch') }}
           </button>
         </div>
-        <div v-if="batchError" style="margin-top:8px;padding:6px 10px;background:#fff3f3;border-radius:4px;font-size:12px;color:#d32f2f">
+        <div v-if="batchError" class="col-error-banner">
           {{ batchError }}
         </div>
       </div>
 
       <!-- 采集结果累计列表 -->
-      <div v-if="collectedItems.length > 0" style="margin-bottom:var(--space-lg)">
-        <div class="cohere-section-title" style="display:flex;justify-content:space-between;align-items:center">
+      <div v-if="collectedItems.length > 0" class="col-list-wrap">
+        <div class="cohere-section-title col-section-title col-section-title--flex">
           <span>采集结果（{{ collectedItems.length }} 篇）</span>
-          <button class="cohere-btn-secondary" style="font-size:12px;padding:2px 8px" @click="collectedItems = []; collectedResult = null">清空</button>
+          <button class="cohere-btn-secondary col-btn-clear" @click="collectedItems = []; collectedResult = null">清空</button>
         </div>
         <div class="cohere-card-grid">
-          <div v-for="item in collectedItems" :key="item.id" class="cohere-card" :style="{ borderLeft: item.id === collectedResult?.id ? '3px solid var(--primary)' : '' }">
+          <div v-for="item in collectedItems" :key="item.id" class="cohere-card" :class="{ 'col-item--active': item.id === collectedResult?.id }">
             <div class="card-top">
               <div class="card-icon">{{ item.mediaType === 'video' ? '🎬' : '📰' }}</div>
               <div class="card-info">
@@ -214,24 +214,24 @@
       </div>
 
       <!-- 快捷操作 -->
-      <div class="cohere-stat-grid" style="margin-bottom:var(--space-lg)">
-        <div class="cohere-stat-card" style="cursor:pointer" @click="createDraft">
+      <div class="cohere-stat-grid col-stat-grid-mb">
+        <div class="cohere-stat-card col-stat-card-click" @click="createDraft">
           <div class="stat-value">✏️</div>
           <div class="stat-label">新建草稿</div>
         </div>
-        <div class="cohere-stat-card" style="cursor:pointer" @click="importFromClipboard">
+        <div class="cohere-stat-card col-stat-card-click" @click="importFromClipboard">
           <div class="stat-value">📋</div>
           <div class="stat-label">剪贴板导入</div>
         </div>
-        <div class="cohere-stat-card" style="cursor:pointer" @click="openCollection('weibo')">
+        <div class="cohere-stat-card col-stat-card-click" @click="openCollection('weibo')">
           <div class="stat-value">✧</div>
           <div class="stat-label">微博</div>
         </div>
-        <div class="cohere-stat-card" style="cursor:pointer" @click="openCollection('zhihu')">
+        <div class="cohere-stat-card col-stat-card-click" @click="openCollection('zhihu')">
           <div class="stat-value">❓</div>
           <div class="stat-label">知乎</div>
         </div>
-        <div class="cohere-stat-card" style="cursor:pointer" @click="openCollection('toutiao')">
+        <div class="cohere-stat-card col-stat-card-click" @click="openCollection('toutiao')">
           <div class="stat-value">📰</div>
           <div class="stat-label">今日头条</div>
         </div>
@@ -268,7 +268,7 @@
 
     <!-- 文案库标签页（2026-09-16 合并：原「采集记录」+「文案库」两标签合一，以采集记录卡片为准） -->
     <div v-else-if="activeTab === 'records'" class="cohere-content" role="tabpanel" :aria-label="$t('collection.recordsTitle')">
-      <div class="cohere-section-title" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <div class="cohere-section-title col-section-title col-section-title--flex">
         <span>{{ $t('collection.recordsTitle') }} · {{ $t('collection.libraryCount', { count: libraryItems.length }) }}</span>
         <div class="library-filters" role="group" :aria-label="$t('collection.libraryFilterLabel')">
           <button
@@ -282,7 +282,7 @@
             @click="libraryFilter = f.value"
           >{{ $t(f.labelKey) }}</button>
         </div>
-        <button class="cohere-btn-secondary" style="font-size:12px;padding:2px 8px" :disabled="collectedItems.length === 0" @click="clearAllRecords">
+        <button class="cohere-btn-secondary col-btn-clear" :disabled="collectedItems.length === 0" @click="clearAllRecords">
           {{ $t('collection.recordsClearAll') }}
         </button>
       </div>
@@ -1737,4 +1737,44 @@ function cancelBatchCollect () {
 .collection-record-card .card-actions button.danger:hover {
   background: #fde8e8;
 }
+
+/* T1-3d：原 52 处内联样式全部类化；颜色一律 var(--color-*)（tokens.css 语义槽：
+ * --color-error-banner-*/--color-info-*/--color-progress-track 为 T1-3d 新增收编槽）。 */
+.col-panel { padding: var(--space-md); margin-bottom: var(--space-lg); }
+.col-toolbar { display: flex; gap: var(--space-sm); align-items: center; flex-wrap: wrap; }
+.col-toolbar-icon { font-size: 1.2rem; }
+.col-select { border: 1px solid var(--color-border); border-radius: 6px; padding: 8px; font-size: 14px; }
+.col-select-sm { border: 1px solid var(--color-border); border-radius: var(--r-xs); padding: 4px 8px; font-size: var(--font-size-sm); }
+.col-input { border: 1px solid var(--color-border); border-radius: 6px; padding: 8px 12px; font-size: 14px; }
+.col-input--grow { flex: 1; }
+.col-input--block { width: 100%; }
+.col-textarea { resize: vertical; }
+.col-btn-retry { font-size: var(--font-size-sm); padding: 8px 12px; }
+.col-btn-retry-sm { font-size: var(--font-size-xs); padding: 4px 10px; margin-left: 8px; }
+.col-btn-cancel, .col-btn-clear { font-size: var(--font-size-xs); padding: 2px 8px; }
+.col-btn-cancel { margin-top: 4px; }
+.col-error-banner { margin-top: 8px; padding: 6px 10px; background: var(--color-error-banner-bg); border-radius: var(--r-xs); font-size: var(--font-size-xs); color: var(--color-error-banner-text); }
+.col-stage-banner { margin-top: 8px; padding: 6px 10px; background: var(--color-info-soft); border-radius: var(--r-xs); font-size: var(--font-size-xs); color: var(--color-info-text); }
+.col-result-box { margin-top: var(--space-sm); padding: var(--space-sm); background: var(--color-bg-inset); border-radius: 6px; }
+.col-result-title { font-weight: 600; margin-bottom: 4px; }
+.col-result-meta { font-size: var(--font-size-xs); color: var(--color-text-secondary); }
+.col-mt8 { margin-top: 8px; }
+.col-chip-row { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.col-check-label { display: inline-flex; align-items: center; gap: 4px; font-size: var(--font-size-sm); cursor: pointer; }
+.col-compare { margin-top: var(--space-sm); }
+.col-compare-title { font-weight: 600; font-size: var(--font-size-sm); margin-bottom: 4px; }
+.col-section-title { margin-bottom: var(--space-sm); }
+.col-section-title--flex { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.col-block { margin-bottom: var(--space-sm); }
+.col-block-title { font-weight: 600; font-size: var(--font-size-sm); margin-bottom: 4px; }
+.col-source-row { display: flex; gap: var(--space-sm); align-items: center; }
+.col-url-actions { display: flex; gap: var(--space-sm); align-items: center; margin-top: 4px; }
+.col-hint { font-size: var(--font-size-xs); color: var(--color-text-secondary); }
+.col-progress-track { background: var(--color-progress-track); border-radius: var(--r-xs); height: 8px; overflow: hidden; margin-bottom: 4px; }
+.col-progress-fill { background: var(--color-primary); height: 100%; transition: width 0.3s; }
+.col-list-wrap { margin-bottom: var(--space-lg); }
+.col-item--active { border-left: 3px solid var(--color-primary); }
+.col-stat-grid-mb { margin-bottom: var(--space-lg); }
+.col-stat-card-click { cursor: pointer; }
+
 </style>
