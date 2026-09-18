@@ -1,3 +1,82 @@
+# [未发布] ci: 流水线提速 P0 —— 消除重复流水线、补并发控制、修复质量门禁失效（2026-09-17）
+
+### 变更
+- **`quality-gate.yml` 补顶层 `name: quality-gate`**：此前缺失导致显示名为 `.github/workflows/quality-gate.yml`，使 `ci-failure-handler.yml` 的 `workflow_run.workflows` 白名单里的 `"quality-gate"` **永不匹配 —— QG 失败从不自动建 Issue**（失败可见性盲区）。补名后白名单自动匹配，无需改 handler。
+- **`electron-ci.yml` 的桌面 vitest 步收敛为仅 main push / workflow_dispatch**：该步与 `quality-gate` 的 `desktop-shards` 跑同一批桌面测试（同 `--maxWorkers=1 --no-file-parallelism`）。实测单次 PR 中该套件被执行 **4 遍**（shards 1/2 + 2/2 + coverage + electron-ci）。同步更新该文件第 5–7 行注释（原表述已与实际不符）。
+- **`doc-gate.yml` 去除两个空转 job**：删除 `stale-check`（纯 `echo` 占位，每次 PR 却启动一台 Windows runner）；`ci-tests` 原两步因仓库无 `requirements.txt`、根目录无 `tests/` 而条件永不成立（且 `pytest ... || echo` 会把失败吞掉，属假门禁），改为「保留 job 名 + 清空 steps」形态并迁 `ubuntu-latest`（该 job 名在 `.quality-gates.md` 中记为历史 required-check context 名，保留成本为零）。
+- **`gui-test.yml` 移除与 QG Browser E2E（Gate 8）重复的 `test:e2e` 步**：两者跑同一套 `test:e2e` + 同一个 vite:5174。保留 `e2e-smoke.js` 与 5 个 Python 后端验证步骤（**全仓唯一入口，红线不可删**）。
+- **`visual-test.yml` 摘除 `pull_request` 触发**：它与 quality-gate 的 QG Visual（Gate 7）是逐行同构实现（同 TEST_URL/HEADLESS/PIXEL_THRESHOLD、同 playwright→build:vue→vite:5174→test:visual:pixel）。PR 上改由 QG Visual 承担；保留 push/dispatch 以维持「代码默认 readiness 超时」路径的覆盖（QG 侧硬编码 `VISUAL_READY_TIMEOUT: "15000"`）。
+- **12 个 workflow 全部新增 `concurrency`**（此前一个都没有）：`group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}`，`cancel-in-progress` 仅对 PR 生效（**main push 不取消**，保发布链路完整）。
+
+### 验证
+- 契约测试 `.github/scripts/workflow-contract.test.js` 21 例：**20 pass**；唯一失败为既有用例 6（`xvfb-run` 断言与 gui-test 现状不符，属 main 既有破窗，由 PR #1907 修复），**本改动未新增任何失败**。
+- 新增回归保护用例「CI 提速契约」：断言 quality-gate 的 `name`、10 个 PR workflow 必须配 `concurrency`、visual-test 不得由 PR 触发、doc-gate 不得恢复 stale-check、electron-ci 的 vitest 步必须限定非 PR —— 防止后续被无意改回。
+- Gate 3 其余契约测试：`autonomous-loop-workflow.test.js` 9/9、`agent-review-gate.test.js` 8/8；硬编码密钥扫描通过。
+- YAML 有效性：12 个 workflow 全部解析通过。
+- `check-docs-sync.sh`：本 PR 变更全部落在 `.github/`，按脚本规则属「仅文档/流程变更」，无需额外文档同步。
+
+### 预期收益（按墙钟延迟口径）
+- 单次代码 PR：**17 job → 约 8–9 job**；桌面测试套件执行次数 **4 → 2**；每 PR 减少 2 台 Windows VM 空转（doc-gate 两个占位 job）；重复的视觉/E2E 流水线各减 1 条。
+- 迭代场景：同一 PR 重复推送不再累积并发占用（此前 12 个 workflow 全无并发控制，是「分批启动空档」8–12 分钟的直接成因）。
+
+---
+# [未发布] feat(viral): P1 模式卡片本地规则预填兜底 + 爆款分析落库来源标记（2026-09-18）
+### 新增
+- **P1-D 模式卡片本地规则预填兜底**：PatternExtractionService 在 LLM 连续失败 2 次后，用零成本启发式正则（hook_type 优先级链 / 尾部 CTA 信号 / 段落结构启发 / title_formula 数字占位符化）预填卡片 status=done——卡片不再进入 failed 终态，`buildViralContext` 的聚合风格指导（buildPatternGuidance）覆盖率显著提升；保守原则：无显著信号的字段留空，不稀释聚合统计；预填值经 `hook_analysis` 前缀「（本地规则预填）」标注，LLM 恢复后可人工重置 pending 重提取。
+- **P1 落库来源标记**：`normalizeViralItem` source 枚举扩展 `analysis`（collection/manual/analysis）；爆款分析页「存入爆款库」落库条目改带 `source: 'analysis'`，与真实采集内容区分。
+### 验证
+- 新增 pattern-extraction-service.test.js 7 例（LLM 正常回归 / 预填触发 / attempts 门槛 / hook·CTA·公式规则 / 源缺失 failed 回归）；ViralAnalysis.test.js 断言同步；合计 31/31 绿。
+---
+
+# [未发布] docs(agents): QM-3 新增 MUST——门禁断言必须随平台/实现迁移同步更新（2026-09-18）
+### 变更
+- **背景**：main 上 Electron CI 与 Quality Gate 曾长期红灯（`Unit tests = 3 failed / 542 passed / 1 skipped`，546），根因不是功能缺陷，而是三处「平台/实现迁移」都**没同步更新锁死旧前提的门禁断言/基线**：① 全量迁 `windows-latest` 云 runner（`xvfb-run` / `ubuntu-latest` / `ps -eo` / `linux-x64` 归档 / 旧 step 名）；② #1899 统一空态走 locale（测试仍断言旧字面量 `暂无文案`）；③ #1891 剪贴板抽取到 `@/utils/clipboard`（测试仍断言底层 `navigator.clipboard`）。最终由 #1907 + #1924 + #1927 才收口，期间**至少两个会话重复诊断同一根因**
+- **`AGENTS.md` QM-3 新增 MUST「门禁断言随平台/实现迁移同步」**：明确触发条件（runner / OS / 工作流步骤名 / 组件实现细节 / 工具抽取 / locale 值 / 文件增删）+ 必须同步核查的文件清单（`workflow-contract.test.js`、`autonomous-loop-workflow.test.js`、`check-route-registry.test.js`、`gui-ci-exit-contract.test.js`、`scripts/debt-baseline.json`）+ 两条断言原则（断言 i18n 键而非 locale 字面量；mock 当前真正调用的依赖而非旧底层 API；组件删除时同步删专用测试与专用 locale 死键）+ 「判定红灯是否本 PR 引入」的标准路径（查本 PR 之前的 main run → 读 `.steps[]` → 下 job 日志 → 比对 `git show --name-only`）
+- **纯文档改动**：`AGENTS.md` +9 行、无代码变更（`git diff --numstat` = 9/0）
+### 验证
+- 复核既有 QM-3 规则未被破坏：`文本空白归一化（MUST NOT）` × 1、`文本结构断言（MUST）` × 1、`### QM-4` × 1
+- 本条目即为满足文档同步门禁所需（`AGENTS.md` 被该门禁视为代码变更，须同 PR 携带 `CHANGELOG.md`）
+---
+# [未发布] docs(agents): QM-3 新增 MUST——门禁断言必须随平台/实现迁移同步更新（2026-09-18）
+### 变更
+- **背景**：main 上 Electron CI 与 Quality Gate 曾长期红灯（`Unit tests = 3 failed / 542 passed / 1 skipped`，546），根因不是功能缺陷，而是三处「平台/实现迁移」都**没同步更新锁死旧前提的门禁断言/基线**：① 全量迁 `windows-latest` 云 runner（`xvfb-run` / `ubuntu-latest` / `ps -eo` / `linux-x64` 归档 / 旧 step 名）；② #1899 统一空态走 locale（测试仍断言旧字面量 `暂无文案`）；③ #1891 剪贴板抽取到 `@/utils/clipboard`（测试仍断言底层 `navigator.clipboard`）。最终由 #1907 + #1924 + #1927 才收口，期间**至少两个会话重复诊断同一根因**
+- **`AGENTS.md` QM-3 新增 MUST「门禁断言随平台/实现迁移同步」**：明确触发条件（runner / OS / 工作流步骤名 / 组件实现细节 / 工具抽取 / locale 值 / 文件增删）+ 必须同步核查的文件清单（`workflow-contract.test.js`、`autonomous-loop-workflow.test.js`、`check-route-registry.test.js`、`gui-ci-exit-contract.test.js`、`scripts/debt-baseline.json`）+ 两条断言原则（断言 i18n 键而非 locale 字面量；mock 当前真正调用的依赖而非旧底层 API；组件删除时同步删专用测试与专用 locale 死键）+ 「判定红灯是否本 PR 引入」的标准路径（查本 PR 之前的 main run → 读 `.steps[]` → 下 job 日志 → 比对 `git show --name-only`）
+- **纯文档改动**：`AGENTS.md` +9 行、无代码变更（`git diff --numstat` = 9/0）
+### 验证
+- 复核既有 QM-3 规则未被破坏：`文本空白归一化（MUST NOT）` × 1、`文本结构断言（MUST）` × 1、`### QM-4` × 1
+- 本条目即为满足文档同步门禁所需（`AGENTS.md` 被该门禁视为代码变更，须同 PR 携带 `CHANGELOG.md`）
+---
+
+# [未发布] fix(i18n): 清理 #1899 遗留的 locale 重复 viralAnalysis 残缺块 + 12 处 EmptyState 存量硬编码迁移 locale（2026-09-18）
+
+### 修复
+- **locale 重复键结构隐患**：#1899 在 zh/en 各引入一个**顶格重复的 `viralAnalysis` 残缺块**（仅含 `empty` 子键），与既有完整块构成重复键——JS 后键覆盖前键，残缺块内容不可达且后续向其加键会被静默覆盖。已删除残缺块（zh/en 各 6 行）。（QG Static 的 2 处 fresh 由 #1924 修复，本 PR 为其后的增量清理。）
+
+### 变更
+- 全仓 7 文件 **12 处** EmptyState 属性硬编码中文（基线内存量同类债）迁移到 `$t`：新增集中式 `emptyStates.*` 命名空间（10 组键）zh/en 成对；空态渲染文案不变。
+- 5 个测试文件（CloudPublish/ContactSheetView/CreateHistory/ProductionBoard/views-coverage）注入 i18n（`config.global.plugins` 或 mount plugins），修复裸 mount 下模板 `$t` 渲染崩溃。
+
+### 验证
+- `check-locale-sync --cjk` PASS（CJK 硬编码净减 12 条）；`--keys` PASS（1002 keys）；check-locale-sync.test.js 6/6（含行号漂移回归用例）。
+- 受影响 view 测试回归：CloudPublish 16/16、ContactSheetView 18/18、CreateHistory 23/23、ProductionBoard 28/28、Dashboard 13/13、Intelligence 16/16、ViralAnalysis 24/24、views-coverage 7/9（2 例为本地 Junction 环境 workspace 包解析限制，完整环境对照 PASS）、EmptyState 组件 7/7。
+
+---
+
+
+# [未发布] chore(desktop): 清理文案库孤儿组件 CopyLibraryPanel / CopyRewriteModal 及专用死键（2026-09-18）
+
+### 变更
+- 删除 `CopyLibraryPanel.vue`（340 行）+ `CopyLibraryPanel.test.js`（167 行）：合并版文案库（PR #1880）落地后无人引用；PR #1895 曾将其误恢复进 main（提案未使用、未接线），本 PR 再次移除
+- 删除 `CopyRewriteModal.vue` + `CopyRewriteModal.test.js`：弹窗式改写入口已被「跳转改写页直接改写」取代（PR #1880），成为孤儿组件
+- 删除 14 个专用 i18n 死键（zh/en 成对）：`libraryRewriteModal*` 系列 11 键 + `libraryTitle`/`libraryEmptyTitle`/`libraryEmptyDesc`；`libraryRewriteNoContent`（合并版空正文拦截）与 `wordCount*`/`rewriteStyle*`（多页共享）保留
+- RewriteView.vue 注释同步（移除对已删组件的提及）；PRD §10 技术债务清零并记录 #1895 误恢复事件
+
+### 验证
+- 受影响 4 测试文件 172 例全绿；`check-locale-sync --keys` PASS（990 个使用中 key 均存在）；CJK 基线 PASS；eslint 0 errors
+- 文档：`01-docs/PRD-COLLECTION-LIBRARY-MERGE-2026-09-16.md` §10 更新
+
+---
+
 # [未发布] fix(ops-center): 菜单拖拽排序改为按 path 定位，修复 adminOnly 造成的下标漂移（2026-09-18）
 
 ### 修复
