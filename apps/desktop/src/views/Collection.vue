@@ -166,6 +166,50 @@
           </div>
         </div>
 
+        <!-- 知乎收藏夹批量采集/改写 -->
+        <div style="margin-bottom:var(--space-sm);padding-top:var(--space-sm);border-top:1px solid var(--border)">
+          <div style="font-weight:600;font-size:13px;margin-bottom:4px">{{ $t('collection.zhihuFavlist.title') }}</div>
+          <div style="display:flex;gap:var(--space-sm);align-items:center;flex-wrap:wrap">
+            <input
+              v-model="zhihuAccessSecret"
+              type="password"
+              :placeholder="$t('collection.zhihuFavlist.secretPlaceholder')"
+              style="flex:1;min-width:200px;border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:14px"
+            />
+            <button class="cohere-btn-secondary" @click="loadZhihuFavlists" :disabled="zhihuFavlistLoading || !zhihuAccessSecret.trim()">
+              {{ zhihuFavlistLoading ? $t('collection.zhihuFavlist.loading') : $t('collection.zhihuFavlist.loadBtn') }}
+            </button>
+          </div>
+          <div v-if="zhihuFavlists.length" style="display:flex;gap:var(--space-sm);align-items:center;margin-top:8px;flex-wrap:wrap">
+            <select
+              v-model="zhihuSelectedFavlist"
+              style="flex:1;min-width:200px;border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:14px"
+            >
+              <option v-for="f in zhihuFavlists" :key="f.urlToken" :value="f.urlToken">
+                {{ f.title }}{{ f.isPublic ? '' : '（私密）' }}
+              </option>
+            </select>
+            <button class="cohere-btn-primary" @click="zhihuFavlistBatchCollect" :disabled="zhihuFavlistBatching || !zhihuSelectedFavlist">
+              {{ zhihuFavlistBatching === 'collect' ? $t('collection.zhihuFavlist.collecting') : $t('collection.zhihuFavlist.collectBtn') }}
+            </button>
+            <button class="cohere-btn-primary" @click="zhihuFavlistBatchRewrite" :disabled="zhihuFavlistBatching || !zhihuSelectedFavlist">
+              {{ zhihuFavlistBatching === 'rewrite' ? $t('collection.zhihuFavlist.rewriting') : $t('collection.zhihuFavlist.rewriteBtn') }}
+            </button>
+            <button v-if="zhihuFavlistBatching" class="cohere-btn-secondary" @click="cancelZhihuFavlistBatch">
+              {{ $t('collection.cancelBatch') }}
+            </button>
+          </div>
+          <div v-if="zhihuFavlistProgress" style="margin-top:8px;font-size:12px;color:var(--text-secondary)">
+            {{ zhihuFavlistProgress }}
+          </div>
+          <div v-if="zhihuFavlistError" style="margin-top:8px;padding:6px 10px;background:#fff3f3;border-radius:4px;font-size:12px;color:#d32f2f">
+            {{ zhihuFavlistError }}
+          </div>
+          <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">
+            {{ $t('collection.zhihuFavlist.hint') }}
+          </div>
+        </div>
+
         <!-- 批量采集进度 -->
         <div v-if="batchTaskId" class="col-result-box">
           <div class="col-block-title">{{ $t('collection.batchProgress') }}</div>
@@ -553,6 +597,142 @@ let genreDraftId = null
 const rssUrl = ref('')
 const urlListInput = ref('')
 const batchCollecting = ref(false)
+
+// ─── 知乎收藏夹批量采集/改写 ───
+const zhihuAccessSecret = ref('')
+const zhihuFavlists = ref([])
+const zhihuSelectedFavlist = ref('')
+const zhihuFavlistLoading = ref(false)
+const zhihuFavlistBatching = ref('') // '' | 'collect' | 'rewrite'
+const zhihuFavlistProgress = ref('')
+const zhihuFavlistError = ref('')
+const zhihuFavlistResults = ref([]) // 批量采集结果（供批量改写用）
+
+async function saveZhihuSecret () {
+  try {
+    await storeSetSetting('zhihu_access_secret', zhihuAccessSecret.value.trim())
+  } catch { /* 保存失败不阻塞 */ }
+}
+
+async function loadZhihuFavlists () {
+  if (!zhihuAccessSecret.value.trim()) {
+    zhihuFavlistError.value = resolveNotifyText('collection.zhihuFavlist.secretRequired').text
+    return
+  }
+  zhihuFavlistLoading.value = true
+  zhihuFavlistError.value = ''
+  try {
+    await saveZhihuSecret()
+    const api = getApi()
+    const r = await api.zhihuFavlistList()
+    if (r.code !== 0) {
+      zhihuFavlistError.value = r.message || resolveNotifyText('collection.zhihuFavlist.loadFailed').text
+      return
+    }
+    zhihuFavlists.value = r.data || []
+    if (!zhihuFavlists.value.length) {
+      zhihuFavlistError.value = resolveNotifyText('collection.zhihuFavlist.empty').text
+    }
+  } catch (e) {
+    zhihuFavlistError.value = String(e && e.message || e)
+  } finally {
+    zhihuFavlistLoading.value = false
+  }
+}
+
+async function zhihuFavlistBatchCollect () {
+  if (!zhihuSelectedFavlist.value) return
+  zhihuFavlistBatching.value = 'collect'
+  zhihuFavlistError.value = ''
+  zhihuFavlistProgress.value = resolveNotifyText('collection.zhihuFavlist.fetchingContents').text
+  try {
+    const api = getApi()
+    // 1. 获取收藏夹内容 URL 列表
+    const contents = await api.zhihuFavlistContents({ urlToken: zhihuSelectedFavlist.value })
+    if (contents.code !== 0) {
+      zhihuFavlistError.value = contents.message || resolveNotifyText('collection.zhihuFavlist.loadFailed').text
+      return
+    }
+    const urls = (contents.data && contents.data.items || []).map((it) => it.url).filter(Boolean)
+    if (!urls.length) {
+      zhihuFavlistError.value = resolveNotifyText('collection.zhihuFavlist.emptyFavlist').text
+      return
+    }
+    // 2. 批量采集（主进程 BatchRateController 串行 + 间隔 + 退避）
+    zhihuFavlistProgress.value = resolveNotifyText('collection.zhihuFavlist.collectingProgress', { count: urls.length }).text
+    const r = await api.zhihuFavlistBatchCollect({ urls })
+    if (r.code !== 0) {
+      zhihuFavlistError.value = r.message || resolveNotifyText('collection.zhihuFavlist.loadFailed').text
+      return
+    }
+    const { completed, failed, cancelled, circuitBroken } = r.data
+    // 3. 结果入列表
+    const items = (r.data.results || []).filter((x) => x && x.ok && x.data).map((x) => ({
+      ...x.data.data, id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    }))
+    for (const item of items) {
+      collectedItems.value.unshift(item)
+    }
+    saveCollectedItems()
+    zhihuFavlistResults.value = items
+    zhihuFavlistProgress.value = resolveNotifyText('collection.zhihuFavlist.batchDone', {
+      completed: String(completed), failed: String(failed),
+    }).text + (cancelled ? '（已取消）' : '') + (circuitBroken ? '（熔断停止）' : '')
+    notifySuccess('collection.collectSuccess')
+  } catch (e) {
+    zhihuFavlistError.value = String(e && e.message || e)
+  } finally {
+    zhihuFavlistBatching.value = ''
+  }
+}
+
+async function zhihuFavlistBatchRewrite () {
+  // 优先改写本次采集结果；无结果时改写已采集列表中有正文的条目
+  const source = zhihuFavlistResults.value.length
+    ? zhihuFavlistResults.value
+    : collectedItems.value.filter((x) => (x.content || '').trim().length >= 20)
+  if (!source.length) {
+    zhihuFavlistError.value = resolveNotifyText('collection.zhihuFavlist.noRewritable').text
+    return
+  }
+  zhihuFavlistBatching.value = 'rewrite'
+  zhihuFavlistError.value = ''
+  zhihuFavlistProgress.value = resolveNotifyText('collection.zhihuFavlist.rewritingProgress', { count: source.length }).text
+  try {
+    const api = getApi()
+    const contents = source.map((x) => ({ content: x.content }))
+    const r = await api.zhihuFavlistBatchRewrite({ contents, style: rewriteStyle.value, length: 'keep' })
+    if (r.code !== 0) {
+      zhihuFavlistError.value = r.message || resolveNotifyText('collection.zhihuFavlist.loadFailed').text
+      return
+    }
+    const { completed, failed, cancelled, circuitBroken } = r.data
+    // 改写结果写回条目
+    const results = r.data.results || []
+    let idx = 0
+    for (const res of results) {
+      if (res && res.ok && res.data && res.data.result_content && source[idx]) {
+        source[idx].rewrittenContent = res.data.result_content
+      }
+      idx++
+    }
+    zhihuFavlistProgress.value = resolveNotifyText('collection.zhihuFavlist.batchDone', {
+      completed: String(completed), failed: String(failed),
+    }).text + (cancelled ? '（已取消）' : '') + (circuitBroken ? '（熔断停止）' : '')
+    notifySuccess('collection.rewriteSuccess')
+  } catch (e) {
+    zhihuFavlistError.value = String(e && e.message || e)
+  } finally {
+    zhihuFavlistBatching.value = ''
+  }
+}
+
+async function cancelZhihuFavlistBatch () {
+  try {
+    const api = getApi()
+    await api.zhihuFavlistCancel(zhihuFavlistBatching.value)
+  } catch { /* 取消失败静默 */ }
+}
 const batchTaskId = ref(null)
 const batchProgress = ref(0)
 const batchProgressText = ref('')
