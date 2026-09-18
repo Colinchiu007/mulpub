@@ -398,8 +398,23 @@ describe('RewriteEngine viral integration (review fixes)', function () {
   })
 })
 
-// ── F: 改写结果纯文案约束 + 标题生成 + 结构标题剥离（2026-09-18）──
-describe('RewriteEngine pure-copy output contract', function () {
+// ── E: P1-E 爆款信号注入（viralAngles/viralKeywords 软约束）──
+describe('RewriteEngine viral signal injection', function () {
+  function wireStrategy4(engine) {
+    var strategy = {
+      id: 'signal-v1', name: 'signal-test', category: 'imitate',
+      systemPrompt: 'assistant.', userPromptTemplate: 'rewrite: {content}',
+      industry: ['generic'], tone: ['casual'], platforms: ['generic'],
+      postProcess: { removeAITaste: false, maxLength: 6000 }
+    }
+    engine._strategyManager._strategies = [strategy]
+    engine._strategyManager.listEnabled = function () { return [strategy] }
+    engine._strategyManager.get = function () { return strategy }
+    engine._strategyManager.clearRemote = function () {}
+    engine._strategyManager.mergeRemote = function () {}
+  }
+
+  // ── F: 改写结果纯文案约束 + 标题生成 + 结构标题剥离（2026-09-18）──
   function mockLlmClient(t) { return { chat: async function () { return t } } }
 
   function wireStrategy5(engine) {
@@ -471,5 +486,63 @@ describe('RewriteEngine pure-copy output contract', function () {
     wireStrategy5(engine)
     expect(engine._generateTitle('   ')).toBe('')
     expect(engine._generateTitle('')).toBe('')
+  })
+
+  test('E1 viralAngles/viralKeywords 注入 userPrompt 信号段', async function () {
+    var captured = null
+    var llm = { chat: async function (sys, user) { captured = user; return '结果' } }
+    var engine = new RewriteEngine({ llmClient: llm, knowledgeBase: new KnowledgeBase() })
+    wireStrategy4(engine)
+    var result = await engine.rewrite({
+      mode: 'imitate', content: '原始内容',
+      viralAngles: ['深度解析', '避坑指南'], viralKeywords: ['AI 效率'],
+      userSettings: {},
+    })
+    expect(result.success).toBe(true)
+    expect(captured).toContain('深度解析')
+    expect(captured).toContain('避坑指南')
+    expect(captured).toContain('AI 效率')
+  })
+
+  test('E2 非字符串/空数组/超量清洗：≤6 条、每条 ≤60 字符', async function () {
+    var captured = null
+    var llm = { chat: async function (sys, user) { captured = user; return '结果' } }
+    var engine = new RewriteEngine({ llmClient: llm, knowledgeBase: new KnowledgeBase() })
+    wireStrategy4(engine)
+    var angles = []
+    for (var i = 0; i < 10; i++) angles.push('角度' + i + ' ' + 'x'.repeat(80))
+    await engine.rewrite({ mode: 'imitate', content: '原始内容', viralAngles: angles.concat([42, null, '  ']), viralKeywords: [], userSettings: {} })
+    var kept = ['角度0','角度1','角度2','角度3','角度4','角度5','角度6','角度7','角度8','角度9'].filter(function (a) { return captured.indexOf(a) !== -1 }).length
+    expect(kept).toBe(6)
+    expect(captured).not.toContain('x'.repeat(70))
+    // 空数组 → 无信号段
+    var captured2 = null
+    var llm2 = { chat: async function (sys, user) { captured2 = user; return '结果' } }
+    var engine2 = new RewriteEngine({ llmClient: llm2, knowledgeBase: new KnowledgeBase() })
+    wireStrategy4(engine2)
+    await engine2.rewrite({ mode: 'imitate', content: '原始内容', viralAngles: [], viralKeywords: [], userSettings: {} })
+    expect(captured2).not.toContain('信号')
+  })
+
+  test('E3 titleHint 与信号同时存在 → 两段并存', async function () {
+    var captured = null
+    var llm = { chat: async function (sys, user) { captured = user; return '结果' } }
+    var engine = new RewriteEngine({ llmClient: llm, knowledgeBase: new KnowledgeBase() })
+    wireStrategy4(engine)
+    await engine.rewrite({ mode: 'imitate', content: '原始内容', titleHint: '标题X', viralAngles: ['角度A'], userSettings: {} })
+    expect(captured).toContain('标题参考')
+    expect(captured).toContain('标题X')
+    expect(captured).toContain('爆款信号')
+    expect(captured).toContain('角度A')
+  })
+
+  test('E4 未传信号 → 行为不变（回归）', async function () {
+    var captured = null
+    var llm = { chat: async function (sys, user) { captured = user; return '结果' } }
+    var engine = new RewriteEngine({ llmClient: llm, knowledgeBase: new KnowledgeBase() })
+    wireStrategy4(engine)
+    var result = await engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
+    expect(result.success).toBe(true)
+    expect(captured).not.toContain('爆款信号')
   })
 })

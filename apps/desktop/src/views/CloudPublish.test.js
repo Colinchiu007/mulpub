@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { mount } from "@vue/test-utils";
+import { mount, config as vtuConfig } from "@vue/test-utils";
 import { nextTick } from "vue";
 import { setActivePinia, createPinia } from "pinia";
 
@@ -24,6 +24,7 @@ vi.mock("@/api/cloud-publisher", () => ({
 import UiButton from "@/components/UiButton.vue";
 import UiInput from "@/components/UiInput.vue";
 import CloudPublishView from "./CloudPublish.vue";
+import i18n from '@/i18n'
 
 describe("CloudPublishView", () => {
   beforeEach(() => {
@@ -33,7 +34,7 @@ describe("CloudPublishView", () => {
 
   it("renders page title and submit button", async () => {
     const w = mount(CloudPublishView, {
-      global: { plugins: [createPinia()], components: { UiButton, UiInput } }
+      global: { plugins: [createPinia(), i18n], components: { UiButton, UiInput } }
     });
     await nextTick();
     await new Promise(r => setTimeout(r, 10));
@@ -43,7 +44,7 @@ describe("CloudPublishView", () => {
 
   it("loads platforms on mount", async () => {
     const w = mount(CloudPublishView, {
-      global: { plugins: [createPinia()], components: { UiButton, UiInput } }
+      global: { plugins: [createPinia(), i18n], components: { UiButton, UiInput } }
     });
     await nextTick();
     await new Promise(r => setTimeout(r, 10));
@@ -53,7 +54,7 @@ describe("CloudPublishView", () => {
 
   it("adds tag from input", async () => {
     const w = mount(CloudPublishView, {
-      global: { plugins: [createPinia()], components: { UiButton, UiInput } }
+      global: { plugins: [createPinia(), i18n], components: { UiButton, UiInput } }
     });
     await nextTick();
     w.vm.tagsInput = "newtag";
@@ -63,7 +64,7 @@ describe("CloudPublishView", () => {
 
   it("handleSubmit validates required fields", async () => {
     const w = mount(CloudPublishView, {
-      global: { plugins: [createPinia()], components: { UiButton, UiInput } }
+      global: { plugins: [createPinia(), i18n], components: { UiButton, UiInput } }
     });
     await nextTick();
     w.vm.form.videoUrl = "";
@@ -76,7 +77,7 @@ describe("CloudPublishView", () => {
 
   it("handleSubmit succeeds with valid data", async () => {
     const w = mount(CloudPublishView, {
-      global: { plugins: [createPinia()], components: { UiButton, UiInput } }
+      global: { plugins: [createPinia(), i18n], components: { UiButton, UiInput } }
     });
     await nextTick();
     w.vm.form.videoUrl = "https://example.com/video.mp4";
@@ -90,7 +91,7 @@ describe("CloudPublishView", () => {
 
   it("formatTime returns formatted string", async () => {
     const w = mount(CloudPublishView, {
-      global: { plugins: [createPinia()], components: { UiButton, UiInput } }
+      global: { plugins: [createPinia(), i18n], components: { UiButton, UiInput } }
     });
     await nextTick();
     const result = w.vm.formatTime("2026-07-05T10:00:00Z");
@@ -107,7 +108,7 @@ describe("CloudPublishView — extra coverage", () => {
 
   it("retryTask fills form from failed task", async () => {
     const w = mount(CloudPublishView, {
-      global: { plugins: [createPinia()], components: { UiButton, UiInput } }
+      global: { plugins: [createPinia(), i18n], components: { UiButton, UiInput } }
     });
     await nextTick();
     var tk = { input_data: { video_url: "https://x.com/v.mp4", platform: "youtube", title: "Retry", desc: "desc", tags: ["tag1"], cover_url: "https://x.com/c.jpg" } };
@@ -121,7 +122,7 @@ describe("CloudPublishView — extra coverage", () => {
     const mocks = await import("@/api/cloud-publisher");
     mocks.cloudPublishListTasks.mockResolvedValue({ code: -1 });
     const w = mount(CloudPublishView, {
-      global: { plugins: [createPinia()], components: { UiButton, UiInput } }
+      global: { plugins: [createPinia(), i18n], components: { UiButton, UiInput } }
     });
     await nextTick();
     await new Promise(r => setTimeout(r, 10));
@@ -131,7 +132,7 @@ describe("CloudPublishView — extra coverage", () => {
 
   it("statusClass returns correct class for each status", async () => {
     const w = mount(CloudPublishView, {
-      global: { plugins: [createPinia()], components: { UiButton, UiInput } }
+      global: { plugins: [createPinia(), i18n], components: { UiButton, UiInput } }
     });
     await nextTick();
     expect(w.vm.statusClass("pending")).toBe("cohere-tag-warning");
@@ -142,7 +143,7 @@ describe("CloudPublishView — extra coverage", () => {
 
   it("statusLabel returns Chinese label for each status", async () => {
     const w = mount(CloudPublishView, {
-      global: { plugins: [createPinia()], components: { UiButton, UiInput } }
+      global: { plugins: [createPinia(), i18n], components: { UiButton, UiInput } }
     });
     await nextTick();
     expect(w.vm.statusLabel("pending")).toBe("等待中");
@@ -153,7 +154,7 @@ describe("CloudPublishView — extra coverage", () => {
 
   it("addTag ignores duplicate tags", async () => {
     const w = mount(CloudPublishView, {
-      global: { plugins: [createPinia()], components: { UiButton, UiInput } }
+      global: { plugins: [createPinia(), i18n], components: { UiButton, UiInput } }
     });
     await nextTick();
     w.vm.form.tags = ["existing"];
@@ -165,7 +166,7 @@ describe("CloudPublishView — extra coverage", () => {
 
   it("addTag ignores empty input", async () => {
     const w = mount(CloudPublishView, {
-      global: { plugins: [createPinia()], components: { UiButton, UiInput } }
+      global: { plugins: [createPinia(), i18n], components: { UiButton, UiInput } }
     });
     await nextTick();
     var before = w.vm.form.tags.length;
@@ -176,7 +177,7 @@ describe("CloudPublishView — extra coverage", () => {
 
   it("formatTime handles null and invalid date", async () => {
     const w = mount(CloudPublishView, {
-      global: { plugins: [createPinia()], components: { UiButton, UiInput } }
+      global: { plugins: [createPinia(), i18n], components: { UiButton, UiInput } }
     });
     await nextTick();
     expect(w.vm.formatTime(null)).toBe("-");
@@ -187,7 +188,7 @@ describe("CloudPublishView — extra coverage", () => {
 
   it("stopPolling clears interval", async () => {
     const w = mount(CloudPublishView, {
-      global: { plugins: [createPinia()], components: { UiButton, UiInput } }
+      global: { plugins: [createPinia(), i18n], components: { UiButton, UiInput } }
     });
     await nextTick();
     w.vm.pollTimer = 123;
@@ -197,7 +198,7 @@ describe("CloudPublishView — extra coverage", () => {
 
   it("handleSubmit with missing platform fails validation", async () => {
     const w = mount(CloudPublishView, {
-      global: { plugins: [createPinia()], components: { UiButton, UiInput } }
+      global: { plugins: [createPinia(), i18n], components: { UiButton, UiInput } }
     });
     await nextTick();
     w.vm.form.videoUrl = "https://x.com/v.mp4";
@@ -212,7 +213,7 @@ describe("CloudPublishView — extra coverage", () => {
     const mocks = await import("@/api/cloud-publisher");
     mocks.cloudPublishListTasks.mockResolvedValue({ code: 0, data: {} });
     const w = mount(CloudPublishView, {
-      global: { plugins: [createPinia()], components: { UiButton, UiInput } }
+      global: { plugins: [createPinia(), i18n], components: { UiButton, UiInput } }
     });
     await nextTick();
     await w.vm.refreshTasks();

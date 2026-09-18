@@ -89,8 +89,8 @@ vi.mock('@element-plus/icons-vue', () => ({}))
 
 import RewriteView from './RewriteView.vue'
 
-function factory() {
-  setActivePinia(createPinia())
+function factory(pinia) {
+  setActivePinia(pinia || createPinia())
   i18n.global.locale.value = 'zh'
   const wrapper = mount(RewriteView, {
     global: {
@@ -886,6 +886,68 @@ describe('RewriteView — 策略选择与匹配预览', () => {
     await nextTick()
     expect(wrapper.find('.strategy-preview').text()).toContain('抖音爆款策略')
     expect(wrapper.find('.strategy-preview').text()).not.toContain('通用慢策略')
+  })
+})
+
+// ── P1-E：爆款信号注入（viralAngles/viralKeywords 软约束）──
+describe('RewriteView viral signal (P1-E)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockRouteQuery.value = {}
+    mockRouterPush.mockClear()
+  })
+
+  it('startRewrite 携带 store 中的爆款信号（titleHint 带入时快照）', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const { useViralSignalStore } = await import('@/stores/viral-signal')
+    useViralSignalStore().setSignal({ topic: 'AI 工具', angles: ['深度解析'], keywords: ['AI 效率'] })
+    mockRouteQuery.value = { titleHint: 'AI工具推荐TOP5' }
+    const wrapper = factory(pinia)
+    await nextTick()
+    await wrapper.find('textarea.rewrite-textarea').setValue('需要改写的原始文案内容')
+    await wrapper.find('button.rewrite-start-btn').trigger('click')
+    await nextTick()
+    const { aiRewrite } = await import('@/api/publisher')
+    expect(aiRewrite).toHaveBeenCalledWith(expect.objectContaining({
+      titleHint: 'AI工具推荐TOP5',
+      viralAngles: ['深度解析'],
+      viralKeywords: ['AI 效率'],
+    }))
+  })
+
+  it('P1-E 评审 W-1：移除 chip 同时清空信号，params 不再携带', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const { useViralSignalStore } = await import('@/stores/viral-signal')
+    useViralSignalStore().setSignal({ topic: 'AI 工具', angles: ['深度解析'], keywords: ['AI 效率'] })
+    mockRouteQuery.value = { titleHint: 'AI工具推荐TOP5' }
+    const wrapper = factory(pinia)
+    await nextTick()
+    await wrapper.find('[data-testid="rewrite-title-hint-remove"]').trigger('click')
+    await nextTick()
+    expect(wrapper.find('[data-testid="rewrite-title-hint"]').exists()).toBe(false)
+    await wrapper.find('textarea.rewrite-textarea').setValue('需要改写的原始文案内容')
+    await wrapper.find('button.rewrite-start-btn').trigger('click')
+    await nextTick()
+    const { aiRewrite } = await import('@/api/publisher')
+    const params = aiRewrite.mock.calls[0][0]
+    expect(params.titleHint).toBeUndefined()
+    expect(params.viralAngles).toBeUndefined()
+    expect(params.viralKeywords).toBeUndefined()
+  })
+
+  it('无信号时 params 不携带 viralAngles/viralKeywords（回归）', async () => {
+    mockRouteQuery.value = { titleHint: 'AI工具推荐TOP5' }
+    const wrapper = factory()
+    await nextTick()
+    await wrapper.find('textarea.rewrite-textarea').setValue('需要改写的原始文案内容')
+    await wrapper.find('button.rewrite-start-btn').trigger('click')
+    await nextTick()
+    const { aiRewrite } = await import('@/api/publisher')
+    const params = aiRewrite.mock.calls[0][0]
+    expect(params.viralAngles).toBeUndefined()
+    expect(params.viralKeywords).toBeUndefined()
   })
 })
 

@@ -54,11 +54,12 @@ describe("ViralAnalysisView", () => {
   it("scoreColor returns color based on score threshold", async () => {
     const w = createView();
     await nextTick();
-    expect(w.vm.scoreColor(0.8)).toBe("#e74c3c");
-    expect(w.vm.scoreColor(0.7)).toBe("#e74c3c");
-    expect(w.vm.scoreColor(0.5)).toBe("#e67e22");
-    expect(w.vm.scoreColor(0.4)).toBe("#e67e22");
-    expect(w.vm.scoreColor(0.3)).toBe("#95a5a6");
+    // T1-3a：分值色收编 tokens.css（--color-score-*），方法返回变量引用
+    expect(w.vm.scoreColor(0.8)).toBe("var(--color-score-high)");
+    expect(w.vm.scoreColor(0.7)).toBe("var(--color-score-high)");
+    expect(w.vm.scoreColor(0.5)).toBe("var(--color-score-mid)");
+    expect(w.vm.scoreColor(0.4)).toBe("var(--color-score-mid)");
+    expect(w.vm.scoreColor(0.3)).toBe("var(--color-score-low)");
   });
 
   it("doAnalyze validates non-empty topic", async () => {
@@ -219,7 +220,7 @@ describe("ViralAnalysisView viral integration", () => {
     expect(addViralToLibrary).toHaveBeenCalledTimes(1);
     const item = addViralToLibrary.mock.calls[0][0];
     expect(item.title).toBe("AI 工具");
-    expect(item.source).toBe("manual");
+    expect(item.source).toBe("analysis");
     expect(item.platform).toBe("小红书");
     expect(item.content).toContain("AI 工具");
     expect(item.content.length).toBeGreaterThan(0);
