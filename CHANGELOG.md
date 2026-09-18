@@ -1,17 +1,12 @@
 # [未发布] feat(viral): P1-E 爆款信号跨页注入改写软约束（2026-09-18）
-
 ### 新增
 - **爆款信号跨页传递**：新增 Pinia store `viral-signal`（会话内存）——爆款分析成功后记录最近一次分析的推荐角度与上升关键词（清洗 ≤6 条/条 ≤60 字）。
 - **改写软约束注入**：RewriteView 经 `/rewrite?titleHint=` 带入时从 store 快照信号，`aiRewrite` params 携带 `viralAngles`/`viralKeywords`；引擎 `_sanitizeStringList` 清洗后注入「## 爆款信号参考（软约束）」段（与标题参考段并存，均在模板替换后追加）。
 - 无信号/空数组不注入，既有调用方行为不变（回归锁定）；PRD §9-E 实现形态由「策略推荐排序」调整为「信号注入 Prompt」——策略库无 angle 维度可调，注入对生成内容的引导更直接。
-
 ### 验证
 - 引擎 E1-E4 新例（注入/清洗/并存/回归）+ 既有 V/W 全部：rewrite-engine **145/145**；
 - 新 store 测试 3 例 + RewriteView P1-E 集成 2 例（含 pinia 时序修复：factory 接受可选 pinia 实例）；views-coverage 2 例为 Junction 环境限制（已定性）。
-
 ---
-
-
 # [未发布] feat(viral): P1 模式卡片本地规则预填兜底 + 爆款分析落库来源标记（2026-09-18）
 ### 新增
 - **P1-D 模式卡片本地规则预填兜底**：PatternExtractionService 在 LLM 连续失败 2 次后，用零成本启发式正则（hook_type 优先级链 / 尾部 CTA 信号 / 段落结构启发 / title_formula 数字占位符化）预填卡片 status=done——卡片不再进入 failed 终态，`buildViralContext` 的聚合风格指导（buildPatternGuidance）覆盖率显著提升；保守原则：无显著信号的字段留空，不稀释聚合统计；预填值经 `hook_analysis` 前缀「（本地规则预填）」标注，LLM 恢复后可人工重置 pending 重提取。
@@ -20,6 +15,23 @@
 - 新增 pattern-extraction-service.test.js 7 例（LLM 正常回归 / 预填触发 / attempts 门槛 / hook·CTA·公式规则 / 源缺失 failed 回归）；ViralAnalysis.test.js 断言同步；合计 31/31 绿。
 ---
 
+# [未发布] fix(ops-center): 菜单拖拽排序改为按 path 定位，修复 adminOnly 造成的下标漂移（2026-09-18）
+### 修复
+- **根因**：`SettingsView.vue` 的 `visibleItems` 是过滤掉 `adminOnly` 后的**可见**列表（31 项），而 `stores/menu.js` 的 `reorder(from, to)` 按**完整 order（35 项，含 `/pipeline-options`、`/app-menu`、`/feedback`、`/model-keys`）**的下标 splice。拖拽事件传的是可见列表下标 → 只要被拖行之前存在 adminOnly 项，下标即漂移，**用户拖 A 实际移动 B**。管理员视角更明显：侧边栏渲染 35 项、设置页只渲染 31 项，两者本就不同源。
+- **修复**：新增 `reorderByPath(fromPath, toPath)`，内部用 `indexOf` 把 path 换算为完整 order 下标再 splice（splice 数学与原 `reorder` 一致，方向语义不变）；视图侧 `dragIndex/dragOverIndex` 改为 `dragPath/dragOverPath`，事件传 `item.path`。原 `reorder` 的下标语义**保留不动**——`menu.test.js` 有 7 处按下标调用，替换为 path 语义会破坏既有 9 条用例。
+- 「上移/下移」按钮本就走 `move(path, ±1)` 按 path 定位，不受该缺陷影响，是安全回退路径。
+### 验证
+- TDD：`ops-center/frontend` 先加 4 条用例确认红（`reorderByPath is not a function`），实现后 **13/13 全绿**（原 9 + 新增 4）。其中「含 adminOnly 项时按 path 重排，移动的是被拖拽的项本身」直接锁定本次漂移缺陷。
+- `vite build` 编译通过（仅 chunk 体积与 pure 注释告警）。
+- 说明：本仓 CI 当前**不执行** ops-center 前端测试（唯一提及 ops-center 的 `ops-center-ci.yml` 只跑后端 pytest），以上为本地验证结果；前端 CI 覆盖缺口已登记待补。
+---
+# [未发布] feat(viral): P1 模式卡片本地规则预填兜底 + 爆款分析落库来源标记（2026-09-18）
+### 新增
+- **P1-D 模式卡片本地规则预填兜底**：PatternExtractionService 在 LLM 连续失败 2 次后，用零成本启发式正则（hook_type 优先级链 / 尾部 CTA 信号 / 段落结构启发 / title_formula 数字占位符化）预填卡片 status=done——卡片不再进入 failed 终态，`buildViralContext` 的聚合风格指导（buildPatternGuidance）覆盖率显著提升；保守原则：无显著信号的字段留空，不稀释聚合统计；预填值经 `hook_analysis` 前缀「（本地规则预填）」标注，LLM 恢复后可人工重置 pending 重提取。
+- **P1 落库来源标记**：`normalizeViralItem` source 枚举扩展 `analysis`（collection/manual/analysis）；爆款分析页「存入爆款库」落库条目改带 `source: 'analysis'`，与真实采集内容区分。
+### 验证
+- 新增 pattern-extraction-service.test.js 7 例（LLM 正常回归 / 预填触发 / attempts 门槛 / hook·CTA·公式规则 / 源缺失 failed 回归）；ViralAnalysis.test.js 断言同步；合计 31/31 绿。
+---
 # [未发布] docs(agents): QM-3 新增 MUST——门禁断言必须随平台/实现迁移同步更新（2026-09-18）
 ### 变更
 - **背景**：main 上 Electron CI 与 Quality Gate 曾长期红灯（`Unit tests = 3 failed / 542 passed / 1 skipped`，546），根因不是功能缺陷，而是三处「平台/实现迁移」都**没同步更新锁死旧前提的门禁断言/基线**：① 全量迁 `windows-latest` 云 runner（`xvfb-run` / `ubuntu-latest` / `ps -eo` / `linux-x64` 归档 / 旧 step 名）；② #1899 统一空态走 locale（测试仍断言旧字面量 `暂无文案`）；③ #1891 剪贴板抽取到 `@/utils/clipboard`（测试仍断言底层 `navigator.clipboard`）。最终由 #1907 + #1924 + #1927 才收口，期间**至少两个会话重复诊断同一根因**

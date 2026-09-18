@@ -90,3 +90,65 @@ describe('menu store - reset', () => {
     expect(store.order).toEqual(DEFAULT_MENU_ORDER)
   })
 })
+
+describe('menu store - reorderByPath（拖拽按 path 定位，修复 adminOnly 下标漂移）', () => {
+  const visibleOf = (store) => store.orderedItems.filter((item) => !item.adminOnly)
+  const visIdxOf = (store, path) => visibleOf(store).findIndex((i) => i.path === path)
+
+  it('含 adminOnly 项时按 path 重排，移动的是被拖拽的项本身', () => {
+    const store = useMenuStore()
+    // 视图渲染的是过滤掉 adminOnly 后的可见列表（31 项），order 是完整列表（35 项）。
+    // 若把可见下标直接交给按下标定位的 reorder，会移动错项（adminOnly 造成下标漂移）。
+    const firstAdminPos = store.order.findIndex((p) => {
+      const item = store.orderedItems.find((i) => i.path === p)
+      return Boolean(item && item.adminOnly)
+    })
+    expect(firstAdminPos).toBeGreaterThanOrEqual(0)
+
+    const visible = visibleOf(store)
+    const srcEntry = visible.find((i) => store.order.indexOf(i.path) > firstAdminPos)
+    const k = visible.indexOf(srcEntry)
+    const fromPath = srcEntry.path
+    const toPath = visible[k + 1].path
+
+    const fromVisBefore = visIdxOf(store, fromPath)
+    const toVisBefore = visIdxOf(store, toPath)
+    const toPosBefore = store.order.indexOf(toPath)
+
+    store.reorderByPath(fromPath, toPath)
+
+    // 被移动的必须是用户真正抓取的那一项，且落在目标的原位置
+    expect(store.order.indexOf(fromPath)).toBe(toPosBefore)
+    // 可见视角下两者交换
+    expect(visIdxOf(store, fromPath)).toBe(toVisBefore)
+    expect(visIdxOf(store, toPath)).toBe(fromVisBefore)
+  })
+
+  it('跨边界拖拽到可见末位仍然落在末位', () => {
+    const store = useMenuStore()
+    const visible = visibleOf(store)
+    const fromPath = visible[0].path
+    const toPath = visible[visible.length - 1].path
+
+    store.reorderByPath(fromPath, toPath)
+
+    expect(visIdxOf(store, fromPath)).toBe(visible.length - 1)
+  })
+
+  it('未知 path / 相同 path 安全忽略', () => {
+    const store = useMenuStore()
+    const before = [...store.order]
+    store.reorderByPath('/parameters', '/parameters')
+    store.reorderByPath('/parameters', '/not-a-real-path')
+    store.reorderByPath('/not-a-real-path', '/parameters')
+    expect(store.order).toEqual(before)
+  })
+
+  it('重排后持久化到 localStorage', () => {
+    const store = useMenuStore()
+    const visible = visibleOf(store)
+    store.reorderByPath(visible[0].path, visible[3].path)
+    const saved = JSON.parse(localStorage.getItem('ops_menu_order'))
+    expect(saved).toEqual(store.order)
+  })
+})
