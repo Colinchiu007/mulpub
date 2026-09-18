@@ -191,6 +191,41 @@ describe('AgnesVideoAdapter — Agnes Video V2.0', () => {
       expect(result.taskId).toBe('agnes-task-alt')
     })
 
+    it('video_id 字段优先于 id（Agnes 网关实际返回 video_id 为任务 ID，id 为请求 ID）', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ video_id: 'vid-123', id: 'req-456' }),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new AgnesVideoAdapter({ id: 'agnes-video', apiKey: 'sk-test' })
+      const result = await adapter.generateVideo({ prompt: 'test' })
+      // 必须取 video_id（任务 ID），不能取 id（请求 ID），否则 getVideoStatus 查询 task not found
+      expect(result.taskId).toBe('vid-123')
+    })
+
+    it('仅返回 video_id 字段时也能提取任务 ID', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ video_id: 'vid-only' }),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new AgnesVideoAdapter({ id: 'agnes-video', apiKey: 'sk-test' })
+      const result = await adapter.generateVideo({ prompt: 'test' })
+      expect(result.taskId).toBe('vid-only')
+    })
+
+    it('三字段并存时 video_id 优先于 id 与 task_id（完整优先级链锁定）', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ video_id: 'vid-first', id: 'id-second', task_id: 'tid-third' }),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new AgnesVideoAdapter({ id: 'agnes-video', apiKey: 'sk-test' })
+      const result = await adapter.generateVideo({ prompt: 'test' })
+      // 锁定 video_id > id > task_id 的完整回退链，防止未来重排 || 操作数
+      expect(result.taskId).toBe('vid-first')
+    })
+
     it('image 参数映射到请求体（图生视频）', async () => {
       const fetchMock = createFetchMock([
         createFetchResponse({ id: 't2' }),
@@ -273,7 +308,7 @@ describe('AgnesVideoAdapter — Agnes Video V2.0', () => {
         .rejects.toThrow(/prompt.*required/i)
     })
 
-    it('响应缺少 id/task_id → ProviderError(PROVIDER_ERROR)', async () => {
+    it('响应缺少 video_id/id/task_id → ProviderError(PROVIDER_ERROR)', async () => {
       const fetchMock = createFetchMock([
         createFetchResponse({ foo: 'bar' }),
       ])

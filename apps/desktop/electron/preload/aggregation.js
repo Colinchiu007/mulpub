@@ -16,6 +16,12 @@ function createAggregationApi(ipcRenderer) {
     aggregationRewrite: (payload) => ipcRenderer.invoke('aggregation:rewrite', payload),
     aggregationSources: () => ipcRenderer.invoke('aggregation:sources'),
     aggregationTaskStatus: (taskId) => ipcRenderer.invoke('aggregation:task-status', taskId),
+    // 知乎收藏夹（官方 API + 批量频率控制）
+    zhihuFavlistList: () => ipcRenderer.invoke('zhihu-favlist:list'),
+    zhihuFavlistContents: (payload) => ipcRenderer.invoke('zhihu-favlist:contents', payload),
+    zhihuFavlistBatchCollect: (payload) => ipcRenderer.invoke('zhihu-favlist:batch-collect', payload),
+    zhihuFavlistBatchRewrite: (payload) => ipcRenderer.invoke('zhihu-favlist:batch-rewrite', payload),
+    zhihuFavlistCancel: (type) => ipcRenderer.invoke('zhihu-favlist:cancel', { type }),
   }
 }
 

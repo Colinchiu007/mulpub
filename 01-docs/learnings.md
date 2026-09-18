@@ -1,3 +1,8 @@
+## adapter 的 taskId 提取必须覆盖 provider 实际返回的字段命名（2026-09-18，fix-agnes-video-taskid）
+
+- **根因模式（pitfall）**：`agnes-video.js` 的 `generateVideo()` 提取 taskId 用 `data.id || data.task_id`，漏掉 Agnes 网关实际返回的 `video_id`。Agnes `POST /videos` 返回 `{ video_id: '<任务ID>', id: '<请求ID>' }`——`video_id` 才是用于 `/agnesapi?video_id=` 查询的任务 ID，`id` 是请求 ID。用请求 ID 去查询 → `task not found`，历史记录详情页「生成 AI 视频」报「当前模型账号的 AI 视频生成失败」。
+- **断言模式（pitfall）**：adapter 测试只覆盖 `id`/`task_id`（OpenAI 兼容假设），未覆盖 provider 实际返回的 `video_id` 字段。同一网关的 `agnes-multimodal.js` 正确实现了 `data.video_id || data.id || data.task_id` 且测试锁定了 `video_id` 优先，而 `agnes-video.js` 漏掉——两个 adapter 测试覆盖不对称，bug 逃逸。
+- **跨 adapter 一致性（pattern）**：同一 provider 的多个 adapter（如 agnes-video 与 agnes-multimodal）对同一字段命名处理必须一致；新增 adapter 时回查既有 adapter 是否已覆盖其实际返回字段。PRD 写明的字段契约（video_id > id > task_id）应反向校验既有实现。
 ## MiMo TTS 音色克隆机制与 MiniMax 完全不同：能力表/适配器/前端三处联动（mimo-tts-voice-clone，2026-09-18）
 
 - **根因（pitfall）**：能力表（tts-voice-catalog.js）曾把 mimo 三个模型全部声明为 UNSUPPORTED，导致「语音模型」选 mimo-v2.5-tts-voiceclone 时提示「暂不支持音色列表与克隆」。但 MiMo 官方文档明确支持预置音色列表与基于音频样本的音色复刻。**能力表是 provider/model 能力的单一来源，新增/修改 provider 能力必须同步 adapter 实现 + 能力表 + 前端 UI 三处。**

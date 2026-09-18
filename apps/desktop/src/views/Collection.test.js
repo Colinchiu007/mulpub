@@ -1121,6 +1121,93 @@ describe("CollectionView", () => {
   });
 });
 
+describe("CollectionView 知乎收藏夹批量采集/改写", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.electronAPI = {};
+  });
+
+  it("loadZhihuFavlists 无 secret → 显示必填提示", async () => {
+    window.electronAPI = { zhihuFavlistList: vi.fn() };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.zhihuAccessSecret = "";
+    await w.vm.loadZhihuFavlists();
+    expect(w.vm.zhihuFavlistError).toContain("Access Secret");
+    expect(window.electronAPI.zhihuFavlistList).not.toHaveBeenCalled();
+  });
+
+  it("loadZhihuFavlists 成功 → 下拉数据填充", async () => {
+    window.electronAPI = {
+      zhihuFavlistList: vi.fn().mockResolvedValue({ code: 0, data: [
+        { urlToken: 111, title: "收藏夹A", isPublic: true },
+        { urlToken: 222, title: "收藏夹B", isPublic: false },
+      ] }),
+      storeSetSetting: vi.fn().mockResolvedValue(true),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.zhihuAccessSecret = "my-secret";
+    await w.vm.loadZhihuFavlists();
+    expect(w.vm.zhihuFavlists).toHaveLength(2);
+    expect(w.vm.zhihuFavlists[0].title).toBe("收藏夹A");
+    expect(w.vm.zhihuFavlistError).toBe("");
+  });
+
+  it("loadZhihuFavlists 失败 → 错误提示", async () => {
+    window.electronAPI = {
+      zhihuFavlistList: vi.fn().mockResolvedValue({ code: -1, message: "网络连接失败" }),
+      storeSetSetting: vi.fn().mockResolvedValue(true),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.zhihuAccessSecret = "secret";
+    await w.vm.loadZhihuFavlists();
+    expect(w.vm.zhihuFavlistError).toContain("网络连接失败");
+  });
+
+  it("zhihuFavlistBatchCollect 空收藏夹 → 提示无内容", async () => {
+    window.electronAPI = {
+      zhihuFavlistContents: vi.fn().mockResolvedValue({ code: 0, data: { items: [], totals: 0 } }),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.zhihuSelectedFavlist = "111";
+    await w.vm.zhihuFavlistBatchCollect();
+    expect(w.vm.zhihuFavlistError).toContain("没有内容");
+  });
+
+  it("zhihuFavlistBatchCollect 成功 → 结果入列表", async () => {
+    window.electronAPI = {
+      zhihuFavlistContents: vi.fn().mockResolvedValue({ code: 0, data: { items: [
+        { url: "https://zhuanlan.zhihu.com/p/1", title: "文章1" },
+      ], totals: 1 } }),
+      zhihuFavlistBatchCollect: vi.fn().mockResolvedValue({ code: 0, data: {
+        completed: 1, failed: 0, cancelled: false, circuitBroken: false,
+        results: [{ index: 0, ok: true, data: { success: true, title: "文章1", content: "正文" } }],
+      } }),
+      storeGetSetting: vi.fn().mockResolvedValue("[]"),
+      storeSetSetting: vi.fn().mockResolvedValue(true),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.zhihuSelectedFavlist = "111";
+    await w.vm.zhihuFavlistBatchCollect();
+    expect(w.vm.zhihuFavlistResults).toHaveLength(1);
+    expect(w.vm.zhihuFavlistProgress).toContain("成功 1");
+  });
+
+  it("zhihuFavlistBatchRewrite 无可改写内容 → 提示", async () => {
+    window.electronAPI = {};
+    const w = mountCollection();
+    await nextTick();
+    w.vm.zhihuFavlistResults = [];
+    w.vm.collectedItems = [];
+    await w.vm.zhihuFavlistBatchRewrite();
+    expect(w.vm.zhihuFavlistError).toContain("可改写");
+  });
+});
+
 // ── 文案库合并标签（2026-09-16）：采集记录 + 文案库两标签合一，以采集记录卡片为准 ──
 describe("CollectionView 文案库合并标签", () => {
   const RW = {
