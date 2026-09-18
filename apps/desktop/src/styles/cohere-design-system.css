@@ -25,42 +25,44 @@
   font-display: swap;
 }
 
-/* --- 色彩 Tokens (参考产品对齐 · 蓝紫主题) --- */
+/* --- 色彩 Tokens (参考产品对齐 · 蓝紫主题) ---
+ * T1-1 结构收敛：本文件不再持有任何色值，全部转发到 tokens.css（物理唯一来源）。
+ * @deprecated 只读别名层 —— 新代码禁止消费本文件变量，直接使用 var(--color-*)。 */
 :root {
-  /* 品牌色 → tokens.css 单一来源（别名桥接，禁止在此重定义同语义值） */
+  /* 品牌色 */
   --primary: var(--color-primary);
   --primary-hover: var(--color-primary-hover);
   --primary-light: var(--color-primary-light);
-  --secondary: #f472b6;
-  --secondary-light: #fce7f3;
-  --cohere-black: #1e1b4b;
-  --ink: #1e1b4b;
-  --text-muted: #707080;
-  --text-light: #9898a8;
-  --canvas: #ffffff;
-  --surface: #ffffff;
-  --soft-stone: #faf6f8;
-  --pale-blue: #eff6fb;
-  --hairline: #efefef;
-  --border-light: #efefef;
-  --card-border: #e8e8e8;
-  --muted: #707080;
-  --slate: #9898a8;
-  --body-muted: #707080;
+  --secondary: var(--color-secondary);
+  --secondary-light: var(--color-secondary-light);
+  --cohere-black: var(--color-text-primary);
+  --ink: var(--color-text-primary);
+  --text-muted: var(--color-text-secondary);
+  --text-light: var(--color-text-muted);
+  --canvas: var(--color-bg-canvas);
+  --surface: var(--color-bg-card);
+  --soft-stone: var(--color-bg-inset);
+  --pale-blue: var(--color-primary-light);
+  --hairline: var(--color-border);
+  --border-light: var(--color-border);
+  --card-border: var(--color-border-strong);
+  --muted: var(--color-text-secondary);
+  --slate: var(--color-text-muted);
+  --body-muted: var(--color-text-secondary);
   --action-blue: var(--color-primary);
   --focus-blue: var(--color-primary-hover);
-  --coral: #ef5757;
-  --coral-soft: #fef0f0;
+  --coral: var(--color-danger);
+  --coral-soft: var(--color-danger-soft);
   --form-focus: var(--color-primary);
-  --on-primary: #ffffff;
-  --on-dark: #ffffff;
-  --error: #ef5757;
-  --success: #34d399;
-  --warning: #fbbf24;
-  --warning-bg: #fef3c7;
-  --teal: #34d399;
-  --teal-soft: #d1fae5;
-  --canvas-tp: rgba(255,255,255,0.95);
+  --on-primary: var(--color-on-primary);
+  --on-dark: var(--color-on-primary);
+  --error: var(--color-danger);
+  --success: var(--color-success);
+  --warning: var(--color-warning);
+  --warning-bg: var(--color-warning-soft);
+  --teal: var(--color-success);
+  --teal-soft: var(--color-success-soft);
+  --canvas-tp: var(--color-canvas-translucent);
 
   /* 间距 */
   --space-xxs: 2px;
@@ -90,7 +92,7 @@
 
   --mp-nav-height: 70px;
   --mp-nav-border: #e8eaf2;
-  --mp-muted: #8b8e9a;
+  --mp-muted: var(--color-module-nav-text);
   --mp-primary: var(--primary);
 }
 
