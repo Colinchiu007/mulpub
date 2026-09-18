@@ -44,6 +44,8 @@ function registerAllHandlers(ipcMain, deps) {
   require('./aggregation')(ipcMain, deps)
   // 热门选题聚合（多渠道热搜）
   require('./hot-topics')(ipcMain, deps)
+  // 知乎收藏夹批量采集/改写（官方 API + 频率控制）
+  require('./zhihu-favlist')(ipcMain, deps)
   require('./logs')(ipcMain, deps)
   // Backlot 项目库
   require('./project')(ipcMain, deps)

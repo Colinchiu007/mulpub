@@ -72,6 +72,9 @@ const PUBLIC_CHANNELS = new Set([
   'url-collect:needs-stealth',
   // 热门选题：公开热搜榜单聚合，纯本地抓取，未登录可用
   'hot-topics:fetch', 'hot-topics:get-cache',
+  // 知乎收藏夹：官方 API + 本地批量采集/改写（用户自己的收藏内容），未登录可用
+  'zhihu-favlist:list', 'zhihu-favlist:contents',
+  'zhihu-favlist:batch-collect', 'zhihu-favlist:batch-rewrite', 'zhihu-favlist:cancel',
 ])
 
 const ADMIN_ONLY_CHANNELS = new Set([

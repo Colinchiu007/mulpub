@@ -148,6 +148,10 @@
   --color-terminal-error: #f44336;
   --color-terminal-warn: #ff9800;
   --color-notice-error: #f87171;
+  /* 采集/信息提示色（原 Collection.vue 硬编码，T1-3d 收编） */
+  --color-info-soft: #f0f7ff;
+  --color-info-text: #1976d2;
+  --color-progress-track: #e0e0e0;
 
   /* ---- 暗色模式：主色保持品牌可辨识度（修复旧覆盖为浅灰 #e8e8ed 的缺陷）---- */
 }
