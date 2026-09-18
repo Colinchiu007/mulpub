@@ -1,3 +1,11 @@
+## adapter 的 taskId 提取必须覆盖 provider 实际返回的字段命名（2026-09-18，fix-agnes-video-taskid）
+
+- **根因模式（pitfall）**：`agnes-video.js` 的 `generateVideo()` 提取 taskId 用 `data.id || data.task_id`，漏掉 Agnes 网关实际返回的 `video_id`。Agnes `POST /videos` 返回 `{ video_id: '<任务ID>', id: '<请求ID>' }`——`video_id` 才是用于 `/agnesapi?video_id=` 查询的任务 ID，`id` 是请求 ID。用请求 ID 去查询 → `task not found`，历史记录详情页「生成 AI 视频」报「当前模型账号的 AI 视频生成失败」。
+- **断言模式（pitfall）**：adapter 测试只覆盖 `id`/`task_id`（OpenAI 兼容假设），未覆盖 provider 实际返回的 `video_id` 字段。同一网关的 `agnes-multimodal.js` 正确实现了 `data.video_id || data.id || data.task_id` 且测试锁定了 `video_id` 优先，而 `agnes-video.js` 漏掉——两个 adapter 测试覆盖不对称，bug 逃逸。
+- **跨 adapter 一致性（pattern）**：同一 provider 的多个 adapter（如 agnes-video 与 agnes-multimodal）对同一字段命名处理必须一致；新增 adapter 时回查既有 adapter 是否已覆盖其实际返回字段。PRD 写明的字段契约（video_id > id > task_id）应反向校验既有实现。
+
+---
+
 ## 文本提取类 Bug：`replace(/\s+/g, ' ')` 会连语义换行一起杀掉，而 `toContain` 断言对此完全免疫（2026-09-16）
 
 - **根因模式（pitfall）**：`\s` 在 JS 正则中含 `\n` / `\r` / `\u2028` / `\u2029` / 全角空格 `\u3000` / NBSP `\u00a0` / BOM `\ufeff`。用 `text.trim().replace(/\s+/g, ' ')` 清 HTML 源码缩进噪声时，会把**换行一起压掉**，正文被压成一整行（用户侧「没有分行和分段，一整篇看着非常乱」）。正确做法是把「排版噪声」与「语义换行」分开：行内空白压缩用 `[^\S\n]+`（显式排除换行），块级边界在 DOM 层转成换行，最后只做「3 连以上换行压成 1 空行」收口。

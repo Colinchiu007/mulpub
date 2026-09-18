@@ -191,6 +191,29 @@ describe('AgnesVideoAdapter — Agnes Video V2.0', () => {
       expect(result.taskId).toBe('agnes-task-alt')
     })
 
+    it('video_id 字段优先于 id（Agnes 网关实际返回 video_id 为任务 ID，id 为请求 ID）', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ video_id: 'vid-123', id: 'req-456' }),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new AgnesVideoAdapter({ id: 'agnes-video', apiKey: 'sk-test' })
+      const result = await adapter.generateVideo({ prompt: 'test' })
+      // 必须取 video_id（任务 ID），不能取 id（请求 ID），否则 getVideoStatus 查询 task not found
+      expect(result.taskId).toBe('vid-123')
+    })
+
+    it('仅返回 video_id 字段时也能提取任务 ID', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ video_id: 'vid-only' }),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new AgnesVideoAdapter({ id: 'agnes-video', apiKey: 'sk-test' })
+      const result = await adapter.generateVideo({ prompt: 'test' })
+      expect(result.taskId).toBe('vid-only')
+    })
+
     it('image 参数映射到请求体（图生视频）', async () => {
       const fetchMock = createFetchMock([
         createFetchResponse({ id: 't2' }),

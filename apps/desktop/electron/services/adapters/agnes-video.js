@@ -181,8 +181,10 @@ class AgnesVideoAdapter extends BaseAdapter {
         })
         const data = await resp.json()
 
-        // 兼容 OpenAI 协议两种字段命名
-        const taskId = data.id || data.task_id
+        // 兼容 OpenAI 协议字段命名。Agnes 网关实际返回 { video_id, id }：
+        // video_id 是任务 ID（用于 /agnesapi?video_id= 查询），id 是请求 ID（不能用于查询）。
+        // 若漏取 video_id 而用 id 去查询，会得到 task not found（2026-09-18 修复，与 agnes-multimodal 同源）。
+        const taskId = data.video_id || data.id || data.task_id
         if (!taskId) {
           throw new ProviderError(
             ERROR_CODES.PROVIDER_ERROR,
