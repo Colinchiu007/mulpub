@@ -1,3 +1,15 @@
+## [Unreleased] - 2026-09-18 (修复 Agnes 视频生成 taskId 提取漏掉 video_id 导致 task not found)
+
+### 修复
+- `apps/desktop/electron/services/adapters/agnes-video.js` `generateVideo()`：taskId 提取由 `data.id || data.task_id` 改为 `data.video_id || data.id || data.task_id`。Agnes `POST /videos` 实际返回 `{ video_id, id }`——`video_id` 是用于 `/agnesapi?video_id=` 查询的任务 ID，`id` 是请求 ID；此前用请求 ID 查询导致历史记录详情页「生成 AI 视频」报「当前模型账号的 AI 视频生成失败」（真实错误 `task not found`）。与 `agnes-multimodal.js` 同源契约对齐。
+
+### 测试
+- `agnes-video.test.js` 新增 2 例回归：`video_id` 优先于 `id`、仅返回 `video_id` 也能提取。RED→GREEN 证据完整（修复前 2 failed，修复后 43 passed，含审查补充的三字段优先级测试）。
+
+### 文档
+- 新增 `01-docs/BUGFIX-AGNES-VIDEO-TASKID-NOT-FOUND-2026-09-18.md`（根因溯源 / 逃逸分析 / 系统性漏洞 / 修复+回归 / 预防措施 / 数据校验 / 流程 / 交互逻辑 / 显示项 / 提示文字 / 边界情况 / 验收标准）。
+- `01-docs/learnings.md`：新增 pitfall「adapter 的 taskId 提取必须覆盖 provider 实际返回的字段命名」。
+
 ## [Unreleased] - 2026-09-14 (侧边栏左上角品牌区改为「Logo + 版本号」)
 
 ### 变更（应用壳品牌区）
