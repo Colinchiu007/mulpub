@@ -426,7 +426,7 @@ export default {
 
 <style scoped>
 /* T1-3a：原 80 处内联样式全部类化；颜色一律 var(--color-*)（tokens.css 语义槽），
- * 间距/圆角沿用 --space-*/--r-* 槽位。视觉与迁移前等价（两处因变量未定义而
+ * 间距/圆角沿用 --space-* 与 --r-* 槽位。视觉与迁移前等价（两处因变量未定义而
  * 长期无效的样式已按设计意图修复：.viral-overview-card 底色、.viral-keyword-tag 底色）。 */
 .viral-analysis {
   color: var(--color-text-primary);
