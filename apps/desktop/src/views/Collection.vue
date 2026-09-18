@@ -1919,7 +1919,7 @@ function cancelBatchCollect () {
 }
 
 /* T1-3d：原 52 处内联样式全部类化；颜色一律 var(--color-*)（tokens.css 语义槽：
- * --color-error-banner-*/--color-info-*/--color-progress-track 为 T1-3d 新增收编槽）。 */
+ * --color-error-banner、--color-info、--color-progress-track 为 T1-3d 新增收编槽）。 */
 .col-panel { padding: var(--space-md); margin-bottom: var(--space-lg); }
 .col-toolbar { display: flex; gap: var(--space-sm); align-items: center; flex-wrap: wrap; }
 .col-toolbar-icon { font-size: 1.2rem; }
