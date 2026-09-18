@@ -823,4 +823,99 @@ describe('AssetGenerator content-policy image retry', () => {
       fs.rmSync(outputDir, { recursive: true, force: true })
     }
   })
+
+  describe('MiMo 克隆音色样本注入（2026-09-18）', () => {
+    it('mimo-tts + mimo-clone- 音色时读取本地样本注入 cloneSampleData', async () => {
+      const aiGenerator = {
+        generate: vi.fn(async () => ({
+          audio: WAV_BYTES,
+          format: 'wav',
+          model: 'mimo-v2.5-tts-voiceclone',
+        })),
+      }
+      // 构造克隆样本目录 + 样本文件
+      const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-mimo-clone-'))
+      const sampleRelDir = 'voice-clone-samples/ownerhash/storage1'
+      const sampleDir = path.join(userDataDir, sampleRelDir)
+      fs.mkdirSync(sampleDir, { recursive: true })
+      fs.writeFileSync(path.join(sampleDir, 'sample-01.mp3'), WAV_BYTES)
+      const ttsVoiceCloneService = {
+        findCloneSamples: vi.fn(async () => ({
+          sampleStorage: { relativeDir: sampleRelDir, sampleCount: 1 },
+          name: '音色001',
+          model: 'mimo-v2.5-tts-voiceclone',
+        })),
+        _resolveUserDataPath: () => userDataDir,
+      }
+      const { generator, outputDir } = createGenerator(aiGenerator, { ttsVoiceCloneService })
+
+      try {
+        const result = await generator.generateTTS('测试旁白', {
+          voice_id: 'mimo-clone-abc-123',
+          voice_provider: 'mimo-tts',
+          voice_model: 'mimo-v2.5-tts-voiceclone',
+          index: 0,
+          runId: 'mimo-clone-inject',
+        })
+
+        expect(result.code).toBe(0)
+        // 验证传给 adapter 的参数包含 cloneSampleData（data URI）
+        const ttsParams = aiGenerator.generate.mock.calls[0][2]
+        expect(ttsParams.cloneSampleData).toMatch(/^data:audio\/mpeg;base64,/)
+        expect(ttsParams.cloneSampleData.length).toBeGreaterThan(30)
+        expect(ttsParams.voice_id).toBe('mimo-clone-abc-123')
+      } finally {
+        fs.rmSync(outputDir, { recursive: true, force: true })
+        fs.rmSync(userDataDir, { recursive: true, force: true })
+      }
+    })
+
+    it('mimo-tts + 克隆音色但样本缺失时 fail closed（INVALID_CONFIG）', async () => {
+      const aiGenerator = {
+        generate: vi.fn(async () => ({})),
+      }
+      const ttsVoiceCloneService = {
+        findCloneSamples: vi.fn(async () => null),
+        _resolveUserDataPath: () => '/nonexistent',
+      }
+      const { generator, outputDir } = createGenerator(aiGenerator, { ttsVoiceCloneService })
+
+      try {
+        await expect(generator.generateTTS('测试', {
+          voice_id: 'mimo-clone-abc-123',
+          voice_provider: 'mimo-tts',
+          index: 0,
+          runId: 'mimo-clone-missing',
+        })).rejects.toThrow(/样本缺失/)
+      } finally {
+        fs.rmSync(outputDir, { recursive: true, force: true })
+      }
+    })
+
+    it('非 mimo provider 不注入 cloneSampleData（行为不变）', async () => {
+      const aiGenerator = {
+        generate: vi.fn(async () => ({
+          audio: WAV_BYTES,
+          format: 'wav',
+          model: 'speech-2.8-turbo',
+        })),
+      }
+      const { generator, outputDir } = createGenerator(aiGenerator)
+
+      try {
+        const result = await generator.generateTTS('测试', {
+          voice_id: 'male-qn-qingse',
+          voice_provider: 'minimax-tts',
+          voice_model: 'speech-2.8-turbo',
+          index: 0,
+          runId: 'minimax-no-inject',
+        })
+        expect(result.code).toBe(0)
+        const ttsParams = aiGenerator.generate.mock.calls[0][2]
+        expect(ttsParams.cloneSampleData).toBeUndefined()
+      } finally {
+        fs.rmSync(outputDir, { recursive: true, force: true })
+      }
+    })
+  })
 })

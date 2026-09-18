@@ -2651,6 +2651,25 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 用户提示 | 克隆音色不可用且无法重建时，TTS 分段按失败透传，前端显示音色/语音相关失败原因，不再产出静默替换音色的成片。 |
 | 验收标准 | ① 复刻接口 200 + 2038 业务错误 → 前端不出现「音色001」、无幻影克隆持久化；② `tryReCloneVoice` 回归断言不调用 `retryFn('default')`、返回 null；③ 真实运行若克隆音色重建失败，流水线报告失败且成片不含被替换的官方音色。 |
 
+#### 7.1.16.3 MiMo TTS 音色列表与克隆支持（2026-09-18）
+
+**背景**：视频创作-故事讲述流水线「声音选项」区域，当「语音生成器」选择「Mimo TTS」、「语音模型」选择「mimo-v2.5-tts-voiceclone」时提示「当前语音模型暂不支持音色列表与克隆功能，已使用默认音色。当前模型没有可用音色。」但 MiMo 官方文档（speech-synthesis-v2.5）明确支持预置音色列表与基于音频样本的音色复刻。根因：能力表（tts-voice-catalog.js）把 mimo 三个模型全部声明为 UNSUPPORTED，adapter 未实现 listVoices/cloneVoice。
+
+| 合同 | 要求 |
+|------|------|
+| 预置音色列表 | mimo-v2.5-tts 能力改为 BUILTIN（canListVoices: true），adapter listVoices() 返回 9 个官方预置音色（mimo_default/冰糖/茉莉/苏打/白桦/Mia/Chloe/Milo/Dean），音色 ID 下拉可选择，默认 mimo_default。 |
+| 音色复刻（克隆） | mimo-v2.5-tts-voiceclone 能力改为 USER_CLONE（clone: desktop_upload）。MiMo 无远端 voice_id：每次合成时把音频样本 Base64 直接放 audio.voice 字段（data:{mime};base64,...，≤10MB，仅 mp3/wav）。克隆音色 voice_id 为本地 ID（mimo-clone-<uuid>），样本由 tts-voice-clone-service 持久化，合成时由 asset-generator 读取样本注入 cloneSampleData 参数，adapter 自动切 voiceclone 模型。 |
+| 样本限制 | MiMo 克隆样本：单文件、mp3/wav、Base64 后 ≤10MB（本地校验按原始字节 ≤10MB 保守执行）；getRequirements 数据驱动展示与本地校验。 |
+| 语音模型下拉隐藏 | 当「语音生成器」为 MiMo TTS 时，「语音模型」下拉选择栏不显示。mimo-v2.5-tts 与 mimo-v2.5-tts-voiceclone 由「语音 / 音色 ID」下拉区分：选择预置音色走 tts 模型，选择克隆音色走 voiceclone 模型。其他 provider（如 MiniMax）语音模型下拉保留（MiniMax 克隆音色自动切换 speech-02-hd 模型）。 |
+| registry 绑定 | MiMo 克隆音色样本与相关信息（名称、ID 等）在数据库中与 provider/model 绑定（tts-voice-clones:v2:mimo-tts:mimo-v2.5-tts-voiceclone），与 MiniMax 一致。偏好读取同时兼容 tts 与 voiceclone 键。 |
+| 移除 voicedesign | mimo-v2.5-tts-voicedesign（文本设计音色）项目用不到，从模型种子（model-provider-seeds.js）、adapter 静态列表、能力表与运营中心预设（model_preset_service.py）中移除；能力查询返回 model_not_whitelisted。 |
+| 克隆恢复 | story2video 克隆恢复的模型兜底按 provider 区分：MiMo 回退 mimo-v2.5-tts-voiceclone（而非 MiniMax 的 speech-02-hd）；findCloneSamples 回退链扩展包含 mimo 模型。 |
+| 克隆补偿 | MiMo 为纯本地克隆 provider（无远端 deleteVoice），克隆失败补偿跳过远端删除，只做本地样本清理。 |
+| 数据校验 | 克隆音色合成缺样本 → INVALID_CONFIG（fail closed），不静默回退默认音色；非 mp3/wav 样本在 add 阶段由 _assertPreparedSample 拒绝。 |
+| 交互逻辑 | 语音生成器 = Mimo TTS 时：语音模型下拉隐藏；音色 ID 下拉显示 9 个预置音色 + 用户克隆音色；克隆面板显示（选择本地音频文件 → 自动克隆，默认名「音色XXX」）。 |
+| 提示文字 | 移除「当前语音模型暂不支持音色列表与克隆功能」对 mimo-v2.5-tts-voiceclone 的触发；克隆样本要求提示由 getRequirements 数据驱动（mp3/wav、≤10MB）。 |
+| 验收标准 | ① mimo-v2.5-tts 音色下拉显示 9 个预置音色；② mimo-v2.5-tts-voiceclone 克隆面板可用，选择 mp3/wav 样本自动克隆，合成时注入样本并切 voiceclone 模型；③ 语音模型下拉在 Mimo 下隐藏、MiniMax 下保留；④ voicedesign 从所有模型列表移除；⑤ 克隆音色偏好跨会话保留；⑥ 克隆样本缺失时流水线 fail closed 不静默回退。 |
+
 #### 7.1.17 提示词优化输出净化与无实质内容守卫（2026-08-09）
 
 **背景**：真实链路「图片轮播」文案输入「12」，提示词优化阶段输出的图片提示词为 `<think>……</think>\n\nA man in his late thirties stands at a crossroads……`——带推理能力的 LLM（MiniMax-M3/M2.7 等）在 OpenAI 兼容接口下把思考过程以 `<think>` 块放进 `content`，系统原样当提示词；同时纯数字文案被模型凭空编造出与原文无关的场景。

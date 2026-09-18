@@ -486,12 +486,14 @@ class AssetGenerator {
    * @param {object} [opts]
    * @param {string} [opts.outputDir] - 输出目录
    * @param {object} [opts.log] - 日志模块
+   * @param {object} [opts.ttsVoiceCloneService] - 克隆音色服务（MiMo 克隆样本读取）
    */
   constructor (opts) {
     opts = opts || {}
     this.outputDir = opts.outputDir || path.join(os.tmpdir(), 'story2video', 'assets')
     this.log = opts.log || require('./logger')
     this.aiGenerator = opts.aiGenerator || null
+    this.ttsVoiceCloneService = opts.ttsVoiceCloneService || null
     this.ffmpeg = opts.ffmpeg === undefined ? FFMPEG : opts.ffmpeg
     this.fetchImpl = opts.fetchImpl || globalThis.fetch
     this.resolveHost = opts.resolveHost || dns.promises.lookup
@@ -1036,6 +1038,22 @@ class AssetGenerator {
       const voiceId = selectedVoice && !['default', 'male', 'female-soft'].includes(selectedVoice)
         ? selectedVoice
         : undefined
+      // MiMo 克隆音色（mimo-clone-<uuid>）：无远端 voice_id，需读取本地样本
+      // 注入 cloneSampleData（data:{mime};base64,...），adapter 自动切 voiceclone 模型。
+      const isMimoClone = String(provider).toLowerCase() === 'mimo-tts'
+        && typeof voiceId === 'string'
+        && voiceId.startsWith('mimo-clone-')
+      let cloneSampleData
+      if (isMimoClone) {
+        cloneSampleData = await this._resolveMimoCloneSample(voiceId, opts)
+        if (!cloneSampleData) {
+          throw new ProviderError(
+            ERROR_CODES.INVALID_CONFIG,
+            'MiMo 克隆音色样本缺失，请重新克隆该音色',
+            { providerId: provider }
+          )
+        }
+      }
       const requestedFormat = firstNonEmptyString(opts?.audio_format, opts?.audioFormat, opts?.output_format, opts?.outputFormat) || 'mp3'
       // ElevenLabs 的默认格式由适配器选择；显式指定时才传 outputFormat，避免把通用 mp3 误传为无效的 ElevenLabs 格式。
       const providerOutputFormat = provider.toLowerCase() === 'elevenlabs' && requestedFormat === 'mp3'
@@ -1062,6 +1080,7 @@ class AssetGenerator {
         speedRatio: opts?.rate,
         pitch: opts?.pitch,
         emotion: opts?.emotion,
+        ...(cloneSampleData ? { cloneSampleData } : {}),
         ...(wantTimestamps ? { withTimestamps: true, subtitleType: 'word', subtitle_type: 'word' } : {}),
       }
       const result = runtimeOptions
@@ -1094,6 +1113,50 @@ class AssetGenerator {
       if (error instanceof ProviderError) throw error
       return { code: -1, message: 'TTS provider "' + provider + '" failed: ' + message }
     }
+  }
+
+  /**
+   * 读取 MiMo 克隆音色的本地样本，转成 data URI（data:{mime};base64,...）。
+   *
+   * MiMo 音色复刻机制：每次合成时把音频样本 Base64 直接放在 audio.voice 字段
+   * （官方文档 speech-synthesis-v2.5，≤10MB，仅 mp3/wav）。样本由
+   * tts-voice-clone-service 持久化到 {userData}/voice-clone-samples/<owner>/<storageId>/，
+   * 这里通过 cloneService.findCloneSamples 定位并读取。
+   *
+   * @param {string} voiceId - mimo-clone-<uuid>
+   * @param {object} [opts] - 调用参数（含 voice_model）
+   * @returns {Promise<string|null>} data URI 或 null（样本缺失/读取失败）
+   * @private
+   */
+  async _resolveMimoCloneSample (voiceId, opts) {
+    const cloneSvc = this.ttsVoiceCloneService
+    if (!cloneSvc || typeof cloneSvc.findCloneSamples !== 'function') return null
+    const voiceModel = firstNonEmptyString(opts?.voice_model, opts?.voiceModel)
+    const samples = await cloneSvc.findCloneSamples(voiceId, 'mimo-tts', voiceModel || 'mimo-v2.5-tts-voiceclone')
+    if (!samples || !samples.sampleStorage || !samples.sampleStorage.relativeDir) return null
+    const userDataDir = typeof cloneSvc._resolveUserDataPath === 'function'
+      ? cloneSvc._resolveUserDataPath()
+      : null
+    if (!userDataDir) return null
+    const sampleDir = path.join(userDataDir, samples.sampleStorage.relativeDir)
+    let files
+    try {
+      files = fs.readdirSync(sampleDir).filter(f => /\.(mp3|wav)$/i.test(f))
+    } catch (_) {
+      return null
+    }
+    if (files.length === 0) return null
+    const samplePath = path.join(sampleDir, files[0])
+    let buffer
+    try {
+      buffer = fs.readFileSync(samplePath)
+    } catch (_) {
+      return null
+    }
+    if (!Buffer.isBuffer(buffer) || buffer.length === 0 || buffer.length > 10 * 1024 * 1024) return null
+    const ext = path.extname(samplePath).toLowerCase()
+    const mime = ext === '.wav' ? 'audio/wav' : 'audio/mpeg'
+    return 'data:' + mime + ';base64,' + buffer.toString('base64')
   }
 
   async _persistProviderAudio (outputBasePath, audio) {

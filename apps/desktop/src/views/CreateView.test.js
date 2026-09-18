@@ -6402,3 +6402,100 @@ describe("CreateView 启动前置校验弹窗（models_required + 去模型设�
     w.unmount()
   })
 });
+
+describe("CreateView MiMo TTS 语音模型下拉隐藏（2026-09-18）", () => {
+  it("mimo-tts 下语音模型下拉隐藏，音色下拉显示，catalog 请求用 mimo-v2.5-tts", async () => {
+    const mimoProvider = {
+      id: "mimo-tts",
+      name: "MiMo TTS",
+      category: "tts",
+      enabled: true,
+      is_configured: true,
+      models: ["mimo-v2.5-tts", "mimo-v2.5-tts-voiceclone"],
+    };
+    const listProviders = vi.fn(async (category) => {
+      if (category === "tts") return { code: 0, data: [mimoProvider] };
+      return { code: 0, data: [] };
+    });
+    window.electronAPI = { modelProviderList: listProviders };
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await nextTick();
+
+    // 等待 loadS2VProviders 完成（mounted 自动触发）
+    await w.vm.loadS2VProviders();
+    await nextTick();
+
+    // 选中 mimo-tts
+    w.vm.s2vConfig.voiceProvider = "mimo-tts";
+    w.vm.s2vConfig.voiceModel = "";
+    await nextTick();
+
+    // 语音模型下拉隐藏
+    expect(w.vm.s2vVoiceModelHidden).toBe(true);
+    expect(w.vm.s2vVoiceModelOptions).toEqual([]);
+    expect(w.vm.getS2VDefaultVoiceModel("mimo-tts")).toBe("");
+    const voiceModelItems = w.findAll(".config-item").filter(item => {
+      const label = item.find("label");
+      return label.exists() && label.text() === "语音模型";
+    });
+    expect(voiceModelItems).toHaveLength(0);
+
+    // 音色下拉显示（语音 / 音色 ID）
+    const voiceIdItems = w.findAll(".config-item").filter(item => {
+      const label = item.find("label");
+      return label.exists() && label.text() === "语音 / 音色 ID";
+    });
+    expect(voiceIdItems.length).toBeGreaterThan(0);
+
+    // catalog 请求上下文固定用 mimo-v2.5-tts
+    expect(w.vm.getS2VVoiceContext()).toEqual({ providerId: "mimo-tts", model: "mimo-v2.5-tts" });
+    expect(w.vm.s2vVoiceContextModel).toBe("mimo-v2.5-tts");
+    w.unmount();
+  });
+
+  it("非 mimo provider（如 minimax-tts）语音模型下拉正常显示", async () => {
+    const minimaxProvider = {
+      id: "minimax-tts",
+      name: "MiniMax TTS",
+      category: "tts",
+      enabled: true,
+      is_configured: true,
+      models: ["speech-2.8-turbo"],
+    };
+    const listProviders = vi.fn(async (category) => {
+      if (category === "tts") return { code: 0, data: [minimaxProvider] };
+      return { code: 0, data: [] };
+    });
+    window.electronAPI = { modelProviderList: listProviders };
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await nextTick();
+
+    // 等待 loadS2VProviders 完成（mounted 自动触发）
+    await w.vm.loadS2VProviders();
+    await nextTick();
+
+    w.vm.s2vConfig.voiceProvider = "minimax-tts";
+    w.vm.s2vConfig.voiceModel = "speech-2.8-turbo";
+    await nextTick();
+
+    expect(w.vm.s2vVoiceModelHidden).toBe(false);
+    expect(w.vm.s2vVoiceModelOptions).toEqual(["speech-2.8-turbo"]);
+    expect(w.vm.getS2VDefaultVoiceModel("minimax-tts")).toBe("speech-2.8-turbo");
+    const voiceModelItems = w.findAll(".config-item").filter(item => {
+      const label = item.find("label");
+      return label.exists() && label.text() === "语音模型";
+    });
+    expect(voiceModelItems.length).toBeGreaterThan(0);
+    w.unmount();
+  });
+});
