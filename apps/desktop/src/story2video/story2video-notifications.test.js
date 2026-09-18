@@ -274,6 +274,19 @@ describe('Story2Video notification messages', () => {
       .toBe(STORY2VIDEO_NOTIFICATION_KEYS.SCENE_AI_VIDEO_GENERATE_FAILED)
   })
 
+  it('再次合成时素材缺失错误归一化为具体提示（2026-09-18 已取消项目修复）', () => {
+    // _scenesForCompose 对选中视频素材缺失抛的中文错误
+    expect(formatStory2VideoNotification({ error: '第 2 个场景的视频素材不存在、不可读或超出限制' }).messageKey)
+      .toBe(STORY2VIDEO_NOTIFICATION_KEYS.SCENE_VIDEO_MISSING)
+    expect(formatStory2VideoNotification({ error: '第 2 个场景的视频素材不存在、不可读或超出限制' }).message)
+      .toBe('该场景的视频素材不存在或不可读，请重新生成视频素材后再合成。')
+    // compose 引擎对图片/音频缺失返回的英文错误归一化
+    expect(formatStory2VideoNotification({ error: 'Scene media path is not allowed or unreadable at index 0' }).messageKey)
+      .toBe(STORY2VIDEO_NOTIFICATION_KEYS.SCENE_IMAGE_MISSING)
+    expect(formatStory2VideoNotification({ error: 'Scene audio path is not allowed or unreadable at index 1' }).messageKey)
+      .toBe(STORY2VIDEO_NOTIFICATION_KEYS.SCENE_AUDIO_MISSING)
+  })
+
   it('counts Unicode code points rather than UTF-16 code units or grapheme clusters', () => {
     expect('A😀中'.length).toBe(4)
     expect(countUnicodeCodePoints('A😀中')).toBe(3)

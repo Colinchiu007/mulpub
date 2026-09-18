@@ -1543,17 +1543,26 @@ class Story2VideoProjectService {
    * - 缺失 → 遗留语义（videoPath 优先，与现状一致）。
    */
   _scenesForCompose (segments) {
-    return (Array.isArray(segments) ? segments : []).map((segment) => {
+    return (Array.isArray(segments) ? segments : []).map((segment, index) => {
       const scene = { ...segment }
       const selected = safeMaterialKind(segment.selectedMaterial)
-      if (selected === 'video') return scene
+      if (selected === 'video') {
+        const resolved = typeof scene.videoPath === 'string' && scene.videoPath.trim()
+          ? this._resolveSource(scene.videoPath, 'video')
+          : null
+        // 显式选中视频但素材缺失：直接抛带场景号的视频素材缺失错误，避免落到 compose 的
+        // 二义性 media path 错误被误归为图片缺失（2026-09-18 审查 C1）
+        if (!resolved) throw new Error('第 ' + (index + 1) + ' 个场景的视频素材不存在、不可读或超出限制')
+        scene.videoPath = resolved
+        return scene
+      }
       if (selected === 'video1') {
         const candidates = [scene.videoPath, scene.videoMeta && scene.videoMeta.sceneVideoPath]
         const resolved = candidates
           .filter(candidate => typeof candidate === 'string' && candidate.trim())
           .map(candidate => this._resolveSource(candidate, 'video'))
           .find(Boolean)
-        if (!resolved) throw new Error('视频1素材不存在、不可读或超出限制')
+        if (!resolved) throw new Error('第 ' + (index + 1) + ' 个场景的视频素材不存在、不可读或超出限制')
         scene.videoPath = resolved
         return scene
       }
@@ -1562,7 +1571,7 @@ class Story2VideoProjectService {
         const resolved = typeof alternateVideo === 'string' && alternateVideo.trim()
           ? this._resolveSource(alternateVideo, 'video')
           : null
-        if (!resolved) throw new Error('视频2素材不存在、不可读或超出限制')
+        if (!resolved) throw new Error('第 ' + (index + 1) + ' 个场景的视频素材不存在、不可读或超出限制')
         scene.videoPath = resolved
         return scene
       }
