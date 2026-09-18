@@ -133,6 +133,20 @@
   --color-score-high: #e74c3c;
   --color-score-mid: #e67e22;
   --color-score-low: #95a5a6;
+  /* 流水线阶段状态底色（原 AutoPipelineView 硬编码，T1-3b 收编） */
+  --color-stage-completed-bg: #e8f5e9;
+  --color-stage-running-bg: #e3f2fd;
+  --color-stage-failed-bg: #ffebee;
+  --color-stage-skipped-bg: #f5f5f5;
+  --color-stage-pending-bg: #ffffff;
+  --color-error-banner-bg: #fff3f3;
+  --color-error-banner-text: #d32f2f;
+  /* 执行日志终端色（原 AutoPipelineView 硬编码，T1-3b 收编） */
+  --color-terminal-bg: #1e1e1e;
+  --color-terminal-text: #d4d4d4;
+  --color-terminal-muted: #888888;
+  --color-terminal-error: #f44336;
+  --color-terminal-warn: #ff9800;
 
   /* ---- 暗色模式：主色保持品牌可辨识度（修复旧覆盖为浅灰 #e8e8ed 的缺陷）---- */
 }
