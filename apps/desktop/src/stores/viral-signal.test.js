@@ -28,6 +28,16 @@ describe('viral-signal store', () => {
     expect(store.signal).toBeNull()
   })
 
+  it('边界截断：7+ 条只留 6 条、>60 字条目截断至 60', () => {
+    const store = useViralSignalStore()
+    const angles = []
+    for (let i = 0; i < 8; i++) angles.push('角度' + i + ' ' + 'x'.repeat(70))
+    store.setSignal({ topic: 'T', angles, keywords: ['K'] })
+    expect(store.signal.angles.length).toBe(6)
+    for (const a of store.signal.angles) expect(a.length).toBeLessThanOrEqual(60)
+    expect(store.signal.angles.some(a => a.startsWith('角度0'))).toBe(true)
+  })
+
   it('clearSignal 清空', () => {
     const store = useViralSignalStore()
     store.setSignal({ topic: 'T', angles: ['A'], keywords: ['K'] })

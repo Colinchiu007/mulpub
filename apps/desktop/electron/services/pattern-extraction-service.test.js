@@ -93,7 +93,7 @@ describe('PatternExtractionService', () => {
     await svc.processQueue()
     // 第 2 次失败 → attempts=2 → 预填
     expect(cards.v1.status).toBe('done')
-    expect(cards.v1.last_error).toBe('')
+    expect(cards.v1.last_error).toContain('local-rules prefill')
     expect(cards.v1.hook_type).toBe('question')
     expect(cards.v1.hook_analysis).toContain('本地规则预填')
     expect(cards.v1.title_formula.length).toBeGreaterThan(0)
@@ -129,6 +129,8 @@ describe('PatternExtractionService', () => {
   it('本地规则：title_formula 数字占位符化；无占位符回退原标题', () => {
     const svc = new PatternExtractionService({ store: makeFakeStore({}), aiGenerator: makeFailingLlm() })
     expect(svc._localClassify({ title: '30 岁存了 100 万', content: 'x' }).title_formula).toContain('{N}')
+    // 评审 I-1：单位保留（「个月」不被「个」截胡）
+    expect(svc._localClassify({ title: '3个月涨了30万粉', content: 'x' }).title_formula).toContain('{N}个月')
     const noNum = svc._localClassify({ title: '纯文字标题没有数字', content: 'x' })
     expect(noNum.title_formula).toBe('纯文字标题没有数字')
   })

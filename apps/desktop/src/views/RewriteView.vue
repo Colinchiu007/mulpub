@@ -14,11 +14,15 @@
         <!-- 标题参考 chip（viral-rewrite-integration：爆款分析页生成标题带入） -->
         <div v-if="titleHint" class="rewrite-title-hint" data-testid="rewrite-title-hint">
           <span class="title-hint-text">{{ t('rewritePage.titleHintLabel') }}：{{ titleHint }}</span>
+          <!-- P1-E 评审 W-2：信号注入用户可感知（计数标识）；W-1：移除 chip 同时清信号（语义一致） -->
+          <span v-if="viralAngles.length || viralKeywords.length" data-testid="rewrite-signal-badge" style="font-size:12px;color:var(--muted)">
+            {{ t('rewritePage.signalBadge') }}（{{ viralAngles.length + viralKeywords.length }}）
+          </span>
           <button
             class="cohere-btn-secondary title-hint-remove"
             data-testid="rewrite-title-hint-remove"
             :disabled="rewriting"
-            @click="titleHint = ''"
+            @click="clearTitleHint"
           >{{ t('rewritePage.titleHintRemove') }}</button>
         </div>
         <textarea
@@ -449,6 +453,13 @@ const canStartRewrite = computed(() => {
 const { error: wordCountError } = useWordCountValidation(wordCountMin, wordCountMax, (key) => t('rewritePage.' + key))
 
 // ── 方法 ──
+
+/** P1-E 评审 W-1：移除标题参考 chip 时同步清空爆款信号（信号与标题同源，语义一致） */
+function clearTitleHint() {
+  titleHint.value = ''
+  viralAngles.value = []
+  viralKeywords.value = []
+}
 
 /** 开始改写 */
 async function startRewrite() {

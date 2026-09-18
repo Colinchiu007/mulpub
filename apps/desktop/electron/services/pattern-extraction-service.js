@@ -142,7 +142,7 @@ class PatternExtractionService {
       golden_quotes: parsed.golden_quotes,
       title_formula: parsed.title_formula,
       extracted_at: new Date().toISOString(),
-      last_error: '',
+      last_error: 'local-rules prefill (llm failed ' + (Number(card.attempts) || 0) + ' times)',
     })
     log.info('PatternExtraction', 'local rules prefill applied: ' + card.viral_item_id)
   }
@@ -194,7 +194,7 @@ class PatternExtractionService {
     else if (/问题是|解决方案|解决办法|正确做法/.test(content)) narrative = 'problem_solution'
 
     // ── title_formula：数字占位符化；无占位符回退原标题 ──
-    let formula = title.replace(/\d+(\.\d+)?\s*(%|％|岁|年|万|个|天|个月)?/g, (m) => '{N}' + (m.trim() === '' ? '' : '')).slice(0, 500)
+    let formula = title.replace(/\d+(\.\d+)?\s*(个月|岁|年|%|％|万|天)?/g, (m, _dec, unit) => '{N}' + (unit || '')).slice(0, 500)
     if (!/\{[^}]+\}/.test(formula)) formula = title.slice(0, 500)
 
     return {

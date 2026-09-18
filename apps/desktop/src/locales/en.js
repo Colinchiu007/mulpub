@@ -2796,6 +2796,7 @@ knowledgeBase: {
     // ── viral-rewrite-integration: title hint chip + viral potential 4th dimension (static keys, interpolation in template) ──
     titleHintLabel: 'Title hint',
     titleHintRemove: 'Remove',
+    signalBadge: 'Viral signals injected',
     qualityViralLabel: 'Viral potential',
     qualityViralBefore: 'Before',
     qualityViralAfter: 'After',
