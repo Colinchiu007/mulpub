@@ -509,6 +509,8 @@ export default {
       // 分段快捷定位（2026-08-17 UX 统一）
       activeSegmentIndex: -1,
       segmentItemRefs: [],
+      // 滚动高亮阈值：分段顶部进入视口上方该距离内视为「当前分段」（2026-09-18）
+      segmentScrollThreshold: 120,
       // 音色目录（2026-08-17 UX 统一：音色下拉）
       voiceCatalogLoading: false,
       voiceCatalogError: '',
@@ -524,6 +526,9 @@ export default {
     const projectId = this.$route?.query?.project
     const filePath = this.$route?.query?.path
     this.pipelineRunId = this.normalizeRunId(this.$route?.query?.runId)
+    // 滚动高亮：监听窗口滚动与尺寸变化，实时更新右侧分段导航当前分段（2026-09-18）
+    window.addEventListener('scroll', this.onSegmentScroll, { passive: true })
+    window.addEventListener('resize', this.onSegmentScroll)
     const loadTasks = []
     if (projectId) loadTasks.push(this.loadProject(String(projectId)))
     else if (filePath) loadTasks.push(this.loadVideoPath(String(filePath)))
@@ -547,6 +552,8 @@ export default {
       this.pendingLeaveNext(false)
       this.pendingLeaveNext = null
     }
+    window.removeEventListener('scroll', this.onSegmentScroll)
+    window.removeEventListener('resize', this.onSegmentScroll)
   },
   computed: {
     // 有可编辑内容：projectId + segments 存在即渲染分段编辑区，无成片（failed/paused/未合成）任务也可编辑（2026-08-17）
@@ -770,6 +777,26 @@ export default {
     // 分段快捷定位（2026-08-17 UX 统一）：分段卡片 ref 收集 + 数字跳转 + 上一条/下一条
     setSegmentItemRef(el, index) {
       if (el) this.segmentItemRefs[index] = el
+    },
+    // 滚动高亮：根据各分段卡片顶部相对视口的位置，更新右侧导航当前分段（2026-09-18）
+    onSegmentScroll() {
+      const refs = Array.isArray(this.segmentItemRefs) ? this.segmentItemRefs : []
+      if (!refs.length || !Array.isArray(this.segments) || !this.segments.length) return
+      const threshold = Number(this.segmentScrollThreshold) >= 0 ? Number(this.segmentScrollThreshold) : 120
+      let current = -1
+      let bestTop = -Infinity
+      const bound = Math.min(refs.length, this.segments.length)
+      for (let i = 0; i < bound; i++) {
+        const el = refs[i]
+        if (!el || typeof el.getBoundingClientRect !== 'function') continue
+        const rect = el.getBoundingClientRect()
+        // 分段顶部进入视口上方阈值区域 → 候选当前分段；取顶部最接近视口顶部的那个（top 最大）
+        if (rect && typeof rect.top === 'number' && rect.top <= threshold && rect.top > bestTop) {
+          bestTop = rect.top
+          current = i
+        }
+      }
+      if (current >= 0) this.activeSegmentIndex = current
     },
     scrollToSegment(index) {
       if (!Number.isInteger(index) || index < 0 || index >= this.segments.length) return
@@ -1292,6 +1319,8 @@ export default {
         this.segmentItemRefs = []
         this.loadVoiceCatalog()
         await this.refreshSegmentImageUrls()
+        // 分段渲染完成后初始化滚动高亮（2026-09-18）
+        this.$nextTick(() => this.onSegmentScroll())
         this.audioPath = project.audioPath || null
         try {
           this.audioSrc = this.audioPath ? await this.resolveLocalUrl(this.audioPath, this.audioSrc) : null
@@ -1531,11 +1560,17 @@ export default {
       next.splice(target, 0, segment)
       this.segments = next
       this.segmentsDirty = true
+      // 分段重排后 refs 下标失效，重置并重算滚动高亮（2026-09-18）
+      this.segmentItemRefs = []
+      this.$nextTick(() => this.onSegmentScroll())
     },
     removeSegment(index) {
       if (this.segments.length <= 1) return
       this.segments.splice(index, 1)
       this.segmentsDirty = true
+      // 分段删除后 refs 下标失效，重置并重算滚动高亮（2026-09-18）
+      this.segmentItemRefs = []
+      this.$nextTick(() => this.onSegmentScroll())
     },
     async saveSegments() {
       if (!this.projectId || !this.segments.length) return false
