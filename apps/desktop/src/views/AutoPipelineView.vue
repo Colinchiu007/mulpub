@@ -9,24 +9,24 @@
 
     <div class="cohere-content">
       <!-- 配置面板 -->
-      <div class="cohere-card" style="padding:var(--space-md);margin-bottom:var(--space-lg)">
+      <div class="cohere-card ap-card-panel">
         <div class="cohere-section-title">{{ $t('autoPipeline.configTitle') }}</div>
 
         <!-- 内容类型 -->
-        <div style="margin-bottom:var(--space-sm)">
-          <span style="font-weight:600;margin-right:var(--space-sm)">{{ $t('autoPipeline.contentType') }}：</span>
-          <label style="margin-right:var(--space-md);cursor:pointer">
+        <div class="ap-field-row">
+          <span class="ap-label-strong ap-label-strong--gap">{{ $t('autoPipeline.contentType') }}：</span>
+          <label class="ap-check-label ap-check-label--gap">
             <input type="radio" v-model="config.contentType" value="video" /> {{ $t('autoPipeline.videoPublish') }}
           </label>
-          <label style="cursor:pointer">
+          <label class="ap-check-label">
             <input type="radio" v-model="config.contentType" value="article" /> {{ $t('autoPipeline.articlePublish') }}
           </label>
         </div>
 
         <!-- 采集方式 -->
-        <div style="margin-bottom:var(--space-sm)">
-          <span style="font-weight:600;margin-right:var(--space-sm)">{{ $t('autoPipeline.sourceType') }}：</span>
-          <select v-model="config.sourceType" style="border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:14px">
+        <div class="ap-field-row">
+          <span class="ap-label-strong ap-label-strong--gap">{{ $t('autoPipeline.sourceType') }}：</span>
+          <select v-model="config.sourceType" class="ap-select">
             <option value="url">{{ $t('autoPipeline.singleUrl') }}</option>
             <option value="rss">{{ $t('autoPipeline.rssSource') }}</option>
             <option value="batch">{{ $t('autoPipeline.urlList') }}</option>
@@ -34,145 +34,140 @@
         </div>
 
         <!-- URL 输入 -->
-        <div v-if="config.sourceType === 'url'" style="margin-bottom:var(--space-sm)">
+        <div v-if="config.sourceType === 'url'" class="ap-field-row">
           <input
             v-model="urlInput"
             :placeholder="$t('autoPipeline.urlPlaceholder')"
-            style="width:100%;border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:14px;margin-bottom:4px"
+            class="ap-input"
             @keyup.enter="addUrl"
           />
-          <button class="cohere-btn-secondary" style="font-size:12px;padding:2px 8px" @click="addUrl">{{ $t('autoPipeline.addUrl') }}</button>
-          <div v-if="config.urls.length > 0" style="margin-top:4px;font-size:12px;color:var(--text-secondary)">
+          <button class="cohere-btn-secondary ap-btn-sm" @click="addUrl">{{ $t('autoPipeline.addUrl') }}</button>
+          <div v-if="config.urls.length > 0" class="ap-url-count">
             {{ $t('autoPipeline.urlCount', { count: config.urls.length }) }}：
-            <span v-for="(u, i) in config.urls" :key="i" style="display:inline-block;background:var(--soft-stone);padding:2px 6px;border-radius:4px;margin:2px">
+            <span v-for="(u, i) in config.urls" :key="i" class="ap-url-chip">
               {{ u.slice(0, 50) }}{{ u.length > 50 ? '...' : '' }}
-              <span @click="removeUrl(i)" style="cursor:pointer;margin-left:4px;color:var(--danger)">×</span>
+              <span @click="removeUrl(i)" class="ap-url-remove">×</span>
             </span>
           </div>
         </div>
 
         <!-- URL 列表 / RSS -->
-        <div v-else style="margin-bottom:var(--space-sm)">
+        <div v-else class="ap-field-row">
           <textarea
             v-model="urlListInput"
             :placeholder="config.sourceType === 'rss' ? $t('autoPipeline.rssPlaceholder') : $t('autoPipeline.listPlaceholder')"
             rows="4"
-            style="width:100%;border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:14px;resize:vertical"
+            class="ap-textarea"
           ></textarea>
-          <div style="font-size:12px;color:var(--text-secondary);margin-top:2px">
+          <div class="ap-hint">
             {{ config.sourceType === 'rss' ? $t('autoPipeline.rssHint') : $t('autoPipeline.listHint') }}
           </div>
         </div>
 
         <!-- 改写设置 -->
-        <div style="margin-bottom:var(--space-sm);display:flex;gap:var(--space-md);flex-wrap:wrap;align-items:center">
-          <span style="font-weight:600">{{ $t('autoPipeline.rewriteConfig') }}：</span>
-          <select v-model="config.rewriteStyle" style="border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:14px">
+        <div class="ap-row-flex">
+          <span class="ap-label-strong">{{ $t('autoPipeline.rewriteConfig') }}：</span>
+          <select v-model="config.rewriteStyle" class="ap-select">
             <option v-for="s in rewriteStyles" :key="s.value" :value="s.value">{{ s.label }}</option>
           </select>
-          <select v-model="config.rewriteLength" style="border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:14px">
+          <select v-model="config.rewriteLength" class="ap-select">
             <option v-for="l in rewriteLengths" :key="l.value" :value="l.value">{{ l.label }}</option>
           </select>
         </div>
 
         <!-- 发布设置 -->
-        <div style="margin-bottom:var(--space-sm);display:flex;gap:var(--space-md);flex-wrap:wrap;align-items:center">
-          <span style="font-weight:600">{{ $t('autoPipeline.publishConfig') }}：</span>
-          <label style="cursor:pointer">
+        <div class="ap-row-flex">
+          <span class="ap-label-strong">{{ $t('autoPipeline.publishConfig') }}：</span>
+          <label class="ap-check-label">
             <input type="checkbox" v-model="config.publishAllAccounts" /> {{ $t('autoPipeline.publishAll') }}
           </label>
-          <span style="font-size:12px;color:var(--text-secondary)">
+          <span class="ap-hint ap-hint--plain">
             {{ $t('autoPipeline.accountsDetected', { count: accountCount }) }}
           </span>
-          <button class="cohere-btn-secondary" style="font-size:12px;padding:2px 8px" @click="refreshAccounts" :disabled="loadingAccounts">
+          <button class="cohere-btn-secondary ap-btn-sm" @click="refreshAccounts" :disabled="loadingAccounts">
             {{ loadingAccounts ? $t('autoPipeline.loadingAccounts') : $t('autoPipeline.refreshAccounts') }}
           </button>
         </div>
 
         <!-- 启动按钮 -->
-        <div style="margin-top:var(--space-md);display:flex;gap:var(--space-sm);align-items:center">
+        <div class="ap-start-row">
           <button
-            class="cohere-btn-primary"
+            class="cohere-btn-primary ap-btn-start"
             @click="startPipeline"
             :disabled="running || !canStart"
-            style="font-size:15px;padding:10px 24px"
           >
             {{ running ? $t('autoPipeline.running') : $t('autoPipeline.start') }}
           </button>
-          <button v-if="running" class="cohere-btn-secondary" @click="cancelPipeline" style="font-size:13px">
+          <button v-if="running" class="cohere-btn-secondary ap-btn-cancel" @click="cancelPipeline">
             {{ $t('autoPipeline.cancel') }}
           </button>
         </div>
 
-        <div v-if="startError" style="margin-top:8px;padding:6px 10px;background:#fff3f3;border-radius:4px;font-size:12px;color:#d32f2f">
+        <div v-if="startError" class="ap-error-banner">
           {{ startError }}
         </div>
       </div>
 
       <!-- 执行进度 -->
-      <div v-if="currentRun" class="cohere-card" style="padding:var(--space-md);margin-bottom:var(--space-lg)">
+      <div v-if="currentRun" class="cohere-card ap-card-panel">
         <div class="cohere-section-title">{{ $t('autoPipeline.progressTitle') }}</div>
 
         <!-- 总进度条 -->
-        <div style="margin-bottom:var(--space-sm)">
-          <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">
+        <div class="ap-progress-wrap">
+          <div class="ap-progress-head">
             <span>{{ $t('autoPipeline.totalProgress') }}</span>
             <span>{{ currentRun.progress }}%</span>
           </div>
-          <div style="background:var(--soft-stone);border-radius:6px;height:10px;overflow:hidden">
+          <div class="ap-progress-track">
             <div
-              :style="{ width: currentRun.progress + '%', background: currentRun.status === 'completed' ? 'var(--success)' : currentRun.status === 'failed' ? 'var(--danger)' : 'var(--primary)', height:'100%', transition:'width 0.3s' }"
+              class="ap-progress-fill"
+              :style="{ width: currentRun.progress + '%', background: currentRun.status === 'completed' ? 'var(--color-success)' : currentRun.status === 'failed' ? 'var(--color-danger)' : 'var(--color-primary)' }"
             ></div>
           </div>
         </div>
 
         <!-- 各阶段卡片 -->
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:var(--space-sm);margin-bottom:var(--space-md)">
-          <div v-for="(stage, i) in currentRun.stages" :key="i" :style="{
-            padding:'var(--space-sm)',
-            borderRadius:'8px',
-            border:'1px solid var(--border)',
-            background: stage.status === 'completed' ? '#e8f5e9' : stage.status === 'running' ? '#e3f2fd' : stage.status === 'failed' ? '#ffebee' : stage.status === 'skipped' ? '#f5f5f5' : '#fff',
-          }">
-            <div style="font-weight:600;font-size:14px;display:flex;align-items:center;gap:6px">
+        <div class="ap-stage-grid">
+          <div v-for="(stage, i) in currentRun.stages" :key="i" class="ap-stage-card" :class="'ap-stage--' + stage.status">
+            <div class="ap-stage-head">
               <span>{{ stageStatusIcon(stage.status) }}</span>
               <span>{{ $t(STAGE_LABEL_KEYS[i]) }}：{{ stage.label }}</span>
             </div>
-            <div v-if="stage.summary" style="font-size:12px;color:var(--text-secondary);margin-top:4px">{{ stage.summary }}</div>
-            <div v-if="stage.status === 'running'" style="margin-top:4px">
-              <div style="background:var(--soft-stone);border-radius:4px;height:6px;overflow:hidden">
-                <div :style="{ width: stage.progress + '%', background: 'var(--primary)', height:'100%', transition:'width 0.3s' }"></div>
+            <div v-if="stage.summary" class="ap-stage-summary">{{ stage.summary }}</div>
+            <div v-if="stage.status === 'running'" class="ap-stage-progress-wrap">
+              <div class="ap-mini-track">
+                <div class="ap-progress-fill" :style="{ width: stage.progress + '%', background: 'var(--color-primary)' }"></div>
               </div>
             </div>
-            <div v-if="stage.error" style="font-size:11px;color:var(--danger);margin-top:4px">{{ stage.error }}</div>
+            <div v-if="stage.error" class="ap-stage-error">{{ stage.error }}</div>
           </div>
         </div>
 
         <!-- 结果摘要 -->
-        <div v-if="currentRun.status === 'completed'" style="padding:var(--space-sm);background:#e8f5e9;border-radius:8px">
-          <div style="font-weight:600;font-size:14px">{{ $t('autoPipeline.completed') }}</div>
-          <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">{{ $t('autoPipeline.completedSummary', { count: successCount }) }}</div>
+        <div v-if="currentRun.status === 'completed'" class="ap-banner ap-banner--completed">
+          <div class="ap-banner-title">{{ $t('autoPipeline.completed') }}</div>
+          <div class="ap-banner-hint">{{ $t('autoPipeline.completedSummary', { count: successCount }) }}</div>
         </div>
-        <div v-if="currentRun.status === 'failed'" style="padding:var(--space-sm);background:#ffebee;border-radius:8px">
-          <div style="font-weight:600;font-size:14px;color:var(--danger)">{{ $t('autoPipeline.failed') }}</div>
-          <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">{{ $t('autoPipeline.failedHint') }}</div>
-          <button class="cohere-btn-secondary" style="margin-top:8px;font-size:13px" @click="resumePipeline">{{ $t('autoPipeline.resume') }}</button>
+        <div v-if="currentRun.status === 'failed'" class="ap-banner ap-banner--failed">
+          <div class="ap-banner-title ap-banner-title--danger">{{ $t('autoPipeline.failed') }}</div>
+          <div class="ap-banner-hint">{{ $t('autoPipeline.failedHint') }}</div>
+          <button class="cohere-btn-secondary ap-btn-resume" @click="resumePipeline">{{ $t('autoPipeline.resume') }}</button>
         </div>
       </div>
 
       <!-- 执行日志 -->
-      <div v-if="currentRun && currentRun.logs && currentRun.logs.length > 0" class="cohere-card" style="padding:var(--space-md);margin-bottom:var(--space-lg)">
+      <div v-if="currentRun && currentRun.logs && currentRun.logs.length > 0" class="cohere-card ap-card-panel">
         <div class="cohere-section-title">{{ $t('autoPipeline.logTitle') }}</div>
-        <div ref="logContainer" style="max-height:300px;overflow-y:auto;font-family:monospace;font-size:12px;background:#1e1e1e;color:#d4d4d4;padding:var(--space-sm);border-radius:6px">
+        <div ref="logContainer" class="ap-log-panel">
           <div v-for="(log, i) in currentRun.logs" :key="i" :style="{ color: logColor(log.level) }">
-            <span style="color:#888">{{ log.time }}</span>
+            <span class="ap-log-time">{{ log.time }}</span>
             <span> {{ log.message }}</span>
           </div>
         </div>
       </div>
 
       <!-- 历史运行 -->
-      <div class="cohere-card" style="padding:var(--space-md)">
+      <div class="cohere-card ap-card-panel ap-card-panel--flush">
         <div class="cohere-section-title">{{ $t('autoPipeline.historyTitle') }}</div>
         <EmptyState v-if="runs.length === 0" icon="🚀" :title="$t('autoPipeline.noHistory')" :description="$t('autoPipeline.noHistoryHint')" />
         <div v-else class="cohere-card-grid">
@@ -280,13 +275,14 @@ function stageStatusIcon(status) {
 }
 
 function logColor(level) {
-  const map = { error: '#f44336', warn: '#ff9800', info: '#d4d4d4' }
-  return map[level] || '#d4d4d4'
+  // T1-3b：终端日志色收编 tokens.css（--color-terminal-*）
+  const map = { error: 'var(--color-terminal-error)', warn: 'var(--color-terminal-warn)', info: 'var(--color-terminal-text)' }
+  return map[level] || 'var(--color-terminal-text)'
 }
 
 function statusColor(status) {
-  const map = { completed: 'var(--success)', running: 'var(--primary)', failed: 'var(--danger)', cancelled: 'var(--text-secondary)' }
-  return map[status] || 'var(--text-secondary)'
+  const map = { completed: 'var(--color-success)', running: 'var(--color-primary)', failed: 'var(--color-danger)', cancelled: 'var(--color-text-secondary)' }
+  return map[status] || 'var(--color-text-secondary)'
 }
 
 function runIcon(status) {
@@ -437,3 +433,81 @@ onUnmounted(() => {
   stopPolling()
 })
 </script>
+
+<style scoped>
+/* T1-3b：原 56 处内联样式全部类化；颜色一律 var(--color-*)（tokens.css 语义槽，
+ * 阶段状态/终端日志色已收编 --color-stage-*/--color-terminal-*）。 */
+.ap-card-panel { padding: var(--space-md); margin-bottom: var(--space-lg); }
+.ap-card-panel--flush { margin-bottom: 0; }
+
+/* --- 配置区 --- */
+.ap-field-row { margin-bottom: var(--space-sm); }
+.ap-label-strong { font-weight: 600; }
+.ap-label-strong--gap { margin-right: var(--space-sm); }
+.ap-check-label { cursor: pointer; }
+.ap-check-label--gap { margin-right: var(--space-md); }
+.ap-select { border: 1px solid var(--color-border); border-radius: 6px; padding: 6px 10px; font-size: 14px; }
+.ap-input { width: 100%; border: 1px solid var(--color-border); border-radius: 6px; padding: 8px 12px; font-size: 14px; margin-bottom: 4px; }
+.ap-textarea { width: 100%; border: 1px solid var(--color-border); border-radius: 6px; padding: 8px 12px; font-size: 14px; resize: vertical; }
+.ap-btn-sm { font-size: var(--font-size-xs); padding: 2px 8px; }
+.ap-url-count { margin-top: 4px; font-size: var(--font-size-xs); color: var(--color-text-secondary); }
+.ap-url-chip { display: inline-block; background: var(--color-bg-inset); padding: 2px 6px; border-radius: var(--r-xs); margin: 2px; }
+.ap-url-remove { cursor: pointer; margin-left: 4px; color: var(--color-danger); }
+.ap-hint { font-size: var(--font-size-xs); color: var(--color-text-secondary); margin-top: 2px; }
+.ap-hint--plain { margin-top: 0; }
+.ap-row-flex { margin-bottom: var(--space-sm); display: flex; gap: var(--space-md); flex-wrap: wrap; align-items: center; }
+.ap-start-row { margin-top: var(--space-md); display: flex; gap: var(--space-sm); align-items: center; }
+.ap-btn-start { font-size: var(--font-size-base); padding: 10px 24px; }
+.ap-btn-cancel { font-size: var(--font-size-sm); }
+.ap-error-banner {
+  margin-top: 8px;
+  padding: 6px 10px;
+  background: var(--color-error-banner-bg);
+  border-radius: var(--r-xs);
+  font-size: var(--font-size-xs);
+  color: var(--color-error-banner-text);
+}
+
+/* --- 进度 --- */
+.ap-progress-wrap { margin-bottom: var(--space-sm); }
+.ap-progress-head { display: flex; justify-content: space-between; font-size: var(--font-size-sm); margin-bottom: 4px; }
+.ap-progress-track { background: var(--color-bg-inset); border-radius: 6px; height: 10px; overflow: hidden; }
+.ap-progress-fill { height: 100%; transition: width 0.3s; }
+
+/* --- 阶段卡片（状态底色走 --color-stage-* 槽位） --- */
+.ap-stage-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-sm); margin-bottom: var(--space-md); }
+.ap-stage-card { padding: var(--space-sm); border-radius: 8px; border: 1px solid var(--color-border); }
+.ap-stage--completed { background: var(--color-stage-completed-bg); }
+.ap-stage--running { background: var(--color-stage-running-bg); }
+.ap-stage--failed { background: var(--color-stage-failed-bg); }
+.ap-stage--skipped { background: var(--color-stage-skipped-bg); }
+.ap-stage--pending { background: var(--color-stage-pending-bg); }
+.ap-stage--cancelled { background: var(--color-stage-skipped-bg); }
+.ap-stage-head { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 6px; }
+.ap-stage-summary { font-size: var(--font-size-xs); color: var(--color-text-secondary); margin-top: 4px; }
+.ap-stage-progress-wrap { margin-top: 4px; }
+.ap-mini-track { background: var(--color-bg-inset); border-radius: var(--r-xs); height: 6px; overflow: hidden; }
+.ap-stage-error { font-size: 11px; color: var(--color-danger); margin-top: 4px; }
+
+/* --- 结果横幅 --- */
+.ap-banner { padding: var(--space-sm); border-radius: 8px; }
+.ap-banner--completed { background: var(--color-stage-completed-bg); }
+.ap-banner--failed { background: var(--color-stage-failed-bg); }
+.ap-banner-title { font-weight: 600; font-size: 14px; }
+.ap-banner-title--danger { color: var(--color-danger); }
+.ap-banner-hint { font-size: var(--font-size-xs); color: var(--color-text-secondary); margin-top: 4px; }
+.ap-btn-resume { margin-top: 8px; font-size: var(--font-size-sm); }
+
+/* --- 日志终端（色值走 --color-terminal-*） --- */
+.ap-log-panel {
+  max-height: 300px;
+  overflow-y: auto;
+  font-family: monospace;
+  font-size: var(--font-size-xs);
+  background: var(--color-terminal-bg);
+  color: var(--color-terminal-text);
+  padding: var(--space-sm);
+  border-radius: 6px;
+}
+.ap-log-time { color: var(--color-terminal-muted); }
+</style>
