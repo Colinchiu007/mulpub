@@ -431,16 +431,20 @@ describe('RewriteEngine viral signal injection', function () {
     engine._strategyManager.mergeRemote = function () {}
   }
 
-  test('F1 提示词包含纯文案输出约束（不含小节标题/结构说明）', async function () {
-    var captured = null
-    var llm = { chat: async function (sys, user) { captured = user; return '结果' } }
+  test('F1 纯文案输出约束经 setHardConstraints 注入（不再硬编码）', async function () {
+    var capturedSys = null
+    var llm = { chat: async function (sys, user) { capturedSys = sys; return '结果' } }
     var engine = new RewriteEngine({ llmClient: llm, knowledgeBase: new KnowledgeBase() })
     wireStrategy5(engine)
+    // 未注入硬约束 → userPrompt 不含输出格式约束（引擎不再硬编码）
     await engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
-    // 输出格式约束注入 userPrompt
-    expect(captured).toContain('只输出改写后的文案本身')
-    expect(captured).toContain('不要包含')
-    expect(captured).toContain('小节标题')
+    expect(capturedSys).not.toContain('只输出改写后的文案本身')
+    // 注入硬约束（运营中心下发的默认版本）→ systemPrompt 最前置生效
+    engine.setHardConstraints('只输出改写后的文案本身，不要包含任何小节标题、结构说明、写作指导或 Markdown 标题。')
+    await engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
+    expect(capturedSys.indexOf('【改写硬约束')).toBe(0)
+    expect(capturedSys).toContain('只输出改写后的文案本身')
+    expect(capturedSys).toContain('小节标题')
   })
 
   test('F2 改写结果剥离结构标题行（开头/中间/结尾等小节标题）', async function () {
@@ -544,5 +548,69 @@ describe('RewriteEngine viral signal injection', function () {
     var result = await engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
     expect(result.success).toBe(true)
     expect(captured).not.toContain('爆款信号')
+  })
+})
+
+// ── H: 改写硬约束（最高优先级，运营中心可自定义，2026-09-18）──
+describe('RewriteEngine hard constraints', function () {
+  function wireStrategyH(engine) {
+    var strategy = {
+      id: 'hard-constraint-v1', name: 'hard-constraint', category: 'imitate',
+      systemPrompt: 'assistant.', userPromptTemplate: 'rewrite: {content}',
+      industry: ['generic'], tone: ['casual'], platforms: ['generic'],
+      postProcess: { removeAITaste: false, maxLength: 6000 }
+    }
+    engine._strategyManager._strategies = [strategy]
+    engine._strategyManager.listEnabled = function () { return [strategy] }
+    engine._strategyManager.get = function () { return strategy }
+    engine._strategyManager.clearRemote = function () {}
+    engine._strategyManager.mergeRemote = function () {}
+  }
+
+  test('H1 setHardConstraints 注入 systemPrompt 最前置（优先级高于策略）', async function () {
+    var captured = null
+    var llm = { chat: async function (sys, user) { captured = sys; return '结果' } }
+    var engine = new RewriteEngine({ llmClient: llm, knowledgeBase: new KnowledgeBase() })
+    wireStrategyH(engine)
+    engine.setHardConstraints('禁止输出英文。禁止使用列表格式。')
+    await engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
+    // 硬约束段在 systemPrompt 最前（段标题在位置 0，内容紧随其后）
+    expect(captured.indexOf('【改写硬约束')).toBe(0)
+    expect(captured.indexOf('禁止输出英文')).toBeGreaterThan(0)
+    expect(captured.indexOf('禁止输出英文')).toBeLessThan(captured.indexOf('assistant.'))
+    // 冲突声明存在
+    expect(captured).toContain('冲突')
+  })
+
+  test('H2 未注入硬约束 → systemPrompt 不含硬约束段（回归）', async function () {
+    var captured = null
+    var llm = { chat: async function (sys, user) { captured = sys; return '结果' } }
+    var engine = new RewriteEngine({ llmClient: llm, knowledgeBase: new KnowledgeBase() })
+    wireStrategyH(engine)
+    await engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
+    expect(captured.indexOf('assistant.')).toBe(0)
+    expect(captured).not.toContain('硬约束')
+  })
+
+  test('H3 setHardConstraints 传非法值 → 忽略（不注入）', async function () {
+    var captured = null
+    var llm = { chat: async function (sys, user) { captured = sys; return '结果' } }
+    var engine = new RewriteEngine({ llmClient: llm, knowledgeBase: new KnowledgeBase() })
+    wireStrategyH(engine)
+    engine.setHardConstraints('   ')
+    await engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
+    expect(captured.indexOf('assistant.')).toBe(0)
+    // 非字符串/空白/数字均忽略
+    engine.setHardConstraints(123)
+    await engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
+    expect(captured.indexOf('assistant.')).toBe(0)
+  })
+
+  test('H4 getHardConstraints 返回当前硬约束（含清洗）', async function () {
+    var engine = new RewriteEngine({ llmClient: { chat: async function () { return 'x' } }, knowledgeBase: new KnowledgeBase() })
+    wireStrategyH(engine)
+    expect(engine.getHardConstraints()).toBe('')
+    engine.setHardConstraints('  规则A  ')
+    expect(engine.getHardConstraints()).toBe('规则A')
   })
 })
