@@ -29,7 +29,7 @@
         <el-table-column prop="name" label="名称" min-width="160" />
         <el-table-column label="API Key" min-width="200">
           <template #default="{ row }">
-            <code style="background:#f5f5f5;padding:2px 8px;border-radius:4px;font-size:13px">
+            <code style="background:#f5f5f5;padding:2px 8px;border-radius:4px;font-size: var(--font-size-sm)">
               {{ row.api_key }}
             </code>
             <el-button link size="small" @click="revealKey(row)" style="margin-left:8px">
@@ -105,7 +105,7 @@
         </el-form-item>
         <el-form-item label="优先级">
           <el-input-number v-model="form.priority" :min="1" :max="10" />
-          <span style="margin-left:8px;color:#999;font-size:12px">越小越优先</span>
+          <span style="margin-left:8px;color:#999;font-size: var(--font-size-xs)">越小越优先</span>
         </el-form-item>
         <el-form-item label="成本/1K tokens">
           <el-input-number v-model="form.cost_per_1k_tokens" :min="0" :precision="4" :step="0.1" style="width:200px" />
@@ -268,7 +268,7 @@ function tierTagType(tier) {
 <style scoped>
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-bottom: 4px; }
 .stat-card { border: 1px solid #e4e7ed; border-radius: 8px; padding: 14px; text-align: center; background: #fff; }
-.stat-value { font-size: 20px; font-weight: 700; color: #303133; }
-.stat-label { font-size: 12px; color: #909399; margin-top: 4px; }
-.hint { font-size: 12px; color: #999; margin-left: 8px; }
+.stat-value { font-size: var(--font-size-lg); font-weight: 700; color: #303133; }
+.stat-label { font-size: var(--font-size-xs); color: #909399; margin-top: 4px; }
+.hint { font-size: var(--font-size-xs); color: #999; margin-left: 8px; }
 </style>

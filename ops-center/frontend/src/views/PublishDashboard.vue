@@ -1,7 +1,7 @@
 <template>
   <div>
     <h1 style="margin-bottom:16px">发布数据看板</h1>
-    <p style="color:#888;margin-bottom:16px;font-size:13px">
+    <p style="color:#888;margin-bottom:16px;font-size: var(--font-size-sm)">
       桌面端脱敏上报的发布指标（按 发布日期 + 平台 聚合计数，不含标题/正文/账号内容），帮助运营了解各平台产粮与失败情况。
     </p>
 
@@ -96,12 +96,12 @@ async function load() {
   text-align: center;
   background: #fafafa;
 }
-.stat-num { font-size: 24px; font-weight: 600; }
-.stat-label { color: #888; font-size: 13px; margin-top: 4px; }
+.stat-num { font-size: var(--font-size-xl); font-weight: 600; }
+.stat-label { color: #888; font-size: var(--font-size-sm); margin-top: 4px; }
 .bar-chart { display: flex; gap: 6px; align-items: flex-end; min-height: 140px; overflow-x: auto; }
 .bar-col { flex: 0 0 34px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .bar-stack { width: 24px; display: flex; flex-direction: column; justify-content: flex-end; height: 110px; }
 .bar-ok { background: #13ce66; width: 100%; }
 .bar-fail { background: #f56c6c; width: 100%; }
-.bar-date { font-size: 11px; color: #888; }
+.bar-date { font-size: var(--font-size-xs); color: #888; }
 </style>

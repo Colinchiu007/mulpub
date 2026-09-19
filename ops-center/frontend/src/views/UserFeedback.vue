@@ -294,7 +294,7 @@ function statusLabel(status) {
 
 .page-header h1 {
   margin: 0;
-  font-size: 24px;
+  font-size: var(--font-size-xl);
   line-height: 32px;
 }
 
@@ -302,7 +302,7 @@ function statusLabel(status) {
   display: inline-block;
   margin-top: 4px;
   color: #909399;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
 }
 
 .state-alert {
@@ -328,7 +328,7 @@ function statusLabel(status) {
 .muted {
   margin-top: 3px;
   color: #909399;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
 }
 
 .pagination-wrap {
@@ -343,7 +343,7 @@ function statusLabel(status) {
   border: 1px solid #ebeef5;
   border-radius: 4px;
   color: #303133;
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   line-height: 1.7;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -354,7 +354,7 @@ function statusLabel(status) {
   max-width: 100%;
   word-break: break-all;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
 }
 
 .download-alert {

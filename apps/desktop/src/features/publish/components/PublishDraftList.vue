@@ -69,7 +69,7 @@ const formatTime = (value) => formatDateTime(value, { emptyText: '更新时间�
 
 .draft-list-state strong {
   color: #25252b;
-  font-size: 15px;
+  font-size: var(--font-size-base);
 }
 
 .draft-list-items {
@@ -104,7 +104,7 @@ const formatTime = (value) => formatDateTime(value, { emptyText: '更新时间�
 .draft-list-info strong {
   overflow: hidden;
   color: #25252b;
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -112,7 +112,7 @@ const formatTime = (value) => formatDateTime(value, { emptyText: '更新时间�
 
 .draft-list-time {
   color: #8b8e9a;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   flex: 0 0 auto;
 }
 
@@ -121,7 +121,7 @@ const formatTime = (value) => formatDateTime(value, { emptyText: '更新时间�
   border-radius: 10px;
   background: #f0efff;
   color: #5048e5;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   flex: 0 0 auto;
 }
 
@@ -137,7 +137,7 @@ const formatTime = (value) => formatDateTime(value, { emptyText: '更新时间�
   border-radius: 6px;
   background: #fff;
   color: #4d4f6f;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   cursor: pointer;
   transition: all 0.15s;
 }

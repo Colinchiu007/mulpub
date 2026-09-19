@@ -76,7 +76,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
   gap: 8px;
   padding: 20px 24px;
   color: #fff;
-  font-size: 18px;
+  font-size: var(--font-size-md);
   font-weight: 600;
 }
 .sidebar-footer {

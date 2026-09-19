@@ -51,9 +51,9 @@ export default {
   font-weight: 700;
 }
 .route-load-error-content { min-width: 0; }
-.route-load-error h2 { margin: 0 0 8px; font-size: 18px; }
+.route-load-error h2 { margin: 0 0 8px; font-size: var(--font-size-md); }
 .route-load-error p { margin: 0 0 8px; line-height: 1.6; }
-.route-load-error-details { color: #7b4a4a; font-size: 12px; word-break: break-word; }
+.route-load-error-details { color: #7b4a4a; font-size: var(--font-size-xs); word-break: break-word; }
 .route-load-error-actions { display: flex; gap: 8px; margin-top: 16px; }
 .btn-primary, .btn-secondary { border: 0; border-radius: 6px; padding: 8px 14px; cursor: pointer; }
 .btn-primary { background: #2563eb; color: #fff; }

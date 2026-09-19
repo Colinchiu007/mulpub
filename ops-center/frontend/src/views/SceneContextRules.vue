@@ -3,7 +3,7 @@
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
       <div>
         <h1 style="margin:0 0 4px">场景上下文规则</h1>
-        <div style="color:#909399;font-size:13px">
+        <div style="color:#909399;font-size: var(--font-size-sm)">
           Story2Video 场景上下文增强中间层（scene_context）的规则配置：朝代/文化/题材/设定/道具/负面锚点。
           保存后为运营配置，导出 JSON 合入桌面仓库随包发布，或放置 <code>&lt;userData&gt;/config/story-context-rules.json</code> 覆盖加载（桌面端校验失败自动回退内置）。
         </div>
@@ -31,7 +31,7 @@
         type="textarea"
         :rows="22"
         spellcheck="false"
-        style="font-family: 'JetBrains Mono', Consolas, monospace; font-size: 12px"
+        style="font-family: 'JetBrains Mono', Consolas, monospace; font-size: var(--font-size-xs)"
         placeholder="规则 JSON（与桌面端 story-context-rules.json 结构一致）"
       />
       <div v-if="validation" style="margin-top:12px">

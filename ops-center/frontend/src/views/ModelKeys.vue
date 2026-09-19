@@ -191,5 +191,5 @@ onMounted(load)
 </script>
 
 <style scoped>
-.muted { color: #909399; font-size: 13px; }
+.muted { color: #909399; font-size: var(--font-size-sm); }
 </style>

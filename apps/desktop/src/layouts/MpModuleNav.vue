@@ -97,7 +97,7 @@ function isTabActive (tab) {
   padding: 0;
   border: 0;
   color: var(--mp-muted, #8b8e9a);
-  font-size: 16px;
+  font-size: var(--font-size-base);
   line-height: 1;
   text-decoration: none;
   white-space: nowrap;
@@ -146,7 +146,7 @@ function isTabActive (tab) {
 
   .mp-module-tab {
     min-height: calc(var(--mp-nav-height, 70px) - 8px);
-    font-size: 14px;
+    font-size: var(--font-size-sm);
   }
 
   .mp-module-nav {

@@ -63,14 +63,14 @@ async function handleLoginClick() {
 .home-greeting h2 {
   margin: 0 0 4px;
   color: #25252b;
-  font-size: 22px;
+  font-size: var(--font-size-lg);
   font-weight: 600;
 }
 
 .home-greeting p {
   margin: 0;
   color: #8b8e9a;
-  font-size: 14px;
+  font-size: var(--font-size-sm);
 }
 
 .home-login-link {

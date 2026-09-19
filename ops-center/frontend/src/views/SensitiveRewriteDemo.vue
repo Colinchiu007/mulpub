@@ -237,10 +237,10 @@ run()
 </script>
 
 <style scoped>
-.subtitle { color: #6b7280; font-size: 13px; margin-bottom: 16px; }
+.subtitle { color: #6b7280; font-size: var(--font-size-sm); margin-bottom: 16px; }
 .presets { display: flex; flex-wrap: wrap; gap: 8px; }
 .preset { cursor: pointer; }
 .result-block { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
-.result-title { font-weight: 600; font-size: 13px; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+.result-title { font-weight: 600; font-size: var(--font-size-sm); margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
 pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 12.5px; color: #374151; }
 </style>

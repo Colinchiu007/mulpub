@@ -2,7 +2,7 @@
   <div class="feishu-settings">
     <div style="margin-bottom:16px">
       <div style="font-weight:600;margin-bottom:8px">{{ t('knowledgeBase.feishuApi') }}</div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:12px">{{ t('knowledgeBase.feishuInstructions') }}</div>
+      <div style="font-size: var(--font-size-xs);color:var(--muted);margin-bottom:12px">{{ t('knowledgeBase.feishuInstructions') }}</div>
     </div>
     <div class="cohere-form-item">
       <label class="cohere-form-label">{{ t('knowledgeBase.feishuAppId') }}</label>
@@ -12,7 +12,7 @@
       <label class="cohere-form-label">{{ t('knowledgeBase.feishuAppSecret') }}</label>
       <div style="display:flex;gap:8px">
         <input :type="showSecret ? 'text' : 'password'" v-model="appSecret" class="cohere-input" style="flex:1" placeholder="••••••••" />
-        <button class="cohere-btn-ghost" style="font-size:12px;padding:4px 8px" @click="showSecret = !showSecret">{{ showSecret ? t('knowledgeBase.feishuHide') : t('knowledgeBase.feishuShow') }}</button>
+        <button class="cohere-btn-ghost" style="font-size: var(--font-size-xs);padding:4px 8px" @click="showSecret = !showSecret">{{ showSecret ? t('knowledgeBase.feishuHide') : t('knowledgeBase.feishuShow') }}</button>
       </div>
     </div>
     <div style="display:flex;gap:8px;margin-top:12px">
@@ -23,10 +23,10 @@
         {{ saving ? t('knowledgeBase.feishuSaving') : t('knowledgeBase.feishuSaveConfig') }}
       </button>
     </div>
-    <div v-if="statusMsg" style="margin-top:8px;padding:6px 10px;border-radius:4px;font-size:12px" :style="{ color: statusOk ? '#67c23a' : '#d32f2f', background: statusOk ? '#f0f9eb' : '#fff3f3' }">
+    <div v-if="statusMsg" style="margin-top:8px;padding:6px 10px;border-radius:4px;font-size: var(--font-size-xs)" :style="{ color: statusOk ? '#67c23a' : '#d32f2f', background: statusOk ? '#f0f9eb' : '#fff3f3' }">
       {{ statusMsg }}
     </div>
-    <div style="margin-top:24px;padding:12px;background:var(--soft-stone);border-radius:8px;font-size:12px;color:var(--muted);line-height:1.8">
+    <div style="margin-top:24px;padding:12px;background:var(--soft-stone);border-radius:8px;font-size: var(--font-size-xs);color:var(--muted);line-height:1.8">
       <div style="font-weight:600;margin-bottom:4px;color:var(--text-primary)">{{ t('knowledgeBase.feishuInstructions') }}：</div>
       <div>{{ t('knowledgeBase.feishuInstrLine1') }}</div>
       <div>{{ t('knowledgeBase.feishuInstrLine2') }}</div>

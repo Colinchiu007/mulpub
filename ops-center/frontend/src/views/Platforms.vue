@@ -7,7 +7,7 @@
         <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />
         <el-table-column label="Cookie/Token" min-width="180">
           <template #default="{ row }">
-            <code style="background:#f5f5f5;padding:2px 8px;border-radius:4px;font-size:12px" v-if="row.value">
+            <code style="background:#f5f5f5;padding:2px 8px;border-radius:4px;font-size: var(--font-size-xs)" v-if="row.value">
               {{ row.value.length > 30 ? row.value.slice(0,30)+'...' : row.value }}
             </code>
             <span v-else style="color:#999">未配置</span>

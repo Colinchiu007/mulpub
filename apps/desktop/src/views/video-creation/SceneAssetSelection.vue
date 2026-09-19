@@ -388,42 +388,42 @@ export default {
 <style scoped>
 .scene-asset-selection { padding: 4px 0; }
 .sas-header { margin-bottom: 10px; }
-.sas-title { margin: 0 0 4px; font-size: 15px; }
-.sas-subtitle, .sas-hint { margin: 2px 0; font-size: 12px; color: #8a8f98; }
-.sas-error { color: #e5534b; font-size: 12px; margin: 6px 0; }
-.sas-empty { color: #8a8f98; font-size: 13px; padding: 12px 0; }
+.sas-title { margin: 0 0 4px; font-size: var(--font-size-base); }
+.sas-subtitle, .sas-hint { margin: 2px 0; font-size: var(--font-size-xs); color: #8a8f98; }
+.sas-error { color: #e5534b; font-size: var(--font-size-xs); margin: 6px 0; }
+.sas-empty { color: #8a8f98; font-size: var(--font-size-sm); padding: 12px 0; }
 .sas-scene { border: 1px solid #33373f; border-radius: 8px; padding: 10px; margin-bottom: 10px; background: #1d2026; }
 .sas-scene-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.sas-scene-label { font-weight: 600; font-size: 13px; }
-.sas-default-hint { font-size: 11px; color: #58a6ff; }
-.sas-scene-text { margin: 6px 0 2px; font-size: 12px; color: #c9d1d9; }
-.sas-scene-prompt { margin: 0 0 8px; font-size: 11px; color: #8a8f98; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.sas-scene-label { font-weight: 600; font-size: var(--font-size-sm); }
+.sas-default-hint { font-size: var(--font-size-xs); color: #58a6ff; }
+.sas-scene-text { margin: 6px 0 2px; font-size: var(--font-size-xs); color: #c9d1d9; }
+.sas-scene-prompt { margin: 0 0 8px; font-size: var(--font-size-xs); color: #8a8f98; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .sas-candidates { display: flex; flex-wrap: wrap; gap: 8px; }
 .sas-candidate { display: flex; flex-direction: column; align-items: center; gap: 4px; border: 1px solid #33373f; border-radius: 8px; padding: 6px; cursor: pointer; min-width: 108px; }
 .sas-candidate.is-selected { border-color: #58a6ff; box-shadow: 0 0 0 1px #58a6ff; }
 .sas-radio { accent-color: #58a6ff; }
-.sas-candidate-badge { font-size: 11px; color: #c9d1d9; }
+.sas-candidate-badge { font-size: var(--font-size-xs); color: #c9d1d9; }
 .sas-thumb { width: 96px; height: 128px; object-fit: cover; border-radius: 4px; background: #0d1117; display: flex; align-items: center; justify-content: center; }
-.sas-thumb-loading { color: #8a8f98; font-size: 16px; }
+.sas-thumb-loading { color: #8a8f98; font-size: var(--font-size-base); }
 .sas-thumb-video { cursor: zoom-in; }
 .sas-media-wrap { position: relative; display: block; cursor: zoom-in; border-radius: 4px; line-height: 0; }
 .sas-media-wrap:focus-visible { outline: 2px solid #58a6ff; outline-offset: 1px; }
 .sas-zoom-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.35); color: #fff; opacity: 0; transition: opacity 0.15s ease; border-radius: 4px; pointer-events: none; }
 .sas-media-wrap:hover .sas-zoom-overlay { opacity: 1; }
-.sas-preview-hint { margin: 2px 0 0; font-size: 11px; color: #8b5cf6; }
+.sas-preview-hint { margin: 2px 0 0; font-size: var(--font-size-xs); color: #8b5cf6; }
 .sas-preview { text-align: center; }
-.sas-preview-meta { margin: 0 0 8px; font-size: 13px; color: #c9d1d9; }
+.sas-preview-meta { margin: 0 0 8px; font-size: var(--font-size-sm); color: #c9d1d9; }
 .sas-preview-stage { display: flex; align-items: center; justify-content: center; gap: 10px; }
 .sas-preview-media { max-width: 100%; max-height: 70vh; border-radius: 6px; background: #0d1117; }
 .sas-preview-nav { flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: 1px solid #33373f; border-radius: 50%; background: #1d2026; color: #c9d1d9; cursor: pointer; transition: border-color 0.15s ease, color 0.15s ease; }
 .sas-preview-nav:hover:not(:disabled) { border-color: #58a6ff; color: #58a6ff; }
 .sas-preview-nav:disabled { opacity: 0.35; cursor: not-allowed; }
 .sas-preview-nav:focus-visible { outline: 2px solid #58a6ff; outline-offset: 1px; }
-.sas-preview-select-toggle { margin: 12px auto 0; display: inline-flex; align-items: center; gap: 6px; padding: 6px 16px; font-size: 13px; border: 1px solid #33373f; border-radius: 6px; background: #1d2026; color: #8a8f98; cursor: pointer; transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease; }
+.sas-preview-select-toggle { margin: 12px auto 0; display: inline-flex; align-items: center; gap: 6px; padding: 6px 16px; font-size: var(--font-size-sm); border: 1px solid #33373f; border-radius: 6px; background: #1d2026; color: #8a8f98; cursor: pointer; transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease; }
 .sas-preview-select-toggle.is-selected { border-color: #2ea043; color: #2ea043; background: rgba(46, 160, 67, 0.1); }
 .sas-preview-select-toggle:hover { border-color: #58a6ff; color: #c9d1d9; }
 .sas-preview-select-toggle:focus-visible { outline: 2px solid #58a6ff; outline-offset: 1px; }
-.sas-preview-close-hint { margin: 8px 0 0; font-size: 11px; color: #8a8f98; }
+.sas-preview-close-hint { margin: 8px 0 0; font-size: var(--font-size-xs); color: #8a8f98; }
 .sas-actions { margin-top: 12px; text-align: right; }
 .s2v-btn-primary { background: #2f81f7; color: #fff; border: none; border-radius: 6px; padding: 8px 16px; cursor: pointer; }
 .s2v-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }

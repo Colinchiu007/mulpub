@@ -20,7 +20,7 @@
         <el-table-column prop="name" label="变量名" min-width="220" />
         <el-table-column label="值" min-width="300">
           <template #default="{ row }">
-            <code v-if="row.is_set" style="background:#f5f5f5;padding:2px 8px;border-radius:4px;font-size:13px">
+            <code v-if="row.is_set" style="background:#f5f5f5;padding:2px 8px;border-radius:4px;font-size: var(--font-size-sm)">
               {{ row.value }}
             </code>
             <el-tag v-else type="danger" size="small">未配置</el-tag>

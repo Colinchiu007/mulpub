@@ -1,8 +1,8 @@
 <template>
   <div class="cohere-card" style="cursor:default;padding:16px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-md);padding-bottom:var(--space-sm);border-bottom:1px solid var(--border)">
-      <span style="font-weight:600;font-size:14px">{{ t('tagSuggest.title') }}</span>
-      <button class="cohere-btn-ghost" @click="$emit('close')" style="font-size:12px;padding:2px 6px">✕</button>
+      <span style="font-weight:600;font-size: var(--font-size-sm)">{{ t('tagSuggest.title') }}</span>
+      <button class="cohere-btn-ghost" @click="$emit('close')" style="font-size: var(--font-size-xs);padding:2px 6px">✕</button>
     </div>
 
     <!-- Loading -->
@@ -11,12 +11,12 @@
     </div>
 
     <!-- Empty / no content -->
-    <div v-else-if="!content || content.trim().length < 3" style="padding:12px 0;font-size:12px;color:var(--muted);text-align:center">
+    <div v-else-if="!content || content.trim().length < 3" style="padding:12px 0;font-size: var(--font-size-xs);color:var(--muted);text-align:center">
       {{ t('tagSuggest.emptyContent') }}
     </div>
 
     <!-- Error -->
-    <div v-else-if="error" style="padding:12px 0;font-size:13px;color:var(--coral)">
+    <div v-else-if="error" style="padding:12px 0;font-size: var(--font-size-sm);color:var(--coral)">
       {{ error }}
     </div>
 
@@ -24,12 +24,12 @@
     <div v-else-if="suggestions">
       <!-- Extracted keywords -->
       <div style="margin-bottom:var(--space-md)">
-        <div style="font-size:12px;color:var(--muted);margin-bottom:6px">提取关键词：</div>
+        <div style="font-size: var(--font-size-xs);color:var(--muted);margin-bottom:6px">提取关键词：</div>
         <div style="display:flex;flex-wrap:wrap;gap:4px">
           <span v-for="kw in suggestions.keywords" :key="kw"
             class="cohere-tag"
             :class="kw.startsWith('#') ? 'cohere-tag-success' : 'cohere-tag-info'"
-            style="font-size:12px;padding:2px 8px;border-radius:4px">
+            style="font-size: var(--font-size-xs);padding:2px 8px;border-radius:4px">
             {{ kw }}
           </span>
         </div>
@@ -37,11 +37,11 @@
 
       <!-- Related terms -->
       <div v-if="suggestions.relatedTerms && suggestions.relatedTerms.length > 0" style="margin-bottom:var(--space-md)">
-        <div style="font-size:12px;color:var(--muted);margin-bottom:6px">相关话题：</div>
+        <div style="font-size: var(--font-size-xs);color:var(--muted);margin-bottom:6px">相关话题：</div>
         <div style="display:flex;flex-wrap:wrap;gap:4px">
           <span v-for="term in suggestions.relatedTerms" :key="term"
             class="cohere-tag cohere-tag-info"
-            style="font-size:12px;padding:2px 8px;border-radius:4px">
+            style="font-size: var(--font-size-xs);padding:2px 8px;border-radius:4px">
             {{ term }}
           </span>
         </div>
@@ -49,32 +49,32 @@
 
       <!-- Per-platform tags (grouped when byPlatformDetail exists, else single group) -->
       <div v-if="suggestions.byPlatform">
-        <div style="font-size:12px;color:var(--muted);margin-bottom:6px">{{ t('tagSuggest.platformTags') }}：</div>
+        <div style="font-size: var(--font-size-xs);color:var(--muted);margin-bottom:6px">{{ t('tagSuggest.platformTags') }}：</div>
         <div v-for="g in platformGroups" :key="g.platform" style="margin-bottom:var(--space-sm);padding:var(--space-sm);background:#f8f9fa;border-radius:6px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-            <span style="font-size:12px;font-weight:600;color:var(--text)">{{ platformLabel(g.platform) }}</span>
-            <button class="cohere-btn-ghost" @click="copyPlatformTags(g.platform, allTags(g))" style="font-size:11px;padding:2px 8px">
+            <span style="font-size: var(--font-size-xs);font-weight:600;color:var(--text)">{{ platformLabel(g.platform) }}</span>
+            <button class="cohere-btn-ghost" @click="copyPlatformTags(g.platform, allTags(g))" style="font-size: var(--font-size-xs);padding:2px 8px">
               {{ t('tagSuggest.copyTags') }}
             </button>
           </div>
 
           <!-- Grouped: content + traffic -->
           <template v-if="g.detail">
-            <div style="font-size:11px;color:var(--muted);margin:4px 0 3px">📝 {{ t('tagSuggest.contentTags') }}</div>
+            <div style="font-size: var(--font-size-xs);color:var(--muted);margin:4px 0 3px">📝 {{ t('tagSuggest.contentTags') }}</div>
             <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px">
               <span v-for="tag in g.detail.content" :key="'c-'+tag"
                 class="cohere-tag cohere-tag-info"
-                style="font-size:11px;padding:2px 6px;border-radius:4px">
+                style="font-size: var(--font-size-xs);padding:2px 6px;border-radius:4px">
                 {{ tag }}
               </span>
             </div>
 
-            <div style="font-size:11px;color:var(--muted);margin:4px 0 3px">🔥 {{ t('tagSuggest.trafficTags') }}</div>
+            <div style="font-size: var(--font-size-xs);color:var(--muted);margin:4px 0 3px">🔥 {{ t('tagSuggest.trafficTags') }}</div>
             <div style="display:flex;flex-wrap:wrap;gap:4px">
               <span v-for="tag in g.detail.traffic" :key="'t-'+tag"
                 class="cohere-tag cohere-tag-success"
                 :title="hotTitle(g.platform, tag)"
-                style="font-size:11px;padding:2px 6px;border-radius:4px">
+                style="font-size: var(--font-size-xs);padding:2px 6px;border-radius:4px">
                 {{ tag }}<sup v-if="hotHeat(g.platform, tag) != null" class="heat-badge">{{ hotHeat(g.platform, tag) }}</sup>
               </span>
             </div>
@@ -86,7 +86,7 @@
               <span v-for="tag in g.tags" :key="tag"
                 class="cohere-tag"
                 :class="tag.startsWith('#') ? 'cohere-tag-success' : 'cohere-tag-info'"
-                style="font-size:11px;padding:2px 6px;border-radius:4px">
+                style="font-size: var(--font-size-xs);padding:2px 6px;border-radius:4px">
                 {{ tag }}
               </span>
             </div>
@@ -94,7 +94,7 @@
         </div>
 
         <!-- Source / calibration status -->
-        <div style="font-size:11px;color:var(--muted);margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+        <div style="font-size: var(--font-size-xs);color:var(--muted);margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">
           <template v-if="suggestions.source === 'llm'">
             <span>{{ t('tagSuggest.sourceAI') }}</span>
             <span :class="suggestions.calibrated ? 'src-ok' : 'src-warn'">
@@ -224,7 +224,7 @@ async function copyPlatformTags (platform, tags) {
 }
 .heat-badge {
   margin-left: 2px;
-  font-size: 9px;
+  font-size: var(--font-size-xs);
   color: var(--coral);
   vertical-align: super;
 }

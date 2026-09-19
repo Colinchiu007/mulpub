@@ -84,14 +84,14 @@ defineEmits(['update:strategyMode', 'update:strategyId'])
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   cursor: pointer;
   color: var(--text-primary);
 }
 .strategy-radio.disabled { opacity: 0.6; cursor: default; }
 .strategy-preview {
   margin-top: 4px;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--muted);
   padding: 4px 8px;
   background: var(--soft-stone);

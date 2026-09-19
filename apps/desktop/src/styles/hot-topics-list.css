@@ -10,9 +10,9 @@
 .topics-list { display: flex; flex-direction: column; gap: 6px; }
 .topic-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: #fff; border: 1px solid #eee; border-radius: 8px; }
 .topic-item.selected { border-color: #5149e8; background: #f7f6ff; }
-.rank-badge { min-width: 26px; height: 26px; display: grid; place-items: center; border-radius: 6px; background: #f0efff; color: #5149e8; font-size: 12px; font-weight: 700; }
-.topic-text { flex: 1; font-size: 14px; color: #333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tag { padding: 2px 8px; border-radius: 4px; font-size: 11px; flex-shrink: 0; }
+.rank-badge { min-width: 26px; height: 26px; display: grid; place-items: center; border-radius: 6px; background: #f0efff; color: #5149e8; font-size: var(--font-size-xs); font-weight: 700; }
+.topic-text { flex: 1; font-size: var(--font-size-sm); color: #333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tag { padding: 2px 8px; border-radius: 4px; font-size: var(--font-size-xs); flex-shrink: 0; }
 .category-tag { background: #f5f5f5; color: #666; }
 .cat-general { background: #f5f5f5; color: #666; }
 .cat-society { background: #e8f4ff; color: #1976d2; }
@@ -25,15 +25,15 @@
 .cat-health { background: #e0f2f1; color: #00796b; }
 .cat-international { background: #e3f2fd; color: #1565c0; }
 .channel-tag { background: #f0f2f5; color: #888; }
-.hot-value { font-size: 12px; color: #ff5722; flex-shrink: 0; }
-.update-time { font-size: 11px; color: #aaa; flex-shrink: 0; white-space: nowrap; width: 42px; text-align: right; }
+.hot-value { font-size: var(--font-size-xs); color: #ff5722; flex-shrink: 0; }
+.update-time { font-size: var(--font-size-xs); color: #aaa; flex-shrink: 0; white-space: nowrap; width: 42px; text-align: right; }
 /* 收藏时间（月/日 时:分）比更新时间长，右对齐宽度独立，保持与列表同一视觉节奏 */
-.fav-date { font-size: 11px; color: #999; flex-shrink: 0; white-space: nowrap; min-width: 64px; text-align: right; }
-.item-fav-btn { font-size: 14px; padding: 4px 8px; flex-shrink: 0; border: none; background: transparent; cursor: pointer; color: #ccc; transition: color 0.15s; }
+.fav-date { font-size: var(--font-size-xs); color: #999; flex-shrink: 0; white-space: nowrap; min-width: 64px; text-align: right; }
+.item-fav-btn { font-size: var(--font-size-sm); padding: 4px 8px; flex-shrink: 0; border: none; background: transparent; cursor: pointer; color: #ccc; transition: color 0.15s; }
 .item-fav-btn:hover { color: #e91e63; }
-.item-create-btn { font-size: 12px; padding: 4px 10px; flex-shrink: 0; }
-.item-gen-video-btn { font-size: 12px; padding: 4px 10px; flex-shrink: 0; }
+.item-create-btn { font-size: var(--font-size-xs); padding: 4px 10px; flex-shrink: 0; }
+.item-gen-video-btn { font-size: var(--font-size-xs); padding: 4px 10px; flex-shrink: 0; }
 /* 收藏列表 */
 .favorites-section { margin-top: 0; }
 .favorite-item .fav-star { background: #fff0f5; color: #e91e63; }
-.item-unfav-btn { font-size: 12px; padding: 4px 10px; flex-shrink: 0; }
+.item-unfav-btn { font-size: var(--font-size-xs); padding: 4px 10px; flex-shrink: 0; }

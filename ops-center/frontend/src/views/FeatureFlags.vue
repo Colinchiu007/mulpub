@@ -60,7 +60,7 @@
         <strong style="margin-left:8px">{{ confirmKey }}</strong>
       </div>
       <p v-if="confirmDesc" style="color:#666;margin-top:8px">{{ confirmDesc }}</p>
-      <p style="color:#e6a23c;margin-top:12px;font-size:13px">
+      <p style="color:#e6a23c;margin-top:12px;font-size: var(--font-size-sm)">
         <el-icon><WarningFilled /></el-icon>
         变更后请点击「同步到文件」使配置生效
       </p>
