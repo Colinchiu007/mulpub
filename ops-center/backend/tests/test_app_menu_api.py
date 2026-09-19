@@ -23,10 +23,11 @@ import models  # noqa: F401
 from config import settings
 
 # 2026-09-15：rewrite（文案改写）提级到一级导航，与 apps/desktop/src/config/sidebar-menu.js 保持同步
-DEFAULT_PRIMARY = ["home", "publish", "accounts", "dashboard", "create", "collection", "rewrite"]
+# 2026-09-19：copy-library（文案库）新增一级导航，与 apps/desktop/src/config/route-registry.js 保持同步
+DEFAULT_PRIMARY = ["home", "publish", "accounts", "dashboard", "create", "collection", "copy-library", "rewrite"]
 FORCED_KEYS = {"publish", "accounts", "create", "collection"}
-# 2026-09-15：#1840 移除「分屏监控」后 CATALOG 20 → 19（与 app_menu_service.CATALOG 同步）
-CATALOG_SIZE = 19
+# 2026-09-15：#1840 移除「分屏监控」后 CATALOG 20 → 19；2026-09-19 文案库 +1 → 20（与 app_menu_service.CATALOG 同步）
+CATALOG_SIZE = 20
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -218,8 +219,8 @@ async def test_sort_order_persists_and_is_returned_in_order():
         )
         data = (await client.get("/api/v1/app-menu", headers=h)).json()
         primary = [i["item_key"] for i in data["items"] if i["group"] == "primary"]
-        # rewrite 未配置 sort_order → 排在已配置项之后
-        assert primary == ["collection", "create", "accounts", "publish", "dashboard", "home", "rewrite"]
+        # rewrite / copy-library 未配置 sort_order → 排在已配置项之后（copy-library 先于 rewrite，同 CATALOG 顺序）
+        assert primary == ["collection", "create", "accounts", "publish", "dashboard", "home", "copy-library", "rewrite"]
 
 
 # ─── 跨组移动（一级 ↔ 更多）──────────────────────────────

@@ -144,7 +144,7 @@ describe('MpSidebar — 应用菜单配置生效', () => {
 
     expect(primaryKeys(sidebar)).toEqual([
       // 6 项按下发 sort_order 重排；rewrite 未下发（无 sort_order）→ 排在其后
-      'collection', 'create', 'accounts', 'publish', 'dashboard', 'home', 'rewrite',
+      'collection', 'create', 'accounts', 'publish', 'dashboard', 'home', 'copy-library', 'rewrite',
     ])
   })
 

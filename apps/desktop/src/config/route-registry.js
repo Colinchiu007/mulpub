@@ -35,6 +35,7 @@ import {
   Collection,
   Cpu,
   DataAnalysis,
+  Document,
   FolderOpened,
   HomeFilled,
   MagicStick,
@@ -120,6 +121,15 @@ export const ROUTE_REGISTRY = Object.freeze([
     name: 'Collection',
     view: 'Collection.vue',
     navEntry: { key: 'collection', group: SIDEBAR_GROUP_PRIMARY, labelI18nKey: 'sidebar.nav.collection', to: '/collection', icon: Collection },
+    internal: false,
+    entryFrom: null,
+  },
+  {
+    // 文案库（2026-09-19）：聚合采集/改写/草稿/视频创作四来源的一级页面
+    path: '/copy-library',
+    name: 'CopyLibrary',
+    view: 'CopyLibraryView.vue',
+    navEntry: { key: 'copy-library', group: SIDEBAR_GROUP_PRIMARY, labelI18nKey: 'sidebar.nav.copyLibrary', to: '/copy-library', icon: Document },
     internal: false,
     entryFrom: null,
   },
@@ -343,6 +353,7 @@ export const SIDEBAR_MENU_KEY_ORDER = Object.freeze([
   'dashboard',
   'create',
   'collection',
+  'copy-library',
   'rewrite',
   // 「更多」折叠菜单
   'calendar',

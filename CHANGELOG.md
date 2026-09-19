@@ -1,3 +1,27 @@
+# [未发布] feat(desktop): 一级菜单新增「文案库」——全应用文案来源聚合（2026-09-19）
+
+### 新增
+- **一级菜单「文案库」**（`apps/desktop/src/config/route-registry.js`）：key=copy-library，位于采集与文案改写之间，路由 /copy-library，图标 Document
+- **`apps/desktop/src/views/CopyLibraryView.vue`**：文案库页面——来源筛选（全部/采集/改写/草稿/视频创作）+ 关键词搜索 + 统一卡片网格（来源徽标/标题/内容预览/字数/时间/截断标记）+ 三态（Loading/Empty/FilterEmpty）
+- **`apps/desktop/src/composables/useCopyLibrarySources.js`**：4 源聚合 composable——collected_items + copy_library_rewrites + drafts（含热门选题创作产物）+ story2video sourceText；统一条目形状、createdAt 倒序、单源失败不阻塞（Promise.allSettled）、视频文案 500 字预览截断
+- **`apps/desktop/src/composables/useCopyLibrarySources.test.js`**：5 用例（聚合排序/截断标记/fail-safe 过滤/空入参/单源失败）
+- **`apps/desktop/src/locales/zh.js` + `en.js`**：成对新增 sidebar.nav.copyLibrary + copyLibrary.* 共 21 key
+- **`ops-center/backend/services/app_menu_service.py`**：CATALOG 种子同步 copy-library（运营端可配置显示/隐藏）
+
+### 修复（预存，来自 main d77d5be6d）
+- **`apps/desktop/src/views/Collection.vue`**：知乎收藏夹批量进度后缀（已取消）/（熔断停止）硬编码中文改走 locale key（本分支基线落后携带的 Gate 7 拦截，等价应用 d77d5be6d 修复）
+
+### 验证
+- composable 测试 5/5、sidebar-menu.test 28/28、Collection.test 91/91、views-deep+coverage2 18/18 通过
+- check-route-registry PASS（33 路由/20 菜单项/key 集合一致）
+- check-locale-sync --cjk / --keys / --pair-base 全 PASS
+- openspec validate copy-library-primary-menu PASS
+
+### 关联
+- OpenSpec change: copy-library-primary-menu（proposal/design/specs/tasks）
+- 专项 PRD: 01-docs/PRD-COPY-LIBRARY-PRIMARY-MENU-2026-09-19.md
+---
+
 # [未发布] feat(ops-center): 预设模型目录同步 Agnes-AI 多模态预设（2026-09-18）
 
 ### 新增
