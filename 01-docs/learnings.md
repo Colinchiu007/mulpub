@@ -14926,3 +14926,13 @@ opencode 双模型审查发现三个问题：① 后端 `create_constraint` 对�
 - **测试断言避免与通用字样误撞**：断言「不含某指令段」用带标记的完整段名（如 `【字数要求】`），裸词会与冲突裁决声明等新文案误撞。
 - **fastctx replace 的 replacement 中 `${...}` 是 capture group 引用**：字面量需写 `$$`。
 - **worktree gitdir 损坏恢复流程**：备份修改文件 → 共享主目录基线快照（R1）→ junction 扫描（R3）→ `git worktree prune` → 删旧目录重建 → `git fetch && reset --hard origin/main` → 恢复文件 → 重装依赖。全程代码零丢失。
+## 一级菜单新增页面的五处契约同步与 color-literals fallback 陷阱（copy-library-primary-menu，2026-09-19）
+
+- **菜单契约五处同步（pattern）**：新增一级/更多菜单页面必须同步五处，漏一处 CI 拦截：① route-registry.js（登记 + SIDEBAR_MENU_KEY_ORDER）② sidebar-menu.test.js EXPECTED_DERIVED_MENU 冻结基线 ③ ops-center app_menu_service.py CATALOG + test_app_menu_api.py（DEFAULT_PRIMARY/CATALOG_SIZE）④ MpSidebar.appmenu.test.js / sidebar-menu-merge.test.js 的排序期望（新 key 无 sort_order 时排在已配置项之后）⑤ all-views.visual.test.js routeView + condition-waiting.test.js 用例总数硬编码。**新增路由的测试影响面远超页面本身。**
+- **color-literals fallback 陷阱（pitfall，本次 CI 逃逸主因）**：check-color-literals.js 扫描 6 个历史品牌色（#5048E5/#409eff 等），**var() 的 fallback 色值也命中**——`var(--color-primary, #5048E5)` 一样算违规。新 .vue 样式一律直接 `var(--color-*)` 不写 fallback；本地先跑 `node .github/scripts/check-color-literals.js` 再提交。
+- **worktree 基线落后预存问题（pitfall）**：worktree 从旧 main 创建后，main 又前进了 8 个提交（含 Collection.vue locale 修复 d77d5be6d）。本地门禁失败显示的 4 处硬编码中文是**基线自带**而非本次引入——用 `git diff main -- <file>` 区分「预存」与「新增」，预存问题等价应用 main 修复并在 PR 标注来源。**建 worktree 后先看 main 是否有新提交。**
+- **文案来源全景（pattern）**：全应用文案产出 = 采集（collected_items）+ 改写（copy_library_rewrites）+ 草稿（drafts，热门选题创作产物经 draftSave）+ 视频创作（story2video sourceText）。rewrite_history 与改写文案重复且 owner 过滤缺失；publish_history 写入端只存 title 无正文（record.description 仅读取兜底）；AiWriter 瞬态不落盘。**聚合页设计先做来源差异审计，暂缓项在 PRD 记录 v2 理由。**
+- **浅克隆 rebase 的 PRD 冲突（tool）**：PRD.md 是追加式文档，rebase 冲突解法 = 两边章节都保留（--- 分隔）。git checkout origin/main -- . 会覆盖工作区修改并带入大量 untracked，**同步基线只用 rebase**。
+- **PR 合并后 CI 才暴露问题的补救（operational）**：PR #2021 合并后 quality-gate 才跑完发现 color-literals 违规 → 修复提交推分支，但原 PR 已 MERGED → 新开 PR #2026 承载修复合并。**「CI 通过后合并」要求下，merge 动作要等 CI 终态，或准备好补丁 PR 流程。**
+
+---
