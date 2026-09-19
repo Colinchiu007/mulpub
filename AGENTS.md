@@ -809,6 +809,34 @@ codeagent-wrapper --backend opencode --lite "审查 <change> 实现：命名/模
 
 **视觉测试强制：** UI 文件变更时自动提示视觉回归测试。
 
+## 记忆体系（内置记忆 / 外部记忆 / EverOS 记忆）
+
+> 本章节为 2026-09-19 实测锚点，防止每次对话重新研究三套记忆系统的概念与用法。历史记忆中「EverOS 跑在 WSL / Ubuntu-E 内」的表述**已过时**——EverOS 现为 **Windows 原生版**，通过 MCP 连接。
+
+### 三套记忆的定位与边界
+
+| 记忆类型 | 位置 | 定位 | 何时用 |
+| --- | --- | --- | --- |
+| **内置记忆** | `C:\Users\邱领\.codex\memories\`（MEMORY.md、memory_summary.md、raw_memories.md、rollout_summaries/、extensions/ad_hoc/notes/、skills/） | Codex 自动生成/检索的会话记忆，系统提示自动注入 memory_summary | 默认第一入口：任务开始时快速 pass 检索相关关键词；回答引用需带 `<oai-mem-citation>` |
+| **外部记忆** | 项目仓库内文档（openspec/、01-docs/、.ccg/、docs/）+ 用户显式让写入的文件 | 项目级持久知识，git 管理，跨会话/跨工具共享 | 项目约定、流程规范、PRD/架构文档；AGENTS.md 是每次会话自动加载的入口 |
+| **EverOS 记忆** | `C:\Users\邱领\.everos\`（Windows 原生，md-first + LanceDB/SQLite 索引） | 独立记忆服务，HTTP API（127.0.0.1:8000）+ MCP 桥（everos_search/add/health） | 跨项目语义检索、episode/atomic_fact 级别的长期记忆沉淀 |
+
+### EverOS 当前架构（Windows 版，2026-09-19 实测）
+
+- **MCP 配置**：`C:\Users\邱领\.codex\config.toml` 中 `[mcp_servers.everos_memory]`，`command = "python"`，`args = ["C:\\Users\\邱领\\.everos\\everos-mcp-server.py"]`——Windows 原生 Python 3.12，不再经 WSL。
+- **MCP 桥脚本**：`C:\Users\邱领\.everos\everos-mcp-server.py`（v1.3），stdio JSON-RPC，暴露 `everos_search` / `everos_add` / `everos_health` 三个工具；搜索走 `http://localhost:8000/api/v1/memory/search`，跨 `default` + `agent-memory-import` 两个项目空间（user_id 固定 `me`）。
+- **后端服务**：`everos server start`（Windows CLI，`C:\Python312\Scripts\everos`），监听 `127.0.0.1:8000`；数据在 `C:\Users\邱领\.everos\.index\`（sqlite system.db + lancedb 六表：episode/atomic_fact/foresight/agent_case/agent_skill/user_profile）；cascade watcher 监听 `.everos` 根目录 md 变更自动重建索引。
+- **数据目录**：`C:\Users\邱领\.everos\multi-publish\` 下按 project_id 分空间（default_project、codex-memory-import、agent-memory-import、dsh-session-import、everos-integration、collect-douyin-xhs-asr、video-clone-output-load-fix、s2v-quick-render-ai-video），每个空间内 `users/<user_id>/episodes/*.md` + `.atomic_facts/*.md` + `user.md`。
+- **重要**：后端服务**不随系统自启**，用前需确认存活（`curl http://localhost:8000/health` 或调 `everos_health`）；MCP 桥对后端不可达时 `everos_search` 静默返回「无结果」（不报错），`everos_health` 会失败——判断「无结果」前先验后端。
+- **历史迁移**：2026-09-02 曾在 WSL（Ubuntu-E）内跑 EverOS 并导入 343 个记忆文件到 codex-memory-import 空间；现已整体迁移 Windows 原生。旧记录中 `wsl -d Ubuntu-E python3 /home/qiu/everos-mcp-server.py`、`~/.everos`（WSL 路径）、`/api/v2/memory/search` 端点均为过时信息。
+
+### 使用规则
+
+1. **任务开始时**：先做内置记忆 quick pass（MEMORY.md 关键词检索）；若涉及跨项目历史经验（如「之前怎么处理 X」），再调 EverOS `everos_search`。
+2. **写入记忆**：用户显式要求「记住/存到记忆」时——项目相关知识写外部记忆（AGENTS.md/openspec/01-docs/），跨项目个人偏好/经验写内置记忆 ad-hoc note（`~/.codex/memories/extensions/ad_hoc/notes/`），语义级长期记忆可调 `everos_add`。
+3. **过时记忆处理**：不改写历史记录（记忆是历史事实快照），而是追加最新锚点 note 声明现状取代旧表述——本章节即 EverOS Windows 版的最新锚点。
+4. **Cognee MCP**（`[mcp_servers.cognee_memory]`，仍走 WSL）：协议握手通但 embedding 未配（LiteLLM Missing credentials），实际调用会卡——**不要使用**，需要语义记忆时用 EverOS。
+
 ## Skill routing
 
 When the user's request matches an available skill, invoke it via the Skill tool. When in doubt, invoke the skill.
