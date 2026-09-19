@@ -9,7 +9,7 @@
         <div class="page-subtitle">从各平台采集内容，或快速创建草稿</div>
       </div>
       <div class="page-actions">
-        <button class="cohere-btn-secondary" @click="importFromClipboard">📋 从剪贴板导入</button>
+        <button class="cohere-btn-secondary" @click="importFromClipboard"><el-icon><DocumentCopy /></el-icon> 从剪贴板导入</button>
         <button class="cohere-btn-primary" @click="createDraft">＋ 新建草稿</button>
       </div>
     </div>
@@ -18,7 +18,7 @@
       <!-- URL 采集输入 -->
       <div class="cohere-card col-panel">
         <div class="col-toolbar">
-          <span class="col-toolbar-icon">🔗</span>
+          <span class="col-toolbar-icon"><el-icon><Link /></el-icon></span>
           <select v-model="collectSourceType" class="col-select">
             <option v-for="s in collectSources" :key="s.type" :value="s.type">{{ s.name }}</option>
           </select>
@@ -52,7 +52,7 @@
           <div class="col-result-meta">
             {{ collectedResult.description ? collectedResult.description.slice(0, 120) + '...' : '' }}
             <span v-if="collectedResult.coverImage"> · 有封面图</span>
-            <span v-if="collectedResult.mediaType === 'video'"> · 🎬 {{ $t('collection.videoTranscriptLabel') }}<template v-if="collectedResult.duration"> · {{ formatVideoDuration(collectedResult.duration) }}</template><template v-if="collectedResult.platform && PLATFORM_KEYS.includes(collectedResult.platform)"> · {{ platformLabel(collectedResult.platform) }}</template></span>
+            <span v-if="collectedResult.mediaType === 'video'"> · <el-icon><VideoCamera /></el-icon> {{ $t('collection.videoTranscriptLabel') }}<template v-if="collectedResult.duration"> · {{ formatVideoDuration(collectedResult.duration) }}</template><template v-if="collectedResult.platform && PLATFORM_KEYS.includes(collectedResult.platform)"> · {{ platformLabel(collectedResult.platform) }}</template></span>
           </div>
           <!-- 改写策略选择（2026-09-15 补齐）：与 /rewrite 页同组件同契约，此前采集页改写无策略入口 -->
           <RewriteStrategyPicker
@@ -108,8 +108,8 @@
               🔄 重试
             </button>
             <template v-if="rewriteResult">
-              <button class="cohere-btn-secondary" @click="saveDraftAfterRewrite">💾 存入草稿</button>
-              <button class="cohere-btn-primary" @click="goPublishAfterRewrite">🚀 去发布</button>
+              <button class="cohere-btn-secondary" @click="saveDraftAfterRewrite"><el-icon><FolderAdd /></el-icon> 存入草稿</button>
+              <button class="cohere-btn-primary" @click="goPublishAfterRewrite"><el-icon><Promotion /></el-icon> 去发布</button>
             </template>
             <button class="cohere-btn-secondary" @click="clearResult">取消</button>
             <div v-if="rewriteError" class="col-error-banner">
@@ -119,11 +119,11 @@
           <!-- 改写结果对比：原文 vs 改写后 -->
           <div v-if="rewriteResult" class="rewrite-compare col-compare">
             <div>
-              <div class="col-compare-title">📄 {{ $t('collection.originalContent') }}</div>
+              <div class="col-compare-title"><el-icon><Document /></el-icon> {{ $t('collection.originalContent') }}</div>
               <textarea class="compare-textarea" readonly :value="(collectedResult && (collectedResult.content || collectedResult.description)) || ''"></textarea>
             </div>
             <div>
-              <div class="col-compare-title">✨ {{ $t('collection.rewrittenContent') }}</div>
+              <div class="col-compare-title"><el-icon><MagicStick /></el-icon> {{ $t('collection.rewrittenContent') }}</div>
               <textarea class="compare-textarea" v-model="rewriteResult"></textarea>
             </div>
           </div>
@@ -237,7 +237,7 @@
         <div class="cohere-card-grid">
           <div v-for="item in collectedItems" :key="item.id" class="cohere-card" :class="{ 'col-item--active': item.id === collectedResult?.id }">
             <div class="card-top">
-              <div class="card-icon">{{ item.mediaType === 'video' ? '🎬' : '📰' }}</div>
+              <div class="card-icon"><el-icon><component :is="item.mediaType === 'video' ? VideoCamera : Document" /></el-icon></div>
               <div class="card-info">
                 <div class="card-platform">{{ item.title || '无标题' }}</div>
                 <div class="card-account">
@@ -264,7 +264,7 @@
           <div class="stat-label">新建草稿</div>
         </div>
         <div class="cohere-stat-card col-stat-card-click" @click="importFromClipboard">
-          <div class="stat-value">📋</div>
+          <div class="stat-value"><el-icon><DocumentCopy /></el-icon></div>
           <div class="stat-label">剪贴板导入</div>
         </div>
         <div class="cohere-stat-card col-stat-card-click" @click="openCollection('weibo')">
@@ -286,16 +286,17 @@
       <EmptyState
         v-if="drafts.length === 0"
         data-testid="collection-drafts-empty"
-        icon="📝"
         :title="$t('collection.draftsEmptyTitle')"
         :description="$t('collection.draftsEmptyDesc')"
         :action-text="$t('collection.draftsEmptyAction')"
         @action="createDraft"
-      />
+      >
+        <template #icon><el-icon><EditPen /></el-icon></template>
+      </EmptyState>
       <div v-else class="cohere-card-grid">
         <div v-for="d in drafts" :key="d.id" class="cohere-card">
           <div class="card-top">
-            <div class="card-icon">📄</div>
+            <div class="card-icon"><el-icon><Document /></el-icon></div>
             <div class="card-info">
               <div class="card-platform">{{ d.title || '未命名草稿' }}</div>
               <div class="card-account">{{ d.created_at }} · {{ (d.content || '').length }}字</div>
@@ -343,18 +344,19 @@
         v-else-if="filteredLibraryItems.length === 0"
         compact
         data-testid="collection-library-filter-empty"
-        icon="🔍"
         :title="$t('collection.libraryFilterEmptyTitle')"
         :description="$t('collection.libraryFilterEmptyDesc')"
         :action-text="$t('collection.libraryFilterEmptyAction')"
         @action="libraryFilter = 'all'"
-      />
+      >
+        <template #icon><el-icon><Search /></el-icon></template>
+      </EmptyState>
       <div v-else class="cohere-card-grid" data-testid="copy-library-list">
         <template v-for="entry in filteredLibraryItems" :key="entry.key">
           <!-- 采集正文卡片：信息与操作以原「采集记录」为准，新增【改写】跳转改写页直接改写 -->
           <div v-if="entry.origin === 'collect'" class="cohere-card collection-record-card" role="button" tabindex="0" :data-testid="'copy-library-item-' + entry.item.id" @click="openRecordForEdit(entry.item)" @keyup.enter="openRecordForEdit(entry.item)">
             <div class="card-top">
-              <div class="card-icon">{{ entry.item.mediaType === 'video' ? '🎬' : '📰' }}</div>
+              <div class="card-icon"><el-icon><component :is="entry.item.mediaType === 'video' ? VideoCamera : Document" /></el-icon></div>
               <div class="card-info">
                 <div class="card-platform">{{ entry.item.title || $t('collection.recordsUntitled') }}</div>
                 <div class="card-account">
@@ -377,7 +379,7 @@
           <!-- 改写文案卡片：来自文案库改写闭环（采集页内改写 / 改写页交接改写） -->
           <div v-else class="cohere-card collection-record-card" :data-testid="'copy-library-item-' + entry.record.id">
             <div class="card-top">
-              <div class="card-icon">✨</div>
+              <div class="card-icon"><el-icon><MagicStick /></el-icon></div>
               <div class="card-info">
                 <div class="card-platform card-platform-badge">
                   <span class="copy-origin-badge is-rewrite" :data-testid="'copy-library-badge-' + entry.record.id">{{ $t('collection.libraryOriginRewrite') }}</span>
@@ -437,6 +439,7 @@ import { PLATFORM_DASHBOARD_URLS, PLATFORM_NAMES } from '@multi-publish/shared-u
 // eslint-disable-next-line no-unused-vars
 import UiInput from "../components/UiInput.vue";
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { Document, DocumentCopy, EditPen, FolderAdd, Link, MagicStick, Promotion, Search, VideoCamera } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { useNotify } from '@/composables/useNotify'
 import { resolveNotifyText } from '@/utils/notifyCore'

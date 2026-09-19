@@ -36,10 +36,10 @@ describe("ViralAnalysisView", () => {
   it("trendIcon returns correct icon for each direction", async () => {
     const w = createView();
     await nextTick();
-    expect(w.vm.trendIcon("rising")).toBe("\ud83d\udcc8");
-    expect(w.vm.trendIcon("declining")).toBe("\ud83d\udcc9");
-    expect(w.vm.trendIcon("stable")).toBe("\u27a1\ufe0f");
-    expect(w.vm.trendIcon("unknown")).toBe("\u27a1\ufe0f");
+    // T1-5：趋势图标改为返回 @element-plus/icons-vue 组件对象（模板 <component :is> 渲染）
+    expect(typeof w.vm.trendIcon("rising")).toBe("object");
+    expect(w.vm.trendIcon("rising")).not.toBe(w.vm.trendIcon("declining"));
+    expect(w.vm.trendIcon("unknown")).toBeTruthy();
   });
 
   it("trendLabel returns correct label for each direction", async () => {

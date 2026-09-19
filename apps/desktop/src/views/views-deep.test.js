@@ -134,6 +134,7 @@ vi.mock("@element-plus/icons-vue", () => {
     Document: Icon,
     View: Icon,
     UserFilled: Icon,
+    VideoCamera: Icon,
   };
 });
 
