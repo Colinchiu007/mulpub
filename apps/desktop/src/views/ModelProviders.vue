@@ -534,7 +534,7 @@
     <!-- 删除确认对话框 -->
     <el-dialog v-model="showDeleteDialog" :title="t('modelProviders.deleteDialogTitle')" class="responsive-dialog-sm">
       <p>{{ t('modelProviders.deleteConfirmText', { name: deleteTarget?.name }) }}</p>
-      <p style="font-size:13px;color:var(--muted)">
+      <p style="font-size: var(--font-size-sm);color:var(--muted)">
         {{ t('modelProviders.deleteIrreversible') }}
         <template v-if="deleteTarget?.is_preset">{{ t('modelProviders.presetDeleteHint') }}</template>
       </p>
@@ -550,7 +550,7 @@
 
     <!-- 限流自检（P2）：真实 governor + 假 adapter，零额度零网络 -->
     <el-dialog v-model="showSelfCheckDialog" :title="t('modelProviders.selfCheckDialogTitle')" class="responsive-dialog-sm">
-      <p style="font-size:13px;color:var(--muted);margin-bottom:12px">
+      <p style="font-size: var(--font-size-sm);color:var(--muted);margin-bottom:12px">
         {{ t('modelProviders.selfCheckHint') }}
       </p>
       <div class="selfcheck-form">
@@ -561,7 +561,7 @@
         <div class="selfcheck-row"><label>{{ t('modelProviders.inject429Label') }}</label><el-input-number v-model="selfCheckForm.inject429At" :min="1" :max="1000" /></div>
         <div class="selfcheck-row"><label>{{ t('modelProviders.limitPer5hLabel2') }}</label><el-input-number v-model="selfCheckForm.limitPer5h" :min="1" :max="10000000" /></div>
       </div>
-      <div v-if="selfCheckRunning" style="color:var(--muted);font-size:13px">{{ t('modelProviders.selfCheckRunning') }}</div>
+      <div v-if="selfCheckRunning" style="color:var(--muted);font-size: var(--font-size-sm)">{{ t('modelProviders.selfCheckRunning') }}</div>
       <div v-if="selfCheckResult" style="margin-top:12px">
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:8px">
           <span>{{ t('modelProviders.maxConcurrent') }}：<b>{{ selfCheckResult.data.metrics.max_concurrent_observed }}</b></span>
@@ -569,11 +569,11 @@
           <span>{{ t('modelProviders.quotaExceeded') }}：<b>{{ selfCheckResult.data.metrics.quota_exceeded_count }}</b></span>
           <span>{{ t('modelProviders.totalDuration') }}：<b>{{ selfCheckResult.data.metrics.total_duration_ms }}ms</b></span>
         </div>
-        <div v-for="a in selfCheckResult.data.assertions" :key="a.name" style="display:flex;gap:8px;align-items:center;font-size:13px;padding:2px 0">
+        <div v-for="a in selfCheckResult.data.assertions" :key="a.name" style="display:flex;gap:8px;align-items:center;font-size: var(--font-size-sm);padding:2px 0">
           <el-tag :type="a.pass ? 'success' : 'danger'" size="small">{{ a.pass ? t('modelProviders.passTag') : t('modelProviders.failTag') }}</el-tag>
           <span>{{ a.name }}：{{ a.message }}</span>
         </div>
-        <div v-if="selfCheckReportMsg" style="margin-top:6px;font-size:13px;color:var(--primary)">{{ selfCheckReportMsg }}</div>
+        <div v-if="selfCheckReportMsg" style="margin-top:6px;font-size: var(--font-size-sm);color:var(--primary)">{{ selfCheckReportMsg }}</div>
       </div>
       <template #footer>
         <div class="dialog-footer">
@@ -778,7 +778,7 @@ onMounted(() => {
   background: #fff3e0;
   color: #e65100;
   padding: 10px var(--space-xxl);
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   border-bottom: 1px solid #ffcc80;
 }
@@ -793,7 +793,7 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   color: var(--text, #333);
   background: var(--surface, #fff);
   border: 1px solid var(--border, #e2e2e2);
@@ -815,7 +815,7 @@ onMounted(() => {
   color: #5e35b1;
   border-radius: 4px;
   padding: 1px 7px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   margin-right: 4px;
   white-space: nowrap;
 }
@@ -887,7 +887,7 @@ onMounted(() => {
 }
 
 .provider-type-badge {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   padding: 2px 10px;
   border-radius: 20px;
@@ -909,7 +909,7 @@ onMounted(() => {
 [data-theme="dark"] .type-audio { background: #2a1a2e; color: #ce93d8; }
 
 .default-badge {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   padding: 2px 8px;
   border-radius: 12px;
@@ -918,7 +918,7 @@ onMounted(() => {
 }
 
 .provider-name {
-  font-size: 16px;
+  font-size: var(--font-size-base);
   font-weight: 600;
   color: var(--ink, #222);
   margin-bottom: 4px;
@@ -928,11 +928,11 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--muted, var(--text-muted));
 }
 .provider-id code {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   background: var(--soft-stone, var(--bg));
   padding: 1px 6px;
   border-radius: 4px;
@@ -940,7 +940,7 @@ onMounted(() => {
 
 /* P0: 色盲友好 status-dot — 用形状+颜色双重区分 */
 .status-dot-icon {
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   line-height: 1;
   display: inline-block;
 }
@@ -948,7 +948,7 @@ onMounted(() => {
 .status-dot-icon.not-configured { color: #999; }
 
 .status-label {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   padding: 1px 6px;
   border-radius: 4px;
 }
@@ -964,7 +964,7 @@ onMounted(() => {
   align-items: baseline;
   gap: 8px;
   margin-bottom: 6px;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
 }
 .provider-field:last-child { margin-bottom: 0; }
 
@@ -982,7 +982,7 @@ onMounted(() => {
 }
 .field-value.mono {
   font-family: 'SF Mono', 'JetBrains Mono', monospace;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
 }
 .field-value.configured { color: #34a853; font-weight: 500; }
 .field-value.not-configured { color: #999; }
@@ -990,15 +990,15 @@ onMounted(() => {
 /* 测试结果条 */
 .card-test-result {
   padding: 8px var(--space-lg);
-  font-size: 13px;
+  font-size: var(--font-size-sm);
 }
 .card-test-result.success { background: #e6f4ea; color: #137333; }
 .card-test-result.fail { background: var(--secondary-light); color: #d93025; }
 [data-theme="dark"] .card-test-result.success { background: #1a3c2a; color: #81c995; }
 [data-theme="dark"] .card-test-result.fail { background: #3c1a1a; color: #f28b82; }
 .test-result-line { display: flex; align-items: center; gap: 6px; font-weight: 500; }
-.test-code { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: rgba(0,0,0,0.08); font-family: monospace; }
-.test-detail { font-size: 12px; color: var(--muted); margin-top: 4px; word-break: break-all; }
+.test-code { font-size: var(--font-size-xs); padding: 1px 6px; border-radius: 4px; background: rgba(0,0,0,0.08); font-family: monospace; }
+.test-detail { font-size: var(--font-size-xs); color: var(--muted); margin-top: 4px; word-break: break-all; }
 
 /* 操作按钮 */
 .card-actions {
@@ -1019,7 +1019,7 @@ onMounted(() => {
   border-radius: 6px;
   background: transparent;
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   color: var(--muted, var(--text-muted));
   transition: all 0.12s;
 }
@@ -1068,7 +1068,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   background: var(--hairline, #e0e0e0);
   color: var(--muted, #999);
@@ -1078,7 +1078,7 @@ onMounted(() => {
   color: #fff;
 }
 .step-text {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--muted, #999);
 }
 .step-indicator.current .step-text {
@@ -1091,7 +1091,7 @@ onMounted(() => {
   padding: 8px 0;
 }
 .step-hint {
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   color: var(--muted);
   margin-bottom: 16px;
 }
@@ -1118,8 +1118,8 @@ onMounted(() => {
   border-color: var(--primary);
   background: var(--primary-light);
 }
-.category-icon { font-size: 24px; }
-.category-label { font-size: 13px; font-weight: 500; }
+.category-icon { font-size: var(--font-size-xl); }
+.category-label { font-size: var(--font-size-sm); font-weight: 500; }
 
 .preset-grid {
   display: grid;
@@ -1142,9 +1142,9 @@ onMounted(() => {
 }
 .preset-card:hover { border-color: var(--primary); background: var(--primary-light); }
 .preset-card.active { border-color: var(--primary); background: var(--primary-light); }
-.preset-card-name { font-weight: 500; font-size: 13px; }
-.preset-card-url { font-size: 11px; color: var(--muted); word-break: break-all; }
-.preset-card-models { font-size: 11px; color: var(--muted); }
+.preset-card-name { font-weight: 500; font-size: var(--font-size-sm); }
+.preset-card-url { font-size: var(--font-size-xs); color: var(--muted); word-break: break-all; }
+.preset-card-models { font-size: var(--font-size-xs); color: var(--muted); }
 .no-presets {
   text-align: center;
   padding: 24px;
@@ -1154,7 +1154,7 @@ onMounted(() => {
 .divider {
   text-align: center;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   margin: 12px 0;
   position: relative;
 }
@@ -1175,12 +1175,12 @@ onMounted(() => {
   gap: 12px;
 }
 .input-label {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--ink);
 }
 .form-hint {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   color: var(--slate, #6b7280);
   background: var(--soft-stone, #f5f5f0);
   padding: 10px 12px;
@@ -1192,7 +1192,7 @@ onMounted(() => {
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   background: var(--canvas);
   color: var(--ink);
 }
@@ -1214,7 +1214,7 @@ onMounted(() => {
   border: none;
   border-radius: 8px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
 }
 .cohere-btn-danger:hover { background: #b3261e; }
@@ -1226,8 +1226,8 @@ onMounted(() => {
   color: var(--muted, var(--text-muted));
 }
 .cohere-empty .empty-icon { font-size: 48px; margin-bottom: var(--space-md); }
-.cohere-empty h3 { font-size: 18px; font-weight: 500; margin: 0 0 8px; color: var(--ink); }
-.cohere-empty p { font-size: 14px; margin: 0; }
+.cohere-empty h3 { font-size: var(--font-size-md); font-weight: 500; margin: 0 0 8px; color: var(--ink); }
+.cohere-empty p { font-size: var(--font-size-sm); margin: 0; }
 
 .rotating {
   display: inline-block;
@@ -1301,7 +1301,7 @@ onMounted(() => {
   border-radius: 8px;
   background: transparent;
   color: var(--muted, #999);
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   cursor: pointer;
   transition: all 0.15s;
@@ -1312,9 +1312,9 @@ onMounted(() => {
   color: var(--ink, #222);
   box-shadow: 0 1px 3px rgba(0,0,0,0.08);
 }
-.tab-icon { font-size: 12px; }
+.tab-icon { font-size: var(--font-size-xs); }
 .tab-count {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   background: var(--soft-stone, #e8e8e4);
   padding: 1px 6px;
   border-radius: 10px;
@@ -1341,7 +1341,7 @@ onMounted(() => {
   border: 1px solid var(--border, #e0e0e0);
   border-radius: 16px;
   background: var(--bg, #fff);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--muted, #666);
   cursor: pointer;
   transition: all 0.15s;
@@ -1357,9 +1357,9 @@ onMounted(() => {
   color: var(--primary, #1a73e8);
   font-weight: 500;
 }
-.chip-label { font-size: 12px; }
+.chip-label { font-size: var(--font-size-xs); }
 .chip-count {
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   background: var(--bg-secondary, #f0f0f0);
   padding: 1px 5px;
   border-radius: 8px;
@@ -1382,7 +1382,7 @@ onMounted(() => {
 
 /* ===== 卡片徽章 ===== */
 .configured-badge {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   padding: 2px 6px;
   border-radius: 4px;
   background: #e6f4ea;
@@ -1390,7 +1390,7 @@ onMounted(() => {
   font-weight: 500;
 }
 .preset-badge {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   padding: 2px 6px;
   border-radius: 4px;
   background: #f1f3f4;
@@ -1398,7 +1398,7 @@ onMounted(() => {
   font-weight: 500;
 }
 .custom-badge {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   padding: 2px 6px;
   border-radius: 4px;
   background: #e8f0fe;
@@ -1416,7 +1416,7 @@ onMounted(() => {
 }
 .onboarding-icon { font-size: 56px; margin-bottom: 16px; }
 .onboarding-empty h3 {
-  font-size: 18px;
+  font-size: var(--font-size-md);
   font-weight: 500;
   margin: 0 0 8px;
   color: var(--ink);
@@ -1429,7 +1429,7 @@ onMounted(() => {
   margin-bottom: 16px;
   background: var(--bg-secondary, #f8f9fa);
   border-radius: 8px;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   color: var(--muted, #666);
 }
 .configured-stats strong {
@@ -1444,7 +1444,7 @@ onMounted(() => {
 }
 [data-theme="dark"] .configured-stats strong { color: #e0e0e0; }
 .onboarding-empty p {
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   color: var(--muted);
   margin: 0 0 20px;
 }
@@ -1462,12 +1462,12 @@ onMounted(() => {
   margin-bottom: var(--space-md);
 }
 .quick-add-title {
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--ink, #222);
 }
 .quick-add-meta {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--muted, #999);
 }
 .quick-add-grid {
@@ -1493,9 +1493,9 @@ onMounted(() => {
   border-style: solid;
   background: var(--primary-light, #f0f6ff);
 }
-.quick-add-icon { font-size: 20px; }
-.quick-add-name { font-size: 12px; font-weight: 500; }
-.quick-add-category { font-size: 11px; color: var(--muted, #999); }
+.quick-add-icon { font-size: var(--font-size-lg); }
+.quick-add-name { font-size: var(--font-size-xs); font-weight: 500; }
+.quick-add-category { font-size: var(--font-size-xs); color: var(--muted, #999); }
 .quick-add-more {
   border-color: var(--muted, #999);
   color: var(--muted, #999);
@@ -1520,12 +1520,12 @@ onMounted(() => {
   gap: 10px;
 }
 .ops-sync-title {
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--ink, #222);
 }
 .ops-sync-meta {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--muted, #666);
 }
 .ops-sync-meta.muted { color: var(--muted, #999); }
@@ -1545,7 +1545,7 @@ onMounted(() => {
   margin-top: 10px;
   padding: 8px 12px;
   border-radius: 8px;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
 }
 .ops-sync-status.success {
   background: #e6f4ea;
@@ -1559,13 +1559,13 @@ onMounted(() => {
 [data-theme="dark"] .ops-sync-status.error { background: #3c1a1a; color: #f28b82; }
 .ops-sync-hint {
   margin-top: 10px;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--muted, #666);
   line-height: 1.6;
 }
 .form-hint.muted-hint {
   color: var(--muted, #999);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
 }
 @media (max-width: 720px) {
   .ops-sync-fields { grid-template-columns: 1fr; }
@@ -1588,7 +1588,7 @@ onMounted(() => {
   padding: 3px 10px;
   border: 1px solid var(--border, #ddd);
   border-radius: 14px;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   cursor: pointer;
   transition: all 0.15s;
   color: var(--muted, #999);
@@ -1606,7 +1606,7 @@ onMounted(() => {
   font-weight: 500;
 }
 .capability-default-check {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 700;
 }
 [data-theme="dark"] .capability-default-chip {

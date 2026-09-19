@@ -1,3 +1,22 @@
+# [未发布] style(desktop): T1-6 字号七档第一批——Gate 16 门禁接入 + Top8 文件 371 处 font-size 字面量 token 化
+
+### 新增
+- **CI Gate 16**（`check-font-size-scale.js`）：font-size 字面量只降不升（基线模式，与债务熔断同思路），应使用 `var(--font-size-xs/sm/base/md/lg/xl/xxl)` 七档槽；tokens.css 定义处豁免；缺槽 fail-closed；6 用例自测（node --test）。
+- 字号映射表（就近收敛）：12→xs / 13·14→sm / 15·16→base / 17·18→md / 20·22→lg / 24·28→xl / 32→xxl；9·10·11px→xs；rem 值按换算归档。
+
+### 变更
+- Top8 文件 371 处字面量 → token：create-view.css（87）/ cohere-design-system.css（67）/ ModelProviders.vue（62）/ history-panel.css（34）/ Accounts.vue（34）/ ResultView.vue（32）/ BenchmarkChart.vue（31）/ UpgradeModal.vue（26）。
+- 36px→xxl、30px→xl 就近收敛；48/56px（装饰性大图标位）与 `font-size: 0`（布局技巧）保留字面量。
+- 基线 1177 → 806（-31%）；后续批次继续清长尾。
+
+### 验证
+- Gate 14/15/16 + CJK + ESLint + 债务熔断全 PASS；相关测试 64/64 全绿
+
+### 关联
+- PR（待填）；T1-6 目标 843 处摇摆收敛（当前 806 剩余为长尾）
+
+---
+
 # [未发布] style(desktop): T1-5 图标语义化第三批——ModelProviders/CreateView/UpgradeModal/AiWriterPanel
 
 ### 变更

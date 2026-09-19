@@ -169,6 +169,16 @@ jobs:
           node .github/scripts/check-vue-style-parse.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # --- Gate 16: 字号七档（T1-6）---
+      # font-size 字面量只降不升（基线模式），应使用 var(--font-size-*) 七档槽
+      # 本地同口径：node .github/scripts/check-font-size-scale.js
+      - name: "Gate 16 - Font size scale (7-step tokens)"
+        run: |
+          node --test .github/scripts/check-font-size-scale.test.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .github/scripts/check-font-size-scale.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
   unit-tests:
     name: QG Unit Tests
     runs-on: windows-latest
