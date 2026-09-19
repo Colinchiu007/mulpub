@@ -2,8 +2,8 @@
   <div class="upgrade-overlay" @click.self="emit('close')">
     <div class="upgrade-modal">
       <div class="modal-header">
-        <span style="font-weight:600;font-size:16px">升级 Pro 版</span>
-        <button class="cohere-btn-ghost" @click="emit('close')" style="font-size:12px;padding:2px 6px">✕</button>
+        <span style="font-weight:600;font-size: var(--font-size-base)">升级 Pro 版</span>
+        <button class="cohere-btn-ghost" @click="emit('close')" style="font-size: var(--font-size-xs);padding:2px 6px">✕</button>
       </div>
 
       <div class="modal-body">
@@ -23,7 +23,7 @@
 
         <div class="plan-card pro-card" :class="{ active: isPro }">
           <div class="plan-name">Pro 版</div>
-          <div class="plan-price">¥99 <span style="font-size:12px;color:var(--muted)">/永久</span></div>
+          <div class="plan-price">¥99 <span style="font-size: var(--font-size-xs);color:var(--muted)">/永久</span></div>
           <ul class="feature-list">
             <li>✓ 全平台发布</li>
             <li>✓ 批量发布</li>
@@ -44,14 +44,14 @@
         <div style="padding:var(--space-md)">
           <!-- Step 1: Select payment method -->
           <div v-if="paymentStep === 'select'" style="text-align:center">
-            <div style="font-weight:600;font-size:14px;margin-bottom:var(--space-md)">选择支付方式</div>
+            <div style="font-weight:600;font-size: var(--font-size-sm);margin-bottom:var(--space-md)">选择支付方式</div>
             <div class="payment-methods">
               <div class="payment-method-card" :class="{ active: selectedMethod === 'alipay' }" @click="selectedMethod = 'alipay'">
-                <span style="font-size:28px">💳</span>
+                <span style="font-size: var(--font-size-xl)">💳</span>
                 <span>支付宝</span>
               </div>
               <div class="payment-method-card" :class="{ active: selectedMethod === 'wechat' }" @click="selectedMethod = 'wechat'">
-                <span style="font-size:28px">💚</span>
+                <span style="font-size: var(--font-size-xl)">💚</span>
                 <span>微信支付</span>
               </div>
             </div>
@@ -59,16 +59,16 @@
               {{ orderLoading ? '创建订单...' : '确认支付 ¥99' }}
             </button>
             <div style="margin-top:var(--space-sm)">
-              <button class="cohere-btn-ghost" @click="showPaymentFlow = false" style="font-size:12px">返回</button>
+              <button class="cohere-btn-ghost" @click="showPaymentFlow = false" style="font-size: var(--font-size-xs)">返回</button>
             </div>
           </div>
 
           <!-- Step 2: QR code / simulated payment -->
           <div v-if="paymentStep === 'paying'" style="text-align:center">
-            <div style="font-weight:600;font-size:14px;margin-bottom:var(--space-sm)">扫码支付</div>
+            <div style="font-weight:600;font-size: var(--font-size-sm);margin-bottom:var(--space-sm)">扫码支付</div>
             <div class="qr-placeholder">
               <span style="font-size:48px">{{ selectedMethod === 'alipay' ? '💳' : '💚' }}</span>
-              <div style="font-size:12px;color:var(--muted);margin-top:8px">
+              <div style="font-size: var(--font-size-xs);color:var(--muted);margin-top:8px">
                 请使用{{ selectedMethod === 'alipay' ? '支付宝' : '微信' }}扫码完成支付
               </div>
             </div>
@@ -78,23 +78,23 @@
               </button>
             </div>
             <div style="margin-top:var(--space-sm)">
-              <button class="cohere-btn-ghost" @click="cancelOrder" style="font-size:12px">取消订单</button>
+              <button class="cohere-btn-ghost" @click="cancelOrder" style="font-size: var(--font-size-xs)">取消订单</button>
             </div>
           </div>
 
           <!-- Step 3: Success -->
           <div v-if="paymentStep === 'success'" style="text-align:center;padding:var(--space-lg)">
             <div style="font-size:48px;margin-bottom:var(--space-sm)">🎉</div>
-            <div style="font-weight:600;font-size:16px;color:var(--success)">支付成功！</div>
-            <div style="font-size:13px;color:var(--muted);margin-top:4px">Pro 版已激活，尽情使用全部功能</div>
+            <div style="font-weight:600;font-size: var(--font-size-base);color:var(--success)">支付成功！</div>
+            <div style="font-size: var(--font-size-sm);color:var(--muted);margin-top:4px">Pro 版已激活，尽情使用全部功能</div>
           </div>
 
           <!-- Step 3: Failed -->
           <div v-if="paymentStep === 'failed'" style="text-align:center;padding:var(--space-lg)">
             <div style="font-size:48px;margin-bottom:var(--space-sm)">😞</div>
-            <div style="font-weight:600;font-size:16px;color:var(--coral)">支付失败</div>
-            <div style="font-size:13px;color:var(--muted);margin-top:4px">{{ paymentError || '请重试或选择其他支付方式' }}</div>
-            <button class="cohere-btn-ghost" @click="resetPayment" style="margin-top:var(--space-sm);font-size:12px">重新选择支付方式</button>
+            <div style="font-weight:600;font-size: var(--font-size-base);color:var(--coral)">支付失败</div>
+            <div style="font-size: var(--font-size-sm);color:var(--muted);margin-top:4px">{{ paymentError || '请重试或选择其他支付方式' }}</div>
+            <button class="cohere-btn-ghost" @click="resetPayment" style="margin-top:var(--space-sm);font-size: var(--font-size-xs)">重新选择支付方式</button>
           </div>
         </div>
       </div>
@@ -103,24 +103,24 @@
       <div v-if="!showPaymentFlow && !isPro" class="activate-section">
         <div class="cohere-divider"></div>
         <div style="padding:var(--space-md)">
-          <div style="font-weight:600;font-size:14px;margin-bottom:var(--space-sm)">已有激活码？</div>
+          <div style="font-weight:600;font-size: var(--font-size-sm);margin-bottom:var(--space-sm)">已有激活码？</div>
           <div style="display:flex;gap:8px;margin-bottom:var(--space-md)">
             <input
               v-model="licenseKey"
               class="upgrade-input"
               placeholder="XXXX-XXXX-XXXX-XXXX"
-              style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-family:monospace;font-size:14px;outline:none"
+              style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-family:monospace;font-size: var(--font-size-sm);outline:none"
               @keyup.enter="doActivate"
             />
             <button class="upgrade-btn" @click="doActivate" :disabled="activating" style="max-width:100px">
               {{ activating ? '验证中...' : '激活' }}
             </button>
           </div>
-          <div v-if="activateError" style="color:var(--coral);font-size:13px;margin-bottom:var(--space-sm)">{{ activateError }}</div>
-          <div v-if="activateSuccess" style="color:var(--success);font-size:13px;margin-bottom:var(--space-sm)">激活成功！</div>
+          <div v-if="activateError" style="color:var(--coral);font-size: var(--font-size-sm);margin-bottom:var(--space-sm)">{{ activateError }}</div>
+          <div v-if="activateSuccess" style="color:var(--success);font-size: var(--font-size-sm);margin-bottom:var(--space-sm)">激活成功！</div>
           <div class="cohere-divider"></div>
           <div style="text-align:center;padding:var(--space-sm)">
-            <button class="cohere-btn-ghost" @click="doTrial" :disabled="trialLoading" style="font-size:13px;color:var(--coral)">
+            <button class="cohere-btn-ghost" @click="doTrial" :disabled="trialLoading" style="font-size: var(--font-size-sm);color:var(--coral)">
               {{ trialLoading ? '激活中...' : '🎁 免费试用 7 天' }}
             </button>
           </div>
@@ -128,7 +128,7 @@
       </div>
 
       <div v-if="isPro && !showPaymentFlow" class="modal-footer">
-        <button class="cohere-btn-ghost" @click="doDeactivate" style="font-size:12px;color:var(--coral)">注销许可证</button>
+        <button class="cohere-btn-ghost" @click="doDeactivate" style="font-size: var(--font-size-xs);color:var(--coral)">注销许可证</button>
       </div>
     </div>
   </div>
@@ -308,11 +308,11 @@ defineExpose({ doActivate, doTrial, doDeactivate, licenseKey })
   border-color: var(--coral);
   box-shadow: 0 0 0 1px var(--coral);
 }
-.plan-name { font-weight: 600; font-size: 15px; margin-bottom: 4px; }
-.plan-price { font-size: 24px; font-weight: 700; margin-bottom: var(--space-sm); }
-.feature-list { list-style: none; padding: 0; margin: 0; font-size: 13px; line-height: 2; }
+.plan-name { font-weight: 600; font-size: var(--font-size-base); margin-bottom: 4px; }
+.plan-price { font-size: var(--font-size-xl); font-weight: 700; margin-bottom: var(--space-sm); }
+.feature-list { list-style: none; padding: 0; margin: 0; font-size: var(--font-size-sm); line-height: 2; }
 .feature-list li { color: var(--text-primary); }
-.plan-badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 4px; margin-top: var(--space-sm); }
+.plan-badge { display: inline-block; font-size: var(--font-size-xs); padding: 2px 8px; border-radius: 4px; margin-top: var(--space-sm); }
 .plan-badge.current { background: var(--soft-stone); color: var(--muted); }
 .plan-badge.active { background: var(--success-bg, #d1fae5); color: var(--success, #059669); }
 .upgrade-btn {
@@ -323,7 +323,7 @@ defineExpose({ doActivate, doTrial, doDeactivate, licenseKey })
   border: none;
   border-radius: 8px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   transition: opacity 0.15s;
   width: 100%;
