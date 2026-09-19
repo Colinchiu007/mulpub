@@ -327,6 +327,25 @@ export function useModelProviderCrud () {
         delete userConfig.user_default_model
       }
 
+      // 多模态能力声明保留（Agnes 能力显示丢失回归 2026-09-19）：
+      // selectPreset 把预设的 capabilities/capability_models 放在 form 顶层（展示用），
+      // 但 submitForm 此前只上送 form.config，能力声明从未进入 config。
+      // 走「添加已有预设」时 PROVIDER_EXISTS 降级 updateProvider 整体替换 config，
+      // 存量能力声明被抹掉 → 模型列表卡片的能力 chips 与能力默认按钮消失。
+      // 修复：form 顶层存在能力声明时写入 config；config 已有值时以 config 为准
+      // （运营后台 applyCatalog 下发的值优先，不被预设静态种子覆盖）。
+      if (form.value.category === 'multimodal') {
+        if (Array.isArray(form.value.capabilities) && form.value.capabilities.length > 0
+          && !Array.isArray(userConfig.capabilities)) {
+          userConfig.capabilities = [...form.value.capabilities]
+        }
+        if (form.value.capability_models && typeof form.value.capability_models === 'object'
+          && Object.keys(form.value.capability_models).length > 0
+          && !(userConfig.capability_models && typeof userConfig.capability_models === 'object')) {
+          userConfig.capability_models = { ...form.value.capability_models }
+        }
+      }
+
       // 深拷贝：Vue ref 嵌套对象是 reactive proxy，传给 IPC 时 structured clone 会报
       // 'An object could not be cloned'。JSON 序列化安全脱壳。
       const data = JSON.parse(JSON.stringify({

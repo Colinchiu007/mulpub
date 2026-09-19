@@ -1,3 +1,19 @@
+# [未发布] fix(model-providers): 修复 Agnes-AI 多模态能力显示与能力默认按钮丢失（submitForm 数据链路）
+
+### 修复
+- **根因**：`useModelProviderCrud.js` 的 `submitForm()` 构造上送数据时，`selectPreset()` 放在 form 顶层的 `capabilities`/`capability_models` 从未写入 `data.config`；用户配置 Agnes-AI API Key 时触发 `PROVIDER_EXISTS` 降级 `updateProvider` 整体替换 config 列，存量能力声明被抹掉 → 模型列表卡片的能力 chips（文字推理/生图/生成视频）与能力默认按钮消失（MiniMax 因能力声明在添加流程前已回填而未受影响）。
+- **修复**：`submitForm()` 在多模态类别下把 form 顶层能力声明合并进 `userConfig`（保守策略：config 已有值时以 config 为准，不被预设静态种子覆盖运营下发值）；存量用户重启应用后由 `_syncPresetCapabilities()` diff-merge 自动回填，无需迁移脚本。
+- **自动获取机制确认**：UI 为纯数据驱动（`v-if="p.capabilities.length > 0"`），新增多模态模型只需在 seeds/运营目录声明能力，能力显示与能力默认按钮自动渲染，零前端代码改动。
+- **回归测试**：新增 4 用例锁定（保存携带能力声明 / PROVIDER_EXISTS 降级不抹掉 / 编辑不丢失 / 不注入空数组覆盖运营值）；TDD 红灯复现 → 绿灯 58/58。
+
+### 验证
+- `useModelProviderCrud.test.js` 58/58；`model-provider-multimodal.test.js` 26/26；全量 10283 通过（1 个预存资源竞争失败与本次无关，单独跑通过）。
+
+### 关联
+- PRD：`01-docs/PRD-AGNES-MULTIMODAL-CAPABILITY-DISPLAY-FIX-2026-09-19.md`；承接 PR #1896（Agnes-AI 多模态预设交付）
+
+---
+
 # [未发布] style(desktop): T1-5 图标语义化第三批——ModelProviders/CreateView/UpgradeModal/AiWriterPanel
 
 ### 变更
