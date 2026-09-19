@@ -781,6 +781,10 @@ fetchTopics({ force })
 
 **顺带抽出编排 composable（同日补做）**：本改动使 `views/HotTopics.vue` 由 997 行涨到 1002 行，越过本仓 `filesOver1000` 债务阈值。**未抬高债务基线**，改为把「一键生成视频」前端编排（状态 + 计算 + 方法，326 行）整体迁到 `apps/desktop/src/composables/useHotTopicsGenVideo.js`；依赖注入 `buildRewriteInput`（与批量发布共用同一改写输入契约）、`hotUseViral`（爆款库开关，与批量发布共用）、`isDisposed`（视图卸载标记）。编排行为逐行照搬、无语义改动，`HotTopics.vue` 降至 608 行。仅测试需要断言的内部态（`genVideoPhase` / `genVideoRunId` / `genVideoTopic` / `mergeGenStages`）以 `defineExpose` 显式声明为组件契约。
 
+**验证**：`views/HotTopics.test.js` 35/35 通过（全程无 Vue warn）；`eslint` 无告警；`node scripts/check-debt-budget.js` 全指标在基线内（`filesOver1000: 32 = 基线 32`，抽取前为 33 触发红灯）；`check-color-literals.js` 145/145（迁移未新增历史品牌色字面量）；`check-locale-sync.js --keys` PASS（未新增 i18n key）。另补一条断言锚定「生成视频弹窗的错误文案必须真的落到 DOM」——抽取过程中曾漏把 `genVideoErrorText` 暴露给模板，该文案静默不渲染且单测不报错（仅 Vue warn 可见），该断言即此盲点的回归保护。
+
+**注**：本次未改动根级 `CHANGELOG.md`（该文件与主分支前进易在顶部产生合并冲突，且近期主分支的 PR 已由 `01-docs/` 承载文档同步门禁），变更与验证记录以本节为准。
+
 ### 10.8 缓存保留实现要点（2026-09-14 新增）
 
 **改动位置**：`apps/desktop/electron/services/hot-topics-service.js` 的 `fetchTopics()` 汇总段（`const topics = allTopics.slice(0, MAX_TOPICS)` 之后）。

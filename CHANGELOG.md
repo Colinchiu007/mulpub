@@ -1,36 +1,3 @@
-# [未发布] fix(desktop): 收藏选题列表与热门选题行样式对齐 + 补「创作文案 / 生成视频」入口（2026-09-19）
-
-### 变更
-
-- **根因**：收藏选题列表由子组件 `components/HotTopicsFavorites.vue` 渲染，但列表行样式（`.topic-item` / `.topic-text` / `.tag` / `.rank-badge` …）原先只写在 `views/HotTopics.css`，而该文件以 `<style scoped>` 编译进 `HotTopics.vue`。Vue scoped 样式不穿透子组件，子组件内部元素一条都匹配不到 → flex/gap/padding 全丢，正文、分类、渠道、收藏时间、取消收藏按钮退化为无间距的行内流，用户侧表现为「挤成一团」。
-- **抽取共用样式表** `apps/desktop/src/styles/hot-topics-list.css`：把列表行、标签、分类配色（`cat-*`）、热度、更新时间、行内按钮等共用规则从 `views/HotTopics.css` 迁出；`views/HotTopics.vue` 与 `components/HotTopicsFavorites.vue` 各自以 `<style scoped src>` 引入 —— 单一来源、零全局泄漏（避免把 61 条页面级规则改成全局样式）。
-- **收藏行结构与热门行对齐**：`♥ 星标徽章` → `正文（单行省略）` → `分类标签（cat-* 配色）` → `渠道标签` → `热度` → `收藏时间（右对齐）` → `取消收藏` → `创作文案` → `生成视频`（主按钮）。
-- **新增两个操作入口**：每行补【创作文案】（跳转 `/rewrite?topic=…`，与热门行同一路由契约）与【生成视频】（复用热门行同一 story2video 一键编排）；`genVideoBusy` 由父级透传，编排进行中所有收藏行该按钮统一禁用；【取消收藏】保留原语义。
-- **空态统一**：收藏为空改用公共 `EmptyState` 组件（与热门选题空态同一视觉），删除因此失效的 `.empty-box` / `.empty-title` / `.empty-desc` 死样式。
-- **损坏数据守卫**：`topic` 为 null 的收藏条目仍渲染行、仍可取消收藏，依赖话题的两个按钮置灰。
-- **i18n**：不新增 key，复用既有 `hotTopics.createCopy` / `generateVideo` / `unfavorite` / `favoritedAt`。
-- **顺带解除债务熔断红灯（未抬高基线）**：`HotTopics.vue` 因本次新增绑定从 997 行涨到 1002 行，越过本仓 `filesOver1000` 债务阈值。选择**抽取**而不是 `--update` 基线——把「一键生成视频」前端编排（状态 + 计算 + 方法，326 行）整体迁到 `apps/desktop/src/composables/useHotTopicsGenVideo.js`（依赖注入 `buildRewriteInput` / `hotUseViral` / `isDisposed`，与既有 `useHotTopicsFavorites` 同法），`HotTopics.vue` 由 1002 降至 **608 行**。编排行为逐行照搬、未做语义改动，`genVideoPhase` / `genVideoRunId` / `genVideoTopic` / `mergeGenStages` 以 `defineExpose` 显式声明为测试可断言的组件契约。
-
-### 验证
-
-- `apps/desktop/src/views/HotTopics.test.js` **35/35 通过**（新增 9 例：源码级样式引入契约、行结构与标签、三个操作按钮存在性、【创作文案】跳转、【生成视频】启动流水线、busy 互斥禁用、【取消收藏】删除行、损坏数据守卫、空态）
-- `eslint src/views/HotTopics.vue src/views/HotTopics.test.js src/components/HotTopicsFavorites.vue` 无告警
-- 产物级根因反证：用隔离探针配置单独构建本次两个 SFC，产物 CSS 中 `.topic-item` / `.topic-text` / `.fav-star` / `.fav-date` / `.item-unfav-btn` 等规则同时存在于**两个**作用域哈希下（父视图 + 收藏子组件）；改动前仅有一个作用域
-- `check-color-literals.js` 145/145 PASS（迁移未新增历史品牌色字面量，`#5149e8` 计数 10→10 不变）；`check-frontend-consistency.js` PASS；`check-locale-sync.js --keys` PASS（1006 个在用 key 均存在）
-- `node scripts/check-debt-budget.js` 全指标在基线内（`filesOver1000: 32 = 基线 32`，抽取前为 33 触发红灯）
-- 抽取后 `HotTopics.vue` 608 行；`eslint`（含新增 composable）无告警；vitest 全程无 Vue warn
-- 新增断言锚定「生成视频弹窗的错误文案必须真的落到 DOM」——抽取过程中曾漏把 `genVideoErrorText` 暴露给模板，导致该文案静默不渲染（只有 Vue warn 可见，单测不报错），该断言即此盲点的回归保护
-- PRD：`01-docs/PRD-HOT-TOPICS-MODULE-2026-09-11.md` §10.7.6 已补充
-
-### CI 归因记录（2026-09-19 09:20 复核）
-
-本 PR 首次 CI（run 35371941926，2026-09-19 01:02）跑在基线 `e3b1ea2ca` 上，当时该基线自身已红，8 个 QG 门禁失败。复核当前 main（`9a4495b5a`）的 quality-gate 运行（`aedb3abac`）结果：**8 个 QG 门禁中 7 个已恢复绿色**（Static / Visual / Unit Tests / Coverage / Browser E2E / Desktop Shards 1/2 / Autonomous 全绿），仅 `QG Desktop Shards (2/2)` 在 main 上同样失败 —— 属仓库既有红灯，与本 PR 无关。
-
-- 已随主分支前进而消解的失败：`build`（`src/views/Intelligence.vue` 样式块 PostCSS `Unknown word hover`，由 CSS 注释闭合事故引入）、`check-locale-sync.js --cjk`（Dashboard.vue / Intelligence.vue 的 file:line 基线漂移）。两者本次均未触碰。
-- 本 PR 与 main 前进的 5 个提交（`1aa6aa851` / `73ccdf29a` / `d6bf29f9e` / `aedb3abac` / `9a4495b5a`，共 45 个文件）**零文件重叠**，合并无冲突。
-
----
-
 # [未发布] feat(ops-center): 预设模型目录同步 Agnes-AI 多模态预设（2026-09-18）
 
 ### 新增
