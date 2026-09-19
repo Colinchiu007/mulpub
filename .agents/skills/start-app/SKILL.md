@@ -1,6 +1,6 @@
 ---
 name: start-app
-version: 1.3.0
+version: 1.6.0
 description: >
   用当前项目最新代码 + 共享数据（shared-user-data 锚点）启动/重启 Multi-Publish
   桌面应用。支持 Windows 与 WSL（Ubuntu-E）双环境：默认启动 Windows 环境的应用，
@@ -76,15 +76,56 @@ Get-NetTCPConnection -LocalPort <cdpPort> -State Listen -ErrorAction SilentlyCon
 
 - **双环境**：Windows（`start-desktop.ps1`，PowerShell 7）与 WSL Ubuntu-E（`start-desktop-wsl.sh`，bash）。**默认 Windows**。
 - **共享数据锚点**：仓库根 `shared-user-data/.shared-data-anchor`（已创建）。`startup-compat.js` 自动检测并启用共享 userData，WSL/Windows 数据一致。**⚠️ 显式设 `ELECTRON_USER_DATA_DIR` / `--user-data-dir=` 会绕过锚点 → 数据分裂**，默认不要设。
-- **Windows 启动契约**：`scripts/start-desktop.ps1`（同步 + 依赖 + 端口 + 单实例锁 + 启动 + 验证）。
+- **一键启动（v1.6.0 起首选）**：`scripts/sync-app.ps1`（同步 + 依赖门禁 + electron 校验 + 启动编排）+ `scripts/mp-applive-launcher.ps1`（WMI `Invoke-CimMethod Win32_Process.Create` 脱离 agent job 拉起 electron，WMI 不可用回退 `Start-Process`）。持久运行 worktree = `mp-worktrees/mp-app-live2`（保留 node_modules，避免每次重装依赖）。详见下方「一键启动工作流」。
+- **Windows 启动契约（备选）**：`scripts/start-desktop.ps1`（同步 + 依赖 + 端口 + 单实例锁 + 启动 + 验证）。
 - **WSL 启动契约**：`scripts/start-desktop-wsl.sh`（bash 版；依赖 Linux 版 node_modules + `LD_LIBRARY_PATH` 指向 `~/mp-wsl-deps/electron-libs`）。
 - **WSL 依赖**：项目 node_modules 是 Windows 版（缺 `@rollup/rollup-linux-x64-gnu` 等 Linux 可选依赖），WSL 端须用**独立 Linux 依赖树**（`~/mp-wsl-deps/mp-wsl` worktree 内 `pnpm install --frozen-lockfile`）。
 - **WSL electron 库**：Linux electron 缺 5 个 GUI 库（libnspr4/libnss3/libnssutil3/libsmime3/libasound），用 `LD_LIBRARY_PATH=~/mp-wsl-deps/electron-libs` 注入（持久目录，WSL 重启不丢）。
 - **远程**：`origin = https://github.com/Colinchiu007/Multi-Publish.git`，主干 `main`。
 - **登录态校验**：`scripts/start-desktop-identity.js` 经 CDP 读 `window.electronAPI.identityGetState()`。
 - **端口**：worktree 下按路径稳定派生独立端口（`apps/desktop/scripts/dev-ports.js`），避免并发互抢。
+- **每日自动化**：`automation-1789788099000`（每天 04:00 跑 `sync-app.ps1 -Safe`，仅 fetch+自愈+依赖哈希门禁，不重写整棵树）。
 
-## 流程
+## 一键启动工作流（v1.6.0 起默认路径）
+
+> **何时用**：用户要「启动/重启最新代码的应用」且无特殊 worktree 要求时，优先走本节，替代旧的「手动同步 + start-desktop.ps1」长流程。
+
+### 命令
+
+```powershell
+# 完整：同步 origin/main + 条件装依赖 + 启动（在普通终端跑，勿在 agent 沙箱内）
+powershell -ExecutionPolicy Bypass -File D:/Data/projects/Multi-Publish/scripts/sync-app.ps1
+
+# 只同步不启动（预同步）
+powershell -ExecutionPolicy Bypass -File D:/Data/projects/Multi-Publish/scripts/sync-app.ps1 -PrepareOnly
+
+# 安全模式：fetch + 自愈 + 依赖门禁（供无人值守自动化；不重写工作树）
+powershell -ExecutionPolicy Bypass -File D:/Data/projects/Multi-Publish/scripts/sync-app.ps1 -Safe
+```
+
+### 机制要点
+
+| 组件 | 职责 |
+|------|------|
+| `sync-app.ps1` | 解析仓库根（git common-dir 的父目录）→ worktree 健康检查 → fetch origin/main →（默认/`-PrepareOnly`）`checkout -f origin/main` + `clean -fd`；（`-Safe`）只自愈不重写 → pnpm-lock.yaml SHA256 门禁装依赖 → `ensure-electron.js` → 启动 launcher |
+| `mp-applive-launcher.ps1` | 自定位 node/python → dev-ports.js 派生端口 → 停同 worktree 旧 electron → 设 env（`MP_VITE_PORT`/`MP_CDP_PORT`/`ELECTRON_USER_DATA_DIR=shared-user-data`/`MP_PYTHON`/`MP_CDP_ALLOW_ALL_ORIGINS=1`）→ WMI 拉起 `node scripts/dev.js` → 轮询 150s 可见窗口 |
+| `mp-app-live2` worktree | 持久运行目录（detached at origin/main），node_modules 保留不删 |
+| `shared-user-data/` | 登录态/DB 持久锚点（gitignored）：`multi-publish.db`（模型 key）、`backend-data/accounts.json`（平台登录态）、`identity-session.json`、`session/`、`credentials/` |
+
+### ⚠️ 沙箱纪律（agent 会话内必读）
+
+- **agent 沙箱会杀整树重写类 git 写**（`checkout -f origin/main`、`reset --hard`、大 merge）→ 撕裂 worktree（留 `index.lock` + 大量假 ` D `）。**完整同步必须在普通终端跑**。
+- agent 会话内只允许：fetch、`-Safe` 自愈（`checkout HEAD -- .`）、状态查询。
+- 撕裂恢复三步：删 `D:/Data/projects/Multi-Publish/.git/worktrees/<name>/index.lock` → `cd` 进 worktree → `git checkout HEAD -- .` → 复验 dirty==0。
+- 无人值守自动化一律用 `-Safe`，绝不跑整树重写。
+
+### 验证（启动后）
+
+1. `Get-Process electron` 的 MainWindowHandle 非 0（或 `tasklist /v` 见窗口标题）。
+2. `curl http://127.0.0.1:<vitePort>/` 与 `http://127.0.0.1:<cdpPort>/json/version` 均 200（mp-app-live2 → vite 5231 / cdp 9279）。
+3. CDP `listAccounts()` 返回 7 平台账号、`identityGetState()` authenticated（见「CDP 完整服务清单核验」节）。
+
+## 流程（备选长流程，特殊 worktree/环境要求时用）
 
 ### 0. 环境判定（默认 Windows）
 
@@ -301,6 +342,35 @@ const page = targets.find((t) => t.type === 'page' && t.url.startsWith('http://1
 - `status: "active"` 表示该平台 cookie 有效；`expired` 表示 cookie 过期（数据仍在，需重新登录）。
 - 若 `NO_PAGE`：窗口起来了但 CDP 页面不可达，检查 vite 端口是否被其他 worktree 占用。
 
+## CDP 完整服务清单核验（登录后账号缺失排查，2026-09-16 实测）
+
+现象：登录态正常（`identityGetState()` → `authenticated`）但账号管理里平台账号全空。
+
+**根因定位（经 CDP 拉 `servicesGetStatus()`）**：账号缺失不是登录问题，而是主 Python 后端 `mainBackend` 没起来——其 `not_started` 让 `listAccounts()` 直接返回 "Python backend is not running"。
+
+**完整 6 服务清单（端口固定）**：
+
+| 服务 | 端口 | 说明 |
+|------|------|------|
+| **mainBackend（主服务）** | 8299 | 承载账号/后端 API 的核心，挂了账号全空 |
+| splitterEngine | 8002 | 分句引擎 |
+| promptEngine | 8013 | 提示词优化引擎 |
+| callbackServer | 16521 | 回调服务（通常 running）|
+| mediaServer | 动态高端口 | 媒体服务（通常 running，端口随机分配）|
+| alignerEngine | 8004 | 对齐引擎（on_demand 按需）|
+
+**标准验证流程（可复用 runbook）**：
+
+1. 启动器带 `MP_CDP_ALLOW_ALL_ORIGINS=1` 启动 application（否则 CDP 403）。
+2. 轮询 `http://127.0.0.1:<cdpPort>/json/list` 直到出现 vite 页面 target（mp-start-app-win: cdp 11412 / vite 7364）。
+3. 经 page `webSocketDebuggerUrl` 发 `Runtime.evaluate`（`awaitPromise:true, returnByValue:true`）：
+   - `JSON.stringify(await window.electronAPI.servicesGetStatus())` → 看 6 服务状态
+   - `JSON.stringify(await window.electronAPI.listAccounts())` → 应返回 `{"code":0,"data":[...7 个平台...]}`
+   - `JSON.stringify(await window.electronAPI.identityGetState())` → 应 `authenticated`
+4. 判定：若 `mainBackend` 非 running + `listAccounts` 报 "Python backend is not running" → 查两个根因（孤儿后端占端口 / `PYTHON_PATH` 误当解释器）。
+
+**账号数据位置**：`ELECTRON_USER_DATA_DIR/backend-data/accounts.json`。切换 profile 必须复制该目录（见「profile 数据分裂」坑）。
+
 ## Skill 同步（同步到 skill-repo，2026-09-13 实测）
 
 用户要求「把 start-app skill 同步到 skill repo」时执行。**skill-repo 是本机所有 agent skill 的单一事实源**（Nacos skill-sync local 模式）：
@@ -336,6 +406,9 @@ const page = targets.find((t) => t.type === 'page' && t.url.startsWith('http://1
 | 切换 profile 后账号信息消失 | **profile 数据分裂**：账号在 `userDataDir/backend-data/accounts.json`（Python 后端数据目录 = `ELECTRON_USER_DATA_DIR/backend-data`）。切 profile 必须复制该目录 |
 | 窗口没了但进程还在（用户以为应用关闭） | 窗口被关闭后应用可能进入后台/托盘模式，进程与后端服务仍存活。先查进程+CDP 页面再判断，必要时重启恢复窗口 |
 | worktree 的 git 注册被其他会话清理（`not a git repository: (NULL)`） | **worktree 半失效**：`.git/worktrees/<name>` 注册被 `git worktree prune` 或清理脚本移除，但物理目录还在。无法复用，需重建 worktree（见 Pitfalls「worktree 注册反复失效」） |
+| 启动器 WMI 拉起但无 electron、CDP 连不上、毫无报错 | worktree git 注册失效 → `start-desktop.ps1` 在 `git -C $repoRoot log -1` 返回空时 fail-closed「非 git 工作区」，根本没启动 electron；WMI 脱离会话又把 stderr 吞掉。诊断：`git -C <wt> rev-parse --git-dir` 确认失联；改用直启 `node apps/desktop/scripts/dev.js` + 设 MP_VITE_PORT/MP_CDP_PORT/ELECTRON_USER_DATA_DIR/MP_PYTHON/MP_CDP_ALLOW_ALL_ORIGINS=1（见 Pitfalls「worktree 注册失效致 start-desktop.ps1 不可用」） |
+| servicesGetStatus 主服务 not_started / listAccounts 报 "Python backend is not running" | 账号缺失表象=主 Python 后端没起。根因二选一或叠加：① 孤儿 Python 后端占端口（强杀 electron 不杀孙进程）；② `PYTHON_PATH` 误当解释器（PR #1866，bridge spawn 目录→ENOENT）。先级联清理本 worktree 后端 python 进程，再确认 bridge 仅用 `MP_PYTHON` 覆盖（见 Pitfalls 两条对应坑） |
+| CDP WebSocket 返回 403 | 外部 CDP 客户端缺 `--remote-allow-origins=*`。启动器必须设 `MP_CDP_ALLOW_ALL_ORIGINS=1`（dev-launcher.js 已支持，默认关），否则只能连本机页面 target、拿不到 `servicesGetStatus` 等 API |
 
 ## Pitfalls
 
@@ -349,7 +422,7 @@ const page = targets.find((t) => t.type === 'page' && t.url.startsWith('http://1
 - **profile 单实例锁**：同 profile 多实例互杀会导致窗口空白，先处理占用。
 - **profile 单实例锁（跨 worktree 顶掉，2026-09-08 复盘）**：Electron `requestSingleInstanceLock()` 基于 **userData 目录**。多个 worktree 用同一 profile（如 `D:/tmp/Multi-Publish-debug-profile`）启动时，后启动实例拿不到锁 → `app.quit()` 正常退出（**code 0、无崩溃日志**），表现为「应用启动后 2-3 分钟消失」。排查要点：`Get-CimInstance Win32_Process -Filter "Name='electron.exe'"` 看主进程命令行属于哪个 worktree；`tasklist` 看是否有其他 worktree 的 electron 用同一 `--user-data-dir`。**解决：给每个 worktree 用独立 profile**（如 `D:/tmp/Multi-Publish-debug-profile-mp-start`），彻底隔离锁。⚠️ 切换 profile 必须复制登录态与数据（见「profile 数据分裂」坑）。
 - **独立启动器（脱离父会话，2026-09-08 / 2026-09-13 补充）**：`Start-Process` 启动的 electron 进程树**绑定在启动它的 PowerShell 会话**下，会话退出（后台 job 结束 / 脚本 exit）即连带终止。**2026-09-13 实测补充**：仅用 `Start-Process` 启动 pwsh 跑 `start-desktop.ps1` 仍不够——fastctx run / bash job 结束时，`Start-Process` 的 pwsh 子进程也会被进程树清理连带杀掉（表现为 start-desktop.ps1 输出 START_CONTRACT_OK 后 electron 立即消失）。**可靠做法（实测有效）**：写一个启动器 `.ps1`（内部设置 `ELECTRON_USER_DATA_DIR` / `MP_VITE_PORT` / `MP_CDP_PORT` → `Start-Process pwsh ... start-desktop.ps1 -PassThru` → `WaitForExit()`），用 WMI `Invoke-CimMethod Win32_Process Create -Arguments @{ CommandLine = "powershell -NoProfile -ExecutionPolicy Bypass -File <launcher>" }` 拉起启动器（进程由 WMI 服务托管，真正脱离父会话，父退出不影响）。验证：`Get-Process electron` 的 MainWindowHandle 非 0 + CDP 端口可连 + `window.electronAPI.listAccounts()` 返回账号。参考 `mp-start-desktop/scripts/start-electron-detached.ps1`。
-- **启动器脚本必须纯 ASCII（2026-09-13）**：含 UTF-8 BOM 或中文注释的 `.ps1` 在 Windows PowerShell 5.1 下解析异常——变量赋值被吞（如 `$worktree` 变 null，`Join-Path` 报参数空），且 `\t` 等转义被破坏（路径 `C:\tmp\...` 变成 `C:	mp...`）。**启动器脚本必须用 bash heredoc 写入（无 BOM、纯 ASCII）**，不要用 apply_patch 或 PowerShell `Set-Content -Encoding UTF8` 写含中文的 .ps1。验证：`file <script>.ps1` 应显示 `ASCII text`。
+- **启动器脚本必须纯 ASCII（2026-09-13 起，2026-09-16 强化）**：`.ps1` 一旦含字面非 ASCII 字符（中文注释、中文路径）且无 BOM，Windows PowerShell 5.1 会按系统 ANSI 码页（中文机=GBK）解析 UTF-8 字节，产生三类破坏：① 变量赋值被吞（`$worktree` 变 null，`Join-Path` 报参数空）；② 转义破坏（`C:\tmp\...` → `C:	mp...`）；③ **中文用户名被读成乱码**——字面 `邱领` 变成 `閭遍`，若它拼进 `$env:MP_PYTHON`，spawn 目标变成 `C:\Users\閭遍\...\python.exe` → `ENOENT`，主 Python 后端 `mainBackend` 起不来（本次 2026-09-16 实踩，症状：`app-2026-09-16.log` 报 `spawn C:\Users\閭遍\...\python.exe ENOENT`）。**强制纪律**：启动器 `.ps1` 必须纯 ASCII（bash heredoc 写入、无 BOM），所有含用户名的路径一律经无中文字面量变量解析：`$pyDir = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312'`、`$nodeDir = Join-Path $env:USERPROFILE '.workbuddy\binaries\node\versions\22.22.2'`；`MP_PYTHON` 用 `Join-Path $pyDir 'python.exe'`。参考已验证可用的 `D:\tmp\start_app_dev_launcher.ps1`。验证：`file <script>.ps1` 显示 `ASCII text`。
 - **WMI Create 不继承调用者环境变量（2026-09-08）**：`Win32_Process.Create` 启动的进程**不继承**调用 PowerShell 的 `$env:...`。若 electron 需要 `DEV_SERVER_PORT`（worktree 派生端口），必须由启动器脚本内部显式设置后再 spawn，否则 electron 回退默认 5174，页面加载到错误端口（CDP 页面 URL 可验证）。
 - **窗口强制显示（2026-09-08）**：该执行环境（Codex 桌面 app 会话）里应用主窗口 `show()` 后 Win32 层面仍 `visible=False`（`Get-Process` 的 MainWindowHandle 为 0，但 `EnumWindows` 能找到标题窗口）。验证窗口存在用 `EnumWindows` + `GetWindowThreadProcessId` 匹配主进程 PID；强制显示用 `ShowWindow(SW_RESTORE=9)` → `ShowWindow(SW_SHOW=5)` → `SetWindowPos(SWP_SHOWWINDOW=0x0040)` → `SetForegroundWindow`。
 - **profile 数据分裂（backend-data，2026-09-08 核心坑）**：账号信息存在 **`userDataDir/backend-data/accounts.json`**（Python 后端 `server.py` 的 `DATA_DIR` = `ELECTRON_USER_DATA_DIR/backend-data`，经 `python-bridge.js` 注入 `MULTI_PUBLISH_DATA_DIR`）。**切换 profile 必须复制 `backend-data/` 目录**（含 accounts.json），否则账号管理里保存的平台账号全部消失。登录态在 `identity-session.json`（加密）+ `multi-publish.db`（模型 key）+ `Local State` + `session/`，一并复制。验证账号恢复：CDP 调 `window.electronAPI.listAccounts()`。
@@ -360,4 +433,10 @@ const page = targets.find((t) => t.type === 'page' && t.url.startsWith('http://1
 - **WSL/Windows 数据分裂（双环境核心坑）**：项目 node_modules 是 Windows 版，WSL 端必须用独立 Linux 依赖树（`~/mp-wsl-deps/mp-wsl`）；electron 必须显式 `--user-data-dir` 指向共享目录（Linux worktree 上溯不到共享主仓库锚点）；**默认不要设 `ELECTRON_USER_DATA_DIR`**（显式值会绕过共享目录）。
 - **WSL /tmp 是 tmpfs**：`/tmp/mp-electron`、`/tmp/electron-libs`、`/tmp/mp-wsl-profile` 都是临时方案，WSL 重启即清空。持久方案是 `~/mp-wsl-deps/`（electron-libs 库 + mp-wsl worktree）。
 - **Codex 执行环境转义坑（2026-09-13 实测）**：在 Codex exec/fastctx 的 bash 里跑 PowerShell 命令时，`$` 变量（如 `$worktree`、`$_`、`$LASTEXITCODE`）会被 bash 展开为空，导致「变量为 null」「空管道」等诡异错误。**可靠做法**：① 复杂 PowerShell 一律写成 `.ps1` 文件再 `powershell -File` 执行；② 写 .ps1 用 bash heredoc（`cat > file << 'EOF'`），**不要用 apply_patch**——apply_patch 会转义 `\t` 等序列（路径 `C:\tmp\...` 变成 `C:	mp...`）且可能引入 BOM；③ 脚本保持纯 ASCII（无中文注释），避免 PowerShell 5.1 解析异常。
+- **PYTHON_PATH 不是解释器（PR #1866 引入的致命 bug，2026-09-16 复盘）**：bridge 解析 Python 解释器时 `process.env.MP_PYTHON || process.env.PYTHON_PATH || 'python'` 把 `PYTHON_PATH`（Python 模块搜索路径，值是目录）当 exe → spawn 目录 → `ENOENT`，所有 Python 服务崩溃、主后端起不来。修复：仅 `MP_PYTHON` 覆盖 + 回退 `python`/`python3`（已落 `base-python-bridge.js` / `python-bridge.js` / `prompt-bridge.js` / `asset-generator.js`，Grep 仅注释含 `PYTHON_PATH`）。预防：① 启动前诊断 `where python` 与 env `PYTHON_PATH`/`MP_PYTHON`；② CI 加门禁——任何 bridge 不得把 `PYTHON_PATH` 当解释器路径。
+- **孤儿 Python 后端占端口（Windows Stop-Process 不杀孙进程，2026-09-16 复盘）**：`Stop-Process -Force` 只杀目标进程、不杀其经 `execFile` 拉起的 Python 后端（everos/uvicorn）。electron 被强杀后这些后端存活并占着派生端口 → 新实例 bridge 端口冲突（`EADDRINUSE`）→ `not_started`。预防：停 electron 后**级联清理本 worktree 的 backend python 进程**（按端口/命令行匹配 everos/uvicorn），不要只杀 electron。
+- **启动失败但无可见错误（WMI 脱离会话吞 stderr，2026-09-16 复盘）**：经 WMI `Win32_Process.Create` 拉起的启动器，stdout/stderr 不回传调用方。若 `start-desktop.ps1` 中途 fail-closed（如 git 校验失败），错误被吞，表现就是「没起来也没报错」。诊断：① 先 `git -C <wt> rev-parse --git-dir` 确认 worktree 未失联；② 直启 `dev.js` 并前台跑一次看报错；③ 查 `%TEMP%\mp-start-dev.err.log`。
+- **worktree 注册失效致 start-desktop.ps1 不可用（2026-09-16 复盘）**：其他会话 `git worktree prune` 会移除 `.git/worktrees/<name>` 注册且可能删分支，导致 `git -C <wt> log -1` 返回空 → `start-desktop.ps1` fail-closed。此时 `start-desktop.ps1` 无法用。可靠替代：直启 `node apps/desktop/scripts/dev.js`（不依赖 git），env 设 `MP_VITE_PORT`/`MP_CDP_PORT`/`ELECTRON_USER_DATA_DIR`/`MP_PYTHON`/`MP_CDP_ALLOW_ALL_ORIGINS=1`；端口由 `dev-ports.js` 按路径派生（mp-start-app-win = vite 7364 / cdp 11412）。⚠️ `python` 必须解析到系统 3.12（前置 `C:\Users\邱领\AppData\Local\Programs\Python\Python312` 到 PATH，或显式 `MP_PYTHON` 指向它；**路径用 `$env:LOCALAPPDATA` 解析，不要字面写中文用户名，否则 GBK 乱码→ENOENT，见「启动器脚本必须纯 ASCII」**），否则托管 3.13 缺 uvicorn/pydantic/splitter → 导入即崩。
+- **CDP 验证必须带 allow-origins 开关（2026-09-16）**：外部 CDP 客户端（WorkBuddy / Python 诊断脚本）连 DevTools WebSocket 需 `--remote-allow-origins=*`，否则 403。dev-launcher.js 已加 `MP_CDP_ALLOW_ALL_ORIGINS` 开关（默认关，显式设 1 才附加 `--remote-allow-origins=*`）。启动器脚本内 `$env:MP_CDP_ALLOW_ALL_ORIGINS='1'` 才能经 CDP 拉 `servicesGetStatus()`/`listAccounts()`/`identityGetState()`。
+- **主服务 = mainBackend（端口 8299）**：`servicesGetStatus()` 返回的 6 服务中，`mainBackend` 是主服务（承载账号/后端 API 的核心）。其 `not_started` 直接导致 `listAccounts()` 报 "Python backend is not running"（账号缺失表象=后端没起来）。完整清单：mainBackend(8299, 主服务)/splitterEngine(8002)/promptEngine(8013)/callbackServer(16521, running)/mediaServer(动态高端口, running)/alignerEngine(8004, on_demand)。账号数据在 `ELECTRON_USER_DATA_DIR/backend-data/accounts.json`；切换 profile 必须复制该目录（见「profile 数据分裂」坑）。
 - **单一事实源**：逻辑修改只改本文件；各 agent 入口只做「指向本文件 + 执行要点」，不要各自维护重复逻辑。
