@@ -1,3 +1,24 @@
+# [未发布] style(desktop): T1-2 EP 主题化——el-* 组件变量桥接 tokens.css 语义槽
+
+### 新增
+- `src/styles/ep-theme.css`：Element Plus 组件变量 → tokens.css 语义槽桥接（B1 决策落地）：
+  - 主色：EP 默认 #409eff → `var(--color-primary)`（含 light/dark 全梯度映射）
+  - 语义色（success/warning/danger/error/info）、文本五级、边框三级、填充/背景
+  - 圆角对齐业务档（base 6px）；字号对齐七档（base=sm 13px）
+- `main.js` 导入顺序：EP css → tokens → cohere-design-system → **ep-theme**（覆盖层）。
+
+### 影响
+- 8 个使用 el-button/el-dialog/el-tag 等的视图，EP 组件视觉自动对齐品牌主色（#5048E5）与业务圆角/字号——无需逐组件改样式。
+- 业务按钮仍走 cohere-btn / UiButton（B1 混合策略不变）。
+
+### 验证
+- EP 组件相关回归 337/337（views-deep/coverage2/UpgradeModal/CreateView/PublishHistory）；Gate 14/15/16 PASS
+
+### 关联
+- PRD §T1-2（B1：EP 主题化 + UiButton 混合）；承接 T1-1（tokens 唯一来源）
+
+---
+
 # [未发布] refactor(desktop): T1-4 创作历史三合一收官——删除死代码 CreateHistory.vue
 
 ### 变更
