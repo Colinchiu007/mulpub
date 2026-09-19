@@ -923,6 +923,13 @@ var require_aggregation = __commonJS({
         aggregationRewrite: (payload) => ipcRenderer2.invoke("aggregation:rewrite", payload),
         aggregationSources: () => ipcRenderer2.invoke("aggregation:sources"),
         aggregationTaskStatus: (taskId) => ipcRenderer2.invoke("aggregation:task-status", taskId),
+        // ASR 依赖安装（-6 引导弹窗触发；进度经 asr-install:progress 事件推送）
+        aggregationAsrInstall: () => ipcRenderer2.invoke("aggregation:asr-install"),
+        onAsrInstallProgress: (callback) => {
+          const listener = (_event, progress) => callback(progress);
+          ipcRenderer2.on("asr-install:progress", listener);
+          return () => ipcRenderer2.removeListener("asr-install:progress", listener);
+        },
         // 知乎收藏夹（官方 API + 批量频率控制）
         zhihuFavlistList: () => ipcRenderer2.invoke("zhihu-favlist:list"),
         zhihuFavlistContents: (payload) => ipcRenderer2.invoke("zhihu-favlist:contents", payload),
