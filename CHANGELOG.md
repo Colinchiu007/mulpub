@@ -1,3 +1,16 @@
+# [未发布] chore: 换基 main(#2033) + python CJK 基线行号随行更新 + Collection 字号补清
+
+### 变更
+- **换基到含 #2033 的最新 main**：#2033（ASR 依赖引导 + 多平台采集）改动 python-backend 99 个文件与 Collection.vue，导致 py-cjk 基线行号整体偏移（217→229 等）→ merge 结果出现 16 条「新增硬编码」假阳性（py 基线是 file:line 行号敏感格式）。
+- `--py-cjk --update-py-baseline` 吸收行号偏移（91 → 79 条，diff 审查全为行号迁移）；复验 PASS。
+- Collection.vue 字号补清零（#2033 新增的 19 处字面量 → token）；font-size 基线随行更新（806 → 790）。
+- 视觉基线 17 视图随行更新（T1-6 字号变更的预期差异）。
+
+### 验证
+- Gate 7（cjk + py-cjk）/ Gate 14 / Gate 15 / Gate 16 / 债务熔断 / locale 自测 12/12 全 PASS；Collection + 守卫测试 102/102
+
+---
+
 # [未发布] style(desktop): T1-6 字号七档第一批——Gate 16 门禁接入 + Top8 文件 371 处 font-size 字面量 token 化
 
 ### 新增

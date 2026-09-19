@@ -71,7 +71,7 @@
     "apps/desktop/src/styles/video-creation-shared.css": 6,
     "apps/desktop/src/views/AutoPipelineView.vue": 6,
     "apps/desktop/src/views/Calendar.vue": 9,
-    "apps/desktop/src/views/Collection.vue": 17,
+    "apps/desktop/src/views/Collection.vue": 1,
     "apps/desktop/src/views/Comments.vue": 3,
     "apps/desktop/src/views/ContactSheetView.vue": 15,
     "apps/desktop/src/views/CopyLibraryView.vue": 8,
@@ -134,6 +134,6 @@
     "ops-center/frontend/src/views/UsageDashboard.vue": 3,
     "ops-center/frontend/src/views/UserFeedback.vue": 5
   },
-  "total": 806,
-  "updatedAt": "2026-09-19T05:48:40.188Z"
+  "total": 790,
+  "updatedAt": "2026-09-19T06:27:51.280Z"
 }

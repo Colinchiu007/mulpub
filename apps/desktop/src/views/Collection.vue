@@ -168,13 +168,13 @@
 
         <!-- 知乎收藏夹批量采集/改写 -->
         <div style="margin-bottom:var(--space-sm);padding-top:var(--space-sm);border-top:1px solid var(--border)">
-          <div style="font-weight:600;font-size:13px;margin-bottom:4px">{{ $t('collection.zhihuFavlist.title') }}</div>
+          <div style="font-weight:600;font-size: var(--font-size-sm);margin-bottom:4px">{{ $t('collection.zhihuFavlist.title') }}</div>
           <div style="display:flex;gap:var(--space-sm);align-items:center;flex-wrap:wrap">
             <input
               v-model="zhihuAccessSecret"
               type="password"
               :placeholder="$t('collection.zhihuFavlist.secretPlaceholder')"
-              style="flex:1;min-width:200px;border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:14px"
+              style="flex:1;min-width:200px;border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size: var(--font-size-sm)"
             />
             <button class="cohere-btn-secondary" @click="loadZhihuFavlists" :disabled="zhihuFavlistLoading || !zhihuAccessSecret.trim()">
               {{ zhihuFavlistLoading ? $t('collection.zhihuFavlist.loading') : $t('collection.zhihuFavlist.loadBtn') }}
@@ -183,7 +183,7 @@
           <div v-if="zhihuFavlists.length" style="display:flex;gap:var(--space-sm);align-items:center;margin-top:8px;flex-wrap:wrap">
             <select
               v-model="zhihuSelectedFavlist"
-              style="flex:1;min-width:200px;border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:14px"
+              style="flex:1;min-width:200px;border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size: var(--font-size-sm)"
             >
               <option v-for="f in zhihuFavlists" :key="f.urlToken" :value="f.urlToken">
                 {{ f.title }}{{ f.isPublic ? '' : '（私密）' }}
@@ -199,13 +199,13 @@
               {{ $t('collection.cancelBatch') }}
             </button>
           </div>
-          <div v-if="zhihuFavlistProgress" style="margin-top:8px;font-size:12px;color:var(--text-secondary)">
+          <div v-if="zhihuFavlistProgress" style="margin-top:8px;font-size: var(--font-size-xs);color:var(--text-secondary)">
             {{ zhihuFavlistProgress }}
           </div>
-          <div v-if="zhihuFavlistError" style="margin-top:8px;padding:6px 10px;background:#fff3f3;border-radius:4px;font-size:12px;color:#d32f2f">
+          <div v-if="zhihuFavlistError" style="margin-top:8px;padding:6px 10px;background:#fff3f3;border-radius:4px;font-size: var(--font-size-xs);color:#d32f2f">
             {{ zhihuFavlistError }}
           </div>
-          <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">
+          <div style="font-size: var(--font-size-xs);color:var(--text-secondary);margin-top:4px">
             {{ $t('collection.zhihuFavlist.hint') }}
           </div>
         </div>
@@ -1948,7 +1948,7 @@ function cancelBatchCollect () {
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 8px 12px;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   line-height: 1.6;
   box-sizing: border-box;
   font-family: inherit;
@@ -1976,7 +1976,7 @@ function cancelBatchCollect () {
   border: none;
   background: transparent;
   border-radius: 6px;
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   cursor: pointer;
   color: var(--text-secondary, #666);
@@ -2008,7 +2008,7 @@ function cancelBatchCollect () {
   border: none;
   background: transparent;
   border-radius: 6px;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   cursor: pointer;
   color: var(--text-secondary, #666);
   transition: all 0.15s;
@@ -2025,7 +2025,7 @@ function cancelBatchCollect () {
   flex-shrink: 0;
   padding: 1px 8px;
   border-radius: 10px;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   line-height: 18px;
   font-weight: 500;
 }
@@ -2052,18 +2052,18 @@ function cancelBatchCollect () {
   padding: 18px 24px 22px;
 }
 .copy-preview-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.copy-preview-title { margin: 0; font-size: 16px; font-weight: 600; color: var(--text-primary, #25252b); }
+.copy-preview-title { margin: 0; font-size: var(--font-size-base); font-weight: 600; color: var(--text-primary, #25252b); }
 .copy-preview-close {
   border: none;
   background: transparent;
   color: var(--muted, #73777d);
-  font-size: 16px;
+  font-size: var(--font-size-base);
   cursor: pointer;
   padding: 4px 8px;
   border-radius: 6px;
 }
 .copy-preview-close:hover { background: var(--soft-stone, #f5f5f5); color: var(--text-primary); }
-.copy-preview-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 10px 0 12px; font-size: 12px; color: var(--muted, #73777d); }
+.copy-preview-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 10px 0 12px; font-size: var(--font-size-xs); color: var(--muted, #73777d); }
 /* 长文本展示契约：显式换行 + 任意位置断词，避免长串英文/链接撑破弹窗 */
 .copy-preview-content {
   margin: 0;
@@ -2072,7 +2072,7 @@ function cancelBatchCollect () {
   padding: 12px;
   border-radius: 10px;
   background: var(--soft-stone, #f7f7f8);
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   line-height: 1.7;
   color: var(--text-primary, #25252b);
   white-space: pre-wrap;
@@ -2092,9 +2092,9 @@ function cancelBatchCollect () {
 .col-panel { padding: var(--space-md); margin-bottom: var(--space-lg); }
 .col-toolbar { display: flex; gap: var(--space-sm); align-items: center; flex-wrap: wrap; }
 .col-toolbar-icon { font-size: 1.2rem; }
-.col-select { border: 1px solid var(--color-border); border-radius: 6px; padding: 8px; font-size: 14px; }
+.col-select { border: 1px solid var(--color-border); border-radius: 6px; padding: 8px; font-size: var(--font-size-sm); }
 .col-select-sm { border: 1px solid var(--color-border); border-radius: var(--r-xs); padding: 4px 8px; font-size: var(--font-size-sm); }
-.col-input { border: 1px solid var(--color-border); border-radius: 6px; padding: 8px 12px; font-size: 14px; }
+.col-input { border: 1px solid var(--color-border); border-radius: 6px; padding: 8px 12px; font-size: var(--font-size-sm); }
 .col-input--grow { flex: 1; }
 .col-input--block { width: 100%; }
 .col-textarea { resize: vertical; }
@@ -2129,11 +2129,11 @@ function cancelBatchCollect () {
 /* ASR 依赖安装引导弹窗 */
 .asr-install-intro { margin: 0 0 12px; line-height: 1.6; color: var(--color-text-primary, #333); }
 .asr-install-stage-text { font-weight: 600; margin-bottom: 8px; }
-.asr-install-detail { font-size: 12px; color: var(--color-text-secondary, #888); margin-bottom: 8px; word-break: break-all; max-height: 60px; overflow: hidden; }
+.asr-install-detail { font-size: var(--font-size-xs); color: var(--color-text-secondary, #888); margin-bottom: 8px; word-break: break-all; max-height: 60px; overflow: hidden; }
 .asr-install-bar { height: 8px; border-radius: 4px; background: var(--color-bg-secondary, #eee); overflow: hidden; }
 .asr-install-bar-fill { height: 100%; border-radius: 4px; background: var(--color-primary, #4f46e5); transition: width 0.3s ease; }
 .asr-install-error p { margin: 0 0 6px; color: var(--color-danger, #dc2626); }
-.asr-install-manual { color: var(--color-text-secondary, #888) !important; font-size: 12px; }
-.asr-install-cmd { display: block; padding: 8px 10px; background: var(--color-bg-secondary, #f5f5f5); border-radius: 6px; font-size: 12px; word-break: break-all; user-select: all; }
+.asr-install-manual { color: var(--color-text-secondary, #888) !important; font-size: var(--font-size-xs); }
+.asr-install-cmd { display: block; padding: 8px 10px; background: var(--color-bg-secondary, #f5f5f5); border-radius: 6px; font-size: var(--font-size-xs); word-break: break-all; user-select: all; }
 
 </style>
