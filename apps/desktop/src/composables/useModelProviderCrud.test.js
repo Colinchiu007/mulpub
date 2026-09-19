@@ -836,4 +836,109 @@ describe('useModelProviderCrud', function () {
       expect(data.config.user_default_model).toBe('flux-pro')
     })
   })
+
+  // ─── 多模态能力声明保留（Agnes 能力显示丢失回归）──────────────
+  // 根因：selectPreset 把 capabilities 放在 form 顶层，submitForm 构造 data 时
+  // 未写入 config.capabilities/capability_models；走「添加已有预设」流程时
+  // PROVIDER_EXISTS 降级 updateProvider 整体替换 config，存量能力声明被抹掉，
+  // 模型列表卡片的能力 chips 与能力默认按钮消失。
+  describe('多模态能力声明保留（Agnes 能力显示丢失回归）', function () {
+    it('submitForm 保存多模态预设时 config 必须携带 capabilities 与 capability_models', async function () {
+      crud.isEditing.value = false
+      crud.form.value = {
+        id: 'agnes-multimodal', name: 'Agnes-AI', category: 'multimodal',
+        base_url: 'https://api.agnes-ai.cn/v1', api_key: 'sk-test',
+        models: ['agnes-3.0-flash', 'agnes-image-2.5-flash', 'agnes-video-2.5-flash'],
+        modelsText: 'agnes-3.0-flash, agnes-image-2.5-flash, agnes-video-2.5-flash',
+        capabilities: ['llm', 'image', 'video'],
+        capability_models: { llm: 'agnes-3.0-flash', image: 'agnes-image-2.5-flash', video: 'agnes-video-2.5-flash' },
+        config: { capability_enabled: { video: false } },
+      }
+
+      await crud.submitForm()
+
+      expect(modelProviderCreate).toHaveBeenCalledTimes(1)
+      const [data] = modelProviderCreate.mock.calls[0]
+      expect(data.config.capabilities).toEqual(['llm', 'image', 'video'])
+      expect(data.config.capability_models).toEqual({
+        llm: 'agnes-3.0-flash', image: 'agnes-image-2.5-flash', video: 'agnes-video-2.5-flash',
+      })
+      // 原有 capability_enabled 不得丢失
+      expect(data.config.capability_enabled).toEqual({ video: false })
+    })
+
+    it('添加已有预设降级更新时不得抹掉存量能力声明（PROVIDER_EXISTS 路径）', async function () {
+      // 模拟预设行已存在（种子已插入），create 返回 PROVIDER_EXISTS
+      modelProviderCreate.mockResolvedValueOnce({ code: -1, errorCode: 'PROVIDER_EXISTS', message: '服务商 ID「agnes-multimodal」已存在' })
+      modelProviderUpdate.mockResolvedValueOnce({ code: 0 })
+      modelProviderList.mockResolvedValueOnce({ code: 0, data: [] })
+
+      crud.isEditing.value = false
+      crud.form.value = {
+        id: 'agnes-multimodal', name: 'Agnes-AI', category: 'multimodal',
+        base_url: 'https://api.agnes-ai.cn/v1', api_key: 'sk-test',
+        models: ['agnes-3.0-flash', 'agnes-image-2.5-flash', 'agnes-video-2.5-flash'],
+        modelsText: 'agnes-3.0-flash, agnes-image-2.5-flash, agnes-video-2.5-flash',
+        capabilities: ['llm', 'image', 'video'],
+        capability_models: { llm: 'agnes-3.0-flash', image: 'agnes-image-2.5-flash', video: 'agnes-video-2.5-flash' },
+        config: { capability_enabled: { video: false } },
+      }
+
+      await crud.submitForm()
+
+      // 降级更新路径必须被触发
+      expect(modelProviderUpdate).toHaveBeenCalledTimes(1)
+      const [updateId, updateData] = modelProviderUpdate.mock.calls[0]
+      expect(updateId).toBe('agnes-multimodal')
+      // 关键断言：降级更新的 config 必须保留能力声明
+      expect(updateData.config.capabilities).toEqual(['llm', 'image', 'video'])
+      expect(updateData.config.capability_models).toEqual({
+        llm: 'agnes-3.0-flash', image: 'agnes-image-2.5-flash', video: 'agnes-video-2.5-flash',
+      })
+    })
+
+    it('编辑多模态服务商时 config 中已有的能力声明不得丢失', async function () {
+      crud.isEditing.value = true
+      // 模拟 openEdit 加载的 provider：config 已含能力声明（种子回填）
+      crud.form.value = {
+        id: 'agnes-multimodal', name: 'Agnes-AI', category: 'multimodal',
+        base_url: 'https://api.agnes-ai.cn/v1', api_key: '',
+        models: ['agnes-3.0-flash', 'agnes-image-2.5-flash', 'agnes-video-2.5-flash'],
+        modelsText: 'agnes-3.0-flash, agnes-image-2.5-flash, agnes-video-2.5-flash',
+        user_default_model: '',
+        config: {
+          capabilities: ['llm', 'image', 'video'],
+          capability_models: { llm: 'agnes-3.0-flash', image: 'agnes-image-2.5-flash', video: 'agnes-video-2.5-flash' },
+          capability_enabled: { video: true },
+        },
+      }
+
+      await crud.submitForm()
+
+      expect(modelProviderUpdate).toHaveBeenCalledTimes(1)
+      const [, data] = modelProviderUpdate.mock.calls[0]
+      // 编辑路径：config 原有能力声明原样保留
+      expect(data.config.capabilities).toEqual(['llm', 'image', 'video'])
+      expect(data.config.capability_models).toEqual({
+        llm: 'agnes-3.0-flash', image: 'agnes-image-2.5-flash', video: 'agnes-video-2.5-flash',
+      })
+    })
+
+    it('form 顶层无 capabilities 时不注入空数组（不覆盖运营下发值）', async function () {
+      crud.isEditing.value = true
+      crud.form.value = {
+        id: 'minimax-multimodal', name: 'MiniMax', category: 'multimodal',
+        base_url: '', api_key: '',
+        models: ['MiniMax-M2.7'], modelsText: 'MiniMax-M2.7',
+        user_default_model: '',
+        config: { capabilities: ['llm', 'tts', 'image', 'video'] },
+      }
+
+      await crud.submitForm()
+
+      const [, data] = modelProviderUpdate.mock.calls[0]
+      // config 已有能力声明 → 原样保留，不被 undefined/空数组覆盖
+      expect(data.config.capabilities).toEqual(['llm', 'tts', 'image', 'video'])
+    })
+  })
 })
