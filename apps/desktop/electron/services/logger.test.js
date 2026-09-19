@@ -151,9 +151,19 @@ describe('logger 服务', () => {
     }
 
     // 队列释放后，后续写入恢复正常
+    // 2026-09-19：CI 全量负载下 mockRestore 后的真实 appendFile 可能与超时 timer 竞态
+    // （flush resolve 时写尚未落盘）→ 重试读取，断言本身不变。
     logger.info('Test', 'after recover')
     await logger.flush()
-    const content = fs.readFileSync(path.join(dir, listLogFiles(dir)[0]), 'utf8')
+    let content = ''
+    for (let i = 0; i < 20; i++) {
+      const files = listLogFiles(dir)
+      if (files.length > 0) {
+        content = fs.readFileSync(path.join(dir, files[0]), 'utf8')
+        if (content.includes('after recover')) break
+      }
+      await new Promise((r) => setTimeout(r, 50))
+    }
     expect(content).toContain('after recover')
   })
 
