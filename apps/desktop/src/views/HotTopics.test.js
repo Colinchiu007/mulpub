@@ -343,6 +343,11 @@ describe('HotTopics.vue', () => {
     expect(wrapper.vm.genVideoPhase).toBe('failed')
     expect(wrapper.vm.genVideoStages.find(s => s.name === 'rewrite_copy').status).toBe('failed')
     expect(pipelineStartOrchestrated).not.toHaveBeenCalled()
+    // 弹窗内错误文案必须真的落到 DOM：编排逻辑抽到 composable 后，曾因漏把
+    // genVideoErrorText 暴露给模板而静默不渲染（只有 Vue warn 可见），故在此锚定。
+    const errEl = document.body.querySelector('[data-testid="hot-topics-gen-video-error"]')
+    expect(errEl).toBeTruthy()
+    expect(errEl.textContent).toContain('genVideoRewriteFailed')
   })
 
   it('generate-video pipeline start failure keeps rewrite completed and allows retry without re-rewriting', async () => {

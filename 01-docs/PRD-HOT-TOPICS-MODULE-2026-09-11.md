@@ -779,6 +779,8 @@ fetchTopics({ force })
 
 **测试**：`apps/desktop/src/views/HotTopics.test.js` 新增 9 例，其中「子组件必须自带 scoped 引入共用样式表」为源码级契约断言，作为本根因的回归保护。
 
+**顺带抽出编排 composable（同日补做）**：本改动使 `views/HotTopics.vue` 由 997 行涨到 1002 行，越过本仓 `filesOver1000` 债务阈值。**未抬高债务基线**，改为把「一键生成视频」前端编排（状态 + 计算 + 方法，326 行）整体迁到 `apps/desktop/src/composables/useHotTopicsGenVideo.js`；依赖注入 `buildRewriteInput`（与批量发布共用同一改写输入契约）、`hotUseViral`（爆款库开关，与批量发布共用）、`isDisposed`（视图卸载标记）。编排行为逐行照搬、无语义改动，`HotTopics.vue` 降至 608 行。仅测试需要断言的内部态（`genVideoPhase` / `genVideoRunId` / `genVideoTopic` / `mergeGenStages`）以 `defineExpose` 显式声明为组件契约。
+
 ### 10.8 缓存保留实现要点（2026-09-14 新增）
 
 **改动位置**：`apps/desktop/electron/services/hot-topics-service.js` 的 `fetchTopics()` 汇总段（`const topics = allTopics.slice(0, MAX_TOPICS)` 之后）。
