@@ -133,7 +133,7 @@ onMounted(() => { loadAll() })
 }
 .copy-library-subtitle {
   margin: 0 0 16px;
-  color: var(--mp-text-secondary, #909399);
+  color: var(--color-text-secondary);
   font-size: 13px;
 }
 .copy-library-toolbar {
@@ -151,25 +151,25 @@ onMounted(() => { loadAll() })
 }
 .copy-library-filter-btn {
   padding: 4px 12px;
-  border: 1px solid var(--mp-border, #dcdfe6);
+  border: 1px solid var(--color-border);
   border-radius: 4px;
   background: transparent;
   cursor: pointer;
   font-size: 13px;
 }
 .copy-library-filter-btn.active {
-  border-color: var(--mp-primary, #409eff);
-  color: var(--mp-primary, #409eff);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
 }
 .copy-library-search input {
   padding: 4px 10px;
-  border: 1px solid var(--mp-border, #dcdfe6);
+  border: 1px solid var(--color-border);
   border-radius: 4px;
   min-width: 220px;
   font-size: 13px;
 }
 .copy-library-state {
-  color: var(--mp-text-secondary, #909399);
+  color: var(--color-text-secondary);
   text-align: center;
   padding: 40px 0;
 }
@@ -179,7 +179,7 @@ onMounted(() => { loadAll() })
   gap: 12px;
 }
 .copy-library-card {
-  border: 1px solid var(--mp-border, #ebeef5);
+  border: 1px solid var(--color-border);
   border-radius: 6px;
   padding: 12px;
   display: flex;
@@ -196,12 +196,12 @@ onMounted(() => { loadAll() })
   padding: 1px 8px;
   border-radius: 10px;
   white-space: nowrap;
-  background: var(--mp-fill, #f0f2f5);
-  color: var(--mp-text-secondary, #909399);
+  background: var(--color-bg-inset);
+  color: var(--color-text-secondary);
 }
-.copy-library-origin-badge.is-rewrite { color: #9b59b6; }
-.copy-library-origin-badge.is-draft { color: #e67e22; }
-.copy-library-origin-badge.is-video { color: #2980b9; }
+.copy-library-origin-badge.is-rewrite { color: var(--color-primary); }
+.copy-library-origin-badge.is-draft { color: var(--color-warning); }
+.copy-library-origin-badge.is-video { color: var(--color-info-text); }
 .copy-library-title {
   font-weight: 600;
   font-size: 14px;
@@ -212,7 +212,7 @@ onMounted(() => { loadAll() })
 .copy-library-content {
   margin: 0;
   font-size: 13px;
-  color: var(--mp-text-regular, #606266);
+  color: var(--color-text-primary);
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
@@ -221,6 +221,6 @@ onMounted(() => { loadAll() })
 }
 .copy-library-meta {
   font-size: 12px;
-  color: var(--mp-text-secondary, #909399);
+  color: var(--color-text-secondary);
 }
 </style>
