@@ -1,3 +1,18 @@
+# [未发布] refactor(desktop): T1-4 创作历史三合一收官——删除死代码 CreateHistory.vue
+
+### 变更
+- **三合一现状核查**：收敛实际已完成——CreateView.vue 内嵌历史 tab（`view === 'history'`）使用 CreateViewHistory 组件（695 行现役）；`/create/history` 路由已重定向到 `/create?view=history`。
+- **删除死代码**：`CreateHistory.vue`（300 行）+ `CreateHistory.test.js`——全库无 import 引用（仅 route-registry 注释提及），路由重定向后遗留的孤儿组件。
+- route-registry 注释同步（CreateView 内嵌 CreateViewHistory 表述）。
+
+### 验证
+- CreateViewHistory + history-utils + router 测试 70/70；views-deep/coverage2/CreateView 回归 304/304；Gate 13（路由登记）PASS；Gate 15 PASS；债务熔断 PASS
+
+### 关联
+- PRD §T1-4（三处重叠实现收敛为一个组件 + 一个路由——前两步已由历史提交完成，本 PR 清尾）
+
+---
+
 # [未发布] style(ops-center): T1-7 色彩对齐——新建 tokens.css 语义槽子集 + 166 处硬编码色 token 化
 
 ### 新增
