@@ -1,3 +1,23 @@
+# [未发布] feat(desktop): T0-6b 壳态互斥——工作台壳态下内嵌 WebContentsView 互斥隐藏（A1 决策）
+
+### 新增
+- **WebviewManager.setShellMode(mode)**：`'workbench'`（工作台壳态）隐藏全部内嵌 WebContentsView（浏览器标签 `_hideAllTabs` + 登录视图 `authViewManager.hide()` + 扫码视图 `qrCodeLogin.hide()`）；`'browser'`（浏览器壳）恢复显示并 `_repositionAll()` 重定位。非法值守卫忽略；同值幂等。
+- **IPC 通道 `page-manager:set-shell-mode`**（webview-manager 注册，withSenderCheck）。
+- **preload 登记链**：`page-manager.js` 暴露 `setShellMode` → `index.bundle.js` 重打包。
+- **渲染层上报**：`App.vue` `watch(isHomeTab)` → `invokePageManager('setShellMode', home ? 'workbench' : 'browser')`（immediate 首帧同步；非 Electron 环境静默）。
+
+### 守卫测试（TDD）
+- 新增 `src/shell-mode-6b.test.js`（7 用例）：静态链路完整性（handler 注册/preload 暴露/bundle 重打/App.vue 上报/view-bounds TOP 参数化）+ WebviewManager 行为（mock：workbench 隐藏三视图、browser 恢复、幂等、非法值忽略）。
+- **测试抓出真 bug**：方法名守卫（`hideCurrentView`/`hideView`）与实际调用（`hide()`）不匹配——互斥会静默失效，已修。
+
+### 验证
+- webview-manager + shell-mode-6a/6b + build-preload + views-deep/coverage2 回归 **72/72**；IPC 桥门禁 396 handlers/387 preload 0 缺口；Gate 15/债务/ESLint PASS
+
+### 关联
+- PRD §T0-6b（A1 互斥决策）；承接 T0-6a（渲染层壳态收敛，PR #1949）
+
+---
+
 # [未发布] style(desktop): T1-2 EP 主题化——el-* 组件变量桥接 tokens.css 语义槽
 
 ### 新增
