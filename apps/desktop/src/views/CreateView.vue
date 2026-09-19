@@ -6040,17 +6040,6 @@ export default {
       if (stage.status === 'waiting_approval') return 'waiting'
       return 'pending'
     },
-    stageStateIcon(stage, i) {
-      if (!this.pipelineRunStatus) return '⭕'
-      const idx = this.pipelineRunStatus.currentStage || 0
-      if (stage.status === 'failed') return '❌'
-      if (stage.status === 'needs_user_input') return '⚠️'
-      if (stage.status === 'cancelled') return '⏹️'
-      if (i < idx || stage.status === 'completed') return '✅'
-      if (i === idx && stage.status === 'running') return ''
-      if (stage.status === 'waiting_approval') return '⚠️'
-      return '⭕'
-    },
     stageStatusLabel(stage) {
       return this.pipelineStatus(stage?.status || 'pending')
     },

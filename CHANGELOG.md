@@ -1,3 +1,21 @@
+# [未发布] style(desktop): T1-5 图标语义化第三批——ModelProviders/CreateView/UpgradeModal/AiWriterPanel
+
+### 变更
+- `ModelProviders.vue`：空态 🚀、测试按钮 ⚡/⟳、分类图标（🧠🔊🎤🖼️🎬🎵🌐📦）→ el-icon（Lightning/Loading/Cpu/Bell/Microphone/Picture/VideoCamera/Service/Connection/Box）；`categoryIcon()` 改返回组件对象。
+- `CreateView.vue`：`stageStateIcon()` 的 ❌⚠️✅⭕⏹️ → CircleCloseFilled/WarningFilled/CircleCheckFilled/MoreFilled/VideoPause（Options API components 注册）。
+- `AiWriterPanel.vue`：按钮/复选/模式 tab 的 🎯✨📝🔥🔄 → Aim/MagicStick/Document/TrendCharts/Refresh（modes 数组 icon 字段为组件对象，`<component :is>` 渲染）。
+- `UpgradeModal.vue`：🚀 升级标题、✅ 状态文案去 emoji（纯状态文案，无需图标）。
+- `icon-usage.test.js` 守卫清单扩展至 8 个文件；AiWriterPanel 测试的 mode tab 文本断言同步。
+- CJK 基线随 emoji 移除更新（34 条形态变化，无新增硬编码）。
+
+### 验证
+- 相关视图测试+守卫+回归 484/484 全绿；Gate 7/14/15 PASS
+
+### 关联
+- 承接 #2003（第一批）、#2030（第二批）；T1-5 主体收官
+
+---
+
 # [未发布] style(desktop): T1-5 图标语义化第二批——ViralAnalysis/Collection 功能图标位 emoji 清零
 
 ### 变更

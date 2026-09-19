@@ -198,7 +198,7 @@ describe("AiWriterPanel", () => {
     const actionBtn = allButtons.filter(b => b.classes().includes("cohere-btn-primary") && b.text().includes("生成摘要"));
     if (actionBtn.length === 0) {
       // Click the summary mode tab first, then find the action button
-      const summaryTab = allButtons.filter(b => b.text() === "📝 生成摘要");
+      const summaryTab = allButtons.filter(b => b.text().includes("生成摘要"));
       await summaryTab[0].trigger("click");
       await nextTick();
       const afterSwitch = w.findAll("button");

@@ -22,6 +22,10 @@ const FILES = [
   'views/Dashboard.vue',
   'views/ViralAnalysis.vue',
   'views/Collection.vue',
+  'views/ModelProviders.vue',
+  'views/CreateView.vue',
+  'components/UpgradeModal.vue',
+  'components/AiWriterPanel.vue',
 ]
 
 /** 功能图标位禁用 emoji（不含状态类/内容类） */

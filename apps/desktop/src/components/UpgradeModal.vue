@@ -2,7 +2,7 @@
   <div class="upgrade-overlay" @click.self="emit('close')">
     <div class="upgrade-modal">
       <div class="modal-header">
-        <span style="font-weight:600;font-size:16px">🚀 升级 Pro 版</span>
+        <span style="font-weight:600;font-size:16px">升级 Pro 版</span>
         <button class="cohere-btn-ghost" @click="emit('close')" style="font-size:12px;padding:2px 6px">✕</button>
       </div>
 
@@ -74,7 +74,7 @@
             </div>
             <div style="margin-top:var(--space-md);display:flex;gap:8px;justify-content:center">
               <button class="upgrade-btn" @click="simulatePayment" :disabled="simulating" style="max-width:160px">
-                {{ simulating ? '处理中...' : '✅ 模拟支付成功（开发模式）' }}
+                {{ simulating ? '处理中...' : '模拟支付成功（开发模式）' }}
               </button>
             </div>
             <div style="margin-top:var(--space-sm)">
@@ -117,7 +117,7 @@
             </button>
           </div>
           <div v-if="activateError" style="color:var(--coral);font-size:13px;margin-bottom:var(--space-sm)">{{ activateError }}</div>
-          <div v-if="activateSuccess" style="color:var(--success);font-size:13px;margin-bottom:var(--space-sm)">✅ 激活成功！</div>
+          <div v-if="activateSuccess" style="color:var(--success);font-size:13px;margin-bottom:var(--space-sm)">激活成功！</div>
           <div class="cohere-divider"></div>
           <div style="text-align:center;padding:var(--space-sm)">
             <button class="cohere-btn-ghost" @click="doTrial" :disabled="trialLoading" style="font-size:13px;color:var(--coral)">

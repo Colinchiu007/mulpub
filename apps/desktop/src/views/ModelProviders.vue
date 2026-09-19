@@ -112,7 +112,7 @@
         <EmptyState
           v-if="configuredProviders.length === 0"
           data-testid="model-providers-onboarding-empty"
-          icon="🚀"
+          icon=""
           :title="t('modelProviders.noProvidersTitle')"
           :description="t('modelProviders.noProvidersHint')"
           :action-text="t('modelProviders.browseAll')"
@@ -208,8 +208,8 @@
               <div class="card-actions">
                 <button class="cohere-icon-btn" :aria-label="t('modelProviders.testConnection')" :title="t('modelProviders.testConnection')"
                   @click="testProvider(p.id)" :disabled="!(isProviderConfigured(p))">
-                  <span v-if="testingId !== p.id">⚡</span>
-                  <span v-else class="rotating">⟳</span>
+                  <span v-if="testingId !== p.id"><el-icon><Lightning /></el-icon></span>
+                  <span v-else class="rotating"><el-icon class="rotating"><Loading /></el-icon></span>
                 </button>
                 <button class="cohere-icon-btn" :aria-label="t('modelProviders.edit')" :title="t('modelProviders.edit')" @click="openEdit(p)">✎</button>
                 <button class="cohere-icon-btn" :class="{ 'default-active': p.is_default }"
@@ -237,7 +237,7 @@
                 class="quick-add-card"
                 @click="viewMode = 'all'"
               >
-                <span class="quick-add-icon">{{ categoryIcon(p.category) }}</span>
+                <span class="quick-add-icon"><el-icon><component :is="categoryIcon(p.category)" /></el-icon></span>
                 <span class="quick-add-name">{{ p.name }}</span>
                 <span class="quick-add-category">{{ CATEGORY_LABELS[p.category] }}</span>
               </button>
@@ -341,8 +341,8 @@
             <div class="card-actions">
               <button class="cohere-icon-btn" :aria-label="t('modelProviders.testConnection')" :title="t('modelProviders.testConnection')"
                 @click="testProvider(p.id)" :disabled="!(isProviderConfigured(p))">
-                <span v-if="testingId !== p.id">⚡</span>
-                <span v-else class="rotating">⟳</span>
+                <span v-if="testingId !== p.id"><el-icon><Lightning /></el-icon></span>
+                <span v-else class="rotating"><el-icon class="rotating"><Loading /></el-icon></span>
               </button>
               <button class="cohere-icon-btn" :aria-label="t('modelProviders.edit')" :title="t('modelProviders.edit')" @click="openEdit(p)">✎</button>
               <button class="cohere-icon-btn" :class="{ 'default-active': p.is_default }"
@@ -378,7 +378,7 @@
             class="category-card" :class="{ active: addCategory === opt.value }"
             @click="addCategory = opt.value"
           >
-            <span class="category-icon">{{ categoryIcon(opt.value) }}</span>
+            <span class="category-icon"><el-icon><component :is="categoryIcon(opt.value)" /></el-icon></span>
             <span class="category-label">{{ opt.label }}</span>
           </button>
         </div>
@@ -588,6 +588,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { Bell, Box, Connection, Cpu, Lightning, Loading, Microphone, Picture, Service, VideoCamera } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getApi } from '@/api/electron-bridge'
@@ -736,9 +737,10 @@ async function reportSelfCheck () {
   }
 }
 
+// T1-5：分类图标改用 @element-plus/icons-vue（返回组件对象，模板 <component :is> 渲染）
 function categoryIcon (cat) {
-  const icons = { llm: '🧠', tts: '🔊', speech_recognition: '🎤', image: '🖼️', video: '🎬', audio: '🎵', multimodal: '🌐' }
-  return icons[cat] || '📦'
+  const icons = { llm: Cpu, tts: Bell, speech_recognition: Microphone, image: Picture, video: VideoCamera, audio: Service, multimodal: Connection }
+  return icons[cat] || Box
 }
 
 // P1: models 截断显示 — 最多 3 个，其余 +N
