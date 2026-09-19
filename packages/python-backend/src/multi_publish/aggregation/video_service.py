@@ -1,6 +1,6 @@
-"""VideoCollectService — 抖音/小红书视频作品采集服务。
+"""VideoCollectService — 多平台视频作品采集服务。
 
-管线：yt-dlp --dump-json 元数据探测 → yt-dlp 下载 → ffmpeg 提取 16kHz WAV → AsrEngine 转写 → CollectResult。
+管线：yt-dlp --dump-json 元数据探测 → yt-dlp 下载（失败自动降级浏览器通道）→ ffmpeg 提取 16kHz WAV → AsrEngine 转写 → CollectResult。
 临时文件经 tempfile.TemporaryDirectory 自动清理。
 """
 
@@ -18,6 +18,11 @@ from concurrent.futures import TimeoutError as FutureTimeoutError
 from pathlib import Path
 
 from .asr_engine import AsrEngineError, get_asr_engine
+from .browser_fetcher import (
+    BrowserFetchError,
+    download_video_file,
+    fetch_video_via_browser,
+)
 from .models import CollectResult, CollectVideoRequest
 
 logger = logging.getLogger(__name__)
@@ -28,10 +33,13 @@ MAX_DURATION_SEC = 30 * 60               # 30 分钟
 PROBE_MAX_DURATION_SEC = 10 * 60         # 探测阶段即拒绝的超长视频
 TRANSCRIBE_TIMEOUT_SEC = 300             # ASR 转写超时
 
-# 支持的平台域名
+# 支持的平台域名（2026-09-19 扩展：B站/知乎/视频号；快手无公开视频页暂不支持）
 PLATFORM_DOMAINS = {
     "douyin": ("douyin.com",),
     "xiaohongshu": ("xiaohongshu.com", "xhslink.com"),
+    "bilibili": ("bilibili.com", "b23.tv"),
+    "zhihu": ("zhihu.com", "zhuanlan.zhihu.com"),
+    "channels": ("channels.weixin.qq.com",),
 }
 
 
@@ -85,6 +93,8 @@ def classify_download_error(text: str) -> tuple[str, str]:
         return "VIDEOCLONE_LINK_REGION", "该视频受地区限制，无法采集"
     if re.search(r"captcha|风控|频控|\bbot\b|verify|验证", t, re.I):
         return "VIDEOCLONE_LINK_ANTI_BOT", "该链接触发了平台风控，请稍后重试"
+    if re.search(r"fresh cookies|cookies are needed|login required|需要登录", t, re.I):
+        return "VIDEOCLONE_LINK_ANTI_BOT", "该链接需要登录态才能采集，正在尝试浏览器通道"
     if re.search(r"unavailable|video not found|deleted|不存在|已删除|404", t, re.I):
         return "VIDEOCLONE_LINK_UNAVAILABLE", "视频不可用或已删除，请检查链接"
     return "VIDEOCLONE_LINK_UNAVAILABLE", "视频下载失败，请检查链接后重试"
@@ -127,7 +137,7 @@ class VideoCollectService:
         if platform is None:
             raise VideoCollectError(
                 "VIDEOCLONE_INVALID_PLATFORM",
-                f"仅支持抖音/小红书视频链接，当前链接域名不受支持: {url}",
+                f"仅支持抖音/小红书/B站/知乎/视频号视频链接，当前链接域名不受支持: {url}",
             )
         from urllib.parse import urlparse
         host = (urlparse(url).hostname or "").lower()
@@ -142,8 +152,8 @@ class VideoCollectService:
             raise VideoCollectError("-6", engine.install_hint())
 
         with tempfile.TemporaryDirectory(prefix="mp-collect-video-") as tmp_dir:
-            # ① 元数据探测
-            meta = self._probe_metadata(url)
+            # ① 元数据探测 + ② 下载（yt-dlp 失败自动降级浏览器通道）
+            meta, video_path = self._probe_and_download(url, platform, Path(tmp_dir) / "video.mp4")
             duration = float(meta.get("duration") or 0)
             if duration > PROBE_MAX_DURATION_SEC:
                 raise VideoCollectError(
@@ -151,9 +161,6 @@ class VideoCollectService:
                     f"视频过长（{_fmt_duration(duration)}），采集仅支持 {PROBE_MAX_DURATION_SEC // 60} 分钟内的短视频",
                 )
 
-            # ② 下载视频
-            video_path = Path(tmp_dir) / "video.mp4"
-            self._download_video(url, video_path)
             if video_path.stat().st_size > MAX_FILE_SIZE_BYTES:
                 raise VideoCollectError(
                     "VIDEOCLONE_FILE_TOO_LARGE",
@@ -194,6 +201,7 @@ class VideoCollectService:
                 transcript=transcript,
                 metadata={
                     "platform": platform,
+                    "fetch_channel": meta.get("fetch_channel") or "yt-dlp",
                     "asr_engine": result.engine,
                     "asr_language": result.language,
                     "thumbnail": meta.get("thumbnail") or "",
@@ -217,6 +225,56 @@ class VideoCollectService:
             return json.loads(proc.stdout)
         except json.JSONDecodeError:
             raise VideoCollectError("VIDEOCLONE_LINK_UNAVAILABLE", "视频信息解析失败，请检查链接")
+
+    def _probe_and_download(self, url: str, platform: str, video_path: Path) -> tuple[dict, Path]:
+        """元数据探测 + 下载：yt-dlp 优先，失败自动降级浏览器通道。
+
+        降级策略（2026-09-19，抖音 Fresh cookies 实测）：
+        - yt-dlp 探测/下载失败且错误分类为 ANTI_BOT（Fresh cookies/风控）时，
+          尝试 Playwright 浏览器通道（访问视频页监听 detail API 拿 play_addr）
+        - 浏览器通道也失败才向用户报错（保留原始错误信息）
+        - 非 ANTI_BOT 错误（私密/会员/地区限制/已删除）不降级——降级也不会成功
+        """
+        try:
+            meta = self._probe_metadata(url)
+            # 探测期时长上限检查（下载前拦截，不浪费流量）
+            probe_duration = float(meta.get("duration") or 0)
+            if probe_duration > PROBE_MAX_DURATION_SEC:
+                raise VideoCollectError(
+                    "VIDEOCLONE_FILE_TOO_LARGE",
+                    f"视频过长（{_fmt_duration(probe_duration)}），采集仅支持 {PROBE_MAX_DURATION_SEC // 60} 分钟内的短视频",
+                )
+            self._download_video(url, video_path)
+            meta["fetch_channel"] = "yt-dlp"
+            return meta, video_path
+        except VideoCollectError as e:
+            if e.code != "VIDEOCLONE_LINK_ANTI_BOT":
+                raise
+            logger.info(f"[video-collect] yt-dlp 被风控拦截（{e.message}），降级浏览器通道: {url}")
+
+        # 浏览器降级通道
+        try:
+            browser_meta = fetch_video_via_browser(platform, url)
+        except BrowserFetchError as e:
+            raise VideoCollectError(
+                "VIDEOCLONE_LINK_ANTI_BOT",
+                f"该链接需要平台登录态，自动采集暂不可用（{e.message}）。请稍后重试或更换链接",
+            )
+        duration = float(browser_meta.get("duration") or 0)
+        if duration > PROBE_MAX_DURATION_SEC:
+            raise VideoCollectError(
+                "VIDEOCLONE_FILE_TOO_LARGE",
+                f"视频过长（{_fmt_duration(duration)}），采集仅支持 {PROBE_MAX_DURATION_SEC // 60} 分钟内的短视频",
+            )
+        download_video_file(browser_meta["play_url"], browser_meta["referer"], video_path)
+        meta = {
+            "title": browser_meta.get("title") or "",
+            "uploader": browser_meta.get("author") or "",
+            "duration": duration,
+            "thumbnail": "",
+            "fetch_channel": "browser",
+        }
+        return meta, video_path
 
     def _download_video(self, url: str, target: Path) -> None:
         """yt-dlp 下载视频到目标路径。"""

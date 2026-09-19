@@ -1,10 +1,12 @@
 # aggregation-collect-video Specification
 
 ## Purpose
-定义采集页对抖音/小红书图文与视频作品链接的采集行为契约：视频作品经「元数据探测 → 下载 → 音频提取 → ASR 转写」管线提取口播文案，与图文采集结果统一进入采集列表，含输入校验、资源上限、错误分类与进度反馈。
+定义采集页对多平台（抖音/小红书/B站/知乎/视频号）图文与视频作品链接的采集行为契约：视频作品经「元数据探测 → 下载 → 音频提取 → ASR 转写」管线提取口播文案，yt-dlp 被风控拦截时自动降级浏览器通道，与图文采集结果统一进入采集列表，含输入校验、资源上限、错误分类与进度反馈。
 ## Requirements
 ### Requirement: 视频链接识别与路由
-采集页 SHALL 在用户触发采集时识别 URL 域名：匹配抖音（douyin.com 及子域、v.douyin.com 短链）或小红书（xiaohongshu.com 及子域、xhslink.com 短链）域名的链接 SHALL 路由到视频采集通道；其余链接 SHALL 走现有图文采集通道。路由失败时 SHALL 回退到现有图文采集降级链路（aggregation → url-collector），不得静默丢弃。
+采集页 SHALL 在用户触发采集时识别 URL 域名：匹配抖音（douyin.com 及子域、v.douyin.com 短链）、小红书（xiaohongshu.com 及子域、xhslink.com 短链）、B站（bilibili.com、b23.tv）、知乎（zhihu.com）、视频号（channels.weixin.qq.com）域名的链接 SHALL 路由到视频采集通道；其余链接 SHALL 走现有图文采集通道。路由失败时 SHALL 回退到现有图文采集降级链路（aggregation → url-collector），不得静默丢弃。
+
+用户粘贴平台分享混合文本（文案+emoji+短链+引导语）时，前端 SHALL 先提取真实 http(s) 链接再路由；提取不到链接时提示「未在输入内容中找到有效链接」且不发起采集。
 
 #### Scenario: 抖音视频链接路由
 - **WHEN** 用户在 URL 输入框粘贴 https://v.douyin.com/xxxx/ 短链并点击采集
@@ -18,6 +20,14 @@
 - **WHEN** 用户粘贴知乎/微信公众号/普通网页链接
 - **THEN** 走现有图文采集链路，行为与变更前完全一致
 
+#### Scenario: 分享混合文本解析
+- **WHEN** 用户粘贴「0.02 P@x.FH ... https://v.douyin.com/vknKdeN_naU/ 复制此链接...」混合文本并点击采集
+- **THEN** 前端提取 https://v.douyin.com/vknKdeN_naU/ 回填输入框，走视频采集通道
+
+#### Scenario: 分享文本无链接
+- **WHEN** 用户粘贴不含任何 http(s) 链接的纯文本
+- **THEN** 提示「未在输入内容中找到有效链接」，不发起任何采集请求
+
 #### Scenario: 图文笔记含视频的处理
 - **WHEN** 目标链接为抖音/小红书作品且元数据探测判定其含音轨
 - **THEN** 走视频管线（下载 → 提音频 → ASR 转写）
@@ -25,7 +35,9 @@
 - **THEN** 提取标题与正文描述进入图文结果，不触发 ASR，并在结果中标注 media_type=article
 
 ### Requirement: 视频采集管线
-视频采集通道 SHALL 按顺序执行四个阶段：① 元数据探测（yt-dlp --dump-json，获取标题/时长/平台/作者/封面，不下载文件）；② 视频下载（yt-dlp，上限 500MB / 30 分钟）；③ 音频提取（ffmpeg 转 16kHz 单声道 WAV）；④ ASR 转写（引擎抽象层）。每阶段失败 SHALL 返回该阶段专属错误信息，不得继续后续阶段。
+视频采集通道 SHALL 按顺序执行四个阶段：① 元数据探测（yt-dlp --dump-json，获取标题/时长/平台/作者/封面，不下载文件；探测期时长超 10 分钟直接拒绝）；② 视频下载（yt-dlp，上限 500MB / 30 分钟；yt-dlp 被 ANTI_BOT 类错误拦截时自动降级浏览器通道）；③ 音频提取（ffmpeg 转 16kHz 单声道 WAV）；④ ASR 转写（引擎抽象层）。每阶段失败 SHALL 返回该阶段专属错误信息，不得继续后续阶段。
+
+浏览器降级通道（browser_fetcher）SHALL：解析短链 302 Location 提取视频 ID → Playwright 桌面 Chrome 访问视频页 → 监听平台 detail API 响应提取播放地址 → 带 Referer 下载。降级仅对 ANTI_BOT 类错误触发（Fresh cookies/风控/验证码）；私密/会员/地区限制/已删除类错误不降级。浏览器通道也失败时 SHALL 返回「该链接需要平台登录态，自动采集暂不可用」。
 
 #### Scenario: 全链路成功
 - **WHEN** 输入可公开访问的抖音视频链接且各阶段成功

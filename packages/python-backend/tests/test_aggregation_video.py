@@ -60,7 +60,11 @@ def test_collect_video_request_validation():
     ("https://www.douyin.com/video/730123", "douyin"),
     ("https://www.xiaohongshu.com/explore/abc", "xiaohongshu"),
     ("https://xhslink.com/xyz", "xiaohongshu"),
-    ("https://www.zhihu.com/question/123", None),
+    # 2026-09-19 平台扩展：B站/知乎/视频号进入视频通道（yt-dlp 原生支持 B站/知乎）
+    ("https://www.zhihu.com/question/123", "zhihu"),
+    ("https://www.bilibili.com/video/BV1xx411c7mD", "bilibili"),
+    ("https://b23.tv/abc123", "bilibili"),
+    ("https://channels.weixin.qq.com/web/x", "channels"),
     ("https://example.com", None),
 ])
 def test_detect_platform(url, expected):
@@ -202,11 +206,16 @@ def test_collect_video_probe_anti_bot(tmp_path, monkeypatch):
     svc = video_service.VideoCollectService()
     monkeypatch.setattr(video_service, "_run_subprocess",
                         lambda *a, **kw: _make_completed(1, stderr="captcha required"))
+    # 浏览器降级通道也失败（模拟无 Playwright 环境）→ 最终报 ANTI_BOT
+    from multi_publish.aggregation import browser_fetcher
+    monkeypatch.setattr(browser_fetcher, "fetch_video_via_browser",
+                        lambda platform, url: (_ for _ in ()).throw(
+                            browser_fetcher.BrowserFetchError("no_browser", "playwright 未安装")))
 
     with pytest.raises(video_service.VideoCollectError) as exc_info:
         svc.collect_video(CollectVideoRequest(url="https://v.douyin.com/abc/"))
     assert exc_info.value.code == "VIDEOCLONE_LINK_ANTI_BOT"
-    assert "风控" in exc_info.value.message
+    assert "登录态" in exc_info.value.message or "风控" in exc_info.value.message
 
 
 def test_collect_video_too_long_at_probe(monkeypatch):
@@ -215,8 +224,12 @@ def test_collect_video_too_long_at_probe(monkeypatch):
 
     svc = video_service.VideoCollectService()
     meta = json.dumps({"title": "长视频", "duration": 15 * 60})
-    monkeypatch.setattr(video_service, "_run_subprocess",
-                        lambda *a, **kw: _make_completed(0, stdout=meta))
+    def fake_run_long(cmd, timeout=None, **kwargs):
+        if "--dump-json" in cmd:
+            return _make_completed(0, stdout=meta)
+        return _make_completed(0)  # 下载等其他子进程调用
+    monkeypatch.setattr(video_service, "_run_subprocess", fake_run_long)
+    # yt-dlp 探测成功但超时长限制（不触发浏览器降级——探测已拿到时长）
 
     with pytest.raises(video_service.VideoCollectError) as exc_info:
         svc.collect_video(CollectVideoRequest(url="https://www.xiaohongshu.com/explore/x"))
@@ -351,10 +364,18 @@ def test_resolve_download_endpoint_mirror_reachable(monkeypatch):
 
 
 def test_resolve_download_endpoint_mirror_down_fallback(monkeypatch):
-    """镜像不可达 → 回退 HF 直连。"""
+    """全部镜像不可达 → 回退列表首个（hf-mirror）重试。2026-09-19 多镜像改造后的语义。"""
     from multi_publish.aggregation import asr_engine
     monkeypatch.delenv("HF_ENDPOINT", raising=False)
     monkeypatch.setattr(asr_engine, "_probe_endpoint", lambda url: False)
+    assert asr_engine._resolve_download_endpoint() == "https://hf-mirror.com"
+
+
+def test_resolve_download_endpoint_first_mirror_down_second_up(monkeypatch):
+    """首个镜像不可达 → 自动切换到第二个可用源（huggingface.co）。"""
+    from multi_publish.aggregation import asr_engine
+    monkeypatch.delenv("HF_ENDPOINT", raising=False)
+    monkeypatch.setattr(asr_engine, "_probe_endpoint", lambda url: url == "https://huggingface.co")
     assert asr_engine._resolve_download_endpoint() == "https://huggingface.co"
 
 

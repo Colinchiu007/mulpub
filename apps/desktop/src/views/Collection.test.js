@@ -453,7 +453,7 @@ describe("CollectionView", () => {
     expect(window.electronAPI.aggregationCollect).toHaveBeenCalled();
   });
 
-  it("collectUrl 视频通道失败（-6 引擎不可用）→ 显示错误不回退图文", async () => {
+  it("collectUrl 视频通道失败（-6 引擎不可用）→ 弹出安装引导弹窗不回退图文", async () => {
     window.electronAPI = {
       aggregationCollect: vi.fn(),
       aggregationCollectVideo: vi.fn().mockResolvedValue({
@@ -465,9 +465,10 @@ describe("CollectionView", () => {
     w.vm.linkUrl = "https://v.douyin.com/abc/";
     await w.vm.collectUrl();
     expect(window.electronAPI.aggregationCollect).not.toHaveBeenCalled();
-    expect(w.vm.collectError).toBeTruthy();
-    expect(w.vm.collectError.code).toBe(-6);
-    expect(w.vm.collectError.message).toContain("faster-whisper");
+    // 2026-09-19 行为变更：-6 触发 ASR 依赖安装引导弹窗（自动 pip 安装 + 模型下载），而非错误横幅
+    expect(w.vm.asrInstallVisible).toBe(true);
+    expect(w.vm.asrInstallPendingUrl).toBe("https://v.douyin.com/abc/");
+    expect(w.vm.collectError).toBeFalsy();
   });
 
   it("collectUrl 视频通道失败（-8 无音轨）→ 显示错误", async () => {
@@ -599,8 +600,34 @@ describe("CollectionView", () => {
     await nextTick();
     w.vm.linkUrl = "not-a-url";
     await w.vm.collectUrl();
-    expect(w.vm.collectErrorDetail).toContain("链接格式无效");
-    expect(w.vm.collectErrorRetryable).toBe(false);
+    // 2026-09-19 行为变更：非 URL 输入且提取不到链接 → 分享文本解析提前拦截（shareLinkNone 提示），不再进入图文链路
+    expect(window.electronAPI.aggregationCollect).not.toHaveBeenCalled();
+    expect(w.vm.collectError).toBeFalsy();
+  });
+
+  it("collectUrl 粘贴抖音分享混合文本 → 提取真实链接后走视频通道", async () => {
+    window.electronAPI = {
+      aggregationCollectVideo: vi.fn().mockResolvedValue({ title: "t", content: "c", media_type: "video" }),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.linkUrl = "0.02 P@x.FH 05/09 :6pm ATl:/ 当你在2026年再次听到这首歌 #ladygaga https://v.douyin.com/vknKdeN_naU/ 复制此链接，打开Dou音搜索，直接观看视频！";
+    await w.vm.collectUrl();
+    expect(w.vm.linkUrl).toBe("https://v.douyin.com/vknKdeN_naU/");
+    expect(window.electronAPI.aggregationCollectVideo).toHaveBeenCalledWith({ url: "https://v.douyin.com/vknKdeN_naU/" });
+  });
+
+  it("collectUrl 分享文本无任何链接 → 提示未找到链接不发起采集", async () => {
+    window.electronAPI = {
+      aggregationCollect: vi.fn(),
+      aggregationCollectVideo: vi.fn(),
+    };
+    const w = mountCollection();
+    await nextTick();
+    w.vm.linkUrl = "这是一段没有任何链接的纯文本分享内容";
+    await w.vm.collectUrl();
+    expect(window.electronAPI.aggregationCollect).not.toHaveBeenCalled();
+    expect(window.electronAPI.aggregationCollectVideo).not.toHaveBeenCalled();
   });
 
   // ── 视频采集错误细分提示（回归：具体提示曾被 unknown 通用文案吞掉） ──

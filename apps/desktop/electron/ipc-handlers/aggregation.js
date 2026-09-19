@@ -73,8 +73,9 @@ function classifyError(e, fallbackMsg) {
  * }} deps
  */
 function registerHandlers(ipcMain, deps) {
-  const { pythonBridge, log } = deps
+  const { pythonBridge, log, asrInstaller } = deps
   const logger = log || { info: () => {}, warn: () => {}, error: () => {} }
+  const installer = asrInstaller || require('../services/asr-installer')
 
   ipcMain.handle('aggregation:collect', async (_event, payload) => {
     try {
@@ -139,6 +140,25 @@ function registerHandlers(ipcMain, deps) {
       logger.error('[aggregation] task-status failed:', e && e.message ? e.message : String(e))
       const err = classifyError(e, '获取任务状态失败')
       return { code: err.code, message: err.message }
+    }
+  })
+
+  // ASR 依赖安装（faster-whisper 缺失时的引导安装 + 模型预下载）
+  // 进度经 event.sender.send('asr-install:progress', {...}) 实时推送到渲染进程
+  ipcMain.handle('aggregation:asr-install', async (event) => {
+    try {
+      const sendProgress = (p) => {
+        try { event.sender.send('asr-install:progress', p) } catch (_) { /* 窗口可能已关闭 */ }
+      }
+      const installResult = await installer.installFasterWhisper({ sendProgress, log: logger })
+      if (installResult.code !== 0) {
+        return installResult
+      }
+      // 安装成功 → 预下载模型（hf-mirror 镜像内置）
+      return await installer.downloadAsrModel({ sendProgress, log: logger })
+    } catch (e) {
+      logger.error('[aggregation] asr-install failed:', e && e.message ? e.message : String(e))
+      return { code: -1, message: '安装失败：' + (e && e.message ? e.message : String(e)) }
     }
   })
 }
