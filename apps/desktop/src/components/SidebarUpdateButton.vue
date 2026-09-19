@@ -89,7 +89,7 @@ async function handleClick () {
   background: rgba(80, 72, 229, 0.08);
   color: var(--primary);
   font-family: inherit;
-  font-size: var(--font-size-xs);
+  font-size: 11px;
   line-height: 1.2;
   cursor: pointer;
   transition: background-color 160ms ease-out, border-color 160ms ease-out;

@@ -260,7 +260,7 @@ onMounted(async () => {
   gap: 8px;
   margin-bottom: 12px;
   color: var(--ink, #25252b);
-  font-size: var(--font-size-sm);
+  font-size: 14px;
   font-weight: 700;
 }
 
@@ -272,11 +272,11 @@ onMounted(async () => {
 }
 
 .member-center-empty-icon {
-  font-size: var(--font-size-xxl);
+  font-size: 32px;
 }
 
 .member-center-empty-title {
-  font-size: var(--font-size-base);
+  font-size: 16px;
   font-weight: 700;
   color: var(--ink, #25252b);
 }
@@ -284,7 +284,7 @@ onMounted(async () => {
 .member-center-empty-hint {
   margin: 0;
   color: var(--muted, #8b8e9a);
-  font-size: var(--font-size-sm);
+  font-size: 13px;
   line-height: 1.6;
 }
 
@@ -303,7 +303,7 @@ onMounted(async () => {
   border-radius: 50%;
   background: linear-gradient(140deg, #ffcf80, #ef9e68);
   color: #5d3824;
-  font-size: var(--font-size-base);
+  font-size: 16px;
   font-weight: 700;
 }
 
@@ -318,14 +318,14 @@ onMounted(async () => {
 .member-center-account-name {
   overflow: hidden;
   color: var(--ink, #25252b);
-  font-size: var(--font-size-sm);
+  font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .member-center-account-username {
   color: var(--muted, #8b8e9a);
-  font-size: var(--font-size-xs);
+  font-size: 12px;
 }
 
 .member-center-status-badge {
@@ -334,7 +334,7 @@ onMounted(async () => {
   border-radius: 10px;
   background: #e3e1f2;
   color: #5d5f7a;
-  font-size: var(--font-size-xs);
+  font-size: 11px;
 }
 
 .member-center-status-badge.status-offline_authenticated {
@@ -368,32 +368,32 @@ onMounted(async () => {
 }
 
 .member-center-plan-name {
-  font-size: var(--font-size-base);
+  font-size: 15px;
   font-weight: 700;
   color: var(--ink, #25252b);
 }
 
 .member-center-plan-meta {
   color: var(--muted, #8b8e9a);
-  font-size: var(--font-size-xs);
+  font-size: 12px;
 }
 
 .member-center-plan-check {
   color: var(--success, #059669);
-  font-size: var(--font-size-lg);
+  font-size: 20px;
   font-weight: 700;
 }
 
 .member-center-upgrade-hint {
   margin: 10px 0 0;
   color: var(--muted, #8b8e9a);
-  font-size: var(--font-size-xs);
+  font-size: 12px;
 }
 
 .member-center-source-badge {
   padding: 1px 8px;
   border-radius: 10px;
-  font-size: var(--font-size-xs);
+  font-size: 11px;
   font-weight: 400;
 }
 
@@ -421,7 +421,7 @@ onMounted(async () => {
   align-items: center;
   gap: 6px;
   color: var(--text-primary, #3a3a45);
-  font-size: var(--font-size-sm);
+  font-size: 13px;
 }
 
 .member-center-feature-check {
@@ -448,14 +448,14 @@ onMounted(async () => {
 .member-center-quota-label {
   overflow: hidden;
   color: var(--muted, #8b8e9a);
-  font-size: var(--font-size-xs);
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .member-center-quota-value {
   color: var(--ink, #25252b);
-  font-size: var(--font-size-sm);
+  font-size: 14px;
   font-weight: 700;
   word-break: break-all;
 }
@@ -468,12 +468,12 @@ onMounted(async () => {
 
 .member-center-about-label {
   color: var(--muted, #8b8e9a);
-  font-size: var(--font-size-sm);
+  font-size: 13px;
 }
 
 .member-center-disabled-title {
   margin-bottom: 6px;
-  font-size: var(--font-size-sm);
+  font-size: 14px;
   font-weight: 700;
   color: var(--ink, #25252b);
 }

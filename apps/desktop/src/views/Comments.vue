@@ -128,7 +128,7 @@ onMounted(() => {
 }
 .comment-platform-item:hover { background: var(--soft-stone, var(--bg)); }
 .comment-platform-item.active { background: var(--soft-stone, #f0f0f5); }
-.comment-platform-item .platform-icon { font-size: var(--font-size-lg); }
-.comment-platform-item .platform-name { font-size: var(--font-size-sm); font-weight: 500; }
-.comment-platform-item .platform-url { font-size: var(--font-size-xs); color: var(--action-blue, #1890ff); }
+.comment-platform-item .platform-icon { font-size: 20px; }
+.comment-platform-item .platform-name { font-size: 13px; font-weight: 500; }
+.comment-platform-item .platform-url { font-size: 11px; color: var(--action-blue, #1890ff); }
 </style>

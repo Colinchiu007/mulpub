@@ -1151,7 +1151,7 @@ describe('RewriteView — 视觉契约', () => {
 
   it('卡片标题建立字号层级（全局 .cohere-section-title 原本无样式）', () => {
     const body = ruleBody('.cohere-section-title')
-    expect(body).toMatch(/font-size:\s*var\(--font-size-base\)/)
+    expect(body).toMatch(/font-size:\s*15px/)
     expect(body).toMatch(/font-weight:\s*600/)
   })
 })

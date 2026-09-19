@@ -158,7 +158,7 @@ function isIconUrl (value) {
   border-radius: 8px;
   background: #f2f1ff;
   color: #5048e5;
-  font-size: var(--font-size-md);
+  font-size: 17px;
   font-weight: 700;
 }
 .platform-mark-img {
@@ -169,8 +169,8 @@ function isIconUrl (value) {
   object-fit: contain;
 }
 .platform-heading { min-width: 0; flex: 1; }
-.platform-heading h2 { margin: 0; font-size: var(--font-size-base); line-height: 22px; font-weight: 600; }
-.platform-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 3px; font-size: var(--font-size-xs); }
+.platform-heading h2 { margin: 0; font-size: 15px; line-height: 22px; font-weight: 600; }
+.platform-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 3px; font-size: 12px; }
 .summary-item::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 5px; border-radius: 50%; }
 .summary-item.is-active { color: #23875b; }
 .summary-item.is-active::before { background: #2aa876; }
@@ -184,7 +184,7 @@ function isIconUrl (value) {
   place-items: center;
   border: 1px solid var(--border, #dedee5);
   border-radius: 6px;
-  background: var(--color-bg-card);
+  background: #fff;
   color: #5048e5;
   cursor: pointer;
 }
@@ -240,16 +240,16 @@ function isIconUrl (value) {
   border-radius: 4px;
   background: transparent;
   color: var(--text-primary, #25252b);
-  font-size: var(--font-size-sm);
+  font-size: 13px;
   font-weight: 500;
   outline: none;
 }
 .account-name-input:hover { background: #f5f5f7; }
-.account-name-input:focus { border-color: #7068eb; background: var(--color-bg-card); }
-.default-label { flex: 0 1 auto; padding: 2px 6px; border-radius: 4px; background: #eeecff; color: #5048e5; font-size: var(--font-size-xs); line-height: 16px; text-align: center; white-space: normal; }
-.account-status { min-width: 0; display: flex; align-items: center; gap: 5px; margin-top: 3px; color: var(--muted, #85858f); font-size: var(--font-size-xs); }
+.account-name-input:focus { border-color: #7068eb; background: #fff; }
+.default-label { flex: 0 1 auto; padding: 2px 6px; border-radius: 4px; background: #eeecff; color: #5048e5; font-size: 11px; line-height: 16px; text-align: center; white-space: normal; }
+.account-status { min-width: 0; display: flex; align-items: center; gap: 5px; margin-top: 3px; color: var(--muted, #85858f); font-size: 12px; }
 .account-status-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.account-proxy-status { color: #356f9f; font-size: var(--font-size-xs); }
+.account-proxy-status { color: #356f9f; font-size: 11px; }
 .status-dot { width: 7px; height: 7px; border-radius: 50%; }
 .status-dot.online { background: #2aa876; }
 .status-dot.offline { background: #b9bac2; }
@@ -265,7 +265,7 @@ function isIconUrl (value) {
   border-radius: 4px;
   background: transparent;
   color: #5048e5;
-  font-size: var(--font-size-xs);
+  font-size: 12px;
   cursor: pointer;
 }
 .account-actions button:hover { background: #f0efff; }

@@ -203,7 +203,7 @@ defineExpose({ loadData })
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  font-size: var(--font-size-sm);
+  font-size: 13px;
   outline: none;
   box-sizing: border-box;
 }
@@ -211,7 +211,7 @@ defineExpose({ loadData })
 .kb-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: var(--font-size-sm);
+  font-size: 13px;
 }
 .kb-table th,
 .kb-table td {
@@ -234,7 +234,7 @@ defineExpose({ loadData })
   border: 1px solid var(--border);
   border-radius: 6px;
   cursor: pointer;
-  font-size: var(--font-size-xs);
+  font-size: 12px;
   color: var(--text-primary);
   margin-right: 4px;
 }

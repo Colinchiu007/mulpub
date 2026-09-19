@@ -1,7 +1,7 @@
 <template>
   <div>
     <h1 style="margin-bottom:16px">改写策略管理</h1>
-    <p style="color:var(--color-text-placeholder);margin-bottom:16px;font-size: var(--font-size-sm)">
+    <p style="color:#888;margin-bottom:16px;font-size:13px">
       运营人员维护下发到桌面端的改写策略模板（system prompt / user prompt 模板 / 后处理配置），
       随运行时 bootstrap 同步生效；内置 5 套种子策略（故事化爆款 / 电商转化 / 抖音口播 / 小红书种草 / 干货知识）。
     </p>
@@ -95,7 +95,7 @@
         </el-form-item>
         <el-form-item label="启用下发">
           <el-switch v-model="form.enabled" />
-          <span style="margin-left:8px;color:var(--color-text-placeholder);font-size: var(--font-size-xs)">关闭后桌面端不再下发该策略</span>
+          <span style="margin-left:8px;color:#888;font-size:12px">关闭后桌面端不再下发该策略</span>
         </el-form-item>
       </el-form>
       <template #footer>

@@ -441,7 +441,7 @@ components: { UiButton, CaretBottom, CaretRight, CaretTop, DataLine, FolderAdd, 
 .viral-input-row { display: flex; gap: var(--space-md); flex-wrap: wrap; }
 .viral-field-topic { flex: 2; min-width: 280px; }
 .viral-field-platform { flex: 1; min-width: 160px; }
-.viral-input-md { font-size: var(--font-size-sm); } /* 14px：七档外存量字号，档位收敛属 T1-6 */
+.viral-input-md { font-size: 14px; } /* 14px：七档外存量字号，档位收敛属 T1-6 */
 .viral-actions { display: flex; align-items: flex-end; gap: var(--space-sm); }
 .viral-btn-generate { background: var(--color-danger); border-color: var(--color-danger); }
 .viral-card-static { cursor: default; }
@@ -455,7 +455,7 @@ components: { UiButton, CaretBottom, CaretRight, CaretTop, DataLine, FolderAdd, 
 /* --- 结果区通用 --- */
 .viral-result { margin-top: var(--space-lg); }
 .viral-section { margin-top: var(--space-md); }
-.viral-section-title { font-size: var(--font-size-sm); font-weight: 600; margin-bottom: var(--space-sm); } /* 14px：档位收敛属 T1-6 */
+.viral-section-title { font-size: 14px; font-weight: 600; margin-bottom: var(--space-sm); } /* 14px：档位收敛属 T1-6 */
 .viral-block-title-sm { font-size: var(--font-size-sm); font-weight: 600; margin-bottom: 4px; }
 .viral-tag-row { display: flex; gap: 6px; flex-wrap: wrap; }
 .viral-loading { padding: 16px 0; }
@@ -464,9 +464,9 @@ components: { UiButton, CaretBottom, CaretRight, CaretTop, DataLine, FolderAdd, 
 .viral-overview-card { background: var(--color-bg-inset); }
 .viral-overview-row { display: flex; align-items: center; gap: var(--space-lg); flex-wrap: wrap; }
 .viral-score-block { text-align: center; }
-.viral-score-value { font-size: var(--font-size-xxl); font-weight: 700; color: var(--color-danger); }
+.viral-score-value { font-size: 32px; font-weight: 700; color: var(--color-danger); }
 .viral-score-label { font-size: var(--font-size-xs); color: var(--color-text-muted); }
-.viral-trend-icon { font-size: var(--font-size-xl); }
+.viral-trend-icon { font-size: 24px; }
 .viral-angles { flex: 1; min-width: 200px; }
 
 /* --- 落库行 --- */
@@ -485,7 +485,7 @@ components: { UiButton, CaretBottom, CaretRight, CaretTop, DataLine, FolderAdd, 
 /* --- 平台对比 --- */
 .viral-platform-card { padding: var(--space-sm); text-align: center; min-width: 120px; }
 .viral-platform-name { font-size: var(--font-size-xs); color: var(--color-text-muted); margin-bottom: 4px; }
-.viral-platform-score { font-size: var(--font-size-lg); font-weight: 700; }
+.viral-platform-score { font-size: 20px; font-weight: 700; }
 
 /* --- 推荐结构 --- */
 .viral-structure-card { padding: var(--space-sm); flex: 1; min-width: 180px; }
@@ -503,7 +503,7 @@ components: { UiButton, CaretBottom, CaretRight, CaretTop, DataLine, FolderAdd, 
 .viral-title-row--last { border-bottom: none; }
 .viral-title-num { font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text-muted); min-width: 24px; }
 .viral-title-body { flex: 1; }
-.viral-title-text { font-size: var(--font-size-base); font-weight: 600; margin-bottom: 2px; }
+.viral-title-text { font-size: 15px; font-weight: 600; margin-bottom: 2px; }
 .viral-title-meta { display: flex; gap: 8px; font-size: var(--font-size-xs); color: var(--color-text-muted); flex-wrap: wrap; align-items: center; }
 .viral-title-score { color: var(--color-danger); font-weight: 600; }
 .viral-go-rewrite { font-size: var(--font-size-xs); padding: 2px 10px; }
@@ -511,11 +511,11 @@ components: { UiButton, CaretBottom, CaretRight, CaretTop, DataLine, FolderAdd, 
 
 /* --- Hook / 改写 / 结构建议 --- */
 .viral-hook-row { padding: var(--space-sm); border-bottom: 1px solid var(--color-border); margin-bottom: var(--space-sm); }
-.viral-hook-text { font-size: var(--font-size-sm); line-height: 1.6; margin-bottom: 4px; } /* 14px：档位收敛属 T1-6 */
+.viral-hook-text { font-size: 14px; line-height: 1.6; margin-bottom: 4px; } /* 14px：档位收敛属 T1-6 */
 .viral-rewrite-meta { font-size: var(--font-size-xs); color: var(--color-text-muted); margin-bottom: var(--space-sm); }
-.viral-rewrite-content { font-size: var(--font-size-sm); line-height: 1.8; white-space: pre-wrap; } /* 14px：档位收敛属 T1-6 */
+.viral-rewrite-content { font-size: 14px; line-height: 1.8; white-space: pre-wrap; } /* 14px：档位收敛属 T1-6 */
 .viral-suggest-head { display: flex; align-items: center; gap: var(--space-sm); }
-.viral-suggest-name { font-size: var(--font-size-sm); font-weight: 600; } /* 14px：档位收敛属 T1-6 */
+.viral-suggest-name { font-size: 14px; font-weight: 600; } /* 14px：档位收敛属 T1-6 */
 .viral-suggest-score { font-size: var(--font-size-xs); font-weight: 600; }
 .viral-suggest-reason { font-size: var(--font-size-sm); color: var(--color-text-muted); margin-top: 4px; }
 .viral-suggest-outline { font-size: var(--font-size-sm); margin-top: 6px; white-space: pre-wrap; line-height: 1.5; }

@@ -236,8 +236,8 @@ function saveRename (group) {
   padding: 6px 10px 6px 30px;
   border: 1px solid var(--border, #dedee5);
   border-radius: 6px;
-  background: var(--color-bg-card);
-  font-size: var(--font-size-sm);
+  background: #fff;
+  font-size: 13px;
   outline: none;
 }
 .groups-toolbar input[type="search"]:focus { border-color: #5048e5; box-shadow: 0 0 0 2px rgba(80, 72, 229, 0.1); }
@@ -246,30 +246,30 @@ function saveRename (group) {
   border: 1px solid var(--border, #dedee5);
   border-radius: 6px;
   padding: 4px 26px 4px 10px;
-  background: var(--color-bg-card);
+  background: #fff;
   color: #3c3e48;
-  font-size: var(--font-size-sm);
+  font-size: 13px;
 }
 .groups-mine-only {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   color: #5c5e6a;
-  font-size: var(--font-size-sm);
+  font-size: 13px;
   cursor: pointer;
   white-space: nowrap;
 }
 .groups-mine-only input { accent-color: #5048e5; }
 .groups-sort { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
-.groups-sort-label { color: var(--muted, #85858f); font-size: var(--font-size-xs); white-space: nowrap; }
+.groups-sort-label { color: var(--muted, #85858f); font-size: 12px; white-space: nowrap; }
 .groups-sort select {
   min-height: 30px;
   border: 1px solid var(--border, #dedee5);
   border-radius: 6px;
   padding: 2px 22px 2px 8px;
-  background: var(--color-bg-card);
+  background: #fff;
   color: #5c5e6a;
-  font-size: var(--font-size-xs);
+  font-size: 12px;
 }
 .groups-sort button {
   width: 30px;
@@ -278,7 +278,7 @@ function saveRename (group) {
   place-items: center;
   border: 1px solid var(--border, #dedee5);
   border-radius: 6px;
-  background: var(--color-bg-card);
+  background: #fff;
   color: #5c5e6a;
   cursor: pointer;
 }
@@ -293,7 +293,7 @@ function saveRename (group) {
   border-radius: 6px;
   background: #5048e5;
   color: #fff;
-  font-size: var(--font-size-sm);
+  font-size: 13px;
   cursor: pointer;
 }
 .groups-create-button:hover { background: #4239d6; }
@@ -314,7 +314,7 @@ function saveRename (group) {
   padding: 6px 10px;
   border: 1px solid var(--border, #dedee5);
   border-radius: 6px;
-  font-size: var(--font-size-sm);
+  font-size: 13px;
   outline: none;
 }
 .groups-create-row input[type="text"]:focus { border-color: #5048e5; }
@@ -323,17 +323,17 @@ function saveRename (group) {
   border: 1px solid var(--border, #dedee5);
   border-radius: 6px;
   padding: 4px 24px 4px 10px;
-  background: var(--color-bg-card);
-  font-size: var(--font-size-sm);
+  background: #fff;
+  font-size: 13px;
 }
 .groups-create-row button {
   min-height: 34px;
   padding: 6px 14px;
   border: 1px solid var(--border, #dedee5);
   border-radius: 6px;
-  background: var(--color-bg-card);
+  background: #fff;
   color: #5c5e6a;
-  font-size: var(--font-size-sm);
+  font-size: 13px;
   cursor: pointer;
 }
 .groups-create-row button[data-testid="groups-create-submit"] { border-color: #5048e5; background: #5048e5; color: #fff; }
@@ -346,13 +346,13 @@ function saveRename (group) {
   padding: 72px 0;
   border: 1px solid var(--border-light, #ececf1);
   border-radius: 10px;
-  background: var(--color-bg-card);
+  background: #fff;
 }
 .groups-empty-icon { font-size: 40px; color: #c9cbd8; line-height: 1; }
-.groups-empty p { margin: 0; color: var(--muted, #85858f); font-size: var(--font-size-sm); }
-.groups-empty-hint { color: #b1b2bd; font-size: var(--font-size-xs); }
+.groups-empty p { margin: 0; color: var(--muted, #85858f); font-size: 14px; }
+.groups-empty-hint { color: #b1b2bd; font-size: 12px; }
 .groups-list { display: flex; flex-direction: column; gap: 12px; }
-.group-card { border: 1px solid var(--border-light, #e8e8ec); border-radius: 8px; background: var(--color-bg-card); overflow: hidden; }
+.group-card { border: 1px solid var(--border-light, #e8e8ec); border-radius: 8px; background: #fff; overflow: hidden; }
 .group-card header {
   display: flex;
   align-items: center;
@@ -363,8 +363,8 @@ function saveRename (group) {
 }
 .group-card-title { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
 .group-card-icon { width: 15px; height: 15px; color: #5048e5; flex: 0 0 auto; }
-.group-card h3 { margin: 0; color: #303039; font-size: var(--font-size-sm); line-height: 20px; }
-.group-card-title span { color: var(--muted, #85858f); font-size: var(--font-size-xs); white-space: nowrap; }
+.group-card h3 { margin: 0; color: #303039; font-size: 14px; line-height: 20px; }
+.group-card-title span { color: var(--muted, #85858f); font-size: 12px; white-space: nowrap; }
 .group-actions { display: inline-flex; align-items: center; gap: 6px; }
 .group-actions select {
   max-width: 130px;
@@ -372,9 +372,9 @@ function saveRename (group) {
   border: 1px solid var(--border, #dedee5);
   border-radius: 5px;
   padding: 2px 22px 2px 6px;
-  background: var(--color-bg-card);
+  background: #fff;
   color: #5c5e6a;
-  font-size: var(--font-size-xs);
+  font-size: 11px;
 }
 .rename-group { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .rename-group input {
@@ -383,16 +383,16 @@ function saveRename (group) {
   border: 1px solid #8e87ed;
   border-radius: 5px;
   padding: 3px 8px;
-  font-size: var(--font-size-sm);
+  font-size: 13px;
 }
 .rename-group button, .rename-group-button {
   min-height: 28px;
   border: 1px solid #dedee5;
   border-radius: 5px;
   padding: 3px 10px;
-  background: var(--color-bg-card);
+  background: #fff;
   color: #5c5e6a;
-  font-size: var(--font-size-xs);
+  font-size: 11px;
   cursor: pointer;
 }
 .rename-group button:first-of-type { border-color: #5048e5; background: #5048e5; color: #fff; }
@@ -417,11 +417,11 @@ function saveRename (group) {
   gap: 10px;
   padding: 7px 14px;
   border-top: 1px solid #efeff2;
-  font-size: var(--font-size-sm);
+  font-size: 13px;
   cursor: pointer;
 }
 .member-row input { accent-color: #5048e5; }
 .member-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.member-platform { color: var(--muted, #85858f); font-size: var(--font-size-xs); }
-.member-empty { padding: 14px; border-top: 1px solid #efeff2; color: var(--muted, #85858f); font-size: var(--font-size-xs); text-align: center; }
+.member-platform { color: var(--muted, #85858f); font-size: 12px; }
+.member-empty { padding: 14px; border-top: 1px solid #efeff2; color: var(--muted, #85858f); font-size: 12px; text-align: center; }
 </style>

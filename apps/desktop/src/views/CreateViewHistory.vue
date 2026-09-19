@@ -679,7 +679,7 @@ selectFilter (status) {
   user-select: none;
 }
 .history-selected-count {
-  font-size: var(--font-size-sm);
+  font-size: 13px;
   color: var(--s2v-text-secondary, #6b7280);
 }
 .history-item-select {

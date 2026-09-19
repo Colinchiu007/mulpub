@@ -76,6 +76,6 @@ defineEmits(["update:modelValue"]);
   transform: translateY(-50%);
   color: var(--apple-ink-tertiary);
   pointer-events: none;
-  font-size: var(--font-size-sm);
+  font-size: 14px;
 }
 </style>

@@ -107,8 +107,6 @@ class WebviewManager extends EventEmitter {
 
     // 左侧导航栏当前宽度（由渲染进程通过 IPC 同步，默认 200px）
     this._sidebarWidth = SIDEBAR_WIDTH_DEFAULT
-    // 壳态（T0-6b）：'browser'（浏览器壳，默认）| 'workbench'（工作台壳态，内嵌视图互斥隐藏）
-    this._shellMode = 'browser'
   }
 
   // ─── 虚拟登录标签集成 ──────────────────────────
@@ -896,37 +894,6 @@ class WebviewManager extends EventEmitter {
    * 默认 200px；窄屏（≤900px）时渲染进程传入 68px
    * @param {number} width - 像素宽度
    */
-  // ─── 壳态互斥（T0-6b，A1 决策）────────────────────────────────
-  // 工作台壳态（首页虚拟标签，SPA 渲染）下浏览器壳与工作台不同时展示：
-  // 所有内嵌 WebContentsView（浏览器标签/登录视图/扫码视图）隐藏；
-  // 切回浏览器壳时恢复显示并按当前 bounds 重定位。
-  setShellMode (mode) {
-    const valid = mode === 'workbench' || mode === 'browser'
-    if (!valid) {
-      log.warn('WebviewManager', 'Invalid shell mode ignored: ' + mode)
-      return
-    }
-    if (this._shellMode === mode) return
-    this._shellMode = mode
-    if (mode === 'workbench') {
-      // 互斥：隐藏全部内嵌视图（浏览器标签 + 登录视图 + 扫码视图）
-      this._hideAllTabs()
-      if (this._authViewManager && typeof this._authViewManager.hide === 'function') {
-        this._authViewManager.hide()
-      }
-      if (this._qrCodeLogin && typeof this._qrCodeLogin.hide === 'function') {
-        this._qrCodeLogin.hide()
-      }
-    } else {
-      // 浏览器壳：恢复显示（按当前活动标签/登录态重定位）
-      this._repositionAll()
-    }
-  }
-
-  isWorkbenchShell () {
-    return this._shellMode === 'workbench'
-  }
-
   setSidebarWidth (width) {
     // 守卫：宽度必须严格 > 0。width <= 0 会让内嵌视图 x 落到 0、覆盖 x=0 的 MpSidebar，
     // 拦截侧边栏全部点击（2026-09-15「平台链接浮层盖住侧边栏」同类 Bug 的防御层之一）。
@@ -1238,14 +1205,6 @@ class WebviewManager extends EventEmitter {
     }))
 
     // ─── 左侧导航栏宽度同步 ──
-
-    // ─── 壳态互斥（T0-6b）：渲染层上报壳态，主进程切换内嵌视图可见性 ───
-    ipcMain.handle('page-manager:set-shell-mode', withSenderCheck(function (_, mode) {
-      try {
-        self.setShellMode(mode)
-        return { code: 0 }
-      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
-    }))
 
     ipcMain.handle('page-manager:set-sidebar-width', withSenderCheck(function (_, width) {
       try {

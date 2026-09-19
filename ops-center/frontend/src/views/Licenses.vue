@@ -9,7 +9,7 @@
       <el-table-column prop="id" label="ID" width="60" />
       <el-table-column label="许可证 Key" min-width="220">
         <template #default="{ row }">
-          <code style="background:var(--color-bg-hover);padding:2px 8px;border-radius:4px;font-size: var(--font-size-sm)">{{ row.license_key }}</code>
+          <code style="background:#f5f5f5;padding:2px 8px;border-radius:4px;font-size:13px">{{ row.license_key }}</code>
           <el-button link type="primary" size="small" @click="reveal(row)" style="margin-left:6px">查看</el-button>
         </template>
       </el-table-column>

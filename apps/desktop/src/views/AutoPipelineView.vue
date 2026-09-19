@@ -446,9 +446,9 @@ onUnmounted(() => {
 .ap-label-strong--gap { margin-right: var(--space-sm); }
 .ap-check-label { cursor: pointer; }
 .ap-check-label--gap { margin-right: var(--space-md); }
-.ap-select { border: 1px solid var(--color-border); border-radius: 6px; padding: 6px 10px; font-size: var(--font-size-sm); }
-.ap-input { width: 100%; border: 1px solid var(--color-border); border-radius: 6px; padding: 8px 12px; font-size: var(--font-size-sm); margin-bottom: 4px; }
-.ap-textarea { width: 100%; border: 1px solid var(--color-border); border-radius: 6px; padding: 8px 12px; font-size: var(--font-size-sm); resize: vertical; }
+.ap-select { border: 1px solid var(--color-border); border-radius: 6px; padding: 6px 10px; font-size: 14px; }
+.ap-input { width: 100%; border: 1px solid var(--color-border); border-radius: 6px; padding: 8px 12px; font-size: 14px; margin-bottom: 4px; }
+.ap-textarea { width: 100%; border: 1px solid var(--color-border); border-radius: 6px; padding: 8px 12px; font-size: 14px; resize: vertical; }
 .ap-btn-sm { font-size: var(--font-size-xs); padding: 2px 8px; }
 .ap-url-count { margin-top: 4px; font-size: var(--font-size-xs); color: var(--color-text-secondary); }
 .ap-url-chip { display: inline-block; background: var(--color-bg-inset); padding: 2px 6px; border-radius: var(--r-xs); margin: 2px; }
@@ -483,17 +483,17 @@ onUnmounted(() => {
 .ap-stage--skipped { background: var(--color-stage-skipped-bg); }
 .ap-stage--pending { background: var(--color-stage-pending-bg); }
 .ap-stage--cancelled { background: var(--color-stage-skipped-bg); }
-.ap-stage-head { font-weight: 600; font-size: var(--font-size-sm); display: flex; align-items: center; gap: 6px; }
+.ap-stage-head { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 6px; }
 .ap-stage-summary { font-size: var(--font-size-xs); color: var(--color-text-secondary); margin-top: 4px; }
 .ap-stage-progress-wrap { margin-top: 4px; }
 .ap-mini-track { background: var(--color-bg-inset); border-radius: var(--r-xs); height: 6px; overflow: hidden; }
-.ap-stage-error { font-size: var(--font-size-xs); color: var(--color-danger); margin-top: 4px; }
+.ap-stage-error { font-size: 11px; color: var(--color-danger); margin-top: 4px; }
 
 /* --- 结果横幅 --- */
 .ap-banner { padding: var(--space-sm); border-radius: 8px; }
 .ap-banner--completed { background: var(--color-stage-completed-bg); }
 .ap-banner--failed { background: var(--color-stage-failed-bg); }
-.ap-banner-title { font-weight: 600; font-size: var(--font-size-sm); }
+.ap-banner-title { font-weight: 600; font-size: 14px; }
 .ap-banner-title--danger { color: var(--color-danger); }
 .ap-banner-hint { font-size: var(--font-size-xs); color: var(--color-text-secondary); margin-top: 4px; }
 .ap-btn-resume { margin-top: 8px; font-size: var(--font-size-sm); }

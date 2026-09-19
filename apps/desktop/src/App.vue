@@ -65,7 +65,7 @@
 </template>
 
 <script setup>
-import { getApi, invokePageManager } from '@/api/electron-bridge'
+import { getApi } from '@/api/electron-bridge'
 import MpModuleNav from '@/layouts/MpModuleNav.vue'
 import MpSidebar from '@/layouts/MpSidebar.vue'
 import TabBar from '@/components/TabBar.vue'
@@ -76,7 +76,7 @@ import SettingsDialog from '@/components/SettingsDialog.vue'
 import BackToTop from '@/components/BackToTop.vue'
 import PipelineBackgroundToast from '@/components/PipelineBackgroundToast.vue'
 import RouteLoadError from '@/components/RouteLoadError.vue'
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { useAccountActions } from '@/composables/useAccountActions'
@@ -107,14 +107,6 @@ const isLoginTab = computed(() => {
   return tab?.isLogin === true || (tab?.accountId != null && !tab.isHome)
 })
 const savingAccount = ref(false)
-
-// ── 壳态互斥上报（T0-6b，A1 决策）──
-// 工作台壳态（首页虚拟标签，SPA 渲染）下浏览器壳与工作台不同时展示：
-// 上报主进程隐藏全部内嵌 WebContentsView；切回浏览器壳时恢复。
-// 上报失败静默（非 Electron 环境/主进程未就绪时不影响渲染层）。
-watch(isHomeTab, (home) => {
-  invokePageManager('setShellMode', home ? 'workbench' : 'browser')
-}, { immediate: true })
 
 // ── NavBar 左右箭头可用性（2026-09-15 修复）──
 // home 标签是虚拟标签（无 WebContentsView），主进程对其 canGoBack/canGoForward

@@ -14,7 +14,7 @@
       <el-table :data="snapList" stripe v-loading="loading" @selection-change="onSelect">
         <el-table-column type="selection" width="50" />
         <el-table-column prop="label" label="标签" min-width="200">
-          <template #default="{ row }"><span v-if="row.label">{{ row.label }}</span><span v-else style="color:var(--color-text-secondary)">无标签</span></template>
+          <template #default="{ row }"><span v-if="row.label">{{ row.label }}</span><span v-else style="color:#999">无标签</span></template>
         </el-table-column>
         <el-table-column prop="item_count" label="配置数" width="100" align="center" />
         <el-table-column prop="created_at" label="创建时间" width="200" />

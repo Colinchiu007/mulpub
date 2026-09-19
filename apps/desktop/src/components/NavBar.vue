@@ -194,7 +194,7 @@ async function copyUrl() {
   border-radius: 6px;
   background: transparent;
   color: #6b7280;
-  font-size: var(--font-size-base);
+  font-size: 16px;
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
@@ -225,13 +225,13 @@ async function copyUrl() {
 }
 
 .url-bar.focused {
-  background: var(--color-bg-card);
+  background: #fff;
   box-shadow: 0 0 0 2px rgba(80, 72, 229, 0.3);
 }
 
 .url-icon {
   flex-shrink: 0;
-  font-size: var(--font-size-xs);
+  font-size: 12px;
   margin-right: 6px;
   color: #9ca3af;
 }
@@ -243,7 +243,7 @@ async function copyUrl() {
   border: none;
   background: transparent;
   color: #374151;
-  font-size: var(--font-size-sm);
+  font-size: 13px;
   outline: none;
 }
 
@@ -261,7 +261,7 @@ async function copyUrl() {
   border-radius: 4px;
   background: transparent;
   color: #9ca3af;
-  font-size: var(--font-size-xs);
+  font-size: 12px;
   cursor: pointer;
 }
 
@@ -279,7 +279,7 @@ async function copyUrl() {
 
 .nav-loading {
   animation: spin 1s linear infinite;
-  font-size: var(--font-size-sm);
+  font-size: 14px;
   color: #6b7280;
 }
 
@@ -290,7 +290,7 @@ async function copyUrl() {
   border-radius: 14px;
   background: #409eff;
   color: #fff;
-  font-size: var(--font-size-sm);
+  font-size: 13px;
   cursor: pointer;
   white-space: nowrap;
   transition: background 0.15s;

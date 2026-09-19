@@ -45,7 +45,7 @@
 }
 
 .dialog-title {
-  font-size: var(--font-size-base);
+  font-size: 16px;
   font-weight: 600;
   margin: 0;
   color: var(--text);
@@ -56,7 +56,7 @@
   height: 32px;
   border: none;
   background: none;
-  font-size: var(--font-size-xl);
+  font-size: 24px;
   color: var(--text-muted);
   cursor: pointer;
   border-radius: 6px;
@@ -75,14 +75,14 @@
 }
 
 .dialog-message {
-  font-size: var(--font-size-sm);
+  font-size: 14px;
   color: var(--text);
   margin: 0 0 12px;
   line-height: 1.5;
 }
 
 .dialog-detail {
-  font-size: var(--font-size-sm);
+  font-size: 13px;
   color: var(--text-muted);
   margin: 0 0 12px;
   padding: 8px 12px;
@@ -91,7 +91,7 @@
 }
 
 .dialog-hint {
-  font-size: var(--font-size-sm);
+  font-size: 13px;
   color: var(--text-light);
   margin: 0;
 }
@@ -110,7 +110,7 @@
   border-radius: 6px;
   background: var(--primary);
   color: #fff;
-  font-size: var(--font-size-sm);
+  font-size: 14px;
   font-weight: 500;
   cursor: pointer;
 }
@@ -130,7 +130,7 @@
   border-radius: 6px;
   background: transparent;
   color: var(--text);
-  font-size: var(--font-size-sm);
+  font-size: 14px;
   cursor: pointer;
 }
 

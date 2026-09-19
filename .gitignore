@@ -250,3 +250,6 @@ shared-user-data/
 # 项目记忆与自动化产物（机器生成，不入库）
 .workbuddy/artifacts/
 .workbuddy/automations/
+
+# Git worktree 隔离目录（会话工作区，不入库）
+.worktrees/

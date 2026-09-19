@@ -446,23 +446,23 @@ function updateField (platformId, field, value) {
 <style scoped>
 .override-panel { display: flex; flex-direction: column; gap: 12px; }
 .override-panel__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.override-panel__title { margin: 0; font-size: var(--font-size-sm); font-weight: 600; color: var(--text-primary, #202124); }
-.override-panel__hint { margin: 4px 0 0; color: var(--muted, #8a8f98); font-size: var(--font-size-xs); }
+.override-panel__title { margin: 0; font-size: 14px; font-weight: 600; color: var(--text-primary, #202124); }
+.override-panel__hint { margin: 4px 0 0; color: var(--muted, #8a8f98); font-size: 12px; }
 .override-list { display: grid; gap: 8px; }
 .override-item { border: 1px solid var(--border-light, #e8eaed); border-radius: 6px; padding: 10px 12px; background: var(--surface, #fff); }
 .override-item__header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.override-toggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: var(--font-size-sm); color: var(--text-primary, #202124); }
+.override-toggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; color: var(--text-primary, #202124); }
 .override-toggle input { accent-color: var(--coral, #f56c6c); }
-.override-state { color: var(--action-blue, #1890ff); font-size: var(--font-size-xs); }
+.override-state { color: var(--action-blue, #1890ff); font-size: 11px; }
 .override-fields { display: grid; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border-light, #f0f1f2); }
-.override-field { display: grid; gap: 5px; font-size: var(--font-size-xs); color: var(--muted, #73777d); }
+.override-field { display: grid; gap: 5px; font-size: 12px; color: var(--muted, #73777d); }
 .override-field small { margin-left: 6px; color: var(--muted, #9aa0a6); }
 .override-field input, .override-field textarea { width: 100%; box-sizing: border-box; border: 1px solid var(--border-light, #e0e0e0); border-radius: 4px; padding: 7px 9px; color: var(--text-primary, #202124); background: var(--surface, #fff); font: inherit; resize: vertical; }
 .override-field select { width: 100%; box-sizing: border-box; border: 1px solid var(--border-light, #e0e0e0); border-radius: 4px; padding: 7px 9px; color: var(--text-primary, #202124); background: var(--surface, #fff); font: inherit; }
-.override-check { display: inline-flex; align-items: center; gap: 8px; font-size: var(--font-size-xs); color: var(--muted, #73777d); }
+.override-check { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted, #73777d); }
 .override-check input { accent-color: var(--coral, #f56c6c); }
 .collection-picker { display: flex; gap: 8px; align-items: center; }
-.collection-picker__btn { white-space: nowrap; padding: 6px 10px; border: 1px solid var(--border-light, #e0e0e0); border-radius: 4px; background: var(--surface, #fff); color: var(--text-primary, #202124); font: inherit; font-size: var(--font-size-xs); cursor: pointer; }
+.collection-picker__btn { white-space: nowrap; padding: 6px 10px; border: 1px solid var(--border-light, #e0e0e0); border-radius: 4px; background: var(--surface, #fff); color: var(--text-primary, #202124); font: inherit; font-size: 12px; cursor: pointer; }
 .collection-picker__btn:disabled { opacity: 0.6; cursor: wait; }
 .collection-picker select { flex: 1; border: 1px solid var(--border-light, #e0e0e0); border-radius: 4px; padding: 6px 8px; font: inherit; }
 .override-field input:focus, .override-field textarea:focus { outline: 2px solid color-mix(in srgb, var(--action-blue, #1890ff) 25%, transparent); border-color: var(--action-blue, #1890ff); }

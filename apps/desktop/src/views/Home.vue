@@ -423,7 +423,7 @@ onUnmounted(() => {
 }
 
 .stat-number {
-  font-size: var(--font-size-lg);
+  font-size: 22px;
   font-weight: 600;
   line-height: 1.3;
   color: var(--color-text-primary);
@@ -461,7 +461,7 @@ onUnmounted(() => {
 .mp-home-section-title {
   margin: 0 0 16px;
   color: #25252b;
-  font-size: var(--font-size-base);
+  font-size: 16px;
   font-weight: 600;
 }
 
@@ -519,7 +519,7 @@ onUnmounted(() => {
   border-radius: 20px;
   background: #f9f9fc;
   color: #4d4f6f;
-  font-size: var(--font-size-sm);
+  font-size: 13px;
 }
 
 /* 近期动态 */
@@ -540,7 +540,7 @@ onUnmounted(() => {
   padding: 14px 16px;
   border: 1px solid #e8eaf2;
   border-radius: 10px;
-  background: var(--color-bg-card);
+  background: #fff;
 }
 
 .recent-item-info {
@@ -554,7 +554,7 @@ onUnmounted(() => {
 .recent-item-title {
   overflow: hidden;
   color: #25252b;
-  font-size: var(--font-size-sm);
+  font-size: 14px;
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -565,14 +565,14 @@ onUnmounted(() => {
   border-radius: 4px;
   background: #f0efff;
   color: #5048e5;
-  font-size: var(--font-size-xs);
+  font-size: 11px;
   flex: 0 0 auto;
 }
 
 .recent-item-status {
   padding: 2px 10px;
   border-radius: 12px;
-  font-size: var(--font-size-xs);
+  font-size: 12px;
   flex: 0 0 auto;
 }
 
@@ -583,7 +583,7 @@ onUnmounted(() => {
 
 .recent-item-time {
   color: #8b8e9a;
-  font-size: var(--font-size-xs);
+  font-size: 12px;
   flex: 0 0 auto;
 }
 

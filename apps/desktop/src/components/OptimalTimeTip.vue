@@ -1,6 +1,6 @@
 <template>
   <div class="cohere-card" style="cursor:default;padding:16px">
-    <div style="font-weight:600;font-size: var(--font-size-sm);margin-bottom:var(--space-md);padding-bottom:var(--space-sm);border-bottom:1px solid var(--border)">
+    <div style="font-weight:600;font-size:14px;margin-bottom:var(--space-md);padding-bottom:var(--space-sm);border-bottom:1px solid var(--border)">
       ⏰ 最佳发布时间
     </div>
 
@@ -10,17 +10,17 @@
     </div>
 
     <!-- Short keyword -->
-    <div v-else-if="!keyword || keyword.trim().length < 2" style="padding:12px 0;font-size: var(--font-size-xs);color:var(--muted);text-align:center">
+    <div v-else-if="!keyword || keyword.trim().length < 2" style="padding:12px 0;font-size:12px;color:var(--muted);text-align:center">
       请输入更长的关键词
     </div>
 
     <!-- Error -->
-    <div v-else-if="error" style="padding:12px 0;font-size: var(--font-size-sm);color:var(--coral)">
+    <div v-else-if="error" style="padding:12px 0;font-size:13px;color:var(--coral)">
       {{ error }}
     </div>
 
     <!-- Not enough data -->
-    <div v-else-if="notEnoughData" style="padding:12px 0;font-size: var(--font-size-xs);color:var(--muted);text-align:center">
+    <div v-else-if="notEnoughData" style="padding:12px 0;font-size:12px;color:var(--muted);text-align:center">
       数据不足，无法分析最佳发布时间
     </div>
 
@@ -28,18 +28,18 @@
     <div v-else-if="data">
       <!-- Best hour highlight -->
       <div style="text-align:center;padding:var(--space-md);margin-bottom:var(--space-md);background:linear-gradient(135deg,var(--surface)3e0,#ffe0b2);border-radius:10px">
-        <div style="font-size: var(--font-size-xs);color:var(--muted);margin-bottom:4px">推荐发布时段</div>
-        <div style="font-size: var(--font-size-xxl);font-weight:800;color:#e65100;line-height:1.1">{{ data.bestHourCN }}:00</div>
-        <div style="font-size: var(--font-size-xs);color:var(--muted);margin-top:6px">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">推荐发布时段</div>
+        <div style="font-size:36px;font-weight:800;color:#e65100;line-height:1.1">{{ data.bestHourCN }}:00</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:6px">
           最佳发布时段 UTC {{ data.bestHourUTC }}:00（北京时间 {{ data.bestHourCN }}:00）
         </div>
       </div>
 
       <!-- Top 3 hours -->
       <div style="margin-bottom:var(--space-md)">
-        <div style="font-size: var(--font-size-xs);color:var(--muted);margin-bottom:6px">其他推荐时段：</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:6px">其他推荐时段：</div>
         <div v-for="h in topHours" :key="h.hourCN" style="display:flex;align-items:center;gap:8px;padding:4px 0">
-          <span style="font-size: var(--font-size-sm);font-weight:600;min-width:50px;color:var(--text)">{{ h.hourCN }}:00</span>
+          <span style="font-size:13px;font-weight:600;min-width:50px;color:var(--text)">{{ h.hourCN }}:00</span>
           <div style="flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden">
             <div :style="{
               width: barWidth(h.score),
@@ -49,22 +49,22 @@
               transition: 'width 0.4s ease',
             }"></div>
           </div>
-          <span style="font-size: var(--font-size-xs);color:var(--muted);min-width:40px;text-align:right">{{ h.score.toFixed(1) }}</span>
+          <span style="font-size:12px;color:var(--muted);min-width:40px;text-align:right">{{ h.score.toFixed(1) }}</span>
         </div>
       </div>
 
       <!-- Data badges -->
       <div style="display:flex;gap:var(--space-sm);flex-wrap:wrap;margin-bottom:var(--space-sm)">
-        <span class="cohere-tag cohere-tag-info" style="font-size: var(--font-size-xs)">
+        <span class="cohere-tag cohere-tag-info" style="font-size:11px">
           📊 {{ data.dataPoints || 0 }} 条数据
         </span>
       </div>
 
       <!-- Source distribution -->
       <div v-if="data.bySource" style="border-top:1px solid var(--border);padding-top:var(--space-sm)">
-        <div style="font-size: var(--font-size-xs);color:var(--muted);margin-bottom:4px">数据来源分布：</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:4px">数据来源分布：</div>
         <div style="display:flex;flex-wrap:wrap;gap:6px">
-          <span v-for="(count, source) in data.bySource" :key="source" class="cohere-tag" style="font-size: var(--font-size-xs);background:var(--border);color:var(--text);padding:2px 8px;border-radius:4px">
+          <span v-for="(count, source) in data.bySource" :key="source" class="cohere-tag" style="font-size:11px;background:var(--border);color:var(--text);padding:2px 8px;border-radius:4px">
             {{ source }}: {{ count }}
           </span>
         </div>

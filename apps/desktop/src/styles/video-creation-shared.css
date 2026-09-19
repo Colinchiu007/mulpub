@@ -26,10 +26,10 @@
 }
 @keyframes s2v-empty-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
 .s2v-empty-title {
-  font-size: var(--font-size-base); font-weight: 600; color: var(--text, #333); margin: 0;
+  font-size: 16px; font-weight: 600; color: var(--text, #333); margin: 0;
 }
 .s2v-empty-hint {
-  font-size: var(--font-size-sm); color: var(--text-light, #999); margin: 0; max-width: 320px; line-height: 1.5;
+  font-size: 13px; color: var(--text-light, #999); margin: 0; max-width: 320px; line-height: 1.5;
 }
 
 /* 进度条 */
@@ -41,7 +41,7 @@
   transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .s2v-progress-text {
-  font-size: var(--font-size-xs); color: var(--text-muted, #666); margin-left: 8px;
+  font-size: 12px; color: var(--text-muted, #666); margin-left: 8px;
 }
 
 /* 错误提示 */
@@ -64,7 +64,7 @@
 
 /* 状态标签 */
 .s2v-status-badge {
-  font-size: var(--font-size-xs); padding: 3px 10px; border-radius: 6px; font-weight: 600;
+  font-size: 11px; padding: 3px 10px; border-radius: 6px; font-weight: 600;
   letter-spacing: 0.03em; text-transform: uppercase; white-space: nowrap;
   display: inline-flex; align-items: center; gap: 4px;
 }
@@ -77,7 +77,7 @@
 
 /* 阶段标签 */
 .s2v-stage-tag {
-  font-size: var(--font-size-xs); padding: 3px 8px; border-radius: var(--r-xs, 4px);
+  font-size: 11px; padding: 3px 8px; border-radius: var(--r-xs, 4px);
   background: var(--status-pending-bg, #f3f4f6); color: var(--status-pending-text, #999);
   font-weight: 500; white-space: nowrap;
 }

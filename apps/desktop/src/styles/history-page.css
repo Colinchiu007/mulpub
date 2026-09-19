@@ -161,7 +161,7 @@
   min-width: 200px;
 }
 .render-icon {
-  font-size: var(--font-size-lg);
+  font-size: 22px;
   width: 36px;
   height: 36px;
   display: flex;

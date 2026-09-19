@@ -1,16 +1,16 @@
 <template>
   <div v-if="visible" class="title-assistant">
     <div class="ta-header">
-      <span style="font-weight:600;font-size: var(--font-size-sm)">📊 标题参考</span>
-      <button class="cohere-btn-ghost" @click="$emit('close')" style="font-size: var(--font-size-xs);padding:2px 6px">✕</button>
+      <span style="font-weight:600;font-size:13px">📊 标题参考</span>
+      <button class="cohere-btn-ghost" @click="$emit('close')" style="font-size:12px;padding:2px 6px">✕</button>
     </div>
-    <div v-if="loading" style="text-align:center;padding:20px 0;font-size: var(--font-size-sm);color:var(--muted)">
+    <div v-if="loading" style="text-align:center;padding:20px 0;font-size:13px;color:var(--muted)">
       正在分析同类标题...
     </div>
-    <div v-else-if="error" style="padding:12px;font-size: var(--font-size-sm);color:var(--coral)">
+    <div v-else-if="error" style="padding:12px;font-size:13px;color:var(--coral)">
       {{ error }}
     </div>
-    <div v-else-if="!data" style="padding:12px;font-size: var(--font-size-xs);color:var(--muted);text-align:center">
+    <div v-else-if="!data" style="padding:12px;font-size:12px;color:var(--muted);text-align:center">
       输入标题后自动分析
     </div>
     <div v-else>
@@ -23,7 +23,7 @@
 
       <!-- 高频词 -->
       <div v-if="data.patterns" class="ta-section">
-        <div style="font-size: var(--font-size-xs);color:var(--muted);margin-bottom:4px">同类标题高频词：</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:4px">同类标题高频词：</div>
         <div style="display:flex;flex-wrap:wrap;gap:4px">
           <span v-for="[word, count] in data.patterns" :key="word"
             class="cohere-tag"
@@ -41,10 +41,10 @@
 
       <!-- 参考标题列表 -->
       <div v-if="data.titles && data.titles.length > 0" class="ta-section">
-        <div style="font-size: var(--font-size-xs);color:var(--muted);margin-bottom:4px">高互动参考：</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:4px">高互动参考：</div>
         <div v-for="t in data.titles.slice(0, 5)" :key="t.id" class="ta-ref-item">
-          <div style="font-size: var(--font-size-xs);line-height:1.3;margin-bottom:2px">{{ t.title }}</div>
-          <div style="font-size: var(--font-size-xs);color:var(--muted)">
+          <div style="font-size:12px;line-height:1.3;margin-bottom:2px">{{ t.title }}</div>
+          <div style="font-size:11px;color:var(--muted)">
             <span :style="{ color: scoreColor(t.engagement) }">🔥 {{ t.engagement.toFixed(1) }}</span>
             <span v-if="t.source === 'reddit'" style="margin-left:6px">Reddit</span>
             <span v-else-if="t.source === 'hackernews'" style="margin-left:6px">HN</span>
@@ -126,7 +126,7 @@ watch(() => props.visible, (v) => {
   border-radius: 8px;
   padding: 12px;
   margin-top: 12px;
-  font-size: var(--font-size-sm);
+  font-size: 13px;
 }
 .ta-header {
   display: flex;
@@ -144,7 +144,7 @@ watch(() => props.visible, (v) => {
   border-left: 3px solid #f57c00;
   padding: 8px 10px;
   border-radius: 4px;
-  font-size: var(--font-size-xs);
+  font-size: 12px;
   line-height: 1.4;
 }
 .ta-ref-item {

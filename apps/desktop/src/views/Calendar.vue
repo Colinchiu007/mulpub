@@ -8,7 +8,7 @@
         </div>
         <div style="display:flex;align-items:center;gap:8px">
           <button class="cohere-btn-secondary" @click="prevMonth">◀</button>
-          <span style="font-weight:600;font-size: var(--font-size-base);min-width:140px;text-align:center">{{ currentMonthLabel }}</span>
+          <span style="font-weight:600;font-size:15px;min-width:140px;text-align:center">{{ currentMonthLabel }}</span>
           <button class="cohere-btn-secondary" @click="nextMonth">▶</button>
           <button class="cohere-btn-secondary" @click="today" style="margin-left:8px">今天</button>
         </div>
@@ -50,11 +50,11 @@
       <!-- 详情面板 -->
       <div style="flex:1;min-width:280px">
         <div class="cohere-card" style="cursor:default;padding:16px">
-          <div style="font-weight:600;font-size: var(--font-size-sm);margin-bottom:var(--space-md)">
+          <div style="font-weight:600;font-size:14px;margin-bottom:var(--space-md)">
             {{ selectedDateLabel || '选择日期查看详情' }}
           </div>
 
-          <div v-if="!selectedDayEvents || selectedDayEvents.length === 0" style="text-align:center;padding:20px;color:var(--muted);font-size: var(--font-size-sm)">
+          <div v-if="!selectedDayEvents || selectedDayEvents.length === 0" style="text-align:center;padding:20px;color:var(--muted);font-size:13px">
             该日期暂无发布记录
           </div>
 
@@ -299,7 +299,7 @@ onMounted(() => {
 .cal-header {
   padding: 10px 4px;
   text-align: center;
-  font-size: var(--font-size-xs);
+  font-size: 12px;
   font-weight: 600;
   color: var(--muted);
   background: var(--soft-stone, #f8f8f8);
@@ -340,7 +340,7 @@ onMounted(() => {
   background: var(--coral);
 }
 .cal-day-num {
-  font-size: var(--font-size-sm);
+  font-size: 13px;
   font-weight: 500;
   width: 24px;
   height: 24px;
@@ -365,7 +365,7 @@ onMounted(() => {
 .cal-event-dot.success { background: #34d399; }
 .cal-event-dot.failed { background: #f87171; }
 .cal-event-more {
-  font-size: var(--font-size-xs);
+  font-size: 9px;
   color: var(--muted);
 }
 .day-events {
@@ -377,13 +377,13 @@ onMounted(() => {
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  font-size: var(--font-size-sm);
+  font-size: 13px;
 }
 .day-event-item.scheduled { border-left: 3px solid #fbbf24; }
 .day-event-item.success { border-left: 3px solid #34d399; }
 .day-event-item.failed { border-left: 3px solid #f87171; }
 .event-time {
-  font-size: var(--font-size-xs);
+  font-size: 11px;
   color: var(--muted);
   margin-bottom: 2px;
 }
@@ -399,7 +399,7 @@ onMounted(() => {
   white-space: nowrap;
 }
 .event-platform {
-  font-size: var(--font-size-xs);
+  font-size: 11px;
   color: var(--muted);
   margin-top: 2px;
 }

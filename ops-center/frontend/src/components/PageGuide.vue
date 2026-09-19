@@ -30,8 +30,8 @@ defineProps({
 }
 .page-guide :deep(.el-card__body) { padding: 16px 20px; }
 .page-guide__heading { display: flex; gap: 12px; align-items: flex-start; }
-.page-guide__icon { color: var(--el-color-primary); font-size: var(--font-size-lg); margin-top: 2px; }
-.page-guide__title { color: var(--el-text-color-primary); font-size: var(--font-size-base); font-weight: 600; }
+.page-guide__icon { color: var(--el-color-primary); font-size: 22px; margin-top: 2px; }
+.page-guide__title { color: var(--el-text-color-primary); font-size: 16px; font-weight: 600; }
 .page-guide__intro { color: var(--el-text-color-regular); line-height: 1.6; margin-top: 4px; }
 .page-guide__purpose { color: var(--el-text-color-regular); line-height: 1.6; margin: 12px 0 0 34px; }
 .page-guide__purpose strong { color: var(--el-text-color-primary); }

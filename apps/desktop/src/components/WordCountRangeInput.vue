@@ -61,24 +61,24 @@ function toNumber(v) {
   flex-wrap: wrap;
 }
 .word-count-label {
-  font-size: var(--font-size-sm);
+  font-size: 13px;
   color: var(--text-secondary);
   white-space: nowrap;
 }
 .word-count-input {
   width: 80px;
   padding: 4px 8px;
-  font-size: var(--font-size-sm);
+  font-size: 13px;
 }
 .word-count-sep {
   color: var(--muted);
 }
 .word-count-unit {
-  font-size: var(--font-size-sm);
+  font-size: 13px;
   color: var(--muted);
 }
 .word-count-error {
-  font-size: var(--font-size-xs);
+  font-size: 12px;
   color: #d32f2f;
 }
 </style>

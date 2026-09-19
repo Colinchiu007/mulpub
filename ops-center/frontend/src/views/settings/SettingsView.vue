@@ -86,9 +86,9 @@ function onDragEnd() {
   align-items: center;
   gap: 12px;
   padding: 10px 14px;
-  border: 1px solid var(--color-border);
+  border: 1px solid #ebeef5;
   border-radius: 8px;
-  background: var(--color-bg-canvas);
+  background: #fff;
   cursor: grab;
   user-select: none;
 }
@@ -96,20 +96,20 @@ function onDragEnd() {
   cursor: grabbing;
 }
 .menu-order-row.drag-over {
-  border-color: var(--color-primary);
-  background: var(--color-primary-light);
+  border-color: #409eff;
+  background: #ecf5ff;
 }
 .menu-order-row.dragging {
   opacity: 0.5;
 }
 .drag-handle {
-  color: var(--color-text-muted);
+  color: #c0c4cc;
 }
 .row-index {
   width: 24px;
   text-align: center;
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
+  color: #909399;
+  font-size: 13px;
 }
 .row-label {
   flex: 1;

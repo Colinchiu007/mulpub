@@ -82,13 +82,13 @@ onMounted(() => {
   margin-bottom: 24px;
 }
 .page-header h1 {
-  font-size: var(--font-size-xl);
+  font-size: 24px;
   font-weight: 700;
   margin: 0 0 4px 0;
 }
 .text-muted {
   color: var(--text-muted, #909399);
-  font-size: var(--font-size-sm);
+  font-size: 14px;
   margin: 0;
 }
 

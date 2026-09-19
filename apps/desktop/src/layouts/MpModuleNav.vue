@@ -77,7 +77,7 @@ function isTabActive (tab) {
   align-items: stretch;
   padding: 0 24px;
   box-sizing: border-box;
-  background: var(--color-bg-card);
+  background: #fff;
   border-bottom: 1px solid var(--mp-nav-border, #e8eaf2);
   color: var(--mp-muted, #8b8e9a);
 }
@@ -97,7 +97,7 @@ function isTabActive (tab) {
   padding: 0;
   border: 0;
   color: var(--mp-muted, #8b8e9a);
-  font-size: var(--font-size-base);
+  font-size: 16px;
   line-height: 1;
   text-decoration: none;
   white-space: nowrap;
@@ -146,7 +146,7 @@ function isTabActive (tab) {
 
   .mp-module-tab {
     min-height: calc(var(--mp-nav-height, 70px) - 8px);
-    font-size: var(--font-size-sm);
+    font-size: 14px;
   }
 
   .mp-module-nav {

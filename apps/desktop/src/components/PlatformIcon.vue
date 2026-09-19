@@ -119,8 +119,8 @@ const sizeClass = computed(() => "pi-" + props.size);
   flex-shrink: 0;
   user-select: none;
 }
-.pi-sm { width: 24px; height: 24px; font-size: var(--font-size-xs); border-radius: 6px; }
-.pi-md { width: 32px; height: 32px; font-size: var(--font-size-sm); }
-.pi-lg { width: 40px; height: 40px; font-size: var(--font-size-md); border-radius: 10px; }
+.pi-sm { width: 24px; height: 24px; font-size: 11px; border-radius: 6px; }
+.pi-md { width: 32px; height: 32px; font-size: 14px; }
+.pi-lg { width: 40px; height: 40px; font-size: 18px; border-radius: 10px; }
 .pi-img { object-fit: contain; border-radius: 4px; background: transparent; }
 </style>

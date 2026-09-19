@@ -23,7 +23,7 @@ onMounted(() => {
   background: #fef3c7;
   border-bottom: 1px solid #fbbf24;
   padding: 8px 16px;
-  font-size: var(--font-size-sm);
+  font-size: 13px;
   color: #92400e;
   display: flex;
   align-items: center;

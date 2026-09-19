@@ -2,7 +2,7 @@
   <div class="login-page">
     <el-card class="login-card" shadow="always">
       <div class="login-header">
-        <el-icon :size="32" color="var(--color-primary)"><Setting /></el-icon>
+        <el-icon :size="32" color="#409EFF"><Setting /></el-icon>
         <h2>OpsCenter</h2>
         <p>运营配置中心</p>
       </div>
@@ -18,7 +18,7 @@
             登录
           </el-button>
         </el-form-item>
-        <p v-if="error" style="color: var(--color-danger); text-align:center">{{ error }}</p>
+        <p v-if="error" style="color: #f56c6c; text-align:center">{{ error }}</p>
       </el-form>
     </el-card>
   </div>
@@ -61,7 +61,7 @@ async function handleLogin() {
   justify-content: center;
   align-items: center;
   min-height: 100vh;
-  background: var(--color-bg-inset);
+  background: #f0f2f5;
 }
 .login-card {
   width: 400px;
@@ -70,6 +70,6 @@ async function handleLogin() {
   text-align: center;
   margin-bottom: 24px;
 }
-.login-header h2 { margin: 8px 0 4px; font-size: var(--font-size-xl); }
-.login-header p { color: var(--color-text-secondary); margin: 0; }
+.login-header h2 { margin: 8px 0 4px; font-size: 24px; }
+.login-header p { color: #999; margin: 0; }
 </style>

@@ -2,10 +2,10 @@
   <div class="cohere-card" style="cursor: default;">
     <!-- Header -->
     <div class="cohere-page-header" style="margin-bottom: var(--space-md);">
-      <div style="font-size: var(--font-size-md); font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 8px;">
+      <div style="font-size: 18px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 8px;">
         <span>🔍 关键词监测</span>
       </div>
-      <div style="font-size: var(--font-size-sm); color: var(--muted); margin-top: 2px;">6小时轮询，异常飙升通知</div>
+      <div style="font-size: 13px; color: var(--muted); margin-top: 2px;">6小时轮询，异常飙升通知</div>
     </div>
 
     <!-- Add keyword -->
@@ -14,14 +14,14 @@
         v-model="newKeyword"
         class="cohere-input"
         placeholder="输入监测关键词"
-        style="flex: 1; padding: 8px 12px; border: 1px solid var(--border); border-radius: 4px; font-size: var(--font-size-sm); outline: none;"
+        style="flex: 1; padding: 8px 12px; border: 1px solid var(--border); border-radius: 4px; font-size: 14px; outline: none;"
         @keyup.enter="addKeyword"
       />
-      <button class="cohere-btn-primary" style="padding: 8px 16px; font-size: var(--font-size-sm); cursor: pointer; border: none; border-radius: 4px;" @click="addKeyword">
+      <button class="cohere-btn-primary" style="padding: 8px 16px; font-size: 14px; cursor: pointer; border: none; border-radius: 4px;" @click="addKeyword">
         添加
       </button>
     </div>
-    <div style="font-size: var(--font-size-xs); color: var(--muted); margin-bottom: var(--space-md);">
+    <div style="font-size: 12px; color: var(--muted); margin-bottom: var(--space-md);">
       最多 20 个关键词
     </div>
 
@@ -32,8 +32,8 @@
 
     <!-- Empty state -->
     <div v-else-if="!keywords.length" class="cohere-empty" style="padding: 32px 0; text-align: center;">
-      <div style="font-size: var(--font-size-sm); color: var(--muted); margin-bottom: 8px;">尚未添加监测关键词</div>
-      <div style="font-size: var(--font-size-sm); color: var(--muted);">输入关键词并点击"添加"开始监测</div>
+      <div style="font-size: 14px; color: var(--muted); margin-bottom: 8px;">尚未添加监测关键词</div>
+      <div style="font-size: 13px; color: var(--muted);">输入关键词并点击"添加"开始监测</div>
     </div>
 
     <!-- Keywords list -->
@@ -46,10 +46,10 @@
         <div style="display: flex; justify-content: space-between; align-items: flex-start;">
           <div style="flex: 1;">
             <!-- Keyword text -->
-            <div style="font-weight: 600; font-size: var(--font-size-sm); color: var(--text); margin-bottom: 4px;">{{ kw.keyword }}</div>
+            <div style="font-weight: 600; font-size: 14px; color: var(--text); margin-bottom: 4px;">{{ kw.keyword }}</div>
 
             <!-- Status -->
-            <div style="display: flex; align-items: center; gap: 12px; font-size: var(--font-size-xs); color: var(--muted); margin-bottom: 4px;">
+            <div style="display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--muted); margin-bottom: 4px;">
               <span style="display: flex; align-items: center; gap: 4px;">
                 <span style="width: 6px; height: 6px; border-radius: 50%; background: var(--cohere-green); display: inline-block;"></span>
                 监测中
@@ -61,10 +61,10 @@
 
           <!-- Actions -->
           <div style="display: flex; gap: 6px; flex-shrink: 0;">
-            <button class="cohere-btn-ghost" style="padding: 4px 12px; font-size: var(--font-size-xs); cursor: pointer; border: 1px solid var(--border); border-radius: 4px; background: transparent;" @click="openHistory(kw.keyword)">
+            <button class="cohere-btn-ghost" style="padding: 4px 12px; font-size: 12px; cursor: pointer; border: 1px solid var(--border); border-radius: 4px; background: transparent;" @click="openHistory(kw.keyword)">
               查看历史
             </button>
-            <button class="cohere-btn-ghost" style="padding: 4px 12px; font-size: var(--font-size-xs); cursor: pointer; border: 1px solid var(--coral); border-radius: 4px; color: var(--coral); background: transparent;" @click="stopKeyword(kw.keyword)">
+            <button class="cohere-btn-ghost" style="padding: 4px 12px; font-size: 12px; cursor: pointer; border: 1px solid var(--coral); border-radius: 4px; color: var(--coral); background: transparent;" @click="stopKeyword(kw.keyword)">
               停止
             </button>
           </div>
@@ -79,7 +79,7 @@
       <div v-if="historyLoading" style="padding: 8px 0" data-testid="keyword-history-loading">
         <UiSkeleton variant="paragraph" :rows="4" />
       </div>
-      <div v-else-if="!historyEntries.length" style="padding: 24px; text-align: center; color: var(--muted); font-size: var(--font-size-sm);">
+      <div v-else-if="!historyEntries.length" style="padding: 24px; text-align: center; color: var(--muted); font-size: 14px;">
         暂无历史记录
       </div>
       <div v-else class="cohere-timeline" style="padding: 8px 0;">
@@ -89,8 +89,8 @@
           class="cohere-timeline-item"
           style="position: relative; padding-left: 20px; border-left: 2px solid var(--border); margin-bottom: var(--space-md); padding-bottom: var(--space-sm);"
         >
-          <div style="font-size: var(--font-size-xs); color: var(--muted); margin-bottom: 4px;">{{ entry.checkedAt }}</div>
-          <div style="display: flex; gap: 16px; font-size: var(--font-size-sm); color: var(--text);">
+          <div style="font-size: 12px; color: var(--muted); margin-bottom: 4px;">{{ entry.checkedAt }}</div>
+          <div style="display: flex; gap: 16px; font-size: 13px; color: var(--text);">
             <span>总提及: <strong>{{ entry.totalMentions ?? entry.total ?? 0 }}</strong></span>
             <span>最高互动: <strong>{{ entry.topEngagement ?? 0 }}</strong></span>
           </div>

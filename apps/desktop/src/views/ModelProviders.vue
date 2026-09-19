@@ -1308,7 +1308,7 @@ onMounted(() => {
 }
 .view-mode-tab:hover { color: var(--ink, #222); }
 .view-mode-tab.active {
-  background: var(--color-bg-card);
+  background: #fff;
   color: var(--ink, #222);
   box-shadow: 0 1px 3px rgba(0,0,0,0.08);
 }

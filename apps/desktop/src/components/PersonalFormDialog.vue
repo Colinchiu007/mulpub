@@ -126,12 +126,12 @@ async function submit () {
   align-items: center;
   margin-bottom: 12px;
 }
-.dialog-title { font-size: var(--font-size-base); font-weight: 600; }
+.dialog-title { font-size: 15px; font-weight: 600; }
 .dialog-close {
   border: none;
   background: none;
   cursor: pointer;
-  font-size: var(--font-size-sm);
+  font-size: 14px;
   color: var(--muted);
 }
 .dialog-body { margin-bottom: 12px; }
@@ -143,7 +143,7 @@ async function submit () {
 .cohere-form-item { margin-bottom: 10px; }
 .cohere-form-label {
   display: block;
-  font-size: var(--font-size-xs);
+  font-size: 12px;
   font-weight: 500;
   color: var(--muted);
   margin-bottom: 4px;
@@ -153,12 +153,12 @@ async function submit () {
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  font-size: var(--font-size-sm);
+  font-size: 13px;
   outline: none;
   box-sizing: border-box;
 }
 .cohere-input:focus { border-color: var(--coral); }
-.form-error { color: var(--danger, #c53b3b); font-size: var(--font-size-xs); margin: 4px 0 0; }
+.form-error { color: var(--danger, #c53b3b); font-size: 12px; margin: 4px 0 0; }
 .cohere-btn-primary {
   padding: 8px 16px;
   background: var(--coral, #f56c6c);
@@ -166,7 +166,7 @@ async function submit () {
   border: none;
   border-radius: 8px;
   cursor: pointer;
-  font-size: var(--font-size-sm);
+  font-size: 13px;
   font-weight: 500;
 }
 .cohere-btn-primary:disabled { opacity: 0.5; cursor: default; }
@@ -177,7 +177,7 @@ async function submit () {
   border: 1px solid var(--border);
   border-radius: 8px;
   cursor: pointer;
-  font-size: var(--font-size-sm);
+  font-size: 13px;
 }
 .cohere-btn-secondary:hover { border-color: var(--coral); color: var(--coral); }
 </style>

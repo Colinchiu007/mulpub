@@ -77,16 +77,16 @@ function isAccountSelected (platformId, accountId) {
 
 <style scoped>
 .target-selector { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
-.target-selector__search { width: 100%; box-sizing: border-box; border: 1px solid var(--border-light, #e0e0e0); border-radius: 6px; padding: 8px 10px; color: var(--text-primary, #202124); background: var(--surface, #fff); font-size: var(--font-size-sm); }
+.target-selector__search { width: 100%; box-sizing: border-box; border: 1px solid var(--border-light, #e0e0e0); border-radius: 6px; padding: 8px 10px; color: var(--text-primary, #202124); background: var(--surface, #fff); font-size: 13px; }
 .target-selector__search:focus { outline: 2px solid color-mix(in srgb, var(--action-blue, #1890ff) 25%, transparent); border-color: var(--action-blue, #1890ff); }
 .target-selector__list { min-height: 0; max-height: clamp(220px, 38vh, 430px); overflow-y: auto; padding-right: 4px; scrollbar-gutter: stable; }
-.target-selector__empty, .target-accounts__empty { color: var(--muted, #8a8f98); font-size: var(--font-size-xs); }
+.target-selector__empty, .target-accounts__empty { color: var(--muted, #8a8f98); font-size: 12px; }
 .target-group { display: grid; gap: 8px; }
-.target-group__label { margin: 0; color: var(--muted, #73777d); font-size: var(--font-size-xs); font-weight: 600; }
+.target-group__label { margin: 0; color: var(--muted, #73777d); font-size: 12px; font-weight: 600; }
 .target-platform { display: grid; gap: 6px; }
-.target-platform__row, .target-account { display: inline-flex; align-items: center; gap: 8px; min-height: 28px; cursor: pointer; font-size: var(--font-size-sm); color: var(--text-primary, #202124); }
+.target-platform__row, .target-account { display: inline-flex; align-items: center; gap: 8px; min-height: 28px; cursor: pointer; font-size: 13px; color: var(--text-primary, #202124); }
 .target-platform__row input, .target-account input { accent-color: var(--coral, #f56c6c); }
 .target-accounts { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-left: 24px; padding-left: 10px; border-left: 2px solid var(--border-light, #eef0f2); }
-.target-account { min-height: 24px; font-size: var(--font-size-xs); color: var(--muted, #5f6368); }
-.target-account__default { color: var(--action-blue, #1890ff); font-size: var(--font-size-xs); }
+.target-account { min-height: 24px; font-size: 12px; color: var(--muted, #5f6368); }
+.target-account__default { color: var(--action-blue, #1890ff); font-size: 10px; }
 </style>

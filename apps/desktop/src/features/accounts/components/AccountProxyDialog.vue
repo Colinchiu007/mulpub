@@ -126,6 +126,6 @@ function save () {
 
 <style scoped>
 .proxy-form { display: flex; flex-direction: column; gap: 2px; }
-.proxy-status { padding: 8px 10px; border: 1px solid #d9e8e0; border-radius: 5px; background: #f3faf6; color: #287154; font-size: var(--font-size-xs); }
-.validation-error { margin: 0; color: #c43d4d; font-size: var(--font-size-xs); }
+.proxy-status { padding: 8px 10px; border: 1px solid #d9e8e0; border-radius: 5px; background: #f3faf6; color: #287154; font-size: 12px; }
+.validation-error { margin: 0; color: #c43d4d; font-size: 12px; }
 </style>

@@ -1,0 +1,43 @@
+{
+  "color": {
+    "primary": {
+      "50": {"value": "#1F2CCF", "description": "Primary darkest (dark mode)"},
+      "100": {"value": "#2534E6", "description": "Primary darkest"},
+      "200": {"value": "#2D40FF", "description": "Primary darker"},
+      "300": {"value": "#3B52FF", "description": "Primary dark"},
+      "400": {"value": "#4F69FF", "description": "Primary medium"},
+      "500": {"value": "#6F84FF", "description": "Primary (Brand Color)"},
+      "600": {"value": "#97A8FF", "description": "Primary medium light"},
+      "700": {"value": "#BFCCFF", "description": "Primary light"},
+      "800": {"value": "#DBE4FF", "description": "Primary lighter"},
+      "900": {"value": "#EFF6FF", "description": "Primary lightest"}
+    },
+    "success": {
+      "500": {"value": "#34D399", "description": "Success green light"},
+      "600": {"value": "#10B981", "description": "Success green"}
+    },
+    "warning": {
+      "500": {"value": "#FBBF42", "description": "Warning amber light"},
+      "600": {"value": "#F59E0B", "description": "Warning amber"}
+    },
+    "error": {
+      "500": {"value": "#F87171", "description": "Error red light"},
+      "600": {"value": "#EF4444", "description": "Error red"}
+    },
+    "info": {
+      "500": {"value": "#60A5FA", "description": "Info blue light"}
+    },
+    "neutral": {
+      "50": {"value": "#171717", "description": "Gray deepest (bg)"},
+      "100": {"value": "#262626", "description": "Gray darkest"},
+      "200": {"value": "#404040", "description": "Gray darker"},
+      "300": {"value": "#525252", "description": "Gray dark"},
+      "400": {"value": "#737373", "description": "Gray medium dark"},
+      "500": {"value": "#A3A3A3", "description": "Gray medium"},
+      "600": {"value": "#D4D4D4", "description": "Gray medium light"},
+      "700": {"value": "#E5E5E5", "description": "Gray light"},
+      "800": {"value": "#F5F5F5", "description": "Gray lighter"},
+      "900": {"value": "#FAFAFA", "description": "Gray lightest (text)"}
+    }
+  }
+}

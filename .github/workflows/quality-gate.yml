@@ -17,7 +17,7 @@ on:
       - 'openspec/**'
   pull_request:
     branches: [main]
-  workflow_dispatch:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 
 # 并发控制：同一 PR 多次推送只保留最新一次（避免旧 run 继续占用并发额度）；
 # main push 不取消（保发布链路完整性）。

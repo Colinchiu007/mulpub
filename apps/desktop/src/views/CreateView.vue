@@ -1159,7 +1159,7 @@
           <div class="bgm-library-toolbar-row">
             <input ref="s2vBgmLibraryInput" type="file" accept=".wav,.m4a,.mp3,audio/wav,audio/x-m4a,audio/mpeg" style="display:none" @change="handleBgmLibraryAddFile" />
             <UiButton variant="primary" :disabled="s2vBgmLibraryLoading" data-testid="s2v-bgm-add-button" @click="$refs.s2vBgmLibraryInput?.click()">
-              <span class="material-symbols-outlined" style="font-size: var(--font-size-base)">add</span>
+              <span class="material-symbols-outlined" style="font-size:16px">add</span>
               {{ translateWithLocaleFallback('create.story2video.bgmLibrary.add', '添加音乐', 'Add music') }}
             </UiButton>
             <UiSkeleton v-if="s2vBgmLibraryLoading" variant="text" style="display:inline-block;width:96px" />

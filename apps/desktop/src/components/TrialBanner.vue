@@ -58,18 +58,18 @@ const type = computed(() => isTrial.value ? "trial" : "free")
   gap: 10px;
 }
 .banner-icon {
-  font-size: var(--font-size-lg);
+  font-size: 20px;
 }
 .banner-text {
   flex: 1;
-  font-size: var(--font-size-sm);
+  font-size: 13px;
   color: var(--text-primary);
 }
 .banner-btn {
   padding: 4px 12px;
   border: none;
   border-radius: 6px;
-  font-size: var(--font-size-xs);
+  font-size: 12px;
   font-weight: 500;
   cursor: pointer;
   background: var(--coral, #f56c6c);
@@ -83,7 +83,7 @@ const type = computed(() => isTrial.value ? "trial" : "free")
   background: none;
   border: none;
   cursor: pointer;
-  font-size: var(--font-size-sm);
+  font-size: 14px;
   color: var(--muted);
   padding: 2px 4px;
 }

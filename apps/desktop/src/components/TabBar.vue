@@ -155,7 +155,7 @@ function getDomainForPlatform(platform) {
   border-radius: 8px 8px 0 0;
   background: transparent;
   color: #6b7280;
-  font-size: var(--font-size-xs);
+  font-size: 12px;
   cursor: pointer;
   white-space: nowrap;
   transition: background 0.15s, color 0.15s;
@@ -167,7 +167,7 @@ function getDomainForPlatform(platform) {
 }
 
 .tab-item.active {
-  background: var(--color-bg-card);
+  background: #fff;
   color: #1f2937;
   font-weight: 500;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
@@ -175,7 +175,7 @@ function getDomainForPlatform(platform) {
 
 .tab-icon {
   flex-shrink: 0;
-  font-size: var(--font-size-sm);
+  font-size: 14px;
 }
 
 .tab-title {
@@ -188,7 +188,7 @@ function getDomainForPlatform(platform) {
 .tab-spinner {
   flex-shrink: 0;
   animation: spin 1s linear infinite;
-  font-size: var(--font-size-xs);
+  font-size: 12px;
 }
 
 @keyframes spin {
@@ -206,7 +206,7 @@ function getDomainForPlatform(platform) {
   border-radius: 4px;
   background: transparent;
   color: #9ca3af;
-  font-size: var(--font-size-sm);
+  font-size: 14px;
   line-height: 1;
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
@@ -228,7 +228,7 @@ function getDomainForPlatform(platform) {
   border-radius: 6px;
   background: transparent;
   color: #6b7280;
-  font-size: var(--font-size-md);
+  font-size: 18px;
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
   flex-shrink: 0;
