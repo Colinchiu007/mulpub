@@ -29,7 +29,7 @@
           class="mode-tab"
           :class="{ active: activeMode === mode.key }"
           @click="activeMode = mode.key"
-        >{{ mode.label }}</button>
+        ><el-icon v-if="mode.icon"><component :is="mode.icon" /></el-icon>{{ mode.label }}</button>
       </div>
 
       <!-- 标题生成 -->
@@ -40,7 +40,7 @@
         </div>
         <div class="cohere-form-item">
           <button class="cohere-btn-primary" @click="generateTitles" :disabled="generating || !topic.trim()">
-            {{ generating ? '生成中...' : '🎯 生成标题' }}
+            {{ generating ? '生成中...' : '生成标题' }}
           </button>
         </div>
         <div v-if="titles.length > 0" class="results">
@@ -72,7 +72,7 @@
         </div>
         <div class="cohere-form-item">
           <button class="cohere-btn-primary" @click="enhanceContent" :disabled="enhancing">
-            {{ enhancing ? '润色中...' : '✨ 润色正文' }}
+            {{ enhancing ? '润色中...' : '润色正文' }}
           </button>
         </div>
         <div v-if="enhancedResult" class="results">
@@ -87,7 +87,7 @@
       <div v-if="activeMode === 'summary'" class="mode-content">
         <div class="cohere-form-item">
           <button class="cohere-btn-primary" @click="generateSummary" :disabled="summarizing">
-            {{ summarizing ? '生成中...' : '📝 生成摘要' }}
+            {{ summarizing ? '生成中...' : '生成摘要' }}
           </button>
         </div>
         <div v-if="summary" class="results">
@@ -104,11 +104,11 @@
         <div class="config-checkboxes" style="margin-bottom:8px">
           <label class="config-checkbox" :class="{ disabled: rewriting }">
             <input type="checkbox" v-model="useViralLibrary" :disabled="rewriting" class="coral-check" />
-            <span class="checkbox-label"><span class="checkbox-icon">🔥</span> 结合爆款库</span>
+            <span class="checkbox-label"><span class="checkbox-icon"><el-icon><TrendCharts /></el-icon></span> 结合爆款库</span>
           </label>
           <label class="config-checkbox" :class="{ disabled: rewriting }">
             <input type="checkbox" v-model="usePersonalExperience" :disabled="rewriting" class="coral-check" />
-            <span class="checkbox-label"><span class="checkbox-icon">📝</span> 结合个人经历</span>
+            <span class="checkbox-label"><span class="checkbox-icon"><el-icon><EditPen /></el-icon></span> 结合个人经历</span>
           </label>
         </div>
         <div class="cohere-form-item">
@@ -168,7 +168,7 @@
         </div>
         <div class="cohere-form-item">
           <button class="cohere-btn-primary" @click="doRewrite" :disabled="rewriting || !rewriteContent.trim()">
-            {{ rewriting ? '改写中...' : '🔄 开始改写' }}
+            {{ rewriting ? '改写中...' : '开始改写' }}
           </button>
         </div>
         <div v-if="rewriteResult" class="results">
@@ -187,6 +187,7 @@
 
 <script setup>
 import { ref, onMounted } from "vue"
+import { Aim, Document, EditPen, MagicStick, Refresh, TrendCharts } from "@element-plus/icons-vue"
 import { useRouter } from "vue-router"
 import { useI18n } from "vue-i18n"
 import {
@@ -221,10 +222,10 @@ const summary = ref("")
 const panelError = ref("")
 
 const modes = [
-  { key: "titles", label: "🎯 标题生成" },
-  { key: "enhance", label: "✨ 内容润色" },
-  { key: "summary", label: "📝 生成摘要" },
-  { key: "rewrite", label: "🔄 AI 改写" },
+  { key: "titles", label: "标题生成", icon: Aim },
+  { key: "enhance", label: "内容润色", icon: MagicStick },
+  { key: "summary", label: "生成摘要", icon: Document },
+  { key: "rewrite", label: "AI 改写", icon: Refresh },
 ]
 
 const styles = [

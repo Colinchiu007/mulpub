@@ -1477,6 +1477,7 @@ import UiButton from '@/components/UiButton.vue'
 import UiModal from '@/components/UiModal.vue'
 import UiSelect from '@/components/UiSelect.vue'
 import CreateViewHistory from './CreateViewHistory.vue'
+import { CircleCheckFilled, CircleCloseFilled, MoreFilled, VideoPause, WarningFilled } from '@element-plus/icons-vue'
 import { buildPublishFromProject, publishDataToQuery } from '@/features/publish/publish-from-project'
 import { story2videoSaveAs, draftList } from '@/api/publisher'
 import { PipelineSelector, StageProgress, SceneAssetSelection } from './video-creation'
@@ -1605,7 +1606,7 @@ export default {
   name: 'CreateView',
   // 模板使用但此前漏注册的子组件：PipelineSelector/StageProgress/CreateViewHistory
   // （缺失会导致 Vue 'Failed to resolve component'，流水线卡片不渲染）
-  components: { UiButton, UiModal, UiSelect, CreateViewHistory, PipelineSelector, StageProgress, SceneAssetSelection },
+  components: { CircleCheckFilled, CircleCloseFilled, MoreFilled, VideoPause, WarningFilled, UiButton, UiModal, UiSelect, CreateViewHistory, PipelineSelector, StageProgress, SceneAssetSelection },
   data() {
     return {
       // 视图
@@ -6041,15 +6042,15 @@ export default {
       return 'pending'
     },
     stageStateIcon(stage, i) {
-      if (!this.pipelineRunStatus) return '⭕'
+      if (!this.pipelineRunStatus) return MoreFilled
       const idx = this.pipelineRunStatus.currentStage || 0
-      if (stage.status === 'failed') return '❌'
-      if (stage.status === 'needs_user_input') return '⚠️'
-      if (stage.status === 'cancelled') return '⏹️'
-      if (i < idx || stage.status === 'completed') return '✅'
+      if (stage.status === 'failed') return CircleCloseFilled
+      if (stage.status === 'needs_user_input') return WarningFilled
+      if (stage.status === 'cancelled') return VideoPause
+      if (i < idx || stage.status === 'completed') return CircleCheckFilled
       if (i === idx && stage.status === 'running') return ''
-      if (stage.status === 'waiting_approval') return '⚠️'
-      return '⭕'
+      if (stage.status === 'waiting_approval') return WarningFilled
+      return MoreFilled
     },
     stageStatusLabel(stage) {
       return this.pipelineStatus(stage?.status || 'pending')
