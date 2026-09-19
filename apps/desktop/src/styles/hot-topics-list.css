@@ -6,235 +6,34 @@
  * 正文、标签、时间、按钮全部挤在一起。
  * 本文件由 HotTopics.vue 与 HotTopicsFavorites.vue 各自以 <style scoped src> 引入，
  * 单一来源、零全局泄漏（scoped 编译期为各自组件生成独立作用域）。
- *
- * UI 精致化 v1.0 (2026-09-20):
- * - 渐变卡片背景
- * - Hover 微交互动画
- * - 大圆角设计
- * - 精致标签系统
  */
-
-.topics-list { 
-  display: flex; 
-  flex-direction: column; 
-  gap: 10px;
-}
-
-/* 选题卡片 - 精致化 */
-.topic-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 255, 255, 0.95) 100%);
-  border: 1px solid #e5e7eb;
-  border-radius: 14px;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-  overflow: hidden;
-}
-
-/* Hover 效果 */
-.topic-item::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(135deg, rgba(81, 73, 232, 0.02) 0%, transparent 100%);
-  opacity: 0;
-  transition: opacity 0.25s;
-  pointer-events: none;
-}
-
-.topic-item:hover::before {
-  opacity: 1;
-}
-
-.topic-item:hover {
-  border-color: #5149e8;
-  box-shadow: 0 6px 16px rgba(81, 73, 232, 0.12);
-  transform: translateY(-2px);
-}
-
-.topic-item.selected {
-  border-color: #5149e8;
-  background: linear-gradient(135deg, rgba(240, 239, 255, 0.98) 0%, rgba(240, 239, 255, 0.95) 100%);
-  box-shadow: 0 4px 12px rgba(81, 73, 232, 0.15);
-}
-
-/* 排名徽章 - 精致化 */
-.rank-badge {
-  min-width: 30px;
-  height: 30px;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-  background: linear-gradient(135deg, #f0efff 0%, rgba(240, 239, 255, 0.6) 100%);
-  color: #5149e8;
-  font-size: var(--font-size-sm);
-  font-weight: 700;
-  box-shadow: 0 2px 4px rgba(81, 73, 232, 0.1);
-}
-
-/* 话题文本 */
-.topic-text {
-  flex: 1;
-  font-size: var(--font-size-sm);
-  color: #1f2937;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 500;
-  line-height: 1.5;
-}
-
-/* 标签系统升级 */
-.tag {
-  padding: 4px 12px;
-  border-radius: 6px;
-  font-size: var(--font-size-xs);
-  flex-shrink: 0;
-  font-weight: 500;
-  transition: all 0.2s;
-}
-
-.category-tag {
-  background: rgba(107, 114, 128, 0.08);
-  color: #6b7280;
-}
-
-.cat-general { background: rgba(107, 114, 128, 0.08); color: #4b5563; }
-.cat-society { background: rgba(33, 150, 243, 0.12); color: #1976d2; }
-.cat-finance { background: rgba(255, 152, 0, 0.12); color: #f57c00; }
-.cat-tech { background: rgba(123, 31, 162, 0.12); color: #7b1fa2; }
-.cat-entertainment { background: rgba(233, 30, 99, 0.12); color: #c2185b; }
-.cat-sports { background: rgba(56, 142, 60, 0.12); color: #388e3c; }
-.cat-emotion { background: rgba(211, 47, 47, 0.12); color: #d32f2f; }
-.cat-education { background: rgba(0, 150, 136, 0.12); color: #0097a7; }
-.cat-health { background: rgba(0, 121, 107, 0.12); color: #00796b; }
-.cat-international { background: rgba(21, 101, 192, 0.12); color: #1565c0; }
-
-.channel-tag {
-  background: rgba(156, 163, 175, 0.08);
-  color: #9ca3af;
-}
-
-/* 热度值 */
-.hot-value {
-  font-size: var(--font-size-xs);
-  color: #ff5722;
-  font-weight: 600;
-  flex-shrink: 0;
-  padding: 2px 8px;
-  background: rgba(255, 87, 34, 0.08);
-  border-radius: 4px;
-}
-
-/* 更新时间 */
-.update-time {
-  font-size: var(--font-size-xs);
-  color: #9ca3af;
-  flex-shrink: 0;
-  white-space: nowrap;
-  width: 50px;
-  text-align: right;
-}
-
-/* 收藏时间 */
-.fav-date {
-  font-size: var(--font-size-xs);
-  color: #9ca3af;
-  flex-shrink: 0;
-  white-space: nowrap;
-  min-width: 64px;
-  text-align: right;
-}
-
-/* 操作按钮组 */
-.item-fav-btn {
-  font-size: var(--font-size-lg);
-  padding: 4px 8px;
-  flex-shrink: 0;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  color: #9ca3af;
-  line-height: 1;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.item-fav-btn:hover {
-  color: #e91e63;
-  transform: scale(1.1);
-}
-
-.item-create-btn {
-  font-size: var(--font-size-xs);
-  padding: 6px 12px;
-  flex-shrink: 0;
-  border: 1px solid #e5e7eb;
-  background: white;
-  color: #6b7280;
-  border-radius: 8px;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  font-weight: 500;
-}
-
-.item-create-btn:hover {
-  border-color: #5149e8;
-  color: #5149e8;
-  background: #f0efff;
-}
-
-.item-gen-video-btn {
-  font-size: var(--font-size-xs);
-  padding: 6px 12px;
-  flex-shrink: 0;
-  border: none;
-  background: linear-gradient(135deg, #5149e8 0%, #3a32d1 100%);
-  color: white;
-  border-radius: 8px;
-  font-weight: 600;
-  box-shadow: 0 2px 6px rgba(81, 73, 232, 0.25);
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.item-gen-video-btn:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(81, 73, 232, 0.35);
-}
-
-.item-gen-video-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
-  box-shadow: none;
-}
-
+.topics-list { display: flex; flex-direction: column; gap: 6px; }
+.topic-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: #fff; border: 1px solid #eee; border-radius: 8px; }
+.topic-item.selected { border-color: #5149e8; background: #f7f6ff; }
+.rank-badge { min-width: 26px; height: 26px; display: grid; place-items: center; border-radius: 6px; background: #f0efff; color: #5149e8; font-size: 12px; font-weight: 700; }
+.topic-text { flex: 1; font-size: 14px; color: #333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tag { padding: 2px 8px; border-radius: 4px; font-size: 11px; flex-shrink: 0; }
+.category-tag { background: #f5f5f5; color: #666; }
+.cat-general { background: #f5f5f5; color: #666; }
+.cat-society { background: #e8f4ff; color: #1976d2; }
+.cat-finance { background: #fff4e5; color: #f57c00; }
+.cat-tech { background: #f3e8ff; color: #7b1fa2; }
+.cat-entertainment { background: #ffe4f1; color: #c2185b; }
+.cat-sports { background: #e8f7e8; color: #388e3c; }
+.cat-emotion { background: #ffe8e8; color: #d32f2f; }
+.cat-education { background: #e0f7fa; color: #0097a7; }
+.cat-health { background: #e0f2f1; color: #00796b; }
+.cat-international { background: #e3f2fd; color: #1565c0; }
+.channel-tag { background: #f0f2f5; color: #888; }
+.hot-value { font-size: 12px; color: #ff5722; flex-shrink: 0; }
+.update-time { font-size: 11px; color: #aaa; flex-shrink: 0; white-space: nowrap; width: 42px; text-align: right; }
+/* 收藏时间（月/日 时:分）比更新时间长，右对齐宽度独立，保持与列表同一视觉节奏 */
+.fav-date { font-size: 11px; color: #999; flex-shrink: 0; white-space: nowrap; min-width: 64px; text-align: right; }
+.item-fav-btn { font-size: 14px; padding: 4px 8px; flex-shrink: 0; border: none; background: transparent; cursor: pointer; color: #ccc; transition: color 0.15s; }
+.item-fav-btn:hover { color: #e91e63; }
+.item-create-btn { font-size: 12px; padding: 4px 10px; flex-shrink: 0; }
+.item-gen-video-btn { font-size: 12px; padding: 4px 10px; flex-shrink: 0; }
 /* 收藏列表 */
 .favorites-section { margin-top: 0; }
-
-.favorite-item .fav-star {
-  background: #fff0f5;
-  color: #e91e63;
-}
-
-.item-unfav-btn {
-  font-size: var(--font-size-xs);
-  padding: 6px 12px;
-  flex-shrink: 0;
-  border: 1px solid #e5e7eb;
-  background: white;
-  color: #6b7280;
-  border-radius: 8px;
-  transition: all 0.2s;
-  font-weight: 500;
-}
-
-.item-unfav-btn:hover {
-  border-color: #e91e63;
-  color: #e91e63;
-  background: #fff0f5;
-}
+.favorite-item .fav-star { background: #fff0f5; color: #e91e63; }
+.item-unfav-btn { font-size: 12px; padding: 4px 10px; flex-shrink: 0; }
