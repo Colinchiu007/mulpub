@@ -34,7 +34,7 @@ defineEmits(['acknowledge'])
 
 <style scoped>
 .authorization-guide { position: fixed; inset: 56px 0 0 280px; z-index: 9800; display: grid; place-items: center; background: rgba(34, 35, 41, 0.28); }
-.guide-window { width: min(360px, calc(100vw - 48px)); border: 1px solid #dedee5; border-radius: 6px; background: #fff; color: #28282f; box-shadow: 0 12px 36px rgba(31, 32, 39, 0.2); }
+.guide-window { width: min(360px, calc(100vw - 48px)); border: 1px solid #dedee5; border-radius: 6px; background: var(--color-bg-card); color: #28282f; box-shadow: 0 12px 36px rgba(31, 32, 39, 0.2); }
 .guide-titlebar { min-height: 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; border-bottom: 1px solid #ececf0; }
 .guide-titlebar strong { font-size: var(--font-size-sm); font-weight: 600; }
 .guide-titlebar button { width: 28px; height: 28px; display: grid; place-items: center; border: 0; background: transparent; color: #7e7f88; cursor: pointer; }

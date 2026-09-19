@@ -225,7 +225,7 @@ async function copyUrl() {
 }
 
 .url-bar.focused {
-  background: #fff;
+  background: var(--color-bg-card);
   box-shadow: 0 0 0 2px rgba(80, 72, 229, 0.3);
 }
 

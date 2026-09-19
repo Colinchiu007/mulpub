@@ -157,10 +157,10 @@ function saveRename (group) {
 .group-section { border: 1px solid var(--border-light, #e8e8ec); border-radius: 7px; overflow: hidden; }
 .group-section header { display: flex; align-items: center; justify-content: space-between; padding: 9px 11px; background: #f8f8fa; }
 .group-actions { display: inline-flex; align-items: center; gap: 6px; }
-.group-actions select { max-width: 120px; min-height: 28px; border: 1px solid var(--border, #dedee5); border-radius: 5px; padding: 2px 22px 2px 6px; background: #fff; color: #5c5e6a; font-size: var(--font-size-xs); }
+.group-actions select { max-width: 120px; min-height: 28px; border: 1px solid var(--border, #dedee5); border-radius: 5px; padding: 2px 22px 2px 6px; background: var(--color-bg-card); color: #5c5e6a; font-size: var(--font-size-xs); }
 .rename-group { display: flex; align-items: center; gap: 5px; min-width: 0; }
 .rename-group input { width: min(180px, 42vw); min-height: 28px; border: 1px solid #8e87ed; border-radius: 5px; padding: 3px 7px; font-size: var(--font-size-xs); }
-.rename-group button, .rename-group-button { min-height: 28px; border: 1px solid #dedee5; border-radius: 5px; padding: 3px 7px; background: #fff; color: #5c5e6a; font-size: var(--font-size-xs); cursor: pointer; }
+.rename-group button, .rename-group-button { min-height: 28px; border: 1px solid #dedee5; border-radius: 5px; padding: 3px 7px; background: var(--color-bg-card); color: #5c5e6a; font-size: var(--font-size-xs); cursor: pointer; }
 .rename-group button:first-of-type { border-color: #5048e5; background: #5048e5; color: #fff; }
 .rename-group-button:hover { border-color: #5048e5; color: #5048e5; }
 .group-section h3 { margin: 0; color: #303039; font-size: var(--font-size-sm); line-height: 20px; }

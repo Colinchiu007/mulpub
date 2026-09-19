@@ -167,7 +167,7 @@ function getDomainForPlatform(platform) {
 }
 
 .tab-item.active {
-  background: #fff;
+  background: var(--color-bg-card);
   color: #1f2937;
   font-weight: 500;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);

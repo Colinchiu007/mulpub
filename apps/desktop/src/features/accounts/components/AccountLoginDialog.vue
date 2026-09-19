@@ -92,7 +92,7 @@ defineEmits(['update:modelValue', 'update:mode', 'submit', 'close'])
   font-size: var(--font-size-sm);
   cursor: pointer;
 }
-.mode-control button.active { background: #fff; color: #5048e5; box-shadow: 0 1px 3px rgba(28, 28, 35, 0.12); }
+.mode-control button.active { background: var(--color-bg-card); color: #5048e5; box-shadow: 0 1px 3px rgba(28, 28, 35, 0.12); }
 .mode-control button:disabled { cursor: not-allowed; opacity: 0.45; }
 .mode-control svg { width: 16px; height: 16px; }
 .mode-notice { color: #a66a22; font-size: var(--font-size-xs); }

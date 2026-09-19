@@ -165,7 +165,7 @@ const typeOptions = computed(() => typeDefinitions.map(definition => ({
   padding: 22px 18px;
   border: 1px solid transparent;
   border-radius: 12px;
-  background: #fff;
+  background: var(--color-bg-card);
   color: #30323d;
   text-align: left;
   cursor: pointer;

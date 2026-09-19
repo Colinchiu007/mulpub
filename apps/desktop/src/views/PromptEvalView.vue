@@ -306,9 +306,9 @@ onMounted(async () => {
 <style scoped>
 .prompt-eval-page { padding: 20px; max-width: 1100px; }
 .view-tabs { display: flex; gap: 8px; margin: 16px 0; }
-.view-tab { padding: 8px 16px; border: 1px solid #d9d9d9; background: #fff; border-radius: 6px; cursor: pointer; }
+.view-tab { padding: 8px 16px; border: 1px solid #d9d9d9; background: var(--color-bg-card); border-radius: 6px; cursor: pointer; }
 .view-tab.active { background: #1f6feb; color: #fff; border-color: #1f6feb; }
-.card { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+.card { background: var(--color-bg-card); border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
 .form-row { margin-bottom: 12px; }
 .form-row label { display: block; font-weight: 600; margin-bottom: 6px; }
 textarea { width: 100%; border: 1px solid #d9d9d9; border-radius: 6px; padding: 8px; font-size: var(--font-size-sm); }
@@ -319,8 +319,8 @@ textarea { width: 100%; border: 1px solid #d9d9d9; border-radius: 6px; padding: 
 .btn-remove { position: absolute; top: -6px; right: -6px; background: #d64545; color: #fff; border: none; border-radius: 50%; width: 20px; height: 20px; cursor: pointer; }
 .btn-primary { background: #1f6feb; color: #fff; border: none; border-radius: 6px; padding: 8px 20px; cursor: pointer; }
 .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
-.btn-ghost { background: #fff; border: 1px solid #d9d9d9; border-radius: 6px; padding: 6px 12px; margin-right: 8px; cursor: pointer; }
-.btn-danger { background: #fff; border: 1px solid #d64545; color: #d64545; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+.btn-ghost { background: var(--color-bg-card); border: 1px solid #d9d9d9; border-radius: 6px; padding: 6px 12px; margin-right: 8px; cursor: pointer; }
+.btn-danger { background: var(--color-bg-card); border: 1px solid #d64545; color: #d64545; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
 .error-banner { background: #fde8e8; border: 1px solid #f5b5b5; color: #b42318; border-radius: 6px; padding: 10px 14px; margin-bottom: 12px; }
 .hint { color: #888; font-size: var(--font-size-xs); margin-left: 10px; }
 .result-head { display: flex; gap: 16px; align-items: center; margin-bottom: 12px; }
@@ -351,7 +351,7 @@ textarea { width: 100%; border: 1px solid #d9d9d9; border-radius: 6px; padding: 
 .point-item { display: flex; align-items: center; gap: 8px; border: 1px solid #eee; border-radius: 6px; padding: 8px; margin-bottom: 6px; font-size: var(--font-size-sm); }
 .point-type { background: #e8f0fe; color: #1f6feb; border-radius: 4px; padding: 2px 6px; font-size: var(--font-size-xs); }
 .point-count { color: #888; font-size: var(--font-size-xs); }
-.btn-copy { margin-left: auto; background: #fff; border: 1px solid #d9d9d9; border-radius: 4px; padding: 2px 8px; cursor: pointer; font-size: var(--font-size-xs); }
+.btn-copy { margin-left: auto; background: var(--color-bg-card); border: 1px solid #d9d9d9; border-radius: 4px; padding: 2px 8px; cursor: pointer; font-size: var(--font-size-xs); }
 .empty-state { color: #888; padding: 24px 0; text-align: center; }
 .record-table { width: 100%; border-collapse: collapse; font-size: var(--font-size-sm); }
 .record-table th, .record-table td { border-bottom: 1px solid #eee; padding: 8px; text-align: left; }

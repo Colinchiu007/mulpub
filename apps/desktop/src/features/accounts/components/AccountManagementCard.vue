@@ -454,7 +454,7 @@ function isIconUrl (value) {
 .account-name-button:hover { background: #f7f7f9; }
 .account-name-button:hover svg { opacity: 1; }
 .account-name-input:hover { background: #f7f7f9; }
-.account-name-input:focus { border-color: var(--primary, #5048e5); background: #fff; }
+.account-name-input:focus { border-color: var(--primary, #5048e5); background: var(--color-bg-card); }
 
 .account-details {
   min-height: 22px;

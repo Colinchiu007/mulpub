@@ -89,7 +89,7 @@ const visibleGroups = computed(() => {
   padding: 6px 10px 6px 30px;
   border: 1px solid var(--border, #dedee5);
   border-radius: 6px;
-  background: #fff;
+  background: var(--color-bg-card);
   font-size: var(--font-size-sm);
   outline: none;
 }
@@ -113,7 +113,7 @@ const visibleGroups = computed(() => {
 .favorites-table-wrap {
   border: 1px solid var(--border-light, #ececf1);
   border-radius: 10px;
-  background: #fff;
+  background: var(--color-bg-card);
   overflow: hidden;
 }
 .favorites-table { width: 100%; border-collapse: collapse; font-size: var(--font-size-sm); }
@@ -133,7 +133,7 @@ const visibleGroups = computed(() => {
   border: 1px solid var(--border, #dedee5);
   border-radius: 5px;
   padding: 4px 10px;
-  background: #fff;
+  background: var(--color-bg-card);
   color: #5048e5;
   font-size: var(--font-size-xs);
   cursor: pointer;

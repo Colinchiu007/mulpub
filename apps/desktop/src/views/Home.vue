@@ -540,7 +540,7 @@ onUnmounted(() => {
   padding: 14px 16px;
   border: 1px solid #e8eaf2;
   border-radius: 10px;
-  background: #fff;
+  background: var(--color-bg-card);
 }
 
 .recent-item-info {

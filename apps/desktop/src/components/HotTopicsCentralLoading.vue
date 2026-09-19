@@ -37,7 +37,7 @@ defineProps({
 }
 .htcl-card {
   display: flex; flex-direction: column; align-items: center; gap: 14px;
-  padding: 36px 48px; background: #fff;
+  padding: 36px 48px; background: var(--color-bg-card);
   border: 1px solid #e9e8f6; border-radius: 16px;
   box-shadow: 0 12px 40px rgba(81, 73, 232, 0.14);
   max-width: 460px; text-align: center;

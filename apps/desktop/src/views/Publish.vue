@@ -1250,7 +1250,7 @@ defineExpose({
 .batch-account-option input { accent-color: var(--coral, #f56c6c); }
 .batch-retry-icon { width: 14px; height: 14px; margin-right: 4px; vertical-align: -2px; }
 .publish-media-upload { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
-.media-upload-trigger { min-height: 32px; padding: 5px 12px; border: 1px solid #d9dce8; border-radius: 6px; background: #fff; color: #4d5574; font-size: var(--font-size-xs); cursor: pointer; }
+.media-upload-trigger { min-height: 32px; padding: 5px 12px; border: 1px solid #d9dce8; border-radius: 6px; background: var(--color-bg-card); color: #4d5574; font-size: var(--font-size-xs); cursor: pointer; }
 .media-upload-trigger:hover { border-color: #5048e5; color: #5048e5; }
 .publish-metadata-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .publish-metadata-grid > div { min-width: 0; }

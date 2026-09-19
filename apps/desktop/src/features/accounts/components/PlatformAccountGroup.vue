@@ -184,7 +184,7 @@ function isIconUrl (value) {
   place-items: center;
   border: 1px solid var(--border, #dedee5);
   border-radius: 6px;
-  background: #fff;
+  background: var(--color-bg-card);
   color: #5048e5;
   cursor: pointer;
 }
@@ -245,7 +245,7 @@ function isIconUrl (value) {
   outline: none;
 }
 .account-name-input:hover { background: #f5f5f7; }
-.account-name-input:focus { border-color: #7068eb; background: #fff; }
+.account-name-input:focus { border-color: #7068eb; background: var(--color-bg-card); }
 .default-label { flex: 0 1 auto; padding: 2px 6px; border-radius: 4px; background: #eeecff; color: #5048e5; font-size: var(--font-size-xs); line-height: 16px; text-align: center; white-space: normal; }
 .account-status { min-width: 0; display: flex; align-items: center; gap: 5px; margin-top: 3px; color: var(--muted, #85858f); font-size: var(--font-size-xs); }
 .account-status-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
