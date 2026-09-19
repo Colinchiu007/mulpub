@@ -424,6 +424,56 @@
       @publish-article="onPublishArticle"
       @publish-video="onPublishVideo"
     />
+
+    <!-- ASR 依赖安装引导弹窗（-6 语音转写引擎不可用时触发） -->
+    <el-dialog
+      v-model="asrInstallVisible"
+      :title="$t('collection.asrInstallTitle')"
+      width="520px"
+      :close-on-click-modal="false"
+      data-testid="asr-install-dialog"
+    >
+      <div class="asr-install-body">
+        <p class="asr-install-intro">{{ $t('collection.asrInstallIntro') }}</p>
+        <div v-if="asrInstallStage && asrInstallStage !== 'failed'" class="asr-install-progress" data-testid="asr-install-progress">
+          <div class="asr-install-stage-text">
+            <span v-if="asrInstallStage === 'checking'">{{ $t('collection.asrInstallChecking') }}</span>
+            <span v-else-if="asrInstallStage === 'installing'">{{ $t('collection.asrInstallInstalling') }}</span>
+            <span v-else-if="asrInstallStage === 'switching'">{{ $t('collection.asrInstallSwitching') }}</span>
+            <span v-else-if="asrInstallStage === 'model-checking' || asrInstallStage === 'model-downloading'">{{ $t('collection.asrInstallModel') }}</span>
+            <span v-else-if="asrInstallStage === 'done'">✅ {{ $t('collection.asrInstallDone') }}</span>
+          </div>
+          <div v-if="asrInstallDetail" class="asr-install-detail">{{ asrInstallDetail }}</div>
+          <div class="asr-install-bar">
+            <div class="asr-install-bar-fill" :style="{ width: (asrInstallStage === 'done' ? 100 : Math.max(asrInstallPercent, 8)) + '%' }"></div>
+          </div>
+        </div>
+        <div v-if="asrInstallStage === 'failed'" class="asr-install-error" data-testid="asr-install-error">
+          <p>❌ {{ asrInstallError || $t('collection.asrInstallFailed') }}</p>
+          <p class="asr-install-manual">{{ $t('collection.asrInstallManualHint') }}</p>
+          <code class="asr-install-cmd">pip install faster-whisper -i https://pypi.tuna.tsinghua.edu.cn/simple</code>
+        </div>
+      </div>
+      <template #footer>
+        <button
+          v-if="asrInstallStage === 'failed'"
+          class="cohere-btn-primary"
+          data-testid="asr-install-retry-btn"
+          @click="startAsrInstall"
+        >{{ $t('collection.asrInstallRetry') }}</button>
+        <button
+          v-else-if="!asrInstallStage"
+          class="cohere-btn-primary"
+          data-testid="asr-install-confirm-btn"
+          @click="startAsrInstall"
+        >{{ $t('collection.asrInstallBtn') }}</button>
+        <button
+          v-if="asrInstallStage !== 'installing' && asrInstallStage !== 'model-downloading'"
+          class="cohere-btn-secondary"
+          @click="closeAsrInstallDialog"
+        >{{ $t('collection.asrInstallCancel') }}</button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -463,6 +513,15 @@ const oneClickRewriting = ref(false)
 const collectedResult = ref(null)
 const collectError = ref(null)
 const videoCollectStage = ref('')  // 视频采集分阶段提示: probe/downloading/extracting/transcribing
+
+// ASR 依赖安装引导弹窗（-6 语音转写引擎不可用时触发，2026-09-19）
+const asrInstallVisible = ref(false)
+const asrInstallStage = ref('')  // checking/installing/switching/model-checking/model-downloading/done/failed
+const asrInstallDetail = ref('')
+const asrInstallPercent = ref(0)
+const asrInstallError = ref('')
+let asrInstallUnsubscribe = null
+let asrInstallPendingUrl = ''  // 安装成功后自动重试的采集 URL
 const rewriteError = ref(null)
 const collectedItems = ref([])  // 累计采集列表
 const addedToViral = ref(false)  // 当前采集结果是否已加入爆款库
@@ -772,7 +831,96 @@ onMounted(async () => {
 
 onUnmounted(() => {
   stopBatchPolling()
+  if (asrInstallUnsubscribe) { asrInstallUnsubscribe(); asrInstallUnsubscribe = null }
 })
+
+// ===== 分享文本链接解析（2026-09-19）=====
+// 抖音/小红书等平台的「复制链接」是「文案 + emoji + 短链 + 引导语」的混合文本，
+// 直接当 URL 用会解析失败。采集前先提取真实 http(s) 链接：
+// - 多链接时优先取视频平台域名（douyin/xiaohongshu/bilibili/zhihu/channels）
+// - 提取后回填输入框（用户可见真实链接），短链保持原样交后端 302 解析
+const VIDEO_PLATFORM_HOST_PATTERNS = [
+  /(^|\.)douyin\.com$/i,
+  /(^|\.)iesdouyin\.com$/i,
+  /(^|\.)xiaohongshu\.com$/i,
+  /(^|\.)xhslink\.com$/i,
+  /(^|\.)bilibili\.com$/i,
+  /(^|\.)b23\.tv$/i,
+  /(^|\.)zhihu\.com$/i,
+  /(^|\.)channels\.weixin\.qq\.com$/i,
+]
+function extractUrlFromShareText (text) {
+  const raw = String(text || '').trim()
+  if (!raw) return ''
+  // 提取全部 http(s) 链接（容忍中文/emoji 混排与尾部标点）
+  const matches = raw.match(/https?:\/\/[^\s"'<>）)】\]]+/gi) || []
+  if (!matches.length) return ''
+  // 清理尾部常见粘连标点
+  const cleaned = matches.map((u) => u.replace(/[。，,；;！!？?）)\]]+$/g, ''))
+  // 优先返回视频平台链接
+  for (const url of cleaned) {
+    try {
+      const host = new URL(url).hostname.toLowerCase()
+      if (VIDEO_PLATFORM_HOST_PATTERNS.some((re) => re.test(host))) return url
+    } catch { /* 非法 URL 跳过 */ }
+  }
+  return cleaned[0]
+}
+
+// ===== ASR 依赖安装引导（2026-09-19）=====
+// -6（语音转写引擎不可用）→ 弹窗说明 + 一键自动安装（pip 多镜像 + 模型下载，进度实时展示）
+function openAsrInstallDialog (pendingUrl) {
+  asrInstallPendingUrl = pendingUrl || ''
+  asrInstallStage.value = ''
+  asrInstallDetail.value = ''
+  asrInstallPercent.value = 0
+  asrInstallError.value = ''
+  asrInstallVisible.value = true
+}
+function closeAsrInstallDialog () {
+  asrInstallVisible.value = false
+  asrInstallPendingUrl = ''
+}
+async function startAsrInstall () {
+  const api = getApi()
+  if (!api || typeof api.aggregationAsrInstall !== 'function') {
+    asrInstallStage.value = 'failed'
+    asrInstallError.value = resolveNotifyText('collection.collectUnavailable').text
+    return
+  }
+  asrInstallStage.value = 'checking'
+  asrInstallDetail.value = resolveNotifyText('collection.asrInstallChecking').text
+  // 订阅进度事件（安装/下载阶段实时推送）
+  if (asrInstallUnsubscribe) asrInstallUnsubscribe()
+  if (typeof api.onAsrInstallProgress === 'function') {
+    asrInstallUnsubscribe = api.onAsrInstallProgress((p) => {
+      if (!p || !p.stage) return
+      asrInstallStage.value = p.stage
+      if (p.detail) asrInstallDetail.value = p.detail
+      if (typeof p.percent === 'number') asrInstallPercent.value = p.percent
+    })
+  }
+  try {
+    const res = await api.aggregationAsrInstall()
+    if (res && res.code === 0) {
+      asrInstallStage.value = 'done'
+      asrInstallDetail.value = resolveNotifyText('collection.asrInstallDone').text
+      notifySuccess('collection.collectSuccess')
+      // 安装成功 → 关闭弹窗，自动重试原采集请求
+      const retryUrl = asrInstallPendingUrl
+      setTimeout(() => {
+        closeAsrInstallDialog()
+        if (retryUrl) { linkUrl.value = retryUrl; void collectUrl() }
+      }, 1200)
+    } else {
+      asrInstallStage.value = 'failed'
+      asrInstallError.value = (res && res.message) || resolveNotifyText('collection.asrInstallFailed').text
+    }
+  } catch (e) {
+    asrInstallStage.value = 'failed'
+    asrInstallError.value = formatUserError(e, { fallback: resolveNotifyText('collection.asrInstallFailed').text }).message
+  }
+}
 
 async function loadDrafts () {
   const raw = await storeGetSetting('drafts')
@@ -996,6 +1144,19 @@ async function collectUrl () {
     notifyWarning('collection.enterLink')
     return
   }
+  // 分享文本解析：粘贴的是「文案+短链+引导语」混合文本时，先提取真实链接
+  const trimmedInput = linkUrl.value.trim()
+  if (/\s/.test(trimmedInput) || !/^https?:\/\//i.test(trimmedInput)) {
+    const extracted = extractUrlFromShareText(trimmedInput)
+    if (extracted) {
+      linkUrl.value = extracted
+      notifyInfo('collection.shareLinkExtracted')
+    } else if (!/^https?:\/\//i.test(trimmedInput)) {
+      // 无 http 前缀且提取不到链接 → 走原有图文链路报错
+      notifyWarning('collection.shareLinkNone')
+      return
+    }
+  }
   collecting.value = true
   collectedResult.value = null
   rewriteResult.value = ''
@@ -1013,6 +1174,11 @@ async function collectUrl () {
           stopVideoStageProgression()
         }
         if (res && res.code !== undefined && res.code !== 0) {
+          // -6 ASR 引擎不可用 → 弹出安装引导弹窗（自动 pip 安装 + 模型下载）
+          if (res.code === -6) {
+            openAsrInstallDialog(linkUrl.value.trim())
+            return
+          }
           collectError.value = { code: res.code, message: res.message }
           notifyError('collection.collectFailed', { message: formatUserError(res, { fallback: resolveNotifyText('collection.collectFailed').text }).message })
           return
@@ -1956,5 +2122,15 @@ function cancelBatchCollect () {
 .col-item--active { border-left: 3px solid var(--color-primary); }
 .col-stat-grid-mb { margin-bottom: var(--space-lg); }
 .col-stat-card-click { cursor: pointer; }
+
+/* ASR 依赖安装引导弹窗 */
+.asr-install-intro { margin: 0 0 12px; line-height: 1.6; color: var(--color-text-primary, #333); }
+.asr-install-stage-text { font-weight: 600; margin-bottom: 8px; }
+.asr-install-detail { font-size: 12px; color: var(--color-text-secondary, #888); margin-bottom: 8px; word-break: break-all; max-height: 60px; overflow: hidden; }
+.asr-install-bar { height: 8px; border-radius: 4px; background: var(--color-bg-secondary, #eee); overflow: hidden; }
+.asr-install-bar-fill { height: 100%; border-radius: 4px; background: var(--color-primary, #4f46e5); transition: width 0.3s ease; }
+.asr-install-error p { margin: 0 0 6px; color: var(--color-danger, #dc2626); }
+.asr-install-manual { color: var(--color-text-secondary, #888) !important; font-size: 12px; }
+.asr-install-cmd { display: block; padding: 8px 10px; background: var(--color-bg-secondary, #f5f5f5); border-radius: 6px; font-size: 12px; word-break: break-all; user-select: all; }
 
 </style>

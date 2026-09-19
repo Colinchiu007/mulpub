@@ -18,8 +18,14 @@ logger = logging.getLogger(__name__)
 
 # faster-whisper base 模型 repo（faster_whisper.utils._MODELS["base"]）
 _MODEL_REPO = "Systran/faster-whisper-base"
-_HF_DIRECT = "https://huggingface.co"
-_HF_MIRROR = "https://hf-mirror.com"
+# 下载源优先级列表（国内镜像优先 + 备用自动切换，2026-09-19）：
+# 1. hf-mirror.com（国内社区镜像，长期稳定，实测 ~724KB/s）
+# 2. huggingface.co 直连（官方源，国内间歇可达）
+# 用户显式设置 HF_ENDPOINT 时跳过全部探测直接使用（尊重配置不覆盖）。
+_HF_ENDPOINT_CANDIDATES = [
+    "https://hf-mirror.com",
+    "https://huggingface.co",
+]
 
 
 def _snapshot_download(**kwargs):
@@ -39,16 +45,18 @@ def _probe_endpoint(url: str, timeout: float = 5.0) -> bool:
 
 
 def _resolve_download_endpoint() -> str:
-    """按优先级选择下载源：用户显式 HF_ENDPOINT > 镜像可达 > HF 直连。"""
+    """按优先级选择下载源：用户显式 HF_ENDPOINT > 逐个探测镜像列表 > 第一个可达源。"""
     explicit = os.environ.get("HF_ENDPOINT", "").strip()
     if explicit:
         logger.info(f"[asr] 使用用户显式设置的 HF_ENDPOINT: {explicit}")
         return explicit
-    if _probe_endpoint(_HF_MIRROR):
-        logger.info(f"[asr] 镜像可达，使用 {_HF_MIRROR} 下载模型")
-        return _HF_MIRROR
-    logger.warning(f"[asr] 镜像不可达，回退 {_HF_DIRECT} 直连")
-    return _HF_DIRECT
+    for endpoint in _HF_ENDPOINT_CANDIDATES:
+        if _probe_endpoint(endpoint):
+            logger.info(f"[asr] 下载源可达，使用 {endpoint} 下载模型")
+            return endpoint
+        logger.warning(f"[asr] 下载源不可达: {endpoint}，尝试下一个")
+    logger.warning(f"[asr] 全部下载源探测失败，回退 {_HF_ENDPOINT_CANDIDATES[0]}")
+    return _HF_ENDPOINT_CANDIDATES[0]
 
 
 def _get_model_cache_dir() -> str:
