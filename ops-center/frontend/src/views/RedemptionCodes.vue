@@ -1,7 +1,7 @@
 <template>
   <div>
     <h1 style="margin-bottom:16px">兑换码管理</h1>
-    <p style="color:#888;margin-bottom:16px;font-size: var(--font-size-sm)">
+    <p style="color:var(--color-text-placeholder);margin-bottom:16px;font-size: var(--font-size-sm)">
       运营人员批量签发 Pro 激活码（格式与桌面端 <code>redemption-codes.js</code> 一致：<code>MP-XXXX-XXXX-SIG</code>，
       HMAC-SHA256 签名，须配置 <code>OPS_REDEMPTION_SECRET</code> 且与桌面端 <code>REDEMPTION_SECRET</code> 一致方可被桌面端验证）。
       列表默认掩码展示；吊销后桌面端应拒绝激活。
@@ -47,7 +47,7 @@
         </el-table-column>
       </el-table>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px">
-        <span style="color:#888;font-size: var(--font-size-xs)">共 {{ total }} 条</span>
+        <span style="color:var(--color-text-placeholder);font-size: var(--font-size-xs)">共 {{ total }} 条</span>
         <div>
           <el-button size="small" :disabled="offset === 0" @click="page(-1)">上一页</el-button>
           <el-button size="small" :disabled="offset + PAGE_SIZE >= total" @click="page(1)">下一页</el-button>
@@ -82,7 +82,7 @@
       <div style="max-height:320px;overflow:auto">
         <div v-for="c in lastCodes" :key="c" class="code-line">{{ c }}</div>
       </div>
-      <p style="color:#f56c6c;font-size: var(--font-size-xs);margin-top:8px">完整兑换码仅在此展示一次；关闭后列表只显示掩码，请立即复制分发。</p>
+      <p style="color:var(--color-danger);font-size: var(--font-size-xs);margin-top:8px">完整兑换码仅在此展示一次；关闭后列表只显示掩码，请立即复制分发。</p>
       <template #footer>
         <el-button type="primary" @click="showResult = false; load()">完成</el-button>
       </template>
@@ -188,6 +188,6 @@ async function remove(row) {
 .code-line {
   font-family: monospace;
   padding: 4px 0;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--color-bg-hover);
 }
 </style>

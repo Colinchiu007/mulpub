@@ -1,7 +1,7 @@
 <template>
   <div>
     <h1 style="margin-bottom:16px">关键词监测目录</h1>
-    <p style="color:#888;margin-bottom:16px;font-size: var(--font-size-sm)">
+    <p style="color:var(--color-text-placeholder);margin-bottom:16px;font-size: var(--font-size-sm)">
       运营人员维护下发到桌面端的关键词监测目录（关键词/飙升阈值/轮询间隔），随运行时 bootstrap 在桌面端同步时生效；
       桌面端按目录监测讨论热度，异常飙升触发通知；用户自建监测词不受影响。
     </p>
@@ -54,15 +54,15 @@
         </el-form-item>
         <el-form-item label="飙升阈值">
           <el-input-number v-model="form.threshold" :min="1" :step="0.5" :controls="false" style="width:100%" />
-          <span style="color:#888;font-size: var(--font-size-xs)">热度相比上次的倍数，≥1</span>
+          <span style="color:var(--color-text-placeholder);font-size: var(--font-size-xs)">热度相比上次的倍数，≥1</span>
         </el-form-item>
         <el-form-item label="轮询间隔">
           <el-input-number v-model="form.interval_minutes" :min="10" :max="10080" :controls="false" style="width:100%" />
-          <span style="color:#888;font-size: var(--font-size-xs)">分钟，10-10080</span>
+          <span style="color:var(--color-text-placeholder);font-size: var(--font-size-xs)">分钟，10-10080</span>
         </el-form-item>
         <el-form-item label="启用下发">
           <el-switch v-model="form.enabled" />
-          <span style="margin-left:8px;color:#888;font-size: var(--font-size-xs)">关闭后桌面端不再监测该词</span>
+          <span style="margin-left:8px;color:var(--color-text-placeholder);font-size: var(--font-size-xs)">关闭后桌面端不再监测该词</span>
         </el-form-item>
       </el-form>
       <template #footer>

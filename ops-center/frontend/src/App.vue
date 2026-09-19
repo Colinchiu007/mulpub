@@ -8,9 +8,9 @@
       <el-menu
         :default-active="route.path"
         router
-        background-color="#001529"
-        text-color="#ffffffb3"
-        active-text-color="#fff"
+        background-color="var(--color-sidebar-bg)"
+        text-color="var(--color-sidebar-text)"
+        active-text-color="var(--color-sidebar-text-active)"
       >
         <template v-for="item in visibleMenuItems" :key="item.path">
           <el-menu-item :index="item.path">
@@ -59,7 +59,7 @@ const pageGuide = computed(() => getPageGuide(route.name))
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
 .app-container { height: 100vh; overflow: hidden; }
 .app-sidebar {
-  background: #001529;
+  background: var(--color-sidebar-bg);
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -75,20 +75,20 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
   align-items: center;
   gap: 8px;
   padding: 20px 24px;
-  color: #fff;
+  color: var(--color-sidebar-text-active);
   font-size: var(--font-size-md);
   font-weight: 600;
 }
 .sidebar-footer {
   margin-top: auto;
   padding: 16px 24px;
-  color: #ffffffb3;
+  color: var(--color-sidebar-text);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-top: 1px solid #ffffff1a;
+  border-top: 1px solid var(--color-sidebar-text-dim);
 }
-.sidebar-footer .el-button { color: #ffffffb3; }
+.sidebar-footer .el-button { color: var(--color-sidebar-text); }
 .el-menu { border-right: none !important; }
 .el-main {
   height: 100%;

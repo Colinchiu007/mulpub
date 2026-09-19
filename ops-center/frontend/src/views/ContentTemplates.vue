@@ -1,7 +1,7 @@
 <template>
   <div>
     <h1 style="margin-bottom:16px">官方内容模板库</h1>
-    <p style="color:#888;margin-bottom:16px;font-size: var(--font-size-sm)">
+    <p style="color:var(--color-text-placeholder);margin-bottom:16px;font-size: var(--font-size-sm)">
       运营人员维护下发到桌面端的内容模板库（Markdown 正文/适用平台/标签），随运行时 bootstrap 在桌面端同步时生效；
       官方模板在桌面端标记为内置（builtin），用户自建模板不受影响。内置种子对齐桌面端 TemplateManager.getPresets()（5 个）。
     </p>
@@ -79,7 +79,7 @@
         </el-form-item>
         <el-form-item label="启用下发">
           <el-switch v-model="form.enabled" />
-          <span style="margin-left:8px;color:#888;font-size: var(--font-size-xs)">关闭后桌面端不再下发该模板</span>
+          <span style="margin-left:8px;color:var(--color-text-placeholder);font-size: var(--font-size-xs)">关闭后桌面端不再下发该模板</span>
         </el-form-item>
       </el-form>
       <template #footer>

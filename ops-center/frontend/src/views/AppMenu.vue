@@ -1,7 +1,7 @@
 <template>
   <div>
     <h1 style="margin-bottom:16px">应用菜单</h1>
-    <p style="color:#888;margin-bottom:16px;font-size: var(--font-size-sm)">
+    <p style="color:var(--color-text-placeholder);margin-bottom:16px;font-size: var(--font-size-sm)">
       管理应用端（桌面端）左侧边栏的菜单项：控制显示 / 隐藏，调整顺序，并可在
       <strong>「一级导航」与「更多」之间互相拖动</strong>（跨组移动）。
       「发布、账号、采集、视频创作」为系统核心入口，<strong>强制显示且锁定在一级导航</strong>，不可关闭、不可移出（但可在一级导航内拖动排序）。
@@ -12,9 +12,9 @@
 
     <el-card shadow="never">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <div style="color:#909399;font-size: var(--font-size-xs)">
+        <div style="color:var(--color-text-secondary);font-size: var(--font-size-xs)">
           共 {{ items.length }} 项 · 已隐藏 {{ hiddenCount }} 项
-          <span v-if="dirty" style="color:#e6a23c;margin-left:8px">● 有未保存的修改</span>
+          <span v-if="dirty" style="color:var(--color-warning);margin-left:8px">● 有未保存的修改</span>
         </div>
         <div>
           <el-button :loading="loading" :disabled="saving || resetting" @click="load">刷新</el-button>
@@ -33,7 +33,7 @@
         @drop.prevent="onDropOnGroup(group.name)"
       >
         <h3 style="margin:0 0 4px;font-size: var(--font-size-base)">{{ group.label }}</h3>
-        <p style="margin:0 0 8px;color:#909399;font-size: var(--font-size-xs)">{{ group.hint }}</p>
+        <p style="margin:0 0 8px;color:var(--color-text-secondary);font-size: var(--font-size-xs)">{{ group.hint }}</p>
 
         <div class="menu-list">
           <div
@@ -74,7 +74,7 @@
             </span>
 
             <span class="row-label">
-              <span :style="!row.visible ? 'color:#999;text-decoration:line-through' : ''">{{ row.label }}</span>
+              <span :style="!row.visible ? 'color:var(--color-text-secondary);text-decoration:line-through' : ''">{{ row.label }}</span>
               <el-tag v-if="row.forced_visible" size="small" type="warning" style="margin-left:6px">强制显示</el-tag>
             </span>
 
@@ -307,8 +307,8 @@ async function resetAll() {
   transition: background 0.15s, border-color 0.15s;
 }
 .menu-group.drag-over {
-  border-color: #409eff;
-  background: #ecf5ff;
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
 }
 .menu-list {
   display: flex;
@@ -321,26 +321,26 @@ async function resetAll() {
   align-items: center;
   gap: 10px;
   padding: 8px 10px;
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--color-border);
   border-radius: 6px;
-  background: #fff;
+  background: var(--color-bg-canvas);
   cursor: grab;
 }
 .menu-row.row-dragging {
   opacity: 0.5;
 }
 .menu-row.row-hidden {
-  background: #fafafa;
+  background: var(--color-bg-inset);
 }
 .menu-row.row-forced {
-  background: #fdf6ec;
+  background: var(--color-warning-light);
 }
 .menu-row.row-forced .drag-handle {
-  color: #e6a23c;
+  color: var(--color-warning);
 }
 .drag-handle {
   font-size: var(--font-size-base);
-  color: #c0c4cc;
+  color: var(--color-text-muted);
   user-select: none;
 }
 .order-btns {
@@ -358,11 +358,11 @@ async function resetAll() {
 }
 .row-key {
   font-family: monospace;
-  color: #909399;
+  color: var(--color-text-secondary);
   font-size: var(--font-size-xs);
 }
 .row-desc {
-  color: #909399;
+  color: var(--color-text-secondary);
   font-size: var(--font-size-xs);
   margin-left: auto;
   max-width: 40%;
@@ -371,7 +371,7 @@ async function resetAll() {
   white-space: nowrap;
 }
 .empty-hint {
-  color: #c0c4cc;
+  color: var(--color-text-muted);
   font-size: var(--font-size-xs);
   padding: 6px 2px;
 }

@@ -12,7 +12,7 @@
       :closable="false"
       style="margin-bottom:16px"
     />
-    <div v-if="generatedAt" style="margin-bottom:12px;color:#909399;font-size: var(--font-size-xs)">巡检时间：{{ generatedAt }}</div>
+    <div v-if="generatedAt" style="margin-bottom:12px;color:var(--color-text-secondary);font-size: var(--font-size-xs)">巡检时间：{{ generatedAt }}</div>
 
     <el-table :data="checks" border stripe v-loading="running">
       <el-table-column prop="name" label="服务" min-width="160" />

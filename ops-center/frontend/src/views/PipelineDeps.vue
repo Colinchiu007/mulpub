@@ -1,7 +1,7 @@
 <template>
   <div>
     <h1 style="margin-bottom:16px">流水线所需依赖</h1>
-    <p style="color:#888;margin-bottom:16px;font-size: var(--font-size-sm)">
+    <p style="color:var(--color-text-placeholder);margin-bottom:16px;font-size: var(--font-size-sm)">
       列出所有视频创作流水线运行所需的模型类型（图片 / 视频 / TTS / 推理 / 语音识别 / 音频）与候选供应商，
       数据种子对齐代码事实（pipeline-engine.js 流水线 + model-provider-seeds.js 供应商目录）。
       运营可维护；「必选」表示该流水线运行前必须配置此类模型，「可选」表示缺省时该能力降级。
@@ -71,11 +71,11 @@
         </el-form-item>
         <el-form-item label="必选">
           <el-switch v-model="form.required" />
-          <span style="margin-left:8px;color:#888;font-size: var(--font-size-xs)">关闭=可选（缺省时该能力降级）</span>
+          <span style="margin-left:8px;color:var(--color-text-placeholder);font-size: var(--font-size-xs)">关闭=可选（缺省时该能力降级）</span>
         </el-form-item>
         <el-form-item label="候选供应商">
           <el-input v-model="candidatesText" placeholder="anthropic, openai（逗号分隔，≤50）" />
-          <span style="color:#888;font-size: var(--font-size-xs)">建议从预设目录选择：{{ typeProvidersHint }}</span>
+          <span style="color:var(--color-text-placeholder);font-size: var(--font-size-xs)">建议从预设目录选择：{{ typeProvidersHint }}</span>
         </el-form-item>
         <el-form-item label="默认供应商">
           <el-select v-model="form.default_provider" filterable allow-clear style="width:100%" placeholder="从候选中选择（可选）">

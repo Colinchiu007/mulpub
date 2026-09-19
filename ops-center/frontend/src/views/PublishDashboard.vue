@@ -1,7 +1,7 @@
 <template>
   <div>
     <h1 style="margin-bottom:16px">发布数据看板</h1>
-    <p style="color:#888;margin-bottom:16px;font-size: var(--font-size-sm)">
+    <p style="color:var(--color-text-placeholder);margin-bottom:16px;font-size: var(--font-size-sm)">
       桌面端脱敏上报的发布指标（按 发布日期 + 平台 聚合计数，不含标题/正文/账号内容），帮助运营了解各平台产粮与失败情况。
     </p>
 
@@ -16,8 +16,8 @@
       </div>
       <div v-if="summary" style="display:flex;gap:16px;margin-top:16px;flex-wrap:wrap">
         <div class="stat-card"><div class="stat-num">{{ summary.totals.publish_count }}</div><div class="stat-label">发布总数</div></div>
-        <div class="stat-card"><div class="stat-num" style="color:#13ce66">{{ summary.totals.ok_count }}</div><div class="stat-label">成功</div></div>
-        <div class="stat-card"><div class="stat-num" style="color:#f56c6c">{{ summary.totals.fail_count }}</div><div class="stat-label">失败</div></div>
+        <div class="stat-card"><div class="stat-num" style="color:var(--color-success)">{{ summary.totals.ok_count }}</div><div class="stat-label">成功</div></div>
+        <div class="stat-card"><div class="stat-num" style="color:var(--color-danger)">{{ summary.totals.fail_count }}</div><div class="stat-label">失败</div></div>
         <div class="stat-card"><div class="stat-num">{{ summary.totals.success_rate }}%</div><div class="stat-label">成功率</div></div>
         <div class="stat-card"><div class="stat-num">{{ summary.totals.platforms }}</div><div class="stat-label">平台数</div></div>
         <div class="stat-card"><div class="stat-num">{{ summary.totals.clients }}</div><div class="stat-label">设备数</div></div>
@@ -48,7 +48,7 @@
           <div class="bar-date">{{ d.date.slice(5) }}</div>
         </div>
       </div>
-      <div v-else-if="!loading" style="color:#888;padding:24px 0;text-align:center">尚未收到发布数据上报（桌面端需配置运营后台同步）。</div>
+      <div v-else-if="!loading" style="color:var(--color-text-placeholder);padding:24px 0;text-align:center">尚未收到发布数据上报（桌面端需配置运营后台同步）。</div>
     </el-card>
   </div>
 </template>
@@ -90,18 +90,18 @@ async function load() {
 <style scoped>
 .stat-card {
   flex: 1 1 140px;
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   padding: 14px 18px;
   text-align: center;
-  background: #fafafa;
+  background: var(--color-bg-inset);
 }
 .stat-num { font-size: var(--font-size-xl); font-weight: 600; }
-.stat-label { color: #888; font-size: var(--font-size-sm); margin-top: 4px; }
+.stat-label { color: var(--color-text-placeholder); font-size: var(--font-size-sm); margin-top: 4px; }
 .bar-chart { display: flex; gap: 6px; align-items: flex-end; min-height: 140px; overflow-x: auto; }
 .bar-col { flex: 0 0 34px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .bar-stack { width: 24px; display: flex; flex-direction: column; justify-content: flex-end; height: 110px; }
-.bar-ok { background: #13ce66; width: 100%; }
-.bar-fail { background: #f56c6c; width: 100%; }
-.bar-date { font-size: var(--font-size-xs); color: #888; }
+.bar-ok { background: var(--color-success); width: 100%; }
+.bar-fail { background: var(--color-danger); width: 100%; }
+.bar-date { font-size: var(--font-size-xs); color: var(--color-text-placeholder); }
 </style>

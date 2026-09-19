@@ -8,10 +8,10 @@
         <el-radio-button :value="90">近 90 天</el-radio-button>
       </el-radio-group>
       <el-button style="margin-left: 12px" :loading="loading" @click="load">刷新</el-button>
-      <span style="margin-left: 12px; color: #999; font-size: var(--font-size-xs)">数据来源：桌面端失败诊断脱敏上报（每 30 分钟）</span>
+      <span style="margin-left: 12px; color: var(--color-text-secondary); font-size: var(--font-size-xs)">数据来源：桌面端失败诊断脱敏上报（每 30 分钟）</span>
     </div>
 
-    <div v-if="loading" style="padding: 40px; text-align: center; color: #999">加载中...</div>
+    <div v-if="loading" style="padding: 40px; text-align: center; color: var(--color-text-secondary)">加载中...</div>
     <el-empty v-else-if="!summary || !summary.totals || summary.totals.runs === 0" description="尚未收到诊断上报（桌面端配置运营后台同步后每 30 分钟上报一次）" />
 
     <template v-else>
@@ -291,14 +291,14 @@ export default {
 
 <style scoped>
 .stat-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
-.stat-card { background: #fff; border: 1px solid #ebeef5; border-radius: 8px; padding: 16px; text-align: center; }
+.stat-card { background: var(--color-bg-canvas); border: 1px solid var(--color-border); border-radius: 8px; padding: 16px; text-align: center; }
 .stat-value { font-size: var(--font-size-xl); font-weight: 600; }
-.stat-label { color: #909399; font-size: var(--font-size-xs); margin-top: 4px; }
+.stat-label { color: var(--color-text-secondary); font-size: var(--font-size-xs); margin-top: 4px; }
 .trend-chart { display: flex; align-items: flex-end; gap: 4px; height: 160px; overflow-x: auto; }
 .trend-col { display: flex; flex-direction: column; align-items: center; min-width: 28px; }
 .trend-bars { display: flex; align-items: flex-end; gap: 2px; height: 140px; }
 .trend-bar { width: 10px; border-radius: 2px 2px 0 0; }
-.trend-bar.ok { background: #67c23a; }
-.trend-bar.fail { background: #f56c6c; }
-.trend-label { font-size: var(--font-size-xs); color: #909399; margin-top: 4px; }
+.trend-bar.ok { background: var(--color-success); }
+.trend-bar.fail { background: var(--color-danger); }
+.trend-label { font-size: var(--font-size-xs); color: var(--color-text-secondary); margin-top: 4px; }
 </style>
