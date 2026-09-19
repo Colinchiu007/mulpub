@@ -370,7 +370,7 @@ function statusLabel(status) {
 .back-link {
   color: var(--text-muted);
   text-decoration: none;
-  font-size: 14px;
+  font-size: var(--font-size-sm);
 }
 
 .back-link:hover {
@@ -378,14 +378,14 @@ function statusLabel(status) {
 }
 
 .replay-title {
-  font-size: 20px;
+  font-size: var(--font-size-lg);
   font-weight: 600;
   margin: 0;
 }
 
 .replay-duration {
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: var(--font-size-sm);
 }
 
 .replay-loading,
@@ -403,7 +403,7 @@ function statusLabel(status) {
 
 .text-muted {
   color: var(--text-tertiary, #999);
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   margin-top: 8px;
 }
 
@@ -443,7 +443,7 @@ function statusLabel(status) {
 }
 
 .speed-control label {
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
 }
 
@@ -456,7 +456,7 @@ function statusLabel(status) {
 
 .timeline-position {
   margin-left: auto;
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
 }
 
@@ -513,7 +513,7 @@ function statusLabel(status) {
 .event-type {
   padding: 2px 8px;
   border-radius: 4px;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   color: white;
   background: var(--text-light);
@@ -527,12 +527,12 @@ function statusLabel(status) {
 .event-type.marker-pause { background: var(--stability-experimental); }
 
 .event-stage {
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   color: var(--text-primary, #333);
 }
 
 .event-time {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   color: var(--text-tertiary, #999);
   margin-left: auto;
 }
@@ -545,7 +545,7 @@ function statusLabel(status) {
 }
 
 .snapshot-title {
-  font-size: 16px;
+  font-size: var(--font-size-base);
   font-weight: 600;
   margin: 0 0 16px 0;
 }
@@ -570,17 +570,17 @@ function statusLabel(status) {
 }
 
 .info-label {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--text-tertiary, #999);
 }
 
 .info-value {
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
 }
 
 .scenes-subtitle {
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   margin: 0 0 12px 0;
 }
@@ -597,7 +597,7 @@ function statusLabel(status) {
 }
 
 .event-list-title {
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   cursor: pointer;
   user-select: none;
@@ -605,7 +605,7 @@ function statusLabel(status) {
 }
 
 .toggle-icon {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   margin-left: 4px;
 }
 
@@ -634,19 +634,19 @@ function statusLabel(status) {
 }
 
 .event-row-time {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--text-tertiary, #999);
   min-width: 80px;
 }
 
 .event-row-type {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   min-width: 100px;
 }
 
 .event-row-stage {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
 }
 </style>

@@ -109,7 +109,7 @@ function onDragEnd() {
   width: 24px;
   text-align: center;
   color: #909399;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
 }
 .row-label {
   flex: 1;

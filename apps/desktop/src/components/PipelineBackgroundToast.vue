@@ -43,7 +43,7 @@ const text = computed(() => {
   border-radius: 10px;
   background: rgba(30, 30, 34, 0.92);
   color: #fff;
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   line-height: 1.6;
   text-align: center;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);

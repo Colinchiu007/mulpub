@@ -15,7 +15,7 @@
         <div v-if="titleHint" class="rewrite-title-hint" data-testid="rewrite-title-hint">
           <span class="title-hint-text">{{ t('rewritePage.titleHintLabel') }}：{{ titleHint }}</span>
           <!-- P1-E 评审 W-2：信号注入用户可感知（计数标识）；W-1：移除 chip 同时清信号（语义一致） -->
-          <span v-if="viralAngles.length || viralKeywords.length" data-testid="rewrite-signal-badge" style="font-size:12px;color:var(--muted)">
+          <span v-if="viralAngles.length || viralKeywords.length" data-testid="rewrite-signal-badge" style="font-size: var(--font-size-xs);color:var(--muted)">
             {{ t('rewritePage.signalBadge') }}（{{ viralAngles.length + viralKeywords.length }}）
           </span>
           <button
@@ -796,7 +796,7 @@ function onPublishVideo(pipelineId) {
 /* 卡片标题：全局 .cohere-section-title 没有任何样式定义，此前退化为正文字号，
    卡片内所有内容层级相同——这是「界面混乱」的根因之一。 */
 .cohere-section-title {
-  font-size: 15px;
+  font-size: var(--font-size-base);
   font-weight: 600;
   color: var(--ink);
   line-height: 1.4;
@@ -854,14 +854,14 @@ function onPublishVideo(pipelineId) {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--ink);
   line-height: 1.4;
 }
-.switch-icon { font-size: 15px; line-height: 1; }
+.switch-icon { font-size: var(--font-size-base); line-height: 1; }
 .switch-hint {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   line-height: 1.5;
   color: var(--muted);
 }
@@ -872,7 +872,7 @@ function onPublishVideo(pipelineId) {
    并用 :deep() 覆盖子组件（策略选择器）内部的同名标签。 ── */
 .rewrite-config-card :deep(.cohere-form-label) {
   display: block;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--ink);
   line-height: 1.4;
@@ -890,7 +890,7 @@ function onPublishVideo(pipelineId) {
   border-radius: var(--r-sm);
   background: var(--canvas);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   color: var(--ink);
   transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
@@ -920,7 +920,7 @@ function onPublishVideo(pipelineId) {
 }
 
 /* 策略选择器内部的单选文案字号与其它字段保持一致（子组件默认 12px） */
-.rewrite-config-card :deep(.strategy-radio) { font-size: 13px; }
+.rewrite-config-card :deep(.strategy-radio) { font-size: var(--font-size-sm); }
 .rewrite-config-card :deep(.strategy-mode-row) { gap: var(--space-lg); }
 
 /* 字段控件宽度对齐（下拉类统一 280px） */
@@ -960,12 +960,12 @@ function onPublishVideo(pipelineId) {
 }
 .rewrite-result-title-label {
   flex: 0 0 auto;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   color: var(--coral);
 }
 .rewrite-result-title-text {
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--ink);
   line-height: 1.4;
@@ -988,7 +988,7 @@ function onPublishVideo(pipelineId) {
    （BUGFIX-REWRITE-QUALITY-UX 与 #1892 视觉重构的整合） */
 .quality-accent-fail { border-left-color: #ea580c; }
 .quality-head {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--ink);
   margin-bottom: 6px;
@@ -999,7 +999,7 @@ function onPublishVideo(pipelineId) {
   gap: 4px 20px;
 }
 .quality-metric {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--muted);
 }
 .quality-metric strong { font-weight: 600; color: var(--ink); }
@@ -1014,20 +1014,20 @@ function onPublishVideo(pipelineId) {
 .rewrite-quality-suggestions {
   margin: var(--space-sm) 0 0;
   padding-left: 18px;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   line-height: 1.7;
   color: var(--muted);
 }
 .rewrite-quality-suggestions li { margin-bottom: 2px; }
 .quality-suggestions-title {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-weight: 500;
   color: var(--ink);
   margin-bottom: 4px;
 }
 .rewrite-quality-none {
   margin: 0 0 var(--space-md);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--muted);
 }
 

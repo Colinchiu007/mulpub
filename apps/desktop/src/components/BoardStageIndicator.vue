@@ -119,14 +119,14 @@ function stageClass(stage, index) {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   border: 2px solid var(--ep-border);
   background: #fff;
   color: var(--ep-info);
 }
 .stage-label {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   margin-top: 6px;
   color: var(--text-muted, #909399);
   text-align: center;

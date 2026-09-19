@@ -119,8 +119,8 @@
             <template #default="{ row }">
               <div v-for="rule in row.rules" :key="rule.rule" style="display:flex;gap:8px;align-items:center;padding:2px 0">
                 <el-tag :type="rule.pass ? 'success' : 'danger'" size="small">{{ rule.pass ? 'PASS' : 'FAIL' }}</el-tag>
-                <span style="font-size:12px">{{ rule.rule }}</span>
-                <span v-if="!rule.pass" style="color:#f56c6c;font-size:12px">实际={{ rule.actual }}（期望 {{ rule.expected }}）</span>
+                <span style="font-size: var(--font-size-xs)">{{ rule.rule }}</span>
+                <span v-if="!rule.pass" style="color:#f56c6c;font-size: var(--font-size-xs)">实际={{ rule.actual }}（期望 {{ rule.expected }}）</span>
               </div>
             </template>
           </el-table-column>
@@ -355,10 +355,10 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.hint { color: #909399; font-size: 12px; }
+.hint { color: #909399; font-size: var(--font-size-xs); }
 .metric-row { margin-bottom: 8px; }
 .metric-card { text-align: center; }
-.metric-label { font-size: 12px; color: #909399; }
-.metric-value { font-size: 22px; font-weight: 600; margin-top: 4px; }
-.json-pre { background: #f6f8fa; padding: 12px; border-radius: 6px; font-size: 12px; max-height: 240px; overflow: auto; }
+.metric-label { font-size: var(--font-size-xs); color: #909399; }
+.metric-value { font-size: var(--font-size-lg); font-weight: 600; margin-top: 4px; }
+.json-pre { background: #f6f8fa; padding: 12px; border-radius: 6px; font-size: var(--font-size-xs); max-height: 240px; overflow: auto; }
 </style>

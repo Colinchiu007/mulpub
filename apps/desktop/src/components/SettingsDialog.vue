@@ -85,7 +85,7 @@ function onTabClick (tab) {
   border: none;
   background: none;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   cursor: pointer;
   transition: all 150ms;
   text-align: left;
@@ -109,7 +109,7 @@ function onTabClick (tab) {
 }
 
 .tab-badge {
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
   background: var(--border-light);
   padding: 2px 6px;

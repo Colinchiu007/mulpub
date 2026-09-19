@@ -1,7 +1,7 @@
 <template>
   <div>
     <h1 style="margin-bottom:16px">应用菜单</h1>
-    <p style="color:#888;margin-bottom:16px;font-size:13px">
+    <p style="color:#888;margin-bottom:16px;font-size: var(--font-size-sm)">
       管理应用端（桌面端）左侧边栏的菜单项：控制显示 / 隐藏，调整顺序，并可在
       <strong>「一级导航」与「更多」之间互相拖动</strong>（跨组移动）。
       「发布、账号、采集、视频创作」为系统核心入口，<strong>强制显示且锁定在一级导航</strong>，不可关闭、不可移出（但可在一级导航内拖动排序）。
@@ -12,7 +12,7 @@
 
     <el-card shadow="never">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <div style="color:#909399;font-size:12px">
+        <div style="color:#909399;font-size: var(--font-size-xs)">
           共 {{ items.length }} 项 · 已隐藏 {{ hiddenCount }} 项
           <span v-if="dirty" style="color:#e6a23c;margin-left:8px">● 有未保存的修改</span>
         </div>
@@ -32,8 +32,8 @@
         @dragleave="onGroupDragLeave(group.name)"
         @drop.prevent="onDropOnGroup(group.name)"
       >
-        <h3 style="margin:0 0 4px;font-size:15px">{{ group.label }}</h3>
-        <p style="margin:0 0 8px;color:#909399;font-size:12px">{{ group.hint }}</p>
+        <h3 style="margin:0 0 4px;font-size: var(--font-size-base)">{{ group.label }}</h3>
+        <p style="margin:0 0 8px;color:#909399;font-size: var(--font-size-xs)">{{ group.hint }}</p>
 
         <div class="menu-list">
           <div
@@ -339,7 +339,7 @@ async function resetAll() {
   color: #e6a23c;
 }
 .drag-handle {
-  font-size: 16px;
+  font-size: var(--font-size-base);
   color: #c0c4cc;
   user-select: none;
 }
@@ -359,11 +359,11 @@ async function resetAll() {
 .row-key {
   font-family: monospace;
   color: #909399;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
 }
 .row-desc {
   color: #909399;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   margin-left: auto;
   max-width: 40%;
   overflow: hidden;
@@ -372,7 +372,7 @@ async function resetAll() {
 }
 .empty-hint {
   color: #c0c4cc;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   padding: 6px 2px;
 }
 </style>

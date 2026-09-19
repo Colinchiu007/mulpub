@@ -70,6 +70,6 @@ async function handleLogin() {
   text-align: center;
   margin-bottom: 24px;
 }
-.login-header h2 { margin: 8px 0 4px; font-size: 24px; }
+.login-header h2 { margin: 8px 0 4px; font-size: var(--font-size-xl); }
 .login-header p { color: #999; margin: 0; }
 </style>

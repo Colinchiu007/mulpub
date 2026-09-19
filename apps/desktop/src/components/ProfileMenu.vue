@@ -307,7 +307,7 @@ function handleUpgrade() {
   border-radius: 50%;
   background: linear-gradient(140deg, #ffcf80, #ef9e68);
   color: #5d3824;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 700;
 }
 
@@ -338,7 +338,7 @@ function handleUpgrade() {
 .mp-profile-copy strong {
   overflow: hidden;
   color: #4d4f6f;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -361,7 +361,7 @@ function handleUpgrade() {
   border-radius: 8px;
   background: #e3e1f2;
   color: #9293a6;
-  font-size: 10px;
+  font-size: var(--font-size-xs);
 }
 
 .profile-license-pro {
@@ -407,7 +407,7 @@ function handleUpgrade() {
 .profile-menu-heading span,
 .profile-menu-note {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
 }
 
 .profile-menu-action {
@@ -468,7 +468,7 @@ function handleUpgrade() {
 
 .profile-menu-error {
   color: var(--error);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
 }
 
 @media (max-width: 900px) {

@@ -269,7 +269,7 @@ watch(() => props.visible, (v) => {
 }
 .crop-hint {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--color-text-secondary, #909399);
 }
 .crop-toolbar {
@@ -285,7 +285,7 @@ watch(() => props.visible, (v) => {
 }
 .ratio-btn {
   padding: 4px 10px;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   border: 1px solid var(--color-border, #e4e4e7);
   border-radius: 6px;
   background: transparent;
@@ -301,7 +301,7 @@ watch(() => props.visible, (v) => {
 }
 .crop-error {
   color: var(--color-danger, #f56c6c);
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   padding: 12px;
 }
 </style>

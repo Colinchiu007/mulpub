@@ -13,7 +13,7 @@
         class="cohere-input"
         v-model="query"
         placeholder="输入搜索关键词..."
-        style="flex:1;font-size:14px"
+        style="flex:1;font-size: var(--font-size-sm)"
         @keyup.enter="doSearch"
       />
       <button class="cohere-btn-primary" @click="doSearch" :disabled="!query.trim() || searching">
@@ -22,17 +22,17 @@
     </div>
 
     <!-- Loading -->
-    <div v-if="searching" style="text-align:center;padding:30px 0;color:var(--muted);font-size:13px">
+    <div v-if="searching" style="text-align:center;padding:30px 0;color:var(--muted);font-size: var(--font-size-sm)">
       搜索中...
     </div>
 
     <!-- Empty state -->
-    <div v-else-if="!searched" style="text-align:center;padding:30px 0;color:var(--muted);font-size:13px">
+    <div v-else-if="!searched" style="text-align:center;padding:30px 0;color:var(--muted);font-size: var(--font-size-sm)">
       输入关键词搜索权威来源
     </div>
 
     <!-- No results -->
-    <div v-else-if="searched && (!results || results.length === 0)" style="text-align:center;padding:30px 0;color:var(--muted);font-size:13px">
+    <div v-else-if="searched && (!results || results.length === 0)" style="text-align:center;padding:30px 0;color:var(--muted);font-size: var(--font-size-sm)">
       未找到相关来源
     </div>
 
@@ -43,32 +43,32 @@
         <!-- Title -->
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-sm);margin-bottom:4px">
           <a :href="ref.url" target="_blank" rel="noopener"
-            style="font-size:14px;font-weight:600;color:var(--action-blue);text-decoration:none;flex:1;min-width:0"
+            style="font-size: var(--font-size-sm);font-weight:600;color:var(--action-blue);text-decoration:none;flex:1;min-width:0"
             @mouseover="e => e.target.style.textDecoration = 'underline'"
             @mouseout="e => e.target.style.textDecoration = 'none'">
             {{ ref.title }}
           </a>
-          <button class="cohere-btn-ghost" @click="insertReference(ref)" style="font-size:12px;padding:2px 8px;white-space:nowrap">
+          <button class="cohere-btn-ghost" @click="insertReference(ref)" style="font-size: var(--font-size-xs);padding:2px 8px;white-space:nowrap">
             插入
           </button>
         </div>
 
         <!-- Source badge -->
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-          <span style="font-size:11px;font-weight:600;padding:1px 6px;border-radius:3px;background:var(--border);color:var(--muted)">
+          <span style="font-size: var(--font-size-xs);font-weight:600;padding:1px 6px;border-radius:3px;background:var(--border);color:var(--muted)">
             {{ ref.source }}
           </span>
-          <span style="font-size:11px;color:var(--muted)">互动: {{ ref.engagement }}</span>
+          <span style="font-size: var(--font-size-xs);color:var(--muted)">互动: {{ ref.engagement }}</span>
         </div>
 
         <!-- Snippet -->
-        <div v-if="ref.snippet" style="font-size:12px;color:var(--muted);line-height:1.4;margin-bottom:6px">
+        <div v-if="ref.snippet" style="font-size: var(--font-size-xs);color:var(--muted);line-height:1.4;margin-bottom:6px">
           {{ ref.snippet.slice(0, 180) }}<span v-if="ref.snippet.length > 180">...</span>
         </div>
 
         <!-- Relevance score bar -->
         <div style="display:flex;align-items:center;gap:6px">
-          <span style="font-size:11px;color:var(--muted);white-space:nowrap">相关度</span>
+          <span style="font-size: var(--font-size-xs);color:var(--muted);white-space:nowrap">相关度</span>
           <div style="flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden">
             <div :style="{
               width: Math.min(ref.relevance || 0, 60) / 60 * 100 + '%',

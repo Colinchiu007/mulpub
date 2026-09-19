@@ -1,7 +1,7 @@
 <template>
   <div>
     <h1 style="margin-bottom:16px">桌面端功能开关</h1>
-    <p style="color:#888;margin-bottom:16px;font-size:13px">
+    <p style="color:#888;margin-bottom:16px;font-size: var(--font-size-sm)">
       运营人员维护下发到桌面端的功能开关（key → typed value），随运行时 bootstrap 在桌面端同步时生效；
       未配置同步的桌面端使用本地默认值。已内置：<code>videoCreation.maxOutputResolution</code>（输出分辨率能力开关，
       <code>1080p</code> 默认禁止 4K / <code>4k</code> 开启，桌面端引擎 fail-closed 拒绝越界分辨率）。
@@ -62,7 +62,7 @@
         </el-form-item>
         <el-form-item label="启用下发">
           <el-switch v-model="form.enabled" />
-          <span style="margin-left:8px;color:#888;font-size:12px">关闭后桌面端不再下发该开关</span>
+          <span style="margin-left:8px;color:#888;font-size: var(--font-size-xs)">关闭后桌面端不再下发该开关</span>
         </el-form-item>
       </el-form>
       <template #footer>

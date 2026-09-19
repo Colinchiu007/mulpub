@@ -127,12 +127,12 @@ onMounted(load)
 <style scoped>
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
 .stat-card { border: 1px solid #e4e7ed; border-radius: 8px; padding: 16px; text-align: center; background: #fff; }
-.stat-value { font-size: 22px; font-weight: 700; color: #303133; }
-.stat-label { font-size: 12px; color: #909399; margin-top: 4px; }
+.stat-value { font-size: var(--font-size-lg); font-weight: 700; color: #303133; }
+.stat-label { font-size: var(--font-size-xs); color: #909399; margin-top: 4px; }
 .trend-chart { display: flex; align-items: flex-end; gap: 6px; height: 150px; overflow-x: auto; }
 .trend-col { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; min-width: 36px; }
 .trend-bars { display: flex; align-items: flex-end; gap: 2px; height: 100%; }
 .trend-bar.ok { width: 10px; background: #409eff; border-radius: 2px 2px 0 0; }
 .trend-bar.fail { width: 10px; background: #f56c6c; border-radius: 2px 2px 0 0; }
-.trend-label { font-size: 10px; color: #909399; margin-top: 4px; white-space: nowrap; }
+.trend-label { font-size: var(--font-size-xs); color: #909399; margin-top: 4px; white-space: nowrap; }
 </style>

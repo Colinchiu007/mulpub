@@ -311,14 +311,14 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
   border-radius: var(--border-radius-lg, 12px);
   background: var(--bg-secondary, #f6f6f4);
 }
-.gate-hint { font-size: 13px; color: var(--text-primary, #25252b); }
+.gate-hint { font-size: var(--font-size-sm); color: var(--text-primary, #25252b); }
 .gate-sign-in {
   padding: 6px 16px;
   border: none;
   border-radius: 8px;
   background: var(--brand-primary, #534ab7);
   color: #fff;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   cursor: pointer;
 }
 
@@ -329,11 +329,11 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
 .dash-stat-success { color: var(--color-success); }
 .dash-stat-danger { color: var(--color-danger); }
 .dash-panel { cursor: default; margin-bottom: var(--space-md); padding: 16px; }
-.dash-panel-title { font-weight: 600; font-size: 14px; margin-bottom: var(--space-md); }
+.dash-panel-title { font-weight: 600; font-size: var(--font-size-sm); margin-bottom: var(--space-md); }
 .dash-trend-track { display: flex; align-items: flex-end; gap: 4px; height: 80px; padding: 0 4px; }
 .dash-trend-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .dash-trend-bar { border-radius: 3px 3px 0 0; transition: height 0.3s; }
-.dash-trend-date { font-size: 9px; color: var(--color-text-muted); white-space: nowrap; }
+.dash-trend-date { font-size: var(--font-size-xs); color: var(--color-text-muted); white-space: nowrap; }
 .dash-dist-list { display: flex; flex-direction: column; gap: 8px; }
 .dash-dist-row { display: flex; align-items: center; gap: 8px; }
 .dash-dist-name { width: 60px; font-size: var(--font-size-xs); text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
@@ -343,6 +343,6 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
 .dash-fail-note { font-size: var(--font-size-xs); color: var(--color-danger); }
 .dash-grid-280 { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
 .dash-bench-row { display: flex; gap: var(--space-sm); margin-bottom: var(--space-md); align-items: center; }
-.dash-bench-input { flex: 1; font-size: 14px; }
+.dash-bench-input { flex: 1; font-size: var(--font-size-sm); }
 
 </style>

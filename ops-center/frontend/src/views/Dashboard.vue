@@ -5,7 +5,7 @@
       <el-col :span="6" v-for="stat in stats" :key="stat.label">
         <el-card shadow="hover">
           <div style="text-align:center">
-            <div style="font-size:32px;font-weight:700;color:#409EFF">{{ stat.value }}</div>
+            <div style="font-size: var(--font-size-xxl);font-weight:700;color:#409EFF">{{ stat.value }}</div>
             <div style="color:#999;margin-top:8px">{{ stat.label }}</div>
           </div>
         </el-card>

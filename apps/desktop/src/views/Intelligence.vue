@@ -224,7 +224,7 @@ function insertRef (ref) {
   border-radius: 4px;
 }
 .engagement-score {
-  font-size: 20px;
+  font-size: var(--font-size-lg);
   font-weight: 700;
   line-height: 1;
 }
@@ -247,7 +247,7 @@ function insertRef (ref) {
 .int-card-static { cursor: default; }
 .int-search-row { display: flex; gap: var(--space-sm); align-items: flex-end; }
 .int-search-main { flex: 1; }
-.int-input-md { font-size: 14px; }
+.int-input-md { font-size: var(--font-size-sm); }
 .int-source-row { display: flex; gap: 12px; margin-top: var(--space-sm); flex-wrap: wrap; }
 .int-check-label { display: flex; align-items: center; gap: 4px; font-size: var(--font-size-sm); cursor: pointer; }
 .int-check-accent { accent-color: var(--color-danger); }
@@ -257,16 +257,16 @@ function insertRef (ref) {
 .int-item-row { display: flex; align-items: flex-start; gap: var(--space-sm); }
 .int-item-main { flex: 1; min-width: 0; }
 .int-badge-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
-.int-link { font-size: 14px; font-weight: 600; color: var(--color-text-primary); text-decoration: none; display: block; margin-bottom: 4px; }
+.int-link { font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text-primary); text-decoration: none; display: block; margin-bottom: 4px; }
 .int-link:hover { color: var(--color-danger); }
 .int-snippet { font-size: var(--font-size-sm); color: var(--color-text-muted); margin-bottom: 4px; line-height: 1.4; }
 .int-meta-row { display: flex; gap: 12px; font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .int-score-side { text-align: right; flex-shrink: 0; }
-.int-score-hint { font-size: 10px; color: var(--color-text-muted); }
+.int-score-hint { font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .int-ref-btn { margin-top: 4px; font-size: var(--font-size-xs); }
 .int-pattern-hint { font-size: var(--font-size-sm); color: var(--color-text-muted); margin-bottom: 6px; }
 .int-tag-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .int-tip-fix { background: var(--color-bg-inset); border-radius: var(--r-sm); padding: 12px; font-size: var(--font-size-sm); }
-.source-badge { font-size: 11px; padding: 2px 8px; border-radius: var(--r-xs); font-weight: 600; }
+.source-badge { font-size: var(--font-size-xs); padding: 2px 8px; border-radius: var(--r-xs); font-weight: 600; }
 
 </style>

@@ -31,14 +31,14 @@
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
           <span class="kb-category-tag" :style="{ background: catColors[item.category] || '#909399' }">{{ catLabels[item.category] || item.category }}</span>
           <div>
-            <button class="cohere-btn-ghost" style="padding:2px 6px;font-size:11px" @click="editItem(item)">{{ t('knowledgeBase.edit') }}</button>
-            <button class="cohere-btn-ghost danger" style="padding:2px 6px;font-size:11px" @click="deleteItem(item)">{{ t('knowledgeBase.delete') }}</button>
+            <button class="cohere-btn-ghost" style="padding:2px 6px;font-size: var(--font-size-xs)" @click="editItem(item)">{{ t('knowledgeBase.edit') }}</button>
+            <button class="cohere-btn-ghost danger" style="padding:2px 6px;font-size: var(--font-size-xs)" @click="deleteItem(item)">{{ t('knowledgeBase.delete') }}</button>
           </div>
         </div>
         <div v-if="item.title" style="font-weight:600;margin-bottom:4px">{{ item.title }}</div>
-        <div style="color:var(--text-secondary);font-size:13px;line-height:1.5">{{ (item.content || '').slice(0, 200) }}{{ (item.content || '').length > 200 ? '...' : '' }}</div>
-        <div v-if="item.source_file" style="font-size:11px;color:var(--muted);margin-top:8px">📄 {{ item.source_file }}</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:4px">{{ item.created_at ? item.created_at.slice(0, 10) : '' }}</div>
+        <div style="color:var(--text-secondary);font-size: var(--font-size-sm);line-height:1.5">{{ (item.content || '').slice(0, 200) }}{{ (item.content || '').length > 200 ? '...' : '' }}</div>
+        <div v-if="item.source_file" style="font-size: var(--font-size-xs);color:var(--muted);margin-top:8px">📄 {{ item.source_file }}</div>
+        <div style="font-size: var(--font-size-xs);color:var(--muted);margin-top:4px">{{ item.created_at ? item.created_at.slice(0, 10) : '' }}</div>
       </div>
     </div>
 
@@ -177,7 +177,7 @@ defineExpose({ loadData })
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   outline: none;
   box-sizing: border-box;
 }
@@ -188,7 +188,7 @@ defineExpose({ loadData })
   border-radius: 6px;
   background: var(--surface, #fff);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--text-primary);
 }
 .style-chip.active {
@@ -207,7 +207,7 @@ defineExpose({ loadData })
   padding: 2px 8px;
   border-radius: 4px;
   color: #fff;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 .cohere-btn-ghost {
   padding: 4px 8px;
@@ -215,7 +215,7 @@ defineExpose({ loadData })
   border: 1px solid var(--border);
   border-radius: 6px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--text-primary);
   margin-right: 4px;
 }
