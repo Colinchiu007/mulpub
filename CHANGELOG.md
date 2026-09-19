@@ -18,10 +18,12 @@
 - `check-color-literals.js` 145/145 PASS（迁移未新增历史品牌色字面量，`#5149e8` 计数 10→10 不变）；`check-frontend-consistency.js` PASS；`check-locale-sync.js --keys` PASS（1006 个在用 key 均存在）
 - PRD：`01-docs/PRD-HOT-TOPICS-MODULE-2026-09-11.md` §10.7.6 已补充
 
-### 已知无关红灯（与本次改动无关，勿认领）
+### CI 归因记录（2026-09-19 09:20 复核）
 
-- `vite build` 在 main 末端 e3b1ea2ca 已失败：`src/views/Intelligence.vue` 样式块 PostCSS 解析报 `Unknown word hover`（#2003 引入）；本次未触碰该文件。
-- `check-locale-sync.js --cjk` 在 e3b1ea2ca 已失败：报 Dashboard.vue / Intelligence.vue 共 7 处「新增」硬编码中文，实为 #2003 改动导致 file:line 基线漂移（基线 1562 条 / 当前命中 1382 条），本次未触碰这两个文件。
+本 PR 首次 CI（run 35371941926，2026-09-19 01:02）跑在基线 `e3b1ea2ca` 上，当时该基线自身已红，8 个 QG 门禁失败。复核当前 main（`9a4495b5a`）的 quality-gate 运行（`aedb3abac`）结果：**8 个 QG 门禁中 7 个已恢复绿色**（Static / Visual / Unit Tests / Coverage / Browser E2E / Desktop Shards 1/2 / Autonomous 全绿），仅 `QG Desktop Shards (2/2)` 在 main 上同样失败 —— 属仓库既有红灯，与本 PR 无关。
+
+- 已随主分支前进而消解的失败：`build`（`src/views/Intelligence.vue` 样式块 PostCSS `Unknown word hover`，由 CSS 注释闭合事故引入）、`check-locale-sync.js --cjk`（Dashboard.vue / Intelligence.vue 的 file:line 基线漂移）。两者本次均未触碰。
+- 本 PR 与 main 前进的 5 个提交（`1aa6aa851` / `73ccdf29a` / `d6bf29f9e` / `aedb3abac` / `9a4495b5a`，共 45 个文件）**零文件重叠**，合并无冲突。
 
 ---
 
