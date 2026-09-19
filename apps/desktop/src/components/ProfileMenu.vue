@@ -533,9 +533,11 @@ function handleUpgrade() {
 }
 
 .status-text {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: nowrap; /* 不换行 */
+  overflow: hidden; /* 超出隐藏 */
+  text-overflow: ellipsis; /* 显示省略号 */
+  flex: 1; /* 占据剩余空间 */
+  min-width: 0; /* 允许被压缩 */
 }
 
 /* 用户信息区 */
@@ -585,16 +587,17 @@ function handleUpgrade() {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  min-width: 0;
+  min-width: 0; /* 允许被压缩 */
+  flex: 1; /* 占据剩余空间 */
 }
 
 .user-name {
   font-size: 14px;
   font-weight: 600;
-  color: var(--ink);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  color: var(--ink, #333);
+  white-space: nowrap; /* 不换行 */
+  overflow: hidden; /* 超出隐藏 */
+  text-overflow: ellipsis; /* 显示省略号 */
 }
 
 .user-status {
