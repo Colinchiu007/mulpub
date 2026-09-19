@@ -1,7 +1,7 @@
 <template>
   <div>
     <h1 style="margin-bottom:16px">改写硬约束</h1>
-    <p style="color:#888;margin-bottom:16px;font-size: var(--font-size-sm)">
+    <p style="color:var(--color-text-placeholder);margin-bottom:16px;font-size: var(--font-size-sm)">
       最高优先级的改写规则：无论桌面端选择什么改写模式和改写策略都强制生效，与策略/模式指令冲突时以硬约束为准。
       支持多版本管理，唯一默认版本随运行时 bootstrap 下发到桌面端并注入引擎 systemPrompt 最前置。
     </p>
@@ -65,7 +65,7 @@
         </el-form-item>
         <el-form-item label="启用">
           <el-switch v-model="form.enabled" />
-          <span style="margin-left:8px;color:#888;font-size: var(--font-size-xs)">停用后不参与默认竞选与下发</span>
+          <span style="margin-left:8px;color:var(--color-text-placeholder);font-size: var(--font-size-xs)">停用后不参与默认竞选与下发</span>
         </el-form-item>
       </el-form>
       <template #footer>

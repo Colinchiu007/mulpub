@@ -301,7 +301,7 @@ function statusLabel(status) {
 .page-count {
   display: inline-block;
   margin-top: 4px;
-  color: #909399;
+  color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
 }
 
@@ -327,7 +327,7 @@ function statusLabel(status) {
 
 .muted {
   margin-top: 3px;
-  color: #909399;
+  color: var(--color-text-secondary);
   font-size: var(--font-size-xs);
 }
 
@@ -340,9 +340,9 @@ function statusLabel(status) {
 .feedback-message {
   min-height: 96px;
   padding: 14px 16px;
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--color-border);
   border-radius: 4px;
-  color: #303133;
+  color: var(--color-text-primary);
   font-size: var(--font-size-sm);
   line-height: 1.7;
   white-space: pre-wrap;

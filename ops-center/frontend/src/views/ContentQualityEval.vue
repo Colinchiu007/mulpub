@@ -50,7 +50,7 @@
                 <div style="display:flex;align-items:center;gap:12px">
                   <span>评估结果</span>
                   <el-tag :type="gradeTag(result.grade)" size="large">{{ result.grade }} - {{ result.grade_label }}</el-tag>
-                  <span style="font-size: var(--font-size-xl);font-weight:700;color:#409EFF">{{ result.overall_score }}<small style="font-size: var(--font-size-sm)">/100</small></span>
+                  <span style="font-size: var(--font-size-xl);font-weight:700;color:var(--color-primary)">{{ result.overall_score }}<small style="font-size: var(--font-size-sm)">/100</small></span>
                 </div>
               </template>
 
@@ -63,7 +63,7 @@
               </div>
 
               <div style="margin-bottom:12px">
-                <span style="font-size: var(--font-size-sm);color:#6b7280">字数: {{ result.word_count }} | 风格: {{ result.style }} | 平台: {{ result.platform }}</span>
+                <span style="font-size: var(--font-size-sm);color:var(--color-text-secondary)">字数: {{ result.word_count }} | 风格: {{ result.style }} | 平台: {{ result.platform }}</span>
               </div>
 
               <el-divider content-position="left">维度评分</el-divider>
@@ -207,9 +207,9 @@ function gradeTag(g) {
 }
 
 function dimColor(score) {
-  if (score >= 80) return '#67C23A'
-  if (score >= 60) return '#E6A23C'
-  return '#F56C6C'
+  if (score >= 80) return 'var(--color-success)'
+  if (score >= 60) return 'var(--color-warning)'
+  return 'var(--color-danger)'
 }
 
 async function run() {
@@ -265,20 +265,20 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.subtitle { color: #6b7280; font-size: var(--font-size-sm); margin-bottom: 16px; }
+.subtitle { color: var(--color-text-secondary); font-size: var(--font-size-sm); margin-bottom: 16px; }
 .not-applicable-track {
   flex: 1;
   min-height: 16px;
   border-radius: 4px;
-  background: #f3f4f6;
-  color: #9ca3af;
+  background: var(--color-bg-inset);
+  color: var(--color-text-muted);
   font-size: var(--font-size-xs);
   line-height: 16px;
   padding-left: 8px;
 }
 .not-applicable-value {
   width: 40px;
-  color: #9ca3af;
+  color: var(--color-text-muted);
   font-size: var(--font-size-sm);
   text-align: right;
   flex-shrink: 0;

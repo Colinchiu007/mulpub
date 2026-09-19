@@ -29,7 +29,7 @@
         <el-table-column prop="name" label="名称" min-width="160" />
         <el-table-column label="API Key" min-width="200">
           <template #default="{ row }">
-            <code style="background:#f5f5f5;padding:2px 8px;border-radius:4px;font-size: var(--font-size-sm)">
+            <code style="background:var(--color-bg-hover);padding:2px 8px;border-radius:4px;font-size: var(--font-size-sm)">
               {{ row.api_key }}
             </code>
             <el-button link size="small" @click="revealKey(row)" style="margin-left:8px">
@@ -105,7 +105,7 @@
         </el-form-item>
         <el-form-item label="优先级">
           <el-input-number v-model="form.priority" :min="1" :max="10" />
-          <span style="margin-left:8px;color:#999;font-size: var(--font-size-xs)">越小越优先</span>
+          <span style="margin-left:8px;color:var(--color-text-secondary);font-size: var(--font-size-xs)">越小越优先</span>
         </el-form-item>
         <el-form-item label="成本/1K tokens">
           <el-input-number v-model="form.cost_per_1k_tokens" :min="0" :precision="4" :step="0.1" style="width:200px" />
@@ -141,11 +141,11 @@
 
     <!-- Reveal Dialog -->
     <el-dialog v-model="revealVisible" title="查看 Key 明文" width="500px">
-      <p style="color:#e6a23c;margin-bottom:16px">
+      <p style="color:var(--color-warning);margin-bottom:16px">
         <el-icon><WarningFilled /></el-icon>
         此 Key 将在 30 秒后自动隐藏
       </p>
-      <div style="background:#1e1e1e;color:#4ec9b0;padding:12px;border-radius:8px;font-family:monospace;word-break:break-all">
+      <div style="background:var(--color-text-primary);color:var(--color-success);padding:12px;border-radius:8px;font-family:monospace;word-break:break-all">
         {{ revealedKey }}
       </div>
       <template #footer>
@@ -267,8 +267,8 @@ function tierTagType(tier) {
 
 <style scoped>
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-bottom: 4px; }
-.stat-card { border: 1px solid #e4e7ed; border-radius: 8px; padding: 14px; text-align: center; background: #fff; }
-.stat-value { font-size: var(--font-size-lg); font-weight: 700; color: #303133; }
-.stat-label { font-size: var(--font-size-xs); color: #909399; margin-top: 4px; }
-.hint { font-size: var(--font-size-xs); color: #999; margin-left: 8px; }
+.stat-card { border: 1px solid var(--color-border-regular); border-radius: 8px; padding: 14px; text-align: center; background: var(--color-bg-canvas); }
+.stat-value { font-size: var(--font-size-lg); font-weight: 700; color: var(--color-text-primary); }
+.stat-label { font-size: var(--font-size-xs); color: var(--color-text-secondary); margin-top: 4px; }
+.hint { font-size: var(--font-size-xs); color: var(--color-text-secondary); margin-left: 8px; }
 </style>

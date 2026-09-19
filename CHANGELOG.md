@@ -1,3 +1,21 @@
+# [未发布] style(ops-center): T1-7 色彩对齐——新建 tokens.css 语义槽子集 + 166 处硬编码色 token 化
+
+### 新增
+- `ops-center/frontend/src/styles/tokens.css`：与桌面端同源的语义槽子集（EP 对齐值）——语义色/文本色/背景边框/侧边栏四组 + 七档字号；`main.js` 导入。
+
+### 变更
+- 37 个视图 166 处硬编码颜色 → `var(--color-*)`：EP 色板（#909399/#303133/#409eff/#f56c6c/#e6a23c 等）→ 语义槽；灰阶（#888/#999/#666）就近归档；侧边栏深色（#001529/#ffffffb3）→ 侧边栏槽。
+- 仅剩 `#000`（视频预览容器纯黑，合法保留）。
+- 值保持 ops-center 现有 EP 视觉不变——本批只收敛来源，后续品牌统一只改 tokens.css 一处。
+
+### 验证
+- Gate 15（样式解析）PASS；ops-center 测试 13/13；Gate 16 自测 6/6
+
+### 关联
+- 承接 T1-6（ops-center 前端字号已清零）；PRD §T1-7
+
+---
+
 # [未发布] style(desktop): T1-6 字号七档第二批（长尾清零）——128 文件 762 处 font-size token 化
 
 ### 变更

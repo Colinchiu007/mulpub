@@ -1,7 +1,7 @@
 <template>
   <div>
     <h1 style="margin-bottom:16px">平台发布元数据</h1>
-    <p style="color:#888;margin-bottom:16px;font-size: var(--font-size-sm)">
+    <p style="color:var(--color-text-placeholder);margin-bottom:16px;font-size: var(--font-size-sm)">
       运营人员维护各发布平台的元数据（标题/内容上限、内容类型分类、是否支持 API 等）；
       <b>启用</b>的平台会随运行时 bootstrap 下发给桌面端，覆盖本地同名平台的对应字段；
       本地独有平台保留、不改写桌面端 yaml。临时下线请关闭「启用」开关。
@@ -92,7 +92,7 @@
         </el-form-item>
         <el-form-item label="启用下发">
           <el-switch v-model="form.enabled" />
-          <span style="margin-left:8px;color:#888;font-size: var(--font-size-xs)">关闭后桌面端不再下发该平台</span>
+          <span style="margin-left:8px;color:var(--color-text-placeholder);font-size: var(--font-size-xs)">关闭后桌面端不再下发该平台</span>
         </el-form-item>
         <el-form-item label="备注">
           <el-input v-model="form.note" type="textarea" :rows="2" placeholder="运营备注（最多 200 字）" />

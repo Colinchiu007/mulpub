@@ -1,7 +1,7 @@
 <template>
   <div>
     <h1 style="margin-bottom:16px">选项控制</h1>
-    <p style="color:#888;margin-bottom:16px;font-size: var(--font-size-sm)">
+    <p style="color:var(--color-text-placeholder);margin-bottom:16px;font-size: var(--font-size-sm)">
       控制桌面端「视频创作-故事讲述」流水线中各选项组的显示/隐藏与初始默认值。
       选项随运行时 bootstrap 在桌面端同步时生效；未配置的选项使用桌面端本地默认值。
       「发布」组只支持整组显示/隐藏控制（不细到具体选项）。
@@ -30,7 +30,7 @@
             active-text="显示"
             inactive-text="隐藏"
           />
-          <span v-if="group.name === 'publish'" style="color:#e6a23c;font-size: var(--font-size-xs)">「发布」组仅整组控制</span>
+          <span v-if="group.name === 'publish'" style="color:var(--color-warning);font-size: var(--font-size-xs)">「发布」组仅整组控制</span>
         </div>
         <el-table
           v-loading="loading"
@@ -46,8 +46,8 @@
           </el-table-column>
           <el-table-column prop="label" label="选项" min-width="160">
             <template #default="{ row }">
-              <span :style="!row.visible ? 'color:#999;text-decoration:line-through' : ''">{{ row.label || row.field }}</span>
-              <span v-if="row.field === '_group'" style="color:#e6a23c;font-size: var(--font-size-xs);margin-left:6px">（整组）</span>
+              <span :style="!row.visible ? 'color:var(--color-text-secondary);text-decoration:line-through' : ''">{{ row.label || row.field }}</span>
+              <span v-if="row.field === '_group'" style="color:var(--color-warning);font-size: var(--font-size-xs);margin-left:6px">（整组）</span>
             </template>
           </el-table-column>
           <el-table-column label="初始默认值" min-width="220">
@@ -223,6 +223,6 @@ async function saveAll() {
 
 <style scoped>
 :deep(.option-row-hidden) {
-  background: #fafafa;
+  background: var(--color-bg-inset);
 }
 </style>
