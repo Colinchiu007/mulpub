@@ -331,7 +331,7 @@ onBeforeUnmount(() => {
   font-size: var(--font-size-sm);
   color: var(--text-muted, #909399);
   padding: 8px 12px;
-  background: var(--border-light, #f5f7fa);
+  background: var(--border-light, var(--color-bg-inset));
   border-radius: 8px;
 }
 .gate-section { display: flex; flex-direction: column; gap: 6px; }
@@ -341,7 +341,7 @@ onBeforeUnmount(() => {
   color: var(--text-muted, #909399);
 }
 .gate-content-text {
-  background: var(--border-light, #f5f7fa);
+  background: var(--border-light, var(--color-bg-inset));
   border-radius: 8px;
   padding: 12px;
   font-size: var(--font-size-sm);

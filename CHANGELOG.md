@@ -1,3 +1,26 @@
+# [未发布] style(desktop): P2 深色走查第二批——body/mp-shell/Accounts 浅底根因修复 + 16 处浅灰底 token 化（dark 白残留清零）
+
+### 新增
+- **`dark-mode-audit.js`**：本地 playwright 深色审计脚本——vite dev + 强制 `data-theme="dark"` + `elementFromPoint` 网格采样白色残留占比，17 视图自动出报告（`reports/dark-audit/`）。
+
+### 根因修复（审计驱动）
+- **body 硬编码渐变白底**（cohere-design-system.css）：`linear-gradient(#fff,#fff,#eff6fb,#faf6f8,#fff)` → `var(--color-bg-canvas)`——dark 模式下整页底色仍为白色的**总根因**。
+- **`.mp-shell` 硬编码 `#f7f7fb`**（App.vue）→ `var(--color-bg-inset)`。
+- **Accounts 视图整套浅色**（#f4f6fd/#f2f2f5/#f6f7fb）→ token。
+- 全库 `.vue` style 块 **16 处浅灰底**（#fafafd/#f5f5f8/#eef1f6/#f9fafb 等）→ `var(--color-bg-inset)`。
+
+### 审计结果
+- 修复前：17 视图全部 >100% 白残留（启发式含嵌套重复计）→ 定点采样修正后 accounts 34.85% / publish-history 25.87% / 其余 <5%
+- 修复后：**17 视图全部 0-5%，可疑（>15%）清零**
+
+### 验证
+- 回归 130/130（views-deep/coverage2/Accounts/PublishHistory/shell-mode-6b）；Gate 14/15/16 + CJK PASS
+
+### 关联
+- 承接 #2052（第一批：dark 补槽）；P2 深色走查**全部完成**
+
+---
+
 # [未发布] style(desktop): P2 深色模式走查第一批——dark 补 3 高频槽 + 58 处白底残留 token 化
 
 ### 变更

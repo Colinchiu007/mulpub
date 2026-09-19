@@ -298,14 +298,14 @@ body { margin: 0; padding: 0; }
 html, body { height: 100%; overflow: hidden; }
 #app { height: 100%; }
 .app-root { height: 100%; display: flex; flex-direction: column; }
-.mp-shell { min-height: 0; flex: 1; display: flex; min-width: 0; overflow: hidden; background: #f7f7fb; }
+.mp-shell { min-height: 0; flex: 1; display: flex; min-width: 0; overflow: hidden; background: var(--color-bg-inset); }
 .mp-shell-main { min-width: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 /* 壳态收敛 6a：工作台壳态下 NavBar 的等高占位行（40px 与 .nav-bar 一致），
    保持 TabBar(36px) + 占位(40px) = 76px 的主进程 WebContentsView TOP 偏移不变 */
 .mp-shell-nav-placeholder {
   flex-shrink: 0;
   height: 40px;
-  background: #f7f7fb;
+  background: var(--color-bg-inset);
 }
 .mp-workspace { min-width: 0; min-height: 0; flex: 1; overflow: auto; }
 .fullscreen-main { min-height: 0; flex: 1; overflow: auto; }

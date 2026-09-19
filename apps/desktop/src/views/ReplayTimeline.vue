@@ -626,7 +626,7 @@ function statusLabel(status) {
 }
 
 .event-row:hover {
-  background: var(--bg-secondary, #f9fafb);
+  background: var(--bg-secondary, var(--color-bg-inset));
 }
 
 .event-row.active {

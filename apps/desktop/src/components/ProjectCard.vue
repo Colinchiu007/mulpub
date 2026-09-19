@@ -90,7 +90,7 @@ function handleDelete() {
 .project-card-thumb {
   width: 100%;
   height: 140px;
-  background: var(--bg-muted, #f5f7fa);
+  background: var(--bg-muted, var(--color-bg-inset));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -137,7 +137,7 @@ function handleDelete() {
 .pipeline-tag {
   font-size: var(--font-size-xs);
   color: var(--text-muted, #909399);
-  background: var(--bg-muted, #f5f7fa);
+  background: var(--bg-muted, var(--color-bg-inset));
   padding: 2px 6px;
   border-radius: 4px;
 }

@@ -1172,7 +1172,7 @@ defineExpose({
 .publish-drafts-page {
   min-height: 100%;
   padding: 24px;
-  background: var(--canvas, #f7f7fb);
+  background: var(--canvas, var(--color-bg-inset));
 }
 .publish-drafts-header {
   display: flex;

@@ -173,7 +173,7 @@ async function copyUrl() {
   height: 40px;
   gap: 8px;
   padding: 0 10px;
-  background: #f7f7fb;
+  background: var(--color-bg-inset);
   border-bottom: 1px solid #e8eaf2;
   user-select: none;
 }

@@ -200,7 +200,7 @@ function isIconUrl (value) {
   border-bottom: 1px solid var(--border-light, #efeff2);
 }
 .account-row:last-child { border-bottom: none; }
-.account-row:hover { background: #fafafd; }
+.account-row:hover { background: var(--color-bg-inset); }
 .account-row.is-selected { background: #f5f4ff; }
 .account-row.is-default { box-shadow: inset 3px 0 #5048e5; }
 .select-account { display: grid; place-items: center; }

@@ -345,7 +345,7 @@ textarea { width: 100%; border: 1px solid #d9d9d9; border-radius: 6px; padding: 
 .sev-major { border-left: 4px solid #d97706; }
 .sev-minor { border-left: 4px solid #eab308; }
 .sev-tag { font-weight: 700; margin-right: 8px; }
-.cat-tag { background: #f3f4f6; border-radius: 4px; padding: 2px 6px; margin-right: 8px; font-size: var(--font-size-xs); }
+.cat-tag { background: var(--color-bg-inset); border-radius: 4px; padding: 2px 6px; margin-right: 8px; font-size: var(--font-size-xs); }
 .problem-part { color: #888; font-size: var(--font-size-xs); margin-left: 8px; }
 .problem-suggestion { display: block; color: #555; font-size: var(--font-size-xs); margin-top: 4px; }
 .point-item { display: flex; align-items: center; gap: 8px; border: 1px solid #eee; border-radius: 6px; padding: 8px; margin-bottom: 6px; font-size: var(--font-size-sm); }
