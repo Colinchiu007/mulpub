@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>数据看板 - 优化原型</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      /* 奶油·薰衣草配色系统 */
+      --lavender-primary: #7c5cbf;
+      --lavender-light: #f8f4ff;
+      --lavender-accent: #f472b6;
+      --cream-surface: #faf9f6;
+      --deep-purple: #1e1b4b;
+      --text-primary: #2d2a4a;
+      --text-secondary: #6b658b;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --error: #ef4444;
+      
+      /* 间距系统 */
+      --space-xs: 4px;
+      --space-sm: 8px;
+      --space-md: 16px;
+      --space-lg: 24px;
+      --space-xl: 32px;
+      --space-xxl: 48px;
+      
+      /* 圆角系统 */
+      --radius-sm: 8px;
+      --radius-md: 16px;
+      --radius-lg: 24px;
+      --radius-full: 9999px;
+      
+      /* 阴影系统 */
+      --shadow-sm: 0 1px 3px rgba(124, 92, 191, 0.08);
+      --shadow-md: 0 4px 12px rgba(124, 92, 191, 0.12);
+      --shadow-lg: 0 12px 32px rgba(124, 92, 191, 0.16);
+      --shadow-glow: 0 8px 24px rgba(244, 114, 182, 0.2);
+      
+      /* 动画 */
+      --ease-out: cubic-bezier(0.33, 1, 0.68, 1);
+      --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+    }
+    
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--cream-surface);
+      color: var(--text-primary);
+      line-height: 1.6;
+      padding: var(--space-lg);
+      min-height: 100vh;
+    }
+    
+    /* 背景装饰 */
+    .background-decor {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: -1;
+      overflow: hidden;
+      pointer-events: none;
+    }
+    
+    .decor-circle {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(80px);
+      opacity: 0.4;
+    }
+    
+    .decor-circle:nth-child(1) {
+      width: 400px;
+      height: 400px;
+      background: linear-gradient(135deg, var(--lavender-light), transparent);
+      top: -100px;
+      right: -100px;
+    }
+    
+    .decor-circle:nth-child(2) {
+      width: 300px;
+      height: 300px;
+      background: linear-gradient(135deg, rgba(244, 114, 182, 0.15), transparent);
+      bottom: -50px;
+      left: calc(50% - 200px);
+    }
+    
+    /* 主容器 */
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    
+    /* 页头 */
+    .page-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: var(--space-xl);
+      animation: slideInDown 0.6s var(--ease-out);
+    }
+    
+    .header-content h1 {
+      font-size: 36px;
+      font-weight: 900;
+      letter-spacing: -0.02em;
+      color: var(--deep-purple);
+      margin-bottom: var(--space-xs);
+    }
+    
+    .header-content p {
+      font-size: 15px;
+      color: var(--text-secondary);
+    }
+    
+    .header-actions {
+      display: flex;
+      gap: var(--space-sm);
+    }
+    
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-sm);
+      padding: 10px 20px;
+      border-radius: var(--radius-full);
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.3s var(--ease-out);
+      border: none;
+      outline: none;
+    }
+    
+    .btn-secondary {
+      background: white;
+      color: var(--text-primary);
+      box-shadow: var(--shadow-sm);
+      border: 1px solid rgba(124, 92, 191, 0.1);
+    }
+    
+    .btn-secondary:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md);
+      background: var(--lavender-light);
+    }
+    
+    /* 统计卡片网格 - 不规则布局 */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      grid-template-rows: auto auto;
+      gap: var(--space-md);
+      margin-bottom: var(--space-xl);
+    }
+    
+    .stat-card {
+      background: white;
+      border-radius: var(--radius-lg);
+      padding: var(--space-lg);
+      box-shadow: var(--shadow-sm);
+      transition: all 0.4s var(--ease-out);
+      position: relative;
+      overflow: hidden;
+      animation: fadeInUp 0.6s var(--ease-out);
+    }
+    
+    .stat-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: linear-gradient(90deg, var(--lavender-primary), var(--lavender-accent));
+      opacity: 0;
+      transition: opacity 0.3s var(--ease-out);
+    }
+    
+    .stat-card:hover {
+      transform: translateY(-4px);
+      box-shadow: var(--shadow-lg);
+    }
+    
+    .stat-card:hover::before {
+      opacity: 1;
+    }
+    
+    .stat-card.large {
+      grid-column: span 2;
+      background: linear-gradient(135deg, var(--deep-purple) 0%, #4a3f8f 100%);
+      color: white;
+    }
+    
+    .stat-card.large::before {
+      display: none;
+    }
+    
+    .stat-card.large:hover {
+      transform: scale(1.02);
+    }
+    
+    .stat-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      margin-bottom: var(--space-md);
+      background: var(--lavender-light);
+    }
+    
+    .stat-card.large .stat-icon {
+      background: rgba(255, 255, 255, 0.2);
+      backdrop-filter: blur(10px);
+    }
+    
+    .stat-value {
+      font-size: 42px;
+      font-weight: 900;
+      letter-spacing: -0.02em;
+      margin-bottom: var(--space-xs);
+      font-family: 'JetBrains Mono', monospace;
+    }
+    
+    .stat-card.large .stat-value {
+      font-size: 56px;
+    }
+    
+    .stat-label {
+      font-size: 14px;
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+    
+    .stat-card.large .stat-label {
+      color: rgba(255, 255, 255, 0.8);
+    }
+    
+    .stat-change {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px;
+      border-radius: var(--radius-full);
+      font-size: 12px;
+      font-weight: 600;
+      margin-top: var(--space-sm);
+    }
+    
+    .stat-change.positive {
+      background: rgba(16, 185, 129, 0.1);
+      color: var(--success);
+    }
+    
+    .stat-change.negative {
+      background: rgba(239, 68, 68, 0.1);
+      color: var(--error);
+    }
+    
+    /* 趋势图表区域 */
+    .chart-section {
+      background: white;
+      border-radius: var(--radius-lg);
+      padding: var(--space-lg);
+      box-shadow: var(--shadow-sm);
+      margin-bottom: var(--space-xl);
+      animation: fadeInUp 0.6s var(--ease-out) 0.1s backwards;
+    }
+    
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: var(--space-lg);
+    }
+    
+    .section-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--deep-purple);
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+    }
+    
+    .trend-chart {
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+      height: 200px;
+      padding: var(--space-md) 0;
+      overflow-x: auto;
+    }
+    
+    .trend-bar-wrapper {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      min-width: 40px;
+    }
+    
+    .trend-bar {
+      width: 100%;
+      max-width: 40px;
+      background: linear-gradient(to top, var(--lavender-primary), var(--lavender-accent));
+      border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+      transition: all 0.6s var(--ease-out);
+      position: relative;
+      cursor: pointer;
+      animation: growBar 1s var(--ease-out) forwards;
+      animation-fill-mode: both;
+    }
+    
+    .trend-bar:hover {
+      filter: brightness(1.1);
+      box-shadow: var(--shadow-glow);
+    }
+    
+    .trend-bar::after {
+      content: attr(data-value);
+      position: absolute;
+      top: -30px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--deep-purple);
+      opacity: 0;
+      transition: opacity 0.3s var(--ease-out);
+    }
+    
+    .trend-bar:hover::after {
+      opacity: 1;
+    }
+    
+    .trend-date {
+      font-size: 11px;
+      color: var(--text-secondary);
+      text-align: center;
+    }
+    
+    /* 平台分布 */
+    .platform-section {
+      background: white;
+      border-radius: var(--radius-lg);
+      padding: var(--space-lg);
+      box-shadow: var(--shadow-sm);
+      margin-bottom: var(--space-xl);
+      animation: fadeInUp 0.6s var(--ease-out) 0.2s backwards;
+    }
+    
+    .platform-list {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-md);
+    }
+    
+    .platform-item {
+      display: flex;
+      align-items: center;
+      gap: var(--space-md);
+      padding: var(--space-md);
+      border-radius: var(--radius-md);
+      transition: all 0.3s var(--ease-out);
+    }
+    
+    .platform-item:hover {
+      background: var(--lavender-light);
+    }
+    
+    .platform-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: var(--radius-sm);
+      background: linear-gradient(135deg, var(--lavender-primary), var(--lavender-accent));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: 700;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+    
+    .platform-info {
+      flex: 1;
+    }
+    
+    .platform-name {
+      font-weight: 600;
+      color: var(--deep-purple);
+      margin-bottom: 4px;
+    }
+    
+    .platform-stats {
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+    
+    .platform-progress {
+      width: 200px;
+      height: 8px;
+      background: var(--lavender-light);
+      border-radius: var(--radius-full);
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--lavender-primary), var(--lavender-accent));
+      border-radius: var(--radius-full);
+      transition: width 1s var(--ease-out);
+      animation: fillProgress 1.2s var(--ease-out) forwards;
+      animation-fill-mode: both;
+    }
+    
+    .platform-count {
+      font-weight: 700;
+      color: var(--deep-purple);
+      min-width: 60px;
+      text-align: right;
+      font-size: 14px;
+    }
+    
+    /* 空状态 */
+    .empty-state {
+      text-align: center;
+      padding: var(--space-xxl);
+      background: white;
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      animation: fadeIn 0.6s var(--ease-out);
+    }
+    
+    .empty-icon {
+      width: 80px;
+      height: 80px;
+      margin: 0 auto var(--space-lg);
+      background: var(--lavender-light);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 32px;
+      animation: float 3s ease-in-out infinite;
+    }
+    
+    .empty-title {
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--deep-purple);
+      margin-bottom: var(--space-sm);
+    }
+    
+    .empty-desc {
+      color: var(--text-secondary);
+      margin-bottom: var(--space-lg);
+    }
+    
+    /* 动画关键帧 */
+    @keyframes slideInDown {
+      from {
+        opacity: 0;
+        transform: translateY(-20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    
+    @keyframes fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    
+    @keyframes growBar {
+      from {
+        height: 0;
+      }
+    }
+    
+    @keyframes fillProgress {
+      from {
+        width: 0;
+      }
+    }
+    
+    @keyframes float {
+      0%, 100% {
+        transform: translateY(0);
+      }
+      50% {
+        transform: translateY(-10px);
+      }
+    }
+    
+    /* 响应式 */
+    @media (max-width: 768px) {
+      .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      
+      .stat-card.large {
+        grid-column: span 2;
+      }
+      
+      .page-header {
+        flex-direction: column;
+        gap: var(--space-md);
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- 背景装饰 -->
+  <div class="background-decor">
+    <div class="decor-circle"></div>
+    <div class="decor-circle"></div>
+  </div>
+
+  <div class="container">
+    <!-- 页头 -->
+    <div class="page-header">
+      <div class="header-content">
+        <h1>📊 数据看板</h1>
+        <p>跨平台内容表现总览，关注关键指标变化趋势</p>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-secondary">
+          <span>⟳</span>
+          刷新数据
+        </button>
+      </div>
+    </div>
+
+    <!-- 统计卡片 - 不规则布局 -->
+    <div class="stats-grid">
+      <!-- 大卡片：总发布 -->
+      <div class="stat-card large">
+        <div class="stat-icon">📤</div>
+        <div class="stat-value">127</div>
+        <div class="stat-label">已发布内容</div>
+        <div class="stat-change positive">
+          <span>↑</span>
+          较上周 +12%
+        </div>
+      </div>
+
+      <!-- 小卡片：阅读 -->
+      <div class="stat-card">
+        <div class="stat-icon">👁️</div>
+        <div class="stat-value">48.2K</div>
+        <div class="stat-label">总阅读</div>
+        <div class="stat-change positive">
+          <span>↑</span>
+          +8.5%
+        </div>
+      </div>
+
+      <!-- 小卡片：评论 -->
+      <div class="stat-card">
+        <div class="stat-icon">💬</div>
+        <div class="stat-value">2,847</div>
+        <div class="stat-label">总评论</div>
+        <div class="stat-change positive">
+          <span>↑</span>
+          +23%
+        </div>
+      </div>
+
+      <!-- 小卡片：粉丝 -->
+      <div class="stat-card">
+        <div class="stat-icon">👥</div>
+        <div class="stat-value">15.6K</div>
+        <div class="stat-label">总粉丝</div>
+        <div class="stat-change negative">
+          <span>↓</span>
+          -2.1%
+        </div>
+      </div>
+    </div>
+
+    <!-- 趋势图表 -->
+    <div class="chart-section">
+      <div class="section-header">
+        <div class="section-title">
+          <span>📈</span>
+          发布趋势 (最近 14 天)
+        </div>
+      </div>
+      <div class="trend-chart" id="trendChart">
+        <!-- JS 动态生成柱状图 -->
+      </div>
+    </div>
+
+    <!-- 平台分布 -->
+    <div class="platform-section">
+      <div class="section-header">
+        <div class="section-title">
+          <span>🌐</span>
+          平台分布
+        </div>
+      </div>
+      <div class="platform-list">
+        <div class="platform-item">
+          <div class="platform-icon">抖</div>
+          <div class="platform-info">
+            <div class="platform-name">抖音</div>
+            <div class="platform-stats">28 篇内容 · 平均播放 12.5K</div>
+          </div>
+          <div class="platform-progress">
+            <div class="progress-fill" style="width: 45%; animation-delay: 0.3s"></div>
+          </div>
+          <div class="platform-count">28 篇</div>
+        </div>
+
+        <div class="platform-item">
+          <div class="platform-icon">小</div>
+          <div class="platform-info">
+            <div class="platform-name">小红书</div>
+            <div class="platform-stats">22 篇内容 · 平均点赞 1.2K</div>
+          </div>
+          <div class="platform-progress">
+            <div class="progress-fill" style="width: 35%; animation-delay: 0.4s"></div>
+          </div>
+          <div class="platform-count">22 篇</div>
+        </div>
+
+        <div class="platform-item">
+          <div class="platform-icon">公</div>
+          <div class="platform-info">
+            <div class="platform-name">微信公众号</div>
+            <div class="platform-stats">18 篇内容 · 平均阅读 8.3K</div>
+          </div>
+          <div class="platform-progress">
+            <div class="progress-fill" style="width: 28%; animation-delay: 0.5s"></div>
+          </div>
+          <div class="platform-count">18 篇</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 生成趋势图表数据
+    const trendData = [
+      { date: '08-07', value: 3 },
+      { date: '08-08', value: 5 },
+      { date: '08-09', value: 2 },
+      { date: '08-10', value: 8 },
+      { date: '08-11', value: 6 },
+      { date: '08-12', value: 12 },
+      { date: '08-13', value: 9 },
+      { date: '08-14', value: 15 },
+      { date: '08-15', value: 11 },
+      { date: '08-16', value: 7 },
+      { date: '08-17', value: 14 },
+      { date: '08-18', value: 18 },
+      { date: '08-19', value: 13 },
+      { date: '08-20', value: 10 },
+    ];
+
+    const maxVal = Math.max(...trendData.map(d => d.value));
+    const chartContainer = document.getElementById('trendChart');
+
+    trendData.forEach((item, index) => {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'trend-bar-wrapper';
+      
+      const bar = document.createElement('div');
+      bar.className = 'trend-bar';
+      bar.style.height = `${(item.value / maxVal) * 160}px`;
+      bar.style.animationDelay = `${0.2 + index * 0.05}s`;
+      bar.setAttribute('data-value', item.value);
+      
+      const date = document.createElement('div');
+      date.className = 'trend-date';
+      date.textContent = item.date;
+      
+      wrapper.appendChild(bar);
+      wrapper.appendChild(date);
+      chartContainer.appendChild(wrapper);
+    });
+
+    // 滚动触发动画
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.style.opacity = '1';
+          entry.target.style.transform = 'translateY(0)';
+        }
+      });
+    }, { threshold: 0.1 });
+
+    document.querySelectorAll('.stat-card, .chart-section, .platform-section').forEach(el => {
+      observer.observe(el);
+    });
+  </script>
+</body>
+</html>
