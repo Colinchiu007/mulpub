@@ -1,3 +1,22 @@
+# [未发布] fix(ci): 修复构建失败根因（CSS 注释提前闭合）+ 新增 Gate 15 样式块解析门禁
+
+### 修复
+- **构建失败根因**：`Intelligence.vue` 样式块注释里 `--color-*` 后紧跟斜杠，导致块注释提前闭合，postcss 把后续注释文字当作 CSS 解析 → `vite build` 报 `Unknown word hover`。同类问题此前已出现于 ViralAnalysis（#1962 修复）与 Collection。
+- **消除本地验证盲区**：vitest 单测不编译 style 块，本地全绿但 CI 构建失败；本地 `vite build` 受沙箱限制无法执行。
+
+### 新增
+- `.github/scripts/check-vue-style-parse.js`（**CI Gate 15**）：以 `@vue/compiler-sfc` 提取样式块 + `postcss` 严格解析（与 vite 的 @vitejs/plugin-vue 同路径），覆盖 `apps/desktop/src` 与 `ops-center/frontend/src`；9 用例自测（node --test）；依赖缺失 fail-closed。
+
+### 验证
+- `node .github/scripts/check-vue-style-parse.js` → PASS（142 个 .vue / 117 个样式块）
+- 修复前该脚本对 Intelligence.vue 的报错与 CI 完全一致（本地可复现 CI 构建失败）
+
+### 关联
+- PR #2006；事故梳理：PR #2003 / #1999 / #1982 / #1959 / #1956 的构建级联失败均为该注释模式 + 本地无法验证所致
+- **流程改进**：本仓 main 无 required checks（`gh pr merge --auto` 会立即合并），此后 PR 合并前必须 `gh pr checks --watch` 等关键 job（build / electron-tests / QG Static 等）出结果
+
+---
+
 # [未发布] feat(desktop): 一级菜单新增「文案库」——全应用文案来源聚合（2026-09-19）
 
 ### 新增

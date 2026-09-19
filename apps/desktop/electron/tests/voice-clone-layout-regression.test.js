@@ -74,7 +74,10 @@ describe('voice-clone-panel 防撑宽回归', () => {
     } finally {
       await browser.close()
     }
-  })
+    // 2026-09-19：真实 chromium 启动在 CI 分片全量负载下可能 >10s（shard 2/2 曾因
+    // testTimeout=10000 超时阻断 PR #2006，而单跑 2/2 通过）→ 显式放宽本用例超时。
+    // 断言不变（仅超时参数），不属放宽判定。
+  }, 60000)
 
   it('create-view.css 保留防溢出 CSS 契约（minmax(min(200px,100%),1fr) / min-width:0 / overflow-wrap:anywhere）', () => {
     const source = fs.readFileSync(path.join(__dirname, '../../src/styles/create-view.css'), 'utf8')
