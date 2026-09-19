@@ -452,7 +452,7 @@ onMounted(loadInfo)
 
 .feedback-error {
   color: #b42318;
-  background: #fff1f0;
+  background: var(--color-bg-card)1f0;
 }
 
 .feedback-success {

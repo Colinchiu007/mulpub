@@ -122,7 +122,7 @@ function stageClass(stage, index) {
   font-size: var(--font-size-sm);
   font-weight: 600;
   border: 2px solid var(--ep-border);
-  background: #fff;
+  background: var(--color-bg-card);
   color: var(--ep-info);
 }
 .stage-label {
@@ -167,7 +167,7 @@ function stageClass(stage, index) {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--color-bg-card);
   animation: pulse-anim 1.5s infinite;
 }
 @keyframes pulse-anim {

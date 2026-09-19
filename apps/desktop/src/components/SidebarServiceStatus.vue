@@ -286,7 +286,7 @@ async function onRestart (svc) {
   padding: 3px 12px;
   border: 1px solid #d9d9d9;
   border-radius: 6px;
-  background: #fff;
+  background: var(--color-bg-card);
   font-family: inherit;
   font-size: var(--font-size-xs);
   color: #5a5c73;

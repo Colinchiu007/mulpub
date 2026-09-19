@@ -77,7 +77,7 @@ function isTabActive (tab) {
   align-items: stretch;
   padding: 0 24px;
   box-sizing: border-box;
-  background: #fff;
+  background: var(--color-bg-card);
   border-bottom: 1px solid var(--mp-nav-border, #e8eaf2);
   color: var(--mp-muted, #8b8e9a);
 }

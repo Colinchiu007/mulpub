@@ -62,7 +62,7 @@ const formatTime = (value) => formatDateTime(value, { emptyText: '更新时间�
   gap: 8px;
   border: 1px dashed #e8e8ec;
   border-radius: 10px;
-  background: #fff;
+  background: var(--color-bg-card);
   color: #73777d;
   text-align: center;
 }
@@ -86,7 +86,7 @@ const formatTime = (value) => formatDateTime(value, { emptyText: '更新时间�
   padding: 14px 16px;
   border: 1px solid #e8e8ec;
   border-radius: 10px;
-  background: #fff;
+  background: var(--color-bg-card);
   transition: border-color 0.15s;
 }
 
@@ -135,7 +135,7 @@ const formatTime = (value) => formatDateTime(value, { emptyText: '更新时间�
   padding: 5px 12px;
   border: 1px solid #e0e0e8;
   border-radius: 6px;
-  background: #fff;
+  background: var(--color-bg-card);
   color: #4d4f6f;
   font-size: var(--font-size-xs);
   cursor: pointer;

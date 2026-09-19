@@ -236,7 +236,7 @@ function saveRename (group) {
   padding: 6px 10px 6px 30px;
   border: 1px solid var(--border, #dedee5);
   border-radius: 6px;
-  background: #fff;
+  background: var(--color-bg-card);
   font-size: var(--font-size-sm);
   outline: none;
 }
@@ -246,7 +246,7 @@ function saveRename (group) {
   border: 1px solid var(--border, #dedee5);
   border-radius: 6px;
   padding: 4px 26px 4px 10px;
-  background: #fff;
+  background: var(--color-bg-card);
   color: #3c3e48;
   font-size: var(--font-size-sm);
 }
@@ -267,7 +267,7 @@ function saveRename (group) {
   border: 1px solid var(--border, #dedee5);
   border-radius: 6px;
   padding: 2px 22px 2px 8px;
-  background: #fff;
+  background: var(--color-bg-card);
   color: #5c5e6a;
   font-size: var(--font-size-xs);
 }
@@ -278,7 +278,7 @@ function saveRename (group) {
   place-items: center;
   border: 1px solid var(--border, #dedee5);
   border-radius: 6px;
-  background: #fff;
+  background: var(--color-bg-card);
   color: #5c5e6a;
   cursor: pointer;
 }
@@ -323,7 +323,7 @@ function saveRename (group) {
   border: 1px solid var(--border, #dedee5);
   border-radius: 6px;
   padding: 4px 24px 4px 10px;
-  background: #fff;
+  background: var(--color-bg-card);
   font-size: var(--font-size-sm);
 }
 .groups-create-row button {
@@ -331,7 +331,7 @@ function saveRename (group) {
   padding: 6px 14px;
   border: 1px solid var(--border, #dedee5);
   border-radius: 6px;
-  background: #fff;
+  background: var(--color-bg-card);
   color: #5c5e6a;
   font-size: var(--font-size-sm);
   cursor: pointer;
@@ -346,13 +346,13 @@ function saveRename (group) {
   padding: 72px 0;
   border: 1px solid var(--border-light, #ececf1);
   border-radius: 10px;
-  background: #fff;
+  background: var(--color-bg-card);
 }
 .groups-empty-icon { font-size: 40px; color: #c9cbd8; line-height: 1; }
 .groups-empty p { margin: 0; color: var(--muted, #85858f); font-size: var(--font-size-sm); }
 .groups-empty-hint { color: #b1b2bd; font-size: var(--font-size-xs); }
 .groups-list { display: flex; flex-direction: column; gap: 12px; }
-.group-card { border: 1px solid var(--border-light, #e8e8ec); border-radius: 8px; background: #fff; overflow: hidden; }
+.group-card { border: 1px solid var(--border-light, #e8e8ec); border-radius: 8px; background: var(--color-bg-card); overflow: hidden; }
 .group-card header {
   display: flex;
   align-items: center;
@@ -372,7 +372,7 @@ function saveRename (group) {
   border: 1px solid var(--border, #dedee5);
   border-radius: 5px;
   padding: 2px 22px 2px 6px;
-  background: #fff;
+  background: var(--color-bg-card);
   color: #5c5e6a;
   font-size: var(--font-size-xs);
 }
@@ -390,7 +390,7 @@ function saveRename (group) {
   border: 1px solid #dedee5;
   border-radius: 5px;
   padding: 3px 10px;
-  background: #fff;
+  background: var(--color-bg-card);
   color: #5c5e6a;
   font-size: var(--font-size-xs);
   cursor: pointer;

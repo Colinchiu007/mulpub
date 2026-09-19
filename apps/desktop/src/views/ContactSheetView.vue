@@ -255,7 +255,7 @@ onBeforeUnmount(() => {
 .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #e4e7ed; border-top-color: #409eff; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 8px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .scene-list { display: flex; flex-direction: column; gap: 16px; }
-.scene-approval-card { background: #fff; border: 1px solid #e4e7ed; border-radius: 12px; padding: 16px; transition: border-color 0.2s; }
+.scene-approval-card { background: var(--color-bg-card); border: 1px solid #e4e7ed; border-radius: 12px; padding: 16px; transition: border-color 0.2s; }
 .scene-approval-card.awaiting { border-color: #e6a23c; border-width: 2px; }
 .scene-card-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .scene-num { font-size: var(--font-size-sm); font-weight: 600; color: #909399; }

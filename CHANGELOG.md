@@ -1,3 +1,19 @@
+# [未发布] style(desktop): P2 深色模式走查第一批——dark 补 3 高频槽 + 58 处白底残留 token 化
+
+### 变更
+- **tokens.css dark 补槽**：`--color-bg-inset: #1e1e23` / `--color-border: #32323a` / `--color-border-strong: #3d3d46`——此前 dark 主题未覆盖这三个高频槽，深色模式下内嵌背景/边框仍渲染浅色值（视觉突兀）。
+- **.vue style 块 58 处 `background: #fff` → `var(--color-bg-card)`**（全量正则替换，仅动 style 块避免误伤模板）——深色模式下这些组件会渲染刺眼白底。
+- 另修 5 处浅色底残留：BoardStageIndicator / HotTopicsCentralLoading / LogsSettings（#fff1f0→danger-light）/ NavBar / RouteLoadError（#fff8f8→bg-inset）。
+- apple-* 系列槽位（17 个）为 Apple 风格专属独立体系，dark 不覆盖属设计预期，不在本批范围。
+
+### 验证
+- 回归 42/42（views-deep/coverage2/UpgradeModal/icon-usage/shell-mode-6b）；Gate 14/15/16 + CJK PASS
+
+### 关联
+- P2 深色模式全量走查第一批；承接 T1-1（token 唯一来源）+ T1-6（字号/色彩 token 化完成的前提）
+
+---
+
 # [未发布] feat(desktop): T0-6b 壳态互斥——工作台壳态下内嵌 WebContentsView 互斥隐藏（A1 决策）
 
 ### 新增
