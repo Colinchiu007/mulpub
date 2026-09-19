@@ -16,10 +16,12 @@ import { dirname, join } from 'node:path'
 
 const srcDir = join(dirname(fileURLToPath(import.meta.url)))
 
-/** 已进入收敛范围的文件（新增文件请在此登记；ViralAnalysis/Collection 下一批纳入） */
+/** 已进入收敛范围的文件（新增文件请在此登记） */
 const FILES = [
   'views/Intelligence.vue',
   'views/Dashboard.vue',
+  'views/ViralAnalysis.vue',
+  'views/Collection.vue',
 ]
 
 /** 功能图标位禁用 emoji（不含状态类/内容类） */

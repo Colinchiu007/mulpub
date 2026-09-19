@@ -263,3 +263,16 @@ vtConfig.global.components = {
   LoadingState,
   UiSkeleton,
 }
+
+// ─── Element Plus 图标容器全局 stub（T1-5 图标语义化）───
+// 组件模板里的 <el-icon><Xxx /></el-icon> 在真实应用由 Element Plus 插件全局注册；
+// 单测环境未安装该插件，会打印 "Failed to resolve component: el-icon" 并影响渲染结果。
+// 此处全局 stub 为不含 slot 的占位元素：既消除解析告警，也避免要求每个测试文件都注册图标子组件。
+try {
+  const { config } = require('@vue/test-utils')
+  if (config && config.global) {
+    config.global.stubs = Object.assign({}, config.global.stubs, {
+      'el-icon': { template: '<span class="el-icon-stub" />' },
+    })
+  }
+} catch (_) { /* 非组件测试场景（纯 node 用例）忽略 */ }

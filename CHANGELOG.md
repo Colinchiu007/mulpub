@@ -1,3 +1,19 @@
+# [未发布] style(desktop): T1-5 图标语义化第二批——ViralAnalysis/Collection 功能图标位 emoji 清零
+
+### 变更
+- `ViralAnalysis.vue`（Options API）：页面标题/按钮/区块标题/空态/趋势方向图标共 9 处 emoji → `@element-plus/icons-vue`（TrendCharts/DataLine/MagicStick/FolderAdd/Key/CaretTop/CaretBottom/CaretRight），并在 `components` 注册；`trendIcon()` 改为返回图标组件对象（模板 `<component :is>` 渲染）。
+- `Collection.vue`：工具栏/按钮/对比标题/统计卡/卡片图标/空态/媒体类型标识共 14 处 emoji → el-icon（DocumentCopy/Link/FolderAdd/Promotion/Document/MagicStick/EditPen/Search/VideoCamera）。
+- `icon-usage.test.js` 守卫清单扩展至 4 个文件（防回退）。
+- 测试基础设施：`test-setup.js` 全局 stub `el-icon`（单测环境未装 Element Plus 插件）；`views-deep/views-coverage2` 的 icons mock 补齐 19 个图标（此前只 mock 部分，组件新增图标即报 "No X export is defined on the mock"）。断言未放宽，仅同步图标化后的结构。
+
+### 验证
+- 相关视图测试与守卫 162/162 全绿；Gate 14（色彩）PASS；Gate 15（样式块解析）PASS
+
+### 关联
+- PR（待填）；承接 #2003 第一批（Intelligence/Dashboard）
+
+---
+
 # [未发布] fix(ci): 修复构建失败根因（CSS 注释提前闭合）+ 新增 Gate 15 样式块解析门禁
 
 ### 修复

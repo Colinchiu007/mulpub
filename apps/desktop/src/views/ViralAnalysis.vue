@@ -3,7 +3,7 @@
     <div class="cohere-page-header">
       <div class="viral-header-row">
         <div class="viral-header-main">
-          <div class="page-title">🔥 爆款分析</div>
+          <div class="page-title"><el-icon><TrendCharts /></el-icon> 爆款分析</div>
           <div class="page-subtitle">
             AI 驱动的内容爆款因子分析 + 文案生成
           </div>
@@ -36,10 +36,10 @@
           </div>
           <div class="viral-actions">
             <UiButton @click="doAnalyze" :disabled="!topic.trim() || loading">
-              📊 爆款分析
+              <el-icon><DataLine /></el-icon> 爆款分析
             </UiButton>
             <UiButton class="viral-btn-generate" @click="doGenerate" :disabled="!topic.trim() || loading">
-              ✨ 生成文案
+              <el-icon><MagicStick /></el-icon> 生成文案
             </UiButton>
           </div>
         </div>
@@ -70,7 +70,7 @@
                 <div class="viral-score-label">爆款潜力分</div>
               </div>
               <div v-if="result.trend_direction" class="viral-score-block">
-                <div class="viral-trend-icon">{{ trendIcon(result.trend_direction) }}</div>
+                <div class="viral-trend-icon"><el-icon><component :is="trendIcon(result.trend_direction)" /></el-icon></div>
                 <div class="viral-score-label">{{ trendLabel(result.trend_direction) }}</div>
               </div>
               <div v-if="result.suggested_angles" class="viral-angles">
@@ -89,7 +89,7 @@
               :disabled="savingLibrary"
               data-testid="viral-save-library"
               @click="saveToLibrary"
-            >💾 {{ $t('viralAnalysis.saveToLibrary') }}</UiButton>
+            ><el-icon><FolderAdd /></el-icon> {{ $t('viralAnalysis.saveToLibrary') }}</UiButton>
             <span v-else data-testid="viral-saved-library" class="viral-saved-note">✅ {{ $t('viralAnalysis.savedToLibrary') }}</span>
             <span v-if="libraryMessage" data-testid="viral-library-message" aria-live="polite" class="viral-note">{{ libraryMessage }}</span>
             <span v-if="!savedToLibrary" class="viral-note">{{ $t('viralAnalysis.saveToLibraryHint') }}</span>
@@ -97,7 +97,7 @@
 
           <!-- 因子分解 -->
           <div v-if="result.factors && result.factors.length" class="viral-section">
-            <div class="viral-section-title">📊 因子分解</div>
+            <div class="viral-section-title"><el-icon><DataLine /></el-icon> 因子分解</div>
             <div class="viral-factor-grid">
               <div v-for="f in result.factors" :key="f.name"
                 class="cohere-card viral-card-static viral-factor-card"
@@ -143,7 +143,7 @@
 
           <!-- 上升关键词 -->
           <div v-if="result.rising_keywords && result.rising_keywords.length" class="viral-section">
-            <div class="viral-section-title">🔑 上升关键词</div>
+            <div class="viral-section-title"><el-icon><Key /></el-icon> 上升关键词</div>
             <div class="viral-tag-row">
               <span v-for="kw in result.rising_keywords.slice(0,10)" :key="kw.word" class="viral-keyword-tag">
                 {{ kw.word }}
@@ -153,7 +153,7 @@
 
           <!-- 生成结果 -->
           <div v-if="genResult" class="viral-result">
-            <div class="viral-section-title">✨ 生成结果 ({{ genResult.task }})</div>
+            <div class="viral-section-title"><el-icon><MagicStick /></el-icon> 生成结果 ({{ genResult.task }})</div>
 
             <!-- 标题列表面板 -->
             <div v-if="genResult.task === 'titles' && genResult.data?.titles" class="cohere-card viral-card-static">
@@ -216,10 +216,11 @@
         <EmptyState
           v-else-if="!result"
           data-testid="viral-analysis-empty"
-          icon="🔥"
           :title="$t('viralAnalysis.emptyTitle')"
           :description="$t('viralAnalysis.emptyDescription')"
-        />
+        >
+          <template #icon><el-icon><TrendCharts /></el-icon></template>
+        </EmptyState>
       </div>
     </div>
   </div>
@@ -229,11 +230,12 @@
 import { viralAnalyze, viralGenerate } from '@/api/publisher'
 import { addViralToLibrary } from '@/api/knowledge-library'
 import UiButton from '../components/UiButton.vue'
+import { CaretBottom, CaretRight, CaretTop, DataLine, FolderAdd, Key, MagicStick, TrendCharts } from '@element-plus/icons-vue'
 import { formatUserError } from '@/utils/user-facing-error'
 import { useViralSignalStore } from '@/stores/viral-signal'
 export default {
 
-  components: { UiButton },
+components: { UiButton, CaretBottom, CaretRight, CaretTop, DataLine, FolderAdd, Key, MagicStick, TrendCharts },
   data () {
     return {
       topic: '',
@@ -323,8 +325,9 @@ export default {
     },
 
     trendIcon (direction) {
-      const icons = { rising: '📈', declining: '📉', stable: '➡️' }
-      return icons[direction] || '➡️'
+      // T1-5：趋势图标改用 @element-plus/icons-vue（返回组件，模板 <component :is> 渲染）
+      const icons = { rising: CaretTop, declining: CaretBottom, stable: CaretRight }
+      return icons[direction] || CaretRight
     },
 
     // ========== viral-rewrite-integration：分析结果落库 + 生成标题去改写 ==========
