@@ -1,0 +1,15 @@
+{
+  "id": "agnes-multimodal-capability-display",
+  "title": "Agnes-AI 多模态能力显示与能力默认按钮丢失修复（submitForm 数据链路）",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "已合并 PR #2042",
+  "createdAt": "2026-09-19T14:30:00Z",
+  "branch": "agnes-multimodal-capability-display",
+  "pr": 2042,
+  "mergeCommit": "a3672c1db79c24f8b36867d42cb33a8bba53a3d6",
+  "remoteStatus": "merged"
+}
