@@ -157,6 +157,18 @@ jobs:
           node .github/scripts/check-color-literals.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # --- Gate 15: Vue style blocks parse (postcss strict) ---
+      # 2026-09-19: CSS 块注释里形如 --color-xxx-* 紧跟斜杠会让星号加斜杠提前闭合注释，
+      # 后续文字被 postcss 当 CSS 解析 → vite build 失败，而 vitest 单测完全发现不了
+      # （本项目已连续三次因此构建变红：ViralAnalysis #1962 / Collection / Intelligence #2003）。
+      # 本地同口径：node .github/scripts/check-vue-style-parse.js
+      - name: "Gate 15 - Vue style blocks parse (postcss strict)"
+        run: |
+          node --test .github/scripts/check-vue-style-parse.test.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .github/scripts/check-vue-style-parse.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
   unit-tests:
     name: QG Unit Tests
     runs-on: windows-latest
