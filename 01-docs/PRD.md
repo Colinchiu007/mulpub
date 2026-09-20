@@ -8337,3 +8337,46 @@ is_default: 1
 | 目录删除自愈 | 录制目录被并发删除时，`recordEvent` 必须先 `stopRecording` 再 `startRecording`（绕过短路），并把局部 `session` 引用更新为新 stream，事件继续写入重建后的 JSONL |
 | 无静默丢失 | 自愈路径不得出现 `Assignment to constant variable` / `Failed to write event` 类错误日志；事件不丢、不写孤儿 stream |
 | 回归保护 | `execution-recorder.test.js` 覆盖两处重启分支（目录删除后重建 + logger 错误断言），Windows 下须等待 stream fd 就绪（waitForFlush）再删目录以规避 rmSync 与异步 open 竞态 |
+
+---
+
+## 2026-09-20 · 深色模式补齐与浅底根因修复、采集页精致化与骨架屏动效命名、T0-6b 工作台/浏览器壳态互斥
+
+> 对应 PR #2052 / #2054（P2 深色走查第一/第二批，已收官）、PR #2056（采集页精致化）、PR #2051（T0-6b 壳态互斥），均已合入 main。
+
+### 一、深色模式 token 补齐与浅底根因修复（P2 深色走查合同）
+
+**背景**：`tokens.css` 的 dark 主题此前未覆盖 3 个高频语义槽（内嵌背景 / 边框 / 强边框），且 `body`、`.mp-shell`、Accounts 视图直接硬编码 `#fff` / `#f7f7fb` 等浅底色——深色模式下整页底色仍白、内嵌组件底色刺眼，属于系统性根因而非单视图问题。
+
+| 合同 | 要求 |
+|------|------|
+| dark 槽位显式补齐 | dark 主题必须显式覆盖 `--color-bg-inset` / `--color-border` / `--color-border-strong`（当前值 `#1e1e23` / `#32323a` / `#3d3d46`）；新增高频语义槽时同步双主题声明，不得仅依赖 light 主题 |
+| 浅底根因清零 | 页面根容器（`body` / `.mp-shell`）与视图内嵌底层禁止硬编码 `#fff` / `#f7f7fb` / `#f4f6fd` / `#fafafd` / `#f5f5f8` / `#eef1f6` / `#f9fafb` 等浅灰底，一律走 `var(--color-bg-canvas)` / `var(--color-bg-inset)` / `var(--color-bg-card)`；全库 `.vue` style 块 `background: #fff` 已全量替换为 `var(--color-bg-card)`（仅动 style 块避免误伤模板） |
+| 白残留审计工具与门禁 | 维护 `scripts/dark-mode-audit.js`（本地 vite dev + 强制 `data-theme="dark"` + `elementFromPoint` 定点网格采样白色残留占比），输出 `reports/dark-audit/` 报告；发版前 17 视图白残留必须落在 0–5% 区间，> 15% 视为可疑需清零 |
+| 例外说明 | `apple-*` 系列 27 个槽位为 Apple 风格专属独立体系，dark 不覆盖属设计预期，不在本清理范围 |
+| 回归保护 | `views-deep` / `coverage2` / `Accounts` / `PublishHistory` / `shell-mode-6b` 组合回归 130/130 通过；Gate 14/15/16 + locale CJK 基线 PASS |
+
+### 二、采集页精致化与骨架屏动效命名保留字合同
+
+**背景**：采集页 `Collection.vue` 视觉扁平、缺乏深度与动感。新增 hover 抬升与顶部扫光动效时命中 `UiSkeleton` 设计契约门禁——`shimmer` / `skeleton-shimmer` 是骨架屏保留的 keyframes 名，任何非骨架屏动效同名会破坏骨架屏契约。
+
+| 合同 | 要求 |
+|------|------|
+| 视觉规范 | `.cohere-content` 浅灰渐变底、`.cohere-card` 毛玻璃卡 + hover 抬升、`.col-panel` 圆角面板；面板顶部 4px 渐变扫光动效（keyframes 命名 `col-panel-ribbon`） |
+| **骨架屏动效命名保留字** | 全站 `@keyframes` 中 `shimmer` / `skeleton-shimmer` 为骨架屏保留名，任何**非骨架屏**动效禁止使用同名 keyframes，必须采用带功能/组件前缀的命名（如 `col-panel-ribbon`、`header-ribbon`）以通过 UiSkeleton 设计契约门禁；新增扫光/流光类动效时先在契约测试中查重命名 |
+| 视觉基线同步 | 视觉更新必须同步重生成 `collection.png` 等基线（pixel 复采 0% 稳定）后方可合并，避免 CI 视觉回归假阳性 |
+| 回归保护 | UiSkeleton 契约 + Collection 单测 101/101 通过；Gate 14/15/16 + locale CJK PASS |
+
+### 三、T0-6b 工作台/浏览器壳态互斥合同（A1 决策）
+
+**背景**：应用存在两种壳态——`workbench`（Home Tab，内嵌 WebContentsView 会遮挡工作台布局）与 `browser`（其他 Tab，需要正常展示 WebContentsView）。渲染层此前无法直接控制主进程 WebContentsView 显隐，导致两种壳态互相干扰；主进程 `webview-manager.js` 的 `TOP=76px` 亦是硬编码，与 6a 的占位行契约耦合。
+
+| 合同 | 要求 |
+|------|------|
+| 壳态语义 | `WebviewManager.setShellMode(mode)`：`'workbench'` 隐藏全部内嵌 WebContentsView（浏览器标签 `_hideAllTabs` + 登录视图 `authViewManager.hide()` + 扫码视图 `qrCodeLogin.hide()`）；`'browser'` 恢复显示并 `_repositionAll()` 重定位。非法 `mode` 值守卫忽略；同值幂等（不重复触发 hide/show） |
+| IPC 通道 | 主进程 `webview-manager` 注册 `page-manager:set-shell-mode`（`withSenderCheck` 保护） |
+| preload 三处登记链 | `apps/desktop/electron/preload/page-manager.js` 暴露 `setShellMode` → `index.bundle.js` 通过 `node scripts/build-preload.js` 重打包，两处必须同步；修改 preload API 未重打包 bundle 视为交付不完整 |
+| 渲染层上报 | `App.vue` `watch(isHomeTab, ..., { immediate: true })` 首帧同步：Home → `workbench`，其他 → `browser`；非 Electron 环境静默 fallback（不抛错、不阻塞） |
+| 布局契约 | 6a 已交付：主进程 `view-bounds` 的 TOP 参数化 + 渲染层 `.mp-shell-nav-placeholder`（40px）与 `.nav-bar` 一致，保证 TabBar(36px) + 占位(40px) = 76px 契约不破；6b 的占位行后续可替换为真实互斥布局 |
+| 回归保护 | 新增 `apps/desktop/src/shell-mode-6b.test.js` 共 7 用例，覆盖静态链路完整性（handler 注册 / preload 暴露 / bundle 重打包 / App.vue 上报 / view-bounds TOP 参数化）+ WebviewManager 行为（workbench 隐藏三视图、browser 恢复、幂等、非法值忽略）；IPC 桥门禁 396 handlers / 387 preload 0 缺口 PASS |
+| 已知踩坑 | 方法名守卫必须匹配实际调用：初版用 `hideCurrentView` / `hideView` 但实际调 `hide()`，互斥会静默失效——TDD 抓出后已修；未来新增类似「显隐互斥」能力必须走方法名静态断言 |
