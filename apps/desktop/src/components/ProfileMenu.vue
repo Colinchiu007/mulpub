@@ -44,10 +44,6 @@
 
       <!-- 用户信息区 -->
       <div class="user-info-section">
-        <div class="user-avatar-large">
-          <span class="user-avatar">{{ hasSessionIdentity ? avatarInitial : '⚡' }}</span>
-          <i class="user-avatar-dot" :class="`is-${identityStatus}`"></i>
-        </div>
         <div class="user-details">
           <strong class="user-name">{{ hasSessionIdentity ? displayName : 'Multi-Publish' }}</strong>
           <span class="user-status">{{ statusLabel }}</span>
@@ -548,39 +544,6 @@ function handleUpgrade() {
   background: linear-gradient(135deg, rgba(99, 91, 195, 0.04), rgba(255, 255, 255, 0));
   border-radius: var(--r-lg);
   margin-bottom: 16px;
-}
-
-.user-avatar-large {
-  position: relative;
-  flex: 0 0 auto;
-}
-
-.user-avatar {
-  width: 48px;
-  height: 48px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: linear-gradient(140deg, #ffcf80, #ef9e68);
-  color: #5d3824;
-  font-size: 18px;
-  font-weight: 700;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  transition: transform 0.3s ease;
-}
-
-.user-avatar:hover {
-  transform: rotate(5deg);
-}
-
-.user-avatar-dot {
-  position: absolute;
-  right: -3px;
-  bottom: -3px;
-  width: 14px;
-  height: 14px;
-  border: 3px solid var(--surface);
-  border-radius: 50%;
 }
 
 .user-details {
