@@ -131,7 +131,10 @@ describe('hot-topics channel parsers', () => {
 // ── Service：缓存 fail-closed / 去重 / 限流 / 熔断 ──
 describe('HotTopicsService', () => {
   function makeService(overrides = {}) {
-    return new HotTopicsService({ log: { info: () => {}, warn: () => {}, error: () => {} }, ...overrides })
+    const svc = new HotTopicsService({ log: { info: () => {}, warn: () => {}, error: () => {} }, ...overrides })
+    // 单测隔离：方案B 定向补拉与方案C LLM 兜底默认不触网（专项行为见 Plan B/D、Plan C 用例）
+    svc._collectBoostChannel = async (src) => ({ channel: src.id, items: null, skipped: true, boost: true })
+    return svc
   }
 
   it('getCache fail-closed on corrupt persisted data', () => {
@@ -336,5 +339,269 @@ describe('HotTopicsService', () => {
     const weibo = CHANNEL_CONFIGS.find(c => c.id === 'weibo')
     expect(weibo.headers.Referer).toBe('https://weibo.com/')
     expect(weibo.riskLevel).toBe('medium')
+  })
+})
+
+// ── 方案A：放宽抓取量 + 分类器修复（多标签/黑洞词/微博映射） ──
+describe('Plan A: fetch limit & classifier fixes', () => {
+  it('MAX_PER_CHANNEL=50, MAX_TOPICS=400', async () => {
+    const m = await import('./hot-topics-service.js')
+    expect(m.MAX_PER_CHANNEL).toBe(50)
+    expect(m.MAX_TOPICS).toBe(400)
+  })
+
+  it('society 黑洞词修复：裸字判不再吞文本，判决等强词仍属 society', async () => {
+    const { classifyTopic } = await import('./hot-topics/classifier.js')
+    // v1 缺陷：'判定' 含单字 '判' → 误判 society
+    expect(classifyTopic(null, 'zhihu', '科学实验判定新粒子存在')).not.toBe('society')
+    expect(classifyTopic(null, 'zhihu', '法院一审判决被告赔偿')).toBe('society')
+    // v1 缺陷：'卫健委通报疫情' 被 society '通报' 先到先得吞掉 → 应为 health
+    expect(classifyTopic(null, 'baidu', '卫健委通报最新疫情数据')).toBe('health')
+  })
+
+  it('weibo 原生分类扩容：情感/艺人/汽车 映射生效', async () => {
+    const { classifyTopic } = await import('./hot-topics/classifier.js')
+    expect(classifyTopic('情感', 'weibo', '任意文本')).toBe('emotion')
+    expect(classifyTopic('艺人', 'weibo', '任意文本')).toBe('entertainment')
+    expect(classifyTopic('汽车', 'weibo', '任意文本')).toBe('tech')
+  })
+
+  it('classifyTopicMulti：多标签输出 {category, categories[]}', async () => {
+    const { classifyTopicMulti } = await import('./hot-topics/classifier.js')
+    const r = classifyTopicMulti(null, 'zhihu', '央行通报经济数据 GDP增速放缓')
+    expect(r.category).toBe('finance')
+    expect(r.categories).toContain('finance')
+    expect(r.categories.length).toBeGreaterThanOrEqual(1)
+    expect(r.categories.length).toBeLessThanOrEqual(3)
+    const g = classifyTopicMulti(null, 'zhihu', '完全无关文本')
+    expect(g.category).toBe('general')
+    expect(Array.isArray(g.categories)).toBe(true)
+    // 原生分类优先为主标签，关键词补充次标签
+    const n = classifyTopicMulti('健康医疗', 'weibo', 'AI辅助诊断新药获批')
+    expect(n.category).toBe('health')
+    expect(n.categories).toContain('tech')
+  })
+
+  it('解析器放宽到 50 条（parseBaidu / parseTophub / parseToutiao）', async () => {
+    const ch = await import('./hot-topics/channels.js')
+    const rows = Array.from({ length: 55 }, (_, i) => ({ index: i + 1, word: '热搜' + i, url: 'https://baidu.com/s?wd=' + i }))
+    expect(ch.parseBaidu({ data: { cards: [{ content: [{ content: rows }] }] } })).toHaveLength(50)
+    const tt = { data: Array.from({ length: 55 }, (_, i) => ({ Title: 'T' + i, Url: 'https://t.com/' + i })) }
+    expect(ch.parseToutiao(tt)).toHaveLength(50)
+    const trs = Array.from({ length: 60 }, (_, i) =>
+      '<tr><td align="center">' + (i + 1) + '.</td><td><a href="https://s.weibo.com/weibo?q=x' + i + '" target="_blank" rel="nofollow" itemid="' + (i + 1) + '">话题' + i + '</a></td><td class="ws">' + (i + 1) + '万</td></tr>').join(' ')
+    expect(ch.parseTophub('<tbody>' + trs + '</tbody>')).toHaveLength(50)
+  })
+
+  it('weibo 解析器兼容两种载荷形态：data.band_list 与 data 数组', async () => {
+    const ch = await import('./hot-topics/channels.js')
+    const flat = { data: [{ word: '形态二热搜', num: 123, category: '情感' }] }
+    const items = ch.parseWeibo(flat)
+    expect(items).toHaveLength(1)
+    expect(items[0].topic).toBe('形态二热搜')
+    expect(items[0].rawCategory).toBe('情感')
+  })
+})
+
+// ── 方案B/D：稀疏分类定向补拉 ──
+describe('Plan B/D: category boost channels', () => {
+  it('CATEGORY_BOOSTS：稀疏分类阈值补拉配置（finance/tech 有专属源）', async () => {
+    const m = await import('./hot-topics-service.js')
+    expect(m.CATEGORY_BOOSTS).toBeDefined()
+    for (const cat of ['finance', 'tech', 'emotion', 'health', 'education', 'international']) {
+      expect(m.CATEGORY_BOOSTS[cat]).toBeDefined()
+      expect(m.CATEGORY_BOOSTS[cat].threshold).toBeGreaterThan(0)
+      expect(Array.isArray(m.CATEGORY_BOOSTS[cat].sources)).toBe(true)
+    }
+    // 实测可用端点：财经（百度tab+新浪）、科技（IT之家）
+    expect(m.CATEGORY_BOOSTS.finance.sources.length).toBeGreaterThanOrEqual(2)
+    expect(m.CATEGORY_BOOSTS.tech.sources.length).toBeGreaterThanOrEqual(1)
+    for (const s of [...m.CATEGORY_BOOSTS.finance.sources, ...m.CATEGORY_BOOSTS.tech.sources]) {
+      expect(s.url.startsWith('https://')).toBe(true)
+      expect(s.boostCategory).toBeTruthy()
+      expect(s.board).toBeTruthy()
+    }
+  })
+
+  it('低于阈值的分类自动触发 _collectBoostChannel，补拉条目直挂分类且 id 含 board 段', async () => {
+    const { HotTopicsService } = await import('./hot-topics-service.js')
+    const svc = new HotTopicsService({ log: { info: () => {}, warn: () => {}, error: () => {} } })
+    vi.spyOn(svc, '_collectChannel').mockImplementation(async (cfg) => ({
+      channel: cfg.id,
+      items: [{ id: cfg.id + ':1', channel: cfg.id, rank: 1, topic: cfg.id + '普通话题', category: 'general', categories: ['general'], hotValue: null, url: null }],
+      skipped: false,
+    }))
+    vi.spyOn(svc, '_collectBoostChannel').mockImplementation(async (src, fetchedAt) => ({
+      channel: src.id,
+      items: [{ id: src.channel + ':' + src.board + ':1', channel: src.channel, rank: 1, topic: '财经补拉题', category: src.boostCategory, categories: [src.boostCategory], hotValue: null, url: null }],
+      skipped: false,
+    }))
+    const res = await svc.fetchTopics({ force: true })
+    expect(svc._collectBoostChannel).toHaveBeenCalled()
+    const boosted = res.topics.find(t => t.topic === '财经补拉题')
+    expect(boosted).toBeTruthy()
+    expect(boosted.category).toBe('finance')
+    // 显式 boostCategories 指定的分类必须被拉取
+    const cats = svc._collectBoostChannel.mock.calls.map(c => c[0].boostCategory)
+    expect(cats).toContain('finance')
+    expect(cats).toContain('tech')
+  })
+
+  it('显式 boostCategories=[emotion] 时即使计数充足也补拉该分类（空分类补拉按钮契约）', async () => {
+    const { HotTopicsService } = await import('./hot-topics-service.js')
+    const svc = new HotTopicsService({ log: { info: () => {}, warn: () => {}, error: () => {} } })
+    vi.spyOn(svc, '_collectChannel').mockImplementation(async (cfg) => ({
+      channel: cfg.id,
+      items: [{ id: cfg.id + ':1', channel: cfg.id, rank: 1, topic: '话题' + cfg.id, category: 'general', categories: ['general'], hotValue: null, url: null }],
+      skipped: false,
+    }))
+    const seenBoost = []
+    vi.spyOn(svc, '_collectBoostChannel').mockImplementation(async (src) => {
+      seenBoost.push(src.boostCategory)
+      return { channel: src.id, items: null, skipped: true }
+    })
+    await svc.fetchTopics({ force: true, boostCategories: ['emotion'] })
+    expect(seenBoost).toContain('emotion')
+  })
+
+  it('方案D 专属渠道解析器：parseSinaFinance / parseIthomeRSS', async () => {
+    const ch = await import('./hot-topics/channels.js')
+    const sina = { result: { data: [{ title: '新浪财经标题', url: 'https://finance.sina.com.cn/x' }, { title: '第二条' }] } }
+    const items = ch.parseSinaFinance(sina)
+    expect(items).toHaveLength(2)
+    expect(items[0]).toMatchObject({ channel: 'sina_finance', rank: 1, topic: '新浪财经标题', rawCategory: '财经' })
+    const xml = '<?xml version="1.0"?><rss><channel><item><title><![CDATA[IT之家标题]]></title><link>https://www.ithome.com/0/123.htm</link></item><item><title>第二条 &amp; 测试</title><link>https://www.ithome.com/0/124.htm</link></item></channel></rss>'
+    const rss = ch.parseIthomeRSS(xml)
+    expect(rss).toHaveLength(2)
+    expect(rss[0]).toMatchObject({ channel: 'ithome_tech', topic: 'IT之家标题' })
+    expect(rss[0].url).toBe('https://www.ithome.com/0/123.htm')
+    expect(rss[1].topic).toBe('第二条 & 测试')
+    expect(ch.parseIthomeRSS(null)).toEqual([])
+  })
+})
+
+// ── 方案C：LLM 分类兜底 ──
+describe('Plan C: LLM classify fallback', () => {
+  it('deps.llmClassify 对 general 条目批量分类并应用到结果', async () => {
+    const { HotTopicsService } = await import('./hot-topics-service.js')
+    const llmClassify = vi.fn().mockResolvedValue({ '普通话题zhihu': 'tech' })
+    const svc = new HotTopicsService({ log: { info: () => {}, warn: () => {}, error: () => {} }, llmClassify })
+    vi.spyOn(svc, '_collectChannel').mockImplementation(async (cfg) => ({
+      channel: cfg.id,
+      items: [{ id: cfg.id + ':1', channel: cfg.id, rank: 1, topic: '普通话题' + cfg.id, category: 'general', categories: ['general'], hotValue: null, url: null }],
+      skipped: false,
+    }))
+    vi.spyOn(svc, '_collectBoostChannel').mockResolvedValue({ channel: 'boost', items: null, skipped: true })
+    const res = await svc.fetchTopics({ force: true })
+    expect(llmClassify).toHaveBeenCalled()
+    const t = res.topics.find(x => x.topic === '普通话题zhihu')
+    expect(t.category).toBe('tech')
+    expect(t.categories).toContain('tech')
+  })
+
+  it('LLM 标签落盘缓存：已缓存条目不再请求 llmClassify', async () => {
+    const { HotTopicsService, LLM_LABELS_KEY } = await import('./hot-topics-service.js')
+    const persisted = { '已缓存选题': 'finance' }
+    const store = { getSetting: (k) => (k === LLM_LABELS_KEY ? JSON.stringify(persisted) : null), setSetting: vi.fn() }
+    const llmClassify = vi.fn().mockResolvedValue({ '新选题': 'health' })
+    const svc = new HotTopicsService({ log: { info: () => {}, warn: () => {}, error: () => {} }, settingsStore: store, llmClassify })
+    vi.spyOn(svc, '_collectChannel').mockImplementation(async (cfg) => ({
+      channel: cfg.id,
+      items: [
+        { id: 'zhihu:1', channel: 'zhihu', rank: 1, topic: '已缓存选题', category: 'general', categories: ['general'], hotValue: null, url: null },
+        { id: 'zhihu:2', channel: 'zhihu', rank: 2, topic: '新选题', category: 'general', categories: ['general'], hotValue: null, url: null },
+      ].filter(x => cfg.id === 'zhihu' ? true : x.topic === '话题非zhihu'),
+      skipped: false,
+    }))
+    vi.spyOn(svc, '_collectBoostChannel').mockResolvedValue({ channel: 'boost', items: null, skipped: true })
+    const res = await svc.fetchTopics({ force: true })
+    expect(res.topics.find(x => x.topic === '已缓存选题').category).toBe('finance')
+    expect(res.topics.find(x => x.topic === '新选题').category).toBe('health')
+    // llmClassify 只收到未缓存的条目
+    const asked = llmClassify.mock.calls[0][0]
+    expect(asked).toContain('新选题')
+    expect(asked).not.toContain('已缓存选题')
+    // 新标签落盘
+    const saved = store.setSetting.mock.calls.find(c => c[0] === LLM_LABELS_KEY)
+    expect(saved).toBeTruthy()
+    expect(JSON.parse(saved[1])['新选题']).toBe('health')
+  })
+
+  it('llmClassify 抛错时静默降级：general 保持不变且不影响返回', async () => {
+    const { HotTopicsService } = await import('./hot-topics-service.js')
+    const svc = new HotTopicsService({ log: { info: () => {}, warn: () => {}, error: () => {} }, llmClassify: async () => { throw new Error('llm down') } })
+    vi.spyOn(svc, '_collectChannel').mockImplementation(async (cfg) => ({
+      channel: cfg.id,
+      items: [{ id: cfg.id + ':1', channel: cfg.id, rank: 1, topic: '普通话题X', category: 'general', categories: ['general'], hotValue: null, url: null }],
+      skipped: false,
+    }))
+    vi.spyOn(svc, '_collectBoostChannel').mockResolvedValue({ channel: 'boost', items: null, skipped: true })
+    const res = await svc.fetchTopics({ force: true })
+    expect(res.topics.find(x => x.topic === '普通话题X').category).toBe('general')
+  })
+
+  it('未注入 llmClassify（未配置模型）时完全跳过，不调用网络', async () => {
+    const { HotTopicsService } = await import('./hot-topics-service.js')
+    const svc = new HotTopicsService({ log: { info: () => {}, warn: () => {}, error: () => {} } })
+    vi.spyOn(svc, '_collectChannel').mockImplementation(async (cfg) => ({
+      channel: cfg.id, items: [], skipped: false,
+    }))
+    vi.spyOn(svc, '_collectBoostChannel').mockResolvedValue({ channel: 'boost', items: null, skipped: true })
+    const res = await svc.fetchTopics({ force: true })
+    expect(res.topics).toEqual([])
+  })
+
+  it('llmClassify 返回非法分类被忽略（合同校验）', async () => {
+    const { HotTopicsService } = await import('./hot-topics-service.js')
+    const svc = new HotTopicsService({ log: { info: () => {}, warn: () => {}, error: () => {} }, llmClassify: async () => ({ '话题Y': 'nonsense' }) })
+    vi.spyOn(svc, '_collectChannel').mockImplementation(async (cfg) => ({
+      channel: cfg.id,
+      items: [{ id: cfg.id + ':1', channel: cfg.id, rank: 1, topic: '话题Y', category: 'general', categories: ['general'], hotValue: null, url: null }],
+      skipped: false,
+    }))
+    vi.spyOn(svc, '_collectBoostChannel').mockResolvedValue({ channel: 'boost', items: null, skipped: true })
+    const res = await svc.fetchTopics({ force: true })
+    expect(res.topics.find(x => x.topic === '话题Y').category).toBe('general')
+  })
+})
+
+// ── 评审回归（MAJOR-1，2026-09-20）：显式补拉不被主渠道限流的 preserve 早退吞掉 ──
+describe('Review regression: explicit boost vs throttled main channels', () => {
+  const silentLog = { info: () => {}, warn: () => {}, error: () => {} }
+
+  it('主渠道全被限流跳过时，显式 boostCategories 仍执行补拉并合并结果（不触发 preservedStaleCache）', async () => {
+    const svc = new HotTopicsService({ log: silentLog })
+    vi.spyOn(svc, '_collectChannel').mockImplementation(async (cfg) => ({ channel: cfg.id, items: null, skipped: true }))
+    svc._collectBoostChannel = async (src) => ({
+      channel: src.id, skipped: false, boost: true,
+      items: [{
+        id: src.channel + ':' + src.board + ':1', topic: '央行宣布降准', channel: src.channel,
+        category: src.boostCategory, categories: [src.boostCategory], rank: 1, hotValue: null, url: null, fetchedAt: Date.now(),
+      }],
+    })
+    svc.memCache = {
+      topics: [{ id: 'zhihu:1', topic: '旧选题', category: 'society', categories: ['society'], fetchedAt: 1 }],
+      fetchedAt: 1700000000000, channelStats: {},
+    }
+    const res = await svc.fetchTopics({ force: true, boostCategories: ['finance'] })
+    expect(res.preservedStaleCache).toBeUndefined()
+    const finance = res.topics.filter(t => (Array.isArray(t.categories) ? t.categories : [t.category]).includes('finance'))
+    expect(finance.length).toBeGreaterThan(0)
+    // 两个 finance 源都被触发（跨渠道同文本经 _aggregate 去重）
+    expect(res.channelStats['baidu-finance']).toBeTruthy()
+    expect(res.channelStats['sina-finance']).toBeTruthy()
+  })
+
+  it('主渠道与补拉源全部无结果时，仍保留旧缓存（preserve 语义不破坏）', async () => {
+    const svc = new HotTopicsService({ log: silentLog })
+    vi.spyOn(svc, '_collectChannel').mockImplementation(async (cfg) => ({ channel: cfg.id, items: null, skipped: true }))
+    svc._collectBoostChannel = async (src) => ({ channel: src.id, items: null, skipped: true, boost: true })
+    svc.memCache = {
+      topics: [{ id: 'zhihu:1', topic: '保留我', category: 'society', categories: ['society'], fetchedAt: 1 }],
+      fetchedAt: 1700000000000, channelStats: {},
+    }
+    const res = await svc.fetchTopics({ force: true, boostCategories: ['finance'] })
+    expect(res.preservedStaleCache).toBe(true)
+    expect(res.topics.map(t => t.topic)).toEqual(['保留我'])
   })
 })
