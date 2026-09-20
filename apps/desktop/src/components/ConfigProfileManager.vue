@@ -285,13 +285,11 @@ async function save () {
     if (isFailedResult(result)) {
       if (result?.code === -2 || /duplicate|同名|already exists/i.test(String(result?.message || ''))) overwriteNeeded.value = true
       errorMessage.value = errorText(result, 'create.story2video.configProfile.saveFailed')
-      ElMessage.error(errorMessage.value)
       return
     }
     const saved = resultData(result)
     if (!saved || !saved.id) {
       errorMessage.value = t('create.story2video.configProfile.saveFailed')
-      ElMessage.error(errorMessage.value)
       return
     }
     profiles.value = sortProfiles([...profiles.value.filter((item) => item.id !== saved.id), saved])
@@ -301,7 +299,6 @@ async function save () {
   } catch (error) {
     if (isCurrentRequest(generation)) {
       errorMessage.value = errorText(error, 'create.story2video.configProfile.saveFailed')
-      ElMessage.error(errorMessage.value)
     }
   } finally {
     // 成功路径会先关闭弹窗，不能再用 isCurrentRequest 判断，否则 loading 永远残留。
@@ -321,21 +318,18 @@ async function openList () {
     if (isFailedResult(result)) {
       errorMessage.value = errorText(result, 'create.story2video.configProfile.loadFailed')
       profiles.value = []
-      ElMessage.error(errorMessage.value)
       return
     }
     const data = resultData(result)
     if (!Array.isArray(data)) {
       errorMessage.value = t('create.story2video.configProfile.loadFailed')
       profiles.value = []
-      ElMessage.error(errorMessage.value)
       return
     }
     profiles.value = sortProfiles(data)
   } catch (error) {
     if (isCurrentRequest(generation)) {
       errorMessage.value = errorText(error, 'create.story2video.configProfile.loadFailed')
-      ElMessage.error(errorMessage.value)
     }
   } finally {
     if (isCurrentRequest(generation)) loading.value = false
@@ -374,7 +368,6 @@ async function confirmApply () {
     const result = await props.onApply(target)
     if (result === false || (hasResultCode(result) && result.code !== 0)) {
       errorMessage.value = errorText(result, 'create.story2video.configProfile.applyFailed')
-      ElMessage.error(errorMessage.value)
       return
     }
     listOpen.value = false
@@ -382,7 +375,6 @@ async function confirmApply () {
     ElMessage.success(t('create.story2video.configProfile.applied'))
   } catch (error) {
     errorMessage.value = errorText(error, 'create.story2video.configProfile.applyFailed')
-    ElMessage.error(errorMessage.value)
   } finally { busy.value = false }
 }
 
@@ -410,13 +402,11 @@ async function rename () {
     const result = await props.onRename(id, name)
     if (isFailedResult(result)) {
       errorMessage.value = errorText(result, 'create.story2video.configProfile.renameFailed')
-      ElMessage.error(errorMessage.value)
       return
     }
     const changed = resultData(result)
     if (!changed || changed.id !== id) {
       errorMessage.value = t('create.story2video.configProfile.renameFailed')
-      ElMessage.error(errorMessage.value)
       return
     }
     profiles.value = sortProfiles(profiles.value.map((item) => item.id === id ? changed : item))
@@ -424,7 +414,6 @@ async function rename () {
     ElMessage.success(t('create.story2video.configProfile.renamed'))
   } catch (error) {
     errorMessage.value = errorText(error, 'create.story2video.configProfile.renameFailed')
-    ElMessage.error(errorMessage.value)
   } finally { busy.value = false }
 }
 
@@ -448,14 +437,12 @@ async function confirmDelete () {
     const result = await props.onDelete(target)
     if (isFailedResult(result)) {
       errorMessage.value = errorText(result, 'create.story2video.configProfile.deleteFailed')
-      ElMessage.error(errorMessage.value)
       return
     }
     profiles.value = profiles.value.filter((item) => item.id !== target.id)
     ElMessage.success(t('create.story2video.configProfile.deleted'))
   } catch (error) {
     errorMessage.value = errorText(error, 'create.story2video.configProfile.deleteFailed')
-    ElMessage.error(errorMessage.value)
   } finally { busy.value = false }
 }
 
