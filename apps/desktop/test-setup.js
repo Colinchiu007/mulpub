@@ -291,7 +291,9 @@ try {
       'el-dropdown-menu': { template: '<ul class="el-dropdown-menu"><slot></slot></ul>' },
       'el-dropdown-item': { template: '<li class="el-dropdown-item"><slot></slot></li>' },
       'el-scrollbar': { template: '<div class="el-scrollbar"><slot></slot></div>' },
-      'el-popover': { template: '<div class="el-popover"><slot></slot></div>' },
+      // reference（触发器，始终可见）与默认 slot（弹出内容）都要渲染，
+      // 否则放在 <template #reference> 里的可点击元素在单测中会丢失。
+      'el-popover': { template: '<div class="el-popover"><slot name="reference"></slot><slot></slot></div>' },
       'el-tooltip': { template: '<span class="el-tooltip"><slot></slot></span>' },
       'el-switch': { template: '<span class="el-switch"><slot></slot></span>' },
       'el-slider': { template: '<div class="el-slider"><slot></slot></div>' },

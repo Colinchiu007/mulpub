@@ -88,7 +88,9 @@ describe('FilmEngineeringView configuration profiles', () => {
     composable.status.value = { available: false, error: 'kit missing', filmMeta: null, sceneCount: 0, shotCount: 0, referenceCount: 0 }
     const wrapper = mountView()
     await nextTick()
-    const retry = wrapper.find('.fe-actions el-button')
+    // 全局 test-setup 将 el-button stub 为 <button class="el-button">（优先于 isCustomElement），
+    // 故用类选择器定位重试按钮，验证其 click 仍透传到 refreshAll。
+    const retry = wrapper.find('.fe-actions .el-button')
     expect(retry.exists()).toBe(true)
     await retry.trigger('click')
     expect(composable.refreshAll).toHaveBeenCalledTimes(2)
