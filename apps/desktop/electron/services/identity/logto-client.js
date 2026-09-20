@@ -25,6 +25,23 @@ function normalizeEndpoint(endpoint) {
   return url.toString().replace(/\/+$/, '')
 }
 
+function withFetchTimeout(fetcher, timeoutMs, timerFns = {}) {
+  const setTimeoutFn = timerFns.setTimeoutFn || setTimeout
+  const clearTimeoutFn = timerFns.clearTimeoutFn || clearTimeout
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return fetcher
+  return (input, init = {}) => {
+    const controller = new AbortController()
+    const external = init && init.signal
+    if (external) {
+      if (external.aborted) controller.abort(external.reason)
+      else external.addEventListener('abort', () => controller.abort(external.reason), { once: true })
+    }
+    const timer = setTimeoutFn(() => controller.abort(new Error('IDENTITY_FETCH_TIMEOUT')), timeoutMs)
+    const signal = controller.signal
+    return Promise.resolve(fetcher(input, { ...(init || {}), signal })).finally(() => clearTimeoutFn(timer))
+  }
+}
+
 function createMemoryStorage() {
   const values = new Map()
   return {
@@ -49,8 +66,13 @@ async function createLogtoClient(options = {}) {
   const adapterStorage = typeof storage === 'function' ? new storage(options.storageOptions) : storage
   const shell = options.shell || require('electron').shell
   const authWindow = options.authWindow || null
-  const fetcher = options.fetcher || globalThis.fetch
-  if (typeof fetcher !== 'function') throw new IdentityError('IDENTITY_FETCH_UNAVAILABLE', '系统缺少 fetch')
+  const baseFetcher = options.fetcher || globalThis.fetch
+  if (typeof baseFetcher !== 'function') throw new IdentityError('IDENTITY_FETCH_UNAVAILABLE', '系统缺少 fetch')
+  // OIDC discovery / token 请求经 SDK requester 发出；无超时的 fetch 会在网络抖动时长时间挂起，
+  // 点击登录后迟迟无响应。统一注入超时，让 discovery 快速失败而非无限等待。
+  const configuredTimeout = Number(options.fetchTimeoutMs)
+  const fetchTimeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : 15000
+  const fetcher = withFetchTimeout(baseFetcher, fetchTimeoutMs, options.timerFns)
   const requester = typeof module.createRequester === 'function' ? module.createRequester(fetcher) : fetcher
   let preparedSignInState = null
   const adapter = {
@@ -108,4 +130,4 @@ async function createLogtoClient(options = {}) {
   return client
 }
 
-module.exports = { createLogtoClient, normalizeEndpoint, generateCodeChallenge }
+module.exports = { createLogtoClient, normalizeEndpoint, generateCodeChallenge, withFetchTimeout }

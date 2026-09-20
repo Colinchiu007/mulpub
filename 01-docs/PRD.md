@@ -16824,3 +16824,59 @@ is_default: 1
 | IPC 校验 | boostCategories 非数组→[]；逐项 string 且 ≤32 字符；总数 ≤10；preload 整体透传无改动 |
 | 提示文字 | hotTopics.emptyCategoryTitle/emptyCategoryDesc/boostAction（zh/en 成对）；channels 新增 sina_finance=新浪财经、ithome_tech=IT之家 |
 | 验收 | hot-topics-service.test.js（Plan A-D 契约）+ HotTopics.test.js 35 例 + assembly 全绿；locale --keys PASS |
+
+
+
+## 补充：Logto 身份登录窗口延迟修复合同（2026-09-20，fix-login-window-latency）
+
+> 状态：已实现 | 类型：Bug 修复 + 体验加固（P1）| 范围：主进程（`electron/services/identity`）+ 渲染端（`ProfileMenu`）| 分支 `fix-login-window-latency`
+
+**背景**：用户反馈「点击登录没反应 / 登录窗口迟迟不出现」。根因是三处串联的「无界等待」，任一环节网络抖动即放大为整段登录不可感知：
+
+1. 认证窗口 `identity-auth-window.js` 仅 `show:false` + `ready-to-show` 才 `show()`，远端授权页慢或不触发 `ready-to-show` 时窗口永久隐藏；
+2. Logto SDK 的 OIDC discovery（`/.well-known/openid-configuration`）经 `createRequester(fetch)` 发出，fetch 无超时，网络挂起时无限等待；
+3. 渲染端 ProfileMenu 触发器点击后仅 `await signInOrSwitch()`，登录按钮本身无即时反馈，用户在 discovery 往返期间误判「没点上」而重复点击。
+
+### 一、数据校验与前置约束
+
+| 项 | 规则 | 失败处理 |
+|---|---|---|
+| 兜底展示超时 | `IdentityAuthWindow` 新增 `showFallbackTimeout`（默认 3000ms，>0 才生效，非法值回落默认） | 到点若未展示则强制 `show()` |
+| 展示幂等 | `revealWindow` 以 `shown` 闭包标志幂等；`this._window !== window` 或 `window.isDestroyed()` 时不展示 | 旧窗口 / 已销毁窗口不被误显示 |
+| discovery 超时 | `withFetchTimeout` 包装 fetch，默认 15000ms，可经 `fetchTimeoutMs` 覆盖；`<=0` / `NaN` 原样透传（不注入超时） | 超时经 `AbortController.abort()` 中止，SDK 侧快速失败 |
+| 外部 signal 联动 | 包装器合并调用方 `init.signal`：已 abort 立即 abort，否则监听其 abort 转发 | 不破坏调用方既有取消语义 |
+| 渲染防重入 | ProfileMenu 触发器新增本地 `busy`；`idleUnauthenticated && !loading` 分支内 `busy` 为真直接 return | busy 期间重复点击不触发第二次 signIn |
+
+### 二、流程逻辑
+
+- **认证窗口展示（新）**：`open()` → 建窗（`show:false`）→ 注册 `ready-to-show` / `dom-ready` / `did-finish-load` 三路 `revealWindow` + 兜底 `setTimeout(revealWindow, showFallbackTimeout)` → 任一路径命中即展示并清定时器；`closed` 时同样清定时器。
+- **登录 fetch（新）**：`createLogtoClient` → `withFetchTimeout(baseFetcher, fetchTimeoutMs)` → `createRequester(wrapped)` → discovery / token 请求带 `signal`，超时 abort。
+- **点击链路（更新）**：点头像 →（`signed_out`/`expired` 且非 loading）置 `busy=true`（禁用 + aria-busy + 光标 wait）→ `signInOrSwitch()` → 认证窗口经上述兜底必然可见 → `finally` 复位 `busy`。
+
+### 三、交互逻辑
+
+| 场景 | 行为 |
+|---|---|
+| 远端授权页秒开 | `ready-to-show` 正常展示（与旧一致） |
+| 授权页缓慢 / 不触发 ready-to-show | dom-ready 或最迟 3s 兜底强制展示，用户至少看到加载中窗口而非「无反应」 |
+| discovery 网络挂起 | 15s 超时 abort 快速失败，登录返回可操作错误而非永久卡住 |
+| 连点头像 | 首次进入 busy，后续点击被守卫，只弹一个登录窗口 |
+
+### 四、显示项与提示文字
+
+- ProfileMenu 触发器：`:aria-busy="loading || busy"`、`:disabled="busy"`、新增 `.mp-profile-busy`（`cursor: wait; opacity:.72`）与 `mp-profile-busy` class 绑定；测试锚点 `data-testid="mp-profile"`。
+- 无新增用户可见文案（不触碰 locales，规避 locale-sync 门禁）；登录中 / 失败文案沿用既有 `memberCenter.*`。
+
+### 五、回归保护测试
+
+| 用例组 | 断言 |
+|---|---|
+| `identity-auth-window.test.js`（15） | dom-ready 展示 / 兜底定时强制展示 / 已展示后定时器不重复 show / 关窗后定时器不显示销毁窗口（`window.shown` 时机） |
+| `logto-client.test.js`（9） | 超时 abort / `<=0` 透传 / 外部 signal 联动 / createLogtoClient 注入带超时 fetch（`signal.aborted`） |
+| `ProfileMenu.test.js`（19） | 未登录点击立即 busy（aria-busy=true + disabled），完成后恢复，重复点击只触发一次 |
+
+身份 / 存储 / 窗口 / IPC 关联回归 221 例通过；ESLint 改动文件 0 违规。
+
+### 六、已知局限
+
+- 兜底 3s 与 discovery 15s 为经验值，极慢网络下窗口可能短暂白屏；已预留 `showFallbackTimeout` / `fetchTimeoutMs` / `timerFns` 注入点，便于后续遥测调参。

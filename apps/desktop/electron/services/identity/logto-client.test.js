@@ -75,3 +75,72 @@ describe('createLogtoClient', () => {
     })).resolves.toBeInstanceOf(FakeClient)
   })
 })
+
+describe('withFetchTimeout', () => {
+  it('超过超时阈值后中止请求 signal 并拒绝', async () => {
+    vi.useFakeTimers()
+    try {
+      const { withFetchTimeout } = require('./logto-client')
+      let signal
+      const base = (_input, init) => new Promise((_resolve, reject) => {
+        signal = init.signal
+        signal.addEventListener('abort', () => reject(new Error('aborted')))
+      })
+      let error
+      const pending = withFetchTimeout(base, 5000)('https://id.example.com/.well-known/openid-configuration', {})
+        .catch((err) => { error = err })
+      expect(signal).toBeDefined()
+      expect(signal.aborted).toBe(false)
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(signal.aborted).toBe(true)
+      expect(error).toBeInstanceOf(Error)
+      await pending
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('timeoutMs<=0 时原样透传 fetcher', () => {
+    const { withFetchTimeout } = require('./logto-client')
+    const base = async () => ({ ok: true })
+    expect(withFetchTimeout(base, 0)).toBe(base)
+    expect(withFetchTimeout(base, Number.NaN)).toBe(base)
+  })
+
+  it('外部 signal 中止时联动中止内部请求', () => {
+    const { withFetchTimeout } = require('./logto-client')
+    const external = new AbortController()
+    let innerSignal
+    const base = (_input, init) => { innerSignal = init.signal; return new Promise(() => {}) }
+    const promise = withFetchTimeout(base, 5000)('https://id.example.com/config', { signal: external.signal })
+    external.abort()
+    expect(innerSignal.aborted).toBe(true)
+    void promise
+  })
+
+  it('createLogtoClient 给 requester 注入带超时的 fetch', async () => {
+    vi.useFakeTimers()
+    try {
+      const { createLogtoClient } = require('./logto-client')
+      let requesterFn
+      let innerSignal
+      const base = (_input, init) => { innerSignal = init.signal; return new Promise(() => {}) }
+      class FakeClient { constructor() {} }
+      await createLogtoClient({
+        endpoint: 'https://id.example.com', appId: 'a', resource: 'https://api',
+        storage: { getItem: async () => null, setItem: async () => {}, removeItem: async () => {} },
+        shell: { openExternal: async () => {} },
+        fetcher: base,
+        fetchTimeoutMs: 3000,
+        loadModule: async () => ({ default: FakeClient, createRequester: (fn) => { requesterFn = fn; return fn } }),
+      })
+      expect(typeof requesterFn).toBe('function')
+      void requesterFn('https://id.example.com/.well-known/openid-configuration')
+      expect(innerSignal).toBeDefined()
+      await vi.advanceTimersByTimeAsync(3000)
+      expect(innerSignal.aborted).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})

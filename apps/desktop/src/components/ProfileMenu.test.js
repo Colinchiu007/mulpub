@@ -301,4 +301,27 @@ describe('ProfileMenu', () => {
     expect(text).toContain('memberCenter.operationFailed')
     expect(text).not.toContain('memberCenter.signOutFailed')
   })
+
+  // ── 2026-09-20 登录延迟回归：点击后必须立即给出 busy 反馈并防重复触发 ──
+
+  it('未登录点击头像立即进入 busy 反馈，完成后恢复且不重复触发登录', async () => {
+    await mountMenu()
+    store.status = 'signed_out'
+    store.user = null
+    let resolveSignIn
+    store.signInOrSwitch.mockImplementation(() => new Promise((res) => { resolveSignIn = res }))
+    await wrapper.vm.$nextTick()
+    const triggerEl = wrapper.get('[data-testid="mp-profile"]')
+    await triggerEl.trigger('click')
+    expect(triggerEl.attributes('aria-busy')).toBe('true')
+    expect(triggerEl.attributes('disabled')).toBeDefined()
+    // busy 期间重复点击不再触发第二次登录
+    await triggerEl.trigger('click')
+    expect(store.signInOrSwitch).toHaveBeenCalledTimes(1)
+    resolveSignIn(true)
+    await Promise.resolve()
+    await wrapper.vm.$nextTick()
+    expect(triggerEl.attributes('aria-busy')).not.toBe('true')
+    expect(triggerEl.attributes('disabled')).toBeUndefined()
+  })
 })

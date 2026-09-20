@@ -5,11 +5,12 @@
       ref="trigger"
       type="button"
       class="mp-profile"
-      :class="{ 'mp-profile-open': open }"
+      :class="{ 'mp-profile-open': open, 'mp-profile-busy': busy }"
       data-testid="mp-profile"
       :aria-expanded="open"
       aria-haspopup="menu"
-      :aria-busy="loading"
+      :aria-busy="loading || busy"
+      :disabled="busy"
       :title="clientStatusTitle"
       @click="handleTriggerClick"
       @keydown.down.prevent="openAndFocusFirst"
@@ -145,6 +146,9 @@ const { status, user, displayName, loading, error, signIn, signInOrSwitch, switc
 const { open, root, trigger, panel, toggle, close, openAndFocusFirst, handleMenuKeydown } = useDropdownBehavior()
 
 const pendingAction = ref(null)
+// 点击登录到认证窗口真正可见之间存在网络 discovery / 授权页加载的空窗期，
+// 用本地 busy 立刻给出反馈并禁用触发器，避免重复点击与「点了没反应」的错觉。
+const busy = ref(false)
 const isSigningOut = computed(() => status.value === 'signing_out')
 const hasSessionIdentity = computed(() => Boolean(user.value?.sub) && !['disabled', 'signed_out', 'expired'].includes(status.value))
 
@@ -212,8 +216,14 @@ async function handleTriggerClick() {
   // 未登录（含会话过期）→ 直接打开登录弹窗；失败时展开菜单展示错误
   const idleUnauthenticated = status.value === 'signed_out' || status.value === 'expired'
   if (idleUnauthenticated && !loading.value) {
-    const ok = await signInOrSwitch()
-    if (!ok) openAndFocusFirst()
+    if (busy.value) return
+    busy.value = true
+    try {
+      const ok = await signInOrSwitch()
+      if (!ok) openAndFocusFirst()
+    } finally {
+      busy.value = false
+    }
     return
   }
   if (shouldOpenMenuOnClick.value) openAndFocusFirst()
@@ -301,6 +311,11 @@ function handleUpgrade() {
 .mp-profile:focus-visible {
   outline: 2px solid #5149e8;
   outline-offset: 1px;
+}
+
+.mp-profile-busy {
+  cursor: wait;
+  opacity: .72;
 }
 
 .mp-avatar-wrap {
