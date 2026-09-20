@@ -300,7 +300,7 @@ onBeforeUnmount(() => {
   width: 16px;
   height: 16px;
   border: 2px solid var(--border-color, #e4e7ed);
-  border-top-color: var(--primary, #409eff);
+  border-top-color: var(--color-primary, #409eff);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
   vertical-align: middle;
@@ -380,7 +380,7 @@ onBeforeUnmount(() => {
 }
 .modification-input:focus {
   outline: none;
-  border-color: var(--primary, #409eff);
+  border-color: var(--color-primary, #409eff);
 }
 .gate-actions {
   display: flex;

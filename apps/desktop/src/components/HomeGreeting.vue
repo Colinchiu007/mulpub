@@ -69,12 +69,12 @@ async function handleLoginClick() {
 
 .home-greeting p {
   margin: 0;
-  color: #8b8e9a;
+  color: var(--color-text-secondary);
   font-size: 14px;
 }
 
 .home-login-link {
-  color: #5048e5;
+  color: var(--color-primary);
   font-weight: 600;
   text-decoration: none;
   cursor: pointer;
