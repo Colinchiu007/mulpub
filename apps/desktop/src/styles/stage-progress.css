@@ -37,19 +37,19 @@
 }
 
 .progress-text {
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--text);
   min-width: 40px;
 }
 
 .elapsed-text {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
 }
 
 .progress-summary {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
   margin-bottom: 16px;
   padding: 8px 12px;
@@ -110,7 +110,7 @@
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   flex-shrink: 0;
 }
@@ -160,19 +160,19 @@
 }
 
 .stage-name {
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--text);
 }
 
 .stage-detail {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--primary);
   margin-top: 2px;
 }
 
 .stage-meta {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
 }
 
@@ -195,7 +195,7 @@
 }
 
 .stage-status {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
   white-space: nowrap;
   min-width: 0;
@@ -210,7 +210,7 @@
 .stage-time-guidance {
   margin-top: 0;
   padding: 10px 16px;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   line-height: 1.6;
   color: var(--text-muted);
   background: var(--surface);
@@ -219,7 +219,7 @@
 }
 
 .time-guidance-title {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--text);
   margin-bottom: 2px;

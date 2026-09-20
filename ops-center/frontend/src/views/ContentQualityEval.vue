@@ -50,7 +50,7 @@
                 <div style="display:flex;align-items:center;gap:12px">
                   <span>评估结果</span>
                   <el-tag :type="gradeTag(result.grade)" size="large">{{ result.grade }} - {{ result.grade_label }}</el-tag>
-                  <span style="font-size:24px;font-weight:700;color:#409EFF">{{ result.overall_score }}<small style="font-size:14px">/100</small></span>
+                  <span style="font-size: var(--font-size-xl);font-weight:700;color:var(--color-primary)">{{ result.overall_score }}<small style="font-size: var(--font-size-sm)">/100</small></span>
                 </div>
               </template>
 
@@ -63,15 +63,15 @@
               </div>
 
               <div style="margin-bottom:12px">
-                <span style="font-size:13px;color:#6b7280">字数: {{ result.word_count }} | 风格: {{ result.style }} | 平台: {{ result.platform }}</span>
+                <span style="font-size: var(--font-size-sm);color:var(--color-text-secondary)">字数: {{ result.word_count }} | 风格: {{ result.style }} | 平台: {{ result.platform }}</span>
               </div>
 
               <el-divider content-position="left">维度评分</el-divider>
               <div v-for="d in result.dimensions" :key="d.id" style="display:flex;align-items:center;margin-bottom:6px;gap:8px">
-                <span style="width:80px;font-size:13px;text-align:right;flex-shrink:0">{{ d.label }}</span>
+                <span style="width:80px;font-size: var(--font-size-sm);text-align:right;flex-shrink:0">{{ d.label }}</span>
                 <template v-if="isApplicable(d)">
                   <el-progress :percentage="d.score" :color="dimColor(d.score)" style="flex:1" />
-                  <span style="width:40px;font-size:13px;text-align:right;flex-shrink:0;font-weight:600">{{ d.score.toFixed(0) }}</span>
+                  <span style="width:40px;font-size: var(--font-size-sm);text-align:right;flex-shrink:0;font-weight:600">{{ d.score.toFixed(0) }}</span>
                 </template>
                 <template v-else>
                   <div class="not-applicable-track">不适用</div>
@@ -116,17 +116,17 @@
           <div v-if="stats && stats.grade_distribution" style="display:flex;gap:16px">
             <div v-for="g in GRADE_ORDER" :key="g" style="text-align:center">
               <el-tag :type="gradeTag(g)" size="large">{{ g }}</el-tag>
-              <div style="font-size:20px;font-weight:700;margin-top:4px">{{ stats.grade_distribution[g] || 0 }}</div>
+              <div style="font-size: var(--font-size-lg);font-weight:700;margin-top:4px">{{ stats.grade_distribution[g] || 0 }}</div>
             </div>
           </div>
 
           <el-divider content-position="left">维度平均分</el-divider>
           <div v-if="stats && stats.avg_dimensions">
             <div v-for="d in stats.avg_dimensions" :key="d.id" style="display:flex;align-items:center;margin-bottom:6px;gap:8px">
-              <span style="width:80px;font-size:13px;text-align:right;flex-shrink:0">{{ dimLabel(d.id) }}</span>
+              <span style="width:80px;font-size: var(--font-size-sm);text-align:right;flex-shrink:0">{{ dimLabel(d.id) }}</span>
               <template v-if="d.count > 0">
                 <el-progress :percentage="d.avg_score" :color="dimColor(d.avg_score)" style="flex:1" />
-                <span style="width:40px;font-size:13px;text-align:right;flex-shrink:0;font-weight:600">{{ d.avg_score.toFixed(0) }}</span>
+                <span style="width:40px;font-size: var(--font-size-sm);text-align:right;flex-shrink:0;font-weight:600">{{ d.avg_score.toFixed(0) }}</span>
               </template>
               <template v-else>
                 <div class="not-applicable-track">暂无适用样本</div>
@@ -207,9 +207,9 @@ function gradeTag(g) {
 }
 
 function dimColor(score) {
-  if (score >= 80) return '#67C23A'
-  if (score >= 60) return '#E6A23C'
-  return '#F56C6C'
+  if (score >= 80) return 'var(--color-success)'
+  if (score >= 60) return 'var(--color-warning)'
+  return 'var(--color-danger)'
 }
 
 async function run() {
@@ -265,21 +265,21 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.subtitle { color: #6b7280; font-size: 13px; margin-bottom: 16px; }
+.subtitle { color: var(--color-text-secondary); font-size: var(--font-size-sm); margin-bottom: 16px; }
 .not-applicable-track {
   flex: 1;
   min-height: 16px;
   border-radius: 4px;
-  background: #f3f4f6;
-  color: #9ca3af;
-  font-size: 12px;
+  background: var(--color-bg-inset);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
   line-height: 16px;
   padding-left: 8px;
 }
 .not-applicable-value {
   width: 40px;
-  color: #9ca3af;
-  font-size: 13px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
   text-align: right;
   flex-shrink: 0;
   font-weight: 600;

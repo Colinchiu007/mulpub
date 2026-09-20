@@ -133,7 +133,7 @@ function saveRename (group) {
   padding: 7px 10px;
   border: 1px solid var(--border, #dedee5);
   border-radius: 6px;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   outline: none;
 }
 .group-create input:focus { border-color: #5048e5; box-shadow: 0 0 0 2px rgba(80, 72, 229, 0.1); }
@@ -147,29 +147,29 @@ function saveRename (group) {
   border-radius: 6px;
   background: #5048e5;
   color: #fff;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   cursor: pointer;
 }
 .group-create button:disabled { opacity: 0.45; cursor: not-allowed; }
 .group-create svg { width: 15px; height: 15px; }
-.empty-groups { padding: 32px 0; text-align: center; color: var(--muted, #85858f); font-size: 13px; }
+.empty-groups { padding: 32px 0; text-align: center; color: var(--muted, #85858f); font-size: var(--font-size-sm); }
 .group-list { display: flex; flex-direction: column; gap: 10px; max-height: 420px; overflow: auto; }
 .group-section { border: 1px solid var(--border-light, #e8e8ec); border-radius: 7px; overflow: hidden; }
 .group-section header { display: flex; align-items: center; justify-content: space-between; padding: 9px 11px; background: #f8f8fa; }
 .group-actions { display: inline-flex; align-items: center; gap: 6px; }
-.group-actions select { max-width: 120px; min-height: 28px; border: 1px solid var(--border, #dedee5); border-radius: 5px; padding: 2px 22px 2px 6px; background: #fff; color: #5c5e6a; font-size: 11px; }
+.group-actions select { max-width: 120px; min-height: 28px; border: 1px solid var(--border, #dedee5); border-radius: 5px; padding: 2px 22px 2px 6px; background: var(--color-bg-card); color: #5c5e6a; font-size: var(--font-size-xs); }
 .rename-group { display: flex; align-items: center; gap: 5px; min-width: 0; }
-.rename-group input { width: min(180px, 42vw); min-height: 28px; border: 1px solid #8e87ed; border-radius: 5px; padding: 3px 7px; font-size: 12px; }
-.rename-group button, .rename-group-button { min-height: 28px; border: 1px solid #dedee5; border-radius: 5px; padding: 3px 7px; background: #fff; color: #5c5e6a; font-size: 11px; cursor: pointer; }
+.rename-group input { width: min(180px, 42vw); min-height: 28px; border: 1px solid #8e87ed; border-radius: 5px; padding: 3px 7px; font-size: var(--font-size-xs); }
+.rename-group button, .rename-group-button { min-height: 28px; border: 1px solid #dedee5; border-radius: 5px; padding: 3px 7px; background: var(--color-bg-card); color: #5c5e6a; font-size: var(--font-size-xs); cursor: pointer; }
 .rename-group button:first-of-type { border-color: #5048e5; background: #5048e5; color: #fff; }
 .rename-group-button:hover { border-color: #5048e5; color: #5048e5; }
-.group-section h3 { margin: 0; color: #303039; font-size: 13px; line-height: 20px; }
-.group-section header span { color: var(--muted, #85858f); font-size: 11px; }
+.group-section h3 { margin: 0; color: #303039; font-size: var(--font-size-sm); line-height: 20px; }
+.group-section header span { color: var(--muted, #85858f); font-size: var(--font-size-xs); }
 .delete-group { width: 28px; height: 28px; display: grid; place-items: center; border: 0; background: transparent; color: #c43d4d; cursor: pointer; }
 .delete-group svg { width: 15px; height: 15px; }
 .member-list { display: flex; flex-direction: column; }
-.member-row { min-height: 36px; display: grid; grid-template-columns: 18px 1fr auto; align-items: center; gap: 8px; padding: 6px 11px; border-top: 1px solid #efeff2; font-size: 13px; cursor: pointer; }
+.member-row { min-height: 36px; display: grid; grid-template-columns: 18px 1fr auto; align-items: center; gap: 8px; padding: 6px 11px; border-top: 1px solid #efeff2; font-size: var(--font-size-sm); cursor: pointer; }
 .member-row input { accent-color: #5048e5; }
 .member-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.member-platform { color: var(--muted, #85858f); font-size: 12px; }
+.member-platform { color: var(--muted, #85858f); font-size: var(--font-size-xs); }
 </style>

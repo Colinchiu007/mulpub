@@ -222,7 +222,7 @@ async function onRestart (svc) {
   border-radius: 6px;
   background: transparent;
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: #5a5c73;
   text-align: left;
   cursor: pointer;
@@ -262,7 +262,7 @@ async function onRestart (svc) {
   padding: 6px 8px;
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.03);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   line-height: 1.5;
   color: #5a5c73;
 }
@@ -286,9 +286,9 @@ async function onRestart (svc) {
   padding: 3px 12px;
   border: 1px solid #d9d9d9;
   border-radius: 6px;
-  background: #fff;
+  background: var(--color-bg-card);
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: #5a5c73;
   cursor: pointer;
 }
@@ -304,7 +304,7 @@ async function onRestart (svc) {
 }
 
 .mp-service-popover .mp-service-unavailable {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: #b08a3e;
 }
 </style>

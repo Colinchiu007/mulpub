@@ -130,8 +130,8 @@ export default {
 .card-title { font-size: 1.05rem; margin: 0 0 6px 0; }
 .card-desc { font-size: 0.82rem; color: var(--text-muted); line-height: 1.4; margin: 0 0 12px 0; }
 .card-footer { display: flex; justify-content: space-between; align-items: center; }
-.version { font-size: 0.75rem; color: var(--text-light); }
-.availability-badge { font-size: 11px; padding: 1px 8px; border-radius: 10px; font-weight: 600; }
+.version { font-size: var(--font-size-xs); color: var(--text-light); }
+.availability-badge { font-size: var(--font-size-xs); padding: 1px 8px; border-radius: 10px; font-weight: 600; }
 .availability-badge.ready { background: var(--pipe-screen-recording-bg); color: var(--pipe-screen-recording-text); }
 .availability-badge.dev { background: var(--pipe-animation-bg); color: var(--pipe-animation-text); }
 .pipeline-card.is-unavailable { opacity: 0.72; }

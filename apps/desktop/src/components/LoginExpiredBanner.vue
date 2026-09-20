@@ -43,30 +43,30 @@ const { t } = useI18n()
   gap: 10px;
 }
 .banner-icon {
-  font-size: 20px;
+  font-size: var(--font-size-lg);
 }
 .banner-text {
   flex: 1;
   min-width: 0;
 }
 .banner-title {
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   color: #c45656;
 }
 .banner-desc {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   color: #e67474;
 }
 .banner-hint {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: #999;
 }
 .banner-btn {
   padding: 4px 12px;
   border: none;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-weight: 500;
   cursor: pointer;
   background: #f56c6c;
@@ -84,7 +84,7 @@ const { t } = useI18n()
   background: none;
   border: none;
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   color: var(--muted);
   padding: 2px 4px;
 }

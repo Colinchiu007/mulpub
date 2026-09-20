@@ -90,7 +90,7 @@ function handleDelete() {
 .project-card-thumb {
   width: 100%;
   height: 140px;
-  background: var(--bg-muted, #f5f7fa);
+  background: var(--bg-muted, var(--color-bg-inset));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -109,7 +109,7 @@ function handleDelete() {
   padding: 12px 14px;
 }
 .project-card-name {
-  font-size: 15px;
+  font-size: var(--font-size-base);
   font-weight: 600;
   margin-bottom: 8px;
   white-space: nowrap;
@@ -123,7 +123,7 @@ function handleDelete() {
   margin-bottom: 8px;
 }
 .status-badge {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   padding: 2px 8px;
   border-radius: 10px;
   font-weight: 500;
@@ -135,16 +135,16 @@ function handleDelete() {
 .badge-failed { background: var(--ep-danger-light); color: var(--ep-danger); }
 .badge-cancelled { background: var(--ep-info-light); color: var(--ep-info); }
 .pipeline-tag {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted, #909399);
-  background: var(--bg-muted, #f5f7fa);
+  background: var(--bg-muted, var(--color-bg-inset));
   padding: 2px 6px;
   border-radius: 4px;
 }
 .project-card-footer {
   display: flex;
   justify-content: space-between;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted, #909399);
 }
 .delete-btn {
@@ -157,7 +157,7 @@ function handleDelete() {
   background: rgba(255,255,255,0.8);
   border-radius: 50%;
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted, #909399);
   display: flex;
   align-items: center;

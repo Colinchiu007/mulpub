@@ -149,7 +149,7 @@
 }
 
 .badge {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   padding: 2px 8px;
   border-radius: 4px;
   font-weight: 600;
@@ -168,14 +168,14 @@
 .stability-dot.experimental { background: var(--stability-experimental); }
 
 .card-title {
-  font-size: 16px;
+  font-size: var(--font-size-base);
   font-weight: 600;
   margin: 0 0 4px;
   color: var(--text);
 }
 
 .card-desc {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
   margin: 0 0 12px;
   line-height: 1.4;
@@ -185,7 +185,7 @@
 .card-meta {
   display: flex;
   gap: 12px;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--text-light);
   flex-wrap: wrap;
 }
@@ -206,7 +206,7 @@
 
 /* 错误状态 */
 .error-state { text-align: center; padding: 40px 20px; color: var(--text-muted); }
-.error-icon { font-size: 32px; margin-bottom: 12px; }
+.error-icon { font-size: var(--font-size-xxl); margin-bottom: 12px; }
 .retry-btn {
   margin-top: 12px;
   padding: 8px 16px;
@@ -215,7 +215,7 @@
   background: transparent;
   color: var(--primary);
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--font-size-sm);
 }
 .retry-btn:hover { background: var(--primary); color: #fff; }
 

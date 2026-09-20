@@ -126,9 +126,9 @@ onMounted(loadData)
 
 <style scoped>
 .empty-state { text-align: center; padding: 60px 0; color: var(--el-text-color-secondary); }
-.empty-hint { font-size: 13px; margin-top: 8px; }
+.empty-hint { font-size: var(--font-size-sm); margin-top: 8px; }
 .dimension-block { margin-bottom: 28px; }
-.dim-title { margin: 0 0 10px; font-size: 15px; }
+.dim-title { margin: 0 0 10px; font-size: var(--font-size-base); }
 .low-sample { color: var(--el-color-warning); }
-.sample-warn { font-size: 12px; color: var(--el-color-warning); margin-left: 4px; }
+.sample-warn { font-size: var(--font-size-xs); color: var(--el-color-warning); margin-left: 4px; }
 </style>

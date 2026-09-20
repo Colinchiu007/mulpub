@@ -340,7 +340,7 @@ function isIconUrl (value) {
   gap: 6px;
   overflow: hidden;
   color: var(--text-muted, #707080);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -354,7 +354,7 @@ function isIconUrl (value) {
   border-radius: 6px;
   background: #f1f0ff;
   color: var(--primary, #5048e5);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-weight: 700;
 }
 .platform-icon-img {
@@ -410,7 +410,7 @@ function isIconUrl (value) {
   border: 2px solid #fff;
   border-radius: 4px;
   padding: 2px 7px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   line-height: 16px;
 }
 
@@ -436,7 +436,7 @@ function isIconUrl (value) {
   padding: 4px 6px;
   background: transparent;
   color: var(--text-primary, #25252b);
-  font-size: 15px;
+  font-size: var(--font-size-base);
   font-weight: 600;
   outline: none;
   text-align: center;
@@ -454,7 +454,7 @@ function isIconUrl (value) {
 .account-name-button:hover { background: #f7f7f9; }
 .account-name-button:hover svg { opacity: 1; }
 .account-name-input:hover { background: #f7f7f9; }
-.account-name-input:focus { border-color: var(--primary, #5048e5); background: #fff; }
+.account-name-input:focus { border-color: var(--primary, #5048e5); background: var(--color-bg-card); }
 
 .account-details {
   min-height: 22px;
@@ -465,13 +465,13 @@ function isIconUrl (value) {
   gap: 6px;
   margin-top: 4px;
   color: var(--text-muted, #85858f);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 
 .account-followers {
   margin-top: 2px;
   color: var(--text-muted, #85858f);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 
 .account-assignees {
@@ -489,7 +489,7 @@ function isIconUrl (value) {
   align-items: center;
   gap: 8px;
   color: var(--text-muted, #85858f);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 
 .account-assignees > div > span {
@@ -506,7 +506,7 @@ function isIconUrl (value) {
 .account-assignees strong {
   overflow: hidden;
   color: #686a73;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -539,7 +539,7 @@ function isIconUrl (value) {
   padding: 5px 6px;
   background: transparent;
   color: #555761;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   cursor: pointer;
 }
 

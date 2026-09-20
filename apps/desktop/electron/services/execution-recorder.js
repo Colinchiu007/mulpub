@@ -155,7 +155,7 @@ class ExecutionRecorder {
    * @param {object} data - 事件载荷
    */
   recordEvent(projectId, type, stageName, data) {
-    const session = this._sessions.get(projectId);
+    let session = this._sessions.get(projectId);
     if (!session) {
       log.warn('ExecutionRecorder', 'No recording session for project ' + projectId);
       return;
@@ -168,6 +168,7 @@ class ExecutionRecorder {
         this.startRecording(projectId);
         const newSession = this._sessions.get(projectId);
         if (!newSession) return;
+        session = newSession; // 重启后指向新会话，后续写入使用新流
       }
     } catch (e) {
       log.error('ExecutionRecorder', 'Failed to check replay dir: ' + e.message);
