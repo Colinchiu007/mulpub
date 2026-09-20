@@ -28,44 +28,46 @@ defineProps({
 </script>
 
 <style scoped>
+/* 色值取自 styles/tokens.css；主色前景用自适应 var(--color-primary-dark-tint, var(--color-primary))，
+   遮罩/淡底用 color-mix over bg-canvas/bg-card，随主题自动适配，消除深色模式全屏近白残留。 */
 /* 全屏半透明遮罩 + 居中动效卡片（非弹窗）。z-index 1001：高于应用内模态（UpgradeModal 等 z-1000） */
 .htcl-overlay {
   position: fixed; inset: 0; z-index: 1001;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(255, 255, 255, 0.72);
+  background: color-mix(in srgb, var(--color-bg-canvas) 72%, transparent);
   backdrop-filter: blur(2px);
 }
 .htcl-card {
   display: flex; flex-direction: column; align-items: center; gap: 14px;
   padding: 36px 48px; background: var(--color-bg-card);
-  border: 1px solid #e9e8f6; border-radius: 16px;
+  border: 1px solid var(--color-border); border-radius: 16px;
   box-shadow: 0 12px 40px rgba(81, 73, 232, 0.14);
   max-width: 460px; text-align: center;
 }
 .htcl-spinner {
   width: 42px; height: 42px; border-radius: 50%;
-  border: 4px solid #eceafb; border-top-color: #5149e8;
+  border: 4px solid color-mix(in srgb, var(--color-primary) 12%, var(--color-bg-card)); border-top-color: var(--color-primary-dark-tint, var(--color-primary));
   animation: htcl-spin 0.9s linear infinite;
 }
 .htcl-title {
-  font-size: var(--font-size-md); font-weight: 700; color: #333;
+  font-size: var(--font-size-md); font-weight: 700; color: var(--color-text-primary);
   display: flex; align-items: baseline; gap: 2px;
 }
-.htcl-desc { font-size: var(--font-size-sm); color: #777; line-height: 1.6; }
+.htcl-desc { font-size: var(--font-size-sm); color: var(--color-text-secondary); line-height: 1.6; }
 /* 流光进度条（渐变光带循环扫过） */
 .htcl-bar {
   width: 240px; height: 6px; border-radius: 3px;
-  background: #f0efff; overflow: hidden; position: relative;
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-bg-card)); overflow: hidden; position: relative;
 }
 .htcl-bar span {
   position: absolute; top: 0; left: 0; height: 100%; width: 40%;
-  border-radius: 3px; background: linear-gradient(90deg, #5149e8, #8b83ff);
+  border-radius: 3px; background: linear-gradient(90deg, var(--color-primary), var(--color-primary-dark-tint, #8b83ff));
   animation: htcl-bar-sweep 1.4s ease-in-out infinite;
 }
 /* 跳动省略号 */
 .htcl-dots { display: inline-flex; gap: 4px; margin-left: 4px; }
 .htcl-dots span {
-  width: 5px; height: 5px; border-radius: 50%; background: #5149e8;
+  width: 5px; height: 5px; border-radius: 50%; background: var(--color-primary-dark-tint, var(--color-primary));
   display: inline-block; animation: htcl-dot-bounce 1.2s ease-in-out infinite;
 }
 .htcl-dots span:nth-child(2) { animation-delay: 0.15s; }
