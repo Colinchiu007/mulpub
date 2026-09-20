@@ -22,10 +22,10 @@
         <div class="stat-card large">
           <div class="stat-icon">📤</div>
           <div class="stat-value">{{ totalArticles }}</div>
-          <div class="stat-label">已发布内容</div>
+          <div class="stat-label">{{ t('dashboard.publishedContent') }}</div>
           <div class="stat-change positive">
             <span>↑</span>
-            较上周 +12%
+            {{ t('dashboard.weekChange') }}
           </div>
         </div>
 
@@ -44,7 +44,7 @@
         <div class="stat-card">
           <div class="stat-icon"><el-icon><ChatDotRound /></el-icon></div>
           <div class="stat-value">{{ totalComments }}</div>
-          <div class="stat-label">总评论</div>
+          <div class="stat-label">{{ t('dashboard.totalComments') }}</div>
           <div class="stat-change positive">
             <span>↑</span>
             +23%
@@ -55,7 +55,7 @@
         <div class="stat-card">
           <div class="stat-icon">👥</div>
           <div class="stat-value">{{ totalFollowers > 10000 ? (totalFollowers / 10000).toFixed(1) + '万' : totalFollowers }}</div>
-          <div class="stat-label">总粉丝</div>
+          <div class="stat-label">{{ t('dashboard.totalFollowers') }}</div>
           <div class="stat-change negative">
             <span>↓</span>
             -2.1%
@@ -72,7 +72,7 @@
       <!-- 发布统计 -->
       <div v-if="statsData" class="cohere-card dash-mb-md stats-login-panel">
         <div class="panel-header">
-          <div class="panel-title"><el-icon><TrendCharts /></el-icon> 发布统计</div>
+          <div class="panel-title"><el-icon><TrendCharts /></el-icon> {{ t('dashboard.publishStatsTitle') }}</div>
         </div>
         <div class="stats-grid-small">
           <div class="stat-card-mini success">
@@ -99,7 +99,7 @@
         <div class="dash-panel-title">
           <el-icon><TrendCharts /></el-icon> 
           {{ $t('dashboard.trendTitle') }}
-          <span class="panel-subtitle">最近 14 天</span>
+          <span class="panel-subtitle">{{ t('dashboard.last14DaysHint') }}</span>
         </div>
         <div class="dash-trend-track" ref="trendChart">
           <div v-for="(d, index) in last14Days" :key="d.date" 
@@ -112,7 +112,7 @@
                    opacity: d.total > 0 ? 0.7 + (d.total / dailyMax) * 0.3 : 0.3
                  }"
                  :data-value="d.total">
-              <span class="bar-tooltip">{{ d.total }} 篇</span>
+              <span class="bar-tooltip">{{ t('dashboard.countUnit', { count: d.total }) }}</span>
             </div>
             <span class="dash-trend-date">{{ d.date.slice(5) }}</span>
           </div>
