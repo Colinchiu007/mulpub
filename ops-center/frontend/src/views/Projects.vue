@@ -1,7 +1,7 @@
 <template>
   <div>
     <h1 style="margin-bottom:16px">项目配置</h1>
-    <p style="color:#888;margin-bottom:16px;font-size:13px">
+    <p style="color:var(--color-text-placeholder);margin-bottom:16px;font-size: var(--font-size-sm)">
       查看各项目已登记的配置项（只读）。配置编辑需管理员权限。
     </p>
 

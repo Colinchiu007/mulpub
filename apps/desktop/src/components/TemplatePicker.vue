@@ -1,8 +1,8 @@
 <template>
   <div class="cohere-card" style="cursor:default;padding:16px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-md);padding-bottom:var(--space-sm);border-bottom:1px solid var(--border)">
-      <span style="font-weight:600;font-size:14px">📝 内容模板</span>
-      <button class="cohere-btn-ghost" @click="$emit('close')" style="font-size:12px;padding:2px 6px">✕</button>
+      <span style="font-weight:600;font-size: var(--font-size-sm)">📝 内容模板</span>
+      <button class="cohere-btn-ghost" @click="$emit('close')" style="font-size: var(--font-size-xs);padding:2px 6px">✕</button>
     </div>
 
     <!-- Loading -->
@@ -11,14 +11,14 @@
     </div>
 
     <!-- Error -->
-    <div v-else-if="error" style="padding:12px 0;font-size:13px;color:var(--coral)">
+    <div v-else-if="error" style="padding:12px 0;font-size: var(--font-size-sm);color:var(--coral)">
       {{ error }}
     </div>
 
     <!-- Templates by category -->
     <div v-else-if="Object.keys(grouped).length > 0">
       <div v-for="(list, cat) in grouped" :key="cat" style="margin-bottom:var(--space-md)">
-        <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;margin-bottom:6px">
+        <div style="font-size: var(--font-size-xs);font-weight:600;color:var(--muted);text-transform:uppercase;margin-bottom:6px">
           {{ categoryLabel(cat) }}
         </div>
         <div style="display:flex;flex-direction:column;gap:6px">
@@ -32,14 +32,14 @@
             @mouseleave="$event.currentTarget.style.borderColor='var(--border)'"
           >
             <div style="display:flex;justify-content:space-between;align-items:center">
-              <span style="font-weight:500;font-size:13px">{{ tpl.name }}</span>
-              <span v-if="tpl.builtin" class="cohere-tag cohere-tag-info" style="font-size:10px;padding:1px 6px">内置</span>
+              <span style="font-weight:500;font-size: var(--font-size-sm)">{{ tpl.name }}</span>
+              <span v-if="tpl.builtin" class="cohere-tag cohere-tag-info" style="font-size: var(--font-size-xs);padding:1px 6px">内置</span>
             </div>
-            <div style="font-size:11px;color:var(--muted);margin-top:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">
+            <div style="font-size: var(--font-size-xs);color:var(--muted);margin-top:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">
               {{ tpl.title || '(无标题)' }}
             </div>
             <div v-if="tpl.platforms && tpl.platforms.length > 0" style="display:flex;flex-wrap:wrap;gap:3px;margin-top:4px">
-              <span v-for="p in tpl.platforms" :key="p" class="cohere-tag cohere-tag-secondary" style="font-size:9px;padding:1px 5px">{{ p }}</span>
+              <span v-for="p in tpl.platforms" :key="p" class="cohere-tag cohere-tag-secondary" style="font-size: var(--font-size-xs);padding:1px 5px">{{ p }}</span>
             </div>
           </div>
         </div>
@@ -47,9 +47,9 @@
     </div>
 
     <!-- Empty -->
-    <div v-else style="padding:20px 0;text-align:center;font-size:13px;color:var(--muted)">
+    <div v-else style="padding:20px 0;text-align:center;font-size: var(--font-size-sm);color:var(--muted)">
       暂无模板。<br/>
-      <button class="cohere-btn-ghost" @click="resetDefaults" style="font-size:12px;margin-top:8px">恢复默认模板</button>
+      <button class="cohere-btn-ghost" @click="resetDefaults" style="font-size: var(--font-size-xs);margin-top:8px">恢复默认模板</button>
     </div>
   </div>
 </template>

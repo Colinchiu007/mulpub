@@ -1,7 +1,7 @@
 <template>
   <div>
     <h1 style="margin-bottom:16px">选项控制</h1>
-    <p style="color:#888;margin-bottom:16px;font-size:13px">
+    <p style="color:var(--color-text-placeholder);margin-bottom:16px;font-size: var(--font-size-sm)">
       控制桌面端「视频创作-故事讲述」流水线中各选项组的显示/隐藏与初始默认值。
       选项随运行时 bootstrap 在桌面端同步时生效；未配置的选项使用桌面端本地默认值。
       「发布」组只支持整组显示/隐藏控制（不细到具体选项）。
@@ -23,14 +23,14 @@
       <!-- 分组卡片：按 基础/画面/视频增强/声音/高级/发布 展示 -->
       <div v-for="group in GROUP_META" :key="group.name" style="margin-bottom:20px">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
-          <h3 style="margin:0;font-size:15px">{{ group.label }}</h3>
+          <h3 style="margin:0;font-size: var(--font-size-base)">{{ group.label }}</h3>
           <el-switch
             :model-value="groupVisible(group.name)"
             @change="(v) => toggleGroup(group.name, v)"
             active-text="显示"
             inactive-text="隐藏"
           />
-          <span v-if="group.name === 'publish'" style="color:#e6a23c;font-size:12px">「发布」组仅整组控制</span>
+          <span v-if="group.name === 'publish'" style="color:var(--color-warning);font-size: var(--font-size-xs)">「发布」组仅整组控制</span>
         </div>
         <el-table
           v-loading="loading"
@@ -46,8 +46,8 @@
           </el-table-column>
           <el-table-column prop="label" label="选项" min-width="160">
             <template #default="{ row }">
-              <span :style="!row.visible ? 'color:#999;text-decoration:line-through' : ''">{{ row.label || row.field }}</span>
-              <span v-if="row.field === '_group'" style="color:#e6a23c;font-size:12px;margin-left:6px">（整组）</span>
+              <span :style="!row.visible ? 'color:var(--color-text-secondary);text-decoration:line-through' : ''">{{ row.label || row.field }}</span>
+              <span v-if="row.field === '_group'" style="color:var(--color-warning);font-size: var(--font-size-xs);margin-left:6px">（整组）</span>
             </template>
           </el-table-column>
           <el-table-column label="初始默认值" min-width="220">
@@ -223,6 +223,6 @@ async function saveAll() {
 
 <style scoped>
 :deep(.option-row-hidden) {
-  background: #fafafa;
+  background: var(--color-bg-inset);
 }
 </style>

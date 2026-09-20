@@ -1,13 +1,13 @@
 <template>
   <div id="ai-writer-panel" class="ai-writer-panel cohere-card" style="cursor:default;padding:16px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-md);padding-bottom:var(--space-sm);border-bottom:1px solid var(--border)">
-      <span style="font-weight:600;font-size:14px">🤖 AI 辅助写作</span>
+      <span style="font-weight:600;font-size: var(--font-size-sm)">🤖 AI 辅助写作</span>
       <button
         type="button"
         class="cohere-btn-ghost"
         aria-label="关闭 AI 写作"
         title="关闭"
-        style="font-size:12px;padding:2px 6px"
+        style="font-size: var(--font-size-xs);padding:2px 6px"
         @click="emit('close')"
       >✕</button>
     </div>
@@ -154,8 +154,8 @@
         <div class="cohere-form-item">
           <label class="cohere-form-label">{{ t('rewritePage.strategyLabel') }}</label>
           <div style="display:flex;gap:10px;align-items:center;margin-bottom:4px">
-            <label style="font-size:12px;cursor:pointer"><input type="radio" v-model="strategyMode" value="auto" /> {{ t('rewritePage.strategyAuto') }}</label>
-            <label style="font-size:12px;cursor:pointer"><input type="radio" v-model="strategyMode" value="manual" /> {{ t('rewritePage.strategyManual') }}</label>
+            <label style="font-size: var(--font-size-xs);cursor:pointer"><input type="radio" v-model="strategyMode" value="auto" /> {{ t('rewritePage.strategyAuto') }}</label>
+            <label style="font-size: var(--font-size-xs);cursor:pointer"><input type="radio" v-model="strategyMode" value="manual" /> {{ t('rewritePage.strategyManual') }}</label>
           </div>
           <select v-if="strategyMode === 'manual'" v-model="rewriteStrategyId" class="cohere-input" style="margin-top:4px">
             <option value="">-- 选择策略 --</option>
@@ -176,7 +176,7 @@
             <span class="result-text">{{ rewriteResult.slice(0, 100) }}{{ rewriteResult.length > 100 ? '...' : '' }}</span>
             <span class="result-action">应用</span>
           </button>
-          <div v-if="rewriteResultMeta" style="font-size:11px;color:var(--muted);margin-top:4px;padding:0 4px">
+          <div v-if="rewriteResultMeta" style="font-size: var(--font-size-xs);color:var(--muted);margin-top:4px;padding:0 4px">
             策略：{{ rewriteResultMeta.strategyName }} · AI味等级：{{ rewriteResultMeta.aiTasteLevel != null ? (rewriteResultMeta.aiTasteLevel * 100).toFixed(0) + '%' : 'N/A' }} · 原文 {{ rewriteResultMeta.originalLength }} 字 → 结果 {{ rewriteResultMeta.resultLength }} 字
           </div>
         </div>
@@ -509,13 +509,13 @@ onMounted(() => {
 .no-config {
   text-align: center;
   padding: 20px;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   color: var(--muted);
 }
 .panel-error {
   margin: 0 0 var(--space-sm);
   color: var(--danger, #c53b3b);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
 }
 .cohere-btn-primary {
   padding: 8px 16px;
@@ -524,7 +524,7 @@ onMounted(() => {
   border: none;
   border-radius: 8px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
 }
 .cohere-btn-primary:disabled { opacity: 0.5; cursor: default; }
@@ -543,7 +543,7 @@ onMounted(() => {
   background: none;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--muted);
   transition: all 0.15s;
 }
@@ -561,7 +561,7 @@ onMounted(() => {
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   outline: none;
   box-sizing: border-box;
 }
@@ -569,7 +569,7 @@ onMounted(() => {
 .cohere-form-item { margin-bottom: var(--space-sm); }
 .cohere-form-label {
   display: block;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-weight: 500;
   color: var(--muted);
   margin-bottom: 4px;
@@ -580,7 +580,7 @@ onMounted(() => {
   border-radius: 6px;
   background: var(--surface, #fff);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--text-primary);
 }
 .style-chip.active {
@@ -624,17 +624,17 @@ onMounted(() => {
   border-radius: 50%;
   background: var(--coral-bg, #fef2f2);
   color: var(--coral);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   flex-shrink: 0;
 }
 .result-text {
   flex: 1;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   line-height: 1.4;
 }
 .result-action {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--coral);
   flex-shrink: 0;
 }

@@ -1,287 +1,39 @@
-/* 热门选题 / 收藏选题 共用列表样式 - Lavender Design System 精致化 */
-
-/* 列表容器 */
-.topics-list { 
-  display: flex; 
-  flex-direction: column; 
-  gap: 10px;
-}
-
-/* 选题卡片 - 精致化 */
-.topic-item { 
-  display: flex; 
-  align-items: center; 
-  gap: 12px; 
-  padding: 14px 16px; 
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 255, 255, 0.95) 100%);
-  border: 1px solid #e5e7eb;
-  border-radius: 14px;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-  overflow: hidden;
-}
-
-/* Hover 效果 - 渐变前景层 */
-.topic-item::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(135deg, rgba(81, 73, 232, 0.02) 0%, transparent 100%);
-  opacity: 0;
-  transition: opacity 0.25s;
-  pointer-events: none;
-}
-
-.topic-item:hover::before {
-  opacity: 1;
-}
-
-.topic-item:hover {
-  border-color: #5149e8;
-  box-shadow: 0 6px 16px rgba(81, 73, 232, 0.12);
-  transform: translateY(-2px);
-}
-
-/* 选中状态 */
-.topic-item.selected { 
-  border-color: #5149e8; 
-  background: linear-gradient(135deg, rgba(81, 73, 232, 0.08) 0%, rgba(120, 110, 255, 0.08) 100%);
-  box-shadow: 0 4px 12px rgba(81, 73, 232, 0.15);
-}
-
-/* 排名徽章 */
-.rank-badge { 
-  min-width: 28px; 
-  height: 28px; 
-  display: grid; 
-  place-items: center; 
-  border-radius: 8px; 
-  background: linear-gradient(135deg, rgba(81, 73, 232, 0.1) 0%, rgba(120, 110, 255, 0.1) 100%);
-  color: #5149e8; 
-  font-size: 13px; 
-  font-weight: 700;
-  box-shadow: 0 2px 6px rgba(81, 73, 232, 0.15);
-}
-
-/* 文本内容 */
-.topic-text { 
-  flex: 1; 
-  font-size: 14px; 
-  color: var(--color-text-primary);
-  overflow: hidden; 
-  text-overflow: ellipsis; 
-  white-space: nowrap;
-  font-weight: 500;
-}
-
-/* 标签通用样式 */
-.tag { 
-  padding: 4px 10px; 
-  border-radius: 6px; 
-  font-size: 11px; 
-  flex-shrink: 0;
-  font-weight: 600;
-  backdrop-filter: blur(10px);
-}
-
-/* 分类标签 - 彩色胶囊 */
-.category-tag { 
-  background: rgba(245, 245, 245, 0.8);
-  color: var(--color-text-secondary);
-}
-
-.cat-general { 
-  background: rgba(245, 245, 245, 0.3);
-  color: #666;
-}
-
-.cat-society { 
-  background: rgba(25, 118, 210, 0.12);
-  color: #1976d2;
-  border: 1px solid rgba(25, 118, 210, 0.15);
-}
-
-.cat-finance { 
-  background: rgba(245, 124, 0, 0.12);
-  color: #f57c00;
-  border: 1px solid rgba(245, 124, 0, 0.15);
-}
-
-.cat-tech { 
-  background: rgba(123, 31, 162, 0.12);
-  color: #7b1fa2;
-  border: 1px solid rgba(123, 31, 162, 0.15);
-}
-
-.cat-entertainment { 
-  background: rgba(194, 24, 91, 0.12);
-  color: #c2185b;
-  border: 1px solid rgba(194, 24, 91, 0.15);
-}
-
-.cat-sports { 
-  background: rgba(56, 142, 60, 0.12);
-  color: #388e3c;
-  border: 1px solid rgba(56, 142, 60, 0.15);
-}
-
-.cat-emotion { 
-  background: rgba(211, 47, 47, 0.12);
-  color: #d32f2f;
-  border: 1px solid rgba(211, 47, 47, 0.15);
-}
-
-.cat-education { 
-  background: rgba(0, 151, 167, 0.12);
-  color: #0097a7;
-  border: 1px solid rgba(0, 151, 167, 0.15);
-}
-
-.cat-health { 
-  background: rgba(0, 121, 107, 0.12);
-  color: #00796b;
-  border: 1px solid rgba(0, 121, 107, 0.15);
-}
-
-.cat-international { 
-  background: rgba(21, 101, 192, 0.12);
-  color: #1565c0;
-  border: 1px solid rgba(21, 101, 192, 0.15);
-}
-
-/* 频道标签 */
-.channel-tag { 
-  background: rgba(240, 242, 245, 0.6);
-  color: #888;
-}
-
-/* 热度值 */
-.hot-value { 
-  font-size: 12px; 
-  color: #ff5722; 
-  flex-shrink: 0;
-  font-weight: 600;
-  background: rgba(255, 87, 34, 0.08);
-  padding: 2px 8px;
-  border-radius: 6px;
-}
-
-/* 更新时间 */
-.update-time { 
-  font-size: 11px; 
-  color: var(--color-text-muted);
-  flex-shrink: 0; 
-  white-space: nowrap; 
-  width: 42px; 
-  text-align: right;
-}
-
-/* 收藏时间 */
-.fav-date { 
-  font-size: 11px; 
-  color: var(--color-text-muted);
-  flex-shrink: 0; 
-  white-space: nowrap; 
-  min-width: 64px; 
-  text-align: right;
-}
-
-/* 收藏按钮 */
-.item-fav-btn { 
-  font-size: 14px; 
-  padding: 6px 8px; 
-  flex-shrink: 0; 
-  border: none; 
-  background: transparent; 
-  cursor: pointer; 
-  color: var(--color-text-muted);
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  border-radius: 6px;
-}
-
-.item-fav-btn:hover { 
-  color: #e91e63;
-  background: rgba(233, 30, 99, 0.08);
-  transform: scale(1.1);
-}
-
-/* 创作按钮 */
-.item-create-btn { 
-  font-size: 12px; 
-  padding: 6px 12px; 
-  flex-shrink: 0;
-  border: 1px solid #e5e7eb;
-  background: rgba(255, 255, 255, 0.8);
-  color: var(--color-text-secondary);
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s;
-  font-weight: 600;
-}
-
-.item-create-btn:hover {
-  border-color: #5149e8;
-  color: #5149e8;
-  background: rgba(81, 73, 232, 0.05);
-  transform: translateY(-1px);
-}
-
-/* 生成视频按钮 - 主按钮风格 */
-.item-gen-video-btn { 
-  font-size: 12px; 
-  padding: 6px 12px; 
-  flex-shrink: 0;
-  border: none;
-  background: linear-gradient(135deg, #5149e8 0%, #3a32d1 100%);
-  color: white;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  font-weight: 600;
-  box-shadow: 0 2px 6px rgba(81, 73, 232, 0.25);
-}
-
-.item-gen-video-btn:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 10px rgba(81, 73, 232, 0.35);
-}
-
-.item-gen-video-btn:active:not(:disabled) {
-  transform: translateY(0);
-  box-shadow: 0 1px 4px rgba(81, 73, 232, 0.2);
-}
-
-/* 收藏列表特定样式 */
-.favorites-section { 
-  margin-top: 0;
-}
-
-.favorite-item .fav-star { 
-  background: linear-gradient(135deg, rgba(233, 30, 99, 0.12) 0%, rgba(233, 30, 99, 0.08) 100%);
-  color: #e91e63;
-  border: 1px solid rgba(233, 30, 99, 0.15);
-  box-shadow: 0 2px 6px rgba(233, 30, 99, 0.15);
-}
-
-.item-unfav-btn { 
-  font-size: 12px; 
-  padding: 6px 12px; 
-  flex-shrink: 0;
-  border: 1px solid #e91e63;
-  background: transparent;
-  color: #e91e63;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s;
-  font-weight: 600;
-}
-
-.item-unfav-btn:hover {
-  background: #e91e63;
-  color: white;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(233, 30, 99, 0.25);
-}
+/* 热门选题 / 收藏选题 共用列表样式
+ *
+ * 为什么单独成文件：Vue scoped 样式不会穿透到子组件内部。收藏选题列表由子组件
+ * HotTopicsFavorites.vue 渲染，行样式若只写在 views/HotTopics.css（scoped 到
+ * HotTopics.vue）里，子组件一条也拿不到——列表行会退化成无 flex/无间距的行内流，
+ * 正文、标签、时间、按钮全部挤在一起。
+ * 本文件由 HotTopics.vue 与 HotTopicsFavorites.vue 各自以 <style scoped src> 引入，
+ * 单一来源、零全局泄漏（scoped 编译期为各自组件生成独立作用域）。
+ */
+.topics-list { display: flex; flex-direction: column; gap: 6px; }
+.topic-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: #fff; border: 1px solid #eee; border-radius: 8px; }
+.topic-item.selected { border-color: #5149e8; background: #f7f6ff; }
+.rank-badge { min-width: 26px; height: 26px; display: grid; place-items: center; border-radius: 6px; background: #f0efff; color: #5149e8; font-size: var(--font-size-xs); font-weight: 700; }
+.topic-text { flex: 1; font-size: var(--font-size-sm); color: #333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tag { padding: 2px 8px; border-radius: 4px; font-size: var(--font-size-xs); flex-shrink: 0; }
+.category-tag { background: #f5f5f5; color: #666; }
+.cat-general { background: #f5f5f5; color: #666; }
+.cat-society { background: #e8f4ff; color: #1976d2; }
+.cat-finance { background: #fff4e5; color: #f57c00; }
+.cat-tech { background: #f3e8ff; color: #7b1fa2; }
+.cat-entertainment { background: #ffe4f1; color: #c2185b; }
+.cat-sports { background: #e8f7e8; color: #388e3c; }
+.cat-emotion { background: #ffe8e8; color: #d32f2f; }
+.cat-education { background: #e0f7fa; color: #0097a7; }
+.cat-health { background: #e0f2f1; color: #00796b; }
+.cat-international { background: #e3f2fd; color: #1565c0; }
+.channel-tag { background: #f0f2f5; color: #888; }
+.hot-value { font-size: var(--font-size-xs); color: #ff5722; flex-shrink: 0; }
+.update-time { font-size: var(--font-size-xs); color: #aaa; flex-shrink: 0; white-space: nowrap; width: 42px; text-align: right; }
+/* 收藏时间（月/日 时:分）比更新时间长，右对齐宽度独立，保持与列表同一视觉节奏 */
+.fav-date { font-size: var(--font-size-xs); color: #999; flex-shrink: 0; white-space: nowrap; min-width: 64px; text-align: right; }
+.item-fav-btn { font-size: var(--font-size-sm); padding: 4px 8px; flex-shrink: 0; border: none; background: transparent; cursor: pointer; color: #ccc; transition: color 0.15s; }
+.item-fav-btn:hover { color: #e91e63; }
+.item-create-btn { font-size: var(--font-size-xs); padding: 4px 10px; flex-shrink: 0; }
+.item-gen-video-btn { font-size: var(--font-size-xs); padding: 4px 10px; flex-shrink: 0; }
+/* 收藏列表 */
+.favorites-section { margin-top: 0; }
+.favorite-item .fav-star { background: #fff0f5; color: #e91e63; }
+.item-unfav-btn { font-size: var(--font-size-xs); padding: 4px 10px; flex-shrink: 0; }

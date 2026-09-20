@@ -34,56 +34,41 @@
       data-testid="profile-menu-panel"
       @keydown="handleMenuKeydown"
     >
-      <!-- 状态徽章区域 -->
-      <div class="status-header">
-        <div class="status-badge" :class="statusConfig.class">
-          <span class="status-icon" aria-hidden="true">{{ statusConfig.icon }}</span>
-          <span class="status-text">{{ statusConfig.text }}</span>
-        </div>
-      </div>
-
-      <!-- 用户信息区 -->
-      <div class="user-info-section">
-        <div class="user-details">
-          <strong class="user-name">{{ hasSessionIdentity ? displayName : 'Multi-Publish' }}</strong>
-          <span class="user-status">{{ statusLabel }}</span>
-          <span v-if="statusNote" class="user-hint">{{ statusNote }}</span>
-        </div>
+      <div class="profile-menu-heading">
+        <strong>{{ hasSessionIdentity ? displayName : 'Multi-Publish' }}</strong>
+        <span>{{ statusLabel }}</span>
       </div>
 
       <template v-if="hasSessionIdentity">
-        <!-- 主要操作组 -->
-        <div class="action-group-primary">
-          <button
-            class="profile-menu-action profile-menu-action-primary"
-            type="button"
-            role="menuitem"
-            data-testid="profile-menu-member"
-            @click="goMemberCenter"
-          >
-            <span class="profile-menu-action-icon" aria-hidden="true">👤</span>{{ t('memberCenter.menuEntry') }}
-          </button>
-          <button
-            class="profile-menu-action"
-            type="button"
-            role="menuitem"
-            data-testid="profile-menu-switch"
-            :disabled="loading"
-            @click="handleSwitchAccount"
-          >
-            <span class="profile-menu-action-icon" aria-hidden="true">🔄</span>{{ pendingAction === 'switch' ? t('memberCenter.switchingAccount') : t('memberCenter.switchAccount') }}
-          </button>
-          <button
-            class="profile-menu-action"
-            type="button"
-            role="menuitem"
-            data-testid="profile-menu-signout"
-            :disabled="loading"
-            @click="handleSignOut"
-          >
-            <span class="profile-menu-action-icon" aria-hidden="true">🚪</span>{{ pendingAction === 'sign-out' || isSigningOut ? t('memberCenter.signingOut') : t('memberCenter.signOut') }}
-          </button>
-        </div>
+        <button
+          class="profile-menu-action"
+          type="button"
+          role="menuitem"
+          data-testid="profile-menu-member"
+          @click="goMemberCenter"
+        >
+          {{ t('memberCenter.menuEntry') }}
+        </button>
+        <button
+          class="profile-menu-action"
+          type="button"
+          role="menuitem"
+          data-testid="profile-menu-switch"
+          :disabled="loading"
+          @click="handleSwitchAccount"
+        >
+          {{ pendingAction === 'switch' ? t('memberCenter.switchingAccount') : t('memberCenter.switchAccount') }}
+        </button>
+        <button
+          class="profile-menu-action"
+          type="button"
+          role="menuitem"
+          data-testid="profile-menu-signout"
+          :disabled="loading"
+          @click="handleSignOut"
+        >
+          {{ pendingAction === 'sign-out' || isSigningOut ? t('memberCenter.signingOut') : t('memberCenter.signOut') }}
+        </button>
       </template>
 
       <template v-else>
@@ -97,34 +82,31 @@
           :disabled="loading"
           @click="handleSignInFromMenu"
         >
-          <span class="profile-menu-action-icon" aria-hidden="true">🔐</span>{{ loading ? t('memberCenter.signingIn') : t('memberCenter.loginRetry') }}
+          {{ loading ? t('memberCenter.signingIn') : t('memberCenter.loginRetry') }}
         </button>
       </template>
 
       <div class="profile-menu-sep" role="separator"></div>
 
-      <!-- 次要操作组 -->
-      <div class="action-group-secondary">
-        <button
-          class="profile-menu-action"
-          type="button"
-          role="menuitem"
-          data-testid="profile-menu-settings"
-          @click="handleOpenSettings"
-        >
-          <span class="profile-menu-action-icon" aria-hidden="true">⚙️</span>{{ t('nav.settings') }}
-        </button>
-        <button
-          v-if="!licenseStore.isPro"
-          class="profile-menu-action profile-menu-action-upgrade"
-          type="button"
-          role="menuitem"
-          data-testid="profile-menu-upgrade"
-          @click="handleUpgrade"
-        >
-          <span class="profile-menu-action-icon" aria-hidden="true">⭐</span>{{ t('memberCenter.upgradePro') }}
-        </button>
-      </div>
+      <button
+        class="profile-menu-action"
+        type="button"
+        role="menuitem"
+        data-testid="profile-menu-settings"
+        @click="handleOpenSettings"
+      >
+        {{ t('nav.settings') }}
+      </button>
+      <button
+        v-if="!licenseStore.isPro"
+        class="profile-menu-action profile-menu-action-upgrade"
+        type="button"
+        role="menuitem"
+        data-testid="profile-menu-upgrade"
+        @click="handleUpgrade"
+      >
+        <span class="profile-menu-action-icon" aria-hidden="true">⭐</span>{{ t('memberCenter.upgradePro') }}
+      </button>
 
       <p v-if="errorMessage" class="profile-menu-error" role="alert">{{ errorMessage }}</p>
     </div>
@@ -162,7 +144,7 @@ const licenseLabel = computed(() => {
   if (licenseStore.isTrial) return t('memberCenter.licenseTrial')
   return t('memberCenter.licenseFree')
 })
-const shouldOpenMenuOnClick = computed(() => ['authenticated', 'offline_authenticated', 'refreshing', 'disabled', 'error', 'signing_in', 'signing_out'].includes(status.value))
+const shouldOpenMenuOnClick = computed(() => ['authenticated', 'offline_authenticated', 'refreshing', 'disabled', 'error'].includes(status.value))
 
 // banner 头像右下角的存在状态点（与展开菜单内的状态文案同源，取代旧的侧边栏状态行）
 const identityStatus = computed(() => {
@@ -210,29 +192,6 @@ const errorMessage = computed(() => {
   if (!cleanupCode) return primary
   const secondary = t(resolveIdentityErrorMessageKey(cleanupCode))
   return secondary === primary ? primary : `${primary} ${secondary}`
-})
-
-const statusConfig = computed(() => {
-  const currentStatus = status.value
-  const identityError = error.value?.code
-  
-  if (identityError) {
-    return { icon: '⚠️', text: t('memberCenter.statusError'), class: 'error' }
-  }
-  
-  switch(currentStatus) {
-    case 'expired':
-    case 'signed_out':
-      return { icon: '⚠️', text: t('memberCenter.statusExpired'), class: 'error' }
-    case 'signing_in':
-      return { icon: '⏳', text: t('memberCenter.statusSigningIn'), class: 'warning' }
-    case 'authenticated':
-    case 'offline_authenticated':
-    case 'refreshing':
-      return { icon: '✓', text: t('memberCenter.statusConnected'), class: 'success' }
-    default:
-      return { icon: '🔒', text: t('memberCenter.notLoggedIn'), class: 'neutral' }
-  }
 })
 
 async function handleTriggerClick() {
@@ -341,62 +300,32 @@ function handleUpgrade() {
 }
 
 .mp-avatar {
-  width: 48px;
-  height: 48px;
+  width: 30px;
+  height: 30px;
   display: grid;
   place-items: center;
   border-radius: 50%;
   background: linear-gradient(140deg, #ffcf80, #ef9e68);
   color: #5d3824;
-  font-size: 18px;
+  font-size: var(--font-size-sm);
   font-weight: 700;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  transition: transform 0.3s ease;
-}
-
-.mp-avatar:hover {
-  transform: rotate(5deg);
 }
 
 .mp-avatar-dot {
   position: absolute;
-  right: -2px;
-  bottom: -2px;
-  width: 12px;
-  height: 12px;
+  right: -1px;
+  bottom: -1px;
+  width: 10px;
+  height: 10px;
   border: 2px solid #fff;
   border-radius: 50%;
   background: #a7a8b5;
 }
 
-.mp-avatar-dot.is-online { 
-  background: #6fbf73; 
-  animation: pulse-green 2s infinite;
-}
+.mp-avatar-dot.is-online { background: #6fbf73; }
 
 .mp-avatar-dot.is-busy,
-.mp-avatar-dot.is-error { 
-  background: #e6a23c; 
-  animation: pulse-orange 2s infinite;
-}
-
-.mp-avatar-dot.is-offline {
-  background: #dc2626;
-}
-
-.mp-avatar-dot.is-disabled {
-  background: #9ca3af;
-}
-
-@keyframes pulse-green {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.3); opacity: 0.7; }
-}
-
-@keyframes pulse-orange {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.3); opacity: 0.7; }
-}
+.mp-avatar-dot.is-error { background: #e6a23c; }
 
 .mp-profile-copy {
   min-width: 0;
@@ -409,7 +338,7 @@ function handleUpgrade() {
 .mp-profile-copy strong {
   overflow: hidden;
   color: #4d4f6f;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -432,7 +361,7 @@ function handleUpgrade() {
   border-radius: 8px;
   background: #e3e1f2;
   color: #9293a6;
-  font-size: 10px;
+  font-size: var(--font-size-xs);
 }
 
 .profile-license-pro {
@@ -445,7 +374,7 @@ function handleUpgrade() {
   color: #27618a;
 }
 
-/* 面板向上展开，且与侧边栏等宽（不溢出） */
+/* 面板向上展开，且与 banner 等宽（不溢出侧边栏） */
 .profile-menu-panel {
   position: absolute;
   bottom: calc(100% + 8px);
@@ -453,27 +382,14 @@ function handleUpgrade() {
   right: 0;
   z-index: 140;
   box-sizing: border-box;
-  max-height: min(70vh, 480px);
+  max-height: min(70vh, 420px);
   overflow-y: auto;
-  padding: 16px;
+  padding: 12px;
   border: 1px solid var(--card-border);
   border-radius: var(--r-sm);
   background: var(--surface);
   box-shadow: 0 12px 32px rgba(30, 27, 75, 0.14);
   color: var(--ink);
-  transform-origin: bottom left;
-  animation: panelSlideIn 0.2s ease-out;
-}
-
-@keyframes panelSlideIn {
-  from {
-    opacity: 0;
-    transform: scaleY(0.95) translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: scaleY(1) translateY(0);
-  }
 }
 
 .profile-menu-heading {
@@ -483,132 +399,38 @@ function handleUpgrade() {
   border-bottom: 1px solid var(--hairline);
 }
 
-/* 状态徽章 */
-.status-header {
-  margin-bottom: 16px;
+.profile-menu-heading strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
-.status-badge {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  border-radius: var(--r-md);
-  font-size: 13px;
-  font-weight: 600;
-  border: 1px solid transparent;
-}
-
-.status-badge.error {
-  background: #FEF2F2;
-  color: #DC2626;
-  border: 1px solid #FEB6B6;
-}
-
-.status-badge.warning {
-  background: #FFFBEB;
-  color: #CA8A04;
-  border: 1px solid #FDE047;
-}
-
-.status-badge.success {
-  background: #ECFDF5;
-  color: #059669;
-  border: 1px solid #A7F3D0;
-}
-
-.status-badge.neutral {
-  background: #F3F4F6;
-  color: #6B7280;
-  border: 1px solid #E5E7EB;
-}
-
-.status-icon {
-  font-size: 16px;
-  line-height: 1;
-}
-
-.status-text {
-  white-space: nowrap; /* 不换行 */
-  overflow: hidden; /* 超出隐藏 */
-  text-overflow: ellipsis; /* 显示省略号 */
-  flex: 1; /* 占据剩余空间 */
-  min-width: 0; /* 允许被压缩 */
-}
-
-/* 用户信息区 */
-.user-info-section {
-  display: flex;
-  gap: 12px;
-  padding: 16px;
-  background: linear-gradient(135deg, rgba(99, 91, 195, 0.04), rgba(255, 255, 255, 0));
-  border-radius: var(--r-lg);
-  margin-bottom: 16px;
-}
-
-.user-details {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0; /* 允许被压缩 */
-  flex: 1; /* 占据剩余空间 */
-}
-
-.user-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--ink, #333);
-  white-space: nowrap; /* 不换行 */
-  overflow: hidden; /* 超出隐藏 */
-  text-overflow: ellipsis; /* 显示省略号 */
-}
-
-.user-status {
-  font-size: 12px;
+.profile-menu-heading span,
+.profile-menu-note {
   color: var(--text-muted);
-}
-
-.user-hint {
-  font-size: 11px;
-  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
 }
 
 .profile-menu-action {
   width: 100%;
-  margin-top: 8px;
-  padding: 10px 14px;
+  margin-top: 10px;
+  padding: 8px 10px;
   border: 1px solid var(--card-border);
-  border-radius: var(--r-md);
+  border-radius: var(--r-xs);
   background: var(--surface);
   color: var(--ink);
   cursor: pointer;
   text-align: left;
-  font-size: 13px;
-  transition: all 0.2s ease;
-  position: relative;
 }
 
 .profile-menu-action:hover,
 .profile-menu-action:focus-visible {
   border-color: var(--primary);
   color: var(--primary);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(81, 73, 232, 0.15);
 }
 
 .profile-menu-action-primary {
-  background: linear-gradient(135deg, var(--primary), #6367f1);
-  color: white;
   border-color: var(--primary);
-  font-weight: 600;
-  box-shadow: 0 2px 6px rgba(81, 73, 232, 0.25);
-}
-
-.profile-menu-action-primary:hover,
-.profile-menu-action-primary:focus-visible {
-  background: linear-gradient(135deg, #4f46e5, #6366f1);
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(81, 73, 232, 0.3);
+  color: var(--primary);
 }
 
 .profile-menu-action:disabled {
@@ -622,32 +444,16 @@ function handleUpgrade() {
   background: linear-gradient(180deg, #fff7e0, #ffeec2);
   color: #8a6d1f;
   font-weight: 600;
-  border-radius: var(--r-md);
 }
 
 .profile-menu-action-upgrade:hover,
 .profile-menu-action-upgrade:focus-visible {
   border-color: #c9b46a;
   color: #7a5d15;
-  background: linear-gradient(180deg, #fff3cc, #ffe099);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(138, 109, 31, 0.2);
 }
 
 .profile-menu-action-icon {
-  margin-right: 8px;
-  font-size: 14px;
-  display: inline-block;
-  width: 16px;
-  text-align: center;
-}
-
-.action-group-primary {
-  margin-bottom: 12px;
-}
-
-.action-group-secondary {
-  margin-top: 12px;
+  margin-right: 6px;
 }
 
 .profile-menu-sep {
@@ -662,7 +468,7 @@ function handleUpgrade() {
 
 .profile-menu-error {
   color: var(--error);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
 }
 
 @media (max-width: 900px) {

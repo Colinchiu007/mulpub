@@ -8,7 +8,7 @@
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   padding: 10px 24px; border: none; border-radius: 8px;
   background: var(--primary, #409eff); color: #fff;
-  font-size: 14px; font-weight: 600; cursor: pointer;
+  font-size: var(--font-size-sm); font-weight: 600; cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: 0 2px 8px rgba(64,158,255,0.2);
   white-space: nowrap;
@@ -26,7 +26,7 @@
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   padding: 8px 16px; border: 1px solid var(--border, #dcdfe6); border-radius: 6px;
   background: var(--surface, #fff); color: var(--text, #333);
-  font-size: 13px; font-weight: 500; cursor: pointer;
+  font-size: var(--font-size-sm); font-weight: 500; cursor: pointer;
   transition: all 0.15s ease; white-space: nowrap;
 }
 .s2v-btn-secondary:hover:not(:disabled) {
@@ -40,7 +40,7 @@
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   padding: 6px 12px; border: 1px solid transparent; border-radius: 6px;
   background: transparent; color: var(--text-muted, #666);
-  font-size: 12px; font-weight: 500; cursor: pointer;
+  font-size: var(--font-size-xs); font-weight: 500; cursor: pointer;
   transition: all 0.15s ease; white-space: nowrap;
 }
 .s2v-btn-ghost:hover:not(:disabled) {
@@ -53,7 +53,7 @@
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   padding: 8px 16px; border: 1px solid var(--error, #f56c6c); border-radius: 6px;
   background: transparent; color: var(--error, #f56c6c);
-  font-size: 13px; font-weight: 500; cursor: pointer;
+  font-size: var(--font-size-sm); font-weight: 500; cursor: pointer;
   transition: all 0.15s ease; white-space: nowrap;
 }
 .s2v-btn-danger:hover:not(:disabled) {
@@ -67,7 +67,7 @@
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   padding: 6px 14px; border: 1px solid var(--primary, #409eff); border-radius: 6px;
   background: rgba(64,158,255,0.04); color: var(--primary, #409eff);
-  font-size: 12px; font-weight: 600; cursor: pointer;
+  font-size: var(--font-size-xs); font-weight: 600; cursor: pointer;
   transition: all 0.15s ease; white-space: nowrap;
 }
 .s2v-btn-resume:hover:not(:disabled) {
@@ -77,14 +77,14 @@
 .s2v-btn-resume:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* 小尺寸变体 */
-.s2v-btn-sm { padding: 5px 12px; font-size: 12px; }
+.s2v-btn-sm { padding: 5px 12px; font-size: var(--font-size-xs); }
 
 /* 图标按钮 */
 .s2v-btn-icon {
   display: inline-flex; align-items: center; justify-content: center;
   width: 32px; height: 32px; padding: 0; border: 1px solid var(--border, #dcdfe6);
   border-radius: 6px; background: var(--surface, #fff); color: var(--text-muted, #666);
-  cursor: pointer; transition: all 0.15s ease; font-size: 14px;
+  cursor: pointer; transition: all 0.15s ease; font-size: var(--font-size-sm);
 }
 .s2v-btn-icon:hover { border-color: var(--primary, #409eff); color: var(--primary, #409eff); }
 

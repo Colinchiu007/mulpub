@@ -89,12 +89,12 @@ const visibleGroups = computed(() => {
   padding: 6px 10px 6px 30px;
   border: 1px solid var(--border, #dedee5);
   border-radius: 6px;
-  background: #fff;
-  font-size: 13px;
+  background: var(--color-bg-card);
+  font-size: var(--font-size-sm);
   outline: none;
 }
 .favorites-toolbar input[type="search"]:focus { border-color: #5048e5; box-shadow: 0 0 0 2px rgba(80, 72, 229, 0.1); }
-.favorites-guide { flex: 1 1 auto; color: var(--muted, #85858f); font-size: 12px; line-height: 1.5; }
+.favorites-guide { flex: 1 1 auto; color: var(--muted, #85858f); font-size: var(--font-size-xs); line-height: 1.5; }
 .favorites-create-button {
   display: inline-flex;
   align-items: center;
@@ -105,7 +105,7 @@ const visibleGroups = computed(() => {
   border-radius: 6px;
   background: #5048e5;
   color: #fff;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   cursor: pointer;
 }
 .favorites-create-button:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -113,10 +113,10 @@ const visibleGroups = computed(() => {
 .favorites-table-wrap {
   border: 1px solid var(--border-light, #ececf1);
   border-radius: 10px;
-  background: #fff;
+  background: var(--color-bg-card);
   overflow: hidden;
 }
-.favorites-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.favorites-table { width: 100%; border-collapse: collapse; font-size: var(--font-size-sm); }
 .favorites-table th {
   padding: 12px 16px;
   border-bottom: 1px solid var(--border-light, #ececf1);
@@ -133,9 +133,9 @@ const visibleGroups = computed(() => {
   border: 1px solid var(--border, #dedee5);
   border-radius: 5px;
   padding: 4px 10px;
-  background: #fff;
+  background: var(--color-bg-card);
   color: #5048e5;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   cursor: pointer;
 }
 .favorite-group-action:hover { border-color: #5048e5; }
@@ -147,5 +147,5 @@ const visibleGroups = computed(() => {
   padding: 64px 0;
 }
 .favorites-empty-icon { font-size: 40px; color: #c9cbd8; line-height: 1; }
-.favorites-empty p { margin: 0; color: var(--muted, #85858f); font-size: 14px; }
+.favorites-empty p { margin: 0; color: var(--muted, #85858f); font-size: var(--font-size-sm); }
 </style>

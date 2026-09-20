@@ -155,7 +155,7 @@ class ExecutionRecorder {
    * @param {object} data - 事件载荷
    */
   recordEvent(projectId, type, stageName, data) {
-    const session = this._sessions.get(projectId);
+    let session = this._sessions.get(projectId);
     if (!session) {
       log.warn('ExecutionRecorder', 'No recording session for project ' + projectId);
       return;

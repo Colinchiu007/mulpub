@@ -71,8 +71,7 @@ function createPageManagerApi({ getAllTabs, getActiveTab } = {}) {
 describe("useTabStore 标签标题同步", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
-    const { api } = createPageManagerApi();
-    window.electronAPI = { pageManager: api };
+    window.electronAPI = {};
   });
 
   afterEach(() => {

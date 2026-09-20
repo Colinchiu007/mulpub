@@ -2,10 +2,10 @@
   <div class="cohere-card" style="cursor: default;">
     <!-- Header -->
     <div class="cohere-page-header" style="margin-bottom: var(--space-md);">
-      <div style="font-size: 18px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 8px;">
+      <div style="font-size: var(--font-size-md); font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 8px;">
         <span>🔥 热门趋势</span>
       </div>
-      <div style="font-size: 13px; color: var(--muted); margin-top: 2px;">跨平台热点发现</div>
+      <div style="font-size: var(--font-size-sm); color: var(--muted); margin-top: 2px;">跨平台热点发现</div>
     </div>
 
     <!-- Filter tabs -->
@@ -14,7 +14,7 @@
         v-for="src in allSources"
         :key="src.value"
         :class="activeSource === src.value ? 'cohere-btn-primary' : 'cohere-btn-ghost'"
-        style="padding: 4px 14px; font-size: 13px; border-radius: 4px; cursor: pointer;"
+        style="padding: 4px 14px; font-size: var(--font-size-sm); border-radius: 4px; cursor: pointer;"
         @click="activeSource = src.value"
       >
         {{ src.label }}
@@ -27,9 +27,9 @@
     </div>
 
     <!-- Error -->
-    <div v-else-if="error" style="padding: 24px; text-align: center; color: var(--coral); font-size: 14px;">
+    <div v-else-if="error" style="padding: 24px; text-align: center; color: var(--coral); font-size: var(--font-size-sm);">
       <div style="margin-bottom: 8px;">⚠️ {{ error }}</div>
-      <button class="cohere-btn-ghost" style="padding: 6px 16px; font-size: 13px; cursor: pointer;" @click="fetchTrending">
+      <button class="cohere-btn-ghost" style="padding: 6px 16px; font-size: var(--font-size-sm); cursor: pointer;" @click="fetchTrending">
         重新加载
       </button>
     </div>
@@ -64,8 +64,8 @@
           >
             {{ item.source }}
           </span>
-          <span v-if="item.subreddit" style="font-size: 12px; color: var(--muted);">{{ item.subreddit }}</span>
-          <span v-if="item.repo" style="font-size: 12px; color: var(--muted);">{{ item.repo }}</span>
+          <span v-if="item.subreddit" style="font-size: var(--font-size-xs); color: var(--muted);">{{ item.subreddit }}</span>
+          <span v-if="item.repo" style="font-size: var(--font-size-xs); color: var(--muted);">{{ item.repo }}</span>
         </div>
 
         <!-- Title -->
@@ -74,7 +74,7 @@
             :href="item.url"
             target="_blank"
             rel="noopener noreferrer"
-            style="color: var(--text); text-decoration: none; font-size: 14px; font-weight: 500; line-height: 1.4;"
+            style="color: var(--text); text-decoration: none; font-size: var(--font-size-sm); font-weight: 500; line-height: 1.4;"
             @mouseenter="($event) => $event.target.style.color = 'var(--action-blue)'"
             @mouseleave="($event) => $event.target.style.color = 'var(--text)'"
           >
@@ -83,7 +83,7 @@
         </div>
 
         <!-- Stats row -->
-        <div style="display: flex; align-items: center; gap: 16px; font-size: 12px; color: var(--muted);">
+        <div style="display: flex; align-items: center; gap: 16px; font-size: var(--font-size-xs); color: var(--muted);">
           <span style="display: flex; align-items: center; gap: 3px;">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/></svg>
             {{ item.upvotes ?? 0 }}

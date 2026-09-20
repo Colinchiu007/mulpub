@@ -511,7 +511,9 @@ describe('Scheduler 共享实现', () => {
 })
 
 describe('Scheduler 共享兼容入口', () => {
-  it('保留既有 API 并额外暴露实例工厂', () => {
+  // CI 高负载时 require('../..') 触发整包入口模块加载（含 Electron 相关依赖探测），
+  // 10s 默认超时不够用（实测 CI 15.2s vs 本地 1.5s），显式放宽到 60s
+  it('保留既有 API 并额外暴露实例工厂', { timeout: 60000 }, () => {
     const schedulerModule = require('../scheduler')
     const sharedUtils = require('..')
     expect(Object.keys(schedulerModule).sort()).toEqual([

@@ -125,7 +125,7 @@ const typeOptions = computed(() => typeDefinitions.map(definition => ({
 .publish-type-header h2 {
   margin: 0;
   color: #252633;
-  font-size: 20px;
+  font-size: var(--font-size-lg);
   line-height: 28px;
 }
 
@@ -165,7 +165,7 @@ const typeOptions = computed(() => typeDefinitions.map(definition => ({
   padding: 22px 18px;
   border: 1px solid transparent;
   border-radius: 12px;
-  background: #fff;
+  background: var(--color-bg-card);
   color: #30323d;
   text-align: left;
   cursor: pointer;
@@ -186,7 +186,7 @@ const typeOptions = computed(() => typeDefinitions.map(definition => ({
   margin-bottom: 18px;
   border-radius: 12px;
   color: #fff;
-  font-size: 24px;
+  font-size: var(--font-size-xl);
   font-weight: 700;
 }
 
@@ -198,13 +198,13 @@ const typeOptions = computed(() => typeDefinitions.map(definition => ({
 .publish-type-card-title {
   margin-bottom: 26px;
   color: #30323d;
-  font-size: 16px;
+  font-size: var(--font-size-base);
   font-weight: 700;
 }
 
 .publish-type-support {
   color: #8a8d99;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
 }
 
 .publish-type-platforms {
@@ -225,7 +225,7 @@ const typeOptions = computed(() => typeDefinitions.map(definition => ({
   border-radius: 50%;
   background: #f0f1f6;
   color: #525563;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
 }
 
 .publish-type-platform-more {
@@ -234,7 +234,7 @@ const typeOptions = computed(() => typeDefinitions.map(definition => ({
   padding: 0 5px;
   border-radius: 12px;
   color: #76798a;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 
 .publish-type-modal-enter-active,

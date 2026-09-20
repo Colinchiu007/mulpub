@@ -231,7 +231,7 @@ onBeforeUnmount(async () => {
   gap: 4px;
 }
 .back-link {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted, #909399);
   text-decoration: none;
 }
@@ -239,7 +239,7 @@ onBeforeUnmount(async () => {
   color: var(--action-blue, #409eff);
 }
 .board-title {
-  font-size: 22px;
+  font-size: var(--font-size-lg);
   font-weight: 700;
   margin: 0;
 }
@@ -247,7 +247,7 @@ onBeforeUnmount(async () => {
   display: flex;
   align-items: center;
   gap: 16px;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted, #909399);
 }
 .board-cost, .board-elapsed {
@@ -305,13 +305,13 @@ onBeforeUnmount(async () => {
   margin-bottom: 12px;
 }
 .info-label {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted, #909399);
   margin-bottom: 6px;
   font-weight: 600;
 }
 .info-value {
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   line-height: 1.5;
 }
 .event-log {
@@ -323,7 +323,7 @@ onBeforeUnmount(async () => {
   gap: 8px;
   padding: 4px 0;
   border-bottom: 1px solid var(--border-light, #f0f0f0);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
 }
 .event-item:last-child {
   border-bottom: none;
