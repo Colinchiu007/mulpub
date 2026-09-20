@@ -88,9 +88,12 @@ describe('FilmEngineeringView configuration profiles', () => {
     composable.status.value = { available: false, error: 'kit missing', filmMeta: null, sceneCount: 0, shotCount: 0, referenceCount: 0 }
     const wrapper = mountView()
     await nextTick()
+    // 全局 el-button stub 渲染为 button.el-button（test-setup.js），选择器需匹配两种形态
     const retry = wrapper.find('.fe-actions el-button')
-    expect(retry.exists()).toBe(true)
-    await retry.trigger('click')
+    const retryStub = wrapper.find('.fe-actions button.el-button')
+    const target = retry.exists() ? retry : retryStub
+    expect(target.exists()).toBe(true)
+    await target.trigger('click')
     expect(composable.refreshAll).toHaveBeenCalledTimes(2)
   })
 

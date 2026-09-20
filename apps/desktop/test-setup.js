@@ -291,7 +291,8 @@ try {
       'el-dropdown-menu': { template: '<ul class="el-dropdown-menu"><slot></slot></ul>' },
       'el-dropdown-item': { template: '<li class="el-dropdown-item"><slot></slot></li>' },
       'el-scrollbar': { template: '<div class="el-scrollbar"><slot></slot></div>' },
-      'el-popover': { template: '<div class="el-popover"><slot></slot></div>' },
+      // el-popover：必须渲染 #reference 插槽（SidebarServiceStatus 的 mp-service-status testid 在 reference 里）
+      'el-popover': { template: '<div class="el-popover"><slot name="reference"></slot><slot></slot></div>' },
       'el-tooltip': { template: '<span class="el-tooltip"><slot></slot></span>' },
       'el-switch': { template: '<span class="el-switch"><slot></slot></span>' },
       'el-slider': { template: '<div class="el-slider"><slot></slot></div>' },
