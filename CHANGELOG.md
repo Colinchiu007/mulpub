@@ -1,3 +1,81 @@
+# [未发布] fix(desktop): Logto 登录窗口延迟修复——认证窗口兜底显示 + discovery fetch 超时 + 点击即时 busy 反馈
+
+### 变更
+- **identity-auth-window.js**：认证窗口不再只依赖 `ready-to-show`。新增 `dom-ready`/`did-finish-load` 提前展示 + 最长 `showFallbackTimeout`（默认 3000ms）兜底强制 `show()`，`revealWindow` 幂等并在展示/关窗时清理定时器，消除「点登录无反应 / 窗口迟迟不出现」。
+- **logto-client.js**：新增 `withFetchTimeout`，为 SDK requester 的 fetch 注入超时（默认 15000ms，可 `fetchTimeoutMs` 覆盖，`<=0` 透传），合并外部 `AbortSignal`；OIDC discovery/token 网络挂起时快速失败而非无限等待。
+- **ProfileMenu.vue**：触发器新增本地 `busy`，未登录点击立即置 busy（`:disabled` + `:aria-busy="loading||busy"` + `.mp-profile-busy` 光标 wait），`finally` 复位；busy 期间守卫防重复触发登录。无新增用户可见文案（locales 不变）。
+
+### 验证
+- 新增 9 条回归测试：`identity-auth-window.test.js` 15 · `logto-client.test.js` 9 · `ProfileMenu.test.js` 19 全绿；身份/存储/窗口/IPC 关联 221 例回归通过；ESLint 改动文件 0 违规。
+
+### 关联
+- 分支 `fix-login-window-latency` · PR auto-merge 待 CI
+- 文档：`01-docs/PRD.md`「Logto 身份登录窗口延迟修复合同（2026-09-20）」
+
+---
+
+---
+
+# [未发布] refactor(desktop): 收敛 .pipeline-grid 布局为 pipeline-selector.css 单一来源
+
+### 变更
+- **create-view.css**：删除重复定义的 `.pipeline-grid` 基础规则（auto-fill minmax(300px)）与 721-1024px 断点规则（minmax(260px)）。该规则与 pipeline-selector.css 多列断点体系同名同特异性，加载顺序一旦变化会静默压掉宽屏 3/4/5 列媒体查询，属级联隐患而非行为变更。
+- **新增契约测试 `pipeline-grid.source.test.js`**：钉死 create-view.css 禁止二次定义 `.pipeline-grid` + pipeline-selector.css 断点护栏（768/1200/1440/1920）+ PipelineSelector 组件随载导入。
+
+### 验证
+- 契约测试红→绿；CreateView / PipelineSelector 全量 297/297 通过
+- worktree vite + Playwright 实测视口 700/900/1300/1600/2560px 渲染 1/1/3/4/5 列，行为零变化
+
+### 关联
+- PR #2112（codex/pipeline-grid-single-source）；源自「视频创作页变 1 列」排查结论（旧 renderer 陈旧 bundle，非代码回归）
+
+---
+# [未发布] fix(desktop): 首页全 0 引导态隐藏「近期动态」消除双空态双按钮，有记录时补「查看全部」入口
+
+### 变更
+- **Home.vue**：近期动态区改为 `v-if="!(statsLoaded && isAllZero)"`——全 0 引导态（home-zero-cta 已展示）时隐藏该区，消除双空态 + 双「立即新建发布」按钮；标题行新增 `.mp-home-recent-head` 包裹，有发布记录时右侧补「查看全部 →」入口跳转 `/publish/history`。
+- **判定**：用 `!(statsLoaded && isAllZero)` 而非 `isAllZero`，保留「缺 electronAPI 优雅降级」既有行为（该场景 statsLoaded=false，近期动态仍显示）。
+- **locales zh/en**：成对新增 `home.viewAllHistory`（查看全部 / View all）。
+
+### 验证
+- Home/i18n/glossary 单测 44/44 通过；check-locale-sync --pair-base / --cjk PASS；像素门禁 home-baseline 本地 1.23% 经 A/B 归因为基线/字体环境漂移（移除本次改动后同样 1.23%），非本次改动引入。
+
+### 关联
+- PR #2107（home-recent-activity-dedup）
+
+---
+
+# [未发布] feat(desktop): 热门选题分类供给增强——方案A-E全量实现（hot-topics-category-supply）
+
+### 变更
+- **抓取量放宽（A）**：MAX_PER_CHANNEL 20→50、MAX_TOPICS 160→400；知乎/腾讯端点提量；微博 hot_band 解析双形态兼容。
+- **分类器 v2（A）**：society 黑洞词（裸字'判'）修复；关键词打分制（命中词长度和）；新增 `classifyTopicMulti` 多标签 categories[]（≤3）；微博原生分类映射扩容 + GENERIC_RAW_MAP 通用映射。
+- **定向补拉（B/D）**：`CATEGORY_BOOSTS` 稀疏分类低于阈值或 UI boostCategories 触发，补拉百度财经tab/新浪财经滚动/IT之家RSS/微博情感·健康垂类；补拉 id 含 board 段防撞号，独立限流熔断。
+- **LLM 分类兜底（C）**：general 条目批量分类（单轮≤40）+ `hot_topics_llm_labels` 落盘缓存（≤500）；未配置/失败静默降级；phase1-context 接线 ModelProviderManager。
+- **UI（E）**：分类 chip 计数、双标签展示、多标签过滤、空分类「补拉该分类」按钮；渠道筛选新增新浪财经/IT之家；locale zh/en 成对新增 5 键。
+
+### 验证
+- TDD 红灯 15 契约 → 全绿：hot-topics-service.test.js 50 例、HotTopics.test.js 35 例、assembly、phase1-context 13 例全通过；check-locale-sync --keys PASS。
+
+### 关联
+- PRD：01-docs/PRD-HOT-TOPICS-CATEGORY-SUPPLY-2026-09-20.md；分支 hot-topics-category-supply（worktree mp-hot-topics-category-supply）
+
+---
+
+# [未发布] style(desktop): 采集页精致化——col-panel 渐变面板 + 顶部 ribbon 扫光动效
+
+### 变更
+- **Collection.vue / Collection.polish.css**：采集页新增「精致化主题」样式块——`.cohere-content` 浅灰渐变底、`.cohere-card` 毛玻璃卡片 + hover 抬升、`.col-panel` 圆角面板，面板顶部 4px `col-panel-ribbon` 渐变扫光动效。
+- **骨架屏契约合规**：动效 keyframes 命名为 `col-panel-ribbon`，避开被禁用的 `shimmer`/`skeleton-shimmer` 保留名，通过 UiSkeleton 设计契约门禁。
+
+### 验证
+- UiSkeleton 契约 + Collection 单测 101/101 通过；Gate 14/15/16 + locale CJK PASS；`collection.png` 视觉基线按 polish 后外观重生成（pixel 复采 0% 稳定）。
+
+### 关联
+- PR #2056（codex/ui-collect-page-polish）
+
+---
+
 # [未发布] style(desktop): P2 深色走查第二批——body/mp-shell/Accounts 浅底根因修复 + 16 处浅灰底 token 化（dark 白残留清零）
 
 ### 新增

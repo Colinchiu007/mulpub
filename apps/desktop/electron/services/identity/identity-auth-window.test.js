@@ -339,4 +339,112 @@ describe('IdentityAuthWindow', () => {
     expect(fake.instances[0].closed).toBe(true)
     expect(fake.instances[1].closed).toBe(false)
   })
+
+  // ── 2026-09-20 登录窗口延迟回归：ready-to-show 可能迟迟不触发，窗口必须兜底显示 ──
+
+  it('ready-to-show 未触发但 dom-ready 到达时展示认证窗口', async () => {
+    const { IdentityAuthWindow } = require('./identity-auth-window')
+    const authWindow = new IdentityAuthWindow({
+      endpoint: 'https://auth.example.com',
+      redirectUri: 'http://127.0.0.1:16526/auth/callback',
+      BrowserWindow: fake.FakeBrowserWindow,
+      session: { fromPartition: vi.fn(() => authSession) },
+      shell,
+    })
+    await authWindow.open('https://auth.example.com/sign-in')
+    const window = fake.instances[0]
+    expect(window.shown).toBeFalsy()
+    window.handlers.get('webContents:dom-ready')()
+    expect(window.shown).toBe(true)
+  })
+
+  it('ready-to-show 与 dom-ready 均未触发时，兜底定时强制展示认证窗口', async () => {
+    vi.useFakeTimers()
+    try {
+      const { IdentityAuthWindow } = require('./identity-auth-window')
+      const load = deferred()
+      class HangingWindow extends fake.FakeBrowserWindow {
+        constructor(options) {
+          super(options)
+          this.webContents.loadURL = vi.fn(() => load.promise)
+        }
+      }
+      const authWindow = new IdentityAuthWindow({
+        endpoint: 'https://auth.example.com',
+        redirectUri: 'http://127.0.0.1:16526/auth/callback',
+        BrowserWindow: HangingWindow,
+        session: { fromPartition: vi.fn(() => authSession) },
+        shell,
+        showFallbackTimeout: 2500,
+      })
+      const openPromise = authWindow.open('https://auth.example.com/sign-in')
+      await vi.advanceTimersByTimeAsync(0)
+      const window = fake.instances[0]
+      expect(window.shown).toBeFalsy()
+      await vi.advanceTimersByTimeAsync(2500)
+      expect(window.shown).toBe(true)
+      load.resolve()
+      await openPromise
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('窗口已展示后兜底定时器不再重复触发 show', async () => {
+    vi.useFakeTimers()
+    try {
+      const { IdentityAuthWindow } = require('./identity-auth-window')
+      const authWindow = new IdentityAuthWindow({
+        endpoint: 'https://auth.example.com',
+        redirectUri: 'http://127.0.0.1:16526/auth/callback',
+        BrowserWindow: fake.FakeBrowserWindow,
+        session: { fromPartition: vi.fn(() => authSession) },
+        shell,
+        showFallbackTimeout: 2500,
+      })
+      const openPromise = authWindow.open('https://auth.example.com/sign-in')
+      await vi.advanceTimersByTimeAsync(0)
+      const window = fake.instances[0]
+      window.emit('ready-to-show')
+      expect(window.shown).toBe(true)
+      const showSpy = vi.spyOn(window, 'show')
+      await vi.advanceTimersByTimeAsync(10000)
+      expect(showSpy).not.toHaveBeenCalled()
+      await openPromise
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('认证窗口关闭后兜底定时器不再触发展示已销毁窗口', async () => {
+    vi.useFakeTimers()
+    try {
+      const { IdentityAuthWindow } = require('./identity-auth-window')
+      const load = deferred()
+      class HangingWindow extends fake.FakeBrowserWindow {
+        constructor(options) {
+          super(options)
+          this.webContents.loadURL = vi.fn(() => load.promise)
+        }
+      }
+      const authWindow = new IdentityAuthWindow({
+        endpoint: 'https://auth.example.com',
+        redirectUri: 'http://127.0.0.1:16526/auth/callback',
+        BrowserWindow: HangingWindow,
+        session: { fromPartition: vi.fn(() => authSession) },
+        shell,
+        showFallbackTimeout: 2500,
+      })
+      const openPromise = authWindow.open('https://auth.example.com/sign-in')
+      await vi.advanceTimersByTimeAsync(0)
+      const window = fake.instances[0]
+      authWindow.close()
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(window.shown).toBeFalsy()
+      load.resolve()
+      await openPromise
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

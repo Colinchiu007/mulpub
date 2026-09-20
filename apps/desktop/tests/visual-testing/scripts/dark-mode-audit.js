@@ -27,6 +27,7 @@ const ROUTES = [
   { name: 'viral-analysis', route: '/viral-analysis' },
   { name: 'intelligence', route: '/intelligence' },
   { name: 'collection', route: '/collection' },
+  { name: 'hot-topics', route: '/hot-topics' },
   { name: 'copy-library', route: '/copy-library' },
   { name: 'keywords', route: '/keywords' },
   { name: 'comments', route: '/comments' },

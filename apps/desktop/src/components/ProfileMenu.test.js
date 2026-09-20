@@ -143,6 +143,44 @@ describe('ProfileMenu', () => {
     expect(/(^|\s)top:/.test(panelBlock[0])).toBe(false)
   })
 
+  it('精致化契约：菜单项扁平无描边、主操作实心、含图标与状态胶囊、面板有展开动效', () => {
+    const source = fs.readFileSync('./src/components/ProfileMenu.vue', 'utf8')
+    // 去盒子感：菜单项为扁平行（无边框 + 透明底），仅 hover 显浅底
+    const actionBlock = source.match(/\.profile-menu-action \{[\s\S]*?\n\}/)
+    expect(actionBlock).toBeTruthy()
+    expect(actionBlock[0]).toMatch(/border:\s*none/)
+    expect(actionBlock[0]).toMatch(/background:\s*transparent/)
+    // 主操作（重试登录）用实心品牌色填充
+    const primaryBlock = source.match(/\.profile-menu-action-primary \{[\s\S]*?\n\}/)
+    expect(primaryBlock).toBeTruthy()
+    expect(primaryBlock[0]).toMatch(/background:\s*var\(--primary\)/)
+    // 升级 Pro 去描边（不再用 border-color 强调）
+    const upgradeBlock = source.match(/\.profile-menu-action-upgrade \{[\s\S]*?\n\}/)
+    expect(upgradeBlock[0]).not.toMatch(/border-color/)
+    // 账号操作项统一走 @element-plus/icons-vue 图标（取代裸文字/emoji）
+    expect(source).toMatch(/profile-menu-action-icon/)
+    expect(source).toMatch(/SwitchButton[\s\S]*?from '@element-plus\/icons-vue'|from '@element-plus\/icons-vue'[\s\S]*?SwitchButton/)
+    expect(source).not.toMatch(/⭐/)
+    // 状态改为带色点的胶囊
+    expect(source).toMatch(/profile-menu-status/)
+    expect(source).toMatch(/profile-menu-status-dot/)
+    // 错误提示收进容器（左侧色条）
+    const errBlock = source.match(/\.profile-menu-error \{[\s\S]*?\n\}/)
+    expect(errBlock[0]).toMatch(/border-left:\s*3px solid/)
+    // 面板展开动效 + 尊重 reduced-motion
+    expect(source).toMatch(/animation:\s*profile-menu-pop/)
+    expect(source).toMatch(/@keyframes profile-menu-pop/)
+    expect(source).toMatch(/prefers-reduced-motion/)
+  })
+
+  it('展开菜单后设置项渲染出图标 svg', async () => {
+    await mountMenu()
+    await wrapper.get('[data-testid="mp-profile"]').trigger('click')
+    const settings = wrapper.get('[data-testid="profile-menu-settings"]')
+    expect(settings.find('svg').exists()).toBe(true)
+    expect(settings.classes()).toContain('profile-menu-action')
+  })
+
   it('展开菜单含设置入口，点击后向上抛出 open-settings 并关闭菜单', async () => {
     await mountMenu()
     await wrapper.get('[data-testid="mp-profile"]').trigger('click')
@@ -262,5 +300,28 @@ describe('ProfileMenu', () => {
     const text = wrapper.text()
     expect(text).toContain('memberCenter.operationFailed')
     expect(text).not.toContain('memberCenter.signOutFailed')
+  })
+
+  // ── 2026-09-20 登录延迟回归：点击后必须立即给出 busy 反馈并防重复触发 ──
+
+  it('未登录点击头像立即进入 busy 反馈，完成后恢复且不重复触发登录', async () => {
+    await mountMenu()
+    store.status = 'signed_out'
+    store.user = null
+    let resolveSignIn
+    store.signInOrSwitch.mockImplementation(() => new Promise((res) => { resolveSignIn = res }))
+    await wrapper.vm.$nextTick()
+    const triggerEl = wrapper.get('[data-testid="mp-profile"]')
+    await triggerEl.trigger('click')
+    expect(triggerEl.attributes('aria-busy')).toBe('true')
+    expect(triggerEl.attributes('disabled')).toBeDefined()
+    // busy 期间重复点击不再触发第二次登录
+    await triggerEl.trigger('click')
+    expect(store.signInOrSwitch).toHaveBeenCalledTimes(1)
+    resolveSignIn(true)
+    await Promise.resolve()
+    await wrapper.vm.$nextTick()
+    expect(triggerEl.attributes('aria-busy')).not.toBe('true')
+    expect(triggerEl.attributes('disabled')).toBeUndefined()
   })
 })

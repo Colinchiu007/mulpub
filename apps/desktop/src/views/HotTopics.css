@@ -3,32 +3,39 @@
  * 列表行、标签、空态等与「收藏选题」共用的样式已迁到 styles/hot-topics-list.css，
  * 由本视图与 components/HotTopicsFavorites.vue 各自以 <style scoped src> 引入
  * （scoped 样式不穿透子组件，共用样式必须放在双方都能引入的独立文件里）。
+ *
+ * 色值全部取自 styles/tokens.css（禁止视图内重定义同语义值，见 tokens.css 头注）。
+ * 品牌主色前景（文字/描边）统一用自适应写法
+ *   var(--color-primary-dark-tint, var(--color-primary))
+ * ——浅色回落到品牌主色 #5048E5，暗色自动亮化到 #7b74ff（保持紫色相且对比达标）。
+ * 主色淡底用项目既成范式 color-mix(in srgb, var(--color-primary) N%, var(--color-bg-card))，
+ * 使浅色呈淡紫、暗色呈深紫叠底，无需额外 data-theme 覆盖。
  */
 .hot-topics-page { padding: 20px; }
 /* 标签页 */
-.tab-bar { display: flex; gap: 0; border-bottom: 2px solid #eee; margin-bottom: 16px; }
-.tab-btn { padding: 8px 20px; border: none; background: transparent; font-size: var(--font-size-sm); color: #666; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.15s; position: relative; }
-.tab-btn:hover { color: #5149e8; }
-.tab-btn.active { color: #5149e8; border-bottom-color: #5149e8; font-weight: 600; }
-.fav-count { margin-left: 6px; background: #5149e8; color: #fff; border-radius: 10px; padding: 0 7px; font-size: var(--font-size-xs); line-height: 18px; display: inline-block; vertical-align: middle; }
+.tab-bar { display: flex; gap: 0; border-bottom: 2px solid var(--color-border); margin-bottom: 16px; }
+.tab-btn { padding: 8px 20px; border: none; background: transparent; font-size: var(--font-size-sm); color: var(--color-text-secondary); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.15s; position: relative; }
+.tab-btn:hover { color: var(--color-primary-dark-tint, var(--color-primary)); }
+.tab-btn.active { color: var(--color-primary-dark-tint, var(--color-primary)); border-bottom-color: var(--color-primary-dark-tint, var(--color-primary)); font-weight: 600; }
+.fav-count { margin-left: 6px; background: var(--color-primary); color: var(--color-on-primary); border-radius: 10px; padding: 0 7px; font-size: var(--font-size-xs); line-height: 18px; display: inline-block; vertical-align: middle; }
 .header-actions { display: flex; align-items: center; gap: 12px; }
-.last-refresh { font-size: var(--font-size-xs); color: #999; }
+.last-refresh { font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .filter-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
 .category-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.category-chip { padding: 4px 12px; border: 1px solid #ddd; border-radius: 14px; background: #fff; font-size: var(--font-size-xs); cursor: pointer; color: #666; }
-.category-chip.active { border-color: #5149e8; color: #5149e8; background: #f0efff; font-weight: 600; }
-.batch-bar { display: flex; align-items: center; gap: 14px; padding: 10px 14px; background: #fafaff; border: 1px solid #e9e8f6; border-radius: 8px; margin-bottom: 12px; }
-.select-all-label { display: flex; align-items: center; gap: 6px; font-size: var(--font-size-sm); color: #666; cursor: pointer; }
-.selected-count { font-size: var(--font-size-sm); color: #5149e8; }
+.category-chip { padding: 4px 12px; border: 1px solid var(--color-border); border-radius: 14px; background: var(--color-bg-card); font-size: var(--font-size-xs); cursor: pointer; color: var(--color-text-secondary); }
+.category-chip.active { border-color: var(--color-primary-dark-tint, var(--color-primary)); color: var(--color-primary-dark-tint, var(--color-primary)); background: color-mix(in srgb, var(--color-primary) 8%, var(--color-bg-card)); font-weight: 600; }
+.batch-bar { display: flex; align-items: center; gap: 14px; padding: 10px 14px; background: var(--color-bg-inset); border: 1px solid var(--color-border); border-radius: 8px; margin-bottom: 12px; }
+.select-all-label { display: flex; align-items: center; gap: 6px; font-size: var(--font-size-sm); color: var(--color-text-secondary); cursor: pointer; }
+.selected-count { font-size: var(--font-size-sm); color: var(--color-primary-dark-tint, var(--color-primary)); }
 .batch-actions { margin-left: auto; display: flex; gap: 8px; }
 .gen-video-modal-content { min-height: 200px; }
-.gen-video-error-text { margin-right: auto; font-size: var(--font-size-sm); color: #d32f2f; align-self: center; }
-.publish-progress { padding: 12px 14px; background: #fafaff; border: 1px solid #e9e8f6; border-radius: 8px; margin-bottom: 12px; }
-.progress-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: var(--font-size-sm); color: #5149e8; }
+.gen-video-error-text { margin-right: auto; font-size: var(--font-size-sm); color: var(--color-danger); align-self: center; }
+.publish-progress { padding: 12px 14px; background: var(--color-bg-inset); border: 1px solid var(--color-border); border-radius: 8px; margin-bottom: 12px; }
+.progress-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: var(--font-size-sm); color: var(--color-primary-dark-tint, var(--color-primary)); }
 .progress-items { margin-top: 10px; max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
 .progress-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: var(--font-size-sm); padding: 4px 8px; border-radius: 4px; }
-.progress-item.failed { background: #fff3f3; color: #d32f2f; }
-.progress-item.success { background: #f3faf3; }
+.progress-item.failed { background: color-mix(in srgb, var(--color-danger) 12%, var(--color-bg-card)); color: var(--color-danger); }
+.progress-item.success { background: color-mix(in srgb, var(--color-success) 14%, var(--color-bg-card)); }
 .pi-topic { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.retry-btn { border: 1px solid #d32f2f; background: transparent; color: #d32f2f; border-radius: 4px; font-size: var(--font-size-xs); padding: 1px 8px; cursor: pointer; }
-.publish-done { margin-top: 12px; display: flex; align-items: center; justify-content: space-between; font-size: var(--font-size-sm); color: #388e3c; }
+.retry-btn { border: 1px solid var(--color-danger); background: transparent; color: var(--color-danger); border-radius: 4px; font-size: var(--font-size-xs); padding: 1px 8px; cursor: pointer; }
+.publish-done { margin-top: 12px; display: flex; align-items: center; justify-content: space-between; font-size: var(--font-size-sm); color: var(--color-success); }

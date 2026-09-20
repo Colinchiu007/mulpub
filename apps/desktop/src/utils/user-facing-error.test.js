@@ -84,6 +84,12 @@ describe('formatUserError — 未知错误安全兜底', () => {
     expect(codeLike.message).toBe('加载失败')
 
     const stackLike = formatUserError({ code: -1, message: 'boom at line 42' }, { locale: 'zh', fallback: '加载失败' })
+
+    // 浏览器模式 / 桥接不可用哨兵文本必须映射为 fallback，禁止直出 electronAPI
+    const bridgeLike = formatUserError({ code: -1, message: 'electronAPI not available' }, { locale: 'zh', fallback: '配置保存失败，请稍后重试' })
+    expect(bridgeLike.errorCode).toBe(USER_ERROR_CODES.OPERATION_FAILED)
+    expect(bridgeLike.message).toBe('配置保存失败，请稍后重试')
+    expect(bridgeLike.message).not.toContain('electronAPI')
     expect(stackLike.message).toBe('加载失败')
   })
 

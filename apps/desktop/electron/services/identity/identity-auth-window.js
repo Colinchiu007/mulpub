@@ -22,6 +22,8 @@ class IdentityAuthWindow {
     this._shell = options.shell || (electron && electron.shell) || require('electron').shell
     this._getParentWindow = options.getParentWindow || (() => null)
     this._partition = options.partition || DEFAULT_PARTITION
+    this._showFallbackTimeout = Number.isFinite(options.showFallbackTimeout) && options.showFallbackTimeout > 0
+      ? options.showFallbackTimeout : 3000
     this._window = null
     this._authorizationUrl = null
     this._closedPromise = Promise.resolve()
@@ -127,10 +129,26 @@ class IdentityAuthWindow {
     }
     this._closeHandler = { window, settle: settleClosed }
 
-    window.once('ready-to-show', () => {
-      if (this._window === window && !window.isDestroyed?.()) window.show()
+    // 兜底展示：ready-to-show 依赖远端授权页完成首帧，网络缓慢时可能长时间不触发，
+    // 导致「点击登录却毫无反应」。dom-ready / did-finish-load 提前展示，
+    // 并在最长等待后强制展示，保证用户始终能看到登录窗口。
+    let shown = false
+    let fallbackTimer = null
+    const revealWindow = () => {
+      if (shown) return
+      if (this._window !== window || window.isDestroyed?.()) return
+      shown = true
+      if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null }
+      window.show()
+    }
+    window.once('ready-to-show', revealWindow)
+    window.webContents.on('dom-ready', revealWindow)
+    window.webContents.on('did-finish-load', revealWindow)
+    fallbackTimer = setTimeout(revealWindow, this._showFallbackTimeout)
+    window.once('closed', () => {
+      if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null }
+      settleClosed()
     })
-    window.once('closed', settleClosed)
 
     const guardNavigation = (event, targetUrl) => {
       if (this._isAllowedNavigation(targetUrl)) return

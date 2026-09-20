@@ -49,6 +49,21 @@
 - `docs/desktop-ui-layout-spec.md` 新增 **§15 CreateView 列宽与页签合同**（v1.6）；`docs/frontend-interaction-spec.md` 新增 **§10 表单控件与禁用反馈范式**。
 - openspec：新增 change `story2video-detail-visual-refinement`（本次实现）与 `ui-apple-token-retirement`（backlog：全站 `--apple-*` 收敛 + `--color-text-*` 缺暗色槽）。
 
+# [未发布] fix(desktop): Logto 登录窗口延迟修复——认证窗口兜底显示 + discovery fetch 超时 + 点击即时 busy 反馈
+
+### 变更
+- **identity-auth-window.js**：认证窗口不再只依赖 `ready-to-show`。新增 `dom-ready`/`did-finish-load` 提前展示 + 最长 `showFallbackTimeout`（默认 3000ms）兜底强制 `show()`，`revealWindow` 幂等并在展示/关窗时清理定时器，消除「点登录无反应 / 窗口迟迟不出现」。
+- **logto-client.js**：新增 `withFetchTimeout`，为 SDK requester 的 fetch 注入超时（默认 15000ms，可 `fetchTimeoutMs` 覆盖，`<=0` 透传），合并外部 `AbortSignal`；OIDC discovery/token 网络挂起时快速失败而非无限等待。
+- **ProfileMenu.vue**：触发器新增本地 `busy`，未登录点击立即置 busy（`:disabled` + `:aria-busy="loading||busy"` + `.mp-profile-busy` 光标 wait），`finally` 复位；busy 期间守卫防重复触发登录。无新增用户可见文案（locales 不变）。
+
+### 验证
+- 新增 9 条回归测试：`identity-auth-window.test.js` 15 · `logto-client.test.js` 9 · `ProfileMenu.test.js` 19 全绿；身份/存储/窗口/IPC 关联 221 例回归通过；ESLint 改动文件 0 违规。
+
+### 关联
+- 分支 `fix-login-window-latency` · PR auto-merge 待 CI
+- 文档：`01-docs/PRD.md`「Logto 身份登录窗口延迟修复合同（2026-09-20）」
+
+---
 ## [Unreleased] - 2026-09-18 (修复 Agnes 视频生成 taskId 提取漏掉 video_id 导致 task not found)
 
 ### 修复

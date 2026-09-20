@@ -172,9 +172,12 @@ async def _unhandled_exception_handler(request: Request, exc: Exception):
 
 
 # ─── 全局状态 ───────────────────────────────────────────────
-_configured_data_dir = os.environ.get("MULTI_PUBLISH_DATA_DIR", "").strip()
-DATA_DIR = Path(_configured_data_dir).expanduser() if _configured_data_dir else Path(__file__).parent / "data"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
+from data_dir import ensure_data_dir  # noqa: E402
+
+DATA_DIR = ensure_data_dir(
+    os.environ.get("MULTI_PUBLISH_DATA_DIR"),
+    Path(__file__).parent / "data",
+)
 
 _configured_log_dir = os.environ.get("MULTI_PUBLISH_LOG_DIR", "").strip()
 LOG_DIR = Path(_configured_log_dir).expanduser() if _configured_log_dir else DATA_DIR.parent / "logs"

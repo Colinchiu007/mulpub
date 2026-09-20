@@ -481,3 +481,21 @@ test('startPythonBackend 把身份运行时配置注入 Python 后端子进程 e
   expect(opts2.env.IDENTITY_AUTH_ENABLED).toBeUndefined()
   expect(bridge.isRunning()).toBe(true)
 })
+
+test('spawn env MULTI_PUBLISH_DATA_DIR 对尾随空格 ELECTRON_USER_DATA_DIR 归一化（cmd set 陷阱回归保护）', async () => {
+  const prev = process.env.ELECTRON_USER_DATA_DIR
+  process.env.ELECTRON_USER_DATA_DIR = 'D:\\Data\\projects\\Multi-Publish\\shared-user-data '
+  try {
+    mockHealthGet(true)
+    await bridge.startPythonBackend()
+    const [, , opts] = spawnSpy.mock.calls[0]
+    const dataDir = opts.env.MULTI_PUBLISH_DATA_DIR
+    expect(dataDir).toBeTruthy()
+    expect(dataDir.endsWith(' ')).toBe(false)
+    expect(dataDir).not.toMatch(/\s/)
+    expect(dataDir).toBe(require('path').join('D:\\Data\\projects\\Multi-Publish\\shared-user-data', 'backend-data'))
+  } finally {
+    if (prev === undefined) delete process.env.ELECTRON_USER_DATA_DIR
+    else process.env.ELECTRON_USER_DATA_DIR = prev
+  }
+})

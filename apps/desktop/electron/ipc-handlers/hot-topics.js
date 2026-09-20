@@ -65,7 +65,11 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle('hot-topics:fetch', async (_event, payload) => {
     try {
       const force = !!(payload && payload.force)
-      const data = await hotTopicsService.fetchTopics({ force })
+      // 方案E/B：UI 显式指定待补拉分类（空分类「补拉该分类」按钮）；非法项剥离，上限 10
+      const boostCategories = Array.isArray(payload && payload.boostCategories)
+        ? payload.boostCategories.filter(c => typeof c === 'string' && c.length <= 32).slice(0, 10)
+        : []
+      const data = await hotTopicsService.fetchTopics({ force, boostCategories })
       return { code: 0, data }
     } catch (e) {
       logger.error('[hot-topics] fetch failed:', e && e.message ? e.message : String(e))
