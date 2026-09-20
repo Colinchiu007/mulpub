@@ -1,3 +1,18 @@
+# [未发布] fix(desktop): 首页全 0 引导态隐藏「近期动态」消除双空态双按钮，有记录时补「查看全部」入口
+
+### 变更
+- **Home.vue**：近期动态区改为 `v-if="!(statsLoaded && isAllZero)"`——全 0 引导态（home-zero-cta 已展示）时隐藏该区，消除双空态 + 双「立即新建发布」按钮；标题行新增 `.mp-home-recent-head` 包裹，有发布记录时右侧补「查看全部 →」入口跳转 `/publish/history`。
+- **判定**：用 `!(statsLoaded && isAllZero)` 而非 `isAllZero`，保留「缺 electronAPI 优雅降级」既有行为（该场景 statsLoaded=false，近期动态仍显示）。
+- **locales zh/en**：成对新增 `home.viewAllHistory`（查看全部 / View all）。
+
+### 验证
+- Home/i18n/glossary 单测 44/44 通过；check-locale-sync --pair-base / --cjk PASS；像素门禁 home-baseline 本地 1.23% 经 A/B 归因为基线/字体环境漂移（移除本次改动后同样 1.23%），非本次改动引入。
+
+### 关联
+- PR #2107（home-recent-activity-dedup）
+
+---
+
 # [未发布] style(desktop): 采集页精致化——col-panel 渐变面板 + 顶部 ribbon 扫光动效
 
 ### 变更
