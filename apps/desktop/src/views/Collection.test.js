@@ -16,7 +16,7 @@ vi.mock("vue-router", () => ({
 
 function mountCollection(options) {
   return mount(CollectionView, {
-    global: { mocks: { $t: (key) => key }, plugins: [createPinia(), i18n] },
+    global: { plugins: [createPinia(), i18n] },
     ...options,
   });
 }
