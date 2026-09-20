@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const { PNG } = require('pngjs');
 const pixelmatch = require('pixelmatch');
+const { assertBaselineContent } = require('./baseline-content-guard');
 
 const PNG_SIGNATURE = Buffer.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
@@ -123,6 +124,11 @@ class PixelDiffProvider {
 
   async updateBaseline(current, baselinePath) {
     const data = await fs.promises.readFile(current);
+    // 基线入库前内容下限校验：拦截「明显未渲染」的空白截图（事故原型 PR #2075→#2114，
+    // 空白基线会让后续像素对比恒等于自洽）。人工审核后确属空页可用 BASELINE_ALLOW_EMPTY=1 放行。
+    if (process.env.BASELINE_ALLOW_EMPTY !== '1') {
+      assertBaselineContent(data, { label: path.basename(baselinePath) });
+    }
     await fs.promises.mkdir(path.dirname(baselinePath), { recursive: true });
     await fs.promises.writeFile(baselinePath, data);
     return baselinePath;

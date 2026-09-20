@@ -2,8 +2,27 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { PNG } from 'pngjs'
 
 const { VisualTestRunner } = require('./test-runner')
+
+// 含内容区的合法 1920x1080 截图：updateBaseline 现在有基线内容下限守卫
+// （拦截「明显未渲染」的空白截图入库，事故原型 PR #2075→#2114），
+// 假 PNG 签名会被拒解码，mock 必须产出真实可渲染内容。
+function makeContentPng() {
+  const png = new PNG({ width: 1920, height: 1080 })
+  for (let y = 0; y < png.height; y++) {
+    for (let x = 0; x < png.width; x++) {
+      const i = (y * png.width + x) * 4
+      const ink = y > 300 && y < 900 && x > 100 && x < 1800
+      png.data[i] = ink ? 30 : 255
+      png.data[i + 1] = ink ? 27 : 255
+      png.data[i + 2] = ink ? 75 : 255
+      png.data[i + 3] = 255
+    }
+  }
+  return PNG.sync.write(png)
+}
 
 function createRunner(tempDir) {
   const runner = new VisualTestRunner({
@@ -28,9 +47,7 @@ function createRunner(tempDir) {
     evaluate: vi.fn().mockResolvedValue(500),
     screenshot: vi.fn().mockImplementation(async ({ path: outputPath }) => {
       fs.mkdirSync(path.dirname(outputPath), { recursive: true })
-      fs.writeFileSync(outputPath, Buffer.from([
-        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00,
-      ]))
+      fs.writeFileSync(outputPath, makeContentPng())
     }),
   }
   return runner

@@ -170,6 +170,17 @@ jobs:
           node .github/scripts/check-vue-style-parse.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # --- Gate 15b: scoped 样式块裸 :root 选择器门禁（QM-5 回归保护 · PR #2075/#2114 事故反哺） ---
+      # Vue scoped 块中写 :root {} 会编译为 :root[data-v-xxx] 永不匹配 html，
+      # 块内 CSS token 静默失效 → 看板 hero 白字白底隐形，单测与 headless 截图均拦不住。
+      # 本地同口径：node .github/scripts/check-scoped-root.js
+      - name: "Gate 15b - Scoped style block bare :root guard"
+        run: |
+          node --test .github/scripts/check-scoped-root.test.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .github/scripts/check-scoped-root.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       # --- Gate 16: 字号七档（T1-6）---
       # font-size 字面量只降不升（基线模式），应使用 var(--font-size-*) 七档槽
       # 本地同口径：node .github/scripts/check-font-size-scale.js
