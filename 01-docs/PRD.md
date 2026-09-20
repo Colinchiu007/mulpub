@@ -8311,3 +8311,29 @@ is_default: 1
 - rewrite_history（与改写文案重复，需先修 owner 过滤）
 - publish_history（写入端无正文，仅 title）
 - AiWriter 瞬态产物（不落盘）
+
+---
+
+## 2026-09-20 · 配置档案错误展示合同（内联唯一 + 桥接哨兵中文映射）与执行回放录制自愈
+
+> 对应 PR #2092（config-profile 错误提示）、PR #2096（execution-recorder 修复），均已合入 main。
+
+### 一、配置档案（ConfigProfileManager）错误展示合同
+
+**背景**：配置档案面板操作失败时，同一错误曾以「全局 ElMessage.error toast + 控件下方内联文字」双通道重复展示（toast 遮挡且措辞重复）；且在浏览器模式（无 Electron 主进程）下直接把 `electronAPI not available` 等内部桥接哨兵文本透出到 UI。
+
+| 合同 | 要求 |
+|------|------|
+| 错误单通道内联 | 创建/重命名/删除/应用档案等操作失败，错误**仅**在对应控件下方内联展示（`.config-profile-error`），不再弹全局 toast；全部 13 处 `ElMessage.error` 已移除 |
+| 桥接哨兵映射 | `user-facing-error` 工具层将 `electronAPI not available` 等桥接内部文本判定为技术文本，映射为 locales（zh/en 成对）友好中文，UI 不出现英文哨兵/技术细节（本节是 §「用户提示文字与多语言规范（user-facing-messages，2026-08-11）」在配置档案场景的落地扩展） |
+| 回归保护 | 组件层（ConfigProfileManager.test.js 断言无 toast 调用、内联渲染）+ 工具层（哨兵→locale 键映射）双级测试 |
+
+### 二、执行回放录制自愈合同（ExecutionRecorder）
+
+**背景**：`recordEvent` 中 replay 目录被并发删除时的两处自愈分支存在三层缺陷：`const session` 被重新赋值抛 TypeError（事件静默丢失）；第一处分支重建后未更新局部引用（事件写入孤儿 stream，新 JSONL 永远为空）；`startRecording` 对已存在 session 短路（「重启」实为空操作）。
+
+| 合同 | 要求 |
+|------|------|
+| 目录删除自愈 | 录制目录被并发删除时，`recordEvent` 必须先 `stopRecording` 再 `startRecording`（绕过短路），并把局部 `session` 引用更新为新 stream，事件继续写入重建后的 JSONL |
+| 无静默丢失 | 自愈路径不得出现 `Assignment to constant variable` / `Failed to write event` 类错误日志；事件不丢、不写孤儿 stream |
+| 回归保护 | `execution-recorder.test.js` 覆盖两处重启分支（目录删除后重建 + logger 错误断言），Windows 下须等待 stream fd 就绪（waitForFlush）再删目录以规避 rmSync 与异步 open 竞态 |
