@@ -43,8 +43,8 @@
 - ⚠️ 需要测试响应式布局
 
 ## 验证
-- [x] 高保真原型创建 (`dashboard-prototype.html`)
-- [x] Vue 组件代码实现 (`Dashboard.vue`)
+- [x] 高保真原型创建 (`01-docs/prototypes/dashboard-ui-refresh/dashboard-prototype.html`)
+- [x] Vue 组件代码实现 (正式实现：`apps/desktop/src/views/Dashboard.vue`；原型快照：`01-docs/prototypes/dashboard-ui-refresh/Dashboard.vue.sample`)
 - [ ] 本地应用手动验证
 - [ ] E2E 测试通过
 - [ ] 视觉回归测试
