@@ -111,9 +111,18 @@
       </div>
     </section>
 
-    <!-- 近期动态 -->
-    <section class="mp-home-recent" data-testid="mp-home-recent">
-      <h3 class="mp-home-section-title">{{ t('home.recentActivity') }}</h3>
+    <!-- 近期动态：全 0 引导态由上方 home-zero-cta 承担，此处隐藏避免双空态双按钮 -->
+    <section v-if="!(statsLoaded && isAllZero)" class="mp-home-recent" data-testid="mp-home-recent">
+      <div class="mp-home-recent-head">
+        <h3 class="mp-home-section-title">{{ t('home.recentActivity') }}</h3>
+        <button
+          v-if="recentItems.length > 0"
+          type="button"
+          class="mp-home-recent-viewall"
+          data-testid="home-recent-viewall"
+          @click="go('/publish/history')"
+        >{{ t('home.viewAllHistory') }}</button>
+      </div>
       <EmptyState
         v-if="recentItems.length === 0"
         class="mp-home-recent-empty"
@@ -525,6 +534,25 @@ onUnmounted(() => {
 /* 近期动态 */
 .mp-home-recent {
   margin-bottom: 32px;
+}
+
+.mp-home-recent-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mp-home-recent-viewall {
+  border: none;
+  background: transparent;
+  color: var(--color-primary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.mp-home-recent-viewall:hover {
+  text-decoration: underline;
 }
 
 .mp-home-recent-list {

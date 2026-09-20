@@ -1017,6 +1017,7 @@ export default {
     supportedPlatforms: '支持平台',
     recentActivity: '近期动态',
     emptyRecent: '暂无发布记录，开始你的第一次发布吧！',
+    viewAllHistory: '查看全部',
     todo: {
       expired: '登录失效 {count}',
       failed: '失败任务 {count}',
