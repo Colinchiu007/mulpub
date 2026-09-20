@@ -18,6 +18,7 @@ on:
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened, labeled, unlabeled]
+  workflow_dispatch:  # 必需保留，用于手动触发质量节拍检查
 
 # 并发控制：同一 PR 多次推送只保留最新一次（避免旧 run 继续占用并发额度）；
 # main push 不取消（保发布链路完整性）。
