@@ -42,7 +42,8 @@ const DEFAULT_USER_DATA_DIR = 'D:\\tmp\\Multi-Publish-debug-profile'
  * @returns {string}
  */
 function resolveUserDataDir(env = process.env) {
-  return env.ELECTRON_USER_DATA_DIR || DEFAULT_USER_DATA_DIR
+  const configured = typeof env.ELECTRON_USER_DATA_DIR === 'string' ? env.ELECTRON_USER_DATA_DIR.trim() : ''
+  return configured || DEFAULT_USER_DATA_DIR
 }
 
 module.exports = { buildElectronArgs, resolveUserDataDir, DEFAULT_USER_DATA_DIR }

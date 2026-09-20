@@ -226,3 +226,13 @@ describe('account-state-restorer', () => {
     expect(restorer.getAccountRecord('douyin', 'acct-shared', 'user-b')).not.toBeNull()
   })
 })
+
+  it('ELECTRON_USER_DATA_DIR 带尾随空格时仍写入规范目录（cmd set 陷阱回归保护）', () => {
+    userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'multi-publish-state-'))
+    process.env.ELECTRON_USER_DATA_DIR = userDataDir + ' '
+    restorer.init()
+    restorer.saveAccountRecord({ accountId: 'acct-space', platform: 'douyin', accountInfo: { name: 'S' } })
+    const statePath = path.join(userDataDir, 'accounts', 'state.jsonl')
+    expect(fs.existsSync(statePath)).toBe(true)
+    expect(fs.existsSync(userDataDir + ' ' + path.sep + 'accounts')).toBe(false)
+  })

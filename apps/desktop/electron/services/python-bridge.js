@@ -50,7 +50,11 @@ function getBackendDir () {
  * 获取用户 profile 目录（用于将后端数据目录绑定到用户数据，跨 worktree 持久化）
  */
 function resolveUserDataDir () {
-  if (process.env.ELECTRON_USER_DATA_DIR) return process.env.ELECTRON_USER_DATA_DIR
+  // 防御 cmd `set VAR=val &` 形态吞入的尾随空格：
+  // 未 trim 时 path.join 会把空格挤到路径中间（shared-user-data \\backend-data），
+  // 导致 python-backend mkdir 崩溃、mainBackend 显示已停止。
+  const configured = typeof process.env.ELECTRON_USER_DATA_DIR === 'string' ? process.env.ELECTRON_USER_DATA_DIR.trim() : ''
+  if (configured) return configured
   try {
     const electron = require('electron')
     if (electron?.app && typeof electron.app.getPath === 'function') return electron.app.getPath('userData')
