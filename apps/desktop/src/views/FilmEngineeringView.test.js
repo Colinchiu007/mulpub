@@ -88,7 +88,7 @@ describe('FilmEngineeringView configuration profiles', () => {
     composable.status.value = { available: false, error: 'kit missing', filmMeta: null, sceneCount: 0, shotCount: 0, referenceCount: 0 }
     const wrapper = mountView()
     await nextTick()
-    const retry = wrapper.find('.fe-actions el-button')
+    const retry = wrapper.find('.fe-actions button')
     expect(retry.exists()).toBe(true)
     await retry.trigger('click')
     expect(composable.refreshAll).toHaveBeenCalledTimes(2)

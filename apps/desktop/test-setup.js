@@ -291,7 +291,9 @@ try {
       'el-dropdown-menu': { template: '<ul class="el-dropdown-menu"><slot></slot></ul>' },
       'el-dropdown-item': { template: '<li class="el-dropdown-item"><slot></slot></li>' },
       'el-scrollbar': { template: '<div class="el-scrollbar"><slot></slot></div>' },
-      'el-popover': { template: '<div class="el-popover"><slot></slot></div>' },
+      // 真实 el-popover 始终渲染 #reference 触发器（如服务状态摘要）；stub 必须同时渲染
+      // reference 具名插槽与默认插槽，否则依赖 #reference 的组件在单测中取不到触发元素。
+      'el-popover': { template: '<div class="el-popover"><slot name="reference"></slot><slot></slot></div>' },
       'el-tooltip': { template: '<span class="el-tooltip"><slot></slot></span>' },
       'el-switch': { template: '<span class="el-switch"><slot></slot></span>' },
       'el-slider': { template: '<div class="el-slider"><slot></slot></div>' },
