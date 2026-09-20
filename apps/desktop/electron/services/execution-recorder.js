@@ -168,6 +168,7 @@ class ExecutionRecorder {
         this.startRecording(projectId);
         const newSession = this._sessions.get(projectId);
         if (!newSession) return;
+        session = newSession; // 重启后指向新会话，后续写入使用新流
       }
     } catch (e) {
       log.error('ExecutionRecorder', 'Failed to check replay dir: ' + e.message);
