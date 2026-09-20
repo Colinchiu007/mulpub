@@ -6,6 +6,9 @@ import { setActivePinia, createPinia } from "pinia";
 vi.mock("element-plus", () => ({
   ElMessage: { warning: vi.fn(), success: vi.fn(), error: vi.fn(), info: vi.fn() },
   ElMessageBox: { confirm: vi.fn().mockResolvedValue(undefined) },
+  ElDialog: {
+    template: '<div class="el-dialog"><slot></slot></div>',
+  },
 }));
 
 const pushSpy = vi.fn();
