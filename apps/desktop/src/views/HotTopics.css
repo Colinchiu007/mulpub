@@ -22,7 +22,7 @@
   margin-bottom: 20px;
 }
 
-/* 流光装饰条 */
+/* 流光装饰条 - 使用独立命名避免与骨架屏冲突 */
 .cohere-page-header::before {
   content: '';
   position: absolute;
@@ -31,10 +31,10 @@
   width: 100%;
   height: 3px;
   background: linear-gradient(90deg, transparent, #5149e8, transparent);
-  animation: shimmer 3s infinite;
+  animation: header-ribbon 3s infinite;
 }
 
-@keyframes shimmer {
+@keyframes header-ribbon {
   0%, 100% { transform: translateX(-100%); }
   50% { transform: translateX(100%); }
 }
