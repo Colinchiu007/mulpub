@@ -3,9 +3,16 @@
    从 CreateView.vue <style scoped> 抽取，代码-设计分离
    ============================================ */
 
-/* 流水线启动页：整页 flex 纵向布局；为固定操作条预留底部安全空间。 */
-.create-page { padding: 24px 32px; max-width: 1080px; margin: 0 auto; min-height: 100%; display: flex; flex-direction: column; }
-.create-page--pipeline-detail { height: 100%; min-height: 0; overflow: hidden; padding-bottom: 0; }
+/* 流水线启动页：整页 flex 纵向布局；为固定操作条预留底部安全空间。
+   列宽稳定性（BUGFIX-CREATE-PAGE-WIDTH，2026-09-20）：父容器 .cohere-main 是
+   flex column（App.vue），本元素又用了左右 auto margin。flex 交叉轴上的 auto
+   margin 会抑制 align-self: stretch，使本元素宽度退化为 fit-content(max-content)
+   —— 列宽由「最宽的子元素」决定，而不是设计意图的 1080px。表现为右侧大片死白、
+   整页视觉散乱。显式声明 width: 100% 后，列宽只由 max-width 与容器宽度决定，
+   与内容解耦。与 cohere-design-system.css 的 .rewrite-page 同源修复范式。
+   box-sizing 已由 cohere-design-system.css 的 *,*::before,*::after 全局 reset 提供。 */
+.create-page { width: 100%; padding: 24px 32px; max-width: 1080px; margin: 0 auto; min-height: 100%; display: flex; flex-direction: column; }
+.create-page--pipeline-detail { height: 100%; min-height: 0; min-width: 0; overflow: hidden; padding-bottom: 0; }
 
 /* 流水线选择视图：放宽容器以支持多列动态布局（宽屏 4-5 列） */
 .create-page--pipeline-list { max-width: 1600px; }
@@ -14,6 +21,8 @@
   .create-page--pipeline-list { max-width: calc(100% - 64px); }
 }
 .page-header { margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--hairline, rgba(0,0,0,0.06)); }
+/* 详情页已有 .back-btn 提供返回语义，顶部导航箭头与之重复，详情态隐藏去重。 */
+.create-page--pipeline-detail .page-header-nav { display: none; }
 .page-header-nav { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
 .nav-arrow-btn { width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border, #dcdfe6); border-radius: 8px; background: var(--surface, #fff); cursor: pointer; font-size: var(--font-size-base); color: var(--text, #333); transition: all 0.15s ease; }
 .nav-arrow-btn:hover:not(:disabled) { border-color: var(--primary, #409eff); color: var(--primary, #409eff); background: rgba(37,99,235,0.04); }
@@ -27,20 +36,27 @@
 .detail { opacity: 0.7; }
 .btn-install { padding: 4px 12px; border: 1px solid var(--warning); border-radius: 4px; background: transparent; color: var(--warning); cursor: pointer; font-size: var(--font-size-xs); margin-left: auto; }
 .install-log { padding: 8px 12px; background: var(--bg); border-radius: 4px; font-size: var(--font-size-xs); font-family: monospace; max-height: 100px; overflow-y: auto; margin-bottom: 16px; white-space: pre-wrap; }
-.story2video-text-count { margin: 8px 0 0; color: var(--text-muted); font-size: var(--font-size-xs); text-align: right; padding: 4px 8px; background: var(--bg, rgba(0,0,0,0.02)); border-radius: 4px; display: inline-block; }
+/* 字符计数：内嵌到 textarea 右下角槽位，随接近上限升级状态色 */
+.story2video-text-count { position: absolute; right: var(--spacing-3, 12px); bottom: var(--spacing-2, 8px); margin: 0; color: var(--color-text-muted, var(--text-muted)); font-size: var(--font-size-xs); font-variant-numeric: tabular-nums; padding: 2px 6px; background: var(--surface, #fff); border-radius: 4px; pointer-events: none; line-height: 1.4; }
+.story2video-text-count.is-warning { color: var(--color-warning, #b45309); }
+.story2video-text-count.is-danger { color: var(--color-danger, #ef5757); font-weight: 600; }
 
 /* 视图切换 */
-.view-tabs { display: flex; gap: 4px; margin-bottom: 24px; padding: 4px; background: var(--surface, #f8f9fa); border-radius: 10px; border: 1px solid var(--hairline, rgba(0,0,0,0.06)); }
+/* 视图切换：tab 数量可变（当前 3 个），用 flex:1 1 0 自适应等分，禁止硬编码栅格列数 */
+.view-tabs { display: flex; gap: 4px; width: 100%; margin-bottom: 24px; padding: 4px; background: var(--surface, #f8f9fa); border-radius: var(--radius-md, 10px); border: 1px solid var(--hairline, rgba(0,0,0,0.06)); }
 .view-tab {
+  flex: 1 1 0; min-width: 0; text-align: center;
   padding: 10px 22px; border: none; background: none; cursor: pointer;
   font-size: var(--font-size-sm); color: var(--text-muted); border-radius: 8px;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); font-weight: 500; position: relative;
+  transition: color 0.2s cubic-bezier(0.33, 1, 0.68, 1), background-color 0.2s cubic-bezier(0.33, 1, 0.68, 1), box-shadow 0.2s cubic-bezier(0.33, 1, 0.68, 1);
+  font-weight: 500; position: relative;
 }
 .view-tab:hover:not(.active) { color: var(--text); background: var(--bg, rgba(0,0,0,0.03)); }
+.view-tab:focus-visible { outline: 2px solid var(--color-primary, #5048E5); outline-offset: 2px; }
+/* 激活态不再用 transform: scale()（会触发重排抖动，且与底部指示条位移打架） */
 .view-tab.active {
   color: var(--primary); background: var(--surface, #fff);
-  box-shadow: 0 1px 4px rgba(0,0,0,0.1); font-weight: 600;
-  transform: scale(1.02);
+  box-shadow: var(--shadow-float, 0 1px 4px rgba(0,0,0,0.1)); font-weight: 600;
 }
 .view-tab.active::after {
   content: ""; position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%);
@@ -92,8 +108,11 @@
 .view-pane { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .pipeline-detail { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .pipeline-detail-scroll { flex: 1; overflow-y: auto; min-height: 0; padding-bottom: 24px; }
-.back-btn { background: none; border: 1px solid var(--border); color: var(--primary); cursor: pointer; font-size: var(--font-size-sm); padding: 6px 14px; border-radius: 6px; margin-bottom: 16px; transition: all 0.15s ease; display: inline-flex; align-items: center; gap: 4px; }
+/* align-self: flex-start —— 本元素处于 flex column 的 .pipeline-detail 中，
+   默认 align-items: stretch 会把按钮拉成通栏灰条（视觉散乱主因之一）。 */
+.back-btn { align-self: flex-start; background: none; border: 1px solid var(--border); color: var(--primary); cursor: pointer; font-size: var(--font-size-sm); padding: 6px 14px; border-radius: var(--radius-sm, 6px); margin-bottom: var(--spacing-4, 16px); transition: background-color 0.15s ease, border-color 0.15s ease; display: inline-flex; align-items: center; gap: 4px; }
 .back-btn:hover { background: var(--surface); border-color: var(--primary); }
+.back-btn:focus-visible { outline: 2px solid var(--color-primary, #5048E5); outline-offset: 2px; }
 .detail-header { margin-bottom: 20px; padding: 16px 20px; background: var(--surface, #fff); border-radius: 10px; border: 1px solid var(--hairline, rgba(0,0,0,0.06)); }
 .detail-header h2 { font-size: var(--font-size-lg); margin: 0 0 6px; font-weight: 700; letter-spacing: -0.01em; }
 .detail-desc { color: var(--text-muted); font-size: var(--font-size-sm); margin: 0; line-height: 1.5; }
@@ -144,8 +163,9 @@
 .orchestration-progress .progress-bar { flex: 1; width: auto; }
 .elapsed-text { font-size: var(--font-size-xs); color: var(--text-muted, #888); white-space: nowrap; }
 .orchestration-summary { margin-bottom: 10px; padding: 8px 12px; background: var(--banner-success-bg); color: var(--banner-success-text); border-radius: 6px; font-size: var(--font-size-sm); font-weight: 600; }
-.reset-options-link { margin-left: 12px; border: none; background: none; color: var(--text-muted, #888); font-size: var(--font-size-xs); cursor: pointer; text-decoration: underline; }
-.reset-options-link:hover { color: var(--primary); }
+/* 辅助操作：过去降级为下划线灰文字，可点击性不可见；现由模板改用 .s2v-btn-ghost，
+   本类仅保留作为历史钩子（不再施加 underlined muted 样式）。 */
+.reset-options-link { margin-left: 0; }
 .orchestration-attention { margin: 0; color: var(--banner-attention-text); font-size: var(--font-size-sm); }
 
 /* 分镜素材自选等待态（2026-08-13）：引导横幅 + 就近面板 + 等待文案 */
@@ -157,13 +177,16 @@
 .s2v-scene-asset-panel-attention { box-shadow: 0 0 0 3px var(--primary); animation: s2v-panel-pulse 1s ease 2; }
 @keyframes s2v-panel-pulse { 0%, 100% { box-shadow: 0 0 0 3px var(--primary); } 50% { box-shadow: 0 0 0 6px rgba(124, 92, 191, 0.35); } }
 
-/* 输入区域 */
-.input-section { margin-bottom: 24px; }
-.input-section h3 { font-size: var(--font-size-base); margin: 0 0 12px; }
-.input-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
-.input-tab { padding: 6px 16px; border: 1px solid var(--border); border-radius: 20px; background: var(--surface); cursor: pointer; font-size: var(--font-size-sm); }
-.input-tab.active { background: var(--primary); color: white; border-color: var(--primary); }
-.input-area { }
+/* 输入区与 detail-header 同规格卡片化，统一表面处理 */
+.input-section { margin-bottom: var(--spacing-6, 24px); padding: var(--spacing-5, 20px); background: var(--color-bg-card, var(--surface, #fff)); border: 1px solid var(--color-border, var(--hairline, rgba(0,0,0,0.06))); border-radius: var(--radius-lg, 16px); }
+.input-section h3 { font-size: var(--font-size-md, var(--font-size-base)); font-weight: 700; color: var(--color-text-strong, var(--text)); margin: 0 0 var(--spacing-3, 12px); }
+.input-tabs { display: flex; flex-wrap: wrap; gap: var(--spacing-2, 8px); margin-bottom: var(--spacing-3, 12px); }
+.input-tab { padding: 6px 16px; border: 1px solid var(--border); border-radius: var(--radius-pill, 20px); background: transparent; cursor: pointer; font-size: var(--font-size-sm); color: var(--text-muted); transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease; }
+.input-tab:hover:not(.active) { color: var(--text); border-color: var(--primary); }
+.input-tab:focus-visible { outline: 2px solid var(--color-primary, #5048E5); outline-offset: 2px; }
+/* 激活态从「实心主色 + 白字」降级为浅底描边，不再压过底部主 CTA */
+.input-tab.active { background: var(--color-primary-light, rgba(80,72,229,0.08)); color: var(--color-text-strong, var(--text)); border-color: var(--color-primary, #5048E5); font-weight: 600; }
+.input-area { position: relative; }
 .form-textarea { width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; font-size: var(--font-size-sm); font-family: inherit; line-height: 1.6; resize: vertical; box-sizing: border-box; background: var(--surface, #fff); transition: border-color 0.15s, box-shadow 0.15s; }
 .form-textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(64,158,255,0.12); }
 .story2video-estimate { margin-top: 8px; font-size: var(--font-size-sm); color: var(--text-muted); line-height: 1.5; padding: 8px 12px; background: var(--bg, rgba(0,0,0,0.02)); border-radius: 6px; border-left: 3px solid var(--primary, rgba(64,158,255,0.4)); }
@@ -190,7 +213,11 @@
 .s2v-active-config-label { font-weight: 600; color: var(--text-primary, #1D1D1F); }
 .s2v-active-config-name { color: var(--primary, #2563eb); font-weight: 600; overflow-wrap: anywhere; }
 
-.s2v-config-section { border: 1px solid var(--hairline, rgba(0,0,0,0.08)); border-radius: 10px; background: var(--surface); overflow: hidden; transition: border-color 0.2s ease; }
+.s2v-config-section { border: 1px solid var(--hairline, rgba(0,0,0,0.08)); border-radius: 10px; background: var(--surface); overflow: hidden; transition: border-color 0.2s ease, box-shadow 0.2s cubic-bezier(0.33, 1, 0.68, 1); animation: s2v-reveal 0.32s cubic-bezier(0.33, 1, 0.68, 1) both; animation-delay: calc(var(--stagger-index, 0) * 0.08s); }
+.s2v-config-section:hover { box-shadow: var(--shadow-float, 0 1px 4px rgba(0, 0, 0, 0.1)); }
+/* 入场动效：本 PR 自建（main 上尚无统一 Staggered Reveal 基座）。--stagger-index 由模板
+   以 v-for 下标写入，只允许非负整数；只动画 transform/opacity，不动画布局属性。 */
+@keyframes s2v-reveal { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 .s2v-config-section[open] { border-color: var(--primary, rgba(64,158,255,0.3)); }
 .s2v-section-summary { display: flex; align-items: center; gap: 12px; padding: 14px 16px; cursor: pointer; list-style: none; font-weight: 700; font-size: var(--font-size-sm); transition: background 0.15s ease; }
 .s2v-section-summary:hover { background: var(--bg, rgba(0,0,0,0.02)); }
@@ -240,9 +267,12 @@
 .config-item label { display: block; font-size: var(--font-size-sm); font-weight: 600; margin-bottom: 4px; }
 .config-item-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; margin-top: 6px; }
 .config-item-inline .form-range { flex: 1 1 120px; min-width: 80px; }
-.form-select, .form-input { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: var(--font-size-sm); box-sizing: border-box; background: var(--surface, #fff); transition: border-color 0.15s, box-shadow 0.15s; }
-.form-select:focus, .form-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(64,158,255,0.12); }
-.form-range { width: 100%; }
+.form-select, .form-input { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm, 6px); font-size: var(--font-size-sm); box-sizing: border-box; background-color: var(--surface, #fff); color: var(--text); transition: border-color 0.15s, box-shadow 0.15s; }
+/* 原生 select 零定制会露出系统默认箭头，与品牌紫不同源；统一重绘箭头并预留右侧间距。 */
+.form-select { padding-right: 30px; cursor: pointer; appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%239898a8' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; }
+.form-select:focus, .form-input:focus { outline: none; border-color: var(--color-primary, #5048E5); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary, #5048E5) 14%, transparent); }
+/* 兼容未迁移的原生滑条（作用域限定在 .create-page，不外溢到 AI 写作等其它视图） */
+.create-page input[type="range"], .form-range { width: 100%; accent-color: var(--color-primary, #5048E5); }
 .voice-slot-hint p { margin: 0; }
 .voice-clone-panel { display: grid; gap: 8px; min-width: 0; }
 .voice-clone-panel > label { margin-bottom: 0; }
@@ -324,9 +354,15 @@
 .s2v-batch-item-cancel { flex-shrink: 0; }
 .s2v-batch-error { margin: 0; padding: 8px 12px; border-radius: 8px; background: var(--status-failed-bg, #ffebe9); color: var(--status-failed-text, #d1242f); font-size: var(--font-size-sm); line-height: 1.5; overflow-wrap: anywhere; }
 
-/* 流水线启动页底部操作条：脱离内容流并固定在主工作区底部。 */
-.action-bar { flex-shrink: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 12px; min-height: var(--pipeline-action-bar-space, 88px); padding: 14px 0; border-top: 1px solid var(--hairline, rgba(0,0,0,0.06)); background: var(--surface, #fff); }
-.action-bar > div { min-width: 0; }
+/* 流水线启动页底部操作条：随内容正常流停留在底部（§2.1.6 合同，不回退为 fixed）。
+   视觉分组：主 CTA 靠左、辅助操作靠右 —— 由 .action-bar > div 提升为 flex 容器后，
+   内层 .action-bar-aux 用 margin-left: auto 右推，不再靠 justify-content 全局右对齐。 */
+.action-bar { flex-shrink: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--spacing-3, 12px); min-height: var(--pipeline-action-bar-space, 88px); padding: 14px 0; border-top: 1px solid var(--hairline, rgba(0,0,0,0.06)); background: var(--surface, #fff); }
+.action-bar > div { flex: 1 1 auto; display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-3, 12px); min-width: 0; }
+.action-bar-aux { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-2, 8px); }
+.action-bar .unavailable-hint { flex-basis: 100%; margin: 0; text-align: right; }
+/* 启动阻塞原因常驻提示：占位固定，出现/消失不引起操作条高度跳动 */
+.s2v-start-hint { flex-basis: 100%; margin: 0; min-height: 18px; color: var(--color-text-secondary, var(--text-muted)); font-size: var(--font-size-xs); line-height: 18px; overflow-wrap: anywhere; }
 .s2v-options-toast { position: relative; margin: 0; bottom: auto; left: auto; right: auto; z-index: 10; width: 100%; font-size: var(--font-size-xs); color: var(--banner-success-text); background: var(--banner-success-bg); border: 1px solid var(--banner-success-text); border-radius: 6px; padding: 8px 12px; white-space: normal; overflow-wrap: anywhere; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); animation: s2v-toast-fade 1.6s ease-in-out both; }
 
 /* 统一流水线进度弹窗（CreateView + HotTopics 共用 Sticky Header + 自动滚动契约）；内容随 .ui-modal-body 滚动，阶段列表不再嵌套第二个滚动容器 */
@@ -352,8 +388,9 @@
 @keyframes s2v-toast-fade { 0% { opacity: 0; } 12% { opacity: 1; } 85% { opacity: 1; } 100% { opacity: 0; } }
 .voice-clone-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; border: none; background: transparent; font-size: var(--font-size-sm); font-weight: 600; cursor: pointer; padding: 2px 0; }
 .voice-clone-toggle-icon { font-size: var(--font-size-xs); color: var(--text-muted, #888); }
-.btn-start { padding: 12px 32px; font-size: var(--font-size-base); font-weight: 600; border-radius: 8px; letter-spacing: 0.02em; transition: all 0.2s ease; box-shadow: 0 2px 8px rgba(64,158,255,0.2); }
-.btn-start:hover { box-shadow: 0 4px 16px rgba(64,158,255,0.3); transform: translateY(-1px); }
+.btn-start { padding: 12px 32px; font-size: var(--font-size-base); font-weight: 600; border-radius: 8px; letter-spacing: 0.02em; transition: box-shadow 0.2s cubic-bezier(0.33, 1, 0.68, 1), transform 0.2s cubic-bezier(0.33, 1, 0.68, 1); box-shadow: 0 2px 8px rgba(80, 72, 229, 0.2); }
+.btn-start:hover:not(:disabled) { box-shadow: 0 4px 16px rgba(80, 72, 229, 0.3); transform: translateY(-1px); }
+.btn-start:focus-visible { outline: 2px solid var(--color-primary-dark-tint, #7b74ff); outline-offset: 2px; }
 .running-controls { display: flex; flex-wrap: wrap; gap: 8px; }
 .progress-inline { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .progress-bar { height: 8px; background: var(--stage-sub-bar-bg); border-radius: 4px; overflow: hidden; width: 120px; }
@@ -405,6 +442,15 @@
   .s2v-options-toast { left: 84px; bottom: calc(var(--pipeline-action-bar-space-mobile, 136px) + 12px); max-width: calc(100vw - 100px); }
   .action-bar .running-controls, .action-bar > div:first-of-type { width: 100%; }
   .btn-start { width: 100%; }
+  /* 窄屏下横向滚动优先于等分压缩，避免 tab 文案被挤到截断 */
+  .view-tab { flex: 1 0 auto; }
+}
+/* 动效降级：关闭入场/悬停位移，保留状态色差异（可访问性硬要求） */
+@media (prefers-reduced-motion: reduce) {
+  .s2v-config-section { animation: none; }
+  .s2v-config-section:hover { box-shadow: none; }
+  .btn-start:hover:not(:disabled) { transform: none; }
+  .view-tab, .input-tab, .back-btn, .s2v-section-summary::before { transition: none; }
 }
 @media (min-width: 721px) and (max-width: 900px) {
   .action-bar { left: 68px; padding-inline: max(20px, calc((100vw - 68px - 1080px) / 2 + 32px)); }

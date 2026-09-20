@@ -7,18 +7,18 @@
 .s2v-btn-primary {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   padding: 10px 24px; border: none; border-radius: 8px;
-  background: var(--primary, #409eff); color: #fff;
+  background: var(--color-primary, #5048E5); color: #fff;
   font-size: var(--font-size-sm); font-weight: 600; cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 2px 8px rgba(64,158,255,0.2);
+  box-shadow: 0 2px 8px rgba(80,72,229,0.2);
   white-space: nowrap;
 }
 .s2v-btn-primary:hover:not(:disabled) {
   background: var(--primary-hover, #337ecc);
-  box-shadow: 0 4px 16px rgba(64,158,255,0.3);
+  box-shadow: 0 4px 16px rgba(80,72,229,0.3);
   transform: translateY(-1px);
 }
-.s2v-btn-primary:active:not(:disabled) { transform: translateY(0); box-shadow: 0 1px 4px rgba(64,158,255,0.15); }
+.s2v-btn-primary:active:not(:disabled) { transform: translateY(0); box-shadow: 0 1px 4px rgba(80,72,229,0.15); }
 .s2v-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
 
 /* 次要按钮（取消、重试等辅助操作） */
@@ -30,8 +30,8 @@
   transition: all 0.15s ease; white-space: nowrap;
 }
 .s2v-btn-secondary:hover:not(:disabled) {
-  border-color: var(--primary, #409eff); color: var(--primary, #409eff);
-  background: rgba(64,158,255,0.04);
+  border-color: var(--color-primary, #5048E5); color: var(--color-primary, #5048E5);
+  background: rgba(80,72,229,0.04);
 }
 .s2v-btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
 
@@ -44,7 +44,7 @@
   transition: all 0.15s ease; white-space: nowrap;
 }
 .s2v-btn-ghost:hover:not(:disabled) {
-  color: var(--primary, #409eff); background: rgba(64,158,255,0.06);
+  color: var(--color-primary, #5048E5); background: rgba(80,72,229,0.06);
 }
 .s2v-btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
 
@@ -65,14 +65,14 @@
 /* 恢复按钮（暂停/失败任务恢复） */
 .s2v-btn-resume {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  padding: 6px 14px; border: 1px solid var(--primary, #409eff); border-radius: 6px;
-  background: rgba(64,158,255,0.04); color: var(--primary, #409eff);
+  padding: 6px 14px; border: 1px solid var(--color-primary, #5048E5); border-radius: 6px;
+  background: rgba(80,72,229,0.04); color: var(--color-primary, #5048E5);
   font-size: var(--font-size-xs); font-weight: 600; cursor: pointer;
   transition: all 0.15s ease; white-space: nowrap;
 }
 .s2v-btn-resume:hover:not(:disabled) {
-  background: var(--primary, #409eff); color: #fff;
-  box-shadow: 0 2px 8px rgba(64,158,255,0.2);
+  background: var(--color-primary, #5048E5); color: #fff;
+  box-shadow: 0 2px 8px rgba(80,72,229,0.2);
 }
 .s2v-btn-resume:disabled { opacity: 0.5; cursor: not-allowed; }
 
@@ -86,7 +86,7 @@
   border-radius: 6px; background: var(--surface, #fff); color: var(--text-muted, #666);
   cursor: pointer; transition: all 0.15s ease; font-size: var(--font-size-sm);
 }
-.s2v-btn-icon:hover { border-color: var(--primary, #409eff); color: var(--primary, #409eff); }
+.s2v-btn-icon:hover { border-color: var(--color-primary, #5048E5); color: var(--color-primary, #5048E5); }
 
 /* 焦点样式 */
 .s2v-btn-primary:focus-visible,
@@ -94,7 +94,7 @@
 .s2v-btn-ghost:focus-visible,
 .s2v-btn-danger:focus-visible,
 .s2v-btn-resume:focus-visible {
-  outline: 2px solid var(--primary, #409eff);
+  outline: 2px solid var(--color-primary, #5048E5);
   outline-offset: 2px;
 }
 
