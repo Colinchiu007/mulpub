@@ -129,12 +129,12 @@ onMounted(() => { loadAll() })
 }
 .copy-library-header h1 {
   margin: 0 0 4px;
-  font-size: 22px;
+  font-size: var(--font-size-lg);
 }
 .copy-library-subtitle {
   margin: 0 0 16px;
   color: var(--color-text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-sm);
 }
 .copy-library-toolbar {
   display: flex;
@@ -155,7 +155,7 @@ onMounted(() => { loadAll() })
   border-radius: 4px;
   background: transparent;
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
 }
 .copy-library-filter-btn.active {
   border-color: var(--color-primary);
@@ -166,7 +166,7 @@ onMounted(() => { loadAll() })
   border: 1px solid var(--color-border);
   border-radius: 4px;
   min-width: 220px;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
 }
 .copy-library-state {
   color: var(--color-text-secondary);
@@ -192,7 +192,7 @@ onMounted(() => { loadAll() })
   gap: 8px;
 }
 .copy-library-origin-badge {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   padding: 1px 8px;
   border-radius: 10px;
   white-space: nowrap;
@@ -204,14 +204,14 @@ onMounted(() => { loadAll() })
 .copy-library-origin-badge.is-video { color: var(--color-info-text); }
 .copy-library-title {
   font-weight: 600;
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .copy-library-content {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   color: var(--color-text-primary);
   display: -webkit-box;
   -webkit-line-clamp: 3;
@@ -220,7 +220,7 @@ onMounted(() => { loadAll() })
   white-space: pre-line;
 }
 .copy-library-meta {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
 }
 </style>

@@ -59,7 +59,7 @@ onBeforeUnmount(() => {
 .ui-toast {
   padding: 12px 16px;
   border-radius: var(--r-sm, 8px);
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
 }
 .ui-toast-success { background: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; }

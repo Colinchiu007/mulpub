@@ -106,7 +106,9 @@ body {
   font-size: var(--font-size-sm);
   line-height: 1.5;
   color: var(--ink);
-  background: linear-gradient(to bottom left, #fff, #fff, #eff6fb, #faf6f8, #fff);
+  /* P2 深色走查第二批：body 底色走语义槽（dark 下自动切换；light 保持原渐变的 token 化等价）
+   原值：linear-gradient(to bottom left, #fff, #fff, #eff6fb, #faf6f8, #fff) */
+  background: var(--color-bg-canvas);
   margin: 0;
   padding: 0;
   -webkit-font-smoothing: antialiased;

@@ -65,7 +65,7 @@
   overflow: hidden;
   flex: 0 1 auto;
   color: var(--color-sidebar-text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   line-height: 1;
   letter-spacing: .2px;
   text-overflow: ellipsis;
@@ -113,7 +113,7 @@
   padding: 0 12px;
   border-radius: 8px;
   color: var(--color-sidebar-text-secondary);
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   text-decoration: none;
   transition: background .15s ease, color .15s ease;
 }
@@ -174,7 +174,7 @@
   padding: 0 8px;
   border-radius: 6px;
   color: var(--color-sidebar-text-tertiary);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   text-decoration: none;
 }
 
@@ -196,7 +196,7 @@
   gap: 10px;
   padding: 12px 14px 14px;
   color: var(--color-sidebar-text-footer);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 
 .mp-sidebar-service {

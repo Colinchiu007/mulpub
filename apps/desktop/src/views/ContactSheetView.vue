@@ -246,21 +246,21 @@ onBeforeUnmount(() => {
 .contact-sheet-page { padding: 24px; max-width: 1200px; margin: 0 auto; }
 .cs-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
 .cs-header-left { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.back-link { font-size: 13px; color: #909399; text-decoration: none; }
+.back-link { font-size: var(--font-size-sm); color: #909399; text-decoration: none; }
 .back-link:hover { color: #409eff; }
-.cs-title { font-size: 22px; font-weight: 700; margin: 0; }
-.cs-progress { font-size: 13px; color: #909399; padding: 4px 10px; background: #f0f0f0; border-radius: 10px; }
+.cs-title { font-size: var(--font-size-lg); font-weight: 700; margin: 0; }
+.cs-progress { font-size: var(--font-size-sm); color: #909399; padding: 4px 10px; background: #f0f0f0; border-radius: 10px; }
 .cs-loading, .cs-error { text-align: center; padding: 48px; color: #909399; }
-.text-muted { font-size: 13px; color: #c0c4cc; }
+.text-muted { font-size: var(--font-size-sm); color: #c0c4cc; }
 .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #e4e7ed; border-top-color: #409eff; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 8px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .scene-list { display: flex; flex-direction: column; gap: 16px; }
-.scene-approval-card { background: #fff; border: 1px solid #e4e7ed; border-radius: 12px; padding: 16px; transition: border-color 0.2s; }
+.scene-approval-card { background: var(--color-bg-card); border: 1px solid #e4e7ed; border-radius: 12px; padding: 16px; transition: border-color 0.2s; }
 .scene-approval-card.awaiting { border-color: #e6a23c; border-width: 2px; }
 .scene-card-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
-.scene-num { font-size: 13px; font-weight: 600; color: #909399; }
-.scene-title { font-size: 16px; font-weight: 600; flex: 1; }
-.scene-status-badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 500; }
+.scene-num { font-size: var(--font-size-sm); font-weight: 600; color: #909399; }
+.scene-title { font-size: var(--font-size-base); font-weight: 600; flex: 1; }
+.scene-status-badge { font-size: var(--font-size-xs); padding: 2px 8px; border-radius: 10px; font-weight: 500; }
 .badge-queued { background: #f0f0f0; color: #909399; }
 .badge-generating { background: #e6f0ff; color: #409eff; }
 .badge-awaiting { background: #fdf6ec; color: #e6a23c; }
@@ -274,16 +274,16 @@ onBeforeUnmount(() => {
 .take-card.selected { border-color: #409eff; background: #ecf5ff; }
 .take-image { width: 100%; height: 120px; object-fit: cover; display: block; }
 .take-meta { padding: 8px; }
-.take-prompt { font-size: 12px; color: #909399; line-height: 1.4; margin-bottom: 4px; max-height: 40px; overflow: hidden; }
-.take-stats { display: flex; gap: 8px; font-size: 11px; }
+.take-prompt { font-size: var(--font-size-xs); color: #909399; line-height: 1.4; margin-bottom: 4px; max-height: 40px; overflow: hidden; }
+.take-stats { display: flex; gap: 8px; font-size: var(--font-size-xs); }
 .take-cost { color: #909399; }
 .take-quality { color: #e6a23c; }
 .scene-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid #f0f0f0; }
 .reject-input { display: flex; gap: 8px; align-items: center; width: 100%; margin-top: 8px; }
-.reject-textarea { flex: 1; padding: 6px 8px; border: 1px solid #dcdfe6; border-radius: 4px; font-size: 13px; resize: vertical; font-family: inherit; }
-.scene-approved { color: #67c23a; font-size: 13px; padding: 8px 0; }
-.scene-rejected { color: #f56c6c; font-size: 13px; padding: 8px 0; }
-.scene-queued { color: #909399; font-size: 13px; padding: 8px 0; }
-.scene-generating { color: #409eff; font-size: 13px; padding: 8px 0; }
-.scene-failed { color: #f56c6c; font-size: 13px; padding: 8px 0; }
+.reject-textarea { flex: 1; padding: 6px 8px; border: 1px solid #dcdfe6; border-radius: 4px; font-size: var(--font-size-sm); resize: vertical; font-family: inherit; }
+.scene-approved { color: #67c23a; font-size: var(--font-size-sm); padding: 8px 0; }
+.scene-rejected { color: #f56c6c; font-size: var(--font-size-sm); padding: 8px 0; }
+.scene-queued { color: #909399; font-size: var(--font-size-sm); padding: 8px 0; }
+.scene-generating { color: #409eff; font-size: var(--font-size-sm); padding: 8px 0; }
+.scene-failed { color: #f56c6c; font-size: var(--font-size-sm); padding: 8px 0; }
 </style>

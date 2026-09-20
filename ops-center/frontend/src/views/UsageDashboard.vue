@@ -10,7 +10,7 @@
       <el-button style="margin-left: 12px" :loading="loading" @click="load">刷新</el-button>
     </div>
 
-    <div v-if="loading" style="padding: 40px; text-align: center; color: #999">加载中...</div>
+    <div v-if="loading" style="padding: 40px; text-align: center; color: var(--color-text-secondary)">加载中...</div>
     <el-empty v-else-if="!summary || !summary.totals || summary.totals.calls === 0" description="尚未收到用量上报（桌面端配置运营后台同步后每 30 分钟上报一次）" />
 
     <template v-else>
@@ -126,13 +126,13 @@ onMounted(load)
 
 <style scoped>
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
-.stat-card { border: 1px solid #e4e7ed; border-radius: 8px; padding: 16px; text-align: center; background: #fff; }
-.stat-value { font-size: 22px; font-weight: 700; color: #303133; }
-.stat-label { font-size: 12px; color: #909399; margin-top: 4px; }
+.stat-card { border: 1px solid var(--color-border-regular); border-radius: 8px; padding: 16px; text-align: center; background: var(--color-bg-canvas); }
+.stat-value { font-size: var(--font-size-lg); font-weight: 700; color: var(--color-text-primary); }
+.stat-label { font-size: var(--font-size-xs); color: var(--color-text-secondary); margin-top: 4px; }
 .trend-chart { display: flex; align-items: flex-end; gap: 6px; height: 150px; overflow-x: auto; }
 .trend-col { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; min-width: 36px; }
 .trend-bars { display: flex; align-items: flex-end; gap: 2px; height: 100%; }
-.trend-bar.ok { width: 10px; background: #409eff; border-radius: 2px 2px 0 0; }
-.trend-bar.fail { width: 10px; background: #f56c6c; border-radius: 2px 2px 0 0; }
-.trend-label { font-size: 10px; color: #909399; margin-top: 4px; white-space: nowrap; }
+.trend-bar.ok { width: 10px; background: var(--color-primary); border-radius: 2px 2px 0 0; }
+.trend-bar.fail { width: 10px; background: var(--color-danger); border-radius: 2px 2px 0 0; }
+.trend-label { font-size: var(--font-size-xs); color: var(--color-text-secondary); margin-top: 4px; white-space: nowrap; }
 </style>

@@ -111,7 +111,7 @@ const editorOptions = {
   border: none;
   background: transparent;
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--muted);
   border-radius: 3px;
   transition: all 0.15s;
@@ -126,7 +126,7 @@ const editorOptions = {
   border: 1px solid var(--border);
   border-radius: 0 0 4px 4px;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   line-height: 1.7;
   resize: vertical;
   background: var(--bg);
@@ -139,7 +139,7 @@ const editorOptions = {
 }
 .article-editor :deep(.ql-editor) {
   min-height: v-bind(height);
-  font-size: 15px;
+  font-size: var(--font-size-base);
   line-height: 1.8;
 }
 .article-editor :deep(.ql-toolbar) {

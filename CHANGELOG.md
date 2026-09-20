@@ -1,16 +1,128 @@
-# [未发布] fix(model-providers): 修复 Agnes-AI 多模态能力显示与能力默认按钮丢失（submitForm 数据链路）
+# [未发布] style(desktop): P2 深色走查第二批——body/mp-shell/Accounts 浅底根因修复 + 16 处浅灰底 token 化（dark 白残留清零）
 
-### 修复
-- **根因**：`useModelProviderCrud.js` 的 `submitForm()` 构造上送数据时，`selectPreset()` 放在 form 顶层的 `capabilities`/`capability_models` 从未写入 `data.config`；用户配置 Agnes-AI API Key 时触发 `PROVIDER_EXISTS` 降级 `updateProvider` 整体替换 config 列，存量能力声明被抹掉 → 模型列表卡片的能力 chips（文字推理/生图/生成视频）与能力默认按钮消失（MiniMax 因能力声明在添加流程前已回填而未受影响）。
-- **修复**：`submitForm()` 在多模态类别下把 form 顶层能力声明合并进 `userConfig`（保守策略：config 已有值时以 config 为准，不被预设静态种子覆盖运营下发值）；存量用户重启应用后由 `_syncPresetCapabilities()` diff-merge 自动回填，无需迁移脚本。
-- **自动获取机制确认**：UI 为纯数据驱动（`v-if="p.capabilities.length > 0"`），新增多模态模型只需在 seeds/运营目录声明能力，能力显示与能力默认按钮自动渲染，零前端代码改动。
-- **回归测试**：新增 4 用例锁定（保存携带能力声明 / PROVIDER_EXISTS 降级不抹掉 / 编辑不丢失 / 不注入空数组覆盖运营值）；TDD 红灯复现 → 绿灯 58/58。
+### 新增
+- **`dark-mode-audit.js`**：本地 playwright 深色审计脚本——vite dev + 强制 `data-theme="dark"` + `elementFromPoint` 网格采样白色残留占比，17 视图自动出报告（`reports/dark-audit/`）。
+
+### 根因修复（审计驱动）
+- **body 硬编码渐变白底**（cohere-design-system.css）：`linear-gradient(#fff,#fff,#eff6fb,#faf6f8,#fff)` → `var(--color-bg-canvas)`——dark 模式下整页底色仍为白色的**总根因**。
+- **`.mp-shell` 硬编码 `#f7f7fb`**（App.vue）→ `var(--color-bg-inset)`。
+- **Accounts 视图整套浅色**（#f4f6fd/#f2f2f5/#f6f7fb）→ token。
+- 全库 `.vue` style 块 **16 处浅灰底**（#fafafd/#f5f5f8/#eef1f6/#f9fafb 等）→ `var(--color-bg-inset)`。
+
+### 审计结果
+- 修复前：17 视图全部 >100% 白残留（启发式含嵌套重复计）→ 定点采样修正后 accounts 34.85% / publish-history 25.87% / 其余 <5%
+- 修复后：**17 视图全部 0-5%，可疑（>15%）清零**
 
 ### 验证
-- `useModelProviderCrud.test.js` 58/58；`model-provider-multimodal.test.js` 26/26；全量 10283 通过（1 个预存资源竞争失败与本次无关，单独跑通过）。
+- 回归 130/130（views-deep/coverage2/Accounts/PublishHistory/shell-mode-6b）；Gate 14/15/16 + CJK PASS
 
 ### 关联
-- PRD：`01-docs/PRD-AGNES-MULTIMODAL-CAPABILITY-DISPLAY-FIX-2026-09-19.md`；承接 PR #1896（Agnes-AI 多模态预设交付）
+- 承接 #2052（第一批：dark 补槽）；P2 深色走查**全部完成**
+
+---
+
+# [未发布] style(desktop): P2 深色模式走查第一批——dark 补 3 高频槽 + 58 处白底残留 token 化
+
+### 变更
+- **tokens.css dark 补槽**：`--color-bg-inset: #1e1e23` / `--color-border: #32323a` / `--color-border-strong: #3d3d46`——此前 dark 主题未覆盖这三个高频槽，深色模式下内嵌背景/边框仍渲染浅色值（视觉突兀）。
+- **.vue style 块 58 处 `background: #fff` → `var(--color-bg-card)`**（全量正则替换，仅动 style 块避免误伤模板）——深色模式下这些组件会渲染刺眼白底。
+- 另修 5 处浅色底残留：BoardStageIndicator / HotTopicsCentralLoading / LogsSettings（#fff1f0→danger-light）/ NavBar / RouteLoadError（#fff8f8→bg-inset）。
+- apple-* 系列槽位（17 个）为 Apple 风格专属独立体系，dark 不覆盖属设计预期，不在本批范围。
+
+### 验证
+- 回归 42/42（views-deep/coverage2/UpgradeModal/icon-usage/shell-mode-6b）；Gate 14/15/16 + CJK PASS
+
+### 关联
+- P2 深色模式全量走查第一批；承接 T1-1（token 唯一来源）+ T1-6（字号/色彩 token 化完成的前提）
+
+---
+
+# [未发布] feat(desktop): T0-6b 壳态互斥——工作台壳态下内嵌 WebContentsView 互斥隐藏（A1 决策）
+
+### 新增
+- **WebviewManager.setShellMode(mode)**：`'workbench'`（工作台壳态）隐藏全部内嵌 WebContentsView（浏览器标签 `_hideAllTabs` + 登录视图 `authViewManager.hide()` + 扫码视图 `qrCodeLogin.hide()`）；`'browser'`（浏览器壳）恢复显示并 `_repositionAll()` 重定位。非法值守卫忽略；同值幂等。
+- **IPC 通道 `page-manager:set-shell-mode`**（webview-manager 注册，withSenderCheck）。
+- **preload 登记链**：`page-manager.js` 暴露 `setShellMode` → `index.bundle.js` 重打包。
+- **渲染层上报**：`App.vue` `watch(isHomeTab)` → `invokePageManager('setShellMode', home ? 'workbench' : 'browser')`（immediate 首帧同步；非 Electron 环境静默）。
+
+### 守卫测试（TDD）
+- 新增 `src/shell-mode-6b.test.js`（7 用例）：静态链路完整性（handler 注册/preload 暴露/bundle 重打/App.vue 上报/view-bounds TOP 参数化）+ WebviewManager 行为（mock：workbench 隐藏三视图、browser 恢复、幂等、非法值忽略）。
+- **测试抓出真 bug**：方法名守卫（`hideCurrentView`/`hideView`）与实际调用（`hide()`）不匹配——互斥会静默失效，已修。
+
+### 验证
+- webview-manager + shell-mode-6a/6b + build-preload + views-deep/coverage2 回归 **72/72**；IPC 桥门禁 396 handlers/387 preload 0 缺口；Gate 15/债务/ESLint PASS
+
+### 关联
+- PRD §T0-6b（A1 互斥决策）；承接 T0-6a（渲染层壳态收敛，PR #1949）
+
+---
+
+# [未发布] style(desktop): T1-2 EP 主题化——el-* 组件变量桥接 tokens.css 语义槽
+
+### 新增
+- `src/styles/ep-theme.css`：Element Plus 组件变量 → tokens.css 语义槽桥接（B1 决策落地）：
+  - 主色：EP 默认 #409eff → `var(--color-primary)`（含 light/dark 全梯度映射）
+  - 语义色（success/warning/danger/error/info）、文本五级、边框三级、填充/背景
+  - 圆角对齐业务档（base 6px）；字号对齐七档（base=sm 13px）
+- `main.js` 导入顺序：EP css → tokens → cohere-design-system → **ep-theme**（覆盖层）。
+
+### 影响
+- 8 个使用 el-button/el-dialog/el-tag 等的视图，EP 组件视觉自动对齐品牌主色（#5048E5）与业务圆角/字号——无需逐组件改样式。
+- 业务按钮仍走 cohere-btn / UiButton（B1 混合策略不变）。
+
+### 验证
+- EP 组件相关回归 337/337（views-deep/coverage2/UpgradeModal/CreateView/PublishHistory）；Gate 14/15/16 PASS
+
+### 关联
+- PRD §T1-2（B1：EP 主题化 + UiButton 混合）；承接 T1-1（tokens 唯一来源）
+
+---
+
+# [未发布] refactor(desktop): T1-4 创作历史三合一收官——删除死代码 CreateHistory.vue
+
+### 变更
+- **三合一现状核查**：收敛实际已完成——CreateView.vue 内嵌历史 tab（`view === 'history'`）使用 CreateViewHistory 组件（695 行现役）；`/create/history` 路由已重定向到 `/create?view=history`。
+- **删除死代码**：`CreateHistory.vue`（300 行）+ `CreateHistory.test.js`——全库无 import 引用（仅 route-registry 注释提及），路由重定向后遗留的孤儿组件。
+- route-registry 注释同步（CreateView 内嵌 CreateViewHistory 表述）。
+
+### 验证
+- CreateViewHistory + history-utils + router 测试 70/70；views-deep/coverage2/CreateView 回归 304/304；Gate 13（路由登记）PASS；Gate 15 PASS；债务熔断 PASS
+
+### 关联
+- PRD §T1-4（三处重叠实现收敛为一个组件 + 一个路由——前两步已由历史提交完成，本 PR 清尾）
+
+---
+
+# [未发布] style(ops-center): T1-7 色彩对齐——新建 tokens.css 语义槽子集 + 166 处硬编码色 token 化
+
+### 新增
+- `ops-center/frontend/src/styles/tokens.css`：与桌面端同源的语义槽子集（EP 对齐值）——语义色/文本色/背景边框/侧边栏四组 + 七档字号；`main.js` 导入。
+
+### 变更
+- 37 个视图 166 处硬编码颜色 → `var(--color-*)`：EP 色板（#909399/#303133/#409eff/#f56c6c/#e6a23c 等）→ 语义槽；灰阶（#888/#999/#666）就近归档；侧边栏深色（#001529/#ffffffb3）→ 侧边栏槽。
+- 仅剩 `#000`（视频预览容器纯黑，合法保留）。
+- 值保持 ops-center 现有 EP 视觉不变——本批只收敛来源，后续品牌统一只改 tokens.css 一处。
+
+### 验证
+- Gate 15（样式解析）PASS；ops-center 测试 13/13；Gate 16 自测 6/6
+
+### 关联
+- 承接 T1-6（ops-center 前端字号已清零）；PRD §T1-7
+
+---
+
+# [未发布] style(desktop): T1-6 字号七档第二批（长尾清零）——128 文件 762 处 font-size token 化
+
+### 变更
+- **desktop src 全量 + ops-center/frontend src 全量**：128 个文件的 font-size 字面量按七档就近映射转 `var(--font-size-*)`。
+- 基线 790 → **28**（-96%）；剩余 28 处为合法保留：48/56px 装饰性大图标位、40px 大标题、`font-size: 0` 布局技巧、12.5px 等个别特殊值（七档无对应）。
+- 大文件代表：PublishHistory（26）/ Publish（26）/ PromptEvalView（23→1）/ FilmEngineeringView（22）/ MemberCenter（18）/ ReplayTimeline（18）/ TagSuggester（18）。
+
+### 验证
+- Gate 16（字号）/ Gate 15（样式解析）/ Gate 14（色彩）/ Gate 7（CJK）/ 债务熔断 / ESLint 全 PASS；核心回归 176/176
+
+### 关联
+- 承接 #2032（第一批，Gate 16 门禁 + Top8 371 处）；T1-6 主体完成
 
 ---
 

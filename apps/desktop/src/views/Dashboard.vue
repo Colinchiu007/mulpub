@@ -2,12 +2,12 @@
   <div>
     <div class="cohere-page-header">
       <div>
-        <div class="page-title">{{ $t('dashboard.pageTitle') }}</div>
-        <div class="page-subtitle">{{ $t('dashboard.pageSubtitle') }}</div>
+        <div class="page-title">数据看板</div>
+        <div class="page-subtitle">各平台发布数据与趋势分析</div>
       </div>
       <div class="page-actions">
         <button class="cohere-btn-secondary" @click="refreshSync" :disabled="syncing">
-          {{ syncing ? $t('dashboard.syncing') : $t('dashboard.refreshData') }}
+          {{ syncing ? '同步中...' : '⟳ 刷新数据' }}
         </button>
       </div>
     </div>
@@ -16,50 +16,27 @@
     <TrialBanner :dismissed="dismissBanner" @upgrade="showUpgradeModal = true" @dismiss="dismissBanner = true" />
 
     <div class="cohere-content">
-      <!-- 统计卡片网格 - 不规则布局 -->
-      <div class="stats-grid">
-        <!-- 大卡片：总发布 (占据 2 列) -->
-        <div class="stat-card large">
+      <!-- 汇总卡片 -->
+      <div class="cohere-stat-grid">
+        <div class="cohere-stat-card">
           <div class="stat-icon">📤</div>
           <div class="stat-value">{{ totalArticles }}</div>
-          <div class="stat-label">{{ $t('dashboard.statPublishedContent') }}</div>
-          <div class="stat-change positive">
-            <span>{{ $t('dashboard.statTrendUp') }}</span>
-            {{ $t('dashboard.statChangeWeek', { percent: 12 }) }}
-          </div>
+          <div class="stat-label">总发布</div>
         </div>
-
-        <!-- 小卡片：阅读 -->
-        <div class="stat-card">
+        <div class="cohere-stat-card">
           <div class="stat-icon"><el-icon><View /></el-icon></div>
           <div class="stat-value">{{ totalViews > 10000 ? (totalViews / 10000).toFixed(1) + '万' : totalViews }}</div>
-          <div class="stat-label">{{ $t('dashboard.statViews') }}</div>
-          <div class="stat-change positive">
-            <span>{{ $t('dashboard.statTrendUp') }}</span>
-            +8.5%
-          </div>
+          <div class="stat-label">总阅读</div>
         </div>
-
-        <!-- 小卡片：评论 -->
-        <div class="stat-card">
+        <div class="cohere-stat-card">
           <div class="stat-icon"><el-icon><ChatDotRound /></el-icon></div>
           <div class="stat-value">{{ totalComments }}</div>
-          <div class="stat-label">{{ $t('dashboard.statComments') }}</div>
-          <div class="stat-change positive">
-            <span>{{ $t('dashboard.statTrendUp') }}</span>
-            +23%
-          </div>
+          <div class="stat-label">评论</div>
         </div>
-
-        <!-- 小卡片：粉丝 -->
-        <div class="stat-card">
+        <div class="cohere-stat-card">
           <div class="stat-icon">👥</div>
           <div class="stat-value">{{ totalFollowers > 10000 ? (totalFollowers / 10000).toFixed(1) + '万' : totalFollowers }}</div>
-          <div class="stat-label">{{ $t('dashboard.statFollowers') }}</div>
-          <div class="stat-change negative">
-            <span>{{ $t('dashboard.statTrendDown') }}</span>
-            -2.1%
-          </div>
+          <div class="stat-label">粉丝</div>
         </div>
       </div>
 
@@ -70,69 +47,44 @@
       </div>
 
       <!-- 发布统计 -->
-      <div v-if="statsData" class="cohere-card dash-mb-md stats-login-panel">
-        <div class="panel-header">
-          <div class="panel-title"><el-icon><TrendCharts /></el-icon> {{ $t('dashboard.panelPublishStats') }}</div>
+      <div v-if="statsData" class="cohere-stat-grid dash-mb-md">
+        <div class="cohere-stat-card">
+          <div class="stat-value">{{ statsData.total }}</div>
+          <div class="stat-label">累计发布</div>
         </div>
-        <div class="stats-grid-small">
-          <div class="stat-card-mini success">
-            <div class="stat-value-mini">{{ statsData.total }}</div>
-            <div class="stat-label-mini">{{ $t('dashboard.statTotalPublished') }}</div>
-          </div>
-          <div class="stat-card-mini success">
-            <div class="stat-value-mini dash-stat-success">{{ statsData.success }}</div>
-            <div class="stat-label-mini">{{ $t('dashboard.statSuccess') }}</div>
-          </div>
-          <div class="stat-card-mini danger">
-            <div class="stat-value-mini dash-stat-danger">{{ statsData.failed }}</div>
-            <div class="stat-label-mini">{{ $t('dashboard.statFailed') }}</div>
-          </div>
-          <div class="stat-card-mini">
-            <div class="stat-value-mini">{{ statsData.successRate || 0 }}%</div>
-            <div class="stat-label-mini">{{ $t('dashboard.statSuccessRate') }}</div>
-          </div>
+        <div class="cohere-stat-card">
+          <div class="stat-value dash-stat-success">{{ statsData.success }}</div>
+          <div class="stat-label">成功</div>
+        </div>
+        <div class="cohere-stat-card">
+          <div class="stat-value dash-stat-danger">{{ statsData.failed }}</div>
+          <div class="stat-label">失败</div>
+        </div>
+        <div class="cohere-stat-card">
+          <div class="stat-value">{{ statsData.successRate || 0 }}%</div>
+          <div class="stat-label">成功率</div>
         </div>
       </div>
 
       <!-- 发布趋势（最近 14 天） -->
-      <div v-if="statsData && statsData.daily && statsData.daily.length > 0" class="cohere-card dash-panel trend-panel">
-        <div class="dash-panel-title">
-          <el-icon><TrendCharts /></el-icon> 
-          {{ $t('dashboard.trendTitle') }}
-          <span class="panel-subtitle">{{ $t('dashboard.trendPeriod') }}</span>
-        </div>
-        <div class="dash-trend-track" ref="trendChart">
-          <div v-for="(d, index) in last14Days" :key="d.date" 
-               :style="{ animationDelay: (0.2 + index * 0.05) + 's' }"
-               class="dash-trend-col">
-            <div class="dash-trend-bar" 
-                 :style="{
-                   height: Math.max(4, (d.total / dailyMax) * 160) + 'px',
-                   background: d.total > 0 ? 'linear-gradient(to top, var(--lavender-primary), var(--lavender-accent))' : 'var(--color-border)',
-                   opacity: d.total > 0 ? 0.7 + (d.total / dailyMax) * 0.3 : 0.3
-                 }"
-                 :data-value="d.total">
-              <span class="bar-tooltip">{{ $t('dashboard.articleCount', { count: d.total }) }}</span>
-            </div>
+      <div v-if="statsData && statsData.daily && statsData.daily.length > 0" class="cohere-card dash-panel">
+        <div class="dash-panel-title"><el-icon><TrendCharts /></el-icon> {{ $t('dashboard.trendTitle') }}</div>
+        <div class="dash-trend-track">
+          <div v-for="d in last14Days" :key="d.date" :title="d.date + ': ' + d.total + ' 篇'" class="dash-trend-col">
+            <div class="dash-trend-bar" :style="{width:'100%', height: Math.max(4, (d.total / dailyMax) * 60) + 'px', background: d.total > 0 ? 'var(--color-danger)' : 'var(--color-border)', opacity: d.total > 0 ? 0.7 + (d.total / dailyMax) * 0.3 : 0.3}"></div>
             <span class="dash-trend-date">{{ d.date.slice(5) }}</span>
           </div>
         </div>
       </div>
 
       <!-- 平台分布 -->
-      <div v-if="statsData && platformStats.length > 0" class="cohere-card dash-panel platform-panel">
-        <div class="dash-panel-title">
-          <el-icon><DataLine /></el-icon> 
-          {{ $t('dashboard.platformDistTitle') }}
-        </div>
+      <div v-if="statsData && platformStats.length > 0" class="cohere-card dash-panel">
+        <div class="dash-panel-title"><el-icon><DataLine /></el-icon> {{ $t('dashboard.platformDistTitle') }}</div>
         <div class="dash-dist-list">
-          <div v-for="p in platformStats" :key="p.platform" 
-               :style="{ animationDelay: (0.3 + platformStats.indexOf(p) * 0.1) + 's' }"
-               class="dash-dist-row animate-on-scroll">
+          <div v-for="p in platformStats" :key="p.platform" class="dash-dist-row">
             <span class="dash-dist-name">{{ platformName(p.platform) }}</span>
             <div class="dash-dist-track">
-              <div class="dash-dist-fill" 
-                   :style="{ width: (p.total / maxPlatformTotal) * 100 + '%', animationDelay: (0.3 + platformStats.indexOf(p) * 0.1) + 's' }"></div>
+              <div class="dash-dist-fill" :style="{width: (p.total / maxPlatformTotal) * 100 + '%'}"></div>
             </div>
             <span class="dash-dist-count">{{ p.total }} 篇</span>
           </div>
@@ -154,17 +106,9 @@
       </div>
 
       <!-- 各平台数据 -->
-      <div class="cohere-section-title dash-section-header">
-        <el-icon><DataLine /></el-icon> 
-        各平台数据
-      </div>
-      <EmptyState v-if="platformData.length === 0" 
-                  :title="$t('emptyStates.dashboard.title')" 
-                  :description="$t('emptyStates.dashboard.message')">
+      <div class="cohere-section-title">各平台数据</div>
+      <EmptyState v-if="platformData.length === 0" :title="$t('emptyStates.dashboard.title')" :description="$t('emptyStates.dashboard.message')">
         <template #icon><el-icon><DataLine /></el-icon></template>
-        <template #actions>
-          <button class="btn-primary" @click="refreshSync">立即同步</button>
-        </template>
       </EmptyState>
       <div v-else class="cohere-card-grid dash-grid-280">
         <div v-for="item in platformData" :key="item.platform" class="cohere-card">
@@ -356,352 +300,26 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
 </script>
 
 <style scoped>
-/* === 奶油·薰衣草配色系统 === */
-:root {
-  --lavender-primary: #7c5cbf;
-  --lavender-light: #f8f4ff;
-  --lavender-accent: #f472b6;
-  --deep-purple: #1e1b4b;
-}
-
-/* === 统计卡片网格 - 不规则布局 === */
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  grid-template-rows: auto auto;
-  gap: var(--space-md);
-  margin-bottom: var(--space-xl);
-}
-
-.stat-card {
-  background: white;
-  border-radius: var(--radius-lg);
-  padding: var(--space-lg);
-  box-shadow: var(--shadow-sm);
-  transition: all 0.4s cubic-bezier(0.33, 1, 0.68, 1);
-  position: relative;
-  overflow: hidden;
-  animation: fadeInUp 0.6s cubic-bezier(0.33, 1, 0.68, 1) forwards;
-  opacity: 0;
-}
-
-.stat-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 4px;
-  background: linear-gradient(90deg, var(--lavender-primary), var(--lavender-accent));
-  opacity: 0;
-  transition: opacity 0.3s cubic-bezier(0.33, 1, 0.68, 1);
-}
-
-.stat-card:hover {
-  transform: translateY(-4px);
-  box-shadow: var(--shadow-lg);
-}
-
-.stat-card:hover::before {
-  opacity: 1;
-}
-
-.stat-card.large {
-  grid-column: span 2;
-  background: linear-gradient(135deg, var(--deep-purple) 0%, #4a3f8f 100%);
-  color: white;
-}
-
-.stat-card.large::before {
-  display: none;
-}
-
-.stat-card.large:hover {
-  transform: scale(1.02);
-}
-
-.stat-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: var(--radius-md);
+.dashboard-login-gate {
   display: flex;
   align-items: center;
-  justify-content: center;
-  font-size: 24px;
-  margin-bottom: var(--space-md);
-  background: var(--lavender-light);
+  justify-content: space-between;
+  gap: var(--space-md, 16px);
+  padding: 12px 16px;
+  margin-bottom: var(--space-md, 16px);
+  border: 0.5px solid var(--border-secondary, rgba(0, 0, 0, 0.3));
+  border-radius: var(--border-radius-lg, 12px);
+  background: var(--bg-secondary, #f6f6f4);
 }
-
-.stat-card.large .stat-icon {
-  background: rgba(255, 255, 255, 0.2);
-  backdrop-filter: blur(10px);
-}
-
-.stat-value {
-  font-size: 42px;
-  font-weight: 900;
-  letter-spacing: -0.02em;
-  margin-bottom: var(--space-xs);
-  font-family: 'JetBrains Mono', monospace;
-}
-
-.stat-card.large .stat-value {
-  font-size: 56px;
-}
-
-.stat-label {
-  font-size: 14px;
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
-.stat-card.large .stat-label {
-  color: rgba(255, 255, 255, 0.8);
-}
-
-.stat-change {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
-  border-radius: var(--radius-full);
-  font-size: 12px;
-  font-weight: 600;
-  margin-top: var(--space-sm);
-}
-
-.stat-change.positive {
-  background: rgba(16, 185, 129, 0.1);
-  color: var(--success);
-}
-
-.stat-change.negative {
-  background: rgba(239, 68, 68, 0.1);
-  color: var(--error);
-}
-
-/* === 发布统计面板 === */
-.stats-login-panel {
-  animation: fadeInUp 0.6s cubic-bezier(0.33, 1, 0.68, 1) 0.1s backwards;
-  opacity: 0;
-}
-
-.panel-header {
-  margin-bottom: var(--space-md);
-  padding-bottom: var(--space-sm);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.panel-title {
-  font-weight: 600;
-  font-size: 16px;
-  color: var(--deep-purple);
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-}
-
-.panel-subtitle {
-  font-size: 12px;
-  color: var(--text-secondary);
-  font-weight: 400;
-  margin-left: var(--space-sm);
-}
-
-.stats-grid-small {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: var(--space-md);
-}
-
-.stat-card-mini {
-  background: var(--cream-surface);
-  border-radius: var(--radius-md);
-  padding: var(--space-md);
-  text-align: center;
-  transition: all 0.3s cubic-bezier(0.33, 1, 0.68, 1);
-}
-
-.stat-card-mini:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
-}
-
-.stat-card-mini.success {
-  background: rgba(16, 185, 129, 0.05);
-}
-
-.stat-card-mini.danger {
-  background: rgba(239, 68, 68, 0.05);
-}
-
-.stat-value-mini {
-  font-size: 28px;
-  font-weight: 700;
-  font-family: 'JetBrains Mono', monospace;
-  margin-bottom: 4px;
-}
-
-.stat-label-mini {
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-/* === 趋势图表 === */
-.trend-panel {
-  animation: fadeInUp 0.6s cubic-bezier(0.33, 1, 0.68, 1) 0.2s backwards;
-  opacity: 0;
-}
-
-.dash-trend-track {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  height: 200px;
-  padding: var(--space-md) 0;
-  overflow-x: auto;
-}
-
-.dash-trend-col {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  min-width: 40px;
-}
-
-.dash-trend-bar {
-  width: 100%;
-  max-width: 40px;
-  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-  transition: all 0.3s cubic-bezier(0.33, 1, 0.68, 1);
-  position: relative;
+.gate-hint { font-size: var(--font-size-sm); color: var(--text-primary, #25252b); }
+.gate-sign-in {
+  padding: 6px 16px;
+  border: none;
+  border-radius: 8px;
+  background: var(--brand-primary, #534ab7);
+  color: #fff;
+  font-size: var(--font-size-sm);
   cursor: pointer;
-  animation: growBar 1s cubic-bezier(0.33, 1, 0.68, 1) forwards;
-  animation-fill-mode: both;
-  opacity: 0;
-}
-
-.dash-trend-bar:hover {
-  filter: brightness(1.1);
-  box-shadow: 0 8px 24px rgba(244, 114, 182, 0.2);
-}
-
-.bar-tooltip {
-  position: absolute;
-  top: -30px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--deep-purple);
-  opacity: 0;
-  transition: opacity 0.3s cubic-bezier(0.33, 1, 0.68, 1);
-}
-
-.dash-trend-bar:hover .bar-tooltip {
-  opacity: 1;
-}
-
-.dash-trend-date {
-  font-size: 11px;
-  color: var(--text-secondary);
-  text-align: center;
-}
-
-/* === 平台分布 === */
-.platform-panel {
-  animation: fadeInUp 0.6s cubic-bezier(0.33, 1, 0.68, 1) 0.3s backwards;
-  opacity: 0;
-}
-
-.dash-dist-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-  padding: var(--space-sm);
-  border-radius: var(--radius-md);
-  transition: all 0.3s cubic-bezier(0.33, 1, 0.68, 1);
-  opacity: 0;
-}
-
-.dash-dist-row.animate-on-scroll {
-  animation: fadeInLeft 0.6s cubic-bezier(0.33, 1, 0.68, 1) forwards;
-}
-
-.dash-dist-row:hover {
-  background: var(--lavender-light);
-}
-
-.dash-dist-track {
-  flex: 1;
-  height: 16px;
-  background: var(--lavender-light);
-  border-radius: var(--radius-full);
-  overflow: hidden;
-}
-
-.dash-dist-fill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--lavender-primary), var(--lavender-accent));
-  border-radius: var(--radius-full);
-  transition: width 1.2s cubic-bezier(0.33, 1, 0.68, 1);
-  animation: fillProgress 1.2s cubic-bezier(0.33, 1, 0.68, 1) forwards;
-  animation-fill-mode: both;
-  opacity: 0;
-}
-
-.dash-dist-count {
-  font-weight: 700;
-  color: var(--deep-purple);
-  min-width: 60px;
-  text-align: right;
-  font-size: 14px;
-}
-
-/* === 章节标题 === */
-.dash-section-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  margin-bottom: var(--space-lg);
-  color: var(--deep-purple);
-}
-
-/* === 动画关键帧 === */
-@keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes fadeInLeft {
-  from {
-    opacity: 0;
-    transform: translateX(-20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-@keyframes growBar {
-  from {
-    height: 0;
-  }
-}
-
-@keyframes fillProgress {
-  from {
-    width: 0;
-  }
 }
 
 /* T1-3e：原 25 处内联样式全部类化；颜色一律 var(--color-*)（旧别名 fallback 值
@@ -711,34 +329,20 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
 .dash-stat-success { color: var(--color-success); }
 .dash-stat-danger { color: var(--color-danger); }
 .dash-panel { cursor: default; margin-bottom: var(--space-md); padding: 16px; }
-.dash-panel-title { font-weight: 600; font-size: 14px; margin-bottom: var(--space-md); }
+.dash-panel-title { font-weight: 600; font-size: var(--font-size-sm); margin-bottom: var(--space-md); }
+.dash-trend-track { display: flex; align-items: flex-end; gap: 4px; height: 80px; padding: 0 4px; }
+.dash-trend-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.dash-trend-bar { border-radius: 3px 3px 0 0; transition: height 0.3s; }
+.dash-trend-date { font-size: var(--font-size-xs); color: var(--color-text-muted); white-space: nowrap; }
+.dash-dist-list { display: flex; flex-direction: column; gap: 8px; }
+.dash-dist-row { display: flex; align-items: center; gap: 8px; }
+.dash-dist-name { width: 60px; font-size: var(--font-size-xs); text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
+.dash-dist-track { flex: 1; height: 16px; background: var(--color-border); border-radius: 8px; overflow: hidden; }
+.dash-dist-fill { height: 100%; background: var(--color-danger); border-radius: 8px; opacity: 0.8; transition: width 0.3s; }
+.dash-dist-count { width: 50px; text-align: right; font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .dash-fail-note { font-size: var(--font-size-xs); color: var(--color-danger); }
 .dash-grid-280 { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
 .dash-bench-row { display: flex; gap: var(--space-sm); margin-bottom: var(--space-md); align-items: center; }
-.dash-bench-input { flex: 1; font-size: 14px; }
+.dash-bench-input { flex: 1; font-size: var(--font-size-sm); }
 
-/* 响应式 */
-@media (max-width: 1024px) {
-  .stats-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  
-  .stat-card.large {
-    grid-column: span 2;
-  }
-}
-
-@media (max-width: 768px) {
-  .stats-grid {
-    grid-template-columns: 1fr;
-  }
-  
-  .stat-card.large {
-    grid-column: span 1;
-  }
-  
-  .stats-grid-small {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
 </style>

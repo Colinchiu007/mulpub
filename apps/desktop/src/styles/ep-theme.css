@@ -1,0 +1,54 @@
+/*
+ * Element Plus 主题映射（T1-2，B1 决策：EP 主题化 + 业务按钮 UiButton 混合）
+ * 将 EP 组件变量桥接到 tokens.css 语义槽——EP 组件（el-button/el-tag/el-select 等）
+ * 的主色/圆角/字号与业务组件（cohere-* / UiButton）保持一致。
+ * 本文件必须在 element-plus/dist/index.css 与 tokens.css 之后导入。
+ */
+:root {
+  /* 主色桥接：EP 默认 #409eff → tokens --color-primary */
+  --el-color-primary: var(--color-primary);
+  --el-color-primary-light-3: var(--color-primary-dark-tint);
+  --el-color-primary-light-5: var(--color-primary-dark-tint);
+  --el-color-primary-light-7: var(--color-primary-light);
+  --el-color-primary-light-8: var(--color-primary-light);
+  --el-color-primary-light-9: var(--color-primary-light);
+  --el-color-primary-dark-2: var(--color-primary-hover);
+
+  /* 语义色桥接 */
+  --el-color-success: var(--color-success);
+  --el-color-warning: var(--color-warning);
+  --el-color-danger: var(--color-danger);
+  --el-color-error: var(--color-danger);
+  --el-color-info: var(--color-text-secondary);
+
+  /* 文本色桥接 */
+  --el-text-color-primary: var(--color-text-primary);
+  --el-text-color-regular: var(--color-text-secondary);
+  --el-text-color-secondary: var(--color-text-muted);
+  --el-text-color-placeholder: var(--color-text-muted);
+  --el-text-color-disabled: var(--color-text-muted);
+
+  /* 边框桥接 */
+  --el-border-color: var(--color-border);
+  --el-border-color-light: var(--color-border);
+  --el-border-color-lighter: var(--color-border);
+  --el-border-color-hover: var(--color-primary);
+
+  /* 填充/背景桥接 */
+  --el-fill-color: var(--color-bg-hover);
+  --el-fill-color-light: var(--color-bg-inset);
+  --el-fill-color-lighter: var(--color-bg-inset);
+  --el-bg-color: var(--color-bg-canvas);
+  --el-bg-color-overlay: var(--color-bg-canvas);
+  --el-disabled-bg-color: var(--color-bg-inset);
+
+  /* 圆角对齐（EP 默认 4px → 业务 6px 档） */
+  --el-border-radius-base: 6px;
+  --el-border-radius-small: var(--r-xs, 4px);
+  --el-border-radius-round: 999px;
+
+  /* 字号对齐（EP 默认 14px → 七档） */
+  --el-font-size-base: var(--font-size-sm);
+  --el-font-size-small: var(--font-size-xs);
+  --el-font-size-extra-small: var(--font-size-xs);
+}
