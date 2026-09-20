@@ -1,0 +1,120 @@
+/* ========== Staggered Reveal 动效系统 - 2026-09-20 ========== */
+
+/* --- 基础动画关键帧 --- */
+
+@keyframes staggered-reveal-up {
+  0% {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes staggered-reveal-fade {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes staggered-reveal-scale {
+  0% {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes staggered-reveal-slide-right {
+  0% {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* --- 工具类 --- */
+
+/* 启用 staggered reveal（向上显现） */
+.staggered-reveal {
+  animation-fill-mode: both;
+  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  animation-duration: 0.6s;
+  animation-name: staggered-reveal-up;
+}
+
+.staggered-reveal-fade {
+  animation-fill-mode: both;
+  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  animation-duration: 0.4s;
+  animation-name: staggered-reveal-fade;
+}
+
+.staggered-reveal-scale {
+  animation-fill-mode: both;
+  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  animation-duration: 0.5s;
+  animation-name: staggered-reveal-scale;
+}
+
+.staggered-reveal-slide-right {
+  animation-fill-mode: both;
+  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  animation-duration: 0.5s;
+  animation-name: staggered-reveal-slide-right;
+}
+
+/* --- 组合动画（用于复杂场景）--- */
+
+/* 快速 fade + 轻微上移 */
+.staggered-reveal-subtle {
+  animation: staggered-reveal-up 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards,
+             staggered-reveal-fade 0.4s ease-in-out forwards;
+  animation-delay: 0s;
+}
+
+/* 延迟显现（通过 CSS 变量控制） */
+.staggered-reveal-delayed {
+  animation-fill-mode: both;
+  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  animation-duration: 0.6s;
+  animation-name: staggered-reveal-up;
+  animation-delay: calc(var(--stagger-index, 0) * 0.08s);
+}
+
+/* --- 响应式优化 --- */
+
+@media (prefers-reduced-motion: reduce) {
+  .staggered-reveal,
+  .staggered-reveal-fade,
+  .staggered-reveal-scale,
+  .staggered-reveal-slide-right,
+  .staggered-reveal-delayed {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* --- 性能优化 --- */
+
+/* 提示浏览器硬件加速 */
+.staggered-reveal {
+  will-change: transform, opacity;
+}
+
+/* 避免重排 */
+.staggered-reveal-delayed {
+  contain: layout style;
+}
