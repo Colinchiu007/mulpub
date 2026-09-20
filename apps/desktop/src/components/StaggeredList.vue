@@ -18,19 +18,11 @@
   </div>
 </template>
 
-<script setup lang="ts">
-import { computed } from 'vue'
-
-interface StaggeredListProps {
-  items: unknown[]
-  itemComponent?: string
-  itemClass?: string
-}
-
-const props = withDefaults(defineProps<StaggeredListProps>(), {
-  items: () => [],
-  itemComponent: undefined,
-  itemClass: '',
+<script setup>
+const props = defineProps({
+  items: { type: Array, default: () => [] },
+  itemComponent: { type: String, default: undefined },
+  itemClass: { type: String, default: '' },
 })
 </script>
 
@@ -52,13 +44,13 @@ const props = withDefaults(defineProps<StaggeredListProps>(), {
   transform: translateY(-24px);
 }
 
-/* ÑÓ³ÙÏÔÏÖ */
+/* å»¶è¿Ÿæ˜¾ç° */
 .staggered-item {
   animation: staggered-reveal-up 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
   animation-delay: calc(var(--data-item-index, 0) * 0.08s);
 }
 
-/* ÏìÓ¦Ê½ÓÅ»¯ */
+/* å“åº”å¼ä¼˜åŒ– */
 @media (prefers-reduced-motion: reduce) {
   .staggered-enter-active,
   .staggered-leave-active {
