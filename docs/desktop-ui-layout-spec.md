@@ -48,6 +48,8 @@
 | `.mp-workspace` | `min-width: 0; min-height: 0; flex: 1; overflow: auto;` | 内容工作区，独立滚动 |
 | `.fullscreen-main` | `height: 100%; min-height: 0; overflow: auto;` | 全屏路由（如 `/first-run`）独立渲染 |
 
+> ⚠️ **页面级容器宽度陷阱**（详见 §15.2）：`.mp-shell-main` / `.cohere-main` 这类 `flex-direction: column` 容器内，子元素一旦同时写了 `max-width` 与 `margin: 0 auto`，交叉轴上的 auto margin 会抑制默认的 `align-self: stretch`，宽度退化为 `fit-content(max-content)` —— **必须显式 `width: 100%`**。同类缺陷已在本仓库出现两次：`BUGFIX-REWRITE-PAGE-WIDTH`（RewriteView，2026-09-16，修于 `cohere-design-system.css`）与 `BUGFIX-CREATE-PAGE-WIDTH`（CreateView，2026-09-20，修于 `create-view.css`）。
+
 ### 1.3 全屏路由
 
 路由 `/first-run`（首跑引导）为全屏模式，脱离侧边栏和导航壳，独立整屏渲染。由 `isFullScreenRoute` computed 属性控制：
@@ -530,6 +532,7 @@ mainWindow.on('resize', () => {
 | 2026-09-14 | v1.3 | 新增「回到顶部」浮标（BackToTop）完整规格（第 14 章）：挂载与定位 / 显隐与滚动容器 / 数据校验 / 交互逻辑 / 显示项与提示文字 / 视觉规范 / 层级协调 | 分支 `back-to-top-button` |
 | 2026-09-14 | v1.4 | 侧边栏底部用户 banner（§2.5）：登录区由顶部迁移到底部并改为向上展开菜单、「设置」与「⭐ 升级 Pro」迁入菜单、服务连接信息上移至 banner 上方；移除模块导航右上角 4 个占位工具入口（§3.3）；同步 §2.3 / §8.1 / §9.2 / §11 | 分支 `codex/sidebar-footer-user-menu` |
 | 2026-09-15 | v1.5 | 移除发布域快捷标签行（§3.4、§3.2）：发布域路由下模块导航整行不渲染，导航职责归左侧边栏；同步 §2 / §3.1 / §11 | 分支 `codex/remove-publish-quicknav` |
+| 2026-09-20 | v1.6 | 新增 §15 CreateView 列宽与页签合同（`.create-page` 必须显式 `width: 100%`、flex 交叉轴 auto margin 陷阱、`.view-tabs` 等分、`.back-btn` 不通栏、详情页卡片统一、`.action-bar` 分区）；§1.2 补 `BUGFIX-CREATE-PAGE-WIDTH` 同源引用 | 分支 `codex/ui-story2video-detail-polish` |
 
 ## 13. 已知问题修复
 
@@ -719,3 +722,43 @@ mainWindow.on('resize', () => {
 `apps/desktop/src/components/BackToTop.test.js`（12 项，全部通过）：初始不渲染 / 显隐基本流 / 阈值边界（等于不触发）/ 自定义阈值 / 点击回滚参数 / 减少动效降级 / 嵌套滚动容器 / 防重复点击 / 中英双语文案与 `aria-label` / 路由切换重置 / 容器缺失异常路径 / 卸载清理。
 
 其中「阈值边界」「防重复点击」「卸载清理」三项为最易被后续重构破坏的行为契约，作为回归保护重点。
+
+---
+
+## 15. CreateView 列宽与页签合同（2026-09-20 新增）
+
+### 15.1 适用对象
+
+`apps/desktop/src/views/CreateView.vue` + `apps/desktop/src/styles/create-view.css`，覆盖视频创作页的四个视图（流水线列表 / 流水线详情 / 任务编辑 / 历史记录）。
+
+### 15.2 列宽合同（必修项）
+
+| 选择器 | 必需声明 | 缺失后果 |
+|--------|---------|---------|
+| `.create-page` | `width: 100%` + `max-width: 1080px` + `margin: 0 auto` | 父 `.cohere-main` 是 flex column，**交叉轴上的 `margin: 0 auto` 会抑制 `align-self: stretch`**，宽度退化为 `fit-content(max-content)` → 实际列宽由「最宽子元素」决定（实测约 500px），右侧大片死白 |
+| `.create-page--pipeline-detail` | `min-width: 0` | 子项溢出会把 1080px 列撑破 |
+| `.create-page--pipeline-list` | `max-width: 1600px`（宽屏可 `calc(100% - 64px)`） | 列表页刻意放宽，**不适用 1080px 合同** |
+| 全局 | `box-sizing` 不重复声明 | `cohere-design-system.css` 已提供 `*,*::before,*::after` reset；重复声明曾导致内边距双算 |
+
+同类缺陷已出现两次（`RewriteView` 的 `BUGFIX-REWRITE-PAGE-WIDTH` 2026-09-16、本次 `BUGFIX-CREATE-PAGE-WIDTH` 2026-09-20）。**任何新增页面级容器若同时用了 `max-width` 与 `margin: 0 auto`，必须显式 `width: 100%`。**
+
+### 15.3 页签与返回按钮
+
+- `.view-tabs`：`display: flex` + `width: 100%`，子项 `.view-tab { flex: 1 1 0; min-width: 0; text-align: center }`。页签数可变（当前 3），**禁止硬编码栅格列数**（`repeat(4, …)` 在 3 页签下必留 1/4 空灰）。
+- `.view-tab.active`：白底 + `box-shadow` + `font-weight: 600` + 底部指示条；**禁用 `transform: scale()`**（重排抖动 + 与指示条打架）。
+- `.back-btn`：`align-self: flex-start`。否则在 `flex-direction: column` 的 `.pipeline-detail` 中被 `align-items: stretch` 拉成通栏灰条（实测整列宽 → 71px）。
+- 详情页态隐藏顶部 `nav-arrow`（`.create-page--pipeline-detail .page-header-nav { display: none }`），返回入口唯一。
+
+### 15.4 表面处理统一
+
+详情页的 `.detail-header`、`.input-section`、`.s2v-config-section` 三块必须**同规格卡片表面**：`background: var(--color-bg-card)` + `1px solid var(--color-border)` + `border-radius: 12px` + `padding: var(--spacing-5)`。“头部是卡片、输入区是裸 `<h3>`”的混用是「散乱」感的主要来源。
+
+子标题用 `.s2v-card-title`（`--font-size-md` + 暗色感知文字色），字段网格用 `.s2v-field-grid`（`repeat(auto-fit, minmax(280px, 1fr))`）。
+
+### 15.5 操作条分区
+
+`.action-bar`：`gap: var(--spacing-3)`；主/次操作靠左，配置管理操作靠右（`margin-left: auto` 分组）。**不可回退**：§2.1.6（PRD）定义的「正常流底部 + 内层独立滚动」合同——`.action-bar` 必须在 `.pipeline-detail-scroll` 之外，详情页整页不得出现外层滚动条。
+
+### 15.6 窄屏
+
+`@media (max-width: 720px)`：`.action-bar > div` 与 `.action-bar .btn-start` 整行宽；`.view-tab { flex: 1 0 auto }`（横向滚动优先于等分压缩，避免文案被挤截）。选择器必须带 `.action-bar` 限定抬到 (0,2,0)，不因样式表引入顺序而飘移。

@@ -1,0 +1,38 @@
+{
+  "taskSlug": "ui-story2video-refinement-20260920",
+  "title": "故事讲述流水线详情页视觉与交互精致化 —— 落地计划对抗评审",
+  "proposer": {
+    "family": "anthropic-claude",
+    "model": "claude (session main agent)",
+    "role": "出方案方"
+  },
+  "critic": {
+    "family": "openai-gpt",
+    "model": "DEGRADED: 目标 codex CLI 不可用（Get-Command codex 无输出），按 AGENTS.md「子代理降级」硬化条款由主代理以严格角色隔离执行评审方",
+    "role": "评审方",
+    "downgraded": true
+  },
+  "maxRounds": 3,
+  "scoreThreshold": 8.0,
+  "dimensions": [
+    { "name": "completeness", "weight": 0.25 },
+    { "name": "consistency", "weight": 0.20 },
+    { "name": "clarity", "weight": 0.15 },
+    { "name": "feasibility", "weight": 0.25 },
+    { "name": "security", "weight": 0.15 }
+  ],
+  "autoAcceptOnStall": false,
+  "maxL3RejectionsPerRound": 3,
+  "inputPlanPath": "故事讲述流水线页精致化_task-8f8.md",
+  "worktree": "D:/Data/projects/mp-worktrees/mp-ui-story2video-detail-polish",
+  "branch": "codex/ui-story2video-detail-polish",
+  "outputDir": ".adversarial/ui-story2video-refinement-20260920",
+  "reviewFocus": [
+    "D1 provide/inject 绑定机制是否引入第二份状态真相",
+    "D2 令牌双轨是否留下未清偿的设计债",
+    "S2vConfigPanels 抽取是否破坏 s2vOptionVisible / fail-open 语义",
+    "R1 骨架修复对另 3 个视图的连带影响与视觉基线可复现性",
+    "计划中对既有代码事实的假设是否成立"
+  ],
+  "createdAt": "2026-09-20T23:05:00Z"
+}

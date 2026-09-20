@@ -666,3 +666,251 @@ loadPipelineOptions():
 - 选项隐藏后，已配置的值在提交时保留（不参与校验但保留在 s2vConfig 中）。
 - 运营中心前端 `typelabel` 占位符为静态文本，未从 API 动态获取（低优先级）。
 - 发布组独立选项（标题、标签、分辨率等）不在选项目录中，仅通过 `_group` 整组控制。
+
+## 11. 详情页视觉与交互精致化契约（2026-09-20）
+
+> 本章是「故事讲述（story2video-compose）流水线详情页」的**视觉 + UE 实现合同**，
+> 与 §2.1.6 滚动合同、§9 选项控制模块同级。落笔粒度到字段与像素级：任何后续改动若与本章
+> 冲突，必须先改本章再改代码，不允许「代码先行、文档追认」。
+> 范围：**详情页 + 共享骨架**。快速渲染页、历史记录页、流水线列表页的全量精致化不在本章内。
+
+### 11.1 根因溯源（用户感知「粗糙、散乱、不精致」的可验证分解）
+
+| # | 根因 | 证据 | 等级 | 本章小节 |
+|---|------|------|------|---------|
+| R1 | `.create-page` 缺 `width: 100%` → 列宽退化为 `fit-content`，设计列宽 1080px 实测约 500px，右侧大片死白 | `App.vue` 的 `.cohere-main` 为 flex column + `create-view.css` 的 `margin: 0 auto` | **P0** | 11.2 |
+| R2 | `.back-btn` 位于 flex column 的 `.pipeline-detail` 内，被 `align-items: stretch` 拉成通栏灰条 | `create-view.css` `.back-btn` | **P0** | 11.2 |
+| R3 | 全站零原生表单控件定制：`input[type=range]` / `accent-color` / `appearance: none` 在 `apps/desktop/src/styles/` 下 0 命中 → 滑条为浏览器默认亮蓝，与品牌紫冲突；`<select>` 是裸原生控件 | 改动前 `create-view.css` 的 `.form-range` 只有 `width: 100%` 一行 | **P0** | 11.3 / 11.4 |
+| R4 | 令牌/组件双轨：`UiButton/UiSelect/UiInput` 消费 `@deprecated` 的 `--apple-*`（`--apple-accent → #007aff` Apple 蓝），与 `--color-primary: #5048E5` 不同源；详情页混用 `UiButton + .btn-start + .btn-secondary + .reset-options-link + 原生 button` | `UiButton.vue`、`apple-design-tokens.css`、`CreateView.vue` 详情页操作面 | P1 | 11.7 |
+
+次级粗糙源（同批修复）：`.view-tabs` 无宽度约束致尾部空灰；`.input-tab.active` 实心主色胶囊视觉重量压过主 CTA；`.reset-options-link` 把 3 个真实操作降级为下划线灰文字（可点击性不可见）；字符计数游离成灰药丸；`detail-header` 是卡片而「输入内容」是裸 `<h3>`（表面处理不统一）；硬编码文案「点击"启动流水线"即可进行流水线自动多个阶段，不需逐步确认。」语句不通顺。
+
+### 11.2 布局与列宽合同（影响 CreateView 全部视图）
+
+| 选择器 | 合同值 | 不可回退的理由 |
+|--------|--------|---------------|
+| `.create-page` | `width: 100%; max-width: 1080px; margin: 0 auto; padding: 24px 32px; min-height: 100%; display: flex; flex-direction: column` | **flex 交叉轴上的 auto margin 会抑制 `align-self: stretch`**，使宽度退化为 `fit-content(max-content)`——列宽由「最宽子元素」决定而非设计值。`width: 100%` 是唯一稳定解。`box-sizing` 由 `cohere-design-system.css` 的 `*,*::before,*::after` 全局 reset 提供，**禁止在此重复声明**（重复声明曾导致 `.rewrite-page` 内边距双算） |
+| `.create-page--pipeline-detail` | `height: 100%; min-height: 0; min-width: 0; overflow: hidden; padding-bottom: 0` | `min-width: 0` 阻止子项内容把列撑破 1080px 预算；`padding-bottom: 0` 把底部安全空间交给 `.action-bar` |
+| `.create-page--pipeline-list` | `max-width: 1600px`（≥1600px 视口时 `calc(100% - 64px)`） | 列表页刻意放宽以支持多列卡片，**不受 1080px 合同约束** |
+| `.view-tabs` | `display: flex; gap: 4px; width: 100%; padding: 4px`，子项 `.view-tab { flex: 1 1 0; min-width: 0; text-align: center }` | 页签数量可变（当前 3 个），**禁止硬编码栅格列数**（`repeat(4, …)` 在 3 页签下会留 1/4 空灰）。等分用 `flex: 1 1 0 + min-width: 0` 达成，与「容器不溢出 + 文案可截断」同时成立 |
+| `.view-tab.active` | 白底 + `box-shadow: var(--shadow-float)` + `font-weight: 600` + 底部 20×2 指示条 | 移除 `transform: scale(1.02)`：scale 在 flex 行内触发布局抖动，且与指示条位移打架 |
+| `.back-btn` | `align-self: flex-start` + 描边胶囊 | 终止 `align-items: stretch` 的通栏拉伸（实测宽度从整列收敛到 71px） |
+| `.page-header-nav` | 详情页态 `display: none`（`.create-page--pipeline-detail .page-header-nav`） | 顶部返回箭头与详情内 `.back-btn` 语义重复，去重后返回入口唯一 |
+| `.view-pane` / `.pipeline-detail` / `.pipeline-detail-scroll` | `flex: 1; min-height: 0; overflow: hidden` / 内层 `overflow-y: auto` | **§2.1.6 滚动合同的实现基座**：正常流底部 + 内层独立滚动。`.action-bar` 必须在滚动容器之外 |
+| `.action-bar` | `gap: var(--spacing-3)`；主 CTA 靠左，辅助操作组 `margin-left: auto` 靠右 | 操作分级：主/次操作在左、配置管理在右，不再同排混排 |
+| `.detail-header` / `.input-section` / `.s2v-config-section` | **统一卡片表面**：`background: var(--color-bg-card)` + `border: 1px solid var(--color-border)` + `border-radius: 12px` + `padding: var(--spacing-5)` | 「头部是卡片、输入区是裸标题」的混用是散乱感主因；三块同规格后视觉重量可比 |
+| `.s2v-field-grid` | `display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr))` | 替代固定列 `.config-grid`：窄容器自动折行，不出现 120px 挤压 |
+
+### 11.3 新增复用组件契约
+
+#### `UiSlider.vue`（`apps/desktop/src/components/`）
+
+| 维度 | 合同 |
+|------|------|
+| props | `modelValue: Number`（受控，必填）、`min = 0`、`max = 100`、`step = 1`、`label: String`、`suffix: String`、`defaultValue: Number`（缺省回落 `(min+max)/2`）、`disabled: Boolean`、`format: Function`（受控格式化，优先于内置）、`hint: String`、`testid: String` |
+| emits | `update:modelValue`（拖动实时）、`change`（值真正变化时） |
+| 轨道 | 高 4px、`border-radius: var(--radius-full)`、底色 `var(--color-border)`；已填充段用 `linear-gradient(to right, var(--color-primary) 0 var(--pct), var(--color-border) var(--pct) 100%)`；`--pct` 由 computed 写入内联 `:style` —— **这是全页唯一允许的内联样式，且只有数值** |
+| 滑块 | 16px 白底 + `1px solid var(--color-primary)` + `box-shadow: 0 1px 3px rgba(0,0,0,.15)`；`:hover:not(:disabled)` `scale(1.08)`；`:focus-visible` `outline: 2px solid var(--color-primary-dark-tint); outline-offset: 2px` |
+| 值显示 | 与 label 同行、`justify-content: space-between`；`font-variant-numeric: tabular-nums`；小数位数由 `step` 推导（`decimalsFromStep`），**不写死** `toFixed(1)` |
+| 复位 | 双击滑杆轨 → `resetToDefault()`；仅当 `min ≤ defaultValue ≤ max` 才写值并 emit；`disabled` 时直接 return |
+| 键盘 | `↑/→` `+step`、`↓/←` `-step`、`PageUp` `+step*10`、`PageDown` `-step*10`，`End` → `max`；全部经 `normalize()` 做 `clamp` + 步长对齐 |
+| 越界 | `normalize(v)`：非有限数 → `clamp(defaultDisplay, min, max)`；字符串 `'0.8'` → `0.8`；`NaN`/`Infinity` 不写入 |
+| 降级 | `@media (prefers-reduced-motion: reduce)` 关闭 `:hover` 的 `transform` |
+| 令牌 | 只消费 `tokens.css` 的 `--color-*` 与 `cohere-design-system.css` 的暗色感知别名（`--ink` / `--muted`）；**禁止 `--apple-*`** |
+
+#### `UiField.vue`
+
+| 维度 | 合同 |
+|------|------|
+| props | `label`、`hint`、`error`、`optionKey`、`required`、`inline`、`reserveError`（默认 **false**）、`for`（DOM id） |
+| slots | `default`（控件）、`suffix`（值/操作） |
+| 运营隐藏守卫 | `optionKey` 为空 → 始终渲染；非空 → 仅当 `ctx.visible(optionKey)` 为真才渲染。**fail-open 语义不得绕过**：`ctx` 缺失（未被 provide）时 `visible()` 返回 true，避免整块空白 |
+| 错误态 | `aria-invalid="true"` + `.has-error` + `role="alert"` 文案；`reserveError` 为真时固定预留 18px 错误行（见 11.11 偏离 D5） |
+| inline | `inline` → `data-inline="true"`，用 `grid-template-columns: max-content minmax(0,1fr)`，禁用控件列跨 2 列 |
+
+#### `UiSelect.vue` 本次扩展
+
+- 新增 `optionKey` prop：为空 → 不包裹（**向后兼容，既有调用方零改动**）；非空 → 内部套 `UiField`，由 `UiField` 统一处理显隐 + label + hint + 错误位。
+- 新增 `hint` / `error` 透传；`suffix` slot 与 `#option` slot 行为不变。
+- 组件内 `--apple-*` 消费点全部改为 `--color-*` + `--ink`（局部收敛，不动 `apple-design-tokens.css`）。
+- 详情页 **27 个 `<select>` 全量迁移**，迁移后详情页裸 `<select>` 数 = 0（像素探针实测 `bareSelects: 0`）。
+
+### 11.4 控件级显示项 / 取值范围 / 步长 / 默认值（逐字段，与代码同源）
+
+分组归属与顺序严格保持 §9 目录：`basic / visual(外观) / videoEnhance / voice / advanced / publish`。
+
+**滑杆（7 个，全部 `UiSlider`）**
+
+| 显示项 | 绑定字段 | optionKey | min | max | step | 默认 | 后缀 | testid |
+|--------|---------|-----------|-----|-----|------|------|------|--------|
+| 旁白语速 | `s2vConfig.voiceSpeed` | `basic.voiceSpeed` | 0.5 | 2 | 0.1 | 1 | `x` | `s2v-voice-speed` |
+| 旁白音量 | `s2vConfig.voiceVolume` | `basic.voiceVolume` | 0 | 2 | 0.05 | 1 | 无 | `s2v-voice-volume` |
+| 背景音乐音量 | `s2vConfig.bgmVolume` | `voice.bgmVolume` | 0 | 10 | 1 | 5 | 无 | `s2v-bgm-volume` |
+| AI 视频占比（前段） | `s2vConfig.videoFixedRatio` | —（随 `videoMode` 条件渲染） | 10 | 50 | 5 | 25 | `%` | `s2v-video-fixed-ratio` |
+| AI 视频占比下限 | `s2vConfig.videoMinRatio` | — | 5 | 50 | 5 | 20 | `%` | `s2v-video-min-ratio` |
+| AI 视频占比上限 | `s2vConfig.videoMaxRatio` | — | 10 | 80 | 5 | 40 | `%` | `s2v-video-max-ratio` |
+
+- 三个占比滑杆仅在 `videoMode` 命中相应分支时渲染（`fixed` / `ai-judged`），故默认折叠态下 DOM 内 `UiSlider` 数为 3（探针实测 `uiSliders: 3`）。
+- 语速/音量/背景音乐音量三项 `hint` 均挂 `create.story2video.ui.doubleResetHint`。
+- 「旁白试听」按钮读取当前 `voiceSpeed` / `voiceVolume` 实时值，不与滑杆状态分离。
+
+**下拉（27 个，全部 `UiSelect`；仅列 optionKey 守卫项）**
+
+| 显示项 | 绑定字段 | optionKey | 允许值 / 校验 |
+|--------|---------|-----------|--------------|
+| 比例与分辨率 | `activeOutputConfig.resolution` | `basic.resolution` | 运营后台允许枚举；值变化只改输出配置，不触发流水线重置 |
+| 图片风格 | `s2vConfig.imageStyle` | `visual.imageStyle` | `cinematic/realistic/anime/watercolor/minimalist` |
+| 提示词风格 | `s2vConfig.promptStyle` | `visual.promptStyle` | 同上枚举 |
+| 图片动效 | `s2vConfig.imageEffect` | `visual.imageEffect` | `none` + 8 种运镜；`none` 时不产生动效提示 |
+| 转场 | `s2vConfig.transition` | `visual.transition` | `none/fade/slide-left/right/up/down` |
+| 字幕 / 字幕字号 / 字幕样式 | `subtitleEnabled` / `subtitleSize` / `subtitleStyleName` | `visual.subtitle*` | 关闭字幕时下游不渲染字幕轨 |
+| 背景音乐 | `s2vConfig.bgmPath` | `voice.bgm` | 允许「不使用背景音乐」+ 曲库项 + 未入库历史值 |
+| 水印位置 / 字号 / 透明度 | `s2vConfig.watermarkConfig.*` | `visual.watermark*` | 字号 ∈ {16,24,32,40,48}；透明度 ∈ 0.1–1.0（步 0.1）；`moving` 为平滑循环漂移 |
+| 图片生成器 / 视频生成器 / 语音生成器 | `imageProvider` / `videoProvider` / `voiceProvider` | `visual.imageProvider` / — / `voice.voiceProvider` | 由模型能力目录驱动；变更触发 `@change` 能力联动 |
+| 视频增强模式 / 短视频处理 | `videoMode` / `shortVideoHandling` | `videoEnhance.videoMode` / — | 枚举受 `videoMode` 条件约束 |
+| 内容类型 / 分句语言 / 分句模式 | `contentType` / `splitLanguage` / `splitMode` | `advanced.*` | 运营枚举 |
+| 模板分类 / 视频模板 | `s2vTemplateCategory` / `s2vConfig.templateId` | `advanced.template*` | 选模板 → `applyS2VTemplate` 批量写回参数 |
+| 帧率 / 格式 | `activeOutputConfig.fps` / `.format` | `advanced.fps` / `advanced.format` | fps ∈ {24,30,60}；format ∈ {mp4, webm} |
+| 语音模型 / 音色 ID | `s2vConfig.voiceModel` / `voiceId` | —（受服务商能力驱动） | 目录加载失败显示 `inline-error`，不静默吞错 |
+
+**数值输入与开关（保持原生，走 `.form-input` 统一外观）**
+
+| 显示项 | 校验 | 边界 |
+|--------|------|------|
+| 目标字数 | `min="1"`、`max=s2vSceneCharsLimit` | 视图模式 `chars` 时显示 |
+| 目标时长（秒） | `min="1"`、`max=s2vSplitMaxSeconds`、`step="0.5"` | 视图模式 `seconds` 时显示 |
+| 最短场景时长 | 复选框启用 + `min="1" max="60" step="1"` | 未启用时不参与校验、不写入 payload |
+| 分镜粒度视图切换 | `role="group"` + `aria-pressed` | 二选一，不出现双选 |
+
+### 11.5 数据校验规则与边界
+
+1. **数值一律 clamp，不抛错**：`UiSlider.normalize()` 与 `setS2VConfigValue` 组合保证越界值回落区间内；`Infinity` / `NaN` / 空串一律视为非法并回落默认显示值。
+2. **运营显隐优先于用户态**：`s2vOptionVisible(key)` 为 false 时该字段**不渲染**，但其既有值保留在 `s2vConfig` 中（§9.9 行为），提交时不参与校验、仍随配置持久化 —— 防「隐藏即丢数据」。
+3. **枚举值非法回落**：`UiSelect` 的 `v-model` 值不在 `options` 中时显示为浏览器默认首项，不伪造合法值；由 §2.1.1 启动前置校验（`PIPELINE_MODEL_REQUIREMENTS_MISSING`）兜底。
+4. **字符计数上限**：`MAX_STORY2VIDEO_TEXT_CHARACTERS = 6000`；`textarea` 设 `maxlength` 禁止粘贴溢出；计数为**实时 `length`**，无 debounce。
+5. **写路径唯一**：详情页子组件（`S2vConfigPanels.vue`）与父组件共享同一 `s2vConfig` / `s2vOutputConfig` 响应式对象引用，写操作全部经 `v-model` 直绑；**不新增第二数据源、不新建 store、不整体替换对象**（引用稳定性由 `cloneForIpc` / `applyS2VPipelineDefaults` / `pickS2VConfigProfileFields` 三处消费点依赖）。`s2vConfig` 的 `deep: true` watcher 与 `scheduleS2VLastOptionsSave()` 节流语义**逐字节保持不变**。
+6. **折叠面板展开态**：走既有 `ui.expandedGroups` 持久化通道，读取失败 → 回落该组默认展开；不因持久化异常阻塞渲染。
+
+### 11.6 交互逻辑（状态机与反馈）
+
+| 交互 | 合同 |
+|------|------|
+| 启动流水线禁用 | `canStartPipeline === false` 时**不再静默禁用**：按钮 `:disabled` + `:title="pipelineBlockedReason"` + `:aria-describedby="pipeline-blocked-reason"`，并在下方常驻 `.s2v-start-hint`（`data-testid="pipeline-blocked-reason"`，`role="status"`）显示**首条**阻塞原因。原因优先级见 11.8 `blockedReason.*` |
+| 成本/时长预估 | 容器 `.s2v-estimate-slot` 固定 `min-height: 44px`；`s2vEstimateSummary` 为空时显示占位文案而非塌陷 → 防布局跳动 |
+| 折叠分组 | `<details>/<summary>`；`<summary>` 右侧显示 `.s2v-summary` 摘要值，未改动组追加 `（默认）` 后缀；展开态切换即写节流保存 |
+| 配置管理三操作 | 「恢复默认选项 / 保存配置 / 我的配置」由下划线灰文字链接升级为 `.s2v-btn-ghost .s2v-btn-sm`，`data-testid` 全部保持（`reset-story2video-options`、`s2v-config-profile-save`、`s2v-config-profile-manage`） |
+| 输入页签 | `.input-tab` 容器 `role="tablist"`，子项 `role="tab"` + `:aria-selected`；active 态由实心主色降级为浅底描边（不再压过主 CTA） |
+| 入场动效 | `.s2v-config-section` 接入 Staggered Reveal：`style="--stagger-index: n"`（数组下标）+ `animation: s2v-reveal .32s cubic-bezier(0.33,1,0.68,1) both; animation-delay: calc(var(--stagger-index) * 0.08s)`；只动画 `transform` / `opacity` |
+| 卡片悬停 | `.s2v-card:hover` → `translateY(-1px)` + 阴影抬升；`prefers-reduced-motion` 下 `transform: none; box-shadow: none` |
+| 主 CTA 流光 | `.s2v-cta-shimmer::after` 2.6s 循环 `translateX`；`:disabled` 与 `prefers-reduced-motion` 下 `animation: none; opacity: 0`；`pointer-events: none`（不拦截点击） |
+| 焦点 | 所有新增交互元素统一 `:focus-visible` outline；**禁止无替代的 `outline: none`** |
+
+### 11.7 令牌与视觉一致性（D2 决策与其完成态）
+
+**决策**：本批次详情页收敛到 `.s2v-btn-*` 品牌紫体系，**不改 `--color-apple-accent` 取值**。
+理由：改 accent 会一次性改变全站所有 `UiButton` primary 颜色，导致全部视觉基线大面积重跑，把不可控范围混进本 PR。
+
+**已完成收敛（详情页子树内 19 处双轨清零）**
+
+| 位置 | 原实现 | 现实现 |
+|------|--------|--------|
+| 主 CTA「启动流水线」 | `<UiButton class="btn-start">`（Apple 蓝） | `<button class="s2v-btn-primary btn-start s2v-cta-shimmer">` |
+| 「批量创作」 | `<UiButton class="btn-start">` | `<button class="s2v-btn-secondary btn-start s2v-batch-trigger">` |
+| 配置管理三兄弟 | `.reset-options-link` | `.s2v-btn-ghost .s2v-btn-sm` |
+| 运行控制（编辑场景 / 编排暂停 / 恢复 / 暂停 / 确认并继续 / 取消） | 6 个 `UiButton` | `.s2v-btn-secondary` / `.s2v-btn-resume` / `.s2v-btn-primary` / `.s2v-btn-danger` |
+| 分镜素材横幅「去选择素材」 | `UiButton` | `.s2v-btn-primary .s2v-btn-sm` |
+| 音色/背景音乐/模板等次操作 | 12 个 `.btn-secondary`（含 `.danger`） | `.s2v-btn-secondary` / `.s2v-btn-danger`（密集行加 `.s2v-btn-sm`） |
+
+**为什么必须换元素而不是加类**：`UiButton` 的 scoped 样式 `.ui-btn-primary[data-v-x]` 特异性为 (0,2,0)，压过外部 `.s2v-btn-primary` 的 (0,1,0)，加类无效。
+
+**排版承接**：`.s2v-btn-*` 不自带 `margin-top`，故 `video-creation-forms.css` 补 `.config-item > .s2v-btn-secondary { margin-top: 8px }` 与 `.template-editor .s2v-btn-secondary/.s2v-btn-danger { margin-top: 0; min-height: 38px }`，保证「换类名不换排版」。（规则放 forms 文件而非 `create-view.css`，因为后者已 496 行，再加会越过 `check-debt-budget.js` 的 500 行预算线。）
+
+**边界（明确不在本批次）**：弹窗 `UiModal #footer` 内的 `UiButton`（后台运行 / 错误对话框 / 删除确认）属 §6.1 弹窗契约管辖，未改；全站 `UiButton/UiInput` 的 `--apple-* → --color-*` 收敛登记为 backlog change `ui-apple-token-retirement`。同时 `.s2v-btn-primary` 的 fallback 值已从 Element 蓝 `#409eff` 修正为 `var(--color-primary, #5048E5)`。
+
+**特异性确定性**：`.btn-start` / `.s2v-batch-trigger` 全部抬为 `.action-bar X`（0,2,0），不依赖样式表引入顺序 —— 跨文件同优先级「后来者胜」在 Vite 构建顺序变化时会飘移。
+
+### 11.8 提示文字（zh / en 成对，CI Gate 7 硬拦截）
+
+| key（前缀 `create.story2video.ui.`） | zh | en |
+|--------------------------------------|----|----|
+| `doubleResetHint` | 双击滑杆可恢复默认值 | Double-click the slider to restore the default |
+| `sectionDefaultSuffix` | （默认） | ` (default)`（前导空格） |
+| `estimatePlaceholder` | 填写文案后自动预估分镜数、旁白时长与成本 | Scene count, narration duration and cost are estimated once you enter the text |
+| `charLimitWarning` | 接近字数上限 | Close to the character limit |
+| `charLimitReached` | （已达字数上限） | ` (character limit reached)`（前导空格） |
+| `flowGuide` | 配置好参数后点击「启动流水线」，各阶段将自动串联执行，无需逐步确认。 | Once configured, clicking Start Pipeline runs all stages automatically — no step-by-step confirmation needed. |
+| `voiceSpeedLabel` / `voiceVolumeLabel` | 旁白语速 / 旁白音量 | Narration speed / Narration volume |
+| `bgmVolumeLabel` | 背景音乐音量 | Background music volume |
+| `videoFixedRatioLabel` / `videoMinRatioLabel` / `videoMaxRatioLabel` | AI 视频占比（前段）/ AI 视频占比下限 / AI 视频占比上限 | AI video share (opening) / Minimum AI video share / Maximum AI video share |
+| `blockedReason.noText` | 请先输入视频文案 | Enter the script text first |
+| `blockedReason.noPipeline` | 请先选择一条流水线 | Select a pipeline first |
+| `blockedReason.noAsset` | 请先添加素材文件 | Add the required material first |
+| `blockedReason.unavailable` | 该流水线尚未实现执行引擎，暂不能启动 | This pipeline has no execution engine yet |
+| `blockedReason.starting` | 启动请求处理中，请稍候 | Start request is in flight, please wait |
+| `blockedReason.running` | 已有流水线任务在运行中 | A pipeline run is already active |
+| `blockedReason.invalidRange` | 部分数值参数超出允许范围，请检查语速、音量与分镜长度 | Some numeric options are out of range; check speed, volume and scene length |
+
+- 阻塞原因按上表顺序取**首条命中**，与 `canStartPipeline` 判定同源，不允许出现「禁用但无原因」或「原因与实际阻塞项不符」。
+- 术语对齐 `01-docs/i18n-glossary.md`（流水线 / 阶段 / 旁白 / 分镜 沿用既有译法，未另起）。
+- `flowGuide` 取代原硬编码不通顺句；渲染层 `src/`（非 locales）**未新增任何中文字面量**（`--cjk` 扫描 0 新增命中）。
+
+### 11.9 暗色模式与降级合同（本批次实测发现的双轨缺陷）
+
+`tokens.css` 的 `[data-theme="dark"]` 只重定义 31 个槽，**未覆盖** `--color-text-strong` / `--color-text-primary` / `--color-text-secondary` / `--color-text-muted` / `--color-primary-light` / `--color-bg-muted` / `--color-danger` / `--color-warning` / `--color-error`；而 `cohere-design-system.css` 的暗色块提供**暗色感知别名层**：`--ink`（暗 `#e8e8ed`）、`--muted`（`#88889a`）、`--hairline`、`--surface`、`--action-blue/--focus-blue`、`--on-primary`。
+
+**合同**：
+
+1. **文字色一律走别名 + 保留 `--color-*` 作 fallback** —— `var(--ink, var(--color-text-strong))` / `var(--muted, var(--color-text-secondary))`。浅色下 `--ink → --color-text-primary`，与 `--color-text-strong` 同族，**零视觉回归**；暗色下才提亮。
+2. 未定义槽（`--color-text` / `--color-bg-muted`）会导致 invalid-at-computed-value（整条声明失效）→ 必须改为已存在槽：`--color-bg-muted` → `var(--color-bg-inset, #f6f6f8)`。
+3. `.input-tab.active` 的浅底 `--color-primary-light` 无暗色覆盖 → 就地补 `[data-theme="dark"] .input-tab.active { background: color-mix(in srgb, var(--color-primary-dark-tint) 18%, transparent); border-color: var(--color-primary-dark-tint) }` + `:focus-visible { outline-color }`，**不改全局令牌**。
+4. `.s2v-btn-secondary` / `.s2v-btn-ghost` / `.s2v-btn-resume` 的文字与描边在暗色分支单独指定（实测修复：`--text` 暗色下为近黑 `#1a1a1e`，落在 `#232329` 卡片上不可读 → 改 `--ink`/`--muted`/`--color-primary-dark-tint(#7b74ff)`）。浅色分支不写覆盖 → 基线零影响。
+5. **不得用改全局令牌的方式修暗色**：`--color-text-*` 缺暗色槽是设计系统级债务，登记在 `ui-apple-token-retirement`；本批次只做消费点收敛，避免全站视觉回归。
+6. 审计工具：`.agent_context` 内 `_audit_dark.js` 比对 `tokens.css` 暗色槽集合与改动文件消费的 `--color-*`，输出未覆盖清单（暗色核对从「肉眼找」变「脚本清单」）。
+
+`prefers-reduced-motion` 降级汇总：`.s2v-card:hover` 取消位移与阴影、`.s2v-cta-shimmer::after` 停动画并隐藏、`.s2v-config-section` 入场动画关闭、`UiSlider` thumb hover 缩放关闭、`.s2v-btn-*` 取消 `transform` 与 `transition`（保留色彩反馈）。
+
+### 11.10 a11y 合同
+
+| 元素 | 要求 |
+|------|------|
+| 输入页签 | `role="tablist"` + 每项 `role="tab"` + `:aria-selected`；键盘可切换 |
+| 滑杆 | 原生 `<input type="range">`（自带 slider 语义）；无可见 label 时必须 `:aria-label`（三个占比滑杆即此情形）；`:focus-visible` outline |
+| 字段错误 | `aria-invalid="true"` + `role="alert"` 文案 |
+| 启动阻塞 | `:disabled` + `:title` + `:aria-describedby` 指向常驻提示节点 |
+| 状态类提示 | 预估槽 / 阻塞原因 / 音色克隆状态均 `role="status"`（字符计数达上限时亦为 `aria-live="polite"`） |
+| 折叠面板 | 原生 `<details>`（Enter/Space 可切换，无需自研键盘处理） |
+| 视图切换 | `.view-tab:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px }` |
+
+### 11.11 实现偏离登记（与批准计划的字段级差异，均已核验必要）
+
+| # | 计划原文 | 实现终态 | 为什么 |
+|---|---------|---------|--------|
+| D1 | `provide` 一个含 `getConfig/setValue/…` 的 `s2vPanel` 访问器 | 抽取为**同名标识符投影 + 同一响应式对象引用**，不引入 `setValue(path, value)` | `s2vConfig` 的写点已是 `v-model` 直绑；加一层 path setter 需 40+ 代理声明且破坏引用稳定性（11.5 第 5 条）。deep watcher 与保存节流行为逐字节不变 |
+| D2 | `UiField` 错误位「预留固定 18px 行高」 | 默认不预留，`reserveError` 显式开启 | 详情页仅 1 处真用错误态，无条件预留会给 27 个字段各加 18px 空洞，反而制造散乱 |
+| D3 | 旁白音量「值后缀 `%`」 | 保持无后缀，小数位由 `step` 推导 | 该字段是 0–2 线性增益（默认 1），标 `%` 是错误语义；改动会误导用户 |
+| D4 | 折叠态「新增 `s2vOpenSections` 字段并入保存 payload」 | 走既有 `ui.expandedGroups` 通道（已覆盖 6 个分组） | 已核验持久化通道存在且语义等价；新增字段 = 双源真相 |
+| D5 | `view-tabs` → `grid repeat(4, minmax(0,1fr))` | `flex: 1 1 0` 等分 | 实际只有 3 个页签，硬编码 4 列会留 1/4 空灰 —— 正是要修的问题本身 |
+| D6 | 暗色「各一遍」基线 | 像素套件无暗色通道（基线无 dark 命名、runner 不切主题）→ 改为探针注入 `data-theme="dark"` + 截图与计算样式人工核对，并把「缺暗色槽」登记 backlog | 补暗色基线通道是测试基建的独立变更，不该混进本 PR |
+| D7 | 视觉基线路径 `apps/desktop/src/tests/...` 与 `pnpm test:visual:update-baseline` | 真实路径 `apps/desktop/tests/...`；`UPDATE_BASELINE` 对已存在基线**不生效**（只在缺失时创建）→ 须先删后建 | 代码事实；已在 11.12 写进操作合同避免重踩 |
+| D8 | 只改 action-bar 按钮 | 详情页子树 19 处双轨全部收敛（11.7） | 计划 D2 的原文是「详情页主/次/幽灵/危险操作统一」，只改 action-bar 属未做完 |
+
+### 11.12 测试与门禁合同
+
+- 单元：`UiSlider.test.js`（受控 `--pct`、步长、`PageUp/Down`、双击复位、disabled、归一化边界、suffix、reduced-motion）、`UiField.test.js`（optionKey 显隐、fail-open、`aria-invalid`、`reserveError`）、`S2vConfigPanels.test.js`、`UiSelect.test.js`、`story2video-ue-contract.test.js`、`CreateView.test.js` —— **6 文件 329 例全绿为硬门槛**。
+- 像素：`run-pixel-tests.js` 新增 `create-story2video-detail`。该视图无路由可直达（`selectedPipeline` 是组件态），须经 `prepare` 交互钩子：**先点回「流水线创作」页签**（hash 导航不重载文档，前序 `create-history` 用例会把视图留在 history），再点选 `story2video-compose` 卡片，等 `.s2v-config-section` 渲染。
+- 基线重生成两步式（`UPDATE_BASELINE` 不覆盖已有基线）：先删该视图 png，再 `PIXEL_ONLY=<视图名> UPDATE_BASELINE=1`。**禁止全量重生成** —— 会把无关环境差烘进基线抬高 CI 误报（本地实测 home/accounts/dashboard/collection 存在 1.23%~3.53% 漂移）。
+- 阈值：CI GATE-7 用 `PIXEL_THRESHOLD=0.06`；本地默认 0.01 会产生假失败，验证时必须对齐 0.06。
+- 本批次基线：新增 `create-story2video-detail.png`，重生成 `create-editor / create-pipeline / create-history / create-result` 四张（R1 列宽修复的连带影响），逐张肉眼核对；全量 18/18 通过。
+- 门禁清单（全部 rc=0）：`check-vue-style-parse`、`check-color-literals`、`check-font-size-scale`、`check-frontend-consistency`、`check-locale-sync --pair-base/--keys/--cjk`、`verify-worktree-deps`、`check-debt-budget`（`filesOver500` 92 < 基线 93）。
+- 禁止把 `MAX_FILE_LINES` 基线上调：抽取后 `CreateView.vue` 5657 行，只允许继续下降。
+
+### 11.13 验收标准
+
+1. 详情页列宽实测 1080px（1920 视口），右侧无死白；`.back-btn` 宽度为内容宽度而非通栏。
+2. 详情页裸 `<select>` = 0、`UiSelect` = 23（渲染态）、`UiSlider` 配置项 = 7、`UiField` = 23；详情页**按钮与表单面**无 `--apple-*` / `UiButton` 双轨残留（弹窗域 `.gen-video-modal-content` / `.pipeline-progress-modal-content` 仍剩 2 处 `--apple-surface-primary` 背景引用，归 §11.7 边界与 backlog）。
+3. 所有滑杆可拖动/键盘调值/双击复位；旁白试听读取当前值；达上限字符计数转 danger 且 `aria-live` 播报。
+4. 启动按钮禁用时可见首条阻塞原因；预估槽无内容时不塌陷；折叠组摘要 + 「（默认）」后缀正确。
+5. 暗色模式下标题 / label / select 文字 / 按钮文字全部可读（计算样式实测：`rgb(232,232,237)` on `rgb(35,35,41)`）。
+6. `prefers-reduced-motion` 下无位移与循环动画。
+7. §2.1.6 滚动合同不回退：详情页整体不出现整页滚动条，`.pipeline-detail-scroll` 内层独立滚动，`.action-bar` 固定底部。
+8. 单元 329 例、像素 18/18、上述 9 项门禁全绿；locale zh/en 成对、无新增中文字面量。

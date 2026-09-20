@@ -1,0 +1,61 @@
+/* ============================================
+   视频创作 — 表单与卡片表面（S2V 详情页精致化）
+   消费 tokens.css 的 --color-* 与 cohere-design-system 的暗色感知别名（--ink / --muted）；
+   禁止 @deprecated 的 --apple-*。
+   命名避让：本文件不得定义名为 shimmer / skeleton-shimmer 的 keyframes，
+   该命名空间由 UiSkeleton.contract.test.js 契约独占（仅允许 mp-skeleton-shimmer）。
+   ============================================ */
+
+/* 统一卡片表面：详情页各区块（头部 / 输入区 / 配置组）同一规格，消除混用 */
+.s2v-card {
+  background: var(--color-bg-card, var(--surface, #fff));
+  border: 1px solid var(--color-border, var(--hairline, rgba(0, 0, 0, 0.06)));
+  border-radius: var(--radius-lg, 16px);
+  padding: var(--spacing-5, 20px);
+  transition: box-shadow 0.2s cubic-bezier(0.33, 1, 0.68, 1), transform 0.2s cubic-bezier(0.33, 1, 0.68, 1);
+}
+.s2v-card:hover { transform: translateY(-1px); box-shadow: var(--shadow-float, 0 1px 4px rgba(0, 0, 0, 0.1)); }
+.s2v-card-title { font-size: var(--font-size-md, 17px); font-weight: 700; color: var(--ink, var(--color-text-strong)); margin: 0 0 var(--spacing-3, 12px); }
+
+/* 自适应字段栅格：替代固定列 .config-grid，窄容器自动折行而非溢出 */
+.s2v-field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: var(--spacing-4, 16px); min-width: 0; }
+.s2v-field-grid > * { min-width: 0; }
+
+/* 详情页子项统一走 .s2v-field-grid（计划 B）；窄屏堆叠为单列，本规则须位于基线之后以同优先级后来者胜 */
+@media (max-width: 720px) {
+  .s2v-field-grid { grid-template-columns: 1fr; }
+}
+
+/* 预估摘要常驻槽位：无内容时显示占位而不塌陷，防止布局跳动 */
+.s2v-estimate-slot { min-height: 44px; }
+
+/* 未迁移到 UiSlider 的原生滑条兜底（须显式加类，不隐式改变其它视图） */
+.s2v-range-native { width: 100%; accent-color: var(--color-primary); }
+
+/* 主 CTA 流光：仅在按钮可见且未禁用时循环，只动画 transform/opacity */
+.s2v-cta-shimmer { position: relative; overflow: hidden; }
+.s2v-cta-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 -40%;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent);
+  animation: s2v-cta-shimmer 2.6s cubic-bezier(0.33, 1, 0.68, 1) infinite;
+  pointer-events: none;
+}
+.s2v-cta-shimmer:disabled::after,
+.s2v-cta-shimmer[disabled]::after { animation: none; opacity: 0; }
+@keyframes s2v-cta-shimmer { 0% { transform: translateX(0); } 100% { transform: translateX(350%); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .s2v-card:hover { transform: none; box-shadow: none; }
+  .s2v-cta-shimmer::after { animation: none; opacity: 0; }
+}
+
+/* D2 收敛的排版承接：详情页次/危险操作改用 .s2v-btn-* 后，该类不带 margin-top，
+   而原 .btn-secondary 自带 margin-top: 8px、模板编辑器栅格另有 min-height 约束。
+   不补这两条就是「换了类名顺手换了排版」。放在本文件而非 create-view.css，
+   是为了不把后者推过 scripts/check-debt-budget.js 的 500 行预算线。 */
+.config-item > .s2v-btn-secondary { margin-top: 8px; }
+.template-editor .s2v-btn-secondary,
+.template-editor .s2v-btn-danger { margin-top: 0; min-height: 38px; }
