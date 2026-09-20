@@ -1,3 +1,22 @@
+# [未发布] fix(scripts): start-app 快链路 foreign-profile 审计加固（2026-09-20 旧版 UI 事故复盘）
+
+### 变更
+- **`scripts/applive-foreign-audit.ps1`（新增）**：按 `--user-data-dir=` 命令行匹配 Electron profile 持有者（`Get-ElectronProfileOwners` / `Split-ForeignProfileOwners` / `Get-ElectronLockHolderCandidates`），正/反斜杠变体双匹配。
+- **`mp-applive-launcher.ps1`**：same-worktree kill 后审计并停止 foreign profile 主进程；窗口轮询失败时输出 `LOCK_HOLDER_CANDIDATES` 点名单实例锁持有者，防旧窗口被误认为新应用。
+- **`sync-app.ps1`**：活体检测硬化（ExecutablePath 双向斜杠变体 + foreign profile 持有者计入），`-Safe`/`-PrepareOnly` 遇活体跳过同步。
+- **`SKILL.md` v1.7.0**：机制要点/失败处理/Pitfalls/验证节同步（新增 StartTime 核对）。
+
+### 根因
+- Electron `requestSingleInstanceLock()` 按 userData 目录（非代码目录）归属：旧 main 持有 shared-user-data 锁时新实例静默退出，`checkout -f origin/main` 反复更新磁盘但用户窗口永远停留旧 renderer。
+
+### 验证
+- `applive-foreign-audit.test.ps1` TDD 先红后绿 4 PASS + live 冒烟；4 个 ps1 经 powershell 5.1 + pwsh 7 双引擎语法检查 SYNTAX_ALL_OK；真实系统双向验证（不误杀/正确点名）。
+
+### 关联
+- PR #2117（codex/start-app-fastpath-hardening）
+
+---
+
 # [未发布] fix(desktop): 首页全 0 引导态隐藏「近期动态」消除双空态双按钮，有记录时补「查看全部」入口
 
 ### 变更
