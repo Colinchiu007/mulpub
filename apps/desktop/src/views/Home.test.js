@@ -218,6 +218,32 @@ describe("HomeView", () => {
     expect(w.text()).toContain("暂无发布记录，开始你的第一次发布吧！");
   });
 
+  it("hides recent activity section when everything is zero (avoids duplicate empty state)", async () => {
+    // 全 0 引导态：上方 home-zero-cta 已承担“第一次发布”引导，
+    // 近期动态区必须整体隐藏，避免同一首屏出现双空态 + 双“立即新建发布”按钮。
+    window.electronAPI.storeGetPublishStats = vi.fn().mockResolvedValue({ code: 0, data: { total: 0, success: 0, failed: 0 } });
+    window.electronAPI.storeListAccounts = vi.fn().mockResolvedValue({ code: 0, data: [] });
+    window.electronAPI.historyList = vi.fn().mockResolvedValue({ code: 0, data: [] });
+    const w = await flushMounted(mountHome());
+    expect(w.find('[data-testid="home-zero-cta"]').exists()).toBe(true);
+    expect(w.find('[data-testid="mp-home-recent"]').exists()).toBe(false);
+    // 全页只能有一个“立即新建发布”引导按钮
+    expect(w.text().match(/立即新建发布/g)).toHaveLength(1);
+  });
+
+  it("shows 查看全部 link and navigates to history when recent items exist", async () => {
+    window.electronAPI.historyList = vi.fn().mockResolvedValue({
+      code: 0,
+      data: [{ id: "h1", title: "测试文章", platform: "weibo", status: "success", created_at: "2026-08-10T00:00:00Z" }],
+    });
+    const w = await flushMounted(mountHome());
+    const viewAll = w.find('[data-testid="home-recent-viewall"]');
+    expect(viewAll.exists()).toBe(true);
+    expect(viewAll.text()).toContain("查看全部");
+    await viewAll.trigger("click");
+    expect(pushSpy).toHaveBeenCalledWith("/publish/history");
+  });
+
   it("navigates on shortcut and quick action click", async () => {
     const w = await flushMounted(mountHome());
     await w.findAll(".mp-home-shortcut")[0].trigger("click");
