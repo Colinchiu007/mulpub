@@ -1,3 +1,17 @@
+# [未发布] style(desktop): 采集页精致化——col-panel 渐变面板 + 顶部 ribbon 扫光动效
+
+### 变更
+- **Collection.vue / Collection.polish.css**：采集页新增「精致化主题」样式块——`.cohere-content` 浅灰渐变底、`.cohere-card` 毛玻璃卡片 + hover 抬升、`.col-panel` 圆角面板，面板顶部 4px `col-panel-ribbon` 渐变扫光动效。
+- **骨架屏契约合规**：动效 keyframes 命名为 `col-panel-ribbon`，避开被禁用的 `shimmer`/`skeleton-shimmer` 保留名，通过 UiSkeleton 设计契约门禁。
+
+### 验证
+- UiSkeleton 契约 + Collection 单测 101/101 通过；Gate 14/15/16 + locale CJK PASS；`collection.png` 视觉基线按 polish 后外观重生成（pixel 复采 0% 稳定）。
+
+### 关联
+- PR #2056（codex/ui-collect-page-polish）
+
+---
+
 # [未发布] style(desktop): P2 深色走查第二批——body/mp-shell/Accounts 浅底根因修复 + 16 处浅灰底 token 化（dark 白残留清零）
 
 ### 新增
