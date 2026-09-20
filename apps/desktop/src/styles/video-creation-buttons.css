@@ -7,7 +7,7 @@
 .s2v-btn-primary {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   padding: 10px 24px; border: none; border-radius: 8px;
-  background: var(--color-primary, #5048E5); color: #fff;
+  background: var(--color-primary); color: #fff;
   font-size: var(--font-size-sm); font-weight: 600; cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: 0 2px 8px rgba(80,72,229,0.2);
@@ -30,7 +30,7 @@
   transition: all 0.15s ease; white-space: nowrap;
 }
 .s2v-btn-secondary:hover:not(:disabled) {
-  border-color: var(--color-primary, #5048E5); color: var(--color-primary, #5048E5);
+  border-color: var(--color-primary); color: var(--color-primary);
   background: rgba(80,72,229,0.04);
 }
 .s2v-btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -44,7 +44,7 @@
   transition: all 0.15s ease; white-space: nowrap;
 }
 .s2v-btn-ghost:hover:not(:disabled) {
-  color: var(--color-primary, #5048E5); background: rgba(80,72,229,0.06);
+  color: var(--color-primary); background: rgba(80,72,229,0.06);
 }
 .s2v-btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
 
@@ -65,13 +65,13 @@
 /* 恢复按钮（暂停/失败任务恢复） */
 .s2v-btn-resume {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  padding: 6px 14px; border: 1px solid var(--color-primary, #5048E5); border-radius: 6px;
-  background: rgba(80,72,229,0.04); color: var(--color-primary, #5048E5);
+  padding: 6px 14px; border: 1px solid var(--color-primary); border-radius: 6px;
+  background: rgba(80,72,229,0.04); color: var(--color-primary);
   font-size: var(--font-size-xs); font-weight: 600; cursor: pointer;
   transition: all 0.15s ease; white-space: nowrap;
 }
 .s2v-btn-resume:hover:not(:disabled) {
-  background: var(--color-primary, #5048E5); color: #fff;
+  background: var(--color-primary); color: #fff;
   box-shadow: 0 2px 8px rgba(80,72,229,0.2);
 }
 .s2v-btn-resume:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -86,7 +86,7 @@
   border-radius: 6px; background: var(--surface, #fff); color: var(--text-muted, #666);
   cursor: pointer; transition: all 0.15s ease; font-size: var(--font-size-sm);
 }
-.s2v-btn-icon:hover { border-color: var(--color-primary, #5048E5); color: var(--color-primary, #5048E5); }
+.s2v-btn-icon:hover { border-color: var(--color-primary); color: var(--color-primary); }
 
 /* 焦点样式 */
 .s2v-btn-primary:focus-visible,
@@ -94,7 +94,7 @@
 .s2v-btn-ghost:focus-visible,
 .s2v-btn-danger:focus-visible,
 .s2v-btn-resume:focus-visible {
-  outline: 2px solid var(--color-primary, #5048E5);
+  outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
 

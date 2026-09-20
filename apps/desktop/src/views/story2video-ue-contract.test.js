@@ -5,9 +5,13 @@ import { fileURLToPath } from 'node:url'
 
 const filePath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'CreateView.vue')
 const spFilePath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'video-creation', 'StageProgress.vue')
+// 2026-09-20 抽取：六个折叠区的模板已从 CreateView.vue 逐字节搬至 S2vConfigPanels.vue，
+// 本契约描述的是「故事讲述页应有的 UI 结构」，与宿主文件无关，故一并纳入扫描范围。
+const panelFilePath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'video-creation', 'S2vConfigPanels.vue')
 const createViewSource = fs.readFileSync(filePath, 'utf8')
 const spSource = fs.readFileSync(spFilePath, 'utf8')
-const source = createViewSource + '\n' + spSource
+const panelSource = fs.readFileSync(panelFilePath, 'utf8')
+const source = createViewSource + '\n' + spSource + '\n' + panelSource
 
 describe('Story2Video fast-mode UI contract', () => {
   it('uses progressive-disclosure sections（2026-08-11 新增 videoEnhance）', () => {

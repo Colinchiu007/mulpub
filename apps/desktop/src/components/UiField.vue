@@ -1,5 +1,6 @@
 <template>
   <div
+    v-if="visible"
     class="ui-field"
     :class="{ 'ui-field--inline': inline, 'ui-field--error': !!error }"
     :aria-invalid="error ? 'true' : undefined"
@@ -12,23 +13,42 @@
       <slot />
       <slot name="suffix" />
     </div>
-    <!-- 错误位常驻固定行高：错误出现/消失不得引起布局跳动 -->
-    <p class="ui-field-error" :class="{ 'is-empty': !error }">{{ error || '' }}</p>
+    <!-- 错误位：有错误时常驻；reserveError 为真时即使无错也预留固定 18px 行高（避免布局跳动）。
+         默认不预留：详情页密集栅格下，永不会出错的字段不应白堆 18px 死高（字段级修正，PRD §11 已登记）。 -->
+    <p v-if="error || reserveError" class="ui-field-error" :class="{ 'is-empty': !error }">{{ error || '' }}</p>
     <p v-if="hint" class="ui-field-hint">{{ hint }}</p>
   </div>
 </template>
 
 <script setup>
-// 纯展示容器：不读取 inject，显隐由调用方决定（保持 s2vOptionVisible 单一来源）。
+// 展示容器 + 运营隐藏守卫：optionKey 为空时始终渲染；非空时走父子契约的 s2vOptionVisible（fail-open），
+// 与抽取前的 v-if="s2vOptionVisible(...)" 语义逐字一致，不得绕过。
+import { computed, inject } from 'vue';
+import { S2V_PANEL_KEY } from '../views/video-creation/s2v-panel-contract';
+
 defineOptions({ name: 'UiField' });
 
-defineProps({
+const props = defineProps({
   label: { type: String, default: '' },
   hint: { type: String, default: '' },
   error: { type: String, default: '' },
   required: Boolean,
   forId: { type: String, default: '' },
   inline: Boolean,
+  reserveError: Boolean,
+  optionKey: { type: String, default: '' },
+});
+
+const panel = props.optionKey ? inject(S2V_PANEL_KEY) : null;
+if (props.optionKey && !panel) {
+  // fail-closed：带 optionKey 却不在 CreateView 子树内，立即抛错而不是静默隐藏（静默会让 Bug 藏到运行时）。
+  throw new Error(`[UiField] optionKey="${props.optionKey}" 需要父级 provide ${S2V_PANEL_KEY}，当前未提供`);
+}
+
+const visible = computed(() => {
+  if (!props.optionKey) return true;
+  const fn = panel?.fns?.s2vOptionVisible;
+  return typeof fn === 'function' ? Boolean(fn(props.optionKey)) : true;
 });
 </script>
 

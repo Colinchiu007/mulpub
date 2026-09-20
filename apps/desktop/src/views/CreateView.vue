@@ -56,20 +56,30 @@
         <!-- 输入区域 -->
         <div class="input-section">
           <h3>输入内容</h3>
-          <div class="input-tabs">
-            <button :class="['input-tab', { active: inputMode === 'text' }]" @click="inputMode = 'text'">文案</button>
-            <button v-if="!isAutoPipeline(selectedPipeline.name)" :class="['input-tab', { active: inputMode === 'images' }]" @click="inputMode = 'images'">图片</button>
-            <button v-if="!isAutoPipeline(selectedPipeline.name)" :class="['input-tab', { active: inputMode === 'audio' }]" @click="inputMode = 'audio'">旁白/批量音频</button>
-            <button v-if="!isAutoPipeline(selectedPipeline.name) || isMediaAutoPipeline(selectedPipeline.name)" :class="['input-tab', { active: inputMode === 'video' }]" @click="inputMode = 'video'">视频素材</button>
+          <div class="input-tabs" role="tablist">
+            <button type="button" role="tab" :aria-selected="inputMode === 'text'" :class="['input-tab', { active: inputMode === 'text' }]" @click="inputMode = 'text'">文案</button>
+            <button v-if="!isAutoPipeline(selectedPipeline.name)" type="button" role="tab" :aria-selected="inputMode === 'images'" :class="['input-tab', { active: inputMode === 'images' }]" @click="inputMode = 'images'">图片</button>
+            <button v-if="!isAutoPipeline(selectedPipeline.name)" type="button" role="tab" :aria-selected="inputMode === 'audio'" :class="['input-tab', { active: inputMode === 'audio' }]" @click="inputMode = 'audio'">旁白/批量音频</button>
+            <button v-if="!isAutoPipeline(selectedPipeline.name) || isMediaAutoPipeline(selectedPipeline.name)" type="button" role="tab" :aria-selected="inputMode === 'video'" :class="['input-tab', { active: inputMode === 'video' }]" @click="inputMode = 'video'">视频素材</button>
           </div>
 
           <div v-if="inputMode === 'text'" class="input-area">
             <textarea v-model="pipelineText" placeholder="输入视频文案、主题描述或脚本..." rows="8" class="form-textarea" @input="enforceStory2VideoTextLimit"></textarea>
-            <p v-if="isOrchestratedPipeline(selectedPipeline.name)" class="story2video-text-count">{{ story2videoTextCharacterCount }}/{{ MAX_STORY2VIDEO_TEXT_CHARACTERS }} 字符</p>
-            <p v-if="s2vEstimateSummary" class="story2video-estimate" data-testid="s2v-estimate-row">
-              预估 {{ s2vEstimateSummary.sceneCount }} 个分镜 · 旁白约 {{ s2vEstimateSummary.durationMin }}~{{ s2vEstimateSummary.durationMax }} 秒 · 成本约 ¥{{ s2vEstimateSummary.totalCost.toFixed(2) }}
-              <span class="s2v-estimate-note">{{ s2vEstimateSummary.calibrated ? '（按本地 TTS 样本校准）' : '（静态估算，样本积累后自动校准）' }}</span>
-            </p>
+            <p
+              v-if="isOrchestratedPipeline(selectedPipeline.name)"
+              class="story2video-text-count"
+              :class="story2videoTextCountLevel"
+              :aria-live="story2videoTextCountLevel ? 'polite' : undefined"
+              :title="story2videoTextCountLevel === 'is-warning' ? translateWithLocaleFallback('create.story2video.ui.charLimitWarning', '接近字数上限', 'Close to the character limit') : undefined"
+            >{{ story2videoTextCharacterCount }}/{{ MAX_STORY2VIDEO_TEXT_CHARACTERS }} 字符<span v-if="story2videoTextCountLevel === 'is-danger'">{{ translateWithLocaleFallback('create.story2video.ui.charLimitReached', '（已达字数上限）', ' (character limit reached)') }}</span></p>
+            <div v-if="isOrchestratedPipeline(selectedPipeline.name)" class="s2v-estimate-slot">
+              <p v-if="s2vEstimateSummary" class="story2video-estimate" data-testid="s2v-estimate-row">
+                预估 {{ s2vEstimateSummary.sceneCount }} 个分镜 · 旁白约 {{ s2vEstimateSummary.durationMin }}~{{ s2vEstimateSummary.durationMax }} 秒 · 成本约 ¥{{ s2vEstimateSummary.totalCost.toFixed(2) }}
+                <span class="s2v-estimate-note">{{ s2vEstimateSummary.calibrated ? '（按本地 TTS 样本校准）' : '（静态估算，样本积累后自动校准）' }}</span>
+              </p>
+              <!-- 无估算时保留容器高度，避免输入过程中布局跳变 -->
+              <p v-else class="story2video-estimate is-placeholder">{{ translateWithLocaleFallback('create.story2video.ui.estimatePlaceholder', '填写文案后自动预估分镜数、旁白时长与成本', 'Scene count, narration duration and cost are estimated once you enter the text') }}</p>
+            </div>
           </div>
           <div v-if="inputMode === 'images' && !isOrchestratedPipeline(selectedPipeline.name)" class="input-area">
             <div class="upload-zone" @click="$refs.pipelineFileInput?.click()" @dragover.prevent @drop.prevent="handlePipelineDrop">
@@ -191,39 +201,6 @@
         <!-- Story2Video 配置：快速模式 + 五个折叠区 -->
         <S2vConfigPanels v-if="isOrchestratedPipeline(selectedPipeline?.name)" />
 
-        <details v-if="isOrchestratedPipeline(selectedPipeline.name) && s2vOptionVisible('publish._group')" class="s2v-config-section" data-testid="s2v-section-publish" :open="s2vOpenSections.publish" @toggle="setS2VSectionOpen('publish', $event)">
-          <summary class="s2v-section-summary">
-            <span>{{ s2vSectionLabel('publish') }}</span>
-            <span class="s2v-summary">{{ s2vSectionSummary('publish') }}</span>
-          </summary>
-          <div class="config-grid">
-            <div class="config-item config-span-2">
-              <label>发布平台</label>
-              <div class="platform-checkboxes">
-                <label v-for="platform in s2vPlatforms" :key="platform.value" class="checkbox-label">
-                  <input v-model="s2vConfig.platforms" type="checkbox" :value="platform.value" />
-                  <span>{{ platform.label }}</span>
-                </label>
-              </div>
-            </div>
-            <div class="config-item" v-if="s2vOptionVisible('publish.title')">
-                <label>发布标题</label>
-              <input v-model.trim="s2vConfig.title" class="form-input" placeholder="可选" />
-            </div>
-            <div class="config-item" v-if="s2vOptionVisible('publish.tags')">
-                <label>发布标签</label>
-              <input v-model.trim="s2vConfig.tagsText" class="form-input" placeholder="用逗号分隔" />
-            </div>
-            <div class="config-item config-span-2">
-              <label>发布正文</label>
-              <textarea v-model.trim="s2vConfig.publishContent" rows="3" maxlength="20000" class="form-textarea"></textarea>
-            </div>
-            <div class="config-item config-span-2">
-              <label>封面 URL</label>
-              <input v-model.trim="s2vConfig.coverUrl" class="form-input" maxlength="4096" />
-            </div>
-          </div>
-        </details>
         <!-- 输出配置 -->
         <div v-if="!isOrchestratedPipeline(selectedPipeline?.name)" class="config-section">
           <h3>输出设置</h3>
@@ -256,7 +233,7 @@
         <!-- 执行控制 -->
         <div class="action-bar" data-testid="pipeline-action-bar">
           <div v-if="!pipelineRunStatus || pipelineRunStatus.status === 'idle'">
-            <UiButton class="btn-start" data-testid="start-story2video" @click="handleStartPipeline" :disabled="!canStartPipeline">
+            <UiButton class="btn-start s2v-cta-shimmer" data-testid="start-story2video" :title="pipelineBlockedReason" :aria-describedby="pipelineBlockedReason ? 'pipeline-blocked-reason' : undefined" @click="handleStartPipeline" :disabled="!canStartPipeline">
               {{ translateWithLocaleFallback('create.story2video.startPipeline', '启动流水线', 'Start pipeline') }}
             </UiButton>
             <UiButton
@@ -268,15 +245,19 @@
             >
               {{ translateWithLocaleFallback('create.story2video.batch.trigger', '批量创作', 'Batch create') }}
             </UiButton>
-            <button v-if="isOrchestratedPipeline(selectedPipeline?.name)" type="button" class="reset-options-link" data-testid="reset-story2video-options" @click="resetS2VLastOptions">
-              {{ translateWithLocaleFallback('create.story2video.resetOptions', '恢复默认选项', 'Reset to default options') }}
-            </button>
-            <button v-if="selectedPipeline?.name" type="button" class="reset-options-link" data-testid="s2v-config-profile-save" @click="openS2VConfigProfileSave">
-              {{ translateWithLocaleFallback('create.story2video.configProfile.saveButton', '保存配置', 'Save configuration') }}
-            </button>
-            <button v-if="selectedPipeline?.name" type="button" class="reset-options-link" data-testid="s2v-config-profile-manage" @click="openS2VConfigProfileList">
-              {{ translateWithLocaleFallback('create.story2video.configProfile.manageButton', '我的配置', 'My configurations') }}
-            </button>
+            <div class="action-bar-aux">
+              <button v-if="isOrchestratedPipeline(selectedPipeline?.name)" type="button" class="s2v-btn-ghost s2v-btn-sm" data-testid="reset-story2video-options" @click="resetS2VLastOptions">
+                {{ translateWithLocaleFallback('create.story2video.resetOptions', '恢复默认选项', 'Reset to default options') }}
+              </button>
+              <button v-if="selectedPipeline?.name" type="button" class="s2v-btn-ghost s2v-btn-sm" data-testid="s2v-config-profile-save" @click="openS2VConfigProfileSave">
+                {{ translateWithLocaleFallback('create.story2video.configProfile.saveButton', '保存配置', 'Save configuration') }}
+              </button>
+              <button v-if="selectedPipeline?.name" type="button" class="s2v-btn-ghost s2v-btn-sm" data-testid="s2v-config-profile-manage" @click="openS2VConfigProfileList">
+                {{ translateWithLocaleFallback('create.story2video.configProfile.manageButton', '我的配置', 'My configurations') }}
+              </button>
+            </div>
+            <!-- 禁用原因常驻可见（固定行高防跳变），不靠 hover 才能看到的 title -->
+            <p id="pipeline-blocked-reason" class="s2v-start-hint" data-testid="pipeline-blocked-reason" :aria-hidden="pipelineBlockedReason ? 'false' : 'true'">{{ pipelineBlockedReason }}</p>
             <p v-if="!pipelineAvailable(selectedPipeline?.name)" class="unavailable-hint" data-testid="pipeline-unavailable-hint">
               {{ translateWithLocaleFallback('pipelines.availability.notImplementedHint', '该流水线尚未实现执行引擎，暂不能生成视频', 'This pipeline has no execution engine yet.') }}
             </p>
@@ -1019,6 +1000,17 @@ import {
   STABILITY_MAP,
 } from './video-creation/create-view-module-utils'
 
+// 折叠区摘要所依赖的配置字段（'output.' 前缀 = 取 activeOutputConfig）。
+// 用于判定该组是否仍为出厂默认，默认时摘要后缀显示「（默认）」。
+const S2V_SUMMARY_FIELDS = {
+  basic: ['output.resolution', 'voiceSpeed', 'voiceVolume'],
+  appearance: ['imageStyle', 'imageEffect'],
+  videoEnhance: ['videoMode', 'videoFixedRatio', 'videoMinRatio', 'videoMaxRatio', 'shortVideoHandling'],
+  voice: ['voiceProvider', 'voiceModel', 'voiceId'],
+  advanced: ['splitLanguage', 'splitMode'],
+  publish: ['platforms'],
+}
+
 export default {
   name: 'CreateView',
   // 模板使用但此前漏注册的子组件：PipelineSelector/StageProgress/CreateViewHistory
@@ -1461,6 +1453,41 @@ export default {
     story2videoTextCharacterCount() {
       return countStory2VideoTextCharacters(this.pipelineText)
     },
+    // 字数计数的视觉档位：<90% 中性、>=90% 警示、达上限危险（与 create-view.css 的色阶一一对应）。
+    story2videoTextCountLevel() {
+      const max = Number(this.MAX_STORY2VIDEO_TEXT_CHARACTERS) || 0
+      const count = Number(this.story2videoTextCharacterCount) || 0
+      if (max <= 0) return ''
+      if (count >= max) return 'is-danger'
+      if (count >= Math.floor(max * 0.9)) return 'is-warning'
+      return ''
+    },
+    // 数值型配置是否落在允许区间：越界值会被后端拒绝，提前在启动提示里暴露。
+    s2vConfigRangeInvalid() {
+      const c = this.s2vConfig || {}
+      const speed = Number(c.voiceSpeed)
+      const volume = Number(c.voiceVolume)
+      const targetChars = Number(c.splitTargetCharsPerScene)
+      const minDuration = Number(c.minSceneDuration)
+      return (
+        !(speed >= 0.5 && speed <= 2)
+        || !(volume >= 0 && volume <= 2)
+        || !(targetChars > 0)
+        || !(minDuration >= 0)
+      )
+    },
+    // 启动按钮禁用原因可见化：不再静默禁用，而是给出首个可修复项（空串 = 可启动）。
+    // 顺序与 canStartPipeline 的短路顺序保持一致，避免提示与真实门禁因不一致。
+    pipelineBlockedReason() {
+      if (this.canStartPipeline) return ''
+      if (!this.selectedPipeline) return this.translateWithLocaleFallback('create.story2video.ui.blockedReason.noPipeline', '请先选择一条流水线', 'Select a pipeline first')
+      if (!this.pipelineAvailable(this.selectedPipeline.name)) return this.translateWithLocaleFallback('create.story2video.ui.blockedReason.unavailable', '该流水线尚未实现执行引擎，暂不能启动', 'This pipeline has no execution engine yet')
+      if (this.startingPipeline) return this.translateWithLocaleFallback('create.story2video.ui.blockedReason.starting', '启动请求处理中，请稍候', 'Start request is in flight, please wait')
+      if (this.isOrchestratedPipeline(this.selectedPipeline.name) && this.orchestrationRunId) return this.translateWithLocaleFallback('create.story2video.ui.blockedReason.running', '已有流水线任务在运行中', 'A pipeline run is already active')
+      if (this.s2vConfigRangeInvalid) return this.translateWithLocaleFallback('create.story2video.ui.blockedReason.invalidRange', '部分数值参数超出允许范围，请检查语速、音量与分镜长度', 'Some numeric options are out of range; check speed, volume and scene length')
+      if (this.inputMode !== 'text') return this.translateWithLocaleFallback('create.story2video.ui.blockedReason.noAsset', '请先添加素材文件', 'Add the required material first')
+      return this.translateWithLocaleFallback('create.story2video.ui.blockedReason.noText', '请先输入视频文案', 'Enter the script text first')
+    },
     // ---- 运营后台实时预估（Batch 5b）：分镜数 / 时长区间 / 成本 ----
     s2vEstimateFactors() {
       return buildCalibrationFactors(this.s2vTtsSamples)
@@ -1864,6 +1891,22 @@ export default {
         publish: this.s2vConfig.platforms?.length ? `已选 ${this.s2vConfig.platforms.length} 个平台` : '不发布',
       }
       return summaries[section] || ''
+    },
+    // 该组摘要对应的字段全部等于初始默认值 → 视为未改动（供「（默认）」后缀使用）。
+    // 基线取 $options.data()，与“保存配置”的默认值口径一致，不另起一份真相。
+    s2vSectionAtDefault(section) {
+      const fields = S2V_SUMMARY_FIELDS[section] || []
+      if (!fields.length) return false
+      const defaults = (this.$options.data || (() => ({}))).call(this)
+      const defaultConfig = defaults.s2vConfig || {}
+      const defaultOutput = defaults.s2vOutputConfig || {}
+      return fields.every((field) => {
+        const isOutput = field.indexOf('output.') === 0
+        const key = isOutput ? field.slice(7) : field
+        const current = isOutput ? this.activeOutputConfig?.[key] : this.s2vConfig?.[key]
+        const initial = isOutput ? defaultOutput[key] : defaultConfig[key]
+        return JSON.stringify(current) === JSON.stringify(initial)
+      })
     },
     setS2VSectionOpen(section, event) {
       if (!Object.prototype.hasOwnProperty.call(this.s2vOpenSections, section)) return

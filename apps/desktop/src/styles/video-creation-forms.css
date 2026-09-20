@@ -13,18 +13,23 @@
   padding: var(--spacing-5, 20px);
   transition: box-shadow 0.2s cubic-bezier(0.33, 1, 0.68, 1), transform 0.2s cubic-bezier(0.33, 1, 0.68, 1);
 }
-.s2v-card:hover { box-shadow: var(--shadow-float, 0 1px 4px rgba(0, 0, 0, 0.1)); }
+.s2v-card:hover { transform: translateY(-1px); box-shadow: var(--shadow-float, 0 1px 4px rgba(0, 0, 0, 0.1)); }
 .s2v-card-title { font-size: var(--font-size-md, 17px); font-weight: 700; color: var(--color-text-strong, #1e1b4b); margin: 0 0 var(--spacing-3, 12px); }
 
 /* 自适应字段栅格：替代固定列 .config-grid，窄容器自动折行而非溢出 */
 .s2v-field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: var(--spacing-4, 16px); min-width: 0; }
 .s2v-field-grid > * { min-width: 0; }
 
+/* 详情页子项统一走 .s2v-field-grid（计划 B）；窄屏堆叠为单列，本规则须位于基线之后以同优先级后来者胜 */
+@media (max-width: 720px) {
+  .s2v-field-grid { grid-template-columns: 1fr; }
+}
+
 /* 预估摘要常驻槽位：无内容时显示占位而不塌陷，防止布局跳动 */
 .s2v-estimate-slot { min-height: 44px; }
 
 /* 未迁移到 UiSlider 的原生滑条兜底（须显式加类，不隐式改变其它视图） */
-.s2v-range-native { width: 100%; accent-color: var(--color-primary, #5048E5); }
+.s2v-range-native { width: 100%; accent-color: var(--color-primary); }
 
 /* 主 CTA 流光：仅在按钮可见且未禁用时循环，只动画 transform/opacity */
 .s2v-cta-shimmer { position: relative; overflow: hidden; }

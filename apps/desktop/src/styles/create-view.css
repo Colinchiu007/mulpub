@@ -52,7 +52,7 @@
   font-weight: 500; position: relative;
 }
 .view-tab:hover:not(.active) { color: var(--text); background: var(--bg, rgba(0,0,0,0.03)); }
-.view-tab:focus-visible { outline: 2px solid var(--color-primary, #5048E5); outline-offset: 2px; }
+.view-tab:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 /* 激活态不再用 transform: scale()（会触发重排抖动，且与底部指示条位移打架） */
 .view-tab.active {
   color: var(--primary); background: var(--surface, #fff);
@@ -112,7 +112,7 @@
    默认 align-items: stretch 会把按钮拉成通栏灰条（视觉散乱主因之一）。 */
 .back-btn { align-self: flex-start; background: none; border: 1px solid var(--border); color: var(--primary); cursor: pointer; font-size: var(--font-size-sm); padding: 6px 14px; border-radius: var(--radius-sm, 6px); margin-bottom: var(--spacing-4, 16px); transition: background-color 0.15s ease, border-color 0.15s ease; display: inline-flex; align-items: center; gap: 4px; }
 .back-btn:hover { background: var(--surface); border-color: var(--primary); }
-.back-btn:focus-visible { outline: 2px solid var(--color-primary, #5048E5); outline-offset: 2px; }
+.back-btn:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 .detail-header { margin-bottom: 20px; padding: 16px 20px; background: var(--surface, #fff); border-radius: 10px; border: 1px solid var(--hairline, rgba(0,0,0,0.06)); }
 .detail-header h2 { font-size: var(--font-size-lg); margin: 0 0 6px; font-weight: 700; letter-spacing: -0.01em; }
 .detail-desc { color: var(--text-muted); font-size: var(--font-size-sm); margin: 0; line-height: 1.5; }
@@ -183,13 +183,20 @@
 .input-tabs { display: flex; flex-wrap: wrap; gap: var(--spacing-2, 8px); margin-bottom: var(--spacing-3, 12px); }
 .input-tab { padding: 6px 16px; border: 1px solid var(--border); border-radius: var(--radius-pill, 20px); background: transparent; cursor: pointer; font-size: var(--font-size-sm); color: var(--text-muted); transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease; }
 .input-tab:hover:not(.active) { color: var(--text); border-color: var(--primary); }
-.input-tab:focus-visible { outline: 2px solid var(--color-primary, #5048E5); outline-offset: 2px; }
+.input-tab:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 /* 激活态从「实心主色 + 白字」降级为浅底描边，不再压过底部主 CTA */
-.input-tab.active { background: var(--color-primary-light, rgba(80,72,229,0.08)); color: var(--color-text-strong, var(--text)); border-color: var(--color-primary, #5048E5); font-weight: 600; }
+.input-tab.active { background: var(--color-primary-light, rgba(80,72,229,0.08)); color: var(--color-text-strong, var(--text)); border-color: var(--color-primary); font-weight: 600; }
 .input-area { position: relative; }
 .form-textarea { width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; font-size: var(--font-size-sm); font-family: inherit; line-height: 1.6; resize: vertical; box-sizing: border-box; background: var(--surface, #fff); transition: border-color 0.15s, box-shadow 0.15s; }
 .form-textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(64,158,255,0.12); }
 .story2video-estimate { margin-top: 8px; font-size: var(--font-size-sm); color: var(--text-muted); line-height: 1.5; padding: 8px 12px; background: var(--bg, rgba(0,0,0,0.02)); border-radius: 6px; border-left: 3px solid var(--primary, rgba(64,158,255,0.4)); }
+.story2video-estimate.is-placeholder {
+  /* 无估算时占位显示，保持与真实估算行同高，避免输入过程中布局跳变 */
+  color: var(--color-text-muted, var(--text-muted));
+  border-left-color: var(--color-border, var(--border));
+  border-style: dashed;
+  border-width: 1px 1px 1px 3px;
+}
 .s2v-estimate-note { opacity: .75; }
 
 /* 上传区域 */
@@ -213,10 +220,19 @@
 .s2v-active-config-label { font-weight: 600; color: var(--text-primary, #1D1D1F); }
 .s2v-active-config-name { color: var(--primary, #2563eb); font-weight: 600; overflow-wrap: anywhere; }
 
-.s2v-config-section { border: 1px solid var(--hairline, rgba(0,0,0,0.08)); border-radius: 10px; background: var(--surface); overflow: hidden; transition: border-color 0.2s ease, box-shadow 0.2s cubic-bezier(0.33, 1, 0.68, 1); animation: s2v-reveal 0.32s cubic-bezier(0.33, 1, 0.68, 1) both; animation-delay: calc(var(--stagger-index, 0) * 0.08s); }
+.s2v-config-section { border: 1px solid var(--hairline, rgba(0,0,0,0.08)); border-radius: 10px; background: var(--surface); overflow: hidden; transition: border-color 0.2s ease, box-shadow 0.2s cubic-bezier(0.33, 1, 0.68, 1); animation: s2v-reveal 0.32s cubic-bezier(0.33, 1, 0.68, 1) both; }
+/* 入场动效：本 PR 自建（main 上尚无统一 Staggered Reveal 基座）。
+   序号由 DOM 顺序经 nth-of-type 派生，不在模板里写内联 --stagger-index，
+   以保证「抽取 = 纯搬运」的模板守恒不被破坏；只动画 transform/opacity。 */
+.s2v-config-sections > details.s2v-config-section:nth-of-type(1) { animation-delay: 0s; }
+.s2v-config-sections > details.s2v-config-section:nth-of-type(2) { animation-delay: .08s; }
+.s2v-config-sections > details.s2v-config-section:nth-of-type(3) { animation-delay: .16s; }
+.s2v-config-sections > details.s2v-config-section:nth-of-type(4) { animation-delay: .24s; }
+.s2v-config-sections > details.s2v-config-section:nth-of-type(5) { animation-delay: .32s; }
+.s2v-config-sections > details.s2v-config-section:nth-of-type(6) { animation-delay: .4s; }
 .s2v-config-section:hover { box-shadow: var(--shadow-float, 0 1px 4px rgba(0, 0, 0, 0.1)); }
-/* 入场动效：本 PR 自建（main 上尚无统一 Staggered Reveal 基座）。--stagger-index 由模板
-   以 v-for 下标写入，只允许非负整数；只动画 transform/opacity，不动画布局属性。 */
+/* 保留手写序号的逃生口：若后续需要在特定容器里重写入场次序，设置 --stagger-index 即可覆盖。 */
+.s2v-config-section[style*="--stagger-index"] { animation-delay: calc(var(--stagger-index) * 0.08s); }
 @keyframes s2v-reveal { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 .s2v-config-section[open] { border-color: var(--primary, rgba(64,158,255,0.3)); }
 .s2v-section-summary { display: flex; align-items: center; gap: 12px; padding: 14px 16px; cursor: pointer; list-style: none; font-weight: 700; font-size: var(--font-size-sm); transition: background 0.15s ease; }
@@ -225,7 +241,10 @@
 .s2v-section-summary::before { content: '›'; display: inline-block; color: var(--text-muted); font-size: var(--font-size-lg); line-height: 1; transform: rotate(0deg); transition: transform .15s ease; }
 .s2v-config-section[open] > .s2v-section-summary::before { transform: rotate(90deg); }
 .s2v-summary { margin-left: auto; color: var(--text-muted); font-size: var(--font-size-xs); font-weight: 400; text-align: right; }
-.s2v-config-section > .config-grid { padding: 0 16px 16px; }
+/* “未改动”后缀：弱化表达，不与摘要正文争视觉重量 */
+.s2v-summary-default { opacity: .7; white-space: nowrap; }
+.s2v-config-section > .config-grid,
+.s2v-config-section > .s2v-field-grid { padding: 0 16px 16px; }
 .s2v-split-view-toggle { display: inline-flex; gap: 6px; margin-bottom: 6px; }
 .s2v-view-btn {
   padding: 4px 12px; font-size: var(--font-size-xs); border: 1px solid var(--border); border-radius: 999px;
@@ -251,7 +270,8 @@
    grid/flex 子项 min-width: 0 + overflow-wrap:anywhere：长不可断文本（如 MiniMax 克隆 voice_id）换行而非溢出。 */
 .config-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr)); gap: 16px; }
 /* 选项内容区域宽度固定：voice-clone 展开时不得撑宽整个 config-grid（2026-08-31 修复） */
-.s2v-config-section > .config-grid { width: 100%; max-width: 100%; box-sizing: border-box; }
+.s2v-config-section > .config-grid,
+.s2v-config-section > .s2v-field-grid { width: 100%; max-width: 100%; box-sizing: border-box; }
 .voice-clone-panel { width: 100%; max-width: 100%; overflow: hidden; }
 .voice-clone-row { flex-wrap: wrap; }
 .voice-clone-actions { flex-wrap: wrap; }
@@ -270,9 +290,9 @@
 .form-select, .form-input { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm, 6px); font-size: var(--font-size-sm); box-sizing: border-box; background-color: var(--surface, #fff); color: var(--text); transition: border-color 0.15s, box-shadow 0.15s; }
 /* 原生 select 零定制会露出系统默认箭头，与品牌紫不同源；统一重绘箭头并预留右侧间距。 */
 .form-select { padding-right: 30px; cursor: pointer; appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%239898a8' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; }
-.form-select:focus, .form-input:focus { outline: none; border-color: var(--color-primary, #5048E5); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary, #5048E5) 14%, transparent); }
+.form-select:focus, .form-input:focus { outline: none; border-color: var(--color-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 14%, transparent); }
 /* 兼容未迁移的原生滑条（作用域限定在 .create-page，不外溢到 AI 写作等其它视图） */
-.create-page input[type="range"], .form-range { width: 100%; accent-color: var(--color-primary, #5048E5); }
+.create-page input[type="range"], .form-range { width: 100%; accent-color: var(--color-primary); }
 .voice-slot-hint p { margin: 0; }
 .voice-clone-panel { display: grid; gap: 8px; min-width: 0; }
 .voice-clone-panel > label { margin-bottom: 0; }
@@ -390,7 +410,7 @@
 .voice-clone-toggle-icon { font-size: var(--font-size-xs); color: var(--text-muted, #888); }
 .btn-start { padding: 12px 32px; font-size: var(--font-size-base); font-weight: 600; border-radius: 8px; letter-spacing: 0.02em; transition: box-shadow 0.2s cubic-bezier(0.33, 1, 0.68, 1), transform 0.2s cubic-bezier(0.33, 1, 0.68, 1); box-shadow: 0 2px 8px rgba(80, 72, 229, 0.2); }
 .btn-start:hover:not(:disabled) { box-shadow: 0 4px 16px rgba(80, 72, 229, 0.3); transform: translateY(-1px); }
-.btn-start:focus-visible { outline: 2px solid var(--color-primary-dark-tint, #7b74ff); outline-offset: 2px; }
+.btn-start:focus-visible { outline: 2px solid var(--color-primary-dark-tint); outline-offset: 2px; }
 .running-controls { display: flex; flex-wrap: wrap; gap: 8px; }
 .progress-inline { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .progress-bar { height: 8px; background: var(--stage-sub-bar-bg); border-radius: 4px; overflow: hidden; width: 120px; }

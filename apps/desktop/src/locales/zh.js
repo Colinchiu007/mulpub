@@ -458,6 +458,31 @@ export default {
         cloneDeleteConfirmMessage: '即将永久删除克隆音色「{name}」，其已保存的声音样本会一并移除，且不可恢复。',
         cloneDeleteConfirmButton: '确认删除',
       },
+      // 详情页视觉与交互精致化（story2video-detail-visual-refinement，2026-09-20）
+      // 中英必须成对维护：CI Gate 7 check-locale-sync.js --pair 硬拦截
+      ui: {
+        doubleResetHint: '双击滑杆可恢复默认值',
+        sectionDefaultSuffix: '（默认）',
+        estimatePlaceholder: '填写文案后自动预估分镜数、旁白时长与成本',
+        charLimitWarning: '接近字数上限',
+        charLimitReached: '（已达字数上限）',
+        flowGuide: '配置好参数后点击「启动流水线」，各阶段将自动串联执行，无需逐步确认。',
+        voiceSpeedLabel: '旁白语速',
+        voiceVolumeLabel: '旁白音量',
+        bgmVolumeLabel: '背景音乐音量',
+        videoFixedRatioLabel: 'AI 视频占比（前段）',
+        videoMinRatioLabel: 'AI 视频占比下限',
+        videoMaxRatioLabel: 'AI 视频占比上限',
+        blockedReason: {
+          noPipeline: '请先选择一条流水线',
+          unavailable: '该流水线尚未实现执行引擎，暂不能启动',
+          starting: '启动请求处理中，请稍候',
+          running: '已有流水线任务在运行中',
+          invalidRange: '部分数值参数超出允许范围，请检查语速、音量与分镜长度',
+          noAsset: '请先添加素材文件',
+          noText: '请先输入视频文案',
+        },
+      },
     },
     history: {
       statusFilter: '历史状态筛选',

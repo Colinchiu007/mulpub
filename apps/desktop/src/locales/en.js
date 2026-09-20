@@ -458,6 +458,31 @@ export default {
         cloneDeleteConfirmMessage: 'About to permanently delete the cloned voice "{name}". Its saved voice samples will be removed and this cannot be undone.',
         cloneDeleteConfirmButton: 'Delete',
       },
+      // Detail-page visual & interaction refinement (story2video-detail-visual-refinement, 2026-09-20)
+      // Kept paired with zh.js: CI Gate 7 check-locale-sync.js --pair enforces it
+      ui: {
+        doubleResetHint: 'Double-click the slider to restore the default',
+        sectionDefaultSuffix: ' (default)',
+        estimatePlaceholder: 'Scene count, narration duration and cost are estimated once you enter the text',
+        charLimitWarning: 'Close to the character limit',
+        charLimitReached: ' (character limit reached)',
+        flowGuide: 'Once configured, clicking Start Pipeline runs all stages automatically — no step-by-step confirmation needed.',
+        voiceSpeedLabel: 'Narration speed',
+        voiceVolumeLabel: 'Narration volume',
+        bgmVolumeLabel: 'Background music volume',
+        videoFixedRatioLabel: 'AI video share (opening)',
+        videoMinRatioLabel: 'Minimum AI video share',
+        videoMaxRatioLabel: 'Maximum AI video share',
+        blockedReason: {
+          noPipeline: 'Select a pipeline first',
+          unavailable: 'This pipeline has no execution engine yet',
+          starting: 'Start request is in flight, please wait',
+          running: 'A pipeline run is already active',
+          invalidRange: 'Some numeric options are out of range; check speed, volume and scene length',
+          noAsset: 'Add the required material first',
+          noText: 'Enter the script text first',
+        },
+      },
     },
     history: {
       statusFilter: 'History status filter',

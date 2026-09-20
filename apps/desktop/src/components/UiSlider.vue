@@ -1,6 +1,6 @@
 <template>
   <div class="ui-slider" :class="{ 'is-disabled': disabled }">
-    <div class="ui-slider-head">
+    <div v-if="!bare" class="ui-slider-head">
       <label v-if="label" class="ui-slider-label" :for="inputId">{{ label }}</label>
       <span v-else aria-hidden="true"></span>
       <span class="ui-slider-value" :data-testid="testid ? testid + '-value' : undefined">{{ displayValue }}</span>
@@ -15,6 +15,7 @@
       :step="step"
       :value="clamped"
       :disabled="disabled"
+      :aria-label="ariaLabel || label || undefined"
       :data-testid="testid"
       :style="{ '--pct': pct + '%' }"
       :aria-valuetext="displayValue"
@@ -53,6 +54,10 @@ const props = defineProps({
   hint: { type: String, default: '' },
   testid: { type: String, default: '' },
   id: { type: String, default: '' },
+  // bare：不渲染组件自带的 label/值行，沿用调用侧既有 label 布局（如并排的占比区间）。
+  // 此时必须用 ariaLabel 保证控件仍有可读名称。
+  bare: Boolean,
+  ariaLabel: { type: String, default: '' },
 });
 const emit = defineEmits(['update:modelValue', 'change']);
 
@@ -143,19 +148,19 @@ defineExpose({ resetToDefault, inputEl: rangeEl });
   border-radius: var(--radius-full, 9999px);
   background: linear-gradient(
     to right,
-    var(--color-primary, #5048E5) 0 var(--pct, 0%),
+    var(--color-primary) 0 var(--pct, 0%),
     var(--color-border, #efefef) var(--pct, 0%) 100%
   );
 }
 .ui-slider-input::-moz-range-track { height: 4px; border-radius: var(--radius-full, 9999px); background: var(--color-border, #efefef); }
-.ui-slider-input::-moz-range-progress { height: 4px; border-radius: var(--radius-full, 9999px); background: var(--color-primary, #5048E5); }
+.ui-slider-input::-moz-range-progress { height: 4px; border-radius: var(--radius-full, 9999px); background: var(--color-primary); }
 .ui-slider-input::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
   width: 16px;
   height: 16px;
   margin-top: -6px;
-  border: 1px solid var(--color-primary, #5048E5);
+  border: 1px solid var(--color-primary);
   border-radius: 50%;
   background: var(--color-bg-card, #fff);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
@@ -164,15 +169,15 @@ defineExpose({ resetToDefault, inputEl: rangeEl });
 .ui-slider-input::-moz-range-thumb {
   width: 16px;
   height: 16px;
-  border: 1px solid var(--color-primary, #5048E5);
+  border: 1px solid var(--color-primary);
   border-radius: 50%;
   background: var(--color-bg-card, #fff);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
 .ui-slider-input:hover:not(:disabled)::-webkit-slider-thumb { transform: scale(1.08); }
 .ui-slider-input:focus { outline: none; }
-.ui-slider-input:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--color-primary-dark-tint, #7b74ff); outline-offset: 2px; }
-.ui-slider-input:focus-visible::-moz-range-thumb { outline: 2px solid var(--color-primary-dark-tint, #7b74ff); outline-offset: 2px; }
+.ui-slider-input:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--color-primary-dark-tint); outline-offset: 2px; }
+.ui-slider-input:focus-visible::-moz-range-thumb { outline: 2px solid var(--color-primary-dark-tint); outline-offset: 2px; }
 .is-disabled .ui-slider-input { cursor: not-allowed; opacity: 0.5; }
 
 .ui-slider-marks { position: relative; height: 14px; }
