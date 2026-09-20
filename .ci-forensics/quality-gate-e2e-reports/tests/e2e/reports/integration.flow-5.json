@@ -1,0 +1,81 @@
+{
+  "specName": "integration.flow-5",
+  "url": "http://127.0.0.1:5174",
+  "timestamp": "2026-09-19T03:34:36.350Z",
+  "actions": 7,
+  "checks": {
+    "total": 6,
+    "passed": 6,
+    "failed": 0
+  },
+  "consoleErrors": [],
+  "pageErrors": [],
+  "details": [
+    {
+      "kind": "integration",
+      "name": "Flow5.1 在线时发布按钮启用",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "integration",
+      "name": "Flow5.2 离线状态合同生效且任务进入缓存队列",
+      "passed": true,
+      "details": {
+        "offlineCalls": 3,
+        "offlineCacheCalls": 1,
+        "response": {
+          "code": 0,
+          "data": {
+            "offline": true,
+            "cachedCount": 0,
+            "cachedTasks": []
+          }
+        },
+        "offlinePublishClicked": true
+      }
+    },
+    {
+      "kind": "integration",
+      "name": "Flow5.3 恢复在线后发布按钮重新启用",
+      "passed": true,
+      "details": {
+        "response": {
+          "code": 0,
+          "data": {
+            "offline": false,
+            "cachedCount": 0,
+            "cachedTasks": []
+          }
+        },
+        "enabledOnline": true
+      }
+    },
+    {
+      "kind": "integration",
+      "name": "Flow5.4 licenseFeatures 返回可验证的许可合同",
+      "passed": true,
+      "details": {
+        "count": 1,
+        "response": {
+          "code": 0,
+          "data": [
+            "basic_publish",
+            "ai_writer",
+            "analytics"
+          ]
+        }
+      }
+    },
+    {
+      "kind": "expectNoConsoleError",
+      "passed": true,
+      "errors": []
+    },
+    {
+      "kind": "expectNoPageError",
+      "passed": true,
+      "errors": []
+    }
+  ]
+}

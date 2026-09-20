@@ -1,0 +1,130 @@
+{
+  "timestamp": "2026-09-19T03:33:20.998Z",
+  "summary": {
+    "total": 17,
+    "passed": 17,
+    "failed": 0,
+    "passRate": "100.0%"
+  },
+  "results": [
+    {
+      "test": "home-baseline",
+      "status": "PASSED",
+      "misMatchPercentage": 1.2235725308641976,
+      "diffPath": "tests\\visual-testing\\reports\\pixel-diff\\home-baseline-1789788784665.png",
+      "route": "/"
+    },
+    {
+      "test": "accounts-list",
+      "status": "PASSED",
+      "misMatchPercentage": 0.47897376543209874,
+      "diffPath": "tests\\visual-testing\\reports\\pixel-diff\\accounts-list-1789788785853.png",
+      "route": "/accounts"
+    },
+    {
+      "test": "publish-form",
+      "status": "PASSED",
+      "misMatchPercentage": 3.2527488425925926,
+      "diffPath": "tests\\visual-testing\\reports\\pixel-diff\\publish-form-1789788787476.png",
+      "route": "/publish"
+    },
+    {
+      "test": "publish-history",
+      "status": "PASSED",
+      "misMatchPercentage": 4.034866898148149,
+      "diffPath": "tests\\visual-testing\\reports\\pixel-diff\\publish-history-1789788788548.png",
+      "route": "/publish/history"
+    },
+    {
+      "test": "create-editor",
+      "status": "PASSED",
+      "misMatchPercentage": 0.06987847222222221,
+      "diffPath": "tests\\visual-testing\\reports\\pixel-diff\\create-editor-1789788790478.png",
+      "route": "/create"
+    },
+    {
+      "test": "model-providers",
+      "status": "PASSED",
+      "misMatchPercentage": 2.389756944444444,
+      "diffPath": "tests\\visual-testing\\reports\\pixel-diff\\model-providers-1789788791380.png",
+      "route": "/model-providers"
+    },
+    {
+      "test": "first-run",
+      "status": "PASSED",
+      "misMatchPercentage": 0.5172164351851852,
+      "diffPath": "tests\\visual-testing\\reports\\pixel-diff\\first-run-1789788792319.png",
+      "route": "/first-run"
+    },
+    {
+      "test": "dashboard",
+      "status": "PASSED",
+      "misMatchPercentage": 0.20365547839506173,
+      "diffPath": "tests\\visual-testing\\reports\\pixel-diff\\dashboard-1789788793190.png",
+      "route": "/dashboard"
+    },
+    {
+      "test": "calendar",
+      "status": "PASSED",
+      "misMatchPercentage": 0.6277488425925926,
+      "diffPath": "tests\\visual-testing\\reports\\pixel-diff\\calendar-1789788794008.png",
+      "route": "/calendar"
+    },
+    {
+      "test": "cloud-publish",
+      "status": "PASSED",
+      "misMatchPercentage": 2.4868827160493825,
+      "diffPath": "tests\\visual-testing\\reports\\pixel-diff\\cloud-publish-1789788794791.png",
+      "route": "/cloud-publish"
+    },
+    {
+      "test": "viral-analysis",
+      "status": "PASSED",
+      "misMatchPercentage": 1.2672164351851851,
+      "diffPath": "tests\\visual-testing\\reports\\pixel-diff\\viral-analysis-1789788795625.png",
+      "route": "/viral-analysis"
+    },
+    {
+      "test": "create-result",
+      "status": "PASSED",
+      "misMatchPercentage": 0.6844135802469136,
+      "diffPath": "tests\\visual-testing\\reports\\pixel-diff\\create-result-1789788796442.png",
+      "route": "/create/result"
+    },
+    {
+      "test": "create-pipeline",
+      "status": "PASSED",
+      "misMatchPercentage": 0.06987847222222221,
+      "diffPath": "tests\\visual-testing\\reports\\pixel-diff\\create-pipeline-1789788797414.png",
+      "route": "/create/pipeline"
+    },
+    {
+      "test": "create-history",
+      "status": "PASSED",
+      "misMatchPercentage": 1.2847704475308641,
+      "diffPath": "tests\\visual-testing\\reports\\pixel-diff\\create-history-1789788798230.png",
+      "route": "/create/history"
+    },
+    {
+      "test": "intelligence",
+      "status": "PASSED",
+      "misMatchPercentage": 1.2509645061728394,
+      "diffPath": "tests\\visual-testing\\reports\\pixel-diff\\intelligence-1789788799065.png",
+      "route": "/intelligence"
+    },
+    {
+      "test": "keyword-monitor",
+      "status": "PASSED",
+      "misMatchPercentage": 0.8394097222222223,
+      "diffPath": "tests\\visual-testing\\reports\\pixel-diff\\keyword-monitor-1789788799846.png",
+      "route": "/keywords"
+    },
+    {
+      "test": "collection",
+      "status": "PASSED",
+      "misMatchPercentage": 3.5381944444444446,
+      "diffPath": "tests\\visual-testing\\reports\\pixel-diff\\collection-1789788800789.png",
+      "route": "/collection"
+    }
+  ]
+}

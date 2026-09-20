@@ -1,0 +1,75 @@
+{
+  "specName": "integration.flow-3",
+  "url": "http://127.0.0.1:5174",
+  "timestamp": "2026-09-19T03:34:34.474Z",
+  "actions": 3,
+  "checks": {
+    "total": 7,
+    "passed": 7,
+    "failed": 0
+  },
+  "consoleErrors": [],
+  "pageErrors": [],
+  "details": [
+    {
+      "kind": "integration",
+      "name": "Flow3.1 服务商列表渲染",
+      "passed": true,
+      "details": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "integration",
+      "name": "Flow3.2 默认服务商切换 IPC 调用",
+      "passed": true,
+      "details": {
+        "response": {
+          "code": 0,
+          "data": {
+            "category": "llm",
+            "id": "preset_anthropic"
+          }
+        }
+      }
+    },
+    {
+      "kind": "integration",
+      "name": "Flow3.3 重读列表仅有目标唯一默认服务商",
+      "passed": true,
+      "details": {
+        "code": 0,
+        "defaultIds": [
+          "preset_anthropic"
+        ]
+      }
+    },
+    {
+      "kind": "integration",
+      "name": "Flow3.4 发布页面 AI 写作面板加载",
+      "passed": true,
+      "details": {
+        "aiPanelOpened": true,
+        "aiPanelVisible": true
+      }
+    },
+    {
+      "kind": "integration",
+      "name": "Flow3.5 AI 服务商配置 IPC 已调用",
+      "passed": true,
+      "details": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "expectNoConsoleError",
+      "passed": true,
+      "errors": []
+    },
+    {
+      "kind": "expectNoPageError",
+      "passed": true,
+      "errors": []
+    }
+  ]
+}

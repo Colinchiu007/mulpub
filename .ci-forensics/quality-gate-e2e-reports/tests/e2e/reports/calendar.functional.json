@@ -1,0 +1,121 @@
+{
+  "specName": "calendar.functional",
+  "url": "http://127.0.0.1:5174",
+  "timestamp": "2026-09-19T03:34:29.908Z",
+  "actions": 9,
+  "checks": {
+    "total": 13,
+    "passed": 13,
+    "failed": 0
+  },
+  "consoleErrors": [],
+  "pageErrors": [],
+  "details": [
+    {
+      "kind": "functional",
+      "name": "路由地址正确",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "页面标题渲染",
+      "passed": true,
+      "details": {
+        "title": "发布日历"
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "日历可切换下个月",
+      "passed": true,
+      "details": {
+        "labelBefore": "2026 年 9 月",
+        "labelAfter": "2026 年 10 月"
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "日历可回到今天",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "日期格可选择",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "日历加载排期",
+      "passed": true,
+      "details": {
+        "method": "schedulerList",
+        "count": 1
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "日历加载发布历史",
+      "passed": true,
+      "details": {
+        "method": "historyList",
+        "count": 1
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "初始可用按钮均完成点击扫描",
+      "passed": true,
+      "details": {
+        "total": 3,
+        "manual": 0,
+        "sampled": 3,
+        "suppressed": 0,
+        "clicked": 3,
+        "skipped": 0,
+        "failures": []
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "全部初始可编辑表单字段完成输入扫描",
+      "passed": true,
+      "details": {
+        "fieldCount": 0,
+        "sampledFieldCount": 0,
+        "suppressed": 0,
+        "editableCount": 0,
+        "exercised": 0,
+        "failures": []
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "页面链接完成点击扫描",
+      "passed": true,
+      "details": {
+        "total": 0,
+        "clicked": 0,
+        "links": []
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "响应式窗口仍渲染标题",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "expectNoConsoleError",
+      "passed": true,
+      "errors": []
+    },
+    {
+      "kind": "expectNoPageError",
+      "passed": true,
+      "errors": []
+    }
+  ]
+}

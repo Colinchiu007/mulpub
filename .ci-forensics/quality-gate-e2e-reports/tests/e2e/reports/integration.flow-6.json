@@ -1,0 +1,51 @@
+{
+  "specName": "integration.flow-6",
+  "url": "http://127.0.0.1:5174",
+  "timestamp": "2026-09-19T03:34:37.432Z",
+  "actions": 3,
+  "checks": {
+    "total": 5,
+    "passed": 5,
+    "failed": 0
+  },
+  "consoleErrors": [],
+  "pageErrors": [],
+  "details": [
+    {
+      "kind": "integration",
+      "name": "Flow6.1 表单校验提示出现（空提交触发）",
+      "passed": true,
+      "details": {
+        "clicked": true
+      }
+    },
+    {
+      "kind": "integration",
+      "name": "Flow6.2 IPC 失败后错误提示可达",
+      "passed": true,
+      "details": {
+        "errorUIVisible": true,
+        "publishBatchObserved": true,
+        "publishBatchCalls": 1
+      }
+    },
+    {
+      "kind": "integration",
+      "name": "Flow6.3 创作页必填提示可达",
+      "passed": true,
+      "details": {
+        "note": "已加载流水线界面"
+      }
+    },
+    {
+      "kind": "expectNoConsoleError",
+      "passed": true,
+      "errors": []
+    },
+    {
+      "kind": "expectNoPageError",
+      "passed": true,
+      "errors": []
+    }
+  ]
+}

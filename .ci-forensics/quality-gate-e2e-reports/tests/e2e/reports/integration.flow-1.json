@@ -1,0 +1,100 @@
+{
+  "specName": "integration.flow-1",
+  "url": "http://127.0.0.1:5174",
+  "timestamp": "2026-09-19T03:34:32.170Z",
+  "actions": 4,
+  "checks": {
+    "total": 12,
+    "passed": 12,
+    "failed": 0
+  },
+  "consoleErrors": [],
+  "pageErrors": [],
+  "details": [
+    {
+      "kind": "integration",
+      "name": "Flow1.1 创作文案可填写",
+      "passed": true,
+      "details": {
+        "value": "E2E 集成测试视频文案"
+      }
+    },
+    {
+      "kind": "integration",
+      "name": "Flow1.2 启动流水线保存内容",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "integration",
+      "name": "Flow1.3 跳转到发布页",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "integration",
+      "name": "Flow1.4 发布表单填写完成",
+      "passed": true,
+      "details": {
+        "title": "E2E 集成发布标题",
+        "contentLen": 61
+      }
+    },
+    {
+      "kind": "integration",
+      "name": "Flow1.5 发布目标存在+有平台可发",
+      "passed": true,
+      "details": {
+        "found": true,
+        "disabled": false,
+        "tagName": "button",
+        "hintText": "一键发布\n编辑内容并发布到多个平台\n▶ 视频发布\n▤ 图文发布\n批量模式\n标题\n📝 模板\n🤖 AI\n作者\n图片素材\n选择图片\n支持 JPG/PNG/WebP，最多 9 张；图片会随发布任务传给平台适配器\n正文\n富文本\nMarkdown\n封面图\n选择封面\n可选择本地封面，也可以填写图片链接\n标签\n话题\n@好友\n定时发布\n留空 = 立即发布\n内容创作声明\n本内容由 AI 生成（如实声明，避免违规）"
+      }
+    },
+    {
+      "kind": "integration",
+      "name": "Flow1.6 一键发布按钮可执行",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "integration",
+      "name": "Flow1.7 publishBatch IPC 被调用",
+      "passed": true,
+      "details": {
+        "publishBatch": 1,
+        "publishWechat": 0
+      }
+    },
+    {
+      "kind": "integration",
+      "name": "Flow1.8 跳转到看板",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "integration",
+      "name": "Flow1.9 看板统计已加载",
+      "passed": true,
+      "details": {
+        "count": 1
+      }
+    },
+    {
+      "kind": "integration",
+      "name": "Flow1.10 看板渲染数据卡片",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "expectNoConsoleError",
+      "passed": true,
+      "errors": []
+    },
+    {
+      "kind": "expectNoPageError",
+      "passed": true,
+      "errors": []
+    }
+  ]
+}

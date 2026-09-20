@@ -1,0 +1,124 @@
+{
+  "specName": "accounts.functional",
+  "url": "http://127.0.0.1:5174",
+  "timestamp": "2026-09-19T03:32:54.752Z",
+  "actions": 12,
+  "checks": {
+    "total": 14,
+    "passed": 14,
+    "failed": 0
+  },
+  "consoleErrors": [],
+  "pageErrors": [],
+  "details": [
+    {
+      "kind": "functional",
+      "name": "路由地址正确",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "页面标题渲染",
+      "passed": true,
+      "details": {
+        "title": "账号管理"
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "账号 fixture 渲染",
+      "passed": true,
+      "details": {
+        "count": 8,
+        "expected": 8
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "账号状态筛选均可点击",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "添加账号打开弹窗",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "添加账号弹窗可关闭",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "账号登录验证可执行",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "账号验证调用 IPC",
+      "passed": true,
+      "details": {
+        "method": "accountCheckLogin",
+        "count": 1
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "初始可用按钮语义采样完成",
+      "passed": true,
+      "details": {
+        "total": 0,
+        "manual": 0,
+        "sampled": 0,
+        "suppressed": 0,
+        "clicked": 0,
+        "skipped": 0,
+        "failures": []
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "初始可编辑字段语义采样完成",
+      "passed": true,
+      "details": {
+        "fieldCount": 7,
+        "sampledFieldCount": 6,
+        "suppressed": 1,
+        "editableCount": 5,
+        "exercised": 5,
+        "failures": []
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "页面链接完成点击扫描",
+      "passed": true,
+      "details": {
+        "total": 0,
+        "clicked": 0,
+        "links": []
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "响应式窗口仍渲染标题",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "expectNoConsoleError",
+      "passed": true,
+      "errors": []
+    },
+    {
+      "kind": "expectNoPageError",
+      "passed": true,
+      "errors": []
+    }
+  ]
+}
