@@ -209,7 +209,7 @@ onBeforeUnmount(() => {
   border: none;
   background: var(--apple-surface-tertiary);
   color: var(--apple-ink-secondary);
-  font-size: 16px;
+  font-size: var(--font-size-base);
   cursor: pointer;
   display: flex;
   align-items: center;

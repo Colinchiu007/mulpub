@@ -65,7 +65,7 @@
 </template>
 
 <script setup>
-import { getApi } from '@/api/electron-bridge'
+import { getApi, invokePageManager } from '@/api/electron-bridge'
 import MpModuleNav from '@/layouts/MpModuleNav.vue'
 import MpSidebar from '@/layouts/MpSidebar.vue'
 import TabBar from '@/components/TabBar.vue'
@@ -76,7 +76,7 @@ import SettingsDialog from '@/components/SettingsDialog.vue'
 import BackToTop from '@/components/BackToTop.vue'
 import PipelineBackgroundToast from '@/components/PipelineBackgroundToast.vue'
 import RouteLoadError from '@/components/RouteLoadError.vue'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { useAccountActions } from '@/composables/useAccountActions'
@@ -107,6 +107,14 @@ const isLoginTab = computed(() => {
   return tab?.isLogin === true || (tab?.accountId != null && !tab.isHome)
 })
 const savingAccount = ref(false)
+
+// ── 壳态互斥上报（T0-6b，A1 决策）──
+// 工作台壳态（首页虚拟标签，SPA 渲染）下浏览器壳与工作台不同时展示：
+// 上报主进程隐藏全部内嵌 WebContentsView；切回浏览器壳时恢复。
+// 上报失败静默（非 Electron 环境/主进程未就绪时不影响渲染层）。
+watch(isHomeTab, (home) => {
+  invokePageManager('setShellMode', home ? 'workbench' : 'browser')
+}, { immediate: true })
 
 // ── NavBar 左右箭头可用性（2026-09-15 修复）──
 // home 标签是虚拟标签（无 WebContentsView），主进程对其 canGoBack/canGoForward
@@ -290,14 +298,14 @@ body { margin: 0; padding: 0; }
 html, body { height: 100%; overflow: hidden; }
 #app { height: 100%; }
 .app-root { height: 100%; display: flex; flex-direction: column; }
-.mp-shell { min-height: 0; flex: 1; display: flex; min-width: 0; overflow: hidden; background: #f7f7fb; }
+.mp-shell { min-height: 0; flex: 1; display: flex; min-width: 0; overflow: hidden; background: var(--color-bg-inset); }
 .mp-shell-main { min-width: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 /* 壳态收敛 6a：工作台壳态下 NavBar 的等高占位行（40px 与 .nav-bar 一致），
    保持 TabBar(36px) + 占位(40px) = 76px 的主进程 WebContentsView TOP 偏移不变 */
 .mp-shell-nav-placeholder {
   flex-shrink: 0;
   height: 40px;
-  background: #f7f7fb;
+  background: var(--color-bg-inset);
 }
 .mp-workspace { min-width: 0; min-height: 0; flex: 1; overflow: auto; }
 .fullscreen-main { min-height: 0; flex: 1; overflow: auto; }

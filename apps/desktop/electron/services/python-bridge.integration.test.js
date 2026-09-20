@@ -157,7 +157,7 @@ test('startPythonBackend 成功路径：spawn 正确参数 + 健康检查通过 
   await bridge.startPythonBackend()
   expect(spawnSpy).toHaveBeenCalledTimes(1)
   const [cmd, args, opts] = spawnSpy.mock.calls[0]
-  expect(cmd).toMatch(/python|Python/)
+  expect(cmd).toMatch(/python3?/)
   expect(args).toEqual(['server.py'])
   expect(opts.env.BACKEND_PORT).toBe('8299')
   expect(opts.env.PYTHONUNBUFFERED).toBe('1')

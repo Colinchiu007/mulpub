@@ -1,7 +1,7 @@
 <template>
   <div>
     <h1 style="margin-bottom:16px">审计日志</h1>
-    <p style="color:#888;margin-bottom:16px;font-size:13px">
+    <p style="color:var(--color-text-placeholder);margin-bottom:16px;font-size: var(--font-size-sm)">
       查看配置项变更的审计记录（只读）。
     </p>
 

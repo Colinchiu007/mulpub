@@ -66,7 +66,7 @@ onMounted(() => { loadRuntime() })
   gap: 10px;
   padding: 10px 14px;
   border-radius: 8px;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   border: 1px solid;
 }
 .severity-info {
@@ -89,7 +89,7 @@ onMounted(() => { loadRuntime() })
 [data-theme="dark"] .severity-maintenance { background: #3c1a1a; border-color: #8a3c3c; color: #f28b82; }
 .ann-badge {
   font-weight: 700;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   white-space: nowrap;
   padding-top: 1px;
 }
@@ -102,7 +102,7 @@ onMounted(() => { loadRuntime() })
   cursor: pointer;
   color: inherit;
   opacity: 0.7;
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   padding: 2px;
 }
 .ann-close:hover { opacity: 1; }

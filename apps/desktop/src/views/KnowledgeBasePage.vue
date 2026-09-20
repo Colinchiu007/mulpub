@@ -161,8 +161,8 @@ async function handleExport() {
   border-bottom: 1px solid var(--border);
   background: var(--surface, #fff);
 }
-.page-title { font-size: 18px; font-weight: 600; color: var(--text-primary); }
-.page-subtitle { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.page-title { font-size: var(--font-size-md); font-weight: 600; color: var(--text-primary); }
+.page-subtitle { font-size: var(--font-size-xs); color: var(--muted); margin-top: 2px; }
 .cohere-btn-primary {
   padding: 8px 16px;
   background: var(--coral, #f56c6c);
@@ -170,7 +170,7 @@ async function handleExport() {
   border: none;
   border-radius: 8px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
 }
 .cohere-btn-secondary {
@@ -180,7 +180,7 @@ async function handleExport() {
   border: 1px solid var(--border);
   border-radius: 8px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
 }
 .cohere-content { padding: 12px 20px; }
@@ -191,7 +191,7 @@ async function handleExport() {
   background: none;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   color: var(--muted);
   transition: all 0.15s;
 }

@@ -192,7 +192,7 @@ export const ROUTE_REGISTRY = Object.freeze([
     entryFrom: null,
   },
   {
-    // 暗路由：从 /create（CreateView.vue）与创作历史（CreateHistory.vue）预览进入
+    // 暗路由：从 /create（CreateView.vue，历史记录标签内嵌 CreateViewHistory）预览进入
     path: '/create/result',
     name: 'CreateResult',
     view: 'ResultView.vue',

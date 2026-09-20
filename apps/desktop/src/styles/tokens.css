@@ -165,6 +165,12 @@
   --color-bg-canvas: #1a1a1e;
   --color-bg-card: #232329;
 
+  /* 深色走查补槽（P2）：高频背景/边框槽位——此前 dark 未覆盖导致深色模式下
+   * 内嵌背景/边框仍用浅色值（视觉突兀）。值取暗色系与 bg-card 同族。 */
+  --color-bg-inset: #1e1e23;
+  --color-border: #32323a;
+  --color-border-strong: #3d3d46;
+
   /* 品牌色暗底亮化变体：仅用于暗色模式下的文字/描边场景（保持紫色相，替代旧蓝系 #4c8bf5/#6b8cff） */
   --color-primary-dark-tint: #7b74ff;
 

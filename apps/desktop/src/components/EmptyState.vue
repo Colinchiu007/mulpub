@@ -53,7 +53,7 @@ const hasActions = !!slots.actions
   line-height: 1;
 }
 .mp-empty-state--compact .mp-empty-state__icon {
-  font-size: 24px;
+  font-size: var(--font-size-xl);
 }
 .mp-empty-state__title {
   margin: 0;

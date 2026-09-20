@@ -1,7 +1,7 @@
 <template>
   <div>
     <h1 style="margin-bottom:16px">预设模型设置</h1>
-    <p style="color:#888;margin-bottom:16px;font-size:13px">
+    <p style="color:var(--color-text-placeholder);margin-bottom:16px;font-size: var(--font-size-sm)">
       运营人员维护前端【模型设置】的预设服务商目录：控制是否在前端显示、维护技术文档链接（每个模型最多 10 条）；
       多模态模型可配置支持能力、每能力默认模型与分能力技术文档 URL；
       限流字段（每分钟连接次数 / 5小时限额次数）用于指导前端调度并发与排队，允许留空（留空表示使用默认限流）。
@@ -97,18 +97,18 @@
         </el-form-item>
         <el-form-item label="每分钟连接次数">
           <el-input-number v-model="form.rate_per_minute" :min="1" :max="100000" :controls="false" style="width:100%" placeholder="允许为空" />
-          <span style="margin-left:8px;color:#888;font-size:12px">留空表示未配置，前端使用默认限流；正整数</span>
+          <span style="margin-left:8px;color:var(--color-text-placeholder);font-size: var(--font-size-xs)">留空表示未配置，前端使用默认限流；正整数</span>
         </el-form-item>
         <el-form-item label="5小时限额次数">
           <el-input-number v-model="form.limit_per_5h" :min="1" :max="10000000" :controls="false" style="width:100%" placeholder="允许为空" />
-          <span style="margin-left:8px;color:#888;font-size:12px">留空表示未配置；5 小时内请求次数上限（正整数）</span>
+          <span style="margin-left:8px;color:var(--color-text-placeholder);font-size: var(--font-size-xs)">留空表示未配置；5 小时内请求次数上限（正整数）</span>
         </el-form-item>
         <el-form-item label="多模态模型">
           <el-switch v-model="form.is_multimodal" />
         </el-form-item>
         <el-form-item label="前端显示">
           <el-switch v-model="form.is_visible" />
-          <span style="margin-left:8px;color:#888;font-size:12px">关闭后不在前端【模型设置】中显示该预设</span>
+          <span style="margin-left:8px;color:var(--color-text-placeholder);font-size: var(--font-size-xs)">关闭后不在前端【模型设置】中显示该预设</span>
         </el-form-item>
 
         <template v-if="form.is_multimodal">

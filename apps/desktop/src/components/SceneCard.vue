@@ -91,12 +91,12 @@ const truncatedPrompt = computed(() => {
   border-bottom: 1px solid var(--border-light, #f0f0f0);
 }
 .scene-index {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--text-muted, #909399);
 }
 .scene-badge {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   padding: 2px 8px;
   border-radius: 10px;
   font-weight: 500;
@@ -112,12 +112,12 @@ const truncatedPrompt = computed(() => {
   padding: 12px;
 }
 .scene-name {
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   margin-bottom: 6px;
 }
 .scene-prompt {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted, #909399);
   line-height: 1.5;
   margin-bottom: 8px;
@@ -135,7 +135,7 @@ const truncatedPrompt = computed(() => {
   border: 1px solid var(--border-light, #f0f0f0);
 }
 .take-more {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted, #909399);
   font-weight: 600;
 }
@@ -144,7 +144,7 @@ const truncatedPrompt = computed(() => {
   gap: 12px;
   padding: 8px 12px;
   border-top: 1px solid var(--border-light, #f0f0f0);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted, #909399);
 }
 .scene-provider {

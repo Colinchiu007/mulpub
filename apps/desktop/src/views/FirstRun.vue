@@ -253,12 +253,12 @@ function retryDeps () {
 .fr-step-icon-lg { font-size: 64px; margin-bottom: var(--space-lg); }
 .fr-step-icon { font-size: 48px; margin-bottom: var(--space-lg); }
 .fr-step-title { font-size: var(--font-size-xl); font-weight: 600; color: var(--color-primary); margin-bottom: 8px; }
-.fr-step-title-sm { font-size: 22px; font-weight: 500; color: var(--color-primary); margin-bottom: 8px; }
-.fr-step-desc { font-size: 14px; color: var(--color-text-muted); margin-bottom: var(--space-xl); }
+.fr-step-title-sm { font-size: var(--font-size-lg); font-weight: 500; color: var(--color-primary); margin-bottom: 8px; }
+.fr-step-desc { font-size: var(--font-size-sm); color: var(--color-text-muted); margin-bottom: var(--space-xl); }
 
 .fr-step-list { display: flex; flex-direction: column; gap: 12px; text-align: left; max-width: 400px; margin: 0 auto var(--space-xl); }
 .fr-step-item { display: flex; gap: 12px; padding: 12px; background: var(--color-bg-inset); border-radius: var(--r-sm); }
-.fr-step-num { font-size: 18px; }
+.fr-step-num { font-size: var(--font-size-md); }
 .fr-step-item-desc { font-size: var(--font-size-sm); color: var(--color-text-muted); }
 
 .fr-dep-list { display: flex; flex-direction: column; gap: var(--space-md); }
@@ -267,9 +267,9 @@ function retryDeps () {
 .fr-dep-item--active { background: var(--color-primary-light); }
 .fr-dep-item--error { background: var(--color-danger-soft); }
 .fr-dep-item--pending { background: var(--color-bg-inset); }
-.fr-dep-icon { font-size: 20px; line-height: 24px; }
+.fr-dep-icon { font-size: var(--font-size-lg); line-height: 24px; }
 .fr-dep-body { flex: 1; }
-.fr-dep-label { font-weight: 500; font-size: 14px; }
+.fr-dep-label { font-weight: 500; font-size: var(--font-size-sm); }
 .fr-dep-msg { font-size: var(--font-size-sm); color: var(--color-text-muted); margin-top: 4px; }
 
 .fr-step-actions { margin-top: var(--space-xl); }
@@ -284,7 +284,7 @@ function retryDeps () {
   border-radius: var(--r-sm);
   background: var(--color-bg-canvas);
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   display: flex;
   align-items: center;
   gap: 8px;

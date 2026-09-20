@@ -207,7 +207,7 @@ async function copyPath() {
 
 <style scoped>
 .video-clone-view { max-width: 860px; margin: 24px auto; padding: 0 16px; }
-.vc-title { font-size: 20px; margin-bottom: 16px; }
+.vc-title { font-size: var(--font-size-lg); margin-bottom: 16px; }
 .vc-card { margin-bottom: 16px; }
 .vc-input, .vc-options { margin-top: 12px; }
 .vc-option { width: 160px; margin-right: 12px; }
@@ -218,14 +218,14 @@ async function copyPath() {
 .vc-stage.is-running .vc-stage-dot { background: #409eff; animation: pulse 1s infinite; }
 .vc-stage.is-success .vc-stage-dot { background: #67c23a; }
 .vc-stage.is-failed .vc-stage-dot { background: #f56c6c; }
-.vc-stage-status { color: #909399; font-size: 12px; }
+.vc-stage-status { color: #909399; font-size: var(--font-size-xs); }
 .vc-video { width: 100%; max-height: 480px; border-radius: 4px; background: #000; }
 .vc-video-fallback { padding: 24px; text-align: center; color: #909399; }
-.vc-path-text { margin-top: 8px; color: #909399; font-size: 12px; word-break: break-all; }
-.vc-meta { margin-top: 8px; color: #909399; font-size: 12px; }
-.vc-sim { font-size: 16px; }
-.vc-level { margin-top: 6px; color: #303133; font-size: 14px; }
-.vc-level-note { color: #909399; font-size: 12px; margin-left: 6px; }
+.vc-path-text { margin-top: 8px; color: #909399; font-size: var(--font-size-xs); word-break: break-all; }
+.vc-meta { margin-top: 8px; color: #909399; font-size: var(--font-size-xs); }
+.vc-sim { font-size: var(--font-size-base); }
+.vc-level { margin-top: 6px; color: #303133; font-size: var(--font-size-sm); }
+.vc-level-note { color: #909399; font-size: var(--font-size-xs); margin-left: 6px; }
 .vc-sim-metrics { margin: 8px 0; color: #606266; }
 @keyframes pulse { 50% { opacity: 0.3; } }
 </style>

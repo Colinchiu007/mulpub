@@ -39,14 +39,14 @@ describe('useFilmEngineering', () => {
   function stubWindow (api) {
     vi.stubGlobal('window', {
       electronAPI: { filmEngineering: api },
-      navigator: { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } },
+      navigator: { clipboard: { writeText: vi.fn(async () => undefined) } },
     })
   }
 
   function stubWindowWithProfiles (api) {
     vi.stubGlobal('window', {
       electronAPI: { filmEngineering: api, ...api },
-      navigator: { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } },
+      navigator: { clipboard: { writeText: vi.fn(async () => undefined) } },
     })
   }
 

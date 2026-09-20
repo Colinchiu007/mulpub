@@ -2001,7 +2001,7 @@ function cancelBatchCollect () {
   line-height: 1.6;
   box-sizing: border-box;
   font-family: inherit;
-  background: #fff;
+  background: var(--color-bg-card);
 }
 .compare-textarea:focus { border-color: var(--coral); outline: none; }
 .compare-textarea[readonly] { background: var(--soft-stone); color: var(--text-secondary); }
@@ -2035,7 +2035,7 @@ function cancelBatchCollect () {
   color: var(--text-primary, #333);
 }
 .collection-tab-btn.active {
-  background: #fff;
+  background: var(--color-bg-card);
   color: var(--primary, #ea580c);
   box-shadow: 0 1px 3px rgba(0,0,0,0.1);
 }
@@ -2064,7 +2064,7 @@ function cancelBatchCollect () {
 }
 .library-filter-btn:hover { color: var(--text-primary, #333); }
 .library-filter-btn.active {
-  background: #fff;
+  background: var(--color-bg-card);
   color: var(--primary, #ea580c);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
