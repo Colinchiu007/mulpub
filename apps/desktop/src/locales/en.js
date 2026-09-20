@@ -964,6 +964,13 @@ export default {
     trendTitle: 'Publishing trend (last 14 days)',
     platformDistTitle: 'Platform distribution',
     recentTitle: 'Recent publishes',
+    publishedContent: 'Published content',
+    weekChange: 'vs last week +12%',
+    totalComments: 'Total comments',
+    totalFollowers: 'Total followers',
+    publishStatsTitle: 'Publishing stats',
+    last14DaysHint: 'Last 14 days',
+    countUnit: (ctx) => ctx.named('count') + ' posts',
   },
   promptEval: {
     deleteConfirmTitle: 'Delete eval record',

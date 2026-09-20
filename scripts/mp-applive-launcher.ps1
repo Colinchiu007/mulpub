@@ -47,12 +47,25 @@ $cdpPort = [int]$ports.cdp
 Write-Info ("ports vite=" + $vitePort + " cdp=" + $cdpPort)
 
 # stop existing electron from this worktree (single-instance)
-Get-Process electron -ErrorAction SilentlyContinue | Where-Object { $_.Path -like ($Worktree + '*') } | ForEach-Object { Stop-Process -Id $_.Id -Force; Write-Info ("stop old electron pid=" + $_.Id) }
+# Normalize separators: process Path uses backslashes while callers may pass
+# forward slashes; a mismatched -like silently skips the old instance and the
+# new launch is then dropped by the single-instance lock.
+$wtNorm = $Worktree.Replace('/', '\')
+Get-Process electron -ErrorAction SilentlyContinue | Where-Object { $_.Path -like ($wtNorm + '*') } | ForEach-Object { Stop-Process -Id $_.Id -Force; Write-Info ("stop old electron pid=" + $_.Id) }
+# also stop stale dev.js/vite node processes bound to this worktree, otherwise
+# they keep the derived vite/cdp ports and race the new instance
+Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+  Where-Object { $_.CommandLine -like ('*' + $Worktree + '*') -or $_.CommandLine -like ('*' + $wtNorm + '*') } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; Write-Info ('stop old node pid=' + $_.ProcessId) }
 Start-Sleep -Seconds 2
 
 # build detached launch command line (env-set via cmd /c)
+# NOTE: cmd `set VAR=val & ...` folds the trailing space into the value
+# (shared-user-data ' ' broke python-backend mkdir). Always use the quoted
+# form `set "VAR=val"` so values never carry trailing whitespace.
 $desktopDir = Join-Path $Worktree 'apps/desktop'
-$inner = "set PATH=$nodeDir;%PATH% & set MP_VITE_PORT=$vitePort & set MP_CDP_PORT=$cdpPort & set ELECTRON_USER_DATA_DIR=$Profile & set MP_PYTHON=$pyExe & set MP_CDP_ALLOW_ALL_ORIGINS=1 & cd /d $desktopDir & node scripts/dev.js"
+$Profile = $Profile.Trim()
+$inner = 'set "PATH=' + $nodeDir + ';%PATH%" & set "MP_VITE_PORT=' + $vitePort + '" & set "MP_CDP_PORT=' + $cdpPort + '" & set "ELECTRON_USER_DATA_DIR=' + $Profile + '" & set "MP_PYTHON=' + $pyExe + '" & set "MP_CDP_ALLOW_ALL_ORIGINS=1" & cd /d "' + $desktopDir + '" & node scripts/dev.js'
 $cmdLine = "cmd.exe /c $inner"
 Write-Info ("launch cmd: " + $cmdLine)
 
@@ -80,13 +93,28 @@ if (-not $launched) {
 $deadline = (Get-Date).AddSeconds(150)
 $win = $null
 while ((Get-Date) -lt $deadline) {
-  $win = Get-Process electron -ErrorAction SilentlyContinue | Where-Object { $_.Path -like ($Worktree + '*') -and $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+  $win = Get-Process electron -ErrorAction SilentlyContinue | Where-Object { $_.Path -like ($wtNorm + '*') -and $_.MainWindowHandle -ne 0 } | Select-Object -First 1
   if ($win) { break }
   Start-Sleep -Seconds 3
 }
 if ($win) {
   Write-Info ("WINDOW pid=" + $win.Id + " handle=" + $win.MainWindowHandle + " title=" + $win.MainWindowTitle)
-  Write-Info 'START_CONTRACT_OK'
 } else {
   Write-Info 'WARN: no visible window within 150s; app may still be starting'
+}
+
+# verify main backend (python, port 8299) actually came up: a visible window
+# alone does NOT prove services are healthy (see 2026-09-20 trailing-space bug)
+$backendOk = $false
+$beDeadline = (Get-Date).AddSeconds(60)
+while ((Get-Date) -lt $beDeadline) {
+  $listen = Get-NetTCPConnection -LocalPort 8299 -State Listen -ErrorAction SilentlyContinue
+  if ($listen) { $backendOk = $true; break }
+  Start-Sleep -Seconds 3
+}
+if ($backendOk) {
+  Write-Info 'MAIN_BACKEND_LISTENING port=8299'
+  Write-Info 'START_CONTRACT_OK'
+} else {
+  Write-Info 'WARN: MAIN_BACKEND_NOT_LISTENING port=8299 within 60s; check shared-user-data/logs/app-*.log for PythonBridge errors'
 }

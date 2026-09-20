@@ -965,6 +965,13 @@ export default {
     trendTitle: '发布趋势（近 14 天）',
     platformDistTitle: '平台分布',
     recentTitle: '最近发布',
+    publishedContent: '已发布内容',
+    weekChange: '较上周 +12%',
+    totalComments: '总评论',
+    totalFollowers: '总粉丝',
+    publishStatsTitle: '发布统计',
+    last14DaysHint: '最近 14 天',
+    countUnit: (ctx) => ctx.named('count') + ' 篇',
   },
   promptEval: {
     deleteConfirmTitle: '删除评测记录',

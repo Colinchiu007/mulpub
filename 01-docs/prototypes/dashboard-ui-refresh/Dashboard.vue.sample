@@ -22,10 +22,10 @@
         <div class="stat-card large">
           <div class="stat-icon">📤</div>
           <div class="stat-value">{{ totalArticles }}</div>
-          <div class="stat-label">{{ t('dashboard.publishedContent') }}</div>
+          <div class="stat-label">已发布内容</div>
           <div class="stat-change positive">
             <span>↑</span>
-            {{ t('dashboard.weekChange') }}
+            较上周 +12%
           </div>
         </div>
 
@@ -44,7 +44,7 @@
         <div class="stat-card">
           <div class="stat-icon"><el-icon><ChatDotRound /></el-icon></div>
           <div class="stat-value">{{ totalComments }}</div>
-          <div class="stat-label">{{ t('dashboard.totalComments') }}</div>
+          <div class="stat-label">总评论</div>
           <div class="stat-change positive">
             <span>↑</span>
             +23%
@@ -55,7 +55,7 @@
         <div class="stat-card">
           <div class="stat-icon">👥</div>
           <div class="stat-value">{{ totalFollowers > 10000 ? (totalFollowers / 10000).toFixed(1) + '万' : totalFollowers }}</div>
-          <div class="stat-label">{{ t('dashboard.totalFollowers') }}</div>
+          <div class="stat-label">总粉丝</div>
           <div class="stat-change negative">
             <span>↓</span>
             -2.1%
@@ -72,7 +72,7 @@
       <!-- 发布统计 -->
       <div v-if="statsData" class="cohere-card dash-mb-md stats-login-panel">
         <div class="panel-header">
-          <div class="panel-title"><el-icon><TrendCharts /></el-icon> {{ t('dashboard.publishStatsTitle') }}</div>
+          <div class="panel-title"><el-icon><TrendCharts /></el-icon> 发布统计</div>
         </div>
         <div class="stats-grid-small">
           <div class="stat-card-mini success">
@@ -99,7 +99,7 @@
         <div class="dash-panel-title">
           <el-icon><TrendCharts /></el-icon> 
           {{ $t('dashboard.trendTitle') }}
-          <span class="panel-subtitle">{{ t('dashboard.last14DaysHint') }}</span>
+          <span class="panel-subtitle">最近 14 天</span>
         </div>
         <div class="dash-trend-track" ref="trendChart">
           <div v-for="(d, index) in last14Days" :key="d.date" 
@@ -112,7 +112,7 @@
                    opacity: d.total > 0 ? 0.7 + (d.total / dailyMax) * 0.3 : 0.3
                  }"
                  :data-value="d.total">
-              <span class="bar-tooltip">{{ t('dashboard.countUnit', { count: d.total }) }}</span>
+              <span class="bar-tooltip">{{ d.total }} 篇</span>
             </div>
             <span class="dash-trend-date">{{ d.date.slice(5) }}</span>
           </div>
@@ -427,7 +427,7 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: var(--font-size-xl);
+  font-size: 24px;
   margin-bottom: var(--space-md);
   background: var(--lavender-light);
 }
@@ -438,7 +438,7 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
 }
 
 .stat-value {
-  font-size: clamp(2.4rem, 4vw, 2.8rem);
+  font-size: 42px;
   font-weight: 900;
   letter-spacing: -0.02em;
   margin-bottom: var(--space-xs);
@@ -446,11 +446,11 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
 }
 
 .stat-card.large .stat-value {
-  font-size: clamp(3rem, 5vw, 3.6rem);
+  font-size: 56px;
 }
 
 .stat-label {
-  font-size: var(--font-size-base);
+  font-size: 14px;
   color: var(--text-secondary);
   font-weight: 500;
 }
@@ -465,7 +465,7 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
   gap: 4px;
   padding: 4px 8px;
   border-radius: var(--radius-full);
-  font-size: var(--font-size-xs);
+  font-size: 12px;
   font-weight: 600;
   margin-top: var(--space-sm);
 }
@@ -494,7 +494,7 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
 
 .panel-title {
   font-weight: 600;
-  font-size: var(--font-size-md);
+  font-size: 16px;
   color: var(--deep-purple);
   display: flex;
   align-items: center;
@@ -502,7 +502,7 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
 }
 
 .panel-subtitle {
-  font-size: var(--font-size-xs);
+  font-size: 12px;
   color: var(--text-secondary);
   font-weight: 400;
   margin-left: var(--space-sm);
@@ -536,14 +536,14 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
 }
 
 .stat-value-mini {
-  font-size: var(--font-size-xxl);
+  font-size: 28px;
   font-weight: 700;
   font-family: 'JetBrains Mono', monospace;
   margin-bottom: 4px;
 }
 
 .stat-label-mini {
-  font-size: var(--font-size-xs);
+  font-size: 12px;
   color: var(--text-secondary);
 }
 
@@ -593,7 +593,7 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
   top: -30px;
   left: 50%;
   transform: translateX(-50%);
-  font-size: var(--font-size-xs);
+  font-size: 12px;
   font-weight: 600;
   color: var(--deep-purple);
   opacity: 0;
@@ -605,7 +605,7 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
 }
 
 .dash-trend-date {
-  font-size: var(--font-size-xs);
+  font-size: 11px;
   color: var(--text-secondary);
   text-align: center;
 }
@@ -657,7 +657,7 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
   color: var(--deep-purple);
   min-width: 60px;
   text-align: right;
-  font-size: var(--font-size-base);
+  font-size: 14px;
 }
 
 /* === 章节标题 === */
@@ -711,11 +711,11 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
 .dash-stat-success { color: var(--color-success); }
 .dash-stat-danger { color: var(--color-danger); }
 .dash-panel { cursor: default; margin-bottom: var(--space-md); padding: 16px; }
-.dash-panel-title { font-weight: 600; font-size: var(--font-size-base); margin-bottom: var(--space-md); }
+.dash-panel-title { font-weight: 600; font-size: 14px; margin-bottom: var(--space-md); }
 .dash-fail-note { font-size: var(--font-size-xs); color: var(--color-danger); }
 .dash-grid-280 { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
 .dash-bench-row { display: flex; gap: var(--space-sm); margin-bottom: var(--space-md); align-items: center; }
-.dash-bench-input { flex: 1; font-size: var(--font-size-base); }
+.dash-bench-input { flex: 1; font-size: 14px; }
 
 /* 响应式 */
 @media (max-width: 1024px) {
