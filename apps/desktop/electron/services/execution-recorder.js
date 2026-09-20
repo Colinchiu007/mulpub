@@ -170,7 +170,7 @@ class ExecutionRecorder {
         this.startRecording(projectId);
         const newSession = this._sessions.get(projectId);
         if (!newSession) return;
-        session = newSession; // 指向重建后的新 stream，避免事件写入孤儿 stream
+        session = newSession; // 重启后指向重建后的新 stream，避免事件写入孤儿流
       }
     } catch (e) {
       log.error('ExecutionRecorder', 'Failed to check replay dir: ' + e.message);
