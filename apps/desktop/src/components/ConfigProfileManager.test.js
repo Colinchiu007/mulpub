@@ -122,6 +122,33 @@ describe('ConfigProfileManager', () => {
     expect(w.find('[data-testid="video-clone-config-profile-row"]').exists()).toBe(false)
   })
 
+  it('surfaces save failure inline without a duplicate error toast', async () => {
+    const { ElMessage } = await import('element-plus')
+    const errSpy = vi.spyOn(ElMessage, 'error').mockImplementation(() => {})
+    const w = mountManager({ onSave: vi.fn().mockResolvedValue({ code: -1, message: '配置保存失败' }) })
+    await w.find('[data-testid="video-clone-config-profile-save"]').trigger('click')
+    await w.find('[data-testid="video-clone-config-profile-name-input"]').setValue('失败回归')
+    await w.find('[data-testid="video-clone-config-profile-save-confirm"]').trigger('click')
+    await vi.waitFor(() => expect(w.find('.config-profile-error').text()).toContain('配置保存失败'))
+    expect(errSpy).not.toHaveBeenCalled()
+    errSpy.mockRestore()
+  })
+
+  it('maps browser-mode bridge failure to friendly Chinese instead of leaking electronAPI text', async () => {
+    const { ElMessage } = await import('element-plus')
+    const errSpy = vi.spyOn(ElMessage, 'error').mockImplementation(() => {})
+    const w = mountManager({ onSave: vi.fn().mockResolvedValue({ code: -1, message: 'electronAPI not available' }) })
+    await w.find('[data-testid="video-clone-config-profile-save"]').trigger('click')
+    await w.find('[data-testid="video-clone-config-profile-name-input"]').setValue('桥接不可用')
+    await w.find('[data-testid="video-clone-config-profile-save-confirm"]').trigger('click')
+    await vi.waitFor(() => expect(w.find('.config-profile-error').exists()).toBe(true))
+    const text = w.find('.config-profile-error').text()
+    expect(text).not.toContain('electronAPI')
+    expect(text).toContain('配置保存失败')
+    expect(errSpy).not.toHaveBeenCalled()
+    errSpy.mockRestore()
+  })
+
   it('keeps the save dialog open and surfaces a nonzero IPC envelope', async () => {
     const w = mountManager({ onSave: vi.fn().mockResolvedValue({ code: -1, message: '配置保存失败' }) })
     await w.find('[data-testid="video-clone-config-profile-save"]').trigger('click')

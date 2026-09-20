@@ -150,6 +150,8 @@ const TECHNICAL_TEXT_PATTERNS = Object.freeze([
   /\b[A-Z]{2,}_[A-Z0-9_]+\b/,
   /\b(?:line|at)\s+\d+/i,
   /(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?/,
+  // 浏览器模式 / 桥接不可用返回的内部哨兵文本，禁止直出，交给 fallback 映射为友好文案。
+  /\belectronAPI\b/i,
 ])
 
 function looksTechnical (text) {
