@@ -114,7 +114,7 @@ describe('HotTopics.vue', () => {
     expect(wrapper.text()).toContain('新B站热榜话题')
     // 全程无中央提示（后台刷新不打断用户）
     expect(wrapper.find('[data-testid="hot-topics-central-loading"]').exists()).toBe(false)
-    expect(hotTopicsFetch).toHaveBeenCalledWith(false)
+    expect(hotTopicsFetch).toHaveBeenCalledWith(false, [])
   })
 
   it('falls back to network fetch with central loading when getCache throws', async () => {
@@ -125,7 +125,7 @@ describe('HotTopics.vue', () => {
     const wrapper = mountPage()
     await flushPromises()
 
-    expect(hotTopicsFetch).toHaveBeenCalledWith(false)
+    expect(hotTopicsFetch).toHaveBeenCalledWith(false, [])
     expect(wrapper.find('[data-testid="hot-topics-central-loading"]').exists()).toBe(true)
   })
 

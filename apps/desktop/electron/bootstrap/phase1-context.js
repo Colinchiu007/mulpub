@@ -319,6 +319,11 @@ function extractContext(container) {
   // callAdapter 内部已通过 _writeLog 统一记录到 model_provider_logs 表
   // router 的 logHandler 功能保留为可选扩展（测试中可单独验证）
   const providerRouter = new ProviderRouter(modelProviderManager)
+  // 热门选题 LLM 分类兜底（方案C）：general 条目批量分类；未配置模型/调用失败时服务内静默降级
+  if (hotTopicsService && typeof hotTopicsService.setLlmClassify === 'function') {
+    const { createLlmTopicClassifier } = require('../services/hot-topics/llm-classifier')
+    hotTopicsService.setLlmClassify(createLlmTopicClassifier({ modelProviderManager, log }))
+  }
   if (aiGenerator && aiGenerator.setModelProviderManager) {
     aiGenerator.setModelProviderManager(modelProviderManager)
   }

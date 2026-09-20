@@ -1,3 +1,18 @@
+# [未发布] refactor(desktop): 收敛 .pipeline-grid 布局为 pipeline-selector.css 单一来源
+
+### 变更
+- **create-view.css**：删除重复定义的 `.pipeline-grid` 基础规则（auto-fill minmax(300px)）与 721-1024px 断点规则（minmax(260px)）。该规则与 pipeline-selector.css 多列断点体系同名同特异性，加载顺序一旦变化会静默压掉宽屏 3/4/5 列媒体查询，属级联隐患而非行为变更。
+- **新增契约测试 `pipeline-grid.source.test.js`**：钉死 create-view.css 禁止二次定义 `.pipeline-grid` + pipeline-selector.css 断点护栏（768/1200/1440/1920）+ PipelineSelector 组件随载导入。
+
+### 验证
+- 契约测试红→绿；CreateView / PipelineSelector 全量 297/297 通过
+- worktree vite + Playwright 实测视口 700/900/1300/1600/2560px 渲染 1/1/3/4/5 列，行为零变化
+
+### 关联
+- PR #2112（codex/pipeline-grid-single-source）；源自「视频创作页变 1 列」排查结论（旧 renderer 陈旧 bundle，非代码回归）
+
+---
+
 # [未发布] fix(scripts): start-app 快链路 foreign-profile 审计加固（2026-09-20 旧版 UI 事故复盘）
 
 ### 变更
@@ -29,6 +44,23 @@
 
 ### 关联
 - PR #2107（home-recent-activity-dedup）
+
+---
+
+# [未发布] feat(desktop): 热门选题分类供给增强——方案A-E全量实现（hot-topics-category-supply）
+
+### 变更
+- **抓取量放宽（A）**：MAX_PER_CHANNEL 20→50、MAX_TOPICS 160→400；知乎/腾讯端点提量；微博 hot_band 解析双形态兼容。
+- **分类器 v2（A）**：society 黑洞词（裸字'判'）修复；关键词打分制（命中词长度和）；新增 `classifyTopicMulti` 多标签 categories[]（≤3）；微博原生分类映射扩容 + GENERIC_RAW_MAP 通用映射。
+- **定向补拉（B/D）**：`CATEGORY_BOOSTS` 稀疏分类低于阈值或 UI boostCategories 触发，补拉百度财经tab/新浪财经滚动/IT之家RSS/微博情感·健康垂类；补拉 id 含 board 段防撞号，独立限流熔断。
+- **LLM 分类兜底（C）**：general 条目批量分类（单轮≤40）+ `hot_topics_llm_labels` 落盘缓存（≤500）；未配置/失败静默降级；phase1-context 接线 ModelProviderManager。
+- **UI（E）**：分类 chip 计数、双标签展示、多标签过滤、空分类「补拉该分类」按钮；渠道筛选新增新浪财经/IT之家；locale zh/en 成对新增 5 键。
+
+### 验证
+- TDD 红灯 15 契约 → 全绿：hot-topics-service.test.js 50 例、HotTopics.test.js 35 例、assembly、phase1-context 13 例全通过；check-locale-sync --keys PASS。
+
+### 关联
+- PRD：01-docs/PRD-HOT-TOPICS-CATEGORY-SUPPLY-2026-09-20.md；分支 hot-topics-category-supply（worktree mp-hot-topics-category-supply）
 
 ---
 

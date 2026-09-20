@@ -357,7 +357,7 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
 
 <style scoped>
 /* === 奶油·薰衣草配色系统 === */
-:root {
+:global(:root) {
   --lavender-primary: #7c5cbf;
   --lavender-light: #f8f4ff;
   --lavender-accent: #f472b6;
@@ -382,7 +382,6 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
   position: relative;
   overflow: hidden;
   animation: fadeInUp 0.6s cubic-bezier(0.33, 1, 0.68, 1) forwards;
-  opacity: 0;
 }
 
 .stat-card::before {
@@ -483,7 +482,6 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
 /* === 发布统计面板 === */
 .stats-login-panel {
   animation: fadeInUp 0.6s cubic-bezier(0.33, 1, 0.68, 1) 0.1s backwards;
-  opacity: 0;
 }
 
 .panel-header {
@@ -550,7 +548,6 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
 /* === 趋势图表 === */
 .trend-panel {
   animation: fadeInUp 0.6s cubic-bezier(0.33, 1, 0.68, 1) 0.2s backwards;
-  opacity: 0;
 }
 
 .dash-trend-track {
@@ -580,7 +577,6 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
   cursor: pointer;
   animation: growBar 1s cubic-bezier(0.33, 1, 0.68, 1) forwards;
   animation-fill-mode: both;
-  opacity: 0;
 }
 
 .dash-trend-bar:hover {
@@ -613,7 +609,6 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
 /* === 平台分布 === */
 .platform-panel {
   animation: fadeInUp 0.6s cubic-bezier(0.33, 1, 0.68, 1) 0.3s backwards;
-  opacity: 0;
 }
 
 .dash-dist-row {
@@ -623,7 +618,6 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
   padding: var(--space-sm);
   border-radius: var(--radius-md);
   transition: all 0.3s cubic-bezier(0.33, 1, 0.68, 1);
-  opacity: 0;
 }
 
 .dash-dist-row.animate-on-scroll {
@@ -649,7 +643,6 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
   transition: width 1.2s cubic-bezier(0.33, 1, 0.68, 1);
   animation: fillProgress 1.2s cubic-bezier(0.33, 1, 0.68, 1) forwards;
   animation-fill-mode: both;
-  opacity: 0;
 }
 
 .dash-dist-count {
