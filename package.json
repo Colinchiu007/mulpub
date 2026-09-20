@@ -10,7 +10,7 @@
     "build:win": "pnpm --filter @multi-publish/desktop build:win",
     "test": "pnpm -r --if-present run test",
     "clean": "rm -rf apps/*/node_modules packages/*/node_modules node_modules",
-    "check:deps": "depcheck --ignore-dirs=dist,node_modules,.playwright-browsers,.ccg --ignores=@vitejs/*,vite,vitest,app-builder-bin,electron,@jridgewell/trace-mapping,cheerio,remotion,@stryker-mutator/core,@stryker-mutator/vitest-runner,pinia,playwright,ws",
+    "check:deps": "depcheck --ignore-dirs=dist,node_modules,.playwright-browsers,.ccg,.storybook --ignores=@vitejs/*,vite,vitest,app-builder-bin,electron,@jridgewell/trace-mapping,cheerio,remotion,@stryker-mutator/core,@stryker-mutator/vitest-runner,pinia,playwright,ws,@storybook/*,storybook,*.stories.*",
     "check:circular": "madge --warning --circular apps/desktop/electron/main.js",
     "test:rpa-selectors": "cd packages/rpa-engine && pnpm exec vitest run tests/platform-selectors.test.js tests/platform-selectors-cross-platform.test.js",
     "test:ai-autonomous-tester": "pnpm --filter @multi-publish/ai-autonomous-tester test",
