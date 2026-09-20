@@ -51,8 +51,12 @@ Get-Process electron -ErrorAction SilentlyContinue | Where-Object { $_.Path -lik
 Start-Sleep -Seconds 2
 
 # build detached launch command line (env-set via cmd /c)
+# NOTE: cmd `set VAR=val & ...` folds the trailing space into the value
+# (shared-user-data ' ' broke python-backend mkdir). Always use the quoted
+# form `set "VAR=val"` so values never carry trailing whitespace.
 $desktopDir = Join-Path $Worktree 'apps/desktop'
-$inner = "set PATH=$nodeDir;%PATH% & set MP_VITE_PORT=$vitePort & set MP_CDP_PORT=$cdpPort & set ELECTRON_USER_DATA_DIR=$Profile & set MP_PYTHON=$pyExe & set MP_CDP_ALLOW_ALL_ORIGINS=1 & cd /d $desktopDir & node scripts/dev.js"
+$Profile = $Profile.Trim()
+$inner = 'set "PATH=' + $nodeDir + ';%PATH%" & set "MP_VITE_PORT=' + $vitePort + '" & set "MP_CDP_PORT=' + $cdpPort + '" & set "ELECTRON_USER_DATA_DIR=' + $Profile + '" & set "MP_PYTHON=' + $pyExe + '" & set "MP_CDP_ALLOW_ALL_ORIGINS=1" & cd /d "' + $desktopDir + '" & node scripts/dev.js'
 $cmdLine = "cmd.exe /c $inner"
 Write-Info ("launch cmd: " + $cmdLine)
 
@@ -86,7 +90,22 @@ while ((Get-Date) -lt $deadline) {
 }
 if ($win) {
   Write-Info ("WINDOW pid=" + $win.Id + " handle=" + $win.MainWindowHandle + " title=" + $win.MainWindowTitle)
-  Write-Info 'START_CONTRACT_OK'
 } else {
   Write-Info 'WARN: no visible window within 150s; app may still be starting'
+}
+
+# verify main backend (python, port 8299) actually came up: a visible window
+# alone does NOT prove services are healthy (see 2026-09-20 trailing-space bug)
+$backendOk = $false
+$beDeadline = (Get-Date).AddSeconds(60)
+while ((Get-Date) -lt $beDeadline) {
+  $listen = Get-NetTCPConnection -LocalPort 8299 -State Listen -ErrorAction SilentlyContinue
+  if ($listen) { $backendOk = $true; break }
+  Start-Sleep -Seconds 3
+}
+if ($backendOk) {
+  Write-Info 'MAIN_BACKEND_LISTENING port=8299'
+  Write-Info 'START_CONTRACT_OK'
+} else {
+  Write-Info 'WARN: MAIN_BACKEND_NOT_LISTENING port=8299 within 60s; check shared-user-data/logs/app-*.log for PythonBridge errors'
 }
