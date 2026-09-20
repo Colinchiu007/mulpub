@@ -37,7 +37,7 @@ describe("CollectionView", () => {
   it("renders page title and buttons", async () => {
     const w = mountCollection();
     await nextTick();
-    expect(w.text()).toContain("collection.tabCollect");
+    expect(w.text()).toContain("内容采集文案库");
     expect(w.text()).toContain("新建草稿");
   });
 
@@ -732,8 +732,8 @@ describe("CollectionView", () => {
     // 空态统一走 EmptyState（T0-3）：文案全部来自 i18n key（$t 在测试中返回 key 本身）
     const empty = w.get('[data-testid="collection-drafts-empty"]');
     expect(empty.classes()).toContain("mp-empty-state");
-    expect(empty.text()).toContain("collection.draftsEmptyTitle");
-    expect(empty.get("button.mp-empty-state__action").text()).toBe("collection.draftsEmptyAction");
+    expect(empty.text()).toContain("暂无草稿");
+    expect(empty.get("button.mp-empty-state__action").text()).toBe("新建草稿");
   });
 
   it("shows drafts list", async () => {
@@ -826,7 +826,7 @@ describe("CollectionView", () => {
   it("renders one-click rewrite button", async () => {
     const w = mountCollection();
     await nextTick();
-    expect(w.text()).toContain("oneClickRewrite");
+    expect(w.text()).toContain("一键改写");
   });
 
   it("collectAndRewrite warns if URL is empty", async () => {
@@ -1031,15 +1031,15 @@ describe("CollectionView", () => {
   it("renders collection tabs and switches to records tab", async () => {
     const w = mountCollection();
     await nextTick();
-    expect(w.text()).toContain("collection.tabCollect");
-    expect(w.text()).toContain("collection.tabRecords");
+    expect(w.text()).toContain("内容采集");
+    expect(w.text()).toContain("文案库");
     // 默认在采集 tab
     expect(w.vm.activeTab).toBe("collect");
     // 切换到采集记录 tab
     await w.vm.switchTab("records");
     await nextTick();
     expect(w.vm.activeTab).toBe("records");
-    expect(w.text()).toContain("collection.recordsEmptyTitle");
+    expect(w.text()).toContain("暂无文案");
   });
 
   it("switchTab ignores invalid tab", async () => {
