@@ -1,3 +1,17 @@
+# [未发布] refactor(desktop): 收敛 .pipeline-grid 布局为 pipeline-selector.css 单一来源
+
+### 变更
+- **create-view.css**：删除重复定义的 `.pipeline-grid` 基础规则（auto-fill minmax(300px)）与 721-1024px 断点规则（minmax(260px)）。该规则与 pipeline-selector.css 多列断点体系同名同特异性，加载顺序一旦变化会静默压掉宽屏 3/4/5 列媒体查询，属级联隐患而非行为变更。
+- **新增契约测试 `pipeline-grid.source.test.js`**：钉死 create-view.css 禁止二次定义 `.pipeline-grid` + pipeline-selector.css 断点护栏（768/1200/1440/1920）+ PipelineSelector 组件随载导入。
+
+### 验证
+- 契约测试红→绿；CreateView / PipelineSelector 全量 297/297 通过
+- worktree vite + Playwright 实测视口 700/900/1300/1600/2560px 渲染 1/1/3/4/5 列，行为零变化
+
+### 关联
+- PR #2112（codex/pipeline-grid-single-source）；源自「视频创作页变 1 列」排查结论（旧 renderer 陈旧 bundle，非代码回归）
+
+---
 # [未发布] fix(desktop): 首页全 0 引导态隐藏「近期动态」消除双空态双按钮，有记录时补「查看全部」入口
 
 ### 变更
