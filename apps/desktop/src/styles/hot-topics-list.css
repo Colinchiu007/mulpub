@@ -6,15 +6,23 @@
  * 正文、标签、时间、按钮全部挤在一起。
  * 本文件由 HotTopics.vue 与 HotTopicsFavorites.vue 各自以 <style scoped src> 引入，
  * 单一来源、零全局泄漏（scoped 编译期为各自组件生成独立作用域）。
+ *
+ * 色值取自 styles/tokens.css。品牌主色前景用自适应
+ *   var(--color-primary-dark-tint, var(--color-primary))；
+ * 中性淡底用 color-mix(... var(--color-text-secondary) ... , var(--color-bg-card))
+ * 随主题自动适配，消除深色模式下的近白残留。
+ * 例外：.cat-* 九个内容分类标签是「分类识别调色板」（社会/财经/科技… 各固定色相），
+ * tokens.css 无对应语义色，且色相本身承载信息，保留原值不纳入主题 token；其面积小、
+ * 非近白，不影响深色模式白残留走查。
  */
 .topics-list { display: flex; flex-direction: column; gap: 6px; }
-.topic-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: #fff; border: 1px solid #eee; border-radius: 8px; }
-.topic-item.selected { border-color: #5149e8; background: #f7f6ff; }
-.rank-badge { min-width: 26px; height: 26px; display: grid; place-items: center; border-radius: 6px; background: #f0efff; color: #5149e8; font-size: var(--font-size-xs); font-weight: 700; }
-.topic-text { flex: 1; font-size: var(--font-size-sm); color: #333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topic-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--color-bg-card); border: 1px solid var(--color-border); border-radius: 8px; }
+.topic-item.selected { border-color: var(--color-primary-dark-tint, var(--color-primary)); background: color-mix(in srgb, var(--color-primary) 6%, var(--color-bg-card)); }
+.rank-badge { min-width: 26px; height: 26px; display: grid; place-items: center; border-radius: 6px; background: color-mix(in srgb, var(--color-primary) 8%, var(--color-bg-card)); color: var(--color-primary-dark-tint, var(--color-primary)); font-size: var(--font-size-xs); font-weight: 700; }
+.topic-text { flex: 1; font-size: var(--font-size-sm); color: var(--color-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tag { padding: 2px 8px; border-radius: 4px; font-size: var(--font-size-xs); flex-shrink: 0; }
-.category-tag { background: #f5f5f5; color: #666; }
-.cat-general { background: #f5f5f5; color: #666; }
+.category-tag { background: color-mix(in srgb, var(--color-text-secondary) 12%, var(--color-bg-card)); color: var(--color-text-secondary); }
+.cat-general { background: color-mix(in srgb, var(--color-text-secondary) 12%, var(--color-bg-card)); color: var(--color-text-secondary); }
 .cat-society { background: #e8f4ff; color: #1976d2; }
 .cat-finance { background: #fff4e5; color: #f57c00; }
 .cat-tech { background: #f3e8ff; color: #7b1fa2; }
@@ -24,16 +32,16 @@
 .cat-education { background: #e0f7fa; color: #0097a7; }
 .cat-health { background: #e0f2f1; color: #00796b; }
 .cat-international { background: #e3f2fd; color: #1565c0; }
-.channel-tag { background: #f0f2f5; color: #888; }
+.channel-tag { background: color-mix(in srgb, var(--color-text-secondary) 10%, var(--color-bg-card)); color: var(--color-text-muted); }
 .hot-value { font-size: var(--font-size-xs); color: #ff5722; flex-shrink: 0; }
-.update-time { font-size: var(--font-size-xs); color: #aaa; flex-shrink: 0; white-space: nowrap; width: 42px; text-align: right; }
+.update-time { font-size: var(--font-size-xs); color: var(--color-text-muted); flex-shrink: 0; white-space: nowrap; width: 42px; text-align: right; }
 /* 收藏时间（月/日 时:分）比更新时间长，右对齐宽度独立，保持与列表同一视觉节奏 */
-.fav-date { font-size: var(--font-size-xs); color: #999; flex-shrink: 0; white-space: nowrap; min-width: 64px; text-align: right; }
-.item-fav-btn { font-size: var(--font-size-sm); padding: 4px 8px; flex-shrink: 0; border: none; background: transparent; cursor: pointer; color: #ccc; transition: color 0.15s; }
+.fav-date { font-size: var(--font-size-xs); color: var(--color-text-muted); flex-shrink: 0; white-space: nowrap; min-width: 64px; text-align: right; }
+.item-fav-btn { font-size: var(--font-size-sm); padding: 4px 8px; flex-shrink: 0; border: none; background: transparent; cursor: pointer; color: var(--color-text-muted); transition: color 0.15s; }
 .item-fav-btn:hover { color: #e91e63; }
 .item-create-btn { font-size: var(--font-size-xs); padding: 4px 10px; flex-shrink: 0; }
 .item-gen-video-btn { font-size: var(--font-size-xs); padding: 4px 10px; flex-shrink: 0; }
 /* 收藏列表 */
 .favorites-section { margin-top: 0; }
-.favorite-item .fav-star { background: #fff0f5; color: #e91e63; }
+.favorite-item .fav-star { background: color-mix(in srgb, #e91e63 10%, var(--color-bg-card)); color: #e91e63; }
 .item-unfav-btn { font-size: var(--font-size-xs); padding: 4px 10px; flex-shrink: 0; }
