@@ -1,6 +1,7 @@
 /* ============================================
    视频创作 — 表单与卡片表面（S2V 详情页精致化）
-   消费 tokens.css 权威 --color-* 令牌；禁止 @deprecated 的 --apple-*。
+   消费 tokens.css 的 --color-* 与 cohere-design-system 的暗色感知别名（--ink / --muted）；
+   禁止 @deprecated 的 --apple-*。
    命名避让：本文件不得定义名为 shimmer / skeleton-shimmer 的 keyframes，
    该命名空间由 UiSkeleton.contract.test.js 契约独占（仅允许 mp-skeleton-shimmer）。
    ============================================ */
@@ -14,7 +15,7 @@
   transition: box-shadow 0.2s cubic-bezier(0.33, 1, 0.68, 1), transform 0.2s cubic-bezier(0.33, 1, 0.68, 1);
 }
 .s2v-card:hover { transform: translateY(-1px); box-shadow: var(--shadow-float, 0 1px 4px rgba(0, 0, 0, 0.1)); }
-.s2v-card-title { font-size: var(--font-size-md, 17px); font-weight: 700; color: var(--color-text-strong, #1e1b4b); margin: 0 0 var(--spacing-3, 12px); }
+.s2v-card-title { font-size: var(--font-size-md, 17px); font-weight: 700; color: var(--ink, var(--color-text-strong)); margin: 0 0 var(--spacing-3, 12px); }
 
 /* 自适应字段栅格：替代固定列 .config-grid，窄容器自动折行而非溢出 */
 .s2v-field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: var(--spacing-4, 16px); min-width: 0; }

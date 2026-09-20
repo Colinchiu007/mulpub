@@ -128,11 +128,12 @@ defineExpose({ resetToDefault, inputEl: rangeEl });
 </script>
 
 <style scoped>
-/* 只消费 tokens.css 的权威 --color-* 令牌，禁止 @deprecated 的 --apple-*。 */
+/* 只消费 tokens.css 的 --color-* 与 cohere-design-system 的暗色感知别名（--ink / --muted，
+   浅色下与 --color-text-* 同值，暗色下才提亮），禁止 @deprecated 的 --apple-*。 */
 .ui-slider { display: flex; flex-direction: column; gap: var(--spacing-1, 4px); min-width: 0; }
 .ui-slider-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--spacing-2, 8px); }
-.ui-slider-label { font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text, var(--text)); }
-.ui-slider-value { font-size: var(--font-size-sm); color: var(--color-text-secondary, #707080); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ui-slider-label { font-size: var(--font-size-sm); font-weight: 600; color: var(--ink, var(--text)); }
+.ui-slider-value { font-size: var(--font-size-sm); color: var(--muted, var(--color-text-secondary)); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 .ui-slider-input {
   -webkit-appearance: none;
@@ -182,7 +183,7 @@ defineExpose({ resetToDefault, inputEl: rangeEl });
 
 .ui-slider-marks { position: relative; height: 14px; }
 .ui-slider-mark { position: absolute; transform: translateX(-50%); font-size: var(--font-size-xs); color: var(--color-text-muted, #86868b); white-space: nowrap; }
-.ui-slider-hint { margin: 0; font-size: var(--font-size-xs); color: var(--color-text-secondary, #707080); line-height: 1.4; }
+.ui-slider-hint { margin: 0; font-size: var(--font-size-xs); color: var(--muted, var(--color-text-secondary)); line-height: 1.4; }
 
 @media (prefers-reduced-motion: reduce) {
   .ui-slider-input::-webkit-slider-thumb { transition: none; }

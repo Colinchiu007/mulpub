@@ -102,7 +102,7 @@ defineExpose({ selectEl });
   display: block;
   font-size: var(--font-size-sm);
   font-weight: 500;
-  color: var(--color-text-secondary, #707080);
+  color: var(--muted, var(--color-text-secondary));
   margin-bottom: var(--spacing-1, 4px);
 }
 .ui-select-inner {
@@ -116,7 +116,9 @@ defineExpose({ selectEl });
   font-size: var(--font-size-sm);
   outline: none;
   background: var(--color-bg-card, #fff);
-  color: var(--color-text-strong, #1e1b4b);
+  /* --color-text-strong 在 tokens.css 的 [data-theme=dark] 里未重定义（浅色专值），
+     暗色下会变近黑不可读；--ink 浅色下与它同值，仅暗色下提亮。 */
+  color: var(--ink, var(--color-text-strong));
   cursor: pointer;
   transition: border-color 0.15s cubic-bezier(0.33, 1, 0.68, 1),
               box-shadow 0.15s cubic-bezier(0.33, 1, 0.68, 1);
@@ -133,7 +135,7 @@ defineExpose({ selectEl });
   outline: 2px solid var(--color-primary-dark-tint);
   outline-offset: 2px;
 }
-.ui-select:disabled { opacity: 0.5; cursor: not-allowed; background: var(--color-bg-muted, #f6f6f8); }
+.ui-select:disabled { opacity: 0.5; cursor: not-allowed; background: var(--color-bg-inset, #f6f6f8); }
 .ui-select.is-error,
 .ui-select.is-error:focus { border-color: var(--color-danger, #ef5757); box-shadow: none; }
 .ui-select-arrow {

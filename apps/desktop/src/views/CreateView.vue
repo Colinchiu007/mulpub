@@ -233,18 +233,19 @@
         <!-- 执行控制 -->
         <div class="action-bar" data-testid="pipeline-action-bar">
           <div v-if="!pipelineRunStatus || pipelineRunStatus.status === 'idle'">
-            <UiButton class="btn-start s2v-cta-shimmer" data-testid="start-story2video" :title="pipelineBlockedReason" :aria-describedby="pipelineBlockedReason ? 'pipeline-blocked-reason' : undefined" @click="handleStartPipeline" :disabled="!canStartPipeline">
+            <!-- D2：详情页操作面统一走 .s2v-btn-*（品牌紫），不再经 UiButton 的 @deprecated --apple-accent 蓝 -->
+            <button type="button" class="s2v-btn-primary btn-start s2v-cta-shimmer" data-testid="start-story2video" :title="pipelineBlockedReason" :aria-describedby="pipelineBlockedReason ? 'pipeline-blocked-reason' : undefined" :disabled="!canStartPipeline" @click="handleStartPipeline">
               {{ translateWithLocaleFallback('create.story2video.startPipeline', '启动流水线', 'Start pipeline') }}
-            </UiButton>
-            <UiButton
+            </button>
+            <button
               v-if="isOrchestratedPipeline(selectedPipeline?.name)"
-              variant="secondary"
-              class="btn-start s2v-batch-trigger"
+              type="button"
+              class="s2v-btn-secondary btn-start s2v-batch-trigger"
               data-testid="s2v-batch-trigger"
               @click="openS2VBatchDialog"
             >
               {{ translateWithLocaleFallback('create.story2video.batch.trigger', '批量创作', 'Batch create') }}
-            </UiButton>
+            </button>
             <div class="action-bar-aux">
               <button v-if="isOrchestratedPipeline(selectedPipeline?.name)" type="button" class="s2v-btn-ghost s2v-btn-sm" data-testid="reset-story2video-options" @click="resetS2VLastOptions">
                 {{ translateWithLocaleFallback('create.story2video.resetOptions', '恢复默认选项', 'Reset to default options') }}

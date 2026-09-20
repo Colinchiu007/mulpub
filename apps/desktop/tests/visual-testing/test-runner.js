@@ -322,6 +322,11 @@ class VisualTestRunner {
       options.waitFor || '#app',
       options.expectedRoute || route,
     );
+    // prepare：部分页面状态无法靠路由直达（需先点选卡片 / 展开分组才能渲染目标区域）。
+    // 钩子在路由就绪后、图片等待前执行，抛错即视为该视图失败，不做静默跳过。
+    if (typeof options.prepare === 'function') {
+      await options.prepare(this.page);
+    }
     // 等待视口图片就绪，避免懒加载/异步解码导致截图不稳定
     await this._waitForImagesSettled();
     
