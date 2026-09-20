@@ -1,0 +1,100 @@
+{
+  "specName": "pipeline.functional",
+  "url": "http://127.0.0.1:5174",
+  "timestamp": "2026-09-19T03:34:04.409Z",
+  "actions": 9,
+  "checks": {
+    "total": 11,
+    "passed": 11,
+    "failed": 0
+  },
+  "consoleErrors": [],
+  "pageErrors": [],
+  "details": [
+    {
+      "kind": "functional",
+      "name": "路由地址正确",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "页面标题渲染",
+      "passed": true,
+      "details": {
+        "title": "视频创作"
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "流水线卡片渲染阶段",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "历史记录可切换",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "流水线历史 fixture 渲染",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "初始可用按钮均完成点击扫描",
+      "passed": true,
+      "details": {
+        "total": 5,
+        "manual": 0,
+        "sampled": 5,
+        "suppressed": 0,
+        "clicked": 3,
+        "skipped": 2,
+        "failures": []
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "全部初始可编辑表单字段完成输入扫描",
+      "passed": true,
+      "details": {
+        "fieldCount": 0,
+        "sampledFieldCount": 0,
+        "suppressed": 0,
+        "editableCount": 0,
+        "exercised": 0,
+        "failures": []
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "页面链接完成点击扫描",
+      "passed": true,
+      "details": {
+        "total": 0,
+        "clicked": 0,
+        "links": []
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "响应式窗口仍渲染标题",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "expectNoConsoleError",
+      "passed": true,
+      "errors": []
+    },
+    {
+      "kind": "expectNoPageError",
+      "passed": true,
+      "errors": []
+    }
+  ]
+}

@@ -1,0 +1,117 @@
+{
+  "specName": "home.functional",
+  "url": "http://127.0.0.1:5174",
+  "timestamp": "2026-09-19T03:32:41.665Z",
+  "actions": 10,
+  "checks": {
+    "total": 12,
+    "passed": 12,
+    "failed": 0
+  },
+  "consoleErrors": [],
+  "pageErrors": [],
+  "details": [
+    {
+      "kind": "functional",
+      "name": "路由地址正确",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "页面标题渲染",
+      "passed": true,
+      "details": {
+        "title": "多平台内容一键发布"
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "首页显示功能入口",
+      "passed": true,
+      "details": {
+        "count": 6
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "首页加载发布统计",
+      "passed": true,
+      "details": {
+        "method": "storeGetPublishStats",
+        "count": 1
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "首页加载账号",
+      "passed": true,
+      "details": {
+        "method": "storeListAccounts",
+        "count": 1
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "首页加载近期动态",
+      "passed": true,
+      "details": {
+        "method": "historyList",
+        "count": 1
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "初始可用按钮均完成点击扫描",
+      "passed": true,
+      "details": {
+        "total": 4,
+        "manual": 0,
+        "sampled": 4,
+        "suppressed": 0,
+        "clicked": 4,
+        "skipped": 0,
+        "failures": []
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "全部初始可编辑表单字段完成输入扫描",
+      "passed": true,
+      "details": {
+        "fieldCount": 0,
+        "sampledFieldCount": 0,
+        "suppressed": 0,
+        "editableCount": 0,
+        "exercised": 0,
+        "failures": []
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "页面链接完成点击扫描",
+      "passed": true,
+      "details": {
+        "total": 0,
+        "clicked": 0,
+        "links": []
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "响应式窗口仍渲染标题",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "expectNoConsoleError",
+      "passed": true,
+      "errors": []
+    },
+    {
+      "kind": "expectNoPageError",
+      "passed": true,
+      "errors": []
+    }
+  ]
+}

@@ -1,0 +1,123 @@
+{
+  "specName": "model-providers.functional",
+  "url": "http://127.0.0.1:5174",
+  "timestamp": "2026-09-19T03:33:32.530Z",
+  "actions": 34,
+  "checks": {
+    "total": 14,
+    "passed": 14,
+    "failed": 0
+  },
+  "consoleErrors": [],
+  "pageErrors": [],
+  "details": [
+    {
+      "kind": "functional",
+      "name": "路由地址正确",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "页面标题渲染",
+      "passed": true,
+      "details": {
+        "title": "模型服务商设置"
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "模型服务商列表渲染",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "模型类别筛选可点击",
+      "passed": true,
+      "details": {
+        "count": 8
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "添加服务商弹窗打开",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "添加服务商弹窗可关闭",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "服务商刷新可点击",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "服务商列表调用 IPC",
+      "passed": true,
+      "details": {
+        "method": "modelProviderList",
+        "count": 2
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "初始可用按钮均完成点击扫描",
+      "passed": true,
+      "details": {
+        "total": 24,
+        "manual": 0,
+        "sampled": 24,
+        "suppressed": 0,
+        "clicked": 24,
+        "skipped": 0,
+        "failures": []
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "全部初始可编辑表单字段完成输入扫描",
+      "passed": true,
+      "details": {
+        "fieldCount": 3,
+        "sampledFieldCount": 3,
+        "suppressed": 0,
+        "editableCount": 3,
+        "exercised": 3,
+        "failures": []
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "页面链接完成点击扫描",
+      "passed": true,
+      "details": {
+        "total": 0,
+        "clicked": 0,
+        "links": []
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "响应式窗口仍渲染标题",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "expectNoConsoleError",
+      "passed": true,
+      "errors": []
+    },
+    {
+      "kind": "expectNoPageError",
+      "passed": true,
+      "errors": []
+    }
+  ]
+}

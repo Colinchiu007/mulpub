@@ -1,0 +1,148 @@
+{
+  "generatedAt": "2026-09-19T03:33:21.115Z",
+  "summary": {
+    "total": 17,
+    "pixelFailed": 0,
+    "pixelPassed": 17
+  },
+  "tests": [
+    {
+      "testName": "home-baseline",
+      "route": "/",
+      "screenshotPath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\screenshots\\home-baseline-current.png",
+      "baselinePath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\base-screenshots\\home-baseline.png",
+      "pixelDiff": null,
+      "needsAgentReview": false
+    },
+    {
+      "testName": "accounts-list",
+      "route": "/accounts",
+      "screenshotPath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\screenshots\\accounts-list-current.png",
+      "baselinePath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\base-screenshots\\accounts-list.png",
+      "pixelDiff": null,
+      "needsAgentReview": false
+    },
+    {
+      "testName": "publish-form",
+      "route": "/publish",
+      "screenshotPath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\screenshots\\publish-form-current.png",
+      "baselinePath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\base-screenshots\\publish-form.png",
+      "pixelDiff": null,
+      "needsAgentReview": false
+    },
+    {
+      "testName": "publish-history",
+      "route": "/publish/history",
+      "screenshotPath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\screenshots\\publish-history-current.png",
+      "baselinePath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\base-screenshots\\publish-history.png",
+      "pixelDiff": null,
+      "needsAgentReview": false
+    },
+    {
+      "testName": "create-editor",
+      "route": "/create",
+      "screenshotPath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\screenshots\\create-editor-current.png",
+      "baselinePath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\base-screenshots\\create-editor.png",
+      "pixelDiff": null,
+      "needsAgentReview": false
+    },
+    {
+      "testName": "model-providers",
+      "route": "/model-providers",
+      "screenshotPath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\screenshots\\model-providers-current.png",
+      "baselinePath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\base-screenshots\\model-providers.png",
+      "pixelDiff": null,
+      "needsAgentReview": false
+    },
+    {
+      "testName": "first-run",
+      "route": "/first-run",
+      "screenshotPath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\screenshots\\first-run-current.png",
+      "baselinePath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\base-screenshots\\first-run.png",
+      "pixelDiff": null,
+      "needsAgentReview": false
+    },
+    {
+      "testName": "dashboard",
+      "route": "/dashboard",
+      "screenshotPath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\screenshots\\dashboard-current.png",
+      "baselinePath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\base-screenshots\\dashboard.png",
+      "pixelDiff": null,
+      "needsAgentReview": false
+    },
+    {
+      "testName": "calendar",
+      "route": "/calendar",
+      "screenshotPath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\screenshots\\calendar-current.png",
+      "baselinePath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\base-screenshots\\calendar.png",
+      "pixelDiff": null,
+      "needsAgentReview": false
+    },
+    {
+      "testName": "cloud-publish",
+      "route": "/cloud-publish",
+      "screenshotPath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\screenshots\\cloud-publish-current.png",
+      "baselinePath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\base-screenshots\\cloud-publish.png",
+      "pixelDiff": null,
+      "needsAgentReview": false
+    },
+    {
+      "testName": "viral-analysis",
+      "route": "/viral-analysis",
+      "screenshotPath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\screenshots\\viral-analysis-current.png",
+      "baselinePath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\base-screenshots\\viral-analysis.png",
+      "pixelDiff": null,
+      "needsAgentReview": false
+    },
+    {
+      "testName": "create-result",
+      "route": "/create/result",
+      "screenshotPath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\screenshots\\create-result-current.png",
+      "baselinePath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\base-screenshots\\create-result.png",
+      "pixelDiff": null,
+      "needsAgentReview": false
+    },
+    {
+      "testName": "create-pipeline",
+      "route": "/create/pipeline",
+      "screenshotPath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\screenshots\\create-pipeline-current.png",
+      "baselinePath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\base-screenshots\\create-pipeline.png",
+      "pixelDiff": null,
+      "needsAgentReview": false
+    },
+    {
+      "testName": "create-history",
+      "route": "/create/history",
+      "screenshotPath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\screenshots\\create-history-current.png",
+      "baselinePath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\base-screenshots\\create-history.png",
+      "pixelDiff": null,
+      "needsAgentReview": false
+    },
+    {
+      "testName": "intelligence",
+      "route": "/intelligence",
+      "screenshotPath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\screenshots\\intelligence-current.png",
+      "baselinePath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\base-screenshots\\intelligence.png",
+      "pixelDiff": null,
+      "needsAgentReview": false
+    },
+    {
+      "testName": "keyword-monitor",
+      "route": "/keywords",
+      "screenshotPath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\screenshots\\keyword-monitor-current.png",
+      "baselinePath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\base-screenshots\\keyword-monitor.png",
+      "pixelDiff": null,
+      "needsAgentReview": false
+    },
+    {
+      "testName": "collection",
+      "route": "/collection",
+      "screenshotPath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\screenshots\\collection-current.png",
+      "baselinePath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\base-screenshots\\collection.png",
+      "pixelDiff": null,
+      "needsAgentReview": false
+    }
+  ],
+  "reportPath": "D:\\a\\mulpub\\mulpub\\apps\\desktop\\tests\\visual-testing\\reports\\judge-report.md",
+  "reportFileUrl": "file:///D:/a/mulpub/mulpub/apps/desktop/tests/visual-testing/reports/judge-report.md"
+}

@@ -1,0 +1,45 @@
+{
+  "taskSlug": "ui-spec-refactor-20260920",
+  "proposer": {
+    "family": "anthropic-claude",
+    "model": "claude-3-opus"
+  },
+  "critic": {
+    "family": "openai-gpt",
+    "model": "gpt-4-turbo"
+  },
+  "maxRounds": 3,
+  "scoreThreshold": 8.0,
+  "dimensions": [
+    {
+      "name": "完整性",
+      "weight": 0.25,
+      "description": "是否覆盖所有必要的设计决策、边界情况、异常处理"
+    },
+    {
+      "name": "一致性",
+      "weight": 0.20,
+      "description": "设计令牌、组件 API、文档结构是否一致"
+    },
+    {
+      "name": "清晰度",
+      "weight": 0.15,
+      "description": "文档可读性、API 说明、示例代码是否清晰"
+    },
+    {
+      "name": "可行性",
+      "weight": 0.25,
+      "description": "技术选型合理、里程碑可达成、依赖可控"
+    },
+    {
+      "name": "安全性",
+      "weight": 0.15,
+      "description": "权限校验、XSS 防护、敏感信息保护"
+    }
+  ],
+  "autoAcceptOnStall": false,
+  "maxL3RejectionsPerRound": 3,
+  "inputPlanPath": "C:\\Users\\邱领\\AppData\\Roaming\\QoderCN\\SharedClientCache\\cache\\plans\\UI_规范与组件库建设方案_task-39e.md",
+  "outputDir": ".adversarial/ui-spec-refactor-20260920",
+  "createdAt": "2026-09-20T10:00:00Z"
+}

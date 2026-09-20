@@ -1,0 +1,67 @@
+{
+  "specName": "integration.flow-2",
+  "url": "http://127.0.0.1:5174",
+  "timestamp": "2026-09-19T03:34:33.505Z",
+  "actions": 4,
+  "checks": {
+    "total": 8,
+    "passed": 8,
+    "failed": 0
+  },
+  "consoleErrors": [],
+  "pageErrors": [],
+  "details": [
+    {
+      "kind": "integration",
+      "name": "Flow2.1 账号列表初始渲染",
+      "passed": true,
+      "details": {
+        "count": 8
+      }
+    },
+    {
+      "kind": "integration",
+      "name": "Flow2.2 添加账号弹窗打开",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "integration",
+      "name": "Flow2.3 添加账号弹窗可关闭",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "integration",
+      "name": "Flow2.4 跳回首页",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "integration",
+      "name": "Flow2.5 首页平台列表显示",
+      "passed": true,
+      "details": {
+        "count": 15
+      }
+    },
+    {
+      "kind": "integration",
+      "name": "Flow2.6 发布页平台选项可勾选",
+      "passed": true,
+      "details": {
+        "count": 15
+      }
+    },
+    {
+      "kind": "expectNoConsoleError",
+      "passed": true,
+      "errors": []
+    },
+    {
+      "kind": "expectNoPageError",
+      "passed": true,
+      "errors": []
+    }
+  ]
+}

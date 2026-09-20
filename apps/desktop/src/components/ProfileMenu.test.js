@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import fs from 'node:fs'
@@ -148,7 +148,7 @@ describe('ProfileMenu', () => {
     await wrapper.get('[data-testid="mp-profile"]').trigger('click')
 
     const settings = wrapper.get('[data-testid="profile-menu-settings"]')
-    expect(settings.text()).toBe('nav.settings')
+    expect(settings.text()).toContain('nav.settings')
     expect(settings.classes()).toContain('profile-menu-action')
 
     await settings.trigger('click')

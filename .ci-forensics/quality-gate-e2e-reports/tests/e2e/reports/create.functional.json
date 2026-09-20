@@ -1,0 +1,416 @@
+{
+  "specName": "create.functional",
+  "url": "http://127.0.0.1:5174",
+  "timestamp": "2026-09-19T03:33:54.405Z",
+  "actions": 20,
+  "checks": {
+    "total": 58,
+    "passed": 58,
+    "failed": 0
+  },
+  "consoleErrors": [],
+  "pageErrors": [],
+  "details": [
+    {
+      "kind": "functional",
+      "name": "路由地址正确",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "页面标题渲染",
+      "passed": true,
+      "details": {
+        "title": "视频创作"
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "渲染引擎状态就绪",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "故事讲述流水线优先显示",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "全部内置流水线卡片渲染",
+      "passed": true,
+      "details": {
+        "count": 16
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "启动故事讲述流水线可执行",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "启动流水线调用 IPC",
+      "passed": true,
+      "details": {
+        "method": "pipelineStartOrchestrated",
+        "count": 1
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "animated-explainer 详情渲染",
+      "passed": true,
+      "details": {
+        "label": "AI 讲解视频"
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "animated-explainer 标题渲染",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "animated-explainer 启动携带正确流水线名",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "framework-smoke 详情渲染",
+      "passed": true,
+      "details": {
+        "label": "框架冒烟测试"
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "framework-smoke 标题渲染",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "framework-smoke 启动携带正确流水线名",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "documentary-montage 详情渲染",
+      "passed": true,
+      "details": {
+        "label": "纪录蒙太奇"
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "documentary-montage 标题渲染",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "documentary-montage 启动携带正确流水线名",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "animation 详情渲染",
+      "passed": true,
+      "details": {
+        "label": "动画视频"
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "animation 标题渲染",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "animation 启动携带正确流水线名",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "avatar-spokesperson 详情渲染",
+      "passed": true,
+      "details": {
+        "label": "数字人口播"
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "avatar-spokesperson 标题渲染",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "avatar-spokesperson 启动携带正确流水线名",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "character-animation 详情渲染",
+      "passed": true,
+      "details": {
+        "label": "角色动画"
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "character-animation 标题渲染",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "character-animation 启动携带正确流水线名",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "hybrid 详情渲染",
+      "passed": true,
+      "details": {
+        "label": "混合视频"
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "hybrid 标题渲染",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "hybrid 启动携带正确流水线名",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "clip-factory 详情渲染",
+      "passed": true,
+      "details": {
+        "label": "视频切片工厂"
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "clip-factory 视频素材标签可用",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "clip-factory 视频素材导入成功",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "clip-factory 启动携带正确流水线名",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "cinematic 详情渲染",
+      "passed": true,
+      "details": {
+        "label": "电影感短片"
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "cinematic 视频素材标签可用",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "cinematic 视频素材导入成功",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "cinematic 启动携带正确流水线名",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "talking-head 详情渲染",
+      "passed": true,
+      "details": {
+        "label": "口播视频"
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "talking-head 视频素材标签可用",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "talking-head 视频素材导入成功",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "talking-head 启动携带正确流水线名",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "localization-dub 详情渲染",
+      "passed": true,
+      "details": {
+        "label": "本地化配音"
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "localization-dub 视频素材标签可用",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "localization-dub 视频素材导入成功",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "localization-dub 启动携带正确流水线名",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "podcast-repurpose 详情渲染",
+      "passed": true,
+      "details": {
+        "label": "播客转视频"
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "podcast-repurpose 启动携带正确流水线名",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "screen-demo 详情渲染",
+      "passed": true,
+      "details": {
+        "label": "屏幕演示"
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "screen-demo 不可用提示显示",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "screen-demo 启动按钮存在且禁用",
+      "passed": true,
+      "details": {
+        "exists": true,
+        "disabled": true
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "screen-demo 未触发启动 IPC",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "快速渲染标签可切换",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "历史记录标签可切换",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "functional",
+      "name": "初始可用按钮均完成点击扫描",
+      "passed": true,
+      "details": {
+        "total": 0,
+        "manual": 0,
+        "sampled": 0,
+        "suppressed": 0,
+        "clicked": 0,
+        "skipped": 0,
+        "failures": []
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "全部初始可编辑表单字段完成输入扫描",
+      "passed": true,
+      "details": {
+        "fieldCount": 0,
+        "sampledFieldCount": 0,
+        "suppressed": 0,
+        "editableCount": 0,
+        "exercised": 0,
+        "failures": []
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "页面链接完成点击扫描",
+      "passed": true,
+      "details": {
+        "total": 0,
+        "clicked": 0,
+        "links": []
+      }
+    },
+    {
+      "kind": "functional",
+      "name": "响应式窗口仍渲染标题",
+      "passed": true,
+      "details": null
+    },
+    {
+      "kind": "expectNoConsoleError",
+      "passed": true,
+      "errors": []
+    },
+    {
+      "kind": "expectNoPageError",
+      "passed": true,
+      "errors": []
+    }
+  ]
+}

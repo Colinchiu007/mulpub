@@ -247,7 +247,7 @@ watch(() => props.visible, (v) => {
 }
 .crop-box {
   position: absolute;
-  border: 2px solid var(--color-primary, #5048E5);
+  border: 2px solid var(--color-primary);
   box-sizing: border-box;
   cursor: move;
   z-index: 2;
@@ -292,8 +292,8 @@ watch(() => props.visible, (v) => {
   cursor: pointer;
 }
 .ratio-btn.active {
-  border-color: var(--color-primary, #5048E5);
-  color: var(--color-primary, #5048E5);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
 }
 .crop-actions {
   display: flex;

@@ -161,6 +161,19 @@ class ExecutionRecorder {
       return;
     }
 
+    // 检查目录是否仍然存在（防止并发删除导致 ENOENT）
+    try {
+      if (!fs.existsSync(path.dirname(session.jsonlPath))) {
+        log.warn('ExecutionRecorder', 'Replay directory deleted, restarting recording for project ' + projectId);
+        this.startRecording(projectId);
+        const newSession = this._sessions.get(projectId);
+        if (!newSession) return;
+      }
+    } catch (e) {
+      log.error('ExecutionRecorder', 'Failed to check replay dir: ' + e.message);
+      return;
+    }
+
     // 构建快照
     const snapshot = this._buildSnapshot(projectId);
 
@@ -176,6 +189,15 @@ class ExecutionRecorder {
 
     // 写入 JSONL
     try {
+      // 双重检查：写入前再次确认目录存在
+      if (!fs.existsSync(path.dirname(session.jsonlPath))) {
+        log.warn('ExecutionRecorder', 'Replay directory deleted during write, restarting for project ' + projectId);
+        this.startRecording(projectId);
+        const newSession = this._sessions.get(projectId);
+        if (!newSession) return;
+        session = newSession; // 更新 session 引用
+      }
+      
       session.stream.write(JSON.stringify(event) + '\n');
     } catch (e) {
       log.error('ExecutionRecorder', 'Failed to write event: ' + e.message);
