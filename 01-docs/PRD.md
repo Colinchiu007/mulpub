@@ -8380,3 +8380,19 @@ is_default: 1
 | 布局契约 | 6a 已交付：主进程 `view-bounds` 的 TOP 参数化 + 渲染层 `.mp-shell-nav-placeholder`（40px）与 `.nav-bar` 一致，保证 TabBar(36px) + 占位(40px) = 76px 契约不破；6b 的占位行后续可替换为真实互斥布局 |
 | 回归保护 | 新增 `apps/desktop/src/shell-mode-6b.test.js` 共 7 用例，覆盖静态链路完整性（handler 注册 / preload 暴露 / bundle 重打包 / App.vue 上报 / view-bounds TOP 参数化）+ WebviewManager 行为（workbench 隐藏三视图、browser 恢复、幂等、非法值忽略）；IPC 桥门禁 396 handlers / 387 preload 0 缺口 PASS |
 | 已知踩坑 | 方法名守卫必须匹配实际调用：初版用 `hideCurrentView` / `hideView` 但实际调 `hide()`，互斥会静默失效——TDD 抓出后已修；未来新增类似「显隐互斥」能力必须走方法名静态断言 |
+
+
+## 热门选题分类供给增强（hot-topics-category-supply，2026-09-20）
+
+> 详细规格见 `01-docs/PRD-HOT-TOPICS-CATEGORY-SUPPLY-2026-09-20.md`（数据契约、校验、流程、交互、显示项、提示文字全量）。
+
+| 项 | 契约 |
+|----|------|
+| 背景 | 财经/科技/情感/教育/健康/国际分类内容稀少：抓取量不足 + society 黑洞词 + 单标签互斥 + 微博原生分类未映射 + 无垂类供给 |
+| 方案A | MAX_PER_CHANNEL 20→50、MAX_TOPICS 160→400；分类器打分制多标签 `categories[]`（1-3 个，主分类首位）；society 裸字'判'→强词；微博/通用原生分类映射扩容 |
+| 方案B/D | `CATEGORY_BOOSTS`：分类计数低于阈值或 UI 显式 boostCategories → 并发补拉垂类榜（百度财经tab/新浪财经roll/IT之家RSS/微博情感·健康过滤）；补拉条目 id=`channel:board:rank`，独立限流熔断键；教育/国际无端点 sources=[] |
+| 方案C | general 条目批量 LLM 分类（单轮≤40），落盘缓存 `hot_topics_llm_labels`（≤500 条）；未配置模型/失败/非法输出全部静默降级（fail-open），主流程零报错 |
+| 方案E | 分类 chip 计数（多标签口径）；条目双标签展示；多标签过滤（旧缓存回退 [category]）；空分类 EmptyState 切换「补拉该分类」按钮 → refresh(force, boostCategories) |
+| IPC 校验 | boostCategories 非数组→[]；逐项 string 且 ≤32 字符；总数 ≤10；preload 整体透传无改动 |
+| 提示文字 | hotTopics.emptyCategoryTitle/emptyCategoryDesc/boostAction（zh/en 成对）；channels 新增 sina_finance=新浪财经、ithome_tech=IT之家 |
+| 验收 | hot-topics-service.test.js（Plan A-D 契约）+ HotTopics.test.js 35 例 + assembly 全绿；locale --keys PASS |

@@ -54,7 +54,7 @@
             class="category-chip"
             :class="{ active: activeCategory === cat.value }"
             @click="activeCategory = cat.value"
-          >{{ cat.label }}</button>
+          >{{ cat.label }}<span v-if="cat.value !== 'all'" class="chip-count" :data-testid="'hot-topic-cat-count-' + cat.value">{{ categoryCounts[cat.value] || 0 }}</span></button>
         </div>
         <el-select v-model="activeChannel" class="channel-select" style="width: 160px" :disabled="publishing">
           <el-option :label="t('hotTopics.channelAll')" value="all" />
@@ -119,10 +119,10 @@
         v-if="filteredTopics.length === 0 && !loading"
         data-testid="hot-topics-empty"
         icon="🔥"
-        :title="t('hotTopics.emptyTitle')"
-        :description="t('hotTopics.emptyDesc')"
-        :action-text="t('hotTopics.emptyAction')"
-        @action="refresh(true)"
+        :title="categoryEmpty ? t('hotTopics.emptyCategoryTitle') : t('hotTopics.emptyTitle')"
+        :description="categoryEmpty ? t('hotTopics.emptyCategoryDesc') : t('hotTopics.emptyDesc')"
+        :action-text="categoryEmpty ? t('hotTopics.boostAction') : t('hotTopics.emptyAction')"
+        @action="categoryEmpty ? boostCurrentCategory() : refresh(true)"
       />
       <div v-else class="topics-list">
         <div
@@ -141,7 +141,7 @@
           />
           <span class="rank-badge" :title="t('hotTopics.sourceRank', { rank: topic.rank })">{{ viewIndex + 1 }}</span>
           <span class="topic-text" :title="getTopicSummary(topic)">{{ displayTopic(topic.topic) }}</span>
-          <span class="tag category-tag" :class="'cat-' + topic.category">{{ t('hotTopics.categories.' + topic.category) }}</span>
+          <span v-for="catKey in topicCategories(topic).slice(0, 2)" :key="catKey" class="tag category-tag" :class="'cat-' + catKey">{{ t('hotTopics.categories.' + catKey) }}</span>
           <span class="tag channel-tag">{{ t('hotTopics.channels.' + topic.channel) }}</span>
           <span v-if="topic.hotValue" class="hot-value">{{ formatHotValue(topic.hotValue) }}</span>
           <span class="update-time">{{ formatTime(topic.fetchedAt || lastRefresh) }}</span>
@@ -314,7 +314,7 @@ defineExpose({ genVideoPhase, genVideoRunId, genVideoTopic, mergeGenStages })
 const CATEGORY_KEYS = ['general', 'society', 'finance', 'tech', 'entertainment', 'sports', 'emotion', 'education', 'health', 'international']
 // weibo 官方渠道成功时，tophub（同源微博榜）条目会被跨渠道去重合并到 weibo 名下——
 // 下拉不再暴露 tophub 筛选，避免「显示有数据、切进去空列表」；服务层保留该渠道作微博数据兜底
-const CHANNEL_KEYS = ['zhihu', 'toutiao', 'tencent', 'bilibili', 'douyin', 'baidu', 'weibo']
+const CHANNEL_KEYS = ['zhihu', 'toutiao', 'tencent', 'bilibili', 'douyin', 'baidu', 'weibo', 'sina_finance', 'ithome_tech']
 const BATCH_LIMIT = 20
 const TOPIC_PREFIX_KEY = 'hotTopics.topicPrefix'
 const REFRESH_INTERVAL_MS = 30 * 60 * 1000
@@ -326,9 +326,25 @@ const categoryOptions = computed(() => [
 ])
 const channelOptions = computed(() => CHANNEL_KEYS.map(k => ({ value: k, label: t('hotTopics.channels.' + k) })))
 
+/** 多标签兼容：categories[] 优先，回退主分类（旧缓存条目无 categories） */
+function topicCategories(x) {
+  return (Array.isArray(x.categories) && x.categories.length) ? x.categories : [x.category || 'general']
+}
+
+// 分类计数 chip（方案E）：多标签口径，条目在每个关联分类下都计数
+const categoryCounts = computed(() => {
+  const counts = {}
+  for (const x of topics.value) for (const c of topicCategories(x)) counts[c] = (counts[c] || 0) + 1
+  return counts
+})
+
+// 空分类判定：全局有数据但当前分类过滤后为空 → 提供「补拉该分类」入口（方案E）
+const categoryEmpty = computed(() => activeCategory.value !== 'all' && topics.value.length > 0 &&
+  !topics.value.some(x => topicCategories(x).includes(activeCategory.value)))
+
 const filteredTopics = computed(() => {
   return topics.value.filter(x =>
-    (activeCategory.value === 'all' || x.category === activeCategory.value) &&
+    (activeCategory.value === 'all' || topicCategories(x).includes(activeCategory.value)) &&
     (activeChannel.value === 'all' || x.channel === activeChannel.value),
   )
 })
@@ -398,8 +414,9 @@ function toggleSelectAll() {
   }
 }
 
-/** 竞态守卫：刷新请求序号；background=true 后台静默刷新（不显示中央提示） */
-async function refresh(force = false, { background = false } = {}) {
+/** 竞态守卫：刷新请求序号；background=true 后台静默刷新（不显示中央提示）；
+ *  boostCategories=方案B 定向补拉的分类列表（空分类补拉按钮传入当前分类） */
+async function refresh(force = false, { background = false, boostCategories = [] } = {}) {
   if (publishing.value) return
   if (loading.value) {
     // 已有抓取 in-flight：手动刷新复用当前请求仅补显中央提示；后台刷新静默返回
@@ -410,7 +427,7 @@ async function refresh(force = false, { background = false } = {}) {
   loading.value = true
   if (!background) showCentralLoading.value = true
   try {
-    const res = await hotTopicsFetch(force)
+    const res = await hotTopicsFetch(force, boostCategories)
     if (seq !== requestSeq) return // 旧响应丢弃
     if (res && res.code === 0 && res.data) {
       topics.value = Array.isArray(res.data.topics) ? res.data.topics : []
@@ -430,6 +447,12 @@ async function refresh(force = false, { background = false } = {}) {
       showCentralLoading.value = false
     }
   }
+}
+
+/** 空分类「补拉该分类」：强制刷新 + 定向补拉当前分类垂类榜（方案E→B） */
+function boostCurrentCategory() {
+  if (activeCategory.value === 'all') return refresh(true)
+  return refresh(true, { boostCategories: [activeCategory.value] })
 }
 
 /** SWR：缓存优先渲染——命中缓存立即显示并后台静默刷新；未命中走网络抓取（中央加载提示） */

@@ -1,3 +1,20 @@
+# [未发布] feat(desktop): 热门选题分类供给增强——方案A-E全量实现（hot-topics-category-supply）
+
+### 变更
+- **抓取量放宽（A）**：MAX_PER_CHANNEL 20→50、MAX_TOPICS 160→400；知乎/腾讯端点提量；微博 hot_band 解析双形态兼容。
+- **分类器 v2（A）**：society 黑洞词（裸字'判'）修复；关键词打分制（命中词长度和）；新增 `classifyTopicMulti` 多标签 categories[]（≤3）；微博原生分类映射扩容 + GENERIC_RAW_MAP 通用映射。
+- **定向补拉（B/D）**：`CATEGORY_BOOSTS` 稀疏分类低于阈值或 UI boostCategories 触发，补拉百度财经tab/新浪财经滚动/IT之家RSS/微博情感·健康垂类；补拉 id 含 board 段防撞号，独立限流熔断。
+- **LLM 分类兜底（C）**：general 条目批量分类（单轮≤40）+ `hot_topics_llm_labels` 落盘缓存（≤500）；未配置/失败静默降级；phase1-context 接线 ModelProviderManager。
+- **UI（E）**：分类 chip 计数、双标签展示、多标签过滤、空分类「补拉该分类」按钮；渠道筛选新增新浪财经/IT之家；locale zh/en 成对新增 5 键。
+
+### 验证
+- TDD 红灯 15 契约 → 全绿：hot-topics-service.test.js 50 例、HotTopics.test.js 35 例、assembly、phase1-context 13 例全通过；check-locale-sync --keys PASS。
+
+### 关联
+- PRD：01-docs/PRD-HOT-TOPICS-CATEGORY-SUPPLY-2026-09-20.md；分支 hot-topics-category-supply（worktree mp-hot-topics-category-supply）
+
+---
+
 # [未发布] style(desktop): 采集页精致化——col-panel 渐变面板 + 顶部 ribbon 扫光动效
 
 ### 变更
