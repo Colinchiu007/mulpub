@@ -1023,6 +1023,7 @@ export default {
     supportedPlatforms: 'Supported Platforms',
     recentActivity: 'Recent Activity',
     emptyRecent: 'No publish records yet. Start your first one!',
+    viewAllHistory: 'View all',
     todo: {
       expired: '{count} expired login(s)',
       failed: '{count} failed task(s)',
