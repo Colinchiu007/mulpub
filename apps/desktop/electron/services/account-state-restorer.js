@@ -124,7 +124,9 @@ function resolveStateUserDataDir (userDataDir) {
 }
 
 function resolveUserDataDir () {
-  if (process.env.ELECTRON_USER_DATA_DIR) return process.env.ELECTRON_USER_DATA_DIR
+  // 同 python-bridge：吞并 cmd set 陷阱引入的尾随空格，避免状态写进带空格目录
+  const configured = typeof process.env.ELECTRON_USER_DATA_DIR === 'string' ? process.env.ELECTRON_USER_DATA_DIR.trim() : ''
+  if (configured) return configured
   try {
     const electron = require('electron')
     if (electron?.app && typeof electron.app.getPath === 'function') return electron.app.getPath('userData')

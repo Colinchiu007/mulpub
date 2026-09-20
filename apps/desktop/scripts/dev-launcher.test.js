@@ -42,3 +42,9 @@ test('buildElectronArgs 支持自定义 CDP 端口（worktree 独立端口）', 
   })
   assert.ok(args.includes('--remote-debugging-port=9333'))
 })
+
+test('resolveUserDataDir 吞并尾随空白（cmd set "VAR=val &" 尾随空格陷阱回归保护）', () => {
+  assert.equal(resolveUserDataDir({ ELECTRON_USER_DATA_DIR: ' X:\\custom\\profile ' }), 'X:\\custom\\profile')
+  assert.equal(resolveUserDataDir({ ELECTRON_USER_DATA_DIR: 'X:\\custom\\profile  ' }), 'X:\\custom\\profile')
+  assert.equal(resolveUserDataDir({ ELECTRON_USER_DATA_DIR: '   ' }), DEFAULT_USER_DATA_DIR)
+})
