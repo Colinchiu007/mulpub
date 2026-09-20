@@ -155,6 +155,7 @@ class ExecutionRecorder {
    * @param {object} data - 事件载荷
    */
   recordEvent(projectId, type, stageName, data) {
+    // let：目录被并发删除后重启录制时需要更新引用（见下方两处重启分支）
     let session = this._sessions.get(projectId);
     if (!session) {
       log.warn('ExecutionRecorder', 'No recording session for project ' + projectId);
@@ -165,9 +166,11 @@ class ExecutionRecorder {
     try {
       if (!fs.existsSync(path.dirname(session.jsonlPath))) {
         log.warn('ExecutionRecorder', 'Replay directory deleted, restarting recording for project ' + projectId);
+        this.stopRecording(projectId); // 旧 session 仍在 Map 中，startRecording 会短路，必须先停再启
         this.startRecording(projectId);
         const newSession = this._sessions.get(projectId);
         if (!newSession) return;
+        session = newSession; // 指向重建后的新 stream，避免事件写入孤儿 stream
       }
     } catch (e) {
       log.error('ExecutionRecorder', 'Failed to check replay dir: ' + e.message);
@@ -192,6 +195,7 @@ class ExecutionRecorder {
       // 双重检查：写入前再次确认目录存在
       if (!fs.existsSync(path.dirname(session.jsonlPath))) {
         log.warn('ExecutionRecorder', 'Replay directory deleted during write, restarting for project ' + projectId);
+        this.stopRecording(projectId); // 旧 session 仍在 Map 中，startRecording 会短路，必须先停再启
         this.startRecording(projectId);
         const newSession = this._sessions.get(projectId);
         if (!newSession) return;
