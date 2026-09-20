@@ -212,3 +212,47 @@ node --test .github/scripts/check-route-registry.test.js
 ### 9.4 与侧边栏的关系
 
 `src/config/sidebar-menu.js` 的 `SIDEBAR_MENU_DEFINITION` 由登记表派生（`deriveSidebarMenu(ROUTE_REGISTRY)`），菜单渲染顺序由 `SIDEBAR_MENU_KEY_ORDER` 决定（不是路由顺序）。因此**改登记表等于改运营中心菜单种子**：`sidebar-menu.test.js` 里的 `EXPECTED_DERIVED_MENU` 冻结了 19 项的 `key/group/labelI18nKey/to` 与顺序，有意变更菜单时必须同步改该基线并在 PR 说明中写明对运营侧配置的影响。
+
+---
+
+## 10. 表单控件与禁用反馈范式（2026-09-20 新增）
+
+适用范围：桌面端所有配置类表单（首先落地在 story2video 详情页）。字段级取值表见
+`01-docs/PRD-S2V-PIPELINE-PAGE-UX.md` §11，本节只定**可复用范式**。
+
+### 10.1 滑杆（`UiSlider`）
+
+| 要求 | 说明 |
+|------|------|
+| 必须自定义外观 | 禁止裸 `<input type="range">`（浏览器默认亮蓝与品牌紫冲突）。未迁移的旧滑条至少加 `.s2v-range-native`（`accent-color: var(--color-primary)`）作兜底 |
+| 填充段 | 用 `linear-gradient(... var(--pct) ...)` 绘制，`--pct` 由组件 computed 写入内联 `:style`；**全页不得出现其他内联样式** |
+| 值显示 | 与 label 同行两端对齐，`tabular-nums`；小数位**由 `step` 推导**，不得写死 `toFixed(n)` |
+| 键盘 | `↑↓←→` = `step`；`PageUp/PageDown` = `step × 10`；`End` = `max`；所有输入经 clamp + 步长对齐 |
+| 复位 | 双击轨道回到 `defaultValue`（仅当默认值在区间内才写值）；必须在 `hint` 里告知用户该手势 |
+| 降级 | `prefers-reduced-motion` 下关闭 thumb 缩放与过渡 |
+
+### 10.2 字段容器（`UiField`）
+
+- 统一承担：label + 控件槽 + `suffix` 槽 + hint + 错误位 + **运营隐藏守卫**。
+- `optionKey` 驱动显隐时必须复用页面级 `visible()` 语义（**fail-open：选项目录缺失时一律显示**），不得在子组件里自己拍默认值。
+- 错误态：`aria-invalid="true"` + `role="alert"` 文案；是否预留错误行高度由 `reserveError` 控制（默认不预留，避免给不报错的字段加空洞）。
+
+### 10.3 禁用原因必须可见（本范式核心条款）
+
+主操作按钮因前置条件不足而 `disabled` 时，**不允许静默禁用**。必须同时提供：
+
+1. `:title` 供悬停看全句；
+2. 按钮下方**常驻**提示节点（`role="status"` + 固定 `data-testid`），避免 `title` 在触屏/读屏下不可达；
+3. `:aria-describedby` 把提示节点绑到按钮，并禁用时不抹掉现有 aria 语义；
+4. 提示文案来自 locale（zh/en 成对），按优先级取**首条**命中原因，且原因与禁用谓词同源。
+
+### 10.4 预估 / 计数类辅助信息
+
+- 预估摘要等异步信息**不得用 `v-if` 整块移除容器**：固定 `min-height` 的常驻槽 + 占位文案，防止输入时整页跳动。
+- 字符计数内嵌到输入区右下角（`position: absolute` + `pointer-events: none`），并随接近上限升级状态色（中性 → warning → danger），达上限时追加 `aria-live="polite"` 文案。
+
+### 10.5 焦点与动效
+
+- 所有新增交互元素统一 `:focus-visible` outline（**禁止无替代的 `outline: none`**）；暗色下 outline 颜色需换亮化变体（如 `--color-primary-dark-tint`）。
+- 入场 stagger 用 CSS 变量 `--stagger-index`（数组下标，非任意值）传参，只动画 `transform`/`opacity`；循环动画（流光等）必须同时有 `:disabled` 与 `prefers-reduced-motion` 两重关闭，并 `pointer-events: none` 防拦点击。
+- 悬停位移幅度 ≤ 1px，阴影变化不进布局属性（`box-shadow`/`transform` 以外的属性不得参与过渡）。

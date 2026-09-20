@@ -1,3 +1,54 @@
+## [Unreleased] - 2026-09-20 (故事讲述流水线详情页精致化：布局合同 + 表单控件统一 + 令牌双轨收敛)
+
+### 修复（P0 视觉根因）
+- `apps/desktop/src/styles/create-view.css` `.create-page`：补 `width: 100%`。父 `.cohere-main` 是 flex column，**交叉轴上的 `margin: 0 auto` 会抑制 `align-self: stretch`**，宽度退化为 `fit-content(max-content)` → 设计列宽 1080px 实测约 500px、右侧大片死白。与 `cohere-design-system.css` 的 `RewriteView`（`BUGFIX-REWRITE-PAGE-WIDTH` 2026-09-16）同源修复范式；`box-sizing` 不重复声明（全局 reset 已提供）。同时给 `.create-page--pipeline-detail` 补 `min-width: 0`。
+- `.back-btn` 补 `align-self: flex-start`：它在 `flex-direction: column` 的 `.pipeline-detail` 中被 `align-items: stretch` 拉成通栏灰条（实测收敛到 71px）；详情页态隐藏顶部 `nav-arrow`，返回入口唯一。
+- `.view-tabs`：`width: 100%` + 子项 `flex: 1 1 0; min-width: 0` 等分（页签数可变，**不硬编码栅格列数**）；`.view-tab.active` 去掉 `transform: scale(1.02)`（重排抖动源），改用 `box-shadow` + `font-weight`；补 `:focus-visible`。
+- 表面处理统一：`.detail-header` / `.input-section` / `.s2v-config-section` 收敛到同一张 `.s2v-card` 规格（卡片背景 + 描边 + 12px 圆角 + `--spacing-5` 内边距），子标题走 `.s2v-card-title`。
+
+### 新增（可复用组件与样式）
+- `apps/desktop/src/components/UiSlider.vue`：受控滑条（`appearance: none` + `--pct` 渐变填充，`--pct` 由 computed 写入内联样式，为全页唯一内联样式）；双击复位默认值、`↑↓←→` = step、`PageUp/Down` = step×10、`End` = max，全部经 clamp + 步长对齐；小数位由 `step` 推导（`decimalsFromStep`）而非写死 `toFixed`；`prefers-reduced-motion` 降级。
+- `apps/desktop/src/components/UiField.vue`：label + 控件槽 + suffix + hint + 错误位 + 运营隐藏守卫（`optionKey` → `ctx.visible()`，**fail-open 语义不得绕过**）；错误态 `aria-invalid` + `role="alert"`。
+- `apps/desktop/src/styles/video-creation-forms.css`（`main.js` 在 `video-creation-buttons.css` 之后导入）：`.s2v-card` / `.s2v-card-title` / `.s2v-field-grid`（`auto-fit minmax(280px,1fr)`）/ `.s2v-estimate-slot`（`min-height: 44px` 防布局跳动）/ `.s2v-range-native` 兜底 / `.s2v-cta-shimmer`。
+- `UiSelect.vue` 新增 `optionKey`（为空不包裹，向后兼容）/ `hint` / `error`；详情页 **27 个 `<select>` 全量迁移**，迁移后裸 `<select>` = 0（探针实测 `bareSelects: 0`）。
+
+### 变更（视觉层级 / 微交互 / UE 加固）
+- `.input-tab` 胶囊：active 态由「实心主色 + 白字」降级为浅底描边（不再压过主 CTA）；容器补 `role="tablist"` / `role="tab"` / `aria-selected`。
+- 「恢复默认选项 / 保存配置 / 我的配置」三兄弟：下划线灰文字链接 → `.s2v-btn-ghost .s2v-btn-sm`，`data-testid` 全部保持。
+- 字符计数 `n/6000 字符` 内嵌 textarea 右下角，随接近上限升级状态色（中性 → warning → danger + `aria-live`）。
+- 折叠面板 `<summary>` 右侧显示 `.s2v-summary` 摘要值，未改动组追加「（默认）」后缀；展开态走既有 `ui.expandedGroups` 持久化通道。
+- 启动按钮禁用原因可见化：`:disabled` + `:title` + `:aria-describedby` + 下方常驻 `.s2v-start-hint`（`data-testid="pipeline-blocked-reason"`），按优先级显示首条阻塞原因（`blockedReason.*`）。
+- 预估摘要常驻：无文案时显示 `estimatePlaceholder` 占位而不塌容器；硬编码不通顺句替换为 locale 键 `flowGuide`。
+- 动效：`.s2v-config-section` 接入 Staggered Reveal（`--stagger-index` 数组下标）、`.s2v-card:hover` 抬升、主 CTA `.s2v-cta-shimmer`；均带 `prefers-reduced-motion` 降级与 `pointer-events: none`。
+
+### 变更（D2 令牌双轨收敛，详情页子树 19 处双轨清零）
+- 详情页操作面统一改用 `video-creation-buttons.css` 的 `.s2v-btn-*`（品牌紫）：主 CTA、批量创作、配置管理三兄弟、运行控制 6 个 `UiButton`（编辑场景 / 编排暂停 / 恢复 / 暂停 / 确认并继续 / 取消）、分镜素材横幅 CTA、音色与背景音乐与模板等 12 个 `.btn-secondary`（危险操作改用 `.s2v-btn-danger`）。
+- **为什么必须换元素而不是加类**：`UiButton` 的 scoped 样式 `.ui-btn-primary[data-v-x]` 特异性 (0,2,0) 压过外部 `.s2v-btn-primary` (0,1,0)，加类无效。全部 `data-testid` 与点击语义不变。
+- 边界：弹窗 `UiModal #footer` 内的 `UiButton` 属 §6.1 弹窗契约管辖，本次不改；全站 `--apple-* → --color-*` 收敛登记为 openspec backlog change `ui-apple-token-retirement`（**不改 `--color-apple-accent` 取值**，避免全站基线重跑）。`.s2v-btn-primary` 的 fallback 由 Element 蓝 `#409eff` 修正为 `var(--color-primary, #5048E5)`。
+- 特异性确定性：`.btn-start` / `.s2v-batch-trigger` 抬为 `.action-bar X`（0,2,0），不依赖样式表引入顺序。
+
+### 修复（暗色模式，本次改动引入后自查发现）
+- 根因：`tokens.css` 的 `[data-theme="dark"]` 只重定义 31 个槽，**未覆盖** `--color-text-strong` / `--color-text-secondary` / `--color-primary-light`（及 `--text`），直接用作文字色在暗色下变近黑不可读（实测：标题 / 字段 label / select 文字不可见）。
+- 修法：**不改全局令牌（零 blast radius）**，把消费点改走 `cohere-design-system.css` 的暗色感知别名并保留 `--color-*` 作 fallback —— `var(--ink, var(--color-text-strong))` / `var(--muted, var(--color-text-secondary))`；`--color-bg-muted`（未定义槽，会整条声明失效）→ `var(--color-bg-inset, #f6f6f8)`；`.input-tab.active` 与 `.s2v-btn-*` 就地补暗色分支规则（浅色不写覆盖 → 基线零影响）。覆盖 `UiSelect` / `UiSlider` / `UiField` / `create-view.css` / `video-creation-forms.css` / `video-creation-buttons.css`。
+- 新增可复用审计：比对 `tokens.css` 暗色槽集合与改动文件消费的 `--color-*`，输出未覆盖清单（暗色核对从“肉眼找”变“脚本清单”）。
+
+### 抽取（偿还 CreateView 行数债）
+- 新建 `apps/desktop/src/views/video-creation/S2vConfigPanels.vue`：迁入详情页 `.s2v-config-sections` 整棵子树（basic / appearance / videoEnhance+voice+advanced / publish 四组容器、六类 optionKey）；配套 `s2v-panel-contract.js` + `create-view-module-utils.js`。抽取为**纯搬运 + 绑定改写**：option 的 key / 默认值 / 取值范围 / 显隐判定逐条对照未变。`CreateView.vue` 6182 → 5657 行（−525）。
+
+### 测试
+- 新增 `UiSlider.test.js` / `UiField.test.js` / `S2vConfigPanels.test.js`；扩充 `UiSelect.test.js` / `story2video-ue-contract.test.js`。**硬门槛：6 文件 329 例全绿（`EXIT=0`）**。
+- 像素基线：新增 `create-story2video-detail`，重生成 `create-editor / create-pipeline / create-history / create-result`（R1 列宽修复连带），逐张肉眼核对；全量 18/18 通过（`PIXEL_THRESHOLD=0.06` 与 CI GATE-7 对齐）。
+- 视觉测试基建：`test-runner.js` 的 `pixelRegressionTest` 新增 `prepare` 交互前置钩子（部分页面态无法靠路由直达；抛错即失败，不静默跳过）；`run-pixel-tests.js` 新增 `selectPixelTests()`（`PIXEL_ONLY` 白名单，避免全量重生成把无关环境差烘进基线）。**两个陷阱登记**：① hash-only 导航不重载文档 → 像素用例互相污染（必须显式复位页签）；② `UPDATE_BASELINE` 仅在基线缺失时创建，重生成需先删后建。
+- 本地门禁全绿（rc=0）：`check-vue-style-parse` / `check-color-literals` / `check-font-size-scale` / `check-frontend-consistency` / `check-locale-sync --pair-base·--keys(1037)·--cjk(0 新增命中)` / `verify-worktree-deps` / `check-debt-budget`（`filesOver500` 92 < 基线 93，**基线只允许下调**）。
+
+### i18n
+- 新增 `create.story2video.ui.*` 键组（zh/en 成对）：`doubleResetHint` / `sectionDefaultSuffix` / `estimatePlaceholder` / `charLimitWarning` / `charLimitReached` / `flowGuide` / 六个控件 label / `blockedReason.{noPipeline,unavailable,starting,running,invalidRange,noAsset,noText}`；术语对齐 `01-docs/i18n-glossary.md`。
+
+### 文档
+- `01-docs/PRD-S2V-PIPELINE-PAGE-UX.md` 新增 **§11 详情页视觉与交互精致化契约（2026-09-20）**（13 小节：根因溯源 / 布局列宽合同 / 组件契约 / 控件级显示项与取值范围 / 数据校验与边界 / 交互逻辑 / 令牌与 D2 完成态 / 提示文字中英对照 / 暗色与降级 / a11y / **实现偏离登记 D1–D8** / 测试与门禁合同 / 验收标准）。
+- `docs/desktop-ui-layout-spec.md` 新增 **§15 CreateView 列宽与页签合同**（v1.6）；`docs/frontend-interaction-spec.md` 新增 **§10 表单控件与禁用反馈范式**。
+- openspec：新增 change `story2video-detail-visual-refinement`（本次实现）与 `ui-apple-token-retirement`（backlog：全站 `--apple-*` 收敛 + `--color-text-*` 缺暗色槽）。
+
 ## [Unreleased] - 2026-09-18 (修复 Agnes 视频生成 taskId 提取漏掉 video_id 导致 task not found)
 
 ### 修复
