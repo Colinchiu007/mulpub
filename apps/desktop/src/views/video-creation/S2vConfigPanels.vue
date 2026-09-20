@@ -47,7 +47,7 @@
               </div>
               <div class="config-item" v-if="s2vOptionVisible('basic.voicePreview')">
                 <label>旁白试听</label>
-                <button type="button" class="btn-secondary" data-testid="s2v-voice-preview" @click="previewS2VVoice">试听</button>
+                <button type="button" class="s2v-btn-secondary" data-testid="s2v-voice-preview" @click="previewS2VVoice">试听</button>
                 <span class="config-hint">按当前旁白语速与音量播放一段试听音频</span>
               </div>
               <div class="config-item config-span-2">
@@ -148,7 +148,7 @@
                     <option v-for="item in s2vBgmLibrary" :key="item.id" :value="item.path">{{ item.name }}</option>
                     <option v-if="s2vLegacyBgmPath" :value="s2vLegacyBgmPath">{{ translateWithLocaleFallback('create.story2video.bgmLibrary.legacyBgm', '已选音频（未入库）', 'Selected audio (not in library)') }}</option>
                   </UiSelect>
-                  <button type="button" class="btn-secondary" data-testid="s2v-bgm-manage-button" @click="openBgmLibraryDialog">{{ translateWithLocaleFallback('create.story2video.bgmLibrary.manage', '管理背景音乐', 'Manage music') }}</button>
+                  <button type="button" class="s2v-btn-secondary" data-testid="s2v-bgm-manage-button" @click="openBgmLibraryDialog">{{ translateWithLocaleFallback('create.story2video.bgmLibrary.manage', '管理背景音乐', 'Manage music') }}</button>
                 </div>
                 <p class="config-hint">{{ mediaRequirementsBgmText }}</p>
               </UiField>
@@ -394,7 +394,7 @@
                 <button
                   v-if="s2vVoiceCatalogRefreshable"
                   type="button"
-                  class="btn-secondary voice-catalog-refresh"
+                  class="s2v-btn-secondary s2v-btn-sm voice-catalog-refresh"
                   data-testid="s2v-voice-catalog-refresh"
                   :disabled="s2vVoiceCatalogLoading"
                   @click="refreshS2VVoiceCatalog"
@@ -419,7 +419,7 @@
                 </p>
                 <p v-if="s2vVoiceCloneRequirements" class="config-hint">以上为当前模型能力数据驱动的本地校验提示，具体以供应商官方 API 合同为准。</p>
                 <div class="voice-clone-actions">
-                  <button type="button" class="btn-secondary" :disabled="s2vVoiceCloneLoading" @click="chooseS2VVoiceCloneSamples">
+                  <button type="button" class="s2v-btn-secondary s2v-btn-sm" :disabled="s2vVoiceCloneLoading" @click="chooseS2VVoiceCloneSamples">
                     {{ s2vVoiceCloneLoading
                       ? translateWithLocaleFallback('create.story2video.voice.cloneInProgressButton', '正在克隆…', 'Cloning...')
                       : (s2vVoiceCloneSelection
@@ -447,8 +447,8 @@
                         @keyup.esc="cancelS2VVoiceCloneRename"
                       />
                       <div class="voice-clone-actions">
-                        <button type="button" class="btn-secondary" :disabled="s2vVoiceCloneLoading || !String(s2vVoiceCloneRenameDraft || '').trim()" @click="renameS2VVoiceClone(voice.id)">保存</button>
-                        <button type="button" class="btn-secondary" :disabled="s2vVoiceCloneLoading" @click="cancelS2VVoiceCloneRename">取消</button>
+                        <button type="button" class="s2v-btn-secondary s2v-btn-sm" :disabled="s2vVoiceCloneLoading || !String(s2vVoiceCloneRenameDraft || '').trim()" @click="renameS2VVoiceClone(voice.id)">保存</button>
+                        <button type="button" class="s2v-btn-secondary s2v-btn-sm" :disabled="s2vVoiceCloneLoading" @click="cancelS2VVoiceCloneRename">取消</button>
                       </div>
                     </template>
                     <template v-else>
@@ -458,9 +458,9 @@
                         <span v-else-if="isS2VDefaultVoice(voice.id)" class="voice-clone-default-badge">默认</span>
                       </span>
                       <div class="voice-clone-actions">
-                        <button type="button" class="btn-secondary" :disabled="s2vVoiceCloneLoading" @click="startS2VVoiceCloneRename(voice.id)">重命名</button>
-                        <button type="button" class="btn-secondary" :disabled="s2vVoiceCloneLoading || voice.invalid || isS2VDefaultVoice(voice.id)" @click="selectS2VVoice(voice.id)">{{ isS2VDefaultVoice(voice.id) ? '已设为默认' : '设为默认' }}</button>
-                        <button type="button" class="btn-secondary danger" :disabled="s2vVoiceCloneLoading" @click="deleteS2VVoiceClone(voice.id)">删除</button>
+                        <button type="button" class="s2v-btn-secondary s2v-btn-sm" :disabled="s2vVoiceCloneLoading" @click="startS2VVoiceCloneRename(voice.id)">重命名</button>
+                        <button type="button" class="s2v-btn-secondary s2v-btn-sm" :disabled="s2vVoiceCloneLoading || voice.invalid || isS2VDefaultVoice(voice.id)" @click="selectS2VVoice(voice.id)">{{ isS2VDefaultVoice(voice.id) ? '已设为默认' : '设为默认' }}</button>
+                        <button type="button" class="s2v-btn-danger s2v-btn-sm" :disabled="s2vVoiceCloneLoading" @click="deleteS2VVoiceClone(voice.id)">删除</button>
                       </div>
                     </template>
                   </div>
@@ -587,8 +587,8 @@
                   <label>自定义模板</label>
                   <div class="template-editor">
                     <input v-model.trim="s2vCustomTemplateName" class="form-input" maxlength="80" placeholder="输入模板名称" />
-                    <button type="button" class="btn-secondary" :disabled="!s2vCustomTemplateName" @click="saveCurrentS2VTemplate">保存当前参数</button>
-                    <button v-if="selectedS2VTemplate?.category === 'custom'" type="button" class="btn-secondary danger" @click="requestTemplateDeletion">删除模板</button>
+                    <button type="button" class="s2v-btn-secondary" :disabled="!s2vCustomTemplateName" @click="saveCurrentS2VTemplate">保存当前参数</button>
+                    <button v-if="selectedS2VTemplate?.category === 'custom'" type="button" class="s2v-btn-danger" @click="requestTemplateDeletion">删除模板</button>
                   </div>
                 </div>
                 <UiField class="config-item" option-key="advanced.fps" label="帧率">

@@ -98,8 +98,27 @@
   outline-offset: 2px;
 }
 
-/* 暗色模式适配 */
+/* 暗色模式适配
+   注意：--text / --text-muted / --color-primary 在 tokens.css 的 [data-theme="dark"] 里
+   没有重定义（浅色专值），直接用作文字色会在暗色底上变成近黑/低对色。
+   因此暗色一律改走 cohere-design-system 的暗色感知别名（--ink / --muted）与主色浅调，
+   浅色分支不写覆盖 → 对既有基线零影响。 */
 [data-theme="dark"] .s2v-btn-primary { box-shadow: 0 2px 8px rgba(102,177,255,0.15); }
 [data-theme="dark"] .s2v-btn-primary:hover:not(:disabled) { box-shadow: 0 4px 16px rgba(102,177,255,0.25); }
-[data-theme="dark"] .s2v-btn-secondary { background: var(--surface, #1a1a1e); border-color: var(--border, #363637); }
-[data-theme="dark"] .s2v-btn-ghost { color: var(--text-muted, #a1a1aa); }
+[data-theme="dark"] .s2v-btn-secondary { background: var(--surface, #1a1a1e); border-color: var(--border, #363637); color: var(--ink); }
+[data-theme="dark"] .s2v-btn-ghost { color: var(--muted); }
+[data-theme="dark"] .s2v-btn-ghost:hover:not(:disabled) { color: var(--color-primary-dark-tint); }
+[data-theme="dark"] .s2v-btn-resume { border-color: var(--color-primary-dark-tint); color: var(--color-primary-dark-tint); }
+
+/* 减少动态偏好：关闭位移与过渡，保留色彩反馈（按钮本体仍可点） */
+@media (prefers-reduced-motion: reduce) {
+  .s2v-btn-primary,
+  .s2v-btn-secondary,
+  .s2v-btn-ghost,
+  .s2v-btn-danger,
+  .s2v-btn-resume { transition: none; }
+  .s2v-btn-primary:hover:not(:disabled),
+  .s2v-btn-primary:active:not(:disabled),
+  .s2v-btn-resume:hover:not(:disabled),
+  .s2v-btn-danger:hover:not(:disabled) { transform: none; }
+}

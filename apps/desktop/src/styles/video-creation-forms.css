@@ -51,3 +51,11 @@
   .s2v-card:hover { transform: none; box-shadow: none; }
   .s2v-cta-shimmer::after { animation: none; opacity: 0; }
 }
+
+/* D2 收敛的排版承接：详情页次/危险操作改用 .s2v-btn-* 后，该类不带 margin-top，
+   而原 .btn-secondary 自带 margin-top: 8px、模板编辑器栅格另有 min-height 约束。
+   不补这两条就是「换了类名顺手换了排版」。放在本文件而非 create-view.css，
+   是为了不把后者推过 scripts/check-debt-budget.js 的 500 行预算线。 */
+.config-item > .s2v-btn-secondary { margin-top: 8px; }
+.template-editor .s2v-btn-secondary,
+.template-editor .s2v-btn-danger { margin-top: 0; min-height: 38px; }

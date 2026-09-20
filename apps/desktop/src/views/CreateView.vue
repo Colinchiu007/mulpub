@@ -112,7 +112,7 @@
                   <div class="audio-row-actions">
                     <button
                       type="button"
-                      class="btn-secondary"
+                      class="s2v-btn-secondary s2v-btn-sm"
                       :disabled="audio.transcribing"
                       @click.stop="transcribePipelineAudio(i)"
                     >{{ audio.transcribing ? '识别中...' : '识别旁白' }}</button>
@@ -268,35 +268,36 @@
               <p v-if="isContentPolicyCheckpoint" class="orchestration-attention">
                 {{ pipelineRunStatus.checkpoint.recommendation || translateWithLocaleFallback('create.story2video.contentPolicyAttention', '图片内容需要处理；取消后修改文案并重新启动流水线。', 'Some image content needs attention. Cancel, update the text, and start the pipeline again.') }}
               </p>
-              <UiButton
+              <!-- D2：运行控制面同样收敛到 .s2v-btn-*，不再经 UiButton 的 @deprecated --apple-accent -->
+              <button
                 v-if="isContentPolicyCheckpoint"
-                variant="secondary"
-                class="s2v-edit-scenes-btn"
+                type="button"
+                class="s2v-btn-secondary s2v-edit-scenes-btn"
                 data-testid="s2v-edit-scenes-trigger"
                 :disabled="contentPolicyEditBusy"
                 @click="editContentPolicyScenes"
               >
                 ✎ {{ translateWithLocaleFallback('create.story2video.editScenes', '编辑场景', 'Edit scenes') }}
-              </UiButton>
+              </button>
               <p v-else-if="sceneAssetSelectionActive" class="orchestration-waiting" data-testid="s2v-selection-waiting-text">
                 {{ translateWithLocaleFallback('create.story2video.selectionWait.controlText', '⏳ 等待您选择分镜素材，确认后将生成旁白并合成视频。', 'Awaiting your asset selection — narration and compositing will start after you confirm.') }}
               </p>
               <!-- 编排流水线暂停（2026-08-16 UX 统一）：运行中可手动暂停，暂停点保存后可从历史记录断点续跑 -->
-              <UiButton
+              <button
                 v-if="pipelineRunStatus?.status === 'running' && !sceneAssetSelectionActive && pipelineRunStatus?.checkpoint?.reason !== 'content_policy'"
-                variant="secondary"
-                class="s2v-pause-btn"
+                type="button"
+                class="s2v-btn-secondary s2v-pause-btn"
                 data-testid="s2v-pause-trigger"
                 :disabled="pauseActionBusy"
                 @click="pauseOrchestrationPipeline"
-              >⏸ {{ translateWithLocaleFallback('create.story2video.pause', 'Pause', 'Pause') }}</UiButton>
+              >⏸ {{ translateWithLocaleFallback('create.story2video.pause', 'Pause', 'Pause') }}</button>
             </template>
             <template v-else>
-              <UiButton v-if="pipelineRunStatus.status === 'paused'" @click="resumePipeline">▶ {{ translateWithLocaleFallback('create.story2video.resume', 'Resume', 'Resume') }}</UiButton>
-              <UiButton v-else-if="pipelineRunStatus.status === 'running'" @click="pausePipeline">⏸ {{ translateWithLocaleFallback('create.story2video.pause', 'Pause', 'Pause') }}</UiButton>
-              <UiButton v-if="needsCheckpoint" @click="advancePipeline">{{ translateWithLocaleFallback('create.story2video.confirmAndContinue', '确认并继续', 'Confirm and continue') }}</UiButton>
+              <button v-if="pipelineRunStatus.status === 'paused'" type="button" class="s2v-btn-resume" @click="resumePipeline">▶ {{ translateWithLocaleFallback('create.story2video.resume', 'Resume', 'Resume') }}</button>
+              <button v-else-if="pipelineRunStatus.status === 'running'" type="button" class="s2v-btn-secondary" @click="pausePipeline">⏸ {{ translateWithLocaleFallback('create.story2video.pause', 'Pause', 'Pause') }}</button>
+              <button v-if="needsCheckpoint" type="button" class="s2v-btn-primary" @click="advancePipeline">{{ translateWithLocaleFallback('create.story2video.confirmAndContinue', '确认并继续', 'Confirm and continue') }}</button>
             </template>
-            <UiButton variant="danger" data-testid="s2v-cancel-trigger" @click="requestCancelPipeline">✕ 取消</UiButton>
+            <button type="button" class="s2v-btn-danger" data-testid="s2v-cancel-trigger" @click="requestCancelPipeline">✕ 取消</button>
           </div>
         </div>
       </div>
@@ -409,9 +410,16 @@
             <span class="s2v-selection-banner-text">
               {{ translateWithLocaleFallback('create.story2video.selectionWait.banner', '分镜素材已生成，请为每个分镜选择最终素材。', 'Storyboard assets are ready — pick the final material for each scene.', { count: sceneAssetCandidates.length }) }}
             </span>
-            <UiButton class="s2v-selection-banner-cta" data-testid="s2v-selection-go" @click="scrollToSceneAssetPanel">
+            <!-- D2：页内横幅 CTA 属于详情页操作面，同收敛到 .s2v-btn-*；
+                 弹窗（UiModal #footer）不在此列，归 backlog change ui-apple-token-retirement -->
+            <button
+              type="button"
+              class="s2v-btn-primary s2v-btn-sm s2v-selection-banner-cta"
+              data-testid="s2v-selection-go"
+              @click="scrollToSceneAssetPanel"
+            >
               {{ translateWithLocaleFallback('create.story2video.selectionWait.goSelect', '去选择素材', 'Select assets') }}
-            </UiButton>
+            </button>
           </div>
           <div
             ref="sceneAssetPanel"
