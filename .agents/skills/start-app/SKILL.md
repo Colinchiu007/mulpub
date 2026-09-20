@@ -1,6 +1,6 @@
 ---
 name: start-app
-version: 1.6.0
+version: 1.7.0
 description: >
   用当前项目最新代码 + 共享数据（shared-user-data 锚点）启动/重启 Multi-Publish
   桌面应用。支持 Windows 与 WSL（Ubuntu-E）双环境：默认启动 Windows 环境的应用，
@@ -107,8 +107,9 @@ powershell -ExecutionPolicy Bypass -File D:/Data/projects/Multi-Publish/scripts/
 
 | 组件 | 职责 |
 |------|------|
-| `sync-app.ps1` | 解析仓库根（git common-dir 的父目录）→ worktree 健康检查 → fetch origin/main →（默认/`-PrepareOnly`）`checkout -f origin/main` + `clean -fd`；（`-Safe`）只自愈不重写 → pnpm-lock.yaml SHA256 门禁装依赖 → `ensure-electron.js` → 启动 launcher |
-| `mp-applive-launcher.ps1` | 自定位 node/python → dev-ports.js 派生端口 → 停同 worktree 旧 electron → 设 env（`MP_VITE_PORT`/`MP_CDP_PORT`/`ELECTRON_USER_DATA_DIR=shared-user-data`/`MP_PYTHON`/`MP_CDP_ALLOW_ALL_ORIGINS=1`）→ WMI 拉起 `node scripts/dev.js` → 轮询 150s 可见窗口 |
+| `sync-app.ps1` | 解析仓库根（git common-dir 的父目录）→ worktree 健康检查 → 活体实例检测（本 worktree electron **或**共享同一 userData profile 的外部 Electron 主进程，分隔符双向匹配；`-Safe`/`-PrepareOnly` 遇活体即跳过同步）→ fetch origin/main →（默认/`-PrepareOnly`）`checkout -f origin/main` + `clean -fd`；（`-Safe`）只自愈不重写 → pnpm-lock.yaml SHA256 门禁装依赖 → `ensure-electron.js` → 启动 launcher |
+| `mp-applive-launcher.ps1` | 自定位 node/python → dev-ports.js 派生端口 → 停同 worktree 旧 electron + **审计停止从其他目录启动但共享同一 userData 的 foreign 实例（v1.7.0，applive-foreign-audit.ps1）** → 设 env（`MP_VITE_PORT`/`MP_CDP_PORT`/`ELECTRON_USER_DATA_DIR=shared-user-data`/`MP_PYTHON`/`MP_CDP_ALLOW_ALL_ORIGINS=1`）→ WMI 拉起 `node scripts/dev.js` → 轮询 150s 可见窗口；失败时输出 `LOCK_HOLDER_CANDIDATES` 点名单实例锁持有者（防"旧窗口被误认为新应用"） |
+| `applive-foreign-audit.ps1` | 纯函数模块（PS5.1/7 兼容、可注入进程列表）：按 `--user-data-dir` 斜杠双向变体匹配 profile 持有者，按 worktree 归属分 Same/Foreign，仅 foreign **主进程**是审计停止对象；另提供 lock-holder 诊断行 |
 | `mp-app-live2` worktree | 持久运行目录（detached at origin/main），node_modules 保留不删 |
 | `shared-user-data/` | 登录态/DB 持久锚点（gitignored）：`multi-publish.db`（模型 key）、`backend-data/accounts.json`（平台登录态）、`identity-session.json`、`session/`、`credentials/` |
 
@@ -124,6 +125,7 @@ powershell -ExecutionPolicy Bypass -File D:/Data/projects/Multi-Publish/scripts/
 1. `Get-Process electron` 的 MainWindowHandle 非 0（或 `tasklist /v` 见窗口标题）。
 2. `curl http://127.0.0.1:<vitePort>/` 与 `http://127.0.0.1:<cdpPort>/json/version` 均 200（mp-app-live2 → vite 5231 / cdp 9279）。
 3. CDP `listAccounts()` 返回 7 平台账号、`identityGetState()` authenticated（见「CDP 完整服务清单核验」节）。
+4. 窗口属于本次启动的新进程：`Get-Process electron` 主进程的 `StartTime` 晚于本次 launcher 执行时刻（防旧窗口被误认为新应用，v1.7.0）。
 
 ## 流程（备选长流程，特殊 worktree/环境要求时用）
 
@@ -399,6 +401,7 @@ const page = targets.find((t) => t.type === 'page' && t.url.startsWith('http://1
 | WSL electron 缺库 | `LD_LIBRARY_PATH=~/mp-wsl-deps/electron-libs` 注入；缺失则从 `/tmp/electron-libs/extracted/usr/lib/x86_64-linux-gnu/` 复制 |
 | WSL GPU 崩溃（GPU process isn't usable）| 加 `--in-process-gpu`（start-desktop-wsl.sh 已内置）|
 | WSL 数据分裂 | 确认 electron 用共享目录：`--user-data-dir=/mnt/d/Data/projects/Multi-Publish/shared-user-data`；不要设 `ELECTRON_USER_DATA_DIR` |
+| 启动后窗口还是旧版界面（代码已同步但 UI 未更新，2026-09-20 复盘） | **单实例锁跨目录接管**：从别的目录/入口启动的旧 Electron 共享同一 userData（如 `shared-user-data`）持有单实例锁，新实例 `app.quit()` 静默退出，老进程 `second-instance` 只重新聚焦**旧 renderer 窗口**（老窗口连的 Vite HMR 已断，永远不会自行换新代码）。v1.7.0 起 launcher 自动审计停止此类 foreign 主进程；手工排查：看 launcher 输出 `PROFILE_OWNER`/`LOCK_HOLDER_CANDIDATES` 行点名 pid+exe，手动 `Stop-Process` 后重启。**任何情况下都不要假定"看到窗口=新代码"，须核对窗口所属进程启动时间** |
 | 启动后窗口出现几十秒就消失（无崩溃日志、退出码 0） | **单实例锁冲突**：另一 worktree 用同一 profile 启动，后启动实例被 `app.quit()` 顶掉。改用独立 profile 启动（见 Pitfalls「profile 单实例锁」） |
 | 后台 job 里跑 start-desktop.ps1，job 结束应用就没了 | **父会话连带杀进程**：`Start-Process` 启动的 electron 进程树挂在启动它的 PowerShell 会话下，会话退出即被终止。改用 WMI `Win32_Process.Create` 拉起独立启动器（见 Pitfalls「独立启动器」） |
 | 窗口加载 5174 而非 worktree 派生端口 | **WMI Create 不继承环境变量**：`Win32_Process.Create` 启动的进程不继承调用者的 `DEV_SERVER_PORT`，electron 回退默认 5174。启动器脚本内显式设置环境变量后再 `Start-Process` |
@@ -420,6 +423,7 @@ const page = targets.find((t) => t.type === 'page' && t.url.startsWith('http://1
 - **隔离 worktree 优先复用**：创建新 worktree 需要 `pnpm install`（1-2 分钟），但已有 worktree 只需 `git checkout` + `git clean`（秒级）。优先检查是否已有可用的隔离 worktree。
 - **不要静默连别人的 Vite**：端口归属检查是 fail-closed，绝不绕过。
 - **profile 单实例锁**：同 profile 多实例互杀会导致窗口空白，先处理占用。
+- **快链路 "最新代码" 契约依赖 foreign profile 审计（v1.7.0，2026-09-20 复盘）**：Electron 单实例锁按 **userData 目录**归属而非代码目录归属。v1.6.0 快链路（sync-app + applive-launcher）只停"Path 在本 worktree 下"的实例，从其他目录启动但共享 `shared-user-data` 的旧进程完全不可见：checkout 反复更新磁盘代码，前台窗口却永远是旧 renderer（`second-instance` 只聚焦老窗口，Vite/HMR 不会刷新一个从未重载的页面）。修补要点：① launcher 启动前经 `applive-foreign-audit.ps1` 按 profile 点名所有持有者并审计停止 foreign 主进程；② 窗口验证失败时输出 `LOCK_HOLDER_CANDIDATES` 而非笼统 WARN；③ sync-app 活体检测须**双向匹配斜杠变体**（进程路径永远反斜杠，参数可能正斜杠，`-like` 不匹配=静默失明），并把 foreign 持有者计入"活体"。
 - **profile 单实例锁（跨 worktree 顶掉，2026-09-08 复盘）**：Electron `requestSingleInstanceLock()` 基于 **userData 目录**。多个 worktree 用同一 profile（如 `D:/tmp/Multi-Publish-debug-profile`）启动时，后启动实例拿不到锁 → `app.quit()` 正常退出（**code 0、无崩溃日志**），表现为「应用启动后 2-3 分钟消失」。排查要点：`Get-CimInstance Win32_Process -Filter "Name='electron.exe'"` 看主进程命令行属于哪个 worktree；`tasklist` 看是否有其他 worktree 的 electron 用同一 `--user-data-dir`。**解决：给每个 worktree 用独立 profile**（如 `D:/tmp/Multi-Publish-debug-profile-mp-start`），彻底隔离锁。⚠️ 切换 profile 必须复制登录态与数据（见「profile 数据分裂」坑）。
 - **独立启动器（脱离父会话，2026-09-08 / 2026-09-13 补充）**：`Start-Process` 启动的 electron 进程树**绑定在启动它的 PowerShell 会话**下，会话退出（后台 job 结束 / 脚本 exit）即连带终止。**2026-09-13 实测补充**：仅用 `Start-Process` 启动 pwsh 跑 `start-desktop.ps1` 仍不够——fastctx run / bash job 结束时，`Start-Process` 的 pwsh 子进程也会被进程树清理连带杀掉（表现为 start-desktop.ps1 输出 START_CONTRACT_OK 后 electron 立即消失）。**可靠做法（实测有效）**：写一个启动器 `.ps1`（内部设置 `ELECTRON_USER_DATA_DIR` / `MP_VITE_PORT` / `MP_CDP_PORT` → `Start-Process pwsh ... start-desktop.ps1 -PassThru` → `WaitForExit()`），用 WMI `Invoke-CimMethod Win32_Process Create -Arguments @{ CommandLine = "powershell -NoProfile -ExecutionPolicy Bypass -File <launcher>" }` 拉起启动器（进程由 WMI 服务托管，真正脱离父会话，父退出不影响）。验证：`Get-Process electron` 的 MainWindowHandle 非 0 + CDP 端口可连 + `window.electronAPI.listAccounts()` 返回账号。参考 `mp-start-desktop/scripts/start-electron-detached.ps1`。
 - **启动器脚本必须纯 ASCII（2026-09-13 起，2026-09-16 强化）**：`.ps1` 一旦含字面非 ASCII 字符（中文注释、中文路径）且无 BOM，Windows PowerShell 5.1 会按系统 ANSI 码页（中文机=GBK）解析 UTF-8 字节，产生三类破坏：① 变量赋值被吞（`$worktree` 变 null，`Join-Path` 报参数空）；② 转义破坏（`C:\tmp\...` → `C:	mp...`）；③ **中文用户名被读成乱码**——字面 `邱领` 变成 `閭遍`，若它拼进 `$env:MP_PYTHON`，spawn 目标变成 `C:\Users\閭遍\...\python.exe` → `ENOENT`，主 Python 后端 `mainBackend` 起不来（本次 2026-09-16 实踩，症状：`app-2026-09-16.log` 报 `spawn C:\Users\閭遍\...\python.exe ENOENT`）。**强制纪律**：启动器 `.ps1` 必须纯 ASCII（bash heredoc 写入、无 BOM），所有含用户名的路径一律经无中文字面量变量解析：`$pyDir = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312'`、`$nodeDir = Join-Path $env:USERPROFILE '.workbuddy\binaries\node\versions\22.22.2'`；`MP_PYTHON` 用 `Join-Path $pyDir 'python.exe'`。参考已验证可用的 `D:\tmp\start_app_dev_launcher.ps1`。验证：`file <script>.ps1` 显示 `ASCII text`。

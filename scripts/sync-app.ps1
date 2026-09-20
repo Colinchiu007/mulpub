@@ -52,10 +52,33 @@ if (-not (Test-Path -LiteralPath $gitFile)) {
   exit 1
 }
 
-# 3. is electron currently running from this worktree? (avoid disrupting a live app)
-$running = (Get-Process electron -ErrorAction SilentlyContinue | Where-Object { $_.Path -like ($Worktree + '*') })
+# 3. is a live app involved? (avoid rewriting code underneath a running window)
+#    Two signals, both must be checked (2026-09-20 stale-renderer incident):
+#      a) an Electron whose binary lives under this worktree;
+#      b) any Electron MAIN holding the shared userData profile from ELSEWHERE
+#         (another worktree/dir). Such a stale main keeps the single-instance
+#         lock, so checkout updates the disk while the user keeps staring at the
+#         pre-upgrade renderer.
+#    Separator-hard: process paths always use backslashes while $Worktree may
+#    arrive with forward slashes; a mismatched -like silently sees nothing.
+#    Full mode still proceeds (the launcher audit-stops foreign holders before
+#    relaunch); -Safe/-PrepareOnly skip the sync to protect the live session.
+$wtBwd = $Worktree.Replace('/', '\')
+$wtFwd = $Worktree.Replace('\', '/')
+$electronProcs = @(Get-CimInstance Win32_Process -Filter "Name='electron.exe'" -ErrorAction SilentlyContinue)
+$runningSame = @($electronProcs | Where-Object {
+  $_.ExecutablePath -and (($_.ExecutablePath -like ($wtBwd + '*')) -or ($_.ExecutablePath -like ($wtFwd + '*')))
+})
+$runningForeign = @()
+$auditModule = Join-Path $PSScriptRoot 'applive-foreign-audit.ps1'
+if (Test-Path -LiteralPath $auditModule) {
+  . $auditModule
+  $profileOwnerSplit = Split-ForeignProfileOwners -Owners @(Get-ElectronProfileOwners -ProfilePath $Profile) -WorktreePath $Worktree
+  $runningForeign = @($profileOwnerSplit.Foreign | Where-Object { $_.IsMain })
+}
+$running = @($runningSame) + @($runningForeign)
 if ($running -and ($PrepareOnly -or $Safe)) {
-  Write-Info 'WARN: app is currently running from this worktree; skipping git sync to avoid disruption.'
+  Write-Info ('WARN: app is currently running (sameWorktree=' + $runningSame.Count + ' foreignProfileHolders=' + $runningForeign.Count + '); skipping git sync to avoid disruption.')
   Write-Info 'SYNC skipped (live app detected)'
   exit 0
 }

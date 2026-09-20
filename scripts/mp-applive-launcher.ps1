@@ -51,12 +51,37 @@ Write-Info ("ports vite=" + $vitePort + " cdp=" + $cdpPort)
 # forward slashes; a mismatched -like silently skips the old instance and the
 # new launch is then dropped by the single-instance lock.
 $wtNorm = $Worktree.Replace('/', '\')
-Get-Process electron -ErrorAction SilentlyContinue | Where-Object { $_.Path -like ($wtNorm + '*') } | ForEach-Object { Stop-Process -Id $_.Id -Force; Write-Info ("stop old electron pid=" + $_.Id) }
+Get-Process electron -ErrorAction SilentlyContinue | Where-Object { $_.Path -and ($_.Path -like ($wtNorm + '*')) } | ForEach-Object { Stop-Process -Id $_.Id -Force; Write-Info ("stop old electron pid=" + $_.Id) }
 # also stop stale dev.js/vite node processes bound to this worktree, otherwise
 # they keep the derived vite/cdp ports and race the new instance
 Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
   Where-Object { $_.CommandLine -like ('*' + $Worktree + '*') -or $_.CommandLine -like ('*' + $wtNorm + '*') } |
   ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; Write-Info ('stop old node pid=' + $_.ProcessId) }
+
+# ---- foreign profile-holder audit (start-app fastpath hardening, 2026-09-20) ----
+# The same-worktree stop above cannot see an OLDER Electron launched from any
+# other directory/worktree while sharing this userData profile. That stale main
+# keeps the Chromium single-instance lock: the new instance quits silently and
+# its second-instance handler only re-focuses the OLD window, so the user keeps
+# looking at a pre-upgrade renderer even though the worktree code is current.
+# Mirror start-desktop.ps1 -StopForeignProfile semantics into the fastpath:
+# audit-stop every foreign main holding this profile before launching.
+$auditModule = Join-Path $PSScriptRoot 'applive-foreign-audit.ps1'
+$auditAvailable = (Test-Path -LiteralPath $auditModule)
+if ($auditAvailable) {
+  . $auditModule
+  $profileOwners = @(Get-ElectronProfileOwners -ProfilePath $Profile)
+  $ownerSplit = Split-ForeignProfileOwners -Owners $profileOwners -WorktreePath $Worktree
+  foreach ($f in $profileOwners) {
+    Write-Info ('PROFILE_OWNER pid=' + $f.Pid + ' main=' + $f.IsMain + ' sameWorktree=' + ($ownerSplit.Same -contains $f) + ' exe=' + $f.ExePath)
+  }
+  foreach ($f in $ownerSplit.ForeignMain) {
+    Stop-Process -Id $f.Pid -Force -ErrorAction SilentlyContinue
+    Write-Info ('stop foreign-profile electron pid=' + $f.Pid + ' exe=' + $f.ExePath)
+  }
+} else {
+  Write-Info 'WARN: applive-foreign-audit.ps1 missing; foreign profile holders will NOT be audited'
+}
 Start-Sleep -Seconds 2
 
 # build detached launch command line (env-set via cmd /c)
@@ -101,6 +126,20 @@ if ($win) {
   Write-Info ("WINDOW pid=" + $win.Id + " handle=" + $win.MainWindowHandle + " title=" + $win.MainWindowTitle)
 } else {
   Write-Info 'WARN: no visible window within 150s; app may still be starting'
+  # Misleading-window guard: when the launcher reports failure but the operator
+  # still SEES a window, that window almost certainly belongs to a stale
+  # Electron main holding the profile single-instance lock (pre-upgrade
+  # renderer), NOT to this launch. Name the candidates instead of leaving the
+  # user to assume the old window is the new app.
+  if ($auditAvailable) {
+    $holderLines = @(Get-ElectronLockHolderCandidates)
+    if ($holderLines.Count -gt 0) {
+      Write-Info 'LOCK_HOLDER_CANDIDATES (live Electron mains; a visible old window belongs to one of these, not this launch):'
+      foreach ($l in $holderLines) { Write-Info ('  ' + $l) }
+    } else {
+      Write-Info 'LOCK_HOLDER_CANDIDATES: none (no Electron main process alive)'
+    }
+  }
 }
 
 # verify main backend (python, port 8299) actually came up: a visible window
@@ -117,4 +156,5 @@ if ($backendOk) {
   Write-Info 'START_CONTRACT_OK'
 } else {
   Write-Info 'WARN: MAIN_BACKEND_NOT_LISTENING port=8299 within 60s; check shared-user-data/logs/app-*.log for PythonBridge errors'
+  Write-Info 'WARN: if a window from a PREVIOUS launch is still visible, it is a stale instance; this launch did not take over (see LOCK_HOLDER_CANDIDATES)'
 }
