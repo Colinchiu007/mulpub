@@ -2,12 +2,12 @@
   <div>
     <div class="cohere-page-header">
       <div>
-        <div class="page-title">数据看板</div>
-        <div class="page-subtitle">各平台发布数据与趋势分析</div>
+        <div class="page-title">{{ $t('dashboard.pageTitle') }}</div>
+        <div class="page-subtitle">{{ $t('dashboard.pageSubtitle') }}</div>
       </div>
       <div class="page-actions">
         <button class="cohere-btn-secondary" @click="refreshSync" :disabled="syncing">
-          {{ syncing ? '同步中...' : '⟳ 刷新数据' }}
+          {{ syncing ? $t('dashboard.syncing') : $t('dashboard.refreshData') }}
         </button>
       </div>
     </div>
@@ -22,10 +22,10 @@
         <div class="stat-card large">
           <div class="stat-icon">📤</div>
           <div class="stat-value">{{ totalArticles }}</div>
-          <div class="stat-label">已发布内容</div>
+          <div class="stat-label">{{ $t('dashboard.statPublishedContent') }}</div>
           <div class="stat-change positive">
-            <span>↑</span>
-            较上周 +12%
+            <span>{{ $t('dashboard.statTrendUp') }}</span>
+            {{ $t('dashboard.statChangeWeek', { percent: 12 }) }}
           </div>
         </div>
 
@@ -33,9 +33,9 @@
         <div class="stat-card">
           <div class="stat-icon"><el-icon><View /></el-icon></div>
           <div class="stat-value">{{ totalViews > 10000 ? (totalViews / 10000).toFixed(1) + '万' : totalViews }}</div>
-          <div class="stat-label">总阅读</div>
+          <div class="stat-label">{{ $t('dashboard.statViews') }}</div>
           <div class="stat-change positive">
-            <span>↑</span>
+            <span>{{ $t('dashboard.statTrendUp') }}</span>
             +8.5%
           </div>
         </div>
@@ -44,9 +44,9 @@
         <div class="stat-card">
           <div class="stat-icon"><el-icon><ChatDotRound /></el-icon></div>
           <div class="stat-value">{{ totalComments }}</div>
-          <div class="stat-label">总评论</div>
+          <div class="stat-label">{{ $t('dashboard.statComments') }}</div>
           <div class="stat-change positive">
-            <span>↑</span>
+            <span>{{ $t('dashboard.statTrendUp') }}</span>
             +23%
           </div>
         </div>
@@ -55,9 +55,9 @@
         <div class="stat-card">
           <div class="stat-icon">👥</div>
           <div class="stat-value">{{ totalFollowers > 10000 ? (totalFollowers / 10000).toFixed(1) + '万' : totalFollowers }}</div>
-          <div class="stat-label">总粉丝</div>
+          <div class="stat-label">{{ $t('dashboard.statFollowers') }}</div>
           <div class="stat-change negative">
-            <span>↓</span>
+            <span>{{ $t('dashboard.statTrendDown') }}</span>
             -2.1%
           </div>
         </div>
@@ -72,24 +72,24 @@
       <!-- 发布统计 -->
       <div v-if="statsData" class="cohere-card dash-mb-md stats-login-panel">
         <div class="panel-header">
-          <div class="panel-title"><el-icon><TrendCharts /></el-icon> 发布统计</div>
+          <div class="panel-title"><el-icon><TrendCharts /></el-icon> {{ $t('dashboard.panelPublishStats') }}</div>
         </div>
         <div class="stats-grid-small">
           <div class="stat-card-mini success">
             <div class="stat-value-mini">{{ statsData.total }}</div>
-            <div class="stat-label-mini">累计发布</div>
+            <div class="stat-label-mini">{{ $t('dashboard.statTotalPublished') }}</div>
           </div>
           <div class="stat-card-mini success">
             <div class="stat-value-mini dash-stat-success">{{ statsData.success }}</div>
-            <div class="stat-label-mini">成功</div>
+            <div class="stat-label-mini">{{ $t('dashboard.statSuccess') }}</div>
           </div>
           <div class="stat-card-mini danger">
             <div class="stat-value-mini dash-stat-danger">{{ statsData.failed }}</div>
-            <div class="stat-label-mini">失败</div>
+            <div class="stat-label-mini">{{ $t('dashboard.statFailed') }}</div>
           </div>
           <div class="stat-card-mini">
             <div class="stat-value-mini">{{ statsData.successRate || 0 }}%</div>
-            <div class="stat-label-mini">成功率</div>
+            <div class="stat-label-mini">{{ $t('dashboard.statSuccessRate') }}</div>
           </div>
         </div>
       </div>
@@ -99,7 +99,7 @@
         <div class="dash-panel-title">
           <el-icon><TrendCharts /></el-icon> 
           {{ $t('dashboard.trendTitle') }}
-          <span class="panel-subtitle">最近 14 天</span>
+          <span class="panel-subtitle">{{ $t('dashboard.trendPeriod') }}</span>
         </div>
         <div class="dash-trend-track" ref="trendChart">
           <div v-for="(d, index) in last14Days" :key="d.date" 
@@ -112,7 +112,7 @@
                    opacity: d.total > 0 ? 0.7 + (d.total / dailyMax) * 0.3 : 0.3
                  }"
                  :data-value="d.total">
-              <span class="bar-tooltip">{{ d.total }} 篇</span>
+              <span class="bar-tooltip">{{ $t('dashboard.articleCount', { count: d.total }) }}</span>
             </div>
             <span class="dash-trend-date">{{ d.date.slice(5) }}</span>
           </div>
