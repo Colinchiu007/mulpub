@@ -36,7 +36,9 @@
     >
       <div class="profile-menu-heading">
         <strong>{{ hasSessionIdentity ? displayName : 'Multi-Publish' }}</strong>
-        <span>{{ statusLabel }}</span>
+        <span class="profile-menu-status" :class="`is-${identityStatus}`">
+          <i class="profile-menu-status-dot" aria-hidden="true"></i>{{ statusLabel }}
+        </span>
       </div>
 
       <template v-if="hasSessionIdentity">
@@ -47,7 +49,8 @@
           data-testid="profile-menu-member"
           @click="goMemberCenter"
         >
-          {{ t('memberCenter.menuEntry') }}
+          <User class="profile-menu-action-icon" aria-hidden="true" />
+          <span>{{ t('memberCenter.menuEntry') }}</span>
         </button>
         <button
           class="profile-menu-action"
@@ -57,7 +60,8 @@
           :disabled="loading"
           @click="handleSwitchAccount"
         >
-          {{ pendingAction === 'switch' ? t('memberCenter.switchingAccount') : t('memberCenter.switchAccount') }}
+          <Refresh class="profile-menu-action-icon" aria-hidden="true" />
+          <span>{{ pendingAction === 'switch' ? t('memberCenter.switchingAccount') : t('memberCenter.switchAccount') }}</span>
         </button>
         <button
           class="profile-menu-action"
@@ -67,7 +71,8 @@
           :disabled="loading"
           @click="handleSignOut"
         >
-          {{ pendingAction === 'sign-out' || isSigningOut ? t('memberCenter.signingOut') : t('memberCenter.signOut') }}
+          <SwitchButton class="profile-menu-action-icon" aria-hidden="true" />
+          <span>{{ pendingAction === 'sign-out' || isSigningOut ? t('memberCenter.signingOut') : t('memberCenter.signOut') }}</span>
         </button>
       </template>
 
@@ -82,7 +87,8 @@
           :disabled="loading"
           @click="handleSignInFromMenu"
         >
-          {{ loading ? t('memberCenter.signingIn') : t('memberCenter.loginRetry') }}
+          <Key class="profile-menu-action-icon" aria-hidden="true" />
+          <span>{{ loading ? t('memberCenter.signingIn') : t('memberCenter.loginRetry') }}</span>
         </button>
       </template>
 
@@ -95,7 +101,8 @@
         data-testid="profile-menu-settings"
         @click="handleOpenSettings"
       >
-        {{ t('nav.settings') }}
+        <Setting class="profile-menu-action-icon" aria-hidden="true" />
+        <span>{{ t('nav.settings') }}</span>
       </button>
       <button
         v-if="!licenseStore.isPro"
@@ -105,10 +112,13 @@
         data-testid="profile-menu-upgrade"
         @click="handleUpgrade"
       >
-        <span class="profile-menu-action-icon" aria-hidden="true">⭐</span>{{ t('memberCenter.upgradePro') }}
+        <Medal class="profile-menu-action-icon" aria-hidden="true" />
+        <span>{{ t('memberCenter.upgradePro') }}</span>
       </button>
 
-      <p v-if="errorMessage" class="profile-menu-error" role="alert">{{ errorMessage }}</p>
+      <p v-if="errorMessage" class="profile-menu-error" role="alert">
+        <CircleCloseFilled class="profile-menu-error-icon" aria-hidden="true" />{{ errorMessage }}
+      </p>
     </div>
   </div>
 </template>
@@ -117,7 +127,7 @@
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ArrowUp } from '@element-plus/icons-vue'
+import { ArrowUp, CircleCloseFilled, Key, Medal, Refresh, Setting, SwitchButton, User } from '@element-plus/icons-vue'
 import { useIdentity } from '@/composables/useIdentity'
 import { useLicenseStore } from '@/stores/license'
 import { useDropdownBehavior } from '@/composables/useDropdownBehavior'
@@ -374,7 +384,7 @@ function handleUpgrade() {
   color: #27618a;
 }
 
-/* 面板向上展开，且与 banner 等宽（不溢出侧边栏） */
+/* 面板向上展开，且与 banner 等宽（不溢出侧边栏）；展开时淡入 + 轻微上浮 */
 .profile-menu-panel {
   position: absolute;
   bottom: calc(100% + 8px);
@@ -386,15 +396,28 @@ function handleUpgrade() {
   overflow-y: auto;
   padding: 12px;
   border: 1px solid var(--card-border);
-  border-radius: var(--r-sm);
+  border-radius: var(--radius-md);
   background: var(--surface);
-  box-shadow: 0 12px 32px rgba(30, 27, 75, 0.14);
+  box-shadow: 0 12px 32px rgba(30, 27, 75, 0.16);
   color: var(--ink);
+  transform-origin: bottom center;
+  animation: profile-menu-pop .16s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes profile-menu-pop {
+  from { opacity: 0; transform: translateY(6px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .profile-menu-panel {
+    animation: none;
+  }
 }
 
 .profile-menu-heading {
   display: grid;
-  gap: 2px;
+  gap: 4px;
   padding-bottom: 10px;
   border-bottom: 1px solid var(--hairline);
 }
@@ -402,73 +425,139 @@ function handleUpgrade() {
 .profile-menu-heading strong {
   min-width: 0;
   overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
 }
 
-.profile-menu-heading span,
+/* 状态胶囊：带状态色小圆点，取代旧的裸文字状态行 */
+.profile-menu-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: fit-content;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--text-muted) 14%, transparent);
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1.6;
+}
+
+.profile-menu-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.profile-menu-status.is-online { background: color-mix(in srgb, #6fbf73 16%, transparent); color: #3f8f45; }
+.profile-menu-status.is-busy { background: color-mix(in srgb, #e6a23c 18%, transparent); color: #a86f16; }
+.profile-menu-status.is-error { background: color-mix(in srgb, var(--error) 14%, transparent); color: var(--error); }
+
+[data-theme="dark"] .profile-menu-status.is-online { color: #86d68b; }
+[data-theme="dark"] .profile-menu-status.is-busy { color: #f0c274; }
+
 .profile-menu-note {
+  margin: 10px 0 0;
   color: var(--text-muted);
   font-size: var(--font-size-xs);
 }
 
+/* 菜单项：扁平行式（去盒子感），仅 hover/focus 时显浅底高亮 */
 .profile-menu-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   width: 100%;
-  margin-top: 10px;
-  padding: 8px 10px;
-  border: 1px solid var(--card-border);
-  border-radius: var(--r-xs);
-  background: var(--surface);
+  margin-top: 2px;
+  padding: 9px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
   color: var(--ink);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
   cursor: pointer;
   text-align: left;
+  transition: background .15s ease, color .15s ease;
 }
 
 .profile-menu-action:hover,
 .profile-menu-action:focus-visible {
-  border-color: var(--primary);
-  color: var(--primary);
-}
-
-.profile-menu-action-primary {
-  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
   color: var(--primary);
 }
 
 .profile-menu-action:disabled {
   cursor: wait;
-  opacity: 0.6;
+  opacity: .55;
 }
 
-/* 升级 Pro 与「设置 / 账号操作」共用同一菜单项版式，仅以金色强调 */
+.profile-menu-action-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  color: currentColor;
+}
+
+/* 主操作（重试登录）：实心品牌色填充，锚定视觉焦点 */
+.profile-menu-action-primary {
+  justify-content: center;
+  margin-top: 8px;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 600;
+}
+
+.profile-menu-action-primary:hover,
+.profile-menu-action-primary:focus-visible {
+  background: var(--color-primary-hover);
+  color: #fff;
+}
+
+/* 升级 Pro：柔和金底（无边框），与菜单项同版式，仅以金色强调 */
 .profile-menu-action-upgrade {
-  border-color: #d9c98a;
-  background: linear-gradient(180deg, #fff7e0, #ffeec2);
+  background: color-mix(in srgb, #eab308 16%, var(--surface));
   color: #8a6d1f;
   font-weight: 600;
 }
 
 .profile-menu-action-upgrade:hover,
 .profile-menu-action-upgrade:focus-visible {
-  border-color: #c9b46a;
+  background: color-mix(in srgb, #eab308 26%, var(--surface));
   color: #7a5d15;
 }
 
-.profile-menu-action-icon {
-  margin-right: 6px;
-}
+[data-theme="dark"] .profile-menu-action-upgrade { color: #f0c96a; }
+[data-theme="dark"] .profile-menu-action-upgrade:hover,
+[data-theme="dark"] .profile-menu-action-upgrade:focus-visible { color: #f7d888; }
 
 .profile-menu-sep {
-  margin-top: 10px;
+  margin: 8px 0 4px;
   border-top: 1px solid var(--hairline);
 }
 
-.profile-menu-note,
+/* 错误提示：收进带左侧色条的 alert 容器，语义清晰不悬空 */
 .profile-menu-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
   margin: 10px 0 0;
-}
-
-.profile-menu-error {
+  padding: 8px 10px;
+  border-left: 3px solid var(--error);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--error) 10%, var(--surface));
   color: var(--error);
   font-size: var(--font-size-xs);
+  line-height: 1.5;
+}
+
+.profile-menu-error-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  margin-top: 1px;
 }
 
 @media (max-width: 900px) {

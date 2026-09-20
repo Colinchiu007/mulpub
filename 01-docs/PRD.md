@@ -8380,3 +8380,49 @@ is_default: 1
 | 布局契约 | 6a 已交付：主进程 `view-bounds` 的 TOP 参数化 + 渲染层 `.mp-shell-nav-placeholder`（40px）与 `.nav-bar` 一致，保证 TabBar(36px) + 占位(40px) = 76px 契约不破；6b 的占位行后续可替换为真实互斥布局 |
 | 回归保护 | 新增 `apps/desktop/src/shell-mode-6b.test.js` 共 7 用例，覆盖静态链路完整性（handler 注册 / preload 暴露 / bundle 重打包 / App.vue 上报 / view-bounds TOP 参数化）+ WebviewManager 行为（workbench 隐藏三视图、browser 恢复、幂等、非法值忽略）；IPC 桥门禁 396 handlers / 387 preload 0 缺口 PASS |
 | 已知踩坑 | 方法名守卫必须匹配实际调用：初版用 `hideCurrentView` / `hideView` 但实际调 `hide()`，互斥会静默失效——TDD 抓出后已修；未来新增类似「显隐互斥」能力必须走方法名静态断言 |
+
+
+---
+
+## 2026-09-20 · ProfileMenu 弹出层精致化合同（扁平菜单项 + 状态胶囊 + 图标对齐 + 展开动效）
+
+> 对应分支 `codex/profile-menu-popup-polish`（侧边栏底部账号 banner 展开的弹出菜单精致化）。纯 renderer 样式/模板改动，未触及 `electron/` 主进程与 IPC。
+
+**背景**：账号弹出层（`ProfileMenu.vue` 的 `.profile-menu-panel`）此前把每个菜单项（重试登录 / 设置 / 会员 / 切换账号 / 退出 / 升级 Pro）都渲染成**带 1px 边框的独立盒子**，视觉上像一叠表单输入框而非一份菜单；且仅「升级 Pro」有 ⭐ emoji 图标、其余项无图标导致左缘不齐；状态行「需要重试」等为裸文字、与标题层级几乎同权重；错误提示为悬空裸红字；面板瞬间弹出无过渡。本次按「极简扁平」方向精致化。
+
+### 一、显示项与结构（面板自上而下）
+
+| 区块 | 显示项 | 数据来源 / 条件 |
+|------|--------|----------------|
+| 头部 | 标题 `strong`（已登录=用户名 `displayName`，未登录=产品名 `Multi-Publish`）+ 状态胶囊 | 标题 `hasSessionIdentity ? displayName : 'Multi-Publish'`；状态文案 `statusLabel`（已连接/刷新中/登录中/退出中/已过期/未登录/身份服务未启用/异常） |
+| 状态胶囊 | `.profile-menu-status`：6px 圆点（`currentColor`）+ 文案，圆点色随 `identityStatus`（online/busy/error/offline/disabled） | `identityStatus` 由 `status` 归一：authenticated/refreshing/offline_authenticated→online；signing_*→busy；disabled→disabled；signed_out/expired→offline；其余→error |
+| 已登录操作 | 会员中心（User 图标）/ 切换账号（Refresh 图标）/ 退出登录（SwitchButton 图标） | `hasSessionIdentity` 为真；切换/退出 `loading` 时禁用并显示进行中文案 |
+| 未登录操作 | 说明段 `.profile-menu-note`（`statusNote`）+ 主按钮「重试登录」（Key 图标，实心） | `hasSessionIdentity` 为假且 `status !== 'disabled'` 时显示主按钮 |
+| 分隔线 | `.profile-menu-sep`（hairline） | 恒定 |
+| 通用操作 | 设置（Setting 图标）恒定；升级 Pro（Medal 图标）仅 `!licenseStore.isPro` 显示 | — |
+| 错误 | `.profile-menu-error`（左侧色条 alert，CircleCloseFilled 图标 + `errorMessage`） | `errorMessage` 非空（主错误码 + 可选清理提示码拼接，映射见「配置档案错误展示合同」同源 `identity-error-messages`） |
+
+### 二、视觉与交互逻辑合同
+
+| 合同 | 要求 |
+|------|------|
+| 菜单项扁平化（去盒子感） | `.profile-menu-action` **无边框**（`border: none`）+ 透明底（`background: transparent`），flex 行（图标 + 文字 `gap: 10px`），`padding: 9px 10px`，圆角 `--radius-sm`；仅 `:hover`/`:focus-visible` 时显浅底 `color-mix(in srgb, var(--primary) 8%, transparent)` 且文字转主色。禁止回退为逐项描边盒子 |
+| 主操作实心锚点 | 「重试登录」`.profile-menu-action-primary` 用**实心品牌色填充**（`background: var(--primary)`，文字 `#fff`，居中），hover 转 `--color-primary-hover`；一个实心主按钮锚定视觉焦点，其余项保持扁平 |
+| 升级 Pro 柔化 | `.profile-menu-action-upgrade` 去边框，改柔和金底 `color-mix(in srgb, #eab308 16%, var(--surface))` + 金字（light `#8a6d1f` / dark `#f0c96a`），hover 金底加深；与菜单项同版式仅以金色区分，不再用渐变 + 边框 |
+| 图标统一 | 全部账号操作项走 `@element-plus/icons-vue` SVG 组件（User/Refresh/SwitchButton/Key/Setting/Medal），`.profile-menu-action-icon` 固定 `16×16`、`flex: 0 0 auto`、`color: currentColor`（随项文字/hover 变色），左缘对齐；**禁止 emoji**（⭐ 已移除） |
+| 状态胶囊 | `.profile-menu-status` 为 pill（`--radius-pill`），半透明底 `color-mix(...14~18%...)` + 同色系文字 + `currentColor` 圆点；online 绿 / busy 琥珀 / error 红 / offline·disabled 灰；dark 下 online/busy 文字提亮保对比 |
+| 错误容器 | `.profile-menu-error` 收进 alert 块：`border-left: 3px solid var(--error)` + 浅红底 `color-mix(in srgb, var(--error) 10%, var(--surface))` + 图标，不再悬空裸红字 |
+| 展开动效 | `.profile-menu-panel` 打开时 `animation: profile-menu-pop .16s cubic-bezier(0.4,0,0.2,1)`（淡入 + `translateY(6px) scale(.98)`→原位，`transform-origin: bottom center`）；keyframes 名 `profile-menu-pop` **带组件前缀**，规避骨架屏保留名 `shimmer`/`skeleton-shimmer`；`@media (prefers-reduced-motion: reduce)` 下 `animation: none` |
+| 布局契约不变 | 面板仍**向上展开**（`bottom: calc(100% + 8px)` + `left: 0` + `right: 0`，禁止 `top:` 定位）且**与 banner 等宽**（不溢出侧边栏），故本次**不改面板宽度**（不加 `min-width`），精致化仅在垂直方向与项内排版 |
+
+### 三、数据校验与提示文字
+
+- 所有文案经 `t()` 取 locales（zh/en 成对），本次**未新增 locale 键**（复用 `memberCenter.*`、`nav.settings`）；无渲染端裸中文字符串字面量（产品名 `Multi-Publish` 除外）。
+- 颜色/字号一律走 token（`--primary`/`--error`/`--surface`/`--ink`/`--text-muted`/`--hairline`/`--radius-*`/`--font-size-*`），字号门禁零新增字面量；金色/状态色为品牌语义补充色，`color-mix` 基座随主题自适应，颜色字面量门禁在基线内。
+- 错误映射复用既有 `resolveIdentityErrorMessageKey` / `resolveIdentityStatusNoteKey`，与「配置档案错误展示合同」同源，不重复造轮子。
+
+### 四、回归保护
+
+- `ProfileMenu.test.js` 新增「精致化契约」源码级断言：菜单项 `border: none` + `background: transparent`、主操作 `background: var(--primary)`、升级项无 `border-color`、含 `profile-menu-action-icon` 且无 ⭐、含 `profile-menu-status(-dot)`、错误块 `border-left: 3px solid`、面板 `animation: profile-menu-pop` + `@keyframes profile-menu-pop` + `prefers-reduced-motion`；并断言设置项渲染出 `svg` 图标。
+- 既有 18 项行为/文案/布局契约（含「面板向上展开不回归 top 定位」）全保留；合计 20 项通过。关联侧边栏/骨架屏/下拉行为/token 契约组合 63 项通过。
+- 门禁：`build:vue` 通过；ESLint 0 error；font-size / color-literals / vue-style-parse / frontend-consistency / locale-sync(pair) 全 PASS。无 profile 弹出层像素基线（弹层非独立视图），故无基线需重采。
