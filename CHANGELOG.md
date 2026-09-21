@@ -1,3 +1,18 @@
+# [未发布] fix(desktop): 登录点击即时反馈强化——头像转圈 + 「正在打开登录...」文案
+
+### 变更
+- **ProfileMenu.vue**：登录空窗期（点击头像到认证窗口可见，约 2 秒）反馈强化。新增派生态 revealingLogin = busy || status==signing_in；为真时头像同位替换为 CSS 旋转 spinner（mp-profile-spinner），文案区切换为既有条案 memberCenter.signingIn（正在打开登录...），叠加原有 :disabled / :aria-busy / .mp-profile-busy，构成「转圈+文案+禁用+wait 光标」四重即时反馈；prefers-reduced-motion 下降速保留。
+- 复用既有 locales 键，无新增文案（zh/en 不变，规避 locale-sync 门禁）；不改动认证窗口兜底显示与 discovery 超时逻辑。
+
+### 验证
+- ProfileMenu.test.js 21 → 23：新增「未登录点击立即出现 spinner + 文案切换、完成后消失」与「signing_in 持续反馈」两条；ESLint 改动文件 0 违规。
+
+### 关联
+- 分支 login-click-feedback；文档：01-docs/PRD.md「Logto 身份登录窗口延迟修复合同」§七（2026-09-21）。
+
+
+---
+
 # [未发布] fix(desktop): Logto 登录窗口延迟修复——认证窗口兜底显示 + discovery fetch 超时 + 点击即时 busy 反馈
 
 ### 变更
