@@ -49,6 +49,32 @@ describe('createLogtoClient', () => {
     await client.clearSignInWindowSession()
     expect(authWindow.clearSession).toHaveBeenCalledTimes(1)
     expect(client.waitForSignInWindowClosed()).toBeInstanceOf(Promise)
+    // authWindow 未提供 openLoading 时，openSignInWindow 安全降级为 undefined
+    expect(await client.openSignInWindow()).toBeUndefined()
+  })
+
+  it('暴露 openSignInWindow 优先调用 authWindow.openLoading', async () => {
+    const openLoading = vi.fn(async () => {})
+    const authWindow = {
+      open: vi.fn(async () => {}),
+      openLoading,
+      close: vi.fn(async () => {}),
+      clearSession: vi.fn(async () => {}),
+      waitForClosed: vi.fn(() => new Promise(() => {})),
+    }
+    class FakeClient { constructor(config, adapter) { this.adapter = adapter } }
+    const { createLogtoClient } = require('./logto-client')
+    const client = await createLogtoClient({
+      endpoint: 'https://id.example.com', appId: 'native-app', resource: 'https://api.multi-publish.com',
+      authWindow,
+      storage: { getItem: async () => null, setItem: async () => {}, removeItem: async () => {} },
+      loadModule: async () => ({ default: FakeClient, createRequester: (fn) => fn }),
+      shell: { openExternal: vi.fn() },
+    })
+    expect(typeof client.openSignInWindow).toBe('function')
+    await client.openSignInWindow()
+    expect(openLoading).toHaveBeenCalledTimes(1)
+    expect(authWindow.open).not.toHaveBeenCalled()
   })
 
   it('缺少 endpoint/appId/resource 时拒绝启动', async () => {

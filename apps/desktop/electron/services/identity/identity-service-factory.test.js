@@ -189,4 +189,65 @@ describe('createIdentityService', () => {
       createTokenStorage: vi.fn(() => ({})),
     })).rejects.toMatchObject({ code: 'ENTITLEMENT_CONFIG_INVALID' })
   })
+
+  it('signed_out 时后台非阻塞预热 discovery，使用注入 fetcher', async () => {
+    const { createIdentityService } = require('./identity-service-factory')
+    const fetcher = vi.fn(async () => ({ ok: true }))
+    const authService = {
+      restore: vi.fn(async () => ({ status: 'signed_out' })),
+      getState: () => ({ status: 'signed_out' }),
+    }
+    await createIdentityService({
+      env: enabledEnv(),
+      store: { getSetting: () => 'device-1234567890', setSetting: vi.fn() },
+      createClient: vi.fn(async () => ({})),
+      createTokenStorage: vi.fn(() => ({})),
+      createEntitlementStorage: vi.fn(() => ({})),
+      createAuthService: vi.fn(() => authService),
+      prewarmFetcher: fetcher,
+    })
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    expect(fetcher.mock.calls[0][0]).toBe('https://id.example.com/.well-known/openid-configuration')
+  })
+
+  it('预热 fetch 抛错不影响身份服务创建（异常被吞）', async () => {
+    const { createIdentityService } = require('./identity-service-factory')
+    const fetcher = vi.fn(async () => { throw new Error('offline') })
+    const authService = {
+      restore: vi.fn(async () => ({ status: 'signed_out' })),
+      getState: () => ({ status: 'signed_out' }),
+    }
+    await expect(createIdentityService({
+      env: enabledEnv(),
+      store: { getSetting: () => 'device-1234567890', setSetting: vi.fn() },
+      createClient: vi.fn(async () => ({})),
+      createTokenStorage: vi.fn(() => ({})),
+      createEntitlementStorage: vi.fn(() => ({})),
+      createAuthService: vi.fn(() => authService),
+      prewarmFetcher: fetcher,
+    })).resolves.toBe(authService)
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  })
+
+  it('已登录时不预热 discovery', async () => {
+    const { createIdentityService } = require('./identity-service-factory')
+    const fetcher = vi.fn(async () => ({ ok: true }))
+    const authService = {
+      restore: vi.fn(async () => ({ status: 'authenticated' })),
+      getState: () => ({ status: 'authenticated' }),
+    }
+    await createIdentityService({
+      env: enabledEnv(),
+      store: { getSetting: () => 'device-1234567890', setSetting: vi.fn() },
+      createClient: vi.fn(async () => ({})),
+      createTokenStorage: vi.fn(() => ({})),
+      createEntitlementStorage: vi.fn(() => ({})),
+      createAuthService: vi.fn(() => authService),
+      prewarmFetcher: fetcher,
+    })
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(fetcher).not.toHaveBeenCalled()
+  })
 })

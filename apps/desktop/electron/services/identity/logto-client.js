@@ -125,6 +125,12 @@ async function createLogtoClient(options = {}) {
         enumerable: false,
         value: () => typeof authWindow.clearSession === 'function' ? authWindow.clearSession() : undefined,
       },
+      // L2 秒开：点击瞬间先弹本地加载窗（优先 openLoading）；缺失时安全降级为 undefined，不阻断登录。
+      openSignInWindow: {
+        configurable: false,
+        enumerable: false,
+        value: () => typeof authWindow.openLoading === 'function' ? authWindow.openLoading() : undefined,
+      },
     })
   }
   return client
