@@ -62,6 +62,8 @@ export default {
       allRunning: '服务运行中',
       partialRunning: (ctx) => ctx.named('count') + ' 项服务运行中',
       degradedSummary: (ctx) => ctx.named('stopped') + ' 项服务不可用（' + ctx.named('running') + '/' + ctx.named('total') + ' 运行中）',
+      degradedMain: (ctx) => ctx.named('stopped') + ' 项服务不可用',
+      degradedSub: (ctx) => ctx.named('running') + '/' + ctx.named('total') + ' 运行中',
       unavailable: '服务状态不可用',
       retry: '重试连接',
       retrying: '重试中…',
