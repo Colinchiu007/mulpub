@@ -4717,6 +4717,25 @@ CI 门禁（Gate 7 扩展，`--py-cjk`）：扫描 `packages/python-backend/src`
 > 数据、标题特征和关键词多样性计算爆款潜力分，确保功能在离线/无 orchestrator
 > 环境下仍可使用。本地 fallback 返回数据带 `mode: 'local-fallback'` 标记。
 
+### 爆款分析页功能合同（2026-09-21 修复 + 精致化）
+
+> 完整规格：`01-docs/PRD-VIRAL-ANALYSIS-PAGE-2026-09-21.md`（本文件为 PRD 摘要，随代码入库）。
+
+**背景**：用户反馈爆款分析「功能不起作用」+「页面不够精致」。CDP e2e 实测确认根因为鉴权门禁架空本地兜底 + 渲染层吞错 + 生成结果嵌套 + 本地兜底契约与渲染层不一致。
+
+| 合同 | 要求 |
+|------|------|
+| 鉴权开放 | `viral:analyze/generate/trending` 属 `PUBLIC_CHANNELS`，未登录可用（与 hot-topics 同为本地内容工具）；否则本地兜底被 `AUTH_REQUIRED(-3)` 门禁架空。`license-access-control.test.js` 断言三通道属 PUBLIC。 |
+| 本地兜底契约 | `_localGenerate` 返回 `{ success, mode:'local-fallback', task, platform, data:{ titles:[{title,structure}] \| hooks:[{hook,technique}] }, summary }`，与 `viral-copy-product-concept.md` 的 `{ task, data:{...} }` 设计契约一致；不得返回顶层字符串数组。 |
+| 错误可见 | 分析/生成失败各渲染错误横幅（`viral-analyze-error`/`viral-generate-error`），文案走 `formatUserError`（`-3`→locale 友好提示），禁止静默吞错。 |
+| 独立渲染 | 生成结果 `genResult` 不嵌套在 `v-if="result"` 内；只点「生成文案」不点「爆款分析」也能展示；`EmptyState` 仅在 `!result && !genResult` 时出现。 |
+| 数据校验/容错 | `titleText` 兼容 string 与 `{title}` 双契约；`factorPct`（>1 视为百分制裁剪 [0,100]，≤1 视为比例 ×100，非法→0）；`fmtScore`（非有限→'-'）；区块以「数据存在且非空」为渲染前置，不显示 NaN/undefined。 |
+| 显示项 | 爆款潜力分（大号数字 + `/100` 单位 + tabular-nums + 趋势标签）；本地分析徽章（Cpu 图标，`mode==='local-fallback'`）；推荐写作角度；存入爆款库；因子分解（DataLine）；平台评分（Connection）；推荐标题结构（Trophy）；上升关键词（Key）；生成结果 · 任务名（MagicStick）+ 标题列表/去改写。 |
+| 提示文字（locale 成对） | `viralAnalysis.{analyzeFailed,generateFailed,localModeBadge,localModeHint,taskTitles,taskHooks,taskRewrite,taskStructures,sectionPlatformScores,sectionSuggestedStructures,sectionGenerateResult}`，zh/en 成对，`check-locale-sync --cjk/--keys` 通过。 |
+| 精致化 | 生成按钮主色描边（原 danger 红底）、关键词标签主色、卡片 hover 阴影；区块标题 emoji 迁移为 el-icon（符合 T1-5 图标守卫）。 |
+
+**验收**：未登录输入主题点分析出潜力分+因子、点生成出标题列表（CDP 实测 `code:0`）；关联 5 个测试文件共 104 用例通过。
+
 ### 9.4 关键词监控
 
 ```
@@ -16880,3 +16899,38 @@ is_default: 1
 ### 六、已知局限
 
 - 兜底 3s 与 discovery 15s 为经验值，极慢网络下窗口可能短暂白屏；已预留 `showFallbackTimeout` / `fetchTimeoutMs` / `timerFns` 注入点，便于后续遥测调参。
+
+### 七、登录点击即时反馈强化（2026-09-21 跟进，login-click-feedback）
+
+> 背景：上一节 §四 的 `.mp-profile-busy`（`opacity:.72 + cursor:wait`）反馈过弱，用户新启动应用点击左下角头像后，在 OIDC discovery + 远端授权页加载的约 2 秒空窗期内仍感知不到「点了有反应」，误判为「弹出慢」。本节仅强化**渲染端即时反馈**，不改变认证窗口/网络超时逻辑，也不消除 2 秒网络延迟本身（该延迟来自 discovery + 远程授权页首帧，不可完全去除）。
+
+**交互逻辑（更新）**：
+
+| 场景 | 行为 |
+|---|---|
+| 未登录点击头像（`signed_out`/`expired` 且非 loading） | 同步置 `busy=true` → 触发器立即进入登录反馈态（下方显示项），随后 `await signInOrSwitch()`；`finally` 复位 |
+| 主进程进入 `signing_in` | 反馈态由 `status === 'signing_in'` 持续维持（覆盖面板内「重试登录 / 切换账号」进行中的场景），直至窗口可见/成功/失败 |
+| 认证窗口可见并成功建会话 | `status` 变为 `authenticated`，反馈态消失，头像恢复初始字母 |
+
+**功能逻辑（单一派生态）**：新增 `revealingLogin = computed(() => busy.value || status.value === 'signing_in')`。`busy` 负责点击当帧的即时性（IPC 往返前即为真），`signing_in` 负责跨 IPC/主进程状态回传的持续性，二者并集避免反馈空档。
+
+**显示项与提示文字**：
+
+- 头像位：`revealingLogin` 为真时，`.mp-avatar` 同位替换为 `.mp-avatar-spinner`（`data-testid="mp-profile-spinner"`，30×30 圆环，`border-top-color:#5149e8`，`mp-profile-spin` 0.8s 线性无限旋转）；为假时恢复显示 `avatarInitial` 或 `⚡`。
+- 文案区：`revealingLogin` 为真时 `<strong>` 文本与 `title` 均切换为 `t('memberCenter.signingIn')`（zh：`正在打开登录...`）；为假时恢复 `displayName`。
+- 触发器原有 `:aria-busy="loading || busy"`、`:disabled="busy"`、`.mp-profile-busy` 保留，构成「转圈 + 文案 + 禁用 + wait 光标」四重即时反馈。
+- 无障碍/动效：spinner 位于 `aria-hidden` 容器内，文案 `strong` 承载可读状态；`prefers-reduced-motion: reduce` 下 `mp-profile-spin` 降速至 2.4s（不完全停止，保留进行指示）。
+
+**数据校验与约束**：
+
+- 复用既有键 `memberCenter.signingIn`，**无新增 locales 键**（zh/en 均不变，规避 locale-sync 门禁 Gate 7）。
+- `revealingLogin` 仅在 `busy`（本地瞬时）或 `signing_in`（主进程回传）两态为真，不误伤 `disabled`/`error`/`authenticated` 等状态。
+
+**回归保护测试（`ProfileMenu.test.js`，21 → 23）**：
+
+| 用例 | 断言 |
+|---|---|
+| 未登录点击头像进入空窗期 | 触发前无 spinner 且文案非 `memberCenter.signingIn`；点击后 `mp-profile-spinner` 存在、触发器文本含 `memberCenter.signingIn`；`signInOrSwitch` resolve 后 spinner 消失 |
+| `signing_in` 持续反馈 | `status='signing_in'` 时 spinner 存在且文案为 `memberCenter.signingIn` |
+
+**已知局限**：反馈态覆盖的是「点击 → 认证窗口可见」的等待感知，2 秒网络延迟本身仍在；如需进一步压缩真实延迟，可在应用启动后预热 OIDC discovery（本次按最小改动范围未纳入）。

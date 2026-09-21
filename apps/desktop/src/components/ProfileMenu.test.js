@@ -324,4 +324,38 @@ describe('ProfileMenu', () => {
     expect(triggerEl.attributes('aria-busy')).not.toBe('true')
     expect(triggerEl.attributes('disabled')).toBeUndefined()
   })
+
+  // ── 2026-09-21 登录点击即时反馈强化：空窗期头像转圈 + 文案「正在打开登录...」 ──
+
+  it('未登录点击头像进入登录空窗期：立即显示头像 spinner 与「正在打开登录...」文案，完成后恢复', async () => {
+    await mountMenu()
+    store.status = 'signed_out'
+    store.user = null
+    let resolveSignIn
+    store.signInOrSwitch.mockImplementation(() => new Promise((res) => { resolveSignIn = res }))
+    await wrapper.vm.$nextTick()
+    const triggerEl = wrapper.get('[data-testid="mp-profile"]')
+    // 未触发前不应有 spinner，且文案不是「正在打开登录...」
+    expect(wrapper.find('[data-testid="mp-profile-spinner"]').exists()).toBe(false)
+    expect(triggerEl.text()).not.toContain('memberCenter.signingIn')
+    await triggerEl.trigger('click')
+    await wrapper.vm.$nextTick()
+    // 空窗期：头像位置出现 spinner，文案切换为「正在打开登录...」
+    expect(wrapper.find('[data-testid="mp-profile-spinner"]').exists()).toBe(true)
+    expect(triggerEl.text()).toContain('memberCenter.signingIn')
+    resolveSignIn(true)
+    await Promise.resolve()
+    await wrapper.vm.$nextTick()
+    // 完成后（此处 mock 未改写 status）spinner 消失、文案恢复
+    expect(wrapper.find('[data-testid="mp-profile-spinner"]').exists()).toBe(false)
+  })
+
+  it('signing_in 状态（含面板内登录进行中）触发器持续显示 spinner', async () => {
+    await mountMenu()
+    store.status = 'signing_in'
+    store.user = null
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('[data-testid="mp-profile-spinner"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="mp-profile"]').text()).toContain('memberCenter.signingIn')
+  })
 })
