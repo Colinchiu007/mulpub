@@ -257,7 +257,7 @@ function registerFilmVideoStages (pipelineEngine) {
       fs.mkdirSync(runDir, { recursive: true })
 
       /** @type {Array<{index: number, shotId: string, success: boolean, path?: string, error?: string}>} */
-      let results = []
+      let results
       try {
         const manager = providerCfg.manager
         const governor = pipelineEngine.governor
