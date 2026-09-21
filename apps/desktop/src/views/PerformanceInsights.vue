@@ -324,7 +324,7 @@ onMounted(loadData)
   border-radius: var(--radius-md);
   margin-bottom: var(--space-lg);
 }
-.pi-empty-icon { font-size: 40px; color: var(--color-text-muted); opacity: .5; }
+.pi-empty-icon { font-size: var(--font-size-xxl); color: var(--color-text-muted); opacity: .5; }
 .pi-empty-title { margin: 0; font-size: var(--font-size-base); font-weight: 600; color: var(--color-text-primary); }
 .pi-empty-hint { margin: 0; font-size: var(--font-size-sm); color: var(--color-text-muted); max-width: 420px; line-height: 1.6; }
 
@@ -396,7 +396,7 @@ onMounted(loadData)
 .pi-table th.col-metric { text-align: right; }
 .col-score { width: 120px; }
 .score-head { display: inline-flex; align-items: center; gap: 3px; cursor: default; }
-.score-info { font-size: 12px; color: var(--color-text-muted); }
+.score-info { font-size: var(--font-size-xs); color: var(--color-text-muted); }
 
 .pi-rank {
   display: inline-grid;
@@ -417,7 +417,7 @@ onMounted(loadData)
   border-radius: var(--radius-xs);
   background: var(--color-bg-inset);
   color: var(--color-text-secondary);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 
 .pi-samples { color: var(--color-text-primary); }
@@ -432,7 +432,7 @@ onMounted(loadData)
   font-weight: 600;
   cursor: help;
 }
-.pi-low-badge .el-icon { font-size: 12px; }
+.pi-low-badge .el-icon { font-size: var(--font-size-xs); }
 
 .pi-score-cell { display: flex; align-items: center; gap: var(--space-sm); }
 .pi-score-bar { flex: 1; min-width: 40px; }
