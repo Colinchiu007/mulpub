@@ -181,6 +181,17 @@ jobs:
           node .github/scripts/check-scoped-root.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # --- Gate 15c: 未定义 CSS 变量引用扫描（PR #2075 白卡隐形事故反馈） ---
+      # var(--x) 无 fallback 且 --x 从未定义 → 整条声明失效（渲染隐形类缺陷，单测与截图均拦不住）；
+      # 源码层全前端扫描，存量锁基线递袬只降不升。
+      # 本地同口径：node .github/scripts/check-css-var-defined.js
+      - name: "Gate 15c - Undefined CSS var reference guard"
+        run: |
+          node --test .github/scripts/check-css-var-defined.test.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .github/scripts/check-css-var-defined.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       # --- Gate 16: 字号七档（T1-6）---
       # font-size 字面量只降不升（基线模式），应使用 var(--font-size-*) 七档槽
       # 本地同口径：node .github/scripts/check-font-size-scale.js
