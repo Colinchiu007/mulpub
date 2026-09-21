@@ -1,3 +1,13 @@
+## 鉴权白名单会架空「本地兜底/离线可用」设计——门禁与能力必须做一致性契约测试（2026-09-21，viral-analysis-polish）
+
+- **根因模式（pitfall）**：`license-access-control.js` 的 `PUBLIC_CHANNELS` 白名单在 IPC 入口拦截，未列入的通道未登录即返回 `AUTH_REQUIRED(-3)`。`ViralEngine` 明明实现了 orchestrator 不可用时的本地启发式兜底（`_localAnalyze/_localGenerate/_localTrending`，设计意图＝离线可用），但门禁在到达引擎前就拒绝，兜底代码永远走不到——「功能不起作用」。凡是「有本地兜底/离线降级」的 IPC 通道，必须同时确认其在鉴权白名单内，否则降级形同虚设。
+- **渲染层吞错反模式（pitfall）**：`ViralAnalysis.vue` 拿到 `code:-3` 后既不 toast 也不展示，用户只看到「点了没反应」；且生成结果 `genResult` 被嵌在 `v-if="result"`（分析结果）块内，只点生成不点分析时生成区根本不挂载。错误必须可见（`formatUserError` 友好横幅），并列的结果区不得互相嵌套门控。
+- **契约漂移（pitfall）**：`_localGenerate` 返回顶层字符串数组，渲染层读 `data.titles[{title,structure}]`，两者不一致导致永远空白。本地兜底与真实 orchestrator 的返回结构必须以同一设计契约（`viral-copy-product-concept.md` 的 `{ task, data:{...} }`）为准，渲染层再加双契约兼容（`titleText` 同时吃 string/object）兜底。
+- **测试逃逸链（pattern）**：单元层未覆盖「未登录 + orchestrator 不可用」组合；集成层未断言 viral 通道属 PUBLIC；旧渲染测试甚至把「吞错不提示」当作预期行为固化。修 bug 时须反转此类错误断言，并新增门禁一致性回归（`license-access-control.test.js` 断言 `viral:*` 属 PUBLIC_CHANNELS）。
+- **CI Gate7 联动（pattern）**：UI 精致化把区块标题 emoji（🌐/🏆）换成 el-icon 后，模板文本节点内容随之变化，`check-locale-sync --cjk`（按 `file||content` 存基线）判为「新增硬编码」。正解是把用户可见文案迁入 locale（zh/en 成对），而非 `--update-baseline` 掩盖。
+
+---
+
 ## CI-only 测试超时：全局 testTimeout 与插桩/满载放大叠加的坑（fix-main-ci-red，2026-09-21）
 
 - **背景**：main 两个 CI 红灯均为「本地绿、CI 红」的超时类失败：① `pixel-diff-baseline-guard.test.js`「现存全部真实基线均通过守卫」在 QG Coverage job（v8 插桩）下超全局 10s testTimeout（本地无插桩实测 ~2.2s，21 个基线 PNG 共 3.3MB 逐个解码）；② `logger.test.js`「appendFile 回调永不触发时写队列超时兜底」在 Desktop shard 满载下 1s 固定重试窗不够。

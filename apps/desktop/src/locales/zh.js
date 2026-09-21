@@ -2928,6 +2928,20 @@ knowledgeBase: {
     // 空状态（2026-09-18）：原为硬编码中文，被 CI check-locale-sync --cjk 拦截
     emptyTitle: '输入主题开始分析',
     emptyDescription: 'AI 将从标题结构、情感触发、互动热度等维度分析爆款潜力',
+    // 错误可见化（2026-09-21）：分析/生成失败不再静默吞错，横幅展示友好文案（formatUserError fallback）
+    analyzeFailed: '分析失败，请稍后重试，或检查网络与服务状态',
+    generateFailed: '文案生成失败，请稍后重试',
+    // 精致化（2026-09-21）：本地兜底模式徽章 + 生成任务名本地化
+    localModeBadge: '本地分析',
+    localModeHint: 'orchestrator 服务不可用，结果来自本地启发式引擎',
+    taskTitles: '标题生成',
+    taskHooks: '开场钩子',
+    taskRewrite: '内容改写',
+    taskStructures: '结构建议',
+    // 精致化（2026-09-21）：区块标题去 emoji 后迁入 locale（原基线含 🌐/ 前缀）
+    sectionPlatformScores: '平台评分',
+    sectionSuggestedStructures: '推荐标题结构',
+    sectionGenerateResult: '生成结果',
   },
 
   // ── 发布去向弹窗 ──

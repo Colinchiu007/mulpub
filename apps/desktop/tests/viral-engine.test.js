@@ -118,23 +118,33 @@ describe('ViralEngine', () => {
   })
 
   describe('_localGenerate', () => {
-    it('titles 任务返回标题数组', () => {
+    it('titles 任务返回 data.titles 对象数组契约（与渲染层/orchestrator 同构，2026-09-21 修复）', () => {
       const result = engine._localGenerate({ topic: 'AI工具', task: 'titles', count: 5 })
       expect(result.success).toBe(true)
       expect(result.mode).toBe('local-fallback')
       expect(result.task).toBe('titles')
-      expect(Array.isArray(result.titles)).toBe(true)
-      expect(result.titles.length).toBe(5)
+      // 回归：旧契约把 titles 放在顶层且为字符串数组，渲染层读 genResult.data.titles 永远为空
+      expect(Array.isArray(result.data?.titles)).toBe(true)
+      expect(result.data.titles.length).toBe(5)
+      for (const t of result.data.titles) {
+        expect(typeof t.title).toBe('string')
+        expect(t.title.length).toBeGreaterThan(0)
+        expect(typeof t.structure).toBe('string')
+      }
       // 标题应包含关键词
-      expect(result.titles.some(t => t.includes('AI') || t.includes('工具'))).toBe(true)
+      expect(result.data.titles.some(t => t.title.includes('AI') || t.title.includes('工具'))).toBe(true)
     })
 
-    it('hooks 任务返回 hook 数组', () => {
+    it('hooks 任务返回 data.hooks 对象数组契约 {hook, technique}', () => {
       const result = engine._localGenerate({ topic: 'AI工具', task: 'hooks', count: 3 })
       expect(result.success).toBe(true)
       expect(result.task).toBe('hooks')
-      expect(Array.isArray(result.hooks)).toBe(true)
-      expect(result.hooks.length).toBe(3)
+      expect(Array.isArray(result.data?.hooks)).toBe(true)
+      expect(result.data.hooks.length).toBe(3)
+      for (const h of result.data.hooks) {
+        expect(typeof h.hook).toBe('string')
+        expect(h.hook.length).toBeGreaterThan(0)
+      }
     })
 
     it('未知任务返回 fallback 消息', () => {
@@ -145,7 +155,7 @@ describe('ViralEngine', () => {
 
     it('空 topic 使用默认关键词', () => {
       const result = engine._localGenerate({ topic: '', task: 'titles', count: 3 })
-      expect(result.titles.length).toBe(3)
+      expect(result.data.titles.length).toBe(3)
     })
   })
 
