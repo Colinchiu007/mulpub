@@ -11,6 +11,25 @@
 
 ---
 
+# [未发布] feat(viral-analysis): 爆款分析页彻底利用 ViralEngine 本地能力（PR-1，全量测试 + QM-1 打包）
+
+### 变更
+- **viral-engine.js（本地兜底增强，零新增 IPC）**：`_localAnalyze` 新增三字段（`platform_scores`/`suggested_structures`/`rising_keywords`）；`_localGenerate` 重写 titles/hooks 分支——按平台挑选模板池（`_pickTemplatePool`，专属优先 + 通用兜底）、关键词槽位轮换（`_slotWords`/`_cleanSlotWord`）、Levenshtein≥5 去重、本地打分（`_scoreTitleLocal`，fail-open）稳定降序；`_localTrending` 输出 `keywords:[{word,count}]` top10。新增 12 条标题模板 + 6 条 Hook 模板 + 结构映射 + 平台系数常量。
+- **viral-engine.local.test.js（新增）**：UT-1~UT-7 共 19 例覆盖模板池挑选、槽位清洗、去重、打分边界、trending 词频、fail-open、稳定排序。
+- **ViralAnalysis.vue**：F1 生成 task 分段控件（标题/Hook，切换清空旧结果 AC1.2）；F3 热门选题速选 `<details>` 区块（trending 失败/空整块隐藏，渐进增强）；F9 生成区模式徽标；Q2 本地模式平台分/推荐结构「本地估算」标注。
+- **locales zh.js / en.js（成对）**：新增 `viralAnalysis.taskSegmentHint`/`sectionTrending`/`trendingHint`/`localGenBadge`/`localGenHint`/`localEstimateBadge` 六键。
+
+### 验证
+- TDD 红→绿：引擎单测 41（19 新 local + 6 scoreText + 16 既有契约全绿）；组件 `ViralAnalysis.test.js` 40（补 viralTrending/listViralItems mock + 12 新用例）；5 文件合跑 73 passed。
+- CI 门禁：`check-locale-sync --keys` PASS、`--cjk` PASS（1392 < 基线 1581，无新增硬编码中文）；eslint 无错；`verify-worktree-deps.js` OK（rewrite-engine 解析到当前 worktree）。
+- QM-1 打包：`pnpm run build:dir` 成功，asar 清单含 viral-engine.js，Electron 启动 9s 存活、stderr 无致命错误。
+
+### 关联
+- 分支 `codex/viral-page-full-util`（worktree 隔离，D 盘）· PR auto-merge 待 CI
+- 文档：`01-docs/PRD-VIRAL-PAGE-FULL-UTILIZATION-2026-09-21.md`
+
+---
+
 # [未发布] fix(desktop): 知识库空态「新增知识」按钮与主入口文案口径一致（PR #2132 追加）
 
 ### 变更
