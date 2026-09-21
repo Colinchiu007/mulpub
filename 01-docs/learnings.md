@@ -14998,6 +14998,26 @@ opencode 双模型审查发现三个问题：① 后端 `create_constraint` 对�
 
 **冲突处理记录**：squash 合并后再从同分支发增量 PR，会与 main 产生 add/add 冲突（`KnowledgeBaseHotsyncUi.test.js`）与 CHANGELOG 头部冲突；先 `git diff origin/main HEAD -- <file>` 确认本分支是 main 的严格超集，再 `git checkout --ours` 取本分支版本，CHANGELOG 只删标记行保留双方条目。
 
+## EverOS 双实例合并与「写入成功」假象复盘（everos-windows-single-instance，2026-09-21）
+
+### 现象与根因
+
+同一台机器上 EverOS 存在 WSL（1.2.3，`/api/v2`，经 `wslrelay.exe` 占 `:8000`）与 Windows（1.0.2，`/api/v1`）两套实例，Windows 侧永远抢不到 8000，导致「EverOS 只能充值/写不进去」的误判。真正阻塞点有两层：(1) **配置文件名与段名写错**——1.0.2 只读 `~/.everos/config.toml`，历史文件叫 `everos.toml` 从未被加载，且端口必须写在 `[api]` 段（`[server]` 无效），于是启动报 `LLMNotConfiguredError`，看似密钥坏其实是配置根本没读到；(2) **写入契约缺一半**——`POST /api/v1/memory/add` 只把消息放进 `session_id` 会话缓冲并返回 `status=accumulated`，必须再调 `POST /api/v1/memory/flush` 才触发边界检测并抽取为 memcell/episode/atomic_fact。MCP 包装脚本每次用全新 `session_id=mcp-{ts}` 且从不 flush，内容永久停在缓冲，检索必然零命中。
+
+### 可复用结论
+
+- **状态字段 `accumulated` ≠ 已落盘（pitfall）**：任何「写入类」操作的验收判据必须是**最终产物**（本例为 `~/.everos/<app>/<project>/users/<sender>/episodes/<date>.md` 出现新 entry + 检索命中哨兵词），而不是接口返回的成功字样。工具回显「✅ 记忆已写入」时我据此向用户宣告成功，属于虚报——真实情况是 `entry_count` 未变、全量 grep 零命中。**边界：凡是异步/两阶段（缓冲→抽取）落盘的写入通道一律适用**，一步式写入不受此限。
+- **能力开关必须功能实测，不能只看 health（pattern）**：1.0.2 的 `/health` 只返回 `{"status":"ok"}`，无 `capabilities`/`disabled_features`（那是 1.2.3 才加的字段）。判定 vector/hybrid 是否真的生效，用「同一 query 下 keyword 与 hybrid 的排序与条数是否变化」来证伪：实测 keyword=3 条、vector=1 条、hybrid=6 条且首位不同 → 向量通道确实参与融合。
+- **向量维度是存储层硬约束，不是配置项（pitfall）**：LanceDB 五张表 `vector: Vector(_DIM)` 且 `_DIM=1024` 写死在源码，`EmbeddingSettings` 根本没有 `dim` 字段，provider 只做 `embedding[: self.dim]` **截断不补齐**。因此 768 维模型既写不进 `fixed_size_list<float>[1024]`，靠零填充强行接入也会因跨模型余弦不可比让存量 7600+ 条真向量**静默失真**（不报错、只变笨）。**换 embedding 模型的前置条件是改表结构 + 全量重建索引**，属重大决策不得顺手做。
+- **哨兵词验证要防「抽取层改写」造成的假阴性（tool）**：EverOS 的抽取会把中文原文改写成英文转述并可能丢弃我埋的标签词（`EVEROS-ENV-FACTS-7` 在 episode/atomic_fact 里 MISSING，实际内容已落盘）。复核必须同时用**内容级独特子串**（文件路径、端点名、数值如 `fixed_size_list`、`no_extraction`）而不只用自造标签。
+- **WSL 卸载的两个隐藏残留（operational）**：(1) venv 里 `__pycache__` 可能是 root 所有，普通用户 `rm -rf` 失败——用 `wsl -d <distro> -u root` 而非碰 sudo 密码；(2) 除 venv 外还可能有 **python3.x user-site** 的第二份安装（`~/.local/bin/everos`），PEP 668 下须 `python3 -m pip uninstall -y --break-system-packages <pkg>`，裸 `pip3` 在非登录 shell 不在 PATH。卸完要逐项验（pip list / site-packages / bin / PATH / 端口监听）才算完成。
+- **PowerShell 写要被 tomllib 解析的文件必须无 BOM（tool）**：PS 5.1 `Set-Content -Encoding UTF8` 会写 BOM 直接让 `tomllib` 报错；用 `[System.IO.File]::WriteAllText($p,$t,(New-Object System.Text.UTF8Encoding($false)))`。同理 MCP 脚本 stdin 必须 `reconfigure(encoding="utf-8")`，Windows 默认 ANSI 码页会把中文记忆静默乱码。
+- **pylance 与服务并发读会 Rust panic（pitfall）**：直读 `.lance` 做列投影时若服务正在写，会抛 "offset + length of the sliced Buffer cannot exceed"。取证要换路径（md 层 + `everos cascade status` 的 LSN/lag），不要在活库上硬啃。
+
+### 本次决策记录
+
+用户原本要求「把本地 ollama 的 `nomic-embed-text` 接给 Windows 侧 EverOS 的 embedding」，与「打开 vector/hybrid」在技术上互斥（见上文维度约束）。以三方案交回用户定夺后选定：**云端 siliconflow `BAAI/bge-m3`（实测 1024 维，与列 schema 一致）保持不变，只打开混合检索**；`nomic-embed-text` 保持闲置。WSL 侧按用户选择「连数据目录一起删」，删前归档 `D:\Data\everos-wsl-archive\everos-wsl-snapshot-20260921T153219.tgz`（23461B / 177 条目，Windows `tar.exe -tzf` 校验）。
+
 ## CI required check 与 workflow paths-ignore 的死锁（2026-09-21，PR #2151）
 
 - **缺陷类型**：配置漂移死锁。GitHub ruleset（仓库外配置）把某个 job 显示名设为 required check，而对应 workflow 在 `pull_request` 上用 `paths-ignore` 排除了部分路径；这些路径的 PR 永不产生该 required check，`mergeStateStatus` 永久 BLOCKED，`gh pr merge --admin` 也被 `current_user_can_bypass=never` 挡下。
