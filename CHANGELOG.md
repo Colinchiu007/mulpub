@@ -15,6 +15,20 @@
 
 ---
 
+# [未发布] fix(ops-center): 菜单设置页与左侧真实菜单不一致（admin 少 5 个 adminOnly 项）
+
+### 变更
+- **stores/menu.js**：新增 `visibleForRole(role)` 作为菜单可见性**单一事实源**（`!adminOnly || role==='admin'`）。此前侧边栏与菜单设置页各自维护过滤规则，属规则漂移系统性漏洞。
+- **SettingsView.vue**：删除硬编码 `!item.adminOnly` 过滤，改为 `menuStore.visibleForRole(authStore.role)`。修复 admin 登录时设置页 31 项 vs 侧边栏 36 项——用户反馈/模型密钥/改写硬约束/选项控制/应用菜单 5 项无法排序的问题；非 admin 视角两端口径同步保持一致（31==31）。
+- **App.vue**：侧边栏 `visibleMenuItems` 改调 `visibleForRole`，行为不变，消除双实现。
+- **文档**：`ops-center/docs/PRD.md` 新增 12A.25「运营端菜单设置」完整规格（数据模型/校验/功能与交互逻辑/显示项/提示文字/权限/事故记录/验收标准）。
+
+### 验证
+- TDD：新增 `src/stores/menu-visibility.test.js` 4 条回归用例（先红后绿）；全量 vitest 17/17 通过；`npm run build` 通过。
+- 分支 `opscenter-menu-sync-fix`（worktree 隔离）· PR 待 CI 通过后合并。
+
+---
+
 # [未发布] fix(desktop): 爆款分析页功能不可用修复 + UI 精致化
 
 ### 变更

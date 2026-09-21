@@ -40,15 +40,21 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { Rank } from '@element-plus/icons-vue'
+import { useAuthStore } from '../../stores/auth'
 import { useMenuStore } from '../../stores/menu'
 
 const activeTab = ref('menu-order')
 const menuStore = useMenuStore()
+const authStore = useAuthStore()
 
-const visibleItems = computed(() => menuStore.orderedItems.filter((item) => !item.adminOnly))
+// 与左侧真实侧边栏完全同口径（单一事实源 menuStore.visibleForRole）：
+// admin 可操作全部菜单项（含 adminOnly），非 admin 只见公共项。
+// 2026-09-21 修复：此前此处硬编码 `!adminOnly`，导致 admin 设置页比侧边栏少 5 项。
+const visibleItems = computed(() => menuStore.visibleForRole(authStore.role))
 
-// 拖拽用 path 而非下标定位：visibleItems 过滤掉了 adminOnly 项，
-// 其下标与 store 的完整 order 下标不一致，按下标重排会移动错项。
+// 拖拽用 path 而非下标定位：visibleItems 是按角色过滤后的可见列表，
+// 其下标与 store 的完整 order 下标可能不一致（非 admin 视角 adminOnly 项造成漂移），
+// 按下标重排会移动错项。
 const dragPath = ref('')
 const dragOverPath = ref('')
 
