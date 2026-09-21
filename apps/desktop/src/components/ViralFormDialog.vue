@@ -2,7 +2,10 @@
   <div class="dialog-overlay" @click.self="emit('close')">
     <div class="dialog-card">
       <div class="dialog-header">
-        <span class="dialog-title">{{ isEdit ? t('knowledgeBase.edit') : t('knowledgeBase.addViral') }}</span>
+        <div class="dialog-header-left">
+          <span class="dialog-title">{{ isEdit ? t('knowledgeBase.edit') : t('knowledgeBase.addViralManual') }}</span>
+          <button v-if="!isEdit" class="dialog-collect-link" data-testid="viral-form-collect-link" @click="emit('collect')">{{ t('knowledgeBase.collectByLink') }}</button>
+        </div>
         <button class="dialog-close" @click="emit('close')">✕</button>
       </div>
 
@@ -74,7 +77,7 @@ const props = defineProps({
   item: { type: Object, default: null },
 })
 
-const emit = defineEmits(['close', 'saved'])
+const emit = defineEmits(['close', 'saved', 'collect'])
 const { t } = useI18n()
 
 const isEdit = computed(() => Boolean(props.item && props.item.id))
@@ -181,7 +184,20 @@ function isValidUrl (value) {
   align-items: center;
   margin-bottom: 12px;
 }
+.dialog-header-left { display: flex; align-items: center; gap: 12px; }
 .dialog-title { font-size: var(--font-size-base); font-weight: 600; }
+.dialog-collect-link {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--coral, #f56c6c);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  padding: 0;
+}
+.dialog-collect-link:hover { opacity: 0.8; }
 .dialog-close {
   border: none;
   background: none;

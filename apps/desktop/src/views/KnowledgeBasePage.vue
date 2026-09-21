@@ -16,7 +16,7 @@
     <div class="cohere-content">
       <div class="kb-tabs" style="display:flex;gap:4px;margin-bottom:16px;background:var(--soft-stone,#f5f5f5);border-radius:8px;padding:3px">
         <button class="kb-tab-btn" :class="{ active: activeTab === 'viral' }" @click="activeTab = 'viral'">{{ t('knowledgeBase.tabViral') }}</button>
-        <button v-if="activeTab === 'viral' || activeTab === 'pattern'" class="kb-tab-btn" :class="{ active: activeTab === 'pattern' }" @click="activeTab = 'pattern'">{{ t('knowledgeBase.tabPattern') }}</button>
+        <button class="kb-tab-btn" :class="{ active: activeTab === 'pattern' }" @click="activeTab = 'pattern'">{{ t('knowledgeBase.tabPattern') }}</button>
         <button class="kb-tab-btn" :class="{ active: activeTab === 'personal' }" @click="activeTab = 'personal'">{{ t('knowledgeBase.tabPersonal') }}</button>
       </div>
 
@@ -24,7 +24,7 @@
       <PatternAnalysisPanel v-if="activeTab === 'pattern'" ref="patternRef" />
       <PersonalKnowledgePanel v-if="activeTab === 'personal'" ref="personalRef" @create="showPersonalForm = true" />
 
-      <ViralFormDialog v-if="showViralForm" :item="editingViral" @close="showViralForm = false; editingViral = null" @saved="onViralSaved" />
+      <ViralFormDialog v-if="showViralForm" :item="editingViral" @close="showViralForm = false; editingViral = null" @saved="onViralSaved" @collect="onCollectByLink" />
       <PersonalFormDialog v-if="showPersonalForm" :item="editingPersonal" @close="showPersonalForm = false; editingPersonal = null" @saved="onPersonalSaved" />
 
       <input ref="fileInput" type="file" multiple accept=".txt,.md,.doc,.docx" style="display:none" @change="onFilesSelected" />
@@ -35,6 +35,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { formatUserError } from '@/utils/user-facing-error'
 import { importFiles, exportViralToFeishu, exportPersonalToFeishu } from '@/api/knowledge-library'
@@ -46,6 +47,7 @@ import ViralFormDialog from '@/components/ViralFormDialog.vue'
 import PersonalFormDialog from '@/components/PersonalFormDialog.vue'
 
 const { t } = useI18n()
+const router = useRouter()
 const activeTab = ref('viral')
 const showViralForm = ref(false)
 const showPersonalForm = ref(false)
@@ -60,6 +62,13 @@ const subtitleText = computed(() => {
 })
 const personalRef = ref(null)
 const fileInput = ref(null)
+
+/** 「用链接采集」入口：关闭手动录入弹窗，跳转采集页走链接采集流程 */
+function onCollectByLink() {
+  showViralForm.value = false
+  editingViral.value = null
+  router.push('/collection')
+}
 
 function onViralSaved() {
   showViralForm.value = false
