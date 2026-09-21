@@ -7,8 +7,61 @@
 
 ---
 
+## 0. ⚠️ 2026-09-21 环境变更（必读，与下文 WSL 章节冲突时以本节为准）
+
+**EverOS 已从「WSL + Windows 双实例端口竞争」合并为 Windows 单实例。** 本手册 §2–§8 中的 WSL 命令（`/api/v2`、端口 8002、`~/everos-venv`）为历史记录，仍然适用Cognee；EverOS 部分请按本节执行。
+
+| 项 | 现行事实（2026-09-21 实测） |
+|---|---|
+| 安装位置 | `C:\Python312\Scripts\everos.exe`，版本 **1.0.2**（WSL 的 1.2.3 已卸载） |
+| 监听 | `127.0.0.1:8000`，owner 为原生 `python.exe`（不再是 `wslrelay.exe`） |
+| API 前缀 | **`/api/v1/memory/{add,flush,search}`**（不是 v2） |
+| 启动 | `everos server start --host 127.0.0.1 --port 8000` |
+| 日志 | `C:\Users\<user>\.everos\server-8000.out.log` / `.err.log` |
+| 配置文件 | **`~/.everos/config.toml`**（旧文件名 `everos.toml` **从未被加载**）；可经 `EVEROS_CONFIG_FILE` 覆盖 |
+| 端口配置段 | **`[api]`**（写成 `[server]` 不生效） |
+| 配置优先级 | `init_args` > `EVEROS_*` 环境变量 > `./.env` > `~/.everos/config.toml` > 包内 `default.toml` |
+| 向量能力 | `vector_search` / `hybrid_search` **已打开**（1.0.2 无需升级，`/search` 默认即 `hybrid`） |
+| embedding | 云端 siliconflow `BAAI/bge-m3`（实测 1024 维），本地 `nomic-embed-text` **保持闲置** |
+| WSL 数据归档 | `D:\Data\everos-wsl-archive\everos-wsl-snapshot-20260921T153219.tgz`（23461B / 177 条目） |
+
+### 0.1 写入必须 add + flush 两步（最易踩的坑）
+
+`POST /api/v1/memory/add` 只把消息放进 `session_id` 会话缓冲，返回 `status: accumulated | extracted`；**`accumulated` 不等于已落盘可检索**。必须再调：
+
+```bash
+curl -X POST http://localhost:8000/api/v1/memory/flush \
+  -H 'Content-Type: application/json' \
+  -d '{"session_id": "mcp-20260921", "app_id": "multi-publish", "project_id": "default"}'
+# -> {"data": {"status": "extracted"}}  才算真正抽取为 memcell/episode/atomic_fact
+# -> "no_extraction"  表示缓冲为空或未被抽取，不得当作成功
+```
+
+成功判据只看 `flush == "extracted"`；最终产物可在 `~/.everos/<app_id>/<project>/users/<sender>/{episodes,.atomic_facts}/<date>.md` 逐项 grep 复核。
+
+### 0.2 1024 维硬约束（为何不能接本地 768 维模型）
+
+LanceDB 五张表（`agent_case` / `agent_skill` / `atomic_fact` / `episode` / `foresight`）的 `vector` 列均为 `fixed_size_list<float>[1024]`，`_DIM = 1024` 在源码**硬编码**，`EmbeddingSettings` 无 `dim` 字段，provider 只做 `embedding[:dim]` **截断不补齐**。因此 768 维模型（如 ollama `nomic-embed-text`）既写不进列，零填充也会因跨模型向量空间余弦不可比而让存量 7600+ 条真实向量静默失真。换 embedding 模型的前提是改表结构并全量重建索引。
+
+### 0.3 Windows 文本编码陷阱
+
+写 `config.toml` 等被 `tomllib` 解析的文件时，PowerShell 5.1 的 `Set-Content -Encoding UTF8` **会写 BOM 导致解析失败**，必须用：
+
+```powershell
+[System.IO.File]::WriteAllText($path, $text, (New-Object System.Text.UTF8Encoding($false)))
+```
+
+MCP 包装脚本（`~/.everos/everos-mcp-server.py`）的 stdin 需 `sys.stdin.reconfigure(encoding="utf-8")`，否则 Windows 默认按 ANSI 码页解码，中文记忆静默乱码。
+
+### 0.4 1.0.2 与 1.2.3 的能观测差异
+
+1.0.2 的 `/health` 只返回 `{"status":"ok"}`，**没有** `capabilities` / `disabled_features` 字段；能力开关必须靠功能实测判断（同一 query 下 `keyword` 与 `hybrid` 的排序/条数是否变化）。
+
+---
+
 ## 目录
 
+0. [⚠️ 2026-09-21 环境变更（必读）](#0-️-2026-09-21-环境变更必读与下文-wsl-章节冲突时以本节为准)
 1. [架构概览](#1-架构概览)
 2. [前置：配置 API Key（仅需一次）](#2-前置配置-api-key仅需一次)
 3. [EverOS 使用指南](#3-everos-使用指南)
