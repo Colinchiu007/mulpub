@@ -231,6 +231,7 @@ apps/desktop/tests/e2e-output/
 
 # Shared user data dir (WSL/Windows 共享运行时数据，锚点文件用于自动检测)
 shared-user-data/
+shared-user-data.backups/
 .ccg/tasks/*
 
 # 嵌入式 Agent 子项目：各自为独立 git 仓库（含自有 .git），非本应用源码，不纳入版本控制
