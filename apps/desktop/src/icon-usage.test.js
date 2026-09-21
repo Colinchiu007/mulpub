@@ -40,9 +40,13 @@ describe('T1-5 图标使用守卫：功能图标位禁用 emoji', () => {
     })
   }
 
-  it('状态类 emoji 允许存在（不是为了清空所有 emoji）', () => {
-    // 守卫只针对功能图标位；状态类 ✅/❌ 在 Dashboard 中仍在用
+  it('Dashboard 状态位已迁移到 el-icon（2026-09-21 dashboard-layout-fix）', () => {
+    // 守卫意图是允许状态 emoji，而非强制保留；状态位已换为 CircleCheckFilled/CircleCloseFilled。
+    // 旧断言 toContain("✅") 把历史实现细节当不变量锁死，随迁移演化为状态位不再允许 emoji。
     const dash = readFileSync(join(srcDir, 'views/Dashboard.vue'), 'utf8')
-    expect(dash).toContain('✅')
+    expect(dash).toContain('CircleCheckFilled')
+    expect(dash).toContain('CircleCloseFilled')
+    expect(dash).not.toContain('✅')
+    expect(dash).not.toContain('❌')
   })
 })
