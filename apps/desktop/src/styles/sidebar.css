@@ -146,6 +146,12 @@
   cursor: pointer;
 }
 
+/* 「更多」触发器选中态：.mp-more-trigger 声明在后会把 .mp-primary-item.active
+   的背景覆盖掉，这里显式补回（子路由命中或菜单展开时常驻高亮） */
+.mp-more-trigger.active {
+  background: var(--color-sidebar-active-bg);
+}
+
 .mp-more-trigger > svg:last-child {
   width: 13px;
   height: 13px;
@@ -187,6 +193,14 @@
 .mp-more-item:focus-visible {
   background: var(--color-sidebar-hover-bg-strong);
   color: var(--color-sidebar-accent);
+}
+
+/* 选中态（2026-09-21）：当前路由命中的「更多」子项持续高亮，
+   与一级导航 .mp-primary-item.active 同源 token，保持视觉一致性 */
+.mp-more-item.active {
+  background: var(--color-sidebar-active-bg);
+  color: var(--color-sidebar-accent);
+  font-weight: 600;
 }
 
 .mp-sidebar-footer {

@@ -1,3 +1,21 @@
+﻿# [未发布] fix(desktop): 侧边栏「更多」菜单选中态修复 + 效果洞察页 UI/UE 精致化
+
+### 变更
+- **MpSidebar.vue**：more 组子项此前为裸 `router-link` 无选中态。新增 `:class="{ active: isActive(item) }"` + `aria-current="page"` + `data-testid`；「更多」触发器改 `moreOpen || hasActiveMoreItem` 常驻高亮；新增 `watch(() => route.path)` 命中 more 组时自动展开（覆盖硬刷新深链，onMounted 早于异步路由解析的缺口）。
+- **sidebar.css**：新增 `.mp-more-trigger.active` 与 `.mp-more-item.active` 视觉规则（此前仅 `.mp-primary-item.active`）。
+- **PerformanceInsights.vue**：精致化改版——平台筛选下拉（选项从数据派生、复用 `PLATFORM_NAMES`）、数据概览条（总样本/模式数/最近计算）、页面级 + 维度级两级空态、可重试错误横幅、排行表（名次徽标/最优模式 chip/低样本警告徽标/得分进度条）；`rowsFor` 前端二次显式降序保证「最优模式=首行」；`recomputing` 守卫防重复重算；修复 `dimValueLabel` 枚举翻译守卫 bug（原硬编码比较使 hook_type 恒不翻译）。
+- **locales zh/en**：`perfInsights.*` 成对新增 13 key（allPlatforms/platformFilterAria/scoreFormula/bestPrefix/samplesSummary/updatedAt/overviewSamples/overviewPatterns/overviewUpdated/dimEmptyTitle/loadFailed/lowSampleTip）。
+
+### 验证
+- TDD 红→绿：新增 `MpSidebar.more-active.test.js`（5）+ `PerformanceInsights.test.js`（7）共 12 例全绿；既有 `sidebar-menu*.test.js` 无回归；`check-locale-sync --keys/--cjk` 通过。
+- 真实应用（Vite 渲染端 + 浏览器 DOM 取证）：收起态触发器含 `active`；展开后子项含 `active` 且 `aria-current="page"`；深链重载 `aria-expanded="true"`。
+
+### 关联
+- 分支 `sidebar-insight-polish`（worktree 隔离，D 盘）· PR auto-merge 待 CI
+- 文档：`01-docs/PRD-SIDEBAR-INSIGHT-POLISH-2026-09-21.md`；`01-docs/PRD-ACTIVATE-VIRAL-LIBRARY-2026-09-13.md` §十二
+
+---
+
 # [未发布] fix(desktop): Logto 登录窗口延迟修复——认证窗口兜底显示 + discovery fetch 超时 + 点击即时 busy 反馈
 
 ### 变更
