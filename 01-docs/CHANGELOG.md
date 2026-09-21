@@ -1,3 +1,17 @@
+# [未发布] fix(desktop): 登录点击即时反馈强化——头像转圈 + 「正在打开登录...」文案
+
+### 变更
+- **ProfileMenu.vue**：新增 revealingLogin（busy || signing_in）；登录空窗期头像同位切换为 CSS spinner，文案切换为 memberCenter.signingIn（正在打开登录...），叠加原有禁用/aria-busy/wait 光标，形成四重即时反馈；prefers-reduced-motion 降速。无新增 locales。
+
+### 验证
+- ProfileMenu.test.js 21 → 23 全绿；ESLint 0 违规。
+
+### 关联
+- 分支 login-click-feedback；PRD「登录窗口延迟修复合同」§七（2026-09-21）。
+
+
+---
+
 ## [Unreleased] - 2026-09-20 (故事讲述流水线详情页精致化：布局合同 + 表单控件统一 + 令牌双轨收敛)
 
 ### 修复（P0 视觉根因）

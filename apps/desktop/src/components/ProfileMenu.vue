@@ -16,11 +16,12 @@
       @keydown.down.prevent="openAndFocusFirst"
     >
       <span class="mp-avatar-wrap" aria-hidden="true">
-        <span class="mp-avatar">{{ hasSessionIdentity ? avatarInitial : '⚡' }}</span>
+        <span v-if="revealingLogin" class="mp-avatar-spinner" data-testid="mp-profile-spinner"></span>
+        <span v-else class="mp-avatar">{{ hasSessionIdentity ? avatarInitial : '⚡' }}</span>
         <i class="mp-avatar-dot" :class="`is-${identityStatus}`" data-testid="mp-profile-status"></i>
       </span>
       <span class="mp-profile-copy">
-        <strong :title="displayName">{{ displayName }}</strong>
+        <strong :title="revealingLogin ? t('memberCenter.signingIn') : displayName">{{ revealingLogin ? t('memberCenter.signingIn') : displayName }}</strong>
         <small class="profile-license-badge" :class="`profile-license-${licenseStore.licenseType}`">{{ licenseLabel }}</small>
       </span>
       <ArrowUp class="mp-profile-caret" :class="{ rotated: open }" aria-hidden="true" />
@@ -151,6 +152,9 @@ const pendingAction = ref(null)
 const busy = ref(false)
 const isSigningOut = computed(() => status.value === 'signing_out')
 const hasSessionIdentity = computed(() => Boolean(user.value?.sub) && !['disabled', 'signed_out', 'expired'].includes(status.value))
+// 登录空窗期（从点击到认证窗口真正可见）在触发器上给出明确反馈：
+// 头像转圈 + 文案「正在打开登录...」，避免2 秒网络等待期被误认为「点了没反应」。
+const revealingLogin = computed(() => busy.value || status.value === 'signing_in')
 
 const avatarInitial = computed(() => Array.from(displayName.value || 'M')[0].toUpperCase())
 const licenseLabel = computed(() => {
@@ -352,6 +356,20 @@ function handleUpgrade() {
 .mp-avatar-dot.is-busy,
 .mp-avatar-dot.is-error { background: #e6a23c; }
 
+/* 登录空窗期头像转圈：与头像同尺寸的同位替换，给点击以即时可见反馈 */
+.mp-avatar-spinner {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 2px solid rgba(99, 91, 195, .22);
+  border-top-color: #5149e8;
+  animation: mp-profile-spin .8s linear infinite;
+}
+
+@keyframes mp-profile-spin {
+  to { transform: rotate(360deg); }
+}
+
 .mp-profile-copy {
   min-width: 0;
   display: flex;
@@ -427,6 +445,10 @@ function handleUpgrade() {
 @media (prefers-reduced-motion: reduce) {
   .profile-menu-panel {
     animation: none;
+  }
+
+  .mp-avatar-spinner {
+    animation-duration: 2.4s;
   }
 }
 
