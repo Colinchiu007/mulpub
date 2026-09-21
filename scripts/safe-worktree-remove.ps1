@@ -35,6 +35,12 @@
     Main workspace path. Auto-derived via `git rev-parse --git-common-dir`, which resolves
     correctly even when the script is invoked from inside a linked worktree.
 
+.PARAMETER ProtectedDataRoot
+    Absolute path(s) that must NEVER be deleted or swallowed by the removal (persistence
+    anchors, e.g. shared-user-data holding login state / DB). Defaults to
+    '<MainWorkspace>\shared-user-data'. Removal is refused when the target equals, contains
+    or sits inside any protected root.
+
 .PARAMETER WhatIf
     Print the plan and every command that would run; change nothing.
 
@@ -47,6 +53,7 @@ param(
     [switch]$Force,
     [switch]$ConfirmDirtyDiscarded,
     [string]$MainWorkspace = "",
+    [string[]]$ProtectedDataRoot = @(),
     [switch]$WhatIf
 )
 
@@ -104,6 +111,25 @@ $wt = Norm ([System.IO.Path]::GetFullPath($Worktree))
 if ($wt -eq $main) { Write-Host "FATAL: target is the main workspace itself."; exit 1 }
 if (-not (Test-Path -LiteralPath $wt)) { Write-Host "SKIP: worktree does not exist: $wt"; exit 0 }
 
+# ---------------- R0 protected persistence anchors (never deletable) ----------------
+# shared-user-data is the gitignored persistence anchor (identity session, accounts,
+# multi-publish.db). It legitimately never lives inside a worktree; hitting this guard
+# means the target path was mis-specified. Refuse in every containment direction.
+if (-not $ProtectedDataRoot -or $ProtectedDataRoot.Count -eq 0) {
+    $ProtectedDataRoot = @(Join-Path $main 'shared-user-data')
+}
+$anchors = @($ProtectedDataRoot | ForEach-Object { Norm ([System.IO.Path]::GetFullPath($_)) } | Where-Object { $_ })
+foreach ($a in $anchors) {
+    if ($wt -eq $a -or (Test-PathInside $a $wt) -or (Test-PathInside $wt $a)) {
+        Write-Host ""
+        Write-Host "  BLOCKED (R0): target overlaps a PROTECTED persistence anchor."
+        Write-Host "    anchor : $a"
+        Write-Host "    target : $wt"
+        Write-Host "  The anchor holds login state / accounts / DB and must never be removed."
+        exit 6
+    }
+}
+
 # ---------------- R1 baseline ----------------
 Write-Section "R1 baseline snapshot (main workspace)"
 $baseline      = @(git -C $main status --porcelain 2>$null)
@@ -114,6 +140,10 @@ Write-Host "  main          : $main"
 Write-Host "  target        : $wt"
 Write-Host "  dirty entries : $($baseline.Count)"
 Write-Host "  stash entries : $baselineStash"
+# R1b: anchor presence snapshot - verified intact again in R7 (cascade-delete tripwire).
+$anchorBefore = @{}
+foreach ($a in $anchors) { $anchorBefore[$a] = (Test-Path -LiteralPath $a) }
+Write-Host ("  anchors seen  : " + (@($anchors | Where-Object { $anchorBefore[$_] }).Count) + "/" + $anchors.Count)
 
 # ---------------- R3 full-depth link scan ----------------
 Write-Section "R3 full-depth link scan"
@@ -272,6 +302,13 @@ if ($newEntries.Count -gt 0) {
 if ($afterStash -ne $baselineStash) {
     Write-Host "  FAIL: stash count changed $baselineStash -> $afterStash"
     $failed = $true
+}
+# R7b: every anchor that existed before must still exist (cascade delete would wipe it).
+foreach ($a in $anchors) {
+    if ($anchorBefore[$a] -and -not (Test-Path -LiteralPath $a)) {
+        Write-Host "  FAIL: protected anchor vanished: $a"
+        $failed = $true
+    }
 }
 if ($failed) {
     Write-Host "  Possible cascade delete. Run safe-restore-deleted.ps1 in the main workspace."
