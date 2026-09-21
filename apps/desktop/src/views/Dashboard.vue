@@ -20,7 +20,8 @@
       <div class="stats-grid">
         <!-- 大卡片：总发布 (占据 2 列) -->
         <div class="stat-card large">
-          <div class="stat-icon">📤</div>
+          <div class="stat-decor" aria-hidden="true"></div>
+          <div class="stat-icon"><el-icon><Promotion /></el-icon></div>
           <div class="stat-value">{{ totalArticles }}</div>
           <div class="stat-label">{{ t('dashboard.publishedContent') }}</div>
           <div class="stat-change positive">
@@ -53,7 +54,7 @@
 
         <!-- 小卡片：粉丝 -->
         <div class="stat-card">
-          <div class="stat-icon">👥</div>
+          <div class="stat-icon"><el-icon><UserFilled /></el-icon></div>
           <div class="stat-value">{{ totalFollowers > 10000 ? (totalFollowers / 10000).toFixed(1) + '万' : totalFollowers }}</div>
           <div class="stat-label">{{ t('dashboard.totalFollowers') }}</div>
           <div class="stat-change negative">
@@ -146,7 +147,7 @@
           <li v-for="r in recentPublishes" :key="r.id" class="cohere-timeline-item" :class="r.success !== false ? 'success' : 'danger'">
             <span class="tl-time">{{ formatTime(r.timestamp) }}</span>
             <span class="tl-text">
-              <span :style="{color: r.success !== false ? 'var(--color-success)' : 'var(--color-danger)'}">{{ r.success !== false ? '✅' : '❌' }}</span>
+              <el-icon :style="{color: r.success !== false ? 'var(--color-success)' : 'var(--color-danger)'}"><CircleCheckFilled v-if="r.success !== false" /><CircleCloseFilled v-else /></el-icon>
               {{ platformName(r.platform) }}: {{ r.title || r.article?.title || '(无标题)' }}
             </span>
           </li>
@@ -205,7 +206,7 @@ import { getApi } from '@/api/electron-bridge'
 // eslint-disable-next-line no-unused-vars
 import UiInput from "../components/UiInput.vue";
 import { ref, computed, onMounted, watch } from 'vue'
-import { ChatDotRound, DataLine, Timer, TrendCharts, View } from '@element-plus/icons-vue'
+import { ChatDotRound, CircleCheckFilled, CircleCloseFilled, DataLine, Promotion, Timer, TrendCharts, UserFilled, View } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 // eslint-disable-next-line no-unused-vars
@@ -367,8 +368,9 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
 /* === 统计卡片网格 - 不规则布局 === */
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  grid-template-rows: auto auto;
+  /* 桌面 5 列 == hero(span2) + 3 普通卡 = 5 网格单元，单行铺满无孤儿换行 */
+  grid-template-columns: repeat(5, 1fr);
+  grid-template-rows: auto;
   gap: var(--space-md);
   margin-bottom: var(--space-xl);
 }
@@ -419,6 +421,20 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
   transform: scale(1.02);
 }
 
+/* hero 卡右侧装饰光晕：2 列宽内容仅占左半，柔光圆斑填充右半空区 */
+.stat-decor {
+  position: absolute;
+  top: 50%;
+  right: -30px;
+  width: 160px;
+  height: 160px;
+  transform: translateY(-50%);
+  border-radius: var(--radius-full);
+  background: radial-gradient(circle at 32% 30%, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0) 70%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  pointer-events: none;
+}
+
 .stat-icon {
   width: 48px;
   height: 48px;
@@ -450,7 +466,7 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
 
 .stat-label {
   font-size: var(--font-size-base);
-  color: var(--text-secondary);
+  color: var(--color-text-secondary);
   font-weight: 500;
 }
 
@@ -501,7 +517,7 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
 
 .panel-subtitle {
   font-size: var(--font-size-xs);
-  color: var(--text-secondary);
+  color: var(--color-text-secondary);
   font-weight: 400;
   margin-left: var(--space-sm);
 }
@@ -542,7 +558,7 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
 
 .stat-label-mini {
   font-size: var(--font-size-xs);
-  color: var(--text-secondary);
+  color: var(--color-text-secondary);
 }
 
 /* === 趋势图表 === */
@@ -602,7 +618,7 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
 
 .dash-trend-date {
   font-size: var(--font-size-xs);
-  color: var(--text-secondary);
+  color: var(--color-text-secondary);
   text-align: center;
 }
 
@@ -710,6 +726,48 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
 .dash-bench-row { display: flex; gap: var(--space-sm); margin-bottom: var(--space-md); align-items: center; }
 .dash-bench-input { flex: 1; font-size: var(--font-size-base); }
 
+/* === 未登录门禁条（发布统计/最近发布登录后可见时的占位提示）=== */
+.dashboard-login-gate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  margin-bottom: var(--space-lg);
+  background: var(--cream-surface);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-lg);
+}
+
+.gate-hint {
+  font-size: var(--font-size-base);
+  color: var(--color-text-secondary);
+}
+
+.gate-sign-in {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  cursor: pointer;
+  padding: 8px 18px;
+  border-radius: var(--radius-pill);
+  background: var(--lavender-primary);
+  color: #fff;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  transition: all 0.3s cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+.gate-sign-in:hover {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+}
+
+.gate-sign-in:active {
+  transform: translateY(0);
+}
+
 /* 响应式 */
 @media (max-width: 1024px) {
   .stats-grid {
@@ -717,7 +775,7 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
   }
   
   .stat-card.large {
-    grid-column: span 2;
+    grid-column: span 1;
   }
 }
 
