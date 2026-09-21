@@ -356,3 +356,27 @@ KnowledgeBasePage 爆款库 Tab 内二级视图（PatternAnalysisPanel.vue）：
 1. 新增视图级测试文件补齐 `KnowledgeBasePage` / `ViralFormDialog` 的覆盖空白，标签集合以**数组等值断言**（而非长度 ≥N）锁定，任何标签增减必须显式改测试；
 2. §4.5 的「爆款库 Tab 内二级视图」表述由本增量修正为**一级标签**（三视图恒定可见），后续改标签结构须同步更新 §4.5 与 §12.3；
 3. 跨页跳转入口统一走 `emit + router.push` 模式（弹窗组件不持有路由依赖），保持可单测。
+
+---
+
+## 十三、2026-09-21 增量：侧边栏「更多」菜单选中态修复 + 效果洞察页 UI/UE 精致化
+
+本增量对 §5.6「效果洞察页」做了 UI/UE 精致化，并修复了侧边栏「更多」菜单缺选中态的问题。
+完整的数据校验、功能逻辑、交互逻辑、显示项与用户可见文案见：
+`01-docs/PRD-SIDEBAR-INSIGHT-POLISH-2026-09-21.md`。
+
+### 13.1 侧边栏「更多」选中态（Bug 修复）
+- more 组子项此前为裸 `router-link` 无选中态；现绑定 `active` class + `aria-current="page"` + `data-testid`。
+- 「更多」触发器高亮条件改为 `moreOpen || hasActiveMoreItem`，子项命中时触发器常驻高亮。
+- 新增 `watch(() => route.path)`：命中 more 组路由时自动展开，覆盖硬刷新深链（`onMounted` 早于异步路由解析的缺口）。
+
+### 13.2 效果洞察页精致化
+- 新增平台筛选下拉（选项从数据派生、复用 `PLATFORM_NAMES`）、数据概览条（总样本/模式数/最近计算）。
+- 两级空态（页面级 + 维度级）、可重试错误横幅、排行表（名次徽标 / 最优模式 chip / 低样本警告徽标 / 得分进度条）。
+- `rowsFor` 前端二次显式降序，保证「最优模式 = 首行」；`recomputing` 守卫防重复重算。
+- 修复 `dimValueLabel` 枚举翻译守卫 bug（原硬编码比较使 `hook_type` 恒不翻译）；前缀查表 + `te()` 探测。
+- 归因口径不变（`engagement_score = avg_likes + avg_comments + avg_favorites × 2`）。
+- 字号字面量全部 token 化为 `var(--font-size-*)`（Gate16 font-size 缩放门禁）。
+
+### 13.3 关联
+- 分支 `sidebar-insight-polish`（worktree 隔离，D 盘）· PR #2134 · 12 例单测（`MpSidebar.more-active.test.js` 5 + `PerformanceInsights.test.js` 7）

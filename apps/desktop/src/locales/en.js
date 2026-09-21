@@ -2825,6 +2825,19 @@ knowledgeBase: {
     colAvgShares: 'Avg Shares',
     lowSample: 'Low sample',
     tenThousand: 'w',
+    // ── UI polish additions (2026-09-21) ──
+    allPlatforms: 'All Platforms',
+    platformFilterAria: 'Filter attribution data by platform',
+    scoreFormula: 'Engagement score = avg likes + avg comments + avg favorites × 2 (first-version heuristic, favorites weighted higher)',
+    bestPrefix: 'Best pattern',
+    samplesSummary: '{n} samples',
+    updatedAt: 'Updated {time}',
+    overviewSamples: 'Total Samples',
+    overviewPatterns: 'Patterns',
+    overviewUpdated: 'Last Computed',
+    dimEmptyTitle: 'No attribution data for this dimension',
+    loadFailed: 'Failed to load attribution data',
+    lowSampleTip: 'Fewer than {min} samples — the score is indicative only; keep publishing and recrawling to build confidence',
   },
 
   // ── Rewrite page ──

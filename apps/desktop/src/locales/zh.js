@@ -2827,6 +2827,19 @@ knowledgeBase: {
     colAvgShares: '平均分享',
     lowSample: '样本不足',
     tenThousand: '万',
+    // ── UI 精致化新增（2026-09-21）──
+    allPlatforms: '全部平台',
+    platformFilterAria: '按平台筛选归因数据',
+    scoreFormula: '互动得分 = 平均点赞 + 平均评论 + 平均收藏 × 2（首版启发式，收藏权重更高）',
+    bestPrefix: '最优模式',
+    samplesSummary: '{n} 个样本',
+    updatedAt: '更新于 {time}',
+    overviewSamples: '总样本量',
+    overviewPatterns: '模式数',
+    overviewUpdated: '最近计算',
+    dimEmptyTitle: '该维度暂无归因数据',
+    loadFailed: '归因数据加载失败',
+    lowSampleTip: '样本不足 {min} 条，得分仅供趋势参考，建议继续发布回采后观察',
   },
 
   // ── 文案改写页面 ──
