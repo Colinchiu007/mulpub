@@ -84,7 +84,7 @@ Get-NetTCPConnection -LocalPort <cdpPort> -State Listen -ErrorAction SilentlyCon
 - **远程**：`origin = https://github.com/Colinchiu007/Multi-Publish.git`，主干 `main`。
 - **登录态校验**：`scripts/start-desktop-identity.js` 经 CDP 读 `window.electronAPI.identityGetState()`。
 - **端口**：worktree 下按路径稳定派生独立端口（`apps/desktop/scripts/dev-ports.js`），避免并发互抢。
-- **每日自动化**：`automation-1789788099000`（每天 04:00 跑 `sync-app.ps1 -Safe`，仅 fetch+自愈+依赖哈希门禁，不重写整棵树）。
+- **每日自动化**：`automation-1789788099000`（每天 04:00 跑 `sync-app.ps1 -Safe`，仅 fetch+自愈+依赖哈希门禁，不重写整棵树，并在 live-app 早退前先做锚点热备份 + 健康 lint）。
 
 ## 一键启动工作流（v1.6.0 起默认路径）
 
@@ -107,11 +107,11 @@ powershell -ExecutionPolicy Bypass -File D:/Data/projects/Multi-Publish/scripts/
 
 | 组件 | 职责 |
 |------|------|
-| `sync-app.ps1` | 解析仓库根（git common-dir 的父目录）→ worktree 健康检查 → 活体实例检测（本 worktree electron **或**共享同一 userData profile 的外部 Electron 主进程，分隔符双向匹配；`-Safe`/`-PrepareOnly` 遇活体即跳过同步）→ fetch origin/main →（默认/`-PrepareOnly`）`checkout -f origin/main` + `clean -fd`；（`-Safe`）只自愈不重写 → pnpm-lock.yaml SHA256 门禁装依赖 → `ensure-electron.js` → 启动 launcher |
+| `sync-app.ps1` | 解析仓库根（git common-dir 的父目录）→ worktree 健康检查 → 活体实例检测（本 worktree electron **或**共享同一 userData profile 的外部 Electron 主进程，分隔符双向匹配；`-Safe`/`-PrepareOnly` 遇活体即跳过同步）→ fetch origin/main →（默认/`-PrepareOnly`）`checkout -f origin/main` + `clean -fd`；（`-Safe`）先锚点热备份（shared-user-data.backups\<ts>，保留 7 套）+ mp-anchor-health.ps1 lint，再只自愈不重写 → pnpm-lock.yaml SHA256 门禁装依赖 → `ensure-electron.js` → 启动 launcher |
 | `mp-applive-launcher.ps1` | 自定位 node/python → dev-ports.js 派生端口 → 停同 worktree 旧 electron + **审计停止从其他目录启动但共享同一 userData 的 foreign 实例（v1.7.0，applive-foreign-audit.ps1）** → 设 env（`MP_VITE_PORT`/`MP_CDP_PORT`/`ELECTRON_USER_DATA_DIR=shared-user-data`/`MP_PYTHON`/`MP_CDP_ALLOW_ALL_ORIGINS=1`）→ WMI 拉起 `node scripts/dev.js` → 轮询 150s 可见窗口；失败时输出 `LOCK_HOLDER_CANDIDATES` 点名单实例锁持有者（防"旧窗口被误认为新应用"） |
 | `applive-foreign-audit.ps1` | 纯函数模块（PS5.1/7 兼容、可注入进程列表）：按 `--user-data-dir` 斜杠双向变体匹配 profile 持有者，按 worktree 归属分 Same/Foreign，仅 foreign **主进程**是审计停止对象；另提供 lock-holder 诊断行 |
 | `mp-app-live2` worktree | 持久运行目录（detached at origin/main），node_modules 保留不删 |
-| `shared-user-data/` | 登录态/DB 持久锚点（gitignored）：`multi-publish.db`（模型 key）、`backend-data/accounts.json`（平台登录态）、`identity-session.json`、`session/`、`credentials/` |
+| `shared-user-data/` | 登录态/DB 持久锚点（gitignored）：`multi-publish.db`（模型 key）、`backend-data/accounts.json`（平台登录态）、`identity-session.json`、`session/`、`credentials/`。防护：safe-worktree-remove.ps1 R0 禁删守卫（exit 6）+ 每日 `.backups` 快照 + `mp-anchor-health.ps1` lint |
 
 ### ⚠️ 沙箱纪律（agent 会话内必读）
 
