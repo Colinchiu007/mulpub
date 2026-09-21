@@ -227,7 +227,7 @@
 
 ### 5.2 应用端主进程（读取，结构净化）
 
-文件：`apps/desktop/electron/services/ops-center-sync.js` → `normalizeAppMenu()`
+文件：`apps/desktop/electron/services/app-menu-config.js` → `normalizeAppMenu()`（2026-09-16 债务熔断拆分：已从 ops-center-sync.js 迁出）
 
 | # | 校验项 | 规则 | 结果 |
 |---|--------|------|------|
@@ -237,6 +237,9 @@
 | N4 | 空 key / 非对象条目 | 丢弃该条 | 其余保留 |
 | N5 | `sort_order` | 非有限数 / 负数 → `null`（渲染端视为未配置）；> 9999 → 截断 | — |
 | N6 | `visible` | 同 V9 白名单 | — |
+| N7 | `group` 透传（2026-09-21 契约修复） | 仅白名单原文 `'primary'` / `'more'` 透传；其余（含大小写变体/缺失）归一化为 `null` | 渲染端按本地定义分组 fail-open |
+
+> ⚠️ 2026-09-21 修复：净化层此前只保留 `key/visible/sort_order`，静默丢弃 `group`，导致运营中心「一级导航 ↔ 更多」跨组配置在应用端永远不生效（后端下发与渲染端 C5 均已支持 group，属三端契约漂移）。回归测试：`app-menu-config.test.js`。
 
 ### 5.3 应用端渲染层（合并算法）
 
