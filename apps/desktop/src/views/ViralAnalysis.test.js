@@ -11,6 +11,13 @@ vi.mock("@/api/publisher", () => ({
 }));
 
 import ViralAnalysisView from "./ViralAnalysis.vue";
+import zhMessages from "@/locales/zh";
+
+// 按点路径解析 zh 文案；未命中回退 key（手动数据示例需真实 JSON，不能只拿 key）
+function tZh(key) {
+  const v = String(key).split(".").reduce((o, k) => (o && typeof o === "object" && o[k] !== undefined) ? o[k] : undefined, zhMessages);
+  return typeof v === "string" ? v : key;
+}
 
 describe("ViralAnalysisView", () => {
   beforeEach(() => {
@@ -24,7 +31,7 @@ describe("ViralAnalysisView", () => {
       global: {
         plugins: [createPinia()],
         // viral-rewrite-integration 新模板段使用 $t；未装 i18n 插件的旧用例以 mock 兜底避免渲染报错
-        mocks: { $t: (key) => key },
+        mocks: { $t: (key) => tZh(key) },
       },
     });
   }
@@ -235,6 +242,90 @@ describe("ViralAnalysisView", () => {
     expect(w.vm.loading).toBe(false);
     expect(w.vm.result).toBeNull();
     expect(w.vm.genResult).toBeNull();
+    expect(w.vm.articleDataError).toBe("");
+  });
+
+  // ── 手动文章数据 UX 优化（2026-09-21）：示例填入 + 格式错误可见化 ──
+
+  it("manual data section exposes a fill-sample button", async () => {
+    const w = createView();
+    await nextTick();
+    expect(w.find("[data-testid='viral-fill-sample']").exists()).toBe(true);
+  });
+
+  it("fillSampleData inserts realistic multi-article JSON sample", async () => {
+    const w = createView();
+    await nextTick();
+    w.vm.fillSampleData();
+    const parsed = JSON.parse(w.vm.articleData);
+    expect(Array.isArray(parsed)).toBe(true);
+    expect(parsed.length).toBeGreaterThanOrEqual(3);
+    for (const a of parsed) {
+      expect(typeof a.title).toBe("string");
+      expect(a.title.length).toBeGreaterThan(4);
+      expect(typeof a.like_count).toBe("number");
+      expect(typeof a.comment_count).toBe("number");
+    }
+    // 预设示例必须是模拟真实内容，不得残留占位测试文本
+    expect(w.vm.articleData).not.toMatch(/test topic|alpha|beta/i);
+  });
+
+  it("doAnalyze surfaces malformed article data instead of silently ignoring", async () => {
+    const { viralAnalyze } = await import("@/api/publisher");
+    const w = createView();
+    await nextTick();
+    w.vm.topic = "AI";
+    w.vm.articleData = "{bad json";
+    await w.vm.doAnalyze();
+    // 回归：旧行为静默吞掉格式错误，用户以为在用真实数据分析
+    expect(viralAnalyze).not.toHaveBeenCalled();
+    expect(w.vm.articleDataError).toBeTruthy();
+    expect(w.vm.loading).toBe(false);
+    await nextTick();
+    expect(w.find("[data-testid='viral-article-data-error']").exists()).toBe(true);
+  });
+
+  it("doAnalyze rejects non-array JSON and empty array", async () => {
+    const { viralAnalyze } = await import("@/api/publisher");
+    const w = createView();
+    await nextTick();
+    w.vm.topic = "AI";
+    w.vm.articleData = '{"title":"x"}';
+    await w.vm.doAnalyze();
+    expect(viralAnalyze).not.toHaveBeenCalled();
+    expect(w.vm.articleDataError).toBeTruthy();
+    w.vm.articleData = "[]";
+    await w.vm.doAnalyze();
+    expect(viralAnalyze).not.toHaveBeenCalled();
+    expect(w.vm.articleDataError).toBeTruthy();
+  });
+
+  it("article data error clears after fixing input", async () => {
+    const { viralAnalyze } = await import("@/api/publisher");
+    const w = createView();
+    await nextTick();
+    w.vm.topic = "AI";
+    w.vm.articleData = "{bad";
+    await w.vm.doAnalyze();
+    expect(w.vm.articleDataError).toBeTruthy();
+    w.vm.articleData = '[{"title":"AI","like_count":5,"comment_count":1}]';
+    await w.vm.doAnalyze();
+    expect(w.vm.articleDataError).toBe("");
+    expect(viralAnalyze).toHaveBeenCalled();
+  });
+
+  it("fillSampleData output passes validation and reaches analyze", async () => {
+    const { viralAnalyze } = await import("@/api/publisher");
+    const w = createView();
+    await nextTick();
+    w.vm.topic = "AI工具";
+    w.vm.fillSampleData();
+    await w.vm.doAnalyze();
+    expect(w.vm.articleDataError).toBe("");
+    expect(viralAnalyze).toHaveBeenCalled();
+    const sent = viralAnalyze.mock.calls[0][0];
+    expect(Array.isArray(sent)).toBe(true);
+    expect(sent.length).toBeGreaterThanOrEqual(3);
   });
 });
 

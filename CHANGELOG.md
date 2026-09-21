@@ -72,6 +72,21 @@
 
 ---
 
+# [未发布] feat(desktop): 爆款分析「手动输入文章数据」体验优化（说明/示例/错误可见）
+
+### 变更
+- **ViralAnalysis.vue**：① 手动输入区新增说人话的功能价值解释（`manualDataHelp`）与三步使用说明（准备数据 → 填入示例对照修改 → 点爆款分析），替换原先只有一行抽象提示的结构；② label 由「文章数据（JSON 数组，每篇含 title/like_count/comment_count）」改为「文章列表（每篇填：title=标题，like_count=点赞数，comment_count=评论数）」；③ 新增「填入示例数据」按钮（`data-testid="viral-fill-sample"`），一键填入 3 篇模拟真实场景的 AI 工具文章 JSON；placeholder 同步为该示例（经 computed `sampleJson` 组装，规避 vue-i18n 将 locale 字符串中 `{ }` 当插值语法吞掉的陷阱，locale 仅存管道分隔标题列表 `manualDataSampleTitles`）；④ 修复 JSON 解析失败被静默吞掉的体验缺陷：格式错误时 fail-closed 阻断分析并显示内联错误横幅（`data-testid="viral-article-data-error"`），修正后自动清除；⑤ textarea 宽度修复：`.viral-article-form` max-width 720px、textarea 占满容器，示例 JSON 不再挤成窄条。
+- **债务门禁适配重构（FILES_OVER_1000）**：rebase 到含 PR-1/PR-2（#2152/#2159）的 main 后 `ViralAnalysis.vue` 增至 1043 行，越过 1000 行熔断线（`check-debt-budget` 报 `filesOver1000 33 > 基线 32`）。按「基线只降不升、不在功能 PR 抬全局债务」的既有处置，把本节展示层拆为 `components/ViralManualDataInput.vue`（props `modelValue`/`error`，事件 `fill-sample`；文章数据与错误文案仍由父视图持有，交互语义与拆分前等价），示例 JSON 构造收编为 `utils/viral-sample-data.js`（`buildViralSampleArticles`/`buildViralSampleJson`，非字符串/空文案 fail-safe 返回 `[]` 与空串），placeholder 与「填入示例数据」共用单一来源。视图回落到 992 行。
+- **locales zh.js / en.js（成对）**：`viralAnalysis.*` 新增 9 key（manualDataSummary/manualDataHelp/manualDataStep1-3/manualDataLabel/manualDataSampleTitles/fillSample/articleDataInvalid）。渲染端非 locales 文件零新增 CJK 字面量（原硬编码中文 summary/label 一并迁入 locale）。
+
+### 验证
+- TDD 红→绿：`ViralAnalysis.test.js` 新增 7 例（示例按钮存在、fillSampleData 产出 ≥3 条含 title/like_count/comment_count 且无占位测试词、坏 JSON 阻断分析并显示错误、非数组/空数组拒绝、修正后错误清除、示例数据通过验证到达分析），补丁前 7 failed / 27 passed → 补丁后 34/34 全绿。
+- 重构回归：新增 `ViralManualDataInput.test.js`（M1-M6：三步文案按 locale 渲染、placeholder 与工具函数同源、输入回传 `update:modelValue`、按钮只发 `fill-sample` 不代父视图改状态、错误横幅按 `error` 显隐且 `role=alert`、既有内容原样回填）与 `viral-sample-data.test.js`（S1-S6：字段循环/取模、空与非字符串 fail-safe、裁剪空段、JSON 与数组同源、真实 locale 可产出）；与 `ViralAnalysis.test.js` 57 例、`icon-usage` 9 例合跑 78 passed。eslint 0 error；`check-debt-budget` 5 项全 PASS（filesOver1000 回到 32）；`check-frontend-consistency`/`check-vue-style-parse`/`check-color-literals`/`check-font-size-scale` 全 PASS；`check-locale-sync --cjk` PASS。
+- CI Gate 7：`check-locale-sync --pair-base origin/main`（提交后复验）与 `--cjk`（基线 1581，无新增硬编码）PASS。
+- 像素视觉回归：`viral-analysis` 基线重建并复比对 PASSED（1/1）。
+- 真实浏览器取证（headless Chromium 1600x900，worktree Vite dev server）：展开说明/三步指引/示例 JSON 完整渲染/错误横幅友好文案（error-visible=true）。
+
+---
 # [未发布] fix(desktop): 知识库空态「新增知识」按钮与主入口文案口径一致（PR #2132 追加）
 
 ### 变更
