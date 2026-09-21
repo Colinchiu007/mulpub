@@ -35,6 +35,10 @@
             </select>
           </div>
           <div class="viral-actions">
+            <!-- F7 爆款库回读入口（既有 listViralItems/searchViralItems，零新增 IPC） -->
+            <UiButton class="viral-btn-lib" data-testid="viral-lib-open" :title="$t('viralAnalysis.pickFromLibraryHint')" @click="openLibraryDialog">
+              <el-icon><FolderAdd /></el-icon> {{ $t('viralAnalysis.pickFromLibrary') }}
+            </UiButton>
             <UiButton @click="doAnalyze" :disabled="!topic.trim() || loading">
               <el-icon><DataLine /></el-icon> 爆款分析
             </UiButton>
@@ -91,6 +95,30 @@
             >{{ k.word }}</button>
           </div>
         </details>
+
+        <!-- F6 我的模式命中（performance:list-pattern-performance 既有通道；未登录/无数据整块隐藏，AC6.1） -->
+        <div v-if="patternHits.length" class="viral-section viral-pattern-hits" data-testid="viral-pattern-hits">
+          <div class="viral-section-title">
+            <el-icon><Trophy /></el-icon> {{ $t('viralAnalysis.sectionPatternHits') }}
+            <span class="viral-note"> {{ $t('viralAnalysis.patternHitHint') }}</span>
+          </div>
+          <div class="viral-tag-row">
+            <button
+              v-for="hit in patternHits"
+              :key="hit.value"
+              type="button"
+              class="viral-keyword-tag viral-pattern-pick"
+              :class="{ 'viral-pattern-pick--active': appliedStructure && appliedStructure.value === hit.value }"
+              :title="$t('viralAnalysis.applyPatternHint')"
+              data-testid="viral-pattern-hit"
+              @click="applyPattern(hit)"
+            >{{ patternLabel(hit.value) }} · {{ $t('viralAnalysis.patternSample', { n: hit.sampleCount }) }}</button>
+          </div>
+          <div v-if="appliedStructure" class="viral-applied-row" data-testid="viral-applied-pattern">
+            <span class="viral-saved-note">✅ {{ $t('viralAnalysis.appliedPattern') }}：{{ patternLabel(appliedStructure.value) }}</span>
+            <button type="button" class="viral-cancel-link" data-testid="viral-cancel-pattern" @click="cancelPattern">{{ $t('viralAnalysis.cancelPattern') }}</button>
+          </div>
+        </div>
 
         <!-- 结果 Tab -->
         <div v-if="result" class="viral-result">
@@ -221,7 +249,16 @@
               >
                 <div class="viral-title-num">#{{ idx + 1 }}</div>
                 <div class="viral-title-body">
-                  <div class="viral-title-text">{{ titleText(t) }}</div>
+                  <div class="viral-title-text">
+                    {{ titleText(t) }}
+                    <!-- F8 实测角标：标题命中近期 impact 快照时展示已达成数据（AC8.1） -->
+                    <span
+                      v-if="measuredInfo(titleText(t))"
+                      class="viral-measured-badge"
+                      data-testid="viral-measured-badge"
+                      :title="$t('viralAnalysis.measuredBadgeHint')"
+                    >{{ $t('viralAnalysis.measuredBadge') }} {{ fmtScore(measuredInfo(titleText(t)).topEngagement) }}</span>
+                  </div>
                   <div class="viral-title-meta">
                     <span v-if="t.structure" class="cohere-tag">{{ t.structure }}</span>
                     <span v-if="t.emotion" class="cohere-tag">{{ t.emotion }}</span>
@@ -267,6 +304,51 @@
           </template>
         </div>
 
+        <!-- F7 爆款库选择对话框（自绘 modal：渲染在组件树内，不依赖 teleport；esc/遮罩关闭） -->
+        <div
+          v-if="showLibraryDialog"
+          class="viral-lib-overlay"
+          data-testid="viral-lib-dialog"
+          role="dialog"
+          :aria-label="$t('viralAnalysis.libraryDialogTitle')"
+          @click.self="showLibraryDialog = false"
+        >
+          <div class="viral-lib-modal">
+            <div class="viral-lib-head">
+              <span class="viral-lib-title">{{ $t('viralAnalysis.libraryDialogTitle') }}</span>
+              <button type="button" class="viral-lib-close" :aria-label="$t('viralAnalysis.closeDialog')" @click="showLibraryDialog = false">✕</button>
+            </div>
+            <div class="viral-lib-search-row">
+              <input
+                class="cohere-input viral-lib-search-input"
+                v-model="libQuery"
+                :placeholder="$t('viralAnalysis.librarySearchPlaceholder')"
+                data-testid="viral-lib-search-input"
+                @keyup.enter="searchLibrary"
+              />
+              <UiButton size="small" :disabled="libLoading" @click="searchLibrary">{{ $t('viralAnalysis.librarySearch') }}</UiButton>
+            </div>
+            <div v-if="libLoading" class="viral-note" data-testid="viral-lib-loading">{{ $t('viralAnalysis.libraryLoading') }}</div>
+            <div v-else-if="!libItems.length" class="viral-lib-empty" data-testid="viral-lib-empty">
+              <div>{{ $t('viralAnalysis.libraryEmpty') }}</div>
+              <div class="viral-note">{{ $t('viralAnalysis.libraryEmptyHint') }}</div>
+            </div>
+            <div v-else class="viral-lib-list">
+              <button
+                v-for="item in libItems"
+                :key="item.id"
+                type="button"
+                class="viral-lib-item"
+                data-testid="viral-lib-item"
+                @click="pickLibraryItem(item)"
+              >
+                <span class="viral-lib-item-title">{{ item.title }}</span>
+                <span class="viral-lib-item-meta">{{ item.platform || '-' }} · 👍{{ item.likes || 0 }} · 💬{{ item.comments || 0 }}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
         <!-- 空状态 -->
         <div v-if="loading" class="viral-loading" data-testid="viral-analysis-loading">
           <UiSkeleton variant="chart" />
@@ -285,8 +367,8 @@
 </template>
 
 <script>
-import { viralAnalyze, viralGenerate, viralTrending } from '@/api/publisher'
-import { addViralToLibrary, listViralItems } from '@/api/knowledge-library'
+import { viralAnalyze, viralGenerate, viralTrending, getRecentImpactSnapshots } from '@/api/publisher'
+import { addViralToLibrary, listViralItems, searchViralItems, listPatternPerformance } from '@/api/knowledge-library'
 import UiButton from '../components/UiButton.vue'
 import { CaretBottom, CaretRight, CaretTop, Connection, Cpu, DataLine, FolderAdd, Key, MagicStick, TrendCharts, Trophy } from '@element-plus/icons-vue'
 import { formatUserError } from '@/utils/user-facing-error'
@@ -312,11 +394,24 @@ components: { UiButton, CaretBottom, CaretRight, CaretTop, Connection, Cpu, Data
       genTask: 'titles',
       // F3：热门选题速选词（_localTrending keywords，失败/空保持 [] → 区块隐藏）
       trendingKeywords: [],
+      // PR-2 F6：我的模式命中（narrative_structure 维度 top3；元素 {value, sampleCount}）与已套用结构（枚举，不传本地化标签）
+      patternHits: [],
+      appliedStructure: null,
+      // PR-2 F7：爆款库回读对话框状态
+      showLibraryDialog: false,
+      libItems: [],
+      libQuery: '',
+      libLoading: false,
+      // PR-2 F8：标题 → 实测快照 {topEngagement, totalMentions}；非响应式也可，保持 plain 对象
+      measuredMap: {},
     }
   },
   mounted () {
     // F3 渐进增强：进入页面静默加载一次，失败不打扰主流程（AC3.2）
     this.loadTrending()
+    // PR-2 F6/F8：渐进增强，未登录/无数据静默隐藏（AC6.1/AC8.2）
+    this.loadPatternHits()
+    this.loadMeasured()
   },
   methods: {
     async doAnalyze () {
@@ -378,6 +473,8 @@ components: { UiButton, CaretBottom, CaretRight, CaretTop, Connection, Cpu, Data
           platform: this.platform,
           task: this.genTask,
           count: 5,
+          // PR-2 F6/AC6.2：传叙事结构枚举（非本地化标签），引擎侧 NARRATIVE_LABELS 为唯一权威映射
+          ...(this.appliedStructure ? { structure: this.appliedStructure.value } : {}),
         }
         const res = await viralGenerate(opts)
         if (res?.code === 0) {
@@ -447,6 +544,137 @@ components: { UiButton, CaretBottom, CaretRight, CaretTop, Connection, Cpu, Data
     pickTrending (word) {
       if (typeof word !== 'string' || !word.trim()) return
       this.topic = word.trim()
+    },
+
+    // ========== PR-2 F6：我的模式命中（结构套用） ==========
+
+    /**
+     * F6：加载个人模式库 narrative_structure 维度 top3（store 已按 engagement_score DESC）。
+     * 复用 performance:list-pattern-performance 既有 IPC；未登录（code -1）/失败静默隐藏（AC6.1）。
+     */
+    async loadPatternHits () {
+      try {
+        const res = await listPatternPerformance({ dimension: 'narrative_structure', pageSize: 10 })
+        if (res?.code !== 0 || !Array.isArray(res.data?.items)) {
+          this.patternHits = []
+          return
+        }
+        this.patternHits = res.data.items
+          .filter(it => it && typeof it.value === 'string' && it.value.trim())
+          .slice(0, 3)
+          .map(it => ({
+            value: it.value.trim(),
+            sampleCount: Number(it.sample_count) || 0,
+          }))
+      } catch { /* 渐进增强：失败整块隐藏 */ }
+    },
+
+    /** F6：点击套用/再次点击取消；appliedStructure 只存枚举值，标签经 locales 映射渲染 */
+    applyPattern (hit) {
+      const value = hit && typeof hit.value === 'string' ? hit.value.trim() : ''
+      if (!value) return
+      if (this.appliedStructure && this.appliedStructure.value === value) {
+        this.appliedStructure = null
+        return
+      }
+      this.appliedStructure = { value }
+    },
+
+    /** F6：显式取消套用 */
+    cancelPattern () {
+      this.appliedStructure = null
+    },
+
+    /** F6：叙事结构枚举 → 本地化标签（未知枚举回落原值，与引擎 NARRATIVE_LABELS 同源枚举） */
+    patternLabel (value) {
+      return this.$t('viralAnalysis.narrative.' + value)
+    },
+
+    // ========== PR-2 F7：爆款库回读 ==========
+
+    /** F7：打开对话框并加载最近 30 条（失败/未登录 → 空态，不阻断页面） */
+    async openLibraryDialog () {
+      this.showLibraryDialog = true
+      this.libQuery = ''
+      this.libLoading = true
+      try {
+        const res = await listViralItems({ page: 1, pageSize: 30 })
+        this.libItems = (res?.code === 0 && Array.isArray(res.data?.items)) ? res.data.items : []
+      } catch {
+        this.libItems = []
+      } finally {
+        this.libLoading = false
+      }
+    },
+
+    /** F7：按关键词搜索（复用 searchViralItems 既有 IPC；非法返回不破坏现有列表） */
+    async searchLibrary () {
+      const query = typeof this.libQuery === 'string' ? this.libQuery.trim() : ''
+      if (!query || this.libLoading) return
+      this.libLoading = true
+      try {
+        const res = await searchViralItems(query, 30)
+        if (res?.code === 0 && Array.isArray(res.data)) {
+          this.libItems = res.data
+        }
+      } catch { /* 搜索失败保留当前列表 */ } finally {
+        this.libLoading = false
+      }
+    },
+
+    /**
+     * F7：选中条目 → 回填 topic + 文章数据 JSON 追加一条实测记录（AC7.2）。
+     * 现有 articleData 非法 JSON 时直接覆盖（残句不如丢残句）；对话框关闭后三源自动生效。
+     */
+    pickLibraryItem (item) {
+      const title = item && typeof item.title === 'string' ? item.title.trim() : ''
+      if (!title) return
+      this.topic = title
+      let articles = []
+      if (this.articleData && this.articleData.trim()) {
+        try {
+          const parsed = JSON.parse(this.articleData.trim())
+          if (Array.isArray(parsed)) articles = parsed
+        } catch { articles = [] }
+      }
+      articles.push({
+        title,
+        like_count: Number(item.likes) || 0,
+        comment_count: Number(item.comments) || 0,
+        platform_code: item.platform || 'general',
+      })
+      this.articleData = JSON.stringify(articles, null, 2)
+      this.showLibraryDialog = false
+    },
+
+    // ========== PR-2 F8：已达成数据角标 ==========
+
+    /**
+     * F8：加载近期 impact 快照（复用 impact:get-recent-snapshots 既有主进程通道）。
+     * 标题精确匹配索引；未登录/抛错静默 → measuredMap 保持空（AC8.2）。
+     */
+    async loadMeasured () {
+      try {
+        const res = await getRecentImpactSnapshots()
+        if (res?.code !== 0 || !Array.isArray(res.data)) return
+        const map = {}
+        for (const row of res.data) {
+          const t = row && typeof row.title === 'string' ? row.title.trim() : ''
+          if (!t || map[t]) continue
+          map[t] = {
+            topEngagement: Number(row.top_engagement) || 0,
+            totalMentions: Number(row.total_mentions) || 0,
+          }
+        }
+        this.measuredMap = map
+      } catch { /* 静默降级：无角标不影响主流程 */ }
+    },
+
+    /** F8：按标题查实测快照；无数据返回 null（模板 v-if 自然隐藏） */
+    measuredInfo (title) {
+      const t = typeof title === 'string' ? title.trim() : ''
+      if (!t) return null
+      return this.measuredMap[t] || null
     },
 
     trendIcon (direction) {
@@ -726,4 +954,34 @@ components: { UiButton, CaretBottom, CaretRight, CaretTop, Connection, Cpu, Data
 .viral-suggest-score { font-size: var(--font-size-xs); font-weight: 600; }
 .viral-suggest-reason { font-size: var(--font-size-sm); color: var(--color-text-muted); margin-top: 4px; }
 .viral-suggest-outline { font-size: var(--font-size-sm); margin-top: 6px; white-space: pre-wrap; line-height: 1.5; }
+
+/* --- PR-2 F6 我的模式命中 --- */
+.viral-pattern-hits { margin-top: var(--space-md); }
+.viral-pattern-pick { cursor: pointer; border: none; transition: opacity 0.15s, transform 0.15s; }
+.viral-pattern-pick:hover { opacity: 0.85; transform: translateY(-1px); }
+.viral-pattern-pick--active { background: var(--color-primary); color: var(--color-bg-card); font-weight: 600; }
+.viral-applied-row { margin-top: var(--space-sm); display: flex; align-items: center; gap: var(--space-sm); flex-wrap: wrap; }
+.viral-cancel-link { border: none; background: none; cursor: pointer; font-size: var(--font-size-xs); color: var(--color-text-muted); text-decoration: underline; padding: 0; }
+.viral-cancel-link:hover { color: var(--color-primary); }
+
+/* --- PR-2 F7 爆款库选择对话框（自绘 modal） --- */
+.viral-btn-lib { background: var(--color-bg-card); border-color: var(--color-border); color: var(--color-text-primary); }
+.viral-btn-lib:hover { border-color: var(--color-primary); color: var(--color-primary); }
+.viral-lib-overlay { position: fixed; inset: 0; z-index: 2000; background: rgba(0, 0, 0, 0.4); display: flex; align-items: center; justify-content: center; }
+.viral-lib-modal { width: min(560px, 92vw); max-height: 72vh; display: flex; flex-direction: column; background: var(--color-bg-card); border: 1px solid var(--color-border); border-radius: var(--r-md); padding: var(--space-md); box-shadow: var(--shadow-float); }
+.viral-lib-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-sm); }
+.viral-lib-title { font-size: var(--font-size-base); font-weight: 600; }
+.viral-lib-close { border: none; background: none; cursor: pointer; font-size: var(--font-size-md); color: var(--color-text-muted); padding: 2px 6px; }
+.viral-lib-close:hover { color: var(--color-primary); }
+.viral-lib-search-row { display: flex; gap: var(--space-sm); align-items: center; margin-bottom: var(--space-sm); }
+.viral-lib-search-input { flex: 1; font-size: var(--font-size-sm); }
+.viral-lib-empty { padding: var(--space-lg) 0; text-align: center; display: flex; flex-direction: column; gap: 4px; font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.viral-lib-list { overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.viral-lib-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; text-align: left; border: 1px solid transparent; border-radius: var(--r-sm); background: none; padding: var(--space-sm); cursor: pointer; transition: background 0.15s, border-color 0.15s; }
+.viral-lib-item:hover { background: var(--color-bg-inset); border-color: var(--color-border); }
+.viral-lib-item-title { font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.viral-lib-item-meta { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+
+/* --- PR-2 F8 实测角标 --- */
+.viral-measured-badge { display: inline-block; margin-left: 6px; font-size: var(--font-size-xs); font-weight: 500; color: var(--color-primary); background: var(--color-primary-light); border-radius: var(--r-pill); padding: 1px 8px; vertical-align: middle; cursor: default; }
 </style>

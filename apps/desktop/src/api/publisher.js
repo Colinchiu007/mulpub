@@ -199,7 +199,7 @@ export async function keywordHistory(keyword) { return invokeWithFallback("keywo
 export async function viralAnalyze(articles, topic) { return invokeWithFallback("viralAnalyze", {  code: -1  }, articles, topic) }
 export async function viralGenerate(opts) { return invokeWithFallback("viralGenerate", {  code: -1  }, opts) }
 export async function viralTrending(articles) { return invokeWithFallback("viralTrending", {  code: -1  }, articles) }
-
+export async function getRecentImpactSnapshots() { return invokeWithFallback("getRecentImpactSnapshots", {  code: -1, data: []  }) } // PR-2 F8：未登录/无数据 code -1 → 调用方隐藏区块
 // ─── 平台配置 API ────────────────────────
 export async function platformList() { return invokeWithFallback("platformList", {  code: 0, data: []  }) }
 

@@ -19,6 +19,28 @@
 - 规格：`openspec/changes/film-engineering-video-gen/`（proposal/design/specs/tasks，同步至 `01-docs/film-engineering-video-gen/`）
 - 二期排除清单见 proposal.md（多角色一致性、自动配音/字幕、跨 run 续拼本期不做）
 
+# [未发布] feat(viral-analysis): 爆款分析页彻底利用 ViralEngine — PR-2（F6/F7/F8/T-6，零新增 IPC）
+
+### 变更
+- **ViralAnalysis.vue（F6/F7/F8 UI）**：
+  - F6「我的模式命中」：`listPatternPerformance(narrative_structure)` 取 TOP3 结构卡片，点击套用为生成结构偏好（枚举传值，与引擎 `NARRATIVE_LABELS` 唯一权威对齐），再点取消；无数据/未登录区块静默隐藏。
+  - F7「从爆款库选择」：自绘 modal（非 el-dialog），`listViralItems`/`searchViralItems` 标题检索，选中回填 topic 与 articleData JSON（title/like_count/comment_count/platform_code），空态引导。
+  - F8「实测角标」：`getRecentImpactSnapshots` 建 `title→{topEngagement,totalMentions}` 索引，命中标题卡片显示「实测」角标；无数据零渲染。
+- **viral-engine.js / viral-engine-local.js（T-6）**：`_patternStructureCounts()` 聚合结构样本数，排序主键 `(countB-countA) || (scoreB-scoreA) || idxA-idxB`；counts 空与 PR-1 基线逐位一致；structure 显式过滤时跳过 boost；全链 fail-open。
+- **preload/publish.js + api/publisher.js（F8 暴露面）**：新增 `getRecentImpactSnapshots`（复用既有 `impact:get-recent-snapshots`，**零新增 IPC 通道**）；preload 计数基线 publish 116→117、api 315→316；`index.bundle.js` 重打包。
+- **container.setup.js**：viral-engine 注入 pattern 样本供给 T-6（provider 复用既有）。
+- **locales zh.js / en.js（成对）**：新增 27 键（sectionPatternHits/patternSample `{n}`/pickFromLibrary/libraryDialog*/measuredBadge/narrative.* 六枚举等），无新增硬编码中文字面量。
+
+### 验证
+- TDD 红（22 failed/60 passed）→ 绿：目标 82 用例全过；新增 `viral-pr2-preload.test.js` 3 passed。
+- 全量：src 179 files / 3182 passed；electron 343 files / 6786 passed。
+- 门禁：check-debt-budget（filesOver500=95 持平基线）/ icon-usage（📈 清零）/ locale-sync（zh-en 成对，CJK 1392<1581）/ eslint 0 errors 全通过。
+- QM-1：`electron-builder --win --dir` exit 0；asar 内 preload bundle 含 `getRecentImpactSnapshots` 验证通过。
+
+### 关联
+- 分支 `codex/viral-page-full-util-pr2`（worktree 隔离，D 盘）· PR #2159 auto-merge 待 CI
+- 文档：`01-docs/PRD-VIRAL-PAGE-FULL-UTILIZATION-2026-09-21.md` §12 PR-2 实现详解
+
 ---
 
 # [未发布] fix(ci): debt-guard 移除 PR paths-ignore，解除纯文档 PR 的 required check 死锁
