@@ -2959,6 +2959,13 @@ knowledgeBase: {
     sectionPlatformScores: '平台评分',
     sectionSuggestedStructures: '推荐标题结构',
     sectionGenerateResult: '生成结果',
+    // PR-1 爆款页充分利用（2026-09-21）：F1 task 分段 / F3 热门选题速选 / F9 生成区模式徽标 / Q2 本地估算标注
+    taskSegmentHint: '选择生成类型',
+    sectionTrending: '热门选题',
+    trendingHint: '点击选题词回填主题（不自动分析）',
+    localGenBadge: '本地算法',
+    localGenHint: '本地启发式引擎（无网络/未配置 orchestrator 时可用），仅支持标题与开场钩子；长文改写请前往改写页或配置 AI 服务',
+    localEstimateBadge: '本地估算',
   },
 
   // ── 发布去向弹窗 ──
