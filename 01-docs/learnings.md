@@ -14997,3 +14997,14 @@ opencode 双模型审查发现三个问题：① 后端 `create_constraint` 对�
 **可复用教训（带边界）**：凡"改按钮文字/改提示语"类需求，验收范围应覆盖该动作的**全部入口 × 全部数据状态（空/有数据/失败）**；被 `vi.mock` 桩掉的子组件在本视图测试中等于不存在，其内部文案必须由 locale 契约测试或子组件自身测试兜住。适用边界：多入口渲染同一语义动作的 Vue/i18n 项目。
 
 **冲突处理记录**：squash 合并后再从同分支发增量 PR，会与 main 产生 add/add 冲突（`KnowledgeBaseHotsyncUi.test.js`）与 CHANGELOG 头部冲突；先 `git diff origin/main HEAD -- <file>` 确认本分支是 main 的严格超集，再 `git checkout --ours` 取本分支版本，CHANGELOG 只删标记行保留双方条目。
+
+## CI required check 与 workflow paths-ignore 的死锁（2026-09-21，PR #2151）
+
+- **缺陷类型**：配置漂移死锁。GitHub ruleset（仓库外配置）把某个 job 显示名设为 required check，而对应 workflow 在 `pull_request` 上用 `paths-ignore` 排除了部分路径；这些路径的 PR 永不产生该 required check，`mergeStateStatus` 永久 BLOCKED，`gh pr merge --admin` 也被 `current_user_can_bypass=never` 挡下。
+- **根因**：required contexts 清单只存在 ruleset 里，仓库内没有镜像也没有契约测试能对账。`debt-guard.yml` 的 paths-ignore 是按「文档 PR 省时长」的早期意图写的，后来该 job 被升级成 required，两侧语义就互斥了。
+- **逃逸链**：`workflow-contract.test.js` 里早就存在同名规则测试（标题写「全量 workflow 的 main PR 不得用 paths-ignore」），但实现只断言硬编码的 3 个文件，新纳入治理的 workflow 不在清单内 → 规则形同不存在。教训：**治理类断言必须扫描目录，不得维护硬编码清单**，否则规则覆盖范围会随新增文件静默缩水。
+- **修复与防复发**：删除 `debt-guard.yml` 的 PR `paths-ignore`；契约测试改为遍历 `workflows/` 全量扫描，禁止任何 `pull_request.paths-ignore`（正向 `paths` 白名单仍允许，因其不承载 required check）。TDD 红→绿已验证：新测试先精确指向 `debt-guard.yml` 失败，修复后 22/22 通过。
+- **可复用判据**：新增或调整 ruleset required check 时，必须确认对应 workflow 在 PR 触发上没有路径过滤；反向亦然——给 workflow 加 PR `paths-ignore` 前必须确认它不承载任何 required context。
+- **受阻纪律**：本次未使用 `--admin` 绕过门禁，按「受阻先问用户」上报后由用户选定根治方案（提小 PR 修 paths-ignore）。绕过只把死锁留给下一个文档 PR。
+- **不可溯源部分**：本仓库为浅历史（提交标记 `grafted`），无法用 blame 定位 paths-ignore 的原始引入 commit；以 ruleset 更新时间（2026-09-21 12:52 创建、13:04 修改）作为触发条件记录。
+

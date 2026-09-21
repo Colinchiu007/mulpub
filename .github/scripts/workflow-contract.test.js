@@ -217,6 +217,28 @@ test('CI 路径门控：全量 workflow 的 main PR 不得用 paths-ignore 跳�
   }
 });
 
+test('CI 路径门控：任何 workflow 的 pull_request 都不得用 paths-ignore（全量扫描）', () => {
+  // 根因复盘（2026-09-21，PR #2151 死锁）：debt-guard.yml 曾在 pull_request 上配
+  // paths-ignore: 01-docs/**，而它的 job 显示名「债务熔断检查」已被 GitHub ruleset
+  // main-ci-gate 列为 required check —— 纯文档 PR 永不产生该检查，mergeStateStatus
+  // 永久 BLOCKED（ruleset current_user_can_bypass=never，--admin 也绕不过）。
+  // required contexts 清单只存在 GitHub ruleset、仓库内不可读，无法逐一对账，
+  // 故一律禁止 paths-ignore；正向 paths 白名单仍允许（按需触发，不影响 required 语义）。
+  const dir = path.join(__dirname, '..', 'workflows');
+  const offenders = [];
+  for (const f of fs.readdirSync(dir).filter((n) => /\.(ya?ml)$/.test(n))) {
+    const wf = yaml.load(fs.readFileSync(path.join(dir, f), 'utf8'));
+    const on = wf.on === undefined ? wf.true : wf.on; // YAML 1.1 可能把 on 解析为 true
+    const pr = on && on.pull_request;
+    if (pr && pr['paths-ignore'] !== undefined) offenders.push(f);
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    `以下 workflow 的 pull_request 不得配置 paths-ignore，否则 required check 会在被忽略的路径上缺失：${offenders.join(', ')}`,
+  );
+});
+
 test('CI 路径门控：保留 push 触发的 workflow 同样使用白名单', () => {
   const names = ['build.yml', 'electron-ci.yml', 'quality-gate.yml'];
   for (const name of names) {

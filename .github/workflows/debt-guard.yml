@@ -3,11 +3,9 @@ name: 债务熔断门禁
 on:
   pull_request:
     branches: [main]
-    paths-ignore:
-      - '01-docs/**'
-      - 'docs/**'
-      - '*.md'
-      - '.github/ISSUE_TEMPLATE/**'
+    # 不得配置 paths-ignore：本 workflow 的 job 显示名「债务熔断检查」是 GitHub ruleset
+    # main-ci-gate 的 required check，一旦按路径跳过就不会产生该检查，纯文档 PR 会永久 BLOCKED。
+    # 债务预算检查本身只读 scripts/check-debt-budget.js，耗时 <1 分钟，无需省时长。
   workflow_dispatch:
 
 
