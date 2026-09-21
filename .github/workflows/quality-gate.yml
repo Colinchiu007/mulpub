@@ -72,6 +72,7 @@ jobs:
       - name: "Gate 2b - Desktop dev scripts (node --test)"
         run: |
           node --test apps/desktop/scripts/dev-ports.test.js apps/desktop/scripts/dev-launcher.test.js apps/desktop/scripts/dev-exit-log.test.js apps/desktop/scripts/electron-runtime-env.test.js
+          node --test scripts/sync-platform-config.test.js
 
       # --- Gate 3: 硬编码密钥扫描（同时执行 CI workflow 契约测试）---
       - name: "Gate 3 - Hardcoded secrets scan"

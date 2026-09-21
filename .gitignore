@@ -119,6 +119,8 @@ scripts/*.js
 !scripts/check-no-brand-residue.test.js
 !scripts/detect-unwired-exports.js
 !scripts/detect-unwired-exports.test.js
+!scripts/sync-platform-config.js
+!scripts/sync-platform-config.test.js
 screenshot_script*.js
 temp_debug.txt
 coverage/
