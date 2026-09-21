@@ -14946,3 +14946,20 @@ opencode 双模型审查发现三个问题：① 后端 `create_constraint` 对�
 - **PR 合并后 CI 才暴露问题的补救（operational）**：PR #2021 合并后 quality-gate 才跑完发现 color-literals 违规 → 修复提交推分支，但原 PR 已 MERGED → 新开 PR #2026 承载修复合并。**「CI 通过后合并」要求下，merge 动作要等 CI 终态，或准备好补丁 PR 流程。**
 
 ---
+
+## 知识库标签视图一致性与手动/链接采集入口（kb-hotsync-ui-fix，2026-09-21）
+
+### 现象与根因
+
+知识库页面在「爆款库/模式分析」视图显示 3 个标签，切到「个人知识库」只剩 2 个。根因：`apps/desktop/src/views/KnowledgeBasePage.vue` 的「模式分析」标签按钮带 `v-if="activeTab === 'viral' || activeTab === 'pattern'"`。追溯到 PRD-ACTIVATE-VIRAL-LIBRARY-2026-09-13 §4.5（Q13-B）——设计原意是「爆款库 Tab **内二级视图**」，实现却落地为**一级标签**并保留了为二级视图设计的条件隐藏，属**设计与实现漂移**。逃逸根因：`KnowledgeBasePage.vue` / `ViralFormDialog.vue` 此前**零测试覆盖**（全库检索 `KnowledgeBasePage|ViralFormDialog|kb-tab-btn` 在 `*.test.js` 中 0 命中），任何标签栏变更都无回归网。
+
+### 可复用结论
+
+- **条件渲染的导航项是视图一致性炸弹（pitfall）**：Tab / 菜单 / 侧栏条目上的 `v-if` 只在「该条目属于某个父视图的二级视图」时才合理；一旦条目升级为一级导航，`v-if` 必须同步移除，否则切换到任意其他一级视图都会少一个入口。**新增一级导航项时，把它在所有兄弟视图下的可见性写成数组等值断言**（`expect(tabTexts(w)).toEqual(['爆款库','模式分析','个人知识库'])` 对每个 activeTab 各断言一次），单点断言发现不了「某个视图少一项」。
+- **设计漂移要回读 PRD 原文定性（pattern）**：修 UI 不一致前先 `Grep` PRD 对应条目，区分「实现写错」与「设计变更后实现未跟」——本次是后者（设计为二级视图、实现为一级标签）。结论写进 PRD 新章节并**修正原表述**，否则下一个人会按旧设计再改回去。
+- **弹窗内跳转入口：子组件只 emit，容器持有路由（pattern）**：`ViralFormDialog.vue` 新增「用链接采集」只 `emit('collect')`，由 `KnowledgeBasePage.vue` 的 `onCollectByLink()` 做「关窗 + 清空 editingViral + `router.push('/collection')`」。弹窗不 import `useRouter` → 可脱离 router 单独挂载测；跳转行为在容器测。入口按钮 `v-if="!isEdit"`（编辑态不该出现「换一种录入方式」）。
+- **子组件桩必须 `vi.mock` 模块替换，`global.stubs` 不够（tool）**：`mount(Comp, { global: { stubs: { X: true } } })` 对**深层** element-plus 内部渲染（`el-drawer`、`v-loading` 指令）无效，会报 `Failed to resolve component: el-drawer` / `Cannot read properties of undefined (reading 'status')`。改为 `vi.mock('@/components/X.vue', () => ({ default: { name: 'X', template: "<div data-testid='stub-x'/>", methods: { loadData() {} } } }))`，并同时补齐被 mock 模块的**全部具名导出**（漏 `PERSONAL_CATEGORY_LABELS` 会报 `No "X" export is defined on the mock`）。
+- **文案改名的清扫半径（pattern）**：改 locale 值前先 `Grep` 旧文案（中文 + 英文双向）确认无第二处硬编码引用；改名后在测试里加**反向断言**（`not.toContain('添加知识')`），否则后续有人「顺手加回」不会被拦。
+- **PRD 追加用「.md 片段 + 极简 node 追加脚本」，别用 JS 模板字符串（tool）**：模板字符串里 `` \\` `` 序列中 `\\` 是转义反斜杠、紧随的反引号会**提前终止模板**，报 `SyntaxError: Unexpected identifier`（且报错位置指向文案里的普通词，极难定位）。改为把章节内容写成独立 `.md` 片段文件，node 脚本只做 `readFileSync + 按 EOL 归一 + 尾部追加`，`node --check` 通过后再执行。
+- **CHANGELOG 头部前置必然冲突，解法=两侧都保留（operational）**：多会话并行都往 CHANGELOG 第 1 行前置条目 → merge origin/main 必冲突。解法按「新在上」保留双方条目并用 `---` 分隔；locales 双侧新增通常能 auto-merge，但要**复跑 Gate 7 三项**确认（合并后 CJK 基线数会因对方修改变动）。
+- **auto-merge 未必可用（operational）**：`gh pr merge --auto --squash` 在本仓库 main 上报 `Protected branch rules not configured for this branch (enablePullRequestAutoMerge)`。降级路径：`gh pr checks <n> --watch` 等 CI 终态 → `gh pr merge <n> --squash`；合并前用 `gh pr view --json mergeable` 确认 `MERGEABLE`（本次建 PR 即为 `CONFLICTING`，先同步 main 再推）。
