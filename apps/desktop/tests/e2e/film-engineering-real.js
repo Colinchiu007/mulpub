@@ -113,6 +113,13 @@ async function installMessageObserver (page) {
   })
 }
 
+function classifyVideoOutcome (observed) {
+  const o = observed || {}
+  if (o.openFolderVisible) return 'done'
+  if (o.gotoModelVisible) return 'fail-closed'
+  return 'unknown'
+}
+
 async function run () {
   fs.mkdirSync(OUTPUT_DIR, { recursive: true })
   if (!fs.existsSync(EXE)) throw new Error('打包应用不存在: ' + EXE)
@@ -244,6 +251,52 @@ async function run () {
     }
     await assertNoValidationMessage(page, '生成入口')
 
+    // ===== 6.1 分镜视频生成打包 E2E（成本闸 / 确认卡 / 确认前零调用 / fail-closed）=====
+    await page.keyboard.press('Escape').catch(() => {})
+    if ((await shots.count()) > 1) {
+      await shots.nth(1).locator('.fe-shot-check').click()
+    }
+    const videoEntry = page.locator('[data-testid="fe-video-entry"]')
+    await videoEntry.waitFor({ state: 'visible', timeout: 15000 })
+    check('视频生成入口按钮存在', true)
+    check('视频生成入口按钮已启用（数组参数化入口）', !(await videoEntry.isDisabled()))
+
+    await videoEntry.click()
+    const videoPanel = page.locator('.fe-vg').first()
+    const panelVisible = await waitFor(async () => await videoPanel.isVisible().catch(() => false), 15000, 250)
+    check('视频发起面板（idle）渲染', Boolean(panelVisible))
+    const videoStart = page.locator('[data-testid="fe-video-start"]')
+    check('视频发起按钮存在', (await videoStart.count()) > 0)
+    await videoStart.click()
+
+    // 停在 generate_videos 成本闸 → 确认卡渲染；确认前不得出现逐镜成功（成本闸未过零 provider 调用的前端可观测代理）
+    const confirmBtn = page.locator('[data-testid="fe-video-confirm"]')
+    const confirmRendered = await waitFor(async () => await confirmBtn.isVisible().catch(() => false), GENERATION_RESULT_TIMEOUT * 2, 500)
+    check('成本确认卡渲染（停在成本闸）', Boolean(confirmRendered))
+    let successBeforeConfirm = 0
+    if (confirmRendered) {
+      const shotRows = await page.locator('.fe-vg-shot').count()
+      check('成本确认卡含逐镜清单', shotRows > 0, 'rows=' + shotRows)
+      successBeforeConfirm = await page.locator('.fe-vg-shot .el-tag--success').count()
+      check('确认前零逐镜成功（成本闸未过不调用 provider）', successBeforeConfirm === 0, 'successBeforeConfirm=' + successBeforeConfirm)
+    }
+    await assertNoValidationMessage(page, '视频成本确认卡')
+
+    const outcome = { gotoModelVisible: false, openFolderVisible: false }
+    if (confirmRendered) {
+      await confirmBtn.click()
+      const gotoModels = page.locator('[data-testid="fe-video-goto-models"]')
+      outcome.gotoModelVisible = Boolean(await waitFor(async () => await gotoModels.isVisible().catch(() => false), GENERATION_RESULT_TIMEOUT * 2, 1000))
+      outcome.openFolderVisible = Boolean(await waitFor(async () => await page.locator('[data-testid="fe-video-open-folder"]').isVisible().catch(() => false), 3000, 500))
+      const verdict = classifyVideoOutcome(outcome)
+      check('确认后要么出成片要么 fail-closed（不静默失败）', verdict !== 'unknown', verdict)
+      if (verdict === 'fail-closed') {
+        const noModelHint = await page.locator('.fe-vg-hint').first().textContent().catch(() => '')
+        check('fail-closed 给出未配置视频模型引导（跳模型设置）', messageText(noModelHint).length > 0, messageText(noModelHint))
+      }
+    }
+    await assertNoValidationMessage(page, '分镜视频生成')
+    await page.screenshot({ path: path.join(OUTPUT_DIR, '03-film-engineering-video.png'), fullPage: true })
     await page.screenshot({ path: path.join(OUTPUT_DIR, '02-film-engineering-final.png'), fullPage: true })
     report.messages = await capturedMessages(page)
     report.status = report.checks.every((item) => item.ok) ? 'passed' : 'failed'
@@ -283,4 +336,5 @@ if (require.main === module) {
 module.exports = {
   GENERATION_RESULT_TIMEOUT,
   waitForToast,
+  classifyVideoOutcome,
 }

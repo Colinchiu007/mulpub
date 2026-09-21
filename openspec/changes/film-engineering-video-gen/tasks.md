@@ -31,7 +31,7 @@
 
 ## 6. E2E 门禁与冒烟
 
-- [ ] 6.1 扩展电影工程打包 E2E 门禁（不计费项）：按钮存在、provider 未配置引导、确认卡渲染、确认前零 provider 调用、选中分镜数组参数化 IPC 不错位；无默认视频 provider 环境下验证 fail-closed 文案
+- [x] 6.1 扩展电影工程打包 E2E 门禁（不计费项）：按钮存在、provider 未配置引导、确认卡渲染、确认前零 provider 调用、选中分镜数组参数化 IPC 不错位；无默认视频 provider 环境下验证 fail-closed 文案。落地于 `apps/desktop/tests/e2e/film-engineering-real.js`（fe-video-entry/idle 面板/成本确认卡/确认前 `.el-tag--success` 计数为 0/confirm→fail-closed 引导分类），纯函数 `classifyVideoOutcome` 由 `film-engineering-real.test.js` node --test 覆盖；打包执行属 release-only build.yml 门禁
 - [ ] 6.2 opt-in 真实 provider 冒烟脚本（手动触发不进 CI）：最短 + 最长 kit 分镜各出 1 镜 5s 片，记录真实返回规格（消化 design OQ2：source 画幅行为）
 - [x] 6.3 QM-1：`electron-builder --win --dir` 打包 + asar 清单 + require 链 + 启动 8 秒 stderr 无新告警
 

@@ -4,6 +4,7 @@ const { it } = require('node:test')
 const {
   GENERATION_RESULT_TIMEOUT,
   waitForToast,
+  classifyVideoOutcome,
 } = require('./film-engineering-real')
 
 it('电影工程生成结果为打包 fallback 留出完整终态观察预算', async () => {
@@ -21,4 +22,11 @@ it('电影工程生成结果为打包 fallback 留出完整终态观察预算', 
 
   assert.equal(message, '生成失败')
   assert.equal(observations, 2)
+})
+
+it('classifyVideoOutcome：成片优先，其次 fail-closed，否则 unknown', () => {
+  assert.equal(classifyVideoOutcome({ openFolderVisible: true, gotoModelVisible: true }), 'done')
+  assert.equal(classifyVideoOutcome({ openFolderVisible: false, gotoModelVisible: true }), 'fail-closed')
+  assert.equal(classifyVideoOutcome({ openFolderVisible: false, gotoModelVisible: false }), 'unknown')
+  assert.equal(classifyVideoOutcome(), 'unknown')
 })
