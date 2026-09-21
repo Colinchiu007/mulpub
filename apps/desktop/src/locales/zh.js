@@ -2966,6 +2966,33 @@ knowledgeBase: {
     localGenBadge: '本地算法',
     localGenHint: '本地启发式引擎（无网络/未配置 orchestrator 时可用），仅支持标题与开场钩子；长文改写请前往改写页或配置 AI 服务',
     localEstimateBadge: '本地估算',
+    // PR-2 爆款页充分利用（2026-09-21）：F6 我的模式命中 / F7 爆款库回读 / F8 实测角标
+    sectionPatternHits: '我的模式命中',
+    patternHitHint: '来自个人模式库实测表现，点击套用到下次生成',
+    applyPatternHint: '点击套用该结构，生成时优先采用',
+    patternSample: '{n} 篇样本',
+    appliedPattern: '已套用结构',
+    cancelPattern: '取消套用',
+    pickFromLibrary: '从爆款库选择',
+    pickFromLibraryHint: '回读已存入爆款库的条目，回填主题并附加文章数据',
+    libraryDialogTitle: '从爆款库选择',
+    librarySearchPlaceholder: '输入关键词搜索爆款库',
+    librarySearch: '搜索',
+    libraryLoading: '加载中…',
+    libraryEmpty: '爆款库还没有条目',
+    libraryEmptyHint: '先完成一次分析并点击「存入爆款库」，这里就会出现可回读的条目',
+    closeDialog: '关闭',
+    measuredBadge: '实测',
+    measuredBadgeHint: '该标题已有发布回采数据（取近期快照最高互动）',
+    // F6 叙事结构枚举标签：显示语义与引擎 NARRATIVE_LABELS 一一对应（引擎为过滤唯一权威）
+    narrative: {
+      list: '数字盘点',
+      contrast: '对比评测',
+      problem_solution: '避坑警示',
+      story_lesson: '个人经历背书',
+      total_subtotal: '深度长文',
+      chronological: '入门教程',
+    },
   },
 
   // ── 发布去向弹窗 ──
