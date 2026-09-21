@@ -38,6 +38,23 @@
             <UiButton @click="doAnalyze" :disabled="!topic.trim() || loading">
               <el-icon><DataLine /></el-icon> 爆款分析
             </UiButton>
+            <!-- F1 生成 task 分段控件（标题 / Hook）：切换不自动触发，需再点按钮（AC1.2 切换清空旧结果） -->
+            <div class="viral-task-segment" role="group" :aria-label="$t('viralAnalysis.taskSegmentHint')" :title="$t('viralAnalysis.taskSegmentHint')">
+              <button
+                type="button"
+                class="viral-task-btn"
+                :class="{ 'viral-task-btn--active': genTask === 'titles' }"
+                data-testid="viral-task-titles"
+                @click="setGenTask('titles')"
+              >{{ $t('viralAnalysis.taskTitles') }}</button>
+              <button
+                type="button"
+                class="viral-task-btn"
+                :class="{ 'viral-task-btn--active': genTask === 'hooks' }"
+                data-testid="viral-task-hooks"
+                @click="setGenTask('hooks')"
+              >{{ $t('viralAnalysis.taskHooks') }}</button>
+            </div>
             <UiButton class="viral-btn-generate" @click="doGenerate" :disabled="!topic.trim() || loading">
               <el-icon><MagicStick /></el-icon> 生成文案
             </UiButton>
@@ -59,6 +76,21 @@
             </div>
           </details>
         </div>
+
+        <!-- F3 热门选题速选（渐进增强：trending 失败/空返回整块隐藏，不打扰主流程） -->
+        <details v-if="trendingKeywords.length" class="viral-trending-section">
+          <summary class="viral-details-summary">{{ $t('viralAnalysis.sectionTrending') }}<span class="viral-note"> {{ $t('viralAnalysis.trendingHint') }}</span></summary>
+          <div class="viral-tag-row viral-trending-row">
+            <button
+              v-for="k in trendingKeywords"
+              :key="k.word"
+              type="button"
+              class="viral-keyword-tag viral-trending-pick"
+              data-testid="viral-trending-pick"
+              @click="pickTrending(k.word)"
+            >{{ k.word }}</button>
+          </div>
+        </details>
 
         <!-- 结果 Tab -->
         <div v-if="result" class="viral-result">
@@ -122,7 +154,10 @@
 
           <!-- 平台对比 -->
           <div v-if="result.platform_scores && Object.keys(result.platform_scores).length" class="viral-section">
-            <div class="viral-section-title"><el-icon><Connection /></el-icon> {{ $t('viralAnalysis.sectionPlatformScores') }}</div>
+            <div class="viral-section-title">
+              <el-icon><Connection /></el-icon> {{ $t('viralAnalysis.sectionPlatformScores') }}
+              <span v-if="result.mode === 'local-fallback'" class="viral-estimate-note" data-testid="viral-estimate-note">{{ $t('viralAnalysis.localEstimateBadge') }}</span>
+            </div>
             <div class="viral-tag-row">
               <div v-for="(score, plat) in result.platform_scores" :key="plat"
                 class="cohere-card viral-card-static viral-platform-card"
@@ -135,7 +170,11 @@
 
           <!-- 推荐结构 -->
           <div v-if="result.suggested_structures && result.suggested_structures.length" class="viral-section">
-            <div class="viral-section-title"><el-icon><Trophy /></el-icon> {{ $t('viralAnalysis.sectionSuggestedStructures') }}</div>
+            <div class="viral-section-title">
+              <el-icon><Trophy /></el-icon> {{ $t('viralAnalysis.sectionSuggestedStructures') }}
+              <!-- Q2 已决：本地模式展示估算值 + 标注 -->
+              <span v-if="result.mode === 'local-fallback'" class="viral-estimate-note" data-testid="viral-estimate-note">{{ $t('viralAnalysis.localEstimateBadge') }}</span>
+            </div>
             <div class="viral-tag-row">
               <div v-for="(s, idx) in result.suggested_structures" :key="idx"
                 class="cohere-card viral-card-static viral-structure-card"
@@ -166,7 +205,13 @@
             <span>⚠️</span><span>{{ genResult.error }}</span>
           </div>
           <template v-else>
-          <div class="viral-section-title"><el-icon><MagicStick /></el-icon> {{ $t('viralAnalysis.sectionGenerateResult') }} · {{ taskLabel(genResult.task) }}</div>
+          <div class="viral-gen-head">
+            <div class="viral-section-title"><el-icon><MagicStick /></el-icon> {{ $t('viralAnalysis.sectionGenerateResult') }} · {{ taskLabel(genResult.task) }}</div>
+            <!-- F9 生成区模式徽标（与分析区同款） -->
+            <div v-if="genResult.mode === 'local-fallback'" class="viral-mode-badge" :title="$t('viralAnalysis.localGenHint')" data-testid="viral-generate-mode">
+              <el-icon><Cpu /></el-icon> {{ $t('viralAnalysis.localGenBadge') }}
+            </div>
+          </div>
 
             <!-- 标题列表面板 -->
             <div v-if="genResult.task === 'titles' && genResult.data?.titles" class="cohere-card viral-card-static">
@@ -240,8 +285,8 @@
 </template>
 
 <script>
-import { viralAnalyze, viralGenerate } from '@/api/publisher'
-import { addViralToLibrary } from '@/api/knowledge-library'
+import { viralAnalyze, viralGenerate, viralTrending } from '@/api/publisher'
+import { addViralToLibrary, listViralItems } from '@/api/knowledge-library'
 import UiButton from '../components/UiButton.vue'
 import { CaretBottom, CaretRight, CaretTop, Connection, Cpu, DataLine, FolderAdd, Key, MagicStick, TrendCharts, Trophy } from '@element-plus/icons-vue'
 import { formatUserError } from '@/utils/user-facing-error'
@@ -263,7 +308,15 @@ components: { UiButton, CaretBottom, CaretRight, CaretTop, Connection, Cpu, Data
       libraryMessage: '',
       // 双模型评审 W-1：分析成功时快照主题，落库 title/报告始终与分析时的输入一致
       analyzedTopic: '',
+      // F1：生成 task 选择（仅 titles/hooks，本地可产出；rewrite/structures 见 PRD §8 Out of Scope）
+      genTask: 'titles',
+      // F3：热门选题速选词（_localTrending keywords，失败/空保持 [] → 区块隐藏）
+      trendingKeywords: [],
     }
+  },
+  mounted () {
+    // F3 渐进增强：进入页面静默加载一次，失败不打扰主流程（AC3.2）
+    this.loadTrending()
   },
   methods: {
     async doAnalyze () {
@@ -323,7 +376,7 @@ components: { UiButton, CaretBottom, CaretRight, CaretTop, Connection, Cpu, Data
         const opts = {
           topic: this.topic,
           platform: this.platform,
-          task: 'titles',
+          task: this.genTask,
           count: 5,
         }
         const res = await viralGenerate(opts)
@@ -331,13 +384,69 @@ components: { UiButton, CaretBottom, CaretRight, CaretTop, Connection, Cpu, Data
           this.genResult = res.data
         } else {
           // 不吞错：IPC 业务错误（非 0 code）也落入 genResult.error 供横幅渲染
-          this.genResult = { task: 'titles', error: formatUserError(res, { fallback: this.$t('viralAnalysis.generateFailed') }).message }
+          this.genResult = { task: this.genTask, error: formatUserError(res, { fallback: this.$t('viralAnalysis.generateFailed') }).message }
         }
       } catch (err) {
-        this.genResult = { task: 'titles', error: formatUserError(err, { fallback: this.$t('viralAnalysis.generateFailed') }).message }
+        this.genResult = { task: this.genTask, error: formatUserError(err, { fallback: this.$t('viralAnalysis.generateFailed') }).message }
       } finally {
         this.loading = false
       }
+    },
+
+    /** F1：切换生成 task 不自动触发，清空旧结果防残留（AC1.2） */
+    setGenTask (task) {
+      if (task !== 'titles' && task !== 'hooks') return
+      if (this.genTask === task) return
+      this.genTask = task
+      this.genResult = null
+    },
+
+    /**
+     * F3：加载热门选题词。数据源 = 手动文章数据 ∪ 爆款库条目（best-effort），
+     * 经既有 viralTrending IPC 聚合；任何失败静默隐藏区块（AC3.2/AC3.3 不新增通道）。
+     */
+    async loadTrending () {
+      try {
+        const articles = []
+        const seen = new Set()
+        const push = (a) => {
+          if (!a || typeof a !== 'object') return
+          const title = typeof a.title === 'string' ? a.title.trim() : ''
+          if (!title || seen.has(title)) return
+          seen.add(title)
+          articles.push(a)
+        }
+        if (this.articleData.trim()) {
+          try {
+            const parsed = JSON.parse(this.articleData.trim())
+            if (Array.isArray(parsed)) parsed.forEach(push)
+          } catch { /* 非法 JSON 静默忽略 */ }
+        }
+        try {
+          const lib = await listViralItems({ page: 1, pageSize: 30 })
+          if (lib?.code === 0 && Array.isArray(lib.data?.items)) {
+            lib.data.items.slice(0, 30).forEach(it => push({
+              title: it && it.title,
+              like_count: Number(it && it.likes) || 0,
+              comment_count: Number(it && it.comments) || 0,
+              platform_code: (it && it.platform) || 'general',
+            }))
+          }
+        } catch { /* 爆款库不可用（如未登录门禁）不影响选题区其余数据源 */ }
+        if (!articles.length) return
+        const res = await viralTrending(JSON.parse(JSON.stringify(articles)))
+        if (res?.code === 0 && Array.isArray(res.data?.keywords)) {
+          this.trendingKeywords = res.data.keywords
+            .filter(k => k && typeof k.word === 'string' && k.word.trim())
+            .slice(0, 10)
+        }
+      } catch { /* 渐进增强：trending 失败整块隐藏，console 留痕由 IPC 层负责 */ }
+    },
+
+    /** F3：点击选题词回填主题输入框（不自动分析） */
+    pickTrending (word) {
+      if (typeof word !== 'string' || !word.trim()) return
+      this.topic = word.trim()
     },
 
     trendIcon (direction) {
@@ -503,6 +612,25 @@ components: { UiButton, CaretBottom, CaretRight, CaretTop, Connection, Cpu, Data
 .viral-details-summary:hover { color: var(--color-primary); }
 .viral-article-form { margin-top: var(--space-sm); }
 .viral-article-textarea { font-size: var(--font-size-sm); font-family: monospace; resize: vertical; }
+
+/* --- F1 生成 task 分段控件 --- */
+.viral-task-segment { display: inline-flex; align-self: flex-end; border: 1px solid var(--color-border); border-radius: var(--r-sm); overflow: hidden; }
+.viral-task-btn { border: none; background: var(--color-bg-card); color: var(--color-text-muted); font-size: var(--font-size-xs); padding: 6px 14px; cursor: pointer; transition: background 0.15s, color 0.15s; }
+.viral-task-btn + .viral-task-btn { border-left: 1px solid var(--color-border); }
+.viral-task-btn:hover { color: var(--color-primary); }
+.viral-task-btn--active { background: var(--color-primary-light); color: var(--color-primary); font-weight: 600; }
+
+/* --- F3 热门选题速选 --- */
+.viral-trending-section { margin-top: var(--space-sm); }
+.viral-trending-row { margin-top: var(--space-sm); }
+.viral-trending-pick { cursor: pointer; border: none; transition: opacity 0.15s, transform 0.15s; }
+.viral-trending-pick:hover { opacity: 0.85; transform: translateY(-1px); }
+
+/* --- Q2 本地估算标注 --- */
+.viral-estimate-note { font-size: var(--font-size-xs); font-weight: 400; color: var(--color-text-muted); border: 1px solid var(--color-border); border-radius: var(--r-pill); padding: 0 8px; margin-left: 4px; }
+
+/* --- F9 生成区头（标题 + 模式徽标同行） --- */
+.viral-gen-head { display: flex; align-items: center; gap: var(--space-sm); flex-wrap: wrap; }
 
 /* --- 结果区通用 --- */
 .viral-result { margin-top: var(--space-lg); }
