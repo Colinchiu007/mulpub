@@ -6,6 +6,7 @@ import { setActivePinia, createPinia } from "pinia";
 vi.mock("@/api/publisher", () => ({
   viralAnalyze: vi.fn().mockResolvedValue({ code: 0, data: { overall_score: 8.5, factors: [] } }),
   viralGenerate: vi.fn().mockResolvedValue({ code: 0, data: { task: "titles", data: { titles: [] } } }),
+  viralTrending: vi.fn().mockResolvedValue({ code: 0, data: { keywords: [] } }),
 }));
 
 import ViralAnalysisView from "./ViralAnalysis.vue";
@@ -239,9 +240,10 @@ describe("ViralAnalysisView", () => {
 // ── viral-rewrite-integration：分析结果落库 + 生成标题去改写 ──
 vi.mock("@/api/knowledge-library", () => ({
   addViralToLibrary: vi.fn().mockResolvedValue({ code: 0, data: { id: "v1" } }),
+  listViralItems: vi.fn().mockResolvedValue({ code: 0, data: { items: [], total: 0 } }),
 }));
 
-import { addViralToLibrary } from "@/api/knowledge-library";
+import { addViralToLibrary, listViralItems } from "@/api/knowledge-library";
 
 describe("ViralAnalysisView viral integration", () => {
   const pushMock = vi.fn();
@@ -376,5 +378,138 @@ describe("ViralAnalysisView viral integration", () => {
     w.vm.goRewrite("   ");
     w.vm.goRewrite(42);
     expect(pushMock).not.toHaveBeenCalled();
+  });
+});
+
+// ── PR-1 爆款页充分利用：F1 task 分段 / F3 热门选题 / F9 生成区模式徽标 ──
+describe("ViralAnalysisView PR-1 (task segment / trending / mode badge)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setActivePinia(createPinia());
+    window.electronAPI = {};
+  });
+
+  function createView3() {
+    return mount(ViralAnalysisView, {
+      global: {
+        plugins: [createPinia()],
+        mocks: { $t: (key) => key, $router: { push: vi.fn() } },
+      },
+    });
+  }
+
+  it("F1: setGenTask('hooks') 切 task 并清空旧 genResult（AC1.2）", async () => {
+    const { viralGenerate } = await import("@/api/publisher");
+    viralGenerate.mockResolvedValue({ code: 0, data: { task: "titles", mode: "local-fallback", data: { titles: [] } } });
+    const w = createView3();
+    await nextTick();
+    w.vm.topic = "AI";
+    await w.vm.doGenerate();
+    expect(w.vm.genResult).toBeTruthy();
+    w.vm.setGenTask("hooks");
+    expect(w.vm.genTask).toBe("hooks");
+    expect(w.vm.genResult).toBeNull();
+  });
+
+  it("F1: setGenTask 相同 task 不切换", async () => {
+    const w = createView3();
+    await nextTick();
+    w.vm.genResult = { task: "titles" };
+    w.vm.setGenTask("titles");
+    expect(w.vm.genTask).toBe("titles");
+    expect(w.vm.genResult).toBeTruthy();
+  });
+
+  it("F1: setGenTask 拒绝非法 task", async () => {
+    const w = createView3();
+    await nextTick();
+    w.vm.setGenTask("rewrite");
+    expect(w.vm.genTask).toBe("titles");
+  });
+
+  it("F1: doGenerate 按 genTask=hooks 传参（AC1.1）", async () => {
+    const { viralGenerate } = await import("@/api/publisher");
+    viralGenerate.mockResolvedValue({ code: 0, data: { task: "hooks", data: { hooks: [] } } });
+    const w = createView3();
+    await nextTick();
+    w.vm.topic = "AI tools";
+    w.vm.setGenTask("hooks");
+    await w.vm.doGenerate();
+    expect(viralGenerate).toHaveBeenCalledWith(expect.objectContaining({ task: "hooks" }));
+  });
+
+  it("F3: pickTrending 回填 topic，不自动分析", async () => {
+    const { viralAnalyze } = await import("@/api/publisher");
+    const w = createView3();
+    await nextTick();
+    w.vm.pickTrending("  露营装备  ");
+    expect(w.vm.topic).toBe("露营装备");
+    expect(viralAnalyze).not.toHaveBeenCalled();
+  });
+
+  it("F3: pickTrending 忽略空/非法词", async () => {
+    const w = createView3();
+    await nextTick();
+    w.vm.topic = "原主题";
+    w.vm.pickTrending("");
+    w.vm.pickTrending("   ");
+    w.vm.pickTrending(42);
+    expect(w.vm.topic).toBe("原主题");
+  });
+
+  it("F3: loadTrending 有数据时填充 trendingKeywords（AC3.1）", async () => {
+    const { viralTrending } = await import("@/api/publisher");
+    viralTrending.mockResolvedValue({ code: 0, data: { keywords: [{ word: "AI", count: 5 }, { word: "工具", count: 3 }] } });
+    listViralItems.mockResolvedValue({ code: 0, data: { items: [{ title: "爆款一", likes: 100, comments: 5, platform: "小红书" }], total: 1 } });
+    const w = createView3();
+    await w.vm.loadTrending();
+    expect(w.vm.trendingKeywords.length).toBe(2);
+    expect(w.vm.trendingKeywords[0].word).toBe("AI");
+  });
+
+  it("F3: loadTrending 无数据源时静默隐藏（AC3.2）", async () => {
+    listViralItems.mockResolvedValue({ code: 0, data: { items: [], total: 0 } });
+    const w = createView3();
+    w.vm.articleData = "";
+    await w.vm.loadTrending();
+    expect(w.vm.trendingKeywords).toEqual([]);
+  });
+
+  it("F3: loadTrending trending 调用失败静默降级", async () => {
+    const { viralTrending } = await import("@/api/publisher");
+    viralTrending.mockRejectedValue(new Error("boom"));
+    listViralItems.mockResolvedValue({ code: 0, data: { items: [{ title: "x", likes: 1 }], total: 1 } });
+    const w = createView3();
+    await w.vm.loadTrending();
+    expect(w.vm.trendingKeywords).toEqual([]);
+  });
+
+  it("F9: 本地兜底生成时渲染模式徽标（AC9.1）", async () => {
+    const { viralGenerate } = await import("@/api/publisher");
+    viralGenerate.mockResolvedValue({ code: 0, data: { task: "titles", mode: "local-fallback", data: { titles: [{ title: "T1", structure: "s" }] } } });
+    const w = createView3();
+    await nextTick();
+    w.vm.topic = "AI";
+    await w.vm.doGenerate();
+    await nextTick();
+    expect(w.find("[data-testid='viral-generate-mode']").exists()).toBe(true);
+  });
+
+  it("F9: orchestrator 模式不渲染本地徽标", async () => {
+    const { viralGenerate } = await import("@/api/publisher");
+    viralGenerate.mockResolvedValue({ code: 0, data: { task: "titles", mode: "orchestrator", data: { titles: [{ title: "T1", structure: "s" }] } } });
+    const w = createView3();
+    await nextTick();
+    w.vm.topic = "AI";
+    await w.vm.doGenerate();
+    await nextTick();
+    expect(w.find("[data-testid='viral-generate-mode']").exists()).toBe(false);
+  });
+
+  it("F1: 分段控件渲染两个 task 按钮", async () => {
+    const w = createView3();
+    await nextTick();
+    expect(w.find("[data-testid='viral-task-titles']").exists()).toBe(true);
+    expect(w.find("[data-testid='viral-task-hooks']").exists()).toBe(true);
   });
 });

@@ -1,3 +1,35 @@
+# [未发布] fix(ci): debt-guard 移除 PR paths-ignore，解除纯文档 PR 的 required check 死锁
+
+### 变更
+- **`.github/workflows/debt-guard.yml`**：删除 `on.pull_request.paths-ignore`（`01-docs/**`、`docs/**`、`*.md`、`.github/ISSUE_TEMPLATE/**`）。该 workflow 的 job 显示名「债务熔断检查」已被 GitHub ruleset `main-ci-gate` 列为 required check，且 ruleset `current_user_can_bypass=never`；纯文档 PR 因路径过滤根本不产生该检查 → `mergeStateStatus` 永久 BLOCKED（PR #2151 实测：13 项检查全绿仍无法合并，`--admin` 亦被基线策略拒绝）。删除后每个 PR 都跑债务预算检查（实测 `node scripts/check-debt-budget.js` 5 项指标均在基线内，windows-latest 耗时 <1 分钟）。
+- **`.github/scripts/workflow-contract.test.js`**：新增全量扫描契约「任何 workflow 的 `pull_request` 都不得配置 `paths-ignore`」，遍历 `workflows/` 目录而非依赖硬编码文件清单。既有同名规则（`CI 路径门控：全量 workflow 的 main PR 不得用 paths-ignore 跳过必需检查`）实际只断言 `build.yml`/`electron-ci.yml`/`quality-gate.yml` 三个硬编码对象，正是本次漏洞的逃逸点。正向 `paths` 白名单（agent-judge / autonomous-loop / gui-test / ops-center-ci）语义为按需触发且不在 required 列表内，本次不纳入禁令。
+
+### 验证
+- TDD 红→绿：新测试单独运行时 `not ok`，失败信息精确指向 `debt-guard.yml`（其余 21 项 pass）；删除 paths-ignore 后 `workflow-contract.test.js` 22/22 通过。
+- `js-yaml` 解析确认 `on` 结构为 `{"pull_request":{"branches":["main"]},"workflow_dispatch":null}`，job `name` 仍为「债务熔断检查」（required context 匹配名未变）。
+- `git grep debt-guard` 确认无脚本或测试依赖被删除的 PR 路径过滤（仅 CHANGELOG 历史记述）。
+
+---
+
+# [未发布] feat(viral-analysis): 爆款分析页彻底利用 ViralEngine 本地能力（PR-1，全量测试 + QM-1 打包）
+
+### 变更
+- **viral-engine.js（本地兜底增强，零新增 IPC）**：`_localAnalyze` 新增三字段（`platform_scores`/`suggested_structures`/`rising_keywords`）；`_localGenerate` 重写 titles/hooks 分支——按平台挑选模板池（`_pickTemplatePool`，专属优先 + 通用兜底）、关键词槽位轮换（`_slotWords`/`_cleanSlotWord`）、Levenshtein≥5 去重、本地打分（`_scoreTitleLocal`，fail-open）稳定降序；`_localTrending` 输出 `keywords:[{word,count}]` top10。新增 12 条标题模板 + 6 条 Hook 模板 + 结构映射 + 平台系数常量。
+- **viral-engine.local.test.js（新增）**：UT-1~UT-7 共 19 例覆盖模板池挑选、槽位清洗、去重、打分边界、trending 词频、fail-open、稳定排序。
+- **ViralAnalysis.vue**：F1 生成 task 分段控件（标题/Hook，切换清空旧结果 AC1.2）；F3 热门选题速选 `<details>` 区块（trending 失败/空整块隐藏，渐进增强）；F9 生成区模式徽标；Q2 本地模式平台分/推荐结构「本地估算」标注。
+- **locales zh.js / en.js（成对）**：新增 `viralAnalysis.taskSegmentHint`/`sectionTrending`/`trendingHint`/`localGenBadge`/`localGenHint`/`localEstimateBadge` 六键。
+
+### 验证
+- TDD 红→绿：引擎单测 41（19 新 local + 6 scoreText + 16 既有契约全绿）；组件 `ViralAnalysis.test.js` 40（补 viralTrending/listViralItems mock + 12 新用例）；5 文件合跑 73 passed。
+- CI 门禁：`check-locale-sync --keys` PASS、`--cjk` PASS（1392 < 基线 1581，无新增硬编码中文）；eslint 无错；`verify-worktree-deps.js` OK（rewrite-engine 解析到当前 worktree）。
+- QM-1 打包：`pnpm run build:dir` 成功，asar 清单含 viral-engine.js，Electron 启动 9s 存活、stderr 无致命错误。
+
+### 关联
+- 分支 `codex/viral-page-full-util`（worktree 隔离，D 盘）· PR auto-merge 待 CI
+- 文档：`01-docs/PRD-VIRAL-PAGE-FULL-UTILIZATION-2026-09-21.md`
+
+---
+
 # [未发布] fix(desktop): 知识库空态「新增知识」按钮与主入口文案口径一致（PR #2132 追加）
 
 ### 变更

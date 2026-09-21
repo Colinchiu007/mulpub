@@ -105,6 +105,58 @@ describe('AuthService', () => {
     expect(service.getState().user).not.toHaveProperty('email')
   })
 
+  it('点击登录后先弹出加载窗再执行 SDK 登录（openSignInWindow 早于 signIn）', async () => {
+    const { AuthService } = require('./auth-service')
+    const order = []
+    const callbackServer = {
+      start: async () => { order.push('start') },
+      waitForCallback: () => Promise.resolve('http://127.0.0.1:16526/auth/callback?code=abc&state=state-1234567890123456'),
+      stop: async () => { order.push('stop') },
+    }
+    const client = {
+      prepareSignInState: async () => 'state-1234567890123456',
+      openSignInWindow: async () => { order.push('openLoading') },
+      signIn: async (options) => { order.push(`signIn:${options.redirectUri}`) },
+      handleSignInCallback: async () => { order.push('callback') },
+      getIdTokenClaims: async () => ({ sub: 'sub-1', name: '用户甲' }),
+    }
+    const service = new AuthService({
+      client,
+      tokenStorage: { clear: async () => {} },
+      callbackServerFactory: () => callbackServer,
+      redirectUri: 'http://127.0.0.1:16526/auth/callback',
+    })
+
+    await expect(service.signIn()).resolves.toMatchObject({ status: 'authenticated' })
+    expect(order).toEqual(['start', 'openLoading', 'signIn:http://127.0.0.1:16526/auth/callback', 'callback', 'stop'])
+  })
+
+  it('加载窗弹出失败不阻断登录主流程', async () => {
+    const { AuthService } = require('./auth-service')
+    const callbackServer = {
+      start: vi.fn(async () => {}),
+      waitForCallback: () => Promise.resolve('http://127.0.0.1:16526/auth/callback?code=abc&state=state-1234567890123456'),
+      stop: vi.fn(async () => {}),
+    }
+    const client = {
+      prepareSignInState: async () => 'state-1234567890123456',
+      openSignInWindow: vi.fn(async () => { throw new Error('加载窗创建失败') }),
+      signIn: vi.fn(async () => {}),
+      handleSignInCallback: async () => {},
+      getIdTokenClaims: async () => ({ sub: 'sub-1', name: '用户甲' }),
+    }
+    const service = new AuthService({
+      client,
+      tokenStorage: { clear: async () => {} },
+      callbackServerFactory: () => callbackServer,
+      redirectUri: 'http://127.0.0.1:16526/auth/callback',
+    })
+
+    await expect(service.signIn()).resolves.toMatchObject({ status: 'authenticated' })
+    expect(client.openSignInWindow).toHaveBeenCalledTimes(1)
+    expect(client.signIn).toHaveBeenCalledTimes(1)
+  })
+
   it('用户关闭独立认证窗口时立即取消登录并停止回调服务', async () => {
     const { AuthService } = require('./auth-service')
     let closeWindow

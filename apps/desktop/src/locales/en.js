@@ -2958,6 +2958,13 @@ knowledgeBase: {
     sectionPlatformScores: 'Platform Scores',
     sectionSuggestedStructures: 'Suggested Title Structures',
     sectionGenerateResult: 'Generated Result',
+    // PR-1 viral page full utilization (2026-09-21): F1 task segment / F3 trending quick-pick / F9 generate mode badge / Q2 local estimate note
+    taskSegmentHint: 'Choose generation type',
+    sectionTrending: 'Trending Topics',
+    trendingHint: 'Click a topic to fill the theme (no auto-analyze)',
+    localGenBadge: 'Local engine',
+    localGenHint: 'Local heuristic engine (works offline / without orchestrator); supports only titles and hooks. Use the rewrite page or configure an AI service for long-form rewriting',
+    localEstimateBadge: 'Local estimate',
   },
 
   // ── Publish destination modal ──

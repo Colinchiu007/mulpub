@@ -1,4 +1,22 @@
-# [未发布] fix(desktop): 登录点击即时反馈强化——头像转圈 + 「正在打开登录...」文案
+# [未发布] perf(identity): 首次登录弹窗秒开——加载窗预热复用 + discovery 后台预热 + 品牌底色
+
+### 变更
+- **identity-auth-window.js（L2+L4）**：新增模块级 `LOADING_HTML`（居中品牌 spinner +「正在打开登录...」，body 背景 = 主题底色 `#faf6f8`，`data:` URL 加载、零远端资源）；提取 `_createWindow()`/`_loadIntoExisting()`；新增 `openLoading()` 幂等创建并展示本地加载窗；`open(url)` 经 `_pendingLoading` 复用同一已显示窗口仅 `loadURL` 真实授权地址，未经 openLoading 时回退原有「关旧窗→新建→加载」行为不变；`backgroundColor` 由 `#ffffff` 改 `#faf6f8`，消除加载页与授权页切换瞬间纯白闪烁。窗口展示与 OIDC discovery 解耦——discovery 不再阻塞在窗口出现之前。
+- **auth-service.js**：`_performSignIn` 在 `callbackServer.start()` 之后、`client.signIn()` 之前 best-effort 调 `client.openSignInWindow?.()` 先弹加载窗，`try/catch` 吞异常（加载窗失败降级为原有「URL 就绪再开窗」）。
+- **logto-client.js**：存在 authWindow 时暴露 `openSignInWindow`（优先 `openLoading()`，缺失安全降级 `undefined`）。
+- **identity-service-factory.js（L1）**：`restore()` 后 `signed_out` 时非阻塞发起一次 `/.well-known/openid-configuration` GET（`withFetchTimeout` 8s），仅热 DNS/TLS/HTTP；`catch` 吞异常；fetcher 经 `options.prewarmFetcher` 注入便于单测。预热失败/离线不影响点击。
+
+### 验证
+- TDD 先红后绿：新增 openLoading/open 复用/降级/底色/顺序/预热用例；identity 目录 156 单测 + 目标 87 用例全绿；ESLint clean；pre-code-edit-guard pass。
+- QM-1：`build:vue` exit 0；`electron-builder --win --dir` 产出 `win-unpacked/Multi-Publish.exe`；启动 8s 存活、stderr 无崩溃。
+
+### 关联
+- 分支 codex/login-first-open-latency；PR #2149；为「登录点击即时反馈强化」（下条）的性能根治后续。
+
+
+---
+
+## [未发布] fix(desktop): 登录点击即时反馈强化——头像转圈 + 「正在打开登录...」文案
 
 ### 变更
 - **ProfileMenu.vue**：新增 revealingLogin（busy || signing_in）；登录空窗期头像同位切换为 CSS spinner，文案切换为 memberCenter.signingIn（正在打开登录...），叠加原有禁用/aria-busy/wait 光标，形成四重即时反馈；prefers-reduced-motion 降速。无新增 locales。

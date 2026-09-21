@@ -447,4 +447,97 @@ describe('IdentityAuthWindow', () => {
       vi.useRealTimers()
     }
   })
+
+  // ── L2 秒开加载窗：openLoading 预热窗口，open 复用同一已显示窗口 ──
+
+  it('openLoading 创建本地加载窗并以 data URL 秒显，背景为主题底色', async () => {
+    const { IdentityAuthWindow } = require('./identity-auth-window')
+    const authWindow = new IdentityAuthWindow({
+      endpoint: 'https://auth.example.com',
+      redirectUri: 'http://127.0.0.1:16526/auth/callback',
+      BrowserWindow: fake.FakeBrowserWindow,
+      session: { fromPartition: vi.fn(() => authSession) },
+      shell,
+    })
+    await authWindow.openLoading()
+    const window = fake.instances[0]
+    expect(window.options.backgroundColor).toBe('#faf6f8')
+    expect(window.loadedUrl).toMatch(/^data:text\/html/)
+    expect(window.shown).toBeFalsy()
+    window.emit('ready-to-show')
+    expect(window.shown).toBe(true)
+    expect(shell.openExternal).not.toHaveBeenCalled()
+  })
+
+  it('openLoading 幂等，重复调用复用同一窗口不重建', async () => {
+    const { IdentityAuthWindow } = require('./identity-auth-window')
+    const authWindow = new IdentityAuthWindow({
+      endpoint: 'https://auth.example.com',
+      redirectUri: 'http://127.0.0.1:16526/auth/callback',
+      BrowserWindow: fake.FakeBrowserWindow,
+      session: { fromPartition: vi.fn(() => authSession) },
+      shell,
+    })
+    await authWindow.openLoading()
+    await authWindow.openLoading()
+    expect(fake.instances.length).toBe(1)
+  })
+
+  it('open 复用 openLoading 已创建的窗口，仅替换为真实授权地址且不重复建窗', async () => {
+    const { IdentityAuthWindow } = require('./identity-auth-window')
+    const authWindow = new IdentityAuthWindow({
+      endpoint: 'https://auth.example.com',
+      redirectUri: 'http://127.0.0.1:16526/auth/callback',
+      BrowserWindow: fake.FakeBrowserWindow,
+      session: { fromPartition: vi.fn(() => authSession) },
+      shell,
+    })
+    await authWindow.openLoading()
+    const window = fake.instances[0]
+    await authWindow.open('https://auth.example.com/sign-in?state=abc')
+    expect(fake.instances.length).toBe(1)
+    expect(window.loadedUrl).toBe('https://auth.example.com/sign-in?state=abc')
+    expect(window.closed).toBeFalsy()
+  })
+
+  it('openLoading 加载失败被吞掉后 open 仍能向同一窗口加载真实地址', async () => {
+    const { IdentityAuthWindow } = require('./identity-auth-window')
+    class LoadingThenOk extends fake.FakeBrowserWindow {
+      constructor(options) {
+        super(options)
+        this.webContents.loadURL = vi.fn(async (url) => {
+          if (url.startsWith('data:')) throw new Error('本地加载页失败')
+          this.loadedUrl = url
+        })
+      }
+    }
+    const authWindow = new IdentityAuthWindow({
+      endpoint: 'https://auth.example.com',
+      redirectUri: 'http://127.0.0.1:16526/auth/callback',
+      BrowserWindow: LoadingThenOk,
+      session: { fromPartition: vi.fn(() => authSession) },
+      shell,
+    })
+    await expect(authWindow.openLoading()).resolves.toBeUndefined()
+    await authWindow.open('https://auth.example.com/sign-in?state=abc')
+    expect(fake.instances.length).toBe(1)
+    expect(fake.instances[0].loadedUrl).toBe('https://auth.example.com/sign-in?state=abc')
+  })
+
+  it('未经 openLoading 直接 open 仍独立建窗加载（回归原行为），关窗后再 open 新建', async () => {
+    const { IdentityAuthWindow } = require('./identity-auth-window')
+    const authWindow = new IdentityAuthWindow({
+      endpoint: 'https://auth.example.com',
+      redirectUri: 'http://127.0.0.1:16526/auth/callback',
+      BrowserWindow: fake.FakeBrowserWindow,
+      session: { fromPartition: vi.fn(() => authSession) },
+      shell,
+    })
+    await authWindow.open('https://auth.example.com/sign-in?attempt=1')
+    expect(fake.instances.length).toBe(1)
+    fake.instances[0].close()
+    await authWindow.open('https://auth.example.com/sign-in?attempt=2')
+    expect(fake.instances.length).toBe(2)
+    expect(fake.instances[1].loadedUrl).toBe('https://auth.example.com/sign-in?attempt=2')
+  })
 })

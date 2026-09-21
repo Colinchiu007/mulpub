@@ -321,6 +321,9 @@ class AuthService {
     try {
       await callbackServer.start()
       const callbackPromise = callbackServer.waitForCallback()
+      // L2 秒开：先弹出本地加载窗（不等 OIDC discovery），把窗口出现从 discovery 之后提前到点击瞬间；
+      // 加载窗失败绝不能阻断登录主流程，降级为原有「URL 就绪再开窗」。
+      try { await this._client.openSignInWindow?.() } catch { /* best-effort：忽略加载窗异常 */ }
       await this._client.signIn({ redirectUri: this._redirectUri })
       let callbackUri
       if (typeof this._client.waitForSignInWindowClosed === 'function') {
