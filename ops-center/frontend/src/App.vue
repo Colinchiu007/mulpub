@@ -43,9 +43,9 @@ const route = useRoute()
 const authStore = useAuthStore()
 const menuStore = useMenuStore()
 
-const visibleMenuItems = computed(() =>
-  menuStore.orderedItems.filter((item) => !item.adminOnly || authStore.role === 'admin')
-)
+// 侧边栏与菜单设置页共用单一事实源口径（menuStore.visibleForRole），
+// 避免两处各自维护过滤规则导致漂移（2026-09-21 菜单设置少 5 项事故）
+const visibleMenuItems = computed(() => menuStore.visibleForRole(authStore.role))
 
 function logout() {
   authStore.logout()

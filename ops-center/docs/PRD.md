@@ -1845,3 +1845,54 @@ POST /cases/{id}/runs → status=queued
 6. 敏感内容合规评分正确降低（测试：合规=0分）
 7. AI 味内容去AI味评分明显低于人类书写内容
 8. 数据库表自动创建和索引生效
+
+
+## 12A.25 运营端菜单设置（左侧菜单排序）（2026-09-21 补充规格 + 一致性修复）
+
+### 背景与定位
+
+运营中心（OpsCenter 前端）左侧边栏的菜单顺序支持个性化调整。「菜单设置」页（路由 `/settings`，`SettingsView.vue`）是唯一的排序管理入口，与侧边栏（`App.vue`）共同消费同一数据源。
+
+### 数据模型与单一事实源
+
+- **菜单目录**：`src/config/menuItems.js` 的 `MENU_ITEMS`（当前 36 项），每项含 `path / label / icon`，可选 `adminOnly: true`；`DEFAULT_MENU_ORDER = MENU_ITEMS.map(i => i.path)` 为默认排序。
+- **adminOnly 项（5 个）**：`/rewrite-hard-constraints` 改写硬约束、`/pipeline-options` 选项控制、`/app-menu` 应用菜单、`/feedback` 用户反馈、`/model-keys` 模型密钥。
+- **可见性口径（单一事实源）**：`stores/menu.js` 的 `visibleForRole(role)` —— `!item.adminOnly || role === 'admin'`。侧边栏与菜单设置页**必须**调用该函数，禁止在消费方各自实现过滤（规则漂移是本章节修复的事故根因）。
+- **持久化**：排序存 `localStorage['ops_menu_order']`（JSON 数组，仅 path 序列），重启后保留。
+
+### 功能逻辑
+
+1. **读取（水合）**：`readOrder()` 解析 localStorage；非法 JSON / 非数组 → 回落默认排序。
+2. **数据校验（前向兼容）**：水合时过滤未知 path（防脏数据/已下线菜单残留）；默认排序中存在但已保存序列缺失的 path 追加到尾部（新增菜单项自动出现在设置页与侧边栏，无需清缓存）。
+3. **上移/下移**：`move(path, ±1)`，越界（首项上移、末项下移）安全忽略；按钮在首/末行禁用。
+4. **拖拽排序**：`reorderByPath(fromPath, toPath)` 按 path 定位（视图列表是角色过滤后的子集，下标与完整 order 不一致，按下标重排会移动错项——adminOnly 项造成下标漂移）。
+5. **恢复默认排序**：`reset()` 将序列重置为 `DEFAULT_MENU_ORDER` 并持久化。
+6. **自动保存**：每次变更立即写 localStorage，无「保存」按钮。
+
+### 交互逻辑与显示项
+
+- 列表行显示：拖拽把手图标、序号（从 1 起，按当前角色可见序列计）、菜单图标、菜单名称、上移/下移链接按钮。
+- **显示项与角色一致性（本次修复核心）**：设置页可操作的菜单项集合必须与左侧真实侧边栏在**同一登录角色**下完全一致：
+  - admin：36 项全部可操作（含 5 个 adminOnly 项）；
+  - 非 admin：仅 31 个公共项（与其侧边栏一致）。
+- 提示文字（卡片顶部）：「拖拽菜单项调整左侧菜单顺序，或点击箭头微调；设置会自动保存。」
+- 页面标题「菜单设置」；Tab 名称「菜单排序」。
+
+### 权限
+
+- 路由 `/settings` 仅要求登录（`requiresAuth`）；adminOnly 菜单项对非 admin 既不在侧边栏显示、也不在设置页出现（同一口径函数保证）。
+
+### 2026-09-21 事故与修复记录
+
+- **现象**：admin 登录后，菜单设置页仅 31 项，侧边栏实际 36 项，用户反馈/模型密钥/改写硬约束/选项控制/应用菜单 5 项无法排序。
+- **根因**：`SettingsView.vue` 硬编码 `!item.adminOnly` 过滤，未考虑角色；侧边栏用 `!adminOnly || role==='admin'`。两处规则各自维护、无单一事实源（系统性漏洞：测试场景缺失——从未断言两消费方口径一致）。
+- **修复**：新增 `menuStore.visibleForRole(role)` 单一事实源；`App.vue` 与 `SettingsView.vue` 一律改为调用它。
+- **回归保护**：`src/stores/menu-visibility.test.js` 4 条用例——admin 全集与 `MENU_ITEMS` 一致、非 admin 仅公共项、5 个 adminOnly 项对 admin 必须可见、重排后顺序跟随且不影响他角色视图。全量 17/17 通过，`npm run build` 通过。
+
+### 验收标准
+
+- [x] admin 登录：设置页行数 == 侧边栏菜单项数 == 36。
+- [x] 非 admin 登录：设置页行数 == 侧边栏菜单项数 == 31。
+- [x] 拖拽/上移/下移后侧边栏实时同步，刷新后顺序保留。
+- [x] 恢复默认排序后回到 `MENU_ITEMS` 声明顺序。
+- [x] localStorage 含未知 path 时不渲染幽灵项；新增菜单项自动补到尾部。
