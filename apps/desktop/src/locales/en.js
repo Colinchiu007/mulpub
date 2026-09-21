@@ -2930,6 +2930,19 @@ knowledgeBase: {
     // Empty state (2026-09-18): was hardcoded Chinese, blocked by CI check-locale-sync --cjk
     emptyTitle: 'Enter a topic to start analysis',
     emptyDescription: 'AI will analyze viral potential across title structure, emotional triggers and engagement heat',
+    // Error visibility (2026-09-21): analysis/generation failures surface a friendly message instead of being swallowed
+    analyzeFailed: 'Analysis failed. Please try again later, or check network and service status',
+    generateFailed: 'Copy generation failed. Please try again later',
+    // Polish (2026-09-21): local-fallback mode badge + localized generation task names
+    localModeBadge: 'Local analysis',
+    localModeHint: 'Orchestrator unavailable — results come from the local heuristic engine',
+    taskTitles: 'Titles',
+    taskHooks: 'Hooks',
+    taskRewrite: 'Rewrite',
+    taskStructures: 'Structures',
+    sectionPlatformScores: 'Platform Scores',
+    sectionSuggestedStructures: 'Suggested Title Structures',
+    sectionGenerateResult: 'Generated Result',
   },
 
   // ── Publish destination modal ──
