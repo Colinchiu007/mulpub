@@ -22,6 +22,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 function Write-Info($m){ Write-Host $m }
+function Norm-Path([string]$p) { return (($p -replace '/', '\').TrimEnd('\')) }
 
 # self-locate node and prepend to PATH (managed node may not be on system PATH)
 $nodeExe = $null
@@ -50,6 +51,48 @@ if (-not (Test-Path -LiteralPath $gitFile)) {
   Write-Info ("  git worktree add --detach `"$Worktree`" origin/main")
   Write-Info '  then move your preserved node_modules back into it.'
   exit 1
+}
+
+# 2b. anchor hot backup + health lint (runs even when the app is live, hence placed
+#     BEFORE the live-app early-exit below). Snapshots the small persistence files of
+#     shared-user-data into '<anchor>.backups\<yyyyMMdd-HHmmss>\' and keeps the newest
+#     7 sets, so a stray 'git clean -xfd' or manual rm in another session can be rolled
+#     back to at most one day of lost login-state churn.
+$anchorDir = Norm-Path $Profile
+$anchorFiles = @('multi-publish.db', (Join-Path 'backend-data' 'accounts.json'), 'identity-session.json')
+try {
+  $present = @($anchorFiles | Where-Object { Test-Path -LiteralPath (Join-Path $anchorDir $_) })
+  if ($present.Count -gt 0) {
+    $backupRoot = $anchorDir + '.backups'
+    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $dest = Join-Path $backupRoot $stamp
+    New-Item -ItemType Directory -Path $dest -Force | Out-Null
+    foreach ($f in $present) {
+      try {
+        $fd = Join-Path $dest $f
+        $fp = Split-Path $fd -Parent
+        if (-not (Test-Path -LiteralPath $fp)) { New-Item -ItemType Directory -Path $fp -Force | Out-Null }
+        Copy-Item -LiteralPath (Join-Path $anchorDir $f) -Destination $fd -Force -ErrorAction Stop
+      } catch {
+        Write-Info ("WARN: anchor snapshot skipped {0} ({1})" -f $f, $_.Exception.Message)
+      }
+    }
+    # prune: only delete timestamp-named dirs we created, newest 7 kept
+    $stale = @(Get-ChildItem -LiteralPath $backupRoot -Directory -ErrorAction SilentlyContinue |
+               Where-Object { $_.Name -match '^\d{8}-\d{6}$' } |
+               Sort-Object Name -Descending | Select-Object -Skip 7)
+    foreach ($s in $stale) { Remove-Item -LiteralPath $s.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+    Write-Info ("anchor snapshot -> $dest ($($present.Count) file(s)); pruned $($stale.Count) old set(s)")
+  } else {
+    Write-Info 'WARN: no anchor files found to snapshot (first run before any login?)'
+  }
+} catch {
+  Write-Info ("WARN: anchor snapshot failed: $($_.Exception.Message)")
+}
+$anchorLint = Join-Path $PSScriptRoot 'mp-anchor-health.ps1'
+if (Test-Path -LiteralPath $anchorLint) {
+  & powershell -ExecutionPolicy Bypass -File $anchorLint -RepoRoot $repoRoot
+  Write-Info ("anchor health lint exit=$LASTEXITCODE")
 }
 
 # 3. is a live app involved? (avoid rewriting code underneath a running window)
