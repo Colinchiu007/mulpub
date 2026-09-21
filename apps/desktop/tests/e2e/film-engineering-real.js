@@ -43,6 +43,13 @@ function check (name, ok, detail = '') {
   return item.ok
 }
 
+function skip (name, detail = '') {
+  const item = { name, ok: true, skipped: true, detail: detail || '' }
+  report.checks.push(item)
+  console.log('SKIP ' + name + (item.detail ? ' :: ' + item.detail : ''))
+  return true
+}
+
 function messageText (value) {
   return String(value || '').replace(/\s+/g, ' ').trim()
 }
@@ -116,7 +123,9 @@ async function installMessageObserver (page) {
 function classifyVideoOutcome (observed) {
   const o = observed || {}
   if (o.openFolderVisible) return 'done'
+  if (o.confirmVisible) return 'cost-gate'
   if (o.gotoModelVisible) return 'fail-closed'
+  if (o.licenseGated) return 'license-gated'
   return 'unknown'
 }
 
@@ -269,31 +278,51 @@ async function run () {
     check('视频发起按钮存在', (await videoStart.count()) > 0)
     await videoStart.click()
 
-    // 停在 generate_videos 成本闸 → 确认卡渲染；确认前不得出现逐镜成功（成本闸未过零 provider 调用的前端可观测代理）
+    // 发起后观察终态（D2 成本闸在 generate_videos 阶段入口）：
+    // cost-gate=登录环境停闸待确认；license-gated=未登录 profile 被 preload 许可证门 fail-closed（产品合同行为）；
+    // fail-closed 未经确认卡 = checkpoint 疑似旁路（真失败）。
     const confirmBtn = page.locator('[data-testid="fe-video-confirm"]')
-    const confirmRendered = await waitFor(async () => await confirmBtn.isVisible().catch(() => false), GENERATION_RESULT_TIMEOUT * 2, 500)
-    check('成本确认卡渲染（停在成本闸）', Boolean(confirmRendered))
-    let successBeforeConfirm = 0
-    if (confirmRendered) {
+    const gotoModels = page.locator('[data-testid="fe-video-goto-models"]')
+    const failedError = page.locator('.fe-vg .fe-vg-error').first()
+    const observed = { confirmVisible: false, gotoModelVisible: false, openFolderVisible: false, licenseGated: false, errorText: '' }
+    await waitFor(async () => {
+      observed.confirmVisible = await confirmBtn.isVisible().catch(() => false)
+      observed.gotoModelVisible = await gotoModels.isVisible().catch(() => false)
+      observed.errorText = (observed.confirmVisible || observed.gotoModelVisible) ? '' : messageText(await failedError.textContent().catch(() => ''))
+      observed.licenseGated = observed.errorText.includes('许可证')
+      return classifyVideoOutcome(observed) !== 'unknown'
+    }, GENERATION_RESULT_TIMEOUT * 2, 500)
+    const verdict = classifyVideoOutcome(observed)
+
+    // 确认前不得出现逐镜成功：任何分支都必须成立（成本闸/许可证门未过不应有任何 provider 调用）
+    const successBeforeConfirm = await page.locator('.fe-vg-shot .el-tag--success').count()
+    check('确认前零逐镜成功（成本闸未过不调用 provider）', successBeforeConfirm === 0, 'successBeforeConfirm=' + successBeforeConfirm + ' verdict=' + verdict)
+
+    if (verdict === 'cost-gate') {
+      check('成本确认卡渲染（停在成本闸）', true)
       const shotRows = await page.locator('.fe-vg-shot').count()
       check('成本确认卡含逐镜清单', shotRows > 0, 'rows=' + shotRows)
-      successBeforeConfirm = await page.locator('.fe-vg-shot .el-tag--success').count()
-      check('确认前零逐镜成功（成本闸未过不调用 provider）', successBeforeConfirm === 0, 'successBeforeConfirm=' + successBeforeConfirm)
-    }
-    await assertNoValidationMessage(page, '视频成本确认卡')
+      await assertNoValidationMessage(page, '视频成本确认卡')
 
-    const outcome = { gotoModelVisible: false, openFolderVisible: false }
-    if (confirmRendered) {
       await confirmBtn.click()
-      const gotoModels = page.locator('[data-testid="fe-video-goto-models"]')
-      outcome.gotoModelVisible = Boolean(await waitFor(async () => await gotoModels.isVisible().catch(() => false), GENERATION_RESULT_TIMEOUT * 2, 1000))
-      outcome.openFolderVisible = Boolean(await waitFor(async () => await page.locator('[data-testid="fe-video-open-folder"]').isVisible().catch(() => false), 3000, 500))
-      const verdict = classifyVideoOutcome(outcome)
-      check('确认后要么出成片要么 fail-closed（不静默失败）', verdict !== 'unknown', verdict)
-      if (verdict === 'fail-closed') {
+      observed.confirmVisible = false
+      observed.gotoModelVisible = Boolean(await waitFor(async () => await gotoModels.isVisible().catch(() => false), GENERATION_RESULT_TIMEOUT * 2, 1000))
+      observed.openFolderVisible = Boolean(await waitFor(async () => await page.locator('[data-testid="fe-video-open-folder"]').isVisible().catch(() => false), 3000, 500))
+      const afterConfirm = classifyVideoOutcome(observed)
+      check('确认后要么出成片要么 fail-closed（不静默失败）', afterConfirm !== 'unknown', afterConfirm)
+      if (afterConfirm === 'fail-closed') {
         const noModelHint = await page.locator('.fe-vg-hint').first().textContent().catch(() => '')
         check('fail-closed 给出未配置视频模型引导（跳模型设置）', messageText(noModelHint).length > 0, messageText(noModelHint))
       }
+    } else if (verdict === 'license-gated') {
+      // 未登录 profile：pipeline:start-orchestrated 为 authenticated 通道，preload 拒绝且 run 未创建
+      check('许可证门 fail-closed（未登录拒绝启动流水线，不静默放行）', true, observed.errorText)
+      skip('成本确认卡渲染（停在成本闸）', '需登录 profile（authenticated 通道）；成本闸全路径由 checkpoint 集成测试与 6.2 登录环境手动冒烟覆盖')
+      skip('成本确认卡含逐镜清单', '同上（当前临时 profile 未登录）')
+    } else if (verdict === 'fail-closed') {
+      check('成本确认卡渲染（停在成本闸）', false, '未经确认卡直接进入未配置模型 fail-closed——checkpoint 成本闸疑似被旁路')
+    } else {
+      check('成本确认卡渲染（停在成本闸）', false, '等待终态超时：' + (observed.errorText || verdict))
     }
     await assertNoValidationMessage(page, '分镜视频生成')
     await page.screenshot({ path: path.join(OUTPUT_DIR, '03-film-engineering-video.png'), fullPage: true })
