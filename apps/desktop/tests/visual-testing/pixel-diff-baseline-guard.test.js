@@ -69,7 +69,9 @@ describe("baseline-content-guard", () => {
       const buf = fs.readFileSync(path.join(dir, f));
       expect(() => assertBaselineContent(buf, { label: f }), `${f} 应通过内容守卫`).not.toThrow();
     }
-  });
+    // 串行解码 17+ 张 1920x1080 基线 PNG 属 CPU 密集守卫；coverage 串行插桩下实测 ~13s
+    // 会撕破默认 10s 超时（#2127 已知红）。仅放宽时间预算，无弱化断言。
+  }, 60000);
 
   it("已知空白基线确实会被守卫拦截（确认存量缺陷定性）", () => {
     expect(KNOWN_EMPTY_BASELINES.length).toBeGreaterThan(0);
