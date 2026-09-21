@@ -403,7 +403,7 @@ export function useFilmEngineering () {
     COPY_MODES,
     loadStatus, loadScenes, selectScene, openShot, loadDoctrine,
     toggleShot, toggleAllInScene, copyText, copySelected, exportSelected, generateSelected,
-    adaptScript, copyAdaptedShot, refreshAll,
+    adaptScript, copyAdaptedShot, refreshAll, selectedShotsPayload,
     buildConfigProfileSnapshot, applyConfigProfileSnapshot,
     loadConfigProfiles, saveConfigProfile, renameConfigProfile, deleteConfigProfile,
   }

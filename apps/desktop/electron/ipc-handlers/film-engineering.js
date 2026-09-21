@@ -18,6 +18,10 @@
 
 const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('./helpers')
+const fs = require('fs')
+const {
+  generateShotVideo, resolveFilmVideoProvider, getFilmRunDir, FILM_ASPECTS, FILM_DURATIONS,
+} = require('../services/film-engineering/video-gen')
 
 const MAX_SCRIPT_LENGTH = 10000
 const MAX_CHARACTER_MAP_KEYS = 10
@@ -27,6 +31,8 @@ const MAX_GENERATE_BATCH = 20
 function registerHandlers (ipcMain, deps) {
   const log = deps.log || { info () {}, warn () {}, error () {} }
   const service = deps.filmEngineeringService
+  const pipelineEngine = deps.pipelineEngine
+  const aiGenerator = deps.aiGenerator
 
   function kitError (e) {
     const message = e instanceof Error ? e.message : String(e)
@@ -162,6 +168,61 @@ function registerHandlers (ipcMain, deps) {
       log.warn('[film-engineering] generate-selected error:', e instanceof Error ? e.message : String(e))
       return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e) }
     }
+  }))
+
+  // 单镜重试（D7）：service 直调，覆盖该镜 shot_NNN.mp4，绝不触碰流水线阶段状态机；
+  // 原文直送合同——prompt 取 run 内 selectedShots[shotIndex].prompt 逐字符提交，不经优化器。
+  ipcMain.handle('film-engineering:retry-shot', withSenderCheck(async (_event, payload) => {
+    const params = payload || {}
+    const runId = params.runId
+    const shotIndex = params.shotIndex
+    if (typeof runId !== 'string' || !runId.trim()) {
+      return { code: EC.VALIDATION_ERROR, message: 'runId 必须为非空字符串' }
+    }
+    if (!Number.isInteger(shotIndex) || shotIndex < 0) {
+      return { code: EC.VALIDATION_ERROR, message: 'shotIndex 必须为非负整数' }
+    }
+    const snapshot = pipelineEngine && typeof pipelineEngine.getRunSnapshot === 'function'
+      ? pipelineEngine.getRunSnapshot(runId)
+      : null
+    if (!snapshot) {
+      return { code: EC.VALIDATION_ERROR, message: 'runId 不属于任何运行中的流水线: ' + runId }
+    }
+    const shots = (snapshot.context && Array.isArray(snapshot.context.selectedShots)) ? snapshot.context.selectedShots : []
+    if (shots.length === 0) {
+      return { code: EC.VALIDATION_ERROR, message: 'selectedShots 为空，该 run 无可重试分镜' }
+    }
+    if (shotIndex >= shots.length) {
+      return { code: EC.VALIDATION_ERROR, message: 'shotIndex 不属于该 run（有效范围 0-' + (shots.length - 1) + '）' }
+    }
+    const shot = shots[shotIndex]
+    if (!shot || typeof shot.prompt !== 'string' || !shot.prompt.trim()) {
+      return { code: EC.VALIDATION_ERROR, message: '该镜提示词为空，无法重试' }
+    }
+    const aspect = FILM_ASPECTS.includes(params.aspect) ? params.aspect : '16x9'
+    const seconds = FILM_DURATIONS.includes(Number(params.seconds)) ? Number(params.seconds) : 5
+    const providerCfg = resolveFilmVideoProvider(aiGenerator)
+    if (!providerCfg) {
+      return {
+        code: EC.REQUEST_ERROR,
+        errorCode: 'VIDEO_MODEL_NOT_CONFIGURED',
+        message: '影视工程视频重试需要视频模型（如 Seedance / Kling / Veo / CogVideo 等），请在模型设置中配置并设为默认视频 Provider 后重试',
+      }
+    }
+    const runDir = getFilmRunDir(runId)
+    try { fs.mkdirSync(runDir, { recursive: true }) } catch (e) { /* 目录已存在，忽略 */ }
+    const result = await generateShotVideo({
+      shot, index: shotIndex, runDir, aspect, seconds, providerCfg,
+      sleep: deps._testSleep, download: deps._testDownload, log,
+    })
+    if (!result.success) {
+      return {
+        code: EC.REQUEST_ERROR,
+        message: result.error || '单镜重试失败',
+        data: { index: shotIndex, shotId: result.shotId, success: false },
+      }
+    }
+    return { code: 0, data: { index: shotIndex, shotId: result.shotId, success: true, path: result.path } }
   }))
 }
 

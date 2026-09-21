@@ -2208,7 +2208,7 @@ export default {
     "stats": {"scenes": "场景", "shots": "分镜", "references": "资产索引", "duration": "时长"},
     "source": "原始项目",
     "characters": "角色",
-    "tabs": {"library": "分镜库", "adapt": "剧本套用", "doctrine": "提示词方法论"},
+    "tabs": {"library": "分镜库", "adapt": "剧本套用", "doctrine": "提示词方法论", "video": "视频生成"},
     "library": {"empty": "该场景暂无分镜", "selectScene": "请选择左侧场景查看分镜", "total": "共", "selectAll": "全选本场", "copySelected": "批量复制", "exportJson": "导出 JSON", "exportMd": "导出 Markdown", "generate": "生成图片", "copyMode": "复制内容", "copyModeFull": "完整提示词", "copyModeBlocks": "提示词块", "copyModeCharacters": "角色行", "copyModeGeo": "GEO 布局", "shotDetail": "分镜详情", "model": "模型", "resolution": "分辨率", "refTokens": "引用资产", "refUnknown": "未知引用", "copyFull": "复制完整提示词", "copyBlocks": "复制提示词块", "copyCharacters": "复制角色行", "copyGeo": "复制 GEO 布局", "expandPrompt": "展开全文", "collapsePrompt": "收起", "copyToken": "复制令牌", "generateHint": "一次最多 20 个，复用已配置的图片生成模型", "generateResultTitle": "生成结果", "generateSuccess": "成功", "generateFail": "失败"},
     "adapt": {"scriptLabel": "输入剧本", "scriptPlaceholder": "在这里粘贴你的剧本。按空行分隔场景（每个场景 = 一个分镜模板）。剧情内容会被套用到 Hell Grind 的提示词架构中，其余实现方式（角色定妆、GEO 锁定、动作时间线、AUDIO、STYLE、正向约束）原样保留。", "scriptLimit": "最多 10000 字", "roleMapTitle": "角色映射", "roleMapHint": "把剧本里的角色映射到 Hell Grind 主角（ROKO / JAXX / LULU / REIN 等）。映射后描述符中的角色名会被替换为你的角色名。", "addRole": "添加映射", "removeRole": "移除", "llmEnabled": "启用 LLM 润色（可选）", "adaptBtn": "套用生成", "adapting": "套用中…", "resultTitle": "套用结果", "resultCount": "个套用分镜", "copyShot": "复制该分镜", "warningsTitle": "提示", "noResult": "输入剧本并点击「套用生成」", "roleKeyPlaceholder": "Hell Grind 角色名（如 ROKO）", "roleValuePlaceholder": "你的角色名"},
     "doctrine": {"blocks": "七大提示词块", "rules": "十条铁律", "glossary": "术语表", "zh": "中文", "en": "英文", "linkNote": "完整方法论文档见随包 prompt-doctrine.zh.md"},
@@ -2235,6 +2235,7 @@ export default {
     "copyBatchFailed": "批量复制失败",
     "exportFailed": "导出失败",
     "generateFailedMsg": "生成失败",
+    "video": {"entry":"生成视频","title":"分镜视频生成","selectedCount":"已选 {n} 个分镜","aspect":"画幅","aspect169":"16:9 横屏","aspect916":"9:16 竖屏","aspectSource":"跟随原图","seconds":"时长","secondsN":"{n} 秒","batchHint":"单批最多 {max} 个分镜；确认前不会产生任何模型调用与费用。","start":"发起生成","tooManyShots":"单批最多 {max} 个分镜，请减少选择数量","noShots":"请先勾选分镜","confirmTitle":"成本确认","confirmHint":"将为 {totalShots} 个分镜生成视频（画幅 {aspect} / 时长 {seconds}s，Provider：{provider}）。确认后才开始计费生成。","confirm":"确认生成","cancel":"取消","statusPending":"待生成","statusSuccess":"成功","statusFailed":"失败","retry":"重试","generating":"生成中…","doneTitle":"成片已生成","openFolder":"打开所在文件夹","saveAs":"另存为","newRun":"再来一批","cancelled":"已取消","failedTitle":"生成失败","viewModelSettings":"前往模型设置","noModel":"尚未配置默认视频模型。请在模型设置中配置视频 Provider（如 Seedance / Kling / Veo）并设为默认后重试。"},
   },
 
   collection: {

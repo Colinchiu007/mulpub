@@ -67,6 +67,9 @@
 | 已应用配置 | Configuration applied | create.story2video.configProfile.applied |
 | 配置已重命名 | Configuration renamed | create.story2video.configProfile.renamed |
 | 配置已删除 | Configuration deleted | create.story2video.configProfile.deleted |
+| 分镜视频生成 | Shot video generation | filmEngineering.video.title |
+| 成本确认 | Cost confirmation | filmEngineering.video.confirmTitle |
+| 成片 | Final video | filmEngineering.video.doneTitle |
 
 ## 维护规则
 

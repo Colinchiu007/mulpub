@@ -2956,6 +2956,38 @@ story2video-compose 的创作配置使用五个可折叠区：基础、外观、
 - 修改文件：`pipeline-labels.js`（新增注册）、`router/index.js`（新增路由）、`zh.js` / `en.js`（新增 i18n）
 - 无破坏性变更：不影响现有流水线功能。
 
+#### 8) 分镜视频生成与成片合成扩展（2026-09-21，film-engineering-video-gen）
+
+> **范围**：在既有电影工程流水线末端追加「分镜视频生成（generate_videos）」与「成片合成（render）」两阶段，构成六阶段端到端；新增成本确认 checkpoint、失败分镜单镜重试 IPC、提示词原文直送合同。
+> **分支**：`film-engineering-video-gen`（worktree 隔离）。
+> **契约来源**：`openspec/changes/film-engineering-video-gen/specs/film-engineering/spec.md`（3 MODIFIED + 4 ADDED，18 可测场景）。
+
+**流程（六阶段）**：分镜选取 → `generate_videos`（成本闸先行） → `render`（成片合成）。
+
+- **原文直送**：提交给视频 provider 的 prompt 与分镜导出文本逐字符相等（含 `<<<uuid>>>` 令牌）；prompt-engine 优化器被调用即视为违例（负向场景，见 specs/video-prompt-engine）。
+- **成本确认 checkpoint（cost_confirm）**：`generate_videos` 在 `context.cost_confirmation.confirmed !== true` 时返回 `awaitingConfirmation + costCheck`（逐镜 shotId/标题/画幅/时长 + 批次/Provider/模型），**零 provider 调用**；用户经 `pipeline:confirm-stage-gate` IPC 确认后重入才逐镜生成落盘 `shot_NNN.mp4`；`resumeFromCheckpoint` 重启恢复仍停在成本闸不绕过。
+- **单镜重试**：`film-engineering:retry-shot` IPC（withSenderCheck），合法重试以原文直送合同单镜提交→下载→覆盖 `shot_NNN.mp4`，不迁移流水线阶段状态。
+- **成片合成 render**：ffprobe 预检——规格一致走 `-c copy` 直拷，不一致 scale+pad 归一后 concat；磁盘缺镜 fail 并输出缺失序号清单、不产出 `final.mp4`；产物清单以 run 目录扫描为准（内存态标失败但磁盘已补视为可用）。成片落 `film-engineering/<runId>/final.mp4`，受控媒体根 `getAllowedMediaRoots()`。
+- **fail-closed**：未配置默认视频模型时返回 `VIDEO_MODEL_NOT_CONFIGURED`（含引导字段），前端引导跳 `/model-providers`。
+- **批次上限**：单批最多 10 镜（`MAX_VIDEO_BATCH` / `FILM_MAX_VIDEO_BATCH`），>10 前端拦截 + 后端兜底。
+
+**交互逻辑与显示项**（`FilmEngineeringView.vue` + `useFilmVideoGen` composable 六态）：
+- idle 发起面板（画幅 16:9 默认 / 9:16 / 源规格、时长 5/8/10s 默认 5、批量提示、>10 拦截）
+- awaiting-confirm 成本确认卡（逐镜清单 + 确认/取消）
+- generating 进度 + 逐镜结果列表（成功/失败/重试按钮）
+- done 成片完成态（打开所在文件夹 / 另存为 / 再来一批）
+- cancelled / failed（provider 未配置跳模型设置）
+- 数据源：`pipelineStartOrchestrated('film-engineering', ...)` + onPipelineUpdate + 3s 轮询 `getRunSnapshot` 兜底；`costCheck` / `videoResults` / `finalPath` 取自 top-level `snapshot.context.{generate_videos,render}`。
+
+**i18n**：`zh.js` / `en.js` 成对新增 `filmEngineering.video.*` 全量文案；`01-docs/i18n-glossary.md` 登记「分镜视频生成 / 成本确认 / 成片」。渲染端非 locales 文件零新增中文字面量（错误按 errorCode 本地化，回退串置 null）。
+
+**影响范围**：
+- 新增：`services/film-engineering/video-gen.js`、`film-render.js`、`composables/useFilmVideoGen.js` 及对应测试；IPC `film-engineering:retry-shot`、`pipeline:confirm-stage-gate`。
+- 修改：`container.setup.js`（装配六阶段）、`pipeline-engine.js`（stageDefs 追加）、`story2video-paths.js`（受控根 film-engineering）、preload/access-control/publisher（暴露通道）、`FilmEngineeringView.vue`、locales。
+- 二期排除清单见 `openspec/changes/film-engineering-video-gen/proposal.md`（多角色一致性、自动配音/字幕、跨 run 续拼等本期不做）。
+
+**验证**：15 测试文件 132 单测全绿；CI 门禁 locale key-sync / CJK / glossary PASS；QM-1 打包 exe 启动 9s 存活、stderr 0 字节无告警、asar 含新模块 + require 链 PASS。
+
 ### 3.1.31 视频创作页 UI 优化（2026-08-18）
 
 > **范围**：流水线启动页底部按钮对齐、页面导航箭头、返回按钮优化、历史记录卡片信息增强、页面名词统一。

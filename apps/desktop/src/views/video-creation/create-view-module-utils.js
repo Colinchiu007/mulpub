@@ -117,7 +117,7 @@ function hasManualPipelineCheckpoint(snapshot, needsCheckpoint = false, context 
   const checkpoint = snapshot.checkpoint && typeof snapshot.checkpoint === 'object' && !Array.isArray(snapshot.checkpoint)
     ? snapshot.checkpoint
     : null
-  const checkpointKinds = new Set(['scene_asset_selection', 'content_policy', 'needs_user_input', 'waiting_approval', 'approval'])
+  const checkpointKinds = new Set(['scene_asset_selection', 'content_policy', 'needs_user_input', 'waiting_approval', 'approval', 'cost_confirm'])
   const checkpointType = String(checkpoint?.type || '').trim().toLowerCase()
   const checkpointReason = String(checkpoint?.reason || '').trim().toLowerCase()
   if (checkpointKinds.has(checkpointType) || checkpointKinds.has(checkpointReason)) return true

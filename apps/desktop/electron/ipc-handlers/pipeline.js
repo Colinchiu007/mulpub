@@ -146,6 +146,21 @@ function registerHandlers(ipcMain, deps) {
     }
   }))
 
+  // 阶段确认门（成本确认等）：确认/取消 checkpoint，可选 context 补丁透传引擎
+  ipcMain.handle('pipeline:confirm-stage-gate', withSenderCheck(async (_event, runId, contextPatch) => {
+    if (typeof runId !== 'string' || !runId.trim()) return { code: EC.VALIDATION_ERROR, message: '缺少或非法 runId' }
+    if (contextPatch !== undefined && (contextPatch === null || typeof contextPatch !== 'object' || Array.isArray(contextPatch))) {
+      return { code: EC.VALIDATION_ERROR, message: 'contextPatch 必须为对象' }
+    }
+    try {
+      const result = await pipelineEngine.confirmStageGate(runId, contextPatch)
+      return { code: 0, data: result }
+    } catch (err) {
+      log.error('[pipeline] confirmStageGate error:', err)
+      return { code: EC.REQUEST_ERROR, message: err.message, errorCode: err?.errorCode || err?.code || null, errorParams: err?.errorParams || null }
+    }
+  }))
+
   // 分镜素材自选（manual）：确认每个场景的素材选择并推进（finalize_assets → compose → publish）
   ipcMain.handle('pipeline:confirmSceneAssets', withSenderCheck(async (_event, runId, selections) => {
     if (typeof runId !== 'string' || !runId.trim()) return { code: EC.VALIDATION_ERROR, message: '缺少或非法 runId' }
