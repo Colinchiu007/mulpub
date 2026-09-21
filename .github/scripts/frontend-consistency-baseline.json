@@ -1,5 +1,6 @@
 {
   "windowConfirm": 0,
   "rendererIpcDirect": 0,
-  "colorLiterals": 129
+  "colorLiterals": 129,
+  "cssVarUndefined": 64
 }
