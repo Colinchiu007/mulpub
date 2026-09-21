@@ -2639,7 +2639,7 @@ knowledgeBase: {
       personal: {
         title: 'No knowledge yet',
         message: 'Add personal knowledge so creation can reuse your own writing style',
-        action: 'Add knowledge',
+        action: 'Add Content',
       },
     },
     tabViral: 'Viral Library',

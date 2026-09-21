@@ -277,6 +277,8 @@ KnowledgeBasePage 爆款库 Tab 内二级视图（PatternAnalysisPanel.vue）：
 3. **手动录入**：填表 → 保存 → `addViralToLibrary` / `updateViralItem` → 成功 toast → 关闭弹窗 → `viralRef.loadData()` 刷新表格；
 4. **标签切换**：三标签任意顺序互切，面板按 `activeTab` 条件渲染（`v-if`），切换即挂载/卸载，模式分析面板 `onMounted` 自动拉取卡片列表；
 5. **文案变更**：个人知识库「＋ 添加知识」→「＋ 添加内容」，点击行为不变（打开 `PersonalFormDialog`，其标题沿用 `addPersonal` → 同步显示「添加内容」）。
+   - 同一动作在页面内有**两个入口**：右上主按钮（`addPersonal`）与列表空态 CTA（`empty.personal.action`，原「新增知识」）。二者必须同口径为「添加内容」，否则空库用户（首次使用的主路径）仍会看到旧文案，形成"同一按钮两种叫法"的口径漂移；
+   - 空态标题「暂无知识内容」与说明「添加个人知识后，可在创作时自动引用你的表达风格」保持不变（描述对象仍是"知识内容"，非按钮动作）。
 
 ### 12.5 数据校验
 
@@ -299,6 +301,7 @@ KnowledgeBasePage 爆款库 Tab 内二级视图（PatternAnalysisPanel.vue）：
 | `knowledgeBase.collectByLink` | 用链接采集 | Collect via Link | 新增（采集入口） |
 | `knowledgeBase.addPersonal` | 添加内容 | Add Content | 修改（原「添加知识 / Add Knowledge」） |
 | `knowledgeBase.addViral` | 添加爆款 | Add Viral | 不变（页面右上入口按钮） |
+| `knowledgeBase.empty.personal.action` | 添加内容 | Add Content | 修改（原「新增知识 / Add knowledge」，与右上按钮同口径） |
 
 ### 12.7 模式分析功能说明（实现现状）
 
@@ -348,8 +351,12 @@ KnowledgeBasePage 爆款库 Tab 内二级视图（PatternAnalysisPanel.vue）：
 | K5-K6 | 弹窗新增态标题为「手动添加爆款」；编辑态仍为「编辑」且不显示采集入口 |
 | K7-K8 | 采集入口存在、文案为「用链接采集」；点击 emit `collect` 一次 |
 | K9 | 容器收到 `collect` 后关闭弹窗并 `push('/collection')` |
+| K10 | zh：`addPersonal` 与 `empty.personal.action` 均严格等于「添加内容」，且不含「新增知识」（两处入口口径一致） |
+| K11 | en：`addPersonal` 与 `empty.personal.action` 均等于 "Add Content"（Gate 7 成对性前置保证） |
 
-实测：`KnowledgeBaseHotsyncUi.test.js` 9/9 通过；`views-coverage.test.js` + `more-components.test.js` 19/19 无回归；CI Gate 7 三项（zh/en 成对、CJK 基线无新增硬编码、key 存在性）全部 PASS。
+实测：`KnowledgeBaseHotsyncUi.test.js` 11/11 通过（K10-K11 为追加的空态文案口径锁）；`views-coverage.test.js` + `more-components.test.js` 19/19 无回归；CI Gate 7 三项（zh/en 成对、CJK 基线无新增硬编码、key 存在性）全部 PASS。关联回归 `viral-signal` + `ViralAnalysis` 共 43/43、`rewrite-engine` 知识/模式相关 33/33 通过。
+
+**浏览器实测取证**（headless Chromium 1440x900，本 worktree Vite dev server，`#/knowledge-base`）：三视图标签恒为 `[爆款库, 模式分析, 个人知识库]`；个人知识库右上按钮「＋ 添加内容」；弹窗 `.dialog-title` 为「手动添加爆款」，其右侧「用链接采集」计算样式为 `text-decoration: underline` + `color: rgb(239, 87, 87)` + `cursor: pointer`；点击后 `location.hash === "#/collection"` 且弹窗节点消失。追加轮复核（个人知识库空库态）：页面内所有含"添加/新增"的按钮文本为 `["＋ 添加内容", "添加内容"]`，`staleLabelPresent(新增知识) === false`，标签数仍为 3。
 
 **预防措施落地**：
 

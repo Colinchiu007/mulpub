@@ -1,3 +1,15 @@
+# [未发布] fix(desktop): 知识库空态「新增知识」按钮与主入口文案口径一致（PR #2132 追加）
+
+### 变更
+- **locales zh.js / en.js（成对）**：`knowledgeBase.empty.personal.action` 由「新增知识 / Add knowledge」改为「添加内容 / Add Content」。个人知识库的"添加"动作在页面内有两个入口——右上主按钮（`addPersonal`）与列表空态 CTA（`empty.personal.action`）；PR #2132 只改了前者，空库用户（首次使用主路径）仍会看到旧文案，属截图取证时发现的口径残留。空态标题「暂无知识内容」与描述文案保持不变。
+- **KnowledgeBaseHotsyncUi.test.js**：新增 K10-K11 两条 locale 口径锁（直接断言 zh/en messages，不依赖组件挂载），锁定两处入口同文案，防止"改一处漏一处"再次发生。
+
+### 验证
+- TDD：`KnowledgeBaseHotsyncUi.test.js` 11/11 通过；关联回归 renderer 43/43、`rewrite-engine` 知识/模式 33/33 通过；CI Gate 7 三项 PASS。
+- 浏览器取证（headless Chromium 1440x900，本 worktree Vite dev server）：三视图标签恒为 3 项、右上「＋ 添加内容」、弹窗标题「手动添加爆款」+ 右侧下划线珊瑚色「用链接采集」、点击后跳转 `#/collection` 且弹窗关闭。
+- 文档：`01-docs/PRD-ACTIVATE-VIRAL-LIBRARY-2026-09-13.md` §12.4 / §12.6 / §12.8 同步补记。
+
+---
 ﻿# [未发布] fix(desktop): 侧边栏「更多」菜单选中态修复 + 效果洞察页 UI/UE 精致化
 
 ### 变更

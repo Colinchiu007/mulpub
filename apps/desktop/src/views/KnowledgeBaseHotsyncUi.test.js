@@ -46,6 +46,8 @@ vi.mock("vue-router", () => ({
 import i18n from "@/i18n";
 import KnowledgeBasePage from "@/views/KnowledgeBasePage.vue";
 import ViralFormDialog from "@/components/ViralFormDialog.vue";
+import zhMessages from "@/locales/zh";
+import enMessages from "@/locales/en";
 
 function mountPage() {
   return mount(KnowledgeBasePage, { global: { plugins: [i18n] } });
@@ -131,5 +133,22 @@ describe("KnowledgeBasePage 用链接采集跳转", () => {
     await w.vm.$nextTick();
     expect(pushMock).toHaveBeenCalledWith("/collection");
     expect(w.findComponent(ViralFormDialog).exists()).toBe(false);
+  });
+});
+
+// 个人知识库「添加」入口有两处：页面右上角按钮 + 空态 CTA（PersonalKnowledgePanel）。
+// 两处必须同口径为「添加内容」，否则空库用户仍会看到旧文案「新增知识」。
+describe("个人知识库添加入口文案口径", () => {
+  it("zh：顶部按钮与空态 CTA 均为「添加内容」，不再出现「添加知识/新增知识」", () => {
+    const kb = zhMessages.knowledgeBase;
+    expect(kb.addPersonal).toBe("添加内容");
+    expect(kb.empty.personal.action).toBe("添加内容");
+    expect(kb.empty.personal.action).not.toContain("新增知识");
+  });
+
+  it("en：与 zh 成对，顶部按钮与空态 CTA 均为 Add Content", () => {
+    const kb = enMessages.knowledgeBase;
+    expect(kb.addPersonal).toBe("Add Content");
+    expect(kb.empty.personal.action).toBe("Add Content");
   });
 });

@@ -2641,7 +2641,7 @@ knowledgeBase: {
       personal: {
         title: '暂无知识内容',
         message: '添加个人知识后，可在创作时自动引用你的表达风格',
-        action: '新增知识',
+        action: '添加内容',
       },
     },
     tabViral: '爆款库',
