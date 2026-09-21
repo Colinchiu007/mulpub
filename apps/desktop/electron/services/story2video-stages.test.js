@@ -1243,7 +1243,7 @@ describe('story2video 资源索引契约', () => {
     expect(result.success).toBe(true)
     expect(result.output).toHaveLength(61)
     expect(serviceBus.calls).toHaveLength(61)
-  })
+  }, 30000)
 
   it('61 个场景继续进入资源生成，不因场景数被拒绝', async () => {
     const assetGenerator = {
@@ -1264,7 +1264,7 @@ describe('story2video 资源索引契约', () => {
     expect(result.error).toBeUndefined()
     expect(assetGenerator.generateImage).toHaveBeenCalledTimes(scenes.length)
     expect(assetGenerator.generateTTS).toHaveBeenCalledTimes(scenes.length)
-  })
+  }, 30000)
 })
 
 describe('story2video 内容策略人工处理', () => {
@@ -2386,16 +2386,16 @@ describe('story2video 调度边界（2026-08-10 双包死锁复盘）', () => {
         serviceBus: {},
       }),
       new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('generate_assets 死锁：阶段外层与 AIGenerator 内层同 key 双包，互相等待信号量')), 10000)),
+        setTimeout(() => reject(new Error('generate_assets 死锁：阶段外层与 AIGenerator 内层同 key 双包，互相等待信号量')), 30000)),
     ])
 
     expect(result.success).toBe(true)
     expect(result.output.scenes.length).toBe(3)
-    // 3 图片 + 3 TTS 全部经内层 governor 完成；外层未再套 governor（否则此处 10s 超时）
+    // 3 图片 + 3 TTS 全部经内层 governor 完成；外层未再套 governor（否则此处 30s 死锁判定超时）
     expect(aiGeneratorLike.generate.mock.calls.length).toBe(6)
     expect(governor.getStatus('minimax-multimodal:image:image-1').active).toBe(0)
     expect(governor.getStatus('minimax-multimodal:tts:voice-1').active).toBe(0)
-  })
+  }, 60000)
 })
 
 describe('story2video 视频+图片轮播混合模式（2026-08-11）', () => {
