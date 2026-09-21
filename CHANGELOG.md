@@ -1,3 +1,17 @@
+# [未发布] fix(desktop): 主进程菜单净化透传 group，修复运营中心跨组配置被吞（PR #2162）
+
+### 变更
+- **`apps/desktop/electron/services/app-menu-config.js`**：`normalizeAppMenu` 此前只保留 `key/visible/sort_order`，静默丢弃 bootstrap 下发的 `group` 字段——后端 `app_menu_service` 与渲染端 `resolveSidebarMenu`（C5 跨组）均已支持 group，属三端契约漂移，导致运营中心「一级导航 ↔ 更多」拖拽配置在应用端永远不生效。现按白名单透传（仅 `'primary'`/`'more'` 原文，大小写变体不放行），非法/缺失归一化为 `null` 由渲染端 fail-open 回退本地分组；新增 `APP_MENU_GROUPS` 导出。
+- **`app-menu-config.test.js`（新增）**：group 透传契约 4 用例（合法透传 / 非法缺失→null / 大小写不放行 / 既有净化语义不回归）。
+- **`ops-center-sync.test.js`**：严格 `toEqual` 断言同步补 `group` 字段（9 处）。
+- **文档同步**：`01-docs/FEATURE-APP-MENU-2026-09-15.md` §5.2 净化表补 N7 group 行，并修正文件路径（已拆分至 app-menu-config.js）。
+
+### 验证
+- TDD 红→绿：RED 4/4 失败 → GREEN；全量回归 `vitest run electron/services src/config` 4819 passed | 1 skipped | 0 failed。
+- QM-1 打包：`pnpm run build` 成功；asar 清单含修复文件；从 asar 提取后 require 链实测 group 透传正确；产物启动 9 秒 stderr 无报错。
+- 关联：Bug1（桌面端从未配置运营中心同步）属配置问题，零配置化改造已立项方案 C（会话凭证换取同步凭证，独立 PR）。
+
+---
 # [未发布] fix(ci): debt-guard 移除 PR paths-ignore，解除纯文档 PR 的 required check 死锁
 
 ### 变更
