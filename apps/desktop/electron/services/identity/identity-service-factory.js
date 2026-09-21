@@ -3,7 +3,7 @@ const path = require('path')
 const SecureTokenStorage = require('./secure-token-storage')
 const { AuthService } = require('./auth-service')
 const { LoopbackCallbackServer } = require('./loopback-callback-server')
-const { createLogtoClient, normalizeEndpoint } = require('./logto-client')
+const { createLogtoClient, normalizeEndpoint, withFetchTimeout } = require('./logto-client')
 const { IdentityAuthWindow } = require('./identity-auth-window')
 const { IdentityError } = require('./identity-errors')
 const { EntitlementService } = require('./entitlement-service')
@@ -42,6 +42,22 @@ function parseEntitlementPublicKeys(env) {
   } catch (error) {
     throw new IdentityError('ENTITLEMENT_CONFIG_INVALID', '权益公钥无效', error)
   }
+}
+
+// L1 预热：未登录时后台（非阻塞）发一次 OIDC discovery GET，目的仅热 DNS+TLS+HTTP 连接。
+// 预热失败/离线绝不影响启动与后续点击（点击时仍走 discovery，由 L2 加载窗吸收延迟）。
+function prewarmDiscovery({ authService, endpoint, fetcher, logger }) {
+  try {
+    const state = typeof authService.getState === 'function' ? authService.getState() : null
+    if (!state || state.status !== 'signed_out') return
+    if (typeof fetcher !== 'function') return
+    const run = withFetchTimeout(fetcher, 8000)
+    Promise.resolve()
+      .then(() => run(`${endpoint}/.well-known/openid-configuration`, { method: 'GET' }))
+      .catch((error) => {
+        try { logger && typeof logger.debug === 'function' && logger.debug('identity prewarm discovery skipped', error) } catch { /* ignore */ }
+      })
+  } catch { /* 预热为尽力而为，任何异常都不能影响身份服务创建 */ }
 }
 
 async function createIdentityService(options = {}) {
@@ -126,6 +142,12 @@ async function createIdentityService(options = {}) {
     })
   }
   await authService.restore()
+  prewarmDiscovery({
+    authService,
+    endpoint,
+    fetcher: options.prewarmFetcher || globalThis.fetch,
+    logger: options.logger || require('../logger'),
+  })
   return authService
 }
 

@@ -2,6 +2,24 @@ const { IdentityError } = require('./identity-errors')
 
 const DEFAULT_PARTITION = 'persist:logto-identity'
 
+const AUTH_WINDOW_BG = '#faf6f8'
+
+// L2 加载页：本地内联 HTML（居中品牌 spinner + 「正在打开登录...」），零远端资源依赖。
+// 以 data: URL 加载，不引用任何外部 JS/CSS，主进程渲染、非 renderer locale 扫描范围。
+const LOADING_HTML = '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">'
+  + '<meta name="viewport" content="width=device-width, initial-scale=1">'
+  + '<title>登录</title><style>'
+  + 'html,body{margin:0;height:100%;background:' + AUTH_WINDOW_BG + ';}'
+  + 'body{display:flex;flex-direction:column;align-items:center;justify-content:center;'
+  + 'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;color:#707080;}'
+  + '.spinner{width:34px;height:34px;border-radius:50%;border:3px solid rgba(99,91,195,.22);'
+  + 'border-top-color:#5149e8;animation:spin .8s linear infinite;}'
+  + '.label{margin-top:14px;font-size:13px;}'
+  + '@keyframes spin{to{transform:rotate(360deg)}}'
+  + '</style></head><body><div class="spinner" role="status" aria-label="正在打开登录"></div>'
+  + '<div class="label">正在打开登录...</div></body></html>'
+const LOADING_URL = 'data:text/html;charset=utf-8,' + encodeURIComponent(LOADING_HTML)
+
 function parseUrl(value, code = 'IDENTITY_AUTH_WINDOW_URL_INVALID') {
   try {
     return new URL(value)
@@ -26,6 +44,7 @@ class IdentityAuthWindow {
       ? options.showFallbackTimeout : 3000
     this._window = null
     this._authorizationUrl = null
+    this._pendingLoading = false
     this._closedPromise = Promise.resolve()
     this._closeHandler = null
     this._authSession = null
@@ -51,7 +70,10 @@ class IdentityAuthWindow {
   }
 
   _handleClosed(window, resolveClosed) {
-    if (this._window === window) this._window = null
+    if (this._window === window) {
+      this._window = null
+      this._pendingLoading = false
+    }
     if (this._closeHandler?.window === window) this._closeHandler = null
     resolveClosed()
   }
@@ -86,16 +108,7 @@ class IdentityAuthWindow {
     try { authSession.setPermissionRequestHandler(null) } catch { /* ignore */ }
   }
 
-  async open(url) {
-    if (!this._isAllowedNavigation(url)) {
-      throw new IdentityError('IDENTITY_AUTH_WINDOW_NAVIGATION_BLOCKED', '认证地址不属于已配置的 Logto 服务')
-    }
-    const previousClosed = this._closedPromise
-    this.close()
-    await previousClosed
-    const authorizationUrl = new URL(url).toString()
-    this._authorizationUrl = authorizationUrl
-
+  _createWindow() {
     const parent = this._getParentWindow()
     const authSession = this._getAuthSession()
     const window = new this._BrowserWindow({
@@ -108,7 +121,7 @@ class IdentityAuthWindow {
       parent: parent || undefined,
       resizable: true,
       autoHideMenuBar: true,
-      backgroundColor: '#ffffff',
+      backgroundColor: AUTH_WINDOW_BG,
       title: '登录 Multi-Publish',
       webPreferences: {
         contextIsolation: true,
@@ -129,9 +142,8 @@ class IdentityAuthWindow {
     }
     this._closeHandler = { window, settle: settleClosed }
 
-    // 兜底展示：ready-to-show 依赖远端授权页完成首帧，网络缓慢时可能长时间不触发，
-    // 导致「点击登录却毫无反应」。dom-ready / did-finish-load 提前展示，
-    // 并在最长等待后强制展示，保证用户始终能看到登录窗口。
+    // 兜底展示：ready-to-show 依赖页面完成首帧，本地加载页近瞬时触发；
+    // 远端授权页网络缓慢时 dom-ready / did-finish-load 与超时兜底保证窗口始终可见。
     let shown = false
     let fallbackTimer = null
     const revealWindow = () => {
@@ -150,31 +162,75 @@ class IdentityAuthWindow {
       settleClosed()
     })
 
+    // 导航安全：仅放行 Logto issuer 与固定回调地址；加载窗阶段 _authorizationUrl 为空，
+    // 回退调用自然为 no-op，不会误开系统浏览器。
     const guardNavigation = (event, targetUrl) => {
       if (this._isAllowedNavigation(targetUrl)) return
       event.preventDefault()
-      if (this._window === window) this._fallbackToSystemBrowser(authorizationUrl)
+      if (this._window === window) this._fallbackToSystemBrowser()
     }
     window.webContents.on('will-navigate', guardNavigation)
     window.webContents.on('will-redirect', guardNavigation)
     window.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
       if (!this._isAllowedNavigation(targetUrl) && this._window === window) {
-        this._fallbackToSystemBrowser(authorizationUrl)
+        this._fallbackToSystemBrowser()
       }
       return { action: 'deny' }
     })
+    return window
+  }
 
+  async _loadIntoExisting(window, url) {
     const loadResult = await Promise.race([
       window.webContents.loadURL(url).then(
         () => ({ type: 'loaded' }),
         (error) => ({ type: 'failed', error }),
       ),
-      closedPromise.then(() => ({ type: 'closed' })),
+      this._closedPromise.then(() => ({ type: 'closed' })),
     ])
     if (loadResult.type === 'failed') {
       if (this._window === window) this.close()
       throw new IdentityError('IDENTITY_AUTH_WINDOW_LOAD_FAILED', '登录页面加载失败', loadResult.error)
     }
+  }
+
+  // L2 秒开：点击瞬间即创建并展示本地加载窗（内置 spinner，零网络依赖），
+  // discovery 就绪后由 open() 把真实授权 URL 载入这个已显示的窗口。幂等：窗口存活则复用。
+  async openLoading() {
+    if (this._window && !this._window.isDestroyed?.()) {
+      this._pendingLoading = true
+      return
+    }
+    const window = this._createWindow()
+    this._pendingLoading = true
+    try {
+      await window.webContents.loadURL(LOADING_URL)
+    } catch {
+      // 本地加载页失败不阻断登录：open() 仍会向同一窗口载入真实授权地址。
+    }
+  }
+
+  async open(url) {
+    if (!this._isAllowedNavigation(url)) {
+      throw new IdentityError('IDENTITY_AUTH_WINDOW_NAVIGATION_BLOCKED', '认证地址不属于已配置的 Logto 服务')
+    }
+    const authorizationUrl = new URL(url).toString()
+    this._authorizationUrl = authorizationUrl
+
+    // 快速路径：加载窗已就绪 → 复用同一已显示窗口，仅替换为真实授权地址（不重复建窗）。
+    if (this._pendingLoading && this._window && !this._window.isDestroyed?.()) {
+      this._pendingLoading = false
+      await this._loadIntoExisting(this._window, url)
+      return
+    }
+
+    // 常规/降级路径：关闭旧窗，新建窗口并加载真实授权地址（openLoading 未执行时行为与原逻辑一致）。
+    this._pendingLoading = false
+    const previousClosed = this._closedPromise
+    this.close()
+    await previousClosed
+    this._createWindow()
+    await this._loadIntoExisting(this._window, url)
   }
 
   waitForClosed() {
