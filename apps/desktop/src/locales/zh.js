@@ -2993,6 +2993,16 @@ knowledgeBase: {
       total_subtotal: '深度长文',
       chronological: '入门教程',
     },
+    // 手动文章数据 UX 优化（2026-09-21）：步骤说明 + 一键示例填入 + 格式错误可见化
+    manualDataSummary: '可选：手动输入文章数据，让分析更准确',
+    manualDataHelp: '默认情况下，AI 只根据主题估算爆款潜力。如果你粘贴几篇同类文章的真实数据，AI 会按你的实际点赞和评论数计算，结果更准确。',
+    manualDataStep1: '第 1 步：准备 3~10 篇同主题文章的标题、点赞数、评论数（可在小红书 / 抖音 / 公众号后台复制）',
+    manualDataStep2: '第 2 步：点击下方「填入示例数据」查看格式，再改成你自己的数据',
+    manualDataStep3: '第 3 步：点右上角「爆款分析」，即可用真实数据分析',
+    manualDataLabel: '文章列表（每篇填：title=标题，like_count=点赞数，comment_count=评论数）',
+    manualDataSampleTitles: '5个AI效率工具推荐，半小时学会准点下班|新手教程：用AI一句话搞定周报，老板夸我专业|亲测10款AI写作工具，只推荐留下这3个',
+    fillSample: '填入示例数据',
+    articleDataInvalid: '文章数据格式不正确：请提供以 [ 开头、以 ] 结尾的 JSON 数组，每篇包含 title、like_count、comment_count。可点击「填入示例数据」对照示例修改。',
   },
 
   // ── 发布去向弹窗 ──

@@ -65,21 +65,13 @@
           </div>
         </div>
 
-        <!-- 文章数据输入（可选） -->
-        <div class="viral-article-section">
-          <details>
-            <summary class="viral-details-summary">手动输入文章数据（可选，提高分析精度）</summary>
-            <div class="viral-article-form">
-              <label class="cohere-form-label">文章数据（JSON 数组，每篇含 title/like_count/comment_count）</label>
-              <textarea
-                class="cohere-input viral-article-textarea"
-                v-model="articleData"
-                placeholder='[{"title":"AI工具推荐","like_count":1234,"comment_count":89,"platform_code":"xiaohongshu"}]'
-                rows="4"
-              ></textarea>
-            </div>
-          </details>
-        </div>
+        <!-- 手动输入文章数据（可选，2026-09-21 UX 优化）：说明/示例/错误可见 → 子组件 ViralManualDataInput
+             （债务门禁 FILES_OVER_1000：视图只降不升，展示层外置；状态仍由本视图持有） -->
+        <viral-manual-data-input
+          v-model="articleData"
+          :error="articleDataError"
+          @fill-sample="fillSampleData"
+        />
 
         <!-- F3 热门选题速选（渐进增强：trending 失败/空返回整块隐藏，不打扰主流程） -->
         <details v-if="trendingKeywords.length" class="viral-trending-section">
@@ -370,17 +362,21 @@
 import { viralAnalyze, viralGenerate, viralTrending, getRecentImpactSnapshots } from '@/api/publisher'
 import { addViralToLibrary, listViralItems, searchViralItems, listPatternPerformance } from '@/api/knowledge-library'
 import UiButton from '../components/UiButton.vue'
+import ViralManualDataInput from '../components/ViralManualDataInput.vue'
+import { buildViralSampleJson } from '@/utils/viral-sample-data'
 import { CaretBottom, CaretRight, CaretTop, Connection, Cpu, DataLine, FolderAdd, Key, MagicStick, TrendCharts, Trophy } from '@element-plus/icons-vue'
 import { formatUserError } from '@/utils/user-facing-error'
 import { useViralSignalStore } from '@/stores/viral-signal'
 export default {
 
-components: { UiButton, CaretBottom, CaretRight, CaretTop, Connection, Cpu, DataLine, FolderAdd, Key, MagicStick, TrendCharts, Trophy },
+components: { UiButton, CaretBottom, CaretRight, CaretTop, Connection, Cpu, DataLine, FolderAdd, Key, MagicStick, TrendCharts, Trophy, ViralManualDataInput },
   data () {
     return {
       topic: '',
       platform: '通用',
       articleData: '',
+      // 手动文章数据 UX 优化：格式错误不再静默吞掉，内联可见提示
+      articleDataError: '',
       loading: false,
       result: null,
       genResult: null,
@@ -429,9 +425,14 @@ components: { UiButton, CaretBottom, CaretRight, CaretTop, Connection, Cpu, Data
         let articles = []
         if (this.articleData.trim()) {
           try {
-            articles = JSON.parse(this.articleData.trim())
+            const parsed = JSON.parse(this.articleData.trim())
+            if (!Array.isArray(parsed) || !parsed.length) throw new Error('expect non-empty JSON array')
+            articles = parsed
+            this.articleDataError = ''
           } catch {
-            // ignore malformed JSON
+            // 格式错误不再静默回退合成数据：内联提示并阻断本次分析，避免用户误以为在用真实数据分析
+            this.articleDataError = this.$t('viralAnalysis.articleDataInvalid')
+            return
           }
         }
         if (!articles.length) {
@@ -677,6 +678,12 @@ components: { UiButton, CaretBottom, CaretRight, CaretTop, Connection, Cpu, Data
       return this.measuredMap[t] || null
     },
 
+    /** 一键填入模拟真实的文章数据示例（与 textarea 占位符同源），降低格式理解门槛 */
+    fillSampleData () {
+      this.articleData = buildViralSampleJson(this.$t('viralAnalysis.manualDataSampleTitles'))
+      this.articleDataError = ''
+    },
+
     trendIcon (direction) {
       // T1-5：趋势图标改用 @element-plus/icons-vue（返回组件，模板 <component :is> 渲染）
       const icons = { rising: CaretTop, declining: CaretBottom, stable: CaretRight }
@@ -835,11 +842,8 @@ components: { UiButton, CaretBottom, CaretRight, CaretTop, Connection, Cpu, Data
 .viral-card-static { cursor: default; }
 
 /* --- 文章数据（可选） --- */
-.viral-article-section { margin-top: var(--space-md); }
 .viral-details-summary { cursor: pointer; font-size: var(--font-size-sm); color: var(--color-text-muted); transition: color 0.2s; }
 .viral-details-summary:hover { color: var(--color-primary); }
-.viral-article-form { margin-top: var(--space-sm); }
-.viral-article-textarea { font-size: var(--font-size-sm); font-family: monospace; resize: vertical; }
 
 /* --- F1 生成 task 分段控件 --- */
 .viral-task-segment { display: inline-flex; align-self: flex-end; border: 1px solid var(--color-border); border-radius: var(--r-sm); overflow: hidden; }

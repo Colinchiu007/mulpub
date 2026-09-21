@@ -2992,6 +2992,16 @@ knowledgeBase: {
       total_subtotal: 'In-depth Long-form',
       chronological: 'Beginner Tutorial',
     },
+    // Manual article data UX (2026-09-21): plain-language steps, one-click sample, visible format errors
+    manualDataSummary: 'Optional: enter article data manually for a more accurate analysis',
+    manualDataHelp: 'By default AI estimates viral potential from the topic alone. Paste real data for a few similar articles and it will compute from your actual likes and comments.',
+    manualDataStep1: 'Step 1: Prepare titles, like counts and comment counts for 3-10 similar articles (copy them from your Xiaohongshu / Douyin / WeChat dashboards)',
+    manualDataStep2: 'Step 2: Click "Fill sample data" below to see the format, then replace it with your own data',
+    manualDataStep3: 'Step 3: Click "Analyze" at the top right to run the analysis on your real data',
+    manualDataLabel: 'Article list (each article: title = headline, like_count = likes, comment_count = comments)',
+    manualDataSampleTitles: '5 AI Tools That Save Me 2 Hours a Day|Beginner Guide: Write Your Weekly Report with One AI Prompt|I Tested 10 AI Writing Tools and Would Keep Only These 3',
+    fillSample: 'Fill sample data',
+    articleDataInvalid: 'Invalid article data: provide a JSON array starting with [ and ending with ], each article with title, like_count and comment_count. Click "Fill sample data" to compare with the example.',
   },
 
   // ── Publish destination modal ──
