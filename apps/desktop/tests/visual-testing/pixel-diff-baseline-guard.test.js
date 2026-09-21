@@ -59,7 +59,9 @@ describe("baseline-content-guard", () => {
   // 1920x1080 纯白，像素对比恒自洽）——单独建档重建后从列表移除。
   const KNOWN_EMPTY_BASELINES = ["analytics-overview.png"];
 
-  it("现存全部真实基线均通过守卫（阈值校准）", () => {
+  // 2026-09-21 CI 红灯修复：coverage 插桩下逐个解码 3.3MB 真实基线 PNG 耗时被放大数倍，
+  // 全局 10s testTimeout 不够（本地无插桩实测 ~2s）。显式放宽到 60s，与仓库长耗时测试惯例一致。
+  it("现存全部真实基线均通过守卫（阈值校准）", { timeout: 60000 }, () => {
     const dir = path.join(__dirname, "base-screenshots");
     const files = fs
       .readdirSync(dir)

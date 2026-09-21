@@ -1,3 +1,14 @@
+## CI-only 测试超时：全局 testTimeout 与插桩/满载放大叠加的坑（fix-main-ci-red，2026-09-21）
+
+- **背景**：main 两个 CI 红灯均为「本地绿、CI 红」的超时类失败：① `pixel-diff-baseline-guard.test.js`「现存全部真实基线均通过守卫」在 QG Coverage job（v8 插桩）下超全局 10s testTimeout（本地无插桩实测 ~2.2s，21 个基线 PNG 共 3.3MB 逐个解码）；② `logger.test.js`「appendFile 回调永不触发时写队列超时兜底」在 Desktop shard 满载下 1s 固定重试窗不够。
+- **根因模式（pitfall）**：`apps/desktop/vitest.config.js` 全局 `testTimeout: 10000` 对 CPU 密集型测试（图像解码/大 fixture 读取/真实 IO）在 coverage 插桩和 CI 满载下耗时被放大数倍；测试自身无感知，只在 CI 间歇性爆红。前次（2026-09-19）把重试窗从无到 1s 属治标未治本。
+- **逃逸链**：本地顺序跑不受插桩影响 → 逃过单元测试；CI 满载才复现 → 每次重试又偶发通过，形成 flake 掩盖。
+- **修复模式（pattern）**：重 CPU 测试显式 inline `{ timeout: 60000 }`（仓库 adapters 测试已有惯例），不放宽全局值；等待落盘类断言用 **deadline 轮询（5s）替代固定次数×间隔重试窗**，落盘即提前退出，本地耗时不变、CI 余量变大。
+- **全局状态泄漏（pitfall）**：logger.js 的 `writeTimeoutMs` 是模块级状态，`setLogOptions` 只更新传入字段、永不重置 → 测试设 30ms 后泄漏给后续所有测试（含 afterEach 的 flush）。**凡注入模块级可配置状态的测试，必须在 finally 里恢复默认值；使用 setter 前先确认它不会重置未传字段。**
+- **预防措施**：新增可能跑几百毫秒以上的测试时默认评估 inline timeout；修改单例服务的可配置项时检索所有 setter 调用点确认恢复契约；CI-only flake 修复必须同时消除潜在状态泄漏，否则只是把下一次失败推迟。
+
+---
+
 ## adapter 的 taskId 提取必须覆盖 provider 实际返回的字段命名（2026-09-18，fix-agnes-video-taskid）
 
 - **根因模式（pitfall）**：`agnes-video.js` 的 `generateVideo()` 提取 taskId 用 `data.id || data.task_id`，漏掉 Agnes 网关实际返回的 `video_id`。Agnes `POST /videos` 返回 `{ video_id: '<任务ID>', id: '<请求ID>' }`——`video_id` 才是用于 `/agnesapi?video_id=` 查询的任务 ID，`id` 是请求 ID。用请求 ID 去查询 → `task not found`，历史记录详情页「生成 AI 视频」报「当前模型账号的 AI 视频生成失败」。
