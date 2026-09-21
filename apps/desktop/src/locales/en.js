@@ -62,6 +62,8 @@ export default {
       allRunning: 'Services running',
       partialRunning: (ctx) => ctx.named('count') + ' service(s) running',
       degradedSummary: (ctx) => ctx.named('stopped') + ' service(s) unavailable (' + ctx.named('running') + '/' + ctx.named('total') + ' running)',
+      degradedMain: (ctx) => ctx.named('stopped') + ' service(s) unavailable',
+      degradedSub: (ctx) => ctx.named('running') + '/' + ctx.named('total') + ' running',
       unavailable: 'Service status unavailable',
       retry: 'Retry connection',
       retrying: 'Retrying...',
