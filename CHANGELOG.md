@@ -1,3 +1,16 @@
+# [未发布] fix(ci): debt-guard 移除 PR paths-ignore，解除纯文档 PR 的 required check 死锁
+
+### 变更
+- **`.github/workflows/debt-guard.yml`**：删除 `on.pull_request.paths-ignore`（`01-docs/**`、`docs/**`、`*.md`、`.github/ISSUE_TEMPLATE/**`）。该 workflow 的 job 显示名「债务熔断检查」已被 GitHub ruleset `main-ci-gate` 列为 required check，且 ruleset `current_user_can_bypass=never`；纯文档 PR 因路径过滤根本不产生该检查 → `mergeStateStatus` 永久 BLOCKED（PR #2151 实测：13 项检查全绿仍无法合并，`--admin` 亦被基线策略拒绝）。删除后每个 PR 都跑债务预算检查（实测 `node scripts/check-debt-budget.js` 5 项指标均在基线内，windows-latest 耗时 <1 分钟）。
+- **`.github/scripts/workflow-contract.test.js`**：新增全量扫描契约「任何 workflow 的 `pull_request` 都不得配置 `paths-ignore`」，遍历 `workflows/` 目录而非依赖硬编码文件清单。既有同名规则（`CI 路径门控：全量 workflow 的 main PR 不得用 paths-ignore 跳过必需检查`）实际只断言 `build.yml`/`electron-ci.yml`/`quality-gate.yml` 三个硬编码对象，正是本次漏洞的逃逸点。正向 `paths` 白名单（agent-judge / autonomous-loop / gui-test / ops-center-ci）语义为按需触发且不在 required 列表内，本次不纳入禁令。
+
+### 验证
+- TDD 红→绿：新测试单独运行时 `not ok`，失败信息精确指向 `debt-guard.yml`（其余 21 项 pass）；删除 paths-ignore 后 `workflow-contract.test.js` 22/22 通过。
+- `js-yaml` 解析确认 `on` 结构为 `{"pull_request":{"branches":["main"]},"workflow_dispatch":null}`，job `name` 仍为「债务熔断检查」（required context 匹配名未变）。
+- `git grep debt-guard` 确认无脚本或测试依赖被删除的 PR 路径过滤（仅 CHANGELOG 历史记述）。
+
+---
+
 # [未发布] fix(desktop): 知识库空态「新增知识」按钮与主入口文案口径一致（PR #2132 追加）
 
 ### 变更
