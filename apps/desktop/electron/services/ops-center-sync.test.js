@@ -621,10 +621,10 @@ describe('OpsCenterSync appMenu（应用菜单配置）', () => {
 
     expect(svc.getAppMenu()).toEqual({
       items: [
-        { key: 'home', visible: false, sort_order: 2 },
+        { key: 'home', visible: false, sort_order: 2, group: null },
         // 'false' 不是白名单真值 → false；1e12 被截断到 MAX_SORT_ORDER
-        { key: 'publish', visible: false, sort_order: 9999 },
-        { key: 'accounts', visible: true, sort_order: 3 },
+        { key: 'publish', visible: false, sort_order: 9999, group: null },
+        { key: 'accounts', visible: true, sort_order: 3, group: null },
       ],
       syncedAt: '2026-09-15T00:00:00Z',
     })
@@ -676,7 +676,7 @@ describe('OpsCenterSync appMenu（应用菜单配置）', () => {
 
     const items = svc.getAppMenu().items
     expect(items).toHaveLength(1)
-    expect(items[0]).toEqual({ key: 'library', visible: false, sort_order: 4 })
+    expect(items[0]).toEqual({ key: 'library', visible: false, sort_order: 4, group: null })
     expect(Object.prototype.polluted).toBeUndefined()
   })
 
@@ -684,14 +684,14 @@ describe('OpsCenterSync appMenu（应用菜单配置）', () => {
     const store = makeStore()
     const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
     svc.applyRuntime(payload([
-      { key: 'home', visible: true, sort_order: -1 },
+      { key: 'home', visible: true, sort_order: -1, group: null },
       { key: 'monitor', visible: true, sort_order: 'abc' },
       { key: 'library', visible: true },
     ]))
     expect(svc.getAppMenu().items).toEqual([
-      { key: 'home', visible: true, sort_order: null },
-      { key: 'monitor', visible: true, sort_order: null },
-      { key: 'library', visible: true, sort_order: null },
+      { key: 'home', visible: true, sort_order: null, group: null },
+      { key: 'monitor', visible: true, sort_order: null, group: null },
+      { key: 'library', visible: true, sort_order: null, group: null },
     ])
   })
 
@@ -707,7 +707,7 @@ describe('OpsCenterSync appMenu（应用菜单配置）', () => {
     const svc1 = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
     svc1.applyRuntime(payload([{ key: 'home', visible: false, sort_order: 0 }]))
     const svc2 = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
-    expect(svc2.getAppMenu().items).toEqual([{ key: 'home', visible: false, sort_order: 0 }])
+    expect(svc2.getAppMenu().items).toEqual([{ key: 'home', visible: false, sort_order: 0, group: null }])
   })
 
   it('恢复路径同样归一化：settings 中的非法 appMenu 不进入运行时状态', () => {
