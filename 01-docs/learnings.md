@@ -14974,3 +14974,26 @@ opencode 双模型审查发现三个问题：① 后端 `create_constraint` 对�
 - **PRD 追加用「.md 片段 + 极简 node 追加脚本」，别用 JS 模板字符串（tool）**：模板字符串里 `` \\` `` 序列中 `\\` 是转义反斜杠、紧随的反引号会**提前终止模板**，报 `SyntaxError: Unexpected identifier`（且报错位置指向文案里的普通词，极难定位）。改为把章节内容写成独立 `.md` 片段文件，node 脚本只做 `readFileSync + 按 EOL 归一 + 尾部追加`，`node --check` 通过后再执行。
 - **CHANGELOG 头部前置必然冲突，解法=两侧都保留（operational）**：多会话并行都往 CHANGELOG 第 1 行前置条目 → merge origin/main 必冲突。解法按「新在上」保留双方条目并用 `---` 分隔；locales 双侧新增通常能 auto-merge，但要**复跑 Gate 7 三项**确认（合并后 CJK 基线数会因对方修改变动）。
 - **auto-merge 未必可用（operational）**：`gh pr merge --auto --squash` 在本仓库 main 上报 `Protected branch rules not configured for this branch (enablePullRequestAutoMerge)`。降级路径：`gh pr checks <n> --watch` 等 CI 终态 → `gh pr merge <n> --squash`；合并前用 `gh pr view --json mergeable` 确认 `MERGEABLE`（本次建 PR 即为 `CONFLICTING`，先同步 main 再推）。
+
+### kb-hotsync-ui-fix 追加轮：空态 CTA 文案口径残留（2026-09-21）
+
+**Bug 类别**：文案口径漂移（同一动作两个入口，只改了一个）。
+
+**根因**：个人知识库的「添加」动作在页面内有两个渲染点——`KnowledgeBasePage.vue` 右上主按钮读 `knowledgeBase.addPersonal`，`PersonalKnowledgePanel.vue` 的空态 `EmptyState` 读 `knowledgeBase.empty.personal.action`。PR #2132 只按用户原话改掉了前者，后者（「新增知识」）残留；空库用户（首次使用的主路径）看到的仍是旧文案。
+
+**逃逸链**：
+1. 单元测试只断言右上按钮（`.page-actions .cohere-btn-primary`），且子面板被 `vi.mock` 整体桩掉 → 空态 CTA 根本不在被测 DOM 内；
+2. locale 层无"同动作多 key 应同文案"的契约测试；
+3. CI Gate 7 只保证 zh/en 成对与无新增硬编码，不管同语言内多入口口径一致；
+4. **真正拦住它的是浏览器取证**：合并 #2132 后按完成审计要求用 headless Chromium 逐视图截图，看到空态按钮写着「新增知识」才暴露。
+
+**系统性漏洞分类**：测试场景缺失（缺少"动作 → 全部渲染入口"的口径契约），而非代码缺陷。
+
+**修复模式**：
+- 文案改动前先按**动作**枚举入口：`grep` 该动作对应的所有 locale key 与所有渲染点（页面按钮 / 空态 CTA / 表格行内 / 下拉菜单 / 引导卡），一次改全；
+- 回归锁直接断言 locale messages（`import zhMessages from "@/locales/zh"` 后 `expect(kb.addPersonal).toBe(kb.empty.personal.action)` 级别的精确等值），不依赖组件挂载，成本极低且不受 mock 边界影响；
+- UI 文案类改动必须补一轮**真实浏览器逐状态取证**（含空态/加载态/错误态），单测绿不等于用户可见文案已一致。
+
+**可复用教训（带边界）**：凡"改按钮文字/改提示语"类需求，验收范围应覆盖该动作的**全部入口 × 全部数据状态（空/有数据/失败）**；被 `vi.mock` 桩掉的子组件在本视图测试中等于不存在，其内部文案必须由 locale 契约测试或子组件自身测试兜住。适用边界：多入口渲染同一语义动作的 Vue/i18n 项目。
+
+**冲突处理记录**：squash 合并后再从同分支发增量 PR，会与 main 产生 add/add 冲突（`KnowledgeBaseHotsyncUi.test.js`）与 CHANGELOG 头部冲突；先 `git diff origin/main HEAD -- <file>` 确认本分支是 main 的严格超集，再 `git checkout --ours` 取本分支版本，CHANGELOG 只删标记行保留双方条目。

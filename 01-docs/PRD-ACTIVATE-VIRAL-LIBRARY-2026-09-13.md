@@ -356,7 +356,7 @@ KnowledgeBasePage 爆款库 Tab 内二级视图（PatternAnalysisPanel.vue）：
 
 实测：`KnowledgeBaseHotsyncUi.test.js` 11/11 通过（K10-K11 为追加的空态文案口径锁）；`views-coverage.test.js` + `more-components.test.js` 19/19 无回归；CI Gate 7 三项（zh/en 成对、CJK 基线无新增硬编码、key 存在性）全部 PASS。关联回归 `viral-signal` + `ViralAnalysis` 共 43/43、`rewrite-engine` 知识/模式相关 33/33 通过。
 
-**浏览器实测取证**（headless Chromium 1440x900，本 worktree Vite dev server，`#/knowledge-base`）：三视图标签恒为 `[爆款库, 模式分析, 个人知识库]`；个人知识库右上按钮「＋ 添加内容」；弹窗 `.dialog-title` 为「手动添加爆款」，其右侧「用链接采集」计算样式为 `text-decoration: underline` + `color: rgb(239, 87, 87)` + `cursor: pointer`；点击后 `location.hash === "#/collection"` 且弹窗节点消失。
+**浏览器实测取证**（headless Chromium 1440x900，本 worktree Vite dev server，`#/knowledge-base`）：三视图标签恒为 `[爆款库, 模式分析, 个人知识库]`；个人知识库右上按钮「＋ 添加内容」；弹窗 `.dialog-title` 为「手动添加爆款」，其右侧「用链接采集」计算样式为 `text-decoration: underline` + `color: rgb(239, 87, 87)` + `cursor: pointer`；点击后 `location.hash === "#/collection"` 且弹窗节点消失。追加轮复核（个人知识库空库态）：页面内所有含"添加/新增"的按钮文本为 `["＋ 添加内容", "添加内容"]`，`staleLabelPresent(新增知识) === false`，标签数仍为 3。
 
 **预防措施落地**：
 
