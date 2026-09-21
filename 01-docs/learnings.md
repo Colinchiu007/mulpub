@@ -8,6 +8,17 @@
 
 ---
 
+## CI-only 测试超时：全局 testTimeout 与插桩/满载放大叠加的坑（fix-main-ci-red，2026-09-21）
+
+- **背景**：main 两个 CI 红灯均为「本地绿、CI 红」的超时类失败：① `pixel-diff-baseline-guard.test.js`「现存全部真实基线均通过守卫」在 QG Coverage job（v8 插桩）下超全局 10s testTimeout（本地无插桩实测 ~2.2s，21 个基线 PNG 共 3.3MB 逐个解码）；② `logger.test.js`「appendFile 回调永不触发时写队列超时兜底」在 Desktop shard 满载下 1s 固定重试窗不够。
+- **根因模式（pitfall）**：`apps/desktop/vitest.config.js` 全局 `testTimeout: 10000` 对 CPU 密集型测试（图像解码/大 fixture 读取/真实 IO）在 coverage 插桩和 CI 满载下耗时被放大数倍；测试自身无感知，只在 CI 间歇性爆红。前次（2026-09-19）把重试窗从无到 1s 属治标未治本。
+- **逃逸链**：本地顺序跑不受插桩影响 → 逃过单元测试；CI 满载才复现 → 每次重试又偶发通过，形成 flake 掩盖。
+- **修复模式（pattern）**：重 CPU 测试显式 inline `{ timeout: 60000 }`（仓库 adapters 测试已有惯例），不放宽全局值；等待落盘类断言用 **deadline 轮询（5s）替代固定次数×间隔重试窗**，落盘即提前退出，本地耗时不变、CI 余量变大。
+- **全局状态泄漏（pitfall）**：logger.js 的 `writeTimeoutMs` 是模块级状态，`setLogOptions` 只更新传入字段、永不重置 → 测试设 30ms 后泄漏给后续所有测试（含 afterEach 的 flush）。**凡注入模块级可配置状态的测试，必须在 finally 里恢复默认值；使用 setter 前先确认它不会重置未传字段。**
+- **预防措施**：新增可能跑几百毫秒以上的测试时默认评估 inline timeout；修改单例服务的可配置项时检索所有 setter 调用点确认恢复契约；CI-only flake 修复必须同时消除潜在状态泄漏，否则只是把下一次失败推迟。
+
+---
+
 ## adapter 的 taskId 提取必须覆盖 provider 实际返回的字段命名（2026-09-18，fix-agnes-video-taskid）
 
 - **根因模式（pitfall）**：`agnes-video.js` 的 `generateVideo()` 提取 taskId 用 `data.id || data.task_id`，漏掉 Agnes 网关实际返回的 `video_id`。Agnes `POST /videos` 返回 `{ video_id: '<任务ID>', id: '<请求ID>' }`——`video_id` 才是用于 `/agnesapi?video_id=` 查询的任务 ID，`id` 是请求 ID。用请求 ID 去查询 → `task not found`，历史记录详情页「生成 AI 视频」报「当前模型账号的 AI 视频生成失败」。
@@ -14946,3 +14957,20 @@ opencode 双模型审查发现三个问题：① 后端 `create_constraint` 对�
 - **PR 合并后 CI 才暴露问题的补救（operational）**：PR #2021 合并后 quality-gate 才跑完发现 color-literals 违规 → 修复提交推分支，但原 PR 已 MERGED → 新开 PR #2026 承载修复合并。**「CI 通过后合并」要求下，merge 动作要等 CI 终态，或准备好补丁 PR 流程。**
 
 ---
+
+## 知识库标签视图一致性与手动/链接采集入口（kb-hotsync-ui-fix，2026-09-21）
+
+### 现象与根因
+
+知识库页面在「爆款库/模式分析」视图显示 3 个标签，切到「个人知识库」只剩 2 个。根因：`apps/desktop/src/views/KnowledgeBasePage.vue` 的「模式分析」标签按钮带 `v-if="activeTab === 'viral' || activeTab === 'pattern'"`。追溯到 PRD-ACTIVATE-VIRAL-LIBRARY-2026-09-13 §4.5（Q13-B）——设计原意是「爆款库 Tab **内二级视图**」，实现却落地为**一级标签**并保留了为二级视图设计的条件隐藏，属**设计与实现漂移**。逃逸根因：`KnowledgeBasePage.vue` / `ViralFormDialog.vue` 此前**零测试覆盖**（全库检索 `KnowledgeBasePage|ViralFormDialog|kb-tab-btn` 在 `*.test.js` 中 0 命中），任何标签栏变更都无回归网。
+
+### 可复用结论
+
+- **条件渲染的导航项是视图一致性炸弹（pitfall）**：Tab / 菜单 / 侧栏条目上的 `v-if` 只在「该条目属于某个父视图的二级视图」时才合理；一旦条目升级为一级导航，`v-if` 必须同步移除，否则切换到任意其他一级视图都会少一个入口。**新增一级导航项时，把它在所有兄弟视图下的可见性写成数组等值断言**（`expect(tabTexts(w)).toEqual(['爆款库','模式分析','个人知识库'])` 对每个 activeTab 各断言一次），单点断言发现不了「某个视图少一项」。
+- **设计漂移要回读 PRD 原文定性（pattern）**：修 UI 不一致前先 `Grep` PRD 对应条目，区分「实现写错」与「设计变更后实现未跟」——本次是后者（设计为二级视图、实现为一级标签）。结论写进 PRD 新章节并**修正原表述**，否则下一个人会按旧设计再改回去。
+- **弹窗内跳转入口：子组件只 emit，容器持有路由（pattern）**：`ViralFormDialog.vue` 新增「用链接采集」只 `emit('collect')`，由 `KnowledgeBasePage.vue` 的 `onCollectByLink()` 做「关窗 + 清空 editingViral + `router.push('/collection')`」。弹窗不 import `useRouter` → 可脱离 router 单独挂载测；跳转行为在容器测。入口按钮 `v-if="!isEdit"`（编辑态不该出现「换一种录入方式」）。
+- **子组件桩必须 `vi.mock` 模块替换，`global.stubs` 不够（tool）**：`mount(Comp, { global: { stubs: { X: true } } })` 对**深层** element-plus 内部渲染（`el-drawer`、`v-loading` 指令）无效，会报 `Failed to resolve component: el-drawer` / `Cannot read properties of undefined (reading 'status')`。改为 `vi.mock('@/components/X.vue', () => ({ default: { name: 'X', template: "<div data-testid='stub-x'/>", methods: { loadData() {} } } }))`，并同时补齐被 mock 模块的**全部具名导出**（漏 `PERSONAL_CATEGORY_LABELS` 会报 `No "X" export is defined on the mock`）。
+- **文案改名的清扫半径（pattern）**：改 locale 值前先 `Grep` 旧文案（中文 + 英文双向）确认无第二处硬编码引用；改名后在测试里加**反向断言**（`not.toContain('添加知识')`），否则后续有人「顺手加回」不会被拦。
+- **PRD 追加用「.md 片段 + 极简 node 追加脚本」，别用 JS 模板字符串（tool）**：模板字符串里 `` \\` `` 序列中 `\\` 是转义反斜杠、紧随的反引号会**提前终止模板**，报 `SyntaxError: Unexpected identifier`（且报错位置指向文案里的普通词，极难定位）。改为把章节内容写成独立 `.md` 片段文件，node 脚本只做 `readFileSync + 按 EOL 归一 + 尾部追加`，`node --check` 通过后再执行。
+- **CHANGELOG 头部前置必然冲突，解法=两侧都保留（operational）**：多会话并行都往 CHANGELOG 第 1 行前置条目 → merge origin/main 必冲突。解法按「新在上」保留双方条目并用 `---` 分隔；locales 双侧新增通常能 auto-merge，但要**复跑 Gate 7 三项**确认（合并后 CJK 基线数会因对方修改变动）。
+- **auto-merge 未必可用（operational）**：`gh pr merge --auto --squash` 在本仓库 main 上报 `Protected branch rules not configured for this branch (enablePullRequestAutoMerge)`。降级路径：`gh pr checks <n> --watch` 等 CI 终态 → `gh pr merge <n> --squash`；合并前用 `gh pr view --json mergeable` 确认 `MERGEABLE`（本次建 PR 即为 `CONFLICTING`，先同步 main 再推）。

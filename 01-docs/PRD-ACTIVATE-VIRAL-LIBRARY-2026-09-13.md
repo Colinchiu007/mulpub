@@ -218,15 +218,165 @@ KnowledgeBasePage 爆款库 Tab 内二级视图（PatternAnalysisPanel.vue）：
 - 归因重算成功：「归因重算完成」；失败：「归因重算失败，请稍后重试」
 - 样本不足标注：「样本不足」（sample_count < 3）
 
+## 十二、知识库视图一致性与手动/链接采集入口（2026-09-21 增量，kb-hotsync-ui-fix）
+
+### 12.1 背景与根因
+
+用户反馈三处知识库（KnowledgeBasePage）体验问题，逐项溯源：
+
+| # | 现象 | 根因 | 分类 |
+|---|---|---|---|
+| 1 | 「添加爆款」弹窗标题与页面右上按钮同名，用户无法区分「手动录入」与「链接采集」两条路径 | 弹窗与入口按钮共用同一 i18n key `knowledgeBase.addViral`，缺少路径区分文案；采集页（`/collection`）已有链接采集能力但无跨页入口 | 交互设计缺口 |
+| 2 | 「爆款库 / 模式分析」视图显示 3 个标签，切到「个人知识库」只剩 2 个（模式分析消失） | Q13-B 原设计把模式分析定义为「爆款库 Tab 内**二级视图**」，实现时落地为**一级标签**并对标签按钮加了 `v-if="activeTab === 'viral' \|\| activeTab === 'pattern'"` 条件渲染。设计与实现漂移：面板本身仍按 `activeTab === 'pattern'` 独立渲染，标签按钮却被条件隐藏 | 实现与设计漂移（缺陷） |
+| 3 | 「添加知识」文案与实际语义（含人设/背景/经历/观点/文件批量导入）不匹配 | `knowledgeBase.addPersonal` 早期沿用「知识」单词语义，未随个人知识库内容类型扩展而更新 | 文案准确性 |
+
+**逃逸分析（为什么没被拦住）**：
+
+- 单元测试：`KnowledgeBasePage.vue` 与 `ViralFormDialog.vue` 此前**零测试覆盖**（全库检索 `KnowledgeBasePage|ViralFormDialog|kb-tab-btn` 在 `*.test.js` 中 0 命中），标签数量、按钮文案、弹窗标题均无断言；
+- 集成/E2E：views-coverage / views-deep 未纳入知识库页；
+- 视觉回归：知识库页无基线截图用例；
+- 代码审查：条件渲染 `v-if` 在标签按钮上属"看似合理"的局部优化（模式分析只对爆款有意义），审查时被语义合理性掩盖，未对照 PRD 原文「二级视图」核验；
+- CI 门禁：Gate 7（locale 成对 / CJK / key 存在性）只校验文案机制，不校验文案一致性，无法发现"两个视图标签数不同"。
+
+### 12.2 变更清单
+
+| 层 | 文件 | 变更 |
+|---|---|---|
+| 视图容器 | `apps/desktop/src/views/KnowledgeBasePage.vue` | ① 移除模式分析标签按钮的 `v-if`，三标签恒定渲染；② 新增 `onCollectByLink()`：关闭弹窗 + `router.push('/collection')`；③ 弹窗绑定 `@collect`；④ 引入 `useRouter` |
+| 弹窗组件 | `apps/desktop/src/components/ViralFormDialog.vue` | ① 标题改用 `addViralManual`；② 标题右侧新增 `【用链接采集】` 文字链接按钮（`data-testid="viral-form-collect-link"`，`v-if="!isEdit"`）；③ `defineEmits` 增加 `collect`；④ 新增 `.dialog-header-left` / `.dialog-collect-link` 样式 |
+| 文案 | `apps/desktop/src/locales/zh.js` / `en.js` | 新增 `addViralManual`、`collectByLink`；`addPersonal` 改为「添加内容」/「Add Content」（zh/en 成对） |
+| 回归保护 | `apps/desktop/src/views/KnowledgeBaseHotsyncUi.test.js`（新增） | 9 例，见 12.8 |
+
+### 12.3 显示项
+
+**标签栏（三视图恒定一致）**
+
+| 项 | 规则 |
+|---|---|
+| 标签集合 | 爆款库 / 模式分析 / 个人知识库，**任何 activeTab 下都渲染 3 个**，不再条件隐藏 |
+| 选中态 | `.kb-tab-btn.active`：白底 + 主文本色 + 500 字重 + 阴影；未选中为 muted 色 |
+| 等宽 | 每个标签 `flex: 1`，3 标签均分容器宽度（原 2 标签视图布局随之变为 3 等分） |
+| 页面副标题 | 随 activeTab 切换：viral → `viralSubtitle`；pattern → `patternSubtitle`；personal → `personalSubtitle` |
+| 右上操作区 | viral → 「＋ 添加爆款」+「导出到飞书」；personal → 「＋ 添加内容」+「批量导入」+「导出到飞书」；pattern → 仅「导出到飞书」（模式卡片由爆款派生，无独立新增语义） |
+
+**「手动添加爆款」弹窗**
+
+| 项 | 规则 |
+|---|---|
+| 标题（新增态） | 「手动添加爆款」（`addViralManual`），与页面按钮「添加爆款」形成"入口—方式"区分 |
+| 标题（编辑态） | 仍为「编辑」（`knowledgeBase.edit`），编辑场景不出现采集入口 |
+| 采集入口 | 标题右侧下划线珊瑚色文字按钮「用链接采集」，与标题水平间距 12px，位于关闭 ✕ 之前 |
+| 表单字段 | 标题 / 链接 / 正文*（必填）/ 博主 / 平台 / 话题标签 / 封面 / 发布时间 / 点赞数 / 收藏数 / 评论数（保持不变） |
+
+### 12.4 交互逻辑
+
+1. **入口**：爆款库视图点「＋ 添加爆款」（或空态「新增爆款」）→ 打开弹窗；
+2. **改道采集**：弹窗内点「用链接采集」→ 关闭弹窗（同时清空 `editingViral`，不残留编辑态）→ SPA 路由跳转 `/collection`，由采集页链接输入框走「输入链接 → 自动采集标题/正文/封面 → 入库」流程；
+   - 跳转采用 `router.push` 而非新窗口，保持 home 虚拟标签内导航，与既有 `/rewrite?titleHint=` 跳转链路同构；
+   - 弹窗自身不持有路由依赖（仅 `emit('collect')`），路由决策收敛在容器组件，便于单测与复用；
+3. **手动录入**：填表 → 保存 → `addViralToLibrary` / `updateViralItem` → 成功 toast → 关闭弹窗 → `viralRef.loadData()` 刷新表格；
+4. **标签切换**：三标签任意顺序互切，面板按 `activeTab` 条件渲染（`v-if`），切换即挂载/卸载，模式分析面板 `onMounted` 自动拉取卡片列表；
+5. **文案变更**：个人知识库「＋ 添加知识」→「＋ 添加内容」，点击行为不变（打开 `PersonalFormDialog`，其标题沿用 `addPersonal` → 同步显示「添加内容」）。
+
+### 12.5 数据校验
+
+本次为 UI/文案层变更，未新增写入路径；相关既有校验保持并复核：
+
+| 校验点 | 规则 | 失败行为 |
+|---|---|---|
+| 弹窗必填 | `content.trim()` 非空 | 表单内联 `form-error`（`role="alert"`）提示必填，不发请求 |
+| 弹窗长度 | `content.length <= 50000` | 内联错误，不发请求 |
+| 链接格式 | `url` 非空时须为 http/https 可解析 URL | 内联错误提示，不发请求 |
+| 采集入口 | 无输入（跳转即采集页，链接校验由采集页 `collection.enterLink` 承担） | — |
+| 标签渲染 | 三标签恒定存在，不再依赖 activeTab | 由单测数组等值断言锁定（防回归） |
+| i18n | zh/en 成对新增；渲染端非 locales 文件零新增 CJK 字面量 | CI Gate 7 拦截 |
+
+### 12.6 提示文字（i18n，zh/en 成对）
+
+| 键 | zh | en | 变更 |
+|---|---|---|---|
+| `knowledgeBase.addViralManual` | 手动添加爆款 | Add Viral Manually | 新增（弹窗标题） |
+| `knowledgeBase.collectByLink` | 用链接采集 | Collect via Link | 新增（采集入口） |
+| `knowledgeBase.addPersonal` | 添加内容 | Add Content | 修改（原「添加知识 / Add Knowledge」） |
+| `knowledgeBase.addViral` | 添加爆款 | Add Viral | 不变（页面右上入口按钮） |
+
+### 12.7 模式分析功能说明（实现现状）
+
+**它是什么**：把「爆款库」里每条内容交给 LLM 做一次**表达模式抽取**，产出与原文解耦的结构化「模式卡片」，再在改写时把同类爆款的模式**聚合**成一段风格指导注入 Prompt。它分析的是"怎么写"，不是"写了什么"。
+
+**数据模型**：`viral_pattern_cards`，与 `viral_library` 一对一（`viral_item_id` 外联）。字段：`status`（pending/done/failed）、`hook_type`、`hook_analysis`、`emotion_curve`、`narrative_structure`、`cta_style`、`golden_quotes`（≤3）、`title_formula`、`attempts`、`last_error`、`extracted_at`。
+
+**六个维度（枚举前后端 + i18n 三处必须一致）**：
+
+- 钩子类型 8 种：悬念式 / 冲突式 / 反常识 / 提问式 / 故事式 / 数据式 / 共情式 / 其他
+- 情绪曲线 6 种：逐步升温 / 逐步下沉 / 先扬后抑 / 先抑后扬 / 波浪起伏 / 平铺直叙
+- 叙事结构 6 种：总分总 / 问题-方案 / 时间线 / 对比 / 清单 / 故事+道理
+- CTA 方式 6 种：提问式互动 / 挑战式 / 资源引导 / 关注引导 / 评论引导 / 无 CTA
+- 标题公式：自由文本，须含 `{占位符}`，否则回退原标题
+- 金句：原文摘录 ≤3 句；钩子分析：≤50 字有效性说明
+
+**流程**：
+
+1. **入库即建卡**：`addToViral / addViralBatch` 后置钩子 `ensurePatternCard`（幂等 `INSERT OR IGNORE`，status=pending）+ `triggerExtraction` 异步入队；
+2. **队列提取**：`PatternExtractionService.processQueue` 每轮最多 10 条；Prompt 只送标题 + 平台 + 正文前 3000 字；
+3. **解析容错**：剥 ```json 代码围栏 → `JSON.parse` → 逐字段枚举白名单校验（未知钩子降级 other，非法曲线/结构/CTA 置空）→ 金句过滤非字符串并截断 3 条；
+4. **失败与兜底**：单条异常记 `attempts` 不中断整轮；LLM 连续失败 ≥2 次触发**本地规则预填**（零成本启发式：标题反常识词/问号/数字 → 钩子；尾部「评论区/关注我/私信」→ CTA；段落数与转折词 → 曲线/结构；数字占位符化 → 标题公式），卡片转 done 且 `last_error` 标记来源，**不进 failed 终态**；无显著信号的字段留空，避免稀释聚合统计；源内容被删 → 直接标 failed 终止重试；
+5. **调度**：启动后 30s + 入库后异步 + 每小时巡检（timer `unref`），任何失败不阻塞入库/改写主流程（fail-open）；防重入用 `_pendingTrigger` 标记，本轮结束后立即补跑。
+
+**怎么用（用户视角）**：
+
+1. 先在「采集」页用链接采集爆款，或在「爆款库」手动添加（正文必填——正文是模式抽取的唯一输入源）；
+2. 入库后等待自动分析（启动 30s 巡检 / 每小时巡检 / 入库即时触发），「模式分析」标签的状态列从「分析中」变「已完成」即产出卡片；
+3. 在「模式分析」标签可按状态筛选、刷新、打开详情抽屉查看完整卡片（含钩子原理、金句、最后错误）；结果不满意或当时 LLM 失败，点「重新分析」→ 卡片 reset 为 pending → 重新入队；
+4. 改写时勾选「结合爆款库」，引擎按关键词检索 Top3 同主题爆款，加载其 done 卡片，`_buildPatternGuidance` 聚合为「## 爆款风格指导（基于 N 条同主题爆款模式分析）」段落注入 Prompt；
+5. 发布后经「效果洞察」页「重算归因」，把 `tracked_content ⋈ rewrite_history.knowledge_refs ⋈ pattern_cards ⋈ snapshot` 聚合为四维模式效果排行（`pattern_performance`），反哺"哪种钩子/结构在我的账号上真的有效"。
+
+**边界与局限**：
+
+- 卡片只存**平台表达模式**，不存主题（Q11b 决策：主题由检索关键词解决，两维正交）；
+- 卡片全字段为空时 `_buildPatternGuidance` 返回空串，上层自动回退浅层特征块（标题模式/关键词），不会注入空洞指导；
+- 本地规则预填精确度低于 LLM，仅作"聚合可用"兜底，可经「重新分析」由 LLM 覆盖，也可人工修正；
+- 归因样本 `sample_count < 3` 时效果洞察标注「样本不足」，不据其调整策略；
+- 模式分析依赖可用模型供应商：未配置 LLM 时，卡片经 2 次失败后落到本地规则预填（表现为「已完成」但字段较少、`hook_analysis` 带「（本地规则预填）」前缀）。
+
+### 12.8 测试映射与实测
+
+| 用例 | 断言 |
+|---|---|
+| K1-K3 | 三个 activeTab（viral / personal / pattern）下标签集合恒为 `[爆款库, 模式分析, 个人知识库]`（缺陷 2 的回归锁） |
+| K4 | 个人知识库视图添加按钮含「添加内容」且不含「添加知识」（缺陷 3） |
+| K5-K6 | 弹窗新增态标题为「手动添加爆款」；编辑态仍为「编辑」且不显示采集入口 |
+| K7-K8 | 采集入口存在、文案为「用链接采集」；点击 emit `collect` 一次 |
+| K9 | 容器收到 `collect` 后关闭弹窗并 `push('/collection')` |
+
+实测：`KnowledgeBaseHotsyncUi.test.js` 9/9 通过；`views-coverage.test.js` + `more-components.test.js` 19/19 无回归；CI Gate 7 三项（zh/en 成对、CJK 基线无新增硬编码、key 存在性）全部 PASS。
+
+**预防措施落地**：
+
+1. 新增视图级测试文件补齐 `KnowledgeBasePage` / `ViralFormDialog` 的覆盖空白，标签集合以**数组等值断言**（而非长度 ≥N）锁定，任何标签增减必须显式改测试；
+2. §4.5 的「爆款库 Tab 内二级视图」表述由本增量修正为**一级标签**（三视图恒定可见），后续改标签结构须同步更新 §4.5 与 §12.3；
+3. 跨页跳转入口统一走 `emit + router.push` 模式（弹窗组件不持有路由依赖），保持可单测。
+
 ---
 
-## 鍗佷簩銆?026-09-21 澧為噺锛氫晶杈规爮銆屾洿澶氥€嶉€変腑鎬佷慨澶?+ 鏁堟灉娲炲療椤电簿鑷村寲
+## 十三、2026-09-21 增量：侧边栏「更多」菜单选中态修复 + 效果洞察页 UI/UE 精致化
 
-鏈?搂5.6銆屾晥鏋滄礊瀵熼〉銆嶅湪 2026-09-21 鍋氫簡 UI/UE 绮捐嚧鍖栵紝骞朵慨澶嶄簡渚ц竟鏍忋€屾洿澶氥€嶈彍鍗曠己閫変腑鎬佺殑闂銆?
-瀹屾暣鐨勬暟鎹牎楠屻€佸姛鑳介€昏緫銆佷氦浜掗€昏緫銆佹樉绀洪」涓庣敤鎴峰彲瑙佹枃妗堣锛?
-`01-docs/PRD-SIDEBAR-INSIGHT-POLISH-2026-09-21.md`銆?
+本增量对 §5.6「效果洞察页」做了 UI/UE 精致化，并修复了侧边栏「更多」菜单缺选中态的问题。
+完整的数据校验、功能逻辑、交互逻辑、显示项与用户可见文案见：
+`01-docs/PRD-SIDEBAR-INSIGHT-POLISH-2026-09-21.md`。
 
-瑕佺偣锛?
-- 渚ц竟鏍?more 瀛愰」缁戝畾 active + `aria-current="page"`锛涖€屾洿澶氥€嶈Е鍙戝櫒 `moreOpen || hasActiveMoreItem` 甯搁┗楂樹寒锛沗watch(route.path)` 娣遍摼鑷姩灞曞紑銆?
-- 鏁堟灉娲炲療椤垫柊澧烇細骞冲彴绛涢€夈€佹瑙堟潯銆佷袱绾х┖鎬併€佸彲閲嶈瘯閿欒妯箙銆佹帓琛岃〃锛堝悕娆″窘鏍?鏈€浼樻ā寮?chip/浣庢牱鏈鍛?寰楀垎杩涘害鏉★級銆?
-- 褰掑洜鍙ｅ緞涓嶅彉锛坄engagement_score = avg_likes + avg_comments + avg_favorites 脳 2`锛夛紱鍓嶇浜屾鏄惧紡闄嶅簭淇濊瘉銆屾渶浼樻ā寮?= 棣栬銆嶃€?
+### 13.1 侧边栏「更多」选中态（Bug 修复）
+- more 组子项此前为裸 `router-link` 无选中态；现绑定 `active` class + `aria-current="page"` + `data-testid`。
+- 「更多」触发器高亮条件改为 `moreOpen || hasActiveMoreItem`，子项命中时触发器常驻高亮。
+- 新增 `watch(() => route.path)`：命中 more 组路由时自动展开，覆盖硬刷新深链（`onMounted` 早于异步路由解析的缺口）。
+
+### 13.2 效果洞察页精致化
+- 新增平台筛选下拉（选项从数据派生、复用 `PLATFORM_NAMES`）、数据概览条（总样本/模式数/最近计算）。
+- 两级空态（页面级 + 维度级）、可重试错误横幅、排行表（名次徽标 / 最优模式 chip / 低样本警告徽标 / 得分进度条）。
+- `rowsFor` 前端二次显式降序，保证「最优模式 = 首行」；`recomputing` 守卫防重复重算。
+- 修复 `dimValueLabel` 枚举翻译守卫 bug（原硬编码比较使 `hook_type` 恒不翻译）；前缀查表 + `te()` 探测。
+- 归因口径不变（`engagement_score = avg_likes + avg_comments + avg_favorites × 2`）。
+- 字号字面量全部 token 化为 `var(--font-size-*)`（Gate16 font-size 缩放门禁）。
+
+### 13.3 关联
+- 分支 `sidebar-insight-polish`（worktree 隔离，D 盘）· PR #2134 · 12 例单测（`MpSidebar.more-active.test.js` 5 + `PerformanceInsights.test.js` 7）

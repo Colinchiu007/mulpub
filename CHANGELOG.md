@@ -16,6 +16,23 @@
 
 ---
 
+# [未发布] fix(desktop): 知识库视图一致性修复与手动添加爆款弹窗采集入口
+
+### 变更
+- **KnowledgeBasePage.vue**：① 移除「模式分析」标签按钮的 `v-if="activeTab === 'viral' || activeTab === 'pattern'"`，三标签（爆款库/模式分析/个人知识库）在任何视图下恒定渲染，修复个人知识库视图只剩 2 个标签的视图不一致缺陷（根因：Q13-B 设计为「爆款库内二级视图」，实现落地为一级标签却保留条件隐藏，设计与实现漂移）；② 新增 `onCollectByLink()` 承接弹窗 `collect` 事件：关闭弹窗 + 清空 editingViral + `router.push('/collection')`，路由决策收敛在容器组件（弹窗不持有路由依赖，保持可单测）。
+- **ViralFormDialog.vue**：新增态标题由「添加爆款」改为「手动添加爆款」，与页面入口按钮形成「入口—方式」区分；标题右侧新增下划线珊瑚色文字按钮「用链接采集」（`data-testid="viral-form-collect-link"`，仅新增态显示，编辑态不出现），点击 `emit('collect')`；`defineEmits` 增加 `collect`。
+- **locales zh.js / en.js（成对）**：新增 `knowledgeBase.addViralManual`（手动添加爆款 / Add Viral Manually）、`knowledgeBase.collectByLink`（用链接采集 / Collect via Link）；`knowledgeBase.addPersonal` 由「添加知识 / Add Knowledge」改为「添加内容 / Add Content」。渲染端非 locales 文件零新增 CJK 字面量。
+
+### 验证
+- 新增 `KnowledgeBaseHotsyncUi.test.js` 9 例（TDD 先红后绿：补丁前 7 failed / 2 passed）：三视图标签集合数组等值断言、「添加内容」文案、弹窗标题、采集入口显示与 emit、容器 collect → 关闭弹窗 + push('/collection')、编辑态不显示采集入口。
+- 回归：`views-coverage.test.js` + `more-components.test.js` 19/19 通过；CI Gate 7 三项（zh/en 成对、CJK 基线无新增硬编码、key 存在性）PASS。
+
+### 关联
+- 分支 `kb-hotsync-ui-fix`（worktree 隔离）
+- 文档：`01-docs/PRD-ACTIVATE-VIRAL-LIBRARY-2026-09-13.md` §十二（含模式分析功能全链路说明、逃逸分析与预防措施）
+
+---
+
 # [未发布] fix(ops-center): 菜单设置页与左侧真实菜单不一致（admin 少 5 个 adminOnly 项）
 
 ### 变更

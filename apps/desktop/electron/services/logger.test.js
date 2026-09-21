@@ -148,15 +148,21 @@ describe('logger 服务', () => {
       await expect(logger.flush()).resolves.toBeUndefined()
     } finally {
       spy.mockRestore()
+      // writeTimeoutMs 是模块级全局状态，setLogOptions 不会重置未传字段：
+      // 不恢复会把 30ms 泄漏给后续测试（含 afterEach 的 flush），显式还原默认 5000ms
+      logger.setLogOptions({ writeTimeoutMs: 5000 })
     }
 
     // 队列释放后，后续写入恢复正常
     // 2026-09-19：CI 全量负载下 mockRestore 后的真实 appendFile 可能与超时 timer 竞态
     // （flush resolve 时写尚未落盘）→ 重试读取，断言本身不变。
+    // 2026-09-21 CI 红灯修复：固定 20×50ms≈1s 重试窗在 CI 满载下仍不够，
+    // 改为 5s deadline 轮询（落盘即提前退出，本地耗时不变）。
     logger.info('Test', 'after recover')
     await logger.flush()
     let content = ''
-    for (let i = 0; i < 20; i++) {
+    const deadline = Date.now() + 5000
+    while (Date.now() < deadline) {
       const files = listLogFiles(dir)
       if (files.length > 0) {
         content = fs.readFileSync(path.join(dir, files[0]), 'utf8')
