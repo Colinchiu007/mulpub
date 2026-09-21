@@ -15,14 +15,14 @@ platforms:
     icon: 💬
     category: 中文
     content_category: IMAGE_TEXT
-    publish_url: ""
-    data_url: "https://mp.weixin.qq.com/cgi-bin/message"
-    comment_url: "https://mp.weixin.qq.com/misc/appmsgcomment"
+    publish_url: ''
+    data_url: https://mp.weixin.qq.com/cgi-bin/message
+    comment_url: https://mp.weixin.qq.com/misc/appmsgcomment
     cover_size: 900x500
     max_title: 64
     max_content: 20000
     has_api: false
-
+    enabled: true
   zhihu:
     id: 12
     name: 知乎
@@ -30,45 +30,49 @@ platforms:
     icon: ❓
     category: 中文
     content_category: IMAGE_TEXT
-    publish_url: "https://zhuanlan.zhihu.com/write"
-    data_url: ""
-    comment_url: ""
+    publish_url: https://zhuanlan.zhihu.com/write
+    data_url: ''
+    comment_url: ''
     cover_size: 1280x720
-    max_title: 120
-    max_content: 100000
+    max_title: 50
+    max_content: 5000
     has_api: false
-
+    enabled: true
   weibo:
-    has_api: true
+    has_api: false
     name: 微博
     type: mixed
     icon: 🔥
     category: 中文
     content_category: MIXED
-
+    max_title: 140
+    max_content: 5000
+    enabled: true
   douyin:
-    has_api: true
+    has_api: false
     name: 抖音
     type: mixed
     icon: 🎵
     category: 中文
     content_category: VIDEO
-
+    max_title: 55
+    max_content: 1000
+    enabled: true
   xiaohongshu:
     id: 51
     name: 小红书
     type: mixed
     icon: 📕
     category: 中文
-    content_category: MIXED
-    publish_url: "https://creator.xiaohongshu.com/"
-    data_url: "https://creator.xiaohongshu.com/creator/data-center"
-    comment_url: "https://creator.xiaohongshu.com/creator/comment"
+    content_category: IMAGE_TEXT
+    publish_url: https://creator.xiaohongshu.com/
+    data_url: https://creator.xiaohongshu.com/creator/data-center
+    comment_url: https://creator.xiaohongshu.com/creator/comment
     cover_size: 1080x1080
     max_title: 20
     max_content: 1000
     has_api: false
-
+    enabled: true
   tencent_video:
     id: 21
     name: 视频号
@@ -76,14 +80,13 @@ platforms:
     icon: ▶
     category: 中文
     content_category: VIDEO
-    publish_url: "https://channels.weixin.qq.com/"
-    data_url: ""
-    comment_url: ""
+    publish_url: https://channels.weixin.qq.com/
+    data_url: ''
+    comment_url: ''
     cover_size: 1080x1080
     max_title: 60
     max_content: 1000
     has_api: false
-
   kuaishou:
     id: 35
     name: 快手
@@ -91,29 +94,29 @@ platforms:
     icon: 🎬
     category: 中文
     content_category: VIDEO
-    publish_url: "https://cp.kuaishou.com/article/publish/video?tabType=1"
-    data_url: ""
-    comment_url: ""
+    publish_url: https://cp.kuaishou.com/article/publish/video?tabType=1
+    data_url: ''
+    comment_url: ''
     cover_size: 1080x1440
-    max_title: 40
-    max_content: 500
+    max_title: 55
+    max_content: 1000
     has_api: false
-
+    enabled: true
   toutiao:
     id: 3
     name: 今日头条
-    type: mixed
+    type: article
     icon: 📰
     category: 中文
-    content_category: MIXED
-    publish_url: "https://mp.toutiao.com/"
-    data_url: "https://mp.toutiao.com/profile_v4/analysis/works-overall/all"
-    comment_url: "https://mp.toutiao.com/profile_v4/manage/comment/all"
+    content_category: IMAGE_TEXT
+    publish_url: https://mp.toutiao.com/
+    data_url: https://mp.toutiao.com/profile_v4/analysis/works-overall/all
+    comment_url: https://mp.toutiao.com/profile_v4/manage/comment/all
     cover_size: 1200x600
-    max_title: 64
-    max_content: 50000
+    max_title: 30
+    max_content: 5000
     has_api: false
-
+    enabled: true
   youtube:
     has_api: true
     name: YouTube
@@ -121,15 +124,19 @@ platforms:
     icon: 📺
     category: 海外
     content_category: VIDEO
-
+    max_title: 100
+    max_content: 5000
+    enabled: true
   tiktok:
-    has_api: true
+    has_api: false
     name: TikTok
     type: mixed
     icon: 🎤
     category: 海外
     content_category: VIDEO
-
+    max_title: 150
+    max_content: 2200
+    enabled: true
   bilibili:
     id: 23
     name: 哔哩哔哩
@@ -137,14 +144,14 @@ platforms:
     icon: 📺
     category: 中文
     content_category: VIDEO
-    publish_url: "https://member.bilibili.com/platform/upload/video/frame"
-    data_url: "https://member.bilibili.com/platform/upload/video/frame"
-    comment_url: ""
+    publish_url: https://member.bilibili.com/platform/upload/video/frame
+    data_url: https://member.bilibili.com/platform/upload/video/frame
+    comment_url: ''
     cover_size: 1146x717
     max_title: 80
-    max_content: 2000
-    has_api: false
-
+    max_content: 3000
+    has_api: true
+    enabled: true
   baijiahao:
     id: 4
     name: 百家号
@@ -152,21 +159,23 @@ platforms:
     icon: 📖
     category: 中文
     content_category: MIXED
-    publish_url: "https://baijiahao.baidu.com/builder/rc/edit?type=videoV2"
-    data_url: ""
-    comment_url: ""
+    publish_url: https://baijiahao.baidu.com/builder/rc/edit?type=videoV2
+    data_url: ''
+    comment_url: ''
     cover_size: 1200x675
     max_title: 64
     max_content: 50000
     has_api: true
   twitter:
     has_api: true
-    name: Twitter
+    name: X (Twitter)
     type: mixed
     icon: 🐦
     category: 海外
-    content_category: MIXED
-
+    content_category: IMAGE_TEXT
+    max_title: 280
+    max_content: 4000
+    enabled: true
   instagram:
     id: 103
     name: Instagram
@@ -174,26 +183,25 @@ platforms:
     icon: 📷
     category: 海外
     content_category: IMAGE_TEXT
-    publish_url: "https://www.instagram.com/"
-    data_url: ""
-    comment_url: ""
+    publish_url: https://www.instagram.com/
+    data_url: ''
+    comment_url: ''
     cover_size: 1080x1080
     max_title: 70
     max_content: 2200
     has_api: false
-
   facebook:
     id: 104
     name: Facebook
     type: mixed
     icon: 👍
     category: 海外
-    content_category: MIXED
-    publish_url: "https://www.facebook.com/"
-    data_url: ""
-    comment_url: ""
+    content_category: IMAGE_TEXT
+    publish_url: https://www.facebook.com/
+    data_url: ''
+    comment_url: ''
     cover_size: 1200x630
-    max_title: 70
+    max_title: 63206
     max_content: 63206
-    has_api: false
-
+    has_api: true
+    enabled: true

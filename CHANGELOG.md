@@ -1,3 +1,22 @@
+# [未发布] chore(sync): 平台配置轻量版预同步工具 sync-platform-config.js
+
+### 变更
+- **scripts/sync-platform-config.js（新增）**：把运营中心 platform_defs（平台清单单一事实源）按 key 合并进本机 config/platforms.yaml。共享字段（name/category/content_category/type/max_title/max_content/has_api/enabled）更新并归一布尔；人工字段（icon/publish_url/data_url/comment_url/cover_size）与文件头注释保留；运营中心新增平台以占位段追加；仅本地存在的平台保留不动并在报告中提示。写入前自动备份 .bak，内容无变化时 no-op（字节级幂等）。
+- **config/platforms.yaml**：经该工具对真实运营中心后端（:8010）执行合并——12 平台补齐 enabled 字段并归一引号风格；tencent_video/baijiahao/instagram 仅本地存在，保留未动。
+- **背景**：桌面端 opsCenterSync 配置 Key 经 safeStorage 加密、外部无法伪造；方案 C（会话凭证换取同步凭证，独立 PR 推进中）落地前，本工具提供不依赖桌面应用登录态的本机预同步通道。
+- **CI**：`scripts/*.js` 默认 gitignore，新增 sync-platform-config.js/.test.js 白名单例外；quality-gate.yml Gate 2b 挂入新单测。
+- **CHANGELOG 去损**：清除 origin/main 头部残留的孤立冲突标记块（`>>>>>>> theirs`，2026-09-21 并发 prepend 事故残留）。
+
+### 验证
+- 新增 `scripts/sync-platform-config.test.js`（node --test）7 用例全过：共享字段更新/人工字段保留/布尔归一/新增占位段/localOnly 保留/函数级幂等/dump+头拼接字节级幂等（防注释粘连复辟）。
+- live 验证：对运行中的运营中心后端登录→拉取 12 平台定义→合并→二次运行输出「目标已是最新」（幂等达成）。
+
+### 关联
+- 分支 `codex/sync-platform-config`（worktree 隔离，基点 origin/main）
+- 前序：PR #2162（normalizeAppMenu 透传 group，Bug2 净化层）
+
+---
+
 # [未发布] feat(viral-analysis): 爆款分析页彻底利用 ViralEngine — PR-2（F6/F7/F8/T-6，零新增 IPC）
 
 ### 变更
@@ -19,10 +38,6 @@
 ### 关联
 - 分支 `codex/viral-page-full-util-pr2`（worktree 隔离，D 盘）· PR #2159 auto-merge 待 CI
 - 文档：`01-docs/PRD-VIRAL-PAGE-FULL-UTILIZATION-2026-09-21.md` §12 PR-2 实现详解
-
----
-
->>>>>>> theirs
 
 ---
 
