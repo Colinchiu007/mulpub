@@ -62,19 +62,12 @@
 
         <!-- 结果 Tab -->
         <div v-if="result" class="viral-result">
-          <!-- 分析失败错误横幅（formatUserError 友好文案，不再静默吞错只显 0 分） -->
-          <div v-if="result.error" class="viral-error-banner" data-testid="viral-analyze-error">
-            <span>⚠️</span><span>{{ result.error }}</span>
-          </div>
           <!-- 分析结果概览 -->
-          <div v-if="result.overall_score !== undefined && !result.error" class="cohere-card viral-card-static viral-overview-card">
+          <div v-if="result.overall_score !== undefined" class="cohere-card viral-card-static viral-overview-card">
             <div class="viral-overview-row">
               <div class="viral-score-block">
-                <div class="viral-score-value">{{ result.overall_score }}<span class="viral-score-unit">/100</span></div>
+                <div class="viral-score-value">{{ result.overall_score }}</div>
                 <div class="viral-score-label">爆款潜力分</div>
-              </div>
-              <div v-if="result.mode === 'local-fallback'" class="viral-mode-badge" :title="$t('viralAnalysis.localModeHint')" data-testid="viral-local-mode">
-                <el-icon><Cpu /></el-icon> {{ $t('viralAnalysis.localModeBadge') }}
               </div>
               <div v-if="result.trend_direction" class="viral-score-block">
                 <div class="viral-trend-icon"><el-icon><component :is="trendIcon(result.trend_direction)" /></el-icon></div>
@@ -112,9 +105,9 @@
                 <div class="viral-block-title-sm">{{ f.label || f.name }}</div>
                 <div class="viral-factor-row">
                   <div class="viral-factor-bar">
-                    <div class="viral-factor-fill" :style="{width: factorPct(f)+'%', background: scoreColor(factorPct(f)/100)}"></div>
+                    <div class="viral-factor-fill" :style="{width: (f.score * 100)+'%', background: scoreColor(f.score)}"></div>
                   </div>
-                  <span class="viral-factor-score">{{ Math.round(factorPct(f)) }}</span>
+                  <span class="viral-factor-score">{{ (f.score * 100).toFixed(0) }}</span>
                 </div>
               </div>
             </div>
@@ -122,20 +115,20 @@
 
           <!-- 平台对比 -->
           <div v-if="result.platform_scores && Object.keys(result.platform_scores).length" class="viral-section">
-            <div class="viral-section-title"><el-icon><Connection /></el-icon> {{ $t('viralAnalysis.sectionPlatformScores') }}</div>
+            <div class="viral-section-title">🌐 平台评分</div>
             <div class="viral-tag-row">
               <div v-for="(score, plat) in result.platform_scores" :key="plat"
                 class="cohere-card viral-card-static viral-platform-card"
               >
                 <div class="viral-platform-name">{{ plat }}</div>
-                <div class="viral-platform-score" :style="{color: scoreColor(Number(score)/100 || 0)}">{{ fmtScore(score) }}</div>
+                <div class="viral-platform-score" :style="{color: scoreColor(score/100)}">{{ score.toFixed(1) }}</div>
               </div>
             </div>
           </div>
 
           <!-- 推荐结构 -->
           <div v-if="result.suggested_structures && result.suggested_structures.length" class="viral-section">
-            <div class="viral-section-title"><el-icon><Trophy /></el-icon> {{ $t('viralAnalysis.sectionSuggestedStructures') }}</div>
+            <div class="viral-section-title">🏆 推荐标题结构</div>
             <div class="viral-tag-row">
               <div v-for="(s, idx) in result.suggested_structures" :key="idx"
                 class="cohere-card viral-card-static viral-structure-card"
@@ -158,15 +151,9 @@
             </div>
           </div>
 
-        </div>
-
-        <!-- 生成结果（独立渲染，不嵌套在分析结果内：只点「生成文案」不点「爆款分析」时也能展示） -->
-        <div v-if="genResult" class="viral-result">
-          <div v-if="genResult.error" class="viral-error-banner" data-testid="viral-generate-error">
-            <span>⚠️</span><span>{{ genResult.error }}</span>
-          </div>
-          <template v-else>
-          <div class="viral-section-title"><el-icon><MagicStick /></el-icon> {{ $t('viralAnalysis.sectionGenerateResult') }} · {{ taskLabel(genResult.task) }}</div>
+          <!-- 生成结果 -->
+          <div v-if="genResult" class="viral-result">
+            <div class="viral-section-title"><el-icon><MagicStick /></el-icon> 生成结果 ({{ genResult.task }})</div>
 
             <!-- 标题列表面板 -->
             <div v-if="genResult.task === 'titles' && genResult.data?.titles" class="cohere-card viral-card-static">
@@ -176,7 +163,7 @@
               >
                 <div class="viral-title-num">#{{ idx + 1 }}</div>
                 <div class="viral-title-body">
-                  <div class="viral-title-text">{{ titleText(t) }}</div>
+                  <div class="viral-title-text">{{ t.title }}</div>
                   <div class="viral-title-meta">
                     <span v-if="t.structure" class="cohere-tag">{{ t.structure }}</span>
                     <span v-if="t.emotion" class="cohere-tag">{{ t.emotion }}</span>
@@ -184,7 +171,7 @@
                     <button
                       class="cohere-btn-secondary viral-go-rewrite"
                       data-testid="viral-go-rewrite"
-                      @click="goRewrite(titleText(t))"
+                      @click="goRewrite(t.title)"
                     >{{ $t('viralAnalysis.goRewrite') }}</button>
                   </div>
                   <div v-if="t.reasoning" class="viral-title-reason">{{ t.reasoning }}</div>
@@ -219,7 +206,7 @@
                 <div v-if="s.outline" class="viral-suggest-outline">{{ s.outline }}</div>
               </div>
             </div>
-          </template>
+          </div>
         </div>
 
         <!-- 空状态 -->
@@ -227,7 +214,7 @@
           <UiSkeleton variant="chart" />
         </div>
         <EmptyState
-          v-else-if="!result && !genResult"
+          v-else-if="!result"
           data-testid="viral-analysis-empty"
           :title="$t('viralAnalysis.emptyTitle')"
           :description="$t('viralAnalysis.emptyDescription')"
@@ -243,12 +230,12 @@
 import { viralAnalyze, viralGenerate } from '@/api/publisher'
 import { addViralToLibrary } from '@/api/knowledge-library'
 import UiButton from '../components/UiButton.vue'
-import { CaretBottom, CaretRight, CaretTop, Connection, Cpu, DataLine, FolderAdd, Key, MagicStick, TrendCharts, Trophy } from '@element-plus/icons-vue'
+import { CaretBottom, CaretRight, CaretTop, DataLine, FolderAdd, Key, MagicStick, TrendCharts } from '@element-plus/icons-vue'
 import { formatUserError } from '@/utils/user-facing-error'
 import { useViralSignalStore } from '@/stores/viral-signal'
 export default {
 
-components: { UiButton, CaretBottom, CaretRight, CaretTop, Connection, Cpu, DataLine, FolderAdd, Key, MagicStick, TrendCharts, Trophy },
+components: { UiButton, CaretBottom, CaretRight, CaretTop, DataLine, FolderAdd, Key, MagicStick, TrendCharts },
   data () {
     return {
       topic: '',
@@ -306,10 +293,10 @@ components: { UiButton, CaretBottom, CaretRight, CaretTop, Connection, Cpu, Data
             })
           } catch { /* 信号记录失败不影响分析主流程 */ }
         } else {
-          this.result = { overall_score: 0, error: formatUserError(res, { fallback: this.$t('viralAnalysis.analyzeFailed') }).message }
+          this.result = { overall_score: 0, error: formatUserError(res, { fallback: '分析失败' }).message }
         }
       } catch (err) {
-        this.result = { overall_score: 0, error: formatUserError(err, { fallback: this.$t('viralAnalysis.analyzeFailed') }).message }
+        this.result = { overall_score: 0, error: formatUserError(err, { fallback: '分析失败' }).message }
       } finally {
         this.loading = false
       }
@@ -329,12 +316,9 @@ components: { UiButton, CaretBottom, CaretRight, CaretTop, Connection, Cpu, Data
         const res = await viralGenerate(opts)
         if (res?.code === 0) {
           this.genResult = res.data
-        } else {
-          // 不吞错：IPC 业务错误（非 0 code）也落入 genResult.error 供横幅渲染
-          this.genResult = { task: 'titles', error: formatUserError(res, { fallback: this.$t('viralAnalysis.generateFailed') }).message }
         }
       } catch (err) {
-        this.genResult = { task: 'titles', error: formatUserError(err, { fallback: this.$t('viralAnalysis.generateFailed') }).message }
+        this.genResult = { task: 'titles', error: formatUserError(err, { fallback: '标题生成失败' }).message }
       } finally {
         this.loading = false
       }
@@ -428,17 +412,6 @@ components: { UiButton, CaretBottom, CaretRight, CaretTop, Connection, Cpu, Data
       this.$router.push({ path: '/rewrite', query: { titleHint: title.trim().slice(0, 200) } })
     },
 
-    /** 生成任务名本地化标签（模板不再直出英文 task key） */
-    taskLabel (task) {
-      const keys = {
-        titles: 'viralAnalysis.taskTitles',
-        hooks: 'viralAnalysis.taskHooks',
-        rewrite: 'viralAnalysis.taskRewrite',
-        structures: 'viralAnalysis.taskStructures',
-      }
-      return keys[task] ? this.$t(keys[task]) : task
-    },
-
     trendLabel (direction) {
       const labels = { rising: '上升中', declining: '下降中', stable: '平稳' }
       return labels[direction] || direction
@@ -449,26 +422,6 @@ components: { UiButton, CaretBottom, CaretRight, CaretTop, Connection, Cpu, Data
       if (score >= 0.7) return 'var(--color-score-high)'
       if (score >= 0.4) return 'var(--color-score-mid)'
       return 'var(--color-score-low)'
-    },
-
-    /** 标题文本容错：兼容字符串数组（历史本地兜底形态）与对象数组（{title} 契约） */
-    titleText (t) {
-      if (typeof t === 'string') return t
-      return (t && typeof t === 'object' && t.title) || ''
-    },
-
-    /** 因子百分比（0-100）：score 非数字显示 0，兼容 0-1（本地兜底约定）与 0-100 两种量纲 */
-    factorPct (f) {
-      const s = Number(f && f.score)
-      if (!Number.isFinite(s)) return 0
-      const pct = s > 1 ? s : s * 100
-      return Math.min(Math.max(pct, 0), 100)
-    },
-
-    /** 平台评分容错格式化：非数字显示 '-'，避免 toFixed 崩溃 */
-    fmtScore (v) {
-      const n = Number(v)
-      return Number.isFinite(n) ? n.toFixed(1) : '-'
     },
   },
 }
@@ -483,8 +436,6 @@ components: { UiButton, CaretBottom, CaretRight, CaretTop, Connection, Cpu, Data
 }
 
 /* --- 页头与输入区 --- */
-.viral-analysis .page-title { font-size: var(--font-size-xl); letter-spacing: -0.2px; }
-.viral-analysis .page-subtitle { margin-top: 2px; }
 .viral-header-row { display: flex; align-items: center; gap: var(--space-md); width: 100%; }
 .viral-header-main { flex: 1; }
 .viral-input-row { display: flex; gap: var(--space-md); flex-wrap: wrap; }
@@ -492,56 +443,29 @@ components: { UiButton, CaretBottom, CaretRight, CaretTop, Connection, Cpu, Data
 .viral-field-platform { flex: 1; min-width: 160px; }
 .viral-input-md { font-size: var(--font-size-sm); } /* 14px：七档外存量字号，档位收敛属 T1-6 */
 .viral-actions { display: flex; align-items: flex-end; gap: var(--space-sm); }
-/* 生成文案：主色描边次级按钮（原 danger 红底误导为危险操作，2026-09-21 精致化） */
-.viral-btn-generate { background: var(--color-bg-card); border-color: var(--color-primary); color: var(--color-primary); }
-.viral-btn-generate:hover { background: var(--color-primary-light); border-color: var(--color-primary); color: var(--color-primary); }
+.viral-btn-generate { background: var(--color-danger); border-color: var(--color-danger); }
 .viral-card-static { cursor: default; }
 
 /* --- 文章数据（可选） --- */
 .viral-article-section { margin-top: var(--space-md); }
-.viral-details-summary { cursor: pointer; font-size: var(--font-size-sm); color: var(--color-text-muted); transition: color 0.2s; }
-.viral-details-summary:hover { color: var(--color-primary); }
+.viral-details-summary { cursor: pointer; font-size: var(--font-size-sm); color: var(--color-text-muted); }
 .viral-article-form { margin-top: var(--space-sm); }
 .viral-article-textarea { font-size: var(--font-size-sm); font-family: monospace; resize: vertical; }
 
 /* --- 结果区通用 --- */
 .viral-result { margin-top: var(--space-lg); }
 .viral-section { margin-top: var(--space-md); }
-.viral-section-title { display: flex; align-items: center; gap: 6px; font-size: var(--font-size-sm); font-weight: 600; margin-bottom: var(--space-sm); color: var(--color-text-strong); }
-.viral-section-title .el-icon { color: var(--color-primary); } /* 14px：档位收敛属 T1-6 */
+.viral-section-title { font-size: var(--font-size-sm); font-weight: 600; margin-bottom: var(--space-sm); } /* 14px：档位收敛属 T1-6 */
 .viral-block-title-sm { font-size: var(--font-size-sm); font-weight: 600; margin-bottom: 4px; }
 .viral-tag-row { display: flex; gap: 6px; flex-wrap: wrap; }
 .viral-loading { padding: 16px 0; }
-
-/* --- 错误横幅（分析/生成失败可见化） --- */
-.viral-error-banner {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin-top: var(--space-md);
-  padding: var(--space-sm) var(--space-md);
-  border-radius: var(--r-xs);
-  border: 1px solid var(--color-border);
-  background: var(--color-danger-soft);
-  color: var(--color-danger);
-  font-size: var(--font-size-sm);
-  line-height: 1.6;
-}
 
 /* --- 概览 --- */
 .viral-overview-card { background: var(--color-bg-inset); }
 .viral-overview-row { display: flex; align-items: center; gap: var(--space-lg); flex-wrap: wrap; }
 .viral-score-block { text-align: center; }
-.viral-score-value { font-size: var(--font-size-xxl); font-weight: 700; color: var(--color-danger); line-height: 1.1; font-variant-numeric: tabular-nums; }
-.viral-score-unit { font-size: var(--font-size-md); font-weight: 500; color: var(--color-text-muted); margin-left: 2px; }
-.viral-score-label { font-size: var(--font-size-xs); color: var(--color-text-muted); letter-spacing: 0.28px; }
-.viral-mode-badge {
-  display: inline-flex; align-items: center; gap: 4px;
-  font-size: var(--font-size-xs); color: var(--color-primary);
-  background: var(--color-sidebar-bg-start);
-  border: 1px solid var(--color-sidebar-border);
-  border-radius: var(--r-pill); padding: 2px 10px; cursor: default;
-}
+.viral-score-value { font-size: var(--font-size-xxl); font-weight: 700; color: var(--color-danger); }
+.viral-score-label { font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .viral-trend-icon { font-size: var(--font-size-xl); }
 .viral-angles { flex: 1; min-width: 200px; }
 
@@ -552,16 +476,14 @@ components: { UiButton, CaretBottom, CaretRight, CaretTop, Connection, Cpu, Data
 
 /* --- 因子分解 --- */
 .viral-factor-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--space-sm); }
-.viral-factor-card { padding: var(--space-sm); transition: box-shadow 0.2s, transform 0.2s; }
-.viral-factor-card:hover { box-shadow: var(--shadow-float); transform: translateY(-1px); }
+.viral-factor-card { padding: var(--space-sm); }
 .viral-factor-row { display: flex; align-items: center; gap: 8px; }
 .viral-factor-bar { flex: 1; height: 6px; background: var(--color-border); border-radius: 3px; overflow: hidden; }
 .viral-factor-fill { height: 100%; border-radius: 3px; transition: width 0.5s; }
-.viral-factor-score { font-size: var(--font-size-base); font-weight: 700; color: var(--color-text-strong); min-width: 28px; text-align: right; font-variant-numeric: tabular-nums; }
+.viral-factor-score { font-size: var(--font-size-xs); font-weight: 600; color: var(--color-text-muted); }
 
 /* --- 平台对比 --- */
-.viral-platform-card { padding: var(--space-sm) var(--space-lg); text-align: center; min-width: 120px; transition: box-shadow 0.2s; }
-.viral-platform-card:hover { box-shadow: var(--shadow-float); }
+.viral-platform-card { padding: var(--space-sm); text-align: center; min-width: 120px; }
 .viral-platform-name { font-size: var(--font-size-xs); color: var(--color-text-muted); margin-bottom: 4px; }
 .viral-platform-score { font-size: var(--font-size-lg); font-weight: 700; }
 
@@ -572,13 +494,12 @@ components: { UiButton, CaretBottom, CaretRight, CaretTop, Connection, Cpu, Data
   font-size: var(--font-size-sm);
   padding: 2px 10px;
   border-radius: var(--r-xs);
-  background: var(--color-primary-light);
-  color: var(--color-primary);
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
 }
 
 /* --- 生成标题列表 --- */
-.viral-title-row { padding: var(--space-sm); border-bottom: 1px solid var(--color-border); display: flex; gap: var(--space-sm); align-items: flex-start; border-radius: var(--r-sm); transition: background 0.15s; }
-.viral-title-row:hover { background: var(--color-bg-inset); }
+.viral-title-row { padding: var(--space-sm); border-bottom: 1px solid var(--color-border); display: flex; gap: var(--space-sm); align-items: flex-start; }
 .viral-title-row--last { border-bottom: none; }
 .viral-title-num { font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text-muted); min-width: 24px; }
 .viral-title-body { flex: 1; }

@@ -240,44 +240,34 @@ class ViralEngine {
         '${kw} vs 传统方案，到底该选哪个？',
         '关于${kw}，这是我看过的最好总结',
       ]
-      // 与模板逐一对应的标题结构标签（渲染层 viral-title-meta 展示用）
-      const structures = [
-        '时效+新手友好', '指南+数字盘点', '悬念式提问', '避坑警示', '入门教程',
-        '个人经历背书', '反差制造好奇', '进阶玩法', '对比评测', '精选合集',
-      ]
       const titles = []
       for (let i = 0; i < Math.min(count, templates.length); i++) {
-        titles.push({
-          title: templates[i].replace(/\$\{kw\}/g, mainKw).replace(/\$\{year\}/g, String(new Date().getFullYear())).replace(/\$\{count\}/g, String(5 + i * 3)),
-          structure: structures[i],
-        })
+        titles.push(templates[i].replace(/\$\{kw\}/g, mainKw).replace(/\$\{year\}/g, String(new Date().getFullYear())).replace(/\$\{count\}/g, String(5 + i * 3)))
       }
-      // 契约与渲染层对齐：genResult.data.titles（对象数组），与 orchestrator 响应同构。
       return {
         success: true,
         mode: 'local-fallback',
         task: 'titles',
         platform: platform,
-        data: { titles },
+        titles: titles,
         summary: '本地模板生成（orchestrator 不可用）',
       }
     }
 
     if (task === 'hooks') {
-      const hookTemplates = [
-        { hook: mainKw + '——你真的了解吗？', technique: '悬念提问' },
-        { hook: '别划走！关于' + mainKw + '的内容可能改变你的看法', technique: '中断口令' },
-        { hook: '90%的人在' + mainKw + '上都踩过坑，你呢？', technique: '从众+数据' },
-        { hook: '一句话说清' + mainKw + '的核心', technique: '承诺简化' },
-        { hook: mainKw + '的隐藏玩法，今天全盘托出', technique: '揭秘承诺' },
+      const hooks = [
+        mainKw + '——你真的了解吗？',
+        '别划走！关于' + mainKw + '的内容可能改变你的看法',
+        '90%的人在' + mainKw + '上都踩过坑，你呢？',
+        '一句话说清' + mainKw + '的核心',
+        mainKw + '的隐藏玩法，今天全盘托出',
       ].slice(0, count)
-      // 契约与渲染层对齐：genResult.data.hooks（对象数组 {hook, technique}）
       return {
         success: true,
         mode: 'local-fallback',
         task: 'hooks',
         platform: platform,
-        data: { hooks: hookTemplates },
+        hooks: hooks,
       }
     }
 
