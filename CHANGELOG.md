@@ -47,25 +47,6 @@
 
 ---
 
-# [未发布] fix(desktop): 爆款分析页功能不可用修复 + UI 精致化
-
-### 变更
-- **license-access-control.js**：将 `viral:analyze/generate/trending` 加入 `PUBLIC_CHANNELS`。此前未登录被判 `AUTH_REQUIRED(-3)`，在到达 ViralEngine 本地兜底之前就拦截，架空了「orchestrator 不可用时离线可用」的设计意图，导致功能整体不可用。
-- **viral-engine.js `_localGenerate`**：本地兜底返回契约对象化并对齐设计文档——`titles→data.titles[{title,structure}]`、`hooks→data.hooks[{hook,technique}]`（原为顶层字符串数组，渲染层读 `data.titles` 永远取空）。
-- **ViralAnalysis.vue**：新增分析/生成错误横幅（`formatUserError` 友好文案，失败不再静默吞错）；生成结果从 `v-if="result"` 内移出独立渲染（只点生成也能出结果）；新增 `titleText/factorPct/fmtScore/taskLabel` 容错方法（双契约兼容、NaN 安全降级）。
-- **UI 精致化**：爆款潜力分补 `/100` 单位 + tabular-nums；本地模式 Cpu 徽章；区块标题 emoji（🌐/🏆）迁移为 el-icon（Connection/Trophy/MagicStick）并迁入 locale；生成按钮改主色描边、关键词标签改主色、卡片 hover 阴影。
-- **locales zh/en 成对**：新增 `analyzeFailed/generateFailed/localModeBadge/localModeHint/task*/section*` 键。
-
-### 验证
-- ViralAnalysis / viral-engine / license-access-control / views-coverage2 / icon-usage 共 104 用例通过；`check-locale-sync --cjk`/`--keys` 均 PASS。
-- CDP e2e 实测：未登录态 `viral:analyze` 由 `code:-3` 恢复为 `code:0`（本地兜底数据）；`viral:generate` 返回 `data.titles[{title,structure}]` 并正确渲染标题列表 + 去改写按钮；截图确认视觉精致化到位。
-
-### 关联
-- 分支 `viral-analysis-polish`（worktree 隔离）· PR 待 CI 通过后合并
-- 文档：`01-docs/PRD-VIRAL-ANALYSIS-PAGE-2026-09-21.md`（完整功能规格：根因/数据校验/交互/显示项/提示文字/验收/Bug 反哺）
-
----
-
 # [未发布] fix(desktop): 登录点击即时反馈强化——头像转圈 + 「正在打开登录...」文案
 
 ### 变更
