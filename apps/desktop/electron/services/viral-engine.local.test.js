@@ -202,4 +202,79 @@ describe('ViralEngine 本地算法工程化（PR-1）', () => {
       expect(r.keywords).toEqual([])
     })
   })
+
+  // ── PR-2：T-6 模式卡片驱动模板桶权重 + F6 structure 套用合同 ──
+  describe('UT-8 T-6 模式卡片驱动模板桶权重（F6/T-6）', () => {
+    it('无 provider（冷启动）时 _patternStructureCounts 返回 {}，产出与 PR-1 基线逐位一致', () => {
+      expect(engine._patternStructureCounts()).toEqual({})
+      const base = { topic: 'AI工具推荐', platform: '通用', task: 'titles', count: 5 }
+      const a = engine._localGenerate(base)
+      engine.setPatternProvider(() => ({ items: [] }))
+      const b = engine._localGenerate(base)
+      expect(b.data.titles).toEqual(a.data.titles)
+    })
+
+    it('provider 返回卡片行时按 STRUCTURE_BY_NARRATIVE 聚合计数（未知枚举忽略）', () => {
+      engine.setPatternProvider(() => ({
+        items: [
+          { narrative_structure: 'list' },
+          { narrative_structure: 'list' },
+          { narrative_structure: 'contrast' },
+          { narrative_structure: '不存在的枚举' },
+          { narrative_structure: null },
+        ],
+      }))
+      expect(engine._patternStructureCounts()).toEqual({ '数字盘点': 2, '对比评测': 1 })
+    })
+
+    it('provider 直接返回数组形态也可聚合', () => {
+      engine.setPatternProvider(() => [{ narrative_structure: 'problem_solution' }])
+      expect(engine._patternStructureCounts()).toEqual({ '避坑警示': 1 })
+    })
+
+    it('provider 抛错时 fail-open 返回 {}（不炸生成主流程）', () => {
+      engine.setPatternProvider(() => { throw new Error('db locked') })
+      expect(engine._patternStructureCounts()).toEqual({})
+      const r = engine._localGenerate({ topic: 'AI工具推荐', platform: '通用', task: 'titles', count: 5 })
+      expect(r.success).toBe(true)
+      expect(r.data.titles.length).toBe(5)
+    })
+
+    it('高表现 structure 模板置顶：首位产出 structure 为被 boost 的结构', () => {
+      engine.setPatternProvider(() => ({ items: [{ narrative_structure: 'list', status: 'done' }] }))
+      engine._patternStructureCounts = () => ({ '数字盘点': 8 })
+      const r = engine._localGenerate({ topic: '城市漫步', platform: '通用', task: 'titles', count: 5 })
+      expect(r.data.titles[0].structure).toBe('数字盘点')
+      // 非 boost 结构不得排到 boost 结构之前（稳定排序主键为样本量）
+      const counts = r.data.titles.map(t => (t.structure === '数字盘点' ? 8 : 0))
+      expect(counts).toEqual([...counts].sort((a, b) => b - a))
+    })
+  })
+
+  describe('F6 structure 套用合同（AC6.2）', () => {
+    it('opts.structure=叙事枚举 list → 全部结果 structure 为「数字盘点」', () => {
+      const r = engine._localGenerate({ topic: 'AI工具推荐', platform: '通用', task: 'titles', count: 3, structure: 'list' })
+      expect(r.data.titles.length).toBeGreaterThanOrEqual(1)
+      for (const t of r.data.titles) expect(t.structure).toBe('数字盘点')
+    })
+
+    it('opts.structure=中文标签（深度长文）直滤生效，平台桶无该结构时回落全表', () => {
+      const r = engine._localGenerate({ topic: '新媒体运营', platform: '小红书', task: 'titles', count: 2, structure: '深度长文' })
+      expect(r.data.titles.length).toBeGreaterThanOrEqual(1)
+      for (const t of r.data.titles) expect(t.structure).toBe('深度长文')
+    })
+
+    it('opts.structure 非法/未知时忽略过滤（fail-open，输出与不带 structure 一致）', () => {
+      const base = { topic: 'AI工具推荐', platform: '通用', task: 'titles', count: 5 }
+      const withBad = engine._localGenerate({ ...base, structure: '不存在的结构' })
+      const without = engine._localGenerate(base)
+      expect(withBad.data.titles).toEqual(without.data.titles)
+    })
+
+    it('structure 过滤时跳过 pattern boost（单一结构无需再排序）', () => {
+      engine._patternStructureCounts = () => ({ '避坑警示': 100 })
+      const r = engine._localGenerate({ topic: 'AI工具推荐', platform: '通用', task: 'titles', count: 3, structure: 'list' })
+      for (const t of r.data.titles) expect(t.structure).toBe('数字盘点')
+    })
+  })
 })

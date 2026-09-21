@@ -7,6 +7,7 @@ vi.mock("@/api/publisher", () => ({
   viralAnalyze: vi.fn().mockResolvedValue({ code: 0, data: { overall_score: 8.5, factors: [] } }),
   viralGenerate: vi.fn().mockResolvedValue({ code: 0, data: { task: "titles", data: { titles: [] } } }),
   viralTrending: vi.fn().mockResolvedValue({ code: 0, data: { keywords: [] } }),
+  getRecentImpactSnapshots: vi.fn().mockResolvedValue({ code: 0, data: [] }),
 }));
 
 import ViralAnalysisView from "./ViralAnalysis.vue";
@@ -241,6 +242,9 @@ describe("ViralAnalysisView", () => {
 vi.mock("@/api/knowledge-library", () => ({
   addViralToLibrary: vi.fn().mockResolvedValue({ code: 0, data: { id: "v1" } }),
   listViralItems: vi.fn().mockResolvedValue({ code: 0, data: { items: [], total: 0 } }),
+  searchViralItems: vi.fn().mockResolvedValue({ code: 0, data: [] }),
+  listPatternCards: vi.fn().mockResolvedValue({ code: 0, data: { items: [], total: 0 } }),
+  listPatternPerformance: vi.fn().mockResolvedValue({ code: 0, data: { items: [] } }),
 }));
 
 import { addViralToLibrary, listViralItems } from "@/api/knowledge-library";
@@ -511,5 +515,170 @@ describe("ViralAnalysisView PR-1 (task segment / trending / mode badge)", () => 
     await nextTick();
     expect(w.find("[data-testid='viral-task-titles']").exists()).toBe(true);
     expect(w.find("[data-testid='viral-task-hooks']").exists()).toBe(true);
+  });
+});
+
+// ── PR-2：F6 模式命中套用 / F7 爆款库回读 / F8 实测角标 ──
+describe("ViralAnalysisView PR-2 (pattern hits / library picker / measured badge)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setActivePinia(createPinia());
+    window.electronAPI = {};
+  });
+
+  function createView4() {
+    return mount(ViralAnalysisView, {
+      global: {
+        plugins: [createPinia()],
+        mocks: { $t: (key) => key, $router: { push: vi.fn() } },
+      },
+    });
+  }
+
+  // ── F6 ──
+
+  it("F6: loadPatternHits 取 narrative_structure 维度 top3（AC6.1 数据面）", async () => {
+    const { listPatternPerformance, listPatternCards } = await import("@/api/knowledge-library");
+    listPatternPerformance.mockResolvedValue({
+      code: 0,
+      data: { items: [
+        { dimension: "narrative_structure", value: "list", sample_count: 8, engagement_score: 72 },
+        { dimension: "narrative_structure", value: "contrast", sample_count: 3, engagement_score: 61 },
+        { dimension: "narrative_structure", value: "problem_solution", sample_count: 2, engagement_score: 55 },
+        { dimension: "narrative_structure", value: "story_lesson", sample_count: 1, engagement_score: 40 },
+      ] },
+    });
+    listPatternCards.mockResolvedValue({ code: 0, data: { items: [{ narrative_structure: "list" }], total: 1 } });
+    const w = createView4();
+    await w.vm.loadPatternHits();
+    expect(listPatternPerformance).toHaveBeenCalledWith(expect.objectContaining({ dimension: "narrative_structure" }));
+    expect(w.vm.patternHits.length).toBe(3);
+    expect(w.vm.patternHits[0].value).toBe("list");
+    expect(w.vm.patternHits[0].sampleCount).toBe(8);
+    await nextTick();
+    expect(w.findAll("[data-testid='viral-pattern-hit']").length).toBe(3);
+  });
+
+  it("F6: 无数据/未登录（code -1）时区块隐藏（AC6.1/Q1 游客闭环）", async () => {
+    const { listPatternPerformance } = await import("@/api/knowledge-library");
+    listPatternPerformance.mockResolvedValue({ code: -1, data: { items: [] } });
+    const w = createView4();
+    await w.vm.loadPatternHits();
+    expect(w.vm.patternHits).toEqual([]);
+    await nextTick();
+    expect(w.find("[data-testid='viral-pattern-hits']").exists()).toBe(false);
+  });
+
+  it("F6: applyPattern 写入 appliedStructure，doGenerate 携带 structure 枚举（AC6.2）", async () => {
+    const { viralGenerate } = await import("@/api/publisher");
+    viralGenerate.mockResolvedValue({ code: 0, data: { task: "titles", data: { titles: [] } } });
+    const w = createView4();
+    await nextTick();
+    w.vm.topic = "AI";
+    w.vm.applyPattern({ value: "list", label: "viralAnalysis.narrative.list" });
+    expect(w.vm.appliedStructure.value).toBe("list");
+    await w.vm.doGenerate();
+    expect(viralGenerate).toHaveBeenCalledWith(expect.objectContaining({ structure: "list" }));
+  });
+
+  it("F6: 再次点击已套用模式 = 取消，doGenerate 不携带 structure", async () => {
+    const { viralGenerate } = await import("@/api/publisher");
+    viralGenerate.mockResolvedValue({ code: 0, data: { task: "titles", data: { titles: [] } } });
+    const w = createView4();
+    await nextTick();
+    w.vm.topic = "AI";
+    w.vm.applyPattern({ value: "list" });
+    w.vm.applyPattern({ value: "list" });
+    expect(w.vm.appliedStructure).toBeNull();
+    await w.vm.doGenerate();
+    const opts = viralGenerate.mock.calls[0][0];
+    expect(opts.structure).toBeUndefined();
+  });
+
+  // ── F7 ──
+
+  it("F7: 打开对话框加载爆款库列表（AC7.2 入口）", async () => {
+    const { listViralItems } = await import("@/api/knowledge-library");
+    listViralItems.mockResolvedValue({ code: 0, data: { items: [{ id: "v1", title: "爆款一", likes: 100, comments: 10, platform: "小红书" }], total: 1 } });
+    const w = createView4();
+    await w.vm.openLibraryDialog();
+    await nextTick();
+    expect(w.vm.showLibraryDialog).toBe(true);
+    expect(w.vm.libItems.length).toBe(1);
+    expect(w.find("[data-testid='viral-lib-item']").exists()).toBe(true);
+  });
+
+  it("F7: 选中条目回填 topic 并附加进文章数据（AC7.2）", async () => {
+    const { viralAnalyze } = await import("@/api/publisher");
+    const w = createView4();
+    await nextTick();
+    w.vm.articleData = '[{"title":"已有文章","like_count":1,"comment_count":1}]';
+    w.vm.pickLibraryItem({ title: "爆款一", likes: 100, comments: 10, platform: "小红书" });
+    expect(w.vm.topic).toBe("爆款一");
+    expect(w.vm.showLibraryDialog).toBe(false);
+    const arts = JSON.parse(w.vm.articleData);
+    expect(arts.length).toBe(2);
+    expect(arts[1]).toEqual({ title: "爆款一", like_count: 100, comment_count: 10, platform_code: "小红书" });
+    viralAnalyze.mockResolvedValue({ code: 0, data: { overall_score: 1 } });
+    await w.vm.doAnalyze();
+    const sent = viralAnalyze.mock.calls[0][0];
+    expect(sent.some(a => a.title === "爆款一")).toBe(true);
+  });
+
+  it("F7: 空库时对话框展示引导空态（AC7.1）", async () => {
+    const { listViralItems } = await import("@/api/knowledge-library");
+    listViralItems.mockResolvedValue({ code: 0, data: { items: [], total: 0 } });
+    const w = createView4();
+    await w.vm.openLibraryDialog();
+    await nextTick();
+    expect(w.find("[data-testid='viral-lib-empty']").exists()).toBe(true);
+  });
+
+  it("F7: 搜索调用 searchViralItems，选中后清空搜索态", async () => {
+    const { searchViralItems } = await import("@/api/knowledge-library");
+    searchViralItems.mockResolvedValue({ code: 0, data: [{ id: "v2", title: "搜索结果", likes: 5, comments: 1, platform: "抖音" }] });
+    const w = createView4();
+    await w.vm.openLibraryDialog();
+    w.vm.libQuery = "搜索";
+    await w.vm.searchLibrary();
+    expect(searchViralItems).toHaveBeenCalledWith("搜索", 30);
+    expect(w.vm.libItems.length).toBe(1);
+  });
+
+  // ── F8 ──
+
+  it("F8: 生成标题命中实测快照时展示「实测」角标（AC8.1）", async () => {
+    const { getRecentImpactSnapshots, viralGenerate } = await import("@/api/publisher");
+    getRecentImpactSnapshots.mockResolvedValue({ code: 0, data: [{ title: "AI工具实测标题", total_mentions: 12, top_engagement: 3456 }] });
+    viralGenerate.mockResolvedValue({ code: 0, data: { task: "titles", data: { titles: [{ title: "AI工具实测标题", structure: "s" }, { title: "无实测的标题", structure: "s" }] } } });
+    const w = createView4();
+    await w.vm.loadMeasured();
+    w.vm.topic = "AI";
+    await w.vm.doGenerate();
+    await nextTick();
+    const badges = w.findAll("[data-testid='viral-measured-badge']");
+    expect(badges.length).toBe(1);
+    expect(w.vm.measuredInfo("AI工具实测标题").topEngagement).toBe(3456);
+  });
+
+  it("F8: 无回采数据/未登录（code -1）时零开销隐藏（AC8.2）", async () => {
+    const { getRecentImpactSnapshots, viralGenerate } = await import("@/api/publisher");
+    getRecentImpactSnapshots.mockResolvedValue({ code: -1, data: [] });
+    viralGenerate.mockResolvedValue({ code: 0, data: { task: "titles", data: { titles: [{ title: "任意标题", structure: "s" }] } } });
+    const w = createView4();
+    await w.vm.loadMeasured();
+    expect(w.vm.measuredInfo("任意标题")).toBeNull();
+    w.vm.topic = "AI";
+    await w.vm.doGenerate();
+    await nextTick();
+    expect(w.findAll("[data-testid='viral-measured-badge']").length).toBe(0);
+  });
+
+  it("F8: 快照接口抛错静默降级，不炸页面加载", async () => {
+    const { getRecentImpactSnapshots } = await import("@/api/publisher");
+    getRecentImpactSnapshots.mockRejectedValue(new Error("boom"));
+    const w = createView4();
+    await expect(w.vm.loadMeasured()).resolves.toBeUndefined();
+    expect(w.vm.measuredInfo("x")).toBeNull();
   });
 });

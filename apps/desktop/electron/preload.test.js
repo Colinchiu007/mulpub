@@ -192,10 +192,10 @@ describe('preload 子模块工厂函数', () => {
 
 // === 总方法数验证（防止漏迁移或重复）===
 describe('preload 子模块方法数', () => {
-  it('publish 模块应导出 116 个键（P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + urlCollectNeedsStealth + renderStartAiVideo）', () => {
+  it('publish 模块应导出 117 个键（P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + urlCollectNeedsStealth + renderStartAiVideo + PR-2 F8 getRecentImpactSnapshots）', () => {
     const { createPublishApi } = require('./preload/publish')
     const r = createPublishApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(116)
+    expect(Object.keys(r).length).toBe(117)
   })
 
   it('account 模块应导出 45 个方法', () => {
@@ -218,8 +218,8 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(145)
   })
 
-  it('合并后 api 总键数应为 315（P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus/servicesRestart + urlCollectNeedsStealth + promptLibraryGet/Save/Activate + updateInstallNow + opsCenterSyncAppMenu + onUploadProgress + renderStartAiVideo - webview 分屏监控 API 移除）', () => {
-    expect(Object.keys(api).length).toBe(315)
+  it('合并后 api 总键数应为 316（P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus/servicesRestart + urlCollectNeedsStealth + promptLibraryGet/Save/Activate + updateInstallNow + opsCenterSyncAppMenu + onUploadProgress + renderStartAiVideo + PR-2 F8 getRecentImpactSnapshots - webview 分屏监控 API 移除）', () => {
+    expect(Object.keys(api).length).toBe(316)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
