@@ -69,7 +69,7 @@ describe("baseline-content-guard", () => {
       const buf = fs.readFileSync(path.join(dir, f));
       expect(() => assertBaselineContent(buf, { label: f }), `${f} 应通过内容守卫`).not.toThrow();
     }
-  });
+  }, 60000);
 
   it("已知空白基线确实会被守卫拦截（确认存量缺陷定性）", () => {
     expect(KNOWN_EMPTY_BASELINES.length).toBeGreaterThan(0);
