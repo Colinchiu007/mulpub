@@ -63,6 +63,38 @@ const PLATFORM_SCORE_COEFFICIENTS = {
   Reddit: 0.9,
 }
 
+// 叙事结构枚举（viral_pattern_cards.narrative_structure / pattern_performance.value）
+// → 模板表 structure 标签映射（PR-2 F6/T-6 单一权威来源；枚举域封闭，新增须同步渲染端 locales）
+const NARRATIVE_LABELS = {
+  list: '数字盘点',
+  contrast: '对比评测',
+  problem_solution: '避坑警示',
+  story_lesson: '个人经历背书',
+  total_subtotal: '深度长文',
+  chronological: '入门教程',
+}
+
+/**
+ * opts.structure 解析（F6 套用合同）：叙事枚举→模板标签；中文标签直通；
+ * 未知值返回 null（fail-open，调用方按未指定处理）。
+ */
+function resolveStructureLabel (structure) {
+  if (typeof structure !== 'string' || !structure.trim()) return null
+  const s = structure.trim()
+  if (NARRATIVE_LABELS[s]) return NARRATIVE_LABELS[s]
+  return LOCAL_TITLE_TEMPLATES.some(t => t.structure === s) ? s : null
+}
+
+/** 模式卡片行 → { 模板 structure 标签: 样本数 }（未知/缺失 narrative_structure 忽略；冷启动空表自然 {}） */
+function aggregatePatternCounts (rows) {
+  const counts = {}
+  for (const r of Array.isArray(rows) ? rows : []) {
+    const label = r && NARRATIVE_LABELS[r.narrative_structure]
+    if (label) counts[label] = (counts[label] || 0) + 1
+  }
+  return counts
+}
+
 // 本地预测分情绪词（与模板元数据同源，命中 +8/个，封顶 +24）
 const TITLE_EMOTION_WORDS = /必看|避坑|终极|颠覆|真相|隐藏|进阶|从零|就够了|秘密|别再|最好|深度|亲测|上手|指南|玩法|真的绝/g
 
@@ -260,7 +292,20 @@ function localGenerate (engine, opts) {
     .replace(/\$\{count\}/g, String(5 + (i % 4) * 3))
 
   if (task === 'titles') {
-    const pool = pickTemplatePool(LOCAL_TITLE_TEMPLATES, platform)
+    // PR-2 F6：structure 套用（直滤命中则全表取桶，桶内无该结构回落全表）；非法值 fail-open 忽略
+    const structureLabel = resolveStructureLabel(opts && opts.structure)
+    let pool = structureLabel
+      ? pickTemplatePool(LOCAL_TITLE_TEMPLATES.filter(t => t.structure === structureLabel), platform)
+      : pickTemplatePool(LOCAL_TITLE_TEMPLATES, platform)
+    if (structureLabel && !pool.length) pool = LOCAL_TITLE_TEMPLATES.filter(t => t.structure === structureLabel)
+    // PR-2 T-6：模式卡片高表现 structure 模板桶置顶（冷启动/套用过滤时不介入，与 PR-1 基线逐位一致）
+    let patternCounts = {}
+    if (!structureLabel) {
+      try { patternCounts = engine._patternStructureCounts() || {} } catch { patternCounts = {} }
+      if (Object.keys(patternCounts).length) {
+        pool = [...pool].sort((a, b) => (patternCounts[b.structure] || 0) - (patternCounts[a.structure] || 0))
+      }
+    }
     // 候选 count×3 轮换（模板 i%pool × 槽位 i%slots），编辑距离≥5 去重（T-2）
     const picked = []
     for (let i = 0; i < count * 3 && picked.length < count; i++) {
@@ -280,7 +325,8 @@ function localGenerate (engine, opts) {
         picked.push({ title: text, structure: tmpl.structure, emotion: tmpl.emotion })
       }
     }
-    // 预测分：fail-open——打分抛错时缺分但条目/顺序不变（UT-4）；稳定降序（AC4.2）
+    // 预测分：fail-open——打分抛错时缺分但条目/顺序不变（UT-4）；稳定降序（AC4.2）；
+    // T-6：模式样本量为主键置顶（counts 全空时与 PR-1 基线等价）
     const scored = picked.map((item, idx) => {
       try {
         return { ...item, predicted_score: engine._scoreTitleLocal(item.title), _idx: idx }
@@ -288,7 +334,9 @@ function localGenerate (engine, opts) {
         log.warn('ViralEngine', '_scoreTitleLocal failed (fail-open): ' + (e && e.message))
         return { ...item, _idx: idx }
       }
-    }).sort((a, b) => (b.predicted_score ?? -1) - (a.predicted_score ?? -1) || a._idx - b._idx)
+    }).sort((a, b) =>
+      (patternCounts[b.structure] || 0) - (patternCounts[a.structure] || 0) ||
+      (b.predicted_score ?? -1) - (a.predicted_score ?? -1) || a._idx - b._idx)
       .map(({ _idx, ...rest }) => rest)
     return {
       success: true,
@@ -387,11 +435,14 @@ module.exports = {
   LOCAL_TITLE_TEMPLATES,
   LOCAL_HOOK_TEMPLATES,
   STRUCTURE_BY_FACTOR,
+  NARRATIVE_LABELS,
   PLATFORM_SCORE_COEFFICIENTS,
   TITLE_EMOTION_WORDS,
   levDistance,
   pickTemplatePool,
   cleanSlotWord,
+  resolveStructureLabel,
+  aggregatePatternCounts,
   scoreTitleLocal,
   extractKeywordsLocal,
   localAnalyze,

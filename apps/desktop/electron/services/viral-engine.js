@@ -18,6 +18,10 @@
  *     _localTrending 输出 keywords 供热门选题速选。
  *   - 本地实现拆分至 ./viral-engine-local.js（控制单文件规模）；本模块仅保留
  *     orchestrator 调用、IPC 注册与可桩测的实例委托方法。
+ *
+ * PR-2（T-6/F6）：模式卡片驱动模板桶权重——容器注入 pattern provider（复用
+ * store.listPatternCards 既有查询，零新增 IPC），_patternStructureCounts 聚合为
+ * { 结构标签: 样本数 }供 localGenerate 置顶；provider 缺失/抛错均 fail-open 返回 {}。
  */
 const log = require('./logger')
 const EC = require('../core/error-codes').ERROR
@@ -29,6 +33,33 @@ const ORCHESTRATOR_BASE = process.env.ORCHESTRATOR_URL || ''
 class ViralEngine {
   constructor () {
     this._axios = null
+    /** @type {null | (() => any)} 模式卡片只读 provider（容器注入，测试可桩） */
+    this._patternProvider = null
+  }
+
+  /**
+   * T-6 注入点：容器注册时传入 store 查询闭包（返回 {items} 或数组）；非函数入参忽略。
+   * @param {(() => any)|null} fn
+   */
+  setPatternProvider (fn) {
+    this._patternProvider = typeof fn === 'function' ? fn : null
+  }
+
+  /**
+   * 模式卡片→结构样本量聚合（fail-open：provider 缺失/抛错/非法返回一律 {}，
+   * 生成主流程不得被知识库状态带崩）。实例方法形态保留测试桩缝（UT-8）。
+   * @returns {Record<string, number>}
+   */
+  _patternStructureCounts () {
+    if (!this._patternProvider) return {}
+    try {
+      const res = this._patternProvider()
+      const items = (res && Array.isArray(res.items)) ? res.items : (Array.isArray(res) ? res : [])
+      return local.aggregatePatternCounts(items)
+    } catch (e) {
+      log.warn('ViralEngine', '_patternStructureCounts failed (fail-open): ' + (e && e.message))
+      return {}
+    }
   }
 
   _getAxios () {

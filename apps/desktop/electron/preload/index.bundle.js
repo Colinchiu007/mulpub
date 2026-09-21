@@ -205,6 +205,8 @@ var require_publish = __commonJS({
         viralAnalyze: (articles, topic) => ipcRenderer2.invoke("viral:analyze", { articles, topic }),
         viralGenerate: (opts) => ipcRenderer2.invoke("viral:generate", opts),
         viralTrending: (articles) => ipcRenderer2.invoke("viral:trending", { articles }),
+        // PR-2 F8：爆款已达成数据角标（复用既有 impact 通道，零新增 IPC）
+        getRecentImpactSnapshots: () => ipcRenderer2.invoke("impact:get-recent-snapshots"),
         // Draft API
         draftSave: (draft) => ipcRenderer2.invoke("draftSave", draft),
         draftList: () => ipcRenderer2.invoke("draftList"),

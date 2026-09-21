@@ -2965,6 +2965,33 @@ knowledgeBase: {
     localGenBadge: 'Local engine',
     localGenHint: 'Local heuristic engine (works offline / without orchestrator); supports only titles and hooks. Use the rewrite page or configure an AI service for long-form rewriting',
     localEstimateBadge: 'Local estimate',
+    // PR-2 viral page full utilization (2026-09-21): F6 my pattern hits / F7 library picker / F8 measured badge
+    sectionPatternHits: 'My Pattern Hits',
+    patternHitHint: 'From your personal pattern library performance — click to apply to next generation',
+    applyPatternHint: 'Click to apply this structure; generation will prefer it',
+    patternSample: '{n} samples',
+    appliedPattern: 'Applied structure',
+    cancelPattern: 'Cancel apply',
+    pickFromLibrary: 'From Viral Library',
+    pickFromLibraryHint: 'Re-read saved viral library entries to fill the topic and append article data',
+    libraryDialogTitle: 'Pick from Viral Library',
+    librarySearchPlaceholder: 'Search the viral library by keyword',
+    librarySearch: 'Search',
+    libraryLoading: 'Loading…',
+    libraryEmpty: 'No entries in the viral library yet',
+    libraryEmptyHint: 'Run an analysis and click "Save to viral library" — entries will show up here for re-read',
+    closeDialog: 'Close',
+    measuredBadge: 'Measured',
+    measuredBadgeHint: 'This title already has post-publish collected data (top engagement of recent snapshots)',
+    // F6 narrative structure enum labels: display semantics map 1:1 to engine NARRATIVE_LABELS (engine is the filtering authority)
+    narrative: {
+      list: 'Numbered List',
+      contrast: 'Comparison Review',
+      problem_solution: 'Pitfall Warning',
+      story_lesson: 'Personal Experience',
+      total_subtotal: 'In-depth Long-form',
+      chronological: 'Beginner Tutorial',
+    },
   },
 
   // ── Publish destination modal ──

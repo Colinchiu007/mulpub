@@ -21,7 +21,7 @@
  *               pipelineCancel / pipelineStatus / pipelineAdvance / pipelineHistory / pipelineFetch
  *   - 云发布：cloudPublishSubmit / cloudPublishListTasks / cloudPublishGetTask / cloudPublishPlatforms
  *   - URL 采集：urlCollectFetch
- *   - 爆款分析：viralAnalyze / viralGenerate / viralTrending
+ *   - 爆款分析：viralAnalyze / viralGenerate / viralTrending / getRecentImpactSnapshots
  *   - 评论管理：commentList / commentReply / commentStartPolling / commentStopPolling / commentStatus / onCommentReplied
  */
 
@@ -227,6 +227,9 @@ function createPublishApi(ipcRenderer, options = {}) {
     viralAnalyze: (articles, topic) => ipcRenderer.invoke('viral:analyze', { articles, topic }),
     viralGenerate: (opts) => ipcRenderer.invoke('viral:generate', opts),
     viralTrending: (articles) => ipcRenderer.invoke('viral:trending', { articles }),
+
+    // PR-2 F8：爆款已达成数据角标（复用既有 impact 通道，零新增 IPC）
+    getRecentImpactSnapshots: () => ipcRenderer.invoke('impact:get-recent-snapshots'),
 
     // Draft API
     draftSave: (draft) => ipcRenderer.invoke('draftSave', draft),

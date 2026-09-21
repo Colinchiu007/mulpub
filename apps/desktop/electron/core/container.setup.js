@@ -207,7 +207,13 @@ function createContainer(options) {
       settingsStore: { getSetting: (k) => s.getSetting(k), setSetting: (k, v) => s.setSetting(k, v) },
     });
   });
-  container.register("viralEngine", function() { return new ViralEngine(); });
+  container.register("viralEngine", function(c) {
+      // PR-2 T-6：注入模式卡片只读 provider（复用 store.listPatternCards 既有查询，零新增 IPC）；
+      // 引擎侧 fail-open：store 未就绪/抛错不影响生成主流程
+      const e = new ViralEngine();
+      e.setPatternProvider(function() { return c.get('store').listPatternCards({ status: 'done', pageSize: 100 }); });
+      return e;
+    });
   container.register("commentManager", function() { return new CommentManager(); });
   container.register("providerManager", function() { return new ProviderManager(); });
   container.register("proxyPool", function() { return new ProxyPool(); });
