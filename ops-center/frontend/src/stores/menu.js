@@ -25,6 +25,14 @@ export const useMenuStore = defineStore('menu', () => {
     .map((path) => itemsByPath.get(path))
     .filter(Boolean))
 
+  // 菜单可见性的唯一口径（单一事实源）：侧边栏（App.vue）与菜单设置页（SettingsView.vue）共用。
+  // 历史教训（2026-09-21）：SettingsView 曾各自硬编码 `!adminOnly` 过滤，
+  // admin 登录时设置页比侧边栏少 5 个 adminOnly 项，两处规则漂移无人察觉。
+  // 修改可见性规则只改这一处，消费方一律调用 visibleForRole(role)。
+  function visibleForRole(role) {
+    return orderedItems.value.filter((item) => !item.adminOnly || role === 'admin')
+  }
+
   function persist() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(order.value))
   }
@@ -65,8 +73,9 @@ export const useMenuStore = defineStore('menu', () => {
     persist()
   }
 
-  // 拖拽排序专用：视图渲染的是过滤掉 adminOnly 后的可见列表，其下标与完整 order
-  // 的下标并不一致（adminOnly 项会造成漂移），因此拖拽必须按 path 定位而非按下标。
+  // 拖拽排序专用：视图渲染的是 visibleForRole(role) 过滤后的可见列表，其下标与完整
+  // order 的下标并不一致（非 admin 视角下 adminOnly 项会造成漂移），
+  // 因此拖拽必须按 path 定位而非按下标。
   function reorderByPath(fromPath, toPath) {
     const from = order.value.indexOf(fromPath)
     const to = order.value.indexOf(toPath)
@@ -83,5 +92,5 @@ export const useMenuStore = defineStore('menu', () => {
     persist()
   }
 
-  return { order, orderedItems, move, moveBefore, reorder, reorderByPath, reset }
+  return { order, orderedItems, visibleForRole, move, moveBefore, reorder, reorderByPath, reset }
 })
