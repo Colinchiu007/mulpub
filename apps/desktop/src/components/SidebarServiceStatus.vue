@@ -17,7 +17,14 @@
         :aria-expanded="String(opened)"
         :aria-label="summaryLabel"
       >
-        <i aria-hidden="true"></i>{{ summaryLabel }}
+        <span class="mp-service-status-main">
+          <i aria-hidden="true"></i><span data-testid="mp-service-summary-main">{{ summaryMain }}</span>
+        </span>
+        <span
+          v-if="summarySub"
+          class="mp-service-status-sub"
+          data-testid="mp-service-summary-sub"
+        >{{ summarySub }}</span>
       </span>
     </template>
     <div
@@ -104,6 +111,28 @@ const summaryLabel = computed(() => {
   return t('sidebar.serviceStatus.partialRunning', { count: serviceStatusStore.runningCount })
 })
 
+// 降级摘要拆为整齐两行：主句只说「N 项不可用」，副行说「R/T 运行中」；
+// 整句仍保留在 aria-label（summaryLabel），读屏与悬停语义不丢信息。
+const summaryMain = computed(() => {
+  if (serviceStatusStore.unavailable) return t('sidebar.serviceStatus.unavailable')
+  if (serviceStatusStore.allRunning) return t('sidebar.serviceStatus.allRunning')
+  if (serviceStatusStore.stoppedCount > 0) {
+    return t('sidebar.serviceStatus.degradedMain', { stopped: serviceStatusStore.stoppedCount })
+  }
+  return t('sidebar.serviceStatus.partialRunning', { count: serviceStatusStore.runningCount })
+})
+
+const summarySub = computed(() => {
+  if (serviceStatusStore.unavailable || serviceStatusStore.allRunning) return ''
+  if (serviceStatusStore.stoppedCount > 0) {
+    return t('sidebar.serviceStatus.degradedSub', {
+      running: serviceStatusStore.runningCount,
+      total: serviceStatusStore.services.length,
+    })
+  }
+  return ''
+})
+
 const summaryClass = computed(() => serviceStatusStore.allRunning && !serviceStatusStore.unavailable ? 'is-ok' : 'is-degraded')
 
 function serviceLabel (svc) {
@@ -166,10 +195,25 @@ async function onRestart (svc) {
 <style scoped>
 .mp-service-status {
   display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
   color: #6f9c6f;
   cursor: pointer;
+}
+
+.mp-service-status-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mp-service-status-sub {
+  /* 与第一行文字对齐：圆点 6px + 间距 6px */
+  padding-left: 12px;
+  font-size: var(--font-size-xs);
+  line-height: 1.3;
+  color: #9294ab;
 }
 
 .mp-service-status i {

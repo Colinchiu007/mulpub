@@ -33,11 +33,12 @@
         <span>{{ item.label }}</span>
       </router-link>
 
-      <!-- 「更多」触发器：运营中心把更多组全部隐藏时不渲染（避免空面板） -->
+      <!-- 「更多」触发器：运营中心把更多组全部隐藏时不渲染（避免空面板）；
+           选中态：菜单展开 或 子路由命中时保持高亮（收起后仍能感知当前页在「更多」内） -->
       <button
         v-if="moreItems.length"
         class="mp-primary-item mp-more-trigger"
-        :class="{ active: moreOpen }"
+        :class="{ active: moreOpen || hasActiveMoreItem }"
         type="button"
         aria-haspopup="true"
         :aria-expanded="moreOpen"
@@ -49,7 +50,16 @@
         <ArrowDown :class="{ rotated: moreOpen }" aria-hidden="true" />
       </button>
       <div v-if="moreOpen && moreItems.length" class="mp-more-menu" role="menu">
-        <router-link v-for="item in moreItems" :key="item.key" :to="item.to" role="menuitem" class="mp-more-item">
+        <router-link
+          v-for="item in moreItems"
+          :key="item.key"
+          :to="item.to"
+          role="menuitem"
+          class="mp-more-item"
+          :class="{ active: isActive(item) }"
+          :aria-current="isActive(item) ? 'page' : undefined"
+          :data-testid="`mp-more-item-${item.key}`"
+        >
           <component :is="item.icon" aria-hidden="true" />
           <span>{{ item.label }}</span>
         </router-link>
@@ -74,7 +84,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ArrowDown, MoreFilled, Plus } from '@element-plus/icons-vue'
@@ -137,9 +147,21 @@ const moreItems = computed(() =>
   resolvedMenu.value.more.filter((item) => item.visible).map(withLocalizedLabel),
 )
 
+/** 「更多」组是否存在当前路由命中项（触发器常驻高亮依据，2026-09-21 选中态修复） */
+const hasActiveMoreItem = computed(() => moreItems.value.some((item) => isActive(item)))
+
+// 路由变化时若落在「更多」组 → 自动展开菜单，让选中项可见。
+// 用 watch 而非仅 onMounted：真实应用初始路由是异步解析的，
+// 硬刷新深链时 onMounted 早于 route.path 就绪，需路由解析后再展开（2026-09-21）。
+watch(() => route.path, () => {
+  if (hasActiveMoreItem.value) moreOpen.value = true
+})
+
 // ── 左侧导航栏宽度同步到主进程（避免 WebContentsView 遮挡侧边栏）──
 let _sidebarObserver = null
 onMounted(() => {
+  // 深链/刷新落在「更多」组路由时自动展开菜单，让选中项可见（选中态修复配套）
+  if (hasActiveMoreItem.value) moreOpen.value = true
   // 版本号是装饰性信息：失败/不可用时静默留空，不阻塞侧边栏渲染
   loadVersion()
   // 运营中心「应用菜单」配置：异步拉取；失败/未下发时保持默认菜单，不阻塞首屏

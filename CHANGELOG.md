@@ -10,6 +10,24 @@
 - 文档：`01-docs/PRD-ACTIVATE-VIRAL-LIBRARY-2026-09-13.md` §12.4 / §12.6 / §12.8 同步补记。
 
 ---
+﻿# [未发布] fix(desktop): 侧边栏「更多」菜单选中态修复 + 效果洞察页 UI/UE 精致化
+
+### 变更
+- **MpSidebar.vue**：more 组子项此前为裸 `router-link` 无选中态。新增 `:class="{ active: isActive(item) }"` + `aria-current="page"` + `data-testid`；「更多」触发器改 `moreOpen || hasActiveMoreItem` 常驻高亮；新增 `watch(() => route.path)` 命中 more 组时自动展开（覆盖硬刷新深链，onMounted 早于异步路由解析的缺口）。
+- **sidebar.css**：新增 `.mp-more-trigger.active` 与 `.mp-more-item.active` 视觉规则（此前仅 `.mp-primary-item.active`）。
+- **PerformanceInsights.vue**：精致化改版——平台筛选下拉（选项从数据派生、复用 `PLATFORM_NAMES`）、数据概览条（总样本/模式数/最近计算）、页面级 + 维度级两级空态、可重试错误横幅、排行表（名次徽标/最优模式 chip/低样本警告徽标/得分进度条）；`rowsFor` 前端二次显式降序保证「最优模式=首行」；`recomputing` 守卫防重复重算；修复 `dimValueLabel` 枚举翻译守卫 bug（原硬编码比较使 hook_type 恒不翻译）。
+- **locales zh/en**：`perfInsights.*` 成对新增 13 key（allPlatforms/platformFilterAria/scoreFormula/bestPrefix/samplesSummary/updatedAt/overviewSamples/overviewPatterns/overviewUpdated/dimEmptyTitle/loadFailed/lowSampleTip）。
+
+### 验证
+- TDD 红→绿：新增 `MpSidebar.more-active.test.js`（5）+ `PerformanceInsights.test.js`（7）共 12 例全绿；既有 `sidebar-menu*.test.js` 无回归；`check-locale-sync --keys/--cjk` 通过。
+- 真实应用（Vite 渲染端 + 浏览器 DOM 取证）：收起态触发器含 `active`；展开后子项含 `active` 且 `aria-current="page"`；深链重载 `aria-expanded="true"`。
+
+### 关联
+- 分支 `sidebar-insight-polish`（worktree 隔离，D 盘）· PR auto-merge 待 CI
+- 文档：`01-docs/PRD-SIDEBAR-INSIGHT-POLISH-2026-09-21.md`；`01-docs/PRD-ACTIVATE-VIRAL-LIBRARY-2026-09-13.md` §十二
+
+---
+
 # [未发布] fix(desktop): 知识库视图一致性修复与手动添加爆款弹窗采集入口
 
 ### 变更
@@ -38,25 +56,6 @@
 ### 验证
 - TDD：新增 `src/stores/menu-visibility.test.js` 4 条回归用例（先红后绿）；全量 vitest 17/17 通过；`npm run build` 通过。
 - 分支 `opscenter-menu-sync-fix`（worktree 隔离）· PR 待 CI 通过后合并。
-
----
-
-# [未发布] fix(desktop): 爆款分析页功能不可用修复 + UI 精致化
-
-### 变更
-- **license-access-control.js**：将 `viral:analyze/generate/trending` 加入 `PUBLIC_CHANNELS`。此前未登录被判 `AUTH_REQUIRED(-3)`，在到达 ViralEngine 本地兜底之前就拦截，架空了「orchestrator 不可用时离线可用」的设计意图，导致功能整体不可用。
-- **viral-engine.js `_localGenerate`**：本地兜底返回契约对象化并对齐设计文档——`titles→data.titles[{title,structure}]`、`hooks→data.hooks[{hook,technique}]`（原为顶层字符串数组，渲染层读 `data.titles` 永远取空）。
-- **ViralAnalysis.vue**：新增分析/生成错误横幅（`formatUserError` 友好文案，失败不再静默吞错）；生成结果从 `v-if="result"` 内移出独立渲染（只点生成也能出结果）；新增 `titleText/factorPct/fmtScore/taskLabel` 容错方法（双契约兼容、NaN 安全降级）。
-- **UI 精致化**：爆款潜力分补 `/100` 单位 + tabular-nums；本地模式 Cpu 徽章；区块标题 emoji（🌐/🏆）迁移为 el-icon（Connection/Trophy/MagicStick）并迁入 locale；生成按钮改主色描边、关键词标签改主色、卡片 hover 阴影。
-- **locales zh/en 成对**：新增 `analyzeFailed/generateFailed/localModeBadge/localModeHint/task*/section*` 键。
-
-### 验证
-- ViralAnalysis / viral-engine / license-access-control / views-coverage2 / icon-usage 共 104 用例通过；`check-locale-sync --cjk`/`--keys` 均 PASS。
-- CDP e2e 实测：未登录态 `viral:analyze` 由 `code:-3` 恢复为 `code:0`（本地兜底数据）；`viral:generate` 返回 `data.titles[{title,structure}]` 并正确渲染标题列表 + 去改写按钮；截图确认视觉精致化到位。
-
-### 关联
-- 分支 `viral-analysis-polish`（worktree 隔离）· PR 待 CI 通过后合并
-- 文档：`01-docs/PRD-VIRAL-ANALYSIS-PAGE-2026-09-21.md`（完整功能规格：根因/数据校验/交互/显示项/提示文字/验收/Bug 反哺）
 
 ---
 

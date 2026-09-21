@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
 import i18n from '@/i18n'
 
 const serviceStatusState = vi.hoisted(() => ({
@@ -64,12 +65,15 @@ describe('SidebarServiceStatus', () => {
     expect(serviceStatusState.stopPolling).toHaveBeenCalledTimes(1)
   })
 
-  it('部分运行时显示 degraded 摘要与逐服务明细', () => {
+  it('部分运行时显示 degraded 结构化两行摘要与逐服务明细', () => {
     const cmp = mountComponent()
 
     const summary = cmp.get('[data-testid="mp-service-status"]')
-    expect(summary.text()).toBe('1 项服务不可用（4/6 运行中）')
+    // 整句保留在 aria-label（读屏/悬停语义不丢信息），视觉上拆为整齐两行
+    expect(summary.attributes('aria-label')).toBe('1 项服务不可用（4/6 运行中）')
     expect(summary.classes()).toContain('is-degraded')
+    expect(cmp.get('[data-testid="mp-service-summary-main"]').text()).toBe('1 项服务不可用')
+    expect(cmp.get('[data-testid="mp-service-summary-sub"]').text()).toBe('4/6 运行中')
 
     const list = cmp.get('[data-testid="mp-service-list"]')
     expect(list.findAll('.mp-service-item')).toHaveLength(6)
@@ -97,9 +101,24 @@ describe('SidebarServiceStatus', () => {
       const cmp = mountComponent()
       expect(cmp.get('[data-testid="mp-service-status"]').text()).toBe('服务运行中')
       expect(cmp.get('[data-testid="mp-service-status"]').classes()).toContain('is-ok')
+      // 健康态保持单行，不渲染副行
+      expect(cmp.find('[data-testid="mp-service-summary-sub"]').exists()).toBe(false)
     } finally {
       serviceStatusState.allRunning = false
     }
+  })
+
+  it('英文降级摘要同样拆两行且无整句括号', async () => {
+    const cmp = mountComponent()
+    i18n.global.locale.value = 'en'
+    await nextTick()
+
+    const summary = cmp.get('[data-testid="mp-service-status"]')
+    expect(summary.attributes('aria-label')).toBe('1 service(s) unavailable (4/6 running)')
+    expect(cmp.get('[data-testid="mp-service-summary-main"]').text()).toBe('1 service(s) unavailable')
+    expect(cmp.get('[data-testid="mp-service-summary-sub"]').text()).toBe('4/6 running')
+
+    i18n.global.locale.value = 'zh'
   })
 
   it('点击服务项展开详情，展示故障归因与上次运行时间', async () => {
