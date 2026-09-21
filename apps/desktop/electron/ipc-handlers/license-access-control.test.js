@@ -11,6 +11,7 @@ import path from 'node:path'
 const {
   CHANNEL_FEATURE_MAP,
   LOGIN_ONLY_FEATURE_MAP,
+  PUBLIC_CHANNELS,
   createAccessControlledIpcMain,
   getAccessLevel,
   requiredLevelForChannel,
@@ -81,6 +82,28 @@ describe('主进程许可证动态鉴权', () => {
     await expect(handlers['app:get-version'](trustedEvent)).resolves.toBe('1.0.0')
     expect(getVersion).toHaveBeenCalledTimes(1)
     expect(licenseManager.isPro).not.toHaveBeenCalled()
+  })
+
+  it('爆款分析本地兜底通道（viral:*）属公开通道，未登录不返 AUTH_REQUIRED（2026-09-21 修复）', async () => {
+    // 根因回归：viral:* 曾在 PUBLIC_CHANNELS 外，未登录被 -3 AUTH_REQUIRED 拦截，
+    // 导致 ViralEngine 本地启发式兜底（v2.3.43 设计意图=离线可用）被门禁架空。
+    const identityService = { getState: () => ({ status: 'signed_out' }) }
+    const { ipcMain, handlers } = createIpcMainHarness()
+    const controlledIpcMain = createAccessControlledIpcMain(
+      ipcMain,
+      { isPro: () => false },
+      { NODE_ENV: 'production' },
+      { isPackaged: true },
+      identityService,
+    )
+    for (const channel of ['viral:analyze', 'viral:generate', 'viral:trending']) {
+      expect(PUBLIC_CHANNELS.has(channel)).toBe(true)
+      expect(requiredLevelForChannel(channel)).toBe('public')
+      const probe = vi.fn(async () => ({ code: 0, data: { ok: true } }))
+      controlledIpcMain.handle(channel, probe)
+      await expect(handlers[channel](trustedEvent, {})).resolves.toEqual({ code: 0, data: { ok: true } })
+      expect(probe).toHaveBeenCalledTimes(1)
+    }
   })
 
   it('访问级别每次查询都读取当前许可证状态', () => {
