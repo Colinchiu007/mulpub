@@ -456,6 +456,65 @@ fetchTopics({ force })
 
 **B 站创作声明状态机（`_selectContentDeclaration`）**：返回 `{ state, option }`，`state ∈ no-input | already | done | option-selected-no-confirm | option-missing | error`；只有 `done`/`already` 视为处理成功，其余仅记 warn 日志、不抛异常（保持发布链路继续尽力提交，便于日志取证）。
 
+### 5.9 提示词优化阶段的限流韧性与降级（P0，2026-09-23 新增）
+
+> 触发背景（CDP E2E 取证，5 条 run 全部失败）：热门选题一键生成视频在 `optimize`（提示词优化）阶段整条失败，run 上下文里的原始 `error` 为
+> `Story2Video optimize failed: Story2Video 场景 12 prompt-engine 优化失败: Error code: 429 - {'error': {'code': '', 'message': '您已达到免费用户的 API 速率限制。升级 Token Plan 即可解锁更高限额，继续不间断使用 API。'}}`
+> 同时 `split` 阶段的 `text` 字段均有正常改写文案（说明【生成视频】→ 改写引擎链路本身是通的），失败点在 LLM 额度。
+
+**结构性缺陷（已修）**：`optimize` 阶段旧实现用 `withTransientRetry`，它**只捕获抛错**；而 prompt-engine 会把上游 LLM 的 429 兜底成 `HTTP 200 + { optimized_prompt: <原文>, error: '…Error code: 429…' }` 正常返回。结果：一次限流既不重试也不降级，直接 `throw` → 整条流水线 `failed`，已消耗的额度与时间全部作废。`withAssetTransientRetry`（资源生成阶段）早就做了结果体分类，优化阶段是漏网之鱼。
+
+**新契约 R-CL：失败分类矩阵（按 prompt-engine 响应体 `error`/`detail` 文本判定）**
+
+| 类别 | 识别信号（节选） | 是否重试 | 是否降级 template | 最终行为 |
+|------|------------------|----------|-------------------|----------|
+| rate（限流） | `Error code: 429` / `rate limit` / `too many requests` / `限流` / `速率限制` / `请求频率` / `队列` | 是（按分钟重置，线性退避） | 是（重试预算耗尽后） | 成功出片并打降级标记 |
+| transient（拖动） | `timed out` / `ETIMEDOUT` / `ECONNREFUSED` / `fetch failed` / `超时` / `网络` / 5xx | 是（短退避） | 否（保持旧语义） | 耗尽后阶段 fail closed |
+| quota（额度/余额） | `insufficient balance` / `quota exceeded` / `额度…上限` / `Token Plan … limit` | **否** | **否** | 立即 fail closed（需用户处理） |
+| other | 其余（如 422 参数非法、内容政策） | 否 | 否 | 立即 fail closed |
+
+> 中文「速率限制」不含在通用 `RATE_LIMIT_MESSAGE_PATTERN`（其只认 `频率.*限制`）内，因此本阶段自带 `OPTIMIZE_RATE_TEXT_PATTERN` 补充信号；两处判定不得合并回单一正则（否则 provider-error 的统一分类会被中文字面量拖慢）。
+
+**表 R-RE：重试预算（全部可在 `stage.options` 覆盖，不新增用户可见配置）**
+
+| 参数 | 默认 | 来源 / 说明 |
+|------|------|-------------|
+| `maxAttempts` | `min(3, (stage.options.maxRetries ?? 2) + 1)` | 瞬时错误总次数上限 |
+| `rateLimitMaxAttempts` | `max(maxAttempts + 1, 4)` | 限流专用（多给 1 次跨退避窗口） |
+| 限流退避 | `retryBackoffMs \|\| 2500`，第 n 次等 `base × n`（2.5s/5s/7.5s…） | 免费额度按分钟重置，线性放大比指数更可控 |
+| 瞬时退避 | `800 × n` | 与旧行为一致 |
+| 场景内并发 | `stage.options.concurrency ?? 3` | 与 `api-usage-governor` 的 llm rpm 无交集（LLM 在引擎子进程内调用，**已知限制**） |
+
+**降级路径（`optimization_strategy: 'template'`）**
+
+1. 触发条件：当前场景的 LLM 策略重试耗尽且最后一次仍为 **rate** 类；
+2. 动作：对**同一场景、同一归一化请求**只改 `optimization_strategy=template` 再走一次完整重试预算（模板路径不调 LLM、不计费）；
+3. 引擎事实（2026-09-23 直连 8013 实测）：`POST /v1/optimize {optimization_strategy:'template'}` → `HTTP 200`、`model_used="template"`、`key_source="none"`、`tokens_used=0`、`duration≈22ms`；
+4. 失败回退：降级调用也带 `error` → **丢弃降级结果，保留原始 429 错误**交给输出校验，阶段 `success:false` 且**不产生 output**（绝不静默出片）。
+
+**数据校验（输出结构不变式）**
+
+| 字段 | 类型/取值 | 规则 |
+|------|-----------|------|
+| `optimize[i].optimized_prompt` | string，非空且经 `sanitizeOptimizedPrompt` 剔思考块 | 降级时仍必非空（空→抛错 fail closed） |
+| `optimize[i].optimize_note` | `'rate_limited_template_fallback'` \| 缺省 | 仅降级场景写入；与已有 `prompt_engine_too_short_use_original` / `llm_rejected_use_original` / `prompt_engine_empty_reasoning_use_original` 互斥 |
+| `optimize[i].degraded` | boolean | 仅降级场景为 `true`；上层（历史/排查）据此区分提示词来源 |
+| `optimize[i].model_used` / `strategy_used` | string | 降级时为 `template`（由引擎 meta 透传，不手写） |
+| `context.optimize_degraded` | `{ scenes: number[], total: number }` \| 不存在 | 有降级才存在；`scenes` 为场景下标升序（`concurrency=1` 时严格递增）；本次无降级时**必须 delete** 该键（不留旧值） |
+| `context.optimize_resume` | 数组 | 逐场景部分结果；降级结果同样入 resume，断点续跑不重复消耗 LLM 额度 |
+| `context.optimize_progress` | `{ done, total }` | 降级不改变进度语义 |
+
+**显示项与提示文字**
+
+- **不新增 i18n key**（避免 locale 同步门禁）：用户可见途径为①阶段进度条文案沿用 `story2video.optimizeProgress`（共 N 个场景，已完成 M 个）；②失败时沿用既有 `story2video.optimize_failed` / `story2video.optimize_service_unavailable` 映射；③成功但降级时，历史详情「画面提示词」旁 `model_used` 显示 `template`（显示项已存在，无需新控件）。
+- **固定日志文案**（主进程 `Story2VideoStages`，与 §7.5 同族）：`optimize degraded to prompt-engine template strategy for {n}/{m} scene(s): LLM rate limited; scenes={idx,idx}` —— `warn` 级，阶段结束一次性输出（不逐场景刷屏）。
+- **默认选项不受影响**：`story2video.lastOptions.v1` 无新增键；降级是运行时自适应行为，不需用户预先选择。
+
+**与模型设置的关系（运维口径）**
+
+- 优化用的 LLM 由「模型设置 → 文字推理（llm）默认服务商」决定，`PromptBridge.resolveLlmBind()` 无默认/无 Key/无可用模型时 **fail-closed 抛错**（引擎不再用服务端 key 兜底）。
+- 若持续限流，用户可改默认 LLM（本机已配置 Key 的候选：`agnes-multimodal`(默认) / `sensenova-llm` / `openrouter` / `opencode-go` / `minimax-multimodal`）；`modelProviderTest` 只验“可列模型”，**不等于有额度**，不得用其结果向用户保证可用。
+
 ## 6. 交互逻辑
 
 ### 6.1 勾选与批量操作
@@ -835,6 +894,20 @@ fetchTopics({ force })
 | `d4-1-kuaishou.json` | `article/publish/video?tabType=1` | 无 `input[placeholder*="标题"]`；标题/描述共用 `div#work-description-edit[contenteditable][placeholder="作品描述不会写？试试智能文案"]` |
 | `d5-bilibili.json` | `upload/video/frame` | `input.input-val[placeholder="请输入稿件标题"]`；`.ql-editor` 简介；`创作声明` 必填下拉；风控短信弹窗（`sms-cell` + `btn-pink sms-confirm disabled`）；上传进度文案「已上传：0.0MB/0.0MB 剩余时间：>1天 0%」 |
 | `d5-douyin.json` | `content/post/video` | `input.semi-input[placeholder="填写作品标题，为作品获得更多流量"]`；`button … 发布 (disabled:false)`；`div.zone-container…[contenteditable]`；页面叠加「我知道了」 |
+
+### 9.8 提示词优化限流韧性回归（2026-09-23 新增，对应 §5.9）
+
+`apps/desktop/electron/services/story2video-stages.test.js` › `OPTIMIZE 限流韧性（429 裹在响应体 + template 降级）`，5 例：
+
+| 用例 | 钉住的不变式 |
+|------|--------------|
+| 429 包在响应体里时按结果体重试，恢复后不降级不留降级标记 | 结果体限流可重试；3 次内恢复则 **不得** 出现 `optimize_note` / `context.optimize_degraded`，且全程 `optimization_strategy≠template` |
+| 持续限流后降级 prompt-engine template 策略并标注降级来源 | 降级只发生 1 次 template 调用；entry 带 `optimize_note='rate_limited_template_fallback'` + `degraded=true`；`context.optimize_degraded={scenes:[0],total:1}` |
+| 降级也失败时保留原始限流错误，整阶段 fail closed | 不静默出片：`success:false` + `error` 含 `429`，且 **无** `output` 字段 |
+| 额度类（insufficient balance）错误不按限流处理 | 不重试（恰好 1 次调用）且不降级 —— quota 与 rate 必须分流 |
+| 多场景时降级标记按场景累积，成功恢复的场景不受牵连 | 混合场景下 `output[1].optimize_note` 为空，`optimize_degraded={scenes:[0,2],total:3}` |
+
+变异测试证据：将 `isTransientOptimizeOutcome` 短路为 `false`（即回到“只看抛错”的旧行为）后，上述第 1/2/5 例必红 → 用例非空断言，能真实拦截回归。
 
 ## 10. 技术实现说明（附录）
 

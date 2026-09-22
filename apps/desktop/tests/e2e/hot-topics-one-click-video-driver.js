@@ -322,8 +322,9 @@ async function main () {
         { timeout: 60000, interval: 500, label: 'modal closed #' + topic.index }).catch(() => {})
 
       entry.status = entry.runId ? 'running' : 'unknown-runid'
+      // 发起时改写全文还不存在（探针包不住 contextBridge，全文在 run context 里），故终态行才带真实字数
       log('#' + topic.index + ' 已发起 runId=' + entry.runId + ' detached=' + entry.detachedToBackground +
-        ' 改写字数=' + entry.rewriteChars)
+        ' 改写字数=' + (entry.rewriteChars || '待取'))
       await sleep(2000)
     }
 
@@ -348,7 +349,14 @@ async function main () {
           // 改写全文从 run context 提取（scene_context 阶段固化的 full_text）。
           const storyText = extractStoryText(data.context || {})
           if (storyText) r.storyText = storyText
-          log('runId=' + r.runId + ' -> ' + status + (r.videoPath ? ' video=' + r.videoPath : ' (no video)'))
+          if (storyText && !r.rewriteChars) r.rewriteChars = storyText.length
+          // 限流降级取证（PRD §5.9）：optimize 阶段因 LLM 429 降级为模板策略的场景下标
+          if (data.context && data.context.optimize_degraded) r.optimizeDegraded = data.context.optimize_degraded
+          const failTail = status === 'completed' ? '' : ' err=' + r.error.slice(0, 260).replace(/\s+/g, ' ')
+          log('runId=' + r.runId + ' -> ' + status +
+            ' 改写字数=' + (r.rewriteChars || 0) +
+            (r.optimizeDegraded ? ' 降级场景=' + r.optimizeDegraded.scenes.join(',') + '/' + r.optimizeDegraded.total : '') +
+            (r.videoPath ? ' video=' + r.videoPath : ' (no video)') + failTail)
         }
       }
       if (watch.some((r) => !r.finishedAt)) await sleep(POLL_MS)
