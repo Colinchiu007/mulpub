@@ -15097,3 +15097,57 @@ opencode 双模型审查发现三个问题：① 后端 `create_constraint` 对�
 ### 本次决策记录
 
 四链路 PRD（爆款分析×改写×采集×热门选题）按 P0/P1/P2 拆 3 个 PR 严格合入序。PR-1（#2174）落地契约修复；存量假 0 不回灌（靠 PR-2 回采逐步修正）；不加新表/新 IPC/userData，viral_library 为唯一事实源。
+
+
+## 模型设置页文案与设置弹窗标签页精致化（settings-model-tabs-polish，2026-09-22，PR #2191）
+
+### 可复用结论
+
+- **模板硬编码符号前缀与 locale 值符号叠加致双加号（pitfall）**：`ModelProviders.vue` 添加按钮模板写死 `＋ {{ t('modelProviders.addProvider') }}`，而 locale `addProvider` 值本身又是 `＋ 添加服务商`，两处各带一个全角＋ → 渲染出「＋＋添加服务商」。根因是符号前缀在「模板」与「文案资源」两处重复维护。修复：符号只在 locale 一处维护，模板去掉硬编码 `＋ ` 前缀；回归测试锁死 locale 值只含一个 `+`、无全角＋，且模板不再含 `＋ {{`。凡「图标/符号 + 文案」组合，务必确认符号只在一个真源出现。
+- **i18n 数量词与术语对齐（pattern）**：`pageSubtitle` 由「七类」「管理推理」→「7类」「文字推理」，与能力标签 `capLlm: '文字推理'` 术语统一；en 同步 `seven types`→`7 types`、`LLM`→`Text Reasoning`。zh/en 必须成对改（CI Gate 7 `check-locale-sync --pair-base` 拦截）。改文案前先 grep 同义键确认既有术语，避免同页多称谓。
+- **竖排设置标签导航精致化模式（pattern）**：左侧 `SettingsDialog.vue` 标签从「纯文字 + 朴素 hover」升级为——① 每项加 @element-plus/icons-vue 功能图标（Connection/Setting/Link/Upload/User），禁止 emoji 占功能图标位（`icon-usage.test.js` 守卫，占位面板的 🚧 一并换成 Compass el-icon）；② 激活态卡片浮起（`--shadow-sm`）+ `::before` 左侧 3px 主色强调条 + 图标 `scale(1.08)` 微反馈；③ 禁用态「敬请期待」用 `--radius-full` 胶囊徽标 + opacity .55；④ 全程取 tokens.css 设计令牌并覆盖 `[data-theme="dark"]`；⑤ 可访问性补 nav `aria-label`、激活项 `aria-current`、`:focus-visible` 主色外描边。保留测试依赖类名 `.settings-tab/.active/.tab-badge/.tab-label`，新增 `.tab-icon` 供断言。
+- **worktree 在 workspace 外时编辑工具受限（tool）**：编辑/SearchReplace 工具无法写 `D:\...\mp-worktrees\...`（workspace 外，报 45405）。改文案/追加文档一律把 Node 补丁脚本落到 workspace 内 `.agent_context\tmp-*.js`（或先 Write 暂存文本），脚本内用绝对路径 `fs.writeFileSync`/`appendFileSync` 落盘 worktree 文件后再 `node` 执行；git 写操作走 PowerShell 原生 `D:\` 路径，避免 Git Bash `/d/` 混写。
+
+### 本次决策记录
+
+纯 UI/文案 + 设计令牌精致化，走完整 worktree 隔离流程（gate → worktree → TDD → 门禁 → PR → auto-merge squash）。TDD 先加 `model-providers-copy.test.js`（5 例锁死单加号/新文案/模板无硬编码＋）与扩展 `SettingsDialog.test.js`（图标位 ×5 断言），定向 19/19、大范围 549/549 全绿，eslint exit 0、check-locale-sync PASS。规范回写 `01-docs/design/model-provider-module-design.md` §九（文案契约表 + 标签页 UI/UE 规范 + 变更影响面），CHANGELOG prepend。经验同步内置记忆（双加号根因 + 标签精致化模式）与 EverOS。
+
+## 爆款库 PR-3 交付：强度注入改写 + 选题一键联动（viral-lib-p2-strength-linkage，2026-09-22，PR #2183）
+
+### 可复用结论
+
+- **定量信号进 prompt 的"软约束 + 门槛"范式（pattern）**：把统计均值类信号注入 LLM prompt 必须（1）样本门槛——sampleCount<3 或均值非有限→整段不注入（宁缺毋滥，均值无统计意义）；（2）数值粗化——avgLikes 取整百 `Math.round(x/100)*100`、avgComments 取整，防模型把精确数原样抄进正文；（3）措辞为软约束（"信息密度/钩子强度向头部 25% 分位对齐"）+ 显式禁虚构数字。
+- **渲染层一次性交接优先于超长 URL（decision）**：跨页传结构化快照用 `sessionStorage` 一次性 handoff（set→take 读后即删→clear），而非把对象塞进 query string（URL 长度/编码/刷新残留三重坑）。key 约定 `mp-viral-signal`，改写页 `takeHandoff() || store.signal` 双读兜底（刷新后 handoff 已焚→回落会话 store）。IPC/preload 零新增。
+- **检索排序可观测性的真正锚点（pitfall）**：`buildViralContext` 的 `_buildPatternGuidance` 是 tally 聚合（顺序无关），单测断言"lift 优先"必须打在（a）`_buildShallowViral(items)` 的遍历顺序 与（b）guidance 取 `formulas[0]`（最高 lift 卡片）；且 title_formula 需含 `{}` 占位才被 guidance 采纳，否则正则 `/\{[^}]+\}/` 过滤掉→测试假过。排序键用稳定四段：hasCard DESC || known DESC || lift DESC || idx ASC。
+- **并行 vitest 的 process.env 跨文件泄漏（pitfall）**：`tests/visual-testing/test-runner.test.js`「默认模式缺基线应 reject」在全量并行偶发红（拿到 BASELINE_CREATED）——同 worker 内他文件设 `process.env.UPDATE_BASELINE=1`，本文件 `afterEach` 只清自身作用域无法防跨文件泄漏；单跑该文件 18/18 绿即证污染非回归。定位手段：全量流式跑（默认 reporter，勿加 `| Select-Object` 管道——管道缓冲致"假死"），单文件复跑证清白。
+- **worktree 构建产物还原（operational）**：`build:dir` 内部跑 `build:preload` 会重生成 `index.bundle.js`；若 `git diff` 仅报 LF→CRLF、diff 体为空，则是纯 EOL 翻转非实质改动，`git checkout --` 还原以免 PR 噪声（P2 本就 preload 零改动，build-preload 校验此前已过）。
+- **ViralAnalysis.vue 债务顶格（constraint）**：拆分后 990→PR-3 加 topic 预填到 999，距 filesOver1000 阈值仅 1 行；后续任何改动须先拆再改，禁直接加行。
+
+### 本次交付
+
+PRD §5（P2）三链路合一 PR（#2183，承接 #2174 P0 / #2180 P1）。全量 vitest 10661/10664（唯一红为上述偶发污染）；check-debt-budget 全回基线；locale 3 键 zh/en 成对；四批 TDD 红→绿。
+
+## 2026-09-22 强度徽标×引擎门槛错位（BUGFIX-STRENGTH-BADGE-GATE，PR #2188）
+
+**Bug 类**：呈现层宣称与注入层行为口径错位——改写页强度徽标只判 engagement 非空即显示
+「已带入爆款强度参考」，但引擎 _sanitizeEngagement 门槛 sampleCount>=3，弱信号（如 1 样本）
+实际不注入 Prompt。用户看到"已带入"而正文 Prompt 里没有 = 伪闭环信号。
+
+**根因**：#2183（eec84e36）引入徽标时，bridge 注释明知"交给引擎侧 <3 门槛二次把关"，
+但该门槛未传导到显示层；跨层一致性（显示条件 vs 注入条件）没有契约测试。
+
+**逃逸链**：引擎单测（门槛断言正确）→ bridge 单测（不设防是设计职责）→
+RewriteView 组件测只有正例 sampleCount=5/8 与"无信号"回归，缺弱信号负例 →
+视觉回归不覆盖跨页信号联动 → 线上 CDP 端到端走查才兜住。
+
+**修复模式**：显示与注入共用单一事实源谓词（bridge 导出 hasActionableEngagement +
+MIN_ENGAGEMENT_SAMPLES，与引擎严格同门槛含 Number(null)=0 语义），在数据入口
+（信号快照赋值点）单点收口，而非在多个消费端各写各的判断；双侧测试用相同边界数字
+（2 false / 3 true）互为锚点，注释双向引用文件路径。
+
+**可复用教训**：凡"A 层决定是否展示、B 层决定是否生效"的双层门槛功能，必须有一个
+共享谓词或契约测试锚定两层数字；组件测试 fixture 必须含"低于下游门槛"的负例。
+端到端线上走查是这类跨层错位缺陷的唯一可靠兜底，交付后应例行执行。
+
+**环境教训**：live 实例走查前先核实 identityGetState——signed_out 状态下涉权益链路
+（存库/发布/回采）会被许可证门禁拦截，属环境态而非代码缺陷，走查结论需分段标注。

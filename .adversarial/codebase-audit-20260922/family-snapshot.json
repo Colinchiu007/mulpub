@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "familyMapVersion": 1,
+  "updatedAt": "2026-08-31",
+  "snapshotCreatedAt": "2026-09-22T00:00:00+08:00",
+  "resolvedFamily": {
+    "proposer": "anthropic",
+    "critic": "deepseek"
+  },
+  "familyMap": {
+    "claude": [
+      "anthropic"
+    ],
+    "codex": [
+      "openai"
+    ],
+    "gemini": [
+      "google"
+    ],
+    "grok": [
+      "xai"
+    ],
+    "kimi": [
+      "moonshot"
+    ],
+    "opencode": [
+      "deepseek",
+      "hy3"
+    ]
+  },
+  "check": "intersection([anthropic],[deepseek,hy3]) = [] -> 跨家族通过"
+}
