@@ -906,7 +906,7 @@ var require_film_engineering = __commonJS({
         filmEngineering: {
           status: () => ipcRendererRef.invoke("film-engineering:status"),
           listScenes: () => ipcRendererRef.invoke("film-engineering:list-scenes"),
-          listShots: (sceneId) => ipcRendererRef.invoke("film-engineering:list-shots", sceneId),
+          listShots: (sceneId, pageOpts) => ipcRendererRef.invoke("film-engineering:list-shots", sceneId, pageOpts),
           getShot: (shotId) => ipcRendererRef.invoke("film-engineering:get-shot", shotId),
           doctrine: () => ipcRendererRef.invoke("film-engineering:doctrine"),
           copyText: (shotId, mode) => ipcRendererRef.invoke("film-engineering:copy-text", shotId, mode),

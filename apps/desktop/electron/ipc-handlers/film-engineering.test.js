@@ -115,7 +115,7 @@ describe('film-engineering IPC 正常通道', () => {
     registerHandlers(ipcMain, deps)
     const result = await ipcMain._get('film-engineering:list-shots')(TRUSTED_EVENT, 'scene-42')
     expect(result.code).toBe(0)
-    expect(deps.filmEngineeringService.listShots).toHaveBeenCalledWith('scene-42')
+    expect(deps.filmEngineeringService.listShots).toHaveBeenCalledWith('scene-42', undefined)
   })
 
   it('get-shot 合法 shotId 按 IPC 参数顺序转发到服务', async () => {
@@ -246,5 +246,30 @@ describe('film-engineering IPC fail-closed', () => {
     const scenes = await ipcMain._get('film-engineering:list-scenes')(TRUSTED_EVENT)
     expect(scenes.code).not.toBe(0)
     expect(scenes.message).toMatch(/FILM_KIT_UNAVAILABLE/)
+  })
+})
+
+describe('list-shots 分页（任务 4.2）', () => {
+  it('分页参数纯 JSON 透传到 service', async () => {
+    const ipc = createMockIpcMain()
+    const deps = makeDeps()
+    registerHandlers(ipc, deps)
+    const fn = ipc._get('film-engineering:list-shots')
+    const res = await fn(TRUSTED_EVENT, 'cold-open', { limit: 10, offset: 20 })
+    expect(res.code).toBe(0)
+    expect(deps.filmEngineeringService.listShots).toHaveBeenCalledWith('cold-open', { limit: 10, offset: 20 })
+  })
+
+  it('分页参数类型非法一律 VALIDATION 拒绝（字符串/数组/子字段非数字）', async () => {
+    const ipc = createMockIpcMain()
+    const deps = makeDeps()
+    registerHandlers(ipc, deps)
+    const fn = ipc._get('film-engineering:list-shots')
+    expect((await fn(TRUSTED_EVENT, 'cold-open', 'not-an-object')).code).not.toBe(0)
+    expect((await fn(TRUSTED_EVENT, 'cold-open', [1, 2])).code).not.toBe(0)
+    expect((await fn(TRUSTED_EVENT, 'cold-open', { limit: 'ten' })).code).not.toBe(0)
+    expect((await fn(TRUSTED_EVENT, 'cold-open', { offset: 1.5 })).code).not.toBe(0)
+    // 不传分页参数保持既有全量语义
+    expect((await fn(TRUSTED_EVENT, 'cold-open')).code).toBe(0)
   })
 })

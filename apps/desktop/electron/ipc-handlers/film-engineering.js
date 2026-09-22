@@ -61,11 +61,23 @@ function registerHandlers (ipcMain, deps) {
 
   ipcMain.handle('film-engineering:list-scenes', withSenderCheck(withKit(() => service.listScenes())))
 
-  ipcMain.handle('film-engineering:list-shots', withSenderCheck(withKit((_e, sceneId) => {
+  ipcMain.handle('film-engineering:list-shots', withSenderCheck(withKit((_e, sceneId, pageOpts) => {
     if (typeof sceneId !== 'string' || !sceneId.trim()) {
       throw Object.assign(new Error('sceneId 必须为非空字符串'), { code: EC.VALIDATION_ERROR })
     }
-    return service.listShots(sceneId)
+    // 分页参数负载守卫（任务 4.2）：必须是纯对象；limit/offset 必须是整数（或省略）。
+    if (pageOpts !== undefined && pageOpts !== null) {
+      if (typeof pageOpts !== 'object' || Array.isArray(pageOpts)) {
+        throw Object.assign(new Error('分页参数必须为对象 {limit, offset}'), { code: EC.VALIDATION_ERROR })
+      }
+      for (const key of ['limit', 'offset']) {
+        const v = pageOpts[key]
+        if (v !== undefined && v !== null && !Number.isInteger(v)) {
+          throw Object.assign(new Error('分页参数 ' + key + ' 必须为整数'), { code: EC.VALIDATION_ERROR })
+        }
+      }
+    }
+    return service.listShots(sceneId, pageOpts)
   })))
 
   ipcMain.handle('film-engineering:get-shot', withSenderCheck(withKit((_e, shotId) => {

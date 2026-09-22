@@ -94,8 +94,8 @@ class FilmEngineeringService {
     return this._ensure().listScenes()
   }
 
-  listShots (sceneId) {
-    return this._ensure().listShots(sceneId)
+  listShots (sceneId, opts) {
+    return this._ensure().listShots(sceneId, opts)
   }
 
   getShot (shotId) {

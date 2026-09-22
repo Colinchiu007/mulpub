@@ -186,3 +186,11 @@ it('链接线：两级均不可用 → status fail-closed 含 FILM_KIT_UNAVAILAB
   expect(status.error).toMatch(/FILM_KIT_UNAVAILABLE/)
   expect(status.error).toMatch(/film-manifest\.json/)
 })
+
+it('listShots 分页透传：opts 达 ShotLibrary 返回页封装', () => {
+  const svc = new FilmEngineeringService({ kitDir: makeKitDir(), log })
+  const page = svc.listShots('cold-open', { limit: 5, offset: 0 })
+  expect(page.total).toBe(1)
+  expect(page.shots.length).toBe(1)
+  expect(Array.isArray(svc.listShots('cold-open'))).toBe(true)
+})
