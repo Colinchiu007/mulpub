@@ -197,11 +197,12 @@ const platformsMixin = {
   // ========== 视频上传完成强判定 ==========
   // 旧判定 !progress||success 在快手/B站等平台立即为真（页面不用 progress class），
   // 导致还在上传落地页就继续填字段/点发布，全部失败（2026-09 smoke4 实锤）。
-  // 强判定：上传启动宽限期后，等待「进度类元素不可见 且（出现可见 <video> 预览 或
-  // 已跳转到编辑页 URL）」；拿不到信号时继续尽力而为（不阻断流程）。
+  // 强判定：上传启动最低稳定期后，等待「进度类元素不可见 且（出现 src 为 https 的
+  // 视频预览——blob 本地预览不算，它在注入瞬间就存在（smoke5 实锤误判），https 才代表
+  // 服务器上传完成——或已跳转到编辑页 URL）」；拿不到信号时继续尽力而为（不阻断流程）。
   async _waitForVideoUploadComplete(win, platform, timeoutMs) {
-    await this._sleep(5000) // 上传启动宽限期：给进度元素渲染时间，避免首拍即判定完成
-    const cond = 'function(){var pv=[...document.querySelectorAll("[class*=progress],[class*=uploading]")].filter(function(e){return e.offsetParent&&e.clientHeight>0}).length;var vv=[...document.querySelectorAll("video")].some(function(e){return e.getClientRects().length>0&&e.clientWidth>100});return pv===0&&(vv||location.href.indexOf("post/video")!==-1)}'
+    await this._sleep(25000) // 最低稳定期：80MB 视频不可能 25s 内传完，防 blob 预览/首拍误判
+    const cond = 'function(){var pv=[...document.querySelectorAll("[class*=progress],[class*=uploading]")].filter(function(e){return e.offsetParent&&e.clientHeight>0}).length;var vv=[...document.querySelectorAll("video")].some(function(v){var s=v.currentSrc||v.src||"";return s.indexOf("https:")===0&&v.getClientRects().length>0});return pv===0&&(vv||location.href.indexOf("post/video")!==-1)}'
     const ok = await this._waitForCondition(win, cond, timeoutMs || 420000, 2000)
     if (!ok) log.warn('RpaView', '[' + platform + '] video upload-complete signal not detected (preview/url), continuing best-effort')
     return ok

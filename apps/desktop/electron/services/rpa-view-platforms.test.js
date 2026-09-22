@@ -430,5 +430,8 @@ describe('rpa-view-platforms — 视频发布页字段填充时序（2026-09 E2E
     const douyinEnd = source.indexOf('\n  async _', douyinStart + 10)
     const douyinBody = source.slice(douyinStart, douyinEnd > 0 ? douyinEnd : undefined)
     expect(douyinBody).toContain('this._waitForVideoUploadComplete(')
+    // blob 本地预览在注入瞬间就存在，判定必须要求 https 服务端预览源（smoke5 实锤）
+    expect(source).toMatch(/currentSrc/)
+    expect(source).toMatch(/indexOf\("https:\"\)===0/)
   })
 })

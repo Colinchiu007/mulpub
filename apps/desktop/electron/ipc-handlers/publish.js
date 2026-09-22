@@ -283,6 +283,9 @@ function registerHandlers(ipcMain, deps) {
         platform,
         article: { ...plainArticle, accountId },
         accountId,
+        // 视频发布要等大文件真实上传完成（强判定最长 7 分钟）+转码/表单等待，
+        // 队列默认 180s 会在上传中途杀任务（2026-09 smoke5 实锤），视频任务放宽到 15 分钟
+        ...(plainArticle.video_path ? { timeout: 900000 } : {}),
       })
     })
       ipcLog('info', 'publish:batch', 'ok', `taskIds=[${taskIds.join(',')}] 耗时=${Date.now() - startedAt}ms`)
