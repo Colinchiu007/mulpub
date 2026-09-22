@@ -3,6 +3,64 @@ var __commonJS = (cb, mod) => function __require() {
   return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
 };
 
+// electron/core/access-level.js
+var require_access_level = __commonJS({
+  "electron/core/access-level.js"(exports2, module2) {
+    "use strict";
+    var ACCESS_LEVELS = Object.freeze(["public", "authenticated", "admin"]);
+    var ACCESS_LEVEL_CHANNEL = "auth:get-access-level";
+    var ACCESS_LEVEL_INVALIDATE_EVENT = "auth:access-level-invalidated";
+    var ACCESS_LEVEL_TTL_MS = 2e3;
+    function isAccessLevel(value) {
+      return ACCESS_LEVELS.includes(value);
+    }
+    module2.exports = {
+      ACCESS_LEVELS,
+      ACCESS_LEVEL_CHANNEL,
+      ACCESS_LEVEL_INVALIDATE_EVENT,
+      ACCESS_LEVEL_TTL_MS,
+      isAccessLevel
+    };
+  }
+});
+
+// electron/preload/access-level-cache.js
+var require_access_level_cache = __commonJS({
+  "electron/preload/access-level-cache.js"(exports2, module2) {
+    "use strict";
+    var {
+      ACCESS_LEVEL_TTL_MS,
+      isAccessLevel
+    } = require_access_level();
+    function createAccessLevelCache({ read, ttlMs = ACCESS_LEVEL_TTL_MS, now = Date.now } = {}) {
+      let cached = null;
+      let expiresAt = 0;
+      function invalidate() {
+        cached = null;
+        expiresAt = 0;
+      }
+      function get() {
+        if (cached !== null && now() < expiresAt) return cached;
+        let level = "public";
+        try {
+          const fresh = typeof read === "function" ? read() : null;
+          if (isAccessLevel(fresh)) level = fresh;
+        } catch (_) {
+          void _;
+        }
+        cached = level;
+        expiresAt = now() + ttlMs;
+        return level;
+      }
+      function isFresh() {
+        return cached !== null && now() < expiresAt;
+      }
+      return { get, invalidate, isFresh };
+    }
+    module2.exports = { createAccessLevelCache };
+  }
+});
+
 // electron/preload/publish.js
 var require_publish = __commonJS({
   "electron/preload/publish.js"(exports2, module2) {
@@ -812,6 +870,10 @@ var require_page_manager = __commonJS({
           getHomeTab: () => ipcRenderer2.invoke("page-manager:get-home-tab"),
           saveCookies: (tabId) => ipcRenderer2.invoke("page-manager:save-cookies", tabId),
           saveAccountTabCredentials: (tabId) => ipcRenderer2.invoke("page-manager:save-account-tab-credentials", tabId),
+          // 查询账号标签凭证保存态（方案二：关闭护栏）
+          getAccountTabSaveState: (tabId) => ipcRenderer2.invoke("page-manager:account-tab-save-state", tabId),
+          // 批量保存全部未保存账号标签（方案三：全部保存）
+          saveAllUnsavedAccounts: () => ipcRenderer2.invoke("page-manager:save-all-unsaved-accounts"),
           // ── Event subscription ──
           subscribeEvents: () => ipcRenderer2.invoke("page-manager:subscribe-events"),
           unsubscribeEvents: () => ipcRenderer2.invoke("page-manager:unsubscribe-events"),
@@ -1002,7 +1064,7 @@ var require_knowledge_library = __commonJS({
         addManualSnapshot: (trackedContentId, metrics) => ipcRenderer2.invoke("performance:add-manual-snapshot", trackedContentId, metrics),
         recomputeAttribution: () => ipcRenderer2.invoke("performance:recompute-attribution"),
         listPatternPerformance: (params) => ipcRenderer2.invoke("performance:list-pattern-performance", params),
-        triggerPerformanceRecrawl: () => ipcRenderer2.invoke("performance:trigger-recrawl"),
+        triggerPerformanceRecrawl: (opts) => ipcRenderer2.invoke("performance:trigger-recrawl", opts),
         // 个人知识库
         addPersonalToLibrary: (item) => ipcRenderer2.invoke("knowledge-library:add-personal", item),
         addPersonalBatchToLibrary: (items) => ipcRenderer2.invoke("knowledge-library:add-personal-batch", items),
@@ -1253,6 +1315,12 @@ var require_access_control = __commonJS({
 var require_preload = __commonJS({
   "electron/preload/index.js"(exports2, module2) {
     var { contextBridge: contextBridge2, ipcRenderer: ipcRenderer2, webUtils } = require("electron");
+    var {
+      ACCESS_LEVEL_CHANNEL,
+      ACCESS_LEVEL_INVALIDATE_EVENT,
+      isAccessLevel
+    } = require_access_level();
+    var { createAccessLevelCache } = require_access_level_cache();
     var { createPublishApi } = require_publish();
     var { createAccountApi } = require_account();
     var { createSystemApi } = require_system();
@@ -1279,18 +1347,23 @@ var require_preload = __commonJS({
       createDynamicAccessApi,
       filterApiByAccessLevel
     } = require_access_control();
-    function getAccessLevel() {
+    function readAccessLevelFromMain() {
       try {
         if (typeof ipcRenderer2.sendSync === "function") {
-          const level = ipcRenderer2.sendSync("auth:get-access-level");
-          if (level === "admin" || level === "authenticated" || level === "public") {
-            return level;
-          }
+          const level = ipcRenderer2.sendSync(ACCESS_LEVEL_CHANNEL);
+          if (isAccessLevel(level)) return level;
         }
       } catch (_) {
         void _;
       }
       return "public";
+    }
+    var accessLevelCache = createAccessLevelCache({ read: readAccessLevelFromMain });
+    if (typeof ipcRenderer2.on === "function") {
+      ipcRenderer2.on(ACCESS_LEVEL_INVALIDATE_EVENT, () => accessLevelCache.invalidate());
+    }
+    function getAccessLevel() {
+      return accessLevelCache.get();
     }
     var fullApi = {
       ...createPublishApi(ipcRenderer2, {
@@ -1324,6 +1397,7 @@ var require_preload = __commonJS({
     contextBridge2.exposeInMainWorld("electronAPI", exposedApi);
     module2.exports = {
       getAccessLevel,
+      accessLevelCache,
       filterApiByAccessLevel,
       createDynamicAccessApi,
       ADMIN_ONLY_METHODS,

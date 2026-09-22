@@ -12,6 +12,7 @@
 const { ipcMain } = require('electron')
 const { isTrustedSender } = require('../core/ipc-security')
 const { createAccessControlledIpcMain } = require('../ipc-handlers/license-access-control')
+const { bindAccessLevelInvalidator, createAccessLevelInvalidator } = require('../services/access-level-bus')
 const log = require('../services/logger')
 const credentialStore = require('../services/credential-store')
 const accountStateRestorer = require('../services/account-state-restorer')
@@ -229,6 +230,10 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
   }
 
   return runOnce(state, () => runIpcRegistrationTransaction(ipcMain, () => {
+    // 审计 P2·性能税：preload 侧访问级别改为「推送失效 + TTL 兜底」缓存。广播能力在此绑定一次
+    // —— BrowserWindow 只有 bootstrap 持有，业务模块（license.js / identity-service-factory.js）
+    // 只调用 emitAccessLevelInvalidated 发信号。绑定失败会让缓存退化为纯 TTL，故不得静默。
+    bindAccessLevelInvalidator(createAccessLevelInvalidator(BrowserWindow, log))
     const controlledIpcMain = createAccessControlledIpcMain(
       ipcMain,
       licenseManager,
