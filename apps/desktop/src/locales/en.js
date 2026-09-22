@@ -1480,6 +1480,9 @@ export default {
     errorTitle: 'Failed to load accounts',
     errorHint: 'The identity service or network is temporarily unavailable. Please try again later.',
     errorAction: 'Retry',
+    loginRequiredTitle: 'Sign in required',
+    loginRequiredHint: 'Sign in to view and manage your authorized publishing accounts.',
+    loginRequiredAction: 'Sign in',
     ownerField: 'Owner',
     publisherField: 'Publisher',
     // Login status check results (error code → user-friendly message)

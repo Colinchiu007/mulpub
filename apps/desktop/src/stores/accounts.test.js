@@ -166,6 +166,40 @@ describe("useAccountStore", () => {
       expect(store.loaded).toBe(false);
     });
 
+    it("网络 reject 归类为瞬时失败：保留列表且不标记已加载", async () => {
+      listAccounts.mockRejectedValue(new Error("connect ECONNREFUSED 127.0.0.1:8299"));
+      const store = useAccountStore();
+      store.accounts = accountsFixture;
+
+      await store.load();
+
+      expect(store.accounts).toEqual(accountsFixture);
+      expect(store.errorCode).toBe("NETWORK_ERROR");
+      expect(store.loaded).toBe(false);
+    });
+
+    it("超时 reject 归类为瞬时失败并保留列表", async () => {
+      listAccounts.mockRejectedValue(new Error("request timeout"));
+      const store = useAccountStore();
+      store.accounts = accountsFixture;
+
+      await store.load();
+
+      expect(store.accounts).toEqual(accountsFixture);
+      expect(store.errorCode).toBe("TIMEOUT");
+    });
+
+    it("暴露 AUTH_REQUIRED 错误码供界面分流（登录引导 vs 错误态）", async () => {
+      listAccounts.mockResolvedValue({ code: -3, message: "无法识别当前用户", data: [] });
+      const store = useAccountStore();
+      store.accounts = accountsFixture;
+
+      await store.load();
+
+      expect(store.errorCode).toBe("AUTH_REQUIRED");
+      expect(store.accounts).toEqual([]);
+    });
+
     it("重复加载会替换数据并清除上一次错误", async () => {
       listAccounts
         .mockRejectedValueOnce(new Error("temporary"))

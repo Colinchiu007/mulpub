@@ -475,6 +475,7 @@ async function _getBackendAccessToken (forceRefresh = false) {
 // 只会把同一个超时再付一遍（账号页首开 25s 事故的放大环节）。
 const TOKEN_RETRY_ERROR_CODES = new Set([
   'AUTH_TOKEN_MISSING',
+  'AUTH_TOKEN_REQUIRED',
   'AUTH_TOKEN_INVALID',
   'AUTH_TOKEN_EXPIRED',
   'AUTH_TOKEN_NOT_ACTIVE',

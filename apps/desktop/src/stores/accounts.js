@@ -3,10 +3,16 @@ import { ref, computed, watch } from 'vue'
 import { listAccounts, accountDelete, accountSetDefault, accountUpdate } from '@/api/publisher'
 import { usePlatformStore } from '@/stores/platforms'
 import { formatUserError } from '@/utils/user-facing-error'
+import i18n from '@/i18n'
 
-// 上游瞬时不可用（身份服务 JWKS 抖动 / 后端 5xx）时保留上一次列表：
+// 上游瞬时不可用（身份服务 JWKS 抖动 / 后端 5xx / 网络与超时）时保留上一次列表：
 // 「这一帧取不到」绝不能显示成「一个账号都没有」（账号页首开 25s 事故的用户可见面）。
-const TRANSIENT_FAILURE_CODES = Object.freeze(['AUTH_JWKS_UNAVAILABLE', 'AUTH_JWKS_INVALID'])
+const TRANSIENT_FAILURE_CODES = Object.freeze([
+  'AUTH_JWKS_UNAVAILABLE',
+  'AUTH_JWKS_INVALID',
+  'NETWORK_ERROR',
+  'TIMEOUT',
+])
 
 function isTransientFailure(res) {
   if (!res || typeof res !== 'object') return false
@@ -25,6 +31,8 @@ export const useAccountStore = defineStore('accounts', () => {
   const favoriteIds = ref(new Set())
   const loading = ref(false)
   const error = ref(null)
+  // 结构化错误码：界面按码分流（AUTH_REQUIRED → 登录引导；其余 → 错误态 + 重试）
+  const errorCode = ref(null)
   const loaded = ref(false)
 
   const searchQuery = ref('')
@@ -38,8 +46,10 @@ export const useAccountStore = defineStore('accounts', () => {
   async function load() {
     loading.value = true
     error.value = null
+    errorCode.value = null
     let shouldReconcileMetadata = false
     let transient = false
+    const loadFailedText = i18n.global.t('accountsPage.loadFailed')
     try {
       const res = await listAccounts()
       if (res && res.code === 0 && Array.isArray(res.data)) {
@@ -50,8 +60,10 @@ export const useAccountStore = defineStore('accounts', () => {
         shouldReconcileMetadata = true
       } else {
         // 非零 code / 结构异常：必须记录错误，否则界面会静默显示「暂无账号」
-        transient = isTransientFailure(res)
-        error.value = formatUserError(res, { fallback: '账号列表加载失败' }).message
+        const formatted = formatUserError(res, { fallback: loadFailedText })
+        transient = isTransientFailure(res) || TRANSIENT_FAILURE_CODES.includes(formatted.errorCode)
+        error.value = formatted.message
+        errorCode.value = formatted.errorCode
         if (!transient) accounts.value = []
       }
       reconcileSelection()
@@ -61,9 +73,15 @@ export const useAccountStore = defineStore('accounts', () => {
       // 瞬时失败不标记为已加载：下次进入账号页仍需重新拉取
       loaded.value = !transient
     } catch (e) {
-      error.value = formatUserError(e, { fallback: '账号列表加载失败' }).message
-      accounts.value = []
+      // requestBackend 直接 reject（后端未启动 / 连接超时）同样走瞬时判定：
+      // 「这一帧取不到」保留上一次列表，而不是清成「暂无账号」。
+      const formatted = formatUserError(e, { fallback: loadFailedText })
+      transient = TRANSIENT_FAILURE_CODES.includes(formatted.errorCode)
+      error.value = formatted.message
+      errorCode.value = formatted.errorCode
+      if (!transient) accounts.value = []
       reconcileSelection()
+      loaded.value = !transient
     } finally {
       loading.value = false
     }
@@ -408,7 +426,7 @@ export const useAccountStore = defineStore('accounts', () => {
   }
 
   return {
-    accounts, groups, favoriteIds, loading, error, loaded, searchQuery, filterStatus, filterPlatform, sortBy, sortOrder, selectedIds, isAllSelected,
+    accounts, groups, favoriteIds, loading, error, errorCode, loaded, searchQuery, filterStatus, filterPlatform, sortBy, sortOrder, selectedIds, isAllSelected,
     byPlatform, accountsBeforePlatformFilter, filteredAccounts, groupedByPlatform,
     load, ensureLoaded, loadGroups, loadFavorites, getDefault, setDefault, renameAccount,
     createGroup, deleteGroup, renameGroup, setGroupPlatform, getGroupAccounts, isAccountInGroup, toggleAccountInGroup,

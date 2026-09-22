@@ -525,6 +525,30 @@ test('requestBackend 收到 503（AUTH_JWKS_UNAVAILABLE）时不刷新令牌、�
   }))
 })
 
+test('requestBackend 收到 401（AUTH_TOKEN_REQUIRED）时强制刷新并重放一次', async () => {
+  mockHealthGet(true)
+  await bridge.startPythonBackend()
+  const getAccessToken = vi.fn()
+    .mockResolvedValueOnce('stale-token')
+    .mockResolvedValueOnce('fresh-token')
+  bridge.setAuthService({ getAccessToken })
+  httpRequestSpy
+    .mockImplementationOnce((opts, cb) => {
+      const res = new EventEmitter(); res.statusCode = 401
+      setImmediate(() => { cb(res); res.emit('data', JSON.stringify({ detail: 'AUTH_TOKEN_REQUIRED' })); res.emit('end') })
+      const req = new EventEmitter(); req.write = vi.fn(); req.end = vi.fn(); return req
+    })
+    .mockImplementationOnce((opts, cb) => {
+      const res = new EventEmitter(); res.statusCode = 200
+      setImmediate(() => { cb(res); res.emit('data', JSON.stringify({ code: 0, retried: true })); res.emit('end') })
+      const req = new EventEmitter(); req.write = vi.fn(); req.end = vi.fn(); return req
+    })
+
+  await expect(bridge.requestBackend('GET', '/api/accounts')).resolves.toEqual({ code: 0, retried: true })
+  expect(httpRequestSpy).toHaveBeenCalledTimes(2)
+  expect(getAccessToken).toHaveBeenNthCalledWith(2, { forceRefresh: true })
+})
+
 test('requestBackend 收到 401 但错误码不属于令牌类时不重放', async () => {
   mockHealthGet(true)
   await bridge.startPythonBackend()

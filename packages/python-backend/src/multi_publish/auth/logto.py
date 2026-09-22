@@ -214,7 +214,9 @@ class LogtoJwtVerifier:
     trusted_jwks_hosts: frozenset[str] = field(default_factory=frozenset)
     jwks_failure_backoff_seconds: int = 15
     stale_cache_grace_seconds: int = 3600
-    connect_timeout_seconds: float = 2.0
+    # 事故环境（代理/VPN）下 TCP+TLS 握手实测 5-10s：2s connect 过激，会把本可
+    # keep-alive 复用的连接在建链阶段误判为失败，反而放大首开延迟。
+    connect_timeout_seconds: float = 5.0
     read_timeout_seconds: float = 5.0
 
     def __post_init__(self):

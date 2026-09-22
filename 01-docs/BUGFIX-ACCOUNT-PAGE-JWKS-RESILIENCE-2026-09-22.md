@@ -82,3 +82,26 @@
 1. **后端端口冲突 + 健康检查假阳性**：本机偶发 `[Errno 10048] 127.0.0.1:8299` 绑定失败但 `waitForHealthy` 仍判定健康（探到的是**别人的**实例），会独立造成验签/行为异常——与本次链路无关，另案排期。
 2. **运维侧**：`auth.iart.work` 在本机走系统代理时抖动明显，建议在代理客户端对该域名直连放行（环境优化，不作为代码修复前提）。
 3. **E2E**：真实「首开无网络/JWKS 抖动」注入需打包环境，交由 CI electron-tests 与后续 /canary 冒烟覆盖。
+
+## 7. 复审修复（CodeReview W1–W5）
+
+首轮提交后 CodeReview（0 Critical / 5 Warning）指出的 5 条，均以 TDD 补齐并回归通过：
+
+| # | 问题 | 修复 | 回归 |
+|---|------|------|------|
+| W1 | 错误态 `:description="loadError \|\| errorHint"` 使 `errorHint` 成死键；store `fallback` 硬编码中文，en 界面直出中文 | store `fallback` 改 `i18n.global.t('accountsPage.loadFailed')`（随语言）；view description 直接用 `t('accountsPage.errorHint')` | `Accounts.test.js`「错误态描述使用本地化提示，不直出后端原始文本」 |
+| W2 | 未登录（后端 `-3` → `AUTH_REQUIRED`）被呈现为「加载失败 + 重试」错误态，缺少登录引导 | store 暴露结构化 `errorCode`；view 按码分流：`authRequired`（`AUTH_REQUIRED`/`NOT_SIGNED_IN` 且未登录）走登录引导 EmptyState，点击触发 `ensureLogin` → 成功刷新；已登录但令牌异常仍走错误态 | store「暴露 AUTH_REQUIRED 错误码」；view「未登录展示登录引导 / 已登录仍走错误态 / 点击触发 ensureLogin」3 例 |
+| W3 | 后端 401 `AUTH_TOKEN_REQUIRED`（server.py 强制鉴权但无有效令牌）不在 `TOKEN_RETRY_ERROR_CODES` 白名单，漏掉一次「强刷 + 重放」自愈 | 白名单补入 `AUTH_TOKEN_REQUIRED` | bridge「收到 401（AUTH_TOKEN_REQUIRED）时强制刷新并重放一次」 |
+| W4 | `connect_timeout_seconds = 2.0` 相对事故环境实测握手 5–10s 过激，会把本可 keep-alive 复用的连接在建链阶段误判失败 | 调整为 `5.0`（与 read 对齐），补注释说明收益来自连接复用 / 退避而非激进超时 | `test_logto_auth.py` 全绿（无断言耦合具体超时值） |
+| W5 | `requestBackend` 直接 reject（后端未起 / 连接超时）时 catch 无条件清空列表，绕过 `isTransientFailure` | catch 内同样按 `formatUserError` 归类：`NETWORK_ERROR`/`TIMEOUT` 计入 `TRANSIENT_FAILURE_CODES` → 保留上一次列表且不标记已加载 | store「网络 reject / 超时 reject 归类为瞬时失败并保留列表」2 例 |
+
+ locale：`accountsPage.loginRequiredTitle / loginRequiredHint / loginRequiredAction` zh/en 成对新增。
+
+### 追加 Decision Log
+
+| 决策 | 理由 | 被否方案 |
+|------|------|----------|
+| store 暴露 `errorCode`（结构化）而非让 view 解析文案 | 界面按稳定码分流，避免用中文文案正则判断登录态 | view 直接正则匹配 `error` 文本 |
+| 仅 `未登录 && AUTH_REQUIRED` 才走登录引导 | 已登录仍报 `AUTH_REQUIRED` 多为令牌异常，应保留错误重试入口而非循环弹登录 | 只要 `AUTH_REQUIRED` 一律弹登录 |
+| `AUTH_TOKEN_REQUIRED` 纳入重放白名单 | 语义为「缺有效令牌」，强刷 + 重放正是自愈；区别于 `AUTH_JWKS_*`（上游不可用，重放只翻倍超时） | 维持黑名单外的静默 401 |
+| connect 超时放宽到 5.0 而非更激进预热重试 | 首开慢的根因是每请求重做握手，已由共享 client + 预热解决；超时只兜底新连接 | 继续压低 connect 超时追求「快速失败」 |

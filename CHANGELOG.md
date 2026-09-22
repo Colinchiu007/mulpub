@@ -20,6 +20,9 @@
 - 分支 `codex/account-page-jwks-resilience`（worktree 隔离，D 盘）；根因链/契约/Decision Log：`01-docs/BUGFIX-ACCOUNT-PAGE-JWKS-RESILIENCE-2026-09-22.md`
 - 另案（不在本 PR）：8299 端口绑定失败 + `waitForHealthy` 假阳性；代理客户端对 `auth.iart.work` 直连放行。
 
+### 复审修复（CodeReview W1–W5，同 PR 追加）
+首轮提交后 CodeReview（0 Critical / 5 Warning）全部修复并补 TDD 用例（新增 **+8**：store +3、view +4、bridge +1）：**W1** store `fallback` 改走 `i18n`（消除 en 界面硬编码中文）、view 错误态 `description` 直接用 `errorHint`（不再是死键）；**W2** store 暴露结构化 `errorCode`，view 按码分流——未登录 `AUTH_REQUIRED` 走「去登录」引导态（点击 `ensureLogin` → 成功刷新），已登录令牌异常仍走错误重试态；**W3** `TOKEN_RETRY_ERROR_CODES` 补入 `AUTH_TOKEN_REQUIRED`（强刷 + 重放自愈）；**W4** `connect_timeout_seconds` 2.0 → 5.0（对齐事故环境实测握手，收益来自连接复用/退避而非激进超时）；**W5** `listAccounts` reject（后端未起 / 连接超时）经 `formatUserError` 归类，`NETWORK_ERROR`/`TIMEOUT` 计入瞬时失败 → 保留上一次列表。locale：`accountsPage.loginRequiredTitle/loginRequiredHint/loginRequiredAction` zh/en 成对新增。
+
 ---
 
 # [未发布] feat(hot-topics): 热门选题统一热度排序（P0-P3 全量：评分模型+可解释UI+衰减+配置化）
