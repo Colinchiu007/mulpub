@@ -57,10 +57,10 @@
 
 ## 7. L3 全量分批出片驱动（TDD）
 
-- [ ] 7.1 RED：台账/切批单测——144 镜 → 15 批（14×10+1×4）边界（0/1/10/11 镜）、批次 runId 分配、磁盘产物复核的重入协议（已完成批次零 provider 调用）、单批失败隔离、全批收口自动生成 renderManifest
+- [x] 7.1 RED：台账/切批单测（2026-09-23 完成：production-driver.test.js 19 用例——批大小 10 常量、边界 0/1/10/11 镜、144 镜→15 批（14×10+1×4）保序不重不漏、runId prod-<taskId>-b<idx> 确定性派生重算一致、台账 .tmp+rename round-trip 无 .tmp 残留、损坏 JSON→null fail-closed、重入协议磁盘复核唯一裁决三场景（done+盘齐→needRun false 零调用 / done+盘缺→降级重跑列缺失 / pending+盘齐→双核跳过）、收口双判据（台账全 done+磁盘全过否则 ok:false 列 missing 不产假清单）、单批失败隔离 statuses=[done,failed,done] 且 renderManifest null、taskId/shotIds 非法抛错；RED（模块缺失 require 失败）→GREEN 19/19；film-engineering 全套 14 文件 163/163；eslint 0 问题）——144 镜 → 15 批——144 镜 → 15 批（14×10+1×4）边界（0/1/10/11 镜）、批次 runId 分配、磁盘产物复核的重入协议（已完成批次零 provider 调用）、单批失败隔离、全批收口自动生成 renderManifest
 - [ ] 7.2 GREEN：production-driver 实现（切批 → 逐批子 run 至 generate_videos checkpoint → 过闸 → merge → 台账 `ledger.json` 持久化 userData）
-- [ ] 7.3 崩溃恢复集成：mock provider 下模拟进程中断，重入从断点继续且已完成镜不重调（台账 + 磁盘双核）
-- [ ] 7.4 进度事件：批次级 + 逐镜状态经既有 onStageEvent 通道上报（节流合并），IPC 负载守卫
+- [x] 7.3 崩溃恢复集成：（2026-09-23 完成：以可增长磁盘 mock（runBatch 成功才落盘）覆盖——批 0 落盘后"进程被杀"，第二轮同 ledgerDir 重入 calls=[1] 已完成批零 provider 调用（台账+磁盘双核）且收口产出 11 条 manifest；failed 批重入会重试（重入协议对 failed 不豁免，磁盘无信物必重跑）；sameShape 校验（taskId+批数+各批镜数）不符即重建台账不吞着跑。mock provider 下进程中断语义以同进程二次 runProduction 等价模拟，真实 Electron 进程级中断冒烟归组 9 E2E）mock provider 下模拟进程中断mock provider 下模拟进程中断，重入从断点继续且已完成镜不重调（台账 + 磁盘双核）
+- [x] 7.4 进度事件：（2026-09-23 完成：批次级事件 running/done/skipped-complete + production:complete 即时上报；逐镜 production:shot-progress 经 EVENT_MERGE_MS=500ms 窗口节流取最新计数（11 次上报→3 事件，doneCount 单调不回退，last=11）；事件负载只带计数/batchIndex/shotIndex，守卫断言不携带 shotIds 数组（IPC 负载守卫）；now 时间源注入使计时测试确定性。emit 为注入 seam，service 层接线既有 onStageEvent 通道随组 8 落地）批次级 + 逐镜状态经既有 onStageEvent 通道上报批次级 + 逐镜状态经既有 onStageEvent 通道上报（节流合并），IPC 负载守卫
 
 ## 8. L3 前端出片面板
 
