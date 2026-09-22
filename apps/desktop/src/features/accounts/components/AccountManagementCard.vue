@@ -230,6 +230,9 @@ function accountStatusKind (account) {
   const status = String(account?.status || '').trim().toLowerCase()
   if (status === 'active' || status === 'online') return 'online'
   if (status === 'expired') return 'expired'
+  // 未确认：检测过但拿不到正向/负向结论（如视频号禁止 DOM 检测、HTTP 判定不确定）。
+  // 不能落到 unknown，否则与「从未检测」共用一种视觉语义，掩盖检测发生过这一事实。
+  if (status === 'unverified') return 'unverified'
   if (status === 'inactive' || status === 'offline') return 'offline'
   if (status === 'error' || status === 'failed' || status === 'failure') return 'error'
   return 'unknown'
@@ -245,6 +248,7 @@ function statusLabel (account) {
   if (kind === 'expired') return t('accountsPage.accountCardLabels.statusExpired')
   if (kind === 'offline') return t('accountsPage.accountCardLabels.statusLoggedIn')
   if (kind === 'error') return t('accountsPage.accountCardLabels.statusError')
+  if (kind === 'unverified') return t('accountsPage.accountCardLabels.statusUnverified')
   return t('accountsPage.accountCardLabels.statusNoCheck')
 }
 
@@ -418,6 +422,7 @@ function isIconUrl (value) {
 .login-badge.offline { background: #f2f2f4; color: #777985; }
 .login-badge.expired { background: #fff1f0; color: #b42318; }
 .login-badge.error { background: #fff1f0; color: #b42318; }
+.login-badge.unverified { background: #fffaf0; color: #974706; }
 .login-badge.unknown { background: #f7f7f8; color: #777985; }
 
 .account-identity {

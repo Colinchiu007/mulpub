@@ -1,16 +1,16 @@
 // @ts-check
 /**
- * useExpiredAccountsBanner — 检测结果统一回写回归
- * （登录态检测口径统一修复 2026-09-22）
+ * useExpiredAccountsBanner — 登录态真源与三态契约回归
+ * （登录态口径统一修复 2026-09-22）
  *
- * 缺陷背景：首页「登录失效提醒」与账号页「一键检测」各自独立调用
- * accounts:batch-check-login，但账号页检测后会 accountUpdate 回写
- * status + last_validated，首页横幅只读不回写。两处检测时间不同、结果
- * 不持久化，用户看到"主页显示 5 个失效，账号页一键检测只有 2 个"的不一致。
- *
- * 契约：任何一处批量检测完成后，都必须以同一口径回写检测结果
- * （valid → status=active，invalid → status=expired，附 last_validated），
- * 使两处读取到同一份持久化状态。
+ * 契约（与首页/账号页一致，全部由后端 accounts.json 单一真源驱动）：
+ *  1. 横幅不得再自行 accountUpdate(status) 回写：那条链路写的是 Electron 本地
+ *     SQLite（store:update-account），而读取端是后端 accounts.json —— 双写不同库
+ *     是「一键检测结论不固化」的根因。持久化是主进程单一写者的职责。
+ *  2. 三态：只有 valid === false 计入失效；valid === undefined（未确认）
+ *     既不计失效、也不冒充已登录。
+ *  3. 主进程回写失败（persisted.ok === false）必须通过 reportError 暴露，
+ *     不得静默。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -21,8 +21,10 @@ const api = vi.hoisted(() => ({
   accountUpdate: vi.fn().mockResolvedValue({ code: 0 }),
 }))
 
+const reportErrorMock = vi.hoisted(() => vi.fn())
+
 vi.mock('@/api/publisher', () => api)
-vi.mock('@/utils/report-error', () => ({ reportError: vi.fn() }))
+vi.mock('@/utils/report-error', () => ({ reportError: reportErrorMock }))
 
 import { useExpiredAccountsBanner } from './useExpiredAccountsBanner'
 
@@ -30,13 +32,13 @@ function createAccountStore (accounts) {
   return { accounts, load: vi.fn().mockResolvedValue() }
 }
 
-describe('useExpiredAccountsBanner — 检测结果统一回写', () => {
+describe('useExpiredAccountsBanner — 登录态真源与三态', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     api.accountUpdate.mockResolvedValue({ code: 0 })
   })
 
-  it('批量检测完成后逐账号回写 status 与 last_validated（与账号页一键检测同口径）', async () => {
+  it('只把 valid === false 的账号计入失效横幅', async () => {
     const store = createAccountStore([
       { id: 'a1', platform: 'toutiao' },
       { id: 'a2', platform: 'wechat_mp' },
@@ -47,9 +49,9 @@ describe('useExpiredAccountsBanner — 检测结果统一回写', () => {
       data: {
         checkedAt: '2026-09-22T08:00:00.000Z',
         results: [
-          { accountId: 'a1', valid: true, code: 'CHECK_LOGIN_SUCCESS' },
-          { accountId: 'a2', valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' },
-          { accountId: 'a3', valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' },
+          { accountId: 'a1', valid: true, code: 'CHECK_LOGIN_SUCCESS', persisted: { ok: true, status: 'active' } },
+          { accountId: 'a2', valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED', persisted: { ok: true, status: 'expired' } },
+          { accountId: 'a3', valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED', persisted: { ok: true, status: 'expired' } },
         ],
       },
     })
@@ -58,19 +60,71 @@ describe('useExpiredAccountsBanner — 检测结果统一回写', () => {
     await banner.refresh()
 
     expect(banner.expiredAccountCount.value).toBe(2)
+    expect(banner.expiredAccounts.value.map(a => a.id)).toEqual(['a2', 'a3'])
     expect(banner.showExpiredBanner.value).toBe(true)
-    expect(api.accountUpdate).toHaveBeenCalledWith('a1', expect.objectContaining({
-      status: 'active', last_validated: '2026-09-22T08:00:00.000Z',
-    }))
-    expect(api.accountUpdate).toHaveBeenCalledWith('a2', expect.objectContaining({
-      status: 'expired', last_validated: '2026-09-22T08:00:00.000Z',
-    }))
-    expect(api.accountUpdate).toHaveBeenCalledWith('a3', expect.objectContaining({
-      status: 'expired', last_validated: '2026-09-22T08:00:00.000Z',
-    }))
   })
 
-  it('检测响应失败（code≠0）时不回写，保留上次口径', async () => {
+  it('valid === undefined（未确认）不计入失效，也不冒充已登录', async () => {
+    const store = createAccountStore([
+      { id: 'tv', platform: 'tencent_video' },
+      { id: 'bad', platform: 'toutiao' },
+    ])
+    api.accountBatchCheckLogin.mockResolvedValue({
+      code: 0,
+      data: {
+        checkedAt: '2026-09-22T08:00:00.000Z',
+        results: [
+          { accountId: 'tv', code: 'CHECK_LOGIN_INCONCLUSIVE', persisted: { ok: true, status: 'unverified' } },
+          { accountId: 'bad', valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED', persisted: { ok: true, status: 'expired' } },
+        ],
+      },
+    })
+
+    const banner = useExpiredAccountsBanner(store)
+    await banner.refresh()
+
+    expect(banner.expiredAccountCount.value).toBe(1)
+    expect(banner.expiredAccounts.value.map(a => a.id)).toEqual(['bad'])
+  })
+
+  it('渲染层不再回写 status —— 登录态由主进程唯一写者固化', async () => {
+    const store = createAccountStore([{ id: 'a1', platform: 'toutiao' }])
+    api.accountBatchCheckLogin.mockResolvedValue({
+      code: 0,
+      data: {
+        checkedAt: '2026-09-22T08:00:00.000Z',
+        results: [{ accountId: 'a1', valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED', persisted: { ok: true, status: 'expired' } }],
+      },
+    })
+
+    const banner = useExpiredAccountsBanner(store)
+    await banner.refresh()
+
+    expect(api.accountUpdate).not.toHaveBeenCalled()
+  })
+
+  it('主进程固化失败必须上报（不静默丢失持久化）', async () => {
+    const store = createAccountStore([{ id: 'a1', platform: 'toutiao' }])
+    api.accountBatchCheckLogin.mockResolvedValue({
+      code: 0,
+      data: {
+        checkedAt: '2026-09-22T08:00:00.000Z',
+        results: [{ accountId: 'a1', valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED', persisted: { ok: false, reason: 'backend-error' } }],
+      },
+    })
+
+    const banner = useExpiredAccountsBanner(store)
+    await banner.refresh()
+
+    expect(reportErrorMock).toHaveBeenCalledTimes(1)
+    const [title, err] = reportErrorMock.mock.calls[0]
+    expect(String(title)).toContain('1')
+    expect(String(err && err.message)).toContain('a1:backend-error')
+    // 横幅仍按检测结果更新，不被持久化失败阻断
+    expect(banner.expiredAccountCount.value).toBe(1)
+  })
+
+  it('检测响应失败（code≠0）时不改动横幅', async () => {
     const store = createAccountStore([{ id: 'a1', platform: 'toutiao' }])
     api.accountBatchCheckLogin.mockResolvedValue({ code: -1, message: 'boom' })
 
@@ -79,29 +133,5 @@ describe('useExpiredAccountsBanner — 检测结果统一回写', () => {
 
     expect(api.accountUpdate).not.toHaveBeenCalled()
     expect(banner.showExpiredBanner.value).toBe(false)
-  })
-
-  it('单个账号回写失败不阻断横幅状态更新', async () => {
-    const store = createAccountStore([
-      { id: 'a1', platform: 'toutiao' },
-      { id: 'a2', platform: 'douyin' },
-    ])
-    api.accountBatchCheckLogin.mockResolvedValue({
-      code: 0,
-      data: {
-        checkedAt: '2026-09-22T08:00:00.000Z',
-        results: [
-          { accountId: 'a1', valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' },
-          { accountId: 'a2', valid: true, code: 'CHECK_LOGIN_SUCCESS' },
-        ],
-      },
-    })
-    api.accountUpdate.mockRejectedValueOnce(new Error('update failed'))
-
-    const banner = useExpiredAccountsBanner(store)
-    await banner.refresh()
-
-    expect(banner.expiredAccountCount.value).toBe(1)
-    expect(banner.expiredAccounts.value.map(a => a.id)).toEqual(['a1'])
   })
 })

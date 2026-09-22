@@ -906,10 +906,29 @@ class WebviewManager extends EventEmitter {
     var view = self._tabViews.get(tabId)
     if (!view) return
 
-    // Electron session.cookies 只有 get([filter])，不存在 getAll（回归 2026-09-22）
-    view.webContents.session.cookies.get({}).then(function (cookies) {
+    self._extractTabCookies(view, tabId).then(function (cookies) {
       self.emit('tab-cookies-changed', { tabId: tabId, cookies: cookies })
-    }).catch(function () { /* ignore */ })
+    }).catch(function (e) {
+      log.warn('WebviewManager', 'saveCookies: extract failed for ' + tabId + ': ' + ((e && e.message) || 'unknown'))
+    })
+  }
+
+  /**
+   * 提取标签页所在 session 分区的全部 Cookie。
+   * ⚠️ Electron 的 Session.cookies 只提供 get/set/remove/flush，**没有 getAll**；
+   * 误用 getAll 会抛 "is not a function"，若被上层 catch 吞掉，症状是「保存成功
+   * 但 cookies=0」（2026-09-22 账号登录态误判事故根因）。这里集中一处并显式抛错。
+   * @param {object} view WebContentsView
+   * @param {string} tabId 仅用于日志
+   * @returns {Promise<Array>}
+   */
+  async _extractTabCookies (view, tabId) {
+    var viewSession = view && view.webContents && view.webContents.session
+    if (!viewSession || !viewSession.cookies || typeof viewSession.cookies.get !== 'function') {
+      throw new Error('session-cookies-unavailable')
+    }
+    var list = await viewSession.cookies.get({})
+    return Array.isArray(list) ? list : []
   }
 
   /**
@@ -928,16 +947,17 @@ class WebviewManager extends EventEmitter {
     var platform = state.platform
     if (!accountId || !platform) return { ok: false, reason: 'not-account-tab' }
 
-    // Electron session.cookies 只有 get([filter])，不存在 getAll。此前误用 getAll 使
-    // TypeError 被 catch 吞掉后以 cookies=[] 继续保存（假成功），失效账号扫码重登后
-    // 凭证库仍是 0 Cookie，再开创作者中心弹回登录页（回归 2026-09-22）。
-    // 契约：提取失败必须 fail-closed —— 不落盘、保持 unsaved、不广播 saved。
+    // 契约：Cookie 提取失败必须 fail-closed——不落盘、保持 unsaved、不广播 saved。
+    // Electron session.cookies 只有 get([filter])，不存在 getAll；此前误用 getAll 使
+    // TypeError 被吞后以 cookies=[] 继续保存（假成功），失效账号扫码重登后凭证库仍是
+    // 0 Cookie，再开创作者中心弹回登录页（回归 2026-09-22）。
     var cookies
     try {
-      cookies = await view.webContents.session.cookies.get({})
+      cookies = await self._extractTabCookies(view, tabId)
     } catch (e) {
-      log.warn('WebviewManager', 'saveAccountTabCredentials: cookies.get failed for ' + tabId + ', aborting save: ' + (e && e.message ? e.message : String(e)))
-      return { ok: false, reason: 'cookie-extract-failed', accountId: accountId, platform: platform }
+      var cookieExtractError = (e && e.message) ? e.message : String(e)
+      log.warn('WebviewManager', 'saveAccountTabCredentials: cookies.get failed for ' + tabId + ', aborting save: ' + cookieExtractError)
+      return { ok: false, reason: 'cookie-extract-failed', detail: cookieExtractError, accountId: accountId, platform: platform }
     }
     if (!Array.isArray(cookies)) cookies = []
 
@@ -955,6 +975,9 @@ class WebviewManager extends EventEmitter {
 
     if (!self._accountManager || typeof self._accountManager.updateCapturedAccount !== 'function') {
       return { ok: false, reason: 'account-manager-unavailable' }
+    }
+    if (cookies.length === 0) {
+      log.warn('WebviewManager', 'saveAccountTabCredentials: 0 cookies extracted for ' + platform + ':' + accountId + '（可能未登录或分区不匹配）')
     }
     try {
       await self._accountManager.updateCapturedAccount(platform, {
