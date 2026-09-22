@@ -65,13 +65,18 @@ def _render_preview_mp4(preview_path: Path, video_path: Path, duration_seconds: 
     frame_count = max(2, int(duration_seconds * fps))
     with sync_playwright() as p:
         browser = p.chromium.launch()
-        page = browser.new_page(viewport={"width": 1280, "height": 720})
-        page.goto(preview_path.resolve().as_uri(), wait_until="networkidle")
-        for frame in range(frame_count):
-            if frame:
-                page.wait_for_timeout(int(1000 / fps))
-            page.screenshot(path=str(frame_dir / f"frame_{frame:04d}.png"))
-        browser.close()
+        # P1-12: goto/screenshot 任一帧抛异常都会跳过 browser.close()，
+        # 每次失败泄漏一个 Chromium 进程组（长时间跑批 → 内存/句柄耗尽）。
+        # 与 browser_fetcher.py 保持一致：launch 之后一律 try/finally 关闭。
+        try:
+            page = browser.new_page(viewport={"width": 1280, "height": 720})
+            page.goto(preview_path.resolve().as_uri(), wait_until="networkidle")
+            for frame in range(frame_count):
+                if frame:
+                    page.wait_for_timeout(int(1000 / fps))
+                page.screenshot(path=str(frame_dir / f"frame_{frame:04d}.png"))
+        finally:
+            browser.close()
 
     cmd = [
         "ffmpeg",
