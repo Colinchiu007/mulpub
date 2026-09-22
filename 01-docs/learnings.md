@@ -1,6 +1,29 @@
 ## CI-only 测试超时：全局 testTimeout 与插桩/满载放大叠加的坑（fix-main-ci-red，2026-09-21）
 
 - **背景**：main 两个 CI 红灯均为「本地绿、CI 红」的超时类失败：① `pixel-diff-baseline-guard.test.js`「现存全部真实基线均通过守卫」在 QG Coverage job（v8 插桩）下超全局 10s testTimeout（本地无插桩实测 ~2.2s，21 个基线 PNG 共 3.3MB 逐个解码）；② `logger.test.js`「appendFile 回调永不触发时写队列超时兜底」在 Desktop shard 满载下 1s 固定重试窗不够。
+## 未登录 E2E 前提要实测登录态 API，权益门与静默失败分开判定（2026-09-21，viral-manual-input-ux / CDP 实测）
+
+- **现象（pitfall）**：想造「未登录」fixture 时，把 shared-user-data 的 app 数据拷进隔离 profile 并刻意排除 identity-session.json / Local Storage / credentials / session，启动后 `identityGetState()` 仍返回 `authenticated`——登录态实际随 `multi-publish.db` 与 `run-state/` 一起被带过去。靠 profile 目录里「有没有某个文件」推断登录态会整轮 E2E 前提失效。
+- **修复模式（pattern）**：未登录前提一律经 CDP 调 `window.electronAPI.identitySignOut()` → `location.reload()` → 以 `identityGetState().data.status === 'signed_out'` 断言；文件层只做「不带 .shared-data-anchor、显式 ELECTRON_USER_DATA_DIR」的隔离（显式 env 优先级高于锚点，见 startup-compat.js configureUserDataPath）。
+- **判定纪律（pattern）**：`code:-3 / errorCode:AUTH_REQUIRED` 有两类，必须分开。一类是 #2146 式静默失败（无反馈，缺陷）；一类是权益设计（如 `knowledge-library:add-viral` 未登录返回 -3，但视图渲染 `viral-library-message` 权益提示，属预期门）。判据是**有没有可见反馈**，不是有没有报错。对应 E2E 写法是双态断言：登录态断成功态（✅），未登录态断「无成功态 且 提示文案非空」，并在 Test Plan 里显式标注该功能属「不覆盖登录付费链路」。
+- **零依赖 CDP 方法（pattern）**：Node 22 自带全局 `WebSocket`，无需 ws/puppeteer。流程 `GET /json/list` 找 url 含 vite 端口的 page target → 连 `webSocketDebuggerUrl` → `Runtime.evaluate`（awaitPromise + returnByValue）调 electronAPI 与操作 DOM → `Page.captureScreenshot` 取证。给 Vue 受控 input/textarea 赋值必须用原生 setter（`Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set`）再 `dispatchEvent(new Event('input', {bubbles:true}))`，直接改 `.value` 不触发 v-model。
+- **环境开关（pitfall）**：`start-desktop.ps1` 自身不设 `MP_CDP_ALLOW_ALL_ORIGINS`（只有 `mp-applive-launcher.ps1` 在拼 `cmd /c set ...` 时设过）。走 start-desktop.ps1 做 CDP 自动化，必须在父 shell 先 `$env:MP_CDP_ALLOW_ALL_ORIGINS='1'`（Start-Process 继承父环境），否则 WebSocket 握手 403、所有 electronAPI 拿不到。worktree 端口由 dev-ports.js 按路径 FNV-1a 派生（本例 vite 6159 / cdp 10207），与并发实例天然不抢。
+- **虚假交付防护（pitfall）**：编辑工具回执的行数增减计数不可信（两处小改动被报成 +54/-156，实际净增 2 行且文件完好）；更严重的是上一轮上下文声称「已追加 159 行 §12」，实地 grep 发现目标文件里该章节**完全不存在**（只残留于临时草稿目录）。结论：文档/代码交付声明前，必须重新读文件并按稳定锚点复核（Markdown 列全部标题 + 行数；代码跑 `node --check`）。SearchReplace 还会模糊匹配顺带删掉相邻声明行，改动后必须语法自检。
+- **Shell 纪律（pitfall）**：终端工具会吞 inline PowerShell 里的 `$p` / `$_`（变量名被剥掉导致「无法识别为 cmdlet」），含变量的命令一律写成 .ps1 用 `-ExecutionPolicy Bypass -File` 执行。一旦某个 shell 因引号断裂进入 `>>` 续行态，后续命令会被当作续行内容静默吞掉（表现为「命令已执行但零输出」），必须换新终端而不是在原终端重试。
+
+---
+## 门禁修复只对未来 PR 生效：base 早于修复提交的 PR 永久零 CI，须 rebase 才能复活（2026-09-21，viral-manual-input-ux / PR-2154）
+
+- **现象（pitfall）**：PR #2154 提交后 GitHub 完全没有 CI 痕迹——`gh pr checks 2154` 报 "no checks reported on the 'viral-manual-input-ux' branch"，`gh run list --branch viral-manual-input-ux` 返回空（连 skipped 都没有），与「触发了但失败」是两种状态，必须用 run list 区分。
+- **根因（pitfall）**：该分支 base 落在 935826bf4（#2149），早于 #2153（debt-guard.yml 删除 `on.pull_request.paths-ignore` 的 CI 死锁根治）25 分钟。ruleset「main-ci-gate」把「债务熔断检查」列为 required，而该 workflow 的 paths-ignore 排除 *.md/01-docs/** → 分支创建时该 required context 永远不会出现，PR 永久 BLOCKED。叠加 main 前进使 4 个文件冲突（mergeable=CONFLICTING 本身也会暂停 CI），该 PR 不可能自行恢复。判定手法：`git merge-base --is-ancestor <门禁修复提交> HEAD` 返回 1 即为「零 CI 高危分支」。
+- **修复模式（pattern）**：`git rebase origin/main` 把 base 挪到含修复的提交后 `git push --force-with-lease`，synchronize 事件立刻拉起全量 CI（实测 16 个 context 全部出现，此前缺失的「债务熔断检查」pass 20s），再 `gh pr merge --auto --squash` 武装。门禁类修复落地后，**所有 base 早于该修复的开放 PR 都必须 rebase**，不能期待自动恢复。
+- **多会话同账号 PR 归属判定（pattern）**：作者同为 Colinchiu007 时不能凭作者判断归属。取证链：`gh pr view --json headRefName,createdAt` → `git -C <worktree> log --oneline -1` → merge-base 与已合并 PR 比对；本例 headRefName `viral-manual-input-ux` 对应另一个更早会话的独立 worktree，而非本会话 PR-1/PR-2。
+- **rebase 解冲突语义（pattern）**：CHANGELOG/locale 这类「追加型」文件一律 keep-both；`.vue` 两侧在同一位置各加块（HEAD 加 mounted、PR 加 computed；HEAD 加 PR-2 方法、PR 加 fillSampleData）时须**两侧并存并保持对象字面量逗号闭合**，不是二选一。通用解冲器要点：正则首行写 `<<<<<<< [^
+]*`（`git checkout -m` 重建冲突后标记会变成 ours/theirs 而非 HEAD），且每个替换策略必须 `+ NL` 收尾（正则吞掉了标记行后的换行，公共上下文紧随其后）。
+- **环境铁律（pitfall）**：编辑 worktree（workspace 之外）文件时 Write/SearchReplace 直接报 45405，必须先写进 `.agent_context/tmp-impl/` 再用 node `fs.copyFileSync` 落盘；worktree 文件是 CRLF，任何行级手术脚本须先归一 LF 再处理、写回还原 CRLF，否则 `l === '  computed: {'` 这类精确匹配全部失效。Write 工具会把正则字面量里的 `
+` 变成真换行，脚本内换行统一用 `String.fromCharCode(10)` + `new RegExp` 构造。
+
+---
 - **根因模式（pitfall）**：`apps/desktop/vitest.config.js` 全局 `testTimeout: 10000` 对 CPU 密集型测试（图像解码/大 fixture 读取/真实 IO）在 coverage 插桩和 CI 满载下耗时被放大数倍；测试自身无感知，只在 CI 间歇性爆红。前次（2026-09-19）把重试窗从无到 1s 属治标未治本。
 - **逃逸链**：本地顺序跑不受插桩影响 → 逃过单元测试；CI 满载才复现 → 每次重试又偶发通过，形成 flake 掩盖。
 - **修复模式（pattern）**：重 CPU 测试显式 inline `{ timeout: 60000 }`（仓库 adapters 测试已有惯例），不放宽全局值；等待落盘类断言用 **deadline 轮询（5s）替代固定次数×间隔重试窗**，落盘即提前退出，本地耗时不变、CI 余量变大。
@@ -15060,3 +15083,17 @@ opencode 双模型审查发现三个问题：① 后端 `create_constraint` 对�
 
 ### 本次决策记录
 延续 PR-1（#2174）NULL/0 契约，PR-2（#2180）落地三条 P1：P1-a 回采写回爆款库（主进程内部、无新 IPC，`_normUrlForMatch` 双侧匹配 + 单调不减写回，fail-open）、P1-b F3 并入热榜信号（hotlist 恒前 + 800ms Promise.race 超时静默降级 + 来源徽标 + 截 12）、P1-c 模式卡片队列保护（deferred 非终态、pending≥500 直标 deferred、<200 老卡优先批量回落、同 norm_url 复用）。全量 vitest 10616/10618（2 skip、0 fail）；squash 自动合并（CI 绿即并）。PRD §4.6 逐链路回写数据校验/流程/交互/显示/提示。
+
+## 爆款库 NULL/0 契约 PR-1 交付（viral-lib-engagement-contract，2026-09-22，PR #2174）
+
+### 可复用结论
+
+- **NULL vs 0 语义契约（decision）**：互动类统计字段的"未知"与"真实零"绝不能被 `Number(x)||0` 压平——均值分母混入假 0 会系统性稀释 engagementScore/interactionScore（本地引擎 60% 权重）。契约：未知=NULL（跳过分子分母），0=如实参与。sql.js 表列无 NOT NULL 约束时 NULL 语义零迁移可行；排序用 IFNULL 兜底（NULL 与 0 同沉底）；显示层 NULL→'-'。
+- **pnpm exec 隐式安装事故（pitfall）**：worktree 内 `pnpm exec asar`（bin 缺失）触发按"当时磁盘 package.json"的同步安装；恰逢并发把 apps/desktop/package.json 写成残缺版（devDependencies 被删），pnpm 顺从 prune 掉 495 个 devDeps + 篡改 lock。恢复：`git checkout HEAD -- <3个精确路径>` + `pnpm install --frozen-lockfile --ignore-scripts`（15s）+ 解析门禁 + 冒烟 172 测试。教训：验证链工具调用用 npx/直 bin 路径；被污染文件按 status 精确列出逐个恢复，禁宽目录清理。
+- **磁盘 0GB 下的 QM-1（operational）**：D 盘满时 electron-builder 可用 `"--config.directories.output=C:/tmp/..."` 重定向产物（PowerShell 下参数必须整体加引号，否则被拆成 config 文件路径报 ENOENT）；before-pack 的 .media-tools 暂存仍写源盘，需先释放本会话产物（自产 gitignored dist-electron 可直接删）。
+- **vitest reporter 兼容（tool）**：vitest 4 移除了 `--reporter=basic`，误用会尝试按自定义 reporter 解析并报 vite module-runner 堆栈，与代码无关。
+- **fake-db 驱动 store mixin 测试（pattern）**：`mixin.method.call({_ready:true, db:fake}, ...)` + prepare 捕获 sql/args，无需 Electron/sql.js 实例；INSERT 参数位断言（a[7]=likes…a[11]=published_at）锁定 NULL 语义，比 mock 返回值更接近合同。
+
+### 本次决策记录
+
+四链路 PRD（爆款分析×改写×采集×热门选题）按 P0/P1/P2 拆 3 个 PR 严格合入序。PR-1（#2174）落地契约修复；存量假 0 不回灌（靠 PR-2 回采逐步修正）；不加新表/新 IPC/userData，viral_library 为唯一事实源。

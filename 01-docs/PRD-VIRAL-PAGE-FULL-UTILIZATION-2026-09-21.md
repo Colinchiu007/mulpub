@@ -237,7 +237,7 @@ P0 合计 ≈15h，P1 合计 ≈15h；P0 改动集中 `ViralAnalysis.vue` + `vir
 14. E2E-1 未登录（identity signed_out）→ 输入主题 → 生成文案（标题）→ ≥3 条标题卡片含预测分，无 AUTH_REQUIRED/-3（S6/S1）。
 15. E2E-2 切换 Hook → 生成 → Hook 卡片渲染（AC1.1）。
 16. E2E-3 点击热门选题 → 主题回填 → 爆款分析 → 概览分与上升关键词区块渲染（S2/S4）。
-17. E2E-4 分析后"存入爆款库" → ✅ 态出现（既有链路回归，防 F 系列改动破坏）。
+17. E2E-4 分析后"存入爆款库" → **双态断言**（2026-09-21 CDP 实测修订）：登录态 → ✅ 态出现；未登录态 → 无 ✅ 且 `viral-library-message` 权益提示非空（`knowledge-library:add-viral` 返回 `code:-3 / errorCode:AUTH_REQUIRED`，属 §11.2「不覆盖登录付费链路」的**预期门**，不是缺陷，但必须可见化）。
 
 **视觉回归**
 18. VR-1 四态基线（§11.2）在正确工作目录生成并入库，CI 像素守卫跑通（防"行号敏感基线在错误工作目录生成"既往坑）。
@@ -245,6 +245,8 @@ P0 合计 ≈15h，P1 合计 ≈15h；P0 改动集中 `ViralAnalysis.vue` + `vir
 ### 11.4 Bug 反哺预留
 
 E2E-1 同时登记为"未登录爆款链路"回归保护位——对应逃逸链教训：静默早退（空 topic / -3 鉴权）必须可见化（error-banner 或 disabled 态），任何"点击无反应"类 Bug 的回归测试必须打在 UI 闭环层而非仅 IPC 层。
+
+> **同族教训延伸（PR #2154，2026-09-21）**：同一条「静默失败」家族在手动输入文章数据上表现为第三种形态——`JSON.parse` 抛错被 `catch {}` 吞掉，用户以为在用真实数据分析，实际拿到的仍是估算值。处置原则与 §11.4 一致：**格式错误必须阻断并内联可见**，不得回退到估算（详见 §13.5）。同时新增一条 E2E 前提纪律：**「未登录」必须以 `identityGetState()` 实测判定，不得以 profile 目录里有没有 `identity-session.json` 推断**（详见 §13.9 教训）。
 
 ### 11.5 门禁与完成定义（DoD）
 
@@ -308,3 +310,133 @@ sectionPatternHits / patternHitHint / applyPatternHint / patternSample(`{n}`) / 
 - AC7.1 空库引导空态 ✅ / AC7.2 选中回填 articles 含该条目 ✅
 - AC8.1 有回采对照展示 ✅ / AC8.2 无数据零开销隐藏 ✅
 - T-6 冷启动逐位一致 + 显式过滤跳 boost ✅（UT-8）
+
+---
+
+## 13. PR #2154 实现详解（手动输入文章数据 UX + 债务门禁适配 + 未登录 CDP 实测）
+
+> 本 PR 不在原 F1~F9 清单内，属同页 UX 缺陷修复（源自用户反馈：「不知道能填什么、填错了没反应」）。已 squash 合并为 main `216947fc8`（2026-09-21T14:51:10Z），分支提交 `1c899e401`，10 files / +409 / −22。
+
+### 13.1 问题诊断
+
+| 编号 | 现象 | 根因 | 处置 |
+|----|------|------|------|
+| M1 | 用户不知道输入框要填什么 | 只有一行 label + 空 textarea，无格式示例 | 折叠面板内加三步说明 + 字段含义注 |
+| M2 | 格式错误点了分析「没反应」 | `JSON.parse` 异常被 `catch {}` 吞掉，静默回退估算 | fail-closed：内联错误横幅 + 阻断本次分析（§13.4） |
+| M3 | 想试但懒得手搓 JSON | 无示例入口 | 「填入示例数据」一键填充（§13.6） |
+| M4 | 不知道数据到底被没用上 | 无成功反馈 | 错误横幅仅在格式不合法时出现；合法时走正常结果区 |
+| M5 | 视图文件撞债务熔断线（1043 行 > 1000） | 展示层与状态层同文件堆积 | 拆子组件 + 抽 util，回到 992 行（§13.7） |
+
+### 13.2 交互流程（Happy Path）
+
+1. 进入「爆款分析」页 → 顶部输入区下方默认折叠「可选：手动输入文章数据，让分析更准确」（`<details>`，不抢主流程注意力）。
+2. 展开 → 读到三步说明 + 字段含义注 + 空 textarea（placeholder 即为可直接改的示例 JSON）。
+3. 点「填入示例数据」→ textarea 被 3 篇示例文章 JSON 填充，同时清空既有错误横幅。
+4. 用户改成自己的数据 → 点右上角「爆款分析」→ `doAnalyze` 解析 `articleData`：合法则走**真实数据归因**（不再估算），结果区渲染概览分/因子/上升关键词。
+5. 异常路径：格式不合法 → 内联红色横幅（`role="alert"`）+ **本次分析被阻断**；用户改正后再次点分析，横幅自动清除。
+
+### 13.3 显示项合同（元素 / testid / 渲染条件）
+
+| 元素 | `data-testid` | 渲染条件 | 说明 |
+|------|--------------|----------|------|
+| 折叠标题 | — | 常驻 | `manualDataSummary`，`<summary>` 可点击展开 |
+| 帮助段 | — | 展开后 | `manualDataHelp`，说明「默认估算 / 填真实数据更准」 |
+| 步骤 1/2/3 | — | 展开后 | `<ol class="viral-article-steps">` 三项，文案 `manualDataStep1~3` |
+| 字段含义注 | — | 展开后 | `manualDataLabel`，直接告知 `title/like_count/comment_count` 对应关系 |
+| 文章输入框 | `viral-article-textarea` | 展开后 | `<textarea rows="6">`，`:value` + `@input` 单向受控（避开 Vue3 `v-model` 在子组件的双向歧义），placeholder = 示例 JSON |
+| 填入示例按钮 | `viral-fill-sample` | 展开后 | `UiButton`，`@click="$emit('fill-sample')"`，状态由父视图处理 |
+| 错误横幅 | `viral-article-data-error` | `v-if="error"` | `class="viral-article-error"` + `role="alert"`，非空才渲染（父视图判定，子组件只展示） |
+
+### 13.4 数据校验合同（fail-closed）
+
+- **入口**：`doAnalyze()` 内，`articleData` 非空时才走解析；为空（trim 后）→ 合法，按「未提供真实数据」走估算路径，**不报错**。
+- **合法定义**：`JSON.parse` 成功 **且** 结果是「非空数组」。实现为 `if (!Array.isArray(parsed) || !parsed.length) throw new Error('expect non-empty JSON array')`，即 `null` / `{}` / `"abc"` / `[]` 均视为非法。
+- **失败处置**：设 `articleDataError = t('viralAnalysis.articleDataInvalid')` 后 **`return` 阻断本次分析**，不发 IPC、不回落估算。
+- **清除时机**：下一次解析成功时自动置空；点「填入示例数据」也置空（避免用户刚点示例还顶着旧错误）。
+- **设计要点**：**格式错误必须阻断而非回退**。回退到估算值会让用户把合成数据误读为真实归因，属数据可信度缺陷（与 §11.4 同族）。
+- **字段级不校验**：数组内单篇缺 `like_count` 等子字段不在本层拦截，由引擎侧按 0/缺失容错（避免把引擎容错职责上提到 UI）。
+
+### 13.5 文案合同（locale `viralAnalysis.*`，zh/en 成对 9 键）
+
+`manualDataSummary` / `manualDataHelp` / `manualDataStep1` / `manualDataStep2` / `manualDataStep3` / `manualDataLabel` / `manualDataSampleTitles` / `fillSample` / `articleDataInvalid`。
+
+zh 实文案（`locales/zh.js` L2997-3005）：
+
+- `manualDataSummary`：可选：手动输入文章数据，让分析更准确
+- `manualDataHelp`：默认情况下，AI 只根据主题估算爆款潜力。如果你粘贴几篇同类文章的真实数据，AI 会按你的实际点赞和评论数计算，结果更准确。
+- `manualDataStep1`：第 1 步：准备 3~10 篇同主题文章的标题、点赞数、评论数（可在小红书 / 抖音 / 公众号后台复制）
+- `manualDataStep2`：第 2 步：点击下方「填入示例数据」查看格式，再改成你自己的数据
+- `manualDataStep3`：第 3 步：点右上角「爆款分析」，即可用真实数据分析
+- `manualDataLabel`：文章列表（每篇填：title=标题，like_count=点赞数，comment_count=评论数）
+- `fillSample`：填入示例数据
+- `articleDataInvalid`：⚠ 文章数据格式不正确：请提供以 `[` 开头、以 `]` 结尾的 JSON 数组，每篇包含 title、like_count、comment_count。可点击「填入示例数据」对照示例修改。
+
+> **vue-i18n 插值陷阱**：文案里的 `{}` 会被 i18n 当插值语法吞掉，因此 `manualDataSampleTitles` **只存 `|` 分隔的标题列表**，花括号 JSON 结构在 util 里组装；不得把整段 JSON 写进 locale（否则 Gate 7 过了但渲染缺字）。
+
+### 13.6 示例 JSON 生成规则（`utils/viral-sample-data.js`）
+
+- 采样常量（贴近中小账号真实量级，非整数整齐值以免被误认为真数据）：`SAMPLE_LIKES = [12800, 8600, 23500]`、`SAMPLE_COMMENTS = [960, 420, 1780]`、`SAMPLE_PLATFORMS = ['xiaohongshu', 'xiaohongshu', 'douyin']`。
+- 按 `i % 常量长度` 循环取值，标题来自 locale（zh/en 各自母语示例），因此**示例条数随文案而变**，常量不假设固定 3 篇。
+- `buildViralSampleArticles(titlesRaw)`：非字符串入参 / 空串 / 全空白 → 返回 `[]`（调用方据此隐藏示例能力，**不抛错**）。
+- `buildViralSampleJson(titlesRaw)`：`JSON.stringify(articles, null, 2)`；无有效标题返回**空串**（textarea 回落为无 placeholder）。
+- **单一来源**：placeholder 与「填入示例数据」共用同一函数，避免两处漂移。
+
+### 13.7 架构与债务门禁适配
+
+| 文件 | 行数 | 职责 |
+|------|------|------|
+| `src/views/ViralAnalysis.vue` | 1043 → **992** | 状态与业务：`articleData` / `articleDataError` / `fillSampleData()` / `doAnalyze()` 校验分支 |
+| `src/components/ViralManualDataInput.vue` | **87** | 纯展示：折叠面板 + 步骤 + textarea + 示例按钮 + 错误横幅；`props:{modelValue,error}`、`emits:['update:modelValue','fill-sample']` |
+| `src/utils/viral-sample-data.js` | **52** | 示例构造（纯函数，可单测） |
+
+- **为何状态留在父视图**：既有 57 例视图测试直接断言 `w.vm.fillSampleData()` / `w.vm.articleData`，下移状态会连带重写大批测试（收益/风险比不划算）。
+- **`<style scoped>` 不跨组件**：子组件需要折叠标题样式，故 `.viral-details-summary` 在父子各留一份（scoped 下无法共享，属已知重复，不视为违规）。
+- **Options API 保持**：子组件用 Options API 以沿用 `this.$t`（视图整体为 Options API，混用 Composition 会增加心智成本）。
+- **⛔ 禁止抬基线**：撞 `FILES_OVER_1000` 时**不得** `check-debt-budget.js --update` 抬 `filesOver1000` 基线（会掩护债务增长），必须拆到 <1000。本 PR 拆完基线维持 **32** 不变。
+
+### 13.8 三条链路的非法 JSON 口径差异（故意不一致，勿「顺手统一」）
+
+| 链路 | 行为 | 理由 |
+|------|------|------|
+| `doAnalyze`（爆款分析） | **fail-closed**：横幅 + 阻断 | 分析结论直接呈现为「归因」，混入估算值即数据不可信 |
+| `doGenerate`（文案生成三源合并） | **静默忽略**非法输入，继续用其他源 | 生成是「有输入更好、没有也能出」的增强项，阻断会让用户以为功能坏了 |
+| `pickLibraryItem`（爆款库回填） | **直接覆盖** textarea 内容 | 回填语义即「用库里这份」，无需与旧内容做格式仲裁 |
+
+### 13.9 未登录 CDP 真实 Electron 实测记录（2026-09-21 23:18–23:40）
+
+**环境**：worktree `mp-viral-manual-input-ux`（HEAD `1c899e401`，与 `216947fc8` 在 apps/packages/config 上仅差无关的 #2162 应用菜单改动）；`start-desktop.ps1 -NoSync`；派生端口 **vite 6159 / cdp 10207**；隔离 profile `D:\tmp\MP-e2e-viral`（刻意不带 `.shared-data-anchor`，显式 `ELECTRON_USER_DATA_DIR` 优先级高于锚点）。6 服务全 running（mainBackend 8299 / splitter 8002 / prompt 8013 / callback 16521 / media 动态）。
+
+**结果：17 项断言全绿，`E2E_EXIT=0`**（脚本 `.agent_context/tmp-impl/e2e-viral-cdp.js`，截图 9 张 + `e2e-result.json` 落 `D:\Temp\mp-e2e-viral-shots\`）：
+
+| 用例 | 断言 | 实测 |
+|------|------|------|
+| E2E-0 | `identityGetState()` = `signed_out` | PASS（前提修正后） |
+| E2E-1 | 未登录点分析出结果，无错误横幅 | PASS，概览 **82/100**，`本地分析` 徽标可见 |
+| E2E-1c/1d | 概览卡 + 上升关键词/推荐结构渲染 | PASS，rising=6 / structures=4；平台分带 `本地估算` 徽标（86.1/82.0/77.9/73.8） |
+| E2E-1e | 标题生成含 `predicted_score` | PASS，生成区带 `本地算法` 徽标 |
+| E2E-2a/2b | 切 Hook 清空旧结果 + Hook 卡渲染（AC1.2） | PASS |
+| E2E-3 | 热门选题点击回填 | **降级**：本地无热榜数据（trending items=0）→ 区块按 AC3.2 隐藏，改手工输入主题 |
+| E2E-4a/4b | 存入爆款库双态 | PASS（未登录态：无 ✅ 且权益提示可见） |
+| AC10.1~10.3 | 折叠面板存在 / 三步说明=3 / 一键示例 len=395 | PASS |
+| AC10.4 | 合法示例 JSON 分析通过、无横幅 | PASS |
+| AC10.5 | 非法 JSON → 内联横幅出现且分析被阻断 | PASS，截图 `07-manual-invalid.png` 可见结果区回落空态（未渲染假结果） |
+| AC10.6 | 更正后横幅自动清除 | PASS |
+
+**三条新教训（已进 §11.4 延伸与记忆）**：
+
+1. **「未登录」不能靠文件推断**：把 `shared-user-data` 的 app 数据（排除 `identity-session.json` / `Local Storage` / `credentials` / `session`）拷进隔离 profile 后，`identityGetState()` 仍返回 `authenticated` —— 登录态实际随 `multi-publish.db` / `run-state` 一起被带过去了。正确做法：连上 CDP 调 `window.electronAPI.identitySignOut()` 再 `location.reload()`，并以 `identityGetState()` 的 `status` 字段为准。
+2. **`AUTH_REQUIRED` 分「缺陷」与「预期门」**：未登录点「存入爆款库」返回 `code:-3 / errorCode:AUTH_REQUIRED`（channel `knowledge-library:add-viral`）并渲染权益提示 —— 属权益设计，不是 #2146 那类静默失败。判据是**有没有可见反馈**，不是有没有报错。
+3. **CDP 开关由调用方注入**：`start-desktop.ps1` 自身**不设** `MP_CDP_ALLOW_ALL_ORIGINS`（只有 `mp-applive-launcher.ps1` 在拼 `cmd /c set ...` 时设）。走 `start-desktop.ps1` 做 CDP 自动化，必须在父 shell 先 `$env:MP_CDP_ALLOW_ALL_ORIGINS='1'`（`Start-Process` 继承父环境），否则 WebSocket 403。Node 22 自带全局 `WebSocket`，连 CDP 无需 `ws`/puppeteer 依赖。
+
+**本地门禁实跑**：`pnpm exec vitest run src` → **181 files / 3200 passed / 1 skipped，exit 0**（737s）；`check-debt-budget.js` → `filesOver1000 = 32`（未抬基线）；`check-locale-sync.js --cjk` → 1389 < 1581 阈值。CI 15 context 全绿（含 `QG Visual` pass 2m26s、`债务熔断检查` pass 20s）。
+
+### 13.10 决策记录
+
+| 决策 | 选择 | 否决项与理由 |
+|------|------|-------------|
+| 债务门禁撞线怎么解 | 拆子组件降到 <1000 | 否决 `--update` 抬基线（掩护债务）；否决整段回退功能 |
+| 错误反馈放哪层 | 父视图判定 + 子组件展示 | 否决子组件自校验（会把状态机拆成两半，测试要重搭） |
+| 非法 JSON 是否回退估算 | 阻断 | 否决回退（用户会把合成值当真实归因） |
+| 未登录 E2E 用哪个实例 | 新建隔离 profile + 独立端口 | 否决复用 live2（代码陈旧、且会扰动用户正在用的窗口） |
+| 文档变更是否入库 | 保留本地（`01-docs/**/*.md` 被 gitignore） | 否决为此单开 docs-only PR（用户决定） |
+
