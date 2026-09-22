@@ -1,4 +1,8 @@
 export default {
+  tabs: {
+    newTabTitle: '新标签页',
+    newTabAria: '新建标签页',
+  },
   common: {
     save: '保存',
     cancel: '取消',

@@ -49,8 +49,9 @@ describe('T0-6b 壳态互斥：静态链路完整性', () => {
 
   it('App.vue watch isHomeTab 上报壳态（immediate）', () => {
     const src = fs.readFileSync(path.join(ROOT, 'src/App.vue'), 'utf8')
-    // watch 上报：workbench / browser 两个方向 + immediate 首帧同步
-    expect(src).toMatch(/watch\(isHomeTab, \(home\) => \{\s*\n\s*invokePageManager\('setShellMode', home \? 'workbench' : 'browser'\)/)
+    // watch 上报：workbench / browser 两个方向 + immediate 首帧同步。
+    // 容忍 watch 体内的前置守卫行（如内嵌主页实例的 isHomeShell 早返回，PRD-TAB-INDEPENDENT-HOME S4），但仍断言上报调用存在。
+    expect(src).toMatch(/watch\(isHomeTab, \(home\) => \{[\s\S]*?invokePageManager\('setShellMode', home \? 'workbench' : 'browser'\)/)
     expect(src).toMatch(/\{ immediate: true \}/)
   })
 
