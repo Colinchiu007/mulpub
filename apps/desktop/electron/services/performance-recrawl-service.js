@@ -42,12 +42,12 @@ class PerformanceRecrawlService {
   /**
    * 巡检一轮：取到期内容 → 逐平台回采 → 写快照 → 推进节奏
    */
-  async processRound() {
+  async processRound(opts) {
     if (!this._store) return
     if (this._running) return // 防重入
     this._running = true
     try {
-      const due = this._store.listDueForRecrawl(Date.now())
+      const due = this._store.listDueForRecrawl(Date.now(), opts)
       for (const item of due) {
         try {
           await this._recrawlOne(item)

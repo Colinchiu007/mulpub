@@ -1,3 +1,19 @@
+# [未发布] feat(recrawl): 立即回采调试入口——trigger-recrawl 空壳升级为强制立即回采（发布→回采→写回爆款库 第四链路可观测化）
+
+### 变更
+- **ipc `performance:trigger-recrawl`**：由空壳（只 `return supported`）升级为实跑 `await performanceRecrawlService.processRound({ force })`，返回 `{ supported, ran, force }`；service 不可用时 `ran=false` 不抛错（fail-safe）；`withSenderCheck` 保持。
+- **store `listDueForRecrawl(nowMs, opts)`**：新增可选 `opts.force`，忽略 T+1h 到期排期纳入 7 天窗口内全部可回采条目（仍守 `recrawl_status` 过滤与 7 天窗，`LIMIT 50`）；默认路径语义不变，向后兼容无参调用。
+- **service `processRound(opts)`**：透传 `opts` 给 `listDueForRecrawl`。
+- **preload**：`triggerPerformanceRecrawl(opts)` 传递参数（`knowledge-library.js` + `index.bundle.js`）。
+
+### 验证
+- TDD：新增 `performance-loop.test.js`（IPC handler，electron mock 范式，force 透传/缺省 false/service 缺失 ran=false）+ `performance-loop-store.test.js`（真 sqlite，force 纳入未到期 vs 默认过滤 / 仍守 7 天窗）+ `performance-recrawl-service.test.js`（processRound force 透传）；目标定向 3 文件 **18 用例全绿**。
+- QM-1：`electron-builder --win --dir` 成功，`app.asar` 清单确认 5 个改动源文件均在包内；全量套件交 CI 权威运行。
+
+### 关联
+- 分支 `local/recrawl-trigger`（worktree 隔离，D 盘）· PR #2210
+- PRD：`01-docs/PRD-RECRAWL-TRIGGER-DEBUG-2026-09-22.md`（背景三重时序锁死 / 规格 / 验收标准 AC-1~5 / 测试 / 边界）
+- 根因：发布登记首采排期 T+1h + 调度器仅 30s/24h + trigger IPC 空壳，致第四链路会话内不可观测；本变更仅增强触发能力，不改 `_writeBackViral` 写回逻辑与默认排期。
 # [未发布] feat(batch-login): 批量登录凭证三方案——自动保存 + 关闭护栏 + 主动提醒
 
 ### 变更
