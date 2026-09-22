@@ -32,6 +32,7 @@
             :is-home="isHomeTab"
             :loading="navigation.loading"
             :is-login-tab="isLoginTab"
+            :account-unsaved="activeTabUnsaved"
             :saving="savingAccount"
             @go-back="onGoBack"
             @go-forward="onGoForward"
@@ -78,7 +79,7 @@ import PipelineBackgroundToast from '@/components/PipelineBackgroundToast.vue'
 import RouteLoadError from '@/components/RouteLoadError.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAccountActions } from '@/composables/useAccountActions'
 import { useSpaNavHistory } from '@/composables/useSpaNavHistory'
 import { formatUserError } from '@/utils/user-facing-error'
@@ -107,6 +108,8 @@ const isLoginTab = computed(() => {
   return tab?.isLogin === true || (tab?.accountId != null && !tab.isHome)
 })
 const savingAccount = ref(false)
+// 活动标签是否为「未保存」账号标签：驱动 NavBar 保存按钮脉冲动画（方案三）。
+const activeTabUnsaved = computed(() => tabStore.activeTab?.credentialSaveState === 'unsaved')
 
 // ── 壳态互斥上报（T0-6b，A1 决策）──
 // 工作台壳态（首页虚拟标签，SPA 渲染）下浏览器壳与工作台不同时展示：
@@ -189,7 +192,44 @@ function onSwitchTab(tabId) {
   tabStore.switchToTab(tabId)
 }
 
-function onCloseTab(tabId) {
+async function onCloseTab(tabId) {
+  // 方案二（护栏）：关闭尚未保存凭证的账号标签前弹三选一确认，杜绝静默丢失登录态。
+  const state = await tabStore.getAccountTabSaveState(tabId)
+  if (state && state.isAccountTab && state.credentialSaveState === 'unsaved') {
+    let action = 'cancel'
+    try {
+      await ElMessageBox.confirm(
+        t('tabBar.closeUnsavedMessage'),
+        t('tabBar.closeUnsavedTitle'),
+        {
+          type: 'warning',
+          confirmButtonText: t('tabBar.closeUnsavedSaveAndClose'),
+          cancelButtonText: t('tabBar.closeUnsavedDiscard'),
+          closeButtonText: t('tabBar.closeUnsavedCancel'),
+          showClose: true,
+          distinguishCancelAndClose: true,
+        }
+      )
+      action = 'save'
+    } catch (err) {
+      // cancel → 直接关闭（cancelButtonText）；close/× → 取消，留在页面
+      if (err === 'cancel') action = 'discard'
+      else return
+    }
+    if (action === 'save') {
+      try {
+        const api = getApi()
+        const res = api?.pageManager?.saveAccountTabCredentials ? await api.pageManager.saveAccountTabCredentials(tabId) : null
+        if (!res || res.code !== 0) ElMessage.warning(t('tabBar.closeUnsavedDiscardedWarn'))
+      } catch (e) {
+        ElMessage.warning(t('tabBar.closeUnsavedDiscardedWarn'))
+      }
+      await tabStore.closeTab(tabId)
+    } else if (action === 'discard') {
+      await tabStore.closeTab(tabId)
+    }
+    return
+  }
   tabStore.closeTab(tabId)
 }
 

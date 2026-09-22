@@ -57,3 +57,32 @@ describe("LoginExpiredBanner", () => {
     expect(w.emitted("dismiss")).toBeTruthy();
   });
 });
+
+describe("LoginExpiredBanner 全部保存（方案三）", () => {
+  beforeEach(() => {
+    i18n.global.locale.value = "zh";
+  });
+
+  function mountB(props = {}) {
+    return mount(LoginExpiredBanner, {
+      props: { visible: true, expiredCount: 1, ...props },
+      global: { plugins: [i18n] },
+    });
+  }
+
+  it("unsavedCount>0 时渲染「全部保存（N）」按钮并 emit save-all", async () => {
+    const w = mountB({ unsavedCount: 2 });
+    await nextTick();
+    const btn = w.find('[data-testid="banner-save-all"]');
+    expect(btn.exists()).toBe(true);
+    expect(btn.text()).toContain("全部保存（2）");
+    await btn.trigger("click");
+    expect(w.emitted("save-all")).toBeTruthy();
+  });
+
+  it("unsavedCount=0 时不渲染全部保存按钮", async () => {
+    const w = mountB({ unsavedCount: 0 });
+    await nextTick();
+    expect(w.find('[data-testid="banner-save-all"]').exists()).toBe(false);
+  });
+});

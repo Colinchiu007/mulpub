@@ -278,3 +278,77 @@ describe("useTabStore 标签标题同步", () => {
     expect(store.navigation.title).toBe("快手数据中心");
   });
 });
+
+describe('useTabStore 凭证保存态（批量登录保存三方案）', () => {
+  const homeTab = { tabId: 'home', url: '', title: '首页', loading: false, canGoBack: false, canGoForward: false, isActive: false, isHome: true }
+  function accountTab(tabId, extra) {
+    return { ...createTabData(tabId, '账号 ' + tabId, true), accountId: tabId, platform: 'douyin', credentialSaveState: null, ...extra }
+  }
+
+  beforeEach(() => { setActivePinia(createPinia()); window.electronAPI = {} })
+  afterEach(() => { delete window.electronAPI })
+
+  it('unsavedCount/unsavedTabs 统计 credentialSaveState==="unsaved" 的账号标签', async () => {
+    const getAllTabs = vi.fn().mockResolvedValue({
+      code: 0,
+      data: [homeTab, accountTab('atab-1', { credentialSaveState: 'unsaved' }), accountTab('atab-2', { credentialSaveState: 'saved' })],
+    })
+    const { api } = createPageManagerApi({ getAllTabs })
+    window.electronAPI.pageManager = api
+    const store = useTabStore()
+    await store.init()
+    expect(store.unsavedCount).toBe(1)
+    expect(store.unsavedTabs.map((t) => t.tabId)).toEqual(['atab-1'])
+  })
+
+  it('tab-credential-state-changed 事件实时熄灭对应标签角标（不重拉列表）', async () => {
+    const getAllTabs = vi.fn().mockResolvedValue({
+      code: 0, data: [homeTab, accountTab('atab-1', { credentialSaveState: 'unsaved' })],
+    })
+    const { api, handlers } = createPageManagerApi({ getAllTabs })
+    window.electronAPI.pageManager = api
+    const store = useTabStore()
+    await store.init()
+    expect(store.unsavedCount).toBe(1)
+    handlers.get('tab-credential-state-changed')({ tabId: 'atab-1', credentialSaveState: 'saved' })
+    expect(store.unsavedCount).toBe(0)
+    // 仅本地更新，不触发额外 getAllTabs（init 内已调用一次，事件后仍为一次）
+    expect(getAllTabs).toHaveBeenCalledTimes(1)
+  })
+
+  it('saveAllUnsavedAccounts 调用 API 成功后刷新标签列表', async () => {
+    const base = createPageManagerApi()
+    const saveAllUnsavedAccounts = vi.fn().mockResolvedValue({ code: 0, data: { attempted: 1, saved: 1, failed: [] } })
+    const api = { ...base.api, saveAllUnsavedAccounts }
+    window.electronAPI.pageManager = api
+    const store = useTabStore()
+    await store.init()
+    api.getAllTabs.mockClear()
+    const data = await store.saveAllUnsavedAccounts()
+    expect(saveAllUnsavedAccounts).toHaveBeenCalledTimes(1)
+    expect(data).toMatchObject({ saved: 1 })
+    expect(api.getAllTabs).toHaveBeenCalled()
+  })
+
+  it('saveAllUnsavedAccounts 无 API 时返回 null（不抛错）', async () => {
+    const base = createPageManagerApi()
+    const api = { ...base.api }
+    delete api.saveAllUnsavedAccounts
+    window.electronAPI.pageManager = api
+    const store = useTabStore()
+    await store.init()
+    await expect(store.saveAllUnsavedAccounts()).resolves.toBeNull()
+  })
+
+  it('getAccountTabSaveState 返回护栏查询 data', async () => {
+    const base = createPageManagerApi()
+    const getAccountTabSaveState = vi.fn().mockResolvedValue({ code: 0, data: { isAccountTab: true, credentialSaveState: 'unsaved' } })
+    const api = { ...base.api, getAccountTabSaveState }
+    window.electronAPI.pageManager = api
+    const store = useTabStore()
+    await store.init()
+    const r = await store.getAccountTabSaveState('atab-1')
+    expect(getAccountTabSaveState).toHaveBeenCalledWith('atab-1')
+    expect(r).toMatchObject({ isAccountTab: true, credentialSaveState: 'unsaved' })
+  })
+})
