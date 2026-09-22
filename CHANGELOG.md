@@ -1,3 +1,15 @@
+# [未发布] fix(film-engineering): 出片流端到端串联——context 嵌套/扁平双兼容（#2193）
+
+### 变更
+- **services/film-engineering/film-engineering-stages.js**：`generate_videos` 前的四阶段执行器 context 取法兼容「引擎按 stage 名嵌套写入」（`run.context[stageName]=output`，`pipeline-engine.js:2395`）与「单测/直塞扁平键」两种形态（新增 `ctxFlatOrNested`）；`load_template`/`adapt_script`/`select_shots` 为真实出片流（`useFilmVideoGen.start` 仅传 `initialContext:{selectedShots}`、不带 `kitDir`/`script`/`selectedShotIds`）补直通分支，前四阶段不再在成本闸前 fail。作者流（提供 `script`/`selectedShotIds`）与既有单测语义完全保持：空剧本 `''` 仍 fail 匹配 `/剧本/`、bogus id 仍报错。
+
+### 验证
+- TDD 红→绿：新增 `film-pipeline-chaining-integration.test.js`（真实前四阶段执行器驱动 UI 出片流入参，断言停在 `generate_videos` paused + `costCheck` 零 provider 调用，确认后生成 `completed`）；fix 前 stash 复现 RED（失败于 `started.paused`），fix 后 GREEN；`electron/services/film-engineering/` 全量 **84 测试 / 11 文件无回归**。
+- QM-1：`electron-builder --win --dir` 成功，asar 清单含被改 `film-engineering-stages.js`；`verify-worktree-deps.js` OK。
+
+### 关联
+- 根因/逃逸链见 issue #2193；分支 `codex/film-pipeline-context-chaining-fix`（worktree 隔离，D 盘）· PR #2195
+- 逃逸分析：契约测试 `film-pipeline-contract.test.js` 曾整体打桩前四阶段，端到端串联从未执行——本条集成测试补此盲区。
 # [未发布] fix(ops-center-sync): 零配置自动连接生效 + 运营后台同步对用户完全透明
 
 ### 变更
