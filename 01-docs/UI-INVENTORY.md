@@ -211,6 +211,7 @@
 | 平台筛选侧栏 | 按平台过滤 |
 | 分组筛选 | 按分组过滤 |
 | 账号卡片网格/列表 | `AccountManagementCard` 组件 |
+| 加载骨架 | `UiSkeleton variant="card"` ×4（`mp-skeleton-grid`），与真实栅格共消费 `--account-grid-columns` / `--account-grid-gap` 同一列口径，加载期不塌缩成单列（2026-09-22 accounts-grid-align，详见 `PRD-ACCOUNTS-GRID-SKELETON-ALIGN-2026-09-22.md`） |
 
 **弹窗**：
 | 弹窗 | 触发入口 | 组件 |
