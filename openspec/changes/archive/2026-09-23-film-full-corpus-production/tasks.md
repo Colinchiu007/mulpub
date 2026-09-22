@@ -103,5 +103,7 @@
   <!-- 2026-09-23：delta 5 需求/16 场景全映射——kit schema×3→kit-loader.test.js（两级链/fail-closed/上限边界）；查询契约×3→shot-library+service+IPC pageOpts 守卫（分页双形态）；合成合同×6→film-render(.manifest-int)+e2e-int（兼容/concat/normalize/聚合/越界拒绝/缺镜拒绝）；出片驱动×3→production-driver 19/19+film-video-checkpoint-integration（144→15 批/断点 probe/单批隔离）；下载通道×3→shot-downloader+e2e-int 9.2+9.3 真实 cloudfront。proposal 基线（2 ADDED+3 MODIFIED）与 delta 实际一致，renderManifest 上限 5,000→10,000 修正已回写，无重复规格化。 -->
 - [x] 10.4 经验沉淀：本 change 踩坑/方法论写入 `.learnings/` 与记忆
   <!-- 2026-09-23：01-docs/learnings.md 顶部新增《真实冒烟是 mock 测试的照妖镜》段（三缺口/checkpoint:false 哨兵合同/IPC 节流/断点事实源/对账口径/工程环境坑）；外部记忆 ~/.gstack learnings.jsonl + EverOS :8000 add/flush 经脚本双写；内置记忆 UpdateMemory。 -->
-- [ ] 10.5 归档前置：1.1 的前置 change 状态、10.1-10.4 完成核查 + 无未勾任务后 archive 本 change
-- [ ] 10.6 远端收尾：PR（关联本 change）→ 盯 CI 全绿 → auto-merge → `git merge-base --is-ancestor <合并提交> origin/main` 验证，记录 remoteStatus
+- [x] 10.5 归档前置：1.1 的前置 change 状态、10.1-10.4 完成核查 + 无未勾任务后 archive 本 change
+  <!-- 2026-09-23：前置 change film-engineering-video-gen 已于 e6bc371ca 归档（1.1）；10.1-10.4 完成核查全勾；openspec validate 通过后 archive 为 2026-09-23-film-full-corpus-production，主 spec film-engineering 同步（3 MODIFIED + 2 ADDED 需求并入）。 -->
+- [x] 10.5 归档前置：1.1 的前置 change 状态、10.1-10.4 完成核查 + 无未勾任务后 archive 本 change
+  <!-- 2026-09-23：前置 change film-engineering-video-gen 已于 e6bc371ca 归档（1.1）；10.1-10.4 完成核查全勾；openspec validate 通过后 archive 为 2026-09-23-film-full-corpus-production，主 spec film-engineering 同步（3 MODIFIED + 2 ADDED 需求并入）。 -->
