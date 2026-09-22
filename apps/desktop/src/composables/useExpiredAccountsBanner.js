@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import { onAuthCompleted, onAccountStatusChanged, accountBatchCheckLogin } from '@/api/publisher'
+import { onAuthCompleted, onAccountStatusChanged, accountBatchCheckLogin, accountUpdate } from '@/api/publisher'
 import { reportError } from '@/utils/report-error'
 
 /**
@@ -11,6 +11,9 @@ import { reportError } from '@/utils/report-error'
  *
  * - expiredAccounts / expiredAccountCount / showExpiredBanner 为横幅渲染状态；
  * - refresh() 调 accountBatchCheckLogin 逐账号验证，仅真正失效的才入列；
+ * - 检测完成后与账号页「一键检测」同口径回写 status + last_validated
+ *   （登录态口径统一修复 2026-09-22：此前横幅只读不回写，两处检测时间
+ *   不同、结果不持久化，用户看到主页与账号页失效计数不一致）；
  * - 事件订阅让凭证保存后自动刷新，用户无需切页；
  * - dispose() 清理全部订阅（组件 onUnmounted 调用）。
  */
@@ -47,6 +50,18 @@ export function useExpiredAccountsBanner (accountStore) {
         const check = results.find(r => r.accountId === account.id)
         return check && !check.valid
       })
+      // 与账号页 batchCheckAllLogins 同口径持久化检测结果，使两处读到同一份状态。
+      // 失败不阻断横幅更新（下次检测自然重试）。
+      if (results.length > 0) {
+        const checkedAt = result?.data?.checkedAt || new Date().toISOString()
+        for (const item of results) {
+          if (!item?.accountId) continue
+          accountUpdate(item.accountId, {
+            status: item.valid ? 'active' : 'expired',
+            last_validated: checkedAt,
+          }).catch(() => {})
+        }
+      }
       expiredAccounts.value = expired
       expiredAccountCount.value = expired.length
       showExpiredBanner.value = expired.length > 0

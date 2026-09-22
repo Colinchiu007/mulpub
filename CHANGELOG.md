@@ -1,3 +1,21 @@
+# [未发布] fix(login-state): 自媒体账号登录态检测口径统一（横幅 vs 账号页 + 保存后仍判失效）
+
+### 变更
+- **electron/publishers/http-login-checker.js**：toutiao/bilibili/tencent_video/wechat_mp 四平台 HTTP 检测收口黑名单三态语义（v2.1 声明契约落地到全部平台）——明确成功→true、明确未登录码/文案→false、其余（风控页/结构变更/空响应/解析失败）→undefined 降级浏览器检测；`checkHtml` typedef 放宽 `boolean|undefined`，HTML 分支新增 `CHECK_LOGIN_INCONCLUSIVE` 处理。修复"新保存的有效 Cookie 被白名单语义硬判失效并短路浏览器检测"假阳性。
+- **electron/publishers/account-manager.js `updateCapturedAccount`**：PATCH 移至 `saveCredential` 成功之后（消除 DB 半成功状态），PATCH 体新增 `status:'active'`+last_validated，返回对象含 active——保存凭证=一次成功的主动重新登录，不再被 `backendExpiredFresh` 2 小时窗口压制为失效。status 仅服务端常量，不接收渲染层任意 status。
+- **src/composables/useExpiredAccountsBanner.js**：首页横幅 `refresh()` 检测成功后逐账号 `accountUpdate(id,{status,last_validated})` 回写，与账号页【一键检测】完全同口径（此前只读不回写，是"主页 5 个失效 vs 账号页 2 个"计数分裂的结构性根因）；code≠0 不回写、单账号失败不阻断。
+- **01-docs**：`BUGFIX-LOGIN-STATE-CONSISTENCY-2026-09-22.md`（三层根因/判定矩阵/数据流/逃逸分析/预防措施）；`PRD-ACCOUNT-LOGIN-STATUS-CHECK.md` 升级 v2.2（新增 §15，§14.3 toutiao 白名单已知债销账）。
+
+### 验证
+- TDD 红→绿：新增 `http-login-checker-blacklist.test.js`(14)、`account-manager-relogin-status.test.js`(2)、`useExpiredAccountsBanner.test.js`(3)，红灯 8 failed 复现契约缺失 → 绿灯 19/19；更新旧公众号 fixture 1 例；全量 vitest 回归通过。
+- 无 i18n 文案变更（横幅/一键检测/卡片显示项与提示文字全部不变）；无新增 IPC 通道。
+
+### 关联
+- 分支 `codex/login-state-consistency`（worktree 隔离，D 盘）· PR 待合并
+- 前序：v2.1 抖音黑名单语义修复（BUGFIX-LOGIN-CHECK-FALSE-EXPIRED-2026-09-16.md），本变更将其契约收口到其余四平台
+
+---
+
 # [未发布] feat(hot-topics): 热门选题统一热度排序（P0-P3 全量：评分模型+可解释UI+衰减+配置化）
 
 ### 变更
