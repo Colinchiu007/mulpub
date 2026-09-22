@@ -281,3 +281,36 @@ FAILED tests/test_pipeline_loader.py::TestPipelineLoader::test_story2video_manif
 |----|------|
 | 打包产物 `electron-builder --dir` 冒烟 | `build:vue` 已通过（CI 各 workflow 的打包前置同此口径）；`--dir` 需在本机下载 winCodeSign/NSIS 缓存，属 `build.yml` 的 runner 职责，本地跑不具备等价环境 |
 | 「真实用户账号 + 真实平台」一键检测实测 | 需在**已登录身份（Logto）且已保存真实平台凭证**的 profile 上执行；`account:list` 对未登录一律 fail-closed（`AUTH_ERROR`），不得用隔离的空 profile 冒充。因此本 PR 的真实应用验证以「真实渲染层 + 契约化 electronAPI 替身」（13.1）+「真实后端 accounts.json」（13.2 后端行）两段闭合，跨段契约（`PATCH {status,last_validated}`）由后端 pytest 与主进程单测双侧锁定。合入后需在用户实际环境跑一次 `pnpm run build:dir` + 手工一键检测做最终 dogfooding |
+
+### 13.5 与 main 的两次合并（契约收敛，实测记录）
+
+推送后 `origin/main` 已前进，两次合并均为**语义重叠**而非纯文本冲突：
+
+**合并 ①（4 个提交，含 #2229）**——关键事实：**main 上的 #2229 已独立修复本 PR 的 RC-C**
+（`webview-manager` 误用 `session.cookies.getAll`），且实现口径为 fail-closed 提前返回
+`{ok:false, reason:'cookie-extract-failed'}`，并把 mock 升级为「忠实镜像 Electron cookies API」
+（只实现 `get/set/remove/flushStore`，**不提供** `getAll`）。本 PR 采取**并集**解法而非二选一：
+
+- `webview-manager.js`：保留本 PR 的集中守卫 `_extractTabCookies()`（`cookies.get` 不可用即抛
+  `session-cookies-unavailable`，并把非数组归一为 `[]`），同时采纳 main 的**提前 fail-closed**
+  位置（在提取 localStorage 之前就中止，避免无谓工作），并保留本 PR 的 `detail` 字段用于排障。
+  删除因此变为死代码的后置 `if (cookieExtractError)` 分支。
+- `webview-manager.test.js`：以 main 版本为主体（其 mock 保真度与断言更强：断言真实 Cookie 内容、
+  `unsaved` 状态、不广播 `saved`），另补本 PR 独有负例「`session` 整体不可用时同样 fail-closed」
+  （覆盖本 PR 新引入的守卫，main 用例未触及）。
+- `account-manager.test.js`：两个互不相干的 `describe` 块取并集（本 PR `persistLoginState`
+  唯一写者 vs main `listAccounts` 错误透传）。
+- `CHANGELOG.md`：本 PR 条目置顶、main 条目顺延。
+
+合并后复验（非沿用合并前数字）：electron 定向 **186/186**、渲染层 **188 passed + 1 skipped**、
+后端 `test_server_account_lifecycle.py` + Logto 认证 **73 passed**、ESLint `--quiet` **0 error**。
+
+**合并 ②（#2230）**——仅 `CHANGELOG.md` 顶部 prepend 竞争。解法固化为可复用规则：
+从 `HEAD:` / `MERGE_HEAD:` 两个 blob 取「本 PR 首个非本条目标题之前的片段」+ 对方全文，
+写出前按原文件 EOL（CRLF）还原；提交后校验**暂存区 blob 零冲突标记**且增量为 **+38 / -0**
+（不重写任何历史条目）。
+
+> **并发教训**：多 PR 同时向 `CHANGELOG.md` 顶部追加是仓库已知事故模式（见 2026-09-21 条目）。
+> 任何采用「顶部追加」约定的文件，冲突解法必须幂等、且以 blob 为输入而非工作区文本，
+> 否则极易在解冲突时把别人的条目挤掉或把整文件换行符翻转。
+

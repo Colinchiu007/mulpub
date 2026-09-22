@@ -15228,3 +15228,12 @@ MIN_ENGAGEMENT_SAMPLES，与引擎严格同门槛含 Number(null)=0 语义），
 - catalog 娴嬭瘯 Bearer 璧?Logto 401 鈫?鏀?X-Catalog-Key + monkeypatch catalog_api_key銆?
 - 骞跺彂浼氳瘽鎶㈠崰鍚庡彴 terminal + 閲嶇疆 cwd 鈫?鍓嶅彴闀夸换鍔?+ 姣忔潯鍛戒护鏄惧紡 Set-Location銆?
 
+
+
+## 账号登录态持久化真源统一（2026-09-23）
+
+- **Bug 类**：一键检测后登录态不落库（重进页面又显示已登录）+ 检测结论与实际相反（今日头条假阴性、视频号假阳性）
+- **根因**：登录态读源是 Python 后端 DATA_DIR/accounts.json，回写却走 accountUpdate -> store:update-account -> Electron SQLite，两库账号 id 不互通且被 .catch(() => {}) 静默；后端 AccountUpdateRequest 未声明 status（extra="forbid"）使 PATCH 直接 422；toPublicAccount 的 last_validated 2 小时窗口 + 「本地有凭证即推翻 expired」让真源自我蒸发；降级路径把「无证据」当「有证据」（LOCAL_ONLY valid:true / NO_COOKIE fast-path / 浏览器异常兜底 true）；webview-manager 调用 Electron Session.cookies 上根本不存在的 getAll，抛错被吞导致凭证 cookies 恒 0。
+- **修复模式**：单一真源 + 单一写者 + 三态语义：status(active|expired|unverified) 落 accounts.json；AccountManager.persistLoginState() 成为唯一写者（三条检测链路返回前统一固化）；无法判定一律 valid:undefined + CHECK_LOGIN_INCONCLUSIVE，渲染层新增「未确认」第三态并不计入失效数；读侧 _normalize_account_status 做 fail-safe 归一化，脏值降级 unverified 而绝不当已登录。
+- **可复用教训**：（1）任何“显示正确但重进就丢失信息”的缺陷，先查读写是否落在同一个库；Electron 应用里 SQLite 与后端 JSON 双存储极易形成伪回写。（2）Cookie/localStorage/凭证文件存在永远不是登录的正向证据，只能证伪不能证真。（3）API 模型用 extra="forbid" 时，新增字段必须同步请求模型，否则客户端写入会静默 422。（4）Electron Session.cookies 只有 get/set/remove/flush，没有 getAll；mock 必须忠实镜像真实 API 表面，否则测试会替错误 API 兜底。
+- **适用边界**：适用于 Multi-Publish 桌面端所有“检测/同步类”状态字段（登录态、额度、审核状态）的设计与排障；不涉及服务端多租户语义。本 PR 刻意不改 stores/accounts.js 的 batchSetStatus（启用/停用与登录态是两个正交概念）。
