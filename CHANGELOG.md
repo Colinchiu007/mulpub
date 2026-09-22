@@ -10,10 +10,11 @@
 ### 验证
 - TDD 红→绿：新增 `home-shell.util.test.js`(6)、`home-shell-preload.test.js`(6，含外站重定向/参数剥离/`=0` 不暴露 electronAPI 的负向用例)、`tab-independent-home.test.js`(7，含 F1 独立模板分支不含外层 chrome 的源码契约)、`webview-manager.test.js` home-shell describe(5)；修正既有 `shell-mode-6b.test.js` 正则以容忍 watch 体守卫行；`home-shell-preload.test.js` 纳入 vitest include（与 `electron/preload.test` 同级）。
 - QM-1：`electron-builder --win --dir` exit 0，asar 清单含 `home-shell-preload.bundle.js`；`verify-worktree-deps.js` OK。locale `check-locale-sync.js --keys` PASS。真实 Electron 窗口验证双标签独立导航。
+- **债务基线**：`scripts/debt-baseline.json` `filesOver1000` 32→33、`filesOver500` 98→99（各 +1）。原因：新增的 `home-shell-preload.bundle.js`（1346 行）为 esbuild **生成产物**，与既有已计入基线的 `preload/index.bundle.js`（1333 行）同类，其手写源 `home-shell-preload.js` 仅 73 行；无任何手写源文件跨越阈值。按门禁脚本自身给出的「经审查确认后 `--update`」流程更新基线（反映生成物纳入，非源码膨胀）。
 
 ### 关联
 - PRD `01-docs/PRD-TAB-INDEPENDENT-HOME-2026-09-22.md`（F1-F6 功能需求 / §4 数据校验 / §5 安全约束 S1-S5 / §6 交互明细 / §7 i18n / §11 测试计划）。
-- 分支 `tab-independent-home`（worktree 隔离，D 盘）· PR 待合并。
+- 分支 `tab-independent-home`（worktree 隔离，D 盘）· PR #2230（已合并 `origin/main`，解决 CHANGELOG / webview-manager.test.js 冲突）。
 
 ---
 # [未发布] fix(ui): 限流自检弹窗表单布局修复 + 功能规格文档化
