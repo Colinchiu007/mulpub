@@ -278,3 +278,273 @@ Expected: 三个 exit 0
 git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 add migrations/postgresql/004_member_commerce.sql packages/api-publish-engine/src/auth/postgres-identity-repository.js packages/api-publish-engine/test/member-commerce-migrations.test.js packages/api-publish-engine/test/postgres-identity-repository.test.js
 git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 commit -m "feat(member-center): P1-T1 商务底座迁移 004（订单/兑换码/消息/会话画像）"
 ```
+
+---
+
+## Task 2：三档权益矩阵 plan-matrix.js（服务端唯一真源）
+
+**Files:**
+- Create: `packages/api-publish-engine/src/auth/plan-matrix.js`
+- Test: `packages/api-publish-engine/test/plan-matrix.test.js`
+
+- [ ] **Step 1: 写失败测试**
+
+创建 `packages/api-publish-engine/test/plan-matrix.test.js`：
+
+```js
+const assert = require('assert')
+const test = require('node:test')
+
+const { PLAN_IDS, getPlanEntitlement, getPlanCatalog, PLAN_MATRIX_VERSION } = require('../src/auth/plan-matrix')
+
+test('plan-matrix 契约（spec §2）', async (t) => {
+  await t.test('档位枚举与版本', () => {
+    assert.deepStrictEqual([...PLAN_IDS], ['free', 'standard', 'pro'])
+    assert.strictEqual(typeof PLAN_MATRIX_VERSION, 'string')
+    assert.throws(() => { PLAN_IDS.push('enterprise') }, /object|frozen|not extensible/i)
+  })
+
+  await t.test('价格与 spec 矩阵逐字一致（单位：分）', () => {
+    const catalog = getPlanCatalog()
+    assert.strictEqual(catalog.length, 3)
+    const [free, standard, pro] = catalog
+    assert.strictEqual(free.priceMonthlyCents, 0)
+    assert.strictEqual(standard.priceMonthlyCents, 2900)
+    assert.strictEqual(standard.priceYearlyCents, 19900)
+    assert.strictEqual(pro.priceMonthlyCents, 7900)
+    assert.strictEqual(pro.priceYearlyCents, 59900)
+    for (const item of catalog) assert.strictEqual(item.currency, 'CNY')
+  })
+
+  await t.test('无限值约定 -1：pro 平台数 / standard AI 写稿（自有 Key）', () => {
+    assert.strictEqual(getPlanEntitlement('pro').limits.max_platforms, -1)
+    assert.strictEqual(getPlanEntitlement('standard').limits.quota.ai_write_monthly, -1)
+    assert.strictEqual(getPlanEntitlement('free').limits.max_platforms, 5)
+    assert.strictEqual(getPlanEntitlement('standard').limits.max_platforms, 15)
+  })
+
+  await t.test('日发布数折算 cloud_publish_monthly = daily_publish × 30（双口径）', () => {
+    assert.strictEqual(getPlanEntitlement('free').limits.quota.cloud_publish_monthly, 5 * 30)
+    assert.strictEqual(getPlanEntitlement('standard').limits.quota.cloud_publish_monthly, 50 * 30)
+    assert.strictEqual(getPlanEntitlement('pro').limits.daily_publish, 1000)
+    assert.strictEqual(getPlanEntitlement('pro').limits.quota.cloud_publish_monthly, 1000 * 30)
+  })
+
+  await t.test('feature 开关与配额键对齐 consumeFeature 的 ${feature}_monthly 约定', () => {
+    const free = getPlanEntitlement('free')
+    assert.strictEqual(free.features.cloud_publish, true)
+    assert.strictEqual(free.features.video_create, false)
+    assert.strictEqual(free.features.schedule_batch, false)
+    assert.strictEqual(free.features.dashboard_full, false)
+    const standard = getPlanEntitlement('standard')
+    assert.strictEqual(standard.features.video_create, true)
+    assert.strictEqual(standard.features.schedule_batch, true)
+    assert.strictEqual(standard.limits.quota.video_create_monthly, 500)
+    assert.strictEqual(getPlanEntitlement('pro').limits.quota.video_create_monthly, 3000)
+    assert.strictEqual(standard.limits.concurrent_tasks, 3)
+    assert.strictEqual(getPlanEntitlement('pro').limits.concurrent_tasks, 10)
+    // 官方积分档位：free 无 / standard 中 / pro 高
+    assert.strictEqual(free.limits.quota.official_credit_monthly, 0)
+    assert.ok(standard.limits.quota.official_credit_monthly > 0)
+    assert.ok(getPlanEntitlement('pro').limits.quota.official_credit_monthly > standard.limits.quota.official_credit_monthly)
+  })
+
+  await t.test('运营 overrides 注入：合法覆盖生效、未知键与非法值 fail closed', () => {
+    const patched = getPlanEntitlement('standard', { standard: { videoMonthly: 600 } })
+    assert.strictEqual(patched.limits.quota.video_create_monthly, 600)
+    assert.strictEqual(getPlanEntitlement('standard').limits.quota.video_create_monthly, 500) // 不污染基线
+    assert.throws(() => getPlanEntitlement('standard', { standard: { noSuchKey: 1 } }), /unknown key/i)
+    assert.throws(() => getPlanEntitlement('standard', { standard: { videoMonthly: 1.5 } }), /integer/i)
+    assert.throws(() => getPlanEntitlement('standard', { standard: { videoMonthly: -2 } }), /-1|range|invalid/i)
+  })
+
+  await t.test('未知档位抛 PLAN_INVALID', () => {
+    assert.throws(() => getPlanEntitlement('enterprise'), (err) => err.code === 'PLAN_INVALID')
+  })
+
+  await t.test('返回值深冻结，调用方不能篡改矩阵', () => {
+    const snapshot = getPlanEntitlement('free')
+    assert.throws(() => { snapshot.limits.daily_publish = 999 }, /read-only|frozen|not extensible|Cannot assign/i)
+  })
+})
+```
+
+- [ ] **Step 2: 运行确认失败**
+
+Run: `node packages/api-publish-engine/test/plan-matrix.test.js`
+Expected: FAIL — `Cannot find module '../src/auth/plan-matrix'`
+
+- [ ] **Step 3: 实现 plan-matrix.js**
+
+创建 `packages/api-publish-engine/src/auth/plan-matrix.js`：
+
+```js
+'use strict'
+
+/**
+ * 会员中心 · 三档权益矩阵（服务端唯一真源）。
+ * 数据契约：01-docs/DESIGN-MEMBER-CENTER-2026-09-23.md §2。
+ *
+ * 约定：
+ * - 数值 -1 表示「不限」（仅 maxPlatforms / aiWriteMonthly / dailyPublish / videoMonthly / officialCreditMonthly 允许）。
+ * - quota 键与 PostgresEntitlementProvider.consumeFeature 的 `${feature}_monthly` 命名对齐；
+ *   发布配额用 limits.daily_publish × 30 折算（双口径：daily_publish 给 UI 展示，quota 给扣减）。
+ * - overrides 为运营可配注入（config.yaml，带 * 项），只允许覆盖基线已有数值键。
+ * - 客户端禁止硬编码金额/配额，一律通过 GET /api/v1/plans 与 entitlement 快照下发。
+ */
+
+const PLAN_MATRIX_VERSION = '2026-09-23'
+
+const PLAN_IDS = Object.freeze(['free', 'standard', 'pro'])
+
+const BASE_MATRIX = {
+  free: {
+    label: '免费版',
+    priceMonthlyCents: 0,
+    priceYearlyCents: 0,
+    maxPlatforms: 5,
+    dailyPublish: 5,
+    aiWriteMonthly: 200,
+    videoMonthly: 0,
+    scheduleBatch: false,
+    dashboard: 'basic',
+    officialCreditMonthly: 0,
+    concurrentTasks: 1,
+  },
+  standard: {
+    label: '标准版',
+    priceMonthlyCents: 2900,
+    priceYearlyCents: 19900,
+    maxPlatforms: 15,
+    dailyPublish: 50,
+    // 「不限」前提是走自有 Key；官方积分受 officialCreditMonthly（中档）约束。
+    aiWriteMonthly: -1,
+    videoMonthly: 500,
+    scheduleBatch: true,
+    dashboard: 'full',
+    officialCreditMonthly: 500,
+    concurrentTasks: 3,
+  },
+  pro: {
+    label: '专业版',
+    priceMonthlyCents: 7900,
+    priceYearlyCents: 59900,
+    maxPlatforms: -1,
+    // spec：「不限（默认上限 1000，运营可配）」——用有限高值而非 -1，避免下游除零/无限逻辑。
+    dailyPublish: 1000,
+    aiWriteMonthly: 12000,
+    videoMonthly: 3000,
+    scheduleBatch: true,
+    dashboard: 'full',
+    officialCreditMonthly: 3000,
+    concurrentTasks: 10,
+  },
+}
+
+const NUMERIC_KEYS = Object.freeze([
+  'priceMonthlyCents', 'priceYearlyCents', 'maxPlatforms', 'dailyPublish',
+  'aiWriteMonthly', 'videoMonthly', 'officialCreditMonthly', 'concurrentTasks',
+])
+const UNLIMITED_ALLOWED = Object.freeze(['maxPlatforms', 'dailyPublish', 'aiWriteMonthly', 'videoMonthly', 'officialCreditMonthly'])
+
+function validateNumericValue(key, value, context) {
+  if (typeof value !== 'number' || !Number.isInteger(value)) {
+    throw new Error(`plan-matrix: '${key}' in ${context} must be an integer`)
+  }
+  if (value === -1 && !UNLIMITED_ALLOWED.includes(key)) {
+    throw new Error(`plan-matrix: '${key}' in ${context} does not accept -1 (unlimited)`)
+  }
+  if (value < -1) {
+    throw new Error(`plan-matrix: '${key}' in ${context} must be >= -1`)
+  }
+}
+
+function mergePlanSection(plan, overrides) {
+  const base = BASE_MATRIX[plan]
+  if (!overrides) return { ...base }
+  const section = overrides[plan]
+  if (!section) return { ...base }
+  const merged = { ...base }
+  for (const [key, value] of Object.entries(section)) {
+    if (!(key in base)) throw new Error(`plan-matrix: unknown key '${key}' for plan ${plan}`)
+    if (!NUMERIC_KEYS.includes(key)) {
+      // scheduleBatch/dashboard/label 为契约开关，阶段 1 冻结为不可覆盖（运营可配仅覆盖数值 * 项）
+      throw new Error(`plan-matrix: key '${key}' for plan ${plan} is not overridable`)
+    }
+    validateNumericValue(key, value, `plan ${plan}`)
+    merged[key] = value
+  }
+  return merged
+}
+
+function deepFreeze(obj) {
+  for (const value of Object.values(obj)) {
+    if (value && typeof value === 'object' && !Object.isFrozen(value)) deepFreeze(value)
+  }
+  return Object.freeze(obj)
+}
+
+/**  entitlement 形状：{ plan, features, limits }，供 /api/v1/me 快照与 requireFeature 消费。 */
+function getPlanEntitlement(plan, overrides) {
+  if (!PLAN_IDS.includes(plan)) {
+    const err = new Error(`plan-matrix: unknown plan '${plan}'`)
+    err.code = 'PLAN_INVALID'
+    throw err
+  }
+  const matrix = mergePlanSection(plan, overrides)
+  const cloudPublishMonthly = matrix.dailyPublish === -1 ? -1 : matrix.dailyPublish * 30
+  return deepFreeze({
+    plan,
+    matrixVersion: PLAN_MATRIX_VERSION,
+    features: {
+      cloud_publish: true,
+      ai_write: true,
+      video_create: matrix.videoMonthly > 0,
+      schedule_batch: matrix.scheduleBatch === true,
+      dashboard_full: matrix.dashboard === 'full',
+    },
+    limits: {
+      max_platforms: matrix.maxPlatforms,
+      daily_publish: matrix.dailyPublish,
+      concurrent_tasks: matrix.concurrentTasks,
+      quota: {
+        cloud_publish_monthly: cloudPublishMonthly,
+        ai_write_monthly: matrix.aiWriteMonthly,
+        video_create_monthly: matrix.videoMonthly,
+        official_credit_monthly: matrix.officialCreditMonthly,
+      },
+    },
+  })
+}
+
+/** 价目目录（GET /api/v1/plans 展示用，含展示字段，与权益分离）。 */
+function getPlanCatalog(overrides) {
+  return PLAN_IDS.map((plan) => {
+    const matrix = mergePlanSection(plan, overrides)
+    return deepFreeze({
+      id: plan,
+      label: matrix.label,
+      currency: 'CNY',
+      priceMonthlyCents: matrix.priceMonthlyCents,
+      priceYearlyCents: matrix.priceYearlyCents,
+      entitlement: getPlanEntitlement(plan, overrides),
+    })
+  })
+}
+
+module.exports = { PLAN_MATRIX_VERSION, PLAN_IDS, getPlanEntitlement, getPlanCatalog }
+```
+
+注意：`getPlanEntitlement` 的 `features`/`limits` 结构会在 Task 6 `_buildEntitlement` 中与既有 `{ plan, features }` 形状合并（补 `limits` 透传），`consumeFeature` 读 `limits.quota[`${feature}_monthly`]`（Task 6 Step 中验证与 `PostgresEntitlementProvider` 的键约定一致）。
+
+- [ ] **Step 4: 运行确认通过**
+
+Run: `node packages/api-publish-engine/test/plan-matrix.test.js`
+Expected: exit 0
+
+- [ ] **Step 5: Commit**
+
+```powershell
+git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 add packages/api-publish-engine/src/auth/plan-matrix.js packages/api-publish-engine/test/plan-matrix.test.js
+git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 commit -m "feat(member-center): P1-T2 三档权益矩阵 plan-matrix（服务端唯一真源）"
+```
