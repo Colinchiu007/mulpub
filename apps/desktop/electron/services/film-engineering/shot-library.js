@@ -23,6 +23,13 @@ const BLOCK_HEADINGS = [
 
 const COPY_MODES = new Set(['full', 'blocks', 'characters', 'geo'])
 
+// listShots 分页契约（film-full-corpus-production 任务 4.1/4.2）：
+// 全量 kit 单场景可达数百镜，无上限全量加载会撑爆 IPC 负载；
+// 未传分页参数的全量语义保留为精选模式回归锚，但受 FULL_LOAD_LIMIT 硬上限保护。
+const FULL_LOAD_LIMIT = 500
+const MAX_PAGE_LIMIT = 200
+const DEFAULT_PAGE_LIMIT = 100
+
 function extractBlocks (prompt) {
   /** @type {Array<{heading: string, content: string}>} */
   const blocks = []
@@ -90,15 +97,41 @@ class ShotLibrary {
     }))
   }
 
-  /** 分镜列表（按 sceneId） */
-  listShots (sceneId) {
+  /**
+   * 分镜列表（按 sceneId）。
+   * - 不传 opts：返回全量数组（精选模式回归锚）；场景超过 FULL_LOAD_LIMIT(500) 镜时报错强制分页，
+   *   未知 sceneId 一律抛错（不空数组冒充）。
+   * - 传 opts {limit, offset}：返回 { shots, total, limit, offset } 页封装；
+   *   limit 缺省 DEFAULT_PAGE_LIMIT(100)，上限 MAX_PAGE_LIMIT(200)（服务端钳制）；offset 缺省 0。
+   */
+  listShots (sceneId, opts) {
     if (typeof sceneId !== 'string' || !sceneId.trim()) {
       throw new Error('sceneId 必须为非空字符串')
     }
     if (!this.kit.sceneIndex.has(sceneId)) {
       throw new Error('场景不存在: ' + sceneId)
     }
-    return (this.kit.shotSceneIndex.get(sceneId) || []).map((s) => this._toPublic(s))
+    const all = this.kit.shotSceneIndex.get(sceneId) || []
+    if (opts === undefined || opts === null) {
+      if (all.length > FULL_LOAD_LIMIT) {
+        throw new Error('场景 ' + sceneId + ' 共 ' + all.length + ' 镜，超过全量加载上限 ' + FULL_LOAD_LIMIT + '，请使用分页参数 limit/offset 拉取')
+      }
+      return all.map((s) => this._toPublic(s))
+    }
+    if (typeof opts !== 'object' || Array.isArray(opts)) {
+      throw new Error('分页参数必须为对象 {limit, offset}')
+    }
+    let limit = opts.limit === undefined || opts.limit === null ? DEFAULT_PAGE_LIMIT : opts.limit
+    const offset = opts.offset === undefined || opts.offset === null ? 0 : opts.offset
+    if (!Number.isInteger(limit) || limit <= 0) throw new Error('limit 必须为正整数')
+    if (!Number.isInteger(offset) || offset < 0) throw new Error('offset 必须为非负整数')
+    if (limit > MAX_PAGE_LIMIT) limit = MAX_PAGE_LIMIT
+    return {
+      shots: all.slice(offset, offset + limit).map((s) => this._toPublic(s)),
+      total: all.length,
+      limit,
+      offset,
+    }
   }
 
   /** 分镜详情 + ref 解析 */
@@ -181,6 +214,9 @@ class ShotLibrary {
 
 module.exports = {
   BLOCK_HEADINGS,
+  FULL_LOAD_LIMIT,
+  MAX_PAGE_LIMIT,
+  DEFAULT_PAGE_LIMIT,
   COPY_MODES,
   ShotLibrary,
   extractBlocks,

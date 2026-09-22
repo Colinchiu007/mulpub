@@ -20,7 +20,9 @@ const path = require('path')
 const KIT_FILES = ['film-manifest.json', 'shot-library.json', 'reference-registry.json', 'prompt-doctrine.json']
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const MAX_PROMPT_LENGTH = 50000
+// D4 四处同源：与 fetch-hell-grind-kit.py FILM_PROMPT_MAX_LEN 同值（导入/校验单一契约）
+const FILM_PROMPT_MAX_LEN = 50000
+const MAX_PROMPT_LENGTH = FILM_PROMPT_MAX_LEN // 兼容别名，勿在新代码中使用
 const MAX_TOKEN_LENGTH = 64
 
 function isUuidLike (value) {
@@ -118,6 +120,37 @@ function validateShotLibrary (shots) {
     if (s.height !== undefined && s.height !== null && (!Number.isFinite(Number(s.height)) || Number(s.height) <= 0)) {
       return { ok: false, error: at + '.height 必须为正数或 null' }
     }
+    // L1 全量导入扩展字段（film-full-corpus-production 任务 3.3）
+    if (s.durationSec !== undefined && s.durationSec !== null && (!Number.isFinite(Number(s.durationSec)) || Number(s.durationSec) <= 0)) {
+      return { ok: false, error: at + '.durationSec 必须为正数或 null' }
+    }
+    if (s.aspectRatio !== undefined && s.aspectRatio !== null && !(typeof s.aspectRatio === 'string' && /^\d+:\d+$/.test(s.aspectRatio))) {
+      return { ok: false, error: at + '.aspectRatio 必须为 "W:H" 字符串（如 "21:9"）或 null' }
+    }
+    if (s.iterationCount !== undefined && s.iterationCount !== null && (!Number.isInteger(s.iterationCount) || s.iterationCount < 0)) {
+      return { ok: false, error: at + '.iterationCount 必须为非负整数或 null' }
+    }
+    if (s.adoptedJobAt !== undefined && s.adoptedJobAt !== null && !Number.isFinite(Number(s.adoptedJobAt))) {
+      return { ok: false, error: at + '.adoptedJobAt 必须为数值时间戳或 null' }
+    }
+  }
+  return { ok: true }
+}
+
+/**
+ * 校验 shot-library 与 manifest 的 sceneId 交叉引用（任务 3.3）
+ * 任一 shot.sceneId 必须能在 manifest.scenes 中找到，孤儿引用 fail-closed。
+ * @returns {{ok: boolean, error?: string}}
+ */
+function validateShotSceneRefs (shots, manifest) {
+  if (!Array.isArray(shots)) return { ok: false, error: 'shot-library 必须为数组' }
+  if (!manifest || !Array.isArray(manifest.scenes)) return { ok: false, error: 'manifest.scenes 必须为数组' }
+  const sceneIds = new Set(manifest.scenes.map((sc) => sc && sc.id))
+  for (let i = 0; i < shots.length; i++) {
+    const s = shots[i]
+    if (!s || !sceneIds.has(s.sceneId)) {
+      return { ok: false, error: 'shots[' + i + '].sceneId 指向不存在的场景: ' + String(s && s.sceneId) }
+    }
   }
   return { ok: true }
 }
@@ -210,9 +243,15 @@ function loadFilmKit (opts) {
 
   if (errors.length > 0) return { ok: false, error: errors.join('; ') }
 
-  const checks = [validateManifest(manifest), validateShotLibrary(shots), validateReferences(references), validateDoctrine(doctrine)]
-  for (const c of checks) {
-    if (!c.ok) errors.push(c.error)
+  const checks = [
+    ['film-manifest.json', validateManifest(manifest)],
+    ['shot-library.json', validateShotLibrary(shots)],
+    ['reference-registry.json', validateReferences(references)],
+    ['prompt-doctrine.json', validateDoctrine(doctrine)],
+    ['shot-library.json', validateShotSceneRefs(shots, manifest)],
+  ]
+  for (const [label, c] of checks) {
+    if (!c.ok) errors.push(label + ': ' + c.error)
   }
   if (errors.length > 0) return { ok: false, error: errors.join('; ') }
 
@@ -242,12 +281,51 @@ function loadFilmKit (opts) {
   }
 }
 
+/**
+ * 两级 kit 回退链（任务 3.1）：按 dirs 优先级依次尝试（userData 全量 → asar 精简包）。
+ * - 目录不存在 → 记入 missing（未导入属正常态，不算回退错误、不告警）
+ * - 级内损坏/非法 → 记入 fallbacks 并 log.warn('FILM_KIT_FALLBACK')，错误可见非静默
+ * - 全部不可用 → ok:false，error 前缀 FILM_KIT_UNAVAILABLE 并聚合各级具体错误
+ * @param {{dirs: Array<{dir: string, label: string}>, log?: {warn: function}}} opts
+ */
+function loadFilmKitChain (opts) {
+  opts = opts || {}
+  const dirs = Array.isArray(opts.dirs) ? opts.dirs : []
+  const log = opts.log || console
+  const fallbacks = []
+  const missing = []
+  for (const entry of dirs) {
+    const dir = entry && entry.dir
+    const label = (entry && entry.label) || String(dir)
+    if (typeof dir !== 'string' || !dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
+      missing.push({ dir: String(dir), label, reason: '目录不存在（未导入）' })
+      continue
+    }
+    const r = loadFilmKit({ kitDir: dir })
+    if (r.ok) {
+      return { ok: true, kit: Object.assign({}, r.kit, { source: label }), fallbacks, missing }
+    }
+    fallbacks.push({ dir, label, reason: r.error })
+    if (log && typeof log.warn === 'function') {
+      log.warn('[FILM_KIT_FALLBACK] kit 级不可用，回退下一级: ' + label + ' — ' + r.error)
+    }
+  }
+  const detail = []
+    .concat(fallbacks.map((f) => '[' + f.label + '] 损坏: ' + f.reason))
+    .concat(missing.map((m) => '[' + m.label + '] ' + m.reason))
+  const error = 'FILM_KIT_UNAVAILABLE: 所有 kit 级均不可用 — ' + (detail.join(' | ') || 'dirs 为空')
+  return { ok: false, error, fallbacks, missing }
+}
+
 module.exports = {
   KIT_FILES,
   MAX_PROMPT_LENGTH,
+  FILM_PROMPT_MAX_LEN,
   loadFilmKit,
+  loadFilmKitChain,
   validateManifest,
   validateShotLibrary,
+  validateShotSceneRefs,
   validateReferences,
   validateDoctrine,
 }

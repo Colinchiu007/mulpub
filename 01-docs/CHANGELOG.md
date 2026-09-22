@@ -1,3 +1,23 @@
+# [未发布] feat(film-engineering): 《Hell Grind》全量语料导入与全片量产（film-full-corpus-production）
+
+### 变更
+- **L1 全量导入**：`scripts/film-engineering/fetch-hell-grind-kit.py` 新增 `--full` 全量模式（每场景全部唯一提示词入库：规范化 SHA1 去重、末次 completed 采纳版、图片模型黑名单）、`--dry-run` 对账统计、原子写 + `import-report.json`；真实导入落盘 `shared-user-data/film-kit/`（6,558 镜 / 162 场景 / ≈80MB，rejected=0）。
+- **两级 kit 加载链**（`kit-loader.loadFilmKitChain`）：`userData-full` 优先 → 损坏回退随包精简 kit（123 镜，asar ≈9MB，回退 log 可见）；两级全坏 `FILM_KIT_UNAVAILABLE` fail-closed；`status` 新增 `kitSource` 显示项。
+- **schema 扩展**：shot 增 `durationSec/width/height/aspectRatio/model/resultUrl/iterationCount/adoptedJobAt`；`FILM_PROMPT_MAX_LEN=50000` 单一常量；manifest 增 `allowedHosts` 下载白名单；sceneId 交叉引用孤儿校验并入加载。
+- **分页查询**：`listShots` 双形态（缺省全量回归锚 / `{limit,offset}` 页封装），`FULL_LOAD_LIMIT=500`/`MAX_PAGE_LIMIT=200`；前端分镜列表虚拟滚动；场景计数全量口径。
+- **L2 renderManifest**：`film_render` 输入扩展为跨 run 镜头清单（≤10,000 条，generated/downloaded 混合），磁盘为准 fail-closed，规格一致零重编码 / 不一致最小归一；六阶段流水线前四阶段 manifest 直通 + generate_videos `checkpoint:false` 合同（引擎闸只放宽显式 false，13 条既有流水线零影响）。
+- **L3 全量出片**：`production-driver.js`（10 镜/批保序切批、runId `prod-<taskId>-b<idx>` 确定性派生、台账断点续跑以磁盘 probe 为事实源）；`shot-downloader.js` 回收通道（allowedHosts 精确白名单 + https/DNS 双防线 + ffprobe 校验 + 原子 rename）；IPC 新增 `production-plan/run-batch/status`、`download-recycled`、`retry-shot` 五通道 + `production-update` 事件（500ms 节流，负载只带计数）。
+- **前端出片面板**：FilmEngineeringView「全量出片」入口 + ProductionDialog（plan-ready 批次预览/磁盘/墙钟预估 → 逐批确认零计费 → 批/镜双层进度、单镜重试、断点续跑、先回收后精修引导 → 合成成片）；`useFilmProduction` composable；locales zh/en `filmEngineering.production.*` 各 44 键成对。
+
+### 数据校验与安全
+- prompt ≤50,000 字符统一上限（超限拒绝入库进 rejected）；taskId `^[a-zA-Z0-9._-]{1,64}$` 前后端双端校验；renderManifest 条目字段合同 + 磁盘存在性 fail-closed；IPC 事件负载守卫（不携带 shotIds 数组）。
+
+### 验证
+- pytest 导入器 TDD 12/12；vitest 新增/改造覆盖 loader 链、分页、driver、downloader、manifest 直通编排；集成 E2E 3/3；真实 provider 冒烟 compose completed（final.mp4 ffprobe 94.58s/1280x720）；回归 17 文件 220/220；QM-1 打包三验证（全量 kit 未入 asar）。
+
+### 文档
+- 新增 `01-docs/PRD-FILM-FULL-CORPUS-PRODUCTION-2026-09-23.md`（详版：导入操作/两级 kit/合成合同/出片流程/交互显示项/提示文字/磁盘预期）；`ARCH-FILM-ENGINEERING-2026-08-14.md` 追加 §11；`ipc-manifest.md` 补 6 通道。
+
 # [未发布] feat(sync): 运营中心同步零配置化（方案C）—— Logto JWT 自动鉴权 + URL 自动发现
 
 ### 变更
