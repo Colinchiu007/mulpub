@@ -15263,3 +15263,25 @@ Bug 修复走完整 QM-5（根因溯源 / 逃逸链 / 系统性漏洞 / 修复+�
 
 - **合并后定向复验的「文件集合」必须从合并 diff 推出，而不是从本 PR 的工作清单推出（merge-verification-scope）**：本次本地按「本 PR 触及的 8 个测试文件」全绿后推送，CI 却红 4 项——唯一失败文件是**对方 PR 随合并新增**的 `account-batch-check.test.js`，它断言的正是被我方语义改掉的超时口径。判据：合并后至少跑一次全量；若只能定向，则文件集 = 两侧改动测试文件的并集 ∪ 所有状态为 `A` 的新增测试文件 ∪ 这些文件所测实现的调用方。
 - **收敛口径到已择一的契约时，标题与文档注释要一起改（semantic-drift-in-test-names）**：`超过硬超时计入失效` 这类标题本身就是错误语义的载体，只改断言不改标题，下一个读者会被标题误导回旧口径；同时借机把该文件此前缺失的固化断言（`persistLoginState` 被以 `unverified` 调用、`persisted.ok`）补上，使「收敛」不等于「放松」。
+
+
+## model-sort-visible-2026-09-23：预设模型排序「所见即所得」refinement，灰显锁死修复（分支 codex/model-sort-visible，PR#2246）
+
+### 需求
+用户报告 PR#2232 交付的运营中心 4 图标排序按钮默认视图全部灰显（提示「排序功能用于全量列表，请先清除分类筛选并开启含隐藏项」），功能实际不可用。经 AskUserQuestion 选定「所见即所得·根治」：reorder 只在当前可见序列内重排，彻底去掉灰显。
+
+### 可复用结论
+
+- **CodeReview 的防御措施本身要过可用性验收（pitfall）**：#2232 为防「筛选视图 $index 与全量下标错位」引入 `sortLocked = Boolean(filterCategory) || !includeHidden`，而 `includeHidden` 默认 false → 锁在默认视图恒真，把刚交付的功能整体锁死。判据：任何「条件禁用」的防护，验收必须覆盖**页面默认状态**下主操作可用；防护的禁用条件与控件默认值组合要在测试矩阵里出现，不能只测「开关打开后行为正确」。
+- **错位类缺陷的根治是作用域化语义，不是禁用（pattern）**：所见即所得 reorder = 服务端按自身 `_display_order()` 取全量 rows → `slots` = 可见行在 rows 中的位置集合 → 在 `vis = rows[slots]` 内 pop/insert → 写回 `rows[slots[k]]`。序列外行绝对位置不变；服务端重取交集、忽略前端传入顺序，天然防篡改；移动后仍全列表归一化 0..n-1。前端只需提交 `visible_ids = presets.value.map(p => p.id)`。
+- **判别用例必须能区分新旧实现（pattern，TDD）**：前缀切片 `ids_all[:3]` 使槽位==绝对下标，新旧实现结果相同，测试形同虚设；改用**不连续可见序列 `[0,2,3]`** 并断言作用域外行 `ids_all[1]` 绝对位置不变，旧全量实现必红。写回归测试时先问「旧代码能过这条吗」，过则无判别力。
+- **可选集合参数用 `is not None` 而非真值判断（pitfall，CodeReview MINOR）**：`if visible_ids:` 使 `[]`（空作用域）误落「缺省→全量重排」分支，静默改写全表顺序，违背 fail-closed。哨兵语义：None=缺省、[]=空作用域（一律 not-found→404），必须各配一条判别测试。
+- **worktree add 假成功的识别与降级（pitfall）**：报 exit 0 且打出 checkout 提示，但 `git worktree list` 无条目、路径不存在（分支 ref 却已创建）——属半失效。修复路径：确认分支 ref 落点后，**复用**一个依赖已就绪的既有 worktree 直接 `git checkout <branch>`，并用「写文件再 Read」验证 HEAD/branch/ancestor/dirty 四项，不信任终端回显。
+- **本会话终端三大陷阱（tooling）**：① PowerShell `>` 重定向产出 UTF-16LE 文件，node/Read 读回乱码——结果核验用 node `readFileSync(utf16le)` 双编码探测或直接 stdout；② 长命令行经 Bash 工具转后台会卡在 `>>` 续行提示**根本没执行**（文件不生成即信号）——长命令一律落成 .ps1 用 `powershell -File` 执行；③ 输出归因失败/截断常态化，git/pytest/gh 结论必须以回读文件为准。
+- **Qoder 编辑工具跨 workspace 边界（pattern 沿用）**：worktree 文件读写继续用 msort-patch.js（Node 补丁执行器：find 唯一性计数 + CRLF 归一）+ spec.js；spec 中含反引号的模板串用 `BT` 变量拼接，中文内容经 .md staging 不受损。
+
+### 逃逸链与堵口
+单元测试（后端 reorder 只测全量语义）→ 集成（前端无组件级 disabled 断言）→ 人工验收（只在含隐藏项开启路径下点过按钮）。堵口：4 条判别用例（不连续序列槽位置换 / 序列内 noop / 越界 404 / 空序列 404）进 `test_model_presets_api.py`，PRD §4.5 固化「默认视图可用」为验收标准。
+
+### 本次交付
+3 commits（9ef12de13 实现 / d347deba9 评审修复 / f10d9fc02 文档）；ops-center 后端全量 pytest 414 passed、前端 build exit 0；CodeReview 无 CRITICAL/MAJOR；PR#2246 auto-merge squash。桌面端零改动（applyCatalog 只消费最终 sort_order）。
