@@ -71,7 +71,7 @@
               <template #default="{ data }">
                 <span class="fe-scene-node">
                   <span class="fe-scene-name">{{ data.name }}</span>
-                  <span v-if="data.shotCount" class="fe-scene-badge">{{ data.shotCount }}</span>
+                  <span v-if="data.count" class="fe-scene-badge">{{ data.count }}</span>
                 </span>
               </template>
             </el-tree>
@@ -82,9 +82,10 @@
             <div v-if="!selectedSceneId" class="fe-empty">{{ t('filmEngineering.library.selectScene') }}</div>
             <template v-else>
               <div class="fe-toolbar">
-                <el-checkbox :model-value="allSelectedInScene" :indeterminate="someSelectedInScene" @change="toggleAllInScene">
+                <el-checkbox :model-value="allSelectedInScene" :indeterminate="someSelectedInScene" :title="t('filmEngineering.library.selectAllLoaded')" @change="toggleAllInScene">
                   {{ t('filmEngineering.library.selectAll') }}
                 </el-checkbox>
+                <span class="fe-hint" data-testid="fe-loaded-count">{{ t('filmEngineering.library.loadedCount', { loaded: shots.length, total: shotsTotal }) }}</span>
                 <el-select v-model="copyMode" size="small" class="fe-mode-select">
                   <el-option :label="t('filmEngineering.library.copyModeFull')" value="full" />
                   <el-option :label="t('filmEngineering.library.copyModeBlocks')" value="blocks" />
@@ -116,6 +117,9 @@
                   </div>
                   <el-button size="small" class="fe-shot-copy" @click="copyText(s.shotId, 'full')">{{ t('filmEngineering.library.copyFull') }}</el-button>
                 </div>
+              </div>
+              <div ref="shotListEnd" class="fe-load-more">
+                <el-button v-if="shotsHasMore" size="small" :loading="shotsLoadingMore" data-testid="fe-load-more" @click="loadMoreShots">{{ t('filmEngineering.library.loadMore') }}</el-button>
               </div>
             </template>
           </div>
@@ -346,7 +350,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useFilmEngineering } from '@/composables/useFilmEngineering'
 import ConfigProfileManager from '@/components/ConfigProfileManager.vue'
@@ -357,9 +361,10 @@ import { story2videoShowInFolder, story2videoSaveAs } from '@/api/publisher'
 const { t } = useI18n()
 const {
   status, statusLoading, scenes, scenesLoading, selectedSceneId, shots, shotsLoading,
+  shotsTotal, shotsHasMore, shotsLoadingMore,
   shotDetail, detailLoading, doctrine, selectedShotIds, copyMode,
   generating, exportLoading, adapt,
-  refreshAll, selectScene, openShot, toggleShot, toggleAllInScene,
+  refreshAll, selectScene, openShot, toggleShot, toggleAllInScene, loadMoreShots,
   copyText, copySelected, exportSelected, generateSelected, adaptScript, copyAdaptedShot,
   buildConfigProfileSnapshot, applyConfigProfileSnapshot,
   loadConfigProfiles, saveConfigProfile, renameConfigProfile, deleteConfigProfile,
@@ -513,6 +518,20 @@ async function copyRefToken (token) {
   }
 }
 
+// 4.3 虚拟滚动：列表尾 sentinel 进入视口（提前 240px）自动拉取下一页；无 IntersectionObserver 环境（如 jsdom）跳过，保留手动「加载更多」兜底
+const shotListEnd = ref(null)
+let shotEndObserver = null
+watch(shotListEnd, (el) => {
+  if (shotEndObserver) { shotEndObserver.disconnect(); shotEndObserver = null }
+  if (el && typeof IntersectionObserver !== 'undefined') {
+    shotEndObserver = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting) && shotsHasMore.value && !shotsLoadingMore.value && !shotsLoading.value) loadMoreShots()
+    }, { rootMargin: '240px' })
+    shotEndObserver.observe(el)
+  }
+}, { flush: 'post' })
+onBeforeUnmount(() => { if (shotEndObserver) { shotEndObserver.disconnect(); shotEndObserver = null } })
+
 onMounted(() => {
   refreshAll()
 })
@@ -550,6 +569,7 @@ onMounted(() => {
 .fe-shot-id { color: #c0c4cc; font-size: var(--font-size-xs); }
 .fe-shot-prompt { color: #606266; font-size: var(--font-size-sm); line-height: 1.6; white-space: pre-wrap; word-break: break-all; }
 .fe-shot-copy { flex-shrink: 0; }
+.fe-load-more { display: flex; justify-content: center; padding: 10px 0; }
 .fe-adapt-roles { margin-top: 14px; }
 .fe-adapt-roles-title { font-size: var(--font-size-sm); font-weight: 600; margin-bottom: 8px; }
 .fe-hint { color: #909399; font-size: var(--font-size-xs); font-weight: 400; margin-left: 8px; }

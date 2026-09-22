@@ -31,6 +31,8 @@ const t = (key) => i18n.global.t(key)
 const api = () => (getApi() || {}).filmEngineering || null
 
 const COPY_MODES = ['full', 'blocks', 'characters', 'geo']
+// 4.3 分页拉取：单页 100 镜（后端 DEFAULT_PAGE_LIMIT=100/MAX_PAGE_LIMIT=200 对齐）
+const SHOTS_PAGE_SIZE = 100
 const FILM_ENGINEERING_PIPELINE_ID = 'film-engineering'
 
 function cloneJson (value) {
@@ -66,6 +68,10 @@ export function useFilmEngineering () {
   const selectedSceneId = ref(null)
   const shots = ref([])
   const shotsLoading = ref(false)
+  const shotsTotal = ref(0)
+  const shotsOffset = ref(0)
+  const shotsHasMore = ref(false)
+  const shotsLoadingMore = ref(false)
   const shotDetail = ref(null)
   const detailLoading = ref(false)
   const doctrine = ref(null)
@@ -129,21 +135,71 @@ export function useFilmEngineering () {
     }
   }
 
+  // 页封装 {shots,total,limit,offset} 优先；数组形态（旧全量负载/精简 kit）按单页防御兼容
+  function applyShotPage (pageData) {
+    if (Array.isArray(pageData)) {
+      shots.value = pageData
+      shotsTotal.value = pageData.length
+      shotsOffset.value = pageData.length
+      shotsHasMore.value = false
+      return
+    }
+    const page = pageData || {}
+    const list = Array.isArray(page.shots) ? page.shots : []
+    const total = Number.isFinite(page.total) ? page.total : list.length
+    shots.value = list
+    shotsTotal.value = total
+    shotsOffset.value = list.length
+    shotsHasMore.value = list.length < total
+  }
+
   async function selectScene (sceneId) {
     const a = api()
     if (!a || !sceneId) return
     selectedSceneId.value = sceneId
     shots.value = []
     selectedShotIds.value = []
+    shotsTotal.value = 0
+    shotsOffset.value = 0
+    shotsHasMore.value = false
     shotsLoading.value = true
     try {
-      const res = await a.listShots(sceneId)
-      if (res && res.code === 0) shots.value = res.data || []
+      const res = await a.listShots(sceneId, { limit: SHOTS_PAGE_SIZE, offset: 0 })
+      if (res && res.code === 0) applyShotPage(res.data)
       else notifyWarning('filmEngineering.shotLoadFailed', { message: formatUserError(res, { fallback: t('filmEngineering.shotLoadFailed') }).message })
     } catch (e) {
       notifyWarning('filmEngineering.shotLoadFailed', { message: formatUserError(e, { fallback: t('filmEngineering.shotLoadFailed') }).message })
     } finally {
       shotsLoading.value = false
+    }
+  }
+
+  async function loadMoreShots () {
+    const a = api()
+    if (!a || !selectedSceneId.value || !shotsHasMore.value) return false
+    if (shotsLoading.value || shotsLoadingMore.value) return false
+    const sceneId = selectedSceneId.value
+    shotsLoadingMore.value = true
+    try {
+      const res = await a.listShots(sceneId, { limit: SHOTS_PAGE_SIZE, offset: shotsOffset.value })
+      if (!res || res.code !== 0) {
+        notifyWarning('filmEngineering.loadMoreFailed', { message: formatUserError(res, { fallback: t('filmEngineering.loadMoreFailed') }).message })
+        return false
+      }
+      if (selectedSceneId.value !== sceneId) return false // 竞态防护：请求期间切场景，迟到的页丢弃
+      const page = Array.isArray(res.data) ? { shots: res.data, total: res.data.length } : (res.data || {})
+      const list = Array.isArray(page.shots) ? page.shots : []
+      const total = Number.isFinite(page.total) ? page.total : shotsTotal.value
+      shots.value = shots.value.concat(list)
+      shotsTotal.value = total
+      shotsOffset.value = shots.value.length
+      shotsHasMore.value = shots.value.length < total
+      return true
+    } catch (e) {
+      notifyWarning('filmEngineering.loadMoreFailed', { message: formatUserError(e, { fallback: t('filmEngineering.loadMoreFailed') }).message })
+      return false
+    } finally {
+      shotsLoadingMore.value = false
     }
   }
 
@@ -398,11 +454,12 @@ export function useFilmEngineering () {
 
   return {
     status, statusLoading, scenes, scenesLoading, selectedSceneId,
-    shots, shotsLoading, shotDetail, detailLoading,
+    shots, shotsLoading, shotsTotal, shotsOffset, shotsHasMore, shotsLoadingMore,
+    shotDetail, detailLoading,
     doctrine, doctrineLoading, selectedShotIds, copyMode, generating, exportLoading, adapt,
     COPY_MODES,
     loadStatus, loadScenes, selectScene, openShot, loadDoctrine,
-    toggleShot, toggleAllInScene, copyText, copySelected, exportSelected, generateSelected,
+    toggleShot, toggleAllInScene, loadMoreShots, copyText, copySelected, exportSelected, generateSelected,
     adaptScript, copyAdaptedShot, refreshAll, selectedShotsPayload,
     buildConfigProfileSnapshot, applyConfigProfileSnapshot,
     loadConfigProfiles, saveConfigProfile, renameConfigProfile, deleteConfigProfile,
