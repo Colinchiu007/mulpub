@@ -15047,3 +15047,16 @@ opencode 双模型审查发现三个问题：① 后端 `create_constraint` 对�
 ### 本次决策记录
 
 用户原本要求「把本地 ollama 的 `nomic-embed-text` 接给 Windows 侧 EverOS 的 embedding」，与「打开 vector/hybrid」在技术上互斥（见上文维度约束）。以三方案交回用户定夺后选定：**云端 siliconflow `BAAI/bge-m3`（实测 1024 维，与列 schema 一致）保持不变，只打开混合检索**；`nomic-embed-text` 保持闲置。WSL 侧按用户选择「连数据目录一起删」，删前归档 `D:\Data\everos-wsl-archive\everos-wsl-snapshot-20260921T153219.tgz`（23461B / 177 条目，Windows `tar.exe -tzf` 校验）。
+
+## 爆款库四链路 PR-2 交付（viral-lib-recrawl-hotlist-bridge，2026-09-22，PR #2180）
+
+### 可复用结论
+- **新增 preload 暴露方法必须重打包提交的 bundle 产物（pitfall）**：`electron/preload/index.bundle.js` 是 esbuild 预构建、git 跟踪的产物；`electron/tests/build-preload.test.js` 断言「提交 bundle 与源码 `collectApiPaths` 完全相同的 API 路径」。给 preload 子模块（经 `preload/index.js` 组装）新增/改名暴露方法（本次 `getPatternQueueStats`）后若只改源码不重跑 `node apps/desktop/scripts/build-preload.js`，全量 vitest 独此一项红（源码 API 面 ⊋ bundle 面）。与「preload.test.js 快照计数语义冲突」坑互补：那条是硬编码数量断言，本条是产物同步。凡改 preload IPC 面的 PR 都需在提交前重建 bundle。
+- **PowerShell 管道吞原生 vitest 流导致假卡死（tool）**：`npx vitest run 2>&1 | Tee-Object file | Select-Object -Last 5` 在 vitest 退出后仍挂起（PS 对原生命令 stderr 合流 + Tee 缓冲死锁），且非 TTY 时 vitest 结束才一次性 flush，日志长期 0 字节易误判「在跑」。正解：用 vitest 自带 `--reporter=json --outputFile=<path>`（vitest 进程自己落盘，完全不经 PS 流管道），跑完 `require()` 该 json 读 `numTotalTests/numPassedTests/numFailedTests` + 遍历 `testResults[].assertionResults[].status==='failed'` 定位失败项；或 `--reporter=dot` 精简输出。判活用 `Get-Process node | Measure CPU -Sum` 取增量（快照两次相同=已停）。
+- **债务熔断：拆功能域到伴生模块，而非提基线（pattern，二次验证）**：本次两文件被 P1 改动撑破——`knowledge-library-store.js` 513→425（回采写回域 `_engagementNum`/`_normUrlForMatch`/`updateViralEngagementByNormUrl` 抽到 `knowledge-library-viral-engagement.js`，`_engagementNum` 单源、mixin 里 `updateViralEngagementByNormUrl: updateViralEngagementByNormUrl` 引回，无循环依赖）；`ViralAnalysis.vue` 1031→990（F3 并源 4 纯函数抽到 `src/utils/viral-trending-merge.js`，`.vue` 薄委托、行为逐字节不变）。`.vue` 也计入 filesOver1000/500。拆分后既有测试（通过组件/服务入口驱动）不动即证行为保持。
+- **方法体→伴生模块的 slice 尾逗号坑（tool）**：脚本按 `indexOf(EOL + "  },")` 定位对象字面量方法闭合，替换整段须覆盖 `  },` 全 4 字符（`closeIdx + EOL.length + 4`），少 1 会残留逗号致语法断。改后 `node --check` + 目标测试双验。
+- **合并 main 无冲突但基线漂移需复跑门禁（pattern）**：origin/main 期间并入 #2178（热门选题热度排序），与本 PR 同改 `locales/zh|en.js`（各自键区间不重叠→git 自动并集）与 `scripts/debt-baseline.json`（#2178 把 filesOver500 基线 97→98）。合并后必须重跑 `check-debt-budget`（新基线下 98/98 通过）+ 合并敏感套件（i18n 成对/build-preload/ViralAnalysis/hot-topics scorer 共 104 绿）再推送，不能拿合并前结果交差。
+- **gh 仓库名与 remote 别名不一致（operational）**：origin 显示 `Multi-Publish.git`，但 `gh`/PR web 跳转解析为规范名 `mulpub`（PR 落在 `github.com/Colinchiu007/mulpub/pull/2180`）。以 `gh pr create` 返回的 URL 为准，勿按 remote 名手拼。
+
+### 本次决策记录
+延续 PR-1（#2174）NULL/0 契约，PR-2（#2180）落地三条 P1：P1-a 回采写回爆款库（主进程内部、无新 IPC，`_normUrlForMatch` 双侧匹配 + 单调不减写回，fail-open）、P1-b F3 并入热榜信号（hotlist 恒前 + 800ms Promise.race 超时静默降级 + 来源徽标 + 截 12）、P1-c 模式卡片队列保护（deferred 非终态、pending≥500 直标 deferred、<200 老卡优先批量回落、同 norm_url 复用）。全量 vitest 10616/10618（2 skip、0 fail）；squash 自动合并（CI 绿即并）。PRD §4.6 逐链路回写数据校验/流程/交互/显示/提示。

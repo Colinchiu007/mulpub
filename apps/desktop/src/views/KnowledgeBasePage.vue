@@ -20,6 +20,10 @@
         <button class="kb-tab-btn" :class="{ active: activeTab === 'personal' }" @click="activeTab = 'personal'">{{ t('knowledgeBase.tabPersonal') }}</button>
       </div>
 
+      <!-- F-204：模式提取积压提示条（deferred>0 才出现；IPC 失败静默隐藏，fail-open） -->
+      <div v-if="activeTab === 'viral' && queueDeferred > 0" class="kb-queue-backlog" data-testid="pattern-queue-backlog">
+        {{ t('knowledgeBase.patternQueueBacklog', { n: queueDeferred }) }}
+      </div>
       <ViralLibraryTable v-if="activeTab === 'viral'" ref="viralRef" @create="showViralForm = true" />
       <PatternAnalysisPanel v-if="activeTab === 'pattern'" ref="patternRef" />
       <PersonalKnowledgePanel v-if="activeTab === 'personal'" ref="personalRef" @create="showPersonalForm = true" />
@@ -39,6 +43,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { formatUserError } from '@/utils/user-facing-error'
 import { importFiles, exportViralToFeishu, exportPersonalToFeishu } from '@/api/knowledge-library'
+import { getPatternQueueStats } from '@/api/knowledge-library'
 import { getApi } from '@/api/electron-bridge'
 import ViralLibraryTable from '@/components/ViralLibraryTable.vue'
 import PatternAnalysisPanel from '@/components/PatternAnalysisPanel.vue'
@@ -49,6 +54,15 @@ import PersonalFormDialog from '@/components/PersonalFormDialog.vue'
 const { t } = useI18n()
 const router = useRouter()
 const activeTab = ref('viral')
+// F-204：deferred 计数（页头提示条）；挂载时拉一次，失败保持 0（不打扰）
+const queueDeferred = ref(0)
+async function loadQueueStats () {
+  try {
+    const res = await getPatternQueueStats()
+    if (res && res.code === 0 && res.data) queueDeferred.value = Number(res.data.deferred) || 0
+  } catch { /* fail-open：静默 */ }
+}
+onMounted(loadQueueStats)
 const showViralForm = ref(false)
 const showPersonalForm = ref(false)
 const editingViral = ref(null)

@@ -2702,6 +2702,8 @@ knowledgeBase: {
     batchImportComingSoon: 'Batch import coming soon',
     exportComingSoon: 'Feishu export coming soon, please configure Feishu API in settings first',
     tabPersonal: 'Personal Knowledge',
+    patternQueueBacklog: 'Pattern extraction queued ({n} deferred); analysis is unaffected',
+    engagementRecrawled: 'Engagement auto-updated via re-crawl',
     addViral: 'Add Viral',
     addViralManual: 'Add Viral Manually',
     collectByLink: 'Collect via Link',
@@ -2964,6 +2966,9 @@ knowledgeBase: {
     // PR-1 viral page full utilization (2026-09-21): F1 task segment / F3 trending quick-pick / F9 generate mode badge / Q2 local estimate note
     taskSegmentHint: 'Choose generation type',
     sectionTrending: 'Trending Topics',
+    trendSrcHotlist: 'Hot list',
+    trendSrcLibrary: 'Library',
+    trendSrcArticles: 'Analysis',
     trendingHint: 'Click a topic to fill the theme (no auto-analyze)',
     localGenBadge: 'Local engine',
     localGenHint: 'Local heuristic engine (works offline / without orchestrator); supports only titles and hooks. Use the rewrite page or configure an AI service for long-form rewriting',

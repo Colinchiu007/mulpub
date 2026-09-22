@@ -206,6 +206,44 @@ searchViralItems / ViralLibraryTable / F7 回读
 - AC-P1-3：一次灌入 600 条 → pending 峰值 ≤ 500+单轮边界，deferred 计数正确、爆款库页头提示出现；队列回落后 deferred 自动转 pending。
 - AC-P1-4：F3 hotlist 项排前且徽标正确；点击行为与本地项一致。
 
+### 4.6 PR-2 落地交付记录（实现即证据，2026-09-22）
+
+> 本节为 PR-2（P1）合入实现回写的实况，与最终代码逐文件对齐。三条链路：P1-a 回采写回、P1-b 选题并源、P1-c 队列保护。
+
+**P1-a 回采写回爆款库（无新 IPC，主进程内部）**
+
+- 触发点：`performance-recrawl-service.js _recrawlOne` 在 tracked 域更新成功（`updateTrackedContent` ok）后调用 `this._writeBackViral(contentUrl || item.url, metrics)`；整段 fail-open——写回抛错仅 `log.warn`，不回滚 tracked 域更新、不向上抛出（U-203b）。
+- 解析器注入用 DI seam `const parser = (this._getParser || getParser)(item.platform)`，测试可覆写 `_getParser`；`_jitter` 可注入去抖。
+- 写回核心 `knowledge-library-viral-engagement.js`（从 store 拆出的伴生模块，`_engagementNum` 单源、无循环依赖）`updateViralEngagementByNormUrl(url, engagement)`：
+  - 双侧 `_normUrlForMatch` 规范化匹配（协议 http/https 视同、host 小写、去 fragment、去尾斜杠、去 utm_* 查询参并排序；path 段大小写保留）；JS 侧比较，无 schema 迁移。
+  - 单调不减口径：字段本轮未知（null）→ 不动旧值；NULL→可补；变大→更新；变小→`log.warn` 拒绝（解析错误防御）；相等→no-op。
+  - `like_collect_ratio` 仅在 likes 与 collections 双已知且 `collections>0` 时按 P0-c 口径重算；`updated_at` 刷新；`source` 不变；返回 `{ matched, updated }`。
+- 显示：爆款库表标题单元格挂 tooltip `knowledgeBase.engagementRecrawled`「互动数据已自动回采更新 — <更新时间前 10 字符>」，仅 `source==='collection'` 且更新/创建时间有差异时出现（`recrawlTooltip`）。
+
+**P1-b F3 热门选题并入热榜信号（`ViralAnalysis.vue`）**
+
+- 纯逻辑抽到 `src/utils/viral-trending-merge.js`（4 个纯函数：`collectTrendingArticles` / `mapLocalKeywords` / `mapHotlistTopics` / `mergeTrending`），`.vue` 侧薄委托，行为逐字节不变（U-221 回归锁）。
+- 并源顺序：热榜信号恒前（外部热度 > 内部词频）→ 本地 `viralTrending` 词（src 依来源标题集合判 library/articles，未命中默认 library）；跨源按 word 去重、首见胜出；`slice(0, 12)` 截断。
+- 热榜仅读缓存 `hotTopicsGetCache()`（不触发抓取）+ `Promise.race` 800ms 超时兜底 resolve(null)；任何抛错/超时 → 静默降级为纯本地源，与不接热榜时渲染完全一致（AC-P1-2 降级回归锁 U-221b）。
+- 显示：趋势词按钮内对 `src==='hotlist'` 项加来源徽标 `.viral-trend-badge`，文案 `viralAnalysis.trendSrcHotlist`「热榜」/ `trendSrcLibrary`「库内」/ `trendSrcArticles`「分析」；点击回填主题行为与本地项一致（AC-P1-4）。
+
+**P1-c 模式卡片队列保护（`viral-pattern-store.js` + `pattern-extraction-service.js`）**
+
+- `PATTERN_STATUS` 新增非终态 `deferred`；模块常量 `PENDING_BACKLOG_LIMIT=500` / `DEFERRED_PROMOTE_BELOW=200` / `DEFERRED_PROMOTE_MAX=200`（实例属性 `this.X ?? 常量` 可覆盖，便于测试）。
+- 入队点 `ensurePatternCard`：`const status = this.countPendingPatternCards() >= limit ? 'deferred' : 'pending'`——积压超 500 直接标 deferred，不丢弃。
+- 巡检回落 `promoteDeferredPatternCards({ below, max })`：pending ≥ below 或 max≤0 时返回 0；否则 quota=min(max, below-pending)，老卡优先（`created_at ASC`）批量转回 pending；`LIMIT` 拼接纯数字无引号（规避 sql.js 方言）。同 `norm_url` 已存在卡片走 `INSERT OR IGNORE` 天然复用、不重建 pending。
+- 计数 `countPendingPatternCards` / `countDeferredPatternCards`；聚合 `patternQueueStats()`（`Promise.all` → `{ pending, deferred }`）。
+- 链路打通：store `patternQueueStats` → service `getPatternQueueStats` → IPC `knowledge-library:pattern-queue-stats` → preload（`index.bundle.js` 已重建含 `getPatternQueueStats`）→ renderer api → `KnowledgeBasePage.vue` `onMounted` 拉取。
+- 显示：爆款库页在 `activeTab==='viral' && queueDeferred > 0` 时显示提示条 `knowledgeBase.patternQueueBacklog`「模式提取排队中（{n} 条延后处理），分析功能不受影响」（n 渲染端插值）；拉取失败 try/catch 静默，不打扰主流程（AC-P1-3）。
+
+**测试与门禁（CI）**
+
+- 三批 TDD 红→绿：P1-a writeback 14/14、P1-c queue 22/22、P1-b 并源/tooltip/backlog 69/69。
+- apps/desktop 全量 vitest：10618 用例，修复后 10616 通过 / 2 跳过 / 0 失败。唯一红 `build-preload「bundle 与源码 API 路径一致」` 根因是新增 preload 方法 `getPatternQueueStats` 未同步提交产物——`node scripts/build-preload.js` 重建 `index.bundle.js` 后转绿。
+- 债务熔断：本次改动撑破两文件，按「拆模块不提基线」修复——`knowledge-library-store.js` 513→425（回采写回域拆伴生模块）、`ViralAnalysis.vue` 1031→990（F3 并源逻辑拆 utils）；`check-debt-budget` filesOver1000 32/32、filesOver500 97/97 全回基线。
+- Gate 7：5 个新 locale 键 zh/en 1:1 成对（`trendSrcHotlist`/`trendSrcLibrary`/`trendSrcArticles`、`patternQueueBacklog`、`engagementRecrawled`）；i18n 成对回归随全量套件通过。QM-1：electron-builder `--win --dir` 打包验证，详见 PR 说明。
+
+
 ## 5. P2 规格 — 强度注入改写 + 选题联动（单独 PR-3）
 
 **一句话**：把"定量爆款信号"接进改写引擎与选题入口，补 REWRITE-INTEGRATION 只传文本的最后一块。

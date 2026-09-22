@@ -43,7 +43,7 @@
           </tr>
           <tr v-for="(item, idx) in items" :key="item.id">
             <td>{{ (page - 1) * pageSize + idx + 1 }}</td>
-            <td>{{ item.title || '-' }}</td>
+            <td :title="recrawlTooltip(item)">{{ item.title || '-' }}</td>
             <td><img v-if="item.cover_url" :src="item.cover_url" style="width:60px;height:60px;object-fit:cover;border-radius:4px" /></td>
             <td>{{ item.author || '-' }}</td>
             <td>{{ (item.content || '').slice(0, 80) }}{{ (item.content || '').length > 80 ? '...' : '' }}</td>
@@ -143,6 +143,15 @@ function sortBy (field) {
     sortOrder.value = 'desc'
   }
   loadData()
+}
+
+// P1-a 显示联动（F-205）：采集条目 updated_at>created_at 视为发生过回采更新 → hover 提示（locale 存短标签，日期渲染端拼接）
+function recrawlTooltip (item) {
+  if (!item || item.source !== 'collection') return undefined
+  const up = String(item.updated_at || '')
+  const cr = String(item.created_at || '')
+  if (!up || !cr || up <= cr) return undefined
+  return t('knowledgeBase.engagementRecrawled') + ' — ' + up.slice(0, 10)
 }
 
 function formatNum (n) {

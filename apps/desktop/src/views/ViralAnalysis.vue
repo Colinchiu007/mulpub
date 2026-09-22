@@ -84,7 +84,8 @@
               class="viral-keyword-tag viral-trending-pick"
               data-testid="viral-trending-pick"
               @click="pickTrending(k.word)"
-            >{{ k.word }}</button>
+            >
+              <span v-if="k.src === 'hotlist'" class="viral-trend-badge" data-testid="viral-trend-badge">{{ $t('viralAnalysis.trendSrcHotlist') }}</span>{{ k.word }}</button>
           </div>
         </details>
 
@@ -361,9 +362,11 @@
 <script>
 import { viralAnalyze, viralGenerate, viralTrending, getRecentImpactSnapshots } from '@/api/publisher'
 import { addViralToLibrary, listViralItems, searchViralItems, listPatternPerformance } from '@/api/knowledge-library'
+import { hotTopicsGetCache } from '@/api/hot-topics'
 import UiButton from '../components/UiButton.vue'
 import ViralManualDataInput from '../components/ViralManualDataInput.vue'
 import { buildViralSampleJson } from '@/utils/viral-sample-data'
+import { collectTrendingArticles, mapLocalKeywords, mapHotlistTopics, mergeTrending } from '@/utils/viral-trending-merge'
 import { CaretBottom, CaretRight, CaretTop, Connection, Cpu, DataLine, FolderAdd, Key, MagicStick, TrendCharts, Trophy } from '@element-plus/icons-vue'
 import { formatUserError } from '@/utils/user-facing-error'
 import { useViralSignalStore } from '@/stores/viral-signal'
@@ -505,39 +508,22 @@ components: { UiButton, CaretBottom, CaretRight, CaretTop, Connection, Cpu, Data
      */
     async loadTrending () {
       try {
-        const articles = []
-        const seen = new Set()
-        const push = (a) => {
-          if (!a || typeof a !== 'object') return
-          const title = typeof a.title === 'string' ? a.title.trim() : ''
-          if (!title || seen.has(title)) return
-          seen.add(title)
-          articles.push(a)
-        }
-        if (this.articleData.trim()) {
-          try {
-            const parsed = JSON.parse(this.articleData.trim())
-            if (Array.isArray(parsed)) parsed.forEach(push)
-          } catch { /* 非法 JSON 静默忽略 */ }
-        }
-        try {
-          const lib = await listViralItems({ page: 1, pageSize: 30 })
-          if (lib?.code === 0 && Array.isArray(lib.data?.items)) {
-            lib.data.items.slice(0, 30).forEach(it => push({
-              title: it && it.title,
-              like_count: Number(it && it.likes) || 0,
-              comment_count: Number(it && it.comments) || 0,
-              platform_code: (it && it.platform) || 'general',
-            }))
-          }
-        } catch { /* 爆款库不可用（如未登录门禁）不影响选题区其余数据源 */ }
+        let libRes = null
+        try { libRes = await listViralItems({ page: 1, pageSize: 30 }) } catch { libRes = null }
+        const { articles, libTitles, artTitles } = collectTrendingArticles(this.articleData, libRes)
         if (!articles.length) return
         const res = await viralTrending(JSON.parse(JSON.stringify(articles)))
-        if (res?.code === 0 && Array.isArray(res.data?.keywords)) {
-          this.trendingKeywords = res.data.keywords
-            .filter(k => k && typeof k.word === 'string' && k.word.trim())
-            .slice(0, 10)
-        }
+        const local = mapLocalKeywords(res && res.code === 0 ? res.data : null, libTitles, artTitles)
+        // P1-b：热榜只读缓存（不触发抓取）+ 800ms 超时兜底，失败静默降级纯本地源（AC-P1-2）
+        let hot = []
+        try {
+          const cached = await Promise.race([
+            hotTopicsGetCache(),
+            new Promise(resolve => setTimeout(() => resolve(null), 800))
+          ])
+          hot = mapHotlistTopics(cached)
+        } catch { /* 热榜不可用 → 纯本地源（今日行为） */ }
+        this.trendingKeywords = mergeTrending(hot, local, 12)
       } catch { /* 渐进增强：trending 失败整块隐藏，console 留痕由 IPC 层负责 */ }
     },
 
@@ -856,6 +842,17 @@ components: { UiButton, CaretBottom, CaretRight, CaretTop, Connection, Cpu, Data
 /* --- F3 热门选题速选 --- */
 .viral-trending-section { margin-top: var(--space-sm); }
 .viral-trending-row { margin-top: var(--space-sm); }
+.viral-trend-badge {
+  display: inline-block;
+  margin-right: 4px;
+  padding: 0 4px;
+  font-size: 10px;
+  line-height: 14px;
+  border-radius: 3px;
+  color: #fff;
+  background: #f56c6c;
+}
+
 .viral-trending-pick { cursor: pointer; border: none; transition: opacity 0.15s, transform 0.15s; }
 .viral-trending-pick:hover { opacity: 0.85; transform: translateY(-1px); }
 
