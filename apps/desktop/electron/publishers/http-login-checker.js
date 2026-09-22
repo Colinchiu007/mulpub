@@ -25,7 +25,7 @@ const log = require('../services/logger')
  * @property {string} [body] - POST JSON body（视频号 auth_data）
  * @property {string} [contentType] - POST Content-Type（默认 application/json）
  * @property {(data:any)=>boolean|undefined} [check] - JSON 响应判定；undefined=不确定（降级浏览器检测）；check 与 checkHtml 互斥
- * @property {(html:string)=>boolean} [checkHtml] - HTML 响应判定（公众号 loginpage 正则）
+ * @property {(html:string)=>boolean|undefined} [checkHtml] - HTML 响应判定（公众号 loginpage 正则）；undefined=不确定（降级浏览器检测）
  * @property {(cookieHeader:string)=>boolean} [precheck] - 请求前 cookie 预检（如 bilibili 必须含 bili_jct）
  */
 
@@ -54,7 +54,14 @@ const HTTP_CHECK_APIS = {
     headers: {
       Referer: 'https://mp.toutiao.com/profile_v4/graphic/publish'
     },
-    check: (data) => Boolean(data && data.code === 0 && data.data && data.data.user && data.data.user.id)
+    check: (data) => {
+      // 黑名单语义：仅明确成功/明确未登录文案才给结论，其余降级浏览器检测
+      if (!data || typeof data !== 'object') return undefined
+      if (data.code === 0 && data.data && data.data.user && (data.data.user.id || data.data.user.user_id)) return true
+      const msg = data.message || data.msg || data.status_msg
+      if (typeof msg === 'string' && /未登录|请先登录|登录过期|重新登录/.test(msg)) return false
+      return undefined
+    }
   },
   // 公众号：对齐参考产品 getWeixingongzhonghaoUserInfo —— GET loginpage 页（带 cookie），
   // 登录态由 HTML 内嵌的 token=/uin:/nick_name 正则体现；未登录时这些字段缺失。
@@ -67,11 +74,15 @@ const HTTP_CHECK_APIS = {
       Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
     },
     checkHtml: (html) => {
-      if (!html || typeof html !== 'string') return false
+      // 黑名单语义：token+uin 同时存在判有效；明确登录页文案判失效；
+      // 空响应/风控页/结构变更（无 token 也无登录特征）→ 不确定，降级浏览器检测
+      if (!html || typeof html !== 'string') return undefined
       // 对齐参考产品正则：&token=[0-9a-zA-Z]{3,} 与 uin:"[0-9]{3,}" 同时存在 → 已登录
       const hasToken = /&token=[0-9a-zA-Z]{3,}/.test(html) || /token=[0-9a-zA-Z]{3,}/.test(html)
       const hasUin = /uin:\s{0,}"[0-9]{3,}"/.test(html)
-      return hasToken && hasUin
+      if (hasToken && hasUin) return true
+      if (/扫码登录|请使用微信扫码|请登录|welcome_login/.test(html)) return false
+      return undefined
     }
   },
   // 视频号：对齐参考产品 getShipinhaoUserInfo —— POST auth_data 接口（带 cookie），
@@ -86,9 +97,12 @@ const HTTP_CHECK_APIS = {
     contentType: 'application/json',
     body: JSON.stringify({ timestamp: Date.now().toString().substring(0, 13), _log_finder_uin: '', _log_finder_id: '', rawKeyBuff: null, pluginSessionId: null, scene: 7, reqScene: 7 }),
     check: (data) => {
-      // errCode 300333/300334 = 登录失效（参考产品判定）
-      if (data && (data.errCode === 300333 || data.errCode === 300334)) return false
-      return Boolean(data && data.data && data.data.finderUser)
+      // 黑名单语义：errCode 300333/300334 = 登录失效（参考产品判定）；
+      // finderUser 存在判有效；其余结构（接口变更/风控）→ 不确定，降级
+      if (!data || typeof data !== 'object') return undefined
+      if (data.errCode === 300333 || data.errCode === 300334) return false
+      if (data.errCode === 0 && data.data && data.data.finderUser) return true
+      return undefined
     }
   },
   // bilibili：对齐参考产品 getBilibiliUserInfo —— GET nav 接口（带 cookie + Referer），
@@ -99,7 +113,14 @@ const HTTP_CHECK_APIS = {
       Referer: 'https://member.bilibili.com/'
     },
     precheck: (cookieHeader) => cookieHeader.includes('bili_jct='),
-    check: (data) => Boolean(data && data.code === 0 && data.data && data.data.mid)
+    check: (data) => {
+      // 黑名单语义：code -101 = 明确未登录；code 0 且有 mid 判有效；
+      // 其余状态码（风控 -352 等/结构变更）→ 不确定，降级
+      if (!data || typeof data !== 'object') return undefined
+      if (data.code === -101) return false
+      if (data.code === 0 && data.data && data.data.mid) return true
+      return undefined
+    }
   }
 }
 
@@ -180,6 +201,11 @@ async function checkLoginViaHttpApi (platform, cookies) {
     if (typeof api.checkHtml === 'function') {
       const html = await response.text().catch(() => '')
       const valid = api.checkHtml(html)
+      if (valid === undefined) {
+        // 判定不确定（风控页/结构变更/空响应）→ 不判失效，降级浏览器检测
+        log.info('HttpLoginChecker', platform + ': HTML check → inconclusive (html len=' + html.length + ') → fallback')
+        return { supported: true, valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE' }
+      }
       log.info('HttpLoginChecker', platform + ': HTML check → ' + (valid ? 'valid' : 'expired') + ' (html len=' + html.length + ')')
       return { supported: true, valid, code: valid ? 'CHECK_LOGIN_SUCCESS_HTTP_API' : 'CHECK_LOGIN_COOKIE_EXPIRED' }
     }

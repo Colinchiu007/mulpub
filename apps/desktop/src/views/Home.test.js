@@ -65,9 +65,12 @@ const accountBatchOpenLoginMock = vi.fn();
 const accountBatchCheckLoginMock = vi.fn();
 const onAuthCompletedMock = vi.fn(() => vi.fn());
 const onAccountStatusChangedMock = vi.fn(() => vi.fn());
+// 横幅检测结果统一回写（登录态口径统一修复 2026-09-22）：composable 新增 accountUpdate 依赖
+const accountUpdateMock = vi.fn().mockResolvedValue({ code: 0 });
 vi.mock("@/api/publisher", () => ({
   accountBatchOpenLogin: (...args) => accountBatchOpenLoginMock(...args),
   accountBatchCheckLogin: (...args) => accountBatchCheckLoginMock(...args),
+  accountUpdate: (...args) => accountUpdateMock(...args),
   onAuthCompleted: (...args) => onAuthCompletedMock(...args),
   onAccountStatusChanged: (...args) => onAccountStatusChangedMock(...args),
 }));
