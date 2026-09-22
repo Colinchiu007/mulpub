@@ -1,3 +1,155 @@
+# [未发布] fix(accounts): 账号登录态持久化真源统一 + 检测三态收敛（D1/D2/D3）
+
+### 变更
+- **登录态唯一真源落到后端 `accounts.json`（新增 `status` 三态字段）**：`server.py` 的 `AccountUpdateRequest` 接受 `status`（修 422 静默失败）、`_account_to_dict` 恒输出 `status`、`create_account` 初始化 `unverified`、`patch_account` 枚举白名单外返回 `400 ACCOUNT_STATUS_INVALID` 且不落盘；新增 `_normalize_account_status` 做读侧 fail-safe 归一化（历史脏值/缺失一律降级 `unverified`，绝不把未知值当「已登录」）。
+- **登录态唯一写者 `AccountManager.persistLoginState()`**：`account:check-login` / `accounts:batch-check-login` / `login-status-monitor` 三处检测链路统一在返回前 PATCH 后端固化 `status + last_validated`，结果逐账号带回 `persisted`；删除 `Accounts.vue`、`useExpiredAccountsBanner`、`login-status-monitor` 三处写 Electron 本地 SQLite 的伪回写（读端是后端、写端是 SQLite 且 id 不互通，正是「一键检测后重进又显示已登录」的根因），也不再 `.catch(() => {})` 静默。
+- **`toPublicAccount` 改 expired 粘滞**：删除「`last_validated` 2 小时窗口」与「本地存在凭证文件即把 expired 推翻为 active」两条会自我蒸发的规则；新增 `status_source` 字段与日志便于排障。
+- **检测降级语义纠正（假阳性 / 假阴性）**：`checkLoginStatus` 确立三态契约——正向证据只能来自真实校验，「凭证文件存在」「localStorage 存在」「Cookie 存在」均不构成充分证据；`tencent_video` 的 `LOCAL_ONLY valid:true`、`toutiao`/`baijiahao` 的 `NO_COOKIE fast-path`、浏览器检测异常兜底 `valid:true` 全部改为 `valid: undefined` + `CHECK_LOGIN_INCONCLUSIVE`；新增加密凭证与账号级 session 分区（`persist:account-{id}`）Cookie 合并判定；批量检测 `Boolean(status.valid)` 改为三态透传。
+- **Cookie 保存链路修复**：`webview-manager` 的 `session.cookies.getAll({})` 改为 `get({})`（Electron 的 `Session.cookies` 根本没有 `getAll`，抛错被 catch 吞掉导致保存的凭证 `cookies` 恒为 0），并改为 fail-loud：提取失败不再落一份空 Cookie 的「成功」凭证。
+- **`http-login-checker` 视频号 body 惰性求值**：`timestamp` 不再被模块级常量冻结，`body` 支持函数形态、每次请求重新求值。
+- **渲染层第三态**：`AccountManagementCard` 新增 `unverified` kind / 徽章（琥珀 `#fffaf0 / #974706`）与文案「未确认 / Unconfirmed」，与「从未检测」的 `unknown` 刻意区分；未确认不计入失效数量、不显示「去登录」。
+- **文案（zh/en 成对）**：新增 `accountsPage.accountCardLabels.statusUnverified`、`accountsPage.batchCheckAllPersistFailed`；`batchCheckAllDone` 扩展未确认计数（为 0 时省略）。
+
+### 验证
+- TDD 红→绿：每层先落测试并用 `git checkout HEAD -- <impl>` 复现红灯（`account.js` 10 failed、`account-manager` 2 failed、`login-status-monitor` 全红），再打实现转绿。
+- `account.test.js` 47/47、`account-manager*.test.js` 109/109（含 relogin-status 契约）、`webview-manager.test.js` 51/51、`login-status-monitor.test.js` 10/10（新建）、`Accounts.test.js` 82/82、`AccountManagementCard.test.js` 18、`useExpiredAccountsBanner.test.js` 5/5（重写）；后端 `test_server_account_lifecycle.py` 新增 8 例全绿。
+- **真实渲染层端到端护栏（本次新增）**：`apps/desktop/tests/e2e/specs/account-login-state-tristate.js` 以 Playwright 驱动**未打桩的真实 Vue 渲染层**（真实 `Accounts.vue` + 真实 `AccountManagementCard` 徽章），仅把 IPC 边界替换为可变 store，覆盖三条用户报告缺陷：D1 一键检测后 `resetToRoute` 重新进入账号页三态徽章不变（断言重进后 `accountUpdate` 调用数为 0，证明展示只依赖后端 `status`）；D2 今日头条（后端 `status=active`）不被本地凭证推翻；D3 视频号检测不确定时显示「未确认」而非「已登录」。实测 `15/15 passed`、零 console error、3 张截图落盘。
+- 门禁实测：桌面全量 vitest `10767 passed / 1 failed / 2 skipped`（唯一失败 `story2video-manual-assets.test.js` 单文件重跑通过，判定为顺序抖动）；后端全量 pytest `4 failed / 2669 passed`，失败集与主仓干净 HEAD 基线（`4 failed / 2676 passed`）逐条同名 → 无回归；ESLint `--quiet`（CI Gate 11）0 error；`check-frontend-consistency.js` PASS；`build:vue` exit 0；`check:ts` 存量错误 1203 → 1202（净 -1，零新增，该检查不在 CI workflow 内）。
+- CI 逃逸：首轮 `QG Static` 抓出本 PR 自引入的渲染端硬编码中文（`useExpiredAccountsBanner` 的固化失败标题），已改为 zh/en 成对键 `accountsPage.persistFailedTitle` + `i18n.global.t`；`--py-cjk` 一项为基线 `path:LINE` 行号漂移，按 #2212 既有做法重锚并逐条对账（79→79、逐文件计数一致、diff 恰 19+/19−、本 PR 在 python 侧新增中文全为注释/docstring），修复后该 gate 自检 6/6 全绿。详见 PRD §13.6。
+- 合并后复验：与 main 的第三次同步（`#2226`）仍仅 `CHANGELOG.md` 冲突，沿用 blob 级并集解法；合并后工作树实跑 Gate 7 四项全绿（`--cjk` / `--pair-base` / `--py-cjk` / gate 自检 6/6）、ESLint 19 文件零问题、定向 vitest 8 个测试文件全通过。详见 PRD §13.5。
+- 第四次同步 main（`#2231` 并发加速）：批量检测段首次出现真语义冲突，改为「保留 `#2231` 并发池/硬超时/`start`·`done` 进度骨架 + 在其 worker 内套用三态映射与单一写者回写」；契约收敛为**超时计入 `unverified`（`CHECK_LOGIN_TIMEOUT`）而非 `expired`**，并补 IPC 层回归测试（该测试实测抓出融合漏洞）。`PRD-ACCOUNT-LOGIN-STATUS-CHECK.md` 的 §16 撞号已改号为 §17。合并后 8 测试文件全绿、ESLint 19 文件零问题、Gate 7 全 PASS。详见 PRD §13.5。
+- 第四次同步的 CI 逃逸（第二轮 checks）：合并后的本地定向复验按「本 PR 触及的 8 个测试文件」选取，漏掉 `#2231` 随合并新增的 `account-batch-check.test.js`，其 2 条「超时计入失效（`valid:false`）」断言与本 PR 择一后的三态契约冲突，CI 汇总 `Tests 2 failed | 10841 passed`（失败文件唯一）。已按契约收敛该文件：标题与文件头「契约 4」改为「超时记为未确认」、补 `persistLoginState` mock 与 `loginStatus/persisted` 断言（口径收敛同时加强），`#2231` 原有四条护栏不动。教训：合并后的定向复验集合必须由**合并 diff**（含两侧并集 + 状态为 A 的新增测试文件）推出，而非由本 PR 工作清单推出。详见 PRD §13.5。
+- 详见 `01-docs/PRD-ACCOUNT-LOGIN-STATE-PERSISTENCE-2026-09-23.md`（数据模型 / 判定矩阵 / 单一写者架构 / 交互与显示项 / 提示文字 / 测试矩阵 / 已知边界）与 `01-docs/PRD-ACCOUNT-LOGIN-STATUS-CHECK.md` §17。
+
+### 遗留
+- 账号页「批量启用/停用」（`stores/accounts.batchSetStatus`）仍写 SQLite 且复用登录态词表 `status`，对展示实际无效；应改 `is_active` 并接入后端 PATCH，另列 PR，避免把「启用状态」与「登录态」两个正交概念继续混在一个字段里。
+
+### 关联
+- 分支 `codex/account-login-state-persist`（worktree 隔离，D 盘）；关联 PRD 见上。
+
+---
+
+
+
+
+---
+
+# [未发布] fix(accounts): 账号页【一键检测】进度长时间静止修复 + 并发加速（2026-09-22，batch-check-progress-speed）
+
+### Fix
+
+- **进度只在「账号完成」边界广播**：`accounts:batch-check-login` 的 `broadcastProgress` 位于 `await checkLoginStatus` 之后，进度计数=已完成数，正在检测的账号完全不可见；单个走浏览器降级的慢账号（10-30s）使遮罩停在「检测中 0/7」纹丝不动，视觉上等同卡死。现改为每账号 **start/done 双边界广播**，渲染层据此维护 in-flight 平台集合并展示「正在检测：知乎、抖音 · 已耗时 12 秒」（同平台多账号去重）。
+- **放大因素说明**：v2.2（PR #2205）三态判定使 INCONCLUSIVE 降级浏览器的账号变多，拉长静止窗口；已核实判定分支本身无回归。
+
+### Performance
+
+- 批量登录检测由严格串行改为**并发池（默认 3，`MP_BATCH_CHECK_CONCURRENCY` 可调、clamp ≤4）**，结果仍按输入顺序落位；7 账号慢场景整体等待约降至 1/3。可行性依据：`playwright-manager.getContext()` 每账号使用独立 `auth-check-<uuid>` 分区与独立隐藏窗口，无共享启动锁。
+- 新增**单账号硬超时 60s**（`MP_BATCH_CHECK_ACCOUNT_TIMEOUT_MS`）：超时按 `valid:false / CHECK_LOGIN_TIMEOUT` 计入失效，不阻断其余账号；`Promise.race` 保证超时后迟到的 reject 不产生 unhandledRejection。
+
+### Testing
+
+- 新增 `electron/ipc-handlers/account-batch-check.test.js` 7 例（主进程批量检测进度/并发/超时首层覆盖 —— 此前 `account.test.js` 对 `batch-check` 零命中，即本 Bug 的逃逸口）；`Accounts.test.js` 新增 4 例（in-flight 即时展示、递增秒表、订阅取消与定时器零泄漏、超时计入失效）。
+
+### Documentation
+
+- `01-docs/BUGFIX-BATCH-CHECK-PROGRESS-STALL-2026-09-22.md`：根因溯源 / 逃逸链 / 系统性漏洞 / 修复 / 预防措施 5 步完整记录。
+- `01-docs/PRD-ACCOUNT-LOGIN-STATUS-CHECK.md` 升 v2.3：§4.3 检测流程图重写为并发 + 双边界语义，新增 §16 行为契约表（显示项 / 校验 / 文案变更）。
+- AGENTS.md QM-2 新增「批量 IPC 进度双边界与超时预算契约」门禁条目。
+- `01-docs/UI-INVENTORY.md` §5.2：账号页特殊状态补 `batch-check-overlay`（遮罩第二行 in-flight 明细）。
+
+---
+
+# [未发布] fix(audit): P1 审计第二批——配置密文化 + 采集空壳硬约束 + SSRF 白名单 + 依赖治理 + 浏览器生命周期 + 惯用语守卫（2026-09-22，audit-batch-2）
+
+
+## audit-batch-2（P1，未发版，与 audit-batch-1 一起等下次发版收口）
+
+
+### Security
+
+- **ops-center 配置中心**：敏感配置（`is_secret=1`）写库前加密为 `enc:v1:` 自描述密文；审计表改为**写库时掩码**（读时掩码可被"直接查库/导出"绕过）；批量更新接口不再把敏感项降级为明文（`secret_flag` 以库中既有标记为准）；客户端回填掩码串不再覆盖真实凭据；密文不可解时导出**抛错而非静默写空凭据**（空凭据会把密钥轮换事故伪装成"服务不稳定"）。存量明文零迁移可读，详见 `docs/audit-remediation-batch2-2026-09-22.md` §1
+- **video-clone-engine**：新增 `src/adapters/url-guard.js`，链接导入在 `mkdtemp` / 调 yt-dlp **之前**执行「协议 → 内网字面量 → 平台域名白名单 → DNS 解析结果」四段校验（拦 `169.254.169.254`、`localhost`、`10/8`、`fc00::/7` 等，并防"公网域名 → 内网 IP"重绑定），解析失败 fail-closed；新增环境变量 `VIDEOCLONE_ALLOW_ANY_HOST`（只放开白名单，内网拦截不放松）；新增错误码 `VIDEOCLONE_LINK_BLOCKED` + zh/en 文案，不再冒充"该视频为私密内容"
+- **shared-utils**：`publish-history` 去掉顶层 `require('electron')`（纯 Node 下它返回可执行文件路径字符串而**不抛错**，真实崩点是 `app.getPath` 的 TypeError），改为 `configurePublishHistory({ userDataDir | filePath | app })` 注入优先 + 懒加载兜底 + 可操作报错；electron 声明为 optional peerDependency；`publishHistory` 补进包入口
+
+
+### Fixes
+
+- **collection-engine / B 站适配器**：`_doFetch` 从"返回硬编码样例"的桩改为真发请求（WBI `wts` **先入签再算 `w_rid`**、`generateWbiSign` 纯函数化不改入参、`bvid/aid` 编码、可注入 `http`、失败时回落浏览器通道）
+- **collection-engine / 采集引擎**：HTTP 200 但正文空壳的响应不再记成功 —— 统一返回 `{ success:false, reason:'empty_content' }`，同时记失败、计入健康度与熔断、退回配额（此前"采集成功但内容为空"让成功率、熔断、配额三类指标一起说谎）
+- **python-backend / 角色动画**：`_render_preview_mp4` 的 `new_page/goto/逐帧 screenshot` 包进 `try`，`browser.close()` 移入 `finally`，异常路径不再泄漏 Chromium 进程组（批量跑时表现为越跑越慢直至句柄/内存耗尽）
+- **desktop / 剧本上下文**：`IDIOM_EXCLUSIONS` 只登记真实惯用语（刘备补「刘备借荆州」「刘备摔阿斗」）；「孙权称帝」属史实陈述，不进排除表，改由正向回归用例锁定；导出 `filterIdiomHits` 便于直接单测
+
+
+### Testing
+
+- 新增用例：`ops-center/backend/tests/test_p1_config_secret.py`（13）、`packages/collection-engine/tests/bilibili-adapter.test.js`（11）、`packages/shared-utils/tests/publish-history.test.js`（8）、`packages/video-clone-engine/test/adapters/url-guard.test.js`（16）、`packages/python-backend/tests/test_character_animation_lifecycle.py`（5）、`story-context-engine.test.js` +5
+- 全量本地门禁：ops-center 409 pytest、collection-engine 104 vitest、shared-utils 273 vitest、video-clone-engine 151 node--test（0 failed）、desktop 受影响面 78 vitest、python-backend `-k character` 55 pytest
+- 五项均做 stash 红验证（P1-5 12 failed / P1-10 8 failed / P1-11 2 failed / P1-12 3 failed / P1-13 精确 3 failed，且孙权正向回归保持通过）。其中 P1-10 的用例反向发现两个真实缺陷：`_resolveApp` 未校验 `.app` 是否存在、`getHistoryPath` 在读 `userDataDir` 前就解析 Electron 使注入形同虚设
+
+
+### Documentation
+
+- 新增 `docs/audit-remediation-batch2-2026-09-22.md`：6 项变更的存储格式与数据校验、写入/读取/导出流程、显示项（含新响应字段 `is_encrypted` 的三态显示建议）、提示文字原文、错误码与文案表（zh/en）、测试矩阵、运维指引（排查 SQL、密钥轮换处置）与决策记录
+- `01-docs/PRD-VIDEO-CLONE-2026-08-12.md` §14 错误码表补 `VIDEOCLONE_LINK_BLOCKED` 一行
+
+
+### 决策与残余风险
+
+- 敏感项**不跑一次性迁移脚本**：靠"任何一次保存即升级为密文"+ 排查 SQL 收敛存量明文（回滚只需停止新写入）
+- 白名单以"初始目标域名"为边界，yt-dlp 内部跟随的 30x 重定向不经过新守卫；彻底覆盖需在下载器侧加代理/出口 ACL（列入第 4 批技术债）
+- `VIDEOCLONE_LINK_PRIVATE` 文案保持不变，避免影响真实"私密视频"场景；SSRF 拦截改用独立码，两条链路文案语义正交
+
+---
+# [未发布] feat(tab): 「+」新标签内嵌独立应用主页——与首标签完全解耦（PRD-TAB-INDEPENDENT-HOME）
+
+### 变更
+- **背景/根因**：顶部地址区点「+」开的新标签与第一固化「首页」标签内容一致，无法并行操作两个模块。根因三重：① `onCreateTab` 硬编码 `about:blank` + 标题「首页」；② 应用主页只在唯一 SPA（home 虚拟标签）渲染，新标签无独立内容；③ `App.vue` 路由归位守卫（`router.beforeEach`）在任何 SPA 路由变化时强制 `switchToTab('home')`，使新标签导航「弹回」首标签。
+- **electron/home-shell-preload.js（新增）**：内嵌主页专用受守护 preload，双判据后才挂载完整 `electronAPI`——① 主进程注入 `--mp-home-shell-url=<期望地址>` ② 当前文档与其同源且 `search` 仍含 `mp-home-shell=1`；被重定向到外站/参数被剥离/`argv` 缺失时自动降级为仅受限 `multiPublishMonitor` 桥（S1/S2 安全不变式）。`hasHomeShellParam` 先去前导 `?` 再剥 `#`，兼容 jsdom 将 hash 拼进 search 的形态。
+- **electron/services/webview-manager.js**：`createNewTabPage` 新增 `homeShell` 分支——无 URL/空/`about:blank` 时以内嵌主页地址（打包 `pathToFileURL(dist/index.html)?mp-home-shell=1`、开发 `devServer/?mp-home-shell=1`）创建 `WebContentsView`，选用 home-shell preload 并注入 `additionalArguments`；home-shell 与账号会话互斥（`accountId=null`，不注入凭证/挂登录诊断）；`tabStates.url` 对内嵌主页置空、标题默认「新标签页」，`did-navigate` 后自然转普通网页标签。
+- **src/App.vue**：`isHomeShellSearch(location.search)` 判定内嵌壳态；**移除归位守卫**（不再注册 `router.beforeEach`→`switchToTab`）；新增 `v-else-if="isHomeShell"` **独立模板分支**——内嵌实例只渲染 `MpModuleNav`+工作区，不渲染外层 `MpSidebar`/`TabBar`/`NavBar`（WebContentsView 仅覆盖内容矩形，重复渲染会双份 chrome）；`setShellMode` 上报、`tabStore.init/dispose`、`onNavigate` 订阅在内嵌模式下全部跳过（S4 广播风暴防护）。
+- **src/utils/home-shell.js（新增）**：渲染层壳态判据单一来源（`isHomeShellSearch`/`detectHomeShell`）。**scripts/build-preload.js**：新增 home-shell preload 第二 esbuild 入口。**src/locales/{zh,en}.js**：新增 `tabs.newTabTitle`（新标签页/New Tab）、`tabs.newTabAria`（成对，Gate 7）。
+
+### 验证
+- TDD 红→绿：新增 `home-shell.util.test.js`(6)、`home-shell-preload.test.js`(6，含外站重定向/参数剥离/`=0` 不暴露 electronAPI 的负向用例)、`tab-independent-home.test.js`(7，含 F1 独立模板分支不含外层 chrome 的源码契约)、`webview-manager.test.js` home-shell describe(5)；修正既有 `shell-mode-6b.test.js` 正则以容忍 watch 体守卫行；`home-shell-preload.test.js` 纳入 vitest include（与 `electron/preload.test` 同级）。
+- QM-1：`electron-builder --win --dir` exit 0，asar 清单含 `home-shell-preload.bundle.js`；`verify-worktree-deps.js` OK。locale `check-locale-sync.js --keys` PASS。真实 Electron 窗口验证双标签独立导航。
+- **eslint.config.mjs**：ignores 从 `electron/preload/**/*.bundle.js` 泛化为 `electron/**/*.bundle.js`——home-shell preload 的 esbuild 生成物 `electron/home-shell-preload.bundle.js`（非手写源）此前落入 Gate 11 lint 报 `no-empty`，纳入既有「生成物 bundle 不参与 lint」约定予以忽略。
+- **债务基线**：`scripts/debt-baseline.json` `filesOver1000` 32→33、`filesOver500` 98→99（各 +1）。原因：新增的 `home-shell-preload.bundle.js`（1346 行）为 esbuild **生成产物**，与既有已计入基线的 `preload/index.bundle.js`（1333 行）同类，其手写源 `home-shell-preload.js` 仅 73 行；无任何手写源文件跨越阈值。按门禁脚本自身给出的「经审查确认后 `--update`」流程更新基线（反映生成物纳入，非源码膨胀）。
+
+### 关联
+- PRD `01-docs/PRD-TAB-INDEPENDENT-HOME-2026-09-22.md`（F1-F6 功能需求 / §4 数据校验 / §5 安全约束 S1-S5 / §6 交互明细 / §7 i18n / §11 测试计划）。
+- 分支 `tab-independent-home`（worktree 隔离，D 盘）· PR #2230（已合并 `origin/main`，解决 CHANGELOG / webview-manager.test.js 冲突）。
+
+---
+
+# [未发布] fix(ui): 限流自检弹窗表单布局修复 + 功能规格文档化
+
+### 变更
+- **`ModelProviders.vue`（限流自检弹窗布局）**：模板中的 `.selfcheck-form` / `.selfcheck-row` 类名此前在 `<style scoped>` 中无任何规则定义，label 与 `el-input-number` 随文本流随机换行、输入框宽度参差（用户反馈「布局非常混乱不整齐」）。补齐：表单纵向 flex `gap:14px`；每行 `display:flex; align-items:center; gap:12px` 标签与输入框同行垂直居中；label 固定列宽 `flex:0 0 230px`（次要色+小字号、允许换行）；输入框统一 `width:150px; flex-shrink:0`，全部对齐同一左基线。
+- **文档**：`01-docs/design/model-provider-module-design.md` 新增 §9.5「限流自检弹窗功能规格与布局规范」——功能定位（真实 ApiUsageGovernor + 本地假 adapter 验证并发上限/排队/429 冷却/5h 限额，无网络不耗额度）、使用流程 6 步、参数数据校验表（rpm [1,100000]、maxConcurrent [1,8] 或留空=clamp(rpm/10,1,4)、requestCount [1,1000]、requestDurationMs [0,60000]、inject429At [1,requestCount] 或留空、limitPer5h [1,10000000] 或留空、cooldownMs [100,60000]）、交互逻辑、显示项、提示文字、回归覆盖与影响面。
+
+### 验证
+- TDD：新增 `src/views/selfcheck-dialog-layout.test.js`（3 例源码契约：行 flex 同行对齐 / label 固定列宽 / 输入框统一宽度）。定向 4 文件 20/20 全绿（含 `icon-usage`(9)、`model-providers-copy`(5)、`settings-panel-layout`(3) 零回归）；eslint exit 0（仅既有 warning）。
+- 纯展示层样式补齐，不改模板结构 / IPC / 数据模型；暗色模式沿用 token 不受影响。
+
+### 关联
+- 分支 `codex/selfcheck-dialog-layout`（worktree 隔离，D 盘），基于 `origin/main`；规范详见 §9.5。
+
+---
+
+# [未发布] feat(model-settings): 模型列表排序逻辑调整 + 运营中心预设模型自定义排序
+
+### 变更
+- **渲染端 `apps/desktop/src/composables/useModelProviderCrud.js`**：「已配置」标签按 默认模型置顶 → `updated_at` 倒序（最新修改/新添加在前）→ 名称拼音兜底；「全部」标签按 `config.sort_order` 升序优先（运营中心下发）→ 无自定义序者按名称拼音（`localeCompare('zh-Hans-CN')` ICU）→ id 稳定兜底。排序单点实现在 computed，不改 IPC 契约。
+- **主进程 `apps/desktop/electron/services/model-provider-manager.js`（applyCatalog）**：目录权威写入 `config.sort_order`（非负整数才生效，null/非法删除键，与 rate_per_minute 同模式）；新增 `stableStringify` 键序稳定内容比对——config/models 无实质变化时跳过 UPDATE，**不再每轮同步 bump `updated_at`**（「已配置」按修改时间排序语义成立的前提），返回体新增 `unchanged` 计数。
+- **运营中心后端**：`ModelPreset` 新增 `sort_order` 列（幂等迁移 PRAGMA+ALTER 自动加列）；`_display_order()` 统一 list/catalog 排序（sort_order NULLS LAST → 多模态 → 类别 → 名称）；新增 `POST /api/v1/model-presets/{id}/reorder`（admin-only，action=top/up/down/bottom，越界幂等 noop，全列表归一化 0..n-1）；catalog 与 `_to_dict` 下发 `sort_order`。
+- **运营中心前端 `ModelPresets.vue`**：新增「排序」列（显示 sort_order，未设显示 -）与操作列 4 图标按钮（⤒移到首位 / ↑上移 / ↓下移 / ⤓移到末位），即时持久化，成功提示「排序已更新」，busy 防连点。
+
+### 验证
+- TDD 红→绿：`useModelProviderCrud.test.js` +5 排序用例（默认置顶/倒序/拼音/sort_order 优先/稳定 tie-break）；`model-provider-apply-catalog.test.js` +2（sort_order 写入与 null 删除、内容无变化不 bump updated_at）；ops-center pytest +2（reorder 四动作与边界/校验、catalog 契约含 sort_order）。
+- 本地全绿：桌面 vitest 72（crud+catalog）/ src 1331 / electron services 188；ops-center pytest 44；ops-center frontend build；QM-1 electron-builder --win --dir exit 0 + asar 抽查 + 8s 启动无 stderr。
+
+### 关联
+- 分支 `codex/model-sort-order`（worktree 隔离，D 盘）；详细规格 `01-docs/PRD-MODEL-LIST-SORT-ORDER-2026-09-23.md`；同步契约增量 `01-docs/PRD-sync-zero-config.md` §8。
 # [未发布] fix(video): 视频号账号标签扫码重登后仍弹回登录页（凭证假保存 hotfix）
 
 ### 变更

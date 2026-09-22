@@ -949,9 +949,10 @@ describe("AccountsView", () => {
     const a2 = _testAccounts.find(a => a.id === "a2");
     expect(a1.status).toBe("active");
     expect(a2.status).toBe("expired");
-    // 检测结果写回后端（持久化：退出重进后仍保持检测状态）
-    expect(accountUpdate).toHaveBeenCalledWith("a1", expect.objectContaining({ status: "active" }));
-    expect(accountUpdate).toHaveBeenCalledWith("a2", expect.objectContaining({ status: "expired" }));
+    // 登录态持久化是主进程单一写者的职责（AccountManager.persistLoginState → 后端 accounts.json）。
+    // 渲染层绝不能再写 status：accountUpdate 走 store:update-account，写的是 Electron 本地 SQLite，
+    // 而读取端是后端 accounts.json —— 双写不同库正是「一键检测后重进又显示已登录」的根因。
+    expect(accountUpdate).not.toHaveBeenCalled();
     // checkedExpiredIds 同步
     expect(w.vm.checkedExpiredIds.has("a2")).toBe(true);
     expect(w.vm.checkedExpiredIds.has("a1")).toBe(false);
@@ -986,6 +987,191 @@ describe("AccountsView", () => {
     expect(_testAccounts.find(a => a.id === "b2").status).toBe("active");
     const { ElMessage } = await import("element-plus");
     expect(ElMessage.success).toHaveBeenCalledWith(expect.stringContaining("2"));
+  });
+
+  // ── 登录态固化与三态回归 ──
+
+  it("batchCheckAllLogins 未确认（valid 缺失）不计入失效，也不冒充已登录", async () => {
+    const { accountBatchCheckLogin, accountUpdate } = await import("@/api/publisher");
+    accountBatchCheckLogin.mockResolvedValue({
+      code: 0,
+      data: {
+        results: [
+          { accountId: "u1", platform: "tencent_video", code: "CHECK_LOGIN_INCONCLUSIVE", loginStatus: "unverified", persisted: { ok: true, status: "unverified" } },
+          { accountId: "u2", platform: "toutiao", valid: false, code: "CHECK_LOGIN_COOKIE_EXPIRED", loginStatus: "expired", persisted: { ok: true, status: "expired" } },
+        ],
+        checkedAt: "2026-09-11T08:00:00Z",
+      },
+    });
+    _testAccounts.push(
+      { id: "u1", platform: "tencent_video", status: "active", account_name: "视频号" },
+      { id: "u2", platform: "toutiao", status: "active", account_name: "头条号" },
+    );
+    const w = await mountView();
+
+    await w.vm.batchCheckAllLogins();
+
+    expect(_testAccounts.find(a => a.id === "u1").status).toBe("unverified");
+    expect(_testAccounts.find(a => a.id === "u2").status).toBe("expired");
+    expect(w.vm.checkedExpiredIds.has("u1")).toBe(false);
+    expect(w.vm.checkedExpiredIds.has("u2")).toBe(true);
+    expect(accountUpdate).not.toHaveBeenCalled();
+    const { ElMessage } = await import("element-plus");
+    expect(ElMessage.warning).toHaveBeenCalled();
+    // 未确认不等于失效：不得出现「全部正常」的成功提示
+    expect(ElMessage.success).not.toHaveBeenCalled();
+  });
+
+  it("batchCheckAllLogins 主进程固化失败时显式报错（持久化丢失不再静默）", async () => {
+    const { accountBatchCheckLogin } = await import("@/api/publisher");
+    accountBatchCheckLogin.mockResolvedValue({
+      code: 0,
+      data: {
+        results: [
+          { accountId: "p1", platform: "toutiao", valid: false, code: "CHECK_LOGIN_COOKIE_EXPIRED", loginStatus: "expired", persisted: { ok: false, reason: "backend-error" } },
+        ],
+        checkedAt: "2026-09-11T08:00:00Z",
+      },
+    });
+    _testAccounts.push({ id: "p1", platform: "toutiao", status: "active", account_name: "头条号" });
+    const w = await mountView();
+
+    await w.vm.batchCheckAllLogins();
+
+    const { ElMessage } = await import("element-plus");
+    expect(ElMessage.error).toHaveBeenCalled();
+    expect(w.vm.batchCheckAllBusy).toBe(false);
+  });
+
+
+  // ── 一键检测进度可见性回归（进度卡顿修复 2026-09-22）──
+  // 缺陷：进度只在「账号完成」边界更新，单个耗时账号（浏览器降级检测）
+  // 期间遮罩计数完全静止，用户看到的是“检测中 0/7 一直不动”。
+  it("batchCheckAllLogins 收到 start 事件时立即展示正在检测的平台，不等账号完成", async () => {
+    const publisher = await import("@/api/publisher");
+    let resolveBatch;
+    publisher.accountBatchCheckLogin.mockReturnValue(new Promise(r => { resolveBatch = r }));
+    let emit = null;
+    window.electronAPI = {
+      onAccountsBatchCheckProgress: (cb) => { emit = cb; return () => { emit = null } },
+    };
+    _testAccounts.push(
+      { id: "p1", platform: "zhihu", status: "active", account_name: "知乎号" },
+      { id: "p2", platform: "douyin", status: "active", account_name: "抖音号" },
+    );
+    const w = await mountView();
+
+    const running = w.vm.batchCheckAllLogins();
+    await nextTick();
+
+    expect(emit, "未订阅进度事件").toBeTruthy();
+    // 该账号尚未完成（batch 仍在进行中）时只发 start
+    emit({ phase: "start", checked: 0, total: 2, platform: "zhihu", accountId: "p1" });
+    await nextTick();
+
+    expect(w.vm.batchCheckProgress.current).toContain("zhihu");
+    expect(w.vm.batchCheckProgress.checked).toBe(0);
+    expect(w.vm.batchCheckAllDetailText).toContain("正在检测");
+    expect(w.vm.batchCheckAllDetailText).toContain("知乎");
+
+    emit({ phase: "done", checked: 1, total: 2, platform: "zhihu", accountId: "p1", valid: true, code: "CHECK_LOGIN_SUCCESS", elapsedMs: 4200 });
+    await nextTick();
+    expect(w.vm.batchCheckProgress.checked).toBe(1);
+    expect(w.vm.batchCheckProgress.current).not.toContain("zhihu");
+    expect(w.vm.batchCheckAllDetailText).not.toContain("知乎");
+
+    resolveBatch({ code: 0, data: { results: [{ accountId: "p1", platform: "zhihu", valid: true }], checkedAt: "2026-09-22T00:00:00Z" } });
+    await running;
+  });
+
+  it("batchCheckAllLogins 遮罩展示递增的已耗时秒数，让等待可感知", async () => {
+    const publisher = await import("@/api/publisher");
+    let resolveBatch;
+    publisher.accountBatchCheckLogin.mockReturnValue(new Promise(r => { resolveBatch = r }));
+    let emit = null;
+    window.electronAPI = {
+      onAccountsBatchCheckProgress: (cb) => { emit = cb; return () => { emit = null } },
+    };
+    _testAccounts.push({ id: "t1", platform: "zhihu", status: "active", account_name: "知乎" });
+    const w = await mountView();
+
+    // 秒表用 setInterval + Date.now()，fake timers 必须在启动前安装：
+    // 否则已注册的真实定时器不会被 advanceTimersByTimeAsync 触发。
+    vi.useFakeTimers();
+    const running = w.vm.batchCheckAllLogins();
+    await nextTick();
+    emit({ phase: "start", checked: 0, total: 1, platform: "zhihu", accountId: "t1" });
+    await nextTick();
+
+    try {
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(w.vm.batchCheckElapsedSec).toBe(5);
+      expect(w.vm.batchCheckAllDetailText).toContain("已耗时");
+      expect(w.vm.batchCheckAllDetailText).toContain("5");
+      // 进度条按“已完成/总数”推进，有真实反馈而不是死在 0%
+      expect(w.vm.batchCheckPercent).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    resolveBatch({ code: 0, data: { results: [{ accountId: "t1", platform: "zhihu", valid: true }], checkedAt: "2026-09-22T00:00:00Z" } });
+    await running;
+    expect(w.vm.batchCheckElapsedSec).toBe(0);
+    expect(w.vm.batchCheckAllBusy).toBe(false);
+  });
+
+  it("batchCheckAllLogins 结束后取消事件订阅且不泄漏定时器", async () => {
+    const publisher = await import("@/api/publisher");
+    publisher.accountBatchCheckLogin.mockResolvedValue({
+      code: 0,
+      data: { results: [{ accountId: "q1", platform: "douyin", valid: false, code: "CHECK_LOGIN_COOKIE_EXPIRED" }], checkedAt: "2026-09-22T00:00:00Z" },
+    });
+    let unsubscribed = 0;
+    window.electronAPI = {
+      onAccountsBatchCheckProgress: () => () => { unsubscribed += 1 },
+    };
+    _testAccounts.push({ id: "q1", platform: "douyin", status: "active", account_name: "抖音" });
+    const w = await mountView();
+
+    await w.vm.batchCheckAllLogins();
+
+    expect(unsubscribed).toBe(1);
+    expect(w.vm.batchCheckProgress.checked).toBe(0);
+    expect(w.vm.batchCheckProgress.total).toBe(0);
+    expect(w.vm.batchCheckProgress.current).toEqual([]);
+    vi.useFakeTimers();
+    try {
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("batchCheckAllLogins 将超时账号计入失效并回写 expired", async () => {
+    const publisher = await import("@/api/publisher");
+    publisher.accountBatchCheckLogin.mockResolvedValue({
+      code: 0,
+      data: {
+        results: [
+          { accountId: "s1", platform: "douyin", valid: false, code: "CHECK_LOGIN_TIMEOUT", error: "检测超时（>60000ms）" },
+          { accountId: "s2", platform: "zhihu", valid: true, code: "CHECK_LOGIN_SUCCESS" },
+        ],
+        checkedAt: "2026-09-22T00:00:00Z",
+      },
+    });
+    _testAccounts.push(
+      { id: "s1", platform: "douyin", status: "active", account_name: "抖音" },
+      { id: "s2", platform: "zhihu", status: "active", account_name: "知乎" },
+    );
+    const w = await mountView();
+
+    await w.vm.batchCheckAllLogins();
+
+    expect(_testAccounts.find(a => a.id === "s1").status).toBe("expired");
+    expect(_testAccounts.find(a => a.id === "s2").status).toBe("active");
+    expect(w.vm.checkedExpiredIds.has("s1")).toBe(true);
+    const { ElMessage } = await import("element-plus");
+    expect(ElMessage.warning).toHaveBeenCalledWith(expect.stringContaining("1"));
   });
 
   it("batchCheckAllLogins 无账号时提示且不调用 IPC", async () => {

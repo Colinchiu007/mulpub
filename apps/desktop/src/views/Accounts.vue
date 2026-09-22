@@ -267,6 +267,8 @@
         <div class="batch-check-spinner" aria-hidden="true"></div>
         <div class="batch-check-title">{{ t('accountsPage.batchCheckAllTitle') }}</div>
         <div class="batch-check-progress">{{ batchCheckAllProgressText }}</div>
+        <!-- 单独一行展示「正在检测哪些平台 + 已耗时」：并发下单个慢账号不再让反馈静止 -->
+        <div v-if="batchCheckAllDetailText" class="batch-check-detail" data-testid="batch-check-detail">{{ batchCheckAllDetailText }}</div>
         <div class="batch-check-bar" aria-hidden="true">
           <div
             class="batch-check-bar-inner"
@@ -319,7 +321,7 @@ import AccountLoginDialog from '@/features/accounts/components/AccountLoginDialo
 import AccountManagementCard from '@/features/accounts/components/AccountManagementCard.vue'
 import AccountProxyDialog from '@/features/accounts/components/AccountProxyDialog.vue'
 import { useAccountActions } from '@/composables/useAccountActions'
-import { accountBatchCheckLogin, accountUpdate } from '@/api/publisher'
+import { accountBatchCheckLogin } from '@/api/publisher'
 import { getApi } from '@/api/electron-bridge'
 import { useAccountEvents } from '@/composables/useAccountEvents'
 import { useAccountStore } from '@/stores/accounts'
@@ -380,11 +382,43 @@ const searchInput = ref('')
 const platformSearchInput = ref('')
 const accountBatchMode = ref(false)
 const batchCheckAllBusy = ref(false)
-const batchCheckProgress = ref({ checked: 0, total: 0, platform: '' })
+// 一键检测进度（进度卡顿修复 2026-09-22）：checked 只反映已完成数，
+// current 记录「正在检测」的平台（并发下可多个），配合秒表让等待可感知；
+// 此前只在使用完成边界刷新计数，单个耗时账号会让遮罩看起来死住。
+const batchCheckProgress = ref({ checked: 0, total: 0, current: [] })
+const batchCheckElapsedSec = ref(0)
+let batchCheckTicker = null
+let batchCheckStartedAt = 0
+
+function stopBatchCheckTicker () {
+  if (batchCheckTicker) {
+    clearInterval(batchCheckTicker)
+    batchCheckTicker = null
+  }
+}
+const batchCheckCurrentLabels = computed(() => {
+  const ids = batchCheckProgress.value.current || []
+  // 同平台多账号并发时 current 会重复，展示去重以免出现「抖音、抖音」
+  return [...new Set(ids)].map(id => platformLabel(id))
+})
 const batchCheckAllProgressText = computed(() => {
   const p = batchCheckProgress.value
   if (!p.total) return t('accountsPage.batchCheckAllBusy')
-  return t('accountsPage.batchCheckAllProgress', { checked: p.checked, total: p.total, platform: p.platform || '' })
+  return t('accountsPage.batchCheckAllProgress', {
+    checked: p.checked,
+    total: p.total,
+    platform: batchCheckCurrentLabels.value[0] || '',
+  })
+})
+const batchCheckAllDetailText = computed(() => {
+  const p = batchCheckProgress.value
+  if (!p.total) return ''
+  const parts = []
+  if (batchCheckCurrentLabels.value.length) {
+    parts.push(t('accountsPage.batchCheckAllCurrent', { platforms: batchCheckCurrentLabels.value.join('、') }))
+  }
+  parts.push(t('accountsPage.batchCheckAllElapsed', { seconds: batchCheckElapsedSec.value }))
+  return parts.join(' · ')
 })
 const batchCheckPercent = computed(() => {
   const p = batchCheckProgress.value
@@ -649,6 +683,7 @@ function onFilterKeydown (event, index) {
 
 function onSearchInput () {
   clearTimeout(searchTimer)
+  stopBatchCheckTicker()
   searchTimer = setTimeout(() => { accountStore.searchQuery = searchInput.value }, 300)
 }
 
@@ -912,23 +947,34 @@ async function batchCheckAllLogins () {
     return
   }
   batchCheckAllBusy.value = true
-  batchCheckProgress.value = { checked: 0, total: accounts.length, platform: '' }
+  batchCheckProgress.value = { checked: 0, total: accounts.length, current: [] }
+  batchCheckElapsedSec.value = 0
+  batchCheckStartedAt = Date.now()
+  stopBatchCheckTicker()
+  batchCheckTicker = setInterval(() => {
+    batchCheckElapsedSec.value = Math.max(0, Math.floor((Date.now() - batchCheckStartedAt) / 1000))
+  }, 1000)
   verifyingIds.value = new Set(accounts.map(a => a.id))
   notifyInfo('accountsPage.batchCheckAllStarted', { params: { count: accounts.length } })
-  // 订阅主进程逐账号进度事件（accounts:batch-check-progress），
-  // 驱动按钮上的阶段性反馈「检测中 X/N：平台名」。
+  // 订阅主进程进度事件（accounts:batch-check-progress）：主进程在每个账号
+  // 开始检测前推 start、完成后推 done，渲染层据此维护「正在检测哪些平台」。
   const api = getApi()
   let offProgress = null
   try {
     if (api?.onAccountsBatchCheckProgress) {
       offProgress = api.onAccountsBatchCheckProgress((data) => {
-        if (data && batchCheckAllBusy.value) {
-          batchCheckProgress.value = {
-            checked: Number(data.checked) || 0,
-            total: Number(data.total) || accounts.length,
-            platform: String(data.platform || '')
-          }
+        if (!data || !batchCheckAllBusy.value) return
+        const total = Number(data.total) || accounts.length
+        const checked = Number(data.checked) || 0
+        const platform = String(data.platform || '')
+        const inflight = (batchCheckProgress.value.current || []).slice()
+        if (data.phase === 'done') {
+          const at = inflight.indexOf(platform)
+          if (at !== -1) inflight.splice(at, 1)
+        } else if (platform && !inflight.includes(platform)) {
+          inflight.push(platform)
         }
+        batchCheckProgress.value = { checked, total, current: inflight }
       })
     }
   } catch (_) { /* 事件订阅失败不阻断检测 */ }
@@ -938,39 +984,51 @@ async function batchCheckAllLogins () {
     if (!Array.isArray(results)) throw new Error('invalid batch-check response')
     let validCount = 0
     const invalidIds = []
+    let unconfirmedCount = 0
+    const persistFailedIds = []
     const checkedAt = result.data?.checkedAt || new Date().toISOString()
     for (const item of results) {
       if (!item?.accountId) continue
-      if (item.valid) {
+      // 三态口径：valid === true 正常 / valid === false 失效 / valid === undefined 未确认。
+      // 「未确认」既不计入失效数量、也不加入失效集合 —— 不冒充任何一侧结论。
+      if (item.valid === true) {
         validCount++
         checkedExpiredIds.value.delete(item.accountId)
-      } else {
+      } else if (item.valid === false) {
         invalidIds.push(item.accountId)
         checkedExpiredIds.value.add(item.accountId)
+      } else {
+        unconfirmedCount++
+        checkedExpiredIds.value.delete(item.accountId)
       }
       const account = accounts.find(a => a.id === item.accountId)
       if (account) {
-        account.status = item.valid ? 'active' : 'expired'
+        // 这里只做本次会话的乐观展示。持久化由主进程在 accounts:batch-check-login
+        // 内部通过 AccountManager.persistLoginState 单点写回后端 accounts.json。
+        // 渲染层不得再自行写 status —— 历史实现写的是 Electron 本地 SQLite
+        // （store:update-account），而读取端是后端 accounts.json，两边 id 都不互通，
+        // 这正是「一键检测后重进账号页又显示已登录」的根因。
+        account.status = item.loginStatus || (item.valid === true ? 'active' : item.valid === false ? 'expired' : 'unverified')
         account.last_validated = checkedAt
-        // 持久化检测结果到后端：退出账号管理页再进入时，列表能读到本次检测状态
-        // （toPublicAccount 会尊重最近 2 小时内写回的 expired + last_validated）。
-        // 失败不阻断主流程，仅记录。
-        accountUpdate(account.id, {
-          status: item.valid ? 'active' : 'expired',
-          last_validated: checkedAt,
-        }).catch(() => {})
       }
+      if (item.persisted && item.persisted.ok === false) persistFailedIds.push(item.accountId)
     }
-    if (invalidIds.length === 0) {
+    if (invalidIds.length === 0 && unconfirmedCount === 0) {
       notifySuccess('accountsPage.batchCheckAllAllValid', { params: { count: validCount } })
     } else {
-      notifyWarning('accountsPage.batchCheckAllDone', { params: { valid: validCount, invalid: invalidIds.length } })
+      notifyWarning('accountsPage.batchCheckAllDone', { params: { valid: validCount, invalid: invalidIds.length, unconfirmed: unconfirmedCount } })
+    }
+    if (persistFailedIds.length > 0) {
+      // 固化失败必须可见，否则用户会再次遇到「检测过了但重进又变回去」。
+      notifyError('accountsPage.batchCheckAllPersistFailed', { params: { count: persistFailedIds.length } })
     }
   } catch (error) {
     notifyError('accountsPage.batchCheckAllFailed', { message: formatUserError(error, { fallback: t('accountsPage.batchCheckAllFailed') }).message })
   } finally {
     if (offProgress) { try { offProgress() } catch (_) { /* ignore */ } }
-    batchCheckProgress.value = { checked: 0, total: 0, platform: '' }
+    stopBatchCheckTicker()
+    batchCheckElapsedSec.value = 0
+    batchCheckProgress.value = { checked: 0, total: 0, current: [] }
     verifyingIds.value = new Set()
     batchCheckAllBusy.value = false
   }
@@ -1077,6 +1135,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   clearTimeout(searchTimer)
+  stopBatchCheckTicker()
   if (resolveAuthorizationGuide) resolveAuthorizationGuide()
   resolveAuthorizationGuide = null
   stopAccountEvents()
@@ -1333,6 +1392,12 @@ onUnmounted(() => {
 
 @keyframes batch-check-spin {
   to { transform: rotate(360deg); }
+}
+
+.batch-check-detail {
+  color: #6b6b78;
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
 }
 
 .batch-check-title {

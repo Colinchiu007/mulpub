@@ -154,7 +154,8 @@ describe('ModelProviderManager.applyCatalog', () => {
       { id: 'openai', name: 'OpenAI' },
     ])
     expect(res.code).toBe(0)
-    expect(res.updated).toBe(1) // 仅 openai
+    expect(res.updated).toBe(0) // 仅 openai 命中，且内容无变化 → 跳过 UPDATE
+    expect(res.unchanged).toBe(1)
     expect(row('catalog-only-provider')).toBeTruthy() // 仍存在
   })
 
@@ -166,6 +167,29 @@ describe('ModelProviderManager.applyCatalog', () => {
     expect(res.code).toBe(0)
     expect(JSON.parse(row('openai').models)).toEqual(['gpt-4o', 'gpt-4o-mini']) // 模型保留
     expect(JSON.parse(row('openai').config).rate_per_minute).toBe(30)           // 限流照常合并
+  })
+
+  it('sort_order：目录数字写入 config，null/缺失时删除（目录权威）', () => {
+    let res = manager.applyCatalog([{ id: 'openai', sort_order: 3 }])
+    expect(res.code).toBe(0)
+    expect(JSON.parse(row('openai').config).sort_order).toBe(3)
+    res = manager.applyCatalog([{ id: 'openai', sort_order: null }])
+    expect(res.code).toBe(0)
+    expect(JSON.parse(row('openai').config).sort_order).toBeUndefined()
+  })
+
+  it('内容无实质变化的重放跳过 UPDATE 不 bump updated_at；有变化才 bump', () => {
+    db.prepare("UPDATE model_providers SET models = ?, config = ?, updated_at = '2000-01-01 00:00:00' WHERE id = 'openai'")
+      .run(JSON.stringify(['m1']), JSON.stringify({ rate_per_minute: 7, sort_order: 2 }))
+    const same = manager.applyCatalog([{ id: 'openai', models: ['m1'], rate_per_minute: 7, sort_order: 2 }])
+    expect(same.updated).toBe(0)
+    expect(same.unchanged).toBe(1)
+    expect(row('openai').updated_at).toBe('2000-01-01 00:00:00')
+
+    const changed = manager.applyCatalog([{ id: 'openai', models: ['m1'], rate_per_minute: 7, sort_order: 1 }])
+    expect(changed.updated).toBe(1)
+    expect(row('openai').updated_at).not.toBe('2000-01-01 00:00:00')
+    expect(JSON.parse(row('openai').config).sort_order).toBe(1)
   })
 
   it('未就绪 / 非数组 → fail-closed', () => {

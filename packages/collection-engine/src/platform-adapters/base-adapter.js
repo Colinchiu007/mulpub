@@ -20,6 +20,19 @@ class BaseAdapter {
 
   buildUrl (target) { return target.url || target }
 
+  /**
+   * P1-9: 内容是否为空 —— 空内容不得计入采集成功。
+   * 桩实现 / 被风控返回空壳 / 无浏览器兜底时返回 `{ body: '' }`，
+   * 过去都会上报 success:true，导致"采集成功率 / 健康度 / 熔断"三类指标同时说谎。
+   */
+  isEmptyContent (content) {
+    if (!content) return true
+    if (typeof content === 'string') return !content.trim()
+    const text = String(content.text || content.desc || '').trim()
+    const title = String(content.title || '').trim()
+    return !text && !title
+  }
+
   async collect (target, accountId = 'default') {
     const platform = this.platform
     const strategy = this.strategy ? this.strategy.getStrategy(platform, accountId) : {}
@@ -79,6 +92,15 @@ class BaseAdapter {
     }
 
     const content = this.extractContent(response)
+
+    // P1-9: 空壳响应硬约束 —— 记失败 + 退预算 + 计入健康度/熔断，绝不报成功
+    if (this.isEmptyContent(content)) {
+      if (log) log.blocked(platform, accountId, 'empty_content', { url, status: response.status })
+      if (this.healthMonitor) this.healthMonitor.record(platform, accountId, { success: false, reason: 'empty_content' })
+      if (this.circuitBreaker) this.circuitBreaker.recordFailure(platform, accountId, strategy.circuitBreaker)
+      if (this.strategy && budgetConsumed) this.strategy.refundBudget(platform, accountId)
+      return { success: false, reason: 'empty_content', content: null }
+    }
 
     if (this.contentCache && content) {
       this.contentCache.mark(url, String(content.text || content).slice(0, 256), { platform, accountId })

@@ -64,6 +64,36 @@ def decrypt_key(ciphertext: str) -> str:
         raise InvalidToken(f"Ciphertext undecryptable (key rotation?)")
 
 
+# ---------------------------------------------------------------------------
+# P1-5: 通用"值级"加解密（ConfigItem.value 等 Text 列），带版本前缀 enc:v1:
+# 前缀使密文自描述 —— 存量明文行（无前缀）读出时原样返回，无需数据迁移即可上线。
+# ---------------------------------------------------------------------------
+ENC_PREFIX = "enc:v1:"
+
+
+def is_encrypted(stored) -> bool:
+    """是否为受管密文（含版本前缀）。"""
+    return bool(stored) and str(stored).startswith(ENC_PREFIX)
+
+
+def encrypt_secret_value(plaintext) -> str:
+    """加密敏感配置值，输出带 enc:v1: 前缀的密文（幂等：已加密则原样返回）。"""
+    if plaintext is None or plaintext == "":
+        return plaintext if plaintext is not None else ""
+    if is_encrypted(plaintext):
+        return plaintext
+    return ENC_PREFIX + encrypt_key(str(plaintext))
+
+
+def decrypt_secret_value(stored) -> str:
+    """解密敏感配置值；无前缀（存量明文）原样返回。解密失败抛 InvalidToken。"""
+    if not stored:
+        return stored or ""
+    if not is_encrypted(stored):
+        return stored
+    return decrypt_key(str(stored)[len(ENC_PREFIX):])
+
+
 def mask_key(key: str) -> str:
     """Mask an API key for display: 'sk-a1b2c3...x8y9' -> 'sk-a***y9'."""
     if not key or len(key) < 6:

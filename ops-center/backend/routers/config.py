@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from middleware.auth import get_current_user, require_admin
-from services import config_service
+from services import config_service, key_service
 from models import ConfigItem
 
 router = APIRouter(prefix="/api/v1/config", tags=["config"])
@@ -30,6 +30,9 @@ async def _mask_audit_value(db: AsyncSession, config_id: str, value: str) -> str
     """审计日志值掩码：secret 配置项的 old/new 值不返回明文。"""
     item = await config_service.get_config(db, config_id)
     if item is not None and item.is_secret and value:
+        # P1-5: 审计值已在写库时掩码，此处只兜底存量明文行（幂等：已含 *** 不再二次掩码）
+        if "***" in value:
+            return value
         return value[:4] + "***" + value[-4:] if len(value) > 8 else "***"
     return value
 
@@ -171,11 +174,17 @@ def _item_to_dict(item) -> dict:
         "updated_at": item.updated_at,
         "updated_by": item.updated_by,
     }
-    # Mask secret values
+    # P1-5: 敏感项库里存密文，掩码必须基于**明文**
+    # （对密文取前后缀会泄露 enc:v1: 前缀，且不同明文的密文前后缀无业务含义）
     if item.is_secret and item.value:
-        d["value"] = item.value[:4] + "***" + item.value[-4:] if len(item.value) > 8 else "***"
+        try:
+            plain = config_service.plaintext_value(item)
+        except ValueError:
+            plain = ""
+        d["value"] = (plain[:4] + "***" + plain[-4:]) if len(plain) > 8 else "***"
         d["is_masked"] = True
     else:
         d["value"] = item.value
         d["is_masked"] = False
+    d["is_encrypted"] = bool(item.is_secret and key_service.is_encrypted(item.value))
     return d

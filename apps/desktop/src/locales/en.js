@@ -1,4 +1,8 @@
 export default {
+  tabs: {
+    newTabTitle: 'New Tab',
+    newTabAria: 'Open a new tab',
+  },
   common: {
     save: 'Save',
     cancel: 'Cancel',
@@ -1356,9 +1360,13 @@ export default {
     batchCheckAllBusy: 'Checking…',
     batchCheckAllTitle: 'Checking account login status',
     batchCheckAllProgress: (ctx) => 'Checking ' + ctx.named('checked') + '/' + ctx.named('total') + (ctx.named('platform') ? ': ' + ctx.named('platform') : ''),
+    batchCheckAllCurrent: (ctx) => 'Checking now: ' + ctx.named('platforms'),
+    batchCheckAllElapsed: (ctx) => 'Elapsed: ' + ctx.named('seconds') + 's',
     batchCheckAllStarted: (ctx) => 'Checking login status of ' + ctx.named('count') + ' accounts…',
-    batchCheckAllDone: (ctx) => 'Check complete: ' + ctx.named('valid') + ' valid, ' + ctx.named('invalid') + ' expired',
+    batchCheckAllDone: (ctx) => 'Check complete: ' + ctx.named('valid') + ' valid, ' + ctx.named('invalid') + ' expired' + (Number(ctx.named('unconfirmed')) > 0 ? ', ' + ctx.named('unconfirmed') + ' unconfirmed' : ''),
     batchCheckAllAllValid: (ctx) => 'Check complete: all ' + ctx.named('count') + ' accounts are valid',
+    batchCheckAllPersistFailed: (ctx) => 'Check finished, but login status of ' + ctx.named('count') + ' account(s) could not be saved. Please retry or check the backend service',
+    persistFailedTitle: (ctx) => 'Failed to persist login status (' + ctx.named('count') + ' account(s))',
     batchCheckAllNoAccounts: 'No accounts to check',
     batchCheckAllFailed: 'Check-all failed, please retry later',
     autoSaved: 'Login credentials saved automatically',
@@ -1526,6 +1534,7 @@ export default {
       statusLoggedIn: 'Logged in',
       statusExpired: 'Invalid',
       statusError: 'Error',
+      statusUnverified: 'Unconfirmed',
       statusNoCheck: 'No check record',
       lastCheck: (ctx) => 'Last checked ' + ctx.named('date'),
       checkAbnormal: (ctx) => 'Abnormal: ' + ctx.named('reason'),
@@ -1746,6 +1755,7 @@ export default {
     error: {
       invalidRequest: 'Invalid request, check your input and retry',
       sourceUnsupported: 'Source not supported, use a supported platform or a local file',
+      linkBlocked: 'This link points to a private or local address and is blocked for security. Use a publicly accessible video link',
       linkUnavailable: 'Link unavailable, verify the link and retry',
       linkPrivate: 'This video is private and cannot be fetched',
       linkMembership: 'This video requires membership access',

@@ -54,9 +54,111 @@ function registerHandlers(ipcMain, deps) {
     return /^[a-zA-Z0-9_-]+$/.test(s)
   }
 
+  const LOGIN_STATUSES = ['active', 'expired', 'unverified']
+
+  /**
+   * 把 checkLoginStatus 的三态结果收敛为可持久化的登录态字符串。
+   * 优先复用 AccountManager.loginStatusFromCheckResult（跨层单一口径）；
+   * 主进程未装配该方法时按相同规则兜底，避免 IPC 层与 Manager 层语义漂移。
+   * @param {any} status
+   * @param {string} checkError 检测自身抛出的异常信息（非「登录已失效」证据）
+   */
+  function loginStatusFromCheck (status, checkError) {
+    if (checkError) return 'unverified'
+    if (typeof AccountManager.loginStatusFromCheckResult === 'function') {
+      try {
+        const mapped = AccountManager.loginStatusFromCheckResult(status)
+        if (LOGIN_STATUSES.indexOf(mapped) >= 0) return mapped
+      } catch (_) { /* 口径函数异常 → 走兜底映射 */ }
+    }
+    if (status && status.valid === true) return 'active'
+    if (status && status.valid === false) return 'expired'
+    return 'unverified'
+  }
+
+  /**
+   * 登录态唯一写者：检测结果一律由主进程回写后端 accounts.json（status + last_validated）。
+   * 渲染层禁止再自行 accountUpdate(status)，否则会出现「双写 + 写错库」的口径分裂。
+   * 失败必须可见（返回 reason 并落日志），不得 .catch(() => {}) 静默吞掉。
+   */
+  async function persistLoginStatus (platform, accountId, status, validatedAt) {
+    if (LOGIN_STATUSES.indexOf(status) < 0) {
+      ipcLog('warn', 'account:persist-login-status', 'skipped', `platform=${platform} accountId=${accountId} illegal-status=${status}`)
+      return { ok: false, status, reason: 'invalid-status' }
+    }
+    if (typeof AccountManager.persistLoginState !== 'function') {
+      ipcLog('warn', 'account:persist-login-status', 'unavailable', `platform=${platform} accountId=${accountId}`)
+      return { ok: false, status, reason: 'persistLoginState-unavailable' }
+    }
+    try {
+      const res = await AccountManager.persistLoginState(accountId, platform, status, validatedAt)
+      const ok = Boolean(res && res.ok)
+      if (!ok) {
+        ipcLog('warn', 'account:persist-login-status', 'failed', `platform=${platform} accountId=${accountId} status=${status} reason=${(res && res.reason) || 'unknown'} code=${(res && res.code) || '-'}`)
+      }
+      return { ok, status, ...(!ok && res && res.reason ? { reason: res.reason } : {}) }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      ipcLog('warn', 'account:persist-login-status', 'threw', `platform=${platform} accountId=${accountId} status=${status} message=${message}`)
+      return { ok: false, status, reason: 'persist-threw', message }
+    }
+  }
+
+  // ── 一键检测的并发与超时预算（进度卡顿修复 2026-09-22）──
+  // checkLoginStatus 走浏览器降级检测时要开独立隐藏窗口并等待选择器，
+  // 串行执行下单个慢账号即可让进度静止数十秒（用户看到「检测中 0/7」不动）。
+  // 改为有限并发 + 单账号硬超时；超时按失效计入（与检测失败同口径），
+  // 避免一个挂死的账号拖住整批检测。
+  // 环境变量为运维调优旋钮：MP_BATCH_CHECK_CONCURRENCY（1..4）、
+  // MP_BATCH_CHECK_ACCOUNT_TIMEOUT_MS（毫秒，非正数视为使用默认值）。
+  const BATCH_CHECK_DEFAULT_CONCURRENCY = 3
+  const BATCH_CHECK_MAX_CONCURRENCY = 4
+  const BATCH_CHECK_DEFAULT_TIMEOUT_MS = 60000
+
+  function resolveBatchCheckConcurrency() {
+    const raw = Number(process.env.MP_BATCH_CHECK_CONCURRENCY)
+    if (!Number.isFinite(raw) || raw < 1) return BATCH_CHECK_DEFAULT_CONCURRENCY
+    return Math.min(BATCH_CHECK_MAX_CONCURRENCY, Math.floor(raw))
+  }
+
+  function resolveBatchCheckTimeoutMs() {
+    const raw = Number(process.env.MP_BATCH_CHECK_ACCOUNT_TIMEOUT_MS)
+    if (!Number.isFinite(raw) || raw <= 0) return BATCH_CHECK_DEFAULT_TIMEOUT_MS
+    return Math.floor(raw)
+  }
+
+  // 固定数量 worker 抢任务：单线程下 cursor 自增无竞态，峰值并发不超过 limit。
+  async function runWithConcurrency(items, limit, worker) {
+    let cursor = 0
+    const width = Math.max(1, Math.min(limit, items.length))
+    const runners = Array.from({ length: width }, async () => {
+      while (cursor < items.length) {
+        const index = cursor++
+        await worker(items[index], index)
+      }
+    })
+    await Promise.all(runners)
+  }
+
+  // 注意：Promise.race 会订阅原 promise，超时后原检测迟到的 reject 不会成为
+  // unhandledRejection（挂死的隐藏窗口由其自身清理逻辑关闭，不阻断本批结果）。
+  function withHardTimeout(promise, ms, label) {
+    let timer = null
+    const guard = new Promise((resolve, reject) => {
+      timer = setTimeout(() => {
+        const err = new Error(label)
+        err.__batchCheckTimeout = true
+        reject(err)
+      }, ms)
+    })
+    return Promise.race([Promise.resolve(promise), guard]).finally(() => {
+      if (timer) clearTimeout(timer)
+    })
+  }
+
   const publicAccountFields = [
     'id', 'platform', 'name', 'account_name', 'platform_account_id', 'avatar', 'avatar_url',
-    'status', 'is_active', 'is_default', 'has_cookies', 'cookie_count',
+    'status', 'status_source', 'is_active', 'is_default', 'has_cookies', 'cookie_count',
     'has_auth_data', 'last_validated', 'created_at', 'updated_at', 'last_used_at', 'auth_method',
     'followers', 'owner', 'publisher', 'last_login_check_at', 'login_check_error', 'status_reason',
   ]
@@ -158,26 +260,30 @@ function registerHandlers(ipcMain, deps) {
     } else {
       credCheckReason = AccountManager.checkLocalCredentials ? 'missing-platform-or-id' : 'checkLocalCredentials-not-function'
     }
-   const derivedStatus = !hasCred ? 'expired' : (safeAccount.status || (safeAccount.is_active === false ? 'inactive' : 'active'))
-    // 一键检测（accounts:batch-check-login）会把检测结果写回后端 status + last_validated。
-    // 若后端 status 为 expired 且 last_validated 是最近（2 小时内）主动检测写入的，
-    // 应尊重该检测结果（浏览器/HTTP 检测比本地凭证文件更可靠，能识别 Cookie 过期）。
-    // 否则回退到本地凭证检测（checkLocalCredentials），避免 DB 残留 expired 误报。
-    let backendExpiredFresh = false
-    if (safeAccount.status === 'expired' && safeAccount.last_validated) {
-      const ts = new Date(safeAccount.last_validated).getTime()
-      if (Number.isFinite(ts) && (Date.now() - ts) < 2 * 60 * 60 * 1000) {
-        backendExpiredFresh = true
-      }
+    // 登录态判定口径（与 PRD「登录态三态模型」一致，真源 = 后端 accounts.json.status）：
+    //   1) 本地无加密凭证 → expired：既无法自动恢复、也无法证明仍登录，不允许沿用后端 active；
+    //   2) 后端 status ∈ {active, expired, unverified} → 原样采用（粘滞）：
+    //      「expired」只能被一次成功的主动检测、或重新登录并保存凭证清除，
+    //      不再按 last_validated 的 2 小时窗口过期、也不再被「本地存在凭证文件」推翻
+    //      （凭证文件存在 ≠ Cookie 有效，这正是视频号假阳性的来源）；
+    //   3) 后端无 status（历史数据缺字段）→ 回退 is_active 派生，is_active===false 记 inactive。
+    const backendStatus = LOGIN_STATUSES.indexOf(safeAccount.status) >= 0 ? safeAccount.status : 'absent'
+    let effectiveStatus
+    let statusSource
+    if (!hasCred) {
+      effectiveStatus = 'expired'
+      statusSource = 'no-local-credential'
+    } else if (backendStatus !== 'absent') {
+      effectiveStatus = backendStatus
+      statusSource = 'backend'
+    } else {
+      effectiveStatus = safeAccount.is_active === false ? 'inactive' : 'active'
+      statusSource = 'derived-from-is-active'
     }
-    const effectiveStatus = backendExpiredFresh
-      ? 'expired'
-      : (hasCred && safeAccount.status === 'expired' ? 'active' : derivedStatus)
-    const backendStatus = safeAccount.status || 'absent'
     ipcLog('info', 'account:status-derive',
-     'id=' + safeAccount.id + ' platform=' + safeAccount.platform + ' name=' + (safeAccount.account_name || safeAccount.name || '?') + ' hasCred=' + hasCred + ' backendStatus=' + backendStatus + ' derivedStatus=' + derivedStatus +
-      ' effectiveStatus=' + effectiveStatus +
-     (credCheckReason ? ' reason=' + credCheckReason : ''))
+      'id=' + safeAccount.id + ' platform=' + safeAccount.platform + ' name=' + (safeAccount.account_name || safeAccount.name || '?') + ' hasCred=' + hasCred + ' backendStatus=' + backendStatus +
+      ' effectiveStatus=' + effectiveStatus + ' statusSource=' + statusSource +
+      (credCheckReason ? ' reason=' + credCheckReason : ''))
 
     const publicAccount = {
       ...safeAccount,
@@ -185,6 +291,7 @@ function registerHandlers(ipcMain, deps) {
       cookie_count: hasCred ? 1 : 0,
       account_name: safeAccount.account_name || safeAccount.name || '',
       status: effectiveStatus,
+      status_source: statusSource,
       is_default: Boolean(safeAccount.is_default) || String(defaultId) === String(safeAccount.id),
     }
     if (raw.proxy !== undefined) {
@@ -418,7 +525,10 @@ function registerHandlers(ipcMain, deps) {
         return { code: EC.VALIDATION_ERROR, message: '缺少或非法 platform/accountId 参数' }
       }
       const status = await AccountManager.checkLoginStatus(platform, accountId)
-      ipcLog('info', 'account:check-login', 'ok', `platform=${platform} accountId=${accountId} valid=${status?.valid} 耗时=${Date.now() - startedAt}ms`)
+      const checkedAt = new Date().toISOString()
+      const loginStatus = loginStatusFromCheck(status, '')
+      const persisted = await persistLoginStatus(platform, accountId, loginStatus, checkedAt)
+      ipcLog('info', 'account:check-login', 'ok', `platform=${platform} accountId=${accountId} valid=${status?.valid} loginStatus=${loginStatus} persisted=${persisted.ok} 耗时=${Date.now() - startedAt}ms`)
       return { code: 0, data: status }
     } catch (e) { ipcLog('error', 'account:check-login', 'error', `platform=${arg?.platform} accountId=${arg?.accountId} message=${e instanceof Error ? e.message : String(e)}`); return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e), data: { valid: false } } }
   }))
@@ -437,42 +547,89 @@ function registerHandlers(ipcMain, deps) {
       const targets = requestedIds.length
         ? candidates.filter((a) => requestedIds.includes(a.id))
         : candidates
-      const results = []
-      // 进度广播：每检测完一个账号向渲染层推送进度，驱动按钮上的
-      // 阶段性反馈（「检测中 X/N」），消除长时间无响应的体验问题。
-      const broadcastProgress = (checkedIndex, total, platform, accountId) => {
+      const total = targets.length
+      const limit = resolveBatchCheckConcurrency()
+      const timeoutMs = resolveBatchCheckTimeoutMs()
+      // 进度广播：每个账号「开始检测前」推 phase:'start'、「检测完成后」推
+      // phase:'done'。只在使用完成边界时，计数等于已完成数，正在检测的账号
+      // 完全不可见，单个慢账号会让遮罩静止数十秒，看起来等同卡死。
+      // checked 恒为已完成数（0..total），渲染层据此推算「正在检测哪些平台」。
+      const broadcastProgress = (payload) => {
         try {
           const win = BrowserWindow.getAllWindows()[0]
           if (win && !win.isDestroyed()) {
-            win.webContents.send('accounts:batch-check-progress', { checked: checkedIndex, total, platform, accountId })
+            win.webContents.send('accounts:batch-check-progress', payload)
           }
         } catch (_) { /* 广播失败不阻断检测 */ }
       }
-      for (const account of targets) {
+      const checkedAt = new Date().toISOString()
+      let persistedCount = 0
+      // 结果按输入顺序落位：并发完成顺序不定，但回写配对必须稳定
+      const slots = new Array(total).fill(null)
+      let doneCount = 0
+      await runWithConcurrency(targets, limit, async (account, index) => {
         const platform = account.platform
         const accountId = account.id
+        broadcastProgress({ phase: 'start', checked: doneCount, total, platform, accountId })
+        const accountStartedAt = Date.now()
+        let status = null
+        let checkError = ''
+        let timeoutCode = ''
         try {
-          const status = await AccountManager.checkLoginStatus(platform, accountId)
-          results.push({
-            platform,
-            accountId,
-            valid: Boolean(status?.valid),
-            code: status?.code || (status?.valid ? 'CHECK_LOGIN_SUCCESS' : 'CHECK_LOGIN_FAILED'),
-            ...(status?.error ? { error: status.error } : {}),
-          })
+          status = await withHardTimeout(
+            AccountManager.checkLoginStatus(platform, accountId),
+            timeoutMs,
+            `检测超时（>${timeoutMs}ms）`,
+          )
         } catch (e) {
-          results.push({
-            platform,
-            accountId,
-            valid: false,
-            code: 'CHECK_LOGIN_ERROR',
-            error: e instanceof Error ? e.message : String(e),
-          })
+          checkError = e instanceof Error ? e.message : String(e)
+          if (e && e.__batchCheckTimeout) timeoutCode = 'CHECK_LOGIN_TIMEOUT'
         }
-        broadcastProgress(results.length, targets.length, platform, accountId)
-      }
-      const data = { results, checkedAt: new Date().toISOString() }
-      ipcLog('info', 'accounts:batch-check-login', 'ok', `count=${results.length} 耗时=${Date.now() - startedAt}ms`)
+        // 三态透传：valid 只能是 true / false / undefined（未确认）。
+        // 历史实现用 Boolean(status?.valid) 把 undefined 压成 false，
+        // 导致「无法判定」被渲染成「已失效」（今日头条假阴性根因之一）。
+        let valid
+        let code
+        if (checkError) {
+          valid = undefined
+          code = timeoutCode || 'CHECK_LOGIN_ERROR'
+        } else if (status && status.valid === true) {
+          valid = true
+          code = status.code || 'CHECK_LOGIN_SUCCESS'
+        } else if (status && status.valid === false) {
+          valid = false
+          code = status.code || 'CHECK_LOGIN_FAILED'
+        } else {
+          valid = undefined
+          code = (status && status.code) || 'CHECK_LOGIN_INCONCLUSIVE'
+        }
+        const loginStatus = loginStatusFromCheck(status, checkError)
+        const persisted = await persistLoginStatus(platform, accountId, loginStatus, checkedAt)
+        if (persisted.ok) persistedCount++
+        const item = {
+          platform,
+          accountId,
+          valid,
+          code,
+          loginStatus,
+          last_validated: checkedAt,
+          persisted,
+        }
+        if (checkError) item.error = checkError
+        else if (status && status.error) item.error = status.error
+        slots[index] = item
+        doneCount++
+        const elapsedMs = Date.now() - accountStartedAt
+        broadcastProgress({
+          phase: 'done', checked: doneCount, total, platform, accountId,
+          valid: item.valid, code: item.code, loginStatus: item.loginStatus,
+          persisted: item.persisted.ok, elapsedMs,
+        })
+        ipcLog('info', 'accounts:batch-check-login', 'account', `${platform}:${accountId} valid=${item.valid} loginStatus=${item.loginStatus} persisted=${persisted.ok} code=${item.code} 耗时=${elapsedMs}ms`)
+      })
+      const results = slots.filter(Boolean)
+      const data = { results, checkedAt }
+      ipcLog('info', 'accounts:batch-check-login', 'ok', `count=${results.length} 并发=${limit} persisted=${persistedCount} inconclusive=${results.filter((r) => r.valid === undefined).length} 耗时=${Date.now() - startedAt}ms`)
       return { code: 0, data }
     } catch (e) {
       ipcLog('error', 'accounts:batch-check-login', 'error', `message=${e instanceof Error ? e.message : String(e)} 耗时=${Date.now() - startedAt}ms`)

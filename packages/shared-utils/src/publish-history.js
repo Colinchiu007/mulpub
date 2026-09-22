@@ -4,12 +4,52 @@
  */
 const fs = require('fs')
 const path = require('path')
-const { app } = require('electron')
 
 const MAX_RECORDS = 500
 
+// ---------------------------------------------------------------------------
+// P1-10（体检报告问题10）：不得在模块顶层 require('electron')
+//   1) shared-utils 的 package.json 从未声明 electron 依赖，顶层 require 的解析结果
+//      取决于安装顺序，纯 Node 环境（CI 脚本 / vitest node 环境 / 服务端复用）一引入就崩；
+//   2) 路径来源改为显式注入优先：configurePublishHistory({ userDataDir | filePath | app })，
+//      未注入时才**懒加载** electron.app，并给出可操作的错误提示。
+// ---------------------------------------------------------------------------
+let _config = { userDataDir: null, filePath: null, app: null }
+
+/** 注入存储位置（桌面端传 app，测试/脚本传 userDataDir 或完整 filePath） */
+function configurePublishHistory (opts = {}) {
+  _config = {
+    userDataDir: opts.userDataDir || null,
+    filePath: opts.filePath || null,
+    app: opts.app || null,
+  }
+  return { ..._config }
+}
+
+function _resolveApp () {
+  if (_config.app) return _config.app
+  let app = null
+  try {
+    // eslint-disable-next-line global-require
+    // 注意：纯 Node 下 require('electron') 返回的是"可执行文件路径字符串"且**不抛错**，
+    // 因此 .app 为 undefined —— 必须显式判定，否则错误会变成无信息量的 TypeError。
+    app = require('electron').app
+  } catch (err) {
+    app = null
+  }
+  if (!app || typeof app.getPath !== 'function') {
+    throw new Error(
+      '[shared-utils/publish-history] 未检测到 Electron 运行时：'
+      + '请在桌面端调用，或先 configurePublishHistory({ userDataDir }) 指定存储目录'
+    )
+  }
+  return app
+}
+
 function getHistoryPath () {
-  const userDataDir = app.getPath('userData')
+  if (_config.filePath) return _config.filePath
+  // 显式注入优先；只有真的需要 app.getPath 时才解析 Electron（否则注入等于白注入）
+  const userDataDir = _config.userDataDir || _resolveApp().getPath('userData')
   return path.join(userDataDir, 'publish-history.jsonl')
 }
 
@@ -113,4 +153,4 @@ function getStats () {
   }
 }
 
-module.exports = { addRecord, listRecords, getRecord, getStats }
+module.exports = { addRecord, listRecords, getRecord, getStats, getHistoryPath, configurePublishHistory }

@@ -2,8 +2,17 @@
 /**
  * login-status-monitor — 登录状态定期检测（PRD F1.3）
  *
- * 定期遍历 store 中的 accounts，调用 account-manager.checkLoginStatus
- * 检测 Cookie 是否过期。过期的账号 status 标记为 'expired'。
+ * 数据真源（登录态口径统一修复 2026-09-22）：
+ *  - 读：account-manager.listAccounts() → Python 后端 accounts.json
+ *       （历史实现读 Electron 本地 SQLite store.listAccounts()，两边 accountId
+ *        不互通且只剩陈旧孤儿行，等于「检测了个不存在的账号列表」）；
+ *  - 写：account-manager.persistLoginState() → 后端 PATCH /api/accounts/{id}
+ *       （登录态唯一写者；历史实现 _store.updateAccount() 写进 SQLite，
+ *        渲染层再从后端读，写进去的值永远读不到 —— 「一键检测不固化」根因）。
+ *
+ * 三态语义：checkLoginStatus 返回 valid === undefined 时落 'unverified'
+ *（未确认），既不计入失效、也不冒充已登录。
+ * 已 'expired' 的账号跳过自动检测（expired 粘滞，只能由手动检测或重新登录清除）。
  *
  * 默认间隔 30 分钟，可通过 opts.intervalMs 配置。
  */
@@ -50,44 +59,84 @@ function createLoginStatusMonitor (opts) {
   }
 
   async function _runOnce () {
-    if (_running) return  // 防止重入
+    if (_running) return // 防止重入
     if (!_store || !_store._ready) return
+    if (!_accountManager || typeof _accountManager.listAccounts !== 'function') return
     _running = true
     try {
-      const accounts = _store.listAccounts()
-      if (!accounts || accounts.length === 0) return
+      // 账号真源 = 后端 accounts.json；store（SQLite）只用于就绪门禁，不再作为账号列表来源。
+      const accounts = await _accountManager.listAccounts()
+      if (!Array.isArray(accounts) || accounts.length === 0) return
 
       let expiredCount = 0
+      let changedCount = 0
       for (const acc of accounts) {
+        if (!acc || !acc.platform || !acc.id) continue
+        // 仅检测「尚未确认失效」的账号：active / online / unverified / 后端无 status。
+        // expired 属粘滞态，自动循环不擅自翻案，避免与手动一键检测结论互相拉扯。
+        const current = acc.status
+        if (current && current !== 'active' && current !== 'online' && current !== 'unverified') continue
         try {
-          // 仅检测 active 状态的账号，避免对已失效账号重复检测
-          if (acc.status && acc.status !== 'active' && acc.status !== 'online') continue
-          logger.info('LoginMonitor', 'checking ' + acc.platform + ':' + (acc.name || acc.account_name || acc.id) + ' (current status=' + (acc.status || '?') + ')')
+          logger.info('LoginMonitor', 'checking ' + acc.platform + ':' + (acc.name || acc.account_name || acc.id) + ' (current status=' + (current || '?') + ')')
           const result = await _accountManager.checkLoginStatus(acc.platform, acc.id)
-          logger.info('LoginMonitor', 'result ' + acc.platform + ':' + acc.id + ' valid=' + (result && result.valid) + ' code=' + (result && result.code) + (result && !result.valid ? ' error=' + (result.error || result.message || '') : ''))
-          if (result && !result.valid) {
-            _store.updateAccount(acc.id, { status: 'expired' })
-            expiredCount++
-            logger.warn('LoginMonitor', '账号 ' + acc.platform + '/' + (acc.account_name || acc.id) + ' 设为 expired: code=' + result.code + (result.error ? ' error=' + result.error : '') + (result.message ? ' msg=' + result.message : ''))
+          const next = _loginStatusOf(result)
+          logger.info('LoginMonitor', 'result ' + acc.platform + ':' + acc.id + ' valid=' + (result && result.valid) + ' -> ' + next + ' code=' + (result && result.code) + (result && result.valid !== true ? ' error=' + ((result && (result.error || result.message)) || '') : ''))
+          if (next === current) continue // 结论未变化，不回写，避免每轮无意义 PATCH
+          const validatedAt = new Date().toISOString()
+          const persisted = await _persist(acc, next, validatedAt)
+          if (!persisted || !persisted.ok) {
+            logger.warn('LoginMonitor', '账号 ' + acc.platform + '/' + acc.id + ' 登录态固化失败 status=' + next + ' reason=' + ((persisted && persisted.reason) || 'unknown'))
+            continue
           }
+          changedCount++
+          if (next === 'expired') expiredCount++
+          logger.info('LoginMonitor', '账号 ' + acc.platform + '/' + (acc.account_name || acc.id) + ' 登录态已固化为 ' + next + (result && result.code ? ' code=' + result.code : ''))
         } catch (e) {
           // 单个账号检测失败不影响整体
           logger.warn('LoginMonitor', '账号 ' + acc.id + ' 检测异常: ' + (e && e.message ? e.message : String(e)))
         }
       }
 
-      if (expiredCount > 0) {
-        logger.info('LoginMonitor', '本轮检测完成，' + expiredCount + ' 个账号 Cookie 过期已标记')
-        // 通知前端刷新
+      if (changedCount > 0) {
+        logger.info('LoginMonitor', '本轮检测完成，' + changedCount + ' 个账号登录态发生变化已固化（其中 expired ' + expiredCount + ' 个）')
+        // 通知前端刷新（恢复为 active 同样需要刷新，不能只在失效时通知）
         const win = _getMainWin && _getMainWin()
         if (win && !win.isDestroyed()) {
-          win.webContents.send('account:status-changed', { expiredCount })
+          win.webContents.send('account:status-changed', { expiredCount, changedCount })
         }
       }
     } catch (e) {
       logger.error('LoginMonitor', '登录状态检测循环异常: ' + e.message)
     } finally {
       _running = false
+    }
+  }
+
+  /**
+   * checkLoginStatus 三态 → 可持久化登录态（优先复用 account-manager 的单一口径函数）。
+   * @param {any} result
+   */
+  function _loginStatusOf (result) {
+    if (typeof _accountManager.loginStatusFromCheckResult === 'function') {
+      try {
+        const mapped = _accountManager.loginStatusFromCheckResult(result)
+        if (mapped === 'active' || mapped === 'expired' || mapped === 'unverified') return mapped
+      } catch (_) { /* 口径函数异常 → 走兜底映射 */ }
+    }
+    if (result && result.valid === true) return 'active'
+    if (result && result.valid === false) return 'expired'
+    return 'unverified'
+  }
+
+  /** 登录态唯一写者：失败不抛异常，返回 { ok, reason } 供上层记录。 */
+  async function _persist (acc, status, validatedAt) {
+    if (typeof _accountManager.persistLoginState !== 'function') {
+      return { ok: false, reason: 'persistLoginState-unavailable' }
+    }
+    try {
+      return await _accountManager.persistLoginState(acc.id, acc.platform, status, validatedAt)
+    } catch (e) {
+      return { ok: false, reason: 'persist-threw', message: e && e.message ? e.message : String(e) }
     }
   }
 

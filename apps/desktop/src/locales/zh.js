@@ -1,4 +1,8 @@
 export default {
+  tabs: {
+    newTabTitle: '新标签页',
+    newTabAria: '新建标签页',
+  },
   common: {
     save: '保存',
     cancel: '取消',
@@ -1357,9 +1361,13 @@ export default {
     batchCheckAllBusy: '检测中…',
     batchCheckAllTitle: '正在检测账号登录状态',
     batchCheckAllProgress: (ctx) => '检测中 ' + ctx.named('checked') + '/' + ctx.named('total') + (ctx.named('platform') ? '：' + ctx.named('platform') : ''),
+    batchCheckAllCurrent: (ctx) => '正在检测：' + ctx.named('platforms'),
+    batchCheckAllElapsed: (ctx) => '已耗时 ' + ctx.named('seconds') + ' 秒',
     batchCheckAllStarted: (ctx) => '开始检测 ' + ctx.named('count') + ' 个账号的登录状态…',
-    batchCheckAllDone: (ctx) => '检测完成：' + ctx.named('valid') + ' 个正常，' + ctx.named('invalid') + ' 个失效',
+    batchCheckAllDone: (ctx) => '检测完成：' + ctx.named('valid') + ' 个正常，' + ctx.named('invalid') + ' 个失效' + (Number(ctx.named('unconfirmed')) > 0 ? '，' + ctx.named('unconfirmed') + ' 个未确认' : ''),
     batchCheckAllAllValid: (ctx) => '检测完成：' + ctx.named('count') + ' 个账号登录状态全部正常',
+    batchCheckAllPersistFailed: (ctx) => '检测完成，但有 ' + ctx.named('count') + ' 个账号的登录状态未能保存到服务端，请重试或检查后端服务',
+    persistFailedTitle: (ctx) => '登录态固化失败（' + ctx.named('count') + ' 个账号）',
     batchCheckAllNoAccounts: '暂无可检测的账号',
     batchCheckAllFailed: '一键检测失败，请稍后重试',
     autoSaved: '登录凭证已自动保存',
@@ -1527,6 +1535,7 @@ export default {
       statusLoggedIn: '已登录',
       statusExpired: '已失效',
       statusError: '异常',
+      statusUnverified: '未确认',
       statusNoCheck: '暂无检查记录',
       lastCheck: (ctx) => '最近检查 ' + ctx.named('date'),
       checkAbnormal: (ctx) => '异常：' + ctx.named('reason'),
@@ -1747,6 +1756,7 @@ export default {
     error: {
       invalidRequest: '请求参数不合法，请检查输入后重试',
       sourceUnsupported: '暂不支持该来源，请使用支持的平台或本地文件',
+      linkBlocked: '该链接指向内网或本机地址，出于安全限制无法采集，请改用公开可访问的视频链接',
       linkUnavailable: '链接无法访问，请确认链接有效后重试',
       linkPrivate: '该视频为私密内容，无法获取',
       linkMembership: '该视频需要会员权限，无法获取',

@@ -3,9 +3,10 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
-const { PLATFORMS } = require('../constants');
 const { VideoCloneError } = require('../errors');
 const { runYtDlp, classifyDownloadError, extFromTarget } = require('./runners');
+// P1-11: SSRF / 域名白名单守卫（域名表唯一事实来源在 url-guard）
+const { assertSafeIngestUrl, matchPlatformHost } = require('./url-guard');
 
 const DEFAULT_LIMITS = Object.freeze({
   maxSizeBytes: 500 * 1024 * 1024,
@@ -13,19 +14,10 @@ const DEFAULT_LIMITS = Object.freeze({
   allowedExtensions: ['mp4', 'mov', 'webm', 'mkv', 'avi'],
 });
 
-/** 链接 → 平台提示（URL 域名匹配，仅供展示/诊断；未知平台不阻断下载） */
+/** 链接 → 平台提示（仅供展示/诊断；白名单与拦截逻辑见 ./url-guard） */
 function hintPlatform(url) {
   try {
-    const host = new URL(url).hostname.replace(/^www\./, '');
-    for (const p of PLATFORMS) {
-      const keys = {
-        douyin: ['douyin.com'], xiaohongshu: ['xiaohongshu.com', 'xhslink.com'],
-        kuaishou: ['kuaishou.com'], bilibili: ['bilibili.com', 'b23.tv'],
-        shipinhao: ['weixin.qq.com', 'channels.weixin.qq.com'], youtube: ['youtube.com', 'youtu.be'],
-        tiktok: ['tiktok.com'], instagram: ['instagram.com'],
-      };
-      if ((keys[p] || []).some((k) => host === k || host.endsWith('.' + k))) return p;
-    }
+    return matchPlatformHost(new URL(url).hostname);
   } catch { /* 非法 URL 由请求校验拦截 */ }
   return null;
 }
@@ -37,9 +29,12 @@ function hintPlatform(url) {
  */
 function createUrlIngest({
   downloadRunner = runYtDlp, fsImpl = fs, tmpDir = os.tmpdir(), limits = DEFAULT_LIMITS,
+  resolveAddr, resolveDns = true,
 } = {}) {
   async function run(ctx) {
     const url = ctx.request.source.url;
+    // P1-11: 下载前 SSRF 守卫 —— 必须在建临时目录 / 调 yt-dlp **之前**拦截
+    await assertSafeIngestUrl(url, { resolveAddr, resolveDns });
     const targetDir = await fsImpl.promises.mkdtemp(path.join(tmpDir, 'vc-dl-'));
     const targetPath = path.join(targetDir, 'video.mp4');
     try {
@@ -69,4 +64,4 @@ function createUrlIngest({
   return { id: 'ingest', run };
 }
 
-module.exports = { createUrlIngest, hintPlatform, DEFAULT_LIMITS };
+module.exports = { createUrlIngest, hintPlatform, DEFAULT_LIMITS, urlGuard: require('./url-guard') };
