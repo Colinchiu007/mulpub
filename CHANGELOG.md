@@ -38,6 +38,20 @@
 
 ---
 
+# [未发布] feat(model-settings): 模型列表排序逻辑调整 + 运营中心预设模型自定义排序
+
+### 变更
+- **渲染端 `apps/desktop/src/composables/useModelProviderCrud.js`**：「已配置」标签按 默认模型置顶 → `updated_at` 倒序（最新修改/新添加在前）→ 名称拼音兜底；「全部」标签按 `config.sort_order` 升序优先（运营中心下发）→ 无自定义序者按名称拼音（`localeCompare('zh-Hans-CN')` ICU）→ id 稳定兜底。排序单点实现在 computed，不改 IPC 契约。
+- **主进程 `apps/desktop/electron/services/model-provider-manager.js`（applyCatalog）**：目录权威写入 `config.sort_order`（非负整数才生效，null/非法删除键，与 rate_per_minute 同模式）；新增 `stableStringify` 键序稳定内容比对——config/models 无实质变化时跳过 UPDATE，**不再每轮同步 bump `updated_at`**（「已配置」按修改时间排序语义成立的前提），返回体新增 `unchanged` 计数。
+- **运营中心后端**：`ModelPreset` 新增 `sort_order` 列（幂等迁移 PRAGMA+ALTER 自动加列）；`_display_order()` 统一 list/catalog 排序（sort_order NULLS LAST → 多模态 → 类别 → 名称）；新增 `POST /api/v1/model-presets/{id}/reorder`（admin-only，action=top/up/down/bottom，越界幂等 noop，全列表归一化 0..n-1）；catalog 与 `_to_dict` 下发 `sort_order`。
+- **运营中心前端 `ModelPresets.vue`**：新增「排序」列（显示 sort_order，未设显示 -）与操作列 4 图标按钮（⤒移到首位 / ↑上移 / ↓下移 / ⤓移到末位），即时持久化，成功提示「排序已更新」，busy 防连点。
+
+### 验证
+- TDD 红→绿：`useModelProviderCrud.test.js` +5 排序用例（默认置顶/倒序/拼音/sort_order 优先/稳定 tie-break）；`model-provider-apply-catalog.test.js` +2（sort_order 写入与 null 删除、内容无变化不 bump updated_at）；ops-center pytest +2（reorder 四动作与边界/校验、catalog 契约含 sort_order）。
+- 本地全绿：桌面 vitest 72（crud+catalog）/ src 1331 / electron services 188；ops-center pytest 44；ops-center frontend build；QM-1 electron-builder --win --dir exit 0 + asar 抽查 + 8s 启动无 stderr。
+
+### 关联
+- 分支 `codex/model-sort-order`（worktree 隔离，D 盘）；详细规格 `01-docs/PRD-MODEL-LIST-SORT-ORDER-2026-09-23.md`；同步契约增量 `01-docs/PRD-sync-zero-config.md` §8。
 # [未发布] fix(video): 视频号账号标签扫码重登后仍弹回登录页（凭证假保存 hotfix）
 
 ### 变更

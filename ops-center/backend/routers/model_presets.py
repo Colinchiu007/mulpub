@@ -94,6 +94,29 @@ async def update_model_preset(
         raise HTTPException(400, str(e))
 
 
+@router.post("/{preset_id}/reorder")
+async def reorder_model_preset(
+    preset_id: str,
+    body: dict | None = None,
+    db: AsyncSession = Depends(get_db),
+    _user: dict = Depends(require_admin),
+):
+    """预设模型自定义排序（admin-only）：action ∈ top/up/down/bottom，点击即持久化。
+
+    排序对象为含隐藏项的全量列表（按显示序）；移动后 sort_order 归一化 0..n-1，
+    边界操作幂等返回 200（result=noop，不写库）。响应结构同 GET 列表，前端直接刷新。
+    """
+    action = str((body or {}).get("action", "")).strip()
+    try:
+        result = await model_preset_service.reorder_model_preset(db, preset_id, action)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if result == "not-found":
+        raise HTTPException(404, f"Model preset not found: {preset_id}")
+    presets = await model_preset_service.list_model_presets(db, include_hidden=True)
+    return {"presets": presets, "count": len(presets), "result": result}
+
+
 @router.post("/{preset_id}/fetch-models")
 async def fetch_models(
     preset_id: str,
