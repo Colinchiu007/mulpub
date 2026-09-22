@@ -82,3 +82,19 @@ describe('PerformanceRecrawlService', function () {
     expect(Math.abs(nextMs - expected)).toBeLessThan(5000)
   })
 })
+
+describe('PerformanceRecrawlService processRound force 透传', function () {
+  test('processRound({force:true}) → listDueForRecrawl(now, {force:true})', async function () {
+    var store = { listDueForRecrawl: vi.fn(function () { return [] }), updateTrackedContent: vi.fn(), addPerformanceSnapshot: vi.fn() }
+    var svc = new PerformanceRecrawlService({ store: store })
+    svc._jitter = function () { return Promise.resolve() }
+    await svc.processRound({ force: true })
+    expect(store.listDueForRecrawl.mock.calls[0][1]).toEqual({ force: true })
+  })
+  test('processRound() 无参 → 首参仍是当前时间戳（到期筛选不受影响）', async function () {
+    var store = { listDueForRecrawl: vi.fn(function () { return [] }), updateTrackedContent: vi.fn(), addPerformanceSnapshot: vi.fn() }
+    var svc = new PerformanceRecrawlService({ store: store })
+    await svc.processRound()
+    expect(typeof store.listDueForRecrawl.mock.calls[0][0]).toBe('number')
+  })
+})
