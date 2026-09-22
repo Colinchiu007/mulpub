@@ -25,6 +25,10 @@ function createPageManagerApi(ipcRenderer) {
       getHomeTab: () => ipcRenderer.invoke('page-manager:get-home-tab'),
       saveCookies: (tabId) => ipcRenderer.invoke('page-manager:save-cookies', tabId),
       saveAccountTabCredentials: (tabId) => ipcRenderer.invoke('page-manager:save-account-tab-credentials', tabId),
+      // 查询账号标签凭证保存态（方案二：关闭护栏）
+      getAccountTabSaveState: (tabId) => ipcRenderer.invoke('page-manager:account-tab-save-state', tabId),
+      // 批量保存全部未保存账号标签（方案三：全部保存）
+      saveAllUnsavedAccounts: () => ipcRenderer.invoke('page-manager:save-all-unsaved-accounts'),
 
       // ── Event subscription ──
       subscribeEvents: () => ipcRenderer.invoke('page-manager:subscribe-events'),

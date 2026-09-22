@@ -812,3 +812,168 @@ describe('WebviewManager window.open 拦截（对齐参考产品：创作者中�
     expect(result).toEqual({ action: 'deny' })
   })
 })
+
+describe('WebviewManager 批量登录凭证自动保存与护栏（方案一/二/三）', () => {
+  function makeAccountManager() {
+    return { updateCapturedAccount: vi.fn(() => Promise.resolve()), loadSavedCredentials: vi.fn(() => null) }
+  }
+  // 用真实 createNewTabPage 建「待保存」账号标签（cleanSession → credentialSaveState:'unsaved'），
+  // 再解除初始重定向守卫，模拟登录页首帧已过、可判定登录成功。
+  function createUnsavedAccountTab(wm, opts = {}) {
+    const { platform = 'douyin', accountId = 'acc-1', url = 'https://creator.douyin.com/' } = opts
+    const tabId = wm.createNewTabPage({ url, platform, accountId, cleanSession: true })
+    const state = wm._tabStates.get(tabId)
+    state.initialRedirectPhase = false
+    return { tabId, state, view: wm._tabViews.get(tabId) }
+  }
+
+  it('getAllTabs/getActiveTab 透传 credentialSaveState（方案三角标数据源）', () => {
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+    const { tabId } = createUnsavedAccountTab(wm)
+    const all = wm.getAllTabs()
+    expect(all.find(t => t.tabId === tabId).credentialSaveState).toBe('unsaved')
+    const active = wm.getActiveTab()
+    expect(active.tabId).toBe(tabId)
+    expect(active.credentialSaveState).toBe('unsaved')
+  })
+
+  it('getAccountTabSaveState：账号标签返回 unsaved，非账号/未知标签返回 isAccountTab=false（方案二护栏）', () => {
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+    const { tabId } = createUnsavedAccountTab(wm, { accountId: 'acc-9', platform: 'douyin' })
+    expect(wm.getAccountTabSaveState(tabId)).toMatchObject({
+      isAccountTab: true, credentialSaveState: 'unsaved', accountId: 'acc-9', platform: 'douyin'
+    })
+    const browseTabId = wm.createNewTabPage({ url: 'https://www.baidu.com' })
+    expect(wm.getAccountTabSaveState(browseTabId)).toMatchObject({ isAccountTab: false, credentialSaveState: null })
+    expect(wm.getAccountTabSaveState('no-such-tab')).toMatchObject({ isAccountTab: false })
+  })
+
+  it('saveAccountTabCredentials 成功后置 saved 并广播 tab-credential-state-changed（三方案共享）', async () => {
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+    wm.setAccountManager(makeAccountManager())
+    const { tabId, state } = createUnsavedAccountTab(wm, { platform: 'douyin', accountId: 'acc-1' })
+    const result = await wm.saveAccountTabCredentials(tabId)
+    expect(result.ok).toBe(true)
+    expect(wm._accountManager.updateCapturedAccount).toHaveBeenCalledWith(
+      'douyin', expect.objectContaining({ cookies: expect.any(Array) }), 'acc-1'
+    )
+    expect(state.credentialSaveState).toBe('saved')
+    const sends = wm.mainWindow.webContents.send.mock.calls
+      .filter(c => c[0] === 'page-manager:tab-credential-state-changed').map(c => c[1].data)
+    expect(sends).toContainEqual(expect.objectContaining({ tabId, credentialSaveState: 'saved' }))
+  })
+
+  it('saveAccountTabCredentials 无 accountManager 时失败且保持 unsaved（不静默丢失）', async () => {
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+    const { tabId, state } = createUnsavedAccountTab(wm)
+    const result = await wm.saveAccountTabCredentials(tabId)
+    expect(result.ok).toBe(false)
+    expect(result.reason).toBe('account-manager-unavailable')
+    expect(state.credentialSaveState).toBe('unsaved')
+  })
+
+  it('方案一（治本）：did-navigate 命中登录成功 URL → 去抖后自动回写凭证', async () => {
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+    wm.setAccountManager(makeAccountManager())
+    const { tabId, state } = createUnsavedAccountTab(wm)
+    const saveSpy = vi.spyOn(wm, 'saveAccountTabCredentials').mockResolvedValue({ ok: true, accountId: 'acc-1', platform: 'douyin' })
+    vi.useFakeTimers()
+    try {
+      const view = wm._tabViews.get(tabId)
+      view.webContents._handlers['did-navigate']({}, 'https://creator.douyin.com/creator-micro/home')
+      expect(state._autoSaveTimer).toBeTruthy()
+      expect(saveSpy).not.toHaveBeenCalled()
+      vi.advanceTimersByTime(1500)
+      await Promise.resolve()
+      expect(saveSpy).toHaveBeenCalledWith(tabId)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('方案一：初始重定向阶段（initialRedirectPhase=true）不触发自动保存（防误判登录页）', () => {
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+    const tabId = wm.createNewTabPage({ url: 'https://creator.douyin.com/', platform: 'douyin', accountId: 'acc-1', cleanSession: true })
+    const state = wm._tabStates.get(tabId)
+    state.initialRedirectPhase = true
+    const saveSpy = vi.spyOn(wm, 'saveAccountTabCredentials').mockResolvedValue({ ok: true })
+    vi.useFakeTimers()
+    try {
+      wm._maybeScheduleAutoSave(tabId, state)
+      vi.advanceTimersByTime(2000)
+      expect(saveSpy).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('方案一：已保存标签不再排程；横跳到非成功 URL 取消待触发计时器（防抖动误存）', () => {
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+    const { tabId, state } = createUnsavedAccountTab(wm)
+    const saveSpy = vi.spyOn(wm, 'saveAccountTabCredentials').mockResolvedValue({ ok: true })
+    vi.useFakeTimers()
+    try {
+      const view = wm._tabViews.get(tabId)
+      view.webContents._handlers['did-navigate']({}, 'https://creator.douyin.com/creator-micro/home')
+      expect(state._autoSaveTimer).toBeTruthy()
+      // 跳离平台域（非 auth host）→ 取消计时器
+      view.webContents._handlers['did-navigate']({}, 'https://example.com/away')
+      expect(state._autoSaveTimer).toBeNull()
+      vi.advanceTimersByTime(2000)
+      expect(saveSpy).not.toHaveBeenCalled()
+      // 手动置 saved 后再命中成功 URL 也不重复排程
+      state.credentialSaveState = 'saved'
+      wm._maybeScheduleAutoSave(tabId, state)
+      expect(state._autoSaveTimer).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('方案三：saveAllUnsavedAccounts 批量保存全部 unsaved 账号标签，跳过非账号标签', async () => {
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+    wm.setAccountManager(makeAccountManager())
+    const t1 = createUnsavedAccountTab(wm, { accountId: 'a1', platform: 'douyin' }).tabId
+    const t2 = createUnsavedAccountTab(wm, { accountId: 'a2', platform: 'kuaishou' }).tabId
+    wm.createNewTabPage({ url: 'https://www.baidu.com' }) // 浏览标签，非账号 → 跳过
+    const res = await wm.saveAllUnsavedAccounts()
+    expect(res).toMatchObject({ attempted: 2, saved: 2 })
+    expect(res.failed).toEqual([])
+    expect(wm._tabStates.get(t1).credentialSaveState).toBe('saved')
+    expect(wm._tabStates.get(t2).credentialSaveState).toBe('saved')
+  })
+
+  it('方案三：单个账号保存失败计入 failed，不影响其余账号', async () => {
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+    wm.setAccountManager({
+      loadSavedCredentials: vi.fn(() => null),
+      updateCapturedAccount: vi.fn((platform) => platform === 'douyin'
+        ? Promise.reject(new Error('boom')) : Promise.resolve()),
+    })
+    createUnsavedAccountTab(wm, { accountId: 'a1', platform: 'douyin' })
+    const t2 = createUnsavedAccountTab(wm, { accountId: 'a2', platform: 'kuaishou' }).tabId
+    const res = await wm.saveAllUnsavedAccounts()
+    expect(res.attempted).toBe(2)
+    expect(res.saved).toBe(1)
+    expect(res.failed).toEqual([{ accountId: 'a1', platform: 'douyin', reason: 'boom' }])
+    expect(wm._tabStates.get(t2).credentialSaveState).toBe('saved')
+  })
+})
