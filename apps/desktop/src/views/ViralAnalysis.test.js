@@ -3,6 +3,8 @@ import { mount } from "@vue/test-utils";
 import { nextTick } from "vue";
 import { setActivePinia, createPinia } from "pinia";
 
+const { hotTopicsGetCacheMock } = vi.hoisted(() => ({ hotTopicsGetCacheMock: vi.fn() }));
+vi.mock("@/api/hot-topics", () => ({ hotTopicsGetCache: hotTopicsGetCacheMock }));
 vi.mock("@/api/publisher", () => ({
   viralAnalyze: vi.fn().mockResolvedValue({ code: 0, data: { overall_score: 8.5, factors: [] } }),
   viralGenerate: vi.fn().mockResolvedValue({ code: 0, data: { task: "titles", data: { titles: [] } } }),
@@ -817,5 +819,55 @@ describe('ViralAnalysisView P0 契约：pickLibraryItem NULL 透传', () => {
     const arts = JSON.parse(w.vm.articleData);
     expect(arts[0].like_count).toBe(0);
     expect(arts[0].comment_count).toBe(0);
+  });
+});
+
+// P1-b（viral-library-integration PR-2）：F3 并入热榜信号（hotlist 恒前、截 12、来源徽标、降级回归锁）
+describe('ViralAnalysis F3 并源（U-221）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setActivePinia(createPinia());
+    window.electronAPI = {};
+  });
+
+  function createViewP1() {
+    return mount(ViralAnalysisView, {
+      global: {
+        plugins: [createPinia()],
+        mocks: { $t: (key) => key, $router: { push: vi.fn() } },
+      },
+    });
+  }
+
+  it('U-221a: 热榜命中 → hotlist 恒前 + src 徽标 + 总数截 12', async () => {
+    const { viralTrending } = await import('@/api/publisher');
+    const { listViralItems: lvi } = await import('@/api/knowledge-library');
+    lvi.mockResolvedValue({ code: 0, data: { items: Array.from({ length: 8 }, (_, n) => ({ title: '本' + n, likes: 1, comments: 1, platform: 'x' })), total: 8 } });
+    viralTrending.mockResolvedValue({ code: 0, data: { keywords: Array.from({ length: 10 }, (_, n) => ({ word: '本' + n, count: 10 - n })) } });
+    hotTopicsGetCacheMock.mockResolvedValue({ code: 0, data: { topics: Array.from({ length: 5 }, (_, n) => ({ id: 'h' + n, topic: '热' + n, channel: 'weibo', hotValue: 100 - n })) } });
+    const w = createViewP1();
+    await w.vm.loadTrending();
+    expect(w.vm.trendingKeywords.length).toBe(12);
+    expect(w.vm.trendingKeywords[0].word).toBe('热0');
+    expect(w.vm.trendingKeywords[0].src).toBe('hotlist');
+    expect(w.vm.trendingKeywords[11].src).toBe('library');
+  });
+
+  it("U-221b: 热榜超 800ms 未返回 → 静默降级纯本地源（AC-P1-2 回归锁）", async () => {
+    const { viralTrending } = await import('@/api/publisher');
+    const { listViralItems: lvi } = await import('@/api/knowledge-library');
+    lvi.mockResolvedValue({ code: 0, data: { items: [{ title: '本A', likes: 1, comments: 1, platform: 'x' }], total: 1 } });
+    viralTrending.mockResolvedValue({ code: 0, data: { keywords: [{ word: '本A', count: 3 }] } });
+    const realNow = Date.now;
+    Date.now = () => realNow() + 1000;
+    try {
+      hotTopicsGetCacheMock.mockReturnValue(new Promise(() => {}));
+      const w = createViewP1();
+      await w.vm.loadTrending();
+      expect(w.vm.trendingKeywords.length).toBeGreaterThan(0);
+      expect(w.vm.trendingKeywords.every((k) => k.src !== 'hotlist')).toBe(true);
+    } finally {
+      Date.now = realNow;
+    }
   });
 });

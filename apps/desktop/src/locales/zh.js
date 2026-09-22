@@ -2704,6 +2704,8 @@ knowledgeBase: {
     batchImportComingSoon: '批量导入功能即将上线',
     exportComingSoon: '飞书导出功能即将上线，请先在设置页配置飞书 API',
     tabPersonal: '个人知识库',
+    patternQueueBacklog: '模式提取排队中（{n} 条延后处理），分析功能不受影响',
+    engagementRecrawled: '互动数据已自动回采更新',
     addViral: '添加爆款',
     addViralManual: '手动添加爆款',
     collectByLink: '用链接采集',
@@ -2965,6 +2967,9 @@ knowledgeBase: {
     // PR-1 爆款页充分利用（2026-09-21）：F1 task 分段 / F3 热门选题速选 / F9 生成区模式徽标 / Q2 本地估算标注
     taskSegmentHint: '选择生成类型',
     sectionTrending: '热门选题',
+    trendSrcHotlist: '热榜',
+    trendSrcLibrary: '库内',
+    trendSrcArticles: '分析',
     trendingHint: '点击选题词回填主题（不自动分析）',
     localGenBadge: '本地算法',
     localGenHint: '本地启发式引擎（无网络/未配置 orchestrator 时可用），仅支持标题与开场钩子；长文改写请前往改写页或配置 AI 服务',

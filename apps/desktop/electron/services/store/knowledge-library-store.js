@@ -8,19 +8,13 @@
  */
 const log = require('../logger')
 const { extractSync } = require('@multi-publish/rewrite-engine')
+const { _engagementNum, _normUrlForMatch, updateViralEngagementByNormUrl } = require('./knowledge-library-viral-engagement')
+
 
 const VIRAL_SORT_COLUMNS = new Set([
   'created_at', 'likes', 'collections', 'comments', 'like_collect_ratio', 'published_at',
 ])
 
-// P0 契约（viral-library-integration）：NULL = 未知（缺失/非法），0 = 真实零互动。
-// 两者语义不得被 Number(x)||0 压平——下游统计（均值分母、ratio）依此区分。
-function _engagementNum (v) {
-  if (v === null || v === undefined || v === '') return null
-  const n = Number(v)
-  if (!Number.isFinite(n) || n < 0 || n > Number.MAX_SAFE_INTEGER) return null
-  return Math.floor(n)
-}
 
 function normalizeViralItem (item) {
   if (!item || typeof item !== 'object') return null
@@ -243,6 +237,10 @@ module.exports = {
     }
   },
 
+  // P1-a：纯函数经 mixin 暴露（表驱动测试直接调用；混入 prototype 无 this 依赖，安全）
+  _normUrlForMatch: _normUrlForMatch,
+
+  updateViralEngagementByNormUrl: updateViralEngagementByNormUrl,
   countViralItems () {
     if (!this._ready) return 0
     try {

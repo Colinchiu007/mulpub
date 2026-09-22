@@ -57,6 +57,10 @@ function registerHandlers(ipcMain, deps) {
       return { code: EC.SUCCESS, data: store.listPatternCards(params || {}) }
     } catch (e) { log.warn('[ipc:knowledge-library]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
   })
+  ipcMain.handle('knowledge-library:pattern-queue-stats', async () => {
+    try { return knowledgeLibraryService.getPatternQueueStats() } catch (e) { log.warn('[ipc:knowledge-library]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
+  })
+
   ipcMain.handle('knowledge-library:reextract-pattern', withSenderCheck(async (_event, viralItemId) => {
     try {
       if (!store || typeof store.resetPatternCard !== 'function') return { code: EC.REQUEST_ERROR, message: '模式卡片存储未就绪' }

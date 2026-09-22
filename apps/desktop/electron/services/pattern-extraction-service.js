@@ -53,6 +53,15 @@ class PatternExtractionService {
     }
     this._running = true
     try {
+      // P1-c 巡检回落：每轮开头尝试 deferred→pending（pending 回落 <200 才迁移，fail-open）
+      try {
+        if (typeof this._store.promoteDeferredPatternCards === 'function') {
+          const promoted = this._store.promoteDeferredPatternCards({ below: 200 })
+          if (promoted > 0) log.info('PatternExtraction', 'promoted ' + promoted + ' deferred cards back to pending')
+        }
+      } catch (pe) {
+        log.warn('PatternExtraction', 'deferred promote sweep failed (fail-open): ' + (pe && pe.message))
+      }
       const cards = this._store.listPendingPatternCards(10)
       for (const card of cards) {
         try {

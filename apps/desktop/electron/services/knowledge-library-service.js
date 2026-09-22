@@ -83,6 +83,17 @@ class KnowledgeLibraryService {
     } catch { /* 模式卡片后置钩子失败不影响入库主流程 */ }
   }
 
+  /**
+   * F-204：模式卡片队列状态（渲染端页头提示条）；store 缺方法（旧版）→ 0/0 fail-open。
+   */
+  getPatternQueueStats () {
+    if (!this._store || typeof this._store.patternQueueStats !== 'function') {
+      return { code: ERROR.SUCCESS, data: { pending: 0, deferred: 0 } }
+    }
+    const s = this._store.patternQueueStats()
+    return { code: ERROR.SUCCESS, data: s }
+  }
+
   listViral (params = {}) {
     const err = this._requireStore()
     if (err) return err

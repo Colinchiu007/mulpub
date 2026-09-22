@@ -63,7 +63,8 @@ class PerformanceRecrawlService {
   }
 
   async _recrawlOne(item) {
-    const parser = getParser(item.platform)
+    // DI seam（同 UrlCollector log 注入范式）：测试覆写 this._getParser 免真实平台模块/network
+    const parser = (this._getParser || getParser)(item.platform)
     if (!parser) {
       this._store.updateTrackedContent(item.id, { recrawlStatus: 'unsupported' })
       return
@@ -101,8 +102,28 @@ class PerformanceRecrawlService {
       lastRecrawlAt: new Date().toISOString(),
       nextRecrawlAt: nextAt,
     })
+
+    // P1-a：爆款库互动数回写（旁路 fail-open，不影响 tracked 域已完成的写入）
+    this._writeBackViral(contentUrl || item.url, metrics)
   }
 
+  /**
+   * 回采成功后的爆款库写回（viral-library-integration P1-a）。
+   * fail-open：任何异常仅 warn，不影响回采主流程；store 缺方法（旧版）静默跳过。
+   * 单调不减等规则在 store 方法内实现，此处只透传。
+   */
+  _writeBackViral(url, metrics) {
+    try {
+      if (!this._store || typeof this._store.updateViralEngagementByNormUrl !== 'function') return
+      if (!url) return
+      this._store.updateViralEngagementByNormUrl(url, {
+        likes: metrics && metrics.likes,
+        comments: metrics && metrics.comments,
+      })
+    } catch (e) {
+      log.warn('PerformanceRecrawl', 'viral engagement write-back failed (fail-open): ' + (e && e.message))
+    }
+  }
   _recordFailure(item, e) {
     const count = (this._failureCounts.get(item.id) || 0) + 1
     this._failureCounts.set(item.id, count)

@@ -15,6 +15,7 @@ export async function searchViralItems(query, limit) { return invokeWithFallback
 
 // ─── 模式卡片（P1：LLM 提取的结构化爆款模式）───
 export async function listPatternCards(params) { return invokeWithFallback("listPatternCards", { code: -1, data: { items: [], total: 0 } }, params) }
+export async function getPatternQueueStats() { return invokeWithFallback("getPatternQueueStats", { code: -1, data: { pending: 0, deferred: 0 } }) }
 export async function reextractPattern(viralItemId) { return invokeWithFallback("reextractPattern", { code: -1, data: null }, viralItemId) }
 
 // ─── 效果闭环（P2）─────────────────────

@@ -996,6 +996,7 @@ var require_knowledge_library = __commonJS({
         // 模式卡片（P1）
         listPatternCards: (params) => ipcRenderer2.invoke("knowledge-library:list-pattern-cards", params),
         reextractPattern: (viralItemId) => ipcRenderer2.invoke("knowledge-library:reextract-pattern", viralItemId),
+        getPatternQueueStats: () => ipcRenderer2.invoke("knowledge-library:pattern-queue-stats"),
         // 效果闭环（P2）
         listTrackedContent: (params) => ipcRenderer2.invoke("performance:list-tracked", params),
         addManualSnapshot: (trackedContentId, metrics) => ipcRenderer2.invoke("performance:add-manual-snapshot", trackedContentId, metrics),
