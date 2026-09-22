@@ -81,6 +81,7 @@
         v-if="isLoginTab"
         type="button"
         class="save-account-btn"
+        :class="{ 'save-account-btn--pulse': accountUnsaved && !saving }"
         :disabled="saving"
         data-testid="nav-save-account"
         @click="$emit('save-account')"
@@ -106,7 +107,9 @@ const props = defineProps({
   loading: { type: Boolean, default: false },
   // 登录标签态（对齐参考产品）：导航栏右侧显示「保存账号」蓝色按钮
   isLoginTab: { type: Boolean, default: false },
-  saving: { type: Boolean, default: false }
+  saving: { type: Boolean, default: false },
+  // 账号标签存在未保存凭证时：保存按钮加脉冲动画（方案三，提醒点击）
+  accountUnsaved: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['go-back', 'go-forward', 'reload', 'go-home', 'navigate', 'save-account'])
@@ -303,6 +306,19 @@ async function copyUrl() {
 .save-account-btn:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+.save-account-btn--pulse {
+  animation: save-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes save-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(64, 158, 255, 0.5); transform: scale(1); }
+  50% { box-shadow: 0 0 0 6px rgba(64, 158, 255, 0); transform: scale(1.04); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .save-account-btn--pulse { animation: none; }
 }
 
 @keyframes spin {

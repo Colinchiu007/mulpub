@@ -32,6 +32,9 @@ export const useTabStore = defineStore('tabs', () => {
   const isHomeTab = computed(() => activeTab.value?.isHome === true)
   const hasTabs = computed(() => tabs.value.length > 0)
   const tabCount = computed(() => tabs.value.length)
+  // 待保存（未回写凭证）的账号标签：驱动「全部保存」按钮与角标计数。
+  const unsavedTabs = computed(() => tabs.value.filter(t => t.credentialSaveState === 'unsaved'))
+  const unsavedCount = computed(() => unsavedTabs.value.length)
 
   // ── Internal: 获取 pageManager API ──
   function _api() {
@@ -185,6 +188,15 @@ export const useTabStore = defineStore('tabs', () => {
       })
     )
 
+    // 凭证保存态变化（自动/手动/批量保存成功后主进程广播）→ 实时熄灭对应标签角标。
+    _unsubscribes.push(
+      api.on('tab-credential-state-changed', (data) => {
+        if (!data?.tabId) return
+        const tab = tabs.value.find(t => t.tabId === data.tabId)
+        if (tab) tab.credentialSaveState = data.credentialSaveState || null
+      })
+    )
+
     // 订阅主进程事件流
     await api.subscribeEvents()
 
@@ -257,6 +269,41 @@ export const useTabStore = defineStore('tabs', () => {
       await _refreshNavigation()
     } catch (e) {
       console.error('[tabStore] closeTab failed:', e)
+    }
+  }
+
+  /**
+   * 查询账号标签凭证保存态（方案二：关闭护栏）。返回 data 或 null（无 API）。
+   */
+  async function getAccountTabSaveState(tabId) {
+    const api = _api()
+    if (!api || typeof api.getAccountTabSaveState !== 'function') return null
+    try {
+      const result = await api.getAccountTabSaveState(tabId)
+      if (result?.code === 0 && result.data) return result.data
+      return null
+    } catch (e) {
+      console.error('[tabStore] getAccountTabSaveState failed:', e)
+      return null
+    }
+  }
+
+  /**
+   * 批量保存全部未保存账号标签（方案三：全部保存）。返回 data 或 null。
+   */
+  async function saveAllUnsavedAccounts() {
+    const api = _api()
+    if (!api || typeof api.saveAllUnsavedAccounts !== 'function') return null
+    try {
+      const result = await api.saveAllUnsavedAccounts()
+      if (result?.code === 0 && result.data) {
+        await _refreshTabs()
+        return result.data
+      }
+      return null
+    } catch (e) {
+      console.error('[tabStore] saveAllUnsavedAccounts failed:', e)
+      return null
     }
   }
 
@@ -350,12 +397,16 @@ export const useTabStore = defineStore('tabs', () => {
     isHomeTab,
     hasTabs,
     tabCount,
+    unsavedTabs,
+    unsavedCount,
     // Actions
     init,
     dispose,
     createTab,
     closeTab,
     switchToTab,
+    getAccountTabSaveState,
+    saveAllUnsavedAccounts,
     goBack,
     goForward,
     reload,
