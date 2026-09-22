@@ -26,6 +26,8 @@ export function useOpsCenterSync () {
   const syncing = ref(false)
   const syncStatus = ref('')      // 成功/提示文案
   const syncError = ref('')       // 错误文案（与成功互斥）
+  const autoConnected = ref(false) // 方案C：登录会话自动连接
+  const autoUrl = ref('')          // 自动发现的 URL（只读展示）
 
   /** 是否已配置同步（有 URL 且有 Key），驱动限流/模型只读 */
   const syncConfigured = ref(false)
@@ -36,7 +38,10 @@ export function useOpsCenterSync () {
     syncApiKeyConfigured.value = !!cfg.apiKeyConfigured
     syncAutoSync.value = cfg.autoSync !== false
     lastSyncedAt.value = cfg.lastSyncedAt || ''
-    syncConfigured.value = !!(cfg.url && cfg.apiKeyConfigured)
+    autoConnected.value = !!cfg.autoConnected
+    autoUrl.value = cfg.autoUrl || ''
+    // 方案C：autoConnected 也算已配置（无需手动 Key 即可同步）
+    syncConfigured.value = !!(cfg.url && cfg.apiKeyConfigured) || !!cfg.autoConnected
   }
 
   function formatLastSync (iso) {
@@ -123,6 +128,8 @@ export function useOpsCenterSync () {
     syncStatus,
     syncError,
     syncConfigured,
+    autoConnected,
+    autoUrl,
     formatLastSync,
     loadSyncConfig,
     saveSyncConfig,

@@ -1770,6 +1770,8 @@ export default {
     syncApiKeyLabel: '目录同步 API Key',
     apiKeyConfiguredPlaceholder: '已配置（留空保持不变）',
     apiKeyPlaceholder: '填写运营后台 OPS_CATALOG_API_KEY',
+    autoConnectedBadge: '已通过登录会话自动连接',
+    loginToEnableSync: '登录账号后将自动启用运营中心同步，无需手动配置',
     opsSyncHint: '已启用运营后台下发：服务商的「每分钟连接次数 / 5小时限额次数 / 模型列表」以运营后台为准，桌面端为只读展示；本地仍可配置 API Key、Base URL 与默认服务商。',
     configuredTab: '已配置',
     allTab: '全部',

@@ -64,7 +64,7 @@ async function runCleanups(cleanups) {
  */
 async function startServices({ container, usageTracker, store, taskQueue, callbackServer, scheduler,
   keywordMonitor, analyticsService, pythonBridge, CloudPublisher, modelProviderManager, getMainWin,
-  createIdentityService, loadIdentityRuntimeEnv, waitForStoreReady }) {
+  createIdentityService, loadIdentityRuntimeEnv, waitForStoreReady, opsCenterSync }) {
   /** @type {Array<() => unknown | Promise<unknown>>} */
   const cleanups = []
   let rollbackPromise = null
@@ -270,6 +270,10 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
     if (pythonBridge && typeof pythonBridge.setAuthService === 'function') {
       pythonBridge.setAuthService(identityService)
       cleanups.push(() => pythonBridge.setAuthService(null))
+    }
+    // 方案C 零配置化：注入 access token 获取器到运营中心同步服务
+    if (opsCenterSync && typeof opsCenterSync.setGetAccessToken === 'function' && identityService && typeof identityService.getAccessToken === 'function') {
+      opsCenterSync.setGetAccessToken(() => identityService.getAccessToken())
     }
 
     const cloudPublisher = new CloudPublisher({

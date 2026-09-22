@@ -4,7 +4,6 @@
 - GET /api/v1/runtime/bootstrap 走 X-Catalog-Key（桌面端只读拉取，与模型目录端点同鉴权）
 """
 import datetime
-import hmac as _hmac
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,13 +16,10 @@ from services import runtime_service
 router = APIRouter(tags=["runtime"])
 
 
-def _require_catalog_key(request: Request) -> None:
-    expected = settings.catalog_api_key
-    if not expected:
-        raise HTTPException(404, "Not found")
-    provided = request.headers.get("x-catalog-key", "")
-    if not _hmac.compare_digest(provided.encode(), expected.encode()):
-        raise HTTPException(401, "目录同步 Key 无效")
+async def _require_catalog_key(request: Request) -> None:
+    """Accept Bearer JWT (Logto) OR X-Catalog-Key (static fallback)."""
+    from services.logto_verifier import verify_bearer_or_catalog_key
+    await verify_bearer_or_catalog_key(request)
 
 
 # ─── 公告 ────────────────────────────────────────────────
@@ -127,7 +123,7 @@ async def get_runtime_bootstrap(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    _require_catalog_key(request)
+    await _require_catalog_key(request)
     # 签名私钥未配置 → 404 fail-closed（与 catalog_api_key 未配置同一模式）：
     # 未签名响应将被桌面端整体拒绝（尤其 pipelineOptions 阻塞），弱配置必须显式暴露。
     try:

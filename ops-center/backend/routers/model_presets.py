@@ -46,14 +46,8 @@ async def get_model_preset_catalog(
     - key 错误 → 401
     返回 is_visible=1 的目录（限流/模型/能力，不含敏感字段）。
     """
-    import hmac as _hmac
-
-    expected = settings.catalog_api_key
-    if not expected:
-        raise HTTPException(404, "Not found")
-    provided = request.headers.get("x-catalog-key", "")
-    if not _hmac.compare_digest(provided.encode(), expected.encode()):
-        raise HTTPException(401, "目录同步 Key 无效")
+    from services.logto_verifier import verify_bearer_or_catalog_key
+    await verify_bearer_or_catalog_key(request)
     items = await model_preset_service.list_catalog(db)
     return {"items": items, "count": len(items), "synced_at": datetime.datetime.utcnow().isoformat() + "Z"}
 

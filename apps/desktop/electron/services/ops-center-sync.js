@@ -125,12 +125,16 @@ class OpsCenterSync {
     try { raw = this._store?.getSetting ? String(this._store.getSetting(SETTING_KEY) || '') : '' } catch { raw = '' }
     let cfg = {}
     if (raw) { try { cfg = JSON.parse(raw) } catch { cfg = {} } }
+    const auto = this._getAutoContext()
     return {
-      url: cfg.url || '',
+      url: cfg.url || (auto ? auto.url : ''),
       apiKeyConfigured: !!(cfg.apiKeyEnc),
       autoSync: cfg.autoSync !== false,
       lastSyncedAt: cfg.lastSyncedAt || '',
       runtimePublicKey: cfg.runtimePublicKey || '',
+      // 方案C 零配置化：登录会话自动连接标识（无手动URL + 有自动URL + 有token回调）
+      autoConnected: !cfg.url && !!auto,
+      autoUrl: auto ? auto.url : '',
     }
   }
 
@@ -194,15 +198,20 @@ class OpsCenterSync {
 
   async _syncNowInner() {
     const cfg = this.getConfig()
-    if (!cfg.url) return { code: -1, message: '未配置 Ops Center 地址' }
-    if (!cfg.apiKeyConfigured) return { code: -1, message: '未配置 Ops Center API Key' }
+    // 方案C：优先使用自动发现的 context（identity-public.json + Logto JWT）
+    const auto = this._getAutoContext()
+    const effectiveUrl = cfg.url || (auto ? auto.url : '')
+    const useBearer = !cfg.url && auto && !cfg.apiKeyConfigured
+    if (!effectiveUrl) return { code: -1, message: '未配置 Ops Center 地址' }
+    if (!useBearer && !cfg.apiKeyConfigured) return { code: -1, message: '未配置 Ops Center API Key' }
     if (!this._manager || typeof this._manager.applyCatalog !== 'function') {
       return { code: -1, message: '模型服务未就绪' }
     }
 
     let items
     try {
-      items = await this._fetchCatalog(cfg.url, this._readEncryptedKey())
+      const auth = useBearer ? { type: 'bearer', getAccessToken: auto.getAccessToken } : { type: 'catalog-key', value: this._readEncryptedKey() }
+      items = await this._fetchCatalog(effectiveUrl, auth)
     } catch (e) {
       return { code: -1, message: e.message }
     }
@@ -212,14 +221,15 @@ class OpsCenterSync {
 
     // 更新 lastSyncedAt
     const nowIso = new Date().toISOString()
-    const updated = { url: cfg.url, apiKeyEnc: this._getStoredKeyEnc(), autoSync: cfg.autoSync, lastSyncedAt: nowIso, runtimePublicKey: cfg.runtimePublicKey || '' }
+    const updated = { url: cfg.url || '', apiKeyEnc: this._getStoredKeyEnc(), autoSync: cfg.autoSync, lastSyncedAt: nowIso, runtimePublicKey: cfg.runtimePublicKey || '' }
     try { this._store.setSetting(SETTING_KEY, JSON.stringify(updated)) } catch { /* 非关键 */ }
 
     // 运行时策略（公告/版本发布/内容安全）best-effort 拉取：失败仅 warn，不影响目录同步结果
     let runtimeApplied = false
     let runtimeSyncedAt = ''
     try {
-      const runtime = await this._fetchRuntime(cfg.url, this._readEncryptedKey())
+      const runtimeAuth = useBearer ? { type: 'bearer', getAccessToken: auto.getAccessToken } : { type: 'catalog-key', value: this._readEncryptedKey() }
+      const runtime = await this._fetchRuntime(effectiveUrl, runtimeAuth)
       this.applyRuntime(runtime)
       runtimeApplied = true
       runtimeSyncedAt = runtime.synced_at || ''
@@ -363,6 +373,12 @@ class OpsCenterSync {
     this._rewriteEngineService = res || null
   }
 
+
+  /** 注入 access token 获取回调（方案C 零配置化：由 bootstrap 接线 authService.getAccessToken） */
+  setGetAccessToken(fn) {
+    this._getAccessToken = typeof fn === 'function' ? fn : null
+  }
+
   /** 应用运行时策略：公告缓存 + 敏感词重建 + 更新策略推送 */
   applyRuntime(payload) {
     if (!payload || typeof payload !== 'object') return
@@ -457,15 +473,26 @@ class OpsCenterSync {
 
   // ─── 拉取 ───────────────────────────────────────────────
 
-  async _fetchCatalog(baseUrl, apiKey) {
-    // baseUrl 参数保留签名兼容；实际 URL 由 _fetchJson 从 getConfig().url 读取
-    const data = await this._fetchJson('/api/v1/model-presets/catalog', apiKey)
+
+  /**
+   * 方案C 零配置化：从 identity 配置自动发现运营中心 URL，用 Logto JWT 鉴权。
+   * 返回 {url, getAccessToken} 或 null（未配置/身份不可用时）。
+   */
+  _getAutoContext() {
+    const autoUrl = normalizeUrl(process.env.OPS_CENTER_URL || '')
+    if (!autoUrl) return null
+    if (!this._getAccessToken) return null
+    return { url: autoUrl, getAccessToken: this._getAccessToken }
+  }
+
+  async _fetchCatalog(baseUrl, auth) {
+    const data = await this._fetchJson('/api/v1/model-presets/catalog', auth)
     if (!data || !Array.isArray(data.items)) throw new Error('目录响应结构错误（缺少 items 数组）')
     return data.items
   }
 
-  async _fetchRuntime(baseUrl, apiKey) {
-    const data = await this._fetchJson('/api/v1/runtime/bootstrap', apiKey)
+  async _fetchRuntime(baseUrl, auth) {
+    const data = await this._fetchJson('/api/v1/runtime/bootstrap', auth)
     // Stage -1.6：运行时策略（公告/版本/敏感词/featureFlags/pipelineOptions）Ed25519 验签。
     // 验签不通过 → 抛错，调用方整体拒绝应用任何运行时策略（fail-closed，pipelineOptions 永不经未验签路径合入）。
     const signed = verifyRuntimeSignature(data, this._getRuntimePublicKey())
@@ -476,15 +503,24 @@ class OpsCenterSync {
     return data
   }
 
-  async _fetchJson(path, apiKey) {
-    const base = String(this.getConfig().url || '').replace(/\/+$/, '')
+  async _fetchJson(path, auth) {
+    // auth: { type: 'catalog-key', value } | { type: 'bearer', getAccessToken }
+    const base = String(this.getConfig().url || process.env.OPS_CENTER_URL || '').replace(/\/+$/, '')
     const url = base + path
     const controller = typeof AbortController === 'function' ? new AbortController() : null
     const timer = controller ? setTimeout(() => controller.abort(), SYNC_TIMEOUT_MS) : null
+    let headers = { Accept: 'application/json' }
+    if (auth && auth.type === 'bearer') {
+      const token = await auth.getAccessToken()
+      if (!token) throw new Error('无法获取登录凭证，请确认已登录')
+      headers['Authorization'] = 'Bearer ' + token
+    } else {
+      headers['X-Catalog-Key'] = (auth && auth.value) || ''
+    }
     let resp
     try {
       resp = await fetch(url, {
-        headers: { 'X-Catalog-Key': apiKey, Accept: 'application/json' },
+        headers,
         redirect: 'error',
         signal: controller?.signal,
       })
@@ -508,7 +544,10 @@ class OpsCenterSync {
   async autoSyncOnStart() {
     try {
       const cfg = this.getConfig()
-      if (!cfg.autoSync || !cfg.url || !cfg.apiKeyConfigured) return
+      const auto = this._getAutoContext()
+      if (!cfg.autoSync) return
+      if (!cfg.url && !auto) return
+      if (cfg.url && !cfg.apiKeyConfigured && !auto) return
       setTimeout(() => {
         this.syncNow().then((r) => {
           if (r.code !== 0) this._log.warn('OpsCenterSync', 'auto sync skipped: ' + r.message)

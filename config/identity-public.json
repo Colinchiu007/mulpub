@@ -18,5 +18,7 @@
     "cloud:publish"
   ],
   "entitlementKeyId": "entitlement-2026-07-24",
-  "entitlementPublicKey": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArBZ/ZMC00wi1TQBJ7LCe\nwfrUgD5E8c6IVBBYxh8tDayW6dGg4Wv/FDqm3CUftnMUfgWYrFhhP+8w2ddpEcZE\ncPBCm7LSZ1/FvtiQDsQJXniKVzstfCNADV4cq/s3W6GU/mdUbnDChxlpu1H8CEdA\nR/KczWTyhDANYxKwC33r5B5oYOiz6gDAaFlX/J3QLzrFmxoyqXy3VUJW3F6fedk7\nXYqj/Vypfcrqf8lKRqSPsOaYB48gnBSxEaEdwonSL3CjFFgcWulk5unf5H1+VPCi\nXYsNGSmkmpJdXBG8QsV6cVH8hBCxLvWGh+9ew8u5P+AzelBaIOi9i2WAjS7nqdeW\nGwIDAQAB\n-----END PUBLIC KEY-----"
+  "entitlementPublicKey": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArBZ/ZMC00wi1TQBJ7LCe\nwfrUgD5E8c6IVBBYxh8tDayW6dGg4Wv/FDqm3CUftnMUfgWYrFhhP+8w2ddpEcZE\ncPBCm7LSZ1/FvtiQDsQJXniKVzstfCNADV4cq/s3W6GU/mdUbnDChxlpu1H8CEdA\nR/KczWTyhDANYxKwC33r5B5oYOiz6gDAaFlX/J3QLzrFmxoyqXy3VUJW3F6fedk7\nXYqj/Vypfcrqf8lKRqSPsOaYB48gnBSxEaEdwonSL3CjFFgcWulk5unf5H1+VPCi\nXYsNGSmkmpJdXBG8QsV6cVH8hBCxLvWGh+9ew8u5P+AzelBaIOi9i2WAjS7nqdeW\nGwIDAQAB\n-----END PUBLIC KEY-----",
+  "opsCenterUrl": "https://ops.iart.work"
+
 }

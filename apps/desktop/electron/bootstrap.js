@@ -165,7 +165,7 @@ function runWhenReady(context, deps) {
   const {
     container, store, taskQueue, callbackServer, scheduler,
     keywordMonitor, analyticsService, usageTracker, CloudPublisher, commentManager, modelProviderManager,
-    pythonBridge, splitterBridge, promptBridge,
+    pythonBridge, splitterBridge, promptBridge, opsCenterSync,
   } = context
 
   return app.whenReady().then(async () => {
@@ -184,7 +184,7 @@ function runWhenReady(context, deps) {
 servicesResult = await startServices({
         container, store, taskQueue, callbackServer, scheduler,
         keywordMonitor, analyticsService, usageTracker, pythonBridge, CloudPublisher, commentManager,
-        modelProviderManager, getMainWin,
+        modelProviderManager, getMainWin, opsCenterSync,
       })
 
       // 启动知识进化调度器
