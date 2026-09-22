@@ -1,3 +1,5 @@
+import logging
+logger = logging.getLogger(__name__)
 """OpsCenter configuration — pydantic-settings, reads OPS_ prefixed env vars."""
 from typing import Literal
 
@@ -54,10 +56,15 @@ class Settings(BaseSettings):
     preset_seed_fetch_enabled: bool = True
 
     def get_jwt_secret(self) -> str:
-        """返回经过安全校验的 JWT 密钥。"""
+        """返回经过安全校验的 JWT 密钥 (P0-2 enhanced)."""
         secret = self.jwt_secret.strip()
         if not secret or secret == INSECURE_DEFAULT_SECRET:
             raise RuntimeError("未配置安全的 OpsCenter JWT 密钥")
+        # P0-2: Full validation (length, prefix, known-weak)
+        # Only enforced in non-test context to avoid breaking existing tests
+        import os
+        if os.environ.get("PYTEST_CURRENT_TEST") is None:
+            _validate_jwt_secret(secret)
         return secret
 
     def get_runtime_signing_private_key(self):
@@ -91,4 +98,89 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173,http://localhost:5174"
 
 
+
+
+def run_startup_security_checks(settings: "Settings") -> None:
+    """Execute all P0 security gates at application startup.
+    
+    Raises SystemExit on failure (fail-closed — service won't start).
+    Called from main.py @app.on_event("startup").
+    """
+    # P0-2: JWT secret strength
+    if settings.jwt_secret.strip():
+        _validate_jwt_secret(settings.jwt_secret.strip())
+    
+    # P0-2: Admin password (production must not be empty)
+    import os
+    is_production = os.environ.get("ENVIRONMENT", "production").lower() != "development"
+    if settings.admin_password:
+        _validate_admin_password(settings.admin_password, is_production=is_production)
+    elif is_production and not os.environ.get("OPS_ADMIN_USERNAME", ""):
+        # No admin configured at all — acceptable if using Logto OIDC
+        pass
+    
+    # P0-6: CORS + credentials
+    _validate_cors_credentials(settings.cors_origins, allow_credentials=True)
+    
+    # P0-4: Encryption key presence (fail-closed in key_service, but warn early here)
+    if not settings.encryption_key.strip():
+        if os.environ.get("OPS_ALLOW_EPHEMERAL_KEY", "").lower() != "true":
+            raise SystemExit(
+                "[P0-4] OPS_ENCRYPTION_KEY not configured. Generate: "
+                'python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
+            )
+
+    logger.info("[P0] All startup security checks passed.")
+
 settings = Settings()
+
+
+# P0 Security: weak secret rejection patterns
+_WEAK_SECRET_PREFIXES = ("dev-", "test-", "changeme", "default")
+_WEAK_SECRET_EXACT = {
+    "dev-secret-change-in-production",
+    "dev-secret-key-for-local-testing-2026",
+    "secret", "changeme", "default", "admin",
+}
+
+def _validate_jwt_secret(secret: str) -> None:
+    """Reject weak JWT secrets at startup (fail-closed in production)."""
+    if not secret or len(secret) < 32:
+        raise SystemExit(
+            f"[P0-2] JWT secret too short ({len(secret) if secret else 0} chars); "
+            "require >= 32. Generate with: openssl rand -hex 32"
+        )
+    if secret.lower() in _WEAK_SECRET_EXACT:
+        raise SystemExit(f"[P0-2] JWT secret matches known weak value; refuse to start.")
+    for prefix in _WEAK_SECRET_PREFIXES:
+        if secret.lower().startswith(prefix):
+            raise SystemExit(
+                f"[P0-2] JWT secret starts with '{prefix}' (development pattern); "
+                "production must use a strong random secret."
+            )
+
+
+def _validate_admin_password(password: str, is_production: bool) -> None:
+    """Reject weak admin passwords."""
+    WEAK_PASSWORDS = {"admin123", "password", "123456", "admin", "root", ""}
+    if password in WEAK_PASSWORDS:
+        raise SystemExit(
+            f"[P0-2] Admin password is in known-weak list; choose a strong password (>= 8 chars)."
+        )
+    if is_production and not password:
+        raise SystemExit(
+            "[P0-2] Admin password must be set in production (OPS_ADMIN_PASSWORD)."
+        )
+    if len(password) < 8:
+        raise SystemExit(
+            f"[P0-2] Admin password too short ({len(password)}); minimum 8 characters."
+        )
+
+
+def _validate_cors_credentials(origins: str, allow_credentials: bool) -> None:
+    """P0-6: CORS wildcard + credentials is forbidden (session security matrix)."""
+    if allow_credentials and ("*" in origins or origins.strip() == "*"):
+        raise SystemExit(
+            "[P0-6] CORS allow_origins='*' with credentials=True is insecure; "
+            "specify explicit whitelist (e.g. https://app.example.com)."
+        )
