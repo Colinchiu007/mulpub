@@ -118,27 +118,73 @@ class KnowledgeContextBuilder {
     if (!items || !Array.isArray(items) || items.length === 0) return ''
     this._recordTouched('viral_library', items)
 
-    // P1 模式卡片：收集 done 状态卡片
+    // P1 模式卡片：收集 done 状态卡片 + item→lift 映射（P2-b 排序用）
     const cards = []
+    const liftByItem = new Map()
     if (this._patternCards && typeof this._patternCards.get === 'function') {
       for (const item of items) {
         if (!item || !item.id) continue
         try {
           const card = this._patternCards.get(item.id)
-          if (card && card.status === 'done') cards.push(card)
+          if (card && card.status === 'done') {
+            cards.push(card)
+            const l = Number(card.expected_lift)
+            liftByItem.set(String(item.id), Number.isFinite(l) ? l : null)
+          }
         } catch { /* 卡片读取失败视为缺失 */ }
       }
     }
 
+    // P2-b：带 done 卡片的条目按 expected_lift 降序优先采样，NULL lift / 无卡片项不丢弃、排后
+    const orderedItems = this._orderItemsByLift(items, liftByItem)
+    const orderedCards = this._orderCardsByLift(cards)
+
     // 有卡片时输出聚合风格指导；无卡片（或全部缺失/failed）回退浅层特征
-    if (cards.length > 0) {
-      const patternBlock = this._buildPatternGuidance(cards, items.length)
+    if (orderedCards.length > 0) {
+      const patternBlock = this._buildPatternGuidance(orderedCards, orderedItems.length)
       // 卡片全字段为空时指导块无实际内容——回退浅层（审查 W-3）
-      if (!patternBlock) return this._buildShallowViral(items)
-      const shallowBlock = this._buildShallowViral(items)
+      if (!patternBlock) return this._buildShallowViral(orderedItems)
+      const shallowBlock = this._buildShallowViral(orderedItems)
       return patternBlock + (shallowBlock ? '\n' + shallowBlock : '')
     }
-    return this._buildShallowViral(items)
+    return this._buildShallowViral(orderedItems)
+  }
+
+  /**
+   * P2-b：按 done 卡片 expected_lift 降序重排爆款条目（AC-P2-4）。
+   * 排序键依次：有 done 卡片 > 无卡片；lift 已知 > lift 为 NULL；lift 值降序；原始下标稳定。
+   * 无卡片 / NULL lift 一律保留（不丢弃），仅排到最后。
+   * @param {Array} items - 检索命中的爆款条目
+   * @param {Map<string, number|null>} liftByItem - item.id → 有限 lift 或 null（NULL lift）
+   * @returns {Array} 重排后的条目（长度与入参一致）
+   */
+  _orderItemsByLift(items, liftByItem) {
+    return items
+      .map((item, idx) => {
+        const key = item && item.id ? String(item.id) : null
+        const has = key !== null && liftByItem.has(key)
+        const raw = has ? liftByItem.get(key) : null
+        const known = raw !== null && raw !== undefined
+        return { item: item, idx: idx, hasCard: has ? 1 : 0, known: known ? 1 : 0, lift: known ? raw : 0 }
+      })
+      .sort(function (a, b) { return (b.hasCard - a.hasCard) || (b.known - a.known) || (b.lift - a.lift) || (a.idx - b.idx) })
+      .map(function (x) { return x.item })
+  }
+
+  /**
+   * P2-b：模式卡片按 expected_lift 降序（NULL 排后、原序稳定），使聚合指导的「首个标题公式/钩子原理」取最高 lift 卡片。
+   * @param {Array} cards - done 状态卡片
+   * @returns {Array} 重排后的卡片
+   */
+  _orderCardsByLift(cards) {
+    return cards
+      .map(function (c, i) {
+        const l = Number(c && c.expected_lift)
+        const known = Number.isFinite(l)
+        return { c: c, i: i, known: known ? 1 : 0, lift: known ? l : 0 }
+      })
+      .sort(function (a, b) { return (b.known - a.known) || (b.lift - a.lift) || (a.i - b.i) })
+      .map(function (x) { return x.c })
   }
 
   /**

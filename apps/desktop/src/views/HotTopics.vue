@@ -163,6 +163,11 @@
             {{ t('hotTopics.createCopy') }}
           </button>
           <button
+            class="cohere-btn-secondary item-analyze-btn"
+            :data-testid="'hot-topic-analyze-' + topic.id"
+            @click="analyzeSingle(topic)"
+          >{{ t('hotTopics.analyzeAction') }}</button>
+          <button
             class="cohere-btn-primary item-gen-video-btn"
             :data-testid="'hot-topic-generate-video-' + topic.id"
             :disabled="genVideoBusy"
@@ -508,6 +513,13 @@ function buildRewriteInput(topicText) {
 
 function createCopySingle(topic) {
   router.push('/rewrite?topic=' + encodeURIComponent(topic.topic))
+}
+
+// P2-c：热榜条目一键联动爆款分析——跳转并带入 topic，分析页预填但不自动发起
+function analyzeSingle(topic) {
+  const title = typeof topic?.topic === 'string' ? topic.topic.trim() : ''
+  if (!title) return
+  router.push({ path: '/viral-analysis', query: { topic: title.slice(0, 200) } })
 }
 
 function createCopyBatch() {

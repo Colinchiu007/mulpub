@@ -553,6 +553,80 @@ describe('RewriteEngine viral signal injection', function () {
   })
 })
 
+// ── P2-a: 爆款强度定量信号注入（engagement 软约束）──
+describe('RewriteEngine viral strength injection', function () {
+  function wireS(engine) {
+    var strategy = {
+      id: 'strength-v1', name: 'strength-test', category: 'imitate',
+      systemPrompt: 'assistant.', userPromptTemplate: 'rewrite: {content}',
+      industry: ['generic'], tone: ['casual'], platforms: ['generic'],
+      postProcess: { removeAITaste: false, maxLength: 6000 }
+    }
+    engine._strategyManager._strategies = [strategy]
+    engine._strategyManager.listEnabled = function () { return [strategy] }
+    engine._strategyManager.get = function () { return strategy }
+    engine._strategyManager.clearRemote = function () {}
+    engine._strategyManager.mergeRemote = function () {}
+  }
+  function engEngine() {
+    var captured = null
+    var llm = { chat: async function (sys, user) { captured = user; return '结果' } }
+    var engine = new RewriteEngine({ llmClient: llm, knowledgeBase: new KnowledgeBase() })
+    wireS(engine)
+    return { engine: engine, getCaptured: function () { return captured } }
+  }
+
+  test('P2a-1 有效 engagement 注入强度段，avgLikes 取整百', async function () {
+    var e = engEngine()
+    await e.engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {},
+      engagement: { sampleCount: 5, avgLikes: 1234, avgComments: 56.7 } })
+    expect(e.getCaptured()).toContain('爆款强度参考')
+    expect(e.getCaptured()).toContain('5 条')
+    expect(e.getCaptured()).toContain('点赞 ~1200')
+    expect(e.getCaptured()).toContain('评论 ~57')
+    expect(e.getCaptured()).not.toContain('1234')
+  })
+
+  test('P2a-2 样本数 <3 → 不注入（统计无意义，宁缺毋滥）', async function () {
+    var e = engEngine()
+    await e.engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {},
+      engagement: { sampleCount: 2, avgLikes: 1234, avgComments: 56 } })
+    expect(e.getCaptured()).not.toContain('爆款强度参考')
+  })
+
+  test('P2a-3 均值非有限数（NaN/undefined）→ 不注入', async function () {
+    var e = engEngine()
+    await e.engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {},
+      engagement: { sampleCount: 8, avgLikes: NaN, avgComments: 56 } })
+    expect(e.getCaptured()).not.toContain('爆款强度参考')
+  })
+
+  test('P2a-4 engagement 非对象/null → 不注入', async function () {
+    var e = engEngine()
+    await e.engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {}, engagement: 'x' })
+    expect(e.getCaptured()).not.toContain('爆款强度参考')
+    var e2 = engEngine()
+    await e2.engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {}, engagement: null })
+    expect(e2.getCaptured()).not.toContain('爆款强度参考')
+  })
+
+  test('P2a-5 未携带 engagement → 行为逐字节不变（回归锁）', async function () {
+    var e = engEngine()
+    await e.engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
+    expect(e.getCaptured()).not.toContain('强度')
+    expect(e.getCaptured()).toBe('rewrite: 原始内容')
+  })
+
+  test('P2a-6 engagement 与 viralAngles 同存 → 两段并存', async function () {
+    var e = engEngine()
+    await e.engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {},
+      viralAngles: ['深度解析'], engagement: { sampleCount: 4, avgLikes: 900, avgComments: 20 } })
+    expect(e.getCaptured()).toContain('爆款信号参考')
+    expect(e.getCaptured()).toContain('爆款强度参考')
+    expect(e.getCaptured()).toContain('深度解析')
+  })
+})
+
 // ── H: 改写硬约束（最高优先级，运营中心可自定义，2026-09-18）──
 describe('RewriteEngine hard constraints', function () {
   function wireStrategyH(engine) {

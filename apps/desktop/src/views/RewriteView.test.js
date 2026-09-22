@@ -1362,3 +1362,63 @@ describe('RewriteView — 设置区结构与布局契约', () => {
     expect(records[0].content).toContain('这是改写后的文案内容')
   })
 })
+// ── P2-a：爆款强度定量信号 engagement 透传 + sessionStorage 中转读后即焚 ──
+describe('RewriteView viral strength (P2-a)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockRouteQuery.value = {}
+    mockRouterPush.mockClear()
+    try { sessionStorage.clear() } catch {}
+  })
+
+  it('store 快照含 engagement → startRewrite 透传到引擎', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const { useViralSignalStore } = await import('@/stores/viral-signal')
+    useViralSignalStore().setSignal({ topic: 'T', angles: ['A'], keywords: ['K'], engagement: { sampleCount: 5, avgLikes: 900, avgComments: 30 } })
+    mockRouteQuery.value = { titleHint: 'AI工具推荐TOP5' }
+    const wrapper = factory(pinia)
+    await nextTick()
+    await wrapper.find('textarea.rewrite-textarea').setValue('需要改写的原始文案内容')
+    await wrapper.find('button.rewrite-start-btn').trigger('click')
+    await nextTick()
+    const { aiRewrite } = await import('@/api/publisher')
+    const params = aiRewrite.mock.calls[0][0]
+    expect(params.engagement).toEqual({ sampleCount: 5, avgLikes: 900, avgComments: 30 })
+  })
+
+  it('sessionStorage 中转快照优先于 store，读后清除（AC-P2-2）', async () => {
+    const { setViralSignalHandoff } = await import('@/utils/viral-signal-bridge')
+    setViralSignalHandoff({ topic: 'T', angles: ['角度H'], keywords: ['词H'], engagement: { sampleCount: 8, avgLikes: 1200, avgComments: 50 } })
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const { useViralSignalStore } = await import('@/stores/viral-signal')
+    useViralSignalStore().setSignal({ topic: 'T', angles: ['旧角度'], keywords: [], engagement: null })
+    mockRouteQuery.value = { titleHint: 'AI工具推荐TOP5' }
+    const wrapper = factory(pinia)
+    await nextTick()
+    await wrapper.find('textarea.rewrite-textarea').setValue('需要改写的原始文案内容')
+    await wrapper.find('button.rewrite-start-btn').trigger('click')
+    await nextTick()
+    const { aiRewrite } = await import('@/api/publisher')
+    const params = aiRewrite.mock.calls[0][0]
+    expect(params.viralAngles).toEqual(['角度H'])
+    expect(params.engagement).toEqual({ sampleCount: 8, avgLikes: 1200, avgComments: 50 })
+    // 读后即焚：二次挂载不再残留
+    const { takeViralSignalHandoff } = await import('@/utils/viral-signal-bridge')
+    expect(takeViralSignalHandoff()).toBeNull()
+  })
+
+  it('无 engagement 信号 → params 不携带 engagement（回归）', async () => {
+    mockRouteQuery.value = { titleHint: 'AI工具推荐TOP5' }
+    const wrapper = factory()
+    await nextTick()
+    await wrapper.find('textarea.rewrite-textarea').setValue('需要改写的原始文案内容')
+    await wrapper.find('button.rewrite-start-btn').trigger('click')
+    await nextTick()
+    const { aiRewrite } = await import('@/api/publisher')
+    const params = aiRewrite.mock.calls[0][0]
+    expect(params.engagement).toBeUndefined()
+  })
+})
+

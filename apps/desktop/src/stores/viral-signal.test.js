@@ -38,6 +38,20 @@ describe('viral-signal store', () => {
     expect(store.signal.angles.some(a => a.startsWith('角度0'))).toBe(true)
   })
 
+  it('setSignal 归一 engagement：三个有限数保留、缺项/非有限数 → null', () => {
+    const store = useViralSignalStore()
+    store.setSignal({ topic: 'T', angles: [], keywords: [], engagement: { sampleCount: 6, avgLikes: 1200.5, avgComments: 40 } })
+    expect(store.signal.engagement).toEqual({ sampleCount: 6, avgLikes: 1200.5, avgComments: 40 })
+    store.setSignal({ topic: 'T', angles: [], keywords: [], engagement: { sampleCount: 6, avgLikes: NaN, avgComments: 40 } })
+    expect(store.signal.engagement).toBeNull()
+    store.setSignal({ topic: 'T', angles: [], keywords: [], engagement: { sampleCount: 6, avgLikes: 100 } })
+    expect(store.signal.engagement).toBeNull()
+    store.setSignal({ topic: 'T', angles: [], keywords: [] })
+    expect(store.signal.engagement).toBeNull()
+    store.setSignal({ topic: 'T', angles: [], keywords: [], engagement: 'bad' })
+    expect(store.signal.engagement).toBeNull()
+  })
+
   it('clearSignal 清空', () => {
     const store = useViralSignalStore()
     store.setSignal({ topic: 'T', angles: ['A'], keywords: ['K'] })

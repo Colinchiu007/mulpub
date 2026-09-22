@@ -871,3 +871,41 @@ describe('ViralAnalysis F3 并源（U-221）', () => {
     }
   });
 });
+
+// ── P2-c：热榜跳转带入 topic 预填但不自动分析 ──
+describe("viral-analysis topic prefill (P2-c)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setActivePinia(createPinia());
+    window.electronAPI = {};
+  });
+  function createWithTopic(q) {
+    return mount(ViralAnalysisView, {
+      global: {
+        plugins: [createPinia()],
+        mocks: { $t: (key) => tZh(key), $route: { query: q } },
+      },
+    });
+  }
+  it("route.query.topic 预填主题且展示提示条，不自动发起分析", async () => {
+    const { viralAnalyze } = await import("@/api/publisher");
+    const w = createWithTopic({ topic: "夏日穿搭技巧" });
+    await nextTick();
+    expect(w.vm.topic).toBe("夏日穿搭技巧");
+    expect(w.vm.topicPrefilled).toBe(true);
+    expect(w.find("[data-testid='viral-topic-prefill-notice']").exists()).toBe(true);
+    expect(viralAnalyze).not.toHaveBeenCalled();
+  });
+  it("超长 topic 截断至 200", async () => {
+    const w = createWithTopic({ topic: "长".repeat(260) });
+    await nextTick();
+    expect(w.vm.topic.length).toBe(200);
+  });
+  it("无 route.query 时不预填、不展示提示条", async () => {
+    const w = createWithTopic({});
+    await nextTick();
+    expect(w.vm.topic).toBe("");
+    expect(w.vm.topicPrefilled).toBe(false);
+    expect(w.find("[data-testid='viral-topic-prefill-notice']").exists()).toBe(false);
+  });
+});

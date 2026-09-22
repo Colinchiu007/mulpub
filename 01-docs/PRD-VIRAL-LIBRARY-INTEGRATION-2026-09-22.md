@@ -276,9 +276,11 @@ searchViralItems / ViralLibraryTable / F7 回读
 
 | 键 | zh | en |
 |---|---|---|
-| `rewritePage.strengthRefLabel` | 爆款强度参考 | Viral strength reference |
+| `rewritePage.strengthRefLabel` | 已带入爆款强度参考 | Viral strength reference injected |
 | `hotTopics.analyzeAction` | 爆款分析 | Analyze |
 | `viralAnalysis.topicPrefillNotice` | 主题已从热门选题带入，点击「爆款分析」开始 | Topic imported from trending picks. Click "Analyze" to start. |
+
+> 注：`strengthRefLabel` 落地为改写页徽标文案（与 P1-E `signalBadge`「已注入爆款信号」同风格，用完成态「已带入…/…injected」而非中性标签「爆款强度参考」），提示用户本次改写已带入定量强度信号。
 
 ### 5.5 P2 验收标准
 
@@ -286,6 +288,35 @@ searchViralItems / ViralLibraryTable / F7 回读
 - AC-P2-2：sessionStorage 中转快照在改写页读取后被清除（二次进入不残留）。
 - AC-P2-3：热榜按钮跳转预填正确且不自动分析；超长主题截断 200。
 - AC-P2-4：buildViralContext 对带 lift 卡片样本排序优先，无卡片样本不丢弃。
+
+### 5.6 PR-3 落地记录（实现回填，2026-09-22）
+
+**P2-a 强度进改写 prompt（`rewrite-engine-core.js` 549→578 + `viral-signal.js` store + 新建 `utils/viral-signal-bridge.js`）**
+
+- 引擎：入口 `const engagement = this._sanitizeEngagement(params.engagement)`，透传至 `_buildPrompt`，在 viralAngles 注入块之后追加「## 爆款强度参考（软约束）」段（含 sampleCount/avgLikes/avgComments + 头部 25% 对齐指引 + 禁虚构数字）。
+- `_sanitizeEngagement`：非对象 / `sampleCount<3` / 均值非有限 → 返回 null（整段不注入，宁缺毋滥）；`avgLikes` 取整百 `Math.round(x/100)*100`、`avgComments` 取整，防精确数被模型原样抄进正文。
+- 数据流（延续 P1-E 范式）：`ViralAnalysis.setSignal` → `viral-signal` store 追加 `engagement`（`normalizeEngagement`：三项均有限数才保留，否则 null）→ 跳转改写页经 `sessionStorage[mp-viral-signal]` 一次性交接（`setViralSignalHandoff`/`takeViralSignalHandoff` 读后即删/`clearViralSignalHandoff`，避免超长 URL）→ `RewriteView.onMounted` 读 `takeHandoff() || store.signal` → `aiRewrite` params 透传 `engagement`。
+- `computeEngagement(articles)`：跳过 null 项，sampleCount=至少一项有限互动的样本数，likes/comments 各按自身有效样本均值；无有效样本或任一全缺 → null（NULL/0 契约，同 PR-1）。
+- **IPC 零新增、preload 零改动**：桥接仅用渲染层 sessionStorage，无需 `index.bundle.js` 重建。
+
+**P2-b 模式卡片 expected_lift 参与检索排序（`knowledge-context-builder.js` 保持 425）**
+
+- `buildViralContext` 收集卡片时建 `liftByItem`（done 卡片 `IFNULL(expected_lift,0)`，NULL→null）；块构建改用 `_orderItemsByLift` + `_orderCardsByLift`。
+- 排序键（稳定）：`hasCard DESC || known DESC || lift DESC || idx ASC`——带 lift 卡片优先、lift 未知排后但不丢弃；pending 卡片等同 NULL 不丢弃。
+
+**P2-c 热榜→爆款分析一键联动（`HotTopics.vue` 669 + `ViralAnalysis.vue` →999 + `RewriteView.vue` 徽标）**
+
+- HotTopics 每条追加「爆款分析」按钮 `analyzeSingle()` → 路由 `/viral-analysis?topic=<条目标题>`。
+- ViralAnalysis `onMounted` 读 `$route.query.topic`（trim + 200 截断，同 titleHint 校验范式）预填主题输入框，显示 `topicPrefillNotice` 提示条，**不自动发起分析**（保留用户确认，防误触计费）。
+- RewriteView 命中 engagement 时显示 `strengthRefLabel` 徽标。
+
+**提示文字**：locale 3 键 zh/en 1:1 成对（见 §5.4，`strengthRefLabel` 已按落地徽标文案回填）。
+
+**测试与门禁**：四批 TDD 红→绿——P2-a 引擎 44/44、store+bridge+RewriteView 87、P2-b builder 排序+回归 17、P2-c HotTopics+ViralAnalysis+RewriteView 183；apps/desktop 全量 vitest 10664 用例：10661 通过 / 2 跳过 / 1 失败。唯一红 `tests/visual-testing/test-runner.test.js`「默认模式缺基线应 reject」实为并行 worker 间 `process.env.UPDATE_BASELINE` 跨文件泄漏的既有偶发污染（该文件单独运行 18/18 全绿，且其源码与本 PR 无任何关联），CI 为权威门禁。。
+
+**债务熔断**：ViralAnalysis.vue 顶至 999（<1000，零余量守住）、builder 425、store 48、rewrite-engine-core 578；`check-debt-budget` filesOver1000 32/32、filesOver500 98/98 全回基线。
+
+**验收**：AC-P2-1（`_sanitizeEngagement` 门槛 + 无信号时引擎行为回归锁）、AC-P2-2（`takeViralSignalHandoff` 读后即删）、AC-P2-3（预填不自动分析 + 200 截断）、AC-P2-4（lift 排序优先无卡不丢）均有对应单测覆盖。
 
 ## 6. 非功能需求
 
