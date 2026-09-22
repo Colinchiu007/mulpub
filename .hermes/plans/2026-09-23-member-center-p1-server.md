@@ -536,3 +536,536 @@ Expected: exit 0
 git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 add packages/api-publish-engine/src/auth/plan-matrix.js packages/api-publish-engine/test/plan-matrix.test.js
 git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 commit -m "feat(member-center): P1-T2 三档权益矩阵 plan-matrix（服务端唯一真源）"
 ```
+
+---
+
+## Task 3：仓储层商务读写（postgres-identity-repository.js 扩展）
+
+**Files:**
+- Modify: `packages/api-publish-engine/src/auth/postgres-identity-repository.js`（`PostgresIdentityRepository` 新增池级方法；新增 `PostgresCommerceTransaction` 类；`commerceTransaction` 入口；`module.exports` 补 `PostgresCommerceTransaction`）
+- Test: `packages/api-publish-engine/test/member-commerce-repository.test.js`
+
+模式约束（与既有代码一致）：所有 SQL 参数化（$n 占位）；fake pool/record-client 断言 SQL 文本与参数，不依赖真实数据库；事务类沿用 `PostgresWebhookTransaction` 的 `constructor(client)` 风格。
+
+- [ ] **Step 1: 写失败测试**
+
+创建 `packages/api-publish-engine/test/member-commerce-repository.test.js`：
+
+```js
+const assert = require('assert')
+const test = require('node:test')
+
+const { PostgresIdentityRepository, PostgresCommerceTransaction } = require('../src/auth/postgres-identity-repository')
+
+function fakePool() {
+  const calls = []
+  return {
+    calls,
+    rows: [],
+    async query(text, values) { calls.push({ text, values }); return { rows: this.rows } },
+  }
+}
+
+function fakeClient() {
+  const calls = []
+  return {
+    calls,
+    queue: [],
+    async query(text, values) {
+      calls.push({ text, values })
+      if (this.queue.length) return this.queue.shift()
+      return { rows: [] }
+    },
+  }
+}
+
+test('商务仓储池级方法', async (t) => {
+  await t.test('会话行以确定性 id 复用（同设备重登复活 revoked 行）', async () => {
+    const pool = fakePool()
+    const repository = new PostgresIdentityRepository({ pool })
+    const first = await repository.upsertSession({ userId: 'u-1', deviceId: 'device-a', deviceName: 'Win' })
+    const second = await repository.upsertSession({ userId: 'u-1', deviceId: 'device-a', deviceName: 'Win2' })
+    assert.match(first.id, /^ses-[0-9a-f]{32}$/)
+    assert.strictEqual(first.id, second.id)
+    const insert = pool.calls[pool.calls.length - 1]
+    assert.match(insert.text, /ON CONFLICT \(id\) DO UPDATE SET revoked_at = NULL/)
+    assert.deepStrictEqual(insert.values[0], second.id)
+    const other = await repository.upsertSession({ userId: 'u-1', deviceId: 'device-b', deviceName: 'Mac' })
+    assert.notStrictEqual(other.id, first.id)
+  })
+
+  await t.test('revokeOtherSessions 用 IS DISTINCT FROM 保留当前设备', async () => {
+    const pool = fakePool()
+    const repository = new PostgresIdentityRepository({ pool })
+    await repository.revokeOtherSessions('u-1', 'device-a')
+    const call = pool.calls[0]
+    assert.match(call.text, /device_id IS DISTINCT FROM \$2/)
+    assert.deepStrictEqual(call.values, ['u-1', 'device-a'])
+  })
+
+  await t.test('putEntitlement 快照 version 自增 upsert', async () => {
+    const pool = fakePool()
+    const repository = new PostgresIdentityRepository({ pool })
+    await repository.putEntitlement('u-1', { plan: 'standard', features: [], quota: {} })
+    const call = pool.calls[0]
+    assert.match(call.text, /INSERT INTO identity_entitlement_snapshots/)
+    assert.match(call.text, /version \+ 1/)
+    assert.strictEqual(call.values[0], 'u-1')
+    assert.strictEqual(call.values[1], JSON.stringify({ plan: 'standard', features: [], quota: {} }))
+  })
+
+  await t.test('getActiveSubscription / expireSubscription / listOrders / getUsageSummary 参数化', async () => {
+    const pool = fakePool()
+    const repository = new PostgresIdentityRepository({ pool })
+    await repository.getActiveSubscription('u-1')
+    assert.match(pool.calls[0].text, /status = 'active'/)
+    await repository.expireSubscription('u-1')
+    assert.match(pool.calls[1].text, /SET status = 'expired'/)
+    assert.match(pool.calls[1].text, /current_period_end <= NOW\(\)/)
+    await repository.listOrders('u-1', { limit: 20, offset: 0 })
+    assert.match(pool.calls[2].text, /FROM identity_orders WHERE user_id = \$1/)
+    assert.deepStrictEqual(pool.calls[2].values, ['u-1', 20, 0])
+    await repository.getUsageSummary('u-1', new Date('2026-09-01T00:00:00Z'))
+    assert.match(pool.calls[3].text, /FROM identity_entitlement_usage/)
+    assert.match(pool.calls[3].text, /period_start <= \$2 AND period_end > \$2/)
+  })
+
+  await t.test('createRedeemCodes 批量 unnest + 冲突静默跳过', async () => {
+    const pool = fakePool()
+    const repository = new PostgresIdentityRepository({ pool })
+    const records = [
+      { code: 'AAAA-BBBB-CCCC', plan: 'standard', durationDays: 30, batch: 'b1', expiresAt: null },
+      { code: 'DDDD-EEEE-FFFF', plan: 'pro', durationDays: 365, batch: 'b1', expiresAt: new Date('2027-01-01T00:00:00Z') },
+    ]
+    await repository.createRedeemCodes(records)
+    const call = pool.calls[0]
+    assert.match(call.text, /unnest/)
+    assert.match(call.text, /ON CONFLICT \(code\) DO NOTHING/)
+    assert.deepStrictEqual(call.values[0], ['AAAA-BBBB-CCCC', 'DDDD-EEEE-FFFF'])
+    assert.deepStrictEqual(call.values[2], [30, 365])
+  })
+
+  await t.test('通知：list/countUnread/markRead/broadcast fan-out', async () => {
+    const pool = fakePool()
+    const repository = new PostgresIdentityRepository({ pool })
+    await repository.listNotifications('u-1', { limit: 20, offset: 0 })
+    assert.match(pool.calls[0].text, /FROM identity_notifications WHERE user_id = \$1/)
+    await repository.countUnreadNotifications('u-1')
+    assert.match(pool.calls[1].text, /read_at IS NULL/)
+    await repository.markNotificationsRead('u-1')
+    assert.match(pool.calls[2].text, /SET read_at = NOW\(\) WHERE user_id = \$1 AND read_at IS NULL/)
+    await repository.broadcastNotification(['u-1', 'u-2', 'u-3'], { title: '公告', body: '维护', level: 'warn' })
+    const call = pool.calls[3]
+    assert.match(call.text, /unnest/)
+    assert.strictEqual(call.values[1].length, 3)
+    assert.match(call.text, /identity_notifications/)
+  })
+
+  await t.test('commerceTransaction 走 BEGIN/COMMIT，异常 ROLLBACK', async () => {
+    const queries = []
+    const client = { async query(text) { queries.push(text.split('\n')[0]); return { rows: [] } }, release() {} }
+    const pool = { async connect() { return client } }
+    const repository = new PostgresIdentityRepository({ pool })
+    await repository.commerceTransaction(async (tx) => {
+      assert.ok(tx instanceof PostgresCommerceTransaction)
+      return 'ok'
+    })
+    assert.deepStrictEqual(queries.slice(0, 2), ['BEGIN', 'COMMIT'])
+    await assert.rejects(repository.commerceTransaction(async () => { throw new Error('boom') }), /boom/)
+    assert.ok(queries.includes('ROLLBACK'))
+  })
+})
+
+test('PostgresCommerceTransaction 单事务编排', async (t) => {
+  await t.test('lockRedeemCode 行锁 FOR UPDATE', async () => {
+    const client = fakeClient()
+    const tx = new PostgresCommerceTransaction(client)
+    await tx.lockRedeemCode('AAAA-BBBB-CCCC')
+    assert.match(client.calls[0].text, /FROM identity_redeem_codes WHERE code = \$1 FOR UPDATE/)
+  })
+
+  await t.test('markRedeemCodeUsed 条件更新失败抛 409 REDEEM_CODE_RACE', async () => {
+    const client = fakeClient()
+    const tx = new PostgresCommerceTransaction(client)
+    await assert.rejects(tx.markRedeemCodeUsed('X', 'u-1'), (err) => err.code === 'REDEEM_CODE_RACE' && err.status === 409)
+    assert.match(client.calls[0].text, /WHERE code = \$1 AND status = 'active'/)
+  })
+
+  await t.test('applySubscription 三连写：订阅续叠→订单→快照回写', async () => {
+    const client = fakeClient()
+    // 预置：当前订阅未到期（续叠场景）
+    client.queue = [
+      { rows: [{ id: 'sub-u-1', user_id: 'u-1', plan: 'standard', status: 'active', current_period_start: '2026-09-01T00:00:00Z', current_period_end: '2026-10-01T00:00:00Z' }] }, // SELECT 现有
+      { rows: [{ id: 'sub-u-1', plan: 'pro' }] },   // UPSERT subscription
+      { rows: [{ id: 'ord-1' }] },                    // INSERT order
+      { rows: [{ version: 7 }] },                     // PUT entitlement
+    ]
+    const tx = new PostgresCommerceTransaction(client)
+    const payload = { plan: 'pro', features: ['cloud_publish'], quota: {}, limits: {} }
+    const result = await tx.applySubscription({
+      userId: 'u-1', plan: 'pro', durationDays: 30,
+      now: new Date('2026-09-15T00:00:00Z'),
+      order: { id: 'ord-1', amount: 7900, currency: 'CNY', channel: 'redeem' },
+      entitlementPayload: payload,
+    })
+    assert.strictEqual(result.version, 7)
+    const upsert = client.calls[1]
+    assert.match(upsert.text, /INSERT INTO identity_subscriptions/)
+    assert.match(upsert.text, /ON CONFLICT \(id\) DO UPDATE SET/)
+    assert.strictEqual(upsert.values[0], 'sub-u-1')
+    // 续叠：periodStart = max(now, 未到期 current_period_end) = 2026-10-01
+    assert.strictEqual(upsert.values[3], new Date('2026-10-01T00:00:00Z').toISOString())
+    assert.strictEqual(upsert.values[4], new Date('2026-10-31T00:00:00Z').toISOString())
+    assert.match(client.calls[2].text, /INSERT INTO identity_orders/)
+    assert.match(client.calls[3].text, /INSERT INTO identity_entitlement_snapshots/)
+  })
+
+  await t.test('applySubscription 无存量订阅时从 now 起算', async () => {
+    const client = fakeClient()
+    client.queue = [
+      { rows: [] },                          // 无存量
+      { rows: [{ id: 'sub-u-2' }] },
+      { rows: [{ id: 'ord-2' }] },
+      { rows: [{ version: 1 }] },
+    ]
+    const tx = new PostgresCommerceTransaction(client)
+    await tx.applySubscription({
+      userId: 'u-2', plan: 'standard', durationDays: 30,
+      now: new Date('2026-09-15T00:00:00Z'),
+      order: { id: 'ord-2', amount: 2900, currency: 'CNY', channel: 'admin_grant', providerReference: 'op-x' },
+      entitlementPayload: { plan: 'standard' },
+    })
+    const upsert = client.calls[1]
+    assert.strictEqual(upsert.values[3], new Date('2026-09-15T00:00:00Z').toISOString())
+    assert.strictEqual(upsert.values[4], new Date('2026-10-15T00:00:00Z').toISOString())
+    assert.strictEqual(upsert.values[5], 'op-x')
+  })
+
+  await t.test('createNotification 单条插入带 id', async () => {
+    const client = fakeClient()
+    const tx = new PostgresCommerceTransaction(client)
+    await tx.createNotification({ id: 'ntf-1', userId: 'u-1', title: '开通成功', body: 'pro 30 天', level: 'info' })
+    assert.match(client.calls[0].text, /INSERT INTO identity_notifications/)
+    assert.deepStrictEqual(client.calls[0].values, ['ntf-1', 'u-1', '开通成功', 'pro 30 天', 'info'])
+  })
+})
+```
+
+- [ ] **Step 2: 运行确认失败**
+
+Run: `node packages/api-publish-engine/test/member-commerce-repository.test.js`
+Expected: FAIL — `repository.upsertSession is not a function`
+
+- [ ] **Step 3: 实现仓储扩展**
+
+修改 `packages/api-publish-engine/src/auth/postgres-identity-repository.js`，在 `SCHEMA` 数组定义之后插入 SQL 常量与 id 派生函数：
+
+```js
+// ——— 会员中心 P1 商务 SQL（spec §3.2/§3.3/§3.5/§3.6）———
+
+const UPSERT_SUBSCRIPTION = `INSERT INTO identity_subscriptions
+    (id, user_id, plan, status, current_period_start, current_period_end, provider_reference)
+   VALUES ($1, $2, $3, 'active', $4::timestamptz, $5::timestamptz, $6)
+   ON CONFLICT (id) DO UPDATE SET
+     plan = EXCLUDED.plan,
+     status = 'active',
+     current_period_start = EXCLUDED.current_period_start,
+     current_period_end = EXCLUDED.current_period_end,
+     provider_reference = COALESCE(EXCLUDED.provider_reference, identity_subscriptions.provider_reference),
+     updated_at = NOW()
+   RETURNING *`
+
+const INSERT_ORDER = `INSERT INTO identity_orders
+    (id, user_id, plan, amount, currency, channel, status, paid_at)
+   VALUES ($1, $2, $3, $4, $5, $6, 'paid', NOW())
+   RETURNING *`
+
+const PUT_ENTITLEMENT = `INSERT INTO identity_entitlement_snapshots (user_id, version, payload, updated_at)
+   VALUES ($1, 1, $2::jsonb, NOW())
+   ON CONFLICT (user_id) DO UPDATE SET
+     version = identity_entitlement_snapshots.version + 1,
+     payload = EXCLUDED.payload,
+     updated_at = NOW()
+   RETURNING version`
+
+const UPSERT_SESSION = `INSERT INTO identity_user_sessions (id, user_id, device_id, device_name, last_seen_at)
+   VALUES ($1, $2, $3, $4, NOW())
+   ON CONFLICT (id) DO UPDATE SET revoked_at = NULL, device_name = EXCLUDED.device_name, last_seen_at = NOW()
+   RETURNING *`
+
+/** 会话主键确定性派生：同 (user, device) 重登复活原行而非无限插入新行。 */
+function sessionRecordId(userId, deviceId) {
+  const digest = crypto.createHash('sha256').update(`${userId}:${deviceId}`).digest('hex').slice(0, 32)
+  return `ses-${digest}`
+}
+```
+
+在 `PostgresWebhookTransaction` 类之后新增事务类：
+
+```js
+class PostgresCommerceTransaction {
+  constructor(client) {
+    this.client = client
+  }
+
+  async lockRedeemCode(code) {
+    const result = await this.client.query(
+      'SELECT * FROM identity_redeem_codes WHERE code = $1 FOR UPDATE',
+      [code],
+    )
+    return result.rows[0] || null
+  }
+
+  async markRedeemCodeUsed(code, userId) {
+    const result = await this.client.query(
+      `UPDATE identity_redeem_codes SET status = 'used', used_by = $2, used_at = NOW()
+       WHERE code = $1 AND status = 'active' RETURNING *`,
+      [code, userId],
+    )
+    if (!result.rows[0]) {
+      throw Object.assign(new Error('REDEEM_CODE_RACE'), { code: 'REDEEM_CODE_RACE', status: 409 })
+    }
+    return result.rows[0]
+  }
+
+  /** 订阅续叠三连写：subscription upsert → 订单落库 → 权益快照回写（同事务，要么全成要么全回滚）。 */
+  async applySubscription({ userId, plan, durationDays, now, order, entitlementPayload }) {
+    const nowDate = now instanceof Date ? now : new Date(now)
+    if (Number.isNaN(nowDate.getTime())) throw new Error('COMMERCE_CLOCK_INVALID')
+    if (!Number.isInteger(durationDays) || durationDays <= 0) throw new Error('DURATION_INVALID')
+    const existingResult = await this.client.query(
+      `SELECT * FROM identity_subscriptions
+       WHERE user_id = $1 AND status = 'active' AND current_period_end > NOW()
+       ORDER BY current_period_end DESC LIMIT 1`,
+      [userId],
+    )
+    const existing = existingResult.rows[0] || null
+    const base = existing && new Date(existing.current_period_end) > nowDate
+      ? new Date(existing.current_period_end)
+      : nowDate
+    const periodEnd = new Date(base.getTime() + durationDays * 24 * 60 * 60 * 1000)
+    const subscriptionResult = await this.client.query(UPSERT_SUBSCRIPTION, [
+      `sub-${userId}`, userId, plan,
+      base.toISOString(), periodEnd.toISOString(), order.providerReference || null,
+    ])
+    const orderResult = await this.client.query(INSERT_ORDER, [
+      order.id, userId, plan, order.amount, order.currency || 'CNY', order.channel,
+    ])
+    const snapshotResult = await this.client.query(PUT_ENTITLEMENT, [userId, JSON.stringify(entitlementPayload)])
+    return {
+      subscription: subscriptionResult.rows[0] || null,
+      order: orderResult.rows[0] || null,
+      version: snapshotResult.rows[0] ? Number(snapshotResult.rows[0].version) : null,
+      periodStart: base.toISOString(),
+      periodEnd: periodEnd.toISOString(),
+    }
+  }
+
+  async createNotification({ id, userId, title, body = '', level = 'info' }) {
+    const result = await this.client.query(
+      `INSERT INTO identity_notifications (id, user_id, title, body, level)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [id, userId, title, body, level],
+    )
+    return result.rows[0] || null
+  }
+
+  async putEntitlement(userId, payload) {
+    const result = await this.client.query(PUT_ENTITLEMENT, [userId, JSON.stringify(payload)])
+    return result.rows[0] ? Number(result.rows[0].version) : null
+  }
+}
+```
+
+在 `PostgresIdentityRepository` 类内（`transaction` 方法之后、`close` 之前）新增池级方法：
+
+```js
+  // ——— 会员中心 P1 商务读写 ———
+
+  async getActiveSubscription(userId) {
+    const result = await this.pool.query(
+      `SELECT * FROM identity_subscriptions WHERE user_id = $1 AND status = 'active'
+       ORDER BY current_period_end DESC LIMIT 1`,
+      [userId],
+    )
+    return result.rows[0] || null
+  }
+
+  /** 到期惰性降级：仅当存在已过期 active 订阅时置为 expired 并返回该行。 */
+  async expireSubscription(userId) {
+    const result = await this.pool.query(
+      `UPDATE identity_subscriptions SET status = 'expired', updated_at = NOW()
+       WHERE user_id = $1 AND status = 'active' AND current_period_end <= NOW()
+       RETURNING *`,
+      [userId],
+    )
+    return result.rows[0] || null
+  }
+
+  async putEntitlement(userId, payload) {
+    const result = await this.pool.query(PUT_ENTITLEMENT, [userId, JSON.stringify(payload)])
+    return result.rows[0] ? Number(result.rows[0].version) : null
+  }
+
+  async getUsageSummary(userId, at = new Date()) {
+    const result = await this.pool.query(
+      `SELECT feature, used, quota_limit, period_start, period_end FROM identity_entitlement_usage
+       WHERE user_id = $1 AND period_start <= $2 AND period_end > $2`,
+      [userId, at.toISOString()],
+    )
+    return result.rows || []
+  }
+
+  async listOrders(userId, { limit = 20, offset = 0 } = {}) {
+    const result = await this.pool.query(
+      `SELECT * FROM identity_orders WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
+      [userId, limit, offset],
+    )
+    return result.rows || []
+  }
+
+  async createRedeemCodes(records) {
+    if (!Array.isArray(records) || records.length === 0) return []
+    const result = await this.pool.query(
+      `INSERT INTO identity_redeem_codes (code, plan, duration_days, batch, expires_at)
+       SELECT * FROM unnest($1::text[], $2::text[], $3::int[], $4::text[], $5::timestamptz[])
+       ON CONFLICT (code) DO NOTHING
+       RETURNING code`,
+      [
+        records.map((r) => r.code),
+        records.map((r) => r.plan),
+        records.map((r) => r.durationDays),
+        records.map((r) => r.batch),
+        records.map((r) => (r.expiresAt ? new Date(r.expiresAt).toISOString() : null)),
+      ],
+    )
+    return (result.rows || []).map((row) => row.code)
+  }
+
+  async getRedeemCode(code) {
+    const result = await this.pool.query('SELECT * FROM identity_redeem_codes WHERE code = $1', [code])
+    return result.rows[0] || null
+  }
+
+  async listNotifications(userId, { limit = 20, offset = 0 } = {}) {
+    const result = await this.pool.query(
+      `SELECT * FROM identity_notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
+      [userId, limit, offset],
+    )
+    return result.rows || []
+  }
+
+  async countUnreadNotifications(userId) {
+    const result = await this.pool.query(
+      'SELECT COUNT(*)::int AS count FROM identity_notifications WHERE user_id = $1 AND read_at IS NULL',
+      [userId],
+    )
+    return Number(result.rows[0] ? result.rows[0].count : 0)
+  }
+
+  async markNotificationsRead(userId) {
+    const result = await this.pool.query(
+      'UPDATE identity_notifications SET read_at = NOW() WHERE user_id = $1 AND read_at IS NULL RETURNING id',
+      [userId],
+    )
+    return (result.rows || []).map((row) => row.id)
+  }
+
+  async createNotification({ id, userId, title, body = '', level = 'info' }) {
+    const result = await this.pool.query(
+      `INSERT INTO identity_notifications (id, user_id, title, body, level)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [id, userId, title, body, level],
+    )
+    return result.rows[0] || null
+  }
+
+  /** 广播通知 fan-out：每用户一行，已读状态独立（spec §3.5）。 */
+  async broadcastNotification(userIds, { title, body = '', level = 'info' }) {
+    if (!Array.isArray(userIds) || userIds.length === 0) return 0
+    const result = await this.pool.query(
+      `INSERT INTO identity_notifications (id, user_id, title, body, level)
+       SELECT * FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::text[])
+       RETURNING id`,
+      [
+        userIds.map(() => crypto.randomUUID()),
+        userIds,
+        userIds.map(() => title),
+        userIds.map(() => body),
+        userIds.map(() => level),
+      ],
+    )
+    return (result.rows || []).length
+  }
+
+  async upsertSession({ userId, deviceId, deviceName = null }) {
+    if (typeof deviceId !== 'string' || !deviceId) throw new TypeError('deviceId is required')
+    const id = sessionRecordId(userId, deviceId)
+    const result = await this.pool.query(UPSERT_SESSION, [id, userId, deviceId, deviceName])
+    return result.rows[0] || { id, user_id: userId, device_id: deviceId, device_name: deviceName, revoked_at: null }
+  }
+
+  async listActiveSessions(userId) {
+    const result = await this.pool.query(
+      `SELECT id, device_id, device_name, created_at, last_seen_at FROM identity_user_sessions
+       WHERE user_id = $1 AND revoked_at IS NULL ORDER BY last_seen_at DESC NULLS LAST`,
+      [userId],
+    )
+    return result.rows || []
+  }
+
+  async revokeOtherSessions(userId, keepDeviceId) {
+    const result = await this.pool.query(
+      `UPDATE identity_user_sessions SET revoked_at = NOW()
+       WHERE user_id = $1 AND revoked_at IS NULL AND device_id IS DISTINCT FROM $2 RETURNING id`,
+      [userId, keepDeviceId],
+    )
+    return (result.rows || []).map((row) => row.id)
+  }
+
+  async commerceTransaction(callback) {
+    const client = await this.pool.connect()
+    try {
+      await client.query('BEGIN')
+      const result = await callback(new PostgresCommerceTransaction(client))
+      await client.query('COMMIT')
+      return result
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {})
+      throw error
+    } finally {
+      client.release()
+    }
+  }
+```
+
+`module.exports` 补 `PostgresCommerceTransaction`：
+
+```js
+module.exports = {
+  PostgresEntitlementProvider,
+  PostgresIdentityRepository,
+  PostgresWebhookTransaction,
+  PostgresCommerceTransaction,
+  REQUIRED_SCHEMA_RELATIONS,
+  SCHEMA,
+  DEFAULT_MIGRATION_DIRECTORY,
+}
+```
+
+- [ ] **Step 4: 运行确认通过**
+
+Run：
+```powershell
+node packages/api-publish-engine/test/member-commerce-repository.test.js
+node packages/api-publish-engine/test/member-commerce-migrations.test.js
+node packages/api-publish-engine/test/postgres-identity-repository.test.js
+```
+Expected: 三个 exit 0
+
+- [ ] **Step 5: Commit**
+
+```powershell
+git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 add packages/api-publish-engine/src/auth/postgres-identity-repository.js packages/api-publish-engine/test/member-commerce-repository.test.js
+git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 commit -m "feat(member-center): P1-T3 仓储商务读写（订阅续叠/兑换码/通知/会话）"
+```
