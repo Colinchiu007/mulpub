@@ -52,12 +52,12 @@ if (-not (Test-Path (Join-Path $Anchor 'config.db'))) { throw "anchor config.db 
 Write-Host '[3/6] stage worktree .env from anchor (gitignored throwaway)'
 Copy-Item (Join-Path $Anchor '.env') (Join-Path $be '.env') -Force
 
+if ($PrepareOnly) { Write-Host 'PrepareOnly: code+data staged, not launching (port untouched).'; exit 0 }
+
 Write-Host "[4/6] stop existing listener on port $Port"
 Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
   ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
 Start-Sleep -Seconds 2
-
-if ($PrepareOnly) { Write-Host 'PrepareOnly: code+data staged, not launching.'; exit 0 }
 
 Write-Host '[5/6] launch uvicorn (detached, worktree code, anchor data)'
 if (-not (Test-Path $Python)) { throw "python not found: $Python" }
