@@ -1069,3 +1069,427 @@ Expected: 三个 exit 0
 git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 add packages/api-publish-engine/src/auth/postgres-identity-repository.js packages/api-publish-engine/test/member-commerce-repository.test.js
 git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 commit -m "feat(member-center): P1-T3 仓储商务读写（订阅续叠/兑换码/通知/会话）"
 ```
+
+---
+
+## Task 4：订阅服务 subscription-service.js（核销/开通/到期降级编排）
+
+**Files:**
+- Create: `packages/api-publish-engine/src/auth/subscription-service.js`
+- Test: `packages/api-publish-engine/test/subscription-service.test.js`
+
+职责边界：服务层只做状态机校验与编排，所有多表写入一律走 `repository.commerceTransaction`（Task 3）；单表读直接调仓储方法。错误统一抛 `CommerceError { code, status }`，由 Task 6 路由层直接映射 HTTP 状态码。
+
+- [ ] **Step 1: 写失败测试**
+
+创建 `packages/api-publish-engine/test/subscription-service.test.js`：
+
+```js
+const assert = require('assert')
+const test = require('node:test')
+
+const { SubscriptionService, generateRedeemCode, REDEEM_CODE_PATTERN } = require('../src/auth/subscription-service')
+
+function createRepositoryFixture(initial = {}) {
+  const repo = {
+    codes: new Map((initial.codes || []).map((c) => [c.code, { status: 'active', used_by: null, expires_at: null, duration_days: 30, plan: 'standard', ...c }])),
+    orders: [],
+    notifications: [],
+    subscriptionWrites: [],
+    entitlementWrites: [],
+    current: initial.current || null,
+    expiryResult: initial.expiryResult || null,
+    usage: initial.usage || [],
+    async commerceTransaction(callback) {
+      const self = this
+      return callback({
+        async lockRedeemCode(code) { return self.codes.get(code) || null },
+        async markRedeemCodeUsed(code, userId) {
+          const row = self.codes.get(code)
+          if (!row || row.status !== 'active') {
+            throw Object.assign(new Error('REDEEM_CODE_RACE'), { code: 'REDEEM_CODE_RACE', status: 409 })
+          }
+          row.status = 'used'
+          row.used_by = userId
+          row.used_at = new Date().toISOString()
+          return row
+        },
+        async applySubscription(args) {
+          self.subscriptionWrites.push(args)
+          self.orders.push(args.order)
+          return {
+            subscription: { id: `sub-${args.userId}`, plan: args.plan },
+            order: args.order,
+            version: self.entitlementWrites.length + 1,
+            periodStart: 'ps', periodEnd: 'pe',
+          }
+        },
+        async createNotification(record) { self.notifications.push(record) },
+      })
+    },
+    async expireSubscription() { return this.expiryResult },
+    async putEntitlement(userId, payload) { this.entitlementWrites.push({ userId, payload }) },
+    async getActiveSubscription() { return this.current },
+    async getUsageSummary() { return this.usage },
+    async createNotification(record) { this.notifications.push(record) },
+    async createRedeemCodes(records) {
+      for (const record of records) this.codes.set(record.code, { ...record, status: 'active', used_by: null })
+      return records.map((record) => record.code)
+    },
+  }
+  return repo
+}
+
+function createService(initial = {}, options = {}) {
+  const repository = createRepositoryFixture(initial)
+  const service = new SubscriptionService({ repository, now: () => new Date('2026-09-23T00:00:00Z'), ...options })
+  return { service, repository }
+}
+
+test('generateRedeemCode', async (t) => {
+  await t.test('格式 4-4-4 且字母表排除混淆字符', () => {
+    for (let i = 0; i < 50; i++) {
+      const code = generateRedeemCode()
+      assert.match(code, REDEEM_CODE_PATTERN)
+      assert.ok(!/[IO01]/.test(code), `不应含易混淆字符: ${code}`)
+    }
+  })
+})
+
+test('redeem 兑换码核销状态机', async (t) => {
+  await t.test('成功核销：三连写 + 标记已用 + 通知', async () => {
+    const { service, repository } = createService({ codes: [{ code: 'ABCD-EFGH-JKMN', plan: 'pro', duration_days: 30 }] })
+    const result = await service.redeem({ userId: 'u-1', code: 'abcd-efgh-jkmn' }) // 小写归一
+    assert.strictEqual(result.plan, 'pro')
+    assert.strictEqual(repository.subscriptionWrites[0].plan, 'pro')
+    assert.strictEqual(repository.subscriptionWrites[0].durationDays, 30)
+    assert.strictEqual(repository.orders[0].channel, 'redeem')
+    assert.strictEqual(repository.codes.get('ABCD-EFGH-JKMN').status, 'used')
+    assert.strictEqual(repository.notifications.length, 1)
+  })
+
+  await t.test('非法格式 400 REDEEM_CODE_FORMAT（不碰数据库）', async () => {
+    const { service, repository } = createService()
+    for (const bad of ['abc', '', 'AAAA-BBBB', 'IIII-OOOO-0000', 'AAAA-BBBB-CCCC-DDDD']) {
+      await assert.rejects(service.redeem({ userId: 'u-1', code: bad }), (err) => err.code === 'REDEEM_CODE_FORMAT' && err.status === 400)
+    }
+    assert.strictEqual(repository.subscriptionWrites.length, 0)
+  })
+
+  await t.test('不存在 404 / 他人已用 409 / 停用 409 / 过期 410', async () => {
+    const cases = [
+      { codes: [], code: 'ABCD-EFGH-JKMN', expectCode: 'REDEEM_CODE_NOT_FOUND', status: 404 },
+      { codes: [{ code: 'ABCD-EFGH-JKMN', status: 'used', used_by: 'u-2' }], code: 'ABCD-EFGH-JKMN', expectCode: 'REDEEM_CODE_USED', status: 409 },
+      { codes: [{ code: 'ABCD-EFGH-JKMN', status: 'disabled' }], code: 'ABCD-EFGH-JKMN', expectCode: 'REDEEM_CODE_DISABLED', status: 409 },
+      { codes: [{ code: 'ABCD-EFGH-JKMN', expires_at: '2020-01-01T00:00:00Z' }], code: 'ABCD-EFGH-JKMN', expectCode: 'REDEEM_CODE_EXPIRED', status: 410 },
+    ]
+    for (const item of cases) {
+      const { service } = createService({ codes: item.codes })
+      await assert.rejects(service.redeem({ userId: 'u-1', code: item.code }), (err) => err.code === item.expectCode && err.status === item.status)
+    }
+  })
+
+  await t.test('本人重复提交幂等：不重复记账', async () => {
+    const { service, repository } = createService({ codes: [{ code: 'ABCD-EFGH-JKMN', status: 'used', used_by: 'u-1', used_at: '2026-09-22T00:00:00Z' }] })
+    const result = await service.redeem({ userId: 'u-1', code: 'ABCD-EFGH-JKMN' })
+    assert.strictEqual(result.idempotent, true)
+    assert.strictEqual(result.plan, 'standard')
+    assert.strictEqual(repository.subscriptionWrites.length, 0)
+    assert.strictEqual(repository.orders.length, 0)
+  })
+})
+
+test('grant / createRedeemBatch / settleExpiry / 视图', async (t) => {
+  await t.test('grant：free/未知档位 PLAN_INVALID，时长非正整数 DURATION_INVALID', async () => {
+    const { service } = createService()
+    await assert.rejects(service.grant({ userId: 'u-1', plan: 'free', durationDays: 30 }), (err) => err.code === 'PLAN_INVALID')
+    await assert.rejects(service.grant({ userId: 'u-1', plan: 'gold', durationDays: 30 }), (err) => err.code === 'PLAN_INVALID')
+    await assert.rejects(service.grant({ userId: 'u-1', plan: 'standard', durationDays: 0 }), (err) => err.code === 'DURATION_INVALID')
+    await assert.rejects(service.grant({ userId: 'u-1', plan: 'standard', durationDays: 1.5 }), (err) => err.code === 'DURATION_INVALID')
+  })
+
+  await t.test('grant 成功：channel admin_grant，providerReference 透传', async () => {
+    const { service, repository } = createService()
+    const result = await service.grant({ userId: 'u-1', plan: 'standard', durationDays: 30, providerReference: 'ops:admin-9' })
+    assert.strictEqual(result.order.channel, 'admin_grant')
+    assert.strictEqual(repository.subscriptionWrites[0].order.providerReference, 'ops:admin-9')
+    assert.strictEqual(repository.notifications.length, 1)
+  })
+
+  await t.test('createRedeemBatch：数量上限 1-500，生成码唯一且入库', async () => {
+    const { service, repository } = createService()
+    await assert.rejects(service.createRedeemBatch({ plan: 'standard', durationDays: 30, count: 0 }), (err) => err.code === 'BATCH_COUNT_INVALID')
+    await assert.rejects(service.createRedeemBatch({ plan: 'standard', durationDays: 30, count: 501 }), (err) => err.code === 'BATCH_COUNT_INVALID')
+    const batch = await service.createRedeemBatch({ plan: 'pro', durationDays: 365, count: 5, batch: 'b1' })
+    assert.strictEqual(batch.codes.length, 5)
+    assert.strictEqual(new Set(batch.codes).size, 5)
+    assert.strictEqual(repository.codes.size, 5)
+    assert.strictEqual(repository.codes.get(batch.codes[0]).plan, 'pro')
+    assert.strictEqual(repository.codes.get(batch.codes[0]).durationDays, 365)
+  })
+
+  await t.test('settleExpiry：有降级行→回写 free 快照+通知；无→null', async () => {
+    const withExpiry = createService({ expiryResult: { id: 'sub-u-1', plan: 'standard', status: 'expired' } })
+    const settled = await withExpiry.service.settleExpiry('u-1')
+    assert.ok(settled)
+    assert.strictEqual(withExpiry.repository.entitlementWrites[0].payload.plan, 'free')
+    assert.strictEqual(withExpiry.repository.notifications.length, 1)
+    const clean = createService()
+    assert.strictEqual(await clean.service.settleExpiry('u-1'), null)
+    assert.strictEqual(clean.repository.entitlementWrites.length, 0)
+  })
+
+  await t.test('getSubscriptionView：无订阅回 free，有订阅回当期档位', async () => {
+    const empty = createService()
+    assert.strictEqual((await empty.service.getSubscriptionView('u-1')).plan, 'free')
+    const paid = createService({ current: { id: 'sub-u-1', plan: 'pro', status: 'active', current_period_start: '2026-09-01T00:00:00Z', current_period_end: '2026-10-01T00:00:00Z' } })
+    const view = await paid.service.getSubscriptionView('u-1')
+    assert.strictEqual(view.plan, 'pro')
+    assert.strictEqual(view.periodEnd, '2026-10-01T00:00:00Z')
+    assert.strictEqual(view.entitlement.limits.concurrent_tasks, 10)
+  })
+
+  await t.test('getUsageView：无记录 feature 也回 used=0 + 矩阵上限', async () => {
+    const { service } = createService({
+      current: { id: 'sub-u-1', plan: 'standard', status: 'active', current_period_start: '2026-09-01T00:00:00Z', current_period_end: '2026-10-01T00:00:00Z' },
+      usage: [{ feature: 'cloud_publish', used: 12, quota_limit: 1500, period_start: '2026-09-01T00:00:00Z', period_end: '2026-10-01T00:00:00Z' }],
+    })
+    const usageView = await service.getUsageView('u-1')
+    const publish = usageView.features.find((item) => item.feature === 'cloud_publish')
+    assert.strictEqual(publish.used, 12)
+    assert.strictEqual(publish.limit, 1500)
+    const video = usageView.features.find((item) => item.feature === 'video_create')
+    assert.strictEqual(video.used, 0)
+    assert.strictEqual(video.limit, 500)
+  })
+})
+```
+
+- [ ] **Step 2: 运行确认失败**
+
+Run: `node packages/api-publish-engine/test/subscription-service.test.js`
+Expected: FAIL — `Cannot find module '../src/auth/subscription-service'`
+
+- [ ] **Step 3: 实现 subscription-service.js**
+
+创建 `packages/api-publish-engine/src/auth/subscription-service.js`：
+
+```js
+'use strict'
+
+/**
+ * 会员中心 · 订阅服务：兑换码核销 / 后台开通 / 到期惰性降级 / 视图组装。
+ * 真源：01-docs/DESIGN-MEMBER-CENTER-2026-09-23.md §3.1/§3.3/§3.5。
+ * 多表写入一律走 repository.commerceTransaction；错误统一 CommerceError{code,status} 由路由层映射 HTTP。
+ */
+
+const crypto = require('crypto')
+const { PLAN_IDS, getPlanEntitlement } = require('./plan-matrix')
+
+// 排除易混淆字符 I/O/0/1；格式 4-4-4（与 LicenseManager.activate 的输入习惯兼容）。
+const REDEEM_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
+const REDEEM_CODE_PATTERN = /^[ABCDEFGHJKMNPQRSTUVWXYZ2-9]{4}-[ABCDEFGHJKMNPQRSTUVWXYZ2-9]{4}-[ABCDEFGHJKMNPQRSTUVWXYZ2-9]{4}$/
+
+class CommerceError extends Error {
+  constructor(message, code, status) {
+    super(message)
+    this.code = code
+    this.status = status
+  }
+}
+
+function generateRedeemCode() {
+  const pick = () => Array.from(
+    { length: 4 },
+    () => REDEEM_CODE_ALPHABET[crypto.randomInt(REDEEM_CODE_ALPHABET.length)],
+  ).join('')
+  return `${pick()}-${pick()}-${pick()}`
+}
+
+class SubscriptionService {
+  constructor(options = {}) {
+    if (!options.repository) throw new TypeError('repository is required')
+    this.repository = options.repository
+    this.now = typeof options.now === 'function' ? options.now : () => new Date()
+    this.planOverrides = options.planOverrides || null
+  }
+
+  entitlementPayload(plan) {
+    // deepFreeze 后需脱壳才能安进 JSONB 参数/测试 fixture
+    return JSON.parse(JSON.stringify(getPlanEntitlement(plan, this.planOverrides)))
+  }
+
+  /** 到期惰性降级：仅在存在过期 active 订阅时降级回 free（无定时任务，/me 访问触发）。 */
+  async settleExpiry(userId) {
+    const expired = await this.repository.expireSubscription(userId)
+    if (!expired) return null
+    await this.repository.putEntitlement(userId, this.entitlementPayload('free'))
+    await this.repository.createNotification({
+      id: crypto.randomUUID(),
+      userId,
+      title: '会员已到期',
+      body: '本期订阅已结束，档位已回到免费版；兑换新码可续叠。',
+      level: 'warn',
+    })
+    return expired
+  }
+
+  async getSubscriptionView(userId) {
+    await this.settleExpiry(userId)
+    const subscription = await this.repository.getActiveSubscription(userId)
+    const plan = subscription ? subscription.plan : 'free'
+    return {
+      plan,
+      status: subscription ? subscription.status : 'free',
+      periodStart: subscription ? subscription.current_period_start : null,
+      periodEnd: subscription ? subscription.current_period_end : null,
+      entitlement: this.entitlementPayload(plan),
+    }
+  }
+
+  /** 用量视图：矩阵上限 + 当期用量（无记录也回 used=0，前端进度条不需再判空）。 */
+  async getUsageView(userId) {
+    const subscription = await this.repository.getActiveSubscription(userId)
+    const plan = subscription ? subscription.plan : 'free'
+    const entitlement = getPlanEntitlement(plan, this.planOverrides)
+    const rows = await this.repository.getUsageSummary(userId, this.now())
+    const byFeature = new Map(rows.map((row) => [row.feature, row]))
+    const features = Object.keys(entitlement.quota).map((quotaKey) => {
+      const feature = quotaKey.replace(/_monthly$/, '')
+      const row = byFeature.get(feature)
+      return {
+        feature,
+        used: row ? Number(row.used) : 0,
+        limit: Number(entitlement.quota[quotaKey]),
+        periodStart: row ? row.period_start : null,
+        periodEnd: row ? row.period_end : null,
+      }
+    })
+    return { plan, features }
+  }
+
+  async requireUser(userId) {
+    if (typeof userId !== 'string' || !userId) {
+      throw new CommerceError('需要登录态', 'BUSINESS_USER_REQUIRED', 503)
+    }
+  }
+
+  /** 兑换码核销：行锁 + 条件更新双保险幂等；本人重放不重复记账。 */
+  async redeem({ userId, code }) {
+    await this.requireUser(userId)
+    const normalized = typeof code === 'string' ? code.trim().toUpperCase() : ''
+    if (!REDEEM_CODE_PATTERN.test(normalized)) {
+      throw new CommerceError('兑换码格式不正确（形如 ABCD-EFGH-JKMN）', 'REDEEM_CODE_FORMAT', 400)
+    }
+    return this.repository.commerceTransaction(async (tx) => {
+      const row = await tx.lockRedeemCode(normalized)
+      if (!row) throw new CommerceError('兑换码不存在', 'REDEEM_CODE_NOT_FOUND', 404)
+      if (row.status === 'used') {
+        if (row.used_by === userId) {
+          return { idempotent: true, code: normalized, plan: row.plan, redeemedAt: row.used_at }
+        }
+        throw new CommerceError('兑换码已被使用', 'REDEEM_CODE_USED', 409)
+      }
+      if (row.status !== 'active') throw new CommerceError('兑换码已停用', 'REDEEM_CODE_DISABLED', 409)
+      if (row.expires_at && new Date(row.expires_at) <= this.now()) {
+        throw new CommerceError('兑换码已过有效期', 'REDEEM_CODE_EXPIRED', 410)
+      }
+      const applied = await tx.applySubscription({
+        userId,
+        plan: row.plan,
+        durationDays: row.duration_days,
+        now: this.now(),
+        order: {
+          id: `ord-${crypto.randomUUID()}`,
+          amount: 0,
+          currency: 'CNY',
+          channel: 'redeem',
+          providerReference: `redeem:${normalized}`,
+        },
+        entitlementPayload: this.entitlementPayload(row.plan),
+      })
+      await tx.markRedeemCodeUsed(normalized, userId)
+      await tx.createNotification({
+        id: crypto.randomUUID(),
+        userId,
+        title: '兑换成功',
+        body: `已开通 ${row.plan}，有效期 ${row.duration_days} 天`,
+        level: 'info',
+      })
+      return { idempotent: false, code: normalized, plan: row.plan, ...applied }
+    })
+  }
+
+  /** 后台开通（ops-center，阶段 1 不走支付）：channel=admin_grant，金额 0。 */
+  async grant({ userId, plan, durationDays, providerReference = null, operator = null }) {
+    await this.requireUser(userId)
+    if (!PLAN_IDS.includes(plan) || plan === 'free') {
+      throw new CommerceError('仅支持开通付费档位', 'PLAN_INVALID', 400)
+    }
+    if (!Number.isInteger(durationDays) || durationDays <= 0) {
+      throw new CommerceError('时长必须为正整数天', 'DURATION_INVALID', 400)
+    }
+    return this.repository.commerceTransaction(async (tx) => {
+      const applied = await tx.applySubscription({
+        userId,
+        plan,
+        durationDays,
+        now: this.now(),
+        order: {
+          id: `ord-${crypto.randomUUID()}`,
+          amount: 0,
+          currency: 'CNY',
+          channel: 'admin_grant',
+          providerReference: providerReference || `grant:${operator || 'system'}`,
+        },
+        entitlementPayload: this.entitlementPayload(plan),
+      })
+      await tx.createNotification({
+        id: crypto.randomUUID(),
+        userId,
+        title: '会员开通',
+        body: `已开通 ${plan}，有效期 ${durationDays} 天`,
+        level: 'info',
+      })
+      return { plan, ...applied }
+    })
+  }
+
+  /** 批量生成兑换码（运营入口）：上限 500/批，内存去重后批量入库。 */
+  async createRedeemBatch({ plan, durationDays, count, batch = null, expiresAt = null }) {
+    if (!PLAN_IDS.includes(plan) || plan === 'free') {
+      throw new CommerceError('兑换码仅支持付费档位', 'PLAN_INVALID', 400)
+    }
+    if (!Number.isInteger(durationDays) || durationDays <= 0) {
+      throw new CommerceError('时长必须为正整数天', 'DURATION_INVALID', 400)
+    }
+    if (!Number.isInteger(count) || count < 1 || count > 500) {
+      throw new CommerceError('批量数量需在 1-500 之间', 'BATCH_COUNT_INVALID', 400)
+    }
+    const batchId = batch || `batch-${new Date(this.now()).toISOString().slice(0, 10)}-${crypto.randomBytes(3).toString('hex')}`
+    const codes = new Set()
+    while (codes.size < count) codes.add(generateRedeemCode())
+    const records = [...codes].map((code) => ({ code, plan, durationDays, batch: batchId, expiresAt }))
+    const created = await this.repository.createRedeemCodes(records)
+    return { batch: batchId, plan, durationDays, requested: count, codes: created }
+  }
+}
+
+module.exports = { SubscriptionService, CommerceError, generateRedeemCode, REDEEM_CODE_PATTERN }
+```
+
+- [ ] **Step 4: 运行确认通过**
+
+Run：
+```powershell
+node packages/api-publish-engine/test/subscription-service.test.js
+node packages/api-publish-engine/test/plan-matrix.test.js
+```
+Expected: 两个 exit 0
+
+- [ ] **Step 5: Commit**
+
+```powershell
+git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 add packages/api-publish-engine/src/auth/subscription-service.js packages/api-publish-engine/test/subscription-service.test.js
+git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 commit -m "feat(member-center): P1-T4 订阅服务（核销幂等/后台开通/到期降级/视图）"
+```
