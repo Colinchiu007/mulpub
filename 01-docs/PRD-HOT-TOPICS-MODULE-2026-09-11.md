@@ -177,6 +177,36 @@ ${topic}
 
 **非目标**：不做新旧批次合并、不做渠道级局部保留（渠道 A 新一轮成功但 B 失败时，仍整体覆盖为新结果）、不引入本地离线素材兜底。
 
+### 3.12 热门选题成片自动发布（P0，2026-09-23 新增）
+
+「一键生成视频」链路生成**实际成片**后，支持自动把成片发布到全部可用自媒体平台账号（「能发的都发」）。该能力首先以 E2E 驱动阶段形式落地（`hot-topics-one-click-video-driver.js` 发布阶段 + 纯函数 helper `tests/e2e/lib/hot-video-publish-plan.js`），与 §3.10 的生成链路拼接成端到端闭环：选题 → 改写 → 故事讲述流水线 → 成片 → 多平台发布。
+
+**发布目标选择规则（buildPublishTargets）**：
+
+| # | 规则 | 说明 |
+|---|------|------|
+| T1 | 仅 active 账号 | `status === 'active'` 或 `is_active === true`；expired/失效一律排除 |
+| T2 | 必须有凭证 | `has_cookies !== false`（无凭证账号发了必失败，前置排除） |
+| T3 | 同平台多账号不去重 | 每个可用账号都是一个独立发布目标 |
+| T4 | 可选平台白名单 | `E2E_PUBLISH_PLATFORMS`（逗号分隔）仅白名单内平台参与；缺省 = 全平台 |
+| T5 | 无可用目标即失败 | 抛 `NO_PUBLISH_TARGETS`，计入 report.errors，不静默跳过 |
+
+**文章载荷校验（buildPublishArticle）**：
+
+| # | 字段 | 规则 |
+|---|------|------|
+| A1 | `title` | 取选题标题；trim 后为空抛错；超 `maxTitleLength`（默认 **60** 字符，按 Unicode 字符计数 slice）截断 |
+| A2 | `content` | 回退链：改写引擎全文（探针捕获的 `pipelineStartOrchestrated` params.text）→ 选题 summary → 选题 title |
+| A3 | `video_path` | **必填**：无实际成片不得发布，缺失直接抛错 |
+| A4 | `cover_path` | 由 `cover:extract`（首帧提取）产出；提取失败置空不阻断发布（平台自处） |
+| A5 | `tags` | 数组，缺省 `[]` |
+
+**发布与终态追踪流程**：每条成片 → `extractVideoCover(sourcePath)` 取封面 → `publishBatch(targets, article)` 入队（立即返回 `taskIds`）→ 轮询 `getQueueHistory()` 至全部任务进入终态（`success`/`failed`/`cancelled`，默认上限 15 分钟/条）。结果写入 `report.publish[]`：`{ topicIndex, runId, title, targets, taskIds, tasks: [{id, platform, accountId, status, error, resultUrl}], status: published|partial|failed|error }`。
+
+**权益门禁说明**：`publish:batch` 在 `CHANNEL_FEATURE_MAP` 映射 `cloud_publish` 权益；但开发/未打包模式（`app.isPackaged === false`）跳过业务权益校验（license-access-control.js L271-288 注释：本地验证发布流程不应被产品权益阻塞），因此本机 E2E 可直接发布。
+
+**环境变量（均向后兼容，缺省保持原生成-only 行为）**：`E2E_PUBLISH=1` 启用发布阶段；`E2E_PUBLISH_PLATFORMS=baijiahao,kuaishou` 平台白名单；`E2E_PUBLISH_TIMEOUT_MS` 单条终态等待上限（默认 900000）。
+
 ## 4. 数据校验
 
 ### 4.1 选题条目结构
@@ -305,6 +335,27 @@ onUnmounted → clearInterval
     │     └─ 失败 → split: failed → 弹窗错误提示 + 重试（跳过改写）
     └─ 失败 → rewrite_copy: failed → 弹窗错误提示 + 重试（从改写开始）
 ```
+
+### 5.6a 成片发布流程（E2E 驱动，2026-09-23 新增）
+
+```text
+驱动轮询全部 run 终态 → 成片 copyFileSync 落盘 + ffprobe 校验
+  → E2E_PUBLISH ≠ 1 → 跳过发布（保持生成-only 原行为）
+  → E2E_PUBLISH = 1：
+    → listAccounts() 取全量账号对象
+    → 逐条成片：
+      → extractVideoCover(sourcePath) → cover_path（失败置空不阻断）
+      → buildPublishPlan(accounts, topic, rewriteFull, videoPath, coverPath)
+        ├─ 无可用目标 → 抛 NO_PUBLISH_TARGETS → item.status='error' 计入 report.errors，继续下一条
+        └─ 成功 → { targets, article }
+      → publishBatch(targets, article) → { code:0, data:{ taskIds } }（异步入队，主进程 taskQueue maxConcurrent=3）
+      → 每 5s 轮询 getQueueHistory()，过滤本批 taskIds 对应任务
+        ├─ 全部终态（success/failed/cancelled）→ item.status = published(全成) / partial(部分) / failed(零成)
+        └─ 超 E2E_PUBLISH_TIMEOUT_MS（默认 15min）→ 按当前快照定格（未终态任务计入 tasks 供事后排查）
+    → 全部结果写 report.publish[]
+```
+
+注意：发布内容与生成时的改写产物同源——驱动探针在 `pipelineStartOrchestrated` 包装点捕获完整 `params.text`（`textFull`），发布 article.content 直接复用，保证「视频音频 = 发布文案」一致性。
 
 ### 5.7 抓取失败与缓存保留流程（2026-09-14 新增）
 
@@ -674,7 +725,9 @@ fetchTopics({ force })
 | 资产 | 路径 | 说明 |
 |------|------|------|
 | CDP 客户端 | `apps/desktop/tests/e2e/lib/cdp-client.js` | 极简 CDP-over-WebSocket 传输层（`Runtime.evaluate` + `waitFor` 轮询）。**不使用** Playwright `connectOverCDP`：本机（Electron 43 / Chrome 150）实测其侧握手会稳定超时（15s × 6 次全 timeout），而直连 `webSocketDebuggerUrl` 完全正常 |
-| 一键生成视频驱动 | `apps/desktop/tests/e2e/hot-topics-one-click-video-driver.js` | 连接**已运行**的 Electron 实例（CDP），走真实 UI：进入 `/hot-topics` → 读取前 N 条选题 → 逐条 DOM 点击【生成视频】→ 等 `hot-topics-gen-video-background` 出现（= phase running 且持有 runId）→ 点【后台运行】脱离以发起下一条（受 `E2E_MAX_ACTIVE` 约束）→ 轮询 `pipelineGetRunContext` 至终态 → 深度搜索 `videoPath/outputPath` → 拷贝成片 + `ffprobe` 校验，产出 `*-generate-report.json` |
+| 一键生成视频驱动 | `apps/desktop/tests/e2e/hot-topics-one-click-video-driver.js` | 连接**已运行**的 Electron 实例（CDP），走真实 UI：进入 `/hot-topics` → 读取前 N 条选题 → 逐条 DOM 点击【生成视频】→ 等 `hot-topics-gen-video-background` 出现（= phase running 且持有 runId）→ 点【后台运行】脱离以发起下一条（受 `E2E_MAX_ACTIVE` 约束）→ 轮询 `pipelineGetRunContext` 至终态 → 深度搜索 `videoPath/outputPath` → 拷贝成片 + `ffprobe` 校验；`E2E_PUBLISH=1` 时追加发布阶段（见 §3.12），产出 `*-generate-report.json` |
+| 发布计划纯函数 | `apps/desktop/tests/e2e/lib/hot-video-publish-plan.js` | `buildPublishTargets` / `buildPublishArticle` / `buildPublishPlan`（规则见 §3.12 表 T1-T5 / A1-A5） |
+| 发布计划单测 | `apps/desktop/tests/hot-video-publish-plan.test.js` | vitest（13 用例）：账号过滤/白名单/多账号不去重、标题截断、内容回退链、无视频拒绝发布、NO_PUBLISH_TARGETS |
 
 **运行方式**：`E2E_CDP_URL` / `E2E_VITE_ORIGIN` / `E2E_TOPIC_COUNT` / `E2E_MAX_ACTIVE` / `E2E_LABEL` / `E2E_OUT_DIR` / `E2E_RUN_TIMEOUT_MS` 见文件头注释；驱动退出码 0 表示至少产出一条真实成片。
 
@@ -682,6 +735,8 @@ fetchTopics({ force })
 
 1. **`window.electronAPI` 是 contextBridge 冻结对象**（`Object.isFrozen(api) === true`、`Object.isExtensible(api) === false`）→ **不能**通过在页面侧包一层 `pipelineStartOrchestrated` 来截获 `runId`；必须改用「点击前记录 `pipelineHistory()` → 点击后取新增的 `story2video-compose` run」的方式获取 runId。
 2. **路由用客户端 hash 切换**（`location.hash = '#/hot-topics'`）并**以 DOM 出现为准**判断到达（`[data-testid="hot-topic-item"]` 数量 > 0），不要依赖 hash 值本身——主进程触发 renderer 重载时 hash 会被重置为 `#/`。
+3. **并发门必须排除存量活跃 run**（2026-09-23 回归）：驱动启动前先快照一份当前 `running/paused` 的 runId 集合作为 baseline，并发计数只统计「本驱动新发起」的 run。否则历史陈旧 paused 僵尸（实测：两个月前中断在 generate_assets 的两条 run，重启后仍保持 paused）会永久挡死门控，冒烟测试一条选题都发不出去。
+4. **服务商额度熔断是生成链路外部阻断的典型形态**（2026-09-23 实测）：快照固化 `imageProvider/voiceProvider=minimax-multimodal`，Token Plan 用尽后 generate_assets 阶段秒败（0/17 场景）。处置：备份 `story2video.lastOptions.v1` 后将 imageProvider 切 `agnes-image`、voiceProvider 切 `mimo-tts`（清空 minimax 专属克隆 voiceId）再重跑。
 
 ## 10. 技术实现说明（附录）
 

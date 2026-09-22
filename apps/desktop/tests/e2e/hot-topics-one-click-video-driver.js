@@ -27,6 +27,9 @@
  *   E2E_OUT_DIR        成片与报告输出目录（默认 C:/tmp/hot-topics-video-e2e/<label>）
  *   E2E_RUN_TIMEOUT_MS 全程上限（默认 60 分钟）
  *   E2E_SKIP_REFRESH   设为 1 则不点击刷新（复用当前列表）
+ *   E2E_PUBLISH        设为 1 则在成片校验后自动发布到全部可用平台账号（能发的都发）
+ *   E2E_PUBLISH_PLATFORMS 逗号分隔平台白名单（仅 E2E_PUBLISH=1 时生效；缺省全平台）
+ *   E2E_PUBLISH_TIMEOUT_MS 单条发布队列终态等待上限（默认 15 分钟）
  */
 'use strict'
 
@@ -34,6 +37,7 @@ const fs = require('fs')
 const path = require('path')
 const { execFileSync } = require('child_process')
 const { CdpClient, sleep } = require('./lib/cdp-client')
+const { buildPublishPlan, extractStoryText } = require('./lib/hot-video-publish-plan')
 
 const CDP_URL = process.env.E2E_CDP_URL || 'http://127.0.0.1:10967'
 const VITE_ORIGIN = process.env.E2E_VITE_ORIGIN || 'http://127.0.0.1:6919'
@@ -44,6 +48,10 @@ const LABEL = process.env.E2E_LABEL || 'hv'
 const OUT_DIR = process.env.E2E_OUT_DIR || path.join('C:/tmp/hot-topics-video-e2e', LABEL)
 const RUN_TIMEOUT_MS = Number(process.env.E2E_RUN_TIMEOUT_MS || 60 * 60 * 1000)
 const SKIP_REFRESH = process.env.E2E_SKIP_REFRESH === '1'
+const PUBLISH_ENABLED = process.env.E2E_PUBLISH === '1'
+const PUBLISH_PLATFORMS = (process.env.E2E_PUBLISH_PLATFORMS || '')
+  .split(',').map((s) => s.trim()).filter(Boolean)
+const PUBLISH_TIMEOUT_MS = Number(process.env.E2E_PUBLISH_TIMEOUT_MS || 15 * 60 * 1000)
 
 const PIPELINE = 'story2video-compose'
 const POLL_MS = 10000
@@ -171,6 +179,7 @@ async function main () {
         message: result && result.message,
         textChars: args[1] && typeof args[1].text === 'string' ? Array.from(args[1].text).length : null,
         textHead: args[1] && typeof args[1].text === 'string' ? args[1].text.slice(0, 60) : null,
+        textFull: args[1] && typeof args[1].text === 'string' ? args[1].text : null,
         at: Date.now(),
       })
     } catch (_) {}
@@ -220,12 +229,20 @@ async function main () {
     const deadline = Date.now() + RUN_TIMEOUT_MS
     const retriedIds = new Set()
 
+    // 并发门只统计「本驱动新发起」的 run：驱动启动前已处于 running/paused 的
+    // 历史任务（含陈旧 paused 僵尸）不应永久阻塞门控（回归：热门选题 E2E 冒烟
+    // 被 8 月两条 paused run 卡死）。
+    const preExistingActive = new Set(await cdp.evaluate(`window.electronAPI.pipelineHistory()
+      .then(h => ((h && h.data) || []).filter(r => r.pipeline === 'story2video-compose' && ['running','paused'].includes(r.status)).map(r => r.id))
+      .catch(() => [])`))
+
     while (pending.length > 0 && Date.now() < deadline) {
-      const active = await cdp.evaluate(`window.electronAPI.pipelineHistory()
+      const activeAll = await cdp.evaluate(`window.electronAPI.pipelineHistory()
         .then(h => ((h && h.data) || []).filter(r => r.pipeline === 'story2video-compose' && ['running','paused'].includes(r.status)).map(r => r.id))
         .catch(() => [])`)
-      if (Array.isArray(active) && active.length >= MAX_ACTIVE) {
-        log('活跃 run=' + active.length + '（上限 ' + MAX_ACTIVE + '），等待 15s')
+      const active = (Array.isArray(activeAll) ? activeAll : []).filter((id) => !preExistingActive.has(id))
+      if (active.length >= MAX_ACTIVE) {
+        log('活跃 run=' + active.length + '（上限 ' + MAX_ACTIVE + '，已排除存量 ' + preExistingActive.size + ' 条），等待 15s')
         await sleep(15000)
         continue
       }
@@ -283,6 +300,7 @@ async function main () {
         entry.runId = hit.runId
         entry.rewriteChars = hit.textChars
         entry.rewriteHead = hit.textHead
+        entry.rewriteFull = hit.textFull || null
         if (hit.code !== 0 || !hit.runId) entry.startError = hit.message || ('code=' + hit.code)
       }
       if (!entry.runId) {
@@ -326,6 +344,10 @@ async function main () {
           r.error = String((data.error && (data.error.message || JSON.stringify(data.error))) || '')
           const videoPath = findOutput(data.context || {}, 0, new Set())
           if (videoPath) r.videoPath = videoPath
+          // electronAPI 是冻结的 contextBridge 对象，探针包不住 pipelineStartOrchestrated；
+          // 改写全文从 run context 提取（scene_context 阶段固化的 full_text）。
+          const storyText = extractStoryText(data.context || {})
+          if (storyText) r.storyText = storyText
           log('runId=' + r.runId + ' -> ' + status + (r.videoPath ? ' video=' + r.videoPath : ' (no video)'))
         }
       }
@@ -352,6 +374,60 @@ async function main () {
         log('VIDEO ' + dest + ' bytes=' + entry.bytes + ' probe=' + JSON.stringify(entry.probe.format || entry.probe))
       } catch (e) {
         report.errors.push('copy failed for ' + r.runId + ': ' + e.message)
+      }
+    }
+
+    // 发布阶段（E2E_PUBLISH=1）：每条成片 → publish:batch 入队 → queue:history 轮询终态
+    report.publish = []
+    if (PUBLISH_ENABLED && report.videos.length > 0) {
+      const accounts = await cdp.evaluate(`window.electronAPI.listAccounts()
+        .then(r => (r && r.data) || []).catch(() => [])`)
+      for (const v of report.videos) {
+        const run = report.runs.find((r) => r.index === v.topicIndex) || {}
+        const item = { topicIndex: v.topicIndex, runId: v.runId, title: v.title, status: 'pending', targets: [] }
+        report.publish.push(item)
+        try {
+          const coverPath = await cdp.evaluate(`window.electronAPI.extractVideoCover(${JSON.stringify(v.sourcePath)})
+            .then(r => (r && r.code === 0 && r.data && r.data.coverPath) || null).catch(() => null)`)
+          const plan = buildPublishPlan({
+            accounts,
+            options: PUBLISH_PLATFORMS.length ? { onlyPlatforms: PUBLISH_PLATFORMS } : {},
+            topic: { title: run.title || v.title },
+            rewrittenText: run.rewriteFull || run.storyText || '',
+            videoPath: v.sourcePath,
+            coverPath: coverPath || undefined,
+          })
+          item.targets = plan.targets
+          const resp = await cdp.evaluate(`window.electronAPI.publishBatch(${JSON.stringify(plan.targets)}, ${JSON.stringify(plan.article)})`)
+          if (!resp || resp.code !== 0 || !resp.data || !Array.isArray(resp.data.taskIds)) {
+            throw new Error('publishBatch 失败: ' + JSON.stringify(resp))
+          }
+          item.taskIds = resp.data.taskIds
+          log('#' + v.topicIndex + ' 发布入队 taskIds=' + item.taskIds.join(','))
+          const pubDeadline = Date.now() + PUBLISH_TIMEOUT_MS
+          while (Date.now() < pubDeadline) {
+            const hist = await cdp.evaluate(`window.electronAPI.getQueueHistory()
+              .then(r => (r && r.data) || []).catch(() => [])`)
+            const tasks = (Array.isArray(hist) ? hist : []).filter((t) => item.taskIds.includes(t.id))
+            item.tasks = tasks.map((t) => ({
+              id: t.id, platform: t.platform, accountId: t.accountId, status: t.status,
+              error: t.error ? String(t.error).slice(0, 300) : undefined,
+              resultUrl: (t.result && (t.result.url || t.result.link)) || undefined,
+            }))
+            const terminal = ['success', 'failed', 'cancelled']
+            if (tasks.length >= item.taskIds.length && tasks.every((t) => terminal.includes(t.status))) break
+            await sleep(5000)
+          }
+          const okCount = (item.tasks || []).filter((t) => t.status === 'success').length
+          item.status = okCount === item.taskIds.length ? 'published'
+            : (okCount > 0 ? 'partial' : 'failed')
+          log('#' + v.topicIndex + ' 发布终态 ' + item.status + ' (' + okCount + '/' + item.taskIds.length + ')')
+        } catch (e) {
+          item.status = 'error'
+          item.error = e && e.message ? e.message : String(e)
+          report.errors.push('#' + v.topicIndex + ' publish: ' + item.error)
+          log('#' + v.topicIndex + ' 发布失败：' + item.error)
+        }
       }
     }
 
