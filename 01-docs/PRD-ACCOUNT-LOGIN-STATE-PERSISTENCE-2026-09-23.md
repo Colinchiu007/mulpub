@@ -282,7 +282,7 @@ FAILED tests/test_pipeline_loader.py::TestPipelineLoader::test_story2video_manif
 | 打包产物 `electron-builder --dir` 冒烟 | `build:vue` 已通过（CI 各 workflow 的打包前置同此口径）；`--dir` 需在本机下载 winCodeSign/NSIS 缓存，属 `build.yml` 的 runner 职责，本地跑不具备等价环境 |
 | 「真实用户账号 + 真实平台」一键检测实测 | 需在**已登录身份（Logto）且已保存真实平台凭证**的 profile 上执行；`account:list` 对未登录一律 fail-closed（`AUTH_ERROR`），不得用隔离的空 profile 冒充。因此本 PR 的真实应用验证以「真实渲染层 + 契约化 electronAPI 替身」（13.1）+「真实后端 accounts.json」（13.2 后端行）两段闭合，跨段契约（`PATCH {status,last_validated}`）由后端 pytest 与主进程单测双侧锁定。合入后需在用户实际环境跑一次 `pnpm run build:dir` + 手工一键检测做最终 dogfooding |
 
-### 13.5 与 main 的两次合并（契约收敛，实测记录）
+### 13.5 与 main 的三次合并（契约收敛，实测记录）
 
 推送后 `origin/main` 已前进，两次合并均为**语义重叠**而非纯文本冲突：
 
@@ -313,6 +313,32 @@ FAILED tests/test_pipeline_loader.py::TestPipelineLoader::test_story2video_manif
 > **并发教训**：多 PR 同时向 `CHANGELOG.md` 顶部追加是仓库已知事故模式（见 2026-09-21 条目）。
 > 任何采用「顶部追加」约定的文件，冲突解法必须幂等、且以 blob 为输入而非工作区文本，
 > 否则极易在解冲突时把别人的条目挤掉或把整文件换行符翻转。
+
+**第三次同步 origin/main（`#2226` P1 审计第二批，merge 提交 `56e992d5d`）**
+
+合并后仅剩一处冲突：`CHANGELOG.md`（仍是多会话并发 prepend 竞争），沿用同一套
+blob 级并集解法（`HEAD:` / `MERGE_HEAD:` 取两侧 blob、本条目置顶、按原 EOL 写回、
+校验暂存区零冲突标记）。`locales/zh.js`、`en.js` 自动融合无冲突。
+
+合并后复验（均在合并后的工作树上实跑）：
+
+| 门禁 | 结果 |
+| --- | --- |
+| Gate 7 `check-locale-sync.js --cjk` | PASS（基线 1581 / 当前 1386） |
+| Gate 7 `--pair-base origin/main` | PASS（zh / en 键集合一致） |
+| Gate 7 `--py-cjk` | PASS（baseline 79，无新增硬编码消息） |
+| Gate 7 自检 `node --test check-locale-sync.test.js` | 6 tests / 6 pass / 0 fail |
+| ESLint `--quiet`（本 PR 触及的 19 个 js/vue 文件） | exit 0，零问题 |
+| 定向 vitest（8 个测试文件：ipc-handlers/account、account-manager、http-login-checker、webview-manager、login-status-monitor、useExpiredAccountsBanner、AccountManagementCard、Accounts） | Test Files 8 passed |
+
+`CHANGELOG.md` 相对两个父提交分别为 **42+/0−**（相对本分支，纯拿到 main 的条目）与
+**36+/4−**（相对 main，本条目），证明本次冲突解决未发生整文件重写。
+
+> **一条判据纠偏（实测教训）**：合并后看到 `.github/scripts/locale-py-cjk-baseline.json`
+> 在两个父提交间呈 19+/19−，容易误判为「main 也重锚过这个基线」。实际方向搞反了：
+> `git diff --numstat HEAD^1 HEAD -- <file>` 为空、`git diff --numstat HEAD^2 HEAD -- <file>` 为
+> 19+/19−，说明合并结果取的是**本 PR 的锚点**，main 并未改动 `.github`。
+> 判据必须用「合并结果 vs 各自父提交」，而不是「两个父提交互比」。
 
 ### 13.6 CI 逃逸分析：Gate 7（locale 同步）抓出的本 PR 自引入缺陷
 
