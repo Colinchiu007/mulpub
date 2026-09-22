@@ -129,9 +129,34 @@ describe('useOpsCenterSync', () => {
     expect(s3.syncError.value).toContain('401/403')
   })
 
-  it('导出完整性：模板所需属性全部存在', () => {
+  it('autoConnected 零配置模式：syncConfigured=true + autoConnected/autoUrl 暴露', async () => {
+    apiMock.opsCenterSyncGet.mockResolvedValue({
+      code: 0,
+      config: { url: 'https://ops.iart.work', apiKeyConfigured: false, autoSync: true, lastSyncedAt: '', autoConnected: true, autoUrl: 'https://ops.iart.work' },
+    })
     const s = setupSync()
-    for (const key of ['syncUrl', 'syncApiKey', 'syncApiKeyConfigured', 'syncAutoSync', 'lastSyncedAt', 'syncing', 'syncStatus', 'syncError', 'syncConfigured', 'formatLastSync', 'loadSyncConfig', 'saveSyncConfig', 'runSyncNow']) {
+    await s.loadSyncConfig()
+    expect(s.autoConnected.value).toBe(true)
+    expect(s.autoUrl.value).toBe('https://ops.iart.work')
+    expect(s.syncConfigured.value).toBe(true) // autoConnected makes it configured
+    expect(s.syncApiKeyConfigured.value).toBe(false) // no manual key needed
+  })
+
+  it('未登录时 autoConnected=false，syncConfigured 保持 false', async () => {
+    apiMock.opsCenterSyncGet.mockResolvedValue({
+      code: 0,
+      config: { url: '', apiKeyConfigured: false, autoSync: true, lastSyncedAt: '', autoConnected: false, autoUrl: '' },
+    })
+    const s = setupSync()
+    await s.loadSyncConfig()
+    expect(s.autoConnected.value).toBe(false)
+    expect(s.autoUrl.value).toBe('')
+    expect(s.syncConfigured.value).toBe(false)
+  })
+
+    it('导出完整性：模板所需属性全部存在', () => {
+    const s = setupSync()
+    for (const key of ['syncUrl', 'syncApiKey', 'syncApiKeyConfigured', 'syncAutoSync', 'lastSyncedAt', 'syncing', 'syncStatus', 'syncError', 'syncConfigured', 'autoConnected', 'autoUrl', 'formatLastSync', 'loadSyncConfig', 'saveSyncConfig', 'runSyncNow']) {
       expect(s).toHaveProperty(key)
     }
   })

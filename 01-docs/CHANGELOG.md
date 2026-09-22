@@ -1,3 +1,43 @@
+# [未发布] feat(sync): 运营中心同步零配置化（方案C）—— Logto JWT 自动鉴权 + URL 自动发现
+
+### 变更
+- **ops-center/backend/services/logto_verifier.py（新建）**：LogtoSyncVerifier（OIDC discovery + JWKS 缓存 + RS256/ES256 验签 + scope 校验）；共享鉴权函数 verify_bearer_or_catalog_key —— Bearer 优先、X-Catalog-Key fallback。
+- **ops-center/backend/config.py**：新增 logto_endpoint / logto_api_resource / logto_jwks_cache_ttl 配置项。
+- **ops-center/backend/routers/runtime.py**：_require_catalog_key 改为 async + 委托 verify_bearer_or_catalog_key。
+- **ops-center/backend/routers/model_presets.py**：catalog 端点改用共享鉴权函数。
+- **config/identity-public.json**：新增 opsCenterUrl 字段（"https://ops.iart.work"），打入安装包。
+- **apps/desktop/electron/services/identity/identity-runtime-config.js**：白名单 +OPS_CENTER_URL / opsCenterUrl，解析后映射至 process.env。
+- **apps/desktop/electron/services/ops-center-sync.js**：
+  - 新增 _getAutoContext()：从 env OPS_CENTER_URL + _getAccessToken 构建自动鉴权上下文。
+  - 新增 setGetAccessToken(fn)：由 bootstrap 接线注入。
+  - _syncNowInner 改造：auto 优先（useBearer），回退手动配置。
+  - _fetchJson 改造：auth 参数从 string 升级为 {type, value/getAccessToken} object。
+  - autoSyncOnStart 条件扩展：cfg.url || auto 即触发。
+  - getConfig() 新增返回 autoConnected / autoUrl 字段。
+- **apps/desktop/electron/bootstrap.js + phase3-services.js**：传递 opsCenterSync → 接线 setGetAccessToken。
+- **apps/desktop/src/composables/useOpsCenterSync.js**：新增 autoConnected / autoUrl 响应式状态；applyConfig 解析新字段；syncConfigured 在 autoConnected 时也为 true。
+- **apps/desktop/src/views/ModelProviders.vue**：autoConnected 时只读展示 URL + 绿色"已通过登录会话自动连接"徽章，隐藏手动 API Key；未配置时增加"登录账号后将自动启用"提示。
+- **locales（zh.js + en.js）**：新增 autoConnectedBadge / loginToEnableSync 成对 key。
+- **ops-center/backend/.env.example**：新增 OPS_LOGTO_ENDPOINT / OPS_LOGTO_API_RESOURCE / OPS_LOGTO_JWKS_CACHE_TTL 示例。
+
+### 数据校验与安全
+- Logto JWT 验签：RS256/ES256 + audience(LOGTO_API_RESOURCE) + scope(publish:read) + exp/nbf。
+- JWKS 缓存 TTL 默认 300s，可配 OPS_LOGTO_JWKS_CACHE_TTL。
+- 双模鉴权向后兼容：未配置 Logto 时原有 X-Catalog-Key HMAC 路径不受影响。
+- 响应体 > 1MB 拒绝；非 http(s) URL 校验；本机地址允许 http、其他强制 https。
+
+### 验证
+- 后端 Python：11/11 logto_verifier 单测 + 374/374 全量 ops-center 后端无回归。
+- 桌面端 JS：8/8 composable 测试 + 73/73 直接相关测试 + 283/283 全量 desktop 测试无回归。
+- ESLint / locale pairing / pre-code-edit-guard：全绿。
+
+### 关联
+- 分支 codex/sync-zero-config；PRD 01-docs/PRD-sync-zero-config.md。
+- 方案C 目标：消除运营中心同步手动配置门槛，Logto 登录后自动发现 URL + JWT 鉴权。
+
+
+---
+
 # [未发布] perf(identity): 首次登录弹窗秒开——加载窗预热复用 + discovery 后台预热 + 品牌底色
 
 ### 变更

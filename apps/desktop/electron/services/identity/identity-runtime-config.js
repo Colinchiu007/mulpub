@@ -18,6 +18,7 @@ const RUNTIME_ENV_KEYS = [
   'LOGTO_SCOPES',
   'ENTITLEMENT_KEY_ID',
   'ENTITLEMENT_PUBLIC_KEY',
+  'OPS_CENTER_URL',
 ]
 const CONFIG_ENV_OVERRIDE_KEYS = RUNTIME_ENV_KEYS.filter((key) => key !== 'IDENTITY_AUTH_ENABLED')
 const ALLOWED_FIELDS = new Set([
@@ -32,6 +33,7 @@ const ALLOWED_FIELDS = new Set([
   'logtoScopes',
   'entitlementKeyId',
   'entitlementPublicKey',
+  'opsCenterUrl',
 ])
 
 function invalidConfig(message, cause) {
@@ -141,6 +143,8 @@ function parseIdentityPublicConfig(source) {
   result.ENTITLEMENT_KEY_ID = requiredString(config, 'entitlementKeyId')
   result.ENTITLEMENT_PUBLIC_KEY = requiredString(config, 'entitlementPublicKey')
   validateEntitlementPublicKey(result.ENTITLEMENT_PUBLIC_KEY)
+  const opsCenterUrl = optionalString(config, 'opsCenterUrl')
+  if (opsCenterUrl) result.OPS_CENTER_URL = opsCenterUrl
 
   const redirectUri = optionalString(config, 'logtoRedirectUri')
   if (redirectUri) result.LOGTO_REDIRECT_URI = redirectUri

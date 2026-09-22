@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     feature_gates_import_source: str = ""
     # 模型目录只读同步端点（桌面端拉取运营配置）API Key；未配置 → 端点 404（fail-closed）
     catalog_api_key: str = ""
+    # Logto OIDC 验证（桌面端零配置同步：用用户会话 JWT 替代静态 Key）
+    # 未配置 -> 同步端点仅接受 X-Catalog-Key（向后兼容）
+    logto_endpoint: str = ""
+    logto_api_resource: str = ""
+    logto_jwks_cache_ttl: int = 300
     # 云服务健康巡检目标（可选；未配置对应探针跳过）
     health_api_url: str = ""
     health_logto_url: str = ""

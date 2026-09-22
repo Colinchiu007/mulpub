@@ -1769,6 +1769,8 @@ export default {
     syncApiKeyLabel: 'Catalog Sync API Key',
     apiKeyConfiguredPlaceholder: 'Configured (leave empty to keep)',
     apiKeyPlaceholder: 'Enter the Ops Center OPS_CATALOG_API_KEY',
+    autoConnectedBadge: 'Auto-connected via login session',
+    loginToEnableSync: 'Sign in to automatically enable Ops Center sync — no manual configuration needed',
     opsSyncHint: 'Ops Center sync is enabled: per-minute connections / 5-hour quota / model lists come from Ops Center and are read-only here; you can still configure API Key, Base URL and the default provider locally.',
     configuredTab: 'Configured',
     allTab: 'All',

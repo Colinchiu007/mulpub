@@ -37,7 +37,18 @@
           </button>
         </div>
       </div>
-      <div class="ops-sync-fields">
+      <!-- 方案C 零配置化：autoConnected 时只读展示 URL + 登录鉴权标识 -->
+      <div v-if="autoConnected" class="ops-sync-fields ops-sync-auto">
+        <div class="ops-sync-field">
+          <label class="input-label">{{ t('modelProviders.opsUrlLabel') }}</label>
+          <span class="auto-readonly-value">{{ autoUrl }}</span>
+        </div>
+        <div class="ops-sync-field">
+          <span class="auto-connected-badge">✓ {{ t('modelProviders.autoConnectedBadge') }}</span>
+        </div>
+      </div>
+      <!-- 手动配置模式（未登录 或 有手动 URL） -->
+      <div v-else class="ops-sync-fields">
         <div class="ops-sync-field">
           <label class="input-label">{{ t('modelProviders.opsUrlLabel') }}</label>
           <input class="input" v-model="syncUrl" :placeholder="t('modelProviders.opsUrlPlaceholder')" />
@@ -46,6 +57,9 @@
           <label class="input-label">{{ t('modelProviders.syncApiKeyLabel') }}</label>
           <input class="input" v-model="syncApiKey" type="password"
             :placeholder="syncApiKeyConfigured ? t('modelProviders.apiKeyConfiguredPlaceholder') : t('modelProviders.apiKeyPlaceholder')" />
+        </div>
+        <div v-if="!syncConfigured" class="ops-sync-field">
+          <span class="login-to-enable-hint">{{ t('modelProviders.loginToEnableSync') }}</span>
         </div>
       </div>
       <div v-if="syncStatus" class="ops-sync-status success" role="status">{{ syncStatus }}</div>
@@ -606,6 +620,8 @@ const {
   syncStatus,
   syncError,
   syncConfigured,
+  autoConnected,
+  autoUrl,
   formatLastSync,
   loadSyncConfig,
   saveSyncConfig,
@@ -1621,5 +1637,32 @@ onMounted(() => {
   background: #8a7a2a;
   border-color: #bba830;
   color: #fff;
+}
+
+/* 方案C 零配置化：自动连接只读样式 */
+.ops-sync-auto .auto-readonly-value {
+  display: inline-block;
+  padding: 4px 8px;
+  background: var(--el-fill-color-light, #f5f5f5);
+  border-radius: 4px;
+  font-size: var(--font-size-sm);
+  color: var(--el-text-color-regular, #606266);
+  font-family: monospace;
+}
+.auto-connected-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: var(--el-color-success-light-9, #f0f9eb);
+  color: var(--el-color-success, #67c23a);
+  border-radius: 4px;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+}
+.login-to-enable-hint {
+  font-size: var(--font-size-xs);
+  color: var(--el-text-color-secondary, #909399);
+  font-style: italic;
 }
 </style>
