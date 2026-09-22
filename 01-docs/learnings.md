@@ -15164,25 +15164,49 @@ MIN_ENGAGEMENT_SAMPLES，与引擎严格同门槛含 Number(null)=0 语义），
 
 纯前端展示层布局修复（无 IPC/数据/后端/迁移），走完整 worktree 隔离流程（gate → worktree(基于 origin/main) → TDD → 门禁 → PR → auto-merge squash）。TDD 先加 `settings-panel-layout.test.js`（3 例源码契约，红→绿），定向 13/13、icon-usage 9/9、SettingsDialog 5/5、model-providers-copy 5/5 全绿，eslint exit 0。规范回写 `01-docs/design/model-provider-module-design.md` §9.4（问题/根因/方案/显示项/交互/数据校验/回归覆盖/影响面），CHANGELOG 前插。经验同步内置记忆 + EverOS。
 
----
+## 限流自检弹窗表单布局修复（selfcheck-dialog-layout，2026-09-22，PR #2225）
 
-## model-sort-order-2026-09-23：模型列表排序 + 运营中心预设模型自定义排序（分支 codex/model-sort-order，PR#2128）
+### 可复用结论
 
-### 需求
-「已配置」标签按最新修改倒序 + 默认模型置顶；「全部」标签按字母/拼音序但运营中心可自定义排序；运营中心「预设模型」页增加 4 图标按钮（⤒↑↓⤓）自定义排序。
+- **「模板写了类名、样式块从未定义」的孤儿类布局缺陷（pitfall）**：`ModelProviders.vue` 限流自检弹窗模板使用 `.selfcheck-form`/`.selfcheck-row` 类名组织 6 个表单项，但 `<style scoped>` 中没有任何对应规则——label（inline）与 `el-input-number`（inline-flex 默认 150px）随文本流随机换行，长标签（「并发上限（留空=clamp(rpm/10,1,4)）」）把输入框挤到下一行、宽度参差，用户读作「布局非常混乱」。排查判据：截图症状为「同一表单内各行缩进不一致 + 控件随机掉行」时，先 grep 类名在 style 块是否有定义，而不是调间距。修复模式：每行 `display:flex; align-items:center`，label `flex:0 0 230px` 固定列宽，控件统一 `width:150px; flex-shrink:0`，全部输入框对齐同一左基线。凡 Element Plus 表单弹窗，优先用 el-form label-width 或自建 flex 行，禁止裸类名无样式。
+- **共享数据契约要随 UI 一并文档化（process）**：本次顺带把「限流自检」功能规格（用途/使用流程/6 参数 IPC 校验边界 rpm[1,1e5]、maxConcurrent[1,8]或留空=clamp(rpm/10,1,4)、requestCount[1,1000]、requestDurationMs[0,6e4]、inject429At[1,requestCount]、limitPer5h 或留空、cooldownMs[100,6e4]/交互/显示项）写入设计文档 §9.5。前端 el-input-number 的 min/max 与 IPC `_validate` 边界必须一致，改任一侧须同步另一侧与文档。
 
-### 实现（三层）
-1. 渲染端 `useModelProviderCrud.js` filteredProviders 单点排序（不改 IPC）：已配置=默认置顶→updated_at 倒序→拼音→id；全部=sort_order 升序优先→null 按拼音(localeCompare zh-Hans-CN)→id。
-2. 主进程 `model-provider-manager.js` applyCatalog：目录权威写 config.sort_order（非负整数生效/否则删键）；**stableStringify 内容比对，无实质变化跳过 UPDATE 不 bump updated_at**（已配置排序语义前提），返回 unchanged。
-3. 运营中心全栈：ModelPreset.sort_order 列（幂等迁移）+ _display_order(NULLS LAST) + POST /{id}/reorder(admin-only，top/up/down/bottom，越界 noop，全量归一化 0..n-1) + catalog/_to_dict 下发 + ModelPresets.vue 排序列/按钮。
+### 本次决策记录
 
-### CodeReview（1 MAJOR + 3 MINOR）
-- **MAJOR**：reorder 服务端操作全量列表，前端 $index 是过滤后可见下标，范围不一致致邻接移动「点了没反应」。修：sortLocked computed（分类筛选或未开含隐藏项时禁用按钮 + title 提示 + reorder() 入口二次拦截）。
-- **MINOR**：validSortOrder 渲染端 Number.isFinite vs 主进程 Number.isInteger 口径不一。修：统一 Number.isInteger。
-- 已知限制（未改）：reorder 读-改-写无行锁（多管理员并发丢更新，最终仍合法排列）；无变化同步「0 个模型已更新」文案易误解。
+纯展示层样式补齐（新增 CSS 规则，不改模板结构/IPC/数据模型），走完整 worktree 隔离流程（gate → worktree(基于 origin/main 362896f93) → TDD → 门禁 → PR #2225 → auto-merge squash）。TDD 先加 `src/views/selfcheck-dialog-layout.test.js`（3 例源码契约，红→绿，沿用 scoped CSS 读源码正则断言模式），定向 4 文件 20/20 全绿（icon-usage/model-providers-copy/settings-panel-layout 零回归），eslint exit 0。CHANGELOG/设计文档追加一律字节级只动头部/尾部，防混合 EOL 全文件重写（上次已踩坑）。经验同步内置记忆 + EverOS。
 
-### 逃逸/教训
-- Qoder 编辑工具不能写 workspace 外 worktree → Node 补丁执行器模式（msort-patch.js + spec.js）。
-- --ignore-scripts 跳过 ffmpeg postinstall → QM-1 打包缺二进制，从共享根整目录 Copy-Item 补。
-- catalog 测试 Bearer 走 Logto 401 → 改 X-Catalog-Key + monkeypatch catalog_api_key。
-- 并发会话抢占后台 terminal + 重置 cwd → 前台长任务 + 每条命令显式 Set-Location。
+## 账号标签凭证「假保存成功」：不存在的 Electron API + 吞错 catch + 弱断言三连逃逸（fix-tencent-video-cookie-save，2026-09-22）
+
+### Bug 反哺五步（QM-5）
+
+- **根因溯源（第一性原因）**：`webview-manager.js` 两处（saveCookies / saveAccountTabCredentials）调用 `session.cookies.getAll({})`——Electron cookies API 只有 `get([filter])`，**getAll 不存在**；TypeError 被 `catch` 吞掉后以 `cookies=[]` 继续保存并置 saved + 广播 auth:completed（假成功）。失效账号扫码重登 → 凭证库存 0 Cookie（旧 localStorage 残留绕过「三空校验」）→ 再开创作者中心弹回登录页。git log -S 追溯到 graft 初始提交即存在，非近期回归。
+- **逃逸链（为什么没测出来）**：① 单测 mock 的 `webContents` 根本没有 `session` 属性 → 提取路径在测试里恒抛「Cannot read properties of undefined」，同样被吞错 catch 吸收，测试与生产以同一种「静默」方式跑通；② 断言 `cookies: expect.any(Array)` 对空数组恒真——弱断言放行假保存；③ 集成/E2E 无「保存后重开标签应免登录」的闭环断言；④ 视觉回归不覆盖凭证库内容。
+- **系统性漏洞定位**：测试 mock 与真实 API 表面无契约锚点（mock 可任意缺失/发明方法而测试不红）＋「吞错继续」反模式（catch 后走 happy path）。
+- **修复 + 回归保护**：`getAll`→`get`；提取抛错 **fail-closed**（返回 `cookie-extract-failed`，不落盘、保持 unsaved、不广播 saved）。mock 改造为忠实镜像（挂接 session、只实现 get/set/remove/flushStore）；弱断言升级为断言真实 Cookie 数组；新增 3 例回归（真实提取 / 抛错中止 / saveCookies 事件源）。红→绿全程留痕。
+- **预防措施（可复用规则）**：① 对 Electron/浏览器等外部 API，mock 必须按官方 API 表面实现，**禁止用 `expect.any()` 兜底集合/对象内容断言**——保存/回写类断言必须比对真实提取值；② catch 后继续执行前必须问「吞掉的错误会不会把失败伪装成成功」，凭证/数据落盘路径一律 fail-closed；③ 排查同类问题可全局 grep `\.getAll\(`（Electron session 语境）；④ 用户报「扫码后没跳转」先查 userData 日志中 `cookies=0` 与 `failed` 关键字，5 分钟定位。
+
+### 取证环境教训
+
+- **日志锚点在 shared-user-data 而非 %APPDATA%（pitfall）**：live 实例经 anchor 机制把 userData 指向仓库 `shared-user-data/`，日志在 `shared-user-data/logs/app-*.log`；先翻 %APPDATA% 会误判「无日志证据」。
+- **严格入口被他会话脏文件阻塞时（process）**：`start-mp-task.ps1`/`gwm-task.sh` 对共享根 -RequireClean fail-closed 是设计内行为；不得 stash/commit 他会话文件，可降级 `git worktree add <D:\路径> -b <branch> origin/main`（PowerShell 原生路径），创建后 `rev-parse --show-toplevel/--abbrev-ref HEAD` 双验证再继续。
+## model-sort-order-2026-09-23锛氭ā鍨嬪垪琛ㄦ帓搴?+ 杩愯惀涓績棰勮妯″瀷鑷畾涔夋帓搴忥紙鍒嗘敮 codex/model-sort-order锛孭R#2128锛?
+
+### 闇€姹?
+銆屽凡閰嶇疆銆嶆爣绛炬寜鏈€鏂颁慨鏀瑰€掑簭 + 榛樿妯″瀷缃《锛涖€屽叏閮ㄣ€嶆爣绛炬寜瀛楁瘝/鎷奸煶搴忎絾杩愯惀涓績鍙嚜瀹氫箟鎺掑簭锛涜繍钀ヤ腑蹇冦€岄璁炬ā鍨嬨€嶉〉澧炲姞 4 鍥炬爣鎸夐挳锛堚鈫戔啌猡擄級鑷畾涔夋帓搴忋€?
+
+### 瀹炵幇锛堜笁灞傦級
+1. 娓叉煋绔?`useModelProviderCrud.js` filteredProviders 鍗曠偣鎺掑簭锛堜笉鏀?IPC锛夛細宸查厤缃?榛樿缃《鈫抲pdated_at 鍊掑簭鈫掓嫾闊斥啋id锛涘叏閮?sort_order 鍗囧簭浼樺厛鈫抧ull 鎸夋嫾闊?localeCompare zh-Hans-CN)鈫抜d銆?
+2. 涓昏繘绋?`model-provider-manager.js` applyCatalog锛氱洰褰曟潈濞佸啓 config.sort_order锛堥潪璐熸暣鏁扮敓鏁?鍚﹀垯鍒犻敭锛夛紱**stableStringify 鍐呭姣斿锛屾棤瀹炶川鍙樺寲璺宠繃 UPDATE 涓?bump updated_at**锛堝凡閰嶇疆鎺掑簭璇箟鍓嶆彁锛夛紝杩斿洖 unchanged銆?
+3. 杩愯惀涓績鍏ㄦ爤锛歁odelPreset.sort_order 鍒楋紙骞傜瓑杩佺Щ锛? _display_order(NULLS LAST) + POST /{id}/reorder(admin-only锛宼op/up/down/bottom锛岃秺鐣?noop锛屽叏閲忓綊涓€鍖?0..n-1) + catalog/_to_dict 涓嬪彂 + ModelPresets.vue 鎺掑簭鍒?鎸夐挳銆?
+
+### CodeReview锛? MAJOR + 3 MINOR锛?
+- **MAJOR**锛歳eorder 鏈嶅姟绔搷浣滃叏閲忓垪琛紝鍓嶇 $index 鏄繃婊ゅ悗鍙涓嬫爣锛岃寖鍥翠笉涓€鑷磋嚧閭绘帴绉诲姩銆岀偣浜嗘病鍙嶅簲銆嶃€備慨锛歴ortLocked computed锛堝垎绫荤瓫閫夋垨鏈紑鍚殣钘忛」鏃剁鐢ㄦ寜閽?+ title 鎻愮ず + reorder() 鍏ュ彛浜屾鎷︽埅锛夈€?
+- **MINOR**锛歷alidSortOrder 娓叉煋绔?Number.isFinite vs 涓昏繘绋?Number.isInteger 鍙ｅ緞涓嶄竴銆備慨锛氱粺涓€ Number.isInteger銆?
+- 宸茬煡闄愬埗锛堟湭鏀癸級锛歳eorder 璇?鏀?鍐欐棤琛岄攣锛堝绠＄悊鍛樺苟鍙戜涪鏇存柊锛屾渶缁堜粛鍚堟硶鎺掑垪锛夛紱鏃犲彉鍖栧悓姝ャ€? 涓ā鍨嬪凡鏇存柊銆嶆枃妗堟槗璇В銆?
+
+### 閫冮€?鏁欒
+- Qoder 缂栬緫宸ュ叿涓嶈兘鍐?workspace 澶?worktree 鈫?Node 琛ヤ竵鎵ц鍣ㄦā寮忥紙msort-patch.js + spec.js锛夈€?
+- --ignore-scripts 璺宠繃 ffmpeg postinstall 鈫?QM-1 鎵撳寘缂轰簩杩涘埗锛屼粠鍏变韩鏍规暣鐩綍 Copy-Item 琛ャ€?
+- catalog 娴嬭瘯 Bearer 璧?Logto 401 鈫?鏀?X-Catalog-Key + monkeypatch catalog_api_key銆?
+- 骞跺彂浼氳瘽鎶㈠崰鍚庡彴 terminal + 閲嶇疆 cwd 鈫?鍓嶅彴闀夸换鍔?+ 姣忔潯鍛戒护鏄惧紡 Set-Location銆?
+

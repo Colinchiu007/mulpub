@@ -1607,4 +1607,29 @@ onMounted(() => {
   color: var(--el-text-color-secondary, #909399);
   font-style: italic;
 }
+
+/* 限流自检弹窗表单：label 与输入框同行对齐、输入框等宽。
+   此前 .selfcheck-form/.selfcheck-row 只有类名无任何样式定义，
+   label 与 el-input-number 随机换行、宽度参差（用户反馈布局混乱）。 */
+.selfcheck-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 4px;
+}
+.selfcheck-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.selfcheck-row label {
+  flex: 0 0 230px;
+  font-size: var(--font-size-sm);
+  color: var(--muted);
+  line-height: 1.4;
+}
+.selfcheck-row .el-input-number {
+  width: 150px;
+  flex-shrink: 0;
+}
 </style>
