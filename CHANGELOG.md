@@ -1,3 +1,22 @@
+# [未发布] fix(scripts): worktree 删除护栏的长路径致盲与短路（2026-09-23，wt-remove-longpath）
+
+### Fix
+
+- **R3 链接扫描静默漏报（最危险）**：护栏原以 `cmd /c dir /aL /s /b` 查找 junction/symlink，该命令在超过 MAX_PATH 处**不报错地少报**（本机实测：14 个条目只看到 6 个，stderr 完全为空）。于是「0 个外逸链接」可能在级联删除主工作区之前绿灯放行——这条护栏存在的唯一理由就是防该级联。改为经 `\\?\` 扩展长度前缀全深度遍历，且**扫描不完整即 fail closed**（新增退出码 7）：部分扫描不再被当作安全证据。
+- **R5 短路 R6（控制流缺陷）**：`git worktree remove` 只要 rc≠0 就 `exit 1`。git 的内部顺序是先删行政登记与工作树链接文件、最后删目录，因此「目录删除失败」（`error: failed to delete ...: Filename too long`）时登记已清、只剩目录——恰好是唯一需要 R6 清理的状态，却被 R5 的 exit 挡住。改为按**观测状态**（是否仍注册 / 目录是否仍在）决策：仅 `hard_fail`（仍注册）保留原阻断行为，其余降级为警告并继续走 R6。
+- **R6 无 `\\?\` 前缀**：`[IO.Directory]::Delete($wt, $true)` 在 PowerShell 5.1（`LongPathsEnabled=0`、git `core.longpaths` 未设）下超过 260 字符必然再失败一次。改为长路径递归删除，失败再退到 `robocopy <空目录> <目标> /MIR /XJ` 镜像清空兜底（`/XJ` 使残留链接让镜像非空，从而根目录删除失败，天然 fail closed）。
+- **库解析兜底**：dot-source 时 `$PSScriptRoot` 指向调用方目录，改用 `$PSCommandPath` 取脚本自身路径；找不到 `worktree-fs-longpath.ps1` 时以退出码 8 拒绝运行，绝不允许降级成「无护栏删除」。
+
+### Testing
+
+- 新增 `scripts/worktree-fs-longpath.ps1`（长路径原语：`Get-LongPath` / `Remove-LongPathPrefix` / `Test-FsEntry` / `Test-FsReparsePoint` / `Get-FsLinkReport` / `Remove-FsLink` / `Remove-FsDirectory` / `Clear-FsDirectoryByMirror` / `Resolve-RemoveDisposition`）与 `scripts/worktree-fs-longpath.test.ps1`：Windows PowerShell 5.1 下 15 条断言全绿，含两条常驻红灯——无 `\\?\` 前缀的递归删除在同一 fixture 上**必须仍然失败**（否则 fixture 变浅、测试静默退化为 no-op），以及遍历**不得穿过** junction（`Enumerated -eq 2`）。
+- 端到端演练：构造最深 590 字符残留目录的临时 worktree，真实复现 `Filename too long` → R5 判定 `purge_residual` 并降级为警告 → R6 `io-recursive` 删除 → R7 主工作区基线一致 → exit 0；另验证无残留的正常路径（rc=0、`residual-only purge: False`）未被破坏；`PSParser::Tokenize` 0 error、产物纯 ASCII 纯 CRLF。
+
+### Docs
+
+- `scripts/README.md` 登记新脚本与新测试；`01-docs/learnings.md` 追加「漏报比报错更危险」复盘；`.quality-gates.md` 新增本任务执行记录，并回填上一任务 PR #2231 的最终 squash SHA `bbb572cef`（原行停留在首个人工证据与未来时态）。
+
+
 # [未发布] fix(security): P0-1 收口——打包版不再吃内置 DEV 信任锚（audit-remediation 收尾）
 
 ### 变更

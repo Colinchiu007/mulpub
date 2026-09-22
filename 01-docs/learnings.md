@@ -15501,3 +15501,16 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
   2. **只用精确补登，慎用全量 `--update`**：全量重生成会把清单里几十个存量文件相对 main 历史的行数漂移一次性吞进来，让一个窄 PR 变成「重排全仓债务基线」，diff 巨大且掩盖真实增长信号。字典序定位单条插入即可。
   3. 验证三件套：`check-max-lines.js`（无违规、超限=挂账数）、`node --test check-max-lines.test.js`（含「真实仓现状清单一致」主断言）、`check-debt-budget.js`（聚合棘轮 filesOver500 持平）。
 - **边界**：debt-guard.yml 无 paths-ignore，其 job 名「债务熔断检查」是 ruleset main-ci-gate 的 required check，任何 PR 都必须绿，纯文档 PR 也不能跳。
+
+
+## worktree 删除护栏自身被 MAX_PATH 致盲：漏报比报错更危险（wt-remove-longpath，2026-09-23）
+
+- **表象（pitfall）**：`scripts/safe-worktree-remove.ps1` 删 worktree 时报 `error: failed to delete ...: Filename too long`（git rc=255），脚本按 R5 直接 `exit 1`，文档承诺的 R6「残留目录清理」永远不会执行——**触发 R6 的那个失败模式恰好把 R6 挡住了**，磁盘上留下一个已失注册的目录。
+- **根因（pitfall）**：本机 Windows PowerShell 5.1 + 注册表 `LongPathsEnabled=0` + git `core.longpaths` 未设置，一切经过路径解析的调用停在 260 字符，而 pnpm workspace 的 `node_modules` 轻松超过（演练 fixture 最深 590 字符）。同一根因在脚本里造成三处缺陷：R3 用 `cmd /c dir /aL /s /b` 找链接、R5 用退出码代替观测状态、R6 用无 `\\?\` 前缀的 `[IO.Directory]::Delete`。
+- **最危险的不是报错，是错误的安全结论**：R3 是专为阻止「`git worktree remove --force` 穿过 junction 级联删除主工作区」而存在的护栏，而它在长路径处**是瞎的**——实测 `cmd /c dir /s /b` 在 14 个条目里只看到 6 个且 **stderr 完全为空**。于是护栏会输出「0 escaping links」并放行删除。**报错会拦住流程，漏报会把「没查到」当成「没有」**。安全护栏必须把「扫描无法完成」本身升级为阻断条件（本项目新增退出码 7），而不是当作没有问题。
+- **修复模式（pattern）**：`git worktree remove` 的内部顺序是先删行政登记与工作树链接文件、最后删目录，所以 rc≠0 绝不意味着「什么都没发生」。决策必须基于观测状态：`git worktree list` 是否仍含该路径 + 目录是否仍在磁盘，映射为 `ok / hard_fail / unregistered_empty / purge_residual` 四态；只有 `hard_fail` 保留原来的阻断退出，其余继续走清理。
+- **可复用原语（pattern）**：Windows 长路径三件套——(1) 枚举与删除一律加 `\\?\` 前缀（`Get-LongPath`，UNC 走 `\\?\UNC\`），报告结果再去前缀（`Remove-LongPathPrefix`）以便 `Get-Item` 等普通调用继续使用；(2) 遍历时遇 reparse point **只记录、绝不下沉**，否则会穿过链接进入外部树；(3) 最终兜底 `robocopy <空目录> <目标> /MIR /XJ`，退出码 0-7 为成功、≥8 才是失败，`/XJ` 排除链接使镜像非空、根目录删除随之失败，天然 fail closed。
+- **验证纪律（pattern）**：长路径回归测试必须包含「未修复版本仍然失败」的常驻红灯（此处为无 `\\?\` 前缀的递归删除在同一 fixture 上必须抛 `PathTooLong`/`DirectoryNotFound`），否则 fixture 一旦变浅，测试会静默退化成 no-op 而看起来全绿；同时断言遍历 `Enumerated` 的精确计数来锁死「不下沉进链接」这条契约。
+- **工具陷阱（pitfall）**：`$PSScriptRoot` 在**被 dot-source** 的脚本里指向调用方目录，库脚本要取自身路径必须用 `$PSCommandPath`（或 `$MyInvocation.MyCommand.Path`）；写错不会报错，只会从别的 worktree 调用时解析不到库文件、静默失去护栏。库缺失时应 fail closed 退出（本项目用退出码 8），不允许降级继续跑。
+- **决策记录（decision）**：结论=把删除护栏从「按退出码判断」改为「按观测状态判断」并统一走长路径原语；理由=报错可被看见、漏报会给出错误的安全结论，而级联删除主工作区是不可回滚的损失；被否方案=只在 R6 补 `\\?\` 前缀（治不了 R3 的漏报，也治不了 R5 的短路）、或本机开启 `LongPathsEnabled`/`core.longpaths`（改变的是机器环境而非脚本契约，CI 与同事机器上依旧复现）；适用与失效条件=适用于任何 Windows 上未确认 OS 级长路径能力（`LongPathsEnabled=1`）的 PowerShell 5.1 环境，若仓库统一迁移到 PowerShell 7 + 已启用长路径的机器，前缀层可简化，但「扫描不完整即阻断」与「按观测状态决策」两条契约不变。
+- **关联（link）**：本次 R6 演练用的删除/恢复通道即 `scripts/safe-worktree-remove.ps1` + `scripts/safe-restore-deleted.ps1`（铁律 R1-R5）；姊妹脚本 `safe-restore-deleted.ps1` 已核查，只对浅层工作区路径做 `Test-Path` 与逐文件复制，无递归删除与深层枚举，不存在同类缺陷。

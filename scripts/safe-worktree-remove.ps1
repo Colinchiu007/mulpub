@@ -1,6 +1,7 @@
 <#
 .SYNOPSIS
-    Safely remove a git worktree (AGENTS.md guardrails R1-R5; hardened 2026-08-28).
+    Safely remove a git worktree (implements the AGENTS.md R1-R5 removal rules as pipeline
+    stages R0-R7; hardened 2026-08-28 and 2026-09-23).
 
 .DESCRIPTION
     Hardened against a VERIFIED cascade-delete failure mode: `git worktree remove --force`
@@ -14,13 +15,33 @@
 
     Pipeline:
       R1  baseline snapshot (porcelain status + stash count)
-      R3  FULL-DEPTH link scan; BLOCK on any link resolving outside the worktree
+      R3  FULL-DEPTH link scan; BLOCK on any link resolving outside the worktree, and on
+          any directory that could not be enumerated (a partial scan proves nothing)
       R3b unlink every link inside the worktree BEFORE removal (neutralises traversal
           even if a link somehow evades R3)
       R4  stop processes whose image path is strictly inside the worktree
-      R5  git worktree remove [--force]
-      R6  residual directory cleanup via .NET Delete (safe once links are unlinked)
+      R5  git worktree remove [--force]; when git already unregistered the worktree and
+          only failed to delete the tree, warn and fall through instead of aborting
+      R6  residual directory cleanup, long-path aware, with a robocopy mirror fallback
       R7  verify main workspace matches baseline (status AND stash count)
+
+    Long-path hardening (2026-09-23, found while removing mp-batch-check-progress-speed):
+    every enumeration, existence check and delete now goes through worktree-fs-longpath.ps1,
+    because this machine runs Windows PowerShell 5.1 with LongPathsEnabled=0 and git
+    core.longpaths unset, i.e. everything below the path parser stops at MAX_PATH (260
+    chars) and a pnpm workspace node_modules tree exceeds that routinely. Two distinct
+    failures came from it:
+
+      * R3 found links with `cmd /c dir /aL /s /b`, which under-reports deep trees SILENTLY
+        (measured: 6 of 14 entries, empty stderr). "0 escaping links" was therefore able to
+        green-light the cascade delete this guard exists to prevent.
+      * R6 deleted with `[IO.Directory]::Delete($wt, $true)`, which throws past 260 chars,
+        while R5 exited on any non-zero git code before R6 could run - the one failure mode
+        that needs the cleanup was the one that skipped it.
+
+    Regression coverage: scripts/worktree-fs-longpath.test.ps1. It asserts that the
+    unprefixed delete still fails on the same fixture, so the tests cannot decay into a
+    no-op if the fixture ever stops exercising MAX_PATH.
 
 .PARAMETER Worktree
     Absolute path of the worktree to remove.
@@ -59,6 +80,18 @@ param(
 
 $ErrorActionPreference = 'Continue'
 
+# ---------------- long-path primitives ----------------
+# $PSScriptRoot is the *caller's* folder inside a dot-sourced file, so the helper script's own
+# path has to come from MyInvocation; $PSCommandPath is the modern form, the rest is the
+# -File fallback. Without this the library resolves against the invoking worktree and is lost.
+$__swrSelf = if ($PSCommandPath) { $PSCommandPath } elseif ($MyInvocation.MyCommand.Path) { $MyInvocation.MyCommand.Path } else { $null }
+$__swrHere = if ($__swrSelf) { Split-Path -Parent $__swrSelf } else { $null }
+if (-not $__swrHere -or -not (Test-Path -LiteralPath (Join-Path $__swrHere 'worktree-fs-longpath.ps1'))) {
+    Write-Host 'FATAL: scripts/worktree-fs-longpath.ps1 not found next to safe-worktree-remove.ps1; refusing to run with MAX_PATH-bound guards.'
+    exit 8
+}
+. (Join-Path $__swrHere 'worktree-fs-longpath.ps1')
+
 # ---------------- helpers ----------------
 function Write-Section([string]$t) { Write-Host ""; Write-Host ("=== {0} ===" -f $t) }
 function Norm([string]$p) { if (-not $p) { return '' }; return (($p -replace '/', '\').TrimEnd('\')) }
@@ -84,10 +117,18 @@ function Resolve-LinkTarget([string]$LinkPath) {
     return (Norm $abs)
 }
 
-function Get-Links([string]$Root) {
-    # Full depth, cmd-implemented, not bounded by -Depth. Returns absolute link paths.
-    $raw = & cmd /c "dir /aL /s /b `"$Root`"" 2>$null
-    return @($raw | Where-Object { $_ -and ($_.Trim().Length -gt 0) } | ForEach-Object { $_.Trim() })
+function Get-LinkScan([string]$Root) {
+    # Full depth through the \\?\ walk: bounded neither by -Depth nor by MAX_PATH.
+    # Returns the report object (Links / Errors / Enumerated) so callers can fail closed
+    # on a partial scan instead of mistaking blindness for safety.
+    return (Get-FsLinkReport -Root $Root)
+}
+
+function Test-WorktreeRegistered([string]$Root) {
+    foreach ($line in @(git -C $script:main worktree list --porcelain 2>$null)) {
+        if ((Norm ($line -replace '^worktree ', '')) -eq $Root) { return $true }
+    }
+    return $false
 }
 
 # ---------------- resolve main workspace ----------------
@@ -147,8 +188,10 @@ Write-Host ("  anchors seen  : " + (@($anchors | Where-Object { $anchorBefore[$_
 
 # ---------------- R3 full-depth link scan ----------------
 Write-Section "R3 full-depth link scan"
-$links = Get-Links $wt
+$scan  = Get-LinkScan $wt
+$links = @($scan.Links)
 Write-Host "  links found (full depth) : $($links.Count)"
+Write-Host "  entries enumerated       : $($scan.Enumerated)"
 $escaping = @(); $selfContained = @()
 foreach ($l in $links) {
     $t = Resolve-LinkTarget $l
@@ -175,16 +218,26 @@ if ($escaping.Count -gt 0) {
     }
     Write-Host ""
     Write-Host "  To proceed, unlink them first (removes the LINK only; target untouched):"
-    foreach ($e in $escaping) { Write-Host ("    cmd /c rmdir `"{0}`"" -f $e.Link) }
+    foreach ($e in $escaping) { Write-Host ("    Remove-FsLink `"{0}`"" -f $e.Link) }
     Remove-Item -LiteralPath $baselineFile -ErrorAction SilentlyContinue
     exit 2
 }
 
-# ---------------- registration + dirty ----------------
-$registered = $false
-foreach ($line in @(git -C $main worktree list --porcelain 2>$null)) {
-    if ((Norm ($line -replace '^worktree ', '')) -eq $wt) { $registered = $true }
+if ($scan.Errors.Count -gt 0) {
+    Write-Host ""
+    Write-Host "  BLOCKED (R3): the link scan could not enumerate every directory, so it"
+    Write-Host "  cannot prove that no link escapes the worktree. A partial scan is not"
+    Write-Host "  evidence of safety - failing closed."
+    $scan.Errors | Select-Object -First 20 | ForEach-Object { Write-Host "    $_" }
+    Write-Host ""
+    Write-Host "  Release whatever holds those paths (a shell cwd inside the worktree, a"
+    Write-Host "  running dev server, antivirus) and re-run."
+    Remove-Item -LiteralPath $baselineFile -ErrorAction SilentlyContinue
+    exit 7
 }
+
+# ---------------- registration + dirty ----------------
+$registered = [bool](Test-WorktreeRegistered $wt)
 $dirty = @(if ($registered) { git -C $wt status --porcelain 2>$null })
 Write-Host "  git-registered : $registered"
 Write-Host "  worktree dirty : $($dirty.Count)"
@@ -194,10 +247,10 @@ if ($WhatIf) {
     Write-Host ""
     Write-Host "=== WHATIF (nothing has been changed) ==="
     Write-Host "  would unlink : $($selfContained.Count) self-contained link(s)"
-    foreach ($s in $selfContained) { Write-Host ("    cmd /c rmdir `"{0}`"   (target {1})" -f $s.Link, $s.Target) }
+    foreach ($s in $selfContained) { Write-Host ("    Remove-FsLink `"{0}`"   (target {1})" -f $s.Link, $s.Target) }
     $forceFlag = if ($Force) { '--force ' } else { '' }
     Write-Host ("  would run    : git -C `"{0}`" worktree remove {1}`"{2}`"" -f $main, $forceFlag, $wt)
-    Write-Host "  would then   : [System.IO.Directory]::Delete('$wt', `$true)  if the directory remains"
+    Write-Host "  would then   : Remove-FsDirectory `$wt (\\?\ prefixed), falling back to Clear-FsDirectoryByMirror, if the directory remains"
     Write-Host "  would verify : main status + stash count unchanged vs baseline"
     Remove-Item -LiteralPath $baselineFile -ErrorAction SilentlyContinue
     exit 0
@@ -224,8 +277,10 @@ if ($Force -and -not $ConfirmDirtyDiscarded) {
 Write-Section "R3b unlink links (neutralises traversal)"
 $unlinked = @()
 foreach ($s in $selfContained) {
-    & cmd /c "rmdir `"$($s.Link)`"" 2>$null | Out-Null
-    if (-not (Test-Path -LiteralPath $s.Link)) {
+    # Link only (recursive = $false is the whole point): the target is never touched, and a
+    # link whose own path sits past MAX_PATH is still reachable, which cmd rmdir is not.
+    [void](Remove-FsLink $s.Link)
+    if (-not (Test-FsEntry $s.Link)) {
         $unlinked += $s
         Write-Host "  unlinked : $($s.Link)"
     } else {
@@ -250,6 +305,7 @@ foreach ($p in $procs) {
 
 # ---------------- R5 git worktree remove ----------------
 Write-Section "R5 git worktree remove"
+$residualOnly = $false
 if ($registered) {
     $gitArgs = @('-C', $main, 'worktree', 'remove')
     if ($Force) { $gitArgs += '--force' }
@@ -257,10 +313,24 @@ if ($registered) {
     & git @gitArgs 2>&1 | Out-String | Write-Host
     $rc = $LASTEXITCODE
     if ($rc -ne 0) {
-        Write-Host "  git worktree remove failed (rc=$rc)."
-        Write-Host "  NOTHING was deleted: links were unlinked, git registry untouched."
-        Remove-Item -LiteralPath $baselineFile -ErrorAction SilentlyContinue
-        exit 1
+        # rc != 0 does NOT mean nothing happened. git removes the administrative entry and
+        # the working-tree link file first and deletes the directory last; when the delete is
+        # the part that fails (Windows MAX_PATH: "error: failed to delete ... Filename too
+        # long") the worktree is already unregistered and only the tree is left behind.
+        # Aborting there skips the cleanup that exists for exactly that state.
+        $stillRegistered = [bool](Test-WorktreeRegistered $wt)
+        $dirPresent      = [bool](Test-FsEntry $wt)
+        $disposition = Resolve-RemoveDisposition -ExitCode $rc -Registered $stillRegistered -DirPresent $dirPresent
+        if ($disposition -eq 'hard_fail') {
+            Write-Host "  git worktree remove failed (rc=$rc) and the worktree is STILL REGISTERED."
+            Write-Host "  NOTHING was deleted: links were unlinked, git registry untouched."
+            Remove-Item -LiteralPath $baselineFile -ErrorAction SilentlyContinue
+            exit 1
+        }
+        Write-Host "  git worktree remove returned rc=$rc -> disposition: $disposition."
+        Write-Host "  The registration is already gone; only the directory is left behind."
+        Write-Host "  Continuing to R6 instead of aborting (that abort was the defect)."
+        $residualOnly = $true
     }
     & git -C $main worktree prune 2>&1 | Out-Null
 } else {
@@ -268,21 +338,37 @@ if ($registered) {
 }
 
 # ---------------- R6 residual directory ----------------
-if (Test-Path -LiteralPath $wt) {
-    Write-Section "R6 residual directory cleanup"
+if (Test-FsEntry $wt) {
+    Write-Section "R6 residual directory cleanup (long-path aware)"
     # Re-scan: a link could have been (re)created between R3 and here.
-    $late = @(Get-Links $wt)
-    foreach ($l in $late) { & cmd /c "rmdir `"$l`"" 2>$null | Out-Null }
-    Write-Host "  late links unlinked : $($late.Count)"
-    try {
-        [System.IO.Directory]::Delete($wt, $true)
-        Write-Host "  deleted : $wt"
-    } catch {
-        Write-Host "  FAILED  : $($_.Exception.Message)"
-        Write-Host "  Directory partially removed. Handle remaining paths individually;"
-        Write-Host "  never use Remove-Item -Recurse on a tree that may contain links."
+    $lateScan = Get-LinkScan $wt
+    if ($lateScan.Errors.Count -gt 0) {
+        Write-Host "  BLOCKED: the residual tree can no longer be scanned completely, so it"
+        Write-Host "  cannot be deleted safely either. Failing closed."
+        $lateScan.Errors | Select-Object -First 20 | ForEach-Object { Write-Host "    $_" }
         Remove-Item -LiteralPath $baselineFile -ErrorAction SilentlyContinue
-        exit 5
+        exit 7
+    }
+    $late = @($lateScan.Links)
+    foreach ($l in $late) { [void](Remove-FsLink $l) }
+    Write-Host "  late links unlinked : $($late.Count)"
+
+    $rm = Remove-FsDirectory $wt
+    if ($rm.Ok) {
+        Write-Host "  deleted via $($rm.Strategy) : $wt"
+    } else {
+        Write-Host "  $($rm.Strategy) failed: $($rm.Error)"
+        Write-Host "  falling back to the robocopy empty-mirror purge (/XJ keeps links out)"
+        $mir = Clear-FsDirectoryByMirror $wt
+        if ($mir.Ok) {
+            Write-Host "  deleted via robocopy-mirror (exit $($mir.RobocopyExit)) : $wt"
+        } else {
+            Write-Host "  FAILED  : $($mir.Error)"
+            Write-Host "  Directory partially removed. Handle remaining paths individually;"
+            Write-Host "  never use Remove-Item -Recurse on a tree that may contain links."
+            Remove-Item -LiteralPath $baselineFile -ErrorAction SilentlyContinue
+            exit 5
+        }
     }
 }
 
@@ -316,6 +402,6 @@ if ($failed) {
     exit 3
 }
 Write-Host "  PASS: main workspace status and stash count match the baseline."
-Write-Host "  worktree gone : $(-not (Test-Path -LiteralPath $wt))"
+Write-Host "  worktree gone : $(-not (Test-FsEntry $wt))   (residual-only purge: $residualOnly)"
 Remove-Item -LiteralPath $baselineFile -ErrorAction SilentlyContinue
 Write-Host "DONE"
