@@ -15151,3 +15151,15 @@ MIN_ENGAGEMENT_SAMPLES，与引擎严格同门槛含 Number(null)=0 语义），
 
 **环境教训**：live 实例走查前先核实 identityGetState——signed_out 状态下涉权益链路
 （存库/发布/回采）会被许可证门禁拦截，属环境态而非代码缺陷，走查结论需分段标注。
+
+## 设置弹窗右侧内容区与左侧标签导航留白修复（settings-panel-content-gap，2026-09-22，PR #2217）
+
+### 可复用结论
+
+- **flex 双栏布局「面板零内边距 + 子页面留白各自为政」致内容贴/压分隔线（pitfall）**：`SettingsDialog.vue` 左 `nav.settings-tabs`(200px) + 右 `.settings-panel`(flex:1) 双栏。面板曾 `padding:0`，把水平留白完全下放给子组件，而子组件留白不一致：`ModelProviders` 头部/内容各带页级 `--space-xxl`(32px) 但 `.cohere-filter-bar` 为 `padding:0`；`FeishuSettingsTab` 根 `.feishu-settings` 完全无 padding。于是零内边距的行直接贴住导航 `border-right`，与激活标签卡片（白底+`--shadow-sm`浮起+左侧强调条）挤在一起读作「重叠」。修复：让**容器（面板）做水平留白的单一真源**（`padding:24px 28px` + `min-width:0` 防 flex 子项溢出反压导航列），并用 `:deep(.cohere-page-header)/:deep(.cohere-content){padding-left/right:0}` 收掉子页级左右 padding 避免双重缩进；上下 padding 保留维持纵向节奏。凡「固定侧栏 + 弹性内容区」双栏，内容留白应由容器统一提供，不要让每个子页面各自维护，否则必然出现贴边/重叠。
+- **scoped CSS 布局契约用「读源码正则断言」而非 mount 计算样式（pattern）**：`<style scoped>` 的 padding 不会注入 jsdom，`@vue/test-utils` mount 拿不到计算样式，无法断言留白。改用源码契约测试（仿 `model-providers-copy.test.js`）：读 `SettingsDialog.vue` 文本，用 `ruleBody('.settings-panel')` 抓块体断言 `padding` 非 0、含 `min-width:0`、存在 `:deep(...)` 且 `padding-left/right:0`。锁死「不回退 padding:0 / 不丢 :deep 去重」的意图，纯静态、无需 dev server、CI 稳定。
+- **改文案/样式前先核对本地下游分支是否落后 origin/main（process）**：本地 main 落后 origin/main 13 个提交，直接读本地 `SettingsDialog.vue` 拿到的是 #2191 之前的旧版（无图标），与用户截图（新版）不符，会误判现状。正确动作：`git fetch origin main` → 新 worktree 一律 `git worktree add -b ... <path> origin/main` 基于远程最新，读代码用 `git show origin/main:<file>`。
+
+### 本次决策记录
+
+纯前端展示层布局修复（无 IPC/数据/后端/迁移），走完整 worktree 隔离流程（gate → worktree(基于 origin/main) → TDD → 门禁 → PR → auto-merge squash）。TDD 先加 `settings-panel-layout.test.js`（3 例源码契约，红→绿），定向 13/13、icon-usage 9/9、SettingsDialog 5/5、model-providers-copy 5/5 全绿，eslint exit 0。规范回写 `01-docs/design/model-provider-module-design.md` §9.4（问题/根因/方案/显示项/交互/数据校验/回归覆盖/影响面），CHANGELOG 前插。经验同步内置记忆 + EverOS。
