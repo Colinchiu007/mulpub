@@ -82,6 +82,7 @@ class ModelPreset(Base):
     doc_links = Column(Text, default="[]")  # JSON array, <= 10
     capability_doc_links = Column(Text, default="{}")  # JSON object
     is_visible = Column(Integer, default=1)
+    sort_order = Column(Integer, nullable=True)  # 桌面端【全部】列表自定义排序（NULL=未排序，拼音序兜底；reorder 后归一化 0..n-1）
     created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
     updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
 

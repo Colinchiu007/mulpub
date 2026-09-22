@@ -15163,3 +15163,26 @@ MIN_ENGAGEMENT_SAMPLES，与引擎严格同门槛含 Number(null)=0 语义），
 ### 本次决策记录
 
 纯前端展示层布局修复（无 IPC/数据/后端/迁移），走完整 worktree 隔离流程（gate → worktree(基于 origin/main) → TDD → 门禁 → PR → auto-merge squash）。TDD 先加 `settings-panel-layout.test.js`（3 例源码契约，红→绿），定向 13/13、icon-usage 9/9、SettingsDialog 5/5、model-providers-copy 5/5 全绿，eslint exit 0。规范回写 `01-docs/design/model-provider-module-design.md` §9.4（问题/根因/方案/显示项/交互/数据校验/回归覆盖/影响面），CHANGELOG 前插。经验同步内置记忆 + EverOS。
+
+---
+
+## model-sort-order-2026-09-23：模型列表排序 + 运营中心预设模型自定义排序（分支 codex/model-sort-order，PR#2128）
+
+### 需求
+「已配置」标签按最新修改倒序 + 默认模型置顶；「全部」标签按字母/拼音序但运营中心可自定义排序；运营中心「预设模型」页增加 4 图标按钮（⤒↑↓⤓）自定义排序。
+
+### 实现（三层）
+1. 渲染端 `useModelProviderCrud.js` filteredProviders 单点排序（不改 IPC）：已配置=默认置顶→updated_at 倒序→拼音→id；全部=sort_order 升序优先→null 按拼音(localeCompare zh-Hans-CN)→id。
+2. 主进程 `model-provider-manager.js` applyCatalog：目录权威写 config.sort_order（非负整数生效/否则删键）；**stableStringify 内容比对，无实质变化跳过 UPDATE 不 bump updated_at**（已配置排序语义前提），返回 unchanged。
+3. 运营中心全栈：ModelPreset.sort_order 列（幂等迁移）+ _display_order(NULLS LAST) + POST /{id}/reorder(admin-only，top/up/down/bottom，越界 noop，全量归一化 0..n-1) + catalog/_to_dict 下发 + ModelPresets.vue 排序列/按钮。
+
+### CodeReview（1 MAJOR + 3 MINOR）
+- **MAJOR**：reorder 服务端操作全量列表，前端 $index 是过滤后可见下标，范围不一致致邻接移动「点了没反应」。修：sortLocked computed（分类筛选或未开含隐藏项时禁用按钮 + title 提示 + reorder() 入口二次拦截）。
+- **MINOR**：validSortOrder 渲染端 Number.isFinite vs 主进程 Number.isInteger 口径不一。修：统一 Number.isInteger。
+- 已知限制（未改）：reorder 读-改-写无行锁（多管理员并发丢更新，最终仍合法排列）；无变化同步「0 个模型已更新」文案易误解。
+
+### 逃逸/教训
+- Qoder 编辑工具不能写 workspace 外 worktree → Node 补丁执行器模式（msort-patch.js + spec.js）。
+- --ignore-scripts 跳过 ffmpeg postinstall → QM-1 打包缺二进制，从共享根整目录 Copy-Item 补。
+- catalog 测试 Bearer 走 Logto 401 → 改 X-Catalog-Key + monkeypatch catalog_api_key。
+- 并发会话抢占后台 terminal + 重置 cwd → 前台长任务 + 每条命令显式 Set-Location。
