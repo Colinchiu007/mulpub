@@ -120,9 +120,11 @@ class RewriteEngine {
     const titleHint = this._sanitizeTitleHint(params.titleHint)
     const viralAngles = this._sanitizeStringList(params.viralAngles, 6, 60)
     const viralKeywords = this._sanitizeStringList(params.viralKeywords, 6, 60)
+    // P2-a：爆款强度定量信号（样本数/均值），引擎侧清洗后作为软约束注入
+    const engagement = this._sanitizeEngagement(params.engagement)
 
     // 4. 构建 Prompt（内部含三层知识库上下文，P0 后为 async——LLM 关键词兜底）
-    const { systemPrompt, userPrompt } = await this._buildPrompt(strategy, content, mode, userSettings, knowledgeOptions, titleHint, viralAngles, viralKeywords)
+    const { systemPrompt, userPrompt } = await this._buildPrompt(strategy, content, mode, userSettings, knowledgeOptions, titleHint, viralAngles, viralKeywords, engagement)
 
     // 5. LLM 推理
     if (!this._llmClient) {
@@ -301,7 +303,7 @@ class RewriteEngine {
     return recommended.length > 0 ? recommended[0] : null
   }
 
-  async _buildPrompt(strategy, content, mode, userSettings, knowledgeOptions, titleHint, viralAngles, viralKeywords) {
+  async _buildPrompt(strategy, content, mode, userSettings, knowledgeOptions, titleHint, viralAngles, viralKeywords, engagement) {
     // 三层知识库上下文：优先使用 KnowledgeContextBuilder，缺省回退到用户偏好摘要
     const effectiveKnowledgeOptions = knowledgeOptions || userSettings.knowledgeOptions || null
     const kbContext = await this._buildKnowledgeContext(content, effectiveKnowledgeOptions)
@@ -348,6 +350,12 @@ class RewriteEngine {
       userPrompt += `\n\n## 爆款信号参考（来自爆款分析，软约束）\n改写结果应体现以下爆款分析信号（择优融入，不必全部覆盖）：\n${signalParts.join('\n')}`
     }
 
+    // 爆款强度参考（P2-a）：定量软约束（模板替换后追加，同 titleHint/信号段防二次展开；
+    // 数值取整百/取整，防精确计数被模型原样抄进正文）
+    if (engagement) {
+      userPrompt += `\n\n## 爆款强度参考（软约束）\n同题材参考样本（${engagement.sampleCount} 条）平均互动：点赞 ~${engagement.avgLikes}、评论 ~${engagement.avgComments}。\n生成内容的信息密度与钩子强度应向头部样本（前 25% 分位）对齐；不要虚构具体数字写入正文。`
+    }
+
     // 纯文案输出约束已升级为运营中心可维护的硬约束（rewrite-hard-constraints，2026-09-18）：
     // 引擎不再硬编码该约束，由桌面端从运营中心同步默认版本并经 setHardConstraints 注入。
     // 硬约束缺失时引擎行为不变（_stripStructureHeadings 后处理兜底仍保留）。
@@ -383,6 +391,27 @@ class RewriteEngine {
       // 评审 I-3：过滤控制字符（含换行），阻断跨行注入
 .map(s => s.replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim().slice(0, maxLen))
       .slice(0, maxCount)
+  }
+
+  /**
+   * 清洗爆款强度信号（P2-a）：非对象 / 样本数 <3 / 均值非有限数 → null
+   * （样本太少均值无统计意义，宁缺毋滥——同 mode 一致性校验原则）。
+   * avgLikes 展示取整百（防精确数被模型原样抄进文案），avgComments 取整。
+   * @param {unknown} engagement - { avgLikes, avgComments, sampleCount }
+   * @returns {{sampleCount:number,avgLikes:number,avgComments:number}|null} 清洗后强度信号（无效时 null）
+   */
+  _sanitizeEngagement(engagement) {
+    if (!engagement || typeof engagement !== 'object') return null
+    const sampleCount = Number(engagement.sampleCount)
+    if (!Number.isFinite(sampleCount) || sampleCount < 3) return null
+    const avgLikes = Number(engagement.avgLikes)
+    const avgComments = Number(engagement.avgComments)
+    if (!Number.isFinite(avgLikes) || !Number.isFinite(avgComments)) return null
+    return {
+      sampleCount: Math.floor(sampleCount),
+      avgLikes: Math.round(avgLikes / 100) * 100,
+      avgComments: Math.round(avgComments),
+    }
   }
 
   _getModeInstructions(mode, userSettings) {

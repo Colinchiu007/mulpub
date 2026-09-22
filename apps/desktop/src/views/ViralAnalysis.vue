@@ -23,6 +23,7 @@
               placeholder="输入你想分析的主题，如「AI工具推荐」"
               @keyup.enter="doAnalyze"
             />
+            <div v-if="topicPrefilled" class="viral-topic-prefill-notice" data-testid="viral-topic-prefill-notice">{{ $t('viralAnalysis.topicPrefillNotice') }}</div>
           </div>
           <div class="viral-field-platform">
             <label class="cohere-form-label">目标平台</label>
@@ -370,12 +371,14 @@ import { collectTrendingArticles, mapLocalKeywords, mapHotlistTopics, mergeTrend
 import { CaretBottom, CaretRight, CaretTop, Connection, Cpu, DataLine, FolderAdd, Key, MagicStick, TrendCharts, Trophy } from '@element-plus/icons-vue'
 import { formatUserError } from '@/utils/user-facing-error'
 import { useViralSignalStore } from '@/stores/viral-signal'
+import { computeEngagement, setViralSignalHandoff } from '@/utils/viral-signal-bridge'
 export default {
 
 components: { UiButton, CaretBottom, CaretRight, CaretTop, Connection, Cpu, DataLine, FolderAdd, Key, MagicStick, TrendCharts, Trophy, ViralManualDataInput },
   data () {
     return {
       topic: '',
+      topicPrefilled: false,
       platform: '通用',
       articleData: '',
       // 手动文章数据 UX 优化：格式错误不再静默吞掉，内联可见提示
@@ -406,6 +409,9 @@ components: { UiButton, CaretBottom, CaretRight, CaretTop, Connection, Cpu, Data
     }
   },
   mounted () {
+    // P2-c：热榜「爆款分析」带入 topic → 预填主题但不自动分析（保留确认，防误触计费）
+    const tp = typeof this.$route?.query?.topic === 'string' ? this.$route.query.topic.trim().slice(0, 200) : ''
+    if (tp) { this.topic = tp; this.topicPrefilled = true }
     // F3 渐进增强：进入页面静默加载一次，失败不打扰主流程（AC3.2）
     this.loadTrending()
     // PR-2 F6/F8：渐进增强，未登录/无数据静默隐藏（AC6.1/AC8.2）
@@ -455,6 +461,7 @@ components: { UiButton, CaretBottom, CaretRight, CaretTop, Connection, Cpu, Data
               keywords: Array.isArray(this.result.rising_keywords)
                 ? this.result.rising_keywords.map(k => (k && typeof k === 'object' && k.word) ? k.word : k)
                 : [],
+              engagement: computeEngagement(articles),
             })
           } catch { /* 信号记录失败不影响分析主流程 */ }
         } else {
@@ -756,6 +763,8 @@ components: { UiButton, CaretBottom, CaretRight, CaretTop, Connection, Cpu, Data
     /** 携带生成标题跳转改写页（query.titleHint → RewriteView 预填 chip → 引擎软约束） */
     goRewrite (title) {
       if (typeof title !== 'string' || !title.trim()) return
+      // P2-a：携带生成标题跳转时，把整份信号快照经 sessionStorage 一次性中转给改写页
+      try { const sg = useViralSignalStore().signal; if (sg) setViralSignalHandoff(sg) } catch { /* 交接失败降级为无信号注入 */ }
       this.$router.push({ path: '/rewrite', query: { titleHint: title.trim().slice(0, 200) } })
     },
 

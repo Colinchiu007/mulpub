@@ -8,6 +8,16 @@
  */
 import { defineStore } from 'pinia'
 
+/** 归一 engagement：三项均有限数才保留，否则 null（样本数 <3 的注入判定交由引擎侧把关） */
+function normalizeEngagement (e) {
+  if (!e || typeof e !== 'object') return null
+  const avgLikes = Number(e.avgLikes)
+  const avgComments = Number(e.avgComments)
+  const sampleCount = Number(e.sampleCount)
+  if (!Number.isFinite(avgLikes) || !Number.isFinite(avgComments) || !Number.isFinite(sampleCount)) return null
+  return { avgLikes, avgComments, sampleCount }
+}
+
 export const useViralSignalStore = defineStore('viralSignal', {
   state: () => ({
     signal: null, // { topic, angles: string[], keywords: string[], savedAt }
@@ -26,6 +36,7 @@ export const useViralSignalStore = defineStore('viralSignal', {
         keywords: Array.isArray(payload.keywords)
           ? payload.keywords.filter(k => typeof k === 'string' && k.trim()).map(k => k.trim().slice(0, 60)).slice(0, 6)
           : [],
+          engagement: normalizeEngagement(payload.engagement),
         savedAt: new Date().toISOString(),
       }
     },

@@ -18,6 +18,7 @@
           <span v-if="viralAngles.length || viralKeywords.length" data-testid="rewrite-signal-badge" style="font-size: var(--font-size-xs);color:var(--muted)">
             {{ t('rewritePage.signalBadge') }}（{{ viralAngles.length + viralKeywords.length }}）
           </span>
+          <span v-if="viralEngagement" data-testid="rewrite-strength-badge" style="font-size: var(--font-size-xs);color:var(--muted)">{{ t('rewritePage.strengthRefLabel') }}</span>
           <button
             class="cohere-btn-secondary title-hint-remove"
             data-testid="rewrite-title-hint-remove"
@@ -266,6 +267,7 @@ import { useWordCountValidation } from '@/composables/useWordCountValidation'
 import { useCopyLibrary } from '@/composables/useCopyLibrary'
 import { takeRewriteHandoff } from '@/utils/rewrite-handoff'
 import { useViralSignalStore } from '@/stores/viral-signal'
+import { takeViralSignalHandoff } from '@/utils/viral-signal-bridge'
 import { writeClipboard } from '@/utils/clipboard'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
 import RewriteStrategyPicker from '@/components/RewriteStrategyPicker.vue'
@@ -300,6 +302,8 @@ const viralInfo = ref(null)
 // P1-E：爆款分析信号（推荐角度 + 上升关键词）——titleHint 带入时从 Pinia store 快照
 const viralAngles = ref([])
 const viralKeywords = ref([])
+// P2-a：爆款强度定量信号（样本数 + 互动均值），随快照带入，作为软约束注入引擎
+const viralEngagement = ref(null)
 
 // 配置
 const useViralLibrary = ref(true)
@@ -469,10 +473,12 @@ onMounted(() => {
     titleHint.value = hint
     // P1-E：标题来自爆款分析页 → 快照该次分析的爆款信号（角度 + 关键词），改写时注入软约束
     try {
-      const signal = useViralSignalStore().signal
+      // P2-a：优先读一次性 sessionStorage 中转快照（读后即焚），无则回落同窗口 Pinia store
+      const signal = takeViralSignalHandoff() || useViralSignalStore().signal
       if (signal && Array.isArray(signal.angles)) {
         viralAngles.value = signal.angles
         viralKeywords.value = Array.isArray(signal.keywords) ? signal.keywords : []
+        viralEngagement.value = (signal.engagement && typeof signal.engagement === 'object') ? signal.engagement : null
       }
     } catch { /* 信号快照失败不影响改写主流程 */ }
   }
@@ -512,6 +518,7 @@ function clearTitleHint() {
   titleHint.value = ''
   viralAngles.value = []
   viralKeywords.value = []
+  viralEngagement.value = null
 }
 
 /** 开始改写 */
@@ -565,6 +572,8 @@ async function startRewrite() {
       // P1-E：爆款信号软约束（推荐角度 + 上升关键词；引擎侧清洗，空数组不注入）
       viralAngles: viralAngles.value.length ? viralAngles.value : undefined,
       viralKeywords: viralKeywords.value.length ? viralKeywords.value : undefined,
+      // P2-a：定量强度信号（引擎侧 _sanitizeEngagement 二次把关：<3 或非有限数不注入）
+      engagement: viralEngagement.value || undefined,
     }
 
     const res = await aiRewrite(params)

@@ -227,6 +227,15 @@ describe('HotTopics.vue', () => {
     expect(pushSpy).toHaveBeenCalledWith('/rewrite?topic=' + encodeURIComponent('AI大模型最新突破进展'))
   })
 
+  it('P2-c 爆款分析按钮跳转 /viral-analysis 并带入 topic', async () => {
+    hotTopicsFetch.mockResolvedValue({ code: 0, data: { topics: mockTopics, fetchedAt: Date.now(), channelStats: {} } })
+    const wrapper = mountPage()
+    await flushPromises()
+    expect(wrapper.find('.item-analyze-btn').exists()).toBe(true)
+    await wrapper.find('.item-analyze-btn').trigger('click')
+    expect(pushSpy).toHaveBeenCalledWith({ path: '/viral-analysis', query: { topic: 'AI大模型最新突破进展' } })
+  })
+
   it('batch publish flow: rewrite all, save drafts, navigate', async () => {
     hotTopicsFetch.mockResolvedValue({ code: 0, data: { topics: mockTopics, fetchedAt: Date.now(), channelStats: {} } })
     aiRewrite.mockResolvedValue({ code: 0, data: { success: true, result: '改写后的文案内容' } })
