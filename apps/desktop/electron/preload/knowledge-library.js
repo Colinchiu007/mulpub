@@ -28,7 +28,7 @@ function createKnowledgeLibraryApi(ipcRenderer) {
     addManualSnapshot: (trackedContentId, metrics) => ipcRenderer.invoke('performance:add-manual-snapshot', trackedContentId, metrics),
     recomputeAttribution: () => ipcRenderer.invoke('performance:recompute-attribution'),
     listPatternPerformance: (params) => ipcRenderer.invoke('performance:list-pattern-performance', params),
-    triggerPerformanceRecrawl: () => ipcRenderer.invoke('performance:trigger-recrawl'),
+    triggerPerformanceRecrawl: (opts) => ipcRenderer.invoke('performance:trigger-recrawl', opts),
     // 个人知识库
     addPersonalToLibrary: (item) => ipcRenderer.invoke('knowledge-library:add-personal', item),
     addPersonalBatchToLibrary: (items) => ipcRenderer.invoke('knowledge-library:add-personal-batch', items),

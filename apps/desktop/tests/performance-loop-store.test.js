@@ -132,3 +132,32 @@ describe('performance-loop-store', function () {
     expect(due.find(function (r) { return r.id === 't-old' })).toBeUndefined()
   })
 })
+
+describe('performance-loop-store listDueForRecrawl force（立即回采调试入口）', function () {
+  var s2
+  beforeAll(async function () {
+    var Database = require('../electron/services/sqlite-wrapper')
+    var db = new Database(null)
+    await Database.ready
+    if (!db._db) db._init()
+    db.exec("CREATE TABLE tracked_content (id TEXT PRIMARY KEY, platform TEXT NOT NULL, post_id TEXT DEFAULT '', url TEXT DEFAULT '', publish_history_id TEXT, rewrite_history_id TEXT, recrawl_status TEXT NOT NULL DEFAULT 'pending', last_recrawl_at TEXT, next_recrawl_at TEXT, owner_subject TEXT, created_at TEXT NOT NULL);")
+    var mixin = require('../electron/services/store/performance-loop-store')
+    s2 = Object.assign({}, mixin)
+    s2.db = db
+    s2._ready = true
+  })
+  test('force=true 纳入未到期条目；默认仍按到期过滤', function () {
+    var future = new Date(Date.now() + 3600 * 1000).toISOString()
+    s2.addTrackedContent({ id: 't-fut', platform: 'bilibili', postId: '', url: 'https://www.bilibili.com/video/BVforce', recrawlStatus: 'pending', nextRecrawlAt: future })
+    var normal = s2.listDueForRecrawl(Date.now())
+    expect(normal.find(function (r) { return r.id === 't-fut' })).toBeUndefined()
+    var forced = s2.listDueForRecrawl(Date.now(), { force: true })
+    expect(forced.find(function (r) { return r.id === 't-fut' })).toBeTruthy()
+  })
+  test('force=true 仍守 7 天窗口（过期条目不纳入）', function () {
+    var old = new Date(Date.now() - 8 * 24 * 3600 * 1000).toISOString()
+    s2.addTrackedContent({ id: 't-old2', platform: 'bilibili', postId: '', url: 'https://x/old', recrawlStatus: 'pending', nextRecrawlAt: new Date().toISOString(), createdAt: old })
+    var forced = s2.listDueForRecrawl(Date.now(), { force: true })
+    expect(forced.find(function (r) { return r.id === 't-old2' })).toBeUndefined()
+  })
+})
