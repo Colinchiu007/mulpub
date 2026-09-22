@@ -15098,6 +15098,20 @@ opencode 双模型审查发现三个问题：① 后端 `create_constraint` 对�
 
 四链路 PRD（爆款分析×改写×采集×热门选题）按 P0/P1/P2 拆 3 个 PR 严格合入序。PR-1（#2174）落地契约修复；存量假 0 不回灌（靠 PR-2 回采逐步修正）；不加新表/新 IPC/userData，viral_library 为唯一事实源。
 
+
+## 模型设置页文案与设置弹窗标签页精致化（settings-model-tabs-polish，2026-09-22，PR #2191）
+
+### 可复用结论
+
+- **模板硬编码符号前缀与 locale 值符号叠加致双加号（pitfall）**：`ModelProviders.vue` 添加按钮模板写死 `＋ {{ t('modelProviders.addProvider') }}`，而 locale `addProvider` 值本身又是 `＋ 添加服务商`，两处各带一个全角＋ → 渲染出「＋＋添加服务商」。根因是符号前缀在「模板」与「文案资源」两处重复维护。修复：符号只在 locale 一处维护，模板去掉硬编码 `＋ ` 前缀；回归测试锁死 locale 值只含一个 `+`、无全角＋，且模板不再含 `＋ {{`。凡「图标/符号 + 文案」组合，务必确认符号只在一个真源出现。
+- **i18n 数量词与术语对齐（pattern）**：`pageSubtitle` 由「七类」「管理推理」→「7类」「文字推理」，与能力标签 `capLlm: '文字推理'` 术语统一；en 同步 `seven types`→`7 types`、`LLM`→`Text Reasoning`。zh/en 必须成对改（CI Gate 7 `check-locale-sync --pair-base` 拦截）。改文案前先 grep 同义键确认既有术语，避免同页多称谓。
+- **竖排设置标签导航精致化模式（pattern）**：左侧 `SettingsDialog.vue` 标签从「纯文字 + 朴素 hover」升级为——① 每项加 @element-plus/icons-vue 功能图标（Connection/Setting/Link/Upload/User），禁止 emoji 占功能图标位（`icon-usage.test.js` 守卫，占位面板的 🚧 一并换成 Compass el-icon）；② 激活态卡片浮起（`--shadow-sm`）+ `::before` 左侧 3px 主色强调条 + 图标 `scale(1.08)` 微反馈；③ 禁用态「敬请期待」用 `--radius-full` 胶囊徽标 + opacity .55；④ 全程取 tokens.css 设计令牌并覆盖 `[data-theme="dark"]`；⑤ 可访问性补 nav `aria-label`、激活项 `aria-current`、`:focus-visible` 主色外描边。保留测试依赖类名 `.settings-tab/.active/.tab-badge/.tab-label`，新增 `.tab-icon` 供断言。
+- **worktree 在 workspace 外时编辑工具受限（tool）**：编辑/SearchReplace 工具无法写 `D:\...\mp-worktrees\...`（workspace 外，报 45405）。改文案/追加文档一律把 Node 补丁脚本落到 workspace 内 `.agent_context\tmp-*.js`（或先 Write 暂存文本），脚本内用绝对路径 `fs.writeFileSync`/`appendFileSync` 落盘 worktree 文件后再 `node` 执行；git 写操作走 PowerShell 原生 `D:\` 路径，避免 Git Bash `/d/` 混写。
+
+### 本次决策记录
+
+纯 UI/文案 + 设计令牌精致化，走完整 worktree 隔离流程（gate → worktree → TDD → 门禁 → PR → auto-merge squash）。TDD 先加 `model-providers-copy.test.js`（5 例锁死单加号/新文案/模板无硬编码＋）与扩展 `SettingsDialog.test.js`（图标位 ×5 断言），定向 19/19、大范围 549/549 全绿，eslint exit 0、check-locale-sync PASS。规范回写 `01-docs/design/model-provider-module-design.md` §九（文案契约表 + 标签页 UI/UE 规范 + 变更影响面），CHANGELOG prepend。经验同步内置记忆（双加号根因 + 标签精致化模式）与 EverOS。
+
 ## 爆款库 PR-3 交付：强度注入改写 + 选题一键联动（viral-lib-p2-strength-linkage，2026-09-22，PR #2183）
 
 ### 可复用结论

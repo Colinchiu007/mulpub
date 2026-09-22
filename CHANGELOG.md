@@ -1,3 +1,19 @@
+# [未发布] fix(ui): 模型设置页文案修正与设置弹窗标签页精致化
+
+### 变更
+- **文案（locales zh/en 成对）**：`modelProviders.addProvider` 由「＋＋ 添加服务商」修正为「+ 添加服务商」（半角加号，去掉重复前缀）；`pageSubtitle` 首项「管理推理」→「文字推理」（与能力标签 `capLlm` 术语对齐），数量「七类」→「7类」。en 同步：`pageSubtitle` "seven types"/"LLM" → "7 types"/"Text Reasoning"。
+- **`ModelProviders.vue`**：添加按钮模板去掉硬编码 `＋` 前缀（双加号根因），前缀符号统一由 locale 维护。
+- **`SettingsDialog.vue`（设置弹窗标签页 UI/UE 精致化）**：5 个标签新增 @element-plus/icons-vue 图标（Connection/Setting/Link/Upload/User）；激活态改卡片浮起（`--shadow-sm`）+ 左侧 3px 主色强调条 + 图标 scale 微反馈；禁用态「敬请期待」胶囊徽标；补 `aria-label`/`aria-current`/`:focus-visible` 可访问性；占位面板 🚧 → Compass 图标；全程取设计 token 并覆盖暗色模式。
+
+### 验证
+- TDD：新增 `src/locales/model-providers-copy.test.js`（5 例，锁死单加号/新文案/模板无硬编码＋）；`SettingsDialog.test.js` 扩展图标位断言（.tab-icon ×5）。定向 3 文件 19/19 全绿，既有 Tab 交互/en 文案契约零破坏。
+- 门禁：`check-locale-sync --pair-base` PASS（zh/en 成对）；`icon-usage.test.js` PASS。
+
+### 关联
+- 分支 `codex/settings-model-tabs-polish`（worktree 隔离，D 盘）；规范详见 `01-docs/design/model-provider-module-design.md` §九。
+
+---
+
 # [未发布] feat(hot-topics): 热门选题统一热度排序（P0-P3 全量：评分模型+可解释UI+衰减+配置化）
 
 ### 变更
