@@ -19,6 +19,7 @@ const DataSyncService = require('./data-sync')
 const ContentQualityGate = require('./content-quality-gate')
 const PublishIntervalGuard = require('./publish-interval-guard')
 const { createScheduler } = require('./scheduler')
+const publishHistory = require('./publish-history')
 
 module.exports = {
   TaskQueue,
@@ -35,4 +36,6 @@ module.exports = {
   ContentQualityGate,
   PublishIntervalGuard,
   createScheduler,
+  // P1-10: 发布历史此前未从入口导出，导致调用方各自 require 内部路径、依赖治理无从下手
+  publishHistory,
 }

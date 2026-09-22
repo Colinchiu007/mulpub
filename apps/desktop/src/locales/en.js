@@ -1750,6 +1750,7 @@ export default {
     error: {
       invalidRequest: 'Invalid request, check your input and retry',
       sourceUnsupported: 'Source not supported, use a supported platform or a local file',
+      linkBlocked: 'This link points to a private or local address and is blocked for security. Use a publicly accessible video link',
       linkUnavailable: 'Link unavailable, verify the link and retry',
       linkPrivate: 'This video is private and cannot be fetched',
       linkMembership: 'This video requires membership access',
