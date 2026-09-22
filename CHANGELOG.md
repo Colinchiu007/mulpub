@@ -1,3 +1,24 @@
+# [未发布] feat(batch-login): 批量登录凭证三方案——自动保存 + 关闭护栏 + 主动提醒
+
+### 变更
+- **webview-manager.js 共享原语**：`_tabStates` 新增 `credentialSaveState('unsaved'|'saved'|null)`、`initialRedirectPhase`、`_autoSaveTimer`；账号标签以 `cleanSession:true` 打开即置 `unsaved`（重新登录语义），正常凭证打开/普通浏览/home 标签为 `null` 不参与角标护栏；`getAllTabs/getActiveTab` 每个 tab 透传 `credentialSaveState`。
+- **方案一·自动保存（治本，1b 路线）**：账号标签 `did-navigate`/`did-navigate-in-page` 命中 `isPlatformLoginSuccessUrl(platform, url)`（复用 shared-utils platform-definitions：auth 域 + 非登录页 + 成功路径模式）后去抖 **1500ms** 自动调 `saveAccountTabCredentials` 回写加密凭证库；`initialRedirectPhase` 未结束不算命中（登录页首帧自动重定向防误判）；`did-finish-load` 首帧若已在成功 URL 同样排程（覆盖首帧即已登录）；登录页横跳取消计时器只在稳定后保存一次；成功广播 `tab-credential-state-changed` + `auth:completed`，失败保持 `unsaved` 且不清守卫、下次导航重试；计时器 `unref()`，`closeTab` 时 `clearTimeout` 不对已销毁视图执行保存。放弃 1a（reroute auth-view）：其丢弃式分区 `auth-{platform}-{ts}` 无法回写既有 accountId 且回归 cleanSession 二维码防呆修复。
+- **方案二·关闭护栏**：新增 IPC `page-manager:account-tab-save-state`（invoke；tabId 非空字符串校验否则 `EC.VALIDATION_ERROR`；非账号/未知标签返回 `isAccountTab:false`；withSenderCheck + try/catch 信封）；App.vue `onCloseTab` 对未保存账号标签弹 `ElMessageBox` 三态——**保存并关闭**（保存失败也 `ElMessage.warning` 提示后关闭，不困住用户）／**直接关闭**／**取消**（`distinguishCancelAndClose:true`）；已保存/非账号标签静默放行保持原行为。
+- **方案三·主动提醒**：TabBar 未保存标签橙色（#f59e0b）角标（`data-testid="tab-unsaved-{tabId}"`，title/aria-label 本地化）；NavBar 新增 `accountUnsaved` prop →「保存账号」按钮呼吸脉冲（`@keyframes save-pulse`，`prefers-reduced-motion: reduce` 禁用）；LoginExpiredBanner 新增「全部保存（n）」次按钮（`banner-save-all`，仅 `unsavedCount>0` 渲染）→ Home.vue `handleSaveAllUnsaved` 按 `saved/partial/none/failed` 分类 notifySuccess/Warning/Error；新 IPC `page-manager:save-all-unsaved-accounts` 返回 `{attempted, saved, failed:[{accountId,platform,reason}]}`，单账号失败不影响其余。
+- **preload / store**：`page-manager.js` + `index.bundle.js` 暴露 `getAccountTabSaveState/saveAllUnsavedAccounts`；tab store 新增 `unsavedTabs/unsavedCount` computed、订阅 `tab-credential-state-changed` 实时熄灭角标（早于 subscribeEvents 注册）、保存成功后 `_refreshTabs` 对账。
+- **locales zh/en 成对 +16 键**：`nav.saveAccountPulseHint`、`tabBar.{unsavedBadge,closeUnsavedTitle,closeUnsavedMessage,closeUnsavedSaveAndClose,closeUnsavedDiscard,closeUnsavedCancel,closeUnsavedDiscardedWarn}`、`home.loginExpiredBanner.{saveAllBtn,saveAllBtnCount,saveAllSuccess,saveAllPartial,saveAllNone,saveAllFailed}`。
+- **文档**：PRD `01-docs/PRD-BATCH-LOGIN-SAVE-GUARD-2026-09-22.md`（数据模型/IPC 契约/流程/交互/显示项/提示文字全量规格）；`product-manual.md` §4.3 新增「批量登录凭证自动保存与防丢失护栏」；`user-manual.md` 新增 §3.1 批量重新登录操作说明。
+
+### 验证
+- TDD 新增 **17 用例**：主进程 10（保存态查询三分类/手动保存成功广播/失败保持 unsaved/自动保存命中去抖/initialRedirectPhase 阻断/横跳取消计时器/saved 不重排程/批量全部成功/批量部分失败/getAllTabs 透传）+ tab store 5（unsavedCount 聚合/事件实时熄灭/批量成功后刷新/无 API 降级 null/查询透传 data）+ Banner 2（save-all 渲染与 emit/计数 0 不渲染）。
+- 全量门禁：`vitest run` **588 文件 / 10687 测试全绿**（2 skipped 为既有）；`check-locale-sync --keys` PASS（3124 键 zh/en 成对）；`pnpm build:vue` exit 0；`node --check` 全过。
+- QM-1：`verify-worktree-deps.js` OK（11 workspace 均解析到当前 worktree）；`electron-builder --win --dir` exit 0；asar 清单含 `electron/services/webview-manager.js`、`electron/preload/page-manager.js`、`shared-utils/src/platform-definitions.js`；打包 exe 启动 10s 存活、**stderr 0 字节**。
+- 视觉回归：三方案均为条件渲染（无未保存标签时 DOM 与改动前一致），像素基线交 CI visual-test。
+
+### 关联
+- 分支 `codex/batch-login-save-guard`（worktree 隔离，D 盘）· PR #2208
+- PRD：`01-docs/PRD-BATCH-LOGIN-SAVE-GUARD-2026-09-22.md`
+- 前置：PRD-ACCOUNT-LOGIN-INLINE-TABS（账号浏览器标签）、cleanSession 二维码防呆修复（本需求沿用其判定原语并新增 initialRedirectPhase 守卫）
 # [未发布] fix(film-engineering): 出片流端到端串联——context 嵌套/扁平双兼容（#2193）
 
 ### 变更

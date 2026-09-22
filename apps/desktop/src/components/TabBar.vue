@@ -17,6 +17,14 @@
         <span class="tab-icon" v-else-if="getPlatformIcon(tab)" aria-hidden="true">{{ getPlatformIcon(tab) }}</span>
         <span class="tab-title" :title="tab.title || tab.url">{{ tab.title || getTabLabel(tab) }}</span>
         <span v-if="tab.loading" class="tab-spinner" aria-hidden="true">⟳</span>
+        <span
+          v-if="tab.credentialSaveState === 'unsaved'"
+          class="tab-unsaved-dot"
+          :data-testid="`tab-unsaved-${tab.tabId}`"
+          :title="t('tabBar.unsavedBadge')"
+          :aria-label="t('tabBar.unsavedBadge')"
+          role="img"
+        ></span>
         <button
           v-if="!tab.isHome"
           type="button"
@@ -45,7 +53,10 @@
 <script setup>
 import { useTabStore } from '@/stores/tab'
 import { storeToRefs } from 'pinia'
+import { useI18n } from 'vue-i18n'
 import { getPlatformIconUrl } from '@/composables/usePlatformIconUrl'
+
+const { t } = useI18n()
 
 defineProps({})
 
@@ -215,6 +226,15 @@ function getDomainForPlatform(platform) {
 .tab-close:hover {
   background: #e5e7eb;
   color: #374151;
+}
+
+.tab-unsaved-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f59e0b;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.25);
 }
 
 .tab-add {
