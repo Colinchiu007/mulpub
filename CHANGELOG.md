@@ -18,6 +18,7 @@
 - CI 逃逸：首轮 `QG Static` 抓出本 PR 自引入的渲染端硬编码中文（`useExpiredAccountsBanner` 的固化失败标题），已改为 zh/en 成对键 `accountsPage.persistFailedTitle` + `i18n.global.t`；`--py-cjk` 一项为基线 `path:LINE` 行号漂移，按 #2212 既有做法重锚并逐条对账（79→79、逐文件计数一致、diff 恰 19+/19−、本 PR 在 python 侧新增中文全为注释/docstring），修复后该 gate 自检 6/6 全绿。详见 PRD §13.6。
 - 合并后复验：与 main 的第三次同步（`#2226`）仍仅 `CHANGELOG.md` 冲突，沿用 blob 级并集解法；合并后工作树实跑 Gate 7 四项全绿（`--cjk` / `--pair-base` / `--py-cjk` / gate 自检 6/6）、ESLint 19 文件零问题、定向 vitest 8 个测试文件全通过。详见 PRD §13.5。
 - 第四次同步 main（`#2231` 并发加速）：批量检测段首次出现真语义冲突，改为「保留 `#2231` 并发池/硬超时/`start`·`done` 进度骨架 + 在其 worker 内套用三态映射与单一写者回写」；契约收敛为**超时计入 `unverified`（`CHECK_LOGIN_TIMEOUT`）而非 `expired`**，并补 IPC 层回归测试（该测试实测抓出融合漏洞）。`PRD-ACCOUNT-LOGIN-STATUS-CHECK.md` 的 §16 撞号已改号为 §17。合并后 8 测试文件全绿、ESLint 19 文件零问题、Gate 7 全 PASS。详见 PRD §13.5。
+- 第四次同步的 CI 逃逸（第二轮 checks）：合并后的本地定向复验按「本 PR 触及的 8 个测试文件」选取，漏掉 `#2231` 随合并新增的 `account-batch-check.test.js`，其 2 条「超时计入失效（`valid:false`）」断言与本 PR 择一后的三态契约冲突，CI 汇总 `Tests 2 failed | 10841 passed`（失败文件唯一）。已按契约收敛该文件：标题与文件头「契约 4」改为「超时记为未确认」、补 `persistLoginState` mock 与 `loginStatus/persisted` 断言（口径收敛同时加强），`#2231` 原有四条护栏不动。教训：合并后的定向复验集合必须由**合并 diff**（含两侧并集 + 状态为 A 的新增测试文件）推出，而非由本 PR 工作清单推出。详见 PRD §13.5。
 - 详见 `01-docs/PRD-ACCOUNT-LOGIN-STATE-PERSISTENCE-2026-09-23.md`（数据模型 / 判定矩阵 / 单一写者架构 / 交互与显示项 / 提示文字 / 测试矩阵 / 已知边界）与 `01-docs/PRD-ACCOUNT-LOGIN-STATUS-CHECK.md` §17。
 
 ### 遗留

@@ -371,6 +371,40 @@ blob 级并集解法（`HEAD:` / `MERGE_HEAD:` 取两侧 blob、本条目置顶�
 > （15239 行中仅 141 行为 CRLF），任何「探测到 CRLF 就整体转换」的写法都会制造 15k 行假变更，
 > 这类文件只能做字节级拼接。另：`bytes` 列表与 `str` 字面量比较恒不等，行级替换必须先编码。
 
+
+**第四次同步的 CI 逃逸（第二轮 checks，实测记录）**
+
+第四次合并推送后（head `39b51ca68`），`QG Static` / `QG Visual` / `QG Browser E2E` /
+`QG Autonomous` / `build` / `electron-tests` / `gui-test` 全部通过，但
+`QG Unit Tests`、`QG Desktop Shards (1/2)`、`(2/2)`、`QG Coverage` 四项同时红，
+汇总为 `Test Files 1 failed | 601 passed | 1 skipped (603)`、`Tests 2 failed | 10841 passed`，
+失败文件唯一：`electron/ipc-handlers/account-batch-check.test.js`（`#2231` 自带的新测试文件）。
+
+| # | 失败用例 | 断言差值 | 判定 |
+| --- | --- | --- | --- |
+| 1 | 超过硬超时**计入失效**并标记 `CHECK_LOGIN_TIMEOUT`，不阻断其余账号 | `expected valid: undefined` 但 `toMatchObject({valid: false})` | 契约互斥，按第四次同步的择一结果改测试（超时 = 未确认） |
+| 2 | 超时后原检测迟到的 reject 不产生 unhandledRejection | 同上（`valid: false`） | 该用例真正守护的是「无 unhandledRejection」，与失效/未确认无关，仅放宽 valid 断言 |
+
+修复方式**不是把断言改松**，而是把 `#2231` 的测试口径收敛到已择一的契约，并**加强**它：
+
+- 用例标题从「超过硬超时计入失效」改为「超过硬超时记为未确认（`valid undefined` +
+  `CHECK_LOGIN_TIMEOUT`）」——标题本身携带错误语义时必须一起改，否则下个读者会被误导。
+- 文件头「契约 4」同步改写为「超时记为无法判定，不得折叠成失效」，并写明理由：
+  判失效会把已登录账号踢去重新登录（正是 PR #2233 消灭的那类假阴性）。
+- `createMockDeps` 的 `AccountManager` 补上 `persistLoginState`（此前该文件从未断言过固化，
+  `results[].persisted` 恒为失败），新增断言：`loginStatus === 'unverified'`、
+  `persisted.ok === true`、`persistLoginState('a1','douyin','unverified',<ts>)` 被调用，
+  `done` 进度事件同步带上 `loginStatus` / `persisted`。
+- 「不阻断其余账号」「峰值并发不超上限」「results 顺序稳定」「无 unhandledRejection」
+  四条 `#2231` 原有护栏一字未动，仍然全部断言。
+
+> **一条必须传承的验证范围教训（本 PR 迄今唯一一次由「复验口径」本身造成的 CI 失败）**：
+> 合并后的本地复验清单是「本 PR 触及的 8 个测试文件」，这是**错的选取口径**——
+> 合并引入的**对方新增测试文件**同样会被本 PR 的语义改动打到。正确做法：合并后
+> 至少跑一次全量（或按 `git diff --name-only <ours> <merge>` 选出**两侧并集**的测试文件 +
+> 所有状态为 `A`（新增）的测试文件）。本次教训的可执行判据：
+> 「定向复验」的文件集合必须由 *合并 diff* 推出，而不是由 *本 PR 的工作清单* 推出。
+
 ### 13.6 CI 逃逸分析：Gate 7（locale 同步）抓出的本 PR 自引入缺陷
 
 首轮 CI 中 `QG Static` 失败（其余 QG Unit/Coverage/Desktop Shards/Visual/Browser E2E 与 build、
