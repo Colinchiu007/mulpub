@@ -40,14 +40,6 @@
         <span>{{ t('modelProviders.allTab') }}</span>
         <span class="tab-count">{{ providers.length }}</span>
       </button>
-      <button
-        class="cohere-btn-secondary selfcheck-entry"
-        data-testid="open-self-check"
-        :title="t('modelProviders.selfCheckTitle')"
-        @click="openSelfCheck"
-      >
-{{ t('modelProviders.selfCheck') }}
-      </button>
     </div>
 
     <!-- 分类筛选条 -->
@@ -519,50 +511,13 @@
       </template>
     </el-dialog>
 
-    <!-- 限流自检（P2）：真实 governor + 假 adapter，零额度零网络 -->
-    <el-dialog v-model="showSelfCheckDialog" :title="t('modelProviders.selfCheckDialogTitle')" class="responsive-dialog-sm">
-      <p style="font-size: var(--font-size-sm);color:var(--muted);margin-bottom:12px">
-        {{ t('modelProviders.selfCheckHint') }}
-      </p>
-      <div class="selfcheck-form">
-        <div class="selfcheck-row"><label>{{ t('modelProviders.rpmLabel') }}</label><el-input-number v-model="selfCheckForm.rpm" :min="1" :max="100000" /></div>
-        <div class="selfcheck-row"><label>{{ t('modelProviders.maxConcurrentLabel') }}</label><el-input-number v-model="selfCheckForm.maxConcurrent" :min="1" :max="8" /></div>
-        <div class="selfcheck-row"><label>{{ t('modelProviders.requestCountLabel') }}</label><el-input-number v-model="selfCheckForm.requestCount" :min="1" :max="1000" /></div>
-        <div class="selfcheck-row"><label>{{ t('modelProviders.requestDurationLabel') }}</label><el-input-number v-model="selfCheckForm.requestDurationMs" :min="0" :max="60000" /></div>
-        <div class="selfcheck-row"><label>{{ t('modelProviders.inject429Label') }}</label><el-input-number v-model="selfCheckForm.inject429At" :min="1" :max="1000" /></div>
-        <div class="selfcheck-row"><label>{{ t('modelProviders.limitPer5hLabel2') }}</label><el-input-number v-model="selfCheckForm.limitPer5h" :min="1" :max="10000000" /></div>
-      </div>
-      <div v-if="selfCheckRunning" style="color:var(--muted);font-size: var(--font-size-sm)">{{ t('modelProviders.selfCheckRunning') }}</div>
-      <div v-if="selfCheckResult" style="margin-top:12px">
-        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:8px">
-          <span>{{ t('modelProviders.maxConcurrent') }}：<b>{{ selfCheckResult.data.metrics.max_concurrent_observed }}</b></span>
-          <span>{{ t('modelProviders.rateLimited') }}：<b>{{ selfCheckResult.data.metrics.rate_limited_count }}</b></span>
-          <span>{{ t('modelProviders.quotaExceeded') }}：<b>{{ selfCheckResult.data.metrics.quota_exceeded_count }}</b></span>
-          <span>{{ t('modelProviders.totalDuration') }}：<b>{{ selfCheckResult.data.metrics.total_duration_ms }}ms</b></span>
-        </div>
-        <div v-for="a in selfCheckResult.data.assertions" :key="a.name" style="display:flex;gap:8px;align-items:center;font-size: var(--font-size-sm);padding:2px 0">
-          <el-tag :type="a.pass ? 'success' : 'danger'" size="small">{{ a.pass ? t('modelProviders.passTag') : t('modelProviders.failTag') }}</el-tag>
-          <span>{{ a.name }}：{{ a.message }}</span>
-        </div>
-        <div v-if="selfCheckReportMsg" style="margin-top:6px;font-size: var(--font-size-sm);color:var(--primary)">{{ selfCheckReportMsg }}</div>
-      </div>
-      <template #footer>
-        <div class="dialog-footer">
-          <button class="cohere-btn-secondary" @click="showSelfCheckDialog = false">{{ t('modelProviders.close') }}</button>
-          <button class="cohere-btn-secondary" @click="runSelfCheck" :disabled="selfCheckRunning">{{ t('modelProviders.runSelfCheck') }}</button>
-          <button class="cohere-btn-primary" @click="reportSelfCheck" :disabled="!selfCheckResult || selfCheckRunning">{{ t('modelProviders.reportSelfCheck') }}</button>
-        </div>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted } from 'vue'
 import { Bell, Box, Connection, Cpu, Lightning, Loading, Microphone, Picture, Service, VideoCamera } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { getApi } from '@/api/electron-bridge'
 import { useModelProviderCrud } from '@/composables/useModelProviderCrud'
 import { useOpsCenterSync } from '@/composables/useOpsCenterSync'
 
@@ -624,77 +579,6 @@ const {
 
 // 运营同步对用户透明：配置卡片已隐藏；此处仅保留只读门控所需的 syncConfigured（同步下来的官方模型列表不可手改）
 const { syncConfigured } = useOpsCenterSync()
-
-// ─── P2 限流自检：真实 governor + 假 adapter（零额度零网络） ───
-const showSelfCheckDialog = ref(false)
-const selfCheckRunning = ref(false)
-const selfCheckResult = ref(null)
-const selfCheckReportMsg = ref('')
-const selfCheckForm = ref({
-  rpm: 20,
-  maxConcurrent: null,
-  requestCount: 10,
-  requestDurationMs: 100,
-  inject429At: null,
-  limitPer5h: null,
-})
-
-function openSelfCheck () {
-  selfCheckResult.value = null
-  selfCheckReportMsg.value = ''
-  showSelfCheckDialog.value = true
-}
-
-async function runSelfCheck () {
-  selfCheckRunning.value = true
-  selfCheckReportMsg.value = ''
-  try {
-    if (!getApi() || typeof getApi().rateLimitSelfCheck !== 'function') {
-      ElMessage.warning(t('modelProviders.noElectronApiSelfCheck'))
-      return
-    }
-    const res = await getApi().rateLimitSelfCheck({
-      ...selfCheckForm.value,
-      maxConcurrent: selfCheckForm.value.maxConcurrent || null,
-      inject429At: selfCheckForm.value.inject429At || null,
-      limitPer5h: selfCheckForm.value.limitPer5h || null,
-    })
-    if (res.code !== 0) {
-      ElMessage.error(res.message || t('modelProviders.selfCheckFailed'))
-      return
-    }
-    selfCheckResult.value = res
-    const pass = res.data.assertions.filter(a => a.pass).length
-    ElMessage.success(t('modelProviders.selfCheckDone', { pass, total: res.data.assertions.length }))
-  } catch (e) {
-    ElMessage.error(t('modelProviders.selfCheckFailedDetail', { msg: e.message || e }))
-  } finally {
-    selfCheckRunning.value = false
-  }
-}
-
-async function reportSelfCheck () {
-  if (!selfCheckResult.value) return
-  try {
-    if (!getApi() || typeof getApi().rateLimitReport !== 'function') {
-      ElMessage.warning(t('modelProviders.noElectronApiReport'))
-      return
-    }
-    const res = await getApi().rateLimitReport({
-      preset_id: null,
-      params: { ...selfCheckForm.value },
-      result: selfCheckResult.value.data,
-    })
-    if (res.code !== 0) {
-      ElMessage.error(res.message || t('modelProviders.reportFailed'))
-      return
-    }
-    selfCheckReportMsg.value = t('modelProviders.reportDone', { id: res.run_id })
-    ElMessage.success(t('modelProviders.reportSuccess'))
-  } catch (e) {
-    ElMessage.error(t('modelProviders.reportFailedDetail', { msg: e.message || e }))
-  }
-}
 
 // T1-5：分类图标改用 @element-plus/icons-vue（返回组件对象，模板 <component :is> 渲染）
 function categoryIcon (cat) {
@@ -1608,28 +1492,4 @@ onMounted(() => {
   font-style: italic;
 }
 
-/* 限流自检弹窗表单：label 与输入框同行对齐、输入框等宽。
-   此前 .selfcheck-form/.selfcheck-row 只有类名无任何样式定义，
-   label 与 el-input-number 随机换行、宽度参差（用户反馈布局混乱）。 */
-.selfcheck-form {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  margin-top: 4px;
-}
-.selfcheck-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.selfcheck-row label {
-  flex: 0 0 230px;
-  font-size: var(--font-size-sm);
-  color: var(--muted);
-  line-height: 1.4;
-}
-.selfcheck-row .el-input-number {
-  width: 150px;
-  flex-shrink: 0;
-}
 </style>
