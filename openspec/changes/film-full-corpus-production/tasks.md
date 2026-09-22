@@ -5,7 +5,7 @@
 
 ## 1. 前置校验（顺序依赖与风险 POC）
 
-- [ ] 1.1 **前置 change 收口**：完成 `film-engineering-video-gen` 的 `openspec sync/archive`（三同步：spec 归档 + CCG task + 质量节拍复盘），本 change specs delta 以合并后主 spec 复核基线（"成片合成与产物合同"等 4 条需求落进主 spec 后再动手）
+- [x] 1.1 **前置 change 收口**：完成 `film-engineering-video-gen` 的 `openspec sync/archive`（三同步：spec 归档 + CCG task + 质量节拍复盘），本 change specs delta 以合并后主 spec 复核基线（"成片合成与产物合同"等 4 条需求落进主 spec 后再动手）
 - [ ] 1.2 下载链接有效性 POC：抽样 10 条不同文件夹/时间段的 kit `resultUrl`，curl 下载 + ffprobe 探测，命中率记录到 `.agent_context/film-fix/`；若 URL 大面积失效，按 design 风险条款将 L3 收缩为纯生成路径并更新 proposal/design（不阻塞 L1/L2）
 - [ ] 1.3 导入 dry-run 统计基线：新导入器 `--dry-run` 输出唯一 prompt 数 / 采纳版镜数 / 超限镜数，与取证基线 2,795 对账（差异须可解释：规范化口径/去重键）
 
