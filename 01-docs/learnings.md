@@ -15174,3 +15174,18 @@ MIN_ENGAGEMENT_SAMPLES，与引擎严格同门槛含 Number(null)=0 语义），
 ### 本次决策记录
 
 纯展示层样式补齐（新增 CSS 规则，不改模板结构/IPC/数据模型），走完整 worktree 隔离流程（gate → worktree(基于 origin/main 362896f93) → TDD → 门禁 → PR #2225 → auto-merge squash）。TDD 先加 `src/views/selfcheck-dialog-layout.test.js`（3 例源码契约，红→绿，沿用 scoped CSS 读源码正则断言模式），定向 4 文件 20/20 全绿（icon-usage/model-providers-copy/settings-panel-layout 零回归），eslint exit 0。CHANGELOG/设计文档追加一律字节级只动头部/尾部，防混合 EOL 全文件重写（上次已踩坑）。经验同步内置记忆 + EverOS。
+
+## 账号标签凭证「假保存成功」：不存在的 Electron API + 吞错 catch + 弱断言三连逃逸（fix-tencent-video-cookie-save，2026-09-22）
+
+### Bug 反哺五步（QM-5）
+
+- **根因溯源（第一性原因）**：`webview-manager.js` 两处（saveCookies / saveAccountTabCredentials）调用 `session.cookies.getAll({})`——Electron cookies API 只有 `get([filter])`，**getAll 不存在**；TypeError 被 `catch` 吞掉后以 `cookies=[]` 继续保存并置 saved + 广播 auth:completed（假成功）。失效账号扫码重登 → 凭证库存 0 Cookie（旧 localStorage 残留绕过「三空校验」）→ 再开创作者中心弹回登录页。git log -S 追溯到 graft 初始提交即存在，非近期回归。
+- **逃逸链（为什么没测出来）**：① 单测 mock 的 `webContents` 根本没有 `session` 属性 → 提取路径在测试里恒抛「Cannot read properties of undefined」，同样被吞错 catch 吸收，测试与生产以同一种「静默」方式跑通；② 断言 `cookies: expect.any(Array)` 对空数组恒真——弱断言放行假保存；③ 集成/E2E 无「保存后重开标签应免登录」的闭环断言；④ 视觉回归不覆盖凭证库内容。
+- **系统性漏洞定位**：测试 mock 与真实 API 表面无契约锚点（mock 可任意缺失/发明方法而测试不红）＋「吞错继续」反模式（catch 后走 happy path）。
+- **修复 + 回归保护**：`getAll`→`get`；提取抛错 **fail-closed**（返回 `cookie-extract-failed`，不落盘、保持 unsaved、不广播 saved）。mock 改造为忠实镜像（挂接 session、只实现 get/set/remove/flushStore）；弱断言升级为断言真实 Cookie 数组；新增 3 例回归（真实提取 / 抛错中止 / saveCookies 事件源）。红→绿全程留痕。
+- **预防措施（可复用规则）**：① 对 Electron/浏览器等外部 API，mock 必须按官方 API 表面实现，**禁止用 `expect.any()` 兜底集合/对象内容断言**——保存/回写类断言必须比对真实提取值；② catch 后继续执行前必须问「吞掉的错误会不会把失败伪装成成功」，凭证/数据落盘路径一律 fail-closed；③ 排查同类问题可全局 grep `\.getAll\(`（Electron session 语境）；④ 用户报「扫码后没跳转」先查 userData 日志中 `cookies=0` 与 `failed` 关键字，5 分钟定位。
+
+### 取证环境教训
+
+- **日志锚点在 shared-user-data 而非 %APPDATA%（pitfall）**：live 实例经 anchor 机制把 userData 指向仓库 `shared-user-data/`，日志在 `shared-user-data/logs/app-*.log`；先翻 %APPDATA% 会误判「无日志证据」。
+- **严格入口被他会话脏文件阻塞时（process）**：`start-mp-task.ps1`/`gwm-task.sh` 对共享根 -RequireClean fail-closed 是设计内行为；不得 stash/commit 他会话文件，可降级 `git worktree add <D:\路径> -b <branch> origin/main`（PowerShell 原生路径），创建后 `rev-parse --show-toplevel/--abbrev-ref HEAD` 双验证再继续。

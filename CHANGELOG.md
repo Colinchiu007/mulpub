@@ -1,3 +1,16 @@
+# [未发布] fix(video): 视频号账号标签扫码重登后仍弹回登录页（凭证假保存 hotfix）
+
+### 变更
+- **`webview-manager.js`（Cookie 提取 API 误用 + 吞错假保存）**：`saveAccountTabCredentials` / `saveCookies` 曾调用 `session.cookies.getAll({})`——Electron cookies API 只有 `get([filter])`，`getAll` 不存在，TypeError 被吞错 catch 吸收后以 `cookies=[]` 继续保存并置 `saved`、广播 `auth:completed`（假成功）。失效账号扫码重登后凭证库仍是 0 Cookie（旧 localStorage 残留绕过三空校验），再开创作者中心标签恢复凭证时无 Cookie 可用 → 始终弹回登录页。修复：① 两处改用 `get({})`（与 auth-view-manager/qrcode-login 对齐）；② 提取抛错改为 fail-closed——返回 `cookie-extract-failed`，不落盘、保持 `unsaved`、不广播 `saved`，手动保存路径提示「保存账号凭证失败，请重试」，自动保存路径等下一次导航重试。
+
+### 验证
+- TDD 红→绿：mock 忠实镜像 Electron API 表面（挂接 `webContents.session`、只实现 get/set/remove/flushStore、不实现 getAll），弱断言 `expect.any(Array)` 升级为断言真实 Cookie 内容；新增 3 例回归（真实提取 / 提取抛错 fail-closed / saveCookies 事件源）。定向 `webview-manager.test.js` 52/52；electron 全量 359 文件 6938 通过 / 1 skipped / 0 失败；QM-1 打包验证通过。
+- 决定性日志证据（修复前）：`saveAccountTabCredentials: cookies.getAll failed ... getAll is not a function` 紧跟 `saved tencent_video:xxx cookies=0 lsKeys=13`。
+
+### 关联
+- 分支 `fix-tencent-video-cookie-save`（worktree 隔离，D 盘）；契约详见 `01-docs/PRD-BATCH-LOGIN-SAVE-GUARD-2026-09-22.md` §13（修订记录 v2）；Bug 反哺五步沉淀于 `01-docs/learnings.md`。
+
+---
 # [未发布] fix(ui): 限流自检弹窗表单布局修复 + 功能规格文档化
 
 ### 变更
