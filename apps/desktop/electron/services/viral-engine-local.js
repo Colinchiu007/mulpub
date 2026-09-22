@@ -189,13 +189,25 @@ function localAnalyze (engine, articles, topic) {
 
   let totalLikes = 0
   let totalComments = 0
+  // P0 互动均值 NULL 口径：未知（null/undefined/''/非法数值）跳过分子与分母；
+  // 真 0 如实参与并拉低均值。全未知时均值回退 0（与既有基线一致，不炸评分）。
+  let likesN = 0
+  let commentsN = 0
   const totalTitles = list.length
   const titleLens = []
   const allKeywords = new Set()
 
   for (const a of list) {
-    totalLikes += Number(a.like_count) || 0
-    totalComments += Number(a.comment_count) || 0
+    const lk = a.like_count
+    if (lk !== null && lk !== undefined && lk !== '') {
+      const n = Number(lk)
+      if (Number.isFinite(n) && n >= 0) { totalLikes += n; likesN++ }
+    }
+    const cm = a.comment_count
+    if (cm !== null && cm !== undefined && cm !== '') {
+      const n = Number(cm)
+      if (Number.isFinite(n) && n >= 0) { totalComments += n; commentsN++ }
+    }
     const title = a.title || ''
     titleLens.push(title.length)
     for (const kw of engine._extractKeywords(title + ' ' + topicText, 10)) {
@@ -203,8 +215,8 @@ function localAnalyze (engine, articles, topic) {
     }
   }
 
-  const avgLikes = totalTitles > 0 ? totalLikes / totalTitles : 0
-  const avgComments = totalTitles > 0 ? totalComments / totalTitles : 0
+  const avgLikes = likesN > 0 ? totalLikes / likesN : 0
+  const avgComments = commentsN > 0 ? totalComments / commentsN : 0
   const avgTitleLen = titleLens.length > 0 ? titleLens.reduce((s, n) => s + n, 0) / titleLens.length : 0
 
   const engagementScore = Math.min(avgLikes / 5000, 1)

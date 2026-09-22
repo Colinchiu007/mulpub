@@ -23,6 +23,7 @@ const {
 } = require('@multi-publish/collection-engine')
 const path = require('path')
 const { extractReadableText } = require('./readable-text')
+const { parseEngagement, parseEngagementNumber } = require('./url-collector-engagement')
 
 class UrlCollector {
   /**
@@ -318,7 +319,30 @@ class UrlCollector {
       publishTime,
       source,
       url,
+      // 互动数据（viral-library-integration P0）：字段级 null = 页面未知，0 = 真实零互动。
+      // 采集契约经 url-collect:fetch data 透传渲染层，无新增 IPC。
+      engagement: this._parseEngagement($, html),
     }
+  }
+
+  /**
+   * 互动计数字符串 → 非负整数（实现见 url-collector-engagement.js，P0 契约核心）。
+   * @param {string|number|null|undefined} v
+   * @returns {number|null}
+   */
+  static _parseEngagementNumber (v) {
+    return parseEngagementNumber(v)
+  }
+
+  /**
+   * 从已加载 DOM + 原始 HTML 提取互动计数（实现见 url-collector-engagement.js）。
+   * 契约：字段级 null = 页面未知，0 = 真实零互动；fail-open 不破坏采集。
+   * @param {object} $ - cheerio 实例
+   * @param {string} html - 原始 HTML
+   * @returns {{ likes: number|null, comments: number|null }}
+   */
+  _parseEngagement ($, html) {
+    return parseEngagement($, html)
   }
 
   /**

@@ -13,13 +13,25 @@ const VIRAL_SORT_COLUMNS = new Set([
   'created_at', 'likes', 'collections', 'comments', 'like_collect_ratio', 'published_at',
 ])
 
+// P0 契约（viral-library-integration）：NULL = 未知（缺失/非法），0 = 真实零互动。
+// 两者语义不得被 Number(x)||0 压平——下游统计（均值分母、ratio）依此区分。
+function _engagementNum (v) {
+  if (v === null || v === undefined || v === '') return null
+  const n = Number(v)
+  if (!Number.isFinite(n) || n < 0 || n > Number.MAX_SAFE_INTEGER) return null
+  return Math.floor(n)
+}
+
 function normalizeViralItem (item) {
   if (!item || typeof item !== 'object') return null
   if (typeof item.content !== 'string' || !item.content.trim()) return null
-  const likes = Math.max(0, Number(item.likes) || 0)
-  const collections = Math.max(0, Number(item.collections) || 0)
-  const comments = Math.max(0, Number(item.comments) || 0)
-  const ratio = Math.round((likes / Math.max(collections, 1)) * 100) / 100
+  const likes = _engagementNum(item.likes)
+  const collections = _engagementNum(item.collections)
+  const comments = _engagementNum(item.comments)
+  // ratio 仅在 likes/collections 双已知且 collections>0 时可计算，否则 NULL（未知不伪造）
+  const ratio = (likes === null || collections === null || collections === 0)
+    ? null
+    : Math.round((likes / collections) * 100) / 100
   let tags = []
   if (Array.isArray(item.tags)) tags = item.tags
   else if (typeof item.tags === 'string' && item.tags.trim()) {
@@ -200,7 +212,7 @@ module.exports = {
       }
       // ORDER BY 保证候选集确定性（无序时 SQLite B-tree 遍历顺序不稳定）
       const rows = this.db.prepare(
-        'SELECT * FROM viral_library WHERE ' + conditions.join(' OR ') + ' ORDER BY (likes + collections + comments) DESC, created_at DESC LIMIT 100'
+        'SELECT * FROM viral_library WHERE ' + conditions.join(' OR ') + ' ORDER BY (IFNULL(likes, 0) + IFNULL(collections, 0) + IFNULL(comments, 0)) DESC, created_at DESC LIMIT 100'
       ).all(...params)
       if (rows.length === 0) return []
 

@@ -1612,6 +1612,10 @@ async function addCollectedToViral () {
     platform: item.platform || '',
     tags: item.tags || [],
     cover_url: item.coverImage || '',
+    // P0 契约：互动/发布时间透传；未知保持 undefined（store 侧存 NULL），严禁压平为 0
+    likes: item.engagement?.likes ?? undefined,
+    comments: item.engagement?.comments ?? undefined,
+    published_at: item.publishTime || '',
   }
   const res = await addViralToLibrary(viralItem)
   if (res && res.code === 0) {

@@ -773,3 +773,49 @@ describe("ViralAnalysisView PR-2 (pattern hits / library picker / measured badge
     expect(w.vm.measuredInfo("x")).toBeNull();
   });
 });
+
+
+describe('ViralAnalysisView P0 契约：pickLibraryItem NULL 透传', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setActivePinia(createPinia());
+    window.electronAPI = {};
+  });
+
+  function createViewP0() {
+    return mount(ViralAnalysisView, {
+      global: {
+        plugins: [createPinia()],
+        mocks: { $t: (key) => key, $router: { push: vi.fn() } },
+      },
+    });
+  }
+
+  it('库条目 likes/comments 为 null → 回填 like_count/comment_count 必须保持 null（不得压平为 0）', () => {
+    const w = createViewP0();
+    w.vm.articleData = '';
+    w.vm.pickLibraryItem({ title: '互动未知条目', likes: null, comments: null, platform: '知乎' });
+    const arts = JSON.parse(w.vm.articleData);
+    expect(arts.length).toBe(1);
+    expect(arts[0].like_count).toBeNull();
+    expect(arts[0].comment_count).toBeNull();
+  });
+
+  it('字段缺失（undefined）与显式 null 同义 → null', () => {
+    const w = createViewP0();
+    w.vm.articleData = '';
+    w.vm.pickLibraryItem({ title: '字段缺失条目', platform: 'general' });
+    const arts = JSON.parse(w.vm.articleData);
+    expect(arts[0].like_count).toBeNull();
+    expect(arts[0].comment_count).toBeNull();
+  });
+
+  it('真 0 如实透传 0（与 null 语义区分）', () => {
+    const w = createViewP0();
+    w.vm.articleData = '';
+    w.vm.pickLibraryItem({ title: '零互动条目', likes: 0, comments: 0 });
+    const arts = JSON.parse(w.vm.articleData);
+    expect(arts[0].like_count).toBe(0);
+    expect(arts[0].comment_count).toBe(0);
+  });
+});

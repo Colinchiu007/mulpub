@@ -278,3 +278,47 @@ describe('ViralEngine 本地算法工程化（PR-1）', () => {
     })
   })
 })
+
+// ============ viral-library-integration P0：互动均值 NULL 口径（F-106，U-108~111/R-110） ============
+// 契约：NULL = 未知（跳过分子分母）；0 = 真实零互动（如实参与并拉低均值）。
+describe('P0 互动均值 NULL 口径（viral-engine._localAnalyze）', () => {
+  let engine
+  beforeEach(() => { engine = new ViralEngine() })
+  const arts = (likesArr) => likesArr.map((lk, i) => ({
+    title: 'AI工具选题' + i, like_count: lk, comment_count: lk === null ? null : Math.round(lk / 10),
+  }))
+
+  it('U-108: NULL 条目不进分母——[5000x3] 与 [5000x3+null] 总分相等', () => {
+    const a = engine._localAnalyze(arts([5000, 5000, 5000]), 'AI工具')
+    const b = engine._localAnalyze(arts([5000, 5000, 5000, null]), 'AI工具')
+    expect(b.overall_score).toBe(a.overall_score)
+  })
+
+  it('U-109: 真 0 进分母——[5000x3+0] 严格低于 [5000x3]', () => {
+    const a = engine._localAnalyze(arts([5000, 5000, 5000]), 'AI工具')
+    const c = engine._localAnalyze(arts([5000, 5000, 5000, 0]), 'AI工具')
+    expect(c.overall_score).toBeLessThan(a.overall_score)
+  })
+
+  it('U-110/R-110: 全 NULL 与全 0 均回退今日基线（结果一致且 trend=stable）', () => {
+    const allNull = engine._localAnalyze(arts([null, null, null]), 'AI工具')
+    const allZero = engine._localAnalyze(arts([0, 0, 0]), 'AI工具')
+    expect(allNull.overall_score).toBe(allZero.overall_score)
+    expect(allNull.trend_direction).toBe('stable')
+    expect(allZero.trend_direction).toBe('stable')
+  })
+
+  it('U-111: 混合 NULL 不影响 rising 判定阈值口径', () => {
+    const r = engine._localAnalyze(arts([6000, null, null]), 'AI工具')
+    expect(r.trend_direction).toBe('rising')
+  })
+
+  it('字段缺失（undefined）与显式 NULL 同义（都不进分母）', () => {
+    const a = engine._localAnalyze(arts([5000, 5000, 5000]), 'AI工具')
+    const b = engine._localAnalyze([{ title: 'AI工具选题0', like_count: 5000, comment_count: 500 }, { title: 'AI工具选题1' }], 'AI工具')
+    // b：仅第 0 条有数据 → avg=5000 与 a 相同口径
+    const c = engine._localAnalyze(arts([5000]), 'AI工具')
+    expect(b.overall_score).toBe(c.overall_score)
+    void a
+  })
+})

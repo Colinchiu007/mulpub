@@ -649,3 +649,74 @@ describe("UrlCollector 日志覆盖（P0-P2）+ 手动采集周末豁免", () =>
     expect(collector.collect).toHaveBeenCalledWith("https://example.com/x", { manual: true });
   });
 });
+
+
+// ===================== 互动数据解析（viral-library-integration P0 / F-101~F-103） =====================
+// 契约：NULL = 未知（解析失败/页面无数），0 = 真实零互动。绝不猜测填 0，绝不把缺省压平成 0。
+describe("UrlCollector 互动数据解析（engagement）", () => {
+  const collector = new UrlCollector({ auditDir: null, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } });
+
+  // U-101/U-102 数字格式解析（纯函数）
+  describe("_parseEngagementNumber", () => {
+    it("U-101: 万/w/逗号/纯数字格式", () => {
+      expect(UrlCollector._parseEngagementNumber("1.2万")).toBe(12000);
+      expect(UrlCollector._parseEngagementNumber("1.2 万")).toBe(12000);
+      expect(UrlCollector._parseEngagementNumber("3.4w")).toBe(34000);
+      expect(UrlCollector._parseEngagementNumber("1,234")).toBe(1234);
+      expect(UrlCollector._parseEngagementNumber("523")).toBe(523);
+      expect(UrlCollector._parseEngagementNumber("0")).toBe(0); // 真零保留
+      expect(UrlCollector._parseEngagementNumber(1234)).toBe(1234); // JSON 数字原样
+    });
+    it("U-102: 非法值一律 null（不猜测填 0）", () => {
+      for (const bad of [null, undefined, "", "  ", "abc", "-5", NaN, Infinity, {}, [], "1.2.3"]) {
+        expect(UrlCollector._parseEngagementNumber(bad)).toBeNull();
+      }
+      expect(UrlCollector._parseEngagementNumber("99999999999999999999")).toBeNull(); // 超 MAX_SAFE
+    });
+  });
+
+  // U-103 平台 fixture 页提取
+  describe("_parseHtml 返回 engagement 字段", () => {
+    it("知乎回答页：VoteButton 计数提取为 likes", () => {
+      const html = '<html><body><div class="RichContent-inner"><span class="VoteButton"><span class="CountNumber">1.2 万</span></span></div></body></html>';
+      const r = collector._parseHtml(html, "https://www.zhihu.com/question/1/answer/2");
+      expect(r.engagement.likes).toBe(12000);
+    });
+    it("小红书内联 JSON：likedCount/commentCount", () => {
+      const state = JSON.stringify({ note: { noteData: { interactInfo: { likedCount: "3456", collectedCount: "12", commentCount: "89" } } } });
+      const html = "<html><body><script>window.__INITIAL_STATE__=" + state + "</script></body></html>";
+      const r = collector._parseHtml(html, "https://www.xiaohongshu.com/explore/abc");
+      expect(r.engagement.likes).toBe(3456);
+      expect(r.engagement.comments).toBe(89);
+    });
+    it("B站 JSON stat：like/reply", () => {
+      const html = '<html><body><script>window.__INITIAL_STATE__={"stat":{"aid":1,"view":900,"danmaku":2,"reply":37,"favorite":5,"like":618}}</script></body></html>';
+      const r = collector._parseHtml(html, "https://www.bilibili.com/video/BV1xx");
+      expect(r.engagement.likes).toBe(618);
+      expect(r.engagement.comments).toBe(37);
+    });
+    it("通用 JSON-LD interactionStatistic", () => {
+      const ld = JSON.stringify({ "@type": "Article", interactionStatistic: [{ "@type": "InteractionCounter", interactionType: "https://schema.org/LikeAction", userInteractionCount: 400 }, { "@type": "InteractionCounter", interactionType: "http://schema.org/CommentAction", userInteractionCount: 21 }] });
+      const html = '<html><head><script type="application/ld+json">' + ld + '</script></head><body><article><p>正文内容足够长可以穿过阈值</p></article></body></html>';
+      const r = collector._parseHtml(html, "https://example.com/post");
+      expect(r.engagement.likes).toBe(400);
+      expect(r.engagement.comments).toBe(21);
+    });
+    it("无计数页面 → 两字段 null（不是 0）", () => {
+      const html = "<html><body><article><p>没有任何计数</p></article></body></html>";
+      const r = collector._parseHtml(html, "https://example.com/plain");
+      expect(r.engagement).toEqual({ likes: null, comments: null });
+    });
+    it("页面明确显示 0 → 产出 0（真零语义）", () => {
+      const html = '<html><body><span class="VoteButton"><span class="CountNumber">0</span></span></body></html>';
+      const r = collector._parseHtml(html, "https://www.zhihu.com/question/1");
+      expect(r.engagement.likes).toBe(0);
+    });
+    it("解析抛错不破坏采集主结果（fail-open）", () => {
+      const html = '<html><head><script type="application/ld+json">{invalid json!!</script></head><body><article><p>正文仍然存在</p></article></body></html>';
+      const r = collector._parseHtml(html, "https://example.com/bad-ld");
+      expect(r.success).toBe(true);
+      expect(r.engagement).toEqual({ likes: null, comments: null });
+    });
+  });
+});
