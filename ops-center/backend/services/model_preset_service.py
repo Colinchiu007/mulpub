@@ -966,7 +966,15 @@ async def fetch_models_from_url(db: AsyncSession, preset_id: str, models_url_ove
         if parsed.scheme != "https":
             raise ValueError("非本机地址的获取模型ID URL 必须使用 https")
         try:
-            resolved = socket.getaddrinfo(hostname, parsed.port or (443 if parsed.scheme == "https" else 80), proto=socket.IPPROTO_TCP)
+            # async 路由内不得做同步 DNS 解析：getaddrinfo 走阻塞系统调用，
+            # 解析慢（公网 DNS 抖动/IPv6 重试）会把整个事件循环卡住，连带
+            # 无关请求排队。丢到线程池执行，语义完全不变。
+            resolved = await asyncio.to_thread(
+                socket.getaddrinfo,
+                hostname,
+                parsed.port or (443 if parsed.scheme == "https" else 80),
+                proto=socket.IPPROTO_TCP,
+            )
         except socket.gaierror:
             raise ValueError("无法解析获取模型ID URL 的主机名")
         for entry in resolved:
@@ -1018,6 +1026,15 @@ async def fetch_models_from_url(db: AsyncSession, preset_id: str, models_url_ove
 
 import ipaddress as _ipaddress
 from urllib.parse import urlparse as _urlparse
+
+async def _validate_target_url_async(url: str, *, allow_private: bool = False) -> str:
+    """``_validate_target_url`` 的非阻塞包装，供 async 路由调用。
+
+    该守卫内部要 socket.getaddrinfo（同步 DNS），在事件循环里直接调用会阻塞
+    其他请求；保持同步版本不变（测试与脚本仍可用），异步侧走线程池。
+    """
+    return await asyncio.to_thread(_validate_target_url, url, allow_private=allow_private)
+
 
 def _validate_target_url(url: str, *, allow_private: bool = False) -> str:
     """P0-7 SSRF guard: reject private/reserved IPs and internal hostnames."""
@@ -1123,7 +1140,7 @@ async def test_provider_connection(db: AsyncSession, preset_id: str, body: dict,
                                        "invalid model", "not found", "no such model"))
 
     try:
-        base_url = _validate_target_url(base_url)
+        base_url = await _validate_target_url_async(base_url)
         async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
             # 策略 1: POST chat/completions
             url = f"{base_url.rstrip('/')}/chat/completions"
