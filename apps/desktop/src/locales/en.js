@@ -1756,7 +1756,7 @@ export default {
   },
   modelProviders: {
     pageTitle: 'Model Provider Settings',
-    pageSubtitle: 'Manage seven types of AI providers: LLM / TTS / Speech Recognition / Image / Video / Audio / Multimodal',
+    pageSubtitle: 'Manage 7 types of AI providers: Text Reasoning / TTS / Speech Recognition / Image / Video / Audio / Multimodal',
     refresh: 'Refresh',
     addProvider: '+ Add Provider',
     safeStorageWarning: '⚠️ System encryption is unavailable; API Keys cannot be stored securely. Please check your system keychain settings.',

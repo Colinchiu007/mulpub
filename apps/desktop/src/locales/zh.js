@@ -1757,9 +1757,9 @@ export default {
   },
   modelProviders: {
     pageTitle: '模型服务商设置',
-    pageSubtitle: '管理推理 / TTS语音 / 语音识别 / 图片生成 / 视频模型 / 音频生成 / 多模态模型 七类 AI 服务商',
+    pageSubtitle: '文字推理 / TTS语音 / 语音识别 / 图片生成 / 视频模型 / 音频生成 / 多模态模型 7类 AI 服务商',
     refresh: '刷新',
-    addProvider: '＋ 添加服务商',
+    addProvider: '+ 添加服务商',
     safeStorageWarning: '⚠️ 系统加密不可用，API Key 将无法安全存储。请检查系统密钥链设置。',
     opsSyncTitle: '🔄 运营后台同步',
     lastSyncedAt: (ctx) => '上次同步：' + ctx.named('time'),

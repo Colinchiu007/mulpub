@@ -8,7 +8,7 @@
       </div>
       <div class="page-actions">
         <button class="cohere-btn-secondary" data-testid="refresh-providers" @click="loadProviders">⟳ {{ t('modelProviders.refresh') }}</button>
-        <button class="cohere-btn-primary" data-testid="add-provider" @click="openAdd">＋ {{ t('modelProviders.addProvider') }}</button>
+        <button class="cohere-btn-primary" data-testid="add-provider" @click="openAdd">{{ t('modelProviders.addProvider') }}</button>
       </div>
     </div>
 
@@ -17,57 +17,6 @@
       {{ t('modelProviders.safeStorageWarning') }}
     </div>
 
-    <!-- 运营后台同步：运营配置（限流/模型/能力）自动下发，前端限流/模型字段为只读展示 -->
-    <div v-if="!loading" class="ops-sync-card" :class="{ 'ops-sync-configured': syncConfigured }">
-      <div class="ops-sync-head">
-        <span class="ops-sync-title">{{ t('modelProviders.opsSyncTitle') }}</span>
-        <span v-if="lastSyncedAt" class="ops-sync-meta">{{ t('modelProviders.lastSyncedAt', { time: formatLastSync(lastSyncedAt) }) }}</span>
-        <span v-else class="ops-sync-meta muted">{{ t('modelProviders.neverSynced') }}</span>
-        <div class="ops-sync-actions">
-          <label class="multimodal-preference" :title="t('modelProviders.autoSyncTitle')">
-            <input type="checkbox" v-model="syncAutoSync" @change="saveSyncConfig" />
-            <span>{{ t('modelProviders.autoSyncLabel') }}</span>
-          </label>
-          <button class="cohere-btn-secondary" @click="saveSyncConfig">{{ t('modelProviders.saveConfig') }}</button>
-          <button class="cohere-btn-primary" @click="runSyncNow" :disabled="syncing">
-            {{ syncing ? t('modelProviders.syncingNow') : t('modelProviders.syncNow') }}
-          </button>
-          <button class="cohere-btn-secondary" @click="openSelfCheck" :title="t('modelProviders.selfCheckTitle')">
-            {{ t('modelProviders.selfCheck') }}
-          </button>
-        </div>
-      </div>
-      <!-- 方案C 零配置化：autoConnected 时只读展示 URL + 登录鉴权标识 -->
-      <div v-if="autoConnected" class="ops-sync-fields ops-sync-auto">
-        <div class="ops-sync-field">
-          <label class="input-label">{{ t('modelProviders.opsUrlLabel') }}</label>
-          <span class="auto-readonly-value">{{ autoUrl }}</span>
-        </div>
-        <div class="ops-sync-field">
-          <span class="auto-connected-badge">✓ {{ t('modelProviders.autoConnectedBadge') }}</span>
-        </div>
-      </div>
-      <!-- 手动配置模式（未登录 或 有手动 URL） -->
-      <div v-else class="ops-sync-fields">
-        <div class="ops-sync-field">
-          <label class="input-label">{{ t('modelProviders.opsUrlLabel') }}</label>
-          <input class="input" v-model="syncUrl" :placeholder="t('modelProviders.opsUrlPlaceholder')" />
-        </div>
-        <div class="ops-sync-field">
-          <label class="input-label">{{ t('modelProviders.syncApiKeyLabel') }}</label>
-          <input class="input" v-model="syncApiKey" type="password"
-            :placeholder="syncApiKeyConfigured ? t('modelProviders.apiKeyConfiguredPlaceholder') : t('modelProviders.apiKeyPlaceholder')" />
-        </div>
-        <div v-if="!syncConfigured" class="ops-sync-field">
-          <span class="login-to-enable-hint">{{ t('modelProviders.loginToEnableSync') }}</span>
-        </div>
-      </div>
-      <div v-if="syncStatus" class="ops-sync-status success" role="status">{{ syncStatus }}</div>
-      <div v-else-if="syncError" class="ops-sync-status error" role="alert">{{ syncError }}</div>
-      <div v-if="syncConfigured" class="ops-sync-hint">
-        {{ t('modelProviders.opsSyncHint') }}
-      </div>
-    </div>
 
     <!-- 视图模式 Tab + 分类筛选 -->
     <div class="view-mode-tabs" v-if="!loading">
@@ -90,6 +39,14 @@
         <span class="tab-icon">📦</span>
         <span>{{ t('modelProviders.allTab') }}</span>
         <span class="tab-count">{{ providers.length }}</span>
+      </button>
+      <button
+        class="cohere-btn-secondary selfcheck-entry"
+        data-testid="open-self-check"
+        :title="t('modelProviders.selfCheckTitle')"
+        @click="openSelfCheck"
+      >
+{{ t('modelProviders.selfCheck') }}
       </button>
     </div>
 
@@ -610,23 +567,6 @@ import { useModelProviderCrud } from '@/composables/useModelProviderCrud'
 import { useOpsCenterSync } from '@/composables/useOpsCenterSync'
 
 const { t } = useI18n()
-const {
-  syncUrl,
-  syncApiKey,
-  syncApiKeyConfigured,
-  syncAutoSync,
-  lastSyncedAt,
-  syncing,
-  syncStatus,
-  syncError,
-  syncConfigured,
-  autoConnected,
-  autoUrl,
-  formatLastSync,
-  loadSyncConfig,
-  saveSyncConfig,
-  runSyncNow,
-} = useOpsCenterSync()
 
 // 编辑中的服务商是否为预设（预设行的模型/限流由运营后台同步下发，字段只读）
 const isPresetEditing = computed(() => {
@@ -681,6 +621,9 @@ const {
   toggleCapabilityDefault,
   testProvider,
 } = useModelProviderCrud()
+
+// 运营同步对用户透明：配置卡片已隐藏；此处仅保留只读门控所需的 syncConfigured（同步下来的官方模型列表不可手改）
+const { syncConfigured } = useOpsCenterSync()
 
 // ─── P2 限流自检：真实 governor + 假 adapter（零额度零网络） ───
 const showSelfCheckDialog = ref(false)
@@ -784,7 +727,6 @@ function effectiveDefaultModel (p) {
 
 onMounted(() => {
   loadProviders()
-  loadSyncConfig()
 })
 </script>
 

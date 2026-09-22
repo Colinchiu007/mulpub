@@ -117,6 +117,8 @@ class OpsCenterSync {
     this._platformConfig = null
     this._templateManager = null
     this._keywordMonitor = null
+    // 方案C 零配置：运营中心自动发现 URL（由 bootstrap 经 setOpsCenterUrl 注入，优先于全局 env，避免污染其他读取者）
+    this._autoOpsCenterUrl = ''
   }
 
   /** 读取同步配置（apiKey 脱敏，不返回明文） */
@@ -379,6 +381,11 @@ class OpsCenterSync {
     this._getAccessToken = typeof fn === 'function' ? fn : null
   }
 
+  /** 注入运营中心自动发现 URL（方案C 零配置：由 bootstrap 从 identity 运行时配置解析后传入，优先于全局 env） */
+  setOpsCenterUrl(url) {
+    this._autoOpsCenterUrl = normalizeUrl(url || '') || ''
+  }
+
   /** 应用运行时策略：公告缓存 + 敏感词重建 + 更新策略推送 */
   applyRuntime(payload) {
     if (!payload || typeof payload !== 'object') return
@@ -479,7 +486,7 @@ class OpsCenterSync {
    * 返回 {url, getAccessToken} 或 null（未配置/身份不可用时）。
    */
   _getAutoContext() {
-    const autoUrl = normalizeUrl(process.env.OPS_CENTER_URL || '')
+    const autoUrl = normalizeUrl(this._autoOpsCenterUrl || process.env.OPS_CENTER_URL || '')
     if (!autoUrl) return null
     if (!this._getAccessToken) return null
     return { url: autoUrl, getAccessToken: this._getAccessToken }

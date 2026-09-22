@@ -978,23 +978,6 @@ async function updateCapturedAccount (platform, captured, accountId) {
     throw new Error('账号不存在或平台不匹配: ' + e.message, { cause: e })
   }
 
-  // 更新后端公开元数据（PATCH）
-  try {
-    const metaResult = await pythonBridge.requestBackend('PATCH', '/api/accounts/' + accountId, {
-      name,
-      account_name: accountName,
-      platform_account_id: platformAccountId,
-      followers,
-      avatar,
-      last_validated: new Date().toISOString(),
-    })
-    if (metaResult.code !== 0) {
-      log.warn('AccountManager', '更新后端账号元数据失败: ' + accountId)
-    }
-  } catch (e) {
-    log.warn('AccountManager', '更新后端账号元数据异常: ' + e.message)
-  }
-
   // 覆盖凭证存储（原子写入，自动覆盖旧文件）
   const credentialSaved = credentialStore.saveCredential(accountId, {
     platform,
@@ -1007,6 +990,28 @@ async function updateCapturedAccount (platform, captured, accountId) {
     throw new Error('加密凭证更新失败')
   }
   log.info('AccountManager', 'Updated credential store for account ' + accountId)
+
+  // 更新后端公开元数据（PATCH）。凭证已成功落盘 = 一次成功的主动重新登录，
+  // 必须同步回写 status=active + last_validated，否则 toPublicAccount 的
+  // backendExpiredFresh 逻辑（DB status=expired 且 2 小时内验证过 → 尊重 expired）
+  // 会让账号页/横幅在保存凭证后仍显示失效。顺序不可颠倒：凭证未落盘时
+  // 不允许把 DB 置为 active（防半成功状态）。
+  try {
+    const metaResult = await pythonBridge.requestBackend('PATCH', '/api/accounts/' + accountId, {
+      name,
+      account_name: accountName,
+      platform_account_id: platformAccountId,
+      followers,
+      avatar,
+      status: 'active',
+      last_validated: new Date().toISOString(),
+    })
+    if (metaResult.code !== 0) {
+      log.warn('AccountManager', '更新后端账号元数据失败: ' + accountId)
+    }
+  } catch (e) {
+    log.warn('AccountManager', '更新后端账号元数据异常: ' + e.message)
+  }
 
   // 更新本地状态记录
   try {
@@ -1027,7 +1032,7 @@ async function updateCapturedAccount (platform, captured, accountId) {
   }
 
   log.info('AccountManager', '账号凭证已更新: ' + name + ' (' + platform + ', ' + accountId + ')')
-  return { ...account, name, account_name: accountName, platform_account_id: platformAccountId, followers, avatar, last_validated: new Date().toISOString() }
+  return { ...account, status: 'active', name, account_name: accountName, platform_account_id: platformAccountId, followers, avatar, last_validated: new Date().toISOString() }
 }
 
 module.exports = {

@@ -140,6 +140,59 @@ describe('OpsCenterSync saveConfig/getConfig', () => {
   })
 })
 
+// 方案C 零配置：登录会话自动连接（autoConnected）——URL 经 setOpsCenterUrl 显式注入，不依赖/不污染全局 process.env
+describe('OpsCenterSync 零配置 autoConnected（setOpsCenterUrl 注入）', () => {
+  const savedEnvUrl = process.env.OPS_CENTER_URL
+  afterEach(() => {
+    if (savedEnvUrl === undefined) delete process.env.OPS_CENTER_URL
+    else process.env.OPS_CENTER_URL = savedEnvUrl
+  })
+
+  it('未注入 URL 且未接线 token：autoConnected=false（回落手动态）', () => {
+    delete process.env.OPS_CENTER_URL
+    const svc = new OpsCenterSync({ store: makeStore(), modelProviderManager: makeManager(), log: LOG })
+    expect(svc.getConfig().autoConnected).toBe(false)
+    expect(svc.getConfig().autoUrl).toBe('')
+  })
+
+  it('仅注入 URL、未接线 getAccessToken：仍不 autoConnected（要求 URL + token 二者齐备）', () => {
+    delete process.env.OPS_CENTER_URL
+    const svc = new OpsCenterSync({ store: makeStore(), modelProviderManager: makeManager(), log: LOG })
+    svc.setOpsCenterUrl('https://ops.iart.work')
+    expect(svc.getConfig().autoConnected).toBe(false)
+  })
+
+  it('注入 URL + 接线 getAccessToken：autoConnected=true，url 取注入值，且不污染全局 process.env', () => {
+    delete process.env.OPS_CENTER_URL
+    const svc = new OpsCenterSync({ store: makeStore(), modelProviderManager: makeManager(), log: LOG })
+    svc.setOpsCenterUrl('https://ops.iart.work')
+    svc.setGetAccessToken(() => 'jwt-token')
+    const cfg = svc.getConfig()
+    expect(cfg.autoConnected).toBe(true)
+    expect(cfg.autoUrl).toBe('https://ops.iart.work')
+    expect(cfg.url).toBe('https://ops.iart.work')
+    expect(process.env.OPS_CENTER_URL).toBeUndefined()
+  })
+
+  it('用户手填 URL 优先于注入的自动 URL（显式配置不被自动态覆盖）', () => {
+    delete process.env.OPS_CENTER_URL
+    const svc = new OpsCenterSync({ store: makeStore(), modelProviderManager: makeManager(), log: LOG })
+    svc.saveConfig({ url: 'https://manual.example.com', apiKey: 'k' })
+    svc.setOpsCenterUrl('https://ops.iart.work')
+    svc.setGetAccessToken(() => 'jwt')
+    const cfg = svc.getConfig()
+    expect(cfg.url).toBe('https://manual.example.com')
+    expect(cfg.autoConnected).toBe(false)
+  })
+
+  it('向后兼容：未调用 setOpsCenterUrl 时仍读取 process.env.OPS_CENTER_URL（自托管/开发经 env 指定）', () => {
+    process.env.OPS_CENTER_URL = 'https://env.example.com'
+    const svc = new OpsCenterSync({ store: makeStore(), modelProviderManager: makeManager(), log: LOG })
+    svc.setGetAccessToken(() => 'jwt')
+    expect(svc.getConfig().autoConnected).toBe(true)
+    expect(svc.getConfig().autoUrl).toBe('https://env.example.com')
+  })
+})
 describe('OpsCenterSync syncNow', () => {
   let originalFetch
   beforeEach(() => { originalFetch = global.fetch })

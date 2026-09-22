@@ -1,7 +1,7 @@
 # PRD: 账号登录状态自动检测与主页提醒
 
-> 版本: 2.1 | 日期: 2026-09-16 | 状态: 已实现
-> 关联 PR: #1558（v1）、#1804（session cookie 路径修复）、#1805（v2.0：检测反馈 + 失效标识 + 结果持久化 + 公众号 HTTP 检测）、v2.1（2026-09-16 三态判定修复：HTTP 检测黑名单语义，修复抖音假阳性，详见 BUGFIX-LOGIN-CHECK-FALSE-EXPIRED-2026-09-16.md 与本文 §14）
+> 版本: 2.2 | 日期: 2026-09-22 | 状态: 已实现
+> 关联 PR: #1558（v1）、#1804（session cookie 路径修复）、#1805（v2.0：检测反馈 + 失效标识 + 结果持久化 + 公众号 HTTP 检测）、v2.1（2026-09-16 三态判定修复：HTTP 检测黑名单语义，修复抖音假阳性，详见 BUGFIX-LOGIN-CHECK-FALSE-EXPIRED-2026-09-16.md 与本文 §14）、v2.2（2026-09-22 登录态检测口径统一：四平台黑名单语义收口 + 保存凭证回写 active + 首页横幅检测回写，详见 BUGFIX-LOGIN-STATE-CONSISTENCY-2026-09-22.md 与本文 §15）
 
 ## 1. 需求背景
 
@@ -275,7 +275,42 @@ App.vue 挂载 Home 组件
 - douyin JSON 判定改三分支；HTTP 状态码黑名单化对**全部平台**生效（404/429/5xx 从误判失效改为降级确认，同类潜在误报一并消除）
 - 其他平台 JSON 判定零变化；公众号 checkHtml / bilibili precheck / 视频号 errCode 黑名单均不变
 - 代价：不确定场景 +4-8s（浏览器降级）；正常/真失效账号检测速度不变
-- 已知债：toutiao JSON 判定仍为白名单语义，后续按需复制三态模式
+- ~~已知债：toutiao JSON 判定仍为白名单语义，后续按需复制三态模式~~（v2.2 已销账：toutiao/bilibili/tencent_video/wechat_mp 四平台全部收口三态语义，见 §15）
 
 ### 14.4 测试
 `http-login-checker.test.js` 28 例（新增 8 例覆盖判定矩阵）；`account-manager.test.js` 52 例降级链路回归；eslint 0 error；CJK 门禁无新增。
+
+## 15. 登录态检测口径统一（v2.2，2026-09-22）
+
+> 完整根因证据链、判定矩阵、逃逸分析见 `01-docs/BUGFIX-LOGIN-STATE-CONSISTENCY-2026-09-22.md`。
+
+### 15.1 问题（用户报告两现象）
+- **现象 A**：主页横幅显示 5 个失效，账号页【一键检测】只有 2 个失效——横幅与账号页各自独立实时检测，横幅**只读不回写**，账号页回写，两处计数无统一持久化事实来源；HTTP 检测的风控抖动（见 15.2）放大差异。
+- **现象 B**：批量登录标签已登录头条号并点【保存账号】，账号页【一键检测】仍报失效——`updateCapturedAccount` 只 PATCH 元数据不回写 `status=active`，DB 残留 expired + 新 last_validated 落入 §11.2 `backendExpiredFresh` 2 小时窗口被持续压制；且 toutiao HTTP 检测白名单语义对新 Cookie 也假阳性并短路浏览器检测。
+
+### 15.2 三处修复
+1. **http-login-checker 四平台收口黑名单三态语义**（延续 §14 契约到 toutiao/bilibili/tencent_video/wechat_mp）：
+   - toutiao：`code===0 && user.(id||user_id)` → true；message/msg/status_msg 含「未登录/请先登录/登录过期/重新登录」→ false；其余 → undefined 降级
+   - bilibili：`code===0 && data.mid` → true；`code===-101` → false；其余（风控 -352 等）→ undefined
+   - tencent_video：`errCode===0 && finderUser` → true；`errCode 300333/300334` → false；其余 → undefined
+   - wechat_mp（HTML）：token+uin → true；无 token 且含登录页特征（扫码登录/请使用微信扫码/请登录/welcome_login）→ false；空响应/风控页 → undefined（`checkHtml` 返回值放宽为 `boolean|undefined`，HTML 分支新增 INCONCLUSIVE 处理）
+2. **updateCapturedAccount 保存凭证即回写 active**：PATCH 移到 `saveCredential` 成功之后（消除半成功状态），PATCH 体携带 `status:'active'` + `last_validated`；返回对象含 `status:'active'` 供调用方复用。
+3. **首页横幅检测结果统一回写**：`useExpiredAccountsBanner.refresh()` 检测成功后逐账号 `accountUpdate(id, {status: valid?'active':'expired', last_validated: checkedAt}).catch(()=>{})`，与账号页 `batchCheckAllLogins` 完全同口径；code≠0 不回写、单账号失败不阻断。
+
+### 15.3 一致性不变量
+任何一处批量检测或凭证保存完成后，DB 的 `status + last_validated` 被刷新为最近一次真实结果；横幅与账号页都经 `toPublicAccount` 读同一份持久化状态。两处瞬时差异只可能来自"两次真实检测"（平台会话实时变化），不再来自口径分裂。
+
+### 15.4 数据校验与安全
+- 横幅回写复用 `accountUpdate` 既有白名单校验链（`rendererAccountUpdateFields` + `sanitizeUpdateFields`），不新增 IPC 通道；
+- `updateCapturedAccount` PATCH 的 status 仅限服务端常量 `'active'`，不接收渲染层传入的任意 status（防越权改状态）；
+- results 中缺 accountId 的条目跳过回写；空 results 不触发写操作。
+
+### 15.5 交互与显示（无文案变更）
+横幅/一键检测/账号卡片所有 i18n 文案与显示项不变。用户可感知变化：①保存账号后自动刷新即显示「已登录」；②风控抖动不再使横幅计数随机虚高；③不确定场景单账号检测 +4-8s（浏览器降级），进度遮罩照常展示。
+
+### 15.6 回归保护测试
+- `http-login-checker-blacklist.test.js`（新增 14 例）：四平台 true/false/undefined 三态矩阵；
+- `account-manager-relogin-status.test.js`（新增 2 例）：PATCH 携带 active + 凭证失败不回写（顺序契约）；
+- `useExpiredAccountsBanner.test.js`（新增 3 例）：统一回写/失败不回写/回写失败不阻断；
+- `http-login-checker.test.js` 更新 1 例：公众号 expired fixture 补明确登录页特征。
+- 门禁：新增平台 HTTP 检测注册时，三态样本（true/false/undefined）齐备才算完成（以 blacklist 测试为模板）。

@@ -25,6 +25,76 @@
 
 ---
 
+# [未发布] fix(film-engineering): 出片流端到端串联——context 嵌套/扁平双兼容（#2193）
+
+### 变更
+- **services/film-engineering/film-engineering-stages.js**：`generate_videos` 前的四阶段执行器 context 取法兼容「引擎按 stage 名嵌套写入」（`run.context[stageName]=output`，`pipeline-engine.js:2395`）与「单测/直塞扁平键」两种形态（新增 `ctxFlatOrNested`）；`load_template`/`adapt_script`/`select_shots` 为真实出片流（`useFilmVideoGen.start` 仅传 `initialContext:{selectedShots}`、不带 `kitDir`/`script`/`selectedShotIds`）补直通分支，前四阶段不再在成本闸前 fail。作者流（提供 `script`/`selectedShotIds`）与既有单测语义完全保持：空剧本 `''` 仍 fail 匹配 `/剧本/`、bogus id 仍报错。
+
+### 验证
+- TDD 红→绿：新增 `film-pipeline-chaining-integration.test.js`（真实前四阶段执行器驱动 UI 出片流入参，断言停在 `generate_videos` paused + `costCheck` 零 provider 调用，确认后生成 `completed`）；fix 前 stash 复现 RED（失败于 `started.paused`），fix 后 GREEN；`electron/services/film-engineering/` 全量 **84 测试 / 11 文件无回归**。
+- QM-1：`electron-builder --win --dir` 成功，asar 清单含被改 `film-engineering-stages.js`；`verify-worktree-deps.js` OK。
+
+### 关联
+- 根因/逃逸链见 issue #2193；分支 `codex/film-pipeline-context-chaining-fix`（worktree 隔离，D 盘）· PR #2195
+- 逃逸分析：契约测试 `film-pipeline-contract.test.js` 曾整体打桩前四阶段，端到端串联从未执行——本条集成测试补此盲区。
+# [未发布] fix(ops-center-sync): 零配置自动连接生效 + 运营后台同步对用户完全透明
+
+### 变更
+- **electron/services/ops-center-sync.js**：新增 `setOpsCenterUrl(url)` 显式注入运营中心地址，`_getAutoContext()` 优先读注入值、回退 `process.env.OPS_CENTER_URL`（保留自托管/离线开发兼容）。修复方案C 零配置下 `autoConnected` 恒 false 的根因——bootstrap 解析出的 `identityEnv.OPS_CENTER_URL` 从未注入同步服务，用户端始终停留在「手动态」。
+- **electron/bootstrap/phase3-services.js**：`setGetAccessToken` 接线后，若 `identityEnv.OPS_CENTER_URL` 存在则调用 `opsCenterSync.setOpsCenterUrl(...)` 注入（经显式注入而非改写全局 env，避免污染其他读取者）。
+- **src/views/ModelProviders.vue（Part B 设计纠偏）**：移除「运营后台同步」配置卡片整块（URL / API Key 输入 + 保存/立即同步按钮），运营后台是平台官方运维面、与终端用户无关且暴露给用户有模型路由注入风险，同步改为主进程 `autoSyncOnStart` 对用户透明自动执行；仅保留「限流自检」入口（迁入视图模式工具栏）与同步模型列表的只读门控（`syncConfigured`）。
+
+### 验证
+- TDD 红→绿：`ops-center-sync.test.js` 新增 autoConnected describe（5 例：未注入/未接线→false、注入+接线→true 且不污染 env、手填 URL 优先、向后兼容 env 路径）；`phase3-services.test.js` 新增 2 例断言 bootstrap 注入 `setOpsCenterUrl`。electron services+bootstrap 全量 **253 文件 / 4992 用例全绿**；eslint exit 0；QM-1 `electron-builder --win --dir` exit 0，asar 含改动文件。
+- 视觉：`model-providers` 基线随卡片移除（并合并 origin/main 的 fix(ui) 文案改动后）按合并态重生成（scoped `PIXEL_ONLY`），回跑 PASSED。
+
+# [未发布] fix(login-state): 自媒体账号登录态检测口径统一（横幅 vs 账号页 + 保存后仍判失效）
+
+### 变更
+- **electron/publishers/http-login-checker.js**：toutiao/bilibili/tencent_video/wechat_mp 四平台 HTTP 检测收口黑名单三态语义（v2.1 声明契约落地到全部平台）——明确成功→true、明确未登录码/文案→false、其余（风控页/结构变更/空响应/解析失败）→undefined 降级浏览器检测；`checkHtml` typedef 放宽 `boolean|undefined`，HTML 分支新增 `CHECK_LOGIN_INCONCLUSIVE` 处理。修复"新保存的有效 Cookie 被白名单语义硬判失效并短路浏览器检测"假阳性。
+- **electron/publishers/account-manager.js `updateCapturedAccount`**：PATCH 移至 `saveCredential` 成功之后（消除 DB 半成功状态），PATCH 体新增 `status:'active'`+last_validated，返回对象含 active——保存凭证=一次成功的主动重新登录，不再被 `backendExpiredFresh` 2 小时窗口压制为失效。status 仅服务端常量，不接收渲染层任意 status。
+- **src/composables/useExpiredAccountsBanner.js**：首页横幅 `refresh()` 检测成功后逐账号 `accountUpdate(id,{status,last_validated})` 回写，与账号页【一键检测】完全同口径（此前只读不回写，是"主页 5 个失效 vs 账号页 2 个"计数分裂的结构性根因）；code≠0 不回写、单账号失败不阻断。
+- **01-docs**：`BUGFIX-LOGIN-STATE-CONSISTENCY-2026-09-22.md`（三层根因/判定矩阵/数据流/逃逸分析/预防措施）；`PRD-ACCOUNT-LOGIN-STATUS-CHECK.md` 升级 v2.2（新增 §15，§14.3 toutiao 白名单已知债销账）。
+
+### 验证
+- TDD 红→绿：新增 `http-login-checker-blacklist.test.js`(14)、`account-manager-relogin-status.test.js`(2)、`useExpiredAccountsBanner.test.js`(3)，红灯 8 failed 复现契约缺失 → 绿灯 19/19；更新旧公众号 fixture 1 例；全量 vitest 回归通过。
+- 无 i18n 文案变更（横幅/一键检测/卡片显示项与提示文字全部不变）；无新增 IPC 通道。
+
+### 关联
+- 分支 `codex/login-state-consistency`（worktree 隔离，D 盘）· PR 待合并
+- 前序：v2.1 抖音黑名单语义修复（BUGFIX-LOGIN-CHECK-FALSE-EXPIRED-2026-09-16.md），本变更将其契约收口到其余四平台
+
+---
+
+# [未发布] fix(ui): 账号页加载骨架与卡片网格列口径统一，消除加载期单列布局跳动
+
+### 变更
+- **`Accounts.vue`（卡片网格列口径单一来源，方案B）**：加载期骨架栅格（`mp-skeleton-grid`）因处于 flex 居中容器（`loading-state`）内不被主轴拉伸，`auto-fill` 在不确定宽度下塌缩成 1 列，造成「加载中 1 列 → 加载完突然多列」布局跳动。现在 `.account-results-panel` 建立唯一口径 CSS 变量 `--account-grid-columns: repeat(auto-fill, minmax(280px, 1fr))` / `--account-grid-gap: 24px`，真实栅格与骨架栅格共同消费，骨架并加 `width:100%` 占满面板，加载前后列数与间距完全一致；同时清扫被后位 scoped 基线压死的三处死代码断点（`repeat(4)` 基线、901–1500 两列、1501–2050 三列、≤900 覆盖行），真实渲染口径不变（属行为保持修复）。
+
+### 验证
+- TDD：新增 `src/views/accounts-grid.source.test.js`（3 例契约：口径变量唯一 / 栅格只消费变量且无硬编码 repeat / 骨架同源消费且 width:100% 撑满），先红后绿；`Accounts.test.js` 80/80、`features/accounts` 全套与 SFC 编译契约零回归；eslint 变更文件 0 error（9 warning 均为改动前既有）。
+- 门禁：详见 `.quality-gates.md` accounts-grid-align 执行记录；规格契约见 `01-docs/PRD-ACCOUNTS-GRID-SKELETON-ALIGN-2026-09-22.md`。
+
+### 关联
+- 分支 `codex/accounts-grid-align`（worktree 隔离，D 盘）；同型先例 `PipelineBrowser.vue` 的 `loading-state--skeleton` 局部修补，本次账号页以单一来源模式收口。
+
+---
+# [未发布] fix(ui): 模型设置页文案修正与设置弹窗标签页精致化
+
+### 变更
+- **文案（locales zh/en 成对）**：`modelProviders.addProvider` 由「＋＋ 添加服务商」修正为「+ 添加服务商」（半角加号，去掉重复前缀）；`pageSubtitle` 首项「管理推理」→「文字推理」（与能力标签 `capLlm` 术语对齐），数量「七类」→「7类」。en 同步：`pageSubtitle` "seven types"/"LLM" → "7 types"/"Text Reasoning"。
+- **`ModelProviders.vue`**：添加按钮模板去掉硬编码 `＋` 前缀（双加号根因），前缀符号统一由 locale 维护。
+- **`SettingsDialog.vue`（设置弹窗标签页 UI/UE 精致化）**：5 个标签新增 @element-plus/icons-vue 图标（Connection/Setting/Link/Upload/User）；激活态改卡片浮起（`--shadow-sm`）+ 左侧 3px 主色强调条 + 图标 scale 微反馈；禁用态「敬请期待」胶囊徽标；补 `aria-label`/`aria-current`/`:focus-visible` 可访问性；占位面板 🚧 → Compass 图标；全程取设计 token 并覆盖暗色模式。
+
+### 验证
+- TDD：新增 `src/locales/model-providers-copy.test.js`（5 例，锁死单加号/新文案/模板无硬编码＋）；`SettingsDialog.test.js` 扩展图标位断言（.tab-icon ×5）。定向 3 文件 19/19 全绿，既有 Tab 交互/en 文案契约零破坏。
+- 门禁：`check-locale-sync --pair-base` PASS（zh/en 成对）；`icon-usage.test.js` PASS。
+
+### 关联
+- 分支 `codex/settings-model-tabs-polish`（worktree 隔离，D 盘）；规范详见 `01-docs/design/model-provider-module-design.md` §九。
+
+---
+
 # [未发布] feat(hot-topics): 热门选题统一热度排序（P0-P3 全量：评分模型+可解释UI+衰减+配置化）
 
 ### 变更
