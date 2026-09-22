@@ -15174,3 +15174,20 @@ MIN_ENGAGEMENT_SAMPLES，与引擎严格同门槛含 Number(null)=0 语义），
 ### 本次决策记录
 
 纯展示层样式补齐（新增 CSS 规则，不改模板结构/IPC/数据模型），走完整 worktree 隔离流程（gate → worktree(基于 origin/main 362896f93) → TDD → 门禁 → PR #2225 → auto-merge squash）。TDD 先加 `src/views/selfcheck-dialog-layout.test.js`（3 例源码契约，红→绿，沿用 scoped CSS 读源码正则断言模式），定向 4 文件 20/20 全绿（icon-usage/model-providers-copy/settings-panel-layout 零回归），eslint exit 0。CHANGELOG/设计文档追加一律字节级只动头部/尾部，防混合 EOL 全文件重写（上次已踩坑）。经验同步内置记忆 + EverOS。
+
+
+## 新标签内嵌独立应用主页（tab-independent-home，2026-09-22，PR #2230）
+
+### 一、功能实现经验
+- **混合架构下「新标签 = 第二个可独立操作的 SPA」**：应用主页只在唯一 Vue SPA（home 虚拟标签，不建 WebContentsView）渲染。要让「+」新标签显示主页且与首标签解耦，方案是在新标签内嵌**第二个独立 SPA 实例**（WebContentsView 加载 `dist/index.html?mp-home-shell=1`），而非复用首标签内容。
+- **三重根因**：① `onCreateTab` 硬编码 `about:blank` + 标题「首页」；② 主页只在首 SPA 渲染；③ `App.vue` 归位守卫 `router.beforeEach→switchToTab('home')` 把任何 SPA 路由变化弹回首标签。解耦必须先移除归位守卫。
+- **preload 双判据安全边界**（`home-shell-preload.js`）：仅当「主进程注入 `--mp-home-shell-url=<期望>`」且「当前文档同源 + search 含 `mp-home-shell=1`」同时满足才挂载完整 electronAPI；被重定向到外站/参数被剥离/argv 缺失时降级为受限监控桥。沙箱 preload 走 esbuild 打包（`.bundle.js`），因 sandbox 下条件 `require('./preload/index.js')` 运行时解析不到未打包源文件——所以 bundle 必须提交进 git 并纳入 asar。
+- **内嵌壳态自然结束（F5）**：`webview-manager` 的 `did-navigate` 到不含 `mp-home-shell=1` 的地址时 flip `homeShell=false` + 解锁标题，转为普通网页标签，行为符合用户直觉。
+- **S4 广播风暴防护**：内嵌实例不订阅 page-manager events、不调 setShellMode，避免多实例重复广播。
+
+### 二、质量节拍 / CI 运维踩坑（本次收尾）
+- **债务熔断门禁会误伤生成物**：`check-debt-budget.js` 把已提交的 esbuild `*.bundle.js`（1346 行）按源码计入 filesOver1000/500，新增一个 bundle 使两指标各 +1 触发熔断。合法修复=脚本自身提示的 `node scripts/check-debt-budget.js --update`（前提：跨阈值确为生成物、非手写源膨胀），并在 CHANGELOG 说明理由。
+- **GitHub PR head-ref 失同步**：合并 origin/main 后 push，分支 ref 已到 703464fed，但 `refs/pull/2230/head` 与 PR.head_sha 仍停在旧 commit、mergeable 长期 UNKNOWN、CI 不触发；再 push（含空提交）也无效。真正修复=`gh pr close 2230` + `gh pr reopen 2230` 强制重建 PR head；close/reopen 会清除 auto-merge，需重新 `gh pr merge --squash --auto`。
+- **测试文件合并冲突勿用 union**：webview-manager.test.js 两侧各在文件尾新增 describe，union merge 会从一个 describe 中间截断致花括号不平衡。正解=以 origin/main 完整版为基底，追加自包含的 home-shell describe 块，校验 `{}` 计数相等后隔离跑测试（55 全绿）。
+- **Windows/PowerShell 写中文文件三坑**：① PS5.1 `Set-Content -Encoding utf8` 加 BOM → vite 报首行非法，须用 `[System.IO.File]::WriteAllText(path,txt,(New-Object Text.UTF8Encoding($false)))`；② `.ps1` 里中文字面量被 GBK 误读致解析崩溃，改用 ASCII 锚点定位；③ `git show <ref>:<file>` 须经 `Start-Process -RedirectStandardOutput` 导出原始 UTF-8 字节，勿用 PowerShell `>`（会重编码）。
+- **编辑工具禁止跨工作区根写文件**：SearchReplace/Write 不能改 worktree（工作区外）文件，改用 node 脚本做 UTF-8 编辑。
