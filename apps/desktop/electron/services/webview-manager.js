@@ -10,7 +10,7 @@
  *   左侧导航栏宽度同步
  */
 const { EventEmitter } = require('events')
-const { app, WebContentsView, session, ipcMain } = require('electron')
+const { app, WebContentsView, session } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
@@ -1352,7 +1352,13 @@ class WebviewManager extends EventEmitter {
    * 注册 IPC handlers（供 main.js 调用）
    */
   registerIpcHandlers (injectedIpcMain) {
-    var ipcMain = injectedIpcMain || require('electron').ipcMain;
+    // P1-14：必须注入 access-controlled ipcMain（createAccessControlledIpcMain）。
+    // 禁止回退全局 ipcMain —— 那会同时绕过 isTrustedSender 来源校验与许可证/权益门禁，
+    // 且在纯 Node（单测）下退化成无信息量的 TypeError。未注入即 fail-closed 抛错。
+    if (!injectedIpcMain) {
+      throw new Error('[IPC] webview-manager registerIpcHandlers 需要注入受控 ipcMain（禁止使用全局 ipcMain）');
+    }
+    var ipcMain = injectedIpcMain;
     var self = this;
 
     // ─── page-manager: IPC handlers（新标签页系统）──
