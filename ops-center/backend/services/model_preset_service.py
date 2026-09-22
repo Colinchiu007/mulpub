@@ -706,7 +706,8 @@ async def reorder_model_preset(db: AsyncSession, preset_id: str, action: str, vi
 
     - 传入 visible_ids（当前前端可见/筛选序列，按显示序）时：只在该序列内移动目标行，
       重排结果写回这些行原本占据的「顺序槽」，序列外的行（含隐藏项、其它类别）绝对位置不变。
-    - 不传 visible_ids 时：退化为全量列表（含隐藏、按显示序）内移动（向后兼容旧调用）。
+    - 不传 visible_ids（None）时：退化为全量列表（含隐藏、按显示序）内移动（向后兼容旧调用）；
+      传空列表视为空作用域，一律 not-found，绝不静默改写全表顺序。
     两种模式移动后都对全列表 sort_order 归一化为 0..n-1（保持显示序稳定、且首次排序会物化 NULL）。
     返回 "changed" | "noop"（已在边界，幂等不写库）| "not-found"；action 非法抛 ValueError。
     未排序行（全 NULL）的桌面端拼音序兜底见 01-docs/PRD-MODEL-LIST-SORT-ORDER-2026-09-23.md。
@@ -717,7 +718,7 @@ async def reorder_model_preset(db: AsyncSession, preset_id: str, action: str, vi
     rows = list((await db.execute(sa.select(ModelPreset).order_by(*_display_order()))).scalars().all())
     by_id = {r.id: r for r in rows}
 
-    if visible_ids:
+    if visible_ids is not None:
         # 只在可见序列占据的槽位内重排；序列外行保持绝对位置不变
         scope = [vid for vid in visible_ids if vid in by_id]
         if preset_id not in scope:

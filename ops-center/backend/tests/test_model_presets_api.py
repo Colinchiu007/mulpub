@@ -1244,4 +1244,11 @@ async def test_reorder_visible_ids_target_out_of_scope_returns_404():
             headers=admin_headers,
         )
         assert resp.status_code == 404
+        # 空可见序列 → 同样视为作用域外，拒绝写入（404），不得退化为全量重排
+        resp = await client.post(
+            f"/api/v1/model-presets/{ids_all[0]}/reorder",
+            json={"action": "top", "visible_ids": []},
+            headers=admin_headers,
+        )
+        assert resp.status_code == 404
 
