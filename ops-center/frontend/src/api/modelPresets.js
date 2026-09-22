@@ -26,6 +26,8 @@ export function fetchModelIds(id, data) {
   return api.post(`/model-presets/${id}/fetch-models`, data).then(r => r.data)
 }
 
-export function reorderModelPreset(id, action) {
-  return api.post(`/model-presets/${id}/reorder`, { action }).then(r => r.data)
+export function reorderModelPreset(id, action, visibleIds) {
+  const body = { action }
+  if (Array.isArray(visibleIds)) body.visible_ids = visibleIds
+  return api.post(`/model-presets/${id}/reorder`, body).then(r => r.data)
 }

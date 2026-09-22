@@ -101,14 +101,19 @@ async def reorder_model_preset(
     db: AsyncSession = Depends(get_db),
     _user: dict = Depends(require_admin),
 ):
-    """预设模型自定义排序（admin-only）：action ∈ top/up/down/bottom，点击即持久化。
+    """预设模型自定义排序（admin-only，所见即所得）：action ∈ top/up/down/bottom，点击即持久化。
 
-    排序对象为含隐藏项的全量列表（按显示序）；移动后 sort_order 归一化 0..n-1，
-    边界操作幂等返回 200（result=noop，不写库）。响应结构同 GET 列表，前端直接刷新。
+    请求可携带 body.visible_ids（当前可见/筛选序列，按显示序）：仅在序列内重排，
+    序列外预设绝对位置不变；缺省时退化为全量列表内移动（向后兼容）。移动后 sort_order
+    归一化 0..n-1，边界操作幂等返回 200（result=noop，不写库）。响应结构同 GET 列表。
     """
     action = str((body or {}).get("action", "")).strip()
+    raw_visible = (body or {}).get("visible_ids")
+    if raw_visible is not None and not isinstance(raw_visible, list):
+        raise HTTPException(400, "visible_ids 必须是数组")
+    visible_ids = [str(x) for x in raw_visible] if isinstance(raw_visible, list) else None
     try:
-        result = await model_preset_service.reorder_model_preset(db, preset_id, action)
+        result = await model_preset_service.reorder_model_preset(db, preset_id, action, visible_ids=visible_ids)
     except ValueError as e:
         raise HTTPException(400, str(e))
     if result == "not-found":
