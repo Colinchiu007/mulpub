@@ -15228,3 +15228,21 @@ MIN_ENGAGEMENT_SAMPLES，与引擎严格同门槛含 Number(null)=0 语义），
 - catalog 娴嬭瘯 Bearer 璧?Logto 401 鈫?鏀?X-Catalog-Key + monkeypatch catalog_api_key銆?
 - 骞跺彂浼氳瘽鎶㈠崰鍚庡彴 terminal + 閲嶇疆 cwd 鈫?鍓嶅彴闀夸换鍔?+ 姣忔潯鍛戒护鏄惧紡 Set-Location銆?
 
+
+## 视频成片 RPA 多平台发布「三条全 timeout」：候选只取首个 + 文本匹配丢 tag 约束（codex/hot-topics-video-publish-e2e，PR #2236，2026-09-23）
+
+### Bug 反哺五步（QM-5）
+
+- **根因溯源（第一性原因）**：`_publish_generic` 把「多候选选择器」当成「单个选择器」用——`_waitForElement(win, sel.title_input[0], 10000)` 之类硬取 `[0]`，候选数组其余项永不参与；同时 `buildResolveElementCode` 的文本匹配把「包含文本」放在第一优先级且**完全忽略选择器自带的 tag/class**。两处叠加使「改版/落地页型平台」（kuaishou/bilibili/douyin 的 `publish_url` 是上传页而非编辑页）结构性必败：字段永远等不到，发布按钮点到统计文案。
+- **逃逸链（为什么没测出来）**：① 单测 mock 的 `_waitForElement` 对任意选择器都返回 true，「只试第一个候选」这类缺陷在 mock 语境下不可见；② 缺「选择器候选顺序 = live DOM 实测结果」的数据契约测试；③ 上传完成判定只看正向信号（class 含 progress/success），没有平台通用**负向信号**（上传中…/剩余时间：/转码中/百分比未满），25s 就把还在排队当完成；④ 超时预算各层独立硬编码（router 300s、队列 900s、内部等待 3min），没有任何一处断言「视频任务应有 30min」，上层先掐死下层。
+- **系统性漏洞定位**：**「Playwright 风格选择器」与「原生 DOM querySelector」语义混用**是全局性缺陷，凡使用 `:has-text` / `text=` 的平台链路都有同样风险；**「上层超时 < 下层预算」**是第二类系统性风险（任何长耗时 RPA 动作都可能被路由层掐死）。
+- **修复 + 回归保护**：新增 `_resolveSelector`（逐候选，首候选给足预算、后续 2-3s 快速探测）与 `_composeEditorCaption`；无独立标题框时标题+正文合并写编辑器并**跳过正文步骤**（kuaishou `#work-description-edit` 实测标题/描述同控件）；文本匹配改为「tag/class 先收窄候选池 → 精确文本+可交互 > 精确叶子 > 包含文本+可交互 > 包含文本，同级优先可见」；`_waitForVideoUploadComplete` v3 加负向信号 + 25s 稳定期 + 15min 预算；`resolveRpaTimeout`/队列 timeout 统一 1800s；douyin/bilibili 补遮罩清理与「创作声明」6 态状态机。回归：`rpa-selector-utils.test.js`（新增 9 例，含 tag/class 约束与「无命中返回 null」）、`rpa-view-platforms.test.js`（新增 17 例：候选回退/标题写编辑器 6、创作声明状态机 7、选择器数据契约 4，另含上传负向信号与遮罩清理断言）、router/publish timeout 双例。
+- **预防措施（可复用规则）**：① 平台选择器一律数组，**生产代码禁止出现 `sel.xxx[0]` 直取**，review 时按 `_resolveSelector(` 是否存在做 grep 断言；② 任何 `:has-text` 选择器必须带 tag 或 class 前缀，且在修平台前先落 live DOM 取证（脚本已入库 `01-docs/evidence/rpa-dom-2026-09-23/`），禁止凭截图猜选择器；③ 长耗时动作（上传/转码）的超时预算必须**自下而上单调不减**：内部等待 ≤ 路由 timeout ≤ 队列 timeout，并在单测里断言具体数值；④ 「上传/提交完成」判定必须成对写（负向信号 + 正向信号），只有正向信号的判定一律视为不可靠。
+
+### 取证环境教训
+
+- **队列历史在应用重启后清零（pitfall）**：`getQueueHistory()` 不落盘，重启即空。判断「任务是否还在跑」要查 `getQueueStatus().running`，不能因为 history 空就认为没跑，否则会错过 live 页面取证窗口。
+- **`PythonBackend 每 5s 重启` 是噪音日志（pitfall）**：`rpa_engine` 日志文件 0 字节不代表 RPA 没执行（RPA 在 Electron 主进程，日志落在 `D:/tmp/Multi-Publish-debug-profile/logs`，前缀 `RpaView`）；排查平台发布先看 `RpaView` 行。
+- **严格发布证据优先于「点了按钮没报错」（pattern）**：`STRICT_PUBLISH_ID_PLATFORMS`（baijiahao/kuaishou）要求结果带从网络响应提取的作品 ID；`responses=0` 是「点中文案没点中按钮」的高置信信号，应优先于「超时」去查选择器。
+- **生成串里嵌正则必须双转义（pitfall）**：`buildResolveElementCode` 这类「拼接出在渲染进程执行的 JS」的代码里，字符串字面量 `'\.'` 会退化成 `'.'`，正则 `/\./` 变成 `/./`（任意字符），使 class 解析错乱、候选池被清成 `scoped.length===0` 再回退全池——表现是「tag 约束神秘失效」。生成码内的正则一律写 `\\.`，且**不要在生成的 IIFE 里放中文注释**（注入路径编码风险 + 日志难比对）。
+- **热应用 live 应用前先 merge origin/main（process）**：修复分支若未合入最新 main，按 `base..HEAD` 取「净改动」会把 main 的演进也算进来，覆盖运行中 worktree 会回退他人代码。可靠顺序是：分支 merge main → 取 `origin/main..HEAD` 的差集文件 → 备份后覆盖 → 重启（`mp-applive-launcher.ps1` 不做 git 同步，正好适合热应用）。
