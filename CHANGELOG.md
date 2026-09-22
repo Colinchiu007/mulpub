@@ -1,3 +1,14 @@
+# [未发布] fix(ops-center-sync): 零配置自动连接生效 + 运营后台同步对用户完全透明
+
+### 变更
+- **electron/services/ops-center-sync.js**：新增 `setOpsCenterUrl(url)` 显式注入运营中心地址，`_getAutoContext()` 优先读注入值、回退 `process.env.OPS_CENTER_URL`（保留自托管/离线开发兼容）。修复方案C 零配置下 `autoConnected` 恒 false 的根因——bootstrap 解析出的 `identityEnv.OPS_CENTER_URL` 从未注入同步服务，用户端始终停留在「手动态」。
+- **electron/bootstrap/phase3-services.js**：`setGetAccessToken` 接线后，若 `identityEnv.OPS_CENTER_URL` 存在则调用 `opsCenterSync.setOpsCenterUrl(...)` 注入（经显式注入而非改写全局 env，避免污染其他读取者）。
+- **src/views/ModelProviders.vue（Part B 设计纠偏）**：移除「运营后台同步」配置卡片整块（URL / API Key 输入 + 保存/立即同步按钮），运营后台是平台官方运维面、与终端用户无关且暴露给用户有模型路由注入风险，同步改为主进程 `autoSyncOnStart` 对用户透明自动执行；仅保留「限流自检」入口（迁入视图模式工具栏）与同步模型列表的只读门控（`syncConfigured`）。
+
+### 验证
+- TDD 红→绿：`ops-center-sync.test.js` 新增 autoConnected describe（5 例：未注入/未接线→false、注入+接线→true 且不污染 env、手填 URL 优先、向后兼容 env 路径）；`phase3-services.test.js` 新增 2 例断言 bootstrap 注入 `setOpsCenterUrl`。electron services+bootstrap 全量 **253 文件 / 4992 用例全绿**；eslint exit 0；QM-1 `electron-builder --win --dir` exit 0，asar 含改动文件。
+- 视觉：`model-providers` 基线随卡片移除（并合并 origin/main 的 fix(ui) 文案改动后）按合并态重生成（scoped `PIXEL_ONLY`），回跑 PASSED。
+
 # [未发布] fix(login-state): 自媒体账号登录态检测口径统一（横幅 vs 账号页 + 保存后仍判失效）
 
 ### 变更
