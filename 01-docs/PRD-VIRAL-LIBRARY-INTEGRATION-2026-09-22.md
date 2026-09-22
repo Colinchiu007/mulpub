@@ -318,6 +318,17 @@ searchViralItems / ViralLibraryTable / F7 回读
 
 **验收**：AC-P2-1（`_sanitizeEngagement` 门槛 + 无信号时引擎行为回归锁）、AC-P2-2（`takeViralSignalHandoff` 读后即删）、AC-P2-3（预填不自动分析 + 200 截断）、AC-P2-4（lift 排序优先无卡不丢）均有对应单测覆盖。
 
+### 5.7 线上走查修正：强度徽标与引擎门槛一致性（BUGFIX-STRENGTH-BADGE-GATE，2026-09-22）
+
+**发现方式**：mp-app-live2（HEAD=eec84e36）CDP 端到端走查「热榜→分析→改写」时，热榜条目仅采到 1 个互动样本，改写页却显示「已带入爆款强度参考」徽标——而引擎 `_sanitizeEngagement` 门槛为 sampleCount≥3，实际 Prompt 未注入强度段。呈现层与注入层口径错位，属"伪闭环"信号（逃逸链见 01-docs/learnings.md 同日条目）。
+
+**修正（交互逻辑）**：
+- `viral-signal-bridge.js` 新增 `MIN_ENGAGEMENT_SAMPLES = 3` 与 `hasActionableEngagement(engagement)`，与引擎 `_sanitizeEngagement` 严格同门槛（对象 + sampleCount 有限且 ≥3 + avgLikes/avgComments Number 化后有限；注意 `Number(null)=0` 两侧同语义接受），双侧测试互为锚点，注释双向引用。
+- `RewriteView.vue` 信号快照赋值点单点收口：弱信号直接 `viralEngagement=null` → 徽标不显示、params 不携带 engagement。弱信号对用户静默（视为"无定量信号"，不另设提示），引擎侧门槛继续兜底。
+- 显示文案与 §5.4 保持「已带入爆款强度参考」（现在仅在真实已注入时出现，语义恢复准确）。
+
+**回归**：新增 6 用例（bridge 谓词 5 + RewriteView 弱/达标配对 2，其中 1 例并入既有用件），TDD 先红（6 failed 复现缺陷）后绿；五文件联动套件 201/201；`check-debt-budget` 回基线。
+
 ## 6. 非功能需求
 
 - **性能**：F3 热榜并入用 800ms race，分析主流程 P95 无可感知退化（benchmark 对比 PR 前后）；URL norm 匹配在回采低频路径上，全表 norm 扫描 ≤ 5 万条时可接受（viral_library 现实规模 <10³）。

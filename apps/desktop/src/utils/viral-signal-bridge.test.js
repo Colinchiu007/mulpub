@@ -50,3 +50,27 @@ describe('computeEngagement', () => {
     expect(computeEngagement([{ like_count: null, comment_count: null }])).toBeNull()
   })
 })
+
+// ── P2-a 跨层契约：hasActionableEngagement 与引擎 _sanitizeEngagement 同门槛 ──
+import { hasActionableEngagement, MIN_ENGAGEMENT_SAMPLES } from './viral-signal-bridge'
+
+describe('hasActionableEngagement（渲染-引擎门槛一致性锚点）', () => {
+  it('门槛常量为 3（与 rewrite-engine-core._sanitizeEngagement 对齐，改动须双侧同步）', () => {
+    expect(MIN_ENGAGEMENT_SAMPLES).toBe(3)
+  })
+  it('sampleCount=2 弱信号 → false（引擎侧同输入返回 null，勿只改一侧）', () => {
+    expect(hasActionableEngagement({ sampleCount: 2, avgLikes: 1200, avgComments: 50 })).toBe(false)
+  })
+  it('sampleCount=3 且均值有限 → true', () => {
+    expect(hasActionableEngagement({ sampleCount: 3, avgLikes: 1200.5, avgComments: 50 })).toBe(true)
+  })
+  it('均值非有限数（NaN/null）→ false', () => {
+    expect(hasActionableEngagement({ sampleCount: 8, avgLikes: NaN, avgComments: 50 })).toBe(false)
+    // Number(null)→0 为有限数，与引擎 _sanitizeEngagement 同语义（引擎亦接受），故为 true
+    expect(hasActionableEngagement({ sampleCount: 8, avgLikes: 1200, avgComments: null })).toBe(true)
+  })
+  it('非对象（null/undefined/字符串）→ false', () => {
+    expect(hasActionableEngagement(null)).toBe(false)
+    expect(hasActionableEngagement('x')).toBe(false)
+  })
+})

@@ -78,3 +78,26 @@ export function computeEngagement (articles) {
   const avg = (arr) => arr.reduce((s, x) => s + x, 0) / arr.length
   return { sampleCount, avgLikes: avg(likes), avgComments: avg(comments) }
 }
+
+/**
+ * 定量强度信号生效门槛（P2-a 跨层契约）：与引擎侧
+ * packages/rewrite-engine/src/rewrite-engine-core.js#_sanitizeEngagement 严格同门槛
+ * （样本数 ≥3 且点赞/评论均值均为有限数）。修改任一侧必须同步另一侧，
+ * 两侧测试互为锚点（bridge.test / rewrite-engine-core.test 各有 sampleCount=2 vs 3 边界用例）。
+ * 渲染层用它过滤徽标显示与 params 透传，避免「显示已带入但引擎实际未注入」的口径错位。
+ */
+export const MIN_ENGAGEMENT_SAMPLES = 3
+
+/**
+ * 判定定量强度信号是否达到可注入门槛（呈现与注入单一事实源）。
+ * @param {unknown} engagement - { sampleCount, avgLikes, avgComments }
+ * @returns {boolean} 达到门槛 true；弱信号/非对象 false
+ */
+export function hasActionableEngagement (engagement) {
+  if (!engagement || typeof engagement !== "object") return false
+  const sampleCount = Number(engagement.sampleCount)
+  if (!Number.isFinite(sampleCount) || sampleCount < MIN_ENGAGEMENT_SAMPLES) return false
+  const avgLikes = Number(engagement.avgLikes)
+  const avgComments = Number(engagement.avgComments)
+  return Number.isFinite(avgLikes) && Number.isFinite(avgComments)
+}
