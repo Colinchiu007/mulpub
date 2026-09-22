@@ -125,4 +125,45 @@ describe('FilmEngineeringView configuration profiles', () => {
     expect(wrapper.find('[data-testid="fe-export-markdown"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="fe-generate"]').exists()).toBe(true)
   })
+  it('8.1 production entry button is disabled when no shots selected', async () => {
+    composable.status.value = { available: true, filmMeta: { title: 'Film', logline: 'L', durationSec: 60 }, sceneCount: 1, shotCount: 1, referenceCount: 0 }
+    composable.selectedSceneId.value = 'sc-1'
+    composable.shots.value = [{ shotId: 'shot-0001', sceneId: 'sc-1', prompt: 'p', model: 'm' }]
+    await nextTick()
+    const wrapper = mountView()
+    await nextTick()
+    const btn = wrapper.find('[data-testid="fe-production-entry"]')
+    expect(btn.exists()).toBe(true)
+    expect(btn.attributes('disabled')).toBeDefined()
+  })
+
+  it('8.1 production entry button is enabled when shots selected', async () => {
+    composable.status.value = { available: true, filmMeta: { title: 'Film', logline: 'L', durationSec: 60 }, sceneCount: 1, shotCount: 1, referenceCount: 0 }
+    composable.selectedSceneId.value = 'sc-1'
+    composable.shots.value = [{ shotId: 'shot-0001', sceneId: 'sc-1', prompt: 'p', model: 'm' }]
+    await nextTick()
+    composable.selectedShotIds.value = ['s-a', 's-b']
+    const wrapper = mountView()
+    await nextTick()
+    const btn = wrapper.find('[data-testid="fe-production-entry"]')
+    expect(btn.exists()).toBe(true)
+    expect(btn.attributes('disabled')).toBeUndefined()
+  })
+
+  it('8.1 clicking production entry opens the dialog (plan-ready phase)', async () => {
+    composable.status.value = { available: true, filmMeta: { title: 'Film', logline: 'L', durationSec: 60 }, sceneCount: 1, shotCount: 1, referenceCount: 0 }
+    composable.selectedSceneId.value = 'sc-1'
+    composable.shots.value = [{ shotId: 'shot-0001', sceneId: 'sc-1', prompt: 'p', model: 'm' }]
+    await nextTick()
+    // 全局 el-dialog 由 isCustomElement stub 处理，检查 v-model 状态即可
+    composable.selectedShotIds.value = ['s-x']
+    const wrapper = mountView()
+    await nextTick()
+    const btn = wrapper.find('[data-testid="fe-production-entry"]')
+    await btn.trigger('click')
+    await nextTick()
+    // productionPanelOpen ref 应为 true
+    expect(wrapper.vm.productionPanelOpen).toBe(true)
+  })
+
 })

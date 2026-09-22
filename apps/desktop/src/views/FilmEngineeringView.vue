@@ -101,6 +101,9 @@
                 <el-button size="small" type="warning" data-testid="fe-video-entry" :disabled="selectedShotIds.length === 0" @click="openVideoPanel">
                   {{ t('filmEngineering.video.entry') }}
                 </el-button>
+                <el-button size="small" data-testid="fe-production-entry" :disabled="selectedShotIds.length === 0" @click="openProductionPanel">
+                  {{ t('filmEngineering.production.entry') }}
+                </el-button>
               </div>
               <div v-if="shotsLoading" v-loading="shotsLoading" class="fe-shots-loading" />
               <div v-else-if="shots.length === 0" class="fe-empty">{{ t('filmEngineering.library.empty') }}</div>
@@ -346,6 +349,99 @@
         </div>
       </div>
     </el-dialog>
+
+    <!-- 全量分批出片面板（tasks 8.1-8.4，D6/D9/D10） -->
+    <el-dialog v-model="productionPanelOpen" :title="t('filmEngineering.production.title')" width="680px" append-to-body>
+      <!-- idle: plan loading or error -->
+      <div v-if="pdPhase === 'idle'" class="fe-vg">
+        <div v-if="pdBusy" class="fe-vg-hint">{{ t('filmEngineering.production.planTitle') }}…</div>
+        <div v-if="productionStartError" class="fe-vg-error">{{ productionStartError }}</div>
+      </div>
+      <!-- plan-ready: 批次计划预览 + 发起确认 -->
+      <div v-else-if="pdPhase === 'plan-ready'" class="fe-vg">
+        <el-alert type="info" :closable="false" show-icon :title="t('filmEngineering.production.planTitle')" />
+        <p class="fe-vg-hint">{{ t('filmEngineering.production.planSummary', { batches: pdPlan.batchCount, size: pdPlan.batchSize, shots: pdPlan.shotCount }) }}</p>
+        <div class="fe-vg-row"><span class="fe-vg-label">{{ t('filmEngineering.production.diskEstimate') }}:</span> {{ pdFmtBytes(pdPlan.diskEstimateBytes) }}</div>
+        <div class="fe-vg-row"><span class="fe-vg-label">{{ t('filmEngineering.production.wallclockEstimate') }}:</span> {{ pdFmtDuration(pdPlan.wallclockEstimateSeconds) }}</div>
+        <div class="fe-vg-row"><span class="fe-vg-label">{{ t('filmEngineering.production.mediaRoot') }}:</span> <code class="fe-vg-path">{{ pdPlan.mediaRoot }}</code></div>
+        <div class="fe-vg-row">
+          <span class="fe-vg-label">{{ t('filmEngineering.production.taskIdLabel') }}</span>
+          <el-input v-model="pdTaskIdInput" size="small" style="width:200px" :placeholder="t('filmEngineering.production.taskIdPlaceholder')" maxlength="64" data-testid="fe-production-taskid" />
+        </div>
+        <div v-if="productionStartError" class="fe-vg-error">{{ productionStartError }}</div>
+        <div class="fe-vg-actions">
+          <el-button type="primary" :loading="pdBusy" data-testid="fe-production-begin" @click="onProductionBegin">{{ t('filmEngineering.production.startConfirm') }}</el-button>
+          <el-button :loading="pdBusy" data-testid="fe-production-resume" @click="onProductionResume">{{ t('filmEngineering.production.resumeBtn') }}</el-button>
+        </div>
+      </div>
+      <!-- batching: 逐批确认 -->
+      <div v-else-if="pdPhase === 'batching'" class="fe-vg">
+        <div class="fe-vg-row">
+          <span><strong>{{ t("filmEngineering.production.remaining") }}:</strong> {{ pdRemaining }}</span>
+          <span style="margin-left:16px">{{ t("filmEngineering.production.confirmedBudget", { count: pdConfirmedShots }) }}</span>
+        </div>
+        <el-progress :percentage="pdProgress.totalCount ? Math.round(pdProgress.doneCount / pdProgress.totalCount * 100) : 0" :format="() => pdProgress.doneCount + '/' + pdProgress.totalCount" />
+        <div class="fe-vg-hint">{{ t("filmEngineering.production.batchHint") }}</div>
+        <div v-if="pdErrorCode === 'VIDEO_MODEL_NOT_CONFIGURED'" class="fe-vg-error">{{ t("filmEngineering.production.providerMissing") }}</div>
+        <div v-else-if="pdErrorText" class="fe-vg-error">{{ pdErrorText }}</div>
+        <div style="margin-top:8px">
+          <div v-for="b in pdBatches" :key="b.batchIndex" class="fe-vg-shot" style="flex-wrap:wrap">
+            <span class="fe-vg-shot-no">#{{ b.batchIndex + 1 }}</span>
+            <el-tag size="small" :type="pdBatchType(b.status)">{{ pdBatchLabel(b.status) }}</el-tag>
+            <span class="fe-vg-shot-id">{{ t("filmEngineering.production.shotsDone", { done: b.doneShots || 0, total: b.shotCount }) }}</span>
+            <el-button v-if="b.status === 'pending' || b.status === 'failed'" size="small" type="primary" :loading="pdBusy" :data-testid="'fe-production-confirm-' + b.batchIndex" @click="onProductionConfirmBatch(b.batchIndex)">{{ t("filmEngineering.production.confirmBatch", { i: b.batchIndex + 1, n: pdBatches.length, count: b.shotCount, aspect: pdChosen.aspect, seconds: pdChosen.seconds }) }}</el-button>
+            <el-button size="small" @click="toggleBatch(b.batchIndex)">{{ t("filmEngineering.production.batchDetail") }}</el-button>
+            <div v-if="pdExpandedBatches.has(b.batchIndex) && b.shots" style="width:100%;padding-left:24px">
+              <div v-for="(sh, si) in b.shots" :key="si" style="display:flex;align-items:center;gap:6px;font-size:12px;margin:2px 0">
+                <span>{{ (sh.shotId || "").slice(0, 8) }}</span>
+                <el-tag size="small" :type="sh.status === 'done' ? 'success' : sh.status === 'failed' ? 'danger' : 'info'">{{ sh.status }}</el-tag>
+                <el-button v-if="sh.status === 'failed'" size="small" :data-testid="'fe-production-retry-' + b.batchIndex + '-' + si" @click="onProductionRetryShot(b.batchIndex, si)">{{ t("filmEngineering.production.retryShot") }}</el-button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="fe-vg-actions" style="margin-top:12px">
+          <el-button :loading="pdBusy" data-testid="fe-production-recycle" @click="onProductionRecycle">{{ pdRecycled ? t("filmEngineering.production.recycled", { ok: pdRecycled.okCount, total: pdRecycled.okCount + pdRecycled.failCount, dir: pdRecycled.destDir }) : t("filmEngineering.production.recycleBtn") }}</el-button>
+          <el-button data-testid="fe-production-reset" @click="onProductionReset">{{ t("filmEngineering.video.newRun") }}</el-button>
+        </div>
+        <el-alert type="info" :closable="false" :title="t('filmEngineering.production.recycleGuide')" style="margin-top:8px" />
+      </div>
+      <!-- manifest-ready: 收口 -->
+      <div v-else-if="pdPhase === 'manifest-ready'" class="fe-vg">
+        <el-alert type="success" :closable="false" show-icon :title="t('filmEngineering.production.manifestReady', { count: (pdManifest || []).length })" />
+        <div v-if="pdManifestError" class="fe-vg-error">{{ t("filmEngineering.production.manifestMissing", { error: pdManifestError }) }}</div>
+        <div class="fe-vg-actions">
+          <el-button type="primary" :loading="pdBusy" data-testid="fe-production-compose" @click="onProductionCompose">{{ t("filmEngineering.production.compose") }}</el-button>
+          <el-button :loading="pdBusy" data-testid="fe-production-recycle" @click="onProductionRecycle">{{ t("filmEngineering.production.recycleBtn") }}</el-button>
+          <el-button data-testid="fe-production-reset" @click="onProductionReset">{{ t("filmEngineering.video.newRun") }}</el-button>
+        </div>
+      </div>
+      <!-- composing -->
+      <div v-else-if="pdPhase === 'composing'" class="fe-vg">
+        <div class="fe-vg-hint">{{ t("filmEngineering.production.composing") }}</div>
+        <el-progress :percentage="pdProgress.totalCount ? Math.round(pdProgress.doneCount / pdProgress.totalCount * 100) : 0" indeterminate />
+      </div>
+      <!-- done -->
+      <div v-else-if="pdPhase === 'done'" class="fe-vg">
+        <el-alert type="success" :closable="false" show-icon :title="t('filmEngineering.production.doneTitle')" />
+        <div class="fe-vg-path">{{ pdFinalPath }}</div>
+        <div class="fe-vg-actions">
+          <el-button data-testid="fe-production-open-folder" @click="onProductionOpenFolder">{{ t("filmEngineering.video.openFolder") }}</el-button>
+          <el-button data-testid="fe-production-save-as" @click="onProductionSaveAs">{{ t("filmEngineering.video.saveAs") }}</el-button>
+          <el-button type="primary" data-testid="fe-production-reset" @click="onProductionReset">{{ t("filmEngineering.video.newRun") }}</el-button>
+        </div>
+      </div>
+      <!-- failed -->
+      <div v-else class="fe-vg">
+        <el-alert type="error" :closable="false" show-icon :title="t('filmEngineering.production.failedTitle')" />
+        <div v-if="pdErrorCode === 'VIDEO_MODEL_NOT_CONFIGURED'" class="fe-vg-hint">{{ t("filmEngineering.production.providerMissing") }}</div>
+        <div v-else-if="pdErrorText" class="fe-vg-error">{{ pdErrorText }}</div>
+        <div class="fe-vg-actions">
+          <el-button v-if="pdErrorCode === 'VIDEO_MODEL_NOT_CONFIGURED'" type="primary" data-testid="fe-production-goto-models" @click="gotoModelSettings">{{ t("filmEngineering.video.viewModelSettings") }}</el-button>
+          <el-button data-testid="fe-production-reset" @click="onProductionReset">{{ t("filmEngineering.video.newRun") }}</el-button>
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -357,6 +453,7 @@ import ConfigProfileManager from '@/components/ConfigProfileManager.vue'
 import { useRouter } from 'vue-router'
 import { useFilmVideoGen, FILM_MAX_VIDEO_BATCH } from '@/composables/useFilmVideoGen'
 import { story2videoShowInFolder, story2videoSaveAs } from '@/api/publisher'
+import { useFilmProduction } from '@/composables/useFilmProduction'
 
 const { t } = useI18n()
 const {
@@ -407,6 +504,62 @@ async function onVideoSaveAs () { if (vgFinalPath.value) await story2videoSaveAs
 function gotoModelSettings () { videoPanelOpen.value = false; router.push("/model-providers") }
 function vgStatusType (s) { return s === "success" ? "success" : (s === "failed" ? "danger" : "info") }
 function vgStatusLabel (s) { return s === "success" ? t("filmEngineering.video.statusSuccess") : (s === "failed" ? t("filmEngineering.video.statusFailed") : t("filmEngineering.video.statusPending")) }
+
+// ===== 全量分批出片（tasks 8.1-8.4，D6/D9/D10）=====
+const productionPanelOpen = ref(false)
+const productionStartError = ref("")
+const pdTaskIdInput = ref("default")
+const pdExpandedBatches = ref(new Set())
+const {
+  phase: pdPhase, busy: pdBusy, plan: pdPlan,
+  chosen: pdChosen, batches: pdBatches, progress: pdProgress,
+  renderManifest: pdManifest, manifestError: pdManifestError,
+  confirmedShotCount: pdConfirmedShots,
+  remainingBatchCount: pdRemaining,
+  recycled: pdRecycled, finalPath: pdFinalPath,
+  errorCode: pdErrorCode, errorText: pdErrorText,
+  planProduction: pdPlan_, begin: pdBegin, confirmBatch: pdConfirm,
+  resume: pdResume, retryShotInBatch: pdRetryShot,
+  recycleAll: pdRecycle, composeFinal: pdCompose,
+  reset: pdReset, dispose: pdDispose,
+} = useFilmProduction()
+
+function openProductionPanel () {
+  productionStartError.value = ""
+  pdTaskIdInput.value = "default"
+  productionPanelOpen.value = true
+  // 自动 plan（不阻塞）
+  if (selectedShotIds.value.length > 0 && pdPhase.value === "idle") {
+    void pdPlan_(selectedShotIds.value.slice())
+  }
+}
+async function onProductionBegin () {
+  productionStartError.value = ""
+  const id = String(pdTaskIdInput.value || "").trim()
+  if (!id) { productionStartError.value = t("filmEngineering.production.taskIdInvalid"); return }
+  if (!/^[a-zA-Z0-9._-]{1,64}$/.test(id)) { productionStartError.value = t("filmEngineering.production.taskIdInvalid"); return }
+  const r = pdBegin(id)
+  if (!r.ok) productionStartError.value = t("filmEngineering.production." + r.errorCode) || r.errorCode
+}
+async function onProductionConfirmBatch (i) { await pdConfirm(i) }
+async function onProductionResume () {
+  productionStartError.value = ""
+  const id = String(pdTaskIdInput.value || "").trim()
+  if (!id) { productionStartError.value = t("filmEngineering.production.taskIdInvalid"); return }
+  const r = await pdResume(id, selectedShotIds.value.slice())
+  if (!r.ok) productionStartError.value = t("filmEngineering.production." + (r.errorCode || "noLedger")) || r.errorCode
+}
+async function onProductionRetryShot (bi, si) { await pdRetryShot(bi, si) }
+async function onProductionRecycle () { await pdRecycle() }
+async function onProductionCompose () { await pdCompose() }
+async function onProductionOpenFolder () { if (pdFinalPath.value) await story2videoShowInFolder(pdFinalPath.value) }
+async function onProductionSaveAs () { if (pdFinalPath.value) await story2videoSaveAs(pdFinalPath.value) }
+function onProductionReset () { pdReset(); productionStartError.value = "" }
+function toggleBatch (bi) { const set = new Set(pdExpandedBatches.value); set.has(bi) ? set.delete(bi) : set.add(bi); pdExpandedBatches.value = set }
+function pdBatchLabel (st) { return st === "done" ? t("filmEngineering.production.statusDone") : st === "running" ? t("filmEngineering.production.statusRunning") : st === "failed" ? t("filmEngineering.production.statusFailed") : t("filmEngineering.production.statusPending") }
+function pdBatchType (st) { return st === "done" ? "success" : st === "running" ? "" : st === "failed" ? "danger" : "info" }
+function pdFmtBytes (b) { if (!Number.isFinite(b)) return "—"; if (b > 1e9) return (b / 1e9).toFixed(1) + " GB"; return Math.round(b / 1e6) + " MB" }
+function pdFmtDuration (sec) { if (!Number.isFinite(sec)) return "—"; const m = Math.round(sec / 60); return m + " min" }
 
 // 角色映射输入（前 4 个为 Hell Grind 主角预设）
 const roleEntries = reactive([
@@ -530,7 +683,7 @@ watch(shotListEnd, (el) => {
     shotEndObserver.observe(el)
   }
 }, { flush: 'post' })
-onBeforeUnmount(() => { if (shotEndObserver) { shotEndObserver.disconnect(); shotEndObserver = null } })
+onBeforeUnmount(() => { if (shotEndObserver) { shotEndObserver.disconnect(); shotEndObserver = null }; pdDispose() })
 
 onMounted(() => {
   refreshAll()

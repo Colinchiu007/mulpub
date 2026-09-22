@@ -139,6 +139,39 @@ describe('film_generate_videos - 阶段执行', () => {
     expect(res.output.videoResults.every(r => r.success)).toBe(true)
   })
 
+  it('manifest 直通：无 selectedShots 但有 renderManifest → success(manifestMode)，零 provider 调用（全量收口合成 run）', async () => {
+    const engine = makeEngine()
+    const fn = engine._executors.get(FILM_VIDEO_STAGE_TYPES.GENERATE_VIDEOS)
+    const manifest = [
+      { shotId: 's1', path: '/x/shot_000.mp4', sourceKind: 'generated', orderIndex: 0 },
+      { shotId: 's2', path: '/y/shot_001.mp4', sourceKind: 'downloaded', orderIndex: 1 },
+    ]
+    const res = await fn({
+      runId: 't-manifest-run',
+      stage: { name: 'generate_videos', type: FILM_VIDEO_STAGE_TYPES.GENERATE_VIDEOS, options: {} },
+      params: {},
+      context: { renderManifest: manifest },
+      serviceBus: engine.serviceBus,
+      onProgress: () => {},
+    })
+    expect(res.success).toBe(true)
+    expect(res.output.manifestMode).toBe(true)
+    expect(res.output.entryCount).toBe(2)
+    expect(engine._calls.length).toBe(0)
+    expect(engine._optimizeCalls.length).toBe(0)
+    // 回归锚：无 manifest 无 shots 仍走既有错误；manifest 空数组不放行
+    const res2 = await fn({
+      runId: 't-manifest-empty',
+      stage: { name: 'generate_videos', type: FILM_VIDEO_STAGE_TYPES.GENERATE_VIDEOS, options: {} },
+      params: {},
+      context: { renderManifest: [] },
+      serviceBus: engine.serviceBus,
+      onProgress: () => {},
+    })
+    expect(res2.success).toBe(false)
+    expect(res2.error).toContain('selectedShots')
+  })
+
   it('provider 未配置：VIDEO_MODEL_NOT_CONFIGURED fail-closed，零 provider 调用', async () => {
     const engine = makeEngine({ noVideoProvider: true })
     const res = await runInput(engine, 't-noprovider', [makeShot(1)])

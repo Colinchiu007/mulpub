@@ -64,10 +64,23 @@
 
 ## 8. L3 前端出片面板
 
-- [ ] 8.1 "全量出片"入口：批次计划预览（批次数/镜数/磁盘占用估算/墙钟估算）与发起确认
-- [ ] 8.2 逐批 costCheck 确认面板：该批价格 + 剩余批次数 + 累计已确认预算（D9 缓解项）
-- [ ] 8.3 批次进度视图：批/镜双层状态、失败镜单镜重试（复用 filmRetryShot）、断点续跑按钮、回收通道"先回收后精修"引导（D10）
-- [ ] 8.4 全量交互回归：进度刷新不重置用户展开态、组件卸载监听清理；locales 成对
+- [x] 8.1 "全量出片"入口：批次计划预览（批次数/镜数/磁盘占用估算/墙钟估算）与发起确认
+      <!-- 证据：FilmEngineeringView.vue 工具栏 fe-production-entry 按钮（选中分镜>0 可用，无单批 20 上限）→ openProductionPanel 自动 planProduction；
+      production dialog plan-ready 分支显示 planSummary（批次数×批大小×镜数）/diskEstimate(8MB/镜)/wallclockEstimate(300s/镜)/mediaRoot + taskId 输入（^[a-zA-Z0-9._-]{1,64}$ 前端校验）→ begin()。
+      回归：useFilmProduction.test.js 13 用例（8.1 plan 成功/降级 noDesktop/noShots 零 run-batch 调用）+ FilmEngineeringView.test.js 3 用例（按钮 disabled/enabled/点击开面板）。 -->
+- [x] 8.2 逐批 costCheck 确认面板：该批价格 + 剩余批次数 + 累计已确认预算（D9 缓解项）
+      <!-- 证据：batching 分支逐批卡片——每批 确认按钮（confirmBatch(i) 才调 production-run-batch，确认前零调用零计费，测试断言      run-batch 恰 1 次且仅在 confirmBatch 后）+ remainingBatchCount（pending/failed 批计数）+ confirmedShotCount（已确认批镜数合计，与 plan 估算同口径）；
+      批负载含 aspect/seconds 选择（复用 video 面板 16x9/9x16/source 与 5/8/10s 枚举）；provider 缺失信封 errorCode=VIDEO_MODEL_NOT_CONFIGURED 透出引导文案。 -->
+- [x] 8.3 批次进度视图：批/镜双层状态、失败镜单镜重试（复用 filmRetryShot）、断点续跑按钮、回收通道"先回收后精修"引导（D10）
+      <!-- 证据：批列表 el-tag 状态（pending/running/done/failed）+ doneShots/shotCount 计数 + 总进度条（production-update 事件驱动，500ms 节流负载）；
+      批明细展开显示逐镜状态，failed 镜显示重试按钮 → retryShotInBatch(runId=prod-<taskId>-b<idx> 确定性派生, prompt 由主进程取原文不随负载)；
+      plan-ready/batching 均有 resumeBtn → pdResume 只读 production-status 双核恢复（noLedger 友好提示）；
+      recycleAll 分片≤50/片调 download-recycled（orderIndex 全局连续，测试 120 镜 3 片）+ recycleGuide 文案。 -->
+- [x] 8.4 全量交互回归：进度刷新不重置用户展开态、组件卸载监听清理；locales 成对
+      <!-- 证据：applyStatus/applyProductionEvent 对 batches 就地 mutate 字段不重建数组（测试断言 c.batches.value === arr 引用相等），
+      展开态 pdExpandedBatches 以 batchIndex 为键存组件本地 Set 不受进度刷新影响；doneCount Math.max 单调不回退；
+      dispose() 清理 production/pipeline 双订阅 + poll 定时器（onBeforeUnmount 接线，测试覆盖 disposed 后事件忽略）；
+      locales zh.js/en.js filmEngineering.production.* 各 44 键成对（check-locale-pair.js PAIR_OK + 占位符 PLACEHOLDER_OK，ICU 参数一致）。 -->
 
 ## 9. E2E 与真实冒烟
 
