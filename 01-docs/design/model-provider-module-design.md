@@ -857,3 +857,63 @@ P3 实施前需复审，通过条件：
 - 既有 `SettingsDialog.test.js`（5 例）、`model-providers-copy.test.js`（5 例）、`icon-usage.test.js`（9 例）零回归。
 
 **变更影响面**：纯前端展示层样式，无 IPC / 数据模型 / 后端 / 迁移；视觉测试选择器（`.settings-tab`、`.provider-card`、`button:has-text("添加服务商")`）为类名/子串匹配，留白改动不影响命中。
+
+## 9.5 限流自检弹窗功能规格与布局规范（selfcheck-dialog-layout，2026-09-22）
+
+### 功能定位：限流自检是什么
+
+「限流自检」是模型设置页的调度机制验证工具（`ModelProviders.vue` 顶部入口按钮 → `el-dialog`）。它用**真实的调度网关 `ApiUsageGovernor`**（与生产同一套限流/排队/冷却实现）+ **本地假 adapter**（仅内存 sleep、绝不发起网络请求）构造并发请求，验证四类机制是否符合预期：
+
+1. **并发上限**：同时 in-flight 请求数不超过 `maxConcurrent`；
+2. **排队**：超出并发的请求在 governor 内部排队，吞吐与总时长符合 rpm 预算；
+3. **429 冷却**：注入 `ProviderError(RATE_LIMITED)` 后 governor 走冷却/重试路径；
+4. **5h 限额**：配置 `limitPer5h` 后超出配额被 `QUOTA_EXCEEDED` 拦截。
+
+**安全边界**：全程无网络、不消耗任何真实 API 额度（假 adapter 不访问 provider）；使用独立 governor 实例，不污染生产单例。结果可一键上报运营后台「限流与调度验证」页，与 Python 模拟器（engine='simulator'）同构对比（本端产出 engine='real-governor' 的 metrics/assertions/timeline）。
+
+### 使用流程（交互逻辑）
+
+1. 设置 → 模型设置 → 点击「限流自检」按钮（`data-testid="open-self-check"`）打开弹窗；
+2. 按需调整 6 个参数（见下表），必填项已有默认值可直接用；
+3. 点击「运行自检」→ 弹窗显示「自检运行中（真实调度排队，耗时取决于 rpm 预算）…」，按钮禁用；
+4. 完成后展示指标行（最大并发/429 次数/超配额次数/总耗时）+ 逐条断言（通过/失败，含实际值 vs 期望值），并弹 toast「自检完成：断言 n/m 通过」；
+5. 点击「上报运营后台」（未运行前禁用）上传参数+结果快照，成功显示 run_id；
+6. 「关闭」退出弹窗；重新打开会清空上次结果。
+
+### 参数与数据校验（显示项）
+
+| 表单项 | 字段 | 范围（IPC 层 `_validate` 强校验） | 默认 | 说明 |
+|---|---|---|---|---|
+| 每分钟连接次数 rpm | `rpm` | 整数 [1, 100000] | 20 | governor 每分钟请求预算 |
+| 并发上限（留空=clamp(rpm/10,1,4)） | `maxConcurrent` | 整数 [1, 8] 或留空 | 留空 | 留空时前端传 null，服务端按 `clamp(round(rpm/10),1,4)` 换算（与 model-call-scheduler 一致） |
+| 请求数 | `requestCount` | 整数 [1, 1000] | 10 | 构造的并发请求总数 |
+| 单请求耗时(ms) | `requestDurationMs` | 整数 [0, 60000] | 100 | 假 adapter 内存 sleep 时长 |
+| 注入 429（第 N 个，留空=不注入） | `inject429At` | 整数 [1, requestCount] 或留空 | 留空 | 第 N 个请求抛真实 ProviderError(429) 验证冷却路径 |
+| 5小时限额次数（留空=不启用） | `limitPer5h` | 整数 [1, 10000000] 或留空 | 留空 | 5h 滚动窗口请求数配额 |
+| （无 UI，固定）冷却时长 | `cooldownMs` | 整数 [100, 60000] | 30000 | 429 后冷却时长 |
+
+- 前端 `el-input-number` 的 `:min/:max` 与 IPC 校验边界一致；留空语义（null）由 `runSelfCheck` 统一转 `|| null` 传 IPC。
+- 越界/非法参数在 IPC 层抛 `TypeError`，前端捕获后以「自检失败: msg」toast 呈现，不静默。
+- 无 Electron API（浏览器打开 renderer）时调用 `rateLimitSelfCheck` 前检测并提示 `noElectronApiSelfCheck`，不裸崩。
+
+### 布局修复（本次 UI 优化）
+
+**问题现象**（用户截图）：弹窗内 6 个表单项标签与输入框随机换行、上下错位，输入框宽度参差（有的显示数值有的只剩 ± 按钮），整体混乱不整齐。
+
+**根因**：模板写了 `.selfcheck-form` / `.selfcheck-row` 类名，但 `<style scoped>` 中**从未定义任何对应规则**——label（inline）与 `el-input-number`（inline-flex，默认 150px）在无布局约束下随文本流换行；长标签（如「并发上限（留空=clamp(rpm/10,1,4)）」）把输入框挤到下一行且各行缩进不一致。
+
+**修复**（`ModelProviders.vue` `<style scoped>` 补齐）：
+- `.selfcheck-form`：纵向 flex，`gap: 14px` 统一行距；
+- `.selfcheck-row`：`display:flex; align-items:center; gap:12px`，标签与输入框同行垂直居中；
+- `.selfcheck-row label`：`flex: 0 0 230px` 固定标签列宽（可容纳最长标签并允许换行 `line-height:1.4`），次要色 `var(--muted)` + `var(--font-size-sm)`；
+- `.selfcheck-row .el-input-number`：统一 `width: 150px; flex-shrink: 0`，所有输入框对齐同一左基线。
+
+**显示项约定**：标签列 230px、输入列 150px、行距 14px；暗色模式沿用 token 不受影响；结果区/按钮区维持原结构。
+
+**回归测试覆盖**（新增 `src/views/selfcheck-dialog-layout.test.js`，源码契约式 3 例）：
+- `.selfcheck-row` 含 `display:flex` + `align-items:center`（守护同行对齐不回退）；
+- `.selfcheck-row label` 有固定列宽（守护输入框同基线）；
+- `.selfcheck-row .el-input-number` 统一 px 宽度（守护参差不回退）。
+既有 `icon-usage.test.js`(9)、`model-providers-copy.test.js`(5)、`settings-panel-layout.test.js`(3) 零回归。
+
+**变更影响面**：纯展示层样式补齐（新增 CSS 规则，不改模板结构与 IPC/数据模型）；`.selfcheck-*` 类名仅存在于该弹窗，无跨页污染；视觉测试选择器不受影响。

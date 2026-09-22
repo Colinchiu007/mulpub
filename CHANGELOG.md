@@ -1,3 +1,18 @@
+# [未发布] fix(ui): 限流自检弹窗表单布局修复 + 功能规格文档化
+
+### 变更
+- **`ModelProviders.vue`（限流自检弹窗布局）**：模板中的 `.selfcheck-form` / `.selfcheck-row` 类名此前在 `<style scoped>` 中无任何规则定义，label 与 `el-input-number` 随文本流随机换行、输入框宽度参差（用户反馈「布局非常混乱不整齐」）。补齐：表单纵向 flex `gap:14px`；每行 `display:flex; align-items:center; gap:12px` 标签与输入框同行垂直居中；label 固定列宽 `flex:0 0 230px`（次要色+小字号、允许换行）；输入框统一 `width:150px; flex-shrink:0`，全部对齐同一左基线。
+- **文档**：`01-docs/design/model-provider-module-design.md` 新增 §9.5「限流自检弹窗功能规格与布局规范」——功能定位（真实 ApiUsageGovernor + 本地假 adapter 验证并发上限/排队/429 冷却/5h 限额，无网络不耗额度）、使用流程 6 步、参数数据校验表（rpm [1,100000]、maxConcurrent [1,8] 或留空=clamp(rpm/10,1,4)、requestCount [1,1000]、requestDurationMs [0,60000]、inject429At [1,requestCount] 或留空、limitPer5h [1,10000000] 或留空、cooldownMs [100,60000]）、交互逻辑、显示项、提示文字、回归覆盖与影响面。
+
+### 验证
+- TDD：新增 `src/views/selfcheck-dialog-layout.test.js`（3 例源码契约：行 flex 同行对齐 / label 固定列宽 / 输入框统一宽度）。定向 4 文件 20/20 全绿（含 `icon-usage`(9)、`model-providers-copy`(5)、`settings-panel-layout`(3) 零回归）；eslint exit 0（仅既有 warning）。
+- 纯展示层样式补齐，不改模板结构 / IPC / 数据模型；暗色模式沿用 token 不受影响。
+
+### 关联
+- 分支 `codex/selfcheck-dialog-layout`（worktree 隔离，D 盘），基于 `origin/main`；规范详见 §9.5。
+
+---
+
 # [未发布] fix(accounts): 账号页首开 10s 显示「暂无账号」——Logto JWKS 抖动的三层放大一次收口（P0-A/P0-B/P1）
 
 ### 根因
