@@ -9,6 +9,7 @@ Multi-Publish Python Backend — FastAPI 服务
 - 健康检查
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -17,6 +18,7 @@ import re
 import shutil
 import time
 import uuid
+from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -37,7 +39,34 @@ from multi_publish.video_creation.pipeline.loader import list_pipelines, load_pi
 from multi_publish.video_creation.providers.video.video_trimmer import VideoTrimmer
 from multi_publish.aggregation.router import router as aggregation_router
 
-app = FastAPI(title="Multi-Publish Backend", version="1.0.0")
+# 身份服务 JWKS 预热任务（启动调度、退出收尾，不阻塞启动）
+_JWKS_WARMUP_TASK: asyncio.Task | None = None
+
+
+@asynccontextmanager
+async def _app_lifespan(_app: FastAPI):
+    """预热 JWKS 并在退出时收尾共享连接池。
+
+    只调度不等待：身份服务抖动时后端仍要尽快通过健康检查；首个业务请求也不必替
+    discovery + jwks 冷启动付往返（账号页首开 25s 事故的直接放大因素）。
+    """
+    global _JWKS_WARMUP_TASK
+
+    prefetch = getattr(IDENTITY_VERIFIER, "prefetch", None)
+    if callable(prefetch):
+        _JWKS_WARMUP_TASK = asyncio.create_task(prefetch())
+    yield
+    task, _JWKS_WARMUP_TASK = _JWKS_WARMUP_TASK, None
+    if task is not None and not task.done():
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+    close = getattr(IDENTITY_VERIFIER, "aclose", None)
+    if callable(close):
+        await close()
+
+
+app = FastAPI(title="Multi-Publish Backend", version="1.0.0", lifespan=_app_lifespan)
 
 
 def _env_bool(name: str, default: bool = False) -> bool:

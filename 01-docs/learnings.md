@@ -15151,3 +15151,26 @@ MIN_ENGAGEMENT_SAMPLES，与引擎严格同门槛含 Number(null)=0 语义），
 
 **环境教训**：live 实例走查前先核实 identityGetState——signed_out 状态下涉权益链路
 （存库/发布/回采）会被许可证门禁拦截，属环境态而非代码缺陷，走查结论需分段标注。
+
+## 设置弹窗右侧内容区与左侧标签导航留白修复（settings-panel-content-gap，2026-09-22，PR #2217）
+
+### 可复用结论
+
+- **flex 双栏布局「面板零内边距 + 子页面留白各自为政」致内容贴/压分隔线（pitfall）**：`SettingsDialog.vue` 左 `nav.settings-tabs`(200px) + 右 `.settings-panel`(flex:1) 双栏。面板曾 `padding:0`，把水平留白完全下放给子组件，而子组件留白不一致：`ModelProviders` 头部/内容各带页级 `--space-xxl`(32px) 但 `.cohere-filter-bar` 为 `padding:0`；`FeishuSettingsTab` 根 `.feishu-settings` 完全无 padding。于是零内边距的行直接贴住导航 `border-right`，与激活标签卡片（白底+`--shadow-sm`浮起+左侧强调条）挤在一起读作「重叠」。修复：让**容器（面板）做水平留白的单一真源**（`padding:24px 28px` + `min-width:0` 防 flex 子项溢出反压导航列），并用 `:deep(.cohere-page-header)/:deep(.cohere-content){padding-left/right:0}` 收掉子页级左右 padding 避免双重缩进；上下 padding 保留维持纵向节奏。凡「固定侧栏 + 弹性内容区」双栏，内容留白应由容器统一提供，不要让每个子页面各自维护，否则必然出现贴边/重叠。
+- **scoped CSS 布局契约用「读源码正则断言」而非 mount 计算样式（pattern）**：`<style scoped>` 的 padding 不会注入 jsdom，`@vue/test-utils` mount 拿不到计算样式，无法断言留白。改用源码契约测试（仿 `model-providers-copy.test.js`）：读 `SettingsDialog.vue` 文本，用 `ruleBody('.settings-panel')` 抓块体断言 `padding` 非 0、含 `min-width:0`、存在 `:deep(...)` 且 `padding-left/right:0`。锁死「不回退 padding:0 / 不丢 :deep 去重」的意图，纯静态、无需 dev server、CI 稳定。
+- **改文案/样式前先核对本地下游分支是否落后 origin/main（process）**：本地 main 落后 origin/main 13 个提交，直接读本地 `SettingsDialog.vue` 拿到的是 #2191 之前的旧版（无图标），与用户截图（新版）不符，会误判现状。正确动作：`git fetch origin main` → 新 worktree 一律 `git worktree add -b ... <path> origin/main` 基于远程最新，读代码用 `git show origin/main:<file>`。
+
+### 本次决策记录
+
+纯前端展示层布局修复（无 IPC/数据/后端/迁移），走完整 worktree 隔离流程（gate → worktree(基于 origin/main) → TDD → 门禁 → PR → auto-merge squash）。TDD 先加 `settings-panel-layout.test.js`（3 例源码契约，红→绿），定向 13/13、icon-usage 9/9、SettingsDialog 5/5、model-providers-copy 5/5 全绿，eslint exit 0。规范回写 `01-docs/design/model-provider-module-design.md` §9.4（问题/根因/方案/显示项/交互/数据校验/回归覆盖/影响面），CHANGELOG 前插。经验同步内置记忆 + EverOS。
+
+## 限流自检弹窗表单布局修复（selfcheck-dialog-layout，2026-09-22，PR #2225）
+
+### 可复用结论
+
+- **「模板写了类名、样式块从未定义」的孤儿类布局缺陷（pitfall）**：`ModelProviders.vue` 限流自检弹窗模板使用 `.selfcheck-form`/`.selfcheck-row` 类名组织 6 个表单项，但 `<style scoped>` 中没有任何对应规则——label（inline）与 `el-input-number`（inline-flex 默认 150px）随文本流随机换行，长标签（「并发上限（留空=clamp(rpm/10,1,4)）」）把输入框挤到下一行、宽度参差，用户读作「布局非常混乱」。排查判据：截图症状为「同一表单内各行缩进不一致 + 控件随机掉行」时，先 grep 类名在 style 块是否有定义，而不是调间距。修复模式：每行 `display:flex; align-items:center`，label `flex:0 0 230px` 固定列宽，控件统一 `width:150px; flex-shrink:0`，全部输入框对齐同一左基线。凡 Element Plus 表单弹窗，优先用 el-form label-width 或自建 flex 行，禁止裸类名无样式。
+- **共享数据契约要随 UI 一并文档化（process）**：本次顺带把「限流自检」功能规格（用途/使用流程/6 参数 IPC 校验边界 rpm[1,1e5]、maxConcurrent[1,8]或留空=clamp(rpm/10,1,4)、requestCount[1,1000]、requestDurationMs[0,6e4]、inject429At[1,requestCount]、limitPer5h 或留空、cooldownMs[100,6e4]/交互/显示项）写入设计文档 §9.5。前端 el-input-number 的 min/max 与 IPC `_validate` 边界必须一致，改任一侧须同步另一侧与文档。
+
+### 本次决策记录
+
+纯展示层样式补齐（新增 CSS 规则，不改模板结构/IPC/数据模型），走完整 worktree 隔离流程（gate → worktree(基于 origin/main 362896f93) → TDD → 门禁 → PR #2225 → auto-merge squash）。TDD 先加 `src/views/selfcheck-dialog-layout.test.js`（3 例源码契约，红→绿，沿用 scoped CSS 读源码正则断言模式），定向 4 文件 20/20 全绿（icon-usage/model-providers-copy/settings-panel-layout 零回归），eslint exit 0。CHANGELOG/设计文档追加一律字节级只动头部/尾部，防混合 EOL 全文件重写（上次已踩坑）。经验同步内置记忆 + EverOS。

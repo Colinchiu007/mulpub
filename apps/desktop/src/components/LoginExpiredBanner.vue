@@ -10,6 +10,14 @@
       <button class="banner-btn" :disabled="batchLoading" @click="$emit('batch-login')">
         {{ batchLoading ? t('home.loginExpiredBanner.batchLoginBtnLoading') : t('home.loginExpiredBanner.batchLoginBtn') }}
       </button>
+      <button
+        v-if="unsavedCount > 0"
+        class="banner-btn banner-btn--secondary"
+        data-testid="banner-save-all"
+        @click="$emit('save-all')"
+      >
+        {{ t('home.loginExpiredBanner.saveAllBtnCount', { count: unsavedCount }) }}
+      </button>
       <button class="banner-close" @click="$emit('dismiss')">✕</button>
     </div>
   </div>
@@ -22,9 +30,10 @@ defineProps({
   expiredCount: { type: Number, default: 0 },
   visible: { type: Boolean, default: false },
   batchLoading: { type: Boolean, default: false },
+  unsavedCount: { type: Number, default: 0 },
 })
 
-defineEmits(['batch-login', 'dismiss'])
+defineEmits(['batch-login', 'dismiss', 'save-all'])
 
 const { t } = useI18n()
 </script>
@@ -73,6 +82,10 @@ const { t } = useI18n()
   color: #fff;
   white-space: nowrap;
 }
+.banner-btn--secondary {
+  background: #f59e0b;
+}
+
 .banner-btn:hover {
   opacity: 0.9;
 }

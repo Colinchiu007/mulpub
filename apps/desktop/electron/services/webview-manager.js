@@ -17,7 +17,7 @@ const os = require('os')
 const { pathToFileURL } = require('url')
 const log = require('./logger')
 const credentialStore = require('./credential-store')
-const { getPlatformName } = require('@multi-publish/shared-utils/src/platform-definitions')
+const { getPlatformName, isPlatformLoginSuccessUrl } = require('@multi-publish/shared-utils/src/platform-definitions')
 const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('../ipc-handlers/helpers')
 // 内嵌视图定位唯一来源：必须用「客户区」尺寸，禁用 getBounds() 外框尺寸（详见模块注释）
@@ -33,6 +33,10 @@ const SIDEBAR_WIDTH_DEFAULT = 200
 
 // 账号级持久会话分区标识校验（与 comment-manager 保持一致）
 const SAFE_IDENTIFIER = /^[a-zA-Z0-9_-]+$/
+
+// 方案一（治本）：账号标签登录成功后自动回写凭证的去抖窗口（毫秒）。
+// 稳定后再保存，避免把加载中间态的半截导航误判为登录成功（对齐 auth-view-manager 的 3s 自动完成，此处略短）。
+const AUTO_SAVE_DEBOUNCE_MS = 1500
 
 function _getUserDataDir () {
   try { return app.getPath('userData') } catch (e) { return path.join(os.homedir(), '.multi-publish') }
@@ -462,7 +466,13 @@ class WebviewManager extends EventEmitter {
         // 关闭前回写可让下次 checkLocalCredentials 命中加密文件主路径）
         ,
         accountId: useAccountSession ? accountId : null,
-        platform: platform || null
+        platform: platform || null,
+        // 凭证保存态（三方案共享原语）：批量登录/失效账号重新登录以干净会话打开，登录态尚未回写
+        // 加密凭证库时为 'unsaved'；成功回写后置 'saved'；非「待保存」语义标签为 null。
+        credentialSaveState: (useAccountSession && cleanSession) ? 'unsaved' : null,
+        // 初始重定向守卫：登录页首帧加载完成前的跳转链不视为登录成功（对齐 auth-view-manager）。
+        initialRedirectPhase: useAccountSession === true,
+        _autoSaveTimer: null
       })
     self._activeTabId = tabId
 
@@ -542,6 +552,9 @@ class WebviewManager extends EventEmitter {
     // 处理新浏览器标签
     if (self._tabViews.has(tabId)) {
       var view = self._tabViews.get(tabId)
+      // 关闭前清理未触发的自动保存计时器，避免对已销毁 view 执行回写。
+      var closingState = self._tabStates.get(tabId)
+      if (closingState && closingState._autoSaveTimer) { clearTimeout(closingState._autoSaveTimer); closingState._autoSaveTimer = null }
       self._tabViews.delete(tabId)
       self._tabStates.delete(tabId)
 
@@ -701,7 +714,8 @@ class WebviewManager extends EventEmitter {
         isHome: tabId === self._homeTabId,
         // 账号标签标识：渲染层据此显示「保存账号」按钮（批量登录标签无 isLogin）
         accountId: state.accountId || null,
-        platform: state.platform || null
+        platform: state.platform || null,
+        credentialSaveState: state.credentialSaveState || null
       })
     })
     // 虚拟登录标签（对齐参考产品全屏登录）
@@ -740,7 +754,8 @@ class WebviewManager extends EventEmitter {
       canGoForward: state.canGoForward,
       isHome: this._activeTabId === this._homeTabId,
       accountId: state.accountId || null,
-      platform: state.platform || null
+      platform: state.platform || null,
+      credentialSaveState: state.credentialSaveState || null
     }
   }
 
@@ -940,12 +955,117 @@ class WebviewManager extends EventEmitter {
         localStorage: localStorageData,
         name: state.title || ''
       }, accountId)
+      state.credentialSaveState = 'saved'
+      if (state._autoSaveTimer) { clearTimeout(state._autoSaveTimer); state._autoSaveTimer = null }
+      self._broadcastCredentialState(tabId, 'saved')
       log.info('WebviewManager', 'saveAccountTabCredentials: saved ' + platform + ':' + accountId + ' cookies=' + cookies.length + ' lsKeys=' + Object.keys(localStorageData).length)
       return { ok: true, accountId: accountId, platform: platform }
     } catch (e) {
       log.warn('WebviewManager', 'saveAccountTabCredentials: updateCapturedAccount failed for ' + platform + ':' + accountId + ': ' + (e && e.message ? e.message : String(e)))
       return { ok: false, reason: (e && e.message) ? e.message : 'save-failed', accountId: accountId, platform: platform }
     }
+  }
+
+  /**
+   * 方案一（治本）：账号标签导航时判定登录成功并去抖自动回写凭证。
+   * 仅 credentialSaveState==='unsaved' 的账号标签参与；不在初始重定向阶段且 URL 命中平台登录
+   * 成功模式时安排（重新安排）一次自动保存，未命中则取消待触发计时器（用户反复横跳时只在稳定后保存）。
+   * @param {string} tabId
+   * @param {object} [state]
+   */
+  _maybeScheduleAutoSave (tabId, state) {
+    var self = this
+    if (!state) state = self._tabStates.get(tabId)
+    if (!state) return
+    if (state.credentialSaveState !== 'unsaved') return
+    if (!state.accountId || !state.platform) return
+    if (state.initialRedirectPhase === true) return
+    if (isPlatformLoginSuccessUrl(state.platform, state.url)) {
+      if (state._autoSaveTimer) { clearTimeout(state._autoSaveTimer); state._autoSaveTimer = null }
+      state._autoSaveTimer = setTimeout(function () {
+        state._autoSaveTimer = null
+        if (!self._tabStates.has(tabId)) return
+        if (self._tabStates.get(tabId).credentialSaveState !== 'unsaved') return
+        log.info('WebviewManager', 'auto-save triggered ' + state.platform + ':' + state.accountId)
+        Promise.resolve(self.saveAccountTabCredentials(tabId)).then(function (result) {
+          // saveAccountTabCredentials 内部已置 saved 并广播保存态；这里补发 auth:completed
+          // 让渲染层刷新失效账号列表（对齐手动保存 IPC 成功链路）。失败保持 unsaved，等下次导航重试。
+          if (result && result.ok) {
+            var win = self.mainWindow
+            if (win && !win.isDestroyed()) {
+              win.webContents.send('auth:completed', { platform: result.platform, accountId: result.accountId })
+            }
+          }
+        }).catch(function (e) {
+          log.warn('WebviewManager', 'auto-save threw ' + ((e && e.message) || e))
+        })
+      }, AUTO_SAVE_DEBOUNCE_MS)
+      if (state._autoSaveTimer && state._autoSaveTimer.unref) state._autoSaveTimer.unref()
+    } else {
+      if (state._autoSaveTimer) { clearTimeout(state._autoSaveTimer); state._autoSaveTimer = null }
+    }
+  }
+
+  /**
+   * 广播某标签的凭证保存态（渲染层角标 / 护栏实时刷新）。
+   * @param {string} tabId
+   * @param {string|null} [credentialSaveState] 省略时取当前 state 值
+   */
+  _broadcastCredentialState (tabId, credentialSaveState) {
+    var state = this._tabStates.get(tabId)
+    var resolved = credentialSaveState == null
+      ? (state ? (state.credentialSaveState || null) : null)
+      : credentialSaveState
+    this._broadcast('tab-credential-state-changed', {
+      tabId: tabId,
+      credentialSaveState: resolved,
+      accountId: state ? (state.accountId || null) : null,
+      platform: state ? (state.platform || null) : null
+    })
+  }
+
+  /**
+   * 查询账号标签凭证保存态（方案二：关闭护栏查询入口）。
+   * @param {string} tabId
+   * @returns {{isAccountTab: boolean, credentialSaveState: (string|null), accountId: (string|null), platform: (string|null)}}
+   */
+  getAccountTabSaveState (tabId) {
+    var state = this._tabStates.get(tabId)
+    if (!state || !state.accountId || !state.platform) {
+      return { isAccountTab: false, credentialSaveState: null, accountId: null, platform: null }
+    }
+    return {
+      isAccountTab: true,
+      credentialSaveState: state.credentialSaveState || null,
+      accountId: state.accountId,
+      platform: state.platform
+    }
+  }
+
+  /**
+   * 方案三：批量保存全部待保存（unsaved）账号标签。
+   * @returns {Promise<{attempted: number, saved: number, failed: Array<{accountId: string, platform: string, reason: string}>}>}
+   */
+  async saveAllUnsavedAccounts () {
+    var self = this
+    var attempted = 0
+    var saved = 0
+    var failed = []
+    var tabIds = Array.from(self._tabStates.keys())
+    for (var i = 0; i < tabIds.length; i++) {
+      var state = self._tabStates.get(tabIds[i])
+      if (!state || state.credentialSaveState !== 'unsaved' || !state.accountId || !state.platform) continue
+      attempted += 1
+      try {
+        var result = await self.saveAccountTabCredentials(tabIds[i])
+        if (result && result.ok) { saved += 1 } else {
+          failed.push({ accountId: state.accountId, platform: state.platform, reason: (result && result.reason) || 'save-failed' })
+        }
+      } catch (e) {
+        failed.push({ accountId: state.accountId, platform: state.platform, reason: (e && e.message) || 'save-failed' })
+      }
+    }
+    return { attempted: attempted, saved: saved, failed: failed }
   }
 
   // ─── 窗口事件 ──────────────────────────────────
@@ -1048,6 +1168,10 @@ class WebviewManager extends EventEmitter {
       state.canGoBack = view.webContents.canGoBack()
       state.canGoForward = view.webContents.canGoForward()
       self._broadcast('tab-finished-loading', { tabId: tabId, url: state.url, loading: false })
+      // 初始重定向阶段结束：此后导航才可作为登录成功判定信号。
+      if (state.initialRedirectPhase) state.initialRedirectPhase = false
+      // 覆盖「首帧即已登录」情形：当前 URL 已是成功页时同样安排自动保存。
+      self._maybeScheduleAutoSave(tabId, state)
     })
 
       view.webContents.on('page-title-updated', function (event, title) {
@@ -1083,6 +1207,7 @@ class WebviewManager extends EventEmitter {
       state.canGoBack = view.webContents.canGoBack()
       state.canGoForward = view.webContents.canGoForward()
       self._broadcastNav(tabId)
+      self._maybeScheduleAutoSave(tabId, state)
     })
 
    view.webContents.on('did-navigate-in-page', function (event, url) {
@@ -1090,6 +1215,7 @@ class WebviewManager extends EventEmitter {
      var state = self._tabStates.get(tabId)
      if (state.homeShell) { state.realUrl = url } else { state.url = url }
      self._broadcastNav(tabId)
+     self._maybeScheduleAutoSave(tabId, state)
    })
 
     // ─── window.open / target=_blank 拦截（对齐参考产品）─────────────
@@ -1313,6 +1439,20 @@ class WebviewManager extends EventEmitter {
           return { code: 0, data: result }
         }
         return { code: EC.REQUEST_ERROR, message: result?.reason || 'save-failed', data: result }
+      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
+    }))
+
+    ipcMain.handle('page-manager:account-tab-save-state', withSenderCheck(function (_, tabId) {
+      if (typeof tabId !== 'string' || !tabId) return { code: EC.VALIDATION_ERROR, message: '缺少 tabId' }
+      try {
+        return { code: 0, data: self.getAccountTabSaveState(tabId) }
+      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
+    }))
+
+    ipcMain.handle('page-manager:save-all-unsaved-accounts', withSenderCheck(async function () {
+      try {
+        const data = await self.saveAllUnsavedAccounts()
+        return { code: 0, data: data }
       } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
 

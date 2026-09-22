@@ -6,7 +6,7 @@ function registerHandlers(ipcMain, deps) {
   const { withSenderCheck } = require('./helpers')
   const EC = require('../core/error-codes').ERROR
   const log = require('../services/logger')
-  const { store, patternAttributionService } = deps
+  const { store, patternAttributionService, performanceRecrawlService } = deps
 
   if (!store) return
 
@@ -59,10 +59,19 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) { log.warn('[ipc:performance]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
   })
 
-  ipcMain.handle('performance:trigger-recrawl', withSenderCheck(async () => {
+  // 立即回采调试入口：真正触发一轮巡检（此前为空壳只 return supported）。
+  // force=true 忽略 T+1h 排期纳入窗口内全部可回采条目，用于当场观测「回采→爆款库写回」闭环。
+  ipcMain.handle('performance:trigger-recrawl', withSenderCheck(async (_event, opts) => {
     try {
-      const { getParser, supportedPlatforms } = require('../services/platform-metrics')
-      return { code: EC.SUCCESS, data: { supported: supportedPlatforms() } }
+      const { supportedPlatforms } = require('../services/platform-metrics')
+      const supported = supportedPlatforms()
+      const force = Boolean(opts && opts.force)
+      let ran = false
+      if (performanceRecrawlService && typeof performanceRecrawlService.processRound === 'function') {
+        await performanceRecrawlService.processRound({ force })
+        ran = true
+      }
+      return { code: EC.SUCCESS, data: { supported, ran, force } }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
 }

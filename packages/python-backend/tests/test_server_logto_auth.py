@@ -1,6 +1,8 @@
 """FastAPI 服务的 Logto 鉴权接线测试。"""
 
+import asyncio
 import json
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -514,3 +516,63 @@ def test_auth_status_requires_owned_account_and_passes_account_id(monkeypatch, t
     assert forbidden.status_code == 404
     assert allowed.status_code == 200
     assert calls == [("douyin", "account-a")]
+
+class WarmVerifier(StubVerifier):
+    """带预热与收尾能力的身份验证器替身。"""
+
+    def __init__(self, delay=0.0):
+        super().__init__([])
+        self.prefetch_calls = 0
+        self.close_calls = 0
+        self.delay = delay
+
+    async def prefetch(self):
+        self.prefetch_calls += 1
+        if self.delay:
+            await asyncio.sleep(self.delay)
+        return True
+
+    async def aclose(self):
+        self.close_calls += 1
+
+
+def _patch_optional_identity(monkeypatch, verifier):
+    monkeypatch.setattr(server, "IDENTITY_AUTH_ENABLED", True, raising=False)
+    monkeypatch.setattr(server, "IDENTITY_AUTH_REQUIRED", False, raising=False)
+    monkeypatch.setattr(server, "IDENTITY_VERIFIER", verifier, raising=False)
+
+
+def test_startup_warms_jwks_and_shutdown_closes_pool(monkeypatch):
+    """冷启动预热：首个业务请求不该替 discovery + JWKS 付往返（账号页首开 25s 事故）。"""
+    verifier = WarmVerifier()
+    _patch_optional_identity(monkeypatch, verifier)
+
+    with TestClient(server.app):
+        assert verifier.prefetch_calls == 1
+
+    assert verifier.close_calls == 1
+
+
+def test_startup_does_not_block_on_slow_jwks(monkeypatch):
+    """预热不得拖住启动：身份服务卡住时健康检查仍要立刻可用。"""
+    verifier = WarmVerifier(delay=30)
+    _patch_optional_identity(monkeypatch, verifier)
+
+    started = time.perf_counter()
+    with TestClient(server.app) as client:
+        assert client.get("/api/health").status_code == 200
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < 2.0, f"启动被 JWKS 预热阻塞：{elapsed:.2f}s"
+    assert verifier.prefetch_calls == 1
+    assert verifier.close_calls == 1
+
+
+def test_identity_absent_skips_warmup(monkeypatch):
+    """未启用身份服务（或验证器构建失败）时不得凭空预热。"""
+    monkeypatch.setattr(server, "IDENTITY_AUTH_ENABLED", False, raising=False)
+    monkeypatch.setattr(server, "IDENTITY_AUTH_REQUIRED", False, raising=False)
+    monkeypatch.setattr(server, "IDENTITY_VERIFIER", None, raising=False)
+
+    with TestClient(server.app) as client:
+        assert client.get("/api/health").status_code == 200

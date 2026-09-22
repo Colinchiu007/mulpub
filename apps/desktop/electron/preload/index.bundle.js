@@ -812,6 +812,10 @@ var require_page_manager = __commonJS({
           getHomeTab: () => ipcRenderer2.invoke("page-manager:get-home-tab"),
           saveCookies: (tabId) => ipcRenderer2.invoke("page-manager:save-cookies", tabId),
           saveAccountTabCredentials: (tabId) => ipcRenderer2.invoke("page-manager:save-account-tab-credentials", tabId),
+          // 查询账号标签凭证保存态（方案二：关闭护栏）
+          getAccountTabSaveState: (tabId) => ipcRenderer2.invoke("page-manager:account-tab-save-state", tabId),
+          // 批量保存全部未保存账号标签（方案三：全部保存）
+          saveAllUnsavedAccounts: () => ipcRenderer2.invoke("page-manager:save-all-unsaved-accounts"),
           // ── Event subscription ──
           subscribeEvents: () => ipcRenderer2.invoke("page-manager:subscribe-events"),
           unsubscribeEvents: () => ipcRenderer2.invoke("page-manager:unsubscribe-events"),
@@ -1002,7 +1006,7 @@ var require_knowledge_library = __commonJS({
         addManualSnapshot: (trackedContentId, metrics) => ipcRenderer2.invoke("performance:add-manual-snapshot", trackedContentId, metrics),
         recomputeAttribution: () => ipcRenderer2.invoke("performance:recompute-attribution"),
         listPatternPerformance: (params) => ipcRenderer2.invoke("performance:list-pattern-performance", params),
-        triggerPerformanceRecrawl: () => ipcRenderer2.invoke("performance:trigger-recrawl"),
+        triggerPerformanceRecrawl: (opts) => ipcRenderer2.invoke("performance:trigger-recrawl", opts),
         // 个人知识库
         addPersonalToLibrary: (item) => ipcRenderer2.invoke("knowledge-library:add-personal", item),
         addPersonalBatchToLibrary: (items) => ipcRenderer2.invoke("knowledge-library:add-personal-batch", items),

@@ -29,8 +29,10 @@
     <LoginExpiredBanner
       :visible="showExpiredBanner"
       :expired-count="expiredAccountCount"
+      :unsaved-count="tabStore.unsavedCount"
       :batch-loading="batchLogging"
       @batch-login="handleBatchLogin"
+      @save-all="handleSaveAllUnsaved"
       @dismiss="showExpiredBanner = false"
     />
 
@@ -294,6 +296,29 @@ async function handleBatchLogin() {
     notifyError('home.loginExpiredBanner.batchLoginFailed', { message: t('home.loginExpiredBanner.batchLoginFailed', { message: e?.message || t('home.loginExpiredBanner.batchLoginUnknownError') }) })
   } finally {
     batchLogging.value = false
+  }
+}
+
+async function handleSaveAllUnsaved() {
+  try {
+    const result = await tabStore.saveAllUnsavedAccounts()
+    if (!result) {
+      notifyError('home.loginExpiredBanner.saveAllFailed', { message: t('home.loginExpiredBanner.saveAllFailed') })
+      return
+    }
+    if (result.saved > 0 && result.failed.length === 0) {
+      notifySuccess('home.loginExpiredBanner.saveAllSuccess', { message: t('home.loginExpiredBanner.saveAllSuccess', { count: result.saved }) })
+    } else if (result.saved > 0 && result.failed.length > 0) {
+      notifySuccess('home.loginExpiredBanner.saveAllSuccess', { message: t('home.loginExpiredBanner.saveAllSuccess', { count: result.saved }) })
+      notifyWarning('home.loginExpiredBanner.saveAllPartial', { message: t('home.loginExpiredBanner.saveAllPartial', { count: result.failed.length }) })
+    } else if (result.attempted === 0) {
+      notifyWarning('home.loginExpiredBanner.saveAllNone', { message: t('home.loginExpiredBanner.saveAllNone') })
+    } else {
+      notifyWarning('home.loginExpiredBanner.saveAllPartial', { message: t('home.loginExpiredBanner.saveAllPartial', { count: result.failed.length }) })
+    }
+  } catch (e) {
+    reportError('Save all unsaved failed', e)
+    notifyError('home.loginExpiredBanner.saveAllFailed', { message: t('home.loginExpiredBanner.saveAllFailed') })
   }
 }
 

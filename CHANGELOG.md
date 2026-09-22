@@ -16,6 +16,123 @@
 - 分支 `tab-independent-home`（worktree 隔离，D 盘）· PR 待合并。
 
 ---
+# [未发布] fix(ui): 限流自检弹窗表单布局修复 + 功能规格文档化
+
+### 变更
+- **`ModelProviders.vue`（限流自检弹窗布局）**：模板中的 `.selfcheck-form` / `.selfcheck-row` 类名此前在 `<style scoped>` 中无任何规则定义，label 与 `el-input-number` 随文本流随机换行、输入框宽度参差（用户反馈「布局非常混乱不整齐」）。补齐：表单纵向 flex `gap:14px`；每行 `display:flex; align-items:center; gap:12px` 标签与输入框同行垂直居中；label 固定列宽 `flex:0 0 230px`（次要色+小字号、允许换行）；输入框统一 `width:150px; flex-shrink:0`，全部对齐同一左基线。
+- **文档**：`01-docs/design/model-provider-module-design.md` 新增 §9.5「限流自检弹窗功能规格与布局规范」——功能定位（真实 ApiUsageGovernor + 本地假 adapter 验证并发上限/排队/429 冷却/5h 限额，无网络不耗额度）、使用流程 6 步、参数数据校验表（rpm [1,100000]、maxConcurrent [1,8] 或留空=clamp(rpm/10,1,4)、requestCount [1,1000]、requestDurationMs [0,60000]、inject429At [1,requestCount] 或留空、limitPer5h [1,10000000] 或留空、cooldownMs [100,60000]）、交互逻辑、显示项、提示文字、回归覆盖与影响面。
+
+### 验证
+- TDD：新增 `src/views/selfcheck-dialog-layout.test.js`（3 例源码契约：行 flex 同行对齐 / label 固定列宽 / 输入框统一宽度）。定向 4 文件 20/20 全绿（含 `icon-usage`(9)、`model-providers-copy`(5)、`settings-panel-layout`(3) 零回归）；eslint exit 0（仅既有 warning）。
+- 纯展示层样式补齐，不改模板结构 / IPC / 数据模型；暗色模式沿用 token 不受影响。
+
+### 关联
+- 分支 `codex/selfcheck-dialog-layout`（worktree 隔离，D 盘），基于 `origin/main`；规范详见 §9.5。
+
+---
+
+# [未发布] fix(accounts): 账号页首开 10s 显示「暂无账号」——Logto JWKS 抖动的三层放大一次收口（P0-A/P0-B/P1）
+
+### 根因
+一次上游 `auth.iart.work/oidc/jwks` 超时被逐层放大：① 每次取键新建 `httpx` 客户端（无连接复用）→ 5~10s；② `AUTH_JWKS_UNAVAILABLE` 伪装成 **401** → ③ 主进程「刷令牌 + 重放」再付一遍（合计 ≈25s）；④ IPC 返回 `code!=0, data:[]` 且 `errorCode` 被丢弃 → ⑤ 渲染端 store 静默清空且不设 `error` → UI 显示「暂无账号」。JWKS 缓存 TTL 300s 使二次进入秒开，掩盖了故障。
+
+### 变更
+- **`packages/python-backend/src/multi_publish/auth/logto.py`（P0-B）**：`AUTH_JWKS_UNAVAILABLE/AUTH_JWKS_INVALID/AUTH_CONFIG_INVALID` 改判 **503**（令牌类仍 401）；共享 `httpx.AsyncClient`（connect 2s / read 5s + keep-alive 池，传输异常弃池重建）；**失败退避 15s**（`force=True` 与后台刷新同样受约束，discovery 校验失败不记退避）；**stale-while-revalidate**（宽限期 3600s，过期先回旧 key、刷新丢后台）；新增 `prefetch()` / `aclose()`。
+- **`packages/python-backend/src/server.py`（P0-B）**：`FastAPI(lifespan=_app_lifespan)` 启动时 `create_task(prefetch())` **只调度不等待**（不拖慢健康检查），退出时取消预热任务并关闭连接池。
+- **`electron/services/python-bridge.js`（P1）**：401 重放加**白名单门禁** `TOKEN_RETRY_ERROR_CODES`（仅令牌自身失效类才刷令牌+重放；`AUTH_JWKS_*`/5xx 不重放）；`_extractErrorCode()` 归一 FastAPI 两种 detail 形态（对象 `{error_code}` 与全大写字符串码），`errorCode` + `status` 统一透传。
+- **`electron/publishers/account-manager.js` / `electron/ipc-handlers/account.js`（P1）**：`listAccounts()` 抛错携带 `errorCode`/`status`；`accounts:list` catch 返回体展开 `ipcFailureDetail(e)`（`code` 保持 `EC.REQUEST_ERROR=-1` 不变）。preload 为原样透传，无需改动。
+- **`src/stores/accounts.js`（P0-A）**：`code !== 0` 必设 `error`（不再静默清空）；`TRANSIENT_FAILURE_CODES`（`AUTH_JWKS_*`）或 `status >= 500` 判为瞬时失败 → **保留上一次账号列表** 且 `loaded` 不置真（下次进入仍重拉）。
+- **`src/views/Accounts.vue` + locales（P0-A）**：新增错误态 EmptyState（`data-testid="accounts-error"`，`WarningFilled` 图标 + 重试按钮，点击走 `refresh()`），与「暂无账号」互斥；`zh/en` 成对新增 `accountsPage.errorTitle/errorHint/errorAction`。
+
+### 验证
+- TDD 红→绿，新增 **28** 例：python `test_logto_auth.py` +12 / `test_server_logto_auth.py` +3；`python-bridge.integration` +2（503 与「401 非令牌码」均不重放）、`account-manager` +2、`ipc-handlers/account` +2；`stores/accounts` +4、`views/Accounts` +3。既有契约零破坏（discovery 不缓存、unknown-kid 单飞有界、store 空列表/reject 语义、`AUTH_TOKEN_EXPIRED` 重放一次）。
+- python-backend 全量 pytest 2679 项：auth 相关 60 全绿；3 项失败与本次链路无交集（`test_pipeline_loader` 为 manifest 存量漂移确定性失败；`test_frame_html`/`test_llm_service` 单独运行通过，系全量运行用例间污染）。
+- 门禁：eslint 改动文件 0 error；`ruff` 改动文件 0 新增（`server.py` 3 项为 main 预存）；`check-locale-sync` `--pair-base`/`--keys`/`--cjk` PASS，`--py-cjk` 因行号偏移重锚基线（前后均 79 条，逐条对账无新增硬编码）；`check-debt-budget` PASS（指标持平基线）。
+
+### 关联
+- 分支 `codex/account-page-jwks-resilience`（worktree 隔离，D 盘）；根因链/契约/Decision Log：`01-docs/BUGFIX-ACCOUNT-PAGE-JWKS-RESILIENCE-2026-09-22.md`
+- 另案（不在本 PR）：8299 端口绑定失败 + `waitForHealthy` 假阳性；代理客户端对 `auth.iart.work` 直连放行。
+
+### 复审修复（CodeReview W1–W5，同 PR 追加）
+首轮提交后 CodeReview（0 Critical / 5 Warning）全部修复并补 TDD 用例（新增 **+8**：store +3、view +4、bridge +1）：**W1** store `fallback` 改走 `i18n`（消除 en 界面硬编码中文）、view 错误态 `description` 直接用 `errorHint`（不再是死键）；**W2** store 暴露结构化 `errorCode`，view 按码分流——未登录 `AUTH_REQUIRED` 走「去登录」引导态（点击 `ensureLogin` → 成功刷新），已登录令牌异常仍走错误重试态；**W3** `TOKEN_RETRY_ERROR_CODES` 补入 `AUTH_TOKEN_REQUIRED`（强刷 + 重放自愈）；**W4** `connect_timeout_seconds` 2.0 → 5.0（对齐事故环境实测握手，收益来自连接复用/退避而非激进超时）；**W5** `listAccounts` reject（后端未起 / 连接超时）经 `formatUserError` 归类，`NETWORK_ERROR`/`TIMEOUT` 计入瞬时失败 → 保留上一次列表。locale：`accountsPage.loginRequiredTitle/loginRequiredHint/loginRequiredAction` zh/en 成对新增。
+# [未发布] fix(ui): 设置弹窗右侧内容区与左侧标签导航留白修复
+
+### 变更
+- **`SettingsDialog.vue`（`.settings-panel` 留白单一真源）**：`padding: 0` → `padding: 24px 28px` 并补 `min-width: 0`（flex 溢出防护）。新增 `:deep(.cohere-page-header)` / `:deep(.cohere-content)` 去掉子页级左右 padding，避免与面板留白叠加成双重缩进。修复「模型设置 / 飞书 API」标签下右侧内容（零内边距的模型筛选条、飞书整块表单）贴住甚至视觉重叠左侧导航 `border-right` 的问题——根因是面板零内边距 + 子页面水平留白各自为政不一致（ModelProviders 头部/内容各 32px、筛选条 0、飞书 0）。修复后各区块对齐同一左基线，与分隔线恒有 28px 呼吸间距。
+
+### 验证
+- TDD：新增 `src/components/settings-panel-layout.test.js`（3 例源码契约：面板 padding 非 0、含 `min-width:0`、存在 `:deep` 去左右 padding）。定向 3 文件 13/13 全绿；`SettingsDialog.test.js`(5)、`model-providers-copy.test.js`(5)、`icon-usage.test.js`(9) 零回归；eslint exit 0。
+- 纯前端展示层样式，无 IPC / 数据模型 / 后端 / 迁移；暗色模式与视觉测试选择器不受影响。
+
+### 关联
+- 分支 `codex/settings-panel-content-gap`（worktree 隔离，D 盘）；规范详见 `01-docs/design/model-provider-module-design.md` §9.4。
+
+---
+# [未发布] fix(security): P0 审计第一批——systemd 加固 + 密钥出库 + JWT/CORS 闸门 + 加密 fail-closed + SSRF 守卫（2026-09-22，audit-batch-1）
+
+## [0.1.1] P0 Security Hotfix
+
+### Security (Critical)
+
+- **ops-center.service**: 移除 `${}` 字面量注入（systemd `Environment=` 不展开变量，会把密钥以字面量形式写进 unit），改用 `EnvironmentFile=/etc/ops-center/env`；`User=root` → `User=ops-center` 降权；新增 `ProtectSystem=strict` / `ProtectHome` / `NoNewPrivileges` / `PrivateTmp` + 最小 `ReadWritePaths`
+- **.env.example**: 移除已泄露的 Ed25519 签名私钥 PEM（永久入 git 历史，视为 compromised），替换为占位符；配套轮换 SOP 见 `ops-center/deploy/KEY-ROTATION-GUIDE.md`
+- **config.py**: JWT 弱密钥闸门（长度 >= 32、拒绝 `dev-`/`test-`/`changeme` 前缀、精确匹配拒绝已知弱值）；admin 弱口令拒绝；CORS `*` + credentials 组合启动拒绝；新增 `run_startup_security_checks()` 统一编排
+- **main.py**: 启动钩子接入 P0 安全检查，不通过即拒绝启动（fail-closed）
+- **key_service.py**: `OPS_ENCRYPTION_KEY` fail-closed——生产环境缺密钥直接 `SystemExit`，不再静默生成临时密钥导致重启后全部密文不可解；开发态需显式 `OPS_ALLOW_EPHEMERAL_KEY=true`；单条解密失败降级为掩码返回，不再整表 500
+- **model_preset_service.py**: `decrypt_key(secret, api_key)` 双参数误调用修正为单参数正确调用（原 `TypeError` 被 `except Exception: pass` 吞掉，密钥静默丢失）；`test_provider_connection` 新增 SSRF 守卫 `_validate_target_url()`（scheme/内网名/IP 直连/DNS 解析后私网复核，`OPS_ALLOW_PROXY_BENCHMARK_IPS` 可豁免 198.18.0.0/15 代理段）
+
+### Testing
+
+- 新增 `ops-center/backend/tests/test_p0_security.py`（22 cases）覆盖 JWT/admin 口令/CORS/加密 fail-closed/SSRF/`.env.example` 无密钥残留
+- ops-center 后端全量 396 pytest 通过（零回归）
+
+### Documentation
+
+- `ops-center/deploy/KEY-ROTATION-GUIDE.md`: 密钥轮换 SOP（新密钥生成 / EnvironmentFile 更新 / 双钥宽限期 / 泄露面排查清单 / 验证命令）
+- `ops-center/deploy/setup-service.sh`: 一键部署脚本（建用户、生成并落密钥、写 unit、 systemd 重载）
+
+### 决策与残余风险
+
+- 私钥已入 git 历史，本 PR 只做「出库 + 轮换指引」，不执行 `git filter-repo` 历史改写（需停机协调，另列运维工单）
+- 宽限期（90 天）内旧公钥仍可验签，已泄露私钥伪造配置的残余风险由运营方评估收敛
+
+# [未发布] feat(recrawl): 立即回采调试入口——trigger-recrawl 空壳升级为强制立即回采（发布→回采→写回爆款库 第四链路可观测化）
+
+### 变更
+- **ipc `performance:trigger-recrawl`**：由空壳（只 `return supported`）升级为实跑 `await performanceRecrawlService.processRound({ force })`，返回 `{ supported, ran, force }`；service 不可用时 `ran=false` 不抛错（fail-safe）；`withSenderCheck` 保持。
+- **store `listDueForRecrawl(nowMs, opts)`**：新增可选 `opts.force`，忽略 T+1h 到期排期纳入 7 天窗口内全部可回采条目（仍守 `recrawl_status` 过滤与 7 天窗，`LIMIT 50`）；默认路径语义不变，向后兼容无参调用。
+- **service `processRound(opts)`**：透传 `opts` 给 `listDueForRecrawl`。
+- **preload**：`triggerPerformanceRecrawl(opts)` 传递参数（`knowledge-library.js` + `index.bundle.js`）。
+
+### 验证
+- TDD：新增 `performance-loop.test.js`（IPC handler，electron mock 范式，force 透传/缺省 false/service 缺失 ran=false）+ `performance-loop-store.test.js`（真 sqlite，force 纳入未到期 vs 默认过滤 / 仍守 7 天窗）+ `performance-recrawl-service.test.js`（processRound force 透传）；目标定向 3 文件 **18 用例全绿**。
+- QM-1：`electron-builder --win --dir` 成功，`app.asar` 清单确认 5 个改动源文件均在包内；全量套件交 CI 权威运行。
+
+### 关联
+- 分支 `local/recrawl-trigger`（worktree 隔离，D 盘）· PR #2210
+- PRD：`01-docs/PRD-RECRAWL-TRIGGER-DEBUG-2026-09-22.md`（背景三重时序锁死 / 规格 / 验收标准 AC-1~5 / 测试 / 边界）
+- 根因：发布登记首采排期 T+1h + 调度器仅 30s/24h + trigger IPC 空壳，致第四链路会话内不可观测；本变更仅增强触发能力，不改 `_writeBackViral` 写回逻辑与默认排期。
+# [未发布] feat(batch-login): 批量登录凭证三方案——自动保存 + 关闭护栏 + 主动提醒
+
+### 变更
+- **webview-manager.js 共享原语**：`_tabStates` 新增 `credentialSaveState('unsaved'|'saved'|null)`、`initialRedirectPhase`、`_autoSaveTimer`；账号标签以 `cleanSession:true` 打开即置 `unsaved`（重新登录语义），正常凭证打开/普通浏览/home 标签为 `null` 不参与角标护栏；`getAllTabs/getActiveTab` 每个 tab 透传 `credentialSaveState`。
+- **方案一·自动保存（治本，1b 路线）**：账号标签 `did-navigate`/`did-navigate-in-page` 命中 `isPlatformLoginSuccessUrl(platform, url)`（复用 shared-utils platform-definitions：auth 域 + 非登录页 + 成功路径模式）后去抖 **1500ms** 自动调 `saveAccountTabCredentials` 回写加密凭证库；`initialRedirectPhase` 未结束不算命中（登录页首帧自动重定向防误判）；`did-finish-load` 首帧若已在成功 URL 同样排程（覆盖首帧即已登录）；登录页横跳取消计时器只在稳定后保存一次；成功广播 `tab-credential-state-changed` + `auth:completed`，失败保持 `unsaved` 且不清守卫、下次导航重试；计时器 `unref()`，`closeTab` 时 `clearTimeout` 不对已销毁视图执行保存。放弃 1a（reroute auth-view）：其丢弃式分区 `auth-{platform}-{ts}` 无法回写既有 accountId 且回归 cleanSession 二维码防呆修复。
+- **方案二·关闭护栏**：新增 IPC `page-manager:account-tab-save-state`（invoke；tabId 非空字符串校验否则 `EC.VALIDATION_ERROR`；非账号/未知标签返回 `isAccountTab:false`；withSenderCheck + try/catch 信封）；App.vue `onCloseTab` 对未保存账号标签弹 `ElMessageBox` 三态——**保存并关闭**（保存失败也 `ElMessage.warning` 提示后关闭，不困住用户）／**直接关闭**／**取消**（`distinguishCancelAndClose:true`）；已保存/非账号标签静默放行保持原行为。
+- **方案三·主动提醒**：TabBar 未保存标签橙色（#f59e0b）角标（`data-testid="tab-unsaved-{tabId}"`，title/aria-label 本地化）；NavBar 新增 `accountUnsaved` prop →「保存账号」按钮呼吸脉冲（`@keyframes save-pulse`，`prefers-reduced-motion: reduce` 禁用）；LoginExpiredBanner 新增「全部保存（n）」次按钮（`banner-save-all`，仅 `unsavedCount>0` 渲染）→ Home.vue `handleSaveAllUnsaved` 按 `saved/partial/none/failed` 分类 notifySuccess/Warning/Error；新 IPC `page-manager:save-all-unsaved-accounts` 返回 `{attempted, saved, failed:[{accountId,platform,reason}]}`，单账号失败不影响其余。
+- **preload / store**：`page-manager.js` + `index.bundle.js` 暴露 `getAccountTabSaveState/saveAllUnsavedAccounts`；tab store 新增 `unsavedTabs/unsavedCount` computed、订阅 `tab-credential-state-changed` 实时熄灭角标（早于 subscribeEvents 注册）、保存成功后 `_refreshTabs` 对账。
+- **locales zh/en 成对 +16 键**：`nav.saveAccountPulseHint`、`tabBar.{unsavedBadge,closeUnsavedTitle,closeUnsavedMessage,closeUnsavedSaveAndClose,closeUnsavedDiscard,closeUnsavedCancel,closeUnsavedDiscardedWarn}`、`home.loginExpiredBanner.{saveAllBtn,saveAllBtnCount,saveAllSuccess,saveAllPartial,saveAllNone,saveAllFailed}`。
+- **文档**：PRD `01-docs/PRD-BATCH-LOGIN-SAVE-GUARD-2026-09-22.md`（数据模型/IPC 契约/流程/交互/显示项/提示文字全量规格）；`product-manual.md` §4.3 新增「批量登录凭证自动保存与防丢失护栏」；`user-manual.md` 新增 §3.1 批量重新登录操作说明。
+
+### 验证
+- TDD 新增 **17 用例**：主进程 10（保存态查询三分类/手动保存成功广播/失败保持 unsaved/自动保存命中去抖/initialRedirectPhase 阻断/横跳取消计时器/saved 不重排程/批量全部成功/批量部分失败/getAllTabs 透传）+ tab store 5（unsavedCount 聚合/事件实时熄灭/批量成功后刷新/无 API 降级 null/查询透传 data）+ Banner 2（save-all 渲染与 emit/计数 0 不渲染）。
+- 全量门禁：`vitest run` **588 文件 / 10687 测试全绿**（2 skipped 为既有）；`check-locale-sync --keys` PASS（3124 键 zh/en 成对）；`pnpm build:vue` exit 0；`node --check` 全过。
+- QM-1：`verify-worktree-deps.js` OK（11 workspace 均解析到当前 worktree）；`electron-builder --win --dir` exit 0；asar 清单含 `electron/services/webview-manager.js`、`electron/preload/page-manager.js`、`shared-utils/src/platform-definitions.js`；打包 exe 启动 10s 存活、**stderr 0 字节**。
+- 视觉回归：三方案均为条件渲染（无未保存标签时 DOM 与改动前一致），像素基线交 CI visual-test。
+
+### 关联
+- 分支 `codex/batch-login-save-guard`（worktree 隔离，D 盘）· PR #2208
+- PRD：`01-docs/PRD-BATCH-LOGIN-SAVE-GUARD-2026-09-22.md`
+- 前置：PRD-ACCOUNT-LOGIN-INLINE-TABS（账号浏览器标签）、cleanSession 二维码防呆修复（本需求沿用其判定原语并新增 initialRedirectPhase 守卫）
 # [未发布] fix(film-engineering): 出片流端到端串联——context 嵌套/扁平双兼容（#2193）
 
 ### 变更

@@ -117,11 +117,23 @@ module.exports = {
    * （failed = 单次失败待重试；连续 3 次失败由服务层转 manual 终态）
    * @param {number} nowMs - 当前时间戳
    */
-  listDueForRecrawl (nowMs) {
+  listDueForRecrawl (nowMs, opts) {
+    opts = opts || {}
     if (!this._ready) return []
     const nowIso = new Date(nowMs).toISOString()
     const windowStartIso = new Date(nowMs - 7 * 24 * 3600 * 1000).toISOString()
     try {
+      // force（立即回采调试入口）：忽略 next_recrawl_at 到期排期，纳入 7 天窗口内全部可回采条目；
+      // 仍守 7 天窗口与状态过滤。默认路径维持 T+1h 排期语义不变。
+      if (opts.force) {
+        return this.db.prepare(`
+          SELECT * FROM tracked_content
+          WHERE recrawl_status IN ('pending', 'ok', 'failed')
+            AND created_at >= ?
+          ORDER BY next_recrawl_at ASC
+          LIMIT 50
+        `).all(windowStartIso)
+      }
       return this.db.prepare(`
         SELECT * FROM tracked_content
         WHERE recrawl_status IN ('pending', 'ok', 'failed')
