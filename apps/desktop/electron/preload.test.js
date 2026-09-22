@@ -659,7 +659,7 @@ describe('影视工程 film-engineering preload API', () => {
     const { createFilmEngineeringApi } = require('./preload/film-engineering')
     expect(typeof createFilmEngineeringApi).toBe('function')
     const api = createFilmEngineeringApi(ipcRenderer)
-    expect(Object.keys(api.filmEngineering).length).toBe(11)
+    expect(Object.keys(api.filmEngineering).length).toBe(12)
   })
 
   it.each([

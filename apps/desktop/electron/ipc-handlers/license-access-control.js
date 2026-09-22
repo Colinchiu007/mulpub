@@ -59,6 +59,7 @@ const PUBLIC_CHANNELS = new Set([
   'film-engineering:copy-text', 'film-engineering:copy-texts',
   'film-engineering:adapt-script', 'film-engineering:export', 'film-engineering:generate-selected',
   'film-engineering:retry-shot',
+  'film-engineering:download-recycled',
   'usage:stats', 'usage:daily', 'usage:track',
   'identity:get-state', 'identity:sign-in', 'identity:switch-account', 'identity:sign-out',
   // 服务状态面板：纯本地只读诊断信息，未登录可见（与 identity:* 对齐）

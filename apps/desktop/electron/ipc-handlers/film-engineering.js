@@ -14,19 +14,25 @@
  *   film-engineering:adapt-script        (script, characterMap, llmEnabled?)
  *   film-engineering:export              (selectedShots, format)
  *   film-engineering:generate-selected   (selectedShots, opts)
+ *   film-engineering:download-recycled   ({ taskId, items: [{ shotId, orderIndex }] })
  */
 
 const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('./helpers')
 const fs = require('fs')
+const path = require('path')
 const {
   generateShotVideo, resolveFilmVideoProvider, getFilmRunDir, FILM_ASPECTS, FILM_DURATIONS,
 } = require('../services/film-engineering/video-gen')
+const { downloadShot } = require('../services/film-engineering/shot-downloader')
+const { getFilmMediaRoot } = require('../services/film-engineering/film-render')
 
 const MAX_SCRIPT_LENGTH = 10000
 const MAX_CHARACTER_MAP_KEYS = 10
 const MAX_SHOTS_ARRAY = 50
 const MAX_GENERATE_BATCH = 20
+const MAX_RECYCLE_BATCH = 50
+const RECYCLE_CONCURRENCY = 4
 
 function registerHandlers (ipcMain, deps) {
   const log = deps.log || { info () {}, warn () {}, error () {} }
@@ -235,6 +241,78 @@ function registerHandlers (ipcMain, deps) {
       }
     }
     return { code: 0, data: { index: shotIndex, shotId: result.shotId, success: true, path: result.path } }
+  }))
+
+// L3 原片回收下载（D7/任务 6.2）：显式触发、零自动预取；URL 一律取 kit resultUrl
+  // （renderer 传入的 url 字段忽略），allowedHosts 取 kit manifest；落盘受控媒体根
+  // production/<taskId>/recycled/shot_NNN.mp4，条目可直接进 renderManifest（组 5 合同）。
+  // 单项失败隔离不中断批次；并发上限 4（D7）。
+  ipcMain.handle('film-engineering:download-recycled', withSenderCheck(async (_event, payload) => {
+    const params = payload || {}
+    const taskId = params.taskId
+    if (typeof taskId !== 'string' || !taskId.trim() || taskId !== path.basename(taskId)) {
+      return { code: EC.VALIDATION_ERROR, message: 'taskId 必须为非空且路径安全的字符串' }
+    }
+    const items = params.items
+    if (!Array.isArray(items) || items.length === 0 || items.length > MAX_RECYCLE_BATCH) {
+      return { code: EC.VALIDATION_ERROR, message: 'items 必须为 1-' + MAX_RECYCLE_BATCH + ' 项的数组' }
+    }
+    const seen = new Set()
+    for (const it of items) {
+      if (!it || typeof it.shotId !== 'string' || !it.shotId.trim()) {
+        return { code: EC.VALIDATION_ERROR, message: 'items 每项必须含非空 shotId' }
+      }
+      if (!Number.isInteger(it.orderIndex) || it.orderIndex < 0 || it.orderIndex >= 10000) {
+        return { code: EC.VALIDATION_ERROR, message: 'orderIndex 必须为 0-9999 的整数' }
+      }
+      if (seen.has(it.orderIndex)) {
+        return { code: EC.VALIDATION_ERROR, message: 'orderIndex 不得重复' }
+      }
+      seen.add(it.orderIndex)
+    }
+    let allowedHosts
+    const jobs = []
+    try {
+      allowedHosts = service.getAllowedHosts()
+      for (const it of items) {
+        const shot = service.getShot(it.shotId)
+        jobs.push({ item: it, url: shot && typeof shot.resultUrl === 'string' && shot.resultUrl ? shot.resultUrl : null })
+      }
+    } catch (e) {
+      const kitErr = kitError(e)
+      return kitErr || { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e) }
+    }
+    const destDir = path.join(getFilmMediaRoot(), 'production', taskId, 'recycled')
+    const dl = deps._testDownloadShot || downloadShot
+    const results = new Array(jobs.length)
+    const queue = jobs.map((j, i) => i)
+    const worker = async () => {
+      while (queue.length > 0) {
+        const i = queue.shift()
+        const item = jobs[i].item
+        const url = jobs[i].url
+        if (!url) {
+          results[i] = { shotId: item.shotId, orderIndex: item.orderIndex, ok: false, error: '该镜无 resultUrl，无法回收下载（需走批量出片重新生成）' }
+          continue
+        }
+        const fileName = 'shot_' + String(item.orderIndex).padStart(3, '0') + '.mp4'
+        const r = await dl({
+          url,
+          shotId: item.shotId,
+          destDir,
+          fileName,
+          allowedHosts,
+          fetchImpl: deps._testFetch,
+          lookupImpl: deps._testLookup,
+          probeImpl: deps._testProbe,
+        })
+        results[i] = r.ok
+          ? { shotId: item.shotId, orderIndex: item.orderIndex, ok: true, entry: { shotId: item.shotId, path: r.entry.path, sourceKind: 'downloaded', orderIndex: item.orderIndex } }
+          : { shotId: item.shotId, orderIndex: item.orderIndex, ok: false, error: r.error || '下载失败' }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(RECYCLE_CONCURRENCY, jobs.length) }, worker))
+    return { code: 0, data: { results, allOk: results.every((x) => x && x.ok), destDir } }
   }))
 }
 

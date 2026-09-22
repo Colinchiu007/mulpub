@@ -80,6 +80,7 @@ const CHANNELS = [
   'film-engineering:adapt-script',
   'film-engineering:export',
   'film-engineering:generate-selected',
+  'film-engineering:download-recycled',
 ]
 
 describe('film-engineering IPC sender 校验', () => {
@@ -271,5 +272,111 @@ describe('list-shots 分页（任务 4.2）', () => {
     expect((await fn(TRUSTED_EVENT, 'cold-open', { offset: 1.5 })).code).not.toBe(0)
     // 不传分页参数保持既有全量语义
     expect((await fn(TRUSTED_EVENT, 'cold-open')).code).toBe(0)
+  })
+})
+
+describe('film-engineering:download-recycled（L3 原片回收下载，任务 6.2/D7）', () => {
+  function makeSvc (over = {}) {
+    return makeDeps({
+      filmEngineeringService: Object.assign(makeServiceMock(), {
+        getAllowedHosts: over.getAllowedHosts || vi.fn(() => ['cdn.example.com']),
+        getShot: over.getShot || vi.fn((id) => (id === 's-ok'
+          ? { shotId: 's-ok', resultUrl: 'https://cdn.example.com/raw/ok.mp4' }
+          : { shotId: id, resultUrl: null })),
+      }),
+    })
+  }
+
+  it('成功：URL 一律取 kit resultUrl，落盘 production/<taskId>/recycled/shot_NNN.mp4，条目含 orderIndex', async () => {
+    const dl = vi.fn(async (o) => ({ ok: true, entry: { shotId: o.shotId, path: o.destDir + '/' + o.fileName, sourceKind: 'downloaded' } }))
+    const deps = makeSvc()
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, { ...deps, _testDownloadShot: dl })
+    const r = await ipcMain._get('film-engineering:download-recycled')(TRUSTED_EVENT, {
+      taskId: 'task-1', items: [{ shotId: 's-ok', orderIndex: 5 }],
+    })
+    expect(r.code).toBe(0)
+    expect(r.data.allOk).toBe(true)
+    expect(r.data.results[0].orderIndex).toBe(5)
+    expect(r.data.results[0].entry.sourceKind).toBe('downloaded')
+    expect(r.data.results[0].entry.orderIndex).toBe(5)
+    expect(String(r.data.results[0].entry.path).replace(/\\/g, '/')).toMatch(/film-engineering\/production\/task-1\/recycled\/shot_005\.mp4$/)
+    const arg = dl.mock.calls[0][0]
+    expect(arg.fileName).toBe('shot_005.mp4')
+    expect(arg.url).toBe('https://cdn.example.com/raw/ok.mp4')
+    expect(arg.allowedHosts).toEqual(['cdn.example.com'])
+    expect(deps.filmEngineeringService.getShot).toHaveBeenCalledWith('s-ok')
+  })
+
+  it('renderer 传入 url 字段被忽略（服务端只信 kit）', async () => {
+    const dl = vi.fn(async (o) => ({ ok: true, entry: { shotId: o.shotId, path: o.destDir, sourceKind: 'downloaded' } }))
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, { ...makeSvc(), _testDownloadShot: dl })
+    const r = await ipcMain._get('film-engineering:download-recycled')(TRUSTED_EVENT, {
+      taskId: 't2', items: [{ shotId: 's-ok', orderIndex: 0, url: 'https://evil.example/x.mp4' }],
+    })
+    expect(r.code).toBe(0)
+    expect(dl.mock.calls[0][0].url).toBe('https://cdn.example.com/raw/ok.mp4')
+  })
+
+  it('部分失败隔离：无 resultUrl 的镜单项失败，其余照常成功', async () => {
+    const dl = vi.fn(async (o) => ({ ok: true, entry: { shotId: o.shotId, path: 'p', sourceKind: 'downloaded' } }))
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, { ...makeSvc(), _testDownloadShot: dl })
+    const r = await ipcMain._get('film-engineering:download-recycled')(TRUSTED_EVENT, {
+      taskId: 't3', items: [{ shotId: 's-ok', orderIndex: 0 }, { shotId: 's-missing', orderIndex: 1 }],
+    })
+    expect(r.code).toBe(0)
+    expect(r.data.allOk).toBe(false)
+    expect(r.data.results[0].ok).toBe(true)
+    expect(r.data.results[1].ok).toBe(false)
+    expect(r.data.results[1].error).toMatch(/resultUrl/)
+    expect(dl.mock.calls.length).toBe(1)
+  })
+
+  it('下载器失败透传 error（隔离不中断批次）', async () => {
+    const dl = vi.fn(async () => ({ ok: false, error: '下载失败：片段验证未通过' }))
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, { ...makeSvc(), _testDownloadShot: dl })
+    const r = await ipcMain._get('film-engineering:download-recycled')(TRUSTED_EVENT, {
+      taskId: 't4', items: [{ shotId: 's-ok', orderIndex: 0 }],
+    })
+    expect(r.code).toBe(0)
+    expect(r.data.allOk).toBe(false)
+    expect(r.data.results[0].error).toMatch(/片段验证未通过/)
+  })
+
+  it('入参校验：taskId 路径遍历 / items 空 / orderIndex 重复或非法 → 非零信封', async () => {
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, { ...makeSvc(), _testDownloadShot: vi.fn() })
+    const call = (payload) => ipcMain._get('film-engineering:download-recycled')(TRUSTED_EVENT, payload)
+    for (const bad of [
+      { taskId: '../evil', items: [{ shotId: 's-ok', orderIndex: 0 }] },
+      { taskId: 'a\\b', items: [{ shotId: 's-ok', orderIndex: 0 }] },
+      { taskId: '', items: [{ shotId: 's-ok', orderIndex: 0 }] },
+      { taskId: 't', items: [] },
+      { taskId: 't', items: 'not-array' },
+      { taskId: 't', items: [{ shotId: 's-ok', orderIndex: 1 }, { shotId: 's-ok', orderIndex: 1 }] },
+      { taskId: 't', items: [{ shotId: 's-ok', orderIndex: -1 }] },
+      { taskId: 't', items: [{ shotId: 's-ok', orderIndex: 1.5 }] },
+      { taskId: 't', items: [{ shotId: '  ', orderIndex: 0 }] },
+      { taskId: 't', items: Array.from({ length: 51 }, (_, i) => ({ shotId: 's-ok', orderIndex: i })) },
+    ]) {
+      const r = await call(bad)
+      expect(r.code, JSON.stringify(bad).slice(0, 60)).not.toBe(0)
+    }
+  })
+
+  it('kit 不可用 → FILM_KIT_UNAVAILABLE 信封（fail-closed）', async () => {
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, {
+      ...makeSvc({ getAllowedHosts: vi.fn(() => { throw new Error('FILM_KIT_UNAVAILABLE: load failed') }) }),
+      _testDownloadShot: vi.fn(),
+    })
+    const r = await ipcMain._get('film-engineering:download-recycled')(TRUSTED_EVENT, {
+      taskId: 't', items: [{ shotId: 's-ok', orderIndex: 0 }],
+    })
+    expect(r.code).not.toBe(0)
+    expect(r.message).toMatch(/FILM_KIT_UNAVAILABLE/)
   })
 })

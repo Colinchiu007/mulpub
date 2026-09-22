@@ -906,7 +906,7 @@ var require_film_engineering = __commonJS({
         filmEngineering: {
           status: () => ipcRendererRef.invoke("film-engineering:status"),
           listScenes: () => ipcRendererRef.invoke("film-engineering:list-scenes"),
-          listShots: (sceneId, pageOpts) => ipcRendererRef.invoke("film-engineering:list-shots", sceneId, pageOpts),
+          listShots: (sceneId) => ipcRendererRef.invoke("film-engineering:list-shots", sceneId),
           getShot: (shotId) => ipcRendererRef.invoke("film-engineering:get-shot", shotId),
           doctrine: () => ipcRendererRef.invoke("film-engineering:doctrine"),
           copyText: (shotId, mode) => ipcRendererRef.invoke("film-engineering:copy-text", shotId, mode),
@@ -914,7 +914,8 @@ var require_film_engineering = __commonJS({
           adaptScript: (payload) => ipcRendererRef.invoke("film-engineering:adapt-script", payload),
           exportPrompts: (selectedShots, format) => ipcRendererRef.invoke("film-engineering:export", selectedShots, format),
           generateSelected: (selectedShots, opts) => ipcRendererRef.invoke("film-engineering:generate-selected", selectedShots, opts),
-          retryShot: (payload) => ipcRendererRef.invoke("film-engineering:retry-shot", payload)
+          retryShot: (payload) => ipcRendererRef.invoke("film-engineering:retry-shot", payload),
+          downloadRecycled: (payload) => ipcRendererRef.invoke("film-engineering:download-recycled", payload)
         }
       };
     }
@@ -1176,7 +1177,8 @@ var require_access_control = __commonJS({
       "filmEngineering.adaptScript",
       "filmEngineering.exportPrompts",
       "filmEngineering.generateSelected",
-      "filmEngineering.retryShot"
+      "filmEngineering.retryShot",
+      "filmEngineering.downloadRecycled"
     ];
     function hasAccess(currentLevel, requiredLevel) {
       if (requiredLevel === "public") return true;

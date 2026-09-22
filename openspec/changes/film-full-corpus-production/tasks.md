@@ -51,9 +51,9 @@
 
 ## 6. L3 原片下载通道（TDD）
 
-- [ ] 6.1 RED：shot-downloader 单测——仅 https、allowedHosts 精确匹配（不通配）、单文件 500MB 上限、`.part` 流式写 + ffprobe 验证通过才 rename、失败清理临时文件、无显式触发不下载
-- [ ] 6.2 GREEN：下载 service + IPC（单镜/批量回收）+ 落盘 `<taskId>/recycled/shot_NNN.mp4` 并产出可进 manifest 的条目
-- [ ] 6.3 SSRF 回归：302 跳出白名单、DNS 重绑定场景测试（对照项目既有 SSRF 防御模式，主机名判断不可作为唯一防线）
+- [x] 6.1 RED：shot-downloader 单测（2026-09-23 完成：shot-downloader.test.js 16 用例——仅 https、allowedHosts 精确匹配（父域/通配/后缀伪装条目全拒绝）、500MB 上限（超限截断+清理）、.part 流式写 + probe 通过才 rename、失败/流中断清理、合同不通过零网络请求）——仅 https、allowedHosts 精确匹配（不通配）、单文件 500MB 上限、`.part` 流式写 + ffprobe 验证通过才 rename、失败清理临时文件、无显式触发不下载
+- [x] 6.2 GREEN：下载 service + IPC（2026-09-23 完成：shot-downloader.js downloadShot（fetchImpl/lookupImpl/probeImpl 三 seam，零真实网络测试）+ IPC film-engineering:download-recycled（URL 一律取 kit resultUrl、renderer 传 url 被忽略；落盘 <媒体根>/production/<taskId>/recycled/shot_NNN.mp4；并发 4（D7）；单项失败隔离；条目 {shotId,path,sourceKind:'downloaded',orderIndex} 直接可进 renderManifest）+ service.getAllowedHosts + preload/access-control/license 公共通道；ipc 测试 7 用例 RED→GREEN，456/456 全过）（单镜/批量回收）+ 落盘 `<taskId>/recycled/shot_NNN.mp4` 并产出可进 manifest 的条目
+- [x] 6.3 SSRF 回归（2026-09-23 完成：302 跳出白名单拒绝（仅一跳即停）、302 降级 http 拒绝、跳转链超 MAX_REDIRECTS=3 防环、每次请求（含每跳）DNS lookup 解析 IP 校验——重绑定第二次解析到 127.0.0.1 拒绝、解析含内网 IP 请求前拒绝、DNS 失败 fail-closed；对照既有 _validateExternalUrl 模式新增"主机名判断非唯一防线"（lookup IP 双防线））：302 跳出白名单、DNS 重绑定场景测试（对照项目既有 SSRF 防御模式，主机名判断不可作为唯一防线）
 
 ## 7. L3 全量分批出片驱动（TDD）
 

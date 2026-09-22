@@ -107,6 +107,12 @@ class FilmEngineeringService {
     return kit.doctrine
   }
 
+  /** kit 登记的下载来源域清单（D7）：shot-downloader 只信该清单，精确匹配不通配 */
+  getAllowedHosts () {
+    const kit = this._ensureKit()
+    return Array.isArray(kit.manifest.allowedHosts) ? kit.manifest.allowedHosts.slice() : []
+  }
+
   buildCopyText (shotId, mode) {
     return this._ensure().buildCopyText(shotId, mode)
   }
