@@ -26,6 +26,7 @@ const FILES = [
   'views/CreateView.vue',
   'components/UpgradeModal.vue',
   'components/AiWriterPanel.vue',
+  'components/PersonalKnowledgePanel.vue',
 ]
 
 /** 功能图标位禁用 emoji（不含状态类/内容类） */
