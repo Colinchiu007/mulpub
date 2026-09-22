@@ -1,3 +1,31 @@
+# [未发布] fix(security): P0 审计第一批——systemd 加固 + 密钥出库 + JWT/CORS 闸门 + 加密 fail-closed + SSRF 守卫（2026-09-22，audit-batch-1）
+
+## [0.1.1] P0 Security Hotfix
+
+### Security (Critical)
+
+- **ops-center.service**: 移除 `${}` 字面量注入（systemd `Environment=` 不展开变量，会把密钥以字面量形式写进 unit），改用 `EnvironmentFile=/etc/ops-center/env`；`User=root` → `User=ops-center` 降权；新增 `ProtectSystem=strict` / `ProtectHome` / `NoNewPrivileges` / `PrivateTmp` + 最小 `ReadWritePaths`
+- **.env.example**: 移除已泄露的 Ed25519 签名私钥 PEM（永久入 git 历史，视为 compromised），替换为占位符；配套轮换 SOP 见 `ops-center/deploy/KEY-ROTATION-GUIDE.md`
+- **config.py**: JWT 弱密钥闸门（长度 >= 32、拒绝 `dev-`/`test-`/`changeme` 前缀、精确匹配拒绝已知弱值）；admin 弱口令拒绝；CORS `*` + credentials 组合启动拒绝；新增 `run_startup_security_checks()` 统一编排
+- **main.py**: 启动钩子接入 P0 安全检查，不通过即拒绝启动（fail-closed）
+- **key_service.py**: `OPS_ENCRYPTION_KEY` fail-closed——生产环境缺密钥直接 `SystemExit`，不再静默生成临时密钥导致重启后全部密文不可解；开发态需显式 `OPS_ALLOW_EPHEMERAL_KEY=true`；单条解密失败降级为掩码返回，不再整表 500
+- **model_preset_service.py**: `decrypt_key(secret, api_key)` 双参数误调用修正为单参数正确调用（原 `TypeError` 被 `except Exception: pass` 吞掉，密钥静默丢失）；`test_provider_connection` 新增 SSRF 守卫 `_validate_target_url()`（scheme/内网名/IP 直连/DNS 解析后私网复核，`OPS_ALLOW_PROXY_BENCHMARK_IPS` 可豁免 198.18.0.0/15 代理段）
+
+### Testing
+
+- 新增 `ops-center/backend/tests/test_p0_security.py`（22 cases）覆盖 JWT/admin 口令/CORS/加密 fail-closed/SSRF/`.env.example` 无密钥残留
+- ops-center 后端全量 396 pytest 通过（零回归）
+
+### Documentation
+
+- `ops-center/deploy/KEY-ROTATION-GUIDE.md`: 密钥轮换 SOP（新密钥生成 / EnvironmentFile 更新 / 双钥宽限期 / 泄露面排查清单 / 验证命令）
+- `ops-center/deploy/setup-service.sh`: 一键部署脚本（建用户、生成并落密钥、写 unit、 systemd 重载）
+
+### 决策与残余风险
+
+- 私钥已入 git 历史，本 PR 只做「出库 + 轮换指引」，不执行 `git filter-repo` 历史改写（需停机协调，另列运维工单）
+- 宽限期（90 天）内旧公钥仍可验签，已泄露私钥伪造配置的残余风险由运营方评估收敛
+
 # [未发布] feat(recrawl): 立即回采调试入口——trigger-recrawl 空壳升级为强制立即回采（发布→回采→写回爆款库 第四链路可观测化）
 
 ### 变更
