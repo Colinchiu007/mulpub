@@ -564,6 +564,84 @@ describe('useModelProviderCrud', function () {
       expect(crud.filteredProviders.value).toHaveLength(2)
     })
 
+    it('已配置模式排序：默认模型置顶，其余按 updated_at 倒序，缺失时间的排最后', async function () {
+      modelProviderList.mockResolvedValueOnce({
+        code: 0,
+        data: [
+          { id: 'old', name: 'Old', category: 'llm', is_configured: true, updated_at: '2026-01-01 10:00:00' },
+          { id: 'default-one', name: 'Default', category: 'llm', is_configured: true, is_default: true, updated_at: '2026-01-01 09:00:00' },
+          { id: 'newest', name: 'Newest', category: 'tts', is_configured: true, updated_at: '2026-01-02 10:00:00' },
+          { id: 'no-ts', name: 'NoTs', category: 'llm', is_configured: true },
+        ],
+      })
+      await crud.loadProviders()
+      crud.viewMode.value = 'configured'
+      crud.filterCategory.value = 'all'
+      expect(crud.filteredProviders.value.map(p => p.id)).toEqual(['default-one', 'newest', 'old', 'no-ts'])
+    })
+
+    it('已配置模式排序：updated_at 相同时按名称拼音兜底', async function () {
+      modelProviderList.mockResolvedValueOnce({
+        code: 0,
+        data: [
+          { id: 'b', name: '百度', category: 'llm', is_configured: true, updated_at: '2026-01-01 10:00:00' },
+          { id: 'a', name: '阿里', category: 'llm', is_configured: true, updated_at: '2026-01-01 10:00:00' },
+        ],
+      })
+      await crud.loadProviders()
+      crud.viewMode.value = 'configured'
+      expect(crud.filteredProviders.value.map(p => p.id)).toEqual(['a', 'b'])
+    })
+
+    it('全部模式排序：无 sort_order 时中文按拼音、英文按字母升序', async function () {
+      modelProviderList.mockResolvedValueOnce({
+        code: 0,
+        data: [
+          { id: 'z', name: 'Zebra' },
+          { id: 'a', name: 'Apple' },
+          { id: 'c', name: '阿里' },
+          { id: 'b', name: '百度' },
+        ],
+      })
+      await crud.loadProviders()
+      crud.viewMode.value = 'all'
+      crud.filterCategory.value = 'all'
+      const names = crud.filteredProviders.value.map(p => p.name)
+      expect(names.indexOf('阿里')).toBeLessThan(names.indexOf('百度'))
+      expect(names.indexOf('Apple')).toBeLessThan(names.indexOf('Zebra'))
+    })
+
+    it('全部模式排序：config.sort_order 优先于拼音序，非法值视为未排序', async function () {
+      modelProviderList.mockResolvedValueOnce({
+        code: 0,
+        data: [
+          { id: 'x', name: 'Xing', config: { sort_order: 5 } },
+          { id: 'first', name: 'Zzz', config: { sort_order: 0 } },
+          { id: 'str', name: 'Bbb', config: { sort_order: '1' } },
+          { id: 'neg', name: 'Ccc', config: { sort_order: -2 } },
+          { id: 'plain', name: 'Aaa' },
+        ],
+      })
+      await crud.loadProviders()
+      crud.viewMode.value = 'all'
+      crud.filterCategory.value = 'all'
+      expect(crud.filteredProviders.value.map(p => p.id)).toEqual(['first', 'x', 'plain', 'str', 'neg'])
+    })
+
+    it('全部模式排序：sort_order 相同时按名称拼音稳定兜底', async function () {
+      modelProviderList.mockResolvedValueOnce({
+        code: 0,
+        data: [
+          { id: 'b2', name: 'Beta', config: { sort_order: 0 } },
+          { id: 'a1', name: 'Alpha', config: { sort_order: 0 } },
+        ],
+      })
+      await crud.loadProviders()
+      crud.viewMode.value = 'all'
+      crud.filterCategory.value = 'all'
+      expect(crud.filteredProviders.value.map(p => p.id)).toEqual(['a1', 'b2'])
+    })
+
     it('configuredCategoryCounts 按类别统计已配置的', async function () {
       modelProviderList.mockResolvedValueOnce({
         code: 0,

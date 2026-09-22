@@ -1153,3 +1153,40 @@ describe('persistLoginState 登录态唯一写者', () => {
     expect(accountManager.loginStatusFromCheckResult(null)).toBe('unverified')
   })
 })
+
+describe('account-manager — listAccounts 错误透传', () => {
+  beforeEach(() => {
+    global.__enableElectronMock()
+    global.__resetElectronMock()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('后端返回非零 code 时抛出携带 errorCode 与 status 的错误', async () => {
+    const pythonBridge = require('../services/python-bridge')
+    vi.spyOn(pythonBridge, 'requestBackend').mockResolvedValue({
+      code: -503,
+      status: 503,
+      errorCode: 'AUTH_JWKS_UNAVAILABLE',
+      message: 'AUTH_JWKS_UNAVAILABLE',
+      data: [],
+    })
+    const accountManager = loadAccountManager()
+
+    const error = await accountManager.listAccounts().catch((e) => e)
+
+    expect(error).toBeInstanceOf(Error)
+    expect(error.errorCode).toBe('AUTH_JWKS_UNAVAILABLE')
+    expect(error.status).toBe(503)
+  })
+
+  it('后端返回无错误码的失败时仍抛出原始 message', async () => {
+    const pythonBridge = require('../services/python-bridge')
+    vi.spyOn(pythonBridge, 'requestBackend').mockResolvedValue({ code: 1, message: 'boom' })
+    const accountManager = loadAccountManager()
+
+    await expect(accountManager.listAccounts()).rejects.toThrow('boom')
+  })
+})

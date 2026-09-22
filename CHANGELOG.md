@@ -24,6 +24,75 @@
 - 分支 `codex/account-login-state-persist`（worktree 隔离，D 盘）；关联 PRD 见上。
 
 ---
+
+---
+
+# [未发布] feat(model-settings): 模型列表排序逻辑调整 + 运营中心预设模型自定义排序
+
+### 变更
+- **渲染端 `apps/desktop/src/composables/useModelProviderCrud.js`**：「已配置」标签按 默认模型置顶 → `updated_at` 倒序（最新修改/新添加在前）→ 名称拼音兜底；「全部」标签按 `config.sort_order` 升序优先（运营中心下发）→ 无自定义序者按名称拼音（`localeCompare('zh-Hans-CN')` ICU）→ id 稳定兜底。排序单点实现在 computed，不改 IPC 契约。
+- **主进程 `apps/desktop/electron/services/model-provider-manager.js`（applyCatalog）**：目录权威写入 `config.sort_order`（非负整数才生效，null/非法删除键，与 rate_per_minute 同模式）；新增 `stableStringify` 键序稳定内容比对——config/models 无实质变化时跳过 UPDATE，**不再每轮同步 bump `updated_at`**（「已配置」按修改时间排序语义成立的前提），返回体新增 `unchanged` 计数。
+- **运营中心后端**：`ModelPreset` 新增 `sort_order` 列（幂等迁移 PRAGMA+ALTER 自动加列）；`_display_order()` 统一 list/catalog 排序（sort_order NULLS LAST → 多模态 → 类别 → 名称）；新增 `POST /api/v1/model-presets/{id}/reorder`（admin-only，action=top/up/down/bottom，越界幂等 noop，全列表归一化 0..n-1）；catalog 与 `_to_dict` 下发 `sort_order`。
+- **运营中心前端 `ModelPresets.vue`**：新增「排序」列（显示 sort_order，未设显示 -）与操作列 4 图标按钮（⤒移到首位 / ↑上移 / ↓下移 / ⤓移到末位），即时持久化，成功提示「排序已更新」，busy 防连点。
+
+### 验证
+- TDD 红→绿：`useModelProviderCrud.test.js` +5 排序用例（默认置顶/倒序/拼音/sort_order 优先/稳定 tie-break）；`model-provider-apply-catalog.test.js` +2（sort_order 写入与 null 删除、内容无变化不 bump updated_at）；ops-center pytest +2（reorder 四动作与边界/校验、catalog 契约含 sort_order）。
+- 本地全绿：桌面 vitest 72（crud+catalog）/ src 1331 / electron services 188；ops-center pytest 44；ops-center frontend build；QM-1 electron-builder --win --dir exit 0 + asar 抽查 + 8s 启动无 stderr。
+
+### 关联
+- 分支 `codex/model-sort-order`（worktree 隔离，D 盘）；详细规格 `01-docs/PRD-MODEL-LIST-SORT-ORDER-2026-09-23.md`；同步契约增量 `01-docs/PRD-sync-zero-config.md` §8。
+# [未发布] fix(video): 视频号账号标签扫码重登后仍弹回登录页（凭证假保存 hotfix）
+
+### 变更
+- **`webview-manager.js`（Cookie 提取 API 误用 + 吞错假保存）**：`saveAccountTabCredentials` / `saveCookies` 曾调用 `session.cookies.getAll({})`——Electron cookies API 只有 `get([filter])`，`getAll` 不存在，TypeError 被吞错 catch 吸收后以 `cookies=[]` 继续保存并置 `saved`、广播 `auth:completed`（假成功）。失效账号扫码重登后凭证库仍是 0 Cookie（旧 localStorage 残留绕过三空校验），再开创作者中心标签恢复凭证时无 Cookie 可用 → 始终弹回登录页。修复：① 两处改用 `get({})`（与 auth-view-manager/qrcode-login 对齐）；② 提取抛错改为 fail-closed——返回 `cookie-extract-failed`，不落盘、保持 `unsaved`、不广播 `saved`，手动保存路径提示「保存账号凭证失败，请重试」，自动保存路径等下一次导航重试。
+
+### 验证
+- TDD 红→绿：mock 忠实镜像 Electron API 表面（挂接 `webContents.session`、只实现 get/set/remove/flushStore、不实现 getAll），弱断言 `expect.any(Array)` 升级为断言真实 Cookie 内容；新增 3 例回归（真实提取 / 提取抛错 fail-closed / saveCookies 事件源）。定向 `webview-manager.test.js` 52/52；electron 全量 359 文件 6938 通过 / 1 skipped / 0 失败；QM-1 打包验证通过。
+- 决定性日志证据（修复前）：`saveAccountTabCredentials: cookies.getAll failed ... getAll is not a function` 紧跟 `saved tencent_video:xxx cookies=0 lsKeys=13`。
+
+### 关联
+- 分支 `fix-tencent-video-cookie-save`（worktree 隔离，D 盘）；契约详见 `01-docs/PRD-BATCH-LOGIN-SAVE-GUARD-2026-09-22.md` §13（修订记录 v2）；Bug 反哺五步沉淀于 `01-docs/learnings.md`。
+
+---
+# [未发布] fix(ui): 限流自检弹窗表单布局修复 + 功能规格文档化
+
+### 变更
+- **`ModelProviders.vue`（限流自检弹窗布局）**：模板中的 `.selfcheck-form` / `.selfcheck-row` 类名此前在 `<style scoped>` 中无任何规则定义，label 与 `el-input-number` 随文本流随机换行、输入框宽度参差（用户反馈「布局非常混乱不整齐」）。补齐：表单纵向 flex `gap:14px`；每行 `display:flex; align-items:center; gap:12px` 标签与输入框同行垂直居中；label 固定列宽 `flex:0 0 230px`（次要色+小字号、允许换行）；输入框统一 `width:150px; flex-shrink:0`，全部对齐同一左基线。
+- **文档**：`01-docs/design/model-provider-module-design.md` 新增 §9.5「限流自检弹窗功能规格与布局规范」——功能定位（真实 ApiUsageGovernor + 本地假 adapter 验证并发上限/排队/429 冷却/5h 限额，无网络不耗额度）、使用流程 6 步、参数数据校验表（rpm [1,100000]、maxConcurrent [1,8] 或留空=clamp(rpm/10,1,4)、requestCount [1,1000]、requestDurationMs [0,60000]、inject429At [1,requestCount] 或留空、limitPer5h [1,10000000] 或留空、cooldownMs [100,60000]）、交互逻辑、显示项、提示文字、回归覆盖与影响面。
+
+### 验证
+- TDD：新增 `src/views/selfcheck-dialog-layout.test.js`（3 例源码契约：行 flex 同行对齐 / label 固定列宽 / 输入框统一宽度）。定向 4 文件 20/20 全绿（含 `icon-usage`(9)、`model-providers-copy`(5)、`settings-panel-layout`(3) 零回归）；eslint exit 0（仅既有 warning）。
+- 纯展示层样式补齐，不改模板结构 / IPC / 数据模型；暗色模式沿用 token 不受影响。
+
+### 关联
+- 分支 `codex/selfcheck-dialog-layout`（worktree 隔离，D 盘），基于 `origin/main`；规范详见 §9.5。
+
+---
+
+# [未发布] fix(accounts): 账号页首开 10s 显示「暂无账号」——Logto JWKS 抖动的三层放大一次收口（P0-A/P0-B/P1）
+
+### 根因
+一次上游 `auth.iart.work/oidc/jwks` 超时被逐层放大：① 每次取键新建 `httpx` 客户端（无连接复用）→ 5~10s；② `AUTH_JWKS_UNAVAILABLE` 伪装成 **401** → ③ 主进程「刷令牌 + 重放」再付一遍（合计 ≈25s）；④ IPC 返回 `code!=0, data:[]` 且 `errorCode` 被丢弃 → ⑤ 渲染端 store 静默清空且不设 `error` → UI 显示「暂无账号」。JWKS 缓存 TTL 300s 使二次进入秒开，掩盖了故障。
+
+### 变更
+- **`packages/python-backend/src/multi_publish/auth/logto.py`（P0-B）**：`AUTH_JWKS_UNAVAILABLE/AUTH_JWKS_INVALID/AUTH_CONFIG_INVALID` 改判 **503**（令牌类仍 401）；共享 `httpx.AsyncClient`（connect 2s / read 5s + keep-alive 池，传输异常弃池重建）；**失败退避 15s**（`force=True` 与后台刷新同样受约束，discovery 校验失败不记退避）；**stale-while-revalidate**（宽限期 3600s，过期先回旧 key、刷新丢后台）；新增 `prefetch()` / `aclose()`。
+- **`packages/python-backend/src/server.py`（P0-B）**：`FastAPI(lifespan=_app_lifespan)` 启动时 `create_task(prefetch())` **只调度不等待**（不拖慢健康检查），退出时取消预热任务并关闭连接池。
+- **`electron/services/python-bridge.js`（P1）**：401 重放加**白名单门禁** `TOKEN_RETRY_ERROR_CODES`（仅令牌自身失效类才刷令牌+重放；`AUTH_JWKS_*`/5xx 不重放）；`_extractErrorCode()` 归一 FastAPI 两种 detail 形态（对象 `{error_code}` 与全大写字符串码），`errorCode` + `status` 统一透传。
+- **`electron/publishers/account-manager.js` / `electron/ipc-handlers/account.js`（P1）**：`listAccounts()` 抛错携带 `errorCode`/`status`；`accounts:list` catch 返回体展开 `ipcFailureDetail(e)`（`code` 保持 `EC.REQUEST_ERROR=-1` 不变）。preload 为原样透传，无需改动。
+- **`src/stores/accounts.js`（P0-A）**：`code !== 0` 必设 `error`（不再静默清空）；`TRANSIENT_FAILURE_CODES`（`AUTH_JWKS_*`）或 `status >= 500` 判为瞬时失败 → **保留上一次账号列表** 且 `loaded` 不置真（下次进入仍重拉）。
+- **`src/views/Accounts.vue` + locales（P0-A）**：新增错误态 EmptyState（`data-testid="accounts-error"`，`WarningFilled` 图标 + 重试按钮，点击走 `refresh()`），与「暂无账号」互斥；`zh/en` 成对新增 `accountsPage.errorTitle/errorHint/errorAction`。
+
+### 验证
+- TDD 红→绿，新增 **28** 例：python `test_logto_auth.py` +12 / `test_server_logto_auth.py` +3；`python-bridge.integration` +2（503 与「401 非令牌码」均不重放）、`account-manager` +2、`ipc-handlers/account` +2；`stores/accounts` +4、`views/Accounts` +3。既有契约零破坏（discovery 不缓存、unknown-kid 单飞有界、store 空列表/reject 语义、`AUTH_TOKEN_EXPIRED` 重放一次）。
+- python-backend 全量 pytest 2679 项：auth 相关 60 全绿；3 项失败与本次链路无交集（`test_pipeline_loader` 为 manifest 存量漂移确定性失败；`test_frame_html`/`test_llm_service` 单独运行通过，系全量运行用例间污染）。
+- 门禁：eslint 改动文件 0 error；`ruff` 改动文件 0 新增（`server.py` 3 项为 main 预存）；`check-locale-sync` `--pair-base`/`--keys`/`--cjk` PASS，`--py-cjk` 因行号偏移重锚基线（前后均 79 条，逐条对账无新增硬编码）；`check-debt-budget` PASS（指标持平基线）。
+
+### 关联
+- 分支 `codex/account-page-jwks-resilience`（worktree 隔离，D 盘）；根因链/契约/Decision Log：`01-docs/BUGFIX-ACCOUNT-PAGE-JWKS-RESILIENCE-2026-09-22.md`
+- 另案（不在本 PR）：8299 端口绑定失败 + `waitForHealthy` 假阳性；代理客户端对 `auth.iart.work` 直连放行。
+
+### 复审修复（CodeReview W1–W5，同 PR 追加）
+首轮提交后 CodeReview（0 Critical / 5 Warning）全部修复并补 TDD 用例（新增 **+8**：store +3、view +4、bridge +1）：**W1** store `fallback` 改走 `i18n`（消除 en 界面硬编码中文）、view 错误态 `description` 直接用 `errorHint`（不再是死键）；**W2** store 暴露结构化 `errorCode`，view 按码分流——未登录 `AUTH_REQUIRED` 走「去登录」引导态（点击 `ensureLogin` → 成功刷新），已登录令牌异常仍走错误重试态；**W3** `TOKEN_RETRY_ERROR_CODES` 补入 `AUTH_TOKEN_REQUIRED`（强刷 + 重放自愈）；**W4** `connect_timeout_seconds` 2.0 → 5.0（对齐事故环境实测握手，收益来自连接复用/退避而非激进超时）；**W5** `listAccounts` reject（后端未起 / 连接超时）经 `formatUserError` 归类，`NETWORK_ERROR`/`TIMEOUT` 计入瞬时失败 → 保留上一次列表。locale：`accountsPage.loginRequiredTitle/loginRequiredHint/loginRequiredAction` zh/en 成对新增。
 # [未发布] fix(ui): 设置弹窗右侧内容区与左侧标签导航留白修复
 
 ### 变更

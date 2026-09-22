@@ -383,6 +383,9 @@ function patchViewAndSessionMocks () {
     this.webContents = {
       _handlers: handlers,
       _windowOpenHandler: null,
+      // 真实 Electron 中 webContents.session 即构造时 webPreferences.session 传入的分区，mock 必须同物挂接；
+      // 否则 Cookie 提取路径在测试中永远是 undefined，吞错路径会被误放行（2026-09-22 getAll 回归教训）。
+      session: (opts && opts.webPreferences && opts.webPreferences.session) || null,
       on: function (evt, fn) { handlers[evt] = fn },
       once: function () {},
       canGoBack: function () { return false },
@@ -391,9 +394,6 @@ function patchViewAndSessionMocks () {
       executeJavaScript: vi.fn(function () { return Promise.resolve() }),
       isDestroyed: function () { return false },
       setWindowOpenHandler: function (fn) { this._windowOpenHandler = fn },
-      // 真实 Electron：WebContentsView 的 webPreferences.session 即为 webContents.session。
-      // 测试替身必须还原该链路，否则 cookies 提取相关代码永远走 catch 分支（历史盲区）。
-      session: (opts && opts.webPreferences && opts.webPreferences.session) || undefined,
     }
     this.setBounds = vi.fn()
     this.setVisible = vi.fn()
@@ -406,12 +406,15 @@ function patchViewAndSessionMocks () {
     const created = {
       partition,
       cookies: {
+        // 契约：忠实镜像真实 Electron session.cookies API——只有 get/set/remove/flushStore，不存在 getAll。
+        // 测试可通过 _store 预设 get() 返回值。
         setCalls: [],
         removeCalls: [],
+        _store: undefined,
         set: function (cookie) { created.cookies.setCalls.push(cookie); return Promise.resolve() },
-        get: function () { return Promise.resolve(created.cookies._store || __electronMock.session._staleCookies || []) },
-        _store: null,
+        get: function () { return Promise.resolve(created.cookies._store !== undefined ? created.cookies._store : (__electronMock.session._staleCookies || [])) },
         remove: function (url, name) { created.cookies.removeCalls.push({ url, name }); return Promise.resolve() },
+        flushStore: function () { return Promise.resolve() },
       },
       on: function () {},
     }
@@ -861,11 +864,15 @@ describe('WebviewManager 批量登录凭证自动保存与护栏（方案一/二
     wm.mainWindow = createMainWindow()
     wm._subscribers.add('test-subscriber')
     wm.setAccountManager(makeAccountManager())
-    const { tabId, state } = createUnsavedAccountTab(wm, { platform: 'douyin', accountId: 'acc-1' })
+    const { tabId, state, view } = createUnsavedAccountTab(wm, { platform: 'douyin', accountId: 'acc-1' })
+    view.webContents.session.cookies._store = [{ domain: '.douyin.com', name: 'sessionid', value: 'v1', path: '/', secure: true }]
     const result = await wm.saveAccountTabCredentials(tabId)
     expect(result.ok).toBe(true)
+    // 弱断言 expect.any(Array) 对空数组恒真（2026-09-22 getAll 逃逸点），必须断言真实内容
     expect(wm._accountManager.updateCapturedAccount).toHaveBeenCalledWith(
-      'douyin', expect.objectContaining({ cookies: expect.any(Array) }), 'acc-1'
+      'douyin',
+      expect.objectContaining({ cookies: [{ domain: '.douyin.com', name: 'sessionid', value: 'v1', path: '/', secure: true }] }),
+      'acc-1'
     )
     expect(state.credentialSaveState).toBe('saved')
     const sends = wm.mainWindow.webContents.send.mock.calls
@@ -873,45 +880,76 @@ describe('WebviewManager 批量登录凭证自动保存与护栏（方案一/二
     expect(sends).toContainEqual(expect.objectContaining({ tabId, credentialSaveState: 'saved' }))
   })
 
-  it('saveAccountTabCredentials 走 session.cookies.get 提取分区 Cookie（Electron 无 getAll，回归 2026-09-22 cookies 恒 0）', async () => {
-    const partitions = patchViewAndSessionMocks()
+  // 回归（2026-09-22）：saveAccountTabCredentials 曾调用 session.cookies.getAll——该方法在
+  // Electron 中不存在，TypeError 被 catch 吞掉后以 cookies=[] 继续保存（假成功），导致失效
+  // 账号扫码重登后凭证库仍是 0 Cookie，再开创作者中心弹回登录页。契约：
+  // ① 必须用真实 API get({}) 提取；② 提取失败必须 fail-closed（不保存、保持 unsaved、
+  // 不广播 saved），杜绝任何吞错假保存。
+  it('回归：saveAccountTabCredentials 经 session.cookies.get 提取真实 Cookie（API 契约镜像 Electron）', async () => {
     const wm = new WebviewManager()
     wm.mainWindow = createMainWindow()
     wm._subscribers.add('test-subscriber')
     wm.setAccountManager(makeAccountManager())
-    const { tabId } = createUnsavedAccountTab(wm, { platform: 'toutiao', accountId: 'acc-tt' })
-    const partition = partitions[partitions.length - 1]
-    partition.cookies._store = [
-      { domain: '.toutiao.com', name: 'sessionid', value: 'sid-1', path: '/', secure: true },
-      { domain: '.toutiao.com', name: 'ttwid', value: 'tw-1', path: '/', secure: true },
+    const { tabId, view } = createUnsavedAccountTab(wm, { platform: 'tencent_video', accountId: 'vid-1', url: 'https://channels.weixin.qq.com/' })
+    // mock 的 cookies 对象忠实镜像 Electron API：不存在 getAll
+    expect(typeof view.webContents.session.cookies.getAll).toBe('undefined')
+    view.webContents.session.cookies._store = [
+      { domain: '.weixin.qq.com', name: 'slave_sid', value: 'fresh', path: '/', secure: true },
     ]
-    expect(typeof partition.cookies.getAll).toBe('undefined')
-
     const result = await wm.saveAccountTabCredentials(tabId)
-
     expect(result.ok).toBe(true)
     expect(wm._accountManager.updateCapturedAccount).toHaveBeenCalledWith(
-      'toutiao', expect.objectContaining({ cookies: expect.arrayContaining([
-        expect.objectContaining({ name: 'sessionid' }),
-      ]) }), 'acc-tt'
+      'tencent_video',
+      expect.objectContaining({ cookies: [{ domain: '.weixin.qq.com', name: 'slave_sid', value: 'fresh', path: '/', secure: true }] }),
+      'vid-1'
     )
-    expect(wm._accountManager.updateCapturedAccount.mock.calls[0][1].cookies).toHaveLength(2)
   })
 
-  it('saveAccountTabCredentials Cookie 提取不可用时 fail loud，不写入空凭证', async () => {
+  it('回归：Cookie 提取抛错时 fail-closed——不落盘、保持 unsaved、不广播 saved', async () => {
     const wm = new WebviewManager()
     wm.mainWindow = createMainWindow()
     wm._subscribers.add('test-subscriber')
     wm.setAccountManager(makeAccountManager())
-    const { tabId, view, state } = createUnsavedAccountTab(wm, { platform: 'toutiao', accountId: 'acc-tt' })
-    view.webContents.session = undefined
-
+    const { tabId, state, view } = createUnsavedAccountTab(wm, { platform: 'tencent_video', accountId: 'vid-2', url: 'https://channels.weixin.qq.com/' })
+    view.webContents.session.cookies.get = () => Promise.reject(new Error('extract-boom'))
     const result = await wm.saveAccountTabCredentials(tabId)
-
     expect(result.ok).toBe(false)
     expect(result.reason).toBe('cookie-extract-failed')
     expect(wm._accountManager.updateCapturedAccount).not.toHaveBeenCalled()
     expect(state.credentialSaveState).toBe('unsaved')
+    const sends = wm.mainWindow.webContents.send.mock.calls
+      .filter(c => c[0] === 'page-manager:tab-credential-state-changed').map(c => c[1].data)
+    expect(sends.some(d => d && d.credentialSaveState === 'saved')).toBe(false)
+  })
+
+  // 本 PR 补充：_extractTabCookies 集中守卫的负例——session 整体缺失时同样 fail-closed，
+  // 绝不退化成「保存一份 cookies=0 的凭证」（该守卫是本 PR 引入，main 的用例未覆盖）。
+  it('回归：session 不可用时 fail-closed（cookies 提取守卫，不落空凭证）', async () => {
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+    wm.setAccountManager(makeAccountManager())
+    const { tabId, state, view } = createUnsavedAccountTab(wm, { platform: 'tencent_video', accountId: 'vid-3', url: 'https://channels.weixin.qq.com/' })
+    view.webContents.session = undefined
+    const result = await wm.saveAccountTabCredentials(tabId)
+    expect(result.ok).toBe(false)
+    expect(result.reason).toBe('cookie-extract-failed')
+    expect(wm._accountManager.updateCapturedAccount).not.toHaveBeenCalled()
+    expect(state.credentialSaveState).toBe('unsaved')
+  })
+
+  it('回归：saveCookies（tab-cookies-changed 事件源）用 get 提取真实 Cookie', async () => {
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+    const { tabId, view } = createUnsavedAccountTab(wm)
+    view.webContents.session.cookies._store = [{ domain: '.douyin.com', name: 'sid', value: 'x', path: '/', secure: false }]
+    const spy = vi.fn()
+    wm.on('tab-cookies-changed', spy)
+    wm.saveCookies(tabId)
+    await new Promise(resolve => setImmediate(resolve))
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(spy.mock.calls[0][0]).toMatchObject({ tabId, cookies: [{ domain: '.douyin.com', name: 'sid', value: 'x', path: '/', secure: false }] })
   })
 
   it('saveAccountTabCredentials 无 accountManager 时失败且保持 unsaved（不静默丢失）', async () => {

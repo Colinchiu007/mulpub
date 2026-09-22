@@ -501,5 +501,362 @@ class LogtoAuthTest(unittest.TestCase):
         asyncio.run(run())
 
 
+class JwksResilienceTest(unittest.TestCase):
+    """账号页首开 25s 事故的回归保护。
+
+    根因：身份服务（Logto）JWKS 拉取一次超时会被放大成「后端 503 伪装成 401 →
+    客户端刷新令牌再重放 → 每次都重新付 5~10s 超时」，账号页因此长时间无数据。
+    """
+
+    def _issuer(self):
+        return "https://id.example.com"
+
+    def _ok_fetcher(self, private_key, calls=None, slow=False):
+        issuer = self._issuer()
+
+        async def fetcher(url):
+            if calls is not None:
+                calls.append(url)
+            if slow and url.endswith("/jwks"):
+                await asyncio.sleep(0.05)
+
+            class Response:
+                status_code = 200
+
+                def json(self):
+                    if url.endswith("openid-configuration"):
+                        return {"issuer": issuer, "jwks_uri": f"{issuer}/jwks"}
+                    return {"keys": [_rsa_jwk(private_key, "key-1")]}
+
+            return Response()
+
+        return fetcher
+
+    def test_jwks_fetch_failure_is_503_not_401(self):
+        """AUTH_JWKS_UNAVAILABLE 是上游不可用，不是令牌失效；否则调用方会误做「刷新令牌 + 重放」。"""
+
+        async def fetcher(_url):
+            raise TimeoutError("network down")
+
+        verifier = logto_auth.LogtoJwtVerifier(self._issuer(), "audience", fetcher=fetcher)
+        with self.assertRaises(logto_auth.AuthError) as ctx:
+            asyncio.run(verifier._get_keys())
+        self.assertEqual(ctx.exception.code, "AUTH_JWKS_UNAVAILABLE")
+        self.assertEqual(ctx.exception.status, 503)
+
+    def test_jwks_non_2xx_is_503(self):
+        async def fetcher(_url):
+            class Response:
+                status_code = 502
+
+                def json(self):
+                    return {}
+
+            return Response()
+
+        verifier = logto_auth.LogtoJwtVerifier(self._issuer(), "audience", fetcher=fetcher)
+        with self.assertRaises(logto_auth.AuthError) as ctx:
+            asyncio.run(verifier._get_keys())
+        self.assertEqual(ctx.exception.status, 503)
+
+    def test_fastapi_dependency_returns_503_for_jwks_unavailable(self):
+        from types import SimpleNamespace
+
+        from fastapi import HTTPException
+
+        verifier = SimpleNamespace(verify=_raise_jwks_unavailable)
+        dependency = logto_auth.create_fastapi_dependency(verifier, [])
+        request = SimpleNamespace(headers={"authorization": "Bearer token"})
+        with self.assertRaises(HTTPException) as ctx:
+            asyncio.run(dependency(request))
+        self.assertEqual(ctx.exception.status_code, 503)
+        self.assertEqual(ctx.exception.detail, "AUTH_JWKS_UNAVAILABLE")
+
+    def test_jwks_failure_is_backed_off_within_window(self):
+        """失败退避：一次抖动只付一次超时，退避窗口内不再重复打网络。"""
+        now = {"value": 1000}
+        calls = []
+
+        async def fetcher(url):
+            calls.append(url)
+            raise TimeoutError("network down")
+
+        verifier = logto_auth.LogtoJwtVerifier(
+            self._issuer(), "audience", fetcher=fetcher,
+            jwks_failure_backoff_seconds=15, now=lambda: now["value"],
+        )
+        for _ in range(3):
+            with self.assertRaisesRegex(logto_auth.AuthError, "AUTH_JWKS_UNAVAILABLE"):
+                asyncio.run(verifier._get_keys())
+        self.assertEqual(len(calls), 1)
+
+        # 退避窗口结束后必须重试，否则身份服务恢复后仍会永久拒绝。
+        now["value"] += 16
+        with self.assertRaisesRegex(logto_auth.AuthError, "AUTH_JWKS_UNAVAILABLE"):
+            asyncio.run(verifier._get_keys())
+        self.assertEqual(len(calls), 2)
+
+    def test_valid_discovery_failure_is_not_backed_off(self):
+        """discovery 校验失败是快速失败（不是超时），必须允许下一次请求立刻重试。"""
+        calls = []
+
+        async def fetcher(url):
+            calls.append(url)
+
+            class Response:
+                status_code = 200
+
+                def json(self):
+                    if url.endswith("openid-configuration"):
+                        return {"issuer": self_issuer, "jwks_uri": "http://127.0.0.1:9/private"}
+                    return {"keys": []}
+
+            return Response()
+
+        self_issuer = self._issuer()
+        verifier = logto_auth.LogtoJwtVerifier(
+            self_issuer, "audience", fetcher=fetcher, jwks_failure_backoff_seconds=15,
+        )
+        for _ in range(2):
+            with self.assertRaisesRegex(logto_auth.AuthError, "AUTH_DISCOVERY_INVALID"):
+                asyncio.run(verifier._get_keys())
+        self.assertEqual(len(calls), 2)
+
+    def test_failure_backoff_also_blocks_forced_refresh(self):
+        """退避对 force 同样生效，否则故障期每次 unknown-kid 验签都会重新付一遍超时。"""
+        now = {"value": 1000}
+        calls = []
+
+        async def fetcher(url):
+            calls.append(url)
+            raise TimeoutError("network down")
+
+        verifier = logto_auth.LogtoJwtVerifier(
+            self._issuer(), "audience", fetcher=fetcher,
+            jwks_failure_backoff_seconds=15, now=lambda: now["value"],
+        )
+        with self.assertRaises(logto_auth.AuthError):
+            asyncio.run(verifier._get_keys())
+        for _ in range(3):
+            with self.assertRaises(logto_auth.AuthError):
+                asyncio.run(verifier._get_keys(force=True))
+        self.assertEqual(len(calls), 1)
+
+    def test_successful_fetch_clears_failure_backoff(self):
+        now = {"value": 1000}
+        issuer = self._issuer()
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        state = {"fail": True}
+
+        async def fetcher(url):
+            if state["fail"]:
+                raise TimeoutError("network down")
+
+            class Response:
+                status_code = 200
+
+                def json(self):
+                    if url.endswith("openid-configuration"):
+                        return {"issuer": issuer, "jwks_uri": f"{issuer}/jwks"}
+                    return {"keys": [_rsa_jwk(private_key, "key-1")]}
+
+            return Response()
+
+        verifier = logto_auth.LogtoJwtVerifier(
+            issuer, "audience", fetcher=fetcher, jwks_failure_backoff_seconds=15,
+            cache_ttl_seconds=300, stale_cache_grace_seconds=3600, now=lambda: now["value"],
+        )
+        with self.assertRaises(logto_auth.AuthError):
+            asyncio.run(verifier._get_keys())
+        self.assertIsNotNone(verifier._keys_failed_at)
+
+        state["fail"] = False
+        now["value"] += 16
+        keys = asyncio.run(verifier._get_keys())
+        self.assertIn("RS256:key-1", keys)
+        self.assertTrue(verifier._keys_loaded)
+        # 时间戳必须清零，否则下一次故障会沿用旧的退避起点。
+        self.assertIsNone(verifier._keys_failed_at)
+
+    def test_stale_keys_served_while_refreshing_in_background(self):
+        """stale-while-revalidate：TTL 过期不得把刷新成本压到用户请求路径上。"""
+        now = {"value": 1000}
+        issuer = self._issuer()
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        calls = []
+        slow = {"value": False}
+
+        async def fetcher(url):
+            calls.append(url)
+            if slow["value"] and url.endswith("/jwks"):
+                await asyncio.sleep(0.05)
+
+            class Response:
+                status_code = 200
+
+                def json(self):
+                    if url.endswith("openid-configuration"):
+                        return {"issuer": issuer, "jwks_uri": f"{issuer}/jwks"}
+                    return {"keys": [_rsa_jwk(private_key, "key-1")]}
+
+            return Response()
+
+        verifier = logto_auth.LogtoJwtVerifier(
+            issuer, "audience", fetcher=fetcher, cache_ttl_seconds=300,
+            stale_cache_grace_seconds=3600, now=lambda: now["value"],
+        )
+        asyncio.run(verifier._get_keys())
+        self.assertEqual(len(calls), 2)
+
+        slow["value"] = True
+        now["value"] += 301
+        loop = asyncio.new_event_loop()
+        try:
+            stale_started = loop.time()
+            stale = loop.run_until_complete(verifier._get_keys())
+            elapsed = loop.time() - stale_started
+            pending = [task for task in (verifier._background_refresh,) if task is not None]
+            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        finally:
+            loop.close()
+        self.assertIn("RS256:key-1", stale)
+        self.assertLess(elapsed, 0.04, "过期刷新不得阻塞请求路径")
+        self.assertGreater(len(calls), 2, "后台必须真正刷新，不能永久停留在旧 keys")
+        self.assertGreater(verifier._keys_at, 1000)
+
+    def test_background_refresh_is_skipped_during_failure_backoff(self):
+        """失败退避窗口内后台刷新也不打网络，否则每个请求都白付一次刷新成本。"""
+        now = {"value": 1000}
+        issuer = self._issuer()
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        calls = []
+        fail = {"value": False}
+
+        async def fetcher(url):
+            calls.append(url)
+            if fail["value"] and url.endswith("/jwks"):
+                raise TimeoutError("network down")
+
+            class Response:
+                status_code = 200
+
+                def json(self):
+                    if url.endswith("openid-configuration"):
+                        return {"issuer": issuer, "jwks_uri": f"{issuer}/jwks"}
+                    return {"keys": [_rsa_jwk(private_key, "key-1")]}
+
+            return Response()
+
+        verifier = logto_auth.LogtoJwtVerifier(
+            issuer, "audience", fetcher=fetcher, cache_ttl_seconds=300,
+            stale_cache_grace_seconds=3600, jwks_failure_backoff_seconds=15,
+            now=lambda: now["value"],
+        )
+        asyncio.run(verifier._get_keys())
+        self.assertEqual(len(calls), 2)
+
+        async def drain_background():
+            pending = [task for task in (verifier._background_refresh,) if task is not None]
+            await asyncio.gather(*pending, return_exceptions=True)
+
+        loop = asyncio.new_event_loop()
+        try:
+            fail["value"] = True
+            now["value"] += 301
+            loop.run_until_complete(verifier._get_keys())
+            loop.run_until_complete(drain_background())
+            self.assertEqual(len(calls), 3, "首次后台刷新应真实尝试一次")
+            self.assertIsNotNone(verifier._keys_failed_at)
+
+            now["value"] += 1
+            stale = loop.run_until_complete(verifier._get_keys())
+            loop.run_until_complete(drain_background())
+            self.assertIn("RS256:key-1", stale)
+            self.assertEqual(len(calls), 3, "退避窗口内后台刷新不得重复打网络")
+
+            fail["value"] = False
+            now["value"] += 15
+            loop.run_until_complete(verifier._get_keys())
+            loop.run_until_complete(drain_background())
+            self.assertGreater(len(calls), 3, "退避结束后后台刷新必须恢复")
+        finally:
+            loop.close()
+
+    def test_stale_keys_beyond_grace_require_blocking_refresh(self):
+        now = {"value": 1000}
+        issuer = self._issuer()
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        calls = []
+
+        verifier_fetcher = self._ok_fetcher(private_key, calls)
+        verifier = logto_auth.LogtoJwtVerifier(
+            issuer, "audience", fetcher=verifier_fetcher, cache_ttl_seconds=300,
+            stale_cache_grace_seconds=600, now=lambda: now["value"],
+        )
+        asyncio.run(verifier._get_keys())
+        self.assertEqual(len(calls), 2)
+        now["value"] += 300 + 601
+        asyncio.run(verifier._get_keys())
+        self.assertEqual(len(calls), 3)
+
+    def test_prefetch_warms_cache_and_never_raises(self):
+        issuer = self._issuer()
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        ok_verifier = logto_auth.LogtoJwtVerifier(
+            issuer, "audience", fetcher=self._ok_fetcher(private_key),
+        )
+        async def failing_fetcher(_url):
+            raise TimeoutError("network down")
+
+        bad_verifier = logto_auth.LogtoJwtVerifier(issuer, "audience", fetcher=failing_fetcher)
+
+        async def run():
+            self.assertTrue(await ok_verifier.prefetch())
+            self.assertIn("RS256:key-1", ok_verifier._keys)
+            self.assertFalse(await bad_verifier.prefetch())
+
+        asyncio.run(run())
+
+    def test_http_client_is_reused_and_closed(self):
+        """每次请求新建 client 会重做 TCP+TLS 握手，代理路由下是主要耗时来源。"""
+        created = []
+
+        class FakeResponse:
+            status_code = 200
+
+            def json(self):
+                return {"issuer": self_issuer, "jwks_uri": "https://id.example.com/jwks"}
+
+        class FakeClient:
+            def __init__(self):
+                self.closed = False
+
+            async def get(self, _url):
+                return FakeResponse()
+
+            async def aclose(self):
+                self.closed = True
+
+        self_issuer = self._issuer()
+        verifier = logto_auth.LogtoJwtVerifier(self_issuer, "audience")
+
+        def factory():
+            client = FakeClient()
+            created.append(client)
+            return client
+
+        verifier._new_http_client = factory
+        asyncio.run(verifier._get_json(f"{self_issuer}/.well-known/openid-configuration"))
+        asyncio.run(verifier._get_json(f"{self_issuer}/jwks"))
+        self.assertEqual(len(created), 1)
+        asyncio.run(verifier.aclose())
+        self.assertTrue(created[0].closed)
+        self.assertIsNone(verifier._http_client)
+
+
+async def _raise_jwks_unavailable(_token):
+    raise logto_auth.AuthError("AUTH_JWKS_UNAVAILABLE")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1495,6 +1495,12 @@ export default {
     statusPartial: (ctx) => '已' + (ctx.named('action') === 'enable' ? '启用' : '禁用') + ' ' + ctx.named('success') + ' 个账号，' + ctx.named('failed') + ' 个失败',
     statusFailed: (ctx) => '批量' + (ctx.named('action') === 'enable' ? '启用' : '禁用') + '失败',
     loadFailed: '账号加载失败',
+    errorTitle: '账号列表加载失败',
+    errorHint: '身份服务或网络暂时不可用，请稍后重试',
+    errorAction: '重试',
+    loginRequiredTitle: '请先登录',
+    loginRequiredHint: '登录后才能查看和管理已授权的发布账号',
+    loginRequiredAction: '去登录',
     ownerField: '负责人',
     publisherField: '发布人',
     // 登录状态检查结果（错误码 → 用户友好文案）

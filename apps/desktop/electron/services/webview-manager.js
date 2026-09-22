@@ -883,14 +883,19 @@ class WebviewManager extends EventEmitter {
     var platform = state.platform
     if (!accountId || !platform) return { ok: false, reason: 'not-account-tab' }
 
-    var cookies = []
-    var cookieExtractError = null
+    // 契约：Cookie 提取失败必须 fail-closed——不落盘、保持 unsaved、不广播 saved。
+    // Electron session.cookies 只有 get([filter])，不存在 getAll；此前误用 getAll 使
+    // TypeError 被吞后以 cookies=[] 继续保存（假成功），失效账号扫码重登后凭证库仍是
+    // 0 Cookie，再开创作者中心弹回登录页（回归 2026-09-22）。
+    var cookies
     try {
       cookies = await self._extractTabCookies(view, tabId)
     } catch (e) {
-      cookieExtractError = (e && e.message) ? e.message : String(e)
-      log.warn('WebviewManager', 'saveAccountTabCredentials: cookies.get failed for ' + tabId + ': ' + cookieExtractError)
+      var cookieExtractError = (e && e.message) ? e.message : String(e)
+      log.warn('WebviewManager', 'saveAccountTabCredentials: cookies.get failed for ' + tabId + ', aborting save: ' + cookieExtractError)
+      return { ok: false, reason: 'cookie-extract-failed', detail: cookieExtractError, accountId: accountId, platform: platform }
     }
+    if (!Array.isArray(cookies)) cookies = []
 
     var localStorageData = {}
     try {
@@ -906,11 +911,6 @@ class WebviewManager extends EventEmitter {
 
     if (!self._accountManager || typeof self._accountManager.updateCapturedAccount !== 'function') {
       return { ok: false, reason: 'account-manager-unavailable' }
-    }
-    // Cookie 提取失败绝不能退化成「保存一份 cookies=0 的凭证」：那会让后续
-    // 登录态检测失去唯一可靠输入并产生假阳性/假阴性。显式报错让用户重存。
-    if (cookieExtractError) {
-      return { ok: false, reason: 'cookie-extract-failed', detail: cookieExtractError, accountId: accountId, platform: platform }
     }
     if (cookies.length === 0) {
       log.warn('WebviewManager', 'saveAccountTabCredentials: 0 cookies extracted for ' + platform + ':' + accountId + '（可能未登录或分区不匹配）')

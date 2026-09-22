@@ -1106,3 +1106,67 @@ async def test_ensure_catalog_seeded_auto_fetch_respects_switch():
             fake_fetch.assert_not_awaited()
     finally:
         settings.preset_seed_fetch_enabled = False
+
+
+@pytest.mark.asyncio
+async def test_reorder_model_preset_actions_and_validation():
+    """reorder：admin-only、action 校验、404、四动作与归一化 0..n-1、边界幂等。"""
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    admin_headers = {"Authorization": f"Bearer {_admin_token()}"}
+    user_headers = {"Authorization": f"Bearer {_user_token()}"}
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/api/v1/model-presets/minimax-tts/reorder", json={"action": "top"}, headers=user_headers)
+        assert resp.status_code == 403
+        resp = await client.post("/api/v1/model-presets/minimax-tts/reorder", json={"action": "sideways"}, headers=admin_headers)
+        assert resp.status_code == 400
+        resp = await client.post("/api/v1/model-presets/no-such-preset/reorder", json={"action": "top"}, headers=admin_headers)
+        assert resp.status_code == 404
+
+        # 移到首位 → sort_order=0，全列表归一化为连续 0..n-1
+        resp = await client.post("/api/v1/model-presets/minimax-tts/reorder", json={"action": "top"}, headers=admin_headers)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["result"] == "changed"
+        orders = sorted(p["sort_order"] for p in body["presets"])
+        assert orders == list(range(len(body["presets"])))
+        assert body["presets"][0]["id"] == "minimax-tts"
+
+        # 下移一位：与原第二位互换
+        second_id = body["presets"][1]["id"]
+        resp = await client.post("/api/v1/model-presets/minimax-tts/reorder", json={"action": "down"}, headers=admin_headers)
+        presets = resp.json()["presets"]
+        assert presets[0]["id"] == second_id
+        assert presets[1]["id"] == "minimax-tts"
+
+        # 移到末位
+        resp = await client.post("/api/v1/model-presets/minimax-tts/reorder", json={"action": "bottom"}, headers=admin_headers)
+        assert resp.json()["presets"][-1]["id"] == "minimax-tts"
+
+        # 边界幂等：首位再上移 → result=noop
+        first_id = resp.json()["presets"][0]["id"]
+        resp = await client.post(f"/api/v1/model-presets/{first_id}/reorder", json={"action": "up"}, headers=admin_headers)
+        assert resp.status_code == 200
+        assert resp.json()["result"] == "noop"
+        assert resp.json()["presets"][0]["id"] == first_id
+
+
+@pytest.mark.asyncio
+async def test_catalog_items_include_sort_order(monkeypatch):
+    """catalog 契约：每个目录项携带 sort_order（int 或 null），桌面端据此排【全部】列表。"""
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+    from config import settings
+
+    monkeypatch.setattr(settings, "catalog_api_key", "catalog-test-key")
+    transport = ASGITransport(app=app)
+    headers = {"X-Catalog-Key": "catalog-test-key"}
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/v1/model-presets/catalog", headers=headers)
+        assert resp.status_code == 200, resp.text
+        items = resp.json()["items"]
+        assert items
+        assert all("sort_order" in it for it in items)
+        assert all(it["sort_order"] is None or (isinstance(it["sort_order"], int) and it["sort_order"] >= 0) for it in items)
