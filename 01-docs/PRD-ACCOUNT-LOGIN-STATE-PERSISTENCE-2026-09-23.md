@@ -284,7 +284,7 @@ FAILED tests/test_pipeline_loader.py::TestPipelineLoader::test_story2video_manif
 
 ### 13.5 与 main 的三次合并（契约收敛，实测记录）
 
-推送后 `origin/main` 已前进，两次合并均为**语义重叠**而非纯文本冲突：
+推送后 `origin/main` 多次前进，**前两次合并**均为**语义重叠**而非纯文本冲突：
 
 **合并 ①（4 个提交，含 #2229）**——关键事实：**main 上的 #2229 已独立修复本 PR 的 RC-C**
 （`webview-manager` 误用 `session.cookies.getAll`），且实现口径为 fail-closed 提前返回
