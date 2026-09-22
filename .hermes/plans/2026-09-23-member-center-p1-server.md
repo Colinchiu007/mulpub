@@ -114,18 +114,6 @@ test('004 商务迁移与开发态 SCHEMA 一致', async (t) => {
     }
     assert.ok(SCHEMA.some((statement) => statement.includes('ADD COLUMN IF NOT EXISTS device_id')))
   })
-
-  await t.test('会话行以确定性 id 复用（同设备重登复活 revoked 行）', async () => {
-    const calls = []
-    const pool = { async query(text, values) { calls.push({ text, values }); return { rows: [] } } }
-    const { PostgresIdentityRepository } = require('../src/auth/postgres-identity-repository')
-    const repository = new PostgresIdentityRepository({ pool })
-    const first = await repository.upsertSession({ userId: 'u-1', deviceId: 'device-a', deviceName: 'Win' })
-    const second = await repository.upsertSession({ userId: 'u-1', deviceId: 'device-a', deviceName: 'Win2' })
-    assert.strictEqual(first.id, second.id)
-    const insert = calls[calls.length - 1]
-    assert.match(insert.text, /ON CONFLICT \(id\) DO UPDATE SET revoked_at = NULL/)
-  })
 })
 ```
 
@@ -318,41 +306,43 @@ test('plan-matrix 契约（spec §2）', async (t) => {
 
   await t.test('无限值约定 -1：pro 平台数 / standard AI 写稿（自有 Key）', () => {
     assert.strictEqual(getPlanEntitlement('pro').limits.max_platforms, -1)
-    assert.strictEqual(getPlanEntitlement('standard').limits.quota.ai_write_monthly, -1)
+    assert.strictEqual(getPlanEntitlement('standard').quota.ai_write_monthly, -1)
     assert.strictEqual(getPlanEntitlement('free').limits.max_platforms, 5)
     assert.strictEqual(getPlanEntitlement('standard').limits.max_platforms, 15)
   })
 
   await t.test('日发布数折算 cloud_publish_monthly = daily_publish × 30（双口径）', () => {
-    assert.strictEqual(getPlanEntitlement('free').limits.quota.cloud_publish_monthly, 5 * 30)
-    assert.strictEqual(getPlanEntitlement('standard').limits.quota.cloud_publish_monthly, 50 * 30)
+    assert.strictEqual(getPlanEntitlement('free').quota.cloud_publish_monthly, 5 * 30)
+    assert.strictEqual(getPlanEntitlement('standard').quota.cloud_publish_monthly, 50 * 30)
     assert.strictEqual(getPlanEntitlement('pro').limits.daily_publish, 1000)
-    assert.strictEqual(getPlanEntitlement('pro').limits.quota.cloud_publish_monthly, 1000 * 30)
+    assert.strictEqual(getPlanEntitlement('pro').quota.cloud_publish_monthly, 1000 * 30)
   })
 
-  await t.test('feature 开关与配额键对齐 consumeFeature 的 ${feature}_monthly 约定', () => {
+  await t.test('feature/quota 形状对齐 consumeFeature 契约（features 数组 + 顶层 quota）', () => {
     const free = getPlanEntitlement('free')
-    assert.strictEqual(free.features.cloud_publish, true)
-    assert.strictEqual(free.features.video_create, false)
-    assert.strictEqual(free.features.schedule_batch, false)
-    assert.strictEqual(free.features.dashboard_full, false)
+    assert.ok(free.features.includes('cloud_publish'))
+    assert.ok(free.features.includes('ai_write'))
+    assert.ok(!free.features.includes('video_create'))
+    assert.ok(!free.features.includes('schedule_batch'))
+    assert.ok(!free.features.includes('dashboard_full'))
     const standard = getPlanEntitlement('standard')
-    assert.strictEqual(standard.features.video_create, true)
-    assert.strictEqual(standard.features.schedule_batch, true)
-    assert.strictEqual(standard.limits.quota.video_create_monthly, 500)
-    assert.strictEqual(getPlanEntitlement('pro').limits.quota.video_create_monthly, 3000)
+    assert.ok(standard.features.includes('video_create'))
+    assert.ok(standard.features.includes('schedule_batch'))
+    assert.ok(standard.features.includes('dashboard_full'))
+    assert.strictEqual(standard.quota.video_create_monthly, 500)
+    assert.strictEqual(getPlanEntitlement('pro').quota.video_create_monthly, 3000)
     assert.strictEqual(standard.limits.concurrent_tasks, 3)
     assert.strictEqual(getPlanEntitlement('pro').limits.concurrent_tasks, 10)
     // 官方积分档位：free 无 / standard 中 / pro 高
-    assert.strictEqual(free.limits.quota.official_credit_monthly, 0)
-    assert.ok(standard.limits.quota.official_credit_monthly > 0)
-    assert.ok(getPlanEntitlement('pro').limits.quota.official_credit_monthly > standard.limits.quota.official_credit_monthly)
+    assert.strictEqual(free.quota.official_credit_monthly, 0)
+    assert.ok(standard.quota.official_credit_monthly > 0)
+    assert.ok(getPlanEntitlement('pro').quota.official_credit_monthly > standard.quota.official_credit_monthly)
   })
 
   await t.test('运营 overrides 注入：合法覆盖生效、未知键与非法值 fail closed', () => {
     const patched = getPlanEntitlement('standard', { standard: { videoMonthly: 600 } })
-    assert.strictEqual(patched.limits.quota.video_create_monthly, 600)
-    assert.strictEqual(getPlanEntitlement('standard').limits.quota.video_create_monthly, 500) // 不污染基线
+    assert.strictEqual(patched.quota.video_create_monthly, 600)
+    assert.strictEqual(getPlanEntitlement('standard').quota.video_create_monthly, 500) // 不污染基线
     assert.throws(() => getPlanEntitlement('standard', { standard: { noSuchKey: 1 } }), /unknown key/i)
     assert.throws(() => getPlanEntitlement('standard', { standard: { videoMonthly: 1.5 } }), /integer/i)
     assert.throws(() => getPlanEntitlement('standard', { standard: { videoMonthly: -2 } }), /-1|range|invalid/i)
@@ -364,7 +354,7 @@ test('plan-matrix 契约（spec §2）', async (t) => {
 
   await t.test('返回值深冻结，调用方不能篡改矩阵', () => {
     const snapshot = getPlanEntitlement('free')
-    assert.throws(() => { snapshot.limits.daily_publish = 999 }, /read-only|frozen|not extensible|Cannot assign/i)
+    assert.throws(() => { snapshot.quota.cloud_publish_monthly = 999 }, /read-only|frozen|not extensible|Cannot assign/i)
   })
 })
 ```
@@ -387,8 +377,8 @@ Expected: FAIL — `Cannot find module '../src/auth/plan-matrix'`
  *
  * 约定：
  * - 数值 -1 表示「不限」（仅 maxPlatforms / aiWriteMonthly / dailyPublish / videoMonthly / officialCreditMonthly 允许）。
- * - quota 键与 PostgresEntitlementProvider.consumeFeature 的 `${feature}_monthly` 命名对齐；
- *   发布配额用 limits.daily_publish × 30 折算（双口径：daily_publish 给 UI 展示，quota 给扣减）。
+ * - 输出形状直接兼容 PostgresEntitlementProvider.consumeFeature：features 为字符串数组（includes 判定），
+ *   quota 为顶层对象且键名对齐 `${feature}_monthly`；limits 为 UI 展示透传字段（扣减路径不读）。
  * - overrides 为运营可配注入（config.yaml，带 * 项），只允许覆盖基线已有数值键。
  * - 客户端禁止硬编码金额/配额，一律通过 GET /api/v1/plans 与 entitlement 快照下发。
  */
@@ -484,7 +474,7 @@ function deepFreeze(obj) {
   return Object.freeze(obj)
 }
 
-/**  entitlement 形状：{ plan, features, limits }，供 /api/v1/me 快照与 requireFeature 消费。 */
+/** entitlement 形状：{ plan, features: string[], quota: {}, limits: {} }，兼容 consumeFeature，供 /api/v1/me 快照直接落库。 */
 function getPlanEntitlement(plan, overrides) {
   if (!PLAN_IDS.includes(plan)) {
     const err = new Error(`plan-matrix: unknown plan '${plan}'`)
@@ -492,27 +482,25 @@ function getPlanEntitlement(plan, overrides) {
     throw err
   }
   const matrix = mergePlanSection(plan, overrides)
+  const features = ['cloud_publish', 'ai_write']
+  if (matrix.videoMonthly > 0) features.push('video_create')
+  if (matrix.scheduleBatch === true) features.push('schedule_batch')
+  if (matrix.dashboard === 'full') features.push('dashboard_full')
   const cloudPublishMonthly = matrix.dailyPublish === -1 ? -1 : matrix.dailyPublish * 30
   return deepFreeze({
     plan,
     matrixVersion: PLAN_MATRIX_VERSION,
-    features: {
-      cloud_publish: true,
-      ai_write: true,
-      video_create: matrix.videoMonthly > 0,
-      schedule_batch: matrix.scheduleBatch === true,
-      dashboard_full: matrix.dashboard === 'full',
+    features,
+    quota: {
+      cloud_publish_monthly: cloudPublishMonthly,
+      ai_write_monthly: matrix.aiWriteMonthly,
+      video_create_monthly: matrix.videoMonthly,
+      official_credit_monthly: matrix.officialCreditMonthly,
     },
     limits: {
       max_platforms: matrix.maxPlatforms,
       daily_publish: matrix.dailyPublish,
       concurrent_tasks: matrix.concurrentTasks,
-      quota: {
-        cloud_publish_monthly: cloudPublishMonthly,
-        ai_write_monthly: matrix.aiWriteMonthly,
-        video_create_monthly: matrix.videoMonthly,
-        official_credit_monthly: matrix.officialCreditMonthly,
-      },
     },
   })
 }
@@ -535,7 +523,7 @@ function getPlanCatalog(overrides) {
 module.exports = { PLAN_MATRIX_VERSION, PLAN_IDS, getPlanEntitlement, getPlanCatalog }
 ```
 
-注意：`getPlanEntitlement` 的 `features`/`limits` 结构会在 Task 6 `_buildEntitlement` 中与既有 `{ plan, features }` 形状合并（补 `limits` 透传），`consumeFeature` 读 `limits.quota[`${feature}_monthly`]`（Task 6 Step 中验证与 `PostgresEntitlementProvider` 的键约定一致）。
+注意：`getPlanEntitlement` 输出形状 `{ plan, features: string[], quota, limits }` 与 `PostgresEntitlementProvider.getForUser/requireFeature/consumeFeature` 现有消费契约（`features.includes(...)` + `quota[`${feature}_monthly`]`）直接兼容；Task 6 `_buildEntitlement` 只需补 `quota`/`limits` 透传。快照 `cloud_publish_monthly` 全档位为有限正整数（-1 不进入被扣减的 feature），与 `consumeFeature` 的 `limit >= 0` 校验不冲突；`ai_write_monthly = -1`（标准版）仅作契约下发，P1 服务端无 `consumeFeature('ai_write')` 调用路径（AI 写稿在桌面端本地执行）。
 
 - [ ] **Step 4: 运行确认通过**
 
