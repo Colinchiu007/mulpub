@@ -283,6 +283,31 @@ describe('phase3-services.startServices', () => {
     }))
   })
 
+  it('方案C 零配置：把解析出的 OPS_CENTER_URL 注入运营中心同步（setOpsCenterUrl + setGetAccessToken）', async () => {
+    const identityEnv = { IDENTITY_AUTH_ENABLED: 'true', OPS_CENTER_URL: 'https://ops.iart.work' }
+    const identityService = {
+      getState: vi.fn(() => ({ status: 'authenticated', user: { sub: 'user-a' } })),
+      getAccessToken: vi.fn(async () => 'jwt'),
+    }
+    const createIdentityService = vi.fn(async () => identityService)
+    const loadIdentityRuntimeEnv = vi.fn(() => identityEnv)
+    const opsCenterSync = { setGetAccessToken: vi.fn(), setOpsCenterUrl: vi.fn() }
+    const deps = makeMockDeps({ createIdentityService, loadIdentityRuntimeEnv, opsCenterSync })
+    await startServices(deps)
+    expect(opsCenterSync.setOpsCenterUrl).toHaveBeenCalledWith('https://ops.iart.work')
+    expect(opsCenterSync.setGetAccessToken).toHaveBeenCalledWith(expect.any(Function))
+  })
+
+  it('方案C 零配置：identityEnv 无 OPS_CENTER_URL 时不调用 setOpsCenterUrl', async () => {
+    const identityEnv = { IDENTITY_AUTH_ENABLED: 'true' }
+    const identityService = { getState: vi.fn(() => ({ status: 'signed_out' })), getAccessToken: vi.fn(async () => '') }
+    const createIdentityService = vi.fn(async () => identityService)
+    const loadIdentityRuntimeEnv = vi.fn(() => identityEnv)
+    const opsCenterSync = { setGetAccessToken: vi.fn(), setOpsCenterUrl: vi.fn() }
+    const deps = makeMockDeps({ createIdentityService, loadIdentityRuntimeEnv, opsCenterSync })
+    await startServices(deps)
+    expect(opsCenterSync.setOpsCenterUrl).not.toHaveBeenCalled()
+  })
   it('发行配置加载失败时不允许在 shadow 阶段静默降级', async () => {
     const failure = new Error('identity public config is invalid')
     const deps = makeMockDeps({
