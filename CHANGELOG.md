@@ -1,3 +1,40 @@
+# [未发布] feat(tab): 「+」新标签内嵌独立应用主页——与首标签完全解耦（PRD-TAB-INDEPENDENT-HOME）
+
+### 变更
+- **背景/根因**：顶部地址区点「+」开的新标签与第一固化「首页」标签内容一致，无法并行操作两个模块。根因三重：① `onCreateTab` 硬编码 `about:blank` + 标题「首页」；② 应用主页只在唯一 SPA（home 虚拟标签）渲染，新标签无独立内容；③ `App.vue` 路由归位守卫（`router.beforeEach`）在任何 SPA 路由变化时强制 `switchToTab('home')`，使新标签导航「弹回」首标签。
+- **electron/home-shell-preload.js（新增）**：内嵌主页专用受守护 preload，双判据后才挂载完整 `electronAPI`——① 主进程注入 `--mp-home-shell-url=<期望地址>` ② 当前文档与其同源且 `search` 仍含 `mp-home-shell=1`；被重定向到外站/参数被剥离/`argv` 缺失时自动降级为仅受限 `multiPublishMonitor` 桥（S1/S2 安全不变式）。`hasHomeShellParam` 先去前导 `?` 再剥 `#`，兼容 jsdom 将 hash 拼进 search 的形态。
+- **electron/services/webview-manager.js**：`createNewTabPage` 新增 `homeShell` 分支——无 URL/空/`about:blank` 时以内嵌主页地址（打包 `pathToFileURL(dist/index.html)?mp-home-shell=1`、开发 `devServer/?mp-home-shell=1`）创建 `WebContentsView`，选用 home-shell preload 并注入 `additionalArguments`；home-shell 与账号会话互斥（`accountId=null`，不注入凭证/挂登录诊断）；`tabStates.url` 对内嵌主页置空、标题默认「新标签页」，`did-navigate` 后自然转普通网页标签。
+- **src/App.vue**：`isHomeShellSearch(location.search)` 判定内嵌壳态；**移除归位守卫**（不再注册 `router.beforeEach`→`switchToTab`）；新增 `v-else-if="isHomeShell"` **独立模板分支**——内嵌实例只渲染 `MpModuleNav`+工作区，不渲染外层 `MpSidebar`/`TabBar`/`NavBar`（WebContentsView 仅覆盖内容矩形，重复渲染会双份 chrome）；`setShellMode` 上报、`tabStore.init/dispose`、`onNavigate` 订阅在内嵌模式下全部跳过（S4 广播风暴防护）。
+- **src/utils/home-shell.js（新增）**：渲染层壳态判据单一来源（`isHomeShellSearch`/`detectHomeShell`）。**scripts/build-preload.js**：新增 home-shell preload 第二 esbuild 入口。**src/locales/{zh,en}.js**：新增 `tabs.newTabTitle`（新标签页/New Tab）、`tabs.newTabAria`（成对，Gate 7）。
+
+### 验证
+- TDD 红→绿：新增 `home-shell.util.test.js`(6)、`home-shell-preload.test.js`(6，含外站重定向/参数剥离/`=0` 不暴露 electronAPI 的负向用例)、`tab-independent-home.test.js`(7，含 F1 独立模板分支不含外层 chrome 的源码契约)、`webview-manager.test.js` home-shell describe(5)；修正既有 `shell-mode-6b.test.js` 正则以容忍 watch 体守卫行；`home-shell-preload.test.js` 纳入 vitest include（与 `electron/preload.test` 同级）。
+- QM-1：`electron-builder --win --dir` exit 0，asar 清单含 `home-shell-preload.bundle.js`；`verify-worktree-deps.js` OK。locale `check-locale-sync.js --keys` PASS。真实 Electron 窗口验证双标签独立导航。
+- **eslint.config.mjs**：ignores 从 `electron/preload/**/*.bundle.js` 泛化为 `electron/**/*.bundle.js`——home-shell preload 的 esbuild 生成物 `electron/home-shell-preload.bundle.js`（非手写源）此前落入 Gate 11 lint 报 `no-empty`，纳入既有「生成物 bundle 不参与 lint」约定予以忽略。
+- **债务基线**：`scripts/debt-baseline.json` `filesOver1000` 32→33、`filesOver500` 98→99（各 +1）。原因：新增的 `home-shell-preload.bundle.js`（1346 行）为 esbuild **生成产物**，与既有已计入基线的 `preload/index.bundle.js`（1333 行）同类，其手写源 `home-shell-preload.js` 仅 73 行；无任何手写源文件跨越阈值。按门禁脚本自身给出的「经审查确认后 `--update`」流程更新基线（反映生成物纳入，非源码膨胀）。
+
+### 关联
+- PRD `01-docs/PRD-TAB-INDEPENDENT-HOME-2026-09-22.md`（F1-F6 功能需求 / §4 数据校验 / §5 安全约束 S1-S5 / §6 交互明细 / §7 i18n / §11 测试计划）。
+- 分支 `tab-independent-home`（worktree 隔离，D 盘）· PR #2230（已合并 `origin/main`，解决 CHANGELOG / webview-manager.test.js 冲突）。
+
+---
+# [未发布] fix(ui): 限流自检弹窗表单布局修复 + 功能规格文档化
+
+### 变更
+- **`ModelProviders.vue`（限流自检弹窗布局）**：模板中的 `.selfcheck-form` / `.selfcheck-row` 类名此前在 `<style scoped>` 中无任何规则定义，label 与 `el-input-number` 随文本流随机换行、输入框宽度参差（用户反馈「布局非常混乱不整齐」）。补齐：表单纵向 flex `gap:14px`；每行 `display:flex; align-items:center; gap:12px` 标签与输入框同行垂直居中；label 固定列宽 `flex:0 0 230px`（次要色+小字号、允许换行）；输入框统一 `width:150px; flex-shrink:0`，全部对齐同一左基线。
+- **文档**：`01-docs/design/model-provider-module-design.md` 新增 §9.5「限流自检弹窗功能规格与布局规范」——功能定位（真实 ApiUsageGovernor + 本地假 adapter 验证并发上限/排队/429 冷却/5h 限额，无网络不耗额度）、使用流程 6 步、参数数据校验表（rpm [1,100000]、maxConcurrent [1,8] 或留空=clamp(rpm/10,1,4)、requestCount [1,1000]、requestDurationMs [0,60000]、inject429At [1,requestCount] 或留空、limitPer5h [1,10000000] 或留空、cooldownMs [100,60000]）、交互逻辑、显示项、提示文字、回归覆盖与影响面。
+
+### 验证
+- TDD：新增 `src/views/selfcheck-dialog-layout.test.js`（3 例源码契约：行 flex 同行对齐 / label 固定列宽 / 输入框统一宽度）。定向 4 文件 20/20 全绿（含 `icon-usage`(9)、`model-providers-copy`(5)、`settings-panel-layout`(3) 零回归）；eslint exit 0（仅既有 warning）。
+- 纯展示层样式补齐，不改模板结构 / IPC / 数据模型；暗色模式沿用 token 不受影响。
+
+### 关联
+- 分支 `codex/selfcheck-dialog-layout`（worktree 隔离，D 盘），基于 `origin/main`；规范详见 §9.5。
+
+---
+
+
+
 # [未发布] feat(model-settings): 模型列表排序逻辑调整 + 运营中心预设模型自定义排序
 
 ### 变更
