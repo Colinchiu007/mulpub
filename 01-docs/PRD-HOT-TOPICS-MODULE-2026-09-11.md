@@ -234,6 +234,21 @@ ${topic}
 - **保留态字段完整性**：保留的 `topics` 元素必须仍满足 §4.1 的字段校验（原样透传自上一次通过校验的批次，不在保留路径上二次加工）；`channelStats` 必须逐渠道给出 `{ ok: boolean, skipped: boolean, error: string|null, count: number }` 四字段，缺一不可。
 - **保留态不得伪造成「新鲜」**：`preservedStaleCache === true` 时 `fetchedAt` 必须早于当前时间（等于上一次的真实抓取时间），禁止写成 `Date.now()`。
 
+### 4.3 成片发布的平台侧载荷校验（P0，2026-09-23 新增，对应 §3.12 / §5.8）
+
+载荷离开应用前按 §3.12 表 A1-A5 校验；进入平台编辑器后按本表按平台差异二次校验（任一不满足即按「跳过该字段 + warn 日志」处理，不整单失败）：
+
+| # | 项 | 规则 | 取证来源 |
+|---|-----|------|----------|
+| P1 | 视频必填 | `article.video_path` 非空是「视频任务」的唯一判据：路由层据此把 RPA 超时抬到 **30 分钟**、队列任务超时抬到 **30 分钟**（见 §5.8 表 T-TO） | 300s/900s 预算下 bilibili 96MB 上传必被杀 |
+| P2 | 标题字段存在性 | 平台若无独立标题框（`sel.title_input` 全部候选超时），标题必须**回退写入正文编辑器**并与正文合并，此时正文步骤**跳过独立填充**（否则标题被纯正文覆写丢失） | `d4-1-kuaishou.json`：编辑页只有 `div#work-description-edit[contenteditable]` |
+| P3 | 合并文案长度 | 回退写入的「标题+正文」合并文本按平台 `max_content`（`platforms.yaml`，缺省 **2000**）截断；标题与正文之间以 `\n\n` 分隔 | 快手作品描述上限 |
+| P4 | 上传完成判定 | 必须同时满足「无负向信号」+「存在完成信号」（https 预览源 / 编辑器字段出现 / URL 落到 `post/video`），且最低稳定期 **25s**；仅凭 class 含 progress/success 不得判定完成 | smoke5/smoke6 误判实锤（blob 预览秒判） |
+| P5 | 必填声明 | 平台存在必填下拉（B 站「创作声明」）时必须先选中；选中后未确认不得上报成功（状态 `option-selected-no-confirm`） | `d5-bilibili.json`：`input.bcc-select-input-inner[placeholder="请选择符合您视频内容的创作声明"]` |
+| P6 | 遮罩清理 | 导航到发布页后、填写字段前必须清理草稿恢复/引导遮罩（如抖音「我知道了」），否则字段与发布按钮不可点 | `d5-douyin.json` |
+| P7 | 平台作品 ID | `baijiahao`/`kuaishou` 为严格平台：结果必须携带从**网络响应**提取的 `postId`（作品 ID），否则判 `failed: 发布结果缺少平台作品 ID`，禁止用 URL/localStorage 里的数字冒充 | 防「静默失败被记成成功」 |
+| P8 | 选择器候选 | 任何字段选择器都是**候选数组**，必须逐个尝试（首个候选命中即用，不得硬取 `[0]`） | 页面改版即全链失败 |
+
 ## 5. 流程与功能逻辑
 
 ### 5.1 刷新流程
@@ -397,6 +412,49 @@ fetchTopics({ force })
 2. **保留即过期**：保留态下 `fetchedAt` 保持旧值 ⇒ 下一次非 force 调用必然重新尝试网络（不会因为命中"新鲜"缓存而永久停留在陈旧数据）。
 3. **失败可见**：保留态下 `channelStats` 必须是本轮真实结果，前端告警条（§6.2 部分渠道失败警告）照常展示。
 4. **并发安全**：`inFlight` 去重保证同一时刻只有一次写缓存；保留判定读取的 `cache` 是进入本轮前的快照，不会被本轮部分写入污染。
+
+### 5.8 视频成片的 RPA 平台发布流程（P0，2026-09-23 新增，对应 §3.12）
+
+发布任务由 `publish:batch` 入队（`taskQueue` maxConcurrent=3）→ `publisher-router` 按平台路由 → `rpaViewManager.publish(platform, article, authData, timeout)` → `_publish_generic`（douyin 走 `_publish_douyin` 专用链路）。时序不变式如下：
+
+```text
+导航到 publish_url（3s 稳定）
+  → URL 登录检测（login/passport/signin）+ SPA 登录态 DOM 探测（有登录文案且无表单 → fail fast）
+  → preFill hook（若有）
+  → ① 遮罩清理 _dismissPostNavDialogs      ← 必须在任何字段操作之前
+  → ② 视频上传 _resolveSelector(sel.file_input) → _setFileInput → 上传完成判定（P4）
+       └ 之后 ③ 表单就绪等待（标题/正文/编辑器出现，最长 120s）
+  → ④ 标题：_resolveSelector(sel.title_input) → 命中则填标题框
+       └ 未命中 → _resolveSelector(editor|content_textarea|textarea|desc_textarea)
+                   → 命中则「标题+正文」合并写编辑器（P2/P3），并跳过 ⑤
+  → ⑤ 正文：_resolveSelector(cs) → 填充（④已合并时跳过）
+  → ⑥ 标签/封面/声明（平台 hook：bilibili 创作声明 + 短信风控弹窗清理；kuaishou AI 声明勾选）
+  → ⑦ 点击发布按钮（候选数组逐个尝试，文本匹配分级见下）
+  → ⑧ 成功判定：api 响应 / URL 变化 / DOM 成功文案（三种 mode + 回退）
+  → ⑨ 严格平台（baijiahao/kuaishou）：作品 ID 必须来自响应体或作品列表回查（P7）
+```
+
+**顺序硬约束（实测定死，不得回退）**：② 上传必须在 ④⑤ 字段填充**之前**。原因：kuaishou/bilibili 的 `publish_url` 是**上传落地页**，标题/简介字段要等上传完成进入编辑器后才渲染；旧顺序（先填字段）必然 3×10s timeout。
+
+**表 T-TO：超时预算分层（一次配置、全链一致）**
+
+| 层 | 位置 | 图文 | 视频（`video_path` 非空） |
+|----|------|------|--------------------------|
+| 队列任务 | `ipc-handlers/publish.js` `publish:batch` | 180s（task-queue 默认） | **1800000ms = 30min** |
+| 路由→RPA | `publisher-router.js` `resolveRpaTimeout(route, article)` | `ROUTE_TABLE[platform].timeout`（300s） | `max(route.timeout, VIDEO_RPA_TIMEOUT=1800000)` |
+| 上传等待 | `_waitForVideoUploadComplete(win, platform, timeoutMs)` | — | 默认 **900000ms = 15min**，轮询 3s，最低稳定期 25s |
+| 单条终态 | 驱动 `E2E_PUBLISH_TIMEOUT_MS` | 900000 | 建议 ≥1800000 |
+
+**选择器文本匹配分级（`rpa-selector-utils.buildResolveElementCode`）**：
+
+1. 原生 `document.querySelector(selector)` 命中即返回（快路径）；
+2. `:has-text("x")` / `text=x` 走文本匹配，且**必须先按选择器自带的 tag/class 收窄候选池**（`button:has-text("发布")` 永远不得命中 `div` 文案），再按优先级取元素：
+   **精确文本 + 可交互标签（button/a/li/label/[role=button]）> 精确文本叶子 > 包含文本 + 可交互 > 包含文本任意**，同级内优先可见元素（`offsetParent`/`getClientRects`）；
+3. 全部候选都不命中 → 返回 `null`，调用方（`_resolveSelector`）继续下一个候选。
+
+> 为什么第 2 步的两条都是硬性的：快手发布页存在「在粉丝浏览高峰期发布」「发布成功次数」等含“发布”字样的文案。旧实现「包含文本」优先且忽略 tag 约束，会点中统计文案 → 页面无任何请求（诊断日志 `responses=0`），任务假死到超时。
+
+**B 站创作声明状态机（`_selectContentDeclaration`）**：返回 `{ state, option }`，`state ∈ no-input | already | done | option-selected-no-confirm | option-missing | error`；只有 `done`/`already` 视为处理成功，其余仅记 warn 日志、不抛异常（保持发布链路继续尽力提交，便于日志取证）。
 
 ## 6. 交互逻辑
 
@@ -674,6 +732,26 @@ fetchTopics({ force })
 
 **判定依据**：如果未来需要在界面上显式区分「陈旧数据」（例如加一条 `数据为上次抓取结果，本次刷新失败` 的常驻提示），必须先在本表补齐 zh/en 双语文案与 Message Function 约定，再改 UI；本期不做。
 
+### 7.5 RPA 发布过程日志与失败提示文字（P0，2026-09-23 新增）
+
+视频发布失败与降级全部以 `RpaView` 日志形式可取证（不新增 UI 控件、不新增 i18n key，列表/进度 UI 继续用 §7.1 已有文案）。日志前缀统一为 `[<platform>] `，文本为固定字符串（可用作断言/ grep）：
+
+| 场景 | 级别 | 日志/错误文字 | 含义与后续动作 |
+|------|------|----------------|----------------|
+| 候选回退生效 | info | `no dedicated title field, title falls back to editor sel=<sel\|none>` | 平台无独立标题框，标题已合并写进编辑器（§4.3 P2） |
+| 正文跳过 | info | `content already composed into editor caption, skip separate fill` | 防正文覆写丢标题（P2） |
+| 标题彻底失败 | warn | `title field not found (no title_input nor editor candidate), title skipped` | 两个池都空，只发正文 |
+| 正文候选不命中 | warn | `content editor not found among <N> candidates` | 已逐个尝试，非只试首项 |
+| 上传无完成信号 | warn | `video upload-complete signal not detected (preview/url), continuing best-effort` | 15min 预算内未判成，继续尽力填字段/提交 |
+| 表单未就绪 | warn | `editor form not ready after upload (still trying fields)` | 上传后 120s 内没出现标题/正文控件 |
+| 遮罩清理 | info | `post-nav dialogs dismissed: <JSON>` | 记录实际点掉的遮罩（P6） |
+| B 站风控弹窗 | info | `[bilibili] sms dialog: NO_SMS_DIALOG\|CANCELLED\|DIALOG_NO_CANCEL` | 短信验证只能用户完成；`DIALOG_NO_CANCEL` 代风控不可自动绕过 |
+| 创作声明 | info | `declaration prep state=<state> aiGenerated=<bool> option=<值>` | state 枚举见 §5.8 |
+| 严格平台无 ID | warn | `publish signal lacked platform ID; endpoint=<脱链URL> responses=<N>` | 任务以 `发布结果缺少平台作品 ID` 失败（P7）；`responses=0` 意味发布按钮没真正生效 |
+| 发布验证超时 | warn | `publish verification timeout endpoint=... responses=N` + `publish verify snapshot: {text,modals,buttons}` + 截图 `mp-rpa-diag/<platform>-verify-<ts>.png` | 提交后无法确认成功；快照+截图区分“弹窗拦截/校验失败/静默成功” |
+
+**失败时写入队列历史 `error` 字段的固定文案**（UI 发布进度列表直接展示，不截断）：`kuaishou no publish_url`、`kuaishou not logged in`、`发布结果缺少平台作品 ID`、`publish verification timeout`、`timeout (1800s)`（括号内为任务实际预算，视频为 1800s）。
+
 ## 8. 验收标准
 
 1. 「更多」菜单出现「热门选题」入口，点击进入 `/hot-topics` 页面。
@@ -737,6 +815,26 @@ fetchTopics({ force })
 2. **路由用客户端 hash 切换**（`location.hash = '#/hot-topics'`）并**以 DOM 出现为准**判断到达（`[data-testid="hot-topic-item"]` 数量 > 0），不要依赖 hash 值本身——主进程触发 renderer 重载时 hash 会被重置为 `#/`。
 3. **并发门必须排除存量活跃 run**（2026-09-23 回归）：驱动启动前先快照一份当前 `running/paused` 的 runId 集合作为 baseline，并发计数只统计「本驱动新发起」的 run。否则历史陈旧 paused 僵尸（实测：两个月前中断在 generate_assets 的两条 run，重启后仍保持 paused）会永久挡死门控，冒烟测试一条选题都发不出去。
 4. **服务商额度熔断是生成链路外部阻断的典型形态**（2026-09-23 实测）：快照固化 `imageProvider/voiceProvider=minimax-multimodal`，Token Plan 用尽后 generate_assets 阶段秒败（0/17 场景）。处置：备份 `story2video.lastOptions.v1` 后将 imageProvider 切 `agnes-image`、voiceProvider 切 `mimo-tts`（清空 minimax 专属克隆 voiceId）再重跑。
+
+### 9.6 RPA 发布韧性与选择器契约回归（2026-09-23 新增）
+
+| 测试文件 | 类型 | 关键守卫（缺一不可） |
+|----------|------|--------------------|
+| `apps/desktop/electron/services/rpa-selector-utils.test.js` | jsdom 行为 | ① 精确文本+可交互优先于包含文本；② tag/class 约束生效（`div:has-text("发布")` 只能命中 div）；③ 原生 CSS 快路径；④ `text=` 回退全池；⑤ 无命中返回 `null` |
+| `apps/desktop/electron/services/rpa-view-platforms.test.js` | 行为 + 源码契约 | ① 上传先于字段填充；② 导航后调遮罩清理；③ 上传后有表单就绪等待；④ 标题/文件/简介不得硬取 `[0]`；⑤ 无标题框时标题写编辑器且不被正文覆写；⑥ 上传完成判定含负向信号且预算 ≥900000；⑦ `douyin` 专用链路也先清遮罩；⑧ `_prepBilibili` 先选声明再清短信弹窗；⑨ `_selectContentDeclaration` 6 态状态机逐个断言（含“选项缺失/未确认不得误报 done”）；⑩ kuaishou/bilibili/douyin 选择器候选顺序数据契约 |
+| `apps/desktop/electron/services/publisher-router.test.js` | 单元 | 视频任务 `rpaViewManager.publish` 收到 timeout **1800000**；图文任务仍为路由表 300s |
+| `apps/desktop/electron/ipc-handlers/publish.test.js` | 单元 | 带 `video_path` 的批量任务入队 `timeout: 1800000`；无视频保持默认 |
+| `packages/rpa-engine/tests/platform-selectors-cross-platform.test.js` | 数据契约 | 全平台 `publish_btn`/`file_input` 非空；bilibili RPA 兜底需 `file_input` 且按钮文案含「立即投稿」；无意外空数组 |
+
+### 9.7 live DOM 取证资产（修复依据，可回放）
+
+修复不得“猜页面”。本轮全部平台差异结论均可以下列取证文件逐条比对（取证资产已随本 PRD 入库：`01-docs/evidence/rpa-dom-2026-09-23/`，内含可回放取证脚本 `dump3-live.js` / `dump4-ks.js` / `d5-target.js`，跑前只需改顶部输出目录与 CDP 端口）：
+
+| 文件 | 平台/页面 | 锁定的事实 |
+|------|-----------|------------|
+| `d4-1-kuaishou.json` | `article/publish/video?tabType=1` | 无 `input[placeholder*="标题"]`；标题/描述共用 `div#work-description-edit[contenteditable][placeholder="作品描述不会写？试试智能文案"]` |
+| `d5-bilibili.json` | `upload/video/frame` | `input.input-val[placeholder="请输入稿件标题"]`；`.ql-editor` 简介；`创作声明` 必填下拉；风控短信弹窗（`sms-cell` + `btn-pink sms-confirm disabled`）；上传进度文案「已上传：0.0MB/0.0MB 剩余时间：>1天 0%」 |
+| `d5-douyin.json` | `content/post/video` | `input.semi-input[placeholder="填写作品标题，为作品获得更多流量"]`；`button … 发布 (disabled:false)`；`div.zone-container…[contenteditable]`；页面叠加「我知道了」 |
 
 ## 10. 技术实现说明（附录）
 

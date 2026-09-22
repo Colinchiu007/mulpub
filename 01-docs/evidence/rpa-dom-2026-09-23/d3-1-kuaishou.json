@@ -1,0 +1,159 @@
+{
+ "url": "https://cp.kuaishou.com/article/publish/video?tabType=1",
+ "inputCount": 16,
+ "inputs": [
+  {
+   "tag": "div",
+   "type": "",
+   "text": "",
+   "cls": "_description_17g9x_24",
+   "ph": "",
+   "visible": true,
+   "value": ""
+  },
+  {
+   "tag": "input",
+   "type": "search",
+   "text": "",
+   "cls": "ant-select-selection-search-input",
+   "ph": "",
+   "visible": true,
+   "value": ""
+  },
+  {
+   "tag": "input",
+   "type": "search",
+   "text": "",
+   "cls": "ant-select-selection-search-input",
+   "ph": "",
+   "visible": true,
+   "value": ""
+  },
+  {
+   "tag": "input",
+   "type": "search",
+   "text": "",
+   "cls": "ant-select-selection-search-input",
+   "ph": "",
+   "visible": true,
+   "value": ""
+  },
+  {
+   "tag": "input",
+   "type": "search",
+   "text": "",
+   "cls": "ant-select-selection-search-input",
+   "ph": "",
+   "visible": true,
+   "value": ""
+  },
+  {
+   "tag": "input",
+   "type": "search",
+   "text": "",
+   "cls": "ant-select-selection-search-input",
+   "ph": "",
+   "visible": true,
+   "value": ""
+  },
+  {
+   "tag": "input",
+   "type": "checkbox",
+   "text": "",
+   "cls": "ant-checkbox-input",
+   "ph": "",
+   "visible": true,
+   "value": "allowSameFrame"
+  },
+  {
+   "tag": "input",
+   "type": "checkbox",
+   "text": "",
+   "cls": "ant-checkbox-input",
+   "ph": "",
+   "visible": true,
+   "value": "downloadType"
+  },
+  {
+   "tag": "input",
+   "type": "checkbox",
+   "text": "",
+   "cls": "ant-checkbox-input",
+   "ph": "",
+   "visible": true,
+   "value": "disableNearbyShow"
+  },
+  {
+   "tag": "input",
+   "type": "radio",
+   "text": "",
+   "cls": "ant-radio-input",
+   "ph": "",
+   "visible": true,
+   "value": "1"
+  },
+  {
+   "tag": "input",
+   "type": "radio",
+   "text": "",
+   "cls": "ant-radio-input",
+   "ph": "",
+   "visible": true,
+   "value": "4"
+  },
+  {
+   "tag": "input",
+   "type": "radio",
+   "text": "",
+   "cls": "ant-radio-input",
+   "ph": "",
+   "visible": true,
+   "value": "2"
+  },
+  {
+   "tag": "input",
+   "type": "radio",
+   "text": "",
+   "cls": "ant-radio-input",
+   "ph": "",
+   "visible": true,
+   "value": "1"
+  },
+  {
+   "tag": "input",
+   "type": "radio",
+   "text": "",
+   "cls": "ant-radio-input",
+   "ph": "",
+   "visible": true,
+   "value": "2"
+  }
+ ],
+ "videos": [
+  {
+   "src": "blob:https://cp.kuaishou.com/ff8ea57e-1fe1-40e5-a2a4-c258a04247ba",
+   "visible": true
+  }
+ ],
+ "labelEls": [
+  {
+   "tag": "div",
+   "type": "",
+   "text": "去优化标题",
+   "cls": "_title_16saw_55",
+   "ph": "",
+   "visible": true,
+   "value": ""
+  },
+  {
+   "tag": "div",
+   "type": "",
+   "text": "为了让更多人搜索到你的作品，建议使用智能推荐标题",
+   "cls": "_content_16saw_77",
+   "ph": "",
+   "visible": true,
+   "value": ""
+  }
+ ],
+ "pubBtns": []
+}
