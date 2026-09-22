@@ -23,6 +23,7 @@
 
 const { classifyTopicMulti, CATEGORY_KEYS } = require('./hot-topics/classifier')
 const { CHANNEL_PARSERS } = require('./hot-topics/channels')
+const { scoreTopics, markTrend } = require('./hot-topics/scorer')
 
 const CACHE_KEY = 'hot_topics_cache'
 const LLM_LABELS_KEY = 'hot_topics_llm_labels'
@@ -32,6 +33,7 @@ const MAX_PER_CHANNEL = 50
 const MAX_TOPICS = 400 // 8 渠道 × 50 条上限（去重后实际更少；含垂类补拉）
 const LLM_BATCH_LIMIT = 40   // 单次抓取最多送 LLM 分类的 general 条目数（成本控制）
 const LLM_LABELS_MAX = 500   // LLM 标签缓存条目上限（超限按插入序裁剪）
+const RANK_CONFIG_KEY = 'hot_topics_rank_config' // P2 评分配置：{ channelWeights?, halfLifeMs? }（可选，缺省用内置默认）
 
 const DESKTOP_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 
@@ -350,6 +352,19 @@ class HotTopicsService {
     return counts
   }
 
+  /** 读评分配置（P2 渠道权重/半衰期配置化；fail-closed 空对象=用默认值） */
+  _readRankConfig() {
+    if (!this.settingsStore || typeof this.settingsStore.getSetting !== 'function') return {}
+    try {
+      const raw = this.settingsStore.getSetting(RANK_CONFIG_KEY)
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed
+    } catch (e) {
+      this.log.warn && this.log.warn('[hot-topics] rank config parse failed:', e && e.message)
+    }
+    return {}
+  }
+
   /**
    * 方案C：LLM 分类兜底 —— 对仍为 general 的条目批量分类并应用。
    * 落盘标签缓存（LLM_LABELS_KEY）避免重复计费；llmClassify 缺省/抛错均静默降级。
@@ -457,7 +472,35 @@ class HotTopicsService {
         return preserved
       }
 
-      const topics = allTopics.slice(0, MAX_TOPICS)
+      // ── P2 衰减数据流（跨轮 carry-over）：本轮被限流/熔断/失败跳过的渠道，沿用上一轮
+      //   缓存条目参与统一评分；时间衰减按 age 使其下沉、热度不足自然跌出截断。
+      //   全渠道零结果已在上方 preserve 早退（合同：不重排、不 carry）。 ──
+      const liveChannels = new Set()
+      for (const t of allTopics) liveChannels.add(t.channel)
+      const byTopicKey = new Map(allTopics.map((t) => [String(t.topic || '').trim(), t]))
+      let carried = 0
+      for (const p of previous) {
+        const k = String(p.topic || '').trim()
+        if (!k || byTopicKey.has(k)) continue
+        if (!p.channel || liveChannels.has(p.channel)) continue // channel 未知的旧形态条目不沿用
+        allTopics.push(p)
+        byTopicKey.set(k, p)
+        carried++
+      }
+      if (carried && typeof this.log.info === 'function') {
+        this.log.info('[hot-topics] carried ' + carried + ' stale topics from channels absent this round')
+      }
+
+      // ── 统一热度评分：先评分排序、后截断（P0，替代渠道序截断；boost 条目按真实热度插位） ──
+      const rankCfg = this._readRankConfig()
+      const scored = scoreTopics(allTopics, {
+        now: fetchedAt,
+        channelWeights: rankCfg.channelWeights || undefined,
+        halfLifeMs: rankCfg.halfLifeMs || undefined,
+      })
+      // P1 trend 数据源：与上一轮（preserve 语义下的旧缓存）名次对比
+      markTrend(scored, previous)
+      const topics = scored.slice(0, MAX_TOPICS)
 
       // ── 方案C：LLM 分类兜底（general 条目批量分类 + 落盘缓存；失败静默降级） ──
       await this._applyLlmLabels(topics)
@@ -486,4 +529,5 @@ module.exports = {
   MAX_TOPICS,
   CHANNEL_CONFIGS,
   CATEGORY_BOOSTS,
+  RANK_CONFIG_KEY,
 }

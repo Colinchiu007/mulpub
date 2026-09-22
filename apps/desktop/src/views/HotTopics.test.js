@@ -793,3 +793,86 @@ describe('HotTopics 收藏选题 tab', () => {
     expect(wrapper.findAll('[data-testid="hot-topic-favorite-item"]')).toHaveLength(0)
   })
 })
+
+// ── heat ranking UI (P1 unified rank / category resort / multi badge / trend) ──
+describe('HotTopics heat ranking UI', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    hotTopicsGetCache.mockResolvedValue({ code: 0, data: { topics: [], fetchedAt: 0, channelStats: {} } })
+    hotTopicsFavoriteList.mockResolvedValue({ code: 0, data: [] })
+    document.body.innerHTML = ''
+  })
+
+  async function mountWith(topics) {
+    hotTopicsFetch.mockResolvedValue({ code: 0, data: { topics, fetchedAt: Date.now(), channelStats: {} } })
+    const wrapper = mountPage()
+    await flushPromises()
+    return wrapper
+  }
+  const scored = (id, score, extra = {}) => ({
+    id, topic: id + '选题', channel: 'weibo', category: 'society', categories: ['society'],
+    rank: 9, hotValue: 100, url: null, fetchedAt: '2026-09-22T00:00:00Z', score, ...extra,
+  })
+
+  it('renders list ordered by unified score and shows viewRank in badge', async () => {
+    const wrapper = await mountWith([
+      scored('b', 0.3, { viewRank: 7 }),
+      scored('a', 0.9, { viewRank: 3 }),
+    ])
+    const items = wrapper.findAll('.topic-item')
+    expect(items[0].find('.topic-text').text()).toContain('a选题')
+    const badges = wrapper.findAll('.rank-badge')
+    expect(badges[0].text()).toBe('3')
+    expect(badges[1].text()).toBe('7')
+  })
+
+  it('falls back to view index for legacy cache entries without score/viewRank (P3 compat)', async () => {
+    const legacy = [{ id: 'zhihu:1', topic: '旧缓存条目', channel: 'zhihu', category: 'tech', rank: 1, hotValue: null, url: null, fetchedAt: '2026-09-01T00:00:00Z' }]
+    const wrapper = await mountWith(legacy)
+    const badges = wrapper.findAll('.rank-badge')
+    expect(badges[0].text()).toBe('1')
+  })
+
+  it('shows multi-board badge when sourceCount >= 2', async () => {
+    const wrapper = await mountWith([
+      scored('m', 0.9, { viewRank: 1, sourceCount: 3, mergedFrom: ['zhihu', 'baidu'] }),
+      scored('s', 0.5, { viewRank: 2 }),
+    ])
+    const multi = wrapper.findAll('[data-testid="hot-topic-multi-badge"]')
+    expect(multi).toHaveLength(1)
+    expect(wrapper.findAll('.topic-item')[0].text()).toContain('m选题')
+  })
+
+  it('legacy mergedFrom containing own channel does not show phantom multi badge (review m-2)', async () => {
+    const wrapper = await mountWith([
+      { id: 'weibo:1', topic: '同渠道跨榜合并条目', channel: 'weibo', category: 'society', categories: ['society'], rank: 1, hotValue: 100, mergedFrom: ['weibo'], fetchedAt: '2026-09-22T00:00:00Z' },
+    ])
+    expect(wrapper.find('[data-testid="hot-topic-multi-badge"]').exists()).toBe(false)
+  })
+
+  it('renders trend arrows for up / down / new', async () => {
+    const wrapper = await mountWith([
+      scored('u', 0.9, { viewRank: 1, trend: 'up' }),
+      scored('d', 0.8, { viewRank: 2, trend: 'down' }),
+      scored('n', 0.7, { viewRank: 3, trend: 'new' }),
+      scored('f', 0.6, { viewRank: 4, trend: 'flat' }),
+    ])
+    expect(wrapper.find('[data-testid="hot-topic-trend-up"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="hot-topic-trend-down"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="hot-topic-trend-new"]').exists()).toBe(true)
+    expect(wrapper.findAll('[data-testid^="hot-topic-trend-"]')).toHaveLength(3)
+  })
+
+  it('category view keeps score order across mixed channels', async () => {
+    const topics = [
+      scored('low', 0.2, { viewRank: 2, category: 'finance', categories: ['finance'] }),
+      scored('hit', 0.95, { viewRank: 1, category: 'finance', categories: ['finance'], channel: 'zhihu' }),
+    ]
+    const wrapper = await mountWith(topics)
+    const chips = wrapper.findAll('[data-testid="hot-topic-cat-count-finance"]')
+    expect(chips).toHaveLength(1)
+    await chips[0].trigger('click')
+    const texts = wrapper.findAll('.topic-text').map(n => n.text())
+    expect(texts[0]).toContain('hit选题')
+  })
+})

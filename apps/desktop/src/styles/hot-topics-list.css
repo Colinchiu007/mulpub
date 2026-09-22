@@ -34,6 +34,13 @@
 .cat-international { background: #e3f2fd; color: #1565c0; }
 .channel-tag { background: color-mix(in srgb, var(--color-text-secondary) 10%, var(--color-bg-card)); color: var(--color-text-muted); }
 .hot-value { font-size: var(--font-size-xs); color: #ff5722; flex-shrink: 0; }
+
+/* 统一热度排序（heat ranking）：多榜徽标 + trend 箭头 */
+.multi-badge { background: color-mix(in srgb, #ff9800 14%, var(--color-bg-card)); color: #e65100; font-weight: 600; cursor: default; }
+.trend-arrow { font-size: var(--font-size-sm); font-weight: 700; flex-shrink: 0; width: 14px; text-align: center; }
+.trend-up { color: #e53935; }
+.trend-down { color: #43a047; }
+.trend-new { background: color-mix(in srgb, var(--color-primary) 12%, var(--color-bg-card)); color: var(--color-primary-dark-tint, var(--color-primary)); font-weight: 600; }
 .update-time { font-size: var(--font-size-xs); color: var(--color-text-muted); flex-shrink: 0; white-space: nowrap; width: 42px; text-align: right; }
 /* 收藏时间（月/日 时:分）比更新时间长，右对齐宽度独立，保持与列表同一视觉节奏 */
 .fav-date { font-size: var(--font-size-xs); color: var(--color-text-muted); flex-shrink: 0; white-space: nowrap; min-width: 64px; text-align: right; }
