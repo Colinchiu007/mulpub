@@ -22,6 +22,17 @@
 
 ### 复审修复（CodeReview W1–W5，同 PR 追加）
 首轮提交后 CodeReview（0 Critical / 5 Warning）全部修复并补 TDD 用例（新增 **+8**：store +3、view +4、bridge +1）：**W1** store `fallback` 改走 `i18n`（消除 en 界面硬编码中文）、view 错误态 `description` 直接用 `errorHint`（不再是死键）；**W2** store 暴露结构化 `errorCode`，view 按码分流——未登录 `AUTH_REQUIRED` 走「去登录」引导态（点击 `ensureLogin` → 成功刷新），已登录令牌异常仍走错误重试态；**W3** `TOKEN_RETRY_ERROR_CODES` 补入 `AUTH_TOKEN_REQUIRED`（强刷 + 重放自愈）；**W4** `connect_timeout_seconds` 2.0 → 5.0（对齐事故环境实测握手，收益来自连接复用/退避而非激进超时）；**W5** `listAccounts` reject（后端未起 / 连接超时）经 `formatUserError` 归类，`NETWORK_ERROR`/`TIMEOUT` 计入瞬时失败 → 保留上一次列表。locale：`accountsPage.loginRequiredTitle/loginRequiredHint/loginRequiredAction` zh/en 成对新增。
+# [未发布] fix(ui): 设置弹窗右侧内容区与左侧标签导航留白修复
+
+### 变更
+- **`SettingsDialog.vue`（`.settings-panel` 留白单一真源）**：`padding: 0` → `padding: 24px 28px` 并补 `min-width: 0`（flex 溢出防护）。新增 `:deep(.cohere-page-header)` / `:deep(.cohere-content)` 去掉子页级左右 padding，避免与面板留白叠加成双重缩进。修复「模型设置 / 飞书 API」标签下右侧内容（零内边距的模型筛选条、飞书整块表单）贴住甚至视觉重叠左侧导航 `border-right` 的问题——根因是面板零内边距 + 子页面水平留白各自为政不一致（ModelProviders 头部/内容各 32px、筛选条 0、飞书 0）。修复后各区块对齐同一左基线，与分隔线恒有 28px 呼吸间距。
+
+### 验证
+- TDD：新增 `src/components/settings-panel-layout.test.js`（3 例源码契约：面板 padding 非 0、含 `min-width:0`、存在 `:deep` 去左右 padding）。定向 3 文件 13/13 全绿；`SettingsDialog.test.js`(5)、`model-providers-copy.test.js`(5)、`icon-usage.test.js`(9) 零回归；eslint exit 0。
+- 纯前端展示层样式，无 IPC / 数据模型 / 后端 / 迁移；暗色模式与视觉测试选择器不受影响。
+
+### 关联
+- 分支 `codex/settings-panel-content-gap`（worktree 隔离，D 盘）；规范详见 `01-docs/design/model-provider-module-design.md` §9.4。
 
 ---
 # [未发布] fix(security): P0 审计第一批——systemd 加固 + 密钥出库 + JWT/CORS 闸门 + 加密 fail-closed + SSRF 守卫（2026-09-22，audit-batch-1）
