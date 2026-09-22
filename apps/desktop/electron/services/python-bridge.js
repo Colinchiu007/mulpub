@@ -471,6 +471,28 @@ async function _getBackendAccessToken (forceRefresh = false) {
   }
 }
 
+// 只有令牌自身失效才值得「强制刷新 + 重放」。上游不可用（5xx / AUTH_JWKS_*）重放一次
+// 只会把同一个超时再付一遍（账号页首开 25s 事故的放大环节）。
+const TOKEN_RETRY_ERROR_CODES = new Set([
+  'AUTH_TOKEN_MISSING',
+  'AUTH_TOKEN_REQUIRED',
+  'AUTH_TOKEN_INVALID',
+  'AUTH_TOKEN_EXPIRED',
+  'AUTH_TOKEN_NOT_ACTIVE',
+  'AUTH_SIGNATURE_INVALID',
+  'AUTH_ALGORITHM_INVALID',
+])
+
+// FastAPI detail 约定：字符串本身就是稳定错误码（AUTH_TOKEN_EXPIRED / ACCOUNT_REQUIRED …），
+// 对象形态则取 error_code。两种都归一为 errorCode 透传给渲染端。
+function _extractErrorCode (payload) {
+  if (!payload || typeof payload !== 'object') return null
+  const detail = payload.detail
+  if (detail && typeof detail === 'object' && typeof detail.error_code === 'string') return detail.error_code
+  if (typeof detail === 'string' && /^[A-Z][A-Z0-9_]{2,}$/.test(detail)) return detail
+  return typeof payload.errorCode === 'string' && payload.errorCode ? payload.errorCode : null
+}
+
 function _requestBackendOnce (method, path, body, timeout, accessToken) {
   return new Promise((resolve, reject) => {
     if (!isRunning) {
@@ -519,15 +541,16 @@ async function requestBackend (method, path, body = null, timeout = 30000) {
   if (!isRunning) throw new Error('Python backend is not running')
   let accessToken = await _getBackendAccessToken(false)
   let response = await _requestBackendOnce(method, path, body, timeout, accessToken)
-  if (response.status === 401 && authService) {
+  if (response.status === 401 && authService && TOKEN_RETRY_ERROR_CODES.has(_extractErrorCode(response.data))) {
     accessToken = await _getBackendAccessToken(true)
     if (accessToken) response = await _requestBackendOnce(method, path, body, timeout, accessToken)
   }
   if (response.status >= 400) {
     const payload = response.data && typeof response.data === 'object' ? response.data : {}
-    // FastAPI detail 可为对象（如 { error_code, message }）：稳定错误码透传给渲染端 formatUserError
+    // FastAPI detail 可为对象（如 { error_code, message }）或字符串错误码：统一透传给渲染端 formatUserError
     const detail = payload.detail
     const detailObj = detail && typeof detail === 'object' ? detail : {}
+    const errorCode = _extractErrorCode(payload)
     const hasErrorCode = detailObj.error_code !== undefined
     const normalizedMessage = payload.message
       || (hasErrorCode ? (detailObj.message || '') : '')
@@ -535,7 +558,7 @@ async function requestBackend (method, path, body = null, timeout = 30000) {
       || 'Python backend request failed (' + response.status + ')'
     return {
       ...payload,
-      ...(hasErrorCode ? { errorCode: detailObj.error_code } : {}),
+      ...(errorCode ? { errorCode } : {}),
       // 插值参数透传（如 {value}/{supported}）：渲染端 formatUserError 用其替换 locale 占位符
       ...(hasErrorCode && detailObj.params && typeof detailObj.params === 'object' ? { params: detailObj.params } : {}),
       status: response.status,
