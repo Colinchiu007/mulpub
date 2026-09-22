@@ -196,7 +196,7 @@ async function onCloseTab(tabId) {
   // 方案二（护栏）：关闭尚未保存凭证的账号标签前弹三选一确认，杜绝静默丢失登录态。
   const state = await tabStore.getAccountTabSaveState(tabId)
   if (state && state.isAccountTab && state.credentialSaveState === 'unsaved') {
-    let action = 'cancel'
+    let action
     try {
       await ElMessageBox.confirm(
         t('tabBar.closeUnsavedMessage'),
