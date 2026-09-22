@@ -139,10 +139,19 @@
             :data-testid="'hot-topic-check-' + topic.id"
             @change="toggleSelect(topic.id)"
           />
-          <span class="rank-badge" :title="t('hotTopics.sourceRank', { rank: topic.rank })">{{ viewIndex + 1 }}</span>
+          <span class="rank-badge" :title="rankBadgeTitle(topic)">{{ topic.viewRank ?? viewIndex + 1 }}</span>
           <span class="topic-text" :title="getTopicSummary(topic)">{{ displayTopic(topic.topic) }}</span>
           <span v-for="catKey in topicCategories(topic).slice(0, 2)" :key="catKey" class="tag category-tag" :class="'cat-' + catKey">{{ t('hotTopics.categories.' + catKey) }}</span>
           <span class="tag channel-tag">{{ t('hotTopics.channels.' + topic.channel) }}</span>
+          <span
+            v-if="sourceCount(topic) >= 2"
+            class="tag multi-badge"
+            data-testid="hot-topic-multi-badge"
+            :title="t('hotTopics.multiBadgeTip', { sources: mergedNames(topic).join('、') })"
+          >{{ t('hotTopics.multiBadge') }}</span>
+          <span v-if="topic.trend === 'up'" class="trend-arrow trend-up" data-testid="hot-topic-trend-up" :title="t('hotTopics.trendUp')">↑</span>
+          <span v-if="topic.trend === 'down'" class="trend-arrow trend-down" data-testid="hot-topic-trend-down" :title="t('hotTopics.trendDown')">↓</span>
+          <span v-if="topic.trend === 'new'" class="tag trend-new" data-testid="hot-topic-trend-new">{{ t('hotTopics.trendNew') }}</span>
           <span v-if="topic.hotValue" class="hot-value">{{ formatHotValue(topic.hotValue) }}</span>
           <span class="update-time">{{ formatTime(topic.fetchedAt || lastRefresh) }}</span>
           <button
@@ -343,11 +352,28 @@ const categoryEmpty = computed(() => activeCategory.value !== 'all' && topics.va
   !topics.value.some(x => topicCategories(x).includes(activeCategory.value)))
 
 const filteredTopics = computed(() => {
-  return topics.value.filter(x =>
+  const list = topics.value.filter(x =>
     (activeCategory.value === 'all' || topicCategories(x).includes(activeCategory.value)) &&
     (activeChannel.value === 'all' || x.channel === activeChannel.value),
   )
+  // 分类/渠道切换后保持"分类内由热到冷"（P0）；Array.sort 稳定，缺 score 旧条目沉底且保持原序
+  return list.slice().sort((a, b) => (typeof b.score === 'number' ? b.score : -1) - (typeof a.score === 'number' ? a.score : -1))
 })
+
+/** 多源信号（P3 兼容：旧缓存无 sourceCount 时回退 mergedFrom 长度 +1） */
+function sourceCount(x) {
+  if (typeof x.sourceCount === 'number' && x.sourceCount > 0) return x.sourceCount
+  // 旧缓存回退：去重且排除主渠道自身（同渠道跨榜合并会把自己 push 进 mergedFrom，评审 m-2）
+  return 1 + new Set((Array.isArray(x.mergedFrom) ? x.mergedFrom : []).filter((c) => c && c !== x.channel)).size
+}
+function mergedNames(x) {
+  return (Array.isArray(x.mergedFrom) ? x.mergedFrom : []).map(c => t('hotTopics.channels.' + c))
+}
+/** badge 提示：有统一分时展示「来源第 N 名 · 综合热度 X」，旧数据回退渠道名次 */
+function rankBadgeTitle(x) {
+  if (typeof x.score === 'number') return t('hotTopics.heatScoreTip', { rank: x.rank, heat: Math.round(x.score * 100) })
+  return t('hotTopics.sourceRank', { rank: x.rank })
+}
 
 const allFilteredSelected = computed(() =>
   filteredTopics.value.length > 0 && filteredTopics.value.every(x => selectedIds.value.has(x.id)),

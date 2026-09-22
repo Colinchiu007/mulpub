@@ -605,3 +605,130 @@ describe('Review regression: explicit boost vs throttled main channels', () => {
     expect(res.topics.map(t => t.topic)).toEqual(['保留我'])
   })
 })
+
+// ── Heat ranking integration (P0 sort-before-truncate / P2 config / P3 fields) ──
+describe('Heat ranking integration (P0/P2/P3)', () => {
+  const rankLog = { info: () => {}, warn: () => {}, error: () => {} }
+  function rankSvc(overrides = {}) {
+    const svc = new HotTopicsService({ log: rankLog, ...overrides })
+    svc._collectBoostChannel = async (src) => ({ channel: src.id, items: null, skipped: true, boost: true })
+    return svc
+  }
+  const item = (id, ch, rank, hotValue, topic) => ({
+    id, topic: topic || (id + '-topic'), channel: ch, category: 'society', categories: ['society'],
+    rank, hotValue, url: null, fetchedAt: Date.now(),
+  })
+
+  it('sorts aggregated topics by unified score, not channel order', async () => {
+    const svc = rankSvc()
+    vi.spyOn(svc, '_collectChannel').mockImplementation(async (cfg) => {
+      if (cfg.id === 'zhihu') return { channel: 'zhihu', items: [item('zhihu:50', 'zhihu', 50, 300, '知乎榜尾小热度条目')], skipped: false }
+      if (cfg.id === 'weibo') return { channel: 'weibo', items: [item('weibo:1', 'weibo', 1, 9000000, '微博榜首大事件')], skipped: false }
+      return { channel: cfg.id, items: null, skipped: true }
+    })
+    const res = await svc.fetchTopics({ force: true })
+    expect(res.topics.map(t => t.id)).toEqual(['weibo:1', 'zhihu:50'])
+    expect(res.topics[0].score).toBeGreaterThan(res.topics[1].score)
+    expect(res.topics.map(t => t.viewRank)).toEqual([1, 2])
+  })
+
+  it('persists score / sourceCount fields on cached topics (P3 contract)', async () => {
+    const store = { getSetting: () => undefined, setSetting: vi.fn() }
+    const svc = rankSvc({ settingsStore: store })
+    vi.spyOn(svc, '_collectChannel').mockImplementation(async (cfg) => {
+      if (cfg.id === 'zhihu') return { channel: 'zhihu', items: [item('zhihu:1', 'zhihu', 1, 500000)], skipped: false }
+      if (cfg.id === 'weibo') return { channel: 'weibo', items: [item('weibo:1', 'weibo', 1, 600000)], skipped: false }
+      if (cfg.id === 'baidu') return { channel: 'baidu', items: [item('baidu:1', 'baidu', 1, 700000, 'zhihu:1-topic')], skipped: false }
+      return { channel: cfg.id, items: null, skipped: true }
+    })
+    const res = await svc.fetchTopics({ force: true })
+    const merged = res.topics.find(t => t.sourceCount > 1)
+    expect(merged).toBeTruthy()
+    expect(merged.sourceCount).toBe(2)
+    expect(res.topics.every(t => typeof t.score === 'number' && t.score > 0 && t.score <= 1)).toBe(true)
+    const written = JSON.parse(store.setSetting.mock.calls.find(c => c[0] === CACHE_KEY)[1])
+    expect(written.topics.every(t => typeof t.score === 'number')).toBe(true)
+  })
+
+  it('truncation happens AFTER scoring: hot boost items are not squeezed out by quota', async () => {
+    const svc = rankSvc()
+    const low = Array.from({ length: 390 }, (_, i) => item('zhihu:' + (i + 1), 'zhihu', i + 1, 500 - i, '低热条目' + i))
+    const high = Array.from({ length: 30 }, (_, i) => item('weibo:' + (i + 1), 'weibo', i + 1, 9000000 - i, '高热条目' + i))
+    vi.spyOn(svc, '_collectChannel').mockImplementation(async (cfg) => {
+      if (cfg.id === 'zhihu') return { channel: 'zhihu', items: low, skipped: false }
+      if (cfg.id === 'weibo') return { channel: 'weibo', items: high, skipped: false }
+      return { channel: cfg.id, items: null, skipped: true }
+    })
+    const res = await svc.fetchTopics({ force: true })
+    expect(res.topics.length).toBe(400)
+    // 旧渠道序截断下 weibo 恰好只存活前 10 条；先排后截后按真实热度混排大幅多于 10
+    expect(res.topics.filter(t => t.channel === 'weibo').length).toBeGreaterThanOrEqual(20)
+    expect(res.topics[res.topics.length - 1].score).toBeLessThan(res.topics[0].score)
+  })
+
+  it('channel weights override via settings hot_topics_rank_config takes effect (P2)', async () => {
+    const cfgVal = JSON.stringify({ channelWeights: { weibo: 0.01 } })
+    const store = { getSetting: (k) => (k === 'hot_topics_rank_config' ? cfgVal : undefined), setSetting: vi.fn() }
+    const svc = rankSvc({ settingsStore: store })
+    vi.spyOn(svc, '_collectChannel').mockImplementation(async (cfg) => {
+      if (cfg.id === 'weibo') return { channel: 'weibo', items: [item('weibo:1', 'weibo', 1, 500000, '微博条目')], skipped: false }
+      if (cfg.id === 'zhihu') return { channel: 'zhihu', items: [item('zhihu:1', 'zhihu', 1, 500000, '知乎条目')], skipped: false }
+      return { channel: cfg.id, items: null, skipped: true }
+    })
+    const res = await svc.fetchTopics({ force: true })
+    // 同分同权重时按渠道名 tie-break（weibo 前）；weibo 权重被压到 0.01 后 zhihu 前
+    expect(res.topics.map(t => t.id)).toEqual(['zhihu:1', 'weibo:1'])
+  })
+
+  it('default equal weights keep deterministic tie-break order (weibo before zhihu)', async () => {
+    const svc = rankSvc()
+    vi.spyOn(svc, '_collectChannel').mockImplementation(async (cfg) => {
+      if (cfg.id === 'weibo') return { channel: 'weibo', items: [item('weibo:1', 'weibo', 1, 500000, '微博条目')], skipped: false }
+      if (cfg.id === 'zhihu') return { channel: 'zhihu', items: [item('zhihu:1', 'zhihu', 1, 500000, '知乎条目')], skipped: false }
+      return { channel: cfg.id, items: null, skipped: true }
+    })
+    const res = await svc.fetchTopics({ force: true })
+    expect(res.topics.map(t => t.id)).toEqual(['weibo:1', 'zhihu:1'])
+  })
+
+  it('carries stale topics of skipped channels and sinks them via time decay (P2 data flow, review M-1)', async () => {
+    const staleAt = Date.now() - 3 * 3600_000
+    const store = {
+      getSetting: (k) => (k === 'hot_topics_rank_config' ? JSON.stringify({ halfLifeMs: 3600_000 }) : undefined),
+      setSetting: vi.fn(),
+    }
+    const svc = rankSvc({ settingsStore: store })
+    svc.memCache = {
+      topics: [{ id: 'weibo:old', topic: '上一轮微博条目', channel: 'weibo', category: 'society', categories: ['society'], rank: 1, hotValue: 8000000, fetchedAt: staleAt }],
+      fetchedAt: staleAt, channelStats: {},
+    }
+    vi.spyOn(svc, '_collectChannel').mockImplementation(async (cfg) => {
+      if (cfg.id === 'weibo') return { channel: 'weibo', items: null, skipped: true }
+      if (cfg.id === 'zhihu') return { channel: 'zhihu', items: [item('zhihu:1', 'zhihu', 1, 500000, '本轮知乎条目')], skipped: false }
+      return { channel: cfg.id, items: null, skipped: true }
+    })
+    const res = await svc.fetchTopics({ force: true })
+    // carry-over：旧条目保留；decay（age=3h，半衰期1h → 2^-3）使其排在新条目之后
+    expect(res.topics.map(t => t.topic).sort()).toEqual(['上一轮微博条目', '本轮知乎条目'].sort())
+    expect(res.topics[0].topic).toBe('本轮知乎条目')
+    const carriedOld = res.topics.find(t => t.topic === '上一轮微博条目')
+    expect(carriedOld.score).toBeLessThan(res.topics[0].score)
+    expect(carriedOld.score).toBeGreaterThan(0)
+  })
+
+  it('marks trend against previous round (P1 data source)', async () => {
+    const svc = rankSvc()
+    const prev = [1, 2, 3, 4, 5].map(i => item('old:' + i, 'weibo', i, 1000000 - i * 1000, '老条目' + i))
+    svc.memCache = { topics: prev, fetchedAt: 1, channelStats: {} }
+    vi.spyOn(svc, '_collectChannel').mockImplementation(async (cfg) => {
+      if (cfg.id === 'zhihu') return { channel: 'zhihu', items: [item('zhihu:1', 'zhihu', 1, 9900000, '老条目5'), item('zhihu:2', 'zhihu', 2, 500000, '新上榜条目')], skipped: false }
+      if (cfg.id === 'weibo') return { channel: 'weibo', items: [item('weibo:1', 'weibo', 1, 9800000, '老条目1')], skipped: false }
+      return { channel: cfg.id, items: null, skipped: true }
+    })
+    const res = await svc.fetchTopics({ force: true })
+    const risen = res.topics.find(t => t.topic === '老条目5')
+    const fresh = res.topics.find(t => t.topic === '新上榜条目')
+    expect(risen.trend).toBe('up')
+    expect(fresh.trend).toBe('new')
+  })
+})
