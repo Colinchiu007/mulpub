@@ -32,6 +32,8 @@ module.exports = defineConfig({
       'electron/main.test.{js,ts}',
       'electron/startup-compat.test.{js,ts}',
       'electron/preload.test.{js,ts}',
+      // 内嵌主页壳态 preload（PRD-TAB-INDEPENDENT-HOME S1/S2）：与 electron/preload.test 同级显式纳入
+      'electron/home-shell-preload.test.{js,ts}',
       'electron/tests/**/*.test.{js,ts}',
       'tests/**/*.test.{js,ts}',
     ],

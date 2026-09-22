@@ -1,4 +1,8 @@
 export default {
+  tabs: {
+    newTabTitle: 'New Tab',
+    newTabAria: 'Open a new tab',
+  },
   common: {
     save: 'Save',
     cancel: 'Cancel',

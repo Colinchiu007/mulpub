@@ -8,6 +8,20 @@
       </main>
     </template>
 
+    <!-- 内嵌主页壳态（PRD-TAB-INDEPENDENT-HOME F1）：+ 新标签中的独立 SPA 实例
+         运行于 WebContentsView（仅覆盖内容矩形），外层窗口的 TabBar/NavBar/Sidebar
+         已在其视野之外——本实例若再渲染一份会造成双份 chrome 视觉错乱，故只渲染
+         模块导航 + 工作区内容。 -->
+    <template v-else-if="isHomeShell">
+      <div class="mp-home-shell-root" data-testid="mp-home-shell">
+        <MpModuleNav />
+        <main class="mp-workspace cohere-main" data-testid="mp-workspace">
+          <RouteLoadError v-if="routeLoadError" v-bind="routeLoadError" @retry="retryRouteLoad" @refresh="refreshRouteLoad" />
+          <router-view />
+        </main>
+      </div>
+    </template>
+
     <template v-else>
       <div class="mp-shell" data-testid="mp-shell">
         <MpSidebar @open-settings="showSettingsDialog = true" />
@@ -88,6 +102,7 @@ import { useLicenseStore } from '@/stores/license'
 import { useIdentityStore } from '@/stores/identity'
 import { useTabStore } from '@/stores/tab'
 import { notifySettingsDialogClosed } from '@/stores/settings-dialog'
+import { isHomeShellSearch } from '@/utils/home-shell'
 import { storeToRefs } from 'pinia'
 
 const router = useRouter()
@@ -95,7 +110,12 @@ const route = useRoute()
 const licenseStore = useLicenseStore()
 const identityStore = useIdentityStore()
 const tabStore = useTabStore()
-const { navigation, isHomeTab, activeTabId } = storeToRefs(tabStore)
+const { navigation, isHomeTab: isHomeTabFromStore, activeTabId } = storeToRefs(tabStore)
+// 内嵌主页壳态（+ 新标签中的独立 SPA 实例）：URL search 含 mp-home-shell=1。
+// 该实例本身就是 WebContentsView（浏览器标签），不是主窗口的 home 虚拟标签，
+// 因此按 home 壳渲染（隐藏 NavBar、显示模块导航），但不参与主窗口标签系统（见 S4）。
+const isHomeShell = isHomeShellSearch(typeof window !== 'undefined' ? window.location.search : '')
+const isHomeTab = computed(() => isHomeShell || isHomeTabFromStore.value)
 const accountActions = useAccountActions()
 const { t } = useI18n()
 
@@ -113,6 +133,9 @@ const savingAccount = ref(false)
 // 上报主进程隐藏全部内嵌 WebContentsView；切回浏览器壳时恢复。
 // 上报失败静默（非 Electron 环境/主进程未就绪时不影响渲染层）。
 watch(isHomeTab, (home) => {
+  // 内嵌主页实例是浏览器标签（WebContentsView），上报 workbench 壳态会让主进程
+  // 隐藏包括它自己在内的全部视图；壳态互斥仅由主窗口的 home 虚拟标签驱动。
+  if (isHomeShell) return
   invokePageManager('setShellMode', home ? 'workbench' : 'browser')
 }, { immediate: true })
 
@@ -194,7 +217,8 @@ function onCloseTab(tabId) {
 }
 
   async function onCreateTab() {
-    await tabStore.createTab({ url: 'about:blank', title: '首页' })
+    // 「+」新标签：内容为应用主页的独立 SPA 实例，与首页固化标签完全解耦（F1/F2）。
+    await tabStore.createTab({ homeShell: true, title: t('tabs.newTabTitle') })
   }
 
   function onGoBack() {
@@ -253,42 +277,29 @@ function refreshRouteLoad() {
 
 // ── 生命周期 ──
 
-// ── 侧边栏/模块导航自动切换：当用户在浏览器标签点击侧边栏进入 Vue SPA 页面时，
-// 自动切回首页标签以隐藏 WebContentsView，露出 router-view 渲染内容。
-let _routeGuard = null
 onMounted(() => {
   licenseStore.load()
   identityStore.load()
-  tabStore.init()
+  // 内嵌主页实例跳过标签系统初始化与订阅（S4 广播风暴防护）：
+  // 它是被标签系统管理的对象，而非管理者，不订阅 tab 事件、不驱动壳态互斥。
+  if (!isHomeShell) {
+    tabStore.init()
+  }
   spaNav.attach()
 
   const api = getApi()
-  if (api && api.onNavigate) {
+  if (api && api.onNavigate && !isHomeShell) {
     unsubscribeNavigate = api.onNavigate((route) => {
       router.push(route)
     })
   }
-
-  // 路由守卫：SPA 内部页面导航（侧边栏/router-link）→ 自动切到首页标签
-  _routeGuard = router.beforeEach((to, from) => {
-    if (to && to.path && to.path !== from?.path && !isHomeTab.value) {
-      const homeTab = tabStore.tabs.find(t => t.isHome)
-      if (homeTab && homeTab.tabId) {
-        tabStore.switchToTab(homeTab.tabId)
-      }
-    }
-  })
 })
 
 onBeforeUnmount(() => {
   spaNav.dispose()
   if (typeof unsubscribeNavigate === 'function') unsubscribeNavigate()
   unsubscribeNavigate = null
-  if (typeof _routeGuard === 'function') {
-    _routeGuard()
-    _routeGuard = null
-  }
-  tabStore.dispose()
+  if (!isHomeShell) tabStore.dispose()
   identityStore.dispose()
 })
 </script>
@@ -307,6 +318,8 @@ html, body { height: 100%; overflow: hidden; }
   height: 40px;
   background: var(--color-bg-inset);
 }
+/* 内嵌主页壳态根容器：无外层 chrome，模块导航 + 内容区纵向铺满 */
+.mp-home-shell-root { min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--color-bg-inset); }
 .mp-workspace { min-width: 0; min-height: 0; flex: 1; overflow: auto; }
 .fullscreen-main { min-height: 0; flex: 1; overflow: auto; }
 </style>

@@ -1,3 +1,21 @@
+# [未发布] feat(tab): 「+」新标签内嵌独立应用主页——与首标签完全解耦（PRD-TAB-INDEPENDENT-HOME）
+
+### 变更
+- **背景/根因**：顶部地址区点「+」开的新标签与第一固化「首页」标签内容一致，无法并行操作两个模块。根因三重：① `onCreateTab` 硬编码 `about:blank` + 标题「首页」；② 应用主页只在唯一 SPA（home 虚拟标签）渲染，新标签无独立内容；③ `App.vue` 路由归位守卫（`router.beforeEach`）在任何 SPA 路由变化时强制 `switchToTab('home')`，使新标签导航「弹回」首标签。
+- **electron/home-shell-preload.js（新增）**：内嵌主页专用受守护 preload，双判据后才挂载完整 `electronAPI`——① 主进程注入 `--mp-home-shell-url=<期望地址>` ② 当前文档与其同源且 `search` 仍含 `mp-home-shell=1`；被重定向到外站/参数被剥离/`argv` 缺失时自动降级为仅受限 `multiPublishMonitor` 桥（S1/S2 安全不变式）。`hasHomeShellParam` 先去前导 `?` 再剥 `#`，兼容 jsdom 将 hash 拼进 search 的形态。
+- **electron/services/webview-manager.js**：`createNewTabPage` 新增 `homeShell` 分支——无 URL/空/`about:blank` 时以内嵌主页地址（打包 `pathToFileURL(dist/index.html)?mp-home-shell=1`、开发 `devServer/?mp-home-shell=1`）创建 `WebContentsView`，选用 home-shell preload 并注入 `additionalArguments`；home-shell 与账号会话互斥（`accountId=null`，不注入凭证/挂登录诊断）；`tabStates.url` 对内嵌主页置空、标题默认「新标签页」，`did-navigate` 后自然转普通网页标签。
+- **src/App.vue**：`isHomeShellSearch(location.search)` 判定内嵌壳态；**移除归位守卫**（不再注册 `router.beforeEach`→`switchToTab`）；新增 `v-else-if="isHomeShell"` **独立模板分支**——内嵌实例只渲染 `MpModuleNav`+工作区，不渲染外层 `MpSidebar`/`TabBar`/`NavBar`（WebContentsView 仅覆盖内容矩形，重复渲染会双份 chrome）；`setShellMode` 上报、`tabStore.init/dispose`、`onNavigate` 订阅在内嵌模式下全部跳过（S4 广播风暴防护）。
+- **src/utils/home-shell.js（新增）**：渲染层壳态判据单一来源（`isHomeShellSearch`/`detectHomeShell`）。**scripts/build-preload.js**：新增 home-shell preload 第二 esbuild 入口。**src/locales/{zh,en}.js**：新增 `tabs.newTabTitle`（新标签页/New Tab）、`tabs.newTabAria`（成对，Gate 7）。
+
+### 验证
+- TDD 红→绿：新增 `home-shell.util.test.js`(6)、`home-shell-preload.test.js`(6，含外站重定向/参数剥离/`=0` 不暴露 electronAPI 的负向用例)、`tab-independent-home.test.js`(7，含 F1 独立模板分支不含外层 chrome 的源码契约)、`webview-manager.test.js` home-shell describe(5)；修正既有 `shell-mode-6b.test.js` 正则以容忍 watch 体守卫行；`home-shell-preload.test.js` 纳入 vitest include（与 `electron/preload.test` 同级）。
+- QM-1：`electron-builder --win --dir` exit 0，asar 清单含 `home-shell-preload.bundle.js`；`verify-worktree-deps.js` OK。locale `check-locale-sync.js --keys` PASS。真实 Electron 窗口验证双标签独立导航。
+
+### 关联
+- PRD `01-docs/PRD-TAB-INDEPENDENT-HOME-2026-09-22.md`（F1-F6 功能需求 / §4 数据校验 / §5 安全约束 S1-S5 / §6 交互明细 / §7 i18n / §11 测试计划）。
+- 分支 `tab-independent-home`（worktree 隔离，D 盘）· PR 待合并。
+
+---
 # [未发布] fix(film-engineering): 出片流端到端串联——context 嵌套/扁平双兼容（#2193）
 
 ### 变更

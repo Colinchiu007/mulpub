@@ -12,7 +12,9 @@
 const { EventEmitter } = require('events')
 const { app, WebContentsView, session, ipcMain } = require('electron')
 const path = require('path')
+const fs = require('fs')
 const os = require('os')
+const { pathToFileURL } = require('url')
 const log = require('./logger')
 const credentialStore = require('./credential-store')
 const { getPlatformName } = require('@multi-publish/shared-utils/src/platform-definitions')
@@ -22,6 +24,8 @@ const { withSenderCheck } = require('../ipc-handlers/helpers')
 const { computeEmbeddedViewBounds, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } = require('./view-bounds')
 // 登录页会话级网络诊断（iframe 内部请求失败不触发 did-fail-load，详见模块注释）
 const { attachLoginNetworkDiagnostics } = require('./login-network-diagnostics')
+// 内嵌主页标签（home-shell）的开发态地址与主窗口加载源保持同一配置（DEV_SERVER_HOST/PORT）
+const { config, getUrl } = require('../config/app-config')
 
 // 左侧导航栏宽度（与前端 MpSidebar 的 CSS 变量 --mp-sidebar-width 保持一致）
 // 默认 200px，窄屏（≤900px）时 68px；由渲染进程通过 IPC 动态同步
@@ -72,6 +76,54 @@ const HOME_TAB_ID = 'home'
 
 // 虚拟登录标签 ID（对齐参考产品：登录页以全屏标签形式呈现在 TabBar 中）
 const AUTH_TAB_ID = 'auth-login'
+
+// ─── 内嵌主页标签（home-shell，PRD-TAB-INDEPENDENT-HOME-2026-09-22）───
+// 壳态参数：渲染层据此识别「本窗口是 + 新标签中的独立 SPA 实例」，跳过标签系统
+// 订阅并按首页壳渲染；home-shell-preload 的双判据安全校验（主进程注入
+// --mp-home-shell-url + 文档同源且参数仍在）以其为 electronAPI 暴露面闸门。
+const HOME_SHELL_PARAM = 'mp-home-shell=1'
+
+/**
+ * 内嵌主页标签加载的本应用主页地址。
+ * 打包态：file:// dist/index.html（与主窗口同一入口）；开发态：devServer 地址（与主窗口同源）。
+ * hash 路由（createWebHashHistory）下 search 先于 hash，固定为 /?mp-home-shell=1 形态，SPA 路由从 '#/' 起始。
+ * @returns {string}
+ */
+function _homeShellUrl () {
+  return app.isPackaged
+    ? pathToFileURL(path.join(__dirname, '..', 'dist', 'index.html')).href + '?' + HOME_SHELL_PARAM
+    : getUrl(config.devServer) + '/?' + HOME_SHELL_PARAM
+}
+
+/**
+ * 解析内嵌主页标签的 preload：优先 esbuild 产物 bundle（与主窗口 index.bundle.js 同策略，
+ * sandbox 下由 Electron 内部机制加载），bundle 不存在（未跑 build:preload 的测试/裸环境）回退源文件。
+ * @returns {string}
+ */
+function _homeShellPreloadPath () {
+  const base = path.join(__dirname, '..', 'home-shell-preload')
+  const bundle = base + '.bundle.js'
+  try { if (fs.existsSync(bundle)) return bundle } catch (e) { /* ignore */ }
+  return base + '.js'
+}
+
+/**
+ * 判定一个导航后的 URL 是否仍处于内嵌主页壳态（search 严格含 mp-home-shell=1）。
+ * 先去前导 query（按 '?' 切）再按 '#' 取 query 段，兼容 hash 路由形态。
+ * @param {string} url
+ * @returns {boolean}
+ */
+function _urlHasHomeShellParam (url) {
+  if (typeof url !== 'string' || !url) return false
+  const qsStart = url.indexOf('?')
+  if (qsStart === -1) return false
+  const query = url.slice(qsStart + 1).split('#')[0]
+  try {
+    return new URLSearchParams(query).get('mp-home-shell') === '1'
+  } catch (e) {
+    return false
+  }
+}
 
 // 各平台创作者中心/后台 URL → @multi-publish/shared-utils/src/platform-definitions
 
@@ -279,9 +331,14 @@ class WebviewManager extends EventEmitter {
     var self = this
     var tabId = 'btab-' + (++this._tabIdCounter)
     var platform = (opts && opts.platform) || ''
-    var initialUrl = (opts && opts.url) || 'about:blank'
-    // 账号级标签使用按账号持久化的 session 分区，保持创作者中心登录态
-    var accountId = (opts && opts.accountId) || null
+    // 「+」新标签语义（PRD-TAB-INDEPENDENT-HOME F1/F2）：默认内容为应用主页的独立 SPA 实例；
+    // 显式 homeShell，或 url 缺省/about:blank 一律等价降级为 home-shell，不再产生可见空白标签。
+    var requestedUrl = (opts && typeof opts.url === 'string') ? opts.url.trim() : ''
+    var homeShell = Boolean((opts && opts.homeShell === true) || !requestedUrl || requestedUrl === 'about:blank')
+    var initialUrl = homeShell ? _homeShellUrl() : requestedUrl
+    // 账号级标签使用按账号持久化的 session 分区，保持创作者中心登录态。
+    // home-shell 与账号会话互斥：主页实例走独立 browse 分区，不读凭证 / 不挂登录诊断。
+    var accountId = homeShell ? null : ((opts && opts.accountId) || null)
     var useAccountSession = typeof accountId === 'string' && SAFE_IDENTIFIER.test(accountId)
     var partition = useAccountSession
       ? 'persist:account-' + accountId
@@ -364,16 +421,21 @@ class WebviewManager extends EventEmitter {
       }
     }
 
-    var view = new WebContentsView({
-      webPreferences: {
-        session: viewSession,
-        preload: path.join(__dirname, '..', 'monitor-preload.js'),
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true,
-        backgroundThrottling: false
-      }
-    })
+    // 内嵌主页标签挂受守护的 home-shell preload（双判据后才暴露完整 electronAPI），
+    // 并通过 additionalArguments 注入期望地址（判据①）；普通标签维持 monitor 桥。
+    var viewWebPreferences = {
+      session: viewSession,
+      preload: path.join(__dirname, '..', 'monitor-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      backgroundThrottling: false
+    }
+    if (homeShell) {
+      viewWebPreferences.preload = _homeShellPreloadPath()
+      viewWebPreferences.additionalArguments = ['--mp-home-shell-url=' + initialUrl]
+    }
+    var view = new WebContentsView({ webPreferences: viewWebPreferences })
 
     // 隐藏其他标签页，显示当前
     self._hideAllTabs()
@@ -385,10 +447,12 @@ class WebviewManager extends EventEmitter {
     // 支持调用方传入标签页标题（创作者中心等场景需在标签栏显示账号专属标题）
     var initialTitle = (opts && typeof opts.title === 'string' && opts.title.trim())
       ? opts.title.trim()
-      : 'New Tab'
+      : (homeShell ? '新标签页' : 'New Tab')
     self._tabStates.set(tabId, {
-        url: initialUrl,
+        // home-shell 标签对外展示地址恒为空（与首页虚拟标签一致），真实主页地址不灌进地址栏
+        url: homeShell ? '' : initialUrl,
         title: initialTitle,
+        homeShell: homeShell,
         titleLocked: Boolean(opts && typeof opts.title === 'string' && opts.title.trim()),
         loading: false,
         canGoBack: false,
@@ -448,7 +512,7 @@ class WebviewManager extends EventEmitter {
 
     // 调整位置
     self._repositionAll()
-    self._broadcast('tab-created', { tabId: tabId, url: initialUrl })
+    self._broadcast('tab-created', { tabId: tabId, url: homeShell ? '' : initialUrl })
 
     log.info('WebviewManager', 'Created new tab: ' + tabId)
     return tabId
@@ -1000,7 +1064,22 @@ class WebviewManager extends EventEmitter {
     view.webContents.on('did-navigate', function (event, url) {
       if (!self._tabStates.has(tabId)) return
       var state = self._tabStates.get(tabId)
-      state.url = url
+      // home-shell 壳态自然结束（PRD-TAB-INDEPENDENT-HOME F5 / §6.5）：内嵌主页标签发生
+      // 文档级导航且新地址不再携带 mp-home-shell=1（用户从外层地址栏导航去外部站点）时，
+      // 本标签转为普通网页标签：解除壳态标记、解锁标题（页面 <title> 接管）、地址栏显示真实 URL。
+      // hash 路由内导航走 did-navigate-in-page（search 先于 hash，参数仍在），不触发此分支。
+      if (state.homeShell && !_urlHasHomeShellParam(url)) {
+        state.homeShell = false
+        state.titleLocked = false
+        state.url = url
+        state.realUrl = url
+      } else if (state.homeShell) {
+        // 仍在壳态（主页自身加载/刷新）：真实地址只记内部字段，对外展示/广播恒为空串
+        state.realUrl = url
+        state.url = ''
+      } else {
+        state.url = url
+      }
       state.canGoBack = view.webContents.canGoBack()
       state.canGoForward = view.webContents.canGoForward()
       self._broadcastNav(tabId)
@@ -1009,7 +1088,7 @@ class WebviewManager extends EventEmitter {
    view.webContents.on('did-navigate-in-page', function (event, url) {
      if (!self._tabStates.has(tabId)) return
      var state = self._tabStates.get(tabId)
-     state.url = url
+     if (state.homeShell) { state.realUrl = url } else { state.url = url }
      self._broadcastNav(tabId)
    })
 
