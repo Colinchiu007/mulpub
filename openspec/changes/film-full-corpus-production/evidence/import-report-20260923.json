@@ -1,0 +1,18 @@
+{
+ "mode": "full",
+ "shotCount": 6558,
+ "sceneCount": 162,
+ "rejectedCount": 0,
+ "rejected": [],
+ "allowedHosts": [
+  "d8j0ntlcm91z4.cloudfront.net"
+ ],
+ "stats": {
+  "totalVideoJobs": 133053,
+  "uniqueVideoPrompts": 6500,
+  "adoptedShots": 6558,
+  "rejectedOverLimit": 0,
+  "filmKitMaxPromptLen": 50000
+ },
+ "maxPromptLength": 39801
+}

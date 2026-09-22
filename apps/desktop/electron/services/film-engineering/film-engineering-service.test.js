@@ -143,3 +143,46 @@ describe('FilmEngineeringService', () => {
     expect(result.error).toMatch(/20/)
   })
 })
+
+// ---------- film-full-corpus-production 任务 3.2：两级 kit 回退链接线 ----------
+
+it('链接线：userData 全量优先，status.kitSource=userData-full', () => {
+  const full = makeKitDir()
+  const bundled = makeKitDir()
+  const svc = new FilmEngineeringService({ kitDir: bundled, userDataKitDir: full, log })
+  const status = svc.getStatus()
+  expect(status.available).toBe(true)
+  expect(status.kitSource).toBe('userData-full')
+})
+
+it('链接线：userData 损坏回退精简包，FILM_KIT_FALLBACK 告警可见', () => {
+  const full = makeKitDir()
+  const bundled = makeKitDir()
+  fs.writeFileSync(path.join(full, 'shot-library.json'), '{ broken')
+  const warns = []
+  const svc = new FilmEngineeringService({ kitDir: bundled, userDataKitDir: full, log: { info () {}, warn: (m) => warns.push(m), error () {} } })
+  const status = svc.getStatus()
+  expect(status.available).toBe(true)
+  expect(status.kitSource).toBe('asar-bundled')
+  expect(warns.some((w) => String(w).includes('FILM_KIT_FALLBACK'))).toBe(true)
+})
+
+it('链接线：userData 未导入（目录不存在）→ 直接用精简包且不告警', () => {
+  const bundled = makeKitDir()
+  const warns = []
+  const svc = new FilmEngineeringService({ kitDir: bundled, userDataKitDir: path.join(os.tmpdir(), 'no-such-kit-' + Date.now()), log: { info () {}, warn: (m) => warns.push(m), error () {} } })
+  const status = svc.getStatus()
+  expect(status.available).toBe(true)
+  expect(status.kitSource).toBe('asar-bundled')
+  expect(warns.length).toBe(0)
+})
+
+it('链接线：两级均不可用 → status fail-closed 含 FILM_KIT_UNAVAILABLE', () => {
+  const full = makeKitDir()
+  fs.writeFileSync(path.join(full, 'film-manifest.json'), '[]')
+  const svc = new FilmEngineeringService({ kitDir: path.join(os.tmpdir(), 'nope3-' + Date.now()), userDataKitDir: full, log })
+  const status = svc.getStatus()
+  expect(status.available).toBe(false)
+  expect(status.error).toMatch(/FILM_KIT_UNAVAILABLE/)
+  expect(status.error).toMatch(/film-manifest\.json/)
+})

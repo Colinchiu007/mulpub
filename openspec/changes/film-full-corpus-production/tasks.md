@@ -15,14 +15,19 @@
 - [x] 2.2 GREEN：实现 `--full` 全量模式（每场景全部唯一分镜）；保留既有精选模式为默认（向后兼容）
 - [x] 2.3 shot 字段扩展：`durationSec/width/height/aspectRatio/model/resultUrl/iterationCount/adoptedJobAt`；`FILM_PROMPT_MAX_LEN=50000` 常量与超限拒绝；film-manifest 写入 `allowedHosts`（resultUrl 域名清单）
 - [x] 2.4 落点与原子性：`--out` 指定 userData kit 目录（默认共享锚点下 `film-kit/`），`.tmp` → rename 原子写 + `import-report.json`（镜数/场景数/拒绝清单）
-- [ ] 2.5 真实导入执行：对 `E:\hell-grind-full` 跑 `--full`，落盘全量 kit（shots≈6,558，1.3 修正口径），报告归档 change 目录
+- [x] 2.5 真实导入执行：对 `E:\hell-grind-full` 跑 `--full`，落盘全量 kit（shots≈6,558，1.3 修正口径），报告归档 change 目录
+  <!-- 2026-09-23 实测：shotCount=6,558 / sceneCount=162 / rejected=0 / totalVideoJobs=133,053 / uniqueVideoPrompts=6,500（与 1.3 对账口径完全吻合）；maxPromptLength=39,801 < 50,000；allowedHosts=[d8j0ntlcm91z4.cloudfront.net]。落盘 shared-user-data/film-kit/（80MB shot-library），报告 evidence/import-report-20260923.json。 -->
 
 ## 3. L1 两级 kit 加载与 schema（apps/desktop/electron，TDD vitest）
 
-- [ ] 3.1 RED：kit-loader 单测矩阵——userData 全量优先 / 全量损坏回退 asar 精简（错误可见非静默）/ 两级缺失 `FILM_KIT_UNAVAILABLE` / 校验错误含文件与条目索引 / `FILM_PROMPT_MAX_LEN` 导出为单一常量
-- [ ] 3.2 GREEN：loader 两级探测与独立校验实现；`services/film-engineering/` 全部 kit 读取点改经 loader（grep 无残留直读 `electron/film-kit/`）
-- [ ] 3.3 schema 校验器扩展字段（类型/取值范围/shotId-sceneId 交叉引用）+ 正反用例
-- [ ] 3.4 回归：film-engineering 既有单测全量通过；`node scripts/verify-worktree-deps.js` 门禁
+- [x] 3.1 RED：kit-loader 单测矩阵——userData 全量优先 / 全量损坏回退 asar 精简（错误可见非静默）/ 两级缺失 `FILM_KIT_UNAVAILABLE` / 校验错误含文件与条目索引 / `FILM_PROMPT_MAX_LEN` 导出为单一常量
+  <!-- 2026-09-23 RED 确认：新增 10 测试全失败（loadFilmKitChain/validateShotSceneRefs is not a function 等），既有 13 通过。 -->
+- [x] 3.2 GREEN：loader 两级探测与独立校验实现；`services/film-engineering/` 全部 kit 读取点改经 loader（grep 无残留直读 `electron/film-kit/`）
+  <!-- 2026-09-23：loadFilmKitChain 实现；FilmEngineeringService._ensureKit 改两级链（userData-full → asar-bundled，status 新增 kitSource）；container.setup 接线 app.getPath('userData')/film-kit。grep 收口确认：全仓非测试代码 kit 读取仅经 kit-loader（stages 显式 params.kitDir 亦走 loadFilmKit）；ipc-handlers/film-engineering.js 无直读。service 层新增 4 个链接线回归测试。 -->
+- [x] 3.3 schema 校验器扩展字段（类型/取值范围/shotId-sceneId 交叉引用）+ 正反用例
+  <!-- 2026-09-23：validateShotLibrary 增 durationSec/aspectRatio("W:H")/iterationCount(非负整数)/adoptedJobAt(数值) 校验；validateShotSceneRefs 孤儿 sceneId fail-closed 并入 loadFilmKit（校验错误带文件名前缀）；正反用例含 prompt 恰达上限/超一字符边界。 -->
+- [x] 3.4 回归：film-engineering 既有单测全量通过；`node scripts/verify-worktree-deps.js` 门禁
+  <!-- 2026-09-23：vitest electron/services/film-engineering/ 11 文件全绿（改造前 94 tests；接线后 service+kit-loader 37/37）；verify-worktree-deps OK（11 项解析）。 -->
 
 ## 4. L1 查询契约与前端浏览
 
