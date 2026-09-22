@@ -174,6 +174,26 @@ function parseKuaishouArtifactEvidence (body, response) {
 }
 
 const platformsMixin = {
+  // ========== 导航后弹窗清理 ==========
+  // 平台上传落地页会叠加草稿恢复弹窗（快手：继续编辑/放弃）与功能引导遮罩
+  // （抖音/B站：我知道了/知道了），不先关掉会遮挡上传区与表单，导致字段选择器
+  // 全部 timeout（2026-09 E2E 实锤：快手草稿弹窗遮挡发布流程）。
+  // 草稿冲突优先点「放弃」（丢弃陈旧草稿，本次上传走全新流程）；只有「继续编辑」时点它。
+  async _dismissPostNavDialogs(win, platform) {
+    try {
+      const dismissed = await win.webContents.executeJavaScript(
+        '(function(){var clicked=[];' +
+        'var visible=function(e){return e&&e.offsetParent&&(e.innerText||"").trim().length<=12};' +
+        'var find=function(txt){return [...document.querySelectorAll("button,a,span,div,[role=button]")].filter(function(e){return visible(e)&&(e.innerText||"").trim()===txt})};' +
+        'var giveup=find("放弃");if(giveup.length){giveup[giveup.length-1].click();clicked.push("放弃")}' +
+        'else{var cont=find("继续编辑");if(cont.length){cont[cont.length-1].click();clicked.push("继续编辑")}}' +
+        'var acks=find("我知道了").concat(find("知道了"));for(var i=0;i<acks.length;i++){acks[i].click();clicked.push((acks[i].innerText||"").trim())}' +
+        'return clicked.join(",")})()'
+      )
+      if (dismissed) log.info('RpaView', '[' + platform + '] post-nav dialogs dismissed: ' + String(dismissed))
+    } catch (e) { log.warn('RpaView', '[' + platform + '] post-nav dialogs: ' + e.message) }
+  },
+
   // ========== P2-B: Config loading ==========
   _getPlatformConfig(platform) {
     if (!_platformConfigInstance) {
@@ -237,6 +257,45 @@ const platformsMixin = {
 
     if (config.preFill) await this._execHook(win, config.preFill, config.hookContext)
 
+    // 导航后清理草稿恢复弹窗/引导遮罩（否则上传区与表单被遮挡）
+    await this._dismissPostNavDialogs(win, platform)
+
+    // video upload（必须先上传后填字段：kuaishou/bilibili 等平台的 publish_url 是
+    // 上传落地页，标题/简介字段要等上传完成进入编辑器才渲染；旧顺序先填字段
+    // 必然 timeout，2026-09 E2E 实锤）
+    log.info('RpaView', '[' + platform + '] file input hasVideo=' + Boolean(article.video_path) + ' selectorCount=' + (sel.file_input ? sel.file_input.length : 0))
+    if (article.video_path && sel.file_input && sel.file_input.length > 0) {
+      retry.addField('file_upload')
+      while (!retry.isDone('file_upload')) {
+        try {
+          this._emitProgress(platform, 'uploading file...', 25)
+          if (await this._waitForElement(win, sel.file_input[0], 15000)) {
+            await this._setFileInput(win, article.video_path)
+            // 上传完成判定：百家号上传后页面会出现视频预览/编辑器初始化（发布按钮由 disabled 变可用）
+            // 不能依赖 progress/success class（百家号可能不使用），改为轮询"发布按钮可用或编辑器出现"
+            let uploadDone = false
+            if (platform === 'baijiahao') {
+              uploadDone = await this._waitForCondition(win, 'function(){var t=(document.body&&document.body.innerText)||"";var hasPreview=/预览|编辑|描述|简介|标题/.test(t);var ed=document.querySelector("[contenteditable=true],[data-lexical-editor=true]");var btn=[...document.querySelectorAll("button")].find(function(b){return (b.innerText||"").trim()==="发布"&&!b.disabled});return hasPreview&&(ed!==null||btn!==null)}', 180000, 1000)
+              if (!uploadDone) log.warn('RpaView', '['+platform+'] upload complete wait timeout (video may still be processing)')
+            } else {
+              const done = await this._waitForCondition(win, 'function(){let p=document.querySelector(\'[class*="progress"],[class*="uploading"]\');let s=document.querySelector(\'[class*="success"],[class*="complete"]\');return !p||s!==null}', 300000)
+              if (!done) log.warn('RpaView', '['+platform+'] upload timeout')
+            }
+            // 编辑器表单就绪等待：上传完成后平台 SPA 渲染标题/简介字段有延迟，
+            // 不等直接填会全部 timeout（B站/快手上传完成后才切到编辑表单）
+            const formReady = await this._waitForCondition(win, 'function(){return !!document.querySelector(\'input[placeholder*="标题"],textarea,[contenteditable="true"]\')}', 120000, 1500)
+            if (!formReady) log.warn('RpaView', '[' + platform + '] editor form not ready after upload (still trying fields)')
+            retry.markDone('file_upload'); this._emitProgress(platform, 'file uploaded', 40)
+          } else {
+            if (!retry.retry('file_upload')) break; await this._sleep(2000)
+          }
+        } catch(e) {
+          log.warn('RpaView', '['+platform+'] upload: '+e.message)
+          if (!retry.retry('file_upload')) break; await this._sleep(2000)
+        }
+      }
+    }
+
     // title
     log.info('RpaView', '[' + platform + '] title input hasTitle=' + Boolean(article.title) + ' titleType=' + typeof article.title + ' selectorCount=' + (sel.title_input ? sel.title_input.length : 0))
     if (article.title && sel.title_input && sel.title_input.length > 0) {
@@ -271,36 +330,6 @@ const platformsMixin = {
         } catch(e) {
           log.warn('RpaView', '['+platform+'] content: '+e.message)
           if (!retry.retry('content')) break; await this._sleep(1000)
-        }
-      }
-    }
-
-    // file upload
-    log.info('RpaView', '[' + platform + '] file input hasVideo=' + Boolean(article.video_path) + ' selectorCount=' + (sel.file_input ? sel.file_input.length : 0))
-    if (article.video_path && sel.file_input && sel.file_input.length > 0) {
-      retry.addField('file_upload')
-      while (!retry.isDone('file_upload')) {
-        try {
-          this._emitProgress(platform, 'uploading file...', 50)
-          if (await this._waitForElement(win, sel.file_input[0], 15000)) {
-            await this._setFileInput(win, article.video_path)
-            // 上传完成判定：百家号上传后页面会出现视频预览/编辑器初始化（发布按钮由 disabled 变可用）
-            // 不能依赖 progress/success class（百家号可能不使用），改为轮询"发布按钮可用或编辑器出现"
-            let uploadDone = false
-            if (platform === 'baijiahao') {
-              uploadDone = await this._waitForCondition(win, 'function(){var t=(document.body&&document.body.innerText)||"";var hasPreview=/预览|编辑|描述|简介|标题/.test(t);var ed=document.querySelector("[contenteditable=true],[data-lexical-editor=true]");var btn=[...document.querySelectorAll("button")].find(function(b){return (b.innerText||"").trim()==="发布"&&!b.disabled});return hasPreview&&(ed!==null||btn!==null)}', 180000, 1000)
-              if (!uploadDone) log.warn('RpaView', '['+platform+'] upload complete wait timeout (video may still be processing)')
-            } else {
-              const done = await this._waitForCondition(win, 'function(){let p=document.querySelector(\'[class*="progress"],[class*="uploading"]\');let s=document.querySelector(\'[class*="success"],[class*="complete"]\');return !p||s!==null}', 300000)
-              if (!done) log.warn('RpaView', '['+platform+'] upload timeout')
-            }
-            retry.markDone('file_upload'); this._emitProgress(platform, 'file uploaded', 60)
-          } else {
-            if (!retry.retry('file_upload')) break; await this._sleep(2000)
-          }
-        } catch(e) {
-          log.warn('RpaView', '['+platform+'] upload: '+e.message)
-          if (!retry.retry('file_upload')) break; await this._sleep(2000)
         }
       }
     }

@@ -278,6 +278,7 @@ describe('rpa-view-platforms — 发布结果验证', () => {
       _emitProgress: vi.fn(),
       _navigateAndWait: vi.fn().mockResolvedValue(undefined),
       _waitForElement: vi.fn().mockResolvedValue(true),
+      _dismissPostNavDialogs: vi.fn().mockResolvedValue(''),
       _startPublishNetworkCapture: vi.fn(() => {
         const capture = { stop: vi.fn().mockResolvedValue([]) }
         captures.push(capture)
@@ -372,5 +373,46 @@ describe('rpa-view-platforms — 发布结果验证', () => {
 
     expect(result).toMatchObject({ success: true, postId: 'ks-photo-66' })
     expect(context._findPublishedArtifact).toHaveBeenCalled()
+  })
+})
+
+describe('rpa-view-platforms — 视频发布页字段填充时序（2026-09 E2E 取证）', () => {
+  // 实证背景：kuaishou/bilibili 的 publish_url 是上传落地页，标题/简介字段
+  // 只有在视频上传完成并进入编辑器后才渲染；旧顺序先填字段后上传，
+  // 导致 title/desc 选择器必然 3×10s timeout（smoke3 日志实锤）。
+  function getGenericBody () {
+    const source = fs.readFileSync(require.resolve('./rpa-view-platforms'), 'utf-8')
+    const start = source.indexOf('async _publish_generic')
+    const end = source.indexOf('\n  // ========== ', start + 10)
+    return source.slice(start, end > 0 ? end : undefined)
+  }
+
+  it('_publish_generic：视频上传发生在标题填充之前', () => {
+    const body = getGenericBody()
+    const uploadIdx = body.indexOf('_setFileInput(win, article.video_path)')
+    const titleIdx = body.indexOf("'filling title...'")
+    expect(uploadIdx).toBeGreaterThan(-1)
+    expect(titleIdx).toBeGreaterThan(-1)
+    expect(uploadIdx).toBeLessThan(titleIdx)
+  })
+
+  it('_publish_generic：导航后调用弹窗清理（草稿恢复/引导遮罩）', () => {
+    const body = getGenericBody()
+    expect(body).toContain('_dismissPostNavDialogs')
+    // 清理必须发生在填字段之前
+    expect(body.indexOf('_dismissPostNavDialogs')).toBeLessThan(body.indexOf("'filling title...'"))
+    const source = fs.readFileSync(require.resolve('./rpa-view-platforms'), 'utf-8')
+    expect(source).toMatch(/_dismissPostNavDialogs\s*\(/)
+    // 快手草稿弹窗两按钮（放弃/继续编辑）与通用引导按钮（我知道了/知道了）都在处理范围内
+    expect(source).toContain('放弃')
+    expect(source).toContain('我知道了')
+  })
+
+  it('_publish_generic：上传后有编辑器表单就绪等待（而非直接填字段）', () => {
+    const body = getGenericBody()
+    const uploadIdx = body.indexOf('_setFileInput(win, article.video_path)')
+    const titleIdx = body.indexOf("'filling title...'")
+    const formWait = body.slice(uploadIdx, titleIdx)
+    expect(formWait).toContain('_waitForCondition')
   })
 })
