@@ -15174,3 +15174,25 @@ MIN_ENGAGEMENT_SAMPLES，与引擎严格同门槛含 Number(null)=0 语义），
 ### 本次决策记录
 
 纯展示层样式补齐（新增 CSS 规则，不改模板结构/IPC/数据模型），走完整 worktree 隔离流程（gate → worktree(基于 origin/main 362896f93) → TDD → 门禁 → PR #2225 → auto-merge squash）。TDD 先加 `src/views/selfcheck-dialog-layout.test.js`（3 例源码契约，红→绿，沿用 scoped CSS 读源码正则断言模式），定向 4 文件 20/20 全绿（icon-usage/model-providers-copy/settings-panel-layout 零回归），eslint exit 0。CHANGELOG/设计文档追加一律字节级只动头部/尾部，防混合 EOL 全文件重写（上次已踩坑）。经验同步内置记忆 + EverOS。
+
+
+## 一键检测进度「看起来卡死」：进度只在完成边界广播 + 串行慢任务放大（batch-check-progress-speed，2026-09-22，PR #2231）
+
+### 可复用结论
+
+- **进度只在 `await` 之后广播 = in-flight 全盲（pitfall）**：`accounts:batch-check-login` 的 `broadcastProgress` 写在 `await AccountManager.checkLoginStatus()` 之后，计数语义是「已完成数」，正在跑的那几个账号在 UI 上完全不存在。7 个账号里第一个走浏览器降级（10-30s）时，遮罩停在「检测中 0/7」纹丝不动，用户读作「卡死」，实际全程在正常推进。判据：进度数字长时间不动 + 最终能出结果 → 先查广播点在 await 前还是 await 后，而不是去查检测逻辑本身。
+- **修复模式（pattern）**：逐条循环的异步任务必须 **start/done 双边界广播**——`{phase:'start', platform, accountId}` 在检测体执行前发，`{phase:'done'}` 在完成/失败/超时后发；渲染层维护 in-flight multiset（done 用 `indexOf` + `splice` 只移一个 occurrence，允许同平台多账号重复），展示「正在检测：知乎、抖音 · 已耗时 12 秒」。同平台去重只在展示层做（`[...new Set(ids)]`），数据层保留重复，否则完成计数会错位。
+- **静默等待要配 liveness 信号（pattern）**：并发下「正在做哪几个」可能长时间不变，必须再加一个每秒 tick 的秒表（`(Date.now() - startedAt)/1000`）让画面持续变化；定时器与进度订阅都要在 `finally` 和 `onUnmounted` 两处双保险清理，只清一处会在路由切换时泄漏。
+- **并发可行性要先验证隔离粒度（pattern）**：批量检测能并发的依据不是「加个 Promise.all」，而是实测 `playwright-manager.getContext()` 每账号 `session.fromPartition('auth-check-<uuid>')` 建独立分区 + 独立隐藏窗口、无共享启动锁。凡引入并发一律用零依赖 worker 池（固定宽度 worker 抢 `cursor++`）+ `slots[index]` 落位保输入顺序，上限 clamp（默认 3、硬顶 4）并留 `MP_BATCH_CHECK_CONCURRENCY` 可退回串行。
+- **`Promise.race` 硬超时不产生 unhandledRejection（pattern）**：`Promise.race([Promise.resolve(p), guard])` 会订阅原 promise，超时先 reject 后 p 的迟到 reject 仍被 race 消费，不会冒成 unhandledRejection。超时结果口径必须在 PRD 写死（本次 `valid:false / CHECK_LOGIN_TIMEOUT` 计入失效，与检测失败同口径），并留一条「迟到 reject 不炸进程」的回归测试。
+- **`vi.useFakeTimers()` 必须早于被测 `setInterval` 注册（pitfall）**：vitest 默认 `toFake` 含 `Date`，但已注册到真实 timer 队列的 interval 不会被 `advanceTimersByTimeAsync` 触发，表现为秒表恒为 0（`expected +0 to be 5`）。安装点必须放在启动被测函数之前，收尾 `vi.useRealTimers()` 放 finally。
+- **fresh worktree 的 `--ignore-scripts` 会打断 electron-builder（pitfall）**：`pnpm install --ignore-scripts` 装出的 `node_modules/ffmpeg-ffprobe-static` 没有 ffmpeg.exe/ffprobe.exe，QM-1 打包在 beforePack（stage-media-tools.js）fail-closed 报「ffmpeg 二进制不存在」。修复：`node node_modules/ffmpeg-ffprobe-static/install.js`（下载 ~126MB×2，README 下载失败非致命 exit 0）后重跑。本机未跑 `playwright install` 时打包还会警告 `dist/fonts` / `.playwright-browsers` source 不存在——属环境预步骤缺失，须在 QM-1 证据里如实标注而非当作通过。
+- **门禁脚本的「空洞 PASS」（pitfall）**：`check-locale-sync.js --pair-base <ref>` 在未 commit 时检测不到变更文件，直接 PASS，这种 PASS 不能当证据；必须 commit 后复跑并确认它真的识别到变更。同理 `--cjk` 是基线对比（基线 1581 / 当前 1388），PASS 只代表「无新增硬编码」。
+- **本机与并发会话抢 CPU 的超时 flake（pitfall）**：宽 subset（123 文件 2461 例）里唯一失败是 `accounts-compile.test.js` 内含 `vite build` 的用例超时，单文件隔离复跑 6/6 通过——判定手法是「隔离复跑 + 记录真实耗时」，结论必须写进 quality-gates 与 PR body，不能静默重跑到绿。后台终端在并发会话下会被复用而失去输出可见性，长任务改跑边界明确的 subset，全量交给 CI。
+- **中文落盘通道差异（pattern）**：`Write`/`SearchReplace` 写 `.js`/`.vue` 时会把「进」损坏成「迕」(U+8FD5)，`.md` 通道实测干净。安全范式：中文内容写进 staging 的 `.md` 片段（`<<<FRAG:name>>>` 标记），再用纯 ASCII 的 node 脚本按 ASCII 锚点 splice 到目标文件；脚本内中文一律 `\uXXXX` 转义；读写先归一 LF、写回还原 CRLF（worktree 文件是 CRLF，锚点含裸 `\n` 会静默不命中）；收尾必须 node 以 utf8 读回并统计 U+8FD5 计数为 0。
+- **PowerShell 输出 mojibake ≠ 文件损坏（pitfall）**：PS 5.1 的 `Get-Content` 按 GBK 解码 UTF-8，中文注释看起来全花。核验一律用 node 以 utf8 读回打印，绝不据控制台输出反改文件。
+- **CHANGELOG / learnings 这类「追加型」文件的冲突（pattern）**：两个会话都往 CHANGELOG 顶部 prepend 必冲突，解法是 keep-both（本次改动在上、对方在下，用 `---` 分隔），按冲突标记所在行号做行级删除而不是正则替换内容；learnings.md 一律只 append 到文件末尾（先确认尾部 EOL 与条目分隔是 `\n\n## `），可完全避开冲突。
+
+### 本次决策记录
+
+Bug 修复走完整 QM-5（根因溯源 / 逃逸链 / 系统性漏洞 / 修复+回归保护 / 预防措施），产出 `01-docs/BUGFIX-BATCH-CHECK-PROGRESS-STALL-2026-09-22.md`；经 AskUserQuestion 锁定范围为「进度可见性 + 并发加速」、超时口径「计入失效」，全程未漂移。改动 11 files +703/-38：主进程 `electron/ipc-handlers/account.js`（双边界广播 + 并发池 + 单账号 60s 硬超时）、渲染层 `Accounts.vue`（in-flight 平台明细 + 秒表 + detail 行 + 双保险清理）、locale 成对新增 `batchCheckAllCurrent` / `batchCheckAllElapsed`。逃逸根因是既有 `account.test.js` 对 `batch-check` 零命中，故新增 `account-batch-check.test.js` 作为主进程 IPC handler 的首层覆盖（7 例）。验证：`Accounts.test.js` 84/84、主进程 47/47、合并 origin/main 后定向 217/217、宽 subset 2460/2461（唯一失败为并发争抢 CPU 的 flake，隔离复跑 6/6 绿）、eslint 0 error、debt budget 基线内、`vite build` 与 `electron-builder --win --dir` exit 0、asar 含 `account.js`、解包 require 链 OK、打包 exe 启动 12s 存活且 stderr 0 行。规范回写：PRD 升 v2.3（§4.3 流程图重写 + 新增 §16 行为契约）、UI-INVENTORY §5.2 补 `batch-check-overlay`、AGENTS.md QM-2 新增「批量 IPC 进度双边界与超时预算契约」门禁条目、CHANGELOG 前插。经验同步内置记忆 + EverOS。
