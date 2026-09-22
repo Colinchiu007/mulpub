@@ -1364,6 +1364,7 @@ export default {
     batchCheckAllDone: (ctx) => 'Check complete: ' + ctx.named('valid') + ' valid, ' + ctx.named('invalid') + ' expired' + (Number(ctx.named('unconfirmed')) > 0 ? ', ' + ctx.named('unconfirmed') + ' unconfirmed' : ''),
     batchCheckAllAllValid: (ctx) => 'Check complete: all ' + ctx.named('count') + ' accounts are valid',
     batchCheckAllPersistFailed: (ctx) => 'Check finished, but login status of ' + ctx.named('count') + ' account(s) could not be saved. Please retry or check the backend service',
+    persistFailedTitle: (ctx) => 'Failed to persist login status (' + ctx.named('count') + ' account(s))',
     batchCheckAllNoAccounts: 'No accounts to check',
     batchCheckAllFailed: 'Check-all failed, please retry later',
     autoSaved: 'Login credentials saved automatically',

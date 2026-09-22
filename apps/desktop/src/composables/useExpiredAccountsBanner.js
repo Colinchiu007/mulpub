@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 import { onAuthCompleted, onAccountStatusChanged, accountBatchCheckLogin } from '@/api/publisher'
 import { reportError } from '@/utils/report-error'
+import i18n from '@/i18n'
 
 /**
  * 首页「登录失效提醒」横幅状态与自动刷新。
@@ -59,7 +60,7 @@ export function useExpiredAccountsBanner (accountStore) {
       const persistFailed = results.filter(r => r && r.persisted && r.persisted.ok === false)
       if (persistFailed.length > 0) {
         reportError(
-          '登录态固化失败（' + persistFailed.length + ' 个账号）',
+          i18n.global.t('accountsPage.persistFailedTitle', { count: persistFailed.length }),
           new Error(persistFailed.map(r => String(r.accountId) + ':' + String((r.persisted && r.persisted.reason) || 'unknown')).join(', ')),
         )
       }

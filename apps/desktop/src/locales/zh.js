@@ -1365,6 +1365,7 @@ export default {
     batchCheckAllDone: (ctx) => '检测完成：' + ctx.named('valid') + ' 个正常，' + ctx.named('invalid') + ' 个失效' + (Number(ctx.named('unconfirmed')) > 0 ? '，' + ctx.named('unconfirmed') + ' 个未确认' : ''),
     batchCheckAllAllValid: (ctx) => '检测完成：' + ctx.named('count') + ' 个账号登录状态全部正常',
     batchCheckAllPersistFailed: (ctx) => '检测完成，但有 ' + ctx.named('count') + ' 个账号的登录状态未能保存到服务端，请重试或检查后端服务',
+    persistFailedTitle: (ctx) => '登录态固化失败（' + ctx.named('count') + ' 个账号）',
     batchCheckAllNoAccounts: '暂无可检测的账号',
     batchCheckAllFailed: '一键检测失败，请稍后重试',
     autoSaved: '登录凭证已自动保存',
