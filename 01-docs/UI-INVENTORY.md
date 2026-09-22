@@ -232,6 +232,7 @@
 | empty-无匹配 | 搜索无结果 | "没有匹配的账号" |
 | batch-mode | 勾选批量操作 | 底部工具栏：全选/批量启用/禁用/删除/取消 |
 | login-state-bar | **扫码登录**过程中（2026-08-14 起仅 qrcode 模式） | 底部登录状态条 + QR 码预览；**网页登录已改为全屏登录标签**（见 1.1 虚拟登录标签），账号页不再显示横幅/浮动关闭按钮 |
+| batch-check-overlay | 点击工具栏【一键检测】期间 | 全屏遮罩：进度条（已完成/总数）+「检测中 x/y：平台」+ 第二行明细「正在检测：平台1、平台2 · 已耗时 N 秒」（`data-testid="batch-check-detail"`，2026-09-22 batch-check-progress-speed，详见 `BUGFIX-BATCH-CHECK-PROGRESS-STALL-2026-09-22.md`） |
 
 ### 5.3 Publish.vue（874 行）— 发布
 
