@@ -19,6 +19,7 @@
  */
 
 const fs = require('fs')
+const os = require('os')
 const path = require('path')
 const { execFile } = require('child_process')
 const { findFfmpeg, findFfprobe } = require('../media-tool-paths')
@@ -75,6 +76,90 @@ function specKey (spec) {
 }
 
 function sameSpec (a, b) { return specKey(a) === specKey(b) }
+
+/** film-engineering 受控媒体根（与 video-gen getFilmRunDir 同层；renderManifest path 必须落于根内） */
+function getFilmMediaRoot () {
+  return path.join(os.tmpdir(), 'film-engineering')
+}
+
+// D5（film-full-corpus-production）renderManifest 契约：
+//   [{ shotId, path, sourceKind: 'generated'|'downloaded', orderIndex }]
+//   - orderIndex 从 0 连续且不重复；sourceKind 严格枚举；
+//   - path 绝对路径且经 realpath 规范化后位于受控媒体根内（'..' 遍历、symlink/junction 逃逸拒绝）；
+//   - 规模上限 10,000 条（1.3 对账口径：全集 ≈6,558 镜，原 5,000 会误拒）。
+// 校验 fail-closed：invalid/missing 一次性汇总（缺失按 orderIndex 列清单），不产出假成片。
+const RENDER_MANIFEST_MAX = 10000
+const RENDER_SOURCE_KINDS = new Set(['generated', 'downloaded'])
+
+function realpathSafe (p) {
+  try { return fs.realpathSync.native ? fs.realpathSync.native(p) : fs.realpathSync(p) } catch { return null }
+}
+
+function isInsideRoot (realPath, realRoot) {
+  const root = realRoot.endsWith(path.sep) ? realRoot : realRoot + path.sep
+  return realPath === realRoot || realPath.startsWith(root)
+}
+
+/**
+ * 解析并校验 renderManifest（纯函数，不执行拼接）。
+ * @param {Array<object>} manifest
+ * @param {{mediaRoot?: string}} [opts]
+ * @returns {{ok: true, entries: Array<object>} | {ok: false, error: string, invalid?: Array<object>, missing?: Array<object>}}
+ */
+function parseRenderManifest (manifest, opts = {}) {
+  if (!Array.isArray(manifest) || manifest.length === 0) return { ok: false, error: 'renderManifest 必须为非空数组' }
+  if (manifest.length > RENDER_MANIFEST_MAX) return { ok: false, error: 'renderManifest 规模超上限 ' + RENDER_MANIFEST_MAX + '（实际 ' + manifest.length + ' 条）' }
+  const mediaRoot = opts.mediaRoot || getFilmMediaRoot()
+  const realRoot = realpathSafe(mediaRoot) || path.resolve(mediaRoot)
+  const invalid = []
+  const missing = []
+  const seen = new Set()
+  const entries = []
+  manifest.forEach((e, idx) => {
+    const at = 'manifest[' + idx + ']'
+    if (!e || typeof e !== 'object') { invalid.push({ index: idx, reason: at + ' 必须为对象' }); return }
+    if (typeof e.shotId !== 'string' || !e.shotId) invalid.push({ index: idx, shotId: e.shotId, reason: at + ' shotId 必须为非空字符串' })
+    if (!Number.isInteger(e.orderIndex) || e.orderIndex < 0) {
+      invalid.push({ index: idx, shotId: e.shotId, reason: at + ' orderIndex 必须为非负整数' })
+    } else if (seen.has(e.orderIndex)) {
+      invalid.push({ index: idx, shotId: e.shotId, reason: at + ' 重复 orderIndex: ' + e.orderIndex })
+    } else {
+      seen.add(e.orderIndex)
+    }
+    if (!RENDER_SOURCE_KINDS.has(e.sourceKind)) {
+      invalid.push({ index: idx, shotId: e.shotId, reason: at + ' sourceKind 必须为 generated|downloaded（实际: ' + JSON.stringify(e.sourceKind) + '）' })
+    }
+    if (typeof e.path !== 'string' || !path.isAbsolute(e.path)) {
+      invalid.push({ index: idx, shotId: e.shotId, reason: at + ' path 必须为绝对路径' }); return
+    }
+    if (!fs.existsSync(e.path)) {
+      missing.push({ orderIndex: e.orderIndex, shotId: e.shotId, path: e.path }); return
+    }
+    const real = realpathSafe(e.path)
+    if (!real) {
+      invalid.push({ index: idx, shotId: e.shotId, reason: at + ' realpath 解析失败: ' + e.path }); return
+    }
+    if (!isInsideRoot(real, realRoot)) {
+      invalid.push({ index: idx, shotId: e.shotId, reason: at + ' path 超出受控媒体根（链接/遍历逃逸拒绝）: ' + e.path }); return
+    }
+    entries.push({ shotId: e.shotId, path: real, orderIndex: e.orderIndex, sourceKind: e.sourceKind })
+  })
+  entries.sort((a, b) => a.orderIndex - b.orderIndex)
+  if (invalid.length === 0 && missing.length === 0) {
+    for (let i = 0; i < entries.length; i++) {
+      if (entries[i].orderIndex !== i) {
+        invalid.push({ index: i, shotId: entries[i].shotId, reason: 'orderIndex 必须从 0 连续（期望 ' + i + '，实际 ' + entries[i].orderIndex + '）' })
+      }
+    }
+  }
+  if (invalid.length > 0 || missing.length > 0) {
+    const parts = []
+    if (invalid.length) parts.push('无效条目: ' + invalid.map((v) => v.reason).join('；'))
+    if (missing.length) parts.push('缺失条目（文件不存在）: ' + missing.map((m) => '#orderIndex ' + m.orderIndex + '（shotId ' + m.shotId + ' → ' + m.path + '）').join('；'))
+    return { ok: false, error: parts.join(' | '), invalid, missing }
+  }
+  return { ok: true, entries }
+}
 
 /**
  * 扫描 run 目录磁盘产物，与选中数量对齐（序号 0..total-1 → shot_NNN.mp4）。
@@ -134,21 +219,40 @@ function registerFilmRenderStage (pipelineEngine) {
     async ({ runId, params, context, onProgress, _testProbe, _testRunTool }) => {
       emitStageStart(onProgress, { messageKey: 'stageProgress.filmRenderStart' })
       const shots = (context && Array.isArray(context.selectedShots)) ? context.selectedShots : []
-      if (shots.length === 0) {
-        return { success: false, error: 'film_render 需要 context.selectedShots（先执行 film_select_shots）' }
-      }
       const runDir = getFilmRunDir(runId)
       const probe = _testProbe || probeClip
       const tool = _testRunTool || runTool
 
-      // 产物清单以磁盘为准（D7）：缺镜 fail-closed，不产出缺镜假成片
-      const { files, missing } = collectDiskShots(runDir, shots.length)
-      if (missing.length > 0) {
-        return {
-          success: false,
-          error: 'film_render 缺失镜头产物，无法合成成片（缺失镜序号: ' + missing.join(', ') + '），请先单镜重试补齐',
-          missingIndices: missing,
+      // L2（D5）：代码路径分叉仅在输入解析层——context.renderManifest 存在且非空 →
+      // 跨 run manifest 模式（片段按 orderIndex 排序、受控根校验）；否则既有 selectedShots
+      // 单批路径逐字节不变（回归锚）。拼接引擎（探测→直拷/归一→concat）两种模式完全复用。
+      const manifest = (context && Array.isArray(context.renderManifest) && context.renderManifest.length > 0) ? context.renderManifest : null
+      let files
+      if (manifest) {
+        const parsed = parseRenderManifest(manifest)
+        if (!parsed.ok) {
+          return {
+            success: false,
+            error: 'film_render renderManifest 校验失败：' + parsed.error,
+            missingEntries: parsed.missing || [],
+            invalidEntries: parsed.invalid || [],
+          }
         }
+        files = parsed.entries.map((e) => e.path)
+      } else {
+        if (shots.length === 0) {
+          return { success: false, error: 'film_render 需要 context.selectedShots（先执行 film_select_shots）' }
+        }
+        // 产物清单以磁盘为准（D7）：缺镜 fail-closed，不产出缺镜假成片
+        const disk = collectDiskShots(runDir, shots.length)
+        if (disk.missing.length > 0) {
+          return {
+            success: false,
+            error: 'film_render 缺失镜头产物，无法合成成片（缺失镜序号: ' + disk.missing.join(', ') + '），请先单镜重试补齐',
+            missingIndices: disk.missing,
+          }
+        }
+        files = disk.files
       }
 
       // ffprobe 预检全部片段规格（D8）
@@ -211,6 +315,7 @@ function registerFilmRenderStage (pipelineEngine) {
         mode,
         clipCount: files.length,
         runDir,
+        source: manifest ? 'renderManifest' : 'selectedShots',
       }
       if (clips.target) output.target = clips.target
       emitStageComplete(onProgress, {
@@ -230,6 +335,9 @@ module.exports = {
   registerFilmRenderStage,
   computeMissingShotIndices,
   collectDiskShots,
+  parseRenderManifest,
+  getFilmMediaRoot,
+  RENDER_MANIFEST_MAX,
   probeClip,
   specKey,
   sameSpec,

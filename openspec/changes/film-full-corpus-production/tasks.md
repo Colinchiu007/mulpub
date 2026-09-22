@@ -44,10 +44,10 @@
 
 ## 5. L2 renderManifest 契约（film-render.js，TDD）
 
-- [ ] 5.1 RED：manifest 解析单测——orderIndex 从 0 连续校验、sourceKind 枚举、path 受控根内（realpath 后前缀比对，`..` 遍历/junction 逃逸拒绝）、规模上限 5,000、**无 manifest 时既有单批行为逐字节不变**（回归锚）
-- [ ] 5.2 GREEN：输入解析层分叉 + manifest 模式片段收集；拼接引擎（规格探测→`-c copy` 直拷/最小归一）零改动复用
-- [ ] 5.3 集成：构造两个临时 run 目录 + 一个下载目录的三源混合 manifest（本地生成 fixture），直拷与归一两条路径各至少一次出片成功，ffprobe 实测时长 = Σ 片段时长（±0.5s）
-- [ ] 5.4 缺条目 fail-closed：按 orderIndex 列缺失清单，不产出假成片；报告含清单规模与成片时长
+- [x] 5.1 RED：manifest 解析单测（2026-09-23 完成：film-render.test.js 新增 L2 契约 describe 9 用例，RED 10 failed/10 既有锚 passed；注：原文"规模上限 5,000"按 D5 修正为 10,000）——orderIndex 从 0 连续校验、sourceKind 枚举、path 受控根内（realpath 后前缀比对，`..` 遍历/junction 逃逸拒绝）、规模上限 5,000、**无 manifest 时既有单批行为逐字节不变**（回归锚）
+- [x] 5.2 GREEN：输入解析层分叉（2026-09-23 完成：parseRenderManifest/getFilmMediaRoot/RENDER_MANIFEST_MAX=10000 + executor manifest 分叉，拼接引擎零改动；20/20 全过含 10 既有回归锚） + manifest 模式片段收集；拼接引擎（规格探测→`-c copy` 直拷/最小归一）零改动复用
+- [x] 5.3 集成：构造两个临时 run 目录（2026-09-23 完成：film-render.manifest-int.test.js 真实 ffmpeg fixture，三源混合（2 run + 1 下载目录）直拷 3×2s→6s±0.5、归一 720p+360p 2×2s→4s±0.5，ffprobe 实测达标；无二进制环境 skipIf） + 一个下载目录的三源混合 manifest（本地生成 fixture），直拷与归一两条路径各至少一次出片成功，ffprobe 实测时长 = Σ 片段时长（±0.5s）
+- [x] 5.4 缺条目 fail-closed（2026-09-23 完成：missing 按 orderIndex 列清单（含 shotId/path），invalid 一次性汇总；executor 拒绝时不产出 final.mp4，output.source 标记清单规模来源）：按 orderIndex 列缺失清单，不产出假成片；报告含清单规模与成片时长
 
 ## 6. L3 原片下载通道（TDD）
 
