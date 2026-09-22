@@ -254,6 +254,36 @@ describe('account IPC 可信来源正常工作', () => {
     })
   })
 
+  it('accounts:list 把后端 errorCode/status 透传给渲染层（瞬时失败可判定）', async () => {
+    const deps = createMockDeps()
+    deps.AccountManager.listAccounts.mockRejectedValue(
+      Object.assign(new Error('AUTH_JWKS_UNAVAILABLE'), { errorCode: 'AUTH_JWKS_UNAVAILABLE', status: 503 }),
+    )
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('accounts:list')(TRUSTED_EVENT)
+
+    expect(result).toEqual(expect.objectContaining({
+      code: -1,
+      message: 'AUTH_JWKS_UNAVAILABLE',
+      data: [],
+      errorCode: 'AUTH_JWKS_UNAVAILABLE',
+      status: 503,
+    }))
+  })
+
+  it('accounts:list 普通异常不带 errorCode/status 字段', async () => {
+    const deps = createMockDeps()
+    deps.AccountManager.listAccounts.mockRejectedValue(new Error('disk full'))
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('accounts:list')(TRUSTED_EVENT)
+
+    expect(result).toEqual({ code: -1, message: 'disk full', data: [] })
+  })
+
   it('accounts:list 本地无加密凭证时标记 has_cookies=false 且 status=expired', async () => {
     const deps = createMockDeps()
     deps.AccountManager.checkLocalCredentials.mockReturnValue(false)

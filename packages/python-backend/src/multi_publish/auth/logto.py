@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 import math
 import time
 from collections.abc import Callable
@@ -20,6 +21,8 @@ from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicNumbers
 from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 from fastapi import HTTPException, Request
+
+_LOGGER = logging.getLogger(__name__)
 
 _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
@@ -55,11 +58,20 @@ def _trusted_host(parsed, trusted_hosts: frozenset[str]) -> bool:
     return host in trusted_hosts or netloc in trusted_hosts
 
 
+# 上游身份服务不可用：语义是 5xx，绝不能伪装成 401，否则调用方会误做「刷新令牌 + 重放」把耗时翻倍。
+_SERVICE_UNAVAILABLE_CODES = frozenset(
+    {"AUTH_JWKS_UNAVAILABLE", "AUTH_JWKS_INVALID", "AUTH_CONFIG_INVALID"}
+)
+
+# 会触发失败退避的取键错误（超时 / 非 2xx / 响应体非法）。
+_JWKS_FAILURE_CODES = frozenset({"AUTH_JWKS_UNAVAILABLE", "AUTH_JWKS_INVALID"})
+
+
 class AuthError(Exception):
-    def __init__(self, code: str, status: int = 401):
+    def __init__(self, code: str, status: int | None = None):
         super().__init__(code)
         self.code = code
-        self.status = status
+        self.status = status or (503 if code in _SERVICE_UNAVAILABLE_CODES else 401)
 
 
 def parse_bearer_token(header: str | None) -> str:
@@ -200,6 +212,10 @@ class LogtoJwtVerifier:
     unknown_kid_cache_max: int = 256
     now: Callable[[], int] = lambda: int(time.time())
     trusted_jwks_hosts: frozenset[str] = field(default_factory=frozenset)
+    jwks_failure_backoff_seconds: int = 15
+    stale_cache_grace_seconds: int = 3600
+    connect_timeout_seconds: float = 2.0
+    read_timeout_seconds: float = 5.0
 
     def __post_init__(self):
         self.issuer = self.issuer.rstrip("/")
@@ -213,6 +229,10 @@ class LogtoJwtVerifier:
         self._refresh_lock = None
         self._refresh_loop = None
         self._unknown_kid_cache: dict[str, int] = {}
+        self._keys_failed_at: int | None = None
+        self._http_client = None
+        self._background_refresh = None
+        self._closing_tasks: set[Any] = set()
 
     def _get_refresh_lock(self):
         loop = asyncio.get_running_loop()
@@ -221,20 +241,89 @@ class LogtoJwtVerifier:
             self._refresh_loop = loop
         return self._refresh_lock
 
+    def _new_http_client(self):
+        """共享连接池：每次请求新建 client 会重做 TCP+TLS 握手，走代理时是主要耗时来源。"""
+        import httpx
+
+        timeout = httpx.Timeout(
+            self.read_timeout_seconds,
+            connect=self.connect_timeout_seconds,
+            pool=self.connect_timeout_seconds,
+        )
+        return httpx.AsyncClient(
+            timeout=timeout,
+            limits=httpx.Limits(max_keepalive_connections=4, max_connections=8),
+            follow_redirects=False,
+        )
+
+    def _get_http_client(self):
+        if self._http_client is None:
+            self._http_client = self._new_http_client()
+        return self._http_client
+
+    def _invalidate_http_client(self) -> None:
+        client, self._http_client = self._http_client, None
+        if client is None:
+            return
+        try:
+            task = asyncio.get_running_loop().create_task(client.aclose())
+        except RuntimeError:
+            return
+        self._closing_tasks.add(task)
+        task.add_done_callback(self._closing_tasks.discard)
+
+    async def aclose(self) -> None:
+        """进程退出时收尾共享连接池。"""
+        client, self._http_client = self._http_client, None
+        if client is not None:
+            await client.aclose()
+
+    def _schedule_background_refresh(self) -> None:
+        if self._background_refresh is not None and not self._background_refresh.done():
+            return
+        try:
+            task = asyncio.get_running_loop().create_task(self._refresh_quietly())
+        except RuntimeError:
+            return
+        self._background_refresh = task
+        task.add_done_callback(self._clear_background_refresh)
+
+    def _clear_background_refresh(self, task) -> None:
+        if self._background_refresh is task:
+            self._background_refresh = None
+
+    def _note_fetch_failure(self, exc: AuthError) -> None:
+        """取键失败必须开启退避窗口——后台刷新与前台请求共用同一套退避纪律。"""
+        if exc.code in _JWKS_FAILURE_CODES:
+            self._keys_failed_at = self.now()
+
+    async def _refresh_quietly(self) -> None:
+        # 后台刷新失败只记日志：旧 key 仍在宽限期内可用，下一次请求会再试。
+        try:
+            async with self._get_refresh_lock():
+                if self._in_failure_backoff(self.now()):
+                    # 退避窗口内后台同样不重复打网络，否则每个请求都白付一次刷新超时。
+                    return
+                await self._fetch_keys()
+        except AuthError as exc:
+            self._note_fetch_failure(exc)
+            _LOGGER.warning("JWKS background refresh failed: %s", exc)
+        except Exception as exc:
+            _LOGGER.warning("JWKS background refresh failed: %s", exc)
+
     async def _get_json(self, url: str) -> dict[str, Any]:
         try:
             if self.fetcher:
                 response = await self.fetcher(url)
             else:
-                import httpx
-
-                async with httpx.AsyncClient(timeout=5) as client:
-                    response = await client.get(url)
+                response = await self._get_http_client().get(url)
             if response.status_code < 200 or response.status_code >= 300:
                 raise AuthError("AUTH_JWKS_UNAVAILABLE")
         except AuthError:
             raise
         except Exception as exc:
+            # 连接可能已被代理或网络栈打断，丢掉连接池让下一次请求重建。
+            self._invalidate_http_client()
             raise AuthError("AUTH_JWKS_UNAVAILABLE") from exc
         try:
             body = response.json()
@@ -244,13 +333,45 @@ class LogtoJwtVerifier:
             raise AuthError("AUTH_JWKS_INVALID")
         return body
 
+    async def prefetch(self) -> bool:
+        """启动预热：把 discovery + JWKS 冷启动代价挪出用户请求路径。
+
+        预热失败不抛异常（退避会接管后续请求），否则后端会在身份服务抖动时启动失败。
+        """
+        try:
+            await self._get_keys()
+            return True
+        except AuthError as exc:
+            _LOGGER.warning("JWKS prefetch failed: %s", exc.code)
+            return False
+        except Exception:
+            _LOGGER.warning("JWKS prefetch raised unexpectedly", exc_info=True)
+            return False
+
+    def _in_failure_backoff(self, current: int) -> bool:
+        if self._keys_failed_at is None:
+            return False
+        return current - self._keys_failed_at < self.jwks_failure_backoff_seconds
+
+    def _cached_keys_usable(self, current: int) -> bool:
+        """stale-while-revalidate：未过期直接命中；过期但在宽限期内先回旧 key，刷新丢到后台。"""
+        if not self._keys_loaded:
+            return False
+        age = current - self._keys_at
+        if age < self.cache_ttl_seconds:
+            return True
+        if age >= self.stale_cache_grace_seconds:
+            return False
+        self._schedule_background_refresh()
+        return True
+
     async def _get_keys(self, force: bool = False) -> dict[str, Any]:
         current = self.now()
-        if not force and self._keys_loaded and current - self._keys_at < self.cache_ttl_seconds:
+        if not force and self._cached_keys_usable(current):
             return self._keys
         async with self._get_refresh_lock():
             current = self.now()
-            if not force and self._keys_loaded and current - self._keys_at < self.cache_ttl_seconds:
+            if not force and self._cached_keys_usable(current):
                 return self._keys
             if (
                 force
@@ -258,46 +379,58 @@ class LogtoJwtVerifier:
                 and current - self._last_forced_refresh_at < self.forced_refresh_cooldown_seconds
             ):
                 return self._keys
-            if self._discovery is None:
-                discovery = await self._get_json(f"{self.issuer}/.well-known/openid-configuration")
-                jwks_uri = discovery.get("jwks_uri")
-                if discovery.get("issuer") != self.issuer or not isinstance(jwks_uri, str):
-                    raise AuthError("AUTH_DISCOVERY_INVALID")
-                issuer_origin = _origin(_parse_secure_url(self.issuer, "AUTH_DISCOVERY_INVALID"))
-                jwks_url = _parse_secure_url(jwks_uri, "AUTH_DISCOVERY_INVALID")
-                if _origin(jwks_url) != issuer_origin and not _trusted_host(jwks_url, self.trusted_jwks_hosts):
-                    raise AuthError("AUTH_DISCOVERY_INVALID")
-                self._discovery = {**discovery, "jwks_uri": jwks_url.geturl()}
+            if self._in_failure_backoff(current):
+                # 退避窗口内不再重复打网络：一次抖动只付一次超时。force 刷新同样受约束，
+                # 否则 unknown-kid 触发的强制刷新会在故障期把每次验签都打成超时。
+                raise AuthError("AUTH_JWKS_UNAVAILABLE")
             if force:
                 self._last_forced_refresh_at = current
-            body = await self._get_json(self._discovery["jwks_uri"])
-            keys = body.get("keys")
-            if not isinstance(keys, list):
-                raise AuthError("AUTH_JWKS_INVALID")
-            usable_keys: dict[str, Any] = {}
-            for key in keys:
-                if not isinstance(key, dict) or not isinstance(key.get("kid"), str) or not key.get("kid"):
-                    continue
-                algorithm = key.get("alg")
-                profile = (algorithm, key.get("kty"), key.get("crv"))
-                if profile not in {("RS256", "RSA", None), ("ES384", "EC", "P-384")}:
-                    continue
-                if key.get("use") not in (None, "sig"):
-                    continue
-                key_ops = key.get("key_ops")
-                if key_ops is not None and (not isinstance(key_ops, list) or "verify" not in key_ops):
-                    continue
-                cache_key = f"{algorithm}:{key['kid']}"
-                if cache_key in usable_keys:
-                    continue
-                try:
-                    usable_keys[cache_key] = _public_key_from_jwk(key)
-                except AuthError:
-                    continue
-            self._keys = usable_keys
-            self._keys_at = self.now()
-            self._keys_loaded = True
-            return self._keys
+            try:
+                return await self._fetch_keys()
+            except AuthError as exc:
+                self._note_fetch_failure(exc)
+                raise
+
+    async def _fetch_keys(self) -> dict[str, Any]:
+        if self._discovery is None:
+            discovery = await self._get_json(f"{self.issuer}/.well-known/openid-configuration")
+            jwks_uri = discovery.get("jwks_uri")
+            if discovery.get("issuer") != self.issuer or not isinstance(jwks_uri, str):
+                raise AuthError("AUTH_DISCOVERY_INVALID")
+            issuer_origin = _origin(_parse_secure_url(self.issuer, "AUTH_DISCOVERY_INVALID"))
+            jwks_url = _parse_secure_url(jwks_uri, "AUTH_DISCOVERY_INVALID")
+            if _origin(jwks_url) != issuer_origin and not _trusted_host(jwks_url, self.trusted_jwks_hosts):
+                raise AuthError("AUTH_DISCOVERY_INVALID")
+            self._discovery = {**discovery, "jwks_uri": jwks_url.geturl()}
+        body = await self._get_json(self._discovery["jwks_uri"])
+        keys = body.get("keys")
+        if not isinstance(keys, list):
+            raise AuthError("AUTH_JWKS_INVALID")
+        usable_keys: dict[str, Any] = {}
+        for key in keys:
+            if not isinstance(key, dict) or not isinstance(key.get("kid"), str) or not key.get("kid"):
+                continue
+            algorithm = key.get("alg")
+            profile = (algorithm, key.get("kty"), key.get("crv"))
+            if profile not in {("RS256", "RSA", None), ("ES384", "EC", "P-384")}:
+                continue
+            if key.get("use") not in (None, "sig"):
+                continue
+            key_ops = key.get("key_ops")
+            if key_ops is not None and (not isinstance(key_ops, list) or "verify" not in key_ops):
+                continue
+            cache_key = f"{algorithm}:{key['kid']}"
+            if cache_key in usable_keys:
+                continue
+            try:
+                usable_keys[cache_key] = _public_key_from_jwk(key)
+            except AuthError:
+                continue
+        self._keys = usable_keys
+        self._keys_at = self.now()
+        self._keys_loaded = True
+        self._keys_failed_at = None
+        return self._keys
 
     async def verify(self, token: str) -> dict[str, Any]:
         parts = token.split(".") if isinstance(token, str) else []

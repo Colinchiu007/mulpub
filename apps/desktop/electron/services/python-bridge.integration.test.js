@@ -499,3 +499,46 @@ test('spawn env MULTI_PUBLISH_DATA_DIR 对尾随空格 ELECTRON_USER_DATA_DIR �
     else process.env.ELECTRON_USER_DATA_DIR = prev
   }
 })
+
+// 账号页首开 25s 事故：上游 JWKS 抖动被伪装成 401 时，「刷令牌 + 重放」会把耗时翻倍。
+// 只有令牌自身失效才值得重放。
+test('requestBackend 收到 503（AUTH_JWKS_UNAVAILABLE）时不刷新令牌、不重放', async () => {
+  mockHealthGet(true)
+  await bridge.startPythonBackend()
+  const getAccessToken = vi.fn(async () => 'access-token-1')
+  bridge.setAuthService({ getAccessToken })
+  httpRequestSpy.mockImplementationOnce((opts, cb) => {
+    const res = new EventEmitter(); res.statusCode = 503
+    setImmediate(() => { cb(res); res.emit('data', JSON.stringify({ detail: 'AUTH_JWKS_UNAVAILABLE' })); res.emit('end') })
+    const req = new EventEmitter(); req.write = vi.fn(); req.end = vi.fn(); return req
+  })
+
+  const result = await bridge.requestBackend('GET', '/api/accounts')
+
+  expect(httpRequestSpy).toHaveBeenCalledTimes(1)
+  expect(getAccessToken).toHaveBeenCalledTimes(1)
+  expect(getAccessToken).toHaveBeenCalledWith({})
+  expect(result).toEqual(expect.objectContaining({
+    status: 503,
+    code: -503,
+    errorCode: 'AUTH_JWKS_UNAVAILABLE',
+  }))
+})
+
+test('requestBackend 收到 401 但错误码不属于令牌类时不重放', async () => {
+  mockHealthGet(true)
+  await bridge.startPythonBackend()
+  const getAccessToken = vi.fn(async () => 'access-token-1')
+  bridge.setAuthService({ getAccessToken })
+  httpRequestSpy.mockImplementationOnce((opts, cb) => {
+    const res = new EventEmitter(); res.statusCode = 401
+    setImmediate(() => { cb(res); res.emit('data', JSON.stringify({ detail: 'AUTH_KEY_NOT_FOUND' })); res.emit('end') })
+    const req = new EventEmitter(); req.write = vi.fn(); req.end = vi.fn(); return req
+  })
+
+  const result = await bridge.requestBackend('GET', '/api/accounts')
+
+  expect(httpRequestSpy).toHaveBeenCalledTimes(1)
+  expect(getAccessToken).toHaveBeenCalledTimes(1)
+  expect(result).toEqual(expect.objectContaining({ status: 401, errorCode: 'AUTH_KEY_NOT_FOUND' }))
+})

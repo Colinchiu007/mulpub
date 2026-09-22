@@ -394,7 +394,11 @@ async function deleteAccount (accountId, options = {}) {
 async function listAccounts () {
   const result = await pythonBridge.requestBackend('GET', '/api/accounts')
   if (result.code !== 0) {
-    throw new Error(result.message || '获取账号列表失败')
+    // errorCode/status 随异常一起上抛：渲染层要能区分「上游瞬时不可用」和「确实没有账号」
+    throw Object.assign(new Error(result.message || '获取账号列表失败'), {
+      ...(typeof result.errorCode === 'string' && result.errorCode ? { errorCode: result.errorCode } : {}),
+      ...(typeof result.status === 'number' ? { status: result.status } : {}),
+    })
   }
   const accounts = result.data || []
   // 每次拉取账号列表时清理孤儿凭据文件（对应账号已不存在的加密凭据）

@@ -4,6 +4,16 @@ import { listAccounts, accountDelete, accountSetDefault, accountUpdate } from '@
 import { usePlatformStore } from '@/stores/platforms'
 import { formatUserError } from '@/utils/user-facing-error'
 
+// 上游瞬时不可用（身份服务 JWKS 抖动 / 后端 5xx）时保留上一次列表：
+// 「这一帧取不到」绝不能显示成「一个账号都没有」（账号页首开 25s 事故的用户可见面）。
+const TRANSIENT_FAILURE_CODES = Object.freeze(['AUTH_JWKS_UNAVAILABLE', 'AUTH_JWKS_INVALID'])
+
+function isTransientFailure(res) {
+  if (!res || typeof res !== 'object') return false
+  if (TRANSIENT_FAILURE_CODES.includes(res.errorCode)) return true
+  return typeof res.status === 'number' && res.status >= 500
+}
+
 /**
  * 账号管理 Store（增强版 - 参考产品复用）
  * 支持：按平台分组展示、账号分组管理、批量操作、搜索过滤、排序
@@ -29,6 +39,7 @@ export const useAccountStore = defineStore('accounts', () => {
     loading.value = true
     error.value = null
     let shouldReconcileMetadata = false
+    let transient = false
     try {
       const res = await listAccounts()
       if (res && res.code === 0 && Array.isArray(res.data)) {
@@ -38,13 +49,17 @@ export const useAccountStore = defineStore('accounts', () => {
         accounts.value = res
         shouldReconcileMetadata = true
       } else {
-        accounts.value = []
+        // 非零 code / 结构异常：必须记录错误，否则界面会静默显示「暂无账号」
+        transient = isTransientFailure(res)
+        error.value = formatUserError(res, { fallback: '账号列表加载失败' }).message
+        if (!transient) accounts.value = []
       }
       reconcileSelection()
       loadGroups()
       loadFavorites()
       if (shouldReconcileMetadata) reconcileAccountMetadata()
-      loaded.value = true
+      // 瞬时失败不标记为已加载：下次进入账号页仍需重新拉取
+      loaded.value = !transient
     } catch (e) {
       error.value = formatUserError(e, { fallback: '账号列表加载失败' }).message
       accounts.value = []

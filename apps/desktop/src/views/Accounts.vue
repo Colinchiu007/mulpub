@@ -199,6 +199,16 @@
             </div>
           </div>
           <EmptyState
+            v-else-if="loadError && visibleAccounts.length === 0"
+            data-testid="accounts-error"
+            :title="t('accountsPage.errorTitle')"
+            :description="loadError || t('accountsPage.errorHint')"
+            :action-text="t('accountsPage.errorAction')"
+            @action="refresh"
+          >
+            <template #icon><WarningFilled /></template>
+          </EmptyState>
+          <EmptyState
             v-else-if="visibleAccounts.length === 0"
             data-testid="accounts-empty"
             :title="emptyStateTitle"
@@ -290,7 +300,7 @@
 
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { Close, Delete, FolderOpened, Plus, Search, UserFilled } from '@element-plus/icons-vue'
+import { Close, Delete, FolderOpened, Plus, Search, UserFilled, WarningFilled } from '@element-plus/icons-vue'
 import { useNotify } from '@/composables/useNotify'
 import AccountAuthorizationGuide from '@/features/accounts/components/AccountAuthorizationGuide.vue'
 import AccountFavoritesPanel from '@/features/accounts/components/AccountFavoritesPanel.vue'
@@ -575,6 +585,8 @@ const visibleGroups = computed(() => {
     return String(group.name || '').toLowerCase().includes(query)
   })
 })
+// 加载失败原因（store 已格式化为当前语言的友好文案）；空字符串表示无错误
+const loadError = computed(() => String(accountStore.error || ''))
 const emptyStateTitle = computed(() => {
   if (totalAccounts.value === 0) return t('accountsPage.emptyNone')
   if (filter.value === 'favorite') return t('accountsPage.emptyNoFavorite')

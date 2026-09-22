@@ -119,6 +119,53 @@ describe("useAccountStore", () => {
       expect(store.loading).toBe(false);
     });
 
+    it("code 非零时记录错误（静默清空会被误显示为「暂无账号」）", async () => {
+      listAccounts.mockResolvedValue({
+        code: -1, status: 503, errorCode: "AUTH_JWKS_UNAVAILABLE",
+        message: "AUTH_JWKS_UNAVAILABLE", data: [],
+      });
+      const store = useAccountStore();
+
+      await store.load();
+
+      expect(store.error).toBeTruthy();
+      expect(store.loading).toBe(false);
+    });
+
+    it("上游瞬时失败（errorCode 命中）保留已有账号列表", async () => {
+      listAccounts.mockResolvedValue({
+        code: -503, status: 503, errorCode: "AUTH_JWKS_UNAVAILABLE",
+        message: "AUTH_JWKS_UNAVAILABLE", data: [],
+      });
+      const store = useAccountStore();
+      store.accounts = accountsFixture;
+
+      await store.load();
+
+      expect(store.accounts).toEqual(accountsFixture);
+      expect(store.error).toBeTruthy();
+    });
+
+    it("无 errorCode 但 HTTP 状态 >= 500 同样按瞬时失败处理", async () => {
+      listAccounts.mockResolvedValue({ code: -502, status: 502, message: "backend crashed", data: [] });
+      const store = useAccountStore();
+      store.accounts = accountsFixture;
+
+      await store.load();
+
+      expect(store.accounts).toEqual(accountsFixture);
+    });
+
+    it("瞬时失败不标记已加载，下次进入账号页会重新拉取", async () => {
+      listAccounts.mockResolvedValue({ code: -503, status: 503, errorCode: "AUTH_JWKS_UNAVAILABLE", data: [] });
+      const store = useAccountStore();
+      store.accounts = accountsFixture;
+
+      await store.load();
+
+      expect(store.loaded).toBe(false);
+    });
+
     it("重复加载会替换数据并清除上一次错误", async () => {
       listAccounts
         .mockRejectedValueOnce(new Error("temporary"))

@@ -1477,6 +1477,9 @@ export default {
     statusPartial: (ctx) => (ctx.named('action') === 'enable' ? 'Enabled' : 'Disabled') + ' ' + ctx.named('success') + ', ' + ctx.named('failed') + ' failed',
     statusFailed: (ctx) => 'Batch ' + (ctx.named('action') === 'enable' ? 'enable' : 'disable') + ' failed',
     loadFailed: 'Failed to load accounts',
+    errorTitle: 'Failed to load accounts',
+    errorHint: 'The identity service or network is temporarily unavailable. Please try again later.',
+    errorAction: 'Retry',
     ownerField: 'Owner',
     publisherField: 'Publisher',
     // Login status check results (error code → user-friendly message)
