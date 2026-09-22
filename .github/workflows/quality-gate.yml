@@ -217,6 +217,21 @@ jobs:
           node .github/scripts/check-ipc-sender-guard.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # --- Gate 18: 管理后台会话卫生（体检报告问题 15 / P1-15）---
+      # 事故背景：POST /api/auth/login 把 HS256 JWT 放在响应体，前端存 localStorage 并手工拼
+      # Authorization 头 ⇒ 任意 XSS 即可外带管理员凭据接管会话；且 7 个 view 各自复制这份样板，
+      # 加固只能逐文件改，漏一个就留一个洞（历史上「一处改不全」正是这套重复结构导致的）。
+      # 修复口径：凭据只走后端下发的 HttpOnly + SameSite=Lax Cookie；写操作叠加自定义头
+      # X-Ops-Session；CSP 三层下发（后端中间件 / nginx 模板 / vite dev 插件）。
+      # 本卡点把这些口径固化为静态不变量（含「合规 fixture 必须绿」的门禁自证测试）。
+      # 本地同口径：node .github/scripts/check-ops-session-hygiene.js
+      - name: "Gate 18 - ops-center session hygiene (HttpOnly cookie + CSRF header + CSP)"
+        run: |
+          node --test .github/scripts/check-ops-session-hygiene.test.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .github/scripts/check-ops-session-hygiene.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
   unit-tests:
     name: QG Unit Tests
     runs-on: windows-latest

@@ -1,15 +1,45 @@
 import logging
 logger = logging.getLogger(__name__)
 """OpsCenter configuration — pydantic-settings, reads OPS_ prefixed env vars."""
-from typing import Literal
+from typing import ClassVar, Literal, Optional
 
 from pydantic_settings import BaseSettings
 
 
 INSECURE_DEFAULT_SECRET = "dev-secret-change-in-production"
 
+# 配置对象的 repr/str 会出现在启动日志、校验异常消息与测试失败输出中，
+# 因此所有凭据类字段统一以掩码呈现；掩码只影响呈现，不影响属性读取。
+_SECRET_MASK = "***"
+
+
+def _is_secret_field_name(name: str) -> bool:
+    """判定字段是否属于凭据类（按显式名单 + 后缀规则）。"""
+    return name in Settings.SECRET_FIELD_NAMES or name.endswith(Settings.SECRET_FIELD_SUFFIXES)
+
+
 
 class Settings(BaseSettings):
+    # 显式名单：名称不含特征后缀但确为凭据的字段
+    SECRET_FIELD_NAMES: ClassVar[frozenset] = frozenset({
+        "jwt_secret",
+        "secret_key",
+        "encryption_key",
+        "redemption_secret",
+        "admin_password",
+        "catalog_api_key",
+        "runtime_signing_private_key",
+    })
+    # 后缀规则：覆盖后续新增的 *_secret / *_token / *_api_key / *_password / *_private_key
+    SECRET_FIELD_SUFFIXES: ClassVar[tuple] = (
+        "_secret",
+        "_password",
+        "_token",
+        "_private_key",
+        "_api_key",
+        "_key",
+    )
+
     model_config = {"env_prefix": "OPS_", "env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
     secret_key: str = ""
@@ -54,6 +84,40 @@ class Settings(BaseSettings):
     # 启动时对「模型列表仍为目录种子（或为空）」的预设自动拉取官方模型列表（best-effort，失败跳过）；
     # 测试/离线环境可设 OPS_PRESET_SEED_FETCH_ENABLED=0 关闭。
     preset_seed_fetch_enabled: bool = True
+    # ---- P1-15：管理后台会话凭据（HttpOnly Cookie）与 CSP ----
+    # 会话凭据从 localStorage JWT 迁移到 HttpOnly + SameSite=Lax Cookie：
+    # XSS 无法读取 document.cookie，token 外带面被关闭；跨站请求由 SameSite 兜底，
+    # 写操作再叠加自定义头 X-Ops-Session 作为第二层 CSRF 防线（见 middleware/auth.py）。
+    session_cookie_name: str = "ops_session"
+    session_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
+    # None = 按 ENVIRONMENT 自动判定（非 development 即 Secure=True）；显式配置优先，
+    # 便于反向代理终结 TLS（后端只见 http）时强制开启 Secure。
+    session_cookie_secure: Optional[bool] = None
+    # 0 = 沿用 auth_service.TOKEN_TTL_HOURS；>0 显式覆盖 Cookie Max-Age（小时）。
+    session_cookie_max_age_hours: int = 0
+    # 自定义 CSRF 头名（浏览器跨站脚本无法设置自定义头，故可作为同站判据）
+    csrf_header: str = "X-Ops-Session"
+    # 安全响应头：空字符串 = 不下发 CSP（例如前端由 CDN/nginx 统一下发时）
+    content_security_policy: str = (
+        "default-src 'self'; "
+        "script-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob:; "
+        "font-src 'self' data:; "
+        "connect-src 'self'; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'; "
+        "frame-ancestors 'none'"
+    )
+    x_frame_options: str = "DENY"
+
+    def __repr_args__(self):
+        """pydantic v2 的 repr/str 均走此钩子：凭据字段以掩码呈现。"""
+        return [
+            (name, _SECRET_MASK if _is_secret_field_name(name) else value)
+            for name, value in super().__repr_args__()
+        ]
 
     def get_jwt_secret(self) -> str:
         """返回经过安全校验的 JWT 密钥 (P0-2 enhanced)."""
@@ -94,6 +158,26 @@ class Settings(BaseSettings):
     def validate_security(self) -> None:
         """启动前验证认证配置，缺失时拒绝启动。"""
         self.get_jwt_secret()
+
+    def get_session_max_age_seconds(self) -> int:
+        """会话 Cookie 的 Max-Age（秒），与 JWT exp 同源，避免两套 TTL 漂移。"""
+        from services.auth_service import TOKEN_TTL_HOURS
+
+        hours = self.session_cookie_max_age_hours
+        return int(hours or TOKEN_TTL_HOURS) * 3600
+
+    def is_session_cookie_secure(self) -> bool:
+        """Secure 标志：显式配置优先，否则按 ENVIRONMENT 判定（非 development 即 True）。
+
+        注意 dev 直连（http://localhost:5173 → http://127.0.0.1:8010）必须 Secure=False，
+        否则浏览器不会存储/回传 Cookie，登录会表现为「凭据错误」的静默失败。
+        """
+        import os
+
+        explicit = getattr(self, "session_cookie_secure", None)
+        if explicit is not None:
+            return bool(explicit)
+        return os.environ.get("ENVIRONMENT", "production").strip().lower() != "development"
 
     cors_origins: str = "http://localhost:5173,http://localhost:5174"
 
