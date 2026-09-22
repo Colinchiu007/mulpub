@@ -123,6 +123,34 @@ def test_soul_cinematic_is_excluded_as_image_model():
 
 # ---------- --full 全量库构建 ----------
 
+def test_normalize_aspect_ratio_contract():
+    """kit-loader schema 契约：aspectRatio 只接受 "W:H" 字符串，其他（含源值 "auto"）一律归一为 None。"""
+    assert fhg.normalize_aspect_ratio("21:9") == "21:9"
+    assert fhg.normalize_aspect_ratio("16:9") == "16:9"
+    assert fhg.normalize_aspect_ratio("auto") is None
+    assert fhg.normalize_aspect_ratio("") is None
+    assert fhg.normalize_aspect_ratio(None) is None
+    assert fhg.normalize_aspect_ratio(16.9) is None  # 非字符串不得落盘
+    assert fhg.normalize_aspect_ratio("21x9") is None  # 分隔符必须是冒号
+
+def test_full_mode_aspect_ratio_auto_normalized(tmp_path):
+    """端到端：源 job aspect_ratio="auto" 经 build_full_shot_library 后必须为 None，
+    否则 kit-loader fail-closed 拒绝整个全量 kit（4.4 取证：6558 镜中 1 例 "auto"）。"""
+    tree = _make_source(tmp_path, [{
+        "name": "Scene 05",
+        "id": "f0000005-1111-1111-1111-111111111111",
+        "jobs": [
+            _job("x1", "p auto", 100.0, aspect="auto"),
+            _job("x2", "p ok", 110.0, aspect="16:9"),
+        ],
+    }])
+    shots, rejected = fhg.build_full_shot_library(str(tmp_path), tree)
+    assert rejected == []
+    by_id = {s["shotId"]: s for s in shots}
+    assert by_id["x1"]["aspectRatio"] is None
+    assert by_id["x2"]["aspectRatio"] == "16:9"
+
+
 def test_full_mode_dedup_per_scene_and_fields(tmp_path):
     prompt_a = "EXACT 3 CHARACTERS — scene alpha"
     prompt_a_iter = "  EXACT 3 CHARACTERS — scene   alpha "  # 仅空白差异 → 同键

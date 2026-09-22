@@ -31,6 +31,20 @@ VIDEO_MODEL_HINT = re.compile(r"seedance|soul_cinematic|video|v2_0|veo", re.I)
 # 否则 soul_cinematic 的 3,313 个图片 job 会污染唯一分镜统计（1.3 对账修正 2026-09-23）
 IMAGE_MODEL_HINT = re.compile(r"nano_banana|imagegen|gpt_image|seedream|text2image|image_auto|soul_cinematic|soul_cinema_studio|cinematic_studio_image", re.I)
 
+ASPECT_RATIO_RE = re.compile(r"^\d+:\d+$")
+
+
+def normalize_aspect_ratio(value):
+    """aspectRatio 归一：kit-loader schema 只接受 "W:H" 字符串或 null。
+
+    源语料存在 "auto"（自动比例）等非 "W:H" 形态，未采纳具体比例，
+    一律归一为 None；否则整个全量 kit 会被 fail-closed 拒绝（4.4 取证）。
+    """
+    if isinstance(value, str) and ASPECT_RATIO_RE.match(value):
+        return value
+    return None
+
+
 # FILM_PROMPT_MAX_LEN：prompt 长度单一上限（D4 收口：导入器/loader schema/IPC 校验/前端截断四处同源）
 FILM_PROMPT_MAX_LEN = 50000
 
@@ -271,7 +285,7 @@ def _make_full_shot(job, scene_id):
         "width": params.get("width"),
         "height": params.get("height"),
         "durationSec": params.get("duration"),
-        "aspectRatio": params.get("aspect_ratio") or None,
+        "aspectRatio": normalize_aspect_ratio(params.get("aspect_ratio")),
         "iterationCount": None,   # 调用方填充
         "adoptedJobAt": float(job.get("created_at") or 0),
         "promptKey": prompt_key(prompt),

@@ -71,7 +71,7 @@
               <template #default="{ data }">
                 <span class="fe-scene-node">
                   <span class="fe-scene-name">{{ data.name }}</span>
-                  <span v-if="data.count" class="fe-scene-badge">{{ data.count }}</span>
+                  <span v-if="data.shotCount" class="fe-scene-badge" :title="t('filmEngineering.library.shotCountHint')">{{ data.shotCount }}</span>
                 </span>
               </template>
             </el-tree>

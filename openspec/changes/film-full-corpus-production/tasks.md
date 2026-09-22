@@ -40,7 +40,7 @@
 - [x] 4.3 前端：分镜列表虚拟滚动 + 分页拉取；场景计数取 `scenes[].count` 全量口径；新增文案 locales zh/en 成对（Gate 7）
 
   <!-- 2026-09-23：useFilmEngineering 增 shotsTotal/shotsOffset/shotsHasMore/shotsLoadingMore + loadMoreShots（每页 100，竞态防护迟到页丢弃，数组形态防御兼容）；View 尾 sentinel IntersectionObserver 自动翻页（无 IO 环境降级手动"加载更多"按钮）+ 已加载 X/共 Y 计数；场景树 badge 改 data.count 全量口径；locales loadedCount/loadMore/selectAllLoaded/loadMoreFailed zh/en 成对；composable+View 测试 22/22，前端回归 78 文件 1836/1836，eslint 0。 -->
-- [ ] 4.4 规模验证：全量 kit（≈6,558 镜、单场景数百镜）下打开列表与切场景，渲染时间 <1s（CDP 计时记录入 change 目录）
+- [x] 4.4 规模验证：全量 kit（≈6,558 镜、单场景数百镜）下打开列表与切场景，渲染时间 <1s（CDP 计时记录入 change 目录）— 2026-09-23 达标：userData-full 全量级 6,558 镜下切场景 442/333/907ms 均 <1s，见 evidence/cdp-44-timing-20260923.json；口径修正：scenes[].count 系源 job 计数（D8 假设不成立），badge 改用 shotCount；附带修复 importer aspectRatio 归一化（"auto"→null，pytest 14/14）+ 落盘 kit 数据
 
 ## 5. L2 renderManifest 契约（film-render.js，TDD）
 
