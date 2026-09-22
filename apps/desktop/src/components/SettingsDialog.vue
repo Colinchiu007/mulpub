@@ -177,8 +177,18 @@ function onTabClick (tab) {
 /* ===== 右侧内容区 ===== */
 .settings-panel {
   flex: 1;
+  min-width: 0;
   overflow-y: auto;
-  padding: 0;
+  padding: 24px 28px;
+}
+
+/* 弹窗内子页面自带页级水平 padding（.cohere-page-header / .cohere-content 各 32px），
+   会与面板留白叠加成双重缩进；且零内边距的行（模型筛选条 / 飞书表单）会贴住左侧导航分隔线。
+   统一由面板提供水平留白，去掉子页级左右 padding，使各区块对齐到同一基线。 */
+.settings-panel :deep(.cohere-page-header),
+.settings-panel :deep(.cohere-content) {
+  padding-left: 0;
+  padding-right: 0;
 }
 
 .placeholder-panel {
