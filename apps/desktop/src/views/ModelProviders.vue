@@ -8,7 +8,7 @@
       </div>
       <div class="page-actions">
         <button class="cohere-btn-secondary" data-testid="refresh-providers" @click="loadProviders">⟳ {{ t('modelProviders.refresh') }}</button>
-        <button class="cohere-btn-primary" data-testid="add-provider" @click="openAdd">＋ {{ t('modelProviders.addProvider') }}</button>
+        <button class="cohere-btn-primary" data-testid="add-provider" @click="openAdd">{{ t('modelProviders.addProvider') }}</button>
       </div>
     </div>
 
