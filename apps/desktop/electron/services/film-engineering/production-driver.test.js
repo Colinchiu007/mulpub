@@ -301,6 +301,35 @@ describe('runProduction（驱动：顺序、隔离、续跑、事件）', () => 
     expect(events.filter((e) => e.type === 'production:shot-progress').length).toBe(2)
   })
 
+  it('runOnlyBatch（D9 逐批确认）：只执行指定批，其余待跑批保持 pending 不产假收口', async () => {
+    const dir = tmpLedgerDir()
+    const disk = mkDisk()
+    const calls = []
+    const mk = (only) => runProduction({
+      taskId: 'rb', shotIds: ids(21), ledgerDir: dir,
+      runBatch: async (batch) => { calls.push(batch.batchIndex); disk.fill(batch.runId, batch.shotIds.length) },
+      probe: disk.probe, emit: () => {}, runOnlyBatch: only,
+    })
+    const r0 = await mk(0)
+    expect(calls).toEqual([0])
+    expect(r0.ledger.batches.map((b) => b.status)).toEqual(['done', 'pending', 'pending'])
+    expect(r0.renderManifest).toBeNull() // 未完备不产清单
+    await mk(1)
+    await mk(2)
+    expect(calls).toEqual([0, 1, 2])
+    const r3 = await mk(null)
+    expect(calls).toEqual([0, 1, 2]) // 已齐批零 provider 调用
+    expect(r3.ok).toBe(true)
+    expect(r3.renderManifest.entries.length).toBe(21)
+  })
+
+  it('runOnlyBatch 非整数 → fail-closed 抛错', async () => {
+    await expect(runProduction({
+      taskId: 'x', shotIds: ids(2), ledgerDir: tmpLedgerDir(),
+      runBatch: async () => {}, probe: () => ({ missing: [] }), runOnlyBatch: 1.5,
+    })).rejects.toThrow(/runOnlyBatch/)
+  })
+
   it('shotIds/ledgerDir 非法 → fail-closed 抛错（不静默）', async () => {
     await expect(runProduction({ taskId: '', shotIds: ['a'], ledgerDir: tmpLedgerDir() })).rejects.toThrow(/taskId/)
     await expect(runProduction({ taskId: 't', shotIds: [], ledgerDir: tmpLedgerDir() })).rejects.toThrow(/shotIds/)

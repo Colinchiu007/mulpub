@@ -149,6 +149,7 @@ function buildRenderManifest (ledger, { mediaRoot = getFilmMediaRoot(), probe })
  *   probe: (runId: string, count: number) => { missing: number[] },
  *   emit?: (event: object) => void, now?: () => number,
  *   mediaRoot?: string, batchSize?: number,
+ *   runOnlyBatch?: number|null,
  * }} opts
  */
 async function runProduction (opts) {
@@ -156,6 +157,7 @@ async function runProduction (opts) {
     taskId, shotIds, ledgerDir, runBatch, probe,
     emit = () => {}, now = Date.now,
     mediaRoot = getFilmMediaRoot(), batchSize = PRODUCTION_BATCH_SIZE,
+    runOnlyBatch = null,
   } = opts || {}
   if (typeof taskId !== 'string' || !taskId.trim() || taskId !== path.basename(taskId)) {
     throw new Error('production-driver: taskId 必须为非空且路径安全的字符串')
@@ -165,6 +167,9 @@ async function runProduction (opts) {
   }
   if (typeof runBatch !== 'function' || typeof probe !== 'function') {
     throw new Error('production-driver: 需要 runBatch 与 probe 注入')
+  }
+  if (runOnlyBatch !== null && runOnlyBatch !== undefined && !Number.isInteger(runOnlyBatch)) {
+    throw new Error('production-driver: runOnlyBatch 必须为整数或 null')
   }
 
   // 台账：磁盘已有且批次结构与本次计划一致 → 续跑复用；否则（缺失/损坏/不一致）重建
@@ -197,6 +202,8 @@ async function runProduction (opts) {
   const failedBatches = []
   for (const p of plan) {
     const batch = ledger.batches[p.batchIndex]
+    // D9 逐批确认语义：runOnlyBatch 只执行指定批，其余待跑批保持 pending 不执行
+    if (runOnlyBatch !== null && runOnlyBatch !== undefined && p.batchIndex !== runOnlyBatch && p.needRun) continue
     if (!p.needRun) {
       // 磁盘复核通过：台账态归一为 done（含上次崩溃在写盘前的场景）
       if (batch.status !== 'done') {
