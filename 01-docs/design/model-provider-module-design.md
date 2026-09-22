@@ -765,3 +765,62 @@ P3 实施前需复审，通过条件：
 | `src/api/model-providers.js` | 保持不变 | 前端 API 不改 |
 | `src/views/ModelProviders.vue` | P2 改造 | API Key 遮罩 + safeStorage 警告 + aria-label + 响应式 + 骨架屏等 22 项（详见 UI 审查报告） |
 | `src/composables/useModelProviderCrud.js` | P2 改造 | 适配遮罩显示 + 表单验证 + 测试结果超时清理 |
+
+---
+
+## 九、模型设置页文案与标签页 UI/UE 规范（2026-09-22 settings-model-tabs-polish）
+
+本节记录「设置 → 模型设置」弹窗（`SettingsDialog.vue` 内嵌 `ModelProviders.vue`）的文案契约与标签页视觉/交互规范，作为显示项、提示文字、交互逻辑的单一真源。
+
+### 9.1 文案契约（i18n，zh/en 成对）
+
+| 位置 | locale key | 显示文案（zh） | 显示文案（en） | 校验/约束 |
+|------|-----------|----------------|----------------|-----------|
+| 页面副标题 | `modelProviders.pageSubtitle` | 文字推理 / TTS语音 / 语音识别 / 图片生成 / 视频模型 / 音频生成 / 多模态模型 7类 AI 服务商 | Manage 7 types of AI providers: Text Reasoning / TTS / Speech Recognition / Image / Video / Audio / Multimodal | 首项统一为「文字推理」（与能力标签 `capLlm` 术语一致），数量用阿拉伯数字「7类」，禁止「管理推理」「七类」旧写法 |
+| 添加按钮 | `modelProviders.addProvider` | + 添加服务商 | + Add Provider | 前缀为**半角 `+` + 一个空格**；全角「＋」禁止；文案中 `+` 只允许出现一次 |
+
+**「++ 添加服务商」双加号根因与修复：**
+- 根因：`ModelProviders.vue` 模板在按钮里硬编码了 `＋ {{ t('modelProviders.addProvider') }}`，而 locale 值 `addProvider` 本身又带 `＋` 前缀，两处叠加渲染成「＋＋ 添加服务商」。
+- 修复：模板改为纯 `{{ t('modelProviders.addProvider') }}`（去掉硬编码 `＋`），前缀符号统一由 locale 值维护，保证 zh/en 一致且可翻译。
+- 回归保护：`src/locales/model-providers-copy.test.js` 断言 ① locale 值等于 `+ 添加服务商` 且只含一个 `+`、无全角＋；② pageSubtitle 含「文字推理」「7类」且不含旧文案；③ 模板不再出现 `＋ {{` 硬编码前缀。
+
+**数据校验要点：**
+- locale 成对修改：改 `zh.js` 必须同步改 `en.js`（CI Gate 7 `check-locale-sync.js --pair-base` 拦截）。
+- 渲染端 `src/` 非 locales 文件禁止新增中文字面量；符号（`+`）与文案一律进 locale。
+
+### 9.2 设置弹窗标签页 UI/UE 规范（`SettingsDialog.vue` 左侧导航）
+
+**结构**：`UiModal`（size xl，width 1100px）→ 左 `nav.settings-tabs`（宽 200px，纵向）+ 右 `.settings-panel`。
+
+**标签项（自上而下，共 5 项）**：
+
+| key | 文案 | 图标（@element-plus/icons-vue） | 可用状态 |
+|-----|------|-------------------------------|---------|
+| model | 模型设置 | Connection | 启用（默认激活） |
+| general | 通用设置 | Setting | 启用 |
+| feishu | 飞书 API | Link | 启用 |
+| publish | 发布设置 | Upload | 禁用（徽标「敬请期待」） |
+| account | 账号设置 | User | 禁用（徽标「敬请期待」） |
+
+**视觉规范（全部取设计 token，禁止裸色值/裸尺寸，暗色模式覆盖）**：
+- 导航容器：背景 `--color-bg-inset`，右边框 `--border-light`，项间距 `gap: 4px`，内边距 16px/12px。
+- 标签项：`icon + label + (badge)` 三段式；圆角 `--radius-sm`；字号 `--font-size-sm`；文字色 `--text-muted`；过渡 180ms（background/color/box-shadow）。
+- hover（可点击且未激活）：浅主色底 `--primary-light` + 主色文字。
+- active：卡片白底 `--color-bg-card` + `--shadow-sm` 浮起 + 主色文字加粗 + 左侧 3px 主色强调条（`::before`）+ 图标 `scale(1.08)` 微放大反馈。
+- disabled：`opacity .55` + `cursor: not-allowed`，右侧「敬请期待」胶囊徽标（`--radius-full`，次级底色）。
+- 可访问性：`nav` 带 `aria-label`；激活项 `aria-current="true"`；`:focus-visible` 2px 主色外描边（键盘可达）。
+- 图标位禁止 emoji（遵循 `icon-usage.test.js` 与 frontend-interaction-spec 图标语义），占位面板图标由 🚧 改为 `Compass` el-icon。
+
+**交互逻辑**：
+- 点击标签切换 `activeTab`；禁用项点击直接 return，不切换激活态（回归由 `SettingsDialog.test.js`「点击禁用 Tab 不切换激活态」保护）。
+- 面板内容按 `activeTab` 条件渲染对应子组件；未实现项渲染占位面板（图标 + `settings.placeholder`）。
+
+**回归测试覆盖（`src/components/SettingsDialog.test.js`）**：
+- 渲染 5 个 Tab、默认激活「模型设置」、禁用项带「敬请期待」徽标且 disabled；
+- 点击禁用项不切换；切换到通用设置渲染日志面板；en 语言文案为英文；
+- 新增：每个 `.settings-tab` 渲染 `.tab-icon` 图标位（共 5），守护图标不回退。
+
+### 9.3 变更影响面
+
+- 纯前端展示层文案与样式，无 IPC / 数据模型 / 后端改动，无迁移。
+- 视觉测试选择器（`button:has-text("添加服务商")`、`.settings-tab`、`.provider-card`）为子串/类名匹配，文案由「＋＋」改「+」及新增图标不影响命中。
