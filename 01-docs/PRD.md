@@ -16934,3 +16934,18 @@ is_default: 1
 | `signing_in` 持续反馈 | `status='signing_in'` 时 spinner 存在且文案为 `memberCenter.signingIn` |
 
 **已知局限**：反馈态覆盖的是「点击 → 认证窗口可见」的等待感知，2 秒网络延迟本身仍在；如需进一步压缩真实延迟，可在应用启动后预热 OIDC discovery（本次按最小改动范围未纳入）。
+
+## 热门选题统一热度排序（hot-topics-heat-ranking，2026-09-22）
+
+> 详细规格见 `01-docs/PRD-HOT-TOPICS-HEAT-RANKING-2026-09-22.md`（显示项/交互/提示文字/校验全量）与 `01-docs/DESIGN-HOT-TOPICS-HEAT-RANKING-2026-09-22.md`（评分公式推导/架构数据流/Decision Log）。
+
+| 项 | 契约 |
+|----|------|
+| 背景 | v2 后排序仍是渠道数组偶然序：跨渠道榜首/榜尾错位、分类内块状分布、boost 垫底、多源信号浪费、无时间衰减 |
+| P0 评分 | score=clamp01(max(渠道内热度百分位, 名次归一)·渠道权重·衰减·0.9 + 0.12·log₂(上榜渠道数))；先排后截（400 配额按热度分配）；分类/渠道过滤内按 score 重排 |
+| P1 可解释 | 统一名次徽标 viewRank；「多榜」chip（≥2 榜，tooltip 列渠道）；trend ↑/↓/新上榜（与上轮按选题文本对比，diff≥3 阈值）；徽标 tooltip「来源第N名 · 综合热度X」 |
+| P2 运营 | 半衰期 6h 时间衰减 + 跨轮 carry-over（被跳过渠道旧条目参与评分自然下沉）；settings 键 hot_topics_rank_config（channelWeights 合并语义/halfLifeMs，fail-closed 坏配置零影响） |
+| P3 健壮 | 确定性决胜（score→rank→channel→id，刷新不抖动）；score/sourceCount/viewRank/trend 落盘；旧缓存全字段兼容回退（不清缓存不报错、无幻影徽标） |
+| 合同保持 | preserve（全渠道零结果）原样返回不评分不重排；boost 聚合在 preserve 之前的 v2 铁律不触碰；去重算法/收藏/批量创作零改动 |
+| 提示文字 | hotTopics.multiBadge/multiBadgeTip/heatScoreTip/trendUp/trendDown/trendNew（zh/en 成对 6 键） |
+| 验收 | scorer 22 + service 新增 7 + UI 新增 6 全绿，既有 100+ 回归零破坏；eslint/locale-sync/debt 门禁 PASS；PRD §6 十条验收标准 |

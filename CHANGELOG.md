@@ -1,3 +1,21 @@
+# [未发布] feat(hot-topics): 热门选题统一热度排序（P0-P3 全量：评分模型+可解释UI+衰减+配置化）
+
+### 变更
+- **electron/services/hot-topics/scorer.js（新增）**：纯函数评分器 `scoreTopics`/`markTrend`——`score = clamp01(max(heatNorm, rankNorm)·w_c·decay·0.9 + 0.12·log₂(sourceCount))`；渠道内 log 域 min-max 百分位（单条/全同值 → −1 交名次兜底，不给假满分）、RSS 无 hotValue 名次兜底、渠道分层权重表（国民级 1.0 / tencent 0.95 / tophub 镜像 0.9 / bilibili 0.85 / 垂类 0.8）、半衰期 6h 时间衰减、多榜加成、确定性决胜（score→rank→channel→id）+ viewRank 统一名次。
+- **hot-topics-service.js 接线**：聚合尾部（preserve 早退之后）跨轮 carry-over（本轮被跳过渠道沿用上轮条目参与评分+衰减下沉，评审 M-1 接通死旋钮）→ scoreTopics（now=fetchedAt）→ markTrend（选题文本跨轮匹配）→ **先排后截** slice(0,400)；score/sourceCount/viewRank/trend 落盘；新 settings 键 `hot_topics_rank_config`（channelWeights 合并语义覆盖 + halfLifeMs，fail-closed）。
+- **HotTopics.vue**：名次徽标显示 viewRank（旧缓存回退视图序号）、tooltip「来源第N名 · 综合热度X」；「多榜」chip（sourceCount≥2，旧缓存 mergedFrom 去重排除自身回退——评审 m-2）；trend ↑/↓/「新上榜」箭头（flat/首轮不渲染）；分类/渠道过滤后按 score 分类内重排（旧条目沉底保序）。
+- **locales zh/en 成对 +6 键**：multiBadge/multiBadgeTip/heatScoreTip/trendUp/trendDown/trendNew；**hot-topics-list.css**：.multi-badge/.trend-arrow 系列样式。
+
+### 验证
+- TDD 红→绿：scorer.test 22 例 + service.test 新增 7 例（含 carry-over+衰减、先排后截判别性 ≥20）+ HotTopics.test 新增 6 例（含幻影徽标）；定向 3 文件 **116/116 全绿**，既有 preserve/boost/v2 合同零破坏。CodeReview：无 CRITICAL，1 MAJOR（M-1 衰减死旋钮）+3 MINOR（m-1 权重整体替换/m-2 幻影徽标/m-3 rank 缺省口径）全修+回归测试。
+- 门禁：eslint exit 0；check-locale-sync --pair-base PASS；check-debt-budget PASS（filesOver500 97→98，service 490→511 接线合理增长，--update 基线）；视觉回归交 CI visual-test。
+
+### 关联
+- 分支 `hot-topics-heat-ranking`（worktree 隔离，D 盘）；PRD：`01-docs/PRD-HOT-TOPICS-HEAT-RANKING-2026-09-22.md`；设计：`01-docs/DESIGN-HOT-TOPICS-HEAT-RANKING-2026-09-22.md`（公式推导/数据流/UI 规格/Decision Log）
+- 前置：PRD-HOT-TOPICS-CATEGORY-SUPPLY-2026-09-20（v2 聚合管线，本变更在其上叠加评分层，不触碰 boost-before-preserve 与 preserve 合同）
+
+---
+
 # [未发布] feat(film-engineering): 电影工程流水线扩展——分镜视频生成与成片合成（六阶段端到端 + QM-1）
 
 ### 变更
