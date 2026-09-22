@@ -15,6 +15,7 @@
 - `account.test.js` 47/47、`account-manager*.test.js` 109/109（含 relogin-status 契约）、`webview-manager.test.js` 51/51、`login-status-monitor.test.js` 10/10（新建）、`Accounts.test.js` 82/82、`AccountManagementCard.test.js` 18、`useExpiredAccountsBanner.test.js` 5/5（重写）；后端 `test_server_account_lifecycle.py` 新增 8 例全绿。
 - **真实渲染层端到端护栏（本次新增）**：`apps/desktop/tests/e2e/specs/account-login-state-tristate.js` 以 Playwright 驱动**未打桩的真实 Vue 渲染层**（真实 `Accounts.vue` + 真实 `AccountManagementCard` 徽章），仅把 IPC 边界替换为可变 store，覆盖三条用户报告缺陷：D1 一键检测后 `resetToRoute` 重新进入账号页三态徽章不变（断言重进后 `accountUpdate` 调用数为 0，证明展示只依赖后端 `status`）；D2 今日头条（后端 `status=active`）不被本地凭证推翻；D3 视频号检测不确定时显示「未确认」而非「已登录」。实测 `15/15 passed`、零 console error、3 张截图落盘。
 - 门禁实测：桌面全量 vitest `10767 passed / 1 failed / 2 skipped`（唯一失败 `story2video-manual-assets.test.js` 单文件重跑通过，判定为顺序抖动）；后端全量 pytest `4 failed / 2669 passed`，失败集与主仓干净 HEAD 基线（`4 failed / 2676 passed`）逐条同名 → 无回归；ESLint `--quiet`（CI Gate 11）0 error；`check-frontend-consistency.js` PASS；`build:vue` exit 0；`check:ts` 存量错误 1203 → 1202（净 -1，零新增，该检查不在 CI workflow 内）。
+- CI 逃逸：首轮 `QG Static` 抓出本 PR 自引入的渲染端硬编码中文（`useExpiredAccountsBanner` 的固化失败标题），已改为 zh/en 成对键 `accountsPage.persistFailedTitle` + `i18n.global.t`；`--py-cjk` 一项为基线 `path:LINE` 行号漂移，按 #2212 既有做法重锚并逐条对账（79→79、逐文件计数一致、diff 恰 19+/19−、本 PR 在 python 侧新增中文全为注释/docstring），修复后该 gate 自检 6/6 全绿。详见 PRD §13.6。
 - 详见 `01-docs/PRD-ACCOUNT-LOGIN-STATE-PERSISTENCE-2026-09-23.md`（数据模型 / 判定矩阵 / 单一写者架构 / 交互与显示项 / 提示文字 / 测试矩阵 / 已知边界）与 `01-docs/PRD-ACCOUNT-LOGIN-STATUS-CHECK.md` §16。
 
 ### 遗留

@@ -314,3 +314,31 @@ FAILED tests/test_pipeline_loader.py::TestPipelineLoader::test_story2video_manif
 > 任何采用「顶部追加」约定的文件，冲突解法必须幂等、且以 blob 为输入而非工作区文本，
 > 否则极易在解冲突时把别人的条目挤掉或把整文件换行符翻转。
 
+### 13.6 CI 逃逸分析：Gate 7（locale 同步）抓出的本 PR 自引入缺陷
+
+首轮 CI 中 `QG Static` 失败（其余 QG Unit/Coverage/Desktop Shards/Visual/Browser E2E 与 build、
+electron-tests、gui-test、agent-judge 全绿），`check-locale-sync.test.js` 6 项中 2 项红：
+
+1. **`--cjk` 渲染端硬编码中文扫描**——**本 PR 真实引入的缺陷**：
+   `useExpiredAccountsBanner.js` 的持久化失败上报把标题写成
+   `'登录态固化失败（' + n + ' 个账号）'` 的字面量拼接，绕开了 zh/en 成对约定，
+   在 en 界面会弹出中文。修复：新增成对键
+   `accountsPage.persistFailedTitle`（zh `登录态固化失败（{count} 个账号）` /
+   en `Failed to persist login status ({count} account(s))`），改由
+   `i18n.global.t(...)` 取文案（沿用 `stores/accounts.js` 的 `i18n.global.t` 惯用法）。
+   对应回归护栏现状：`useExpiredAccountsBanner.test.js` 对该上报的断言本就是语言无关的
+   （只断言标题含数量、detail 含 `accountId:reason`），因此本地单测**抓不到**这个 i18n 违规——
+   它只能由 Gate 7 兜住。因此已将“i18n/一致性类门禁必须本地预跑”写进本 PR 流程：
+   （`node .github/scripts/check-locale-sync.js --cjk` 与 `--pair-base origin/main`、
+   `node --test .github/scripts/check-locale-sync.test.js`）。
+2. **`--py-cjk` 后端基线扫描**——**基线锚点漂移，非新增缺陷**。
+   `locale-py-cjk-baseline.json` 的条目格式是 `path:LINE`（与 `--cjk` 已在 2026-09-12
+   改为 `file||content` 不同），因此本 PR 在 `server.py` 上部插入代码后，其后 19 条基线
+   整体下移而被判「新增」。按仓库既有做法（#2212 同类处理）以 `--update-py-baseline` 重锚，
+   并逐条对账证明是纯漂移：条数 79 → 79 不变、**逐文件计数完全一致**、重锚后复扫 PASS、
+   基线文件 diff 恰为 19 增 19 删（与报告的 19 条一一对应）、本 PR 在 python 侧新增的
+   28 行含中文内容全部是注释与 docstring（无用户可见消息字面量）。
+   修复后本地 `node --test .github/scripts/check-locale-sync.test.js` = **6 tests / 6 pass / 0 fail**。
+
+> 遗留改进（另案）：`--py-cjk` 基线应迁到与 `--cjk` 相同的 `file||content` 格式，
+> 从根上对行号漂移免疫，避免每个触碰 `server.py` 上半部的 PR 都要重锚一次。
