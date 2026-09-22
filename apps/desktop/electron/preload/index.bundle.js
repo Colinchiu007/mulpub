@@ -1002,7 +1002,7 @@ var require_knowledge_library = __commonJS({
         addManualSnapshot: (trackedContentId, metrics) => ipcRenderer2.invoke("performance:add-manual-snapshot", trackedContentId, metrics),
         recomputeAttribution: () => ipcRenderer2.invoke("performance:recompute-attribution"),
         listPatternPerformance: (params) => ipcRenderer2.invoke("performance:list-pattern-performance", params),
-        triggerPerformanceRecrawl: () => ipcRenderer2.invoke("performance:trigger-recrawl"),
+        triggerPerformanceRecrawl: (opts) => ipcRenderer2.invoke("performance:trigger-recrawl", opts),
         // 个人知识库
         addPersonalToLibrary: (item) => ipcRenderer2.invoke("knowledge-library:add-personal", item),
         addPersonalBatchToLibrary: (items) => ipcRenderer2.invoke("knowledge-library:add-personal-batch", items),
