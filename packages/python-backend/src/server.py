@@ -210,6 +210,24 @@ async def _progress_callback(task_id: str, platform: str, phase: PublishPhase, m
 
 # ─── 数据模型 ───────────────────────────────────────────────
 
+# 登录态三态（accounts.json 为唯一真源，一键检测/单账号检测/后台监控都写这里）：
+#   active     —— 已确认登录有效
+#   expired    —— 已确认登录失效（Cookie 过期 / 未登录）
+#   unverified —— 未确认：从未检测，或检测结论不确定（缺凭证、接口异常等）
+# 与 is_active（是否启用发布）正交，两者互不派生。
+ACCOUNT_STATUSES = ("active", "expired", "unverified")
+DEFAULT_ACCOUNT_STATUS = "unverified"
+
+
+def _normalize_account_status(value) -> str:
+    """把任意输入收敛到三态；缺失/非法/历史脏值一律降级为 unverified。
+
+    读侧必须 fail-safe：绝不允许把未知值当成「已登录」。
+    """
+    if isinstance(value, str) and value.strip().lower() in ACCOUNT_STATUSES:
+        return value.strip().lower()
+    return DEFAULT_ACCOUNT_STATUS
+
 
 class AccountCreateRequest(BaseModel):
     # 兼容旧客户端的字段仅用于返回明确的 400；不再接受或持久化任何凭据。
@@ -236,6 +254,9 @@ class AccountUpdateRequest(BaseModel):
     followers: int | None = None
     avatar: str | None = None
     last_validated: str | None = None
+    # 登录态回写：一键检测/单账号检测/后台监控的结论必须能固化到数据库。
+    # 取值受 ACCOUNT_STATUSES 约束，非法值在 patch_account 中返回 400。
+    status: str | None = None
 
 
 class PublishRequest(BaseModel):
@@ -343,6 +364,8 @@ def _account_to_dict(a: dict) -> dict:
         "followers": a.get("followers"),
         "avatar": a.get("avatar", ""),
         "is_active": a.get("is_active", True),
+        # 历史数据无 status 字段 → 归一化为 unverified（不冒充已登录）。
+        "status": _normalize_account_status(a.get("status")),
         "last_validated": a.get("last_validated"),
         "created_at": a.get("created_at"),
     }
@@ -449,6 +472,8 @@ def create_account(req: AccountCreateRequest, request: Request):
         "followers": req.followers,
         "avatar": req.avatar or "",
         "is_active": True,
+        # 新建账号尚未检测过，登录态只能是「未确认」。
+        "status": DEFAULT_ACCOUNT_STATUS,
         "last_validated": datetime.now().isoformat(),
         "created_at": datetime.now().isoformat(),
         "owner_subject": owner_subject,
@@ -485,6 +510,12 @@ def patch_account(account_id: str, req: AccountUpdateRequest, request: Request):
         a["followers"] = req.followers
     if req.avatar is not None:
         a["avatar"] = req.avatar
+    if req.status is not None:
+        normalized_status = req.status.strip().lower()
+        if normalized_status not in ACCOUNT_STATUSES:
+            # 校验失败必须在任何写盘之前返回，避免半更新的脏真源。
+            raise HTTPException(status_code=400, detail="ACCOUNT_STATUS_INVALID")
+        a["status"] = normalized_status
     if req.last_validated is not None:
         a["last_validated"] = req.last_validated
     _save_accounts(accounts)

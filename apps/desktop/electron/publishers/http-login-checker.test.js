@@ -63,6 +63,35 @@ describe('http-login-checker', () => {
       expect(result).toEqual({ supported: false })
     })
 
+    it('视频号 POST body 的 timestamp 每次请求重新求值（不被模块加载时刻冻结）', async () => {
+      const bodies = []
+      vi.stubGlobal('fetch', vi.fn(async (url, options) => {
+        bodies.push(options.body)
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => '' },
+          json: async () => ({ errCode: 0, data: { finderUser: { finderUsername: 'v1' } } }),
+          text: async () => '',
+        }
+      }))
+      const cookies = [{ name: 'sessionid', value: 'abc' }]
+
+      const first = await checker.checkLoginViaHttpApi('tencent_video', cookies)
+      await new Promise((resolve) => setTimeout(resolve, 15))
+      const second = await checker.checkLoginViaHttpApi('tencent_video', cookies)
+      vi.unstubAllGlobals()
+
+      expect(first).toEqual(expect.objectContaining({ supported: true, valid: true }))
+      expect(second).toEqual(expect.objectContaining({ supported: true, valid: true }))
+      expect(bodies).toHaveLength(2)
+      const ts1 = JSON.parse(bodies[0]).timestamp
+      const ts2 = JSON.parse(bodies[1]).timestamp
+      expect(ts1).not.toBe(ts2)
+      // 时间戳必须是当前毫秒（13 位），不是模块 require 时的陈旧值
+      expect(Math.abs(Number(ts2) - Date.now())).toBeLessThan(5000)
+    })
+
     it('无 Cookie 时返回 NO_CREDENTIAL', async () => {
       const result = await checker.checkLoginViaHttpApi('douyin', [])
       expect(result).toEqual({ supported: true, valid: false, code: 'CHECK_LOGIN_NO_CREDENTIAL' })

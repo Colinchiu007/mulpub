@@ -842,9 +842,29 @@ class WebviewManager extends EventEmitter {
     var view = self._tabViews.get(tabId)
     if (!view) return
 
-    view.webContents.session.cookies.getAll({}).then(function (cookies) {
+    self._extractTabCookies(view, tabId).then(function (cookies) {
       self.emit('tab-cookies-changed', { tabId: tabId, cookies: cookies })
-    }).catch(function () { /* ignore */ })
+    }).catch(function (e) {
+      log.warn('WebviewManager', 'saveCookies: extract failed for ' + tabId + ': ' + ((e && e.message) || 'unknown'))
+    })
+  }
+
+  /**
+   * 提取标签页所在 session 分区的全部 Cookie。
+   * ⚠️ Electron 的 Session.cookies 只提供 get/set/remove/flush，**没有 getAll**；
+   * 误用 getAll 会抛 "is not a function"，若被上层 catch 吞掉，症状是「保存成功
+   * 但 cookies=0」（2026-09-22 账号登录态误判事故根因）。这里集中一处并显式抛错。
+   * @param {object} view WebContentsView
+   * @param {string} tabId 仅用于日志
+   * @returns {Promise<Array>}
+   */
+  async _extractTabCookies (view, tabId) {
+    var viewSession = view && view.webContents && view.webContents.session
+    if (!viewSession || !viewSession.cookies || typeof viewSession.cookies.get !== 'function') {
+      throw new Error('session-cookies-unavailable')
+    }
+    var list = await viewSession.cookies.get({})
+    return Array.isArray(list) ? list : []
   }
 
   /**
@@ -864,10 +884,12 @@ class WebviewManager extends EventEmitter {
     if (!accountId || !platform) return { ok: false, reason: 'not-account-tab' }
 
     var cookies = []
+    var cookieExtractError = null
     try {
-      cookies = await view.webContents.session.cookies.getAll({})
+      cookies = await self._extractTabCookies(view, tabId)
     } catch (e) {
-      log.warn('WebviewManager', 'saveAccountTabCredentials: cookies.getAll failed for ' + tabId + ': ' + (e && e.message ? e.message : String(e)))
+      cookieExtractError = (e && e.message) ? e.message : String(e)
+      log.warn('WebviewManager', 'saveAccountTabCredentials: cookies.get failed for ' + tabId + ': ' + cookieExtractError)
     }
 
     var localStorageData = {}
@@ -884,6 +906,14 @@ class WebviewManager extends EventEmitter {
 
     if (!self._accountManager || typeof self._accountManager.updateCapturedAccount !== 'function') {
       return { ok: false, reason: 'account-manager-unavailable' }
+    }
+    // Cookie 提取失败绝不能退化成「保存一份 cookies=0 的凭证」：那会让后续
+    // 登录态检测失去唯一可靠输入并产生假阳性/假阴性。显式报错让用户重存。
+    if (cookieExtractError) {
+      return { ok: false, reason: 'cookie-extract-failed', detail: cookieExtractError, accountId: accountId, platform: platform }
+    }
+    if (cookies.length === 0) {
+      log.warn('WebviewManager', 'saveAccountTabCredentials: 0 cookies extracted for ' + platform + ':' + accountId + '（可能未登录或分区不匹配）')
     }
     try {
       await self._accountManager.updateCapturedAccount(platform, {

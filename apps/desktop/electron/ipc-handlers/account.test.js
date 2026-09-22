@@ -65,6 +65,8 @@ function createMockDeps(overrides = {}) {
       setAccountProxy: vi.fn(),
       getAccountProxyStatus: vi.fn(() => ({ configured: false })),
       checkLocalCredentials: vi.fn(() => false),
+      persistLoginState: vi.fn(async () => ({ ok: true })),
+      loginStatusFromCheckResult: vi.fn((r) => (r && r.valid === true ? 'active' : r && r.valid === false ? 'expired' : 'unverified')),
     },
     BACKEND_PLATFORMS: new Set(),
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -72,6 +74,12 @@ function createMockDeps(overrides = {}) {
     store: { getSetting: vi.fn(), setSetting: vi.fn() },
     ...overrides,
   }
+}
+
+async function ipcMain_and_call(deps, channel, arg) {
+  const ipcMain = createMockIpcMain()
+  registerHandlers(ipcMain, deps)
+  return ipcMain._get(channel)(TRUSTED_EVENT, arg)
 }
 
 // 不可信来源（外部网页）
@@ -247,6 +255,7 @@ describe('account IPC 可信来源正常工作', () => {
         account_name: '公众号',
         is_active: true,
         status: 'active',
+        status_source: 'derived-from-is-active',
         is_default: true,
         has_cookies: true,
         cookie_count: 1,
@@ -276,9 +285,9 @@ describe('account IPC 可信来源正常工作', () => {
     }))
   })
 
-  it('accounts:list 尊重最近 2 小时内写回的 expired（一键检测结果持久化）', async () => {
+  it('accounts:list 尊重后端写回的 expired（一键检测结论固化）', async () => {
     const deps = createMockDeps()
-    // 本地有凭证（hasCred=true），但后端 status=expired 且 last_validated 是最近写回的
+    // 本地有凭证（hasCred=true），但后端 status=expired 是上一次主动检测写回的
     deps.AccountManager.checkLocalCredentials.mockReturnValue(true)
     deps.AccountManager.listAccounts.mockResolvedValue([{
       id: 'acc-fresh-expired',
@@ -292,11 +301,12 @@ describe('account IPC 可信来源正常工作', () => {
 
     const result = await ipcMain._get('accounts:list')(TRUSTED_EVENT)
 
-    // 最近写回的 expired 应被尊重（浏览器/HTTP 检测比本地凭证文件更可靠）
+    // 后端是真源：检测结论必须跨页面、跨重启保持一致
     expect(result.data[0].status).toBe('expired')
+    expect(result.data[0].status_source).toBe('backend')
   })
 
-  it('accounts:list 超过 2 小时的 expired 回退到本地凭证检测（避免陈旧误报）', async () => {
+  it('accounts:list expired 粘滞 —— 陈旧 expired 不再被本地凭证文件推翻为 active', async () => {
     const deps = createMockDeps()
     deps.AccountManager.checkLocalCredentials.mockReturnValue(true)
     deps.AccountManager.listAccounts.mockResolvedValue([{
@@ -311,8 +321,135 @@ describe('account IPC 可信来源正常工作', () => {
 
     const result = await ipcMain._get('accounts:list')(TRUSTED_EVENT)
 
-    // 陈旧 expired + 本地有凭证 → 回退为 active
+    // 凭证文件存在 ≠ 登录有效（视频号假阳性根因）；expired 只能由新的检测/重新登录清除
+    expect(result.data[0].status).toBe('expired')
+    expect(result.data[0].status_source).toBe('backend')
+  })
+
+  it('accounts:list 后端 unverified（未确认）原样透传，不冒充已登录也不计入失效', async () => {
+    const deps = createMockDeps()
+    deps.AccountManager.checkLocalCredentials.mockReturnValue(true)
+    deps.AccountManager.listAccounts.mockResolvedValue([{
+      id: 'acc-unverified',
+      platform: 'tencent_video',
+      name: '视频号',
+      status: 'unverified',
+    }])
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('accounts:list')(TRUSTED_EVENT)
+
+    expect(result.data[0].status).toBe('unverified')
+    expect(result.data[0].status_source).toBe('backend')
+  })
+
+  it('accounts:list 后端 status 非法（历史脏值）时降级为派生态，不误判为已登录', async () => {
+    const deps = createMockDeps()
+    deps.AccountManager.checkLocalCredentials.mockReturnValue(true)
+    deps.AccountManager.listAccounts.mockResolvedValue([{
+      id: 'acc-dirty',
+      platform: 'toutiao',
+      name: '头条号',
+      status: 'LOGIN_OK',
+      is_active: true,
+    }])
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('accounts:list')(TRUSTED_EVENT)
+
     expect(result.data[0].status).toBe('active')
+    expect(result.data[0].status_source).toBe('derived-from-is-active')
+  })
+
+  it('accounts:list 本地无凭证时后端 active 也被判为 expired（无法自证登录）', async () => {
+    const deps = createMockDeps()
+    deps.AccountManager.checkLocalCredentials.mockReturnValue(false)
+    deps.AccountManager.listAccounts.mockResolvedValue([{
+      id: 'acc-cred-missing',
+      platform: 'toutiao',
+      name: '头条号',
+      status: 'active',
+    }])
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('accounts:list')(TRUSTED_EVENT)
+
+    expect(result.data[0].status).toBe('expired')
+    expect(result.data[0].status_source).toBe('no-local-credential')
+  })
+
+  it('accounts:batch-check-login 三态透传并把结论固化到后端（唯一写者）', async () => {
+    const deps = createMockDeps()
+    deps.AccountManager.listAccounts.mockResolvedValue([
+      { id: 'acc-ok', platform: 'wechat_mp' },
+      { id: 'acc-bad', platform: 'toutiao' },
+      { id: 'acc-unknown', platform: 'tencent_video' },
+    ])
+    deps.AccountManager.checkLoginStatus.mockImplementation(async (platform, accountId) => {
+      if (accountId === 'acc-ok') return { valid: true, code: 'CHECK_LOGIN_SUCCESS' }
+      if (accountId === 'acc-bad') return { valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' }
+      return { valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', reason: 'http-check-inconclusive' }
+    })
+
+    const result = await ipcMain_and_call(deps, 'accounts:batch-check-login', {})
+
+    expect(result.code).toBe(0)
+    const byId = {}
+    for (const item of result.data.results) byId[item.accountId] = item
+    expect(byId['acc-ok'].valid).toBe(true)
+    expect(byId['acc-ok'].loginStatus).toBe('active')
+    expect(byId['acc-bad'].valid).toBe(false)
+    expect(byId['acc-bad'].loginStatus).toBe('expired')
+    // 未确认不得被压成 false（否则渲染成「已失效」）
+    expect('valid' in byId['acc-unknown']).toBe(true)
+    expect(byId['acc-unknown'].valid).toBeUndefined()
+    expect(byId['acc-unknown'].code).toBe('CHECK_LOGIN_INCONCLUSIVE')
+    expect(byId['acc-unknown'].loginStatus).toBe('unverified')
+    expect(deps.AccountManager.persistLoginState).toHaveBeenCalledWith('acc-ok', 'wechat_mp', 'active', result.data.checkedAt)
+    expect(deps.AccountManager.persistLoginState).toHaveBeenCalledWith('acc-bad', 'toutiao', 'expired', result.data.checkedAt)
+    expect(deps.AccountManager.persistLoginState).toHaveBeenCalledWith('acc-unknown', 'tencent_video', 'unverified', result.data.checkedAt)
+    expect(result.data.results.every((r) => r.persisted.ok === true)).toBe(true)
+  })
+
+  it('accounts:batch-check-login 检测抛异常记为 unverified 而非 expired', async () => {
+    const deps = createMockDeps()
+    deps.AccountManager.listAccounts.mockResolvedValue([{ id: 'acc-throw', platform: 'toutiao' }])
+    deps.AccountManager.checkLoginStatus.mockRejectedValue(new Error('net down'))
+
+    const result = await ipcMain_and_call(deps, 'accounts:batch-check-login', {})
+
+    const item = result.data.results[0]
+    expect(item.valid).toBeUndefined()
+    expect(item.code).toBe('CHECK_LOGIN_ERROR')
+    expect(item.loginStatus).toBe('unverified')
+    expect(item.error).toBe('net down')
+    expect(deps.AccountManager.persistLoginState).toHaveBeenCalledWith('acc-throw', 'toutiao', 'unverified', expect.any(String))
+  })
+
+  it('accounts:batch-check-login 后端写回失败时结果可见（不静默丢失固化）', async () => {
+    const deps = createMockDeps()
+    deps.AccountManager.listAccounts.mockResolvedValue([{ id: 'acc-p', platform: 'toutiao' }])
+    deps.AccountManager.checkLoginStatus.mockResolvedValue({ valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' })
+    deps.AccountManager.persistLoginState.mockResolvedValue({ ok: false, reason: 'backend-error', code: -1 })
+
+    const result = await ipcMain_and_call(deps, 'accounts:batch-check-login', {})
+
+    expect(result.data.results[0].persisted).toEqual({ ok: false, status: 'expired', reason: 'backend-error' })
+  })
+
+  it('account:check-login 单账号检测同样固化登录态', async () => {
+    const deps = createMockDeps()
+    deps.AccountManager.checkLoginStatus.mockResolvedValue({ valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('account:check-login')(TRUSTED_EVENT, { platform: 'toutiao', accountId: 'acc-1' })
+
+    expect(result).toEqual({ code: 0, data: { valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' } })
+    expect(deps.AccountManager.persistLoginState).toHaveBeenCalledWith('acc-1', 'toutiao', 'expired', expect.any(String))
   })
 
   it('accounts:list 优先使用当前用户的默认账号设置，不能读取 legacy 全局默认值', async () => {
@@ -549,6 +686,7 @@ describe('account IPC 可信来源正常工作', () => {
         name: '频道账号',
         account_name: '频道账号',
         status: 'active',
+        status_source: 'derived-from-is-active',
         is_default: false,
         has_cookies: true,
         cookie_count: 1,
@@ -599,6 +737,7 @@ describe('account IPC 可信来源正常工作', () => {
         name: '公众号',
         account_name: '公众号',
         status: 'active',
+        status_source: 'derived-from-is-active',
         is_default: false,
         has_cookies: true,
         cookie_count: 1,
@@ -749,6 +888,7 @@ describe('account IPC 可信来源正常工作', () => {
         name: '公众号',
         account_name: '公众号',
         status: 'active',
+        status_source: 'derived-from-is-active',
         is_default: false,
         has_cookies: true,
         cookie_count: 1,
@@ -796,6 +936,7 @@ describe('account IPC 可信来源正常工作', () => {
       name: '公众号',
       account_name: '公众号',
       status: 'active',
+      status_source: 'derived-from-is-active',
       is_default: false,
       has_cookies: true,
       cookie_count: 1,

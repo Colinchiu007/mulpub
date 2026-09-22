@@ -1,3 +1,29 @@
+# [未发布] fix(accounts): 账号登录态持久化真源统一 + 检测三态收敛（D1/D2/D3）
+
+### 变更
+- **登录态唯一真源落到后端 `accounts.json`（新增 `status` 三态字段）**：`server.py` 的 `AccountUpdateRequest` 接受 `status`（修 422 静默失败）、`_account_to_dict` 恒输出 `status`、`create_account` 初始化 `unverified`、`patch_account` 枚举白名单外返回 `400 ACCOUNT_STATUS_INVALID` 且不落盘；新增 `_normalize_account_status` 做读侧 fail-safe 归一化（历史脏值/缺失一律降级 `unverified`，绝不把未知值当「已登录」）。
+- **登录态唯一写者 `AccountManager.persistLoginState()`**：`account:check-login` / `accounts:batch-check-login` / `login-status-monitor` 三处检测链路统一在返回前 PATCH 后端固化 `status + last_validated`，结果逐账号带回 `persisted`；删除 `Accounts.vue`、`useExpiredAccountsBanner`、`login-status-monitor` 三处写 Electron 本地 SQLite 的伪回写（读端是后端、写端是 SQLite 且 id 不互通，正是「一键检测后重进又显示已登录」的根因），也不再 `.catch(() => {})` 静默。
+- **`toPublicAccount` 改 expired 粘滞**：删除「`last_validated` 2 小时窗口」与「本地存在凭证文件即把 expired 推翻为 active」两条会自我蒸发的规则；新增 `status_source` 字段与日志便于排障。
+- **检测降级语义纠正（假阳性 / 假阴性）**：`checkLoginStatus` 确立三态契约——正向证据只能来自真实校验，「凭证文件存在」「localStorage 存在」「Cookie 存在」均不构成充分证据；`tencent_video` 的 `LOCAL_ONLY valid:true`、`toutiao`/`baijiahao` 的 `NO_COOKIE fast-path`、浏览器检测异常兜底 `valid:true` 全部改为 `valid: undefined` + `CHECK_LOGIN_INCONCLUSIVE`；新增加密凭证与账号级 session 分区（`persist:account-{id}`）Cookie 合并判定；批量检测 `Boolean(status.valid)` 改为三态透传。
+- **Cookie 保存链路修复**：`webview-manager` 的 `session.cookies.getAll({})` 改为 `get({})`（Electron 的 `Session.cookies` 根本没有 `getAll`，抛错被 catch 吞掉导致保存的凭证 `cookies` 恒为 0），并改为 fail-loud：提取失败不再落一份空 Cookie 的「成功」凭证。
+- **`http-login-checker` 视频号 body 惰性求值**：`timestamp` 不再被模块级常量冻结，`body` 支持函数形态、每次请求重新求值。
+- **渲染层第三态**：`AccountManagementCard` 新增 `unverified` kind / 徽章（琥珀 `#fffaf0 / #974706`）与文案「未确认 / Unconfirmed」，与「从未检测」的 `unknown` 刻意区分；未确认不计入失效数量、不显示「去登录」。
+- **文案（zh/en 成对）**：新增 `accountsPage.accountCardLabels.statusUnverified`、`accountsPage.batchCheckAllPersistFailed`；`batchCheckAllDone` 扩展未确认计数（为 0 时省略）。
+
+### 验证
+- TDD 红→绿：每层先落测试并用 `git checkout HEAD -- <impl>` 复现红灯（`account.js` 10 failed、`account-manager` 2 failed、`login-status-monitor` 全红），再打实现转绿。
+- `account.test.js` 47/47、`account-manager*.test.js` 109/109（含 relogin-status 契约）、`webview-manager.test.js` 51/51、`login-status-monitor.test.js` 10/10（新建）、`Accounts.test.js` 82/82、`AccountManagementCard.test.js` 18、`useExpiredAccountsBanner.test.js` 5/5（重写）；后端 `test_server_account_lifecycle.py` 新增 8 例全绿。
+- **真实渲染层端到端护栏（本次新增）**：`apps/desktop/tests/e2e/specs/account-login-state-tristate.js` 以 Playwright 驱动**未打桩的真实 Vue 渲染层**（真实 `Accounts.vue` + 真实 `AccountManagementCard` 徽章），仅把 IPC 边界替换为可变 store，覆盖三条用户报告缺陷：D1 一键检测后 `resetToRoute` 重新进入账号页三态徽章不变（断言重进后 `accountUpdate` 调用数为 0，证明展示只依赖后端 `status`）；D2 今日头条（后端 `status=active`）不被本地凭证推翻；D3 视频号检测不确定时显示「未确认」而非「已登录」。实测 `15/15 passed`、零 console error、3 张截图落盘。
+- 门禁实测：桌面全量 vitest `10767 passed / 1 failed / 2 skipped`（唯一失败 `story2video-manual-assets.test.js` 单文件重跑通过，判定为顺序抖动）；后端全量 pytest `4 failed / 2669 passed`，失败集与主仓干净 HEAD 基线（`4 failed / 2676 passed`）逐条同名 → 无回归；ESLint `--quiet`（CI Gate 11）0 error；`check-frontend-consistency.js` PASS；`build:vue` exit 0；`check:ts` 存量错误 1203 → 1202（净 -1，零新增，该检查不在 CI workflow 内）。
+- 详见 `01-docs/PRD-ACCOUNT-LOGIN-STATE-PERSISTENCE-2026-09-23.md`（数据模型 / 判定矩阵 / 单一写者架构 / 交互与显示项 / 提示文字 / 测试矩阵 / 已知边界）与 `01-docs/PRD-ACCOUNT-LOGIN-STATUS-CHECK.md` §16。
+
+### 遗留
+- 账号页「批量启用/停用」（`stores/accounts.batchSetStatus`）仍写 SQLite 且复用登录态词表 `status`，对展示实际无效；应改 `is_active` 并接入后端 PATCH，另列 PR，避免把「启用状态」与「登录态」两个正交概念继续混在一个字段里。
+
+### 关联
+- 分支 `codex/account-login-state-persist`（worktree 隔离，D 盘）；关联 PRD 见上。
+
+---
 # [未发布] fix(ui): 设置弹窗右侧内容区与左侧标签导航留白修复
 
 ### 变更

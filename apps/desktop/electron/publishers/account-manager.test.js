@@ -954,7 +954,7 @@ describe('checkLoginStatus 渲染崩溃平台降级', () => {
     }
   })
 
-  it('tencent_video 无 Cookie 时回退本地凭证检查（E2E 回归：视频号页面崩溃带崩整个应用）', async () => {
+  it('tencent_video 无 Cookie 且无 HTTP 证据 → 判未确认（回归：视频号凭证文件仍在但实际已失效）', async () => {
     const accountManager = loadAccountManager()
     vi.spyOn(accountManager.credentialStore, 'hasCredential').mockReturnValue(true)
     vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue({
@@ -966,7 +966,10 @@ describe('checkLoginStatus 渲染崩溃平台降级', () => {
     vi.spyOn(accountManager.accountStateRestorer, 'getAccountRecord').mockReturnValue(null)
 
     const result = await accountManager.checkLoginStatus('tencent_video', 'acc-tv')
-    expect(result).toEqual({ valid: true, code: 'CHECK_LOGIN_SUCCESS_LOCAL_ONLY' })
+    // ⚠️ 契约变更（2026-09-22）：旧断言 valid=true/LOCAL_ONLY 正是用户报告的
+    // 「一键检测显示已登录，实际已失效」。凭证文件存在不是登录证据。
+    expect(result.valid).toBeUndefined()
+    expect(result.code).toBe('CHECK_LOGIN_INCONCLUSIVE')
   })
 
   it('tencent_video 无 Cookie 且无本地凭证时返回 NO_CREDENTIAL', async () => {
@@ -976,5 +979,177 @@ describe('checkLoginStatus 渲染崩溃平台降级', () => {
 
     const result = await accountManager.checkLoginStatus('tencent_video', 'acc-tv-none')
     expect(result).toEqual({ valid: false, code: 'CHECK_LOGIN_NO_CREDENTIAL' })
+  })
+})
+
+
+describe('checkLoginStatus session 分区 Cookie 合并（回归：加密凭证 cookies 恒 0）', () => {
+  const httpCheckerPath = () => require.resolve('./http-login-checker')
+
+  function setPartitionCookies (cookies) {
+    global.__electronMock.session = {
+      fromPartition: vi.fn(() => ({ cookies: { get: vi.fn(() => Promise.resolve(cookies)) } })),
+    }
+  }
+
+  beforeEach(() => {
+    global.__enableElectronMock()
+    global.__resetElectronMock()
+  })
+
+  afterEach(() => {
+    delete global.__electronMock.session
+    vi.restoreAllMocks()
+  })
+
+  it('加密凭证无 Cookie 但分区有 → 检测使用分区 Cookie（不再空输入降级）', async () => {
+    setPartitionCookies([{ name: 'sessionid', value: 'partition-sid', domain: '.weixin.qq.com' }])
+    const actual = require(httpCheckerPath())
+    const spy = vi.fn().mockResolvedValue({ valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' })
+    global.__registerMock(httpCheckerPath(), { tryHttpLoginCheck: spy })
+    try {
+      const accountManager = loadAccountManager()
+      vi.spyOn(accountManager.credentialStore, 'hasCredential').mockReturnValue(true)
+      vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue({
+        platform: 'tencent_video', cookies: [], localStorage: {}, accountInfo: {},
+      })
+
+      const result = await accountManager.checkLoginStatus('tencent_video', 'acc-tv-part')
+
+      expect(spy).toHaveBeenCalledTimes(1)
+      expect(spy.mock.calls[0][1]).toEqual([
+        expect.objectContaining({ name: 'sessionid', value: 'partition-sid' }),
+      ])
+      expect(result).toEqual({ valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' })
+    } finally {
+      global.__registerMock(httpCheckerPath(), actual)
+    }
+  })
+
+  it('toutiao 分区有 Cookie 时不再走 NO_COOKIE 硬判失效（回归：今日头条实际已登录却显示失效）', async () => {
+    setPartitionCookies([{ name: 'sessionid', value: 'tt-sid', domain: '.toutiao.com' }])
+    const actual = require(httpCheckerPath())
+    global.__registerMock(httpCheckerPath(), {
+      tryHttpLoginCheck: vi.fn().mockResolvedValue({ valid: true, code: 'CHECK_LOGIN_SUCCESS_HTTP_API' }),
+    })
+    try {
+      const accountManager = loadAccountManager()
+      vi.spyOn(accountManager.credentialStore, 'hasCredential').mockReturnValue(true)
+      vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue({
+        platform: 'toutiao', cookies: [], localStorage: { sso: 'v' }, accountInfo: {},
+      })
+
+      const result = await accountManager.checkLoginStatus('toutiao', 'acc-tt')
+      expect(result).toEqual({ valid: true, code: 'CHECK_LOGIN_SUCCESS_HTTP_API' })
+    } finally {
+      global.__registerMock(httpCheckerPath(), actual)
+    }
+  })
+
+  it('toutiao 无任何 Cookie 但有 localStorage → 仍走 NO_COOKIE 快速路径判失效', async () => {
+    setPartitionCookies([])
+    const accountManager = loadAccountManager()
+    vi.spyOn(accountManager.credentialStore, 'hasCredential').mockReturnValue(true)
+    vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue({
+      platform: 'toutiao', cookies: [], localStorage: { sso: 'v' }, accountInfo: {},
+    })
+
+    const result = await accountManager.checkLoginStatus('toutiao', 'acc-tt-empty')
+    expect(result).toEqual({ valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' })
+  })
+
+  it('完全无凭证（加密文件与分区 Cookie 均空）→ 确定失效，不需检测手段', async () => {
+    setPartitionCookies([])
+    const accountManager = loadAccountManager()
+    vi.spyOn(accountManager.credentialStore, 'hasCredential').mockReturnValue(false)
+    vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue(null)
+
+    const result = await accountManager.checkLoginStatus('kuaishou', 'acc-ks-none')
+    expect(result).toEqual({ valid: false, code: 'CHECK_LOGIN_NO_CREDENTIAL' })
+  })
+
+  it('getAccountPartitionCookies 按平台域名过滤，session 不可用时返回空数组', async () => {
+    const accountManager = loadAccountManager()
+    setPartitionCookies([
+      { name: 'sessionid', value: 'v', domain: '.toutiao.com' },
+      { name: 'other', value: 'v', domain: '.example.com' },
+    ])
+    expect(await accountManager.getAccountPartitionCookies('toutiao', 'acc-x'))
+      .toEqual([{ name: 'sessionid', value: 'v', domain: '.toutiao.com' }])
+
+    delete global.__electronMock.session
+    expect(await accountManager.getAccountPartitionCookies('toutiao', 'acc-x')).toEqual([])
+    // 非法 accountId 必须被拒绝（不得拼进 fromPartition）
+    setPartitionCookies([{ name: 'a', value: 'b', domain: '.toutiao.com' }])
+    expect(await accountManager.getAccountPartitionCookies('toutiao', '../etc')).toEqual([])
+  })
+
+  it('mergeCookies 按 name+domain 去重且前者优先', () => {
+    const accountManager = loadAccountManager()
+    const merged = accountManager.mergeCookies(
+      [{ name: 'sid', value: 'enc', domain: '.x.com' }],
+      [{ name: 'sid', value: 'part', domain: '.x.com' }, { name: 'uid', value: 'p2', domain: '.x.com' }],
+    )
+    expect(merged).toEqual([
+      { name: 'sid', value: 'enc', domain: '.x.com' },
+      { name: 'uid', value: 'p2', domain: '.x.com' },
+    ])
+  })
+})
+
+describe('persistLoginState 登录态唯一写者', () => {
+  beforeEach(() => {
+    global.__enableElectronMock()
+    global.__resetElectronMock()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it.each([['active'], ['expired'], ['unverified']])('status=%s 写回后端真源', async (status) => {
+    const pythonBridge = require('../services/python-bridge')
+    const requestBackend = vi.spyOn(pythonBridge, 'requestBackend').mockResolvedValue({ code: 0, data: {} })
+    const accountManager = loadAccountManager()
+
+    const result = await accountManager.persistLoginState('acc-1', 'douyin', status, '2026-09-22T15:38:27.000Z')
+
+    expect(result).toEqual({ ok: true, status })
+    expect(requestBackend).toHaveBeenCalledWith('PATCH', '/api/accounts/acc-1', {
+      status, last_validated: '2026-09-22T15:38:27.000Z',
+    })
+  })
+
+  it('非法 status 不发起请求（避免脏写真源）', async () => {
+    const pythonBridge = require('../services/python-bridge')
+    const requestBackend = vi.spyOn(pythonBridge, 'requestBackend')
+    const accountManager = loadAccountManager()
+
+    const result = await accountManager.persistLoginState('acc-1', 'douyin', 'logged_in')
+
+    expect(result.ok).toBe(false)
+    expect(result.reason).toBe('invalid-status')
+    expect(requestBackend).not.toHaveBeenCalled()
+  })
+
+  it('后端写回失败必须可见（返回 ok=false，不静默）', async () => {
+    const pythonBridge = require('../services/python-bridge')
+    vi.spyOn(pythonBridge, 'requestBackend').mockResolvedValue({ code: 404, message: '账号不存在' })
+    const accountManager = loadAccountManager()
+
+    const result = await accountManager.persistLoginState('acc-missing', 'douyin', 'expired')
+
+    expect(result.ok).toBe(false)
+    expect(result.reason).toBe('backend-error')
+    expect(result.code).toBe(404)
+  })
+
+  it('loginStatusFromCheckResult 是三态检测结果的唯一映射口径', async () => {
+    const accountManager = loadAccountManager()
+    expect(accountManager.loginStatusFromCheckResult({ valid: true })).toBe('active')
+    expect(accountManager.loginStatusFromCheckResult({ valid: false })).toBe('expired')
+    expect(accountManager.loginStatusFromCheckResult({ valid: undefined })).toBe('unverified')
+    expect(accountManager.loginStatusFromCheckResult({})).toBe('unverified')
+    expect(accountManager.loginStatusFromCheckResult(null)).toBe('unverified')
   })
 })

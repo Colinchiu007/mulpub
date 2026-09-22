@@ -391,6 +391,9 @@ function patchViewAndSessionMocks () {
       executeJavaScript: vi.fn(function () { return Promise.resolve() }),
       isDestroyed: function () { return false },
       setWindowOpenHandler: function (fn) { this._windowOpenHandler = fn },
+      // 真实 Electron：WebContentsView 的 webPreferences.session 即为 webContents.session。
+      // 测试替身必须还原该链路，否则 cookies 提取相关代码永远走 catch 分支（历史盲区）。
+      session: (opts && opts.webPreferences && opts.webPreferences.session) || undefined,
     }
     this.setBounds = vi.fn()
     this.setVisible = vi.fn()
@@ -406,7 +409,8 @@ function patchViewAndSessionMocks () {
         setCalls: [],
         removeCalls: [],
         set: function (cookie) { created.cookies.setCalls.push(cookie); return Promise.resolve() },
-        get: function () { return Promise.resolve(__electronMock.session._staleCookies || []) },
+        get: function () { return Promise.resolve(created.cookies._store || __electronMock.session._staleCookies || []) },
+        _store: null,
         remove: function (url, name) { created.cookies.removeCalls.push({ url, name }); return Promise.resolve() },
       },
       on: function () {},
@@ -867,6 +871,47 @@ describe('WebviewManager 批量登录凭证自动保存与护栏（方案一/二
     const sends = wm.mainWindow.webContents.send.mock.calls
       .filter(c => c[0] === 'page-manager:tab-credential-state-changed').map(c => c[1].data)
     expect(sends).toContainEqual(expect.objectContaining({ tabId, credentialSaveState: 'saved' }))
+  })
+
+  it('saveAccountTabCredentials 走 session.cookies.get 提取分区 Cookie（Electron 无 getAll，回归 2026-09-22 cookies 恒 0）', async () => {
+    const partitions = patchViewAndSessionMocks()
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+    wm.setAccountManager(makeAccountManager())
+    const { tabId } = createUnsavedAccountTab(wm, { platform: 'toutiao', accountId: 'acc-tt' })
+    const partition = partitions[partitions.length - 1]
+    partition.cookies._store = [
+      { domain: '.toutiao.com', name: 'sessionid', value: 'sid-1', path: '/', secure: true },
+      { domain: '.toutiao.com', name: 'ttwid', value: 'tw-1', path: '/', secure: true },
+    ]
+    expect(typeof partition.cookies.getAll).toBe('undefined')
+
+    const result = await wm.saveAccountTabCredentials(tabId)
+
+    expect(result.ok).toBe(true)
+    expect(wm._accountManager.updateCapturedAccount).toHaveBeenCalledWith(
+      'toutiao', expect.objectContaining({ cookies: expect.arrayContaining([
+        expect.objectContaining({ name: 'sessionid' }),
+      ]) }), 'acc-tt'
+    )
+    expect(wm._accountManager.updateCapturedAccount.mock.calls[0][1].cookies).toHaveLength(2)
+  })
+
+  it('saveAccountTabCredentials Cookie 提取不可用时 fail loud，不写入空凭证', async () => {
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+    wm.setAccountManager(makeAccountManager())
+    const { tabId, view, state } = createUnsavedAccountTab(wm, { platform: 'toutiao', accountId: 'acc-tt' })
+    view.webContents.session = undefined
+
+    const result = await wm.saveAccountTabCredentials(tabId)
+
+    expect(result.ok).toBe(false)
+    expect(result.reason).toBe('cookie-extract-failed')
+    expect(wm._accountManager.updateCapturedAccount).not.toHaveBeenCalled()
+    expect(state.credentialSaveState).toBe('unsaved')
   })
 
   it('saveAccountTabCredentials 无 accountManager 时失败且保持 unsaved（不静默丢失）', async () => {

@@ -425,10 +425,18 @@ async function listAccounts () {
 }
 
 /**
- * 检查账号登录状态 — 通过加载 Cookie 并访问平台主页来判断
+ * 检查账号登录状态 — 通过加载 Cookie 并访问平台主页来判断。
+ *
+ * ⚠️ 三态返回契约（与后端 accounts.json 的 status 真源一一对应）：
+ *   valid === true      → 有正向证据（HTTP API/成功选择器/仪表盘重定向）→ 固化 active
+ *   valid === false     → 有负向证据（跳转登录页/明确无凭证）→ 固化 expired
+ *   valid === undefined → 证据不足（缺 Cookie、接口不确定、浏览器检测失败）→ 固化 unverified
+ * 「本地凭证文件存在」永远不构成正向证据——把不确定说成已登录，是 2026-09-22
+ * 视频号假阳性事故的直接原因；把不确定说成失效，是今日头条假阴性的直接原因。
+ *
  * @param {string} platform - 平台标识
  * @param {string} accountId - 账号 ID
- * @returns {Promise<{valid: boolean, code?: string, error?: string}>}
+ * @returns {Promise<{valid: boolean|undefined, code?: string, reason?: string, error?: string}>}
  */
 async function checkLoginStatus (platform, accountId) {
   if (!isSafePathSegment(platform) || !isSafePathSegment(accountId)) {
@@ -445,53 +453,62 @@ async function checkLoginStatus (platform, accountId) {
   // 但本地凭证文件存在 ≠ Cookie 有效（视频号 Cookie 过期后文件仍在，
   // 仅查本地文件会把失效账号误判为已登录）。因此先尝试 HTTP API 检测
   // （http-login-checker 已注册 tencent_video，访问后台首页看是否 302 到
-  // 登录页），HTTP 结果不确定或无 Cookie 时再回退本地凭证检查。
+  // 登录页），HTTP 结果不确定或无 Cookie 时判为「未确认」，不再冒充已登录。
+  // 检测输入 = 加密凭证 Cookie ∪ 账号 session 分区 Cookie（按 name+domain 去重）。
+  // 必须合并分区：凭证保存链路曾误用不存在的 cookies.getAll，加密文件里 cookies
+  // 恒为 0，真实登录 Cookie 只存在于 persist:account-{id} 分区（存量账号在用户
+  // 重新登录前也只有分区里有 Cookie）。
+  const credentials = loadSavedCredentials(accountId, platform)
+  const encryptedCookies = Array.isArray(credentials?.cookies) ? credentials.cookies : []
+  const partitionCookies = await getAccountPartitionCookies(platform, accountId)
+  const cookies = mergeCookies(encryptedCookies, partitionCookies)
+  const localStorageData = credentials?.localStorage && typeof credentials.localStorage === 'object' && !Array.isArray(credentials.localStorage)
+    ? credentials.localStorage
+    : {}
+  const lsKeys = Object.keys(localStorageData).length
+
   const RENDER_CRASH_PRONE_PLATFORMS = new Set(['tencent_video'])
   if (RENDER_CRASH_PRONE_PLATFORMS.has(platform)) {
-    const credentials = loadSavedCredentials(accountId, platform)
-    const cookies = Array.isArray(credentials?.cookies) ? credentials.cookies : []
     if (cookies.length > 0) {
       const httpResult = await tryHttpLoginCheck(platform, cookies, accountId)
       if (httpResult) {
         log.info('AccountManager', 'checkLoginStatus: render-crash-prone platform ' + platform + ':' + accountId + ' http-check valid=' + httpResult.valid + ' code=' + httpResult.code)
         return httpResult
       }
-      log.info('AccountManager', 'checkLoginStatus: render-crash-prone platform ' + platform + ':' + accountId + ' http-check inconclusive → local fallback')
+      log.info('AccountManager', 'checkLoginStatus: render-crash-prone platform ' + platform + ':' + accountId + ' http-check inconclusive')
     } else {
-      log.info('AccountManager', 'checkLoginStatus: render-crash-prone platform ' + platform + ':' + accountId + ' no cookies → local fallback')
+      log.info('AccountManager', 'checkLoginStatus: render-crash-prone platform ' + platform + ':' + accountId + ' no cookies (encrypted=' + encryptedCookies.length + ' partition=' + partitionCookies.length + ')')
     }
-    const hasLocal = checkLocalCredentials(platform, accountId)
-    log.info('AccountManager', 'checkLoginStatus: render-crash-prone platform ' + platform + ':' + accountId + ' local-credential-only valid=' + hasLocal)
-    return hasLocal
-      ? { valid: true, code: 'CHECK_LOGIN_SUCCESS_LOCAL_ONLY' }
-      : { valid: false, code: 'CHECK_LOGIN_NO_CREDENTIAL' }
+    if (!checkLocalCredentials(platform, accountId)) {
+      return { valid: false, code: 'CHECK_LOGIN_NO_CREDENTIAL' }
+    }
+    // 本地凭证文件存在 ≠ Cookie 有效（Cookie 过期后文件仍在）。此前返回
+    // valid=true（CHECK_LOGIN_SUCCESS_LOCAL_ONLY），是视频号「实际已失效却显示
+    // 已登录」的假阳性根因，改为未确认第三态。
+    log.warn('AccountManager', 'checkLoginStatus: INCONCLUSIVE render-crash-prone without http evidence ' + platform + ':' + accountId + ' cookies=' + cookies.length)
+    return { valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', reason: cookies.length > 0 ? 'http-check-inconclusive' : 'no-cookie' }
   }
 
   try {
-    const credentials = loadSavedCredentials(accountId, platform)
-    const cookies = Array.isArray(credentials?.cookies) ? credentials.cookies : []
-    const localStorageData = credentials?.localStorage && typeof credentials.localStorage === 'object' && !Array.isArray(credentials.localStorage)
-      ? credentials.localStorage
-      : {}
-    if (!credentials || (cookies.length === 0 && Object.keys(localStorageData).length === 0)) {
-      // 加密凭据文件缺失/为空时，回退到 checkLocalCredentials 的 session cookie
-      // 分区备选路径（对齐 toPublicAccount 的凭证检测逻辑，消除两套路径不一致
-      // 导致的假阳性过期判定）。
-      const hasSessionCred = checkLocalCredentials(platform, accountId)
-      log.info('AccountManager', 'checkLoginStatus: NO_ENCRYPTED_CREDENTIAL ' + platform + ':' + accountId + ' cookies=' + cookies.length + ' lsKeys=' + Object.keys(localStorageData).length + ' hasSessionCred=' + hasSessionCred)
-      if (hasSessionCred) {
-        // 有 session cookie 但无加密凭据 → 判为有效（用户通过内嵌浏览器标签
-        // 登录后 Cookie 落在 Electron session 分区，未同步到加密文件）
-        return { valid: true, code: 'CHECK_LOGIN_SUCCESS_SESSION_ONLY' }
-      }
-      return { valid: false, code: 'CHECK_LOGIN_NO_CREDENTIAL' }
+    if (cookies.length === 0 && lsKeys === 0) {
+      // 加密文件与 session 分区都取不到 Cookie、也没有 localStorage：
+      // 有凭证文件（历史残留）只能说明「以前登录过」，不能证明现在有效 → 未确认；
+      // 连凭证文件都没有 → 确定未登录（无任何可发出的登录证据）。
+      const hasAnyCred = checkLocalCredentials(platform, accountId)
+      log.info('AccountManager', 'checkLoginStatus: NO_COOKIE_NO_STORAGE ' + platform + ':' + accountId + ' hasAnyCred=' + hasAnyCred)
+      return hasAnyCred
+        ? { valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', reason: 'credential-file-only' }
+        : { valid: false, code: 'CHECK_LOGIN_NO_CREDENTIAL' }
     }
 
-    // 快速路径：头条/百家号登录态完全由 Cookie 维持，无 Cookie 时跳过
+    // 快速路径：头条/百家号登录态完全由 Cookie 维持，无任何 Cookie 时跳过
     // 浏览器窗口检测（E2E 实测 toutiao 无 Cookie 浏览器检测耗时 19.2s）。
+    // 判定必须基于「合并后的 Cookie」——只看加密文件会把登录在 session 分区里的
+    // 账号硬判为失效（今日头条假阴性根因）。仅有 localStorage 而无任何 Cookie 时，
+    // 对纯 Cookie 维持登录的平台仍是失效信号（无 Cookie 可发请求）。
     const COOKIE_REQUIRED_PLATFORMS = new Set(['toutiao', 'baijiahao'])
     if (cookies.length === 0 && COOKIE_REQUIRED_PLATFORMS.has(platform)) {
-      log.info('AccountManager', 'checkLoginStatus: NO_COOKIE fast-path ' + platform + ':' + accountId + ' lsKeys=' + Object.keys(localStorageData).length)
+      log.info('AccountManager', 'checkLoginStatus: NO_COOKIE fast-path ' + platform + ':' + accountId + ' lsKeys=' + lsKeys)
       return { valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' }
     }
 
@@ -564,10 +581,10 @@ async function checkLoginStatus (platform, accountId) {
         } catch (_) { /* URL 解析失败时继续走原有逻辑 */ }
       }
 
-      // 兜底判定日志：选择器超时 + URL 无登录特征 + 非仪表盘域名时无条件判 valid，
-      // 是假阳性盲区（logging-coverage-audit：必须留判定证据）
-      log.warn('AccountManager', 'checkLoginStatus: fallback valid (no selector match, no login URL marker, no dashboard host) ' + platform + ':' + accountId + ' url=' + currentUrl + ' selectorMatched=' + selectorMatched)
-      return { valid: true, code: "CHECK_LOGIN_SUCCESS" }
+      // 兜底判定：选择器超时 + URL 无登录特征 + 非仪表盘域名 = 没有任何证据。
+      // 过去无条件判 valid 是已知假阳性盲区（logging-coverage-audit），改为未确认。
+      log.warn('AccountManager', 'checkLoginStatus: fallback inconclusive (no selector match, no login URL marker, no dashboard host) ' + platform + ':' + accountId + ' url=' + currentUrl + ' selectorMatched=' + selectorMatched)
+      return { valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', reason: 'no-positive-evidence' }
    } finally {
      await page.close().catch(() => {})
    }
@@ -576,10 +593,10 @@ async function checkLoginStatus (platform, accountId) {
    // 检测。对齐 toPublicAccount 的 checkLocalCredentials 逻辑，避免
    // 有效 session cookie 因浏览器检测不稳定而被误判过期。
    const hasLocal = checkLocalCredentials(platform, accountId)
-   log.warn('AccountManager', 'checkLoginStatus: browser-check failed for ' + platform + ':' + accountId + ' error=' + (e && e.message ? e.message : String(e)) + ' hasLocalCred=' + hasLocal + ' — 回退本地凭证检测')
-   return hasLocal
-     ? { valid: true, code: 'CHECK_LOGIN_SUCCESS_LOCAL_ONLY' }
-     : { valid: false, code: "CHECK_LOGIN_FAILED", error: e.message }
+   log.warn('AccountManager', 'checkLoginStatus: browser-check failed for ' + platform + ':' + accountId + ' error=' + (e && e.message ? e.message : String(e)) + ' hasLocalCred=' + hasLocal + ' — 证据不足，判未确认')
+   if (!hasLocal) return { valid: false, code: "CHECK_LOGIN_FAILED", error: e.message }
+   // 检测手段自身失败 + 只是「有凭证文件」→ 既不能证明有效也不能证明失效。
+   return { valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', reason: 'browser-check-failed', error: e.message }
   }
 }
 
@@ -921,6 +938,100 @@ function checkLocalCredentials (platform, accountId, options = {}) {
 }
 
 /**
+ * 延迟获取 Electron session 模块（便于测试注入，缺 mock 时安全降级为 null）。
+ */
+function _electronSession () {
+  try {
+    const electron = require('electron')
+    return electron && electron.session && typeof electron.session.fromPartition === 'function' ? electron.session : null
+  } catch (_) {
+    return null
+  }
+}
+
+/**
+ * 读取账号 session 分区（persist:account-{id}）中属于该平台的 Cookie。
+ * 这是「用户在内嵌浏览器登录后、加密凭证尚未回写」时唯一的登录态证据来源。
+ * Electron 的 Session.cookies 只有 get/set/remove/flush（**没有 getAll**）。
+ * @param {string} platform
+ * @param {string} accountId
+ * @returns {Promise<Array>} 读取失败返回空数组（由调用方按三态处理，不臆断结论）
+ */
+async function getAccountPartitionCookies (platform, accountId) {
+  if (!isSafePathSegment(accountId)) return []
+  const ses = _electronSession()
+  if (!ses) return []
+  try {
+    const viewSession = ses.fromPartition('persist:account-' + accountId)
+    if (!viewSession || !viewSession.cookies || typeof viewSession.cookies.get !== 'function') return []
+    const all = await viewSession.cookies.get({})
+    if (!Array.isArray(all)) return []
+    return typeof isPlatformCookieDomain === 'function' && platform
+      ? all.filter(cookie => isPlatformCookieDomain(platform, cookie?.domain))
+      : all
+  } catch (e) {
+    log.warn('AccountManager', 'getAccountPartitionCookies failed ' + platform + ':' + accountId + ' ' + (e && e.message ? e.message : String(e)))
+    return []
+  }
+}
+
+/** 按 name+domain 去重合并两组 Cookie，前者优先（加密凭证更贴近保存时点）。 */
+function mergeCookies (primary, extra) {
+  const seen = new Set()
+  const merged = []
+  for (const list of [primary, extra]) {
+    for (const cookie of (Array.isArray(list) ? list : [])) {
+      const key = String((cookie && cookie.name) || '') + '@' + String((cookie && cookie.domain) || '')
+      if (!cookie || !cookie.name || seen.has(key)) continue
+      seen.add(key)
+      merged.push(cookie)
+    }
+  }
+  return merged
+}
+
+/** 三态检测结果 → 持久化 status 的唯一映射（禁止各处自行三元判断造成口径漂移）。 */
+function loginStatusFromCheckResult (result) {
+  if (result && result.valid === true) return 'active'
+  if (result && result.valid === false) return 'expired'
+  return 'unverified'
+}
+
+/**
+ * 固化登录态到唯一真源（后端 accounts.json 的 status 字段）。
+ *
+ * 主进程是登录态的**唯一写者**：一键检测、单账号检测、后台定时监控全部经此函数。
+ * 渲染层不得再自行写 Electron SQLite —— 历史上三处各写各的库，读取方却是后端
+ * JSON，导致「检测出失效 → 重进账号页仍是已登录」。
+ * @param {string} accountId
+ * @param {string} platform 仅用于日志
+ * @param {'active'|'expired'|'unverified'} status
+ * @param {string} [validatedAt] ISO 时间戳，缺省取当前时间
+ * @returns {Promise<{ok: boolean, status?: string, reason?: string, code?: number, error?: string}>}
+ */
+async function persistLoginState (accountId, platform, status, validatedAt) {
+  const ALLOWED = ['active', 'expired', 'unverified']
+  const normalized = typeof status === 'string' ? status.trim().toLowerCase() : ''
+  if (!accountId || !isSafePathSegment(accountId)) return { ok: false, reason: 'invalid-account-id' }
+  if (!ALLOWED.includes(normalized)) return { ok: false, reason: 'invalid-status', status: normalized }
+  try {
+    const result = await pythonBridge.requestBackend('PATCH', '/api/accounts/' + accountId, {
+      status: normalized,
+      last_validated: validatedAt || new Date().toISOString(),
+    })
+    if (!result || result.code !== 0) {
+      log.warn('AccountManager', 'persistLoginState 写回后端失败 ' + platform + ':' + accountId + ' status=' + normalized + ' code=' + (result && result.code) + ' message=' + (result && result.message))
+      return { ok: false, reason: 'backend-error', code: result && result.code, status: normalized }
+    }
+    log.info('AccountManager', 'persistLoginState 固化登录态 ' + platform + ':' + accountId + ' status=' + normalized)
+    return { ok: true, status: normalized }
+  } catch (e) {
+    log.warn('AccountManager', 'persistLoginState 异常 ' + platform + ':' + accountId + ' ' + (e && e.message ? e.message : String(e)))
+    return { ok: false, reason: 'exception', error: (e && e.message) ? e.message : String(e), status: normalized }
+  }
+}
+
+/**
  * 更新已有账号凭证（重新登录场景）。
  * 覆盖 credentialStore 中的加密凭据，并通过 Python 后端更新公开元数据。
  * @param {string} platform
@@ -988,10 +1099,9 @@ async function updateCapturedAccount (platform, captured, accountId) {
   log.info('AccountManager', 'Updated credential store for account ' + accountId)
 
   // 更新后端公开元数据（PATCH）。凭证已成功落盘 = 一次成功的主动重新登录，
-  // 必须同步回写 status=active + last_validated，否则 toPublicAccount 的
-  // backendExpiredFresh 逻辑（DB status=expired 且 2 小时内验证过 → 尊重 expired）
-  // 会让账号页/横幅在保存凭证后仍显示失效。顺序不可颠倒：凭证未落盘时
-  // 不允许把 DB 置为 active（防半成功状态）。
+  // 必须同步回写 status=active + last_validated，否则「已登录并保存的账号仍显示
+  // 失效」（今日头条）。顺序不可颠倒：凭证未落盘时不允许把真源置为 active
+  // （防半成功状态）。
   try {
     const metaResult = await pythonBridge.requestBackend('PATCH', '/api/accounts/' + accountId, {
       name,
@@ -1003,7 +1113,9 @@ async function updateCapturedAccount (platform, captured, accountId) {
       last_validated: new Date().toISOString(),
     })
     if (metaResult.code !== 0) {
-      log.warn('AccountManager', '更新后端账号元数据失败: ' + accountId)
+      // 凭证已落盘但元数据/登录态没写回真源 = 半成功，必须显式暴露（历史上这里
+      // 因 AccountUpdateRequest 拒绝 status 字段而持续 422，只留一行无信息日志）。
+      log.warn('AccountManager', '更新后端账号元数据失败: ' + accountId + ' code=' + metaResult.code + ' message=' + (metaResult.message || ''))
     }
   } catch (e) {
     log.warn('AccountManager', '更新后端账号元数据异常: ' + e.message)
@@ -1050,6 +1162,10 @@ module.exports = {
   setAccountProxy,
   openSavedAccount,
   checkLocalCredentials,
+  getAccountPartitionCookies,
+  mergeCookies,
+  loginStatusFromCheckResult,
+  persistLoginState,
   setOwnerSubjectProvider,
   accountStateRestorer,
   credentialStore,

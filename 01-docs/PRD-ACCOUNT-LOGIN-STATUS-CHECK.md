@@ -1,6 +1,6 @@
 # PRD: 账号登录状态自动检测与主页提醒
 
-> 版本: 2.2 | 日期: 2026-09-22 | 状态: 已实现
+> 版本: 2.3 | 日期: 2026-09-22 | 状态: 已实现
 > 关联 PR: #1558（v1）、#1804（session cookie 路径修复）、#1805（v2.0：检测反馈 + 失效标识 + 结果持久化 + 公众号 HTTP 检测）、v2.1（2026-09-16 三态判定修复：HTTP 检测黑名单语义，修复抖音假阳性，详见 BUGFIX-LOGIN-CHECK-FALSE-EXPIRED-2026-09-16.md 与本文 §14）、v2.2（2026-09-22 登录态检测口径统一：四平台黑名单语义收口 + 保存凭证回写 active + 首页横幅检测回写，详见 BUGFIX-LOGIN-STATE-CONSISTENCY-2026-09-22.md 与本文 §15）
 
 ## 1. 需求背景
@@ -314,3 +314,76 @@ App.vue 挂载 Home 组件
 - `useExpiredAccountsBanner.test.js`（新增 3 例）：统一回写/失败不回写/回写失败不阻断；
 - `http-login-checker.test.js` 更新 1 例：公众号 expired fixture 补明确登录页特征。
 - 门禁：新增平台 HTTP 检测注册时，三态样本（true/false/undefined）齐备才算完成（以 blacklist 测试为模板）。
+
+
+---
+
+## 16. 登录态真源与三态统一（v2.3，2026-09-23）
+
+> 本节是对 §2.1、§11（检测结果持久化）、§14、§15 的**口径修订**；凡与本文早前描述冲突处，以本节与
+> `PRD-ACCOUNT-LOGIN-STATE-PERSISTENCE-2026-09-23.md` 为准。完整数据模型、判定矩阵、交互与文案、
+> 测试矩阵、已知边界均写在该新文档中，此处只记录"改了什么、为什么、以及哪些旧描述作废"。
+
+### 16.1 触发缺陷
+
+| 编号 | 用户可见现象 |
+|------|--------------|
+| D1 | 账号页一键检测显示部分账号「已失效」，退出再进入又显示「已登录」→ 检测结论未固化 |
+| D2 | 今日头条号已登录并保存凭证后仍被显示「已失效」→ 假阴性 |
+| D3 | 视频号一键检测显示「已登录」，实际已失效 → 假阳性 |
+
+### 16.2 六条根因（RC-A ~ RC-F）
+
+- **RC-A 双库分裂**：读侧真源是后端 `accounts.json`，而 `Accounts.vue` 一键检测、`useExpiredAccountsBanner`
+  首页横幅、`login-status-monitor` 定期检测三处写侧都写 Electron 本地 SQLite（`store:update-account`），
+  两库 accountId 不互通，写入永不生效，且 `.catch(() => {})` 静默 → **D1**。
+- **RC-B 422**：保存凭证的 PATCH 带 `status:'active'`，后端 `AccountUpdateRequest` 为
+  `ConfigDict(extra="forbid")` 且无 `status` 字段 → 实测 `PATCH /api/accounts/xxx status=422`，
+  重新登录也无法清除失效标记。
+- **RC-C `cookies.getAll` 不存在**：Electron `Session.cookies` 只有 `get/set/remove/flush`；
+  保存链路调用 `getAll({})` 抛 TypeError 被吞 → 存下的凭证 `cookies` 恒为 0 条（日志 `cookies=0 lsKeys=13`）。
+- **RC-D 降级语义反向**：`toutiao`/`baijiahao` 无加密 Cookie 即 fast-path 判失效（**D2**）；
+  `tencent_video` 无 Cookie 降级到"本地凭证文件存在"→ `CHECK_LOGIN_SUCCESS_LOCAL_ONLY valid:true`（**D3**）。
+- **RC-E 2 小时窗口 + 凭证推翻**：`toPublicAccount` 只在 `last_validated` 距今 <2h 时尊重后端 expired，
+  超窗后又因"本地存在凭证文件"把 expired 翻回 active → 检测结论最长 2 小时后自动蒸发。
+- **RC-F timestamp 冻结**：`http-login-checker` 视频号 POST 的 `body` 写在模块级常量，
+  `Date.now()` 只在 require 时求值一次。
+
+### 16.3 新口径（作废旧描述的条目）
+
+| 旧描述（本文早前章节） | 新口径 |
+|------------------------|--------|
+| §2.1「本地无加密凭证 → status 强制置 expired；有凭证且 status 为 active 不在此列」 | 保留「无凭证 → expired」；但 **active/expired/unverified 一律以后端 status 为准（粘滞）**，不再有 2 小时窗口，不再被"本地存在凭证文件"推翻 |
+| §11「检测结果写回 DB + 2 小时内尊重」 | 2 小时窗口作废。**登录态唯一写者 = 主进程 `AccountManager.persistLoginState()`**（后端 PATCH）；渲染层禁止写 `status`，monitor 禁止读写 SQLite 账号表 |
+| 降级返回 `valid:true`（`CHECK_LOGIN_SUCCESS_LOCAL_ONLY`） | 作废。改为 `valid: undefined` + `CHECK_LOGIN_INCONCLUSIVE`；**「凭证文件存在」永远不是正向证据** |
+| 无 Cookie 即判 `CHECK_LOGIN_COOKIE_EXPIRED`（toutiao/baijiahao fast-path） | 作废。判定基于「加密凭证 + 账号级 session 分区」合并后的 Cookie 集合；合并后仍为 0 且属强依赖 Cookie 平台才判失效 |
+| 批量检测 `valid: Boolean(status.valid)` | 作废。三态透传：`undefined`（未确认）既不计入失效，也不冒充已登录 |
+| 账号 status 仅 active/expired | 三态：`active` / `expired` / **`unverified`（未确认）**；新建账号默认 `unverified`，历史脏值读侧归一化为 `unverified` |
+
+### 16.4 新增显示项与文案
+
+- 卡片徽章第三态：`unverified` → 中文「未确认」/ 英文 `Unconfirmed`，琥珀底 `#fffaf0` + 字 `#974706`；
+  与「从未检测」的 `unknown`（暂无检查记录，灰底）**刻意区分**。未确认不计入失效数量、不显示「去登录」按钮。
+- 一键检测汇总：`检测完成：X 个正常，Y 个失效，Z 个未确认`（Z=0 时省略该段）。
+- 固化失败提示（新增）：`检测完成，但有 N 个账号的登录状态未能保存到服务端，请重试或检查后端服务`。
+- `toPublicAccount` 新增下发字段 `status_source`（`no-local-credential` / `backend` /
+  `derived-from-is-active`），并在 `account:status-derive` 日志中输出，用于排障。
+
+### 16.5 校验加固
+
+- 后端 `PATCH /api/accounts/{id}` 接受 `status`，枚举白名单外返回 `400 ACCOUNT_STATUS_INVALID` **且不落盘**；
+  `status` 与 `is_active` 正交（写 status 不得改动 is_active）。
+- Cookie 提取失败不再静默落一份空 Cookie 凭证：`saveAccountTabCredentials` 返回
+  `{ ok:false, reason:'cookie-extract-failed' }`。
+
+### 16.6 回归保护
+
+新增/改写测试共 40+ 例，覆盖后端 status 契约（8）、cookies 提取（2）、检测三态与唯一写者（9+1）、
+IPC 口径（7+1）、定期检测（新建 10 例）、渲染层（3 改写 + 3 新增）。实现层每处均以
+`git checkout HEAD -- <impl>` 保留测试复现红灯，确认测试是真护栏。
+
+### 16.7 遗留问题（本次不改，需单独 PR）
+
+`stores/accounts.batchSetStatus('active'|'inactive')`（账号页「批量启用/停用」）仍走
+`accountUpdate` → Electron 本地 SQLite，且复用了登录态词表 `status`，因此对展示实际无效。
+应改为写 `is_active` 并接入后端 PATCH。本 PR 不动它，以免混淆"登录态"与"启用状态"两个正交概念。
