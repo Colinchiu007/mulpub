@@ -146,6 +146,8 @@ function sortBy (field) {
 }
 
 function formatNum (n) {
+  // P0 契约显示项：NULL/缺失 = 未知，显示 '-'（不得伪造 0）；真 0 如实显示
+  if (n === null || n === undefined || n === '') return '-'
   const num = Number(n)
   if (!Number.isFinite(num)) return '-'
   return num >= 10000 ? (num / 1000).toFixed(1) + 'k' : String(num)

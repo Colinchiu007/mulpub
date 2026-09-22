@@ -640,8 +640,9 @@ components: { UiButton, CaretBottom, CaretRight, CaretTop, Connection, Cpu, Data
       }
       articles.push({
         title,
-        like_count: Number(item.likes) || 0,
-        comment_count: Number(item.comments) || 0,
+        // P0 契约：NULL=未知 直传 null（引擎侧跳过均值分母）；真 0 如实透传
+        like_count: item.likes ?? null,
+        comment_count: item.comments ?? null,
         platform_code: item.platform || 'general',
       })
       this.articleData = JSON.stringify(articles, null, 2)
