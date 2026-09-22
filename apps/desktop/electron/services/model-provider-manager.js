@@ -956,6 +956,7 @@ class ModelProviderManager {
     const db = this._store.db
     let updated = 0
     let inserted = 0
+    let unchanged = 0
     for (const item of items) {
       if (!item || typeof item.id !== 'string' || !item.id.trim()) continue
       const id = item.id.trim()
@@ -966,6 +967,9 @@ class ModelProviderManager {
       const limit5h = this._normalizeConfigLimit(item.limit_per_5h)
       if (rpm !== null) config.rate_per_minute = rpm
       if (limit5h !== null) config.limit_per_5h = limit5h
+      // 自定义排序（运营中心预设模型 sort_order）：非负整数有效，其余视为未排序
+      const sortNum = Number.isInteger(item.sort_order) && item.sort_order >= 0 ? item.sort_order : null
+      if (sortNum !== null) config.sort_order = sortNum
       // default_model 为目录契约信息字段：写入 config 保留运营配置（供展示/后续模型选择路由使用）；
       // 当前模型调用解析走 capability_models[type] 或 models[0]，provider 级默认走 is_default=1。
       if (item.default_model && typeof item.default_model === 'string') config.default_model = item.default_model.trim()
@@ -981,6 +985,14 @@ class ModelProviderManager {
         // 由 _applyGovernorLimits 回退到静态默认或移除 provider 级预算，避免陈旧值残留。
         if (rpm === null) delete merged.rate_per_minute
         if (limit5h === null) delete merged.limit_per_5h
+        if (sortNum === null) delete merged.sort_order
+        // 内容比对：目录同步每轮全量重放，无实质变化的行跳过 UPDATE，
+        // 避免 updated_at 被周期性同步 bump，打乱「已配置=按最新修改排序」语义
+        // （PRD-MODEL-LIST-SORT-ORDER-2026-09-23 §5）。
+        const modelsChanged = hasModels &&
+          stableStringify(safeJsonParse(row.models, []) || []) !== stableStringify(models)
+        const configChanged = stableStringify(existing) !== stableStringify(merged)
+        if (!modelsChanged && !configChanged) { unchanged += 1; continue }
         if (hasModels) {
           db.prepare("UPDATE model_providers SET models = ?, config = ?, updated_at = datetime('now') WHERE id = ?")
             .run(JSON.stringify(models), JSON.stringify(merged), id)
@@ -1003,8 +1015,8 @@ class ModelProviderManager {
       }
     }
     this._applyGovernorLimits()
-    log.info('ModelProviderManager', 'applyCatalog: updated=' + updated + ' inserted=' + inserted)
-    return { code: 0, updated, inserted }
+    log.info('ModelProviderManager', 'applyCatalog: updated=' + updated + ' inserted=' + inserted + ' unchanged=' + unchanged)
+    return { code: 0, updated, inserted, unchanged }
   }
 
   setDefault (category, providerId) {
@@ -1230,6 +1242,15 @@ class ModelProviderManager {
     }
     return typeof row.api_key === 'string' ? row.api_key : ''
   }
+}
+
+/** 键序稳定的 JSON 序列化：applyCatalog 内容比对用（无实质变化不 bump updated_at） */
+function stableStringify (value) {
+  if (Array.isArray(value)) return '[' + value.map(stableStringify).join(',') + ']'
+  if (value && typeof value === 'object') {
+    return '{' + Object.keys(value).sort().map(k => JSON.stringify(k) + ':' + stableStringify(value[k])).join(',') + '}'
+  }
+  return JSON.stringify(value === undefined ? null : value)
 }
 
 function safeJsonParse (str, fallback) {

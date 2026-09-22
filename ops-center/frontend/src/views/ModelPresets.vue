@@ -7,6 +7,9 @@
       限流字段（每分钟连接次数 / 5小时限额次数）用于指导前端调度并发与排队，允许留空（留空表示使用默认限流）。
       模型 ID 列表可通过「获取模型ID URL」自动拉取：服务启动时对尚无模型列表的预设自动尝试，也可点击
       「批量获取模型ID」为所有已配置 URL 的预设一次性拉取官方模型列表（失败项会汇总提示）。
+      可通过操作列的排序按钮调整桌面端【全部】列表的展示次序：⤒ 移到首位、↑ 上移、↓ 下移、⤓ 移到末位，点击即时保存；
+      未设置排序的模型由桌面端按名称拼音/字母序排在已排序模型之后。排序随目录同步下发，桌面端需同步（或重启）后生效。
+      排序作用于全量预设列表：存在分类筛选或未开启「含隐藏项」时按钮不可用（避免可见列表与全量序列错位）。
     </p>
 
     <el-card shadow="never">
@@ -51,13 +54,22 @@
             <span>{{ (row.doc_links || []).length }}/10</span>
           </template>
         </el-table-column>
+        <el-table-column label="排序" width="70" align="center">
+          <template #default="{ row }">
+            <span>{{ row.sort_order != null ? row.sort_order : '-' }}</span>
+          </template>
+        </el-table-column>
         <el-table-column label="前端显示" width="90" align="center">
           <template #default="{ row }">
             <el-switch :model-value="row.is_visible" @change="(v) => toggleVisible(row, v)" />
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150" align="center">
-          <template #default="{ row }">
+        <el-table-column label="操作" width="270" align="center">
+          <template #default="{ row, $index }">
+            <el-button link size="small" :title="sortLocked ? '排序作用于全量列表，请先清除分类筛选并开启「含隐藏项」' : '移到首位'" :disabled="$index === 0 || reorderBusy || sortLocked" @click="reorder(row, 'top')">⤒</el-button>
+            <el-button link size="small" :title="sortLocked ? '排序作用于全量列表，请先清除分类筛选并开启「含隐藏项」' : '上移'" :disabled="$index === 0 || reorderBusy || sortLocked" @click="reorder(row, 'up')">↑</el-button>
+            <el-button link size="small" :title="sortLocked ? '排序作用于全量列表，请先清除分类筛选并开启「含隐藏项」' : '下移'" :disabled="$index === presets.length - 1 || reorderBusy || sortLocked" @click="reorder(row, 'down')">↓</el-button>
+            <el-button link size="small" :title="sortLocked ? '排序作用于全量列表，请先清除分类筛选并开启「含隐藏项」' : '移到末位'" :disabled="$index === presets.length - 1 || reorderBusy || sortLocked" @click="reorder(row, 'bottom')">⤓</el-button>
             <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
             <el-button link type="danger" size="small" @click="remove(row)">删除</el-button>
           </template>
@@ -151,7 +163,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { listModelPresets, createModelPreset, updateModelPreset, deleteModelPreset, fetchModelIds } from '../api/modelPresets'
+import { listModelPresets, createModelPreset, updateModelPreset, deleteModelPreset, fetchModelIds, reorderModelPreset } from '../api/modelPresets'
 
 const CATEGORY_OPTIONS = [
   { value: 'llm', label: '推理模型' },
@@ -393,6 +405,30 @@ async function toggleVisible(row, value) {
   } catch (e) {
     ElMessage.error(e.response?.data?.detail || '操作失败')
     await load()
+  }
+}
+
+const reorderBusy = ref(false)
+
+// 服务端 reorder 作用于全量列表（含隐藏、不分类筛选）的显示序；
+// 筛选视图下的 $index 与全量下标不一致，邻接移动会产生"点了没变化"的错位，故锁定。
+const sortLocked = computed(() => Boolean(filterCategory.value) || !includeHidden.value)
+
+async function reorder(row, action) {
+  if (sortLocked.value) {
+    ElMessage.warning('排序作用于全量列表，请先清除分类筛选并开启「含隐藏项」')
+    return
+  }
+  reorderBusy.value = true
+  try {
+    await reorderModelPreset(row.id, action)
+    ElMessage.success('排序已更新')
+    await load()
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || '排序更新失败')
+    await load()
+  } finally {
+    reorderBusy.value = false
   }
 }
 

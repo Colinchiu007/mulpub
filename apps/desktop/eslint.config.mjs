@@ -6,8 +6,8 @@ import prettier from "eslint-config-prettier";
 const vueEssential = pluginVue.configs["flat/essential"];
 
 export default [
-  // preload bundle 是 esbuild 生成物（scripts/build-preload.js），不参与 lint
-  { ignores: ["dist/", "dist-ts/", "node_modules/", "*.config.*", ".playwright-browsers/", "electron/preload/**/*.bundle.js"] },
+  // preload/home-shell bundle 是 esbuild 生成物（scripts/build-preload.js），不参与 lint
+  { ignores: ["dist/", "dist-ts/", "node_modules/", "*.config.*", ".playwright-browsers/", "electron/**/*.bundle.js"] },
 
   // JS backend (electron/ — Node.js CommonJS)
   {

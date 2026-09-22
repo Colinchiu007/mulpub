@@ -589,6 +589,7 @@ async def ensure_model_preset_columns(db: AsyncSession):
         ("models_url", "VARCHAR DEFAULT ''"),
         ("rate_per_minute", "INTEGER"),
         ("limit_per_5h", "INTEGER"),
+        ("sort_order", "INTEGER"),
     ]
     for name, ddl in additions:
         if name not in cols:
@@ -691,8 +692,46 @@ async def ensure_catalog_seeded(db: AsyncSession):
                         ", ".join(f"{p}({n})" for p, n in done))
 
 
+REORDER_ACTIONS = ("top", "up", "down", "bottom")
+
+
+def _display_order():
+    """预设列表/目录显示序：sort_order NULLS LAST 升序（未排序行由桌面端按拼音序兜底），再多模态优先、类别、名称。"""
+    return (ModelPreset.sort_order.is_(None), ModelPreset.sort_order.asc(),
+            ModelPreset.is_multimodal.desc(), ModelPreset.category, ModelPreset.name)
+
+
+async def reorder_model_preset(db: AsyncSession, preset_id: str, action: str) -> str:
+    """预设模型自定义排序：全量列表（含隐藏、按显示序）内移动目标行，随后 sort_order 归一化为 0..n-1。
+
+    返回 "changed" | "noop"（已在边界，幂等不写库）| "not-found"；action 非法抛 ValueError。
+    一旦开始排序即对全列表显式赋值（全量权威语义）；未排序行为的桌面端拼音序兜底见
+    01-docs/PRD-MODEL-LIST-SORT-ORDER-2026-09-23.md。
+    """
+    import sqlalchemy as sa
+    if action not in REORDER_ACTIONS:
+        raise ValueError(f"action 必须是 {'/'.join(REORDER_ACTIONS)} 之一")
+    rows = list((await db.execute(sa.select(ModelPreset).order_by(*_display_order()))).scalars().all())
+    idx = next((i for i, r in enumerate(rows) if r.id == preset_id), -1)
+    if idx < 0:
+        return "not-found"
+    target = {"top": 0, "up": idx - 1, "down": idx + 1, "bottom": len(rows) - 1}[action]
+    target = max(0, min(target, len(rows) - 1))
+    if target == idx:
+        return "noop"
+    moved = rows.pop(idx)
+    rows.insert(target, moved)
+    now = datetime.datetime.utcnow().isoformat()
+    for order, r in enumerate(rows):
+        if r.sort_order != order:
+            r.sort_order = order
+            r.updated_at = now
+    await db.commit()
+    return "changed"
+
+
 async def list_model_presets(db: AsyncSession, category: str | None = None, include_hidden: bool = False):
-    stmt = select(ModelPreset).order_by(ModelPreset.is_multimodal.desc(), ModelPreset.category, ModelPreset.name)
+    stmt = select(ModelPreset).order_by(*_display_order())
     if category:
         stmt = stmt.where(ModelPreset.category == category)
     if not include_hidden:
@@ -1086,7 +1125,7 @@ async def list_catalog(db: AsyncSession) -> list[dict]:
     import sqlalchemy as sa
 
     rows = (await db.execute(
-        sa.select(ModelPreset).where(ModelPreset.is_visible == 1).order_by(ModelPreset.is_multimodal.desc(), ModelPreset.category, ModelPreset.name)
+        sa.select(ModelPreset).where(ModelPreset.is_visible == 1).order_by(*_display_order())
     )).scalars().all()
     return [_to_catalog_item(r) for r in rows]
 
@@ -1104,6 +1143,7 @@ def _to_catalog_item(row: ModelPreset) -> dict:
         "is_multimodal": bool(row.is_multimodal),
         "capabilities": json.loads(row.capabilities or "[]"),
         "capability_models": json.loads(row.capability_models or "{}"),
+        "sort_order": row.sort_order,
         "updated_at": row.updated_at,
     }
 
@@ -1124,6 +1164,7 @@ def _to_dict(row: ModelPreset) -> dict:
         "doc_links": json.loads(row.doc_links or "[]"),
         "capability_doc_links": json.loads(row.capability_doc_links or "{}"),
         "is_visible": bool(row.is_visible),
+        "sort_order": row.sort_order,
         "created_at": row.created_at,
         "updated_at": row.updated_at,
     }

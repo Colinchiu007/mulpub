@@ -1,3 +1,123 @@
+# [未发布] fix(audit): P1 审计第二批——配置密文化 + 采集空壳硬约束 + SSRF 白名单 + 依赖治理 + 浏览器生命周期 + 惯用语守卫（2026-09-22，audit-batch-2）
+
+
+## audit-batch-2（P1，未发版，与 audit-batch-1 一起等下次发版收口）
+
+
+### Security
+
+- **ops-center 配置中心**：敏感配置（`is_secret=1`）写库前加密为 `enc:v1:` 自描述密文；审计表改为**写库时掩码**（读时掩码可被"直接查库/导出"绕过）；批量更新接口不再把敏感项降级为明文（`secret_flag` 以库中既有标记为准）；客户端回填掩码串不再覆盖真实凭据；密文不可解时导出**抛错而非静默写空凭据**（空凭据会把密钥轮换事故伪装成"服务不稳定"）。存量明文零迁移可读，详见 `docs/audit-remediation-batch2-2026-09-22.md` §1
+- **video-clone-engine**：新增 `src/adapters/url-guard.js`，链接导入在 `mkdtemp` / 调 yt-dlp **之前**执行「协议 → 内网字面量 → 平台域名白名单 → DNS 解析结果」四段校验（拦 `169.254.169.254`、`localhost`、`10/8`、`fc00::/7` 等，并防"公网域名 → 内网 IP"重绑定），解析失败 fail-closed；新增环境变量 `VIDEOCLONE_ALLOW_ANY_HOST`（只放开白名单，内网拦截不放松）；新增错误码 `VIDEOCLONE_LINK_BLOCKED` + zh/en 文案，不再冒充"该视频为私密内容"
+- **shared-utils**：`publish-history` 去掉顶层 `require('electron')`（纯 Node 下它返回可执行文件路径字符串而**不抛错**，真实崩点是 `app.getPath` 的 TypeError），改为 `configurePublishHistory({ userDataDir | filePath | app })` 注入优先 + 懒加载兜底 + 可操作报错；electron 声明为 optional peerDependency；`publishHistory` 补进包入口
+
+
+### Fixes
+
+- **collection-engine / B 站适配器**：`_doFetch` 从"返回硬编码样例"的桩改为真发请求（WBI `wts` **先入签再算 `w_rid`**、`generateWbiSign` 纯函数化不改入参、`bvid/aid` 编码、可注入 `http`、失败时回落浏览器通道）
+- **collection-engine / 采集引擎**：HTTP 200 但正文空壳的响应不再记成功 —— 统一返回 `{ success:false, reason:'empty_content' }`，同时记失败、计入健康度与熔断、退回配额（此前"采集成功但内容为空"让成功率、熔断、配额三类指标一起说谎）
+- **python-backend / 角色动画**：`_render_preview_mp4` 的 `new_page/goto/逐帧 screenshot` 包进 `try`，`browser.close()` 移入 `finally`，异常路径不再泄漏 Chromium 进程组（批量跑时表现为越跑越慢直至句柄/内存耗尽）
+- **desktop / 剧本上下文**：`IDIOM_EXCLUSIONS` 只登记真实惯用语（刘备补「刘备借荆州」「刘备摔阿斗」）；「孙权称帝」属史实陈述，不进排除表，改由正向回归用例锁定；导出 `filterIdiomHits` 便于直接单测
+
+
+### Testing
+
+- 新增用例：`ops-center/backend/tests/test_p1_config_secret.py`（13）、`packages/collection-engine/tests/bilibili-adapter.test.js`（11）、`packages/shared-utils/tests/publish-history.test.js`（8）、`packages/video-clone-engine/test/adapters/url-guard.test.js`（16）、`packages/python-backend/tests/test_character_animation_lifecycle.py`（5）、`story-context-engine.test.js` +5
+- 全量本地门禁：ops-center 409 pytest、collection-engine 104 vitest、shared-utils 273 vitest、video-clone-engine 151 node--test（0 failed）、desktop 受影响面 78 vitest、python-backend `-k character` 55 pytest
+- 五项均做 stash 红验证（P1-5 12 failed / P1-10 8 failed / P1-11 2 failed / P1-12 3 failed / P1-13 精确 3 failed，且孙权正向回归保持通过）。其中 P1-10 的用例反向发现两个真实缺陷：`_resolveApp` 未校验 `.app` 是否存在、`getHistoryPath` 在读 `userDataDir` 前就解析 Electron 使注入形同虚设
+
+
+### Documentation
+
+- 新增 `docs/audit-remediation-batch2-2026-09-22.md`：6 项变更的存储格式与数据校验、写入/读取/导出流程、显示项（含新响应字段 `is_encrypted` 的三态显示建议）、提示文字原文、错误码与文案表（zh/en）、测试矩阵、运维指引（排查 SQL、密钥轮换处置）与决策记录
+- `01-docs/PRD-VIDEO-CLONE-2026-08-12.md` §14 错误码表补 `VIDEOCLONE_LINK_BLOCKED` 一行
+
+
+### 决策与残余风险
+
+- 敏感项**不跑一次性迁移脚本**：靠"任何一次保存即升级为密文"+ 排查 SQL 收敛存量明文（回滚只需停止新写入）
+- 白名单以"初始目标域名"为边界，yt-dlp 内部跟随的 30x 重定向不经过新守卫；彻底覆盖需在下载器侧加代理/出口 ACL（列入第 4 批技术债）
+- `VIDEOCLONE_LINK_PRIVATE` 文案保持不变，避免影响真实"私密视频"场景；SSRF 拦截改用独立码，两条链路文案语义正交
+
+---
+# [未发布] feat(tab): 「+」新标签内嵌独立应用主页——与首标签完全解耦（PRD-TAB-INDEPENDENT-HOME）
+
+### 变更
+- **背景/根因**：顶部地址区点「+」开的新标签与第一固化「首页」标签内容一致，无法并行操作两个模块。根因三重：① `onCreateTab` 硬编码 `about:blank` + 标题「首页」；② 应用主页只在唯一 SPA（home 虚拟标签）渲染，新标签无独立内容；③ `App.vue` 路由归位守卫（`router.beforeEach`）在任何 SPA 路由变化时强制 `switchToTab('home')`，使新标签导航「弹回」首标签。
+- **electron/home-shell-preload.js（新增）**：内嵌主页专用受守护 preload，双判据后才挂载完整 `electronAPI`——① 主进程注入 `--mp-home-shell-url=<期望地址>` ② 当前文档与其同源且 `search` 仍含 `mp-home-shell=1`；被重定向到外站/参数被剥离/`argv` 缺失时自动降级为仅受限 `multiPublishMonitor` 桥（S1/S2 安全不变式）。`hasHomeShellParam` 先去前导 `?` 再剥 `#`，兼容 jsdom 将 hash 拼进 search 的形态。
+- **electron/services/webview-manager.js**：`createNewTabPage` 新增 `homeShell` 分支——无 URL/空/`about:blank` 时以内嵌主页地址（打包 `pathToFileURL(dist/index.html)?mp-home-shell=1`、开发 `devServer/?mp-home-shell=1`）创建 `WebContentsView`，选用 home-shell preload 并注入 `additionalArguments`；home-shell 与账号会话互斥（`accountId=null`，不注入凭证/挂登录诊断）；`tabStates.url` 对内嵌主页置空、标题默认「新标签页」，`did-navigate` 后自然转普通网页标签。
+- **src/App.vue**：`isHomeShellSearch(location.search)` 判定内嵌壳态；**移除归位守卫**（不再注册 `router.beforeEach`→`switchToTab`）；新增 `v-else-if="isHomeShell"` **独立模板分支**——内嵌实例只渲染 `MpModuleNav`+工作区，不渲染外层 `MpSidebar`/`TabBar`/`NavBar`（WebContentsView 仅覆盖内容矩形，重复渲染会双份 chrome）；`setShellMode` 上报、`tabStore.init/dispose`、`onNavigate` 订阅在内嵌模式下全部跳过（S4 广播风暴防护）。
+- **src/utils/home-shell.js（新增）**：渲染层壳态判据单一来源（`isHomeShellSearch`/`detectHomeShell`）。**scripts/build-preload.js**：新增 home-shell preload 第二 esbuild 入口。**src/locales/{zh,en}.js**：新增 `tabs.newTabTitle`（新标签页/New Tab）、`tabs.newTabAria`（成对，Gate 7）。
+
+### 验证
+- TDD 红→绿：新增 `home-shell.util.test.js`(6)、`home-shell-preload.test.js`(6，含外站重定向/参数剥离/`=0` 不暴露 electronAPI 的负向用例)、`tab-independent-home.test.js`(7，含 F1 独立模板分支不含外层 chrome 的源码契约)、`webview-manager.test.js` home-shell describe(5)；修正既有 `shell-mode-6b.test.js` 正则以容忍 watch 体守卫行；`home-shell-preload.test.js` 纳入 vitest include（与 `electron/preload.test` 同级）。
+- QM-1：`electron-builder --win --dir` exit 0，asar 清单含 `home-shell-preload.bundle.js`；`verify-worktree-deps.js` OK。locale `check-locale-sync.js --keys` PASS。真实 Electron 窗口验证双标签独立导航。
+- **eslint.config.mjs**：ignores 从 `electron/preload/**/*.bundle.js` 泛化为 `electron/**/*.bundle.js`——home-shell preload 的 esbuild 生成物 `electron/home-shell-preload.bundle.js`（非手写源）此前落入 Gate 11 lint 报 `no-empty`，纳入既有「生成物 bundle 不参与 lint」约定予以忽略。
+- **债务基线**：`scripts/debt-baseline.json` `filesOver1000` 32→33、`filesOver500` 98→99（各 +1）。原因：新增的 `home-shell-preload.bundle.js`（1346 行）为 esbuild **生成产物**，与既有已计入基线的 `preload/index.bundle.js`（1333 行）同类，其手写源 `home-shell-preload.js` 仅 73 行；无任何手写源文件跨越阈值。按门禁脚本自身给出的「经审查确认后 `--update`」流程更新基线（反映生成物纳入，非源码膨胀）。
+
+### 关联
+- PRD `01-docs/PRD-TAB-INDEPENDENT-HOME-2026-09-22.md`（F1-F6 功能需求 / §4 数据校验 / §5 安全约束 S1-S5 / §6 交互明细 / §7 i18n / §11 测试计划）。
+- 分支 `tab-independent-home`（worktree 隔离，D 盘）· PR #2230（已合并 `origin/main`，解决 CHANGELOG / webview-manager.test.js 冲突）。
+
+---
+# [未发布] fix(ui): 限流自检弹窗表单布局修复 + 功能规格文档化
+
+### 变更
+- **`ModelProviders.vue`（限流自检弹窗布局）**：模板中的 `.selfcheck-form` / `.selfcheck-row` 类名此前在 `<style scoped>` 中无任何规则定义，label 与 `el-input-number` 随文本流随机换行、输入框宽度参差（用户反馈「布局非常混乱不整齐」）。补齐：表单纵向 flex `gap:14px`；每行 `display:flex; align-items:center; gap:12px` 标签与输入框同行垂直居中；label 固定列宽 `flex:0 0 230px`（次要色+小字号、允许换行）；输入框统一 `width:150px; flex-shrink:0`，全部对齐同一左基线。
+- **文档**：`01-docs/design/model-provider-module-design.md` 新增 §9.5「限流自检弹窗功能规格与布局规范」——功能定位（真实 ApiUsageGovernor + 本地假 adapter 验证并发上限/排队/429 冷却/5h 限额，无网络不耗额度）、使用流程 6 步、参数数据校验表（rpm [1,100000]、maxConcurrent [1,8] 或留空=clamp(rpm/10,1,4)、requestCount [1,1000]、requestDurationMs [0,60000]、inject429At [1,requestCount] 或留空、limitPer5h [1,10000000] 或留空、cooldownMs [100,60000]）、交互逻辑、显示项、提示文字、回归覆盖与影响面。
+
+### 验证
+- TDD：新增 `src/views/selfcheck-dialog-layout.test.js`（3 例源码契约：行 flex 同行对齐 / label 固定列宽 / 输入框统一宽度）。定向 4 文件 20/20 全绿（含 `icon-usage`(9)、`model-providers-copy`(5)、`settings-panel-layout`(3) 零回归）；eslint exit 0（仅既有 warning）。
+- 纯展示层样式补齐，不改模板结构 / IPC / 数据模型；暗色模式沿用 token 不受影响。
+
+### 关联
+- 分支 `codex/selfcheck-dialog-layout`（worktree 隔离，D 盘），基于 `origin/main`；规范详见 §9.5。
+
+---
+
+
+
+# [未发布] feat(model-settings): 模型列表排序逻辑调整 + 运营中心预设模型自定义排序
+
+### 变更
+- **渲染端 `apps/desktop/src/composables/useModelProviderCrud.js`**：「已配置」标签按 默认模型置顶 → `updated_at` 倒序（最新修改/新添加在前）→ 名称拼音兜底；「全部」标签按 `config.sort_order` 升序优先（运营中心下发）→ 无自定义序者按名称拼音（`localeCompare('zh-Hans-CN')` ICU）→ id 稳定兜底。排序单点实现在 computed，不改 IPC 契约。
+- **主进程 `apps/desktop/electron/services/model-provider-manager.js`（applyCatalog）**：目录权威写入 `config.sort_order`（非负整数才生效，null/非法删除键，与 rate_per_minute 同模式）；新增 `stableStringify` 键序稳定内容比对——config/models 无实质变化时跳过 UPDATE，**不再每轮同步 bump `updated_at`**（「已配置」按修改时间排序语义成立的前提），返回体新增 `unchanged` 计数。
+- **运营中心后端**：`ModelPreset` 新增 `sort_order` 列（幂等迁移 PRAGMA+ALTER 自动加列）；`_display_order()` 统一 list/catalog 排序（sort_order NULLS LAST → 多模态 → 类别 → 名称）；新增 `POST /api/v1/model-presets/{id}/reorder`（admin-only，action=top/up/down/bottom，越界幂等 noop，全列表归一化 0..n-1）；catalog 与 `_to_dict` 下发 `sort_order`。
+- **运营中心前端 `ModelPresets.vue`**：新增「排序」列（显示 sort_order，未设显示 -）与操作列 4 图标按钮（⤒移到首位 / ↑上移 / ↓下移 / ⤓移到末位），即时持久化，成功提示「排序已更新」，busy 防连点。
+
+### 验证
+- TDD 红→绿：`useModelProviderCrud.test.js` +5 排序用例（默认置顶/倒序/拼音/sort_order 优先/稳定 tie-break）；`model-provider-apply-catalog.test.js` +2（sort_order 写入与 null 删除、内容无变化不 bump updated_at）；ops-center pytest +2（reorder 四动作与边界/校验、catalog 契约含 sort_order）。
+- 本地全绿：桌面 vitest 72（crud+catalog）/ src 1331 / electron services 188；ops-center pytest 44；ops-center frontend build；QM-1 electron-builder --win --dir exit 0 + asar 抽查 + 8s 启动无 stderr。
+
+### 关联
+- 分支 `codex/model-sort-order`（worktree 隔离，D 盘）；详细规格 `01-docs/PRD-MODEL-LIST-SORT-ORDER-2026-09-23.md`；同步契约增量 `01-docs/PRD-sync-zero-config.md` §8。
+# [未发布] fix(video): 视频号账号标签扫码重登后仍弹回登录页（凭证假保存 hotfix）
+
+### 变更
+- **`webview-manager.js`（Cookie 提取 API 误用 + 吞错假保存）**：`saveAccountTabCredentials` / `saveCookies` 曾调用 `session.cookies.getAll({})`——Electron cookies API 只有 `get([filter])`，`getAll` 不存在，TypeError 被吞错 catch 吸收后以 `cookies=[]` 继续保存并置 `saved`、广播 `auth:completed`（假成功）。失效账号扫码重登后凭证库仍是 0 Cookie（旧 localStorage 残留绕过三空校验），再开创作者中心标签恢复凭证时无 Cookie 可用 → 始终弹回登录页。修复：① 两处改用 `get({})`（与 auth-view-manager/qrcode-login 对齐）；② 提取抛错改为 fail-closed——返回 `cookie-extract-failed`，不落盘、保持 `unsaved`、不广播 `saved`，手动保存路径提示「保存账号凭证失败，请重试」，自动保存路径等下一次导航重试。
+
+### 验证
+- TDD 红→绿：mock 忠实镜像 Electron API 表面（挂接 `webContents.session`、只实现 get/set/remove/flushStore、不实现 getAll），弱断言 `expect.any(Array)` 升级为断言真实 Cookie 内容；新增 3 例回归（真实提取 / 提取抛错 fail-closed / saveCookies 事件源）。定向 `webview-manager.test.js` 52/52；electron 全量 359 文件 6938 通过 / 1 skipped / 0 失败；QM-1 打包验证通过。
+- 决定性日志证据（修复前）：`saveAccountTabCredentials: cookies.getAll failed ... getAll is not a function` 紧跟 `saved tencent_video:xxx cookies=0 lsKeys=13`。
+
+### 关联
+- 分支 `fix-tencent-video-cookie-save`（worktree 隔离，D 盘）；契约详见 `01-docs/PRD-BATCH-LOGIN-SAVE-GUARD-2026-09-22.md` §13（修订记录 v2）；Bug 反哺五步沉淀于 `01-docs/learnings.md`。
+
+---
+# [未发布] fix(ui): 限流自检弹窗表单布局修复 + 功能规格文档化
+
+### 变更
+- **`ModelProviders.vue`（限流自检弹窗布局）**：模板中的 `.selfcheck-form` / `.selfcheck-row` 类名此前在 `<style scoped>` 中无任何规则定义，label 与 `el-input-number` 随文本流随机换行、输入框宽度参差（用户反馈「布局非常混乱不整齐」）。补齐：表单纵向 flex `gap:14px`；每行 `display:flex; align-items:center; gap:12px` 标签与输入框同行垂直居中；label 固定列宽 `flex:0 0 230px`（次要色+小字号、允许换行）；输入框统一 `width:150px; flex-shrink:0`，全部对齐同一左基线。
+- **文档**：`01-docs/design/model-provider-module-design.md` 新增 §9.5「限流自检弹窗功能规格与布局规范」——功能定位（真实 ApiUsageGovernor + 本地假 adapter 验证并发上限/排队/429 冷却/5h 限额，无网络不耗额度）、使用流程 6 步、参数数据校验表（rpm [1,100000]、maxConcurrent [1,8] 或留空=clamp(rpm/10,1,4)、requestCount [1,1000]、requestDurationMs [0,60000]、inject429At [1,requestCount] 或留空、limitPer5h [1,10000000] 或留空、cooldownMs [100,60000]）、交互逻辑、显示项、提示文字、回归覆盖与影响面。
+
+### 验证
+- TDD：新增 `src/views/selfcheck-dialog-layout.test.js`（3 例源码契约：行 flex 同行对齐 / label 固定列宽 / 输入框统一宽度）。定向 4 文件 20/20 全绿（含 `icon-usage`(9)、`model-providers-copy`(5)、`settings-panel-layout`(3) 零回归）；eslint exit 0（仅既有 warning）。
+- 纯展示层样式补齐，不改模板结构 / IPC / 数据模型；暗色模式沿用 token 不受影响。
+
+### 关联
+- 分支 `codex/selfcheck-dialog-layout`（worktree 隔离，D 盘），基于 `origin/main`；规范详见 §9.5。
+
+---
+
 # [未发布] fix(accounts): 账号页首开 10s 显示「暂无账号」——Logto JWKS 抖动的三层放大一次收口（P0-A/P0-B/P1）
 
 ### 根因

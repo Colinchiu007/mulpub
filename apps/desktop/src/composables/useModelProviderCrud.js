@@ -143,11 +143,44 @@ export function useModelProviderCrud () {
     return providers.value.filter(p => !p.is_preset)
   })
 
+  // ─── 列表排序（PRD-MODEL-LIST-SORT-ORDER-2026-09-23）───────────────────
+  // 已配置：默认模型置顶 → updated_at 倒序（最新修改/新添加在前）→ 名称拼音 → id
+  // 全部：config.sort_order（非负整数）升序优先 → 其余按名称拼音/字母序 → id
+  const byNameLocale = (a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'zh-Hans-CN')
+  const byId = (a, b) => String(a.id || '').localeCompare(String(b.id || ''))
+  const nameThenId = (a, b) => { const n = byNameLocale(a, b); return n !== 0 ? n : byId(a, b) }
+  const validSortOrder = (p) => {
+    let cfg = p && p.config
+    if (typeof cfg === 'string') { try { cfg = JSON.parse(cfg) } catch (e) { cfg = null } }
+    const v = cfg && typeof cfg === 'object' ? cfg.sort_order : undefined
+    // 与主进程 applyCatalog 校验口径一致：仅接受非负整数（小数/负数视为未设置）
+    return Number.isInteger(v) && v >= 0 ? v : null
+  }
+  const sortConfiguredProviders = (list) => [...list].sort((a, b) => {
+    const da = a.is_default ? 0 : 1
+    const db = b.is_default ? 0 : 1
+    if (da !== db) return da - db
+    const ta = String(a.updated_at || '')
+    const tb = String(b.updated_at || '')
+    if (ta !== tb) return ta < tb ? 1 : -1
+    return nameThenId(a, b)
+  })
+  const sortAllProviders = (list) => [...list].sort((a, b) => {
+    const sa = validSortOrder(a)
+    const sb = validSortOrder(b)
+    if (sa !== sb) {
+      if (sa === null) return 1
+      if (sb === null) return -1
+      return sa - sb
+    }
+    return nameThenId(a, b)
+  })
+
   const filteredProviders = computed(() => {
     if (!providers.value) return []
     const base = viewMode.value === 'configured' ? configuredProviders.value : providers.value
-    if (filterCategory.value === 'all') return base
-    return base.filter(p => p.category === filterCategory.value)
+    const filtered = filterCategory.value === 'all' ? base : base.filter(p => p.category === filterCategory.value)
+    return viewMode.value === 'configured' ? sortConfiguredProviders(filtered) : sortAllProviders(filtered)
   })
 
   const configuredCount = computed(() => {

@@ -383,6 +383,9 @@ function patchViewAndSessionMocks () {
     this.webContents = {
       _handlers: handlers,
       _windowOpenHandler: null,
+      // 真实 Electron 中 webContents.session 即构造时 webPreferences.session 传入的分区，mock 必须同物挂接；
+      // 否则 Cookie 提取路径在测试中永远是 undefined，吞错路径会被误放行（2026-09-22 getAll 回归教训）。
+      session: (opts && opts.webPreferences && opts.webPreferences.session) || null,
       on: function (evt, fn) { handlers[evt] = fn },
       once: function () {},
       canGoBack: function () { return false },
@@ -403,11 +406,15 @@ function patchViewAndSessionMocks () {
     const created = {
       partition,
       cookies: {
+        // 契约：忠实镜像真实 Electron session.cookies API——只有 get/set/remove/flushStore，不存在 getAll。
+        // 测试可通过 _store 预设 get() 返回值。
         setCalls: [],
         removeCalls: [],
+        _store: undefined,
         set: function (cookie) { created.cookies.setCalls.push(cookie); return Promise.resolve() },
-        get: function () { return Promise.resolve(__electronMock.session._staleCookies || []) },
+        get: function () { return Promise.resolve(created.cookies._store !== undefined ? created.cookies._store : (__electronMock.session._staleCookies || [])) },
         remove: function (url, name) { created.cookies.removeCalls.push({ url, name }); return Promise.resolve() },
+        flushStore: function () { return Promise.resolve() },
       },
       on: function () {},
     }
@@ -857,16 +864,76 @@ describe('WebviewManager 批量登录凭证自动保存与护栏（方案一/二
     wm.mainWindow = createMainWindow()
     wm._subscribers.add('test-subscriber')
     wm.setAccountManager(makeAccountManager())
-    const { tabId, state } = createUnsavedAccountTab(wm, { platform: 'douyin', accountId: 'acc-1' })
+    const { tabId, state, view } = createUnsavedAccountTab(wm, { platform: 'douyin', accountId: 'acc-1' })
+    view.webContents.session.cookies._store = [{ domain: '.douyin.com', name: 'sessionid', value: 'v1', path: '/', secure: true }]
     const result = await wm.saveAccountTabCredentials(tabId)
     expect(result.ok).toBe(true)
+    // 弱断言 expect.any(Array) 对空数组恒真（2026-09-22 getAll 逃逸点），必须断言真实内容
     expect(wm._accountManager.updateCapturedAccount).toHaveBeenCalledWith(
-      'douyin', expect.objectContaining({ cookies: expect.any(Array) }), 'acc-1'
+      'douyin',
+      expect.objectContaining({ cookies: [{ domain: '.douyin.com', name: 'sessionid', value: 'v1', path: '/', secure: true }] }),
+      'acc-1'
     )
     expect(state.credentialSaveState).toBe('saved')
     const sends = wm.mainWindow.webContents.send.mock.calls
       .filter(c => c[0] === 'page-manager:tab-credential-state-changed').map(c => c[1].data)
     expect(sends).toContainEqual(expect.objectContaining({ tabId, credentialSaveState: 'saved' }))
+  })
+
+  // 回归（2026-09-22）：saveAccountTabCredentials 曾调用 session.cookies.getAll——该方法在
+  // Electron 中不存在，TypeError 被 catch 吞掉后以 cookies=[] 继续保存（假成功），导致失效
+  // 账号扫码重登后凭证库仍是 0 Cookie，再开创作者中心弹回登录页。契约：
+  // ① 必须用真实 API get({}) 提取；② 提取失败必须 fail-closed（不保存、保持 unsaved、
+  // 不广播 saved），杜绝任何吞错假保存。
+  it('回归：saveAccountTabCredentials 经 session.cookies.get 提取真实 Cookie（API 契约镜像 Electron）', async () => {
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+    wm.setAccountManager(makeAccountManager())
+    const { tabId, view } = createUnsavedAccountTab(wm, { platform: 'tencent_video', accountId: 'vid-1', url: 'https://channels.weixin.qq.com/' })
+    // mock 的 cookies 对象忠实镜像 Electron API：不存在 getAll
+    expect(typeof view.webContents.session.cookies.getAll).toBe('undefined')
+    view.webContents.session.cookies._store = [
+      { domain: '.weixin.qq.com', name: 'slave_sid', value: 'fresh', path: '/', secure: true },
+    ]
+    const result = await wm.saveAccountTabCredentials(tabId)
+    expect(result.ok).toBe(true)
+    expect(wm._accountManager.updateCapturedAccount).toHaveBeenCalledWith(
+      'tencent_video',
+      expect.objectContaining({ cookies: [{ domain: '.weixin.qq.com', name: 'slave_sid', value: 'fresh', path: '/', secure: true }] }),
+      'vid-1'
+    )
+  })
+
+  it('回归：Cookie 提取抛错时 fail-closed——不落盘、保持 unsaved、不广播 saved', async () => {
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+    wm.setAccountManager(makeAccountManager())
+    const { tabId, state, view } = createUnsavedAccountTab(wm, { platform: 'tencent_video', accountId: 'vid-2', url: 'https://channels.weixin.qq.com/' })
+    view.webContents.session.cookies.get = () => Promise.reject(new Error('extract-boom'))
+    const result = await wm.saveAccountTabCredentials(tabId)
+    expect(result.ok).toBe(false)
+    expect(result.reason).toBe('cookie-extract-failed')
+    expect(wm._accountManager.updateCapturedAccount).not.toHaveBeenCalled()
+    expect(state.credentialSaveState).toBe('unsaved')
+    const sends = wm.mainWindow.webContents.send.mock.calls
+      .filter(c => c[0] === 'page-manager:tab-credential-state-changed').map(c => c[1].data)
+    expect(sends.some(d => d && d.credentialSaveState === 'saved')).toBe(false)
+  })
+
+  it('回归：saveCookies（tab-cookies-changed 事件源）用 get 提取真实 Cookie', async () => {
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+    const { tabId, view } = createUnsavedAccountTab(wm)
+    view.webContents.session.cookies._store = [{ domain: '.douyin.com', name: 'sid', value: 'x', path: '/', secure: false }]
+    const spy = vi.fn()
+    wm.on('tab-cookies-changed', spy)
+    wm.saveCookies(tabId)
+    await new Promise(resolve => setImmediate(resolve))
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(spy.mock.calls[0][0]).toMatchObject({ tabId, cookies: [{ domain: '.douyin.com', name: 'sid', value: 'x', path: '/', secure: false }] })
   })
 
   it('saveAccountTabCredentials 无 accountManager 时失败且保持 unsaved（不静默丢失）', async () => {
@@ -975,5 +1042,111 @@ describe('WebviewManager 批量登录凭证自动保存与护栏（方案一/二
     expect(res.saved).toBe(1)
     expect(res.failed).toEqual([{ accountId: 'a1', platform: 'douyin', reason: 'boom' }])
     expect(wm._tabStates.get(t2).credentialSaveState).toBe('saved')
+  })
+})
+
+describe('WebviewManager home-shell 内嵌主页标签', () => {
+  it('opts.homeShell 创建时加载本应用主页地址并挂载 home-shell preload', () => {
+    patchViewAndSessionMocks()
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+
+    const tabId = wm.createNewTabPage({ homeShell: true, title: '新标签页' })
+    const view = wm._tabViews.get(tabId)
+    const loadedUrl = view.webContents.loadURL.mock.calls[0][0]
+
+    // 开发态（mock isPackaged:false）走 devServer 地址；两种形态都必须携带壳态参数
+    expect(loadedUrl).toMatch(/mp-home-shell=1/)
+    expect(loadedUrl).toMatch(/\/\?mp-home-shell=1$|#\?mp-home-shell=1$/)
+    expect(view._opts.webPreferences.preload).toMatch(/home-shell-preload(\.js|\.bundle\.js)$/)
+    expect(view._opts.webPreferences.additionalArguments).toEqual(
+      expect.arrayContaining([expect.stringContaining('--mp-home-shell-url=')])
+    )
+  })
+
+  it('home-shell 标签 tab-created 广播地址置空（避免 file:// 长路径灌进地址栏）', () => {
+    patchViewAndSessionMocks()
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+
+    const tabId = wm.createNewTabPage({ homeShell: true, title: '新标签页' })
+    const created = wm.mainWindow.webContents.send.mock.calls
+      .filter(c => c[0] === 'page-manager:tab-created')
+      .pop()
+    expect(created[1].data.tabId).toBe(tabId)
+    expect(created[1].data.url).toBe('')
+    expect(wm.getAllTabs().find(t => t.tabId === tabId).title).toBe('新标签页')
+  })
+
+  it('普通 URL 标签不受 home-shell 逻辑影响（回归保护：monitor-preload + 原地址导航）', () => {
+    patchViewAndSessionMocks()
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+
+    const tabId = wm.createNewTabPage({ url: 'https://creator.douyin.com' })
+    const view = wm._tabViews.get(tabId)
+    expect(view._opts.webPreferences.preload).toMatch(/monitor-preload\.js$/)
+    expect(view._opts.webPreferences.additionalArguments || []).not.toEqual(
+      expect.arrayContaining([expect.stringContaining('--mp-home-shell-url=')])
+    )
+    expect(view.webContents.loadURL).toHaveBeenCalledWith('https://creator.douyin.com')
+  })
+
+  it('about:blank 创建不再产生可见空白标签：等价降级为 home-shell 主页', () => {
+    patchViewAndSessionMocks()
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+
+    const tabId = wm.createNewTabPage({ url: 'about:blank', title: '新标签页' })
+    const view = wm._tabViews.get(tabId)
+    const loadedUrl = view.webContents.loadURL.mock.calls.length
+      ? view.webContents.loadURL.mock.calls[0][0]
+      : ''
+    // 要么直接加载主页，要么保持不导航（state 视为 homeShell）；不得把 about:blank 作为可见内容地址广播
+    expect(loadedUrl === '' || loadedUrl.includes('mp-home-shell=1')).toBe(true)
+    const created = wm.mainWindow.webContents.send.mock.calls
+      .filter(c => c[0] === 'page-manager:tab-created')
+      .pop()
+    expect(created[1].data.url).not.toBe('about:blank')
+  })
+
+  it('home-shell 标签不读取账号凭证、不挂登录诊断（无 accountId 路径回归）', () => {
+    patchViewAndSessionMocks()
+    const partitions = __electronMock.session._partitions
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+    wm.setAccountManager({ loadSavedCredentials: vi.fn(() => ({ cookies: [{ url: 'https://example.test', name: 'sid', value: 'x' }] })) })
+
+    wm.createNewTabPage({ homeShell: true, title: '新标签页' })
+    const created = partitions[partitions.length - 1]
+    expect(created.partition).toMatch(/^persist:browse-btab-\d+$/)
+    expect(created.cookies.setCalls.length).toBe(0)
+  })
+
+  // F5 / §6.5：home-shell 标签地址栏导航去外部站点后自然结束壳态（本标签转普通网页标签）
+  it('home-shell 标签导航到外站后壳态自然结束（地址栏显示真实 URL、不再置空）', () => {
+    patchViewAndSessionMocks()
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+
+    const tabId = wm.createNewTabPage({ homeShell: true, title: '新标签页' })
+    const view = wm._tabViews.get(tabId)
+    const state = wm._tabStates.get(tabId)
+    expect(state.homeShell).toBe(true)
+    expect(wm.getAllTabs().find(t => t.tabId === tabId).url).toBe('')
+
+    // 用户在外层地址栏输入外部 URL → WebContentsView 导航至该站点（文档级 did-navigate）
+    view.webContents._handlers['did-navigate']({}, 'https://example.com/some-page')
+
+    const tab = wm.getAllTabs().find(t => t.tabId === tabId)
+    expect(tab.url).toBe('https://example.com/some-page')
+    // 壳态已结束：后续页面 <title> 可覆盖锁定前的默认标题（titleLocked 不再因壳态强制）
+    expect(state.homeShell).toBe(false)
   })
 })

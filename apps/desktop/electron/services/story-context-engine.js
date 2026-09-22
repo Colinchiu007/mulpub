@@ -326,6 +326,9 @@ function detectByRules (text, rules, keyName) {
 const IDIOM_EXCLUSIONS = Object.freeze({
   诸葛亮: Object.freeze(['事后诸葛亮']),
   曹操: Object.freeze(['说曹操曹操到', '曹操到']),
+  // P1-13（体检报告问题13，[v3 订正]）：只登记真实惯用语/歇后语。
+  // "孙权称帝"是史实陈述而非惯用语，登记它会让所有正经三国文本漏判 —— 改由正向回归锁定。
+  刘备: Object.freeze(['刘备借荆州', '刘备摔阿斗']),
 })
 
 /**
@@ -1002,6 +1005,8 @@ module.exports = {
   detectVisualStyle,
   enrichSceneWithContext,
   extractStoryContext,
+  // P1-13: 导出供回归用例直接验证登记表内容契约
+  filterIdiomHits,
   inferSceneType,
   mergeNegativePrompt,
   normalizeSceneContextOptions,

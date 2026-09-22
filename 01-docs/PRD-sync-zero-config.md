@@ -177,3 +177,14 @@
 - [ ] 单元测试覆盖：JWT 验证通过/过期/scope不足/无效签名
 - [ ] 集成测试覆盖：桌面端 auto context -> fetch -> apply 全链路
 - [ ] CHANGELOG / locale 成对更新
+
+---
+
+## 8. 扩展（2026-09-23）：catalog 契约新增 sort_order 与 updated_at 保护
+
+详细规格见 `01-docs/PRD-MODEL-LIST-SORT-ORDER-2026-09-23.md`。本节仅记录对本 PRD 同步链路契约的增量：
+
+1. **catalog 响应字段扩展**：`GET /api/v1/model-presets/catalog` 每个目录项新增 `sort_order`（整数或 null），来源为运营中心「预设模型」页的自定义排序（`model_presets.sort_order`，幂等迁移自动加列）。
+2. **桌面端 applyCatalog 写入规则（目录权威）**：`sort_order` 为非负整数时写入 `model_providers.config.sort_order`；为 null/缺失/非法时删除该键（与 `rate_per_minute`/`limit_per_5h` 同模式）。
+3. **updated_at 污染保护**：applyCatalog 对已有行先做内容比对（config/models 键序稳定化后语义比较），**无实质变化则跳过 UPDATE，不再每轮同步 bump `updated_at`**；有变化或新插入行才更新。此保护是「已配置」标签按最新修改排序语义成立的前提。
+4. **排序消费端**：桌面端「全部」列表按 `config.sort_order` 升序优先、无值按名称拼音（`localeCompare('zh-Hans-CN')`）兜底；「已配置」列表按默认模型置顶 + `updated_at` 倒序。排序实现位于渲染端 `useModelProviderCrud.js`，不改变 IPC 契约。
