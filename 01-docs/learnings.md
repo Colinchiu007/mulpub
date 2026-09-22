@@ -15207,3 +15207,24 @@ MIN_ENGAGEMENT_SAMPLES，与引擎严格同门槛含 Number(null)=0 语义），
 
 - **日志锚点在 shared-user-data 而非 %APPDATA%（pitfall）**：live 实例经 anchor 机制把 userData 指向仓库 `shared-user-data/`，日志在 `shared-user-data/logs/app-*.log`；先翻 %APPDATA% 会误判「无日志证据」。
 - **严格入口被他会话脏文件阻塞时（process）**：`start-mp-task.ps1`/`gwm-task.sh` 对共享根 -RequireClean fail-closed 是设计内行为；不得 stash/commit 他会话文件，可降级 `git worktree add <D:\路径> -b <branch> origin/main`（PowerShell 原生路径），创建后 `rev-parse --show-toplevel/--abbrev-ref HEAD` 双验证再继续。
+## model-sort-order-2026-09-23锛氭ā鍨嬪垪琛ㄦ帓搴?+ 杩愯惀涓績棰勮妯″瀷鑷畾涔夋帓搴忥紙鍒嗘敮 codex/model-sort-order锛孭R#2128锛?
+
+### 闇€姹?
+銆屽凡閰嶇疆銆嶆爣绛炬寜鏈€鏂颁慨鏀瑰€掑簭 + 榛樿妯″瀷缃《锛涖€屽叏閮ㄣ€嶆爣绛炬寜瀛楁瘝/鎷奸煶搴忎絾杩愯惀涓績鍙嚜瀹氫箟鎺掑簭锛涜繍钀ヤ腑蹇冦€岄璁炬ā鍨嬨€嶉〉澧炲姞 4 鍥炬爣鎸夐挳锛堚鈫戔啌猡擄級鑷畾涔夋帓搴忋€?
+
+### 瀹炵幇锛堜笁灞傦級
+1. 娓叉煋绔?`useModelProviderCrud.js` filteredProviders 鍗曠偣鎺掑簭锛堜笉鏀?IPC锛夛細宸查厤缃?榛樿缃《鈫抲pdated_at 鍊掑簭鈫掓嫾闊斥啋id锛涘叏閮?sort_order 鍗囧簭浼樺厛鈫抧ull 鎸夋嫾闊?localeCompare zh-Hans-CN)鈫抜d銆?
+2. 涓昏繘绋?`model-provider-manager.js` applyCatalog锛氱洰褰曟潈濞佸啓 config.sort_order锛堥潪璐熸暣鏁扮敓鏁?鍚﹀垯鍒犻敭锛夛紱**stableStringify 鍐呭姣斿锛屾棤瀹炶川鍙樺寲璺宠繃 UPDATE 涓?bump updated_at**锛堝凡閰嶇疆鎺掑簭璇箟鍓嶆彁锛夛紝杩斿洖 unchanged銆?
+3. 杩愯惀涓績鍏ㄦ爤锛歁odelPreset.sort_order 鍒楋紙骞傜瓑杩佺Щ锛? _display_order(NULLS LAST) + POST /{id}/reorder(admin-only锛宼op/up/down/bottom锛岃秺鐣?noop锛屽叏閲忓綊涓€鍖?0..n-1) + catalog/_to_dict 涓嬪彂 + ModelPresets.vue 鎺掑簭鍒?鎸夐挳銆?
+
+### CodeReview锛? MAJOR + 3 MINOR锛?
+- **MAJOR**锛歳eorder 鏈嶅姟绔搷浣滃叏閲忓垪琛紝鍓嶇 $index 鏄繃婊ゅ悗鍙涓嬫爣锛岃寖鍥翠笉涓€鑷磋嚧閭绘帴绉诲姩銆岀偣浜嗘病鍙嶅簲銆嶃€備慨锛歴ortLocked computed锛堝垎绫荤瓫閫夋垨鏈紑鍚殣钘忛」鏃剁鐢ㄦ寜閽?+ title 鎻愮ず + reorder() 鍏ュ彛浜屾鎷︽埅锛夈€?
+- **MINOR**锛歷alidSortOrder 娓叉煋绔?Number.isFinite vs 涓昏繘绋?Number.isInteger 鍙ｅ緞涓嶄竴銆備慨锛氱粺涓€ Number.isInteger銆?
+- 宸茬煡闄愬埗锛堟湭鏀癸級锛歳eorder 璇?鏀?鍐欐棤琛岄攣锛堝绠＄悊鍛樺苟鍙戜涪鏇存柊锛屾渶缁堜粛鍚堟硶鎺掑垪锛夛紱鏃犲彉鍖栧悓姝ャ€? 涓ā鍨嬪凡鏇存柊銆嶆枃妗堟槗璇В銆?
+
+### 閫冮€?鏁欒
+- Qoder 缂栬緫宸ュ叿涓嶈兘鍐?workspace 澶?worktree 鈫?Node 琛ヤ竵鎵ц鍣ㄦā寮忥紙msort-patch.js + spec.js锛夈€?
+- --ignore-scripts 璺宠繃 ffmpeg postinstall 鈫?QM-1 鎵撳寘缂轰簩杩涘埗锛屼粠鍏变韩鏍规暣鐩綍 Copy-Item 琛ャ€?
+- catalog 娴嬭瘯 Bearer 璧?Logto 401 鈫?鏀?X-Catalog-Key + monkeypatch catalog_api_key銆?
+- 骞跺彂浼氳瘽鎶㈠崰鍚庡彴 terminal + 閲嶇疆 cwd 鈫?鍓嶅彴闀夸换鍔?+ 姣忔潯鍛戒护鏄惧紡 Set-Location銆?
+
