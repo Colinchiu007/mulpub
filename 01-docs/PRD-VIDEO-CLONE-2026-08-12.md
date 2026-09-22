@@ -412,6 +412,7 @@ VideoClonePipeline：
 |---|---|---|---|---|
 | VIDEOCLONE_INVALID_REQUEST | preflight | 否 | 请求参数不合法，请检查输入后重试 | Invalid request, check your input and retry |
 | VIDEOCLONE_SOURCE_UNSUPPORTED | ingest | 否 | 暂不支持该来源，请使用支持的平台或本地文件 | Source not supported, use a supported platform or a local file |
+| VIDEOCLONE_LINK_BLOCKED | ingest | 否 | 该链接指向内网或本机地址，出于安全限制无法采集，请改用公开可访问的视频链接 | This link points to a private or local address and is blocked for security. Use a publicly accessible video link |
 | VIDEOCLONE_LINK_UNAVAILABLE | ingest | 是 | 链接无法访问，请确认链接有效后重试 | Link unavailable, verify the link and retry |
 | VIDEOCLONE_LINK_PRIVATE | ingest | 否 | 该视频为私密内容，无法获取 | This video is private and cannot be fetched |
 | VIDEOCLONE_LINK_MEMBERSHIP | ingest | 否 | 该视频需要会员权限，无法获取 | This video requires membership access |

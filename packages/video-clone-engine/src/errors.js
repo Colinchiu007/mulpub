@@ -8,6 +8,9 @@
 const ERROR_CATALOG = Object.freeze({
   VIDEOCLONE_INVALID_REQUEST: { phase: 'preflight', retryable: false, userMessageKey: 'videoClone.error.invalidRequest' },
   VIDEOCLONE_SOURCE_UNSUPPORTED: { phase: 'ingest', retryable: false, userMessageKey: 'videoClone.error.sourceUnsupported' },
+  // P1-11b: SSRF 守卫拦截（内网/回环/元数据地址）独立成码，不复用 LINK_PRIVATE ——
+  // 否则用户会看到「该视频为私密内容」，把安全拦截误判为内容权限问题。
+  VIDEOCLONE_LINK_BLOCKED: { phase: 'ingest', retryable: false, userMessageKey: 'videoClone.error.linkBlocked' },
   VIDEOCLONE_LINK_UNAVAILABLE: { phase: 'ingest', retryable: true, userMessageKey: 'videoClone.error.linkUnavailable' },
   VIDEOCLONE_LINK_PRIVATE: { phase: 'ingest', retryable: false, userMessageKey: 'videoClone.error.linkPrivate' },
   VIDEOCLONE_LINK_MEMBERSHIP: { phase: 'ingest', retryable: false, userMessageKey: 'videoClone.error.linkMembership' },

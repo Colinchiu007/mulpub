@@ -1747,6 +1747,7 @@ export default {
     error: {
       invalidRequest: '请求参数不合法，请检查输入后重试',
       sourceUnsupported: '暂不支持该来源，请使用支持的平台或本地文件',
+      linkBlocked: '该链接指向内网或本机地址，出于安全限制无法采集，请改用公开可访问的视频链接',
       linkUnavailable: '链接无法访问，请确认链接有效后重试',
       linkPrivate: '该视频为私密内容，无法获取',
       linkMembership: '该视频需要会员权限，无法获取',
