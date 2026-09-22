@@ -415,4 +415,20 @@ describe('rpa-view-platforms — 视频发布页字段填充时序（2026-09 E2E
     const formWait = body.slice(uploadIdx, titleIdx)
     expect(formWait).toContain('_waitForCondition')
   })
+
+  // smoke4（2026-09-23）实锤：旧上传完成判定 !p||s 在快手/B站立即为真（页面根本
+  // 不用 progress class），导致还在上传落地页就点发布→全部失败。统一改为
+  // 共享的强判定：进度元素不可见 且（可见 video 预览 或 已跳转编辑页 URL）。
+  it('视频上传完成强判定存在于 generic 与 douyin 两条链路', () => {
+    const source = fs.readFileSync(require.resolve('./rpa-view-platforms'), 'utf-8')
+    expect(source).toMatch(/async\s+_waitForVideoUploadComplete\s*\(/)
+    const genericStart = source.indexOf('async _publish_generic')
+    const genericEnd = source.indexOf('\n  // ========== ', genericStart + 10)
+    const genericBody = source.slice(genericStart, genericEnd > 0 ? genericEnd : undefined)
+    expect(genericBody).toContain('this._waitForVideoUploadComplete(')
+    const douyinStart = source.indexOf('async _publish_douyin')
+    const douyinEnd = source.indexOf('\n  async _', douyinStart + 10)
+    const douyinBody = source.slice(douyinStart, douyinEnd > 0 ? douyinEnd : undefined)
+    expect(douyinBody).toContain('this._waitForVideoUploadComplete(')
+  })
 })

@@ -194,6 +194,19 @@ const platformsMixin = {
     } catch (e) { log.warn('RpaView', '[' + platform + '] post-nav dialogs: ' + e.message) }
   },
 
+  // ========== 视频上传完成强判定 ==========
+  // 旧判定 !progress||success 在快手/B站等平台立即为真（页面不用 progress class），
+  // 导致还在上传落地页就继续填字段/点发布，全部失败（2026-09 smoke4 实锤）。
+  // 强判定：上传启动宽限期后，等待「进度类元素不可见 且（出现可见 <video> 预览 或
+  // 已跳转到编辑页 URL）」；拿不到信号时继续尽力而为（不阻断流程）。
+  async _waitForVideoUploadComplete(win, platform, timeoutMs) {
+    await this._sleep(5000) // 上传启动宽限期：给进度元素渲染时间，避免首拍即判定完成
+    const cond = 'function(){var pv=[...document.querySelectorAll("[class*=progress],[class*=uploading]")].filter(function(e){return e.offsetParent&&e.clientHeight>0}).length;var vv=[...document.querySelectorAll("video")].some(function(e){return e.getClientRects().length>0&&e.clientWidth>100});return pv===0&&(vv||location.href.indexOf("post/video")!==-1)}'
+    const ok = await this._waitForCondition(win, cond, timeoutMs || 420000, 2000)
+    if (!ok) log.warn('RpaView', '[' + platform + '] video upload-complete signal not detected (preview/url), continuing best-effort')
+    return ok
+  },
+
   // ========== P2-B: Config loading ==========
   _getPlatformConfig(platform) {
     if (!_platformConfigInstance) {
@@ -278,8 +291,7 @@ const platformsMixin = {
               uploadDone = await this._waitForCondition(win, 'function(){var t=(document.body&&document.body.innerText)||"";var hasPreview=/预览|编辑|描述|简介|标题/.test(t);var ed=document.querySelector("[contenteditable=true],[data-lexical-editor=true]");var btn=[...document.querySelectorAll("button")].find(function(b){return (b.innerText||"").trim()==="发布"&&!b.disabled});return hasPreview&&(ed!==null||btn!==null)}', 180000, 1000)
               if (!uploadDone) log.warn('RpaView', '['+platform+'] upload complete wait timeout (video may still be processing)')
             } else {
-              const done = await this._waitForCondition(win, 'function(){let p=document.querySelector(\'[class*="progress"],[class*="uploading"]\');let s=document.querySelector(\'[class*="success"],[class*="complete"]\');return !p||s!==null}', 300000)
-              if (!done) log.warn('RpaView', '['+platform+'] upload timeout')
+              await this._waitForVideoUploadComplete(win, platform)
             }
             // 编辑器表单就绪等待：上传完成后平台 SPA 渲染标题/简介字段有延迟，
             // 不等直接填会全部 timeout（B站/快手上传完成后才切到编辑表单）
@@ -883,8 +895,7 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       if (!(await this._waitForElement(win,'input[type="file"]',15000))) { log.warn('RpaView', '[douyin] no file input url=' + win.webContents.getURL()); return {success:false,error:'no file input',platform:'douyin'} }
       await this._setFileInput(win,article.video_path)
       this._emitProgress('douyin','waiting upload...',30)
-      const done = await this._waitForCondition(win,'function(){let p=document.querySelector(\'[class*="progress"]\');let s=document.querySelector(\'[class*="upload-success"],[class*="success"]\');return !p||s!==null}',300000)
-      if (!done) log.warn('RpaView','douyin: upload timeout')
+      await this._waitForVideoUploadComplete(win,'douyin')
       this._emitProgress('douyin','video uploaded',50)
     }
 
