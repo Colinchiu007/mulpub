@@ -151,12 +151,12 @@ describe('http-login-checker', () => {
       expect(result).toEqual({ supported: true, valid: true, code: 'CHECK_LOGIN_SUCCESS_HTTP_API' })
     })
 
-    it('公众号 loginpage HTML 无 token/uin → expired（回归：Cookie 过期但后台骨架仍 200）', async () => {
+    it('公众号 loginpage HTML 无 token 但含明确登录页特征 → expired（回归：Cookie 过期但后台骨架仍 200）', async () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
         headers: new Map(),
-        text: () => Promise.resolve('<html><body>登录</body></html>')
+        text: () => Promise.resolve('<html><body><div class="login_title">请使用微信扫码登录</div></body></html>')
       }))
 
       const result = await checker.checkLoginViaHttpApi('wechat_mp', [{ name: 'slave_sid', value: 'expired' }])
