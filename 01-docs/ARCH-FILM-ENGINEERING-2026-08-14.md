@@ -187,3 +187,32 @@ film_export_prompts → JSON/Markdown 导出（格式非法报错）
 
 - 移除 PIPELINES 条目 + container.setup 注册调用即可完全禁用；删除 film-kit 目录不影响既有功能。
 - 所有新通道独立命名；路由懒加载；旧版本不受影响。
+
+---
+
+## 11. 全量语料与全片量产扩展（2026-09-23，openspec change `film-full-corpus-production`）
+
+> 本节为基线修正 + 增量架构。§1/§3 的"153 代表镜 / 随包 ≤5MB / 10 IPC 通道"口径在此升级为：全量 **6,558 采纳版镜（6,500 唯一视频提示词 / 162 场景 / video job 133,053）**，kit 两级落点，film-engineering 通道 **16 个**。详版规格见 `PRD-FILM-FULL-CORPUS-PRODUCTION-2026-09-23.md`。
+
+### 11.1 L1 全量导入与两级 kit
+
+- 导入器 `scripts/film-engineering/fetch-hell-grind-kit.py` 新增 `--full`（每场景全部唯一提示词入库，规范化 SHA1 去重 + 末次 completed 采纳版 + 图片模型黑名单）、`--dry-run`（对账统计与真实导入同源）、`--with-images`；落盘 `.tmp`→rename 原子写 + `import-report.json`。
+- **两级加载链**（`kit-loader.loadFilmKitChain`）：`userData-full`（共享锚点 `<userData>/film-kit/`，≈80MB）优先 → 损坏自动回退 `asar-bundled` 精简 kit（123 镜代表集，随包 ≈9MB），回退经 log 可见非静默；两级全坏抛 `FILM_KIT_UNAVAILABLE`。`getStatus()` 新增 `kitSource` 显示项。
+- schema 扩展字段：`durationSec/width/height/aspectRatio("W:H")/model/resultUrl/iterationCount/adoptedJobAt`；prompt 上限统一常量 `FILM_PROMPT_MAX_LEN=50000`（超限拒绝入库进 rejected）；manifest 新增 `allowedHosts`（下载白名单单一来源，D7）。
+- 查询分页双形态：缺省全量数组（回归锚）/ `{limit,offset}` → `{shots,total,limit,offset}`；`FULL_LOAD_LIMIT=500`、`MAX_PAGE_LIMIT=200`、`DEFAULT_PAGE_LIMIT=100`；前端虚拟滚动。
+
+### 11.2 L2 renderManifest 跨 run 合成
+
+`film_render` 输入扩展为镜头清单 `[{shotId,path,sourceKind:'generated'|'downloaded',durationSec,orderIndex}]`（上限 10,000），条目可跨批次 run 目录与下载通道混合；磁盘为准 fail-closed（缺条目列清单拒绝）；规格一致零重编码 concat / 不一致最小归一（h264/1280x720）；executor 入口自确保 run 目录（mkdirSync recursive）。六阶段流水线前四阶段对非空 renderManifest **直通**（passthrough/manifestMode，fail-closed 负锚保留），generate_videos 直通返回显式 `checkpoint:false`，引擎闸判定改 `checkpoint !== false`（只放宽显式 false，13 条既有流水线零影响）。
+
+### 11.3 L3 全量出片驱动与回收通道
+
+- `production-driver.js`：`PRODUCTION_BATCH_SIZE=10` 保序切批；批次 runId 确定性派生 `prod-<taskId>-b<idx>`；台账 `<userData>/film-production/<taskId>.json`（批/镜双层状态）；断点续跑以**磁盘产物 probe 为事实源**（不信任台账乐观状态）。
+- IPC 新增 5 invoke + 1 event：`production-plan`（批次/磁盘 8MB·镜/墙钟 300s·镜预估）、`production-run-batch`（逐批确认后才计费）、`production-status`（只读恢复）、`download-recycled`（回收，分片 ≤40/片）、`retry-shot`（单镜重试，prompt 主进程按 runId 取原文）、`production-update`（事件，500ms 节流、负载只带计数不带 shotIds）。许可证闸边界：仅 `pipeline:startOrchestrated`（compose）受闸。
+- `shot-downloader.js` 安全合同：只信 kit `allowedHosts` 精确清单；https-only + DNS 公网复核双防线（SSRF）；临时文件 → ffprobe 校验 → 原子 rename。
+- 前端出片面板（FilmEngineeringView + `useFilmProduction`）：plan-ready → batching（逐批确认卡片 + 批/镜双层进度 + 重试/续跑/回收引导）→ compose → done；locales `filmEngineering.production.*` zh/en 各 44 键成对。
+
+### 11.4 验证基线
+
+集成 E2E 3/3（真实 kit 链 + 12 镜两批过闸 + 真实 ffmpeg concat + HTTP 回收混合出片）；真实 provider 冒烟（5 镜出批 + 5 镜 cloudfront 回收 + compose completed，final.mp4 ffprobe 实测 94.58s/1280x720/h264+aac）；回归 17 文件 220/220、eslint 0；QM-1 打包三验证（全量 kit 确认未入 asar）。
+

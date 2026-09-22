@@ -95,9 +95,13 @@
 
 ## 10. 文档与收尾
 
-- [ ] 10.1 文档：模块文档 + 用户指南（全量导入操作、两级 kit 行为、全量出片/回收流程、磁盘预期）、CHANGELOG
-- [ ] 10.2 OQ 处置：OQ1（非采纳版）/OQ2（会话级授权）/OQ3（图片扩充）显式标记 resolved/wontfix + 依据；design 假设记录回查
-- [ ] 10.3 spec 覆盖审计：delta 每需求每场景 ↔ 测试映射核查；proposal 基线 vs 现状差异复核（禁重复规格化）
-- [ ] 10.4 经验沉淀：本 change 踩坑/方法论写入 `.learnings/` 与记忆
+- [x] 10.1 文档：模块文档 + 用户指南（全量导入操作、两级 kit 行为、全量出片/回收流程、磁盘预期）、CHANGELOG
+  <!-- 2026-09-23：新增 PRD-FILM-FULL-CORPUS-PRODUCTION-2026-09-23.md（详版：CLI 操作/schema 校验/两级 kit/manifest 合同/出片流程/IPC 表/交互显示项/44 键提示文字/磁盘预期/闸边界）；ARCH-FILM-ENGINEERING 追加 §11；CHANGELOG 顶部条目；ipc-manifest 补 6 通道（download-recycled/production-plan/update event/run-batch/status/retry-shot）；learnings.md 沉淀段落。 -->
+- [x] 10.2 OQ 处置：OQ1（非采纳版）/OQ2（会话级授权）/OQ3（图片扩充）显式标记 resolved/wontfix + 依据；design 假设记录回查
+  <!-- 2026-09-23：design.md OQ1 wontfix / OQ2 deferred / OQ3 resolved（依据逐条写入原行）；假设记录 L3 验收基准的 2,795 旧口径同步修正为 6,558（并锚定 9.3 冒烟 94.58s 实证）。 -->
+- [x] 10.3 spec 覆盖审计：delta 每需求每场景 ↔ 测试映射核查；proposal 基线 vs 现状差异复核（禁重复规格化）
+  <!-- 2026-09-23：delta 5 需求/16 场景全映射——kit schema×3→kit-loader.test.js（两级链/fail-closed/上限边界）；查询契约×3→shot-library+service+IPC pageOpts 守卫（分页双形态）；合成合同×6→film-render(.manifest-int)+e2e-int（兼容/concat/normalize/聚合/越界拒绝/缺镜拒绝）；出片驱动×3→production-driver 19/19+film-video-checkpoint-integration（144→15 批/断点 probe/单批隔离）；下载通道×3→shot-downloader+e2e-int 9.2+9.3 真实 cloudfront。proposal 基线（2 ADDED+3 MODIFIED）与 delta 实际一致，renderManifest 上限 5,000→10,000 修正已回写，无重复规格化。 -->
+- [x] 10.4 经验沉淀：本 change 踩坑/方法论写入 `.learnings/` 与记忆
+  <!-- 2026-09-23：01-docs/learnings.md 顶部新增《真实冒烟是 mock 测试的照妖镜》段（三缺口/checkpoint:false 哨兵合同/IPC 节流/断点事实源/对账口径/工程环境坑）；外部记忆 ~/.gstack learnings.jsonl + EverOS :8000 add/flush 经脚本双写；内置记忆 UpdateMemory。 -->
 - [ ] 10.5 归档前置：1.1 的前置 change 状态、10.1-10.4 完成核查 + 无未勾任务后 archive 本 change
 - [ ] 10.6 远端收尾：PR（关联本 change）→ 盯 CI 全绿 → auto-merge → `git merge-base --is-ancestor <合并提交> origin/main` 验证，记录 remoteStatus

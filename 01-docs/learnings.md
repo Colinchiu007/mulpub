@@ -1,3 +1,12 @@
+## 真实冒烟是 mock 测试的照妖镜：manifest 直通三缺口与引擎闸放宽合同（film-full-corpus-production，2026-09-23）
+
+- **现象（pitfall）**：组 8 前端/mock 集成测试 614 用例全绿，但 9.3 真实主进程 compose 冒烟在 load_template 阶段即 fail——前四阶段执行器只认 kitDir/selectedShots，不认 renderManifest；generate_videos 直通后引擎仍按 checkpointRequired 暂停成本闸；render manifest 模式全新 runId 目录不存在 writeConcatList ENOENT。三个缺口全部逃过 mock 层（mock stageExecutor 直接返回成功，不经真实 PIPELINES 编排）。
+- **修复模式（pattern）**：直通分支一律"非空数组才直通 + fail-closed 负锚保留"（无 manifest 无选择仍拒绝），直通输出带 `passthrough:true, manifestMode:true` 可审计；引擎暂停条件从 truthy 改为显式哨兵——executor 返回 `checkpoint:false` 才跳过闸（`normalizedResult.checkpoint !== false`），缺省/truthy 行为不变，13 条既有流水线零影响，并配"正常流仍在成本闸 paused"回归锚。
+- **可推广结论**：任何"绕过既有闸/检查"的直通设计，优先用**显式 false 哨兵**而不是删检查或加布尔开关透传；放宽条件的 PR 必须同时带负锚测试。涉及多阶段编排的功能，mock 集成测试收口前必须补一次真实链路（真实 provider 或真实 ffmpeg/HTTP 至少一项）冒烟，把编排层、目录布局、闸策略全部过一遍。
+- **IPC 事件负载纪律（pattern）**：高频进度事件（逐镜）经固定窗口节流（EVENT_MERGE_MS=500 取最新计数、doneCount 单调不回退），负载只带计数/索引不带 ID 数组，并写守卫断言——防大 kit 规模（6,558 镜）下 IPC 序列化膨胀。
+- **断点续跑事实源（pattern）**：台账记录意图，磁盘产物记录事实；resume 用 probe(runId) 复算 missing 清单，不信任乐观状态。runId 确定性派生（`prod-<taskId>-b<idx>`）是两者能对齐的前提。
+- **对账口径教训（pitfall）**：语料取证用 prompt 前缀 500 字符截断去重得 2,795，完整规范化 SHA1 实为 6,500——去重键的截断策略直接决定数量级结论；统计口径与导入口径必须同一函数实现（dry-run 与 build 同源），并在正式导入前对账。
+- **工程环境（pitfall，Windows/agent）**：SearchReplace/Write 对 workspace 外 worktree 文件报 45405，一律 staging 编辑 + Copy-Item 落盘，勾选 worktree tasks.md 用 node 字符串替换脚本；后台 Bash 命令可能卡在 PowerShell `>>` 续行提示实际未执行（本会话两次），长命令用前台大 timeout 并以产物时间戳核实；`@electron/asar` 的 `extractFile` API 对 152MB 生产包误报 not found，asar 内容验证改走 `pnpm exec asar extract` CLI 到 temp 再直读。
 ## CI-only 测试超时：全局 testTimeout 与插桩/满载放大叠加的坑（fix-main-ci-red，2026-09-21）
 
 - **背景**：main 两个 CI 红灯均为「本地绿、CI 红」的超时类失败：① `pixel-diff-baseline-guard.test.js`「现存全部真实基线均通过守卫」在 QG Coverage job（v8 插桩）下超全局 10s testTimeout（本地无插桩实测 ~2.2s，21 个基线 PNG 共 3.3MB 逐个解码）；② `logger.test.js`「appendFile 回调永不触发时写队列超时兜底」在 Desktop shard 满载下 1s 固定重试窗不够。

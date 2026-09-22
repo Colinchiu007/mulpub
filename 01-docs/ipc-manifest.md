@@ -118,11 +118,17 @@
 | `film-engineering:copy-text` | IPC invoke | (event, ...args) | { code, data, message } |
 | `film-engineering:copy-texts` | IPC invoke | (event, ...args) | { code, data, message } |
 | `film-engineering:doctrine` | IPC invoke | (event, ...args) | { code, data, message } |
+| `film-engineering:download-recycled` | IPC invoke | (event, ...args) | { code, data, message } |
 | `film-engineering:export` | IPC invoke | (event, ...args) | { code, data, message } |
 | `film-engineering:generate-selected` | IPC invoke | (event, ...args) | { code, data, message } |
 | `film-engineering:get-shot` | IPC invoke | (event, ...args) | { code, data, message } |
 | `film-engineering:list-scenes` | IPC invoke | (event, ...args) | { code, data, message } |
 | `film-engineering:list-shots` | IPC invoke | (event, ...args) | { code, data, message } |
+| `film-engineering:production-plan` | IPC invoke | (event, ...args) | { code, data, message } |
+| `film-engineering:production-update` | IPC event (main→renderer) | (payload: 批/镜计数，不含 shotIds) | — |
+| `film-engineering:production-run-batch` | IPC invoke | (event, ...args) | { code, data, message } |
+| `film-engineering:production-status` | IPC invoke | (event, ...args) | { code, data, message } |
+| `film-engineering:retry-shot` | IPC invoke | (event, ...args) | { code, data, message } |
 | `film-engineering:status` | IPC invoke | (event, ...args) | { code, data, message } |
 
 ## generation-feedback
