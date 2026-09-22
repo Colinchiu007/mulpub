@@ -220,6 +220,9 @@ function registerFilmRenderStage (pipelineEngine) {
       emitStageStart(onProgress, { messageKey: 'stageProgress.filmRenderStart' })
       const shots = (context && Array.isArray(context.selectedShots)) ? context.selectedShots : []
       const runDir = getFilmRunDir(runId)
+      // run 目录自确保：收口合成 manifest 模式使用全新 runId，目录尚不存在 →
+      // 否则 writeConcatList/归一产物落盘 ENOENT（9.3 冒烟回归）；既有单批路径幂等无影响。
+      fs.mkdirSync(runDir, { recursive: true })
       const probe = _testProbe || probeClip
       const tool = _testRunTool || runTool
 

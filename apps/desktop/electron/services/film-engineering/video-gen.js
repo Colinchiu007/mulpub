@@ -206,6 +206,9 @@ function registerFilmVideoStages (pipelineEngine) {
       if (shots.length === 0 && Array.isArray(context && context.renderManifest) && context.renderManifest.length > 0) {
         return {
           success: true,
+          // 零计费直通 run 对成本确认入口闸无意义：显式声明 checkpoint:false，
+          // 引擎（_executeStage）尊重该字段不再按 stageDefs.checkpointRequired 暂停（9.3 冒烟回归）。
+          checkpoint: false,
           output: { manifestMode: true, entryCount: context.renderManifest.length },
         }
       }

@@ -84,10 +84,14 @@
 
 ## 9. E2E 与真实冒烟
 
-- [ ] 9.1 CDP E2E（模拟 provider）：全量 kit 加载 → 分页浏览 → 12 镜全量出片（2 批过闸）→ manifest 合成 final.mp4 成功
-- [ ] 9.2 回收链路 E2E（POC 存活 URL）：5 镜下载验证 + 2 镜生成产物混合出片
-- [ ] 9.3 真实 provider 小规模冒烟：1 批（≤10 镜）重生成 + 5 镜回收混合成片，产物与过程证据落 `.agent_context/film-fix/` 并回填 change
-- [ ] 9.4 QM-1 打包验证：`electron-builder --win --dir` 成功；确认全量 kit **未**入 asar（asar 清单抽查）、精简 kit 随包完好
+- [x] 9.1 CDP E2E（模拟 provider）：全量 kit 加载 → 分页浏览 → 12 镜全量出片（2 批过闸）→ manifest 合成 final.mp4 成功
+  <!-- 证据：film-engineering.e2e-int.test.js 9.1a/9.1b（真实 kit 链 userData 全量优先 + 12 镜两批过闸 + 真实 ffmpeg concat final.mp4），3/3 通过；冒烟修复后全量回归 17 文件 220/220（2026-09-23） -->
+- [x] 9.2 回收链路 E2E（POC 存活 URL）：5 镜下载验证 + 2 镜生成产物混合出片
+  <!-- 证据：e2e-int 9.2（本机临时 HTTP 真实下载 + 混合 manifest）；另有 9.3 真实 cloudfront 5 镜回收超额覆盖 -->
+- [x] 9.3 真实 provider 小规模冒烟：1 批（≤10 镜）重生成 + 5 镜回收混合成片，产物与过程证据落 `.agent_context/film-fix/` 并回填 change
+  <!-- 证据：9.3-EVIDENCE.md + g9s-state.json（taskId=g9s-smoke-0923）：5 镜真实出批 done + 5 镜 cloudfront 回收 ok + compose run mud8v775_admc completed，final.mp4 ffprobe 实测 94.58s/1280x720/h264+aac。冒烟暴露 3 集成缺口（前四阶段不认 manifest / 成本闸误暂停 / runDir ENOENT），TDD 修复 RED 3-fail→GREEN 4/4（film-manifest-compose-run.test.js） -->
+- [x] 9.4 QM-1 打包验证：`electron-builder --win --dir` 成功；确认全量 kit **未**入 asar（asar 清单抽查）、精简 kit 随包完好
+  <!-- 证据：首轮三验证通过（2026-09-23 早）；冒烟修复后（electron/services 4 文件变更）再跑 --win --dir EXIT=0 + asar 清单抽查（全量 kit 不入包、精简 kit 完好），见 9.3-EVIDENCE.md -->
 
 ## 10. 文档与收尾
 
