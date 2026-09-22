@@ -8,7 +8,7 @@
 |------|------|
 | 原片时长（kit filmMeta.durationSec） | 5,706s = 95.1 min |
 | 视频 job 总数 | 133,083（seedance_2_0 占 132,242） |
-| **唯一分镜提示词（按 prompt 去重）** | **2,795**（151 个含视频文件夹） |
+| **唯一分镜提示词（按 prompt 去重）** | ~~2,795~~ → **6,500 / 采纳版 6,558 镜**（apply 期 1.3 对账修正：2,795 系取证时用前缀 ~500 字符截断去重（prefix500 实测 2,768 吻合），完整规范化（trim+折叠空白）SHA1 口径为 6,500；视频 job 收紧排除图片模型后 133,053，与取证 133,083 相符） |
 | 当前 kit 导入镜数 | 153（每场景文件夹仅取 1 代表镜，`pick_representative`） |
 | 丢失率 | 94.5% |
 | 视频 job 平均时长 | 12.4s（params.duration 5~30s） |
@@ -22,7 +22,7 @@
 ## Goals / Non-Goals
 
 **Goals**
-- G1（L1）：kit 全量导入——每场景全部唯一分镜（≈2,795 镜）+ 采纳版启发式 + 规格元数据（duration/宽高/画幅/model/resultUrl），数据落点迁至用户数据目录。
+- G1（L1）：kit 全量导入——每场景全部唯一分镜（≈6,558 镜，1.3 对账修正口径）+ 采纳版启发式 + 规格元数据（duration/宽高/画幅/model/resultUrl），数据落点迁至用户数据目录。
 - G2（L2）：`film_render` 接受跨 run 的 renderManifest，保持磁盘为准 fail-closed 与既有拼接合同；单批模式零破坏。
 - G3（L3）：全量分批出片驱动（自动切批、逐批过成本闸、台账续跑）+ 原片 resultUrl 下载回收通道，支持"回收做基准 + 重生成逐镜替换"混合工作流，终态可产出 95 分钟级全片 final.mp4。
 
@@ -49,7 +49,7 @@
 主 spec 的 20,000 与 kit 既有 39,470 字符镜、fetch 脚本注释"上限 50000"三方矛盾。统一为导出常量 50,000（导入器、loader schema、IPC 校验、前端展示截断阈值引用同一常量），spec 同步修订（见 delta）。超限镜导入时拒绝并报告（语料实测最大 39,470，无实际受害者）。
 
 ### D5: renderManifest 契约与受控根校验
-`context.renderManifest: [{ shotId, path, sourceKind: 'generated'|'downloaded', orderIndex }]`，`orderIndex` 从 0 连续。path 必须落在 `film-engineering/` 媒体根内：fs 实时 `realpath` 规范化后前缀比对（复用 story2video media-paths 模式），拒绝符号链接/junction 逃逸出根。无 manifest 时走既有 selectedShots 单批路径——**代码路径分叉仅在输入解析层，拼接引擎（规格探测→直拷/归一）完全复用**。manifest 规模上限 5,000 条（防御性，语料 2,795）。
+`context.renderManifest: [{ shotId, path, sourceKind: 'generated'|'downloaded', orderIndex }]`，`orderIndex` 从 0 连续。path 必须落在 `film-engineering/` 媒体根内：fs 实时 `realpath` 规范化后前缀比对（复用 story2video media-paths 模式），拒绝符号链接/junction 逃逸出根。无 manifest 时走既有 selectedShots 单批路径——**代码路径分叉仅在输入解析层，拼接引擎（规格探测→直拷/归一）完全复用**。manifest 规模上限 10,000 条（防御性；1.3 对账修正后语料采纳版 ≈6,558 镜，原 5,000 会误拒全集）。
 
 ### D6: 批次台账持久化（断点续跑的唯一事实源）
 全量出片任务在 userData `film-engineering/production/<taskId>/ledger.json` 记录：批次清单（batchIndex → runId → shotIds → 每镜状态）。重入协议：读台账 → 对"已完成"批次做**磁盘产物存在性复核**（不信台账内存态）→ 仅对未完成镜发起调用。这与既有"merge 信磁盘不信内存态"（video-gen D 系决策）同构。应用崩溃/重启后 UI 从台账恢复进度视图。
@@ -58,7 +58,7 @@
 仅 https；Host 限定 kit resultUrl 来源域（导入时登记 `higgsfield` CDN 域到 kit 元数据的 allowedHosts，下载器只信该清单，不通配）；单文件上限 500MB、总并发 4、流式写 `.part` 临时文件，ffprobe 验证通过才 rename 为正式片段（杜绝半成品入库）；失败/超时删除临时文件并标记该镜。UI 显式触发，禁止浏览时自动预取。
 
 ### D8: 大规模列表虚拟化 + 查询分页
-2,795 镜与单场景 241 镜使现有三栏浏览需要：listShots 分页（limit/offset + total，见 specs）；前端分镜列表虚拟滚动；分镜树计数直接取 manifest scenes[].count（全量导入后 count 即真实镜数，无需新接口）。
+≈6,558 镜（修正口径）与单场景数百镜使现有三栏浏览需要：listShots 分页（limit/offset + total，见 specs）；前端分镜列表虚拟滚动；分镜树计数直接取 manifest scenes[].count（全量导入后 count 即真实镜数，无需新接口）。
 
 ### D9: 成本闸保持逐批确认（不做批量放行）
 144 镜全量 = 15 批 = 15 次 costCheck 确认。保守决策：成本闸是计费护栏，跨批"一次授权全部"会让单批超支预期失效。缓解：确认面板显示"剩余批次数与累计已确认预算"，减少用户心智负担；若实测 15 次点击不可接受，后续 change 再评估会话级授权（记 OQ2）。
@@ -70,7 +70,7 @@ B 通道（原片回收）零生成成本、几分钟可得 95 分钟基准成�
 
 - **CDN 链接时效**：resultUrl 可能已过期/需要签名。缓解：回收通道失败逐镜降级生成路径；实施任务含"10 镜下载 POC 先行"，若 POC 证实 URL 全灭，L3 范围收缩为纯生成路径（不动 L1/L2）。
 - **墙钟时长**：144 镜重生成按并发 2、单镜 deadline 10min，最坏 15 批 × 5 波 × 10min ≈ 12.5 小时（免费档）。台账续跑使其可跨天执行。
-- **磁盘占用**：2,795 镜全回收 ≈ 数十 GB；UI 显示占用估算并在发起时提示；产物清理沿用媒体根既有清理策略。
+- **磁盘占用**：≈6,558 镜全回收（POC 实测单镜 4.5-8.5MB）≈ 30-55GB；UI 显示占用估算并在发起时提示；产物清理沿用媒体根既有清理策略。
 - **IPC 负载**：单镜 prompt 最大 39k 字符，全量列表响应需分页上限保护（specs 已定）。
 - **schema 演进**：两级 kit + 扩展字段使校验面变大；用同一 loader 单测矩阵（精简包/全量包/损坏回退）覆盖。
 
@@ -90,5 +90,5 @@ B 通道（原片回收）零生成成本、几分钟可得 95 分钟基准成�
 ## 假设记录（grilling 结论外的自主判断）
 
 - "多场景压缩镜"表述修正：Scene 42-50 等是原作者文件夹命名（一场内多镜），非提示词压缩；真实丢失机制 = 每文件夹只导 1 镜（D3 已细化到唯一 prompt）。
-- 2,795 为"唯一视频分镜"口径（视频 job 的 prompt 去重）；图像 job 的 prompt 不计。
+- ~~2,795~~ 取证口径已被 1.3 对账推翻：其为前缀截断去重结果；完整规范化口径 ≈6,500 唯一 prompt / 6,558 采纳版镜（图像 job 的 prompt 不计，且 soul_cinematic 等图片模型已从视频口径排除）。
 - L3 的"全片"验收基准：以 Hell Grind 采纳版全集（≈2,795 镜中用户勾选子集）经 manifest 合成可播放 final.mp4，时长与所选镜 durationSec 之和一致。

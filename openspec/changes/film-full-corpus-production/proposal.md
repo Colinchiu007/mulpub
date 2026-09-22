@@ -9,7 +9,7 @@
 - **L1 全量语料导入**：导入脚本升级为"每场景全量唯一提示词导入"——按规范化 prompt 去重（同 prompt 的多次迭代取末次已完成 job 为采纳版），每镜携带 `duration/width/height/aspectRatio/model/resultUrl/iterationCount` 规格元数据；kit 数据落点从随包 asar（<6MB 预算）迁移到用户数据目录（共享数据锚点），随包仅保留精简索引或回退包；加载校验 schema 同步扩展（既有 `prompt <= 20000 字符` 上限与现状矛盾——kit 已有 39,470 字符镜——本次一并收口为统一上限常量并显式化）。
 - **L2 render 跨 run 聚合契约**：`film_render` 输入从"本 run 目录扫描 shot_NNN"扩展为**镜头清单（render manifest）**：`[{shotId, path, sourceKind: generated|downloaded, durationSec, orderIndex}]`，条目可来自多个 batch run 目录或下载通道；保持 fail-closed（缺条目即失败并列清单）与既有规格一致零重编码 / 不一致最小归一的拼接合同；单 run ≤10 镜路径保持向后兼容。
 - **L3 全片量产驱动**：新增"全量出片"能力：将 N 镜按 `MAX_VIDEO_BATCH=10` 自动切分为批次子 run，逐批走 generate_videos 成本确认闸（每批确认前零计费），聚合各批产物到统一渲染目录，末尾单次 render 产出全片 final.mp4；同时提供**原片回收通道**：kit 镜的 `resultUrl`（原作者已生成视频，HiggsField CDN）可直连下载到本地受控媒体目录并作为 `sourceKind=downloaded` 进入 manifest，支持"B 回收做基准成片 + A 重生成逐镜替换"混合工作流。
-- 前端：分镜树/列表在 2,795 镜规模下虚拟化浏览；出片面板增加"全量出片（分批）"入口与批次进度视图。
+- 前端：分镜树/列表在 ≈6,558 镜规模下虚拟化浏览（1.3 对账修正口径）；出片面板增加"全量出片（分批）"入口与批次进度视图。
 - 无破坏性变更：现有单批 ≤10 镜出片流、单镜重试、kit 查询 IPC 契约不变（字段只增不改）。
 
 ## Capabilities
@@ -22,7 +22,7 @@
 
 - `film-engineering`：
   - "film-kit 数据资产 schema 与加载校验"——kit 全量导入后数据落点迁移（asar → userData）、schema 扩展（时长/画幅/采纳版元数据）、prompt 长度上限收口；
-  - "分镜库查询契约"——每场景多镜（153→2,795 规模）列表查询与响应约束；
+  - "分镜库查询契约"——每场景多镜（153→≈6,558 规模）列表查询与响应约束；
   - "成片合成与产物合同"——render 输入扩展为跨 run manifest（保持磁盘为准 fail-closed）；
   - 新增需求："全量分批出片驱动"、"原片 resultUrl 下载通道"。
 

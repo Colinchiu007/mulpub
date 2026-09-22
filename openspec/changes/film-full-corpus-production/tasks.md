@@ -6,16 +6,16 @@
 ## 1. 前置校验（顺序依赖与风险 POC）
 
 - [x] 1.1 **前置 change 收口**：完成 `film-engineering-video-gen` 的 `openspec sync/archive`（三同步：spec 归档 + CCG task + 质量节拍复盘），本 change specs delta 以合并后主 spec 复核基线（"成片合成与产物合同"等 4 条需求落进主 spec 后再动手）
-- [ ] 1.2 下载链接有效性 POC：抽样 10 条不同文件夹/时间段的 kit `resultUrl`，curl 下载 + ffprobe 探测，命中率记录到 `.agent_context/film-fix/`；若 URL 大面积失效，按 design 风险条款将 L3 收缩为纯生成路径并更新 proposal/design（不阻塞 L1/L2）
-- [ ] 1.3 导入 dry-run 统计基线：新导入器 `--dry-run` 输出唯一 prompt 数 / 采纳版镜数 / 超限镜数，与取证基线 2,795 对账（差异须可解释：规范化口径/去重键）
+  <!-- 2026-09-23 POC：抽 10 条不同月份桶 kit resultUrl（mp4），curl 下载+ffprobe 双验证 10/10 全命中（单镜 4.5-8.5MB），报告 .agent_context/film-fix/poc-resulturl-2026-09-23.json。回收通道可行，L3 不收缩。 -->
+  <!-- 2026-09-23 对账结论：完整规范化 SHA1 口径 uniqueVideoPrompts=6,500 / adoptedShots=6,558 / 超限 0；差异根因=取证 2,795 为前缀约500字符截断去重（prefix500 实测 2,768 吻合）。收紧视频口径排除 soul_cinematic 等图片模型后 totalVideoJobs=133,053 与取证 133,083 对齐。已回写 design/proposal/tasks 并 raise renderManifest 上限 5,000→10,000。证据 .agent_context/film-fix/dryrun-full-stats-20260923.json。 -->
 
 ## 2. L1 导入器扩容（scripts/film-engineering/fetch-hell-grind-kit.py，TDD pytest）
 
-- [ ] 2.1 RED：fixture jsonl 单测——prompt 规范化（trim+折叠空白）+ SHA1 去重键、同键末次 completed job 为采纳版、`iterationCount`/`adoptedJobAt` 统计、is_favourite 不被依赖
-- [ ] 2.2 GREEN：实现 `--full` 全量模式（每场景全部唯一分镜）；保留既有精选模式为默认（向后兼容）
-- [ ] 2.3 shot 字段扩展：`durationSec/width/height/aspectRatio/model/resultUrl/iterationCount/adoptedJobAt`；`FILM_PROMPT_MAX_LEN=50000` 常量与超限拒绝；film-manifest 写入 `allowedHosts`（resultUrl 域名清单）
-- [ ] 2.4 落点与原子性：`--out` 指定 userData kit 目录（默认共享锚点下 `film-kit/`），`.tmp` → rename 原子写 + `import-report.json`（镜数/场景数/拒绝清单）
-- [ ] 2.5 真实导入执行：对 `E:\hell-grind-full` 跑 `--full`，落盘全量 kit（shots≈2,795），报告归档 change 目录
+- [x] 2.1 RED：fixture jsonl 单测——prompt 规范化（trim+折叠空白）+ SHA1 去重键、同键末次 completed job 为采纳版、`iterationCount`/`adoptedJobAt` 统计、is_favourite 不被依赖
+- [x] 2.2 GREEN：实现 `--full` 全量模式（每场景全部唯一分镜）；保留既有精选模式为默认（向后兼容）
+- [x] 2.3 shot 字段扩展：`durationSec/width/height/aspectRatio/model/resultUrl/iterationCount/adoptedJobAt`；`FILM_PROMPT_MAX_LEN=50000` 常量与超限拒绝；film-manifest 写入 `allowedHosts`（resultUrl 域名清单）
+- [x] 2.4 落点与原子性：`--out` 指定 userData kit 目录（默认共享锚点下 `film-kit/`），`.tmp` → rename 原子写 + `import-report.json`（镜数/场景数/拒绝清单）
+- [ ] 2.5 真实导入执行：对 `E:\hell-grind-full` 跑 `--full`，落盘全量 kit（shots≈6,558，1.3 修正口径），报告归档 change 目录
 
 ## 3. L1 两级 kit 加载与 schema（apps/desktop/electron，TDD vitest）
 
@@ -29,7 +29,7 @@
 - [ ] 4.1 RED：listShots 分页单测——limit/offset/total、服务端上限保护、缺省全量时的负载上限、未知 sceneId 仍报错（不空数组冒充）
 - [ ] 4.2 GREEN：service + IPC + preload 透传分页参数（参数纯 JSON 脱壳，结构化克隆安全）
 - [ ] 4.3 前端：分镜列表虚拟滚动 + 分页拉取；场景计数取 `scenes[].count` 全量口径；新增文案 locales zh/en 成对（Gate 7）
-- [ ] 4.4 规模验证：全量 kit（2,795 镜、单场景 241 镜）下打开列表与切场景，渲染时间 <1s（CDP 计时记录入 change 目录）
+- [ ] 4.4 规模验证：全量 kit（≈6,558 镜、单场景数百镜）下打开列表与切场景，渲染时间 <1s（CDP 计时记录入 change 目录）
 
 ## 5. L2 renderManifest 契约（film-render.js，TDD）
 
