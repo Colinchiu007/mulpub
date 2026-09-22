@@ -267,7 +267,7 @@ import { useWordCountValidation } from '@/composables/useWordCountValidation'
 import { useCopyLibrary } from '@/composables/useCopyLibrary'
 import { takeRewriteHandoff } from '@/utils/rewrite-handoff'
 import { useViralSignalStore } from '@/stores/viral-signal'
-import { takeViralSignalHandoff } from '@/utils/viral-signal-bridge'
+import { takeViralSignalHandoff, hasActionableEngagement } from '@/utils/viral-signal-bridge'
 import { writeClipboard } from '@/utils/clipboard'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
 import RewriteStrategyPicker from '@/components/RewriteStrategyPicker.vue'
@@ -478,7 +478,7 @@ onMounted(() => {
       if (signal && Array.isArray(signal.angles)) {
         viralAngles.value = signal.angles
         viralKeywords.value = Array.isArray(signal.keywords) ? signal.keywords : []
-        viralEngagement.value = (signal.engagement && typeof signal.engagement === 'object') ? signal.engagement : null
+        viralEngagement.value = hasActionableEngagement(signal.engagement) ? signal.engagement : null
       }
     } catch { /* 信号快照失败不影响改写主流程 */ }
   }

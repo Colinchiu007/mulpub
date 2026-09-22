@@ -1420,5 +1420,31 @@ describe('RewriteView viral strength (P2-a)', () => {
     const params = aiRewrite.mock.calls[0][0]
     expect(params.engagement).toBeUndefined()
   })
+  it('弱信号 sampleCount<3 → 强度徽标不显示且 params 不携带 engagement（与引擎门槛一致，BUGFIX-STRENGTH-BADGE-GATE）', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const { useViralSignalStore } = await import('@/stores/viral-signal')
+    useViralSignalStore().setSignal({ topic: 'T', angles: ['A'], keywords: ['K'], engagement: { sampleCount: 1, avgLikes: 100, avgComments: 10 } })
+    mockRouteQuery.value = { titleHint: 'AI工具推荐TOP5' }
+    const wrapper = factory(pinia)
+    await nextTick()
+    expect(wrapper.find('[data-testid="rewrite-strength-badge"]').exists()).toBe(false)
+    await wrapper.find('textarea.rewrite-textarea').setValue('需要改写的原始文案内容')
+    await wrapper.find('button.rewrite-start-btn').trigger('click')
+    await nextTick()
+    const { aiRewrite } = await import('@/api/publisher')
+    const params = aiRewrite.mock.calls[0][0]
+    expect(params.engagement).toBeUndefined()
+  })
+  it('达标信号 sampleCount>=3 → 强度徽标显示且 params 携带 engagement（正例配对）', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const { useViralSignalStore } = await import('@/stores/viral-signal')
+    useViralSignalStore().setSignal({ topic: 'T', angles: ['A'], keywords: ['K'], engagement: { sampleCount: 3, avgLikes: 900, avgComments: 30 } })
+    mockRouteQuery.value = { titleHint: 'AI工具推荐TOP5' }
+    const wrapper = factory(pinia)
+    await nextTick()
+    expect(wrapper.find('[data-testid="rewrite-strength-badge"]').exists()).toBe(true)
+  })
 })
 
