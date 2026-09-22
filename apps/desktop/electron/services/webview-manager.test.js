@@ -922,6 +922,22 @@ describe('WebviewManager 批量登录凭证自动保存与护栏（方案一/二
     expect(sends.some(d => d && d.credentialSaveState === 'saved')).toBe(false)
   })
 
+  // 本 PR 补充：_extractTabCookies 集中守卫的负例——session 整体缺失时同样 fail-closed，
+  // 绝不退化成「保存一份 cookies=0 的凭证」（该守卫是本 PR 引入，main 的用例未覆盖）。
+  it('回归：session 不可用时 fail-closed（cookies 提取守卫，不落空凭证）', async () => {
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+    wm.setAccountManager(makeAccountManager())
+    const { tabId, state, view } = createUnsavedAccountTab(wm, { platform: 'tencent_video', accountId: 'vid-3', url: 'https://channels.weixin.qq.com/' })
+    view.webContents.session = undefined
+    const result = await wm.saveAccountTabCredentials(tabId)
+    expect(result.ok).toBe(false)
+    expect(result.reason).toBe('cookie-extract-failed')
+    expect(wm._accountManager.updateCapturedAccount).not.toHaveBeenCalled()
+    expect(state.credentialSaveState).toBe('unsaved')
+  })
+
   it('回归：saveCookies（tab-cookies-changed 事件源）用 get 提取真实 Cookie', async () => {
     const wm = new WebviewManager()
     wm.mainWindow = createMainWindow()

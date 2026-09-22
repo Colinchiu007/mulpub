@@ -93,6 +93,19 @@ describe('AccountManagementCard', () => {
     expect(status.classes()).toContain('offline')
   })
 
+  it('未确认（unverified）显示独立的「未确认」徽章，不冒充已登录也不冒充失效', () => {
+    const unverifiedAccount = { ...account, status: 'unverified' }
+    const wrapper = mountCard({ account: unverifiedAccount })
+
+    const status = wrapper.get('[data-testid="account-status-account-1"]')
+    expect(status.text()).toBe('未确认')
+    expect(status.classes()).toContain('unverified')
+    // 与「从未检测」的 unknown 徽章区分开：unverified 表示检测发生过但无法判定
+    expect(status.classes()).not.toContain('unknown')
+    // 未确认不进入失效集合 → 不提供「去登录」按钮
+    expect(wrapper.find('[data-testid="login-account-1"]').exists()).toBe(false)
+  })
+
   it('未知状态保持诚实提示，checkedExpiredIds 命中时提供登录动作', async () => {
     const unknownAccount = { ...account, status: 'unknown' }
     const checkedExpiredIds = new Set(['account-1'])

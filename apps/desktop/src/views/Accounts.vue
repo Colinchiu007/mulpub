@@ -321,7 +321,7 @@ import AccountLoginDialog from '@/features/accounts/components/AccountLoginDialo
 import AccountManagementCard from '@/features/accounts/components/AccountManagementCard.vue'
 import AccountProxyDialog from '@/features/accounts/components/AccountProxyDialog.vue'
 import { useAccountActions } from '@/composables/useAccountActions'
-import { accountBatchCheckLogin, accountUpdate } from '@/api/publisher'
+import { accountBatchCheckLogin } from '@/api/publisher'
 import { getApi } from '@/api/electron-bridge'
 import { useAccountEvents } from '@/composables/useAccountEvents'
 import { useAccountStore } from '@/stores/accounts'
@@ -984,33 +984,43 @@ async function batchCheckAllLogins () {
     if (!Array.isArray(results)) throw new Error('invalid batch-check response')
     let validCount = 0
     const invalidIds = []
+    let unconfirmedCount = 0
+    const persistFailedIds = []
     const checkedAt = result.data?.checkedAt || new Date().toISOString()
     for (const item of results) {
       if (!item?.accountId) continue
-      if (item.valid) {
+      // 三态口径：valid === true 正常 / valid === false 失效 / valid === undefined 未确认。
+      // 「未确认」既不计入失效数量、也不加入失效集合 —— 不冒充任何一侧结论。
+      if (item.valid === true) {
         validCount++
         checkedExpiredIds.value.delete(item.accountId)
-      } else {
+      } else if (item.valid === false) {
         invalidIds.push(item.accountId)
         checkedExpiredIds.value.add(item.accountId)
+      } else {
+        unconfirmedCount++
+        checkedExpiredIds.value.delete(item.accountId)
       }
       const account = accounts.find(a => a.id === item.accountId)
       if (account) {
-        account.status = item.valid ? 'active' : 'expired'
+        // 这里只做本次会话的乐观展示。持久化由主进程在 accounts:batch-check-login
+        // 内部通过 AccountManager.persistLoginState 单点写回后端 accounts.json。
+        // 渲染层不得再自行写 status —— 历史实现写的是 Electron 本地 SQLite
+        // （store:update-account），而读取端是后端 accounts.json，两边 id 都不互通，
+        // 这正是「一键检测后重进账号页又显示已登录」的根因。
+        account.status = item.loginStatus || (item.valid === true ? 'active' : item.valid === false ? 'expired' : 'unverified')
         account.last_validated = checkedAt
-        // 持久化检测结果到后端：退出账号管理页再进入时，列表能读到本次检测状态
-        // （toPublicAccount 会尊重最近 2 小时内写回的 expired + last_validated）。
-        // 失败不阻断主流程，仅记录。
-        accountUpdate(account.id, {
-          status: item.valid ? 'active' : 'expired',
-          last_validated: checkedAt,
-        }).catch(() => {})
       }
+      if (item.persisted && item.persisted.ok === false) persistFailedIds.push(item.accountId)
     }
-    if (invalidIds.length === 0) {
+    if (invalidIds.length === 0 && unconfirmedCount === 0) {
       notifySuccess('accountsPage.batchCheckAllAllValid', { params: { count: validCount } })
     } else {
-      notifyWarning('accountsPage.batchCheckAllDone', { params: { valid: validCount, invalid: invalidIds.length } })
+      notifyWarning('accountsPage.batchCheckAllDone', { params: { valid: validCount, invalid: invalidIds.length, unconfirmed: unconfirmedCount } })
+    }
+    if (persistFailedIds.length > 0) {
+      // 固化失败必须可见，否则用户会再次遇到「检测过了但重进又变回去」。
+      notifyError('accountsPage.batchCheckAllPersistFailed', { params: { count: persistFailedIds.length } })
     }
   } catch (error) {
     notifyError('accountsPage.batchCheckAllFailed', { message: formatUserError(error, { fallback: t('accountsPage.batchCheckAllFailed') }).message })

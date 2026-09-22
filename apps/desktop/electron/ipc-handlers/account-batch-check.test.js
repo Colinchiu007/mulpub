@@ -15,7 +15,9 @@
  * 2. 检测以有限并发执行（默认上限 3），峰值并发不得超过上限，
  *    且确实并行（>1），用于压缩整体墙钟时间。
  * 3. results 顺序与账号输入顺序一致（乱序完成不得错位配对回写）。
- * 4. 单账号超过硬超时计入失效，code 为 CHECK_LOGIN_TIMEOUT，
+ * 4. 单账号超过硬超时记为「无法判定」（valid: undefined + code
+ *    CHECK_LOGIN_TIMEOUT），不得折叠成失效：超时只是没拿到证据，
+ *    判失效会把已登录账号踢去重新登录（PR #2233 三态契约）。
  *    且不阻断其余账号；超时后原检测迟到的 reject 不得产生 unhandledRejection。
  *
  * @vitest-environment node
@@ -62,6 +64,8 @@ function createMockDeps ({ accounts, checkLoginStatus, sends }) {
     AccountManager: {
       listAccounts: vi.fn(async () => accounts),
       checkLoginStatus: vi.fn(checkLoginStatus),
+      // PR #2233：登录态唯一写者；缺省会让 results[].persisted 恒为失败
+      persistLoginState: vi.fn(async (id, platform, status) => ({ ok: true, status })),
     },
     BACKEND_PLATFORMS: new Set(),
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -256,7 +260,7 @@ describe('accounts:batch-check-login 并发', () => {
 })
 
 describe('accounts:batch-check-login 单账号超时', () => {
-  it('超过硬超时计入失效并标记 CHECK_LOGIN_TIMEOUT，不阻断其余账号', async () => {
+  it('超过硬超时记为未确认（valid undefined + CHECK_LOGIN_TIMEOUT），不阻断其余账号', async () => {
     process.env.MP_BATCH_CHECK_CONCURRENCY = '1'
     process.env.MP_BATCH_CHECK_ACCOUNT_TIMEOUT_MS = '60'
     const sends = []
@@ -279,13 +283,21 @@ describe('accounts:batch-check-login 单账号超时', () => {
 
     expect(result.code).toBe(0)
     expect(result.data.results[0]).toMatchObject({
-      accountId: 'a1', platform: 'douyin', valid: false, code: 'CHECK_LOGIN_TIMEOUT',
+      accountId: 'a1', platform: 'douyin', code: 'CHECK_LOGIN_TIMEOUT',
+      loginStatus: 'unverified',
     })
+    // 三态契约：超时是「无法判定」，不是失效
+    expect(result.data.results[0].valid).toBeUndefined()
+    expect(result.data.results[0].persisted).toMatchObject({ ok: true })
+    expect(deps.AccountManager.persistLoginState).toHaveBeenCalledWith(
+      'a1', 'douyin', 'unverified', expect.any(String))
     expect(typeof result.data.results[0].error).toBe('string')
     expect(result.data.results[1]).toMatchObject({ accountId: 'a2', valid: true })
     const done = progressEvents(sends).filter(e => e.phase === 'done')
     expect(done.map(e => e.accountId)).toEqual(['a1', 'a2'])
-    expect(done[0].valid).toBe(false)
+    expect(done[0].valid).toBeUndefined()
+    expect(done[0].loginStatus).toBe('unverified')
+    expect(done[0].persisted).toBe(true)
   })
 
   it('超时后原检测迟到的 reject 不产生 unhandledRejection', async () => {
@@ -306,7 +318,9 @@ describe('accounts:batch-check-login 单账号超时', () => {
       })
 
       const result = await invokeBatch(deps, ['a1'])
-      expect(result.data.results[0]).toMatchObject({ valid: false, code: 'CHECK_LOGIN_TIMEOUT' })
+      expect(result.data.results[0]).toMatchObject(
+        { code: 'CHECK_LOGIN_TIMEOUT', loginStatus: 'unverified' })
+      expect(result.data.results[0].valid).toBeUndefined()
       // 等迟到的 reject 真正落地后再断言
       await new Promise(r => setTimeout(r, 220))
       await new Promise(r => process.nextTick(r))

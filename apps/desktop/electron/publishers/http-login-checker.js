@@ -22,7 +22,10 @@ const log = require('../services/logger')
  * @property {string} url
  * @property {Record<string,string>} headers
  * @property {'GET'|'POST'} [method] - 默认 GET
- * @property {string} [body] - POST JSON body（视频号 auth_data）
+ * @property {string|(() => string)} [body] - POST JSON body（视频号 auth_data）；
+ *               函数形态在每次发请求时求值，含 timestamp 的接口必须用函数形态，
+ *               否则时间戳会被模块加载时刻冻结（进程存活越久偏差越大，平台按
+ *               时间戳校验失败 → 检测结论失真）
  * @property {string} [contentType] - POST Content-Type（默认 application/json）
  * @property {(data:any)=>boolean|undefined} [check] - JSON 响应判定；undefined=不确定（降级浏览器检测）；check 与 checkHtml 互斥
  * @property {(html:string)=>boolean|undefined} [checkHtml] - HTML 响应判定（公众号 loginpage 正则）；undefined=不确定（降级浏览器检测）
@@ -95,7 +98,9 @@ const HTTP_CHECK_APIS = {
     },
     method: 'POST',
     contentType: 'application/json',
-    body: JSON.stringify({ timestamp: Date.now().toString().substring(0, 13), _log_finder_uin: '', _log_finder_id: '', rawKeyBuff: null, pluginSessionId: null, scene: 7, reqScene: 7 }),
+    // 必须是函数：HTTP_CHECK_APIS 是模块级常量，直接写 JSON.stringify(Date.now())
+    // 只会在 require 时求值一次，之后所有检测都带着同一个陈旧 timestamp。
+    body: () => JSON.stringify({ timestamp: Date.now().toString().substring(0, 13), _log_finder_uin: '', _log_finder_id: '', rawKeyBuff: null, pluginSessionId: null, scene: 7, reqScene: 7 }),
     check: (data) => {
       // 黑名单语义：errCode 300333/300334 = 登录失效（参考产品判定）；
       // finderUser 存在判有效；其余结构（接口变更/风控）→ 不确定，降级
@@ -169,7 +174,7 @@ async function checkLoginViaHttpApi (platform, cookies) {
     }
     if (api.method === 'POST') {
       fetchOptions.headers['Content-Type'] = api.contentType || 'application/json'
-      fetchOptions.body = api.body || '{}'
+      fetchOptions.body = typeof api.body === 'function' ? api.body() : (api.body || '{}')
     }
     const response = await fetch(api.url, fetchOptions)
     clearTimeout(timer)

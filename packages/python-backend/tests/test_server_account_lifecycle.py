@@ -2,6 +2,8 @@
 
 from fastapi.testclient import TestClient
 
+import pytest
+
 import server
 
 
@@ -220,3 +222,126 @@ def test_startup_dedup_keeps_unique_accounts(tmp_path):
     assert len(accounts) == 2
     assert "a1" in accounts
     assert "b1" in accounts
+
+
+# ─── 登录态持久化真源（status） ──────────────────────────────────────────
+# 背景：一键检测的结论此前没有任何持久化落点（后端无 status 字段，渲染层误写
+# Electron SQLite），导致「检测出失效 → 重进账号页仍显示已登录」。
+# 以下用例锁定 accounts.json 作为登录态唯一真源的契约。
+
+
+def test_create_account_initializes_status_unverified(monkeypatch, tmp_path):
+    """新建账号从未检测过，status 必须是 unverified（不冒充已登录）。"""
+    verifier = StubVerifier("sub-a")
+    client = _client(monkeypatch, tmp_path, verifier)
+
+    created = client.post(
+        "/api/accounts",
+        headers=_headers(),
+        json={"platform": "douyin", "name": "账号 A"},
+    )
+
+    assert created.status_code == 200
+    account_id = created.json()["data"]["id"]
+    assert created.json()["data"]["status"] == "unverified"
+    assert server._load_accounts()[account_id]["status"] == "unverified"
+
+
+def test_patch_account_persists_status_and_echoes_on_list(monkeypatch, tmp_path):
+    """PATCH status=expired 必须 200 且落盘，GET 回显同一值（重启后仍是失效）。"""
+    verifier = StubVerifier("sub-a")
+    client = _client(monkeypatch, tmp_path, verifier)
+    account_id = client.post(
+        "/api/accounts", headers=_headers(), json={"platform": "toutiao", "name": "头条号"}
+    ).json()["data"]["id"]
+
+    patched = client.patch(
+        f"/api/accounts/{account_id}",
+        headers=_headers(),
+        json={"status": "expired", "last_validated": "2026-09-22T15:38:27.000Z"},
+    )
+
+    assert patched.status_code == 200
+    assert patched.json()["data"]["status"] == "expired"
+    assert server._load_accounts()[account_id]["status"] == "expired"
+    assert server._load_accounts()[account_id]["last_validated"] == "2026-09-22T15:38:27.000Z"
+
+    listed = client.get("/api/accounts", headers=_headers())
+    assert listed.status_code == 200
+    item = next(a for a in listed.json()["data"] if a["id"] == account_id)
+    assert item["status"] == "expired"
+    assert item["last_validated"] == "2026-09-22T15:38:27.000Z"
+
+
+@pytest.mark.parametrize("status", ["active", "expired", "unverified"])
+def test_patch_account_accepts_all_valid_statuses(monkeypatch, tmp_path, status):
+    """三态（含未确认）都必须可写回，否则「未确认」无法固化。"""
+    verifier = StubVerifier("sub-a")
+    client = _client(monkeypatch, tmp_path, verifier)
+    account_id = client.post(
+        "/api/accounts", headers=_headers(), json={"platform": "douyin", "name": "账号 A"}
+    ).json()["data"]["id"]
+
+    patched = client.patch(
+        f"/api/accounts/{account_id}", headers=_headers(), json={"status": status}
+    )
+
+    assert patched.status_code == 200
+    assert patched.json()["data"]["status"] == status
+    assert server._load_accounts()[account_id]["status"] == status
+
+
+def test_patch_account_rejects_unknown_status_without_mutation(monkeypatch, tmp_path):
+    """非法 status 必须 400 且不改动已存值（避免脏写污染真源）。"""
+    verifier = StubVerifier("sub-a")
+    client = _client(monkeypatch, tmp_path, verifier)
+    account_id = client.post(
+        "/api/accounts", headers=_headers(), json={"platform": "douyin", "name": "账号 A"}
+    ).json()["data"]["id"]
+    client.patch(f"/api/accounts/{account_id}", headers=_headers(), json={"status": "expired"})
+
+    bad = client.patch(
+        f"/api/accounts/{account_id}", headers=_headers(), json={"status": "logged_in"}
+    )
+
+    assert bad.status_code == 400
+    assert bad.json()["detail"] == "ACCOUNT_STATUS_INVALID"
+    assert server._load_accounts()[account_id]["status"] == "expired"
+
+
+def test_patch_account_status_is_orthogonal_to_is_active(monkeypatch, tmp_path):
+    """登录态 status 与启用开关 is_active 正交，写 status 不得污染启用状态。"""
+    verifier = StubVerifier("sub-a")
+    client = _client(monkeypatch, tmp_path, verifier)
+    account_id = client.post(
+        "/api/accounts", headers=_headers(), json={"platform": "douyin", "name": "账号 A"}
+    ).json()["data"]["id"]
+
+    patched = client.patch(
+        f"/api/accounts/{account_id}", headers=_headers(), json={"status": "expired"}
+    )
+
+    assert patched.status_code == 200
+    assert patched.json()["data"]["is_active"] is True
+    assert patched.json()["data"]["status"] == "expired"
+    assert server._load_accounts()[account_id]["is_active"] is True
+
+
+def test_legacy_account_without_status_is_reported_unverified(monkeypatch, tmp_path):
+    """历史 accounts.json 无 status 字段：读取时补 unverified，不抛 KeyError。"""
+    verifier = StubVerifier("sub-a")
+    client = _client(monkeypatch, tmp_path, verifier)
+    server._save_accounts({
+        "legacy1": {
+            "id": "legacy1",
+            "platform": "bilibili",
+            "name": "老账号",
+            "owner_subject": "sub-a",
+            "created_at": "2025-01-01T00:00:00",
+        }
+    })
+
+    listed = client.get("/api/accounts", headers=_headers())
+
+    assert listed.status_code == 200
+    assert listed.json()["data"][0]["status"] == "unverified"

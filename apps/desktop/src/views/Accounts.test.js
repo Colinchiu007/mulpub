@@ -949,9 +949,10 @@ describe("AccountsView", () => {
     const a2 = _testAccounts.find(a => a.id === "a2");
     expect(a1.status).toBe("active");
     expect(a2.status).toBe("expired");
-    // 检测结果写回后端（持久化：退出重进后仍保持检测状态）
-    expect(accountUpdate).toHaveBeenCalledWith("a1", expect.objectContaining({ status: "active" }));
-    expect(accountUpdate).toHaveBeenCalledWith("a2", expect.objectContaining({ status: "expired" }));
+    // 登录态持久化是主进程单一写者的职责（AccountManager.persistLoginState → 后端 accounts.json）。
+    // 渲染层绝不能再写 status：accountUpdate 走 store:update-account，写的是 Electron 本地 SQLite，
+    // 而读取端是后端 accounts.json —— 双写不同库正是「一键检测后重进又显示已登录」的根因。
+    expect(accountUpdate).not.toHaveBeenCalled();
     // checkedExpiredIds 同步
     expect(w.vm.checkedExpiredIds.has("a2")).toBe(true);
     expect(w.vm.checkedExpiredIds.has("a1")).toBe(false);
@@ -987,6 +988,61 @@ describe("AccountsView", () => {
     const { ElMessage } = await import("element-plus");
     expect(ElMessage.success).toHaveBeenCalledWith(expect.stringContaining("2"));
   });
+
+  // ── 登录态固化与三态回归 ──
+
+  it("batchCheckAllLogins 未确认（valid 缺失）不计入失效，也不冒充已登录", async () => {
+    const { accountBatchCheckLogin, accountUpdate } = await import("@/api/publisher");
+    accountBatchCheckLogin.mockResolvedValue({
+      code: 0,
+      data: {
+        results: [
+          { accountId: "u1", platform: "tencent_video", code: "CHECK_LOGIN_INCONCLUSIVE", loginStatus: "unverified", persisted: { ok: true, status: "unverified" } },
+          { accountId: "u2", platform: "toutiao", valid: false, code: "CHECK_LOGIN_COOKIE_EXPIRED", loginStatus: "expired", persisted: { ok: true, status: "expired" } },
+        ],
+        checkedAt: "2026-09-11T08:00:00Z",
+      },
+    });
+    _testAccounts.push(
+      { id: "u1", platform: "tencent_video", status: "active", account_name: "视频号" },
+      { id: "u2", platform: "toutiao", status: "active", account_name: "头条号" },
+    );
+    const w = await mountView();
+
+    await w.vm.batchCheckAllLogins();
+
+    expect(_testAccounts.find(a => a.id === "u1").status).toBe("unverified");
+    expect(_testAccounts.find(a => a.id === "u2").status).toBe("expired");
+    expect(w.vm.checkedExpiredIds.has("u1")).toBe(false);
+    expect(w.vm.checkedExpiredIds.has("u2")).toBe(true);
+    expect(accountUpdate).not.toHaveBeenCalled();
+    const { ElMessage } = await import("element-plus");
+    expect(ElMessage.warning).toHaveBeenCalled();
+    // 未确认不等于失效：不得出现「全部正常」的成功提示
+    expect(ElMessage.success).not.toHaveBeenCalled();
+  });
+
+  it("batchCheckAllLogins 主进程固化失败时显式报错（持久化丢失不再静默）", async () => {
+    const { accountBatchCheckLogin } = await import("@/api/publisher");
+    accountBatchCheckLogin.mockResolvedValue({
+      code: 0,
+      data: {
+        results: [
+          { accountId: "p1", platform: "toutiao", valid: false, code: "CHECK_LOGIN_COOKIE_EXPIRED", loginStatus: "expired", persisted: { ok: false, reason: "backend-error" } },
+        ],
+        checkedAt: "2026-09-11T08:00:00Z",
+      },
+    });
+    _testAccounts.push({ id: "p1", platform: "toutiao", status: "active", account_name: "头条号" });
+    const w = await mountView();
+
+    await w.vm.batchCheckAllLogins();
+
+    const { ElMessage } = await import("element-plus");
+    expect(ElMessage.error).toHaveBeenCalled();
+    expect(w.vm.batchCheckAllBusy).toBe(false);
+  });
+
 
   // ── 一键检测进度可见性回归（进度卡顿修复 2026-09-22）──
   // 缺陷：进度只在「账号完成」边界更新，单个耗时账号（浏览器降级检测）

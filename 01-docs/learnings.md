@@ -15249,3 +15249,17 @@ MIN_ENGAGEMENT_SAMPLES，与引擎严格同门槛含 Number(null)=0 语义），
 ### 本次决策记录
 
 Bug 修复走完整 QM-5（根因溯源 / 逃逸链 / 系统性漏洞 / 修复+回归保护 / 预防措施），产出 `01-docs/BUGFIX-BATCH-CHECK-PROGRESS-STALL-2026-09-22.md`；经 AskUserQuestion 锁定范围为「进度可见性 + 并发加速」、超时口径「计入失效」，全程未漂移。改动 11 files +703/-38：主进程 `electron/ipc-handlers/account.js`（双边界广播 + 并发池 + 单账号 60s 硬超时）、渲染层 `Accounts.vue`（in-flight 平台明细 + 秒表 + detail 行 + 双保险清理）、locale 成对新增 `batchCheckAllCurrent` / `batchCheckAllElapsed`。逃逸根因是既有 `account.test.js` 对 `batch-check` 零命中，故新增 `account-batch-check.test.js` 作为主进程 IPC handler 的首层覆盖（7 例）。验证：`Accounts.test.js` 84/84、主进程 47/47、合并 origin/main 后定向 217/217、宽 subset 2460/2461（唯一失败为并发争抢 CPU 的 flake，隔离复跑 6/6 绿）、eslint 0 error、debt budget 基线内、`vite build` 与 `electron-builder --win --dir` exit 0、asar 含 `account.js`、解包 require 链 OK、打包 exe 启动 12s 存活且 stderr 0 行。规范回写：PRD 升 v2.3（§4.3 流程图重写 + 新增 §16 行为契约）、UI-INVENTORY §5.2 补 `batch-check-overlay`、AGENTS.md QM-2 新增「批量 IPC 进度双边界与超时预算契约」门禁条目、CHANGELOG 前插。经验同步内置记忆 + EverOS。
+
+## 账号登录态持久化真源统一（2026-09-23）
+
+- **Bug 类**：一键检测后登录态不落库（重进页面又显示已登录）+ 检测结论与实际相反（今日头条假阴性、视频号假阳性）
+- **根因**：登录态读源是 Python 后端 DATA_DIR/accounts.json，回写却走 accountUpdate -> store:update-account -> Electron SQLite，两库账号 id 不互通且被 .catch(() => {}) 静默；后端 AccountUpdateRequest 未声明 status（extra="forbid"）使 PATCH 直接 422；toPublicAccount 的 last_validated 2 小时窗口 + 「本地有凭证即推翻 expired」让真源自我蒸发；降级路径把「无证据」当「有证据」（LOCAL_ONLY valid:true / NO_COOKIE fast-path / 浏览器异常兜底 true）；webview-manager 调用 Electron Session.cookies 上根本不存在的 getAll，抛错被吞导致凭证 cookies 恒 0。
+- **修复模式**：单一真源 + 单一写者 + 三态语义：status(active|expired|unverified) 落 accounts.json；AccountManager.persistLoginState() 成为唯一写者（三条检测链路返回前统一固化）；无法判定一律 valid:undefined + CHECK_LOGIN_INCONCLUSIVE，渲染层新增「未确认」第三态并不计入失效数；读侧 _normalize_account_status 做 fail-safe 归一化，脏值降级 unverified 而绝不当已登录。
+- **可复用教训**：（1）任何“显示正确但重进就丢失信息”的缺陷，先查读写是否落在同一个库；Electron 应用里 SQLite 与后端 JSON 双存储极易形成伪回写。（2）Cookie/localStorage/凭证文件存在永远不是登录的正向证据，只能证伪不能证真。（3）API 模型用 extra="forbid" 时，新增字段必须同步请求模型，否则客户端写入会静默 422。（4）Electron Session.cookies 只有 get/set/remove/flush，没有 getAll；mock 必须忠实镜像真实 API 表面，否则测试会替错误 API 兜底。
+- **适用边界**：适用于 Multi-Publish 桌面端所有“检测/同步类”状态字段（登录态、额度、审核状态）的设计与排障；不涉及服务端多租户语义。本 PR 刻意不改 stores/accounts.js 的 batchSetStatus（启用/停用与登录态是两个正交概念）。
+
+- **并发批测「超时计入失效」与三态契约互斥（conflict）**：`#2231` 把单账号硬超时判为 `expired`，与「无正向证据不得判失效」直接冲突。收敛结论：超时是**无法判定**，记 `CHECK_LOGIN_TIMEOUT` + `valid: undefined` + `status: unverified`；并发与超时预算照旧保留。补 IPC 层回归测试后立刻抓出融合时漏接的 `timeoutCode` 分支——语义互斥的合并必须配一条断言指向择一结果。
+- **章节撞号与混合换行（tooling）**：两个 PR 在同一文档各自新增 §16 → 后合入方改号为 §17 并同步改自引用；`learnings.md` 是混合换行文件（15239 行仅 141 行 CRLF），禁止整体统一 EOL，只能字节级拼接；`open(p,'wb')` 会在异常前截断文件，必须先构造完整 bytes 再开写句柄。
+
+- **合并后定向复验的「文件集合」必须从合并 diff 推出，而不是从本 PR 的工作清单推出（merge-verification-scope）**：本次本地按「本 PR 触及的 8 个测试文件」全绿后推送，CI 却红 4 项——唯一失败文件是**对方 PR 随合并新增**的 `account-batch-check.test.js`，它断言的正是被我方语义改掉的超时口径。判据：合并后至少跑一次全量；若只能定向，则文件集 = 两侧改动测试文件的并集 ∪ 所有状态为 `A` 的新增测试文件 ∪ 这些文件所测实现的调用方。
+- **收敛口径到已择一的契约时，标题与文档注释要一起改（semantic-drift-in-test-names）**：`超过硬超时计入失效` 这类标题本身就是错误语义的载体，只改断言不改标题，下一个读者会被标题误导回旧口径；同时借机把该文件此前缺失的固化断言（`persistLoginState` 被以 `unverified` 调用、`persisted.ok`）补上，使「收敛」不等于「放松」。
