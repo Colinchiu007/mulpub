@@ -99,7 +99,7 @@
 - 全量 `pnpm vitest run`（含 views-coverage/ai-handler/ipc-contract 套）0 失败。
 - QM-1：`electron-builder --win --dir` + asar require 链 + 8s 启动无 stderr 崩溃（改了主进程 services 一律必跑）。
 - CI Gate 7 locale 成对 + CJK 字面量基线扫描。
-- 文档同步：本三件套文档随首个 PR 提交评审意见回写（PRD 为本地产物不入库，CHANGELOG 入库）。
+- 文档同步：PRD/Feature-List/Test-Plan 三件套随 PR-1 入库（`01-docs/*.md` 被 .gitignore 忽略，须 `git add -f`）——这是 Doc-Sync 硬门禁（代码变更须同步 `01-docs/`）的强制要求；PRD §3.6 回写 PR-1 落地实况。CHANGELOG 入库。
 
 ## 4. 已知风险与对策
 
