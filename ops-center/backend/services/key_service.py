@@ -13,12 +13,31 @@ logger = logging.getLogger(__name__)
 
 
 def _get_fernet() -> Fernet:
-    """Get or create Fernet instance from encryption key."""
-    import base64, hashlib
+    """Get Fernet instance from encryption key (fail-closed in production)."""
+    import base64, hashlib, os
+    import logging
+    logger = logging.getLogger(__name__)
     key = settings.encryption_key
     if not key:
-        key = Fernet.generate_key().decode()
-        settings.encryption_key = key
+        if os.environ.get("OPS_ALLOW_EPHEMERAL_KEY", "").lower() == "true":
+            logger.warning(
+                "[P0-4] OPS_ENCRYPTION_KEY not set; ephemeral key generated. "
+                "DEVELOPMENT ONLY — encrypted data unrecoverable after restart.")
+            key = Fernet.generate_key().decode()
+            settings.encryption_key = key
+        else:
+            # Fail-closed in production; allow ephemeral in tests/development
+            import os
+            if os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("ENVIRONMENT", "").lower() == "development":
+                import logging
+                logging.getLogger(__name__).warning(
+                    "[P0-4] OPS_ENCRYPTION_KEY not set; using ephemeral key (test/dev mode).")
+                key = Fernet.generate_key().decode()
+                settings.encryption_key = key
+            else:
+                raise SystemExit(
+                    "[P0-4] OPS_ENCRYPTION_KEY is required. Generate: "
+                    "python3 -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\"")
     try:
         return Fernet(key.encode() if isinstance(key, str) else key)
     except (ValueError, Exception):
@@ -36,9 +55,13 @@ def encrypt_key(plaintext: str) -> str:
 
 
 def decrypt_key(ciphertext: str) -> str:
-    """Decrypt an API key."""
+    """Decrypt an API key. Raises InvalidToken on failure."""
+    from cryptography.fernet import InvalidToken
     fernet = _get_fernet()
-    return fernet.decrypt(ciphertext.encode()).decode()
+    try:
+        return fernet.decrypt(ciphertext.encode()).decode()
+    except InvalidToken:
+        raise InvalidToken(f"Ciphertext undecryptable (key rotation?)")
 
 
 def mask_key(key: str) -> str:
@@ -49,7 +72,19 @@ def mask_key(key: str) -> str:
 
 
 def _model_to_dict(key: OfficialKey, reveal: bool = False) -> dict:
-    """Convert OfficialKey model to API-safe dict."""
+    """Convert OfficialKey model to API-safe dict (per-record decryption fallback)."""
+    api_key_display = None
+    if reveal and key.api_key:
+        try:
+            api_key_display = decrypt_key(key.api_key)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                "[P0-4] Cannot decrypt OfficialKey id=%s: %s; showing masked.", key.id, type(e).__name__)
+            api_key_display = mask_key(key.api_key) if key.api_key else None
+    elif key.api_key:
+        api_key_display = "****"
+    
     return {
         "id": key.id,
         "provider": key.provider,

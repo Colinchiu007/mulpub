@@ -126,3 +126,12 @@ if __name__ == "__main__":
 
 
 
+
+
+# P0: Run security gates on startup (fail-closed)
+from config import run_startup_security_checks, settings as _p0_settings
+
+@app.on_event("startup")
+async def _p0_startup_gates():
+    run_startup_security_checks(_p0_settings)
+    logger.info("[P0] Startup security checks passed.")

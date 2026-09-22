@@ -949,6 +949,48 @@ async def fetch_models_from_url(db: AsyncSession, preset_id: str, models_url_ove
 
 
 
+
+import ipaddress as _ipaddress
+from urllib.parse import urlparse as _urlparse
+
+def _validate_target_url(url: str, *, allow_private: bool = False) -> str:
+    """P0-7 SSRF guard: reject private/reserved IPs and internal hostnames."""
+    import os
+    parsed = _urlparse(url)
+    if parsed.scheme not in ("https", "http"):
+        raise ValueError(f"[P0-7] Unsupported URL scheme: {parsed.scheme!r}")
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("[P0-7] URL has no hostname")
+    if not allow_private and hostname in ("localhost", "0.0.0.0", "::1", "[::1]", "metadata.google.internal"):
+        raise ValueError(f"[P0-7] Blocked internal address: {hostname}")
+    try:
+        ip = _ipaddress.ip_address(hostname)
+        if not allow_private:
+            allow_bench = os.environ.get("OPS_ALLOW_PROXY_BENCHMARK_IPS", "").lower() == "true"
+            if allow_bench and ip in _ipaddress.ip_network("198.18.0.0/15"):
+                return url
+            if ip.is_private or ip.is_reserved or ip.is_loopback or ip.is_link_local:
+                raise ValueError(f"[P0-7] Blocked private/reserved IP: {ip}")
+        return url
+    except ValueError as e:
+        if "[P0-7]" in str(e):
+            raise
+    if not allow_private:
+        import socket
+        allow_bench = os.environ.get("OPS_ALLOW_PROXY_BENCHMARK_IPS", "").lower() == "true"
+        try:
+            for info in socket.getaddrinfo(hostname, None, socket.AF_INET):
+                addr = _ipaddress.ip_address(info[4][0])
+                if allow_bench and addr in _ipaddress.ip_network("198.18.0.0/15"):
+                    continue
+                if addr.is_private or addr.is_reserved or addr.is_loopback or addr.is_link_local:
+                    raise ValueError(f"[P0-7] {hostname} resolves to private IP: {addr}")
+        except socket.gaierror:
+            pass
+    return url
+
+
 async def test_provider_connection(db: AsyncSession, preset_id: str, body: dict, secret: str) -> dict:
     """测试模型预设连通性（不落库、不产生真实生成费用）。
 
@@ -988,9 +1030,12 @@ async def test_provider_connection(db: AsyncSession, preset_id: str, body: dict,
         )).scalar_one_or_none()
         if key_row:
             try:
-                api_key = decrypt_key(secret, key_row.api_key)
-            except Exception:
-                pass
+                api_key = decrypt_key(key_row.api_key)
+            except Exception as e:
+                import logging as _lg
+                _lg.getLogger(__name__).warning(
+                    "[P0-3] decrypt fallback failed id=%s: %s", key_row.id, type(e).__name__)
+                api_key = None
     if not api_key:
         raise ValueError("未配置 API Key，请先填写（表单或模型密钥表）")
 
@@ -1012,6 +1057,7 @@ async def test_provider_connection(db: AsyncSession, preset_id: str, body: dict,
                                        "invalid model", "not found", "no such model"))
 
     try:
+        base_url = _validate_target_url(base_url)
         async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
             # 策略 1: POST chat/completions
             url = f"{base_url.rstrip('/')}/chat/completions"
