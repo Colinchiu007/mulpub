@@ -257,6 +257,12 @@ function registerHandlers(ipcMain, deps) {
     return publicAccount
   }
 
+  // 后端稳定错误码 + HTTP 状态透传给渲染层：瞬时失败（5xx / AUTH_JWKS_*）才能与「无数据」区分
+  const ipcFailureDetail = (e) => ({
+    ...(e && typeof e.errorCode === 'string' && e.errorCode ? { errorCode: e.errorCode } : {}),
+    ...(e && typeof e.status === 'number' ? { status: e.status } : {}),
+  })
+
   ipcMain.handle('accounts:list', withSenderCheck(async () => {
     const startedAt = Date.now()
     ipcLog('info', 'accounts:list', 'enter', `owner=${getOwnerSubject() ?? '<未登录>'}`)
@@ -274,7 +280,7 @@ function registerHandlers(ipcMain, deps) {
       return { code: 0, data }
     } catch (e) {
       ipcLog('error', 'accounts:list', 'error', `message=${e instanceof Error ? e.message : String(e)} 耗时=${Date.now() - startedAt}ms`)
-      return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e), data: [] }
+      return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e), data: [], ...ipcFailureDetail(e) }
     }
   }))
 

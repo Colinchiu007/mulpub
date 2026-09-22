@@ -199,6 +199,26 @@
             </div>
           </div>
           <EmptyState
+            v-else-if="authRequired && visibleAccounts.length === 0"
+            data-testid="accounts-login-required"
+            :title="t('accountsPage.loginRequiredTitle')"
+            :description="t('accountsPage.loginRequiredHint')"
+            :action-text="t('accountsPage.loginRequiredAction')"
+            @action="handleRequireLogin"
+          >
+            <template #icon><UserFilled /></template>
+          </EmptyState>
+          <EmptyState
+            v-else-if="loadError && visibleAccounts.length === 0"
+            data-testid="accounts-error"
+            :title="t('accountsPage.errorTitle')"
+            :description="t('accountsPage.errorHint')"
+            :action-text="t('accountsPage.errorAction')"
+            @action="refresh"
+          >
+            <template #icon><WarningFilled /></template>
+          </EmptyState>
+          <EmptyState
             v-else-if="visibleAccounts.length === 0"
             data-testid="accounts-empty"
             :title="emptyStateTitle"
@@ -292,7 +312,7 @@
 
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { Close, Delete, FolderOpened, Plus, Search, UserFilled } from '@element-plus/icons-vue'
+import { Close, Delete, FolderOpened, Plus, Search, UserFilled, WarningFilled } from '@element-plus/icons-vue'
 import { useNotify } from '@/composables/useNotify'
 import AccountAuthorizationGuide from '@/features/accounts/components/AccountAuthorizationGuide.vue'
 import AccountFavoritesPanel from '@/features/accounts/components/AccountFavoritesPanel.vue'
@@ -312,6 +332,8 @@ import { useI18n } from 'vue-i18n'
 import { PLATFORM_DASHBOARD_URLS, PLATFORM_LOGIN_URLS } from '@multi-publish/shared-utils/src/platform-definitions'
 import { getPlatformIconUrl } from '@/composables/usePlatformIconUrl'
 import { formatUserError } from '@/utils/user-facing-error'
+import { useIdentityStore } from '@/stores/identity'
+import { useLoginGate } from '@/composables/useLoginGate'
 
 const filterOptions = computed(() => [
   { value: 'all', label: t('accountsPage.filterAll') },
@@ -332,6 +354,8 @@ const emptyIds = new Set()
 const platformStore = usePlatformStore()
 const tabStore = useTabStore()
 const accountStore = useAccountStore()
+const identityStore = useIdentityStore()
+const { ensureLogin } = useLoginGate()
 const route = useRoute()
 const router = useRouter()
 const { t, te } = useI18n()
@@ -609,6 +633,13 @@ const visibleGroups = computed(() => {
     return String(group.name || '').toLowerCase().includes(query)
   })
 })
+// 加载失败原因（store 已格式化为当前语言的友好文案）；空字符串表示无错误
+const loadError = computed(() => String(accountStore.error || ''))
+// 未登录（后端以 -3 / AUTH_REQUIRED 拒绝）：走登录引导，而非「加载失败 + 重试」错误态
+const authRequired = computed(() => {
+  const code = accountStore.errorCode
+  return (code === 'AUTH_REQUIRED' || code === 'NOT_SIGNED_IN') && !identityStore.isAuthenticated
+})
 const emptyStateTitle = computed(() => {
   if (totalAccounts.value === 0) return t('accountsPage.emptyNone')
   if (filter.value === 'favorite') return t('accountsPage.emptyNoFavorite')
@@ -708,6 +739,11 @@ function toggleAccountInGroup (groupId, accountId) {
 function openFavoriteGroup (group) {
   setGroupFilter(group.id)
   router.replace({ path: '/accounts', query: {} })
+}
+
+async function handleRequireLogin () {
+  const ok = await ensureLogin({ message: t('accountsPage.loginRequiredHint') })
+  if (ok) await refresh()
 }
 
 async function refresh () {

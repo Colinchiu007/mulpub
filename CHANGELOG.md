@@ -21,6 +21,60 @@
 - AGENTS.md QM-2 新增「批量 IPC 进度双边界与超时预算契约」门禁条目。
 - `01-docs/UI-INVENTORY.md` §5.2：账号页特殊状态补 `batch-check-overlay`（遮罩第二行 in-flight 明细）。
 
+---
+
+# [未发布] fix(ui): 限流自检弹窗表单布局修复 + 功能规格文档化
+
+### 变更
+- **`ModelProviders.vue`（限流自检弹窗布局）**：模板中的 `.selfcheck-form` / `.selfcheck-row` 类名此前在 `<style scoped>` 中无任何规则定义，label 与 `el-input-number` 随文本流随机换行、输入框宽度参差（用户反馈「布局非常混乱不整齐」）。补齐：表单纵向 flex `gap:14px`；每行 `display:flex; align-items:center; gap:12px` 标签与输入框同行垂直居中；label 固定列宽 `flex:0 0 230px`（次要色+小字号、允许换行）；输入框统一 `width:150px; flex-shrink:0`，全部对齐同一左基线。
+- **文档**：`01-docs/design/model-provider-module-design.md` 新增 §9.5「限流自检弹窗功能规格与布局规范」——功能定位（真实 ApiUsageGovernor + 本地假 adapter 验证并发上限/排队/429 冷却/5h 限额，无网络不耗额度）、使用流程 6 步、参数数据校验表（rpm [1,100000]、maxConcurrent [1,8] 或留空=clamp(rpm/10,1,4)、requestCount [1,1000]、requestDurationMs [0,60000]、inject429At [1,requestCount] 或留空、limitPer5h [1,10000000] 或留空、cooldownMs [100,60000]）、交互逻辑、显示项、提示文字、回归覆盖与影响面。
+
+### 验证
+- TDD：新增 `src/views/selfcheck-dialog-layout.test.js`（3 例源码契约：行 flex 同行对齐 / label 固定列宽 / 输入框统一宽度）。定向 4 文件 20/20 全绿（含 `icon-usage`(9)、`model-providers-copy`(5)、`settings-panel-layout`(3) 零回归）；eslint exit 0（仅既有 warning）。
+- 纯展示层样式补齐，不改模板结构 / IPC / 数据模型；暗色模式沿用 token 不受影响。
+
+### 关联
+- 分支 `codex/selfcheck-dialog-layout`（worktree 隔离，D 盘），基于 `origin/main`；规范详见 §9.5。
+
+---
+
+# [未发布] fix(accounts): 账号页首开 10s 显示「暂无账号」——Logto JWKS 抖动的三层放大一次收口（P0-A/P0-B/P1）
+
+### 根因
+一次上游 `auth.iart.work/oidc/jwks` 超时被逐层放大：① 每次取键新建 `httpx` 客户端（无连接复用）→ 5~10s；② `AUTH_JWKS_UNAVAILABLE` 伪装成 **401** → ③ 主进程「刷令牌 + 重放」再付一遍（合计 ≈25s）；④ IPC 返回 `code!=0, data:[]` 且 `errorCode` 被丢弃 → ⑤ 渲染端 store 静默清空且不设 `error` → UI 显示「暂无账号」。JWKS 缓存 TTL 300s 使二次进入秒开，掩盖了故障。
+
+### 变更
+- **`packages/python-backend/src/multi_publish/auth/logto.py`（P0-B）**：`AUTH_JWKS_UNAVAILABLE/AUTH_JWKS_INVALID/AUTH_CONFIG_INVALID` 改判 **503**（令牌类仍 401）；共享 `httpx.AsyncClient`（connect 2s / read 5s + keep-alive 池，传输异常弃池重建）；**失败退避 15s**（`force=True` 与后台刷新同样受约束，discovery 校验失败不记退避）；**stale-while-revalidate**（宽限期 3600s，过期先回旧 key、刷新丢后台）；新增 `prefetch()` / `aclose()`。
+- **`packages/python-backend/src/server.py`（P0-B）**：`FastAPI(lifespan=_app_lifespan)` 启动时 `create_task(prefetch())` **只调度不等待**（不拖慢健康检查），退出时取消预热任务并关闭连接池。
+- **`electron/services/python-bridge.js`（P1）**：401 重放加**白名单门禁** `TOKEN_RETRY_ERROR_CODES`（仅令牌自身失效类才刷令牌+重放；`AUTH_JWKS_*`/5xx 不重放）；`_extractErrorCode()` 归一 FastAPI 两种 detail 形态（对象 `{error_code}` 与全大写字符串码），`errorCode` + `status` 统一透传。
+- **`electron/publishers/account-manager.js` / `electron/ipc-handlers/account.js`（P1）**：`listAccounts()` 抛错携带 `errorCode`/`status`；`accounts:list` catch 返回体展开 `ipcFailureDetail(e)`（`code` 保持 `EC.REQUEST_ERROR=-1` 不变）。preload 为原样透传，无需改动。
+- **`src/stores/accounts.js`（P0-A）**：`code !== 0` 必设 `error`（不再静默清空）；`TRANSIENT_FAILURE_CODES`（`AUTH_JWKS_*`）或 `status >= 500` 判为瞬时失败 → **保留上一次账号列表** 且 `loaded` 不置真（下次进入仍重拉）。
+- **`src/views/Accounts.vue` + locales（P0-A）**：新增错误态 EmptyState（`data-testid="accounts-error"`，`WarningFilled` 图标 + 重试按钮，点击走 `refresh()`），与「暂无账号」互斥；`zh/en` 成对新增 `accountsPage.errorTitle/errorHint/errorAction`。
+
+### 验证
+- TDD 红→绿，新增 **28** 例：python `test_logto_auth.py` +12 / `test_server_logto_auth.py` +3；`python-bridge.integration` +2（503 与「401 非令牌码」均不重放）、`account-manager` +2、`ipc-handlers/account` +2；`stores/accounts` +4、`views/Accounts` +3。既有契约零破坏（discovery 不缓存、unknown-kid 单飞有界、store 空列表/reject 语义、`AUTH_TOKEN_EXPIRED` 重放一次）。
+- python-backend 全量 pytest 2679 项：auth 相关 60 全绿；3 项失败与本次链路无交集（`test_pipeline_loader` 为 manifest 存量漂移确定性失败；`test_frame_html`/`test_llm_service` 单独运行通过，系全量运行用例间污染）。
+- 门禁：eslint 改动文件 0 error；`ruff` 改动文件 0 新增（`server.py` 3 项为 main 预存）；`check-locale-sync` `--pair-base`/`--keys`/`--cjk` PASS，`--py-cjk` 因行号偏移重锚基线（前后均 79 条，逐条对账无新增硬编码）；`check-debt-budget` PASS（指标持平基线）。
+
+### 关联
+- 分支 `codex/account-page-jwks-resilience`（worktree 隔离，D 盘）；根因链/契约/Decision Log：`01-docs/BUGFIX-ACCOUNT-PAGE-JWKS-RESILIENCE-2026-09-22.md`
+- 另案（不在本 PR）：8299 端口绑定失败 + `waitForHealthy` 假阳性；代理客户端对 `auth.iart.work` 直连放行。
+
+### 复审修复（CodeReview W1–W5，同 PR 追加）
+首轮提交后 CodeReview（0 Critical / 5 Warning）全部修复并补 TDD 用例（新增 **+8**：store +3、view +4、bridge +1）：**W1** store `fallback` 改走 `i18n`（消除 en 界面硬编码中文）、view 错误态 `description` 直接用 `errorHint`（不再是死键）；**W2** store 暴露结构化 `errorCode`，view 按码分流——未登录 `AUTH_REQUIRED` 走「去登录」引导态（点击 `ensureLogin` → 成功刷新），已登录令牌异常仍走错误重试态；**W3** `TOKEN_RETRY_ERROR_CODES` 补入 `AUTH_TOKEN_REQUIRED`（强刷 + 重放自愈）；**W4** `connect_timeout_seconds` 2.0 → 5.0（对齐事故环境实测握手，收益来自连接复用/退避而非激进超时）；**W5** `listAccounts` reject（后端未起 / 连接超时）经 `formatUserError` 归类，`NETWORK_ERROR`/`TIMEOUT` 计入瞬时失败 → 保留上一次列表。locale：`accountsPage.loginRequiredTitle/loginRequiredHint/loginRequiredAction` zh/en 成对新增。
+# [未发布] fix(ui): 设置弹窗右侧内容区与左侧标签导航留白修复
+
+### 变更
+- **`SettingsDialog.vue`（`.settings-panel` 留白单一真源）**：`padding: 0` → `padding: 24px 28px` 并补 `min-width: 0`（flex 溢出防护）。新增 `:deep(.cohere-page-header)` / `:deep(.cohere-content)` 去掉子页级左右 padding，避免与面板留白叠加成双重缩进。修复「模型设置 / 飞书 API」标签下右侧内容（零内边距的模型筛选条、飞书整块表单）贴住甚至视觉重叠左侧导航 `border-right` 的问题——根因是面板零内边距 + 子页面水平留白各自为政不一致（ModelProviders 头部/内容各 32px、筛选条 0、飞书 0）。修复后各区块对齐同一左基线，与分隔线恒有 28px 呼吸间距。
+
+### 验证
+- TDD：新增 `src/components/settings-panel-layout.test.js`（3 例源码契约：面板 padding 非 0、含 `min-width:0`、存在 `:deep` 去左右 padding）。定向 3 文件 13/13 全绿；`SettingsDialog.test.js`(5)、`model-providers-copy.test.js`(5)、`icon-usage.test.js`(9) 零回归；eslint exit 0。
+- 纯前端展示层样式，无 IPC / 数据模型 / 后端 / 迁移；暗色模式与视觉测试选择器不受影响。
+
+### 关联
+- 分支 `codex/settings-panel-content-gap`（worktree 隔离，D 盘）；规范详见 `01-docs/design/model-provider-module-design.md` §9.4。
+
+---
 # [未发布] fix(security): P0 审计第一批——systemd 加固 + 密钥出库 + JWT/CORS 闸门 + 加密 fail-closed + SSRF 守卫（2026-09-22，audit-batch-1）
 
 ## [0.1.1] P0 Security Hotfix

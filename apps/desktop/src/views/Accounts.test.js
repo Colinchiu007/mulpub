@@ -36,6 +36,10 @@ const _favoriteIds = vi.hoisted(() => new Set());
 const _selectedIds = vi.hoisted(() => new Set());
 const _accountFilters = vi.hoisted(() => ({ searchQuery: "", filterStatus: "all", filterPlatform: "" }));
 const _accountSort = vi.hoisted(() => ({ sortBy: null, sortOrder: null }));
+const _accountError = vi.hoisted(() => ({ value: null }));
+const _accountErrorCode = vi.hoisted(() => ({ value: null }));
+const _identityState = vi.hoisted(() => ({ isAuthenticated: false }));
+const _ensureLogin = vi.hoisted(() => vi.fn(async () => false));
 const _eventCallbacks = vi.hoisted(() => ({
   authOpened: null,
   authCompleted: null,
@@ -63,6 +67,18 @@ vi.mock('vue-router', () => ({
   useRouter: () => ({ replace: vi.fn() }),
 }))
 
+vi.mock('@/stores/identity', () => ({
+  useIdentityStore: () => ({
+    get isAuthenticated() { return _identityState.isAuthenticated; },
+    status: 'signed_out',
+    signInOrSwitch: vi.fn(),
+  }),
+}));
+
+vi.mock('@/composables/useLoginGate', () => ({
+  useLoginGate: () => ({ ensureLogin: _ensureLogin }),
+}));
+
 const _spies = vi.hoisted(() => ({
   load: vi.fn(),
   loadGroups: vi.fn(),
@@ -88,7 +104,8 @@ vi.mock("@/stores/accounts", () => ({
     set accounts(v) { _testAccounts.length = 0; _testAccounts.push(...v); },
     load: _spies.load,
     loading: false,
-    error: null,
+    get error() { return _accountError.value; },
+    get errorCode() { return _accountErrorCode.value; },
     get searchQuery() { return _accountFilters.searchQuery; },
     set searchQuery(value) { _accountFilters.searchQuery = value; },
     get filterStatus() { return _accountFilters.filterStatus; },
@@ -217,6 +234,101 @@ async function mountView() {
   return w;
 }
 
+describe("AccountsView — 加载失败错误态", () => {
+  beforeEach(() => {
+    i18n.global.locale.value = "zh";
+    setActivePinia(createPinia());
+    _testAccounts.length = 0;
+    _accountError.value = null;
+    _accountErrorCode.value = null;
+    _identityState.isAuthenticated = false;
+    _ensureLogin.mockClear();
+    _ensureLogin.mockImplementation(async () => false);
+    window.electronAPI = {};
+    localStorage.setItem("account-authorization-guide-seen", "1");
+  });
+
+  it("失败且无数据时展示错误态与重试入口，而不是「暂无账号」", async () => {
+    _accountError.value = "账号列表加载失败";
+
+    const w = await mountView();
+
+    expect(w.find('[data-testid="accounts-error"]').exists()).toBe(true);
+    expect(w.find('[data-testid="accounts-empty"]').exists()).toBe(false);
+    expect(w.text()).toContain("重试");
+  });
+
+  it("错误态点击重试会重新加载账号列表", async () => {
+    _accountError.value = "账号列表加载失败";
+    const w = await mountView();
+    _spies.load.mockClear();
+
+    await w.find('[data-testid="accounts-error"] button').trigger("click");
+    await nextTick();
+
+    expect(_spies.load).toHaveBeenCalled();
+  });
+
+  it("已有账号时不因失败切换成空态（保留上一次结果）", async () => {
+    _testAccounts.push({ id: "wx-1", platform: "wechat_mp", name: "公众号", status: "active" });
+    _accountError.value = "账号列表加载失败";
+
+    const w = await mountView();
+
+    expect(w.find('[data-testid="accounts-error"]').exists()).toBe(false);
+    expect(w.find('[data-testid="accounts-empty"]').exists()).toBe(false);
+  });
+
+  it("错误态描述使用本地化提示，不直出后端原始文本", async () => {
+    _accountError.value = "AUTH_JWKS_UNAVAILABLE raw backend text";
+
+    const w = await mountView();
+    const box = w.find('[data-testid="accounts-error"]');
+
+    expect(box.exists()).toBe(true);
+    expect(box.text()).toContain(i18n.global.t('accountsPage.errorHint'));
+    expect(box.text()).not.toContain("raw backend text");
+  });
+
+  it("AUTH_REQUIRED 且未登录时展示登录引导而非错误重试态", async () => {
+    _accountError.value = "无法识别当前用户";
+    _accountErrorCode.value = "AUTH_REQUIRED";
+    _identityState.isAuthenticated = false;
+
+    const w = await mountView();
+
+    expect(w.find('[data-testid="accounts-login-required"]').exists()).toBe(true);
+    expect(w.find('[data-testid="accounts-error"]').exists()).toBe(false);
+  });
+
+  it("登录引导点击触发 ensureLogin，成功后刷新列表", async () => {
+    _accountError.value = "无法识别当前用户";
+    _accountErrorCode.value = "AUTH_REQUIRED";
+    _identityState.isAuthenticated = false;
+    _ensureLogin.mockImplementation(async () => true);
+
+    const w = await mountView();
+    _spies.load.mockClear();
+
+    await w.find('[data-testid="accounts-login-required"] button').trigger("click");
+    await nextTick();
+
+    expect(_ensureLogin).toHaveBeenCalledTimes(1);
+    expect(_spies.load).toHaveBeenCalled();
+  });
+
+  it("AUTH_REQUIRED 但已登录（令牌异常）时仍走错误重试态", async () => {
+    _accountError.value = "AUTH_TOKEN_INVALID";
+    _accountErrorCode.value = "AUTH_REQUIRED";
+    _identityState.isAuthenticated = true;
+
+    const w = await mountView();
+
+    expect(w.find('[data-testid="accounts-login-required"]').exists()).toBe(false);
+    expect(w.find('[data-testid="accounts-error"]').exists()).toBe(true);
+  });
+});
+
 describe("AccountsView", () => {
   beforeEach(async () => {
     i18n.global.locale.value = "zh";
@@ -245,6 +357,7 @@ describe("AccountsView", () => {
     _accountFilters.searchQuery = "";
     _accountFilters.filterStatus = "all";
     _accountFilters.filterPlatform = "";
+    _accountError.value = null;
     _accountSort.sortBy = ref("name");
     _accountSort.sortOrder = ref("asc");
     _routeState.path = '/accounts';
