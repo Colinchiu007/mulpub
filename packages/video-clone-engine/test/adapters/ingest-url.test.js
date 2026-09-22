@@ -30,6 +30,8 @@ test('链接下载成功：media + platform hint + meta', async () => {
   const ingest = createUrlIngest({
     downloadRunner: async () => { /* 真实下载由 runner 负责 */ },
     fsImpl: { promises: { mkdtemp: async () => tmp, stat: async () => ({ size: 1024 }) } },
+    // P1-11: 守卫默认校验 DNS 解析结果，单测注入公网地址避免依赖真实解析
+    resolveAddr: async () => [{ address: '142.250.190.78' }],
   });
   const ctx = { request: { source: { url: 'https://www.youtube.com/watch?v=abc' } }, report: emptyReport(), artifacts: {} };
   const out = await ingest.run(ctx);
@@ -44,6 +46,7 @@ test('下载失败 → 按文本映射错误码', async () => {
   const ingest = createUrlIngest({
     downloadRunner: async () => { throw Object.assign(new Error('fail'), { stderr: 'ERROR: This video is private' }); },
     fsImpl: { promises: { mkdtemp: async () => 'tmp', stat: async () => ({ size: 1 }) } },
+    resolveAddr: async () => [{ address: '220.181.10.1' }],
   });
   await assert.rejects(
     () => ingest.run({ request: { source: { url: 'https://www.douyin.com/video/1' } }, report: emptyReport(), artifacts: {} }),
@@ -55,6 +58,7 @@ test('下载产物超限 → FILE_TOO_LARGE', async () => {
   const ingest = createUrlIngest({
     downloadRunner: async () => {},
     fsImpl: { promises: { mkdtemp: async () => 'tmp', stat: async () => ({ size: 600 * 1024 * 1024 }) } },
+    resolveAddr: async () => [{ address: '185.45.5.100' }],
   });
   await assert.rejects(
     () => ingest.run({ request: { source: { url: 'https://www.tiktok.com/@x/video/1' } }, report: emptyReport(), artifacts: {} }),

@@ -8,7 +8,7 @@
     "src"
   ],
   "scripts": {
-    "test": "node --test test/replication-level.test.js test/clone-report.test.js test/similarity.test.js test/stage-executor.test.js test/pipeline.test.js test/adapters/ingest-local.test.js test/adapters/ingest-url.test.js test/adapters/analyze-ffprobe.test.js test/adapters/plan-script.test.js test/adapters/slice2-integration.test.js test/adapters/generate-assets.test.js test/adapters/compose-command.test.js test/adapters/compose-integration.test.js test/adapters/publish.test.js test/adapters/slice3-integration.test.js test/adapters/dl-probe.test.js test/scripts/analyze-cli.test.js test/runner.test.js test/service.test.js",
+    "test": "node --test test/replication-level.test.js test/clone-report.test.js test/similarity.test.js test/stage-executor.test.js test/pipeline.test.js test/adapters/ingest-local.test.js test/adapters/ingest-url.test.js test/adapters/url-guard.test.js test/adapters/analyze-ffprobe.test.js test/adapters/plan-script.test.js test/adapters/slice2-integration.test.js test/adapters/generate-assets.test.js test/adapters/compose-command.test.js test/adapters/compose-integration.test.js test/adapters/publish.test.js test/adapters/slice3-integration.test.js test/adapters/dl-probe.test.js test/scripts/analyze-cli.test.js test/runner.test.js test/service.test.js",
     "dl:probe": "node scripts/video-clone-dl-probe.js",
     "analyze": "node scripts/video-clone-analyze.js"
   },

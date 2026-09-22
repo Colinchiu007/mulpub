@@ -6,6 +6,8 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import ConfigItem, ConfigAuditLog
+from services.key_service import encrypt_secret_value, is_encrypted
+from services.config_service import plaintext_value, audit_display_value
 from database import Base
 
 logger = logging.getLogger(__name__)
@@ -24,6 +26,7 @@ async def create_snapshot(db: AsyncSession, label: str = "", created_by: str = "
         "items": {},
     }
     for item in items:
+        # P1-5: 快照存**库中原值**（敏感项即密文），既不留明文，也可跨密钥轮换回放
         snapshot_data["items"][item.id] = {
             "project_code": item.project_code,
             "category": item.category,
@@ -133,9 +136,13 @@ async def restore_snapshot(db: AsyncSession, snapshot_id: str, restored_by: str 
         # Upsert each item
         existing = await db.execute(select(ConfigItem).where(ConfigItem.id == config_id))
         item = existing.scalar_one_or_none()
-        old_value = item.value if item else ""
+        old_value = plaintext_value(item) if item else ""
+        secret_flag = int(data.get("is_secret") or 0) or (int(item.is_secret or 0) if item else 0)
+        raw_value = data.get("value") or ""
+        # P1-5: 快照里的明文值在恢复时补加密；已是密文则原样回放（幂等）
+        restored_value = encrypt_secret_value(raw_value) if secret_flag and not is_encrypted(raw_value) else raw_value
         if item:
-            item.value = data["value"]
+            item.value = restored_value
             item.updated_at = now
         else:
             item = ConfigItem(
@@ -143,7 +150,7 @@ async def restore_snapshot(db: AsyncSession, snapshot_id: str, restored_by: str 
                 project_code=data["project_code"],
                 category=data["category"],
                 key=data["key"],
-                value=data["value"],
+                value=restored_value,
                 value_type=data.get("value_type", "string"),
                 description=data.get("description", ""),
                 is_secret=data.get("is_secret", 0),
@@ -157,8 +164,8 @@ async def restore_snapshot(db: AsyncSession, snapshot_id: str, restored_by: str 
         # Audit log
         audit = ConfigAuditLog(
             config_id=config_id,
-            old_value=old_value,
-            new_value=data["value"],
+            old_value=audit_display_value(secret_flag, old_value),
+            new_value=audit_display_value(secret_flag, raw_value),
             changed_by=restored_by,
             changed_at=now,
             change_type="restore",

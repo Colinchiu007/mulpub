@@ -7,6 +7,7 @@ const {
   detectSentiment,
   enrichSceneWithContext,
   extractStoryContext,
+  filterIdiomHits,
   mergeNegativePrompt,
   normalizeSceneContextOptions,
   CONTEXT_KEY_WHITELIST,
@@ -294,6 +295,38 @@ describe('scene_context 审查修复回归（2026-08-11 双模型审查 C1/W2/W3
     const story = extractStoryContext('唐朝长安城一片繁华，市井百姓安居乐业。')
     expect(story.dynasty).toMatchObject({ name: '唐朝' })
     expect(story.anchors).toContain('唐朝')
+  })
+
+  // 回归（体检报告问题13）：惯用语守卫此前只登记了诸葛亮/曹操，刘备的两个常用歇后语漏登记，
+  // 现代职场/口语文本仍会被误判为三国并污染全部场景的视觉风格与负面锚点。
+  it('成语误判：全文含"刘备借荆州"不识别为三国', () => {
+    const story = extractStoryContext('他这招简直是刘备借荆州，借了我的电脑三天没还。')
+    expect(story.dynasty).toBeNull()
+    expect(story.anchors).not.toContain('刘备')
+  })
+
+  it('成语误判：全文含"刘备摔阿斗"不识别为三国', () => {
+    const story = extractStoryContext('老板在会上来了这么一出刘备摔阿斗，纯粹是收买人心。')
+    expect(story.dynasty).toBeNull()
+    expect(story.anchors).not.toContain('刘备')
+  })
+
+  it('成语守卫不误伤：真实三国文本里的"刘备"仍作为朝代证据', () => {
+    expect(filterIdiomHits('刘备入川取益州，奠定蜀汉基业', ['刘备'])).toEqual(['刘备'])
+  })
+
+  it('正向回归（[v3 订正]）：仅含"孙权称帝"的纯三国史实文本仍识别为三国', () => {
+    const story = extractStoryContext('孙权称帝之后，江东文武大庆，吴国自此立国。')
+    expect(story.dynasty).toMatchObject({ name: '三国' })
+    expect(story.anchors).toContain('三国')
+  })
+
+  it('IDIOM_EXCLUSIONS 表内容契约：漏登记 / 误登记史实词都会被此用例挡住', () => {
+    expect(filterIdiomHits('这纯属事后诸葛亮', ['诸葛亮'])).toEqual([])
+    expect(filterIdiomHits('真是说曹操曹操到', ['曹操'])).toEqual([])
+    expect(filterIdiomHits('他玩的是刘备借荆州', ['刘备'])).toEqual([])
+    // 史实词不得进表
+    expect(filterIdiomHits('孙权称帝建吴', ['孙权'])).toEqual(['孙权'])
   })
 
   // 回归：现代题材 + 历史引用（2026-08-30，现代信号中和）

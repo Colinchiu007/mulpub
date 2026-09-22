@@ -27,8 +27,50 @@
 ---
 
 
+
 ---
 
+# [未发布] fix(audit): P1 审计第二批——配置密文化 + 采集空壳硬约束 + SSRF 白名单 + 依赖治理 + 浏览器生命周期 + 惯用语守卫（2026-09-22，audit-batch-2）
+
+
+## audit-batch-2（P1，未发版，与 audit-batch-1 一起等下次发版收口）
+
+
+### Security
+
+- **ops-center 配置中心**：敏感配置（`is_secret=1`）写库前加密为 `enc:v1:` 自描述密文；审计表改为**写库时掩码**（读时掩码可被"直接查库/导出"绕过）；批量更新接口不再把敏感项降级为明文（`secret_flag` 以库中既有标记为准）；客户端回填掩码串不再覆盖真实凭据；密文不可解时导出**抛错而非静默写空凭据**（空凭据会把密钥轮换事故伪装成"服务不稳定"）。存量明文零迁移可读，详见 `docs/audit-remediation-batch2-2026-09-22.md` §1
+- **video-clone-engine**：新增 `src/adapters/url-guard.js`，链接导入在 `mkdtemp` / 调 yt-dlp **之前**执行「协议 → 内网字面量 → 平台域名白名单 → DNS 解析结果」四段校验（拦 `169.254.169.254`、`localhost`、`10/8`、`fc00::/7` 等，并防"公网域名 → 内网 IP"重绑定），解析失败 fail-closed；新增环境变量 `VIDEOCLONE_ALLOW_ANY_HOST`（只放开白名单，内网拦截不放松）；新增错误码 `VIDEOCLONE_LINK_BLOCKED` + zh/en 文案，不再冒充"该视频为私密内容"
+- **shared-utils**：`publish-history` 去掉顶层 `require('electron')`（纯 Node 下它返回可执行文件路径字符串而**不抛错**，真实崩点是 `app.getPath` 的 TypeError），改为 `configurePublishHistory({ userDataDir | filePath | app })` 注入优先 + 懒加载兜底 + 可操作报错；electron 声明为 optional peerDependency；`publishHistory` 补进包入口
+
+
+### Fixes
+
+- **collection-engine / B 站适配器**：`_doFetch` 从"返回硬编码样例"的桩改为真发请求（WBI `wts` **先入签再算 `w_rid`**、`generateWbiSign` 纯函数化不改入参、`bvid/aid` 编码、可注入 `http`、失败时回落浏览器通道）
+- **collection-engine / 采集引擎**：HTTP 200 但正文空壳的响应不再记成功 —— 统一返回 `{ success:false, reason:'empty_content' }`，同时记失败、计入健康度与熔断、退回配额（此前"采集成功但内容为空"让成功率、熔断、配额三类指标一起说谎）
+- **python-backend / 角色动画**：`_render_preview_mp4` 的 `new_page/goto/逐帧 screenshot` 包进 `try`，`browser.close()` 移入 `finally`，异常路径不再泄漏 Chromium 进程组（批量跑时表现为越跑越慢直至句柄/内存耗尽）
+- **desktop / 剧本上下文**：`IDIOM_EXCLUSIONS` 只登记真实惯用语（刘备补「刘备借荆州」「刘备摔阿斗」）；「孙权称帝」属史实陈述，不进排除表，改由正向回归用例锁定；导出 `filterIdiomHits` 便于直接单测
+
+
+### Testing
+
+- 新增用例：`ops-center/backend/tests/test_p1_config_secret.py`（13）、`packages/collection-engine/tests/bilibili-adapter.test.js`（11）、`packages/shared-utils/tests/publish-history.test.js`（8）、`packages/video-clone-engine/test/adapters/url-guard.test.js`（16）、`packages/python-backend/tests/test_character_animation_lifecycle.py`（5）、`story-context-engine.test.js` +5
+- 全量本地门禁：ops-center 409 pytest、collection-engine 104 vitest、shared-utils 273 vitest、video-clone-engine 151 node--test（0 failed）、desktop 受影响面 78 vitest、python-backend `-k character` 55 pytest
+- 五项均做 stash 红验证（P1-5 12 failed / P1-10 8 failed / P1-11 2 failed / P1-12 3 failed / P1-13 精确 3 failed，且孙权正向回归保持通过）。其中 P1-10 的用例反向发现两个真实缺陷：`_resolveApp` 未校验 `.app` 是否存在、`getHistoryPath` 在读 `userDataDir` 前就解析 Electron 使注入形同虚设
+
+
+### Documentation
+
+- 新增 `docs/audit-remediation-batch2-2026-09-22.md`：6 项变更的存储格式与数据校验、写入/读取/导出流程、显示项（含新响应字段 `is_encrypted` 的三态显示建议）、提示文字原文、错误码与文案表（zh/en）、测试矩阵、运维指引（排查 SQL、密钥轮换处置）与决策记录
+- `01-docs/PRD-VIDEO-CLONE-2026-08-12.md` §14 错误码表补 `VIDEOCLONE_LINK_BLOCKED` 一行
+
+
+### 决策与残余风险
+
+- 敏感项**不跑一次性迁移脚本**：靠"任何一次保存即升级为密文"+ 排查 SQL 收敛存量明文（回滚只需停止新写入）
+- 白名单以"初始目标域名"为边界，yt-dlp 内部跟随的 30x 重定向不经过新守卫；彻底覆盖需在下载器侧加代理/出口 ACL（列入第 4 批技术债）
+- `VIDEOCLONE_LINK_PRIVATE` 文案保持不变，避免影响真实"私密视频"场景；SSRF 拦截改用独立码，两条链路文案语义正交
+
+---
 # [未发布] feat(tab): 「+」新标签内嵌独立应用主页——与首标签完全解耦（PRD-TAB-INDEPENDENT-HOME）
 
 ### 变更

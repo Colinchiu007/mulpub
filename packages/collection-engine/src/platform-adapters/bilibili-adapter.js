@@ -16,12 +16,13 @@ const WBI_KEY_MIXIN = [46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 
 
 function generateWbiSign (params, imgKey, subKey) {
   const mixKey = imgKey + subKey
-  const sorted = Object.keys(params).sort()
-  const query = sorted.map(k => k + '=' + encodeURIComponent(params[k])).join('&')
-  const sign = crypto.createHash('md5').update(query + mixKey).digest('hex')
-  params.w_rid = sign
-  params.wts = String(Math.floor(Date.now() / 1000))
-  return params
+  // P1-9: wts 必须**先于**排序入签（B站 WBI 规范：签名字符串含 wts、不含 w_rid）。
+  // 原实现把 wts 加在 md5 之后，签名必然校验失败 → 接口只返回 -403/-799 空壳。
+  const signed = { ...params, wts: String(Math.floor(Date.now() / 1000)) }
+  const sorted = Object.keys(signed).sort()
+  const query = sorted.map(k => k + '=' + encodeURIComponent(signed[k])).join('&')
+  signed.w_rid = crypto.createHash('md5').update(query + mixKey).digest('hex')
+  return signed
 }
 
 function mixinKey (raw) {
@@ -34,6 +35,27 @@ class BilibiliAdapter extends BaseAdapter {
     this._apiBase = 'https://api.bilibili.com'
     this._imgKey = ''
     this._subKey = ''
+    // 注入式 HTTP 客户端（测试用；默认 globalThis.fetch）
+    this._http = opts.http || null
+  }
+
+  /** P1-9: 真实发起 GET；无 fetch 实现时抛错（而不是返回假 200 空壳） */
+  async _httpGet (url) {
+    const fetchImpl = this._http || globalThis.fetch
+    if (!fetchImpl) throw new Error('bilibili _httpGet: no fetch implementation available')
+    const res = await fetchImpl(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+          + '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        Referer: 'https://www.bilibili.com/',
+        Accept: 'application/json, text/plain, */*',
+      },
+    })
+    const status = res.status != null ? res.status : res.statusCode
+    const body = await res.text()
+    let json = null
+    try { json = JSON.parse(body) } catch (e) { json = null }
+    return { status, body, json, title: '', url }
   }
 
   /** 设置 wbi 密钥对（需从 B站 nav 接口获取后再调用） */
@@ -73,8 +95,9 @@ class BilibiliAdapter extends BaseAdapter {
 
   buildUrl (target) {
     if (typeof target === 'string') return target
-    if (target.bvid) return this._apiBase + '/x/web-interface/view?bvid=' + target.bvid
-    if (target.aid) return this._apiBase + '/x/web-interface/view?aid=' + target.aid
+    // P1-9: 参数必须编码 —— 真发请求后未编码的 bvid/aid 会变成查询注入点
+    if (target.bvid) return this._apiBase + '/x/web-interface/view?bvid=' + encodeURIComponent(target.bvid)
+    if (target.aid) return this._apiBase + '/x/web-interface/view?aid=' + encodeURIComponent(target.aid)
     return target.url
   }
 
@@ -87,7 +110,16 @@ class BilibiliAdapter extends BaseAdapter {
       const signed = generateWbiSign(params, this._imgKey, this._subKey)
       const signedUrl = url.split('?')[0] + '?' + Object.entries(signed)
         .map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&')
-      return { status: 200, body: '', json: { code: 0, data: { title: '', desc: '' } }, title: '', url: signedUrl }
+      try {
+        const resp = await this._httpGet(signedUrl)
+        const empty = resp.json == null || this.isEmptyContent(this.extractContent(resp))
+        if (!empty) return resp
+        // 空壳（风控/签名失效/视频不存在）→ 有浏览器就兜底，没有就原样返回由 collect 判 empty_content 失败
+        if (!this._browser) return resp
+      } catch (err) {
+        if (!this._browser) throw err
+        // 浏览器兜底可用时，API 异常降级而非直接失败
+      }
     }
 
     // 浏览器兜底
