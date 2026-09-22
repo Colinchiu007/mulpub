@@ -105,5 +105,5 @@
   <!-- 2026-09-23：01-docs/learnings.md 顶部新增《真实冒烟是 mock 测试的照妖镜》段（三缺口/checkpoint:false 哨兵合同/IPC 节流/断点事实源/对账口径/工程环境坑）；外部记忆 ~/.gstack learnings.jsonl + EverOS :8000 add/flush 经脚本双写；内置记忆 UpdateMemory。 -->
 - [x] 10.5 归档前置：1.1 的前置 change 状态、10.1-10.4 完成核查 + 无未勾任务后 archive 本 change
   <!-- 2026-09-23：前置 change film-engineering-video-gen 已于 e6bc371ca 归档（1.1）；10.1-10.4 完成核查全勾；openspec validate 通过后 archive 为 2026-09-23-film-full-corpus-production，主 spec film-engineering 同步（3 MODIFIED + 2 ADDED 需求并入）。 -->
-- [x] 10.5 归档前置：1.1 的前置 change 状态、10.1-10.4 完成核查 + 无未勾任务后 archive 本 change
-  <!-- 2026-09-23：前置 change film-engineering-video-gen 已于 e6bc371ca 归档（1.1）；10.1-10.4 完成核查全勾；openspec validate 通过后 archive 为 2026-09-23-film-full-corpus-production，主 spec film-engineering 同步（3 MODIFIED + 2 ADDED 需求并入）。 -->
+- [x] 10.6 远端收尾：PR（关联本 change）→ 盯 CI 全绿 → auto-merge → `git merge-base --is-ancestor <合并提交> origin/main` 验证，记录 remoteStatus
+  <!-- 2026-09-23 remoteStatus：PR #2248 https://github.com/Colinchiu007/mulpub/pull/2248 已 MERGED（squash 7aff2b3361c01d85cef64eecf1ef9f3b5b1452b6，mergedAt 2026-09-22T23:33Z）；CI 全绿（QG Unit/Coverage/Desktop Shards/Browser E2E/Static/Visual/Autonomous + agent-judge + build + electron-tests + gui-test + 文档同步/债务熔断全 pass）；gh api compare 验证合并提交在 origin/main（本地 shallow clone 使 git merge-base --is-ancestor 假阴性，以 GitHub API 为准）。注：本行在 bf4f4dc68 曾被损坏脚本误替换为重复的 10.5 块，由本次修复 commit 还原（描述原文取自 33cba2a28 归档前版本）。 -->
