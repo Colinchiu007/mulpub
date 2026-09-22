@@ -824,3 +824,36 @@ P3 实施前需复审，通过条件：
 
 - 纯前端展示层文案与样式，无 IPC / 数据模型 / 后端改动，无迁移。
 - 视觉测试选择器（`button:has-text("添加服务商")`、`.settings-tab`、`.provider-card`）为子串/类名匹配，文案由「＋＋」改「+」及新增图标不影响命中。
+
+### 9.4 设置弹窗右侧内容区留白规范（2026-09-22 settings-panel-content-gap）
+
+**问题现象**：「模型设置」「飞书 API」标签下，右侧内容紧贴甚至视觉重叠左侧标签导航的分隔线。
+
+**根因（单一真源缺失）**：
+- `.settings-panel` 历史上 `padding: 0`，面板本身不提供任何内边距。
+- 子页面水平留白各自为政且不一致：`ModelProviders.vue` 的 `.cohere-page-header` / `.cohere-content` 各带设计系统页级 `--space-xxl`(32px) 左右内边距，但 `.cohere-filter-bar`（分类筛选条）`padding: 0`；`FeishuSettingsTab.vue` 根容器 `.feishu-settings` 完全无内边距。
+- 结果：零内边距的行（模型筛选条、飞书整块表单）直接贴住导航 `border-right`，与激活标签卡片（白底 + `--shadow-sm` 浮起 + 左侧强调条）挤在一起，读作「接触 / 重叠」。
+
+**修复方案（面板做水平留白单一真源）**：
+- `.settings-panel`：`padding: 0` → `padding: 24px 28px`（上下 24px、左右 28px），并补 `min-width: 0`（防止 flex 子项内容过宽反向挤压导航列，flex 溢出防护）。
+- 用 `:deep` 去掉子页级左右内边距，避免与面板留白叠加成双重缩进：
+  ```css
+  .settings-panel :deep(.cohere-page-header),
+  .settings-panel :deep(.cohere-content) { padding-left: 0; padding-right: 0; }
+  ```
+- 保留子页级上下 padding 维持纵向节奏；水平方向一律由面板统一提供。
+
+**显示项 / 交互逻辑（修复后契约）**：
+- 左侧导航列宽 200px 固定（`flex-shrink: 0`），右内容区 `flex: 1` 且内容基线统一缩进 28px；模型页头部、筛选条、服务商卡片、飞书表单、占位面板全部对齐同一左基线，与导航分隔线之间恒有 28px 呼吸间距，不再接触或重叠。
+- 内容区纵向滚动（`overflow-y: auto`）落在面板上，滚动条贴弹窗右缘，不遮挡内容。
+- 暗色模式不受影响（仅改留白，未改配色 token）。
+
+**数据校验**：纯展示层布局，无数据流 / IPC / 校验逻辑改动。
+
+**回归测试覆盖（新增 `src/components/settings-panel-layout.test.js`，源码契约式，3 例）**：
+- `.settings-panel` padding 非 0（守护「不再贴分隔线」，禁止回退 `padding: 0`）；
+- `.settings-panel` 含 `min-width: 0`（flex 溢出防护）；
+- 存在 `:deep(.cohere-page-header)` 与 `:deep(.cohere-content)` 且 `padding-left/right: 0`（守护「去双重缩进」不回退）。
+- 既有 `SettingsDialog.test.js`（5 例）、`model-providers-copy.test.js`（5 例）、`icon-usage.test.js`（9 例）零回归。
+
+**变更影响面**：纯前端展示层样式，无 IPC / 数据模型 / 后端 / 迁移；视觉测试选择器（`.settings-tab`、`.provider-card`、`button:has-text("添加服务商")`）为类名/子串匹配，留白改动不影响命中。
