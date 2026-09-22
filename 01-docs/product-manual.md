@@ -458,8 +458,13 @@ Multi-Publish 支持同一平台添加多个账号，适合运营多个账号的
 
 **数据校验与边界：** 查询/批量保存 IPC 均为纯 JSON 参数，tabId 缺失返回校验错误；
 非账号标签或已保存标签直接放行关闭（保持原行为）；账号标签缺少 accountId/platform 时
-保存 fail-closed（返回 not-account-tab）；提取到空凭证时由凭证库写入层抛错并保持未保存态；
+保存 fail-closed（返回 not-account-tab）；Cookie 提取经 Electron 真实 API
+`session.cookies.get()` 完成，**提取抛错即中止保存**（返回 cookie-extract-failed，
+角标保持「未保存」、提示「保存账号凭证失败，请重试」，绝不以空 Cookie 假保存）；
+cookies/localStorage/indexedDB 三者全空的凭证由凭证库写入层抛错并保持未保存态；
 关闭标签时自动清理未触发的去抖计时器，不会对已销毁视图执行保存。
+（2026-09-22 热修：修复曾因误用不存在的 `getAll` API 且吞错导致「扫码登录成功但保存
+0 Cookie」，重开标签弹回登录页；详见 PRD-BATCH-LOGIN-SAVE-GUARD §13。）
 
 ### 4.4 三种认证模式
 

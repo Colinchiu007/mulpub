@@ -228,8 +228,47 @@ en：对应英文（saveAccountPulseHint / unsavedBadge / saveAllBtn / ... ）�
 - 测试：`electron/services/webview-manager.test.js`（新增）、`src/stores/tab.test.js`、
   `src/components/LoginExpiredBanner.test.js`、`src/App` 关闭护栏测试（新增）。
 
-## 12. 风险与缓解
+## 12. 风险与缓解（v1 原稿）
 - 误判登录成功 URL 提前保存空/半凭证 → 去抖 1.5s + `updateCapturedAccount` 空凭证 fail-closed，
   不会写入损坏数据；失败保持 unsaved 可重试。
 - 自动保存与手动保存竞态 → 以 credentialSaveState 为准，saved 后自动/手动均短路。
 - 关闭计时器泄漏 → closeTab/dispose 清理。
+
+## 13. 修订记录 v2（2026-09-22 热修）：账号标签「假保存成功」缺陷（getAll 吞错）
+
+### 13.1 用户可见症状
+账号页点击已失效视频号 → 打开登录标签扫码确认 → 页面闪动后**未跳转创作者中心**；
+关闭再打开该账号标签仍停在登录页（需再次扫码）。若改用全屏登录视图（AuthViewManager）
+重登则正常——缺陷仅存在于**账号浏览器标签（btab）保存链路**。
+
+### 13.2 根因（第一性原因）
+`webview-manager.js` 的 `saveAccountTabCredentials` 与 `saveCookies` 调用了
+`session.cookies.getAll({})`——**Electron 的 cookies API 只有 `get([filter])`，不存在
+`getAll`**。TypeError 被外层 `catch` 吞掉后以 `cookies=[]` 继续执行保存：
+- `updateCapturedAccount` 的「三空拒绝」校验（cookies+localStorage+indexedDB 全空才抛错）
+  被残留的旧 localStorage（13 键）绕过 → 凭证库写入 **0 Cookie 的假凭证** 并置 `saved`、
+  广播 `auth:completed`（假成功）；
+- 再开创作者中心标签时凭证恢复 0 Cookie → 服务端无会话 → 弹回 login.html。
+决定性日志证据：`saveAccountTabCredentials: cookies.getAll failed ... getAll is not a
+function` 紧跟 `saved tencent_video:xxx cookies=0 lsKeys=13`。
+（git log -S 追溯：该误用自 graft 初始提交即存在，属历史代码；本 PRD 方案一上线后
+自动保存路径同样踩中，属本功能数据流上的既有缺陷点。）
+
+### 13.3 修复契约（v2 生效）
+1. **API 契约**：主进程提取分区 Cookie 一律用 `session.cookies.get({})`（与
+   auth-view-manager/qrcode-login 对齐），禁止发明不存在的 API。
+2. **fail-closed 数据校验**：`saveAccountTabCredentials` 中 Cookie 提取**抛错即中止**——
+   返回 `{ok:false, reason:'cookie-extract-failed', accountId, platform}`，不得落盘、
+   保持 `credentialSaveState==='unsaved'`、不广播 `saved`、不发 `auth:completed`。
+   自动保存路径失败等下一次导航重试；手动保存路径渲染层弹
+   `accountsPage.saveAccountTabFailed`（「保存账号凭证失败，请重试」）。
+3. **不做「空 Cookie 一律拒绝」**：存在 localStorage-only 的合法平台（如知乎 token 型），
+   空凭证判定维持 `updateCapturedAccount` 三空校验口径；本修复只堵住「提取失败被吞」。
+
+### 13.4 回归保护测试（逃逸点封堵）
+- **mock 契约镜像**：`webview-manager.test.js` 的 WebContentsView mock 挂接
+  `webContents.session`（= 构造传入分区 session 同物），cookies 对象**只实现
+  get/set/remove/flushStore，不实现 getAll**——再犯同类错误将直接红。
+- **断言强化**：保存成功用例从 `cookies: expect.any(Array)`（对空数组恒真）改为断言
+  真实 Cookie 数组内容；新增 3 例：get 提取真实 Cookie、提取抛错 fail-closed、
+  saveCookies 事件源用 get。
