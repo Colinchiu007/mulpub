@@ -70,6 +70,7 @@ const PUBLIC_METHODS = [
   'filmEngineering.getShot', 'filmEngineering.doctrine',
   'filmEngineering.copyText', 'filmEngineering.copyTexts',
   'filmEngineering.adaptScript', 'filmEngineering.exportPrompts', 'filmEngineering.generateSelected',
+  'filmEngineering.retryShot',
 ]
 
 function hasAccess(currentLevel, requiredLevel) {

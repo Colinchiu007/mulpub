@@ -1,3 +1,26 @@
+# [未发布] feat(film-engineering): 电影工程流水线扩展——分镜视频生成与成片合成（六阶段端到端 + QM-1）
+
+### 变更
+- **services/film-engineering/video-gen.js（新增）**：`generate_videos` 阶段 executor——提示词**原文直送**（提交 prompt 与分镜导出文本逐字符相等，含 `<<<uuid>>>` 令牌；prompt-engine 优化器被调用即违例）；`getDefault('video')` 解析、画幅 16x9/9x16/source→宽高映射、时长 5/8/10s→帧数换算、轮询（10s 间隔/10min 上限、taskId 多字段兼容）、下载到 run 目录 `shot_NNN.mp4`、`mapWithModelBudget` 并发、部分失败 partialFailure；`MAX_VIDEO_BATCH = 10`。**成本确认 checkpoint**：`confirmed !== true` 时返回 `awaitingConfirmation + costCheck`（零 provider 调用），确认后重入才逐镜生成；未配置默认视频模型返回 `VIDEO_MODEL_NOT_CONFIGURED`（fail-closed）。
+- **services/film-engineering/film-render.js（新增）**：`render` 阶段 executor——ffprobe 预检，规格一致走 `-c copy` 直拷、不一致 scale+pad 归一后 concat demuxer；磁盘缺镜 fail 输出缺失序号清单不产出 `final.mp4`；产物以 run 目录扫描为准；成片落 `film-engineering/<runId>/final.mp4`，受控媒体根 `getAllowedMediaRoots()`。
+- **IPC**：新增 `pipeline:confirm-stage-gate`（成本闸 advance，withSenderCheck）与 `film-engineering:retry-shot`（单镜重试，原文直送覆盖 `shot_NNN.mp4`、不迁移阶段状态；注：实现通道名为 `film-engineering:retry-shot`，design 简写 `film:retryShot`）。preload/access-control/publisher 成对暴露。
+- **pipeline-engine.js / container.setup.js**：film-engineering stageDefs 追加 `film_generate_videos`（checkpointRequired）与 `film_render`，装配六阶段；checkpoint 等待态事件透传至电影工程订阅链（公共层，不在 film 侧特判）。
+- **前端 FilmEngineeringView.vue + composables/useFilmVideoGen.js（新增）**：六态（idle 发起面板 / awaiting-confirm 成本确认卡 / generating 进度+逐镜结果 / done 成片打开·另存 / cancelled / failed 跳模型设置）；`useFilmEngineering` 导出 `selectedShotsPayload`；`>10` 前端拦截 + 后端兜底。
+- **locales zh.js / en.js（成对）**：新增 `filmEngineering.video.*` 全量文案；`01-docs/i18n-glossary.md` 登记「分镜视频生成/成本确认/成片」。渲染端非 locales 文件零新增中文字面量（composable 错误回退串置 null，按 errorCode 本地化）。
+- **01-docs/PRD-video-creation.md §3.1.30.8**：新增「分镜视频生成与成片合成扩展」使用说明章节（六阶段流程/成本闸/单镜重试/成片/fail-closed/批次上限/i18n）。
+
+### 验证
+- TDD 红→绿：`video-gen.test.js`(13)、`film-render.test.js`(8)、`film-video-checkpoint-integration.test.js`(3，真实 callAdapter + 本机临时 HTTP 假 mp4，advance 前零调用/重启恢复重过成本闸)、`film-pipeline-contract.test.js`(4，六阶段)、`film-engineering-retry.test.js`(8，非受信 sender/非法入参拒绝)、`pipeline-confirm-stage-gate.test.js`(8)、`useFilmVideoGen.test.js`(12)、`pipeline-normalizer-cost-gate.test.js`(4)、`story2video-paths.test.js`(17)——合跑 **15 文件 132 单测全绿**。
+- CI 门禁：`check-locale-sync --keys` PASS、`--cjk` PASS（无新增硬编码中文）、`i18n-glossary.test.js` PASS；eslint `--quiet` exit 0；`vite build` exit 0；`openspec validate film-engineering-video-gen --strict` valid。
+- QM-1：`verify-worktree-deps.js` OK；`electron-builder --win --dir` 成功，asar 清单含 video-gen/film-render/film-engineering-stages/story2video-paths；`verify-pack.js` require 链 PASS；打包 exe 启动 9s 存活、**stderr 0 字节无告警**。
+
+### 关联
+- 分支 `film-engineering-video-gen`（worktree 隔离，D 盘）· 待 PR + CI
+- 规格：`openspec/changes/film-engineering-video-gen/`（proposal/design/specs/tasks，同步至 `01-docs/film-engineering-video-gen/`）
+- 二期排除清单见 proposal.md（多角色一致性、自动配音/字幕、跨 run 续拼本期不做）
+
+---
+
 # [未发布] chore(sync): 平台配置轻量版预同步工具 sync-platform-config.js
 
 ### 变更

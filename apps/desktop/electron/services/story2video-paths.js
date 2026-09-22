@@ -12,6 +12,9 @@ const MAX_IMAGE_FILE_BYTES = 10 * 1024 * 1024
 const MAX_AUDIO_FILE_BYTES = 50 * 1024 * 1024
 const MAX_BGM_FILE_BYTES = 15 * 1024 * 1024
 const STORY2VIDEO_TEMP_DIR = path.join(os.tmpdir(), 'story2video')
+// 电影工程 run 产物根（film-engineering/<runId>/shot_NNN.mp4 / final.mp4）：
+// D9 沿用受控媒体根机制，成片「打开所在文件夹/另存」复用既有 shell/showSaveDialog IPC，不新开白名单路径。
+const FILM_ENGINEERING_RUNS_DIR = path.join(os.tmpdir(), 'film-engineering')
 const IMPORTED_MEDIA_DIR = path.join(STORY2VIDEO_TEMP_DIR, 'selected-media')
 const MAX_VIDEO_FILE_BYTES = 512 * 1024 * 1024
 
@@ -48,7 +51,7 @@ function getElectronMediaRoots (appImpl) {
 }
 
 function getAllowedMediaRoots (extraRoots = []) {
-  const roots = [STORY2VIDEO_TEMP_DIR, ...getElectronMediaRoots(), ...extraRoots]
+  const roots = [STORY2VIDEO_TEMP_DIR, FILM_ENGINEERING_RUNS_DIR, ...getElectronMediaRoots(), ...extraRoots]
   const unique = []
   for (const root of roots) {
     if (typeof root !== 'string' || !root.trim()) continue

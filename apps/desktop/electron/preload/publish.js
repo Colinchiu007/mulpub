@@ -138,6 +138,7 @@ function createPublishApi(ipcRenderer, options = {}) {
     pipelineExecuteStage: (runId) => ipcRenderer.invoke('pipeline:executeStage', runId),
     pipelineAdvanceToNextCheckpoint: (runId) => ipcRenderer.invoke('pipeline:advanceToNextCheckpoint', runId),
     pipelineConfirmSceneAssets: (runId, selections) => ipcRenderer.invoke('pipeline:confirmSceneAssets', runId, selections),
+    pipelineConfirmStageGate: (runId, contextPatch) => ipcRenderer.invoke('pipeline:confirm-stage-gate', runId, contextPatch),
     pipelineGetRunContext: (runId) => ipcRenderer.invoke('pipeline:getRunContext', runId),
 
     // Story2Video 本地交付

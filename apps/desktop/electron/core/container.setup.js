@@ -97,6 +97,8 @@ const { registerLocalizationStages } = require('../services/localization-stages'
 const { registerVideoGenStages } = require('../services/videogen-stages');
 const { registerPodcastRepurposeStages } = require('../services/podcast-repurpose-stages');
 const { registerFilmEngineeringStages } = require('../services/film-engineering/film-engineering-stages');
+const { registerFilmVideoStages } = require('../services/film-engineering/video-gen');
+const { registerFilmRenderStage } = require('../services/film-engineering/film-render');
 
 function createContainer(options) {
   const container = new Container();
@@ -165,6 +167,8 @@ function createContainer(options) {
         registerVideoGenStages(engine);
         registerPodcastRepurposeStages(engine);
         registerFilmEngineeringStages(engine);
+        registerFilmVideoStages(engine);
+        registerFilmRenderStage(engine);
       } catch (e) {
         c.get("logger").warn("container",
           "registerStory2VideoStages failed: " + (e instanceof Error ? e.message : String(e)));

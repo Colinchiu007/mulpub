@@ -53,6 +53,11 @@ describe('Story2Video 输入路径边界', () => {
     expect(resolveReadableFile(external)).toBeNull()
   })
 
+  it('白名单包含 film-engineering run 产物根（D9：成片打开文件夹/另存复用既有 shell IPC，不新开白名单机制）', () => {
+    const roots = getAllowedMediaRoots()
+    expect(roots).toContain(path.resolve(os.tmpdir(), 'film-engineering'))
+  })
+
   it('拒绝通过符号链接越界的文件', () => {
     const target = path.join(outside, 'secret.txt')
     fs.writeFileSync(target, 'secret')

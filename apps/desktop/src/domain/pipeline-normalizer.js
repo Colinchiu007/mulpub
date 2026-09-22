@@ -99,7 +99,9 @@ export function hasManualPipelineCheckpoint(snapshot, needsCheckpoint = false, c
   const checkpoint = snapshot.checkpoint && typeof snapshot.checkpoint === 'object' && !Array.isArray(snapshot.checkpoint)
     ? snapshot.checkpoint
     : null
-  const checkpointKinds = new Set(['scene_asset_selection', 'content_policy', 'needs_user_input', 'waiting_approval', 'approval'])
+  // cost_confirm：电影工程成本确认入口闸（film-engineering-video-gen D2）——
+  // 等待态识别放公共层，订阅链消费方（含电影工程页）无需 film 侧特判。
+  const checkpointKinds = new Set(['scene_asset_selection', 'content_policy', 'needs_user_input', 'waiting_approval', 'approval', 'cost_confirm'])
   const checkpointType = String(checkpoint?.type || '').trim().toLowerCase()
   const checkpointReason = String(checkpoint?.reason || '').trim().toLowerCase()
   if (checkpointKinds.has(checkpointType) || checkpointKinds.has(checkpointReason)) return true
@@ -135,7 +137,7 @@ export function hasLegacyPipelineCheckpointEvidence(snapshot, context = null) {
   const contextCandidates = context?.generate_assets?.candidates || snapshotContext?.generate_assets?.candidates
   if (snapshot.status === 'paused' && Array.isArray(contextCandidates) && contextCandidates.length > 0) return true
 
-  const checkpointKinds = new Set(['scene_asset_selection', 'content_policy', 'needs_user_input', 'waiting_approval', 'approval'])
+  const checkpointKinds = new Set(['scene_asset_selection', 'content_policy', 'needs_user_input', 'waiting_approval', 'approval', 'cost_confirm'])
   const stages = Array.isArray(snapshot.stages) ? snapshot.stages : []
   return stages.some(stage => {
     if (!stage || typeof stage !== 'object' || Array.isArray(stage)) return false

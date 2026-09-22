@@ -97,6 +97,9 @@
                 <el-button size="small" type="primary" data-testid="fe-generate" :disabled="selectedShotIds.length === 0 || selectedShotIds.length > 20" :loading="generating" @click="onGenerate">
                   {{ t('filmEngineering.library.generate') }}
                 </el-button>
+                <el-button size="small" type="warning" data-testid="fe-video-entry" :disabled="selectedShotIds.length === 0" @click="openVideoPanel">
+                  {{ t('filmEngineering.video.entry') }}
+                </el-button>
               </div>
               <div v-if="shotsLoading" v-loading="shotsLoading" class="fe-shots-loading" />
               <div v-else-if="shots.length === 0" class="fe-empty">{{ t('filmEngineering.library.empty') }}</div>
@@ -256,6 +259,89 @@
         </div>
       </div>
     </el-dialog>
+
+    <!-- 分镜视频生成面板（发起 / 成本确认卡 / 逐镜结果 / 成片完成态） -->
+    <el-dialog v-model="videoPanelOpen" :title="t('filmEngineering.video.title')" width="640px">
+      <!-- idle：发起面板 -->
+      <div v-if="vgPhase === 'idle'" class="fe-vg">
+        <div class="fe-vg-row"><span class="fe-vg-label">{{ t('filmEngineering.video.selectedCount', { n: selectedShotIds.length }) }}</span></div>
+        <div class="fe-vg-row">
+          <span class="fe-vg-label">{{ t('filmEngineering.video.aspect') }}</span>
+          <el-select v-model="vgChosen.aspect" size="small" class="fe-vg-select" data-testid="fe-video-aspect">
+            <el-option :label="t('filmEngineering.video.aspect169')" value="16x9" />
+            <el-option :label="t('filmEngineering.video.aspect916')" value="9x16" />
+            <el-option :label="t('filmEngineering.video.aspectSource')" value="source" />
+          </el-select>
+        </div>
+        <div class="fe-vg-row">
+          <span class="fe-vg-label">{{ t('filmEngineering.video.seconds') }}</span>
+          <el-select v-model="vgChosen.seconds" size="small" class="fe-vg-select" data-testid="fe-video-seconds">
+            <el-option v-for="d in [5, 8, 10]" :key="d" :label="t('filmEngineering.video.secondsN', { n: d })" :value="d" />
+          </el-select>
+        </div>
+        <div class="fe-vg-hint">{{ t('filmEngineering.video.batchHint', { max: FILM_MAX_VIDEO_BATCH }) }}</div>
+        <div v-if="videoStartError" class="fe-vg-error">{{ videoStartError }}</div>
+        <div class="fe-vg-actions">
+          <el-button type="primary" :loading="vgBusy" data-testid="fe-video-start" :disabled="selectedShotIds.length === 0 || selectedShotIds.length > FILM_MAX_VIDEO_BATCH" @click="onVideoStart">
+            {{ t('filmEngineering.video.start') }}
+          </el-button>
+        </div>
+      </div>
+      <!-- awaiting-confirm：成本确认卡 -->
+      <div v-else-if="vgPhase === 'awaiting-confirm'" class="fe-vg">
+        <el-alert type="warning" :closable="false" show-icon :title="t('filmEngineering.video.confirmTitle')" />
+        <p class="fe-vg-hint">{{ t('filmEngineering.video.confirmHint', { totalShots: vgCostCheck && vgCostCheck.totalShots, aspect: vgCostCheck && vgCostCheck.aspect, seconds: vgCostCheck && vgCostCheck.seconds, provider: vgCostCheck && vgCostCheck.providerId }) }}</p>
+        <div class="fe-vg-shots">
+          <div v-for="s in vgShotResults" :key="s.index" class="fe-vg-shot">
+            <span class="fe-vg-shot-no">#{{ s.index + 1 }}</span>
+            <span class="fe-vg-shot-id">{{ (s.shotId || '').slice(0, 8) }}</span>
+            <el-tag size="small" :type="vgStatusType(s.status)">{{ vgStatusLabel(s.status) }}</el-tag>
+          </div>
+        </div>
+        <div class="fe-vg-actions">
+          <el-button type="primary" :loading="vgBusy" data-testid="fe-video-confirm" @click="onVideoConfirm">{{ t('filmEngineering.video.confirm') }}</el-button>
+          <el-button :loading="vgBusy" data-testid="fe-video-cancel" @click="onVideoCancel">{{ t('filmEngineering.video.cancel') }}</el-button>
+        </div>
+      </div>
+      <!-- generating：进度 + 逐镜结果 -->
+      <div v-else-if="vgPhase === 'generating'" class="fe-vg">
+        <el-progress :percentage="Math.round(vgProgress || 0)" />
+        <div class="fe-vg-hint">{{ t('filmEngineering.video.generating') }}</div>
+        <div class="fe-vg-shots">
+          <div v-for="s in vgShotResults" :key="s.index" class="fe-vg-shot">
+            <span class="fe-vg-shot-no">#{{ s.index + 1 }}</span>
+            <span class="fe-vg-shot-id">{{ (s.shotId || '').slice(0, 8) }}</span>
+            <el-tag size="small" :type="vgStatusType(s.status)">{{ vgStatusLabel(s.status) }}</el-tag>
+            <el-button v-if="s.status === 'failed'" size="small" :data-testid="'fe-video-retry-' + s.index" @click="onVideoRetry(s.index)">{{ t('filmEngineering.video.retry') }}</el-button>
+          </div>
+        </div>
+      </div>
+      <!-- done：成片完成态 -->
+      <div v-else-if="vgPhase === 'done'" class="fe-vg">
+        <el-alert type="success" :closable="false" show-icon :title="t('filmEngineering.video.doneTitle')" />
+        <div class="fe-vg-path">{{ vgFinalPath }}</div>
+        <div class="fe-vg-actions">
+          <el-button data-testid="fe-video-open-folder" @click="onVideoOpenFolder">{{ t('filmEngineering.video.openFolder') }}</el-button>
+          <el-button data-testid="fe-video-save-as" @click="onVideoSaveAs">{{ t('filmEngineering.video.saveAs') }}</el-button>
+          <el-button type="primary" data-testid="fe-video-new-run" @click="onVideoReset">{{ t('filmEngineering.video.newRun') }}</el-button>
+        </div>
+      </div>
+      <!-- cancelled -->
+      <div v-else-if="vgPhase === 'cancelled'" class="fe-vg">
+        <div class="fe-vg-hint">{{ t('filmEngineering.video.cancelled') }}</div>
+        <div class="fe-vg-actions"><el-button type="primary" data-testid="fe-video-new-run" @click="onVideoReset">{{ t('filmEngineering.video.newRun') }}</el-button></div>
+      </div>
+      <!-- failed -->
+      <div v-else class="fe-vg">
+        <el-alert type="error" :closable="false" show-icon :title="t('filmEngineering.video.failedTitle')" />
+        <div v-if="vgErrorCode === 'VIDEO_MODEL_NOT_CONFIGURED'" class="fe-vg-hint">{{ t('filmEngineering.video.noModel') }}</div>
+        <div v-else-if="vgErrorText" class="fe-vg-error">{{ vgErrorText }}</div>
+        <div class="fe-vg-actions">
+          <el-button v-if="vgErrorCode === 'VIDEO_MODEL_NOT_CONFIGURED'" type="primary" data-testid="fe-video-goto-models" @click="gotoModelSettings">{{ t('filmEngineering.video.viewModelSettings') }}</el-button>
+          <el-button data-testid="fe-video-new-run" @click="onVideoReset">{{ t('filmEngineering.video.newRun') }}</el-button>
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -264,6 +350,9 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useFilmEngineering } from '@/composables/useFilmEngineering'
 import ConfigProfileManager from '@/components/ConfigProfileManager.vue'
+import { useRouter } from 'vue-router'
+import { useFilmVideoGen, FILM_MAX_VIDEO_BATCH } from '@/composables/useFilmVideoGen'
+import { story2videoShowInFolder, story2videoSaveAs } from '@/api/publisher'
 
 const { t } = useI18n()
 const {
@@ -274,12 +363,45 @@ const {
   copyText, copySelected, exportSelected, generateSelected, adaptScript, copyAdaptedShot,
   buildConfigProfileSnapshot, applyConfigProfileSnapshot,
   loadConfigProfiles, saveConfigProfile, renameConfigProfile, deleteConfigProfile,
+  selectedShotsPayload,
 } = useFilmEngineering()
 
 const detailOpen = ref(false)
 const expanded = ref(false)
 const generateDialogOpen = ref(false)
 const generateResults = ref(null)
+
+// ===== 分镜视频生成（tasks 5.1/5.2，D2/D6/D7/D9）=====
+const router = useRouter()
+const videoPanelOpen = ref(false)
+const videoStartError = ref("")
+const {
+  phase: vgPhase, chosen: vgChosen, busy: vgBusy, progress: vgProgress,
+  costCheck: vgCostCheck, shotResults: vgShotResults, finalPath: vgFinalPath,
+  errorCode: vgErrorCode, errorText: vgErrorText,
+  start: vgStart, confirmCost: vgConfirmCost, cancelCost: vgCancelCost,
+  retryShot: vgRetryShot, reset: vgReset,
+} = useFilmVideoGen()
+
+function openVideoPanel () {
+  videoStartError.value = ""
+  videoPanelOpen.value = true
+}
+async function onVideoStart () {
+  videoStartError.value = ""
+  const res = await vgStart(selectedShotsPayload(), { aspect: vgChosen.value.aspect, seconds: vgChosen.value.seconds })
+  if (!res.ok && res.errorCode === "tooManyShots") videoStartError.value = t("filmEngineering.video.tooManyShots", { max: FILM_MAX_VIDEO_BATCH })
+  else if (!res.ok && res.errorCode === "noShots") videoStartError.value = t("filmEngineering.video.noShots")
+}
+async function onVideoConfirm () { await vgConfirmCost() }
+async function onVideoCancel () { await vgCancelCost() }
+async function onVideoRetry (index) { await vgRetryShot(index) }
+function onVideoReset () { vgReset(); videoStartError.value = "" }
+async function onVideoOpenFolder () { if (vgFinalPath.value) await story2videoShowInFolder(vgFinalPath.value) }
+async function onVideoSaveAs () { if (vgFinalPath.value) await story2videoSaveAs(vgFinalPath.value) }
+function gotoModelSettings () { videoPanelOpen.value = false; router.push("/model-providers") }
+function vgStatusType (s) { return s === "success" ? "success" : (s === "failed" ? "danger" : "info") }
+function vgStatusLabel (s) { return s === "success" ? t("filmEngineering.video.statusSuccess") : (s === "failed" ? t("filmEngineering.video.statusFailed") : t("filmEngineering.video.statusPending")) }
 
 // 角色映射输入（前 4 个为 Hell Grind 主角预设）
 const roleEntries = reactive([
@@ -467,4 +589,16 @@ onMounted(() => {
 .fe-gen-msg { color: #909399; font-size: var(--font-size-xs); }
 .fe-empty-detail { color: #909399; font-size: var(--font-size-xs); margin-top: 8px; word-break: break-all; }
 .fe-actions { margin-top: 14px; }
+.fe-vg { display: flex; flex-direction: column; gap: 12px; }
+.fe-vg-row { display: flex; align-items: center; gap: 12px; }
+.fe-vg-label { min-width: 96px; color: #606266; font-size: var(--font-size-sm); }
+.fe-vg-select { width: 200px; }
+.fe-vg-hint { color: #909399; font-size: var(--font-size-xs); line-height: 1.6; }
+.fe-vg-error { color: var(--el-color-danger); font-size: var(--font-size-sm); }
+.fe-vg-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.fe-vg-shots { max-height: 40vh; overflow: auto; border: 1px solid var(--el-border-color-lighter); border-radius: 8px; padding: 8px 12px; }
+.fe-vg-shot { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
+.fe-vg-shot-no { font-weight: 600; width: 32px; }
+.fe-vg-shot-id { font-family: monospace; font-size: var(--font-size-xs); color: #909399; flex: 1; }
+.fe-vg-path { font-family: monospace; font-size: var(--font-size-xs); color: #606266; word-break: break-all; }
 </style>

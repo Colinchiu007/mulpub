@@ -121,6 +121,7 @@ var require_publish = __commonJS({
         pipelineExecuteStage: (runId) => ipcRenderer2.invoke("pipeline:executeStage", runId),
         pipelineAdvanceToNextCheckpoint: (runId) => ipcRenderer2.invoke("pipeline:advanceToNextCheckpoint", runId),
         pipelineConfirmSceneAssets: (runId, selections) => ipcRenderer2.invoke("pipeline:confirmSceneAssets", runId, selections),
+        pipelineConfirmStageGate: (runId, contextPatch) => ipcRenderer2.invoke("pipeline:confirm-stage-gate", runId, contextPatch),
         pipelineGetRunContext: (runId) => ipcRenderer2.invoke("pipeline:getRunContext", runId),
         // Story2Video 本地交付
         story2videoImportMedia: (file, kind) => {
@@ -908,7 +909,8 @@ var require_film_engineering = __commonJS({
           copyTexts: (shotIds, mode) => ipcRendererRef.invoke("film-engineering:copy-texts", shotIds, mode),
           adaptScript: (payload) => ipcRendererRef.invoke("film-engineering:adapt-script", payload),
           exportPrompts: (selectedShots, format) => ipcRendererRef.invoke("film-engineering:export", selectedShots, format),
-          generateSelected: (selectedShots, opts) => ipcRendererRef.invoke("film-engineering:generate-selected", selectedShots, opts)
+          generateSelected: (selectedShots, opts) => ipcRendererRef.invoke("film-engineering:generate-selected", selectedShots, opts),
+          retryShot: (payload) => ipcRendererRef.invoke("film-engineering:retry-shot", payload)
         }
       };
     }
@@ -1168,7 +1170,8 @@ var require_access_control = __commonJS({
       "filmEngineering.copyTexts",
       "filmEngineering.adaptScript",
       "filmEngineering.exportPrompts",
-      "filmEngineering.generateSelected"
+      "filmEngineering.generateSelected",
+      "filmEngineering.retryShot"
     ];
     function hasAccess(currentLevel, requiredLevel) {
       if (requiredLevel === "public") return true;

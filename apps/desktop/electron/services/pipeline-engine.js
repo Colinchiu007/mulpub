@@ -481,8 +481,8 @@ const PIPELINES = [
     name: 'film-engineering',
     description: '影视工程（Hell Grind 复刻） - 真实分镜提示词库浏览/一键复制/剧本套用/导出',
     category: 'generated',
-    stages: ['load_template', 'adapt_script', 'select_shots', 'export_prompts'],
-    estimatedCost: 'low',
+    stages: ['load_template', 'adapt_script', 'select_shots', 'export_prompts', 'generate_videos', 'render'],
+    estimatedCost: 'high',
     stageDefs: [
       {
         name: 'load_template',
@@ -509,6 +509,21 @@ const PIPELINES = [
         name: 'export_prompts',
         type: 'film_export_prompts',
         description: '导出选中分镜提示词（JSON/Markdown）',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'generate_videos',
+        type: 'film_generate_videos',
+        description: '分镜视频生成（成本确认入口闸，原文直送）',
+        checkpointRequired: true,
+        checkpointType: 'cost_confirm',
+        options: {},
+      },
+      {
+        name: 'render',
+        type: 'film_render',
+        description: '成片合成（concat/归一，产物 final.mp4）',
         checkpointRequired: false,
         options: {},
       },
@@ -1455,7 +1470,7 @@ class PipelineEngine {
     }
     // 分镜素材自选：内存中已暂停于选择检查点的 run 直接返回 paused，不重跑 generate_assets
     if (activeRun && activeRun.orchestrationMode === 'orchestrator' && activeRun.status === 'paused' &&
-        activeRun.checkpoint && activeRun.checkpoint.type === 'scene_asset_selection') {
+        activeRun.checkpoint && ['scene_asset_selection', 'cost_confirm'].includes(activeRun.checkpoint.type)) {
       return { success: true, runId: activeRun.id, paused: true };
     }
     const historyRun = this._history.find((item) => item.id === runId);
@@ -1464,8 +1479,9 @@ class PipelineEngine {
       try { snapshot = await this.runStateStore.load(runId); } catch (_) { snapshot = null; }
     }
     if (!snapshot) return { success: false, error: '未找到可恢复的运行快照', errorCode: 'RUN_SNAPSHOT_NOT_FOUND' };
-    // 分镜素材自选暂停检查点：恢复为 paused（保留 checkpoint 与候选），前端进入选择面板继续
-    if (snapshot.status === 'paused' && snapshot.checkpoint && snapshot.checkpoint.type === 'scene_asset_selection') {
+    // 需用户确认的暂停检查点（分镜素材自选 / 成本确认入口闸）：恢复为 paused（保留 checkpoint 与
+    // 候选/确认卡载荷），前端进入面板继续；未确认的 context 保证重入 executor 仍受闸，不绕过。
+    if (snapshot.status === 'paused' && snapshot.checkpoint && ['scene_asset_selection', 'cost_confirm'].includes(snapshot.checkpoint.type)) {
       return this._restorePausedSelectionRun(runId, snapshot);
     }
     if (snapshot.status === 'failed') {
@@ -1793,6 +1809,54 @@ class PipelineEngine {
       return await this.advanceToNextCheckpoint(runId)
     } finally {
       this._advancingRuns.delete(runId)
+    }
+  }
+
+  /**
+   * 确认阶段入口闸并重执行当前阶段（film-engineering-video-gen D2 通用能力）。
+   * 与 advanceToNextCheckpoint 的区别：checkpointRequired 入口闸阶段（如成本确认）的执行
+   * 语义是「确认前零副作用」——确认动作不是完成该阶段，而是携带确认载荷重入同阶段。
+   * @param {string} runId
+   * @param {object} contextPatch - 合并进 run.context 的确认载荷（如 cost_confirmation）
+   */
+  async confirmStageGate(runId, contextPatch) {
+    if (typeof runId !== 'string' || !runId.trim()) {
+      return { success: false, error: '缺少或非法 runId', errorCode: 'PIPELINE_INVALID_RUN_ID' };
+    }
+    const run = this._runs.get(runId);
+    if (!run || run.orchestrationMode !== 'orchestrator') {
+      return { success: false, error: '未找到可确认的流水线运行', errorCode: 'RUN_NOT_FOUND' };
+    }
+    if (run.status !== 'paused' || !run.checkpoint) {
+      return { success: false, error: '当前流水线不处于等待确认的检查点', errorCode: 'NOT_AT_CONFIRMATION_GATE' };
+    }
+    if (contextPatch !== undefined && (typeof contextPatch !== 'object' || contextPatch === null || Array.isArray(contextPatch))) {
+      return { success: false, error: '确认载荷必须是对象', errorCode: 'INVALID_PARAMS' };
+    }
+    let patch;
+    try {
+      patch = contextPatch === undefined ? {} : JSON.parse(JSON.stringify(contextPatch));
+    } catch (e) {
+      return { success: false, error: '确认载荷不可序列化: ' + e.message, errorCode: 'INVALID_PARAMS' };
+    }
+    run.context = run.context || {};
+    Object.assign(run.context, patch);
+    const stage = run.stages[run.currentStage];
+    if (!stage) {
+      return { success: false, error: 'No active stage', errorCode: 'PIPELINE_NO_ACTIVE_STAGE' };
+    }
+    stage.gateCleared = true;
+    run.checkpoint = null;
+    run.status = 'running';
+    stage.status = 'running';
+    this._syncStory2VideoProjectStatus(run);
+    this._emit('checkpoint:resume', { runId, stageName: stage.name, via: 'confirmStageGate' });
+    if (!this._advancingRuns) this._advancingRuns = new Set();
+    this._advancingRuns.add(runId);
+    try {
+      return await this._autoAdvanceRun(runId);
+    } finally {
+      this._advancingRuns.delete(runId);
     }
   }
 
@@ -2361,6 +2425,9 @@ class PipelineEngine {
   _shouldCheckpoint(stage, params) {
     const policy = params && params.checkpointPolicy;
     if (policy === 'none') return false;
+    // 成本确认入口闸（film-engineering-video-gen D2）：confirmStageGate 已过闸的阶段
+    // 重入执行时不再自动暂停（否则确认→执行→再暂停成死循环）。
+    if (stage && stage.gateCleared === true) return false;
     if (policy === 'manual_all') return stage.name !== 'split';
     if (policy === 'auto_noncreative') {
       return ['optimize', 'compose', 'publish'].includes(stage.name);
@@ -2422,12 +2489,13 @@ class PipelineEngine {
         this._syncStory2VideoProjectStatus(run);
         // Backlot 事件：检查点暂停
         this._emit('checkpoint:pause', { runId, stageName: stage.name, checkpointType: execResult.checkpoint });
-        // 分镜素材自选检查点：持久化 paused 快照（含 checkpoint），应用重启后仍可回到选择面板
-        if (checkpoint.type === 'scene_asset_selection' && this.runStateStore) {
+        // 需要用户确认的检查点（分镜素材自选 / 成本确认入口闸）：持久化 paused 快照
+        //（含 checkpoint 与等待态载荷），应用重启后仍可回到面板/确认卡，不绕过该检查点。
+        if ((checkpoint.type === 'scene_asset_selection' || checkpoint.type === 'cost_confirm') && this.runStateStore && typeof this.runStateStore.savePaused === 'function') {
           try {
             this.runStateStore.savePaused(run);
           } catch (saveError) {
-            this.log.warn('PipelineEngine', 'scene_asset_selection paused snapshot save failed: ' + (saveError && saveError.message ? saveError.message : String(saveError)));
+            this.log.warn('PipelineEngine', checkpoint.type + ' paused snapshot save failed: ' + (saveError && saveError.message ? saveError.message : String(saveError)));
           }
         }
         return {

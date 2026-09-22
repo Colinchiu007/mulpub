@@ -192,10 +192,10 @@ describe('preload 子模块工厂函数', () => {
 
 // === 总方法数验证（防止漏迁移或重复）===
 describe('preload 子模块方法数', () => {
-  it('publish 模块应导出 117 个键（P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + urlCollectNeedsStealth + renderStartAiVideo + PR-2 F8 getRecentImpactSnapshots）', () => {
+  it('publish 模块应导出 118 个键（pipelineConfirmStageGate + P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + urlCollectNeedsStealth + renderStartAiVideo + PR-2 F8 getRecentImpactSnapshots）', () => {
     const { createPublishApi } = require('./preload/publish')
     const r = createPublishApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(117)
+    expect(Object.keys(r).length).toBe(118)
   })
 
   it('account 模块应导出 45 个方法', () => {
@@ -218,8 +218,8 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(145)
   })
 
-  it('合并后 api 总键数应为 316（P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus/servicesRestart + urlCollectNeedsStealth + promptLibraryGet/Save/Activate + updateInstallNow + opsCenterSyncAppMenu + onUploadProgress + renderStartAiVideo + PR-2 F8 getRecentImpactSnapshots - webview 分屏监控 API 移除）', () => {
-    expect(Object.keys(api).length).toBe(316)
+  it('合并后 api 总键数应为 317（pipelineConfirmStageGate + P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus/servicesRestart + urlCollectNeedsStealth + promptLibraryGet/Save/Activate + updateInstallNow + opsCenterSyncAppMenu + onUploadProgress + renderStartAiVideo + PR-2 F8 getRecentImpactSnapshots - webview 分屏监控 API 移除）', () => {
+    expect(Object.keys(api).length).toBe(317)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
@@ -655,11 +655,11 @@ describe('子模块 require 链可加载', () => {
 })
 
 describe('影视工程 film-engineering preload API', () => {
-  it('createFilmEngineeringApi 应为函数且返回 10 个方法', () => {
+  it('createFilmEngineeringApi 应为函数且返回 11 个方法', () => {
     const { createFilmEngineeringApi } = require('./preload/film-engineering')
     expect(typeof createFilmEngineeringApi).toBe('function')
     const api = createFilmEngineeringApi(ipcRenderer)
-    expect(Object.keys(api.filmEngineering).length).toBe(10)
+    expect(Object.keys(api.filmEngineering).length).toBe(11)
   })
 
   it.each([
@@ -673,6 +673,7 @@ describe('影视工程 film-engineering preload API', () => {
     ['adaptScript', 'film-engineering:adapt-script', [{ script: '第一场\n剧情', characterMap: { ROKO: '小强' } }]],
     ['exportPrompts', 'film-engineering:export', [[{ shotId: 's1', prompt: 'p' }], 'markdown']],
     ['generateSelected', 'film-engineering:generate-selected', [[{ shotId: 's1', prompt: 'p' }], { aspectRatio: '16:9' }]],
+    ['retryShot', 'film-engineering:retry-shot', [{ runId: 'run-1', shotIndex: 0 }]],
   ])('%s() 应转发到 invoke("%s")', (method, channel, args) => {
     const { createFilmEngineeringApi } = require('./preload/film-engineering')
     ipcRenderer.invoke.mockClear()
