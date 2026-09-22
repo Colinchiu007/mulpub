@@ -15163,3 +15163,14 @@ MIN_ENGAGEMENT_SAMPLES，与引擎严格同门槛含 Number(null)=0 语义），
 ### 本次决策记录
 
 纯前端展示层布局修复（无 IPC/数据/后端/迁移），走完整 worktree 隔离流程（gate → worktree(基于 origin/main) → TDD → 门禁 → PR → auto-merge squash）。TDD 先加 `settings-panel-layout.test.js`（3 例源码契约，红→绿），定向 13/13、icon-usage 9/9、SettingsDialog 5/5、model-providers-copy 5/5 全绿，eslint exit 0。规范回写 `01-docs/design/model-provider-module-design.md` §9.4（问题/根因/方案/显示项/交互/数据校验/回归覆盖/影响面），CHANGELOG 前插。经验同步内置记忆 + EverOS。
+
+## 限流自检弹窗表单布局修复（selfcheck-dialog-layout，2026-09-22，PR #2225）
+
+### 可复用结论
+
+- **「模板写了类名、样式块从未定义」的孤儿类布局缺陷（pitfall）**：`ModelProviders.vue` 限流自检弹窗模板使用 `.selfcheck-form`/`.selfcheck-row` 类名组织 6 个表单项，但 `<style scoped>` 中没有任何对应规则——label（inline）与 `el-input-number`（inline-flex 默认 150px）随文本流随机换行，长标签（「并发上限（留空=clamp(rpm/10,1,4)）」）把输入框挤到下一行、宽度参差，用户读作「布局非常混乱」。排查判据：截图症状为「同一表单内各行缩进不一致 + 控件随机掉行」时，先 grep 类名在 style 块是否有定义，而不是调间距。修复模式：每行 `display:flex; align-items:center`，label `flex:0 0 230px` 固定列宽，控件统一 `width:150px; flex-shrink:0`，全部输入框对齐同一左基线。凡 Element Plus 表单弹窗，优先用 el-form label-width 或自建 flex 行，禁止裸类名无样式。
+- **共享数据契约要随 UI 一并文档化（process）**：本次顺带把「限流自检」功能规格（用途/使用流程/6 参数 IPC 校验边界 rpm[1,1e5]、maxConcurrent[1,8]或留空=clamp(rpm/10,1,4)、requestCount[1,1000]、requestDurationMs[0,6e4]、inject429At[1,requestCount]、limitPer5h 或留空、cooldownMs[100,6e4]/交互/显示项）写入设计文档 §9.5。前端 el-input-number 的 min/max 与 IPC `_validate` 边界必须一致，改任一侧须同步另一侧与文档。
+
+### 本次决策记录
+
+纯展示层样式补齐（新增 CSS 规则，不改模板结构/IPC/数据模型），走完整 worktree 隔离流程（gate → worktree(基于 origin/main 362896f93) → TDD → 门禁 → PR #2225 → auto-merge squash）。TDD 先加 `src/views/selfcheck-dialog-layout.test.js`（3 例源码契约，红→绿，沿用 scoped CSS 读源码正则断言模式），定向 4 文件 20/20 全绿（icon-usage/model-providers-copy/settings-panel-layout 零回归），eslint exit 0。CHANGELOG/设计文档追加一律字节级只动头部/尾部，防混合 EOL 全文件重写（上次已踩坑）。经验同步内置记忆 + EverOS。
