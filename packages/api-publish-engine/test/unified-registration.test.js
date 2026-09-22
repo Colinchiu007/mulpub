@@ -29,10 +29,14 @@ test("未知平台不会被识别为 API 平台", function() {
 });
 
 test("api-router 从 platforms.yaml 读取 has_api 平台", function() {
-  var platforms = router.listApiPlatforms();
-  assert(Array.isArray(platforms));
-  assert(platforms.includes("weibo"));
-  assert(platforms.includes("douyin"));
+  var listed = router.listApiPlatforms();
+  assert(Array.isArray(listed));
+  // 期望集合直接由 platforms.yaml 的 has_api 推导，不硬编码具体平台名，
+  // 避免 sync-platform-config 重写 has_api 后本测试陈旧漂移。
+  var cfg = router.loadConfig();
+  var expected = Object.keys(cfg).filter(function(k) { return cfg[k].has_api; }).sort();
+  assert.deepStrictEqual(listed.slice().sort(), expected, "listApiPlatforms 应精确反映 platforms.yaml 的 has_api");
+  assert(listed.length > 0, "has_api 平台集合不应为空（防空对空假绿）");
 });
 
 test("api-router 同时识别自定义和配置化适配器", function() {

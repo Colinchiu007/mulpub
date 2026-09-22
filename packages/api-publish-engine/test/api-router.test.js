@@ -49,15 +49,26 @@ describe("API Router", function() {
   });
 
   describe("listApiPlatforms", function() {
-    test("returns has_api platforms", function() {
-      var apiPlatforms = router.listApiPlatforms();
-      expect(apiPlatforms.length).toBeGreaterThanOrEqual(6);
+    test("returns exactly the config platforms with has_api enabled", function() {
+      // 单一事实来源：期望集合直接由 platforms.yaml 的 has_api 推导，
+      // 不硬编码平台名/魔法数量。sync-platform-config 等重写 has_api 后，
+      // 本测试仍校验 listApiPlatforms 精确反映配置，不会陈旧漂移。
+      var expected = Object.keys(platforms)
+        .filter(function(k) { return platforms[k].has_api; })
+        .sort();
+      var apiPlatforms = router.listApiPlatforms().slice().sort();
+      expect(apiPlatforms).toEqual(expected);
+      // 非空守卫：防止 has_api 被整体清空时出现「空对空」假绿
+      expect(apiPlatforms.length).toBeGreaterThan(0);
+      // 锚点：youtube 长期为稳定的 API 模式平台
       expect(apiPlatforms).toContain("youtube");
-      expect(apiPlatforms).toContain("tiktok");
-      expect(apiPlatforms).toContain("twitter");
-      expect(apiPlatforms).toContain("weibo");
-      expect(apiPlatforms).toContain("douyin");
-      // bilibili: has_api=false in platforms.yaml（适配器已实现，API 模式未启用）
+    });
+
+    test("every listed platform passes shouldUseApi", function() {
+      // listApiPlatforms 与 shouldUseApi 必须同源一致，防止两处读取逻辑分叉
+      router.listApiPlatforms().forEach(function(p) {
+        expect(router.shouldUseApi(p)).toBe(true);
+      });
     });
   });
 });

@@ -13,6 +13,19 @@
 
 ---
 
+# [未发布] fix(ui): 账号页加载骨架与卡片网格列口径统一，消除加载期单列布局跳动
+
+### 变更
+- **`Accounts.vue`（卡片网格列口径单一来源，方案B）**：加载期骨架栅格（`mp-skeleton-grid`）因处于 flex 居中容器（`loading-state`）内不被主轴拉伸，`auto-fill` 在不确定宽度下塌缩成 1 列，造成「加载中 1 列 → 加载完突然多列」布局跳动。现在 `.account-results-panel` 建立唯一口径 CSS 变量 `--account-grid-columns: repeat(auto-fill, minmax(280px, 1fr))` / `--account-grid-gap: 24px`，真实栅格与骨架栅格共同消费，骨架并加 `width:100%` 占满面板，加载前后列数与间距完全一致；同时清扫被后位 scoped 基线压死的三处死代码断点（`repeat(4)` 基线、901–1500 两列、1501–2050 三列、≤900 覆盖行），真实渲染口径不变（属行为保持修复）。
+
+### 验证
+- TDD：新增 `src/views/accounts-grid.source.test.js`（3 例契约：口径变量唯一 / 栅格只消费变量且无硬编码 repeat / 骨架同源消费且 width:100% 撑满），先红后绿；`Accounts.test.js` 80/80、`features/accounts` 全套与 SFC 编译契约零回归；eslint 变更文件 0 error（9 warning 均为改动前既有）。
+- 门禁：详见 `.quality-gates.md` accounts-grid-align 执行记录；规格契约见 `01-docs/PRD-ACCOUNTS-GRID-SKELETON-ALIGN-2026-09-22.md`。
+
+### 关联
+- 分支 `codex/accounts-grid-align`（worktree 隔离，D 盘）；同型先例 `PipelineBrowser.vue` 的 `loading-state--skeleton` 局部修补，本次账号页以单一来源模式收口。
+
+---
 # [未发布] fix(ui): 模型设置页文案修正与设置弹窗标签页精致化
 
 ### 变更
