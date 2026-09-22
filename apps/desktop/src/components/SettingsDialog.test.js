@@ -48,6 +48,12 @@ describe('SettingsDialog', () => {
     expect(wrapper.text()).toContain('语言')
   })
 
+  it('每个 Tab 渲染图标位（.tab-icon）', () => {
+    const wrapper = mountDialog()
+    const icons = wrapper.findAll('.settings-tab .tab-icon')
+    expect(icons).toHaveLength(5)
+  })
+
   it('en 语言下 Tab 与占位文案为英文', () => {
     const wrapper = mountDialog('en')
     const tabs = wrapper.findAll('.settings-tab')

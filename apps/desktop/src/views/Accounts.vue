@@ -1184,7 +1184,7 @@ onUnmounted(() => {
 .group-filter-section button.active .group-filter-icon { color: #5048e5; }
 .group-empty { padding: 12px 8px 4px; color: #9b9ca6; font-size: var(--font-size-xs); text-align: center; }
 .account-results-panel { min-width: 0; padding: 24px 32px 32px; background: var(--color-bg-inset); }
-.account-card-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 370px)); align-items: start; gap: 24px; }
+.account-card-grid { display: grid; align-items: start; }
 .loading-state, .empty-state { min-height: 260px; display: flex; align-items: center; justify-content: center; color: #85858f; font-size: var(--font-size-sm); }
 .empty-state { flex-direction: column; gap: 10px; }
 .empty-state svg { width: 38px; height: 38px; color: #b3b4bc; }
@@ -1216,14 +1216,7 @@ onUnmounted(() => {
   .platform-filter-heading { display: none; }
   .platform-filter-panel button { min-width: max-content; grid-template-columns: 26px auto auto; }
   .account-results-panel { padding: 14px 12px 24px; }
-  .account-card-grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
   .floating-close-button { display: none; }
-}
-@media (min-width: 901px) and (max-width: 1500px) {
-  .account-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-}
-@media (min-width: 1501px) and (max-width: 2050px) {
-  .account-card-grid { grid-template-columns: repeat(3, minmax(0, 370px)); }
 }
 @media (max-width: 1360px) {
   .login-state { left: 0; }
@@ -1232,7 +1225,12 @@ onUnmounted(() => {
 
 <style scoped>
 .account-controls { grid-template-columns: minmax(160px, 220px) minmax(220px, 1fr) auto auto auto auto auto minmax(100px, auto); }
-.account-card-grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 24px; }
+/* 账号卡片网格列口径单一来源：加载骨架 mp-skeleton-grid 与真实卡片栅格 account-card-grid 消费同一组 CSS 变量，
+   两端列数与间距天然一致；width 100% 让骨架栅格在 flex 居中的 loading-state 内仍占满面板，
+   避免 auto-fill 在不确定宽度下塌缩成 1 列（即"加载中 1 列 → 加载完突然多列"布局跳动的根因）。 */
+.account-results-panel { --account-grid-columns: repeat(auto-fill, minmax(280px, 1fr)); --account-grid-gap: 24px; }
+.account-card-grid { grid-template-columns: var(--account-grid-columns); gap: var(--account-grid-gap); }
+.loading-state .mp-skeleton-grid { width: 100%; grid-template-columns: var(--account-grid-columns); gap: var(--account-grid-gap); }
 .platform-search-box { min-width: 0; }
 .account-command-bar { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .account-command-bar .page-button { white-space: nowrap; }
