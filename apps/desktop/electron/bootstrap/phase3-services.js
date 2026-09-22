@@ -275,6 +275,10 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
     if (opsCenterSync && typeof opsCenterSync.setGetAccessToken === 'function' && identityService && typeof identityService.getAccessToken === 'function') {
       opsCenterSync.setGetAccessToken(() => identityService.getAccessToken())
     }
+    // 方案C 零配置：把解析出的运营中心 URL 注入同步服务（经显式注入而非改写全局 env，避免污染其他读取者）
+    if (opsCenterSync && typeof opsCenterSync.setOpsCenterUrl === 'function' && identityEnv && identityEnv.OPS_CENTER_URL) {
+      opsCenterSync.setOpsCenterUrl(identityEnv.OPS_CENTER_URL)
+    }
 
     const cloudPublisher = new CloudPublisher({
       orchestratorUrl: process.env.ORCHESTRATOR_URL || '',
