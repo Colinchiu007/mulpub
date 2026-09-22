@@ -104,6 +104,58 @@ function registerHandlers(ipcMain, deps) {
     }
   }
 
+  // ── 一键检测的并发与超时预算（进度卡顿修复 2026-09-22）──
+  // checkLoginStatus 走浏览器降级检测时要开独立隐藏窗口并等待选择器，
+  // 串行执行下单个慢账号即可让进度静止数十秒（用户看到「检测中 0/7」不动）。
+  // 改为有限并发 + 单账号硬超时；超时按失效计入（与检测失败同口径），
+  // 避免一个挂死的账号拖住整批检测。
+  // 环境变量为运维调优旋钮：MP_BATCH_CHECK_CONCURRENCY（1..4）、
+  // MP_BATCH_CHECK_ACCOUNT_TIMEOUT_MS（毫秒，非正数视为使用默认值）。
+  const BATCH_CHECK_DEFAULT_CONCURRENCY = 3
+  const BATCH_CHECK_MAX_CONCURRENCY = 4
+  const BATCH_CHECK_DEFAULT_TIMEOUT_MS = 60000
+
+  function resolveBatchCheckConcurrency() {
+    const raw = Number(process.env.MP_BATCH_CHECK_CONCURRENCY)
+    if (!Number.isFinite(raw) || raw < 1) return BATCH_CHECK_DEFAULT_CONCURRENCY
+    return Math.min(BATCH_CHECK_MAX_CONCURRENCY, Math.floor(raw))
+  }
+
+  function resolveBatchCheckTimeoutMs() {
+    const raw = Number(process.env.MP_BATCH_CHECK_ACCOUNT_TIMEOUT_MS)
+    if (!Number.isFinite(raw) || raw <= 0) return BATCH_CHECK_DEFAULT_TIMEOUT_MS
+    return Math.floor(raw)
+  }
+
+  // 固定数量 worker 抢任务：单线程下 cursor 自增无竞态，峰值并发不超过 limit。
+  async function runWithConcurrency(items, limit, worker) {
+    let cursor = 0
+    const width = Math.max(1, Math.min(limit, items.length))
+    const runners = Array.from({ length: width }, async () => {
+      while (cursor < items.length) {
+        const index = cursor++
+        await worker(items[index], index)
+      }
+    })
+    await Promise.all(runners)
+  }
+
+  // 注意：Promise.race 会订阅原 promise，超时后原检测迟到的 reject 不会成为
+  // unhandledRejection（挂死的隐藏窗口由其自身清理逻辑关闭，不阻断本批结果）。
+  function withHardTimeout(promise, ms, label) {
+    let timer = null
+    const guard = new Promise((resolve, reject) => {
+      timer = setTimeout(() => {
+        const err = new Error(label)
+        err.__batchCheckTimeout = true
+        reject(err)
+      }, ms)
+    })
+    return Promise.race([Promise.resolve(promise), guard]).finally(() => {
+      if (timer) clearTimeout(timer)
+    })
+  }
+
   const publicAccountFields = [
     'id', 'platform', 'name', 'account_name', 'platform_account_id', 'avatar', 'avatar_url',
     'status', 'status_source', 'is_active', 'is_default', 'has_cookies', 'cookie_count',
@@ -495,28 +547,43 @@ function registerHandlers(ipcMain, deps) {
       const targets = requestedIds.length
         ? candidates.filter((a) => requestedIds.includes(a.id))
         : candidates
-      const results = []
-      // 进度广播：每检测完一个账号向渲染层推送进度，驱动按钮上的
-      // 阶段性反馈（「检测中 X/N」），消除长时间无响应的体验问题。
-      const broadcastProgress = (checkedIndex, total, platform, accountId) => {
+      const total = targets.length
+      const limit = resolveBatchCheckConcurrency()
+      const timeoutMs = resolveBatchCheckTimeoutMs()
+      // 进度广播：每个账号「开始检测前」推 phase:'start'、「检测完成后」推
+      // phase:'done'。只在使用完成边界时，计数等于已完成数，正在检测的账号
+      // 完全不可见，单个慢账号会让遮罩静止数十秒，看起来等同卡死。
+      // checked 恒为已完成数（0..total），渲染层据此推算「正在检测哪些平台」。
+      const broadcastProgress = (payload) => {
         try {
           const win = BrowserWindow.getAllWindows()[0]
           if (win && !win.isDestroyed()) {
-            win.webContents.send('accounts:batch-check-progress', { checked: checkedIndex, total, platform, accountId })
+            win.webContents.send('accounts:batch-check-progress', payload)
           }
         } catch (_) { /* 广播失败不阻断检测 */ }
       }
       const checkedAt = new Date().toISOString()
       let persistedCount = 0
-      for (const account of targets) {
+      // 结果按输入顺序落位：并发完成顺序不定，但回写配对必须稳定
+      const slots = new Array(total).fill(null)
+      let doneCount = 0
+      await runWithConcurrency(targets, limit, async (account, index) => {
         const platform = account.platform
         const accountId = account.id
+        broadcastProgress({ phase: 'start', checked: doneCount, total, platform, accountId })
+        const accountStartedAt = Date.now()
         let status = null
         let checkError = ''
+        let timeoutCode = ''
         try {
-          status = await AccountManager.checkLoginStatus(platform, accountId)
+          status = await withHardTimeout(
+            AccountManager.checkLoginStatus(platform, accountId),
+            timeoutMs,
+            `检测超时（>${timeoutMs}ms）`,
+          )
         } catch (e) {
           checkError = e instanceof Error ? e.message : String(e)
+          if (e && e.__batchCheckTimeout) timeoutCode = 'CHECK_LOGIN_TIMEOUT'
         }
         // 三态透传：valid 只能是 true / false / undefined（未确认）。
         // 历史实现用 Boolean(status?.valid) 把 undefined 压成 false，
@@ -525,7 +592,7 @@ function registerHandlers(ipcMain, deps) {
         let code
         if (checkError) {
           valid = undefined
-          code = 'CHECK_LOGIN_ERROR'
+          code = timeoutCode || 'CHECK_LOGIN_ERROR'
         } else if (status && status.valid === true) {
           valid = true
           code = status.code || 'CHECK_LOGIN_SUCCESS'
@@ -550,11 +617,19 @@ function registerHandlers(ipcMain, deps) {
         }
         if (checkError) item.error = checkError
         else if (status && status.error) item.error = status.error
-        results.push(item)
-        broadcastProgress(results.length, targets.length, platform, accountId)
-      }
+        slots[index] = item
+        doneCount++
+        const elapsedMs = Date.now() - accountStartedAt
+        broadcastProgress({
+          phase: 'done', checked: doneCount, total, platform, accountId,
+          valid: item.valid, code: item.code, loginStatus: item.loginStatus,
+          persisted: item.persisted.ok, elapsedMs,
+        })
+        ipcLog('info', 'accounts:batch-check-login', 'account', `${platform}:${accountId} valid=${item.valid} loginStatus=${item.loginStatus} persisted=${persisted.ok} code=${item.code} 耗时=${elapsedMs}ms`)
+      })
+      const results = slots.filter(Boolean)
       const data = { results, checkedAt }
-      ipcLog('info', 'accounts:batch-check-login', 'ok', `count=${results.length} persisted=${persistedCount} inconclusive=${results.filter((r) => r.valid === undefined).length} 耗时=${Date.now() - startedAt}ms`)
+      ipcLog('info', 'accounts:batch-check-login', 'ok', `count=${results.length} 并发=${limit} persisted=${persistedCount} inconclusive=${results.filter((r) => r.valid === undefined).length} 耗时=${Date.now() - startedAt}ms`)
       return { code: 0, data }
     } catch (e) {
       ipcLog('error', 'accounts:batch-check-login', 'error', `message=${e instanceof Error ? e.message : String(e)} 耗时=${Date.now() - startedAt}ms`)

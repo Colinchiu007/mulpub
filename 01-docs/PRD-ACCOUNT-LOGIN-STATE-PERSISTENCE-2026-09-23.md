@@ -282,7 +282,7 @@ FAILED tests/test_pipeline_loader.py::TestPipelineLoader::test_story2video_manif
 | 打包产物 `electron-builder --dir` 冒烟 | `build:vue` 已通过（CI 各 workflow 的打包前置同此口径）；`--dir` 需在本机下载 winCodeSign/NSIS 缓存，属 `build.yml` 的 runner 职责，本地跑不具备等价环境 |
 | 「真实用户账号 + 真实平台」一键检测实测 | 需在**已登录身份（Logto）且已保存真实平台凭证**的 profile 上执行；`account:list` 对未登录一律 fail-closed（`AUTH_ERROR`），不得用隔离的空 profile 冒充。因此本 PR 的真实应用验证以「真实渲染层 + 契约化 electronAPI 替身」（13.1）+「真实后端 accounts.json」（13.2 后端行）两段闭合，跨段契约（`PATCH {status,last_validated}`）由后端 pytest 与主进程单测双侧锁定。合入后需在用户实际环境跑一次 `pnpm run build:dir` + 手工一键检测做最终 dogfooding |
 
-### 13.5 与 main 的三次合并（契约收敛，实测记录）
+### 13.5 与 main 的四次合并（契约收敛，实测记录）
 
 推送后 `origin/main` 多次前进，**前两次合并**均为**语义重叠**而非纯文本冲突：
 
@@ -339,6 +339,37 @@ blob 级并集解法（`HEAD:` / `MERGE_HEAD:` 取两侧 blob、本条目置顶�
 > `git diff --numstat HEAD^1 HEAD -- <file>` 为空、`git diff --numstat HEAD^2 HEAD -- <file>` 为
 > 19+/19−，说明合并结果取的是**本 PR 的锚点**，main 并未改动 `.github`。
 > 判据必须用「合并结果 vs 各自父提交」，而不是「两个父提交互比」。
+
+**第四次同步 origin/main（`#2231` 一键检测并发加速与进度双边界广播）**
+
+本轮首次出现**同一段代码体被双方各自改写**的冲突（前三次要么只是追加型文件竞争，要么是
+互不重叠的语义重叠）：`#2231` 把 `accounts:batch-check-login`
+改成「有限并发 3 + 单账号 60s 硬超时 + `start`/`done` 双边界进度广播」，本 PR 把同一段改成
+「三态映射 + 单一写者回写」。解法：**保留 `#2231` 的并发池、硬超时与进度骨架，在其 worker 内
+套用本 PR 的三态映射与 `persistLoginStatus()`**；`done` 事件在原有字段上追加
+`loginStatus` 与 `persisted`，渲染层无需改动即可继续消费。
+
+- **契约收敛决策（两者语义互斥，必须择一）**：`#2231` 的口径是「超时计入失效」，本 PR 的契约是
+  「无正向证据不得判失效」。以本 PR 契约为准：**超时属「无法判定」**，记
+  `code: CHECK_LOGIN_TIMEOUT`、`valid: undefined`、`status: unverified`；并发与超时预算完整保留
+  （单个挂死账号仍不会拖住整批）。同时补上 `#2231` 缺失的 IPC 层回归测试
+  `accounts:batch-check-login 单账号硬超时记为 unverified（非 expired）`——实测该测试第一次
+  就跑出了融合漏洞（`code` 分支被写成 `CHECK_LOGIN_ERROR`），说明这条护栏是必要的而非装饰。
+- **追加型文件**：`CHANGELOG.md`（顶部 prepend）与 `01-docs/learnings.md`（尾部 append）仍是
+  keep-both；`PRD-ACCOUNT-LOGIN-STATUS-CHECK.md` 出现 **§16 撞号**（双方各自新增一节），
+  处理是把本 PR 的章节整体改号为 §17（含 `### 16.x` 与「本文 §16」自引用），并在文档 L4
+  的关联版本行追加 v2.4 指引；本 PR 的 `CHANGELOG.md` 条目内指向该节的那处引用同步改为 §17，
+  避免留下悬空章节号。
+- **合并后复验**：定向 vitest 8 个测试文件全绿；ESLint `--quiet` 覆盖本 PR 触及的 19 个
+  js/vue 文件零问题；Gate 7 三项（`--cjk` / `--pair-base origin/main` / `--py-cjk`）全 PASS，
+  gate 自检 `check-locale-sync.test.js` 6/6。
+
+> **工具层事故记录（必须传承）**：改 `account.test.js` 时脚本先 `open(p,'wb')` 打开写句柄、
+> 随后在 `b'\r\n'.join(lines)` 处抛异常，导致该文件被**截断为 0 字节**；靠索引中已暂存的合并
+> 版本 `git checkout -- <file>` 完整恢复（41103 字节）。教训两条：① 必须先在内存里构造出最终
+> bytes 并完成长度/内容断言，之后才允许打开写句柄；② `01-docs/learnings.md` 是**混合换行文件**
+> （15239 行中仅 141 行为 CRLF），任何「探测到 CRLF 就整体转换」的写法都会制造 15k 行假变更，
+> 这类文件只能做字节级拼接。另：`bytes` 列表与 `str` 字面量比较恒不等，行级替换必须先编码。
 
 ### 13.6 CI 逃逸分析：Gate 7（locale 同步）抓出的本 PR 自引入缺陷
 

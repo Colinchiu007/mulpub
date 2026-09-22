@@ -459,6 +459,29 @@ describe('account IPC 可信来源正常工作', () => {
     expect(deps.AccountManager.persistLoginState).toHaveBeenCalledWith('acc-throw', 'toutiao', 'unverified', expect.any(String))
   })
 
+  it('accounts:batch-check-login 单账号硬超时记为 unverified（非 expired）', async () => {
+    // A hard timeout is not evidence of an expired login: it must not be
+    // folded into 'expired' (that was the false-negative class this PR fixes).
+    const deps = createMockDeps()
+    deps.AccountManager.listAccounts.mockResolvedValue([{ id: 'acc-slow', platform: 'toutiao' }])
+    deps.AccountManager.checkLoginStatus.mockImplementation(() => new Promise(() => {}))
+    deps.AccountManager.persistLoginState.mockResolvedValue({ ok: true, status: 'unverified' })
+    process.env.MP_BATCH_CHECK_ACCOUNT_TIMEOUT_MS = '20'
+    let result
+    try {
+      result = await ipcMain_and_call(deps, 'accounts:batch-check-login', {})
+    } finally {
+      delete process.env.MP_BATCH_CHECK_ACCOUNT_TIMEOUT_MS
+    }
+
+    const item = result.data.results[0]
+    expect(item.code).toBe('CHECK_LOGIN_TIMEOUT')
+    expect(item.valid).toBeUndefined()
+    expect(item.loginStatus).toBe('unverified')
+    expect(deps.AccountManager.persistLoginState).toHaveBeenCalledWith(
+      'acc-slow', 'toutiao', 'unverified', expect.any(String))
+  })
+
   it('accounts:batch-check-login 后端写回失败时结果可见（不静默丢失固化）', async () => {
     const deps = createMockDeps()
     deps.AccountManager.listAccounts.mockResolvedValue([{ id: 'acc-p', platform: 'toutiao' }])

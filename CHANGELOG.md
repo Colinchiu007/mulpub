@@ -17,7 +17,8 @@
 - 门禁实测：桌面全量 vitest `10767 passed / 1 failed / 2 skipped`（唯一失败 `story2video-manual-assets.test.js` 单文件重跑通过，判定为顺序抖动）；后端全量 pytest `4 failed / 2669 passed`，失败集与主仓干净 HEAD 基线（`4 failed / 2676 passed`）逐条同名 → 无回归；ESLint `--quiet`（CI Gate 11）0 error；`check-frontend-consistency.js` PASS；`build:vue` exit 0；`check:ts` 存量错误 1203 → 1202（净 -1，零新增，该检查不在 CI workflow 内）。
 - CI 逃逸：首轮 `QG Static` 抓出本 PR 自引入的渲染端硬编码中文（`useExpiredAccountsBanner` 的固化失败标题），已改为 zh/en 成对键 `accountsPage.persistFailedTitle` + `i18n.global.t`；`--py-cjk` 一项为基线 `path:LINE` 行号漂移，按 #2212 既有做法重锚并逐条对账（79→79、逐文件计数一致、diff 恰 19+/19−、本 PR 在 python 侧新增中文全为注释/docstring），修复后该 gate 自检 6/6 全绿。详见 PRD §13.6。
 - 合并后复验：与 main 的第三次同步（`#2226`）仍仅 `CHANGELOG.md` 冲突，沿用 blob 级并集解法；合并后工作树实跑 Gate 7 四项全绿（`--cjk` / `--pair-base` / `--py-cjk` / gate 自检 6/6）、ESLint 19 文件零问题、定向 vitest 8 个测试文件全通过。详见 PRD §13.5。
-- 详见 `01-docs/PRD-ACCOUNT-LOGIN-STATE-PERSISTENCE-2026-09-23.md`（数据模型 / 判定矩阵 / 单一写者架构 / 交互与显示项 / 提示文字 / 测试矩阵 / 已知边界）与 `01-docs/PRD-ACCOUNT-LOGIN-STATUS-CHECK.md` §16。
+- 第四次同步 main（`#2231` 并发加速）：批量检测段首次出现真语义冲突，改为「保留 `#2231` 并发池/硬超时/`start`·`done` 进度骨架 + 在其 worker 内套用三态映射与单一写者回写」；契约收敛为**超时计入 `unverified`（`CHECK_LOGIN_TIMEOUT`）而非 `expired`**，并补 IPC 层回归测试（该测试实测抓出融合漏洞）。`PRD-ACCOUNT-LOGIN-STATUS-CHECK.md` 的 §16 撞号已改号为 §17。合并后 8 测试文件全绿、ESLint 19 文件零问题、Gate 7 全 PASS。详见 PRD §13.5。
+- 详见 `01-docs/PRD-ACCOUNT-LOGIN-STATE-PERSISTENCE-2026-09-23.md`（数据模型 / 判定矩阵 / 单一写者架构 / 交互与显示项 / 提示文字 / 测试矩阵 / 已知边界）与 `01-docs/PRD-ACCOUNT-LOGIN-STATUS-CHECK.md` §17。
 
 ### 遗留
 - 账号页「批量启用/停用」（`stores/accounts.batchSetStatus`）仍写 SQLite 且复用登录态词表 `status`，对展示实际无效；应改 `is_active` 并接入后端 PATCH，另列 PR，避免把「启用状态」与「登录态」两个正交概念继续混在一个字段里。
@@ -28,6 +29,32 @@
 ---
 
 
+
+
+---
+
+# [未发布] fix(accounts): 账号页【一键检测】进度长时间静止修复 + 并发加速（2026-09-22，batch-check-progress-speed）
+
+### Fix
+
+- **进度只在「账号完成」边界广播**：`accounts:batch-check-login` 的 `broadcastProgress` 位于 `await checkLoginStatus` 之后，进度计数=已完成数，正在检测的账号完全不可见；单个走浏览器降级的慢账号（10-30s）使遮罩停在「检测中 0/7」纹丝不动，视觉上等同卡死。现改为每账号 **start/done 双边界广播**，渲染层据此维护 in-flight 平台集合并展示「正在检测：知乎、抖音 · 已耗时 12 秒」（同平台多账号去重）。
+- **放大因素说明**：v2.2（PR #2205）三态判定使 INCONCLUSIVE 降级浏览器的账号变多，拉长静止窗口；已核实判定分支本身无回归。
+
+### Performance
+
+- 批量登录检测由严格串行改为**并发池（默认 3，`MP_BATCH_CHECK_CONCURRENCY` 可调、clamp ≤4）**，结果仍按输入顺序落位；7 账号慢场景整体等待约降至 1/3。可行性依据：`playwright-manager.getContext()` 每账号使用独立 `auth-check-<uuid>` 分区与独立隐藏窗口，无共享启动锁。
+- 新增**单账号硬超时 60s**（`MP_BATCH_CHECK_ACCOUNT_TIMEOUT_MS`）：超时按 `valid:false / CHECK_LOGIN_TIMEOUT` 计入失效，不阻断其余账号；`Promise.race` 保证超时后迟到的 reject 不产生 unhandledRejection。
+
+### Testing
+
+- 新增 `electron/ipc-handlers/account-batch-check.test.js` 7 例（主进程批量检测进度/并发/超时首层覆盖 —— 此前 `account.test.js` 对 `batch-check` 零命中，即本 Bug 的逃逸口）；`Accounts.test.js` 新增 4 例（in-flight 即时展示、递增秒表、订阅取消与定时器零泄漏、超时计入失效）。
+
+### Documentation
+
+- `01-docs/BUGFIX-BATCH-CHECK-PROGRESS-STALL-2026-09-22.md`：根因溯源 / 逃逸链 / 系统性漏洞 / 修复 / 预防措施 5 步完整记录。
+- `01-docs/PRD-ACCOUNT-LOGIN-STATUS-CHECK.md` 升 v2.3：§4.3 检测流程图重写为并发 + 双边界语义，新增 §16 行为契约表（显示项 / 校验 / 文案变更）。
+- AGENTS.md QM-2 新增「批量 IPC 进度双边界与超时预算契约」门禁条目。
+- `01-docs/UI-INVENTORY.md` §5.2：账号页特殊状态补 `batch-check-overlay`（遮罩第二行 in-flight 明细）。
 
 ---
 
@@ -92,6 +119,7 @@
 - 分支 `tab-independent-home`（worktree 隔离，D 盘）· PR #2230（已合并 `origin/main`，解决 CHANGELOG / webview-manager.test.js 冲突）。
 
 ---
+
 # [未发布] fix(ui): 限流自检弹窗表单布局修复 + 功能规格文档化
 
 ### 变更
@@ -106,8 +134,6 @@
 - 分支 `codex/selfcheck-dialog-layout`（worktree 隔离，D 盘），基于 `origin/main`；规范详见 §9.5。
 
 ---
-
-
 
 # [未发布] feat(model-settings): 模型列表排序逻辑调整 + 运营中心预设模型自定义排序
 

@@ -15207,6 +15207,7 @@ MIN_ENGAGEMENT_SAMPLES，与引擎严格同门槛含 Number(null)=0 语义），
 
 - **日志锚点在 shared-user-data 而非 %APPDATA%（pitfall）**：live 实例经 anchor 机制把 userData 指向仓库 `shared-user-data/`，日志在 `shared-user-data/logs/app-*.log`；先翻 %APPDATA% 会误判「无日志证据」。
 - **严格入口被他会话脏文件阻塞时（process）**：`start-mp-task.ps1`/`gwm-task.sh` 对共享根 -RequireClean fail-closed 是设计内行为；不得 stash/commit 他会话文件，可降级 `git worktree add <D:\路径> -b <branch> origin/main`（PowerShell 原生路径），创建后 `rev-parse --show-toplevel/--abbrev-ref HEAD` 双验证再继续。
+
 ## model-sort-order-2026-09-23锛氭ā鍨嬪垪琛ㄦ帓搴?+ 杩愯惀涓績棰勮妯″瀷鑷畾涔夋帓搴忥紙鍒嗘敮 codex/model-sort-order锛孭R#2128锛?
 
 ### 闇€姹?
@@ -15228,7 +15229,26 @@ MIN_ENGAGEMENT_SAMPLES，与引擎严格同门槛含 Number(null)=0 语义），
 - catalog 娴嬭瘯 Bearer 璧?Logto 401 鈫?鏀?X-Catalog-Key + monkeypatch catalog_api_key銆?
 - 骞跺彂浼氳瘽鎶㈠崰鍚庡彴 terminal + 閲嶇疆 cwd 鈫?鍓嶅彴闀夸换鍔?+ 姣忔潯鍛戒护鏄惧紡 Set-Location銆?
 
+## 一键检测进度「看起来卡死」：进度只在完成边界广播 + 串行慢任务放大（batch-check-progress-speed，2026-09-22，PR #2231）
 
+### 可复用结论
+
+- **进度只在 `await` 之后广播 = in-flight 全盲（pitfall）**：`accounts:batch-check-login` 的 `broadcastProgress` 写在 `await AccountManager.checkLoginStatus()` 之后，计数语义是「已完成数」，正在跑的那几个账号在 UI 上完全不存在。7 个账号里第一个走浏览器降级（10-30s）时，遮罩停在「检测中 0/7」纹丝不动，用户读作「卡死」，实际全程在正常推进。判据：进度数字长时间不动 + 最终能出结果 → 先查广播点在 await 前还是 await 后，而不是去查检测逻辑本身。
+- **修复模式（pattern）**：逐条循环的异步任务必须 **start/done 双边界广播**——`{phase:'start', platform, accountId}` 在检测体执行前发，`{phase:'done'}` 在完成/失败/超时后发；渲染层维护 in-flight multiset（done 用 `indexOf` + `splice` 只移一个 occurrence，允许同平台多账号重复），展示「正在检测：知乎、抖音 · 已耗时 12 秒」。同平台去重只在展示层做（`[...new Set(ids)]`），数据层保留重复，否则完成计数会错位。
+- **静默等待要配 liveness 信号（pattern）**：并发下「正在做哪几个」可能长时间不变，必须再加一个每秒 tick 的秒表（`(Date.now() - startedAt)/1000`）让画面持续变化；定时器与进度订阅都要在 `finally` 和 `onUnmounted` 两处双保险清理，只清一处会在路由切换时泄漏。
+- **并发可行性要先验证隔离粒度（pattern）**：批量检测能并发的依据不是「加个 Promise.all」，而是实测 `playwright-manager.getContext()` 每账号 `session.fromPartition('auth-check-<uuid>')` 建独立分区 + 独立隐藏窗口、无共享启动锁。凡引入并发一律用零依赖 worker 池（固定宽度 worker 抢 `cursor++`）+ `slots[index]` 落位保输入顺序，上限 clamp（默认 3、硬顶 4）并留 `MP_BATCH_CHECK_CONCURRENCY` 可退回串行。
+- **`Promise.race` 硬超时不产生 unhandledRejection（pattern）**：`Promise.race([Promise.resolve(p), guard])` 会订阅原 promise，超时先 reject 后 p 的迟到 reject 仍被 race 消费，不会冒成 unhandledRejection。超时结果口径必须在 PRD 写死（本次 `valid:false / CHECK_LOGIN_TIMEOUT` 计入失效，与检测失败同口径），并留一条「迟到 reject 不炸进程」的回归测试。
+- **`vi.useFakeTimers()` 必须早于被测 `setInterval` 注册（pitfall）**：vitest 默认 `toFake` 含 `Date`，但已注册到真实 timer 队列的 interval 不会被 `advanceTimersByTimeAsync` 触发，表现为秒表恒为 0（`expected +0 to be 5`）。安装点必须放在启动被测函数之前，收尾 `vi.useRealTimers()` 放 finally。
+- **fresh worktree 的 `--ignore-scripts` 会打断 electron-builder（pitfall）**：`pnpm install --ignore-scripts` 装出的 `node_modules/ffmpeg-ffprobe-static` 没有 ffmpeg.exe/ffprobe.exe，QM-1 打包在 beforePack（stage-media-tools.js）fail-closed 报「ffmpeg 二进制不存在」。修复：`node node_modules/ffmpeg-ffprobe-static/install.js`（下载 ~126MB×2，README 下载失败非致命 exit 0）后重跑。本机未跑 `playwright install` 时打包还会警告 `dist/fonts` / `.playwright-browsers` source 不存在——属环境预步骤缺失，须在 QM-1 证据里如实标注而非当作通过。
+- **门禁脚本的「空洞 PASS」（pitfall）**：`check-locale-sync.js --pair-base <ref>` 在未 commit 时检测不到变更文件，直接 PASS，这种 PASS 不能当证据；必须 commit 后复跑并确认它真的识别到变更。同理 `--cjk` 是基线对比（基线 1581 / 当前 1388），PASS 只代表「无新增硬编码」。
+- **本机与并发会话抢 CPU 的超时 flake（pitfall）**：宽 subset（123 文件 2461 例）里唯一失败是 `accounts-compile.test.js` 内含 `vite build` 的用例超时，单文件隔离复跑 6/6 通过——判定手法是「隔离复跑 + 记录真实耗时」，结论必须写进 quality-gates 与 PR body，不能静默重跑到绿。后台终端在并发会话下会被复用而失去输出可见性，长任务改跑边界明确的 subset，全量交给 CI。
+- **中文落盘通道差异（pattern）**：`Write`/`SearchReplace` 写 `.js`/`.vue` 时会把「进」损坏成「迕」(U+8FD5)，`.md` 通道实测干净。安全范式：中文内容写进 staging 的 `.md` 片段（`<<<FRAG:name>>>` 标记），再用纯 ASCII 的 node 脚本按 ASCII 锚点 splice 到目标文件；脚本内中文一律 `\uXXXX` 转义；读写先归一 LF、写回还原 CRLF（worktree 文件是 CRLF，锚点含裸 `\n` 会静默不命中）；收尾必须 node 以 utf8 读回并统计 U+8FD5 计数为 0。
+- **PowerShell 输出 mojibake ≠ 文件损坏（pitfall）**：PS 5.1 的 `Get-Content` 按 GBK 解码 UTF-8，中文注释看起来全花。核验一律用 node 以 utf8 读回打印，绝不据控制台输出反改文件。
+- **CHANGELOG / learnings 这类「追加型」文件的冲突（pattern）**：两个会话都往 CHANGELOG 顶部 prepend 必冲突，解法是 keep-both（本次改动在上、对方在下，用 `---` 分隔），按冲突标记所在行号做行级删除而不是正则替换内容；learnings.md 一律只 append 到文件末尾（先确认尾部 EOL 与条目分隔是 `\n\n## `），可完全避开冲突。
+
+### 本次决策记录
+
+Bug 修复走完整 QM-5（根因溯源 / 逃逸链 / 系统性漏洞 / 修复+回归保护 / 预防措施），产出 `01-docs/BUGFIX-BATCH-CHECK-PROGRESS-STALL-2026-09-22.md`；经 AskUserQuestion 锁定范围为「进度可见性 + 并发加速」、超时口径「计入失效」，全程未漂移。改动 11 files +703/-38：主进程 `electron/ipc-handlers/account.js`（双边界广播 + 并发池 + 单账号 60s 硬超时）、渲染层 `Accounts.vue`（in-flight 平台明细 + 秒表 + detail 行 + 双保险清理）、locale 成对新增 `batchCheckAllCurrent` / `batchCheckAllElapsed`。逃逸根因是既有 `account.test.js` 对 `batch-check` 零命中，故新增 `account-batch-check.test.js` 作为主进程 IPC handler 的首层覆盖（7 例）。验证：`Accounts.test.js` 84/84、主进程 47/47、合并 origin/main 后定向 217/217、宽 subset 2460/2461（唯一失败为并发争抢 CPU 的 flake，隔离复跑 6/6 绿）、eslint 0 error、debt budget 基线内、`vite build` 与 `electron-builder --win --dir` exit 0、asar 含 `account.js`、解包 require 链 OK、打包 exe 启动 12s 存活且 stderr 0 行。规范回写：PRD 升 v2.3（§4.3 流程图重写 + 新增 §16 行为契约）、UI-INVENTORY §5.2 补 `batch-check-overlay`、AGENTS.md QM-2 新增「批量 IPC 进度双边界与超时预算契约」门禁条目、CHANGELOG 前插。经验同步内置记忆 + EverOS。
 
 ## 账号登录态持久化真源统一（2026-09-23）
 
@@ -15237,3 +15257,6 @@ MIN_ENGAGEMENT_SAMPLES，与引擎严格同门槛含 Number(null)=0 语义），
 - **修复模式**：单一真源 + 单一写者 + 三态语义：status(active|expired|unverified) 落 accounts.json；AccountManager.persistLoginState() 成为唯一写者（三条检测链路返回前统一固化）；无法判定一律 valid:undefined + CHECK_LOGIN_INCONCLUSIVE，渲染层新增「未确认」第三态并不计入失效数；读侧 _normalize_account_status 做 fail-safe 归一化，脏值降级 unverified 而绝不当已登录。
 - **可复用教训**：（1）任何“显示正确但重进就丢失信息”的缺陷，先查读写是否落在同一个库；Electron 应用里 SQLite 与后端 JSON 双存储极易形成伪回写。（2）Cookie/localStorage/凭证文件存在永远不是登录的正向证据，只能证伪不能证真。（3）API 模型用 extra="forbid" 时，新增字段必须同步请求模型，否则客户端写入会静默 422。（4）Electron Session.cookies 只有 get/set/remove/flush，没有 getAll；mock 必须忠实镜像真实 API 表面，否则测试会替错误 API 兜底。
 - **适用边界**：适用于 Multi-Publish 桌面端所有“检测/同步类”状态字段（登录态、额度、审核状态）的设计与排障；不涉及服务端多租户语义。本 PR 刻意不改 stores/accounts.js 的 batchSetStatus（启用/停用与登录态是两个正交概念）。
+
+- **并发批测「超时计入失效」与三态契约互斥（conflict）**：`#2231` 把单账号硬超时判为 `expired`，与「无正向证据不得判失效」直接冲突。收敛结论：超时是**无法判定**，记 `CHECK_LOGIN_TIMEOUT` + `valid: undefined` + `status: unverified`；并发与超时预算照旧保留。补 IPC 层回归测试后立刻抓出融合时漏接的 `timeoutCode` 分支——语义互斥的合并必须配一条断言指向择一结果。
+- **章节撞号与混合换行（tooling）**：两个 PR 在同一文档各自新增 §16 → 后合入方改号为 §17 并同步改自引用；`learnings.md` 是混合换行文件（15239 行仅 141 行 CRLF），禁止整体统一 EOL，只能字节级拼接；`open(p,'wb')` 会在异常前截断文件，必须先构造完整 bytes 再开写句柄。

@@ -431,6 +431,7 @@ Code review 时除逻辑正确性外，必须逐项检查：
 
 - **生产依赖闭包**：生产入口静态加载的每个第三方包必须由所属 workspace 在 `dependencies` 中直接声明；根工作区或其他包的传递依赖不算满足。发布前必须执行 `npm pack --dry-run` 并从隔离 runner/安装目录加载真实入口。
 
+- **批量 IPC 进度双边界与超时预算契约**：任何逐条循环调用异步检测/网络任务的 IPC handler，若向渲染层广播进度，必须同时覆盖 `start`（in-flight，检测体执行前）与 `done`（完成后）两个边界；只在 `await` 之后广播会让进度语义退化为「已完成数」，单个慢任务使遮罩长时间静止（视觉上等同卡死）。批量任务必须声明并发上限与单任务硬超时（均可用环境变量覆盖以便排障），超时结果语义（计入失效 / 跳过 / 重试）须在 PRD 中写明；用 `Promise.race` 实现超时时必须保留「超时后原任务迟到的 reject 不产生 unhandledRejection」的回归测试。回归锁：`apps/desktop/electron/ipc-handlers/account-batch-check.test.js`（断言检测体执行期间该账号只收到过 start）。
 - **Docker runner 文件集**：修改 Dockerfile 或其构建上下文时，必须按最终 runner stage 的本地 `COPY` 清单构造隔离 staging，并加载真实入口验证完整 require 链；Docker daemon 可用时还必须真实 build、启动容器并验证 `/ready`，静态合同不能替代镜像启动。
 
 - **容器运行用户与健康检查**：非 root 容器的插件、缓存、上传和状态目录必须显式落到可写持久卷；Alpine 健康检查固定使用 `127.0.0.1`，除非服务同时验证过 IPv4/IPv6 监听。
