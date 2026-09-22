@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "taskSlug": "codebase-audit-20260922",
+  "objectType": "plan",
+  "title": "全仓库代码综合体检报告 - CCG 双模型对抗评审",
+  "proposer": {
+    "backend": "qoder-agent",
+    "family": "anthropic"
+  },
+  "critic": {
+    "backend": "opencode",
+    "family": "deepseek/hy3"
+  },
+  "familyCheck": {
+    "passed": true,
+    "intersection": []
+  },
+  "maxRounds": 3,
+  "scoreThreshold": 8,
+  "stallScoreDelta": 0.5,
+  "stallRounds": 2,
+  "maxL3RejectionsPerRound": 3,
+  "autoAcceptOnStall": false,
+  "retryCount": 2,
+  "timeoutMs": 600000,
+  "dimensions": [
+    {
+      "key": "completeness",
+      "label": "完整性"
+    },
+    {
+      "key": "consistency",
+      "label": "一致性"
+    },
+    {
+      "key": "clarity",
+      "label": "清晰度"
+    },
+    {
+      "key": "feasibility",
+      "label": "可行性"
+    },
+    {
+      "key": "security",
+      "label": "安全性"
+    }
+  ],
+  "inputPlanPath": "C:\\Users\\邱领\\AppData\\Roaming\\QoderCN\\SharedClientCache\\cache\\plans\\全仓代码体检报告_task-0e6.md",
+  "outputDir": ".adversarial/codebase-audit-20260922",
+  "status": "in_progress",
+  "currentRound": 1,
+  "rounds": [],
+  "createdAt": "2026-09-22T00:00:00+08:00",
+  "notes": "timeoutMs 上调至 600s（critic 允许只读取证，codex 冷启动约 82s）。共享主目录存在会清掉未跟踪文件的 git clean 行为，产物落盘后立即 git add 入索引保护（未 commit）。 critic 降级：codex 后端供应商 API 报 unknown field verbosity 三次失败，且注入无关 ccg-state 上下文；按计划降级序 gemini 未安装，改用 opencode(deepseek 家族) 保持跨家族。"
+}
