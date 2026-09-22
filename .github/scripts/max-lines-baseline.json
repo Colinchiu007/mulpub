@@ -33,7 +33,6 @@
     "apps/desktop/electron/services/story2video-stages.js": 3866,
     "apps/desktop/electron/services/story2video-text-config.js": 747,
     "apps/desktop/electron/services/tts-voice-clone-service.js": 1748,
-    "apps/desktop/electron/services/url-collector.js": 547,
     "apps/desktop/electron/services/video-prompt-engine-contract.js": 759,
     "apps/desktop/electron/services/videogen-stages.js": 975,
     "apps/desktop/electron/services/webview-manager.js": 1488,

@@ -16,6 +16,10 @@ const UrlCollector = (await import("./url-collector")).default;
 
 // 注：vitest 转换后 import.meta.url 不是 file:  scheme，固定用 __dirname 取源码
 const SRC = fs.readFileSync(path.resolve("./electron/services/url-collector.js"), "utf8");
+const PAGE_WAIT_SRC = fs.readFileSync(
+  path.resolve("./electron/services/url-collector-page-wait.js"),
+  "utf8",
+);
 
 describe("UrlCollector._waitForContentReady —— 条件轮询替代固定 sleep", () => {
   let collector;
@@ -101,5 +105,10 @@ describe("UrlCollector._waitForContentReady —— 条件轮询替代固定 slee
   it("防复发静态不变量：浏览器采集路径不得再出现 page.waitForTimeout 盲等", () => {
     expect(SRC).not.toMatch(/page\.waitForTimeout\(/);
     expect(SRC).toMatch(/await this\._waitForContentReady\(page\)/);
+    // 拆出去的等待实现同样不得回退成盲等
+    expect(PAGE_WAIT_SRC).not.toMatch(/waitForTimeout\(/);
+    // 拆分守护：主文件只保留委托入口，实现必须在独立模块里（守住逐文件行数门禁）
+    expect(SRC).toMatch(/require\('\.\/url-collector-page-wait'\)/);
+    expect(PAGE_WAIT_SRC).toMatch(/waitForFunction\(contentReadyProbe/);
   });
 });

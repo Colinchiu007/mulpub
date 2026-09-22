@@ -24,17 +24,10 @@ const {
 const path = require('path')
 const { extractReadableText } = require('./readable-text')
 const { parseEngagement, parseEngagementNumber } = require('./url-collector-engagement')
-
-// SPA 正文就绪的条件等待参数（替代固定 sleep）：
-//   上限 CONTENT_READY_TIMEOUT_MS，轮询间隔 CONTENT_READY_POLL_MS，
-//   命中判据 = readyState 完成 且 候选正文容器（或 body）内文本长度达标。
-const CONTENT_READY_TIMEOUT_MS = 10000
-const CONTENT_READY_POLL_MS = 250
-const CONTENT_MIN_TEXT_LEN = 200
-const CONTENT_READY_SELECTORS = Object.freeze([
-  'article', 'main', '[class*="article"]', '[class*="content"]',
-  '[id*="content"]', '[class*="post"]', '[class*="detail"]',
-])
+// Page 层的等待与容错读取（正文就绪条件等待 / 导航竞态重试）实现见
+// url-collector-page-wait.js：它们只依赖 Playwright Page，与采集策略无关，
+// 拆出去可避免本文件因等待加固越过逐文件行数门禁（500 行）。
+const { waitForContentReady, readPageContentWithRetry } = require('./url-collector-page-wait')
 
 class UrlCollector {
   /**
@@ -431,75 +424,24 @@ class UrlCollector {
   }
 
   /**
-   * 条件等待正文就绪，替代固定 sleep。
-   *
-   * 判据：document.readyState === 'complete'，且候选正文容器（CONTENT_READY_SELECTORS）
-   * 中最大 innerText 长度 >= CONTENT_MIN_TEXT_LEN；无匹配容器时退化为
-   * body 文本长度 >= CONTENT_MIN_TEXT_LEN * 20（长文站点通常几十 KB）。
-   * 上限：CONTENT_READY_TIMEOUT_MS，轮询间隔 CONTENT_READY_POLL_MS。
-   *
-   * 超时原因与处置：选择器是通用启发式，无法覆盖任意站点结构，「等不到」不代表
-   * 「采不到」，因此超时仅 warn 一条带上下限/判据的日志并继续按当前 DOM 采集
-   * （保持原「拿到什么算什么」语义，不因加固等待而新增失败路径）。
+   * 条件等待正文就绪，替代固定 sleep（判据/超时处置见 url-collector-page-wait.js）。
+   * 保留为实例方法：采集链路只认这一入口，测试也锁这一入口。
    *
    * @param {object} page - Playwright Page
    * @returns {Promise<boolean>} 是否在时限内命中就绪条件
    */
   async _waitForContentReady (page) {
-    if (!page || typeof page.waitForFunction !== 'function') return false
-    const probe = function (opts) {
-      if (document.readyState !== 'complete') return false
-      var best = 0
-      for (var i = 0; i < opts.selectors.length; i++) {
-        var nodes = document.querySelectorAll(opts.selectors[i])
-        for (var j = 0; j < nodes.length; j++) {
-          var len = ((nodes[j] && nodes[j].innerText) || '').trim().length
-          if (len > best) best = len
-        }
-      }
-      if (best >= opts.minLen) return true
-      var bodyLen = (document.body && document.body.innerText ? document.body.innerText.trim().length : 0)
-      return bodyLen >= opts.minLen * 20
-    }
-    try {
-      await page.waitForFunction(probe, {
-        minLen: CONTENT_MIN_TEXT_LEN,
-        selectors: CONTENT_READY_SELECTORS.slice(),
-      }, {
-        timeout: CONTENT_READY_TIMEOUT_MS,
-        polling: CONTENT_READY_POLL_MS,
-      })
-      return true
-    } catch (e) {
-      this._log.warn('UrlCollector', 'content-ready 条件等待超时 ' + CONTENT_READY_TIMEOUT_MS + 'ms（判据：正文容器 innerText>=' + CONTENT_MIN_TEXT_LEN + '），按当前 DOM 继续采集')
-      return false
-    }
+    return waitForContentReady(page, { log: this._log, label: 'UrlCollector' })
   }
 
   /**
-   * 读取页面 HTML，导航竞态（page.content 在导航中抛错）时等待后重试。
-   * 知乎 SPA 首次加载后可能仍有延迟导航，直接 page.content() 偶发抛
-   * "Unable to retrieve content because the page is navigating and changing the content"，
-   * 该错误消息不含已知分类关键词，会被 classifyCollectError 判为 unknown（原因未识别）。
+   * 读取页面 HTML，导航竞态时等待后重试（判据见 url-collector-page-wait.js）。
    * @param {object} page - Playwright Page
    * @param {number} [maxAttempts] - 最大尝试次数
    * @returns {Promise<string>}
    */
   async _readPageContentWithRetry (page, maxAttempts = 3) {
-    let lastError
-    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-      try {
-        return await page.content()
-      } catch (e) {
-        lastError = e
-        const msg = e && e.message ? String(e.message) : ''
-        const isNavigationRace = /navigating/.test(msg) || /navigation/i.test(msg)
-        if (!isNavigationRace || attempt === maxAttempts) break
-        // 导航竞态：等待导航稳定后重试
-        await new Promise((resolve) => setTimeout(resolve, 1500 * attempt))
-      }
-    }
-    throw lastError
+    return readPageContentWithRetry(page, maxAttempts)
   }
 
   /**
