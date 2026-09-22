@@ -1170,3 +1170,85 @@ async def test_catalog_items_include_sort_order(monkeypatch):
         assert items
         assert all("sort_order" in it for it in items)
         assert all(it["sort_order"] is None or (isinstance(it["sort_order"], int) and it["sort_order"] >= 0) for it in items)
+
+@pytest.mark.asyncio
+async def test_reorder_scoped_to_visible_ids_preserves_out_of_scope_positions():
+    """visible_ids 作用域：只在当前可见序列内移动，序列外的行（含隐藏/其它类别）相对位置必须不变。"""
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    admin_headers = {"Authorization": f"Bearer {_admin_token()}"}
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        full = (await client.get("/api/v1/model-presets?include_hidden=true", headers=admin_headers)).json()["presets"]
+        assert len(full) >= 5
+        ids_all = [p["id"] for p in full]
+        # 可见序列取不连续的 [0,2,3]，把绝对第 1 行 ids_all[1] 排除在外作为「不动锚点」
+        vis = [ids_all[0], ids_all[2], ids_all[3]]
+        resp = await client.post(
+            f"/api/v1/model-presets/{ids_all[3]}/reorder",
+            json={"action": "top", "visible_ids": vis},
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["result"] == "changed"
+        new_ids = [p["id"] for p in body["presets"]]
+        # 作用域外行 ids_all[1] 保持绝对槽位（index 1）不变 —— 旧全量实现会把它挤到 index 2
+        assert new_ids[1] == ids_all[1]
+        # 可见三项在其占据的槽位 {0,2,3} 内重排：ids_all[3] 升到槽 0，另两项各后移一槽
+        assert new_ids[0] == ids_all[3]
+        assert new_ids[2] == ids_all[0]
+        assert new_ids[3] == ids_all[2]
+        assert new_ids[4:] == ids_all[4:]
+        assert sorted(p["sort_order"] for p in body["presets"]) == list(range(len(body["presets"])))
+
+
+@pytest.mark.asyncio
+async def test_reorder_visible_ids_boundary_is_noop():
+    """可见序列内的边界幂等：可见首行再上移 → noop，不写库。"""
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    admin_headers = {"Authorization": f"Bearer {_admin_token()}"}
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        full = (await client.get("/api/v1/model-presets?include_hidden=true", headers=admin_headers)).json()["presets"]
+        assert len(full) >= 3
+        vis = [p["id"] for p in full[:3]]
+        resp = await client.post(
+            f"/api/v1/model-presets/{vis[0]}/reorder",
+            json={"action": "up", "visible_ids": vis},
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["result"] == "noop"
+
+
+@pytest.mark.asyncio
+async def test_reorder_visible_ids_target_out_of_scope_returns_404():
+    """目标 id 不在 visible_ids 内 → 404（所见非所得一律拒绝，避免错位写入）。"""
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    admin_headers = {"Authorization": f"Bearer {_admin_token()}"}
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        full = (await client.get("/api/v1/model-presets?include_hidden=true", headers=admin_headers)).json()["presets"]
+        assert len(full) >= 4
+        ids_all = [p["id"] for p in full]
+        vis = ids_all[:2]
+        resp = await client.post(
+            f"/api/v1/model-presets/{ids_all[3]}/reorder",
+            json={"action": "top", "visible_ids": vis},
+            headers=admin_headers,
+        )
+        assert resp.status_code == 404
+        # 空可见序列 → 同样视为作用域外，拒绝写入（404），不得退化为全量重排
+        resp = await client.post(
+            f"/api/v1/model-presets/{ids_all[0]}/reorder",
+            json={"action": "top", "visible_ids": []},
+            headers=admin_headers,
+        )
+        assert resp.status_code == 404
+

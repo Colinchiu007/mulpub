@@ -275,19 +275,21 @@ CRITICAL 必须修复才能继续。
 
 ## 参考文件
 
-- `PRD.md` — 产品需求文档
+- `01-docs/PRD.md` — 产品需求文档
 
-- `P0/P1/P2-IMPLEMENTATION-PLAN.md` — 实现计划
+- `01-docs/P0-IMPLEMENTATION-PLAN.md` / `01-docs/P1-IMPLEMENTATION-PLAN.md` / `01-docs/P2-IMPLEMENTATION-PLAN.md` / `01-docs/P3-IMPLEMENTATION-PLAN.md` — 各优先级实现计划（为独立文件，不存在合并的 `P0/P1/P2-IMPLEMENTATION-PLAN.md` 单文件）
 
-- `ARCHITECTURE-PLAYWRIGHT.md` — 架构设计
+- `01-docs/ARCHITECTURE-PLAYWRIGHT.md` — 架构设计
 
-- `DEVELOPMENT_REPORT.md` — 开发报告
+- `01-docs/DEVELOPMENT_REPORT.md` — 开发报告
 
-- `CHANGELOG.md` — 变更日志
+- `CHANGELOG.md`（仓库根）— 变更日志
 
-- `DESIGN.md` — 设计规范
+- `01-docs/DESIGN.md` — 设计规范
 
-- `INTEGRATION.md` — 集成说明
+- `01-docs/INTEGRATION.md` — 集成说明
+
+> 以上路径均经 `git ls-files` 核实存在于当前仓库。历史裸名（如根级 `PRD.md`、`DESIGN.md`）指向仓库根并不存在的文件，会让走「先文档再代码」前置门的人读到空文件、误判缺 PRD 而跳过门禁。
 
 ## 目录结构
 
@@ -551,7 +553,7 @@ Code review 时除逻辑正确性外，必须逐项检查：
   cd apps/desktop && npm run test:visual:pixel
   ```
 
-- **发版前（必须通过）**：完整回归（94 个测试：44 视图 + 50 工作流）
+- **发版前（人工核查项，非自动硬门禁）**：完整回归（94 个测试：44 视图 + 50 工作流）
 
   ```bash
   npm run test:all:visual
@@ -624,7 +626,7 @@ npm run test:all:visual
 
 1. **pre-commit 不集成**视觉测试(需 dev server,触发频率过高)
 2. **PR 合入前必须通过** `npm run test:visual:pixel`(非零退出码禁止合入)
-3. **发版前必须通过** `npm run test:all:visual`
+3. **发版前人工确认**已跑 `npm run test:all:visual` 且无未审核的回归（**当前 `scripts/release-gate.mjs` 未将视觉回归纳入硬门禁**，它只核验版本 bump + CHANGELOG 收口 + 破坏性变更级别；因此本条是人工核查项而非自动拦截。若要将其升级为「必须通过」的硬门禁，需先给 release-gate 接入视觉回归结果标记的硬检查，并定义时长预算/flaky/基线策略）
 4. **baseline 更新需人工审核** diff 图,确认是预期变化后再覆盖
 5. **像素失败后**必须跑 `npm run test:visual:agent` 生成报告,Agent 用 view\_image 看图判断
 6. 所有命令必须在 `apps/desktop/` 目录下执行
@@ -738,7 +740,7 @@ codeagent-wrapper --backend opencode --lite "审查 <change> 实现：命名/模
 | 命令                      | 作用                               | 运行时间           |
 | ----------------------- | -------------------------------- | -------------- |
 | `npm run test:mutation` | Stryker 变异测试，找出"假测试"             | 数小时（55293 突变体） |
-| `npm run test:coverage` | 覆盖率报告（branches ≥ 60% 门禁）         | 30 秒           |
+| `npm run test:coverage` | 覆盖率报告（阈值以 `apps/desktop/vitest.config.js` 为唯一真源：statements 55 / branches 40 / functions 60 / lines 55）         | 30 秒           |
 | `npm run test:fault`    | 故障注入测试，20% IPC 请求随机失败            | 10 秒           |
 | `npm run test:monkey`   | 500 次随机 IPC 操作序列                 | 5 秒            |
 | `npm run test:quality`  | 一键跑全部（fault + monkey + mutation） | 数小时            |
@@ -812,31 +814,22 @@ codeagent-wrapper --backend opencode --lite "审查 <change> 实现：命名/模
 
 ## 记忆体系（内置记忆 / 外部记忆 / EverOS 记忆）
 
-> 本章节为 2026-09-19 实测锚点，防止每次对话重新研究三套记忆系统的概念与用法。历史记忆中「EverOS 跑在 WSL / Ubuntu-E 内」的表述**已过时**——EverOS 现为 **Windows 原生版**，通过 MCP 连接。
+> 本章节只记录三套记忆系统的**概念与使用边界**（可移植、跨机器有效）。具体到某台机器的绝对路径（含用户名）、监听端口、CLI 安装位置、脚本版本、MCP 配置内容、项目空间清单与服务存活状态等**个人机运行态**，一律不写入本跟踪文件——它会随每次会话注入 Rules 并被 git 历史长期保存，既泄漏个人文件系统布局，又在换机/协作克隆时立即失效。需要这些细节时从本机外部记忆检索，并**在使用前先核验该服务确实存活且已正确配置**。
 
 ### 三套记忆的定位与边界
 
-| 记忆类型 | 位置 | 定位 | 何时用 |
+| 记忆类型 | 存放形态 | 定位 | 何时用 |
 | --- | --- | --- | --- |
-| **内置记忆** | `C:\Users\邱领\.codex\memories\`（MEMORY.md、memory_summary.md、raw_memories.md、rollout_summaries/、extensions/ad_hoc/notes/、skills/） | Codex 自动生成/检索的会话记忆，系统提示自动注入 memory_summary | 默认第一入口：任务开始时快速 pass 检索相关关键词；回答引用需带 `<oai-mem-citation>` |
+| **内置记忆** | 当前 AI 工具自带的会话记忆目录（路径随工具与机器而异） | 工具自动生成/检索的会话记忆，系统提示自动注入摘要 | 默认第一入口：任务开始时快速 pass 检索相关关键词；引用按工具约定带引用标记 |
 | **外部记忆** | 项目仓库内文档（openspec/、01-docs/、.ccg/、docs/）+ 用户显式让写入的文件 | 项目级持久知识，git 管理，跨会话/跨工具共享 | 项目约定、流程规范、PRD/架构文档；AGENTS.md 是每次会话自动加载的入口 |
-| **EverOS 记忆** | `C:\Users\邱领\.everos\`（Windows 原生，md-first + LanceDB/SQLite 索引） | 独立记忆服务，HTTP API（127.0.0.1:8000）+ MCP 桥（everos_search/add/health） | 跨项目语义检索、episode/atomic_fact 级别的长期记忆沉淀 |
-
-### EverOS 当前架构（Windows 版，2026-09-19 实测）
-
-- **MCP 配置**：`C:\Users\邱领\.codex\config.toml` 中 `[mcp_servers.everos_memory]`，`command = "python"`，`args = ["C:\\Users\\邱领\\.everos\\everos-mcp-server.py"]`——Windows 原生 Python 3.12，不再经 WSL。
-- **MCP 桥脚本**：`C:\Users\邱领\.everos\everos-mcp-server.py`（v1.3），stdio JSON-RPC，暴露 `everos_search` / `everos_add` / `everos_health` 三个工具；搜索走 `http://localhost:8000/api/v1/memory/search`，跨 `default` + `agent-memory-import` 两个项目空间（user_id 固定 `me`）。
-- **后端服务**：`everos server start`（Windows CLI，`C:\Python312\Scripts\everos`），监听 `127.0.0.1:8000`；数据在 `C:\Users\邱领\.everos\.index\`（sqlite system.db + lancedb 六表：episode/atomic_fact/foresight/agent_case/agent_skill/user_profile）；cascade watcher 监听 `.everos` 根目录 md 变更自动重建索引。
-- **数据目录**：`C:\Users\邱领\.everos\multi-publish\` 下按 project_id 分空间（default_project、codex-memory-import、agent-memory-import、dsh-session-import、everos-integration、collect-douyin-xhs-asr、video-clone-output-load-fix、s2v-quick-render-ai-video），每个空间内 `users/<user_id>/episodes/*.md` + `.atomic_facts/*.md` + `user.md`。
-- **重要**：后端服务**不随系统自启**，用前需确认存活（`curl http://localhost:8000/health` 或调 `everos_health`）；MCP 桥对后端不可达时 `everos_search` 静默返回「无结果」（不报错），`everos_health` 会失败——判断「无结果」前先验后端。
-- **历史迁移**：2026-09-02 曾在 WSL（Ubuntu-E）内跑 EverOS 并导入 343 个记忆文件到 codex-memory-import 空间；现已整体迁移 Windows 原生。旧记录中 `wsl -d Ubuntu-E python3 /home/qiu/everos-mcp-server.py`、`~/.everos`（WSL 路径）、`/api/v2/memory/search` 端点均为过时信息。
+| **EverOS 记忆** | 独立记忆服务（HTTP API + MCP 桥），数据落在本机用户目录 | 跨项目语义检索、episode/atomic\_fact 级别的长期记忆沉淀 | 需要跨项目历史经验（"之前怎么处理 X"）时检索；具体端点/项目空间见本机外部记忆 |
 
 ### 使用规则
 
-1. **任务开始时**：先做内置记忆 quick pass（MEMORY.md 关键词检索）；若涉及跨项目历史经验（如「之前怎么处理 X」），再调 EverOS `everos_search`。
-2. **写入记忆**：用户显式要求「记住/存到记忆」时——项目相关知识写外部记忆（AGENTS.md/openspec/01-docs/），跨项目个人偏好/经验写内置记忆 ad-hoc note（`~/.codex/memories/extensions/ad_hoc/notes/`），语义级长期记忆可调 `everos_add`。
-3. **过时记忆处理**：不改写历史记录（记忆是历史事实快照），而是追加最新锚点 note 声明现状取代旧表述——本章节即 EverOS Windows 版的最新锚点。
-4. **Cognee MCP**（`[mcp_servers.cognee_memory]`，仍走 WSL）：协议握手通但 embedding 未配（LiteLLM Missing credentials），实际调用会卡——**不要使用**，需要语义记忆时用 EverOS。
+1. **任务开始时**：先做内置记忆 quick pass（按关键词检索）；若涉及跨项目历史经验，再调外部语义记忆服务（如 EverOS）检索。
+2. **写入记忆**：用户显式要求「记住/存到记忆」时——项目相关知识写外部记忆（AGENTS.md/openspec/01-docs/），跨项目个人偏好/经验写内置记忆，语义级长期记忆可调外部记忆服务的写入接口。
+3. **过时记忆处理**：不改写历史记录（记忆是历史事实快照），而是追加最新锚点声明现状取代旧表述。
+4. **依赖外部服务前先核验**：外部记忆服务均不保证随系统自启，调用前必须确认其后端存活且已正确配置；不可达时可能静默返回空结果而非报错，判「无结果」前先验后端。某套服务是否可用属运行态判断，按当次实测处理，**不得把「不可用」结论写进本跟踪文件**。
 
 ## Skill routing
 
@@ -870,7 +863,7 @@ Key routing rules:
 
 ## 强制工具路由（Iron Rules）
 
-以下规则在 fastctx 引导块之上提供**不可协商的强制执行**。任何违反此规则的操作必须回退重做。
+以下规则**仅在 FastCtx MCP 已配置且当前会话可调用时生效**：可用时提供不可协商的强制路由；不可用时按下条 fail-open 回退到内置工具并显式声明降级，不得因指定工具缺失而中止任务。（本章节原为无条件强制，会在未配置 FastCtx 的环境里把 agent 逼进「找不到指定工具、又不允许用内置工具」的自我 DoS。）
 
 ### 文件操作强制路由
 
@@ -887,10 +880,10 @@ Key routing rules:
 
 1. 收到用户请求后，Agent 必须先检查操作类型是否命中上表，命中则必须使用对应 FastCtx 工具。
 2. apply\_patch 仅用于语义级代码修改，不用于机械文本替换。
-3. **零豁免**：禁止使用 exec\_command 执行任何 shell 命令——包括但不限于单行查询（git status、npm 版本、node -e、where/which 等）、只读命令、以及上表未覆盖的一切 shell 场景。所有 shell 命令一律走 mcp\_\_fastctx\_\_run；预计超过 2 分钟的走 mcp\_\_fastctx\_\_run\_\_background。例外仅限下列第 4、5 条。
+3. **条件强制（FastCtx 可用时）**：当 mcp\_\_fastctx\_\_run 等 FastCtx 工具在当前会话可用时，shell 命令必须走 mcp\_\_fastctx\_\_run（预计超过 2 分钟走 mcp\_\_fastctx\_\_run\_\_background），不得用内置 exec\_command 绕过，例外仅限下列第 4、5 条。当 FastCtx 未配置或不可调用时 **fail-open**：改用当前环境可用的内置读取/搜索/shell 工具完成任务，并在首次回退时向用户显式声明「FastCtx 未配置，已回退平台内置工具」，不得因指定工具缺失而中止。
 4. **例外 A（PTY 交互式会话）**：确需 PTY 交互式会话（如启动开发服务器后持续观察输出、向运行中进程写 stdin）时，允许 exec\_command 创建会话并用 write\_stdin 轮询。
 5. **例外 B（PowerShell 原生操作白名单）**：仅限无法用 bash 语法表达的 Windows 原生操作，允许 exec\_command 直跑 PowerShell，避免 bash→PowerShell 双跳（实测每次约 +1.3s）与引号转义腐蚀。范围：注册表（reg.exe / Get-ItemProperty / Set-ItemProperty）、计划任务（schtasks / Register-ScheduledTask）、CIM/WMI 查询（Get-CimInstance / Get-WmiObject）、Windows 服务（Get-Service / Start-Service）等系统管理 API，且命令体含内联 PowerShell 语法（对象管道、哈希表、$_、[PSCustomObject] 等，经 bash 转义必腐蚀）。
    - 执行 .ps1 脚本文件（如 scripts/session-guard.ps1）不适用本例外：仍走 mcp\_\_fastctx\_\_run，命令形如 "powershell -NoProfile -ExecutionPolicy Bypass -File <脚本路径>"——路径不含复杂引号，无转义风险，仅承担 PowerShell 自身启动开销（该开销 exec\_command 同样无法避免）。
    - 白名单禁止扩大解释：文件搜索/读取/批量替换，以及普通 git、node、npm、pnpm、rg 命令，即使写成 PowerShell 语法也不属于本例外。
-6. **违规回退**：发现自己在 PowerShell 或内置 exec\_command 中执行了本应走 FastCtx 的操作时，必须立即中止，改用对应 FastCtx 工具重做，并以 FastCtx 的结果为准。
+6. **违规回退（仅 FastCtx 可用时）**：当 FastCtx 可用却发现自己在 PowerShell 或内置 exec\_command 中执行了本应走 FastCtx 的操作时，改用对应 FastCtx 工具重做，并以 FastCtx 的结果为准；FastCtx 不可用时本条不适用，按第 3 条 fail-open 继续完成任务，不得中止。
 
