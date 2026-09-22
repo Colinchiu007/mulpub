@@ -1357,6 +1357,8 @@ export default {
     batchCheckAllBusy: '检测中…',
     batchCheckAllTitle: '正在检测账号登录状态',
     batchCheckAllProgress: (ctx) => '检测中 ' + ctx.named('checked') + '/' + ctx.named('total') + (ctx.named('platform') ? '：' + ctx.named('platform') : ''),
+    batchCheckAllCurrent: (ctx) => '正在检测：' + ctx.named('platforms'),
+    batchCheckAllElapsed: (ctx) => '已耗时 ' + ctx.named('seconds') + ' 秒',
     batchCheckAllStarted: (ctx) => '开始检测 ' + ctx.named('count') + ' 个账号的登录状态…',
     batchCheckAllDone: (ctx) => '检测完成：' + ctx.named('valid') + ' 个正常，' + ctx.named('invalid') + ' 个失效',
     batchCheckAllAllValid: (ctx) => '检测完成：' + ctx.named('count') + ' 个账号登录状态全部正常',

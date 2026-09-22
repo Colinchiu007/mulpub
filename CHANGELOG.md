@@ -1,3 +1,26 @@
+# [未发布] fix(accounts): 账号页【一键检测】进度长时间静止修复 + 并发加速（2026-09-22，batch-check-progress-speed）
+
+### Fix
+
+- **进度只在「账号完成」边界广播**：`accounts:batch-check-login` 的 `broadcastProgress` 位于 `await checkLoginStatus` 之后，进度计数=已完成数，正在检测的账号完全不可见；单个走浏览器降级的慢账号（10-30s）使遮罩停在「检测中 0/7」纹丝不动，视觉上等同卡死。现改为每账号 **start/done 双边界广播**，渲染层据此维护 in-flight 平台集合并展示「正在检测：知乎、抖音 · 已耗时 12 秒」（同平台多账号去重）。
+- **放大因素说明**：v2.2（PR #2205）三态判定使 INCONCLUSIVE 降级浏览器的账号变多，拉长静止窗口；已核实判定分支本身无回归。
+
+### Performance
+
+- 批量登录检测由严格串行改为**并发池（默认 3，`MP_BATCH_CHECK_CONCURRENCY` 可调、clamp ≤4）**，结果仍按输入顺序落位；7 账号慢场景整体等待约降至 1/3。可行性依据：`playwright-manager.getContext()` 每账号使用独立 `auth-check-<uuid>` 分区与独立隐藏窗口，无共享启动锁。
+- 新增**单账号硬超时 60s**（`MP_BATCH_CHECK_ACCOUNT_TIMEOUT_MS`）：超时按 `valid:false / CHECK_LOGIN_TIMEOUT` 计入失效，不阻断其余账号；`Promise.race` 保证超时后迟到的 reject 不产生 unhandledRejection。
+
+### Testing
+
+- 新增 `electron/ipc-handlers/account-batch-check.test.js` 7 例（主进程批量检测进度/并发/超时首层覆盖 —— 此前 `account.test.js` 对 `batch-check` 零命中，即本 Bug 的逃逸口）；`Accounts.test.js` 新增 4 例（in-flight 即时展示、递增秒表、订阅取消与定时器零泄漏、超时计入失效）。
+
+### Documentation
+
+- `01-docs/BUGFIX-BATCH-CHECK-PROGRESS-STALL-2026-09-22.md`：根因溯源 / 逃逸链 / 系统性漏洞 / 修复 / 预防措施 5 步完整记录。
+- `01-docs/PRD-ACCOUNT-LOGIN-STATUS-CHECK.md` 升 v2.3：§4.3 检测流程图重写为并发 + 双边界语义，新增 §16 行为契约表（显示项 / 校验 / 文案变更）。
+- AGENTS.md QM-2 新增「批量 IPC 进度双边界与超时预算契约」门禁条目。
+- `01-docs/UI-INVENTORY.md` §5.2：账号页特殊状态补 `batch-check-overlay`（遮罩第二行 in-flight 明细）。
+
 # [未发布] fix(security): P0 审计第一批——systemd 加固 + 密钥出库 + JWT/CORS 闸门 + 加密 fail-closed + SSRF 守卫（2026-09-22，audit-batch-1）
 
 ## [0.1.1] P0 Security Hotfix
