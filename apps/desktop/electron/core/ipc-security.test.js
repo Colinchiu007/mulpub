@@ -170,3 +170,52 @@ describe('ipc-security — isTrustedSender', () => {
     expect(isTrustedSender({ senderFrame: { url: '' } }, mockApp)).toBe(false)
   })
 })
+
+// QM-2「IPC file URL canonical 合同」回归保护（P1-14 同批补录）：
+// file:// 来源判定必须以 realpath 规范化的“目录边界”为准，不能退化成字符串前缀比较。
+// 前缀比较会放过三类真实攻击面：兄弟目录前缀（canonical-app-evil）、junction 形态入口、
+// 以及 dist 不存在 / getAppPath 抛错时的宽松兜底。
+describe('ipc-security — file URL realpath 目录边界', () => {
+  const packaged = (root) => ({ isPackaged: true, getAppPath: () => root })
+
+  it('sender 走 junction 形态、appPath 走 canonical 形态时同样互信（同一 realpath 目标）', () => {
+    const junctionEntryUrl = pathToFileURL(path.join(junctionAppRoot, 'dist', 'index.html')).href
+    expect(isTrustedSender(makeEvent(junctionEntryUrl), packaged(canonicalAppRoot))).toBe(true)
+  })
+
+  it('兄弟目录前缀陷阱：canonical-app-evil/dist 不得被判为 canonical-app/dist 之内', () => {
+    // 该用例专门针对 startsWith(trustedDist) 这类实现：`canonical-app-evil/dist/index.html`
+    // 以 `canonical-app` 开头，但不在 `canonical-app/dist` 目录内。
+    const evilRoot = path.join(tempRoot, 'canonical-app-evil', 'dist')
+    fs.mkdirSync(evilRoot, { recursive: true })
+    const evilFile = path.join(evilRoot, 'index.html')
+    fs.writeFileSync(evilFile, '<!doctype html>')
+    expect(isTrustedSender(makeEvent(pathToFileURL(evilFile).href), packaged(canonicalAppRoot))).toBe(false)
+  })
+
+  it('dist 目录自身（无文件名）仍在边界内，但兄弟目录自身仍被拒绝', () => {
+    expect(isTrustedSender(
+      makeEvent(pathToFileURL(path.join(canonicalAppRoot, 'dist')).href),
+      packaged(canonicalAppRoot),
+    )).toBe(true)
+    expect(isTrustedSender(
+      makeEvent(pathToFileURL(path.join(canonicalAppRoot, 'dist-evil')).href),
+      packaged(canonicalAppRoot),
+    )).toBe(false)
+  })
+
+  it('app 未注入时回退本包根目录，不得信任任意第三方 dist 路径', () => {
+    const url = pathToFileURL(path.join(canonicalAppRoot, 'dist', 'index.html')).href
+    expect(isTrustedSender(makeEvent(url), null)).toBe(false)
+    expect(isTrustedSender(makeEvent(url), undefined)).toBe(false)
+    expect(isTrustedSender(makeEvent(url), {})).toBe(false)
+  })
+
+  it('dist 不存在或 getAppPath 抛错时 fail-closed', () => {
+    const url = pathToFileURL(path.join(canonicalAppRoot, 'dist', 'index.html')).href
+    const boom = { isPackaged: true, getAppPath: () => { throw new Error('app path unavailable') } }
+    expect(isTrustedSender(makeEvent(url), boom)).toBe(false)
+    // outsideRoot 下没有 dist：realpath 抛 ENOENT → 必须拒绝，而不是“路径不存在所以放过”
+    expect(isTrustedSender(makeEvent(url), packaged(outsideRoot))).toBe(false)
+  })
+})

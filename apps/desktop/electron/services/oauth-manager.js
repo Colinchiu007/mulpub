@@ -13,7 +13,7 @@
  *
  * 回调端点：http://127.0.0.1:16521/oauth/callback
  */
-const { WebContentsView, session, ipcMain } = require('electron')
+const { WebContentsView, session } = require('electron')
 const path = require('path')
 const http = require('http')
 const log = require('./logger')
@@ -387,7 +387,13 @@ class OAuthManager {
    * 注册 IPC handlers
    */
   registerIpcHandlers (injectedIpcMain) {
-    const ipcMain = injectedIpcMain || require("electron").ipcMain;
+    // P1-14：必须注入 access-controlled ipcMain（createAccessControlledIpcMain）。
+    // 禁止回退全局 ipcMain —— 那会同时绕过 isTrustedSender 来源校验与许可证/权益门禁，
+    // 且在纯 Node（单测）下退化成无信息量的 TypeError。未注入即 fail-closed 抛错。
+    if (!injectedIpcMain) {
+      throw new Error('[IPC] oauth-manager registerIpcHandlers 需要注入受控 ipcMain（禁止使用全局 ipcMain）');
+    }
+    const ipcMain = injectedIpcMain;
     ipcMain.handle('oauth:start', withSenderCheck(async (event, arg) => {
       if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
       const { platform, credentials } = arg
