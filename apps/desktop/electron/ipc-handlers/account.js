@@ -710,49 +710,12 @@ function registerHandlers(ipcMain, deps) {
     }
   }))
 
-  /**
-   * 启用态写入通道：账号页「批量启用/停用」的唯一入口。
-   * 与登录态严格正交 —— 本通道不触碰 status/last_validated，也不得被登录检测复用。
-   */
-  ipcMain.handle('account:set-active', withSenderCheck(async (event, arg) => {
-    const startedAt = Date.now()
-    ipcLog('info', 'account:set-active', 'enter', `platform=${arg?.platform} accountId=${arg?.accountId} isActive=${String(arg?.isActive)}`)
-    try {
-      if (getOwnerSubject() === null) {
-        ipcLog('warn', 'account:set-active', 'auth-failed', '无法识别当前用户')
-        return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
-      }
-      if (!arg || typeof arg !== 'object') {
-        ipcLog('warn', 'account:set-active', 'validation-failed', '缺少参数对象')
-        return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
-      }
-      const { accountId, platform, isActive } = arg
-      if (!_isSafePathSegment(accountId) || !_isSafePathSegment(platform)) {
-        ipcLog('warn', 'account:set-active', 'validation-failed', `platform=${platform} accountId=${accountId}`)
-        return { code: EC.VALIDATION_ERROR, message: '缺少或非法 accountId/platform 参数' }
-      }
-      // 必须是真布尔：字符串 'false' 在 JS 中为真值，宽松判断会把「停用」误写成「启用」。
-      if (typeof isActive !== 'boolean') {
-        ipcLog('warn', 'account:set-active', 'validation-failed', `accountId=${accountId} isActive=${String(isActive)}`)
-        return { code: EC.VALIDATION_ERROR, message: 'isActive 必须为布尔值' }
-      }
-      if (typeof AccountManager.setAccountActive !== 'function') {
-        ipcLog('warn', 'account:set-active', 'unavailable', `accountId=${accountId}`)
-        return { code: EC.REQUEST_ERROR, message: 'setAccountActive-unavailable' }
-      }
-      const res = await AccountManager.setAccountActive(accountId, platform, isActive)
-      if (!res || res.ok !== true) {
-        const reason = (res && res.reason) || 'unknown'
-        ipcLog('warn', 'account:set-active', 'failed', `platform=${platform} accountId=${accountId} isActive=${isActive} reason=${reason} code=${(res && res.code) || '-'}`)
-        return { code: EC.REQUEST_ERROR, message: reason }
-      }
-      ipcLog('info', 'account:set-active', 'ok', `platform=${platform} accountId=${accountId} isActive=${isActive} 耗时=${Date.now() - startedAt}ms`)
-      return { code: 0, data: { accountId, is_active: isActive }, message: isActive ? '账号已启用' : '账号已停用' }
-    } catch (e) {
-      ipcLog('error', 'account:set-active', 'error', `platform=${arg?.platform} accountId=${arg?.accountId} message=${e instanceof Error ? e.message : String(e)}`)
-      return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e) }
-    }
-  }))
+  // 启用态写入通道单独成文件（./account-active.js）：它与登录态属于不同关注点，
+  // 而 account.js 已在行数挂账清单上（登记值 571，main 实测 728），继续往里堆会撞
+  // check-max-lines 的膨胀容差。这里只把本模块已有的上下文闭包注入进去，判定口径不复制第二份。
+  require('./account-active').registerAccountActiveHandler(ipcMain, {
+    AccountManager, getOwnerSubject, ipcLog, isSafePathSegment: _isSafePathSegment
+  })
 
   ipcMain.handle('account:list', withSenderCheck(async () => {
     const startedAt = Date.now()

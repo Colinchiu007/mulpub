@@ -113,7 +113,8 @@ PR #2233 统一了「登录态」的真源与写者（后端 `accounts.json.stat
    → api/publisher.accountSetActive(accountId, platform, isActive)
    → window.electronAPI.accountSetActive(accountId, platform, isActive)
 [主进程] preload/account.js: ipcRenderer.invoke('account:set-active', { accountId, platform, isActive })
-   → ipc-handlers/account.js  handler 'account:set-active'
+   → ipc-handlers/account-active.js  handler 'account:set-active'
+       （由 account.js 注入 getOwnerSubject / ipcLog / _isSafePathSegment 后注册，见 §4.1 设计要点 7）
        · withSenderCheck（/ 边界）
        · getOwnerSubject() 未登录 → EC.AUTH_ERROR
        · _isSafePathSegment(accountId) 与 _isSafePathSegment(platform) → EC.VALIDATION_ERROR
@@ -132,6 +133,7 @@ PR #2233 统一了「登录态」的真源与写者（后端 `accounts.json.stat
 4. **SQLite 通路保持不变**：本 PR 不删除 `store:update-account`（`renameAccount` 仍在用），只是让 `batchSetStatus` 不再走它。
 5. **纵深防御（实现期补加，超出原契约）**：`ipc-handlers/store.js` 的 `rendererAccountUpdateFields` 白名单**移除 `'status'`**，让渲染层从通道层面就再也写不进登录态；本地库缺 `status` 时同样诚实回落 `unverified`，不由 `is_active` 派生。
 6. **platform 参数为实现与初稿的差异点**：后端 `PATCH /api/accounts/{id}` 只需 `accountId`，但 IPC 层为与 `account:set-proxy` 保持同一入参口径（并对两个路径段都做 `_isSafePathSegment` 校验），签名定为 `(accountId, platform, isActive)`；`platform` 在主进程仅用于日志定位。渲染层据此必须解析平台，解析不出来按失败计数而不是跳过。
+7. **启用态通道单独成文件（`ipc-handlers/account-active.js`）**：`ipc-handlers/account.js` 是行数挂账文件（登记 571、同步 main 后实测 728），本通道 43 行若继续塞进去会撞上 `check-max-lines` 的 200 行膨胀容差；而「启用态」与「登录态」本就是两个关注点，分文件与分写者一致。拆法是把 `getOwnerSubject` / `ipcLog` / `_isSafePathSegment` 由 `account.js` 注入，**不复制第二份校验口径、不抬高任何挂账数字**（治理口径见 `01-docs/learnings.md`：`--update` 型基线命令会把 grandfathered 文件的当前行数偷偷写回基线，属棘轮对偶，禁止使用）。
 
 ### 4.2 读路径
 

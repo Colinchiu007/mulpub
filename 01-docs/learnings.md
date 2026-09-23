@@ -1,3 +1,18 @@
+## 「装饰性按钮」的三条根因与正交状态字段的收口口径（account-is-active-batch，2026-09-23）
+
+- **同名词表跨层撞车（pitfall）**：账号页批量按钮写的是 `'active' | 'inactive'`，而 `status` 字段的合法词表是 `'active' | 'expired' | 'unverified'`（登录态）。两套语义共用一个字段名，写入既污染枚举又让按钮「点了没反应」。正交概念必须各有字段名（`is_active` / `status`）、各有唯一写者，且**读侧禁止互相派生**——一旦允许 `is_active` 派生登录态，脏数据就会顺着派生链重新出现第 4 个非法态值。
+- **写进去的库和读出来的库不是同一个（pitfall）**：`accountUpdate → store:update-account → Electron SQLite`，而账号列表 `account:list → AccountManager.listAccounts() → 后端 accounts.json`，两边 accountId 命名空间互不相通。判定「这个按钮到底有没有效」的最小实验是：写入 → 重新读取列表 → 比对字段，而不是只看接口返回码。
+- **行号键控基线又假阳性一次（pitfall）**：`--py-cjk` 的基线 id 是 `file:剥离注释/docstring 后的行号`，本 PR 在 `server.py` 插 33 行使 19 条既有条目整体漂移（条目数 79→79）。取证手法：只统计 diff **新增行**中匹配 `/\braise\s+\w/` 且未被 `UserVisibleError` / `error_code+message` 豁免的中文行（本 PR = 0），据此确认是纯漂移；重锚只走脚本自带的 `--update-py-baseline`，再把手改结果与生成结果做逐字节比对（`git diff --no-index` 必须为空）才算对齐官方口径。
+- **preload 计数锁是合并的第一冲突点（pattern）**：`preload.test.js` 有三处计数（每模块方法数、api 总键数、`*_METHODS` 长度），两侧同时新增 API 必冲突。正解是按「两侧并集」重算（本次 `318 + 2 = 320`）而不是选一侧；合并后必须 `node scripts/build-preload.js` 重算 bundle，并核对 bundle 同时含两侧新增符号（本次 `accountSetActive` 与 `accessLevelCache` 都在）。
+- **`--update` 型棘轮的对偶用法（pitfall）**：刚上线的 `check-max-lines.js` 报本 PR 把已挂账的 `ipc-handlers/account.js` 顶过 200 行膨胀容差。**不要**用 `--update` 把当前行数写回基线（那会把上游 157 行漂移和自己的增长一起洗白）。做法：把新增能力拆成兄弟模块，由主文件**注入既有闭包**（`getOwnerSubject` / `ipcLog` / `_isSafePathSegment`）后注册 —— 不复制第二份校验口径，也不抬高任何挂账数字。
+- **只在 PR 上跑的门禁，主分支可以长期是红的（pitfall）**：`debt-guard.yml` 只 `pull_request` / `workflow_dispatch` 触发，push 到 main 不跑，于是 `LogsSettings.vue` 598 行未挂账这件事在 main 上无声无息，第一个 PR 撞上要么代登要么原地卡死。判定归属用两条命令：`git diff origin/main...HEAD -- <file>` 是否为空 + `git show origin/main:<file>` 的真实行数；确认是上游遗留后只做「登记不改码」，拆分留给该功能的后续 PR。
+- **`--pair-base` 的空转通过（pitfall）**：Gate 7 的 zh/en 成对检查取的是**提交间 diff**，工作区未提交时输出「zh.js 变更=false」并 PASS。必须在 commit 之后复跑，未提交的 PASS 不算证据。
+- **工具链约束（pitfall）**：编辑工具不能写 worktree（workspace 外）→ 用片段 + `apply-patch.py` manifest 落盘、新文件用 `Copy-Item`；写片段脚本时 `put('x.js.txt', ...)` 会生成 `x.js.txt.txt`，落盘前必须核对文件名与字节数。PowerShell 侧：`&&` 不可用（改 `;`）、`git show <ref>:<path> | Measure-Object -Line` 的行数**不可信**（改用 node `execFileSync` + `split('\n').length`）、`>` 重定向会把 JSON 写成 UTF-16/BOM 使 `require()` 解析失败（改在 node 里直接调 `gh`）。
+
+---
+
+---
+
 ## 门禁与 rebase 的自我反噬：9 个可复用口径（2026-09-22，audit-p2-debt / 第 4 批）
 
 - **新门禁必须先过自己的新代码（pitfall）**：本批刚立起「单文件 > 500 行」棘轮，同一批的等待条件化改造就把 `url-collector.js` 顶到 547 行。处置是**拆文件**（新增 `url-collector-page-wait.js` 133 行 + 主文件留 1 行薄委托 → 489 行），而不是给主文件加豁免或放宽基线；同时把「不得再出现 `page.waitForTimeout(`」「必须 require 新模块」「probe 走 `waitForFunction`」写成用例里的静态不变量，防止委托被回滚。
