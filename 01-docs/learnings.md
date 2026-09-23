@@ -1,3 +1,14 @@
+## 发布链路被动诊断的挂载证伪与零侵入合同：CCG 两轮评审救回的错误架构（pubfail-diagnose-pr2，2026-09-23）
+
+- **IPC handle 包装层不覆盖事件推送（pitfall，CCG 评审 C-1/C-2 L1 反例证伪）**：想给「发布失败弹窗」统一附加诊断结论，最初方案挂在 `createAccessControlledIpcMain` 的 Proxy 包装层——但该 Proxy 只拦截 `ipcMain.handle`（license-access-control.js:256-294 `return handler.apply(this,args)`），而发布/RPA 失败信息实际走 `webContents.send('batch:progress'/'publish:progress')` 事件推送，根本不经 handle 包装层；batch item 形状 `{ok,message}` 也无 code 字段。教训：**给「所有报错出口」挂钩子前必须先枚举真实出口通道（invoke 响应 vs send 事件 vs renderer throw），包装层覆盖假设一律用代码证据证伪/证实**，否则整个挂载架构落空。
+- **renderer/preload 无统一咽喉点（pitfall，评审 N-1）**：preload/index.js 各 API 直调 `ipcRenderer.invoke` 无统一包装，renderer 数十处 `throw new Error(...)` 会把结构化字段（code/diagnoseCode）拍平成纯字符串 message——弹窗面「附带结论」在现有架构下无单点可改。处置：首期砍弹窗面按 PRD R5 明文降级为仅日志面，弹窗列为二期缺口 G1-G4 登记，不硬凑。教训：**跨层字段传递的可行性要在 proposal 阶段做全链路追踪（producer→IPC→consumer 每跳字段是否存活），任一跳丢失就要么补生产端要么砍面**。
+- **治理链出口单点 catch-rethrow 覆盖多分散出口（pattern，评审 N-2）**：governor 的 rate/quota 抛错点实测有 6 处（_pace、_waitCooldown、排队超时 _sweepExpired、retry429 耗尽、额度预检、后置断言），逐个挂钩既侵入又易漏；改挂 `run()` 对 `_runWithGovernance` 的 `.catch()` 单点（catch 后原样 rethrow），一处覆盖全部出口且错误对象 identity 严格不变（契约测试 `expect(settledErr).toBe(injected)` 锁定）。配套合同：挂钩体整体 try/catch 永不抛（诊断故障不得升级为调度器故障）；bootstrap 未装配（`setDiagnoseDeps`+`setEnabled`）时整体禁用零副作用——既有 governor/batch 测试全绿即为证明，新功能默认不可达是零侵入的验收锚。
+- **自适应探针防恒误导（pattern）**：用真实限额跑自检时，低 rpm 类型（video rpm4 → 理论 45s）必然突破超时预算，结论恒为超时假 fail，比无结论更糟。修法：effRpm<20 降级默认探针（rpm60×4），≥20 按限额缩放请求数；参数越界不钳制直传，由执行端 `_validate` TypeError 捕获后回退默认探针（probeMode=default-fallback 可审计）。教训：**诊断/自检的超时预算必须与输入参数联动推导（max(10s, 1.5×理论+2s)），并用 mode 字段标注结论的解释对象（真实配置 vs 机制健康度）**。
+- **CCG 二轮要复核「我方新声称」（pattern）**：第二轮 critique 的 2 条新 Critical（弹窗面 tag 无生产者、governor 出口实为 6 处非 v2 声称的 2 处）全部针对 rebuttal 后新写入 v2 的声称，而非 v1 原问题——修订引入的新事实同样需要独立取证。本轮接受全部 8+1 条后用「P0+P1 文本落定即可直接实施」的放行条款收敛（task.json `convergence.mode="critic-release-clause"`），避免第三轮低增益循环；分数曲线 v1 28/50 → v2 34/50。
+- **vitest fake timers 三坑（pitfall）**：①`await promise.catch()` 先于 `advanceTimersByTimeAsync` 会在内部退避 sleep 处死锁——先注册 `.catch(e=>{settledErr=e})` 不 await，再 advance 走完全部重试（本次 600s），最后 await 落定句柄；②async 函数在首个 await 前同步执行——被测入口要靠这一点让 mock 的 resolveNext 有注册窗口，用 `Promise.resolve().then()` 包一层就断掉时序；③eslint `preserve-caught-error` 要求 `cause` 只能是 catch 块捕获的错误，`Promise.race` try 内产出的超时错误不算——改为 timeoutPromise 直接 reject 带 `__timeout` 标记、catch 内判定。
+
+---
+
 ## 并发 PR 让新门禁「落地即失效」：行数棘轮的正确处置（2026-09-23，audit-maxlines-logs）
 
 - **新立的全仓状态型门禁，会在交叉合入时静默失效（pitfall，最高优先）**：`check-max-lines.js` 随 #2252 在 02:24:30Z 落地，#2262 在 02:30:10Z 落地，但后者的 CI 跑在门禁存在之前 → main 上立刻出现 598 行的 `LogsSettings.vue` 且不在挂账清单。症状不是「main 红」而是**之后每个 PR 的 CI 红在无关项上**（`pull_request` 事件检出的是与 base 合并后的树，docs-only PR 也躲不掉）。结论：门禁落地的**同批**就要定义「main 变更后复跑」的动作，不能只看 PR 当时绿。

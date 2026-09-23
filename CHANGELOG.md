@@ -1,3 +1,17 @@
+# [未发布] feat(diagnose): 发布失败被动附带诊断（P0-8，PR-2）
+
+### 变更
+- **新增主进程诊断服务 pubfail-diagnose.js**：governor 六类 rate/quota 出口（run() 治理链出口单点 catch-rethrow）与 batch-manager item 失败转事件处命中 `classifyProviderFailure ∈ {rate,quota}` 时 fire-and-forget 触发轻量真机自检（复用 PR-1 执行端 runSelfCheck，零网络零额度），结论写 `publish.diagnose_result` 结构化日志（码 D-+6位base36、level ok/warn/fail、probeMode、assertionsSummary ≤500 字符），一码一行（超时/迟到/shutdown 经 settled 丢弃）。
+- **探针自适应**：effRpm≥20 用真实限额（含 rateFactor；rpm≥30→4 请求、20-29→3 请求），硬超时 max(10s, 1.5×理论+2s)；低 rpm 或执行端越界（TypeError）回退默认探针 rpm60×4（probeMode=default/default-fallback），避免恒超时假 fail 主动误导。
+- **防抖状态机 per-key**（providerId:type）：结论缓存 TTL 10min（仅 ok/warn 入缓存，码+结论绑定复用）、真实自检节流 60s、在途去重复用同码；`setProviderLimits` 配置变更经 `invalidateDiagnoseCache(key)` 失效；`before-quit` 后不触发不迟到写。
+- **主链路零侵入合同**：挂钩点永不抛（诊断故障不得升级为调度器故障）；错误对象原样传播（identity 不变，契约测试锁定）；bootstrap 未装配时整体禁用零副作用（既有 governor/batch 测试 diff 为零）；batch 失败事件 payload 新增 `diagnoseCode` 可选字段（二期弹窗数据预留，本期渲染层不消费）。
+- **弹窗面按 PRD R5 明文降级交付**：仅写日志不改进弹窗（CCG 二轮评审 N-1 实证：IPC handle 包装层不覆盖 webContents.send 事件推送、preload 无统一 invoke 咽喉点、renderer 数十 throw 点丢失结构化字段）；弹窗附带结论与 story2video 通知面接入列二期（PRD §13.5 G1-G4 登记）。
+- **CCG 对抗评审产物**：`.adversarial/pubfail-diagnose-pr2-20260923/`（proposal v1-v3 + critique/rebuttal 配对 + summary，9 文件进 git）；两轮 23 条意见全接受，挂载架构（统一包装层→显式挂钩）与范围（弹窗→日志降级）由评审证伪重做。
+
+### 验证
+- 定向单测 63/63 绿（pubfail-diagnose 21 + governor/batch 挂钩契约 6 + 既有 governor/batch/self-check 36 回归）；ESLint 0 error；债务熔断全基线（circularDeps 0，新文件 229 行 <500）；locale 本期零改动（Gate 7 自然通过）；QM-1 electron-builder --win --dir 打包成功并验证 app.asar 含 pubfail-diagnose.js。
+- PRD §13 详细回写（功能逻辑/数据流、数据校验表、日志字段表与提示文字、交互与客服流程、验收标准、已知缺口二期计划）。
+
 # [未发布] refactor(desktop): 缓存清理卡片抽为独立组件，恢复逐文件行数门禁（audit 收尾·门禁逃逸）
 
 ### 变更
