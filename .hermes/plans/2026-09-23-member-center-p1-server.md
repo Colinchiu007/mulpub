@@ -45,7 +45,17 @@ git status --porcelain          # 期望输出为空（共享根必须干净）
 powershell -ExecutionPolicy Bypass -File scripts/start-mp-task.ps1 -TaskName member-center-p1
 ```
 
-预期：输出 worktree 路径 `D:\Data\projects\mp-worktrees\mp-member-center-p1` 与分支 `codex/member-center-p1`，并自动声明 `.agent_context/expected-branch`。若共享根 dirty：立即停止并报告用户，禁止 stash/checkout 补救（硬纪律 A）。
+预期：输出 worktree 路径 `D:\Data\projects\mp-worktrees\mp-member-center-p1`，分支名即任务名 `member-center-p1`（`gwm-task.sh` 不加 `codex/` 前缀），并自动注册写保护任务。
+若共享根 dirty：立即停止并报告用户，禁止 stash/checkout 补救（硬纪律 A）。
+
+环境前置（本机 harness 实测坑，2026-09-23）：
+
+```powershell
+# 非交互 shell 继承的 PATH 缺 Git for Windows coreutils，session-init.sh 的 dirname/awk/cygpath 会 127
+$env:PATH = 'C:\Program Files\Git\usr\bin;' + $env:PATH
+```
+
+基线前置（同一次实测）：`gwm-task.sh:107` 以 `origin/main` 为 worktree 基线，而共享根 main 上有未推送的本项目文档提交（spec + 本计划）。若 `git rev-list --count origin/main..main` > 0，必须先把本地 main 与上游合流（`git merge origin/main`，非破坏性；禁止对已推送历史 rebase），再在新 worktree 内 `git merge --ff-only main` 把基线抬到含计划文档的提交，否则实施者读不到 spec/计划，且交付时 diff 会吞掉上游 6 个提交的反向改动。
 
 - [ ] **Step 2: 依赖就绪三连**
 
