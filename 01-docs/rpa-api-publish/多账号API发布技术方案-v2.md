@@ -2,7 +2,7 @@
 
 > 状态：**已批准实施**（经 grill-me 21 问逐条拷问锁定，用户确认「一致」）
 > v1 → v2：v1 是逆向调研文档；v2 是可直接开工的实现基线，纳入全部设计决策、逐字切片取证、验收标准与波次门禁。v1 保留于 `多账号API发布技术方案-v1.md`。
-> 逆向事实源：`D:\Data\yixiaoer-extracted\packages\main\dist\index.cjs`（8.4MB，参考产品 4.0 主进程发布引擎，已核实完好）。
+> 逆向事实源：`D:\Data\refpub-bundle\packages\main\dist\index.cjs`（8.4MB，参考产品 4.0 主进程发布引擎，已核实完好）。
 > 逐字切片证据：本目录 `evidence/yx-slices-v2.txt`（六平台链，107KB）、`evidence/yx-slices-v2b.txt`（知乎/签名/合并步补提，13KB）。
 > **红线（用户明令，不可违反）**：⛔ 运行时严禁请求 `*.refpub.cn` 或任何第三方签名服务；本方案所有能力逆向为**我们自己的代码**；`MP_SIGNER_BASE` 远程通道**全量拆除**（决策 Q16）。
 
@@ -24,7 +24,7 @@
 | Q2 | 落地位置 | `packages/api-publish-engine` 内重写 adapters（方案 a），不新建平行模块 |
 | Q3 | 签名抽象 | 进程内注册表（非 HTTP 服务），契约 `{signCommand, payload} → signature` |
 | Q4/Q8 | 活体验收 | **直接真实发布**；真实内容**真实标题**（无「测试」前缀）；同账号两次 API 发布间隔 **≥18 分钟**；出现风控信号**立即停该平台并报告**，不自动换号 |
-| Q5 | 证据 | bundle 盘上完好（`D:\Data\yixiaoer-extracted`），逐字切片直接回提取，无需重新解包 |
+| Q5 | 证据 | bundle 盘上完好（`D:\Data\refpub-bundle`），逐字切片直接回提取，无需重新解包 |
 | Q6 | 平台范围 | **8 平台**：视频号、B站、快手、抖音、小红书、百家号、头条号 + 知乎 |
 | Q7 | Tier-B 签名 | **(a) 浏览器辅助签名为主，(b) 纯算法逆转为备** |
 | Q10 | 双轨 | API 优先、失败降级 DOM RPA；未入波骨架加「未验证 stub」头注 |
