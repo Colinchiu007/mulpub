@@ -266,7 +266,7 @@ function registerHandlers(ipcMain, deps) {
     //      「expired」只能被一次成功的主动检测、或重新登录并保存凭证清除，
     //      不再按 last_validated 的 2 小时窗口过期、也不再被「本地存在凭证文件」推翻
     //      （凭证文件存在 ≠ Cookie 有效，这正是视频号假阳性的来源）；
-    //   3) 后端无 status（历史数据缺字段）→ 回退 is_active 派生，is_active===false 记 inactive。
+    //   3) 后端无 status（历史数据缺字段）→ 兜底 unverified，绝不由 is_active 派生登录态。
     const backendStatus = LOGIN_STATUSES.indexOf(safeAccount.status) >= 0 ? safeAccount.status : 'absent'
     let effectiveStatus
     let statusSource
@@ -277,8 +277,11 @@ function registerHandlers(ipcMain, deps) {
       effectiveStatus = backendStatus
       statusSource = 'backend'
     } else {
-      effectiveStatus = safeAccount.is_active === false ? 'inactive' : 'active'
-      statusSource = 'derived-from-is-active'
+      // 启用态与登录态正交：is_active 只回答「能不能用于发布」，不能证明登录与否。
+      // 历史上这里把 is_active 派生成 active/inactive，既让「停用」被误显示成「未登录」，
+      // 又让后端的脏 status 被 is_active 掩盖，因此缺 status 一律降级为诚实的未知态。
+      effectiveStatus = 'unverified'
+      statusSource = 'absent-fallback'
     }
     ipcLog('info', 'account:status-derive',
       'id=' + safeAccount.id + ' platform=' + safeAccount.platform + ' name=' + (safeAccount.account_name || safeAccount.name || '?') + ' hasCred=' + hasCred + ' backendStatus=' + backendStatus +
@@ -703,6 +706,50 @@ function registerHandlers(ipcMain, deps) {
       return { code: 0, data: status, message: proxyConfigured ? '账号代理已保存' : '账号代理已清除' }
     } catch (e) {
       ipcLog('error', 'account:set-proxy', 'error', `platform=${arg?.platform} accountId=${arg?.accountId} message=${e instanceof Error ? e.message : String(e)}`)
+      return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e) }
+    }
+  }))
+
+  /**
+   * 启用态写入通道：账号页「批量启用/停用」的唯一入口。
+   * 与登录态严格正交 —— 本通道不触碰 status/last_validated，也不得被登录检测复用。
+   */
+  ipcMain.handle('account:set-active', withSenderCheck(async (event, arg) => {
+    const startedAt = Date.now()
+    ipcLog('info', 'account:set-active', 'enter', `platform=${arg?.platform} accountId=${arg?.accountId} isActive=${String(arg?.isActive)}`)
+    try {
+      if (getOwnerSubject() === null) {
+        ipcLog('warn', 'account:set-active', 'auth-failed', '无法识别当前用户')
+        return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
+      }
+      if (!arg || typeof arg !== 'object') {
+        ipcLog('warn', 'account:set-active', 'validation-failed', '缺少参数对象')
+        return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
+      }
+      const { accountId, platform, isActive } = arg
+      if (!_isSafePathSegment(accountId) || !_isSafePathSegment(platform)) {
+        ipcLog('warn', 'account:set-active', 'validation-failed', `platform=${platform} accountId=${accountId}`)
+        return { code: EC.VALIDATION_ERROR, message: '缺少或非法 accountId/platform 参数' }
+      }
+      // 必须是真布尔：字符串 'false' 在 JS 中为真值，宽松判断会把「停用」误写成「启用」。
+      if (typeof isActive !== 'boolean') {
+        ipcLog('warn', 'account:set-active', 'validation-failed', `accountId=${accountId} isActive=${String(isActive)}`)
+        return { code: EC.VALIDATION_ERROR, message: 'isActive 必须为布尔值' }
+      }
+      if (typeof AccountManager.setAccountActive !== 'function') {
+        ipcLog('warn', 'account:set-active', 'unavailable', `accountId=${accountId}`)
+        return { code: EC.REQUEST_ERROR, message: 'setAccountActive-unavailable' }
+      }
+      const res = await AccountManager.setAccountActive(accountId, platform, isActive)
+      if (!res || res.ok !== true) {
+        const reason = (res && res.reason) || 'unknown'
+        ipcLog('warn', 'account:set-active', 'failed', `platform=${platform} accountId=${accountId} isActive=${isActive} reason=${reason} code=${(res && res.code) || '-'}`)
+        return { code: EC.REQUEST_ERROR, message: reason }
+      }
+      ipcLog('info', 'account:set-active', 'ok', `platform=${platform} accountId=${accountId} isActive=${isActive} 耗时=${Date.now() - startedAt}ms`)
+      return { code: 0, data: { accountId, is_active: isActive }, message: isActive ? '账号已启用' : '账号已停用' }
+    } catch (e) {
+      ipcLog('error', 'account:set-active', 'error', `platform=${arg?.platform} accountId=${arg?.accountId} message=${e instanceof Error ? e.message : String(e)}`)
       return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e) }
     }
   }))

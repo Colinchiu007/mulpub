@@ -1522,6 +1522,8 @@ export default {
       renameAccount: 'Rename account',
       accountNameLabel: 'Account name: {name}',
       defaultAccount: 'Default account',
+      disabledFlag: 'Disabled',
+      disabledFlagAria: 'This account is disabled and cannot be used for publishing',
       addedOn: 'Added on {date}',
       accountSynced: 'Account info synced',
       followers: 'Followers: ',

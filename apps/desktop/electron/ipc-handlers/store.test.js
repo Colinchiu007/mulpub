@@ -206,7 +206,8 @@ describe("store IPC handlers", () => {
           platform: "github",
           name: "test",
           account_name: "test",
-          status: "active",
+          // 本地库无 status → 诚实回落 unverified，不得由 is_active 派生成 active。
+          status: "unverified",
           is_default: false,
           has_cookies: true,
           cookie_count: 1,
@@ -778,4 +779,59 @@ describe("store IPC handlers", () => {
       const savedDrafts = JSON.parse(mockStore.setUserSetting.mock.calls[0][1]);
       expect(savedDrafts.map(draft => draft.id)).toEqual(["draft-old", "draft-new"]);
     });
+});
+
+describe("store.js — 登录态与启用态正交", () => {
+  function mount() {
+    const ipcMain = createMockIpcMain();
+    const mockStore = createMockStore();
+    registerHandlers(ipcMain, {
+      app: { getPath: vi.fn(() => "C:\\test-user-data") },
+      store: mockStore,
+    });
+    return { ipcMain, mockStore };
+  }
+
+  it.each([
+    ["停用账号", { id: "acc1", platform: "github", is_active: false }],
+    ["启用账号", { id: "acc1", platform: "github", is_active: true }],
+    ["无启用态字段", { id: "acc1", platform: "github" }],
+  ])("本地库无 status 时 %s 一律回落 unverified（不得由 is_active 派生登录态）", async (_label, account) => {
+    const { ipcMain, mockStore } = mount();
+    mockStore.listAccounts.mockReturnValue([account]);
+
+    const result = await ipcMain._callHandler("store:list-accounts", "github");
+
+    expect(result.data[0].status).toBe("unverified");
+    expect(result.data[0].is_active).toBe(account.is_active);
+  });
+
+  it("渲染层不得再经 store:update-account 写登录态 status", async () => {
+    const { ipcMain, mockStore } = mount();
+    mockStore.getAccount.mockReturnValue({ id: "acc1" });
+    mockStore.updateAccount.mockReturnValue(true);
+
+    const result = await ipcMain._callHandler("store:update-account", {
+      id: "acc1",
+      fields: { status: "inactive" },
+    });
+
+    // 登录态唯一写者在主进程；渲染层传入的 status 必须被字段白名单剔除。
+    expect(result).toEqual({ code: -2, message: "没有可更新的账号字段" });
+    expect(mockStore.updateAccount).not.toHaveBeenCalled();
+  });
+
+  it("名称等非登录态字段仍可正常更新", async () => {
+    const { ipcMain, mockStore } = mount();
+    mockStore.getAccount.mockReturnValue({ id: "acc1" });
+    mockStore.updateAccount.mockReturnValue(true);
+
+    const result = await ipcMain._callHandler("store:update-account", {
+      id: "acc1",
+      fields: { name: "新名称" },
+    });
+
+    expect(result).toEqual({ code: 0, data: true });
+    expect(mockStore.updateAccount).toHaveBeenCalledWith("acc1", { name: "新名称" });
+  });
 });

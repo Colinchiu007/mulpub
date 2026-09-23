@@ -1523,6 +1523,8 @@ export default {
       renameAccount: '重命名账号',
       accountNameLabel: '账号名称：{name}',
       defaultAccount: '默认账号',
+      disabledFlag: '已停用',
+      disabledFlagAria: '该账号已停用，不可用于发布',
       addedOn: '添加于 {date}',
       accountSynced: '账号信息已同步',
       followers: '粉丝：',

@@ -1036,6 +1036,38 @@ async function persistLoginState (accountId, platform, status, validatedAt) {
 }
 
 /**
+ * 固化启用态到唯一真源（后端 accounts.json 的 is_active 字段）。
+ *
+ * is_active 与登录态 status 正交：本函数只写 is_active，绝不附带 status/last_validated，
+ * 否则「停用账号」会被伪装成一次登录检测、污染登录态真源。历史上账号页「批量启用/停用」
+ * 正是复用了登录态词表（active/inactive）去写 Electron SQLite，而读取方看的是后端 JSON，
+ * 于是按钮点了没反应。
+ * @param {string} accountId
+ * @param {string} platform 仅用于日志
+ * @param {boolean} isActive
+ * @returns {Promise<{ok: boolean, is_active?: boolean, reason?: string, code?: number, error?: string}>}
+ */
+async function setAccountActive (accountId, platform, isActive) {
+  if (!accountId || !isSafePathSegment(accountId)) return { ok: false, reason: 'invalid-account-id' }
+  // 必须是真布尔：字符串 'false' 在 JS 中为真值，宽松判断会把「停用」误写成「启用」。
+  if (typeof isActive !== 'boolean') return { ok: false, reason: 'invalid-is-active' }
+  try {
+    const result = await pythonBridge.requestBackend('PATCH', '/api/accounts/' + accountId, {
+      is_active: isActive,
+    })
+    if (!result || result.code !== 0) {
+      log.warn('AccountManager', 'setAccountActive 写回后端失败 ' + platform + ':' + accountId + ' is_active=' + isActive + ' code=' + (result && result.code) + ' message=' + (result && result.message))
+      return { ok: false, reason: 'backend-error', code: result && result.code, is_active: isActive }
+    }
+    log.info('AccountManager', 'setAccountActive 固化启用态 ' + platform + ':' + accountId + ' is_active=' + isActive)
+    return { ok: true, is_active: isActive }
+  } catch (e) {
+    log.warn('AccountManager', 'setAccountActive 异常 ' + platform + ':' + accountId + ' ' + (e && e.message ? e.message : String(e)))
+    return { ok: false, reason: 'exception', error: (e && e.message) ? e.message : String(e), is_active: isActive }
+  }
+}
+
+/**
  * 更新已有账号凭证（重新登录场景）。
  * 覆盖 credentialStore 中的加密凭据，并通过 Python 后端更新公开元数据。
  * @param {string} platform
@@ -1170,6 +1202,7 @@ module.exports = {
   mergeCookies,
   loginStatusFromCheckResult,
   persistLoginState,
+  setAccountActive,
   setOwnerSubjectProvider,
   accountStateRestorer,
   credentialStore,

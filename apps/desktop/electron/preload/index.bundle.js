@@ -251,6 +251,7 @@ var require_account = __commonJS({
         accountGetDefault: (platform) => ipcRenderer2.invoke("store:get-default-account", platform),
         accountUpdate: (id, fields) => ipcRenderer2.invoke("store:update-account", { id, fields }),
         accountSetProxy: (accountId, platform, proxy) => ipcRenderer2.invoke("account:set-proxy", { accountId, platform, proxy }),
+        accountSetActive: (accountId, platform, isActive) => ipcRenderer2.invoke("account:set-active", { accountId, platform, isActive }),
         // 内嵌浏览器登录 API
         authOpenLogin: (platform, accountId) => ipcRenderer2.invoke("auth:open-login", { platform, accountId }),
         authCompleteLogin: () => ipcRenderer2.invoke("auth:complete-login"),

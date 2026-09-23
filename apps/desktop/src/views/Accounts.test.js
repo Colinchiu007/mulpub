@@ -86,7 +86,7 @@ const _spies = vi.hoisted(() => ({
   selectAll: vi.fn(),
   clearSelection: vi.fn(),
   batchDelete: vi.fn().mockResolvedValue({ success: 0, failed: 0 }),
-  batchSetStatus: vi.fn().mockResolvedValue({ success: 0, failed: 0 }),
+  batchSetActive: vi.fn().mockResolvedValue({ success: 0, failed: 0 }),
   createGroup: vi.fn(),
   deleteGroup: vi.fn(),
   renameGroup: vi.fn().mockReturnValue(true),
@@ -171,7 +171,7 @@ vi.mock("@/stores/accounts", () => ({
     selectAll: _spies.selectAll,
     clearSelection: _spies.clearSelection,
     batchDelete: _spies.batchDelete,
-    batchSetStatus: _spies.batchSetStatus,
+    batchSetActive: _spies.batchSetActive,
     createGroup: _spies.createGroup,
     deleteGroup: _spies.deleteGroup,
     renameGroup: _spies.renameGroup,
@@ -349,7 +349,7 @@ describe("AccountsView", () => {
     const { ElMessageBox } = await import("element-plus");
     ElMessageBox.confirm.mockResolvedValue(undefined);
     _spies.batchDelete.mockResolvedValue({ success: 0, failed: 0 });
-    _spies.batchSetStatus.mockResolvedValue({ success: 0, failed: 0 });
+    _spies.batchSetActive.mockResolvedValue({ success: 0, failed: 0 });
     _spies.setDefault.mockResolvedValue({ code: 0 });
     _spies.renameAccount.mockResolvedValue({ code: 0 });
     _testAccounts.length = 0;
@@ -1511,21 +1511,58 @@ describe("AccountsView", () => {
     expect(_spies.load).not.toHaveBeenCalled();
   });
 
-  it("批量启用和禁用使用当前可见选中账号", async () => {
-    _spies.batchSetStatus.mockResolvedValueOnce({ success: 2, failed: 0 });
+  it("批量启用以布尔 true 调用 batchSetActive 并提示成功数量", async () => {
+    _spies.batchSetActive.mockResolvedValueOnce({ success: 2, failed: 0 });
     _testAccounts.push(
-      { id: "a1", platform: "zhihu", status: "inactive" },
-      { id: "a2", platform: "zhihu", status: "inactive" },
+      { id: "a1", platform: "zhihu", status: "active", is_active: false },
+      { id: "a2", platform: "zhihu", status: "active", is_active: false },
     );
     _selectedIds.add("a1");
     _selectedIds.add("a2");
     const w = await mountView();
 
-    await w.vm.handleBatchStatus("active");
+    await w.vm.handleBatchSetActive(true);
 
-    expect(_spies.batchSetStatus).toHaveBeenCalledWith("active", ["a1", "a2"]);
+    expect(_spies.batchSetActive).toHaveBeenCalledWith(true, ["a1", "a2"]);
     const { ElMessage } = await import("element-plus");
     expect(ElMessage.success).toHaveBeenCalledWith("已启用 2 个账号");
+  });
+
+  it("批量禁用使用当前可见选中账号，以布尔 false 下传", async () => {
+    _spies.batchSetActive.mockResolvedValueOnce({ success: 2, failed: 0 });
+    _testAccounts.push(
+      { id: "a1", platform: "zhihu", status: "active" },
+      { id: "a2", platform: "zhihu", status: "active" },
+    );
+    _selectedIds.add("a1");
+    _selectedIds.add("a2");
+    const w = await mountView();
+
+    await w.vm.handleBatchSetActive(false);
+
+    expect(_spies.batchSetActive).toHaveBeenCalledWith(false, ["a1", "a2"]);
+    const { ElMessage } = await import("element-plus");
+    expect(ElMessage.success).toHaveBeenCalledWith("已禁用 2 个账号");
+  });
+
+  it("批量启用/禁用部分成功走警告、全失败走错误，且不复用登录态词表", async () => {
+    _testAccounts.push(
+      { id: "a1", platform: "zhihu", status: "active" },
+      { id: "a2", platform: "zhihu", status: "active" },
+    );
+    _selectedIds.add("a1");
+    _selectedIds.add("a2");
+    const w = await mountView();
+    const { ElMessage } = await import("element-plus");
+
+    _spies.batchSetActive.mockResolvedValueOnce({ success: 1, failed: 1 });
+    await w.vm.handleBatchSetActive(false);
+    expect(ElMessage.warning).toHaveBeenCalledWith("已禁用 1 个账号，1 个失败");
+
+    _spies.batchSetActive.mockResolvedValueOnce({ success: 0, failed: 2 });
+    await w.vm.handleBatchSetActive(true);
+    expect(ElMessage.error).toHaveBeenCalledWith("批量启用失败");
+    expect(_spies.batchSetActive.mock.calls[1][0]).toBe(true);
   });
 
   it("使用真实 Pinia Store 的筛选全选状态", async () => {

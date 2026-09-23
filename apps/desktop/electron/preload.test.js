@@ -83,7 +83,7 @@ const PUBLISH_METHODS = [
 
 const ACCOUNT_METHODS = [
   'accountAdd', 'accountDelete', 'accountCheckLogin', 'accountBatchCheckLogin', 'accountBatchOpenLogin', 'accountList',
-  'accountSetDefault', 'accountGetDefault', 'accountUpdate', 'accountSetProxy',
+  'accountSetDefault', 'accountGetDefault', 'accountUpdate', 'accountSetProxy', 'accountSetActive',
   'authOpenLogin', 'authClose', 'authCompleteLogin', 'authLoginSilent',
   'onAuthViewOpened', 'onAuthCompleted', 'onAuthViewClosed',
   'authOpenQrCodeLogin', 'authQrCodeClose',
@@ -198,10 +198,10 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(118)
   })
 
-  it('account 模块应导出 45 个方法', () => {
+  it('account 模块应导出 46 个方法', () => {
     const { createAccountApi } = require('./preload/account')
     const r = createAccountApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(45)
+    expect(Object.keys(r).length).toBe(46)
   })
 
   it('system 模块应导出 145 个方法', () => {
@@ -218,8 +218,8 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(145)
   })
 
-  it('合并后 api 总键数应为 317（pipelineConfirmStageGate + P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus/servicesRestart + urlCollectNeedsStealth + promptLibraryGet/Save/Activate + updateInstallNow + opsCenterSyncAppMenu + onUploadProgress + renderStartAiVideo + PR-2 F8 getRecentImpactSnapshots - webview 分屏监控 API 移除）', () => {
-    expect(Object.keys(api).length).toBe(317)
+  it('合并后 api 总键数应为 318（accountSetActive + pipelineConfirmStageGate + P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus/servicesRestart + urlCollectNeedsStealth + promptLibraryGet/Save/Activate + updateInstallNow + opsCenterSyncAppMenu + onUploadProgress + renderStartAiVideo + PR-2 F8 getRecentImpactSnapshots - webview 分屏监控 API 移除）', () => {
+    expect(Object.keys(api).length).toBe(318)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
@@ -233,7 +233,7 @@ describe('preload 子模块方法数', () => {
   })
 
   it('ACCOUNT_METHODS 常量长度应为 45', () => {
-    expect(ACCOUNT_METHODS.length).toBe(45)
+    expect(ACCOUNT_METHODS.length).toBe(46)
   })
 
   it('SYSTEM_METHODS 常量长度应为 132', () => {

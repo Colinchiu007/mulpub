@@ -19,16 +19,27 @@
 
           <div v-if="selectedPlatforms.includes(platform.id)" class="target-accounts">
             <template v-if="platform.accounts && platform.accounts.length > 0">
-              <label v-for="account in platform.accounts" :key="account.id" class="target-account">
+              <label
+                v-for="account in platform.accounts"
+                :key="account.id"
+                class="target-account"
+                :class="{ 'is-disabled': account.disabled }"
+              >
                 <input
                   :data-testid="'account-' + platform.id + '-' + account.id"
                   type="checkbox"
                   :checked="isAccountSelected(platform.id, account.id)"
-                  :disabled="disabled"
+                  :disabled="disabled || account.disabled"
                   @change="$emit('toggle-account', platform.id, account.id)"
                 />
                 <span>{{ account.name || account.id?.slice(0, 8) || '未命名账号' }}</span>
                 <span v-if="account.is_default" class="target-account__default">默认</span>
+                <span
+                  v-if="account.disabled"
+                  class="target-account__disabled"
+                  data-testid="target-account-disabled-flag"
+                  role="status"
+                >{{ disabledFlagText }}</span>
               </label>
             </template>
             <span v-else class="target-accounts__empty">请先添加账号</span>
@@ -41,6 +52,7 @@
 
 <script setup>
 import { computed, ref } from 'vue'
+import i18n from '@/i18n'
 
 const props = defineProps({
   groups: { type: Array, default: () => [] },
@@ -69,6 +81,8 @@ const filteredGroups = computed(() => {
     .filter(group => group.items.length > 0)
 })
 
+const disabledFlagText = computed(() => i18n.global.t('accountsPage.accountCardLabels.disabledFlag'))
+
 function isAccountSelected (platformId, accountId) {
   const value = props.selectedAccounts?.[platformId]
   return Array.isArray(value) ? value.includes(accountId) : value === accountId
@@ -89,4 +103,6 @@ function isAccountSelected (platformId, accountId) {
 .target-accounts { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-left: 24px; padding-left: 10px; border-left: 2px solid var(--border-light, #eef0f2); }
 .target-account { min-height: 24px; font-size: var(--font-size-xs); color: var(--muted, #5f6368); }
 .target-account__default { color: var(--action-blue, #1890ff); font-size: var(--font-size-xs); }
+.target-account.is-disabled { opacity: 0.6; cursor: not-allowed; }
+.target-account__disabled { color: var(--muted, #8a8f98); font-size: var(--font-size-xs); }
 </style>
