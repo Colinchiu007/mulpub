@@ -12,9 +12,9 @@
         :data-testid="`tab-${tab.tabId}`"
         @click="$emit('switch-tab', tab.tabId)"
       >
-        <span class="tab-icon" v-if="tab.isHome" aria-hidden="true">🏠</span>
+        <el-icon class="tab-icon" v-if="tab.isHome" aria-hidden="true"><HomeFilled /></el-icon>
         <img v-else-if="getPlatformIconUrl(tab)" :src="getPlatformIconUrl(tab)" class="tab-icon-img" :alt="getTabLabel(tab)" width="16" height="16" aria-hidden="true">
-        <span class="tab-icon" v-else-if="getPlatformIcon(tab)" aria-hidden="true">{{ getPlatformIcon(tab) }}</span>
+        <el-icon class="tab-icon" v-else aria-hidden="true"><Monitor /></el-icon>
         <span class="tab-title" :title="tab.title || tab.url">{{ tab.title || getTabLabel(tab) }}</span>
         <span v-if="tab.loading" class="tab-spinner" aria-hidden="true">⟳</span>
         <span
@@ -51,6 +51,7 @@
 </template>
 
 <script setup>
+import { HomeFilled, Monitor } from '@element-plus/icons-vue'
 import { useTabStore } from '@/stores/tab'
 import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
@@ -65,54 +66,6 @@ defineEmits(['switch-tab', 'close-tab', 'create-tab'])
 const tabStore = useTabStore()
 const { tabs, activeTabId } = storeToRefs(tabStore)
 
-const PLATFORM_ICONS = {
-  wechat_mp: '💬',
-  douyin: '🎵',
-  xiaohongshu: '📕',
-  weibo: '🔴',
-  bilibili: '📺',
-  toutiao: '📰',
-  kuaishou: '⚡',
-  tencent_video: '🎬',
-  zhihu: '❓',
-  baijiahao: '📝',
-  youtube: '▶️',
-  tiktok: '🎵',
-  twitter: '🐦',
-  instagram: '📷',
-  facebook: '👤'
-}
-
-function getPlatformIcon(tab) {
-  if (!tab.url) return ''
-  for (const [platform, icon] of Object.entries(PLATFORM_ICONS)) {
-    if (tab.url.includes(platform) || tab.url.includes(getDomainForPlatform(platform))) {
-      return icon
-    }
-  }
-  return '🌐'
-}
-
-function getDomainForPlatform(platform) {
-  const domains = {
-    wechat_mp: 'mp.weixin.qq.com',
-    douyin: 'creator.douyin.com',
-    xiaohongshu: 'creator.xiaohongshu.com',
-    weibo: 'weibo.com',
-    bilibili: 'bilibili.com',
-    toutiao: 'mp.toutiao.com',
-    kuaishou: 'cp.kuaishou.com',
-    tencent_video: 'channels.weixin.qq.com',
-    zhihu: 'zhihu.com',
-    baijiahao: 'baijiahao.baidu.com',
-    youtube: 'studio.youtube.com',
-    tiktok: 'tiktok.com',
-    twitter: 'twitter.com',
-    instagram: 'instagram.com',
-    facebook: 'facebook.com'
-  }
-  return domains[platform] || ''
-}
 
   function getTabLabel(tab) {
     if (tab.isHome) return '首页'

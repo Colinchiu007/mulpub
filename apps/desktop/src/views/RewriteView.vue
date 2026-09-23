@@ -57,7 +57,7 @@
             />
             <span class="switch-body">
               <span class="checkbox-label switch-title">
-                <span class="checkbox-icon switch-icon" aria-hidden="true">🔥</span>
+                <span class="checkbox-icon switch-icon" aria-hidden="true"><el-icon><TrendCharts /></el-icon></span>
                 <span>{{ t('rewritePage.useViralLibrary') }}</span>
               </span>
               <span class="checkbox-hint switch-hint">{{ t('rewritePage.useViralLibraryHint') }}</span>
@@ -72,7 +72,7 @@
             />
             <span class="switch-body">
               <span class="checkbox-label switch-title">
-                <span class="checkbox-icon switch-icon" aria-hidden="true">📝</span>
+                <span class="checkbox-icon switch-icon" aria-hidden="true"><el-icon><Document /></el-icon></span>
                 <span>{{ t('rewritePage.usePersonalExperience') }}</span>
               </span>
               <span class="checkbox-hint switch-hint">{{ t('rewritePage.usePersonalExperienceHint') }}</span>
@@ -256,6 +256,7 @@
 </template>
 
 <script setup>
+import { Document, TrendCharts } from '@element-plus/icons-vue'
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'

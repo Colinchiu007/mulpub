@@ -1,6 +1,20 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount } from '@vue/test-utils';
 
+import { config as __vtuConfig } from '@vue/test-utils'
+import { createI18n as __createI18n } from 'vue-i18n'
+import __zhLocale from '@/locales/zh'
+import __enLocale from '@/locales/en'
+__vtuConfig.global.plugins = [
+  ...(__vtuConfig.global.plugins || []),
+  __createI18n({
+    legacy: false,
+    locale: 'zh',
+    fallbackLocale: 'en',
+    messages: { zh: __zhLocale, en: __enLocale },
+  }),
+]
+
 // 组件已 import { intelligenceGetOptimalTime } from '@/api/publisher'
 // 必须用 vi.mock 拦截 ESM import，globalThis 赋值无法拦截
 // 工厂内创建 vi.fn()，通过 import 拿引用（vi.mock 是 hoisted，不能引用外部变量）

@@ -16,7 +16,7 @@
     <div class="cohere-content member-center-grid">
       <!-- 未登录空态 -->
       <section v-if="!hasSessionIdentity && status !== 'disabled'" class="member-center-card member-center-empty" data-testid="member-center-empty">
-        <div class="member-center-empty-icon" aria-hidden="true">⚡</div>
+        <div class="member-center-empty-icon" aria-hidden="true"><el-icon><Medal /></el-icon></div>
         <div class="member-center-empty-title">{{ t('memberCenter.notLoggedIn') }}</div>
         <p class="member-center-empty-hint">{{ t('memberCenter.notLoggedInHint') }}</p>
         <button class="cohere-btn-primary" :disabled="loading" @click="handleSignIn">
@@ -121,6 +121,7 @@
 </template>
 
 <script setup>
+import { Medal } from '@element-plus/icons-vue'
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useIdentity } from '@/composables/useIdentity'

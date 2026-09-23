@@ -63,7 +63,8 @@ vi.mock("element-plus", () => ({
 
 vi.mock("@element-plus/icons-vue", () => {
   const Icon = { template: "<span />" };
-  return {
+  const __g = ["__esModule", "then", "catch", "default"];
+  return new Proxy({
     AccountGroupManager: Icon,
     Cellphone: Icon,
     CircleCheck: Icon,
@@ -81,7 +82,7 @@ vi.mock("@element-plus/icons-vue", () => {
     StarFilled: Icon,
     UploadFilled: Icon,
     UserFilled: Icon,
-  };
+  }, { has: () => true, get: (t, p) => (p in t ? t[p] : (typeof p === "string" && !__g.includes(p) ? Icon : undefined)) });
 });
 
 vi.mock("@/api/publisher", () => ({

@@ -118,7 +118,7 @@
       <EmptyState
         v-if="filteredTopics.length === 0 && !loading"
         data-testid="hot-topics-empty"
-        icon="🔥"
+        icon="TrendCharts"
         :title="categoryEmpty ? t('hotTopics.emptyCategoryTitle') : t('hotTopics.emptyTitle')"
         :description="categoryEmpty ? t('hotTopics.emptyCategoryDesc') : t('hotTopics.emptyDesc')"
         :action-text="categoryEmpty ? t('hotTopics.boostAction') : t('hotTopics.emptyAction')"

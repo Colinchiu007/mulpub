@@ -48,7 +48,7 @@
               data-testid="publish-dest-video"
               @click="chooseVideo"
             >
-              <span class="banner-icon">🎬</span>
+              <span class="banner-icon"><el-icon><VideoCamera /></el-icon></span>
               <span class="banner-title">生成视频</span>
               <span class="banner-desc">打开视频创作流水线页，改写文本将自动填入文案输入框</span>
             </button>
@@ -76,6 +76,7 @@
 </template>
 
 <script setup>
+import { VideoCamera } from '@element-plus/icons-vue'
 import { ref } from 'vue'
 
 const props = defineProps({

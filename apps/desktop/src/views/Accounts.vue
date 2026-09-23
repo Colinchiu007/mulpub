@@ -104,7 +104,7 @@
       :aria-labelledby="`account-status-tab-${filter}`"
     >
       <section v-if="accountTab === 'share'" class="module-placeholder" data-testid="account-share-panel">
-        <div class="module-placeholder-icon" aria-hidden="true">🔗</div>
+        <div class="module-placeholder-icon" aria-hidden="true"><el-icon><Link /></el-icon></div>
         <h2>{{ t('accountsPage.shareTitle') }}</h2>
         <p>{{ t('accountsPage.shareHint') }}</p>
         <span class="module-placeholder-state" data-testid="account-share-state" role="status">{{ t('accountsPage.shareNotConnected') }}</span>
@@ -312,7 +312,7 @@
 
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { Close, Delete, FolderOpened, Plus, Search, UserFilled, WarningFilled } from '@element-plus/icons-vue'
+import { Close, Delete, FolderOpened, Link, Plus, Search, UserFilled, WarningFilled } from '@element-plus/icons-vue'
 import { useNotify } from '@/composables/useNotify'
 import AccountAuthorizationGuide from '@/features/accounts/components/AccountAuthorizationGuide.vue'
 import AccountFavoritesPanel from '@/features/accounts/components/AccountFavoritesPanel.vue'

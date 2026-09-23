@@ -76,7 +76,7 @@
             <span class="cohere-tag cohere-tag-info">#{{ idx + 1 }}</span>
             <span v-if="a.publishTime" class="cohere-tag cohere-tag-warning">⏰ {{ t('publishPage.scheduled') }}</span>
             <div class="flex-spacer"></div>
-            <UiButton :data-testid="`batch-copy-${idx}`" variant="ghost" size="sm" @click="duplicateArticle(idx)" :title="t('publishPage.copy')">📋</UiButton>
+            <UiButton :data-testid="`batch-copy-${idx}`" variant="ghost" size="sm" @click="duplicateArticle(idx)" :title="t('publishPage.copy')"><el-icon><CopyDocument /></el-icon></UiButton>
             <UiButton :data-testid="`batch-delete-${idx}`" variant="ghost" size="sm" @click="removeArticle(idx)" v-if="articles.length > 1" :title="t('publishPage.delete')" class="coral-text">✕</UiButton>
           </div>
 
@@ -86,7 +86,7 @@
               <div class="title-row">
                 <label class="cohere-form-label no-margin-bottom">{{ t('publishPage.title') }}</label>
                 <button class="cohere-btn-ghost template-pick-button" @click="showTemplatePicker = true; templateTargetIdx = idx">
-                  📝 {{ t('publishPage.template') }}
+                  <el-icon><EditPen /></el-icon> {{ t('publishPage.template') }}
                 </button>
               </div>
               <UiInput v-model="a.title" :placeholder="t('publishPage.titlePlaceholder')" />
@@ -293,7 +293,7 @@
                 <div class="title-row">
                   <label class="cohere-form-label no-margin-bottom">{{ t('publishPage.title') }}</label>
                   <button class="cohere-btn-ghost template-pick-button" @click="showTemplatePicker = !showTemplatePicker; templateTargetIdx = -1">
-                    {{ showTemplatePicker ? t('publishPage.close') : '📝 ' + t('publishPage.template') }}
+                    {{ showTemplatePicker ? t('publishPage.close') : t('publishPage.template') }}
                   </button>
                   <button
                     type="button"
@@ -577,7 +577,7 @@ import { useI18n } from 'vue-i18n'
 import { getAppLocale } from '@/i18n'
 import { usePlatformStore } from '@/stores/platforms'
 import { useAccountStore } from '@/stores/accounts'
-import { Refresh, UploadFilled } from '@element-plus/icons-vue'
+import { CopyDocument, EditPen, Refresh, UploadFilled } from '@element-plus/icons-vue'
 import TagSuggester from '@/components/TagSuggester.vue'
 import OptimalTimeTip from '@/components/OptimalTimeTip.vue'
 import TitleAssistantPanel from '@/components/TitleAssistantPanel.vue'

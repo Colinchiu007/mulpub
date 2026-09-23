@@ -33,7 +33,7 @@
             <td colspan="13">
               <EmptyState
                 data-testid="viral-library-empty"
-                icon="🔥"
+                icon="TrendCharts"
                 :title="t('knowledgeBase.empty.viral.title')"
                 :description="t('knowledgeBase.empty.viral.message')"
                 :action-text="t('knowledgeBase.empty.viral.action')"
