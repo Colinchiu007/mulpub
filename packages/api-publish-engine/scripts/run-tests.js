@@ -20,6 +20,7 @@ const VITEST_FILES = new Set([
   'oss-uploader.test.js',
   'publish-core.test.js',
   'publish-governance.test.js',
+  'publish-mode-runner.test.js',
   'signer.test.js',
   'tiktok.test.js',
   'twitter.test.js',

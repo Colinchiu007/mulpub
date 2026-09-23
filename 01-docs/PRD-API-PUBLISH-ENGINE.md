@@ -486,6 +486,57 @@ publish`、继承自 `base-adapter` 的 `execute`、`listCollections`），调�
 
 ---
 
+### 12.5 双轨发布服务层执行包装 `publishWithMode`（§5.2）✅
+
+**目标**：把 §5.1 决策核（`publish/core/publish-mode.js` 的 `decideRoute` 纯函数）与「实际执行」
+缝合成可直接调用的服务层执行包装 `src/publish/core/publish-mode-runner.js`，落地 PRD F2「双轨降级」
+总闸与决策账「风控即停不换号、不因换号绕风控」。与旧 `api-router.publishWithFallback` 的区别：
+后者非模式驱动、风控也会回落 DOM；本包装严格按三态总闸决策，是 §5 服务层的**事实路由**。
+
+**API**：`createPublishWithMode(deps) -> async publishWithMode(platform, taskData, cookie, opts)`
+- `deps`（全注入、便于零外发单测）：`apiPublish(platform,taskData,cookie,opts)->Promise<result>`、
+  `domPublish(...)`（可缺）、`getMode(platform)->mode`（读 `platforms.yaml.publishMode`，可缺→默认 api-then-dom）、
+  `spacer`（§5.3 `createPublishSpacer` 实例，可缺）、`logger`（默认 `src/logger`）、`outcomeOf`（结果归一覆写，测试用）。
+- `opts`：`{accountId, mode(覆盖 getMode), onProgress, ...}`；`accountId` 缺省从 cookie 前 16 字符派生。
+- 返回归一结果：`{platform, mode, track:api|dom|throttled, degraded, reasonCode, success, publishId?, error?, code?, stopped?, requiresDom?, waitMs?, apiAttempt?, domAttempt?}`。
+
+**流程（编排顺序 = 数据/风控校验顺序）**：
+1. `mode = normalizeMode(opts.mode ?? getMode(platform))`（非法模式抛错，fail-closed）。
+2. `entry = decideRoute({mode})`：`dom-only` → 直接进入第 5 步 DOM 轨；否则进入 API 轨。
+3. **spacer 闸门**（§5.3，同 (platform,accountId) 间隔 ≥18min）：`spacer.tryAcquire` 不放行 →
+   立即返 `{track:throttled, success:false, reasonCode:throttled, waitMs}`，**零请求**（不发 API/DOM）。
+   `logger.warn` 结构化记 `{platform, mode, accountId, reasonCode:throttled, waitMs}`。
+4. **API 轨**：跑 `apiPublish`（异常归一为 `{success:false,error,code}`）→ `outcomeOf(res)` 映射
+   `success|risk_blocked|login_expired|unsupported|transient_error` → `decideRoute({mode,outcome})`：
+   - `success` → 留 API，`{track:api, success:true, reasonCode:ok, publishId, apiAttempt}`（`logger.info`）。
+   - `risk_blocked` / `login_expired` → **停报**，`{track:api, success:false, stopped:true, degraded:false, reasonCode:risk_blocked_stop|login_expired_stop}`，**绝不降级、绝不换号**（`logger.error`，合规红线）。
+   - `transient_error` / `unsupported` 且 `mode=api-then-dom` → 降级 DOM（第 5 步）；`mode=api-only` → 停报（`api_failed_stop`）。
+5. **DOM 轨**（dom-only 入口 或 api-then-dom 降级）：无 `domPublish` → `{requiresDom:true, degraded(降级时true), success:false}`；
+   有则跑 `domPublish` → `{track:dom, degraded, reasonCode, success, publishId, apiAttempt, domAttempt}`。
+   **降级必发结构化日志** `logger.warn("publish-mode","degraded to dom",{platform,mode,degraded:true,reasonCode,error})`
+   （决策账：可观测「双轨降级」事件，供 UI 提示与埋点）。
+
+**结果→outcome 归一（`outcomeOfResult`，数据校验）**：显式标志优先（`success`/`riskBlocked|risk_blocked`/
+`loginExpired|login_expired`/`unsupported`）；再按具名错误码（`BILI_RISK_601`/`10000015`→risk）；再按文案正则兜底
+（登录/cookie失效→login；风控/滑块/601/频繁/verify→risk；暂不支持/no api→unsupported）；其余→`transient_error`。
+保守方向：疑似风控即便文案含糊也停报（宁停不绕），符合「不因换号绕风控」。
+
+**交互逻辑 / 显示项（下游 UI 消费）**：
+- `track=throttled` + `waitMs` → UI 提示「该平台/账号需间隔 18 分钟，请 X 分钟后再发」，不发起发布。
+- `stopped=true`（risk/login）→ UI 停报该平台、提示人工处理（登录续期 / 创作者中心滑块），不自动重试、不换号。
+- `degraded=true` → UI 标「API 失败已降级到浏览器发布」，附 `reasonCode`（`transient_error_fallback` / `mode_unsupported_fallback`）。
+- `requiresDom=true` 且无 DOM 执行器 → UI 提示「需启用桌面端 DOM 发布器」。
+
+**测试**：`publish-mode-runner.test.js`（19 例，纯假发布者零外发）覆盖 outcomeOfResult（标志/错误码/文案兜底）、
+dom-only（不触 API、无 DOM→requiresDom）、api-then-dom（成功留 API / transient 降级+日志 / 抛异常归一降级 /
+risk 停报不降级 / login 停报 / unsupported 回落 / 降级无 DOM→requiresDom）、api-only（任何失败停报）、
+spacer（首次放行、17min 节流零请求 waitMs、越 18min 再放行、不同账号独立、dom-only 轨同受约束）、
+模式来源（getMode 默认 + opts.mode 覆盖 + 缺省 api-then-dom + 无 API 执行器回落）。全量回归 **154 测 EXIT=0**（20 文件）。
+
+**待办（后续切片）**：§5.1 `config/platforms.yaml` 落 `publishMode` 字段（逐平台三态，未入波=dom-only）并由服务层
+`getMode` 实读；§5.4 `risk_blocked` 挂起该平台 + 通知（恢复/停止）、不影响其他平台；本包装与 §4 链、`index.publishViaApi`
+接线成产品入口随 §5.1/§5.4 一并落地。
+
 ## 附：验收记录（活体证据回写区，随波更新）
 
 | 波次 | 平台 | 日期 | 作品ID | 链接 | 截图 | 降级 | 结论 |

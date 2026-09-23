@@ -29,7 +29,7 @@
 ## 5. 双轨路由 + 频控 + 风控停止
 
 - [ ] 5.1 `config/platforms.yaml` 增 `publishModes`（未入波平台=dom-rpa）；红测：三态 × 降级矩阵
-- [ ] 5.2 `publishWithMode()`：api-then-dom 降级落 DOM、risk/login 不降级；结构化日志 `degraded+reasonCode`
+- [x] 5.2 `publishWithMode()`：api-then-dom 降级落 DOM、risk/login 不降级；结构化日志 `degraded+reasonCode`（§5.2 执行包装 publish-mode-runner.js 已交付，19 例 TDD，见 PRD §12.5；与 §4 链/index.publishViaApi 接线成产品入口随 §5.1/§5.4 落地）
 - [x] 5.3 18min 频控（虚拟时钟边界单测 17:59 拒 / 18:01 放）
 - [ ] 5.4 risk_blocked 挂起该平台 + 通知（恢复/停止），不影响其他平台
 
