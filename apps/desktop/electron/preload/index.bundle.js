@@ -159,6 +159,12 @@ var require_publish = __commonJS({
           ipcRenderer2.on("publish:progress", handler);
           return () => ipcRenderer2.removeListener("publish:progress", handler);
         },
+        // W1 §6.1：风控挂起信号（主进程 task:failed 命中风控 → publish:risk-hold）
+        onRiskHold: (callback) => {
+          const handler = (_, data) => callback(data);
+          ipcRenderer2.on("publish:risk-hold", handler);
+          return () => ipcRenderer2.removeListener("publish:risk-hold", handler);
+        },
         // Pipeline 流水线 API（Phase 3）
         pipelineList: () => ipcRenderer2.invoke("pipeline:list"),
         pipelineGet: (name) => ipcRenderer2.invoke("pipeline:get", name),

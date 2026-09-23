@@ -178,6 +178,9 @@ export default {
       modeDomHint: 'Published via headless browser automation',
       modeFallbackHint: 'API publish unavailable; automatically fell back to browser publish',
     },
+    riskHold: {
+      body: 'Risk control detected while publishing to "{platform}". Check this account status before publishing again',
+    },
   },
   accounts: {
     add: 'Add Account',

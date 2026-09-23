@@ -752,6 +752,26 @@ spacer（首次放行、17min 节流零请求 waitMs、越 18min 再放行、不
 
 **待办（后续切片，端到端验收绑定 §7）**：渲染层订阅 `publish:risk-hold` 的通知中心 UI（恢复/停止）+ preload 暴露 `onRiskHold` + 桌面 `riskSuspender` 状态接入发布队列派发前置守卫（真正「挂起」该平台/账号后续发布）。
 
+### 12.13 §6.1 桌面风控挂起通知消费端：preload onRiskHold + risk-hold-notifier + 统一通知通道（前端落地，随本 PR）
+
+> 定位：承接 §5.4 生产端（`publish:risk-hold` IPC 信号，PR#2335）。本节补齐渲染层「消费端」——把主进程风控信号经 preload → api 桥接层送达渲染层，经统一通知通道 `useNotify` 展示信息提示，闭合 §5.4 数据契约的端到端显示路径。**仅信息提示，不含队列挂起 / 自动恢复**（那是 §5 后续架构切片，端到端验收绑定 §7 真实风控触发）。
+
+**功能逻辑与流程**：
+- `electron/preload/publish.js` `createPublishApi` 新增监听器 `onRiskHold(callback)`：`ipcRenderer.on('publish:risk-hold', handler)`，与 `onProgress` 同构，返回 `removeListener` 取消函数。
+- `src/api/publisher.js` 新增 `export function onRiskHold(callback) { return bridgeOn("RiskHold", callback) }`（`electron-bridge.on` 把 `"RiskHold"` 映射到 `electronAPI.onRiskHold`）。
+- 新增 `src/services/risk-hold-notifier.js` `createRiskHoldNotifier({ onRiskHold, notify, now?, maxRecent? })`：纯 DI 工厂、不触碰 Vue/ElMessage，`start()` 幂等订阅一次，每事件规整 `{platform, accountId, taskId, error, at}` → 推入近端列表（默认上限 50，超出 shift 最早）→ 调 `notify(event)`；`stop()` 取消订阅并复位（list 保留历史）；`handle(payload)` 可脱离订阅直接喂事件（缺字段安全规整：platform/error→''、accountId/taskId→null）。
+- `src/main.js` 薄接线：`app.mount` 后 try/catch 内构造 notifier 并 `.start()`，`notify` 适配器走 `useNotify().notifyWarning('publish.riskHold.body', { params: { platform }, module: 'publish' })`。
+
+**数据校验**：`createRiskHoldNotifier` 缺 `onRiskHold`/`notify` → 抛 `TypeError`（fail-fast）；`payload` 为 null/缺字段 → 逐字段安全规整，绝不抛；`maxRecent` 非正有限数 → 回落默认 50；`unsubscribe` 抛错在 `stop()` 内 try/catch 吞掉。
+
+**交互逻辑与显示项**：命中风控 → 渲染层经统一通知通道弹一条 warning 级 toast（`ElMessage.warning`）并 `notify:log` 落盘（复用 useNotify 既有能力），不新增独立通知中心 UI、不改发布记录列表。
+
+**提示文字（i18n `publish.riskHold.body`，zh/en 成对）**：zh「检测到「{platform}」发布触发风控，请前往该账号确认状态后再继续发布」；en「Risk control detected while publishing to "{platform}". Check this account status before publishing again」。**刻意不写「已自动暂停 / 将自动恢复」**——队列挂起与恢复属 §5 后续切片，避免 UI 过度声明未实现能力。
+
+**测试与验证**：`risk-hold-notifier.test.js` 6 例（构造守卫 / 订阅+规整+notify+list / 缺字段安全 / start 幂等 / stop 取消+可重订阅 / maxRecent 截断）；`publisher.test.js` 公开方法表 +onRiskHold（normal listener + fallback 空函数）；`preload.test.js` publish 模块键数 118→119、聚合 electronAPI 键数 320→321、PUBLISH_METHODS 82→83 + onRiskHold 存在性。i18n parity（zh/en）；ESLint（Gate 11）无 error；Gate 12 品牌扫描 PASS。
+
+**待办（§5 架构切片，端到端验收绑定 §7）**：桌面 `riskSuspender` 状态接入发布队列派发前置守卫——真正「挂起」该平台/账号后续发布（当前仅信息提示），并在通知内提供「恢复 / 停止」显式 action；完整方案是让桌面发布路径改走/包裹引擎 `publishWithMode`（跨边界架构改，先出设计 / engine-review）。
+
 ## 附：验收记录（活体证据回写区，随波更新）
 
 | 波次 | 平台 | 日期 | 作品ID | 链接 | 截图 | 降级 | 结论 |

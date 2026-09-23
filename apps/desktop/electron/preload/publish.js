@@ -117,6 +117,12 @@ function createPublishApi(ipcRenderer, options = {}) {
       ipcRenderer.on('publish:progress', handler)
       return () => ipcRenderer.removeListener('publish:progress', handler)
     },
+    // W1 §6.1：风控挂起信号（主进程 task:failed 命中风控 → publish:risk-hold）
+    onRiskHold: (callback) => {
+      const handler = (_, data) => callback(data)
+      ipcRenderer.on('publish:risk-hold', handler)
+      return () => ipcRenderer.removeListener('publish:risk-hold', handler)
+    },
 
     // Pipeline 流水线 API（Phase 3）
     pipelineList: () => ipcRenderer.invoke('pipeline:list'),
