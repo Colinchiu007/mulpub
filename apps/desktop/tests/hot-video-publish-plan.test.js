@@ -11,6 +11,8 @@ const {
   buildPublishArticle,
   buildPublishPlan,
   extractStoryText,
+  isHumanTitle,
+  readProjectCaption,
 } = require('./e2e/lib/hot-video-publish-plan')
 
 const acc = (over) => ({
@@ -163,5 +165,84 @@ describe('extractStoryText（从流水线 run context 提取改写全文）', ()
   it('full_text 存在但 split 缺失时仍取 full_text', () => {
     const ctx = { scene_context: { scenes: [{ context: { full_text: '仅全文' } }] } }
     expect(extractStoryText(ctx)).toBe('仅全文')
+  })
+})
+
+describe('isHumanTitle（区分人类标题与引擎标识符）', () => {
+  it('含中文或含空格的英文短语视为合法标题', () => {
+    expect(isHumanTitle('多家银行存款利息涨了')).toBe(true)
+    expect(isHumanTitle('DeepSeek releases new model')).toBe(true)
+  })
+
+  it('纯 slug / 引擎标识符（smart-sentence-splitter 等）判为非法标题', () => {
+    expect(isHumanTitle('smart-sentence-splitter')).toBe(false)
+    expect(isHumanTitle('story2video-compose')).toBe(false)
+    expect(isHumanTitle('v2')).toBe(false)
+    expect(isHumanTitle('')).toBe(false)
+    expect(isHumanTitle(null)).toBe(false)
+    expect(isHumanTitle('  ')).toBe(false)
+  })
+
+  it('超长（>120 字，实为正文）判为非法标题', () => {
+    expect(isHumanTitle('深'.repeat(121))).toBe(false)
+  })
+})
+
+describe('readProjectCaption（应用重启后从落盘 project.json 恢复发布文案）', () => {
+  const manifest = {
+    manifestVersion: 2,
+    pipeline: 'story2video-compose',
+    status: 'completed',
+    // story2video 工程把「改写文案前 200 字」写进 title，它是正文片段而非标题
+    title: '深夜两点，监控画面定格在走廊尽头。一个背着书包的13岁女孩，脚步迟疑地走向那扇紧闭的门。',
+    sourceText: '深夜两点，监控画面定格在走廊尽头。一个背着书包的13岁女孩，脚步迟疑地走向那扇紧闭的门。门外的人正等着你。',
+    segments: [
+      { text: '深夜两点，监控画面定格在走廊尽头。' },
+      { text: '一个背着书包的13岁女孩。' },
+    ],
+  }
+
+  it('正文优先取 sourceText（改写引擎产出的完整文案）', () => {
+    expect(readProjectCaption(manifest).text).toBe(manifest.sourceText)
+  })
+
+  it('sourceText 缺失时按顺序拼接 segments[].text', () => {
+    const { text } = readProjectCaption({ ...manifest, sourceText: '' })
+    expect(text).toBe('深夜两点，监控画面定格在走廊尽头。一个背着书包的13岁女孩。')
+  })
+
+  it('显式选题标题字段优先于派生标题', () => {
+    expect(readProjectCaption({ ...manifest, topicTitle: '闺蜜的谎言' }).title).toBe('闺蜜的谎言')
+  })
+
+  it('manifest.title 是正文前缀时不采用，改从正文首句派生', () => {
+    const cap = readProjectCaption(manifest)
+    expect(cap.title).toBe('深夜两点，监控画面定格在走廊尽头')
+    expect(cap.titleSource).toBe('derived')
+  })
+
+  it('派生标题超过长度上限时截断', () => {
+    const long = { title: '', sourceText: '一'.repeat(80) + '。后面的句子', segments: [] }
+    const cap = readProjectCaption(long, { maxTitleLength: 20 })
+    expect(cap.title).toBe('一'.repeat(20))
+    expect(cap.title.length).toBe(20)
+  })
+
+  it('slug 型 title（字幕引擎名等）不得成为发布标题', () => {
+    const cap = readProjectCaption({ title: 'smart-sentence-splitter', sourceText: '正文内容内容。第二句。', segments: [] })
+    expect(cap.title).not.toBe('smart-sentence-splitter')
+    expect(cap.title).toBe('正文内容内容')
+  })
+
+  it('空清单返回空标题与空正文（调用方据此跳过发布）', () => {
+    expect(readProjectCaption(null)).toEqual({ title: '', text: '', titleSource: '' })
+    expect(readProjectCaption({})).toEqual({ title: '', text: '', titleSource: '' })
+  })
+
+  it('恢复出的文案可直接喂给 buildPublishArticle', () => {
+    const cap = readProjectCaption(manifest)
+    const article = buildPublishArticle({ topic: { title: cap.title }, rewrittenText: cap.text, videoPath: 'D:/v.mp4' })
+    expect(article.title).toBe('深夜两点，监控画面定格在走廊尽头')
+    expect(article.content).toBe(manifest.sourceText)
   })
 })

@@ -249,6 +249,26 @@ ${topic}
 | P7 | 平台作品 ID | `baijiahao`/`kuaishou` 为严格平台：结果必须携带从**网络响应**提取的 `postId`（作品 ID），否则判 `failed: 发布结果缺少平台作品 ID`，禁止用 URL/localStorage 里的数字冒充 | 防「静默失败被记成成功」 |
 | P8 | 选择器候选 | 任何字段选择器都是**候选数组**，必须逐个尝试（首个候选命中即用，不得硬取 `[0]`） | 页面改版即全链失败 |
 
+### 4.4 发布文案恢复的数据校验（P0，2026-09-23 新增，对应 §5.10）
+
+| 字段 | 类型 | 必填 | 校验规则 | 不满足时 |
+|------|------|------|----------|----------|
+| `project.json.title` | string | 否 | 视为「正文片段候选」：若 `sourceText`（或拼接后的 segments 文本）以该值开头，则**不得**作为发布标题 | 丢弃该值，改从正文首句派生 |
+| `project.json.topicTitle` / `topic_title` / `topic.title` | string | 否 | 通过 `isHumanTitle` 且不是正文前缀 → 采纳为标题 | 继续尝试下一个候选 |
+| `project.json.sourceText` | string | 否 | 去首尾空白后长度 > 0 即作为正文首选 | 回退拼接 `segments[i].text`（按数组顺序，不排序） |
+| `project.json.segments[].text` | string[] | 否 | 仅取 string 且 trim 非空的项，按序 join（无分隔符） | 正文为空 → 返回三空，调用方必须跳过发布 |
+| 派生标题 | string | — | 取正文首个非空句（断句符为句号、叹号、问号、分号、换行），按 `maxTitleLength`（默认 60）截断，再剥离结尾句读 | 空串 |
+| slug 判定 `isHumanTitle` | boolean | — | 长度 2–120；含 CJK 直接通过；纯 ASCII 必须含空格且含 3 个以上连续字母 | 判为非法标题（例：`smart-sentence-splitter`、`story2video-compose`、`v2`） |
+
+不变式：
+
+- I-1：`readProjectCaption(null | 空对象 | 数组)` 必须返回 `{ title: '', text: '', titleSource: '' }`，不得抛错。
+- I-2：`readProjectCaption` 返回的 `{ title, text }` 直接喂给 `buildPublishArticle` 时，不得再触发「缺少标题」异常（除非正文与所有标题候选同时为空）。
+- I-3：任何情况下，纯 ASCII 标识符（引擎名 / slug / 流水线名）不得成为发布标题。
+- I-4：正文恢复优先级固定为 `sourceText` > `segments[].text` 顺序拼接 > `title`（仅当其形似正文：长度 ≥ 20 或含句读）。
+
+---
+
 ## 5. 流程与功能逻辑
 
 ### 5.1 刷新流程
@@ -514,6 +534,70 @@ fetchTopics({ force })
 
 - 优化用的 LLM 由「模型设置 → 文字推理（llm）默认服务商」决定，`PromptBridge.resolveLlmBind()` 无默认/无 Key/无可用模型时 **fail-closed 抛错**（引擎不再用服务端 key 兜底）。
 - 若持续限流，用户可改默认 LLM（本机已配置 Key 的候选：`agnes-multimodal`(默认) / `sensenova-llm` / `openrouter` / `opencode-go` / `minimax-multimodal`）；`modelProviderTest` 只验“可列模型”，**不等于有额度**，不得用其结果向用户保证可用。
+
+### 5.10 应用重启后的发布文案恢复（P0，2026-09-23 新增）
+
+#### 5.10.1 问题背景（真实故障）
+
+热门选题一键生成视频的完整链路是「生成 → 校验成片 → 发布」。流水线 `run context`
+（`pipelineGetRunContext()`）**只存在于主进程内存**，不落盘。E2E 期间只要发生
+应用重启（例：热应用代码、窗口异常恢复），`pipelineHistory()` 与 run context 全部清零，
+此时若仍要发布此前已产出的成片：
+
+- 改写正文取不到 → `storyChars = 0`，发布载荷 content 退化为空；
+- 标题取不到 → 早期实现用「遍历上下文里所有 key 含 title 的字符串」兜底，
+  结果命中 `segments[].subtitleSource = "smart-sentence-splitter"`（字幕分段引擎名），
+  把这个 slug 当成了发布标题发到 7 个平台。
+
+结论：**发布文案必须有落盘恢复路径，且标题必须有合法性判定。**
+
+#### 5.10.2 数据来源与流程
+
+```
+成片目录（userData/story2video-projects/<sha256(projectRoot)>/<runId>/）
+  └── project.json（manifestVersion=2）
+        ├── sourceText       改写引擎产出的完整文案（发布正文首选）
+        ├── segments[].text  分镜文案（按序拼接 = 正文兜底）
+        ├── title            警示：实为「文案前 200 字」，不是标题
+        └── status/duration/videoPath/format 等（成片校验用）
+              │
+              ▼
+   readProjectCaption(manifest) → { title, text, titleSource }
+              │
+              ├── 有真实选题标题（热门选题列表可按内容匹配回填）→ 用选题标题
+              └── 否则 → 正文首句派生
+              ▼
+   buildPublishArticle({ topic:{title}, rewrittenText:text, videoPath, coverPath })
+```
+
+标题来源优先级（`publish-only` 驱动器实现）：
+
+1. `hot-topic-row#N(overlap=x.xx)`：把当前「热门选题」列表每行标题与恢复出的正文做
+   二元字组重合度打分，贪心做「一条 run 只占一行选题」的唯一匹配，阈值 0.35；
+   热门选题列表是轮换的，因此**禁止**用「行号 = 生成序号」的位置映射（实测同一分钟内
+   首行就从「苹果不建议给iPhone贴膜」变成「油价或将大幅调整」）。
+2. `manifest`：project.json 的显式 `topicTitle` / `topic_title` / `topic.title`。
+3. `derived`：正文首句截断（60 字内，去结尾标点）。
+
+#### 5.10.3 交互与显示项
+
+| 位置 | 显示项 | 文案 |
+|------|--------|------|
+| E2E 驱动日志 | 每条发布 | `#N 标题=<标题前30字> 来源=<titleSource> 正文字数=<len>` |
+| E2E 驱动日志 | 匹配汇总 | `选题唯一匹配成功=<k>/<总条数>` |
+| E2E 驱动日志 | 启动 | `ACCOUNTS=<platform>:<status>,…`（active 才算可用） | |
+| `publish-report-v2.json` | `items[].titleSource` | `hot-topic-row#5(overlap=0.63)` / `manifest` / `derived` |
+| `publish-report-v2.json` | `items[].article` | `{ title, contentChars, video_path, cover_path }`（发布载荷留痕） |
+| `publish-report-v2.json` | `topics[]` | 发布时刻的热门选题列表快照（可复盘匹配依据） |
+
+#### 5.10.4 失败与拒绝路径
+
+- 正文与所有标题候选都为空 → 不进入发布（`buildPublishArticle` 抛
+  「缺少标题（topic.title 为空）」），驱动器标记 `enqueue_failed` 并继续下一条；
+- 成片文件不存在 → 标记 `missing-video` 跳过；
+- 队列非空闲（running + pending > 0）→ 20s 轮询等待，避免多平台 RPA 争抢同一浏览器；
+- 「能发的都发」= 凡 `status === 'active'`（或 `is_active === true`）且
+  `has_cookies !== false` 的账号全部入队，同平台多账号不去重。
 
 ## 6. 交互逻辑
 
@@ -908,6 +992,44 @@ fetchTopics({ force })
 | 多场景时降级标记按场景累积，成功恢复的场景不受牵连 | 混合场景下 `output[1].optimize_note` 为空，`optimize_degraded={scenes:[0,2],total:3}` |
 
 变异测试证据：将 `isTransientOptimizeOutcome` 短路为 `false`（即回到“只看抛错”的旧行为）后，上述第 1/2/5 例必红 → 用例非空断言，能真实拦截回归。
+
+### 9.9 发布文案恢复回归（2026-09-23 新增，对应 §4.4 / §5.10）
+
+测试文件：`apps/desktop/tests/hot-video-publish-plan.test.js`
+（`isHumanTitle` 3 例 + `readProjectCaption` 8 例，共 11 例新增）
+
+| 用例 | 断言要点 |
+|------|----------|
+| 含中文/含空格英文短语判为合法标题 | 「多家银行存款利息涨了」、「DeepSeek releases new model」→ true |
+| 纯 slug / 引擎标识符判为非法 | `smart-sentence-splitter`、`story2video-compose`、`v2`、空串、null → false |
+| 超长（>120）判为非法标题 | 121 个「深」→ false |
+| 正文优先取 sourceText | 与 `manifest.sourceText` 严格相等 |
+| sourceText 缺失按序拼接 segments | 顺序不得被打乱、空段被跳过 |
+| 显式选题标题优先于派生标题 | `topicTitle` 命中即返回 |
+| title 是正文前缀时不采用 | 派生为「深夜两点，监控画面定格在走廊尽头」且 `titleSource='derived'` |
+| 派生标题按上限截断 | `maxTitleLength: 20` → 恰好 20 字 |
+| slug 型 title 不得成为发布标题 | 结果不等于 `smart-sentence-splitter` |
+| 空清单返回三空 | `{ title: '', text: '', titleSource: '' }` |
+| 恢复文案可直接喂 buildPublishArticle | title / content 双字段端到端一致 |
+
+RED→GREEN 证据（本机 worktree `mp-hot-topics-video-publish-e2e`）：
+
+```
+# 仅回退 helper 实现、保留新用例 → 11 failed
+npx vitest run tests/hot-video-publish-plan.test.js
+  Test Files  1 failed (1)      Tests  11 failed | 17 passed (28)
+  TypeError: isHumanTitle is not a function
+  TypeError: readProjectCaption is not a function
+# 恢复实现 → 28 passed
+  Test Files  1 passed (1)      Tests  28 passed (28)
+```
+
+逃逸分析（为什么原来没测出来）：发布阶段的单测只覆盖「run context 在场」的正路径，
+没有覆盖「应用重启后只剩落盘工程」这一真实运维态；且标题兜底采用「key 含 title 即取值」
+的宽松启发式，缺少「标题必须像人类语言」的负例断言。
+
+预防措施：§4.4 不变式 I-1~I-4 已固化为测试契约；后续任何标题/正文来源改动必须先补负例
+再改实现。回归入口同 §9.6（RPA 发布韧性）。
 
 ## 10. 技术实现说明（附录）
 

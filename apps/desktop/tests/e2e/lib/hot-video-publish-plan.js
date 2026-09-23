@@ -103,10 +103,88 @@ function extractStoryText(context) {
   return ''
 }
 
+const SENTENCE_BREAK_RE = /[。！？!?；;\n]/
+
+/**
+ * 判断一个字符串是否「像人类写的标题」，用于排除 slug / 引擎标识符
+ * （如字幕分段引擎 smart-sentence-splitter）被误当作发布标题。
+ * 规则：含 CJK 即可；纯 ASCII 必须是多词短语（带空格）且至少一个 3 字母词。
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function isHumanTitle(value) {
+  const s = String(value === null || value === undefined ? '' : value).trim()
+  if (s.length < 2 || s.length > 120) return false
+  if (/[\u4e00-\u9fff\u3040-\u30ff]/.test(s)) return true
+  return /\s/.test(s) && /[a-z]{3,}/i.test(s)
+}
+
+/** 长文本判定：含句读或长度 >= 20 的「title」实际是正文片段。 */
+function looksLikeBodyText(value) {
+  const s = String(value || '').trim()
+  return s.length >= 20 || SENTENCE_BREAK_RE.test(s)
+}
+
+/** 取 story2video 工程落盘清单里的改写全文。 */
+function pickProjectText(manifest) {
+  const direct = String(manifest.sourceText || manifest.source_text || '').trim()
+  if (direct) return direct
+  if (Array.isArray(manifest.segments)) {
+    const joined = manifest.segments
+      .map((s) => (s && typeof s.text === 'string' ? s.text.trim() : ''))
+      .filter(Boolean)
+      .join('')
+    if (joined) return joined
+  }
+  return looksLikeBodyText(manifest.title) ? String(manifest.title).trim() : ''
+}
+
+/** 从正文首句派生发布标题（去句末标点、按上限截断）。 */
+function deriveTitle(text, limit) {
+  const s = String(text || '').replace(/\s+/g, ' ').trim()
+  if (!s) return ''
+  const first = s.split(SENTENCE_BREAK_RE).map((x) => x.trim()).find((x) => x.length > 0) || s
+  const cut = first.length > limit ? first.slice(0, limit) : first
+  return cut.replace(/[，,、；:：。.！!？?\s]+$/, '').trim()
+}
+
+/**
+ * 从 story2video 落盘工程清单（project.json）恢复发布文案。
+ *
+ * 背景：pipeline 的 run context 只活在内存，应用重启即清零；而每个成片目录
+ * 都有 manifestVersion=2 的 project.json。注意该清单的 title 字段被写成了
+ * 「改写文案前 200 字」（正文片段，不是标题），必须与真正的选题标题区分：
+ * 只接受 topicTitle / topic.title 等显式字段，且当它恰好是正文前缀时判为
+ * 正文片段不予采用，改从正文首句派生。
+ *
+ * @param {Object|null} manifest project.json 解析结果
+ * @param {{maxTitleLength?: number}} [options]
+ * @returns {{title: string, text: string, titleSource: string}} 无有效内容时三者皆空
+ */
+function readProjectCaption(manifest, options = {}) {
+  const empty = { title: '', text: '', titleSource: '' }
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) return empty
+  const limit = options.maxTitleLength > 0 ? options.maxTitleLength : DEFAULT_MAX_TITLE_LENGTH
+  const text = pickProjectText(manifest)
+  const candidates = [
+    manifest.topicTitle,
+    manifest.topic_title,
+    manifest.topic && manifest.topic.title,
+    manifest.title,
+  ]
+  const explicit = candidates.find((v) => isHumanTitle(v) && !(text && text.startsWith(String(v).trim())))
+  if (explicit) return { title: String(explicit).trim().slice(0, limit), text, titleSource: 'manifest' }
+  const derived = deriveTitle(text || manifest.title, limit)
+  return derived ? { title: derived, text, titleSource: 'derived' } : empty
+}
+
 module.exports = {
   DEFAULT_MAX_TITLE_LENGTH,
   buildPublishTargets,
   buildPublishArticle,
   buildPublishPlan,
   extractStoryText,
+  isHumanTitle,
+  readProjectCaption,
 }
+
