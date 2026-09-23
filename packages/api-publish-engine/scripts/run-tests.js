@@ -8,6 +8,7 @@ const VITEST_FILES = new Set([
   'adapters-interface.test.js',
   'api-router.test.js',
   'baijiahao-api-chain.test.js',
+  'baijiahao-article-chain.test.js',
   'bilibili-upos.test.js',
   'cos-uploader.test.js',
   'e2e-publish-full-chain.test.js',

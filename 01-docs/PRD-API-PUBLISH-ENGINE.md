@@ -253,6 +253,60 @@
 
 ---
 
+## 12. W1 平台发布链实现契约（§4，逐平台落地）
+
+> 本节记录 `src/publish/platforms/*` 新链的逐字请求契约、数据校验、降级/提示文案，
+> 随各平台切片增量补录。链一律委托 §11.2 的 `publish/core` 基座（`createHttpClient` +
+> `requestWithRetry`），**不直连平台外的任何第三方服务**，测试仅打本机假 HTTP 服务器。
+
+### 12.1 百家号图文（文章）链 `src/publish/platforms/baijiahao-article.js` ✅
+
+决策账约束：**百家号只发文章**（不发视频）。本链为 W1 百家号唯一交付链，私有类
+`BaijiahaoArticleChain`，外部调用方通过 `run(taskData, {draft})` 触发。
+
+**请求序列（4 步，逐字对齐参考产品逆向证据 `evidence/yx-bjh-check.txt`）**：
+
+| 步 | 方法/路径 | 关键请求头 | 提取/返回 | 失败语义 |
+|----|-----------|-----------|-----------|----------|
+| 1 baseToken | `GET /?source=inner` | `Cookie`, `host` | 正则 `BJH__INIT__AUTH__\s*=\s*['"]([^'"]+)` → `baseToken` | 未命中=登录失效（`data_error`） |
+| 2 publishToken | `GET /pcui/article/edit?type=news` | `Cookie`, `referer`, `token=baseToken` | 响应头 `token` → `publishToken` | 缺响应头=登录失效 |
+| 3 uploadImage | `POST /pcui/picture/uploadproxy` | `Cookie`, `multipart/form-data` | 图片 URL | `errno!=0` 抛 `data_error` |
+| 4 submit | 私密优先：`POST /pcui/article/save?callback=bjhdraft`；正式：`POST /pcui/article/publish?type=news&callback=bjhpublish` | `Cookie`, `x-www-form-urlencoded`, `token=publishToken` | `{errno,ret.id}` | errno=10000015 风控；其他 errno 透传 errmsg |
+
+**数据校验（引擎侧 fail-closed，发起任何请求前）**：
+- 缺 `cookie` → 抛 `BaijiahaoArticleError`（`data_error`），**零请求**。
+- 缺 `userAgent` → 抛 `BaijiahaoArticleError`（`request_error`），**零请求**。
+- `taskData.title` 为空 → 抛 `BaijiahaoArticleError`（`data_error`）。
+- `baseToken` 正则未命中 → 抛错且**绝不触达写端点**（save/publish 零请求）。
+- 标题按 UTF-8 字节安全截断到 **149 字节**（`truncateTitle`，不切多字节字符，50 中文→49 中文/147 字节）。
+
+**表单字段（`buildArticleFormData`，x-www-form-urlencoded）**：`title`(截断)、`content`、
+`category`(默认「未分类」)、`reward_money=0`、`is_pay_column=0`、`type=news`、可选
+`project_cover`、原创声明 `original=1`。
+
+**私密优先（决策账验收口径）**：`opts.draft !== false` 时默认走 `save?callback=bjhdraft`
+草稿端点；显式 `draft:false` 才走 `publish`。验收首发一律私密草稿、人工确认后再正式。
+
+**风控停止（对齐 §11.3 双轨不降级）**：`errno=10000015` 时返回
+`{success:false, code:10000015, error}`，提示文案：
+> 「百家号风控拦截：<errmsg>（<hit_rule>），请先在浏览器中登录百家号完成验证」
+
+其他非零 errno 透传原 `errmsg`，不吞原始错误。风控即停，不换号、不降级 DOM。
+
+**§4.5 零请求单测（`test/baijiahao-article-chain.test.js`，8 例全绿）**：请求序列逐字断言、
+token 逐级传递（edit 带 baseToken / save 带 publishToken）、headers 白名单（UA/Cookie 透传、
+全部落在本机假服务器）、缺 cookie/UA/ baseToken 提取失败三态零请求、风控文案、标题截断。
+
+**UI 显示项 / 提示文案**：见 §6；「发布方式」徽标三态中百家号 W1 仅 `api`/`dom` 可达，
+失败详情展示 `error` 全文（含验证指引）。i18n key：`publish.api.baijiahao.risk`、
+`publish.api.baijiahao.login_expired`、`publish.api.baijiahao.missing_cookie`。
+
+**实现状态**：§4.3 ✅、§4.5（百家号维度）✅。§4.4（旧 `adapters/baijiahao.js` 视频链
+变薄委托本文章链、外部接口不变）待后续切片；视频号 §4.1、B站 §4.2 链待后续切片。
+
+
+---
+
 ## 附：验收记录（活体证据回写区，随波更新）
 
 | 波次 | 平台 | 日期 | 作品ID | 链接 | 截图 | 降级 | 结论 |
