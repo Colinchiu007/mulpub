@@ -17000,6 +17000,24 @@ is_default: 1
 - topic02 → **bvid `BV1DxhW6hEwZ`**（aid 117318055106795）
 证明链路稳定可复现，非偶发。回归单测 `packages/api-publish-engine/test/bilibili-upos.test.js`（6 例，纯逻辑不联网）。
 
+### 主链路活体门禁（应用自身发布队列 E2E，2026-09-23）
+
+- **升级点**：把发布端从「旁挂脚本 require 生产模块」推进到「经已启动应用自身的发布队列
+  （`publishBatch` IPC → `taskQueue` → `PublisherRouter.createPublisher`）」实跑，坐实 Electron
+  队列在最新代码下把 bilibili 分派到 Tier-A API 发布器并抵达 B站真实接口。
+- **消除陈旧 app 盲区**：`mp-app-live2` 落后 origin/main 达 30 提交且 `ROUTE_TABLE.bilibili=rpa_vm`；
+  本轮安全同步（脏文件先 patch+stash 双备份、未跟踪 evidence 移存）→ `checkout origin/main`
+  （`b74f46e70d`，0/0 对齐）→ `ensure-desktop-deps DESKTOP_DEPS_OK` → 重启 `START_CONTRACT_OK`。
+- **交互/数据校验**：`listAccounts` 得 bilibili 账号 `e72848c6`（active/has_cookies，重启后重验）；
+  `publishBatch`（preload 契约两枚位置参数）返 `{code:0,data:{taskIds:['task_1_…']}}`；
+  `getQueueStatus` running=1→history=1；`getQueueHistory` 给出终态。
+- **活体结果（强证据）**：队列经 `ApiPublisher`→`publishViaApi('bilibili')`→upos 上传→`add/v3`
+  真实往返 B站，返回**平台业务态**「非正式会员单日只能投递五个稿件」而拒（`retry=2`，3 次均达 B站）。
+  这证明整条分派链正确；未产新 bvid 的唯一原因是账号级外部配额（本日已用生产路径投 3 稿），非代码缺陷。
+- **对比旧脆弱链路**：旧 `rpa_vm` 队列典型失败为 `responses=0` 空点击 / `timeout(300s)`；本轮 api
+  队列直达平台并拿结构化裁决，可观测性从「无回执」升级为「平台 message + 明确额度规则」。
+- 详见 `01-docs/rpa-api-publish/evidence/mainchain-app-queue-gate-2026-09-23.md`。
+
 
 ### 内容纯净要求：发布标题/简介/正文去「自动发布」水印（2026-09-23）
 
@@ -17279,7 +17297,9 @@ is_default: 1
 - [x] 批量与单条配置写入共用同一加密语义路径，掩码回显不覆盖真实凭据。
 - [x] 新门禁先通过自己的新代码（`url-collector` 拆分即其产物），存量以基线挂账、只减不增。
 - [x] 依赖漏洞与超大文件均有可复核基线（29 条 CVE 挂账 + `reviewBy`；99 条行数挂账）。
-- [ ] `packages/flutter-skill-bridge` 判据结论入 CHANGELOG，并随下个发版周期末确认无回潮。
+- [x] `packages/flutter-skill-bridge` 处置判据与结论已入 CHANGELOG（第四批 #2252：判据「全仓零引用」命中，git 中该目录 0 个 tracked 文件，无可删内容）。
+- [ ] 下个发版周期末（2026-10-31）复核 `flutter-skill-bridge` 判据仍成立、无回潮（PRD 第十节 + `docs/audit-remediation-closeout-2026-09-23.md` 第六节）。
+- [x] 四批 + 收尾轮的全量证据（PR 清单 / 条目→证据映射 / 门禁矩阵 / 红绿验证 / 基线数字 / 遗留限期）已归档：`docs/audit-remediation-closeout-2026-09-23.md`。
 - [ ] P0 泄露面逐机清单由运维在部署评审中签字（第三节 7 项复选框）。
 
 ### 十二、行数挂账清单的三态语义与墓碑（audit 收尾·防「门禁逃逸」）
@@ -17315,3 +17335,17 @@ is_default: 1
 - [x] 清账只能单键、可拒、幂等（回归⑤⑥）。
 - [x] `--update` 无法再悄悄抬高或删改别人的登记值（回归⑦）。
 - [x] main 自身违规会在 5 分钟内显红（push 触发 + 断言用例）。
+
+#### 12.5 运行证据（真实 CI 上的行为验证）
+
+| 事实 | 取值 | 含义 |
+|---|---|---|
+| `debt-guard.yml` run=853 | `event=push`、`branch=main`、`sha=45c2e24692`、`conclusion=success` | `push: branches:[main]` 生效：main 自身处于违规态会立刻显红，不再靠某个 PR 顺路发现 |
+| run=850（#2280 自身） | `债务熔断检查 = SUCCESS` | 新语义 + 数据（`pruned: {"apps/desktop/src/components/LogsSettings.vue": 469}`）在真实 runner 上成立，不只是本地绿灯 |
+| run=845 / 846 | `#2276`、`#2270` 在旧 head 上 `债务熔断检查 = FAILURE` | 修复前的现场：僵尸条目把两个**内容完全无关**的在飞 PR 卡红——「一人还债、全链卡红」的直接证据 |
+| run=854 / 856 | rebase 后同两条检查转 `SUCCESS` | 链条解锁由门禁修复提供，而非靠给无关 PR 打补丁 |
+| 本地用例 | `node --test .github/scripts/check-max-lines.test.js` → 17/17 | 含「按生产喂法的可达性回归」与 2 个反向变异自证 |
+
+> 口径提醒：门禁统计行数字用的是 `fs.readFileSync(...).split('\n').length`（尾部换行也计一行），
+> 因此 `LogsSettings.vue` 的墓碑值是 **469** 而不是编辑器显示的 468。所有行数判定都必须用门禁自身坐标系，
+> 不允许混用 `wc -l` 或编辑器计数。
