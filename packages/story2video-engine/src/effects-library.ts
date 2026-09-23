@@ -120,6 +120,25 @@ export const TRANSITION_EFFECTS: EffectMeta[] = [
   },
 ];
 
+/**
+ * 动效/转场 ID 白名单（单一来源，审计 P2·枚举双份收口）。
+ *
+ * 由上方元数据数组派生，消费方（桌面端「恢复上次使用的选项」白名单校验）不再手抄。
+ * 排序口径：'none'（无效果 / 直接切换）恒置顶，其余保持元数据登记顺序 —— 与迁移前
+ * 桌面端两处硬编码列表逐项一致，保证下拉与快照恢复行为零变化。
+ * 新增效果只需在 IMAGE_EFFECTS / TRANSITION_EFFECTS 登记一次；未同步到 UI 选项时
+ * 由 apps/desktop 的 effects-single-source 回归用例阻断（防反向漂移）。
+ */
+export const IMAGE_EFFECT_IDS: readonly string[] = Object.freeze([
+  'none',
+  ...IMAGE_EFFECTS.filter((e) => e.id !== 'none').map((e) => e.id),
+]);
+
+export const TRANSITION_EFFECT_IDS: readonly string[] = Object.freeze([
+  'none',
+  ...TRANSITION_EFFECTS.filter((e) => e.id !== 'none').map((e) => e.id),
+]);
+
 /** 按 ID 获取图片动效 */
 export function getImageEffectById(id: string): EffectMeta | undefined {
   return IMAGE_EFFECTS.find((e) => e.id === id);

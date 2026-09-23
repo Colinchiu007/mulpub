@@ -1896,3 +1896,80 @@ POST /cases/{id}/runs → status=queued
 - [x] 拖拽/上移/下移后侧边栏实时同步，刷新后顺序保留。
 - [x] 恢复默认排序后回到 `MENU_ITEMS` 声明顺序。
 - [x] localStorage 含未知 path 时不渲染幽灵项；新增菜单项自动补到尾部。
+
+## 12A.26 运营端安全加固与会话治理（2026-09-22 新增，全仓代码体检整改 audit-remediation-20260922）
+
+> 承接 `01-docs/PRD.md`「全仓代码体检整改：安全加固与质量门禁需求」总章，本节只写**运营端（ops-center）可感知**的校验规则、流程、交互与文案。
+> 落地 PR：#2214（P0）、#2226（P1-5/P0-7 对齐）、#2239（P1-15 会话 + P0-6 矩阵）、#2252（N+1 / 单事务 / 行数与依赖门禁）。
+
+### 数据校验
+
+**启动闸门（fail-closed：任一项不通过 ⇒ 进程 `SystemExit`，服务不启动）**
+
+| 校验 | 规则 | 失败提示（逐字，可 grep `[P0-`） |
+|---|---|---|
+| JWT 密钥强度 | 长度 ≥ 32 | `[P0-2] JWT secret too short (N chars); require >= 32. Generate with: openssl rand -hex 32` |
+| JWT 弱值 | 命中已知弱值集合（`dev-secret-change-in-production`、`dev-secret-key-for-local-testing-2026`、`secret`、`changeme`、`default`、`admin`） | `[P0-2] JWT secret matches known weak value; refuse to start.` |
+| JWT 弱前缀 | 以 `dev-` / `test-` / `changeme` / `default` 开头 | `[P0-2] JWT secret starts with '{prefix}' (development pattern); production must use a strong random secret.` |
+| 管理员口令 | 不在弱口令表、生产非空、长度 ≥ 8 | `[P0-2] Admin password is in known-weak list; choose a strong password (>= 8 chars).` / `[P0-2] Admin password must be set in production (OPS_ADMIN_PASSWORD).` / `[P0-2] Admin password too short (N); minimum 8 characters.` |
+| CORS | `credentials=True` 时 `allow_origins` 禁 `*` | `[P0-6] CORS allow_origins='*' with credentials=True is insecure; specify explicit whitelist (e.g. https://app.example.com).` |
+| 加密主密钥 | `OPS_ENCRYPTION_KEY` 必填；仅 `OPS_ALLOW_EPHEMERAL_KEY=true` 可临时放行（必打 warn） | `[P0-4] OPS_ENCRYPTION_KEY not configured. Generate: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
+| 运行时签名私钥 | 未配置 ⇒ `/api/v1/runtime/bootstrap` 返回 404（不下发未签名配置） | — |
+
+**会话 Cookie 属性**：`session_cookie_name=ops_session`、`httponly=True`（不可配置）、`session_cookie_samesite ∈ {lax,strict,none}` 默认 `lax`、`session_cookie_secure: Optional[bool]=None`（`None` ⇒ 非 development 即 `True`）、`max_age` 由 `session_cookie_max_age_hours` 推导、`path=/`（签发与清除必须同 path）。
+
+**配置项密文**：`is_secret=1` 的 `ConfigItem.value` **写库前** Fernet 加密；审计日志只存掩码；客户端回填的掩码回显值不覆盖真实凭据（留痕 `[P1-5] {config_id}: 提交了掩码回显值，保留原凭据不覆盖`）。批量接口与单条接口共用 `_apply_upsert`，敏感判定以**库中既有标记**为准（批量入参不含 `is_secret`，防止把敏感项降级成明文写入）。
+
+### 功能逻辑
+
+1. **双通道鉴权**：`Authorization: Bearer <jwt>` 优先（桌面端/脚本/scheduler 上报，不受 CSRF 头约束；Bearer 非法直接 401，**不回落** Cookie）；无 Bearer 时读 HttpOnly 会话 Cookie。
+2. **CSRF 第二层**：`SameSite=Lax` 只挡跨站子请求/POST，故非幂等方法（除 `GET/HEAD/OPTIONS/TRACE` 外）必须再带自定义头 `X-Ops-Session`（`settings.csrf_header` 可改）。跨站页面无法设置自定义头（过不了预检），据此判定请求来自本前端。
+3. **安全响应头中间件**（`setdefault`，不覆盖 nginx/CDN 已下发值）：`Content-Security-Policy`（`default-src 'self'` + `frame-ancestors 'none'` + `object-src 'none'` + `base-uri 'self'` + `form-action 'self'`；**配置为空串 ⇒ 显式不下发**，避免双重头被取交集后失效）、`X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`、`X-Frame-Options: DENY`。
+4. **SSRF 守卫**：`test_provider_connection` 与 `fetch_models_from_url` 共用 `_validate_target_url`（无 hostname、`localhost`/`0.0.0.0`/`::1`/`[::1]`/`metadata.google.internal` 及私网解析结果一律拒绝）；async 路由内的 DNS 解析走 `await asyncio.to_thread(...)`，不阻塞事件循环。**已声明残余风险**：校验解析与实际连接是两次独立 DNS 解析，存在 DNS 重绑定窗口。
+5. **批量更新单事务**：`batch_upsert_configs` = 1 次按主键批量预取 + 逐条 `_apply_upsert(commit=False)` + 单次 `COMMIT`，异常统一 rollback 后上抛（旧实现逐条 commit，中途失败留半更新状态）。
+6. **N+1 消除**：配置计数与审计日志掩码改为批量预取（`get_configs_by_ids` / `get_secret_flags`，`id.in_(ids)`），替代逐行 SELECT（原最多 1000 次）。
+
+### 交互逻辑（管理后台前端）
+
+- 登录成功响应体**不含 token**，只回 `{username, role, expires_in, csrf_header}`；会话状态由浏览器 Cookie 承载，`document.cookie` 读不到 ⇒ XSS 无法外带凭据。
+- 所有请求走统一客户端 `src/api/http.js` 的 `createApiClient()`：`withCredentials: true`，写操作自动注入 `X-Ops-Session: 1`。
+- **401**（无凭据 / 令牌无效或过期）→ 清理内存登录态并跳登录页，杜绝「半登录态」。
+- **403**（权限不足 或 缺 CSRF 头）→ 属业务/调用方问题，**不清登录态**，避免一次误操作把管理员踢下线。
+- 会话水合入口：`GET /api/auth/me`（别名 `GET /api/auth/session`，同一实现）；登出 `POST /api/auth/logout` 不要求认证与 CSRF 头（无副作用，且会话过期时也必须可点）。
+- 登录限速保持：同 `username|ip` 连续 5 次失败锁 60 秒。
+
+### 显示项与提示文字
+
+| 场景 | 码 | 文案 |
+|---|---|---|
+| 无凭据 | 401 | `未提供认证令牌` |
+| 令牌无效/过期 | 401 | `令牌无效` |
+| 口令错误 | 401 | `用户名或密码错误` |
+| 尝试过多 | 429 | `尝试次数过多，请稍后再试` |
+| 缺 CSRF 头 | 403 | `跨站请求伪造防护：基于 Cookie 会话的写操作必须携带自定义头 X-Ops-Session（前端 axios 拦截器默认注入）` |
+| 非管理员 | 403 | `需要管理员权限` |
+| JWT 密钥未配置 | 503 | `认证服务配置不完整` |
+| 未配置管理员账号 | 503 | `未配置管理员账号，请设置 OPS_ADMIN_USERNAME/OPS_ADMIN_PASSWORD` |
+| SSRF 拦截 | 400（ValueError 上抛） | `[P0-7] URL has no hostname` / `[P0-7] Blocked internal address: {hostname}` |
+| 启动成功 | 日志 | `[P0] All startup security checks passed.` |
+
+### 回归保护（QM-5 第四步）
+
+- 后端：`tests/test_p1_15_session_cookie.py`（Cookie 只落 HttpOnly、401/403 语义、缺头 403、登出清 Cookie、密钥缺失 503）、`tests/test_auth_login.py`、`tests/test_p0_security.py`（启动闸门）、`tests/test_p4_txn_and_queries.py`（单事务回滚 + 批量预取）。
+- 前端：`tests/http-client.test.js`、`tests/auth-store.test.js`、`tests/menu-store.test.js`。
+- CI 防复发：**Gate 18** `node .github/scripts/check-ops-session-hygiene.js`（必存在结构：`response.set_cookie(`、`httponly=True`、`samesite=settings.session_cookie_samesite`、`def logout`、`delete_cookie(`、`async def security_headers` + 三类头、`export const CSRF_HEADER = 'X-Ops-Session'`、`withCredentials: true`、`status === 401`；禁用模式：view 自建 axios、token 落 localStorage）；**Gate 17** IPC 守卫覆盖（桌面端）。
+- 债务门禁：`node .github/scripts/check-max-lines.js`（含 Python 对等口径，`model_preset_service.py` / `prompt_eval_service.py` 已挂账）、`node scripts/check-dep-audit.js`（npm + pip-audit 实跑，29 条挂账带 `decision` 与 `reviewBy`）。
+
+### 运维指引
+
+- 密钥与令牌轮换、双钥宽限期、`EnvironmentFile=` 注入与 `User=ops-center` 降权：见 `ops-center/deploy/KEY-ROTATION-GUIDE.md`、`ops-center/deploy/ops-center.service`、`ops-center/deploy/setup-service.sh`。
+- 反向代理需下发/透传 `X-Ops-Session` 允许的自定义头，并把 CORS 白名单与实际前端 origin 一一对应（子域需显式列出）。
+
+### 验收标准
+
+- [x] 危险组合（CORS `*` + credentials）启动即拒绝，断言测试存在且通过。
+- [x] 登录成功后 `document.cookie` 无法读到会话令牌；清 localStorage 不影响已登录会话。
+- [x] 写操作缺 `X-Ops-Session` ⇒ 403 且前端不清登录态；401 ⇒ 清态并跳登录。
+- [x] `is_secret` 配置项在库中为 Fernet 密文；掩码回显提交不覆盖真实凭据；批量更新中途失败整批回滚。
+- [x] Gate 17/18、max-lines、dep-audit 四项在 CI 阻断回退写法。
+- [ ] `routers/env.py` 的 JWT 对齐诊断端点：在非 orchestrator 环境恒返回 `unknown`，处置为「在 orchestrator/trendscope 环境补跑或移除该端点」（体检报告 v5 裁定，属部署配置问题，非死代码）。

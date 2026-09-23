@@ -14,6 +14,31 @@ class GenericPlatformAdapter extends BasePlatformAdapter {
     this._origin = config.origin;
     this._contentType = config.contentType;
     this._publishPath = config.publishPath;
+    // orchestrator 的 upload() 一次就把「视频 + 封面」全传完，而基类发布流程会
+    // 先调 uploadVideo() 再调 uploadCover()。此前两个方法各自跑一遍 upload()，
+    // 同一任务的文件被重复上传两遍（带宽/配额翻倍、平台侧产生冗余素材、
+    // 大视频场景直接翻倍耗时）。这里按任务指纹共享同一个 in-flight Promise。
+    this._uploads = new Map();
+  }
+
+  _uploadKey(td, cookie) {
+    const t = td || {};
+    return [this.name, t.filePath, t.coverPath, t.taskId || t.id, cookie ? String(cookie).length : 0].join("|");
+  }
+
+  async _uploadOnce(td, cookie) {
+    const key = this._uploadKey(td, cookie);
+    const cached = this._uploads.get(key);
+    if (cached) return cached;
+    // 简单上限：跨任务复用同一 adapter 实例时不让缓存无限增长。
+    if (this._uploads.size > 32) this._uploads.clear();
+    const run = upload({ ...td, platform: this.name }, cookie).catch((e) => {
+      // 失败不缓存，保留上层重试语义（缓存一个已 reject 的 Promise 会让重试永远失败）。
+      this._uploads.delete(key);
+      throw e;
+    });
+    this._uploads.set(key, run);
+    return run;
   }
 
   getReferer() { return this._referer; }
@@ -24,12 +49,12 @@ class GenericPlatformAdapter extends BasePlatformAdapter {
   }
 
   async uploadVideo(td, cookie) {
-    const r = await upload({ ...td, platform: this.name }, cookie);
+    const r = await this._uploadOnce(td, cookie);
     return r?.video || null;
   }
 
   async uploadCover(td, cookie) {
-    const r = await upload({ ...td, platform: this.name }, cookie);
+    const r = await this._uploadOnce(td, cookie);
     return r?.cover || null;
   }
 

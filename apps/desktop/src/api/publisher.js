@@ -483,7 +483,13 @@ export async function autoPipelineListRuns() { return invokeWithFallback("autoPi
 export async function logsGetInfo() {
   return invokeWithFallback("logsGetInfo", { code: -1, data: { dir: '', totalBytes: 0, fileCount: 0, maxFileBytes: 0, files: [] } })
 }
-export async function logsClear() { return invokeWithFallback("logsClear", { code: -1 }) }
+export async function logsClear() { return invokeWithFallback("logsClear", {  code: -1  }) }
+export async function cacheGetStats() {
+  return invokeWithFallback("cacheGetStats", { code: -1, data: { totalBytes: 0, fileCount: 0, items: [] } })
+}
+export async function cacheClear() {
+  return invokeWithFallback("cacheClear", { code: -1, data: { freedBytes: 0, removedFiles: 0, removedDirs: 0, items: [] } })
+}
 export async function submitFeedback(payload) {
   return invokeWithFallback("submitFeedback", { code: -1, message: 'electronAPI not available' }, payload)
 }

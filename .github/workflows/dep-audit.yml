@@ -1,0 +1,66 @@
+name: 依赖漏洞审计门禁
+
+# 审计 P2·依赖锁定 / 对抗评审 v2 指出的未覆盖维度：「本轮未运行 npm audit / osv-scanner /
+# pip-audit，已知 CVE 结论缺失」。缺结论本身就是风险，所以把两个扫描器接成常驻控制：
+#   - pull_request：软门（扫描器因网络不可用时只告警不判红，避免门禁被人为关掉）
+#   - schedule（每周一 03:00 UTC）：权威来源，必须在真联网环境下给出确定结论
+on:
+  pull_request:
+    branches: [main]
+    # 不得配置 paths-ignore：workflow-contract.test.js 全量扫描禁止，且 required check
+    # 一旦因路径过滤缺失会让纯文档 PR 永久 BLOCKED。
+  schedule:
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  dep-audit:
+    name: 依赖漏洞审计
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          # 与根 package.json 的 packageManager 字段保持一致
+          version: 11.13.1
+
+      # 本 job 不执行 pnpm install，pnpm store 目录始终不存在；
+      # 若开 cache: pnpm，Post 步骤会报 "Path Validation Error: Path(s) specified in the
+      # action for caching do(es) not exist" 直接把 job 判红（PR #2252 实测）。故不缓存。
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装 pip-audit
+        run: python -m pip install --upgrade pip pip-audit
+
+      # pnpm audit 默认走 .npmrc 里的镜像源，而 npmmirror 没有 /-/npm/v1/security/advisories
+      # 端点（ERR_PNPM_AUDIT_ENDPOINT_NOT_EXISTS），因此脚本必须显式指定官方 registry，
+      # 这里同步显式导出，便于本地/CI 一口径复现。
+      - name: 门禁用例（判定逻辑，不联网）
+        run: node --test scripts/check-dep-audit.test.js
+
+      - name: 依赖漏洞审计（新公告阻断 / 基线腐化阻断 / 挂账到期阻断）
+        env:
+          NPM_AUDIT_REGISTRY: https://registry.npmjs.org
+        run: node scripts/check-dep-audit.js
+
+      - name: 结果说明
+        if: always()
+        run: |
+          echo "命中公告需登记在 scripts/dep-audit-baseline.json，每条必须给 decision + note，"
+          echo "顶层 reviewBy 到期即拦。刷新清单：node scripts/check-dep-audit.js --update"

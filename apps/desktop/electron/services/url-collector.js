@@ -24,6 +24,10 @@ const {
 const path = require('path')
 const { extractReadableText } = require('./readable-text')
 const { parseEngagement, parseEngagementNumber } = require('./url-collector-engagement')
+// Page 层的等待与容错读取（正文就绪条件等待 / 导航竞态重试）实现见
+// url-collector-page-wait.js：它们只依赖 Playwright Page，与采集策略无关，
+// 拆出去可避免本文件因等待加固越过逐文件行数门禁（500 行）。
+const { waitForContentReady, readPageContentWithRetry } = require('./url-collector-page-wait')
 
 class UrlCollector {
   /**
@@ -408,8 +412,10 @@ class UrlCollector {
       // 改用 load 事件确保首屏 DOM 就绪，避免 page.content() 在导航中抛
       // "Unable to retrieve content because the page is navigating"。
       await page.goto(url, { waitUntil: 'load', timeout: 30000 })
-      // SPA 异步渲染正文，等待内容容器出现（最多 10s），再取 HTML
-      await page.waitForTimeout(2000)
+      // SPA 异步渲染正文：条件等待内容容器出现（最多 CONTENT_READY_TIMEOUT_MS）再取 HTML。
+      // 原来是固定 waitForTimeout(2000)——注释写着「最多 10s」但代码只盲等 2s，
+      // 慢站点正文未渲染就取 HTML（解析成空正文），快站点白等 2s。
+      await this._waitForContentReady(page)
       const html = await this._readPageContentWithRetry(page)
       return this._parseHtml(html, url)
     } finally {
@@ -418,29 +424,24 @@ class UrlCollector {
   }
 
   /**
-   * 读取页面 HTML，导航竞态（page.content 在导航中抛错）时等待后重试。
-   * 知乎 SPA 首次加载后可能仍有延迟导航，直接 page.content() 偶发抛
-   * "Unable to retrieve content because the page is navigating and changing the content"，
-   * 该错误消息不含已知分类关键词，会被 classifyCollectError 判为 unknown（原因未识别）。
+   * 条件等待正文就绪，替代固定 sleep（判据/超时处置见 url-collector-page-wait.js）。
+   * 保留为实例方法：采集链路只认这一入口，测试也锁这一入口。
+   *
+   * @param {object} page - Playwright Page
+   * @returns {Promise<boolean>} 是否在时限内命中就绪条件
+   */
+  async _waitForContentReady (page) {
+    return waitForContentReady(page, { log: this._log, label: 'UrlCollector' })
+  }
+
+  /**
+   * 读取页面 HTML，导航竞态时等待后重试（判据见 url-collector-page-wait.js）。
    * @param {object} page - Playwright Page
    * @param {number} [maxAttempts] - 最大尝试次数
    * @returns {Promise<string>}
    */
   async _readPageContentWithRetry (page, maxAttempts = 3) {
-    let lastError
-    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-      try {
-        return await page.content()
-      } catch (e) {
-        lastError = e
-        const msg = e && e.message ? String(e.message) : ''
-        const isNavigationRace = /navigating/.test(msg) || /navigation/i.test(msg)
-        if (!isNavigationRace || attempt === maxAttempts) break
-        // 导航竞态：等待导航稳定后重试
-        await new Promise((resolve) => setTimeout(resolve, 1500 * attempt))
-      }
-    }
-    throw lastError
+    return readPageContentWithRetry(page, maxAttempts)
   }
 
   /**
