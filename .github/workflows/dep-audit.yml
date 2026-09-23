@@ -34,10 +34,12 @@ jobs:
           # 与根 package.json 的 packageManager 字段保持一致
           version: 11.13.1
 
+      # 本 job 不执行 pnpm install，pnpm store 目录始终不存在；
+      # 若开 cache: pnpm，Post 步骤会报 "Path Validation Error: Path(s) specified in the
+      # action for caching do(es) not exist" 直接把 job 判红（PR #2252 实测）。故不缓存。
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: pnpm
 
       - uses: actions/setup-python@v5
         with:
