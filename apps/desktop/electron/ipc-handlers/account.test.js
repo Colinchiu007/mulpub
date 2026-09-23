@@ -254,8 +254,8 @@ describe('account IPC 可信来源正常工作', () => {
         name: '公众号',
         account_name: '公众号',
         is_active: true,
-        status: 'active',
-        status_source: 'derived-from-is-active',
+        status: 'unverified',
+        status_source: 'absent-fallback',
         is_default: true,
         has_cookies: true,
         cookie_count: 1,
@@ -374,7 +374,7 @@ describe('account IPC 可信来源正常工作', () => {
     expect(result.data[0].status_source).toBe('backend')
   })
 
-  it('accounts:list 后端 status 非法（历史脏值）时降级为派生态，不误判为已登录', async () => {
+  it('accounts:list 后端 status 非法（历史脏值）时兜底 unverified，不再由 is_active 派生登录态', async () => {
     const deps = createMockDeps()
     deps.AccountManager.checkLocalCredentials.mockReturnValue(true)
     deps.AccountManager.listAccounts.mockResolvedValue([{
@@ -389,8 +389,8 @@ describe('account IPC 可信来源正常工作', () => {
 
     const result = await ipcMain._get('accounts:list')(TRUSTED_EVENT)
 
-    expect(result.data[0].status).toBe('active')
-    expect(result.data[0].status_source).toBe('derived-from-is-active')
+    expect(result.data[0].status).toBe('unverified')
+    expect(result.data[0].status_source).toBe('absent-fallback')
   })
 
   it('accounts:list 本地无凭证时后端 active 也被判为 expired（无法自证登录）', async () => {
@@ -738,8 +738,8 @@ describe('account IPC 可信来源正常工作', () => {
         platform: 'youtube',
         name: '频道账号',
         account_name: '频道账号',
-        status: 'active',
-        status_source: 'derived-from-is-active',
+        status: 'unverified',
+        status_source: 'absent-fallback',
         is_default: false,
         has_cookies: true,
         cookie_count: 1,
@@ -789,8 +789,8 @@ describe('account IPC 可信来源正常工作', () => {
         platform: 'wechat_mp',
         name: '公众号',
         account_name: '公众号',
-        status: 'active',
-        status_source: 'derived-from-is-active',
+        status: 'unverified',
+        status_source: 'absent-fallback',
         is_default: false,
         has_cookies: true,
         cookie_count: 1,
@@ -940,8 +940,8 @@ describe('account IPC 可信来源正常工作', () => {
         platform: 'wechat',
         name: '公众号',
         account_name: '公众号',
-        status: 'active',
-        status_source: 'derived-from-is-active',
+        status: 'unverified',
+        status_source: 'absent-fallback',
         is_default: false,
         has_cookies: true,
         cookie_count: 1,
@@ -988,11 +988,120 @@ describe('account IPC 可信来源正常工作', () => {
       platform: 'wechat_mp',
       name: '公众号',
       account_name: '公众号',
-      status: 'active',
-      status_source: 'derived-from-is-active',
+      status: 'unverified',
+      status_source: 'absent-fallback',
       is_default: false,
       has_cookies: true,
       cookie_count: 1,
     }] })
+  })
+})
+
+describe('account:set-active 启用态写入通道', () => {
+  it('未登录（identityService 存在但 sub 缺失）fail-closed，不写后端', async () => {
+    const deps = createMockDeps({
+      AccountManager: {
+        ...createMockDeps().AccountManager,
+        setAccountActive: vi.fn(async () => ({ ok: true, is_active: false })),
+      },
+      identityService: { getState: vi.fn(() => ({ status: 'authenticated', user: null })) },
+    })
+
+    const result = await ipcMain_and_call(deps, 'account:set-active', {
+      accountId: 'acc-1', platform: 'toutiao', isActive: false,
+    })
+
+    expect(result).toEqual({ code: -3, message: '无法识别当前用户' })
+    expect(deps.AccountManager.setAccountActive).not.toHaveBeenCalled()
+  })
+
+  it('不可信来源一律拒绝', async () => {
+    const deps = createMockDeps()
+    deps.AccountManager.setAccountActive = vi.fn(async () => ({ ok: true, is_active: false }))
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('account:set-active')(
+      UNTRUSTED_EVENT, { accountId: 'acc-1', platform: 'toutiao', isActive: false })
+
+    expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
+    expect(deps.AccountManager.setAccountActive).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['缺少参数对象', null],
+    ['accountId 缺失', { platform: 'toutiao', isActive: false }],
+    ['accountId 含路径段', { accountId: '../x', platform: 'toutiao', isActive: false }],
+    ['platform 非法', { accountId: 'acc-1', platform: '../x', isActive: false }],
+    ['isActive 是字符串', { accountId: 'acc-1', platform: 'toutiao', isActive: 'false' }],
+    ['isActive 缺失', { accountId: 'acc-1', platform: 'toutiao' }],
+  ])('%s → 校验失败且不写后端', async (_label, arg) => {
+    const deps = createMockDeps()
+    deps.AccountManager.setAccountActive = vi.fn(async () => ({ ok: true, is_active: false }))
+
+    const result = await ipcMain_and_call(deps, 'account:set-active', arg)
+
+    expect(result.code).toBe(-2)
+    expect(deps.AccountManager.setAccountActive).not.toHaveBeenCalled()
+  })
+
+  it('合法请求把布尔原样交给唯一写者', async () => {
+    const deps = createMockDeps()
+    deps.AccountManager.setAccountActive = vi.fn(async () => ({ ok: true, is_active: false }))
+
+    const result = await ipcMain_and_call(deps, 'account:set-active', {
+      accountId: 'acc-1', platform: 'toutiao', isActive: false,
+    })
+
+    expect(deps.AccountManager.setAccountActive).toHaveBeenCalledWith('acc-1', 'toutiao', false)
+    expect(result.code).toBe(0)
+  })
+
+  it('写者返回失败时 IPC 不得报成功', async () => {
+    const deps = createMockDeps()
+    deps.AccountManager.setAccountActive = vi.fn(async () => ({ ok: false, reason: 'backend-error', code: 404 }))
+
+    const result = await ipcMain_and_call(deps, 'account:set-active', {
+      accountId: 'acc-1', platform: 'toutiao', isActive: true,
+    })
+
+    expect(result.code).not.toBe(0)
+    expect(result.message).toContain('backend-error')
+  })
+})
+
+describe('登录态判定不得由 is_active 派生（正交性回归）', () => {
+  function listDeps(source) {
+    return createMockDeps({
+      AccountManager: {
+        listAccounts: vi.fn().mockResolvedValue([source]),
+        checkLocalCredentials: vi.fn(() => true),
+      },
+    })
+  }
+
+  it.each([
+    ['is_active=false', false],
+    ['is_active=true', true],
+    ['is_active 缺失', undefined],
+  ])('后端无 status 且 %s → unverified / absent-fallback', async (_label, isActive) => {
+    const source = { id: 'acc-1', platform: 'toutiao', name: '号' }
+    if (isActive !== undefined) source.is_active = isActive
+
+    const result = await ipcMain_and_call(listDeps(source), 'account:list')
+
+    expect(result.data[0].status).toBe('unverified')
+    expect(result.data[0].status_source).toBe('absent-fallback')
+  })
+
+  it('is_active 必须原样透传给渲染层（停用标记的唯一数据源）', async () => {
+    const source = { id: 'acc-1', platform: 'toutiao', name: '号', status: 'active', is_active: false }
+
+    const result = await ipcMain_and_call(listDeps(source), 'account:list')
+
+    // 登录态来自后端，启用态来自后端，两者互不覆写。
+    expect(result.data[0].status).toBe('active')
+    expect(result.data[0].status_source).toBe('backend')
+    expect(result.data[0].is_active).toBe(false)
   })
 })

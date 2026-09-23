@@ -1,0 +1,236 @@
+{
+ "url": "https://member.bilibili.com/platform/upload/video/frame",
+ "scrollY": 0,
+ "docH": 1687,
+ "viewH": 738,
+ "pubLike": [
+  {
+   "tag": "div",
+   "cls": "",
+   "id": "",
+   "text": "立即投稿",
+   "visible": true,
+   "disabled": false,
+   "rect": "488,1615,136,40"
+  },
+  {
+   "tag": "span",
+   "cls": "submit-add",
+   "id": "",
+   "text": "立即投稿",
+   "visible": true,
+   "disabled": false,
+   "rect": "504,1615,120,40"
+  },
+  {
+   "tag": "button",
+   "cls": "bcc-button bcc-button--primary large",
+   "id": "",
+   "text": "确定",
+   "visible": false,
+   "disabled": false,
+   "rect": "0,0,0,0"
+  },
+  {
+   "tag": "span",
+   "cls": "",
+   "id": "",
+   "text": "确定",
+   "visible": false,
+   "disabled": false,
+   "rect": "0,0,0,0"
+  },
+  {
+   "tag": "div",
+   "cls": "btn btn-pink sms-confirm disabled",
+   "id": "",
+   "text": "确定",
+   "visible": true,
+   "disabled": true,
+   "rect": "502,404,248,34"
+  }
+ ],
+ "fields": [
+  {
+   "tag": "input",
+   "cls": "input-val",
+   "id": "",
+   "text": "",
+   "visible": true,
+   "disabled": false,
+   "rect": "379,775,670,22",
+   "ph": "请输入稿件标题",
+   "type": "text",
+   "ce": null
+  },
+  {
+   "tag": "input",
+   "cls": "bcc-select-input-inner",
+   "id": "",
+   "text": "",
+   "visible": true,
+   "disabled": false,
+   "rect": "367,835,358,34",
+   "ph": "请选择符合您视频内容的创作声明",
+   "type": "text",
+   "ce": null
+  },
+  {
+   "tag": "input",
+   "cls": "input-val",
+   "id": "",
+   "text": "",
+   "visible": true,
+   "disabled": false,
+   "rect": "592,975,375,22",
+   "ph": "按回车键Enter创建标签",
+   "type": "text",
+   "ce": null
+  },
+  {
+   "tag": "div",
+   "cls": "ql-editor ql-blank",
+   "id": "",
+   "text": "",
+   "visible": true,
+   "disabled": false,
+   "rect": "367,1192,744,158",
+   "ph": "",
+   "type": "",
+   "ce": "true"
+  },
+  {
+   "tag": "div",
+   "cls": "ql-clipboard",
+   "id": "",
+   "text": "",
+   "visible": true,
+   "disabled": false,
+   "rect": "-99633,1272,0,1",
+   "ph": "",
+   "type": "",
+   "ce": "true"
+  },
+  {
+   "tag": "input",
+   "cls": "mention-hidden-input",
+   "id": "",
+   "text": "",
+   "visible": true,
+   "disabled": false,
+   "rect": "366,1352,3,3",
+   "ph": "",
+   "type": "text",
+   "ce": null
+  },
+  {
+   "tag": "input",
+   "cls": "",
+   "id": "",
+   "text": "",
+   "visible": true,
+   "disabled": false,
+   "rect": "367,1494,14,14",
+   "ph": "",
+   "type": "checkbox",
+   "ce": null
+  },
+  {
+   "tag": "input",
+   "cls": "",
+   "id": "",
+   "text": "",
+   "visible": true,
+   "disabled": false,
+   "rect": "200,60,303,29",
+   "ph": "",
+   "type": "file",
+   "ce": null
+  },
+  {
+   "tag": "input",
+   "cls": "",
+   "id": "",
+   "text": "",
+   "visible": true,
+   "disabled": false,
+   "rect": "200,60,303,29",
+   "ph": "",
+   "type": "file",
+   "ce": null
+  },
+  {
+   "tag": "input",
+   "cls": "sms-cell",
+   "id": "",
+   "text": "",
+   "visible": true,
+   "disabled": false,
+   "rect": "506,340,35,40",
+   "ph": "",
+   "type": "tel",
+   "ce": null
+  },
+  {
+   "tag": "input",
+   "cls": "sms-cell",
+   "id": "",
+   "text": "",
+   "visible": true,
+   "disabled": false,
+   "rect": "547,340,35,40",
+   "ph": "",
+   "type": "tel",
+   "ce": null
+  },
+  {
+   "tag": "input",
+   "cls": "sms-cell",
+   "id": "",
+   "text": "",
+   "visible": true,
+   "disabled": false,
+   "rect": "588,340,35,40",
+   "ph": "",
+   "type": "tel",
+   "ce": null
+  },
+  {
+   "tag": "input",
+   "cls": "sms-cell",
+   "id": "",
+   "text": "",
+   "visible": true,
+   "disabled": false,
+   "rect": "629,340,35,40",
+   "ph": "",
+   "type": "tel",
+   "ce": null
+  },
+  {
+   "tag": "input",
+   "cls": "sms-cell",
+   "id": "",
+   "text": "",
+   "visible": true,
+   "disabled": false,
+   "rect": "670,340,35,40",
+   "ph": "",
+   "type": "tel",
+   "ce": null
+  },
+  {
+   "tag": "input",
+   "cls": "sms-cell",
+   "id": "",
+   "text": "",
+   "visible": true,
+   "disabled": false,
+   "rect": "711,340,35,40",
+   "ph": "",
+   "type": "tel",
+   "ce": null
+  }
+ ],
+ "bodyText": " 主站 试试更多AI创作工具吧 成为UP主的第15天 投稿 首页 内容管理 数据中心 粉丝管理 互动管理 收益管理 花生 updream 全新上线 创作成长 任务中心 必火推广 创作学院 创作权益 社区公约 创作设置 发布视频 批量操作 smoke3-topic01 上传中... 添加视频 添加分P smoke3-topic01 已经上传：0.0MB/0.0MB 当前速度：0.0MB/s 剩余时间：>1天 0% 基本设置一键填写 * 封面 添加封面 以下为系统推荐封面，使用AI生成可获取更优质封面 AI生成 * 标题 14/80 * 创作声明 * 分区 影视 * 标签 英语 学习 英语学习 还可以添加7个标签 推荐标签： 英语 学习 英语学习 记录 原创 参与话题： 影视未来星企划 悬学十级学者 影视神仙剪刀手 上B站看播客 十级学者影视详解 AI剧情大片 搜索更多话题 > 简介 0 /2000 定时发布 (可选择距离当前最早≥5分钟/最晚≤15天的时间，花火、预约、互动视频稿件不可修改/取消) 加入合集 合集功能可用于收集整理系列性稿件 开通合集功能需满足权益中心等级达Lv2，您可前往创作中心-权益中心查看相关数据 商业推广 增加商业推广信息 更多设置 （含声明与权益、视频元素、互动管理等） 存草稿 立即投稿 信息填完后，就可投稿！不需等待上传完成哦~ 遇到问题 请完成短信验证 我们会将短信验证码发送到您在注册哔哩哔哩网站时填写的手机号码，请填写正确完成验证 153******** 确定 获取验证码"
+}

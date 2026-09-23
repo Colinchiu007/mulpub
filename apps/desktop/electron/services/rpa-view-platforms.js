@@ -174,6 +174,73 @@ function parseKuaishouArtifactEvidence (body, response) {
 }
 
 const platformsMixin = {
+  // ========== 导航后弹窗清理 ==========
+  // 平台上传落地页会叠加草稿恢复弹窗（快手：继续编辑/放弃）与功能引导遮罩
+  // （抖音/B站：我知道了/知道了），不先关掉会遮挡上传区与表单，导致字段选择器
+  // 全部 timeout（2026-09 E2E 实锤：快手草稿弹窗遮挡发布流程）。
+  // 草稿冲突优先点「放弃」（丢弃陈旧草稿，本次上传走全新流程）；只有「继续编辑」时点它。
+  async _dismissPostNavDialogs(win, platform) {
+    try {
+      const dismissed = await win.webContents.executeJavaScript(
+        '(function(){var clicked=[];' +
+        'var visible=function(e){return e&&e.offsetParent&&(e.innerText||"").trim().length<=12};' +
+        'var find=function(txt){return [...document.querySelectorAll("button,a,span,div,[role=button]")].filter(function(e){return visible(e)&&(e.innerText||"").trim()===txt})};' +
+        'var giveup=find("放弃");if(giveup.length){giveup[giveup.length-1].click();clicked.push("放弃")}' +
+        'else{var cont=find("继续编辑");if(cont.length){cont[cont.length-1].click();clicked.push("继续编辑")}}' +
+        'var acks=find("我知道了").concat(find("知道了"));for(var i=0;i<acks.length;i++){acks[i].click();clicked.push((acks[i].innerText||"").trim())}' +
+        'return clicked.join(",")})()'
+      )
+      if (dismissed) log.info('RpaView', '[' + platform + '] post-nav dialogs dismissed: ' + String(dismissed))
+    } catch (e) { log.warn('RpaView', '[' + platform + '] post-nav dialogs: ' + e.message) }
+  },
+
+  // ========== 选择器候选回退 ==========
+  // 旧实现只用 candidates[0]：平台改版或落地页差异会让首个候选不存在，整条链路
+  // 直接 timeout（2026-09 live DOM 实锤：快手编辑页根本没有 input[placeholder*="标题"]，
+  // 标题与作品描述同为 div#work-description-edit[contenteditable]）。必须逐候选尝试。
+  // 首个候选给完整预算（等 SPA 渲染），其余候选快速判定存在与否。
+  async _resolveSelector(win, selectors, firstTimeoutMs, restTimeoutMs) {
+    const list = (Array.isArray(selectors) ? selectors : [selectors]).filter((s) => typeof s === 'string' && s.length > 0)
+    for (let i = 0; i < list.length; i++) {
+      const cand = list[i]
+      // eslint-disable-next-line no-await-in-loop
+      if (await this._waitForElement(win, cand, i === 0 ? (firstTimeoutMs || 8000) : (restTimeoutMs || 2500))) return cand
+    }
+    return null
+  },
+
+  // 无独立标题字段的平台（快手作品描述）：标题与正文合并成一段文案写进编辑器，
+  // 长度按平台 max_content 截断（快手 1000），避免后续正文填充把标题覆写掉。
+  _composeEditorCaption(article, maxLen) {
+    const limit = Number(maxLen) > 0 ? Number(maxLen) : 2000
+    const parts = [article && article.title, article && article.content]
+      .filter((v) => typeof v === 'string' && v.trim().length > 0)
+      .map((v) => v.trim())
+    return parts.join('\n\n').slice(0, limit)
+  },
+
+  // ========== 视频上传完成强判定 ==========
+  // 旧判定 !progress||success 在快手/B站等平台立即为真（页面不用 progress class），
+  // 导致还在上传落地页就继续填字段/点发布，全部失败（2026-09 smoke4 实锤）。
+  // v2 收紧：blob 本地预览注入瞬间就存在，不能算完成（smoke5 实锤）。
+  // v3（2026-09 smoke6 实锤）：快手 25s 即误判完成，因为页内存在 https 广告 video。
+  // 因此加入平台通用的“正在上传”负向信号：上传中…/剩余时间：/转码中/可见进度条
+  // 任一命中就继续等；预算也拉到 15 分钟（实测 B站 96MB 上传超 10 分钟）。
+  async _waitForVideoUploadComplete(win, platform, timeoutMs) {
+    await this._sleep(25000) // 最低稳定期：80MB 视频不可能 25s 内传完，防 blob 预览/首拍误判
+    const cond = 'function(){var t=(document.body&&document.body.innerText)||"";'
+      + 'var pv=[...document.querySelectorAll("[class*=progress],[class*=uploading],[class*=percent],[class*=Percent]")].filter(function(e){return e.offsetParent&&e.clientHeight>0}).length;'
+      + 'var m=t.match(/(\\d{1,3})\\s*%/);var pct=m?Number(m[1]):-1;'
+      + 'var uploading=/上传中[….]{1,3}|正在上传|剩余时间[:\uff1a]|转码中|上传失败/.test(t)||pv>0||(pct>=0&&pct<100);'
+      + 'if(uploading)return false;'
+      + 'var vv=[...document.querySelectorAll("video")].some(function(v){var s=v.currentSrc||v.src||"";return s.indexOf("https:")===0&&v.getClientRects().length>0});'
+      + 'var ed=!!document.querySelector(\'input[placeholder*="标题"],textarea[placeholder],[contenteditable="true"]\');'
+      + 'return vv||ed||location.href.indexOf("post/video")!==-1}'
+    const ok = await this._waitForCondition(win, cond, timeoutMs || 900000, 3000)
+    if (!ok) log.warn('RpaView', '[' + platform + '] video upload-complete signal not detected (preview/url), continuing best-effort')
+    return ok
+  },
+
   // ========== P2-B: Config loading ==========
   _getPlatformConfig(platform) {
     if (!_platformConfigInstance) {
@@ -184,7 +251,7 @@ const platformsMixin = {
     const sel = (platformSelectors.PLATFORM_PUBLISH_SELECTORS && platformSelectors.PLATFORM_PUBLISH_SELECTORS[platform]) || {}
     const rpa = cfg.rpa_config || {}
     const patterns = (rpa.success_patterns && rpa.success_patterns.length > 0) ? rpa.success_patterns : (PLATFORM_SUCCESS_PATTERNS[platform]||[])
-    return { publish_url: cfg.publish_url||'', type: cfg.type||'article', has_api: cfg.has_api||false, selectors: sel, success_patterns: patterns, preFill: rpa.preFill||null, prePublishHook: rpa.prePublishHook||null, hookContext: rpa.hookContext||null, success_mode: rpa.success_mode||'url', success_selector: rpa.success_selector||null }
+    return { publish_url: cfg.publish_url||'', type: cfg.type||'article', has_api: cfg.has_api||false, selectors: sel, success_patterns: patterns, preFill: rpa.preFill||null, prePublishHook: rpa.prePublishHook||null, hookContext: rpa.hookContext||null, success_mode: rpa.success_mode||'url', success_selector: rpa.success_selector||null, max_content: Number(cfg.max_content) || null }
   },
 
   // ========== P2-B: Platform hooks ==========
@@ -237,53 +304,22 @@ const platformsMixin = {
 
     if (config.preFill) await this._execHook(win, config.preFill, config.hookContext)
 
-    // title
-    log.info('RpaView', '[' + platform + '] title input hasTitle=' + Boolean(article.title) + ' titleType=' + typeof article.title + ' selectorCount=' + (sel.title_input ? sel.title_input.length : 0))
-    if (article.title && sel.title_input && sel.title_input.length > 0) {
-      retry.addField('title')
-      while (!retry.isDone('title')) {
-        try {
-          this._emitProgress(platform, 'filling title...', 20)
-          if (await this._waitForElement(win, sel.title_input[0], 10000)) {
-            await this._fillInput(win, sel.title_input[0], article.title); retry.markDone('title')
-          } else {
-            if (!retry.retry('title')) break; await this._sleep(1000)
-          }
-        } catch(e) {
-          log.warn('RpaView', '['+platform+'] title: '+e.message)
-          if (!retry.retry('title')) break; await this._sleep(1000)
-        }
-      }
-    }
+    // 导航后清理草稿恢复弹窗/引导遮罩（否则上传区与表单被遮挡）
+    await this._dismissPostNavDialogs(win, platform)
 
-    // content
-    const cs = sel.editor || sel.content_textarea || sel.textarea
-    if (article.content && cs && cs.length > 0) {
-      retry.addField('content')
-      while (!retry.isDone('content')) {
-        try {
-          this._emitProgress(platform, 'filling content...', 35)
-          if (await this._waitForElement(win, cs[0], 10000)) {
-            await this._fillInput(win, cs[0], article.content); retry.markDone('content')
-          } else {
-            if (!retry.retry('content')) break; await this._sleep(1000)
-          }
-        } catch(e) {
-          log.warn('RpaView', '['+platform+'] content: '+e.message)
-          if (!retry.retry('content')) break; await this._sleep(1000)
-        }
-      }
-    }
-
-    // file upload
+    // video upload（必须先上传后填字段：kuaishou/bilibili 等平台的 publish_url 是
+    // 上传落地页，标题/简介字段要等上传完成进入编辑器才渲染；旧顺序先填字段
+    // 必然 timeout，2026-09 E2E 实锤）
     log.info('RpaView', '[' + platform + '] file input hasVideo=' + Boolean(article.video_path) + ' selectorCount=' + (sel.file_input ? sel.file_input.length : 0))
     if (article.video_path && sel.file_input && sel.file_input.length > 0) {
       retry.addField('file_upload')
       while (!retry.isDone('file_upload')) {
         try {
-          this._emitProgress(platform, 'uploading file...', 50)
-          if (await this._waitForElement(win, sel.file_input[0], 15000)) {
-            await this._setFileInput(win, article.video_path)
+          this._emitProgress(platform, 'uploading file...', 25)
+          // 逐候选定位文件输入（上传落地页常有多个 input[type=file]，首个未必负责视频）
+          const fileSel = await this._resolveSelector(win, sel.file_input, 15000, 3000)
+          if (fileSel) {
+            await this._setFileInput(win, article.video_path, fileSel)
             // 上传完成判定：百家号上传后页面会出现视频预览/编辑器初始化（发布按钮由 disabled 变可用）
             // 不能依赖 progress/success class（百家号可能不使用），改为轮询"发布按钮可用或编辑器出现"
             let uploadDone = false
@@ -291,16 +327,73 @@ const platformsMixin = {
               uploadDone = await this._waitForCondition(win, 'function(){var t=(document.body&&document.body.innerText)||"";var hasPreview=/预览|编辑|描述|简介|标题/.test(t);var ed=document.querySelector("[contenteditable=true],[data-lexical-editor=true]");var btn=[...document.querySelectorAll("button")].find(function(b){return (b.innerText||"").trim()==="发布"&&!b.disabled});return hasPreview&&(ed!==null||btn!==null)}', 180000, 1000)
               if (!uploadDone) log.warn('RpaView', '['+platform+'] upload complete wait timeout (video may still be processing)')
             } else {
-              const done = await this._waitForCondition(win, 'function(){let p=document.querySelector(\'[class*="progress"],[class*="uploading"]\');let s=document.querySelector(\'[class*="success"],[class*="complete"]\');return !p||s!==null}', 300000)
-              if (!done) log.warn('RpaView', '['+platform+'] upload timeout')
+              await this._waitForVideoUploadComplete(win, platform)
             }
-            retry.markDone('file_upload'); this._emitProgress(platform, 'file uploaded', 60)
+            // 编辑器表单就绪等待：上传完成后平台 SPA 渲染标题/简介字段有延迟，
+            // 不等直接填会全部 timeout（B站/快手上传完成后才切到编辑表单）
+            const formReady = await this._waitForCondition(win, 'function(){return !!document.querySelector(\'input[placeholder*="标题"],textarea,[contenteditable="true"]\')}', 120000, 1500)
+            if (!formReady) log.warn('RpaView', '[' + platform + '] editor form not ready after upload (still trying fields)')
+            retry.markDone('file_upload'); this._emitProgress(platform, 'file uploaded', 40)
           } else {
             if (!retry.retry('file_upload')) break; await this._sleep(2000)
           }
         } catch(e) {
           log.warn('RpaView', '['+platform+'] upload: '+e.message)
           if (!retry.retry('file_upload')) break; await this._sleep(2000)
+        }
+      }
+    }
+
+    // title（逐候选回退 + 无独立标题字段时写进编辑器）
+    log.info('RpaView', '[' + platform + '] title input hasTitle=' + Boolean(article.title) + ' titleType=' + typeof article.title + ' selectorCount=' + (sel.title_input ? sel.title_input.length : 0))
+    const editorCandidates = sel.editor || sel.content_textarea || sel.textarea || sel.desc_textarea
+    const titleSel = article.title ? await this._resolveSelector(win, sel.title_input, 10000, 3000) : null
+    // 快手 live DOM 实锤（2026-09 取证 d4-1-kuaishou.json）：编辑页没有独立标题框，
+    // 标题/描述共用 div#work-description-edit[contenteditable]。此时标题与正文合并
+    // 一次性写进编辑器，后面的正文步骤必须跳过，否则标题被纯正文覆写丢失。
+    let captionSel = null
+    if (article.title && !titleSel && editorCandidates && editorCandidates.length > 0) {
+      captionSel = await this._resolveSelector(win, editorCandidates, 6000, 2000)
+      log.info('RpaView', '[' + platform + '] no dedicated title field, title falls back to editor sel=' + String(captionSel || 'none'))
+    }
+    if (article.title && (titleSel || captionSel)) {
+      retry.addField('title')
+      while (!retry.isDone('title')) {
+        try {
+          this._emitProgress(platform, 'filling title...', 20)
+          const titleTarget = titleSel || captionSel
+          const titleValue = (captionSel && !titleSel) ? this._composeEditorCaption(article, config.max_content) : article.title
+          await this._fillInput(win, titleTarget, titleValue); retry.markDone('title')
+        } catch(e) {
+          log.warn('RpaView', '['+platform+'] title: '+e.message)
+          if (!retry.retry('title')) break; await this._sleep(1000)
+        }
+      }
+    } else if (article.title) {
+      log.warn('RpaView', '[' + platform + '] title field not found (no title_input nor editor candidate), title skipped')
+    }
+
+    // content
+    const cs = sel.editor || sel.content_textarea || sel.textarea
+    if (article.content && cs && cs.length > 0) {
+      if (captionSel && !titleSel) {
+        // 标题已作为作品描述写进同一编辑器（快手），正文已在合并文案里，跳过避免覆写标题
+        log.info('RpaView', '[' + platform + '] content already composed into editor caption, skip separate fill')
+      } else {
+        const contentSel = await this._resolveSelector(win, cs, 10000, 3000)
+        if (contentSel) {
+          retry.addField('content')
+          while (!retry.isDone('content')) {
+            try {
+              this._emitProgress(platform, 'filling content...', 35)
+              await this._fillInput(win, contentSel, article.content); retry.markDone('content')
+            } catch(e) {
+              log.warn('RpaView', '['+platform+'] content: '+e.message)
+              if (!retry.retry('content')) break; await this._sleep(1000)
+            }
+          }
+        } else {
+          log.warn('RpaView', '[' + platform + '] content editor not found among ' + cs.length + ' candidates')
         }
       }
     }
@@ -334,12 +427,13 @@ const platformsMixin = {
 
     // tags
     if (article.tags && article.tags.length>0 && sel.tag_input && sel.tag_input.length>0) {
+      const tagSel = await this._resolveSelector(win, sel.tag_input, 5000, 2000)
       for (let ti=0;ti<Math.min(article.tags.length,5);ti++) {
         try {
           this._emitProgress(platform,'adding tags...',72)
-          await this._waitForElement(win,sel.tag_input[0],5000)
-          await this._fillInput(win,sel.tag_input[0],article.tags[ti])
-          await win.webContents.executeJavaScript('(function(){var s='+JSON.stringify(sel.tag_input[0])+';let el=document.querySelector(s);if(el)el.dispatchEvent(new KeyboardEvent(\'keydown\',{key:\'Enter\',code:\'Enter\',keyCode:13}))})()')
+          if (!tagSel) throw new Error('tag input not found')
+          await this._fillInput(win,tagSel,article.tags[ti])
+          await win.webContents.executeJavaScript('(function(){var s='+JSON.stringify(tagSel)+';let el=document.querySelector(s);if(el)el.dispatchEvent(new KeyboardEvent(\'keydown\',{key:\'Enter\',code:\'Enter\',keyCode:13}))})()')
           await this._sleep(800)
         } catch(e) { log.warn('RpaView','['+platform+'] tag: '+e.message) }
       }
@@ -565,11 +659,65 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
     return { state, option: selectedValue }
   },
 
+  // 通用「创作/自主声明」下拉选择：平台实现都是「点占位含关键词的输入 →
+  // 弹层里按文本点选项 → 可选确定」。
+  // 2026-09 live DOM（d5-bilibili.json）：B站投稿页 `input.bcc-select-input-inner`
+  // 占位「请选择符合您视频内容的创作声明」带 * 必填，不选会被服务端拒投稿；
+  // 百家号用 .cheetah-modal、抖音叫「自主声明」，因此弹层根选择器可配置。
+  // 返回 { state, option }，任何异常都不阻断发布。
+  async _selectContentDeclaration (win, platform, article, roots) {
+    const r = roots || {}
+    const inputKeyword = r.inputKeyword || '创作声明'
+    const optionRoots = (Array.isArray(r.optionRoots) && r.optionRoots.length ? r.optionRoots : ['[class*="modal"] span', '[class*="modal"] label', '[class*="modal"] div'])
+    const confirmRoots = (Array.isArray(r.confirmRoots) && r.confirmRoots.length ? r.confirmRoots : ['[class*="modal"] button', '[class*="modal"] span'])
+    const aiGenerated = !article || article.aiGenerated !== false
+    const targetOpts = aiGenerated
+      ? ['AI生成内容', 'AI 生成内容', 'AI生成', 'AI 生成', '含AI生成内容', '人工智能生成内容']
+      : ['无需声明', '无声明', '默认声明', '作品为自行上传']
+    let state = 'unknown'
+    let selectedValue = ''
+    try {
+      const opened = await win.webContents.executeJavaScript('(function(){var kw=' + JSON.stringify(inputKeyword) + ';var el=[...document.querySelectorAll("input")].find(function(i){return String(i.placeholder||"").indexOf(kw)!==-1});if(!el)return "NO_INPUT";if(el.value&&el.value.trim())return "ALREADY";el.click();el.focus();return "OPENED"})()')
+      if (opened === 'NO_INPUT') state = 'no-input'
+      else if (opened === 'ALREADY') state = 'already'
+      else if (opened === 'OPENED') {
+        await this._sleep(2500)
+        const optionClicked = await win.webContents.executeJavaScript('(function(){var opts=' + JSON.stringify(targetOpts) + ';var roots=' + JSON.stringify(optionRoots) + ';var pool=[];for(var s=0;s<roots.length;s++){try{pool=pool.concat([...document.querySelectorAll(roots[s])])}catch(e){}}for(var k=0;k<opts.length;k++){var cands=pool.filter(function(e){return (e.innerText||"").trim()===opts[k]&&e.children.length===0});if(cands.length){cands[0].click();return {ok:true,option:opts[k]}}}return {ok:false}})()')
+        if (optionClicked && optionClicked.ok) {
+          selectedValue = String(optionClicked.option || '')
+          state = 'option-selected'
+          await this._sleep(1200)
+          const confirmed = await win.webContents.executeJavaScript('(function(){var roots=' + JSON.stringify(confirmRoots) + ';var pool=[];for(var s=0;s<roots.length;s++){try{pool=pool.concat([...document.querySelectorAll(roots[s])])}catch(e){}}var btns=pool.filter(function(e){var t=(e.innerText||"").trim();return (t==="确定"||t==="确认")&&e.children.length===0});if(btns.length){var b=btns[btns.length-1];if(b.tagName==="BUTTON"||b.tagName==="SPAN")b.click();else b.parentElement.click();return true}return false})()')
+          state = confirmed ? 'done' : 'option-selected-no-confirm'
+          await this._sleep(1200)
+        } else {
+          state = 'option-missing'
+        }
+      }
+    } catch (e) {
+      log.warn('RpaView', platform + ' declaration prep: ' + e.message)
+      state = 'error'
+    }
+    log.info('RpaView', '[' + platform + '] declaration prep state=' + state + ' aiGenerated=' + aiGenerated + (selectedValue ? ' option=' + selectedValue : ''))
+    return { state, option: selectedValue }
+  },
+
   // P3-6：B站投稿页分区选择 + 版权声明
   // 分区：article.category（tid）→ 页面分区搜索框输入分区名 → 点选候选
   // 版权：article.copyright（1=自制 2=转载）→ 点对应 radio
   async _prepBilibili(win, article) {
     this._emitProgress('bilibili', 'preparing category & copyright...', 82)
+    // 创作声明（B站必填）+ 风控短信验证弹窗清理（2026-09 live DOM：风控弹窗会
+    // 覆盖投稿区，其「确定」始终 disabled，先点掉页面才能继续接受填写）
+    try {
+      const smsAck = await win.webContents.executeJavaScript('(function(){var els=[...document.querySelectorAll("*")].filter(function(e){return e.children.length===0&&/短信验证|安全验证|验证码/.test((e.innerText||"").trim())&&(e.innerText||"").length<20&&e.offsetParent});if(!els.length)return "NO_SMS_DIALOG";var cancel=[...document.querySelectorAll("button,a,span,div")].filter(function(e){var t=(e.innerText||"").trim();return (t==="取消"||t==="关闭"||t==="×")&&e.children.length===0&&e.offsetParent});if(cancel.length){cancel[cancel.length-1].click();return "CANCELLED"}return "DIALOG_NO_CANCEL"})()')
+      log.info('RpaView', '[bilibili] sms dialog: ' + String(smsAck))
+    } catch (e) { log.warn('RpaView', 'bilibili sms dialog: ' + e.message) }
+    await this._selectContentDeclaration(win, 'bilibili', article, {
+      inputKeyword: '创作声明',
+      optionRoots: ['[class*="select"] li', '[class*="dropdown"] li', '[class*="option"]', '[role="option"]', '[role="listitem"]', '[class*="popup"] div', '[class*="popover"] div', '.bcc-select-panel li'],
+      confirmRoots: ['[class*="popup"] button', '[class*="popover"] button', '.bcc-button'],
+    })
     // 版权声明（自制/转载 radio）
     const copyright = Number(article.copyright) === 1 ? 1 : 2
     try {
@@ -848,14 +996,16 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
     this._emitProgress('douyin','navigating...',5)
     await this._navigateAndWait(win,'https://creator.douyin.com/creator-micro/content/upload')
     if (win.webContents.getURL().includes('login')) { log.warn('RpaView', '[douyin] not logged in url=' + win.webContents.getURL()); return {success:false,error:'douyin not logged in',platform:'douyin'} }
+    // 抖音实测（2026-09 d5-douyin.json）：页面叠加“我知道了”引导遮罩，不先关掉会
+    // 挡住字段与发布按钮
+    await this._dismissPostNavDialogs(win, 'douyin')
 
     if (article.video_path) {
       this._emitProgress('douyin','uploading video...',20)
       if (!(await this._waitForElement(win,'input[type="file"]',15000))) { log.warn('RpaView', '[douyin] no file input url=' + win.webContents.getURL()); return {success:false,error:'no file input',platform:'douyin'} }
       await this._setFileInput(win,article.video_path)
       this._emitProgress('douyin','waiting upload...',30)
-      const done = await this._waitForCondition(win,'function(){let p=document.querySelector(\'[class*="progress"]\');let s=document.querySelector(\'[class*="upload-success"],[class*="success"]\');return !p||s!==null}',300000)
-      if (!done) log.warn('RpaView','douyin: upload timeout')
+      await this._waitForVideoUploadComplete(win,'douyin')
       this._emitProgress('douyin','video uploaded',50)
     }
 

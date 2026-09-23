@@ -192,4 +192,49 @@ describe('usePlatformSelection — composable setup', () => {
 
     expect(r.getSelectedAccountIds('wechat_mp')).toEqual(['acc1'])
   })
+
+  it('getAccounts 过滤停用账号，可选集合与渲染共用同一判定', () => {
+    const store = makeAccountStore()
+    store.byPlatform.wechat_mp = [
+      { id: 'acc1', name: '公众号A', is_default: true, is_active: false },
+      { id: 'acc3', name: '公众号B', is_default: false },
+    ]
+    const r = usePlatformSelection(store)
+
+    expect(r.getAccounts('wechat_mp').map(account => account.id)).toEqual(['acc3'])
+    expect(r.getAvailableAccountIds('wechat_mp')).toEqual(['acc3'])
+    expect(r.isAccountAvailable('wechat_mp', 'acc1')).toBe(false)
+  })
+
+  it('默认账号被停用时不回填到发布目标，也不因脏 is_active 误停', async () => {
+    const store = makeAccountStore()
+    store.byPlatform.wechat_mp = [
+      { id: 'acc1', name: '公众号A', is_default: true, is_active: false },
+      { id: 'acc3', name: '公众号B', is_active: 'no' },
+    ]
+    const r = usePlatformSelection(store)
+    r.selectedPlatforms.value = ['wechat_mp']
+    await nextTick()
+
+    // 默认账号已停用 → 不回填任何账号（与既有「无默认账号时不设置」同构），
+    // 而 is_active 为脏值的 acc3 仍留在可选集合里，不被误停。
+    expect(r.getAvailableAccountIds('wechat_mp')).toEqual(['acc3'])
+    expect(r.getSelectedAccountIds('wechat_mp')).toEqual([])
+  })
+
+  it('已勾选账号被停用后自动从选择中剔除', async () => {
+    const store = makeAccountStore()
+    const r = usePlatformSelection(store)
+    r.selectedPlatforms.value = ['wechat_mp']
+    await nextTick()
+    r.setSelectedAccountIds('wechat_mp', ['acc1', 'acc3'])
+
+    store.byPlatform.wechat_mp = [
+      { id: 'acc1', name: '公众号A', is_default: true, is_active: false },
+      { id: 'acc3', name: '公众号B' },
+    ]
+    await nextTick()
+
+    expect(r.getSelectedAccountIds('wechat_mp')).toEqual(['acc3'])
+  })
 })

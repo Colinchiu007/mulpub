@@ -6,6 +6,12 @@ on:
     # 不得配置 paths-ignore：本 workflow 的 job 显示名「债务熔断检查」是 GitHub ruleset
     # main-ci-gate 的 required check，一旦按路径跳过就不会产生该检查，纯文档 PR 会永久 BLOCKED。
     # 债务预算检查本身只读 scripts/check-debt-budget.js，耗时 <1 分钟，无需省时长。
+  push:
+    branches: [main]
+    # 必须同时监听 push 到 main：本门禁是「扫描全仓当前状态」型断言，只在 pull_request 上跑时，
+    # GitHub 检出的是与 base 合并后的树——所以并发 PR 把已删条目带回 main（squash 合并吃掉 base 侧
+    # 的删除）不会让任何人的 CI 变红，反而让 main 长期处于违规态；之后每个无关 PR 都会被这条红
+    # 卡住（audit-2026-09-22 实测因此逃逸 3 次）。加上 push 后，债在欠债的人身上变红。
   workflow_dispatch:
 
 
@@ -27,6 +33,16 @@ jobs:
 
       - name: 检查债务预算
         run: node scripts/check-debt-budget.js
+
+      # 审计 P2·超大文件：debt-budget 是全仓聚合棘轮（maxFileLines / filesOver500 / filesOver1000），
+      # 「拆掉一个大文件 + 新写一个大文件」会互相抵消而无人报警；且 eslint max-lines 只覆盖 apps/desktop，
+      # Python 侧 1000+ 行文件完全不在行数门禁内。本步做逐文件判定，口径与 debt-budget 一致。
+      # 还完债请用 `node .github/scripts/check-max-lines.js --prune <路径>` 单键清账（会同时在 pruned 立碑），
+      # 不要跑整份 --update：那会顺手把别人的存量漂移登记成新基线。
+      - name: 逐文件行数门禁（新代码阻断 / 存量挂账防腐）
+        run: |
+          node .github/scripts/check-max-lines.js
+          node --test .github/scripts/check-max-lines.test.js
 
       - name: 死代码检测（软门禁，报告供人工审查）
         continue-on-error: true

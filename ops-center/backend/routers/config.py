@@ -26,15 +26,23 @@ async def list_projects(
     }
 
 
+def _mask_value(value: str, is_secret: bool) -> str:
+    """审计日志值掩码纯函数：secret 配置项的 old/new 值不返回明文。
+
+    P1-5 起审计值已在**写库时**掩码，本函数只对存量明文行做读时兜底，因此必须幂等：
+    已含 "***" 的值再削一次会把掩码本身伪装成另一个值，排查时无法还原。
+    """
+    if not is_secret or not value:
+        return value
+    if "***" in value:
+        return value
+    return value[:4] + "***" + value[-4:] if len(value) > 8 else "***"
+
+
 async def _mask_audit_value(db: AsyncSession, config_id: str, value: str) -> str:
-    """审计日志值掩码：secret 配置项的 old/new 值不返回明文。"""
+    """单条掩码（保留给非批量调用方；批量路径见 get_audit_log 的 flags 预取）。"""
     item = await config_service.get_config(db, config_id)
-    if item is not None and item.is_secret and value:
-        # P1-5: 审计值已在写库时掩码，此处只兜底存量明文行（幂等：已含 *** 不再二次掩码）
-        if "***" in value:
-            return value
-        return value[:4] + "***" + value[-4:] if len(value) > 8 else "***"
-    return value
+    return _mask_value(value, bool(item is not None and item.is_secret))
 
 
 @router.get("/audit-log")
@@ -47,13 +55,17 @@ async def get_audit_log(
 ):
     """Query config change audit log."""
     logs = await config_service.get_audit_logs(db, config_id=config_id, limit=limit, offset=offset)
+    # 掩码需要 is_secret：旧实现对每条日志的 old/new 各回查一次配置项（limit=500
+    # 时最多 1000 次 SELECT）。改为按去重后的 config_id 一次性批量预取。
+    secret_flags = await config_service.get_secret_flags(db, [log.config_id for log in logs])
     result = []
     for log in logs:
+        is_secret = secret_flags.get(log.config_id, False)
         result.append({
             "id": log.id,
             "config_id": log.config_id,
-            "old_value": await _mask_audit_value(db, log.config_id, log.old_value),
-            "new_value": await _mask_audit_value(db, log.config_id, log.new_value),
+            "old_value": _mask_value(log.old_value, is_secret),
+            "new_value": _mask_value(log.new_value, is_secret),
             "changed_by": log.changed_by,
             "changed_at": log.changed_at,
             "change_type": log.change_type,
@@ -135,23 +147,28 @@ async def batch_update_config(
     if not items_data:
         raise HTTPException(400, "No items provided")
 
-    results = []
+    payloads = []
     for item_data in items_data:
         project_code = item_data["project_code"]
         category = item_data["category"]
         key = item_data["key"]
-        config_id = f"{project_code}.{category}.{key}"
-        item = await config_service.upsert_config(
-            session=db,
-            config_id=config_id,
-            project_code=project_code,
-            category=category,
-            key=key,
-            value=str(item_data.get("value", "")),
-            value_type=item_data.get("value_type", "string"),
-            updated_by=user.get("username", "unknown"),
-        )
-        results.append(_item_to_dict(item))
+        payloads.append({
+            "config_id": f"{project_code}.{category}.{key}",
+            "project_code": project_code,
+            "category": category,
+            "key": key,
+            "value": str(item_data.get("value", "")),
+            "value_type": item_data.get("value_type", "string"),
+            "description": str(item_data.get("description", "")),
+            "is_secret": item_data.get("is_secret", 0),
+            "is_required": item_data.get("is_required", 0),
+            "default_value": str(item_data.get("default_value", "")),
+        })
+    # 整批单事务：要么全部生效，要么全部回滚（旧实现逐条 commit，中途失败留半更新）。
+    items = await config_service.batch_upsert_configs(
+        db, payloads, updated_by=user.get("username", "unknown"),
+    )
+    results = [_item_to_dict(item) for item in items]
 
     return {"updated": len(results), "items": results}
 

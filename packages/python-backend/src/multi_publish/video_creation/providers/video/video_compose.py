@@ -230,6 +230,19 @@ class VideoCompose(BaseTool):
         "Play the composed output and verify cuts, subtitles, and overlays",
     ]
 
+    # --- Render command capture seam (T0a; ARCH-RENDER-ENGINE-ADAPTER A9) ---
+    # When a callable is injected into _cmd_capture, run_command records the
+    # logical command (argv before shutil.which rewriting on Windows) together
+    # with cwd and timeout, then delegates to BaseTool.run_command. Default None
+    # means zero behavior change for production and all existing tests.
+    _cmd_capture = None
+
+    def run_command(self, cmd, *, timeout=None, cwd=None):
+        cap = self._cmd_capture
+        if cap is not None:
+            cap(list(cmd), cwd, timeout)
+        return super().run_command(cmd, timeout=timeout, cwd=cwd)
+
     def _remotion_available(self) -> bool:
         """Check if Remotion rendering is available (requires npx + composer project + node_modules)."""
         import shutil as _shutil

@@ -345,3 +345,98 @@ def test_legacy_account_without_status_is_reported_unverified(monkeypatch, tmp_p
 
     assert listed.status_code == 200
     assert listed.json()["data"][0]["status"] == "unverified"
+def _account_is_active(client, account_id):
+    return client.get(f"/api/accounts/{account_id}", headers=_headers()).json()["data"]["is_active"]
+
+
+@pytest.mark.parametrize("target", [False, True])
+def test_patch_account_is_active_persists_without_touching_status(monkeypatch, tmp_path, target):
+    """is_active 必须能写进唯一真源，且不得污染登录态三态（两者正交）。"""
+    verifier = StubVerifier("sub-a")
+    client = _client(monkeypatch, tmp_path, verifier)
+    account_id = client.post(
+        "/api/accounts", headers=_headers(), json={"platform": "douyin", "name": "账号 A"}
+    ).json()["data"]["id"]
+    client.patch(f"/api/accounts/{account_id}", headers=_headers(), json={"status": "expired"})
+
+    patched = client.patch(
+        f"/api/accounts/{account_id}", headers=_headers(), json={"is_active": target}
+    )
+
+    assert patched.status_code == 200
+    assert patched.json()["data"]["is_active"] is target
+    assert patched.json()["data"]["status"] == "expired"
+    assert server._load_accounts()[account_id]["is_active"] is target
+    assert server._load_accounts()[account_id]["status"] == "expired"
+
+
+def test_patch_account_is_active_survives_list_endpoint(monkeypatch, tmp_path):
+    """停用后列表接口必须回读 is_active=False，否则前端拿不到启用态。"""
+    verifier = StubVerifier("sub-a")
+    client = _client(monkeypatch, tmp_path, verifier)
+    account_id = client.post(
+        "/api/accounts", headers=_headers(), json={"platform": "douyin", "name": "账号 A"}
+    ).json()["data"]["id"]
+
+    client.patch(f"/api/accounts/{account_id}", headers=_headers(), json={"is_active": False})
+    listed = client.get("/api/accounts", headers=_headers())
+
+    assert listed.status_code == 200
+    assert listed.json()["data"][0]["is_active"] is False
+    assert _account_is_active(client, account_id) is False
+
+
+@pytest.mark.parametrize("payload", [{"is_active": "no"}, {"is_active": 1}, {"is_active": [False]}])
+def test_patch_account_is_active_rejects_non_boolean(monkeypatch, tmp_path, payload):
+    """启用态是严格布尔：不接受隐式真值收敛，避免脏源。"""
+    verifier = StubVerifier("sub-a")
+    client = _client(monkeypatch, tmp_path, verifier)
+    account_id = client.post(
+        "/api/accounts", headers=_headers(), json={"platform": "douyin", "name": "账号 A"}
+    ).json()["data"]["id"]
+
+    bad = client.patch(f"/api/accounts/{account_id}", headers=_headers(), json=payload)
+
+    assert bad.status_code == 422
+    assert _account_is_active(client, account_id) is True
+
+
+def test_patch_account_invalid_status_does_not_half_write_is_active(monkeypatch, tmp_path):
+    """同一请求里 status 非法时，is_active 不得被半更新（校验先于写盘）。"""
+    verifier = StubVerifier("sub-a")
+    client = _client(monkeypatch, tmp_path, verifier)
+    account_id = client.post(
+        "/api/accounts", headers=_headers(), json={"platform": "douyin", "name": "账号 A"}
+    ).json()["data"]["id"]
+
+    bad = client.patch(
+        f"/api/accounts/{account_id}",
+        headers=_headers(),
+        json={"status": "inactive", "is_active": False},
+    )
+
+    assert bad.status_code == 400
+    assert bad.json()["detail"] == "ACCOUNT_STATUS_INVALID"
+    assert _account_is_active(client, account_id) is True
+    assert server._load_accounts()[account_id]["status"] != "inactive"
+
+
+def test_legacy_account_with_dirty_status_is_normalized_unverified(monkeypatch, tmp_path):
+    """历史脏值（曾把启用/停用写进 status）读侧必须降级为 unverified，不冒充已登录。"""
+    verifier = StubVerifier("sub-a")
+    client = _client(monkeypatch, tmp_path, verifier)
+    server._save_accounts({
+        "legacy2": {
+            "id": "legacy2",
+            "platform": "bilibili",
+            "name": "脏状态账号",
+            "status": "inactive",
+            "owner_subject": "sub-a",
+            "created_at": "2025-01-01T00:00:00",
+        }
+    })
+
+    listed = client.get("/api/accounts", headers=_headers())
+
+    assert listed.status_code == 200
+    assert listed.json()["data"][0]["status"] == "unverified"

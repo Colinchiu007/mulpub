@@ -34,6 +34,8 @@
       {{ t('settings.logs.autoClearHint') }}
     </div>
 
+    <NetSchedDiagnose />
+
     <!-- 摘要卡片 -->
     <div class="log-summary">
       <div class="summary-row">
@@ -69,6 +71,9 @@
         </div>
       </div>
     </div>
+
+    <!-- 缓存清理（独立组件：逐文件行数门禁下的自包含卡片拆分范式） -->
+    <CacheCleanupSection />
 
     <section class="feedback-section" aria-labelledby="feedback-title">
       <div class="feedback-header">
@@ -111,8 +116,12 @@ import { onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { logsGetInfo, logsClear, submitFeedback as submitFeedbackRequest } from '@/api/publisher'
 import { getAppLocale, setAppLocale } from '@/i18n'
+import NetSchedDiagnose from './NetSchedDiagnose.vue'
+import CacheCleanupSection from './CacheCleanupSection.vue'
+import { formatBytes } from '@/utils/bytes'
 
 const { t } = useI18n()
+
 const loading = ref(false)
 const clearing = ref(false)
 const info = reactive({ dir: '', totalBytes: 0, fileCount: 0, maxFileBytes: 0, files: [] })
@@ -125,18 +134,6 @@ const feedbackSuccess = ref('')
 
 function changeLocale (event) {
   localeModel.value = setAppLocale(event && event.target && event.target.value === 'en' ? 'en' : 'zh')
-}
-
-function formatBytes (bytes) {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB']
-  let value = bytes
-  let index = 0
-  while (value >= 1024 && index < units.length - 1) {
-    value /= 1024
-    index += 1
-  }
-  return `${value.toFixed(index === 0 ? 0 : 2)} ${units[index]}`
 }
 
 async function loadInfo () {
@@ -201,7 +198,9 @@ async function submitFeedback () {
   }
 }
 
-onMounted(loadInfo)
+onMounted(() => {
+  loadInfo()
+})
 </script>
 
 <style scoped>
@@ -465,4 +464,5 @@ onMounted(loadInfo)
   justify-content: flex-end;
   margin-top: 4px;
 }
+
 </style>

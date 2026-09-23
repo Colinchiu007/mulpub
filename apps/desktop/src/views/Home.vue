@@ -146,7 +146,7 @@
           <div class="recent-item-status" :class="`status-${item.status || 'unknown'}`">
             {{ statusLabel(item.status) }}
           </div>
-          <span class="recent-item-time">{{ formatTime(item.created_at || item.createdAt) }}</span>
+          <span class="recent-item-time">{{ formatTime(item.created_at || item.createdAt || item.timestamp) }}</span>
         </div>
       </div>
     </section>
@@ -180,7 +180,9 @@ const tabStore = useTabStore()
 const { notifySuccess, notifyError, notifyWarning } = useNotify()
 
 const stats = ref({ total: 0, success: 0, failed: 0 })
-const accountCount = ref(0)
+// 绑定账号数与账号页同源（accountStore → accounts:list → AccountManager 凭证体系）。
+// SQLite accounts 表只镜像 OAuth 账号（双库分裂），读它会导致首页计数与账号页不一致。
+const accountCount = computed(() => accountStore.accounts.length)
 const recentItems = ref([])
 const statsLoaded = ref(false)
 
@@ -330,19 +332,21 @@ onMounted(async () => {
     await refreshExpiredAccounts()
     const api = getApi()
     if (api) {
-      if (api.storeGetPublishStats) {
-        const res = await api.storeGetPublishStats()
-        if (res && res.code === 0) stats.value = res.data
-      }
-      if (api.storeListAccounts) {
-        const res = await api.storeListAccounts()
-        if (res && res.code === 0) accountCount.value = (res.data || []).length
+      // 发布统计与数据看板同源：dashboard:stats（publish-history JSONL 聚合）。
+      // SQLite publish_history 表已无生产写入方（store:add-publish-record 零调用），读它只会得到空值或迁移快照残留。
+      if (api.dashboardStats) {
+        const res = await api.dashboardStats()
+        if (res && res.code === 0 && res.data) {
+          stats.value = { total: res.data.total || 0, success: res.data.success || 0, failed: res.data.failed || 0 }
+        }
       }
       statsLoaded.value = true
       if (api.historyList) {
         const res = await api.historyList({ limit: 5, offset: 0 })
-        if (res && res.code === 0 && Array.isArray(res.data)) {
-          recentItems.value = res.data.slice(0, 5)
+        // history:list 合同为 { total, records }（与 Dashboard/Calendar 口径一致）；
+        // 旧判定 Array.isArray(res.data) 恒为 false，导致近期动态永远为空。
+        if (res && res.code === 0 && Array.isArray(res.data && res.data.records)) {
+          recentItems.value = res.data.records.slice(0, 5)
         }
       }
     }

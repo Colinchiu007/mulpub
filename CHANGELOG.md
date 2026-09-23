@@ -16,6 +16,356 @@
 
 ---
 
+# [未发布] test(desktop): 桌面套件墙钟成本归属收敛 + story2video :714 超时排查（2026-09-23，desktop-suite-wallclock）
+
+### 变更
+- **`accounts-compile.test.js` 内嵌的全量 `vite build` 降级为显式 opt-in**：第 6 条用例原先每次跑桌面套件都 `execSync('npx vite build ...')`（实测单条 **55.14s**、整文件 **63.12s**），而全量构建已在 required 门禁链路上覆盖（`quality-gate.yml` 的 visual job 执行 `pnpm run build:vue`，`gate-result` `needs: [... visual ...]`，Gate Result 是 main 的 required context）——测试内嵌那份属重复成本，也是本地宽 subset 打包时该文件超时 flake 的直接来源。现改为 `MP_VITE_BUILD_GUARD=1` 显式开启才跑。
+- **日常守卫改由 `vue/compiler-sfc` 直接编译承担**：新增用例对真实 `Accounts.vue` 做 `parse` + `compileScript` + `compileTemplate`（实测 **644ms**，spike 阶段 333ms），覆盖 c3c395570 那类「重复 import 导致运行时崩溃」的缺陷；保留 `parse.errors` 为空仍必须被 `compileScript` 拒绝的断言口径。
+- **新增「守卫自检」负面用例**：构造重复 import 的 SFC，断言 `parse.errors` 长度为 0（证明只做到 parse 就是空守卫）且 `compileScript` 抛 `already been declared`。守卫一旦退化（有人把断言改回只看 parse）会立即变红，而不是安静地变成空跑。
+- **给依赖真实 ffmpeg 的 suite 级 beforeAll 单独放宽 hook 预算**（`story2video-stages.test.js` 新增 `MEDIA_SETUP_HOOK_TIMEOUT_MS = 60000`）：CI 上 `QG Desktop Shards (1/2)` 曾以 `Error: Hook timed out in 10000ms.` 整 suite 失败且**零断言失败**，同一基线复跑又通过。根因不是用例竞态，而是 `quality-gate.yml` 的 desktop-shards 有意不继承 `electron-ci.yml` 的 `NODE_ENV=test` + `SKIP_NATIVE_MEDIA_TOOL_TESTS=1` 契约（`media-tool-paths.js` 要求两者同时成立才短路），于是该 hook 真的 spawn 捆绑 ffmpeg 并起本地 HTTP 服务，冷启动 runner 上可超 10s。只放宽这一个 hook，全局 `--hookTimeout=10000` 保持不变（真挂死的 hook 仍会被抓）；**没有**改用 `SKIP_NATIVE_MEDIA_TOOL_TESTS=1` 把这条全 CI 链路里唯一真实执行 ffmpeg 的覆盖藏起来。同时在 `quality-gate.yml` 的 shard step 上方补注释说明该契约，防再次漂移。
+- 默认路径套件耗时 **63.12s → 14.60s**（tests 7.77s）。
+
+### 根因与逃逸
+- **accounts-compile 根因**：不是代码缺陷，是**成本归属缺陷**——同一次全量构建在 required job 与单元测试里各跑一遍，而门禁只校验「用例是否通过」，不约束单条用例的绝对墙钟，于是一条 55s 的用例可以长期绿着存在，只在机器负载高时以随机 flake 呈现。归类：测试质量不足（缺成本归属约束）+ 流程缺失（无「required 链路已覆盖的重型构建不得再嵌进单测」契约）。
+- **`story2video-stages.test.js:714` 排查结论为阴性（未编造根因）**：该用例（任一 scene 图片/音频失败默认阻断）本地实测 **56ms**，距 10s 阈值两个数量级。逐项排除：文件内无 `.concurrent`（串行执行）；`generate_assets` 的轮询 `videoPromise` 在 `StageExecutor` 两条出口均被 `await`，无泄漏定时器；mock 的 `{code:-1,message:'image failed'}` 不匹配 `TRANSIENT_MESSAGE_PATTERN`，不走退避重试；真实媒体成本仅约 1.1s（ffmpeg 建 1s 片段 123ms + ffprobe×12 共 1033ms）。文件内唯一固有慢点是「真实 governor 回归」8073ms，但它第 2398 行已有显式 `{ timeout: 60000 }` 豁免，不会报 10s 超时。**未发现可复现的代码缺陷，本次不改该文件**。
+- **上一条「阴性结论」的适用范围已按新证据更正（撤回记录）**：原先写「未发现可复现的代码缺陷，本次不改该文件」，把「`:714` 那条用例本身没病」越界外推成了「整个文件没病」。同日稍后的 CI 实证表明失败落在同文件唯一的重型 `beforeAll`（suite 级 hook，`Failed Suites 1` + 零断言失败），不是那条用例。因此本 PR **确实**改动 `story2video-stages.test.js`，但改动面只有一个 hook 的预算与解释注释，用例逻辑一行未动。教训：阴性结论必须写明排查覆盖了哪一层、哪些层面未覆盖、什么证据会推翻它。
+- **一次性环境因素（已复测排除）**：首轮测量曾得到 `total=44429ms/149 tests`（比复测慢约 14×），根因是 D 盘 `freebytes=0`，vitest 写临时文件撞 `ENOSPC` 后以 `Test timed out` 形式呈现，而非磁盘错误。清盘后同基线复跑得 12227ms，此前的「文件内累积饥饿」假设被自己的复测推翻并撤回。
+
+### 验证
+- `node scripts/verify-worktree-deps.js` OK（11 项消费方解析到当前 worktree）。
+- 默认路径：`Tests 7 passed | 1 skipped (8)`，`Duration 14.60s`。
+- opt-in 路径：`MP_VITE_BUILD_GUARD=1` → `8 passed`，构建用例 37552ms 通过（证明降级不是删守卫，只是改触发条件）。
+- hook 预算修复后按 CI 同参本地复跑该文件：`Tests 149 passed (149)`、`Duration 13.38s`（`--maxWorkers=1 --no-file-parallelism --testTimeout=10000 --hookTimeout=10000 --teardownTimeout=10000`）；`node --check` 通过，`story2video-stages.test.js` 4047→4056 行纯 CRLF。
+- 取证数据落盘 `.agent_context/tmp-impl/wt-longpath/`：`vt-base2.json`（清盘后基线）、`vt-s2v.json`/`vt-videosuite.json`（满盘对照）、`media-cost.txt`（ffprobe/ffmpeg 实测）。
+
+### 关联
+- 分支 `codex/desktop-suite-wallclock`（worktree 隔离）；承接 PR #2247 在 `.quality-gates.md` 中写明的回填义务（#2247 最终 squash SHA 由本 PR 回填）。
+- 经验沉淀见 `01-docs/learnings.md`「超时类 flake 先查磁盘余量」与「重型构建的成本归属」两条。
+- **合并前置阻塞（非本 PR 引入）**：main tip `116486a4c3` 起 required 检查 `债务熔断检查` 对所有以 main 为基线的分支皆红——`LogsSettings.vue`（现 468 行，已不超限）的挂账条目被 #2264 从旧基线复活（#2274 曾正确删除）。修复由 PR #2280（`codex/audit-ledger-tombstone`：挂账三态语义 + 墓碑 + debt-guard 补 push 触发）承接；本 PR 与 PR #2247 均等其落地后 rebase，按并发会话铁律不越界代修。
+
+---
+# [未发布] docs(accounts): 账号资料获取的合并后复验与遗留观察回写（2026-09-23，docs-followup-profile）
+
+### 变更
+- **纯文档增量，零代码改动**：`PRD-ACCOUNT-PROFILE-INFO-2026-09-23.md` 追加「§13 交付与遗留观察」，记录 #2290 的实际合并结果与合并后复验口径；`01-docs/learnings.md` 头插合并收尾三条硬口径。
+- **PRD §13 新增内容**：合并事实（5 轮 CONFLICTING、squash 合并于 `852ae22c2c`）；按真实路径校正后的定向测试集与计数（16 文件 / 692 passed / 1 skipped，后端 28 passed）；5 项门禁 rc0 的实名清单；`QG Browser E2E` 的 `/dashboard` 单点失败与 `QG Desktop Shards (2/2)` 在 main 上的失败一并登记为「仓库级 flake 观察项」，并写明归属判定证据（本 PR 未触碰 dashboard）。
+- **learnings 沉淀 6 条**：union 无损校验两层法（字节和式 + 逐行多重集 + 关键字计数）；解冲突脚本 `git add` 后 stage 自锁（解冲突用 stage、校验用 ref）；vitest 位置参数静默忽略不存在路径导致低覆盖假象；required check 红灯先判归属再决定动作；移动靶 main 每轮合并都完整复验、收尾以 `state=MERGED` 为准；`.gitignore` 的 `/01-docs/**/*.md` 会让新建 PRD 被 `git add -A` 静默跳过（本次 #2290 就漏了 PRD 文件，须 `git add -f` 并用 `git ls-files` + `gh pr diff --name-only` 双向自证）。
+
+### 修复
+- **文档层面的验证口径失真**：#2290 的 CHANGELOG 条目里「定向 12 文件 / 575 passed」是按记忆手敲的路径跑出来的，其中 2 个路径不存在被 vitest 静默跳过，实际等价于少跑了 4 个文件。本次在 PRD §13 以校正后的 16 文件 / 692 passed | 1 skipped 为准，并保留原数字与其成因，不做静默覆盖。
+
+### 数据与校验
+- 本次不改任何数据模型、接口、显示项与提示文字，无新增用户可见行为；不新增 locale 文案，Gate 7（zh/en 成对、CJK 基线、键存在性）仅为复验而非受影响面。
+- 门禁复跑结论：`check-max-lines`（limit 500 / growthAllowance 200，超限文件 99、挂账 99、墓碑 1，无新增超限）、`check-debt-budget`（全指标在基线内、circularDeps 0）、`check-locale-sync --pair-base/--cjk/--keys` 全部 rc0。
+
+### 关联
+- 承接 `codex/account-profile-info`（PR #2290，已 MERGED）与 `codex/account-is-active-batch`（PR #2282，已 MERGED）。
+- 文档：`01-docs/PRD-ACCOUNT-PROFILE-INFO-2026-09-23.md` §13、`01-docs/learnings.md` 顶部条目。
+
+# [未发布] docs(audit): 收尾文档私钥字面量计数随 #2291 合并复算（6 处/5 文件 → 7 处/6 文件）
+
+### 变更
+- 订正 `docs/audit-remediation-closeout-2026-09-23.md` 的 P0-1 行：#2291 为四态裁决新增了一个 DEV 私钥测试夹具
+  （`apps/desktop/electron/services/runtime-trust-anchor.test.js:25`），`git grep "BEGIN (RSA |EC )?PRIVATE KEY" origin/main`
+  实测现为 **7 处命中 / 6 个测试文件**（真实 PEM 夹具 6 处 / 5 文件 + `test_p0_security.py:186` 的断言本身 1 处），
+  **非测试命中仍为 0**；文档原写「6 处 / 5 个测试文件」已不足。同时在交付清单加一行记录本次订正，并给计数标上测量基准 SHA。
+
+### 备注
+- 第八节复算指引补第 6 条：私钥字面量 `git grep`（整行可复制），并写明期望值与测量基准 SHA——计数不写基准就无法被下一个人判定「过期」还是「写错」。
+- 纯文档，不改生产代码、不改任何门禁语义；这是同一份收尾文档的第 6 处口径订正。
+- 教训入册：文档里的「N 处 / M 文件」这类**计数本身也是一条会漂移的断言**——它是某个 HEAD 上的快照，
+  所依赖的 PR 一合并就可能失效。写计数必须同时写明测量基准（SHA 或时间点），并在依赖变更后复算。
+
+---
+
+---
+# [未发布] fix(accounts): 账号昵称/头像真实获取与写回 —— 三条登录入口接通采集器、检测成功回填存量、PATCH 改缺席语义（2026-09-23，account-profile-info）
+
+### 变更
+- **资料采集单一实现来源 `packages/shared-utils/src/account-profile.js`（新增 228 行）**：导出 `accountInfoCollector`（页面内自求值采集函数）、`selectorsFor`、`buildCollectorExpression`、`collectWithPlaywright`、`collectWithWebContents`、`profileForCreate`、`buildProfilePatch`。此前 DOM 采集在 `account-manager.js` 内联一份（昵称 4 层回退 + 头像 3 层回退 + 平台ID + 粉丝折算），双运行时（Playwright `page.evaluate(fn, arg)` 可传参 / Electron `webContents.executeJavaScript(code)` 只收字符串）若要共用同一实现，采集函数必须**完全自包含**：Electron 侧只能拼成 `'(' + fn.toString() + ')(' + JSON.stringify(arg) + ')'`，函数体一旦引用模块作用域标识符（`require` / `PLATFORM_ACCOUNT_INFO_SELECTORS` / `log`）就在页面上下文 `ReferenceError`。该约束由回归测试在裸作用域求值钉死（`new Function('document', 'return (' + src + ')')`）。
+- **三条真实登录入口在提取凭证的同时产出 `accountInfo`**：`auth-view-manager._extractAuthData()`（+5 行，返回体追加 `accountInfo`）、`qrcode-login._extractAuthData()/_onLoginSuccess()`（+5 行，随 `saveCapturedAccount` payload 下发）、`webview-manager.saveAccountTabCredentials()`（+5 行，随 `updateCapturedAccount` payload 下发）。登录成功是唯一「DOM 已登录 + 凭证可用」的时机，资料必须在此刻一并采集；`ipc-handlers/account.js` 把 `auth:open-login` 的 `result` 原样传给 `AccountManager.saveCapturedAccount/updateCapturedAccount`，无字段白名单，故 IPC 层零改动。
+- **登录态检测判定有效的两条出口新增资料回填 `refreshProfileFromPage(page, platform, accountId)`**：DOM 选择器命中出口与仪表盘域名兜底出口各一次（`account-manager.js:550` / `:580`）。流程为「安全段校验 → 采集 → 空即 return false → GET 真源 → `buildProfilePatch` → 无差异即 return false → PATCH 只含资料字段」，任何异常只 `log.warn` 后返回 false —— **登录态结论绝不因资料失败而改变**，两条 valid 出口照旧返回 `{valid:true, code:'CHECK_LOGIN_SUCCESS'}`。这条路径是存量账号（历史从未采到昵称/头像）无需重新登录即可修复的唯一入口。
+- **更新路径改为「只下发命中且与真源不同的字段」**：`updateCapturedAccount` 用 `profileUtils.buildProfilePatch(accountInfo, account)` 生成差异体，返回值 `= { ...真源, ...profilePatch, name, status, ... }`（提取失败时调用方仍拿到旧真值）；创建路径（POST）保留可空语义 `profileForCreate(accountInfo, name)`（新行没有旧值需要保护，昵称未命中回落显示名）。
+- **删除「未命中即空串」的推导**：原 `updateCapturedAccount` 把 `account_name`/`avatar`/`platform_account_id` 未命中算成 `''`、`followers` 算成 `null` 一并 PATCH；后端 `AccountUpdateRequest` 是 `... | None = None` + `is not None` 才赋值，**空串是「显式清空」而不是「不修改」**，于是每次重新登录都会把上一次真实获取的昵称/头像反向覆写掉。
+- **头像 `<img>` 增加 `@error` 回落**：`AccountManagementCard.vue` 用组件级 `avatarBroken` + `showAvatar` computed；`PlatformAccountGroup.vue` 用 `avatarBrokenIds = ref(new Set())` + `markAvatarBroken(account)` 按 `account.id` 逐个记录，单账号外链失效不牵连同组其他账号（平台分组行同时展示多账号）。
+
+### 修复
+- **昵称显示成网页标题、头像恒空**：`extractAccountInfo` 能力一直存在，但唯一调用点是 `captureCookies()`，而 `captureCookies` 只被 IPC `account:add` 触发 —— 渲染层全仓零调用（登录实际走上述三条主进程入口）。真实入口只产出 `{cookies, name, localStorage, indexedDB}`，其中 `name` 取 `document.title`/标签标题，所以账号页昵称长期显示为「XX - 登录页」，头像字段没有任何来源。属**装饰性链路**第 4 次复发（能力存在、无人调用）。
+- **存量账号永不修复**：一键检测/单账号检测判定有效后只回写 `status`/`last_validated`，从不回填资料字段。
+- **头像外链失效留空白框**：平台侧头像多为带签名的临时 CDN 链接（防盗链/过期），`<img>` 无 `@error` 时显示为空白头像而非默认图标。
+
+### 数据校验纪律
+1. `platform` / `accountId` 必须过 `isSafePathSegment`，否则不采集、不写回（防路径操纵）。
+2. 采集结果必须是 plain object；`collectWith*` 内任何异常一律降级 `{}`，禁止抛出打断登录/检测主链路。
+3. `buildProfilePatch` 三条过滤：值非 `null/undefined/''`（字符串一律 `trim` 后判空）；与真源当前值相同则跳过（避免无意义写盘）；键白名单仅 `account_name` / `avatar` / `platform_account_id` / `followers`。
+4. 资料 PATCH 与登录态 PATCH 互不夹带：`refreshProfileFromPage` 的请求体绝不出现 `status`/`last_validated`；`updateCapturedAccount` 的 `status='active'` 仅在凭证成功落盘后下发。
+5. `followers` 必须 `Number.isFinite` 且 `>= 0`，`Math.round` 后落盘；文本按 `/([\d.,]+)\s*(万|w|W)?/` 折算（「1.2万」→ 12000，千分位剥离）。
+6. `account_name` 走 meta 回退（`og:title` / `twitter:title`）时限长 < 50，且 DOM 选择器命中优先于 meta，避免公告标题噪声冒充昵称；`avatar` 仅存 URL，不做可达性校验（可达性由 UI 层 `@error` 回落承担）。
+7. 后端 `extra="forbid"`：任何凭证字段混入 PATCH 体一律 422，本 PR 不放宽。
+
+### 显示项与提示文字
+- 账号卡片头像区：`showAvatar` 为真渲染 `<img :src="account.avatar || account.avatar_url" alt="" @error>`，否则渲染 `<UserFilled>`；加载失败即翻转为默认图标。
+- 平台分组行头像区：同上，按账号 id 逐个判定失效。
+- 昵称行取序 `account_name` → `name` → 平台显示名（`accountName()` 既有实现未改），与 PR-1 引入的「已停用」徽章、登录态徽章互不影响。
+- **本次不新增任何文案与 locale 键**：回落是纯展示态，`alt` 保持空串（头像旁已有昵称文本，不构成信息缺失）；新增中文文案会触碰 Gate 7 的 zh/en 成对与 `--cjk` 基线要求，而这里没有真实文案需求。既有文案（`accountsPage.accountCardLabels.*`、`selectAccount`、`favoriteAdd/favoriteRemove`、`已停用`）一字未改。
+
+### 债务与行数
+`account-manager.js` 在合并 PR-1 后为 1209 行（登记值 1061，逼近 `limit 500 + growthAllowance 200` 容差）。本次把全部新增逻辑外置到 `shared-utils`（228 行，单文件 < 500 不触发挂账），主进程只保留薄委托，同时删除被替换的内联 DOM 采集，`account-manager.js` 降至 **1146 行（净还债 63 行）**。三个登录服务各 +5 行，均在存量增长预算内。
+
+### 验证
+- TDD 先红后绿：先落 `electron/tests/account-profile-collector.test.js`（18 例）与 `electron/publishers/account-manager-profile.test.js`（9 例），`pnpm exec vitest run` 得到 `2 failed files / 9 failed tests`（模块不存在 + 三服务未接线 + `og:image` 计数 3 > 0），再实现转绿。
+- 定向复跑：`account-profile-collector + account-manager-profile + auth-view-manager` **3 文件 / 53 passed**；`electron/publishers + qrcode-login + webview-manager + ipc-handlers/account + preload` **9 文件全绿**；渲染层 `src/features/accounts + views/Accounts + stores/accounts` **10 文件 / 221 passed | 1 skipped**；后端 `pytest tests/test_server_account_profile_patch.py tests/test_server_account_lifecycle.py` **28 passed**（新增 3 例钉死「缺席=不修改 / 单字段不牵连 / 空串=显式清空」对端契约）。
+- 接线守卫（防装饰性链路第 5 次复发）：`account-manager-profile.test.js` 直接对三条入口源码断言必须出现 `collectWithWebContents|extractAccountInfoFromWebContents` 且返回体含 `accountInfo`，`checkLoginStatus` 体内 `refreshProfileFromPage(` ≥ 2 次，各服务 `og:image` 计数必须为 0（单一实现来源）。`auth-view-manager.test.js` 把 createView mock 升级为对 `accountInfoCollector` 返回真值，并同步 `_extractAuthData` / 三条会话结算断言含 `accountInfo` —— 从「源码里有这个字符串」升级为「行为上真的产出」。
+- 门禁：`check-max-lines.js` rc0（`limit=500 growthAllowance=200 超限=99 挂账=99 墓碑=1`，无新增超限、清单与现实一致）；`scripts/check-debt-budget.js` rc0（`maxFileLines 5657`、`filesOver1000 33`、`filesOver500 99`、`modelProviderRequireFanOut 65`、`circularDeps 0` 全部持平）；`check-locale-sync.js` 三模式 rc0（`--pair-base origin/main`：locales 双侧未变更；`--cjk`：基线 1581 / 当前 1363 无新增硬编码；`--keys`：1139 个使用中的 key 均存在于 zh/en）；ESLint 变更 10 文件 **0 error / 144 warning**（全部为既有 `no-var` 与 `AccountManagementCard.vue` 中 main 上即已存在的 `Refresh`/`isActive` 死代码告警，非本次引入）。
+- 详见 `01-docs/PRD-ACCOUNT-PROFILE-INFO-2026-09-23.md`（根因取证表 / 决策与被否方案 / 数据模型与校验 / 采集契约 / 流程 / 显示项与交互 / 提示文字 / 测试矩阵 T1–T12 / 验收 / 行数预算 / 风险回滚）。
+
+### 遗留
+- `name` 字段仍会被登录入口以网页标题覆盖（属「显示名」语义，改动面波及重命名功能），本次刻意不动，另案处理。
+- 未提供单账号「刷新资料」手动入口；现有登录 / 检测两条自动路径已覆盖，若用户需要即时刷新再加。
+- 头像不做后端可达性预检与本地缓存，平台签名链接过期后由 UI 回落默认图标；若要做到「头像永久可见」需引入转存，属独立特性。
+- `packages/shared-utils` 自身无 lint 配置（仓库根无 `eslint.config`），新模块未被 ESLint 覆盖，仅由 `node --check` 与 vitest 保证。
+
+### 关联
+- 分支 `codex/account-profile-info`（worktree `D:/Data/projects/mp-worktrees/mp-account-profile-info`，D 盘隔离）。
+- 承接 PR-1 `PRD-ACCOUNT-IS-ACTIVE-BATCH-2026-09-23.md`（#2282 已合并）：同一账号卡片，启用态与登录态已正交，本次补齐第三个维度「资料真源」。
+
+---
+# [未发布] docs(audit): 收尾证据文档口径订正（P1-9 原因串 / P0-1 信任锚 / 交付清单状态）
+
+### 变更
+- 订正 `docs/audit-remediation-closeout-2026-09-23.md` 五处口径错误（由完成度终审计以 `git grep origin/main` 逐条反查发现，非回忆值）：
+  - **P1-9 失败原因串**：文档原写 `api_stub_not_implemented`（只存在于对抗评审提案稿，代码从未落地、全仓 0 命中），改为真实实现 `empty_content`，并补 `packages/collection-engine/src/platform-adapters/base-adapter.js:96-103` 的「留痕 + 健康度 + 熔断 + 退预算 + 判失败」五件套与 `bilibili-adapter.js:115-117` 浏览器兜底口径、测试断言行号。
+  - **P0-1 信任锚**：原文把「默认公钥仅在 `app.isPackaged === false` 生效」写成既成事实，而改前代码是无条件回落 `DEFAULT_RUNTIME_PUBLIC_KEY`（`app.isPackaged` 全仓 230 处命中无一参与信任锚判定）；已按 QM-5 补实现（`runtime-trust-anchor.js::resolveTrustAnchor` 四态裁决，见 #2291），文档同步为实现事实 + 私钥字面量命中精确到「6 处 / 5 个测试文件、非测试 0」。
+  - **交付清单**：#2276、#2270 由「在飞」更新为 MERGED（`8d4098948c` / `e925df7973`），补 #2289（收尾证据本体，`a49531d203`）与 #2291 两行；第四节红绿验证表补 #2291 变异自证，第八节复算指引补 `npx vitest run runtime-trust-anchor.test.js ops-center-sync.test.js`。
+  - **P0-7 重定向口径**：原文写「私网/元数据/重定向逐跳」，实际两处外呼都是 `httpx.AsyncClient(follow_redirects=False)`（不跟随 3xx），**不存在逐跳复验**；真逐跳复验在 JS 侧 `apps/desktop/electron/services/film-engineering/shot-downloader.js`。同时补记已知边界：校验与连接各做一次独立 DNS 解析，存在 DNS 重绑 TOCTOU 窗口。
+  - **来源计数口径**：原文「P0×8 条口径、P1×15 条、P2×13 项」与报告结构不符。按 `proposal-v7.md` 实测：编号问题 1–15（P0 块 2 条 + P1 块 13 条，问题 8 经 v-final 晋升 P0，故 P0 定级 3 条）+ P2 专题 12 条（含 1 条纯验收条款）；文档内 `P0-N` / `P1-N` 的 N 即报告问题编号。
+
+### 备注
+- 新增 `docs/audit-remediation-batch1-2026-09-22.md`：第 1 批（P0 应急，问题 1/2/3/4/6/7/8）此前只有 PRD + CHANGELOG + 运维指引，缺一份与第 2～4 批对称的专文档；现补齐单条口径——两条启动闸门的判定顺序、每条 `SystemExit`/`RuntimeError` 文案原文、SSRF 的例外开关与已知边界、`setup-service.sh` 的密钥生成与 `chmod 600` 动作、泄露面清单与双钥宽限窗口。
+- 纯文档变更，不改生产代码、不改任何门禁语义；与 #2291 的关系是「文档追认实现」而非「文档替代实现」——先补代码再订正文档。
+- 教训入册：收尾文档写作时引用提案稿的符号名而未经 `git grep` 反查，会把「计划中的名字」写成「已存在的事实」，与 P0-8 未展开字面量同属「文档超前于实现」漂移。
+
+---
+# [未发布] fix(scripts): worktree 删除护栏 R4 补命令行持有者识别并删前拒删（2026-09-23，wt-remove-longpath）
+
+### Fix
+
+- **R4 只按可执行文件路径认持有者**：原停止规则只看进程的 exe 是否落在 worktree 内，漏掉 `node <wt>\node_modules\.bin\..\vitest\vitest.mjs run` 这类「exe 在外、命令行在内」的持有者——它正握着 worktree 里的文件句柄。补 `Test-PathReferencedByLine`（按命令行匹配，含边界判定：`...\wt` 不得命中 `...\wt2`；正斜杠命令行归一化；`-Root` 带尾分隔符仍匹配）与 `Resolve-ProcessAncestors`、`Split-WorktreeHolders`（显式排除自身与祖先进程，否则脚本会被自己的 `-Worktree` 参数判成持有者，永远删不掉）。
+- **可达状态集变化**：R5 不再短路后，R6 第一次真的会带着活句柄去删，留下「git 注册已摘 + 目录半删」的中间态（本次真实踩到：`apps\desktop` 被另一个会话的 `vitest run` 占用）。因此在任何破坏性动作之前加 busy-holder 扫描与 gate：命中持有者或**进程枚举失败**均以退出码 9 拒绝（无法证明空闲不等于空闲），`-WhatIf` 也提前显示 `would REFUSE`。
+- **不扩杀伤面**：R4 原有的停止规则一字未改，仍只停「可执行文件位于 worktree 内」的进程；新识别出的持有者只上报、不强杀。
+- **已知边界（写在脚本头，不假装解决）**：持有者扫描只匹配可执行文件路径与命令行，因为 `Win32_Process` 不暴露进程当前工作目录；「exe 在外、命令行不含路径、但 cwd 在 worktree 内」的进程（实测见过 IDE 终端遗留的 `git cat-file --batch-check`）仍会放行，此时 R6 会停在部分删除——状态可恢复且必然上报，处置是另行按 PEB 读 cwd 定位该管道进程后重试。
+
+### Testing
+
+- `scripts/worktree-fs-longpath.test.ps1` 在 PowerShell 5.1 下 28/28（新增 13 条断言，含上述三类边界与自身/祖先排除）；`PSParser::ParseFile` 三个脚本 parse-errors=0。
+- 真实 `-WhatIf` 打在跑着 vite dev server 的 `mp-ops-latest`：输出 `busy holders : 2` 与 `would REFUSE : 2 live holder(s) -> exit 9`，未改任何文件。
+
+### Docs
+
+- `01-docs/learnings.md` 追加「护栏修复会改变可达状态集」与「模板字面量吃掉反斜杠」两条；`.quality-gates.md` 本任务记录追加 R4 增量行与范围偏离说明。
+
+# [未发布] fix(scripts): worktree 删除护栏的长路径致盲与短路（2026-09-23，wt-remove-longpath）
+
+### Fix
+
+- **R3 链接扫描静默漏报（最危险）**：护栏原以 `cmd /c dir /aL /s /b` 查找 junction/symlink，该命令在超过 MAX_PATH 处**不报错地少报**（本机实测：14 个条目只看到 6 个，stderr 完全为空）。于是「0 个外逸链接」可能在级联删除主工作区之前绿灯放行——这条护栏存在的唯一理由就是防该级联。改为经 `\\?\` 扩展长度前缀全深度遍历，且**扫描不完整即 fail closed**（新增退出码 7）：部分扫描不再被当作安全证据。
+- **R5 短路 R6（控制流缺陷）**：`git worktree remove` 只要 rc≠0 就 `exit 1`。git 的内部顺序是先删行政登记与工作树链接文件、最后删目录，因此「目录删除失败」（`error: failed to delete ...: Filename too long`）时登记已清、只剩目录——恰好是唯一需要 R6 清理的状态，却被 R5 的 exit 挡住。改为按**观测状态**（是否仍注册 / 目录是否仍在）决策：仅 `hard_fail`（仍注册）保留原阻断行为，其余降级为警告并继续走 R6。
+- **R6 无 `\\?\` 前缀**：`[IO.Directory]::Delete($wt, $true)` 在 PowerShell 5.1（`LongPathsEnabled=0`、git `core.longpaths` 未设）下超过 260 字符必然再失败一次。改为长路径递归删除，失败再退到 `robocopy <空目录> <目标> /MIR /XJ` 镜像清空兜底（`/XJ` 使残留链接让镜像非空，从而根目录删除失败，天然 fail closed）。
+- **库解析兜底**：dot-source 时 `$PSScriptRoot` 指向调用方目录，改用 `$PSCommandPath` 取脚本自身路径；找不到 `worktree-fs-longpath.ps1` 时以退出码 8 拒绝运行，绝不允许降级成「无护栏删除」。
+
+### Testing
+
+- 新增 `scripts/worktree-fs-longpath.ps1`（长路径原语：`Get-LongPath` / `Remove-LongPathPrefix` / `Test-FsEntry` / `Test-FsReparsePoint` / `Get-FsLinkReport` / `Remove-FsLink` / `Remove-FsDirectory` / `Clear-FsDirectoryByMirror` / `Resolve-RemoveDisposition`）与 `scripts/worktree-fs-longpath.test.ps1`：Windows PowerShell 5.1 下 15 条断言全绿，含两条常驻红灯——无 `\\?\` 前缀的递归删除在同一 fixture 上**必须仍然失败**（否则 fixture 变浅、测试静默退化为 no-op），以及遍历**不得穿过** junction（`Enumerated -eq 2`）。
+- 端到端演练：构造最深 590 字符残留目录的临时 worktree，真实复现 `Filename too long` → R5 判定 `purge_residual` 并降级为警告 → R6 `io-recursive` 删除 → R7 主工作区基线一致 → exit 0；另验证无残留的正常路径（rc=0、`residual-only purge: False`）未被破坏；`PSParser::Tokenize` 0 error、产物纯 ASCII 纯 CRLF。
+
+### Docs
+
+- `scripts/README.md` 登记新脚本与新测试；`01-docs/learnings.md` 追加「漏报比报错更危险」复盘；`.quality-gates.md` 新增本任务执行记录，并回填上一任务 PR #2231 的最终 squash SHA `bbb572cef`（原行停留在首个人工证据与未来时态）。
+
+
+# [未发布] fix(security): P0-1 收口——打包版不再吃内置 DEV 信任锚（audit-remediation 收尾）
+
+### 变更
+- **新增 `apps/desktop/electron/services/runtime-trust-anchor.js`**：`resolveTrustAnchor()` 统一裁决运行时策略验签的信任锚 —— 有自定义 `runtimePublicKey` 用自定义；无锚且未打包回落内置 DEV 公钥（开发/演示自验）；无锚且**已打包** → `NO_PRODUCTION_TRUST_ANCHOR`（fail-closed）。打包态判定只用 `app.isPackaged`，探针异常按最保守的生产态处理。
+- **`ops-center-sync.js::verifyRuntimeSignature`** 接入该裁决，替换原先「无条件回落 `DEFAULT_RUNTIME_PUBLIC_KEY`」；`NO_PUBLIC_KEY` 空 PEM 分支随之消失（锚解析要么给 PEM 要么给 error）。命中新拒绝原因时，同步报错补一句可操作提示：`打包版需在「运营中心同步配置」填写自定义 Ed25519 公钥作为信任锚`。
+- **缺陷性质**：与 P0-8 同一类 —— PRD 第三节第 2 条把「默认公钥仅在 `app.isPackaged === false` 生效」写成完成态，代码里根本没有该判据，生产客户端可被 DEV 私钥持有者下发公告/版本策略/敏感词/应用菜单。本次补齐实现并双向锁定。
+
+### 验证
+- 新增 `runtime-trust-anchor.test.js` **10 例**（锚解析 4 态 + 判定保守性 3 + `verifyRuntimeSignature` 端到端 3）；连同既有 `ops-center-sync.test.js` 共 **70 passed**（含「未打包 + 无锚仍吃 DEV 公钥」护栏，开发体验不回退）。
+- 变异自证（QM-5 红验证）：撤掉 `verifyRuntimeSignature` 的锚接入 → 「打包 + 无锚：即便签名是用 DEV 私钥合法签的，也必须被拒」转红（1 failed / 9 passed），还原后全绿、字节一致。
+- 行数门禁：`ops-center-sync.js` 570→577，落在 `growthAllowance=200` 容差内、未新增挂账条目；**刻意不跑 `--update`** —— 该命令是仓内增量重扫，会把他人已增长的条目（如 `Accounts.vue` 1365→1432）一并吸收进本次登记值，属「顺手抬别人的基线」，实跑 `check-max-lines.js` 判定「挂账清单与现实一致」即为通过。
+
+### 关联
+- 分支 `codex/audit-p01-trust-anchor`（D 盘 worktree 隔离）；需求口径 `01-docs/PRD.md`「全仓代码体检整改」第三节第 2 条 + 新增 3.1 段；来源 `.adversarial/codebase-audit-20260922/proposal-v7.md` 问题 1；运维指引 `ops-center/deploy/KEY-ROTATION-GUIDE.md`。
+# [未发布] docs(audit): 全仓体检整改收尾全量证据归档 + PRD 验收项订正
+
+### 变更
+- 新增 `docs/audit-remediation-closeout-2026-09-23.md`：四批（#2214 / #2226 / #2239 / #2252）+ 收尾（#2274 / #2276 / #2270 / #2280）的**逐条证据映射**——PR 合并时间与 squash SHA、`+/−` 与文件数、每个 P0/P1/P2 条目对应的落地文件与防复发门禁、门禁本地复跑命令、红绿验证记录（含第4批 9 变异、#2280 17/17 用例 + 2 变异）、基线现状数字（行数挂账 99 + 墓碑 1、CVE 挂账 29、IPC 407/273/67.1%、Python 中文文案 79）、遗留项与限期。
+- `01-docs/PRD.md` 第十一节：`flutter-skill-bridge` 验收项由「一条混合勾选」拆成「判据已入库（已完成）」+「下周期末无回潮复确认（限期 2026-10-31）」，并新增证据归档勾选。
+- `01-docs/PRD.md` 新增 12.5 运行证据小节：`run=853 event=push branch=main success`（push 触发实证）、`run=850`（新语义在真实 runner 成立）、`run=845/846 → 854/856`（无关 PR 由红转绿的因果对照）；并固化「行数口径必须用门禁自身坐标系（`split('\n').length`，墓碑 469 而非 468）」。
+
+### 备注
+- 本 PR 为纯文档，不改任何生产代码；登记一条新的不稳定项：`QG Coverage` 里 `electron/tests/test_scheduler_parity.test.js`（调度器模拟器与真实 governor 六组对拍）在 runner 负载下偶发不相等，与本次改动无因果：同期含代码改动的 #2274/#2275/#2279/#2281/#2282 五个 PR 的 `QG Coverage` 全部 SUCCESS，只有个别 run 命中，定性为负载相关偶发；已按独立缺陷登记（证据文档第六节），处置方向与本批「脆弱等待条件化」同口径（条件化断言或注入固定时钟）。
+
+---
+# [未发布] fix(desktop): 应用级浮层被内嵌 WebContentsView 遮挡——弹窗互斥（内嵌视图挂起）机制（settings-modal-webview-occlusion，2026-09-23）
+
+### 变更
+- **根因**：浏览器/登录标签中的外部网页由主进程 `WebContentsView` 承载，是压在渲染进程 DOM 之上的原生图层（CSS z-index 无效）。活动标签为外部网页时打开设置弹窗（`SettingsDialog`）/升级弹窗（`UpgradeModal`，fixed inset:0 全屏遮罩）/关闭未保存标签确认框（`ElMessageBox`），浮层被整块盖住——用户感知「点设置后屏幕闪一下、弹窗没出现」。内嵌视图可见性此前仅由标签切换与 T0-6b 壳态互斥驱动，未覆盖「渲染层弹模态浮层」场景。
+- **弹窗互斥（ref-count 挂起/恢复）**：`WebviewManager` 新增 `_overlaySuspensions: Set<string>` 与 `suspendEmbeddedViewsForOverlay(owner)` / `releaseEmbeddedViewsForOverlay(owner)` / `isEmbeddedViewsSuspended()`——首个浮层挂起时 `_hideAllTabs()` + 登录/扫码视图 hide；计数归零且非 workbench 壳态时恢复登录视图可见性并 `_repositionAll()`。`_repositionAll` / `createNewTabPage` / `switchToTab` 三处可见性链路全部尊重挂起态（resize/侧栏拖宽/浮层期间开新标签均不得把网页拉回浮层之上）。
+- **IPC 契约**：新通道 `page-manager:suspend-embedded-views` / `page-manager:resume-embedded-views`（均 `withSenderCheck`），preload `page-manager.js` 暴露 `suspendEmbeddedViews(owner)` / `resumeEmbeddedViews(owner)` 并重打包 `index.bundle.js`。
+- **渲染层接入**：新 composable `src/composables/useEmbeddedViewSuspension.js`（模块级 owner 去重、任何异常静默降级不阻断浮层）；`App.vue` 设置弹窗（owner `settings-dialog`）与关闭确认框（owner `tab-close-confirm`，finally 释放）；`MpSidebar.vue` 升级弹窗（owner `upgrade-modal`）。
+- **通查结论**：ProfileMenu 限侧边栏容器内不受影响；BackToTop / PipelineBackgroundToast / UpdateNotification / 全局 ElMessage 为瞬时浮层，记录为已知残余限制（挂起会造成闪烁、且无交互闭环诉求，见 PRD §6）。
+
+### 测试
+- TDD 红→绿：`src/overlay-view-suspension.test.js` 10 例（静态链路 ×7 + 主进程行为 mock ×3），实现前 10 失败、实现后 10 通过；未知 owner 释放无效、计数未归零不恢复、workbench 壳态释放不 reposition、非法 owner 拒绝挂起均有断言。
+- 回归：`shell-mode-6b` / `ipc-contract` / `build-preload` 16 例；MpSidebar/UpgradeModal/SettingsDialog 42 例；apps/desktop 全量 vitest **627 files / 11240 tests 通过**；QM-1 `electron-builder --win --dir` exit 0。
+
+### 关联
+- 分支 `settings-modal-webview-occlusion`（D 盘 worktree `mp-settings-modal-webview-occlusion` 隔离）；详细契约见 `01-docs/PRD-OVERLAY-VIEW-SUSPENSION-2026-09-23.md`；AGENTS.md QM-2 新增「应用级浮层弹窗互斥合同」门禁条目。
+
+# [未发布] fix(security): P0-8 补漏——启动校验按模式拒绝 systemd 未展开字面量（audit-remediation 收尾）
+
+### 变更
+- **`ops-center/backend/config.py`**：新增 `_UNEXPANDED_MARKERS = ("${", "$(")` 与 `_reject_unexpanded(value, field)`（命中即 `SystemExit`，提示 `[P0-8] {field} contains unexpanded unit-file reference ...`）。接入两处：`_validate_jwt_secret` 的**首道**判据（早于长度检查，避免 `${PO_SECRET_KEY}` 被顺带归因成 "too short"）；`run_startup_security_checks` 对 `OPS_JWT_SECRET` / `OPS_ENCRYPTION_KEY` / `OPS_ADMIN_PASSWORD` 三字段同判据。
+- **缺陷性质**：体检报告问题 8 要求「启动校验额外拒绝含 `${`/`$(` 的字面量」，PRD 第二节此前也已写成完成态，但实现只有长度/前缀/弱值三类判据 —— **长度 ≥32 的未展开字面量可绕过闸门**。属文档超前于实现的漂移，本次补齐实现并以回归测试双向锁定。
+
+### 验证
+- TDD 红→绿：新增 `ops-center/backend/tests/test_p0_jwt_literal.py` 6 例（短字面量归因、≥32 字符字面量、`$(...)` 命令替换、字面量夹在长随机串中间、强随机值不得误杀、启动检查覆盖加密主密钥的静态不变量）；修复前 5 failed / 1 passed，修复后 6 passed。
+- 变异验证：摘掉 `_validate_jwt_secret` 接入点 → 4 failed；摘掉启动检查对 `OPS_ENCRYPTION_KEY` 的接入点 → 4 failed；还原 → 6 passed。
+- 门禁：`cd ops-center/backend && python -m pytest` **442 passed**（180s）。
+
+### 关联
+- 分支 `codex/audit-p0-jwt-literal`（D 盘 worktree 隔离）；需求见 `01-docs/PRD.md`「全仓代码体检整改」第二节第 10 条与「判据顺序与实现补漏」段；来源 `.adversarial/codebase-audit-20260922/proposal-v7.md` 问题 8。
+# [未发布] fix(accounts): 账号「启用状态」与「登录态」正交解耦 —— 批量启用/停用接通 is_active 真链路（2026-09-23，account-is-active-batch）
+
+### 变更
+- **后端新增启用态字段写入口（唯一真源）**：`AccountUpdateRequest` 接受 `is_active: StrictBool | None`（`None` = 本次不修改）。必须 `StrictBool` 而非 `bool` —— pydantic v2 宽松 bool 会把 `"no"`→`False`、`1`→`True` 静默转换并返回 200，等于让脏调用直接改写账号的发布能力；非布尔一律 422。`patch_account` 把 `is_active` 排在 `status` 校验之后写入，同一请求 `status` 非法时整次写盘作废，不留「启用态已改、登录态被拒」的半更新脏源。新增 `_normalize_account_active()` 做读侧 fail-safe 归一化（只有明确为假算停用，缺失/`null`/脏值按启用，避免升级把账号静默停用），`_account_to_dict` 经它输出。
+- **启用态唯一写者 `AccountManager.setAccountActive(accountId, platform, isActive)`**：与登录态唯一写者 `persistLoginState()` 分职，只 PATCH `{is_active}`，**不附带** `status` / `last_validated`；`accountId`、`platform` 双段 `_isSafePathSegment`，`isActive` 必须 `typeof === 'boolean'`（JS 中字符串 `'false'` 是真值，宽松判断会把「停用」写成「启用」）。新 IPC 通道 `account:set-active` + preload `accountSetActive`，`scripts/build-preload.js` 重算两处 bundle。
+- **删除 `is_active` → 登录态的反向派生（读侧泄漏收口）**：`ipc-handlers/account.js` 的 `toPublicAccount` 原第 3 分支「后端无 `status` 时由 `is_active` 推 `active`/`inactive`」与 `ipc-handlers/store.js` 的同源派生一并删除，缺 `status` 一律回落 `unverified`、`status_source = 'absent-fallback'`，`derived-from-is-active` 枚举退役。用户可见影响：历史脏数据账号由「已登录」变为「未确认」，需重新点一次检测 —— 这是修正而非回归。
+- **纵深防御**：`store.js` 的 `rendererAccountUpdateFields` 白名单移除 `'status'`，通道层面禁止渲染层写登录态，杜绝同类污染复发。
+- **单一判定函数**：新增 `src/utils/account-active.js` 的 `isAccountActive(account)`（纯函数），账号卡片停用标记、发布可选集合、目标选择器禁用态、store 表面全部 import 同一份实现 —— 任何一处自行写 `=== false`，都会在口径漂移时重新制造同一个 bug。
+
+### 修复
+- **账号页「批量启用/停用」由装饰性按钮变为真链路**：`stores/accounts.batchSetStatus(status)` 走 `accountUpdate` → `store:update-account` 写 **Electron SQLite**，而账号列表读的是**后端 `accounts.json`**（两库账号 id 不互通）—— 写进去根本读不到，点击后展示毫无变化。改为 `batchSetActive(isActive, accountIds)` → `accountSetActive` → `account:set-active` → `setAccountActive` → 后端 `PATCH is_active`，写完 `load()` 重新拉取真源。
+- **词表撞车导致的登录态污染**：旧实现把 UI 词表的 `'active' | 'inactive'` 直接写进登录态字段 `status`（合法值只有 `active`/`expired`/`unverified`），点一次「批量停用」就把账号登录态写成不可解析的脏值。新通道参数为**布尔**，与登录态词表零交集。
+- **失败不静默**：`platform` 解析不出来或 `isActive` 非布尔时**诚实计 `failed`** 而不是 `continue` 跳过 —— 静默跳过会把「已启用 x 个账号」报虚。
+- **`AccountManagementCard` 的 `offline` 语义收敛**：删除 `status === 'inactive' || status === 'offline'` → 显示「已登录」的分支（历史脏值统一落 `unknown` /「暂无检查记录」），同时删除随之失效的 `.login-badge.offline` 样式。
+
+### 显示项与提示文字（zh/en 成对）
+- 账号卡片：停用账号显示「已停用」标记（`data-testid="account-disabled-flag"`，`role="status"`）并灰化（虚线边框 + `saturate(.55)` + `opacity .72`）；**登录徽章不受启用态影响**（正交性双断言）。
+- 发布目标选择器：停用账号**置灰不可点**并在名字旁显示「已停用」，四点收口 —— 可选集合过滤、不作默认回填、已勾选项自动剔除、`checkbox :disabled`。
+- 新增键 `accountsPage.accountCardLabels.disabledFlag`（已停用 / Disabled）、`disabledFlagAria`（该账号已停用，不可用于发布）；批量结果复用既有 `enabledCount` / `disabledCount` / `statusPartial` / `statusFailed`。
+- 账号页筛选器 `all/active/inactive/favorite` 语义是**登录态**，与启用态无关，刻意不动。
+
+### 验证
+- TDD 逐层红→绿（每层先落测试、`git checkout HEAD -- <impl>` 复现红灯）：后端 `test_server_account_lifecycle.py` **4 failed → 25 passed**（本 PR 新增 4 例：`is_active` 持久化 / 双向正交性 / 非布尔 422 / `status` 非法时 `is_active` 不被半更新）；主进程 **30 failed → 4 文件 555 passed**（反转 6 处 `derived-from-is-active` 断言 + `store.test.js` 1 处，`preload.test.js` 三处计数锁同步）；渲染层定向 **17 failed → 45 文件 / 1006 passed**。
+- 关键护栏：`accounts.test.js` 断言 `expect(accountUpdate).not.toHaveBeenCalled()`（防止退回旧写通道）；卡片用例同时断言「已停用」标记出现且登录徽章仍为「已登录」（正交性）；catalog 用例断言只追加 `disabled`、原始字段透传。
+- 全量桌面 vitest（含 `electron/**` 用例）：`602 passed | 1 skipped (603 files)`、`10883 passed | 2 skipped (10885 tests)`、**0 failed**，耗时 2979s。
+- 后端全量 pytest（`packages/python-backend`）：**4 failed / 2697 passed**（277s），失败集 `test_aggregation_video` / `test_frame_html` / `test_llm_service` / `test_pipeline_loader` 与 #2233 记录的干净基线逐条同名、均不在账号模块 → 无回归。
+- 门禁：ESLint `--quiet` 对 17 个 `src` + 8 个 `electron` 变更文件 **0 error**；Gate 7 `--cjk` PASS（基线 1581 → 当前 1386，无新增硬编码中文）、`--keys` PASS（3117 键）、`--pair-base origin/main` 在 **commit 后**复跑 PASS（zh/en 变更均 `true`）。**教训**：`--pair-base` 取的是提交间 diff，工作区未提交时输出「zh.js 变更=false」的空转通过，不得当作已验证证据。
+- Gate 7 `--py-cjk` 首轮**红**（`python-backend has 19 new hardcoded CJK user-visible messages (baseline 79)`）：逐条核查为**基线 `path:LINE` 行号漂移**而非新增硬编码 —— 本 PR 在 `server.py` 新增的 11 条含中文行里，6 条是 `#` 注释、5 条全部落在 docstring 内（用 AST tokenizer 判定字符串字面量跨度，零用户可见消息字符串），且 `git diff 5874e4bda..origin/main -- server.py` 为空说明上游没动过该文件、漂移完全由本 PR 的 +33 行造成。按 #2212 / #2233 既有做法 `--py-cjk --update-py-baseline` 重锚：总条目 79 → 79、diff 恰 19+/19−、全部集中在 `server.py`、其余文件条目一字未动，重跑 PASS。**不得**用重锚掩盖真新增，故上述字面量审计是重锚的前置条件。
+- 合并 `origin/main`（9 个提交，含 #2239 IPC 安全批次）后复验：CHANGELOG 唯一冲突按**条目并集**解决（本 PR 置顶、main 三条随后，并补齐 `---` 分隔）；两处 preload bundle（`index.bundle.js` / `home-shell-preload.bundle.js`）**自动合并结果与源码不一致，必须重跑 `node scripts/build-preload.js` 重算**（否则 `preload.test.js` 与真机 bridge 都会错）；main 新增的两项门禁 `check-ipc-sender-guard.js`（P1-14 显式守卫占比 ≥65%，当前 67.5%）与 `check-ops-session-hygiene.js` 本地实跑 PASS，新通道 `account:set-active` 已走 `withSenderCheck` 故不拉低占比；`check-ipc-bridge.js` 406 handlers / 0 已知缺口、前端一致性/色值/CSS 变量/字号/路由登记等 10 项静态门禁全 PASS。
+- 两处自纠错均为**断言写错、实现正确**，未为了让断言通过而放宽实现：① 「默认账号被停用时不回填」期望应为 `[]`（既有 reconcile 只在默认账号可用时回填，自动挑非默认账号属新增策略，不在本 PR 范围）；② catalog 的 `toEqual([{id, disabled}])` 漏了 spread 透传字段，改为先 `map` 投影再单独断言 `is_active`。
+- 详见 `01-docs/PRD-ACCOUNT-IS-ACTIVE-BATCH-2026-09-23.md`（数据模型 / 正交判定矩阵 / 单一写者与 IPC 契约 / 交互与显示项 / 提示文字 / 测试矩阵 / 实施结果）。
+
+### 遗留
+- 单账号行内「启用/停用」开关未做，本次仅保留批量入口（用户决策）。
+- 引擎侧（`rpa-publish` / `api-publish`）**不硬拦**停用账号，仅在发布前置选择收口；若要强约束需在 publish 入口补校验。
+- Electron SQLite 中历史写入的 `status` 脏值不主动清理（该库本就不参与账号列表读取），避免引入破坏性迁移。
+- `src/composables/usePlatformAccounts.js` 全仓无消费者（死模块），未纳入本次收口，建议单独 PR 删除。
+
+### 关联
+- 分支 `codex/account-is-active-batch`（worktree 隔离，D 盘）；收敛 #2233 条目「遗留」第 1 条。
+- 工作树：原 `D:/Data/projects/mp-worktrees/mp-account-is-active-batch` 在开发过程中被本地磁盘清理删除（提交与分支未受影响，全在对象库），已重建于 `D:/Data/projects/mp-worktrees/mp-account-is-active-b2`。
+
+---
+
+# [未发布] fix(debt-guard): 挂账清单三态语义 + 墓碑机制，debt-guard 增 push 触发（audit 收尾·门禁逃逸根治）
+
+### 变更
+- **修掉一处死代码（本次全部问题的第一性原因）**：`check-max-lines.js` 的 `collectOverLimit()` 只返回 `lines >= limit` 的文件，因此「已降到 500 行以下 → 债务已还」这条分支在生产路径**永远不可能命中**——已还债的文件不在 `scanned` 里，会先落到上一个分支，被误报成 `STALE_LEDGER_ENTRY: ... 已不在扫描结果中（文件已删/改名/移出受管目录）`，并统一建议 `--update`。误诊 + 危险处方正是三次复发的机制根源。
+- **三态区分（判定改用全量扫描 `scanAllLines()` 作 `existing`）**：文件真不在受管范围 → `STALE_LEDGER_ENTRY`（账目腐烂）；文件在、但已降到阈值以下 → 新码 `DEBT_REPAID_LEDGER`（债还完没销账）。两者都指向新命令 `--prune <路径>`（单键清账），并**明文禁止**整份 `--update`。
+- **墓碑 `pruned`（关键不变量两条）**：① 取消挂账豁免——同一路径一旦立碑，登记值立即失效，重新超限按 `NEW_OVER_LIMIT` 阻断，僵尸条目不得当免死金牌；② 容忍并发复活——别的分支把已删条目改回 `files` 时只输出 `⚠️ LEDGER_RESURRECTED` 提示、不阻断，避免「一人还债、全链被无关红卡死」。
+- **`--prune` 单键手术**：只删目标键 + 在 `pruned` 立碑，其余键与顺序原样保留；拒绝为仍超限的文件立碑（rc=2，且不改文件）；重复调用被拒（幂等）。这是「还完债」的唯一正确收尾动作。
+- **`--update` 语义收紧为增量**：只登记新的超限文件，**不抬高已有登记值**（存量膨胀交给 `LEDGER_GREW` 判定）、**不删任何键**、**不覆盖 `pruned`**，墓碑路径重新超限直接判「必须拆分」。全量重生需显式 `--update --rewrite`，且命令会自曝「会重排键、掩盖别人漂移、必须人工逐行审 diff」。
+- **给 `debt-guard.yml` 增加 `push: branches: [main]`**：本门禁是「扫描全仓当前状态」型断言，`pull_request` 检出的是与 base 合并后的树，所以并发 PR 把已删条目带回 main 时**没有任何人的 CI 会红**，反而让 main 长期处于违规态、之后每个无关 PR 都被这条红卡住。加上 push 触发后，债在欠债的人身上显红；required check 名「债务熔断检查」与「不得配 paths-ignore」两条既有约束原样保留（并新增用例锁定）。
+- **数据清账**：把 main 上第三次复发的僵尸条目 `apps/desktop/src/components/LogsSettings.vue: 598` 用 `--prune` 删掉并立碑 `469`（`469` 而非 `468` 是门禁自身 `split('\n').length` 口径：尾换行计一行，墓碑值必须与门禁坐标系一致）。清单 `files` 由 100 → 99，`//` 提示语同步换成新处方。
+
+### 验证
+- 门禁用例 `node --test .github/scripts/check-max-lines.test.js`：17/17 绿（本次新增 9 条：生产路径可达性、墓碑两态、真删除硬违规、`--prune` 幂等与拒发免死金牌、`--update` 增量不变量、真实仓主断言必须带 `existing`、workflow 双触发断言）。
+- QM-5 变异自证 2 例：① 把「墓碑不取消豁免」改回去 → 回归③转红；② 让 `--update` 回到「顺手抬基线」→ 回归⑦转红。修前红证据：main 现状报 `DEBT_REPAID_LEDGER`（rc=1），且旧断言把同一件事误报成「文件已删/改名」。
+- 复跑其余门禁：`check-max-lines` rc=0（超限 99 / 挂账 99 / 墓碑 1）、`check-debt-budget` rc=0（`filesOver500: 99 (baseline: 99)`）、`check-font-size` rc=0。
+- 详细规格与运维处置：`docs/audit-remediation-ledger-guard-2026-09-23.md`；需求侧回写见 `01-docs/PRD.md`「全仓代码体检整改」第十二节。
+
+---
+# [未发布] feat(diagnose): 发布失败被动附带诊断（P0-8，PR-2）
+
+### 变更
+- **新增主进程诊断服务 pubfail-diagnose.js**：governor 六类 rate/quota 出口（run() 治理链出口单点 catch-rethrow）与 batch-manager item 失败转事件处命中 `classifyProviderFailure ∈ {rate,quota}` 时 fire-and-forget 触发轻量真机自检（复用 PR-1 执行端 runSelfCheck，零网络零额度），结论写 `publish.diagnose_result` 结构化日志（码 D-+6位base36、level ok/warn/fail、probeMode、assertionsSummary ≤500 字符），一码一行（超时/迟到/shutdown 经 settled 丢弃）。
+- **探针自适应**：effRpm≥20 用真实限额（含 rateFactor；rpm≥30→4 请求、20-29→3 请求），硬超时 max(10s, 1.5×理论+2s)；低 rpm 或执行端越界（TypeError）回退默认探针 rpm60×4（probeMode=default/default-fallback），避免恒超时假 fail 主动误导。
+- **防抖状态机 per-key**（providerId:type）：结论缓存 TTL 10min（仅 ok/warn 入缓存，码+结论绑定复用）、真实自检节流 60s、在途去重复用同码；`setProviderLimits` 配置变更经 `invalidateDiagnoseCache(key)` 失效；`before-quit` 后不触发不迟到写。
+- **主链路零侵入合同**：挂钩点永不抛（诊断故障不得升级为调度器故障）；错误对象原样传播（identity 不变，契约测试锁定）；bootstrap 未装配时整体禁用零副作用（既有 governor/batch 测试 diff 为零）；batch 失败事件 payload 新增 `diagnoseCode` 可选字段（二期弹窗数据预留，本期渲染层不消费）。
+- **弹窗面按 PRD R5 明文降级交付**：仅写日志不改进弹窗（CCG 二轮评审 N-1 实证：IPC handle 包装层不覆盖 webContents.send 事件推送、preload 无统一 invoke 咽喉点、renderer 数十 throw 点丢失结构化字段）；弹窗附带结论与 story2video 通知面接入列二期（PRD §13.5 G1-G4 登记）。
+- **CCG 对抗评审产物**：`.adversarial/pubfail-diagnose-pr2-20260923/`（proposal v1-v3 + critique/rebuttal 配对 + summary，9 文件进 git）；两轮 23 条意见全接受，挂载架构（统一包装层→显式挂钩）与范围（弹窗→日志降级）由评审证伪重做。
+
+### 验证
+- 定向单测 63/63 绿（pubfail-diagnose 21 + governor/batch 挂钩契约 6 + 既有 governor/batch/self-check 36 回归）；ESLint 0 error；债务熔断全基线（circularDeps 0，新文件 229 行 <500）；locale 本期零改动（Gate 7 自然通过）；QM-1 electron-builder --win --dir 打包成功并验证 app.asar 含 pubfail-diagnose.js。
+- PRD §13 详细回写（功能逻辑/数据流、数据校验表、日志字段表与提示文字、交互与客服流程、验收标准、已知缺口二期计划）。
+
+# [未发布] refactor(desktop): 缓存清理卡片抽为独立组件，恢复逐文件行数门禁（audit 收尾·门禁逃逸）
+
+### 变更
+- **`LogsSettings.vue` 598 → 468 行，`NEW_OVER_LIMIT` 清零**：把 #2262 新增的「缓存清理」整卡（模板 + 状态 + `cacheItemLabel`/`loadCache`/`clearCache` + `.cache-*` 样式）原文切片抽离为 `apps/desktop/src/components/CacheCleanupSection.vue`（229 行），父页面只留 `<CacheCleanupSection />` 一行接线，与既有 `NetSchedDiagnose.vue` 抽离范式一致。
+- **`formatBytes` 收敛为单一实现**：新增 `apps/desktop/src/utils/bytes.js`，父页面日志统计与缓存卡片共用同一换算（原先内联在 `LogsSettings.vue`，抽卡时若复制会产生两份口径）。
+- **不放宽门禁，只清自己还掉的账**：`LogsSettings.vue` 降到 468 行后，逐文件挂账清单 `.github/scripts/max-lines-baseline.json` 里那条 `598` 变成僵尸条目，门禁自身提示「已降到 500 行以下……请 `--update` 清账」——本次按该提示**外科式删除该单键**（diff 严格 `-1/+0`），**没有**顺手 `--update` 整份清单（main 上另有约 10 个存量文件有 < 200 行的漂移增长，整体刷新等于替别人把基线抬高）。聚合基线 `scripts/debt-baseline.json` 的 `filesOver500` 由 100 **降**到 99，其余指标逐字段核对未漂移。
+- **逃逸根因（QM-5）**：门禁随 #2252 于 02:24:30Z 落地，#2262 于 02:30:10Z 落地但其 CI 跑在门禁之前，于是 `LogsSettings.vue` 473 → 598 无人拦截，同 PR 还把聚合基线 `filesOver500` 从 99 `--update` 到 100（等于用「经审查的降债命令」给净增债务开门）。后果不是 main 显红，而是 **main 之后任何 PR 的 merge-preview 都判红**（`pull_request` 事件跑的是与 base 合并后的树），docs-only PR 也被卡住 —— 本次 #2270 复盘 PR 正是被这一条卡住。随后 #2249 又用一次 `--update` 把 `LogsSettings.vue: 598` 登记进逐文件挂账清单让 CI 过关（第二次开门：把「新增超限必须拆」变成了「挂个账就能长期停在这个体量」），本次把这条账真正还掉。
+- **顺带登记的历史疑点**：`.feedback-error { background: var(--color-bg-card)1f0; }` 是非法声明（值被截断），`git log -S '1f0'` 唯一命中 `299ef43b7e`（远早于本次审计），不属体检报告条目，留作后续单独处置，本 PR 不夹带。
+
+### 验证
+- 门禁红→绿（同一条命令、同一台机器）：修复前 `node .github/scripts/check-max-lines.js` rc=1（`NEW_OVER_LIMIT: apps/desktop/src/components/LogsSettings.vue 598 行 >= 500`）；清账后 rebase 到 origin/main(`89682d9ed4`) 复跑四项全绿：`check-max-lines.js` rc=0（`超限文件=99 挂账=99 ✅ 无新增超大文件，挂账清单与现实一致`）、`node --test .github/scripts/check-max-lines.test.js` rc=0（含「真实仓现状：挂账清单与扫描结果一致」主断言）、`check-debt-budget.js` rc=0（`filesOver500: 99 (baseline: 99)`）、`check-font-size-scale.js` PASS（当前 33 / 基线 790，新组件零 `font-size` 字面量，全部走 `var(--font-size-*)`）。
+- 新增测试 3 文件 10 例：`utils/bytes.test.js`（3：非有限/0/负数一律 `0 B`、B 档取整 KB 起两位、GB 为最大档）、`components/CacheCleanupSection.test.js`（5：挂载即 `cacheGetStats` 并按 `formatBytes` 渲染总大小与 i18n 明细名、无缓存时清理按钮禁用 + 空态、清理成功后二次拉取并播报 `clearedToast{size}`、`code!=0` 给失败 toast 不静默、IPC 降级不抛异常）、`components/LogsSettings.test.js`（2：抽离后 `[data-testid="cache-cleanup-section"]` 仍挂载且子组件请求照常发出、父页面继续用共享 `formatBytes` 渲染 `2.00 KB`）。既有 `SettingsDialog.test.js` 连带复跑：rebase 后目标集 4 文件 `Test Files 4 passed (4) / Tests 15 passed (15)`。
+- QM-5 变异（拆分风险按接线点逐个植入，还原后 10 passed）：MUT-A 摘父页面子组件标签 → `LogsSettings.test.js` 1 failed；MUT-B 摘子组件 `onMounted(loadCache)` → `CacheCleanupSection.test.js` 3 failed；MUT-C 把 `formatBytes` 的 B 档改成两位小数 → `bytes.test.js` 1 failed。
+- ESLint（改动 6 文件，`--format json`）0 error 0 warning；`tsc -p tsconfig.check.json --noEmit` 全量错误集中，涉及 `LogsSettings.vue`/`CacheCleanupSection.vue`/`utils/bytes.js` 的条目为 0（main 侧既有 ~1231 条错误全部位于未触碰文件，不在本次范围）
+
+### 关联
+- 分支 `codex/audit-maxlines-logs`（worktree 隔离，D 盘）；文档同步 `01-docs/PRD-CACHE-CLEANUP-2026-09-23.md`（§3.5 组件归属、新增 §3.8 组件结构与行数门禁、§6 测试清单）；反哺 `01-docs/learnings.md`「并发 PR 让新门禁落地即失效」。
+- 上游：#2252（引入逐文件行数门禁）、#2262（被拦对象）；下游解阻：#2270 复盘 PR、P0-8 未展开字面量补漏 PR（均因本条门禁红而 auto-merge BLOCKED）。
+
+---
+# [未发布] fix(ui): 全站 emoji 功能图标收敛为 Element Plus 线性图标
+
+### 变更
+- **41 处功能图标位收敛（28 文件）**：desktop 24 组件/视图 + EmptyState + ops-center 2 处，emoji 一律替换为 `@element-plus/icons-vue` 单色线性图标（映射表见 PRD-EMOJI-ICON-CONVERGENCE-2026-09-23.md）；状态类（✅❌⏳🔄✓⏰✕）与内容文案类按规范保留。
+- **EmptyState.vue**：默认图标 📭→`Box`；新增图标名白名单映射（Box/VideoCamera/TrendCharts/Document/Search/Promotion），白名单外字符串纯文本回退，`#icon` slot 优先级不变。
+- **TabBar.vue**：删除 PLATFORM_ICONS 全 emoji fallback 表（含 getPlatformIcon/getDomainForPlatform），无品牌 URL 标签统一 `Monitor` 线性图标；首页标签 → `HomeFilled`；真实品牌图标 `<img>` 分支不受影响。
+- **NavBar.vue**：复制按钮 `✓/📋` 文本态 → `Check/CopyDocument` 图标态；🏠🔍 → `HomeFilled/Search`。
+- **守卫闭环**：`icon-usage.test.js` FILES 白名单 9→**34** 项，禁用清单新增 📭；后续任何登记文件重新引入禁用 emoji 将被 CI 拦截。
+- **测试纪律**：6 个视图测试的 `@element-plus/icons-vue` 受限 vi.mock 统一改 Proxy 兜底（has trap + 未知导出 stub），防止守卫新增图标击穿既有测试。
+- **Gate 7 --cjk 联动修复（CI 补齐）**：emoji 移除改变 `.vue` 模板文本节点内容键，12 处区块标题（内容基准比较/关键词监测/条数据/引用查找×2/内容模板/报告/营销/教育/社交/标题参考/热门趋势）按新基线判「新增硬编码」——全部迁入 `intelligence.*` locale（zh/en 成对新增 11 键，模板改 `$t(...)`，TemplatePicker 分类标签改 `useI18n`）；7 个组件测试按 TagSuggester 惯例注入 `createI18n` 全局插件。
+- **文档**：新增专项 PRD；`docs/frontend-interaction-spec.md` 新增 §11 图标语义与功能位 emoji 禁用规范。
+- **债务熔断挂账修复（CI 补齐）**：required check「债务熔断检查」`check-max-lines.js` 报 `NEW_OVER_LIMIT: LogsSettings.vue 598 行`——该文件由 origin/main 的 #2262（缓存清理）+#2253（selfcheck）叠加增胖却从未登记挂账，本 PR 未触碰（与 main 逐字节一致），merge 后暴露。按挂账语义仅补登 `LogsSettings.vue: 598` 单条（不用全量 `--update`，避免吸收其他 22 文件行数漂移）；验证 check-max-lines 无违规、node:test 8/8、check-debt-budget filesOver500=100 持平。
+
+### 验证
+- 定向 26 文件 487 用例 + views 深测 6 文件 161 用例全绿；禁用 emoji 码点全站复扫 0 命中；`check-locale-sync.js --cjk/--keys/--pair-base` 全 PASS、Gate7 单测 6/6、icon-usage 守卫 35/35、受影响组件测试 47/47 全绿；关联 PR #2249。
+# [未发布] refactor(selfcheck): 限流自检迁移运营中心 + 桌面保留隐藏执行端（PR-1）
+
+### 变更
+- **桌面模型设置页下线限流自检一级入口/弹窗/表单/方法/样式（P0-1）**：移除 `ModelProviders.vue` 的 `selfcheck-entry` 按钮、`showSelfCheckDialog` 弹窗、`selfCheckForm` 六参数表单、`openSelfCheck/runSelfCheck/reportSelfCheck` 方法及 `.selfcheck-form/.selfcheck-row` 样式；同步删除因失去引用而变孤儿的 `ref` / `ElMessage,ElMessageBox` / `getApi` import。自检定位为非终端用户功能，运营中心为唯一正门。
+- **真机执行端完整保留（P0-3）**：`electron/services/rate-limit-self-check.js`、IPC 通道 `rate-limit:self-check` / `rate-limit:report`、preload `rateLimitSelfCheck` / `rateLimitReport` 一律不动——桌面端仍是唯一能以真实 `ApiUsageGovernor` 跑 `simulated=0` 对拍并上报运营中心的执行端。
+- **locale zh/en 成对清理（P0-2）**：删除 28 个自检专用用户可见键（`selfCheck*` / `runSelfCheck` / `reportSelfCheck` / 六参数 label / `passTag`/`failTag`/`close` 等），保留被 provider 配置表单复用的 `limitPer5hLabel`。
+- **高级/诊断新增黑盒一键诊断入口（P0-6）**：`LogsSettings.vue` 引入抽离组件 `NetSchedDiagnose.vue`（诊断 IPC 统一经 `src/api/rate-limit` 桥接层，渲染层零直调 `window.electronAPI`） 新增 `net-sched-diagnose` 卡片，固定内部参数调用真实自检，仅回显红绿灯结论，不向终端用户暴露 6 个调度参数；文案走 `settings.diagnose.*`（zh/en 成对新增）。
+- **运营中心契约校验红绿灯结论（P0-7）**：`RateLimitVerifier.vue` 契约表新增「结论」列，规则任一 FAIL→需调整，换算并发=1→偏紧，否则合理。
+- **测试**：删除失效的 `selfcheck-dialog-layout.test.js`，新增源码契约回归 `selfcheck-migrate.test.js`（P0-1 入口下线 / P0-3 执行端保留 / P0-6 黑盒入口无参数 / P0-2 locale 成对）。
+
+### 验证
+- 定向契约 `selfcheck-migrate.test.js` 4/4 绿；ESLint（vue）0 error；`check-locale-sync.js --keys` PASS、`--cjk` PASS（基线未新增硬编码中文）；`ops-center/frontend npm run build` exit 0（RateLimitVerifier 产物生成）。
+- 债务熔断 PASS（黑盒诊断卡抽离为独立组件，LogsSettings.vue 回到 500 行阈值以下）；frontend-consistency 单轨制 PASS（新增 src/api/rate-limit.js 桥接层，渲染层不直调 window.electronAPI）。
+
+### 关联
+- 分支 `selfcheck-ops-migrate`（worktree 隔离，D 盘）；PRD `01-docs/PRD-RATE-LIMIT-SELFCHECK-MIGRATE-OPS-CENTER-2026-09-23.md`；PR-2（P0-8 发布失败被动附带诊断）另立 PR。
+
+---
 # [未发布] fix(security): P1 审计第三批——IPC 注入契约 fail-closed + 管理后台 Cookie 会话 + P2 安全小项（2026-09-22，audit-batch-3）
 
 ### 变更
@@ -32,6 +382,27 @@
 ### 关联
 - 分支 `codex/audit-p1-depth`（worktree 隔离，D 盘）；`.adversarial/codebase-audit-20260922/proposal-v7.md` 问题 14 / 15 / §71 / §90。
 - CI 门禁增量：`quality-gate.yml` Gate 17（IPC sender 覆盖）、Gate 18（ops 会话卫生）。
+
+---
+
+# [未发布] feat(settings): 设置-通用新增「缓存清理」功能（计算并显示缓存大小、一键清理）（2026-09-23，cache-cleanup-settings）
+
+### 变更
+- **新增缓存清理服务 `electron/services/cache-service.js`**：`getCacheStats()` 递归统计 `os.tmpdir()/story2video`（合成会话目录、成片副本、selected-media、inputs）与 `os.tmpdir()/film-engineering`（影视工程 run 产物）两类缓存的字节数与文件数；`clearCache()` 逐条 best-effort 清空缓存目录内容（保留根目录），被占用条目静默跳过、不计入释放量。所有遍历/删除以 `story2video-paths.js` 的 `isPathWithin`（canonicalPath + realpathSync.native）做边界校验并跳过符号链接，**绝不触碰** `userData` 持久项目与素材库。
+- **新增 IPC 通道 `cache:stats` / `cache:clear`**（`electron/ipc-handlers/cache.js`，经 `ipc-handlers/index.js` 注册）：`cacheService` 走 `deps` 注入（生产回退 `require`），返回统一 `{ code, data }`，清理成功写 `log.info('Cache', ...)`。权限登记为 public（`license-access-control.js`）。
+- **preload / renderer 接线**：`preload/system.js` 暴露 `cacheGetStats`/`cacheClear`，加入 `access-control.js` PUBLIC_METHODS，重新生成 `index.bundle.js` 与 `home-shell-preload.bundle.js`；`src/api/publisher.js` 经 `invokeWithFallback` 封装。
+- **设置-通用页新增「缓存清理」卡片**（`LogsSettings.vue`，复用「日志清理」模式）：显示缓存总大小/文件数、两类缓存明细（`formatBytes`）、刷新与清理按钮、清理成功/失败 toast、加载骨架与空态；无缓存时清理按钮禁用。i18n `settings.cache.*` zh/en 成对。
+- **PRD 落文档** `01-docs/PRD-CACHE-CLEANUP-2026-09-23.md`：含三个调研结论（删除历史记录会清成品持久副本但不清 tmpdir 中间产物；临时文件非永久保存但会累积；确有必要新增手动回收入口）与完整功能/校验/交互/显示/提示规格。
+
+### 根因
+- 单次视频合成在 `os.tmpdir()` 产生的成片副本可达数百 MB～GB，删除历史记录仅清 `userData` 项目目录，tmpdir 中间产物靠 24h/7d 老化，期间持续占盘且用户无即时回收入口。
+
+### 验证
+- 后端 TDD：`cache-service.test.js`（roots 边界/递归统计/目录缺失/清理保留根/清理后归零/符号链接越界跳过）+ `cache.test.js`（通道注册/转发/错误码/日志，cacheService 经 deps 注入 mock）全绿。
+- 回归：`preload.test.js`（system 方法 145→147、api 总数 317→319、PUBLIC_METHODS→主进程通道 public 一致性）369 passed；`build-preload.test.js`、`home-shell-preload.test.js` passed；ESLint changed files exit 0；`build:vue` exit 0；locale-sync `--keys` PASS。
+
+### 关联
+- 分支 `cache-cleanup-settings`（D 盘 worktree 隔离）；PRD 见 `01-docs/PRD-CACHE-CLEANUP-2026-09-23.md`。
 
 ---
 
@@ -79,7 +450,7 @@
 - 详见 `01-docs/PRD-ACCOUNT-LOGIN-STATE-PERSISTENCE-2026-09-23.md`（数据模型 / 判定矩阵 / 单一写者架构 / 交互与显示项 / 提示文字 / 测试矩阵 / 已知边界）与 `01-docs/PRD-ACCOUNT-LOGIN-STATUS-CHECK.md` §17。
 
 ### 遗留
-- 账号页「批量启用/停用」（`stores/accounts.batchSetStatus`）仍写 SQLite 且复用登录态词表 `status`，对展示实际无效；应改 `is_active` 并接入后端 PATCH，另列 PR，避免把「启用状态」与「登录态」两个正交概念继续混在一个字段里。
+- 账号页「批量启用/停用」（`stores/accounts.batchSetStatus`）仍写 SQLite 且复用登录态词表 `status`，对展示实际无效；应改 `is_active` 并接入后端 PATCH，另列 PR，避免把「启用状态」与「登录态」两个正交概念继续混在一个字段里。**→ 已由 `codex/account-is-active-batch` 分支收敛（见本文件顶部条目），该 PR 同时删除了本 PR 未覆盖的 `store.js` 同源派生。**
 
 ### 关联
 - 分支 `codex/account-login-state-persist`（worktree 隔离，D 盘）；关联 PRD 见上。
@@ -88,6 +459,48 @@
 
 
 
+# [未发布] chore(audit): P2 技术债第四批——脆弱等待条件化 + N+1/单事务 + 级别缓存 + 降级留痕 + 行数与依赖门禁（2026-09-22，audit-batch-4）
+
+
+## audit-batch-4（P2，未发版，与 audit-batch-1/2/3 一起等下次发版收口）
+
+
+### Performance
+
+- **脆弱等待全部条件化**：① 链接采集 `url-collector` 用 `waitForFunction` 判「`readyState===complete` 且候选正文容器 `innerText>=200`（无语义容器退化为 body>=4000）」替代原来注释写着「最多 10s」、实际只盲等 2s 的 `waitForTimeout(2000)`，上限 10s / 间隔 250ms，超时只 warn 并按当前 DOM 继续采集（不新增失败路径）。该等待与 `page.content()` 导航竞态重试同属「只依赖 Playwright Page」的一层，已拆到 `electron/services/url-collector-page-wait.js`——本批改动使 `url-collector.js` 从 488 行涨到 547 行，被自己刚立的逐文件行数门禁判住（`FILES_OVER_500: 100 > baseline 99`），处置口径是**拆文件而不是放宽基线**；`url-collector.js` 内保留 `_waitForContentReady` / `_readPageContentWithRetry` 薄委托（采集入口与既有用例契约不变，489 行）；② 文生视频轮询由「先 sleep 10s 才查」改为立即查询 + 具名上限（`VIDEO_POLL_TIMEOUT_MS=600s` / `INTERVAL=10s`）+ 末次窗口不足即退出；③ 小红书发布器 `sleep(3)` / `sleep(30)` 换成新公共原语 `publishers.base.wait_until` 轮询「上传控件可见 / 标题输入框可见」（10s / 30s 上限、0.5s 间隔），predicate 抛异常按本轮不成立处理；④ `rpa-view-helpers._waitForResponse` 用 WeakMap 按 session 串行化——`session.webRequest.onCompleted` 是会话级单例，并发注册互相覆盖导致先发者只能靠 60s 超时兜底
+- **受限 API 不再每次打同步 IPC**：新增 `electron/core/access-level.js` 作为「级别集合 / 查询通道 / 失效事件 / TTL」单一来源，preload 侧改为「主进程推送失效 + 2s TTL 兜底」缓存；刻意只推失效不推级别（级别判定含 sender 可信度，服务端才是权威，缓存不可能提权），非法值/异常一律按 `public` 失败关闭。许可证激活/注销/试用与身份状态变更四处显式广播，不重载窗口即生效
+- **运营中心后端四处税**：审计日志掩码由「每行 old/new 各回查配置项」（limit=500 时最多 1000 次 SELECT）改为一次 `IN` 批量预取；`GET /sync/status` 由逐项目全表 SELECT 改为一次 GROUP BY；`PUT /config/batch` 由「逐条 upsert + 逐条 COMMIT」改为 1 次预取 + 单事务，任一条异常整体回滚（不再留半更新、配置与审计不再不成套）；SSRF 校验的 `socket.getaddrinfo` 丢进 `asyncio.to_thread`（阻塞 DNS 曾会卡死整个事件循环）
+- **通用适配器不再重复上传**：`generic-adapter` 的 `uploadVideo()` / `uploadCover()` 原先各跑一遍 orchestrator 的 `upload()`，同一任务文件被传两遍（带宽/配额翻倍、平台侧冗余素材、大视频耗时翻倍）；现按任务指纹共享同一 in-flight Promise，失败不缓存以保留上层重试语义，>32 条即清空
+
+
+### Fixes
+
+- **有意降级必须留痕**（原先全是 `catch {}`，线上无从区分「路径不存在 / 超时 / 解码失败」）：video-clone compose 新增 `probeError` / `sceneError` 并沿 measured 报告流入用户可见的 `similarity.warnings.probeFailed` / `sceneDetectReason`（无原因时给 `unknown` 占位）；story2video slideshow 新增 `createDegradationSink(onWarn)`，四处降级点 `audio-duration`（时长回退 8s）/ `bgm-load`（无配乐）/ `audio-mix`（成片静音，最需被看见）/ `recorder-stop`（预期竞态）统一留痕，未注入回调则落 `console.warn`，留痕自身绝不二次抛错；rewrite-engine 知识库损坏 JSON 不再静默当空库、演进调度定时器异常留痕
+- **文生视频失败原因不再含糊**：原来统一报「视频生成超时或失败」，现拆为「任务状态为 failed」与「轮询超时（上限 600s，末次状态=running）」两类并带 provider
+- **动效/转场枚举收口为单一来源**：桌面端「恢复上次使用选项」白名单里 `imageEffect` / `transition` 两处手抄字面量改由 `story2video-engine/effects-library` 派生的 `IMAGE_EFFECT_IDS` / `TRANSITION_EFFECT_IDS` 提供（`'none'` 恒置顶、其余保持登记顺序，UI 行为零变化）；引擎新增效果后不再把用户已存值判为陈旧值静默丢弃；同时删除无消费方的重复副本 `src/views/create-view-utils.js`
+
+
+### Security
+
+- **批量写入必须与单条同语义**（rebase 时暴露的真实回归风险）：第 4 批 worktree 基线早于 PR #2226，批量改造初版直接 `existing.value = value` 写明文入库；若按常规解冲突会静默回退第 2 批 P1-5「敏感配置写库前加密」。现将加密、`secret_flag` 以库中既有标记为准、掩码回显不覆盖真实凭据、审计只存掩码（`_apply_upsert` 返回 `audit_old/audit_new`）全部收进单点由两条入口共用；存量密文不可解时抛错导致整批回滚（fail-closed）。`_mask_value` 改为幂等（已含 `***` 不二次掩码）
+- **`ops-center/backend/requirements.txt` 12 行依赖全部补上版本上限**：只写 `>=` 等于把「上游发布破坏性版本」交给运气。实测教训已写进文件注释——上限收得比已公告漏洞的修复版本还低，等于把解析结果钉在漏洞版本上（`cryptography` 一度写 `<46.0.0`，`pip-audit` 当场报出 7 条公告，查得最新 50.0.1 后改 `<51.0.0`）；`pip install --dry-run` 验证可解析
+
+
+### Testing
+
+- 新增 13 个用例文件 + 2 个门禁判定用例：桌面端 `url-collector-content-ready` / `videogen-stages-poll` / `rpa-view-helpers-wait-queue` / `access-level-cache` / `access-level-bus` / `effects-single-source`，`preload.test.js` 补 `sendSync` 调用计数与「推送后不重载即生效」断言，test-setup 的 `ipcRenderer` mock 支持 `on/off/emit` 记录（否则推送契约无法回归）；Python 侧 `test_p4_wait_until.py`、`test_p4_txn_and_queries.py`（含批量加密语义与掩码回显两条 P1-5 融合保护）；引擎侧 `compose-degradation-trace` / `effects-and-degradation` / `knowledge-base-corrupt-trace` / `knowledge-evolution-scheduler-timers` / `generic-adapter-upload-once`
+- 新增两块门禁及其判定用例：`.github/scripts/check-max-lines.js`（逐文件行数，`limit=500` / `growthAllowance=200`，新代码阻断 + 存量 99 条挂账防腐 + 已还债必须清账（本批 `url-collector.js` 还债后按规则清账；挂账条目参考值不随 `--update` 整体上移，避免棘轮被顺手放松），扫描口径与 debt-budget 一致并由用例字面量比对防漂移）、`scripts/check-dep-audit.js`（实跑 npm + pip-audit，29 条挂账每条必须带 `decision`/`note`/`reviewBy=2026-12-31`，扫描器不可用时只 warning）；CI 分别接入 `debt-guard.yml` 与新 workflow `dep-audit.yml`（PR + 每周一 03:00 + 手动）
+- QM-5 红验证：11 个变异逐个「基线绿 + 植入后红 + finally 还原」全通过（TTL 缓存被禁用 / preload 不订阅失效事件 / max-lines 丢 `NEW_OVER_LIMIT` / dep-audit 丢 `NEW_ADVISORY` / `wait_until` 把瞬时异常上抛 / `batch_upsert` 退回逐条 COMMIT / compose 丢 ffprobe 降级原因 / 桌面端枚举退回手抄字面量，以及 P1-5 融合四条：更新路径明文入库 / `secret_flag` 只认入参（批量把敏感项降级为明文）/ 掩码回显覆盖真实凭据 / 新建路径明文入库）。末条踩到的坑值得记下：只跑本批新增的 `test_p4_txn_and_queries.py` 判为「未抓住」，并入第 2 批的 `test_p1_config_secret.py` 后才转红——红验证必须按**语义归属**选套件，不能只跑本批新增文件，否则会把「已被别人保护」误判成「测试是假的」
+
+- **CI 自修（PR #2252 首跑暴露 2 项红）**：① `--py-cjk` 行号偏移假阳性——本批往 `publishers/base.py` 插入 `wait_until` 使既有中文 `raise` 从门禁口径 331 行移到 359 行，用探针文件取证后对 `locale-py-cjk-baseline.json` 做**净零换号**（条目数仍 79，不走 `--update-py-baseline` 以免顺手吸收别处真新增）；② `dep-audit.yml` 照抄了 `cache: pnpm`，而该 job 不执行 `pnpm install`、pnpm store 目录不存在，`setup-node` 的 Post 步骤以 `Path Validation Error` 判红 → 去掉缓存并留注释。
+
+- **CI 自修第二轮（PR #2252 复跑暴露的第 3 项红）**：`QG Static / Gate 11 - ESLint (error-level gate)` 判红，归因链值得记下——CI 日志因 302 跳转丢 token 取不到，改本地复现；stylish 输出把责任文件显示成 `access-level-cache.js`，单跑该文件 rc=0，用 `--format json` 取 `filePath` 才锁定真凶 `electron/services/access-level-bus.js:38:9 no-useless-assignment`（`let windows = []` 的初值必被 `try` 覆盖、`catch` 分支已提前 `return 0`，初值永不参与判定）。修法是**消除无用初值**（`let windows`）而非 `eslint-disable` 放宽规则；复跑 `pnpm exec eslint electron/ src/ --quiet` rc=0，相关 2 文件 17 用例全绿，并按 QM-5 做红验证（摘掉 catch 内 `return 0` → base rc=0 / mutated rc=1，证明该分支确有覆盖）。
+
+### Documentation
+
+- `docs/audit-remediation-batch4-2026-09-22.md`：本批 10 项的具名参数、判定口径、超时与降级文案原文、显示项影响、运维复核命令、QM-5 反哺汇总表
+- 体检报告 §76 `flutter-skill-bridge` 处置判据取证结论（判据「全仓 rg 零引用即删」成立，git 侧无可删项，该名称仅存在于评审产物中，不为不存在的模块补 README）
+- **PRD 详细补充**：`01-docs/PRD.md` 新增「全仓代码体检整改：安全加固与质量门禁需求（audit-remediation-20260922，四批全量）」总章（需求矩阵 → 交付物 → 门禁；9 条启动期安全闸门含逐字 `[P0-x]` 文案；密钥与凭据治理 7 项泄露面复选框并显式声明「不由代码合并且关闭」；Cookie 会话属性来源表与双通道优先级；IPC 守卫五分类与基线数字；path_guard code→HTTP 映射与 SSRF 残余风险；P2 条件等待具名常量与逐字超时/降级文案；门禁索引与本地复核命令表；未覆盖维度与限期）；`ops-center/docs/PRD.md` 新增 `12A.26 运营端安全加固与会话治理`（数据校验 / 功能逻辑 / 交互逻辑 / 显示项与提示文字 / 回归保护 / 运维指引 / 验收标准）。
 
 ---
 
@@ -455,7 +868,6 @@
 - **config/platforms.yaml**：经该工具对真实运营中心后端（:8010）执行合并——12 平台补齐 enabled 字段并归一引号风格；tencent_video/baijiahao/instagram 仅本地存在，保留未动。
 - **背景**：桌面端 opsCenterSync 配置 Key 经 safeStorage 加密、外部无法伪造；方案 C（会话凭证换取同步凭证，独立 PR 推进中）落地前，本工具提供不依赖桌面应用登录态的本机预同步通道。
 - **CI**：`scripts/*.js` 默认 gitignore，新增 sync-platform-config.js/.test.js 白名单例外；quality-gate.yml Gate 2b 挂入新单测。
-- **CHANGELOG 去损**：清除 origin/main 头部残留的孤立冲突标记块（`>>>>>>> theirs`，2026-09-21 并发 prepend 事故残留）。
 
 ### 验证
 - 新增 `scripts/sync-platform-config.test.js`（node --test）7 用例全过：共享字段更新/人工字段保留/布尔归一/新增占位段/localOnly 保留/函数级幂等/dump+头拼接字节级幂等（防注释粘连复辟）。
@@ -12257,3 +12669,4 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 真实 Electron 验收已通过：快手 passport 打开并扫码二维码就绪、同 profile 重启账号恢复、视频表单填充与目标账号选择、QM-1 打包启动验证。最终快手发布仍待用户确认后执行。
 - 修复快手扫码登录覆盖创作者中心：二维码登录与普通网页登录共用 auth-login 虚拟标签；扫码页在 TabBar/NavBar 下方全屏显示，启动时隐藏原创作者中心，成功、取消或超时后仅清理扫码 View 并恢复原标签。
 - 收紧百家号/快手的发布成功证据：历史 localStorage、当前 URL、旧链接和页面正文不再可推断本次发布；仅使用当前发布响应的受限 ID 或标题/时间窗口核验的作品 artifact。发布 diagnostics 只保留去 query 的请求摘要，原始响应、token 与用户正文不会离开主进程捕获边界；发布点击异常会释放网络监听。
+

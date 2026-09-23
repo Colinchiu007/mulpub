@@ -2662,6 +2662,15 @@ describe('generate_assets 视频分支（2026-08-11）', () => {
   let mediaAvailable = true
   const FFMPEG = findFfmpeg()
 
+  // CI 实证（quality-gate.yml 的 desktop-shards / windows-latest）：该 job 有意不继承
+  // electron-ci.yml 的 NODE_ENV=test + SKIP_NATIVE_MEDIA_TOOL_TESTS=1 契约，findFfmpeg()
+  // 因此返回捆绑的真实 ffmpeg，本 describe 的 beforeAll 会真的 spawn ffmpeg 并起本地 HTTP 服务。
+  // 冷启动 runner 上（Defender 首次扫描二进制 + 静态包解析 + 磁盘争抢）该 hook 可能超过全局
+  // --hookTimeout=10000：表现为「Hook timed out in 10000ms」+ 整个 suite 失败且零断言失败，
+  // 同一基线复跑又能通过（典型冷启动偶发）。这里只给这一个 hook 单独放宽预算，不改全局
+  // hookTimeout，真正挂死的 hook 仍会在 10s 被抓到。
+  const MEDIA_SETUP_HOOK_TIMEOUT_MS = 60000
+
   beforeAll(async () => {
     // 跨平台：CI 设 SKIP_NATIVE_MEDIA_TOOL_TESTS=1 时 findFfmpeg() 返回 null，整个 describe 跳过
     if (!FFMPEG) {
@@ -2687,7 +2696,7 @@ describe('generate_assets 视频分支（2026-08-11）', () => {
     })
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
     baseUrl = 'http://127.0.0.1:' + server.address().port + '/video.mp4'
-  })
+  }, MEDIA_SETUP_HOOK_TIMEOUT_MS)
 
   afterAll(() => {
     if (server) server.close()
@@ -4043,5 +4052,100 @@ describe('generate_assets 出图 negative_prompt 透传（2026-08-16 east-asian-
     expect(result.success).toBe(true)
     const callOpts = assetGenerator.generateImage.mock.calls[0][1]
     expect(callOpts.negative_prompt).toBe('水印')
+  })
+})
+
+describe('OPTIMIZE 限流韧性（429 裹在响应体 + template 降级）', () => {
+  // 真实形态（2026-09-23 E2E final5）：prompt-engine 把上游 LLM 的 429 以 HTTP 200 + error 字段返回
+  const RATE_429 = "Error code: 429 - {'error': {'code': '', 'message': '您已达到免费用户的 API 速率限制。升级 Token Plan 即可解锁更高限额。'}}"
+  const TEMPLATE_PROMPT = '戈壁帐篷与太阳能板, refined visual detail, warm glow'
+
+  it('429 包在响应体里时按结果体重试，恢复后不降级不留降级标记', async () => {
+    const fn = makePipeline(null).optimizeExecutor
+    const serviceBus = makeOptimizeBus((_arg, callIndex) => (callIndex < 2
+      ? { optimized_prompt: '原场景', error: RATE_429 }
+      : { optimized_prompt: '优化后提示词', model_used: 'mock-model', strategy_used: 'llm' }))
+    const context = { split: [{ text: '凌晨两点的西北戈壁，风沙像刀片一样刮过帐篷。' }] }
+    const result = await fn({
+      stage: { options: { retryBackoffMs: 1 } }, params: {}, context, serviceBus,
+    })
+    expect(result).toMatchObject({ success: true })
+    expect(result.output[0].optimized_prompt).toBe('优化后提示词')
+    expect(result.output[0].optimize_note).toBeUndefined()
+    expect(serviceBus.calls).toHaveLength(3)
+    // 全部重试都是 llm 策略，未触发降级
+    expect(serviceBus.calls.every((c) => c.options.optimization_strategy !== 'template')).toBe(true)
+    expect(context.optimize_degraded).toBeUndefined()
+  })
+
+  it('持续限流后降级 prompt-engine template 策略并标注降级来源', async () => {
+    const fn = makePipeline(null).optimizeExecutor
+    const serviceBus = makeOptimizeBus(({ options }) => (options.optimization_strategy === 'template'
+      ? { optimized_prompt: TEMPLATE_PROMPT, model_used: 'template', strategy_used: 'template', key_source: 'none' }
+      : { optimized_prompt: '原场景', error: RATE_429 }))
+    const context = { split: [{ text: '凌晨两点的西北戈壁，风沙像刀片一样刮过帐篷。' }] }
+    const result = await fn({
+      stage: { options: { maxRetries: 1, retryBackoffMs: 1 } }, params: {}, context, serviceBus,
+    })
+    expect(result).toMatchObject({ success: true })
+    expect(result.output[0]).toMatchObject({
+      optimized_prompt: TEMPLATE_PROMPT,
+      optimize_note: 'rate_limited_template_fallback',
+      degraded: true,
+    })
+    const templateCalls = serviceBus.calls.filter((c) => c.options.optimization_strategy === 'template')
+    expect(templateCalls).toHaveLength(1)
+    expect(context.optimize_degraded).toEqual({ scenes: [0], total: 1 })
+  })
+
+  it('降级也失败时保留原始限流错误，整阶段 fail closed（不静默出片）', async () => {
+    const fn = makePipeline(null).optimizeExecutor
+    const serviceBus = makeOptimizeBus(() => ({ optimized_prompt: '原场景', error: RATE_429 }))
+    const result = await fn({
+      stage: { options: { maxRetries: 0, retryBackoffMs: 1 } },
+      params: {},
+      context: { split: [{ text: '凌晨两点的西北戈壁。' }] },
+      serviceBus,
+    })
+    expect(result).toMatchObject({ success: false })
+    expect(result.error).toMatch(/429/)
+    expect(result).not.toHaveProperty('output')
+  })
+
+  it('额度类（insufficient balance）错误不按限流处理：不重试也不降级', async () => {
+    const fn = makePipeline(null).optimizeExecutor
+    const serviceBus = makeOptimizeBus(() => ({
+      optimized_prompt: '原场景', error: 'insufficient balance, please recharge your account',
+    }))
+    const result = await fn({
+      stage: { options: { maxRetries: 1, retryBackoffMs: 1 } },
+      params: {},
+      context: { split: [{ text: '凌晨两点的西北戈壁。' }] },
+      serviceBus,
+    })
+    expect(result).toMatchObject({ success: false })
+    expect(serviceBus.calls).toHaveLength(1)
+    expect(serviceBus.calls.every((c) => c.options.optimization_strategy !== 'template')).toBe(true)
+  })
+
+  it('多场景时降级标记按场景累积，成功恢复的场景不受牵连', async () => {
+    const fn = makePipeline(null).optimizeExecutor
+    const serviceBus = makeOptimizeBus(({ prompt, options }) => {
+      if (options.optimization_strategy === 'template') {
+        return { optimized_prompt: TEMPLATE_PROMPT, model_used: 'template', strategy_used: 'template' }
+      }
+      // 第二个场景直接成功，其余限流
+      if (prompt.includes('第二段')) return { optimized_prompt: '优化-第二段', model_used: 'mock-model' }
+      return { optimized_prompt: prompt, error: RATE_429 }
+    })
+    const context = { split: [{ text: '第一段戈壁风沙。' }, { text: '第二段城市夜景。' }, { text: '第三段海边日出。' }] }
+    const result = await fn({
+      stage: { options: { concurrency: 1, maxRetries: 0, retryBackoffMs: 1 } }, params: {}, context, serviceBus,
+    })
+    expect(result).toMatchObject({ success: true })
+    expect(result.output[1].optimize_note).toBeUndefined()
+    expect(result.output[0].optimize_note).toBe('rate_limited_template_fallback')
+    expect(result.output[2].optimize_note).toBe('rate_limited_template_fallback')
+    expect(context.optimize_degraded).toEqual({ scenes: [0, 2], total: 3 })
   })
 })

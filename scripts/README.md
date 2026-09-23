@@ -12,6 +12,7 @@
 | `launch-worktree.js` | Worktree 启动器 |
 | `mp-worktree-health.ps1` | Worktree 健康检查 |
 | `safe-worktree-remove.ps1` | 安全删除 worktree |
+| `worktree-fs-longpath.ps1` | worktree 删除的长路径安全原语（`\\?\` 全深度枚举 / 删除 / robocopy 兜底） |
 | `safe-restore-deleted.ps1` | 安全恢复已删除文件 |
 | `verify-worktree-deps.js` | 验证 worktree 依赖 |
 | `prepare-worktree-deps.ps1` | 准备 worktree 依赖 |
@@ -71,6 +72,7 @@
 | `session-isolation-automation.test.ps1` | 会话隔离自动化测试 |
 | `session-write-guard.test.ps1` | 写保护测试 |
 | `start-desktop-profile-lock.test.ps1` | 桌面 Profile 锁测试 |
+| `worktree-fs-longpath.test.ps1` | 长路径枚举、递归删除与移除决策的回归测试（PowerShell 5.1） |
 | `ensure-desktop-deps.test.js` | 桌面依赖测试 |
 | `openspec-sync-check.test.js` | OpenSpec 同步检查测试 |
 | `hooks/pre-commit.test.sh` | Pre-commit hook 测试 |

@@ -56,7 +56,7 @@
       <!-- Data badges -->
       <div style="display:flex;gap:var(--space-sm);flex-wrap:wrap;margin-bottom:var(--space-sm)">
         <span class="cohere-tag cohere-tag-info" style="font-size: var(--font-size-xs)">
-          📊 {{ data.dataPoints || 0 }} 条数据
+          <el-icon><DataLine /></el-icon> {{ $t('intelligence.dataPointsCount', { n: data.dataPoints || 0 }) }}
         </span>
       </div>
 
@@ -74,6 +74,7 @@
 </template>
 
 <script setup>
+import { DataLine } from '@element-plus/icons-vue'
 import { ref, watch, computed, onBeforeUnmount } from 'vue'
 import { intelligenceGetOptimalTime } from '@/api/publisher'
 import { formatUserError } from '@/utils/user-facing-error'

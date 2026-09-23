@@ -1,0 +1,137 @@
+{
+ "url": "https://creator.douyin.com/creator-micro/content/post/video?enter_from=publish_page",
+ "scrollY": 0,
+ "docH": 1511,
+ "viewH": 738,
+ "pubLike": [
+  {
+   "tag": "span",
+   "cls": "",
+   "id": "popover-tip-container",
+   "text": "发布",
+   "visible": true,
+   "disabled": false,
+   "rect": "257,1411,120,19"
+  },
+  {
+   "tag": "button",
+   "cls": "button-dhlUZE primary-cECiOJ fixed-J9O8Yw",
+   "id": "",
+   "text": "发布",
+   "visible": true,
+   "disabled": false,
+   "rect": "257,1399,120,32"
+  }
+ ],
+ "fields": [
+  {
+   "tag": "input",
+   "cls": "semi-input semi-input-default",
+   "id": "",
+   "text": "",
+   "visible": true,
+   "disabled": false,
+   "rect": "363,350,497,30",
+   "ph": "填写作品标题，为作品获得更多流量",
+   "type": "text",
+   "ce": null
+  },
+  {
+   "tag": "div",
+   "cls": "zone-container editor-kit-container editor editor-comp-publish notranslate chrome window c",
+   "id": "",
+   "text": "​",
+   "visible": true,
+   "disabled": false,
+   "rect": "363,392,528,92",
+   "ph": "",
+   "type": "",
+   "ce": "true"
+  },
+  {
+   "tag": "input",
+   "cls": "radio-native-p6VBGt",
+   "id": "",
+   "text": "",
+   "visible": true,
+   "disabled": false,
+   "rect": "363,1201,5,5",
+   "ph": "",
+   "type": "checkbox",
+   "ce": null
+  },
+  {
+   "tag": "input",
+   "cls": "radio-native-p6VBGt",
+   "id": "",
+   "text": "",
+   "visible": true,
+   "disabled": false,
+   "rect": "503,1201,5,5",
+   "ph": "",
+   "type": "checkbox",
+   "ce": null
+  },
+  {
+   "tag": "input",
+   "cls": "radio-native-p6VBGt",
+   "id": "",
+   "text": "",
+   "visible": true,
+   "disabled": false,
+   "rect": "643,1201,5,5",
+   "ph": "",
+   "type": "checkbox",
+   "ce": null
+  },
+  {
+   "tag": "input",
+   "cls": "radio-native-p6VBGt",
+   "id": "",
+   "text": "",
+   "visible": true,
+   "disabled": false,
+   "rect": "363,1257,5,5",
+   "ph": "",
+   "type": "checkbox",
+   "ce": null
+  },
+  {
+   "tag": "input",
+   "cls": "radio-native-p6VBGt",
+   "id": "",
+   "text": "",
+   "visible": true,
+   "disabled": false,
+   "rect": "503,1257,5,5",
+   "ph": "",
+   "type": "checkbox",
+   "ce": null
+  },
+  {
+   "tag": "input",
+   "cls": "radio-native-p6VBGt",
+   "id": "",
+   "text": "",
+   "visible": true,
+   "disabled": false,
+   "rect": "363,1313,5,5",
+   "ph": "",
+   "type": "checkbox",
+   "ce": null
+  },
+  {
+   "tag": "input",
+   "cls": "radio-native-p6VBGt",
+   "id": "",
+   "text": "",
+   "visible": true,
+   "disabled": false,
+   "rect": "503,1313,5,5",
+   "ph": "",
+   "type": "checkbox",
+   "ce": null
+  }
+ ],
+ "bodyText": "作品发布 首页 内容管理 数据中心 收入变现 创作服务 首页 AI分身 AI工坊 基础信息 设置封面 *(必填) 选择封面 横封面4:3 选择封面 竖封面3:4 Ai智能推荐封面 好封面能帮作品提升吸引力查看封面展示页面 作品描述 0/30 ​ #添加话题 @好友 0 / 1000 推荐 #雷军同款徕卡摄影课 #网剧 #来电狂响 #恋爱的话请响铃 +16 官方活动 发作品邀开播，赢DOU+ 热度：1.4k 寡门门主脱单卡池 热度：270 秦昊Jeff邀你定格光阴的模样 热度：350 +1 添加合集 合集 请选择合集 自主声明 请选择自主声明 扩展信息 视频章节 为进度条增加章节信息，让视频结构更清晰 已添加的章节数量会在这里显示 智能章节已上线，试试吧 如上传视频属于中插植入类型，请您按照标准添加章节信息，具体详见 查看详情 添加标签 位置 输入地理位置 关联热点 点击输入热点词 发布设置 谁可以看 公开 好友可见 仅自己可见 保存权限 允许 不允许 发布时间 立即发布 定时发布 快速填写 发布暂存离开 点击发布后，如作品还在上传中，请勿关闭页面，等待上传发布完成。 预览视频 预览封面/标题 @里奥的吐槽 里奥的吐槽创作的原声 - @里奥的吐槽 里奥的吐槽创作的原声 - @里奥的吐槽 里奥的吐槽创作的原声 - @里奥的吐槽 添加音乐 重新上传 发文助手 快速检测 作品未见异常 温馨提示: 结果由机器检测提供，请关注发布后的账号状态、举...详情 横/竖双封面缺失 为增加作品的流量，建议同时设置横版和竖版的封面 重新检测 视频预览功能 视频素材已按原始分辨率上传，为保证预览体验，视频会被压缩预览，实际播放时根据环境自动选组最佳分辨率播放。 我知道了"
+}

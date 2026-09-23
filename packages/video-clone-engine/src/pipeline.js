@@ -83,6 +83,8 @@ function buildMeasuredCloneReport(ctx) {
     if (Number.isFinite(out.fps) && out.fps > 0) meta.fps = out.fps;
   } else {
     provenance.duration = 'plan-fallback';
+    // 有意降级必须可见：把 compose 记录的原因带到 similarity.warnings（无原因时给 unknown 占位）
+    warnings.probeFailed = out.probeError || 'unknown';
   }
   measured.meta = meta;
   if (Array.isArray(out.shots)) {
@@ -95,6 +97,7 @@ function buildMeasuredCloneReport(ctx) {
     measured.visual.shots = plan.visual.shots;
     measured.visual.transitions = plan.visual.transitions;
     warnings.sceneDetectFailed = true;
+    warnings.sceneDetectReason = out.sceneError || 'unknown';
     provenance.structure = 'plan-fallback';
   }
   measured.script = plan.script;
@@ -180,6 +183,8 @@ function createVideoClonePipeline(adapters = {}, executorOptions = {}) {
               });
               sim.provenance = measured.provenance;
               if (measured.warnings.sceneDetectFailed) sim.warnings.sceneDetectFailed = true;
+              if (measured.warnings.sceneDetectReason) sim.warnings.sceneDetectReason = measured.warnings.sceneDetectReason;
+              if (measured.warnings.probeFailed) sim.warnings.probeFailed = measured.warnings.probeFailed;
               sim.warnings.unmeasuredScript = true; // 产物无 ASR/TTS，script/style 维度非产物实测
               if (ctx.artifacts.assets && ctx.artifacts.assets.degraded === true) sim.warnings.degradedAssets = true;
               ctx.similarity = sim;
@@ -214,4 +219,5 @@ function createVideoClonePipeline(adapters = {}, executorOptions = {}) {
   return { run, stages: STAGE_IDS };
 }
 
-module.exports = { createVideoClonePipeline, validateRequest, STAGE_IDS };
+// buildMeasuredCloneReport 导出仅为回归用例（降级原因传递），不对外承诺 API 稳定性
+module.exports = { createVideoClonePipeline, validateRequest, STAGE_IDS, buildMeasuredCloneReport };

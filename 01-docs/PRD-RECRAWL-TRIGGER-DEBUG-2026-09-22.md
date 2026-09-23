@@ -65,3 +65,24 @@
 - 不改 `_writeBackViral` / `updateViralEngagementByNormUrl` 的写回与单调不减规则。
 - 不改发布登记 `nextRecrawlAt = now + 1h` 的产品默认排期（force 只在显式调用时绕过排期）。
 - 本入口定位为调试/运维催采，不改变常规 24h 自动巡检调度。
+
+## 7. 线上实证记录：第四链路写回闭环（2026-09-23，mp-app-live2）
+
+**方法**（种子数据 + 强制触发 + 真实公开 API，不改任何代码）：
+
+1. 停 app（shared-user-data 先热备份 `shared-user-data.backups\seed-<ts>\`）后用 Node 22 `node:sqlite` 直写 `multi-publish.db` 灌种子（幂等：先 DELETE 固定 id 再 INSERT）：`viral_library.vv-seed-bili-0001`（platform=bilibili、url=`https://www.bilibili.com/video/BV1YDhJ6ZEL6`、likes/comments=NULL 基线）+ `tracked_content.tc-seed-bili-0001`（post_id=BV1YDhJ6ZEL6、recrawl_status=pending）。**必须停 app 改文件再重启**——store 是 sql.js 内存库（启动读一次、每 5s 整库 persist 覆盖），运行中外部写入不可见且会被覆盖。
+2. 重启载入后 CDP（:9279）调 `triggerPerformanceRecrawl({ force: true })`，返回 `{ ran: true, force: true, supported: [zhihu, baijiahao, kuaishou, bilibili] }`。
+3. 回采走真实代码路径：`getParser('bilibili')` → `resolveContentUrl` → 免登录公开 API `api.bilibili.com/x/web-interface/view?bvid=` 取真实互动 → `addPerformanceSnapshot` → tracked→ok → `_writeBackViral` 按 `_normUrlForMatch` 命中种子爆款行 → `updateViralEngagementByNormUrl` 写回。
+
+**证据（内存读回 + 盘上读回双确认）**：
+
+| 指标 | 回采前 | 回采后 |
+|---|---|---|
+| viral_library.likes | NULL | 111,760 |
+| viral_library.comments | NULL | 8,774 |
+| tracked_content.recrawl_status | pending | ok（last_recrawl_at=2026-09-22T16:23:07Z UTC） |
+| performance_snapshot | 无 | +1（source=auto；views=977,406 / favorites=19,887 / shares=14,605） |
+
+db 文件只读复验（persist 落盘后）：`FILE viral.likes=111760 comments=8774 tracked=ok snaps=1`，与 CDP 内存读回一致。**结论：第四链路「发布→回采→写回爆款库」在线上运行层面闭合，不再只是单测契约**（本入口 `force` 语义 AC-1 同时得到真实数据验证）。
+
+**实证暴露的边界**：写回仅对 platform-metrics 已注册 4 平台（zhihu/baijiahao/kuaishou/bilibili）生效；快手/B站为视频平台，图文 `publish:batch` 产不出可回采锚点，「不灌种子的自然闭环」待视频发布链路 + parser 覆盖面扩展。种子行经用户决定保留为常态验证样本，还原点见上述备份目录。

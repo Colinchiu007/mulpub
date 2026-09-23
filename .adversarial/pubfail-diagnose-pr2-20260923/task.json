@@ -1,0 +1,32 @@
+{
+  "taskSlug": "pubfail-diagnose-pr2-20260923",
+  "title": "PR-2 / P0-8 发布失败被动附带诊断 — 方案对抗评审",
+  "objectType": "plan",
+  "proposer": "qoder-main",
+  "critic": "independent-subagent",
+  "familyCheck": {
+    "proposerFamily": "qoder",
+    "criticFamily": "isolated-subagent-context",
+    "note": "critic 为独立上下位子代理，不共享 proposer 内部推理；按 PR-1 同模式执行"
+  },
+  "maxRounds": 3,
+  "scoreThreshold": 8.0,
+  "autoAcceptOnStall": false,
+  "maxL3RejectionsPerRound": 3,
+  "dimensions": ["完整性", "一致性", "清晰度", "可行性", "安全性"],
+  "status": "converged",
+  "currentRound": 2,
+  "convergence": {
+    "mode": "critic-release-clause",
+    "note": "v2 最低维 6 < 8.0，但 critic 明确放行条款：P0(N-1/N-2)+P1(N-3/4/5) 文本落定后可直接实施；v3 已全部落实，免第三轮全量评审",
+    "scores": { "v1": [6,5,6,4,7], "v2": [7,6,7,6,8] },
+    "finalArtifact": "proposal-v3.md"
+  },
+  "context": {
+    "prd": "01-docs/PRD-RATE-LIMIT-SELFCHECK-MIGRATE-OPS-CENTER-2026-09-23.md",
+    "constraintR5": "自检必须异步/限时、失败静默降级，绝不阻断或掩盖主报错；可降级为仅写日志",
+    "worktree": "D:/Data/projects/mp-worktrees/mp-pubfail-diag",
+    "branch": "pubfail-diag-ops"
+  },
+  "createdAt": "2026-09-23T00:00:00+08:00"
+}

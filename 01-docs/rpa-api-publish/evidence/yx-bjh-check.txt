@@ -1,0 +1,30 @@
+===baijiahao token 赋值===":
+@1298933
+
+---
+@1381169
+
+---
+@1592745
+NOT FOUND: bjhToken
+
+
+===百家号 publish$a 上下文===
+@1841789
+atch(Y){Y instanceof $axios.AxiosError?(N.code=errorCode.request_error,N.msg=Y.message):Y instanceof Error?(N.code=errorCode.data_error,N.msg=Y.message):(N.msg=(V=Y==null?void 0:Y.toString())!=null?V:"",N.code=errorCode.unknown_error)}return N}),getBaijiahaoPublishArticleToken=($,S)=>se(this,null,function*(){var N,P;let T={code:0,msg:"",publishToken:""};try{const O=yield $http$1.get("https://baijiahao.baidu.com/pcui/article/edit?type=news",{headers:{cookie:$,referer:"https://baijiahao.baidu.com/builder/rc/edit?type=news",host:"baijiahao.baidu.com",token:S},params:{}});T=ut({},O.data),T.publishToken=(N=O==null?void 0:O.headers)==null?void 0:N.token.toString()}catch(O){O instanceof $axios.AxiosError?(T.code=errorCode.request_error,T.msg=O.message):O instanceof Error?(T.code=errorCode.data_error,T.msg=O.message):(T.msg=(P=O==null?void 0:O.toString())!=null?P:"",T.code=errorCode.unknown_error)}return T}),getBaijiahaoBaseToken=($,S)=>se(this,null,function*(){var N,P;const T={code:0,msg:"",token:""};try{const O=yield $http$1.get("https://baijiahao.baidu.com/?source=inner",{headers:{cookie:$,host:"baijiahao.baidu.com"},params:{},httpsAgent:S,httpAgent:S}),U=/BJH__INIT__AUTH__\s*=\s*['"]{1
+---
+@1859400
+baijiahao.baidu.com/builder/rc/edit?type=${M}`,"Content-type":"application/x-www-form-urlencoded"},W={auto:!1,x:S,y:T,w:N,h:P,src:O,type:U};return(yield $http$1.post(L,W,{retryCondition:(Y,Z)=>!isJson(Z.data),headers:K})).data}),publish$a=($,S,T,N=1,P)=>se(this,null,function*(){let O="";N===1?O="https://baijiahao.baidu.com/pcui/article/publish?type=news&callback=bjhpublish":O="https://baijiahao.baidu.com/pcui/article/save?callback=bjhdraft";const M={cookie:$,referer:"https://baijiahao.baidu.com/builder/rc/edit?type=news","Content-type":"application/x-www-form-urlencoded;",token:S};return(yield $http$1.post(O,T,{headers:M,httpAgent:P,httpsAgent:P})).data}),getBaijiahaoKeywordListAsync=($,S,T,N)=>se(this,null,function*(){const P="https://baijiahao.baidu.com/pcui/Brain/KeywordRcmd",O={cookie:$,referer:`https://baijiahao.baidu.com/builder/rc/edit?type=${N}`,"Content-type":"application/x-www-form-urlencoded"},M={title:S,content:T,content_text:"",location:"",type:N,tag_only:1};return(yield $http$1.post(P,M,{retryCondition:(L,K)=>!isJson(K.data),headers:O})).data}),getBaijiahaoTitleRcmdAsync=($,S,T)=>se(this,null,function*(){const N="https://baijiahao.baidu.com/pcui/Brain/TitleRcmd",P={co
+
+
+===百家号 token 提取(getBjhToken)===":
+NOT FOUND: getBaiJiaHaoToken
+
+
+===baijiahao signServer 用法===
+@1826395
+data.errno!==0)throw new BadRequestException((M=O.data)==null?void 0:M.errmsg,(U=O.data)==null?void 0:U.errno,O.data);return O.data}),cacheSign={},getSign$2=$=>se(this,null,function*(){var S,T;try{const N=crypto$1.createHash("md5").update($).digest("hex");if(cacheSign[N])return cacheSign[N];const P=getSignServerUrl("baijiahao")+"/Sign/GetSign",O={url:"",cookie:$,signType:"browser",signCommand:"baijiahao"},M={"Content-Type":"application/json"},L=(T=(S=(yield $http$1.post(P,O,{headers:M})).data)==null?void 0:S.signature)!=null?T:"";return L&&(cacheSign[N]=L),L}catch(N){console.debug("百家号签名异常",N=
+
+
+===baijiahao token= regex===
+NOT FOUND: TOKEN_VALUE

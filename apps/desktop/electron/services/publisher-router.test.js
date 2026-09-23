@@ -24,6 +24,25 @@ const { PublisherRouter, ROUTE_TABLE } = require("../services/publisher-router")
 // P0-3 回归：直接测 resolvePlatformArticle/buildPublishArticle 的平台特有字段透传（不经过 route）
 const routerSrc = require("../services/publisher-router");
 
+describe("主链路回归：B站队列路由到 ApiPublisher（Tier-A upos）", () => {
+  const store = { getAccount: vi.fn(() => null), getDefaultAccount: vi.fn(() => null) }
+  const accountManager = {
+    loadSavedCredentials: vi.fn(() => ({
+      platform: "bilibili",
+      cookies: [{ name: "bili_jct", value: "abcdef0123456789abcdef01", domain: ".bilibili.com" }],
+      localStorage: {},
+    })),
+  }
+  it("ROUTE_TABLE.bilibili 使用 api 模式（非 rpa_vm）", () => {
+    expect(ROUTE_TABLE.bilibili.mode).toBe("api")
+  })
+  it("createPublisher(bilibili) 创建 ApiPublisher", () => {
+    const r = new PublisherRouter()
+    const p = r.createPublisher("bilibili", { store, accountManager })
+    expect(p.constructor.name).toBe("ApiPublisher")
+  })
+})
+
 describe("ApiPublisher（baijiahao api 模式）", () => {
   const store = {
     getAccount: vi.fn(() => null),
@@ -662,6 +681,26 @@ describe("PublisherRouter", () => {
       });
       await publisher.publish({ article: { accountId: "mismatch" } });
       expect(rpaViewManager.publish).toHaveBeenCalledWith("wechat_mp", expect.any(Object), { cookies: [], localStorage: {} }, 120000);
+    });
+    it("视频文章的 RPA 超时放宽到 30 分钟（实测 96MB 上传超 10 分钟）", async () => {
+      const rpaViewManager = { publish: vi.fn(async () => ({ success: true, postId: "ks-9", url: "https://m.gifshow.com/fw/photo/ks-9" })) };
+      const r = new PublisherRouter();
+      const publisher = r.createPublisher("kuaishou", {
+        rpaViewManager,
+        store: { getAccount: vi.fn(() => null) },
+      });
+      await publisher.publish({ article: { title: "标题", content: "正文", video_path: "C:/tmp/a.mp4" } });
+      expect(rpaViewManager.publish.mock.calls[0][3]).toBeGreaterThanOrEqual(1800000);
+    });
+    it("图文文章仍用平台默认 RPA 超时 300s", async () => {
+      const rpaViewManager = { publish: vi.fn(async () => ({ success: true, postId: "ks-9", url: "https://m.gifshow.com/fw/photo/ks-9" })) };
+      const r = new PublisherRouter();
+      const publisher = r.createPublisher("kuaishou", {
+        rpaViewManager,
+        store: { getAccount: vi.fn(() => null) },
+      });
+      await publisher.publish({ article: { title: "标题", content: "正文" } });
+      expect(rpaViewManager.publish.mock.calls[0][3]).toBe(300000);
     });
     it("默认账号 SQLite 回退过滤第三方 Cookie", async () => {
       const rpaViewManager = { publish: vi.fn(async () => ({ success: true })) };

@@ -1,4 +1,4 @@
-# PROJECT-003：多平台一键发布 — PRD> **立项日期**: 2026-06-03> **最后更新**: 2026-08-27> **当前版本**: v2.3.60 (2026-08-27) | **上一版本**: v2.3.59 (2026-08-27)> **功能文档**: [PRD-MODEL-PROVIDER-TEST-REAL-CALL.md](./PRD-MODEL-PROVIDER-TEST-REAL-CALL.md)（模型设置测试按钮-真实API调用验证） | [PRD-SERVICE-STATUS-PANEL-2026-09-12.md](./PRD-SERVICE-STATUS-PANEL-2026-09-12.md)（侧边栏服务状态面板：六服务真实状态 + 客户端登录态） | [PRD-SIDEBAR-BOTTOM-USER-MENU-2026-09-14.md](./PRD-SIDEBAR-BOTTOM-USER-MENU-2026-09-14.md)（侧边栏底部用户菜单：登录区下移为可展开 banner + 设置/升级 Pro 并入菜单 + 服务信息上移 + 模块导航右上角占位入口移除） | [PRD-SIDEBAR-UPDATE-ENTRY-2026-09-14.md](./PRD-SIDEBAR-UPDATE-ENTRY-2026-09-14.md)（侧边栏「新版本」入口：运行时更新提示 + 点击退出应用并安装 + 全局更新弹窗下线） | [PRD-FRONTEND-UI-CONSISTENCY-P0-2026-09-17.md](./PRD-FRONTEND-UI-CONSISTENCY-P0-2026-09-17.md)（前端 UI/UE 一致性 P0：危险操作门禁 + 侧边栏 token 化 + 统一空态 + 主页整改 + 路由登记制，PR #1899 已合并） | [PRD-FRONTEND-UI-CONSISTENCY-P1-2026-09-18.md](./PRD-FRONTEND-UI-CONSISTENCY-P1-2026-09-18.md)（P1 批次：T0-6a 壳态收敛补录 + T1-1 token 结构收敛与 Gate 14 + T1-3 内联样式清零分批规格）> **产品定位**: 为内容生产者提供"采集 → 改写 → 发布"全流程闭环的一键发布桌面工具> **目标用户**: 自媒体运营者、MCN 机构、企业内容团队> **技术架构**: Electron 33 + Vue 3 + Python FastAPI + RpaViewManager RPA（Monorepo）> **需求确认**: ✅ CEO 已签字（见 [REQUIREMENTS-SIGNOFF.md](./REQUIREMENTS-SIGNOFF.md)）> **市场调研**: [MARKET-RESEARCH.md](./MARKET-RESEARCH.md) | **设计评审**: [DESIGN-REVIEW.md](./DESIGN-REVIEW.md)---## 一、产品概述### 1.1 核心价值内容生产者每天需要在多个平台发布相同或相似的内容。手动操作耗时、易出错、格式不统一。PROJECT-003 提供：1. **统一入口**：一个桌面应用管理所有平台的发布2. **自动适配**：通过 RPA 自动化填表发布，适配各平台 UI3. **异步队列**：后台批量发布，实时追踪状态4. **Cookie 管理**：安全存储各平台登录凭证5. **定时发布**：设定时间自动发布6. **平台分类**：短视频/图文/混合三类，发布策略自动适配7. **单 RPA 引擎**：RpaViewManager（Electron 原生 executeJavaScript）统一引擎### 1.2 产品边界| 范围 | 说明 ||------|------|||| ✅ 微信公众号 | RPA 发布，支持草稿编辑 → 群发 |||| ✅ 知乎 | RPA 文章发布 + 话题标签 |||| ✅ 微博 | RPA 图文发布 |||| ✅ 抖音 | RPA 图文/视频发布 |||| ✅ 小红书 | RPA 标题+正文+标签 |||| ✅ 视频号 | RPA 视频/图文发布 |||| ✅ 快手 | RPA 视频/图文发布 |||| ✅ 今日头条 | RPA 图文/视频发布 |||| ✅ YouTube | RPA 视频发布 |||| ✅ TikTok | RPA 视频发布 |||| ✅ Twitter/X | RPA 图文发布 |||| ✅ B站 | API+RPA 双模式，专栏/视频发布 |||| ✅ Instagram | RPA 图片/视频/Reels 发布 |||| ✅ Facebook | RPA 图文/视频/链接发布 |||| ✅ 包含 | AI 视频/图像/音频创作（OpenMontage 集成）、Pipeline 管线编排、Remotion 渲染 |||| ✅ 不包含 | 掘金、CSDN（由 PROJECT-002 负责）、✅ 内容聚合改写（Phase 1 集成中，PR #1496） |---## 二、平台策略### 2.1 平台支持矩阵| 平台 | 优先级 | 技术路线 | 状态 ||------|--------|----------|------|| **微信公众号** | P0 | RPA | ✅ v1.0.0 || **抖音** | P0 | API + RPA 双模式（API 优先，RPA 降级） | ✅ v1.2.0 || **知乎** | P1 | RPA | ✅ v1.0.0 || **微博** | P2 | RPA | ✅ v1.0.0 || **B站** | P1 | RPA + API | ✅ v2.0.0 || **小红书** | P1 | RPA | ✅ v2.0.0 || **抖音** | P2 | RPA | ✅ v1.0.0 || **小红书** | P4 | RPA | ✅ v1.0.0 || **视频号** | P1 | RPA | ✅ v1.0.2 || **快手** | P1 | RPA | ✅ v1.0.2 || **今日头条** | P1 | RPA | ✅ v1.0.3 || **YouTube** | P1 | RPA | ✅ v1.0.3 || **TikTok** | P1 | RPA | ✅ v1.0.3 || **Twitter/X** | P2 | RPA | ✅ v1.3.0 || **B站** | P1 | API+RPA 双模式 | ✅ v1.0.13 || **Instagram** | P2 | RPA | ✅ v1.3.0 || **Facebook** | P2 | RPA | ✅ v1.3.0 || **百家号** | P1 | RPA | ✅ v1.1.0 |### 2.2 技术路线所有平台支持 **RpaViewManager**（Electron 原生 executeJavaScript）模拟浏览器操作，通过 Cookie 保持登录状态。所有平台统一使用 **RpaViewManager**（隐藏 BrowserWindow + executeJavaScript），无需独立浏览器进程。Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 API 模式使用。**统一发布路由：**1. **RpaViewManager executeJavaScript RPA** — 所有平台（隐藏 BrowserWindow + CDP 文件上传）2. **Python 后端 API** — 预留，B 站 API 模式**三种认证模式：**1. **独立窗口登录** — 独立 BrowserWindow 承载 WebContentsView（AuthViewManager，2026-09-08 由内嵌改为独立窗口，修复账号页顶部多层重叠）2. **隐藏 BrowserWindow 静默验证** — 后台恢复 Cookie 检测登录态（loginSilent）3. **扫码登录** — 二维码自动检测（QrCodeLogin）### 2.3 用户认证与账号管理 (User Auth & Account Management)用户认证系统管理所有平台的登录凭证，支持 Cookie/Token/OAuth 三种认证模式。| Feature | Description | Priority | Status ||---------|-------------|----------|--------|| Platform Binding | Cookie/Token/OAuth account binding | P0 | Done || Secure Storage | AES-256-GCM encrypted store | P0 | Done || OAuth 2.0 | YouTube/TikTok OAuth flow | P2 | Done || QR Login | Auto-detect + scan to login | P2 | Done || Multi-account | Multiple accounts per platform | P1 | Done || Expiry Monitor | Auto-detect cookie expiration | P1 | Done || Re-login | One-click re-login flow | P1 | Done |---## 三、功能需求### 3.1 核心功能#### F1：平台账号管理| 子功能 | 描述 | 状态 ||--------|------|------|| 添加平台 | 选择平台类型，打开浏览器窗口完成登录 | ✅ || Cookie 加密 | 所有 Cookie AES-256-GCM 加密存储 | ✅ || 登录状态检测 | 每 30 分钟定期检测 Cookie 是否过期（login-status-monitor，v2.3.43），支持一键重新登录 | ✅ v2.3.43 || 多账号支持 | **同平台管理多个账号**，侧栏下拉切换，发布时选账号 | ✅ || 默认账号 | 每个平台可设默认账号，发布时自动使用 | ✅ || 扫码登录 | 微信生态平台二维码自动检测+扫码登录（img/canvas 策略） | ✅ || OAuth 2.0 认证 | YouTube/TikTok/微博/抖音 API Token 授权 | ✅ || 独立窗口登录 | 独立 BrowserWindow 承载 WebContentsView 登录，凭证捕获能力不变（2026-09-08 由内嵌改为独立窗口） | ✅ |#### F2：内容发布| 子功能 | 描述 | 状态 ||--------|------|------|| 单篇发布 | 手动输入标题 + 内容 → 选择平台 + 账号 → 发布 | ✅ || 批量发布 | 选择多平台 → 一次点击全部发布 | ✅ || **多账号同时发** | **同平台选多个账号，一次发到所有账号** | ✅ || 定时发布 | 设置发布时间 → 后台定时任务执行（持久化，重启恢复） | ✅ || 富文本编辑器 | Quill 编辑器，支持格式、图片、排版 | ✅ || 批量编辑模式 | 多篇文章同时编辑，每篇独立选平台+定时 | ✅ || 批量复制 | 复制已有文章作为模板 | ✅ |#### F3：发布任务管理| 子功能 | 描述 | 状态 ||--------|------|------|| 任务队列 | 并发3任务执行 + 自动重试（可配置） | ✅ || 任务中断恢复 | 进程崩溃后恢复未完成队列（JSON 持久化） | ✅ || 任务取消 | 取消等待中或执行中的任务 | ✅ || 实时进度 | IPC 推送发布进度（当前阶段/结果/错误） | ✅ || 结果通知 | 成功/失败通知 + 托盘闪烁告警 | ✅ || 重试机制 | 失败自动重试，通知重试进度 | ✅ |#### F4：分屏监控| 子功能 | 描述 | 状态 ||--------|------|------|| 多分屏布局 | 2/3/4/6 分屏实时监控多平台 | ✅ || 独立 Session | 每个 tab 独立 Cookie/Session 隔离 | ✅ || 实时回调 | HTTP POST 回调服务器（可配置端口，默认 :16521），59s 心跳（低于 60s 避免负载均衡断开） | ✅ || 评论/数据监控 | 回调记录自动写入 SQLite，前端实时展示 | ✅ |#### F5：内容采集| 子功能 | 描述 | 状态 ||--------|------|------|| 剪贴板导入 | 从剪贴板粘贴内容，自动提取标题+正文 | ✅ || URL 内容采集 | 输入链接自动提取 og:title/description/image | ✅ || 浏览器渲染采集 | HTTP 采集（P2-E 已移除 Playwright 降级） | ✅ || 草稿箱 | 保存/编辑/删除草稿，一键跳转到发布页 | ✅ |#### F6：发布历史与统计| 子功能 | 描述 | 状态 ||--------|------|------|| 历史记录 | SQLite 持久化发布历史 | ✅ || 统计看板 | 总发布数、各平台分布、成功率、趋势图 | ✅ || 历史筛选 | 按平台/时间/状态筛选 | ✅ || 发布后监控 | 发布完成后自动轮询平台审核状态 | ✅ |#### F6：视频创作（v2.0.0 — OpenMontage 集成）| 子功能 | 描述 | 状态 ||--------|------|------|| AI 视频生成 | 15+ 提供商：Hunyuan/Kling/Runway/VEO/WAN/CogVideo/MiniMax/Grok/HeyGen 等 | ✅ Phase 1-3 || AI 图像生成 | 14 提供商：Flux/DALL-E/Grok/Imagen/Recraft/Pixabay/Pexels/本地扩散 | ✅ Phase 1-3 || 语音合成 TTS | 5 提供商：ElevenLabs/OpenAI/豆包/Google/Piper（原 PRD 称 7 个，实际实现 5 个） | ✅ Phase 1-3（5/7） || 音乐生成 | 5 种：Suno/Pixabay/Freesound/音乐库/生成器 | ✅ Phase 1-3 || 视频分析 | 场景检测/人脸跟踪/帧采样/转写/视频理解 | ✅ Phase 4 || 绿幕合成/增强 | 绿幕处理/字幕生成/屏幕录制/人脸修复 | ✅ Phase 5 || Pipeline 编排 | 13 种视频制作管线（解释/电影/口播/数字人等） | ✅ Phase 6+7 || Remotion 渲染 | 13 种 Composition，Electron 后端渲染 | ✅ v1.0.0 || 图片提示词统一优化 | 所有图片提示词统一经 prompt-engine（8013）完成风格检测 → 改写 → 输出校验；Story2Video optimize 阶段不再直连默认 LLM（详见 PRD-video-creation §3.1.2.1） | ✅ 2026-08-09 |
+# PROJECT-003：多平台一键发布 — PRD> **立项日期**: 2026-06-03> **最后更新**: 2026-08-27> **当前版本**: v2.3.60 (2026-08-27) | **上一版本**: v2.3.59 (2026-08-27)> **功能文档**: [PRD-MODEL-PROVIDER-TEST-REAL-CALL.md](./PRD-MODEL-PROVIDER-TEST-REAL-CALL.md)（模型设置测试按钮-真实API调用验证） | [PRD-SERVICE-STATUS-PANEL-2026-09-12.md](./PRD-SERVICE-STATUS-PANEL-2026-09-12.md)（侧边栏服务状态面板：六服务真实状态 + 客户端登录态） | [PRD-SIDEBAR-BOTTOM-USER-MENU-2026-09-14.md](./PRD-SIDEBAR-BOTTOM-USER-MENU-2026-09-14.md)（侧边栏底部用户菜单：登录区下移为可展开 banner + 设置/升级 Pro 并入菜单 + 服务信息上移 + 模块导航右上角占位入口移除） | [PRD-SIDEBAR-UPDATE-ENTRY-2026-09-14.md](./PRD-SIDEBAR-UPDATE-ENTRY-2026-09-14.md)（侧边栏「新版本」入口：运行时更新提示 + 点击退出应用并安装 + 全局更新弹窗下线） | [PRD-FRONTEND-UI-CONSISTENCY-P0-2026-09-17.md](./PRD-FRONTEND-UI-CONSISTENCY-P0-2026-09-17.md)（前端 UI/UE 一致性 P0：危险操作门禁 + 侧边栏 token 化 + 统一空态 + 主页整改 + 路由登记制，PR #1899 已合并） | [PRD-FRONTEND-UI-CONSISTENCY-P1-2026-09-18.md](./PRD-FRONTEND-UI-CONSISTENCY-P1-2026-09-18.md)（P1 批次：T0-6a 壳态收敛补录 + T1-1 token 结构收敛与 Gate 14 + T1-3 内联样式清零分批规格） | [PRD-EMOJI-ICON-CONVERGENCE-2026-09-23.md](./PRD-EMOJI-ICON-CONVERGENCE-2026-09-23.md)（全站 emoji 功能图标收敛：41 处功能图标位统一为 Element Plus 线性图标 + EmptyState 图标名白名单 + 守卫 FILES 34 项登记，PR #2249） | [PRD-HOME-DATA-TRUTHFULNESS-2026-09-23.md](./PRD-HOME-DATA-TRUTHFULNESS-2026-09-23.md)（首页统计/账号/近期动态数据源真实性合同 2026-09-23）> **产品定位**: 为内容生产者提供"采集 → 改写 → 发布"全流程闭环的一键发布桌面工具> **目标用户**: 自媒体运营者、MCN 机构、企业内容团队> **技术架构**: Electron 33 + Vue 3 + Python FastAPI + RpaViewManager RPA（Monorepo）> **需求确认**: ✅ CEO 已签字（见 [REQUIREMENTS-SIGNOFF.md](./REQUIREMENTS-SIGNOFF.md)）> **市场调研**: [MARKET-RESEARCH.md](./MARKET-RESEARCH.md) | **设计评审**: [DESIGN-REVIEW.md](./DESIGN-REVIEW.md)---## 一、产品概述### 1.1 核心价值内容生产者每天需要在多个平台发布相同或相似的内容。手动操作耗时、易出错、格式不统一。PROJECT-003 提供：1. **统一入口**：一个桌面应用管理所有平台的发布2. **自动适配**：通过 RPA 自动化填表发布，适配各平台 UI3. **异步队列**：后台批量发布，实时追踪状态4. **Cookie 管理**：安全存储各平台登录凭证5. **定时发布**：设定时间自动发布6. **平台分类**：短视频/图文/混合三类，发布策略自动适配7. **单 RPA 引擎**：RpaViewManager（Electron 原生 executeJavaScript）统一引擎### 1.2 产品边界| 范围 | 说明 ||------|------|||| ✅ 微信公众号 | RPA 发布，支持草稿编辑 → 群发 |||| ✅ 知乎 | RPA 文章发布 + 话题标签 |||| ✅ 微博 | RPA 图文发布 |||| ✅ 抖音 | RPA 图文/视频发布 |||| ✅ 小红书 | RPA 标题+正文+标签 |||| ✅ 视频号 | RPA 视频/图文发布 |||| ✅ 快手 | RPA 视频/图文发布 |||| ✅ 今日头条 | RPA 图文/视频发布 |||| ✅ YouTube | RPA 视频发布 |||| ✅ TikTok | RPA 视频发布 |||| ✅ Twitter/X | RPA 图文发布 |||| ✅ B站 | API+RPA 双模式，专栏/视频发布 |||| ✅ Instagram | RPA 图片/视频/Reels 发布 |||| ✅ Facebook | RPA 图文/视频/链接发布 |||| ✅ 包含 | AI 视频/图像/音频创作（OpenMontage 集成）、Pipeline 管线编排、Remotion 渲染 |||| ✅ 不包含 | 掘金、CSDN（由 PROJECT-002 负责）、✅ 内容聚合改写（Phase 1 集成中，PR #1496） |---## 二、平台策略### 2.1 平台支持矩阵| 平台 | 优先级 | 技术路线 | 状态 ||------|--------|----------|------|| **微信公众号** | P0 | RPA | ✅ v1.0.0 || **抖音** | P0 | API + RPA 双模式（API 优先，RPA 降级） | ✅ v1.2.0 || **知乎** | P1 | RPA | ✅ v1.0.0 || **微博** | P2 | RPA | ✅ v1.0.0 || **B站** | P1 | RPA + API | ✅ v2.0.0 || **小红书** | P1 | RPA | ✅ v2.0.0 || **抖音** | P2 | RPA | ✅ v1.0.0 || **小红书** | P4 | RPA | ✅ v1.0.0 || **视频号** | P1 | RPA | ✅ v1.0.2 || **快手** | P1 | RPA | ✅ v1.0.2 || **今日头条** | P1 | RPA | ✅ v1.0.3 || **YouTube** | P1 | RPA | ✅ v1.0.3 || **TikTok** | P1 | RPA | ✅ v1.0.3 || **Twitter/X** | P2 | RPA | ✅ v1.3.0 || **B站** | P1 | API+RPA 双模式 | ✅ v1.0.13 || **Instagram** | P2 | RPA | ✅ v1.3.0 || **Facebook** | P2 | RPA | ✅ v1.3.0 || **百家号** | P1 | RPA | ✅ v1.1.0 |### 2.2 技术路线所有平台支持 **RpaViewManager**（Electron 原生 executeJavaScript）模拟浏览器操作，通过 Cookie 保持登录状态。所有平台统一使用 **RpaViewManager**（隐藏 BrowserWindow + executeJavaScript），无需独立浏览器进程。Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 API 模式使用。**统一发布路由：**1. **RpaViewManager executeJavaScript RPA** — 所有平台（隐藏 BrowserWindow + CDP 文件上传）2. **Python 后端 API** — 预留，B 站 API 模式**三种认证模式：**1. **独立窗口登录** — 独立 BrowserWindow 承载 WebContentsView（AuthViewManager，2026-09-08 由内嵌改为独立窗口，修复账号页顶部多层重叠）2. **隐藏 BrowserWindow 静默验证** — 后台恢复 Cookie 检测登录态（loginSilent）3. **扫码登录** — 二维码自动检测（QrCodeLogin）### 2.3 用户认证与账号管理 (User Auth & Account Management)用户认证系统管理所有平台的登录凭证，支持 Cookie/Token/OAuth 三种认证模式。| Feature | Description | Priority | Status ||---------|-------------|----------|--------|| Platform Binding | Cookie/Token/OAuth account binding | P0 | Done || Secure Storage | AES-256-GCM encrypted store | P0 | Done || OAuth 2.0 | YouTube/TikTok OAuth flow | P2 | Done || QR Login | Auto-detect + scan to login | P2 | Done || Multi-account | Multiple accounts per platform | P1 | Done || Expiry Monitor | Auto-detect cookie expiration | P1 | Done || Re-login | One-click re-login flow | P1 | Done |---## 三、功能需求### 3.1 核心功能#### F1：平台账号管理| 子功能 | 描述 | 状态 ||--------|------|------|| 添加平台 | 选择平台类型，打开浏览器窗口完成登录 | ✅ || Cookie 加密 | 所有 Cookie AES-256-GCM 加密存储 | ✅ || 登录状态检测 | 每 30 分钟定期检测 Cookie 是否过期（login-status-monitor，v2.3.43），支持一键重新登录 | ✅ v2.3.43 || 多账号支持 | **同平台管理多个账号**，侧栏下拉切换，发布时选账号 | ✅ || 默认账号 | 每个平台可设默认账号，发布时自动使用 | ✅ || 扫码登录 | 微信生态平台二维码自动检测+扫码登录（img/canvas 策略） | ✅ || OAuth 2.0 认证 | YouTube/TikTok/微博/抖音 API Token 授权 | ✅ || 独立窗口登录 | 独立 BrowserWindow 承载 WebContentsView 登录，凭证捕获能力不变（2026-09-08 由内嵌改为独立窗口） | ✅ |#### F2：内容发布| 子功能 | 描述 | 状态 ||--------|------|------|| 单篇发布 | 手动输入标题 + 内容 → 选择平台 + 账号 → 发布 | ✅ || 批量发布 | 选择多平台 → 一次点击全部发布 | ✅ || **多账号同时发** | **同平台选多个账号，一次发到所有账号** | ✅ || 定时发布 | 设置发布时间 → 后台定时任务执行（持久化，重启恢复） | ✅ || 富文本编辑器 | Quill 编辑器，支持格式、图片、排版 | ✅ || 批量编辑模式 | 多篇文章同时编辑，每篇独立选平台+定时 | ✅ || 批量复制 | 复制已有文章作为模板 | ✅ |#### F3：发布任务管理| 子功能 | 描述 | 状态 ||--------|------|------|| 任务队列 | 并发3任务执行 + 自动重试（可配置） | ✅ || 任务中断恢复 | 进程崩溃后恢复未完成队列（JSON 持久化） | ✅ || 任务取消 | 取消等待中或执行中的任务 | ✅ || 实时进度 | IPC 推送发布进度（当前阶段/结果/错误） | ✅ || 结果通知 | 成功/失败通知 + 托盘闪烁告警 | ✅ || 重试机制 | 失败自动重试，通知重试进度 | ✅ |#### F4：分屏监控| 子功能 | 描述 | 状态 ||--------|------|------|| 多分屏布局 | 2/3/4/6 分屏实时监控多平台 | ✅ || 独立 Session | 每个 tab 独立 Cookie/Session 隔离 | ✅ || 实时回调 | HTTP POST 回调服务器（可配置端口，默认 :16521），59s 心跳（低于 60s 避免负载均衡断开） | ✅ || 评论/数据监控 | 回调记录自动写入 SQLite，前端实时展示 | ✅ |#### F5：内容采集| 子功能 | 描述 | 状态 ||--------|------|------|| 剪贴板导入 | 从剪贴板粘贴内容，自动提取标题+正文 | ✅ || URL 内容采集 | 输入链接自动提取 og:title/description/image | ✅ || 浏览器渲染采集 | HTTP 采集（P2-E 已移除 Playwright 降级） | ✅ || 草稿箱 | 保存/编辑/删除草稿，一键跳转到发布页 | ✅ |#### F6：发布历史与统计| 子功能 | 描述 | 状态 ||--------|------|------|| 历史记录 | SQLite 持久化发布历史 | ✅ || 统计看板 | 总发布数、各平台分布、成功率、趋势图 | ✅ || 历史筛选 | 按平台/时间/状态筛选 | ✅ || 发布后监控 | 发布完成后自动轮询平台审核状态 | ✅ |#### F6：视频创作（v2.0.0 — OpenMontage 集成）| 子功能 | 描述 | 状态 ||--------|------|------|| AI 视频生成 | 15+ 提供商：Hunyuan/Kling/Runway/VEO/WAN/CogVideo/MiniMax/Grok/HeyGen 等 | ✅ Phase 1-3 || AI 图像生成 | 14 提供商：Flux/DALL-E/Grok/Imagen/Recraft/Pixabay/Pexels/本地扩散 | ✅ Phase 1-3 || 语音合成 TTS | 5 提供商：ElevenLabs/OpenAI/豆包/Google/Piper（原 PRD 称 7 个，实际实现 5 个） | ✅ Phase 1-3（5/7） || 音乐生成 | 5 种：Suno/Pixabay/Freesound/音乐库/生成器 | ✅ Phase 1-3 || 视频分析 | 场景检测/人脸跟踪/帧采样/转写/视频理解 | ✅ Phase 4 || 绿幕合成/增强 | 绿幕处理/字幕生成/屏幕录制/人脸修复 | ✅ Phase 5 || Pipeline 编排 | 13 种视频制作管线（解释/电影/口播/数字人等） | ✅ Phase 6+7 || Remotion 渲染 | 13 种 Composition，Electron 后端渲染 | ✅ v1.0.0 || 图片提示词统一优化 | 所有图片提示词统一经 prompt-engine（8013）完成风格检测 → 改写 → 输出校验；Story2Video optimize 阶段不再直连默认 LLM（详见 PRD-video-creation §3.1.2.1） | ✅ 2026-08-09 |
 | Python 聚合采集 | 后端 aggregation API（多源采集+AI改写），Phase 1 已集成 | ✅ v2.3.60 (PR #1496) |
 | 视频提示词统一优化 | 所有视频提示词的产出/改写/校验统一经 prompt-engine（8013）`domain=video`：videogen `videogen_generate` 前批量优化（数量/空项 fail-closed，未注入 PromptBridge 明确失败）、Story2Video 混合模式视频场景提示词改写后再提交 `generateVideo`（失败按混合语义回退图片轮播）；结构化 video 字段（shot/camera/motion_intensity/scene_transition/continuity_token）；契约文件 `video-prompt-engine-contract.js` 与图片契约分文件分命名（详见 PRD-video-creation §3.1.2.2） | ✅ 2026-08-12 || 视频创作历史本地模式 | 未登录可查看本机创作历史（本地只读 IPC 通道放行 + owner 隔离回退 __legacy__ + 本地模式提示条 + 失败原因可操作建议；详见 PRD-video-creation §3.1.4.1） | ✅ 2026-08-09 || Agnes 视频生成适配 | agnes-video-v2.0：提交 POST /v1/videos；状态查询 GET /agnesapi（域名根，非 /v1/agnesapi，2026-08-10 修复）；callAdapter 以 { videoId, taskId } 对象调用 getVideoStatus；流水线 merge 兼容 generate/merge/animate 上下文键（PR #476） | ✅ 2026-08-10 || videogen 生成选项生效 | animation/character-animation/avatar-spokesperson/hybrid 的生成参数（numFrames/frameRate/width/height + storyboard duration）经 stageOptions 真实作用于最终合成视频；2026-08-10 修复参数契约（num_frames 下划线丢失→双写）+ duration→帧数映射（PR 待合） | ✅ 2026-08-10 |#### F7：数据存储（SQLite）| 子功能 | 描述 | 状态 ||--------|------|------|| 账号存储 | accounts 表（含多账号、默认标记） | ✅ || 发布历史 | publish_history 表 | ✅ || 定时任务 | scheduled_tasks 表 | ✅ || 回调日志 | callback_logs 表 | ✅ || 批量任务 | batch_jobs 表 | ✅ || 设置存储 | settings 键值表（含队列状态持久化） | ✅ |#### F11：内容智能（v2.0.0）| 子功能 | 描述 | 状态 ||--------|------|------|| 热点趋势 | 实时热点话题追踪与推荐 | ✅ || 标题助手 | AI 生成/优化标题 | ✅ || 标签推荐 | 智能标签生成 | ✅ || 爆款分析 | 分析平台爆款内容特征 | ✅ v2.3.43（orchestrator + 本地 fallback） || AI Writer | AI 辅助写作面板 | ✅ || 关键词监控 | 监控关键词在各平台的表现 | ✅ |#### F12：多平台实时监控（v2.0.0）| 子功能 | 描述 | 状态 ||--------|------|------|| 多分屏布局 | 2/3/4/6 分屏实时监控 | ✅ || 独立 Session | 每个 tab 独立 Cookie/Session | ✅ || 实时回调 | HTTP POST 回调，59s 心跳 | ✅ |#### F13：评论管理（v2.0.0）| 子功能 | 描述 | 状态 ||--------|------|------|| 评论聚合 | 多平台评论统一管理 | ✅ v2.3.43（webview + IPC comment:list） || 评论回复 | 在应用内直接回复 | ✅ v2.3.43（IPC comment:reply + 后台轮询 comment:start-polling） |#### F14：云端发布（v2.0.0）| 子功能 | 描述 | 状态 ||--------|------|------|| 远程发布 API | HTTP API 触发发布 | ✅ || 任务队列 | 异步发布队列 | ✅ |#### F15：Pro 版本（v2.0.0）| 子功能 | 描述 | 状态 ||--------|------|------|| 许可证管理 | 离线验证 + 限时试用 | ✅ || 功能门禁 | Pro 功能按 license 解锁 | ✅ || 支付集成 | 支付宝/微信支付（当前为模拟模式，真实 SDK 预留接口） | ✅ 模拟模式 |#### F16：插件系统（v2.0.0）| 子功能 | 描述 | 状态 ||--------|------|------|| 插件 manifest | 声明式配置 | ✅ || 动态加载 | 运行时热加载 | ✅ || 生命周期钩子 | beforePublish/afterPublish + onLoad/onEnable/onDisable/onUnload | ✅ v2.3.43 |#### F17：日历与计划（v2.0.0）| 子功能 | 描述 | 状态 ||--------|------|------|| 发布日历 | 日历视图展示计划 | ✅ || 内容收藏 | 草稿/模板管理 | ✅ || 定时调度 | setTimeout 单次定时 + 持久化队列（非 cron，重启恢复） | ✅ setTimeout 模式 |#### F8：系统功能| 子功能 | 描述 | 状态 ||--------|------|------|| 系统托盘 | 最小化到托盘，后台运行，托盘菜单 | ✅ || 全局快捷键 | 6组快捷键：发布/监控/看板/采集/首页/退出 | ✅ || 自动更新 | 启动检测 GitHub Release，后台下载静默安装 | ✅ || 首次运行引导 | 自动检测 Python 依赖 | ✅ || 数据迁移 | JSONL → SQLite 迁移（migrateFromJsonl，v2.3.43 实现） | ✅ v2.3.43 || 静默登录验证 | 隐藏 BrowserWindow 后台验证 Cookie 有效性（loginSilent） | ✅ |#### F9：平台分类（v1.2.0, v2.3.43 完整实现）| 子功能 | 描述 | 状态 ||--------|------|------|| 平台分类枚举 | `PlatformCategory`：VIDEO / IMAGE_TEXT / MIXED（v2.3.43） | ✅ v2.3.43 || 分类映射 | 15 平台自动归类到三类（抖音/快手/视频号/B站/YouTube/TikTok=VIDEO） | ✅ v2.3.43 || API 透传 | `/api/platforms` + `platform:definitions` IPC 返回 content_categories 字段 | ✅ v2.3.43 || 前端显示 | platform store 暴露 getContentCategory / getPlatformsByContentCategory | ✅ v2.3.43 |#### F10：Electron 原生 RPA 引擎（v1.2.0）| 子功能 | 描述 | 状态 ||--------|------|------|| RpaViewManager | 隐藏 BrowserWindow + executeJavaScript RPA 引擎（P2-E 统一引擎） | ✅ || CDP 文件上传 | `DOM.setFileInputFiles` 绕过浏览器安全限制上传文件 | ✅ || DOM 操作工具集 | `_waitForElement` / `_fillInput` / `_click` / `_waitForCondition` | ✅ || 网络响应监控 | webRequest.onCompleted 网络响应监听 | ✅ || Playwright → RpaViewManager 全量迁移 | 15 平台从 Playwright 统一迁移到 RpaViewManager | ✅ || 每账号 Session 隔离 | `session.fromPartition()` 独立 Cookie 分区 | ✅ || 进度事件上报 | IPC rpa:progress → 前端实时展示 | ✅ || CDP/JS 双文件上传 | 大文件走 CDP，CDP 失败回退 JS File API / DataTransfer（v2.3.43） | ✅ v2.3.43 |#### F1a：内容编辑字段规范| 字段 | 最大长度 / 格式 | 说明 ||------|---------------|------|| **标题** | 各平台上限不同（微信 64、抖音 55、B站 80、微博 140） | 发布时按平台自动截断，超出字符弹窗警告 || **正文/HTML** | 30,000 字符 | HTML 白名单：p/br/strong/em/a/img/ul/ol/li/blockquote/h2-h4；自动过滤 script/style/iframe || **标签** | 每平台 2-10 个，每标签 ≤30 字符 | 自动去重、按平台上限截断，无合法标签时生成默认标签 || **封面图** | JPEG/PNG，≤5MB，1920×1080 以内 | sharp 中心裁剪 + 质量 85% 压缩；视频号/快手需 1:1 自动补边 || **视频** | MP4/H.264，≤4GB（平台差异：B站 8GB，抖音 2GB） | 超过平台上限时弹窗提示，不自动压缩 || **多图上传** | 每篇 ≤9 张，格式同封面图 | 按平台顺序上传，失败时跳过不阻塞发布 |**平台标题上限配置（config/platforms.yaml）：**`yamlplatforms:  wechat_mp: { title_max: 64, body_max: 30000, tags_max: 8, tag_length: 30, image_max: 9, video_max_mb: 1024 }  douyin:    { title_max: 55, body_max: 2000,  tags_max: 10, tag_length: 30, image_max: 35, video_max_mb: 2048 }  bilibili:  { title_max: 80, body_max: 20000, tags_max: 10, tag_length: 30, video_max_mb: 8192 }  # ... 其他平台`**发布前校验流程：**1. 读取目标平台配置 platforms.yaml 获取字段上限2. 对标题/正文/标签逐项校验，超限自动截断并记录日志3. 封面图自动压缩（sharp），视频仅检查大小不自动转换4. 校验失败项汇总弹窗，用户确认后继续或取消### 3.2 非功能需求|| 需求 | 指标 | 状态 |||------|------|------|| 并发发布 | 3 任务并发执行（maxConcurrent=3），每 RPA Tab ~80MB 内存，3 并发 + 主进程 < 500MB | ✅ || 离线运行 | 安装包自带 Chromium，无需联网；自动更新网络失败静默 | ✅ || 任务持久化 | SQLite 持久化队列状态，崩溃自动恢复 | ✅ ||| 数据加密 | Cookie AES-256-GCM 加密存储 | ✅ ||| 存储引擎 | SQLite（better-sqlite3） | ✅ ||| 跨平台 | Windows + Linux（macOS 待支持） | ✅ ||| 代码规范 | ESLint v9 flat config + Prettier，0 errors / 0 warnings | ✅ Phase C3 ||| 自动构建 | GitHub Actions 双平台 CI + 自动 Release | ✅ ||| 自动更新 | electron-updater，从 GitHub Release 拉取 | ✅ |#### 错误分类| 分类 | 编码 | 处理策略 ||------|------|---------|| 认证过期 | AUTH_EXPIRED | 检测到过期 -> 弹窗重新登录 || 网络超时 | NETWORK_TIMEOUT | 重试 3 次(指数退避) -> 最终报错 || 平台拒绝 | PLATFORM_REJECT | 不重试，记录原因到 task || RPA 失败 | RPA_FAILED | 截图保存 -> 降级 -> 人工接管 || 校验失败 | VALIDATION_FAILED | 弹窗提示具体原因 |#### 审计日志每次发布操作记录到 SQLite audit_log 表：| 字段 | 说明 ||------|------|| id(UUID), timestamp, user | 操作标识 || platform, account_id, action | 发布/重试/取消/删除 || content_hash(SHA-256), result | 成功/失败/部分 || error_code, duration_ms, metadata(JSON) | 错误分类/耗时/上下文 |保留策略：本地 90 天，超期自动归档。### 3.3 并发与资源约束 (Concurrency & Resource Constraints)系统资源约束定义了并发发布的最大容量，确保在有限硬件资源下稳定运行。| Resource | Limit | Notes ||----------|-------|-------|| Concurrent RPA tabs | Max 6 | 2/3/4/6 layout, ~400MB RAM per tab || Concurrent tasks | Max 3 per run | TaskQueue maxConcurrent=3 || Publish interval | 5 min min | Configurable per platform || Batch queue | No hard limit | Memory-bound, ~1MB per task || Electron main mem | ~200MB idle | Chromium + 25 services || WebSocket port | 16521 | Single instance, fallback on conflict || API timeout | Default 120s | Video platforms 300s |#### Rate Limiting（频率限制）- Per-platform: max 10 publishes/minute- Accounts: max 3 logins/minute per platform- API calls: respect upstream rate limits (TikHub, etc.)- Queue: tasks wait if limit exceeded---## 四、技术架构### 4.1 架构图```┌──────────────────────────────────────────────────┐│              apps/desktop/electron/               ││              Electron Shell + Vue 3 UI            ││  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌───────────┐│  │ 发布界面   │  │ 账号管理  │  │ 统计看板  │  │ 采集/监控  ││  └─────┬────┘  └────┬─────┘  └─────┬────┘  └──────┬────┘│        │            │              │              ││  ┌─────┴────────────┴──────────────┴─────┐│  │        IPC Bridge (preload.js)        ││  └────────────────┬──────────────────────┘│                   ││  ┌────────────────┼──────────────────────┐│  │    Task Queue  │   Scheduler          ││  │  (并发3,持久化)  │  (定时/恢复)          ││  │  @shared-utils                        ││  └────────────────┴──────────────────────┘│                   ││  ┌────────────────┴──────────────────────┐│  │     Publisher Registry                 ││  │   13 platforms (+B站)                  ││  │   + API+RPA 双模式                     ││  │   + OAuth 2.0 (YT/TT)                 ││  └────────────────┴──────────────────────┘│                   ││  ┌────────────────┴──────────────────────┐│  │     RPA Engine（统一引擎）               ││  │                                       ││  │  ┌─────────────────────────────┐      ││  │  │  RpaViewManager (Electron)  │      ││  │  │  15 platforms + B站         │      ││  │  │  隐藏 BrowserWindow         │      ││  │  │  + executeJavaScript        │      ││  │  │  + CDP 文件上传              │      ││  │  └─────────────────────────────┘      ││  │                                       ││  │  + WebviewManager（分屏）             ││  │  + QrCodeLogin（扫码登录）            ││  │  + CallbackServer（回调 :16521，config.yaml 可配）      ││  └───────────────────────────────────────┘││  ┌──────────────────────────────────────┐│  │  SQLite (better-sqlite3)             ││  │  ├─ accounts（含多账号）               ││  │  ├─ publish_history                  ││  │  ├─ scheduled_tasks                  ││  │  ├─ batch_jobs                       ││  │  ├─ callback_logs                    ││  │  └─ settings（队列持久化）              ││  └──────────────────────────────────────┘││  ┌──────────────────────────────────────┐│  │  System / UX                         ││  │  ├─ SystemTray（托盘）                ││  │  ├─ HotKeys（6组快捷键）               ││  │  ├─ AutoUpdater                      ││  │  └─ UrlCollector（URL采集）            ││  └──────────────────────────────────────┘└──────────────────────────────────────────────────┘```### 4.2 Monorepo 目录结构```multi-publish/├── apps/desktop/                # Electron 桌面应用│   ├── electron/                # Electron 主进程 + IPC│   │   ├── main.js              # 入口：窗口管理、IPC 注册│   │   ├── preload.js           # 预加载脚本（contextBridge）│   │   ├── store.js             # SQLite 统一存储（better-sqlite3）│   │   ├── webview-manager.js   # 分屏监控（P0）│   │   ├── auth-view-manager.js # 独立窗口登录（BrowserWindow + WebContentsView）│   │   ├── rpa-view-manager.js  # executeJavaScript RPA 引擎（v1.2.0）│   │   ├── callback-server.js   # 实时回调（P1）│   │   ├── qrcode-login.js      # 扫码登录（P2）│   │   ├── oauth-manager.js     # OAuth 2.0 认证│   │   ├── batch-manager.js     # 批量发布管理器│   │   ├── url-collector.js     # URL 内容采集│   │   ├── hotkeys.js           # 全局快捷键│   │   ├── system-tray.js       # 系统托盘│   │   ├── python-bridge.js     # Python 后端子进程管理│   │   ├── task-queue.js → packages/shared-utils│   │   ├── scheduler.js         # 定时发布│   │   ├── publish-history.js   # 发布记录│   │   ├── publish-monitor.js   # 发布后状态监控│   │   ├── account-state-restorer.js  # 账号状态恢复│   │   ├── credential-store.js  # 凭证加密存储│   │   ├── video-uploader.js    # 视频分片上传│   │   ├── content-aggregator-bridge.js  # 001 集成│   │   ├── api-platform-adapter.js  # API 模式适配器│   │   ├── auto-updater.js      # electron-updater│   │   └── first-run.js         # 首次运行引导│   ├── src/                     # Vue 3 前端│   │   ├── views/               # 页面：Home/Dashboard/Publish/Accounts/Collection/Monitor/FirstRun│   │   ├── components/          # 组件：ArticleEditor│   │   ├── api/                 # API 封装（publisher.js）│   │   ├── router/              # Vue Router│   │   ├── styles/              # Cohere 风格 CSS│   │   └── App.vue├── packages/│   ├── rpa-engine/              # RPA 引擎（独立 npm 包）│   │   ├── src/playwright-manager.js  # （已移除，P2-E）│   │   ├── src/cookie-store.js        # Cookie 存储│   │   ├── src/publishers/            # 平台注册（P2-E 简化）│   │   │   └── registry.js            # 平台注册 stub（已迁移到 RpaViewManager）│   │   └── package.json│   ├── shared-utils/          # 共享工具库│   │   ├── src/task-queue.js    # 任务队列（并发3+持久化）│   │   ├── src/aggregator-bridge.js  # 001 集成│   │   ├── src/format-adapter.js     # 格式适配器│   │   ├── src/cover-processor.js    # 封面处理│   │   └── package.json│   │   ├── src/aggregator-bridge.js  # PROJECT-001 集成│   │   └── package.json│   └── python-backend/        # Python 后端（FastAPI）│       ├── src/server.py        # FastAPI 入口│       ├── src/multi_publish/   # 核心模块│       │   ├── core/            # PublisherManager / QueryWorker / TaskScheduler│       │   └── publishers/      # Python 发布器（插件化）│       │       ├── platform_registry.py  # 动态注册表（JSON 驱动发现）│       │       ├── platforms.json        # 外部配置，新增平台只需加一行│       │       ├── base.py              # BasePublisher + async_retry│       │       ├── douyin.py            # 抖音（API+RPA 双模式）│       │       └── wechat_mp.py         # 微信公众号（RPA）│       └── pyproject.toml├── package.json               # 根 workspaces 配置└── .github/workflows/build.yml # CI/CD```### 4.3 发布器接口规范```javascript// 发布结果接口// interface PublishResult { success, error, partialResult, platformData, durationMs }class BaseRpaPublisher {  constructor() { /* 加载 Cookie, 初始化浏览器 Context */ }  async publishArticle({ title, content, coverUrl }) {    /* 登录态检查 → 导航到创作页 → 填写内容 → 发布 → 返回结果 */  }  async checkLoginStatus() { /* 打开平台检查 Cookie 是否有效 */ }  async cleanup() { /* 关闭浏览器 Context */ }  onProgress(callback) { /* 注册进度回调 */ }}// 所有平台发布器继承 BaseRpaPublisher，差异化部分覆盖```### 4.4 内容字段规范 (Content Field Specification)各平台对发布内容有不同字段限制。发布器在发送前自动按目标平台规则校验并截断/转换内容。| Field | Max Length | Format | Per-Platform Notes ||-------|-----------|--------|-------------------|| Title | 64 chars | Plain text, no HTML | WeChat(64), Weibo(140), Bilibili(80) || Content | 10000 chars | Markdown or HTML | WeChat public(20000), Weibo(10000) || Tags | 10 per article | Comma-separated | Douyin(10), Weibo(2), Bilibili(12) || Cover | 10MB max | JPG/PNG/WebP 16:9 | Douyin(9:16), WeChat(16:9) || Video | 500MB max | MP4/H.264 | Douyin(15min), Bilibili(4h) |#### Content Format Rules（内容格式规则）- HTML allowed tags: p, br, strong, em, a, img, blockquote- Script/iframe/object tags stripped before publish- External images auto-download and re-upload to platform CDN- Markdown converted to per-platform format via format-adapter---## 五、首次使用流程首次启动时，系统自动执行以下步骤：### 5.1 环境检测- [自动] 检测 Python 3.12+ → 安装 pip 依赖- [自动] 检测 Remotion 渲染引擎 → 安装缺失的 node_modules 依赖### 5.2 平台账号登录通过独立登录窗口（BrowserWindow 承载 WebContentsView）登录各发布平台，支持扫码登录（微信生态），Cookie 自动 AES-256-GCM 加密保存。### 5.3 模型服务商配置（必选）在「模型服务商设置」页配置 AI 模型的 API Key。支持 7 类模型：| 类别 | 用途 | 预设服务商 ||------|------|----------|| 推理模型 (LLM) | AI 写稿、标题生成、内容智能 | Anthropic / OpenAI / Gemini / OpenRouter / Ollama / 豆包 / DeepSeek || TTS 语音 | 视频配音、语音合成 | ElevenLabs / OpenAI TTS / 豆包 TTS / Google TTS / Piper || 语音识别 | 字幕生成、语音转文字 | OpenAI Whisper / Google STT / 豆包语音识别 / 百度语音识别 / 本地 Whisper || 图片生成 | 封面图、配图、AI 图像 | Flux / DALL-E / Recraft / Imagen / Grok Image / Pixabay / Pexels / 本地扩散 / ComfyUI || 视频模型 | AI 视频生成 | 混元 / CogVideo / Grok Video / HeyGen / Kling / Runway / Veo / Wan / MiniMax / LTX / Seedance / Higgsfield || 多模态模型 | 一个 API Key 覆盖文字推理/TTS/生图/视频等多个能力 | MiniMax（能力：文字推理 / TTS语音 / 生图 / 生成视频） |每个类别可添加多个服务商，并选择一个设为默认。### 5.4 模型类别与功能关联| 功能模块 | 依赖模型类别 | 说明 ||----------|------------|------|| AI 写稿 | 推理模型 | 视频脚本、文章改写、标题生成 || 标题助手 | 推理模型 | AI 生成/优化标题 || 内容智能 | 推理模型 | 内容分析、关键词提取、摘要生成 || 视频配音 | TTS 语音 | 文本转语音、多语言配音 || 字幕生成 | 语音识别 | 音频/视频转文字、字幕文件生成 || 封面生成 | 图片生成 | AI 生成封面图、配图 || 视频生成 | 视频模型 | 文本/图片生成视频片段 |### 5.5 开始使用完成引导后进入首页，即可使用发布、视频创作、内容智能等全部功能。> 详细流程见：**第 7-11 节**（视频创作 / 内容采集 / 内容智能 / 发布日历 / 云端发布）## 六、发布流程### 6.1 单平台发布1. 在富文本编辑器撰写文章（标题 + 正文 + 封面图）2. 选择目标平台3. 点击发布 → 任务加入队列 → RpaViewManager 自动化执行 → 结果通知### 6.2 多平台批量发布1. 撰写一篇文章2. 勾选多个平台（如微信+知乎+微博）3. 点击发布 → 每个平台依次执行 → 实时进度推送### 6.3 定时发布**约束：** 最大提前 30 天，同平台间隔 >= 5 分钟，使用本地时区，断网标记 missed。1. 撰写文章 + 选择平台2. 勾选「定时发布」→ 设置时间3. 到点时自动执行，支持 App 关闭后重启恢复4. 任务持久化在 `tasks/scheduled-tasks.jsonl`### 6.4 多平台批量发布（v1.1.0）1. 撰写一篇文章2. 勾选 2-10 个平台3. 点击发布 → 每个平台依次执行（队列顺序） → 失败自动重试 2 次 → 全部完成4. 发布失败平台不影响其他平台继续执行---### 6.5 发布回滚与降级策略#### 回滚策略| 场景 | 处理方式 | 数据安全 ||------|---------|---------|| **RPA 发布失败**（表单提交时报错） | 标记发布任务为 ailed，保留预填草稿截图，返回错误信息 | 内容保留在草稿箱，不自动重试 || **半成功状态**（标题已填但图片未传） | 检测 DOM 中的已填字段，匹配 last_successful_step → 从断点恢复 | SQLite 记录每步状态 {step, status, snapshot} || **API 发布失败**（B站 API 400） | 捕获 HTTP 状态码 + 错误体 → 自动切换 RPA 降级 | 降级标记记录在 task 中 || **平台拒绝**（审核不通过） | 读取审核状态 → denied，原内容保留可编辑重新发布 | 原文不删除，随 task 存档 || **用户取消发布** | 中断当前步骤 → 已提交部分不做回滚（平台侧无撤回 API） | 仅停止当前操作，后续步骤取消 |#### 降级策略1. **API → RPA 降级**：抖音/B站 优先走 API，API 连续失败 3 次后自动切换 RPA 模式2. **RPA → 人工降级**：RPA 连续失败 2 次（相同平台）→ 弹窗提示手动发布，提供预填草稿截图3. **跨平台降级**：批量发布中某个平台失败 → 标记失败，不影响其他平台继续发布#### 状态机（发布任务）`pending → publishing → { success | failed | partial | denied | cancelled }                              ↓                        (partial 可恢复)`## 七、视频创作流程### 7.1 图片轮播（原 Story2Video 文案成片）```进入「视频创作」→ 选择「图片轮播」    │    ├─ 输入完整视频文案    │   └─ 可选：点击「AI 写稿」自动生成脚本    ├─ 8002 smart-sentence-splitter 生成场景边界    │   └─ 仅服务不可用时使用本地 TypeScript 场景降级    ├─ 每个场景在本地二次切分为字幕页    ├─ 逐场景生成图片、TTS，并由 prompt-engine 优化图片提示词    ├─ 选择图片风格、提示词风格、语音模型与音色    ├─ 点击「启动流水线」    │   ├─ Electron StageExecutor 编排六阶段流水线    │   ├─ ffmpeg 合成，ffprobe 真实 TTS 时长驱动字幕时间轴    │   ├─ 以阶段清单显示文案拆分、内容增强、提示词、素材、合成、发布状态    │   └─ 渲染完成 → 预览/保存；发布阶段未启用时明确显示跳过    └─ 仅对明确的图片 Content Policy 拒绝按场景安全化重试（最多 5 次总尝试）；耗尽后进入“需要处理”，用户取消旧运行、修改文案后重新启动```#### 7.1.1 场景、字幕与 TTS 同步合同| 合同 | 要求 ||------|------|| 场景层 | 8002 返回的 `scenes` 是图片、视频提示词和逐场景 TTS 的唯一边界，Multi-Publish 不得再次改写 || 降级 | 只允许连接拒绝、超时、连接重置或服务未运行等不可用错误降级；业务错误和缺少 `scenes` 的非法响应必须失败 || 字幕层 | 本地 TypeScript 在每个场景内部独立二次分页，目标每页 8-15 字，字幕不得跨场景，拼接后必须保持场景原文 || 时间轴 | ffprobe 的逐场景真实音频时长是权威值；字幕区间连续、互不重叠，首屏从 0 开始，末屏精确结束 || 场景时长与动效 | 场景成片时长跟随 ffprobe 真实旁白音频（`-shortest`），不强制截断旁白；`defaultSceneDuration`（内部默认 6 秒，UI 不暴露）仅作音频时长不可探测时的回退。图片动效按“有效时长 = audioDuration || reportedDuration || defaultSceneDuration”归一化（zoompan `d=总帧数` + 进度 `min(1, on/T)`），短场景不切走、长场景不定格 || 来源追踪 | 持久化 `sceneSource`、`subtitleSource`、`degraded`、`fallbackReason`、`subtitleBlocks`、`subtitleTimeline` |Story2Video 的句长、时长、语速、场景字数、句界和单句溢出参数必须映射到 8002 `SplitRequest.config.sentence_tokenizer/scene`，字幕参数只在本地消费。8002 的兼容字段 `min_words/max_words` 在中文场景算法中按字数/字符数计量。当前 TTS Provider 没有统一的词级时间戳，因此字幕同步是“真实总时长 + 文本/标点权重”的分页近似同步，不宣称逐词精准对齐。
 | 视频画面无文字伪影防护 | 三层防护机制防止视频模型在画面中生成文字/字幕/水印伪影：(1) prompt-engine `generic.py` 视频策略新增 "Zero Text Artifacts (HIGHEST PRIORITY)" 强制段落，要求所有输出 prompt 以 "clean frame, no text, no subtitles, no watermarks, no logos" 结尾；(2) `videogen-stages.js` 的 `buildConceptPrompt` 和 `buildStoryboardPrompt` 系统提示注入【最高优先级约束】；(3) `video-prompt-engine-contract.js` 新增 `BUILT_IN_VIDEO_NO_TEXT_NEGATIVE` 内置负面提示词常量，自动合并到所有视频优化请求的 `negative_prompt` 字段。已知受影响模型：MiniMax、Seedance、Kling 等会在画面中随机生成乱码文字/伪字幕。详见 PRD-video-content-fidelity §无文字伪影防护 | ✅ 2026-08-13 |
@@ -16949,3 +16949,438 @@ is_default: 1
 | 合同保持 | preserve（全渠道零结果）原样返回不评分不重排；boost 聚合在 preserve 之前的 v2 铁律不触碰；去重算法/收藏/批量创作零改动 |
 | 提示文字 | hotTopics.multiBadge/multiBadgeTip/heatScoreTip/trendUp/trendDown/trendNew（zh/en 成对 6 键） |
 | 验收 | scorer 22 + service 新增 7 + UI 新增 6 全绿，既有 100+ 回归零破坏；eslint/locale-sync/debt 门禁 PASS；PRD §6 十条验收标准 |
+
+
+---
+
+## 2026-09-23 · B站 Tier-A「Cookie + 官方创作者域名 HTTP API」视频发布引擎（活体验证成功）
+
+> 关联技术方案：[rpa-api-publish/多账号API发布技术方案.md](./rpa-api-publish/多账号API发布技术方案.md) ｜ 活体证据：[rpa-api-publish/evidence/bili-live-publish.md](./rpa-api-publish/evidence/bili-live-publish.md)
+
+### 背景与动机
+「热门选题 → 一键生成视频 → 发布到多平台」E2E 链路中，DOM 点击式（RpaViewManager）视频上传/发布在各平台表现脆弱（文件选择器、发布按钮定位、作品 ID 回填等不稳定），本轮实跑未达成功。经逆向参考产品 8.4MB bundle 确认其发布引擎本质是 **Cookie + 直接调用平台官方创作者域名 HTTP API**，遂对 **B站（Tier-A：签名自包含，不依赖任何第三方远程签名服务）** 落地 API 式发布，并端到端活体验证。
+
+### 技术路线（更新 §2.2）
+- **B站视频发布由「API 模式预留（Python）」升级为主链路：Electron 主进程原生 HTTP API（无 Python、无第三方签名）**。
+- 引擎：`packages/api-publish-engine/src/adapters/bilibili.js`（`BasePlatformAdapter` 契约：uploadVideo → buildPostData → publish），经 `publisher-router.js` `ROUTE_TABLE.bilibili = { mode:'api' }` → `ApiPublisher` → `publishViaApi` 调度。
+- 上传链（upos）：`preupload?r=probe` → 逐 line 取 args(`endpoint/upos_uri/auth/biz_id`) → `init ?uploads` 得 `upload_id` → 8MiB 分片 `PUT` → `complete`（parts eTag 用字面量 `etag`）→ `POST /x/vu/web/add/v3`。
+- **合规红线**：全程仅 `member.bilibili.com` / `api.bilibili.com` 官方域名；CI 门禁禁止出现 `refpub.cn` 等第三方签名/远程调用。
+
+### 数据校验（发布前）
+1. 视频文件存在性：`fs.existsSync(videoPath)`，缺失 → `BILI_NO_FILE`。
+2. **横版校验**（ApiPublisher 前置）：ffprobe 探测宽高，`width < height`（竖版）拒绝 API 发布并提示改用 RPA（竖版短视频场景）。
+3. 登录态：cookie 必须含 `bili_jct`（csrf）、`DedeUserID`（mid）；缺失即视为未登录。
+4. 文件大小透传：`size` 参数须与真实字节数一致（preupload/init/part/complete 全链一致）。
+5. add/v3 `videos[]` schema：**必须** `{cid: biz_id, desc:'', title, filename}`，`filename` = complete.location 去扩展名去 bucket 段；**禁止** `file`/`format` 字段（错误形态触发 `21015`）。
+
+### 功能逻辑与状态机
+- 成功判据：add/v3 返回 `code===0 && data.bvid` → `{success:true, publishId:bvid, aid, url:'https://www.bilibili.com/video/'+bvid}`。
+- 失败码归类：`601`→风控（见下）；`21015`→file 字段/上传形态错；`-1025/-1026`→登录态失效（cookieExpired:true，触发重新登录引导）；其余→通用失败并回传 message。
+
+### 交互逻辑 / 显示项 / 提示文字
+- **601 风控（账号/IP 级人工滑块验证，不可程序化绕过）**：
+  - 队列任务态显示「B站上传风控(601)」，错误文案：**「B站风控(601)：请先在创作者中心完成滑块验证后重试」**。
+  - 引导动作：打开 `member.bilibili.com` 创作者中心，手动完成一次滑块验证后重发即成功。
+- **登录失效**：提示「B站登录态失效，请重新登录」，账号项标红并提供一键重登入口。
+- **成功**：发布历史新增记录，作品列展示 bvid + 可点击跳转 `url`；结果通知「B站发布成功」。
+- **竖版视频走 API 被拒**：提示「竖版视频暂不支持 API 发布，请使用 RPA 发布」。
+
+### 活体验证结论（2026-09-23）
+同一条链路真实发布 **2 条**并通过独立 `web-interface/view` 回查（`code=0`、`state=0` 公开）：
+- topic01 → **bvid `BV1MahW6tE36`**（aid 117317988063126）
+
+### 主链路活体门禁：生产 API 适配器 Tier-A 发布（2026-09-23）
+
+主链路（热门选题 → 生成视频 → 发布）的发布端已在生产代码路径活体验证：`ApiPublisher`（`ROUTE_TABLE.bilibili=api`）→ `publishViaApi("bilibili")` → `BilibiliAdapter` 真 upos 链（preupload→分片→complete→`add/v3`）→ 真 bvid。
+- 活体证据：topic03 经生产适配器投稿成功，`bvid=BV1y1ht6PEfM`、`aid=117319246288101`、owner 与账号 mid 一致，公开 `view` API `code=0` 回查通过。
+- 数据校验：登录探活 `nav isLogin` → 横版校验（`width>=height`，竖版拒 API 转 RPA）→ cookie 缺失即报「平台 Cookie 缺失」→ 发布结果缺 `bvid` 即报「发布结果缺少平台作品 ID」。
+- 内容纯净：`_cleanText` 去标题/简介水印；`buildPostData` 产出 `add/v3` 精确 schema（`videos=[{cid:biz_id, filename}]`，不含已废弃 `file/format`）。
+- 失败态：`601` 风控 / `-1025` 登录失效 / `BILI_ARGS_FAIL` / `BILI_INIT_FAIL` / `BILI_PART_FAIL` 均有确定文案与 code。
+- 运维项：持久 app（mp-app-live2）落后 origin/main 时其 `ROUTE_TABLE` 仍 `rpa_vm`；完整 Electron 队列端到端需先 `sync-app.ps1` 同步重启（详见 `01-docs/rpa-api-publish/evidence/mainchain-bili-prod-adapter-2026-09-23.md`）。
+- topic02 → **bvid `BV1DxhW6hEwZ`**（aid 117318055106795）
+证明链路稳定可复现，非偶发。回归单测 `packages/api-publish-engine/test/bilibili-upos.test.js`（6 例，纯逻辑不联网）。
+
+### 主链路活体门禁（应用自身发布队列 E2E，2026-09-23）
+
+- **升级点**：把发布端从「旁挂脚本 require 生产模块」推进到「经已启动应用自身的发布队列
+  （`publishBatch` IPC → `taskQueue` → `PublisherRouter.createPublisher`）」实跑，坐实 Electron
+  队列在最新代码下把 bilibili 分派到 Tier-A API 发布器并抵达 B站真实接口。
+- **消除陈旧 app 盲区**：`mp-app-live2` 落后 origin/main 达 30 提交且 `ROUTE_TABLE.bilibili=rpa_vm`；
+  本轮安全同步（脏文件先 patch+stash 双备份、未跟踪 evidence 移存）→ `checkout origin/main`
+  （`b74f46e70d`，0/0 对齐）→ `ensure-desktop-deps DESKTOP_DEPS_OK` → 重启 `START_CONTRACT_OK`。
+- **交互/数据校验**：`listAccounts` 得 bilibili 账号 `e72848c6`（active/has_cookies，重启后重验）；
+  `publishBatch`（preload 契约两枚位置参数）返 `{code:0,data:{taskIds:['task_1_…']}}`；
+  `getQueueStatus` running=1→history=1；`getQueueHistory` 给出终态。
+- **活体结果（强证据）**：队列经 `ApiPublisher`→`publishViaApi('bilibili')`→upos 上传→`add/v3`
+  真实往返 B站，返回**平台业务态**「非正式会员单日只能投递五个稿件」而拒（`retry=2`，3 次均达 B站）。
+  这证明整条分派链正确；未产新 bvid 的唯一原因是账号级外部配额（本日已用生产路径投 3 稿），非代码缺陷。
+- **对比旧脆弱链路**：旧 `rpa_vm` 队列典型失败为 `responses=0` 空点击 / `timeout(300s)`；本轮 api
+  队列直达平台并拿结构化裁决，可观测性从「无回执」升级为「平台 message + 明确额度规则」。
+- 详见 `01-docs/rpa-api-publish/evidence/mainchain-app-queue-gate-2026-09-23.md`。
+
+### 前端主链路活体可视化验证（热门选题 → 一键生成视频 → 故事讲述流水线，2026-09-23）
+
+- **补齐维度**：后端发布链已由上节队列 E2E 坐实；本节以 CDP 驱动活体 Electron 渲染进程，补齐
+  objective 前端一寸「热门选题页点【生成视频】→ 自动改写 → 自动故事讲述流水线」的**可视化证据**
+  （native `Input.dispatchMouseEvent` 真实点击 + `Page.captureScreenshot` 截图 + `Runtime.evaluate` 读 DOM）。
+- **热门选题页渲染**：路由 `#/hot-topics`（`HotTopics.vue`）；被 Bilibili 创作者中心 BrowserView 覆盖时，
+  native 点「首页」tab 切回 Vue 页面。页面含标题/副标题、分类过滤（综合230/财经49/科技27/娱乐49…）、
+  10+ 条实时热榜，**每行均带【生成视频】按钮**。
+- **点击→弹窗启动**：点第一条【生成视频】，弹「一键生成视频 · <选题>」，提示文字
+  **「已开始生成视频，改写文案后将自动启动故事讲述流水线」**，进度 0%。
+- **阶段动态推进（非卡 0%）**：两次读数证明流水线自主逐阶段推进——文案改写✓(17秒)→文案拆分✓(拆为
+  35 个场景)→内容增强·场景上下文✓(整理 35 场景背景)→提示词优化⟳（**26/35 → 31/35**，总进度 **42%→43%**）；
+  后续 AI视频场景选择 / 图片·视频·旁白生成 / 视频合成 / 发布 排队。合成耗时与视频时长正相关
+  （1 分钟 5–8 分钟…），完整出片慢，但**实际 mp4 产出已由更早 5/5 mp4 端到端证据坐实**。
+- **交互/显示项**：弹窗含阶段清单（每阶段状态图标 ✓/⟳/○、耗时、开始/完成时间戳）、总进度条、
+  「后台运行」「取消」按钮、合成时间说明文案。
+- 截图与详情见 `01-docs/rpa-api-publish/evidence/ui-flow/`（`hot-topics-page.png` /
+  `gen-video-modal-start.png` / `gen-video-pipeline-43pct.png` / `README.md`）。
+
+
+### 内容纯净要求：发布标题/简介/正文去「自动发布」水印（2026-09-23）
+
+- **需求（用户硬要求）**：真实发布内容时，标题、简介（desc）、正文一律不得携带「（由多平台一键发布工具自动发布）」等自动发布水印 boilerplate。
+- **实现**：`bilibili` 适配器 `buildPostData` 引入 `_cleanText()`，对 `title`/`desc` 做防御性净化——正则剥离任意全/半角括号包裹、含「自动发布 / 一键发布工具 / 由多平台」的整段 boilerplate 及残留换行后 `trim`；因此无论上游改写引擎/队列传入何种文本，最终提交给平台的标题与简介都保持纯净。
+- **数据校验**：单测 `bilibili-upos.test.js` 以「标题/正文含水印」为输入，断言 `buildPostData` 产出的 `title`/`desc` 均不含上述关键词，作为回归保护，防止未来再次注入水印。
+- **交互提示文字**：正文/简介直接透传用户内容，不再自动追加任何来源标注或工具签名。
+- **活体验证**：净化后重投 B站 topic02 得新稿 `BV1YNh46kE8T`，`desc` 无水印（提交即净化）。
+
+### 第二平台活体推进：快手 RPA 发布前沿与合规墙（2026-09-23）
+
+> 承接 Tier-A 节。用户硬要求「能发的都发」，本轮以活体应用（7 账号 is_active=true）实测推进第二平台，得到确定性根因，记录如下，供后续按证据迭代，避免重复踩坑。
+
+- **合规墙（决定 API 路线天花板）**：packages/api-publish-engine/src/signer-local.js 的 getKuaishouSign（本地 MD5(apiPh|body)）仅是发往远程签名服务（第三方远程签名服务，signer.js 默认端点域名）换取真 __NS_sig3 的中间 key；真签名由远程算出。本地近似签名必被快手服务端拒，调用远程服务违反 CI 品牌/来源门禁（禁第三方签名域名与参考产品品牌词）。抖音 _signature/a_bogus 同理为占位。**故除 B站外的视频平台无法走自包含 API 发布，唯一合规杠杆是应用内 RPA（浏览器自签名、用户已登录会话）。** 当前唯一达活体成功的视频平台为 B站（BV1MahW6tE36 / BV1DxhW6hEwZ）。
+
+- **快手 RPA 实测链路（本轮，账号 a4505f45，720p 小体积视频）**，逐阶段结论：
+  1. 启动浏览器 + 恢复 cookie：通过（cookies restored / supplemented 16/16 cookies from auth partition account-a4505f45）。
+  2. 导航 cp.kuaishou.com/article/publish/video?tabType=1 + 关引导弹窗：通过（post-nav dialogs dismissed: 放弃）。
+  3. 文件上传：通过（uploading file -> file uploaded，约 25s）。
+  4. 标题/正文：通过（无独立标题框，回落 #work-description-edit 富文本编辑器，正文已合成 caption）。
+  5. 封面上传：通过；AI 声明：页面无可勾选控件（NO_DECLARATION_FOUND，非阻断）。
+  6. 发布点击：DIAG pubBtn=7（7 个候选），前 3 个通用文本选择器 button:has-text("发布")/button:has-text("发表")/span:has-text("发 布") 各 3s 超时，命中配置专用候选并点击——但点击后未触发任何提交请求（见下）。
+  7. 回查：失败 publish signal lacked platform ID; responses=0 -> 发布结果缺少平台作品 ID。
+
+- **确定性根因（关键）**：_verifyPublishSuccess 诊断 responses=0——发布网络捕获（_startPublishNetworkCapture，其 relevant(url) 覆盖 publish/submit/create/video/work 等）在「点击发布 -> 停止捕获」窗口内记录到 0 条相关响应。这表明发布按钮点击是空操作，从未发出提交 XHR（而非提交成功但回查匹配失败）。因此快手失败的真身在「点击 -> 提交」环节，而非旧述的「作品 ID 回查过严」。
+
+- **待迭代方向（需活体发布页 DOM 取证，勿盲改选择器）**：疑似 (a) 命中候选按钮处于 disabled/占位态（视频仍在服务端转码，发布未就绪）；(b) 快手点击发布后需二次确认弹层（发布设置/定时/确认），当前流程未处理该步即进入回查；(c) 配置专用候选选择器与实际发布按钮元素不符（点到了非提交元素）。下一步应在不公开提交前提下（仅上传成草稿态）dump 发布按钮清单（text/disabled/class/offsetParent）与其中英文文案、以及点击后是否出现确认层，据此做证据化 TDD 修复。
+
+- **安全提示**：每轮重试会向用户真实快手账号上传并可能公开视频；本轮 2 次尝试均因未提交（responses=0）未产生公开发布；重传风暴已通过 window.electronAPI.cancelTask 清空队列（pending=0 running=0）止住。后续活体迭代须先确认账号侧无脏稿，再逐条推进。
+
+## 全仓代码体检整改：安全加固与质量门禁需求（audit-remediation-20260922，四批全量）
+
+> **来源**：`.adversarial/codebase-audit-20260922/proposal-v7.md`（12 轮双模型对抗评审终版；P0×4、P1×11、P2×12（按 proposal-v7 问题清单实测：P0 = 条目 1/2/4/8，P1 = 条目 3/5/6/7/9~15 共 11 项，P2 = 12 条），六轮 Critical 轨迹 4→1→0→0→0→0→0）。
+> **落地批次**：#2214（P0 全部 + P1 的 3/4/6/7/8）→ #2226（P1 的 5/9/10/11/12/13）→ #2239（P1 的 14/15 + P2 安全小项）→ #2252（P2 技术债余项）。
+> **本节定位**：把整改中**固化的校验规则与交互契约提升为产品需求**，逐条可复算、可回归。实施过程记录见 `docs/audit-remediation-batch3-2026-09-22.md`、`docs/audit-remediation-batch4-2026-09-22.md` 与 CHANGELOG 对应条目。
+
+### 一、需求矩阵（条目 → 交付物 → 门禁）
+
+| 体检条目 | 需求口径（固化后） | 关键交付物 | 防复发门禁 |
+|---|---|---|---|
+| P0-1 Ed25519 私钥入库 | 私钥不入库；默认公钥仅在 `app.isPackaged === false` 生效 | `.env.example` 占位符 + `KEY-ROTATION-GUIDE.md` | pytest + 评审 |
+| P0-2 弱密钥闸门 | 长度 ≥32、弱值/弱前缀拒绝、systemd 字面量拒绝 | `config._validate_jwt_secret` | `run_startup_security_checks` fail-closed |
+| P0-3 decrypt_key 参数 | 单参数调用 + 精确异常 + 可区分失败原因 | `model_preset_service` | pytest 断言「解密明文 == 真实 Key」 |
+| P0-4 加密主密钥静默自生成 | 生产缺失即非零退出；历史密文不可解按条降级掩码 | `key_service._get_fernet` | `[P0-4]` 启动闸门 |
+| P0-6 CORS 全开 + credentials | `*` + credentials 启动直接拒绝 | `config._validate_cors_credentials` | 会话安全矩阵断言 |
+| P0-7 SSRF | 外部 URL 统一校验器（含私网/元数据拦截） | `_validate_target_url` | pytest 逐地址回归 |
+| P0-8 systemd 注入公开常量 | `EnvironmentFile=` + 低权 `User=` + 600 文件权限 | `deploy/ops-center.service`、`setup-service.sh` | 部署清单评审 |
+| P1-5 敏感配置明文落库 | **写库前**加密；掩码回显不覆盖真实凭据；审计存掩码 | `config_service._apply_upsert`（单条/批量共用） | pytest |
+| P1-9 B站采集桩实现 | `success` 绑定 title/desc 非空；空结果 `reason=api_stub_not_implemented` | `bilibili-adapter.js` | vitest |
+| P1-10 shared-utils 顶层 require electron | 声明 peerDependency + 注入/懒加载 | `publish-history.js`、`scheduler.js` | vitest |
+| P1-11 ingest-url 缺 SSRF | 与 Python 侧同口径白名单 | `ingest-url.js` | node --test |
+| P1-12 Playwright 无 try/finally | 异常路径必关浏览器 | `character_animation_utils.py` | pytest |
+| P1-13 朝代成语守卫缺项 | 补登记真俗语 + 正向回归 | `story-context-engine.js` | vitest 全量 |
+| P1-14 IPC sender 守卫不一致 | 文档化口径统计 + 比例式阈值 + 豁免治理 | `check-ipc-sender-guard.js` + `ipc-guard-exemptions.json` | CI Gate 17 |
+| P1-15 后台 JWT 存 localStorage | HttpOnly + SameSite=Lax Cookie + CSRF 头 + CSP | `routers/auth.py`、`middleware/auth.py`、`main.py`、`http.js` | CI Gate 18 |
+| P2 性能税/技术债余项 | 见第八、九节 | 多文件 | 债务熔断 + 依赖审计门禁 |
+
+### 二、启动期安全闸门（数据校验）
+
+**功能逻辑**：所有 P0 校验在 FastAPI `startup` 事件内执行（`main.py` 的 `_p0_startup_gates()` → `config.run_startup_security_checks(settings)`），任一项不通过即 `raise SystemExit` —— **服务不启动**（fail-closed），不把配置缺陷伪装成运行期业务错误。
+
+| # | 校验项 | 触发条件 | 失败动作 | 提示文字（逐字，`[P0-x]` 前缀便于运维 grep） |
+|---|---|---|---|---|
+| 1 | JWT 密钥强度 | `len(secret) < 32` | SystemExit | `[P0-2] JWT secret too short (N chars); require >= 32. Generate with: openssl rand -hex 32` |
+| 2 | JWT 已知弱值 | 命中 `_WEAK_SECRET_EXACT`（含 `dev-secret-change-in-production`、`dev-secret-key-for-local-testing-2026`、`secret`、`changeme`、`default`、`admin`） | SystemExit | `[P0-2] JWT secret matches known weak value; refuse to start.` |
+| 3 | JWT 弱前缀 | 以 `dev-` / `test-` / `changeme` / `default` 开头 | SystemExit | `[P0-2] JWT secret starts with '{prefix}' (development pattern); production must use a strong random secret.` |
+| 4 | 管理员弱口令 | 命中 `{admin123, password, 123456, admin, root, ""}` | SystemExit | `[P0-2] Admin password is in known-weak list; choose a strong password (>= 8 chars).` |
+| 5 | 生产缺管理员口令 | `ENVIRONMENT != development` 且口令为空 | SystemExit | `[P0-2] Admin password must be set in production (OPS_ADMIN_PASSWORD).` |
+| 6 | 管理员口令过短 | `len < 8` | SystemExit | `[P0-2] Admin password too short (N); minimum 8 characters.` |
+| 7 | CORS 危险组合 | `allow_credentials=True` 且 `cors_origins` 含 `*` | SystemExit | `[P0-6] CORS allow_origins='*' with credentials=True is insecure; specify explicit whitelist (e.g. https://app.example.com).` |
+| 8 | 加密主密钥缺失 | `OPS_ENCRYPTION_KEY` 为空且未显式放行 | SystemExit | `[P0-4] OPS_ENCRYPTION_KEY not configured. Generate: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
+| 9 | 运行时签名私钥缺失 | 未配置私钥/路径 | 接口级 fail-closed | `/api/v1/runtime/bootstrap` 返回 **404**（不下发未签名配置） |
+| 10 | 未展开的 unit 文件字面量（P0-8） | 值中出现 `${` 或 `$(`（`OPS_JWT_SECRET` / `OPS_ENCRYPTION_KEY` / `OPS_ADMIN_PASSWORD` 三处同源） | SystemExit | `[P0-8] {field} contains unexpanded unit-file reference '${...}'; systemd Environment= does not expand ${VAR} — inject a real random value via EnvironmentFile= instead.` |
+
+**显式开发逃生阀**：`OPS_ALLOW_EPHEMERAL_KEY=true` 才允许临时 Fernet 密钥，且必须打 warn：`[P0-4] OPS_ENCRYPTION_KEY not set; ephemeral key generated. DEVELOPMENT ONLY — encrypted data unrecoverable after restart.`；测试/`ENVIRONMENT=development` 下同样只 warn 不静默。
+
+**判据顺序与实现补漏（2026-09-23）**：第 10 条走 `_reject_unexpanded(value, field)`，在 `_validate_jwt_secret` 中置于长度检查**之前**，使 `${PO_SECRET_KEY}` 的归因是「未展开字面量」而非顺带的 "too short"；`run_startup_security_checks` 另对三个凭据字段各调一次（同一 systemd 机制同源）。补漏前状态：本 PRD 与体检报告均把「拒绝 `${`/`$(` 字面量」写成完成态，但实现只有长度/弱值/弱前缀三类判据，**长度 ≥32 的未展开字面量可绕过闸门** —— 属「文档超前于实现」的漂移，现由 `config._reject_unexpanded` + `tests/test_p0_jwt_literal.py`（6 例）与变异验证（摘掉任一判据接入点即转红）双向锁定。
+
+**通过态显示项**：日志 `[P0] All startup security checks passed.` 与 `[P0] Startup security checks passed.`（启动闸门与运行期各一条）。
+
+**交互逻辑（运维）**：进程起不来时按首行 `[P0-x]` 定位条目 → 参照 `ops-center/deploy/KEY-ROTATION-GUIDE.md` 生成/注入密钥 → 用 `EnvironmentFile=`（**不是** `Environment=`）落盘，文件权限 `600`、属主为 `User=ops-center` 低权账号。
+
+### 三、密钥与凭据治理流程（P0-1 / P0-8）
+
+1. **出库**：`ops-center/backend/.env.example` 不再内嵌可用私钥，替换为占位符 `OPS_RUNTIME_SIGNING_PRIVATE_KEY="<REPLACE_WITH_YOUR_GENERATED_PRIVATE_KEY>"`，同文件给出生成命令与 `OPS_RUNTIME_SIGNING_KEY_PATH` 二选一说明（路径优先）。
+2. **信任锚**：桌面端内置默认公钥只在非打包态（`app.isPackaged === false`）生效；生产必须使用自定义密钥对，验签不通过则整份运行时策略（公告 / 版本 / 敏感词 / pipelineOptions）不应用。
+3. **部署层**：systemd `Environment=` **不展开** `${}`，历史上把 `OPS_JWT_SECRET` 注入成仓库可复算的字面量 `${PO_SECRET_KEY}`。修复口径 = `EnvironmentFile=` 注入真实随机值 + 启动校验额外拒绝含 `${` / `$(` 的字面量 + `User=root` 降为 `User=ops-center`。
+4. **泄露面排查清单（问题 1/2/8 的关闭前置，逐机执行项，本仓只交付指引与判据）**：
+   - [ ] `git log -S "<PEM片段>" --all` 定位全部引入提交/分支（证据：命令输出存档）；
+   - [ ] 所有部署机 `.env` / `EnvironmentFile` 无 dev 私钥与弱密钥残留（逐机 grep 输出）；
+   - [ ] 逐机核对 `ops-center.service` 无 `${...}` 字面量；`OPS_JWT_SECRET` 已换成独立随机值且历史令牌作废；与 orchestrator `PO_SECRET_KEY` 解耦已验证；
+   - [ ] CI secrets / 制品库无同密钥引用（secrets 清单核对记录）；
+   - [ ] 桌面端历史发行版本内置默认公钥的发放范围清单 + 验签锚切换兼容窗口评估；
+   - [ ] 服务端配置双钥/宽限期过渡（并行接受新旧公钥、旧钥设到期日 = 轮换后 90 天），存量客户端升级率 ≥95% 活跃，并**显式声明宽限期内旧客户端仍暴露于已泄露私钥的残余风险**；
+   - [ ] 全环境轮换完成并留存轮换记录，新公钥验签通过。
+
+   > 状态：本仓可自动化部分（1、5 的取证与 3/4 的代码侧）已随 #2214 交付；逐机项属外部运维，交付物为 `ops-center/deploy/KEY-ROTATION-GUIDE.md`（含双钥/宽限期/回滚步骤与记录表）。**这些复选框不由代码合并且关闭**，须在部署评审中逐项签字。
+
+#### 3.1 信任锚闸门的实现补漏（2026-09-23，audit 收尾）
+
+第三节第 2 条此前同样处于「文档超前于实现」状态：`ops-center-sync.js::verifyRuntimeSignature` 对**未配置** `runtimePublicKey` 的情况无条件回落内置 DEV 公钥，`app.isPackaged` 从未参与判定 —— 即打包发行版照样吃 DEV 信任锚，持有已泄露 DEV 私钥者可向生产客户端下发整份运行时策略。本次补齐实现：
+
+| 项 | 口径 |
+|---|---|
+| 判据模块 | `apps/desktop/electron/services/runtime-trust-anchor.js`：`resolveTrustAnchor(configuredPem, devFallbackKey)` → 有自定义锚用自定义；无锚且未打包回落 DEV 公钥；无锚且已打包返回 `NO_PRODUCTION_TRUST_ANCHOR`；无锚且 DEV 公钥被裁返回 `NO_PUBLIC_KEY` |
+| 打包态判定 | 唯一权威 `require('electron').app.isPackaged === true`；取不到 electron（纯 node 脚本 / vitest 无 mock）按「未打包」处理；探针异常按最保守的「生产态」处理 |
+| 接入点 | `verifyRuntimeSignature(payload, publicKeyPem)` 在结构/签名校验之后、`createPublicKey` 之前解析锚；`anchor.error` 直接作为 `reason` 返回（fail-closed） |
+| 数据校验（配置侧，既有） | `saveConfig` 仍要求 `runtimePublicKey` 为合法 Ed25519 PEM，非法值拒绝保存并返回 `runtimePublicKey 必须是合法 Ed25519 公钥`；空值视为「未配置」而非「清除」（保留现值） |
+| 用户可见提示 | 同步失败提示：`运行时策略验签失败（NO_PRODUCTION_TRUST_ANCHOR），已拒绝应用任何运行时策略：打包版需在「运营中心同步配置」填写自定义 Ed25519 公钥作为信任锚`；日志侧同名 reason，便于逐机定位 |
+| 显示项影响 | 命中该拒绝时：公告不展示、版本发布/灰度策略不生效（走内置默认）、敏感词仅内置词库、应用菜单与 pipelineOptions 不定制 —— 客户端可正常离线使用，不崩不白屏 |
+| 防复发 | `apps/desktop/electron/services/runtime-trust-anchor.test.js` 10 例（4 态锚解析 + 3 判定保守性 + 3 端到端验签）；变异自证：撤掉 `verifyRuntimeSignature` 的锚接入 → 「打包 + 无锚必须被拒」转红（1 failed / 9 passed），还原全绿 |
+
+**运维动作（发版前置检查）**：打包发行版随包分发的配置里必须已写入生产 `runtimePublicKey`；灰度期先以「旧客户端可继续用旧锚、新客户端用新锚」的双钥窗口验证（见 `ops-center/deploy/KEY-ROTATION-GUIDE.md`），再放量。若漏配，现象不是崩溃而是「运营中心下发的策略全部不生效」，排查首查该 reason。
+
+### 四、管理后台会话（P1-15：HttpOnly Cookie + CSRF + CSP）
+
+#### 4.1 数据校验（Cookie 属性来源）
+
+| 属性 | 取值来源 | 默认 | 校验规则 |
+|---|---|---|---|
+| `key` | `settings.session_cookie_name` | `ops_session` | 非空字符串 |
+| `httponly` | 硬编码 `True` | — | 不可配置（配了就不叫防 XSS 外带） |
+| `samesite` | `settings.session_cookie_samesite`（`Literal["lax","strict","none"]`） | `lax` | 非法值由 pydantic 拒绝启动 |
+| `secure` | `settings.is_session_cookie_secure()` | 未显式配置时按环境推导 | `session_cookie_secure: Optional[bool] = None`；`None` ⇒ 非 `development` 即 `True` |
+| `max_age` | `settings.get_session_max_age_seconds()`（`session_cookie_max_age_hours`，0 ⇒ 默认值） | — | 必须为正整数秒 |
+| `path` | 硬编码 `/` | — | 签发与清除必须同 `path`，否则清不掉 |
+
+#### 4.2 功能逻辑（双通道与优先级）
+
+1. **Bearer 优先**：存在 `Authorization: Bearer <jwt>` 即只走该通道（桌面端 / 脚本 / scheduler 上报），**不受 CSRF 自定义头约束**；Bearer 非法直接 401，**不回落到 Cookie**（杜绝「垃圾 Bearer 触发回落」的语义歧义）。
+2. **Cookie 会话**：无 Bearer 时读 `session_cookie_name`。SameSite=Lax 只拦跨站子请求/POST，故写操作（非 `SAFE_METHODS = {GET, HEAD, OPTIONS, TRACE}`）必须再带 `settings.csrf_header`（默认 `X-Ops-Session`）自定义头 —— 跨站页面无法设置自定义头（设了也过不了预检），据此判定请求来自本前端脚本。读操作不要求该头，保证书签直达与只读页可用。
+3. **解码异常映射必须在依赖图内抛出**（`_decode_or_http`），否则 FastAPI 会把配置缺陷变成 500。
+4. **登录**：`create_access_token` 后 `_issue_session_cookie`；**响应体刻意不含 token / access_token**，只回 `{username, role:"admin", expires_in, csrf_header}`。
+5. **登出**：`delete_cookie` 同样带 `path/secure/httponly/samesite`；刻意**不要求认证、不要求 CSRF 头**（无副作用，且会话过期时也必须可点，否则「登出」按钮退化成 401 报错）。
+6. **会话探测**：`GET /api/auth/me` 与别名 `GET /api/auth/session` 同一实现（文档/运维/前端口径统一，不引入第二份鉴权逻辑）。
+
+#### 4.3 交互逻辑（前端）
+
+- 统一走 `ops-center/frontend/src/api/http.js` 的 `createApiClient()`：`withCredentials: true`；写操作注入 `CSRF_HEADER = 'X-Ops-Session'`（axios v1 的 `AxiosHeaders` 优先 `.set()`，大小写不敏感）。
+- **401**（无凭据 / 令牌无效或过期）→ 清理内存登录态并跳登录页，杜绝「半登录态」。
+- **403**（权限不足 **或** 缺 CSRF 头）→ 属业务/调用方问题，**不清登录态**，避免一次误操作把管理员踢下线。
+- 禁止在 view 里自建 axios 实例（门禁 `forbidden-pattern` 会命中）。
+
+#### 4.4 显示项与提示文字（逐字）
+
+| 场景 | 状态码 | 文案 |
+|---|---|---|
+| 无凭据 | 401 | `未提供认证令牌` |
+| 令牌非法/过期 | 401 | `令牌无效` |
+| JWT 密钥未配置 | 503 | `认证服务配置不完整`（fail-closed，不伪装成凭据问题） |
+| 写操作缺 CSRF 头 | 403 | `跨站请求伪造防护：基于 Cookie 会话的写操作必须携带自定义头 X-Ops-Session（前端 axios 拦截器默认注入）` |
+| 非管理员访问 admin 接口 | 403 | `需要管理员权限` |
+| 登录限速 | 429 | `尝试次数过多，请稍后再试` |
+| 未配置管理员账号 | 503 | `未配置管理员账号，请设置 OPS_ADMIN_USERNAME/OPS_ADMIN_PASSWORD` |
+| 口令错误 | 401 | `用户名或密码错误` |
+
+**安全响应头（`security_headers` 中间件，`setdefault` 不覆盖 nginx 已下发值）**：
+
+- `Content-Security-Policy`：默认 `default-src 'self'` 起步，含 `frame-ancestors 'none'`（阻嵌框劫持）、`object-src 'none'`、`base-uri 'self'`、`form-action 'self'`；**配置为空字符串 ⇒ 显式不下发**（交 CDN/nginx 统一发，避免双重头被浏览器取交集后失效）。
+- `X-Content-Type-Options: nosniff`；`Referrer-Policy: no-referrer`（防带 token 的 URL 经 Referer 外泄）；`X-Frame-Options: DENY`（老浏览器兜底，可配 `x_frame_options`）。
+
+#### 4.5 回归保护（QM-5 第四步）
+
+- 后端：`ops-center/backend/tests/test_p1_15_session_cookie.py`（登录只落 Cookie、401/403 语义、缺头 403、登出清 Cookie、密钥缺失 503）+ `test_auth_login.py`。
+- 前端：`ops-center/frontend/tests/http-client.test.js`（CSRF 注入 + 401 清态 / 403 不清态）、`auth-store.test.js`、`menu-store.test.js`；7 个 view 迁移到统一客户端。
+- 防复发：CI **Gate 18** `node .github/scripts/check-ops-session-hygiene.js` —— 目录级禁用模式（view 自建 axios、localStorage 存 token）+ 关键结构必存在（`response.set_cookie(`、`httponly=True`、`samesite=settings.session_cookie_samesite`、`def logout`、`delete_cookie(`、`async def security_headers` + 三类头、`export const CSRF_HEADER = 'X-Ops-Session'`、`withCredentials: true`、`status === 401`）。违规输出：`ops-center 会话卫生检查未通过：N 项违规`。
+
+### 五、IPC sender 守卫口径（P1-14）
+
+**为什么改口径**：体检报告原写「约 215/336」，第 6 轮独立复算无法再现，v7 已订正为「按文档化口径重算 + 比例式断言」。现口径由 `.github/scripts/check-ipc-sender-guard.js` 固化，任何复核都跑同一脚本，不再引用口头数字。
+
+**统计口径**：正则 `\b<obj>\.(handle|on)\s*\(` 收集注册点，排除 `.test.js` 与测试目录；按守卫来源分五类：
+
+| 分类 | 判定 | 是否计入守卫覆盖 |
+|---|---|---|
+| `explicit` | 显式 `withSenderCheck` / `isTrustedSender` | ✅ 计入比例 |
+| `injected` | 注册在受控实例（`createAccessControlledIpcMain` 咽喉点转发前无条件 `isTrustedSender`） | ✅ 计纵深，不计 explicit 比例 |
+| `global` | 直接 `require('electron').ipcMain.handle` | ❌ **硬错误**，不可豁免 |
+| `fallback` | `injectedIpcMain \|\| require('electron').ipcMain` | ❌ **硬错误**，不可豁免（`FALLBACK_RE`） |
+| `unknown` | 静态不可判定 | 须逐条登记豁免（risk / reason / owner） |
+
+**当前基线（`ipc-guard-exemptions.json`，date=2026-09-22，只允许上调/收紧）**：注册点 407（handle 404 + 同步 `on` 3）、explicit 273、injected 134、unknown 0、bypass 0、`explicitRatio = 0.671`、`minGuardedRatio = 0.65`。违规输出示例：`显式守卫占比 62.0% 低于门禁阈值 65.0%`。
+
+**同步通道规则**：`createAccessControlledIpcMain` 的 Proxy 只拦截 `handle`，`ipcMain.on` 不经咽喉点 ⇒ `method=on` 的注册点**必须**显式守卫（现状 3/3 满足）。
+
+**豁免治理**：豁免集中在单文件；`PUBLIC_CHANNELS` 是「免登录功能开关」不是来源守卫，**不得**登记为豁免；`via=global` / `via=fallback` 不接受豁免。
+
+**配套修复**：注入契约（`bootstrap/phase5-ipc.js` 显式传 `injectedIpcMain`，禁运行期回退）+ `core/js-eval-payload.js` 的 `toSafeJsLiteral`（不可序列化输入抛 `toSafeJsLiteral: value is not JSON-serializable (undefined/function/symbol)`；`buildEvalScript: paramNames/values 数量不一致 (N vs M)`）+ `file://` realpath 目录边界回归（`ipc-injection-contract.test.js`、`aligner-bridge-audio-dirs.test.js`）。
+
+**本地复算**：`node .github/scripts/check-ipc-sender-guard.js --base-dir apps/desktop [--json] [--list-unguarded] [--min-ratio <0..1>]`。
+
+### 六、文件路径与 SSRF 校验（P0-7 / P1-11 / P2 音频目录）
+
+#### 6.1 audio-aligner 音频路径约束（`aligner/path_guard.py`）
+
+风险原状：`POST /align` 把调用方给的绝对路径直接交给 ffmpeg / faster-whisper，等价于任意本地文件读取原语；服务监听 `127.0.0.1:8004` 且无鉴权。
+
+| code | HTTP | 触发条件 |
+|---|---|---|
+| `invalid_path` | 400 | 非绝对路径 / 含空字节 / 为空 |
+| `not_allowed` | 403 | realpath 后不在允许目录内 |
+| `not_found` | 404 | 目录合规但文件不存在 |
+| `not_a_file` | 400 | 是目录不是文件 |
+
+规则：① 先 `realpath` 再判包含 ⇒ 符号链接/junction 指向外部照样拦；② 目录包含用 `commonpath` 不用字符串前缀（`/a/dist` 与 `/a/dist-evil` 前缀相同）；③ **先判目录再判存在性**（反序会把 403 变 404，给出「外部文件是否存在」的探测 oracle）；④ 允许目录来自 `AUDIO_ALIGNER_ALLOWED_DIRS`（`os.pathsep` 分隔），**未配置时默认只允许系统临时目录**（fail-closed）；桌面端 `AlignerBridge` 启动子进程时显式注入 `tmp + userData`，真实 TTS 产物落在 `os.tmpdir()/story2video`，默认策略不破坏现有链路。
+
+#### 6.2 SSRF 统一校验器
+
+- `model_preset_service._validate_target_url(url, allow_private=...)`：无 hostname ⇒ `ValueError("[P0-7] URL has no hostname")`；命中内网/元数据主机名 ⇒ `ValueError(f"[P0-7] Blocked internal address: {hostname}")`（拦截 `localhost`、`0.0.0.0`、`::1`、`[::1]`、`metadata.google.internal` 及私网段解析结果）。
+- `test_provider_connection` 与 `fetch_models_from_url` 共用该校验器（原报告条目 7 的「同文件已有防护却未复用」即此）。
+- **async 路由内不得做同步 DNS**：`getaddrinfo` 走阻塞系统调用 ⇒ `await asyncio.to_thread(_validate_target_url, url, allow_private=...)`。
+- **已声明边界**：校验解析与 httpx 实际连接是两次独立 DNS 解析，存在 DNS 重绑定窗口（文档化残余风险，非本次关闭项）。
+- `video-clone-engine/ingest-url.js`：交给 yt-dlp 前按域名白名单 + 内网拦截，与 Python 侧对齐（跨引擎一致性）。
+
+### 七、采集与发布链路完整性（P1-9 / P1-10 / P1-12 / P1-13）
+
+- **B站「API 优先」分支**：必须真发请求；`success` 与 `title/desc` 非空硬绑定；空结果一律 `success:false, reason:'api_stub_not_implemented'`，并打污染事件点（`platform=bilibili, mode=api_stub`）。
+- **shared-utils 的 electron 依赖**：`publish-history.js` / `scheduler.js` 不再顶层 `require('electron')`，改注入/懒加载 + 声明 peerDependency（非 Electron 环境 import 不再崩）。
+- **Python Playwright 生命周期**：`character_animation_utils.py` 用 `try/finally` 保证异常路径关闭浏览器（参照 `browser_fetcher.py` 正确写法）。
+- **朝代成语守卫**：`IDIOM_EXCLUSIONS` 只登记**真俗语**（`刘备借荆州`、`刘备摔阿斗`），`孙权称帝` 是史实陈述、保留为正向朝代证据；配正向回归「纯三国文本仅出现孙权称帝仍识别三国」，防守卫过扩吞真阳性。
+
+### 八、性能与可靠性技术债口径（P2，#2252）
+
+#### 8.1 脆弱等待条件化（固定 sleep ⇒ 条件轮询 + 具名上限 + 超时原因）
+
+| 位置 | 常量 | 判据 | 超时文案（逐字） |
+|---|---|---|---|
+| `url-collector-page-wait.js` | `CONTENT_READY_TIMEOUT_MS=10000`、`CONTENT_READY_POLL_MS=250`、`CONTENT_MIN_TEXT_LEN=200`、`BODY_TEXT_MULTIPLIER=20`、`RETRY_BASE_MS=1500` | `readyState==='complete'` 且候选正文容器（`article/main/[class*=article]/[class*=content]/[id*=content]/[class*=post]/[class*=detail]`）`innerText≥200`，或 `body ≥ 200×20` | `content-ready 条件等待超时 10000ms（判据：正文容器 innerText>=200），按当前 DOM 继续采集` |
+| `videogen-stages.js` | `VIDEO_POLL_TIMEOUT_MS=10*60*1000`、`VIDEO_POLL_INTERVAL_MS=10*1000` | 首次立即查询（原实现固定 sleep 10s，秒回任务也白等） | `轮询超时（上限 600s，末次状态=<state\|unknown>）` |
+| `publishers/xiaohongshu.py` | `UPLOAD_FALLBACK_WAIT_TIMEOUT_S`（沿用原 30s 上限，不放宽）、`UPLOAD_FALLBACK_POLL_INTERVAL_S` | 未命中上传完成标志 ⇒ 轮询「标题输入框可见」 | warn：`未检测到上传完成标志 %s，改为轮询编辑器就绪（上限 %ss，间隔 %ss）`；超时：`编辑器在 %ss 内未就绪（原因：媒体上传未完成或站点结构变化），继续尝试填写标题` |
+| `publishers/base.py` | `wait_until(predicate, timeout_s, interval_s)` 公共 helper | 单调时钟 deadline 轮询，超时返回 `False` | 调用方必须显式处理 `False` 并记录超时原因 |
+| `rpa-view-helpers.js` | `_responseWaitChains = new WeakMap()` | 按 session 串行化 `_waitForResponse`（原并发共享单句柄 `webRequest`，后发起者覆盖前者 ⇒ 先发起者只能靠超时兜底） | — |
+
+#### 8.2 数据访问与批量语义
+
+- **N+1 消除**：审计日志掩码改为「按去重后的 `config_id` 一次性批量预取」（`config_service.get_configs_by_ids` / `get_secret_flags`，`id.in_(ids)`），替代逐行 SELECT（原实现最多 1000 次）。
+- **批量更新单事务**：`batch_upsert_configs` = 1 次批量预取 + 逐条 `_apply_upsert(commit=False)`（只 flush）+ **单次 COMMIT**，异常统一 rollback 后上抛。整批要么全生效要么全回滚（旧实现逐条 commit，中途失败留半更新）。
+- **加密语义单点化**：批量与单条接口**共用** `_apply_upsert` —— 批量路径若绕开它，等于给敏感项开明文后门。批量接口不传 `is_secret` ⇒ 敏感判定以**库中既有标记**为准；`plaintext_value` 对不可解密文抛错 ⇒ 整批回滚（有意 fail-closed）。
+- **P1-5 掩码留痕**：`[P1-5] {config_id}: 提交了掩码回显值，保留原凭据不覆盖`。
+
+#### 8.3 访问级别读取（preload 同步 IPC 性能税）
+
+- 单一来源 `core/access-level.js`：`ACCESS_LEVELS = ['public','authenticated','admin']`、`ACCESS_LEVEL_CHANNEL='auth:get-access-level'`、`ACCESS_LEVEL_INVALIDATE_EVENT='auth:access-level-invalidated'`、`ACCESS_LEVEL_TTL_MS = 2000`。
+- 两级失效：主进程推送失效事件 ⇒ 立即失效；漏收时 TTL 兜底回源，不会永久停留在旧级别。
+- **失败关闭语义不变**：读不到合法级别（IPC 未注册 / 抛异常 / 被伪造值污染）一律按 `'public'`；权威判定始终在主进程（`controlledIpcMain` 每个 handler 再校验一次），缓存不可能提权。
+- 变更点必须广播：许可证激活/注销/试用、身份登录/登出（走 `access-level-bus`，由 bootstrap 绑定实现）；广播失败**绝不抛给调用方**（许可证已激活成功，不能因推送失败回滚），但必须留痕：`[access-level] 枚举窗口失败，本轮降级为仅 TTL 兜底: <原因>` / `[access-level] 失效推送投递失败: <原因>`；未绑定实现时返回 `-1`（表示仅剩 TTL 兜底）。
+
+#### 8.4 静默 catch 补留痕（有意降级 ≠ 静默）
+
+| 位置 | 事件 | 留痕 |
+|---|---|---|
+| `story2video-engine/slideshow.ts`、`video-clone-engine/compose-ffmpeg.js` | ffprobe 校验失败 / 场景检测失败 | ① 原因写进 `artifacts.output`（`probeError`/`sceneError`），随 measured 报告流入 `similarity.warnings`（**用户可见**）；② 注入 logger 时补 `VideoClone:<stage>` warn |
+| `rewrite-engine/knowledge-base.js` | 存量数据损坏 ⇒ 回退默认知识库（等价「用户偏好静默清零」，数据丢失级） | `KnowledgeBase` warn：`知识库存储数据不可解析，已回退默认值（用户既有偏好丢失）: <原因>` |
+| `knowledge-evolution-scheduler.js` | 外层 `setTimeout` 未登记 | 纳入 `_timers` 统一清理，防孤儿定时器 |
+| `api-publish-engine/generic-adapter.js` | 同任务视频+封面各跑一遍完整 `upload()` | 同任务只上传一次 |
+| `rpa-view-helpers.js` `_waitForElement` | 重试窗口内的正常超时刷屏 | 由 warn 降为 info；异常仍 warn |
+
+#### 8.5 枚举单一来源
+
+`story2video-engine/src/effects-library.ts` 导出 `IMAGE_EFFECT_IDS` / `TRANSITION_EFFECT_IDS`（`Object.freeze`，`'none'` 恒置顶、其余保持登记顺序，与迁移前两处硬编码逐项一致 ⇒ 下拉与快照恢复行为零变化）。渲染层「恢复上次使用选项」白名单不再手抄；新增效果只在元数据数组登记一次，未同步 UI 由 `effects-single-source.test.js` 阻断（防反向漂移）。
+
+### 九、门禁索引与本地复核命令
+
+| 门禁 | 判据 | 本地复跑 |
+|---|---|---|
+| Gate 17 IPC 守卫覆盖 | 五分类 + `minGuardedRatio 0.65` + global/fallback 硬错误 | `node .github/scripts/check-ipc-sender-guard.js --base-dir apps/desktop` |
+| Gate 18 会话卫生 | 必存在结构 + 禁用模式 | `node .github/scripts/check-ops-session-hygiene.js` |
+| 逐文件行数（含 Python 对等口径） | `DEFAULT_LIMIT=500`、膨胀容差 `200` 行、挂账 99 条（其中 `.py` 25 条，含 `model_preset_service.py 1188`、`prompt_eval_service.py 1043`、`CreateView.vue 5657`、`story2video-stages.js 3866`、`pipeline-engine.js 2722`、`publish-api-server.js 1156`、`text-segmentation.ts 1389`） | `node .github/scripts/check-max-lines.js`；违规类型 `NEW_OVER_LIMIT` / `LEDGER_GREW` / `STALE_LEDGER_ENTRY`（文件真没了）/ `DEBT_REPAID_LEDGER`（债已还、账未销），另有非阻断提示 `LEDGER_RESURRECTED`（墓碑条目被并发带回）。还完债：`node .github/scripts/check-max-lines.js --prune <仓内相对路径>` |
+| 依赖漏洞审计 | 实跑 `npm audit` + `pip-audit`；违规类型 `NEW_ADVISORY`（基线外新公告）/ 基线腐化 / 挂账到期；`decision ∈ {upgrade-tracked, accepted-risk, not-exploitable, no-fix-available}`；当前 29 条挂账 + `reviewBy` | `node scripts/check-dep-audit.js`（`NPM_AUDIT_REGISTRY=https://registry.npmjs.org`）；判定逻辑 `node --test scripts/check-dep-audit.test.js` |
+| Python 硬编码中文文案 | `file:line` 基线 79 条，新增即红 | `node .github/scripts/check-locale-sync.js --py-cjk` |
+| 文档同步（doc-gate） | 改代码必须同批改 `PRD.md`/`CHANGELOG.md`/`docs/`/`01-docs/` | `bash scripts/check-docs-sync.sh --base=<b> --head=HEAD` |
+
+**棘轮自洽原则**：新代码越线 ⇒ 拆文件，不放宽基线（本批实例：`url-collector.js` 条件等待改造后涨到 547 行 ⇒ 拆出 `url-collector-page-wait.js`（489 + 133 行），并把基线清账）。还债只允许两种最小编辑：删除已还清条目、同一文案的净零换号。禁止用 `--update` 掩盖别处新增（`--update` 是棘轮的对偶，会静默吸收真问题）。`--update` 自本次起在代码层面兑现这句话：默认只做增量登记（不抬高已有登记值、不删键、不覆盖 `pruned`），全量重生必须显式 `--update --rewrite` 并人工逐行审 diff。
+
+### 十、未覆盖维度与限期处置
+
+| 项 | 判据 / 触发节点 | 状态 |
+|---|---|---|
+| `packages/flutter-skill-bridge` 占位空壳 | 全仓 `rg flutter-skill-bridge` 零引用即删，否则补 README 说明用途；deadline = 下个发版周期末 | **判据命中「零引用」→ 无需保留**：git 中该目录 **0 个 tracked 文件**（`git ls-tree` 为空），全仓引用仅存在于审计报告自身的描述文字；构建/workspace 未使用它。因此「删」在本仓已**天然成立**（无可删内容），剩余动作 = 本地清理残留 `node_modules` 空目录（属开发者机器，不改仓库）+ 在 CHANGELOG 记录判据与关闭结论。 |
+| 依赖已知漏洞扫描 | 绑定第四批并入发版 gate | 已完成（`dep-audit.yml` + 29 条挂账 + `reviewBy`） |
+| CI secrets 暴露面 / 工作流结构 | 绑定第四批 | 已复核本批新增工作流（`dep-audit.yml`、`debt-guard.yml`）：无 `pull_request_target`、不回传 secrets 到第三方、无脚本注入面；全仓逐条审计仍列发版前专项 |
+| electron-builder 代码签名 / auto-updater 更新链 | 绑定下次发版 | 未审，登记 |
+| 备份 / 恢复与灾备 | 绑定部署清单评审 | 未审，登记 |
+| P0 泄露面逐机排查（第三节 7 项） | 部署评审签字 | 指引已交付，逐机项待运维执行 |
+
+### 十一、验收标准
+
+- [x] 每条 P0/P1 的关闭条件 = 对应红测试转绿 + 批次门禁通过 + 修复说明入 CHANGELOG（四批均已合并：#2214、#2226、#2239、#2252）。
+- [x] 危险组合（`*` + credentials）启动拒绝的断言测试存在且通过。
+- [x] Cookie 会话登录/401/登出/缺 CSRF 头/密钥未配置五类用例覆盖，且 Gate 18 在 CI 阻断回退写法。
+- [x] IPC 守卫按文档化口径可复算（407 注册点 / explicit 273 / ratio 67.1% / 阈值 65%），global 与 fallback 为硬错误。
+- [x] 脆弱等待改造逐项给出「条件轮询 + 上限 + 超时原因」并各配验收用例。
+- [x] 批量与单条配置写入共用同一加密语义路径，掩码回显不覆盖真实凭据。
+- [x] 新门禁先通过自己的新代码（`url-collector` 拆分即其产物），存量以基线挂账、只减不增。
+- [x] 依赖漏洞与超大文件均有可复核基线（29 条 CVE 挂账 + `reviewBy`；99 条行数挂账）。
+- [x] `packages/flutter-skill-bridge` 处置判据与结论已入 CHANGELOG（第四批 #2252：判据「全仓零引用」命中，git 中该目录 0 个 tracked 文件，无可删内容）。
+- [ ] 下个发版周期末（2026-10-31）复核 `flutter-skill-bridge` 判据仍成立、无回潮（PRD 第十节 + `docs/audit-remediation-closeout-2026-09-23.md` 第六节）。
+- [x] 四批 + 收尾轮的全量证据（PR 清单 / 条目→证据映射 / 门禁矩阵 / 红绿验证 / 基线数字 / 遗留限期）已归档：`docs/audit-remediation-closeout-2026-09-23.md`。
+- [ ] P0 泄露面逐机清单由运维在部署评审中签字（第三节 7 项复选框）。
+
+### 十二、行数挂账清单的三态语义与墓碑（audit 收尾·防「门禁逃逸」）
+
+背景：同一僵尸条目 `apps/desktop/src/components/LogsSettings.vue: 598` 在 2026-09-22/23 一天内**复发 3 次**，每次都让 main 处于违规态并把在飞的无关 PR 全链卡红。取证结论不是「有人手滑」，而是门禁自身的两处设计缺陷（详见 `docs/audit-remediation-ledger-guard-2026-09-23.md`）。
+
+#### 12.1 三态语义（数据校验口径）
+
+| 状态 | 判据 | 码 | 是否阻断 | 唯一正确处方 |
+|---|---|---|---|---|
+| 账目腐烂 | 清单有键，且文件**不在**受管扫描范围（删除 / 改名 / 移出 `SCAN_DIRS`） | `STALE_LEDGER_ENTRY` | 阻断 | `--prune <路径>`（墓碑值取登记值，因文件已不存在） |
+| 债已还、账未销 | 清单有键，文件在、行数 `< limit(500)` | `DEBT_REPAID_LEDGER` | 阻断 | `--prune <路径>`（墓碑值取当前行数，门禁口径 `split('\n').length`） |
+| 已知复活 | 同上，且该路径已在 `pruned` 立碑 | `LEDGER_RESURRECTED` | **不阻断**（仅 ⚠️） | 下次触碰清单时 `--prune`；不得为消提示而改门禁 |
+| 重新欠债 | 文件行数 `>= limit` 且该路径有墓碑 | `NEW_OVER_LIMIT` | 阻断 | 拆文件；**不得**重新挂账 |
+
+墓碑的两条不变量（用例锁定，改动即红）：① `pruned` 命中即取消 `files` 的挂账豁免，同路径重新超限按新债处理；② `pruned` 命中且文件仍低于阈值时降级为提示，不参与退出码。二者共同保证「僵尸条目既不能当免死金牌，也不能用来卡死别人」。
+
+#### 12.2 命令与显示项（提示文字逐字）
+
+- `node .github/scripts/check-max-lines.js` → 表头 `limit=500 growthAllowance=200 超限文件=N 挂账=M 墓碑=K`；违规行前缀 `❌ `，提示行前缀 `⚠️ `，全清 `✅ 无新增超大文件，挂账清单与现实一致。`；退出码 = 违规数 > 0 ? 1 : 0（**提示不影响退出码**）。
+- `--prune <路径>` 成功：`✅ 已单键清账：<路径> → 从 files 移除，在 pruned 立碑（<行数> 行）` + `   仅改动该一处；其余挂账与顺序未动。`（rc=0）。
+- `--prune` 被拒（rc=2）两类：清单内无该键 → `挂账清单里没有 <路径>，无需清账…`；文件仍超限 → `<路径> 仍超限（现 N 行 >= 500），债务未还，不得发墓碑；请先拆分`。被拒时**不写文件**。
+- `--update` 增量：`✅ 增量登记完成：新增 X 条（现有 Y 条）`，并对 `⚠️ 拒绝抬高 K 个已有登记值`、`⚠️ 不会静默删账 R 条`、`❗ 墓碑路径重新超限，不得重新挂账` 分别列出明细；`--update --rewrite` 额外打印 `⚠️ --rewrite 会重排键并抬高/删除登记值，掩盖别人的存量漂移，必须人工逐行审 diff。`
+
+#### 12.3 CI 触发口径
+
+`debt-guard.yml` 的 `on:` 必须同时含 `pull_request: branches:[main]` 与 `push: branches:[main]`，且**不得**出现生效的 `paths-ignore:`（纯文档 PR 会因 required check 缺失永久 BLOCKED）。job 显示名 `债务熔断检查` 是 ruleset `main-ci-gate` 的 required check，改名等于关掉门禁。以上四条由用例 `防回归：debt-guard 必须同时监听 pull_request 与 push 到 main` 直接读 workflow 文本断言，不再依赖人工记忆。
+
+#### 12.4 验收标准
+
+- [x] 「已降到阈值以下」分支在生产路径可达（用 `collectOverLimit + scanAllLines` 组合喂给 `evaluate`，用例 回归① 断言真命中）。
+- [x] 已还债条目被并发带回时不阻断链条，且该路径重新超限仍被阻断（回归②③）。
+- [x] 清账只能单键、可拒、幂等（回归⑤⑥）。
+- [x] `--update` 无法再悄悄抬高或删改别人的登记值（回归⑦）。
+- [x] main 自身违规会在 5 分钟内显红（push 触发 + 断言用例）。
+
+#### 12.5 运行证据（真实 CI 上的行为验证）
+
+| 事实 | 取值 | 含义 |
+|---|---|---|
+| `debt-guard.yml` run=853 | `event=push`、`branch=main`、`sha=45c2e24692`、`conclusion=success` | `push: branches:[main]` 生效：main 自身处于违规态会立刻显红，不再靠某个 PR 顺路发现 |
+| run=850（#2280 自身） | `债务熔断检查 = SUCCESS` | 新语义 + 数据（`pruned: {"apps/desktop/src/components/LogsSettings.vue": 469}`）在真实 runner 上成立，不只是本地绿灯 |
+| run=845 / 846 | `#2276`、`#2270` 在旧 head 上 `债务熔断检查 = FAILURE` | 修复前的现场：僵尸条目把两个**内容完全无关**的在飞 PR 卡红——「一人还债、全链卡红」的直接证据 |
+| run=854 / 856 | rebase 后同两条检查转 `SUCCESS` | 链条解锁由门禁修复提供，而非靠给无关 PR 打补丁 |
+| 本地用例 | `node --test .github/scripts/check-max-lines.test.js` → 17/17 | 含「按生产喂法的可达性回归」与 2 个反向变异自证 |
+
+> 口径提醒：门禁统计行数字用的是 `fs.readFileSync(...).split('\n').length`（尾部换行也计一行），
+> 因此 `LogsSettings.vue` 的墓碑值是 **469** 而不是编辑器显示的 468。所有行数判定都必须用门禁自身坐标系，
+> 不允许混用 `wc -l` 或编辑器计数。

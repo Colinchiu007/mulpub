@@ -169,7 +169,7 @@
       <!-- 历史运行 -->
       <div class="cohere-card ap-card-panel ap-card-panel--flush">
         <div class="cohere-section-title">{{ $t('autoPipeline.historyTitle') }}</div>
-        <EmptyState v-if="runs.length === 0" icon="🚀" :title="$t('autoPipeline.noHistory')" :description="$t('autoPipeline.noHistoryHint')" />
+        <EmptyState v-if="runs.length === 0" icon="Promotion" :title="$t('autoPipeline.noHistory')" :description="$t('autoPipeline.noHistoryHint')" />
         <div v-else class="cohere-card-grid">
           <div v-for="r in runs" :key="r.runId" class="cohere-card" :style="{ borderLeft: '3px solid' + statusColor(r.status) }">
             <div class="card-top">

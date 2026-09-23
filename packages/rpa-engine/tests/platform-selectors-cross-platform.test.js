@@ -9,7 +9,9 @@ const EXPECTED = [
   "tencent_video","kuaishou","toutiao","youtube","tiktok",
   "bilibili","baijiahao","twitter","instagram","facebook",
 ];
-const VIDEO = ["douyin","tencent_video","kuaishou","youtube","tiktok","facebook"];
+const VIDEO = ["douyin","tencent_video","kuaishou","youtube","tiktok","facebook","bilibili"];
+// bilibili 走 API 优先，但 RPA 兜底同样需要 file_input（2026-09 E2E 实证：
+// API 失败回退 RPA 时因缺 file_input 直接跳过上传，导致后续字段全部 timeout）
 const ARTICLE = ["wechat_mp","zhihu","weibo","xiaohongshu","toutiao","baijiahao"];
 const SOCIAL = ["twitter","instagram"];
 
@@ -54,6 +56,13 @@ describe("V1.1 Platform Verification - Cross-platform Consistency", () => {
       }
     });
   }
+
+  // bilibili RPA 兜底契约：上传落地页需 file_input，投稿按钮文本为「立即投稿」
+  test("bilibili RPA fallback selector contract", () => {
+    const sel = selectors.PLATFORM_PUBLISH_SELECTORS.bilibili;
+    expect(sel.file_input).toContain('input[type="file"]');
+    expect(sel.publish_btn.join('|')).toContain('立即投稿');
+  });
 
   test("baijiahao V2 selector contract", () => {
     const sel = selectors.PLATFORM_PUBLISH_SELECTORS.baijiahao;

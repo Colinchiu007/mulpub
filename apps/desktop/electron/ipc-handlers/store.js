@@ -16,7 +16,10 @@ function registerHandlers(ipcMain, deps) {
     'has_auth_data', 'last_validated', 'created_at', 'updated_at', 'auth_method',
   ]
   const rendererAccountUpdateFields = new Set([
-    'name', 'account_name', 'avatar', 'avatar_url', 'status', 'is_default', 'last_validated',
+    // 不含 'status'：登录态唯一写者在主进程（AccountManager.persistLoginState → 后端 PATCH）。
+    // 渲染层曾借该字段把 UI 词表的 inactive 写进本地 SQLite，而读取方看的是后端 JSON，
+    // 于是「批量启用/停用」既污染登录态语义又对展示无效。
+    'name', 'account_name', 'avatar', 'avatar_url', 'is_default', 'last_validated',
   ])
   const rendererAccountCreateFields = new Set([
     'id', 'platform', 'name', 'avatar', 'status',
@@ -68,7 +71,8 @@ function registerHandlers(ipcMain, deps) {
     return {
       ...safeAccount,
       account_name: safeAccount.account_name || safeAccount.name || '',
-      status: safeAccount.status || (safeAccount.is_active === false ? 'inactive' : 'active'),
+      // 启用态与登录态正交：本地库缺 status 时诚实回落 unverified，不得由 is_active 派生。
+      status: safeAccount.status || 'unverified',
       is_default: Boolean(safeAccount.is_default),
     }
   }

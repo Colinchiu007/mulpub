@@ -6,7 +6,7 @@
 
         <!-- Step 0: Welcome -->
         <div v-if="currentStep === 0" class="fr-step">
-          <div class="fr-step-icon-lg">🚀</div>
+          <div class="fr-step-icon-lg"><el-icon><Promotion /></el-icon></div>
           <h2 class="fr-step-title">欢迎使用社媒管家</h2>
           <p class="fr-step-desc">
             三步完成配置，即可开始多平台一键发布
@@ -30,7 +30,7 @@
 
         <!-- Step 1: Dependencies -->
         <div v-else-if="currentStep === 1" class="fr-step">
-          <div class="fr-step-icon">⚙️</div>
+          <div class="fr-step-icon"><el-icon><Setting /></el-icon></div>
           <h2 class="fr-step-title-sm">环境检测</h2>
           <p class="fr-step-desc">自动安装依赖，可能需要几分钟</p>
 
@@ -65,7 +65,7 @@
 
         <!-- Step 2: Add Account -->
         <div v-else-if="currentStep === 2" class="fr-step">
-          <div class="fr-step-icon">🔑</div>
+          <div class="fr-step-icon"><el-icon><Key /></el-icon></div>
           <h2 class="fr-step-title-sm">添加你的第一个账号</h2>
           <p class="fr-step-desc">
             选择平台后，在弹出的页面中完成登录
@@ -97,15 +97,15 @@
 
           <div class="fr-step-list">
             <div class="fr-step-item">
-              <span>📝</span>
+              <span><el-icon><EditPen /></el-icon></span>
               <div><strong>写文章</strong><br><span class="fr-step-item-desc">在发布页面编辑标题和正文</span></div>
             </div>
             <div class="fr-step-item">
-              <span>🎯</span>
+              <span><el-icon><Aim /></el-icon></span>
               <div><strong>选平台</strong><br><span class="fr-step-item-desc">勾选要发布的平台</span></div>
             </div>
             <div class="fr-step-item">
-              <span>🚀</span>
+              <span><el-icon><Promotion /></el-icon></span>
               <div><strong>一键发布</strong><br><span class="fr-step-item-desc">后台自动分发到所有选中的平台</span></div>
             </div>
           </div>
@@ -127,6 +127,7 @@
 
 <script setup>
 // eslint-disable-next-line no-unused-vars
+import { Aim, EditPen, Key, Promotion, Setting } from '@element-plus/icons-vue'
 import UiButton from "../components/UiButton.vue";
 import { getApi } from '@/api/electron-bridge'
 // eslint-disable-next-line no-unused-vars

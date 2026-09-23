@@ -24,6 +24,8 @@ const {
   isPlatformCookieDomain,
   isPlatformLoginSuccessUrl,
 } = require('@multi-publish/shared-utils/src/platform-definitions')
+// 账号资料采集器（昵称/头像/平台ID）——扫码登录成功时随凭证一起产出
+const accountProfile = require('@multi-publish/shared-utils/src/account-profile')
 const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('../ipc-handlers/helpers')
 // 内嵌视图定位唯一来源：必须用「客户区」尺寸，禁用 getBounds() 外框尺寸（见 view-bounds.js）
@@ -480,7 +482,9 @@ class QrCodeLogin {
     } catch (e) { /* ignore */ }
     if (!this._isSessionActive(loginSession)) throw new Error('扫码登录已取消')
 
-    return { cookies, localStorage, accountName }
+    // 昵称/头像：扫码成功即采集一次；未命中字段由下游按「缺席 = 不修改」处理，不清空真源
+    const accountInfo = await accountProfile.collectWithWebContents(view.webContents, loginSession.platform)
+    return { cookies, localStorage, accountName, accountInfo }
   }
 
   /**
@@ -494,7 +498,7 @@ class QrCodeLogin {
       this._loginTimeout = null
     }
 
-    const { cookies, localStorage, accountName } = authData
+    const { cookies, localStorage, accountName, accountInfo } = authData
     log.info('QrCodeLogin', `Login success: ${cookies.length} cookies, account: ${accountName}`)
 
     if (!this.accountManager || typeof this.accountManager.saveCapturedAccount !== 'function') {
@@ -506,6 +510,7 @@ class QrCodeLogin {
       cookies,
       localStorage,
       name: accountName,
+      accountInfo,
     })
     const savedAccountId = account.id || account.accountId
     if (!this._isSessionActive(loginSession)) {

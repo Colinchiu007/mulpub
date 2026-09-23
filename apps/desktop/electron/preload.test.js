@@ -83,7 +83,7 @@ const PUBLISH_METHODS = [
 
 const ACCOUNT_METHODS = [
   'accountAdd', 'accountDelete', 'accountCheckLogin', 'accountBatchCheckLogin', 'accountBatchOpenLogin', 'accountList',
-  'accountSetDefault', 'accountGetDefault', 'accountUpdate', 'accountSetProxy',
+  'accountSetDefault', 'accountGetDefault', 'accountUpdate', 'accountSetProxy', 'accountSetActive',
   'authOpenLogin', 'authClose', 'authCompleteLogin', 'authLoginSilent',
   'onAuthViewOpened', 'onAuthCompleted', 'onAuthViewClosed',
   'authOpenQrCodeLogin', 'authQrCodeClose',
@@ -135,6 +135,7 @@ const SYSTEM_METHODS = [
   'modelProviderTest', 'modelProviderPresets', 'modelProviderIsConfigured',
   'modelProviderLogs', 'modelProviderCleanLogs',
   'logsGetInfo', 'logsClear', 'logError', 'notifyLog',
+  'cacheGetStats', 'cacheClear',
   'promptLibraryGet', 'promptLibrarySave', 'promptLibraryActivate',
 ]
 
@@ -198,13 +199,13 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(118)
   })
 
-  it('account 模块应导出 45 个方法', () => {
+  it('account 模块应导出 46 个方法', () => {
     const { createAccountApi } = require('./preload/account')
     const r = createAccountApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(45)
+    expect(Object.keys(r).length).toBe(46)
   })
 
-  it('system 模块应导出 145 个方法', () => {
+  it('system 模块应导出 147 个方法', () => {
     const { createSystemApi } = require('./preload/system')
     const r = createSystemApi(ipcRenderer)
     // 136 + opsCenterSyncGet/Save/Now/Runtime/PipelineOptions（运营后台同步 + 运行时策略）
@@ -215,11 +216,11 @@ describe('preload 子模块方法数', () => {
     // + opsCenterSyncAppMenu（#1839 运营中心侧边栏显隐排序下发）
     // + onUploadProgress（#1853 分片上传实时进度事件）
     // - 10（分屏监控 webview:* API 随监控功能移除，网页查看统一走 pageManager）
-    expect(Object.keys(r).length).toBe(145)
+    expect(Object.keys(r).length).toBe(147)
   })
 
-  it('合并后 api 总键数应为 317（pipelineConfirmStageGate + P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus/servicesRestart + urlCollectNeedsStealth + promptLibraryGet/Save/Activate + updateInstallNow + opsCenterSyncAppMenu + onUploadProgress + renderStartAiVideo + PR-2 F8 getRecentImpactSnapshots - webview 分屏监控 API 移除）', () => {
-    expect(Object.keys(api).length).toBe(317)
+  it('合并后 api 总键数应为 320（accountSetActive + pipelineConfirmStageGate + P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus/servicesRestart + urlCollectNeedsStealth + promptLibraryGet/Save/Activate + updateInstallNow + opsCenterSyncAppMenu + onUploadProgress + renderStartAiVideo + PR-2 F8 getRecentImpactSnapshots - webview 分屏监控 API 移除）', () => {
+    expect(Object.keys(api).length).toBe(320)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
@@ -233,11 +234,11 @@ describe('preload 子模块方法数', () => {
   })
 
   it('ACCOUNT_METHODS 常量长度应为 45', () => {
-    expect(ACCOUNT_METHODS.length).toBe(45)
+    expect(ACCOUNT_METHODS.length).toBe(46)
   })
 
-  it('SYSTEM_METHODS 常量长度应为 132', () => {
-    expect(SYSTEM_METHODS.length).toBe(132)
+  it('SYSTEM_METHODS 常量长度应为 134', () => {
+    expect(SYSTEM_METHODS.length).toBe(134)
   })
 
   it('IDENTITY_METHODS 常量长度应为 5', () => {
@@ -586,18 +587,31 @@ describe('preload 动态许可证权限', () => {
       expect(() => exposedApi.publishWechat({ title: '免费版' }))
         .toThrow(/许可证权限不足/)
 
+      // 审计 P2·性能税回归保护：主进程未推失效事件时，TTL 内的重复调用不得再打同步 IPC
+      const sendSyncCallsBefore = __electronMock.ipcRenderer.sendSync.mock.calls.length
+      expect(() => exposedApi.publishWechat({ title: '免费版' }))
+        .toThrow(/许可证权限不足/)
+      expect(() => exposedApi.publishWechat({ title: '免费版' }))
+        .toThrow(/许可证权限不足/)
+      expect(__electronMock.ipcRenderer.sendSync.mock.calls.length).toBe(sendSyncCallsBefore)
+
+      // 主进程推送失效 → 不重载窗口，升级立即生效
       accessLevel = 'authenticated'
+      __electronMock.ipcRenderer.emit('auth:access-level-invalidated', { reason: 'license-activate' })
       await expect(exposedApi.publishWechat({ title: '专业版' })).resolves.toEqual({
         channel: 'publish:wechat',
         args: { title: '专业版' },
       })
 
       accessLevel = 'public'
+      __electronMock.ipcRenderer.emit('auth:access-level-invalidated', { reason: 'license-deactivate' })
       expect(() => exposedApi.publishWechat({ title: '已降级' }))
         .toThrow(/许可证权限不足/)
       expect(__electronMock.ipcRenderer.invoke).toHaveBeenCalledTimes(1)
       expect(__electronMock.ipcRenderer.sendSync)
         .toHaveBeenCalledWith('auth:get-access-level')
+      // 两次推送之间最多回源一次：3 次受限调用共 2 次同步 IPC（推送前 1 次 + 每次推送后 1 次）
+      expect(__electronMock.ipcRenderer.sendSync.mock.calls.length).toBe(sendSyncCallsBefore + 2)
     } finally {
       delete require.cache[preloadPath]
       __electronMock.contextBridge.exposeInMainWorld = originalExpose

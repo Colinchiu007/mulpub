@@ -104,6 +104,7 @@ import { useIdentityStore } from '@/stores/identity'
 import { useTabStore } from '@/stores/tab'
 import { notifySettingsDialogClosed } from '@/stores/settings-dialog'
 import { isHomeShellSearch } from '@/utils/home-shell'
+import { suspendEmbeddedViewsForOverlay, releaseEmbeddedViewsForOverlay } from '@/composables/useEmbeddedViewSuspension'
 import { storeToRefs } from 'pinia'
 
 const router = useRouter()
@@ -199,6 +200,14 @@ async function onSaveAccount () {
 const showSettingsDialog = ref(false)
 let unsubscribeNavigate = null
 
+// 弹窗互斥（2026-09-23 Bug 修复）：浏览器/登录标签（外部网页 WebContentsView）活动时，
+// 原生图层永远压在渲染层 DOM 之上——设置弹窗打开后「屏幕闪一下但没出现」。
+// 弹窗打开即挂起全部内嵌视图，关闭后恢复；非 Electron 环境静默降级。
+watch(showSettingsDialog, (open) => {
+  if (open) suspendEmbeddedViewsForOverlay('settings-dialog')
+  else releaseEmbeddedViewsForOverlay('settings-dialog')
+})
+
 // 关闭「设置」弹窗并通知依赖模型配置的视图刷新（如图片轮播的服务商/音色能力下拉），
 // 避免“新增模型后关闭弹窗仍看不到新模型”的陈旧状态（2026-08-12 Bug 修复）。
 function closeSettingsDialog () {
@@ -220,7 +229,9 @@ async function onCloseTab(tabId) {
   const state = await tabStore.getAccountTabSaveState(tabId)
   if (state && state.isAccountTab && state.credentialSaveState === 'unsaved') {
     let action
+    // 三选一确认框同为渲染层居中模态，打开前挂起内嵌视图，结束后释放（弹窗互斥，2026-09-23）
     try {
+      await suspendEmbeddedViewsForOverlay('tab-close-confirm')
       await ElMessageBox.confirm(
         t('tabBar.closeUnsavedMessage'),
         t('tabBar.closeUnsavedTitle'),
@@ -238,6 +249,8 @@ async function onCloseTab(tabId) {
       // cancel → 直接关闭（cancelButtonText）；close/× → 取消，留在页面
       if (err === 'cancel') action = 'discard'
       else return
+    } finally {
+      await releaseEmbeddedViewsForOverlay('tab-close-confirm')
     }
     if (action === 'save') {
       try {
