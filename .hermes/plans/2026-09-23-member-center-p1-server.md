@@ -1578,6 +1578,17 @@ git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 commit -m "feat(member-
 
 ---
 
+> **实施期质量评审补录（Task 4 已完成，代码与本节一致）**：实现与测试均逐字来自本节（`1a98206365` / `17a5997790`），唯一结构偏离是测试首行补 `'use strict'`（与不变式 1 冲突时以不变式为准，sloppy mode 下冻结断言会假绿）。双评审（spec ✅ / quality → `c4754889a1`+`d0f8bc6399` → `76513c132d`）后落地六项获批准偏离（服务测试 15→23 例，全包基线 306 tests / 303 pass / 0 fail）：
+> 1. **F1（原 Important I-1）**：仓储 `applySubscription` 把 `UPSERT_SUBSCRIPTION` 那次查询包 try/catch，仅当 `err.code === '23505' && err.constraint === 'identity_subscriptions_provider_reference_key'`（约束名已独立核对 `migrations/postgresql/002_logto_identity.sql:29` 的**列级** `provider_reference TEXT UNIQUE`，默认命名即 `<table>_<column>_key`）时抛 `ORDER_REFERENCE_CONFLICT`(409)，其它错误含别的 23505 **原样 rethrow**（有反例测试）。不收敛则 ops 幂等键复用 → 裸 23505 → **Task 6 变 500**。
+> 2. **F2（原 Minor M-1，但同属错误收敛点）**：`applySubscription` 在算出 `periodEnd` 之后、任何 `.toISOString()` 之前判 `Number.isNaN(periodEnd.getTime())` → 抛 `DURATION_INVALID`(400)。**必须落在仓储层**：`004_member_commerce.sql` 对 `duration_days` 只有 `> 0` 无上限，redeem 路径的时长来自库，只守服务层会漏一半。
+> 3. **F3（原 Important I-2/I-3）**：`redeem` 首次与本人重放的返回体**键集合完全一致** `{ idempotent, code, plan, redeemedAt, subscription, order, version, periodStart, periodEnd }`；`grant` 为 `{ plan, subscription, order, version, periodStart, periodEnd }`。`subscription`/`order` 由模块私有白名单 mapper 规范化为 camelCase DTO，**仓储 `RETURNING *` 的 snake_case 行不得越过服务层边界**（Task 6 是 `{ success:true, ...result }` 原样 spread）。重放不重发订单（`order`/`version` = `null`，首次已下发，`/me/orders` 可查）。
+> 4. **重放路径带存活性判定**：回填 `subscription/periodStart/periodEnd` 前必须过 `active && new Date(active.current_period_end) > this.now()`，否则过期未结算的行会把陈旧到期时间当现行权益吐给客户端（`getActiveSubscription` 本身无时间下界，是 footgun）。
+> 5. **G1（原复评 Important I-N1）**：模块私有 `toIsoOrNull(value)` 统一所有时间字段为 ISO **字符串**（`Date`/string/number 归一，Invalid Date 与不可解析值归 `null`，**不抛 RangeError**）。真实 pg 下 `TIMESTAMPTZ` 回 `Date`、测试 fixture 回 `string`，不归一会在同一 body 里混两种形态且测试永远发现不了。**副作用（Task 6 必知）**：`getSubscriptionView` 的 period 字段现在输出 `...T00:00:00.000Z` 而非 `Z`，Task 6 的 fake service 若断言 period 字面量必须对齐，且**不得**对 period 字段做字符串相等断言。已加同源锁：顶层 `periodEnd === subscription.periodEnd`。
+> 6. **F4（原 Minor M-4）**：`createRedeemBatch` 返回 `generated: created.length`（仓储 `ON CONFLICT (code) DO NOTHING` 可能静默少生成，只报 `requested` 会掩盖差额）。
+> 运维红线（复评结论，非代码缺陷）：**禁止带外把 `used` 码回拨 `active`** —— 原兑换者的 `provider_reference = redeem:<码>` 仍占着 UNIQUE 列，第二个用户核销会撞 F1 抛 409 并回滚整事务；需补发新码。
+
+---
+
 ## Task 5：runtime 与 CLI 接线（subscriptionService 注入）
 
 **Files:**
@@ -2246,6 +2257,7 @@ git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 commit -m "docs(member-
 | D12 | `quota` 与 `limits` 双口径下发：`quota.*` 供服务端扣减，`limits.*` 供展示 | `consumeFeature` 只认 `${feature}_monthly`，日窗口/平台数无扣减源 | 只发 quota（前端无法渲染「日发布 50」类展示，否） |
 | D13 | 实施期将 plan-matrix 的 overrides 校验由 fail-open 改为 fail-closed，并给校验错误补 `code`/`status` | 质量评审实测发现 `{ standart: ... }`（档位键拼错）/`42`/`[]` 均静默回退基线——运营改价未生效而服务照常 200；且 `src/auth/*` 既有约定是 `Object.assign(new Error(code), {code, status})`，无 code 则 Task 6 无法区分配置缺陷（500）与入参缺陷（400） | 只靠启动日志告警（无强制，否）；新增配置校验中间件（多一个抽象层，否） |
 | D14 | 仓储层 `applySubscription` 开头取 per-user advisory xact 锁（键 `sub:${userId}`），并把存活性判定统一到传入的 `now` | 质量评审给出具体交错：兑换码行锁只保护「同一个码」，同一用户并发两笔授予（两个码 / 码+后台授予）双方都读到陈旧 `current_period_end` → 两笔订单只续一份时长，属真实资损；`ON CONFLICT` 仅串行化写入瞬间，救不了 JS 算出的值，`FOR UPDATE` 又锁不住「首单尚无行」的冷启动 | `SELECT … FOR UPDATE`（冷启动锁不到，否）；把续期算术下推到 SQL `GREATEST(...) + interval`（更彻底但需重写 UPSERT 与回参，且与计划其余部分冲突，推 P2） |
+| D15 | 把 pg 唯一约束冲突与日期溢出在**仓储层**收敛成语义化 4xx，并在**服务层**统一返回体键集合与时间的 ISO 字符串形态 | 质量评审给出可达序列：ops 传相同 `providerReference` 两次 → 裸 `23505` 冒泡 → Task 6 未知 code 回落 500；`durationDays` 为 `1e21` 时 `toISOString()` 抛 `RangeError` 同样是 500；首刷/重放返回体键不同构会让客户端到期时间显示为空，而 `RETURNING *` 的 snake_case 行被 spread 进 HTTP body 会形成两套命名混用。仓储知道约束名、服务不该知道，故 F1/F2 落在仓储；DTO 归一落在服务 | 在服务层 catch 23505（服务层不该懂 pg 约束名，且漏掉 redeem 路径，否）；只加日志不改状态码（客户端仍需区分 409/500，否）；让 Task 6 自行剔除 snake_case 字段（把契约漏洞下推给调用方，否） |
 
 ---
 
