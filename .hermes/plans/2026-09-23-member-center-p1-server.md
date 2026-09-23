@@ -403,7 +403,8 @@ Expected: FAIL — `Cannot find module '../src/auth/plan-matrix'`
  * 数据契约：01-docs/DESIGN-MEMBER-CENTER-2026-09-23.md §2。
  *
  * 约定：
- * - 数值 -1 表示「不限」（仅 maxPlatforms / aiWriteMonthly / dailyPublish / videoMonthly / officialCreditMonthly 允许）。
+ * - 数值 -1 表示「不限」，仅 maxPlatforms / aiWriteMonthly / videoMonthly / officialCreditMonthly 允许（见 UNLIMITED_ALLOWED）；
+ *   dailyPublish 被显式排除——它派生被扣减的 quota.cloud_publish_monthly，-1 会击穿 consumeFeature 的 limit >= 0 校验（CCG C5）。
  * - 输出形状直接兼容 PostgresEntitlementProvider.consumeFeature：features 为字符串数组（includes 判定），
  *   quota 为顶层对象且键名对齐 `${feature}_monthly`；limits 为 UI 展示透传字段（扣减路径不读）。
  * - overrides 为运营可配注入（config.yaml，带 * 项），只允许覆盖基线已有数值键。
@@ -514,7 +515,8 @@ function getPlanEntitlement(plan, overrides) {
   if (matrix.videoMonthly > 0) features.push('video_create')
   if (matrix.scheduleBatch === true) features.push('schedule_batch')
   if (matrix.dashboard === 'full') features.push('dashboard_full')
-  const cloudPublishMonthly = matrix.dailyPublish === -1 ? -1 : matrix.dailyPublish * 30
+  // dailyPublish 已在 UNLIMITED_ALLOWED 之外，取值必为有限非负整数（-1 被 override 校验拒绝），此处无需再判 -1
+  const cloudPublishMonthly = matrix.dailyPublish * 30
   return deepFreeze({
     plan,
     matrixVersion: PLAN_MATRIX_VERSION,
