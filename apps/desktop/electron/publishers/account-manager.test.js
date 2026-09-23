@@ -614,6 +614,51 @@ describe('account-manager — 捕获凭证持久化', () => {
     expect(hasCredential).toHaveBeenCalledTimes(2)
   })
 
+  it('假保存凭证（cookies 为空且 localStorage 无平台会话标记）不得判定为有效凭证', () => {
+    const accountManager = loadAccountManager()
+    vi.spyOn(accountManager.credentialStore, 'hasCredential').mockReturnValue(true)
+    const dirtyLs = { 'UvFirstReportLocalKey': '1', '__ml::aid': 'x', 'finder_route_meta': '{}' }
+    vi.spyOn(accountManager.credentialStore, 'loadCredential').mockImplementation(function (accountId) {
+      return accountId === 'ls-empty-acc'
+        ? { platform: 'tencent_video', cookies: [], localStorage: {}, accountInfo: {} }
+        : { platform: 'tencent_video', cookies: [], localStorage: dirtyLs, accountInfo: {} }
+    })
+    vi.spyOn(accountManager.accountStateRestorer, 'getAccountRecord').mockReturnValue({ platform: 'tencent_video' })
+
+    // 存量假保存快照（cookies=0 + 仅埋点脏键）与空凭证都必须判 false，
+    // 让账号页收敛到「需重新登录」，而不是伪装可用后把用户送进登录页回环。
+    expect(accountManager.checkLocalCredentials('tencent_video', 'fake-saved-acc')).toBe(false)
+    expect(accountManager.checkLocalCredentials('tencent_video', 'ls-empty-acc')).toBe(false)
+  })
+
+  it('纯 localStorage 会话标记（视频号 finder_username）不被加严判定误伤', () => {
+    const accountManager = loadAccountManager()
+    vi.spyOn(accountManager.credentialStore, 'hasCredential').mockReturnValue(true)
+    vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue({
+      platform: 'tencent_video',
+      cookies: [],
+      localStorage: { finder_username: 'v2_060000231003b20fa' },
+      accountInfo: {},
+    })
+    vi.spyOn(accountManager.accountStateRestorer, 'getAccountRecord').mockReturnValue({ platform: 'tencent_video' })
+
+    expect(accountManager.checkLocalCredentials('tencent_video', 'ls-marker-acc')).toBe(true)
+  })
+
+  it('cookies 非空的正常凭证不受加严判定影响', () => {
+    const accountManager = loadAccountManager()
+    vi.spyOn(accountManager.credentialStore, 'hasCredential').mockReturnValue(true)
+    vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue({
+      platform: 'tencent_video',
+      cookies: [{ name: 'sessionid', value: 's3cr3t', domain: '.channels.weixin.qq.com' }],
+      localStorage: {},
+      accountInfo: {},
+    })
+    vi.spyOn(accountManager.accountStateRestorer, 'getAccountRecord').mockReturnValue({ platform: 'tencent_video' })
+
+    expect(accountManager.checkLocalCredentials('tencent_video', 'normal-acc')).toBe(true)
+  })
+
   it('删除账号后同步清理本地状态和加密凭证', async () => {
     const pythonBridge = require('../services/python-bridge')
     vi.spyOn(pythonBridge, 'requestBackend')
@@ -954,7 +999,7 @@ describe('checkLoginStatus 渲染崩溃平台降级', () => {
     }
   })
 
-  it('tencent_video 无 Cookie 且无 HTTP 证据 → 判未确认（回归：视频号凭证文件仍在但实际已失效）', async () => {
+  it('tencent_video 假保存快照（无 Cookie 且 LS 无会话标记）→ 判无凭证需重新登录（2026-09-24 加严）', async () => {
     const accountManager = loadAccountManager()
     vi.spyOn(accountManager.credentialStore, 'hasCredential').mockReturnValue(true)
     vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue({
@@ -966,8 +1011,26 @@ describe('checkLoginStatus 渲染崩溃平台降级', () => {
     vi.spyOn(accountManager.accountStateRestorer, 'getAccountRecord').mockReturnValue(null)
 
     const result = await accountManager.checkLoginStatus('tencent_video', 'acc-tv')
-    // ⚠️ 契约变更（2026-09-22）：旧断言 valid=true/LOCAL_ONLY 正是用户报告的
-    // 「一键检测显示已登录，实际已失效」。凭证文件存在不是登录证据。
+    // ⚠️ 契约变更（2026-09-24）：旧断言 INCONCLUSIVE 让假保存快照（cookies=0 + 仅非
+    // 会话键）继续伪装「未确认」。加严后 checkLocalCredentials 判其无凭证证据
+    // → NO_CREDENTIAL，账号页收敛为「需重新登录」而非灰色待确认。
+    expect(result).toEqual({ valid: false, code: 'CHECK_LOGIN_NO_CREDENTIAL' })
+  })
+
+  it('tencent_video 无 Cookie 但 localStorage 有会话标记且无 HTTP 证据 → 判未确认（INCONCLUSIVE 仅留真存疑态）', async () => {
+    const accountManager = loadAccountManager()
+    vi.spyOn(accountManager.credentialStore, 'hasCredential').mockReturnValue(true)
+    vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue({
+      platform: 'tencent_video',
+      cookies: [],
+      localStorage: { finder_username: 'v2_060000231003b20fa' },
+      accountInfo: {},
+    })
+    vi.spyOn(accountManager.accountStateRestorer, 'getAccountRecord').mockReturnValue(null)
+
+    const result = await accountManager.checkLoginStatus('tencent_video', 'acc-tv-marker')
+    // 纯 localStorage 登录态（视频号 finder_username）是真实凭证证据，不得收紧为
+    // NO_CREDENTIAL；无 HTTP 复核证据时保持三态中的「未确认」。
     expect(result.valid).toBeUndefined()
     expect(result.code).toBe('CHECK_LOGIN_INCONCLUSIVE')
   })
