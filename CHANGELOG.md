@@ -25,6 +25,8 @@
 - 全量桌面 vitest（含 `electron/**` 用例）：`602 passed | 1 skipped (603 files)`、`10883 passed | 2 skipped (10885 tests)`、**0 failed**，耗时 2979s。
 - 后端全量 pytest（`packages/python-backend`）：**4 failed / 2697 passed**（277s），失败集 `test_aggregation_video` / `test_frame_html` / `test_llm_service` / `test_pipeline_loader` 与 #2233 记录的干净基线逐条同名、均不在账号模块 → 无回归。
 - 门禁：ESLint `--quiet` 对 17 个 `src` + 8 个 `electron` 变更文件 **0 error**；Gate 7 `--cjk` PASS（基线 1581 → 当前 1386，无新增硬编码中文）、`--keys` PASS（3117 键）、`--pair-base origin/main` 在 **commit 后**复跑 PASS（zh/en 变更均 `true`）。**教训**：`--pair-base` 取的是提交间 diff，工作区未提交时输出「zh.js 变更=false」的空转通过，不得当作已验证证据。
+- Gate 7 `--py-cjk` 首轮**红**（`python-backend has 19 new hardcoded CJK user-visible messages (baseline 79)`）：逐条核查为**基线 `path:LINE` 行号漂移**而非新增硬编码 —— 本 PR 在 `server.py` 新增的 11 条含中文行里，6 条是 `#` 注释、5 条全部落在 docstring 内（用 AST tokenizer 判定字符串字面量跨度，零用户可见消息字符串），且 `git diff 5874e4bda..origin/main -- server.py` 为空说明上游没动过该文件、漂移完全由本 PR 的 +33 行造成。按 #2212 / #2233 既有做法 `--py-cjk --update-py-baseline` 重锚：总条目 79 → 79、diff 恰 19+/19−、全部集中在 `server.py`、其余文件条目一字未动，重跑 PASS。**不得**用重锚掩盖真新增，故上述字面量审计是重锚的前置条件。
+- 合并 `origin/main`（9 个提交，含 #2239 IPC 安全批次）后复验：CHANGELOG 唯一冲突按**条目并集**解决（本 PR 置顶、main 三条随后，并补齐 `---` 分隔）；两处 preload bundle（`index.bundle.js` / `home-shell-preload.bundle.js`）**自动合并结果与源码不一致，必须重跑 `node scripts/build-preload.js` 重算**（否则 `preload.test.js` 与真机 bridge 都会错）；main 新增的两项门禁 `check-ipc-sender-guard.js`（P1-14 显式守卫占比 ≥65%，当前 67.5%）与 `check-ops-session-hygiene.js` 本地实跑 PASS，新通道 `account:set-active` 已走 `withSenderCheck` 故不拉低占比；`check-ipc-bridge.js` 406 handlers / 0 已知缺口、前端一致性/色值/CSS 变量/字号/路由登记等 10 项静态门禁全 PASS。
 - 两处自纠错均为**断言写错、实现正确**，未为了让断言通过而放宽实现：① 「默认账号被停用时不回填」期望应为 `[]`（既有 reconcile 只在默认账号可用时回填，自动挑非默认账号属新增策略，不在本 PR 范围）；② catalog 的 `toEqual([{id, disabled}])` 漏了 spread 透传字段，改为先 `map` 投影再单独断言 `is_active`。
 - 详见 `01-docs/PRD-ACCOUNT-IS-ACTIVE-BATCH-2026-09-23.md`（数据模型 / 正交判定矩阵 / 单一写者与 IPC 契约 / 交互与显示项 / 提示文字 / 测试矩阵 / 实施结果）。
 
@@ -36,6 +38,7 @@
 
 ### 关联
 - 分支 `codex/account-is-active-batch`（worktree 隔离，D 盘）；收敛 #2233 条目「遗留」第 1 条。
+- 工作树：原 `D:/Data/projects/mp-worktrees/mp-account-is-active-batch` 在开发过程中被本地磁盘清理删除（提交与分支未受影响，全在对象库），已重建于 `D:/Data/projects/mp-worktrees/mp-account-is-active-b2`。
 
 ---
 
