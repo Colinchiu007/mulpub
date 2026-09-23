@@ -15294,3 +15294,17 @@ Bug 修复走完整 QM-5（根因溯源 / 逃逸链 / 系统性漏洞 / 修复+�
 
 ### 本次交付
 3 commits（9ef12de13 实现 / d347deba9 评审修复 / f10d9fc02 文档）；ops-center 后端全量 pytest 414 passed、前端 build exit 0；CodeReview 无 CRITICAL/MAJOR；PR#2246 auto-merge squash。桌面端零改动（applyCatalog 只消费最终 sort_order）。
+
+## 爆款库第四链路「发布→回采→写回爆款库」线上闭合实证（viral-fourth-link-live-verification，2026-09-23）
+
+### 可复用结论
+
+- **store 是 sql.js 内存库而非 better-sqlite3（pitfall·架构硬约束）**：`electron/services/store/sqlite-wrapper.js` 用 sql.js（内存 WASM）实现 better-sqlite3 兼容 API——启动时 `_init` 把 `multi-publish.db` 一次性读进内存，此后所有读写只作用于内存副本；`base-store.js` 每 5s 在 `_dirty` 时 `db.persist()`（`export()` 整库写 .tmp 后 `fs.renameSync` 原子覆盖）。**后果：应用运行期间外部进程直写 db 文件，app 不可见，且会被下一次 persist 整体覆盖**。外部改写唯一安全范式：停 app → 外部写（Node 22 内置 `node:sqlite` 的 `DatabaseSync` 即可读写标准 SQLite 文件，无需安装原生模块，better-sqlite3 在本仓库并不可用）→ 重启载入。凡「灌种子数据 / 修数」类操作必须遵守此顺序，否则会静默丢写。
+- **「回采写回」这类依赖外部时序链路的线上实证通路（pattern）**：触发链被 T+1h 排期 + 24h 调度锁死时，用「种子数据 + 强制触发 + 真实公开 API」三件套：①停机灌 `viral_library` 基线（likes=NULL）+ `tracked_content`（pending，指向真实热门公开 URL）；②重启后 CDP 调 `triggerPerformanceRecrawl({force:true})`（#2210 强制入口）跑一轮真实回采；③选免登录公开 API 的 parser（bilibili `api.bilibili.com/x/web-interface/view?bvid=`）取非零互动。证据双确认才算闭环：**内存读回**（CDP 前后对比 listViralItems/listTrackedContent）+ **盘上读回**（persist 后用 node:sqlite 只读打开文件核对）。本次实测 viral.likes NULL→111,760、comments NULL→8,774、tracked pending→ok、新增 source=auto 快照，盘上一致。
+- **回采写回仅对 platform-metrics 已注册 4 平台生效（constraint）**：`_recrawlOne` 先 `getParser(platform)`，未注册即 unsupported、走不到写回。当前仅 zhihu/baijiahao/kuaishou/bilibili；其中快手/B站是视频平台（platforms.yaml VIDEO），纯图文 `publish:batch` 发不出去、产不出可回采的 postId/url 锚点，且 `task:success` 才登记 tracked_content——**「真实发布自然产生第四链路闭环」在图文链路上不可达**，只能走种子实证；自然闭环需等视频发布链路 + parser 覆盖面扩展。
+- **账号登录态判定用 listAccounts 字段而非跑真实检测（pitfall）**：判据字段是 `has_cookies / cookie_count / status / last_validated`；`account_name`（如「登录 - 微信公众号」）只是添加时占位名，不是登录证据。`accountBatchCheckLogin` 会逐账号开真实浏览器，易挂起在登录/验证码页返回不了，会把「已登录」误报成「未登录」——曾据此误判阻塞整个实证任务并向用户要求重登。CDP 探测登录态先读 listAccounts 快照，重检测链路只在用户显式要求时跑。
+- **Start-Process 参数污染与 ExitCode 假阴性（tool）**：`Start-Process powershell -ArgumentList '-File',$lb,'*>',$log` 会把 `*>` 和日志路径当脚本**位置参数**传入，覆盖脚本默认参数（`$Worktree='*>'` → 起错目录）；捕获输出必须用 `-RedirectStandardOutput/-RedirectStandardError`。`node:sqlite` 的 ExperimentalWarning 走 stderr 会让 PowerShell 报 ExitCode 1 而实际成功，判定以 stdout 结果行/落盘文件为准。
+
+### 本次决策记录
+
+实证在 live mp-app-live2（shared-user-data profile）完成，不改任何仓库代码：停 7 个 electron 前先热备份 `shared-user-data.backups\seed-<ts>\`（db+wal+shm），灌数脚本幂等（先 DELETE 固定种子 id 再精确 INSERT 两行）。用户决定**种子行不清理**，保留为常态验证样本（vv-seed-bili-0001 / tc-seed-bili-0001 + 1 条 auto 快照）。实证结果回写 `PRD-RECRAWL-TRIGGER-DEBUG-2026-09-22.md` §7 与 `PRD-VIRAL-LIBRARY-INTEGRATION-2026-09-22.md` 附录 C。经验同步内置记忆 + EverOS。
