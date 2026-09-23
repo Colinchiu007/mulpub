@@ -769,3 +769,82 @@ describe('OpsCenterSync appMenu（应用菜单配置）', () => {
     expect(svc.getAppMenu()).toBeNull()
   })
 })
+
+// bearer-fix 回归：零配置自动发现态（无手填 URL / 无 API Key）syncNow 必须走 Bearer，
+// 而非因 getConfig().url 并入了自动地址被误判为手动态、返回"未配置 Ops Center API Key"导致同步永不发起。
+describe('OpsCenterSync 零配置 Bearer 同步（bearer-fix 回归）', () => {
+  const savedEnvUrl = process.env.OPS_CENTER_URL
+  let originalFetch
+  beforeEach(() => { originalFetch = global.fetch; delete process.env.OPS_CENTER_URL })
+  afterEach(() => {
+    global.fetch = originalFetch
+    if (savedEnvUrl === undefined) delete process.env.OPS_CENTER_URL
+    else process.env.OPS_CENTER_URL = savedEnvUrl
+    vi.restoreAllMocks()
+  })
+
+  it('注入 URL + getAccessToken 且无手填/无 Key：syncNow 走 Bearer 并成功应用目录+运行时（不再误报缺 Key）', async () => {
+    const store = makeStore()
+    const manager = makeManager()
+    const svc = new OpsCenterSync({ store, modelProviderManager: manager, log: LOG })
+    svc.setOpsCenterUrl('https://ops.iart.work')
+    svc.setGetAccessToken(async () => 'jwt-token')
+    const items = [{ id: 'openai', name: 'OpenAI' }]
+    const menu = { groups: [{ key: 'home', label: '首页', items: [{ key: 'publish', label: '发布', visible: true }] }] }
+    const seen = []
+    global.fetch = vi.fn(async (url, opts) => {
+      const h = (opts && opts.headers) || {}
+      seen.push({ url: String(url), bearer: String(h.Authorization || ''), catalogKey: String(h['X-Catalog-Key'] || '') })
+      if (String(url).includes('/runtime/bootstrap')) {
+        return jsonResp({ body: signRuntimePayload({ announcements: [], appMenu: menu, synced_at: '2026-09-22T00:00:00Z' }) })
+      }
+      return jsonResp({ body: { items } })
+    })
+    const res = await svc.syncNow()
+    expect(res.code).toBe(0)
+    expect(res.message || '').not.toContain('未配置 Ops Center API Key')
+    expect(manager.applyCatalog).toHaveBeenCalledWith(items)
+    // 目录与运行时两个端点都必须用 Bearer，且不得回落空 X-Catalog-Key
+    expect(seen.length).toBeGreaterThanOrEqual(2)
+    expect(seen.every((x) => /^Bearer /.test(x.bearer))).toBe(true)
+    expect(seen.every((x) => x.catalogKey === '')).toBe(true)
+    // 运行时经 Ed25519 验签后落地
+    expect(res.runtimeApplied).toBe(true)
+  })
+
+  it('手填 URL + Key 仍走 X-Catalog-Key（bearer 改动不破坏手动模式）', async () => {
+    const store = makeStore()
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    svc.saveConfig({ url: 'https://ops.example.com', apiKey: 'k' })
+    svc.setOpsCenterUrl('https://ops.iart.work')
+    svc.setGetAccessToken(async () => 'jwt-token')
+    const seen = []
+    global.fetch = vi.fn(async (_url, opts) => {
+      const h = (opts && opts.headers) || {}
+      seen.push({ bearer: String(h.Authorization || ''), catalogKey: String(h['X-Catalog-Key'] || '') })
+      return jsonResp({ body: { items: [{ id: 'a', name: 'A' }] } })
+    })
+    const res = await svc.syncNow()
+    expect(res.code).toBe(0)
+    expect(seen.every((x) => x.bearer === '')).toBe(true)
+    expect(seen.every((x) => x.catalogKey !== '')).toBe(true)
+  })
+
+  it('零配置同步成功后不把自动发现地址固化为手填 url（避免下次误走 catalog-key）', async () => {
+    const kv = {}
+    const store = { getSetting: vi.fn((k) => kv[k] ?? ''), setSetting: vi.fn((k, v) => { kv[k] = v }) }
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    svc.setOpsCenterUrl('https://ops.iart.work')
+    svc.setGetAccessToken(async () => 'jwt-token')
+    global.fetch = vi.fn(async (url) => {
+      if (String(url).includes('/runtime/bootstrap')) return jsonResp({ body: signRuntimePayload({ announcements: [] }) })
+      return jsonResp({ body: { items: [{ id: 'a', name: 'A' }] } })
+    })
+    const res = await svc.syncNow()
+    expect(res.code).toBe(0)
+    const persisted = JSON.parse(kv['opsCenterSync'] || '{}')
+    expect(persisted.url).toBe('')
+    expect(persisted.lastSyncedAt).toBeTruthy()
+    expect(svc._getManualUrl()).toBe('')
+  })
+})

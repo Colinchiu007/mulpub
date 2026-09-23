@@ -192,6 +192,15 @@ class OpsCenterSync {
     try { return crypto.decrypt(cfg.apiKeyEnc) } catch { return '' }
   }
 
+  /** 读取用户手动配置的 Ops Center 地址（raw，不含方案C 自动发现回退）。用于区分手动态与零配置态 */
+  _getManualUrl() {
+    let raw
+    try { raw = String(this._store?.getSetting ? this._store.getSetting(SETTING_KEY) || '' : '') } catch { raw = '' }
+    let cfg = {}
+    if (raw) { try { cfg = JSON.parse(raw) } catch { cfg = {} } }
+    return cfg.url || ''
+  }
+
   /** 立即同步：拉取目录 → applyCatalog → 运行时策略 → 更新 lastSyncedAt（in-flight 互斥） */
   async syncNow() {
     if (this._syncing) return { code: -1, message: '同步正在进行中，请稍候' }
@@ -205,10 +214,13 @@ class OpsCenterSync {
 
   async _syncNowInner() {
     const cfg = this.getConfig()
-    // 方案C：优先使用自动发现的 context（identity-public.json + Logto JWT）
+    // 方案C：优先使用自动发现的 context（identity-public.json + Logto JWT）。
+    // 注意：getConfig().url 会把自动发现地址并入（便于设置页展示），不能用它判断手动态；
+    // 否则零配置态下 !cfg.url 恒 false -> useBearer 恒 false -> 误报未配置 API Key，同步永不发起。
     const auto = this._getAutoContext()
-    const effectiveUrl = cfg.url || (auto ? auto.url : '')
-    const useBearer = !cfg.url && auto && !cfg.apiKeyConfigured
+    const manualUrl = this._getManualUrl()
+    const effectiveUrl = manualUrl || (auto ? auto.url : '')
+    const useBearer = !manualUrl && !!auto && !cfg.apiKeyConfigured
     if (!effectiveUrl) return { code: -1, message: '未配置 Ops Center 地址' }
     if (!useBearer && !cfg.apiKeyConfigured) return { code: -1, message: '未配置 Ops Center API Key' }
     if (!this._manager || typeof this._manager.applyCatalog !== 'function') {
@@ -228,7 +240,7 @@ class OpsCenterSync {
 
     // 更新 lastSyncedAt
     const nowIso = new Date().toISOString()
-    const updated = { url: cfg.url || '', apiKeyEnc: this._getStoredKeyEnc(), autoSync: cfg.autoSync, lastSyncedAt: nowIso, runtimePublicKey: cfg.runtimePublicKey || '' }
+    const updated = { url: manualUrl || '', apiKeyEnc: this._getStoredKeyEnc(), autoSync: cfg.autoSync, lastSyncedAt: nowIso, runtimePublicKey: cfg.runtimePublicKey || '' }
     try { this._store.setSetting(SETTING_KEY, JSON.stringify(updated)) } catch { /* 非关键 */ }
 
     // 运行时策略（公告/版本发布/内容安全）best-effort 拉取：失败仅 warn，不影响目录同步结果
