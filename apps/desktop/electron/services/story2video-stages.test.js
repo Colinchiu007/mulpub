@@ -2662,6 +2662,15 @@ describe('generate_assets 视频分支（2026-08-11）', () => {
   let mediaAvailable = true
   const FFMPEG = findFfmpeg()
 
+  // CI 实证（quality-gate.yml 的 desktop-shards / windows-latest）：该 job 有意不继承
+  // electron-ci.yml 的 NODE_ENV=test + SKIP_NATIVE_MEDIA_TOOL_TESTS=1 契约，findFfmpeg()
+  // 因此返回捆绑的真实 ffmpeg，本 describe 的 beforeAll 会真的 spawn ffmpeg 并起本地 HTTP 服务。
+  // 冷启动 runner 上（Defender 首次扫描二进制 + 静态包解析 + 磁盘争抢）该 hook 可能超过全局
+  // --hookTimeout=10000：表现为「Hook timed out in 10000ms」+ 整个 suite 失败且零断言失败，
+  // 同一基线复跑又能通过（典型冷启动偶发）。这里只给这一个 hook 单独放宽预算，不改全局
+  // hookTimeout，真正挂死的 hook 仍会在 10s 被抓到。
+  const MEDIA_SETUP_HOOK_TIMEOUT_MS = 60000
+
   beforeAll(async () => {
     // 跨平台：CI 设 SKIP_NATIVE_MEDIA_TOOL_TESTS=1 时 findFfmpeg() 返回 null，整个 describe 跳过
     if (!FFMPEG) {
@@ -2687,7 +2696,7 @@ describe('generate_assets 视频分支（2026-08-11）', () => {
     })
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
     baseUrl = 'http://127.0.0.1:' + server.address().port + '/video.mp4'
-  })
+  }, MEDIA_SETUP_HOOK_TIMEOUT_MS)
 
   afterAll(() => {
     if (server) server.close()
