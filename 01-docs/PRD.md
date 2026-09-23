@@ -16988,6 +16988,15 @@ is_default: 1
 ### 活体验证结论（2026-09-23）
 同一条链路真实发布 **2 条**并通过独立 `web-interface/view` 回查（`code=0`、`state=0` 公开）：
 - topic01 → **bvid `BV1MahW6tE36`**（aid 117317988063126）
+
+### 主链路活体门禁：生产 API 适配器 Tier-A 发布（2026-09-23）
+
+主链路（热门选题 → 生成视频 → 发布）的发布端已在生产代码路径活体验证：`ApiPublisher`（`ROUTE_TABLE.bilibili=api`）→ `publishViaApi("bilibili")` → `BilibiliAdapter` 真 upos 链（preupload→分片→complete→`add/v3`）→ 真 bvid。
+- 活体证据：topic03 经生产适配器投稿成功，`bvid=BV1y1ht6PEfM`、`aid=117319246288101`、owner 与账号 mid 一致，公开 `view` API `code=0` 回查通过。
+- 数据校验：登录探活 `nav isLogin` → 横版校验（`width>=height`，竖版拒 API 转 RPA）→ cookie 缺失即报「平台 Cookie 缺失」→ 发布结果缺 `bvid` 即报「发布结果缺少平台作品 ID」。
+- 内容纯净：`_cleanText` 去标题/简介水印；`buildPostData` 产出 `add/v3` 精确 schema（`videos=[{cid:biz_id, filename}]`，不含已废弃 `file/format`）。
+- 失败态：`601` 风控 / `-1025` 登录失效 / `BILI_ARGS_FAIL` / `BILI_INIT_FAIL` / `BILI_PART_FAIL` 均有确定文案与 code。
+- 运维项：持久 app（mp-app-live2）落后 origin/main 时其 `ROUTE_TABLE` 仍 `rpa_vm`；完整 Electron 队列端到端需先 `sync-app.ps1` 同步重启（详见 `01-docs/rpa-api-publish/evidence/mainchain-bili-prod-adapter-2026-09-23.md`）。
 - topic02 → **bvid `BV1DxhW6hEwZ`**（aid 117318055106795）
 证明链路稳定可复现，非偶发。回归单测 `packages/api-publish-engine/test/bilibili-upos.test.js`（6 例，纯逻辑不联网）。
 
