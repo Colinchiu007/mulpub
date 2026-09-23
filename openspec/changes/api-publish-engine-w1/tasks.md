@@ -8,30 +8,30 @@
 
 ## 2. 签名注册表 + 远程通道拆除
 
-- [ ] 2.1 红测：`signer/registry` 注册/查找/未知 command fail-closed；Tier-A 本地算法回归（对齐现 signer-local.js）
-- [ ] 2.2 实现 registry + 收编 local 实现；**删除** `signer.js` 的 `MP_SIGNER_BASE`/`getRemoteSign`/`SIGNER_PORTS`
-- [ ] 2.3 绿测 + grep 门禁脚本：`packages/api-publish-engine`、`apps/desktop` 无 `MP_SIGNER_BASE`/`getRemoteSign`/`refpub`
+- [x] 2.1 红测：`signer/registry` 注册/查找/未知 command fail-closed；Tier-A 本地算法回归（对齐现 signer-local.js）
+- [x] 2.2 实现 registry + 收编 local 实现；**删除** `signer.js` 的 `MP_SIGNER_BASE`/`getRemoteSign`/`SIGNER_PORTS`
+- [x] 2.3 绿测 + grep 门禁脚本：`packages/api-publish-engine`、`apps/desktop` 无 `MP_SIGNER_BASE`/`getRemoteSign`/`refpub`
 
 ## 3. publish/core 基座
 
-- [ ] 3.1 契约测试基建：127.0.0.1:0 假 HTTP 服务器 + 请求序列/headers/body/Range 断言器（PromptBridge 模式）
-- [ ] 3.2 HTTP 基座：axios 工厂、60s timeout、`retryCondition=!isJson` ≤3、代理注入
-- [ ] 3.3 分片器（8388608 + 三边界）、UploadEmitGate 节流、publishStatus 进度事件、错误码/BadRequest 等价物
+- [x] 3.1 契约测试基建：127.0.0.1:0 假 HTTP 服务器 + 请求序列/headers/body/Range 断言器（PromptBridge 模式）
+- [x] 3.2 HTTP 基座：axios 工厂、60s timeout、`retryCondition=!isJson` ≤3、代理注入
+- [x] 3.3 分片器（8388608 + 三边界）、UploadEmitGate 节流、publishStatus 进度事件、错误码/BadRequest 等价物
 
 ## 4. 视频号 / B站 / 百家号 发布链（TDD 逐平台）
 
-- [ ] 4.1 视频号：红测契约（authKey→applyuploaddfs→uploadpartdfs→complete→post）→ 实现 → 绿
-- [ ] 4.2 B站：红测契约（preupload/X-Upos-Auth→upos PUT→/x/vu/web/add，csrf=bili_jct）→ 实现 → 绿
-- [ ] 4.3 百家号文章：红测契约（自域 token→uploadproxy→save/publish）→ 实现 → 绿
-- [ ] 4.4 三平台 adapters 改为委托新链；AI 声明字段平移
+- [x] 4.1 视频号：红测契约（authKey→applyuploaddfs→uploadpartdfs→complete→post）→ 实现 → 绿
+- [x] 4.2 B站：红测契约（preupload/X-Upos-Auth→upos PUT→/x/vu/web/add，csrf=bili_jct）→ 实现 → 绿
+- [x] 4.3 百家号文章：红测契约（自域 token→uploadproxy→save/publish）→ 实现 → 绿
+- [ ] 4.4 三平台 adapters 改为委托新链；AI 声明字段平移（B站 ✅ + 视频号 ✅ 委托链+去重纯函数，见 PRD §12.4；百家号旧视频链 vs 新文章链属行为变更需专轮，随 §5 服务层处理）
 - [ ] 4.5 数据校验 fail-closed：缺 Cookie/UA、空签名、文件不存在的零请求单测
 
 ## 5. 双轨路由 + 频控 + 风控停止
 
-- [ ] 5.1 `config/platforms.yaml` 增 `publishModes`（未入波平台=dom-rpa）；红测：三态 × 降级矩阵
-- [ ] 5.2 `publishWithMode()`：api-then-dom 降级落 DOM、risk/login 不降级；结构化日志 `degraded+reasonCode`
-- [ ] 5.3 18min 频控（虚拟时钟边界单测 17:59 拒 / 18:01 放）
-- [ ] 5.4 risk_blocked 挂起该平台 + 通知（恢复/停止），不影响其他平台
+- [x] 5.1 `config/platforms.yaml` 逐平台增 `publishMode`（三态 `api-only\|api-then-dom\|dom-only`，W1=api-then-dom、未入波=dom-only，独立于 has_api）+ `api-router.getPublishMode` 读取器（字段优先→has_api 派生→normalizeMode 归一）；publish-mode-config.test.js TDD，见 PRD §12.6
+- [x] 5.2 `publishWithMode()`：api-then-dom 降级落 DOM、risk/login 不降级；结构化日志 `degraded+reasonCode`（§5.2 执行包装 publish-mode-runner.js 已交付，19 例 TDD，见 PRD §12.5；与 §4 链/index.publishViaApi 接线成产品入口随 §5.1/§5.4 落地；§5.1/§5.4 已交付，且 §5 服务入口已在 index.js 组装为 publishWithMode 单例（publish-service.js），四件套统一入口收口完成，见 PRD §12.7）
+- [x] 5.3 18min 频控（虚拟时钟边界单测 17:59 拒 / 18:01 放）
+- [x] 5.4 risk_blocked 挂起该平台/账号 + 通知（恢复/停止），不影响其他平台/账号（`risk-suspender.createRiskSuspender` 纯内存、账号级默认、幂等单次通知、显式 resume；与 `publishWithMode` 联动：入口挂起守卫零请求、风控命中即挂起、login 不挂起；risk-suspender.test.js 14 例 TDD，见 PRD §12.6）
 
 ## 6. UI 显示项 + i18n
 

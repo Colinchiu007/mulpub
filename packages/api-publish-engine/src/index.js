@@ -36,7 +36,10 @@ const { createLogtoRuntime, LogtoRuntimeError } = require("./auth/logto-runtime"
 const { PostgresEntitlementProvider, PostgresIdentityRepository } = require("./auth/postgres-identity-repository");
 const { createProductionReadinessProbe } = require("./auth/production-readiness");
 const platformConfigs = require("./adapters/platform-configs");
-const PluginLoader = require("./plugin-loader");
+const PluginLoader = require("./plugin-loader")
+const logger = require("./logger")
+const apiRouter = require("./api-router")
+const { createPublishService } = require("./publish/publish-service");
 
 // ─── Plugin System Integration ───
 const pluginLoader = new PluginLoader();
@@ -127,6 +130,16 @@ async function batchPublish(platforms, taskData, cookie, opts) {
   return results;
 }
 
+// ─── W1 §5 双轨发布服务入口（API 优先 + 18min 频控 + 风控挂起；服务层事实路由）───
+// getMode=apiRouter.getPublishMode(§5.1) 供三态；spacer/riskSuspender 为进程内单例；
+// apiPublish=publishViaApi；domPublish 由每次调用 opts.rpaPublish 注入（缺省走 requiresDom）。
+var _publishService = createPublishService({
+  apiPublish: publishViaApi,
+  getMode: function (p) { return apiRouter.getPublishMode(p); },
+  logger: logger,
+  onRiskEvent: function (e) { try { logger.warn("publish-service", "risk_" + e.type, e); } catch (_e) { /* 通知失败不炸主流程 */ } },
+});
+
 module.exports = {
   getAdapter, supportsApi, publishViaApi, batchPublish, reloadPlugins,
   // P3-7：合集列表拉取（adapter 可选实现）
@@ -141,7 +154,11 @@ module.exports = {
   LogtoWebhookConsumer, LogtoWebhookError, deriveLogtoWebhookEventId,
   createLogtoRuntime, LogtoRuntimeError, PostgresEntitlementProvider, PostgresIdentityRepository,
   createProductionReadinessProbe,
-  apiRouter: require("./api-router"),
-  batchPublishWithRouting: require("./api-router").batchPublishWithRouting,
-  publishWithFallback: require("./api-router").publishWithFallback,
+  apiRouter: apiRouter,
+  batchPublishWithRouting: apiRouter.batchPublishWithRouting,
+  publishWithFallback: apiRouter.publishWithFallback,
+  // W1 §5 服务层事实入口（推荐）；publishWithFallback 为旧非模式驱动路径，保留兼容
+  publishWithMode: _publishService.publishWithMode,
+  publishService: _publishService,
+  getPublishMode: apiRouter.getPublishMode,
 };

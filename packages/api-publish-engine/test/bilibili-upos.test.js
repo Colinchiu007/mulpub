@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 const BilibiliAdapter = require('../src/adapters/bilibili.js')
 
-describe('bilibili Tier-A upos adapter (pure logic)', () => {
+describe('bilibili Tier-A upos adapter (§4.4 变薄委托新链，纯逻辑/转发)', () => {
   const a = new BilibiliAdapter()
 
   it('_buildBase 解析新式 upos://bucket/object + endpoint(//host)', () => {
@@ -38,15 +38,24 @@ describe('bilibili Tier-A upos adapter (pure logic)', () => {
     expect(body.videos[0].cid).toBe(0)
   })
 
-  it('publish 在 code=0 时返回 bvid 作为 publishId（不联网，注入桩 http）', async () => {
-    a.http = { post: async () => ({ data: { code: 0, data: { bvid: 'BV1TEST', aid: 123 } } }) }
-    const r = await a.publish('bili_jct=abcdef0123456789abcdef01; DedeUserID=999', { tid: 21 })
-    expect(r.success).toBe(true)
-    expect(r.publishId).toBe('BV1TEST')
-    expect(r.url).toBe('https://www.bilibili.com/video/BV1TEST')
+  it('publish 委托新链并强制正式发布（draft:false → add/v3，不触草稿）', async () => {
+    let seen = null
+    a._chainOverride = { publish: async (postData, opts) => { seen = { postData, opts }; return { success: true, platform: 'bilibili', publishId: 'BV1TEST' } } }
+    try {
+      const r = await a.publish('bili_jct=abcdef; DedeUserID=999', { tid: 21 })
+      expect(r.success).toBe(true)
+      expect(r.publishId).toBe('BV1TEST')
+      expect(seen.opts).toEqual({ draft: false })
+      expect(seen.postData).toEqual({ tid: 21 })
+    } finally { delete a._chainOverride }
   })
 
-  it('回归：简介/正文绝不携带「自动发布」水印（_cleanText 去括号 boilerplate）', () => {
+  it('§4.4 委托：uploadVideo 无视频路径时返回 null（空上传契约）', async () => {
+    const r = await a.uploadVideo({}, 'bili_jct=x', null)
+    expect(r).toBeNull()
+  })
+
+  it('回归：简介/正文绝不携带「自动发布」水印（委托链 cleanBilibiliText 去括号 boilerplate）', () => {
     const td = {
       title: '汪顺400混的含金量（由多平台一键发布工具自动发布）',
       content: '汪顺400混的含金量\n（由多平台一键发布工具自动发布）',

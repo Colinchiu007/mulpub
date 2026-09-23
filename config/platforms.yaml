@@ -22,6 +22,7 @@ platforms:
     max_title: 64
     max_content: 20000
     has_api: false
+    publishMode: dom-only   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
     enabled: true
   zhihu:
     id: 12
@@ -37,9 +38,11 @@ platforms:
     max_title: 50
     max_content: 5000
     has_api: false
+    publishMode: dom-only   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
     enabled: true
   weibo:
     has_api: false
+    publishMode: dom-only   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
     name: 微博
     type: mixed
     icon: 🔥
@@ -50,6 +53,7 @@ platforms:
     enabled: true
   douyin:
     has_api: false
+    publishMode: dom-only   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
     name: 抖音
     type: mixed
     icon: 🎵
@@ -72,6 +76,7 @@ platforms:
     max_title: 20
     max_content: 1000
     has_api: false
+    publishMode: dom-only   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
     enabled: true
   tencent_video:
     id: 21
@@ -87,6 +92,7 @@ platforms:
     max_title: 60
     max_content: 1000
     has_api: false
+    publishMode: api-then-dom   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
   kuaishou:
     id: 35
     name: 快手
@@ -105,6 +111,7 @@ platforms:
     # 该编辑器（rpa-view-platforms._composeEditorCaption），长度上限即 max_content。
     max_content: 1000
     has_api: false
+    publishMode: dom-only   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
     enabled: true
   toutiao:
     id: 3
@@ -120,9 +127,11 @@ platforms:
     max_title: 30
     max_content: 5000
     has_api: false
+    publishMode: dom-only   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
     enabled: true
   youtube:
     has_api: true
+    publishMode: dom-only   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
     name: YouTube
     type: mixed
     icon: 📺
@@ -133,6 +142,7 @@ platforms:
     enabled: true
   tiktok:
     has_api: false
+    publishMode: dom-only   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
     name: TikTok
     type: mixed
     icon: 🎤
@@ -155,6 +165,7 @@ platforms:
     max_title: 80
     max_content: 3000
     has_api: true
+    publishMode: api-then-dom   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
     enabled: true
   baijiahao:
     id: 4
@@ -170,8 +181,10 @@ platforms:
     max_title: 64
     max_content: 50000
     has_api: true
+    publishMode: api-then-dom   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
   twitter:
     has_api: true
+    publishMode: dom-only   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
     name: X (Twitter)
     type: mixed
     icon: 🐦
@@ -194,6 +207,7 @@ platforms:
     max_title: 70
     max_content: 2200
     has_api: false
+    publishMode: dom-only   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
   facebook:
     id: 104
     name: Facebook
@@ -208,4 +222,5 @@ platforms:
     max_title: 63206
     max_content: 63206
     has_api: true
+    publishMode: dom-only   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
     enabled: true

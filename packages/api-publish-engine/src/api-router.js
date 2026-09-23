@@ -55,6 +55,26 @@ function listApiPlatforms() {
   return _apiPlatforms || [];
 }
 
+/**
+ * 发布模式（W1 §5.1）：三态总闸，逐平台。
+ * 优先读 platforms.yaml 的 publishMode 字段；缺省时按 has_api 派生
+ * （has_api:true → api-then-dom，否则 dom-only），再经 normalizeMode 归一。
+ * 非法值 normalizeMode 抛错（fail-closed），避免误配置静默走错轨。
+ * @param {string} platform
+ * @returns {string} 'api-only' | 'api-then-dom' | 'dom-only'
+ */
+function getPublishMode(platform) {
+  var pm = require('./publish/core/publish-mode');
+  var cfg = loadConfig()[platform];
+  var raw;
+  if (cfg && cfg.publishMode != null && cfg.publishMode !== '') {
+    raw = cfg.publishMode;
+  } else {
+    raw = (cfg && cfg.has_api) ? pm.MODES.apiThenDom : pm.MODES.domOnly;
+  }
+  return pm.normalizeMode(raw);
+}
+
 async function publishWithFallback(platform, taskData, cookie, opts) {
   opts = opts || {};
   var useApi = shouldUseApi(platform);
@@ -119,7 +139,7 @@ async function batchPublishWithRouting(platforms, taskData, cookie, opts) {
 }
 
 module.exports = {
-  shouldUseApi, supportsApi, listApiPlatforms,
+  shouldUseApi, supportsApi, listApiPlatforms, getPublishMode,
   publishWithFallback, batchPublishWithRouting,
   loadConfig, reloadConfig,
 };
