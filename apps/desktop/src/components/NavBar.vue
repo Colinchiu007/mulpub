@@ -55,7 +55,7 @@
           class="url-input"
           :value="displayUrl"
           :disabled="isHome"
-          :placeholder="isHome ? t('nav.home') : (currentTitle || '搜索或输入网址')"
+          :placeholder="isHome ? t('nav.home') : (currentTitle || t('nav.searchPlaceholder'))"
           data-testid="nav-url-input"
           @focus="onFocus"
           @blur="onBlur"

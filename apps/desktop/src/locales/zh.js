@@ -51,6 +51,7 @@ export default {
   },
   nav: {
     home: '首页',
+    searchPlaceholder: '搜索或输入网址',
     accounts: '账号管理',
     publish: '发布内容',
     history: '发布历史',
