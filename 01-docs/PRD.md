@@ -17000,6 +17000,27 @@ is_default: 1
 - **交互提示文字**：正文/简介直接透传用户内容，不再自动追加任何来源标注或工具签名。
 - **活体验证**：净化后重投 B站 topic02 得新稿 `BV1YNh46kE8T`，`desc` 无水印（提交即净化）。
 
+### 第二平台活体推进：快手 RPA 发布前沿与合规墙（2026-09-23）
+
+> 承接 Tier-A 节。用户硬要求「能发的都发」，本轮以活体应用（7 账号 is_active=true）实测推进第二平台，得到确定性根因，记录如下，供后续按证据迭代，避免重复踩坑。
+
+- **合规墙（决定 API 路线天花板）**：packages/api-publish-engine/src/signer-local.js 的 getKuaishouSign（本地 MD5(apiPh|body)）仅是发往远程签名服务（第三方远程签名服务，signer.js 默认端点域名）换取真 __NS_sig3 的中间 key；真签名由远程算出。本地近似签名必被快手服务端拒，调用远程服务违反 CI 品牌/来源门禁（禁第三方签名域名与参考产品品牌词）。抖音 _signature/a_bogus 同理为占位。**故除 B站外的视频平台无法走自包含 API 发布，唯一合规杠杆是应用内 RPA（浏览器自签名、用户已登录会话）。** 当前唯一达活体成功的视频平台为 B站（BV1MahW6tE36 / BV1DxhW6hEwZ）。
+
+- **快手 RPA 实测链路（本轮，账号 a4505f45，720p 小体积视频）**，逐阶段结论：
+  1. 启动浏览器 + 恢复 cookie：通过（cookies restored / supplemented 16/16 cookies from auth partition account-a4505f45）。
+  2. 导航 cp.kuaishou.com/article/publish/video?tabType=1 + 关引导弹窗：通过（post-nav dialogs dismissed: 放弃）。
+  3. 文件上传：通过（uploading file -> file uploaded，约 25s）。
+  4. 标题/正文：通过（无独立标题框，回落 #work-description-edit 富文本编辑器，正文已合成 caption）。
+  5. 封面上传：通过；AI 声明：页面无可勾选控件（NO_DECLARATION_FOUND，非阻断）。
+  6. 发布点击：DIAG pubBtn=7（7 个候选），前 3 个通用文本选择器 button:has-text("发布")/button:has-text("发表")/span:has-text("发 布") 各 3s 超时，命中配置专用候选并点击——但点击后未触发任何提交请求（见下）。
+  7. 回查：失败 publish signal lacked platform ID; responses=0 -> 发布结果缺少平台作品 ID。
+
+- **确定性根因（关键）**：_verifyPublishSuccess 诊断 responses=0——发布网络捕获（_startPublishNetworkCapture，其 relevant(url) 覆盖 publish/submit/create/video/work 等）在「点击发布 -> 停止捕获」窗口内记录到 0 条相关响应。这表明发布按钮点击是空操作，从未发出提交 XHR（而非提交成功但回查匹配失败）。因此快手失败的真身在「点击 -> 提交」环节，而非旧述的「作品 ID 回查过严」。
+
+- **待迭代方向（需活体发布页 DOM 取证，勿盲改选择器）**：疑似 (a) 命中候选按钮处于 disabled/占位态（视频仍在服务端转码，发布未就绪）；(b) 快手点击发布后需二次确认弹层（发布设置/定时/确认），当前流程未处理该步即进入回查；(c) 配置专用候选选择器与实际发布按钮元素不符（点到了非提交元素）。下一步应在不公开提交前提下（仅上传成草稿态）dump 发布按钮清单（text/disabled/class/offsetParent）与其中英文文案、以及点击后是否出现确认层，据此做证据化 TDD 修复。
+
+- **安全提示**：每轮重试会向用户真实快手账号上传并可能公开视频；本轮 2 次尝试均因未提交（responses=0）未产生公开发布；重传风暴已通过 window.electronAPI.cancelTask 清空队列（pending=0 running=0）止住。后续活体迭代须先确认账号侧无脏稿，再逐条推进。
+
 ## 全仓代码体检整改：安全加固与质量门禁需求（audit-remediation-20260922，四批全量）
 
 > **来源**：`.adversarial/codebase-audit-20260922/proposal-v7.md`（12 轮双模型对抗评审终版；P0×4、P1×11、P2×13，六轮 Critical 轨迹 4→1→0→0→0→0→0）。

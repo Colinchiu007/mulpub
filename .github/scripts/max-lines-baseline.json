@@ -6,7 +6,6 @@
     "apps/desktop/electron/bootstrap/phase1-context.js": 502,
     "apps/desktop/electron/home-shell-preload.bundle.js": 1381,
     "apps/desktop/electron/ipc-handlers/account.js": 571,
-    "apps/desktop/src/components/LogsSettings.vue": 598,
     "apps/desktop/electron/ipc-handlers/story2video.js": 608,
     "apps/desktop/electron/preload/index.bundle.js": 1334,
     "apps/desktop/electron/publishers/account-manager.js": 1061,
