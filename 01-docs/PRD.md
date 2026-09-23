@@ -16950,6 +16950,56 @@ is_default: 1
 | 提示文字 | hotTopics.multiBadge/multiBadgeTip/heatScoreTip/trendUp/trendDown/trendNew（zh/en 成对 6 键） |
 | 验收 | scorer 22 + service 新增 7 + UI 新增 6 全绿，既有 100+ 回归零破坏；eslint/locale-sync/debt 门禁 PASS；PRD §6 十条验收标准 |
 
+
+---
+
+## 2026-09-23 · B站 Tier-A「Cookie + 官方创作者域名 HTTP API」视频发布引擎（活体验证成功）
+
+> 关联技术方案：[rpa-api-publish/多账号API发布技术方案.md](./rpa-api-publish/多账号API发布技术方案.md) ｜ 活体证据：[rpa-api-publish/evidence/bili-live-publish.md](./rpa-api-publish/evidence/bili-live-publish.md)
+
+### 背景与动机
+「热门选题 → 一键生成视频 → 发布到多平台」E2E 链路中，DOM 点击式（RpaViewManager）视频上传/发布在各平台表现脆弱（文件选择器、发布按钮定位、作品 ID 回填等不稳定），本轮实跑未达成功。经逆向参考产品 8.4MB bundle 确认其发布引擎本质是 **Cookie + 直接调用平台官方创作者域名 HTTP API**，遂对 **B站（Tier-A：签名自包含，不依赖任何第三方远程签名服务）** 落地 API 式发布，并端到端活体验证。
+
+### 技术路线（更新 §2.2）
+- **B站视频发布由「API 模式预留（Python）」升级为主链路：Electron 主进程原生 HTTP API（无 Python、无第三方签名）**。
+- 引擎：`packages/api-publish-engine/src/adapters/bilibili.js`（`BasePlatformAdapter` 契约：uploadVideo → buildPostData → publish），经 `publisher-router.js` `ROUTE_TABLE.bilibili = { mode:'api' }` → `ApiPublisher` → `publishViaApi` 调度。
+- 上传链（upos）：`preupload?r=probe` → 逐 line 取 args(`endpoint/upos_uri/auth/biz_id`) → `init ?uploads` 得 `upload_id` → 8MiB 分片 `PUT` → `complete`（parts eTag 用字面量 `etag`）→ `POST /x/vu/web/add/v3`。
+- **合规红线**：全程仅 `member.bilibili.com` / `api.bilibili.com` 官方域名；CI 门禁禁止出现 `refpub.cn` 等第三方签名/远程调用。
+
+### 数据校验（发布前）
+1. 视频文件存在性：`fs.existsSync(videoPath)`，缺失 → `BILI_NO_FILE`。
+2. **横版校验**（ApiPublisher 前置）：ffprobe 探测宽高，`width < height`（竖版）拒绝 API 发布并提示改用 RPA（竖版短视频场景）。
+3. 登录态：cookie 必须含 `bili_jct`（csrf）、`DedeUserID`（mid）；缺失即视为未登录。
+4. 文件大小透传：`size` 参数须与真实字节数一致（preupload/init/part/complete 全链一致）。
+5. add/v3 `videos[]` schema：**必须** `{cid: biz_id, desc:'', title, filename}`，`filename` = complete.location 去扩展名去 bucket 段；**禁止** `file`/`format` 字段（错误形态触发 `21015`）。
+
+### 功能逻辑与状态机
+- 成功判据：add/v3 返回 `code===0 && data.bvid` → `{success:true, publishId:bvid, aid, url:'https://www.bilibili.com/video/'+bvid}`。
+- 失败码归类：`601`→风控（见下）；`21015`→file 字段/上传形态错；`-1025/-1026`→登录态失效（cookieExpired:true，触发重新登录引导）；其余→通用失败并回传 message。
+
+### 交互逻辑 / 显示项 / 提示文字
+- **601 风控（账号/IP 级人工滑块验证，不可程序化绕过）**：
+  - 队列任务态显示「B站上传风控(601)」，错误文案：**「B站风控(601)：请先在创作者中心完成滑块验证后重试」**。
+  - 引导动作：打开 `member.bilibili.com` 创作者中心，手动完成一次滑块验证后重发即成功。
+- **登录失效**：提示「B站登录态失效，请重新登录」，账号项标红并提供一键重登入口。
+- **成功**：发布历史新增记录，作品列展示 bvid + 可点击跳转 `url`；结果通知「B站发布成功」。
+- **竖版视频走 API 被拒**：提示「竖版视频暂不支持 API 发布，请使用 RPA 发布」。
+
+### 活体验证结论（2026-09-23）
+同一条链路真实发布 **2 条**并通过独立 `web-interface/view` 回查（`code=0`、`state=0` 公开）：
+- topic01 → **bvid `BV1MahW6tE36`**（aid 117317988063126）
+- topic02 → **bvid `BV1DxhW6hEwZ`**（aid 117318055106795）
+证明链路稳定可复现，非偶发。回归单测 `packages/api-publish-engine/test/bilibili-upos.test.js`（6 例，纯逻辑不联网）。
+
+
+### 内容纯净要求：发布标题/简介/正文去「自动发布」水印（2026-09-23）
+
+- **需求（用户硬要求）**：真实发布内容时，标题、简介（desc）、正文一律不得携带「（由多平台一键发布工具自动发布）」等自动发布水印 boilerplate。
+- **实现**：`bilibili` 适配器 `buildPostData` 引入 `_cleanText()`，对 `title`/`desc` 做防御性净化——正则剥离任意全/半角括号包裹、含「自动发布 / 一键发布工具 / 由多平台」的整段 boilerplate 及残留换行后 `trim`；因此无论上游改写引擎/队列传入何种文本，最终提交给平台的标题与简介都保持纯净。
+- **数据校验**：单测 `bilibili-upos.test.js` 以「标题/正文含水印」为输入，断言 `buildPostData` 产出的 `title`/`desc` 均不含上述关键词，作为回归保护，防止未来再次注入水印。
+- **交互提示文字**：正文/简介直接透传用户内容，不再自动追加任何来源标注或工具签名。
+- **活体验证**：净化后重投 B站 topic02 得新稿 `BV1YNh46kE8T`，`desc` 无水印（提交即净化）。
+
 ## 全仓代码体检整改：安全加固与质量门禁需求（audit-remediation-20260922，四批全量）
 
 > **来源**：`.adversarial/codebase-audit-20260922/proposal-v7.md`（12 轮双模型对抗评审终版；P0×4、P1×11、P2×13，六轮 Critical 轨迹 4→1→0→0→0→0→0）。
