@@ -265,6 +265,7 @@ async function main() {
     { e: { code: "WEIRD", status: 200 }, want: 500 },
     { e: { code: "23505" }, want: 500 },
     { e: { code: "REDEEM_CODE_GONE", status: 99999 }, want: 500 },
+    { e: { code: "PLAN_INVALID", status: 400, message: "档位不合法-4xx原文透传哨兵" }, want: 400 },
   ]) {
     const svc = makeService({ redeemThrow: Object.assign(new Error("inject"), inj.e) });
     const started = await startCommerceServer(svc);
@@ -274,6 +275,7 @@ async function main() {
       if (inj.e.code === "23505") assert.notStrictEqual(r.body.error, "23505", "H1 不得外泄内部 SQLSTATE");
       if (inj.e.status === 99999) { assert.strictEqual(r.body.error, "REDEEM_CODE_GONE", "H1 语义码不得被吞"); assert.notStrictEqual(r.body.error, "INTERNAL_SERVER_ERROR"); }
       if (inj.e.status === 200) assert.strictEqual(r.body.message, "服务暂时不可用", "H1 大于等于 500 掩码");
+      if (inj.e.status === 400) { assert.strictEqual(r.body.error, "PLAN_INVALID", "H1 4xx 语义码不得被吞"); assert.strictEqual(r.body.message, inj.e.message, "H1 小于 500 时 message 必须原样透传，不得被掩码"); }
     } finally { await started.server.stop(); }
   }
 
