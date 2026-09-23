@@ -53,10 +53,11 @@ const {
   PLATFORM_DASHBOARD_URLS,
   PLATFORM_NAMES,
   PLATFORM_LOGIN_SUCCESS_SELECTORS,
-  PLATFORM_ACCOUNT_INFO_SELECTORS,
   getPlatformName,
   isPlatformCookieDomain,
 } = require('@multi-publish/shared-utils/src/platform-definitions')
+// 账号资料（昵称/头像/平台ID/粉丝）采集与「字段缺席=不修改」写回契约的单一实现
+const profileUtils = require('@multi-publish/shared-utils/src/account-profile')
 
 // 平台登录 URL / 名称 / 选择器 → @multi-publish/shared-utils/src/platform-definitions
 
@@ -255,25 +256,17 @@ async function saveCapturedAccount (platform, captured, options = {}) {
     ? source.accountInfo
     : {}
 
-  const accountName = typeof accountInfo.nickName === 'string' && accountInfo.nickName.trim()
-    ? accountInfo.nickName.trim()
-    : name
-  const platformAccountId = typeof accountInfo.platformAccountId === 'string' && accountInfo.platformAccountId.trim()
-    ? accountInfo.platformAccountId.trim()
-    : ''
-  const followers = Number.isFinite(Number(accountInfo.followers)) ? Number(accountInfo.followers) : null
-  const avatar = typeof accountInfo.avatar === 'string' && accountInfo.avatar.trim()
-    ? accountInfo.avatar.trim()
-    : ''
+  const profile = profileUtils.profileForCreate(accountInfo, name)
 
   // 后端只保存公开元数据，避免在 accounts.json 中重复落盘凭证。
+  // 创建路径可以给空值：新行没有旧值需要保护（更新路径相反，见 updateCapturedAccount）。
   const result = await pythonBridge.requestBackend('POST', '/api/accounts', {
     platform,
     name,
-    account_name: accountName,
-    platform_account_id: platformAccountId,
-    followers,
-    avatar,
+    account_name: profile.account_name,
+    platform_account_id: profile.platform_account_id,
+    followers: profile.followers,
+    avatar: profile.avatar,
   })
 
   if (result.code !== 0) {
@@ -552,6 +545,9 @@ async function checkLoginStatus (platform, accountId) {
           // 耗时主因（B 站选择器全部过时，10s 全浪费）。3s 足够 SPA 渲染。
           await page.waitForSelector(successSelector, { timeout: 3000 })
           selectorMatched = true
+          // 登录态确认后顺带回填账号资料（昵称/头像/平台ID）：内部全捕获，失败只 warn，
+          // 不影响登录态判定结果（资料回填是旁路，绝不能把检测主链路搞挂）。
+          await refreshProfileFromPage(page, platform, accountId)
           return { valid: true, code: "CHECK_LOGIN_SUCCESS" }
         } catch {
           // 选择器超时不一定意味着失效：某些平台的选择器可能因 DOM 变更而失效
@@ -580,6 +576,8 @@ async function checkLoginStatus (platform, accountId) {
           const currentHost = new URL(currentUrl).hostname
           if (currentHost === dashboardHost || currentHost.endsWith('.' + dashboardHost)) {
             log.info('AccountManager', 'checkLoginStatus: dashboard-host fallback valid ' + platform + ':' + accountId + ' currentHost=' + currentHost + ' dashboardHost=' + dashboardHost + ' selectorMatched=false')
+            // 同上：仪表盘域名兜底判定为已登录时，也回填一次账号资料
+            await refreshProfileFromPage(page, platform, accountId)
             return { valid: true, code: "CHECK_LOGIN_SUCCESS" }
           }
         } catch (_) { /* URL 解析失败时继续走原有逻辑 */ }
@@ -605,115 +603,59 @@ async function checkLoginStatus (platform, accountId) {
 }
 
 /**
- * 从页面提取账号信息（昵称、头像、平台ID、粉丝数）。
- * 优先使用平台专用选择器（PLATFORM_ACCOUNT_INFO_SELECTORS），
- * 未命中时回退通用选择器。
+ * 从 Playwright 页面提取账号信息（昵称、头像、平台ID、粉丝数）。
+ * 采集实现收敛在 @multi-publish/shared-utils/src/account-profile —— 同一份代码同时
+ * 供 Playwright（函数体被序列化注入页面）与 Electron executeJavaScript（只接受字符串）使用，
+ * 禁止在任何调用方复制第二份 DOM 采集（口径漂移正是本链路的历史病根）。
  * @param {object} page - Playwright page
  * @param {string} [platform] - 平台标识（可选）
  */
 async function extractAccountInfo (page, platform = '') {
+  return profileUtils.collectWithPlaywright(page, platform)
+}
+
+/**
+ * 从 Electron WebContents（登录视图 / 内嵌 webview / 扫码视图）提取账号信息。
+ * 三条真实登录入口都用它；采集失败返回 {}，绝不抛断登录流程。
+ * @param {{executeJavaScript: Function}} webContents
+ * @param {string} [platform]
+ */
+async function extractAccountInfoFromWebContents (webContents, platform = '') {
+  return profileUtils.collectWithWebContents(webContents, platform)
+}
+
+/**
+ * 登录态检测已经停在「已登录的页面上」时，顺手补齐该账号缺失/变化的昵称与头像。
+ *
+ * 为什么放在检测里：存量账号是在接线修好之前登录的，真源里 account_name 往往是网页
+ * 标题、avatar 为空；不给它们一条回填路径，用户就必须重新登录才能看到昵称/头像。
+ *
+ * 三条纪律：
+ * 1. 只在「有 DOM 且判定有效」的路径调用（HTTP 快速路径没有 DOM，不做）。
+ * 2. 只下发命中且与真源不同的资料字段（buildProfilePatch），未命中 = 键缺席 = 不修改。
+ * 3. 任何失败都只记 warn 并返回 false —— 资料是增强信息，不是登录有效性的证据，
+ *    绝不允许因为取不到昵称就把账号判成失效（那会把一次展示修复做成登录态回归）。
+ * @returns {Promise<boolean>} 是否实际写回了资料字段
+ */
+async function refreshProfileFromPage (page, platform, accountId) {
   try {
-    const platformSelectors = (platform && PLATFORM_ACCOUNT_INFO_SELECTORS[platform]) || null
-    return await page.evaluate(({ platformSelectors }) => {
-      const info = {}
-      const trySelectors = (selectors) => {
-        for (const sel of selectors) {
-          const el = document.querySelector(sel)
-          if (el) {
-            const text = (el.textContent || '').trim()
-            if (text) return text
-          }
-        }
-        return null
-      }
-      const tryAttrSelectors = (selectors, attr) => {
-        for (const sel of selectors) {
-          const el = document.querySelector(sel)
-          if (el && el.getAttribute(attr)) return el.getAttribute(attr).trim()
-        }
-        return null
-      }
-
-      // 昵称：优先平台专用，后通用 → 多层回退
-      const nickSelectors = platformSelectors && platformSelectors.nickname
-        ? platformSelectors.nickname
-        : [
-          '[class*="nickname"]', '[class*="username"]', '[class*="user-name"]',
-          '.user-info', '.profile-name', '#nickname', '#username',
-          '[data-user-name]', '[class*="profile"] h1', '[class*="profile"] strong',
-          '[class*="creator"] h1', '[class*="creator"] span',
-        ]
-      info.nickName = trySelectors(nickSelectors) || ''
-
-      // 昵称回退：meta 标签 og:title / twitter:title
-      if (!info.nickName) {
-        const metaTitle = document.querySelector('meta[property="og:title"]')
-        if (metaTitle) {
-          const content = (metaTitle.getAttribute('content') || '').trim()
-          if (content && content.length < 50) info.nickName = content
-        }
-      }
-      if (!info.nickName) {
-        const twitterTitle = document.querySelector('meta[name="twitter:title"]')
-        if (twitterTitle) {
-          const content = (twitterTitle.getAttribute('content') || '').trim()
-          if (content && content.length < 50) info.nickName = content
-        }
-      }
-      // 昵称最终回退：document.title 去掉后缀（如 " - 哔哩哔哩"）
-      if (!info.nickName) {
-        const rawTitle = (document.title || '').trim()
-        if (rawTitle) {
-          // 去掉常见平台后缀
-          info.nickName = rawTitle.replace(/\s*[-–—|·]\s*(.+)$/, '').trim() || rawTitle
-        }
-      }
-
-      // 头像：多层回退（img src → 背景图 → meta og:image）
-      const avatarEl = document.querySelector(
-        '[class*="avatar"] img, .avatar img, [class*="avatar-img"], ' +
-        'img[class*="avatar"], img[class*="profile"], img[class*="portrait"], ' +
-        '[class*="avatar"] [style*="background"], [class*="user-icon"] img'
-      )
-      if (avatarEl) {
-        info.avatar = avatarEl.src || avatarEl.getAttribute('data-src') || avatarEl.getAttribute('data-original') || ''
-        // 背景图回退
-        if (!info.avatar && avatarEl.style && avatarEl.style.backgroundImage) {
-          const bgMatch = String(avatarEl.style.backgroundImage).match(/url\(["']?([^"')]+)["']?\)/)
-          if (bgMatch) info.avatar = bgMatch[1]
-        }
-      }
-      // meta og:image 回退
-      if (!info.avatar) {
-        const metaImg = document.querySelector('meta[property="og:image"]')
-        if (metaImg) info.avatar = (metaImg.getAttribute('content') || '').trim()
-      }
-
-      // 平台用户ID
-      const idSelectors = platformSelectors && platformSelectors.platformAccountId
-        ? platformSelectors.platformAccountId
-        : ['[data-user-id]', '[data-account-id]', '[data-user]']
-      info.platformAccountId = tryAttrSelectors(idSelectors, 'data-user-id') || tryAttrSelectors(idSelectors, 'data-account-id') || ''
-
-      // 粉丝数：优先平台专用，后通用
-      const followerSelectors = platformSelectors && platformSelectors.followers
-        ? platformSelectors.followers
-        : ['[class*="fans"]', '[class*="follower"]', '[class*="fan-count"]', '[class*="followers-count"]']
-      const followerText = trySelectors(followerSelectors)
-      if (followerText) {
-        const match = followerText.match(/([\d.,]+)\s*(万|w|W)?/)
-        if (match) {
-          const num = Number(String(match[1]).replace(/,/g, ''))
-          if (Number.isFinite(num)) {
-            const suffix = (match[2] || '').toLowerCase()
-            info.followers = num * (suffix === '万' || suffix === 'w' ? 10000 : 1)
-          }
-        }
-      }
-      return info
-    }, { platformSelectors })
-  } catch {
-    return {}
+    if (!isSafePathSegment(platform) || !isSafePathSegment(accountId)) return false
+    const info = await extractAccountInfo(page, platform)
+    if (!info || Object.keys(info).length === 0) return false
+    const current = await pythonBridge.requestBackend('GET', '/api/accounts/' + accountId)
+    if (!current || current.code !== 0 || !current.data) return false
+    const patch = profileUtils.buildProfilePatch(info, current.data)
+    if (Object.keys(patch).length === 0) return false
+    const result = await pythonBridge.requestBackend('PATCH', '/api/accounts/' + accountId, patch)
+    if (!result || result.code !== 0) {
+      log.warn('AccountManager', 'refreshProfileFromPage: 资料回填写入失败 ' + platform + ':' + accountId + ' code=' + (result && result.code))
+      return false
+    }
+    log.info('AccountManager', 'refreshProfileFromPage: 已回填资料字段 ' + platform + ':' + accountId + ' keys=' + Object.keys(patch).join(','))
+    return true
+  } catch (e) {
+    log.warn('AccountManager', 'refreshProfileFromPage 忽略异常 ' + platform + ':' + accountId + ' err=' + (e && e.message ? e.message : String(e)))
+    return false
   }
 }
 
@@ -1099,16 +1041,9 @@ async function updateCapturedAccount (platform, captured, accountId) {
   const accountInfo = source.accountInfo && typeof source.accountInfo === 'object' && !Array.isArray(source.accountInfo)
     ? source.accountInfo
     : {}
-  const accountName = typeof accountInfo.nickName === 'string' && accountInfo.nickName.trim()
-    ? accountInfo.nickName.trim()
-    : name
-  const platformAccountId = typeof accountInfo.platformAccountId === 'string' && accountInfo.platformAccountId.trim()
-    ? accountInfo.platformAccountId.trim()
-    : ''
-  const followers = Number.isFinite(Number(accountInfo.followers)) ? Number(accountInfo.followers) : null
-  const avatar = typeof accountInfo.avatar === 'string' && accountInfo.avatar.trim()
-    ? accountInfo.avatar.trim()
-    : ''
+  // 资料字段（昵称/头像/平台ID/粉丝）不在此处算空串默认值：
+  // 后端 PATCH 的语义是「键缺席 = 不修改」，下发空串会把上一次已获取的昵称/头像反向清空。
+  // 统一走下方 buildProfilePatch（只下发命中且与真源不同的字段）。
 
   // 验证账号存在且平台匹配
   let account
@@ -1138,13 +1073,11 @@ async function updateCapturedAccount (platform, captured, accountId) {
   // 必须同步回写 status=active + last_validated，否则「已登录并保存的账号仍显示
   // 失效」（今日头条）。顺序不可颠倒：凭证未落盘时不允许把真源置为 active
   // （防半成功状态）。
+  const profilePatch = profileUtils.buildProfilePatch(accountInfo, account)
   try {
     const metaResult = await pythonBridge.requestBackend('PATCH', '/api/accounts/' + accountId, {
       name,
-      account_name: accountName,
-      platform_account_id: platformAccountId,
-      followers,
-      avatar,
+      ...profilePatch,
       status: 'active',
       last_validated: new Date().toISOString(),
     })
@@ -1176,7 +1109,9 @@ async function updateCapturedAccount (platform, captured, accountId) {
   }
 
   log.info('AccountManager', '账号凭证已更新: ' + name + ' (' + platform + ', ' + accountId + ')')
-  return { ...account, status: 'active', name, account_name: accountName, platform_account_id: platformAccountId, followers, avatar, last_validated: new Date().toISOString() }
+  // 返回值以真源为底再叠加本次实际下发的资料字段：提取失败时调用方拿到的仍是旧昵称/旧头像，
+  // 而不是空串（否则渲染层会把「没取到」显示成「已被清空」）。
+  return { ...account, ...profilePatch, name, status: 'active', last_validated: new Date().toISOString() }
 }
 
 module.exports = {
@@ -1191,6 +1126,8 @@ module.exports = {
   PLATFORM_NAMES,
   PLATFORM_LOGIN_SUCCESS_SELECTORS,
   extractAccountInfo,
+  extractAccountInfoFromWebContents,
+  refreshProfileFromPage,
   restoreCookies,
   restoreLocalStorage,
   loadSavedCredentials,

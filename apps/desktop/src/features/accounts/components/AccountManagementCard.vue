@@ -42,7 +42,7 @@
 
     <div class="account-profile">
       <div class="account-avatar">
-        <img v-if="account.avatar || account.avatar_url" :src="account.avatar || account.avatar_url" alt="">
+        <img v-if="showAvatar" :src="account.avatar || account.avatar_url" alt="" @error="avatarBroken = true">
         <UserFilled v-else />
       </div>
       <span
@@ -162,6 +162,9 @@ const emit = defineEmits([
 
 const editing = ref(false)
 const nameInput = ref(null)
+// 头像外链失效（平台防盗链/签名过期）时回落默认图标，不留空白框
+const avatarBroken = ref(false)
+const showAvatar = computed(() => !avatarBroken.value && !!(props.account.avatar || props.account.avatar_url))
 const accountDisplayName = computed(() => accountName(props.account))
 
 /**

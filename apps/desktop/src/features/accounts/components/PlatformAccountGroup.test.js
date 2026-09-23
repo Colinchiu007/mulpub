@@ -86,3 +86,32 @@ describe('PlatformAccountGroup', () => {
     expect(wrapper.get('.platform-summary').attributes('aria-label')).toContain('1 个有效')
   })
 })
+
+describe('PlatformAccountGroup 头像失效回落（PRD-ACCOUNT-PROFILE-INFO T10）', () => {
+  const avatars = {
+    platform: 'wechat_mp',
+    activeCount: 2,
+    inactiveCount: 0,
+    accounts: [
+      { id: 'a1', platform: 'wechat_mp', name: '主账号', status: 'active', avatar: 'https://cdn/1.png' },
+      { id: 'a2', platform: 'wechat_mp', name: '备用账号', status: 'active', avatar: 'https://cdn/2.png' },
+    ],
+  }
+
+  function mountGroup () {
+    return mount(PlatformAccountGroup, {
+      props: { group: avatars, platformLabel: '微信公众号', platformIcon: '微' },
+    })
+  }
+
+  it('单个账号头像加载失败只回落该账号，不影响同组其他账号', async () => {
+    const wrapper = mountGroup()
+    expect(wrapper.findAll('.account-row')[0].find('.account-avatar img').exists()).toBe(true)
+
+    await wrapper.findAll('.account-row')[0].get('.account-avatar img').trigger('error')
+
+    expect(wrapper.findAll('.account-row')[0].find('.account-avatar img').exists()).toBe(false)
+    expect(wrapper.findAll('.account-row')[0].find('.account-avatar svg').exists()).toBe(true)
+    expect(wrapper.findAll('.account-row')[1].find('.account-avatar img').exists()).toBe(true)
+  })
+})

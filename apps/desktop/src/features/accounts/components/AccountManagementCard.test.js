@@ -266,3 +266,22 @@ describe('AccountManagementCard', () => {
     expect(wrapper.emitted('open-creator')).toHaveLength(2)
   })
 })
+
+describe('头像失效回落（PRD-ACCOUNT-PROFILE-INFO T10）', () => {
+  it('有头像 URL 时渲染 img；加载失败后回落默认图标，不留空白', async () => {
+    const wrapper = mountCard({ account: { ...account, avatar: 'https://cdn.expired/a.png' } })
+    const img = wrapper.get('.account-avatar img')
+    expect(img.attributes('src')).toBe('https://cdn.expired/a.png')
+
+    await img.trigger('error')
+
+    expect(wrapper.find('.account-avatar img').exists()).toBe(false)
+    expect(wrapper.find('.account-avatar svg').exists()).toBe(true)
+  })
+
+  it('没有头像时直接渲染默认图标（不出现空 img）', () => {
+    const wrapper = mountCard()
+    expect(wrapper.find('.account-avatar img').exists()).toBe(false)
+    expect(wrapper.find('.account-avatar svg').exists()).toBe(true)
+  })
+})

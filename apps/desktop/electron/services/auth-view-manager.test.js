@@ -25,6 +25,7 @@ function createView(cookies = [], localStorage = {}, indexedDB = {}) {
       executeJavaScript: vi.fn(script => {
         if (script.includes('getIndexedDB')) return Promise.resolve(indexedDB)
         if (script.includes('getLocalStorage')) return Promise.resolve(localStorage)
+        if (script.includes('accountInfoCollector')) return Promise.resolve({ nickName: '微信号甲', avatar: 'https://cdn/wx.png' })
         return Promise.resolve('测试账号')
       }),
       close: vi.fn(),
@@ -80,6 +81,8 @@ describe('AuthViewManager 凭证边界', () => {
       name: '测试账号',
       localStorage: {},
       indexedDB: { auth: { token: 'indexed-token' } },
+      // 登录入口必须随凭证一起产出账号资料：这是昵称/头像唯一的写入时机（PRD-ACCOUNT-PROFILE-INFO）
+      accountInfo: { nickName: '微信号甲', avatar: 'https://cdn/wx.png' },
     })
   })
 
@@ -119,6 +122,8 @@ describe('AuthViewManager 凭证边界', () => {
       name: '测试账号',
       localStorage: {},
       indexedDB: {},
+      // 登录成功必须随凭证一起产出账号资料（昵称/头像唯一写入时机，PRD-ACCOUNT-PROFILE-INFO）
+      accountInfo: { nickName: '微信号甲', avatar: 'https://cdn/wx.png' },
     })
     expect(manager.currentView).toBeNull()
     expect(manager.mainWindow.webContents.send).toHaveBeenCalledWith('auth:view-closed')
@@ -140,6 +145,7 @@ describe('AuthViewManager 凭证边界', () => {
       name: '测试账号',
       localStorage: { accessToken: 'token-value' },
       indexedDB: {},
+      accountInfo: { nickName: '微信号甲', avatar: 'https://cdn/wx.png' },
     })
   })
 
@@ -159,6 +165,7 @@ describe('AuthViewManager 凭证边界', () => {
       name: '测试账号',
       localStorage: {},
       indexedDB: { auth: { refreshToken: 'indexed-only' } },
+      accountInfo: { nickName: '微信号甲', avatar: 'https://cdn/wx.png' },
     })
   })
 

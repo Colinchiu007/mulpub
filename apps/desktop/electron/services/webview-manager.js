@@ -18,6 +18,8 @@ const { pathToFileURL } = require('url')
 const log = require('./logger')
 const credentialStore = require('./credential-store')
 const { getPlatformName, isPlatformLoginSuccessUrl } = require('@multi-publish/shared-utils/src/platform-definitions')
+// 账号资料采集器：内嵌 tab 保存凭证（重新登录语义）时随凭证一起采集昵称/头像
+const accountProfile = require('@multi-publish/shared-utils/src/account-profile')
 const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('../ipc-handlers/helpers')
 // 内嵌视图定位唯一来源：必须用「客户区」尺寸，禁用 getBounds() 外框尺寸（详见模块注释）
@@ -983,10 +985,13 @@ class WebviewManager extends EventEmitter {
       log.warn('WebviewManager', 'saveAccountTabCredentials: 0 cookies extracted for ' + platform + ':' + accountId + '（可能未登录或分区不匹配）')
     }
     try {
+      // 昵称/头像随重新登录一起采集（此前该入口只下发 name=标签标题，资料恒空）
+      var accountInfo = await accountProfile.collectWithWebContents(view.webContents, platform)
       await self._accountManager.updateCapturedAccount(platform, {
         cookies: cookies,
         localStorage: localStorageData,
-        name: state.title || ''
+        name: state.title || '',
+        accountInfo: accountInfo
       }, accountId)
       state.credentialSaveState = 'saved'
       if (state._autoSaveTimer) { clearTimeout(state._autoSaveTimer); state._autoSaveTimer = null }
