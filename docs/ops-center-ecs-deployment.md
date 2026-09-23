@@ -146,3 +146,25 @@ curl -s http://127.0.0.1:8010/health
 ## 9. 变更历史
 
 - 2026-09-23：初版，随 `codex/ops-sync-bearer-fix`（零配置 Bearer 同步修复）配对产出。
+---
+
+## 附录：为什么菜单不像既有运营中心功能那样"推数据即生效"（通道差异与新内容类型铺设成本）
+
+运营中心"改配置、前端秒生效"的前提是：**该数据流过一条早已建好并跑通的管道**。appMenu 是**新的可下发内容类型**，需要先把它赖以生效的整条链路建出来 + 修通，这是"一次性铺轨成本"，不是"菜单更难"。管道 ship 后，以后改菜单同样回到"数据即生效"。
+
+桌面端 `syncNow()` 内其实有**两条独立通道**，鉴权与安全前置差异很大：
+
+| 维度 | 模型目录（catalog） | 运行时策略 / 应用菜单（runtime bootstrap） |
+|------|--------------------|--------------------------------------------|
+| 端点 | `/api/v1/model-presets/catalog`（`_fetchCatalog`） | `/api/v1/runtime/bootstrap`（`_fetchRuntime`，含 appMenu/公告/版本/敏感词/featureFlags/pipelineOptions） |
+| 内容性质 | 纯展示数据 | **能改应用行为** |
+| 鉴权 | 静态 `X-Catalog-Key`（手填 Key 模式即用，早已跑通） | **零配置 Bearer**（方案C，新链路） |
+| 安全门槛 | 低 | 高：Ed25519 验签 + fail-closed + 打包版自定义公钥锚（`NO_PRODUCTION_TRUST_ANCHOR` 跳过同步） |
+
+菜单要改这么多，是三件事叠加：
+
+1. **新内容类型的纵向管道**：后端下发字段 + 桌面归一化（`app-menu-config.js`/`normalizeAppMenu`）+ IPC 通道 `ops-center-sync:appMenu` + 三处 preload 绑定 + 渲染层读取 `getAppMenu()` 构建导航。桌面端原本根本不认 appMenu。
+2. **它依赖的零配置 Bearer 链路当时是坏的**：`getConfig()` 把自动发现 URL 并入 `url`，`_syncNowInner` 用 `!cfg.url` 误判手动态 → 零配置下 syncNow 短路返回"未配置 API Key"、runtime 请求根本不发出（`codex/ops-sync-bearer-fix` 所修）。catalog 走的是另一条通道，手填 Key 即可用，从不暴露此 bug。
+3. **高权限下发的安全成本**：能改行为的通道必须验签 fail-closed，因此生产 ECS 要配 `OPS_RUNTIME_SIGNING_PRIVATE_KEY` + 桌面端配配对公钥（见 §4）；越能改行为的下发，前置越重，属有意设计。
+
+> 判据：评估一个运营中心新特性是否"零改动即生效"，先问三句——(a) 桌面端有没有该内容类型的消费管道（IPC/preload/归一化/渲染）？(b) 它走 catalog 还是 runtime bootstrap？后者还要验签锚与 Bearer 鉴权是否已跑通？(c) 是不是首个依赖某条新鉴权链路的内容类型？三问任一为"否/新"，就是铺轨期，需要代码投入。
