@@ -37,7 +37,7 @@
 
 ## Task 0：启动隔离 worktree 并就绪依赖
 
-- [ ] **Step 1: 创建/进入 worktree（PowerShell，共享根保持 clean）**
+- [x] **Step 1: 创建/进入 worktree（PowerShell，共享根保持 clean）**
 
 ```powershell
 cd D:\Data\projects\Multi-Publish
@@ -57,7 +57,7 @@ $env:PATH = 'C:\Program Files\Git\usr\bin;' + $env:PATH
 
 基线前置（同一次实测）：`gwm-task.sh:107` 以 `origin/main` 为 worktree 基线，而共享根 main 上有未推送的本项目文档提交（spec + 本计划）。若 `git rev-list --count origin/main..main` > 0，必须先把本地 main 与上游合流（`git merge origin/main`，非破坏性；禁止对已推送历史 rebase），再在新 worktree 内 `git merge --ff-only main` 把基线抬到含计划文档的提交，否则实施者读不到 spec/计划，且交付时 diff 会吞掉上游 6 个提交的反向改动。
 
-- [ ] **Step 2: 依赖就绪三连**
+- [x] **Step 2: 依赖就绪三连**
 
 ```powershell
 cd D:\Data\projects\mp-worktrees\mp-member-center-p1
@@ -68,7 +68,9 @@ node scripts/verify-worktree-deps.js
 
 预期：三条命令 exit 0；`verify-worktree-deps.js` 断言 `@multi-publish/*` 解析到当前 worktree。
 
-- [ ] **Step 3: 基线测试确认（不允许带着存量红开始）**
+- [x] **Step 3: 基线测试确认（不允许带着存量红开始）**
+
+> 实测（2026-09-23，基线 `81be086d6`）：三连 exit 0；`run-tests.js` exit 0，node:test 24 个套件 232 pass / 0 fail，vitest 11 文件 67 pass。日志 `.agent_context/p1-baseline.log`（其间的 `[ERROR] ... execute failed` 是 adapters-interface 空入参用例的预期 stderr，不是失败）。
 
 ```powershell
 cd D:\Data\projects\mp-worktrees\mp-member-center-p1\packages\api-publish-engine
