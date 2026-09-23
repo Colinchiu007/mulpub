@@ -15602,3 +15602,18 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **规则（pattern）**：归档字段只允许写**合并后不再变化**的标识——最终 squash SHA、PR 编号；易变标识（分支 head、rebase 基线）改为指向稳定查询入口（PR 页面 / 提交历史），不复制值。
 - **禁止把承诺写成未来时态（pattern）**：「SHA 由后续任务回填」这种写法必然拖成欠账。本次改为把承接方写死为**具体 PR**，并在同一 PR 内完成回填；无法当场回填的（等合并才有 SHA）就拆成合并后的独立补记提交，而不是留一句未来时态。
 - **可推广到同类字段（pattern）**：CHANGELOG/PRD/任务卡里凡记录 commit、分支 head、构建产物哈希、CI run id 的场合，先问一句「这个值在文档生命周期内会不会变」，会变就换成不变量或引用。
+
+## 阴性结论有时效，落档时必须标出适用边界（negative-result-expiry，desktop-suite-wallclock 2026-09-23）
+
+- **现象（pitfall）**：同日先就 `story2video-stages.test.js:714` 的 CI 超时给出「逐项排除、未发现可复现缺陷、本次不改该文件」的阴性结论并写进 CHANGELOG/learnings；几小时后的 CI 实证推翻了这个结论——失败其实在同文件唯一的重型 `beforeAll`（`Failed Suites 1` + `Error: Hook timed out in 10000ms.` + 该 suite 零断言失败）。原结论中「那条用例没病」仍成立，被推翻的是「整个文件没病」这层外推。
+- **根因（系统性漏洞）**：排查对象是「一条用例」，结论却写成「一个文件」，两者之间隔着整段 suite 级 setup 的空间，而那恰好是真正藏问题的地方。
+- **规则（pattern）**：写阴性结论必须同时写三件事——① 排查覆盖到哪一层（用例 / 文件 / suite / 环境）② 哪些层面**没有**覆盖 ③ 什么新证据会推翻它。缺任何一条，阴性结论就会被后人当成「已排除」的通行证。
+- **指纹鉴别（pattern）**：`Hook timed out` 与 `Test timed out` 是两类问题——前者是 suite 级 setup，必然表现为「Failed Suites N 且该 suite 零断言失败」；后者才是用例本体。判读前先比对 `Failed Suites` 与 `Tests` 的失败数，别把 setup 慢当成竞态去改轮询。附加两条防误读：workflow 脚本自身被 `##[group]` echo 出来的 `throw "..."` 不是执行结果；判断是否被外层墙钟 kill，必须比对被测进程报的 `Duration` 与外层 `WaitForExit(ms)` 预算（本轮 911.76s ≪ 1800000ms，故不是 kill）。
+- **反模式（pitfall）**：给 CI 加一个 `SKIP_*=1` 开关让红灯消失是最省事的"修复"，但本轮那条开关会让全 CI 链路里唯一真实执行 ffmpeg 的一遍被砍掉——两处都 skip 之后真实媒体路径再无任何自动化覆盖。宁可用 60s 的定向 hook 预算承认「这条路确实慢」，也不要用开关把它藏起来。
+
+## 同一套测试在两条 CI 链路上的环境契约必须显式对齐（ci-env-contract-drift，desktop-suite-wallclock 2026-09-23）
+
+- **现象（pitfall）**：`electron-ci.yml` 为桌面套件设了 `NODE_ENV=test` + `SKIP_NATIVE_MEDIA_TOOL_TESTS=1`，`quality-gate.yml` 的 `desktop-shards`（windows-latest）一个 `env:` 都没设；`media-tool-paths.js` 要求**两个条件同时成立**才短路原生工具。结果同一条套件在两条链路上跑的是不同代码路径：只有 QG 那遍真的 spawn ffmpeg，于是「electron-ci 恒绿、QG 偶发红」看起来像随机 flake，实际是确定性差异叠加冷启动成本。
+- **为什么会长期存在（系统性漏洞）**：没有任何断言校验「两个 job 跑同一套件时的环境是否一致」，漂移只能靠人比对 YAML 发现；而红的是偶发的那个，日志里又没有环境指纹，归因时容易被引向「机器负载」。
+- **规则（pattern）**：新增或修改任何跑同一套件的 job，先 diff 两边的 `env:`。差异若是有意保留（例如为了保住真实工具覆盖），必须把「为什么有意」写在 job 旁边（本轮以 `quality-gate.yml` 的 YAML 注释落地），并让依赖该差异的测试自带超时预算；差异若是无意的，就地补齐。
+- **可迁移信号（pattern）**：判断「这条 CI 契约有没有被别的 workflow 继承」，用 `git grep -n '<ENV_NAME>' -- .github/workflows` 列出全部设置点再比对，而不是凭「主 CI 设了就一定都设了」的印象。

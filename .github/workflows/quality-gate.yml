@@ -382,6 +382,10 @@ jobs:
 
 
       # --- 桌面 vitest 分片（跨 runner 并行；进程内保持串行确定性契约）---
+      # 环境契约：本 job 有意不继承 electron-ci.yml 的 NODE_ENV=test + SKIP_NATIVE_MEDIA_TOOL_TESTS=1，
+      # 桌面套件里依赖真实 ffmpeg/ffprobe 的 suite 因此会真跑原生工具（保留这条真实路径覆盖）。
+      # 代价是这类 suite 的 beforeAll 必须自带显式 hook 预算，不能指望全局 --hookTimeout=10000；
+      # 现有实例见 story2video-stages.test.js 的媒体 beforeAll（MEDIA_SETUP_HOOK_TIMEOUT_MS）。
       - name: "Desktop tests shard ${{ matrix.shard }}"
         shell: pwsh
         run: |
