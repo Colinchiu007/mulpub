@@ -1,3 +1,21 @@
+# [未发布] fix(debt-guard): 挂账清单三态语义 + 墓碑机制，debt-guard 增 push 触发（audit 收尾·门禁逃逸根治）
+
+### 变更
+- **修掉一处死代码（本次全部问题的第一性原因）**：`check-max-lines.js` 的 `collectOverLimit()` 只返回 `lines >= limit` 的文件，因此「已降到 500 行以下 → 债务已还」这条分支在生产路径**永远不可能命中**——已还债的文件不在 `scanned` 里，会先落到上一个分支，被误报成 `STALE_LEDGER_ENTRY: ... 已不在扫描结果中（文件已删/改名/移出受管目录）`，并统一建议 `--update`。误诊 + 危险处方正是三次复发的机制根源。
+- **三态区分（判定改用全量扫描 `scanAllLines()` 作 `existing`）**：文件真不在受管范围 → `STALE_LEDGER_ENTRY`（账目腐烂）；文件在、但已降到阈值以下 → 新码 `DEBT_REPAID_LEDGER`（债还完没销账）。两者都指向新命令 `--prune <路径>`（单键清账），并**明文禁止**整份 `--update`。
+- **墓碑 `pruned`（关键不变量两条）**：① 取消挂账豁免——同一路径一旦立碑，登记值立即失效，重新超限按 `NEW_OVER_LIMIT` 阻断，僵尸条目不得当免死金牌；② 容忍并发复活——别的分支把已删条目改回 `files` 时只输出 `⚠️ LEDGER_RESURRECTED` 提示、不阻断，避免「一人还债、全链被无关红卡死」。
+- **`--prune` 单键手术**：只删目标键 + 在 `pruned` 立碑，其余键与顺序原样保留；拒绝为仍超限的文件立碑（rc=2，且不改文件）；重复调用被拒（幂等）。这是「还完债」的唯一正确收尾动作。
+- **`--update` 语义收紧为增量**：只登记新的超限文件，**不抬高已有登记值**（存量膨胀交给 `LEDGER_GREW` 判定）、**不删任何键**、**不覆盖 `pruned`**，墓碑路径重新超限直接判「必须拆分」。全量重生需显式 `--update --rewrite`，且命令会自曝「会重排键、掩盖别人漂移、必须人工逐行审 diff」。
+- **给 `debt-guard.yml` 增加 `push: branches: [main]`**：本门禁是「扫描全仓当前状态」型断言，`pull_request` 检出的是与 base 合并后的树，所以并发 PR 把已删条目带回 main 时**没有任何人的 CI 会红**，反而让 main 长期处于违规态、之后每个无关 PR 都被这条红卡住。加上 push 触发后，债在欠债的人身上显红；required check 名「债务熔断检查」与「不得配 paths-ignore」两条既有约束原样保留（并新增用例锁定）。
+- **数据清账**：把 main 上第三次复发的僵尸条目 `apps/desktop/src/components/LogsSettings.vue: 598` 用 `--prune` 删掉并立碑 `469`（`469` 而非 `468` 是门禁自身 `split('\n').length` 口径：尾换行计一行，墓碑值必须与门禁坐标系一致）。清单 `files` 由 100 → 99，`//` 提示语同步换成新处方。
+
+### 验证
+- 门禁用例 `node --test .github/scripts/check-max-lines.test.js`：17/17 绿（本次新增 9 条：生产路径可达性、墓碑两态、真删除硬违规、`--prune` 幂等与拒发免死金牌、`--update` 增量不变量、真实仓主断言必须带 `existing`、workflow 双触发断言）。
+- QM-5 变异自证 2 例：① 把「墓碑不取消豁免」改回去 → 回归③转红；② 让 `--update` 回到「顺手抬基线」→ 回归⑦转红。修前红证据：main 现状报 `DEBT_REPAID_LEDGER`（rc=1），且旧断言把同一件事误报成「文件已删/改名」。
+- 复跑其余门禁：`check-max-lines` rc=0（超限 99 / 挂账 99 / 墓碑 1）、`check-debt-budget` rc=0（`filesOver500: 99 (baseline: 99)`）、`check-font-size` rc=0。
+- 详细规格与运维处置：`docs/audit-remediation-ledger-guard-2026-09-23.md`；需求侧回写见 `01-docs/PRD.md`「全仓代码体检整改」第十二节。
+
+---
 # [未发布] feat(diagnose): 发布失败被动附带诊断（P0-8，PR-2）
 
 ### 变更
