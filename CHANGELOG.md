@@ -1,3 +1,21 @@
+# [未发布] docs(accounts): 账号资料获取的合并后复验与遗留观察回写（2026-09-23，docs-followup-profile）
+
+### 变更
+- **纯文档增量，零代码改动**：`PRD-ACCOUNT-PROFILE-INFO-2026-09-23.md` 追加「§13 交付与遗留观察」，记录 #2290 的实际合并结果与合并后复验口径；`01-docs/learnings.md` 头插合并收尾三条硬口径。
+- **PRD §13 新增内容**：合并事实（5 轮 CONFLICTING、squash 合并于 `852ae22c2c`）；按真实路径校正后的定向测试集与计数（16 文件 / 692 passed / 1 skipped，后端 28 passed）；5 项门禁 rc0 的实名清单；`QG Browser E2E` 的 `/dashboard` 单点失败与 `QG Desktop Shards (2/2)` 在 main 上的失败一并登记为「仓库级 flake 观察项」，并写明归属判定证据（本 PR 未触碰 dashboard）。
+- **learnings 沉淀 6 条**：union 无损校验两层法（字节和式 + 逐行多重集 + 关键字计数）；解冲突脚本 `git add` 后 stage 自锁（解冲突用 stage、校验用 ref）；vitest 位置参数静默忽略不存在路径导致低覆盖假象；required check 红灯先判归属再决定动作；移动靶 main 每轮合并都完整复验、收尾以 `state=MERGED` 为准；`.gitignore` 的 `/01-docs/**/*.md` 会让新建 PRD 被 `git add -A` 静默跳过（本次 #2290 就漏了 PRD 文件，须 `git add -f` 并用 `git ls-files` + `gh pr diff --name-only` 双向自证）。
+
+### 修复
+- **文档层面的验证口径失真**：#2290 的 CHANGELOG 条目里「定向 12 文件 / 575 passed」是按记忆手敲的路径跑出来的，其中 2 个路径不存在被 vitest 静默跳过，实际等价于少跑了 4 个文件。本次在 PRD §13 以校正后的 16 文件 / 692 passed | 1 skipped 为准，并保留原数字与其成因，不做静默覆盖。
+
+### 数据与校验
+- 本次不改任何数据模型、接口、显示项与提示文字，无新增用户可见行为；不新增 locale 文案，Gate 7（zh/en 成对、CJK 基线、键存在性）仅为复验而非受影响面。
+- 门禁复跑结论：`check-max-lines`（limit 500 / growthAllowance 200，超限文件 99、挂账 99、墓碑 1，无新增超限）、`check-debt-budget`（全指标在基线内、circularDeps 0）、`check-locale-sync --pair-base/--cjk/--keys` 全部 rc0。
+
+### 关联
+- 承接 `codex/account-profile-info`（PR #2290，已 MERGED）与 `codex/account-is-active-batch`（PR #2282，已 MERGED）。
+- 文档：`01-docs/PRD-ACCOUNT-PROFILE-INFO-2026-09-23.md` §13、`01-docs/learnings.md` 顶部条目。
+
 # [未发布] fix(accounts): 账号昵称/头像真实获取与写回 —— 三条登录入口接通采集器、检测成功回填存量、PATCH 改缺席语义（2026-09-23，account-profile-info）
 
 ### 变更
