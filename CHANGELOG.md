@@ -1,3 +1,19 @@
+# [未发布] docs(audit): 收尾证据文档口径订正（P1-9 原因串 / P0-1 信任锚 / 交付清单状态）
+
+### 变更
+- 订正 `docs/audit-remediation-closeout-2026-09-23.md` 五处口径错误（由完成度终审计以 `git grep origin/main` 逐条反查发现，非回忆值）：
+  - **P1-9 失败原因串**：文档原写 `api_stub_not_implemented`（只存在于对抗评审提案稿，代码从未落地、全仓 0 命中），改为真实实现 `empty_content`，并补 `packages/collection-engine/src/platform-adapters/base-adapter.js:96-103` 的「留痕 + 健康度 + 熔断 + 退预算 + 判失败」五件套与 `bilibili-adapter.js:115-117` 浏览器兜底口径、测试断言行号。
+  - **P0-1 信任锚**：原文把「默认公钥仅在 `app.isPackaged === false` 生效」写成既成事实，而改前代码是无条件回落 `DEFAULT_RUNTIME_PUBLIC_KEY`（`app.isPackaged` 全仓 230 处命中无一参与信任锚判定）；已按 QM-5 补实现（`runtime-trust-anchor.js::resolveTrustAnchor` 四态裁决，见 #2291），文档同步为实现事实 + 私钥字面量命中精确到「6 处 / 5 个测试文件、非测试 0」。
+  - **交付清单**：#2276、#2270 由「在飞」更新为 MERGED（`8d4098948c` / `e925df7973`），补 #2289（收尾证据本体，`a49531d203`）与 #2291 两行；第四节红绿验证表补 #2291 变异自证，第八节复算指引补 `npx vitest run runtime-trust-anchor.test.js ops-center-sync.test.js`。
+  - **P0-7 重定向口径**：原文写「私网/元数据/重定向逐跳」，实际两处外呼都是 `httpx.AsyncClient(follow_redirects=False)`（不跟随 3xx），**不存在逐跳复验**；真逐跳复验在 JS 侧 `apps/desktop/electron/services/film-engineering/shot-downloader.js`。同时补记已知边界：校验与连接各做一次独立 DNS 解析，存在 DNS 重绑 TOCTOU 窗口。
+  - **来源计数口径**：原文「P0×8 条口径、P1×15 条、P2×13 项」与报告结构不符。按 `proposal-v7.md` 实测：编号问题 1–15（P0 块 2 条 + P1 块 13 条，问题 8 经 v-final 晋升 P0，故 P0 定级 3 条）+ P2 专题 12 条（含 1 条纯验收条款）；文档内 `P0-N` / `P1-N` 的 N 即报告问题编号。
+
+### 备注
+- 新增 `docs/audit-remediation-batch1-2026-09-22.md`：第 1 批（P0 应急，问题 1/2/3/4/6/7/8）此前只有 PRD + CHANGELOG + 运维指引，缺一份与第 2～4 批对称的专文档；现补齐单条口径——两条启动闸门的判定顺序、每条 `SystemExit`/`RuntimeError` 文案原文、SSRF 的例外开关与已知边界、`setup-service.sh` 的密钥生成与 `chmod 600` 动作、泄露面清单与双钥宽限窗口。
+- 纯文档变更，不改生产代码、不改任何门禁语义；与 #2291 的关系是「文档追认实现」而非「文档替代实现」——先补代码再订正文档。
+- 教训入册：收尾文档写作时引用提案稿的符号名而未经 `git grep` 反查，会把「计划中的名字」写成「已存在的事实」，与 P0-8 未展开字面量同属「文档超前于实现」漂移。
+
+---
 # [未发布] fix(scripts): worktree 删除护栏 R4 补命令行持有者识别并删前拒删（2026-09-23，wt-remove-longpath）
 
 ### Fix

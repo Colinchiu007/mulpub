@@ -1,7 +1,7 @@
 # 全仓代码体检整改 · 收尾全量证据（2026-09-23）
 
-> **来源**：`.adversarial/codebase-audit-20260922/proposal-v7.md`（12 轮双模型对抗评审终版：P0×8 条口径、P1×15 条、P2×13 项，六轮 Critical 轨迹 4→1→0→0→0→0→0）。
-> **本文定位**：四批整改 + 收尾轮的**交付清单、逐条证据映射、门禁矩阵、红绿验证记录、遗留项与限期**，供复算与审计交接使用。过程叙述见 `docs/audit-remediation-batch{2,3,4}-2026-09-22.md`、`docs/audit-remediation-retro-2026-09-22.md`、`docs/audit-remediation-ledger-guard-2026-09-23.md`；需求口径固化在 `01-docs/PRD.md` 第九～十二节。
+> **来源**：`.adversarial/codebase-audit-20260922/proposal-v7.md`（12 轮双模型对抗评审终版）。问题清单是**连续编号 1–15**：P0 块 2 条（问题 1、2）+ P1 块 13 条（问题 3–15），其中**问题 8 经 v-final 从 P1 晋升 P0**（故 P0 定级实为 3 条，本表按修复批次记作 P0-1…P0-8 的编号即报告问题编号）；P2 为 **12 个专题条目**（含 1 条纯验收条款，实际偿还项 11），非编号问题。六轮 Critical 轨迹 4→1→0→0→0→0→0（取自 `summary.md`）。批次切分：第一批=问题 1/2/3/4/6/7/8，第二批=5/9/10/11/12/13，第三批=14/15 + P2 安全小项，第四批=P2 余项。
+> **本文定位**：四批整改 + 收尾轮的**交付清单、逐条证据映射、门禁矩阵、红绿验证记录、遗留项与限期**，供复算与审计交接使用。过程叙述见 `docs/audit-remediation-batch{1,2,3,4}-2026-09-22.md`（第 1 批此前只有 PRD + CHANGELOG + 运维指引，缺一份与其他三批对称的专文档，本次补齐：两条启动闸门顺序、各条 `SystemExit`/`RuntimeError` 文案原文、SSRF 例外开关与已知 DNS 重绑边界都在 `batch1` 里）、`docs/audit-remediation-retro-2026-09-22.md`、`docs/audit-remediation-ledger-guard-2026-09-23.md`；需求口径固化在 `01-docs/PRD.md` 第九～十二节。
 > **本文所有 SHA/时间/计数**均由 `gh pr view --json`、`git grep origin/main`、门禁脚本本地实跑取回，非回忆值。
 
 ## 一、交付清单（按合并顺序）
@@ -15,8 +15,10 @@
 | #2252 | P2 技术债余项（脆弱等待条件化 / N+1 单事务 / 级别缓存 / 静默 catch 留痕 / 行数与依赖门禁 / 枚举单一来源） | 2026-09-23 02:24:30 | `9a48af8938` | +4561/−344 | 61 |
 | #2274 | 拆分缓存清理卡片（`LogsSettings.vue` 598→469 行），恢复逐文件行数门禁 | 2026-09-23 05:15:04 | `63ff037446` | +467/−139 | 11 |
 | #2280 | 挂账清单三态语义 + 墓碑 + `--prune` + debt-guard 增 `push: main`（门禁逃逸根治） | 2026-09-23 08:12:32 | `45c2e24692` | +474/−33 | 8 |
-| #2276 | P0-8 补漏：启动校验拒绝 systemd 未展开字面量（`$__`/`${`/裸变量） | 在飞（head `f0e0193199`） | — | +94/−0 | 4 |
-| #2270 | Phase 4 复盘落库 + PRD 条目计数订正为实测 P2×12 | 在飞（head `f8c222b982`） | — | +96/−1 | 3 |
+| #2276 | P0-8 补漏：启动校验拒绝 systemd 未展开字面量（`$__`/`${`/裸变量） | 2026-09-23 09:33:29 | `8d4098948c` | +94/−0 | 4 |
+| #2270 | Phase 4 复盘落库 + PRD 条目计数订正为实测 P2×12 | 2026-09-23 09:35:47 | `e925df7973` | +96/−1 | 3 |
+| #2289 | **本文所载**收尾全量证据归档 + PRD 第十一节验收项订正 | 2026-09-23 10:06:14 | `a49531d203` | +142/−1 | 3 |
+| #2291 | P0-1 收口：打包版不再吃内置 DEV 信任锚（**本文订正过程中挖出的真实缺陷**，非措辞问题） | 2026-09-23 10:36:53 | `55cd32baaa` | +210/−3 | 5 |
 
 **合并纪律**：每个 PR 均独立 worktree（`D:\Data\projects\mp-worktrees\*`）→ 主题化提交 → rebase 到最新 `origin/main`（文档冲突按并集解，不丢任何一行）→ `gh pr merge --squash --auto`。
 
@@ -24,15 +26,15 @@
 
 | 条目 | 证据（文件:行/符号） | 防复发位置 |
 |---|---|---|
-| P0-1 Ed25519 私钥入库 | 非测试文件私钥字面量命中 **0**（全仓 `git grep "BEGIN (RSA \|EC )?PRIVATE KEY"` 命中 6 处全在 `*.test.js` / `tests/conftest.py` 夹具，成对的是 DEV 公钥校验用例）；默认公钥仅在 `app.isPackaged === false` 生效（`apps/desktop/electron/services/ops-center-sync.js`） | `ops-center/backend/tests/test_p0_security.py` 断言 `.env.example` 无 PEM；指引 `ops-center/deploy/KEY-ROTATION-GUIDE.md` |
+| P0-1 Ed25519 私钥入库 | 私钥字面量全仓命中 **6 处 / 5 个测试文件**（`apps/desktop/electron/services/ops-center-sync.test.js:25`、`ops-center/backend/tests/conftest.py:17`、`test_platform_defs_api.py:19`、`test_runtime_policy_api.py:23,32`、`test_p0_security.py:186`——最后一处是「`.env.example` 里不该出现 PEM」的断言本身），**非测试命中 0**。信任锚闸门：内置 DEV 公钥只对未打包态生效，**由 #2291 补齐**——`apps/desktop/electron/services/runtime-trust-anchor.js::resolveTrustAnchor` 四态裁决（有锚用锚 / 无锚+未打包回落 DEV / 无锚+已打包 `NO_PRODUCTION_TRUST_ANCHOR` / DEV 公钥被裁 `NO_PUBLIC_KEY`），接入 `ops-center-sync.js::verifyRuntimeSignature`（fail-closed，整份策略不应用） | `runtime-trust-anchor.test.js` 10 例（含「打包 + 无锚 → 即便签名用 DEV 私钥合法签也必须被拒」）+ `ops-center-sync.test.js` 60 例；指引 `ops-center/deploy/KEY-ROTATION-GUIDE.md` |
 | P0-2 JWT 弱密钥闸门 | `ops-center/backend/config.py::_validate_jwt_secret`（长度 ≥32 / 弱值表 / 弱前缀）+ `run_startup_security_checks` 聚合 fail-closed | `test_p0_security.py`；systemd 未展开字面量补漏在 #2276（`_reject_unexpanded` + `tests/test_p0_jwt_literal.py`） |
 | P0-3 `decrypt_key` 参数 | `ops-center/backend/services/key_service.py::decrypt_key`（单参数 + 精确异常），调用方 `model_preset_service.py` | `ops-center/backend/tests/test_key_service.py` 断言解密明文 == 真实 Key |
 | P0-4 加密主密钥静默自生成 | `config.py`：缺 `OPS_ENCRYPTION_KEY` 且未显式放行 → `SystemExit`；`OPS_ALLOW_EPHEMERAL_KEY=true` 才允许临时密钥并打 warn | `[P0-4]` 启动闸门 |
 | P0-6 CORS `*` + credentials | `config.py::_validate_cors_credentials` | 启动闸门第 7 条 |
-| P0-7 SSRF | `ops-center/backend/services/model_preset_service.py::_validate_target_url`（私网/元数据/重定向逐跳） | pytest 逐地址回归；JS 侧同口径 `packages/video-clone-engine/src/adapters/url-guard.js::assertSafeIngestUrl`（#2276 之外的 P1-11） |
+| P0-7 SSRF | `ops-center/backend/services/model_preset_service.py::_validate_target_url`（scheme → 主机名字面量黑名单 → 字面 IP → `getaddrinfo` 每条 A 记录，四道判定；`198.18.0.0/15` 需 `OPS_ALLOW_PROXY_BENCHMARK_IPS=true` 才放行，CGNAT `100.64.0.0/10` 显式补入）——**重定向口径订正**：两处外呼均为 `httpx.AsyncClient(follow_redirects=False)`，即「不跟随 3xx」而非「逐跳复验」；已知边界：校验与连接各做一次独立 DNS 解析，存在重绑 TOCTOU 窗口（细节见 `docs/audit-remediation-batch1-2026-09-22.md` 第六节） | pytest 逐地址回归；JS 侧同口径 `packages/video-clone-engine/src/adapters/url-guard.js::assertSafeIngestUrl`（#2276 之外的 P1-11） |
 | P0-8 systemd 注入公开常量 | `ops-center/deploy/ops-center.service`：`EnvironmentFile=` + `User=ops-center`（低权）+ 600 权限 | 部署清单评审 + #2276 的字面量拒绝 |
 | P1-5 敏感配置明文落库 | `ops-center/backend/services/config_service.py::_apply_upsert`（单条与批量共用，写库前 Fernet 加密，掩码回显不覆盖真实凭据） | pytest（含「批量回退明文」变异红验证） |
-| P1-9 B站采集桩 | `packages/collection-engine/src/platform-adapters/bilibili-adapter.js`：`success` 绑定 title/desc 非空，空结果 `reason=api_stub_not_implemented` | `packages/collection-engine/tests/bilibili-adapter.test.js` |
+| P1-9 B站真发请求 + 空壳硬约束 | 空壳响应的 `reason` 是 **`empty_content`**（提案稿里的 `api_stub_not_implemented` 从未落地，全仓 0 命中）：判定与处置在 `packages/collection-engine/src/platform-adapters/base-adapter.js:96-103` —— `isEmptyContent` → `log.blocked(...,'empty_content')` + `healthMonitor.record({success:false,reason:'empty_content'})` + `circuitBreaker.recordFailure` + `refundBudget` + `return {success:false,reason:'empty_content'}`；`bilibili-adapter.js:115-117` 空壳时优先浏览器兜底，无浏览器则原样上交给 `collect` 判失败 | `packages/collection-engine/tests/bilibili-adapter.test.js:71,77,137,138` 断言 `reason === 'empty_content'` 与 `[['health', false, 'empty_content'], ['cb-fail']]` |
 | P1-10 shared-utils 顶层 require electron | `packages/shared-utils/package.json` `peerDependencies.electron` + 懒加载注入（`publish-history.js`/`scheduler.js`） | vitest |
 | P1-11 ingest-url SSRF 白名单 | `packages/video-clone-engine/src/adapters/ingest-url.js`（守卫实现拆到同目录 `url-guard.js`，域名表单一事实来源） | `test/adapters/ingest-url.test.js` + `url-guard.test.js`（node --test） |
 | P1-12 Playwright try/finally | `packages/python-backend/src/multi_publish/video_creation/character/character_animation_utils.py:78 finally:`（异常路径必关浏览器） | `packages/python-backend/tests/test_character_animation_lifecycle.py` 源码级断言含 `finally:` |
@@ -70,6 +72,7 @@
 | 第3批 | P1-15 后端 13 pytest；Gate 17/18 脚本 QM-5 红验证 | 全绿 |
 | 第4批 | 9 个变异（含「批量写入回退明文」）逐个转红 | 9/9 命中 |
 | #2274 | 拆分后行数门禁由红转绿 + 500 行棘轮不放宽 | 绿 |
+| #2291 | 变异自证：撤掉 `verifyRuntimeSignature` 的信任锚接入（回退成旧的无条件回落）→ 「打包 + 无锚必须被拒」转红 **1 failed / 9 passed**；还原后字节一致、`vitest run` 两文件 **70 passed** |
 | #2280 | `node --test` **17/17**；两个反向变异（取消墓碑豁免 → 回归③红；`--update` 顺手抬基线 → 回归⑦红）；`--prune` 幂等二次调用 rc=2 且字节不变 | 全绿 + 变异自证 |
 
 关键方法论修正：**门禁脚本自身的判定分支必须按生产喂法构造输入**（`evaluate(base, collectOverLimit(root,limit), scanAllLines(root))`）。旧用例直接喂人造字典，形状是 `main()` 产不出来的，导致「债已还」分支是死代码却长期绿灯。
@@ -109,6 +112,8 @@ node --test scripts/check-dep-audit.test.js
 # 3) IPC / 会话卫生
 node .github/scripts/check-ipc-sender-guard.js --base-dir apps/desktop
 node .github/scripts/check-ops-session-hygiene.js
-# 4) 后端安全闸门
+# 4) 桌面端信任锚四态（P0-1）
+npx vitest run runtime-trust-anchor.test.js ops-center-sync.test.js
+# 5) 后端安全闸门
 cd ops-center/backend && python -m pytest -q tests/test_p0_security.py tests/test_p1_15_session_cookie.py tests/test_key_service.py
 ```
