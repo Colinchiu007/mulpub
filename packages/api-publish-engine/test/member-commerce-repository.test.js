@@ -120,6 +120,32 @@ test('商务仓储池级方法', async (t) => {
     await assert.rejects(repository.commerceTransaction(async () => { throw new Error('boom') }), /boom/)
     assert.ok(queries.includes('ROLLBACK'))
   })
+
+  await t.test('createRedeemCodes 空批次早退返回 [] 且不发查询', async () => {
+    const pool = fakePool()
+    const repository = new PostgresIdentityRepository({ pool })
+    const codes = await repository.createRedeemCodes([])
+    assert.deepStrictEqual(codes, [])
+    assert.strictEqual(pool.calls.length, 0)
+  })
+
+  await t.test('broadcastNotification 空收件人早退返回 0 且不落写', async () => {
+    const pool = fakePool()
+    const repository = new PostgresIdentityRepository({ pool })
+    const count = await repository.broadcastNotification([], { title: '公告' })
+    assert.strictEqual(count, 0)
+    assert.strictEqual(pool.calls.length, 0)
+  })
+
+  await t.test('upsertSession 缺 deviceId 抛 TypeError 且不写会话行', async () => {
+    const pool = fakePool()
+    const repository = new PostgresIdentityRepository({ pool })
+    await assert.rejects(
+      repository.upsertSession({ userId: 'u-1' }),
+      (err) => err instanceof TypeError && /deviceId is required/.test(err.message)
+    )
+    assert.strictEqual(pool.calls.length, 0)
+  })
 })
 
 test('PostgresCommerceTransaction 单事务编排', async (t) => {
@@ -193,5 +219,77 @@ test('PostgresCommerceTransaction 单事务编排', async (t) => {
     await tx.createNotification({ id: 'ntf-1', userId: 'u-1', title: '开通成功', body: 'pro 30 天', level: 'info' })
     assert.match(client.calls[0].text, /INSERT INTO identity_notifications/)
     assert.deepStrictEqual(client.calls[0].values, ['ntf-1', 'u-1', '开通成功', 'pro 30 天', 'info'])
+  })
+
+  await t.test('applySubscription 拒绝非正整数时长且不落任何写', async () => {
+    const client = fakeClient()
+    const tx = new PostgresCommerceTransaction(client)
+    const base = {
+      userId: 'u-1', plan: 'pro',
+      now: new Date('2026-09-15T00:00:00Z'),
+      order: { id: 'ord-1', amount: 7900, currency: 'CNY', channel: 'redeem' },
+      entitlementPayload: { plan: 'pro' },
+    }
+    for (const durationDays of [0, -1, 1.5, '30', undefined]) {
+      await assert.rejects(
+        tx.applySubscription({ ...base, durationDays }),
+        (err) => err.code === 'DURATION_INVALID' && err.status === 400
+      )
+    }
+    assert.strictEqual(client.calls.length, 0)
+  })
+
+  await t.test('applySubscription 拒绝无效时钟且不落任何写', async () => {
+    const client = fakeClient()
+    const tx = new PostgresCommerceTransaction(client)
+    const base = {
+      userId: 'u-1', plan: 'pro', durationDays: 30,
+      order: { id: 'ord-1', amount: 7900, currency: 'CNY', channel: 'redeem' },
+      entitlementPayload: { plan: 'pro' },
+    }
+    await assert.rejects(
+      tx.applySubscription({ ...base, now: new Date(NaN) }),
+      (err) => err.code === 'COMMERCE_CLOCK_INVALID' && err.status === 503
+    )
+    await assert.rejects(
+      tx.applySubscription({ ...base, now: 'not-a-date' }),
+      (err) => err.code === 'COMMERCE_CLOCK_INVALID' && err.status === 503
+    )
+    assert.strictEqual(client.calls.length, 0)
+  })
+
+  await t.test('applySubscription 透传 provider_reference：缺省绑定 null、有值原样透传', async () => {
+    const withoutRef = fakeClient()
+    withoutRef.queue = [
+      { rows: [] },
+      { rows: [{ id: 'sub-u-9' }] },
+      { rows: [{ id: 'ord-9' }] },
+      { rows: [{ version: 1 }] },
+    ]
+    await new PostgresCommerceTransaction(withoutRef).applySubscription({
+      userId: 'u-9', plan: 'standard', durationDays: 30,
+      now: new Date('2026-09-15T00:00:00Z'),
+      order: { id: 'ord-9', amount: 2900, currency: 'CNY', channel: 'admin_grant' },
+      entitlementPayload: { plan: 'standard' },
+    })
+    const upsertNoRef = withoutRef.calls[1]
+    assert.match(upsertNoRef.text, /INSERT INTO identity_subscriptions/)
+    assert.strictEqual(upsertNoRef.values[5], null)
+
+    const withRef = fakeClient()
+    withRef.queue = [
+      { rows: [] },
+      { rows: [{ id: 'sub-u-10' }] },
+      { rows: [{ id: 'ord-10' }] },
+      { rows: [{ version: 1 }] },
+    ]
+    await new PostgresCommerceTransaction(withRef).applySubscription({
+      userId: 'u-10', plan: 'pro', durationDays: 30,
+      now: new Date('2026-09-15T00:00:00Z'),
+      order: { id: 'ord-10', amount: 7900, currency: 'CNY', channel: 'payment', providerReference: 'live-op-42' },
+      entitlementPayload: { plan: 'pro' },
+    })
+    const upsertRef = withRef.calls[1]
+    assert.strictEqual(upsertRef.values[5], 'live-op-42')
   })
 })
