@@ -140,6 +140,10 @@ const UPSERT_SUBSCRIPTION = `INSERT INTO identity_subscriptions
      updated_at = NOW()
    RETURNING *`
 
+// provider_reference 在 identity_subscriptions 上是 UNIQUE（002_logto_identity.sql:29）。撞该约束意味着调用方
+// 复用了同一幂等键（重放/误填同值），属可预期的 409，不得冒泡成裸 23505 → 500。约束名固化在仓储层，服务层无需知道。
+const ORDER_REFERENCE_CONFLICT_CONSTRAINT = 'identity_subscriptions_provider_reference_key'
+
 const INSERT_ORDER = `INSERT INTO identity_orders
     (id, user_id, plan, amount, currency, channel, status, paid_at)
    VALUES ($1, $2, $3, $4, $5, $6, 'paid', NOW())
@@ -300,10 +304,25 @@ class PostgresCommerceTransaction {
       ? new Date(existing.current_period_end)
       : nowDate
     const periodEnd = new Date(base.getTime() + durationDays * 24 * 60 * 60 * 1000)
-    const subscriptionResult = await this.client.query(UPSERT_SUBSCRIPTION, [
-      `sub-${userId}`, userId, plan,
-      base.toISOString(), periodEnd.toISOString(), order.providerReference || null,
-    ])
+    // 上界守卫：durationDays 虽为整数，但大到让 periodEnd 溢出为 Invalid Date（1e21/MAX_SAFE_INTEGER）时，
+    // 后续 .toISOString() 会抛裸 RangeError → 500。redeem 路径的 duration_days 来自 DB（004 只有 >0 无上限），
+    // 两条路径同经此处，故在仓储层拦下，复用既有 DURATION_INVALID/400 语义。
+    if (Number.isNaN(periodEnd.getTime())) {
+      throw Object.assign(new Error('DURATION_INVALID'), { code: 'DURATION_INVALID', status: 400 })
+    }
+    let subscriptionResult
+    try {
+      subscriptionResult = await this.client.query(UPSERT_SUBSCRIPTION, [
+        `sub-${userId}`, userId, plan,
+        base.toISOString(), periodEnd.toISOString(), order.providerReference || null,
+      ])
+    } catch (err) {
+      // 只收敛 provider_reference 这一处 UNIQUE；其它错误（含别的 23505/别的 constraint）原样上抛，绝不吞。
+      if (err && err.code === '23505' && err.constraint === ORDER_REFERENCE_CONFLICT_CONSTRAINT) {
+        throw Object.assign(new Error('ORDER_REFERENCE_CONFLICT'), { code: 'ORDER_REFERENCE_CONFLICT', status: 409 })
+      }
+      throw err
+    }
     const orderResult = await this.client.query(INSERT_ORDER, [
       order.id, userId, plan, order.amount, order.currency || 'CNY', order.channel,
     ])

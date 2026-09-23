@@ -29,6 +29,36 @@ function generateRedeemCode() {
   return `${pick()}-${pick()}-${pick()}`
 }
 
+/**
+ * 仓储返回的 identity_subscriptions 原始行（snake_case）→ 规范化 DTO（camelCase）。
+ * 白名单构造：只吐前端契约字段，内部列（provider_reference 等）一律不出现在响应体。缺字段用 null。
+ */
+function toSubscriptionDto(row) {
+  if (!row) return null
+  return {
+    id: row.id ?? null,
+    plan: row.plan ?? null,
+    status: row.status ?? null,
+    periodStart: row.current_period_start ?? null,
+    periodEnd: row.current_period_end ?? null,
+  }
+}
+
+/** 仓储返回的 identity_orders 原始行 → 规范化 DTO（白名单）。 */
+function toOrderDto(row) {
+  if (!row) return null
+  return {
+    id: row.id ?? null,
+    userId: row.user_id ?? null,
+    plan: row.plan ?? null,
+    amount: row.amount ?? null,
+    currency: row.currency ?? null,
+    channel: row.channel ?? null,
+    status: row.status ?? null,
+    createdAt: row.created_at ?? null,
+  }
+}
+
 class SubscriptionService {
   constructor(options = {}) {
     if (!options.repository) throw new TypeError('repository is required')
@@ -97,6 +127,28 @@ class SubscriptionService {
     return { plan, features }
   }
 
+  /**
+   * 本人重放的返回体：键集合必须与首次核销完全一致（Task 6 原样 spread 给客户端，缺字段即破坏前端契约）。
+   * 权益三字段（subscription/periodStart/periodEnd）经存活性判定回填——若当前 active 行已过期未结算，
+   * 绝不能把陈旧到期时间当作现行权益吐给客户端（M-3 footgun）。order/version 重放不回吐：订单首次核销
+   * 已下发且可在 /me/orders 查询，重放再发一份会泄漏重复计费凭证。
+   */
+  async _idempotentRedeemView(userId, code, row) {
+    const active = await this.repository.getActiveSubscription(userId)
+    const alive = active && new Date(active.current_period_end) > this.now()
+    return {
+      idempotent: true,
+      code,
+      plan: row.plan,
+      redeemedAt: row.used_at,
+      subscription: alive ? toSubscriptionDto(active) : null,
+      order: null,
+      version: null,
+      periodStart: alive ? (active.current_period_start ?? null) : null,
+      periodEnd: alive ? (active.current_period_end ?? null) : null,
+    }
+  }
+
   async requireUser(userId) {
     if (typeof userId !== 'string' || !userId) {
       throw new CommerceError('需要登录态', 'BUSINESS_USER_REQUIRED', 503)
@@ -115,7 +167,7 @@ class SubscriptionService {
       if (!row) throw new CommerceError('兑换码不存在', 'REDEEM_CODE_NOT_FOUND', 404)
       if (row.status === 'used') {
         if (row.used_by === userId) {
-          return { idempotent: true, code: normalized, plan: row.plan, redeemedAt: row.used_at }
+          return this._idempotentRedeemView(userId, normalized, row)
         }
         throw new CommerceError('兑换码已被使用', 'REDEEM_CODE_USED', 409)
       }
@@ -145,7 +197,17 @@ class SubscriptionService {
         body: `已开通 ${row.plan}，有效期 ${row.duration_days} 天`,
         level: 'info',
       })
-      return { idempotent: false, code: normalized, plan: row.plan, ...applied }
+      return {
+        idempotent: false,
+        code: normalized,
+        plan: row.plan,
+        redeemedAt: this.now().toISOString(),
+        subscription: toSubscriptionDto(applied.subscription),
+        order: toOrderDto(applied.order),
+        version: applied.version ?? null,
+        periodStart: applied.periodStart ?? null,
+        periodEnd: applied.periodEnd ?? null,
+      }
     })
   }
 
@@ -183,7 +245,14 @@ class SubscriptionService {
         body: `已开通 ${plan}，有效期 ${durationDays} 天`,
         level: 'info',
       })
-      return { plan, ...applied }
+      return {
+        plan,
+        subscription: toSubscriptionDto(applied.subscription),
+        order: toOrderDto(applied.order),
+        version: applied.version ?? null,
+        periodStart: applied.periodStart ?? null,
+        periodEnd: applied.periodEnd ?? null,
+      }
     })
   }
 
@@ -203,7 +272,7 @@ class SubscriptionService {
     while (codes.size < count) codes.add(generateRedeemCode())
     const records = [...codes].map((code) => ({ code, plan, durationDays, batch: batchId, expiresAt }))
     const created = await this.repository.createRedeemCodes(records)
-    return { batch: batchId, plan, durationDays, requested: count, codes: created }
+    return { batch: batchId, plan, durationDays, requested: count, generated: created.length, codes: created }
   }
 }
 
