@@ -84,13 +84,34 @@ describe('AccountManagementCard', () => {
     expect(wrapper.emitted('open-login')).toEqual([[expiredAccount]])
   })
 
-  it('inactive 状态保持显示「已登录」（未检测语义，不写数据库 expired）', () => {
-    const inactiveAccount = { ...account, status: 'inactive' }
-    const wrapper = mountCard({ account: inactiveAccount })
+  it('历史脏值 inactive / offline 不再谎称「已登录」，统一落到未检查兜底', () => {
+    for (const dirty of ['inactive', 'offline']) {
+      const wrapper = mountCard({ account: { ...account, status: dirty } })
+      const badge = wrapper.get('[data-testid="account-status-account-1"]')
 
-    const status = wrapper.get('[data-testid="account-status-account-1"]')
-    expect(status.text()).toBe('已登录')
-    expect(status.classes()).toContain('offline')
+      expect(badge.text()).toBe('暂无检查记录')
+      expect(badge.classes()).toContain('unknown')
+    }
+  })
+
+  it('停用账号显示「已停用」标记并灰化卡片，登录徽章不受影响（正交）', () => {
+    const wrapper = mountCard({ account: { ...account, is_active: false } })
+    const flag = wrapper.get('[data-testid="account-disabled-flag"]')
+
+    expect(flag.text()).toBe('已停用')
+    expect(flag.attributes('role')).toBe('status')
+    expect(flag.attributes('aria-label')).toBe('该账号已停用，不可用于发布')
+    expect(wrapper.get('[data-testid="account-card-account-1"]').classes()).toContain('is-disabled')
+    expect(wrapper.get('[data-testid="account-status-account-1"]').text()).toBe('已登录')
+  })
+
+  it('is_active 缺失或为脏值时按启用处理，不显示停用标记', () => {
+    for (const candidate of [{}, { is_active: true }, { is_active: 'no' }, { is_active: 0 }]) {
+      const wrapper = mountCard({ account: { ...account, ...candidate } })
+
+      expect(wrapper.find('[data-testid="account-disabled-flag"]').exists()).toBe(false)
+      expect(wrapper.get('[data-testid="account-card-account-1"]').classes()).not.toContain('is-disabled')
+    }
   })
 
   it('未确认（unverified）显示独立的「未确认」徽章，不冒充已登录也不冒充失效', () => {

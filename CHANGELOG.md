@@ -1,3 +1,47 @@
+# [未发布] fix(accounts): 账号「启用状态」与「登录态」正交解耦 —— 批量启用/停用接通 is_active 真链路（2026-09-23，account-is-active-batch）
+
+### 变更
+- **后端新增启用态字段写入口（唯一真源）**：`AccountUpdateRequest` 接受 `is_active: StrictBool | None`（`None` = 本次不修改）。必须 `StrictBool` 而非 `bool` —— pydantic v2 宽松 bool 会把 `"no"`→`False`、`1`→`True` 静默转换并返回 200，等于让脏调用直接改写账号的发布能力；非布尔一律 422。`patch_account` 把 `is_active` 排在 `status` 校验之后写入，同一请求 `status` 非法时整次写盘作废，不留「启用态已改、登录态被拒」的半更新脏源。新增 `_normalize_account_active()` 做读侧 fail-safe 归一化（只有明确为假算停用，缺失/`null`/脏值按启用，避免升级把账号静默停用），`_account_to_dict` 经它输出。
+- **启用态唯一写者 `AccountManager.setAccountActive(accountId, platform, isActive)`**：与登录态唯一写者 `persistLoginState()` 分职，只 PATCH `{is_active}`，**不附带** `status` / `last_validated`；`accountId`、`platform` 双段 `_isSafePathSegment`，`isActive` 必须 `typeof === 'boolean'`（JS 中字符串 `'false'` 是真值，宽松判断会把「停用」写成「启用」）。新 IPC 通道 `account:set-active` + preload `accountSetActive`，`scripts/build-preload.js` 重算两处 bundle。
+- **删除 `is_active` → 登录态的反向派生（读侧泄漏收口）**：`ipc-handlers/account.js` 的 `toPublicAccount` 原第 3 分支「后端无 `status` 时由 `is_active` 推 `active`/`inactive`」与 `ipc-handlers/store.js` 的同源派生一并删除，缺 `status` 一律回落 `unverified`、`status_source = 'absent-fallback'`，`derived-from-is-active` 枚举退役。用户可见影响：历史脏数据账号由「已登录」变为「未确认」，需重新点一次检测 —— 这是修正而非回归。
+- **纵深防御**：`store.js` 的 `rendererAccountUpdateFields` 白名单移除 `'status'`，通道层面禁止渲染层写登录态，杜绝同类污染复发。
+- **单一判定函数**：新增 `src/utils/account-active.js` 的 `isAccountActive(account)`（纯函数），账号卡片停用标记、发布可选集合、目标选择器禁用态、store 表面全部 import 同一份实现 —— 任何一处自行写 `=== false`，都会在口径漂移时重新制造同一个 bug。
+
+### 修复
+- **账号页「批量启用/停用」由装饰性按钮变为真链路**：`stores/accounts.batchSetStatus(status)` 走 `accountUpdate` → `store:update-account` 写 **Electron SQLite**，而账号列表读的是**后端 `accounts.json`**（两库账号 id 不互通）—— 写进去根本读不到，点击后展示毫无变化。改为 `batchSetActive(isActive, accountIds)` → `accountSetActive` → `account:set-active` → `setAccountActive` → 后端 `PATCH is_active`，写完 `load()` 重新拉取真源。
+- **词表撞车导致的登录态污染**：旧实现把 UI 词表的 `'active' | 'inactive'` 直接写进登录态字段 `status`（合法值只有 `active`/`expired`/`unverified`），点一次「批量停用」就把账号登录态写成不可解析的脏值。新通道参数为**布尔**，与登录态词表零交集。
+- **失败不静默**：`platform` 解析不出来或 `isActive` 非布尔时**诚实计 `failed`** 而不是 `continue` 跳过 —— 静默跳过会把「已启用 x 个账号」报虚。
+- **`AccountManagementCard` 的 `offline` 语义收敛**：删除 `status === 'inactive' || status === 'offline'` → 显示「已登录」的分支（历史脏值统一落 `unknown` /「暂无检查记录」），同时删除随之失效的 `.login-badge.offline` 样式。
+
+### 显示项与提示文字（zh/en 成对）
+- 账号卡片：停用账号显示「已停用」标记（`data-testid="account-disabled-flag"`，`role="status"`）并灰化（虚线边框 + `saturate(.55)` + `opacity .72`）；**登录徽章不受启用态影响**（正交性双断言）。
+- 发布目标选择器：停用账号**置灰不可点**并在名字旁显示「已停用」，四点收口 —— 可选集合过滤、不作默认回填、已勾选项自动剔除、`checkbox :disabled`。
+- 新增键 `accountsPage.accountCardLabels.disabledFlag`（已停用 / Disabled）、`disabledFlagAria`（该账号已停用，不可用于发布）；批量结果复用既有 `enabledCount` / `disabledCount` / `statusPartial` / `statusFailed`。
+- 账号页筛选器 `all/active/inactive/favorite` 语义是**登录态**，与启用态无关，刻意不动。
+
+### 验证
+- TDD 逐层红→绿（每层先落测试、`git checkout HEAD -- <impl>` 复现红灯）：后端 `test_server_account_lifecycle.py` **4 failed → 25 passed**（本 PR 新增 4 例：`is_active` 持久化 / 双向正交性 / 非布尔 422 / `status` 非法时 `is_active` 不被半更新）；主进程 **30 failed → 4 文件 555 passed**（反转 6 处 `derived-from-is-active` 断言 + `store.test.js` 1 处，`preload.test.js` 三处计数锁同步）；渲染层定向 **17 failed → 45 文件 / 1006 passed**。
+- 关键护栏：`accounts.test.js` 断言 `expect(accountUpdate).not.toHaveBeenCalled()`（防止退回旧写通道）；卡片用例同时断言「已停用」标记出现且登录徽章仍为「已登录」（正交性）；catalog 用例断言只追加 `disabled`、原始字段透传。
+- 全量桌面 vitest（含 `electron/**` 用例）：`602 passed | 1 skipped (603 files)`、`10883 passed | 2 skipped (10885 tests)`、**0 failed**，耗时 2979s。
+- 后端全量 pytest（`packages/python-backend`）：**4 failed / 2697 passed**（277s），失败集 `test_aggregation_video` / `test_frame_html` / `test_llm_service` / `test_pipeline_loader` 与 #2233 记录的干净基线逐条同名、均不在账号模块 → 无回归。
+- 门禁：ESLint `--quiet` 对 17 个 `src` + 8 个 `electron` 变更文件 **0 error**；Gate 7 `--cjk` PASS（基线 1581 → 当前 1386，无新增硬编码中文）、`--keys` PASS（3117 键）、`--pair-base origin/main` 在 **commit 后**复跑 PASS（zh/en 变更均 `true`）。**教训**：`--pair-base` 取的是提交间 diff，工作区未提交时输出「zh.js 变更=false」的空转通过，不得当作已验证证据。
+- Gate 7 `--py-cjk` 首轮**红**（`python-backend has 19 new hardcoded CJK user-visible messages (baseline 79)`）：逐条核查为**基线 `path:LINE` 行号漂移**而非新增硬编码 —— 本 PR 在 `server.py` 新增的 11 条含中文行里，6 条是 `#` 注释、5 条全部落在 docstring 内（用 AST tokenizer 判定字符串字面量跨度，零用户可见消息字符串），且 `git diff 5874e4bda..origin/main -- server.py` 为空说明上游没动过该文件、漂移完全由本 PR 的 +33 行造成。按 #2212 / #2233 既有做法 `--py-cjk --update-py-baseline` 重锚：总条目 79 → 79、diff 恰 19+/19−、全部集中在 `server.py`、其余文件条目一字未动，重跑 PASS。**不得**用重锚掩盖真新增，故上述字面量审计是重锚的前置条件。
+- 合并 `origin/main`（9 个提交，含 #2239 IPC 安全批次）后复验：CHANGELOG 唯一冲突按**条目并集**解决（本 PR 置顶、main 三条随后，并补齐 `---` 分隔）；两处 preload bundle（`index.bundle.js` / `home-shell-preload.bundle.js`）**自动合并结果与源码不一致，必须重跑 `node scripts/build-preload.js` 重算**（否则 `preload.test.js` 与真机 bridge 都会错）；main 新增的两项门禁 `check-ipc-sender-guard.js`（P1-14 显式守卫占比 ≥65%，当前 67.5%）与 `check-ops-session-hygiene.js` 本地实跑 PASS，新通道 `account:set-active` 已走 `withSenderCheck` 故不拉低占比；`check-ipc-bridge.js` 406 handlers / 0 已知缺口、前端一致性/色值/CSS 变量/字号/路由登记等 10 项静态门禁全 PASS。
+- 两处自纠错均为**断言写错、实现正确**，未为了让断言通过而放宽实现：① 「默认账号被停用时不回填」期望应为 `[]`（既有 reconcile 只在默认账号可用时回填，自动挑非默认账号属新增策略，不在本 PR 范围）；② catalog 的 `toEqual([{id, disabled}])` 漏了 spread 透传字段，改为先 `map` 投影再单独断言 `is_active`。
+- 详见 `01-docs/PRD-ACCOUNT-IS-ACTIVE-BATCH-2026-09-23.md`（数据模型 / 正交判定矩阵 / 单一写者与 IPC 契约 / 交互与显示项 / 提示文字 / 测试矩阵 / 实施结果）。
+
+### 遗留
+- 单账号行内「启用/停用」开关未做，本次仅保留批量入口（用户决策）。
+- 引擎侧（`rpa-publish` / `api-publish`）**不硬拦**停用账号，仅在发布前置选择收口；若要强约束需在 publish 入口补校验。
+- Electron SQLite 中历史写入的 `status` 脏值不主动清理（该库本就不参与账号列表读取），避免引入破坏性迁移。
+- `src/composables/usePlatformAccounts.js` 全仓无消费者（死模块），未纳入本次收口，建议单独 PR 删除。
+
+### 关联
+- 分支 `codex/account-is-active-batch`（worktree 隔离，D 盘）；收敛 #2233 条目「遗留」第 1 条。
+- 工作树：原 `D:/Data/projects/mp-worktrees/mp-account-is-active-batch` 在开发过程中被本地磁盘清理删除（提交与分支未受影响，全在对象库），已重建于 `D:/Data/projects/mp-worktrees/mp-account-is-active-b2`。
+
+---
+
 # [未发布] fix(debt-guard): 挂账清单三态语义 + 墓碑机制，debt-guard 增 push 触发（audit 收尾·门禁逃逸根治）
 
 ### 变更
@@ -167,7 +211,7 @@
 - 详见 `01-docs/PRD-ACCOUNT-LOGIN-STATE-PERSISTENCE-2026-09-23.md`（数据模型 / 判定矩阵 / 单一写者架构 / 交互与显示项 / 提示文字 / 测试矩阵 / 已知边界）与 `01-docs/PRD-ACCOUNT-LOGIN-STATUS-CHECK.md` §17。
 
 ### 遗留
-- 账号页「批量启用/停用」（`stores/accounts.batchSetStatus`）仍写 SQLite 且复用登录态词表 `status`，对展示实际无效；应改 `is_active` 并接入后端 PATCH，另列 PR，避免把「启用状态」与「登录态」两个正交概念继续混在一个字段里。
+- 账号页「批量启用/停用」（`stores/accounts.batchSetStatus`）仍写 SQLite 且复用登录态词表 `status`，对展示实际无效；应改 `is_active` 并接入后端 PATCH，另列 PR，避免把「启用状态」与「登录态」两个正交概念继续混在一个字段里。**→ 已由 `codex/account-is-active-batch` 分支收敛（见本文件顶部条目），该 PR 同时删除了本 PR 未覆盖的 `store.js` 同源派生。**
 
 ### 关联
 - 分支 `codex/account-login-state-persist`（worktree 隔离，D 盘）；关联 PRD 见上。

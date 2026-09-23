@@ -21,7 +21,7 @@ const exportedNames = [
   "schedulerCreate", "schedulerList", "schedulerCancel",
   // 账号管理
   "listAccounts", "accountAdd", "accountDelete", "accountCheckLogin",
-  "accountList", "accountSetDefault", "accountUpdate",
+  "accountList", "accountSetDefault", "accountUpdate", "accountSetActive",
   // 内嵌浏览器登录
   "authOpenLogin", "authCompleteLogin", "authClose", "onAuthViewOpened",
   "onAuthCompleted", "onAuthViewClosed",
@@ -127,6 +127,7 @@ publishWechat: { args: [{ title: "t", content: "c" }], fallback: undefined, retu
   accountList: { args: [], fallback: { code: 0, data: [] }, returns: "object" },
   accountSetDefault: { args: ["wechat_mp", "acc-1"], fallback: undefined, returns: "undefined" },
   accountUpdate: { args: ["acc-1", { name: "new" }], fallback: undefined, returns: "undefined" },
+  accountSetActive: { args: ["acc-1", "wechat_mp", false], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
   authOpenLogin: { args: ["weibo", undefined], fallback: { code: -1 }, returns: "object" },
   authCompleteLogin: { args: [], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
   authClose: { args: [], fallback: undefined, returns: "undefined" },

@@ -28,7 +28,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, StrictBool
 
 from multi_publish.auth import AuthError, LogtoJwtVerifier, create_fastapi_dependency
 from multi_publish.core.logging_setup import setup_logging
@@ -258,6 +258,21 @@ def _normalize_account_status(value) -> str:
     return DEFAULT_ACCOUNT_STATUS
 
 
+def _normalize_account_active(value) -> bool:
+    """启用态读侧 fail-safe：只有「明确为假」才算停用，其余（缺失/null/脏值）一律按启用。
+
+    与 status 正交：本函数不得参考登录态，调用方也不得反向用 is_active 推登录态。
+    把脏数据当成停用会让账号静默失去发布能力，比误显示为启用更危险。
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str) and value.strip().lower() == "false":
+        return False
+    if isinstance(value, int) and not isinstance(value, bool) and value == 0:
+        return False
+    return True
+
+
 class AccountCreateRequest(BaseModel):
     # 兼容旧客户端的字段仅用于返回明确的 400；不再接受或持久化任何凭据。
     model_config = ConfigDict(extra="forbid")
@@ -286,6 +301,10 @@ class AccountUpdateRequest(BaseModel):
     # 登录态回写：一键检测/单账号检测/后台监控的结论必须能固化到数据库。
     # 取值受 ACCOUNT_STATUSES 约束，非法值在 patch_account 中返回 400。
     status: str | None = None
+    # 启用态（是否允许用于发布）：与登录态 status 正交，互不派生、互不覆写。
+    # None 表示本次不修改。必须用 StrictBool：pydantic 的宽松 bool 会把 "no"/"yes"/1/0
+    # 静默转换成布尔，等于让脏调用改写账号发布能力，因此非布尔一律 422。
+    is_active: StrictBool | None = None
 
 
 class PublishRequest(BaseModel):
@@ -392,7 +411,8 @@ def _account_to_dict(a: dict) -> dict:
         "platform_account_id": a.get("platform_account_id", ""),
         "followers": a.get("followers"),
         "avatar": a.get("avatar", ""),
-        "is_active": a.get("is_active", True),
+        # 启用态与登录态正交；脏值按启用处理，避免账号被静默停用。
+        "is_active": _normalize_account_active(a.get("is_active")),
         # 历史数据无 status 字段 → 归一化为 unverified（不冒充已登录）。
         "status": _normalize_account_status(a.get("status")),
         "last_validated": a.get("last_validated"),
@@ -524,7 +544,10 @@ def get_account(account_id: str, request: Request):
 
 @app.patch("/api/accounts/{account_id}", dependencies=[Depends(_require_account_manage)])
 def patch_account(account_id: str, req: AccountUpdateRequest, request: Request):
-    """更新账号公开元数据（重新登录后更新名称/头像/最近验证时间等）。"""
+    """更新账号公开元数据（名称/头像/平台ID/粉丝数/最近验证时间/登录态/启用态）。
+
+    status 与 is_active 是两个正交维度，各自独立生效：写其一不得污染另一。
+    """
     accounts = _load_accounts()
     a = accounts.get(account_id)
     if not a or not _is_owned_by(a, _request_subject(request)):
@@ -545,6 +568,10 @@ def patch_account(account_id: str, req: AccountUpdateRequest, request: Request):
             # 校验失败必须在任何写盘之前返回，避免半更新的脏真源。
             raise HTTPException(status_code=400, detail="ACCOUNT_STATUS_INVALID")
         a["status"] = normalized_status
+    # 启用态排在 status 校验之后：同一请求里 status 非法时整次写盘作废，
+    # 不会出现「is_active 已改、登录态被拒」的半更新脏源。
+    if req.is_active is not None:
+        a["is_active"] = bool(req.is_active)
     if req.last_validated is not None:
         a["last_validated"] = req.last_validated
     _save_accounts(accounts)

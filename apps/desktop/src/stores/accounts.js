@@ -1,8 +1,9 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
-import { listAccounts, accountDelete, accountSetDefault, accountUpdate } from '@/api/publisher'
+import { listAccounts, accountDelete, accountSetDefault, accountUpdate, accountSetActive } from '@/api/publisher'
 import { usePlatformStore } from '@/stores/platforms'
 import { formatUserError } from '@/utils/user-facing-error'
+import { isAccountActive } from '@/utils/account-active'
 import i18n from '@/i18n'
 
 // 上游瞬时不可用（身份服务 JWKS 抖动 / 后端 5xx / 网络与超时）时保留上一次列表：
@@ -393,14 +394,24 @@ export const useAccountStore = defineStore('accounts', () => {
     await load()
     return { success, failed }
   }
-  async function batchSetStatus(status, accountIds) {
+  /**
+   * 批量启用 / 停用：写 is_active（启用态），与登录态 status 正交。
+   * 旧实现 batchSetStatus(status) 走 accountUpdate 写 Electron SQLite，而账号列表读的是
+   * 后端 accounts.json —— 写进去读不到，按钮等于装饰；且 'active'|'inactive' 与登录态
+   * 词表撞车，会把「停用」误写成「已登录」。
+   */
+  async function batchSetActive(isActive, accountIds) {
     const ids = Array.isArray(accountIds)
       ? Array.from(new Set(accountIds)).filter(id => selectedIds.value.has(id))
       : Array.from(selectedIds.value)
     let success = 0, failed = 0
     for (const id of ids) {
+      // platform 是 IPC 入参校验的必需段；解析不出来就无法定位真源，
+      // 诚实计为失败而不是静默跳过（静默跳过会把「已启用 x 个」报虚）。
+      const platform = accounts.value.find(account => account.id === id)?.platform
+      if (typeof isActive !== 'boolean' || !platform) { failed++; continue }
       try {
-        const res = await accountUpdate(id, { status })
+        const res = await accountSetActive(id, platform, isActive)
         if (res.code === 0) success++; else failed++
       } catch { failed++ }
     }
@@ -431,6 +442,6 @@ export const useAccountStore = defineStore('accounts', () => {
     load, ensureLoaded, loadGroups, loadFavorites, getDefault, setDefault, renameAccount,
     createGroup, deleteGroup, renameGroup, setGroupPlatform, getGroupAccounts, isAccountInGroup, toggleAccountInGroup,
     isFavorite, toggleFavorite,
-    toggleSelect, selectAll, clearSelection, batchDelete, batchSetStatus,
+    toggleSelect, selectAll, clearSelection, batchDelete, batchSetActive, isAccountActive,
   }
 })

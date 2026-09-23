@@ -57,4 +57,25 @@ describe('PublishTargetSelector', () => {
 
     expect(wrapper.text()).toContain('请先添加账号')
   })
+
+  it('停用账号显示「已停用」标记且复选框禁用', () => {
+    const disabledGroups = [{
+      label: '国内平台',
+      items: [{
+        id: 'wechat_mp',
+        label: '微信公众号',
+        accounts: [
+          { id: 'wx-1', name: '主账号', disabled: true },
+          { id: 'wx-2', name: '副账号', disabled: false },
+        ],
+      }],
+    }]
+    const wrapper = mount(PublishTargetSelector, {
+      props: { groups: disabledGroups, selectedPlatforms: ['wechat_mp'], selectedAccounts: {} },
+    })
+
+    expect(wrapper.get('[data-testid="account-wechat_mp-wx-1"]').element.disabled).toBe(true)
+    expect(wrapper.get('[data-testid="account-wechat_mp-wx-2"]').element.disabled).toBe(false)
+    expect(wrapper.get('[data-testid="target-account-disabled-flag"]').text()).toBe('已停用')
+  })
 })

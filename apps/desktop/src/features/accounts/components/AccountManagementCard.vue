@@ -2,7 +2,7 @@
   <article
     class="account-row account-card"
     :data-testid="`account-card-${account.id}`"
-    :class="{ 'is-selected': selected, 'is-default': account.is_default }"
+    :class="{ 'is-selected': selected, 'is-default': account.is_default, 'is-disabled': !isAccountActive(account) }"
     :aria-label="`${accountDisplayName}（${platformLabel}）`"
     role="button"
     tabindex="0"
@@ -75,6 +75,13 @@
         >
         <div class="account-details">
           <span v-if="account.is_default" class="default-label">{{ t('accountsPage.accountCardLabels.defaultAccount') }}</span>
+          <span
+            v-if="!isAccountActive(account)"
+            class="disabled-label"
+            data-testid="account-disabled-flag"
+            role="status"
+            :aria-label="t('accountsPage.accountCardLabels.disabledFlagAria')"
+          >{{ t('accountsPage.accountCardLabels.disabledFlag') }}</span>
           <span v-if="account.created_at">{{ t('accountsPage.accountCardLabels.addedOn', { date: formatDate(account.created_at) }) }}</span>
           <span v-else>{{ t('accountsPage.accountCardLabels.accountSynced') }}</span>
           <span :data-testid="`account-check-${account.id}`">{{ loginCheckLabel(account) }}</span>
@@ -125,6 +132,7 @@
 import { computed, nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { CircleCheck, Delete, EditPen, Monitor, Refresh, Setting, Star, StarFilled, UserFilled } from '@element-plus/icons-vue'
+import { isAccountActive } from '@/utils/account-active'
 
 const props = defineProps({
   account: { type: Object, required: true },
@@ -233,7 +241,9 @@ function accountStatusKind (account) {
   // 未确认：检测过但拿不到正向/负向结论（如视频号禁止 DOM 检测、HTTP 判定不确定）。
   // 不能落到 unknown，否则与「从未检测」共用一种视觉语义，掩盖检测发生过这一事实。
   if (status === 'unverified') return 'unverified'
-  if (status === 'inactive' || status === 'offline') return 'offline'
+  // 不含 inactive / offline：登录态词表只有三态，这两个值是历史上「启用态写进 status」
+  // 撞车写坏的脏值。此前它们被映射为「已登录」，等于把概念混用固化成契约 —— 现统一落到
+  // unknown（暂无检查记录）兜底，由用户重新检测一次得到诚实结论。
   if (status === 'error' || status === 'failed' || status === 'failure') return 'error'
   return 'unknown'
 }
@@ -246,7 +256,6 @@ function statusLabel (account) {
   const kind = accountStatusKind(account)
   if (kind === 'online') return t('accountsPage.accountCardLabels.statusLoggedIn')
   if (kind === 'expired') return t('accountsPage.accountCardLabels.statusExpired')
-  if (kind === 'offline') return t('accountsPage.accountCardLabels.statusLoggedIn')
   if (kind === 'error') return t('accountsPage.accountCardLabels.statusError')
   if (kind === 'unverified') return t('accountsPage.accountCardLabels.statusUnverified')
   return t('accountsPage.accountCardLabels.statusNoCheck')
@@ -306,6 +315,13 @@ function isIconUrl (value) {
 .account-card.is-selected {
   border-color: var(--primary, #5048e5);
   box-shadow: 0 0 0 2px rgba(80, 72, 229, 0.1);
+}
+
+.account-card.is-disabled {
+  border-style: dashed;
+  background: #fafafb;
+  filter: saturate(0.55);
+  opacity: 0.72;
 }
 
 .account-card.is-default::before {
@@ -419,7 +435,6 @@ function isIconUrl (value) {
 }
 
 .login-badge.online { background: #e7f7ef; color: #18794e; }
-.login-badge.offline { background: #f2f2f4; color: #777985; }
 .login-badge.expired { background: #fff1f0; color: #b42318; }
 .login-badge.error { background: #fff1f0; color: #b42318; }
 .login-badge.unverified { background: #fffaf0; color: #974706; }
@@ -522,6 +537,13 @@ function isIconUrl (value) {
   padding: 2px 6px;
   background: #eeecff;
   color: var(--primary, #5048e5);
+}
+
+.disabled-label {
+  border-radius: 4px;
+  padding: 2px 6px;
+  background: #f2f2f4;
+  color: #777985;
 }
 
 .account-actions {

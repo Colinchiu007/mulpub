@@ -266,7 +266,7 @@ function registerHandlers(ipcMain, deps) {
     //      「expired」只能被一次成功的主动检测、或重新登录并保存凭证清除，
     //      不再按 last_validated 的 2 小时窗口过期、也不再被「本地存在凭证文件」推翻
     //      （凭证文件存在 ≠ Cookie 有效，这正是视频号假阳性的来源）；
-    //   3) 后端无 status（历史数据缺字段）→ 回退 is_active 派生，is_active===false 记 inactive。
+    //   3) 后端无 status（历史数据缺字段）→ 兜底 unverified，绝不由 is_active 派生登录态。
     const backendStatus = LOGIN_STATUSES.indexOf(safeAccount.status) >= 0 ? safeAccount.status : 'absent'
     let effectiveStatus
     let statusSource
@@ -277,8 +277,11 @@ function registerHandlers(ipcMain, deps) {
       effectiveStatus = backendStatus
       statusSource = 'backend'
     } else {
-      effectiveStatus = safeAccount.is_active === false ? 'inactive' : 'active'
-      statusSource = 'derived-from-is-active'
+      // 启用态与登录态正交：is_active 只回答「能不能用于发布」，不能证明登录与否。
+      // 历史上这里把 is_active 派生成 active/inactive，既让「停用」被误显示成「未登录」，
+      // 又让后端的脏 status 被 is_active 掩盖，因此缺 status 一律降级为诚实的未知态。
+      effectiveStatus = 'unverified'
+      statusSource = 'absent-fallback'
     }
     ipcLog('info', 'account:status-derive',
       'id=' + safeAccount.id + ' platform=' + safeAccount.platform + ' name=' + (safeAccount.account_name || safeAccount.name || '?') + ' hasCred=' + hasCred + ' backendStatus=' + backendStatus +
@@ -706,6 +709,13 @@ function registerHandlers(ipcMain, deps) {
       return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e) }
     }
   }))
+
+  // 启用态写入通道单独成文件（./account-active.js）：它与登录态属于不同关注点，
+  // 而 account.js 已在行数挂账清单上（登记值 571，main 实测 728），继续往里堆会撞
+  // check-max-lines 的膨胀容差。这里只把本模块已有的上下文闭包注入进去，判定口径不复制第二份。
+  require('./account-active').registerAccountActiveHandler(ipcMain, {
+    AccountManager, getOwnerSubject, ipcLog, isSafePathSegment: _isSafePathSegment
+  })
 
   ipcMain.handle('account:list', withSenderCheck(async () => {
     const startedAt = Date.now()
