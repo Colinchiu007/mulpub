@@ -345,3 +345,36 @@ is_active: StrictBool | None = None   # 新增：账号是否启用发布；None
 - `CHANGELOG.md`：Added（`is_active` 可写 + 账号页停用显示 + 发布选择排除）、Fixed（批量启用/停用写错库、`is_active` 泄漏登录态、`offline` 误标「已登录」）。
 - `01-docs/UI-INVENTORY.md`：账号卡片新增停用标记、发布目标选择器新增禁用态。
 - 经验沉淀（三套记忆）：「双库分裂导致按钮装饰化」「词表撞车污染状态字段」「零消费者字段 = 死开关，接通写侧必须同时接通读侧」。
+
+---
+
+## 13. 门禁与并发合并处置（实施期追加，属本 PR 交付的一部分）
+
+本 PR 的生命周期跨越了 main 上三次并发合入，处置动作全部记录在此，供后续同类 PR 复用。
+
+### 13.1 同步 origin/main 的轮次与冲突
+
+| 轮次 | main 带来的内容 | 冲突与解法 |
+|---|---|---|
+| 1 | #2239 等 9 个提交（IPC 安全批次、两条新静态门禁） | `CHANGELOG.md` 头插冲突 → 条目并集（本 PR 置顶）；两处 preload bundle 自动合并结果与源码不一致 → 重跑 `node scripts/build-preload.js`（脚本在 `apps/desktop/` 下，不在仓库根） |
+| 2 | #2252（逐文件行数门禁）、#2262（缓存清理） | `electron/preload.test.js` 三处计数锁 → 按两侧并集重算 `api` 总键数 `318 + 2 = 320`（account 46 / system 147 / `SYSTEM_METHODS` 134），合并后重算 bundle 并核对同时含 `accountSetActive` 与 `accessLevelCache` |
+| 3 | #2249（emoji 收敛）、#2274（拆缓存卡片）、#2264/#2275 | `01-docs/learnings.md` 与 `CHANGELOG.md` 均为「两侧各自在文件头追加」→ 用 `git merge-file --union` 取并集；preload / ipc-handlers 两侧无交集，bundle 无需重算 |
+
+### 13.2 新债务门禁（`check-max-lines.js`，required check「债务熔断检查」）的两类红与处置
+
+该门禁有三类阻断（`NEW_OVER_LIMIT` / `STALE_LEDGER_ENTRY` / `LEDGER_GREW`），处置方式各不相同，必须先读报错类型再动手：
+
+| 报错类型 | 本 PR 遇到的实例 | 处置 | 明确禁止的做法 |
+|---|---|---|---|
+| `LEDGER_GREW` | `ipc-handlers/account.js` 登记 571，main 自身已漂移到 728，本 PR 顶到 775（总漂移 204 > 容差 200） | 把 43 行的 `account:set-active` 拆成兄弟模块 `ipc-handlers/account-active.js`（63 行），由 `account.js` 注入 `getOwnerSubject` / `ipcLog` / `_isSafePathSegment` 后注册 → 738 行，**不抬高任何挂账数字** | `--update` 把当前行数写回基线（会把上游 157 行漂移和自己的增长一起洗白） |
+| `NEW_OVER_LIMIT` / `STALE_LEDGER_ENTRY` | 第三轮同步后：`LogsSettings.vue` 已被上游 #2274 拆到 469 行，但那条 `598` 挂账因并发合入顺序没被一起删掉，main 上残留 → 门禁报「已不在扫描结果中，请 `--update` 清账」，且**卡住 main 之后每一个 PR** | 外科式删除该单键（`.github/scripts/max-lines-baseline.json` diff 严格 `-1/+0`，其余 99 条登记值逐字段核对不变）；再用 `scripts/check-debt-budget.js` 确认聚合指标未漂移 | 整份 `--update`（会把其它约 10 个存量文件的 < 200 行漂移固化为新基线）；或按本 PR 第一版做法「代登不改码」—— 上游 #2274 已把代登定性为第二次开门，正确解法是拆文件 |
+
+**归属判定两条命令**（区分「自己造成的」与「main 带来的」）：`git diff origin/main...HEAD -- <file>` 是否为空、`git show origin/main:<file>` 的真实行数（PowerShell 侧禁用 `| Measure-Object -Line`，行数不可信；用 node `execFileSync` + `split('\n').length`）。
+
+**处置结论要按「当前 main 的真实状态」重算，不能沿用上一轮的结论**：本 PR 对 `LogsSettings.vue` 的动作在同步第 2 轮时是「代登」，第 3 轮之后变成「删掉已还清的那条」——同一件事在两轮里的正确答案相反，因为 main 的事实变了（文件被上游拆小、挂账变僵尸）。
+
+### 13.3 顺带解除的阻塞
+
+「债务熔断检查」是 required status check，而 `debt-guard.yml` 只在 `pull_request` / `workflow_dispatch` 触发（push 到 main 不跑），所以 main 可以长期带着这条红无声无息、由下一个 PR 撞上。本 PR 清掉该条 stale 挂账后：`超限文件=99 挂账=99` PASS，`check-max-lines.test.js` 8 passed，聚合指标 `filesOver500 99/99`、`filesOver1000 33/33`、`maxFileLines 5657/5657`、`circularDeps 0/0` 全部持平。
+
+另记：`electron/services/story2video-manual-assets.test.js` 的「auto 不插入 finalize_assets」一例在 **origin/main 上即为红**（在 `89682d9ed4` 干净检出复现，与本 PR 改动无交集：`startOrchestrated` 在同一 engine 上第二次启动返回 `success:false`）。桌面全量 vitest 在 PR 事件下被 `if: github.event_name != 'pull_request'` 跳过，故该红不阻断本 PR，登记为上游待办，本 PR 不夹带修复。
