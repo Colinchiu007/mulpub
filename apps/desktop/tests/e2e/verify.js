@@ -16,7 +16,7 @@ const { FunctionalRunner } = require('./helpers/functional-runner');
   const methodCounts = await r.getIpcCalls(null);
   console.log('Method counts:', JSON.stringify(r.getIpcCalls ? r.getIpcCalls.length : 'na'));
   // 验证关键 IPC 被调用
-  for (const m of ['licenseInfo', 'accountList', 'getVersion', 'storeGetPublishStats']) {
+  for (const m of ['licenseInfo', 'accountList', 'getVersion', 'dashboardStats']) {
     const count = await r.getIpcCalls(m);
     console.log('  ' + m + ': ' + count);
   }

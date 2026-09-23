@@ -135,8 +135,8 @@ async function exerciseHome(r) {
   // 首页已复刻为参考产品风格 .mp-home 布局，旧版 .cohere-main 选择器已不存在。
   const cards = r.page.locator('.mp-home .mp-home-shortcut');
   record(r, '首页显示功能入口', await cards.count() > 0, { count: await cards.count() });
-  await expectIpc(r, 'storeGetPublishStats', '首页加载发布统计');
-  await expectIpc(r, 'storeListAccounts', '首页加载账号');
+  await expectIpc(r, 'dashboardStats', '首页加载发布统计（与数据看板同源 publish-history）');
+  await expectIpc(r, 'listAccounts', '首页加载账号（与账号页同源 AccountManager）');
   await expectIpc(r, 'historyList', '首页加载近期动态');
 }
 
