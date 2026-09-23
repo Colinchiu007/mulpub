@@ -71,14 +71,14 @@
   - ↑ 上移一位（`ArrowUp` 图标）
   - ↓ 下移一位（`ArrowDown` 图标）
   - ⤓ 移到末位（`Bottom` 图标）
-- 首行禁用「移到首位/上移」，末行禁用「移到末位/下移」（`:disabled`，按钮置灰）。
+- 首行禁用「移到首位/上移」，末行禁用「移到末位/下移」（`:disabled`，按钮置灰）。边界以**当前可见序列**为准；任意分类筛选/含隐藏开关下按钮均可用（所见即所得，见 §4.5，初版灰显锁 sortLocked 已移除）。
 - 页面说明文字追加：排序决定桌面端「全部」标签的展示次序（拼音序为未自定义时的默认），调整后桌面端需同步（重启或手动同步）才生效。
 
 ### 4.2 排序语义与 API
 
-- 排序对象是**全局列表**（与 AppMenu 不同，不分类别组）：服务端以「当前列表显示顺序」为基准做移动。显示顺序 = `ORDER BY sort_order IS NULL, sort_order ASC, name ASC`（与桌面端「全部」Tab 规则一致，NULLS LAST + 拼音兜底由 Python 侧以名称自然序近似，SQL 层用 `name` 兜底）。
+- 排序对象是**所见即所得的当前可见序列**（2026-09-23 refinement 后语义，初版为「全局列表 + 筛选视图灰显锁」，见 §4.5；与 AppMenu 不同，不分类别组）：服务端以「当前列表显示顺序」为基准做移动。显示顺序 = `ORDER BY sort_order IS NULL, sort_order ASC, name ASC`（与桌面端「全部」Tab 规则一致，NULLS LAST + 拼音兜底由 Python 侧以名称自然序近似，SQL 层用 `name` 兜底）。
 - 新增端点：`POST /api/v1/model-presets/{preset_id}/reorder`（**admin-only**，`require_admin`）。
-  - 请求体：`{ "action": "top" | "up" | "down" | "bottom" }`
+  - 请求体：`{ "action": "top" | "up" | "down" | "bottom", "visible_ids": [id, ...]? }`（`visible_ids` 为前端当前可见/筛选序列按显示序的 id 列表，可选；语义见 §4.5）
   - 校验：`preset_id` 不存在 → 404；action 不在枚举内 → 400；
   - 处理：取全量预设（含隐藏）按上述显示序排成列表 → 将目标行移动到对应位置 → 全列表归一化 `sort_order = 0..n-1`（一次事务批量 UPDATE，含原本 NULL 的行也一并赋值？——**否**：仅对「参与过排序」的语义做最小扰动，采用简单方案：移动后整个可见列表归一化赋值 0..n-1，即一次 reorder 后所有预设都获得显式 sort_order。这是可接受的：用户一旦开始排序，列表即为权威顺序。）
   - 响应：`{ "presets": [...], "count": n }`（同 GET 列表结构，前端直接刷新表格）。
@@ -94,6 +94,18 @@
 ### 4.4 catalog 契约扩展
 
 `_to_catalog_item` 新增字段 `"sort_order": row.sort_order`（int 或 null）。桌面端 `applyCatalog` 将其写入 provider `config.sort_order`；null/缺失时删除该键（目录权威，运营清空排序后桌面端回退拼音序）。
+
+### 4.5 Refinement（2026-09-23）：所见即所得排序作用域
+
+用户报告缺陷：初版实现的灰显锁 `sortLocked = Boolean(filterCategory) || !includeHidden` 在默认视图（`includeHidden` 默认关闭）下恒为真，4 个排序按钮进入页面即全部灰显不可用。修复为「所见即所得」语义：
+
+- 请求携带 `visible_ids`（前端当前可见/筛选序列，按显示序）时：服务端只在「可见行原本占据的顺序槽」内移动目标行（slots = 全量显示序中可见行的位置集合，在槽位集合内 pop/insert 后原位写回），序列外行（隐藏项、其它类别）**绝对位置不变**；
+- `visible_ids` 缺省（None）时退化为全量列表内移动（向后兼容旧调用）；传**空列表**视为空作用域，一律 not-found → 404（CodeReview 修复：不得因真值判断误落全量分支静默改写全表顺序）；
+- 目标 id 不在作用域内 → 404（fail closed，杜绝「点了没变化」的错位写入）；`visible_ids` 非数组 → 400；
+- 两种模式移动后仍对全列表 `sort_order` 归一化 0..n-1（首次排序物化 NULL）；
+- 前端 `reorderModelPreset(id, action, visibleIds)` 提交 `presets.value.map(p => p.id)`；删除 sortLocked computed、灰显 title 与警告文案，按钮 `:disabled` 仅保留可见序列首末行边界与 busy 态；
+- 前端表格 `presets` 直绑服务端列表结果且无客户端排序/分页，`$index` 与服务端槽位序一致；服务端以自身 `_display_order()` 重取交集为准（忽略前端传入顺序），天然防篡改。
+- 回归测试（`test_model_presets_api.py`）：不连续可见序列 `[0,2,3]` 判别槽位置换语义（作用域外行绝对位置不动）、序列内边界 noop、目标越界 404、空序列 404。
 
 ## 5. applyCatalog 的 updated_at 污染修复（关键前置）
 

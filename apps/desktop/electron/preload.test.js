@@ -655,11 +655,11 @@ describe('子模块 require 链可加载', () => {
 })
 
 describe('影视工程 film-engineering preload API', () => {
-  it('createFilmEngineeringApi 应为函数且返回 11 个方法', () => {
+  it('createFilmEngineeringApi 应为函数且返回 16 个方法', () => {
     const { createFilmEngineeringApi } = require('./preload/film-engineering')
     expect(typeof createFilmEngineeringApi).toBe('function')
     const api = createFilmEngineeringApi(ipcRenderer)
-    expect(Object.keys(api.filmEngineering).length).toBe(11)
+    expect(Object.keys(api.filmEngineering).length).toBe(16)
   })
 
   it.each([
@@ -674,6 +674,10 @@ describe('影视工程 film-engineering preload API', () => {
     ['exportPrompts', 'film-engineering:export', [[{ shotId: 's1', prompt: 'p' }], 'markdown']],
     ['generateSelected', 'film-engineering:generate-selected', [[{ shotId: 's1', prompt: 'p' }], { aspectRatio: '16:9' }]],
     ['retryShot', 'film-engineering:retry-shot', [{ runId: 'run-1', shotIndex: 0 }]],
+    ['downloadRecycled', 'film-engineering:download-recycled', [{ taskId: 't1', items: [{ shotId: 's1', orderIndex: 0 }] }]],
+    ['productionPlan', 'film-engineering:production-plan', [{ shotIds: ['s1'] }]],
+    ['productionRunBatch', 'film-engineering:production-run-batch', [{ taskId: 't1', shotIds: ['s1'], batchIndex: 0 }]],
+    ['productionStatus', 'film-engineering:production-status', [{ taskId: 't1', shotIds: ['s1'] }]],
   ])('%s() 应转发到 invoke("%s")', (method, channel, args) => {
     const { createFilmEngineeringApi } = require('./preload/film-engineering')
     ipcRenderer.invoke.mockClear()

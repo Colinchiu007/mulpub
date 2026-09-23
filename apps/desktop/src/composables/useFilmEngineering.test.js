@@ -12,10 +12,15 @@ function installMockApi () {
       { id: 'scene-1', name: '废墟街道', count: 3, parentId: null, level: 0, shotCount: 2 },
       { id: 'scene-2', name: '博物馆', count: 2, parentId: null, level: 0, shotCount: 1 },
     ] })),
-    listShots: vi.fn(async (sceneId) => ({ code: 0, data: [
-      { shotId: 'shot-1', sceneId, prompt: 'EXACT 3 CHARACTERS — NO DUPLICATES\n...', model: 'seedance_2_0', refTokens: ['t-1'], width: 1920, height: 1080 },
-      { shotId: 'shot-2', sceneId, prompt: 'GEO SPATIAL LAYOUT\n...', model: 'seedance_2_0', refTokens: [], width: null, height: null },
-    ] })),
+    listShots: vi.fn(async (sceneId, pageOpts) => {
+      const all = [
+        { shotId: 'shot-1', sceneId, prompt: 'EXACT 3 CHARACTERS — NO DUPLICATES\n...', model: 'seedance_2_0', refTokens: ['t-1'], width: 1920, height: 1080 },
+        { shotId: 'shot-2', sceneId, prompt: 'GEO SPATIAL LAYOUT\n...', model: 'seedance_2_0', refTokens: [], width: null, height: null },
+      ]
+      if (!pageOpts) return { code: 0, data: all }
+      const o = pageOpts.offset || 0
+      return { code: 0, data: { shots: all.slice(o, o + (pageOpts.limit || 100)), total: all.length, limit: pageOpts.limit, offset: o } }
+    }),
     getShot: vi.fn(async (shotId) => ({ code: 0, data: { shotId, prompt: 'full', resolvedRefs: [{ token: 't-1', entry: { kind: 'character', name: 'REIN', imageUrls: ['https://cdn.example.com/rein.png'] } }] } })),
     doctrine: vi.fn(async () => ({ code: 0, data: { blocks: [{ key: 'scene_context', label: 'SCENE CONTEXT' }], rules: [], glossary: [] } })),
     copyText: vi.fn(async (shotId, mode) => ({ code: 0, data: { text: 'copied-' + mode, mode } })),
@@ -80,7 +85,7 @@ describe('useFilmEngineering', () => {
     await c.loadScenes()
     expect(c.scenes.value.length).toBe(2)
     expect(c.selectedSceneId.value).toBe('scene-1')
-    expect(api.listShots).toHaveBeenCalledWith('scene-1')
+    expect(api.listShots).toHaveBeenCalledWith('scene-1', { limit: 100, offset: 0 })
     expect(c.shots.value.length).toBe(2)
   })
 
@@ -222,3 +227,84 @@ describe('useFilmEngineering', () => {
     expect(api.story2videoConfigProfileCreate).toHaveBeenCalledWith(expect.objectContaining({ pipelineId: 'film-engineering' }))
   })
 })
+
+describe('useFilmEngineering pagination (4.3)', () => {
+  function stubWindow (api) {
+    vi.stubGlobal('window', {
+      electronAPI: { filmEngineering: api },
+      navigator: { clipboard: { writeText: vi.fn(async () => undefined) } },
+    })
+  }
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('selectScene 分页拉取：页封装响应填充 shots/shotsTotal/shotsHasMore', async () => {
+    const api = installMockApi()
+    api.listShots = vi.fn(async (sceneId, pageOpts) => ({ code: 0, data: {
+      shots: [{ shotId: 's-a', sceneId, prompt: 'p', model: 'm', refTokens: [] }],
+      total: 150, limit: pageOpts.limit, offset: pageOpts.offset,
+    } }))
+    stubWindow(api)
+    const c = useFilmEngineering()
+    await c.selectScene('scene-1')
+    expect(api.listShots).toHaveBeenCalledWith('scene-1', { limit: 100, offset: 0 })
+    expect(c.shots.value.length).toBe(1)
+    expect(c.shotsTotal.value).toBe(150)
+    expect(c.shotsOffset.value).toBe(1)
+    expect(c.shotsHasMore.value).toBe(true)
+  })
+
+  it('loadMoreShots 追加下一页并推进 offset；hasMore=false 后不再请求', async () => {
+    const api = installMockApi()
+    const pool = Array.from({ length: 150 }, (_, i) => ({ shotId: 's-' + i, sceneId: 'scene-1', prompt: 'p', model: 'm', refTokens: [] }))
+    api.listShots = vi.fn(async (sceneId, pageOpts) => ({ code: 0, data: {
+      shots: pool.slice(pageOpts.offset, pageOpts.offset + pageOpts.limit),
+      total: pool.length, limit: pageOpts.limit, offset: pageOpts.offset,
+    } }))
+    stubWindow(api)
+    const c = useFilmEngineering()
+    await c.selectScene('scene-1')
+    expect(c.shots.value.length).toBe(100)
+    expect(c.shotsHasMore.value).toBe(true)
+    await c.loadMoreShots()
+    expect(c.shots.value.length).toBe(150)
+    expect(c.shotsHasMore.value).toBe(false)
+    const calls = api.listShots.mock.calls.length
+    await c.loadMoreShots()
+    expect(api.listShots.mock.calls.length).toBe(calls)
+  })
+
+  it('loadMoreShots 竞态防护：切场景后迟到的页丢弃', async () => {
+    const api = installMockApi()
+    let release = null
+    api.listShots = vi.fn(async (sceneId, pageOpts) => {
+      const shots = [{ shotId: sceneId + '@' + pageOpts.offset, sceneId, prompt: 'p', model: 'm', refTokens: [] }]
+      if (pageOpts.offset > 0) {
+        await new Promise((res) => { release = res })
+      }
+      return { code: 0, data: { shots, total: 150, limit: pageOpts.limit, offset: pageOpts.offset } }
+    })
+    stubWindow(api)
+    const c = useFilmEngineering()
+    await c.selectScene('scene-1')
+    const pending = c.loadMoreShots()
+    await c.selectScene('scene-2')
+    expect(release).toBeTruthy()
+    release()
+    await pending
+    expect(c.shots.value.every((s) => s.sceneId === 'scene-2')).toBe(true)
+    expect(c.shots.value.length).toBe(1)
+  })
+
+  it('防御兼容：数组形态响应（旧全量负载）按单页处理', async () => {
+    const api = installMockApi()
+    api.listShots = vi.fn(async (sceneId) => ({ code: 0, data: [
+      { shotId: 'x1', sceneId, prompt: 'p', model: 'm', refTokens: [] },
+    ] }))
+    stubWindow(api)
+    const c = useFilmEngineering()
+    await c.selectScene('scene-1')
+    expect(c.shots.value.length).toBe(1)
+    expect(c.shotsHasMore.value).toBe(false)
+  })
+})
+

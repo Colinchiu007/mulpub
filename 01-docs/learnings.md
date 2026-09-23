@@ -1,3 +1,23 @@
+## 视频发布链路 E2E：磁盘写满是上传失败的真凶 + 落盘工程文案恢复 + Windows git schannel 绕过（hot-topics-video-publish-e2e，2026-09-23）
+
+- **根因（pitfall，最高优先）**：CDP E2E 跑「热门选题→生成视频→发布」时，bilibili 上传报 `<BccUpload> Cannot read properties of undefined (reading 'upload')` + "No available adapters"，douyin 卡 "waiting upload" 15 分钟不收敛、publish timeout 后整轮重启。逐层排查发现**真正根因是 D 盘写满（仅剩 70MB）**：Electron/Chromium 磁盘缓存无法落盘导致上传组件初始化失败、大文件（58-108MB）读取/seek 受阻。回收空间（删除历史孤儿 `-profile` userData 目录，运行中 app 用 shared-user-data 不在此列）+ 用 ffmpeg 转 720p/CRF30 把成片压到 5.6-9.8MB 后，上传秒级完成、进入正常发布。教训：RPA「publish btn not found / 上传永不完成」先量磁盘余量与产物体积，别急着改选择器。
+- **git schannel 绕过（pattern，Windows）**：`git push` 报 `schannel: failed to receive handshake, SSL/TLS connection failed`，而 Node `https.get('https://github.com')` 返回 200——即 git 的 Windows 原生 schannel 后端握手失败但 OpenSSL 可达。用内联 `-c http.schannelCheckRevoke=false` 单次覆盖（**不写持久 config**，遵守「不改 git config」铁律）即推送成功。诊断链：先 node https 探连通→再 git `-c` 绕吊销→`rev-list --left-right --count` 判落后→`merge-tree --write-tree` rc≠0 预演冲突。
+- **文案恢复契约（pattern）**：应用重启后 pipeline 内存历史清零，唯一事实源是落盘 `project.json`。其 `title` 字段实为正文前 200 字、真正的引擎 slug 藏在 `segments[].subtitleSource`；旧 `pickTitle()`「key 含 title 即取值」的宽松启发式会把 `smart-sentence-splitter` 当发布标题。正解：`isHumanTitle`（含 CJK 或「含空格+3 连续字母」才合法，拒 slug）+ `readProjectCaption`（正文 sourceText > segments 拼接 > 正文派生标题；标题 显式 topicTitle > 非正文前缀的 manifest.title > 派生）。负例断言固化为不变式。
+- **热门选题标题唯一匹配（pattern）**：一条成片对应一行热门选题，用二元字组（bigram）重合度对「恢复正文 × DOM 选题标题」打分并贪心分配（阈值 0.35，一条 run 只占一行），避免多条抢同一热门选题、且发布标题与平台展示文案一致。
+- **发布判定分层（pitfall）**：`AUTH_REQUIRED code:-3` 有两源——app 级 identity 未登录（`identityGetState().status==='signed_out'`，本轮磁盘满期间 identity-session.json 被 `_bestEffortClear()` 删除，恢复备份后回 `authenticated`）vs 平台账号 cookie 过期（baijiahao/wechat_mp，需用户重登，代码不可修）。kuaishou 属 STRICT_PUBLISH_ID 平台且 `cfgHasApi=false`，命中 `article/publish/video` 端点却因取不到作品 ID 被判失败——发布按钮/成功 ID 检测是这类平台 RPA 的收敛点，不等同于发布未发生。
+- **虚假交付防护（延续既有纪律）**：文档交付前重读文件、按稳定锚点复核；行级手术脚本先归一 LF 再处理并保留 CRLF；PowerShell 变量/管道符（`$p`/`$_`/`&&`/尾随 `&` 触发 `>>` 续行）在本终端会被吞，改 .js 脚本或前台大 timeout 执行并以产物时间戳核实。
+
+---
+
+## 真实冒烟是 mock 测试的照妖镜：manifest 直通三缺口与引擎闸放宽合同（film-full-corpus-production，2026-09-23）
+
+- **现象（pitfall）**：组 8 前端/mock 集成测试 614 用例全绿，但 9.3 真实主进程 compose 冒烟在 load_template 阶段即 fail——前四阶段执行器只认 kitDir/selectedShots，不认 renderManifest；generate_videos 直通后引擎仍按 checkpointRequired 暂停成本闸；render manifest 模式全新 runId 目录不存在 writeConcatList ENOENT。三个缺口全部逃过 mock 层（mock stageExecutor 直接返回成功，不经真实 PIPELINES 编排）。
+- **修复模式（pattern）**：直通分支一律"非空数组才直通 + fail-closed 负锚保留"（无 manifest 无选择仍拒绝），直通输出带 `passthrough:true, manifestMode:true` 可审计；引擎暂停条件从 truthy 改为显式哨兵——executor 返回 `checkpoint:false` 才跳过闸（`normalizedResult.checkpoint !== false`），缺省/truthy 行为不变，13 条既有流水线零影响，并配"正常流仍在成本闸 paused"回归锚。
+- **可推广结论**：任何"绕过既有闸/检查"的直通设计，优先用**显式 false 哨兵**而不是删检查或加布尔开关透传；放宽条件的 PR 必须同时带负锚测试。涉及多阶段编排的功能，mock 集成测试收口前必须补一次真实链路（真实 provider 或真实 ffmpeg/HTTP 至少一项）冒烟，把编排层、目录布局、闸策略全部过一遍。
+- **IPC 事件负载纪律（pattern）**：高频进度事件（逐镜）经固定窗口节流（EVENT_MERGE_MS=500 取最新计数、doneCount 单调不回退），负载只带计数/索引不带 ID 数组，并写守卫断言——防大 kit 规模（6,558 镜）下 IPC 序列化膨胀。
+- **断点续跑事实源（pattern）**：台账记录意图，磁盘产物记录事实；resume 用 probe(runId) 复算 missing 清单，不信任乐观状态。runId 确定性派生（`prod-<taskId>-b<idx>`）是两者能对齐的前提。
+- **对账口径教训（pitfall）**：语料取证用 prompt 前缀 500 字符截断去重得 2,795，完整规范化 SHA1 实为 6,500——去重键的截断策略直接决定数量级结论；统计口径与导入口径必须同一函数实现（dry-run 与 build 同源），并在正式导入前对账。
+- **工程环境（pitfall，Windows/agent）**：SearchReplace/Write 对 workspace 外 worktree 文件报 45405，一律 staging 编辑 + Copy-Item 落盘，勾选 worktree tasks.md 用 node 字符串替换脚本；后台 Bash 命令可能卡在 PowerShell `>>` 续行提示实际未执行（本会话两次），长命令用前台大 timeout 并以产物时间戳核实；`@electron/asar` 的 `extractFile` API 对 152MB 生产包误报 not found，asar 内容验证改走 `pnpm exec asar extract` CLI 到 temp 再直读。
 ## CI-only 测试超时：全局 testTimeout 与插桩/满载放大叠加的坑（fix-main-ci-red，2026-09-21）
 
 - **背景**：main 两个 CI 红灯均为「本地绿、CI 红」的超时类失败：① `pixel-diff-baseline-guard.test.js`「现存全部真实基线均通过守卫」在 QG Coverage job（v8 插桩）下超全局 10s testTimeout（本地无插桩实测 ~2.2s，21 个基线 PNG 共 3.3MB 逐个解码）；② `logger.test.js`「appendFile 回调永不触发时写队列超时兜底」在 Desktop shard 满载下 1s 固定重试窗不够。
@@ -15299,3 +15319,25 @@ Bug 修复走完整 QM-5（根因溯源 / 逃逸链 / 系统性漏洞 / 修复+�
 
 - **合并后定向复验的「文件集合」必须从合并 diff 推出，而不是从本 PR 的工作清单推出（merge-verification-scope）**：本次本地按「本 PR 触及的 8 个测试文件」全绿后推送，CI 却红 4 项——唯一失败文件是**对方 PR 随合并新增**的 `account-batch-check.test.js`，它断言的正是被我方语义改掉的超时口径。判据：合并后至少跑一次全量；若只能定向，则文件集 = 两侧改动测试文件的并集 ∪ 所有状态为 `A` 的新增测试文件 ∪ 这些文件所测实现的调用方。
 - **收敛口径到已择一的契约时，标题与文档注释要一起改（semantic-drift-in-test-names）**：`超过硬超时计入失效` 这类标题本身就是错误语义的载体，只改断言不改标题，下一个读者会被标题误导回旧口径；同时借机把该文件此前缺失的固化断言（`persistLoginState` 被以 `unverified` 调用、`persisted.ok`）补上，使「收敛」不等于「放松」。
+
+
+## model-sort-visible-2026-09-23：预设模型排序「所见即所得」refinement，灰显锁死修复（分支 codex/model-sort-visible，PR#2246）
+
+### 需求
+用户报告 PR#2232 交付的运营中心 4 图标排序按钮默认视图全部灰显（提示「排序功能用于全量列表，请先清除分类筛选并开启含隐藏项」），功能实际不可用。经 AskUserQuestion 选定「所见即所得·根治」：reorder 只在当前可见序列内重排，彻底去掉灰显。
+
+### 可复用结论
+
+- **CodeReview 的防御措施本身要过可用性验收（pitfall）**：#2232 为防「筛选视图 $index 与全量下标错位」引入 `sortLocked = Boolean(filterCategory) || !includeHidden`，而 `includeHidden` 默认 false → 锁在默认视图恒真，把刚交付的功能整体锁死。判据：任何「条件禁用」的防护，验收必须覆盖**页面默认状态**下主操作可用；防护的禁用条件与控件默认值组合要在测试矩阵里出现，不能只测「开关打开后行为正确」。
+- **错位类缺陷的根治是作用域化语义，不是禁用（pattern）**：所见即所得 reorder = 服务端按自身 `_display_order()` 取全量 rows → `slots` = 可见行在 rows 中的位置集合 → 在 `vis = rows[slots]` 内 pop/insert → 写回 `rows[slots[k]]`。序列外行绝对位置不变；服务端重取交集、忽略前端传入顺序，天然防篡改；移动后仍全列表归一化 0..n-1。前端只需提交 `visible_ids = presets.value.map(p => p.id)`。
+- **判别用例必须能区分新旧实现（pattern，TDD）**：前缀切片 `ids_all[:3]` 使槽位==绝对下标，新旧实现结果相同，测试形同虚设；改用**不连续可见序列 `[0,2,3]`** 并断言作用域外行 `ids_all[1]` 绝对位置不变，旧全量实现必红。写回归测试时先问「旧代码能过这条吗」，过则无判别力。
+- **可选集合参数用 `is not None` 而非真值判断（pitfall，CodeReview MINOR）**：`if visible_ids:` 使 `[]`（空作用域）误落「缺省→全量重排」分支，静默改写全表顺序，违背 fail-closed。哨兵语义：None=缺省、[]=空作用域（一律 not-found→404），必须各配一条判别测试。
+- **worktree add 假成功的识别与降级（pitfall）**：报 exit 0 且打出 checkout 提示，但 `git worktree list` 无条目、路径不存在（分支 ref 却已创建）——属半失效。修复路径：确认分支 ref 落点后，**复用**一个依赖已就绪的既有 worktree 直接 `git checkout <branch>`，并用「写文件再 Read」验证 HEAD/branch/ancestor/dirty 四项，不信任终端回显。
+- **本会话终端三大陷阱（tooling）**：① PowerShell `>` 重定向产出 UTF-16LE 文件，node/Read 读回乱码——结果核验用 node `readFileSync(utf16le)` 双编码探测或直接 stdout；② 长命令行经 Bash 工具转后台会卡在 `>>` 续行提示**根本没执行**（文件不生成即信号）——长命令一律落成 .ps1 用 `powershell -File` 执行；③ 输出归因失败/截断常态化，git/pytest/gh 结论必须以回读文件为准。
+- **Qoder 编辑工具跨 workspace 边界（pattern 沿用）**：worktree 文件读写继续用 msort-patch.js（Node 补丁执行器：find 唯一性计数 + CRLF 归一）+ spec.js；spec 中含反引号的模板串用 `BT` 变量拼接，中文内容经 .md staging 不受损。
+
+### 逃逸链与堵口
+单元测试（后端 reorder 只测全量语义）→ 集成（前端无组件级 disabled 断言）→ 人工验收（只在含隐藏项开启路径下点过按钮）。堵口：4 条判别用例（不连续序列槽位置换 / 序列内 noop / 越界 404 / 空序列 404）进 `test_model_presets_api.py`，PRD §4.5 固化「默认视图可用」为验收标准。
+
+### 本次交付
+3 commits（9ef12de13 实现 / d347deba9 评审修复 / f10d9fc02 文档）；ops-center 后端全量 pytest 414 passed、前端 build exit 0；CodeReview 无 CRITICAL/MAJOR；PR#2246 auto-merge squash。桌面端零改动（applyCatalog 只消费最终 sort_order）。

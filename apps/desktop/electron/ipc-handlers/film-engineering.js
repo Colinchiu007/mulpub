@@ -14,19 +14,96 @@
  *   film-engineering:adapt-script        (script, characterMap, llmEnabled?)
  *   film-engineering:export              (selectedShots, format)
  *   film-engineering:generate-selected   (selectedShots, opts)
+ *   film-engineering:download-recycled   ({ taskId, items: [{ shotId, orderIndex }] })
+ *   film-engineering:production-plan     ({ shotIds })
+ *   film-engineering:production-run-batch ({ taskId, shotIds, batchIndex, aspect?, seconds? })
+ *   film-engineering:production-status   ({ taskId, shotIds })
+ *   事件推送 film-engineering:production-update（runProduction emit → sender.send，节流后计数负载）
  */
 
 const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('./helpers')
 const fs = require('fs')
+const path = require('path')
 const {
   generateShotVideo, resolveFilmVideoProvider, getFilmRunDir, FILM_ASPECTS, FILM_DURATIONS,
 } = require('../services/film-engineering/video-gen')
+const { downloadShot } = require('../services/film-engineering/shot-downloader')
+const { getFilmMediaRoot } = require('../services/film-engineering/film-render')
+const {
+  runProduction, planBatches, loadLedger, resolveResumePlan, buildRenderManifest, shotFileName, PRODUCTION_BATCH_SIZE,
+} = require('../services/film-engineering/production-driver')
 
 const MAX_SCRIPT_LENGTH = 10000
 const MAX_CHARACTER_MAP_KEYS = 10
 const MAX_SHOTS_ARRAY = 50
 const MAX_GENERATE_BATCH = 20
+const MAX_RECYCLE_BATCH = 50
+const RECYCLE_CONCURRENCY = 4
+const MAX_PRODUCTION_SHOTS = 1000
+const PRODUCTION_BATCH_CONCURRENCY = 2
+// 计划预览估算口径（design Risks：POC 实测单镜 4.5-8.5MB 取上限；并发 2、单镜均值 ~10min）
+const DISK_ESTIMATE_BYTES_PER_SHOT = 8 * 1024 * 1024
+const WALLCLOCK_SECONDS_PER_SHOT = 300
+
+/** 磁盘信物复核默认实现（D6）：runDir 下 shot_NNN.mp4 存在性，missing 为批内索引 */
+function defaultFilmProbe (runId, count) {
+  const dir = getFilmRunDir(runId)
+  const missing = []
+  for (let i = 0; i < count; i++) {
+    if (!fs.existsSync(path.join(dir, shotFileName(i)))) missing.push(i)
+  }
+  return { missing }
+}
+
+/**
+ * 真实批次执行（任务 7.2）：逐镜 getShot 取原文 prompt → generateShotVideo 子跑
+ * （提交→轮询→下载落 runDir/shot_NNN.mp4），批内并发 2（design 墙钟口径）；
+ * 单镜失败经 onShotProgress 上报，批收口由 driver 磁盘复核裁决（不信自报）。
+ */
+async function runBatchViaVideoGen ({ batch, service, aiGenerator, aspect, seconds, log, deps, onShotProgress }) {
+  const providerCfg = resolveFilmVideoProvider(aiGenerator)
+  if (!providerCfg) throw new Error('VIDEO_MODEL_NOT_CONFIGURED: 影视工程批量出片需要视频模型，请在模型设置中配置并设为默认视频 Provider 后重试')
+  const runDir = getFilmRunDir(batch.runId)
+  try { fs.mkdirSync(runDir, { recursive: true }) } catch { /* 目录已存在，忽略 */ }
+  const gen = deps._testGenerateShotVideo || generateShotVideo
+  const queue = batch.shotIds.map((shotId, i) => ({ shotId, i }))
+  const worker = async () => {
+    while (queue.length > 0) {
+      const job = queue.shift()
+      if (!job) return
+      let shot = null
+      try { shot = service.getShot(job.shotId) } catch { /* 视为该镜失败 */ }
+      if (!shot || typeof shot.prompt !== 'string' || !shot.prompt.trim()) {
+        onShotProgress(job.i, 'failed')
+        continue
+      }
+      const r = await gen({
+        shot: { ...shot, shotId: job.shotId }, index: job.i, runDir, aspect, seconds,
+        providerCfg, sleep: deps._testSleep, download: deps._testDownload, log,
+      })
+      onShotProgress(job.i, r && r.success ? 'done' : 'failed')
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(PRODUCTION_BATCH_CONCURRENCY, batch.shotIds.length) }, worker))
+}
+
+function validateProductionArgs (EC, params) {
+  const taskId = params.taskId
+  if (typeof taskId !== 'string' || !taskId.trim() || taskId !== path.basename(taskId)) {
+    return { code: EC.VALIDATION_ERROR, message: 'taskId 必须为非空且路径安全的字符串' }
+  }
+  const shotIds = params.shotIds
+  if (!Array.isArray(shotIds) || shotIds.length === 0 || shotIds.length > MAX_PRODUCTION_SHOTS) {
+    return { code: EC.VALIDATION_ERROR, message: 'shotIds 必须为 1-' + MAX_PRODUCTION_SHOTS + ' 项的数组' }
+  }
+  for (const id of shotIds) {
+    if (typeof id !== 'string' || !id.trim()) {
+      return { code: EC.VALIDATION_ERROR, message: 'shotIds 含非法分镜 id' }
+    }
+  }
+  return null
+}
 
 function registerHandlers (ipcMain, deps) {
   const log = deps.log || { info () {}, warn () {}, error () {} }
@@ -61,11 +138,23 @@ function registerHandlers (ipcMain, deps) {
 
   ipcMain.handle('film-engineering:list-scenes', withSenderCheck(withKit(() => service.listScenes())))
 
-  ipcMain.handle('film-engineering:list-shots', withSenderCheck(withKit((_e, sceneId) => {
+  ipcMain.handle('film-engineering:list-shots', withSenderCheck(withKit((_e, sceneId, pageOpts) => {
     if (typeof sceneId !== 'string' || !sceneId.trim()) {
       throw Object.assign(new Error('sceneId 必须为非空字符串'), { code: EC.VALIDATION_ERROR })
     }
-    return service.listShots(sceneId)
+    // 分页参数负载守卫（任务 4.2）：必须是纯对象；limit/offset 必须是整数（或省略）。
+    if (pageOpts !== undefined && pageOpts !== null) {
+      if (typeof pageOpts !== 'object' || Array.isArray(pageOpts)) {
+        throw Object.assign(new Error('分页参数必须为对象 {limit, offset}'), { code: EC.VALIDATION_ERROR })
+      }
+      for (const key of ['limit', 'offset']) {
+        const v = pageOpts[key]
+        if (v !== undefined && v !== null && !Number.isInteger(v)) {
+          throw Object.assign(new Error('分页参数 ' + key + ' 必须为整数'), { code: EC.VALIDATION_ERROR })
+        }
+      }
+    }
+    return service.listShots(sceneId, pageOpts)
   })))
 
   ipcMain.handle('film-engineering:get-shot', withSenderCheck(withKit((_e, shotId) => {
@@ -224,6 +313,184 @@ function registerHandlers (ipcMain, deps) {
     }
     return { code: 0, data: { index: shotIndex, shotId: result.shotId, success: true, path: result.path } }
   }))
+
+// L3 原片回收下载（D7/任务 6.2）：显式触发、零自动预取；URL 一律取 kit resultUrl
+  // （renderer 传入的 url 字段忽略），allowedHosts 取 kit manifest；落盘受控媒体根
+  // production/<taskId>/recycled/shot_NNN.mp4，条目可直接进 renderManifest（组 5 合同）。
+  // 单项失败隔离不中断批次；并发上限 4（D7）。
+  ipcMain.handle('film-engineering:download-recycled', withSenderCheck(async (_event, payload) => {
+    const params = payload || {}
+    const taskId = params.taskId
+    if (typeof taskId !== 'string' || !taskId.trim() || taskId !== path.basename(taskId)) {
+      return { code: EC.VALIDATION_ERROR, message: 'taskId 必须为非空且路径安全的字符串' }
+    }
+    const items = params.items
+    if (!Array.isArray(items) || items.length === 0 || items.length > MAX_RECYCLE_BATCH) {
+      return { code: EC.VALIDATION_ERROR, message: 'items 必须为 1-' + MAX_RECYCLE_BATCH + ' 项的数组' }
+    }
+    const seen = new Set()
+    for (const it of items) {
+      if (!it || typeof it.shotId !== 'string' || !it.shotId.trim()) {
+        return { code: EC.VALIDATION_ERROR, message: 'items 每项必须含非空 shotId' }
+      }
+      if (!Number.isInteger(it.orderIndex) || it.orderIndex < 0 || it.orderIndex >= 10000) {
+        return { code: EC.VALIDATION_ERROR, message: 'orderIndex 必须为 0-9999 的整数' }
+      }
+      if (seen.has(it.orderIndex)) {
+        return { code: EC.VALIDATION_ERROR, message: 'orderIndex 不得重复' }
+      }
+      seen.add(it.orderIndex)
+    }
+    let allowedHosts
+    const jobs = []
+    try {
+      allowedHosts = service.getAllowedHosts()
+      for (const it of items) {
+        const shot = service.getShot(it.shotId)
+        jobs.push({ item: it, url: shot && typeof shot.resultUrl === 'string' && shot.resultUrl ? shot.resultUrl : null })
+      }
+    } catch (e) {
+      const kitErr = kitError(e)
+      return kitErr || { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e) }
+    }
+    const destDir = path.join(getFilmMediaRoot(), 'production', taskId, 'recycled')
+    const dl = deps._testDownloadShot || downloadShot
+    const results = new Array(jobs.length)
+    const queue = jobs.map((j, i) => i)
+    const worker = async () => {
+      while (queue.length > 0) {
+        const i = queue.shift()
+        const item = jobs[i].item
+        const url = jobs[i].url
+        if (!url) {
+          results[i] = { shotId: item.shotId, orderIndex: item.orderIndex, ok: false, error: '该镜无 resultUrl，无法回收下载（需走批量出片重新生成）' }
+          continue
+        }
+        const fileName = 'shot_' + String(item.orderIndex).padStart(3, '0') + '.mp4'
+        const r = await dl({
+          url,
+          shotId: item.shotId,
+          destDir,
+          fileName,
+          allowedHosts,
+          fetchImpl: deps._testFetch,
+          lookupImpl: deps._testLookup,
+          probeImpl: deps._testProbe,
+        })
+        results[i] = r.ok
+          ? { shotId: item.shotId, orderIndex: item.orderIndex, ok: true, entry: { shotId: item.shotId, path: r.entry.path, sourceKind: 'downloaded', orderIndex: item.orderIndex } }
+          : { shotId: item.shotId, orderIndex: item.orderIndex, ok: false, error: r.error || '下载失败' }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(RECYCLE_CONCURRENCY, jobs.length) }, worker))
+    return { code: 0, data: { results, allOk: results.every((x) => x && x.ok), destDir } }
+  }))
+
+  // ── L3 全量分批出片（任务 7.2/8.1/8.2，design D6/D9）──────────────────
+  ipcMain.handle('film-engineering:production-plan', withSenderCheck(withKit((_e, payload) => {
+    const params = payload || {}
+    const bad = validateProductionArgs(EC, { taskId: 'plan', shotIds: params.shotIds })
+    if (bad) throw Object.assign(new Error(bad.message), { code: bad.code })
+    const plan = planBatches(params.shotIds)
+    return {
+      shotCount: params.shotIds.length,
+      batchSize: PRODUCTION_BATCH_SIZE,
+      batchCount: plan.length,
+      batches: plan.map((b) => ({ batchIndex: b.batchIndex, shotCount: b.shotIds.length })),
+      diskEstimateBytes: params.shotIds.length * DISK_ESTIMATE_BYTES_PER_SHOT,
+      wallclockEstimateSeconds: params.shotIds.length * WALLCLOCK_SECONDS_PER_SHOT,
+      mediaRoot: getFilmMediaRoot(),
+    }
+  })))
+
+  // 逐批执行（D9）：renderer 每批先经计划/成本预览取得用户确认，再调本通道；
+  // 进度事件经 film-engineering:production-update 推送（driver 已节流，负载只带计数）。
+  ipcMain.handle('film-engineering:production-run-batch', withSenderCheck(async (event, payload) => {
+    const params = payload || {}
+    const bad = validateProductionArgs(EC, params)
+    if (bad) return bad
+    const batchIndex = params.batchIndex
+    if (!Number.isInteger(batchIndex) || batchIndex < 0 || batchIndex >= MAX_PRODUCTION_SHOTS) {
+      return { code: EC.VALIDATION_ERROR, message: 'batchIndex 必须为 0-999 的整数' }
+    }
+    if (!resolveFilmVideoProvider(aiGenerator)) {
+      return {
+        code: EC.REQUEST_ERROR,
+        errorCode: 'VIDEO_MODEL_NOT_CONFIGURED',
+        message: '影视工程批量出片需要视频模型（如 Seedance / Kling / Veo / CogVideo 等），请在模型设置中配置并设为默认视频 Provider 后重试',
+      }
+    }
+    const aspect = FILM_ASPECTS.includes(params.aspect) ? params.aspect : '16x9'
+    const seconds = FILM_DURATIONS.includes(Number(params.seconds)) ? Number(params.seconds) : 5
+    try {
+      const driver = deps._testRunProduction || runProduction
+      const probe = deps._testProbe || defaultFilmProbe
+      const r = await driver({
+        taskId: params.taskId,
+        shotIds: params.shotIds,
+        ledgerDir: path.join(getFilmMediaRoot(), 'production', params.taskId),
+        runOnlyBatch: batchIndex,
+        probe,
+        emit: (e) => {
+          try {
+            if (event.sender && typeof event.sender.send === 'function') event.sender.send('film-engineering:production-update', e)
+          } catch { /* 窗口已销毁：事件推送失败不影响批次执行 */ }
+        },
+        runBatch: (batch, ctx) => runBatchViaVideoGen({
+          batch, service, aiGenerator, aspect, seconds, log, deps,
+          onShotProgress: ctx.onShotProgress,
+        }),
+      })
+      const cur = (r.ledger.batches || []).find((b) => b.batchIndex === batchIndex) || null
+      return {
+        code: 0,
+        data: {
+          ok: r.ok,
+          batchIndex,
+          batchStatus: cur ? cur.status : null,
+          batchError: cur ? cur.error || null : null,
+          failedBatches: r.failedBatches,
+          renderManifest: r.renderManifest ? r.renderManifest.entries : null,
+          manifestError: r.manifestError,
+        },
+      }
+    } catch (e) {
+      const kitErr = kitError(e)
+      if (kitErr) return kitErr
+      log.warn('[film-engineering] production-run-batch error:', e instanceof Error ? e.message : String(e))
+      return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e) }
+    }
+  }))
+
+  // 断点视图（8.3）：读台账 + 磁盘双核返回批/镜状态与收口清单（只读零 provider 调用）
+  ipcMain.handle('film-engineering:production-status', withSenderCheck(withKit((_e, payload) => {
+    const params = payload || {}
+    const bad = validateProductionArgs(EC, { taskId: params.taskId, shotIds: params.shotIds })
+    if (bad) throw Object.assign(new Error(bad.message), { code: bad.code })
+    const probe = deps._testProbe || defaultFilmProbe
+    const ledgerDir = path.join(getFilmMediaRoot(), 'production', params.taskId)
+    const ledger = loadLedger(ledgerDir)
+    if (!ledger) return { exists: false, batches: [], doneCount: 0, totalCount: params.shotIds.length, renderManifest: null }
+    const plan = resolveResumePlan(ledger, { probe })
+    let doneCount = 0
+    plan.forEach((p) => { if (!p.needRun) doneCount += p.shotIds.length })
+    const manifest = buildRenderManifest(ledger, { probe })
+    return {
+      exists: true,
+      taskId: ledger.taskId,
+      batches: ledger.batches.map((b) => ({
+        batchIndex: b.batchIndex,
+        status: b.status,
+        error: b.error || null,
+        needRun: (plan[b.batchIndex] || {}).needRun === true,
+        shots: (b.shots || []).map((sh) => ({ ...sh })),
+      })),
+      doneCount,
+      totalCount: (ledger.batches || []).reduce((n, b) => n + b.shotIds.length, 0),
+      renderManifest: manifest.ok ? manifest.entries : null,
+      manifestError: manifest.ok ? null : manifest.error,
+    }
+  })))
 }
 
 module.exports = registerHandlers

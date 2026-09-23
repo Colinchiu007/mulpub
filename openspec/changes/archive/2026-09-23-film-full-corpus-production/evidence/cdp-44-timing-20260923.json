@@ -1,0 +1,41 @@
+{
+  "task": "4.4 规模验证：全量 kit 下打开列表与切场景渲染 <1s",
+  "date": "2026-09-23",
+  "method": "CDP Runtime.evaluate（node cdp-44-timing.js 9399），settle 条件=loading 消失+cards>0+loadedText total 达预期，200ms 稳定复读",
+  "environment": {
+    "worktree": "mp-film-full-corpus-production@93510d7e6(+未提交 badge/importer 修正)",
+    "profile": "D:/tmp/Multi-Publish-debug-profile（film-kit=全量 6,558 镜导入产物）",
+    "ports": {
+      "vite": 5299,
+      "cdp": 9399
+    }
+  },
+  "final": {
+    "statusShotCount": "时长 95m06s场景 162分镜 6558资产索引 332原始项目",
+    "kitSourceLevel": "userData-full（全量级命中，非 asar 精简回退）",
+    "switchRegenerations754": {
+      "ok": true,
+      "ms": 442.4,
+      "cards": 200,
+      "loadedText": "已加载 200 / 共 754 镜"
+    },
+    "switchScene51_399": {
+      "ok": true,
+      "ms": 333.9,
+      "cards": 100,
+      "loadedText": "已加载 100 / 共 399 镜"
+    },
+    "switchRegenerationsWarm": {
+      "ok": true,
+      "ms": 907,
+      "cards": 200,
+      "loadedText": "已加载 200 / 共 754 镜"
+    },
+    "acceptance": "全部 <1000ms，达标（cards=200 系 IntersectionObserver sentinel 首屏自动追加第二页，符合 4.3 设计）"
+  },
+  "findings": [
+    "D8 口径修正：manifest scenes[].count 为源语料 job 计数（Regenerations count=14,593 ≠ 采纳镜 754），设计假设不成立；场景 badge 改用后端 shotCount（shotSceneIndex 全量索引口径），locales 新增 shotCountHint 提示",
+    "数据契约修复：全量 kit shots[6197].aspectRatio=\"auto\" 违反 kit-loader \"W:H\"|null schema → fail-closed 整体回退精简包。importer 新增 normalize_aspect_ratio（非 W:H 一律归一 None，TDD pytest 14/14）；落盘 kit（shared-user-data 与 debug-profile 两份）同步修复",
+    "测量脚本缺陷记录：第一轮 settle 用 cards>0 判定会捕捉 selectScene 清空瞬间（读到 0 卡）；终版以 loadedText total 达预期为完成条件"
+  ]
+}
