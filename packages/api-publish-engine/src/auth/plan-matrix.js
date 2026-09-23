@@ -67,30 +67,58 @@ const NUMERIC_KEYS = Object.freeze([
 ])
 // 不含 dailyPublish：它派生 quota.cloud_publish_monthly，该 feature 会被 consumeFeature 扣减（要求 limit >= 0），-1 会导致发布链路 503
 const UNLIMITED_ALLOWED = Object.freeze(['maxPlatforms', 'aiWriteMonthly', 'videoMonthly', 'officialCreditMonthly'])
+// concurrentTasks 至少 1：0 并发为病态配置。dailyPublish 不在此列（0 属刻意清零配额，仍合法）。
+const MIN_ONE_KEYS = Object.freeze(['concurrentTasks'])
+
+/** 配置类错误：overrides 非法，属部署期缺陷（HTTP 层应映射 500 / 启动 fail-fast）。 */
+const invalid = (message) => Object.assign(new Error(`plan-matrix: ${message}`), { code: 'PLAN_MATRIX_CONFIG_INVALID', status: 500 })
+/** 请求类错误：档位不存在，属入参缺陷（HTTP 层应映射 400）。 */
+const invalidPlan = (plan) => Object.assign(new Error(`plan-matrix: unknown plan '${plan}'`), { code: 'PLAN_INVALID', status: 400 })
 
 function validateNumericValue(key, value, context) {
   if (typeof value !== 'number' || !Number.isInteger(value)) {
-    throw new Error(`plan-matrix: '${key}' in ${context} must be an integer`)
+    throw invalid(`'${key}' in ${context} must be an integer`)
   }
   if (value === -1 && !UNLIMITED_ALLOWED.includes(key)) {
-    throw new Error(`plan-matrix: '${key}' in ${context} does not accept -1 (unlimited)`)
+    throw invalid(`'${key}' in ${context} does not accept -1 (unlimited)`)
   }
   if (value < -1) {
-    throw new Error(`plan-matrix: '${key}' in ${context} must be >= -1`)
+    throw invalid(`'${key}' in ${context} must be >= -1`)
+  }
+  if (MIN_ONE_KEYS.includes(key) && value < 1) {
+    throw invalid(`'${key}' in ${context} must be >= 1`)
+  }
+}
+
+// overrides 顶层形状守卫：只接受以合法档位 id 为键的普通对象；段内逐键校验交给 mergePlanSection。
+// 段值为 null/undefined 视为「该档位不覆盖」（对应 YAML 空节点），显式允许；顶层非对象或档位键拼错一律抛错（fail closed）。
+function validateOverridesShape(overrides) {
+  if (overrides === undefined || overrides === null) return
+  if (typeof overrides !== 'object' || Array.isArray(overrides)) {
+    throw invalid('overrides must be a plain object keyed by plan id')
+  }
+  for (const key of Object.keys(overrides)) {
+    if (!PLAN_IDS.includes(key)) throw invalid(`unknown plan key '${key}' in overrides`)
+    const section = overrides[key]
+    if (section === null || section === undefined) continue
+    if (typeof section !== 'object' || Array.isArray(section)) {
+      throw invalid(`overrides.${key} must be an object of numeric keys`)
+    }
   }
 }
 
 function mergePlanSection(plan, overrides) {
+  validateOverridesShape(overrides)
   const base = BASE_MATRIX[plan]
   if (!overrides) return { ...base }
   const section = overrides[plan]
   if (!section) return { ...base }
   const merged = { ...base }
   for (const [key, value] of Object.entries(section)) {
-    if (!(key in base)) throw new Error(`plan-matrix: unknown key '${key}' for plan ${plan}`)
+    if (!(key in base)) throw invalid(`unknown key '${key}' for plan ${plan}`)
     if (!NUMERIC_KEYS.includes(key)) {
       // scheduleBatch/dashboard/label 为契约开关，阶段 1 冻结为不可覆盖（运营可配仅覆盖数值 * 项）
-      throw new Error(`plan-matrix: key '${key}' for plan ${plan} is not overridable`)
+      throw invalid(`key '${key}' for plan ${plan} is not overridable`)
     }
     validateNumericValue(key, value, `plan ${plan}`)
     merged[key] = value
@@ -108,9 +136,7 @@ function deepFreeze(obj) {
 /** entitlement 形状：{ plan, features: string[], quota: {}, limits: {} }，兼容 consumeFeature，供 /api/v1/me 快照直接落库。 */
 function getPlanEntitlement(plan, overrides) {
   if (!PLAN_IDS.includes(plan)) {
-    const err = new Error(`plan-matrix: unknown plan '${plan}'`)
-    err.code = 'PLAN_INVALID'
-    throw err
+    throw invalidPlan(plan)
   }
   const matrix = mergePlanSection(plan, overrides)
   const features = ['cloud_publish', 'ai_write']
@@ -151,5 +177,8 @@ function getPlanCatalog(overrides) {
     })
   })
 }
+
+// 基线为全标量 + 浅拷贝安全；显式深冻结作 tripwire，若将来有人塞入嵌套对象可及时暴露（见测试）。
+deepFreeze(BASE_MATRIX)
 
 module.exports = { PLAN_MATRIX_VERSION, PLAN_IDS, getPlanEntitlement, getPlanCatalog }

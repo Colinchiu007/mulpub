@@ -65,11 +65,80 @@ test('plan-matrix 契约（spec §2）', async (t) => {
     assert.strictEqual(getPlanEntitlement('standard').quota.video_create_monthly, 500) // 不污染基线
     assert.throws(() => getPlanEntitlement('standard', { standard: { noSuchKey: 1 } }), /unknown key/i)
     assert.throws(() => getPlanEntitlement('standard', { standard: { videoMonthly: 1.5 } }), /integer/i)
-    assert.throws(() => getPlanEntitlement('standard', { standard: { videoMonthly: -2 } }), /-1|range|invalid/i)
+    assert.throws(
+      () => getPlanEntitlement('standard', { standard: { videoMonthly: -2 } }),
+      (err) => /-1|range|invalid/i.test(err.message) && err.code === 'PLAN_MATRIX_CONFIG_INVALID'
+    )
     // dailyPublish 是被扣减 feature 的派生源，-1 会击穿 consumeFeature 的 limit>=0 校验 → 必须 fail closed
     assert.throws(() => getPlanEntitlement('standard', { standard: { dailyPublish: -1 } }), /does not accept -1/i)
     // aiWriteMonthly 允许 -1（P1 无服务端 consumeFeature('ai_write') 路径，仅契约下发）
     assert.doesNotThrow(() => getPlanEntitlement('standard', { standard: { aiWriteMonthly: -1 } }))
+  })
+
+  await t.test('overrides 顶层形状 fail closed：档位键拼错 / 非对象一律抛配置错误（Finding 1 回归守卫）', () => {
+    // 拼错档位键：过去静默返回基线（fail open），现在必须抛错
+    assert.throws(
+      () => getPlanEntitlement('standard', { standart: { videoMonthly: 600 } }),
+      (err) => err.code === 'PLAN_MATRIX_CONFIG_INVALID'
+    )
+    // 非对象 overrides：数字 / 布尔 / 数组
+    for (const bad of [42, true, []]) {
+      assert.throws(
+        () => getPlanEntitlement('standard', bad),
+        (err) => err.code === 'PLAN_MATRIX_CONFIG_INVALID'
+      )
+    }
+    // 段值非对象（既非 null/undefined 亦非 object）
+    assert.throws(
+      () => getPlanEntitlement('standard', { standard: 42 }),
+      (err) => err.code === 'PLAN_MATRIX_CONFIG_INVALID'
+    )
+  })
+
+  await t.test('overrides 段值为 null 视为「该档位不覆盖」，返回基线不抛错（Finding 1 决策）', () => {
+    const baseline = getPlanEntitlement('standard')
+    assert.doesNotThrow(() => getPlanEntitlement('standard', { standard: null }))
+    const withNull = getPlanEntitlement('standard', { standard: null })
+    assert.deepStrictEqual(withNull, baseline)
+    assert.strictEqual(withNull.quota.video_create_monthly, 500) // 未被覆盖，仍是基线值
+  })
+
+  await t.test('getPlanCatalog(overrides)：合法覆盖在目录展示与内嵌 entitlement 均生效', () => {
+    const catalog = getPlanCatalog({ standard: { priceMonthlyCents: 3900, videoMonthly: 600 } })
+    const standard = catalog.find((it) => it.id === 'standard')
+    assert.strictEqual(standard.priceMonthlyCents, 3900)
+    assert.strictEqual(standard.entitlement.quota.video_create_monthly, 600)
+    assert.strictEqual(catalog.find((it) => it.id === 'free').priceMonthlyCents, 0) // 其它档位不受影响
+  })
+
+  await t.test('不可覆盖键（scheduleBatch / dashboard）抛配置错误码（契约开关阶段 1 冻结）', () => {
+    assert.throws(
+      () => getPlanEntitlement('free', { free: { scheduleBatch: true } }),
+      (err) => err.code === 'PLAN_MATRIX_CONFIG_INVALID'
+    )
+    assert.throws(
+      () => getPlanEntitlement('free', { free: { dashboard: 'full' } }),
+      (err) => /is not overridable/.test(err.message) && err.code === 'PLAN_MATRIX_CONFIG_INVALID'
+    )
+  })
+
+  await t.test('concurrentTasks: 0 病态配置被拒（Finding 4），dailyPublish: 0 仍合法', () => {
+    assert.throws(
+      () => getPlanEntitlement('standard', { standard: { concurrentTasks: 0 } }),
+      (err) => err.code === 'PLAN_MATRIX_CONFIG_INVALID'
+    )
+    assert.doesNotThrow(() => getPlanEntitlement('standard', { standard: { dailyPublish: 0 } }))
+  })
+
+  await t.test('快照携带 matrixVersion；getPlanCatalog 返回值深冻结（Finding 3）', () => {
+    const ent = getPlanEntitlement('standard')
+    assert.strictEqual(ent.matrixVersion, PLAN_MATRIX_VERSION)
+    const catalog = getPlanCatalog()
+    for (const item of catalog) {
+      assert.ok(Object.isFrozen(item))
+      assert.ok(Object.isFrozen(item.entitlement))
+      assert.ok(Object.isFrozen(item.entitlement.quota))
+    }
   })
 
   await t.test('未知档位抛 PLAN_INVALID', () => {
