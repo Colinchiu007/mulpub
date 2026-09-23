@@ -1,3 +1,16 @@
+## 昵称/头像「没获取到」的真根因是装饰性链路 + PATCH 空串反向覆写（account-profile-info，2026-09-23）
+
+- **装饰性链路第 4 次复发，症状更隐蔽（pitfall）**：能力不是缺失、也不是写错库，而是**完整实现只挂在一个没人走的入口上**。`extractAccountInfo` 有昵称 4 层回退 + 头像 3 层回退，但唯一调用点 `captureCookies()` 只被 IPC `account:add` 触发，而渲染层全仓零调用（真实登录走 auth-view-manager / qrcode-login / webview-manager 三条主进程入口）。用户感知就是「昵称显示成网页标题、头像永远空」。**判定手法**：从「用户可见字段」反向找写入者，再看每条写入路径是否真有调用方 —— `git grep` 调用点数量为 0 的分支，就是装饰性代码。教训：**只要新增能力，必须同时交付「接线守卫」测试**（对入口源码做正则断言），否则下一个人还会写出「编译通过、测试全绿、功能从未生效」的代码。
+- **接线守卫要从「源码含字符串」升级到「行为真产出」（pattern）**：只断言 `expect(src).toMatch(/collectWithWebContents/)` 能被「调用了但结果被丢弃」绕过。本次把 `auth-view-manager.test.js` 的 `createView` mock 改为对 `accountInfoCollector` 返回真值，并让三条会话结算断言 `toHaveBeenCalledWith({ ..., accountInfo })` —— mock 不返回真值时测试直接红。同时叠加「各服务 `og:image` 计数必须为 0」的单一实现来源断言，防止有人再复制第二份采集逻辑。
+- **PATCH 语义：键缺席 = 不修改，空串 = 显式清空（pitfall，跨语言契约）**：后端 `AccountUpdateRequest` 全是 `... | None = None` 且 `if req.x is not None: a[x] = req.x`，语义本身正确；但调用方把「未命中」也写成 `''` / `null`，就变成每次重新登录都把上一次真实获取到的昵称/头像清空。**正解是在调用侧构造差异补丁（`buildProfilePatch`：非空 + 与真源不同 + 键白名单），而不是让后端「把空串当缺席」** —— 后者会让「显式清空」永久不可表达，并掩盖所有调用方的同类错误。对端契约要用后端测试钉死三条：缺席不覆写、单字段下发不牵连其他、空串确实清空。
+- **双运行时共用一段页面内代码的硬约束（pattern）**：Playwright `page.evaluate(fn, arg)` 能序列化函数并传参；Electron `webContents.executeJavaScript(code)` **只接受字符串**。要共用一份 DOM 采集，只能把函数写成完全自包含（不引用任何模块作用域标识符），Electron 侧拼 `'(' + fn.toString() + ')(' + JSON.stringify(arg) + ')'`。这个约束无法靠 code review 长期保证（模块作用域泄漏在本地开发时看不出来，运行时才在页面上下文 `ReferenceError`），用 `new Function('document', 'return (' + src + ')')` 在裸作用域求值即可一次性钉死（泄漏立即抛错），比 ESLint no-undef 规则便宜且不可能被绕过。
+- **回填类旁路操作绝不能改变主流程结论（pattern）**：`refreshProfileFromPage` 挂在「登录态判定有效」的两条出口上，整函数 `try/catch` 后只返回布尔、异常仅 `log.warn`；调用点 `await` 但不看返回值。否则一次 DOM 结构漂移就能把「已登录」检测变成失败，用户看到的是回归而不是资料缺失。
+- **行号型/清单型门禁：新建超限文件前先算预算（pitfall）**：`account-manager.js` 合并 PR-1 后 1209 行、登记 1061，离 `limit 500 + growthAllowance 200` 的挂账容差已经不远，再塞 200+ 行新逻辑必红。做法：新逻辑外置成独立模块（228 行 < 500，不进清单），主文件只留薄委托并顺手删除被替换的内联实现，结果 1209 → 1146（净还债 63 行），门禁 `超限=99 挂账=99` 不变。**还债型改动是这类棘轮门禁下唯一「越改越宽松」的方向**，比「拆文件 + 代登」干净得多。
+- **不新增文案也是门禁决策（pattern）**：头像回落默认图标属于纯展示态，`alt` 留空（旁边已有昵称文本，不构成信息缺失）。若顺手加一条「头像加载失败」中文提示，就会触碰 Gate 7 的 zh/en 成对（`--pair-base`）与 `--cjk` 基线（当前 1363 / 基线 1581），且 `src/` 非 locales 文件新增中文字面量会被 CI 拦下。**先问「这条文案有没有真实用户价值」，没有就不产生门禁面。**
+- **`node -e "require('...electron 侧模块')"` 会拉起 Electron 依赖链（pitfall）**：想验证语法时不要用 `require` 探测，实测触发 `Downloading Electron binary...` 并卡住；只做语法校验用 `node --check <file>`（对 CJS/ESM 都适用，且不执行任何代码）。
+- **暂存文本资产（staged `.txt`）改完必须重新拷进 worktree（pitfall）**：红灯阶段先把测试文件复制进 worktree、随后又修了测试断言，导致 worktree 里跑的还是旧版，报出「无法解释」的失败。凡是 workspace 外文件只能经复制落盘的场景，**每次编辑暂存源后都要以 `overwrite: true` 重拷并核对字节数**。
+- **测试自身的三处典型假阳性断言（pitfall，均为「断言写错、实现对」）**：① `expect(x || '').not.toBe('')` 恒假（`x` 为空时 `''` 让断言必然失败，但写法本身表达不出「不该是空串」，应改为 `expect(Object.keys(body).filter(k => body[k] === '')).toEqual([])`）；② 同一个 spy 上跑两次流程后用 `mock.calls.find(call => POST)` 取请求体，会命中上一次的调用，必须取最后一次；③ 断言「平台专用选择器优先」时忘记传 `platformSelectors`，实际测的是通用回退 —— 必须让专用与通用同时可命中，才有优先级可言。改测试前先问「实现是不是对的」，本次三处都是改断言、不动实现。
+
 ## 「装饰性按钮」的三条根因与正交状态字段的收口口径（account-is-active-batch，2026-09-23）
 
 - **同名词表跨层撞车（pitfall）**：账号页批量按钮写的是 `'active' | 'inactive'`，而 `status` 字段的合法词表是 `'active' | 'expired' | 'unverified'`（登录态）。两套语义共用一个字段名，写入既污染枚举又让按钮「点了没反应」。正交概念必须各有字段名（`is_active` / `status`）、各有唯一写者，且**读侧禁止互相派生**——一旦允许 `is_active` 派生登录态，脏数据就会顺着派生链重新出现第 4 个非法态值。

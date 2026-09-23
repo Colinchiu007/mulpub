@@ -557,7 +557,7 @@
 | **实现** | 自建 fixed 定位 overlay（非 UiModal）|
 | **内容** | 登录 → 完成步骤图 |
 
-### 6.7 AccountManagementCard（588 行）
+### 6.7 AccountManagementCard（597 行）
 
 | 项目 | 内容 |
 |------|------|
@@ -566,16 +566,18 @@
 | **操作按钮** | 设置、验证、重新登录、删除 |
 | **状态徽章（登录态）** | 已登录(绿)、已失效(红)、未确认(琥珀)、异常(红)、暂无检查记录(灰) —— 只由 `status` 决定 |
 | **停用标记（启用态）** | `is_active === false` 时账号明细行追加「已停用」灰底标记（`account-disabled-flag`，`role="status"` + `aria-label`），同时卡片加 `is-disabled`（虚线边框 + 降饱和 + 半透明，不改布局尺寸）；与登录徽章完全正交，两者可同时出现 |
+| **头像回落（资料真源）** | 有 `avatar` / `avatar_url` 且未判定失效时渲染 `<img>`（`alt=""`，昵称文本已在旁，非装饰信息缺失），`@error` 触发即置 `avatarBroken` 并回落 `<UserFilled>`，不留空白框；昵称取序 `account_name` → `name` → 平台显示名 |
 | **支持** | 批量选择 checkbox、收藏星标、重命名、默认账号标识、停用标识 |
 | **不再出现** | `inactive` / `offline` 曾映射为「已登录」+ `offline` 徽章，现统一落到「暂无检查记录」兜底（历史脏数据诚实呈现） |
 
-### 6.8 PlatformAccountGroup（281 行）
+### 6.8 PlatformAccountGroup（305 行）
 
 | 项目 | 内容 |
 |------|------|
 | **入口** | Accounts.vue 列表视图 |
 | **内容** | 平台分组行，水平布局 |
 | **操作** | 设为默认、打开、验证、代理、删除 |
+| **头像回落（资料真源）** | 口径同 6.7，但失效状态用 `avatarBrokenIds = ref(new Set())` 按 `account.id` 逐个记录（`markAvatarBroken(account)`）—— 一行内并列展示多账号，单个外链失效不得牵连同组其他账号 |
 
 ---
 

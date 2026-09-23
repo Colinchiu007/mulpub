@@ -1,3 +1,55 @@
+# [未发布] fix(accounts): 账号昵称/头像真实获取与写回 —— 三条登录入口接通采集器、检测成功回填存量、PATCH 改缺席语义（2026-09-23，account-profile-info）
+
+### 变更
+- **资料采集单一实现来源 `packages/shared-utils/src/account-profile.js`（新增 228 行）**：导出 `accountInfoCollector`（页面内自求值采集函数）、`selectorsFor`、`buildCollectorExpression`、`collectWithPlaywright`、`collectWithWebContents`、`profileForCreate`、`buildProfilePatch`。此前 DOM 采集在 `account-manager.js` 内联一份（昵称 4 层回退 + 头像 3 层回退 + 平台ID + 粉丝折算），双运行时（Playwright `page.evaluate(fn, arg)` 可传参 / Electron `webContents.executeJavaScript(code)` 只收字符串）若要共用同一实现，采集函数必须**完全自包含**：Electron 侧只能拼成 `'(' + fn.toString() + ')(' + JSON.stringify(arg) + ')'`，函数体一旦引用模块作用域标识符（`require` / `PLATFORM_ACCOUNT_INFO_SELECTORS` / `log`）就在页面上下文 `ReferenceError`。该约束由回归测试在裸作用域求值钉死（`new Function('document', 'return (' + src + ')')`）。
+- **三条真实登录入口在提取凭证的同时产出 `accountInfo`**：`auth-view-manager._extractAuthData()`（+5 行，返回体追加 `accountInfo`）、`qrcode-login._extractAuthData()/_onLoginSuccess()`（+5 行，随 `saveCapturedAccount` payload 下发）、`webview-manager.saveAccountTabCredentials()`（+5 行，随 `updateCapturedAccount` payload 下发）。登录成功是唯一「DOM 已登录 + 凭证可用」的时机，资料必须在此刻一并采集；`ipc-handlers/account.js` 把 `auth:open-login` 的 `result` 原样传给 `AccountManager.saveCapturedAccount/updateCapturedAccount`，无字段白名单，故 IPC 层零改动。
+- **登录态检测判定有效的两条出口新增资料回填 `refreshProfileFromPage(page, platform, accountId)`**：DOM 选择器命中出口与仪表盘域名兜底出口各一次（`account-manager.js:550` / `:580`）。流程为「安全段校验 → 采集 → 空即 return false → GET 真源 → `buildProfilePatch` → 无差异即 return false → PATCH 只含资料字段」，任何异常只 `log.warn` 后返回 false —— **登录态结论绝不因资料失败而改变**，两条 valid 出口照旧返回 `{valid:true, code:'CHECK_LOGIN_SUCCESS'}`。这条路径是存量账号（历史从未采到昵称/头像）无需重新登录即可修复的唯一入口。
+- **更新路径改为「只下发命中且与真源不同的字段」**：`updateCapturedAccount` 用 `profileUtils.buildProfilePatch(accountInfo, account)` 生成差异体，返回值 `= { ...真源, ...profilePatch, name, status, ... }`（提取失败时调用方仍拿到旧真值）；创建路径（POST）保留可空语义 `profileForCreate(accountInfo, name)`（新行没有旧值需要保护，昵称未命中回落显示名）。
+- **删除「未命中即空串」的推导**：原 `updateCapturedAccount` 把 `account_name`/`avatar`/`platform_account_id` 未命中算成 `''`、`followers` 算成 `null` 一并 PATCH；后端 `AccountUpdateRequest` 是 `... | None = None` + `is not None` 才赋值，**空串是「显式清空」而不是「不修改」**，于是每次重新登录都会把上一次真实获取的昵称/头像反向覆写掉。
+- **头像 `<img>` 增加 `@error` 回落**：`AccountManagementCard.vue` 用组件级 `avatarBroken` + `showAvatar` computed；`PlatformAccountGroup.vue` 用 `avatarBrokenIds = ref(new Set())` + `markAvatarBroken(account)` 按 `account.id` 逐个记录，单账号外链失效不牵连同组其他账号（平台分组行同时展示多账号）。
+
+### 修复
+- **昵称显示成网页标题、头像恒空**：`extractAccountInfo` 能力一直存在，但唯一调用点是 `captureCookies()`，而 `captureCookies` 只被 IPC `account:add` 触发 —— 渲染层全仓零调用（登录实际走上述三条主进程入口）。真实入口只产出 `{cookies, name, localStorage, indexedDB}`，其中 `name` 取 `document.title`/标签标题，所以账号页昵称长期显示为「XX - 登录页」，头像字段没有任何来源。属**装饰性链路**第 4 次复发（能力存在、无人调用）。
+- **存量账号永不修复**：一键检测/单账号检测判定有效后只回写 `status`/`last_validated`，从不回填资料字段。
+- **头像外链失效留空白框**：平台侧头像多为带签名的临时 CDN 链接（防盗链/过期），`<img>` 无 `@error` 时显示为空白头像而非默认图标。
+
+### 数据校验纪律
+1. `platform` / `accountId` 必须过 `isSafePathSegment`，否则不采集、不写回（防路径操纵）。
+2. 采集结果必须是 plain object；`collectWith*` 内任何异常一律降级 `{}`，禁止抛出打断登录/检测主链路。
+3. `buildProfilePatch` 三条过滤：值非 `null/undefined/''`（字符串一律 `trim` 后判空）；与真源当前值相同则跳过（避免无意义写盘）；键白名单仅 `account_name` / `avatar` / `platform_account_id` / `followers`。
+4. 资料 PATCH 与登录态 PATCH 互不夹带：`refreshProfileFromPage` 的请求体绝不出现 `status`/`last_validated`；`updateCapturedAccount` 的 `status='active'` 仅在凭证成功落盘后下发。
+5. `followers` 必须 `Number.isFinite` 且 `>= 0`，`Math.round` 后落盘；文本按 `/([\d.,]+)\s*(万|w|W)?/` 折算（「1.2万」→ 12000，千分位剥离）。
+6. `account_name` 走 meta 回退（`og:title` / `twitter:title`）时限长 < 50，且 DOM 选择器命中优先于 meta，避免公告标题噪声冒充昵称；`avatar` 仅存 URL，不做可达性校验（可达性由 UI 层 `@error` 回落承担）。
+7. 后端 `extra="forbid"`：任何凭证字段混入 PATCH 体一律 422，本 PR 不放宽。
+
+### 显示项与提示文字
+- 账号卡片头像区：`showAvatar` 为真渲染 `<img :src="account.avatar || account.avatar_url" alt="" @error>`，否则渲染 `<UserFilled>`；加载失败即翻转为默认图标。
+- 平台分组行头像区：同上，按账号 id 逐个判定失效。
+- 昵称行取序 `account_name` → `name` → 平台显示名（`accountName()` 既有实现未改），与 PR-1 引入的「已停用」徽章、登录态徽章互不影响。
+- **本次不新增任何文案与 locale 键**：回落是纯展示态，`alt` 保持空串（头像旁已有昵称文本，不构成信息缺失）；新增中文文案会触碰 Gate 7 的 zh/en 成对与 `--cjk` 基线要求，而这里没有真实文案需求。既有文案（`accountsPage.accountCardLabels.*`、`selectAccount`、`favoriteAdd/favoriteRemove`、`已停用`）一字未改。
+
+### 债务与行数
+`account-manager.js` 在合并 PR-1 后为 1209 行（登记值 1061，逼近 `limit 500 + growthAllowance 200` 容差）。本次把全部新增逻辑外置到 `shared-utils`（228 行，单文件 < 500 不触发挂账），主进程只保留薄委托，同时删除被替换的内联 DOM 采集，`account-manager.js` 降至 **1146 行（净还债 63 行）**。三个登录服务各 +5 行，均在存量增长预算内。
+
+### 验证
+- TDD 先红后绿：先落 `electron/tests/account-profile-collector.test.js`（18 例）与 `electron/publishers/account-manager-profile.test.js`（9 例），`pnpm exec vitest run` 得到 `2 failed files / 9 failed tests`（模块不存在 + 三服务未接线 + `og:image` 计数 3 > 0），再实现转绿。
+- 定向复跑：`account-profile-collector + account-manager-profile + auth-view-manager` **3 文件 / 53 passed**；`electron/publishers + qrcode-login + webview-manager + ipc-handlers/account + preload` **9 文件全绿**；渲染层 `src/features/accounts + views/Accounts + stores/accounts` **10 文件 / 221 passed | 1 skipped**；后端 `pytest tests/test_server_account_profile_patch.py tests/test_server_account_lifecycle.py` **28 passed**（新增 3 例钉死「缺席=不修改 / 单字段不牵连 / 空串=显式清空」对端契约）。
+- 接线守卫（防装饰性链路第 5 次复发）：`account-manager-profile.test.js` 直接对三条入口源码断言必须出现 `collectWithWebContents|extractAccountInfoFromWebContents` 且返回体含 `accountInfo`，`checkLoginStatus` 体内 `refreshProfileFromPage(` ≥ 2 次，各服务 `og:image` 计数必须为 0（单一实现来源）。`auth-view-manager.test.js` 把 createView mock 升级为对 `accountInfoCollector` 返回真值，并同步 `_extractAuthData` / 三条会话结算断言含 `accountInfo` —— 从「源码里有这个字符串」升级为「行为上真的产出」。
+- 门禁：`check-max-lines.js` rc0（`limit=500 growthAllowance=200 超限=99 挂账=99 墓碑=1`，无新增超限、清单与现实一致）；`scripts/check-debt-budget.js` rc0（`maxFileLines 5657`、`filesOver1000 33`、`filesOver500 99`、`modelProviderRequireFanOut 65`、`circularDeps 0` 全部持平）；`check-locale-sync.js` 三模式 rc0（`--pair-base origin/main`：locales 双侧未变更；`--cjk`：基线 1581 / 当前 1363 无新增硬编码；`--keys`：1139 个使用中的 key 均存在于 zh/en）；ESLint 变更 10 文件 **0 error / 144 warning**（全部为既有 `no-var` 与 `AccountManagementCard.vue` 中 main 上即已存在的 `Refresh`/`isActive` 死代码告警，非本次引入）。
+- 详见 `01-docs/PRD-ACCOUNT-PROFILE-INFO-2026-09-23.md`（根因取证表 / 决策与被否方案 / 数据模型与校验 / 采集契约 / 流程 / 显示项与交互 / 提示文字 / 测试矩阵 T1–T12 / 验收 / 行数预算 / 风险回滚）。
+
+### 遗留
+- `name` 字段仍会被登录入口以网页标题覆盖（属「显示名」语义，改动面波及重命名功能），本次刻意不动，另案处理。
+- 未提供单账号「刷新资料」手动入口；现有登录 / 检测两条自动路径已覆盖，若用户需要即时刷新再加。
+- 头像不做后端可达性预检与本地缓存，平台签名链接过期后由 UI 回落默认图标；若要做到「头像永久可见」需引入转存，属独立特性。
+- `packages/shared-utils` 自身无 lint 配置（仓库根无 `eslint.config`），新模块未被 ESLint 覆盖，仅由 `node --check` 与 vitest 保证。
+
+### 关联
+- 分支 `codex/account-profile-info`（worktree `D:/Data/projects/mp-worktrees/mp-account-profile-info`，D 盘隔离）。
+- 承接 PR-1 `PRD-ACCOUNT-IS-ACTIVE-BATCH-2026-09-23.md`（#2282 已合并）：同一账号卡片，启用态与登录态已正交，本次补齐第三个维度「资料真源」。
+
+---
+
 # [未发布] fix(accounts): 账号「启用状态」与「登录态」正交解耦 —— 批量启用/停用接通 is_active 真链路（2026-09-23，account-is-active-batch）
 
 ### 变更

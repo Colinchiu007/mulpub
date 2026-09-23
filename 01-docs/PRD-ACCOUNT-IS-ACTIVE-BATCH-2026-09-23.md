@@ -130,7 +130,7 @@ PR #2233 统一了「登录态」的真源与写者（后端 `accounts.json.stat
 1. **不复用 `persistLoginState`**：两者词表、校验规则、副作用字段完全不同；复用会让「点启用」意外写 `last_validated`，重新制造口径分裂。
 2. **失败必须可见**：写者返回 `{ok, reason}`，IPC 层转成 `{code:-1, message}`，渲染层计入 `failed` 并提示「已启用 x 个，y 个失败」。**禁止** `.catch(() => {})`。
 3. **逐账号提交**：后端无批量端点；与 `batchDelete` 一致保持 N 次 PATCH，单次失败不影响其余（部分成功语义）。
-4. **SQLite 通路保持不变**：本 PR 不删除 `store:update-account`（`renameAccount` 仍在用），只是让 `batchSetStatus` 不再走它。
+4. **SQLite 通路保持不变**：本 PR 不删除 `store:update-account`（`renameAccount` 仍在用），只是让 `batchSetActive`（原名 `batchSetStatus`，本 PR 一并改名以消除与登录态词表的歧义）不再走它。
 5. **纵深防御（实现期补加，超出原契约）**：`ipc-handlers/store.js` 的 `rendererAccountUpdateFields` 白名单**移除 `'status'`**，让渲染层从通道层面就再也写不进登录态；本地库缺 `status` 时同样诚实回落 `unverified`，不由 `is_active` 派生。
 6. **platform 参数为实现与初稿的差异点**：后端 `PATCH /api/accounts/{id}` 只需 `accountId`，但 IPC 层为与 `account:set-proxy` 保持同一入参口径（并对两个路径段都做 `_isSafePathSegment` 校验），签名定为 `(accountId, platform, isActive)`；`platform` 在主进程仅用于日志定位。渲染层据此必须解析平台，解析不出来按失败计数而不是跳过。
 7. **启用态通道单独成文件（`ipc-handlers/account-active.js`）**：`ipc-handlers/account.js` 是行数挂账文件（登记 571、同步 main 后实测 728），本通道 43 行若继续塞进去会撞上 `check-max-lines` 的 200 行膨胀容差；而「启用态」与「登录态」本就是两个关注点，分文件与分写者一致。拆法是把 `getOwnerSubject` / `ipcLog` / `_isSafePathSegment` 由 `account.js` 注入，**不复制第二份校验口径、不抬高任何挂账数字**（治理口径见 `01-docs/learnings.md`：`--update` 型基线命令会把 grandfathered 文件的当前行数偷偷写回基线，属棘轮对偶，禁止使用）。

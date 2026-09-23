@@ -16,6 +16,8 @@ const {
   isPlatformCookieDomain,
   isPlatformLoginSuccessUrl,
 } = require('@multi-publish/shared-utils/src/platform-definitions')
+// 账号资料（昵称/头像/平台ID）采集器：登录成功那一刻随凭证一起产出（PRD-ACCOUNT-PROFILE-INFO-2026-09-23）
+const accountProfile = require('@multi-publish/shared-utils/src/account-profile')
 const { attachCdpDetection } = require('./auth-view-cdp')
 const { createSession, setCookies, restoreLocalStorage, restoreIndexedDB, createAuthView } = require('./auth-view-session')
 // 内嵌视图定位唯一来源：必须用「客户区」尺寸，禁用 getBounds() 外框尺寸（见 view-bounds.js）
@@ -336,7 +338,10 @@ class AuthViewManager {
     } catch (_e) { /* IndexedDB 不可用时仍可使用 Cookie 或 localStorage 完成登录 */ }
     let name = ''
     try { name = await view.webContents.executeJavaScript('document.title || ""') } catch (_e) { /* ignore */ }
-    return { cookies, name, localStorage, indexedDB }
+    // 昵称/头像必须在这一刻采集：name 取的是网页标题，直接当昵称会让账号页显示成「XX - 登录页」。
+    // 采集失败返回 {}，下游按「字段缺席 = 不修改」处理，不会清空真源里的旧昵称/旧头像。
+    const accountInfo = await accountProfile.collectWithWebContents(view.webContents, platform)
+    return { cookies, name, localStorage, indexedDB, accountInfo }
   }
 
   /**
