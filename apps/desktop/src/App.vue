@@ -32,13 +32,14 @@
             @close-tab="onCloseTab"
             @create-tab="onCreateTab"
           />
-          <!-- 导航栏（后退/前进/刷新/URL）。
-               壳态收敛 6a（T0-6a）：工作台壳态（首页虚拟标签，SPA 渲染）下 NavBar 的
-               地址栏/刷新/前进后退语义失效且误导用户，整行不渲染；改为与 .nav-bar
-               等高（40px）的占位行，保证主进程 WebContentsView TOP=76px 定位不变。
-               浏览器/登录标签（含「保存账号」入口）仍渲染完整 NavBar。 -->
+          <!-- 导航栏（后退/前进/URL）。
+               壳态收敛 6a 修订（2026-09-23）：首页虚拟标签不再用空白占位行，
+               改为渲染 NavBar 的「只读态」——地址栏置灰禁用、刷新按钮隐藏，
+               前进/后退经 vue-router SPA 历史（useSpaNavHistory）仍有效，🏠 回首页。
+               与浏览器标签视觉一致，消除「首页无、新标签有」的割裂；
+               NavBar 高度 40px 不变，主进程 WebContentsView TOP=76px 契约保持。
+               浏览器/登录标签（含「保存账号」入口）渲染完整可用 NavBar。 -->
           <NavBar
-            v-if="!isHomeTab"
             :current-url="navigation.url"
             :current-title="navigation.title"
             :can-go-back="navCanGoBack"
@@ -55,12 +56,6 @@
             @navigate="onNavigate"
             @save-account="onSaveAccount"
           />
-          <div
-            v-else
-            class="mp-shell-nav-placeholder"
-            data-testid="mp-nav-placeholder"
-            aria-hidden="true"
-          ></div>
           <!-- 模块导航（仅首页标签显示） -->
           <MpModuleNav v-if="isHomeTab" />
           <!-- 主内容区 -->
@@ -351,13 +346,8 @@ html, body { height: 100%; overflow: hidden; }
 .app-root { height: 100%; display: flex; flex-direction: column; }
 .mp-shell { min-height: 0; flex: 1; display: flex; min-width: 0; overflow: hidden; background: var(--color-bg-inset); }
 .mp-shell-main { min-width: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-/* 壳态收敛 6a：工作台壳态下 NavBar 的等高占位行（40px 与 .nav-bar 一致），
-   保持 TabBar(36px) + 占位(40px) = 76px 的主进程 WebContentsView TOP 偏移不变 */
-.mp-shell-nav-placeholder {
-  flex-shrink: 0;
-  height: 40px;
-  background: var(--color-bg-inset);
-}
+/* 壳态收敛 6a 修订：首页标签现渲染只读 NavBar（40px），不再需要空白占位行；
+   TabBar(36px) + NavBar(40px) = 主进程 WebContentsView TOP=76px 契约不变。 */
 /* 内嵌主页壳态根容器：无外层 chrome，模块导航 + 内容区纵向铺满 */
 .mp-home-shell-root { min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--color-bg-inset); }
 .mp-workspace { min-width: 0; min-height: 0; flex: 1; overflow: auto; }

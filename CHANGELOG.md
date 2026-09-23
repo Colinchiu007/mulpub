@@ -1,3 +1,22 @@
+# [未发布] feat(ui): 首页标签渲染只读导航栏 + 标签栏 TabBar 视觉精致化（2026-09-23，tab-nav-refine）
+
+### 变更
+- **首页标签由「隐藏导航栏」改为「渲染只读 NavBar」（`apps/desktop/src/App.vue`）**：壳态收敛 T0-6a 曾对首页虚拟标签（`tabId='home'`）整行不渲染 `NavBar`，替换为 40px 空白占位行 `.mp-shell-nav-placeholder`，导致首页没有地址栏与上一页/下一页条，而新标签有——视觉割裂。该占位理由已过期（2026-09-15 `useSpaNavHistory` 修复后，首页前进/后退由 vue-router SPA 历史驱动，具备真实语义；`NavBar` 在 `isHome` 下本就隐藏刷新、禁用地址栏）。现移除 `v-if="!isHomeTab"` 与占位行，改为**无条件渲染** `<NavBar :is-home="isHomeTab" ... />`，首页进入只读态：地址栏置灰禁用、刷新隐藏、🏠 回首页、前进/后退经 SPA 历史有效。
+- **首页地址栏 placeholder 去误导（`components/NavBar.vue`）**：`isHome` 时 placeholder 由误导性的"搜索或输入网址"改为 `t('nav.home')`（zh：首页 / en：Home），并新增 `.url-bar.is-home` 灰底禁用样式，配合只读判据表达"当前为应用主页、不承载网址"。
+- **TabBar 全面 token 化精致（`components/TabBar.vue`）**：去除长期硬编码灰色（`#e8eaf2`/`#d5d7e0`/`#d1d5db`/`#6b7280`/`#374151`/`#9ca3af`/`#f59e0b`），改用设计 token（主色 `--color-primary` `#5048E5`、`--color-bg-card/inset`、`--color-text-*`、`--color-border`、`--radius-*`、`--shadow-sm`、`--spacing-*`、`--color-sidebar-*`）；活动标签卡片化 + `::before` 顶部 2px 品牌紫指示条（借鉴参考样式布局精致度、配色统一现有浅色规范）；补齐缺失的 `.tab-icon-img` 尺寸约束（16×16 + `--radius-xs` + `object-fit:contain`）。
+
+### 核心不变量（零回归）
+- `TabBar(36px) + 导航行(40px) = 76px` = 主进程 `WebContentsView` 内容矩形 `TOP=76px` 定位契约不变——用 40px NavBar 行替换 40px 占位行，高度恒定，首页 ↔ 新标签切换内容区不跳动。
+- `isHomeShell`（"+"新标签独立 SPA 实例）分支不含外层 chrome，本次改动仅作用于主窗口 `<template v-else>` 分支，由 `tab-independent-home.test.js` 守卫隔离。
+
+### 验证
+- TDD 红→绿：新增 `TabBar.test.js`（功能契约：`.active`、首页无关闭/浏览器标签有关闭、switch/create/close 事件 + 样式 token 契约：36px 不变量、去 `#e8eaf2` 用 token、活动标签含 `--color-bg-card`+`--color-primary`、`.tab-icon-img` 存在）；扩展 `NavBar.test.js`（isHome 只读态：后退/前进/首页/地址栏存在、刷新隐藏、地址栏 disabled、placeholder="首页"；非首页地址栏不禁用）；重写 `shell-mode-6a.test.js`（新契约：移除占位行、NavBar 不被 `v-if` 隐藏且绑 `:is-home`、36+40=76 不变量）。定向 4 文件 **28 passed**；`vite build` exit 0（29.5s）。纯渲染层改动，不触及 `electron/` 与 `packages/rpa-engine/`，QM-1 整包打包非强制触发。
+
+### 关联
+- 分支 `codex/tab-nav-refine`（worktree 隔离，D 盘）；详细规格（数据校验、交互逻辑、显示项、提示文字）见 `01-docs/PRD-TAB-NAVBAR-REFINE-2026-09-23.md`。
+
+---
+
 # [未发布] fix(security): P1 审计第三批——IPC 注入契约 fail-closed + 管理后台 Cookie 会话 + P2 安全小项（2026-09-22，audit-batch-3）
 
 ### 变更

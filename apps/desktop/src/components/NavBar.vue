@@ -47,7 +47,7 @@
     </div>
 
     <div class="nav-bar-center">
-      <div class="url-bar" :class="{ focused: urlFocused }">
+      <div class="url-bar" :class="{ focused: urlFocused, 'is-home': isHome }">
         <span class="url-icon" aria-hidden="true">🔍</span>
         <input
           ref="urlInput"
@@ -55,7 +55,7 @@
           class="url-input"
           :value="displayUrl"
           :disabled="isHome"
-          :placeholder="isHome ? '搜索或输入网址' : (currentTitle || '搜索或输入网址')"
+          :placeholder="isHome ? t('nav.home') : (currentTitle || '搜索或输入网址')"
           data-testid="nav-url-input"
           @focus="onFocus"
           @blur="onBlur"
@@ -230,6 +230,17 @@ async function copyUrl() {
 .url-bar.focused {
   background: var(--color-bg-card);
   box-shadow: 0 0 0 2px rgba(80, 72, 229, 0.3);
+}
+
+/* 首页只读态：地址栏置灰、不可输入，仅作视觉占位（前进/后退仍由 SPA 历史驱动） */
+.url-bar.is-home {
+  background: var(--color-bg-inset);
+  border: 1px solid var(--color-border);
+}
+
+.url-bar.is-home .url-input {
+  color: var(--color-text-muted);
+  cursor: default;
 }
 
 .url-icon {

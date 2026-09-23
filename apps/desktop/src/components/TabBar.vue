@@ -133,8 +133,8 @@ function getDomainForPlatform(platform) {
   align-items: stretch;
   flex-shrink: 0;
   height: 36px;
-  background: #e8eaf2;
-  border-bottom: 1px solid #d5d7e0;
+  background: linear-gradient(180deg, var(--color-sidebar-bg-start), var(--color-bg-inset));
+  border-bottom: 1px solid var(--color-border);
   padding: 0;
   user-select: none;
   -webkit-app-region: no-drag;
@@ -144,10 +144,10 @@ function getDomainForPlatform(platform) {
   flex: 1;
   display: flex;
   align-items: stretch;
-  gap: 1px;
+  gap: var(--spacing-1);
   overflow-x: auto;
   scrollbar-width: none;
-  padding: 4px 0 0;
+  padding: 4px var(--spacing-2) 0;
 }
 
 .tab-bar-tabs::-webkit-scrollbar {
@@ -155,38 +155,62 @@ function getDomainForPlatform(platform) {
 }
 
 .tab-item {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   height: 32px;
   min-width: 100px;
   max-width: 200px;
-  padding: 0 8px 0 12px;
-  border: none;
-  border-radius: 8px 8px 0 0;
+  padding: 0 var(--spacing-2) 0 var(--spacing-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   background: transparent;
-  color: #6b7280;
+  color: var(--color-text-secondary);
   font-size: var(--font-size-xs);
   cursor: pointer;
   white-space: nowrap;
-  transition: background 0.15s, color 0.15s;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
 .tab-item:hover {
-  background: #d1d5db;
-  color: #374151;
+  background: var(--color-sidebar-hover-bg);
+  color: var(--color-text-primary);
 }
 
 .tab-item.active {
   background: var(--color-bg-card);
-  color: #1f2937;
-  font-weight: 500;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  color: var(--color-text-strong);
+  font-weight: 600;
+  border-color: var(--color-border);
+  border-bottom-color: var(--color-bg-card);
+  box-shadow: var(--shadow-sm);
+}
+
+/* 活动标签顶部品牌色指示条（借鉴参考产品的标签强调线） */
+.tab-item.active::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: var(--spacing-2);
+  right: var(--spacing-2);
+  height: 2px;
+  border-radius: 0 0 2px 2px;
+  background: var(--color-primary);
 }
 
 .tab-icon {
   flex-shrink: 0;
   font-size: var(--font-size-sm);
+  line-height: 1;
+}
+
+.tab-icon-img {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-xs);
+  object-fit: contain;
 }
 
 .tab-title {
@@ -200,6 +224,7 @@ function getDomainForPlatform(platform) {
   flex-shrink: 0;
   animation: spin 1s linear infinite;
   font-size: var(--font-size-xs);
+  color: var(--color-primary);
 }
 
 @keyframes spin {
@@ -214,9 +239,9 @@ function getDomainForPlatform(platform) {
   width: 18px;
   height: 18px;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   background: transparent;
-  color: #9ca3af;
+  color: var(--color-text-muted);
   font-size: var(--font-size-sm);
   line-height: 1;
   cursor: pointer;
@@ -224,38 +249,39 @@ function getDomainForPlatform(platform) {
 }
 
 .tab-close:hover {
-  background: #e5e7eb;
-  color: #374151;
+  background: var(--color-border);
+  color: var(--color-text-strong);
 }
 
 .tab-unsaved-dot {
   flex-shrink: 0;
   width: 8px;
   height: 8px;
-  border-radius: 50%;
-  background: #f59e0b;
-  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.25);
+  border-radius: var(--radius-full);
+  background: var(--color-warning);
+  box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.25);
 }
 
 .tab-add {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  margin: 2px 6px 0 2px;
-  border: none;
-  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  margin: var(--spacing-1) var(--spacing-2) 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
   background: transparent;
-  color: #6b7280;
+  color: var(--color-text-secondary);
   font-size: var(--font-size-md);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
   flex-shrink: 0;
 }
 
 .tab-add:hover {
-  background: #d1d5db;
-  color: #374151;
+  background: var(--color-bg-card);
+  color: var(--color-primary);
+  border-color: var(--color-border);
 }
 </style>
