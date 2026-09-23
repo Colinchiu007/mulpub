@@ -28,10 +28,10 @@
 
 ## 5. 双轨路由 + 频控 + 风控停止
 
-- [ ] 5.1 `config/platforms.yaml` 增 `publishModes`（未入波平台=dom-rpa）；红测：三态 × 降级矩阵
+- [x] 5.1 `config/platforms.yaml` 逐平台增 `publishMode`（三态 `api-only\|api-then-dom\|dom-only`，W1=api-then-dom、未入波=dom-only，独立于 has_api）+ `api-router.getPublishMode` 读取器（字段优先→has_api 派生→normalizeMode 归一）；publish-mode-config.test.js TDD，见 PRD §12.6
 - [x] 5.2 `publishWithMode()`：api-then-dom 降级落 DOM、risk/login 不降级；结构化日志 `degraded+reasonCode`（§5.2 执行包装 publish-mode-runner.js 已交付，19 例 TDD，见 PRD §12.5；与 §4 链/index.publishViaApi 接线成产品入口随 §5.1/§5.4 落地）
 - [x] 5.3 18min 频控（虚拟时钟边界单测 17:59 拒 / 18:01 放）
-- [ ] 5.4 risk_blocked 挂起该平台 + 通知（恢复/停止），不影响其他平台
+- [x] 5.4 risk_blocked 挂起该平台/账号 + 通知（恢复/停止），不影响其他平台/账号（`risk-suspender.createRiskSuspender` 纯内存、账号级默认、幂等单次通知、显式 resume；与 `publishWithMode` 联动：入口挂起守卫零请求、风控命中即挂起、login 不挂起；risk-suspender.test.js 14 例 TDD，见 PRD §12.6）
 
 ## 6. UI 显示项 + i18n
 

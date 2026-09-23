@@ -537,6 +537,59 @@ spacer（首次放行、17min 节流零请求 waitMs、越 18min 再放行、不
 `getMode` 实读；§5.4 `risk_blocked` 挂起该平台 + 通知（恢复/停止）、不影响其他平台；本包装与 §4 链、`index.publishViaApi`
 接线成产品入口随 §5.1/§5.4 一并落地。
 
+## 12.6 双轨发布服务层：publishMode 配置落字段（§5.1）+ 风控挂起（§5.4）
+
+本轮把 §5「双轨路由 + 频控 + 风控停止」补齐到可上线：§5.2 已有执行包装 `publishWithMode`，本轮补上它的两个数据/联动端点——§5.1 逐平台发布模式的配置事实源与读取器、§5.4 风控命中后的平台挂起与通知。四者合起来构成 §5 服务层闭环：`getPublishMode` 供模式、`spacer` 供频控、`decideRoute` 供决策、`riskSuspender` 供风控停摆。
+
+### 12.6.1 §5.1 发布模式配置（config/platforms.yaml）
+
+- **字段**：每个平台新增 `publishMode`，取值三态之一 `api-only | api-then-dom | dom-only`（与 `publish-mode.js` 的 `MODES` 严格一致，非 `dom-rpa` 等旧命名）。
+- **本波取值**：W1 三平台 `tencent_video`（视频号）、`bilibili`（B站）、`baijiahao`（百家号）= `api-then-dom`；其余 12 平台全部 = `dom-only`（未入波，即便 `has_api: true` 的 youtube/facebook/twitter 也先按 DOM 处理，等各自波次再切）。
+- **与 has_api 的关系**：`publishMode` 是 §5 双轨服务的唯一事实源；`has_api` 保留给旧 `api-router.publishWithFallback`/`shouldUseApi` 与 desktop 侧使用，二者互不覆盖、互不冲突。视频号 `has_api: false` 但已建链，故显式 `publishMode: api-then-dom`（字段优先于派生）。
+- **数据校验**：`getPublishMode` 返回值恒为三态之一；`normalizeMode` 对非法值（拼写错、旧命名）直接抛错 fail-closed，配置写错不会静默走错轨。
+
+### 12.6.2 §5.1 读取器 api-router.getPublishMode(platform)
+
+- **优先读字段**：`cfg.publishMode` 非空则取之。
+- **派生回退**：字段缺省时按 `has_api` 派生——`has_api:true → api-then-dom`，否则 `dom-only`；未知平台 → `dom-only`。
+- **归一**：结果经 `normalizeMode` 归一并做合法性校验（非法抛错）。
+- **API 签名**：`getPublishMode(platform: string): 'api-only'|'api-then-dom'|'dom-only'`；已随 `module.exports` 导出，供 §5.2 `createPublishWithMode({ getMode: getPublishMode })` 直接接线。
+
+### 12.6.3 §5.4 风控挂起器 risk-suspender.createRiskSuspender(deps)
+
+- **职责**：某平台/账号命中 `risk_blocked`（风控）后挂起之并通知；**不影响其他平台/账号**继续发布。
+- **挂起粒度**：默认账号级——`publishWithMode` 传入由 cookie 派生或 opts 指定的 `accountId`，只挂触发风控的那个账号；同一平台的其他干净账号不被牵连（符合「风控即停该号、不误伤他号、绝不自动换号绕过」的合规红线）。也支持平台级挂起（`suspend(platform)` 省略 accountId，覆盖该平台所有账号）。
+- **注入依赖**：`{ clock?, notify?, logger? }`，纯内存状态（`Map`），无任何计时器/网络/持久化，测试零副作用。**不含自动恢复逻辑**——`resume` 只由显式调用触发（人工确认已处理 / 冷却到期）。
+- **API**：`suspend(platform, accountId?, info?)`（幂等，重复挂起只更新记录、只通知一次）｜`isSuspended(platform, accountId?)`｜`getSuspension(platform, accountId?)`｜`resume(platform, accountId?)`（命中返回 true 并通知一次）｜`listSuspended()`｜`clear()`（逐条 resume 通知，reason=`cleared`）｜`size()`。
+- **通知事件**：`notify({ type:'suspend'|'resume', platform, accountId, reason, at })`；notify 抛错被吞并转 `logger.error('risk-suspender', ...)`，绝不炸主发布流程。
+
+### 12.6.4 §5.4 与 §5.2 执行包装的联动（publishWithMode）
+
+- **入口挂起守卫**：`publishWithMode` 若注入 `riskSuspender` 且 `isSuspended(platform, accountId)` 为真 → **直接返回** `{ track:'suspended', stopped:true, reasonCode:'risk_suspended' }`，不进入任何 API/DOM 轨、**零请求**，并发 `logger.warn('publish-mode','skipped (risk-suspended)')`。
+- **风控命中即挂起**：API 轨结果归一为 `risk_blocked` 且决策为「停报」时，调用 `riskSuspender.suspend(platform, accountId, { reason:'risk_blocked_stop', error })`。
+- **仅风控挂起**：`login_expired`（登录失效）走停报但**不挂起**（可重新登录恢复，非风控封锁）；`transient_error/unsupported` 走降级不挂起。
+- **向后兼容**：`riskSuspender` 为可选注入，不传时 `publishWithMode` 行为与 §5.2 完全一致（既有 19 例测试不受影响）。
+
+### 12.6.5 交互显示项与提示文字（UI 接线约定，§6 落地）
+
+- **挂起状态点**：账号管理/发布记录页对被挂起账号显示「风控挂起」红色状态（对应 `reasonCode: 'risk_suspended'` / `'risk_blocked_stop'`）。
+- **提示文字（zh / en 成对，Gate locale 校验）**：
+  - 风控停报：`发布已暂停：触发平台风控，请人工处理后重试（不会自动换号）` / `Publishing paused: platform risk control triggered. Handle manually and retry (no automatic account switch).`
+  - 挂起跳过：`该账号处于风控挂起状态，已跳过发布` / `This account is suspended due to risk control; publishing skipped.`
+  - 恢复动作：提供人工「恢复 / 停止」按钮 → 分别调用 `riskSuspender.resume(platform, accountId)` 与保持挂起。
+- **结构化日志埋点**：`skipped (risk-suspended)`（warn）、`stopped (no degrade)` 带 `outcome:risk_blocked`（error）供运营看板统计风控频次。
+
+### 12.6.6 测试与验证
+
+- `publish-mode-config.test.js`（§5.1，读真实 platforms.yaml）：每平台 `publishMode` 存在且为三态之一；W1=api-then-dom、其余=dom-only；`getPublishMode` 字段优先覆盖 has_api 派生、缺省派生、未知→dom-only、全平台遍历恒合法。
+- `risk-suspender.test.js`（§5.4，纯注入零外发）：平台级/账号级挂起语义、幂等单次通知、resume/clear、缺 platform 抛错、notify 异常吞并转 error、多平台互不干扰；联动 5 例——risk_blocked→停报且挂起该账号（他账号不受牵连）、已挂起再发布 short-circuit 零调用、挂起不影响他平台、login_expired 停报不挂起、不传 riskSuspender 向后兼容。
+- 全量回归 22 文件 / 175 测 EXIT=0；Gate 12（品牌残留）6016 tracked 文件 PASS。
+
+### 12.6.7 待办（后续波次）
+
+- §5 服务入口在 `index.js` 组装为产品级 `publishWithMode` 单例（`apiPublish=index.publishViaApi` + `getMode=apiRouter.getPublishMode` + 进程内 `spacer`/`riskSuspender` 单例 + `domPublish` 接 desktop RPA），替换旧 `publishWithFallback` 成为默认路径。
+- notify 回调对接 desktop 通知中心 + i18n 文案；「恢复/停止」按钮接入 IPC。
+
 ## 附：验收记录（活体证据回写区，随波更新）
 
 | 波次 | 平台 | 日期 | 作品ID | 链接 | 截图 | 降级 | 结论 |

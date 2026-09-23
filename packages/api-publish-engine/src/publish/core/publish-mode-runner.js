@@ -36,7 +36,7 @@ function outcomeOfResult (res) {
 /**
  * @param {{apiPublish?:Function, domPublish?:Function, getMode?:Function,
  *   spacer?:{tryAcquire:Function}, logger?:{info:Function,warn:Function,error:Function},
- *   outcomeOf?:Function}} deps
+ *   outcomeOf?:Function, riskSuspender?:{suspend:Function,isSuspended:Function}}} deps
  */
 function createPublishWithMode (deps = {}) {
   const apiPublish = deps.apiPublish
@@ -45,6 +45,7 @@ function createPublishWithMode (deps = {}) {
   const spacer = deps.spacer || null
   const logger = deps.logger || require('../../logger')
   const outcomeOf = deps.outcomeOf || outcomeOfResult
+  const riskSuspender = deps.riskSuspender || null
 
   const callDom = (platform, taskData, cookie, opts) => {
     if (typeof domPublish !== 'function') return null
@@ -62,6 +63,12 @@ function createPublishWithMode (deps = {}) {
     const mode = normalizeMode(opts.mode != null ? opts.mode : getMode(platform))
     const accountId = opts.accountId || (cookie ? String(cookie).slice(0, 16) : 'default')
     const base = { platform, mode, degraded: false, reasonCode: REASON.ok }
+
+    // —— §5.4 风控挂起守卫：平台/账号处于挂起态则直接停，不进任何轨、零请求 ——
+    if (riskSuspender && typeof riskSuspender.isSuspended === 'function' && riskSuspender.isSuspended(platform, accountId)) {
+      logger.warn('publish-mode', 'skipped (risk-suspended)', { platform, mode, accountId, reasonCode: 'risk_suspended' })
+      return Object.assign(base, { track: 'suspended', success: false, stopped: true, reasonCode: 'risk_suspended' })
+    }
 
     const entry = decideRoute({ mode })
 
@@ -120,6 +127,9 @@ function createPublishWithMode (deps = {}) {
     }
 
     if (d.route === ROUTES.stop) { // 风控/登录/api-only 失败：停报，不降级
+      if (outcome === 'risk_blocked' && riskSuspender && typeof riskSuspender.suspend === 'function') {
+        riskSuspender.suspend(platform, accountId, { reason: REASON.riskBlocked, error: apiRes && apiRes.error })
+      }
       logger.error('publish-mode', 'stopped (no degrade)', { platform, mode, accountId, outcome, reasonCode: d.reasonCode, error: apiRes && apiRes.error })
       return Object.assign(base, { track: 'api', success: false, reasonCode: d.reasonCode, stopped: true, error: apiRes && apiRes.error, code: apiRes && apiRes.code, apiAttempt })
     }
