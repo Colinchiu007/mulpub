@@ -1115,6 +1115,14 @@ git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 commit -m "feat(member-
 
 ---
 
+> **实施期质量评审补录（Task 3 已完成，代码与本节一致）**：`37facfe458` 为计划原文，`3d9bd2b454` 补 6 处守卫回归，`cd23bf8dd` 做了四项获评审方批准的偏离（仓储测试 20→27 例，全包基线 280 tests / 277 pass / 0 fail）：
+> 1. **I-1（防资损）**：`applySubscription` 在校验之后、存在性 SELECT 之前先发 `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`，绑定 `sub:${userId}`。原计划只锁兑换码行，**同一用户并发两笔授予会读-改-写陈旧 `current_period_end`**（两笔订单只续一份时长）。锁在同一 tx client 上持有至 COMMIT/ROLLBACK，非空洞。**Task 4 必须理解：订阅写入已由仓储层按用户串行化，服务层不得再自己拼续期算术。**
+> 2. **M-3（单一时钟）**：`applySubscription` 内存在性 SELECT 改为 `current_period_end > $2` 并绑定传入的 `now`，不再混用 DB `NOW()` 与 App 钟（`EXPIRE_SUBSCRIPTION` 仍用 DB `NOW()`，属另一条语句）。
+> 3. **M-1**：`upsertSession` 缺 `deviceId` 抛 `Object.assign(new TypeError('deviceId is required'), { code: 'SESSION_DEVICE_REQUIRED', status: 400 })`——**Task 6 映射器按 `err.status` 走 400，不得回落 500**。
+> 4. **M-2**：`listOrders` / `listNotifications` 补 `id DESC` 次序，`listActiveSessions` 用 `last_seen_at DESC NULLS LAST, id DESC`（`broadcastNotification` 同语句多行共享一个 `NOW()`，无次序会使分页不稳定）。
+
+---
+
 ## Task 4：订阅服务 subscription-service.js（核销/开通/到期降级编排）
 
 **Files:**
@@ -2237,6 +2245,7 @@ git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 commit -m "docs(member-
 | D11 | 到期降级只在 `/me` 路径触发（惰性 settle），且 `settleExpiry` 已改为单事务 | 发布扣减路径（`_consumeEntitlementFeature` → `getForUser` 读快照）不 settle，过期用户到下次 `/me` 前仍按旧快照扣减；桌面端启动即调 `/me`，窗口≈单次会话生命周期；P1 无支付回调也无定时设施 | 在发布热路径加 settle（每请求一次写查询 + 行锁，否）；阶段 2 上调度后改为对账作业 |
 | D12 | `quota` 与 `limits` 双口径下发：`quota.*` 供服务端扣减，`limits.*` 供展示 | `consumeFeature` 只认 `${feature}_monthly`，日窗口/平台数无扣减源 | 只发 quota（前端无法渲染「日发布 50」类展示，否） |
 | D13 | 实施期将 plan-matrix 的 overrides 校验由 fail-open 改为 fail-closed，并给校验错误补 `code`/`status` | 质量评审实测发现 `{ standart: ... }`（档位键拼错）/`42`/`[]` 均静默回退基线——运营改价未生效而服务照常 200；且 `src/auth/*` 既有约定是 `Object.assign(new Error(code), {code, status})`，无 code 则 Task 6 无法区分配置缺陷（500）与入参缺陷（400） | 只靠启动日志告警（无强制，否）；新增配置校验中间件（多一个抽象层，否） |
+| D14 | 仓储层 `applySubscription` 开头取 per-user advisory xact 锁（键 `sub:${userId}`），并把存活性判定统一到传入的 `now` | 质量评审给出具体交错：兑换码行锁只保护「同一个码」，同一用户并发两笔授予（两个码 / 码+后台授予）双方都读到陈旧 `current_period_end` → 两笔订单只续一份时长，属真实资损；`ON CONFLICT` 仅串行化写入瞬间，救不了 JS 算出的值，`FOR UPDATE` 又锁不住「首单尚无行」的冷启动 | `SELECT … FOR UPDATE`（冷启动锁不到，否）；把续期算术下推到 SQL `GREATEST(...) + interval`（更彻底但需重写 UPSERT 与回参，且与计划其余部分冲突，推 P2） |
 
 ---
 
