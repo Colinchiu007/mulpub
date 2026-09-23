@@ -1,3 +1,9 @@
+
+## 收尾三坑：commit message BOM / worktree 脏恢复 / 落盘自证（2026-09-23，audit-retro 复盘）
+
+- **PS5 `Set-Content -Encoding UTF8` 给 commit message 塞 BOM（pitfall）**：`git commit -F msg.txt` 后主题变成 `\ufeffdocs(audit): …`，BOM 占了首字符，`git log --format=%s` 里肉眼看不出、只在对齐/前缀匹配时炸。修法：脚本 `io.open(..., "w", encoding="utf-8", newline="")` 写无 BOM 文件，再 `git commit --amend -F`。校验口径：读 `%s` 首字节断言不是 `\ufeff`。
+- **大仓 `git worktree add` 被命令超时打断 → 脏工作区 + stale `index.lock`（pitfall）**：表现为 `git status --porcelain` 数千行 `D`、`docs/` 等目录压根不存在，且 `.git/worktrees/<name>/index.lock` 残留。顺序处置：`Get-Process git` 确认无存活进程 → 删锁 → `git reset --hard HEAD`（实测恢复 5910 文件后归零）。绝不在脏工作区上直接改文件，否则会把"文件不存在"误判成"该文件已删"。
+- **写文件工具的返回值不可信，落盘必须自证（pitfall）**：同一次会话里出现"报创建成功但磁盘无文件"与"报保存失败但文件确实在"两种相反症状。纪律：执行前 `Test-Path`，产物写完后用 `git diff --numstat` 或读回校验（本次 PRD 订正的验收就是 `1 1 01-docs/PRD.md`、learnings `deletions == 0`），而不是相信工具返回。
 ## 「装饰性按钮」的三条根因与正交状态字段的收口口径（account-is-active-batch，2026-09-23）
 
 - **同名词表跨层撞车（pitfall）**：账号页批量按钮写的是 `'active' | 'inactive'`，而 `status` 字段的合法词表是 `'active' | 'expired' | 'unverified'`（登录态）。两套语义共用一个字段名，写入既污染枚举又让按钮「点了没反应」。正交概念必须各有字段名（`is_active` / `status`）、各有唯一写者，且**读侧禁止互相派生**——一旦允许 `is_active` 派生登录态，脏数据就会顺着派生链重新出现第 4 个非法态值。

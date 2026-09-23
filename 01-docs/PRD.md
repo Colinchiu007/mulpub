@@ -17032,7 +17032,7 @@ is_default: 1
 
 ## 全仓代码体检整改：安全加固与质量门禁需求（audit-remediation-20260922，四批全量）
 
-> **来源**：`.adversarial/codebase-audit-20260922/proposal-v7.md`（12 轮双模型对抗评审终版；P0×4、P1×11、P2×13，六轮 Critical 轨迹 4→1→0→0→0→0→0）。
+> **来源**：`.adversarial/codebase-audit-20260922/proposal-v7.md`（12 轮双模型对抗评审终版；P0×4、P1×11、P2×12（按 proposal-v7 问题清单实测：P0 = 条目 1/2/4/8，P1 = 条目 3/5/6/7/9~15 共 11 项，P2 = 12 条），六轮 Critical 轨迹 4→1→0→0→0→0→0）。
 > **落地批次**：#2214（P0 全部 + P1 的 3/4/6/7/8）→ #2226（P1 的 5/9/10/11/12/13）→ #2239（P1 的 14/15 + P2 安全小项）→ #2252（P2 技术债余项）。
 > **本节定位**：把整改中**固化的校验规则与交互契约提升为产品需求**，逐条可复算、可回归。实施过程记录见 `docs/audit-remediation-batch3-2026-09-22.md`、`docs/audit-remediation-batch4-2026-09-22.md` 与 CHANGELOG 对应条目。
 
