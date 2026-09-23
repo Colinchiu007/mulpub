@@ -17000,6 +17000,27 @@ is_default: 1
 - **交互提示文字**：正文/简介直接透传用户内容，不再自动追加任何来源标注或工具签名。
 - **活体验证**：净化后重投 B站 topic02 得新稿 `BV1YNh46kE8T`，`desc` 无水印（提交即净化）。
 
+### 第二平台活体推进：快手 RPA 发布前沿与合规墙（2026-09-23）
+
+> 承接 Tier-A 节。用户硬要求「能发的都发」，本轮以活体应用（7 账号 is_active=true）实测推进第二平台，得到确定性根因，记录如下，供后续按证据迭代，避免重复踩坑。
+
+- **合规墙（决定 API 路线天花板）**：packages/api-publish-engine/src/signer-local.js 的 getKuaishouSign（本地 MD5(apiPh|body)）仅是发往远程签名服务（第三方远程签名服务，signer.js 默认端点域名）换取真 __NS_sig3 的中间 key；真签名由远程算出。本地近似签名必被快手服务端拒，调用远程服务违反 CI 品牌/来源门禁（禁第三方签名域名与参考产品品牌词）。抖音 _signature/a_bogus 同理为占位。**故除 B站外的视频平台无法走自包含 API 发布，唯一合规杠杆是应用内 RPA（浏览器自签名、用户已登录会话）。** 当前唯一达活体成功的视频平台为 B站（BV1MahW6tE36 / BV1DxhW6hEwZ）。
+
+- **快手 RPA 实测链路（本轮，账号 a4505f45，720p 小体积视频）**，逐阶段结论：
+  1. 启动浏览器 + 恢复 cookie：通过（cookies restored / supplemented 16/16 cookies from auth partition account-a4505f45）。
+  2. 导航 cp.kuaishou.com/article/publish/video?tabType=1 + 关引导弹窗：通过（post-nav dialogs dismissed: 放弃）。
+  3. 文件上传：通过（uploading file -> file uploaded，约 25s）。
+  4. 标题/正文：通过（无独立标题框，回落 #work-description-edit 富文本编辑器，正文已合成 caption）。
+  5. 封面上传：通过；AI 声明：页面无可勾选控件（NO_DECLARATION_FOUND，非阻断）。
+  6. 发布点击：DIAG pubBtn=7（7 个候选），前 3 个通用文本选择器 button:has-text("发布")/button:has-text("发表")/span:has-text("发 布") 各 3s 超时，命中配置专用候选并点击——但点击后未触发任何提交请求（见下）。
+  7. 回查：失败 publish signal lacked platform ID; responses=0 -> 发布结果缺少平台作品 ID。
+
+- **确定性根因（关键）**：_verifyPublishSuccess 诊断 responses=0——发布网络捕获（_startPublishNetworkCapture，其 relevant(url) 覆盖 publish/submit/create/video/work 等）在「点击发布 -> 停止捕获」窗口内记录到 0 条相关响应。这表明发布按钮点击是空操作，从未发出提交 XHR（而非提交成功但回查匹配失败）。因此快手失败的真身在「点击 -> 提交」环节，而非旧述的「作品 ID 回查过严」。
+
+- **待迭代方向（需活体发布页 DOM 取证，勿盲改选择器）**：疑似 (a) 命中候选按钮处于 disabled/占位态（视频仍在服务端转码，发布未就绪）；(b) 快手点击发布后需二次确认弹层（发布设置/定时/确认），当前流程未处理该步即进入回查；(c) 配置专用候选选择器与实际发布按钮元素不符（点到了非提交元素）。下一步应在不公开提交前提下（仅上传成草稿态）dump 发布按钮清单（text/disabled/class/offsetParent）与其中英文文案、以及点击后是否出现确认层，据此做证据化 TDD 修复。
+
+- **安全提示**：每轮重试会向用户真实快手账号上传并可能公开视频；本轮 2 次尝试均因未提交（responses=0）未产生公开发布；重传风暴已通过 window.electronAPI.cancelTask 清空队列（pending=0 running=0）止住。后续活体迭代须先确认账号侧无脏稿，再逐条推进。
+
 ## 全仓代码体检整改：安全加固与质量门禁需求（audit-remediation-20260922，四批全量）
 
 > **来源**：`.adversarial/codebase-audit-20260922/proposal-v7.md`（12 轮双模型对抗评审终版；P0×4、P1×11、P2×13，六轮 Critical 轨迹 4→1→0→0→0→0→0）。
@@ -17218,12 +17239,12 @@ is_default: 1
 |---|---|---|
 | Gate 17 IPC 守卫覆盖 | 五分类 + `minGuardedRatio 0.65` + global/fallback 硬错误 | `node .github/scripts/check-ipc-sender-guard.js --base-dir apps/desktop` |
 | Gate 18 会话卫生 | 必存在结构 + 禁用模式 | `node .github/scripts/check-ops-session-hygiene.js` |
-| 逐文件行数（含 Python 对等口径） | `DEFAULT_LIMIT=500`、膨胀容差 `200` 行、挂账 99 条（其中 `.py` 25 条，含 `model_preset_service.py 1188`、`prompt_eval_service.py 1043`、`CreateView.vue 5657`、`story2video-stages.js 3866`、`pipeline-engine.js 2722`、`publish-api-server.js 1156`、`text-segmentation.ts 1389`） | `node .github/scripts/check-max-lines.js`；违规类型 `NEW_OVER_LIMIT` / `LEDGER_GREW` / `STALE_LEDGER_ENTRY` |
+| 逐文件行数（含 Python 对等口径） | `DEFAULT_LIMIT=500`、膨胀容差 `200` 行、挂账 99 条（其中 `.py` 25 条，含 `model_preset_service.py 1188`、`prompt_eval_service.py 1043`、`CreateView.vue 5657`、`story2video-stages.js 3866`、`pipeline-engine.js 2722`、`publish-api-server.js 1156`、`text-segmentation.ts 1389`） | `node .github/scripts/check-max-lines.js`；违规类型 `NEW_OVER_LIMIT` / `LEDGER_GREW` / `STALE_LEDGER_ENTRY`（文件真没了）/ `DEBT_REPAID_LEDGER`（债已还、账未销），另有非阻断提示 `LEDGER_RESURRECTED`（墓碑条目被并发带回）。还完债：`node .github/scripts/check-max-lines.js --prune <仓内相对路径>` |
 | 依赖漏洞审计 | 实跑 `npm audit` + `pip-audit`；违规类型 `NEW_ADVISORY`（基线外新公告）/ 基线腐化 / 挂账到期；`decision ∈ {upgrade-tracked, accepted-risk, not-exploitable, no-fix-available}`；当前 29 条挂账 + `reviewBy` | `node scripts/check-dep-audit.js`（`NPM_AUDIT_REGISTRY=https://registry.npmjs.org`）；判定逻辑 `node --test scripts/check-dep-audit.test.js` |
 | Python 硬编码中文文案 | `file:line` 基线 79 条，新增即红 | `node .github/scripts/check-locale-sync.js --py-cjk` |
 | 文档同步（doc-gate） | 改代码必须同批改 `PRD.md`/`CHANGELOG.md`/`docs/`/`01-docs/` | `bash scripts/check-docs-sync.sh --base=<b> --head=HEAD` |
 
-**棘轮自洽原则**：新代码越线 ⇒ 拆文件，不放宽基线（本批实例：`url-collector.js` 条件等待改造后涨到 547 行 ⇒ 拆出 `url-collector-page-wait.js`（489 + 133 行），并把基线清账）。还债只允许两种最小编辑：删除已还清条目、同一文案的净零换号。禁止用 `--update` 掩盖别处新增（`--update` 是棘轮的对偶，会静默吸收真问题）。
+**棘轮自洽原则**：新代码越线 ⇒ 拆文件，不放宽基线（本批实例：`url-collector.js` 条件等待改造后涨到 547 行 ⇒ 拆出 `url-collector-page-wait.js`（489 + 133 行），并把基线清账）。还债只允许两种最小编辑：删除已还清条目、同一文案的净零换号。禁止用 `--update` 掩盖别处新增（`--update` 是棘轮的对偶，会静默吸收真问题）。`--update` 自本次起在代码层面兑现这句话：默认只做增量登记（不抬高已有登记值、不删键、不覆盖 `pruned`），全量重生必须显式 `--update --rewrite` 并人工逐行审 diff。
 
 ### 十、未覆盖维度与限期处置
 
@@ -17248,3 +17269,37 @@ is_default: 1
 - [x] 依赖漏洞与超大文件均有可复核基线（29 条 CVE 挂账 + `reviewBy`；99 条行数挂账）。
 - [ ] `packages/flutter-skill-bridge` 判据结论入 CHANGELOG，并随下个发版周期末确认无回潮。
 - [ ] P0 泄露面逐机清单由运维在部署评审中签字（第三节 7 项复选框）。
+
+### 十二、行数挂账清单的三态语义与墓碑（audit 收尾·防「门禁逃逸」）
+
+背景：同一僵尸条目 `apps/desktop/src/components/LogsSettings.vue: 598` 在 2026-09-22/23 一天内**复发 3 次**，每次都让 main 处于违规态并把在飞的无关 PR 全链卡红。取证结论不是「有人手滑」，而是门禁自身的两处设计缺陷（详见 `docs/audit-remediation-ledger-guard-2026-09-23.md`）。
+
+#### 12.1 三态语义（数据校验口径）
+
+| 状态 | 判据 | 码 | 是否阻断 | 唯一正确处方 |
+|---|---|---|---|---|
+| 账目腐烂 | 清单有键，且文件**不在**受管扫描范围（删除 / 改名 / 移出 `SCAN_DIRS`） | `STALE_LEDGER_ENTRY` | 阻断 | `--prune <路径>`（墓碑值取登记值，因文件已不存在） |
+| 债已还、账未销 | 清单有键，文件在、行数 `< limit(500)` | `DEBT_REPAID_LEDGER` | 阻断 | `--prune <路径>`（墓碑值取当前行数，门禁口径 `split('\n').length`） |
+| 已知复活 | 同上，且该路径已在 `pruned` 立碑 | `LEDGER_RESURRECTED` | **不阻断**（仅 ⚠️） | 下次触碰清单时 `--prune`；不得为消提示而改门禁 |
+| 重新欠债 | 文件行数 `>= limit` 且该路径有墓碑 | `NEW_OVER_LIMIT` | 阻断 | 拆文件；**不得**重新挂账 |
+
+墓碑的两条不变量（用例锁定，改动即红）：① `pruned` 命中即取消 `files` 的挂账豁免，同路径重新超限按新债处理；② `pruned` 命中且文件仍低于阈值时降级为提示，不参与退出码。二者共同保证「僵尸条目既不能当免死金牌，也不能用来卡死别人」。
+
+#### 12.2 命令与显示项（提示文字逐字）
+
+- `node .github/scripts/check-max-lines.js` → 表头 `limit=500 growthAllowance=200 超限文件=N 挂账=M 墓碑=K`；违规行前缀 `❌ `，提示行前缀 `⚠️ `，全清 `✅ 无新增超大文件，挂账清单与现实一致。`；退出码 = 违规数 > 0 ? 1 : 0（**提示不影响退出码**）。
+- `--prune <路径>` 成功：`✅ 已单键清账：<路径> → 从 files 移除，在 pruned 立碑（<行数> 行）` + `   仅改动该一处；其余挂账与顺序未动。`（rc=0）。
+- `--prune` 被拒（rc=2）两类：清单内无该键 → `挂账清单里没有 <路径>，无需清账…`；文件仍超限 → `<路径> 仍超限（现 N 行 >= 500），债务未还，不得发墓碑；请先拆分`。被拒时**不写文件**。
+- `--update` 增量：`✅ 增量登记完成：新增 X 条（现有 Y 条）`，并对 `⚠️ 拒绝抬高 K 个已有登记值`、`⚠️ 不会静默删账 R 条`、`❗ 墓碑路径重新超限，不得重新挂账` 分别列出明细；`--update --rewrite` 额外打印 `⚠️ --rewrite 会重排键并抬高/删除登记值，掩盖别人的存量漂移，必须人工逐行审 diff。`
+
+#### 12.3 CI 触发口径
+
+`debt-guard.yml` 的 `on:` 必须同时含 `pull_request: branches:[main]` 与 `push: branches:[main]`，且**不得**出现生效的 `paths-ignore:`（纯文档 PR 会因 required check 缺失永久 BLOCKED）。job 显示名 `债务熔断检查` 是 ruleset `main-ci-gate` 的 required check，改名等于关掉门禁。以上四条由用例 `防回归：debt-guard 必须同时监听 pull_request 与 push 到 main` 直接读 workflow 文本断言，不再依赖人工记忆。
+
+#### 12.4 验收标准
+
+- [x] 「已降到阈值以下」分支在生产路径可达（用 `collectOverLimit + scanAllLines` 组合喂给 `evaluate`，用例 回归① 断言真命中）。
+- [x] 已还债条目被并发带回时不阻断链条，且该路径重新超限仍被阻断（回归②③）。
+- [x] 清账只能单键、可拒、幂等（回归⑤⑥）。
+- [x] `--update` 无法再悄悄抬高或删改别人的登记值（回归⑦）。
+- [x] main 自身违规会在 5 分钟内显红（push 触发 + 断言用例）。

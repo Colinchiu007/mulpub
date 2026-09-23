@@ -14,6 +14,13 @@
 
 ---
 
+## 状态型门禁的「清单—现实」一致性：三态语义与墓碑（audit 收尾·门禁逃逸根治，2026-09-23）
+
+- **门禁的修复建议本身可以是 bug（pitfall，第一性原因）**：`check-max-lines.js` 里「已降到 limit 以下 → 请 `--update` 清账」这条分支**在生产路径永远走不到**——上游 `collectOverLimit()` 只返回 `>= limit` 的文件，已还债文件压根不在输入里，于是它落到上一分支被误报成「文件已删/改名」，并被建议执行整份 `--update`；而 `--update` 是整份重写，会顺手把别人十几个文件的存量漂移登记成新基线（本仓实测：#2249 就是这样把僵尸条目登进清单，即「第二次开门」）。教训：**门禁输出的是处方，处方要按「用户会照抄」来评审**——诊断分类必须与输入实际可达状态一致，危险动作（全量重写基线）绝不能作为默认建议。
+- **单侧喂数据的用例可以永久掩盖死分支（pitfall，测试逃逸）**：原用例直接 `evaluate(base, {file: 320})`，人造出一个 `main()` 永远产不出的形状，于是「已还债」断言长期绿灯而生产上从没报对过。修法：把「真实可达性」本身写成断言——用 `collectOverLimit(root, limit)` + `scanAllLines(root)` 组合喂给 `evaluate`（回归①），并让真实仓主断言也必须带 `existing` 一起喂（回归⑧）。教训：**纯函数用例的输入形状要在生产路径上可复现，否则补一条「可达性」用例把坐标系钉住**。
+- **状态型门禁只在 pull_request 上跑必然逃逸（pattern，机制根因）**：这类门禁断言的是「全仓当前状态」，而 `pull_request` 检出的是与 base 合并后的树。后果：并发 PR 把已删条目带回 main（squash 合并吃掉 base 侧的删除）不会让任何人的 CI 变红，反而让 main 长期处于违规态，之后每个无关 PR（含 docs-only）都被这条红卡住——本仓一天内实测复发 3 次。修法：`on:` 增加 `push: branches: [main]`，让「债在欠债的人身上显红」；并用一条读 workflow 文本的用例锁住「pull_request + push 双触发 + 不得生效 paths-ignore + required check 名不变」四条约束。
+- **共享 JSON 清单的并发复活要靠语义而不是靠提醒（pattern）**：任何触碰该 JSON 的分支都可能把别人删掉的键带回（行级三方合并无法表达「这个键已被判定为已还」）。解法是给清单加 `pruned` 墓碑，并定两条不变量：① 墓碑取消同路径的挂账豁免（重新超限按新债阻断，僵尸条目不得当免死金牌）；② 墓碑让「已知复活」降级为 ⚠️ 不阻断链条。于是不再需要「合并后人工盯 main」，也不用放宽门禁。
+- **还债收尾要有一条不可误用的单键命令（pattern）**：`--prune <路径>` 只做「删目标键 + 立碑」，顺序与其它键原样保留；且自带 fail-closed——目标键不存在、或文件仍 `>= limit` 一律 rc=2 且不改文件（防「自己给自己发免死金牌」），重复调用被拒（幂等）。配套把 `--update` 收紧为「只加不改不删」的增量语义，全量重生必须显式 `--rewrite` 并自曝风险。
 ## 发布链路被动诊断的挂载证伪与零侵入合同：CCG 两轮评审救回的错误架构（pubfail-diagnose-pr2，2026-09-23）
 
 - **IPC handle 包装层不覆盖事件推送（pitfall，CCG 评审 C-1/C-2 L1 反例证伪）**：想给「发布失败弹窗」统一附加诊断结论，最初方案挂在 `createAccessControlledIpcMain` 的 Proxy 包装层——但该 Proxy 只拦截 `ipcMain.handle`（license-access-control.js:256-294 `return handler.apply(this,args)`），而发布/RPA 失败信息实际走 `webContents.send('batch:progress'/'publish:progress')` 事件推送，根本不经 handle 包装层；batch item 形状 `{ok,message}` 也无 code 字段。教训：**给「所有报错出口」挂钩子前必须先枚举真实出口通道（invoke 响应 vs send 事件 vs renderer throw），包装层覆盖假设一律用代码证据证伪/证实**，否则整个挂载架构落空。

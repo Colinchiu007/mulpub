@@ -1,5 +1,5 @@
 {
-  "//": "超大文件挂账清单（audit-batch-4）。limit 之上的存量文件在此登记；新文件超限一律阻断。更新：node .github/scripts/check-max-lines.js --update",
+  "//": "超大文件挂账清单（audit-batch-4）。limit 之上的存量文件在此登记；新文件超限一律阻断。还完债用 --prune <路径> 单键清账（会同时在 pruned 立碑）；--update 仅做增量登记，--update --rewrite 才全量重生（会掩盖别人的漂移，需人工审 diff）。",
   "limit": 500,
   "growthAllowance": 200,
   "files": {
@@ -102,5 +102,8 @@
     "packages/shared-utils/src/task-queue.js": 576,
     "packages/story2video-engine/src/slideshow.ts": 789,
     "packages/story2video-engine/src/text-segmentation.ts": 1389
+  },
+  "pruned": {
+    "apps/desktop/src/components/LogsSettings.vue": 469
   }
 }
