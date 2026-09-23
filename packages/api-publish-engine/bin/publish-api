@@ -99,6 +99,7 @@ async function main() {
     businessIdentityRepository: identityRuntime && identityRuntime.repository,
     entitlementProvider: identityRuntime && identityRuntime.entitlementProvider,
     entitlementSigner: identityRuntime && identityRuntime.entitlementSigner,
+    subscriptionService: identityRuntime && identityRuntime.subscriptionService,
     logtoWebhookConsumer: identityRuntime && identityRuntime.webhookConsumer,
     readinessProbe: identityRuntime && identityRuntime.readinessProbe
   });

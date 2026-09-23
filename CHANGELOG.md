@@ -1,3 +1,24 @@
+# [未发布] feat(member-center): 会员中心 P1 服务端底座：三档权益矩阵、兑换码核销、订单、消息中心、设备会话与会员 API（2026-09-23，member-center-p1）
+
+### 变更
+- **三档权益矩阵（唯一真源）**：新增 `plan-matrix.js` 定义 free/standard/pro 三档的 features/quota/limits，`/api/v1/plans` 目录与运营 overrides 均从此派生；overrides 校验 fail-closed（档位键拼错/非对象抛 `PLAN_MATRIX_CONFIG_INVALID`，不再静默回退基线）。
+- **兑换码核销与订阅状态机**：新增 `subscription-service.js`——兑换码状态机（400/404/409/410 + 本人重放幂等）、后台 `grant` 开通、续叠到期、`settleExpiry` 惰性降级；pg 唯一约束冲突与日期溢出在仓储层收敛为语义化 4xx。
+- **订单 / 消息中心 / 设备会话（服务端为准）**：`migrations/postgresql/004_member_commerce.sql` 新增 `identity_orders`/`identity_redeem_codes`/`identity_notifications` 三表并为 `identity_user_sessions` 补 `device_id`/`last_seen_at`；会话以 `IS DISTINCT FROM` 保活语义、通知已读用 `read_at` 时间戳。
+- **会员 API 端点**：`publish-api-server.js` 新增 `/api/v1/me`（聚合 membership + entitlement + 设备登记 + limits 透传，membership fail-soft）、`/me/orders`、`/me/notifications[/read]`、`/me/sessions[/revoke-others]`、`PATCH|PUT /me/profile`、`/plans`、`/redeem` 与 `admin:member/grant`、`admin:member/redeem-codes`；沿用既有 scope 鉴权链，`_commerceFailure` 夹紧 status、校验 code 形状、4xx message 原样透传（>=500 掩码）。
+
+- **超大文件门禁（QM）**：本 PR 使 postgres-identity-repository.js 从 389 行增至 738 行，越过 500 行红线触发「债务熔断检查」FILES_OVER_500: 100 > baseline 99。按仓库既有拆分范式把会员中心 P1 电商数据访问层（兑换码/订单/订阅/权益快照/通知/设备会话的 SQL、PostgresCommerceTransaction 事务类、以及挂到仓储原型的商务读写方法）整块拆出为 postgres-commerce-store.js；仓储模块 require 后再导出 PostgresCommerceTransaction 并以 mixin 把 CommerceMethods 实例方法拷入 PostgresIdentityRepository.prototype，repository 方法调用与原模块 require 路径对外契约零改动。拆分后仓储 446 行、新模块 318 行，check-debt-budget.js filesOver500 回落 99（=基线）。
+- **逐文件行数门禁（QM·check-max-lines）**：本 PR 使 publish-api-server.js 由登记值 1156 行膨胀至 1379 行（+223 > 容差 200），触发 LEDGER_GREW。--update 机制上拒绝抬高存量登记值（防掩盖他人漂移），唯一合规修法是拆分：按仓库既有 mixin 范式，把 safeErrorCode 语义码守卫提取为共享 util auth/safe-error-code.js（解耦循环 require），把 5 个商务/设备辅助方法（_commerceFailure / _memberUserId / _deviceIdFrom / _deviceNameFrom / _commerceRepository）提取为 auth/publish-api-commerce.js，经 applyCommerceHelpers 以原型描述符拷回 PublishApiServer.prototype，this 绑定语义与对外 HTTP 契约零改动。拆分后 publish-api-server.js 回落 1342 行（grown 186 ≤ 200），check-max-lines 违规 0、check-debt-budget filesOver500 仍 99，api-publish-engine 全量测试（vitest 12 文件/73 用例 + member-commerce-api 路由）全绿。
+
+### 验证
+- `pnpm --filter @multi-publish/api-publish-engine test` 全量绿：文件级 90 通过 / 0 失败（覆盖 100 个测试文件）；TAP 累加 `# tests` 308 / `# pass` 305。新增 `member-commerce-migrations`/`plan-matrix`/`member-commerce-repository`/`subscription-service`/`member-commerce-api` 五个测试文件与全部存量。
+- 契约锁：`member-commerce-api.test.js` H1 断言 4xx `message` 原样透传不被掩码（先证明改源即红、还原转绿的变异锁）。
+- 生产迁移演练因本机无 Postgres（5432 ECONNREFUSED）跳过，待 CI/部署补；以静态替代验证兜底：`discoverMigrations` 发现 002/003/004 且 `normalizeMigrationSql` 全不抛、`REQUIRED_SCHEMA_RELATIONS` 与 004/SCHEMA 防漂移一致（`member-commerce-migrations.test.js`）、`assertReady` fail-closed 由 `postgres-identity-repository.test.js` 覆盖。
+
+### 关联
+- 分支 `member-center-p1`（worktree 隔离，基线 `81be086d6`）；计划 `.hermes/plans/2026-09-23-member-center-p1-server.md`。本包为服务端底座，`apps/desktop/electron/`、`packages/rpa-engine/` 零改动，QM-1 打包验证与桌面 IPC 由 P2 承担。
+
+---
+
 # [未发布] fix(film-engineering): 批量出片逐镜失败原因可观测性 —— 三层静默吞错打通（2026-09-23，film-gen-shot-error-observability）
 
 ### 变更

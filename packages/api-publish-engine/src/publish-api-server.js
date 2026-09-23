@@ -15,6 +15,9 @@ const ApiKeyManager = require("./api-key-manager");
 const { requireScopes } = require("./auth/logto-auth");
 const { BusinessIdentityError, assertBusinessUserActive, ensureBusinessUser } = require("./auth/business-identity");
 const { LOGTO_WEBHOOK_SIGNATURE_HEADER, LogtoWebhookError } = require("./auth/logto-webhook");
+const { getPlanCatalog } = require("./auth/plan-matrix")
+const { safeErrorCode } = require("./auth/safe-error-code")
+const { applyCommerceHelpers } = require("./auth/publish-api-commerce")
 
 const GZIP_MIN_BYTES = 256;
 
@@ -50,11 +53,6 @@ function errorCodeOf(data) {
     return redacted.length > 64 ? redacted.slice(0, 64) : redacted;
   }
   return null;
-}
-
-function safeErrorCode(error, fallback) {
-  const code = error && typeof error.code === "string" ? error.code : "";
-  return /^[A-Z][A-Z0-9_]{2,63}$/.test(code) ? code : fallback;
 }
 
 function authDependencyUnavailable(error) {
@@ -98,6 +96,7 @@ class PublishApiServer {
     this._businessIdentityRepository = this._opts.businessIdentityRepository || null
     this._entitlementProvider = this._opts.entitlementProvider || null
     this._entitlementSigner = this._opts.entitlementSigner || null
+    this._subscriptionService = this._opts.subscriptionService || null
     this._readinessProbe = this._opts.readinessProbe || null
     this._publishViaApi = typeof this._opts.publishViaApi === "function" ? this._opts.publishViaApi : publishViaApi
     this._log = this._opts.log || logger
@@ -384,7 +383,12 @@ class PublishApiServer {
   _requiredScope(req) {
     const url = requestPath(req)
     if (url === "/api/v1/health" || url === "/api/v1/ready") return null
-    if (url === "/api/v1/me") return "profile:read"
+    if (url === "/api/v1/me" || url === "/api/v1/plans") return "profile:read"
+    if (url === "/api/v1/redeem") return "profile:write"
+    if (url.indexOf("/api/v1/me/") === 0) {
+      return req.method === "GET" || req.method === "HEAD" ? "profile:read" : "profile:write"
+    }
+    if (url.indexOf("/api/v1/admin/member/") === 0) return "admin:users"
     if (url.startsWith("/api/v1/keys") || url.startsWith("/api/v1/plugins") || url.startsWith("/api/v1/logs")) return "admin:users"
     if (req.method === "POST" || url.startsWith("/api/v1/schedule") || url.startsWith("/api/v1/plan")) return "publish:submit"
     return "publish:read"
@@ -538,12 +542,16 @@ class PublishApiServer {
       : []))
     const response = { plan, features }
     if (entitlement.quota && typeof entitlement.quota === "object" && !Array.isArray(entitlement.quota)) response.quota = entitlement.quota
+    if (entitlement.limits && typeof entitlement.limits === "object" && !Array.isArray(entitlement.limits)) response.limits = entitlement.limits
     return response
   }
 
   async _buildEntitlementSnapshot(req, entitlement) {
     if (!this._entitlementSigner || typeof this._entitlementSigner.sign !== "function") return null
     const deviceId = req.headers && req.headers["x-device-id"]
+    // MF-2（CCG W1）：无设备头 = 客户端未请求权威快照，跳过快照（返回 null）而非拒绝 /me。
+    if (deviceId === undefined || deviceId === null || deviceId === "") return null
+    // 有头但畸形（含路径穿越等）仍 fail closed 抛 400，沿用 299ef43b7e 既有权威契约，不降级。
     if (typeof deviceId !== "string" || !/^[A-Za-z0-9._:-]{16,128}$/.test(deviceId)) {
       throw Object.assign(new Error("DEVICE_ID_INVALID"), { code: "DEVICE_ID_INVALID", status: 400 })
     }
@@ -571,7 +579,7 @@ class PublishApiServer {
     res.end = function() { res.end = _origEnd; res.end.apply(res, arguments); if (_self._accessLogger) _self._accessLogger.log(req, res, _startTime, { requestId: req.requestId, path: url, errorCode: (req._errorCode || null) }); };
 
     if (method === "OPTIONS") {
-      res.writeHead(204, { "Access-Control-Allow-Origin": "http://localhost:5174", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Device-ID", "X-Request-Id": req.requestId });
+      res.writeHead(204, { "Access-Control-Allow-Origin": "http://localhost:5174", "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Device-ID, X-Device-Name", "X-Request-Id": req.requestId });
       res.end();
       return;
     }
@@ -700,10 +708,52 @@ class PublishApiServer {
           return;
         }
         const businessUser = req.auth.businessUser;
+        // MF-1：先结算 membership（getSubscriptionView 内部 settleExpiry 会重写权益缓存），再读 entitlement，
+        // 使 entitlement / entitlementSnapshot 与 membership.subscription 落在同一 settle 之后的状态，
+        // 杜绝到期临界返回自相矛盾的过期付费快照。membership 块不依赖 entitlement，可安全前置。
+        let membership = null;
+        if (this._subscriptionService) {
+          const commerceRepository = this._commerceRepository();
+          // 逐槽降级：某槽失败置 null，其余槽保留；subscription 是会员视图锚点，其失败才导致整个 membership 缺失。
+          const [subRes, usageRes, unreadRes] = await Promise.allSettled([
+            this._subscriptionService.getSubscriptionView(businessUser.id),
+            this._subscriptionService.getUsageView(businessUser.id),
+            // 未配置商务仓储或计数失败 → null（未知），绝不吐 0（会与 /me/orders 的 503 自相矛盾，误导前端徽标）。
+            commerceRepository && typeof commerceRepository.countUnreadNotifications === "function"
+              ? commerceRepository.countUnreadNotifications(businessUser.id)
+              : Promise.resolve(null),
+          ]);
+          if (subRes.status === "fulfilled") {
+            membership = {
+              subscription: subRes.value,
+              usage: usageRes.status === "fulfilled" ? usageRes.value : null,
+              unreadNotifications: unreadRes.status === "fulfilled" ? unreadRes.value : null,
+            };
+          } else {
+            this._logError("MEMBERSHIP_UNAVAILABLE", subRes.reason, this._ctx(req));
+          }
+          if (usageRes.status === "rejected") this._logError("MEMBERSHIP_UNAVAILABLE", usageRes.reason, this._ctx(req));
+          if (unreadRes.status === "rejected") this._logWarn("MEMBERSHIP_UNAVAILABLE", unreadRes.reason, this._ctx(req));
+          // 会话登记为真 best-effort：独立 try/catch，失败仅记 WARN，不得连带清空已取到的 membership。
+          const deviceId = this._deviceIdFrom(req);
+          if (deviceId && commerceRepository && typeof commerceRepository.upsertSession === "function") {
+            try {
+              await commerceRepository.upsertSession({
+                userId: businessUser.id,
+                deviceId,
+                deviceName: this._deviceNameFrom(req),
+              });
+            } catch (error) {
+              this._logWarn("MEMBERSHIP_UNAVAILABLE", error, this._ctx(req));
+            }
+          }
+        }
         let entitlement;
         let entitlementSnapshot;
         try {
           entitlement = await this._buildEntitlement(req);
+          // MF-2（收窄）：无头时 _buildEntitlementSnapshot 返回 null → /me 200（CCG W1 无头不阻断）；
+          // 有头且畸形仍抛 DEVICE_ID_INVALID → 走下方 catch 变 400（沿用 299ef43b7e 既有契约）。
           entitlementSnapshot = await this._buildEntitlementSnapshot(req, entitlement);
         } catch (error) {
           this._logError(error && error.code ? error.code : "ENTITLEMENT_UNAVAILABLE", error, this._ctx(req));
@@ -722,8 +772,132 @@ class PublishApiServer {
           },
           entitlement,
           ...(entitlementSnapshot ? { entitlementSnapshot } : {}),
+          ...(membership ? { membership } : {}),
         });
         return;
+      }
+
+      // --- 会员中心 P1：目录 / 核销 / 订单 / 通知 / 会话 / 资料 / 运营入口 ---
+      if (method === "GET" && url === "/api/v1/plans") {
+        // 目录构造可能因运营 override 配置非法抛 PLAN_MATRIX_CONFIG_INVALID：必须走 _commerceFailure 保留语义码，而非落外层兜底成 INTERNAL_SERVER_ERROR。
+        try {
+          this._json(res, 200, { plans: getPlanCatalog((this._subscriptionService && this._subscriptionService.planOverrides) || null) });
+        } catch (error) { this._commerceFailure(req, res, error); }
+        return;
+      }
+
+      if (method === "POST" && url === "/api/v1/redeem") {
+        if (!this._subscriptionService) { this._json(res, 503, { error: "SUBSCRIPTION_SERVICE_NOT_CONFIGURED" }); return; }
+        const userId = this._memberUserId(req);
+        if (!userId) { this._json(res, 503, { error: "BUSINESS_USER_REPOSITORY_NOT_CONFIGURED" }); return; }
+        var redeemBody = await this._parseBody(req);
+        try {
+          var redeemResult = await this._subscriptionService.redeem({ userId, code: redeemBody && redeemBody.code });
+          this._json(res, 200, { success: true, ...redeemResult });
+        } catch (error) { this._commerceFailure(req, res, error); }
+        return;
+      }
+
+      if (url === "/api/v1/me/orders" || url === "/api/v1/me/notifications" || url === "/api/v1/me/notifications/read" ||
+        url === "/api/v1/me/sessions" || url === "/api/v1/me/sessions/revoke-others" || url === "/api/v1/me/profile") {
+        const commerceRepository = this._commerceRepository();
+        if (!commerceRepository) { this._json(res, 503, { error: "BUSINESS_USER_REPOSITORY_NOT_CONFIGURED" }); return; }
+        const userId = this._memberUserId(req);
+        if (!userId) { this._json(res, 503, { error: "BUSINESS_USER_REPOSITORY_NOT_CONFIGURED" }); return; }
+        try {
+          if (method === "GET" && url === "/api/v1/me/orders") {
+            this._json(res, 200, { orders: await commerceRepository.listOrders(userId, { limit: 50, offset: 0 }) });
+            return;
+          }
+          if (method === "GET" && url === "/api/v1/me/notifications") {
+            const [notifications, unreadCount] = await Promise.all([
+              commerceRepository.listNotifications(userId, { limit: 50, offset: 0 }),
+              commerceRepository.countUnreadNotifications(userId),
+            ]);
+            this._json(res, 200, { notifications, unreadCount });
+            return;
+          }
+          if (method === "POST" && url === "/api/v1/me/notifications/read") {
+            this._json(res, 200, { ids: await commerceRepository.markNotificationsRead(userId) });
+            return;
+          }
+          if (method === "GET" && url === "/api/v1/me/sessions") {
+            this._json(res, 200, { sessions: await commerceRepository.listActiveSessions(userId) });
+            return;
+          }
+          if (method === "POST" && url === "/api/v1/me/sessions/revoke-others") {
+            // 只认经正则校验的 X-Device-ID：若改用未校验的 body.deviceId，任意串都无匹配会话，
+            // IS DISTINCT FROM 语义下会把当前会话一起下线（自断登录态）。
+            const keepDeviceId = this._deviceIdFrom(req);
+            if (!keepDeviceId) { this._json(res, 400, { error: "DEVICE_ID_REQUIRED" }); return; }
+            this._json(res, 200, { revoked: await commerceRepository.revokeOtherSessions(userId, keepDeviceId) });
+            return;
+          }
+          if ((method === "PATCH" || method === "PUT") && url === "/api/v1/me/profile") {
+            var profileBody = await this._parseBody(req);
+            var patch = {};
+            if (profileBody && Object.prototype.hasOwnProperty.call(profileBody, "displayName")) {
+              if (typeof profileBody.displayName !== "string" || !profileBody.displayName.trim()
+                  || profileBody.displayName.length > 60
+                  || /[\u0000-\u001f\u007f]/.test(profileBody.displayName)) {
+                this._json(res, 400, { error: "DISPLAY_NAME_INVALID" }); return;
+              }
+              patch.display_name = profileBody.displayName.trim();
+            }
+            if (profileBody && Object.prototype.hasOwnProperty.call(profileBody, "avatarUrl")) {
+              // 存储型 XSS 面：URL 字段必须限死 scheme，javascript: 与 data:text/html 一律 fail closed
+              const avatar = profileBody.avatarUrl;
+              const avatarOk = /^(https?:)?\/\/[^\s"'<>]+$/i.test(avatar)
+                || /^data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=]+$/i.test(avatar);
+              if (avatar !== null && (typeof avatar !== "string" || avatar.length > 500 || !avatarOk)) {
+                this._json(res, 400, { error: "AVATAR_URL_INVALID" }); return;
+              }
+              patch.avatar_url = avatar;
+            }
+            if (!Object.keys(patch).length) { this._json(res, 400, { error: "PROFILE_PATCH_EMPTY" }); return; }
+            const updated = await commerceRepository.updateProfile(userId, patch);
+            if (!updated) { this._json(res, 503, { error: "PROFILE_UPDATE_UNAVAILABLE" }); return; }
+            this._json(res, 200, { user: { id: updated.id, displayName: updated.display_name || null, avatarUrl: updated.avatar_url || null } });
+            return;
+          }
+          this._json(res, 405, { error: "METHOD_NOT_ALLOWED" });
+          return;
+        } catch (error) { this._commerceFailure(req, res, error); return; }
+      }
+
+      if (url.indexOf("/api/v1/admin/member/") === 0) {
+        // 运营端点会花钱/发权益：只认经 scope 校验的 logto 身份，拒绝静态主密钥（api_key 分支不校验 requiredScope）。
+        if (!(req.auth && req.auth.authType === "logto")) { this._json(res, 403, { error: "AUTH_SCOPE_MISSING" }); return; }
+        if (!this._subscriptionService) { this._json(res, 503, { error: "SUBSCRIPTION_SERVICE_NOT_CONFIGURED" }); return; }
+        try {
+          if (method === "POST" && url === "/api/v1/admin/member/grant") {
+            var grantBody = await this._parseBody(req);
+            if (!grantBody || typeof grantBody.userId !== "string" || !grantBody.userId) { this._json(res, 400, { error: "USER_ID_REQUIRED" }); return; }
+            var grantResult = await this._subscriptionService.grant({
+              userId: grantBody.userId,
+              plan: grantBody.plan,
+              durationDays: grantBody.durationDays,
+              providerReference: grantBody.providerReference || null,
+              operator: grantBody.operator || null,
+            });
+            this._json(res, 200, { success: true, ...grantResult });
+            return;
+          }
+          if (method === "POST" && url === "/api/v1/admin/member/redeem-codes") {
+            var batchBody = await this._parseBody(req);
+            var batchResult = await this._subscriptionService.createRedeemBatch({
+              plan: batchBody && batchBody.plan,
+              durationDays: batchBody && batchBody.durationDays,
+              count: batchBody && batchBody.count,
+              batch: batchBody && batchBody.batch || null,
+              expiresAt: batchBody && batchBody.expiresAt || null,
+            });
+            this._json(res, 200, { success: true, ...batchResult });
+            return;
+          }
+          this._json(res, 404, { error: "ROUTE_NOT_FOUND" });
+          return;
+        } catch (error) { this._commerceFailure(req, res, error); return; }
       }
 
       // --- Key Management ---
@@ -1067,7 +1241,17 @@ p{color:#6e6e73}
         var endpoints = [
           { m: "GET", p: "/api/v1/health", d: "Liveness check, no auth required" },
           { m: "GET", p: "/api/v1/ready", d: "Readiness check for business DB, migrations and OIDC/JWKS, no auth required" },
-          { m: "GET", p: "/api/v1/me", d: "Get current business user and authoritative entitlement. Signed snapshots require X-Device-ID" },
+          { m: "GET", p: "/api/v1/me", d: "Get current business user, authoritative entitlement and membership aggregation (fail-soft). Signed snapshots require X-Device-ID" },
+          { m: "GET", p: "/api/v1/plans", d: "Plan catalog with prices and entitlements (scope profile:read)" },
+          { m: "POST", p: "/api/v1/redeem", d: "Redeem a membership code for current user. Body: { code } (scope profile:write)" },
+          { m: "GET", p: "/api/v1/me/orders", d: "List current user's orders (scope profile:read)" },
+          { m: "GET", p: "/api/v1/me/notifications", d: "List current user's notifications with unread count (scope profile:read)" },
+          { m: "POST", p: "/api/v1/me/notifications/read", d: "Mark all notifications as read (scope profile:write)" },
+          { m: "GET", p: "/api/v1/me/sessions", d: "List active device sessions (scope profile:read)" },
+          { m: "POST", p: "/api/v1/me/sessions/revoke-others", d: "Revoke other device sessions. Requires valid X-Device-ID header to keep current device (scope profile:write)" },
+          { m: "PATCH", p: "/api/v1/me/profile", d: "Update own displayName/avatarUrl. Body: { displayName?, avatarUrl? } (scope profile:write)" },
+          { m: "POST", p: "/api/v1/admin/member/grant", d: "Admin grants a plan. Body: { userId, plan, durationDays } (scope admin:users)" },
+          { m: "POST", p: "/api/v1/admin/member/redeem-codes", d: "Admin batch-generates redeem codes. Body: { plan, durationDays, count } (scope admin:users)" },
           { m: "GET", p: "/api/v1/platforms", d: "List all supported platforms" },
           { m: "POST", p: "/api/v1/publish", d: "Publish to one platform. Body: { platform, title, content, tags, cookie }" },
           { m: "POST", p: "/api/v1/batch-publish", d: "Batch publish to multiple platforms. Body: { platforms, title, content, tags, cookie }" },
@@ -1141,6 +1325,8 @@ p{color:#6e6e73}
     }
   }
 }
+
+applyCommerceHelpers(PublishApiServer);
 
 PublishApiServer.registerShutdownSignals = function(server) {
   var sig = function() { server.stop(); };
