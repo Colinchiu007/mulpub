@@ -11,6 +11,12 @@
 - **暂存文本资产（staged `.txt`）改完必须重新拷进 worktree（pitfall）**：红灯阶段先把测试文件复制进 worktree、随后又修了测试断言，导致 worktree 里跑的还是旧版，报出「无法解释」的失败。凡是 workspace 外文件只能经复制落盘的场景，**每次编辑暂存源后都要以 `overwrite: true` 重拷并核对字节数**。
 - **测试自身的三处典型假阳性断言（pitfall，均为「断言写错、实现对」）**：① `expect(x || '').not.toBe('')` 恒假（`x` 为空时 `''` 让断言必然失败，但写法本身表达不出「不该是空串」，应改为 `expect(Object.keys(body).filter(k => body[k] === '')).toEqual([])`）；② 同一个 spy 上跑两次流程后用 `mock.calls.find(call => POST)` 取请求体，会命中上一次的调用，必须取最后一次；③ 断言「平台专用选择器优先」时忘记传 `platformSelectors`，实际测的是通用回退 —— 必须让专用与通用同时可命中，才有优先级可言。改测试前先问「实现是不是对的」，本次三处都是改断言、不动实现。
 
+
+## 收尾三坑：commit message BOM / worktree 脏恢复 / 落盘自证（2026-09-23，audit-retro 复盘）
+
+- **PS5 `Set-Content -Encoding UTF8` 给 commit message 塞 BOM（pitfall）**：`git commit -F msg.txt` 后主题变成 `\ufeffdocs(audit): …`，BOM 占了首字符，`git log --format=%s` 里肉眼看不出、只在对齐/前缀匹配时炸。修法：脚本 `io.open(..., "w", encoding="utf-8", newline="")` 写无 BOM 文件，再 `git commit --amend -F`。校验口径：读 `%s` 首字节断言不是 `\ufeff`。
+- **大仓 `git worktree add` 被命令超时打断 → 脏工作区 + stale `index.lock`（pitfall）**：表现为 `git status --porcelain` 数千行 `D`、`docs/` 等目录压根不存在，且 `.git/worktrees/<name>/index.lock` 残留。顺序处置：`Get-Process git` 确认无存活进程 → 删锁 → `git reset --hard HEAD`（实测恢复 5910 文件后归零）。绝不在脏工作区上直接改文件，否则会把"文件不存在"误判成"该文件已删"。
+- **写文件工具的返回值不可信，落盘必须自证（pitfall）**：同一次会话里出现"报创建成功但磁盘无文件"与"报保存失败但文件确实在"两种相反症状。纪律：执行前 `Test-Path`，产物写完后用 `git diff --numstat` 或读回校验（本次 PRD 订正的验收就是 `1 1 01-docs/PRD.md`、learnings `deletions == 0`），而不是相信工具返回。
 ## 「装饰性按钮」的三条根因与正交状态字段的收口口径（account-is-active-batch，2026-09-23）
 
 - **同名词表跨层撞车（pitfall）**：账号页批量按钮写的是 `'active' | 'inactive'`，而 `status` 字段的合法词表是 `'active' | 'expired' | 'unverified'`（登录态）。两套语义共用一个字段名，写入既污染枚举又让按钮「点了没反应」。正交概念必须各有字段名（`is_active` / `status`）、各有唯一写者，且**读侧禁止互相派生**——一旦允许 `is_active` 派生登录态，脏数据就会顺着派生链重新出现第 4 个非法态值。

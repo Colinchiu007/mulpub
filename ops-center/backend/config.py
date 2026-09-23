@@ -203,6 +203,11 @@ def run_startup_security_checks(settings: "Settings") -> None:
         # No admin configured at all — acceptable if using Logto OIDC
         pass
     
+    # P0-8: 未展开的 unit 文件字面量一律拒绝启动（JWT / 加密主密钥 / 管理员口令同源）
+    _reject_unexpanded(settings.jwt_secret, "OPS_JWT_SECRET")
+    _reject_unexpanded(settings.encryption_key, "OPS_ENCRYPTION_KEY")
+    _reject_unexpanded(settings.admin_password, "OPS_ADMIN_PASSWORD")
+    
     # P0-6: CORS + credentials
     _validate_cors_credentials(settings.cors_origins, allow_credentials=True)
     
@@ -227,8 +232,28 @@ _WEAK_SECRET_EXACT = {
     "secret", "changeme", "default", "admin",
 }
 
+# P0-8: systemd 的 Environment= 不做 ${VAR} / $(...) 展开，模板字面量会原样进入进程环境；
+# 这类值是仓库里可复算的公开常量（体检报告问题 8 的攻击面），必须按「模式」在启动期拒绝，
+# 不能依赖长度判据顺带拦下。
+_UNEXPANDED_MARKERS = ("${", "$(")
+
+
+def _reject_unexpanded(value: str, field: str) -> None:
+    """值里残留 systemd 变量/命令替换字面量即拒绝启动（fail-closed）。空串交由各自判据处理。"""
+    if not value:
+        return
+    for marker in _UNEXPANDED_MARKERS:
+        if marker in value:
+            raise SystemExit(
+                f"[P0-8] {field} contains unexpanded unit-file reference '{marker}...'; "
+                "systemd Environment= does not expand ${VAR} — inject a real random value "
+                "via EnvironmentFile= instead."
+            )
+
+
 def _validate_jwt_secret(secret: str) -> None:
     """Reject weak JWT secrets at startup (fail-closed in production)."""
+    _reject_unexpanded(secret, "OPS_JWT_SECRET")
     if not secret or len(secret) < 32:
         raise SystemExit(
             f"[P0-2] JWT secret too short ({len(secret) if secret else 0} chars); "
