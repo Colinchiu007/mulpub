@@ -23,6 +23,7 @@ const VITEST_FILES = new Set([
   'publish-mode-runner.test.js',
   'publish-mode-config.test.js',
   'risk-suspender.test.js',
+  'publish-service.test.js',
   'signer.test.js',
   'tiktok.test.js',
   'twitter.test.js',

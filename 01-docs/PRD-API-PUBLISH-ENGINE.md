@@ -590,6 +590,60 @@ spacer（首次放行、17min 节流零请求 waitMs、越 18min 再放行、不
 - §5 服务入口在 `index.js` 组装为产品级 `publishWithMode` 单例（`apiPublish=index.publishViaApi` + `getMode=apiRouter.getPublishMode` + 进程内 `spacer`/`riskSuspender` 单例 + `domPublish` 接 desktop RPA），替换旧 `publishWithFallback` 成为默认路径。
 - notify 回调对接 desktop 通知中心 + i18n 文案；「恢复/停止」按钮接入 IPC。
 
+## 12.7 双轨发布服务入口装配（§5 收口：index.js 组装 publishWithMode 单例）
+
+§5 的四件套（`getPublishMode` 供模式 / `spacer` 供频控 / `decideRoute`+`publishWithMode` 供决策执行 / `riskSuspender` 供风控停摆）此前各自就绪但缺一个统一入口。本轮新增 `src/publish/publish-service.js` 并在 `index.js` 装配成产品级服务，使 §5 成为可直接调用、可被 UI/IPC 复用的单一事实入口；旧 `api-router.publishWithFallback` 保留兼容、不再是推荐路径。
+
+### 12.7.1 API 签名
+
+- `createPublishService(deps): { publishWithMode, getMode, spacer, risk }`
+  - `deps.apiPublish(platform, taskData, cookie, opts): Promise<result>`（**必填**，缺失即抛错 fail-closed）。
+  - `deps.getMode?(platform): string`（缺省 `()=>undefined` → 归一为 `api-then-dom`）。
+  - `deps.spacer?` / `deps.riskSuspender?`（缺省内部新建进程内单例）。
+  - `deps.onRiskEvent?(event)` / `deps.logger?`（风控事件通知桥接与日志）。
+- `publishWithMode(platform, taskData, cookie, opts?): Promise<PublishResult>`
+  - `opts = { accountId?, mode?, rpaPublish?, onProgress?, ... }`；`rpaPublish` 为 DOM/RPA 回落执行器，**每次调用注入**（缺省则该次无 DOM 能力）。
+- `index.js` 顶层装配并导出：`publishWithMode`、`publishService`（含 `.risk` / `.spacer` / `.getMode`）、`getPublishMode`。
+
+### 12.7.2 装配与接线（index.js）
+
+- `_publishService = createPublishService({ apiPublish: publishViaApi, getMode: (p)=>apiRouter.getPublishMode(p), logger, onRiskEvent })`。
+- `apiPublish` 直接绑定 `index.publishViaApi`（走各平台适配器 `execute`/`publish`），`getMode` 绑定 §5.1 `apiRouter.getPublishMode`。
+- `onRiskEvent` 桥接到 `logger.warn('publish-service', 'risk_'+type, event)`（§6 再接桌面通知中心 + i18n）。
+- **循环依赖处理**：`publish-service.js` 只依赖 `./core/*` 叶子模块，不 require `./index`/`./api-router`；由 `index.js` 注入 `apiPublish`/`getMode`，规避 `index↔api-router` 的惰性 require 环，同时让单测可用假 `apiPublish` 零外发驱动整条服务链。
+
+### 12.7.3 编排流程与数据校验
+
+1. 取 `mode = normalizeMode(opts.mode ?? getMode(platform))`（非法值抛错，未配置默认 `api-then-dom`）。
+2. 取 `accountId = opts.accountId || cookie.slice(0,16) || 'default'`。
+3. **风控挂起守卫**（§5.4）：`risk.isSuspended(platform, accountId)` 为真 → 直接返回 `{track:'suspended', stopped:true, reasonCode:'risk_suspended'}`，**零请求**。
+4. **频控闸门**（§5.3）：`spacer.tryAcquire(platform, accountId)` 不放行 → 返回 `{track:'throttled', waitMs}`，**零请求**（spacer 为服务级单例，跨调用共享台账）。
+5. 跑 `apiPublish` → `outcomeOfResult` 归一 → `decideRoute`：`success` 留 API；`risk_blocked` 停报**并挂起该账号**（`risk.suspend`，他账号不受牵连）；`login_expired` 停报不挂起；`transient/unsupported` + `api-then-dom` 降级 DOM；`api-only` 任何失败停报。
+6. 降级 DOM 用 `opts.rpaPublish`；缺省则返回 `requiresDom:true`（**不误判成功**），交上层决定。
+
+### 12.7.4 返回结果契约（归一 PublishResult）
+
+`{ platform, mode, track: api|dom|throttled|suspended, degraded, reasonCode, success, publishId?, error?, code?, stopped?, requiresDom?, waitMs?, apiAttempt?, domAttempt? }`。`reasonCode` 取值：`ok / mode_dom_only / mode_unsupported_fallback / transient_error_fallback / risk_blocked_stop / login_expired_stop / api_failed_stop / throttled / risk_suspended`。
+
+### 12.7.5 交互显示项与提示文字（供 §6 UI 接线）
+
+- UI 只需调用 `index.publishWithMode(platform, task, cookie, { rpaPublish })` 即获全链路行为，据 `track`/`reasonCode` 渲染：
+  - `track:'api'` → 徽标「API 发布」；`track:'dom'`+`degraded` → 徽标「已降级 · DOM」（提示文字：`API 暂时不可用，已改用浏览器发布` / `API unavailable, fell back to browser publishing.`）。
+  - `track:'throttled'` → 「频控等待 {waitMs 换算分秒}」，禁用按钮（`发布间隔不足 18 分钟，请稍后再试` / `Publishing interval under 18 minutes, please wait.`）。
+  - `track:'suspended'` 或 `stopped` → 「风控暂停」（见 §12.6.5 文案），配「恢复/停止」按钮调用 `publishService.risk.resume/isSuspended`。
+- `publishService.risk.listSuspended()` 供账号管理页拉取被挂起清单渲染红色状态点。
+
+### 12.7.6 测试与验证
+
+- `publish-service.test.js`（10 例，假 apiPublish/rpaPublish 零外发）：缺 apiPublish 抛错；api-then-dom 成功走 API 且仅调一次；transient+rpaPublish 降级 DOM；transient 无 rpaPublish→requiresDom；risk_blocked→停报+挂起该账号+再次发布 short-circuit 零调用；resume 后可再发；getMode 缺省归一 api-then-dom；spacer 服务级单例跨调用节流（第二条 throttled 零调用）；onRiskEvent 收到 suspend 事件；service 暴露 risk/spacer/getMode 句柄。
+- index.js 冒烟：`require('./src/index')` 正常加载（无循环崩溃），暴露 `publishWithMode`/`getPublishMode('bilibili')='api-then-dom'`/`publishService.risk.suspend`。
+- 全量回归 23 文件 / 185 测 EXIT=0；Gate 12 6019 tracked PASS。
+
+### 12.7.7 §5 收口状态与待办
+
+- §5「双轨路由 + 频控 + 风控停止」服务层四件套 + 统一入口已全部落地（§5.1~§5.4 + 本装配）。
+- 待办（转 §6/§7）：把 UI/IPC 发布入口从 `publishWithFallback` 切到 `publishWithMode`；`onRiskEvent` 接桌面通知中心 + i18n 文案；`rpaPublish` 由 desktop ROUTE_TABLE 顶层分派的 DOM 执行器注入；活体验收（§7）。
+
 ## 附：验收记录（活体证据回写区，随波更新）
 
 | 波次 | 平台 | 日期 | 作品ID | 链接 | 截图 | 降级 | 结论 |
