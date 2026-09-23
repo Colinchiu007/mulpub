@@ -289,3 +289,16 @@ runtime_swap_detected（终审内实现，比对 proposal_packet.production_plan
 - test_render_engine_baseline.py 经 T0a 接缝冻结 render_runtime='ffmpeg' 规范 2-cut 场景的完整命令序列（2 段编码 + concat + 最终 mux = 4 条 ffmpeg 调用），落 tests/fixtures/render_engine_baseline_ffmpeg.json（tmp 路径归一化为 <TMP>/basename，跨机稳定）。
 - 首次运行生成 golden，二次运行断言逐命令等价——T2-T4 FFmpegAdapter 迁移必须重放命中此 golden，任一 diff 即 revert（DEV-PLAN 3.4）。
 - remotion/hyperframes 场景基线待补：hyperframes 受 F-2 制约经 video_compose 恒不可用，其真实子进程基线在 hyperframes_compose.py 层单列；remotion 需 node_modules 环境，基线以 CI 环境为准。
+
+### 13.8 T3 FFmpegAdapter 落地（追加，行为保持）
+
+- engines/ffmpeg_adapter.py：FFmpegAdapter 实现 RenderEngineAdapter 三抽象方法
+  - preflight(ctx)：shutil.which("ffmpeg") 探测，缺失返回 PreflightResult(available=False, reason="ffmpeg binary not found on PATH")，不抛异常。
+  - validate(req,ctx)：req.resolved_cuts 为空返回 ValidationResult(ok=False)。
+  - render(req,ctx)：由类型化字段重建 compose_inputs，委派 host._compose（FFmpeg 语法的唯一来源），返回 RenderResult(review_fail_label="(FFmpeg)")。
+- RenderContext 扩展 9 个类型化字段：codec(默认 libx264)/crf(23)/preset(medium)/profile_name/subtitle_path/audio_path/subtitle_style/playbook/options，默认值镜像 _compose 的 inputs.get 回退，因此未显式设置的上下文与重构前逐字节同命令。
+- A4 退出标准达成：render 路径不读 raw_inputs（无透传），是真实实现而非薄转发。
+- 行为保持等价证明（黄金标准）：test_render_engine_adapter_ffmpeg_equiv.py 用与 T0b 相同的 2-cut 场景驱动 FFmpegAdapter.render()，经 T0a 接缝捕获命令序列，归一化后逐条断言 == tests/fixtures/render_engine_baseline_ffmpeg.json（4 条 ffmpeg 调用）。任一 diff 即 revert。
+- subtitle_burn 解析逻辑逐字镜像 _render_via_ffmpeg：ctx.subtitle_path 显式优先；否则当 options.subtitle_burn 默认 True 且 edit_decisions.subtitles.enabled+source 时回填。
+- C10 能力单源：test_ffmpeg_adapter_capabilities_ground_truth 断言 id=ffmpeg、requires=("ffmpeg",)、unavailable_fallback=None、word_level_captions=False、native_transitions=False。
+- 本 PR 未切换 _render（T5），FFmpegAdapter 暂由测试与 registry 装配引用，零运行时行为变化；_render 委派须待 T4 两 adapter 完成且全路径基线证明等价后进行。
