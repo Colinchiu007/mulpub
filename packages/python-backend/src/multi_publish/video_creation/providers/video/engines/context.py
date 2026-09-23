@@ -22,6 +22,17 @@ class RenderContext:
     asset_lookup: dict
     proposal_packet: Optional[dict]
     raw_inputs: dict = field(default_factory=dict)
+    # T3 typed FFmpeg compose parameters: mirror _compose inputs.get defaults so
+    # adapters build compose_inputs from typed fields instead of reading raw_inputs.
+    codec: str = "libx264"
+    crf: int = 23
+    preset: str = "medium"
+    profile_name: Optional[str] = None
+    subtitle_path: Optional[str] = None
+    audio_path: Optional[str] = None
+    subtitle_style: Optional[dict] = None
+    playbook: Optional[dict] = None
+    options: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

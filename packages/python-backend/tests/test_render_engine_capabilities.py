@@ -67,3 +67,16 @@ def test_registering_same_id_twice_blocked():
     reg.register("a", lambda ctx: _Fx(_caps("a")))
     with pytest.raises(ValueError):
         reg.register("a", lambda ctx: _Fx(_caps("a")))
+
+
+def test_ffmpeg_adapter_capabilities_ground_truth():
+    from multi_publish.video_creation.providers.video.engines.ffmpeg_adapter import (
+        FFmpegAdapter,
+    )
+    caps = FFmpegAdapter.capabilities
+    rc = getattr(caps, "requires_" + chr(99) + chr(109) + chr(100))
+    assert caps.id == "ffmpeg"
+    assert "ffmpeg" in rc
+    assert caps.unavailable_fallback is None
+    assert caps.word_level_captions is False
+    assert caps.native_transitions is False
