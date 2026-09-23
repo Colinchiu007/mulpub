@@ -125,9 +125,9 @@
 | `film-engineering:list-scenes` | IPC invoke | (event, ...args) | { code, data, message } |
 | `film-engineering:list-shots` | IPC invoke | (event, ...args) | { code, data, message } |
 | `film-engineering:production-plan` | IPC invoke | (event, ...args) | { code, data, message } |
-| `film-engineering:production-update` | IPC event (main→renderer) | (payload: 批/镜计数，不含 shotIds) | — |
+| `film-engineering:production-update` | IPC event (main→renderer) | (payload: 批/镜计数，不含 shotIds；逐镜 `production:shot-progress` 携 `reason`=该镜失败原因，成功/未失败 null) | — |
 | `film-engineering:production-run-batch` | IPC invoke | (event, ...args) | { code, data, message } |
-| `film-engineering:production-status` | IPC invoke | (event, ...args) | { code, data, message } |
+| `film-engineering:production-status` | IPC invoke | (event, ...args) | { code, data:{ batches[].shots[].error=逐镜失败原因(string\|null，见 PRD §5.5), batch.error }, message } |
 | `film-engineering:retry-shot` | IPC invoke | (event, ...args) | { code, data, message } |
 | `film-engineering:status` | IPC invoke | (event, ...args) | { code, data, message } |
 

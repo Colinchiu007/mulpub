@@ -1,3 +1,34 @@
+# [未发布] fix(film-engineering): 批量出片逐镜失败原因可观测性 —— 三层静默吞错打通（2026-09-23，film-gen-shot-error-observability）
+
+### 变更
+- **生成器统一失败出口 `apps/desktop/electron/services/film-engineering/video-gen.js`（+12/-5）**：`generateShotVideo` 引入闭包 `noteFail(reason)`——先 `log.warn('FilmVideoGen', 'shot <i> (<shotId>) failed: <reason>')` 再返回 `{ index, shotId, success: false, error: reason }`。五个失败分支（提交 `code!==0` / 内层 `data.code<0` / 无 `taskId` / 轮询超时或 `failed/error/cancelled` / `catch` 兜底）全部改走 `noteFail`，`reason` 优先取 provider `message`、缺省回落分类默认文案；成功路径仍 `log.info`；`log` 缺失时 `log && typeof log.warn === 'function'` 守卫不崩。
+- **台账与事件 error 通道 `apps/desktop/electron/services/film-engineering/production-driver.js`（+5/-3）**：`createLedger` 每镜结构补 `error: null`（append-only）；`onShotProgress` 签名扩为 `(shotIndex, status, reason)`，写 `batch.shots[shotIndex].error = next === 'done' ? null : (typeof reason === 'string' && reason ? reason.slice(0, 500) : null)`；`emitShotProgress` 事件负载带 `reason`；批 `running` 时 `batch.error = null`；磁盘 re-probe 把落盘镜强制 `done` 且 `s.error = null`。
+- **批执行透传 `apps/desktop/electron/services/film-engineering/production-runner.js`（新增）**：`runBatchViaVideoGen` 的 `getShot` 包 `try/catch` 捕获 `shotErr = e.message`（此前空 catch 把「分镜不存在/取原文异常」一律冒充默认文案）；取原文失败分支 `reason = shotErr || '未取到分镜提示词（原文为空或分镜不存在）'` → `log.warn` + `onShotProgress(i, 'failed', reason)`；生成结果分支成功 `done`、失败透传 `r.error`（缺省 `'视频生成失败（未知原因）'`），不重复记日志（video-gen 内已 warn）。
+
+### 修复
+- **单镜失败原因跨三层被静默吞掉**：真实 A 通道批量出片时，`video-gen` 失败只返回结构不记日志、`runBatchViaVideoGen` 丢弃 `r.error` 且 `getShot` 空 catch、`onShotProgress` 无 error 通道且台账无 `error` 字段——前端与台账只见到裸 `failed`，无从定位。违反既有规格 `film-engineering` spec「逐镜标注失败原因」合同。修复为 behavior-preserving：批收口的磁盘复核权威裁决、`doneCount` 单调不回退口径、IPC 负载守卫均未改。
+- **超大文件门禁（QM）**：`runBatchViaVideoGen` 透传改动把 `ipc-handlers/film-engineering.js` 推过 500 行红线（484→504，`check-max-lines` NEW_OVER_LIMIT）。按仓库既有范式把该批执行器整块拆出为 `services/film-engineering/production-runner.js`，handler 降至 465 行并 `require` 之；纯搬移不改逻辑，seam（`deps._testGenerateShotVideo` / `_testSleep` / `_testDownload`）与调用点 `runBatch: (batch, ctx) => runBatchViaVideoGen({...})` 原样保留。
+
+### 数据校验纪律
+1. 逐镜 `error`：`done`/成功恒 `null`；失败取字符串原因并 `slice(0, 500)` 截断，非字符串一律归 `null`；旧台账缺字段读取时 `s.error ?? null`（append-only，向后兼容）。
+2. `getShot` 抛异常时 `shotErr = (e && e.message) ? e.message : String(e)`，异常原因优先于「分镜不存在」默认文案透出，二者不再混淆。
+3. provider 原始错误文案原样透出（仅截断长度），不二次包装、不脱敏改写；`log.warn` 载荷含镜头序号 + shotId + 原因三元，便于日志定位。
+4. 事件 `production:shot-progress` 仍守 IPC 负载守卫：只带计数/batchIndex/shotIndex/reason，不携带 shotIds 数组。
+
+### 显示项与提示文字
+- 失败原因三通道可达：① 主进程日志 `FilmVideoGen` warn（stderr/日志文件）；② `production-status` → `batches[].shots[].error`（持久台账，断点复查）；③ `production-update` 事件 `production:shot-progress.reason`（实时）。`useFilmProduction.applyStatus` 已将 `shots` 原样透传至批视图 `entry.shots`（含 `error`）；批次级失败另见 `batch.error`（如「批次生成后磁盘缺 N 镜」）。
+- 本次不新增任何 locale 键与前端硬编码文案：逐镜原因来自 provider/后端默认串（非 i18n），沿用既有 `filmEngineering.production.status*` 状态徽标；后端默认文案清单见 `01-docs/PRD-FILM-FULL-CORPUS-PRODUCTION-2026-09-23.md` §6.2。
+
+### 验证
+- TDD 三组先红后绿：`video-gen.error-observability.test.js`（新增 7：五失败分支 warn 含 shotId+原因、成功仅 info、log 缺失守卫）、`production-driver.error-observability.test.js`（新增 4：reason 落台账 error + 事件回显 + 持久化 reload + ≤500 截断）、`film-engineering.e2e-int.test.js` 9.1c（真实 run-batch + production-status 断言逐镜 error：done/null、provider 拒绝、getShot 异常原因非空）。改前基线 3 文件 38 passed，各组转绿 21/25/51。
+- 全量回归：film-engineering 受影响 **21 文件 / 306 passed**（`--no-file-parallelism`，含真实 ffmpeg e2e）；`story-context-engine.test.js` 等套件无劣化。
+- 超大文件拆分后复跑：handler 侧 7 文件（`film-engineering` / `-retry` / `.e2e-int` / `production-driver(.error-observability)` / `video-gen(.error-observability)`）**105 passed / EXIT=0**；`eslint --quiet` 变更 4 文件 0 error；`check-max-lines.js` rc0（无新增超限、挂账清单与现实一致）。
+- QM-1 打包（改动落 electron 主进程 + 新增模块）：`vite build` EXIT0、`electron-builder --win --dir --publish never` EXIT0（electron-builder 25.1.8 / electron 43.1.1）；asar 清单含 `film-engineering.js` / `production-driver.js` / `video-gen.js` / **`production-runner.js`** 四文件；解包 require `production-driver`（`createLedger` 导出）与 `production-runner`（`runBatchViaVideoGen` 为 function）均 OK；打包 runner 内含 getShot-catch / failed-reason 透传 / `log.warn('FilmVideoGen'` 三处修复标记。
+- 契约文档同步：`openspec/changes/film-gen-shot-error-observability/`（proposal / specs delta / design / tasks 全勾）；`01-docs/PRD-FILM-FULL-CORPUS-PRODUCTION-2026-09-23.md` §5.1/§5.2/§5.5（新增）/§6.1/§6.2/§8；`01-docs/ipc-manifest.md` production-status/production-update 行。
+
+### 关联
+- 分支 `codex/gen-error-observability`（worktree `D:/Data/projects/mp-worktrees/mp-gen-error-observability`，基于 origin/main `852ae22c2c` #2290，D 盘隔离）。
+- 承接 `film-full-corpus-production`（PRD 主体）的逐镜失败可观测性缺口修补；未触碰批切分/renderManifest/回收通道合同。
 # [未发布] test(desktop): 桌面套件墙钟成本归属收敛 + story2video :714 超时排查（2026-09-23，desktop-suite-wallclock）
 
 ### 变更

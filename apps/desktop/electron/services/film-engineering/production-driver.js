@@ -54,7 +54,7 @@ function createLedger ({ taskId, shotIds, batchSize }) {
       batchIndex: b.batchIndex,
       runId: 'prod-' + taskId + '-b' + b.batchIndex,
       shotIds: b.shotIds.slice(),
-      shots: b.shotIds.map((sid) => ({ shotId: sid, status: 'pending' })),
+      shots: b.shotIds.map((sid) => ({ shotId: sid, status: 'pending', error: null })),
       status: 'pending',
       error: null,
     })),
@@ -220,13 +220,14 @@ async function runProduction (opts) {
     emit({ type: 'production:batch', batchIndex: p.batchIndex, status: 'running', doneCount, totalCount })
     try {
       await runBatch(batch, {
-        onShotProgress: (shotIndex, status) => {
+        onShotProgress: (shotIndex, status, reason) => {
           if (batch.shots[shotIndex]) {
             const next = status === 'done' ? 'done' : 'failed'
             if (batch.shots[shotIndex].status !== 'done' && next === 'done') doneCount++
             batch.shots[shotIndex].status = next
+            batch.shots[shotIndex].error = next === 'done' ? null : (typeof reason === 'string' && reason ? reason.slice(0, 500) : null)
           }
-          emitShotProgress({ batchIndex: p.batchIndex, shotIndex })
+          emitShotProgress({ batchIndex: p.batchIndex, shotIndex, reason: batch.shots[shotIndex] ? batch.shots[shotIndex].error : undefined })
         },
       })
       // 批后以磁盘信物为准复核（不信 runBatch 自报）；新转 done 的镜补计 doneCount
@@ -235,6 +236,7 @@ async function runProduction (opts) {
       batch.shots.forEach((s, i) => {
         if (!miss.includes(i) && s.status !== 'done') {
           s.status = 'done'
+          s.error = null
           doneCount = Math.min(doneCount + 1, totalCount)
         }
       })

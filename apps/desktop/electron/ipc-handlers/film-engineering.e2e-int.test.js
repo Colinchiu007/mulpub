@@ -198,7 +198,7 @@ describe.skipIf(!hasTools)('production E2E（任务 9.1/9.2，模拟 provider + 
     sessionTmp = null
   })
 
-  async function setup () {
+  async function setup (opts = {}) {
     const svcMod = await import('../services/film-engineering/film-engineering-service.js')
     const FilmEngineeringService = svcMod.FilmEngineeringService || svcMod.default
     const service = new FilmEngineeringService({
@@ -218,6 +218,9 @@ describe.skipIf(!hasTools)('production E2E（任务 9.1/9.2，模拟 provider + 
       aiGenerator,
       _testGenerateShotVideo: async ({ shot, index, runDir }) => {
         generateCalls.push({ shotId: shot.shotId, index })
+        if (opts.failIndexes && opts.failIndexes.includes(index)) {
+          return { success: false, error: 'provider 拒绝' }
+        }
         fs.mkdirSync(runDir, { recursive: true })
         fs.copyFileSync(fx.pool[index], path.join(runDir, 'shot_' + String(index).padStart(3, '0') + '.mp4'))
         return { success: true }
@@ -303,6 +306,25 @@ describe.skipIf(!hasTools)('production E2E（任务 9.1/9.2，模拟 provider + 
     const dur = probeDuration(finalPath)
     expect(dur).toBeGreaterThan(SHOT_COUNT * 2 - 0.5)
     expect(dur).toBeLessThan(SHOT_COUNT * 2 + 0.5)
+  }, 300000)
+
+  it('9.1c 批内单镜失败原因可读：seam 拒绝 + getShot 异常均透传至台账', async () => {
+    // 观测缺口回归：单镜失败原因 MUST 经真实 production-run-batch 通道落台账逐镜 error，
+    // 不再被静默吞成裸 failed（spec: 全量分批出片驱动 Scenario「批内偶发失败原因可读」）。
+    const { handlers, event } = await setup({ failIndexes: [1] })
+    const shotIds = [uuidFor(0), uuidFor(1), 'bogus-shot-not-in-kit']
+    const taskId = 'e2e-obs-' + Date.now()
+    const b = await handlers['film-engineering:production-run-batch'](event, { taskId, shotIds, batchIndex: 0 })
+    expect(b.code).toBe(0)
+    const st = await handlers['film-engineering:production-status'](event, { taskId, shotIds })
+    const shots = st.data.batches[0].shots
+    expect(shots[0].status).toBe('done')
+    expect(shots[0].error == null).toBe(true)
+    expect(shots[1].status).toBe('failed')
+    expect(shots[1].error).toContain('provider 拒绝')
+    expect(shots[2].status).toBe('failed')
+    expect(typeof shots[2].error).toBe('string')
+    expect(shots[2].error.length).toBeGreaterThan(0)
   }, 300000)
 
   it('9.2 回收链路：5 镜 HTTP 下载 + 2 镜生成产物混合出片', async () => {

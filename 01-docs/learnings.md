@@ -1,3 +1,14 @@
+## 批量出片逐镜失败原因被三层静默吞掉——观测缺口的逃逸链与收口（film-gen-shot-error-observability，2026-09-23）
+
+- **静默吞错的「三层漏斗」：每层各自「合理」，合起来把信息丢光（pitfall）**：单镜失败原因要穿过 `video-gen.generateShotVideo`（失败只 `return {success:false,error}` 不记日志）→ handler `runBatchViaVideoGen`（`r.error` 拿到手却 `onShotProgress(i,'failed')` 不带原因，`getShot` 空 `catch` 把「取原文异常」一律冒充「分镜不存在」）→ `production-driver`（`onShotProgress` 签名根本没有 error 通道、台账 `shots[]` 没有 `error` 字段）。每一层单看都不算 bug（「上层会处理」），串起来就是前端与台账只剩裸 `failed`。**判定手法**：追一条错误信息从产生到落库/上屏的完整路径，任一环「拿到原因却没往下带」就是断点；修的时候必须在**产生层记 warn + 存储层落字段 + 传输层带 reason** 三处同时补，缺一处仍会再吞。**教训**：新增「失败可辨识」类需求，先画这条链、逐环确认有无丢弃，再动手。
+
+- **seam 只测成功路径 = 失败合同根本没被测到（pitfall，逃逸根因）**：既有 `film-engineering.e2e-int` 的 `_testGenerateShotVideo` seam 只返回 `{success:true}`、`production-driver.test` 的 `runBatch` 只调 `onShotProgress(i,'done')`——所有断言都在成功Happy Path 上，`error` 通道哪怕整个不存在也不会红。这就是这个缺口能长期潜伏的直接原因：不是「测试写错」，是「失败场景零覆盖」。**修法**：回归保护测试必须显式构造失败注入（提交 `code≠0` / 无 taskId / 轮询超时 / `catch` / `getShot` 抛异常 / provider 拒绝），并断言**原因字符串逐层可见**（warn 载荷含 shotId+原因、台账 `shots[].error` 非空、事件 `reason` 回显）。凡「错误处理」类改动，先写红测钉死失败注入，再实现。
+
+- **观测性修复要严格 behavior-preserving：别顺手改权威裁决（pattern）**：批收口的口径是「磁盘 re-probe 为准、不信 runBatch 自报」。透传 error 时若天真地「failed 就落 error」，会和 re-probe「磁盘有产物→强制 done」冲突。正解是把归一化放在**权威层**：`onShotProgress` 里失败才写 `error`（截断 ≤500、非串归 null），但 re-probe 判 `done` 时同步 `s.error = null` 覆盖偶发误报。`doneCount` 单调、IPC 负载守卫（不带 shotIds 数组）一律不动。观测性补丁的红线是「只增加信息透出，不改变任何判定结果」。
+
+- **台账新增字段用 append-only + 读取端缺省归一（pattern）**：`createLedger` 的 `shots[]` 补 `error:null` 是只增字段；旧 `ledger.json` 无该字段，读取经 `{...sh}` 原样返回、消费侧 `s.error ?? null`。`production-status` 因此天然把逐镜 error 透出给前端，无需新 IPC。给「历史持久化结构」加观测字段，永远走「新增 + 读侧容缺」，不回填、不迁移。
+
+- **透传逻辑把 IPC handler 推过超大文件红线：先算预算，超了直接拆模块（pitfall）**：`film-engineering.js` HEAD 484 行，加 `getShot try/catch` + 分支 reason 后到 504，触发 `check-max-lines` `NEW_OVER_LIMIT`（>=500 且不在挂账清单）。这种「本不是大改、却在临界文件上多几行就红」的情形，别去加挂账（挂账是存量豁免，给新违规开门），而是按仓库既有范式把内聚函数整块抽到 service（这里抽 `runBatchViaVideoGen` → `production-runner.js`，handler 降回 465）。纯搬移、seam 与调用点不动，是满足门禁又不改行为的最小动作。**动手前**：`git show HEAD:file | 行数` 看余量，若文件已贴近 500，优先落在被它 require 的模块里。
 ## 合并收尾六条硬口径：union 无损校验两层法 / vitest 路径静默忽略 / E2E 红归属判定 / gitignore 静默跳过新建文档（account-profile-info 收尾，2026-09-23）
 
 - **union 解追加型文档冲突，字节和式对账不能单独证明无损（pitfall）**：惯例校验 `merged == ours + (theirs - base)` 在第 4 轮差出 2 字节，一度像丢内容。真因是 main 侧改写了 PR-1 的一行 CHANGELOG（该行长度 75 到 76），我方未动该行，三方合并**正确采纳对侧改写**，于是 ours 里那一行在 merged 中"消失"。固化为两层：先逐行多重集包含（ours/theirs/base 每行出现次数都必须 <= merged 中该行列数，否则打印丢失行样本），和式对不上再用关键字出现计数三方比对定性（`git grep -c <ASCII 关键字>` 于 base/theirs/merged 均为 4）+ 逐行长度数组比对，确认 merged 那行等于 theirs 改写版才放行。另：冲突标记只查连续 7 个尖括号，**不要**查等号串（markdown 分隔线会合法命中造成误判）。
