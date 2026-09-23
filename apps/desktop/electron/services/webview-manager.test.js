@@ -394,6 +394,9 @@ function patchViewAndSessionMocks () {
       executeJavaScript: vi.fn(function () { return Promise.resolve() }),
       isDestroyed: function () { return false },
       setWindowOpenHandler: function (fn) { this._windowOpenHandler = fn },
+      // debugger mock：测试预设 __webContentsDebuggerFactory 返回 CDP stub；
+      // 未预设时保持 undefined，等价真实环境 debugger 不可用（降级路径回归锚点）。
+      debugger: (__electronMock.__webContentsDebuggerFactory ? __electronMock.__webContentsDebuggerFactory() : undefined),
     }
     this.setBounds = vi.fn()
     this.setVisible = vi.fn()
@@ -525,6 +528,80 @@ describe('WebviewManager.createNewTabPage 账号登录态恢复', () => {
     expect(script).toContain('"token":"xyz"')
     await Promise.resolve()
     expect(activeView.webContents.loadURL).toHaveBeenCalledWith('https://creator.zhihu.com')
+  })
+
+  it('debugger 可用时凭证 localStorage 经 CDP document-start 注入且先于首个导航（无二段导航）', async () => {
+    patchViewAndSessionMocks()
+    const order = []
+    const dbg = {
+      attach: vi.fn(function () {}),
+      sendCommand: vi.fn(function (method) {
+        if (method === 'Page.addScriptToEvaluateOnNewDocument') order.push('addScript')
+        return Promise.resolve()
+      }),
+      detach: vi.fn(),
+    }
+    __electronMock.__webContentsDebuggerFactory = function () { return dbg }
+    credentialLoadMock.mockReturnValue({ localStorage: { finder_username: 'v2_ctx' } })
+    const mod = await import('./webview-manager.js')
+    const WM = mod.default || mod
+    const wm = new WM()
+    wm.mainWindow = createMainWindow()
+
+    wm.createNewTabPage({ url: 'https://channels.weixin.qq.com/', platform: 'tencent_video', accountId: 'tv-1' })
+
+    const view = wm._tabViews.get(wm._activeTabId)
+    // 导航必然经 promise 链延后（微任务），同步包装可完整记录时序
+    const origLoadURL = view.webContents.loadURL
+    view.webContents.loadURL = vi.fn(function (u) { order.push('loadURL:' + u); return origLoadURL.call(this, u) })
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(dbg.attach).toHaveBeenCalled()
+    expect(dbg.sendCommand).toHaveBeenCalledWith('Page.addScriptToEvaluateOnNewDocument',
+      expect.objectContaining({ source: expect.stringContaining('"finder_username"') }))
+    const navIdx = order.indexOf('loadURL:https://channels.weixin.qq.com/')
+    expect(navIdx).toBeGreaterThanOrEqual(0)
+    expect(order.indexOf('addScript')).toBeGreaterThanOrEqual(0)
+    expect(order.indexOf('addScript')).toBeLessThan(navIdx)
+
+    // 早期注入成功 → 不得再有 did-finish-load 补注入与二段导航（消除登录页闪烁）
+    if (view.webContents._handlers['did-finish-load']) view.webContents._handlers['did-finish-load']()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(view.webContents.executeJavaScript).not.toHaveBeenCalled()
+    expect(view.webContents.loadURL).toHaveBeenCalledTimes(1)
+    __electronMock.__webContentsDebuggerFactory = null
+  })
+
+  it('debugger attach 失败时降级回旧行为：did-finish-load 后注入并二段导航（fail-open）', async () => {
+    patchViewAndSessionMocks()
+    __electronMock.__webContentsDebuggerFactory = function () {
+      return {
+        attach: vi.fn(function () { throw new Error('debugger may already be attached') }),
+        sendCommand: vi.fn(function () { return Promise.resolve() }),
+        detach: vi.fn(),
+      }
+    }
+    credentialLoadMock.mockReturnValue({ localStorage: { finder_username: 'v2_ctx' } })
+    const mod = await import('./webview-manager.js')
+    const WM = mod.default || mod
+    const wm = new WM()
+    wm.mainWindow = createMainWindow()
+
+    wm.createNewTabPage({ url: 'https://channels.weixin.qq.com/', platform: 'tencent_video', accountId: 'tv-2' })
+
+    const view = wm._tabViews.get(wm._activeTabId)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(view.webContents.loadURL).toHaveBeenCalledTimes(1)
+    expect(view.webContents._handlers['did-finish-load']).toBeTruthy()
+
+    view.webContents._handlers['did-finish-load']()
+    expect(view.webContents.executeJavaScript).toHaveBeenCalled()
+    const script = view.webContents.executeJavaScript.mock.calls[0][0]
+    expect(script).toContain('"finder_username":"v2_ctx"')
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(view.webContents.loadURL).toHaveBeenCalledTimes(2)
+    expect(view.webContents.loadURL).toHaveBeenLastCalledWith('https://channels.weixin.qq.com/')
+    __electronMock.__webContentsDebuggerFactory = null
   })
 
   it('将 Playwright Cookie 的 expires/sameSite 转为 Electron 字段', async () => {

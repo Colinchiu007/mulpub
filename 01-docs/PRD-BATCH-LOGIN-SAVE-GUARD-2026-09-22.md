@@ -272,3 +272,27 @@ function` 紧跟 `saved tencent_video:xxx cookies=0 lsKeys=13`。
 - **断言强化**：保存成功用例从 `cookies: expect.any(Array)`（对空数组恒真）改为断言
   真实 Cookie 数组内容；新增 3 例：get 提取真实 Cookie、提取抛错 fail-closed、
   saveCookies 事件源用 get。
+
+---
+
+## 14. 修订记录 v3（2026-09-24 治本修复）：弹回未收敛的真根因——localStorage 恢复时序晚于 SPA 主动弹回
+
+### 14.1 症状与 v2 修复的边界
+v2 热修（getAll 吞错 → get + fail-closed）合并（#2229）后，用户复现的是：**删除视频号重新扫码添加（快照全新）仍弹回登录页**。CDP 外部取证推翻了「脏凭证假设」：重建账号的加密凭证与分区 Cookie 均完整有效（sessionid + wxuin 两条俱在），页面照样弹回 login.html。v2 只堵了「假保存」出血点，不是本症状的根因。
+
+### 14.2 真根因（第一性原因）
+视频号登录态是 **Cookie + localStorage 双因子**：服务端对 `/` 不做 302（200 返回 login.html），由**前端 SPA 自判未登录后主动跳转**。旧恢复链把 LS 注入挂在 `did-finish-load` 之后——首个导航到达时 LS 尚未写入 → SPA 判未登录 → 弹回；注入完成后的二段导航到达时同样被弹回（弹回决策不依赖服务端）。抖音/哔哩哔哩只靠 Cookie + 服务端 302 判定，旧模式在它们身上不崩，属平台差异掩盖的时序缺陷。
+决定性证据（CDP 实测）：`Network.getAllCookies` 2 条有效 Cookie（domain=.channels.weixin.qq.com）；页面 LS 含非空 `finder_username` 与 `FINDER_HELPER_REDIRECT_PATH=/platform`；强制 reload 导航链 `["https://channels.weixin.qq.com/", "https://channels.weixin.qq.com/login.html"]` 中无服务端 302 参与。
+
+### 14.3 修复契约（v3 生效）
+1. **早期注入（主修复）**：账号标签凭证 LS 恢复改用 CDP `Page.addScriptToEvaluateOnNewDocument`——`webContents.debugger.attach()` 后注册 document-start 脚本，**await 其完成后才放行首个导航**（与 Cookie 注入同一等待链）。契约：**Cookie + LS 都必须先于首个导航生效**，禁止依赖事后二次导航补救。早期注入成功时不再注册 did-finish-load 补注入，二段导航（登录页闪烁）随之消除。
+2. **fail-open 降级**：debugger API 完全缺失 → **同步**注册旧 did-finish-load 回退（注册时序与 2026-09 修复前一致）；debugger 存在但 attach/sendCommand 失败 → 异步回退注册（首个导航被注入 promise 阻塞，注册必然先于导航完成事件）。注入失败不阻断导航、不静默丢凭证恢复。
+3. **checkLocalCredentials 加严（辅助）**：加密分支 `cookies=0` 且 localStorage 无平台已知会话标记键时**不得返回 true**，落入 session 分区 Cookie 备选证据链，仍无则收敛 false。效果：存量假保存凭证自愈为「需重新登录」（`CHECK_LOGIN_NO_CREDENTIAL`），无需写库迁移步骤。
+4. **LS 会话标记单一来源**：`PLATFORM_LS_SESSION_MARKERS`（首版 `tencent_video: ['finder_username']`）与判定函数 `hasPlatformLsSessionMarker` 集中在 platform-definitions 维护；新增标记键必须以 CDP 实测取证为准，且不得混入埋点/上报类噪声键（`__ml::aid`、`UvFirstReportLocalKey` 等）。
+
+### 14.4 回归保护测试（逃逸点封堵）
+- **webview-manager**：debugger 可用时断言 `addScriptToEvaluateOnNewDocument` 按**时序先于**首个 `loadURL`，且注入成功后 `did-finish-load` 触发不再产生 `executeJavaScript` 补注入与二段导航；attach 抛错 → 降级旧行为（executeJavaScript + 二段导航断言）；debugger 缺失 → 同步注册旧路径（既有锚点用例保持绿）。测试 mock 的 webContents 通过 `__webContentsDebuggerFactory` 注入 debugger stub，未预设时保持无 debugger（降级即默认回归）。
+- **account-manager**：`cookies=0` + 脏 LS / 空 LS → `checkLocalCredentials` false；`cookies=0` + `finder_username` 标记 → true（纯 LS 平台不误伤）；`cookies` 非空 → true；`checkLoginStatus` 三态收敛：假保存 → `NO_CREDENTIAL`、有 LS 标记但无 HTTP 证据 → `INCONCLUSIVE`（真双因子平台保持「未确认」而非判死）。
+
+### 14.5 交互与显示边界
+假保存账号（0 Cookie + 无会话标记）在账号页显示「需重新登录」（此前显示可用或灰色未确认）。这是登录态三态收敛的诚实化，不是回归；用户重新扫码后，按 v3 契约 Cookie + LS 均先于首个导航生效，直达创作者中心，不再出现「扫码成功但闪回登录页」回环。
