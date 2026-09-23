@@ -46,7 +46,7 @@
         </button>
 
         <div class="account-avatar">
-          <img v-if="account.avatar || account.avatar_url" :src="account.avatar || account.avatar_url" alt="">
+          <img v-if="showAvatar(account)" :src="account.avatar || account.avatar_url" alt="" @error="markAvatarBroken(account)">
           <UserFilled v-else />
         </div>
 
@@ -83,7 +83,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { CircleCheck, Connection, Delete, Link, Plus, Star, StarFilled, UserFilled } from '@element-plus/icons-vue'
 
 const props = defineProps({
@@ -108,6 +108,19 @@ defineEmits([
 
 const headingId = computed(() => `account-platform-${String(props.group.platform || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '-')}`)
 const statusLabel = computed(() => `${props.platformLabel}：${props.group.activeCount || 0} 个有效，${props.group.inactiveCount || 0} 个离线，共 ${props.group.accounts.length} 个账号`)
+
+// 头像外链失效（平台防盗链/签名过期）时按账号逐个回落默认图标，不影响同组其他账号
+const avatarBrokenIds = ref(new Set())
+
+function markAvatarBroken (account) {
+  const next = new Set(avatarBrokenIds.value)
+  next.add(account.id)
+  avatarBrokenIds.value = next
+}
+
+function showAvatar (account) {
+  return !!(account.avatar || account.avatar_url) && !avatarBrokenIds.value.has(account.id)
+}
 
 function accountName (account) {
   return account.account_name || account.name || '未命名账号'

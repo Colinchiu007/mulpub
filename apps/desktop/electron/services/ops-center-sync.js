@@ -16,6 +16,8 @@ const crypto = require('./crypto')
 const nodeCrypto = require('crypto') // 内建密码学：Ed25519 验签（与上方 safeStorage 封装区分）
 // 应用菜单配置净化（2026-09-15）：拆出独立模块以控制本文件体量（债务熔断 < 500 行）
 const { normalizeAppMenu } = require('./app-menu-config')
+// P0-1 信任锚：内置 DEV 公钥只对未打包态生效（判据拆独立模块，兼控本文件体量）
+const { resolveTrustAnchor } = require('./runtime-trust-anchor')
 
 const SETTING_KEY = 'opsCenterSync'
 const RUNTIME_SETTING_KEY = 'opsCenterRuntime'
@@ -88,8 +90,11 @@ function verifyRuntimeSignature (payload, publicKeyPem) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return { ok: false, reason: 'INVALID_PAYLOAD' }
   const sigB64 = payload.signature
   if (!sigB64 || typeof sigB64 !== 'string') return { ok: false, reason: 'MISSING_SIGNATURE' }
-  const pem = (publicKeyPem && String(publicKeyPem).trim()) ? String(publicKeyPem).trim() : DEFAULT_RUNTIME_PUBLIC_KEY
-  if (!pem) return { ok: false, reason: 'NO_PUBLIC_KEY' }
+  // 无自定义锚时：未打包回落内置 DEV 公钥；打包版直接拒绝（NO_PRODUCTION_TRUST_ANCHOR）——
+  // 否则持有 DEV 私钥的人可给生产客户端下发整份运行时策略（公告/版本/敏感词/应用菜单）。
+  const anchor = resolveTrustAnchor(publicKeyPem, DEFAULT_RUNTIME_PUBLIC_KEY)
+  if (anchor.error) return { ok: false, reason: anchor.error }
+  const pem = anchor.pem
   let pubKey
   try { pubKey = nodeCrypto.createPublicKey(pem) } catch { return { ok: false, reason: 'INVALID_PUBLIC_KEY' } }
   let sig
@@ -504,7 +509,9 @@ class OpsCenterSync {
     // 验签不通过 → 抛错，调用方整体拒绝应用任何运行时策略（fail-closed，pipelineOptions 永不经未验签路径合入）。
     const signed = verifyRuntimeSignature(data, this._getRuntimePublicKey())
     if (!signed.ok) {
-      throw new Error('运行时策略验签失败（' + signed.reason + '），已拒绝应用任何运行时策略')
+      const hint = signed.reason === 'NO_PRODUCTION_TRUST_ANCHOR'
+        ? '：打包版需在「运营中心同步配置」填写自定义 Ed25519 公钥作为信任锚' : ''
+      throw new Error('运行时策略验签失败（' + signed.reason + '），已拒绝应用任何运行时策略' + hint)
     }
     if (!data || !Array.isArray(data.announcements)) throw new Error('运行时策略响应结构错误（缺少 announcements 数组）')
     return data

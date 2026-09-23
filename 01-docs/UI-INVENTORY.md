@@ -557,23 +557,27 @@
 | **实现** | 自建 fixed 定位 overlay（非 UiModal）|
 | **内容** | 登录 → 完成步骤图 |
 
-### 6.7 AccountManagementCard（511 行）
+### 6.7 AccountManagementCard（597 行）
 
 | 项目 | 内容 |
 |------|------|
 | **入口** | Accounts.vue 卡片网格/列表 |
-| **内容** | 头像 + 名称 + 状态徽章 + 粉丝数 + 负责人/运营人/代理 + 操作按钮 |
+| **内容** | 头像 + 名称 + 状态徽章 + 停用标记 + 粉丝数 + 负责人/运营人/代理 + 操作按钮 |
 | **操作按钮** | 设置、验证、重新登录、删除 |
-| **状态徽章** | 已登录(绿)、已过期(橙)、异常(红)、暂无检查记录(灰) |
-| **支持** | 批量选择 checkbox、收藏星标、重命名、默认账号标识 |
+| **状态徽章（登录态）** | 已登录(绿)、已失效(红)、未确认(琥珀)、异常(红)、暂无检查记录(灰) —— 只由 `status` 决定 |
+| **停用标记（启用态）** | `is_active === false` 时账号明细行追加「已停用」灰底标记（`account-disabled-flag`，`role="status"` + `aria-label`），同时卡片加 `is-disabled`（虚线边框 + 降饱和 + 半透明，不改布局尺寸）；与登录徽章完全正交，两者可同时出现 |
+| **头像回落（资料真源）** | 有 `avatar` / `avatar_url` 且未判定失效时渲染 `<img>`（`alt=""`，昵称文本已在旁，非装饰信息缺失），`@error` 触发即置 `avatarBroken` 并回落 `<UserFilled>`，不留空白框；昵称取序 `account_name` → `name` → 平台显示名 |
+| **支持** | 批量选择 checkbox、收藏星标、重命名、默认账号标识、停用标识 |
+| **不再出现** | `inactive` / `offline` 曾映射为「已登录」+ `offline` 徽章，现统一落到「暂无检查记录」兜底（历史脏数据诚实呈现） |
 
-### 6.8 PlatformAccountGroup（281 行）
+### 6.8 PlatformAccountGroup（305 行）
 
 | 项目 | 内容 |
 |------|------|
 | **入口** | Accounts.vue 列表视图 |
 | **内容** | 平台分组行，水平布局 |
 | **操作** | 设为默认、打开、验证、代理、删除 |
+| **头像回落（资料真源）** | 口径同 6.7，但失效状态用 `avatarBrokenIds = ref(new Set())` 按 `account.id` 逐个记录（`markAvatarBroken(account)`）—— 一行内并列展示多账号，单个外链失效不得牵连同组其他账号 |
 
 ---
 
@@ -588,12 +592,14 @@
 | **内容** | 4 种类型卡片：视频、图文、文章、公众号 |
 | **显示** | 每种类型下方支持平台图标列表 |
 
-### 7.2 PublishTargetSelector（93 行）
+### 7.2 PublishTargetSelector（108 行）
 
 | 项目 | 内容 |
 |------|------|
 | **入口** | Publish.vue 平台选择区域 |
 | **内容** | 搜索 + 平台分组 + 账号子列表 |
+| **停用账号** | 仍列出但复选框 `disabled`、行加 `is-disabled`（降透明度 + `not-allowed`），账号名后显示「已停用」标记（`target-account-disabled-flag`）；判定来自 `usePublishPlatformCatalog` 附加的 `disabled` 字段，与可选集合同源 |
+| **默认回填** | `usePlatformSelection.getAccounts()` 已过滤停用账号，故停用账号不会被自动选为发布目标；已勾选的账号一旦被停用，`reconcileSelectedAccounts` 自动剔除 |
 
 ### 7.3 PlatformOverridePanel（211 行）
 

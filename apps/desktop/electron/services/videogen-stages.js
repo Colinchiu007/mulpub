@@ -811,19 +811,29 @@ function registerVideoGenStages (pipelineEngine) {
                 + (submit && submit.message ? '；' + submit.message : ''),
             }
           }
-          // 轮询任务状态（最多 10 分钟）
-          const pollDeadline = Date.now() + 10 * 60 * 1000
+          // 轮询任务状态：条件轮询 + 具名上限 + 超时原因（原实现固定 sleep 10s
+          // 才做首次查询，秒回的任务也白等 10s；失败原因统一写成「超时或失败」，
+          // 排查时分不清是轮询窗口用尽还是任务侧明确返回 failed）。
+          const VIDEO_POLL_TIMEOUT_MS = 10 * 60 * 1000
+          const VIDEO_POLL_INTERVAL_MS = 10 * 1000
+          const TERMINAL_STATES = ['failed', 'error', 'cancelled']
+          const pollDeadline = Date.now() + VIDEO_POLL_TIMEOUT_MS
           let videoUrl = null
-          while (Date.now() < pollDeadline) {
-            await new Promise(r => setTimeout(r, 10000))
+          let lastState = ''
+          while (true) {
             const status = await manager.callAdapter(videoProvider.providerId, 'getVideoStatus', { videoId: taskId, taskId }, { providerRunContext })
             const url = status && (status.videoUrl || status.url || (status.data && (status.data.videoUrl || status.data.url)))
             if (url) { videoUrl = url; break }
-            const state = status && (status.status || (status.data && status.data.status)) || ''
-            if (['failed', 'error', 'cancelled'].includes(String(state).toLowerCase())) break
+            lastState = String((status && (status.status || (status.data && status.data.status))) || '').toLowerCase()
+            if (TERMINAL_STATES.includes(lastState)) break
+            if (Date.now() + VIDEO_POLL_INTERVAL_MS > pollDeadline) break
+            await new Promise(r => setTimeout(r, VIDEO_POLL_INTERVAL_MS))
           }
           if (!videoUrl) {
-            return { index, success: false, error: '视频生成超时或失败（provider: ' + videoProvider.providerId + '）' }
+            const reason = TERMINAL_STATES.includes(lastState)
+              ? '任务状态为 ' + lastState
+              : '轮询超时（上限 ' + Math.round(VIDEO_POLL_TIMEOUT_MS / 1000) + 's，末次状态=' + (lastState || 'unknown') + '）'
+            return { index, success: false, error: '视频生成失败：' + reason + '（provider: ' + videoProvider.providerId + '）' }
           }
           const dest = path.join(runDir, 'scene_' + String(index).padStart(3, '0') + '.mp4')
           await downloadToFile(videoUrl, dest)

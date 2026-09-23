@@ -189,7 +189,24 @@ class ApiUsageGovernor {
 
     const nextHeld = held ? new Set(held) : new Set()
     nextHeld.add(key)
-    return _reentrant.run(nextHeld, () => this._runWithGovernance(meta, task, key))
+    // P0-8 被动诊断挂钩（proposal-v3 §2）：治理链出口单点 catch-rethrow，
+    // 覆盖 _pace/冷却/排队超时/retry429/额度预检后置全部 rate/quota 出口；
+    // 错误对象原样传播（identity 不变），诊断内部永不抛（双保险 try/catch）。
+    return _reentrant.run(nextHeld, () => this._runWithGovernance(meta, task, key)).catch((err) => {
+      try {
+        require('./pubfail-diagnose').maybeDiagnose(err, {
+          source: 'governor',
+          key,
+          getLimits: () => {
+            const st = this._state.get(key)
+            if (!st) return null
+            const limits = this._limitsFor(key, type, providerId)
+            return { rpm: limits.rpm, maxConcurrent: limits.maxConcurrent, cooldownMs: limits.cooldownMs, effRpm: this._effectiveRpm(st, limits) }
+          },
+        })
+      } catch (_) { /* 诊断异常不影响主链路 */ }
+      throw err
+    })
   }
 
   /** 受管执行主体：run 的原有调度逻辑（并发/时间槽/冷却/额度/重试）。重入透传时不进入此方法。 */

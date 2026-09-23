@@ -12,6 +12,7 @@
  */
 import { ref, computed, watch } from 'vue'
 import { normalizeAccountIds } from '@/features/publish/publish-contract'
+import { isAccountActive } from '@/utils/account-active'
 
 const VIDEO_PLATFORMS = new Set(['douyin', 'tencent_video', 'kuaishou', 'bilibili', 'tiktok', 'youtube'])
 const VIDEO_CONTENT_CATEGORIES = new Set(['VIDEO', 'MIXED'])
@@ -70,7 +71,11 @@ export function usePlatformSelection(accountStore, platformCatalog = null) {
 
   function getAccounts(platformId) {
     const byPlatform = accountStore.byPlatform?.value || accountStore.byPlatform
-    return (byPlatform && byPlatform[platformId]) || []
+    const list = (byPlatform && byPlatform[platformId]) || []
+    // 启用态收口点：停用账号不进入可选集合。getAvailableAccountIds / isAccountAvailable /
+    // reconcileSelectedAccounts 全部经由本函数，因此「不可勾选」「不作默认回填」
+    // 「已选中的自动剔除」三条语义共用同一个判定，不会各写一遍而漂移。
+    return list.filter(account => isAccountActive(account))
   }
 
   function getDefaultAccount(platformId) {

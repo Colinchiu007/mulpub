@@ -34,14 +34,14 @@ describe('usePublishPlatformCatalog', () => {
       {
         label: '国内平台',
         items: [
-          { id: 'wechat_mp', label: '微信公众号', tag: null, tagClass: '', accounts: [{ id: 'wx-1' }] },
+          { id: 'wechat_mp', label: '微信公众号', tag: null, tagClass: '', accounts: [{ id: 'wx-1', disabled: false }] },
           { id: 'bilibili', label: 'B站', tag: '新', tagClass: 'cohere-tag-success', accounts: [] },
         ],
       },
       {
         label: '国际平台',
         items: [
-          { id: 'youtube', label: 'YouTube', tag: null, tagClass: '', accounts: [{ id: 'yt-1' }] },
+          { id: 'youtube', label: 'YouTube', tag: null, tagClass: '', accounts: [{ id: 'yt-1', disabled: false }] },
         ],
       },
     ])
@@ -52,5 +52,30 @@ describe('usePublishPlatformCatalog', () => {
     const catalog = usePublishPlatformCatalog(platformStore, { byPlatform: {} })
 
     expect(catalog.groupedPlatforms.value[0]).toMatchObject({ label: '国内平台' })
+  })
+
+  it('停用账号仍列出但携带 disabled，供选择器渲染禁用态', () => {
+    const platformStore = { platforms: [{ id: 'zhihu', label: '知乎' }], getCategory: () => '中文' }
+    const accountStore = {
+      byPlatform: {
+        zhihu: [
+          { id: 'zh-1', is_active: false },
+          { id: 'zh-2' },
+          { id: 'zh-3', is_active: 'no' },
+        ],
+      },
+    }
+    const catalog = usePublishPlatformCatalog(platformStore, accountStore)
+
+    const rendered = catalog.groupedPlatforms.value[0].items[0].accounts
+      .map(account => ({ id: account.id, disabled: account.disabled }))
+
+    expect(rendered).toEqual([
+      { id: 'zh-1', disabled: true },
+      { id: 'zh-2', disabled: false },
+      { id: 'zh-3', disabled: false },
+    ])
+    // 原始字段透传，供卡片渲染账号名与默认标记
+    expect(catalog.groupedPlatforms.value[0].items[0].accounts[0]).toHaveProperty('is_active', false)
   })
 })

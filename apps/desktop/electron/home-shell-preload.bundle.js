@@ -3,6 +3,64 @@ var __commonJS = (cb, mod) => function __require() {
   return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
 };
 
+// electron/core/access-level.js
+var require_access_level = __commonJS({
+  "electron/core/access-level.js"(exports2, module2) {
+    "use strict";
+    var ACCESS_LEVELS = Object.freeze(["public", "authenticated", "admin"]);
+    var ACCESS_LEVEL_CHANNEL = "auth:get-access-level";
+    var ACCESS_LEVEL_INVALIDATE_EVENT = "auth:access-level-invalidated";
+    var ACCESS_LEVEL_TTL_MS = 2e3;
+    function isAccessLevel(value) {
+      return ACCESS_LEVELS.includes(value);
+    }
+    module2.exports = {
+      ACCESS_LEVELS,
+      ACCESS_LEVEL_CHANNEL,
+      ACCESS_LEVEL_INVALIDATE_EVENT,
+      ACCESS_LEVEL_TTL_MS,
+      isAccessLevel
+    };
+  }
+});
+
+// electron/preload/access-level-cache.js
+var require_access_level_cache = __commonJS({
+  "electron/preload/access-level-cache.js"(exports2, module2) {
+    "use strict";
+    var {
+      ACCESS_LEVEL_TTL_MS,
+      isAccessLevel
+    } = require_access_level();
+    function createAccessLevelCache({ read, ttlMs = ACCESS_LEVEL_TTL_MS, now = Date.now } = {}) {
+      let cached = null;
+      let expiresAt = 0;
+      function invalidate() {
+        cached = null;
+        expiresAt = 0;
+      }
+      function get() {
+        if (cached !== null && now() < expiresAt) return cached;
+        let level = "public";
+        try {
+          const fresh = typeof read === "function" ? read() : null;
+          if (isAccessLevel(fresh)) level = fresh;
+        } catch (_) {
+          void _;
+        }
+        cached = level;
+        expiresAt = now() + ttlMs;
+        return level;
+      }
+      function isFresh() {
+        return cached !== null && now() < expiresAt;
+      }
+      return { get, invalidate, isFresh };
+    }
+    module2.exports = { createAccessLevelCache };
+  }
+});
+
 // electron/preload/publish.js
 var require_publish = __commonJS({
   "electron/preload/publish.js"(exports2, module2) {
@@ -251,6 +309,7 @@ var require_account = __commonJS({
         accountGetDefault: (platform) => ipcRenderer2.invoke("store:get-default-account", platform),
         accountUpdate: (id, fields) => ipcRenderer2.invoke("store:update-account", { id, fields }),
         accountSetProxy: (accountId, platform, proxy) => ipcRenderer2.invoke("account:set-proxy", { accountId, platform, proxy }),
+        accountSetActive: (accountId, platform, isActive) => ipcRenderer2.invoke("account:set-active", { accountId, platform, isActive }),
         // 内嵌浏览器登录 API
         authOpenLogin: (platform, accountId) => ipcRenderer2.invoke("auth:open-login", { platform, accountId }),
         authCompleteLogin: () => ipcRenderer2.invoke("auth:complete-login"),
@@ -579,6 +638,9 @@ var require_system = __commonJS({
         // 应用日志 API（设置-通用设置：查看/清理/渲染进程错误上报）
         logsGetInfo: () => ipcRenderer2.invoke("logs:info"),
         logsClear: () => ipcRenderer2.invoke("logs:clear"),
+        // 缓存清理 API（设置-通用设置：统计/清理临时缓存）
+        cacheGetStats: () => ipcRenderer2.invoke("cache:stats"),
+        cacheClear: () => ipcRenderer2.invoke("cache:clear"),
         logError: (message) => ipcRenderer2.invoke("logs:error", { message }),
         submitFeedback: (payload) => ipcRenderer2.invoke("feedback:submit", payload),
         // 通知日志上报（notify:log）——renderer notify() 通道内部调用，写结构化日志行
@@ -812,6 +874,10 @@ var require_page_manager = __commonJS({
           getHomeTab: () => ipcRenderer2.invoke("page-manager:get-home-tab"),
           saveCookies: (tabId) => ipcRenderer2.invoke("page-manager:save-cookies", tabId),
           saveAccountTabCredentials: (tabId) => ipcRenderer2.invoke("page-manager:save-account-tab-credentials", tabId),
+          // 查询账号标签凭证保存态（方案二：关闭护栏）
+          getAccountTabSaveState: (tabId) => ipcRenderer2.invoke("page-manager:account-tab-save-state", tabId),
+          // 批量保存全部未保存账号标签（方案三：全部保存）
+          saveAllUnsavedAccounts: () => ipcRenderer2.invoke("page-manager:save-all-unsaved-accounts"),
           // ── Event subscription ──
           subscribeEvents: () => ipcRenderer2.invoke("page-manager:subscribe-events"),
           unsubscribeEvents: () => ipcRenderer2.invoke("page-manager:unsubscribe-events"),
@@ -819,6 +885,10 @@ var require_page_manager = __commonJS({
           setSidebarWidth: (width) => ipcRenderer2.invoke("page-manager:set-sidebar-width", width),
           // T0-6b 壳态互斥：渲染层上报壳态（'workbench'|'browser'），主进程切换内嵌视图可见性
           setShellMode: (mode) => ipcRenderer2.invoke("page-manager:set-shell-mode", mode),
+          // 弹窗互斥（2026-09-23）：应用级模态浮层打开期间挂起内嵌 WebContentsView，
+          // 否则原生图层压住弹窗（设置/升级/关闭确认）。owner 标识浮层来源，ref-count 释放。
+          suspendEmbeddedViews: (owner) => ipcRenderer2.invoke("page-manager:suspend-embedded-views", owner),
+          resumeEmbeddedViews: (owner) => ipcRenderer2.invoke("page-manager:resume-embedded-views", owner),
           /**
            * 监听导航状态变化（URL/标题/前进后退状态）
            * callback 收到 { tabId, url, title, canGoBack, canGoForward }
@@ -910,7 +980,16 @@ var require_film_engineering = __commonJS({
           adaptScript: (payload) => ipcRendererRef.invoke("film-engineering:adapt-script", payload),
           exportPrompts: (selectedShots, format) => ipcRendererRef.invoke("film-engineering:export", selectedShots, format),
           generateSelected: (selectedShots, opts) => ipcRendererRef.invoke("film-engineering:generate-selected", selectedShots, opts),
-          retryShot: (payload) => ipcRendererRef.invoke("film-engineering:retry-shot", payload)
+          retryShot: (payload) => ipcRendererRef.invoke("film-engineering:retry-shot", payload),
+          downloadRecycled: (payload) => ipcRendererRef.invoke("film-engineering:download-recycled", payload),
+          productionPlan: (payload) => ipcRendererRef.invoke("film-engineering:production-plan", payload),
+          productionRunBatch: (payload) => ipcRendererRef.invoke("film-engineering:production-run-batch", payload),
+          productionStatus: (payload) => ipcRendererRef.invoke("film-engineering:production-status", payload),
+          onProductionUpdate: (callback) => {
+            const h = (_e, p) => callback(p);
+            ipcRendererRef.on("film-engineering:production-update", h);
+            return () => ipcRendererRef.removeListener("film-engineering:production-update", h);
+          }
         }
       };
     }
@@ -1002,7 +1081,7 @@ var require_knowledge_library = __commonJS({
         addManualSnapshot: (trackedContentId, metrics) => ipcRenderer2.invoke("performance:add-manual-snapshot", trackedContentId, metrics),
         recomputeAttribution: () => ipcRenderer2.invoke("performance:recompute-attribution"),
         listPatternPerformance: (params) => ipcRenderer2.invoke("performance:list-pattern-performance", params),
-        triggerPerformanceRecrawl: () => ipcRenderer2.invoke("performance:trigger-recrawl"),
+        triggerPerformanceRecrawl: (opts) => ipcRenderer2.invoke("performance:trigger-recrawl", opts),
         // 个人知识库
         addPersonalToLibrary: (item) => ipcRenderer2.invoke("knowledge-library:add-personal", item),
         addPersonalBatchToLibrary: (items) => ipcRenderer2.invoke("knowledge-library:add-personal-batch", items),
@@ -1118,6 +1197,8 @@ var require_access_control = __commonJS({
       "logsClear",
       "logError",
       "notifyLog",
+      "cacheGetStats",
+      "cacheClear",
       "renderGetStatus",
       "renderInstallDeps",
       "onRenderInstallProgress",
@@ -1172,7 +1253,12 @@ var require_access_control = __commonJS({
       "filmEngineering.adaptScript",
       "filmEngineering.exportPrompts",
       "filmEngineering.generateSelected",
-      "filmEngineering.retryShot"
+      "filmEngineering.retryShot",
+      "filmEngineering.downloadRecycled",
+      "filmEngineering.productionPlan",
+      "filmEngineering.productionRunBatch",
+      "filmEngineering.productionStatus",
+      "filmEngineering.onProductionUpdate"
     ];
     function hasAccess(currentLevel, requiredLevel) {
       if (requiredLevel === "public") return true;
@@ -1253,6 +1339,12 @@ var require_access_control = __commonJS({
 var require_preload = __commonJS({
   "electron/preload/index.js"(exports2, module2) {
     var { contextBridge: contextBridge2, ipcRenderer: ipcRenderer2, webUtils } = require("electron");
+    var {
+      ACCESS_LEVEL_CHANNEL,
+      ACCESS_LEVEL_INVALIDATE_EVENT,
+      isAccessLevel
+    } = require_access_level();
+    var { createAccessLevelCache } = require_access_level_cache();
     var { createPublishApi } = require_publish();
     var { createAccountApi } = require_account();
     var { createSystemApi } = require_system();
@@ -1279,18 +1371,23 @@ var require_preload = __commonJS({
       createDynamicAccessApi,
       filterApiByAccessLevel
     } = require_access_control();
-    function getAccessLevel() {
+    function readAccessLevelFromMain() {
       try {
         if (typeof ipcRenderer2.sendSync === "function") {
-          const level = ipcRenderer2.sendSync("auth:get-access-level");
-          if (level === "admin" || level === "authenticated" || level === "public") {
-            return level;
-          }
+          const level = ipcRenderer2.sendSync(ACCESS_LEVEL_CHANNEL);
+          if (isAccessLevel(level)) return level;
         }
       } catch (_) {
         void _;
       }
       return "public";
+    }
+    var accessLevelCache = createAccessLevelCache({ read: readAccessLevelFromMain });
+    if (typeof ipcRenderer2.on === "function") {
+      ipcRenderer2.on(ACCESS_LEVEL_INVALIDATE_EVENT, () => accessLevelCache.invalidate());
+    }
+    function getAccessLevel() {
+      return accessLevelCache.get();
     }
     var fullApi = {
       ...createPublishApi(ipcRenderer2, {
@@ -1324,6 +1421,7 @@ var require_preload = __commonJS({
     contextBridge2.exposeInMainWorld("electronAPI", exposedApi);
     module2.exports = {
       getAccessLevel,
+      accessLevelCache,
       filterApiByAccessLevel,
       createDynamicAccessApi,
       ADMIN_ONLY_METHODS,

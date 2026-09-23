@@ -87,8 +87,8 @@
       </label>
       <template v-if="selectedCount > 0">
         <span class="selected-count">{{ t('accountsPage.selectedCount', { count: selectedCount }) }}</span>
-        <button class="batch-status" type="button" :disabled="batchStatusBusy" @click="handleBatchStatus('active')">{{ batchStatusBusy ? t('accountsPage.processing') : t('accountsPage.batchEnable') }}</button>
-        <button class="batch-status" type="button" :disabled="batchStatusBusy" @click="handleBatchStatus('inactive')">{{ batchStatusBusy ? t('accountsPage.processing') : t('accountsPage.batchDisable') }}</button>
+        <button class="batch-status" type="button" :disabled="batchStatusBusy" @click="handleBatchSetActive(true)">{{ batchStatusBusy ? t('accountsPage.processing') : t('accountsPage.batchEnable') }}</button>
+        <button class="batch-status" type="button" :disabled="batchStatusBusy" @click="handleBatchSetActive(false)">{{ batchStatusBusy ? t('accountsPage.processing') : t('accountsPage.batchDisable') }}</button>
         <button class="batch-delete" type="button" @click="handleBatchDelete"><Delete />{{ t('accountsPage.batchDelete') }}</button>
         <button class="batch-cancel" type="button" @click="clearSelection">{{ t('accountsPage.cancelSelection') }}</button>
       </template>
@@ -104,7 +104,7 @@
       :aria-labelledby="`account-status-tab-${filter}`"
     >
       <section v-if="accountTab === 'share'" class="module-placeholder" data-testid="account-share-panel">
-        <div class="module-placeholder-icon" aria-hidden="true">🔗</div>
+        <div class="module-placeholder-icon" aria-hidden="true"><el-icon><Link /></el-icon></div>
         <h2>{{ t('accountsPage.shareTitle') }}</h2>
         <p>{{ t('accountsPage.shareHint') }}</p>
         <span class="module-placeholder-state" data-testid="account-share-state" role="status">{{ t('accountsPage.shareNotConnected') }}</span>
@@ -312,7 +312,7 @@
 
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { Close, Delete, FolderOpened, Plus, Search, UserFilled, WarningFilled } from '@element-plus/icons-vue'
+import { Close, Delete, FolderOpened, Link, Plus, Search, UserFilled, WarningFilled } from '@element-plus/icons-vue'
 import { useNotify } from '@/composables/useNotify'
 import AccountAuthorizationGuide from '@/features/accounts/components/AccountAuthorizationGuide.vue'
 import AccountFavoritesPanel from '@/features/accounts/components/AccountFavoritesPanel.vue'
@@ -1110,18 +1110,20 @@ async function handleBatchDelete () {
   }
 }
 
-async function handleBatchStatus (status) {
+// 入参是布尔而不是登录态词表字符串：启用态与登录态是两个正交概念。
+async function handleBatchSetActive (isActive) {
   const ids = [...selectedVisibleIds.value]
   if (ids.length === 0 || batchStatusBusy.value) return
   batchStatusBusy.value = true
+  const action = isActive ? 'enable' : 'disable'
   try {
-    const result = await accountStore.batchSetStatus(status, ids)
+    const result = await accountStore.batchSetActive(isActive, ids)
     const { success = 0, failed = 0 } = result || {}
-    if (failed === 0) notifySuccess(status === 'active' ? 'accountsPage.enabledCount' : 'accountsPage.disabledCount', { params: { count: success } })
-    else if (success > 0) notifyWarning('accountsPage.statusPartial', { params: { action: status === 'active' ? 'enable' : 'disable', success, failed } })
-    else notifyError('accountsPage.statusFailed', { params: { action: status === 'active' ? 'enable' : 'disable' } })
+    if (failed === 0) notifySuccess(isActive ? 'accountsPage.enabledCount' : 'accountsPage.disabledCount', { params: { count: success } })
+    else if (success > 0) notifyWarning('accountsPage.statusPartial', { params: { action, success, failed } })
+    else notifyError('accountsPage.statusFailed', { params: { action } })
   } catch (error) {
-    notifyError('accountsPage.statusFailed', { message: formatUserError(error, { fallback: t('accountsPage.statusFailed', { action: status === 'active' ? 'enable' : 'disable' }) }).message })
+    notifyError('accountsPage.statusFailed', { message: formatUserError(error, { fallback: t('accountsPage.statusFailed', { action }) }).message })
   } finally {
     batchStatusBusy.value = false
   }

@@ -6,6 +6,7 @@ vi.mock("@/api/publisher", () => ({
   accountDelete: vi.fn(),
   accountSetDefault: vi.fn(),
   accountUpdate: vi.fn(),
+  accountSetActive: vi.fn(),
   getPlatformDefinitions: vi.fn(),
 }));
 
@@ -13,6 +14,7 @@ import { useAccountStore } from "./accounts.js";
 import { usePlatformStore } from "./platforms.js";
 import {
   accountDelete,
+  accountSetActive,
   accountSetDefault,
   accountUpdate,
   listAccounts,
@@ -746,42 +748,93 @@ describe("useAccountStore", () => {
       expect(accountDelete).toHaveBeenCalledWith("wx-1");
     });
 
-    it("batchSetStatus 为每个选中账号更新状态并汇总结果", async () => {
-      accountUpdate
+    it("batchSetActive 为每个选中账号写 is_active，且绝不写登录态 status", async () => {
+      listAccounts
+        .mockResolvedValueOnce({ code: 0, data: [
+          { id: "a", platform: "wechat_mp", status: "active" },
+          { id: "b", platform: "zhihu", status: "active" },
+          { id: "c", platform: "zhihu", status: "active" },
+        ] })
+        .mockResolvedValue({ code: 0, data: [] });
+      accountSetActive
         .mockResolvedValueOnce({ code: 0 })
         .mockResolvedValueOnce({ code: 2 })
         .mockRejectedValueOnce(new Error("timeout"));
       const store = useAccountStore();
+      await store.load();
       store.selectedIds = new Set(["a", "b", "c"]);
 
-      const result = await store.batchSetStatus("inactive");
+      const result = await store.batchSetActive(false);
 
       expect(result).toEqual({ success: 1, failed: 2 });
-      expect(accountUpdate.mock.calls).toEqual([
-        ["a", { status: "inactive" }],
-        ["b", { status: "inactive" }],
-        ["c", { status: "inactive" }],
+      expect(accountSetActive.mock.calls).toEqual([
+        ["a", "wechat_mp", false],
+        ["b", "zhihu", false],
+        ["c", "zhihu", false],
       ]);
+      // 双库分裂防线：启用态不得再走写 SQLite 的 accountUpdate 通道
+      expect(accountUpdate).not.toHaveBeenCalled();
       expect(store.selectedIds).toEqual(new Set());
-      expect(listAccounts).toHaveBeenCalledTimes(1);
+      expect(listAccounts).toHaveBeenCalledTimes(2);
     });
 
-    it("batchSetStatus 没有选中账号时不调用更新 API", async () => {
+    it("batchSetActive 没有选中账号时不调用写者 API，但仍同步账号列表", async () => {
       const store = useAccountStore();
 
-      await expect(store.batchSetStatus("active")).resolves.toEqual({ success: 0, failed: 0 });
+      await expect(store.batchSetActive(true)).resolves.toEqual({ success: 0, failed: 0 });
+      expect(accountSetActive).not.toHaveBeenCalled();
       expect(accountUpdate).not.toHaveBeenCalled();
       expect(listAccounts).toHaveBeenCalledTimes(1);
     });
 
-    it("batchSetStatus 传入范围时只更新显式 ID", async () => {
-      accountUpdate.mockResolvedValue({ code: 0 });
+    it("batchSetActive 传入范围时只更新显式 ID", async () => {
+      listAccounts.mockResolvedValue({ code: 0, data: [
+        { id: "a", platform: "wechat_mp" },
+        { id: "c", platform: "zhihu" },
+      ] });
+      accountSetActive.mockResolvedValue({ code: 0 });
       const store = useAccountStore();
+      await store.load();
       store.selectedIds = new Set(["a", "b", "c"]);
 
-      await expect(store.batchSetStatus("active", ["a", "c"])).resolves.toEqual({ success: 2, failed: 0 });
+      await expect(store.batchSetActive(true, ["a", "c"])).resolves.toEqual({ success: 2, failed: 0 });
 
-      expect(accountUpdate.mock.calls.map(call => call[0])).toEqual(["a", "c"]);
+      expect(accountSetActive.mock.calls.map(call => call[0])).toEqual(["a", "c"]);
+    });
+
+    it("batchSetActive 对无法解析平台的账号诚实计为失败", async () => {
+      listAccounts.mockResolvedValue({ code: 0, data: [{ id: "a", platform: "wechat_mp" }] });
+      accountSetActive.mockResolvedValue({ code: 0 });
+      const store = useAccountStore();
+      await store.load();
+      store.selectedIds = new Set(["a", "ghost"]);
+
+      await expect(store.batchSetActive(false, ["a", "ghost"])).resolves.toEqual({ success: 1, failed: 1 });
+      expect(accountSetActive.mock.calls).toEqual([["a", "wechat_mp", false]]);
+    });
+
+    it("batchSetActive 拒绝非布尔 isActive，不把字符串真值误写成启用", async () => {
+      listAccounts.mockResolvedValue({ code: 0, data: [{ id: "a", platform: "wechat_mp" }] });
+      const store = useAccountStore();
+      await store.load();
+      store.selectedIds = new Set(["a"]);
+
+      await expect(store.batchSetActive("false")).resolves.toEqual({ success: 0, failed: 1 });
+      expect(accountSetActive).not.toHaveBeenCalled();
+    });
+
+    it("isAccountActive 仅在 is_active 明确为 false 时判停用，缺失与脏值按启用", () => {
+      const store = useAccountStore();
+
+      expect(store.isAccountActive({ is_active: false })).toBe(false);
+      expect(store.isAccountActive({ is_active: true })).toBe(true);
+      expect(store.isAccountActive({})).toBe(true);
+      expect(store.isAccountActive(null)).toBe(true);
+      expect(store.isAccountActive({ is_active: "no" })).toBe(true);
+      expect(store.isAccountActive({ is_active: 0 })).toBe(true);
+      // 正交：登录态词表不得参与启用态判定
+      expect(store.isAccountActive({ status: "inactive" })).toBe(true);
+      expect(store.isAccountActive({ status: "expired", is_active: false })).toBe(false);
     });
   });
 

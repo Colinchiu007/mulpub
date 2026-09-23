@@ -112,9 +112,14 @@ describe("HomeView", () => {
       },
     });
     window.electronAPI = {
-      storeGetPublishStats: vi.fn().mockResolvedValue({ code: 0, data: { total: 42, success: 38, failed: 4 } }),
-      storeListAccounts: vi.fn().mockResolvedValue({ code: 0, data: [{ id: "a1" }, { id: "a2" }] }),
-      historyList: vi.fn().mockResolvedValue({ code: 0, data: [] }),
+      // 真实发布统计源：dashboard:stats（publish-history JSONL 聚合），与数据看板同源
+      dashboardStats: vi.fn().mockResolvedValue({ code: 0, data: { total: 42, success: 38, failed: 4, perPlatform: {}, daily: [] } }),
+      // history:list 真实合同是 { total, records }（JSONL 历史服务），不是裸数组
+      historyList: vi.fn().mockResolvedValue({ code: 0, data: { total: 0, records: [] } }),
+      // 回归诱饵：SQLite 脱钩数据源（publish_history 无生产写入方、accounts 只镜像 OAuth 账号），
+      // 主页一旦再接回去、或读到其数据，对应断言立即变红
+      storeGetPublishStats: vi.fn().mockResolvedValue({ code: 0, data: { total: 999, success: 999, failed: 999 } }),
+      storeListAccounts: vi.fn().mockResolvedValue({ code: 0, data: Array.from({ length: 9 }, (_, i) => ({ id: "legacy-" + i })) }),
     };
   });
 
@@ -199,21 +204,26 @@ describe("HomeView", () => {
     expect(tags[0].text()).toContain("微博");
   });
 
-  it("loads and displays stats, account count and recent activity on mount", async () => {
+  it("loads stats from dashboardStats and account count from account store (single source of truth)", async () => {
+    accountStoreMock.accounts = [{ id: "a1" }, { id: "a2" }];
     window.electronAPI.historyList = vi.fn().mockResolvedValue({
       code: 0,
-      data: [{ id: "h1", title: "测试文章", platform: "weibo", status: "success", created_at: "2026-08-10T00:00:00Z" }],
+      data: { total: 1, records: [{ id: "h1", title: "测试文章", platform: "weibo", status: "success", timestamp: "2026-08-10T00:00:00Z" }] },
     });
     const w = await flushMounted(mountHome());
     const text = w.text();
     expect(text).toContain("42");
     expect(text).toContain("38");
     expect(text).toContain("4");
+    // 绑定账号数与账号页同源（accountStore → accounts:list），不再读 SQLite accounts 表
+    expect(w.findAll(".mp-home-stat-card")[3].text()).toContain("2");
     expect(text).toContain("测试文章");
     expect(text).toContain("成功");
-    expect(window.electronAPI.storeGetPublishStats).toHaveBeenCalled();
-    expect(window.electronAPI.storeListAccounts).toHaveBeenCalled();
+    expect(window.electronAPI.dashboardStats).toHaveBeenCalled();
     expect(platformStoreMock.load).toHaveBeenCalled();
+    // 回归保护：首页禁止再读 SQLite 脱钩数据源（publish_history / accounts 表）
+    expect(window.electronAPI.storeGetPublishStats).not.toHaveBeenCalled();
+    expect(window.electronAPI.storeListAccounts).not.toHaveBeenCalled();
   });
 
   it("shows empty recent state when there is no history", async () => {
@@ -224,9 +234,9 @@ describe("HomeView", () => {
   it("hides recent activity section when everything is zero (avoids duplicate empty state)", async () => {
     // 全 0 引导态：上方 home-zero-cta 已承担“第一次发布”引导，
     // 近期动态区必须整体隐藏，避免同一首屏出现双空态 + 双“立即新建发布”按钮。
-    window.electronAPI.storeGetPublishStats = vi.fn().mockResolvedValue({ code: 0, data: { total: 0, success: 0, failed: 0 } });
-    window.electronAPI.storeListAccounts = vi.fn().mockResolvedValue({ code: 0, data: [] });
-    window.electronAPI.historyList = vi.fn().mockResolvedValue({ code: 0, data: [] });
+    window.electronAPI.dashboardStats = vi.fn().mockResolvedValue({ code: 0, data: { total: 0, success: 0, failed: 0, perPlatform: {}, daily: [] } });
+    accountStoreMock.accounts = [];
+    window.electronAPI.historyList = vi.fn().mockResolvedValue({ code: 0, data: { total: 0, records: [] } });
     const w = await flushMounted(mountHome());
     expect(w.find('[data-testid="home-zero-cta"]').exists()).toBe(true);
     expect(w.find('[data-testid="mp-home-recent"]').exists()).toBe(false);
@@ -237,7 +247,7 @@ describe("HomeView", () => {
   it("shows 查看全部 link and navigates to history when recent items exist", async () => {
     window.electronAPI.historyList = vi.fn().mockResolvedValue({
       code: 0,
-      data: [{ id: "h1", title: "测试文章", platform: "weibo", status: "success", created_at: "2026-08-10T00:00:00Z" }],
+      data: { total: 1, records: [{ id: "h1", title: "测试文章", platform: "weibo", status: "success", timestamp: "2026-08-10T00:00:00Z" }] },
     });
     const w = await flushMounted(mountHome());
     const viewAll = w.find('[data-testid="home-recent-viewall"]');

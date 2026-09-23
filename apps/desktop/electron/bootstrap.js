@@ -10,6 +10,13 @@
  */
 const { app } = require('electron')
 const log = require('./services/logger')
+// P0-8 pubfail passive diagnose (PR-2, proposal-v3): wire executor + logger/app.
+// Un-wired state keeps the module disabled with zero side effects; errors in wiring must never block boot.
+try {
+  const pubfail = require('./services/pubfail-diagnose')
+  pubfail.setDiagnoseDeps({ log, app, runSelfCheck: (params) => require('./services/rate-limit-self-check').runSelfCheck(params) })
+  pubfail.setEnabled(true)
+} catch (e) { log.warn('Bootstrap', 'pubfail-diagnose wiring failed (degraded to disabled): ' + (e && e.message)) }
 const pythonBridge = require('./services/python-bridge')
 const { createContainer } = require('./core/container.setup')
 const { wireTaskQueueEvents } = require('./bootstrap/phase4-events')

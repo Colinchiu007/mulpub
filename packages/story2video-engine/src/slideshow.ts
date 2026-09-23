@@ -499,6 +499,30 @@ export function getVideoExtension(mimeType: string): string {
   return 'webm';
 }
 
+/**
+ * 降级留痕出口（审计 P2·静默 catch 收口）。
+ *
+ * slideshow 里的 catch 全是「有意降级」而不是错误吞掉：音频取不到就退回默认 8s 时长、
+ * BGM 取不到就无配乐、音轨混流失败就退回纯画面轨、录制器 stop 竞态忽略。
+ * 但它们在线上没有任何痕迹，用户侧表现为「成片时长不对/没有声音」，排查时无从下手。
+ * 统一收口为 onWarn(stage, msg)：宿主注入时交给宿主的 logger，未注入时落 console.warn
+ * （浏览器控制台 / Node stdout 均可被捕获），绝不静默、也绝不因留痕本身再抛错。
+ */
+export function createDegradationSink(
+  onWarn?: (stage: string, msg: string) => void,
+): (stage: string, err: unknown) => void {
+  return (stage, err) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (typeof onWarn === 'function') {
+      try { onWarn(stage, msg); } catch { /* 宿主回调异常不得影响渲染主流程 */ }
+      return;
+    }
+    if (typeof console !== 'undefined' && typeof console.warn === 'function') {
+      console.warn('[slideshow] ' + stage + ' 降级: ' + msg);
+    }
+  };
+}
+
 export async function createSlideshowVideo(
   images: GalleryImageInput[],
   audioUrl: string | null,
@@ -512,12 +536,15 @@ export async function createSlideshowVideo(
     subtitles?: SubtitleSegment[];
     subtitleStyle?: SubtitleStyle;
     watermarkConfig?: WatermarkConfig;
+    onWarn?: (stage: string, msg: string) => void; // 降级留痕回调（缺省 console.warn）
   },
 ): Promise<Blob> {
   if (images.length === 0) throw new Error('没有图片');
   if (typeof document === 'undefined' || typeof MediaRecorder === 'undefined') {
     throw new Error('createSlideshowVideo 需要浏览器环境 (document/MediaRecorder 不可用)');
   }
+
+  const warn = createDegradationSink(options?.onWarn);
 
   // Load all images in parallel for speed
   const preloaded = await Promise.all(
@@ -552,8 +579,9 @@ export async function createSlideshowVideo(
       audioContext = new AudioContext();
       audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
       totalDuration = audioBuffer.duration;
-    } catch {
-      // fallback to default duration
+    } catch (e) {
+      // 配音取不到 → 时长回退默认 8s（成片会与文案长度不匹配，属用户可感知降级）
+      warn('audio-duration', e);
     }
   }
 
@@ -563,8 +591,9 @@ export async function createSlideshowVideo(
       const resp = await fetch(options.bgmUrl);
       const arrayBuffer = await resp.arrayBuffer();
       bgmBuffer = await audioContext.decodeAudioData(arrayBuffer);
-    } catch {
-      // BGM load failed, continue without it
+    } catch (e) {
+      // BGM 加载失败 → 无配乐继续（音量滑块对用户无效，需留痕）
+      warn('bgm-load', e);
     }
   }
 
@@ -604,7 +633,9 @@ export async function createSlideshowVideo(
         ...canvasStream.getVideoTracks(),
         ...audioTracks,
       ]);
-    } catch {
+    } catch (e) {
+      // 混流失败 → 退回纯画面轨（成片静音，是最需要被看见的降级）
+      warn('audio-mix', e);
       audioTracks = [];
       combinedStream = canvasStream;
     }
@@ -637,7 +668,8 @@ export async function createSlideshowVideo(
       if (stopped || stopping) return;
       stopping = true;
       if (rafId) cancelAnimationFrame(rafId);
-      try { mediaRecorder.stop(); } catch { /* ignore */ }
+      // 安全超时兜底：录制器已处停止态时 stop() 会抛 InvalidStateError，属预期竞态
+      try { mediaRecorder.stop(); } catch (e) { warn('recorder-stop', e); }
     }, Math.ceil((totalDuration + 300) * 1000));
 
     mediaRecorder.ondataavailable = (e) => {

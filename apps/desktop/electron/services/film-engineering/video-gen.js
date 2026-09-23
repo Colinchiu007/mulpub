@@ -138,6 +138,13 @@ async function downloadToFile (url, dest) {
 async function generateShotVideo ({ shot, index, runDir, aspect, seconds, providerCfg, providerRunContext, sleep, download, log }) {
   const sleepFn = sleep || ((ms) => new Promise((r) => setTimeout(r, ms)))
   const downloadFn = download || downloadToFile
+  // 单镜失败统一出口：先记 warn（镜头序号 + shotId + 可辨识原因）再返回，杜绝静默失败
+  const noteFail = (reason) => {
+    if (log && typeof log.warn === 'function') {
+      log.warn('FilmVideoGen', 'shot ' + index + ' (' + shot.shotId + ') failed: ' + reason)
+    }
+    return { index, shotId: shot.shotId, success: false, error: reason }
+  }
   try {
     const payload = buildShotSubmitPayload({ shot, aspect, seconds, model: providerCfg.model })
     const submit = await providerCfg.manager.callAdapter(
@@ -146,15 +153,15 @@ async function generateShotVideo ({ shot, index, runDir, aspect, seconds, provid
     )
     // callAdapter 双层失败合同（外层 code!==0；内层 adapter 异常被包装 data.code<0）
     if (submit && submit.code !== 0) {
-      return { index, shotId: shot.shotId, success: false, error: submit.message || ('视频生成调用失败（provider: ' + providerCfg.providerId + '）') }
+      return noteFail(submit.message || ('视频生成调用失败（provider: ' + providerCfg.providerId + '）'))
     }
     const data = submit && submit.data
     if (data && typeof data === 'object' && (data.code === -1 || data.code < 0)) {
-      return { index, shotId: shot.shotId, success: false, error: data.message || data.error || '视频生成失败（provider: ' + providerCfg.providerId + '）' }
+      return noteFail(data.message || data.error || '视频生成失败（provider: ' + providerCfg.providerId + '）')
     }
     const taskId = data && (data.taskId || data.videoId || data.id || data.task_id)
     if (!taskId) {
-      return { index, shotId: shot.shotId, success: false, error: '视频生成未返回任务 ID（provider: ' + providerCfg.providerId + '）' }
+      return noteFail('视频生成未返回任务 ID（provider: ' + providerCfg.providerId + '）')
     }
     const pollDeadline = Date.now() + POLL_DEADLINE_MS
     let videoUrl = null
@@ -170,7 +177,7 @@ async function generateShotVideo ({ shot, index, runDir, aspect, seconds, provid
       if (['failed', 'error', 'cancelled'].includes(state)) break
     }
     if (!videoUrl) {
-      return { index, shotId: shot.shotId, success: false, error: '视频生成超时或失败（provider: ' + providerCfg.providerId + '）' }
+      return noteFail('视频生成超时或失败（provider: ' + providerCfg.providerId + '）')
     }
     const dest = path.join(runDir, 'shot_' + String(index).padStart(3, '0') + '.mp4')
     await downloadFn(videoUrl, dest)
@@ -179,7 +186,7 @@ async function generateShotVideo ({ shot, index, runDir, aspect, seconds, provid
     }
     return { index, shotId: shot.shotId, success: true, path: dest }
   } catch (error) {
-    return { index, shotId: shot.shotId, success: false, error: (error && error.message) ? error.message : String(error) }
+    return noteFail((error && error.message) ? error.message : String(error))
   }
 }
 

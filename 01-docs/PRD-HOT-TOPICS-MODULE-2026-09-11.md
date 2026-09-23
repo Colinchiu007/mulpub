@@ -177,6 +177,36 @@ ${topic}
 
 **非目标**：不做新旧批次合并、不做渠道级局部保留（渠道 A 新一轮成功但 B 失败时，仍整体覆盖为新结果）、不引入本地离线素材兜底。
 
+### 3.12 热门选题成片自动发布（P0，2026-09-23 新增）
+
+「一键生成视频」链路生成**实际成片**后，支持自动把成片发布到全部可用自媒体平台账号（「能发的都发」）。该能力首先以 E2E 驱动阶段形式落地（`hot-topics-one-click-video-driver.js` 发布阶段 + 纯函数 helper `tests/e2e/lib/hot-video-publish-plan.js`），与 §3.10 的生成链路拼接成端到端闭环：选题 → 改写 → 故事讲述流水线 → 成片 → 多平台发布。
+
+**发布目标选择规则（buildPublishTargets）**：
+
+| # | 规则 | 说明 |
+|---|------|------|
+| T1 | 仅 active 账号 | `status === 'active'` 或 `is_active === true`；expired/失效一律排除 |
+| T2 | 必须有凭证 | `has_cookies !== false`（无凭证账号发了必失败，前置排除） |
+| T3 | 同平台多账号不去重 | 每个可用账号都是一个独立发布目标 |
+| T4 | 可选平台白名单 | `E2E_PUBLISH_PLATFORMS`（逗号分隔）仅白名单内平台参与；缺省 = 全平台 |
+| T5 | 无可用目标即失败 | 抛 `NO_PUBLISH_TARGETS`，计入 report.errors，不静默跳过 |
+
+**文章载荷校验（buildPublishArticle）**：
+
+| # | 字段 | 规则 |
+|---|------|------|
+| A1 | `title` | 取选题标题；trim 后为空抛错；超 `maxTitleLength`（默认 **60** 字符，按 Unicode 字符计数 slice）截断 |
+| A2 | `content` | 回退链：改写引擎全文（探针捕获的 `pipelineStartOrchestrated` params.text）→ 选题 summary → 选题 title |
+| A3 | `video_path` | **必填**：无实际成片不得发布，缺失直接抛错 |
+| A4 | `cover_path` | 由 `cover:extract`（首帧提取）产出；提取失败置空不阻断发布（平台自处） |
+| A5 | `tags` | 数组，缺省 `[]` |
+
+**发布与终态追踪流程**：每条成片 → `extractVideoCover(sourcePath)` 取封面 → `publishBatch(targets, article)` 入队（立即返回 `taskIds`）→ 轮询 `getQueueHistory()` 至全部任务进入终态（`success`/`failed`/`cancelled`，默认上限 15 分钟/条）。结果写入 `report.publish[]`：`{ topicIndex, runId, title, targets, taskIds, tasks: [{id, platform, accountId, status, error, resultUrl}], status: published|partial|failed|error }`。
+
+**权益门禁说明**：`publish:batch` 在 `CHANNEL_FEATURE_MAP` 映射 `cloud_publish` 权益；但开发/未打包模式（`app.isPackaged === false`）跳过业务权益校验（license-access-control.js L271-288 注释：本地验证发布流程不应被产品权益阻塞），因此本机 E2E 可直接发布。
+
+**环境变量（均向后兼容，缺省保持原生成-only 行为）**：`E2E_PUBLISH=1` 启用发布阶段；`E2E_PUBLISH_PLATFORMS=baijiahao,kuaishou` 平台白名单；`E2E_PUBLISH_TIMEOUT_MS` 单条终态等待上限（默认 900000）。
+
 ## 4. 数据校验
 
 ### 4.1 选题条目结构
@@ -203,6 +233,41 @@ ${topic}
 - **缓存保留判定（2026-09-14 新增，对应 §3.11）**：写缓存前必须做一次「零结果 + 旧缓存非空」判定，命中时保留旧 `topics`/`fetchedAt` 并打 `preservedStaleCache` 标记；判定失败（如旧缓存字段缺失/非数组）时按空数组处理，**不得**因为保留逻辑抛错而中断刷新流程。
 - **保留态字段完整性**：保留的 `topics` 元素必须仍满足 §4.1 的字段校验（原样透传自上一次通过校验的批次，不在保留路径上二次加工）；`channelStats` 必须逐渠道给出 `{ ok: boolean, skipped: boolean, error: string|null, count: number }` 四字段，缺一不可。
 - **保留态不得伪造成「新鲜」**：`preservedStaleCache === true` 时 `fetchedAt` 必须早于当前时间（等于上一次的真实抓取时间），禁止写成 `Date.now()`。
+
+### 4.3 成片发布的平台侧载荷校验（P0，2026-09-23 新增，对应 §3.12 / §5.8）
+
+载荷离开应用前按 §3.12 表 A1-A5 校验；进入平台编辑器后按本表按平台差异二次校验（任一不满足即按「跳过该字段 + warn 日志」处理，不整单失败）：
+
+| # | 项 | 规则 | 取证来源 |
+|---|-----|------|----------|
+| P1 | 视频必填 | `article.video_path` 非空是「视频任务」的唯一判据：路由层据此把 RPA 超时抬到 **30 分钟**、队列任务超时抬到 **30 分钟**（见 §5.8 表 T-TO） | 300s/900s 预算下 bilibili 96MB 上传必被杀 |
+| P2 | 标题字段存在性 | 平台若无独立标题框（`sel.title_input` 全部候选超时），标题必须**回退写入正文编辑器**并与正文合并，此时正文步骤**跳过独立填充**（否则标题被纯正文覆写丢失） | `d4-1-kuaishou.json`：编辑页只有 `div#work-description-edit[contenteditable]` |
+| P3 | 合并文案长度 | 回退写入的「标题+正文」合并文本按平台 `max_content`（`platforms.yaml`，缺省 **2000**）截断；标题与正文之间以 `\n\n` 分隔 | 快手作品描述上限 |
+| P4 | 上传完成判定 | 必须同时满足「无负向信号」+「存在完成信号」（https 预览源 / 编辑器字段出现 / URL 落到 `post/video`），且最低稳定期 **25s**；仅凭 class 含 progress/success 不得判定完成 | smoke5/smoke6 误判实锤（blob 预览秒判） |
+| P5 | 必填声明 | 平台存在必填下拉（B 站「创作声明」）时必须先选中；选中后未确认不得上报成功（状态 `option-selected-no-confirm`） | `d5-bilibili.json`：`input.bcc-select-input-inner[placeholder="请选择符合您视频内容的创作声明"]` |
+| P6 | 遮罩清理 | 导航到发布页后、填写字段前必须清理草稿恢复/引导遮罩（如抖音「我知道了」），否则字段与发布按钮不可点 | `d5-douyin.json` |
+| P7 | 平台作品 ID | `baijiahao`/`kuaishou` 为严格平台：结果必须携带从**网络响应**提取的 `postId`（作品 ID），否则判 `failed: 发布结果缺少平台作品 ID`，禁止用 URL/localStorage 里的数字冒充 | 防「静默失败被记成成功」 |
+| P8 | 选择器候选 | 任何字段选择器都是**候选数组**，必须逐个尝试（首个候选命中即用，不得硬取 `[0]`） | 页面改版即全链失败 |
+
+### 4.4 发布文案恢复的数据校验（P0，2026-09-23 新增，对应 §5.10）
+
+| 字段 | 类型 | 必填 | 校验规则 | 不满足时 |
+|------|------|------|----------|----------|
+| `project.json.title` | string | 否 | 视为「正文片段候选」：若 `sourceText`（或拼接后的 segments 文本）以该值开头，则**不得**作为发布标题 | 丢弃该值，改从正文首句派生 |
+| `project.json.topicTitle` / `topic_title` / `topic.title` | string | 否 | 通过 `isHumanTitle` 且不是正文前缀 → 采纳为标题 | 继续尝试下一个候选 |
+| `project.json.sourceText` | string | 否 | 去首尾空白后长度 > 0 即作为正文首选 | 回退拼接 `segments[i].text`（按数组顺序，不排序） |
+| `project.json.segments[].text` | string[] | 否 | 仅取 string 且 trim 非空的项，按序 join（无分隔符） | 正文为空 → 返回三空，调用方必须跳过发布 |
+| 派生标题 | string | — | 取正文首个非空句（断句符为句号、叹号、问号、分号、换行），按 `maxTitleLength`（默认 60）截断，再剥离结尾句读 | 空串 |
+| slug 判定 `isHumanTitle` | boolean | — | 长度 2–120；含 CJK 直接通过；纯 ASCII 必须含空格且含 3 个以上连续字母 | 判为非法标题（例：`smart-sentence-splitter`、`story2video-compose`、`v2`） |
+
+不变式：
+
+- I-1：`readProjectCaption(null | 空对象 | 数组)` 必须返回 `{ title: '', text: '', titleSource: '' }`，不得抛错。
+- I-2：`readProjectCaption` 返回的 `{ title, text }` 直接喂给 `buildPublishArticle` 时，不得再触发「缺少标题」异常（除非正文与所有标题候选同时为空）。
+- I-3：任何情况下，纯 ASCII 标识符（引擎名 / slug / 流水线名）不得成为发布标题。
+- I-4：正文恢复优先级固定为 `sourceText` > `segments[].text` 顺序拼接 > `title`（仅当其形似正文：长度 ≥ 20 或含句读）。
+
+---
 
 ## 5. 流程与功能逻辑
 
@@ -306,6 +371,27 @@ onUnmounted → clearInterval
     └─ 失败 → rewrite_copy: failed → 弹窗错误提示 + 重试（从改写开始）
 ```
 
+### 5.6a 成片发布流程（E2E 驱动，2026-09-23 新增）
+
+```text
+驱动轮询全部 run 终态 → 成片 copyFileSync 落盘 + ffprobe 校验
+  → E2E_PUBLISH ≠ 1 → 跳过发布（保持生成-only 原行为）
+  → E2E_PUBLISH = 1：
+    → listAccounts() 取全量账号对象
+    → 逐条成片：
+      → extractVideoCover(sourcePath) → cover_path（失败置空不阻断）
+      → buildPublishPlan(accounts, topic, rewriteFull, videoPath, coverPath)
+        ├─ 无可用目标 → 抛 NO_PUBLISH_TARGETS → item.status='error' 计入 report.errors，继续下一条
+        └─ 成功 → { targets, article }
+      → publishBatch(targets, article) → { code:0, data:{ taskIds } }（异步入队，主进程 taskQueue maxConcurrent=3）
+      → 每 5s 轮询 getQueueHistory()，过滤本批 taskIds 对应任务
+        ├─ 全部终态（success/failed/cancelled）→ item.status = published(全成) / partial(部分) / failed(零成)
+        └─ 超 E2E_PUBLISH_TIMEOUT_MS（默认 15min）→ 按当前快照定格（未终态任务计入 tasks 供事后排查）
+    → 全部结果写 report.publish[]
+```
+
+注意：发布内容与生成时的改写产物同源——驱动探针在 `pipelineStartOrchestrated` 包装点捕获完整 `params.text`（`textFull`），发布 article.content 直接复用，保证「视频音频 = 发布文案」一致性。
+
 ### 5.7 抓取失败与缓存保留流程（2026-09-14 新增）
 
 ```text
@@ -346,6 +432,172 @@ fetchTopics({ force })
 2. **保留即过期**：保留态下 `fetchedAt` 保持旧值 ⇒ 下一次非 force 调用必然重新尝试网络（不会因为命中"新鲜"缓存而永久停留在陈旧数据）。
 3. **失败可见**：保留态下 `channelStats` 必须是本轮真实结果，前端告警条（§6.2 部分渠道失败警告）照常展示。
 4. **并发安全**：`inFlight` 去重保证同一时刻只有一次写缓存；保留判定读取的 `cache` 是进入本轮前的快照，不会被本轮部分写入污染。
+
+### 5.8 视频成片的 RPA 平台发布流程（P0，2026-09-23 新增，对应 §3.12）
+
+发布任务由 `publish:batch` 入队（`taskQueue` maxConcurrent=3）→ `publisher-router` 按平台路由 → `rpaViewManager.publish(platform, article, authData, timeout)` → `_publish_generic`（douyin 走 `_publish_douyin` 专用链路）。时序不变式如下：
+
+```text
+导航到 publish_url（3s 稳定）
+  → URL 登录检测（login/passport/signin）+ SPA 登录态 DOM 探测（有登录文案且无表单 → fail fast）
+  → preFill hook（若有）
+  → ① 遮罩清理 _dismissPostNavDialogs      ← 必须在任何字段操作之前
+  → ② 视频上传 _resolveSelector(sel.file_input) → _setFileInput → 上传完成判定（P4）
+       └ 之后 ③ 表单就绪等待（标题/正文/编辑器出现，最长 120s）
+  → ④ 标题：_resolveSelector(sel.title_input) → 命中则填标题框
+       └ 未命中 → _resolveSelector(editor|content_textarea|textarea|desc_textarea)
+                   → 命中则「标题+正文」合并写编辑器（P2/P3），并跳过 ⑤
+  → ⑤ 正文：_resolveSelector(cs) → 填充（④已合并时跳过）
+  → ⑥ 标签/封面/声明（平台 hook：bilibili 创作声明 + 短信风控弹窗清理；kuaishou AI 声明勾选）
+  → ⑦ 点击发布按钮（候选数组逐个尝试，文本匹配分级见下）
+  → ⑧ 成功判定：api 响应 / URL 变化 / DOM 成功文案（三种 mode + 回退）
+  → ⑨ 严格平台（baijiahao/kuaishou）：作品 ID 必须来自响应体或作品列表回查（P7）
+```
+
+**顺序硬约束（实测定死，不得回退）**：② 上传必须在 ④⑤ 字段填充**之前**。原因：kuaishou/bilibili 的 `publish_url` 是**上传落地页**，标题/简介字段要等上传完成进入编辑器后才渲染；旧顺序（先填字段）必然 3×10s timeout。
+
+**表 T-TO：超时预算分层（一次配置、全链一致）**
+
+| 层 | 位置 | 图文 | 视频（`video_path` 非空） |
+|----|------|------|--------------------------|
+| 队列任务 | `ipc-handlers/publish.js` `publish:batch` | 180s（task-queue 默认） | **1800000ms = 30min** |
+| 路由→RPA | `publisher-router.js` `resolveRpaTimeout(route, article)` | `ROUTE_TABLE[platform].timeout`（300s） | `max(route.timeout, VIDEO_RPA_TIMEOUT=1800000)` |
+| 上传等待 | `_waitForVideoUploadComplete(win, platform, timeoutMs)` | — | 默认 **900000ms = 15min**，轮询 3s，最低稳定期 25s |
+| 单条终态 | 驱动 `E2E_PUBLISH_TIMEOUT_MS` | 900000 | 建议 ≥1800000 |
+
+**选择器文本匹配分级（`rpa-selector-utils.buildResolveElementCode`）**：
+
+1. 原生 `document.querySelector(selector)` 命中即返回（快路径）；
+2. `:has-text("x")` / `text=x` 走文本匹配，且**必须先按选择器自带的 tag/class 收窄候选池**（`button:has-text("发布")` 永远不得命中 `div` 文案），再按优先级取元素：
+   **精确文本 + 可交互标签（button/a/li/label/[role=button]）> 精确文本叶子 > 包含文本 + 可交互 > 包含文本任意**，同级内优先可见元素（`offsetParent`/`getClientRects`）；
+3. 全部候选都不命中 → 返回 `null`，调用方（`_resolveSelector`）继续下一个候选。
+
+> 为什么第 2 步的两条都是硬性的：快手发布页存在「在粉丝浏览高峰期发布」「发布成功次数」等含“发布”字样的文案。旧实现「包含文本」优先且忽略 tag 约束，会点中统计文案 → 页面无任何请求（诊断日志 `responses=0`），任务假死到超时。
+
+**B 站创作声明状态机（`_selectContentDeclaration`）**：返回 `{ state, option }`，`state ∈ no-input | already | done | option-selected-no-confirm | option-missing | error`；只有 `done`/`already` 视为处理成功，其余仅记 warn 日志、不抛异常（保持发布链路继续尽力提交，便于日志取证）。
+
+### 5.9 提示词优化阶段的限流韧性与降级（P0，2026-09-23 新增）
+
+> 触发背景（CDP E2E 取证，5 条 run 全部失败）：热门选题一键生成视频在 `optimize`（提示词优化）阶段整条失败，run 上下文里的原始 `error` 为
+> `Story2Video optimize failed: Story2Video 场景 12 prompt-engine 优化失败: Error code: 429 - {'error': {'code': '', 'message': '您已达到免费用户的 API 速率限制。升级 Token Plan 即可解锁更高限额，继续不间断使用 API。'}}`
+> 同时 `split` 阶段的 `text` 字段均有正常改写文案（说明【生成视频】→ 改写引擎链路本身是通的），失败点在 LLM 额度。
+
+**结构性缺陷（已修）**：`optimize` 阶段旧实现用 `withTransientRetry`，它**只捕获抛错**；而 prompt-engine 会把上游 LLM 的 429 兜底成 `HTTP 200 + { optimized_prompt: <原文>, error: '…Error code: 429…' }` 正常返回。结果：一次限流既不重试也不降级，直接 `throw` → 整条流水线 `failed`，已消耗的额度与时间全部作废。`withAssetTransientRetry`（资源生成阶段）早就做了结果体分类，优化阶段是漏网之鱼。
+
+**新契约 R-CL：失败分类矩阵（按 prompt-engine 响应体 `error`/`detail` 文本判定）**
+
+| 类别 | 识别信号（节选） | 是否重试 | 是否降级 template | 最终行为 |
+|------|------------------|----------|-------------------|----------|
+| rate（限流） | `Error code: 429` / `rate limit` / `too many requests` / `限流` / `速率限制` / `请求频率` / `队列` | 是（按分钟重置，线性退避） | 是（重试预算耗尽后） | 成功出片并打降级标记 |
+| transient（拖动） | `timed out` / `ETIMEDOUT` / `ECONNREFUSED` / `fetch failed` / `超时` / `网络` / 5xx | 是（短退避） | 否（保持旧语义） | 耗尽后阶段 fail closed |
+| quota（额度/余额） | `insufficient balance` / `quota exceeded` / `额度…上限` / `Token Plan … limit` | **否** | **否** | 立即 fail closed（需用户处理） |
+| other | 其余（如 422 参数非法、内容政策） | 否 | 否 | 立即 fail closed |
+
+> 中文「速率限制」不含在通用 `RATE_LIMIT_MESSAGE_PATTERN`（其只认 `频率.*限制`）内，因此本阶段自带 `OPTIMIZE_RATE_TEXT_PATTERN` 补充信号；两处判定不得合并回单一正则（否则 provider-error 的统一分类会被中文字面量拖慢）。
+
+**表 R-RE：重试预算（全部可在 `stage.options` 覆盖，不新增用户可见配置）**
+
+| 参数 | 默认 | 来源 / 说明 |
+|------|------|-------------|
+| `maxAttempts` | `min(3, (stage.options.maxRetries ?? 2) + 1)` | 瞬时错误总次数上限 |
+| `rateLimitMaxAttempts` | `max(maxAttempts + 1, 4)` | 限流专用（多给 1 次跨退避窗口） |
+| 限流退避 | `retryBackoffMs \|\| 2500`，第 n 次等 `base × n`（2.5s/5s/7.5s…） | 免费额度按分钟重置，线性放大比指数更可控 |
+| 瞬时退避 | `800 × n` | 与旧行为一致 |
+| 场景内并发 | `stage.options.concurrency ?? 3` | 与 `api-usage-governor` 的 llm rpm 无交集（LLM 在引擎子进程内调用，**已知限制**） |
+
+**降级路径（`optimization_strategy: 'template'`）**
+
+1. 触发条件：当前场景的 LLM 策略重试耗尽且最后一次仍为 **rate** 类；
+2. 动作：对**同一场景、同一归一化请求**只改 `optimization_strategy=template` 再走一次完整重试预算（模板路径不调 LLM、不计费）；
+3. 引擎事实（2026-09-23 直连 8013 实测）：`POST /v1/optimize {optimization_strategy:'template'}` → `HTTP 200`、`model_used="template"`、`key_source="none"`、`tokens_used=0`、`duration≈22ms`；
+4. 失败回退：降级调用也带 `error` → **丢弃降级结果，保留原始 429 错误**交给输出校验，阶段 `success:false` 且**不产生 output**（绝不静默出片）。
+
+**数据校验（输出结构不变式）**
+
+| 字段 | 类型/取值 | 规则 |
+|------|-----------|------|
+| `optimize[i].optimized_prompt` | string，非空且经 `sanitizeOptimizedPrompt` 剔思考块 | 降级时仍必非空（空→抛错 fail closed） |
+| `optimize[i].optimize_note` | `'rate_limited_template_fallback'` \| 缺省 | 仅降级场景写入；与已有 `prompt_engine_too_short_use_original` / `llm_rejected_use_original` / `prompt_engine_empty_reasoning_use_original` 互斥 |
+| `optimize[i].degraded` | boolean | 仅降级场景为 `true`；上层（历史/排查）据此区分提示词来源 |
+| `optimize[i].model_used` / `strategy_used` | string | 降级时为 `template`（由引擎 meta 透传，不手写） |
+| `context.optimize_degraded` | `{ scenes: number[], total: number }` \| 不存在 | 有降级才存在；`scenes` 为场景下标升序（`concurrency=1` 时严格递增）；本次无降级时**必须 delete** 该键（不留旧值） |
+| `context.optimize_resume` | 数组 | 逐场景部分结果；降级结果同样入 resume，断点续跑不重复消耗 LLM 额度 |
+| `context.optimize_progress` | `{ done, total }` | 降级不改变进度语义 |
+
+**显示项与提示文字**
+
+- **不新增 i18n key**（避免 locale 同步门禁）：用户可见途径为①阶段进度条文案沿用 `story2video.optimizeProgress`（共 N 个场景，已完成 M 个）；②失败时沿用既有 `story2video.optimize_failed` / `story2video.optimize_service_unavailable` 映射；③成功但降级时，历史详情「画面提示词」旁 `model_used` 显示 `template`（显示项已存在，无需新控件）。
+- **固定日志文案**（主进程 `Story2VideoStages`，与 §7.5 同族）：`optimize degraded to prompt-engine template strategy for {n}/{m} scene(s): LLM rate limited; scenes={idx,idx}` —— `warn` 级，阶段结束一次性输出（不逐场景刷屏）。
+- **默认选项不受影响**：`story2video.lastOptions.v1` 无新增键；降级是运行时自适应行为，不需用户预先选择。
+
+**与模型设置的关系（运维口径）**
+
+- 优化用的 LLM 由「模型设置 → 文字推理（llm）默认服务商」决定，`PromptBridge.resolveLlmBind()` 无默认/无 Key/无可用模型时 **fail-closed 抛错**（引擎不再用服务端 key 兜底）。
+- 若持续限流，用户可改默认 LLM（本机已配置 Key 的候选：`agnes-multimodal`(默认) / `sensenova-llm` / `openrouter` / `opencode-go` / `minimax-multimodal`）；`modelProviderTest` 只验“可列模型”，**不等于有额度**，不得用其结果向用户保证可用。
+
+### 5.10 应用重启后的发布文案恢复（P0，2026-09-23 新增）
+
+#### 5.10.1 问题背景（真实故障）
+
+热门选题一键生成视频的完整链路是「生成 → 校验成片 → 发布」。流水线 `run context`
+（`pipelineGetRunContext()`）**只存在于主进程内存**，不落盘。E2E 期间只要发生
+应用重启（例：热应用代码、窗口异常恢复），`pipelineHistory()` 与 run context 全部清零，
+此时若仍要发布此前已产出的成片：
+
+- 改写正文取不到 → `storyChars = 0`，发布载荷 content 退化为空；
+- 标题取不到 → 早期实现用「遍历上下文里所有 key 含 title 的字符串」兜底，
+  结果命中 `segments[].subtitleSource = "smart-sentence-splitter"`（字幕分段引擎名），
+  把这个 slug 当成了发布标题发到 7 个平台。
+
+结论：**发布文案必须有落盘恢复路径，且标题必须有合法性判定。**
+
+#### 5.10.2 数据来源与流程
+
+```
+成片目录（userData/story2video-projects/<sha256(projectRoot)>/<runId>/）
+  └── project.json（manifestVersion=2）
+        ├── sourceText       改写引擎产出的完整文案（发布正文首选）
+        ├── segments[].text  分镜文案（按序拼接 = 正文兜底）
+        ├── title            警示：实为「文案前 200 字」，不是标题
+        └── status/duration/videoPath/format 等（成片校验用）
+              │
+              ▼
+   readProjectCaption(manifest) → { title, text, titleSource }
+              │
+              ├── 有真实选题标题（热门选题列表可按内容匹配回填）→ 用选题标题
+              └── 否则 → 正文首句派生
+              ▼
+   buildPublishArticle({ topic:{title}, rewrittenText:text, videoPath, coverPath })
+```
+
+标题来源优先级（`publish-only` 驱动器实现）：
+
+1. `hot-topic-row#N(overlap=x.xx)`：把当前「热门选题」列表每行标题与恢复出的正文做
+   二元字组重合度打分，贪心做「一条 run 只占一行选题」的唯一匹配，阈值 0.35；
+   热门选题列表是轮换的，因此**禁止**用「行号 = 生成序号」的位置映射（实测同一分钟内
+   首行就从「苹果不建议给iPhone贴膜」变成「油价或将大幅调整」）。
+2. `manifest`：project.json 的显式 `topicTitle` / `topic_title` / `topic.title`。
+3. `derived`：正文首句截断（60 字内，去结尾标点）。
+
+#### 5.10.3 交互与显示项
+
+| 位置 | 显示项 | 文案 |
+|------|--------|------|
+| E2E 驱动日志 | 每条发布 | `#N 标题=<标题前30字> 来源=<titleSource> 正文字数=<len>` |
+| E2E 驱动日志 | 匹配汇总 | `选题唯一匹配成功=<k>/<总条数>` |
+| E2E 驱动日志 | 启动 | `ACCOUNTS=<platform>:<status>,…`（active 才算可用） | |
+| `publish-report-v2.json` | `items[].titleSource` | `hot-topic-row#5(overlap=0.63)` / `manifest` / `derived` |
+| `publish-report-v2.json` | `items[].article` | `{ title, contentChars, video_path, cover_path }`（发布载荷留痕） |
+| `publish-report-v2.json` | `topics[]` | 发布时刻的热门选题列表快照（可复盘匹配依据） |
+
+#### 5.10.4 失败与拒绝路径
+
+- 正文与所有标题候选都为空 → 不进入发布（`buildPublishArticle` 抛
+  「缺少标题（topic.title 为空）」），驱动器标记 `enqueue_failed` 并继续下一条；
+- 成片文件不存在 → 标记 `missing-video` 跳过；
+- 队列非空闲（running + pending > 0）→ 20s 轮询等待，避免多平台 RPA 争抢同一浏览器；
+- 「能发的都发」= 凡 `status === 'active'`（或 `is_active === true`）且
+  `has_cookies !== false` 的账号全部入队，同平台多账号不去重。
 
 ## 6. 交互逻辑
 
@@ -623,6 +875,26 @@ fetchTopics({ force })
 
 **判定依据**：如果未来需要在界面上显式区分「陈旧数据」（例如加一条 `数据为上次抓取结果，本次刷新失败` 的常驻提示），必须先在本表补齐 zh/en 双语文案与 Message Function 约定，再改 UI；本期不做。
 
+### 7.5 RPA 发布过程日志与失败提示文字（P0，2026-09-23 新增）
+
+视频发布失败与降级全部以 `RpaView` 日志形式可取证（不新增 UI 控件、不新增 i18n key，列表/进度 UI 继续用 §7.1 已有文案）。日志前缀统一为 `[<platform>] `，文本为固定字符串（可用作断言/ grep）：
+
+| 场景 | 级别 | 日志/错误文字 | 含义与后续动作 |
+|------|------|----------------|----------------|
+| 候选回退生效 | info | `no dedicated title field, title falls back to editor sel=<sel\|none>` | 平台无独立标题框，标题已合并写进编辑器（§4.3 P2） |
+| 正文跳过 | info | `content already composed into editor caption, skip separate fill` | 防正文覆写丢标题（P2） |
+| 标题彻底失败 | warn | `title field not found (no title_input nor editor candidate), title skipped` | 两个池都空，只发正文 |
+| 正文候选不命中 | warn | `content editor not found among <N> candidates` | 已逐个尝试，非只试首项 |
+| 上传无完成信号 | warn | `video upload-complete signal not detected (preview/url), continuing best-effort` | 15min 预算内未判成，继续尽力填字段/提交 |
+| 表单未就绪 | warn | `editor form not ready after upload (still trying fields)` | 上传后 120s 内没出现标题/正文控件 |
+| 遮罩清理 | info | `post-nav dialogs dismissed: <JSON>` | 记录实际点掉的遮罩（P6） |
+| B 站风控弹窗 | info | `[bilibili] sms dialog: NO_SMS_DIALOG\|CANCELLED\|DIALOG_NO_CANCEL` | 短信验证只能用户完成；`DIALOG_NO_CANCEL` 代风控不可自动绕过 |
+| 创作声明 | info | `declaration prep state=<state> aiGenerated=<bool> option=<值>` | state 枚举见 §5.8 |
+| 严格平台无 ID | warn | `publish signal lacked platform ID; endpoint=<脱链URL> responses=<N>` | 任务以 `发布结果缺少平台作品 ID` 失败（P7）；`responses=0` 意味发布按钮没真正生效 |
+| 发布验证超时 | warn | `publish verification timeout endpoint=... responses=N` + `publish verify snapshot: {text,modals,buttons}` + 截图 `mp-rpa-diag/<platform>-verify-<ts>.png` | 提交后无法确认成功；快照+截图区分“弹窗拦截/校验失败/静默成功” |
+
+**失败时写入队列历史 `error` 字段的固定文案**（UI 发布进度列表直接展示，不截断）：`kuaishou no publish_url`、`kuaishou not logged in`、`发布结果缺少平台作品 ID`、`publish verification timeout`、`timeout (1800s)`（括号内为任务实际预算，视频为 1800s）。
+
 ## 8. 验收标准
 
 1. 「更多」菜单出现「热门选题」入口，点击进入 `/hot-topics` 页面。
@@ -674,7 +946,9 @@ fetchTopics({ force })
 | 资产 | 路径 | 说明 |
 |------|------|------|
 | CDP 客户端 | `apps/desktop/tests/e2e/lib/cdp-client.js` | 极简 CDP-over-WebSocket 传输层（`Runtime.evaluate` + `waitFor` 轮询）。**不使用** Playwright `connectOverCDP`：本机（Electron 43 / Chrome 150）实测其侧握手会稳定超时（15s × 6 次全 timeout），而直连 `webSocketDebuggerUrl` 完全正常 |
-| 一键生成视频驱动 | `apps/desktop/tests/e2e/hot-topics-one-click-video-driver.js` | 连接**已运行**的 Electron 实例（CDP），走真实 UI：进入 `/hot-topics` → 读取前 N 条选题 → 逐条 DOM 点击【生成视频】→ 等 `hot-topics-gen-video-background` 出现（= phase running 且持有 runId）→ 点【后台运行】脱离以发起下一条（受 `E2E_MAX_ACTIVE` 约束）→ 轮询 `pipelineGetRunContext` 至终态 → 深度搜索 `videoPath/outputPath` → 拷贝成片 + `ffprobe` 校验，产出 `*-generate-report.json` |
+| 一键生成视频驱动 | `apps/desktop/tests/e2e/hot-topics-one-click-video-driver.js` | 连接**已运行**的 Electron 实例（CDP），走真实 UI：进入 `/hot-topics` → 读取前 N 条选题 → 逐条 DOM 点击【生成视频】→ 等 `hot-topics-gen-video-background` 出现（= phase running 且持有 runId）→ 点【后台运行】脱离以发起下一条（受 `E2E_MAX_ACTIVE` 约束）→ 轮询 `pipelineGetRunContext` 至终态 → 深度搜索 `videoPath/outputPath` → 拷贝成片 + `ffprobe` 校验；`E2E_PUBLISH=1` 时追加发布阶段（见 §3.12），产出 `*-generate-report.json` |
+| 发布计划纯函数 | `apps/desktop/tests/e2e/lib/hot-video-publish-plan.js` | `buildPublishTargets` / `buildPublishArticle` / `buildPublishPlan`（规则见 §3.12 表 T1-T5 / A1-A5） |
+| 发布计划单测 | `apps/desktop/tests/hot-video-publish-plan.test.js` | vitest（13 用例）：账号过滤/白名单/多账号不去重、标题截断、内容回退链、无视频拒绝发布、NO_PUBLISH_TARGETS |
 
 **运行方式**：`E2E_CDP_URL` / `E2E_VITE_ORIGIN` / `E2E_TOPIC_COUNT` / `E2E_MAX_ACTIVE` / `E2E_LABEL` / `E2E_OUT_DIR` / `E2E_RUN_TIMEOUT_MS` 见文件头注释；驱动退出码 0 表示至少产出一条真实成片。
 
@@ -682,6 +956,80 @@ fetchTopics({ force })
 
 1. **`window.electronAPI` 是 contextBridge 冻结对象**（`Object.isFrozen(api) === true`、`Object.isExtensible(api) === false`）→ **不能**通过在页面侧包一层 `pipelineStartOrchestrated` 来截获 `runId`；必须改用「点击前记录 `pipelineHistory()` → 点击后取新增的 `story2video-compose` run」的方式获取 runId。
 2. **路由用客户端 hash 切换**（`location.hash = '#/hot-topics'`）并**以 DOM 出现为准**判断到达（`[data-testid="hot-topic-item"]` 数量 > 0），不要依赖 hash 值本身——主进程触发 renderer 重载时 hash 会被重置为 `#/`。
+3. **并发门必须排除存量活跃 run**（2026-09-23 回归）：驱动启动前先快照一份当前 `running/paused` 的 runId 集合作为 baseline，并发计数只统计「本驱动新发起」的 run。否则历史陈旧 paused 僵尸（实测：两个月前中断在 generate_assets 的两条 run，重启后仍保持 paused）会永久挡死门控，冒烟测试一条选题都发不出去。
+4. **服务商额度熔断是生成链路外部阻断的典型形态**（2026-09-23 实测）：快照固化 `imageProvider/voiceProvider=minimax-multimodal`，Token Plan 用尽后 generate_assets 阶段秒败（0/17 场景）。处置：备份 `story2video.lastOptions.v1` 后将 imageProvider 切 `agnes-image`、voiceProvider 切 `mimo-tts`（清空 minimax 专属克隆 voiceId）再重跑。
+
+### 9.6 RPA 发布韧性与选择器契约回归（2026-09-23 新增）
+
+| 测试文件 | 类型 | 关键守卫（缺一不可） |
+|----------|------|--------------------|
+| `apps/desktop/electron/services/rpa-selector-utils.test.js` | jsdom 行为 | ① 精确文本+可交互优先于包含文本；② tag/class 约束生效（`div:has-text("发布")` 只能命中 div）；③ 原生 CSS 快路径；④ `text=` 回退全池；⑤ 无命中返回 `null` |
+| `apps/desktop/electron/services/rpa-view-platforms.test.js` | 行为 + 源码契约 | ① 上传先于字段填充；② 导航后调遮罩清理；③ 上传后有表单就绪等待；④ 标题/文件/简介不得硬取 `[0]`；⑤ 无标题框时标题写编辑器且不被正文覆写；⑥ 上传完成判定含负向信号且预算 ≥900000；⑦ `douyin` 专用链路也先清遮罩；⑧ `_prepBilibili` 先选声明再清短信弹窗；⑨ `_selectContentDeclaration` 6 态状态机逐个断言（含“选项缺失/未确认不得误报 done”）；⑩ kuaishou/bilibili/douyin 选择器候选顺序数据契约 |
+| `apps/desktop/electron/services/publisher-router.test.js` | 单元 | 视频任务 `rpaViewManager.publish` 收到 timeout **1800000**；图文任务仍为路由表 300s |
+| `apps/desktop/electron/ipc-handlers/publish.test.js` | 单元 | 带 `video_path` 的批量任务入队 `timeout: 1800000`；无视频保持默认 |
+| `packages/rpa-engine/tests/platform-selectors-cross-platform.test.js` | 数据契约 | 全平台 `publish_btn`/`file_input` 非空；bilibili RPA 兜底需 `file_input` 且按钮文案含「立即投稿」；无意外空数组 |
+
+### 9.7 live DOM 取证资产（修复依据，可回放）
+
+修复不得“猜页面”。本轮全部平台差异结论均可以下列取证文件逐条比对（取证资产已随本 PRD 入库：`01-docs/evidence/rpa-dom-2026-09-23/`，内含可回放取证脚本 `dump3-live.js` / `dump4-ks.js` / `d5-target.js`，跑前只需改顶部输出目录与 CDP 端口）：
+
+| 文件 | 平台/页面 | 锁定的事实 |
+|------|-----------|------------|
+| `d4-1-kuaishou.json` | `article/publish/video?tabType=1` | 无 `input[placeholder*="标题"]`；标题/描述共用 `div#work-description-edit[contenteditable][placeholder="作品描述不会写？试试智能文案"]` |
+| `d5-bilibili.json` | `upload/video/frame` | `input.input-val[placeholder="请输入稿件标题"]`；`.ql-editor` 简介；`创作声明` 必填下拉；风控短信弹窗（`sms-cell` + `btn-pink sms-confirm disabled`）；上传进度文案「已上传：0.0MB/0.0MB 剩余时间：>1天 0%」 |
+| `d5-douyin.json` | `content/post/video` | `input.semi-input[placeholder="填写作品标题，为作品获得更多流量"]`；`button … 发布 (disabled:false)`；`div.zone-container…[contenteditable]`；页面叠加「我知道了」 |
+
+### 9.8 提示词优化限流韧性回归（2026-09-23 新增，对应 §5.9）
+
+`apps/desktop/electron/services/story2video-stages.test.js` › `OPTIMIZE 限流韧性（429 裹在响应体 + template 降级）`，5 例：
+
+| 用例 | 钉住的不变式 |
+|------|--------------|
+| 429 包在响应体里时按结果体重试，恢复后不降级不留降级标记 | 结果体限流可重试；3 次内恢复则 **不得** 出现 `optimize_note` / `context.optimize_degraded`，且全程 `optimization_strategy≠template` |
+| 持续限流后降级 prompt-engine template 策略并标注降级来源 | 降级只发生 1 次 template 调用；entry 带 `optimize_note='rate_limited_template_fallback'` + `degraded=true`；`context.optimize_degraded={scenes:[0],total:1}` |
+| 降级也失败时保留原始限流错误，整阶段 fail closed | 不静默出片：`success:false` + `error` 含 `429`，且 **无** `output` 字段 |
+| 额度类（insufficient balance）错误不按限流处理 | 不重试（恰好 1 次调用）且不降级 —— quota 与 rate 必须分流 |
+| 多场景时降级标记按场景累积，成功恢复的场景不受牵连 | 混合场景下 `output[1].optimize_note` 为空，`optimize_degraded={scenes:[0,2],total:3}` |
+
+变异测试证据：将 `isTransientOptimizeOutcome` 短路为 `false`（即回到“只看抛错”的旧行为）后，上述第 1/2/5 例必红 → 用例非空断言，能真实拦截回归。
+
+### 9.9 发布文案恢复回归（2026-09-23 新增，对应 §4.4 / §5.10）
+
+测试文件：`apps/desktop/tests/hot-video-publish-plan.test.js`
+（`isHumanTitle` 3 例 + `readProjectCaption` 8 例，共 11 例新增）
+
+| 用例 | 断言要点 |
+|------|----------|
+| 含中文/含空格英文短语判为合法标题 | 「多家银行存款利息涨了」、「DeepSeek releases new model」→ true |
+| 纯 slug / 引擎标识符判为非法 | `smart-sentence-splitter`、`story2video-compose`、`v2`、空串、null → false |
+| 超长（>120）判为非法标题 | 121 个「深」→ false |
+| 正文优先取 sourceText | 与 `manifest.sourceText` 严格相等 |
+| sourceText 缺失按序拼接 segments | 顺序不得被打乱、空段被跳过 |
+| 显式选题标题优先于派生标题 | `topicTitle` 命中即返回 |
+| title 是正文前缀时不采用 | 派生为「深夜两点，监控画面定格在走廊尽头」且 `titleSource='derived'` |
+| 派生标题按上限截断 | `maxTitleLength: 20` → 恰好 20 字 |
+| slug 型 title 不得成为发布标题 | 结果不等于 `smart-sentence-splitter` |
+| 空清单返回三空 | `{ title: '', text: '', titleSource: '' }` |
+| 恢复文案可直接喂 buildPublishArticle | title / content 双字段端到端一致 |
+
+RED→GREEN 证据（本机 worktree `mp-hot-topics-video-publish-e2e`）：
+
+```
+# 仅回退 helper 实现、保留新用例 → 11 failed
+npx vitest run tests/hot-video-publish-plan.test.js
+  Test Files  1 failed (1)      Tests  11 failed | 17 passed (28)
+  TypeError: isHumanTitle is not a function
+  TypeError: readProjectCaption is not a function
+# 恢复实现 → 28 passed
+  Test Files  1 passed (1)      Tests  28 passed (28)
+```
+
+逃逸分析（为什么原来没测出来）：发布阶段的单测只覆盖「run context 在场」的正路径，
+没有覆盖「应用重启后只剩落盘工程」这一真实运维态；且标题兜底采用「key 含 title 即取值」
+的宽松启发式，缺少「标题必须像人类语言」的负例断言。
+
+预防措施：§4.4 不变式 I-1~I-4 已固化为测试契约；后续任何标题/正文来源改动必须先补负例
+再改实现。回归入口同 §9.6（RPA 发布韧性）。
 
 ## 10. 技术实现说明（附录）
 

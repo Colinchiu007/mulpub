@@ -1190,3 +1190,81 @@ describe('account-manager — listAccounts 错误透传', () => {
     await expect(accountManager.listAccounts()).rejects.toThrow('boom')
   })
 })
+
+describe('setAccountActive 启用态唯一写者（与登录态正交）', () => {
+  beforeEach(() => {
+    global.__enableElectronMock()
+    global.__resetElectronMock()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it.each([[true], [false]])('is_active=%s 只 PATCH 启用态，绝不附带登录态字段', async (isActive) => {
+    const pythonBridge = require('../services/python-bridge')
+    const requestBackend = vi.spyOn(pythonBridge, 'requestBackend').mockResolvedValue({ code: 0, data: {} })
+    const accountManager = loadAccountManager()
+
+    const result = await accountManager.setAccountActive('acc-1', 'douyin', isActive)
+
+    expect(result).toEqual({ ok: true, is_active: isActive })
+    expect(requestBackend).toHaveBeenCalledTimes(1)
+    const [method, url, body] = requestBackend.mock.calls[0]
+    expect(method).toBe('PATCH')
+    expect(url).toBe('/api/accounts/acc-1')
+    expect(body).toEqual({ is_active: isActive })
+    // 正交性铁律：写启用态不得顺手改登录态或校验时间，否则「停用」会被伪装成一次登录检测。
+    expect(body).not.toHaveProperty('status')
+    expect(body).not.toHaveProperty('last_validated')
+  })
+
+  it('非布尔 isActive 不发起请求（宽松类型会静默改写账号发布能力）', async () => {
+    const pythonBridge = require('../services/python-bridge')
+    const requestBackend = vi.spyOn(pythonBridge, 'requestBackend')
+    const accountManager = loadAccountManager()
+
+    for (const dirty of ['false', 'true', 0, 1, null, undefined, {}, []]) {
+      const result = await accountManager.setAccountActive('acc-1', 'douyin', dirty)
+      expect(result.ok).toBe(false)
+      expect(result.reason).toBe('invalid-is-active')
+    }
+    expect(requestBackend).not.toHaveBeenCalled()
+  })
+
+  it('非法 accountId 不发起请求（防路径段注入）', async () => {
+    const pythonBridge = require('../services/python-bridge')
+    const requestBackend = vi.spyOn(pythonBridge, 'requestBackend')
+    const accountManager = loadAccountManager()
+
+    const result = await accountManager.setAccountActive('../etc/passwd', 'douyin', false)
+
+    expect(result.ok).toBe(false)
+    expect(result.reason).toBe('invalid-account-id')
+    expect(requestBackend).not.toHaveBeenCalled()
+  })
+
+  it('后端写回失败必须可见（返回 ok=false，不静默）', async () => {
+    const pythonBridge = require('../services/python-bridge')
+    vi.spyOn(pythonBridge, 'requestBackend').mockResolvedValue({ code: 404, message: '账号不存在' })
+    const accountManager = loadAccountManager()
+
+    const result = await accountManager.setAccountActive('acc-missing', 'douyin', false)
+
+    expect(result.ok).toBe(false)
+    expect(result.reason).toBe('backend-error')
+    expect(result.code).toBe(404)
+  })
+
+  it('后端异常必须可见且不外抛', async () => {
+    const pythonBridge = require('../services/python-bridge')
+    vi.spyOn(pythonBridge, 'requestBackend').mockRejectedValue(new Error('connection refused'))
+    const accountManager = loadAccountManager()
+
+    const result = await accountManager.setAccountActive('acc-1', 'douyin', true)
+
+    expect(result.ok).toBe(false)
+    expect(result.reason).toBe('exception')
+    expect(result.error).toContain('connection refused')
+  })
+})

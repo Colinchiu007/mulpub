@@ -29,6 +29,7 @@ const PUBLIC_CHANNELS = new Set([
   'model-provider:is-configured', 'model-provider:logs',
   'ops-center-sync:get', 'ops-center-sync:save', 'ops-center-sync:now', 'ops-center-sync:runtime', 'ops-center-sync:pipelineOptions',
   'logs:info', 'logs:clear', 'logs:error', 'feedback:submit',
+  'cache:stats', 'cache:clear',
   'notify:log',
   'render:status', 'render:install-deps',
   'pipeline:list', 'pipeline:get', 'pipeline:history',

@@ -91,6 +91,12 @@ export async function accountSetProxy (accountId, platform, proxy) {
   return invokeWithFallback('accountSetProxy', { code: -1, message: 'electronAPI not available' }, accountId, platform, proxy)
 }
 
+// 启用态写通道：主进程 AccountManager.setAccountActive → 后端 PATCH is_active（唯一真源）。
+// 不得改回 accountUpdate：那条通道写 Electron SQLite，而账号列表根本不从那里读，写了也不显示。
+export async function accountSetActive (accountId, platform, isActive) {
+  return invokeWithFallback('accountSetActive', { code: -1, message: 'electronAPI not available' }, accountId, platform, isActive)
+}
+
 // ─── 内嵌浏览器登录 API ──────────────────
 export async function authOpenLogin(platform, accountId) { return invokeWithFallback("authOpenLogin", { code: -1 }, platform, accountId) }
 
@@ -477,7 +483,13 @@ export async function autoPipelineListRuns() { return invokeWithFallback("autoPi
 export async function logsGetInfo() {
   return invokeWithFallback("logsGetInfo", { code: -1, data: { dir: '', totalBytes: 0, fileCount: 0, maxFileBytes: 0, files: [] } })
 }
-export async function logsClear() { return invokeWithFallback("logsClear", { code: -1 }) }
+export async function logsClear() { return invokeWithFallback("logsClear", {  code: -1  }) }
+export async function cacheGetStats() {
+  return invokeWithFallback("cacheGetStats", { code: -1, data: { totalBytes: 0, fileCount: 0, items: [] } })
+}
+export async function cacheClear() {
+  return invokeWithFallback("cacheClear", { code: -1, data: { freedBytes: 0, removedFiles: 0, removedDirs: 0, items: [] } })
+}
 export async function submitFeedback(payload) {
   return invokeWithFallback("submitFeedback", { code: -1, message: 'electronAPI not available' }, payload)
 }

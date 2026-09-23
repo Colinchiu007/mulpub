@@ -7,6 +7,7 @@ const { createLogtoClient, normalizeEndpoint, withFetchTimeout } = require('./lo
 const { IdentityAuthWindow } = require('./identity-auth-window')
 const { IdentityError } = require('./identity-errors')
 const { EntitlementService } = require('./entitlement-service')
+const { emitAccessLevelInvalidated } = require('../access-level-bus')
 
 function enabled(value) {
   return new Set(['1', 'true', 'yes', 'on']).has(String(value || '').trim().toLowerCase())
@@ -132,13 +133,22 @@ async function createIdentityService(options = {}) {
   })
   if (typeof authService.onStateChanged === 'function') {
     authService.onStateChanged((state) => {
+      // 审计 P2·性能税：身份状态决定 authenticated/public，先让所有窗口的 preload 级别缓存失效，
+      // 再投递业务事件——主窗口不可用也不能跳过广播（否则其他窗口要等一个 TTL 才收敛）。
+      emitAccessLevelInvalidated('identity-state-changed')
       const win = options.getMainWin && options.getMainWin()
       if (!win || win.isDestroyed()) return
       const webContents = win.webContents
       if (!webContents || (typeof webContents.isDestroyed === 'function' && webContents.isDestroyed())) return
       try {
         webContents.send('identity:state-changed', state)
-      } catch { /* ignore */ }
+      } catch (e) {
+        // 有意降级但必须留痕：renderer 投递失败不能让身份状态机中断（诊断日志含底层 cause）。
+        const log = options.logger || require('../logger')
+        if (log && typeof log.warn === 'function') {
+          log.warn('[identity] 状态变更投递失败: ' + ((e && e.message) || e))
+        }
+      }
     })
   }
   await authService.restore()
