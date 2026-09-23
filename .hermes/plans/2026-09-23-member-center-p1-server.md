@@ -1678,6 +1678,13 @@ git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 commit -m "feat(member-
 
 ---
 
+> **实施期补录（Task 5 已完成，代码与本节一致）**：runtime/bin 三处插入与本节原文**逐字节一致**（commit `f442c25cfe`，全包基线 308 tests / 305 pass / 0 fail / 3 skipped）。测试块原文有 **2 处计划自身缺陷**（评审者已实测证实，均已按本节末尾那条「env 必填校验可参照存量最小配置补全、断言目标不变」的授权修正）：
+> 1. `LOGTO_APP_ID: 'app'` 全仓不存在这个配置键，而 `createLogtoRuntime` 在到达断言前就要求 `LOGTO_API_RESOURCE`（`logto-runtime.js:82-83` 抛 `LOGTO_RUNTIME_CONFIG_INVALID`）——原文写法根本跑不到断言。现改为存量最小配置场景的 `LOGTO_API_RESOURCE`。
+> 2. `verifier: { verify: ... }` 是**被静默忽略的选项**：`createLogtoRuntime` 只读 `options.createVerifier`（`:89`）。评审实测：按计划原文写会用例**仍绿但注入的是真 `LogtoJwtVerifier`**（即一个悄悄变弱的测试）。现按本文件其余 8 个子测的惯例用 `createVerifier:`。
+> 两项前跳项（Task 6 处理）：① `options.planOverrides` 目前无来源注入，且只在请求路径惰性校验（fail-closed `PLAN_MATRIX_CONFIG_INVALID`/500）——若 Task 6 要接环境变量→overrides，需自行决定是否补启动期 fail-fast；② `bin/publish-api` 的透传行仅被 `cli.test.js` 冒烟覆盖（删行不会红，因为 auth 未启用），Task 6 落端点时补一条端到端断言顺带锁住。
+
+---
+
 ## Task 6：HTTP 端点与 /me 会员聚合
 
 **Files:**
