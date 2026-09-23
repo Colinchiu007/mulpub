@@ -170,6 +170,14 @@ export default {
     publishing: '发布中...',
     success: '发布成功',
     failed: '发布失败',
+    api: {
+      modeApi: 'API 直连',
+      modeDom: 'RPA 浏览器',
+      modeFallback: '降级发布',
+      modeApiHint: '通过平台官方 HTTP API 直连发布',
+      modeDomHint: '通过隐形浏览器自动化发布',
+      modeFallbackHint: 'API 发布不可用，已自动降级为浏览器发布',
+    },
   },
   accounts: {
     add: '添加账号',

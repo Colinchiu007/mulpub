@@ -222,6 +222,7 @@
             </div>
             <div class="record-delivery">
               <span class="status-badge" :class="statusClass(record)">{{ statusLabel(record) }}</span>
+              <span v-if="deliveryModeValue(record)" class="delivery-mode-badge" :class="'delivery-mode-' + deliveryModeValue(record)" :title="deliveryModeHint(record)" :data-testid="`delivery-mode-${record.id}`">{{ deliveryModeLabel(record) }}</span>
               <span class="platform-name"><img v-if="isIconUrl(platformIcon(record.platform))" :src="platformIcon(record.platform)" class="platform-icon-thumb" :alt="platformName(record.platform)" width="16" height="16" aria-hidden="true"><span v-else aria-hidden="true">{{ platformIcon(record.platform) }}</span>{{ platformName(record.platform) }}</span>
             </div>
           </div>
@@ -839,6 +840,21 @@ function publishModeLabel (record) {
   return t(publishModeValue(record) === 'scheduled' ? 'historyPage.modeScheduled' : 'historyPage.modeImmediate')
 }
 
+function deliveryModeValue (record) {
+  const mode = record && record.result && record.result.mode
+  return mode === 'api' || mode === 'dom' || mode === 'fallback' ? mode : ''
+}
+
+function deliveryModeLabel (record) {
+  const keys = { api: 'publish.api.modeApi', dom: 'publish.api.modeDom', fallback: 'publish.api.modeFallback' }
+  return t(keys[deliveryModeValue(record)] || 'publish.api.modeApi')
+}
+
+function deliveryModeHint (record) {
+  const keys = { api: 'publish.api.modeApiHint', dom: 'publish.api.modeDomHint', fallback: 'publish.api.modeFallbackHint' }
+  return t(keys[deliveryModeValue(record)] || 'publish.api.modeApiHint')
+}
+
 function thumbnailUrl (record) {
   return record?.thumbnail || record?.thumbnailUrl || record?.cover || record?.coverUrl || ''
 }
@@ -1125,6 +1141,10 @@ onMounted(loadRecords)
 .status-badge.failed { background: #fcebea; color: #b42318; }
 .status-badge.pending { background: #fff6df; color: #9a6700; }
 .platform-name { display: inline-flex; align-items: center; gap: 5px; color: #5d5e68; font-size: var(--font-size-xs); font-weight: 600; }
+.delivery-mode-badge { border-radius: 4px; padding: 3px 7px; font-size: var(--font-size-xs); font-weight: 600; }
+.delivery-mode-badge.delivery-mode-api { background: #eaf2fe; color: #1d4ed8; }
+.delivery-mode-badge.delivery-mode-dom { background: #f1f0f7; color: #5b21b6; }
+.delivery-mode-badge.delivery-mode-fallback { background: #fff6df; color: #9a6700; }
 
 .record-stats { min-width: 430px; display: grid; grid-template-columns: repeat(8, minmax(42px, 1fr)); border-left: 1px solid var(--border-light, #efeff2); padding-left: 14px; }
 .record-stats div { min-width: 0; display: flex; align-items: center; flex-direction: column; gap: 7px; text-align: center; }

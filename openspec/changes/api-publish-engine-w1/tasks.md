@@ -36,6 +36,8 @@
 ## 6. UI 显示项 + i18n
 
 - [ ] 6.1 发布记录「发布方式」徽标三态 + 详情分片历史；locale 成对 `publish.api.*`（zh/en）
+
+> §6.1 徽标三态已落地（随本波 §6.1 PR，见 PRD §12.10）：`PublishHistory.vue` 记录卡按 `record.result.mode` 渲染「发布方式」徽标 api/dom/fallback 三态 + `publish.api.*` locale（zh/en 成对，i18n.test.js 校验）；无 mode 向后兼容不渲染。待办：本项「详情分片历史」（详情弹窗按平台分片展示子结果与 mode）随 §7 活体轮一并落地。
 - [ ] 6.2 IPC 参数 `JSON.parse(JSON.stringify())` 脱壳；渲染端无中文字面量（Gate 扫描）
 
 > §6 后端基座已落地（随本波§6 PR，见 PRD §12.9）：`publisher-router.js` `ApiPublisher` 图文/视频分流（修复 §4.4 百家号 article-only 桌面抛「缺少视频文件路径」）+ `ApiPublisher`/`RpaVmPublisher` 返回 `mode:'api'`/`'dom'` 作为 6.1 徽标数据源；`publish:batch` 已做 `JSON.parse(JSON.stringify(article))` 脱壳（ipc-handlers/publish.js，6.2 前半）。待办：6.1 发布记录「发布方式」徽标三态渲染 + 分片历史 + `publish.api.*` locale（需桌面应用活体视觉验收）。
