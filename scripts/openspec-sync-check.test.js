@@ -267,3 +267,55 @@ test("CLI human and JSON modes share the same nonzero result", () => {
     cleanup(root)
   }
 })
+
+test("duplicated task id inside tasks.md is flagged", () => {
+  const root = makeRepo()
+  try {
+    writeChange(root, "demo-change")
+    writeJson(root, "openspec/changes/demo-change/tasks.md", [
+      "# Tasks",
+      "",
+      "- [x] 1.1 first task",
+      "- [x] 1.2 deliver the widget",
+      "- [ ] 1.2 deliver the widget",
+      "",
+    ].join("\n"))
+    const result = checker.scanRepository(root)
+    assert.equal(result.exitCode, 1)
+    const dup = result.violations.find(item => item.code === "TASKS_MD_DUPLICATE_TASK_ID")
+    assert.ok(dup, "expected a TASKS_MD_DUPLICATE_TASK_ID violation")
+    assert.equal(dup.change, "demo-change")
+    assert.equal(dup.task, "1.2")
+    assert.equal(dup.count, 2)
+  } finally {
+    cleanup(root)
+  }
+})
+
+test("numbering gap inside archived tasks.md is flagged", () => {
+  const root = makeRepo()
+  try {
+    writeChange(root, "archive/2026-08-15-old-change")
+    writeJson(root, "openspec/changes/archive/2026-08-15-old-change/tasks.md", "- [x] 1.1 a\n- [x] 1.3 c\n")
+    const result = checker.scanRepository(root)
+    const gap = result.violations.find(item => item.code === "TASKS_MD_NUMBERING_GAP")
+    assert.ok(gap, "expected a TASKS_MD_NUMBERING_GAP violation")
+    assert.equal(gap.change, "old-change")
+    assert.deepEqual(gap.missing, ["1.2"])
+    assert.equal(result.exitCode, 1)
+  } finally {
+    cleanup(root)
+  }
+})
+
+test("well-formed tasks.md passes the integrity checks", () => {
+  const root = makeRepo()
+  try {
+    writeChange(root, "demo-change")
+    writeJson(root, "openspec/changes/demo-change/tasks.md", "- [x] 1.1 a\n- [x] 1.1.1 nested one\n- [x] 1.1.2 nested two\n- [x] 1.2 b\n- [ ] 2.1 c\n- [ ] 2.2 d\n- [ ] sub item without number\n")
+    const result = checker.scanRepository(root)
+    assert.deepEqual(result.violations.filter(item => item.code.startsWith("TASKS_MD_")), [])
+  } finally {
+    cleanup(root)
+  }
+})

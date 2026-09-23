@@ -1296,6 +1296,80 @@ async function withTransientRetry(fn, { maxAttempts = 3, rateLimitMaxAttempts = 
   throw lastError;
 }
 
+/** 限流退避基数（免费额度按分钟重置，逐次线性放大）；测试可用 stage.options.retryBackoffMs 覆盖 */
+const OPTIMIZE_RATE_BACKOFF_BASE_MS = 2500
+const OPTIMIZE_TRANSIENT_BACKOFF_BASE_MS = 800
+// 上游把 429 裹进响应体时的文本信号（含中文「速率限制」，RATE_LIMIT_MESSAGE_PATTERN 不覆盖该措辞）
+const OPTIMIZE_RATE_TEXT_PATTERN = /rate[\s_-]?limit|rate_limit|too\s+many\s+requests|限流|速率限制|请求频率|Error\s+code:\s*429|429\s+too\s+many|queue\s*(?:is\s+)?full|队列/i
+
+/**
+ * 取 prompt-engine 响应体里的错误文本。
+ * 只看 error/detail（引擎失败兜底字段）；message/msg/status_msg 仅在「没有可用提示词」时参与，
+ * 避免成功响应里携带的说明性 message 被误判为失败。
+ */
+function optimizeOutcomeErrorText (value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return ''
+  const texts = []
+  const push = (item) => { if (typeof item === 'string' && item.trim()) texts.push(item.trim()) }
+  push(value.error)
+  if (Array.isArray(value.detail)) {
+    for (const item of value.detail) {
+      if (item && typeof item === 'object') push(item.msg)
+      else push(item)
+    }
+  } else {
+    push(value.detail)
+  }
+  const hasPrompt = typeof value.optimized_prompt === 'string' && value.optimized_prompt.trim().length > 0
+  if (!hasPrompt) {
+    push(value.msg)
+    push(value.message)
+    push(value.status_msg)
+  }
+  return texts.join('\n')
+}
+
+function isRateLimitedOptimizeOutcome (value) {
+  return OPTIMIZE_RATE_TEXT_PATTERN.test(optimizeOutcomeErrorText(value))
+}
+
+function isTransientOptimizeOutcome (value) {
+  const text = optimizeOutcomeErrorText(value)
+  if (!text) return false
+  return OPTIMIZE_RATE_TEXT_PATTERN.test(text) || TRANSIENT_PATTERN.test(text)
+}
+
+/**
+ * OPTIMIZE 阶段专用有界重试：抛错与「HTTP 200 + 响应体内 error」两条失败路径都要分类重试。
+ *
+ * 与 withTransientRetry 的差异（2026-09-23 E2E 根因）：prompt-engine 会把上游 LLM 的 429
+ * 兜底成 `{ optimized_prompt: <原文>, error: '...Error code: 429...' }` 正常返回，抛错型重试
+ * 对其完全无效，表现为「一次限流就让整条流水线白跑」。
+ *
+ * @returns {Promise<{ result: unknown, rateLimited: boolean }>}
+ */
+async function withOptimizeTransientRetry (fn, { maxAttempts = 3, rateLimitMaxAttempts = 4, backoffBaseMs = OPTIMIZE_RATE_BACKOFF_BASE_MS } = {}) {
+  const total = Math.max(maxAttempts, rateLimitMaxAttempts)
+  for (let attempt = 1; attempt <= total; attempt++) {
+    let outcome
+    try {
+      outcome = await fn(attempt)
+    } catch (error) {
+      if (!isTransientErrorLike(error)) throw error
+      const rate = isRateLimitErrorLike(error)
+      if (attempt >= (rate ? rateLimitMaxAttempts : maxAttempts)) throw error
+      await sleep((rate ? backoffBaseMs : OPTIMIZE_TRANSIENT_BACKOFF_BASE_MS) * attempt)
+      continue
+    }
+    if (!isTransientOptimizeOutcome(outcome)) return { result: outcome, rateLimited: false }
+    const rate = isRateLimitedOptimizeOutcome(outcome)
+    if (attempt >= (rate ? rateLimitMaxAttempts : maxAttempts)) return { result: outcome, rateLimited: rate }
+    await sleep((rate ? backoffBaseMs : OPTIMIZE_TRANSIENT_BACKOFF_BASE_MS) * attempt)
+  }
+  // 理论上不可达（每轮在 limit 处必 return/throw）；兜底再取一次结果交由上层校验
+  return { result: await fn(total), rateLimited: false }
+}
+
 /**
  * 对返回结果对象（如 { code: -1, message }）或抛错的资源生成调用做有界重试。
  * 仅在可判定为瞬时（限流/超时/网络）时重试；内容政策检查点、模型配置等失败原样返回。
@@ -2355,6 +2429,8 @@ function registerStory2VideoStages(pipelineEngine) {
       }
       // 进度前置写入：一开始就显示「共 N 个场景，已完成 0 个」，避免整个阶段期间无数量信息
       emitOptimizeProgress()
+      // 因 LLM 持续限流而降级为模板策略的场景下标（阶段结束时汇总告警）
+      const degradedScenes = []
       let output
       try {
         output = await _mapWithConcurrency(scenes, concurrency, async (scene, index) => {
@@ -2428,12 +2504,35 @@ function registerStory2VideoStages(pipelineEngine) {
           }
           const request = buildPromptEngineOptimizeRequest(promptSeed, requestOptionsForScene)
           const { prompt: enginePrompt, ...requestOptions } = request
+          const optimizeRetryOptions = {
+            maxAttempts,
+            rateLimitMaxAttempts: Math.max(maxAttempts + 1, 4),
+            backoffBaseMs: Number(stage.options?.retryBackoffMs) > 0
+              ? Number(stage.options.retryBackoffMs)
+              : OPTIMIZE_RATE_BACKOFF_BASE_MS,
+          }
+          const callOptimize = (extraOptions) => withOptimizeTransientRetry(
+            () => serviceBus.optimizePrompt(
+              enginePrompt,
+              { ...requestOptions, ...(extraOptions || {}), traceId: runId, providerRunContext },
+            ),
+            optimizeRetryOptions,
+          )
           let result
+          let degradedToTemplate = false
           try {
-            result = await withTransientRetry(
-              () => serviceBus.optimizePrompt(enginePrompt, { ...requestOptions, traceId: runId, providerRunContext }),
-              { maxAttempts, rateLimitMaxAttempts: Math.max(maxAttempts + 1, 4) },
-            )
+            const attempt = await callOptimize()
+            result = attempt.result
+            if (attempt.rateLimited) {
+              // LLM 持续限流：降级为引擎 template 策略（确定性模板、零 LLM 成本），
+              // 避免免费额度抖动让整条流水线（含已消耗的图片/TTS 额度）白跑。
+              const fallback = await callOptimize({ optimization_strategy: 'template' })
+              // 降级也带错误时保留原始限流错误，交由下方校验 fail closed
+              if (!optimizeOutcomeErrorText(fallback.result)) {
+                result = fallback.result
+                degradedToTemplate = true
+              }
+            }
           } catch (lastError) {
             const message = lastError && lastError.message ? lastError.message : String(lastError)
             // I6：服务不可用/连接失败时给出可操作排查指引（PROMPT_DIR / 8013）
@@ -2544,6 +2643,12 @@ function registerStory2VideoStages(pipelineEngine) {
             ...validated.meta,
             truncated: sceneTruncated || undefined,
           }
+          if (degradedToTemplate) {
+            // 降级标记：历史记录与后续排查看得见「这条提示词来自模板而非 LLM」
+            entry.optimize_note = 'rate_limited_template_fallback'
+            entry.degraded = true
+            degradedScenes.push(index)
+          }
           // 逐场景写入部分结果，失败时可断点续传（context 与 run.context 同引用）
           partialResume[index] = entry
           if (context && typeof context === 'object') {
@@ -2564,6 +2669,16 @@ function registerStory2VideoStages(pipelineEngine) {
       }
       if (context && typeof context === 'object' && Array.isArray(output)) {
         delete context.optimize_resume
+      }
+      if (context && typeof context === 'object') {
+        if (degradedScenes.length > 0) {
+          context.optimize_degraded = { scenes: [...degradedScenes], total: scenes.length }
+          pipelineEngine.log.warn('Story2VideoStages',
+            'optimize degraded to prompt-engine template strategy for ' + degradedScenes.length + '/' + scenes.length +
+            ' scene(s): LLM rate limited; scenes=' + degradedScenes.join(','))
+        } else {
+          delete context.optimize_degraded
+        }
       }
 
       // 提示词本地语言翻译：非 en 界面为历史记录「画面提示词」旁只读翻译生成。

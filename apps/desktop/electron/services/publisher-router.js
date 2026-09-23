@@ -382,6 +382,18 @@ async function probeVideoInfo (videoPath, options = {}) {
 
 // 鈹€鈹€鈹€ 涓ょ Publisher 绛栫暐 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
+// 视频发布要等平台大文件真实上传完成（强判定最长等 15 分钟）+转码/表单渲染，
+// 路由表默认的 300s 会在上传中途杀任务（2026-09 smoke5/smoke6 实锤：
+// kuaishou “timeout (300s)” 、B站 96MB 实测上传超 10 分钟），视频任务放宽到 30 分钟。
+const VIDEO_RPA_TIMEOUT = 1800000
+function resolveRpaTimeout (route, article) {
+  const base = Number(route && route.timeout) || 0
+  if (article && typeof article.video_path === 'string' && article.video_path.trim()) {
+    return Math.max(base, VIDEO_RPA_TIMEOUT)
+  }
+  return base
+}
+
 class RpaVmPublisher {
   constructor (route, deps) {
     this.route = route
@@ -412,7 +424,7 @@ class RpaVmPublisher {
     }
     signal?.addEventListener('abort', onAbort, { once: true })
     try {
-      const result = await this.rpaViewManager.publish(platform, article, authData, this.route.timeout)
+      const result = await this.rpaViewManager.publish(platform, article, authData, resolveRpaTimeout(this.route, article))
       // 发布器可能在 await 期间收到取消信号，成功响应不能覆盖取消语义。
       if (signal?.aborted) throw new Error('任务已取消')
       if (result.success) {

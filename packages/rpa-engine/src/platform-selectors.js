@@ -128,12 +128,14 @@ module.exports = {
       publish_btn: ['button:has-text("Post")', 'button:has-text("发布")', '[class*="post"]'],
     },
     bilibili: {
-      // API 模式，不需要页面选择器
-      // RPA 视频模式:
+      // API 模式优先，RPA 视频投稿为兜底链路（2026-09 E2E：API 失败时 RPA 必须能独立走完）
+      // RPA 兜底链路必需 file_input：上传落地页 member.bilibili.com/platform/upload/video/frame
+      // 实测有 2 个 visible input[type=file]，缺此字段会直接跳过上传导致后续字段全 timeout
+      file_input: ['input[type="file"]'],
       upload_btn: ['.upload-btn', '.upload-file', '[class*="upload"]'],
-      title_input: ['input[placeholder*="标题"]', '.video-title input'],
-      desc_textarea: ['textarea[placeholder*="简介"]', '.video-desc textarea'],
-      publish_btn: ['button:has-text("发布")', '.submit-btn', '[class*="submit"]'],
+      title_input: ['input[placeholder*="标题"]', '.video-title input', '.b-ui_input input', 'input[placeholder*="稿件"]'],
+      desc_textarea: ['textarea[placeholder*="简介"]', '.video-desc textarea', 'textarea[placeholder*="填写"]'],
+      publish_btn: ['button:has-text("立即投稿")', 'span:has-text("立即投稿")', 'button:has-text("发布")', '.submit-btn', '[class*="submit"]'],
       // AI 生成内容声明：B站投稿页「AI生成内容」声明控件（RPA 模式）
       ai_declaration_label: ['label:has-text("AI生成")', 'label:has-text("AI 生成")', 'label:has-text("由AI生成")', 'label:has-text("由 AI 生成")', '[class*="ai"] label', '[class*="declare"] label', '[class*="declaration"] label'],
       ai_declaration_checkbox: ['input[type="checkbox"][id*="ai"], input[type="checkbox"][name*="ai"], input[type="checkbox"][class*="ai"], input[type="radio"][value*="ai"], input[type="radio"][value*="AI"]'],

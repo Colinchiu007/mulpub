@@ -1,3 +1,14 @@
+## 视频发布链路 E2E：磁盘写满是上传失败的真凶 + 落盘工程文案恢复 + Windows git schannel 绕过（hot-topics-video-publish-e2e，2026-09-23）
+
+- **根因（pitfall，最高优先）**：CDP E2E 跑「热门选题→生成视频→发布」时，bilibili 上传报 `<BccUpload> Cannot read properties of undefined (reading 'upload')` + "No available adapters"，douyin 卡 "waiting upload" 15 分钟不收敛、publish timeout 后整轮重启。逐层排查发现**真正根因是 D 盘写满（仅剩 70MB）**：Electron/Chromium 磁盘缓存无法落盘导致上传组件初始化失败、大文件（58-108MB）读取/seek 受阻。回收空间（删除历史孤儿 `-profile` userData 目录，运行中 app 用 shared-user-data 不在此列）+ 用 ffmpeg 转 720p/CRF30 把成片压到 5.6-9.8MB 后，上传秒级完成、进入正常发布。教训：RPA「publish btn not found / 上传永不完成」先量磁盘余量与产物体积，别急着改选择器。
+- **git schannel 绕过（pattern，Windows）**：`git push` 报 `schannel: failed to receive handshake, SSL/TLS connection failed`，而 Node `https.get('https://github.com')` 返回 200——即 git 的 Windows 原生 schannel 后端握手失败但 OpenSSL 可达。用内联 `-c http.schannelCheckRevoke=false` 单次覆盖（**不写持久 config**，遵守「不改 git config」铁律）即推送成功。诊断链：先 node https 探连通→再 git `-c` 绕吊销→`rev-list --left-right --count` 判落后→`merge-tree --write-tree` rc≠0 预演冲突。
+- **文案恢复契约（pattern）**：应用重启后 pipeline 内存历史清零，唯一事实源是落盘 `project.json`。其 `title` 字段实为正文前 200 字、真正的引擎 slug 藏在 `segments[].subtitleSource`；旧 `pickTitle()`「key 含 title 即取值」的宽松启发式会把 `smart-sentence-splitter` 当发布标题。正解：`isHumanTitle`（含 CJK 或「含空格+3 连续字母」才合法，拒 slug）+ `readProjectCaption`（正文 sourceText > segments 拼接 > 正文派生标题；标题 显式 topicTitle > 非正文前缀的 manifest.title > 派生）。负例断言固化为不变式。
+- **热门选题标题唯一匹配（pattern）**：一条成片对应一行热门选题，用二元字组（bigram）重合度对「恢复正文 × DOM 选题标题」打分并贪心分配（阈值 0.35，一条 run 只占一行），避免多条抢同一热门选题、且发布标题与平台展示文案一致。
+- **发布判定分层（pitfall）**：`AUTH_REQUIRED code:-3` 有两源——app 级 identity 未登录（`identityGetState().status==='signed_out'`，本轮磁盘满期间 identity-session.json 被 `_bestEffortClear()` 删除，恢复备份后回 `authenticated`）vs 平台账号 cookie 过期（baijiahao/wechat_mp，需用户重登，代码不可修）。kuaishou 属 STRICT_PUBLISH_ID 平台且 `cfgHasApi=false`，命中 `article/publish/video` 端点却因取不到作品 ID 被判失败——发布按钮/成功 ID 检测是这类平台 RPA 的收敛点，不等同于发布未发生。
+- **虚假交付防护（延续既有纪律）**：文档交付前重读文件、按稳定锚点复核；行级手术脚本先归一 LF 再处理并保留 CRLF；PowerShell 变量/管道符（`$p`/`$_`/`&&`/尾随 `&` 触发 `>>` 续行）在本终端会被吞，改 .js 脚本或前台大 timeout 执行并以产物时间戳核实。
+
+---
+
 ## 真实冒烟是 mock 测试的照妖镜：manifest 直通三缺口与引擎闸放宽合同（film-full-corpus-production，2026-09-23）
 
 - **现象（pitfall）**：组 8 前端/mock 集成测试 614 用例全绿，但 9.3 真实主进程 compose 冒烟在 load_template 阶段即 fail——前四阶段执行器只认 kitDir/selectedShots，不认 renderManifest；generate_videos 直通后引擎仍按 checkpointRequired 暂停成本闸；render manifest 模式全新 runId 目录不存在 writeConcatList ENOENT。三个缺口全部逃过 mock 层（mock stageExecutor 直接返回成功，不经真实 PIPELINES 编排）。
@@ -8,7 +19,6 @@
 - **对账口径教训（pitfall）**：语料取证用 prompt 前缀 500 字符截断去重得 2,795，完整规范化 SHA1 实为 6,500——去重键的截断策略直接决定数量级结论；统计口径与导入口径必须同一函数实现（dry-run 与 build 同源），并在正式导入前对账。
 - **工程环境（pitfall，Windows/agent）**：SearchReplace/Write 对 workspace 外 worktree 文件报 45405，一律 staging 编辑 + Copy-Item 落盘，勾选 worktree tasks.md 用 node 字符串替换脚本；后台 Bash 命令可能卡在 PowerShell `>>` 续行提示实际未执行（本会话两次），长命令用前台大 timeout 并以产物时间戳核实；`@electron/asar` 的 `extractFile` API 对 152MB 生产包误报 not found，asar 内容验证改走 `pnpm exec asar extract` CLI 到 temp 再直读。
 ## 安全门禁整改的可复用口径与本批 9 个坑（2026-09-22，audit-batch-3）
-
 - **统计口径必须先固化再谈修复（pitfall）**：体检报告里的「336 个 handle / 约 215 个带守卫」无法复现——它沿用 `check-ipc-bridge.js` 的**非递归**目录扫描且只认字符串通道名，既漏 electron 子目录又把 EventEmitter 的 `.on()` 计入噪声。教训：任何「覆盖率型门禁」落地前，先把口径写成可执行脚本（递归范围 + 生产源码判定 + 分类规则 + `--json` 输出），再报数字；否则整改目标本身就是幻觉。
 - **双校验优于单阈值（pattern）**：清单式豁免（防漂移，且**陈旧条目同样判失败**）+ 比例式下限（防「把已有守卫摘掉整体躺进咽喉点」的稀释）缺一不可；下限值只允许上调、禁止下调，否则门禁会随一次重构静默退化。
 - **行为用例无法区分的缺陷必须补静态不变量（pattern）**：`key !== apiKey` 与恒定时间比较在功能测试里表现完全一致（耗时差异不在单测可信分辨率内）；同理「7 个 view 各自 `axios.create`」这类结构性缺陷也无法靠行为断言守住。做法：在同一测试文件里追加「读源码断言含 X / 不含 Y」的静态用例，并让 CI 门禁脚本与之双写，防止只改测试不改实现。
@@ -19,7 +29,6 @@
 - **Windows 测试环境两个反直觉事实（pitfall）**：① pytest 的 `tmp_path` 位于系统 TEMP 内（本机 `TEMP=D:\Temp`），**不能**用来构造「允许目录之外」的样本路径，改用盘根目录；② worktree 缺 pnpm workspace 链接时 `cmd /c mklink` 会被工具侧守卫拒绝（40441），改用 `New-Item -ItemType Junction`（`node_modules` 不入库）。另：vitest ESM 测试里 `__dirname` 不可靠（ESM 用 `fileURLToPath(import.meta.url)`，CJS 用 `process.cwd()`）；pytest fixture 里 `client._called = x` 若 `client` 是被装饰的函数会挂在**函数对象**上而非 TestClient 实例，须先实例化再赋值再返回。
 - **CHANGELOG.md 是 git 眼里的 binary（pitfall）**：文件含 NUL 字节 ⇒ `i/-text`，`text=auto` 归一化失效，任何「按行重写」脚本都会造成 12k 行伪 diff。批量解冲突必须**字节级保持 CRLF**，并警惕「merge 冲突块的公共后缀在文件深处才恢复」使 ours 块包含大量对方已有条目——此时简单并集=整块重复，正确语义是「以对方全文为基底，只插本方独有条目」。落地后必做：`git diff --numstat origin/main` 逐文件核对，确认只有预期的增删行数。
 
----
 ## CI-only 测试超时：全局 testTimeout 与插桩/满载放大叠加的坑（fix-main-ci-red，2026-09-21）
 
 - **背景**：main 两个 CI 红灯均为「本地绿、CI 红」的超时类失败：① `pixel-diff-baseline-guard.test.js`「现存全部真实基线均通过守卫」在 QG Coverage job（v8 插桩）下超全局 10s testTimeout（本地无插桩实测 ~2.2s，21 个基线 PNG 共 3.3MB 逐个解码）；② `logger.test.js`「appendFile 回调永不触发时写队列超时兜底」在 Desktop shard 满载下 1s 固定重试窗不够。
@@ -15251,6 +15260,25 @@ MIN_ENGAGEMENT_SAMPLES，与引擎严格同门槛含 Number(null)=0 语义），
 - catalog 娴嬭瘯 Bearer 璧?Logto 401 鈫?鏀?X-Catalog-Key + monkeypatch catalog_api_key銆?
 - 骞跺彂浼氳瘽鎶㈠崰鍚庡彴 terminal + 閲嶇疆 cwd 鈫?鍓嶅彴闀夸换鍔?+ 姣忔潯鍛戒护鏄惧紡 Set-Location銆?
 
+
+## 视频成片 RPA 多平台发布「三条全 timeout」：候选只取首个 + 文本匹配丢 tag 约束（codex/hot-topics-video-publish-e2e，PR #2236，2026-09-23）
+
+### Bug 反哺五步（QM-5）
+
+- **根因溯源（第一性原因）**：`_publish_generic` 把「多候选选择器」当成「单个选择器」用——`_waitForElement(win, sel.title_input[0], 10000)` 之类硬取 `[0]`，候选数组其余项永不参与；同时 `buildResolveElementCode` 的文本匹配把「包含文本」放在第一优先级且**完全忽略选择器自带的 tag/class**。两处叠加使「改版/落地页型平台」（kuaishou/bilibili/douyin 的 `publish_url` 是上传页而非编辑页）结构性必败：字段永远等不到，发布按钮点到统计文案。
+- **逃逸链（为什么没测出来）**：① 单测 mock 的 `_waitForElement` 对任意选择器都返回 true，「只试第一个候选」这类缺陷在 mock 语境下不可见；② 缺「选择器候选顺序 = live DOM 实测结果」的数据契约测试；③ 上传完成判定只看正向信号（class 含 progress/success），没有平台通用**负向信号**（上传中…/剩余时间：/转码中/百分比未满），25s 就把还在排队当完成；④ 超时预算各层独立硬编码（router 300s、队列 900s、内部等待 3min），没有任何一处断言「视频任务应有 30min」，上层先掐死下层。
+- **系统性漏洞定位**：**「Playwright 风格选择器」与「原生 DOM querySelector」语义混用**是全局性缺陷，凡使用 `:has-text` / `text=` 的平台链路都有同样风险；**「上层超时 < 下层预算」**是第二类系统性风险（任何长耗时 RPA 动作都可能被路由层掐死）。
+- **修复 + 回归保护**：新增 `_resolveSelector`（逐候选，首候选给足预算、后续 2-3s 快速探测）与 `_composeEditorCaption`；无独立标题框时标题+正文合并写编辑器并**跳过正文步骤**（kuaishou `#work-description-edit` 实测标题/描述同控件）；文本匹配改为「tag/class 先收窄候选池 → 精确文本+可交互 > 精确叶子 > 包含文本+可交互 > 包含文本，同级优先可见」；`_waitForVideoUploadComplete` v3 加负向信号 + 25s 稳定期 + 15min 预算；`resolveRpaTimeout`/队列 timeout 统一 1800s；douyin/bilibili 补遮罩清理与「创作声明」6 态状态机。回归：`rpa-selector-utils.test.js`（新增 9 例，含 tag/class 约束与「无命中返回 null」）、`rpa-view-platforms.test.js`（新增 17 例：候选回退/标题写编辑器 6、创作声明状态机 7、选择器数据契约 4，另含上传负向信号与遮罩清理断言）、router/publish timeout 双例。
+- **预防措施（可复用规则）**：① 平台选择器一律数组，**生产代码禁止出现 `sel.xxx[0]` 直取**，review 时按 `_resolveSelector(` 是否存在做 grep 断言；② 任何 `:has-text` 选择器必须带 tag 或 class 前缀，且在修平台前先落 live DOM 取证（脚本已入库 `01-docs/evidence/rpa-dom-2026-09-23/`），禁止凭截图猜选择器；③ 长耗时动作（上传/转码）的超时预算必须**自下而上单调不减**：内部等待 ≤ 路由 timeout ≤ 队列 timeout，并在单测里断言具体数值；④ 「上传/提交完成」判定必须成对写（负向信号 + 正向信号），只有正向信号的判定一律视为不可靠。
+
+### 取证环境教训
+
+- **队列历史在应用重启后清零（pitfall）**：`getQueueHistory()` 不落盘，重启即空。判断「任务是否还在跑」要查 `getQueueStatus().running`，不能因为 history 空就认为没跑，否则会错过 live 页面取证窗口。
+- **`PythonBackend 每 5s 重启` 是噪音日志（pitfall）**：`rpa_engine` 日志文件 0 字节不代表 RPA 没执行（RPA 在 Electron 主进程，日志落在 `D:/tmp/Multi-Publish-debug-profile/logs`，前缀 `RpaView`）；排查平台发布先看 `RpaView` 行。
+- **严格发布证据优先于「点了按钮没报错」（pattern）**：`STRICT_PUBLISH_ID_PLATFORMS`（baijiahao/kuaishou）要求结果带从网络响应提取的作品 ID；`responses=0` 是「点中文案没点中按钮」的高置信信号，应优先于「超时」去查选择器。
+- **生成串里嵌正则必须双转义（pitfall）**：`buildResolveElementCode` 这类「拼接出在渲染进程执行的 JS」的代码里，字符串字面量 `'\.'` 会退化成 `'.'`，正则 `/\./` 变成 `/./`（任意字符），使 class 解析错乱、候选池被清成 `scoped.length===0` 再回退全池——表现是「tag 约束神秘失效」。生成码内的正则一律写 `\\.`，且**不要在生成的 IIFE 里放中文注释**（注入路径编码风险 + 日志难比对）。
+- **热应用 live 应用前先 merge origin/main（process）**：修复分支若未合入最新 main，按 `base..HEAD` 取「净改动」会把 main 的演进也算进来，覆盖运行中 worktree 会回退他人代码。可靠顺序是：分支 merge main → 取 `origin/main..HEAD` 的差集文件 → 备份后覆盖 → 重启（`mp-applive-launcher.ps1` 不做 git 同步，正好适合热应用）。
+
 ## 一键检测进度「看起来卡死」：进度只在完成边界广播 + 串行慢任务放大（batch-check-progress-speed，2026-09-22，PR #2231）
 
 ### 可复用结论
@@ -15271,6 +15299,23 @@ MIN_ENGAGEMENT_SAMPLES，与引擎严格同门槛含 Number(null)=0 语义），
 ### 本次决策记录
 
 Bug 修复走完整 QM-5（根因溯源 / 逃逸链 / 系统性漏洞 / 修复+回归保护 / 预防措施），产出 `01-docs/BUGFIX-BATCH-CHECK-PROGRESS-STALL-2026-09-22.md`；经 AskUserQuestion 锁定范围为「进度可见性 + 并发加速」、超时口径「计入失效」，全程未漂移。改动 11 files +703/-38：主进程 `electron/ipc-handlers/account.js`（双边界广播 + 并发池 + 单账号 60s 硬超时）、渲染层 `Accounts.vue`（in-flight 平台明细 + 秒表 + detail 行 + 双保险清理）、locale 成对新增 `batchCheckAllCurrent` / `batchCheckAllElapsed`。逃逸根因是既有 `account.test.js` 对 `batch-check` 零命中，故新增 `account-batch-check.test.js` 作为主进程 IPC handler 的首层覆盖（7 例）。验证：`Accounts.test.js` 84/84、主进程 47/47、合并 origin/main 后定向 217/217、宽 subset 2460/2461（唯一失败为并发争抢 CPU 的 flake，隔离复跑 6/6 绿）、eslint 0 error、debt budget 基线内、`vite build` 与 `electron-builder --win --dir` exit 0、asar 含 `account.js`、解包 require 链 OK、打包 exe 启动 12s 存活且 stderr 0 行。规范回写：PRD 升 v2.3（§4.3 流程图重写 + 新增 §16 行为契约）、UI-INVENTORY §5.2 补 `batch-check-overlay`、AGENTS.md QM-2 新增「批量 IPC 进度双边界与超时预算契约」门禁条目、CHANGELOG 前插。经验同步内置记忆 + EverOS。
+
+## Story2Video 优化阶段「一次限流整条失败」：429 裹在 HTTP 200 响应体里，throw-only 重试完全失效（s2v-optimize-429-resilience，2026-09-23）
+
+### 可复用结论
+
+- **HTTP 200 + 响应体带 error 字段 = 重试机制的盲区（pitfall）**：prompt-engine 把上游 LLM 的 429 兜底成 `{optimized_prompt: <原文原样返回>, error: '...Error code: 429...'}` 并返回 200。调用方用的是只捕获抛错的 `withTransientRetry`，于是「一次限流 → 整条流水线 failed」，且日志里看不到任何异常栈。判据：失败信息里出现上游文案但没有 HTTP 异常、且 `optimized_prompt` 与输入完全相同 → 先怀疑结果体吞错，而不是重试没生效。**任何"外部服务把错误编码进成功响应"的边界，重试都必须做双路径分类（抛错 + 结果体）**。
+- **降级路径要在调用方造，而不是等上游给（pattern）**：上游 `/v1/optimize` 支持 `optimization_strategy ∈ 'llm' | 'template'`，template 路径不进 LLM、不计费（实测 22ms、`model_used="template"`、`tokens_used=0`、`key_source="none"`）。因此"限流 → 退避重试 → 仍限流则切 template"是零成本兜底，流水线从「硬失败」变成「质量降级但可交付」。凡是链路上有"付费/配额"环节的，都要先问一句：**有没有一条不计费的保守路径可以退？**
+- **限流文案必须自己补中文模式（pitfall）**：通用 `RATE_LIMIT_MESSAGE_PATTERN` 只认 `too many requests` / `Error code: 429` / `频率.*限制`，而国内供应商实际返回的是「您已达到免费用户的 API **速率限制**」——"速率限制""请求频率""队列满"都不在模式内。任何按文案分类失败类型的设计，都要为中文供应商单独建模式表，并把模式断言写进测试（用真实错误原文当夹具）。
+- **结果体分类要靠"字段可信度"收窄（pattern）**：判读响应体 error 文本时，`message`/`msg`/`status_msg` 在成功响应里也常常存在（如 `"success"`、`"OK"`），若一并参与匹配会把成功误判为失败。规则：只有当 `optimized_prompt` 缺失（说明确实没产出）时，才让 message 类字段参与分类；否则只看 `error`/`detail`。这条判据直接来自 `withAssetTransientRetry` 的既有实现，复用到 optimize 阶段即保持全链一致。
+- **降级要留可机读痕迹，且只打一次日志（process）**：单场景降级写进 entry（`optimize_note='rate_limited_template_fallback'`、`degraded=true`），聚合信息写进 context（`context.optimize_degraded={scenes,total}`），阶段收尾一次性 `log.warn`——并发 3 × N 场景逐条打 warn 会把日志刷成噪音。反向不变式：**未降级时必须 `delete context.optimize_degraded`**，否则 executor 复用 context 时会把上一轮痕迹泄漏进本轮判定。
+- **test-after 的用例必须用变异测试证明非空断言（pattern）**：补完 5 例后，把新分支判定短路成常量（`isTransientOptimizeOutcome → false`）复跑，3/5 例立刻红、MUTATION_EXIT=1，才证明这些用例真的在守这条路径；收尾在 `finally` 里还原源码再复验全绿。写"修复回归测试"时若无这一步，很容易写出「怎么改都过」的样板断言。
+- **Bash 工具后台 terminal 可能卡在 PowerShell `>>` 续行提示（pitfall）**：同一 terminal 连续三条命令全被吞、日志文件 NOLOG，症状是命令"看起来执行了"但无任何输出。处理：不要在该 terminal 继续追加，换新 terminal 以**前台 + `2>&1 | Select-Object -Last 60`** 跑长任务；`$` 变量与反引号在 `-Command` 字符串里会被剥离，凡含变量/引号嵌套的逻辑一律落成 .js 脚本文件执行。
+- **改运行中应用前的顺序铁律（process）**：commit → `merge origin/main` → 取 `origin/main..HEAD` 净改动 → 备份后热应用到 live worktree → 用 `mp-applive-launcher.ps1` 重启（该脚本刻意不做 git 同步）。跳过 merge 会把 main 的演进一并覆盖回去；直接改 live 目录则无法过门禁。
+
+### 本次决策记录
+
+根因由 `probe-fail.js` 逐 run 拉 `pipelineGetRunContext` 锁定：5 条 run 全部失败于 `Story2Video 场景 N prompt-engine 优化失败: Error code: 429`，而 `split` 阶段 `text` 全部有正常改写文案——证明【生成视频】→ 改写引擎链路是通的，瓶颈只在 LLM 免费额度。修复走 TDD：新增 `OPTIMIZE_RATE_TEXT_PATTERN` / `optimizeOutcomeErrorText` / `isRateLimitedOptimizeOutcome` / `isTransientOptimizeOutcome` / `withOptimizeTransientRetry`（抛错与结果体双分类，退避基数可经 `stage.options.retryBackoffMs` 覆盖，限流默认 2500ms、瞬时默认 800ms），OPTIMIZE executor 改为「llm 重试 → 仍限流则 template 重试 → 成功则标降级」。已知限制如实记录：optimize 的 `concurrency=3` 与全局 LLM governor 无交集，多 run 并行时仍可能撞限流，但已由「重试 + 降级」双重兜底，不再整条失败。验证：新增 5 例 + 变异测试 3/5 红；全量门禁 GATE_EXIT=0（eslint 0 error、apps/desktop 253 files / 4163 passed | 24 skipped、rpa-engine 220、shared-utils 265）。文档：PRD §5.9（429 取证原文、失败分类矩阵 R-CL、重试预算表 R-RE、降级路径四步、数据校验不变式、显示项与固定日志文案、`modelProviderTest ≠ 有额度` 运维口径）+ §9.8（回归清单与变异证据）；取证资产入库 `01-docs/evidence/s2v-optimize-429-2026-09-23/`。不可代码修复项如实保留：B 站风控短信需人工、上传带宽受网络限制、LLM 免费额度需用户升级 Token Plan（现由降级路径兜底）。
 
 ## 账号登录态持久化真源统一（2026-09-23）
 
@@ -15328,3 +15373,17 @@ Bug 修复走完整 QM-5（根因溯源 / 逃逸链 / 系统性漏洞 / 修复+�
 
 ### 本次交付
 worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 PASS（LogsSettings.vue 473<500）；frontend-consistency PASS（新增 src/api/rate-limit.js）；全量 eslint/tsc/brand 本地复验 0 error；locale --keys/--cjk PASS；ops-center build exit 0。PR#2253（auto-merge squash）；CHANGELOG 前置条目 + 本 learnings 回写。
+
+## 爆款库第四链路「发布→回采→写回爆款库」线上闭合实证（viral-fourth-link-live-verification，2026-09-23）
+
+### 可复用结论
+
+- **store 是 sql.js 内存库而非 better-sqlite3（pitfall·架构硬约束）**：`electron/services/store/sqlite-wrapper.js` 用 sql.js（内存 WASM）实现 better-sqlite3 兼容 API——启动时 `_init` 把 `multi-publish.db` 一次性读进内存，此后所有读写只作用于内存副本；`base-store.js` 每 5s 在 `_dirty` 时 `db.persist()`（`export()` 整库写 .tmp 后 `fs.renameSync` 原子覆盖）。**后果：应用运行期间外部进程直写 db 文件，app 不可见，且会被下一次 persist 整体覆盖**。外部改写唯一安全范式：停 app → 外部写（Node 22 内置 `node:sqlite` 的 `DatabaseSync` 即可读写标准 SQLite 文件，无需安装原生模块，better-sqlite3 在本仓库并不可用）→ 重启载入。凡「灌种子数据 / 修数」类操作必须遵守此顺序，否则会静默丢写。
+- **「回采写回」这类依赖外部时序链路的线上实证通路（pattern）**：触发链被 T+1h 排期 + 24h 调度锁死时，用「种子数据 + 强制触发 + 真实公开 API」三件套：①停机灌 `viral_library` 基线（likes=NULL）+ `tracked_content`（pending，指向真实热门公开 URL）；②重启后 CDP 调 `triggerPerformanceRecrawl({force:true})`（#2210 强制入口）跑一轮真实回采；③选免登录公开 API 的 parser（bilibili `api.bilibili.com/x/web-interface/view?bvid=`）取非零互动。证据双确认才算闭环：**内存读回**（CDP 前后对比 listViralItems/listTrackedContent）+ **盘上读回**（persist 后用 node:sqlite 只读打开文件核对）。本次实测 viral.likes NULL→111,760、comments NULL→8,774、tracked pending→ok、新增 source=auto 快照，盘上一致。
+- **回采写回仅对 platform-metrics 已注册 4 平台生效（constraint）**：`_recrawlOne` 先 `getParser(platform)`，未注册即 unsupported、走不到写回。当前仅 zhihu/baijiahao/kuaishou/bilibili；其中快手/B站是视频平台（platforms.yaml VIDEO），纯图文 `publish:batch` 发不出去、产不出可回采的 postId/url 锚点，且 `task:success` 才登记 tracked_content——**「真实发布自然产生第四链路闭环」在图文链路上不可达**，只能走种子实证；自然闭环需等视频发布链路 + parser 覆盖面扩展。
+- **账号登录态判定用 listAccounts 字段而非跑真实检测（pitfall）**：判据字段是 `has_cookies / cookie_count / status / last_validated`；`account_name`（如「登录 - 微信公众号」）只是添加时占位名，不是登录证据。`accountBatchCheckLogin` 会逐账号开真实浏览器，易挂起在登录/验证码页返回不了，会把「已登录」误报成「未登录」——曾据此误判阻塞整个实证任务并向用户要求重登。CDP 探测登录态先读 listAccounts 快照，重检测链路只在用户显式要求时跑。
+- **Start-Process 参数污染与 ExitCode 假阴性（tool）**：`Start-Process powershell -ArgumentList '-File',$lb,'*>',$log` 会把 `*>` 和日志路径当脚本**位置参数**传入，覆盖脚本默认参数（`$Worktree='*>'` → 起错目录）；捕获输出必须用 `-RedirectStandardOutput/-RedirectStandardError`。`node:sqlite` 的 ExperimentalWarning 走 stderr 会让 PowerShell 报 ExitCode 1 而实际成功，判定以 stdout 结果行/落盘文件为准。
+
+### 本次决策记录
+
+实证在 live mp-app-live2（shared-user-data profile）完成，不改任何仓库代码：停 7 个 electron 前先热备份 `shared-user-data.backups\seed-<ts>\`（db+wal+shm），灌数脚本幂等（先 DELETE 固定种子 id 再精确 INSERT 两行）。用户决定**种子行不清理**，保留为常态验证样本（vv-seed-bili-0001 / tc-seed-bili-0001 + 1 条 auto 快照）。实证结果回写 `PRD-RECRAWL-TRIGGER-DEBUG-2026-09-22.md` §7 与 `PRD-VIRAL-LIBRARY-INTEGRATION-2026-09-22.md` 附录 C。经验同步内置记忆 + EverOS。

@@ -1,0 +1,114 @@
+{
+ "url": "https://cp.kuaishou.com/article/publish/video?tabType=1",
+ "ce": [
+  {
+   "html": "<div class=\"_description_17g9x_24\" id=\"work-description-edit\" placeholder=\"作品描述不会写？试试智能文案\" contenteditable=\"true\"></div>",
+   "text": "",
+   "visible": true
+  }
+ ],
+ "titleEls": [
+  {
+   "tag": "span",
+   "cls": "el-dialog__title",
+   "text": "近7天的下载记录",
+   "ce": null,
+   "visible": false
+  },
+  {
+   "tag": "haploid-title",
+   "cls": "haploid-title",
+   "text": "快手创作者服务平台-micro",
+   "ce": null,
+   "visible": false
+  },
+  {
+   "tag": "div",
+   "cls": "_ai-topics-title_1gvw3_131",
+   "text": "推荐:",
+   "ce": null,
+   "visible": true
+  },
+  {
+   "tag": "div",
+   "cls": "_activity__item_main_title_3v4ib_56",
+   "text": "凛冬下的罪恶二创大赛",
+   "ce": null,
+   "visible": true
+  },
+  {
+   "tag": "div",
+   "cls": "_activity__item_main_title_3v4ib_56",
+   "text": "最后孤屋二创大赛",
+   "ce": null,
+   "visible": true
+  },
+  {
+   "tag": "div",
+   "cls": "_preview-video-titlebar_1eni7_202",
+   "text": "",
+   "ce": null,
+   "visible": true
+  },
+  {
+   "tag": "span",
+   "cls": "_helper-header-title_1kfmm_38",
+   "text": "创作助手",
+   "ce": null,
+   "visible": true
+  },
+  {
+   "tag": "div",
+   "cls": "_flow-title_16saw_6",
+   "text": "流量提升建议",
+   "ce": null,
+   "visible": true
+  },
+  {
+   "tag": "div",
+   "cls": "_title_16saw_55",
+   "text": "去优化标题",
+   "ce": null,
+   "visible": true
+  },
+  {
+   "tag": "div",
+   "cls": "_title_16saw_55",
+   "text": "在粉丝浏览高峰期发布",
+   "ce": null,
+   "visible": true
+  },
+  {
+   "tag": "div",
+   "cls": "_tooltip-title_d7f44_51",
+   "text": "作品信息",
+   "ce": null,
+   "visible": true
+  }
+ ],
+ "btns": [
+  {
+   "text": "京ICP备15023266号-136",
+   "cls": "",
+   "disabled": false,
+   "visible": true
+  },
+  {
+   "text": "京公网安备11010802038443号",
+   "cls": "police-link",
+   "disabled": false,
+   "visible": true
+  }
+ ],
+ "frames": [],
+ "divs": [
+  {
+   "cls": "_title_16saw_55",
+   "text": "去优化标题"
+  },
+  {
+   "cls": "_content_16saw_77",
+   "text": "为了让更多人搜索到你的作品，建议使用智能推荐标题"
+  }
+ ]
+}
