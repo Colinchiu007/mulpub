@@ -13,6 +13,11 @@ const path = require('path')
 const log = require('./logger')
 const { buildResolveElementCode } = require('./rpa-selector-utils')
 
+// session.webRequest.onCompleted 是「会话级单例」拦截器：同一 session 后一次注册会
+// 直接覆盖前一次，且前一次的 cleanup 会把它置 null。并发调用 _waitForResponse 时，
+// 表现为先发起的那次永远等不到回调（只能靠超时兜底）。用 WeakMap 按 session 串行化。
+const _responseWaitChains = new WeakMap()
+
 // PRD F10.8: 文件 MIME 类型推断（JS File API 回退用）
 function _guessMimeType (fileName) {
   const ext = (fileName.split('.').pop() || '').toLowerCase()
@@ -292,6 +297,16 @@ const helpersMixin = {
 
   // ========== Network response monitor ==========
   async _waitForResponse(win, patterns, timeout) {
+    const session = win.webContents.session
+    const prev = _responseWaitChains.get(session) || Promise.resolve()
+    const run = prev.then(function () { return this._waitForResponseExclusive(win, patterns, timeout) }.bind(this))
+    // 链上只挂「永不 reject」的尾巴，避免一次失败毒化后续所有等待者；
+    // 尾巴本身即「本次已结束」信号，无需额外的 deferred（原 settledSignal 无人 await，属死代码）。
+    _responseWaitChains.set(session, run.catch(function () {}))
+    return run
+  },
+
+  async _waitForResponseExclusive(win, patterns, timeout) {
     timeout = timeout||60000
     const session = win.webContents.session
     return new Promise(function(resolve) {

@@ -112,6 +112,8 @@ scripts/*.js
 !scripts/run-package-install.js
 !scripts/launch-worktree.js
 !scripts/ensure-electron.js
+!scripts/check-dep-audit.js
+!scripts/check-dep-audit.test.js
 !scripts/ensure-desktop-deps.js
 !scripts/ensure-desktop-deps.test.js
 !scripts/start-desktop-identity.js

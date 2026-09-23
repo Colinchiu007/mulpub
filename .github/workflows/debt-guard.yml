@@ -28,6 +28,14 @@ jobs:
       - name: 检查债务预算
         run: node scripts/check-debt-budget.js
 
+      # 审计 P2·超大文件：debt-budget 是全仓聚合棘轮（maxFileLines / filesOver500 / filesOver1000），
+      # 「拆掉一个大文件 + 新写一个大文件」会互相抵消而无人报警；且 eslint max-lines 只覆盖 apps/desktop，
+      # Python 侧 1000+ 行文件完全不在行数门禁内。本步做逐文件判定，口径与 debt-budget 一致。
+      - name: 逐文件行数门禁（新代码阻断 / 存量挂账防腐）
+        run: |
+          node .github/scripts/check-max-lines.js
+          node --test .github/scripts/check-max-lines.test.js
+
       - name: 死代码检测（软门禁，报告供人工审查）
         continue-on-error: true
         run: |

@@ -1,12 +1,19 @@
-fastapi>=0.115.0
-uvicorn[standard]>=0.34.0
-aiosqlite>=0.20.0
-sqlalchemy[asyncio]>=2.0.36
-pydantic>=2.10.0
-pydantic-settings>=2.7.0
-python-jose[cryptography]>=3.3.0
-pyyaml>=6.0
-cryptography>=44.0.0
-httpx>=0.27.0
-imageio-ffmpeg>=0.5.0
-python-multipart>=0.0.20
+# 运营中心后端依赖锁定清单（审计 P2·依赖锁定）
+# 约定：下限 = 已验证可用的版本，上限 = 阻止未验证的大版本自动进入生产/CI。
+# 只写 >= 等于把「上游发布破坏性版本」这件事交给运气；任何上限放宽都必须显式改本文件并跑
+#   python -m pytest ops-center/backend/tests
+# 复核方式：node scripts/check-dep-audit.js（pip-audit 挂账清单见 scripts/dep-audit-baseline.json）
+# 实测教训：上限收得比已公告漏洞的修复版本还低，等于把解析结果钉在漏洞版本上
+# （cryptography 一度写 <46.0.0，pip-audit 当场报出 7 条公告），所以改上限必须重跑门禁。
+fastapi>=0.115.0,<1.0.0
+uvicorn[standard]>=0.34.0,<1.0.0
+aiosqlite>=0.20.0,<1.0.0
+sqlalchemy[asyncio]>=2.0.36,<3.0.0
+pydantic>=2.10.0,<3.0.0
+pydantic-settings>=2.7.0,<3.0.0
+python-jose[cryptography]>=3.3.0,<4.0.0
+pyyaml>=6.0,<7.0
+cryptography>=44.0.0,<51.0.0
+httpx>=0.27.0,<1.0.0
+imageio-ffmpeg>=0.5.0,<1.0.0
+python-multipart>=0.0.20,<0.1.0

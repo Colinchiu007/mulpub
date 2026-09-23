@@ -108,8 +108,25 @@ const electronMock = {
   ipcRenderer: {
     send: function () {},
     invoke: function () { return Promise.resolve({}) },
-    on: function () {},
-    off: function () {},
+    // _handlers 记录订阅者：preload 侧推送事件（如 auth:access-level-invalidated）
+    // 必须能在用例里被手动触发，否则「主进程推送 → 立即生效」的契约无法回归。
+    _handlers: {},
+    on: function (ch, fn) {
+      this._handlers[ch] = this._handlers[ch] || []
+      this._handlers[ch].push(fn)
+      return this
+    },
+    off: function (ch, fn) { return this.removeListener(ch, fn) },
+    removeListener: function (ch, fn) {
+      this._handlers[ch] = (this._handlers[ch] || []).filter((h) => h !== fn)
+      return this
+    },
+    removeAllListeners: function (ch) { delete this._handlers[ch]; return this },
+    emit: function (ch, ...args) {
+      const handlers = (this._handlers[ch] || []).slice()
+      for (const handler of handlers) handler({ sender: this, kind: 'ipc' }, ...args)
+      return handlers.length
+    },
   },
   // preload/index.js 顶层调用 contextBridge.exposeInMainWorld，需提供空实现避免 TypeError
   contextBridge: {
@@ -195,6 +212,8 @@ function resetElectronMock() {
   // 重置 handler 和实例
   electronMock.app._handlers = {}
   electronMock.ipcMain._handlers = {}
+  // preload 侧订阅的推送事件同样复位，避免跨用例串味（旧模块实例的 handler 不应继续收推送）
+  electronMock.ipcRenderer._handlers = {}
   electronMock.BrowserWindow._instances = []
   electronMock.BrowserWindow.focusedWindow = null
   // 清空 vi.fn 调用记录（不清实现）：app.on / app.quit / BrowserWindow 构造 / getAllWindows

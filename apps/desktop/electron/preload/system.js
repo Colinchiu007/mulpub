@@ -270,6 +270,9 @@ function createSystemApi(ipcRenderer) {
     // 应用日志 API（设置-通用设置：查看/清理/渲染进程错误上报）
     logsGetInfo: () => ipcRenderer.invoke('logs:info'),
     logsClear: () => ipcRenderer.invoke('logs:clear'),
+    // 缓存清理 API（设置-通用设置：统计/清理临时缓存）
+    cacheGetStats: () => ipcRenderer.invoke('cache:stats'),
+    cacheClear: () => ipcRenderer.invoke('cache:clear'),
     logError: (message) => ipcRenderer.invoke('logs:error', { message }),
     submitFeedback: (payload) => ipcRenderer.invoke('feedback:submit', payload),
 

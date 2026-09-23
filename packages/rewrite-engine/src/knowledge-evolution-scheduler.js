@@ -64,6 +64,8 @@ class KnowledgeEvolutionScheduler {
   }
 
   stop() {
+    // _timers 里同时装有 setInterval 与 setTimeout 句柄：Node 与浏览器中
+    // clearInterval/clearTimeout 底层都是同一个 unref，可互换使用。
     for (const t of this._timers) clearInterval(t)
     this._timers = []
     this._running = false
@@ -111,10 +113,15 @@ class KnowledgeEvolutionScheduler {
     if (target <= now) target.setDate(target.getDate() + 7)
     const delay = target.getTime() - now.getTime()
     const self = this
-    setTimeout(function () {
+    // 首跳的 setTimeout 也必须入 _timers：否则 stop() 之后它照样会触发，
+    // 并在回调里再挂一个没人回收的 setInterval（孤儿定时器）——周期任务既停不掉，
+    // 句柄也会一直挂在事件循环上。
+    const kickoff = setTimeout(function () {
       fn()
       self._timers.push(setInterval(fn, 7 * 24 * 3600 * 1000))
     }, delay)
+    this._timers.push(kickoff)
+    return kickoff
   }
 }
 

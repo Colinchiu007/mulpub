@@ -47,6 +47,8 @@ function registerAllHandlers(ipcMain, deps) {
   // 知乎收藏夹批量采集/改写（官方 API + 频率控制）
   require('./zhihu-favlist')(ipcMain, deps)
   require('./logs')(ipcMain, deps)
+  // 缓存清理（设置-通用设置：统计/清理 os.tmpdir() 下的合成与影视工程临时缓存）
+  require('./cache')(ipcMain, deps)
   // Backlot 项目库
   require('./project')(ipcMain, deps)
   // Backlot 实时看板
