@@ -345,7 +345,72 @@ token 逐级传递（edit 带 baseToken / save 带 publishToken）、headers 白
 `publish.api.shipinhao.progress`（`视频上传中 {done}/{total}`）。
 
 **实现状态**：§4.1 ✅、§4.5（视频号维度）✅。§4.4（旧 `adapters/shipinhao.js` 变薄委托本链）
-待后续切片；B站 §4.2 链待后续切片。
+待后续切片；B站 §4.2 链 ✅（见 §12.3）。
+
+
+### 12.3 B站（bilibili）视频链 `src/publish/platforms/bilibili-video.js` ✅
+
+`BilibiliVideoChain`，复刻自参考产品逆向 + 本地活体校验（真实发布 `bvid=BV1MahW6tE36`），
+改走 §11.2 `publish/core`（`createHttpClient` + `requestWithRetry` + `chunkTotal`）以获得
+「非 JSON 响应（风控 HTML）自动重试 ≤3」能力。注入两个 axios 客户端：`api`
+（`member.bilibili.com`）与 `cdn`（运行时按 `endpoint`/`upos_uri` 解析出的 upos host）；
+测试时二者同指本机假服务器（upos 落点走相对 `objectPath`），杜绝外发。
+
+**请求序列（6 步，逐字对齐证据 `evidence/yx-slices-v2.txt` L24-45）**：
+
+| 步 | 方法/路径 | 客户端 | 关键头/参 | 提取/返回 |
+|----|-----------|--------|-----------|-----------|
+| 1 probe | `GET /preupload?r=probe` | api | `cookie`,`referer`,`accept:json` | → `lines[]`（上传线路候选） |
+| 2 args(×线路) | `GET /preupload?<line.query>&r&name&size&profile=ugcupos/bup&ssl=0&version=2.7.1&build=2070100` | api | 同上 | → `{auth, endpoint, upos_uri, biz_id}`；命中 `code:601` 抛风控 |
+| 3 init | `POST {objectPath}?uploads=&output=json` | cdn | `X-Upos-Auth=args.auth`,`referer` | → `upload_id`（缺失抛错） |
+| 4 uploadpart(×N) | `PUT {objectPath}?partNumber&uploadId&chunk&chunks&size&start&end&total` | cdn | `X-Upos-Auth`,`Content-Type:application/octet-stream` | 二进制分片，`status>204` 抛错；读 `etag` 响应头去引号 |
+| 5 complete | `POST {objectPath}?output=json&name&profile&uploadId&biz_id` | cdn | `X-Upos-Auth`,`Content-Type:application/json` | `{parts:[{partNumber,eTag}]}` → `location` |
+| 6 publish | `POST /x/vu/web/add/v3?t&csrf`（私密 `/x/vupre/web/draft/add`） | api | `cookie`,`Content-Type:json;charset=UTF-8` | postData+`csrf` → `{code,data.bvid,data.aid}` |
+
+**upos 目标解析（`buildUposTarget` 纯函数）**：`upos_uri` 新式 `upos://bucket/object` +
+`endpoint` `//host` → `{host, objectPath:'/bucket/object'}`；兼容 `//host/bucket/object`
+（取首段为 host）、绝对路径 `/…`（配 endpoint）、裸 `bucket/object`。投稿体
+`videos[].filename` = `location` 去扩展名、去 bucket 段（`split('.')[0].split('/').slice(1)`，
+复刻 bundle `P.split('.')[0].split('/')[1]`）。
+
+**分片器（复用 §11.2 chunker）**：片长 **8388608**（8MiB）；`chunkTotal(size)` →
+`parts[{index,start,end,size}]`，`partNumber = index+1` 从 **1** 递增，`chunk = index`，
+末片为余数字节；`Content-MD5` 不参与（B站走 `etag` 响应头 + `X-Upos-Auth` 鉴权）。
+
+**数据校验（fail-closed，发首请求前）**：
+- 缺 `cookie` → 抛 `BilibiliVideoError`（`data_error`），**零请求**。
+- 缺 `userAgent` → 抛（`request_error`），零请求。
+- 缺 `taskData.video.path` → 抛（`data_error`），零请求。
+- 视频文件不存在 → 抛（`io_error`），**零请求**（`fs.existsSync` 前置）。
+- probe 返回 `lines:[]`（无可用线路）→ 抛「获取上传参数失败」且**绝不触达任何 upos/写请求**（仅 `GET /preupload`）。
+
+** csrf 与登录态（Tier-A 本地自 cookie）**：`csrf = pickCookieValue(cookie,'bili_jct')`，
+同时进 `query.csrf` 与 `body.csrf`；`DedeUserID` 用于文件名 `${mid}_${ts}_${ts.slice(9,12)}`。
+`code:-1025/-1026` → `{success:false,cookieExpired:true}`（登录态失效，停报，不重登、不换号）。
+
+**私密优先**：`opts.draft !== false` → `/x/vupre/web/draft/add`；`draft:false` →
+`/x/vu/web/add/v3`。`code:601` → `{success:false,code:601,error:'B站风控(601)…滑块验证'}`；
+其余非 0 → `{success:false,code,error}`。风控/登录失效一律停报，不降级 DOM。
+
+**内容纯净**：`buildPostData` 的 `_cleanText` 去除标题/简介中括号包裹的「自动发布/一键发布
+工具/由多平台」boilerplate 及残留换行（用户硬要求）。默认分区 `tid=21`（日常·综合），
+`copyright:1`（原创）、`no_reprint:1`、`cover` 留空由 B站自动截帧。
+
+**§4.5 零请求/契约单测（`test/bilibili-video-chain.test.js`，7 例全绿）**：私密优先六步序列
+逐字（`methodPathList` = `GET /preupload`×2 → `POST/PUT/POST {OBJ}` → `POST /x/vupre/web/draft/add`）、
+`X-Upos-Auth=args.auth`（init/分片均带）、分片二进制字节完整性（1MB→1 片）、`parts=[{partNumber:1,eTag:"PART_ETAG"}]`
+去引号、多分片（8MiB+100→2 片，`partNumber` 1/2 递增、`chunks=2`、末片 100 字节）、
+`csrf` 进 query+body、`videos[0].filename='n123'`（去 bucket/去扩展名）、`cid=biz_id=42`、
+正式发布走 `/x/vu/web/add/v3` 不触达 draft、三态 fail-closed 零请求、`buildUposTarget`/`pickCookieValue` 纯函数。
+
+**UI 显示项 / i18n**：「发布方式」徽标 `api`；投稿进度展示 `视频上传中 {percent}%`；
+失败详情展示 `error`（风控 601 / 登录失效区分文案）。key：`publish.api.bilibili.risk`、
+`publish.api.bilibili.cookie_expired`、`publish.api.bilibili.args_fail`、
+`publish.api.bilibili.file_missing`、`publish.api.bilibili.progress`。
+
+**实现状态**：§4.2 ✅、§4.5（B站维度）✅。§4.4（旧 `adapters/bilibili.js` 变薄委托本链）
+待后续切片。
+
 
 
 ---
