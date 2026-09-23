@@ -80,3 +80,20 @@ def test_ffmpeg_adapter_capabilities_ground_truth():
     assert caps.unavailable_fallback is None
     assert caps.word_level_captions is False
     assert caps.native_transitions is False
+
+
+def test_remotion_and_hyperframes_adapter_capabilities_ground_truth():
+    from multi_publish.video_creation.providers.video.engines.remotion_adapter import (
+        RemotionAdapter,
+    )
+    from multi_publish.video_creation.providers.video.engines.hyperframes_adapter import (
+        HyperFramesAdapter,
+    )
+    r = RemotionAdapter.capabilities
+    assert r.id == "remotion"
+    assert r.unavailable_fallback == "ffmpeg"
+    assert r.word_level_captions is True
+    assert r.native_transitions is True
+    h = HyperFramesAdapter.capabilities
+    assert h.id == "hyperframes"
+    assert h.unavailable_fallback is None
