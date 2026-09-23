@@ -97,3 +97,14 @@
 - **修复（不掩盖新增纪律）**：不使用 `--update-baseline`；12 处文案全部迁入 locale——`intelligence` 命名空间成对新增 11 键（benchmarkTitle/keywordMonitorTitle/dataPointsCount/referenceFinderTitle/templatePickerTitle/categoryReport/categoryMarketing/categoryEducation/categorySocial/titleAssistantTitle/trendingTitle），zh 值与原文案逐字一致（含 `{n}` 插值），渲染显示零变化；模板改 `{{ $t(...) }}` / `:title="$t(...)"`；TemplatePicker `categoryLabel()` 改用 `useI18n().t`。
 - **测试适配**：7 个组件测试 mount 无 i18n 插件导致 `$t is not a function`（42 例红），按仓库 TagSuggester 惯例经 `config.global.plugins` 注入 `createI18n({legacy:false, locale:zh, messages:{zh,en}})` 修复，47/47 绿。
 - **验收**：`--cjk` PASS（基线 1581/当前 1376 无 fresh）、`--keys` PASS（1125 键 zh/en 成对存在）、Gate7 node:test 6/6、icon-usage 守卫 35/35。
+
+## 七、债务熔断挂账附录（CI 补齐）
+
+- **现象**：PR #2249 merge origin/main 后，required check「债务熔断检查」（ruleset main-ci-gate，workflow debt-guard.yml）报 `NEW_OVER_LIMIT: apps/desktop/src/components/LogsSettings.vue 598 行 >= 500`。
+- **根因**：check-max-lines.js 逐文件判定「超过 limit(500) 且不在挂账清单 max-lines-baseline.json 里 -> 阻断」。LogsSettings.vue 因 origin/main 的 #2262（缓存清理）叠加 #2253（selfcheck 迁移）增至 598 行，但清单最后更新停留在 #2252，从未登记该文件；本 PR 未触碰它（git diff origin/main HEAD 为空、与 main 逐字节一致），仅经本分支 merge 后才在 PR 检查里暴露。
+- **修复决策（最小、诚实，不越界）**：
+  1. 采用脚本自带的「存量挂账」语义，只把真实超限文件 LogsSettings.vue: 598 补入清单一条，字典序落在 AiWriterPanel.vue 与 ProfileMenu.vue 之间。
+  2. 不使用全量 --update：全量重生成会连带吸收约 22 个存量文件相对 main 历史的行数漂移，把一个 emoji 图标 PR 变成「重排全仓债务基线」，属越界且掩盖真实债务增长信号。
+  3. 不拆分 LogsSettings.vue：该文件非本 PR 引入、且无 200 行增长违约（LEDGER_GREW 未触发），拆分应由其归属 PR/main 侧处理。
+- **显示/交互影响**：无。仅动 CI 门禁清单，不触碰任何运行时代码。
+- **验收**：check-max-lines 无违规（超限=100 挂账=100）；node --test check-max-lines.test.js 8/8（含「真实仓现状：挂账清单与扫描结果一致」主断言）；check-debt-budget filesOver500: 100 = baseline 100 持平；git diff 仅 1 行插入。

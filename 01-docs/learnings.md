@@ -15438,3 +15438,13 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 
 ### 本次交付
 - rebase 至最新 origin/main（含 audit-batch-3），CHANGELOG 冲突保留双方条目；缓存后端 10 测试 + preload 360 回归全绿；Gate 17 IPC sender 守卫 PASS（绕过 0）；ESLint/build:vue/locale-sync `--keys` 通过；PR #2262 auto-merge squash。
+
+## 2026-09-23 债务熔断挂账：merge 暴露 main 侧未登记超大文件（PR #2249 CI 补齐）
+
+- **现象**：emoji 图标 PR #2249 merge origin/main 后，required check「债务熔断检查」报 `NEW_OVER_LIMIT: LogsSettings.vue 598 行 >= 500`，但本 PR 未碰过该文件。
+- **根因**：`check-max-lines.js` 逐文件判定「超限且不在 max-lines-baseline.json 挂账清单 → 阻断」。LogsSettings.vue 被 main 的 #2262（缓存清理）+#2253（selfcheck）叠胖到 598 行，而清单最后更新停在 #2252，从没登记它——债务在 main 上就已产生，只是本 PR merge 把三方状态凑齐后才在 PR 检查里显形。
+- **教训/做法**：
+  1. 遇到 merge 后才暴露的超限红灯，先 `git diff origin/main HEAD -- <file>` 确认是否本 PR 引入；非本 PR 引入 = 存量债，走「挂账」而非「拆文件」。
+  2. **只用精确补登，慎用全量 `--update`**：全量重生成会把清单里几十个存量文件相对 main 历史的行数漂移一次性吞进来，让一个窄 PR 变成「重排全仓债务基线」，diff 巨大且掩盖真实增长信号。字典序定位单条插入即可。
+  3. 验证三件套：`check-max-lines.js`（无违规、超限=挂账数）、`node --test check-max-lines.test.js`（含「真实仓现状清单一致」主断言）、`check-debt-budget.js`（聚合棘轮 filesOver500 持平）。
+- **边界**：debt-guard.yml 无 paths-ignore，其 job 名「债务熔断检查」是 ruleset main-ci-gate 的 required check，任何 PR 都必须绿，纯文档 PR 也不能跳。
