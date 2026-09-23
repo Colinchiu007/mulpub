@@ -283,3 +283,9 @@ runtime_swap_detected（终审内实现，比对 proposal_packet.production_plan
 - 全量 pytest 在本地基线存在 4 个与本改动无关的既有/环境性失败（model-download、ollama、templates-dir 顺序污染、story2video max_length 契约），非本 PR 引入；CI 为权威判定。
 
 > 13 由实现期真码核实追加，未改动运行时代码语义；与 ARCH 12、DEV-PLAN 2/3.1 的 RF-3/F-2/Q1 订正同步。
+
+### 13.7 T0b 基线 harness 落地（追加）
+
+- test_render_engine_baseline.py 经 T0a 接缝冻结 render_runtime='ffmpeg' 规范 2-cut 场景的完整命令序列（2 段编码 + concat + 最终 mux = 4 条 ffmpeg 调用），落 tests/fixtures/render_engine_baseline_ffmpeg.json（tmp 路径归一化为 <TMP>/basename，跨机稳定）。
+- 首次运行生成 golden，二次运行断言逐命令等价——T2-T4 FFmpegAdapter 迁移必须重放命中此 golden，任一 diff 即 revert（DEV-PLAN 3.4）。
+- remotion/hyperframes 场景基线待补：hyperframes 受 F-2 制约经 video_compose 恒不可用，其真实子进程基线在 hyperframes_compose.py 层单列；remotion 需 node_modules 环境，基线以 CI 环境为准。
