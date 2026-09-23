@@ -18,7 +18,6 @@
  *   PUT    /providers/{name}/key   — 设置用户 API Key
  *   DELETE /providers/{name}/key   — 移除用户 Key 覆盖
  */
-const { ipcMain } = require('electron')
 const log = require('./logger')
 const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('../ipc-handlers/helpers')
@@ -110,7 +109,13 @@ class ProviderManager {
   // ─── IPC Handler 注册 ──────────────────────────
 
   registerIpcHandlers (injectedIpcMain) {
-    const ipcMain = injectedIpcMain || require("electron").ipcMain;
+    // P1-14：必须注入 access-controlled ipcMain（createAccessControlledIpcMain）。
+    // 禁止回退全局 ipcMain —— 那会同时绕过 isTrustedSender 来源校验与许可证/权益门禁，
+    // 且在纯 Node（单测）下退化成无信息量的 TypeError。未注入即 fail-closed 抛错。
+    if (!injectedIpcMain) {
+      throw new Error('[IPC] provider-manager registerIpcHandlers 需要注入受控 ipcMain（禁止使用全局 ipcMain）');
+    }
+    const ipcMain = injectedIpcMain;
     ipcMain.handle('provider:list', async () => {
       try {
         return await this.listProviders()

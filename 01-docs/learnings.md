@@ -18,6 +18,17 @@
 - **断点续跑事实源（pattern）**：台账记录意图，磁盘产物记录事实；resume 用 probe(runId) 复算 missing 清单，不信任乐观状态。runId 确定性派生（`prod-<taskId>-b<idx>`）是两者能对齐的前提。
 - **对账口径教训（pitfall）**：语料取证用 prompt 前缀 500 字符截断去重得 2,795，完整规范化 SHA1 实为 6,500——去重键的截断策略直接决定数量级结论；统计口径与导入口径必须同一函数实现（dry-run 与 build 同源），并在正式导入前对账。
 - **工程环境（pitfall，Windows/agent）**：SearchReplace/Write 对 workspace 外 worktree 文件报 45405，一律 staging 编辑 + Copy-Item 落盘，勾选 worktree tasks.md 用 node 字符串替换脚本；后台 Bash 命令可能卡在 PowerShell `>>` 续行提示实际未执行（本会话两次），长命令用前台大 timeout 并以产物时间戳核实；`@electron/asar` 的 `extractFile` API 对 152MB 生产包误报 not found，asar 内容验证改走 `pnpm exec asar extract` CLI 到 temp 再直读。
+## 安全门禁整改的可复用口径与本批 9 个坑（2026-09-22，audit-batch-3）
+- **统计口径必须先固化再谈修复（pitfall）**：体检报告里的「336 个 handle / 约 215 个带守卫」无法复现——它沿用 `check-ipc-bridge.js` 的**非递归**目录扫描且只认字符串通道名，既漏 electron 子目录又把 EventEmitter 的 `.on()` 计入噪声。教训：任何「覆盖率型门禁」落地前，先把口径写成可执行脚本（递归范围 + 生产源码判定 + 分类规则 + `--json` 输出），再报数字；否则整改目标本身就是幻觉。
+- **双校验优于单阈值（pattern）**：清单式豁免（防漂移，且**陈旧条目同样判失败**）+ 比例式下限（防「把已有守卫摘掉整体躺进咽喉点」的稀释）缺一不可；下限值只允许上调、禁止下调，否则门禁会随一次重构静默退化。
+- **行为用例无法区分的缺陷必须补静态不变量（pattern）**：`key !== apiKey` 与恒定时间比较在功能测试里表现完全一致（耗时差异不在单测可信分辨率内）；同理「7 个 view 各自 `axios.create`」这类结构性缺陷也无法靠行为断言守住。做法：在同一测试文件里追加「读源码断言含 X / 不含 Y」的静态用例，并让 CI 门禁脚本与之双写，防止只改测试不改实现。
+- **红验证脚本必须先断言变异锚点唯一命中（pitfall）**：`b3-p2-red-check.py` 首次 M2 用 `'?bvid=' + …` 作锚点，源码实为 `'/x/web-interface/view?bvid=' + …`，`str.count()` 为 0 ⇒ 变异没发生却报告「RED」。纪律：每个变异前 `assert src.count(old) == 1`，且变异后 `git grep` 确认无残留标记。
+- **拼接进 JS 脚本文本的字面量要过两层词法（pitfall）**：`toSafeJsLiteral` 产出的是「内容为 JSON 文本的 JS 字符串字面量」。若不做 `\\` → `\\\\`，JSON 的 `\n` / `\"` 会先被 **JS 词法**消耗成真实换行/引号，交给页面侧 `JSON.parse` 即报 `Bad control character in string literal`。同理，`buildEvalScript` 不能把 JSON 文本作为 IIFE **实参**传入（页面里 `data` 就成了字符串，`Object.keys(data)` 得到字符下标）——必须在 IIFE 内 `var x = JSON.parse(literal)` 还原。Electron 43 的 `executeJavaScript(code, userGesture?)` **不接收参数**，没有参数通道可逃。
+- **目录边界先于存在性判定（pattern）**：越界校验与 `exists()` 的顺序颠倒，会把 403 变成 404，等于给调用方一个「外部文件是否存在」的枚举 oracle。包含判定统一 `realpath` + `os.path.commonpath`（不用字符串前缀，避免 `/a/dist` vs `/a/dist-evil`；跨盘符/UNC 抛 `ValueError` 即判不包含），与桌面端 `core/ipc-security.js` 的 file:// 边界同口径——同一仓库出现第二套「包含关系」定义必然漂移。
+- **fail-closed 默认值要选「默认可用」的那一档（pattern）**：`audio_path` 白名单未配置时若取空集，桌面端首启即不可用；若取全盘，等于默认存在任意文件读取。真实 TTS 产物落在 `os.tmpdir()/story2video`，故默认取系统临时目录，并由主进程经 `BasePythonBridge._spawnEnv()` 钩子注入 `tmp + userData + 外部已设值（视为追加项）`——不要让部署方手工配 env 来补主进程已知的信息。
+- **Windows 测试环境两个反直觉事实（pitfall）**：① pytest 的 `tmp_path` 位于系统 TEMP 内（本机 `TEMP=D:\Temp`），**不能**用来构造「允许目录之外」的样本路径，改用盘根目录；② worktree 缺 pnpm workspace 链接时 `cmd /c mklink` 会被工具侧守卫拒绝（40441），改用 `New-Item -ItemType Junction`（`node_modules` 不入库）。另：vitest ESM 测试里 `__dirname` 不可靠（ESM 用 `fileURLToPath(import.meta.url)`，CJS 用 `process.cwd()`）；pytest fixture 里 `client._called = x` 若 `client` 是被装饰的函数会挂在**函数对象**上而非 TestClient 实例，须先实例化再赋值再返回。
+- **CHANGELOG.md 是 git 眼里的 binary（pitfall）**：文件含 NUL 字节 ⇒ `i/-text`，`text=auto` 归一化失效，任何「按行重写」脚本都会造成 12k 行伪 diff。批量解冲突必须**字节级保持 CRLF**，并警惕「merge 冲突块的公共后缀在文件深处才恢复」使 ours 块包含大量对方已有条目——此时简单并集=整块重复，正确语义是「以对方全文为基底，只插本方独有条目」。落地后必做：`git diff --numstat origin/main` 逐文件核对，确认只有预期的增删行数。
+
 ## CI-only 测试超时：全局 testTimeout 与插桩/满载放大叠加的坑（fix-main-ci-red，2026-09-21）
 
 - **背景**：main 两个 CI 红灯均为「本地绿、CI 红」的超时类失败：① `pixel-diff-baseline-guard.test.js`「现存全部真实基线均通过守卫」在 QG Coverage job（v8 插桩）下超全局 10s testTimeout（本地无插桩实测 ~2.2s，21 个基线 PNG 共 3.3MB 逐个解码）；② `logger.test.js`「appendFile 回调永不触发时写队列超时兜底」在 Desktop shard 满载下 1s 固定重试窗不够。

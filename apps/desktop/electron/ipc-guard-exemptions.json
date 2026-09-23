@@ -1,0 +1,30 @@
+{
+  "$comment": [
+    "IPC sender 守卫豁免清单（P1-14）。由 .github/scripts/check-ipc-sender-guard.js 消费。",
+    "登记对象：静态无法判定守卫来源（via=unknown）的 ipcMain.handle 注册点，逐条说明风险与理由。",
+    "via=global（直接注册到 require('electron').ipcMain）与 via=fallback",
+    "（injectedIpcMain || require('electron').ipcMain）属于绕过权限层的硬错误，本清单不接受其豁免。",
+    "咽喉点说明：createAccessControlledIpcMain（electron/ip-handlers/license-access-control.js）在转发任何",
+    "handle 之前无条件执行 isTrustedSender，因此由 window.js / phase5-ipc.js 注入该受控实例的注册点",
+    "判定为 via=injected，无需逐个再套 withSenderCheck（补 withSenderCheck 仍是纵深防御的推荐做法）。",
+    "license-access-control.js 顶部的 PUBLIC_CHANNELS 列表是『免登录功能开关』而不是来源守卫，",
+    "不计入守卫覆盖率，也不得作为豁免条目登记。",
+    "同步通道说明：createAccessControlledIpcMain 的 Proxy 只拦截 handle，ipcMain.on 不经咽喉点，",
+    "因此 method=on 的注册点必须有显式 isTrustedSender/withSenderCheck（现状 3/3 已显式守卫）；",
+    "若将来新增无法补守卫的同步通道，必须在本清单逐条登记（risk / reason / owner）。",
+    "minGuardedRatio 为显式守卫（withSenderCheck/isTrustedSender）占比下限，只允许上调，禁止下调。"
+  ],
+  "minGuardedRatio": 0.65,
+  "baseline": {
+    "date": "2026-09-22",
+    "registrations": 407,
+    "handle": 404,
+    "syncOn": 3,
+    "explicit": 273,
+    "injected": 134,
+    "unknown": 0,
+    "bypass": 0,
+    "explicitRatio": 0.671
+  },
+  "entries": []
+}

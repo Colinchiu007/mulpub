@@ -74,14 +74,9 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import axios from 'axios'
+import { createApiClient } from '../api/http'
 
-const api = axios.create({ baseURL: '/api/v1' })
-api.interceptors.request.use(c => {
-  const s = localStorage.getItem('ops_token')
-  if (s) { try { c.headers.Authorization = `Bearer ${JSON.parse(s).token}` } catch {} }
-  return c
-})
+const api = createApiClient()
 
 const items = ref([])
 const loading = ref(false)

@@ -95,9 +95,9 @@ class BilibiliAdapter extends BaseAdapter {
 
   buildUrl (target) {
     if (typeof target === 'string') return target
-    // P1-9: 参数必须编码 —— 真发请求后未编码的 bvid/aid 会变成查询注入点
-    if (target.bvid) return this._apiBase + '/x/web-interface/view?bvid=' + encodeURIComponent(target.bvid)
-    if (target.aid) return this._apiBase + '/x/web-interface/view?aid=' + encodeURIComponent(target.aid)
+    // P1-9: 参数必须编码 —— 未编码的 bvid/aid 会变成查询注入点（&/# 可追加或截断查询串）
+    if (target.bvid) return this._apiBase + '/x/web-interface/view?bvid=' + encodeURIComponent(String(target.bvid))
+    if (target.aid) return this._apiBase + '/x/web-interface/view?aid=' + encodeURIComponent(String(target.aid))
     return target.url
   }
 
