@@ -234,12 +234,13 @@ const router = createRouter({
   routes,
 })
 
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore()
 
-  // Initialize auth from localStorage
+  // P1-15：会话凭据在 HttpOnly Cookie 中，前端无法本地判活，
+  // 首个导航必须向后端探测一次（后续导航复用内存态，不重复请求）。
   if (!authStore.initialized) {
-    authStore.init()
+    await authStore.restore()
   }
 
   if (to.meta.requiresAuth && !authStore.isLoggedIn) {

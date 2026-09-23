@@ -397,10 +397,16 @@ function createContainer(options) {
   // FilmEngineering 影视工程服务（film-kit 懒加载 + fail-closed）
   container.register('filmEngineeringService', function(c) {
     const { FilmEngineeringService } = require('../services/film-engineering/film-engineering-service');
+    let userDataKitDir = null;
+    try {
+      // 任务 3.2：userData 全量 kit（导入器 --full 产物）作为回退链首级
+      userDataKitDir = require('path').join(require('electron').app.getPath('userData'), 'film-kit');
+    } catch (e) { /* 非 Electron 环境（测试）：仅用精简包级 */ }
     return new FilmEngineeringService({
       log: c.get('logger'),
       assetGenerator: c.get('assetGenerator'),
       llm: null,
+      userDataKitDir,
     });
   });
   // PluginRegistry 插件注册中心

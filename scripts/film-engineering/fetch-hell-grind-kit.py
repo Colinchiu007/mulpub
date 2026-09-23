@@ -17,14 +17,36 @@ fetch-hell-grind-kit.py - 从《Hell Grind》全量语料生成 film-kit 数据�
   prompt-doctrine.json / prompt-doctrine.zh.md / images/（精选参考图）
 """
 import argparse
+import hashlib
 import json
 import os
 import re
 import sys
 import urllib.request
+from urllib.parse import urlparse
 
 UUID_RE = re.compile(r"<<<([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})>>>")
 VIDEO_MODEL_HINT = re.compile(r"seedance|soul_cinematic|video|v2_0|veo", re.I)
+# 图片模型黑名单（术语表：soul_cinematic/nano_banana 等为图片模型）——--full 视频分镜口径必须排除，
+# 否则 soul_cinematic 的 3,313 个图片 job 会污染唯一分镜统计（1.3 对账修正 2026-09-23）
+IMAGE_MODEL_HINT = re.compile(r"nano_banana|imagegen|gpt_image|seedream|text2image|image_auto|soul_cinematic|soul_cinema_studio|cinematic_studio_image", re.I)
+
+ASPECT_RATIO_RE = re.compile(r"^\d+:\d+$")
+
+
+def normalize_aspect_ratio(value):
+    """aspectRatio 归一：kit-loader schema 只接受 "W:H" 字符串或 null。
+
+    源语料存在 "auto"（自动比例）等非 "W:H" 形态，未采纳具体比例，
+    一律归一为 None；否则整个全量 kit 会被 fail-closed 拒绝（4.4 取证）。
+    """
+    if isinstance(value, str) and ASPECT_RATIO_RE.match(value):
+        return value
+    return None
+
+
+# FILM_PROMPT_MAX_LEN：prompt 长度单一上限（D4 收口：导入器/loader schema/IPC 校验/前端截断四处同源）
+FILM_PROMPT_MAX_LEN = 50000
 
 FILM_META = {
     "title": "Hell Grind",
@@ -201,6 +223,176 @@ def pick_representative(jobs):
 
 def extract_tokens(prompt):
     return sorted(set(UUID_RE.findall(prompt or "")))
+
+
+# ---------- L1 全量导入（film-full-corpus-production D3/D4/D7） ----------
+
+def normalize_prompt(prompt):
+    """去重键规范化：trim + 折叠任意连续空白（含换行/制表）为单个空格。"""
+    return re.sub(r"\s+", " ", str(prompt or "").strip())
+
+
+def prompt_key(prompt):
+    """去重键 = 规范化 prompt 的 SHA1（D3）。"""
+    return hashlib.sha1(normalize_prompt(prompt).encode("utf-8")).hexdigest()
+
+
+def _is_video_job(j):
+    t = str(j.get("job_set_type") or "")
+    return bool(VIDEO_MODEL_HINT.search(t)) and not IMAGE_MODEL_HINT.search(t)
+
+
+def _completed_prompt(j):
+    """completed 且 prompt 非空的 job 的 prompt；否则返回 None（与 pick_representative 有效口径一致）。"""
+    if j.get("status") != "completed":
+        return None
+    return str((j.get("params") or {}).get("prompt") or "").strip() or None
+
+
+def _result_urls(j):
+    results = j.get("results") or {}
+    raw = results.get("raw") or {}
+    minres = results.get("min") or {}
+    return (raw.get("url") or minres.get("url")), (raw.get("thumbnail_url") or minres.get("thumbnail_url"))
+
+
+def pick_adopted_for_prompt(jobs):
+    """同一唯一 prompt 分组内选采纳版（D3）。
+
+    仅计视频 model 且 completed、prompt 非空的 job：
+      - iterationCount = 该组 completed job 数（失败/无结果/图像不计入迭代口径）
+      - 采纳版 = 按 created_at 末次且带 results.url 的 job（is_favourite 不参与，取证全 false）
+    返回 (adopted_job | None, iterationCount)。
+    """
+    group = [j for j in jobs if _is_video_job(j) and _completed_prompt(j)]
+    group.sort(key=lambda j: float(j.get("created_at") or 0))
+    with_results = [j for j in group if _result_urls(j)[0]]
+    return ((with_results[-1] if with_results else None), len(group))
+
+
+def _make_full_shot(job, scene_id):
+    params = job.get("params") or {}
+    prompt = str(params.get("prompt") or "")
+    url, thumb = _result_urls(job)
+    return {
+        "shotId": job["id"],
+        "sceneId": scene_id,
+        "prompt": prompt,
+        "model": job.get("job_set_type") or "unknown",
+        "refTokens": extract_tokens(prompt),
+        "resultUrl": url or None,
+        "thumbnailUrl": thumb or None,
+        "width": params.get("width"),
+        "height": params.get("height"),
+        "durationSec": params.get("duration"),
+        "aspectRatio": normalize_aspect_ratio(params.get("aspect_ratio")),
+        "iterationCount": None,   # 调用方填充
+        "adoptedJobAt": float(job.get("created_at") or 0),
+        "promptKey": prompt_key(prompt),
+    }
+
+
+def _iter_folder_jobs(source_dir, tree):
+    """按 tree 遍历顺序产出 (folder_node, jobs)。"""
+    stack = []
+    seen = set()
+
+    def walk(node):
+        fid = node["id"]
+        if fid in seen:
+            return
+        seen.add(fid)
+        if node.get("count", 0) > 0:
+            path = os.path.join(source_dir, "items", "%s_%s.jsonl" % (fid[:8], sanitize(node["name"])))
+            yield node, (load_jsonl(path) if os.path.exists(path) else [])
+        for child in node.get("children") or []:
+            for item in walk(child):
+                yield item
+
+    return walk(tree)
+
+
+def build_full_shot_library(source_dir, tree):
+    """--full 模式：每场景文件夹内按唯一 prompt 去重，全部采纳版入库（修复 94.5% 丢失）。
+
+    返回 (shots, rejected)；超限镜（>FILM_PROMPT_MAX_LEN）拒绝并进 rejected。
+    """
+    shots = []
+    rejected = []
+    seen_ids = set()
+    for node, jobs in _iter_folder_jobs(source_dir, tree):
+        groups = {}
+        order = []
+        for j in jobs:
+            prompt = _completed_prompt(j)
+            if not prompt or not _is_video_job(j):
+                continue
+            key = prompt_key(prompt)
+            if key not in groups:
+                groups[key] = []
+                order.append(key)
+            groups[key].append(j)
+        for key in order:
+            group = groups[key]
+            adopted, iteration = pick_adopted_for_prompt(group)
+            if adopted is None:
+                continue  # 全部无结果（如未出片），既不成镜也不进超限清单
+            prompt = str((adopted.get("params") or {}).get("prompt") or "")
+            if len(prompt) > FILM_PROMPT_MAX_LEN:
+                rejected.append({
+                    "shotId": adopted["id"],
+                    "sceneId": node["id"],
+                    "promptLength": len(prompt),
+                    "reason": "prompt 超限（%d > %d 字符）" % (len(prompt), FILM_PROMPT_MAX_LEN),
+                })
+                continue
+            shot = _make_full_shot(adopted, node["id"])
+            shot["iterationCount"] = iteration
+            if shot["shotId"] not in seen_ids:
+                seen_ids.add(shot["shotId"])
+                shots.append(shot)
+    return shots, rejected
+
+
+def compute_full_stats(source_dir, tree):
+    """--dry-run 统计口径（任务 1.3 对账）：与 build_full_shot_library 同源。"""
+    total_video_jobs = 0
+    keys = set()
+    for node, jobs in _iter_folder_jobs(source_dir, tree):
+        for j in jobs:
+            if _is_video_job(j) and _completed_prompt(j):
+                total_video_jobs += 1
+                keys.add(prompt_key(j["params"]["prompt"]))
+    shots, rejected = build_full_shot_library(source_dir, tree)
+    return {
+        "totalVideoJobs": total_video_jobs,
+        "uniqueVideoPrompts": len(keys),
+        "adoptedShots": len(shots),
+        "rejectedOverLimit": len(rejected),
+        "filmKitMaxPromptLen": FILM_PROMPT_MAX_LEN,
+    }
+
+
+def enrich_manifest_with_hosts(manifest, shots):
+    """D7：导入时登记 resultUrl 域名清单，下载器只信该清单（不通配）。"""
+    hosts = set()
+    for s in shots:
+        url = s.get("resultUrl")
+        if not url:
+            continue
+        parsed = urlparse(url)
+        if parsed.scheme == "https" and parsed.hostname:
+            hosts.add(parsed.hostname)
+    manifest["allowedHosts"] = sorted(hosts)
+    return manifest
+
+
+def write_json_atomic(path, obj):
+    """`.tmp` → os.replace 原子写（任务 2.4），杜绝中断留半成品 kit。"""
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(obj, fh, ensure_ascii=False, indent=1)
+    os.replace(tmp, path)
 
 
 def build_manifest(tree):
@@ -381,19 +573,73 @@ def download_image(url, dest, timeout=20):
         return False
 
 
+def _run_full_import(source_dir, out_dir, tree, with_images):
+    """--full 全量导入：原子写 + import-report.json（任务 2.2-2.4）。"""
+    shots, rejected = build_full_shot_library(source_dir, tree)
+    manifest = build_manifest(tree)
+    enrich_manifest_with_hosts(manifest, shots)
+    registry = build_reference_registry(source_dir, tree, shots)
+
+    write_json_atomic(os.path.join(out_dir, "film-manifest.json"), manifest)
+    write_json_atomic(os.path.join(out_dir, "shot-library.json"), shots)
+    write_json_atomic(os.path.join(out_dir, "reference-registry.json"), registry)
+    write_json_atomic(os.path.join(out_dir, "prompt-doctrine.json"), DOCTRINE)
+    with open(os.path.join(out_dir, "prompt-doctrine.zh.md"), "w", encoding="utf-8") as fh:
+        fh.write(DOCTRINE_MD)
+
+    report = {
+        "mode": "full",
+        "shotCount": len(shots),
+        "sceneCount": len(manifest["scenes"]),
+        "rejectedCount": len(rejected),
+        "rejected": rejected,
+        "allowedHosts": manifest["allowedHosts"],
+        "stats": compute_full_stats(source_dir, tree),
+        "maxPromptLength": max((len(s["prompt"]) for s in shots), default=0),
+    }
+    write_json_atomic(os.path.join(out_dir, "import-report.json"), report)
+
+    print("[full] manifest scenes:", len(manifest["scenes"]))
+    print("[full] shots:", len(shots), "rejected:", len(rejected))
+
+    if with_images:
+        _download_curated_images(out_dir, registry, shots)
+
+    print("DONE")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--source-dir", required=True)
-    ap.add_argument("--out-dir", required=True)
+    ap.add_argument("--out-dir", required=False, default=None,
+                    help="kit 输出目录；--full 时建议指向用户数据目录 film-kit/（不入 asar）")
+    ap.add_argument("--full", action="store_true",
+                    help="全量模式：每场景全部唯一分镜采纳版（默认精选模式，向后兼容）")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="只输出 --full 口径统计（uniqueVideoPrompts/adoptedShots/超限拒绝），不落盘")
+    ap.add_argument("--with-images", action="store_true",
+                    help="--full 模式下额外下载精选参考图（默认跳过，OQ3）")
     args = ap.parse_args()
 
     source_dir = args.source_dir
-    out_dir = args.out_dir
-    os.makedirs(out_dir, exist_ok=True)
-    os.makedirs(os.path.join(out_dir, "images"), exist_ok=True)
+    if not args.dry_run and not args.out_dir:
+        ap.error("--out-dir 为必填（除 --dry-run）")
 
     with open(os.path.join(source_dir, "folder-tree.json"), encoding="utf-8") as fh:
         tree = json.load(fh)
+
+    if args.dry_run:
+        print(json.dumps(compute_full_stats(source_dir, tree), ensure_ascii=False, indent=1))
+        return 0
+
+    out_dir = args.out_dir
+    os.makedirs(out_dir, exist_ok=True)
+
+    if args.full:
+        return _run_full_import(source_dir, out_dir, tree, args.with_images)
+
+    os.makedirs(os.path.join(out_dir, "images"), exist_ok=True)
 
     manifest = build_manifest(tree)
     shots = build_shot_library(source_dir, tree)
@@ -414,6 +660,14 @@ def main():
     print("shots:", len(shots))
     print("registry entries:", len(registry))
 
+    _download_curated_images(out_dir, registry, shots)
+    print("DONE")
+    return 0
+
+
+def _download_curated_images(out_dir, registry, shots):
+    """下载精选参考图（4 角色图 + 6 场景缩略图）；OQ3 默认维持精选规模。"""
+    os.makedirs(os.path.join(out_dir, "images"), exist_ok=True)
     downloaded = 0
     images_manifest = {}
     main_chars = ["ROKO", "JAXX", "LULU", "REIN"]
@@ -453,7 +707,6 @@ def main():
     with open(os.path.join(out_dir, "images", "images-manifest.json"), "w", encoding="utf-8") as fh:
         json.dump(images_manifest, fh, ensure_ascii=False, indent=1)
     print("images downloaded:", downloaded)
-    print("DONE")
 
 
 if __name__ == "__main__":

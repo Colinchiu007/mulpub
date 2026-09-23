@@ -203,6 +203,35 @@ jobs:
           node .github/scripts/check-font-size-scale.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # --- Gate 17: IPC sender 守卫覆盖（体检报告问题 14 / P1-14）---
+      # 事故背景：10 个 service 的 `injectedIpcMain || require('electron').ipcMain` 回退写法，
+      # 漏注入即静默注册到全局 ipcMain，同时绕过 isTrustedSender 来源校验与许可证/权益门禁。
+      # 本卡点固化单一口径（递归 electron 全量 .handle 注册点），并做双校验：
+      #  1) 清单式：不可判定注册点必须逐条登记在 electron/ipc-guard-exemptions.json（陈旧条目同样失败）；
+      #  2) 比例式：显式 withSenderCheck 占比不得低于清单里的 minGuardedRatio（只允许上调）。
+      # global/fallback 两类绕过路径不可豁免。本地同口径：node .github/scripts/check-ipc-sender-guard.js
+      - name: "Gate 17 - IPC sender guard coverage (ipc-handlers + services)"
+        run: |
+          node --test .github/scripts/check-ipc-sender-guard.test.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .github/scripts/check-ipc-sender-guard.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # --- Gate 18: 管理后台会话卫生（体检报告问题 15 / P1-15）---
+      # 事故背景：POST /api/auth/login 把 HS256 JWT 放在响应体，前端存 localStorage 并手工拼
+      # Authorization 头 ⇒ 任意 XSS 即可外带管理员凭据接管会话；且 7 个 view 各自复制这份样板，
+      # 加固只能逐文件改，漏一个就留一个洞（历史上「一处改不全」正是这套重复结构导致的）。
+      # 修复口径：凭据只走后端下发的 HttpOnly + SameSite=Lax Cookie；写操作叠加自定义头
+      # X-Ops-Session；CSP 三层下发（后端中间件 / nginx 模板 / vite dev 插件）。
+      # 本卡点把这些口径固化为静态不变量（含「合规 fixture 必须绿」的门禁自证测试）。
+      # 本地同口径：node .github/scripts/check-ops-session-hygiene.js
+      - name: "Gate 18 - ops-center session hygiene (HttpOnly cookie + CSRF header + CSP)"
+        run: |
+          node --test .github/scripts/check-ops-session-hygiene.test.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .github/scripts/check-ops-session-hygiene.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
   unit-tests:
     name: QG Unit Tests
     runs-on: windows-latest

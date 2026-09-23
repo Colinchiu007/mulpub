@@ -188,3 +188,90 @@ it('shot-library: resolveRef 未知 token 返回 unknown', () => {
   const r = lib.resolveRef('ffffffff-0000-4000-8000-000000000000')
   expect(r.kind).toBe('unknown')
 })
+
+// ---------- film-full-corpus-production 任务 4.1：listShots 分页契约 ----------
+const { FULL_LOAD_LIMIT, MAX_PAGE_LIMIT, DEFAULT_PAGE_LIMIT } = require('./shot-library')
+
+function makeBigLibrary (n) {
+  const shots = []
+  for (let i = 0; i < n; i++) shots.push({ shotId: 'shot-' + i, sceneId: 'big', prompt: 'p' + i, model: 'm', refTokens: [] })
+  const manifest = {
+    schemaVersion: 1,
+    filmMeta: { title: 't', durationSec: 1, logline: 'l', characters: [{ name: 'A' }] },
+    scenes: [{ id: 'big', name: 'Big', count: n, parentId: null, level: 0 }],
+  }
+  const kit = {
+    manifest,
+    shots,
+    references: {},
+    doctrine: { blocks: [], rules: [], glossary: [] },
+    shotById: new Map(shots.map((x) => [x.shotId, x])),
+    sceneIndex: new Map([['big', manifest.scenes[0]]]),
+    shotSceneIndex: new Map([['big', shots]]),
+  }
+  return new ShotLibrary({ kit })
+}
+
+it('分页：不传 opts 返回全量数组（精选模式回归锚）', () => {
+  const lib = makeBigLibrary(10)
+  const r = lib.listShots('big')
+  expect(Array.isArray(r)).toBe(true)
+  expect(r.length).toBe(10)
+})
+
+it('分页：场景数超 FULL_LOAD_LIMIT 未传分页参数 → 报错提示分页（不空数组冒充）', () => {
+  const lib = makeBigLibrary(FULL_LOAD_LIMIT + 1)
+  expect(() => lib.listShots('big')).toThrow(/分页/)
+})
+
+it('分页：limit/offset 返回页封装 {shots,total,limit,offset}', () => {
+  const lib = makeBigLibrary(501)
+  const page = lib.listShots('big', { limit: 10, offset: 0 })
+  expect(page.total).toBe(501)
+  expect(page.limit).toBe(10)
+  expect(page.offset).toBe(0)
+  expect(page.shots.length).toBe(10)
+  expect(page.shots[0].shotId).toBe('shot-0')
+  expect(page.shots[9].shotId).toBe('shot-9')
+})
+
+it('分页：末页半页与 offset 越界空页（total 仍真实）', () => {
+  const lib = makeBigLibrary(501)
+  expect(lib.listShots('big', { limit: 10, offset: 495 }).shots.length).toBe(6)
+  const small = makeBigLibrary(6)
+  const over = small.listShots('big', { limit: 10, offset: 100 })
+  expect(over.shots).toEqual([])
+  expect(over.total).toBe(6)
+})
+
+it('分页：limit 服务端上限钳制 MAX_PAGE_LIMIT，缺省 DEFAULT_PAGE_LIMIT', () => {
+  const lib = makeBigLibrary(600)
+  const clamped = lib.listShots('big', { limit: 100000 })
+  expect(clamped.limit).toBe(MAX_PAGE_LIMIT)
+  expect(clamped.shots.length).toBe(MAX_PAGE_LIMIT)
+  const dflt = lib.listShots('big', {})
+  expect(dflt.limit).toBe(DEFAULT_PAGE_LIMIT)
+  expect(dflt.shots.length).toBe(DEFAULT_PAGE_LIMIT)
+})
+
+it('分页：非法 limit/offset 拒绝（非整数/负数/非数字）', () => {
+  const lib = makeBigLibrary(10)
+  expect(() => lib.listShots('big', { limit: 0 })).toThrow()
+  expect(() => lib.listShots('big', { limit: -5 })).toThrow()
+  expect(() => lib.listShots('big', { limit: 1.5 })).toThrow()
+  expect(() => lib.listShots('big', { offset: -1 })).toThrow()
+  expect(() => lib.listShots('big', { offset: 'x' })).toThrow()
+})
+
+it('分页：未知 sceneId 在分页模式仍抛错（不空数组冒充）', () => {
+  const lib = makeBigLibrary(10)
+  expect(() => lib.listShots('no-such', { limit: 10 })).toThrow(/场景不存在/)
+})
+
+it('分页：页内 shot 与全量 _toPublic 字段同构', () => {
+  const lib = makeBigLibrary(3)
+  const page = lib.listShots('big', { limit: 3 })
+  expect(Object.keys(page.shots[0]).sort().join(',')).toBe(
+    Object.keys(lib.listShots('big')[0]).sort().join(','),
+  )
+})

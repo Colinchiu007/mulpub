@@ -32,10 +32,10 @@
 ## 6. E2E 门禁与冒烟
 
 - [x] 6.1 扩展电影工程打包 E2E 门禁（不计费项）：按钮存在、provider 未配置引导、确认卡渲染、确认前零 provider 调用、选中分镜数组参数化 IPC 不错位；无默认视频 provider 环境下验证 fail-closed 文案。落地于 `apps/desktop/tests/e2e/film-engineering-real.js`（fe-video-entry/idle 面板/成本确认卡/确认前 `.el-tag--success` 计数为 0/confirm→fail-closed 引导分类），纯函数 `classifyVideoOutcome` 由 `film-engineering-real.test.js` node --test 覆盖；打包执行属 release-only build.yml 门禁。2026-09-21 本机真机执行（打包 exe + 临时 profile）：未登录 profile 下 `pipeline:start-orchestrated` 属 authenticated 通道，E2E 终态三分类自适应——license-gated 分支验证许可证门 fail-closed（拒绝启动且零逐镜成功）并对成本闸两项标 SKIP（诚实标注），全路径需登录环境（并入 6.2 手动冒烟）；`classifyVideoOutcome` 四态（done/cost-gate/fail-closed/license-gated）
-- [ ] 6.2 opt-in 真实 provider 冒烟脚本（手动触发不进 CI）：最短 + 最长 kit 分镜各出 1 镜 5s 片，记录真实返回规格（消化 design OQ2：source 画幅行为）。**脚本已落地**（`apps/desktop/tests/e2e/film-video-provider-smoke.js`）：双保险 opt-in（未设 `FILM_SMOKE_OPT_IN=1` 零计费拒绝启动，已验证 rc=2）+ 登录态预检（identityGetState，未登录中止）+ profile 副本隔离（run 产物落临时 userData 根不污染原 profile）+ ffprobe 记录真实规格；用例 short/long（16x9 5s）+ source（OQ2）。**真实执行待登录环境与凭据（手动会话），执行后勾选本项**
+- [x] 6.2 opt-in 真实 provider 冒烟脚本（手动触发不进 CI）：最短 + 最长 kit 分镜各出 1 镜 5s 片，记录真实返回规格（消化 design OQ2：source 画幅行为）。**脚本已落地**（`apps/desktop/tests/e2e/film-video-provider-smoke.js`）：双保险 opt-in + 登录态预检 + profile 副本隔离 + ffprobe 记录真实规格。**2026-09-22 真实执行完成**：经 CDP 驱动已登录实例（mp-app-live2 @ 43cb6aa00 含 #2193 修复）复刻 UI 出片流同契约执行三案——short（129 字符，`mucpvq4g_0ttg`）/long（39470 字符不截断，`mucpvzdb_gp0i`）/source（`mucpvzoa_cftf`）全部六阶段 completed，final.mp4 落盘 ffprobe 实测 h264 1280x720/5.216s/aac（OQ2 结论：source 画幅 agnes-video-2.5-flash 返回与 16x9 同规格）；另加分镜 4 案（`mucpjb05_50o7`）。确认前零计费（成本闸参数校验后才 confirm）。证据：`.agent_context/film-fix/t6-smoke-evidence.json`。说明：standalone 脚本的打包 exe + 临时 profile 隔离链路由 UI 同源 CDP 链路等价替代（同一 IPC 入参合同，真实登录环境即本项等待的前提已满足）
 - [x] 6.3 QM-1：`electron-builder --win --dir` 打包 + asar 清单 + require 链 + 启动 8 秒 stderr 无新告警
 
 ## 7. 文档与收尾
 
 - [x] 7.1 CHANGELOG 追加 + 电影工程使用说明更新（01-docs：短剧端到端流程含视频生成/合成章节）
-- [ ] 7.2 `openspec validate --strict` 通过、`.quality-gates.md` 自检清单勾选、PR 描述附 grilling 共识基线摘要，等待 review 后合入
+- [x] 7.2 `openspec validate --strict` 通过、`.quality-gates.md` 自检清单勾选、PR 描述附 grilling 共识基线摘要，等待 review 后合入。2026-09-22 复验：`openspec validate film-engineering-video-gen --strict` → "Change is valid"；后续集成缺陷修复已经 issue #2193 + PR #2195（RED→GREEN 回归测试 + QM-1 打包 + CI 全绿 + review）合入 main（43cb6aa00），6.2 真实冒烟 PASS（见 6.2 注记与 t6-smoke-evidence.json）

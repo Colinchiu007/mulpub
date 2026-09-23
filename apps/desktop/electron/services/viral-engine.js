@@ -230,7 +230,13 @@ class ViralEngine {
   }
 
   registerIpcHandlers (injectedIpcMain) {
-    const ipcMain = injectedIpcMain || require("electron").ipcMain;
+    // P1-14：必须注入 access-controlled ipcMain（createAccessControlledIpcMain）。
+    // 禁止回退全局 ipcMain —— 那会同时绕过 isTrustedSender 来源校验与许可证/权益门禁，
+    // 且在纯 Node（单测）下退化成无信息量的 TypeError。未注入即 fail-closed 抛错。
+    if (!injectedIpcMain) {
+      throw new Error('[IPC] viral-engine registerIpcHandlers 需要注入受控 ipcMain（禁止使用全局 ipcMain）');
+    }
+    const ipcMain = injectedIpcMain;
     ipcMain.handle('viral:analyze', async (event, arg) => {
       if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
       const { articles, topic } = arg

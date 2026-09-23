@@ -393,3 +393,13 @@ searchViralItems / ViralLibraryTable / F7 回读
 | F3 热榜并源 | 双源皆空→今日空态卡 | 800ms 内联 loading 骨架 | 热榜失败→纯本地降级（与今日一致） | 400 条截 12+滚动 |
 | 卡片队列 | 正常无感 | — | 计数查询失败→不阻塞入库 | >500→deferred 提示条 |
 | P2 强度注入 | 样本<3→段不注入 | — | sessionStorage 读失败→改写照常无锚点 | JSON 脏数据全字段 sanitize |
+
+## 附录 C：第四链路（回采→写回爆款库）线上闭合实证（2026-09-23，mp-app-live2）
+
+§4.1 P1-a「回采写回爆款库」由单测契约升级为**线上运行层面实证**：在 live 实例上以「种子数据 + 强制触发 + 真实公开 API」三件套完成——停机灌 `viral_library` 基线（likes=NULL）+ `tracked_content`（pending，指向真实热门 B站视频 `BV1YDhJ6ZEL6`）→ 重启 → CDP 调 `triggerPerformanceRecrawl({force:true})`（PR #2210 调试入口）→ bilibili parser 走免登录公开 API `x/web-interface/view` 取真实互动 → `_writeBackViral` 按 norm_url 命中种子行写回。
+
+**实测结果**：likes NULL→111,760、comments NULL→8,774（NULL→可补规则真实生效）、tracked pending→ok、新增 source=auto 快照一条；CDP 内存读回与 db 文件盘上读回双确认。**AC-P1-1 单调不减 + norm 匹配经真实数据通过**。
+
+**架构约束发现（写入即长期事实）**：store 为 sql.js 内存库（启动读一次文件进内存、每 5s 脏时整库 export→rename 覆盖回文件），运行期间外部直写 db 文件不可见且会被覆盖——任何修数/灌数操作必须走「停 app → 外部写（node:sqlite）→ 重启」范式。回采写回仅覆盖 platform-metrics 已注册 4 平台（zhihu/baijiahao/kuaishou/bilibili），其中快手/B站为视频平台，图文发布链路产不出可回采锚点，「不灌种子的自然闭环」为后续专项（登记不做清单外待办）。
+
+完整证据表与操作留痕见 `PRD-RECRAWL-TRIGGER-DEBUG-2026-09-22.md` §7；坑与可复用结论见 `learnings.md` 同日条目（viral-fourth-link-live-verification）。种子行经用户决定保留为常态验证样本，热备份在 `shared-user-data.backups\seed-<ts>\`。

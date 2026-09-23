@@ -1,0 +1,29 @@
+history count 65
+---- mud3of33_au2q failed undefined 2026-09-22T20:01:58.623Z
+  size 82214  errors: "error":"Story2Video optimize failed: Story2Video 场景 12 prompt-engine 优化失败: Error code: 429 - {'error': {'code': '', 'message': '您已达到免费用户的 API 速率限制。升级 Token Plan 即可解锁更高限额，继续不间断使用 API。 (request id: 202609222002
+    "error":"Story2Video optimize failed: Story2Video 场景 12 prompt-engine 优化失败: Error code: 429 - {'error': {'code': '', 'message': '您已达到免费用户的 API 速率限制。升级 Token Plan 即可解锁更高限额，继续不间断使用 API。 (request id: 202609222002
+  keys: runId,pipeline,status,currentStage,stages,context,checkpoint,orchestrationMode,createdAt,endedAt,error,projectId,outputSizeBytes,activeMs,activeSegmentStartedAt,elapsedActiveMs
+  text snippet: "text":"把手机膜撕掉，你的苹果可能更贵。我知道，听到这句话，你脑子里大概已经炸开了锅。","language":"zh","tier":"tier2_semantic","confidence":1,"char_count":39,"is_topic_boundary":false,"topic_depth_s
+---- mud3opae_7h2j failed undefined 2026-09-22T20:02:11.846Z
+  size 85067  errors: "error":"Story2Video optimize failed: Story2Video 场景 9 prompt-engine 优化失败: Error code: 429 - {'error': {'code': '', 'message': '您已达到免费用户的 API 速率限制。升级 Token Plan 即可解锁更高限额，继续不间断使用 API。 (request id: 2026092220024
+    "error":"Story2Video optimize failed: Story2Video 场景 9 prompt-engine 优化失败: Error code: 429 - {'error': {'code': '', 'message': '您已达到免费用户的 API 速率限制。升级 Token Plan 即可解锁更高限额，继续不间断使用 API。 (request id: 2026092220024
+  keys: runId,pipeline,status,currentStage,stages,context,checkpoint,orchestrationMode,createdAt,endedAt,error,projectId,outputSizeBytes,activeMs,activeSegmentStartedAt,elapsedActiveMs
+  text snippet: "text":"“最信任的人，递给了刀”。","language":"zh","tier":"tier2_semantic","confidence":1,"char_count":13,"is_topic_boundary":false,"topic_depth_score":0},{"index":1,"text"
+---- mud3rhrf_zkvf failed undefined 2026-09-22T20:04:22.059Z
+  size 75794  errors: "error":"Story2Video optimize failed: Story2Video 场景 0 prompt-engine 优化失败: Error code: 429 - {'error': {'code': '', 'message': '您已达到免费用户的 API 速率限制。升级 Token Plan 即可解锁更高限额，继续不间断使用 API。 (request id: 2026092220043
+    "error":"Story2Video optimize failed: Story2Video 场景 0 prompt-engine 优化失败: Error code: 429 - {'error': {'code': '', 'message': '您已达到免费用户的 API 速率限制。升级 Token Plan 即可解锁更高限额，继续不间断使用 API。 (request id: 2026092220043
+  keys: runId,pipeline,status,currentStage,stages,context,checkpoint,orchestrationMode,createdAt,endedAt,error,projectId,outputSizeBytes,activeMs,activeSegmentStartedAt,elapsedActiveMs
+  text snippet: "text":"东京体育馆的灯光依旧璀璨，聚光灯像是一道道金色的利剑，直直刺在领奖台的中央。","language":"zh","tier":"tier2_semantic","confidence":1,"char_count":38,"is_topic_boundary":false,"topic_depth_sc
+---- mud3so7t_eq9w failed undefined 2026-09-22T20:05:17.082Z
+  size 115517  errors: "error":"Story2Video optimize failed: Story2Video 场景 20 prompt-engine 优化失败: Error code: 429 - {'error': {'code': '', 'message': '您已达到免费用户的 API 速率限制。升级 Token Plan 即可解锁更高限额，继续不间断使用 API。 (request id: 202609222006
+    "error":"Story2Video optimize failed: Story2Video 场景 20 prompt-engine 优化失败: Error code: 429 - {'error': {'code': '', 'message': '您已达到免费用户的 API 速率限制。升级 Token Plan 即可解锁更高限额，继续不间断使用 API。 (request id: 202609222006
+  keys: runId,pipeline,status,currentStage,stages,context,checkpoint,orchestrationMode,createdAt,endedAt,error,projectId,outputSizeBytes,activeMs,activeSegmentStartedAt,elapsedActiveMs
+  text snippet: "text":"凌晨三点，医院走廊的日光灯滋滋作响，像是要把人的神经也撕扯开，林兰香跪在地上，额头抵着冰冷的瓷砖，浑身抖得像筛糠一样。","language":"zh","tier":"tier2_semantic","confidence":1,"char_count":59,"is_topic_boundary":
+---- mud3qym8_6spq completed undefined 2026-09-22T20:03:57.248Z
+  size 320821  errors: 
+  keys: runId,pipeline,status,currentStage,stages,context,checkpoint,orchestrationMode,createdAt,endedAt,error,projectId,outputSizeBytes,activeMs,activeSegmentStartedAt,elapsedActiveMs
+  text snippet: "text":"凌晨两点的西北戈壁，风沙像刀片一样刮过帐篷，老张蹲在太阳能板旁，手冻得发红，指节僵硬得弯不过来。他盯着那块刚装好的兆瓦级电站监控屏，数据在跳，功率曲线完美得让人想哭。","language":"zh","tier":"tier2_semantic","confidence":1,"char_count"
+---- mtelxg9v_v5d6 failed undefined 2026-08-30T15:21:26.440Z
+  size 36  errors: 
+  keys: code,message
+  text snippet: NO TEXT FIELD

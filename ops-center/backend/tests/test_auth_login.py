@@ -43,6 +43,10 @@ async def setup_db(monkeypatch):
     # 清理跨用例共享的登录失败计数
     _auth_svc._login_attempts.clear()
 
+    # P1-15：httpx 的 cookie jar 在 http://test 上不会回传 Secure cookie，
+    # 本文件统一关闭 Secure（Secure 语义由 test_p1_15_session_cookie.py 专测）。
+    monkeypatch.setattr(settings, "session_cookie_secure", False)
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -66,17 +70,40 @@ def _client():
 
 
 @pytest.mark.asyncio
-async def test_login_success_returns_token_and_me():
+async def test_login_success_sets_session_cookie_and_me():
+    """P1-15 契约变更：登录不再回传 token，凭据只落在 HttpOnly 会话 Cookie 里。
+
+    历史断言 `data["token"]` 锁住的正是本次要消除的缺陷面（token 出库 → 前端存
+    localStorage → 任意 XSS 即可外带并接管管理员会话），因此这里改为双重断言：
+      - 响应体**不得**含 token / access_token；
+      - 会话可用性改由浏览器自动携带的 Cookie 证明（含 CSRF 头名回传）。
+    """
     async with _client() as client:
         resp = await client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
         assert resp.status_code == 200, resp.text
         data = resp.json()
         assert data["role"] == "admin"
         assert data["username"] == "admin"
-        token = data["token"]
-        # /me 受保护可用
+        assert "token" not in data and "access_token" not in data, "JWT 不得再出现在响应体"
+        assert data["csrf_header"] == settings.csrf_header
+        assert data["expires_in"] == settings.get_session_max_age_seconds()
+
+        # /me 受保护可用（凭 Cookie 会话，无需手工拼 Authorization 头）
+        me = await client.get("/api/auth/me")
+        assert me.status_code == 200, me.text
+        assert me.json()["username"] == "admin"
+        assert me.json()["role"] == "admin"
+
+
+@pytest.mark.asyncio
+async def test_bearer_channel_regression_for_desktop():
+    """Bearer 通道回归：桌面端 / 脚本仍可用 Authorization 头，不依赖 Cookie。"""
+    from services.auth_service import create_access_token
+
+    token = create_access_token("admin")
+    async with _client() as client:
         me = await client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
-        assert me.status_code == 200
+        assert me.status_code == 200, me.text
         assert me.json()["username"] == "admin"
         assert me.json()["role"] == "admin"
 
