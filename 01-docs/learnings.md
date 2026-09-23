@@ -1,3 +1,16 @@
+## 并发 PR 让新门禁「落地即失效」：行数棘轮的正确处置（2026-09-23，audit-maxlines-logs）
+
+- **新立的全仓状态型门禁，会在交叉合入时静默失效（pitfall，最高优先）**：`check-max-lines.js` 随 #2252 在 02:24:30Z 落地，#2262 在 02:30:10Z 落地，但后者的 CI 跑在门禁存在之前 → main 上立刻出现 598 行的 `LogsSettings.vue` 且不在挂账清单。症状不是「main 红」而是**之后每个 PR 的 CI 红在无关项上**（`pull_request` 事件检出的是与 base 合并后的树，docs-only PR 也躲不掉）。结论：门禁落地的**同批**就要定义「main 变更后复跑」的动作，不能只看 PR 当时绿。
+- **`--update` 是棘轮的对偶命令，顺手一跑就是开门（pitfall）**：#2262 把聚合基线 `filesOver500` 从 99 抬到 100 让 CI 过关；而逐文件门禁的语义恰恰是「新文件超限必须拆，不许挂账」。更隐蔽的是第二次：#2249 为了让自己 PR 绿，把 `LogsSettings.vue: 598` 登记进了逐文件挂账清单 —— 一次 `--update` 就把「新增超限必须拆」实质变成了「挂个账就能长期停在这个体量」。
+- **还债时的清账要外科式，只删自己那条（pattern）**：文件降到阈值下后，门禁会提示「已降到 500 行以下……请 `--update` 清账」，但整份 `--update` 会一并把 main 上其它存量文件的漂移值重新登记（本次探测到约 10 个文件有 < 200 行增长，都卡在容差内所以门禁不响，但 `--update` 会把它们固化成新基线）。正确做法是只删对应那一个键，并用断言锁住 diff 形状（严格 `-1/+0`、无新增键、无登记值变化）；聚合基线 `scripts/debt-baseline.json` 同理，只允许 `filesOver500` 100 → **99** 这一个字段变化，出现任何非预期字段就整体回滚。
+- **抽离类改动的红验证要按「接线点」逐个植入（pattern）**：新旧测试全绿只证明「组件内部逻辑没写坏」，不证明「拆分没漏接线」。三个变异：① 摘父页面 `<CacheCleanupSection />` 标签 → 接线测试红；② 摘子组件 `onMounted(loadCache)` → 卡片契约测试红 3 例；③ 改共享 util 一个口径分支 → 口径测试红。守护拆分的是**接线测试**，不是快照。
+- **迁移正文用原文切片，不手抄（pattern）**：模板/函数/样式全部用「唯一锚点区间切片」从父文件搬到子文件，只有别名（`cacheClearRequest` → `cacheClear`）与依赖注入点重写。锚点唯一性 + 「父文件不得再出现被迁符号」的反向断言，比人工对照可靠得多；顺手踩到一个坑：切片被改名后再拿去做删除匹配会 0 命中，必须「父文件用原文、子文件用改名后副本」。
+- **scoped 样式不跨组件继承，拆分必然带来少量 CSS 重复（trade-off）**：14 条卡片基元样式被复制到子组件。备选（提到全局 / `@import` 进 scoped）都会扩大样式作用面，与「局部样式局部落地」的既有约定冲突，故选择重复并在文件内注明来源。
+- **worktree 缺 node_modules 时用主仓目录做 junction（pattern，Windows）**：`New-Item -ItemType Junction` 指向主仓 `node_modules` 与 `apps/desktop/node_modules` 两处即可跑 vitest/eslint/tsc，省一次全量 `npm ci`（大仓一次安装的成本远大于一个链接）。
+- **PowerShell 三连坑复现（pitfall）**：`&&` 不可用；`"$var = ..."` 形式的变量在工具层被吞（改为脚本内变量或字面量路径）；`Set-Content -Encoding UTF8` 会写 BOM，污染 `git commit -F` 的主题 —— 提交信息一律用 python `io.open(..., encoding='utf-8', newline='')` 写。
+
+---
+
 ## 门禁与 rebase 的自我反噬：9 个可复用口径（2026-09-22，audit-p2-debt / 第 4 批）
 
 - **新门禁必须先过自己的新代码（pitfall）**：本批刚立起「单文件 > 500 行」棘轮，同一批的等待条件化改造就把 `url-collector.js` 顶到 547 行。处置是**拆文件**（新增 `url-collector-page-wait.js` 133 行 + 主文件留 1 行薄委托 → 489 行），而不是给主文件加豁免或放宽基线；同时把「不得再出现 `page.waitForTimeout(`」「必须 require 新模块」「probe 走 `waitForFunction`」写成用例里的静态不变量，防止委托被回滚。

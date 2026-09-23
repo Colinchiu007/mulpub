@@ -38,7 +38,6 @@
     "apps/desktop/electron/services/webview-manager.js": 1488,
     "apps/desktop/src/api/publisher.js": 501,
     "apps/desktop/src/components/AiWriterPanel.vue": 642,
-    "apps/desktop/src/components/LogsSettings.vue": 598,
     "apps/desktop/src/components/ProfileMenu.vue": 606,
     "apps/desktop/src/composables/useBatchPublish.js": 622,
     "apps/desktop/src/composables/useModelProviderCrud.js": 609,

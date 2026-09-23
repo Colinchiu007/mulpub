@@ -1,3 +1,23 @@
+# [未发布] refactor(desktop): 缓存清理卡片抽为独立组件，恢复逐文件行数门禁（audit 收尾·门禁逃逸）
+
+### 变更
+- **`LogsSettings.vue` 598 → 468 行，`NEW_OVER_LIMIT` 清零**：把 #2262 新增的「缓存清理」整卡（模板 + 状态 + `cacheItemLabel`/`loadCache`/`clearCache` + `.cache-*` 样式）原文切片抽离为 `apps/desktop/src/components/CacheCleanupSection.vue`（229 行），父页面只留 `<CacheCleanupSection />` 一行接线，与既有 `NetSchedDiagnose.vue` 抽离范式一致。
+- **`formatBytes` 收敛为单一实现**：新增 `apps/desktop/src/utils/bytes.js`，父页面日志统计与缓存卡片共用同一换算（原先内联在 `LogsSettings.vue`，抽卡时若复制会产生两份口径）。
+- **不放宽门禁，只清自己还掉的账**：`LogsSettings.vue` 降到 468 行后，逐文件挂账清单 `.github/scripts/max-lines-baseline.json` 里那条 `598` 变成僵尸条目，门禁自身提示「已降到 500 行以下……请 `--update` 清账」——本次按该提示**外科式删除该单键**（diff 严格 `-1/+0`），**没有**顺手 `--update` 整份清单（main 上另有约 10 个存量文件有 < 200 行的漂移增长，整体刷新等于替别人把基线抬高）。聚合基线 `scripts/debt-baseline.json` 的 `filesOver500` 由 100 **降**到 99，其余指标逐字段核对未漂移。
+- **逃逸根因（QM-5）**：门禁随 #2252 于 02:24:30Z 落地，#2262 于 02:30:10Z 落地但其 CI 跑在门禁之前，于是 `LogsSettings.vue` 473 → 598 无人拦截，同 PR 还把聚合基线 `filesOver500` 从 99 `--update` 到 100（等于用「经审查的降债命令」给净增债务开门）。后果不是 main 显红，而是 **main 之后任何 PR 的 merge-preview 都判红**（`pull_request` 事件跑的是与 base 合并后的树），docs-only PR 也被卡住 —— 本次 #2270 复盘 PR 正是被这一条卡住。随后 #2249 又用一次 `--update` 把 `LogsSettings.vue: 598` 登记进逐文件挂账清单让 CI 过关（第二次开门：把「新增超限必须拆」变成了「挂个账就能长期停在这个体量」），本次把这条账真正还掉。
+- **顺带登记的历史疑点**：`.feedback-error { background: var(--color-bg-card)1f0; }` 是非法声明（值被截断），`git log -S '1f0'` 唯一命中 `299ef43b7e`（远早于本次审计），不属体检报告条目，留作后续单独处置，本 PR 不夹带。
+
+### 验证
+- 门禁红→绿（同一条命令、同一台机器）：修复前 `node .github/scripts/check-max-lines.js` rc=1（`NEW_OVER_LIMIT: apps/desktop/src/components/LogsSettings.vue 598 行 >= 500`）；清账后 rebase 到 origin/main(`89682d9ed4`) 复跑四项全绿：`check-max-lines.js` rc=0（`超限文件=99 挂账=99 ✅ 无新增超大文件，挂账清单与现实一致`）、`node --test .github/scripts/check-max-lines.test.js` rc=0（含「真实仓现状：挂账清单与扫描结果一致」主断言）、`check-debt-budget.js` rc=0（`filesOver500: 99 (baseline: 99)`）、`check-font-size-scale.js` PASS（当前 33 / 基线 790，新组件零 `font-size` 字面量，全部走 `var(--font-size-*)`）。
+- 新增测试 3 文件 10 例：`utils/bytes.test.js`（3：非有限/0/负数一律 `0 B`、B 档取整 KB 起两位、GB 为最大档）、`components/CacheCleanupSection.test.js`（5：挂载即 `cacheGetStats` 并按 `formatBytes` 渲染总大小与 i18n 明细名、无缓存时清理按钮禁用 + 空态、清理成功后二次拉取并播报 `clearedToast{size}`、`code!=0` 给失败 toast 不静默、IPC 降级不抛异常）、`components/LogsSettings.test.js`（2：抽离后 `[data-testid="cache-cleanup-section"]` 仍挂载且子组件请求照常发出、父页面继续用共享 `formatBytes` 渲染 `2.00 KB`）。既有 `SettingsDialog.test.js` 连带复跑：rebase 后目标集 4 文件 `Test Files 4 passed (4) / Tests 15 passed (15)`。
+- QM-5 变异（拆分风险按接线点逐个植入，还原后 10 passed）：MUT-A 摘父页面子组件标签 → `LogsSettings.test.js` 1 failed；MUT-B 摘子组件 `onMounted(loadCache)` → `CacheCleanupSection.test.js` 3 failed；MUT-C 把 `formatBytes` 的 B 档改成两位小数 → `bytes.test.js` 1 failed。
+- ESLint（改动 6 文件，`--format json`）0 error 0 warning；`tsc -p tsconfig.check.json --noEmit` 全量错误集中，涉及 `LogsSettings.vue`/`CacheCleanupSection.vue`/`utils/bytes.js` 的条目为 0（main 侧既有 ~1231 条错误全部位于未触碰文件，不在本次范围）
+
+### 关联
+- 分支 `codex/audit-maxlines-logs`（worktree 隔离，D 盘）；文档同步 `01-docs/PRD-CACHE-CLEANUP-2026-09-23.md`（§3.5 组件归属、新增 §3.8 组件结构与行数门禁、§6 测试清单）；反哺 `01-docs/learnings.md`「并发 PR 让新门禁落地即失效」。
+- 上游：#2252（引入逐文件行数门禁）、#2262（被拦对象）；下游解阻：#2270 复盘 PR、P0-8 未展开字面量补漏 PR（均因本条门禁红而 auto-merge BLOCKED）。
+
+---
 # [未发布] fix(ui): 全站 emoji 功能图标收敛为 Element Plus 线性图标
 
 ### 变更
