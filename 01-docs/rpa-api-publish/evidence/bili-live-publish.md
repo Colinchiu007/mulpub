@@ -3,6 +3,8 @@
 ## 结论
 「热门选题 → 一键生成视频 → 发布到自媒体平台」端到端链路，已在 **B站** 以 **Cookie + 官方创作者域名 HTTP API（upos 链）** 方式**真实发布成功并通过独立回查核验**。全程仅直连 `member.bilibili.com` / `api.bilibili.com`，未调用任何第三方（含蚁小二 `qianming.yixiaoer.cn`）远程服务。
 
+**复现性**：同一条链路连发 2 条均成功（topic01 敏感社会题材 + topic02 中性体育题材），证明链路稳定、非偶发。
+
 ## 发布产物
 | 项 | 值 |
 |----|----|
@@ -12,6 +14,8 @@
 | 标题 | 13岁女孩遭强奸案闺蜜被认定为共犯（选题 topic01） |
 | 视频 | pub-topic01-720p.mp4，6,705,084 B，时长 219s |
 | 账号 | mid=3747542357510297（奔跑的丘丘） |
+
+第二条（复现，中性选题）：bvid=`BV1DxhW6hEwZ`、aid=`117318055106795`、标题「汪顺400混的含金量」（topic02）、URL https://www.bilibili.com/video/BV1DxhW6hEwZ 。
 
 ## 独立回查（非发布响应自证）
 `GET https://api.bilibili.com/x/web-interface/view?bvid=BV1MahW6tE36`

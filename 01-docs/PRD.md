@@ -16951,3 +16951,44 @@ is_default: 1
 | 合同保持 | preserve（全渠道零结果）原样返回不评分不重排；boost 聚合在 preserve 之前的 v2 铁律不触碰；去重算法/收藏/批量创作零改动 |
 | 提示文字 | hotTopics.multiBadge/multiBadgeTip/heatScoreTip/trendUp/trendDown/trendNew（zh/en 成对 6 键） |
 | 验收 | scorer 22 + service 新增 7 + UI 新增 6 全绿，既有 100+ 回归零破坏；eslint/locale-sync/debt 门禁 PASS；PRD §6 十条验收标准 |
+
+
+---
+
+## 2026-09-23 · B站 Tier-A「Cookie + 官方创作者域名 HTTP API」视频发布引擎（活体验证成功）
+
+> 关联技术方案：[rpa-api-publish/蚁小二式多账号API发布技术方案.md](./rpa-api-publish/蚁小二式多账号API发布技术方案.md) ｜ 活体证据：[rpa-api-publish/evidence/bili-live-publish.md](./rpa-api-publish/evidence/bili-live-publish.md)
+
+### 背景与动机
+「热门选题 → 一键生成视频 → 发布到多平台」E2E 链路中，DOM 点击式（RpaViewManager）视频上传/发布在各平台表现脆弱（文件选择器、发布按钮定位、作品 ID 回填等不稳定），本轮实跑未达成功。经逆向蚁小二 8.4MB bundle 确认其发布引擎本质是 **Cookie + 直接调用平台官方创作者域名 HTTP API**，遂对 **B站（Tier-A：签名自包含，不依赖任何第三方远程签名服务）** 落地 API 式发布，并端到端活体验证。
+
+### 技术路线（更新 §2.2）
+- **B站视频发布由「API 模式预留（Python）」升级为主链路：Electron 主进程原生 HTTP API（无 Python、无第三方签名）**。
+- 引擎：`packages/api-publish-engine/src/adapters/bilibili.js`（`BasePlatformAdapter` 契约：uploadVideo → buildPostData → publish），经 `publisher-router.js` `ROUTE_TABLE.bilibili = { mode:'api' }` → `ApiPublisher` → `publishViaApi` 调度。
+- 上传链（upos）：`preupload?r=probe` → 逐 line 取 args(`endpoint/upos_uri/auth/biz_id`) → `init ?uploads` 得 `upload_id` → 8MiB 分片 `PUT` → `complete`（parts eTag 用字面量 `etag`）→ `POST /x/vu/web/add/v3`。
+- **合规红线**：全程仅 `member.bilibili.com` / `api.bilibili.com` 官方域名；CI 门禁禁止出现 `yixiaoer.cn` 等第三方签名/远程调用。
+
+### 数据校验（发布前）
+1. 视频文件存在性：`fs.existsSync(videoPath)`，缺失 → `BILI_NO_FILE`。
+2. **横版校验**（ApiPublisher 前置）：ffprobe 探测宽高，`width < height`（竖版）拒绝 API 发布并提示改用 RPA（竖版短视频场景）。
+3. 登录态：cookie 必须含 `bili_jct`（csrf）、`DedeUserID`（mid）；缺失即视为未登录。
+4. 文件大小透传：`size` 参数须与真实字节数一致（preupload/init/part/complete 全链一致）。
+5. add/v3 `videos[]` schema：**必须** `{cid: biz_id, desc:'', title, filename}`，`filename` = complete.location 去扩展名去 bucket 段；**禁止** `file`/`format` 字段（错误形态触发 `21015`）。
+
+### 功能逻辑与状态机
+- 成功判据：add/v3 返回 `code===0 && data.bvid` → `{success:true, publishId:bvid, aid, url:'https://www.bilibili.com/video/'+bvid}`。
+- 失败码归类：`601`→风控（见下）；`21015`→file 字段/上传形态错；`-1025/-1026`→登录态失效（cookieExpired:true，触发重新登录引导）；其余→通用失败并回传 message。
+
+### 交互逻辑 / 显示项 / 提示文字
+- **601 风控（账号/IP 级人工滑块验证，不可程序化绕过）**：
+  - 队列任务态显示「B站上传风控(601)」，错误文案：**「B站风控(601)：请先在创作者中心完成滑块验证后重试」**。
+  - 引导动作：打开 `member.bilibili.com` 创作者中心，手动完成一次滑块验证后重发即成功。
+- **登录失效**：提示「B站登录态失效，请重新登录」，账号项标红并提供一键重登入口。
+- **成功**：发布历史新增记录，作品列展示 bvid + 可点击跳转 `url`；结果通知「B站发布成功」。
+- **竖版视频走 API 被拒**：提示「竖版视频暂不支持 API 发布，请使用 RPA 发布」。
+
+### 活体验证结论（2026-09-23）
+同一条链路真实发布 **2 条**并通过独立 `web-interface/view` 回查（`code=0`、`state=0` 公开）：
+- topic01 → **bvid `BV1MahW6tE36`**（aid 117317988063126）
+- topic02 → **bvid `BV1DxhW6hEwZ`**（aid 117318055106795）
+证明链路稳定可复现，非偶发。回归单测 `packages/api-publish-engine/test/bilibili-upos.test.js`（5 例，纯逻辑不联网）。
