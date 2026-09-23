@@ -104,13 +104,25 @@ class BilibiliAdapter extends BasePlatformAdapter {
 
   async uploadCover() { return null; } // 留空 cover，B站自动截帧封面
 
+  // 去除标题/简介中的「自动发布」水印（括号包裹的整段 boilerplate）及其残留换行
+  _cleanText(t) {
+    if (t == null) return "";
+    return String(t)
+      .replace(/[（(][^（()）]*?(自动发布|一键发布工具|由多平台)[^（()）]*?[)）]/g, "")
+      .replace(/\s*\n\s*$/g, "")
+      .trim();
+  }
+
   buildPostData(taskData, uploadResult) {
     const video = (uploadResult && uploadResult.video) || {};
     const tags = (taskData.tags || []).map((t) => (typeof t === "string" ? t : t.name)).filter(Boolean);
+    // 内容纯净：简介/标题绝不允许携带「自动发布」类水印 boilerplate（用户硬要求）
+    const title = this._cleanText(taskData.title);
+    const desc = this._cleanText(taskData.content || taskData.desc);
     const tid = Number(taskData.category || taskData.tid) || 21; // 默认「日常」综合分区
     return {
-      copyright: 1, source: "", tid, title: taskData.title || "",
-      desc: taskData.content || taskData.desc || "", desc_format_id: 0,
+      copyright: 1, source: "", tid, title,
+      desc, desc_format_id: 0,
       tag: tags.join(","), dynamic: "", cover: taskData.coverUrl || "",
       no_reprint: 1, act_reserve_create: 0, lossless_music: 0, no_disturbance: 0,
       recreate: -1, web_os: 1, interactive: 0, open_elec: 0,

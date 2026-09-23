@@ -45,4 +45,19 @@ describe('bilibili Tier-A upos adapter (pure logic)', () => {
     expect(r.publishId).toBe('BV1TEST')
     expect(r.url).toBe('https://www.bilibili.com/video/BV1TEST')
   })
+
+  it('回归：简介/正文绝不携带「自动发布」水印（_cleanText 去括号 boilerplate）', () => {
+    const td = {
+      title: '汪顺400混的含金量（由多平台一键发布工具自动发布）',
+      content: '汪顺400混的含金量\n（由多平台一键发布工具自动发布）',
+    }
+    const body = a.buildPostData(td, { video: { objBase: 'k', bizId: 1 } })
+    const forbidden = ['自动发布', '一键发布工具', '由多平台']
+    for (const f of forbidden) {
+      expect(body.title).not.toContain(f)
+      expect(body.desc).not.toContain(f)
+    }
+    expect(body.title).toBe('汪顺400混的含金量')
+    expect(body.desc).toBe('汪顺400混的含金量')
+  })
 })
