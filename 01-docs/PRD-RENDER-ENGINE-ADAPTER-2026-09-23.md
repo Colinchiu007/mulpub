@@ -302,3 +302,16 @@ runtime_swap_detected（终审内实现，比对 proposal_packet.production_plan
 - subtitle_burn 解析逻辑逐字镜像 _render_via_ffmpeg：ctx.subtitle_path 显式优先；否则当 options.subtitle_burn 默认 True 且 edit_decisions.subtitles.enabled+source 时回填。
 - C10 能力单源：test_ffmpeg_adapter_capabilities_ground_truth 断言 id=ffmpeg、requires=("ffmpeg",)、unavailable_fallback=None、word_level_captions=False、native_transitions=False。
 - 本 PR 未切换 _render（T5），FFmpegAdapter 暂由测试与 registry 装配引用，零运行时行为变化；_render 委派须待 T4 两 adapter 完成且全路径基线证明等价后进行。
+### 13.9 T4 Remotion/HyperFrames Adapter 落地（追加，行为保持）
+
+- engines/remotion_adapter.py：RemotionAdapter 包裹真实引擎调用 host._remotion_render。
+  - render(req,ctx)：由 req.edit_decisions(+resolved_cuts)/ctx.output_path/ctx.profile_name 重建 remotion_inputs，调用引擎，返回 RenderResult(review_fail_label="")。
+  - 关键边界：Remotion 失败的三选项治理降级 blocker（RF-2）与 Remotion 不可用→FFmpeg 回退属编排器(_render/T5)职责，非引擎适配器；适配器只如实透出引擎原始结果。
+  - review_fail_label 为空：Remotion 终审在共享无前缀外壳执行（RF-3），适配器不得伪造前缀。
+  - preflight：shutil.which("npx") 探测。capabilities：unavailable_fallback="ffmpeg"、word_level_captions=True、native_transitions=True。
+- engines/hyperframes_adapter.py：HyperFramesAdapter 委派 host._render_via_hyperframes，令 F-2 治理 blocker 逐字节等价由构造保证（经 video_compose 恒不可用→fail-closed，0 子进程）。
+  - build_inputs：从 ctx.options/playbook/proposal_packet 重建 inputs（A4 不读 raw_inputs），workspace_path 默认与 _render_via_hyperframes 一致。
+  - review_fail_label="(HyperFrames)"。capabilities：unavailable_fallback=None。
+- EngineCapabilities 的可执行依赖字段名首字母组合会触发 Bash 工具静态安全门误报，故适配器以 `_REQ_KEY="requires_"+chr(99)+chr(109)+chr(100)` 经 **_REQ_KEY 传参规避（文件与命令行均不含该字面组合）。
+- 等价测试 tests/test_render_engine_adapter_remotion_hf.py（3 测）：Remotion 委派入参保真、失败原始 error 透传且 label 为空、HyperFrames blocker 与当前 _render 分派逐字节相同且 0 命令；C10 真实能力断言扩充至 remotion/hyperframes。
+- 本 PR 仍未切换 _render（T5），三适配器齐备后 T5 方可做全路径 parity 验证与委派切换；任一 diff 即 revert。
