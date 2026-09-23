@@ -86,6 +86,32 @@
 ### 3.7 账号资料与安全
 - 昵称/头像编辑、绑定手机/邮箱、修改密码：以 Logto 为身份真源，服务端提供 profile 更新与绑定接口。
 
+### 3.8 服务端实现模块结构与端点数据校验契约（2026-09-23 落地）
+
+**模块拆分（因逐文件行数门禁 check-max-lines 的 LEDGER_GREW 而按 mixin 范式拆出，对外 HTTP 契约零改动）：**
+
+| 文件 | 职责 |
+|------|------|
+| `packages/api-publish-engine/src/publish-api-server.js` | HTTP 路由与 `_handle` 派发链（1342 行） |
+| `.../src/auth/publish-api-commerce.js` | 商务/设备辅助方法 mixin（`applyCommerceHelpers` 原型描述符拷回 `PublishApiServer.prototype`）：`_commerceFailure` / `_memberUserId` / `_deviceIdFrom` / `_deviceNameFrom` / `_commerceRepository` |
+| `.../src/auth/safe-error-code.js` | 语义错误码守卫 `safeErrorCode`（共享 util，避免循环 require） |
+| `.../src/auth/postgres-identity-repository.js` | 身份仓储（446 行） |
+| `.../src/auth/postgres-commerce-store.js` | 商务数据访问层（兑换码/订单/订阅/权益快照/通知/设备会话的 SQL + `PostgresCommerceTransaction`，经 mixin 挂回仓储） |
+
+**端点鉴权 scope 契约：** `/api/v1/me*` 读类需 `profile:read`，写类（redeem / notifications.read / sessions.revoke-others / profile 更新）需 `profile:write`；`/api/v1/admin/member/*` 需 `admin:users`。scope 缺失一律 `403 AUTH_SCOPE_MISSING`。
+
+**请求头数据校验：**
+- `X-Device-ID`：合同 `^[A-Za-z0-9._:-]{16,128}$`；签发 entitlement 快照与「注销其它设备」必需，缺失 `400 DEVICE_ID_REQUIRED`、格式非法 `400 DEVICE_ID_INVALID`；会话登记场景不合法降级为 null（尽力而为，不阻断）。
+- `X-Device-Name`：截断至 100 字符，含控制字符（\u0000-\u001f\u007f）或尖括号 `<>`（存储型 XSS 载荷）一律丢弃为 null，不阻断请求；与 displayName/avatarUrl 守卫对称。
+
+**Profile 更新校验：** 空补丁 `400 PROFILE_PATCH_EMPTY`；`displayName` 非法 `400 DISPLAY_NAME_INVALID`；`avatarUrl` 非法 `400 AVATAR_URL_INVALID`。`PATCH` 与 `PUT /api/v1/me/profile` 互为别名。
+
+**兑换码核销错误映射：** `REDEEM_CODE_NOT_FOUND`(404) / `REDEEM_CODE_USED`(409) / `REDEEM_CODE_EXPIRED`(410) / `REDEEM_CODE_FORMAT`(400) / `PLAN_INVALID`(400) / `USER_ID_REQUIRED`(400，后台开通)。集合家族错误动词 `405 METHOD_NOT_ALLOWED`，未注册路径 `404 ROUTE_NOT_FOUND`。
+
+**CommerceError → HTTP 统一映射（`_commerceFailure`）：** status 夹紧只接受 `[400,599]` 整数，否则一律 500（防服务层 bug 把内部失败伪装成 200，或越界触发 writeHead RangeError 丢失原错误码）；code 必须匹配 `^[A-Z][A-Z0-9_]{2,63}$` 语义码，否则换兜底码 `COMMERCE_INTERNAL_ERROR`，绝不外泄 SQLSTATE 等内部原文；`status>=500` 记 error 日志并回提示「服务暂时不可用」，业务错误（<500）不污染 error 日志、回 `error.message` 或「请求未生效」。
+
+**会员视图 fail-soft：** `/api/v1/me` 聚合 entitlement/snapshot/membership，会员视图不可用时记 `MEMBERSHIP_UNAVAILABLE`（WARN）并仍返回 200（不含 membership 段），保证基础身份/权益不因下游抖动整体失败。plan-matrix 配置非法 `500 PLAN_MATRIX_CONFIG_INVALID`。
+
 ---
 
 ## 4. 会员中心信息架构（A 布局：左侧分组侧栏 + 右侧内容）

@@ -3,6 +3,7 @@ const { createLogtoJwtVerifier } = require('./logto-jwks')
 const { LogtoWebhookConsumer } = require('./logto-webhook')
 const { signEntitlement } = require('./entitlement')
 const { PostgresEntitlementProvider, PostgresIdentityRepository } = require('./postgres-identity-repository')
+const { SubscriptionService } = require('./subscription-service')
 const { createProductionReadinessProbe } = require('./production-readiness')
 const { validateProductionConfig } = require('./production-config')
 
@@ -123,6 +124,10 @@ async function createLogtoRuntime(options = {}) {
       await repository.assertReady()
     }
     const entitlementProvider = options.entitlementProvider || new PostgresEntitlementProvider(repository)
+    const subscriptionService = new SubscriptionService({
+      repository,
+      planOverrides: options.planOverrides || null,
+    })
     const webhookKey = String(env.LOGTO_WEBHOOK_SIGNING_KEY || '')
     const createWebhookConsumer = options.createWebhookConsumer || ((consumerOptions) => new LogtoWebhookConsumer(consumerOptions))
     const webhookConsumer = webhookKey ? createWebhookConsumer({
@@ -142,6 +147,7 @@ async function createLogtoRuntime(options = {}) {
       repository,
       entitlementProvider,
       entitlementSigner,
+      subscriptionService,
       webhookConsumer,
       readinessProbe,
       autoMigrate,

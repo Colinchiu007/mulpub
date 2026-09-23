@@ -16,6 +16,26 @@ function productionEnv(overrides = {}) {
   }
 }
 
+test('createLogtoRuntime 组装 subscriptionService', async (t) => {
+  await t.test('repository 就绪时返回 SubscriptionService 实例', async () => {
+    const { createLogtoRuntime } = require('../src/auth/logto-runtime')
+    const { SubscriptionService } = require('../src/auth/subscription-service')
+    const fakeRepository = {
+      // 非生产默认 autoMigrate=true（logto-runtime.js:107-118）会调用 initialize()，缺方法会先抛 TypeError
+      async initialize() {},
+      async assertReady() { return { database: 'ready', schema: 'ready' } },
+      async close() {},
+    }
+    const runtime = await createLogtoRuntime({
+      env: { IDENTITY_AUTH_ENABLED: 'true', LOGTO_ENDPOINT: 'https://auth.example.com', LOGTO_API_RESOURCE: 'https://api.multi-publish.com' },
+      repository: fakeRepository,
+      createVerifier: () => ({ verify: async () => ({ subject: 's' }) }),
+    })
+    assert.ok(runtime.subscriptionService instanceof SubscriptionService)
+    assert.strictEqual(runtime.subscriptionService.repository, fakeRepository)
+  })
+})
+
 test('createLogtoRuntime', async (t) => {
   await t.test('身份开关关闭时不创建数据库连接', async () => {
     const { createLogtoRuntime } = require('../src/auth/logto-runtime')

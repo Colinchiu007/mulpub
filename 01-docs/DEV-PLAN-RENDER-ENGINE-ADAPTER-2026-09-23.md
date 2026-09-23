@@ -178,3 +178,19 @@ fixture：`tests/fixtures/render-baselines/<engine>/<scenario>/`（JSON，文本
 - **Q4（已闭，P4 决议）**：T0 拆 T0a(2h)/T0b(4h)，P0 总量上调 25h→28h，Buffer 另计——缓冲不外推掩盖单卡低估。
 
 > 本计划为规划产物，未改运行时代码。实施须走 §0 全部前置。
+
+
+---
+
+## T5 交付状态（2026-09-23 落地）
+
+**已完成并逐字节等价证明**：
+- 字符串分派清零（P6）：`_render` 不再含 `render_runtime == "<引擎名>"` 比较，改 `registry.get(runtime, ctx)` + `adapter.render(req, ctx)`；ast 门禁 `test_render_engine_registry_gate.py` 断言之。引擎名字面量仅存在于治理 blocker 文案（prose，非比较）与 registry 注册键，符合白名单要求。
+- get_info 逐字段向后兼容：`render_engines` / `render_runtimes` 别名 / 各 `*_note` 文案全保留；新增 `render_engine_capabilities`（数据源切 registry.capabilities_all）。
+- 治理/安全回归全绿：空/未知 runtime 0 命令、hyperframes F-2 fail-closed 0 子进程、remotion 降级 blocker 逐字==fixture、no-silent-swap、终审覆盖差异（RF-3 前缀 `(FFmpeg)`/`(HyperFrames)`/无）如实保持。191 相关测试 0 失败。
+
+**有意权衡（偏离 DEV-PLAN v0.2 两项验收，已在 PRD §13.10 记录并写入内置记忆）**：
+1. A4 退出标准「三 adapter render() 路径 ctx.raw_inputs 命中=0」未达成。T5 优先级判定：行为保持（命令 + 治理 + 终审逐字节）> 打字纯度。让 adapter 透传原始 inputs 调用既有 `_render_via_*` 私有方法，等价由构造保证，杜绝终审入参（proposal_packet / narration_transcript_path / script_text / options / quality 等）重建漂移。`build_compose_inputs`（类型化重建）保留为 T3 命令语法等价证据（`test_render_engine_adapter_ffmpeg_equiv` 仍绿），A4 对命令语法的验证意图仍在。若后续要补 A4，需先扩 RenderContext 承载全部终审入参并重跑 parity。
+2. `get_info` 的可用性布尔（remotion/hyperframes）仍来自 `_remotion_available()` / `_hyperframes_available()`，未切 registry.preflight——因切到 shutil.which 探测会改变无 ffmpeg 环境的报告值（回归风险），保持原语义为稳妥。能力矩阵（非可用性）已切 registry 单源。
+
+**结论**：T5 引擎切换完成，行为零回归；上述两项为工程权衡而非缺陷，均附等价证据与回归门禁。
