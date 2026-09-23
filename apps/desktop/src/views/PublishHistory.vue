@@ -309,6 +309,9 @@
           <div><dt>{{ t('historyPage.detailStatus') }}</dt><dd>{{ statusLabel(selectedRecord) }}</dd></div>
           <div><dt>{{ t('historyPage.detailContentType') }}</dt><dd>{{ contentTypeLabel(selectedRecord) }}</dd></div>
           <div><dt>{{ t('historyPage.detailMode') }}</dt><dd>{{ publishModeLabel(selectedRecord) }}</dd></div>
+          <div v-if="deliveryModeValue(selectedRecord)"><dt>{{ t('historyPage.detailDeliveryMode') }}</dt><dd>{{ deliveryModeLabel(selectedRecord) }}</dd></div>
+          <div v-if="resultValue(selectedRecord, 'postId')"><dt>{{ t('historyPage.detailPostId') }}</dt><dd>{{ resultValue(selectedRecord, 'postId') }}</dd></div>
+          <div v-if="resultValue(selectedRecord, 'url')"><dt>{{ t('historyPage.detailLink') }}</dt><dd><a :href="resultValue(selectedRecord, 'url')" target="_blank" rel="noopener" class="detail-link" data-testid="detail-link">{{ resultValue(selectedRecord, 'url') }}</a></dd></div>
           <div><dt>{{ t('historyPage.detailTime') }}</dt><dd>{{ formatTime(selectedRecord.timestamp || selectedRecord.createdAt || selectedRecord.publishedAt) }}</dd></div>
           <div><dt>{{ t('historyPage.detailAccounts') }}</dt><dd>{{ metricValue(selectedRecord.accountCount, 1) }}</dd></div>
           <div><dt>{{ t('historyPage.detailTasks') }}</dt><dd>{{ metricValue(selectedRecord.taskCount, 1) }}</dd></div>
@@ -855,6 +858,11 @@ function deliveryModeHint (record) {
   return t(keys[deliveryModeValue(record)] || 'publish.api.modeApiHint')
 }
 
+function resultValue (record, key) {
+  const v = record && record.result && record.result[key]
+  return typeof v === 'string' || typeof v === 'number' ? String(v) : ''
+}
+
 function thumbnailUrl (record) {
   return record?.thumbnail || record?.thumbnailUrl || record?.cover || record?.coverUrl || ''
 }
@@ -1218,6 +1226,8 @@ onMounted(loadRecords)
 .record-detail-grid > div { min-width: 0; border-radius: 8px; padding: 12px; background: #f8f9fc; }
 .record-detail-grid dt { color: #8b92a7; font-size: var(--font-size-xs); }
 .record-detail-grid dd { margin: 5px 0 0; color: #252a45; font-size: var(--font-size-sm); }
+.detail-link { color: #1d4ed8; text-decoration: none; word-break: break-all; }
+.detail-link:hover { text-decoration: underline; }
 .record-detail-content { grid-column: 1 / -1; }
 .record-detail-state { padding: 44px 24px; color: #68708b; text-align: center; }
 @media (max-width: 640px) { .record-detail-grid { grid-template-columns: 1fr; } .record-detail-content { grid-column: auto; } .record-title-row { align-items: flex-start; flex-direction: column; } }
