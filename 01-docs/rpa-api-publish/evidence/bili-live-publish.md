@@ -17,6 +17,13 @@
 
 第二条（复现，中性选题）：bvid=`BV1DxhW6hEwZ`、aid=`117318055106795`、标题「汪顺400混的含金量」（topic02）、URL https://www.bilibili.com/video/BV1DxhW6hEwZ 。
 
+## 内容纯净要求（简介/正文无水印）
+- **用户硬要求**：发布真实内容时，**标题、简介（desc）、正文均不得携带「（由多平台一键发布工具自动发布）」这类自动发布水印 boilerplate**。
+- 修复：早期一次性调试脚本 `bili-publish.js` 曾在 `DESC` 拼接该后缀，已去除；`bilibili` 适配器 `buildPostData` 新增 `_cleanText()` 对 `title`/`desc` 做防御性净化（正则剥离任意括号包裹、含「自动发布/一键发布工具/由多平台」的整段 boilerplate 及残留换行），确保**无论上游传入什么**，最终提交的简介/标题都不含水印。
+- 回归测试：`bilibili-upos.test.js` 断言 `buildPostData` 产出的 `title`/`desc` 均不含上述关键词（含水印样例输入 → 输出纯净）。
+- 纯净复投验证：以净化后脚本重投 topic02 得到新稿件 `BV1YNh46kE8T`（aid=`117318189325002`），`desc` 不再含水印（提交即净化）。
+- 说明：上表 topic02 首发稿 `BV1DxhW6hEwZ` 系净化规则落地前的历史测试稿，其 `desc` 曾含该水印；当前及之后的发布均由 `_cleanText` 保证纯净。
+
 ## 独立回查（非发布响应自证）
 `GET https://api.bilibili.com/x/web-interface/view?bvid=BV1MahW6tE36`
 → `code=0`，稿件真实存在：`state=0`（公开）、`duration=219`、`owner=奔跑的丘丘`、`pubdate=1790130634`。
@@ -42,5 +49,5 @@
 ## 代码落地
 - 适配器：`packages/api-publish-engine/src/adapters/bilibili.js`（Tier-A upos 全链，`BasePlatformAdapter` 契约：uploadVideo/buildPostData/publish）。
 - 路由：`publisher-router.js` `ROUTE_TABLE.bilibili` 由 `rpa_vm` → `api`（RPA 点击式上传/发布此前均失败，API 式已活体验证）。
-- 单测：`packages/api-publish-engine/test/bilibili-upos.test.js`（纯逻辑 5 例，不联网）。
+- 单测：`packages/api-publish-engine/test/bilibili-upos.test.js`（纯逻辑 6 例，不联网；含「简介/正文无水印」回归）。
 - 合规门禁：全程仅 bilibili 官方域名，绝不触碰 `yixiaoer.cn`。
