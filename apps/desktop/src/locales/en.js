@@ -51,6 +51,7 @@ export default {
   },
   nav: {
     home: 'Home',
+    searchPlaceholder: 'Search or enter a URL',
     accounts: 'Accounts',
     publish: 'Publish',
     history: 'History',
