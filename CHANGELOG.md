@@ -1,3 +1,27 @@
+# [未发布] test(desktop): 桌面套件墙钟成本归属收敛 + story2video :714 超时排查（2026-09-23，desktop-suite-wallclock）
+
+### 变更
+- **`accounts-compile.test.js` 内嵌的全量 `vite build` 降级为显式 opt-in**：第 6 条用例原先每次跑桌面套件都 `execSync('npx vite build ...')`（实测单条 **55.14s**、整文件 **63.12s**），而全量构建已在 required 门禁链路上覆盖（`quality-gate.yml` 的 visual job 执行 `pnpm run build:vue`，`gate-result` `needs: [... visual ...]`，Gate Result 是 main 的 required context）——测试内嵌那份属重复成本，也是本地宽 subset 打包时该文件超时 flake 的直接来源。现改为 `MP_VITE_BUILD_GUARD=1` 显式开启才跑。
+- **日常守卫改由 `vue/compiler-sfc` 直接编译承担**：新增用例对真实 `Accounts.vue` 做 `parse` + `compileScript` + `compileTemplate`（实测 **644ms**，spike 阶段 333ms），覆盖 c3c395570 那类「重复 import 导致运行时崩溃」的缺陷；保留 `parse.errors` 为空仍必须被 `compileScript` 拒绝的断言口径。
+- **新增「守卫自检」负面用例**：构造重复 import 的 SFC，断言 `parse.errors` 长度为 0（证明只做到 parse 就是空守卫）且 `compileScript` 抛 `already been declared`。守卫一旦退化（有人把断言改回只看 parse）会立即变红，而不是安静地变成空跑。
+- 默认路径套件耗时 **63.12s → 14.60s**（tests 7.77s）。
+
+### 根因与逃逸
+- **accounts-compile 根因**：不是代码缺陷，是**成本归属缺陷**——同一次全量构建在 required job 与单元测试里各跑一遍，而门禁只校验「用例是否通过」，不约束单条用例的绝对墙钟，于是一条 55s 的用例可以长期绿着存在，只在机器负载高时以随机 flake 呈现。归类：测试质量不足（缺成本归属约束）+ 流程缺失（无「required 链路已覆盖的重型构建不得再嵌进单测」契约）。
+- **`story2video-stages.test.js:714` 排查结论为阴性（未编造根因）**：该用例（任一 scene 图片/音频失败默认阻断）本地实测 **56ms**，距 10s 阈值两个数量级。逐项排除：文件内无 `.concurrent`（串行执行）；`generate_assets` 的轮询 `videoPromise` 在 `StageExecutor` 两条出口均被 `await`，无泄漏定时器；mock 的 `{code:-1,message:'image failed'}` 不匹配 `TRANSIENT_MESSAGE_PATTERN`，不走退避重试；真实媒体成本仅约 1.1s（ffmpeg 建 1s 片段 123ms + ffprobe×12 共 1033ms）。文件内唯一固有慢点是「真实 governor 回归」8073ms，但它第 2398 行已有显式 `{ timeout: 60000 }` 豁免，不会报 10s 超时。**未发现可复现的代码缺陷，本次不改该文件**。
+- **一次性环境因素（已复测排除）**：首轮测量曾得到 `total=44429ms/149 tests`（比复测慢约 14×），根因是 D 盘 `freebytes=0`，vitest 写临时文件撞 `ENOSPC` 后以 `Test timed out` 形式呈现，而非磁盘错误。清盘后同基线复跑得 12227ms，此前的「文件内累积饥饿」假设被自己的复测推翻并撤回。
+
+### 验证
+- `node scripts/verify-worktree-deps.js` OK（11 项消费方解析到当前 worktree）。
+- 默认路径：`Tests 7 passed | 1 skipped (8)`，`Duration 14.60s`。
+- opt-in 路径：`MP_VITE_BUILD_GUARD=1` → `8 passed`，构建用例 37552ms 通过（证明降级不是删守卫，只是改触发条件）。
+- 取证数据落盘 `.agent_context/tmp-impl/wt-longpath/`：`vt-base2.json`（清盘后基线）、`vt-s2v.json`/`vt-videosuite.json`（满盘对照）、`media-cost.txt`（ffprobe/ffmpeg 实测）。
+
+### 关联
+- 分支 `codex/desktop-suite-wallclock`（worktree 隔离）；承接 PR #2247 在 `.quality-gates.md` 中写明的回填义务（#2247 最终 squash SHA 由本 PR 回填）。
+- 经验沉淀见 `01-docs/learnings.md`「超时类 flake 先查磁盘余量」与「重型构建的成本归属」两条。
+
+---
 # [未发布] docs(accounts): 账号资料获取的合并后复验与遗留观察回写（2026-09-23，docs-followup-profile）
 
 ### 变更
@@ -29,6 +53,8 @@
 - 纯文档，不改生产代码、不改任何门禁语义；这是同一份收尾文档的第 6 处口径订正。
 - 教训入册：文档里的「N 处 / M 文件」这类**计数本身也是一条会漂移的断言**——它是某个 HEAD 上的快照，
   所依赖的 PR 一合并就可能失效。写计数必须同时写明测量基准（SHA 或时间点），并在依赖变更后复算。
+
+---
 
 ---
 # [未发布] fix(accounts): 账号昵称/头像真实获取与写回 —— 三条登录入口接通采集器、检测成功回填存量、PATCH 改缺席语义（2026-09-23，account-profile-info）
@@ -80,6 +106,8 @@
 ### 关联
 - 分支 `codex/account-profile-info`（worktree `D:/Data/projects/mp-worktrees/mp-account-profile-info`，D 盘隔离）。
 - 承接 PR-1 `PRD-ACCOUNT-IS-ACTIVE-BATCH-2026-09-23.md`（#2282 已合并）：同一账号卡片，启用态与登录态已正交，本次补齐第三个维度「资料真源」。
+
+---
 # [未发布] docs(audit): 收尾证据文档口径订正（P1-9 原因串 / P0-1 信任锚 / 交付清单状态）
 
 ### 变更

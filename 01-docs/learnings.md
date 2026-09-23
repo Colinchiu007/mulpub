@@ -15573,3 +15573,32 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 
 ### EverOS 沉淀契约修正
 - `POST /api/v1/memory/add` 顶层**必填 `session_id`**（缺失 422 "Field required: session_id"，既有记忆只记了 message 级 sender_id/timestamp）；add 成功后调 `/api/v1/memory/flush`（同 session_id）返回 `status:"extracted"`。
+
+## 超时类 flake 的第一现场是磁盘余量，不是代码（desktop-suite-wallclock，2026-09-23）
+
+- **陷阱（pitfall）**：D 盘 `freebytes=0` 时，vitest 用例不会报磁盘错误，而是整体墙钟被放大约 14×（同一文件同一基线：满盘 `total=44429ms/149 tests` → 清盘后 `12227ms`），并以 `Test timed out in 10000ms` 的形式呈现。满盘状态下甚至会直接 `failed / ENOSPC: no space left on device, write`，但 JSON 报告里只显示 `failed`，不显示原因。
+- **为什么危险**：它把环境问题伪装成代码竞态，诱导人去改轮询/退避/超时这些其实没病的代码。本轮我据此提出的「文件内累积饥饿」假设，在清盘复测后被自己的数据推翻并撤回——如果当时没复测，就会留下一个基于假象的"修复"。
+- **操作纪律（pattern）**：排查任何超时类 flake，先跑 `Get-PSDrive <盘>` 与 `git status`（后者在满盘时会连带异常），确认磁盘余量与非 git 负载后再看代码；测量结论必须标注当时的磁盘余量，跨磁盘状态的两次测量不可直接对比。
+- **关联工具陷阱（pitfall）**：写不进盘时 Write 工具会报 `save file failed, reason: unknown` 但**文件其实已完整落盘**（本轮 3 次复现，含一次落成 0 字节的真失败）——报告前必须用 `Test-Path` + size + `node --check` 实地校验，不能信工具的返回码，也不能因报错就重复写。
+
+## required 门禁链路已覆盖的重型构建，不得再嵌进单元测试（cost-ownership-in-tests，2026-09-23）
+
+- **现象（pitfall）**：`accounts-compile.test.js` 第 6 条用例每次跑桌面套件都 `execSync('npx vite build')`，单条 55.14s；而 `quality-gate.yml` 的 visual job 已经在 `apps/desktop` 下执行 `pnpm run build:vue`，且 `gate-result` 以 `needs: [... visual ...]` 依赖它、Gate Result 是 main 的 required context（`gh api repos/<owner>/<repo>/branches/main/protection` 可查）。同一次构建付了两遍钱，第二遍还是 flake 的来源。
+- **为什么会长期存在（系统性漏洞）**：现有门禁只校验「用例是否通过」，没有任何机制约束「单条用例的绝对墙钟」或「套件内是否 shell 出重型构建」，于是一条 55s 的用例可以一直绿着；它只在机器负载高时才撞 `--testTimeout`，以随机 flake 而非稳定红灯呈现。
+- **修复模式（pattern）**：把端到端全量构建降级为显式 opt-in（`MP_VITE_BUILD_GUARD=1`），日常守卫换成能覆盖同一缺陷类的最小可判定手段——本轮用 `vue/compiler-sfc` 的 `parse + compileScript + compileTemplate`（644ms）替代，成本降两个数量级而覆盖面不缩。
+- **守卫必须自带防退化（pattern）**：新增「守卫自检」负面用例，断言真实缺陷（重复 import）在 `parse.errors` 为空的前提下仍被 `compileScript` 拒绝。没有这条，「只做到 parse 就收工」会静默退化成空守卫——而空守卫比没有守卫更糟，它让人以为有保护。
+- **取证方法（pattern）**：判断是否冗余，不靠印象，靠 required 链证据三段论——① `Select-String .github/workflows/*.yml` 找命令出现位置；② 读 job 的 `needs:` 与 workflow 的 required context 集合；③ 确认二者构成阻断关系。同一方法可复用于任何「这个测试是不是白跑」的判定。
+
+## 排查阴性结论也要落档，且不得为凑修复而改代码（negative-result-discipline，2026-09-23）
+
+- **场景（decision）**：用户报的 `story2video-stages.test.js:714` CI 超时，逐项排查后为阴性：用例本地 56ms、无 `.concurrent`、轮询 `videoPromise` 两条出口均被 `await`（无泄漏定时器）、mock 的 `'image failed'` 不匹配 `TRANSIENT_MESSAGE_PATTERN`（不走退避）、真实媒体成本仅约 1.1s（ffmpeg 建 1s 片段 123ms、ffprobe×12 共 1033ms）、文件内唯一固有慢点已有显式 `{ timeout: 60000 }` 豁免。
+- **结论=不改该文件**：理由是「没有可复现缺陷，任何改动都是无的放矢的复杂度」。把阴性结果写进 CHANGELOG/learnings 而不是沉默，价值在于：下一个遇到同一超时的人不必重跑这条排查链，也不会误以为"已经修过了"。
+- **配套取证（pattern）**：排除「真实媒体成本」这类猜测要实测，不要引用常识——`ffprobe` 对 12 个资产的实际耗时是 1033ms 而不是"几百毫秒级"；`probe-media-cost.js` 这类一次性测算脚本值得留在 `.agent_context/` 供复核。
+- **反例记录（pitfall）**：本轮曾据满盘数据提出「文件内累积饥饿」假设，清盘复测后被推翻。教训：假设被数据推翻时要在文档里**显式撤回并留下撤回记录**，最危险的不是错判，是错判留在文档里继续指导后人。
+
+## 「合入信息」只记合并后不再变化的标识（doc-field-stability，2026-09-23）
+
+- **陷阱（pitfall）**：`.quality-gates.md` 的「合入信息」行习惯记录分支 head commit SHA，但该值**每 rebase 一次就被改写**——本次任务一天内连续失真两次（`5b38be83b` → `c2c87113c` → `3d4c0aaa8`），且第二次 rebase 完全是被别的 PR 合并推动的、与本改动无关。用户带着「上一任务那一行还写着 `9b8df91e3` + 未来时态」的抱怨开工，根因就是同一类字段写了会变的值。
+- **规则（pattern）**：归档字段只允许写**合并后不再变化**的标识——最终 squash SHA、PR 编号；易变标识（分支 head、rebase 基线）改为指向稳定查询入口（PR 页面 / 提交历史），不复制值。
+- **禁止把承诺写成未来时态（pattern）**：「SHA 由后续任务回填」这种写法必然拖成欠账。本次改为把承接方写死为**具体 PR**，并在同一 PR 内完成回填；无法当场回填的（等合并才有 SHA）就拆成合并后的独立补记提交，而不是留一句未来时态。
+- **可推广到同类字段（pattern）**：CHANGELOG/PRD/任务卡里凡记录 commit、分支 head、构建产物哈希、CI run id 的场合，先问一句「这个值在文档生命周期内会不会变」，会变就换成不变量或引用。
