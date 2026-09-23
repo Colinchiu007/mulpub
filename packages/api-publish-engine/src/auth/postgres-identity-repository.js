@@ -285,11 +285,15 @@ class PostgresCommerceTransaction {
     if (!Number.isInteger(durationDays) || durationDays <= 0) {
       throw Object.assign(new Error('DURATION_INVALID'), { code: 'DURATION_INVALID', status: 400 })
     }
+    // 同一用户的订阅写入串行化：兑换码行锁只保护「同一个码」，跨码/后台授予并发时
+    // current_period_end 的读-改-写会丢期（两笔订单只续一份时长）。advisory xact 锁
+    // 覆盖「首单尚无行」的冷启动场景（FOR UPDATE 锁不住不存在的行）。
+    await this.client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`sub:${userId}`])
     const existingResult = await this.client.query(
       `SELECT * FROM identity_subscriptions
-       WHERE user_id = $1 AND status = 'active' AND current_period_end > NOW()
+       WHERE user_id = $1 AND status = 'active' AND current_period_end > $2
        ORDER BY current_period_end DESC LIMIT 1`,
-      [userId],
+      [userId, nowDate.toISOString()],
     )
     const existing = existingResult.rows[0] || null
     const base = existing && new Date(existing.current_period_end) > nowDate
@@ -520,7 +524,7 @@ class PostgresIdentityRepository {
 
   async listOrders(userId, { limit = 20, offset = 0 } = {}) {
     const result = await this.pool.query(
-      `SELECT * FROM identity_orders WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
+      `SELECT * FROM identity_orders WHERE user_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2 OFFSET $3`,
       [userId, limit, offset],
     )
     return result.rows || []
@@ -546,7 +550,7 @@ class PostgresIdentityRepository {
 
   async listNotifications(userId, { limit = 20, offset = 0 } = {}) {
     const result = await this.pool.query(
-      `SELECT * FROM identity_notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
+      `SELECT * FROM identity_notifications WHERE user_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2 OFFSET $3`,
       [userId, limit, offset],
     )
     return result.rows || []
@@ -596,7 +600,9 @@ class PostgresIdentityRepository {
   }
 
   async upsertSession({ userId, deviceId, deviceName = null }) {
-    if (typeof deviceId !== 'string' || !deviceId) throw new TypeError('deviceId is required')
+    if (typeof deviceId !== 'string' || !deviceId) {
+      throw Object.assign(new TypeError('deviceId is required'), { code: 'SESSION_DEVICE_REQUIRED', status: 400 })
+    }
     const id = sessionRecordId(userId, deviceId)
     const result = await this.pool.query(UPSERT_SESSION, [id, userId, deviceId, deviceName])
     return result.rows[0] || { id, user_id: userId, device_id: deviceId, device_name: deviceName, revoked_at: null }
@@ -605,7 +611,7 @@ class PostgresIdentityRepository {
   async listActiveSessions(userId) {
     const result = await this.pool.query(
       `SELECT id, device_id, device_name, created_at, last_seen_at FROM identity_user_sessions
-       WHERE user_id = $1 AND revoked_at IS NULL ORDER BY last_seen_at DESC NULLS LAST`,
+       WHERE user_id = $1 AND revoked_at IS NULL ORDER BY last_seen_at DESC NULLS LAST, id DESC`,
       [userId],
     )
     return result.rows || []
