@@ -398,4 +398,83 @@ test('PostgresCommerceTransaction 单事务编排', async (t) => {
     // INSERT_ORDER 位置锁：amount/currency/channel 换序即红
     assert.deepStrictEqual(client.calls[3].values, ['ord-1', 'u-1', 'pro', 7900, 'CNY', 'redeem'])
   })
+
+  // T5 · F1：仓储层收敛 provider_reference UNIQUE 冲突为语义错误（服务层不该懂 pg 约束名）
+  await t.test('applySubscription 收敛 provider_reference UNIQUE 冲突为 ORDER_REFERENCE_CONFLICT/409', async () => {
+    const calls = []
+    const conflict = Object.assign(
+      new Error('duplicate key value violates unique constraint "identity_subscriptions_provider_reference_key"'),
+      { code: '23505', constraint: 'identity_subscriptions_provider_reference_key' },
+    )
+    const client = {
+      async query(text, values) {
+        calls.push({ text, values })
+        if (calls.length === 1) return { rows: [{ pg_advisory_xact_lock: null }] }  // advisory 锁
+        if (calls.length === 2) return { rows: [] }                                  // 无存量订阅
+        throw conflict                                                               // UPSERT 撞 provider_reference UNIQUE
+      },
+    }
+    const tx = new PostgresCommerceTransaction(client)
+    await assert.rejects(
+      tx.applySubscription({
+        userId: 'u-1', plan: 'pro', durationDays: 30,
+        now: new Date('2026-09-15T00:00:00Z'),
+        order: { id: 'ord-1', amount: 7900, currency: 'CNY', channel: 'redeem', providerReference: 'dup-ref' },
+        entitlementPayload: { plan: 'pro' },
+      }),
+      (err) => err.code === 'ORDER_REFERENCE_CONFLICT' && err.status === 409,
+    )
+  })
+
+  // T5 反例 · F1：别的 constraint（哪怕同为 23505）必须原样 rethrow，证明未粗暴吞掉所有 23505
+  await t.test('applySubscription 其它唯一约束冲突原样 rethrow（不吞非 provider_reference 的 23505）', async () => {
+    const calls = []
+    const other = Object.assign(
+      new Error('duplicate key value violates unique constraint "identity_orders_pkey"'),
+      { code: '23505', constraint: 'identity_orders_pkey' },
+    )
+    const client = {
+      async query(text, values) {
+        calls.push({ text, values })
+        if (calls.length === 1) return { rows: [{ pg_advisory_xact_lock: null }] }
+        if (calls.length === 2) return { rows: [] }
+        throw other
+      },
+    }
+    const tx = new PostgresCommerceTransaction(client)
+    await assert.rejects(
+      tx.applySubscription({
+        userId: 'u-1', plan: 'pro', durationDays: 30,
+        now: new Date('2026-09-15T00:00:00Z'),
+        order: { id: 'ord-1', amount: 7900, currency: 'CNY', channel: 'redeem', providerReference: 'x' },
+        entitlementPayload: { plan: 'pro' },
+      }),
+      (err) => err === other,  // 必须是被原样重抛的同一对象，未被包装成语义错误
+    )
+  })
+
+  // T3 · F2：仓储层守住 durationDays 上界，溢出成 Invalid Date 前抛语义 DURATION_INVALID/400
+  await t.test('applySubscription 溢出时长（MAX_SAFE_INTEGER/1e21）抛 DURATION_INVALID/400 且不写订阅', async () => {
+    for (const durationDays of [Number.MAX_SAFE_INTEGER, 1e21]) {
+      const calls = []
+      const client = {
+        async query(text, values) {
+          calls.push({ text, values })
+          if (calls.length === 1) return { rows: [{ pg_advisory_xact_lock: null }] }
+          return { rows: [] }  // 无存量订阅 → base = nowDate，periodEnd = now + 溢出天数 = Invalid Date
+        },
+      }
+      const tx = new PostgresCommerceTransaction(client)
+      await assert.rejects(
+        tx.applySubscription({
+          userId: 'u-1', plan: 'pro', durationDays,
+          now: new Date('2026-09-15T00:00:00Z'),
+          order: { id: 'ord-1', amount: 7900, currency: 'CNY', channel: 'redeem' },
+          entitlementPayload: { plan: 'pro' },
+        }),
+        (err) => err.code === 'DURATION_INVALID' && err.status === 400,
+      )
+      assert.ok(calls.length <= 2, `溢出时长不得写订阅行，实际发出 ${calls.length} 次查询`)
+    }
+  })
 })

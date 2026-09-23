@@ -42,9 +42,17 @@ function createRepositoryFixture(initial = {}) {
         async applySubscription(args) {
           self.subscriptionWrites.push(args)
           self.orders.push(args.order)
+          // 模拟仓储 RETURNING * 的原始 snake_case 行：若服务层退回 spread 原始行，这些键会泄漏进响应体
           return {
-            subscription: { id: `sub-${args.userId}`, plan: args.plan },
-            order: args.order,
+            subscription: {
+              id: `sub-${args.userId}`, user_id: args.userId, plan: args.plan, status: 'active',
+              current_period_start: '2026-09-23T00:00:00.000Z', current_period_end: '2026-10-23T00:00:00.000Z',
+              provider_reference: args.order.providerReference || null,
+            },
+            order: {
+              id: args.order.id, user_id: args.userId, plan: args.plan, amount: args.order.amount,
+              currency: args.order.currency, channel: args.order.channel, status: 'paid', created_at: '2026-09-23T00:00:00.000Z',
+            },
             version: self.entitlementWrites.length + 1,
             periodStart: 'ps', periodEnd: 'pe',
           }
@@ -71,6 +79,14 @@ function createService(initial = {}, options = {}) {
   return { service, repository }
 }
 
+// 递归收集响应体里所有对象键，用于断言不外泄 snake_case（F3 · I-2/I-3）
+function collectKeys(value, acc = []) {
+  if (value && typeof value === 'object') {
+    for (const key of Object.keys(value)) { acc.push(key); collectKeys(value[key], acc) }
+  }
+  return acc
+}
+
 test('generateRedeemCode', async (t) => {
   await t.test('格式 4-4-4 且字母表排除混淆字符', () => {
     for (let i = 0; i < 50; i++) {
@@ -89,6 +105,8 @@ test('redeem 兑换码核销状态机', async (t) => {
     assert.strictEqual(repository.subscriptionWrites[0].plan, 'pro')
     assert.strictEqual(repository.subscriptionWrites[0].durationDays, 30)
     assert.strictEqual(repository.orders[0].channel, 'redeem')
+    // T1：封住变异 M6——兑换路径 providerReference 必须是 redeem:<归一码>，改成固定串即红
+    assert.strictEqual(repository.subscriptionWrites[0].order.providerReference, 'redeem:ABCD-EFGH-JKMN')
     assert.strictEqual(repository.codes.get('ABCD-EFGH-JKMN').status, 'used')
     assert.strictEqual(repository.notifications.length, 1)
   })
@@ -122,6 +140,49 @@ test('redeem 兑换码核销状态机', async (t) => {
     assert.strictEqual(repository.subscriptionWrites.length, 0)
     assert.strictEqual(repository.orders.length, 0)
   })
+
+  await t.test('首次与本人重放返回体键集合完全一致，且不外泄 snake_case（F3 契约）', async () => {
+    const { service } = createService({ codes: [{ code: 'ABCD-EFGH-JKMN', plan: 'pro', duration_days: 30 }] })
+    const first = await service.redeem({ userId: 'u-1', code: 'ABCD-EFGH-JKMN' })
+    const replay = await service.redeem({ userId: 'u-1', code: 'ABCD-EFGH-JKMN' })
+    assert.deepStrictEqual(Object.keys(first).sort(), Object.keys(replay).sort())
+    for (const key of ['idempotent', 'code', 'plan', 'redeemedAt', 'subscription', 'order', 'version', 'periodStart', 'periodEnd']) {
+      assert.ok(key in first, `首次返回体缺键 ${key}`)
+      assert.ok(key in replay, `重放返回体缺键 ${key}`)
+    }
+    for (const body of [first, replay]) {
+      const keys = collectKeys(body)
+      const snake = keys.filter((k) => k.includes('_'))
+      assert.deepStrictEqual(snake, [], `响应体不应出现 snake_case 键：${snake.join(', ')}`)
+      for (const banned of ['user_id', 'current_period_end', 'provider_reference']) {
+        assert.ok(!keys.includes(banned), `响应体不得含 ${banned}`)
+      }
+    }
+  })
+
+  await t.test('本人重放按存活性判定回填权益：未过期吐当期、过期未结算吐 null（F3 · M-3）', async () => {
+    const alive = createService({
+      codes: [{ code: 'ABCD-EFGH-JKMN', status: 'used', used_by: 'u-1', used_at: '2026-09-22T00:00:00Z' }],
+      current: { id: 'sub-u-1', user_id: 'u-1', plan: 'pro', status: 'active', current_period_start: '2026-09-01T00:00:00Z', current_period_end: '2026-10-01T00:00:00Z' },
+    })
+    const aliveView = await alive.service.redeem({ userId: 'u-1', code: 'ABCD-EFGH-JKMN' })
+    assert.strictEqual(aliveView.idempotent, true)
+    assert.ok(aliveView.subscription, '未过期 active 应回填 subscription')
+    assert.strictEqual(aliveView.subscription.periodEnd, '2026-10-01T00:00:00Z')
+    assert.strictEqual(aliveView.periodEnd, '2026-10-01T00:00:00Z')
+    assert.strictEqual(aliveView.order, null, '重放不回吐订单')
+    assert.strictEqual(aliveView.version, null)
+
+    const stale = createService({
+      codes: [{ code: 'ABCD-EFGH-JKMN', status: 'used', used_by: 'u-1', used_at: '2026-09-22T00:00:00Z' }],
+      current: { id: 'sub-u-1', user_id: 'u-1', plan: 'pro', status: 'active', current_period_start: '2026-08-01T00:00:00Z', current_period_end: '2026-09-01T00:00:00Z' },
+    })
+    const staleView = await stale.service.redeem({ userId: 'u-1', code: 'ABCD-EFGH-JKMN' })
+    assert.strictEqual(staleView.idempotent, true)
+    assert.strictEqual(staleView.subscription, null, '过期未结算不得把陈旧到期时间当现行权益')
+    assert.strictEqual(staleView.periodStart, null)
+    assert.strictEqual(staleView.periodEnd, null)
+  })
 })
 
 test('grant / createRedeemBatch / settleExpiry / 视图', async (t) => {
@@ -153,6 +214,17 @@ test('grant / createRedeemBatch / settleExpiry / 视图', async (t) => {
     assert.strictEqual(repository.codes.get(batch.codes[0]).durationDays, 365)
   })
 
+  await t.test('createRedeemBatch 回报真实生成条数：撞码被 DO NOTHING 丢弃时 generated<requested（F4 · M-4）', async () => {
+    const { service, repository } = createService()
+    // 模拟其中一个码撞 UNIQUE 被 ON CONFLICT DO NOTHING 静默丢弃：真实入库条数少于请求条数
+    repository.createRedeemCodes = async (records) => records.slice(0, records.length - 1).map((r) => r.code)
+    const batch = await service.createRedeemBatch({ plan: 'pro', durationDays: 365, count: 5, batch: 'b1' })
+    assert.strictEqual(batch.requested, 5)
+    assert.strictEqual(batch.generated, 4)
+    assert.strictEqual(batch.codes.length, 4)
+    assert.strictEqual(batch.generated, batch.codes.length)
+  })
+
   await t.test('settleExpiry：有降级行→回写 free 快照+通知；无→null；三写必在同一事务', async () => {
     const withExpiry = createService({ expiryResult: { id: 'sub-u-1', plan: 'standard', status: 'expired' } })
     const settled = await withExpiry.service.settleExpiry('u-1')
@@ -173,7 +245,7 @@ test('grant / createRedeemBatch / settleExpiry / 视图', async (t) => {
     await service.grant({ userId: 'u-2', plan: 'pro', durationDays: 30 })
     const refs = repository.subscriptionWrites.map((w) => w.order.providerReference)
     assert.strictEqual(new Set(refs).size, 2, `providerReference 必须全局唯一：${refs.join(', ')}`)
-    assert.match(first.order.providerReference, /^grant:system:ord-/)
+    assert.match(repository.subscriptionWrites[0].order.providerReference, /^grant:system:ord-/)
   })
 
   await t.test('getSubscriptionView：无订阅回 free，有订阅回当期档位', async () => {
