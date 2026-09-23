@@ -1,4 +1,4 @@
-﻿# [未发布] refactor(selfcheck): 限流自检迁移运营中心 + 桌面保留隐藏执行端（PR-1）
+# [未发布] refactor(selfcheck): 限流自检迁移运营中心 + 桌面保留隐藏执行端（PR-1）
 
 ### 变更
 - **桌面模型设置页下线限流自检一级入口/弹窗/表单/方法/样式（P0-1）**：移除 `ModelProviders.vue` 的 `selfcheck-entry` 按钮、`showSelfCheckDialog` 弹窗、`selfCheckForm` 六参数表单、`openSelfCheck/runSelfCheck/reportSelfCheck` 方法及 `.selfcheck-form/.selfcheck-row` 样式；同步删除因失去引用而变孤儿的 `ref` / `ElMessage,ElMessageBox` / `getApi` import。自检定位为非终端用户功能，运营中心为唯一正门。
@@ -16,6 +16,25 @@
 - 分支 `selfcheck-ops-migrate`（worktree 隔离，D 盘）；PRD `01-docs/PRD-RATE-LIMIT-SELFCHECK-MIGRATE-OPS-CENTER-2026-09-23.md`；PR-2（P0-8 发布失败被动附带诊断）另立 PR。
 
 ---
+# [未发布] fix(security): P1 审计第三批——IPC 注入契约 fail-closed + 管理后台 Cookie 会话 + P2 安全小项（2026-09-22，audit-batch-3）
+
+### 变更
+- **P1-14 IPC 注入契约（apps/desktop/electron）**：10 个 service 的 `registerIpcHandlers(injectedIpcMain)` 原写法 `const ipcMain = injectedIpcMain || require('electron').ipcMain`，漏注入即静默注册到**全局** ipcMain —— 同时绕过 `isTrustedSender` 来源校验与 `createAccessControlledIpcMain` 的许可证/权益门禁，且在纯 Node 单测里退化成一个无信息量的 TypeError。统一改为**未注入即抛可操作错误**（对齐同仓 cloud-publisher 的 MAJOR-3 范式），并删除随之成为死代码的模块级 `ipcMain` 解构。新增 `.github/scripts/check-ipc-sender-guard.js` 单一口径盘点（递归 electron、注释/字符串感知、`handle` 与同步 `on` 分列，五分类 explicit/injected/global/sync-unguarded/unknown）+ 双校验（清单式防漂移含陈旧条目失败、比例式防稀释 `minGuardedRatio` 只升不降）+ 豁免清单 `electron/ipc-guard-exemptions.json`；接入 quality-gate **Gate 17**。现状：注册点 407（handle 404 / on 3）、显式守卫 273、咽喉点 134、unknown 0、绕过 0、占比 67.1%。
+- **P1-15 管理后台会话（ops-center）**：登录不再把 HS256 JWT 放进响应体（旧前端存 localStorage + 手拼 `Authorization`，一处 XSS 即管理员会话接管，且 7 个 view 各抄一份样板导致加固改不全）。改为签发 **HttpOnly + SameSite=Lax + Path=/ 会话 Cookie**，响应体只回 `{username, role, expires_in, csrf_header}`；新增 `POST /api/auth/logout`（delete_cookie，刻意免鉴权免 CSRF 头）与 `GET /api/auth/session`（`/me` 别名，会话水合）。中间件改双通道：Bearer 优先且非法不回落 Cookie；Cookie 会话的非幂等方法必须带 `X-Ops-Session`，缺失 403。CSP **三层下发**（后端 `security_headers` / nginx 模板含 `frame-ancestors 'none'` / vite dev meta），新增 7 个可配置项（`OPS_SESSION_COOKIE_*`、`OPS_CSRF_HEADER`、`OPS_CONTENT_SECURITY_POLICY`、`OPS_X_FRAME_OPTIONS`），TTL 与 `TOKEN_TTL_HOURS` 同源。前端 `stores/auth.js` 去 token/去 localStorage/去 `isTokenExpired`，`api/http.js` 统一 `createApiClient()`（withCredentials + CSRF 头注入 + 401 清态跳登录、403 不清态），7 个 view 收敛样板，路由守卫改 async 水合。附带加固：`Settings.__repr_args__` 凭据字段脱敏（实测一次测试失败就会把 Ed25519 私钥明文打进日志）。防复发门禁 `check-ops-session-hygiene.js` 接入 **Gate 18**。
+- **P2 安全小项（4 项同口径收口）**：① `ai-writer-api` 的 `key !== apiKey` 短路比较改 `src/auth.js#timingSafeKeyEqual`（SHA-256 后 `crypto.timingSafeEqual`，非字符串/空值 fail-closed）；② `collection-engine` 4 个 adapter（bilibili/douyin/xiaohongshu/zhihu）`buildUrl` 的 id 一律 `encodeURIComponent(String(id))` —— 体检报告只点 B 站 query，路径段同源缺陷一并收紧；③ `webview-manager` 凭证 localStorage 恢复不再把 `JSON.stringify` 裸拼进 `executeJavaScript`（Electron 43 的 `executeJavaScript` 不接收参数），改新增原语 `electron/core/js-eval-payload.js`（反斜杠加倍过两层词法 + `'`/`<>&`/U+2028/U+2029 转义 + 页面侧 `JSON.parse` 还原，不可序列化即抛错）；④ `audio-aligner` 的 `POST /align` 增加 `aligner/path_guard.py` 目录约束（先 realpath 再 `commonpath` 判包含、**目录边界先于存在性判定**以免 403/404 沦为文件枚举 oracle；未配置时默认只允许系统临时目录 fail-closed），`/health` 暴露 `allowed_roots`、日志改用规范化路径，桌面端 `BasePythonBridge._spawnEnv()` 钩子由 `AlignerBridge` 注入 `AUDIO_ALIGNER_ALLOWED_DIRS`（tmp + userData + 外部追加）。
+
+### 验证
+- TDD 红→绿：新增 `ipc-injection-contract.test.js`（静态 + 3 行为例）、`check-ipc-sender-guard.test.js`（15 node:test）、`test_p1_15_session_cookie.py`（13）、`check-ops-session-hygiene.test.js`（7）、`api-key-timing.test.js`（13，含静态不变量）、`build-url-encoding.test.js`（9）、`js-eval-payload.test.js`（13）、`test_p2_path_guard.py`（28）、`aligner-bridge-audio-dirs.test.js`（6）；`core/ipc-security.test.js` 补 file:// realpath 边界回归；重写 ops 前端 auth-store / http-client 契约并修正 `vitest.config.js` include 只覆盖 `src/**` 导致 `tests/` 下 6 个用例文件从不执行。
+- 本地：audio-aligner pytest 28 passed/1 skipped、ai-writer-api 23 passed、collection-engine 11 files/102 passed、apps/desktop P2 定向 4 files/86 passed、ops-center 前端 8 files/42 passed；ESLint 0 errors。
+- QM-5 红验证（4 变异全部转红、恢复无残留）：M1 退回 `!==`、M2 退回 id 裸拼、M3 退回裸拼 `JSON.stringify`、M4 跳过 `resolve_audio_path`。
+- 详细规格（数据校验、契约、交互逻辑、显示项、提示文字、运维指引、决策与残余风险）见 `docs/audit-remediation-batch3-2026-09-22.md`；踩坑反哺见 `01-docs/learnings.md`。
+
+### 关联
+- 分支 `codex/audit-p1-depth`（worktree 隔离，D 盘）；`.adversarial/codebase-audit-20260922/proposal-v7.md` 问题 14 / 15 / §71 / §90。
+- CI 门禁增量：`quality-gate.yml` Gate 17（IPC sender 覆盖）、Gate 18（ops 会话卫生）。
+
+---
+
 # [未发布] fix(ops-center): 预设模型排序按钮灰显锁死修复——所见即所得作用域（2026-09-23，model-sort-visible）
 
 ### 变更
@@ -436,7 +455,6 @@
 - **config/platforms.yaml**：经该工具对真实运营中心后端（:8010）执行合并——12 平台补齐 enabled 字段并归一引号风格；tencent_video/baijiahao/instagram 仅本地存在，保留未动。
 - **背景**：桌面端 opsCenterSync 配置 Key 经 safeStorage 加密、外部无法伪造；方案 C（会话凭证换取同步凭证，独立 PR 推进中）落地前，本工具提供不依赖桌面应用登录态的本机预同步通道。
 - **CI**：`scripts/*.js` 默认 gitignore，新增 sync-platform-config.js/.test.js 白名单例外；quality-gate.yml Gate 2b 挂入新单测。
-- **CHANGELOG 去损**：清除 origin/main 头部残留的孤立冲突标记块（`>>>>>>> theirs`，2026-09-21 并发 prepend 事故残留）。
 
 ### 验证
 - 新增 `scripts/sync-platform-config.test.js`（node --test）7 用例全过：共享字段更新/人工字段保留/布尔归一/新增占位段/localOnly 保留/函数级幂等/dump+头拼接字节级幂等（防注释粘连复辟）。

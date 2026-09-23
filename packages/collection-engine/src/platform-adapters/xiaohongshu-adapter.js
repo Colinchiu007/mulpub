@@ -37,7 +37,7 @@ class XiaohongshuAdapter extends BaseAdapter {
 
   buildUrl (target) {
     if (typeof target === 'string') return target
-    if (target.noteId) return 'https://www.xiaohongshu.com/explore/' + target.noteId
+    if (target.noteId) return 'https://www.xiaohongshu.com/explore/' + encodeURIComponent(String(target.noteId))
     return target.url
   }
 

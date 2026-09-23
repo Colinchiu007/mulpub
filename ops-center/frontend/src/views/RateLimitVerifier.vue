@@ -208,19 +208,9 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import axios from 'axios'
+import { createApiClient } from '../api/http'
 
-const api = axios.create({ baseURL: '/api/v1' })
-api.interceptors.request.use(c => {
-  const s = localStorage.getItem('ops_token')
-  if (s) {
-    try {
-      const token = JSON.parse(s).token
-      if (token) c.headers.Authorization = `Bearer ${token}`
-    } catch {}
-  }
-  return c
-})
+const api = createApiClient()
 
 const tab = ref('sim')
 const presets = ref([])

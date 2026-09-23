@@ -44,7 +44,12 @@ class ZhihuAdapter extends BaseAdapter {
     if (typeof target === 'string') return target
     // 知乎回答: https://www.zhihu.com/question/{qid}/answer/{aid}
     if (target.aid) {
-      return 'https://www.zhihu.com/question/' + target.qid + '/answer/' + target.aid
+      return (
+        'https://www.zhihu.com/question/' +
+        encodeURIComponent(String(target.qid)) +
+        '/answer/' +
+        encodeURIComponent(String(target.aid))
+      )
     }
     return target.url
   }

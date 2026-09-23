@@ -29,7 +29,8 @@ describe('OAuthManager IPC 安全合同', () => {
     __resetElectronMock()
     manager = new OAuthManager({})
     manager.close = vi.fn()
-    manager.registerIpcHandlers()
+    // P1-14：注入契约收紧后必须显式传入受控 ipcMain（不再回退全局）
+    manager.registerIpcHandlers(__electronMock.ipcMain)
     closeHandler = __electronMock.ipcMain._handlers['oauth:close']
   })
 

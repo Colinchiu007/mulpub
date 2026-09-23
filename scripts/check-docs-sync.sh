@@ -70,7 +70,7 @@ echo ""
 # ---- 文档正则 ----
 # openspec/（规格与 change）与 .ccg/（任务工件）属项目分层规则认定的流程/规格/文档，
 # 与 docs/、01-docs/ 同视为文档变更，不视为需另行同步文档的「运行时代码」。
-PRD_PATTERN="(PRD\.md|CHANGELOG\.md|docs/|01-docs/|README\.md|openspec/|\.ccg/)"
+PRD_PATTERN="(PRD\.md|CHANGELOG\.md|docs/|01-docs/|README\.md|AGENTS\.md|openspec/|\.ccg/)"
 
 # ---- 第一阶段：检查文档是否已更新 ----
 DOCS_CHANGED=false
