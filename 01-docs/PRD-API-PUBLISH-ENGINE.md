@@ -413,7 +413,7 @@ token 逐级传递（edit 带 baseToken / save 带 publishToken）、headers 白
 
 
 
-### 12.4 Adapters 变薄委托新链（§4.4）🚧（B站维度 ✅，视频号/百家号待后续切片）
+### 12.4 Adapters 变薄委托新链（§4.4）🚧（B站+视频号 ✅，百家号待专轮）
 
 **目标**：三平台旧适配器（`src/adapters/{bilibili,shipinhao,baijiahao}.js`）改为**变薄委托**
 `src/publish/platforms/*` 新链，使 HTTP/upos 传输逻辑**单一事实源**落在链层；适配器**外部接口
@@ -439,10 +439,33 @@ publish`、继承自 `base-adapter` 的 `execute`、`listCollections`），调�
 - **测试迁移**：`bilibili-upos.test.js` 由「`this.http` 桩验发布」改为「`_chainOverride` 断言委托转发
   （opts.draft===false、postData 透传）」；真实发布网络语义由 `bilibili-video-chain.test.js`
   假服务器覆盖（**更强**：钉完整请求序列/头/体）。结构测试 `bilibili-upos` 7 例 + 链测 7 例全绿；
-  全量回归 **127 测 EXIT=0**。
+  全量回归 **135 测 EXIT=0**（§4.4 视频号委托 +8 例后）。
 
-**视频号 ⏳**：`shipinhao.js` 现走 `upload/orchestrator`（另一传输路径），委托 `ShipinhaoVideoChain`
-为下一切片（需对齐 orchestrator 现有调用方与取消/进度语义）。
+**视频号 ✅（本轮）**：`shipinhao.js` 由 20 行 placeholder（走 `upload/orchestrator` 另一传输路径）改写为
+66 行**变薄委托 `ShipinhaoVideoChain`**，HTTP/CDN 分片传输单一事实源归 `publish/platforms/shipinhao-video.js`：
+- **外部接口零改动**：`constructor` 仍 `super("tencent_video")`（`adapters-interface` 契约钉死 name）、
+  `getReferer`（`.../platform/post/create`）/`getOrigin`（`https://channels.weixin.qq.com`）/`getHeaders` 保留；
+  `execute` 仍走 `base-adapter`（`formatContent`、进度事件、错误码映射、失败日志、`catch` 归一化全继承）。
+- **`_chain(cookie, clients, ids)` 注入缝**：默认 `new ShipinhaoVideoChain({cookie, userAgent, apiBase, finderId, finderUin})`，
+  测试可 `_chainOverride`。`ids` 透传 `_log_finder_id`/`weixinnum`（finderUin 缺省回退 finderId）。
+- **`uploadVideo(td,cookie,cancelToken)`**：`td`/视频路径为空 → 返 `null`（空上传零请求契约，不抛）；
+  文件不存在 → 抛 `SPH_NO_FILE`（fail-closed 零请求）；否则 `getUploadAuthKey` → `uploadVideo(path, meta)`
+  （meta=`{authKey, filetype(mp4 缺省), filekey, taskid}`，链内 applyuploaddfs→逐片 uploadpartdfs(8MiB, Content-MD5)→
+  completepartuploaddfs），返回 `{uploadId, videoInfo}`（`execute` 包装为 `{video: 此返回}`）；`cancelToken` 起止各检一次。
+- **`uploadCover` → `null`**：视频号封面由视频抽帧，无独立封面上传链。
+- **`buildPostData(td,uploadResult)`** → 链**模块级纯函数** `buildShipinhaoPostData(td, uploadResult.video, ids)`
+  （去重，链 `run()` 复用同函数）：`description`=`content ?? title`、`media.videoId`=`uploadId`、
+  `media.url`=`videoInfo.url || videoInfo.data.url`、`media.{width,height,duration}` 取自 `td.video`、
+  `scene=7`/`reqScene=7`、`rawKeyBuff=null`、`location=null`、`timestamp`=13 位毫秒。
+- **`publish(cookie,postData)`** → `chain.publish(postData,{draft:false})`：适配器对外**固定正式发布**
+  （`post_create`），与旧行为一致；链返回 platform=shipinhao 映射回外部名 tencent_video 保持对外契约；
+  **私密草稿**由 §5 `publishWithMode` 服务层经链 `draft` 选项驱动。
+- **关键约束**：同 B站——适配器**不得把 `this.http` 注入链 `api`**（`this.http` 无 baseURL 破坏相对 URL 解析、
+  且 `requestWithRetry` 依赖 `client.request`）；链自建 baseURL 的 api/cdn 客户端。
+- **测试**：新增 `shipinhao-adapter.test.js`（8 例：name/referer/origin 契约、`_chain` 构造透传、
+  `buildPostData` 字段与回退、`publish` 委托 `{draft:false}` 且 platform 映射、空上传返 null、
+  `SPH_NO_FILE` fail-closed、`uploadCover` null）；真实发布网络语义由 `shipinhao-video-chain.test.js`
+  假服务器覆盖（7 例，钉 5 步请求序列/头/体）。`upload/orchestrator` 系 8+ 适配器共享模块，**不改动**，仅 re-point 本适配器。
 
 **百家号 ⚠️（行为决策，非纯委托）**：旧 `baijiahao.js` 是**视频**适配器（455 行，`e2e-publish-full-chain`
 以 `this.http` 桩钉死其视频全链）；§4.3 新链是**文章**链 `BaijiahaoArticleChain`（Q14：百家号只发文章）。

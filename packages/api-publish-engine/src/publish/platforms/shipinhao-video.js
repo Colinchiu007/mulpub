@@ -52,6 +52,30 @@ function buildXArguments (o) {
     '&scene=' + o.scene
 }
 
+/**
+ * 构造 post_create/post_draft 投稿体（纯函数，供链与薄适配器共用）。
+ * @param {object} taskData {title, content, video:{width,height,duration}}
+ * @param {{uploadId, videoInfo}} upload 上传产物（videoId=uploadId，url 取自 videoInfo）
+ * @param {{finderId, finderUin}} ids 视频号身份（_log_finder_id/_log_finder_uin）
+ */
+function buildShipinhaoPostData (taskData, upload, ids) {
+  const td = taskData || {}
+  const v = td.video || {}
+  const vi = (upload && upload.videoInfo) || {}
+  const mediaUrl = vi.url || (vi.data && vi.data.url) || ''
+  return {
+    description: String(td.content == null ? td.title : td.content),
+    media: { videoId: (upload && upload.uploadId) || '', url: mediaUrl, width: v.width, height: v.height, duration: v.duration },
+    location: null,
+    timestamp: getTimeStamp(13),
+    _log_finder_uin: (ids && ids.finderUin) || null,
+    _log_finder_id: (ids && ids.finderId) || null,
+    rawKeyBuff: null,
+    scene: 7,
+    reqScene: 7,
+  }
+}
+
 class ShipinhaoVideoChain {
   /**
    * @param {{cookie, userAgent, finderId, finderUin, api?, cdn?, apiBase?, cdnBase?,
@@ -214,18 +238,7 @@ class ShipinhaoVideoChain {
     const authKey = await this.getUploadAuthKey()
     const meta = { authKey, filetype: taskData.video.filetype || 'mp4', filekey, taskid }
     const { uploadId, videoInfo } = await this.uploadVideo(taskData.video.path, meta, opts.onProgress)
-    const mediaUrl = (videoInfo && videoInfo.url) || (videoInfo && videoInfo.data && videoInfo.data.url) || ''
-    const postData = {
-      description: String(taskData.content == null ? taskData.title : taskData.content),
-      media: { videoId: uploadId, url: mediaUrl, width: taskData.video.width, height: taskData.video.height, duration: taskData.video.duration },
-      location: null,
-      timestamp: getTimeStamp(13),
-      _log_finder_uin: this.finderUin || null,
-      _log_finder_id: this.finderId || null,
-      rawKeyBuff: null,
-      scene: 7,
-      reqScene: 7,
-    }
+    const postData = buildShipinhaoPostData(taskData, { uploadId, videoInfo }, { finderId: this.finderId, finderUin: this.finderUin })
     const result = await this.publish(postData, opts)
     return result
   }
@@ -235,6 +248,7 @@ module.exports = {
   ShipinhaoVideoChain,
   ShipinhaoVideoError,
   buildXArguments,
+  buildShipinhaoPostData,
   getTimeStamp,
   md5Hex,
   DEFAULT_API_BASE,

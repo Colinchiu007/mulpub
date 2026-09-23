@@ -10,6 +10,7 @@ const VITEST_FILES = new Set([
   'baijiahao-api-chain.test.js',
   'baijiahao-article-chain.test.js',
   'shipinhao-video-chain.test.js',
+  'shipinhao-adapter.test.js',
   'bilibili-video-chain.test.js',
   'bilibili-upos.test.js',
   'cos-uploader.test.js',
