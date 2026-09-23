@@ -48,8 +48,8 @@ CREATE TABLE IF NOT EXISTS identity_notifications (
 CREATE INDEX IF NOT EXISTS idx_identity_notifications_user
     ON identity_notifications(user_id, created_at DESC);
 
--- 设备会话画像：id 为 sha256(user_id:device_id) 派生，
--- upsert 走 ON CONFLICT (id) DO UPDATE（复活 revoked 行），广播消息按用户 fan-out。
+-- 设备会话画像：本迁移只预留列；Task 3 起 id 计划以 sha256(user_id:device_id) 派生，
+-- 并经 ON CONFLICT (id) DO UPDATE 复活 revoked 行（Task 1 尚无写入路径）。
 ALTER TABLE identity_user_sessions ADD COLUMN IF NOT EXISTS device_id TEXT;
 ALTER TABLE identity_user_sessions ADD COLUMN IF NOT EXISTS device_name TEXT;
 ALTER TABLE identity_user_sessions ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ;
