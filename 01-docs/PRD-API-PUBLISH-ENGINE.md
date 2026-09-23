@@ -734,6 +734,24 @@ spacer（首次放行、17min 节流零请求 waitMs、越 18min 再放行、不
 
 **待办**：多平台「一条记录 → 多个平台子结果」的完整分片列表（每子结果独立 mode/postId/url），待平台适配器把子结果数组写入 `result.subResults` 后扩展；`fallback` 态随 §5 服务层 api-then-dom 降级自然生效。
 
+### 12.12 §5.4 桌面风控挂起信号生产端：risk_blocked 判定 + publish:risk-hold IPC（后端落地，随本 PR）
+
+> 定位：引擎层（§5.4）已有 `createRiskSuspender` + `publish-mode-runner` 内建风控分类，但桌面发布队列走 `publisher-router.js` 直连各 Publisher，失败仅 `throw` 通用 Error，不经引擎 `publishWithMode`，故风控命中不被识别、无信号达渲染层。本节在桌面事件层补齐「识别 + 发信号」生产端，作为 §6.1 通知中心 UI 与后续挂起守卫的数据契约。
+
+**功能逻辑与流程**：
+- 新增 `apps/desktop/electron/services/publish-risk.js` 纯函数 `isRiskBlocked(errorMessage)`：正则 `RISK_RE`（与引擎 `publish-mode-runner` 词表同义：风控/risk/滑块/601/10000015/frequent/频繁/verify/验证/安全验证/操作频繁/captcha）匹配 `task.error`；非字符串或空串 → false（fail-safe）。
+- `phase4-events.js` 的 `task:failed` 处理内：在既有通用 `publish:progress`（✗ 发布失败）之外，若 `isRiskBlocked(task.error)` 为真，追加 `win.webContents.send('publish:risk-hold', { platform, accountId, taskId, error })`。`accountId` 取 `task.article?.accountId || null`；仅在窗口存活（`win && !win.isDestroyed()`）时发。
+
+**数据校验**：`errorMessage` 类型守卫（非 string 或空 → false）；`accountId` 缺失 → `null`；窗口销毁 → 不发（沿用既有存活守卫）。
+
+**显示项与提示文字**：本切片为「信号生产端」，不改渲染层（无可见 UI 变更）；`publish:risk-hold` 载荷 `{platform, accountId, taskId, error}` 即 §6.1 通知中心的消费契约。
+
+**合规红线**：风控即停、绝不自动换号绕过——本模块只做识别，不含任何自动恢复逻辑；挂起态的显式恢复由 §6.1 UI（恢复/停止）+ 引擎 `riskSuspender.resume` 承担（后续切片）。
+
+**测试与验证**：`publish-risk.test.js` 3 例（常见风控信号命中 / 普通失败非命中 / 非字符串安全 false）；`phase4-events.test.js` +2 例（风控失败发 `publish:risk-hold` 且载荷含 platform/accountId/taskId、普通失败不发但发 `publish:progress`）。electron 6 测绿；ESLint（Gate 11）无 error；Gate 12 品牌扫描 6055 PASS。
+
+**待办（后续切片，端到端验收绑定 §7）**：渲染层订阅 `publish:risk-hold` 的通知中心 UI（恢复/停止）+ preload 暴露 `onRiskHold` + 桌面 `riskSuspender` 状态接入发布队列派发前置守卫（真正「挂起」该平台/账号后续发布）。
+
 ## 附：验收记录（活体证据回写区，随波更新）
 
 | 波次 | 平台 | 日期 | 作品ID | 链接 | 截图 | 降级 | 结论 |
