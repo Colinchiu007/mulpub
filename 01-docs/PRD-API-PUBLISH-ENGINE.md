@@ -644,6 +644,32 @@ spacer（首次放行、17min 节流零请求 waitMs、越 18min 再放行、不
 - §5「双轨路由 + 频控 + 风控停止」服务层四件套 + 统一入口已全部落地（§5.1~§5.4 + 本装配）。
 - 待办（转 §6/§7）：把 UI/IPC 发布入口从 `publishWithFallback` 切到 `publishWithMode`；`onRiskEvent` 接桌面通知中心 + i18n 文案；`rpaPublish` 由 desktop ROUTE_TABLE 顶层分派的 DOM 执行器注入；活体验收（§7）。
 
+### 12.8 W1 §4.4 百家号 re-point（旧视频链 → 新文章链，Q14 只发图文）
+
+**背景与决策**：Q14 明确「百家号只发图文（文章）」。§4.3 已交付独立文章链 `src/publish/platforms/baijiahao-article.js`（`BaijiahaoArticleChain`，本机假 HTTP 契约测试 `baijiahao-article-chain.test.js`）。本轮把对外适配器 `src/adapters/baijiahao.js` 由 457 行视频链（`preuploadVideo` / 分片 `uploadVideoPart` / `compuploadVideo` / `video process` 轮询 / `publishVideo`）**整体下线**，改为薄委托到文章链，落实「单一事实源 = 文章链」。这是行为变更（发布产物 video → article），属 §4.4 预留的「百家号专轮」。
+
+**适配器委托接线（`adapters/baijiahao.js`，约 70 行）**：
+- `class BaijiahaoAdapter extends BasePlatformAdapter`，`super("baijiahao")`，`this.apiBase = "https://baijiahao.baidu.com"`；外部接口保真（`getReferer()` → `.../builder/rc/edit?type=news`、`getOrigin()` → 百家号域）。
+- `_chain(cookie, clients)`：`new BaijiahaoArticleChain({ cookie, userAgent: HttpConfig.userAgent, ...clients })`；测试可注入 `_chainOverride` 或用 `opts.http` 传 http/baseUrl 覆盖，杜绝真实网络。
+- 图文无视频：`uploadVideo()` / `uploadCover()` 返回 `null`（保持基类 execute 契约的空上传语义，不发起请求）。
+- `buildPostData(taskData)`：委托 `chain.buildArticleFormData(taskData)`（x-www-form-urlencoded），供旧调用点 / 测试复用。
+- `execute(taskData, cookie, opts)`（`publishViaApi` 入口）：① `!taskData.title` → 返回 `{ success:false, error:"缺少标题（百家号图文发布需 title）", platform:"baijiahao" }`（fail-closed 零请求，不调链）；② `draft = opts.draft !== false`（**私密草稿优先**，对齐 Q14 活体验收口径）；③ `await chain.run(taskData, { draft })`；④ 链失败 `{ success:false }` → 透传 `error` / `code`（不吞风控 10000015 等原始码）；⑤ 链抛错（缺 cookie / UA fail-closed）→ catch 归一 `{ success:false, error, platform }`；⑥ 成功 → `{ success:true, platform, draft, publishId, url:"https://baijiahao.baidu.com/pcui/article/<id>", raw }`。
+
+**AI 生成声明平移（文章链 `buildArticleFormData`）**：旧视频链 `activity_list[0][id]=aigc_bjh_status & activity_list[0][is_checked]=1/0` 平移到文章链；以 `URLSearchParams.set('activity_list[0][id]', 'aigc_bjh_status')` + `set('activity_list[0][is_checked]', aiGenerated ? '1' : '0')` 实现（方括号自动编码为 `%5B/%5D`，与逆向抓包逐字一致）。语义 `aiGenerated = taskData.aiGenerated !== false` → **默认勾选**（AI 生成内容必须如实声明），人工创作须显式 `aiGenerated:false` 才取消。与快手 `ai_generated` 跨平台一致（e2e「跨平台 AI 声明一致性」用例保留）。
+
+**链级既有能力（§4.3，本轮未动）**：baseToken（`/?source=inner` 正则 `BJH__INIT__AUTH__`）→ publishToken（`/pcui/article/edit?type=news` 响应头 `token`）→ uploadImage（`/pcui/picture/uploadproxy`）→ submitArticle（`draft` → `/pcui/article/save?callback=bjhdraft` 私密优先，否则 `/pcui/article/publish?type=news`）；errno 10000015 风控弹码可操作提示；标题 149 字节 UTF-8 截断；缺 cookie / UA fail-closed 零请求。
+
+**测试变更（行为变更专轮，全量回归 23 文件 / 173 测 EXIT=0）**：
+- `baijiahao-article-chain.test.js`：新增 2 例（`buildArticleFormData` 默认 `is_checked=1` / `aiGenerated:false`→`0`）；链级假 HTTP 契约（save / publish / token 逐级传递 / 风控 10000015 / 截断 / fail-closed 零请求）共 10 例。
+- `baijiahao-api-chain.test.js`：由 378 行视频链用例（preupload / 分片 / complete / process / publishVideo / buildVideoPostData）**整体重写**为 10 例「委托接线」（接口保真 / upload 桩 null / buildPostData 委托 / AI 声明 / 截断 / execute 草稿优先 / 透传 aiGenerated / 缺标题零请求 / 风控 error 透传 / 链抛错归一）。
+- `e2e-publish-full-chain.test.js`：百家号段由视频全链（2 分片 + process + article/publish）改「委托文章链」4 例（execute→chain.run / 草稿优先 / aiGenerated 透传 / 缺标题 fail-closed / buildPostData 含 aigc + 截断）；移除 `createTempVideo` 与视频 mock handlers；快手段与「跨平台 AI 声明一致性」保留。
+- 用例净变化 −12（视频链用例随能力下线）；百家号真实 HTTP / token / 风控覆盖不降（迁入 `article-chain` 假服务器组）。
+
+**显示项 / 提示文字（供 §6 UI）**：百家号发布产物由「视频」改为「图文」；成功回 `publishId` + 可点 `url`；风控 `code=10000015` → 提示「百家号发布被风控拦截（<hit_rule>）。请先在浏览器中登录百家号完成验证（<scenes>），验证通过后重新发布。」；缺 cookie / UA / 标题 → fail-closed 可读错误，绝不静默成功。
+
+**Gate / 合规**：只直连 baijiahao 官方域名，无任何远程签名；测试仅本机假 HTTP / 纯表单函数，零外发。Gate 12 品牌残留扫描 6021 tracked 文件 PASS。
+
+
 ## 12.9 桌面集成后端：图文 API 发布分流 + 发布方式记录（§6 后端基座，随本 PR）
 
 > 定位：§4.4 百家号 re-point（Q14 只发图文）暴露了桌面发布路由层的集成缺陷——`apps/desktop/electron/services/publisher-router.js` 的 `ApiPublisher.publish` 硬依赖 `article.video_path` 并做 ffprobe 横版校验，图文任务（无视频）会在到达引擎适配器之前抛「缺少视频文件路径」。本节定义桌面侧的图文/视频分流与「发布方式」记录，作为 §6.1 发布记录徽标的数据源。

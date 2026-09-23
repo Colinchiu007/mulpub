@@ -1,3 +1,30 @@
+# [未发布] fix(视频号): 账号点击弹回登录页根治——CDP document-start 早期注入凭证 localStorage + checkLocalCredentials 加严（2026-09-24，legacy-fake-credential-heal）
+
+### 变更
+- **`apps/desktop/electron/services/webview-manager.js`**：账号标签凭证 localStorage 恢复从「did-finish-load 后 executeJavaScript + 二段导航」改为新增 `_injectLocalStorageAtDocumentStart`——`webContents.debugger.attach()` + `Page.addScriptToEvaluateOnNewDocument` 在首个导航的 document-start（页面任何脚本之前）写入 LS，注入 promise 挂入 `navigateAfterCookies` 等待链（与 Cookie 同契约：先于首个导航生效）；成功即不再注册补注入/二段导航（消除登录页闪烁），`did-navigate` 后 detach。
+- **`packages/shared-utils/src/platform-definitions.js`**：新增 `PLATFORM_LS_SESSION_MARKERS`（首版 `tencent_video: ['finder_username']`）与判定函数 `hasPlatformLsSessionMarker`（非空值才算会话证据）并导出；标记键以 CDP 实测为准，禁止混入埋点噪声键。
+- **`apps/desktop/electron/publishers/account-manager.js`**：`checkLocalCredentials` encrypted 分支加严——`cookies=0` 且 LS 无平台会话标记时不再从宽返回 true，落入 session 分区 Cookie 备选证据链，仍无则 false（三态收敛，禁止布尔从宽）。
+
+### 修复
+- **视频号扫码重登/重建账号后仍弹回 login.html（v2 #2229 后残留复现）**：根因非脏凭证——CDP 实测分区 Cookie（sessionid/wxuin）与凭证均有效，真根因是视频号登录态为 Cookie+LS 双因子且服务端对 `/` 不 302，由前端 SPA 自判未登录**主动弹回**；旧恢复链 LS 注入晚于首个导航到达，二段导航同样被弹回。抖音/B站只靠 Cookie+302 判定故旧模式不崩，属平台差异掩盖的时序缺陷。
+- **存量假保存凭证自愈**：历史 getAll 吞错期写入的 `cookies=0 + 仅埋点脏 LS 键` 快照，经加严判定 `checkLoginStatus` 收敛为 `CHECK_LOGIN_NO_CREDENTIAL`，账号页显示「需重新登录」而非伪装可用；不写数据库、不做迁移步骤。
+
+### 数据校验纪律
+1. 凭证恢复契约：Cookie 与 localStorage **都必须先于首个导航生效**；降级路径（debugger API 缺失→同步注册旧回退；attach/sendCommand 失败→异步注册，导航被 promise 阻塞故注册仍先于导航）保持 fail-open，注入失败不阻断导航。
+2. `hasPlatformLsSessionMarker`：值须为非空字符串（trim 后）或 truthy；平台不在标记表 → false（视为不依赖 LS 登录态）；LS 数据非对象 → false。
+3. `checkLocalCredentials` 加严只影响 `cookies=0 且无 LS 标记` 的加密快照；`cookies` 非空、LS 有标记、session 分区 Cookie 文件任一成立仍有证据链。
+
+### 显示项与提示文字
+- 假保存账号状态由「可用/未确认」收敛为「需重新登录」（`CHECK_LOGIN_NO_CREDENTIAL` 既有语义与文案，无新增 locale 键）；正常重扫后直达创作者中心，不再出现「扫码成功但闪回登录页」回环。
+- 早期注入成功时消除二段导航闪烁（登录页一闪再进创作者中心的视觉回环）。
+
+### 验证
+- TDD 先红后绿：webview-manager 新增 2 例（CDP 可用时序断言 `addScriptToEvaluateOnNewDocument` 先于首个 `loadURL` + 无二段导航；attach 抛错降级旧行为）、account-manager 新增 3 例（假保存/空 LS→false、finder_username 标记→true、正常凭证→true）+ 1 例既有 INCONCLUSIVE 用例按加严契约拆分为 NO_CREDENTIAL/INCONCLUSIVE 两例；首跑 2 红确认，实现后定向 **137/137** 全绿。
+- 全量回归：`apps/desktop` vitest **632 文件 / 11299 passed | 3 skipped**；`packages/shared-utils` **21 文件 / 273 passed**。
+- QM-1：`electron-builder --win --dir` EXIT0；asar 含三个改动文件且解包 `node --check` 通过；解包 require `platform-definitions` 断言标记导出（正/负判定语义正确）+ `webview-manager` require 链 OK；打包 exe 启动 10s 存活，stderr 仅 renderer dist 未构建预期项。
+
+### 关联
+- 承接 #2229（v2 getAll 假保存热修）后用户复现的残留弹回；契约文档 `01-docs/PRD-BATCH-LOGIN-SAVE-GUARD-2026-09-22.md` §14（修订记录 v3）；QM-5 反哺见 `01-docs/learnings.md`；门禁沉淀两条见 `.quality-gates.md` 安全类清单。
 # [未发布] feat(ui): 首页标签渲染只读导航栏 + 标签栏 TabBar 视觉精致化（2026-09-23，tab-nav-refine）
 
 ### 变更

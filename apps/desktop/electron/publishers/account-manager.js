@@ -55,6 +55,7 @@ const {
   PLATFORM_LOGIN_SUCCESS_SELECTORS,
   getPlatformName,
   isPlatformCookieDomain,
+  hasPlatformLsSessionMarker,
 } = require('@multi-publish/shared-utils/src/platform-definitions')
 // 账号资料（昵称/头像/平台ID/粉丝）采集与「字段缺席=不修改」写回契约的单一实现
 const profileUtils = require('@multi-publish/shared-utils/src/account-profile')
@@ -844,8 +845,17 @@ function checkLocalCredentials (platform, accountId, options = {}) {
       log.info('AccountManager', 'checkLocalCredentials: file exists but loadSavedCredentials null for ' + platform + ':' + accountId + (ownerSubject ? ' (owner=' + ownerSubject + ')' : ' (legacy)'))
       // 加密文件损坏：仍检查 session 分区作为备选
     } else {
-      log.info('AccountManager', 'checkLocalCredentials: OK encrypted ' + platform + ':' + accountId + ' cookies=' + (loaded.cookies ? loaded.cookies.length : 0) + ' lsKeys=' + Object.keys(loaded.localStorage || {}).length)
-      return true
+      const cookieCount = loaded.cookies ? loaded.cookies.length : 0
+      const lsKeyCount = Object.keys(loaded.localStorage || {}).length
+      // 加严判定（2026-09-24 视频号假保存复盘）：cookies=0 且 localStorage 无平台会话标记
+      // 时快照不构成任何有效登录证据（历史假保存凭证会把用户送进登录页回环），不得从宽
+      // 返回 true；落入下方 session 分区 Cookie 备选证据链，仍无则收敛为 false（需重新登录）。
+      if (cookieCount === 0 && !hasPlatformLsSessionMarker(platform, loaded.localStorage)) {
+        log.info('AccountManager', 'checkLocalCredentials: encrypted file has no credential evidence (cookies=0, no LS session marker) ' + platform + ':' + accountId + ' lsKeys=' + lsKeyCount + ', fallback to session-cookie check')
+      } else {
+        log.info('AccountManager', 'checkLocalCredentials: OK encrypted ' + platform + ':' + accountId + ' cookies=' + cookieCount + ' lsKeys=' + lsKeyCount)
+        return true
+      }
     }
   }
 

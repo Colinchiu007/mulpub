@@ -129,6 +129,30 @@ const PLATFORM_COOKIE_DOMAINS = {
   facebook: ['facebook.com'],
 }
 
+// 平台 localStorage 会话标记：部分平台（如视频号）登录态依赖 localStorage 而非仅 Cookie。
+// 供 checkLocalCredentials 判定 cookies=0 的快照是否仍能构成有效凭证；值为非空即视为会话证据。
+// 未列入的平台视为不依赖 localStorage 登录态。新增标记键必须以 CDP 实测取证为准，
+// 且不得混入埋点/上报类噪声键（__ml::aid、UvFirstReportLocalKey 等）。
+const PLATFORM_LS_SESSION_MARKERS = {
+  tencent_video: ['finder_username'],
+}
+
+/**
+ * 判定 localStorage 是否含有该平台已知会话标记的非空值。
+ * @param {string} platform
+ * @param {Object} localStorageData
+ * @returns {boolean}
+ */
+function hasPlatformLsSessionMarker (platform, localStorageData) {
+  const markers = PLATFORM_LS_SESSION_MARKERS[platform]
+  if (!Array.isArray(markers) || markers.length === 0) return false
+  if (!localStorageData || typeof localStorageData !== 'object') return false
+  return markers.some(key => {
+    const value = localStorageData[key]
+    return typeof value === 'string' ? value.trim().length > 0 : Boolean(value)
+  })
+}
+
 function normalizeHost (value) {
   return String(value || '').trim().toLowerCase().replace(/^\.+/, '').replace(/\.$/, '')
 }
@@ -247,7 +271,9 @@ module.exports = {
   PLATFORM_LOGIN_SUCCESS_PATTERNS,
   PLATFORM_AUTH_HOSTS,
   PLATFORM_COOKIE_DOMAINS,
+  PLATFORM_LS_SESSION_MARKERS,
   isPlatformAuthHost,
+  hasPlatformLsSessionMarker,
   isPlatformLoginSuccessUrl,
   isPlatformCookieDomain,
   PLATFORM_LOGIN_SUCCESS_SELECTORS,

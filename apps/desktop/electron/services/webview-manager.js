@@ -47,6 +47,45 @@ function _getUserDataDir () {
 }
 
 /**
+ * 通过 CDP 在文档 document-start（主世界首帧之前）注入凭证 localStorage。
+ * 根因（2026-09-24 视频号）：平台 SPA 不做服务端 302，由前端自判未登录主动弹回登录页；
+ * did-finish-load 之后再注入，首个导航到达时凭证尚未写入，二段导航同样被弹回。
+ * addScriptToEvaluateOnNewDocument 让脚本先于页面任何脚本执行，保证首个导航即已登录态。
+ * 返回 Promise<boolean>：true=早期注入成功（无需事后补注入/二段导航）；
+ * false=debugger 缺失/attach 被占/sendCommand 失败，调用方降级旧路径（fail-open，不阻断导航）。
+ * 成功时保持 attach——注入须存活到首个导航提交；did-navigate 后 detach（注入已落在页面世界）。
+ * @param {any} view
+ * @param {string} script
+ * @returns {Promise<boolean>}
+ */
+function _injectLocalStorageAtDocumentStart (view, script) {
+  return Promise.resolve().then(function () {
+    var dbg = view && view.webContents && view.webContents.debugger
+    if (!dbg || typeof dbg.attach !== 'function' || typeof dbg.sendCommand !== 'function') return false
+    try {
+      dbg.attach()
+    } catch (e) {
+      log.warn('WebviewManager', 'debugger attach failed, LS early injection fallback: ' + ((e && e.message) || 'unknown'))
+      return false
+    }
+    return Promise.resolve(dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: script }))
+      .then(function () {
+        try {
+          view.webContents.once('did-navigate', function () {
+            try { dbg.detach() } catch (_) { /* already detached */ }
+          })
+        } catch (_) { /* once 不可用时保持 attach，webContents 销毁会一并释放 */ }
+        return true
+      })
+      .catch(function (e2) {
+        log.warn('WebviewManager', 'addScriptToEvaluateOnNewDocument failed, LS early injection fallback: ' + ((e2 && e2.message) || 'unknown'))
+        try { dbg.detach() } catch (_) { /* ignore */ }
+        return false
+      })
+  })
+}
+
+/**
  * 将 Playwright 捕获的 Cookie 转成 Electron session.cookies.set 接受的格式。
  * Playwright 使用 expires / PascalCase sameSite，而 Electron 使用
  * expirationDate / 小写 sameSite；格式不转换时 cookies.set 会失败并被静默吞掉。
@@ -494,6 +533,7 @@ class WebviewManager extends EventEmitter {
     var credLocalStorage = (!cleanSession && accountCredential && accountCredential.localStorage && typeof accountCredential.localStorage === 'object')
       ? accountCredential.localStorage
       : null
+    var lsInjection = null
     if (credLocalStorage && Object.keys(credLocalStorage).length > 0) {
       // 凭证内容经安全序列化后作为 IIFE 实参传入：凭证文件被外部写入时也无法改写脚本本体
       // （旧写法把 JSON.stringify 结果裸拼进 `var data = ` —— 是否可逃逸完全依赖引擎宽容度）。
@@ -504,18 +544,37 @@ class WebviewManager extends EventEmitter {
         '    try { localStorage.setItem(k, data[k]); } catch (e) { /* ignore */ }\n' +
         '  })'
       )
-      var localStorageRestored = false
-      view.webContents.on('did-finish-load', function () {
-        if (localStorageRestored) return
-        localStorageRestored = true
-        Promise.resolve(view.webContents.executeJavaScript(credLsScript)).then(function () {
-          // 首次页面可能已按“未登录”状态渲染；写入 token 后重新请求目标页，
-          // 让平台在首个有效应用请求中读取到 localStorage。
-          if (initialUrl && initialUrl !== 'about:blank') {
-            return view.webContents.loadURL(initialUrl).catch(function () {})
-          }
-        }, function () {})
-      })
+      // 主修复（2026-09-24 视频号）：CDP 可用时在首个导航前完成 document-start 注入；
+      // 失败才降级旧路径（fail-open）。降级注册时机安全：导航被 lsInjection promise 阻塞，
+      // did-finish-load 必在注册完成后才可能触发。
+      var registerLsFallback = function () {
+        var localStorageRestored = false
+        view.webContents.on('did-finish-load', function () {
+          if (localStorageRestored) return
+          localStorageRestored = true
+          Promise.resolve(view.webContents.executeJavaScript(credLsScript)).then(function () {
+            // 首次页面可能已按“未登录”状态渲染；写入 token 后重新请求目标页，
+            // 让平台在首个有效应用请求中读取到 localStorage。
+            if (initialUrl && initialUrl !== 'about:blank') {
+              return view.webContents.loadURL(initialUrl).catch(function () {})
+            }
+          }, function () {})
+        })
+      }
+      var dbgApi = view.webContents.debugger
+      var dbgUsable = Boolean(dbgApi)
+        && typeof dbgApi.attach === 'function'
+        && typeof dbgApi.sendCommand === 'function'
+      if (dbgUsable) {
+        // attach/sendCommand 失败 → 异步回退注册仍安全：首个导航被 lsInjection promise 阻塞，
+        // did-finish-load 必在注册完成后才可能触发。
+        lsInjection = _injectLocalStorageAtDocumentStart(view, credLsScript).then(function (injected) {
+          if (!injected) registerLsFallback()
+        }, function () { registerLsFallback() })
+      } else {
+        // debugger API 完全缺失：同步回退旧路径，注册时序与 2026-09 修复前一致（回归锚点）
+        registerLsFallback()
+      }
     }
 
     // Cookie 必须在首个导航请求前完成。否则平台会先收到无凭证请求并把标签
@@ -525,8 +584,11 @@ class WebviewManager extends EventEmitter {
         view.webContents.loadURL(initialUrl).catch(function (e) { log.warn('WebviewManager', 'nav failed url=' + String(initialUrl).slice(0, 200) + ' err=' + ((e && e.message) || 'unknown')) })
       }
     }
-    if (cookieRestorations.length > 0 || useAccountSession) {
-      Promise.all(cookieRestorations).then(navigateAfterCookies, navigateAfterCookies)
+    var preNavPromises = cookieRestorations.slice()
+    // localStorage 早期注入同样必须挡在首个导航之前（与 Cookie 同契约：先于首个导航生效）
+    if (lsInjection) preNavPromises.push(lsInjection)
+    if (preNavPromises.length > 0 || useAccountSession) {
+      Promise.all(preNavPromises).then(navigateAfterCookies, navigateAfterCookies)
     } else {
       navigateAfterCookies()
     }

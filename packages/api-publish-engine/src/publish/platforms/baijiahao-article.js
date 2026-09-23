@@ -143,6 +143,12 @@ class BaijiahaoArticleChain {
     if (Array.isArray(taskData.original) && taskData.original.length) {
       params.set('original', '1')
     }
+    // AI 生成内容声明（aigc_bjh_status）：与旧视频链 / 快手跨平台一致，默认勾选「内容由 AI 生成」。
+    // 平台要求如实声明：AI 生成内容必须勾选（is_checked=1）；人工创作须显式 aiGenerated===false 才取消（0）。
+    // URLSearchParams 会把方括号自动编码为 %5B/%5D，与逆向抓包逐字一致。
+    const aiGenerated = taskData.aiGenerated !== false
+    params.set('activity_list[0][id]', 'aigc_bjh_status')
+    params.set('activity_list[0][is_checked]', aiGenerated ? '1' : '0')
     return params.toString()
   }
 

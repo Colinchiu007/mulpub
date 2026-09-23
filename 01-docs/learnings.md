@@ -15628,3 +15628,13 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **为什么会长期存在（系统性漏洞）**：没有任何断言校验「两个 job 跑同一套件时的环境是否一致」，漂移只能靠人比对 YAML 发现；而红的是偶发的那个，日志里又没有环境指纹，归因时容易被引向「机器负载」。
 - **规则（pattern）**：新增或修改任何跑同一套件的 job，先 diff 两边的 `env:`。差异若是有意保留（例如为了保住真实工具覆盖），必须把「为什么有意」写在 job 旁边（本轮以 `quality-gate.yml` 的 YAML 注释落地），并让依赖该差异的测试自带超时预算；差异若是无意的，就地补齐。
 - **可迁移信号（pattern）**：判断「这条 CI 契约有没有被别的 workflow 继承」，用 `git grep -n '<ENV_NAME>' -- .github/workflows` 列出全部设置点再比对，而不是凭「主 CI 设了就一定都设了」的印象。
+
+## 平台差异掩盖的凭证恢复时序缺陷——localStorage 恢复必须先于首个导航（ls-restore-before-first-nav，legacy-fake-credential-heal 2026-09-24）
+
+- **现象（pitfall）**：视频号账号点击后弹回 login.html。#2229（getAll 假保存热修）合并后用户复现「删除重新扫码添加仍弹回」。CDP 外部取证推翻脏凭证假设：重建账号的加密凭证与分区 Cookie（sessionid+wxuin）均有效，页面照样弹回。
+- **根因溯源（QM-5①）**：视频号登录态是 **Cookie+localStorage 双因子**，且服务端对 `/` 不做 302（200 返回 login.html），由前端 SPA 自判未登录**主动弹回**。旧恢复链把 LS 注入挂在 `did-finish-load` 之后——首个导航到达时 LS 未写入 → SPA 弹回；二段导航到达时同样被弹回（弹回不依赖服务端）。抖音/B站只靠 Cookie+服务端 302，旧模式在它们身上不崩——**平台差异掩盖了通用时序缺陷**，这是它能长期潜伏的原因。
+- **逃逸链（QM-5②③）**：单元测试层——webview-manager.test.js 的 mock webContents 没有 `debugger`，旧用例只断言「LS 最终被恢复」，不断言「先于首个导航」；集成层——二段导航补救路径在 Cookie-only 平台恰好可用，掩盖时序错误；审查层——#2229 评审只核对了保存侧（getAll 吞错），未审计恢复侧时序契约。归类：测试场景缺失（无时序断言）+ 契约布尔从宽（`checkLocalCredentials` 对 `cookies=0`+脏 LS 的假保存快照返回 true）。
+- **修复模式（pattern）**：凭证恢复统一进「先于首个导航」等待链——LS 用 CDP `Page.addScriptToEvaluateOnNewDocument`（document-start、页面任何脚本前）注入并把 promise 挂入与 Cookie 相同的 `Promise.all` 导航门控；debugger API 缺失→**同步**注册旧回退（保持既有用例锚点时序），attach/sendCommand 失败→异步注册（首个导航被 promise 阻塞，注册必然先于导航事件）——降级路径的时序差异决定回归锚点是否漂移，必须显式设计而不是碰巧。
+- **回归保护（QM-5④）**：时序断言用 order 数组（`addScriptToEvaluateOnNewDocument` push 先于 `loadURL`）+ 注入成功后 `did-finish-load` 触发不再产生 `executeJavaScript` 补注入与二段导航；降级用例断言旧行为（补注入 + `loadURL` times(2)）；`checkLocalCredentials` 假保存→false / `finder_username` 标记→true / cookies 非空→true 三例，且既有 INCONCLUSIVE 用例按加严契约拆分（加严改变了布尔契约时，受影响旧用例要按新契约逐一改判而不是删除）。
+- **预防措施（QM-5⑤）**：`.quality-gates.md` 安全类新增两条永久门禁——「登录态判定必须三态收敛，凭证检测入口禁止布尔从宽」+「凭证恢复必须先于首个导航生效，禁止依赖事后二次导航补救」。
+- **可迁移规律（pattern）**：新增平台适配时必须显式登记该平台的**登录态判定机制维度**：服务端 302 / 前端 SPA 自判 / 是否依赖 localStorage 双因子（`PLATFORM_LS_SESSION_MARKERS`）。判定机制不同的平台共用一套恢复时序，最快的那个弹回决策决定整条链的正确性基线；只在「最宽松平台」上验证等于没验证。
