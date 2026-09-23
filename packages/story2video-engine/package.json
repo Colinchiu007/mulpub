@@ -7,6 +7,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./template-library": "./src/template-library.ts",
+    "./effects-library": "./src/effects-library.ts",
     "./subtitle-aligner": "./src/subtitle-aligner.ts",
     "./subtitle-rules": "./subtitle-rules.js"
   },

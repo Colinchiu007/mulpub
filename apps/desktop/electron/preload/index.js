@@ -10,10 +10,18 @@
  *   - authenticated: 登录后可用（业务 API：发布/流水线/账号/渲染等）
  *   - admin: 仅开发模式（敏感操作：paymentComplete/proxyTest 等）
  *
- * 访问级别在每次受限 API 调用时通过同步 IPC auth:get-access-level 获取，
- * fallback 到环境变量判断（development → admin，其他 → public）。
+ * 访问级别由 preload 侧「主进程推送失效 + TTL 兜底」的缓存提供（见 ./access-level-cache.js）：
+ * 受限 API 每次调用拿到的仍是最新级别，但不再每次同步往返主进程（审计 P2·性能税）。
+ * 主进程在许可证激活/注销/试用与身份状态变化时广播 auth:access-level-invalidated；
+ * 任何读不到合法级别的情况（IPC 未注册、抛异常、返回值被伪造）一律按 public 失败关闭。
  */
 const { contextBridge, ipcRenderer, webUtils } = require('electron')
+const {
+  ACCESS_LEVEL_CHANNEL,
+  ACCESS_LEVEL_INVALIDATE_EVENT,
+  isAccessLevel,
+} = require('../core/access-level')
+const { createAccessLevelCache } = require('./access-level-cache')
 const { createPublishApi } = require('./publish')
 const { createAccountApi } = require('./account')
 const { createSystemApi } = require('./system')
@@ -42,22 +50,36 @@ const {
 } = require('./access-control')
 
 /**
- * 同步读取主进程的当前访问级别。该函数刻意不缓存：许可证可在窗口运行期间
- * 激活或注销，受限 API 必须立即使用最新状态。
+ * 回源函数：同步读取主进程的当前访问级别。
+ *
+ * Bug fix (QM-5 v2): preload 无法访问 app.isPackaged，但 electron 进程会以 !isPackaged
+ * 作为 dev 判断（window.js:216），npm script 没设置 NODE_ENV 时只能依赖 sendSync 返回值。
+ * sendSync 失败时按最低权限 public 处理（与生产环境一致），由主进程判断 dev 短路。
  */
-function getAccessLevel() {
+function readAccessLevelFromMain() {
   try {
     if (typeof ipcRenderer.sendSync === 'function') {
-      const level = ipcRenderer.sendSync('auth:get-access-level')
-      if (level === 'admin' || level === 'authenticated' || level === 'public') {
-        return level
-      }
+      const level = ipcRenderer.sendSync(ACCESS_LEVEL_CHANNEL)
+      if (isAccessLevel(level)) return level
     }
   } catch (_) { void _ /* IPC 未注册时 fallback */ }
-  // Bug fix (QM-5 v2): preload 无法访问 app.isPackaged，但 electron 进程会以 !isPackaged
-  // 作为 dev 判断（window.js:216），npm script 没设置 NODE_ENV 时只能依赖 sendSync 返回值。
-  // sendSync 失败时按最低权限 public 处理（与生产环境一致），由主进程判断 dev 短路。
   return 'public'
+}
+
+/**
+ * 访问级别缓存（审计 P2·性能税）。原实现在每次受限 API 调用时都 sendSync 同步往返，
+ * 会阻塞渲染进程直到主进程排空该请求；高频路径（列表轮询/进度回调）等于每次多交一份税。
+ * 语义仍是「不重载窗口也能立即生效」：许可证激活/注销与身份登录/登出都会推送失效（①），
+ * TTL 兜底保证漏收推送时最长一个周期后自动回源（②）。权威判定始终在主进程。
+ */
+const accessLevelCache = createAccessLevelCache({ read: readAccessLevelFromMain })
+
+if (typeof ipcRenderer.on === 'function') {
+  ipcRenderer.on(ACCESS_LEVEL_INVALIDATE_EVENT, () => accessLevelCache.invalidate())
+}
+
+function getAccessLevel() {
+  return accessLevelCache.get()
 }
 
 const fullApi = {
@@ -96,6 +118,7 @@ contextBridge.exposeInMainWorld('electronAPI', exposedApi)
 
 module.exports = {
   getAccessLevel,
+  accessLevelCache,
   filterApiByAccessLevel,
   createDynamicAccessApi,
   ADMIN_ONLY_METHODS,

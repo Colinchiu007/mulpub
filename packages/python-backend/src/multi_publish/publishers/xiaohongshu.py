@@ -12,7 +12,7 @@ import os
 from loguru import logger
 
 from multi_publish.models import PlatformType, PublishPhase, PublishResult
-from multi_publish.publishers.base import BasePublisher, PublisherConfig
+from multi_publish.publishers.base import BasePublisher, PublisherConfig, wait_until
 from multi_publish.publishers.legacy_auth_policy import require_legacy_plaintext_auth
 
 DEFAULT_SELECTORS = {
@@ -32,6 +32,14 @@ DEFAULT_SELECTORS = {
 }
 
 CREATOR_URL = "https://creator.xiaohongshu.com/"
+
+# 脆弱等待改造（体检报告 P2「脆弱等待」）：固定 sleep 换成条件轮询 + 具名上限。
+# 超时原因统一为「站点结构变化 / 上传未完成导致选择器不命中」，因此超时只记日志、
+# 不直接判发布失败（原固定 sleep 也是继续往下走，这里不新增失败路径）。
+NAVIGATE_READY_TIMEOUT_S = 10.0
+NAVIGATE_READY_POLL_INTERVAL_S = 0.5
+UPLOAD_FALLBACK_WAIT_TIMEOUT_S = 30.0
+UPLOAD_FALLBACK_POLL_INTERVAL_S = 0.5
 
 
 class XiaoHongShuPublisher(BasePublisher):
@@ -159,7 +167,19 @@ class XiaoHongShuPublisher(BasePublisher):
         await self._report_progress(PublishPhase.PREPARING, "导航到上传页...", 20)
         upload_url = self.selectors["upload_page_url"]
         await self._page.goto(upload_url, wait_until="domcontentloaded")
-        await asyncio.sleep(3)
+        # 上传页是 SPA，原固定 sleep(3)：控件未挂载时 3s 不够、挂载快时白等。
+        # 改为等上传文件控件真正可见。
+        upload_input_ready = await wait_until(
+            lambda: self._page.locator(self.selectors["upload_input"]).first.is_visible(),
+            timeout_s=NAVIGATE_READY_TIMEOUT_S,
+            interval_s=NAVIGATE_READY_POLL_INTERVAL_S,
+        )
+        if not upload_input_ready:
+            logger.warning(
+                "上传控件 %s 在 %ss 内未可见（原因：页面未完成首屏渲染或站点结构变化），继续按当前页面状态执行",
+                self.selectors["upload_input"],
+                NAVIGATE_READY_TIMEOUT_S,
+            )
 
         if "/login" in self._page.url:
             return PublishResult(
@@ -187,8 +207,25 @@ class XiaoHongShuPublisher(BasePublisher):
                 timeout=self._upload_wait_timeout * 1000,
             )
         except Exception:
-            logger.warning("未检测到上传完成标志，等待 30 秒...")
-            await asyncio.sleep(30)
+            # 原实现无条件 sleep(30)：不论上传是否已完成都硬等半分钟。
+            # 改为轮询「编辑器就绪」（标题输入框可见即已进入可填写状态），
+            # 上限沿用原 30s，不放宽容忍度，只是让快路径提前返回。
+            logger.warning(
+                "未检测到上传完成标志 %s，改为轮询编辑器就绪（上限 %ss，间隔 %ss）",
+                self.selectors["upload_complete"],
+                UPLOAD_FALLBACK_WAIT_TIMEOUT_S,
+                UPLOAD_FALLBACK_POLL_INTERVAL_S,
+            )
+            editor_ready = await wait_until(
+                lambda: self._page.locator(self.selectors["title_input"]).first.is_visible(),
+                timeout_s=UPLOAD_FALLBACK_WAIT_TIMEOUT_S,
+                interval_s=UPLOAD_FALLBACK_POLL_INTERVAL_S,
+            )
+            if not editor_ready:
+                logger.warning(
+                    "编辑器在 %ss 内未就绪（原因：媒体上传未完成或站点结构变化），继续尝试填写标题",
+                    UPLOAD_FALLBACK_WAIT_TIMEOUT_S,
+                )
 
         await self._report_progress(PublishPhase.PUBLISHING, "填写标题...", 70)
         try:

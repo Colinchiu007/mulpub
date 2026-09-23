@@ -7,6 +7,8 @@
  * 平台/风格/阶段枚举。全部为纯函数与冻结常量，无组件实例依赖。
  */
 
+import { IMAGE_EFFECT_IDS, TRANSITION_EFFECT_IDS } from '@multi-publish/story2video-engine/effects-library'
+
 const HISTORY_LOAD_TIMEOUT_MS = 5000
 const STORY2VIDEO_OUTPUT_ASPECT_RATIOS = Object.freeze({
   '720x1280': '9:16',
@@ -320,8 +322,10 @@ const S2V_RESTORE_ENUM_OPTIONS = Object.freeze({
   manualMaterialMode: ['all-images', 'video-image'],
   imageStyle: ['cinematic', 'realistic', 'anime', 'watercolor', 'minimalist'],
   promptStyle: ['realistic', 'cinematic', 'anime', 'watercolor', 'minimalist'],
-  imageEffect: ['none', 'zoom-in', 'zoom-out', 'pan-left', 'pan-right', 'pan-up', 'pan-down', 'zoom-pan', 'rotate', 'blur-in'],
-  transition: ['none', 'fade', 'slide-left', 'slide-right', 'slide-up', 'slide-down'],
+  // 单一来源：由 story2video-engine 效果元数据派生（审计 P2·枚举双份收口），
+  // 新增动效/转场只改 effects-library.ts，此处自动跟随，消除「引擎支持但快照判为陈旧值」漂移。
+  imageEffect: IMAGE_EFFECT_IDS,
+  transition: TRANSITION_EFFECT_IDS,
   subtitleSize: ['size1', 'size2', 'size3', 'size4', 'size5', 'size6'],
   subtitleStyleName: ['style1', 'style2', 'style3'],
   splitLanguage: ['auto', 'zh', 'en'],

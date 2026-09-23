@@ -3,6 +3,64 @@ var __commonJS = (cb, mod) => function __require() {
   return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
 };
 
+// electron/core/access-level.js
+var require_access_level = __commonJS({
+  "electron/core/access-level.js"(exports2, module2) {
+    "use strict";
+    var ACCESS_LEVELS = Object.freeze(["public", "authenticated", "admin"]);
+    var ACCESS_LEVEL_CHANNEL2 = "auth:get-access-level";
+    var ACCESS_LEVEL_INVALIDATE_EVENT2 = "auth:access-level-invalidated";
+    var ACCESS_LEVEL_TTL_MS = 2e3;
+    function isAccessLevel2(value) {
+      return ACCESS_LEVELS.includes(value);
+    }
+    module2.exports = {
+      ACCESS_LEVELS,
+      ACCESS_LEVEL_CHANNEL: ACCESS_LEVEL_CHANNEL2,
+      ACCESS_LEVEL_INVALIDATE_EVENT: ACCESS_LEVEL_INVALIDATE_EVENT2,
+      ACCESS_LEVEL_TTL_MS,
+      isAccessLevel: isAccessLevel2
+    };
+  }
+});
+
+// electron/preload/access-level-cache.js
+var require_access_level_cache = __commonJS({
+  "electron/preload/access-level-cache.js"(exports2, module2) {
+    "use strict";
+    var {
+      ACCESS_LEVEL_TTL_MS,
+      isAccessLevel: isAccessLevel2
+    } = require_access_level();
+    function createAccessLevelCache2({ read, ttlMs = ACCESS_LEVEL_TTL_MS, now = Date.now } = {}) {
+      let cached = null;
+      let expiresAt = 0;
+      function invalidate() {
+        cached = null;
+        expiresAt = 0;
+      }
+      function get() {
+        if (cached !== null && now() < expiresAt) return cached;
+        let level = "public";
+        try {
+          const fresh = typeof read === "function" ? read() : null;
+          if (isAccessLevel2(fresh)) level = fresh;
+        } catch (_) {
+          void _;
+        }
+        cached = level;
+        expiresAt = now() + ttlMs;
+        return level;
+      }
+      function isFresh() {
+        return cached !== null && now() < expiresAt;
+      }
+      return { get, invalidate, isFresh };
+    }
+    module2.exports = { createAccessLevelCache: createAccessLevelCache2 };
+  }
+});
+
 // electron/preload/publish.js
 var require_publish = __commonJS({
   "electron/preload/publish.js"(exports2, module2) {
@@ -579,6 +637,9 @@ var require_system = __commonJS({
         // 应用日志 API（设置-通用设置：查看/清理/渲染进程错误上报）
         logsGetInfo: () => ipcRenderer2.invoke("logs:info"),
         logsClear: () => ipcRenderer2.invoke("logs:clear"),
+        // 缓存清理 API（设置-通用设置：统计/清理临时缓存）
+        cacheGetStats: () => ipcRenderer2.invoke("cache:stats"),
+        cacheClear: () => ipcRenderer2.invoke("cache:clear"),
         logError: (message) => ipcRenderer2.invoke("logs:error", { message }),
         submitFeedback: (payload) => ipcRenderer2.invoke("feedback:submit", payload),
         // 通知日志上报（notify:log）——renderer notify() 通道内部调用，写结构化日志行
@@ -1131,6 +1192,8 @@ var require_access_control = __commonJS({
       "logsClear",
       "logError",
       "notifyLog",
+      "cacheGetStats",
+      "cacheClear",
       "renderGetStatus",
       "renderInstallDeps",
       "onRenderInstallProgress",
@@ -1269,6 +1332,12 @@ var require_access_control = __commonJS({
 
 // electron/preload/index.js
 var { contextBridge, ipcRenderer, webUtils } = require("electron");
+var {
+  ACCESS_LEVEL_CHANNEL,
+  ACCESS_LEVEL_INVALIDATE_EVENT,
+  isAccessLevel
+} = require_access_level();
+var { createAccessLevelCache } = require_access_level_cache();
 var { createPublishApi } = require_publish();
 var { createAccountApi } = require_account();
 var { createSystemApi } = require_system();
@@ -1295,18 +1364,23 @@ var {
   createDynamicAccessApi,
   filterApiByAccessLevel
 } = require_access_control();
-function getAccessLevel() {
+function readAccessLevelFromMain() {
   try {
     if (typeof ipcRenderer.sendSync === "function") {
-      const level = ipcRenderer.sendSync("auth:get-access-level");
-      if (level === "admin" || level === "authenticated" || level === "public") {
-        return level;
-      }
+      const level = ipcRenderer.sendSync(ACCESS_LEVEL_CHANNEL);
+      if (isAccessLevel(level)) return level;
     }
   } catch (_) {
     void _;
   }
   return "public";
+}
+var accessLevelCache = createAccessLevelCache({ read: readAccessLevelFromMain });
+if (typeof ipcRenderer.on === "function") {
+  ipcRenderer.on(ACCESS_LEVEL_INVALIDATE_EVENT, () => accessLevelCache.invalidate());
+}
+function getAccessLevel() {
+  return accessLevelCache.get();
 }
 var fullApi = {
   ...createPublishApi(ipcRenderer, {
@@ -1340,6 +1414,7 @@ exposedApi.getAccessLevel = getAccessLevel;
 contextBridge.exposeInMainWorld("electronAPI", exposedApi);
 module.exports = {
   getAccessLevel,
+  accessLevelCache,
   filterApiByAccessLevel,
   createDynamicAccessApi,
   ADMIN_ONLY_METHODS,

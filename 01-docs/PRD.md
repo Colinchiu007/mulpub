@@ -16949,3 +16949,252 @@ is_default: 1
 | 合同保持 | preserve（全渠道零结果）原样返回不评分不重排；boost 聚合在 preserve 之前的 v2 铁律不触碰；去重算法/收藏/批量创作零改动 |
 | 提示文字 | hotTopics.multiBadge/multiBadgeTip/heatScoreTip/trendUp/trendDown/trendNew（zh/en 成对 6 键） |
 | 验收 | scorer 22 + service 新增 7 + UI 新增 6 全绿，既有 100+ 回归零破坏；eslint/locale-sync/debt 门禁 PASS；PRD §6 十条验收标准 |
+
+## 全仓代码体检整改：安全加固与质量门禁需求（audit-remediation-20260922，四批全量）
+
+> **来源**：`.adversarial/codebase-audit-20260922/proposal-v7.md`（12 轮双模型对抗评审终版；P0×4、P1×11、P2×13，六轮 Critical 轨迹 4→1→0→0→0→0→0）。
+> **落地批次**：#2214（P0 全部 + P1 的 3/4/6/7/8）→ #2226（P1 的 5/9/10/11/12/13）→ #2239（P1 的 14/15 + P2 安全小项）→ #2252（P2 技术债余项）。
+> **本节定位**：把整改中**固化的校验规则与交互契约提升为产品需求**，逐条可复算、可回归。实施过程记录见 `docs/audit-remediation-batch3-2026-09-22.md`、`docs/audit-remediation-batch4-2026-09-22.md` 与 CHANGELOG 对应条目。
+
+### 一、需求矩阵（条目 → 交付物 → 门禁）
+
+| 体检条目 | 需求口径（固化后） | 关键交付物 | 防复发门禁 |
+|---|---|---|---|
+| P0-1 Ed25519 私钥入库 | 私钥不入库；默认公钥仅在 `app.isPackaged === false` 生效 | `.env.example` 占位符 + `KEY-ROTATION-GUIDE.md` | pytest + 评审 |
+| P0-2 弱密钥闸门 | 长度 ≥32、弱值/弱前缀拒绝、systemd 字面量拒绝 | `config._validate_jwt_secret` | `run_startup_security_checks` fail-closed |
+| P0-3 decrypt_key 参数 | 单参数调用 + 精确异常 + 可区分失败原因 | `model_preset_service` | pytest 断言「解密明文 == 真实 Key」 |
+| P0-4 加密主密钥静默自生成 | 生产缺失即非零退出；历史密文不可解按条降级掩码 | `key_service._get_fernet` | `[P0-4]` 启动闸门 |
+| P0-6 CORS 全开 + credentials | `*` + credentials 启动直接拒绝 | `config._validate_cors_credentials` | 会话安全矩阵断言 |
+| P0-7 SSRF | 外部 URL 统一校验器（含私网/元数据拦截） | `_validate_target_url` | pytest 逐地址回归 |
+| P0-8 systemd 注入公开常量 | `EnvironmentFile=` + 低权 `User=` + 600 文件权限 | `deploy/ops-center.service`、`setup-service.sh` | 部署清单评审 |
+| P1-5 敏感配置明文落库 | **写库前**加密；掩码回显不覆盖真实凭据；审计存掩码 | `config_service._apply_upsert`（单条/批量共用） | pytest |
+| P1-9 B站采集桩实现 | `success` 绑定 title/desc 非空；空结果 `reason=api_stub_not_implemented` | `bilibili-adapter.js` | vitest |
+| P1-10 shared-utils 顶层 require electron | 声明 peerDependency + 注入/懒加载 | `publish-history.js`、`scheduler.js` | vitest |
+| P1-11 ingest-url 缺 SSRF | 与 Python 侧同口径白名单 | `ingest-url.js` | node --test |
+| P1-12 Playwright 无 try/finally | 异常路径必关浏览器 | `character_animation_utils.py` | pytest |
+| P1-13 朝代成语守卫缺项 | 补登记真俗语 + 正向回归 | `story-context-engine.js` | vitest 全量 |
+| P1-14 IPC sender 守卫不一致 | 文档化口径统计 + 比例式阈值 + 豁免治理 | `check-ipc-sender-guard.js` + `ipc-guard-exemptions.json` | CI Gate 17 |
+| P1-15 后台 JWT 存 localStorage | HttpOnly + SameSite=Lax Cookie + CSRF 头 + CSP | `routers/auth.py`、`middleware/auth.py`、`main.py`、`http.js` | CI Gate 18 |
+| P2 性能税/技术债余项 | 见第八、九节 | 多文件 | 债务熔断 + 依赖审计门禁 |
+
+### 二、启动期安全闸门（数据校验）
+
+**功能逻辑**：所有 P0 校验在 FastAPI `startup` 事件内执行（`main.py` 的 `_p0_startup_gates()` → `config.run_startup_security_checks(settings)`），任一项不通过即 `raise SystemExit` —— **服务不启动**（fail-closed），不把配置缺陷伪装成运行期业务错误。
+
+| # | 校验项 | 触发条件 | 失败动作 | 提示文字（逐字，`[P0-x]` 前缀便于运维 grep） |
+|---|---|---|---|---|
+| 1 | JWT 密钥强度 | `len(secret) < 32` | SystemExit | `[P0-2] JWT secret too short (N chars); require >= 32. Generate with: openssl rand -hex 32` |
+| 2 | JWT 已知弱值 | 命中 `_WEAK_SECRET_EXACT`（含 `dev-secret-change-in-production`、`dev-secret-key-for-local-testing-2026`、`secret`、`changeme`、`default`、`admin`） | SystemExit | `[P0-2] JWT secret matches known weak value; refuse to start.` |
+| 3 | JWT 弱前缀 | 以 `dev-` / `test-` / `changeme` / `default` 开头 | SystemExit | `[P0-2] JWT secret starts with '{prefix}' (development pattern); production must use a strong random secret.` |
+| 4 | 管理员弱口令 | 命中 `{admin123, password, 123456, admin, root, ""}` | SystemExit | `[P0-2] Admin password is in known-weak list; choose a strong password (>= 8 chars).` |
+| 5 | 生产缺管理员口令 | `ENVIRONMENT != development` 且口令为空 | SystemExit | `[P0-2] Admin password must be set in production (OPS_ADMIN_PASSWORD).` |
+| 6 | 管理员口令过短 | `len < 8` | SystemExit | `[P0-2] Admin password too short (N); minimum 8 characters.` |
+| 7 | CORS 危险组合 | `allow_credentials=True` 且 `cors_origins` 含 `*` | SystemExit | `[P0-6] CORS allow_origins='*' with credentials=True is insecure; specify explicit whitelist (e.g. https://app.example.com).` |
+| 8 | 加密主密钥缺失 | `OPS_ENCRYPTION_KEY` 为空且未显式放行 | SystemExit | `[P0-4] OPS_ENCRYPTION_KEY not configured. Generate: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
+| 9 | 运行时签名私钥缺失 | 未配置私钥/路径 | 接口级 fail-closed | `/api/v1/runtime/bootstrap` 返回 **404**（不下发未签名配置） |
+
+**显式开发逃生阀**：`OPS_ALLOW_EPHEMERAL_KEY=true` 才允许临时 Fernet 密钥，且必须打 warn：`[P0-4] OPS_ENCRYPTION_KEY not set; ephemeral key generated. DEVELOPMENT ONLY — encrypted data unrecoverable after restart.`；测试/`ENVIRONMENT=development` 下同样只 warn 不静默。
+
+**通过态显示项**：日志 `[P0] All startup security checks passed.` 与 `[P0] Startup security checks passed.`（启动闸门与运行期各一条）。
+
+**交互逻辑（运维）**：进程起不来时按首行 `[P0-x]` 定位条目 → 参照 `ops-center/deploy/KEY-ROTATION-GUIDE.md` 生成/注入密钥 → 用 `EnvironmentFile=`（**不是** `Environment=`）落盘，文件权限 `600`、属主为 `User=ops-center` 低权账号。
+
+### 三、密钥与凭据治理流程（P0-1 / P0-8）
+
+1. **出库**：`ops-center/backend/.env.example` 不再内嵌可用私钥，替换为占位符 `OPS_RUNTIME_SIGNING_PRIVATE_KEY="<REPLACE_WITH_YOUR_GENERATED_PRIVATE_KEY>"`，同文件给出生成命令与 `OPS_RUNTIME_SIGNING_KEY_PATH` 二选一说明（路径优先）。
+2. **信任锚**：桌面端内置默认公钥只在非打包态（`app.isPackaged === false`）生效；生产必须使用自定义密钥对，验签不通过则整份运行时策略（公告 / 版本 / 敏感词 / pipelineOptions）不应用。
+3. **部署层**：systemd `Environment=` **不展开** `${}`，历史上把 `OPS_JWT_SECRET` 注入成仓库可复算的字面量 `${PO_SECRET_KEY}`。修复口径 = `EnvironmentFile=` 注入真实随机值 + 启动校验额外拒绝含 `${` / `$(` 的字面量 + `User=root` 降为 `User=ops-center`。
+4. **泄露面排查清单（问题 1/2/8 的关闭前置，逐机执行项，本仓只交付指引与判据）**：
+   - [ ] `git log -S "<PEM片段>" --all` 定位全部引入提交/分支（证据：命令输出存档）；
+   - [ ] 所有部署机 `.env` / `EnvironmentFile` 无 dev 私钥与弱密钥残留（逐机 grep 输出）；
+   - [ ] 逐机核对 `ops-center.service` 无 `${...}` 字面量；`OPS_JWT_SECRET` 已换成独立随机值且历史令牌作废；与 orchestrator `PO_SECRET_KEY` 解耦已验证；
+   - [ ] CI secrets / 制品库无同密钥引用（secrets 清单核对记录）；
+   - [ ] 桌面端历史发行版本内置默认公钥的发放范围清单 + 验签锚切换兼容窗口评估；
+   - [ ] 服务端配置双钥/宽限期过渡（并行接受新旧公钥、旧钥设到期日 = 轮换后 90 天），存量客户端升级率 ≥95% 活跃，并**显式声明宽限期内旧客户端仍暴露于已泄露私钥的残余风险**；
+   - [ ] 全环境轮换完成并留存轮换记录，新公钥验签通过。
+
+   > 状态：本仓可自动化部分（1、5 的取证与 3/4 的代码侧）已随 #2214 交付；逐机项属外部运维，交付物为 `ops-center/deploy/KEY-ROTATION-GUIDE.md`（含双钥/宽限期/回滚步骤与记录表）。**这些复选框不由代码合并且关闭**，须在部署评审中逐项签字。
+
+### 四、管理后台会话（P1-15：HttpOnly Cookie + CSRF + CSP）
+
+#### 4.1 数据校验（Cookie 属性来源）
+
+| 属性 | 取值来源 | 默认 | 校验规则 |
+|---|---|---|---|
+| `key` | `settings.session_cookie_name` | `ops_session` | 非空字符串 |
+| `httponly` | 硬编码 `True` | — | 不可配置（配了就不叫防 XSS 外带） |
+| `samesite` | `settings.session_cookie_samesite`（`Literal["lax","strict","none"]`） | `lax` | 非法值由 pydantic 拒绝启动 |
+| `secure` | `settings.is_session_cookie_secure()` | 未显式配置时按环境推导 | `session_cookie_secure: Optional[bool] = None`；`None` ⇒ 非 `development` 即 `True` |
+| `max_age` | `settings.get_session_max_age_seconds()`（`session_cookie_max_age_hours`，0 ⇒ 默认值） | — | 必须为正整数秒 |
+| `path` | 硬编码 `/` | — | 签发与清除必须同 `path`，否则清不掉 |
+
+#### 4.2 功能逻辑（双通道与优先级）
+
+1. **Bearer 优先**：存在 `Authorization: Bearer <jwt>` 即只走该通道（桌面端 / 脚本 / scheduler 上报），**不受 CSRF 自定义头约束**；Bearer 非法直接 401，**不回落到 Cookie**（杜绝「垃圾 Bearer 触发回落」的语义歧义）。
+2. **Cookie 会话**：无 Bearer 时读 `session_cookie_name`。SameSite=Lax 只拦跨站子请求/POST，故写操作（非 `SAFE_METHODS = {GET, HEAD, OPTIONS, TRACE}`）必须再带 `settings.csrf_header`（默认 `X-Ops-Session`）自定义头 —— 跨站页面无法设置自定义头（设了也过不了预检），据此判定请求来自本前端脚本。读操作不要求该头，保证书签直达与只读页可用。
+3. **解码异常映射必须在依赖图内抛出**（`_decode_or_http`），否则 FastAPI 会把配置缺陷变成 500。
+4. **登录**：`create_access_token` 后 `_issue_session_cookie`；**响应体刻意不含 token / access_token**，只回 `{username, role:"admin", expires_in, csrf_header}`。
+5. **登出**：`delete_cookie` 同样带 `path/secure/httponly/samesite`；刻意**不要求认证、不要求 CSRF 头**（无副作用，且会话过期时也必须可点，否则「登出」按钮退化成 401 报错）。
+6. **会话探测**：`GET /api/auth/me` 与别名 `GET /api/auth/session` 同一实现（文档/运维/前端口径统一，不引入第二份鉴权逻辑）。
+
+#### 4.3 交互逻辑（前端）
+
+- 统一走 `ops-center/frontend/src/api/http.js` 的 `createApiClient()`：`withCredentials: true`；写操作注入 `CSRF_HEADER = 'X-Ops-Session'`（axios v1 的 `AxiosHeaders` 优先 `.set()`，大小写不敏感）。
+- **401**（无凭据 / 令牌无效或过期）→ 清理内存登录态并跳登录页，杜绝「半登录态」。
+- **403**（权限不足 **或** 缺 CSRF 头）→ 属业务/调用方问题，**不清登录态**，避免一次误操作把管理员踢下线。
+- 禁止在 view 里自建 axios 实例（门禁 `forbidden-pattern` 会命中）。
+
+#### 4.4 显示项与提示文字（逐字）
+
+| 场景 | 状态码 | 文案 |
+|---|---|---|
+| 无凭据 | 401 | `未提供认证令牌` |
+| 令牌非法/过期 | 401 | `令牌无效` |
+| JWT 密钥未配置 | 503 | `认证服务配置不完整`（fail-closed，不伪装成凭据问题） |
+| 写操作缺 CSRF 头 | 403 | `跨站请求伪造防护：基于 Cookie 会话的写操作必须携带自定义头 X-Ops-Session（前端 axios 拦截器默认注入）` |
+| 非管理员访问 admin 接口 | 403 | `需要管理员权限` |
+| 登录限速 | 429 | `尝试次数过多，请稍后再试` |
+| 未配置管理员账号 | 503 | `未配置管理员账号，请设置 OPS_ADMIN_USERNAME/OPS_ADMIN_PASSWORD` |
+| 口令错误 | 401 | `用户名或密码错误` |
+
+**安全响应头（`security_headers` 中间件，`setdefault` 不覆盖 nginx 已下发值）**：
+
+- `Content-Security-Policy`：默认 `default-src 'self'` 起步，含 `frame-ancestors 'none'`（阻嵌框劫持）、`object-src 'none'`、`base-uri 'self'`、`form-action 'self'`；**配置为空字符串 ⇒ 显式不下发**（交 CDN/nginx 统一发，避免双重头被浏览器取交集后失效）。
+- `X-Content-Type-Options: nosniff`；`Referrer-Policy: no-referrer`（防带 token 的 URL 经 Referer 外泄）；`X-Frame-Options: DENY`（老浏览器兜底，可配 `x_frame_options`）。
+
+#### 4.5 回归保护（QM-5 第四步）
+
+- 后端：`ops-center/backend/tests/test_p1_15_session_cookie.py`（登录只落 Cookie、401/403 语义、缺头 403、登出清 Cookie、密钥缺失 503）+ `test_auth_login.py`。
+- 前端：`ops-center/frontend/tests/http-client.test.js`（CSRF 注入 + 401 清态 / 403 不清态）、`auth-store.test.js`、`menu-store.test.js`；7 个 view 迁移到统一客户端。
+- 防复发：CI **Gate 18** `node .github/scripts/check-ops-session-hygiene.js` —— 目录级禁用模式（view 自建 axios、localStorage 存 token）+ 关键结构必存在（`response.set_cookie(`、`httponly=True`、`samesite=settings.session_cookie_samesite`、`def logout`、`delete_cookie(`、`async def security_headers` + 三类头、`export const CSRF_HEADER = 'X-Ops-Session'`、`withCredentials: true`、`status === 401`）。违规输出：`ops-center 会话卫生检查未通过：N 项违规`。
+
+### 五、IPC sender 守卫口径（P1-14）
+
+**为什么改口径**：体检报告原写「约 215/336」，第 6 轮独立复算无法再现，v7 已订正为「按文档化口径重算 + 比例式断言」。现口径由 `.github/scripts/check-ipc-sender-guard.js` 固化，任何复核都跑同一脚本，不再引用口头数字。
+
+**统计口径**：正则 `\b<obj>\.(handle|on)\s*\(` 收集注册点，排除 `.test.js` 与测试目录；按守卫来源分五类：
+
+| 分类 | 判定 | 是否计入守卫覆盖 |
+|---|---|---|
+| `explicit` | 显式 `withSenderCheck` / `isTrustedSender` | ✅ 计入比例 |
+| `injected` | 注册在受控实例（`createAccessControlledIpcMain` 咽喉点转发前无条件 `isTrustedSender`） | ✅ 计纵深，不计 explicit 比例 |
+| `global` | 直接 `require('electron').ipcMain.handle` | ❌ **硬错误**，不可豁免 |
+| `fallback` | `injectedIpcMain \|\| require('electron').ipcMain` | ❌ **硬错误**，不可豁免（`FALLBACK_RE`） |
+| `unknown` | 静态不可判定 | 须逐条登记豁免（risk / reason / owner） |
+
+**当前基线（`ipc-guard-exemptions.json`，date=2026-09-22，只允许上调/收紧）**：注册点 407（handle 404 + 同步 `on` 3）、explicit 273、injected 134、unknown 0、bypass 0、`explicitRatio = 0.671`、`minGuardedRatio = 0.65`。违规输出示例：`显式守卫占比 62.0% 低于门禁阈值 65.0%`。
+
+**同步通道规则**：`createAccessControlledIpcMain` 的 Proxy 只拦截 `handle`，`ipcMain.on` 不经咽喉点 ⇒ `method=on` 的注册点**必须**显式守卫（现状 3/3 满足）。
+
+**豁免治理**：豁免集中在单文件；`PUBLIC_CHANNELS` 是「免登录功能开关」不是来源守卫，**不得**登记为豁免；`via=global` / `via=fallback` 不接受豁免。
+
+**配套修复**：注入契约（`bootstrap/phase5-ipc.js` 显式传 `injectedIpcMain`，禁运行期回退）+ `core/js-eval-payload.js` 的 `toSafeJsLiteral`（不可序列化输入抛 `toSafeJsLiteral: value is not JSON-serializable (undefined/function/symbol)`；`buildEvalScript: paramNames/values 数量不一致 (N vs M)`）+ `file://` realpath 目录边界回归（`ipc-injection-contract.test.js`、`aligner-bridge-audio-dirs.test.js`）。
+
+**本地复算**：`node .github/scripts/check-ipc-sender-guard.js --base-dir apps/desktop [--json] [--list-unguarded] [--min-ratio <0..1>]`。
+
+### 六、文件路径与 SSRF 校验（P0-7 / P1-11 / P2 音频目录）
+
+#### 6.1 audio-aligner 音频路径约束（`aligner/path_guard.py`）
+
+风险原状：`POST /align` 把调用方给的绝对路径直接交给 ffmpeg / faster-whisper，等价于任意本地文件读取原语；服务监听 `127.0.0.1:8004` 且无鉴权。
+
+| code | HTTP | 触发条件 |
+|---|---|---|
+| `invalid_path` | 400 | 非绝对路径 / 含空字节 / 为空 |
+| `not_allowed` | 403 | realpath 后不在允许目录内 |
+| `not_found` | 404 | 目录合规但文件不存在 |
+| `not_a_file` | 400 | 是目录不是文件 |
+
+规则：① 先 `realpath` 再判包含 ⇒ 符号链接/junction 指向外部照样拦；② 目录包含用 `commonpath` 不用字符串前缀（`/a/dist` 与 `/a/dist-evil` 前缀相同）；③ **先判目录再判存在性**（反序会把 403 变 404，给出「外部文件是否存在」的探测 oracle）；④ 允许目录来自 `AUDIO_ALIGNER_ALLOWED_DIRS`（`os.pathsep` 分隔），**未配置时默认只允许系统临时目录**（fail-closed）；桌面端 `AlignerBridge` 启动子进程时显式注入 `tmp + userData`，真实 TTS 产物落在 `os.tmpdir()/story2video`，默认策略不破坏现有链路。
+
+#### 6.2 SSRF 统一校验器
+
+- `model_preset_service._validate_target_url(url, allow_private=...)`：无 hostname ⇒ `ValueError("[P0-7] URL has no hostname")`；命中内网/元数据主机名 ⇒ `ValueError(f"[P0-7] Blocked internal address: {hostname}")`（拦截 `localhost`、`0.0.0.0`、`::1`、`[::1]`、`metadata.google.internal` 及私网段解析结果）。
+- `test_provider_connection` 与 `fetch_models_from_url` 共用该校验器（原报告条目 7 的「同文件已有防护却未复用」即此）。
+- **async 路由内不得做同步 DNS**：`getaddrinfo` 走阻塞系统调用 ⇒ `await asyncio.to_thread(_validate_target_url, url, allow_private=...)`。
+- **已声明边界**：校验解析与 httpx 实际连接是两次独立 DNS 解析，存在 DNS 重绑定窗口（文档化残余风险，非本次关闭项）。
+- `video-clone-engine/ingest-url.js`：交给 yt-dlp 前按域名白名单 + 内网拦截，与 Python 侧对齐（跨引擎一致性）。
+
+### 七、采集与发布链路完整性（P1-9 / P1-10 / P1-12 / P1-13）
+
+- **B站「API 优先」分支**：必须真发请求；`success` 与 `title/desc` 非空硬绑定；空结果一律 `success:false, reason:'api_stub_not_implemented'`，并打污染事件点（`platform=bilibili, mode=api_stub`）。
+- **shared-utils 的 electron 依赖**：`publish-history.js` / `scheduler.js` 不再顶层 `require('electron')`，改注入/懒加载 + 声明 peerDependency（非 Electron 环境 import 不再崩）。
+- **Python Playwright 生命周期**：`character_animation_utils.py` 用 `try/finally` 保证异常路径关闭浏览器（参照 `browser_fetcher.py` 正确写法）。
+- **朝代成语守卫**：`IDIOM_EXCLUSIONS` 只登记**真俗语**（`刘备借荆州`、`刘备摔阿斗`），`孙权称帝` 是史实陈述、保留为正向朝代证据；配正向回归「纯三国文本仅出现孙权称帝仍识别三国」，防守卫过扩吞真阳性。
+
+### 八、性能与可靠性技术债口径（P2，#2252）
+
+#### 8.1 脆弱等待条件化（固定 sleep ⇒ 条件轮询 + 具名上限 + 超时原因）
+
+| 位置 | 常量 | 判据 | 超时文案（逐字） |
+|---|---|---|---|
+| `url-collector-page-wait.js` | `CONTENT_READY_TIMEOUT_MS=10000`、`CONTENT_READY_POLL_MS=250`、`CONTENT_MIN_TEXT_LEN=200`、`BODY_TEXT_MULTIPLIER=20`、`RETRY_BASE_MS=1500` | `readyState==='complete'` 且候选正文容器（`article/main/[class*=article]/[class*=content]/[id*=content]/[class*=post]/[class*=detail]`）`innerText≥200`，或 `body ≥ 200×20` | `content-ready 条件等待超时 10000ms（判据：正文容器 innerText>=200），按当前 DOM 继续采集` |
+| `videogen-stages.js` | `VIDEO_POLL_TIMEOUT_MS=10*60*1000`、`VIDEO_POLL_INTERVAL_MS=10*1000` | 首次立即查询（原实现固定 sleep 10s，秒回任务也白等） | `轮询超时（上限 600s，末次状态=<state\|unknown>）` |
+| `publishers/xiaohongshu.py` | `UPLOAD_FALLBACK_WAIT_TIMEOUT_S`（沿用原 30s 上限，不放宽）、`UPLOAD_FALLBACK_POLL_INTERVAL_S` | 未命中上传完成标志 ⇒ 轮询「标题输入框可见」 | warn：`未检测到上传完成标志 %s，改为轮询编辑器就绪（上限 %ss，间隔 %ss）`；超时：`编辑器在 %ss 内未就绪（原因：媒体上传未完成或站点结构变化），继续尝试填写标题` |
+| `publishers/base.py` | `wait_until(predicate, timeout_s, interval_s)` 公共 helper | 单调时钟 deadline 轮询，超时返回 `False` | 调用方必须显式处理 `False` 并记录超时原因 |
+| `rpa-view-helpers.js` | `_responseWaitChains = new WeakMap()` | 按 session 串行化 `_waitForResponse`（原并发共享单句柄 `webRequest`，后发起者覆盖前者 ⇒ 先发起者只能靠超时兜底） | — |
+
+#### 8.2 数据访问与批量语义
+
+- **N+1 消除**：审计日志掩码改为「按去重后的 `config_id` 一次性批量预取」（`config_service.get_configs_by_ids` / `get_secret_flags`，`id.in_(ids)`），替代逐行 SELECT（原实现最多 1000 次）。
+- **批量更新单事务**：`batch_upsert_configs` = 1 次批量预取 + 逐条 `_apply_upsert(commit=False)`（只 flush）+ **单次 COMMIT**，异常统一 rollback 后上抛。整批要么全生效要么全回滚（旧实现逐条 commit，中途失败留半更新）。
+- **加密语义单点化**：批量与单条接口**共用** `_apply_upsert` —— 批量路径若绕开它，等于给敏感项开明文后门。批量接口不传 `is_secret` ⇒ 敏感判定以**库中既有标记**为准；`plaintext_value` 对不可解密文抛错 ⇒ 整批回滚（有意 fail-closed）。
+- **P1-5 掩码留痕**：`[P1-5] {config_id}: 提交了掩码回显值，保留原凭据不覆盖`。
+
+#### 8.3 访问级别读取（preload 同步 IPC 性能税）
+
+- 单一来源 `core/access-level.js`：`ACCESS_LEVELS = ['public','authenticated','admin']`、`ACCESS_LEVEL_CHANNEL='auth:get-access-level'`、`ACCESS_LEVEL_INVALIDATE_EVENT='auth:access-level-invalidated'`、`ACCESS_LEVEL_TTL_MS = 2000`。
+- 两级失效：主进程推送失效事件 ⇒ 立即失效；漏收时 TTL 兜底回源，不会永久停留在旧级别。
+- **失败关闭语义不变**：读不到合法级别（IPC 未注册 / 抛异常 / 被伪造值污染）一律按 `'public'`；权威判定始终在主进程（`controlledIpcMain` 每个 handler 再校验一次），缓存不可能提权。
+- 变更点必须广播：许可证激活/注销/试用、身份登录/登出（走 `access-level-bus`，由 bootstrap 绑定实现）；广播失败**绝不抛给调用方**（许可证已激活成功，不能因推送失败回滚），但必须留痕：`[access-level] 枚举窗口失败，本轮降级为仅 TTL 兜底: <原因>` / `[access-level] 失效推送投递失败: <原因>`；未绑定实现时返回 `-1`（表示仅剩 TTL 兜底）。
+
+#### 8.4 静默 catch 补留痕（有意降级 ≠ 静默）
+
+| 位置 | 事件 | 留痕 |
+|---|---|---|
+| `story2video-engine/slideshow.ts`、`video-clone-engine/compose-ffmpeg.js` | ffprobe 校验失败 / 场景检测失败 | ① 原因写进 `artifacts.output`（`probeError`/`sceneError`），随 measured 报告流入 `similarity.warnings`（**用户可见**）；② 注入 logger 时补 `VideoClone:<stage>` warn |
+| `rewrite-engine/knowledge-base.js` | 存量数据损坏 ⇒ 回退默认知识库（等价「用户偏好静默清零」，数据丢失级） | `KnowledgeBase` warn：`知识库存储数据不可解析，已回退默认值（用户既有偏好丢失）: <原因>` |
+| `knowledge-evolution-scheduler.js` | 外层 `setTimeout` 未登记 | 纳入 `_timers` 统一清理，防孤儿定时器 |
+| `api-publish-engine/generic-adapter.js` | 同任务视频+封面各跑一遍完整 `upload()` | 同任务只上传一次 |
+| `rpa-view-helpers.js` `_waitForElement` | 重试窗口内的正常超时刷屏 | 由 warn 降为 info；异常仍 warn |
+
+#### 8.5 枚举单一来源
+
+`story2video-engine/src/effects-library.ts` 导出 `IMAGE_EFFECT_IDS` / `TRANSITION_EFFECT_IDS`（`Object.freeze`，`'none'` 恒置顶、其余保持登记顺序，与迁移前两处硬编码逐项一致 ⇒ 下拉与快照恢复行为零变化）。渲染层「恢复上次使用选项」白名单不再手抄；新增效果只在元数据数组登记一次，未同步 UI 由 `effects-single-source.test.js` 阻断（防反向漂移）。
+
+### 九、门禁索引与本地复核命令
+
+| 门禁 | 判据 | 本地复跑 |
+|---|---|---|
+| Gate 17 IPC 守卫覆盖 | 五分类 + `minGuardedRatio 0.65` + global/fallback 硬错误 | `node .github/scripts/check-ipc-sender-guard.js --base-dir apps/desktop` |
+| Gate 18 会话卫生 | 必存在结构 + 禁用模式 | `node .github/scripts/check-ops-session-hygiene.js` |
+| 逐文件行数（含 Python 对等口径） | `DEFAULT_LIMIT=500`、膨胀容差 `200` 行、挂账 99 条（其中 `.py` 25 条，含 `model_preset_service.py 1188`、`prompt_eval_service.py 1043`、`CreateView.vue 5657`、`story2video-stages.js 3866`、`pipeline-engine.js 2722`、`publish-api-server.js 1156`、`text-segmentation.ts 1389`） | `node .github/scripts/check-max-lines.js`；违规类型 `NEW_OVER_LIMIT` / `LEDGER_GREW` / `STALE_LEDGER_ENTRY` |
+| 依赖漏洞审计 | 实跑 `npm audit` + `pip-audit`；违规类型 `NEW_ADVISORY`（基线外新公告）/ 基线腐化 / 挂账到期；`decision ∈ {upgrade-tracked, accepted-risk, not-exploitable, no-fix-available}`；当前 29 条挂账 + `reviewBy` | `node scripts/check-dep-audit.js`（`NPM_AUDIT_REGISTRY=https://registry.npmjs.org`）；判定逻辑 `node --test scripts/check-dep-audit.test.js` |
+| Python 硬编码中文文案 | `file:line` 基线 79 条，新增即红 | `node .github/scripts/check-locale-sync.js --py-cjk` |
+| 文档同步（doc-gate） | 改代码必须同批改 `PRD.md`/`CHANGELOG.md`/`docs/`/`01-docs/` | `bash scripts/check-docs-sync.sh --base=<b> --head=HEAD` |
+
+**棘轮自洽原则**：新代码越线 ⇒ 拆文件，不放宽基线（本批实例：`url-collector.js` 条件等待改造后涨到 547 行 ⇒ 拆出 `url-collector-page-wait.js`（489 + 133 行），并把基线清账）。还债只允许两种最小编辑：删除已还清条目、同一文案的净零换号。禁止用 `--update` 掩盖别处新增（`--update` 是棘轮的对偶，会静默吸收真问题）。
+
+### 十、未覆盖维度与限期处置
+
+| 项 | 判据 / 触发节点 | 状态 |
+|---|---|---|
+| `packages/flutter-skill-bridge` 占位空壳 | 全仓 `rg flutter-skill-bridge` 零引用即删，否则补 README 说明用途；deadline = 下个发版周期末 | **判据命中「零引用」→ 无需保留**：git 中该目录 **0 个 tracked 文件**（`git ls-tree` 为空），全仓引用仅存在于审计报告自身的描述文字；构建/workspace 未使用它。因此「删」在本仓已**天然成立**（无可删内容），剩余动作 = 本地清理残留 `node_modules` 空目录（属开发者机器，不改仓库）+ 在 CHANGELOG 记录判据与关闭结论。 |
+| 依赖已知漏洞扫描 | 绑定第四批并入发版 gate | 已完成（`dep-audit.yml` + 29 条挂账 + `reviewBy`） |
+| CI secrets 暴露面 / 工作流结构 | 绑定第四批 | 已复核本批新增工作流（`dep-audit.yml`、`debt-guard.yml`）：无 `pull_request_target`、不回传 secrets 到第三方、无脚本注入面；全仓逐条审计仍列发版前专项 |
+| electron-builder 代码签名 / auto-updater 更新链 | 绑定下次发版 | 未审，登记 |
+| 备份 / 恢复与灾备 | 绑定部署清单评审 | 未审，登记 |
+| P0 泄露面逐机排查（第三节 7 项） | 部署评审签字 | 指引已交付，逐机项待运维执行 |
+
+### 十一、验收标准
+
+- [x] 每条 P0/P1 的关闭条件 = 对应红测试转绿 + 批次门禁通过 + 修复说明入 CHANGELOG（四批均已合并：#2214、#2226、#2239、#2252）。
+- [x] 危险组合（`*` + credentials）启动拒绝的断言测试存在且通过。
+- [x] Cookie 会话登录/401/登出/缺 CSRF 头/密钥未配置五类用例覆盖，且 Gate 18 在 CI 阻断回退写法。
+- [x] IPC 守卫按文档化口径可复算（407 注册点 / explicit 273 / ratio 67.1% / 阈值 65%），global 与 fallback 为硬错误。
+- [x] 脆弱等待改造逐项给出「条件轮询 + 上限 + 超时原因」并各配验收用例。
+- [x] 批量与单条配置写入共用同一加密语义路径，掩码回显不覆盖真实凭据。
+- [x] 新门禁先通过自己的新代码（`url-collector` 拆分即其产物），存量以基线挂账、只减不增。
+- [x] 依赖漏洞与超大文件均有可复核基线（29 条 CVE 挂账 + `reviewBy`；99 条行数挂账）。
+- [ ] `packages/flutter-skill-bridge` 判据结论入 CHANGELOG，并随下个发版周期末确认无回潮。
+- [ ] P0 泄露面逐机清单由运维在部署评审中签字（第三节 7 项复选框）。

@@ -1,3 +1,18 @@
+## 门禁与 rebase 的自我反噬：9 个可复用口径（2026-09-22，audit-p2-debt / 第 4 批）
+
+- **新门禁必须先过自己的新代码（pitfall）**：本批刚立起「单文件 > 500 行」棘轮，同一批的等待条件化改造就把 `url-collector.js` 顶到 547 行。处置是**拆文件**（新增 `url-collector-page-wait.js` 133 行 + 主文件留 1 行薄委托 → 489 行），而不是给主文件加豁免或放宽基线；同时把「不得再出现 `page.waitForTimeout(`」「必须 require 新模块」「probe 走 `waitForFunction`」写成用例里的静态不变量，防止委托被回滚。
+- **`--update` 型基线命令是棘轮的对偶（pitfall）**：`check-max-lines.js --update` 会把全部 grandfathered 文件的**当前**行数写回基线（实测 6 个文件被偷偷抬高：`preload/index.bundle.js` 1334→1404、`ipc-handlers/account.js` 571→645…），等于借「清账」之名放松门禁。还债时唯一允许的最小编辑＝**删掉已还清的那一条**；做法是先 `git checkout -- 基线文件` 复原 HEAD 版，再逐条删 + JSON 解析校验。同理 `--update-py-baseline` 也不用于本批。
+- **行号键控基线的偏移假阳性（pitfall）**：`--py-cjk` 的 id 是 `file:剥离注释后的行号`。本批在 `publishers/base.py` 插入 40 行 `wait_until`，把既有 `raise NotImplementedError("此发布器不支持手动登录")` 从 331 推到 359，门禁就报「1 new hardcoded CJK message」。取证手法：**把 `origin/main` 版文件以探针文件名放进同一目录**跑一次门禁（探针不在基线里 → 它的命中会连文案一起打印出来），直接读出 main 侧真实行号；确认后做净零换号（条目数保持 79）。这类假阳性是行号键控设计的固有缺陷，长期修法是把 id 换成内容指纹。
+- **append-only 巨型文件的 rebase 并集 ≠ 删冲突标记（pitfall）**：`CHANGELOG.md` 把冲突两侧正文都当「新增」拼接，等于把整份历史复制一遍（症状：diff `+12580/-0`，`# [` 顶层条目 235 vs main 118，14 个标题重复）。正确做法：`git checkout --ours -- CHANGELOG.md` 取 main 的**字节原文**，再只 prepend 本批条目；**行尾必须跟随 main 原文**——对 CRLF 文件做 `rstrip("\r")` 后整体重写会把全文件行尾翻转，diff 立刻变成「整文件重写」。
+- **本批新条目要从「干净来源」精确定位，别从冲突块猜边界（pitfall）**：猜「我方侧顶部直到第一个已在 main 里出现的标题」失效了，因为分支自身已携带一份早先被污染的 CHANGELOG，于是 prepend 进来一堆陈旧副本、真正的本批条目反而没进去。改为从 rebase 前的分支尖端按标题精确切一片，并加结构断言：`HEAD 顶层条目数 == main+1`、目标标题出现次数 == 1、重复条目数不增。
+- **新增 workflow 的缓存配置要和「本 job 是否产出 store 目录」配套（pitfall）**：`dep-audit.yml` 只跑 `pnpm audit` / `pip-audit`、不 `pnpm install`，却照抄了 `cache: pnpm` → `actions/setup-node` 的 Post 步骤报 `Path Validation Error: Path(s) ... do(es) not exist` 把 job 判红（QG 主 workflow 因为有 install 所以从不暴露）。这类红在步骤名上，不在业务输出里，必须看 job 的失败步骤列表定位。
+- **红验证要按语义归属选套件（pitfall）**：给 `config_service._apply_upsert` 植入「新建路径明文入库」变异时，只跑本批 `test_p4_txn_and_queries.py` 判为「没抓住」；该语义实际由第 2 批的 `test_p1_config_secret.py` 守护，并套件后即转红。结论：变异验证的命令应按**被改动语义的守护套件**全集拼装，不是按「本批新增文件」。变异脚本本身还必须①先断言锚点唯一命中，②按字节读写还原（文本模式读 + `newline=""` 写会把 CRLF 折成 LF，留下 `git status` 假 modified 而 `git diff --numstat` 为空）。
+- **worktree 镜像落盘的反向同步纪律（pitfall）**：用「整目录镜像 → worktree」的回拷脚本时，过时的镜像会把 worktree 里较新的文件倒退（实测抹掉 `test_p4_txn_and_queries.py` 的 72 行 P1-5 融合回归用例，靠 `git checkout --` 救回）。此后：任何在 worktree 内直接改的文件立刻做 worktree→镜像反向同步，日常落盘只用单文件拷贝脚本。
+- **磁盘容量是硬中断（pitfall）**：D 盘写满时 `git add` 直接 `fatal: unable to write loose object file: No space left on device`，而落盘脚本的失败常常是静默的。长批次开工前先测 free space，收尾时清掉自己产出的大日志（本批一次清理换回 ~18MB 才把两个提交推过去）。
+
+---
+
+---
 ## 视频发布链路 E2E：磁盘写满是上传失败的真凶 + 落盘工程文案恢复 + Windows git schannel 绕过（hot-topics-video-publish-e2e，2026-09-23）
 
 - **根因（pitfall，最高优先）**：CDP E2E 跑「热门选题→生成视频→发布」时，bilibili 上传报 `<BccUpload> Cannot read properties of undefined (reading 'upload')` + "No available adapters"，douyin 卡 "waiting upload" 15 分钟不收敛、publish timeout 后整轮重启。逐层排查发现**真正根因是 D 盘写满（仅剩 70MB）**：Electron/Chromium 磁盘缓存无法落盘导致上传组件初始化失败、大文件（58-108MB）读取/seek 受阻。回收空间（删除历史孤儿 `-profile` userData 目录，运行中 app 用 shared-user-data 不在此列）+ 用 ffmpeg 转 720p/CRF30 把成片压到 5.6-9.8MB 后，上传秒级完成、进入正常发布。教训：RPA「publish btn not found / 上传永不完成」先量磁盘余量与产物体积，别急着改选择器。
@@ -15402,3 +15417,24 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **修复模式（pattern）**：禁止 `--update-baseline` 掩盖；把 12 处文案迁入 `intelligence.*` locale（zh/en 成对，zh 值与原文案逐字一致，插值文案用 `{n}` 参数化），模板改 `$t(...)` / `:title="$t(...)"`，script 内标签映射改 `useI18n().t`。
 - **连锁坑（pitfall）**：直接 `mount(Comp)` 的组件测试无 i18n 插件，locale 化后 42 例报 `$t is not a function`。按仓库 TagSuggester 惯例在测试顶部经 test-utils `config.global.plugins` 注入 `createI18n({legacy:false,locale:"zh",messages:{zh,en}})`——vitest 每文件独立模块环境，全局 config 变更不跨文件污染，且免改每个 mount 调用点。
 - **预防措施**：任何「emoji→el-icon / 模板文本改动」任务，提交前本地必跑 `node .github/scripts/check-locale-sync.js --cjk`（QG Static 由 CI 才暴露的教训——vitest 门禁不含 .github/scripts node:test 套件）；对已 $t 化组件新增/迁移文案时，同步检查其组件测试是否具备 i18n 插件。
+
+
+## cache-cleanup-settings-2026-09-23：设置-通用「缓存清理」全栈功能（分支 cache-cleanup-settings，PR #2262）
+
+### 需求溯源（三个调研问题的权威结论）
+1. **删除历史记录是否删成品+临时片段？** 删 `userData/story2video-projects/<ownerHash>/<projectId>` 内的成品持久副本（`video.mp4`/旁白/bgm/分段），但**不清** `os.tmpdir()` 合成中间产物。删除是 best-effort：Windows EPERM 占用时索引仍删、孤立目录残留写告警。
+2. **临时文件如何处理、是否永久？** 全在 `os.tmpdir()`：`story2video` 会话目录每次合成即 `_cleanupSession` 递归删；成片副本 `sessionId_*` 靠启动/合成前 `_cleanupOldSessions(24h)` 老化；`selected-media` 7 天 `gcImportedMedia`；`film-engineering/<runId>` 收尾删。**非永久但会累积**（单次成片副本数百 MB～GB）。
+3. **是否新增清理缓存？** 必要——老化不足以即时释放，用户「删了却没释放空间」无回收入口。
+
+### 实现范式（可复用）
+- 复用同构的「日志清理」（LogsSettings.vue + `logs:info`/`logs:clear`）模式新增「缓存清理」，成本最低体验一致：service（`cache-service.js`）+ IPC（`cache:stats`/`cache:clear`）+ preload 暴露 + renderer 卡片 + i18n。
+- **安全边界第一**：统计/删除全程 `isPathWithin(entry,[root])`（canonicalPath + realpathSync.native）+ `lstat` 跳符号链接，缓存根只登记 `os.tmpdir()` 子目录，杜绝误删 userData；`clearCache` 逐条 best-effort，被占用静默跳过、保留根目录。
+- IPC 权限双白名单：主进程 `license-access-control.js` PUBLIC_CHANNELS + preload `access-control.js` PUBLIC_METHODS 同步登记。
+
+### 逃逸链与堵口（本次踩坑）
+- **vi.mock 拦不住函数内 require**：IPC handler 测试用 `vi.mock('../services/cache-service')` 隔离，但 handler 运行时 `require`，mock 未接管 → clearCache 真跑删开本机 ~1.4GB 临时缓存。堵口：handler 改 `deps.cacheService || require(...)` 依赖注入，测试经 `registerHandlers(ipcMain, {cacheService: mock})` 注入替身；凡函数体内 require 且有 FS/网络副作用的模块，测试一律参数注入。
+- **preload.test.js 硬编码计数**：新增 2 个 system 方法触发 3 处断言（方法数/api 总数/SYSTEM_METHODS.length）失败，逐个 bump 并同步描述性标题。改 preload 暴露面必查这些计数。
+- **工具沙箱**：Write/SearchReplace 不能写 workspace 外 worktree，用 `.agent_context/<task>-stage/` 暂存 + Copy-Item 落地。
+
+### 本次交付
+- rebase 至最新 origin/main（含 audit-batch-3），CHANGELOG 冲突保留双方条目；缓存后端 10 测试 + preload 360 回归全绿；Gate 17 IPC sender 守卫 PASS（绕过 0）；ESLint/build:vue/locale-sync `--keys` 通过；PR #2262 auto-merge squash。

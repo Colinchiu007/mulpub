@@ -13,6 +13,8 @@ function registerHandlers(ipcMain, deps) {
   const { withSenderCheck } = require('./helpers')
   const { isTrustedSender } = require('../core/ipc-security')
   const { getAccessLevel } = require('./license-access-control')
+  const { ACCESS_LEVEL_CHANNEL } = require('../core/access-level')
+  const { emitAccessLevelInvalidated } = require('../services/access-level-bus')
   const { licenseManager } = deps
 
   ipcMain.handle("license:info", async () => {
@@ -24,6 +26,8 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle("license:activate", withSenderCheck(async (event, licenseKey) => {
     try {
       const ok = licenseManager.activate(licenseKey)
+      // 审计 P2·性能税：preload 的级别缓存必须在此失效，否则升级最长要等一个 TTL 才生效
+      if (ok) emitAccessLevelInvalidated('license-activate')
       return ok ? { code: 0, data: true, message: "激活成功" } : { code: EC.REQUEST_ERROR, data: false, message: "激活失败，许可证可能已被使用" }
     } catch (e) { log.warn('[ipc:license]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
@@ -31,6 +35,7 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle("license:deactivate", withSenderCheck(async (event) => {
     try {
       licenseManager.deactivate()
+      emitAccessLevelInvalidated('license-deactivate')
       return { code: 0, data: true, message: "已注销" }
     } catch (e) { log.warn('[ipc:license]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
@@ -38,6 +43,7 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle("license:activate-trial", withSenderCheck(async (event) => {
     try {
       const ok = licenseManager.activateTrial()
+      if (ok) emitAccessLevelInvalidated('license-activate-trial')
       return ok ? { code: 0, data: true, message: "试用已激活，有效期 7 天" } : { code: EC.REQUEST_ERROR, data: false, message: "无法激活试用" }
     } catch (e) { log.warn('[ipc:license]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
@@ -62,7 +68,7 @@ function registerHandlers(ipcMain, deps) {
   // 之前同步 IPC 直接调用 isTrustedSender，未走 dev 短路，导致开发环境下 preload sendSync 拿到 'public'，
   // 所有 authenticated 级别方法（storeGetPublishStats / onRenderProgress 等）被错误拦截。
   // 根因：同步 IPC 与异步 IPC 的权限校验路径不一致。
-  ipcMain.on("auth:get-access-level", (event) => {
+  ipcMain.on(ACCESS_LEVEL_CHANNEL, (event) => {
     // Bug fix (QM-5 v2): dev 短路判断必须与项目其他模块一致！
     // window.js:216 用 `!app.isPackaged` 作为 dev 判断，license-access-control.js 和本文件
     // 之前用 `NODE_ENV === 'development'`，但 npm script 没有设置该变量，导致 dev 短路不生效。
