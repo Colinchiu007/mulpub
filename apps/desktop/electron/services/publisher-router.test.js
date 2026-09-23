@@ -663,6 +663,26 @@ describe("PublisherRouter", () => {
       await publisher.publish({ article: { accountId: "mismatch" } });
       expect(rpaViewManager.publish).toHaveBeenCalledWith("wechat_mp", expect.any(Object), { cookies: [], localStorage: {} }, 120000);
     });
+    it("视频文章的 RPA 超时放宽到 30 分钟（实测 96MB 上传超 10 分钟）", async () => {
+      const rpaViewManager = { publish: vi.fn(async () => ({ success: true, postId: "ks-9", url: "https://m.gifshow.com/fw/photo/ks-9" })) };
+      const r = new PublisherRouter();
+      const publisher = r.createPublisher("kuaishou", {
+        rpaViewManager,
+        store: { getAccount: vi.fn(() => null) },
+      });
+      await publisher.publish({ article: { title: "标题", content: "正文", video_path: "C:/tmp/a.mp4" } });
+      expect(rpaViewManager.publish.mock.calls[0][3]).toBeGreaterThanOrEqual(1800000);
+    });
+    it("图文文章仍用平台默认 RPA 超时 300s", async () => {
+      const rpaViewManager = { publish: vi.fn(async () => ({ success: true, postId: "ks-9", url: "https://m.gifshow.com/fw/photo/ks-9" })) };
+      const r = new PublisherRouter();
+      const publisher = r.createPublisher("kuaishou", {
+        rpaViewManager,
+        store: { getAccount: vi.fn(() => null) },
+      });
+      await publisher.publish({ article: { title: "标题", content: "正文" } });
+      expect(rpaViewManager.publish.mock.calls[0][3]).toBe(300000);
+    });
     it("默认账号 SQLite 回退过滤第三方 Cookie", async () => {
       const rpaViewManager = { publish: vi.fn(async () => ({ success: true })) };
       const r = new PublisherRouter();
