@@ -1,6 +1,8 @@
 """FFmpegAdapter (T3, ARCH-RENDER-ENGINE-ADAPTER section 3).
 
-render() rebuilds the compose_inputs mapping _render_via_ffmpeg used to build
+render() wraps host._render_via_ffmpeg (T5) so the full compose + final-review
+path stays byte-identical; build_compose_inputs() remains as the T3 typed
+equivalence helper proving the compose argv grammar is unchanged.
 inline and delegates to host._compose (single source of FFmpeg command grammar).
 Reads ONLY typed RenderContext/RenderRequest fields (A4: no raw_inputs).
 """
@@ -93,11 +95,21 @@ class FFmpegAdapter(RenderEngineAdapter):
         return compose_inputs
 
     def render(self, req, ctx):
-        tr = self._host._compose(self.build_compose_inputs(req, ctx))
+        # T5: wrap the full host._render_via_ffmpeg path (compose + '(FFmpeg)'
+        # final review) so the thin _render returns a byte-identical ToolResult.
+        tr = self._host._render_via_ffmpeg(
+            inputs=ctx.raw_inputs,
+            edit_decisions=req.edit_decisions,
+            resolved_cuts=req.resolved_cuts,
+            output_path=ctx.output_path,
+            profile=ctx.profile_name,
+        )
         return RenderResult(
             success=bool(tr.success),
             output_path=Path(ctx.output_path) if tr.success else None,
             error=tr.error,
             data=dict(tr.data or {}),
+            artifacts=list(tr.artifacts or []),
             review_fail_label="(FFmpeg)",
+            tool_result=tr,
         )

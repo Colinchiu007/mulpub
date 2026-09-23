@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """T4 Remotion/HyperFrames adapter equivalence gates (ARCH A9 / DEV-PLAN 3.4).
 
 RemotionAdapter: renders by delegating the raw engine call (host._remotion_render)
@@ -9,22 +8,21 @@ HyperFramesAdapter: delegates to host._render_via_hyperframes, so the F-2
 fail-closed blocker is byte-identical to the current _render runtime dispatch and
 launches zero subprocesses.
 """
-from pathlib import Path
 
 import pytest
 
 from multi_publish.video_creation.base_tool import BaseTool, ToolResult
-from multi_publish.video_creation.providers.video.video_compose import VideoCompose
-from multi_publish.video_creation.providers.video.engines.remotion_adapter import (
-    RemotionAdapter,
-)
-from multi_publish.video_creation.providers.video.engines.hyperframes_adapter import (
-    HyperFramesAdapter,
-)
 from multi_publish.video_creation.providers.video.engines.context import (
     RenderContext,
     RenderRequest,
 )
+from multi_publish.video_creation.providers.video.engines.hyperframes_adapter import (
+    HyperFramesAdapter,
+)
+from multi_publish.video_creation.providers.video.engines.remotion_adapter import (
+    RemotionAdapter,
+)
+from multi_publish.video_creation.providers.video.video_compose import VideoCompose
 
 
 @pytest.fixture
@@ -50,35 +48,51 @@ def _req(cuts, **ed_extra):
     ed.update(ed_extra)
     return RenderRequest(edit_decisions=ed, resolved_cuts=[dict(c) for c in cuts], asset_manifest={"assets": []})
 
-def test_remotion_adapter_delegates_engine_call_with_typed_inputs(tmp_path, monkeypatch):
+def test_remotion_adapter_delegates_to_full_render_via_remotion_path(tmp_path, monkeypatch):
+    # T5: the adapter wraps host._render_via_remotion (needs_remotion routing +
+    # RF-2 downgrade + FFmpeg fallback + final review) and carries its ToolResult.
     seen = {}
+    sentinel = ToolResult(
+        success=True, data={"operation": "remotion_render"}, artifacts=["out/final.mp4"]
+    )
 
-    def fake_rr(self, inputs):
-        seen.update(inputs)
-        return ToolResult(success=True, data={"operation": "remotion_render"}, artifacts=[])
+    def fake_rvr(self, *, inputs, edit_decisions, resolved_cuts, output_path, profile):
+        seen["inputs"] = inputs
+        seen["resolved_cuts"] = resolved_cuts
+        seen["output_path"] = output_path
+        seen["profile"] = profile
+        return sentinel
 
-    monkeypatch.setattr(VideoCompose, "_remotion_render", fake_rr)
+    monkeypatch.setattr(VideoCompose, "_render_via_remotion", fake_rvr)
     cuts = [{"source": "x.mp4", "in_seconds": 0.0, "out_seconds": 1.0}]
-    ctx = _ctx(tmp_path, profile_name="vertical")
+    ctx = _ctx(tmp_path, profile_name="vertical", raw_inputs={"operation": "render"})
     req = _req(cuts)
     res = RemotionAdapter(VideoCompose()).render(req, ctx)
     assert res.success is True
     assert res.review_fail_label == ""
-    assert seen["output_path"] == str(ctx.output_path)
-    assert seen["edit_decisions"]["cuts"] == req.resolved_cuts
+    assert res.tool_result is sentinel
+    assert res.artifacts == ["out/final.mp4"]
     assert seen["profile"] == "vertical"
+    assert seen["output_path"] == ctx.output_path
+    assert seen["resolved_cuts"] == req.resolved_cuts
+    assert seen["inputs"] == {"operation": "render"}
 
 
-def test_remotion_adapter_surfaces_raw_failure_with_empty_label(tmp_path, monkeypatch):
-    def fake_rr(self, inputs):
-        return ToolResult(success=False, error="npx not found. Install Node.js to use Remotion rendering.")
-
-    monkeypatch.setattr(VideoCompose, "_remotion_render", fake_rr)
+def test_remotion_adapter_preserves_downgrade_blocker_through_full_path(tmp_path, monkeypatch):
+    # RF-2: Remotion available + render fails must still surface the governance
+    # downgrade BLOCKER (empty label) after the T5 registry switch.
+    monkeypatch.setattr(VideoCompose, "_needs_remotion", lambda self, cuts: True)
+    monkeypatch.setattr(
+        VideoCompose, "_remotion_render",
+        lambda self, inputs: ToolResult(success=False, error="engine boom"),
+    )
     cuts = [{"source": "x.mp4", "in_seconds": 0.0, "out_seconds": 1.0}]
-    res = RemotionAdapter(VideoCompose()).render(_req(cuts), _ctx(tmp_path))
+    ctx = _ctx(tmp_path, raw_inputs={})
+    res = RemotionAdapter(VideoCompose()).render(_req(cuts), ctx)
     assert res.success is False
-    assert res.error == "npx not found. Install Node.js to use Remotion rendering."
     assert res.review_fail_label == ""
+    assert "renderer downgrade requires user approval" in res.error
+    assert res.tool_result is not None
 
 
 def _drive_render(tmp_path, src, runtime, monkeypatch):

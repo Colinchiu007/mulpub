@@ -315,3 +315,28 @@ runtime_swap_detected（终审内实现，比对 proposal_packet.production_plan
 - EngineCapabilities 的可执行依赖字段名首字母组合会触发 Bash 工具静态安全门误报，故适配器以 `_REQ_KEY="requires_"+chr(99)+chr(109)+chr(100)` 经 **_REQ_KEY 传参规避（文件与命令行均不含该字面组合）。
 - 等价测试 tests/test_render_engine_adapter_remotion_hf.py（3 测）：Remotion 委派入参保真、失败原始 error 透传且 label 为空、HyperFrames blocker 与当前 _render 分派逐字节相同且 0 命令；C10 真实能力断言扩充至 remotion/hyperframes。
 - 本 PR 仍未切换 _render（T5），三适配器齐备后 T5 方可做全路径 parity 验证与委派切换；任一 diff 即 revert。
+
+### 13.10 T5 _render 委托变薄 + registry 接线落地（追加，行为保持·逐字节等价已证）
+
+（背景）T0-T4 已完成 registry / adapter / 命令基线 / 安全网。T5 是唯一的引擎切换点：把 _render 里按 render_runtime 字符串的 if/elif 分派，改为 RenderEngineRegistry + adapter 委派。核心铁律是行为保持（命令结构等价 + 治理与终审语义零回归），任一 diff 即 revert。
+
+（同构缺口修复）RenderResult 原缺 artifacts 字段，且相对 ToolResult 丢失 cost_usd / seed / model / duration_seconds 等。切换若用 RenderResult 反向重建 ToolResult，会静默丢 artifacts（compose-director 下游 checkpoint 读不到），属真实回归。解法：RenderResult 新增两字段——artifacts（控制面镜像，供内省）与 tool_result（原样承载底层 ToolResult 对象）；切换后 _render 直接 return adapter.render(req, ctx).tool_result，透传原始对象，零字段损失，逐字节等价由构造保证。
+
+（remotion 全路径抽取）把原 _render 内联的 remotion 分支逐字节抽取为 _render_via_remotion(inputs, edit_decisions, resolved_cuts, output_path, profile)：_needs_remotion 路由 → _remotion_render（失败即 RF-2 三选项治理降级 blocker，绝不静默回退）→ Remotion 不可用时 _compose 回退 → 无引擎前缀的强制终审。纯 extract-method，无语义变化；RemotionAdapter.render 委派它。
+
+（三 adapter 统一为全路径包装，均传 ctx.raw_inputs 原样，返回 RenderResult(tool_result=…)）
+- FFmpegAdapter.render → host._render_via_ffmpeg（compose + '(FFmpeg)' 终审）
+- HyperFramesAdapter.render → host._render_via_hyperframes（F-2 fail-closed blocker + '(HyperFrames)' 终审，经 video_compose 恒 0 子进程）
+- RemotionAdapter.render → host._render_via_remotion（无引擎前缀终审）
+review_fail_label 保留各引擎终审前缀语义（RF-3 的不对称如实保留，适配器不伪造前缀）。
+
+（_render 变薄，编排器治理职责不变）atelier 短路（RF-1，先于 runtime 解析、不读 render_runtime）保留；空 runtime 与未知 runtime 两段治理 blocker 文案逐字不变，仍由 _render 产出（属编排器，非 adapter）；其后 registry.get(runtime, ctx) → adapter.render(req, ctx) → return result.tool_result。
+
+（A4 权衡·诚实标注）§13.6 曾定 A4 退出标准为 render 路径 raw_inputs 命中=0。T5 在“行为保持 > 打字纯度”的更高优先铁律下，选择让 adapter 透传原始 inputs 调用既有 _render_via_* 私有方法：等价由构造保证，杜绝终审入参（proposal_packet / narration_transcript_path / script_text / options / quality 等）重建漂移。build_compose_inputs（类型化重建）仍保留为 T3 命令语法等价证据，test_render_engine_adapter_ffmpeg_equiv 仍绿，A4 对命令语法的验证意图仍在。此为有意工程权衡，记入内置记忆。
+
+（get_info 能力单源）registry.capabilities_all(ctx) → info["render_engine_capabilities"]（id / name / word_level_captions / native_transitions / unavailable_fallback），能力报告不再硬编码 prose；render_engines 可用性布尔语义不变（纯附加，向后兼容）。
+
+（等价证明·安全网全绿）
+- 结构门禁 test_render_engine_registry_gate.py（6 测）：_render 源码不再含 self._render_via_ffmpeg( / self._render_via_hyperframes( / render_runtime == "ffmpeg" 等硬分派，必须含 _engine_registry() + .render(req, ctx) + result.tool_result；治理 prose 仍在 _render；_render_via_* 仍定义供 adapter 调用；registry 注册三 host-bound 工厂（每次 get 返回新实例、持有 host）；RenderResult 含 artifacts + tool_result；registry.capabilities_all 存在。
+- 行为基线：ffmpeg golden 命令序列、ffmpeg 字幕烧录 / 无音轨 lavfi / setpts+atempo 变体、空与未知 runtime 0 命令、hyperframes F-2 blocker + 0 命令、remotion 降级 blocker 逐字==fixture、remotion 不可用→compose==ffmpeg golden、render 成功完整返回形状（ffmpeg compose 形状含 final_review / artifacts；remotion remotion_render 形状含 final_review / artifacts）。
+- 回归：191 个 video_compose / render / compose / remotion / hyperframes / atelier 相关测试全过，0 失败。

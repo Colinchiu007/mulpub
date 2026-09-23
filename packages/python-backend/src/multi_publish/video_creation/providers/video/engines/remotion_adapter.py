@@ -67,17 +67,23 @@ class RemotionAdapter(RenderEngineAdapter):
         return ValidationResult(ok=True)
 
     def render(self, req, ctx):
-        remotion_inputs = {
-            "edit_decisions": dict(req.edit_decisions, cuts=req.resolved_cuts),
-            "output_path": str(ctx.output_path),
-        }
-        if ctx.profile_name:
-            remotion_inputs["profile"] = ctx.profile_name
-        tr = self._host._remotion_render(remotion_inputs)
+        # T5: wrap host._render_via_remotion (needs_remotion routing + RF-2
+        # governance downgrade blocker + FFmpeg fallback + final review), so the
+        # thin _render returns that exact ToolResult. review_fail_label is empty:
+        # the Remotion final-review prose carries no engine prefix.
+        tr = self._host._render_via_remotion(
+            inputs=ctx.raw_inputs,
+            edit_decisions=req.edit_decisions,
+            resolved_cuts=req.resolved_cuts,
+            output_path=ctx.output_path,
+            profile=ctx.profile_name,
+        )
         return RenderResult(
             success=bool(tr.success),
             output_path=Path(ctx.output_path) if tr.success else None,
             error=tr.error,
             data=dict(tr.data or {}),
+            artifacts=list(tr.artifacts or []),
             review_fail_label="",
+            tool_result=tr,
         )

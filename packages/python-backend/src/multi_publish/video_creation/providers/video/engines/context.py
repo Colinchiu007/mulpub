@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from multi_publish.video_creation.providers.video.engines.result import (
     StructuredBlocker,
@@ -50,3 +50,8 @@ class RenderResult:
     blocker: Optional[StructuredBlocker] = None
     data: dict = field(default_factory=dict)
     review_fail_label: str = ""
+    # T5 verbatim passthrough: the thin _render returns tool_result so the final
+    # ToolResult stays byte-identical (no cost_usd/seed/model/artifacts drop).
+    # artifacts mirrors ToolResult.artifacts (compose-director reads it downstream).
+    artifacts: list = field(default_factory=list)
+    tool_result: Optional[Any] = None

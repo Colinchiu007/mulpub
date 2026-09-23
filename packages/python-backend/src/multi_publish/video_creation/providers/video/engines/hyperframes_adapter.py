@@ -74,8 +74,11 @@ class HyperFramesAdapter(RenderEngineAdapter):
         return inputs
 
     def render(self, req, ctx):
+        # T5: pass ctx.raw_inputs verbatim so host._render_via_hyperframes runs
+        # with the exact mapping _render used to build - the F-2 fail-closed
+        # blocker and the '(HyperFrames)' final review stay byte-identical.
         tr = self._host._render_via_hyperframes(
-            inputs=self.build_inputs(ctx),
+            inputs=ctx.raw_inputs,
             edit_decisions=req.edit_decisions,
             asset_manifest=req.asset_manifest,
             resolved_cuts=req.resolved_cuts,
@@ -87,5 +90,7 @@ class HyperFramesAdapter(RenderEngineAdapter):
             output_path=Path(ctx.output_path) if tr.success else None,
             error=tr.error,
             data=dict(tr.data or {}),
+            artifacts=list(tr.artifacts or []),
             review_fail_label="(HyperFrames)",
+            tool_result=tr,
         )
