@@ -1,6 +1,6 @@
 # PRD：设置-通用「缓存清理」功能
 
-- 版本：v1.0
+- 版本：v1.1（组件归属调整：缓存卡片抽为 `CacheCleanupSection.vue`，见 §3.8）
 - 日期：2026-09-23
 - 关联模块：`apps/desktop`（Electron 主进程 + preload + Vue renderer）
 - 状态：已实现，待 Review / CI
@@ -96,8 +96,9 @@
 - preload `system.js`：`cacheGetStats: () => invoke('cache:stats')`，`cacheClear: () => invoke('cache:clear')`；重新生成 `index.bundle.js` 与 `home-shell-preload.bundle.js`。
 - `src/api/publisher.js`：`cacheGetStats()`/`cacheClear()` 经 `invokeWithFallback` 封装，降级返回 `{code:-1,data:{...空}}`。
 
-### 3.5 交互逻辑（LogsSettings.vue，设置-通用页）
+### 3.5 交互逻辑（`CacheCleanupSection.vue`，挂载于 LogsSettings.vue 设置-通用页）
 
+- 页面接线：`LogsSettings.vue` 模板内以 `<CacheCleanupSection />` 挂载卡片；子组件自身 `onMounted` 调 `loadCache()`，父组件 `onMounted` 只调 `loadInfo()`——两侧请求并发发出，与拆分前的 `loadInfo() + loadCache()` 等价。
 - 进入页面 `onMounted` 并行调用 `loadInfo()`（日志）与 `loadCache()`（缓存）。
 - 「刷新」：`cacheLoading=true` → `cacheGetStats` → 回填 `cacheInfo`；按钮在加载中禁用。
 - 「清理缓存」：`cacheClearing=true` → `cacheClear` → 成功后 `loadCache()` 重算 → 展示成功 toast「已释放 {size} 缓存」；失败展示「清理缓存失败，请稍后重试」；无缓存时按钮禁用（`!cacheInfo.totalBytes`）。
@@ -113,6 +114,19 @@
 ### 3.7 提示文字（i18n，zh/en 成对）
 
 `settings.cache.{title,subtitle,dirLabel,totalSize,fileCount,clearBtn,clearing,empty,autoClearHint,clearedToast,clearFailedToast,itemStory2Video,itemFilmEngineering}`。`clearedToast` 使用 `{size}` 插值。
+
+### 3.8 组件结构与行数门禁（v1.1 调整）
+
+| 文件 | 行数 | 职责 |
+| --- | --- | --- |
+| `src/components/LogsSettings.vue` | 468 | 语言设置 / 日志摘要与列表 / 诊断卡 / 反馈表单，并挂载缓存卡片 |
+| `src/components/CacheCleanupSection.vue` | 229 | 缓存摘要、明细列表、刷新/清理、toast（自包含） |
+| `src/utils/bytes.js` | 15 | `formatBytes` 单一实现（日志与缓存共用） |
+
+- **为什么拆**：`.github/scripts/check-max-lines.js` 的 `NEW_OVER_LIMIT` 要求受管目录内单文件 < 500 行且不允许新增挂账；缓存卡片整块内联会把 `LogsSettings.vue` 顶到 598 行。
+- **样式重复是有意取舍**：子组件需要 14 条卡片基元样式（`.log-summary` / `.summary-grid` / `.summary-label` / `.summary-value` / `.log-file-row` / `.file-name` / `.file-size` / `.log-empty` / `.log-hint` / `.hint-icon` / `.clear-btn` 三态）。`<style scoped>` 不跨组件继承，也不把这些局部类提升到全局（会污染其它设置页），因此允许小段重复，并在子组件样式块首行注释标明来源。
+- **约定**：设置-通用页后续新增卡片一律独立成组件，不再往 `LogsSettings.vue` 内联（先例：`NetSchedDiagnose.vue`）。
+- **显示项与交互不变**：§3.6 / §3.7 的文案、i18n 键、禁用条件（`!cacheInfo.totalBytes || cacheClearing`）、骨架/空态、toast 文案与 `{size}` 插值全部原样迁移，`data-testid` 保留 `cache-clear-btn` 并新增 `cache-cleanup-section`。
 
 ## 4. 数据校验与边界
 
@@ -135,4 +149,5 @@
 
 - `electron/services/cache-service.test.js`：roots 边界、递归统计、目录缺失、清理保留根、清理后归零、符号链接越界跳过（真实临时目录注入）。
 - `electron/ipc-handlers/cache.test.js`：通道注册、stats/clear 转发、错误码、日志记录（cacheService 经 deps 注入 mock，绝不触碰真实临时目录）。
+- 本次新增（renderer）：`src/utils/bytes.test.js`（formatBytes 口径）、`src/components/CacheCleanupSection.test.js`（卡片契约：拉取/禁用/成功 toast/失败 toast/降级不抛）、`src/components/LogsSettings.test.js`（抽离后接线：子组件仍挂载且请求照常发出、父页面共享 formatBytes 渲染）。
 - 回归：`preload.test.js`（system 方法数 147、api 总数 319、PUBLIC_METHODS→主进程通道 public 一致性）、`build-preload.test.js`、`home-shell-preload.test.js`、locale-sync `--keys`。

@@ -42,13 +42,13 @@
         data-testid="nav-home"
         @click="$emit('go-home')"
       >
-        🏠
+        <el-icon><HomeFilled /></el-icon>
       </button>
     </div>
 
     <div class="nav-bar-center">
       <div class="url-bar" :class="{ focused: urlFocused }">
-        <span class="url-icon" aria-hidden="true">🔍</span>
+        <span class="url-icon" aria-hidden="true"><el-icon><Search /></el-icon></span>
         <input
           ref="urlInput"
           type="text"
@@ -70,7 +70,7 @@
           aria-label="复制网址"
           @click="copyUrl"
         >
-          {{ copied ? '✓' : '📋' }}
+          <el-icon v-if="copied"><Check /></el-icon><el-icon v-else><CopyDocument /></el-icon>
         </button>
       </div>
     </div>
@@ -93,6 +93,7 @@
 </template>
 
 <script setup>
+import { Check, CopyDocument, HomeFilled, Search } from '@element-plus/icons-vue'
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 

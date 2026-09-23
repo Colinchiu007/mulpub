@@ -72,46 +72,8 @@
       </div>
     </div>
 
-    <!-- 缓存清理 -->
-    <div class="cache-section" role="group" :aria-label="t('settings.cache.title')">
-      <div class="cache-header">
-        <div>
-          <div class="cache-title">{{ t('settings.cache.title') }}</div>
-          <div class="cache-subtitle">{{ t('settings.cache.subtitle') }}</div>
-        </div>
-        <div class="page-actions">
-          <button class="cohere-btn-secondary" :disabled="cacheLoading" @click="loadCache">⟳ {{ t('common.refresh') }}</button>
-          <button class="clear-btn" :disabled="!cacheInfo.totalBytes || cacheClearing" data-testid="cache-clear-btn" @click="clearCache">
-            {{ cacheClearing ? t('settings.cache.clearing') : t('settings.cache.clearBtn') }}
-          </button>
-        </div>
-      </div>
-      <div class="log-hint" role="note">
-        <span class="hint-icon">ℹ️</span>
-        {{ t('settings.cache.autoClearHint') }}
-      </div>
-      <div class="log-summary">
-        <div class="summary-grid">
-          <div class="summary-item">
-            <div class="summary-label">{{ t('settings.cache.totalSize') }}</div>
-            <div class="summary-value">{{ formatBytes(cacheInfo.totalBytes) }}</div>
-          </div>
-          <div class="summary-item">
-            <div class="summary-label">{{ t('settings.cache.fileCount') }}</div>
-            <div class="summary-value">{{ cacheInfo.fileCount }}</div>
-          </div>
-        </div>
-        <div class="cache-item-list">
-          <div v-for="item in cacheInfo.items" :key="item.key" class="log-file-row">
-            <span class="file-name" :title="item.dir">{{ cacheItemLabel(item.key) }}</span>
-            <span class="file-size">{{ formatBytes(item.totalBytes) }}</span>
-          </div>
-          <div v-if="cacheLoading" class="log-empty"><UiSkeleton variant="list" :count="2" /></div>
-          <div v-else-if="!cacheInfo.items.length" class="log-empty">{{ t('settings.cache.empty') }}</div>
-        </div>
-      </div>
-      <div v-if="cacheToast" class="cache-toast" role="status">{{ cacheToast }}</div>
-    </div>
+    <!-- 缓存清理（独立组件：逐文件行数门禁下的自包含卡片拆分范式） -->
+    <CacheCleanupSection />
 
     <section class="feedback-section" aria-labelledby="feedback-title">
       <div class="feedback-header">
@@ -152,19 +114,17 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { logsGetInfo, logsClear, cacheGetStats, cacheClear as cacheClearRequest, submitFeedback as submitFeedbackRequest } from '@/api/publisher'
+import { logsGetInfo, logsClear, submitFeedback as submitFeedbackRequest } from '@/api/publisher'
 import { getAppLocale, setAppLocale } from '@/i18n'
 import NetSchedDiagnose from './NetSchedDiagnose.vue'
+import CacheCleanupSection from './CacheCleanupSection.vue'
+import { formatBytes } from '@/utils/bytes'
 
 const { t } = useI18n()
 
 const loading = ref(false)
 const clearing = ref(false)
 const info = reactive({ dir: '', totalBytes: 0, fileCount: 0, maxFileBytes: 0, files: [] })
-const cacheLoading = ref(false)
-const cacheClearing = ref(false)
-const cacheToast = ref('')
-const cacheInfo = reactive({ totalBytes: 0, fileCount: 0, items: [] })
 const localeModel = ref(getAppLocale())
 const feedbackMessage = ref('')
 const includeFeedbackLogs = ref(false)
@@ -174,18 +134,6 @@ const feedbackSuccess = ref('')
 
 function changeLocale (event) {
   localeModel.value = setAppLocale(event && event.target && event.target.value === 'en' ? 'en' : 'zh')
-}
-
-function formatBytes (bytes) {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB']
-  let value = bytes
-  let index = 0
-  while (value >= 1024 && index < units.length - 1) {
-    value /= 1024
-    index += 1
-  }
-  return `${value.toFixed(index === 0 ? 0 : 2)} ${units[index]}`
 }
 
 async function loadInfo () {
@@ -250,48 +198,8 @@ async function submitFeedback () {
   }
 }
 
-function cacheItemLabel (key) {
-  if (key === 'story2video') return t('settings.cache.itemStory2Video')
-  if (key === 'filmEngineering') return t('settings.cache.itemFilmEngineering')
-  return key
-}
-
-async function loadCache () {
-  cacheLoading.value = true
-  try {
-    const result = await cacheGetStats()
-    if (result && result.code === 0 && result.data) {
-      cacheInfo.totalBytes = result.data.totalBytes || 0
-      cacheInfo.fileCount = result.data.fileCount || 0
-      cacheInfo.items = Array.isArray(result.data.items) ? result.data.items : []
-    }
-  } finally {
-    cacheLoading.value = false
-  }
-}
-
-async function clearCache () {
-  if (cacheClearing.value) return
-  cacheClearing.value = true
-  cacheToast.value = ''
-  try {
-    const result = await cacheClearRequest()
-    if (result && result.code === 0 && result.data) {
-      await loadCache()
-      cacheToast.value = t('settings.cache.clearedToast', { size: formatBytes(result.data.freedBytes || 0) })
-    } else {
-      cacheToast.value = t('settings.cache.clearFailedToast')
-    }
-  } catch {
-    cacheToast.value = t('settings.cache.clearFailedToast')
-  } finally {
-    cacheClearing.value = false
-  }
-}
-
 onMounted(() => {
   loadInfo()
-  loadCache()
 })
 </script>
 
@@ -557,41 +465,4 @@ onMounted(() => {
   margin-top: 4px;
 }
 
-.cache-section {
-  margin-top: 20px;
-}
-
-.cache-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.cache-title {
-  font-size: var(--font-size-base);
-  font-weight: 650;
-  color: var(--text-primary, #1a202c);
-}
-
-.cache-subtitle {
-  margin-top: 4px;
-  color: var(--text-muted, #718096);
-  font-size: var(--font-size-xs);
-  line-height: 1.5;
-}
-
-.cache-item-list {
-  margin-top: 10px;
-  border-top: 1px dashed var(--border-light, #e2e8f0);
-}
-
-.cache-toast {
-  margin-top: 10px;
-  border-radius: 6px;
-  padding: 8px 10px;
-  font-size: var(--font-size-xs);
-  color: #067647;
-  background: #ecfdf3;
-}
 </style>

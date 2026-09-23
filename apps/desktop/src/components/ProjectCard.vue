@@ -2,7 +2,7 @@
   <div class="project-card" :class="'status-' + statusClass" @click="handleClick">
     <div class="project-card-thumb">
       <img v-if="project.thumbnail" :src="project.thumbnail" :alt="project.name" />
-      <span v-else class="thumb-placeholder">🎬</span>
+      <span v-else class="thumb-placeholder"><el-icon><VideoCamera /></el-icon></span>
     </div>
     <div class="project-card-body">
       <div class="project-card-name">{{ project.name || '未命名项目' }}</div>
@@ -20,6 +20,7 @@
 </template>
 
 <script setup>
+import { VideoCamera } from '@element-plus/icons-vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'

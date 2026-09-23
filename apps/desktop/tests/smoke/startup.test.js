@@ -37,11 +37,13 @@ describe('PublisherRouter', () => {
     }
   })
 
-  test('all ROUTE_TABLE entries mode=rpa_vm（baijiahao 例外：api 直调）', () => {
+  test('all ROUTE_TABLE entries mode=rpa_vm（baijiahao / bilibili 例外：api 直调）', () => {
     const { ROUTE_TABLE } = require(path.join(ELECTRON_DIR, 'services', 'publisher-router'))
+    // Tier-A 自包含签名的平台走 api 直调（baijiahao 图文 / bilibili 视频，均已活体验证），其余 RPA
+    const API_MODE_PLATFORMS = ['baijiahao', 'bilibili']
     for (const [platform, route] of Object.entries(ROUTE_TABLE)) {
       if (platform.startsWith('_') || platform === 'shipinhao') continue
-      if (platform === 'baijiahao') {
+      if (API_MODE_PLATFORMS.includes(platform)) {
         expect(route.mode).toBe('api')
         continue
       }

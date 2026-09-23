@@ -90,7 +90,8 @@ vi.mock("element-plus", () => ({
 
 vi.mock("@element-plus/icons-vue", () => {
   const Icon = { template: "<span />" };
-  return {
+  const __g = ["__esModule", "then", "catch", "default"];
+  return new Proxy({
     AccountGroupManager: Icon,
     Cellphone: Icon,
     ChatDotRound: Icon,
@@ -135,7 +136,7 @@ vi.mock("@element-plus/icons-vue", () => {
     View: Icon,
     UserFilled: Icon,
     VideoCamera: Icon,
-  };
+  }, { has: () => true, get: (t, p) => (p in t ? t[p] : (typeof p === "string" && !__g.includes(p) ? Icon : undefined)) });
 });
 
 async function setupView(path) {

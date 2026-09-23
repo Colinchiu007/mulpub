@@ -1,7 +1,7 @@
 <template>
   <div class="cohere-card" style="cursor:default;padding:16px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-md);padding-bottom:var(--space-sm);border-bottom:1px solid var(--border)">
-      <span style="font-weight:600;font-size: var(--font-size-sm)">📝 内容模板</span>
+      <span style="font-weight:600;font-size: var(--font-size-sm)"><el-icon><Document /></el-icon> {{ $t('intelligence.templatePickerTitle') }}</span>
       <button class="cohere-btn-ghost" @click="$emit('close')" style="font-size: var(--font-size-xs);padding:2px 6px">✕</button>
     </div>
 
@@ -55,13 +55,17 @@
 </template>
 
 <script setup>
+import { Document } from '@element-plus/icons-vue'
 import { ref, computed, onMounted } from "vue"
 import { getApi } from '@/api/electron-bridge'
 import { useTemplateStore } from "@/stores/templates"
+import { useI18n } from 'vue-i18n'
 import { reportError } from "@/utils/report-error"
 import { formatUserError } from "@/utils/user-facing-error"
 
 const emit = defineEmits(["close", "apply"])
+
+const { t } = useI18n()
 
 const store = useTemplateStore()
 const loading = ref(false)
@@ -70,7 +74,7 @@ const error = ref(null)
 const grouped = computed(() => store.byCategory)
 
 function categoryLabel(cat) {
-  const labels = { report: "📊 报告", marketing: "📣 营销", education: "📚 教育", social: "💬 社交" }
+  const labels = { report: t('intelligence.categoryReport'), marketing: t('intelligence.categoryMarketing'), education: t('intelligence.categoryEducation'), social: t('intelligence.categorySocial') }
   return labels[cat] || cat
 }
 

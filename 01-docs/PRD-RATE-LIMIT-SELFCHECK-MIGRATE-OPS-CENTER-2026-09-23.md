@@ -208,3 +208,78 @@
 - D3：生产可达形态 = ③ 黑盒一键诊断 + ② 发布失败附带 → P0-6（黑盒入口）+ P0-8（失败附带）。
 
 **待决策**：无。P0 范围已锁（P0-1~P0-8），可进入实施。
+
+## 13. PR-2 实现回写（P0-8 发布失败被动附带诊断，2026-09-23 已交付，分支 pubfail-diag-ops）
+
+> 设计经 CCG 两轮对抗评审收敛（产物：`.adversarial/pubfail-diagnose-pr2-20260923/`，proposal v1-v3 + critique/rebuttal 配对 + summary；15+8 条意见全接受）。两个关键评审结论改写了本节范围：① IPC 统一 handle 包装层**不覆盖** `webContents.send` 事件推送（发布/RPA 失败走事件通道），单点挂载叙事被代码证伪 → 改已知限流抛出点显式挂钩；② 弹窗面 tag 无生产者且丢失点在 renderer 数十个 throw 处 → **首期按 R5 明文降级为「仅写日志不改进弹窗」**，弹窗附带结论列二期。
+
+### 13.1 功能逻辑与数据流
+
+```
+限流/额度类错误产生
+ ├─ governor 治理链出口（run() 单点 catch-rethrow，覆盖全部 6 个 rate/quota 出口：
+ │    _pace 频率预算 / _waitCooldown 冷却过长 / _sweepExpired 排队超时 /
+ │    _executeWithRetry retry429 耗尽 / _preflightTokenBudget 额度预检 / _assertTokenBudget 后置断言）
+ └─ batch-manager._emitProgress（item 失败转事件 payload 前）
+      ↓ 同步（微秒级，永不抛，不触碰错误对象字段与控制流）
+pubfail-diagnose.maybeDiagnose(errLike, ctx)
+  1) 分类：classifyProviderFailure ∈ {'rate','quota'}（唯一事实源，不自写正则）
+  2) 状态机（key = providerId:type，batch 用 batch:publish）：
+     缓存命中（TTL 10min，仅 ok/warn 入缓存）→ 返回既有码，不重跑
+     在途 → 复用同一码；60s 节流内无结论 → null
+     否则发放新码 D-+6位base36 → 异步跑自检（fire-and-forget）
+  3) 自检（复用 P0 保留的执行端 runSelfCheck，零网络零额度，执行端零改动）：
+     探针自适应：effRpm≥20 → 真实限额（含 rateFactor；rpm≥30→4 请求，20-29→3 请求）
+                  effRpm<20 或 getLimits 缺失/越界（TypeError）→ 默认探针 rpm60×4（probeMode='default-fallback'）
+     理论时长公式：(requestCount-1)×60000/effectiveRpm + requestDurationMs
+     硬超时：max(10s, 1.5×理论+2s)；超时判 fail 后迟到结论一律丢弃（settled，一码至多一行日志）
+  4) level 映射：全 assertions pass 且总时长≤1.5×理论→ok；全 pass 但超→warn；断言失败/超时/异常→fail
+  5) 结论日志（保证面）：logger.notify('publishDiagnose','publish.diagnose_result', meta) —— 主进程 logger 直写，
+     不经 notify:log IPC（避开其每 key 10s/20 条聚合限速）
+```
+
+### 13.2 数据校验与边界
+
+| 项 | 规则 |
+|---|---|
+| 分类输入 | Error/`{message}`/`{code,errorCode}` 三形状归一化；null/非对象/非限流 → 零副作用 |
+| 探针参数 | 真实 limits 不钳制直传，由执行端 `_validate` 抛 TypeError 捕获后回退默认探针 |
+| 码 | `D-`+6 位 base36（时间低位×31+单调序号×7919）；缓存期复用同码；新码↔新日志行 1:1（单测锁定） |
+| 防抖 | 并发去重（inflight 复用）/ per-key 节流 60s / 缓存 TTL 10min / `setProviderLimits` 配置变更经 `invalidateDiagnoseCache(key)` 失效 |
+| 生命周期 | `before-quit` 置 shutdown：不再触发、迟到结论丢弃；在途 timer 最多拖尾≈探针时长（已接受，不阻止进程退出） |
+| 装配门禁 | bootstrap 未 `setDiagnoseDeps+setEnabled` 时整体禁用零副作用（既有 governor/batch 测试不受影响）；装配失败仅告警不阻断启动 |
+| 永不抛 | maybeDiagnose/augmentBatchFailure/invalidate/setDeps 全路径 try/catch；诊断故障不得升级为调度器故障（评审 N-3） |
+| 打包态 | 生产路径无 flag（与 P0-6 一致） |
+
+### 13.3 显示项与提示文字
+
+**本期（日志面 + 数据预留）**：`publish.diagnose_result` 日志行字段：
+
+| 字段 | 取值 | 说明 |
+|---|---|---|
+| errorCategory | `rate_limited` / `quota_exceeded` | 与 story2video 通知既有枚举对齐 |
+| level | `ok` / `warn` / `fail` | 调度层健康度结论 |
+| code | `D-xxxxxx` | 用户转述/客服检索主键 |
+| source | `governor` / `batch` | 触发通道 |
+| probeMode | `actual` / `default` / `default-fallback` | 结论解释域（actual=当前预算；default=调度机制本身） |
+| assertionsSummary | `all-pass` / `all-pass but slow: Xms > Yms` / `failed:名,名` | ≤500 字符 |
+
+批量发布事件 payload 新增可选字段 `diagnoseCode`（本期渲染层不消费，二期弹窗数据预留）。既有弹窗文案/按钮/时长/`user-facing-error.js`/locale 本期**零改动**（zh/en 无新增键，Gate 7 自然通过）。
+
+**客服流程**：用户报「码 D-xxxxxx」→ 客服 grep 日志 `publish.diagnose_result` 定位该行 → 看 level+assertionsSummary 区分「本地调度器问题（warn/fail）」vs「上游真实限流/额度（ok 结论 + 上游 429）」。
+
+### 13.4 验收标准（PR-2 增补）
+
+1. governor 六类 rate/quota 错误经 `run()` 出口错误对象 identity 不变（原样 rethrow），诊断在后台触发 — 契约测试已锁。
+2. 每触发恰好一行 `publish.diagnose_result`；超时/迟到/shutdown 三态下不产生第二行。
+3. 非限流错误、未装配态：零副作用（不跑自检、不写日志）。
+4. 缓存/节流/in-flight 按 key 隔离不串（openai vs minimax 各自发码）。
+5. 弹窗面本期不变：`user-facing-error.js`、locales 本期 diff 为零。
+
+### 13.5 已知缺口与二期计划（登记）
+
+- G1 弹窗面附带结论（R5 降级决定）：需先解决 renderer 各视图 `throw new Error(result.message)` 丢失结构化字段的问题；preload 无统一 invoke 包装（评审 N-1 实证）。
+- G2 story2video 通知面（TTS/IMAGE/VIDEO 生成失败）不接 `publish.diagnose_result`，其既有 `story2video.*` errorCategory 通道独立；二期接入。
+- G3 首错结论延迟回填已开弹窗（webContents.send 推送）。
+- G4 运营中心消费 `diagnose_result` 日志做码→结论远程检索（配合 P0-4 观测）。
+

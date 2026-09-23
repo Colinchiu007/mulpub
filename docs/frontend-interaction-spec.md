@@ -256,3 +256,30 @@ node --test .github/scripts/check-route-registry.test.js
 - 所有新增交互元素统一 `:focus-visible` outline（**禁止无替代的 `outline: none`**）；暗色下 outline 颜色需换亮化变体（如 `--color-primary-dark-tint`）。
 - 入场 stagger 用 CSS 变量 `--stagger-index`（数组下标，非任意值）传参，只动画 `transform`/`opacity`；循环动画（流光等）必须同时有 `:disabled` 与 `prefers-reduced-motion` 两重关闭，并 `pointer-events: none` 防拦点击。
 - 悬停位移幅度 ≤ 1px，阴影变化不进布局属性（`box-shadow`/`transform` 以外的属性不得参与过渡）。
+
+---
+
+## 11. 图标语义与功能位 emoji 禁用规范（2026-09-23 新增）
+
+> 落地 PRD：01-docs/PRD-EMOJI-ICON-CONVERGENCE-2026-09-23.md；守卫：apps/desktop/src/icon-usage.test.js。
+
+### 11.1 三分类规则
+
+| 类别 | 规则 | 示例 |
+|------|------|------|
+| **功能图标位**（按钮/标题装饰/卡片图标/导航项/空态） | **禁止 emoji**，一律 `@element-plus/icons-vue` 单色线性图标 | 🎬→`VideoCamera`、🔥→`TrendCharts`、📝→`Document`/`EditPen`、🔍→`Search`、🚀→`Promotion`、📋→`CopyDocument`、⚙️→`Setting`、🎯→`Aim`、📊→`DataLine`、💡→`MagicStick`、🏠→`HomeFilled` |
+| **状态类**（结果/进行中标记） | 允许保留 | ✅ ❌ ⚠️ ⏳ 🔄 ✓ ⟳ ⏰ ✕ |
+| **内容/文案类**（营销话术、引导语语义修饰） | 允许保留 | 引导文案中的表情符号 |
+
+### 11.2 EmptyState 图标 API
+
+- `icon` prop 为 String，默认 `'Box'`；传入白名单图标名（`Box / VideoCamera / TrendCharts / Document / Search / Promotion`）渲染对应 `<el-icon><component :is/></el-icon>`；白名单外字符串按**纯文本回退**（不报错、不 console.warn）。
+- `#icon` slot 存在时完全接管（优先级最高），推荐新页面用 slot + 任意 Element Plus 图标。
+- 图标尺寸继承容器 `font-size`（el-icon 为 em 尺寸 + currentColor）。
+
+### 11.3 守卫登记纪律（防回退）
+
+- `icon-usage.test.js` 采用 **FILES 白名单逐文件登记制**（现 34 项）：**新增/修改含图标语义的组件或视图时必须同步登记 FILES**，未登记文件不受 CI 保护。
+- `ICON_EMOJI` 禁用清单为单一来源，新增禁用码点须附语义依据。
+- 视图测试对 `@element-plus/icons-vue` 的 `vi.mock` 必须使用 **Proxy 兜底**（`has: () => true` + 未知导出返回 stub），禁止受限字面量清单——否则守卫新引入图标会击穿既有测试。
+- ops-center 前端同守本规范（独立应用，人工审阅 + 本文档约束）。
