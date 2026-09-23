@@ -17279,7 +17279,9 @@ is_default: 1
 - [x] 批量与单条配置写入共用同一加密语义路径，掩码回显不覆盖真实凭据。
 - [x] 新门禁先通过自己的新代码（`url-collector` 拆分即其产物），存量以基线挂账、只减不增。
 - [x] 依赖漏洞与超大文件均有可复核基线（29 条 CVE 挂账 + `reviewBy`；99 条行数挂账）。
-- [ ] `packages/flutter-skill-bridge` 判据结论入 CHANGELOG，并随下个发版周期末确认无回潮。
+- [x] `packages/flutter-skill-bridge` 处置判据与结论已入 CHANGELOG（第四批 #2252：判据「全仓零引用」命中，git 中该目录 0 个 tracked 文件，无可删内容）。
+- [ ] 下个发版周期末（2026-10-31）复核 `flutter-skill-bridge` 判据仍成立、无回潮（PRD 第十节 + `docs/audit-remediation-closeout-2026-09-23.md` 第六节）。
+- [x] 四批 + 收尾轮的全量证据（PR 清单 / 条目→证据映射 / 门禁矩阵 / 红绿验证 / 基线数字 / 遗留限期）已归档：`docs/audit-remediation-closeout-2026-09-23.md`。
 - [ ] P0 泄露面逐机清单由运维在部署评审中签字（第三节 7 项复选框）。
 
 ### 十二、行数挂账清单的三态语义与墓碑（audit 收尾·防「门禁逃逸」）
@@ -17315,3 +17317,17 @@ is_default: 1
 - [x] 清账只能单键、可拒、幂等（回归⑤⑥）。
 - [x] `--update` 无法再悄悄抬高或删改别人的登记值（回归⑦）。
 - [x] main 自身违规会在 5 分钟内显红（push 触发 + 断言用例）。
+
+#### 12.5 运行证据（真实 CI 上的行为验证）
+
+| 事实 | 取值 | 含义 |
+|---|---|---|
+| `debt-guard.yml` run=853 | `event=push`、`branch=main`、`sha=45c2e24692`、`conclusion=success` | `push: branches:[main]` 生效：main 自身处于违规态会立刻显红，不再靠某个 PR 顺路发现 |
+| run=850（#2280 自身） | `债务熔断检查 = SUCCESS` | 新语义 + 数据（`pruned: {"apps/desktop/src/components/LogsSettings.vue": 469}`）在真实 runner 上成立，不只是本地绿灯 |
+| run=845 / 846 | `#2276`、`#2270` 在旧 head 上 `债务熔断检查 = FAILURE` | 修复前的现场：僵尸条目把两个**内容完全无关**的在飞 PR 卡红——「一人还债、全链卡红」的直接证据 |
+| run=854 / 856 | rebase 后同两条检查转 `SUCCESS` | 链条解锁由门禁修复提供，而非靠给无关 PR 打补丁 |
+| 本地用例 | `node --test .github/scripts/check-max-lines.test.js` → 17/17 | 含「按生产喂法的可达性回归」与 2 个反向变异自证 |
+
+> 口径提醒：门禁统计行数字用的是 `fs.readFileSync(...).split('\n').length`（尾部换行也计一行），
+> 因此 `LogsSettings.vue` 的墓碑值是 **469** 而不是编辑器显示的 468。所有行数判定都必须用门禁自身坐标系，
+> 不允许混用 `wc -l` 或编辑器计数。
