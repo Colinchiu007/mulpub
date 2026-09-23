@@ -55,6 +55,26 @@ function buildUposTarget (args) {
   return { host: endpoint, objectPath: '/' + uposUri }
 }
 
+/** 去「自动发布」类水印 boilerplate（括号包裹整段）及残留换行 */
+function cleanBilibiliText (t) {
+  return String(t == null ? '' : t)
+    .replace(/[（(][^（()）]*?(自动发布|一键发布工具|由多平台)[^（()）]*?[)）]/g, '')
+    .replace(/\s*\n\s*$/g, '')
+    .trim()
+}
+
+/** 构造 add/v3 投稿体（去「自动发布」水印）；纯函数，供链与薄适配器共用 */
+function buildBilibiliPostData (taskData, upload) {
+  const tags = (taskData.tags || []).map((t) => (typeof t === 'string' ? t : t.name)).filter(Boolean)
+  return {
+    copyright: 1, source: '', tid: Number(taskData.category || taskData.tid) || 21, title: cleanBilibiliText(taskData.title),
+    desc: cleanBilibiliText(taskData.content || taskData.desc), desc_format_id: 0, tag: tags.join(','), dynamic: '',
+    cover: taskData.coverUrl || '', no_reprint: 1, act_reserve_create: 0, lossless_music: 0, no_disturbance: 0,
+    recreate: -1, web_os: 1, interactive: 0, open_elec: 0, subtitle: { lan: '', open: 0 },
+    videos: [{ cid: (upload && upload.bizId) || 0, desc: '', title: taskData.title || '', filename: (upload && upload.objBase) || '' }],
+  }
+}
+
 class BilibiliVideoChain {
   /**
    * @param {{cookie, userAgent, api?, cdn?, apiBase?, timeout?, agents?, logger?}} opts
@@ -167,17 +187,9 @@ class BilibiliVideoChain {
     return { objBase, bizId: args.biz_id != null ? args.biz_id : 0, size }
   }
 
-  /** 构造 add/v3 投稿体（去「自动发布」水印） */
+  /** 构造 add/v3 投稿体（去「自动发布」水印）；委托模块级纯函数 */
   buildPostData (taskData, upload) {
-    const tags = (taskData.tags || []).map((t) => (typeof t === 'string' ? t : t.name)).filter(Boolean)
-    const clean = (t) => String(t == null ? '' : t).replace(/[（(][^（()）]*?(自动发布|一键发布工具|由多平台)[^（()）]*?[)）]/g, '').replace(/\s*\n\s*$/g, '').trim()
-    return {
-      copyright: 1, source: '', tid: Number(taskData.category || taskData.tid) || 21, title: clean(taskData.title),
-      desc: clean(taskData.content || taskData.desc), desc_format_id: 0, tag: tags.join(','), dynamic: '',
-      cover: taskData.coverUrl || '', no_reprint: 1, act_reserve_create: 0, lossless_music: 0, no_disturbance: 0,
-      recreate: -1, web_os: 1, interactive: 0, open_elec: 0, subtitle: { lan: '', open: 0 },
-      videos: [{ cid: upload.bizId || 0, desc: '', title: taskData.title || '', filename: upload.objBase || '' }],
-    }
+    return buildBilibiliPostData(taskData, upload)
   }
 
   /** Step 6：投稿（csrf=bili_jct；私密优先 draft） */
@@ -221,6 +233,8 @@ module.exports = {
   BilibiliVideoChain,
   BilibiliVideoError,
   buildUposTarget,
+  buildBilibiliPostData,
+  cleanBilibiliText,
   pickCookieValue,
   API_BASE,
   CHUNK,

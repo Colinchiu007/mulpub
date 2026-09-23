@@ -23,7 +23,7 @@
 - [x] 4.1 视频号：红测契约（authKey→applyuploaddfs→uploadpartdfs→complete→post）→ 实现 → 绿
 - [x] 4.2 B站：红测契约（preupload/X-Upos-Auth→upos PUT→/x/vu/web/add，csrf=bili_jct）→ 实现 → 绿
 - [x] 4.3 百家号文章：红测契约（自域 token→uploadproxy→save/publish）→ 实现 → 绿
-- [ ] 4.4 三平台 adapters 改为委托新链；AI 声明字段平移
+- [ ] 4.4 三平台 adapters 改为委托新链；AI 声明字段平移（B站 ✅ 委托链+去重纯函数，见 PRD §12.4；视频号/百家号待后续切片，百家号视频→文章属行为变更需专轮）
 - [ ] 4.5 数据校验 fail-closed：缺 Cookie/UA、空签名、文件不存在的零请求单测
 
 ## 5. 双轨路由 + 频控 + 风控停止

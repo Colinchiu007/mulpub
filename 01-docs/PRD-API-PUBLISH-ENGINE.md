@@ -413,6 +413,54 @@ token 逐级传递（edit 带 baseToken / save 带 publishToken）、headers 白
 
 
 
+### 12.4 Adapters 变薄委托新链（§4.4）🚧（B站维度 ✅，视频号/百家号待后续切片）
+
+**目标**：三平台旧适配器（`src/adapters/{bilibili,shipinhao,baijiahao}.js`）改为**变薄委托**
+`src/publish/platforms/*` 新链，使 HTTP/upos 传输逻辑**单一事实源**落在链层；适配器**外部接口
+保持不变**（`constructor(name)`、`getReferer/getOrigin`、`uploadVideo/uploadCover/buildPostData/
+publish`、继承自 `base-adapter` 的 `execute`、`listCollections`），调用方零改动。
+
+**委托契约**：
+- 适配器各方法内部 `new XxxChain({ cookie, userAgent })` 后转发；`execute` 仍走 `base-adapter`
+  （保留 `formatContent`、进度事件、错误码映射、失败日志、`catch` 归一化）。
+- **关键约束**：新链用**相对 URL** + 自带 `baseURL` 的 `createHttpClient` 客户端；故适配器
+  **不得把 `this.http` 注入链的 `api`**（`this.http` 无 baseURL、且 `requestWithRetry` 依赖
+  `client.request`，注入会破坏 URL 解析与重试）。链自建正确 baseURL 的客户端。
+- `_chain(cookie, clients)` 提供注入缝（`_chainOverride`/clients），供结构测试断言转发。
+
+**B站 ✅（本轮）**：`bilibili.js` 153→76 行（净 −58）：
+- `uploadVideo` → `chain.getUploadArgs(fileName,size)` + `chain.uploadVideo(path,fileName,args)`，
+  返回 `{objBase,bizId,size}` 与原形状一致；保留 `cancelToken` 前置检查与「空上传返回 null」契约
+  （无视频路径 → null，不抛）。
+- `buildPostData`/`_buildBase` 委托链的**模块级纯函数** `buildBilibiliPostData`/`buildUposTarget`
+  （去重，不再各自实现）；`cleanBilibiliText` 去「自动发布」水印逻辑同源于链。
+- `publish(cookie,postData)` → `chain.publish(postData,{draft:false})`：适配器对外**固定正式发布**
+  （`/x/vu/web/add/v3`），与旧行为一致；**私密草稿**由 §5 `publishWithMode` 服务层经链 `draft` 选项驱动。
+- **测试迁移**：`bilibili-upos.test.js` 由「`this.http` 桩验发布」改为「`_chainOverride` 断言委托转发
+  （opts.draft===false、postData 透传）」；真实发布网络语义由 `bilibili-video-chain.test.js`
+  假服务器覆盖（**更强**：钉完整请求序列/头/体）。结构测试 `bilibili-upos` 7 例 + 链测 7 例全绿；
+  全量回归 **127 测 EXIT=0**。
+
+**视频号 ⏳**：`shipinhao.js` 现走 `upload/orchestrator`（另一传输路径），委托 `ShipinhaoVideoChain`
+为下一切片（需对齐 orchestrator 现有调用方与取消/进度语义）。
+
+**百家号 ⚠️（行为决策，非纯委托）**：旧 `baijiahao.js` 是**视频**适配器（455 行，`e2e-publish-full-chain`
+以 `this.http` 桩钉死其视频全链）；§4.3 新链是**文章**链 `BaijiahaoArticleChain`（Q14：百家号只发文章）。
+二者非 1:1，re-point 属**外部行为变更**（视频→文章），需专轮与 §5 服务层/`platforms.yaml` 一并处理，
+不在「变薄委托」等价重构范围内。
+
+**AI 声明字段平移（§4.4 硬要求）**：`aigc_bjh_status`（百家号：`aiGenerated!==false → is_checked=1`，
+显式人工 `false → 0`）现存于 `baijiahao.js buildVideoPostData`；快手为 `ai_generated`。跨平台默认须
+**声明「AI 生成」一致**（e2e 钉 `activity_list[0][id]=aigc_bjh_status&...[is_checked]=1` 与
+`ks.ai_generated===1`）。各链完成委托时**必须把该声明字段带入新链 `buildPostData`**：百家号文章链
+`BaijiahaoArticleChain` 的投稿体需补 `aiGenerated`→声明字段映射（随百家号 re-point 切片交付）；
+视频号/B站链按其平台字段（B站无 AI 声明字段，维持现状）对齐。
+
+**取消语义记录（待办）**：委托后 B站分片级 `cancelToken` 逐片检查由链承接前，粒度略降（仅保留上传
+起止检查）；分片级取消统一由 §5/§7 落地。
+
+
+
 ---
 
 ## 附：验收记录（活体证据回写区，随波更新）
