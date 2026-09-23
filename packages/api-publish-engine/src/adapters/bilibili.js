@@ -1,5 +1,5 @@
 // 哔哩哔哩适配器 — Tier-A「Cookie + 官方创作者域名 HTTP API」上传发布（upos 链）
-// 复刻自蚁小二逆向 + 本地活体验证（2026-09-23 真实发布成功 bvid=BV1MahW6tE36）：
+// 复刻自参考产品逆向 + 本地活体验证（2026-09-23 真实发布成功 bvid=BV1MahW6tE36）：
 //   preupload(probe→args) → init upload_id → 8MiB 分片 PUT → complete → add/v3 投稿
 // 合规：只直连 bilibili 官方域名，绝不调用任何第三方签名/远程服务。
 const fs = require("fs");

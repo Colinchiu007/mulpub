@@ -1,16 +1,16 @@
-# 蚁小二式多账号 API 发布 —— 技术拆解报告与复用落地计划
+# 参考产品式多账号 API 发布 —— 技术拆解报告与复用落地计划
 
 > 状态：方案（decision-complete，供其他 Agent 直接实现）
 > 关联目标：把本仓现有「DOM 点击式 RPA 发布」升级为「Cookie + 直接调用平台 HTTP API 发布」，解决 `publish btn not found` / `douyin timeout` / `kuaishou 缺作品ID` 等活体缺陷。
-> 逆向事实源：`D:\Data\yixiaoer-extracted\packages\main\dist\index.cjs`（8.4MB 压缩 webpack bundle，蚁小二 4.0 主进程发布引擎）。切片证据存于主仓 `.agent_context/staging/yx-*.txt`。
-> **红线（用户明令）**：⛔ 运行时**严禁**请求 `*.yixiaoer.cn`（尤其 `http://qianming.yixiaoer.cn:{port}/Sign/GetSign`）等蚁小二域名的任何远程接口。所有能力必须逆向为**我们自己的代码**。
+> 逆向事实源：`D:\Data\refpub-extracted\packages\main\dist\index.cjs`（8.4MB 压缩 webpack bundle，参考产品 4.0 主进程发布引擎）。切片证据存于主仓 `.agent_context/staging/yx-*.txt`。
+> **红线（用户明令）**：⛔ 运行时**严禁**请求 `*.refpub.cn`（尤其 `http://qianming.refpub.cn:{port}/Sign/GetSign`）等参考产品域名的任何远程接口。所有能力必须逆向为**我们自己的代码**。
 
 ---
 
 ## 0. TL;DR（给实现 Agent 的三句话）
 
-1. 蚁小二发布 = 从浏览器会话拿 **Cookie** → 用 axios 直连**平台官方创作者域名**的 HTTP API（预上传→分片上传→完成→发布提交），全程不点 DOM。
-2. 按「是否依赖蚁小二私有远程签名器」把平台分两层：**Tier A 自包含**（视频号 / B站 / 百家号文章）可 1:1 逆向复用；**Tier B**（抖音 / 快手 / 小红书 / 头条 / 网易）蚁小二把签名外包给了 `qianming.yixiaoer.cn`，**禁用**，须用公开逆向算法自研签名或直接走官方开放平台。
+1. 参考产品发布 = 从浏览器会话拿 **Cookie** → 用 axios 直连**平台官方创作者域名**的 HTTP API（预上传→分片上传→完成→发布提交），全程不点 DOM。
+2. 按「是否依赖参考产品私有远程签名器」把平台分两层：**Tier A 自包含**（视频号 / B站 / 百家号文章）可 1:1 逆向复用；**Tier B**（抖音 / 快手 / 小红书 / 头条 / 网易）参考产品把签名外包给了 `qianming.refpub.cn`，**禁用**，须用公开逆向算法自研签名或直接走官方开放平台。
 3. **落地建议先做 Tier A 的视频号 + B站两条视频链路**（零远程依赖、纯本地 crypto/csrf、发布成功可回查），最快拿到「真实活体发布成功」证据；Tier B 作为二期，签名算法攻克后再上。
 
 ---
@@ -26,11 +26,11 @@
 | `kuaishou 缺作品ID` | 从 DOM/URL 反推作品 ID 失败 | 发布响应体直接含 `result`/`data` |
 | 最低等待 25s + 900000ms 轮询 | 用「等 UI 变化」近似「等上传完成」 | 分片 PUT 全部 200 即精确完成 |
 
-结论：蚁小二路线是这些脆弱性的根因解法。
+结论：参考产品路线是这些脆弱性的根因解法。
 
 ---
 
-## 2. 蚁小二发布引擎总体架构（逆向还原）
+## 2. 参考产品发布引擎总体架构（逆向还原）
 
 ### 2.1 双基类模型
 
@@ -77,7 +77,7 @@ BasePlatForm                     BaseWorker (extends EventEmitter)
 逆向到核心调度函数 `getSignServerUrl(platform)`（bundle @591720 附近，切片见 `yx-orch.txt`）：
 
 ```js
-const V = "http://qianming.yixiaoer.cn:"
+const V = "http://qianming.refpub.cn:"
 switch (platform) {
   case "kuaishou":    return V + ["5008","5009","5010","5011"][i%4]
   case "douyin":      return V + ["5041","5042"][i%2]
@@ -93,24 +93,24 @@ switch (platform) {
 ```
 
 **判定：**
-- **凡是出现在此表里的平台**，蚁小二把某个签名参数（`__NS_sig3` / `a_bogus` / `x-s` 等）外包给了它的私有签名微服务。⛔ 我们不能调用它 → 必须自研该签名算法。
+- **凡是出现在此表里的平台**，参考产品把某个签名参数（`__NS_sig3` / `a_bogus` / `x-s` 等）外包给了它的私有签名微服务。⛔ 我们不能调用它 → 必须自研该签名算法。
 - **不在此表里的平台 = 签名完全本地生成 = 可直接 1:1 复用**：**视频号 Shipinhao、B站 Bilibili、微信公众号**，以及 **百家号文章主发布链**（见下）。
 
 ### 3.1 Tier A — 完全自包含，可直接复用成我们自己的代码 ✅
 
 | 平台 | 签名/鉴权成分 | 为什么自包含 |
 |------|----------------|--------------|
-| **视频号 Shipinhao** | `Content-MD5 = md5(buffer)`（本地 crypto）；auth key 由 `helper_upload_params` 接口在视频号自身域名返回 | 无任何 yixiaoer.cn 调用 |
-| **B站 Bilibili** | `csrf = bili_jct`（从 cookie 正则提取）；分片走 `X-Upos-Auth`（B站 preupload 接口返回的 auth 串）；全链路域名 `member.bilibili.com` / `api.bilibili.com` / upos 镜像 | 无任何 yixiaoer.cn 调用 |
+| **视频号 Shipinhao** | `Content-MD5 = md5(buffer)`（本地 crypto）；auth key 由 `helper_upload_params` 接口在视频号自身域名返回 | 无任何 refpub.cn 调用 |
+| **B站 Bilibili** | `csrf = bili_jct`（从 cookie 正则提取）；分片走 `X-Upos-Auth`（B站 preupload 接口返回的 auth 串）；全链路域名 `member.bilibili.com` / `api.bilibili.com` / upos 镜像 | 无任何 refpub.cn 调用 |
 | **百家号文章** | publish `token` = GET `baijiahao.baidu.com/pcui/article/edit?type=news` **响应头 `token`**；base token = GET `baijiahao.baidu.com/?source=inner` 里正则 `BJH__INIT__AUTH__\s*=\s*['"]([^'"]+)` | 主发布链取自百家号自身域名；`getSign$2`（→5012）只服务个别辅助接口，发布不依赖 |
 
 > ⚠️ 修正一处历史误判：早期笔记把百家号整体划入 Tier B。经核 `getBaijiahaoPublishArticleToken` / `getBaijiahaoBaseToken`（bundle @1841789），**文章发布 token 是自包含的**，归 Tier A。图片上传代理 `/pcui/picture/uploadproxy` 是标准 multipart，也不依赖签名器。
 
-### 3.2 Tier B — 蚁小二依赖远程签名器，⛔ 禁止复用其服务，须自研
+### 3.2 Tier B — 参考产品依赖远程签名器，⛔ 禁止复用其服务，须自研
 
 | 平台 | 被外包的签名参数 | 自研难度 | 我们可先复用的「本地」部分 |
 |------|------------------|----------|------------------------------|
-| **快手** | `__NS_sig3`（每个 `cp.kuaishou.com/rest/...` 查询串都带）；`getSign$5`→`qianming.yixiaoer.cn:5004-5008` | 高（私有 JS 签名 VM） | Cookie、`kuaishou.web.cp.api_ph`（cookie 正则）、分片 PUT `Content-Range`、发布 body 结构全部本地可得 |
+| **快手** | `__NS_sig3`（每个 `cp.kuaishou.com/rest/...` 查询串都带）；`getSign$5`→`qianming.refpub.cn:5004-5008` | 高（私有 JS 签名 VM） | Cookie、`kuaishou.web.cp.api_ph`（cookie 正则）、分片 PUT `Content-Range`、发布 body 结构全部本地可得 |
 | **抖音** | `a_bogus`（→5041/5042）；**但 `create_v2` 路径里 `a_bogus=` 留空**（见切片 @2672895）；`bd-ticket-guard-client-data` = `clientSign()` **本地**用 cookie 私钥做 SHA256 签 | 中（a_bogus 公开逆向资料充足：SM3+RC4+魔改 base64） | `getSdkToken`（HEAD `x-secsdk-csrf-request` 拿 `x-ware-csrf-token`）、`clientSign`（本地 `crypto.createSign('SHA256')` 签 `ticket=..&path=/web/api/media/aweme/create_v2/&timestamp=..`）都是**纯本地**，可先直接复用；若空 `a_bogus` 触发风控再补算法 |
 | **小红书** | `x-s` / `x-t`（→5096）| 高 | 上传 permit / 分片链路本地可得 |
 | **头条号 / 网易号 / 皮皮虾 / 多多** | 各自签名 | 高 | 二期再评估 |
@@ -220,7 +220,7 @@ body `{timestamp:getTimeStamp(13), _log_finder_id:finderUsername, rawKeyBuff:nul
 - `getAuthKey$2`：`GET creator.douyin.com/web/api/media/upload/auth/v5/` → 上传鉴权（含 AK/SK，走 aws4Interceptor region `cn-north-1`）。
 - 提交 `create_v2`：`POST creator.douyin.com/web/api/media/aweme/create_v2/?...&msToken=<from cookie>&a_bogus=` headers `{cookie,"User-Agent", "x-secsdk-csrf-token":<sdkToken>, "bd-ticket-guard-version":"2","bd-ticket-guard-web-version":<1|2>,"bd-ticket-guard-ree-public-key":<从 cookie bd_ticket_guard_client_data_v2 base64 解出 ree_public_key>,"bd-ticket-guard-client-data":<clientSign(cookie)>,"bd-ticket-guard-web-sign-type":"0","bd-ticket-guard-iteration-version":"1", Referer:".../content/publish...", Origin:"https://creator.douyin.com/"}`。
 - `clientSign(cookie)`（**本地**）：取 cookie `security-sdk/s_sdk_crypt_sdk` → JSON→base64 解出 `ec_privateKey`；取 cookie `security-sdk/s_sdk_sign_data_key/web_protect` → 解出 `{ticket, ts_sign}`；`crypto.createSign('SHA256').update('ticket='+ticket+'&path=/web/api/media/aweme/create_v2/&timestamp='+unixSec).sign(privateKey,'base64')`；组 `bd-ticket-guard-client-data`。
-- **注意**：切片里 `a_bogus=` **为空**——若抖音对该路径不强校验 a_bogus，则抖音整链可纯自研复用（无 yixiaoer 依赖）；若风控回 `x-tt-verify-passport-decision`/滑块，则需补 `a_bogus`（SM3+RC4+自定义 base64，公开逆向充足）与验证处理。建议：**二期首个试点**，先小流量验证空 a_bogus 是否可行。
+- **注意**：切片里 `a_bogus=` **为空**——若抖音对该路径不强校验 a_bogus，则抖音整链可纯自研复用（无 refpub 依赖）；若风控回 `x-tt-verify-passport-decision`/滑块，则需补 `a_bogus`（SM3+RC4+自定义 base64，公开逆向充足）与验证处理。建议：**二期首个试点**，先小流量验证空 a_bogus 是否可行。
 
 ---
 
@@ -283,7 +283,7 @@ apps/desktop/electron/services/publish-api/
 - **反爬/风控**：API 直发可能触发平台风控（滑块/短信/「发布过快」验证）。缓解：真实 UA + 完整 cookie + 合理频控 + `retryCondition` 识别 HTML；触发验证时**回传 UI 让用户在 webview 内人工完成验证**再重试（B站已内置该提示文案）。
 - **签名漂移**：平台前端签名算法会更新，API 式虽免疫 DOM 改版但**受签名版本影响**；须监控非 JSON/特定错误码并快速跟进。
 - **合规**：仅发布用户自有内容与自有账号；不得绕过平台账号级限制（真人验证弹窗必须交还人工）。
-- **禁止项（硬红线）**：任何对 `*.yixiaoer.cn` 的请求。代码里不得出现该域名常量；CI 可加 grep 门禁：`grep -R "yixiaoer\.cn" apps/desktop/electron/services/publish-api` 必须为空。
+- **禁止项（硬红线）**：任何对 `*.refpub.cn` 的请求。代码里不得出现该域名常量；CI 可加 grep 门禁：`grep -R "refpub\.cn" apps/desktop/electron/services/publish-api` 必须为空。
 
 ## 11. 附录：bundle 关键定位（便于复核/继续逆向）
 
@@ -308,4 +308,4 @@ apps/desktop/electron/services/publish-api/
 | `getBaijiahaoPublishArticleToken` | 1841789 | 百家号 token 自包含证据 |
 | 百家号 `publish$a` | 1859400 | 百家号发布 |
 
-> 切片原文（脱壳片段）已随本文档入库：本目录 `01-docs/rpa-api-publish/evidence/` 下 `yx-bundle-slices.txt`、`yx-orch.txt`、`yx-bili.txt`、`yx-bili-upload.txt`、`yx-bjh-check.txt`。逆向原始高层文档：`_逆向工程_蚁小二4.0/RPA分析报告.md`、`可复用代码分析.md`。切片生成脚本（按关键词/偏移从 bundle 抽取）：`.agent_context/staging/yx-slice*.js`。
+> 切片原文（脱壳片段）已随本文档入库：本目录 `01-docs/rpa-api-publish/evidence/` 下 `yx-bundle-slices.txt`、`yx-orch.txt`、`yx-bili.txt`、`yx-bili-upload.txt`、`yx-bjh-check.txt`。逆向原始高层文档：`_逆向工程_参考产品4.0/RPA分析报告.md`、`可复用代码分析.md`。切片生成脚本（按关键词/偏移从 bundle 抽取）：`.agent_context/staging/yx-slice*.js`。

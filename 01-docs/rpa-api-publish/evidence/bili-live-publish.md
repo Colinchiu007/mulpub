@@ -1,7 +1,7 @@
 # B站 Tier-A API 真实活体发布证据（2026-09-23）
 
 ## 结论
-「热门选题 → 一键生成视频 → 发布到自媒体平台」端到端链路，已在 **B站** 以 **Cookie + 官方创作者域名 HTTP API（upos 链）** 方式**真实发布成功并通过独立回查核验**。全程仅直连 `member.bilibili.com` / `api.bilibili.com`，未调用任何第三方（含蚁小二 `qianming.yixiaoer.cn`）远程服务。
+「热门选题 → 一键生成视频 → 发布到自媒体平台」端到端链路，已在 **B站** 以 **Cookie + 官方创作者域名 HTTP API（upos 链）** 方式**真实发布成功并通过独立回查核验**。全程仅直连 `member.bilibili.com` / `api.bilibili.com`，未调用任何第三方（含参考产品 `qianming.refpub.cn`）远程服务。
 
 **复现性**：同一条链路连发 2 条均成功（topic01 敏感社会题材 + topic02 中性体育题材），证明链路稳定、非偶发。
 
@@ -50,4 +50,4 @@
 - 适配器：`packages/api-publish-engine/src/adapters/bilibili.js`（Tier-A upos 全链，`BasePlatformAdapter` 契约：uploadVideo/buildPostData/publish）。
 - 路由：`publisher-router.js` `ROUTE_TABLE.bilibili` 由 `rpa_vm` → `api`（RPA 点击式上传/发布此前均失败，API 式已活体验证）。
 - 单测：`packages/api-publish-engine/test/bilibili-upos.test.js`（纯逻辑 6 例，不联网；含「简介/正文无水印」回归）。
-- 合规门禁：全程仅 bilibili 官方域名，绝不触碰 `yixiaoer.cn`。
+- 合规门禁：全程仅 bilibili 官方域名，绝不触碰 `refpub.cn`。
