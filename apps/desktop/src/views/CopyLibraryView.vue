@@ -34,7 +34,7 @@
     <EmptyState
       v-else-if="items.length === 0"
       data-testid="copy-library-empty"
-      icon="📝"
+      icon="Document"
       :title="t('copyLibrary.emptyTitle')"
       :description="t('copyLibrary.emptyDesc')"
     />
@@ -43,7 +43,7 @@
       v-else-if="filteredItems.length === 0"
       compact
       data-testid="copy-library-filter-empty"
-      icon="🔍"
+      icon="Search"
       :title="t('copyLibrary.filterEmptyTitle')"
       :description="t('copyLibrary.filterEmptyDesc')"
       :action-text="t('copyLibrary.filterEmptyAction')"

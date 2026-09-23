@@ -2,7 +2,7 @@
   <UiModal
     :visible="visible"
     @close="$emit('update:visible', false)"
-    title="🔗 引用查找"
+    title="引用查找"
     width="600px"
     :close-on-click-modal="false"
     destroy-on-close

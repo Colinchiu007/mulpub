@@ -3,7 +3,7 @@
     <!-- Header -->
     <div class="cohere-page-header" style="margin-bottom: var(--space-md);">
       <div style="font-size: var(--font-size-md); font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 8px;">
-        <span>🔥 热门趋势</span>
+        <span><el-icon><TrendCharts /></el-icon> 热门趋势</span>
       </div>
       <div style="font-size: var(--font-size-sm); color: var(--muted); margin-top: 2px;">跨平台热点发现</div>
     </div>
@@ -109,6 +109,7 @@
 </template>
 
 <script setup>
+import { TrendCharts } from '@element-plus/icons-vue'
 import { ref, computed, onMounted } from 'vue'
 import { intelligenceFetchTrending } from '@/api/publisher'
 import { formatUserError } from '@/utils/user-facing-error'

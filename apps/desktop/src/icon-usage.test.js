@@ -27,10 +27,35 @@ const FILES = [
   'components/UpgradeModal.vue',
   'components/AiWriterPanel.vue',
   'components/PersonalKnowledgePanel.vue',
+  'components/EmptyState.vue',
+  'components/BenchmarkChart.vue',
+  'components/KeywordMonitorPanel.vue',
+  'components/NavBar.vue',
+  'components/OptimalTimeTip.vue',
+  'components/ProfileMenu.vue',
+  'components/ProjectCard.vue',
+  'components/PublishDestinationModal.vue',
+  'components/ReferenceFinder.vue',
+  'components/TabBar.vue',
+  'components/TagSuggester.vue',
+  'components/TemplatePicker.vue',
+  'components/TitleAssistantPanel.vue',
+  'components/TrendingPanel.vue',
+  'components/ViralLibraryTable.vue',
+  'views/Accounts.vue',
+  'views/AutoPipelineView.vue',
+  'views/CopyLibraryView.vue',
+  'views/CreateHistory.vue',
+  'views/FirstRun.vue',
+  'views/HotTopics.vue',
+  'views/MemberCenter.vue',
+  'views/ProjectLibrary.vue',
+  'views/Publish.vue',
+  'views/RewriteView.vue',
 ]
 
 /** 功能图标位禁用 emoji（不含状态类/内容类） */
-const ICON_EMOJI = ['📊', '📈', '📉', '📝', '📋', '💡', '🔗', '⚡', '📄', '✨', '🔥', '🔑', '⚙️', '🚀', '🎯', '🔍', '💾', '📚', '🎬', '🗂', '🗑', '👁']
+const ICON_EMOJI = ['📊', '📈', '📉', '📝', '📋', '💡', '🔗', '⚡', '📄', '✨', '🔥', '🔑', '⚙️', '🚀', '🎯', '🔍', '💾', '📚', '🎬', '🗂', '🗑', '👁', '📭']
 
 describe('T1-5 图标使用守卫：功能图标位禁用 emoji', () => {
   for (const rel of FILES) {

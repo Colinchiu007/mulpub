@@ -1,3 +1,17 @@
+# [未发布] fix(ui): 全站 emoji 功能图标收敛为 Element Plus 线性图标
+
+### 变更
+- **41 处功能图标位收敛（28 文件）**：desktop 24 组件/视图 + EmptyState + ops-center 2 处，emoji 一律替换为 `@element-plus/icons-vue` 单色线性图标（映射表见 PRD-EMOJI-ICON-CONVERGENCE-2026-09-23.md）；状态类（✅❌⏳🔄✓⏰✕）与内容文案类按规范保留。
+- **EmptyState.vue**：默认图标 📭→`Box`；新增图标名白名单映射（Box/VideoCamera/TrendCharts/Document/Search/Promotion），白名单外字符串纯文本回退，`#icon` slot 优先级不变。
+- **TabBar.vue**：删除 PLATFORM_ICONS 全 emoji fallback 表（含 getPlatformIcon/getDomainForPlatform），无品牌 URL 标签统一 `Monitor` 线性图标；首页标签 → `HomeFilled`；真实品牌图标 `<img>` 分支不受影响。
+- **NavBar.vue**：复制按钮 `✓/📋` 文本态 → `Check/CopyDocument` 图标态；🏠🔍 → `HomeFilled/Search`。
+- **守卫闭环**：`icon-usage.test.js` FILES 白名单 9→**34** 项，禁用清单新增 📭；后续任何登记文件重新引入禁用 emoji 将被 CI 拦截。
+- **测试纪律**：6 个视图测试的 `@element-plus/icons-vue` 受限 vi.mock 统一改 Proxy 兜底（has trap + 未知导出 stub），防止守卫新增图标击穿既有测试。
+- **文档**：新增专项 PRD；`docs/frontend-interaction-spec.md` 新增 §11 图标语义与功能位 emoji 禁用规范。
+
+### 验证
+- 定向 26 文件 487 用例 + views 深测 6 文件 161 用例全绿；禁用 emoji 码点全站复扫 0 命中；关联 PR #2249。
+
 # [未发布] fix(accounts): 账号登录态持久化真源统一 + 检测三态收敛（D1/D2/D3）
 
 ### 变更

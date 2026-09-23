@@ -308,7 +308,7 @@ const runStatusText = r => {
   if (r.status === 'failed') return '生成失败'
   if (r.eval_status === 'failed') return '评估失败'
   if (r.status === 'queued' || r.status === 'processing') return '⏳ 生成中'
-  if (r.eval_status === 'evaluating') return '🔍 评估中'
+  if (r.eval_status === 'evaluating') return '⌛ 评估中'
   return r.status || '-'
 }
 const isTerminalRun = r => !!r && (r.status === 'failed' || r.eval_status === 'succeeded' || r.eval_status === 'failed')

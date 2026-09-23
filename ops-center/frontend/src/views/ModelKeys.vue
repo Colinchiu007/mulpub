@@ -1,6 +1,6 @@
 <template>
   <div class="model-keys">
-    <h2>🔑 模型密钥（提示词评测）</h2>
+    <h2>模型密钥（提示词评测）</h2>
     <p class="muted">admin 维护评测生成/翻译/评估所用的 provider 密钥；密钥加密存储，不返回前端。</p>
 
     <el-form inline style="margin: 12px 0">

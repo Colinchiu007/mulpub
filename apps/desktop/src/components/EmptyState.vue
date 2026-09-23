@@ -1,7 +1,10 @@
 <template>
   <div class="mp-empty-state" :class="{ 'mp-empty-state--compact': compact }">
     <div class="mp-empty-state__icon" aria-hidden="true">
-      <slot name="icon">{{ icon }}</slot>
+      <slot name="icon">
+        <el-icon v-if="iconComponent"><component :is="iconComponent" /></el-icon>
+        <template v-else>{{ icon }}</template>
+      </slot>
     </div>
     <p class="mp-empty-state__title">{{ title }}</p>
     <p v-if="description" class="mp-empty-state__hint">{{ description }}</p>
@@ -16,16 +19,22 @@
 </template>
 
 <script setup>
-import { useSlots } from 'vue'
+import { computed, useSlots } from 'vue'
+import { Box, VideoCamera, TrendCharts, Document, Search, Promotion } from '@element-plus/icons-vue'
 
-defineProps({
-  icon: { type: String, default: '📭' },
+/** icon 属性白名单：命中的图标名渲染为 Element Plus 线性图标；未命中按纯文本回退（兼容历史调用） */
+const ICON_COMPONENTS = { Box, VideoCamera, TrendCharts, Document, Search, Promotion }
+
+const props = defineProps({
+  icon: { type: String, default: 'Box' },
   title: { type: String, required: true },
   description: { type: String, default: '' },
   actionText: { type: String, default: '' },
   compact: { type: Boolean, default: false }
 })
 defineEmits(['action'])
+
+const iconComponent = computed(() => ICON_COMPONENTS[props.icon] || null)
 
 const slots = useSlots()
 const hasActions = !!slots.actions

@@ -22,7 +22,7 @@
     <EmptyState
       v-else-if="projects.length === 0"
       data-testid="project-library-empty"
-      icon="🎬"
+      icon="VideoCamera"
       :title="t('projectLibrary.empty.title')"
       :description="t('projectLibrary.empty.message')"
       :action-text="t('projectLibrary.empty.action')"

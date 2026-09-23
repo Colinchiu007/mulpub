@@ -1,7 +1,7 @@
 <template>
   <div v-if="visible" class="title-assistant">
     <div class="ta-header">
-      <span style="font-weight:600;font-size: var(--font-size-sm)">📊 标题参考</span>
+      <span style="font-weight:600;font-size: var(--font-size-sm)"><el-icon><DataLine /></el-icon> 标题参考</span>
       <button class="cohere-btn-ghost" @click="$emit('close')" style="font-size: var(--font-size-xs);padding:2px 6px">✕</button>
     </div>
     <div v-if="loading" style="text-align:center;padding:20px 0;font-size: var(--font-size-sm);color:var(--muted)">
@@ -17,7 +17,7 @@
       <!-- 标题建议 -->
       <div v-if="data.suggestion" class="ta-section">
         <div class="ta-tip">
-          💡 {{ data.suggestion.tip }}
+          <el-icon><MagicStick /></el-icon> {{ data.suggestion.tip }}
         </div>
       </div>
 
@@ -45,7 +45,7 @@
         <div v-for="t in data.titles.slice(0, 5)" :key="t.id" class="ta-ref-item">
           <div style="font-size: var(--font-size-xs);line-height:1.3;margin-bottom:2px">{{ t.title }}</div>
           <div style="font-size: var(--font-size-xs);color:var(--muted)">
-            <span :style="{ color: scoreColor(t.engagement) }">🔥 {{ t.engagement.toFixed(1) }}</span>
+            <span :style="{ color: scoreColor(t.engagement) }" ><el-icon><TrendCharts /></el-icon> {{ t.engagement.toFixed(1) }}</span>
             <span v-if="t.source === 'reddit'" style="margin-left:6px">Reddit</span>
             <span v-else-if="t.source === 'hackernews'" style="margin-left:6px">HN</span>
             <span v-else style="margin-left:6px">GitHub</span>
@@ -57,6 +57,7 @@
 </template>
 
 <script setup>
+import { DataLine, MagicStick, TrendCharts } from '@element-plus/icons-vue'
 import { ref, watch, onBeforeUnmount } from 'vue'
 import { intelligenceSearchTitles } from '@/api/publisher'
 import { formatUserError } from '@/utils/user-facing-error'

@@ -15263,3 +15263,11 @@ Bug 修复走完整 QM-5（根因溯源 / 逃逸链 / 系统性漏洞 / 修复+�
 
 - **合并后定向复验的「文件集合」必须从合并 diff 推出，而不是从本 PR 的工作清单推出（merge-verification-scope）**：本次本地按「本 PR 触及的 8 个测试文件」全绿后推送，CI 却红 4 项——唯一失败文件是**对方 PR 随合并新增**的 `account-batch-check.test.js`，它断言的正是被我方语义改掉的超时口径。判据：合并后至少跑一次全量；若只能定向，则文件集 = 两侧改动测试文件的并集 ∪ 所有状态为 `A` 的新增测试文件 ∪ 这些文件所测实现的调用方。
 - **收敛口径到已择一的契约时，标题与文档注释要一起改（semantic-drift-in-test-names）**：`超过硬超时计入失效` 这类标题本身就是错误语义的载体，只改断言不改标题，下一个读者会被标题误导回旧口径；同时借机把该文件此前缺失的固化断言（`persistLoginState` 被以 `unverified` 调用、`persisted.ok`）补上，使「收敛」不等于「放松」。
+## 白名单登记制守卫 = 系统性盲区：emoji 功能图标 41 处逃逸复盘（kb-personal-empty-icon，2026-09-23）
+
+- **现象（pitfall）**：`icon-usage.test.js` 守卫早已规定「功能图标位禁用 emoji」，但采用 **FILES 白名单逐文件登记制**（历史仅 9 个文件），其余 24 个组件/视图全部处于守卫盲区，新代码违规 CI 不可见，累计逃逸 41 处。属「审查盲区 + 流程缺失」类漏洞，与「测试场景缺失」不同层：规则在、检查器在、覆盖面不在。
+- **修复模式**：批量收敛时**必须同 PR 把全部触及文件登记进 FILES**（本次 9→34），并把新引入的禁用码点（📭 U+1F4ED）加入 ICON_EMOJI 清单；否则守卫形同虚设。
+- **vitest mock 连锁坑**：受限 `vi.mock('@element-plus/icons-vue', () => ({...字面量清单}))` 在业务代码新 import 图标后抛 "No X export is defined"。vitest 用 `prop in target`（**has trap**）判断导出存在性——Proxy 兜底只加 get trap 无效，必须 `has: () => true` + guard 清单（__esModule/then/catch/default/Symbol(Symbol.toStringTag)）。
+- **图标名必须经导出校验**：`Suggestion` 在 @element-plus/icons-vue 中不存在（💡 语义映射改用 `MagicStick`）；写映射表前先 `node -e "console.log(Object.keys(require('@element-plus/icons-vue')))"` 核对。
+- **Tooling（Windows/Node 补丁）**：① Write 报 "unknown 失败"时文件常已落盘，先 existsSync 验证；② CRLF 文件跨行匹配前必须 `\r\n→\n` 归一化、写回还原；③ PowerShell 控制台 mojibake 仅是显示层——CHANGELOG 块标题实际是 `[未发布]` 而非乱码肉眼读出的「本次发布」，锚点判断一律用码点比对；④ PRD.md front block 在文件内重复出现（既有状态），插入类补丁先统计 needle 出现次数，取首次出现并断言位置上限；⑤ PowerShell `>` 重定向产物是 UTF-16，Node 调试输出一律 fs.writeFileSync。
+- **适用边界**：所有「白名单/登记制」守卫（图标、locale、路由登记）新增覆盖文件时必须同步登记；批量图标/组件替换前先把受影响测试的受限 mock 改 Proxy 兜底，再改业务代码。

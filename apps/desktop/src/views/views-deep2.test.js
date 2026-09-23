@@ -37,7 +37,10 @@ vi.mock("element-plus", () => ({
   ElMessageBox: { confirm: vi.fn() }
 }));
 
-vi.mock("@element-plus/icons-vue", () => ({ UploadFilled: { template: "<span>U</span>" } }));
+vi.mock("@element-plus/icons-vue", () => {
+  const base = { UploadFilled: { template: "<span>U</span>" } };
+  const __icon = { template: "<span />" }; const __guard = ["__esModule", "then", "catch", "default", "Symbol(Symbol.toStringTag)"]; return new Proxy(base, { has: () => true, get: (t, p) => (p in t ? t[p] : (typeof p === "string" && !__guard.includes(p) ? __icon : undefined)) });
+});
 vi.mock("@/components/TagSuggester.vue", () => ({ default: { template: "<div/>" } }));
 vi.mock("@/components/OptimalTimeTip.vue", () => ({ default: { template: "<div/>" } }));
 vi.mock("@/components/TitleAssistantPanel.vue", () => ({ default: { template: "<div/>" } }));
