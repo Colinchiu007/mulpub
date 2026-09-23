@@ -17000,6 +17000,24 @@ is_default: 1
 - topic02 → **bvid `BV1DxhW6hEwZ`**（aid 117318055106795）
 证明链路稳定可复现，非偶发。回归单测 `packages/api-publish-engine/test/bilibili-upos.test.js`（6 例，纯逻辑不联网）。
 
+### 主链路活体门禁（应用自身发布队列 E2E，2026-09-23）
+
+- **升级点**：把发布端从「旁挂脚本 require 生产模块」推进到「经已启动应用自身的发布队列
+  （`publishBatch` IPC → `taskQueue` → `PublisherRouter.createPublisher`）」实跑，坐实 Electron
+  队列在最新代码下把 bilibili 分派到 Tier-A API 发布器并抵达 B站真实接口。
+- **消除陈旧 app 盲区**：`mp-app-live2` 落后 origin/main 达 30 提交且 `ROUTE_TABLE.bilibili=rpa_vm`；
+  本轮安全同步（脏文件先 patch+stash 双备份、未跟踪 evidence 移存）→ `checkout origin/main`
+  （`b74f46e70d`，0/0 对齐）→ `ensure-desktop-deps DESKTOP_DEPS_OK` → 重启 `START_CONTRACT_OK`。
+- **交互/数据校验**：`listAccounts` 得 bilibili 账号 `e72848c6`（active/has_cookies，重启后重验）；
+  `publishBatch`（preload 契约两枚位置参数）返 `{code:0,data:{taskIds:['task_1_…']}}`；
+  `getQueueStatus` running=1→history=1；`getQueueHistory` 给出终态。
+- **活体结果（强证据）**：队列经 `ApiPublisher`→`publishViaApi('bilibili')`→upos 上传→`add/v3`
+  真实往返 B站，返回**平台业务态**「非正式会员单日只能投递五个稿件」而拒（`retry=2`，3 次均达 B站）。
+  这证明整条分派链正确；未产新 bvid 的唯一原因是账号级外部配额（本日已用生产路径投 3 稿），非代码缺陷。
+- **对比旧脆弱链路**：旧 `rpa_vm` 队列典型失败为 `responses=0` 空点击 / `timeout(300s)`；本轮 api
+  队列直达平台并拿结构化裁决，可观测性从「无回执」升级为「平台 message + 明确额度规则」。
+- 详见 `01-docs/rpa-api-publish/evidence/mainchain-app-queue-gate-2026-09-23.md`。
+
 
 ### 内容纯净要求：发布标题/简介/正文去「自动发布」水印（2026-09-23）
 
