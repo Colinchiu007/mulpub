@@ -246,9 +246,17 @@ COMMIT;
   `ALTER TABLE identity_user_sessions ADD COLUMN IF NOT EXISTS device_id TEXT`,
   `ALTER TABLE identity_user_sessions ADD COLUMN IF NOT EXISTS device_name TEXT`,
   `ALTER TABLE identity_user_sessions ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ`,
+  `CREATE INDEX IF NOT EXISTS idx_identity_user_sessions_device
+    ON identity_user_sessions(user_id) WHERE device_id IS NOT NULL`,
 ```
 
-注意：`assertReady()` 按 `REQUIRED_SCHEMA_RELATIONS` 检查 `to_regclass`，新表纳入后**存量库必须先跑迁移**，否则 readiness fail closed——这是预期行为（生产 `scripts/migrate-postgres.js`，开发 `initialize()`）。同时更新存量测试 `test/postgres-identity-repository.test.js` 中两处 `expected` / `expectedRelations` 数组，补上三个新表名（断言与实现同源）。
+注意：SCHEMA 数组必须与 004 迁移**逐字一致**（含部分索引），否则开发库 `initialize()` 与生产 `migrate-postgres.js` 产生索引漂移。
+
+`assertReady()` 按 `REQUIRED_SCHEMA_RELATIONS` 检查 `to_regclass`，新表纳入后**存量库必须先跑迁移**，否则 readiness fail closed——这是预期行为（生产 `packages/api-publish-engine/scripts/migrate-postgres.js`，开发 `initialize()`）。同时更新存量测试 `test/postgres-identity-repository.test.js` 的**三处**断言（不是两处）：
+
+1. 第 41-47 行 `initialize()` DDL 断言的 `expected` 数组：补上三张新表与三个新列的 `CREATE TABLE` / `ALTER TABLE` 正则；
+2. 第 50 行起 readiness 子测试的 `expectedRelations` 数组：补上 `identity_orders` / `identity_redeem_codes` / `identity_notifications`；
+3. **第 129-143 行「生产 PostgreSQL 迁移与运行时所需表保持一致」子测试**：它硬编码了 `['002_logto_identity.sql', '003_logto_webhook_events.sql']` 与六张旧表。必须补入 `'004_member_commerce.sql'` 与三张新表名——否则该测试不再守护「生产迁移必须创建全部运行时所需表」这一不变式（新表缺失时它不会变红，属静默失效）。
 
 - [ ] **Step 5: 运行新旧测试确认通过**
 
@@ -280,6 +288,8 @@ git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 commit -m "feat(member-
 创建 `packages/api-publish-engine/test/plan-matrix.test.js`：
 
 ```js
+'use strict'
+
 const assert = require('assert')
 const test = require('node:test')
 
@@ -346,6 +356,10 @@ test('plan-matrix 契约（spec §2）', async (t) => {
     assert.throws(() => getPlanEntitlement('standard', { standard: { noSuchKey: 1 } }), /unknown key/i)
     assert.throws(() => getPlanEntitlement('standard', { standard: { videoMonthly: 1.5 } }), /integer/i)
     assert.throws(() => getPlanEntitlement('standard', { standard: { videoMonthly: -2 } }), /-1|range|invalid/i)
+    // dailyPublish 是被扣减 feature 的派生源，-1 会击穿 consumeFeature 的 limit>=0 校验 → 必须 fail closed
+    assert.throws(() => getPlanEntitlement('standard', { standard: { dailyPublish: -1 } }), /does not accept -1/i)
+    // aiWriteMonthly 允许 -1（P1 无服务端 consumeFeature('ai_write') 路径，仅契约下发）
+    assert.doesNotThrow(() => getPlanEntitlement('standard', { standard: { aiWriteMonthly: -1 } }))
   })
 
   await t.test('未知档位抛 PLAN_INVALID', () => {
@@ -354,6 +368,7 @@ test('plan-matrix 契约（spec §2）', async (t) => {
 
   await t.test('返回值深冻结，调用方不能篡改矩阵', () => {
     const snapshot = getPlanEntitlement('free')
+    // 必须 `'use strict'`（见本文件首行）：sloppy 模式下给冻结属性赋值是静默失败，assert.throws 永不满足
     assert.throws(() => { snapshot.quota.cloud_publish_monthly = 999 }, /read-only|frozen|not extensible|Cannot assign/i)
   })
 })
@@ -435,7 +450,8 @@ const NUMERIC_KEYS = Object.freeze([
   'priceMonthlyCents', 'priceYearlyCents', 'maxPlatforms', 'dailyPublish',
   'aiWriteMonthly', 'videoMonthly', 'officialCreditMonthly', 'concurrentTasks',
 ])
-const UNLIMITED_ALLOWED = Object.freeze(['maxPlatforms', 'dailyPublish', 'aiWriteMonthly', 'videoMonthly', 'officialCreditMonthly'])
+// 不含 dailyPublish：它派生 quota.cloud_publish_monthly，该 feature 会被 consumeFeature 扣减（要求 limit >= 0），-1 会导致发布链路 503
+const UNLIMITED_ALLOWED = Object.freeze(['maxPlatforms', 'aiWriteMonthly', 'videoMonthly', 'officialCreditMonthly'])
 
 function validateNumericValue(key, value, context) {
   if (typeof value !== 'number' || !Number.isInteger(value)) {
@@ -800,9 +816,13 @@ function sessionRecordId(userId, deviceId) {
 }
 ```
 
-在 `PostgresWebhookTransaction` 类之后新增事务类：
+在 `PostgresWebhookTransaction` 类之后新增事务类（先抽出与池级方法共用的 SQL 常量，避免同一 UPDATE 维护两份实现）：
 
 ```js
+const EXPIRE_SUBSCRIPTION = `UPDATE identity_subscriptions SET status = 'expired', updated_at = NOW()
+   WHERE user_id = $1 AND status = 'active' AND current_period_end <= NOW()
+   RETURNING *`
+
 class PostgresCommerceTransaction {
   constructor(client) {
     this.client = client
@@ -828,11 +848,22 @@ class PostgresCommerceTransaction {
     return result.rows[0]
   }
 
+  /** 到期置过期：与 free 快照回写同属一个事务（见 SubscriptionService.settleExpiry）。 */
+  async expireSubscription(userId) {
+    const result = await this.client.query(EXPIRE_SUBSCRIPTION, [userId])
+    return result.rows[0] || null
+  }
+
   /** 订阅续叠三连写：subscription upsert → 订单落库 → 权益快照回写（同事务，要么全成要么全回滚）。 */
   async applySubscription({ userId, plan, durationDays, now, order, entitlementPayload }) {
     const nowDate = now instanceof Date ? now : new Date(now)
-    if (Number.isNaN(nowDate.getTime())) throw new Error('COMMERCE_CLOCK_INVALID')
-    if (!Number.isInteger(durationDays) || durationDays <= 0) throw new Error('DURATION_INVALID')
+    // 仓储层不反依赖服务层的 CommerceError（避循环 require），沿用本文件 REDEEM_CODE_RACE 的 code/status 携带风格
+    if (Number.isNaN(nowDate.getTime())) {
+      throw Object.assign(new Error('COMMERCE_CLOCK_INVALID'), { code: 'COMMERCE_CLOCK_INVALID', status: 503 })
+    }
+    if (!Number.isInteger(durationDays) || durationDays <= 0) {
+      throw Object.assign(new Error('DURATION_INVALID'), { code: 'DURATION_INVALID', status: 400 })
+    }
     const existingResult = await this.client.query(
       `SELECT * FROM identity_subscriptions
        WHERE user_id = $1 AND status = 'active' AND current_period_end > NOW()
@@ -891,14 +922,9 @@ class PostgresCommerceTransaction {
     return result.rows[0] || null
   }
 
-  /** 到期惰性降级：仅当存在已过期 active 订阅时置为 expired 并返回该行。 */
+  /** 到期惰性降级：仅当存在已过期 active 订阅时置为 expired 并返回该行（与事务版共用 EXPIRE_SUBSCRIPTION）。 */
   async expireSubscription(userId) {
-    const result = await this.pool.query(
-      `UPDATE identity_subscriptions SET status = 'expired', updated_at = NOW()
-       WHERE user_id = $1 AND status = 'active' AND current_period_end <= NOW()
-       RETURNING *`,
-      [userId],
-    )
+    const result = await this.pool.query(EXPIRE_SUBSCRIPTION, [userId])
     return result.rows[0] || null
   }
 
@@ -940,11 +966,6 @@ class PostgresCommerceTransaction {
       ],
     )
     return (result.rows || []).map((row) => row.code)
-  }
-
-  async getRedeemCode(code) {
-    const result = await this.pool.query('SELECT * FROM identity_redeem_codes WHERE code = $1', [code])
-    return result.rows[0] || null
   }
 
   async listNotifications(userId, { limit = 20, offset = 0 } = {}) {
@@ -1100,10 +1121,20 @@ function createRepositoryFixture(initial = {}) {
     current: initial.current || null,
     expiryResult: initial.expiryResult || null,
     usage: initial.usage || [],
+    txCalls: [],
     async commerceTransaction(callback) {
       const self = this
       return callback({
         async lockRedeemCode(code) { return self.codes.get(code) || null },
+        async expireSubscription(userId) {
+          self.txCalls.push('expireSubscription')
+          return self.expiryResult
+        },
+        async putEntitlement(userId, payload) {
+          self.txCalls.push('putEntitlement')
+          self.entitlementWrites.push({ userId, payload })
+          return self.entitlementWrites.length
+        },
         async markRedeemCodeUsed(code, userId) {
           const row = self.codes.get(code)
           if (!row || row.status !== 'active') {
@@ -1124,7 +1155,7 @@ function createRepositoryFixture(initial = {}) {
             periodStart: 'ps', periodEnd: 'pe',
           }
         },
-        async createNotification(record) { self.notifications.push(record) },
+        async createNotification(record) { self.txCalls.push('createNotification'); self.notifications.push(record) },
       })
     },
     async expireSubscription() { return this.expiryResult },
@@ -1228,15 +1259,27 @@ test('grant / createRedeemBatch / settleExpiry / 视图', async (t) => {
     assert.strictEqual(repository.codes.get(batch.codes[0]).durationDays, 365)
   })
 
-  await t.test('settleExpiry：有降级行→回写 free 快照+通知；无→null', async () => {
+  await t.test('settleExpiry：有降级行→回写 free 快照+通知；无→null；三写必在同一事务', async () => {
     const withExpiry = createService({ expiryResult: { id: 'sub-u-1', plan: 'standard', status: 'expired' } })
     const settled = await withExpiry.service.settleExpiry('u-1')
     assert.ok(settled)
     assert.strictEqual(withExpiry.repository.entitlementWrites[0].payload.plan, 'free')
     assert.strictEqual(withExpiry.repository.notifications.length, 1)
+    // 回归保护（CCG C3）：若退回「非事务 + 先 expire 后写快照」，中途失败会永久泄漏 pro 权益
+    assert.deepStrictEqual(withExpiry.repository.txCalls,
+      ['expireSubscription', 'putEntitlement', 'createNotification'])
     const clean = createService()
     assert.strictEqual(await clean.service.settleExpiry('u-1'), null)
     assert.strictEqual(clean.repository.entitlementWrites.length, 0)
+  })
+
+  await t.test('grant 默认 providerReference 逐次唯一（否则撞 UNIQUE 回滚整事务）', async () => {
+    const { service, repository } = createService()
+    const first = await service.grant({ userId: 'u-1', plan: 'standard', durationDays: 30 })
+    await service.grant({ userId: 'u-2', plan: 'pro', durationDays: 30 })
+    const refs = repository.subscriptionWrites.map((w) => w.order.providerReference)
+    assert.strictEqual(new Set(refs).size, 2, `providerReference 必须全局唯一：${refs.join(', ')}`)
+    assert.match(first.order.providerReference, /^grant:system:ord-/)
   })
 
   await t.test('getSubscriptionView：无订阅回 free，有订阅回当期档位', async () => {
@@ -1319,19 +1362,25 @@ class SubscriptionService {
     return JSON.parse(JSON.stringify(getPlanEntitlement(plan, this.planOverrides)))
   }
 
-  /** 到期惰性降级：仅在存在过期 active 订阅时降级回 free（无定时任务，/me 访问触发）。 */
+  /**
+   * 到期惰性降级：仅在存在过期 active 订阅时降级回 free（无定时任务，/me 访问触发）。
+   * 三个写必须在同一事务：若先置 expired 再写快照（非事务），中途失败会留下
+   * 「订阅已 expired + 快照仍为 pro」的永久权限泄漏（expired 行下次不再命中，无重试路径）。
+   */
   async settleExpiry(userId) {
-    const expired = await this.repository.expireSubscription(userId)
-    if (!expired) return null
-    await this.repository.putEntitlement(userId, this.entitlementPayload('free'))
-    await this.repository.createNotification({
-      id: crypto.randomUUID(),
-      userId,
-      title: '会员已到期',
-      body: '本期订阅已结束，档位已回到免费版；兑换新码可续叠。',
-      level: 'warn',
+    return this.repository.commerceTransaction(async (tx) => {
+      const expired = await tx.expireSubscription(userId)
+      if (!expired) return null
+      await tx.putEntitlement(userId, this.entitlementPayload('free'))
+      await tx.createNotification({
+        id: crypto.randomUUID(),
+        userId,
+        title: '会员已到期',
+        body: '本期订阅已结束，档位已回到免费版；兑换新码可续叠。',
+        level: 'warn',
+      })
+      return expired
     })
-    return expired
   }
 
   async getSubscriptionView(userId) {
@@ -1430,17 +1479,20 @@ class SubscriptionService {
       throw new CommerceError('时长必须为正整数天', 'DURATION_INVALID', 400)
     }
     return this.repository.commerceTransaction(async (tx) => {
+      // provider_reference 在 identity_subscriptions 上是 UNIQUE（002:29），默认值必须逐次唯一，
+      // 否则同一 operator 连续给两个用户开通时第二个必然撞唯一约束导致整个事务回滚。
+      const grantOrderId = `ord-${crypto.randomUUID()}`
       const applied = await tx.applySubscription({
         userId,
         plan,
         durationDays,
         now: this.now(),
         order: {
-          id: `ord-${crypto.randomUUID()}`,
+          id: grantOrderId,
           amount: 0,
           currency: 'CNY',
           channel: 'admin_grant',
-          providerReference: providerReference || `grant:${operator || 'system'}`,
+          providerReference: providerReference || `grant:${operator || 'system'}:${grantOrderId}`,
         },
         entitlementPayload: this.entitlementPayload(plan),
       })
@@ -1513,6 +1565,8 @@ test('createLogtoRuntime 组装 subscriptionService', async (t) => {
     const { createLogtoRuntime } = require('../src/auth/logto-runtime')
     const { SubscriptionService } = require('../src/auth/subscription-service')
     const fakeRepository = {
+      // 非生产默认 autoMigrate=true（logto-runtime.js:107-118）会调用 initialize()，缺方法会先抛 TypeError
+      async initialize() {},
       async assertReady() { return { database: 'ready', schema: 'ready' } },
       async close() {},
     }
@@ -1599,7 +1653,7 @@ git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 commit -m "feat(member-
 | GET | `/api/v1/me/notifications` | profile:read | 通知列表+未读数 |
 | POST | `/api/v1/me/notifications/read` | profile:write | 全部标已读 |
 | GET | `/api/v1/me/sessions` | profile:read | 活跃设备会话 |
-| POST | `/api/v1/me/sessions/revoke-others` | profile:write | 下线其它设备 |
+| POST | `/api/v1/me/sessions/revoke-others` | profile:write | 下线其它设备（必须带合法 `X-Device-ID`，否则 400 DEVICE_ID_REQUIRED） |
 | PATCH | `/api/v1/me/profile` | profile:write | 改 displayName/avatarUrl |
 | POST | `/api/v1/admin/member/grant` | admin:users | 后台开通 |
 | POST | `/api/v1/admin/member/redeem-codes` | admin:users | 批量生成兑换码 |
@@ -1734,11 +1788,17 @@ async function main() {
     const sessions = await request(port, 'GET', '/api/v1/me/sessions', 'member-read')
     assert.strictEqual(sessions.status, 200)
     assert.strictEqual(sessions.body.sessions[0].device_id, 'device-a')
-    const revoke = await request(port, 'POST', '/api/v1/me/sessions/revoke-others', 'member-write', { deviceId: 'device-a' })
+    const revokeNoHeader = await request(port, 'POST', '/api/v1/me/sessions/revoke-others', 'member-write', { deviceId: 'x' })
+    assert.strictEqual(revokeNoHeader.status, 400, 'revoke-others 只认 X-Device-ID，body.deviceId 不得作为保活依据')
+    const revoke = await request(port, 'POST', '/api/v1/me/sessions/revoke-others', 'member-write', {}, { 'X-Device-ID': 'device-aaaaaaaaaaaa' })
+    assert.strictEqual(revoke.status, 200)
     assert.deepStrictEqual(revoke.body.revoked, ['ses-old'])
     const profile = await request(port, 'PATCH', '/api/v1/me/profile', 'member-write', { displayName: '新名字' })
     assert.strictEqual(profile.status, 200)
     assert.strictEqual(profile.body.user.displayName, '新名字')
+    const badAvatar = await request(port, 'PATCH', '/api/v1/me/profile', 'member-write', { avatarUrl: 'javascript:alert(1)' })
+    assert.strictEqual(badAvatar.status, 400)
+    assert.strictEqual(badAvatar.body.error, 'AVATAR_URL_INVALID')
     console.log('  ✅ orders/notifications/sessions/profile 会员端点')
 
     const readOnlyWrite = await request(port, 'PATCH', '/api/v1/me/profile', 'member-read', { displayName: 'x' })
@@ -1989,8 +2049,9 @@ const { getPlanCatalog } = require("./auth/plan-matrix")
             return;
           }
           if (method === "POST" && url === "/api/v1/me/sessions/revoke-others") {
-            var revokeBody = await this._parseBody(req);
-            const keepDeviceId = revokeBody && typeof revokeBody.deviceId === "string" ? revokeBody.deviceId : this._deviceIdFrom(req);
+            // 只认经正则校验的 X-Device-ID：若改用未校验的 body.deviceId，任意串都无匹配会话，
+            // IS DISTINCT FROM 语义下会把当前会话一起下线（自断登录态）。
+            const keepDeviceId = this._deviceIdFrom(req);
             if (!keepDeviceId) { this._json(res, 400, { error: "DEVICE_ID_REQUIRED" }); return; }
             this._json(res, 200, { revoked: await commerceRepository.revokeOtherSessions(userId, keepDeviceId) });
             return;
@@ -1999,16 +2060,22 @@ const { getPlanCatalog } = require("./auth/plan-matrix")
             var profileBody = await this._parseBody(req);
             var patch = {};
             if (profileBody && Object.prototype.hasOwnProperty.call(profileBody, "displayName")) {
-              if (typeof profileBody.displayName !== "string" || !profileBody.displayName.trim() || profileBody.displayName.length > 60) {
+              if (typeof profileBody.displayName !== "string" || !profileBody.displayName.trim()
+                  || profileBody.displayName.length > 60
+                  || /[\u0000-\u001f\u007f]/.test(profileBody.displayName)) {
                 this._json(res, 400, { error: "DISPLAY_NAME_INVALID" }); return;
               }
               patch.display_name = profileBody.displayName.trim();
             }
             if (profileBody && Object.prototype.hasOwnProperty.call(profileBody, "avatarUrl")) {
-              if (profileBody.avatarUrl !== null && (typeof profileBody.avatarUrl !== "string" || profileBody.avatarUrl.length > 500)) {
+              // 存储型 XSS 面：URL 字段必须限死 scheme，javascript: 与 data:text/html 一律 fail closed
+              const avatar = profileBody.avatarUrl;
+              const avatarOk = /^(https?:)?\/\/[^\s"'<>]+$/i.test(avatar)
+                || /^data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=]+$/i.test(avatar);
+              if (avatar !== null && (typeof avatar !== "string" || avatar.length > 500 || !avatarOk)) {
                 this._json(res, 400, { error: "AVATAR_URL_INVALID" }); return;
               }
-              patch.avatar_url = profileBody.avatarUrl;
+              patch.avatar_url = avatar;
             }
             if (!Object.keys(patch).length) { this._json(res, 400, { error: "PROFILE_PATCH_EMPTY" }); return; }
             const updated = await commerceRepository.updateProfile(userId, patch);
@@ -2091,11 +2158,11 @@ Expected: exit 0（含 5 个新增测试文件与全部存量）
 
 ```powershell
 $env:BUSINESS_DATABASE_URL = 'postgres://postgres:***@localhost:5432/mp_member_p1'
-node scripts/migrate-postgres.js
+node packages/api-publish-engine/scripts/migrate-postgres.js
 node -e "const {PostgresIdentityRepository}=require('./packages/api-publish-engine/src/auth/postgres-identity-repository'); new PostgresIdentityRepository({connectionString: process.env.BUSINESS_DATABASE_URL, production: true}).assertReady().then(r=>console.log(r)).catch(e=>{console.error(e.code||e.message);process.exit(1)})"
 ```
 
-Expected: 迁移 001-004 全部 applied；`assertReady` 返回 `{ database: 'ready', schema: 'ready' }`（fail closed：新表缺失/账本 checksum 不符必须报错）
+Expected: 迁移 002-004 全部 applied（`migrations/postgresql/` 现存只有 002/003，本任务新增 004，不存在 001）；`assertReady` 返回 `{ database: 'ready', schema: 'ready' }`（fail closed：新表缺失/账本 checksum 不符必须报错）
 
 - [ ] **Step 3: 质量门禁自检**
 
@@ -2126,6 +2193,7 @@ git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 commit -m "docs(member-
 | §9 订阅状态机（续叠/到期降级） | Task 3 `applySubscription` 续叠 + Task 4 `settleExpiry` | 两测试文件对应子用例 |
 | §9 设备会话（当前会话保活） | Task 3 `IS DISTINCT FROM` 保活语义 | `member-commerce-repository.test.js` |
 | §8-1（UI 7 栏）/ §8-2 客户端 30s 刷新与离线快照 / §9 前端与打包 | → P2（桌面 IPC/服务层）与 P3（会员中心前端） | 不在本计划范围 |
+| §3.7 绑定手机/邮箱、修改密码 | → P2/P3：以 Logto Account Center（前端跳转/SDK）为真源，P1 只提供 `PATCH /api/v1/me/profile`（昵称/头像） | 本计划范围声明（D10） |
 | ops-center 运营入口（§10 待办） | → P4；P1 仅提供 admin:* 端点 | 不在本计划范围 |
 
 ---
@@ -2142,3 +2210,20 @@ git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 commit -m "docs(member-
 | D6 | 兑换码字母表排除 I/O/0/1，4-4-4 分组 | 电话/人工录入场景防错；与存量 `LicenseManager.activate` 输入习惯兼容 | UUID 全字长（人工传播成本高，否） |
 | D7 | 拆 4 份子计划（P1 服务端→P2 桌面→P3 前端→P4 运营），本轮只写 P1 | 用户确认；每份独立可交付可测试 | 单份大计划（跨 4 子系统，粒度失控，否） |
 | D8 | 路由层不另建鉴权中间件，沿用 `_requiredScope` early-return 链 | 会员路径在 POST 兜底行之前 return，避免 `/plans` 被 `startsWith('/api/v1/plan')` 吞进 publish:submit | 新增 express 式中间件（与现有手写路由链不合，否） |
+| D9 | 通知已读用 `read_at TIMESTAMPTZ`（非 spec 字面的 `read` 布尔） | `read_at IS NULL` = 未读，可带已读时间做审计；与 sessions `revoked_at` 风格一致 | 布尔列（丢时间信息，否）。P3 按 `readAt` 字段渲染，勿找 `read` |
+| D10 | spec §3.7 的绑定手机/邮箱、修改密码不在 P1 做服务端端点 | 这三项的真源是 Logto，本项目已有 OIDC 登录链路；服务端自建改密/绑定会形成双真源 | 服务端代理 Logto Management API（需额外密钥与作用域，P1 不值）。延至 P2/P3 以 Account Center 跳转实现 |
+| D11 | 到期降级只在 `/me` 路径触发（惰性 settle），且 `settleExpiry` 已改为单事务 | 发布扣减路径（`_consumeEntitlementFeature` → `getForUser` 读快照）不 settle，过期用户到下次 `/me` 前仍按旧快照扣减；桌面端启动即调 `/me`，窗口≈单次会话生命周期；P1 无支付回调也无定时设施 | 在发布热路径加 settle（每请求一次写查询 + 行锁，否）；阶段 2 上调度后改为对账作业 |
+| D12 | `quota` 与 `limits` 双口径下发：`quota.*` 供服务端扣减，`limits.*` 供展示 | `consumeFeature` 只认 `${feature}_monthly`，日窗口/平台数无扣减源 | 只发 quota（前端无法渲染「日发布 50」类展示，否） |
+
+---
+
+## P2/P3 交接契约清单（本包下发但下游必须对齐的命名）
+
+| 项 | P1 现状 | P2/P3 必须做的 | 来源 |
+|---|---|---|---|
+| feature 名 `video_create` / `schedule_batch` / `dashboard_full` | 服务端新造（spec §2 未给反引号名） | 与 `license-access-control.js` 现有枚举（cloud_publish/publish_history/pipeline_run）对齐，客户端 `features.includes()` 必须用同名 | CCG I3 |
+| `membership.usage.features[].limit` 中的 `official_credit_monthly` | 无服务端扣减源，`used` 恒为 0 | 进度条标注「随官方积分能力开放」或隐藏，避免误读为已用 0/3000 | CCG I5 |
+| `limits` 仅存在于在线 `entitlement` | `_buildEntitlementSnapshot`（RSA 离线快照）仍只带 plan/features/quota | 若要离线按平台数/并发门禁，需同步在快照体加 `limits` 并重签；否则离线宽限期只按 quota 判 | CCG I4 |
+| `X-Device-ID` 必发头 | `/me` 无头不阻断，但 `revoke-others` **必须有合法头**（否则 400） | P2 桌面 IPC 统一注入 `X-Device-ID`（^[A-Za-z0-9._:-]{16,128}$），与快照签发同源 | CCG W1 |
+| 通知字段 `readAt` | 用时间戳表达已读（D9） | P3 渲染勿找 spec 字面的 `read` 布尔 | CCG I1 |
+| `/me` 写副作用 | 过期临界时会写快照+通知（非纯读） | 监控/审计勿将 `/me` 计入纯读延迟；读扩散优化时保留 settle | CCG I7 |
