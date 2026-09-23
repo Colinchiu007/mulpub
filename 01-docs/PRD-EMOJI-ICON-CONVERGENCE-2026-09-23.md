@@ -89,3 +89,11 @@
 
 - 视觉基线截图（需要打包环境，CI 视觉回归由既有 gates 覆盖）。
 - TabBar 品牌图标补齐更多平台 URL 映射（数据侧，非本 PR）。
+
+## 六、Gate 7 --cjk 联动修复附录（2026-09-23，CI 补漏）
+
+- **现象**：PR #2249 merge main 后 CI QG Static 报 `check-locale-sync --cjk` 新增 12 处渲染端硬编码中文（BenchmarkChart「内容基准比较」、KeywordMonitorPanel「关键词监测」、OptimalTimeTip「{n} 条数据」、ReferenceFinder「引用查找」×2（文本+title 属性）、TemplatePicker「内容模板」「报告/营销/教育/社交」、TitleAssistantPanel「标题参考」、TrendingPanel「热门趋势」）。
+- **根因**：Gate 7 新版基线按 `file||content` 键存储；emoji→el-icon 替换改变了模板文本节点内容（「📊 内容基准比较」→「内容基准比较」），旧键失配判为 fresh。属既有硬编码文案的键形态迁移，非新增违规。
+- **修复（不掩盖新增纪律）**：不使用 `--update-baseline`；12 处文案全部迁入 locale——`intelligence` 命名空间成对新增 11 键（benchmarkTitle/keywordMonitorTitle/dataPointsCount/referenceFinderTitle/templatePickerTitle/categoryReport/categoryMarketing/categoryEducation/categorySocial/titleAssistantTitle/trendingTitle），zh 值与原文案逐字一致（含 `{n}` 插值），渲染显示零变化；模板改 `{{ $t(...) }}` / `:title="$t(...)"`；TemplatePicker `categoryLabel()` 改用 `useI18n().t`。
+- **测试适配**：7 个组件测试 mount 无 i18n 插件导致 `$t is not a function`（42 例红），按仓库 TagSuggester 惯例经 `config.global.plugins` 注入 `createI18n({legacy:false, locale:zh, messages:{zh,en}})` 修复，47/47 绿。
+- **验收**：`--cjk` PASS（基线 1581/当前 1376 无 fresh）、`--keys` PASS（1125 键 zh/en 成对存在）、Gate7 node:test 6/6、icon-usage 守卫 35/35。

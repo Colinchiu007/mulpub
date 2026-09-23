@@ -1,5 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mount } from "@vue/test-utils";
+
+import { config as __vtuConfig } from '@vue/test-utils'
+import { createI18n as __createI18n } from 'vue-i18n'
+import __zhLocale from '@/locales/zh'
+import __enLocale from '@/locales/en'
+__vtuConfig.global.plugins = [
+  ...(__vtuConfig.global.plugins || []),
+  __createI18n({
+    legacy: false,
+    locale: 'zh',
+    fallbackLocale: 'en',
+    messages: { zh: __zhLocale, en: __enLocale },
+  }),
+]
 import { nextTick } from "vue";
 
 // Mock @/api/publisher 模块（组件通过 import 调用，不再用全局注入）

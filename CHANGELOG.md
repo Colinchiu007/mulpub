@@ -7,10 +7,11 @@
 - **NavBar.vue**：复制按钮 `✓/📋` 文本态 → `Check/CopyDocument` 图标态；🏠🔍 → `HomeFilled/Search`。
 - **守卫闭环**：`icon-usage.test.js` FILES 白名单 9→**34** 项，禁用清单新增 📭；后续任何登记文件重新引入禁用 emoji 将被 CI 拦截。
 - **测试纪律**：6 个视图测试的 `@element-plus/icons-vue` 受限 vi.mock 统一改 Proxy 兜底（has trap + 未知导出 stub），防止守卫新增图标击穿既有测试。
+- **Gate 7 --cjk 联动修复（CI 补齐）**：emoji 移除改变 `.vue` 模板文本节点内容键，12 处区块标题（内容基准比较/关键词监测/条数据/引用查找×2/内容模板/报告/营销/教育/社交/标题参考/热门趋势）按新基线判「新增硬编码」——全部迁入 `intelligence.*` locale（zh/en 成对新增 11 键，模板改 `$t(...)`，TemplatePicker 分类标签改 `useI18n`）；7 个组件测试按 TagSuggester 惯例注入 `createI18n` 全局插件。
 - **文档**：新增专项 PRD；`docs/frontend-interaction-spec.md` 新增 §11 图标语义与功能位 emoji 禁用规范。
 
 ### 验证
-- 定向 26 文件 487 用例 + views 深测 6 文件 161 用例全绿；禁用 emoji 码点全站复扫 0 命中；关联 PR #2249。
+- 定向 26 文件 487 用例 + views 深测 6 文件 161 用例全绿；禁用 emoji 码点全站复扫 0 命中；`check-locale-sync.js --cjk/--keys/--pair-base` 全 PASS、Gate7 单测 6/6、icon-usage 守卫 35/35、受影响组件测试 47/47 全绿；关联 PR #2249。
 # [未发布] refactor(selfcheck): 限流自检迁移运营中心 + 桌面保留隐藏执行端（PR-1）
 
 ### 变更

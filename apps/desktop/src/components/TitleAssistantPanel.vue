@@ -1,7 +1,7 @@
 <template>
   <div v-if="visible" class="title-assistant">
     <div class="ta-header">
-      <span style="font-weight:600;font-size: var(--font-size-sm)"><el-icon><DataLine /></el-icon> 标题参考</span>
+      <span style="font-weight:600;font-size: var(--font-size-sm)"><el-icon><DataLine /></el-icon> {{ $t('intelligence.titleAssistantTitle') }}</span>
       <button class="cohere-btn-ghost" @click="$emit('close')" style="font-size: var(--font-size-xs);padding:2px 6px">✕</button>
     </div>
     <div v-if="loading" style="text-align:center;padding:20px 0;font-size: var(--font-size-sm);color:var(--muted)">

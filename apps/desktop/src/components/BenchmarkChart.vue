@@ -3,7 +3,7 @@
     <!-- Header -->
     <div class="cohere-page-header" style="margin-bottom: var(--space-md);">
       <div style="font-size: var(--font-size-md); font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 8px;">
-        <span><el-icon><DataLine /></el-icon> 内容基准比较</span>
+        <span><el-icon><DataLine /></el-icon> {{ $t('intelligence.benchmarkTitle') }}</span>
       </div>
     </div>
 

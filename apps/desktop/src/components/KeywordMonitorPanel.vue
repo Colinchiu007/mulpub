@@ -3,7 +3,7 @@
     <!-- Header -->
     <div class="cohere-page-header" style="margin-bottom: var(--space-md);">
       <div style="font-size: var(--font-size-md); font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 8px;">
-        <span><el-icon><Search /></el-icon> 关键词监测</span>
+        <span><el-icon><Search /></el-icon> {{ $t('intelligence.keywordMonitorTitle') }}</span>
       </div>
       <div style="font-size: var(--font-size-sm); color: var(--muted); margin-top: 2px;">6小时轮询，异常飙升通知</div>
     </div>
