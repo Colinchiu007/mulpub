@@ -412,13 +412,17 @@ class BatchManager {
     const wins = require('electron').BrowserWindow.getAllWindows()
     const win = wins[0]
     if (win && !win.isDestroyed()) {
-      win.webContents.send('batch:progress', {
+      let payload = {
         kind: 'task-complete',
         batchId, taskId, platform, title,
         ok: !result?.error,
         message: result?.error || '发布成功',
         timestamp: Date.now(),
-      })
+      }
+      // P0-8（proposal-v3 §2.2）：限流类失败命中时挂 diagnoseCode 预留字段（本期渲染层不消费，
+      // 结论保证在 publish.diagnose_result 日志面）；未命中/异常返回原 payload 不变。
+      try { payload = require('./pubfail-diagnose').augmentBatchFailure(payload) } catch (_) { /* 不影响进度推送 */ }
+      win.webContents.send('batch:progress', payload)
     }
   }
 
