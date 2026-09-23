@@ -1,3 +1,21 @@
+# [未发布] feat(member-center): 会员中心 P1 服务端底座：三档权益矩阵、兑换码核销、订单、消息中心、设备会话与会员 API（2026-09-23，member-center-p1）
+
+### 变更
+- **三档权益矩阵（唯一真源）**：新增 `plan-matrix.js` 定义 free/standard/pro 三档的 features/quota/limits，`/api/v1/plans` 目录与运营 overrides 均从此派生；overrides 校验 fail-closed（档位键拼错/非对象抛 `PLAN_MATRIX_CONFIG_INVALID`，不再静默回退基线）。
+- **兑换码核销与订阅状态机**：新增 `subscription-service.js`——兑换码状态机（400/404/409/410 + 本人重放幂等）、后台 `grant` 开通、续叠到期、`settleExpiry` 惰性降级；pg 唯一约束冲突与日期溢出在仓储层收敛为语义化 4xx。
+- **订单 / 消息中心 / 设备会话（服务端为准）**：`migrations/postgresql/004_member_commerce.sql` 新增 `identity_orders`/`identity_redeem_codes`/`identity_notifications` 三表并为 `identity_user_sessions` 补 `device_id`/`last_seen_at`；会话以 `IS DISTINCT FROM` 保活语义、通知已读用 `read_at` 时间戳。
+- **会员 API 端点**：`publish-api-server.js` 新增 `/api/v1/me`（聚合 membership + entitlement + 设备登记 + limits 透传，membership fail-soft）、`/me/orders`、`/me/notifications[/read]`、`/me/sessions[/revoke-others]`、`PATCH|PUT /me/profile`、`/plans`、`/redeem` 与 `admin:member/grant`、`admin:member/redeem-codes`；沿用既有 scope 鉴权链，`_commerceFailure` 夹紧 status、校验 code 形状、4xx message 原样透传（>=500 掩码）。
+
+### 验证
+- `pnpm --filter @multi-publish/api-publish-engine test` 全量绿：文件级 90 通过 / 0 失败（覆盖 100 个测试文件）；TAP 累加 `# tests` 308 / `# pass` 305。新增 `member-commerce-migrations`/`plan-matrix`/`member-commerce-repository`/`subscription-service`/`member-commerce-api` 五个测试文件与全部存量。
+- 契约锁：`member-commerce-api.test.js` H1 断言 4xx `message` 原样透传不被掩码（先证明改源即红、还原转绿的变异锁）。
+- 生产迁移演练因本机无 Postgres（5432 ECONNREFUSED）跳过，待 CI/部署补；以静态替代验证兜底：`discoverMigrations` 发现 002/003/004 且 `normalizeMigrationSql` 全不抛、`REQUIRED_SCHEMA_RELATIONS` 与 004/SCHEMA 防漂移一致（`member-commerce-migrations.test.js`）、`assertReady` fail-closed 由 `postgres-identity-repository.test.js` 覆盖。
+
+### 关联
+- 分支 `member-center-p1`（worktree 隔离，基线 `81be086d6`）；计划 `.hermes/plans/2026-09-23-member-center-p1-server.md`。本包为服务端底座，`apps/desktop/electron/`、`packages/rpa-engine/` 零改动，QM-1 打包验证与桌面 IPC 由 P2 承担。
+
+---
+
 # [未发布] fix(security): P1 审计第三批——IPC 注入契约 fail-closed + 管理后台 Cookie 会话 + P2 安全小项（2026-09-22，audit-batch-3）
 
 ### 变更
