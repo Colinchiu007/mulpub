@@ -637,6 +637,9 @@ var require_system = __commonJS({
         // 应用日志 API（设置-通用设置：查看/清理/渲染进程错误上报）
         logsGetInfo: () => ipcRenderer2.invoke("logs:info"),
         logsClear: () => ipcRenderer2.invoke("logs:clear"),
+        // 缓存清理 API（设置-通用设置：统计/清理临时缓存）
+        cacheGetStats: () => ipcRenderer2.invoke("cache:stats"),
+        cacheClear: () => ipcRenderer2.invoke("cache:clear"),
         logError: (message) => ipcRenderer2.invoke("logs:error", { message }),
         submitFeedback: (payload) => ipcRenderer2.invoke("feedback:submit", payload),
         // 通知日志上报（notify:log）——renderer notify() 通道内部调用，写结构化日志行
@@ -1189,6 +1192,8 @@ var require_access_control = __commonJS({
       "logsClear",
       "logError",
       "notifyLog",
+      "cacheGetStats",
+      "cacheClear",
       "renderGetStatus",
       "renderInstallDeps",
       "onRenderInstallProgress",

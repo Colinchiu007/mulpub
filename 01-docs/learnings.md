@@ -15402,3 +15402,24 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 ### 本次决策记录
 
 实证在 live mp-app-live2（shared-user-data profile）完成，不改任何仓库代码：停 7 个 electron 前先热备份 `shared-user-data.backups\seed-<ts>\`（db+wal+shm），灌数脚本幂等（先 DELETE 固定种子 id 再精确 INSERT 两行）。用户决定**种子行不清理**，保留为常态验证样本（vv-seed-bili-0001 / tc-seed-bili-0001 + 1 条 auto 快照）。实证结果回写 `PRD-RECRAWL-TRIGGER-DEBUG-2026-09-22.md` §7 与 `PRD-VIRAL-LIBRARY-INTEGRATION-2026-09-22.md` 附录 C。经验同步内置记忆 + EverOS。
+
+
+## cache-cleanup-settings-2026-09-23：设置-通用「缓存清理」全栈功能（分支 cache-cleanup-settings，PR #2262）
+
+### 需求溯源（三个调研问题的权威结论）
+1. **删除历史记录是否删成品+临时片段？** 删 `userData/story2video-projects/<ownerHash>/<projectId>` 内的成品持久副本（`video.mp4`/旁白/bgm/分段），但**不清** `os.tmpdir()` 合成中间产物。删除是 best-effort：Windows EPERM 占用时索引仍删、孤立目录残留写告警。
+2. **临时文件如何处理、是否永久？** 全在 `os.tmpdir()`：`story2video` 会话目录每次合成即 `_cleanupSession` 递归删；成片副本 `sessionId_*` 靠启动/合成前 `_cleanupOldSessions(24h)` 老化；`selected-media` 7 天 `gcImportedMedia`；`film-engineering/<runId>` 收尾删。**非永久但会累积**（单次成片副本数百 MB～GB）。
+3. **是否新增清理缓存？** 必要——老化不足以即时释放，用户「删了却没释放空间」无回收入口。
+
+### 实现范式（可复用）
+- 复用同构的「日志清理」（LogsSettings.vue + `logs:info`/`logs:clear`）模式新增「缓存清理」，成本最低体验一致：service（`cache-service.js`）+ IPC（`cache:stats`/`cache:clear`）+ preload 暴露 + renderer 卡片 + i18n。
+- **安全边界第一**：统计/删除全程 `isPathWithin(entry,[root])`（canonicalPath + realpathSync.native）+ `lstat` 跳符号链接，缓存根只登记 `os.tmpdir()` 子目录，杜绝误删 userData；`clearCache` 逐条 best-effort，被占用静默跳过、保留根目录。
+- IPC 权限双白名单：主进程 `license-access-control.js` PUBLIC_CHANNELS + preload `access-control.js` PUBLIC_METHODS 同步登记。
+
+### 逃逸链与堵口（本次踩坑）
+- **vi.mock 拦不住函数内 require**：IPC handler 测试用 `vi.mock('../services/cache-service')` 隔离，但 handler 运行时 `require`，mock 未接管 → clearCache 真跑删开本机 ~1.4GB 临时缓存。堵口：handler 改 `deps.cacheService || require(...)` 依赖注入，测试经 `registerHandlers(ipcMain, {cacheService: mock})` 注入替身；凡函数体内 require 且有 FS/网络副作用的模块，测试一律参数注入。
+- **preload.test.js 硬编码计数**：新增 2 个 system 方法触发 3 处断言（方法数/api 总数/SYSTEM_METHODS.length）失败，逐个 bump 并同步描述性标题。改 preload 暴露面必查这些计数。
+- **工具沙箱**：Write/SearchReplace 不能写 workspace 外 worktree，用 `.agent_context/<task>-stage/` 暂存 + Copy-Item 落地。
+
+### 本次交付
+- rebase 至最新 origin/main（含 audit-batch-3），CHANGELOG 冲突保留双方条目；缓存后端 10 测试 + preload 360 回归全绿；Gate 17 IPC sender 守卫 PASS（绕过 0）；ESLint/build:vue/locale-sync `--keys` 通过；PR #2262 auto-merge squash。

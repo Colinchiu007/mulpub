@@ -35,6 +35,27 @@
 
 ---
 
+# [未发布] feat(settings): 设置-通用新增「缓存清理」功能（计算并显示缓存大小、一键清理）（2026-09-23，cache-cleanup-settings）
+
+### 变更
+- **新增缓存清理服务 `electron/services/cache-service.js`**：`getCacheStats()` 递归统计 `os.tmpdir()/story2video`（合成会话目录、成片副本、selected-media、inputs）与 `os.tmpdir()/film-engineering`（影视工程 run 产物）两类缓存的字节数与文件数；`clearCache()` 逐条 best-effort 清空缓存目录内容（保留根目录），被占用条目静默跳过、不计入释放量。所有遍历/删除以 `story2video-paths.js` 的 `isPathWithin`（canonicalPath + realpathSync.native）做边界校验并跳过符号链接，**绝不触碰** `userData` 持久项目与素材库。
+- **新增 IPC 通道 `cache:stats` / `cache:clear`**（`electron/ipc-handlers/cache.js`，经 `ipc-handlers/index.js` 注册）：`cacheService` 走 `deps` 注入（生产回退 `require`），返回统一 `{ code, data }`，清理成功写 `log.info('Cache', ...)`。权限登记为 public（`license-access-control.js`）。
+- **preload / renderer 接线**：`preload/system.js` 暴露 `cacheGetStats`/`cacheClear`，加入 `access-control.js` PUBLIC_METHODS，重新生成 `index.bundle.js` 与 `home-shell-preload.bundle.js`；`src/api/publisher.js` 经 `invokeWithFallback` 封装。
+- **设置-通用页新增「缓存清理」卡片**（`LogsSettings.vue`，复用「日志清理」模式）：显示缓存总大小/文件数、两类缓存明细（`formatBytes`）、刷新与清理按钮、清理成功/失败 toast、加载骨架与空态；无缓存时清理按钮禁用。i18n `settings.cache.*` zh/en 成对。
+- **PRD 落文档** `01-docs/PRD-CACHE-CLEANUP-2026-09-23.md`：含三个调研结论（删除历史记录会清成品持久副本但不清 tmpdir 中间产物；临时文件非永久保存但会累积；确有必要新增手动回收入口）与完整功能/校验/交互/显示/提示规格。
+
+### 根因
+- 单次视频合成在 `os.tmpdir()` 产生的成片副本可达数百 MB～GB，删除历史记录仅清 `userData` 项目目录，tmpdir 中间产物靠 24h/7d 老化，期间持续占盘且用户无即时回收入口。
+
+### 验证
+- 后端 TDD：`cache-service.test.js`（roots 边界/递归统计/目录缺失/清理保留根/清理后归零/符号链接越界跳过）+ `cache.test.js`（通道注册/转发/错误码/日志，cacheService 经 deps 注入 mock）全绿。
+- 回归：`preload.test.js`（system 方法 145→147、api 总数 317→319、PUBLIC_METHODS→主进程通道 public 一致性）369 passed；`build-preload.test.js`、`home-shell-preload.test.js` passed；ESLint changed files exit 0；`build:vue` exit 0；locale-sync `--keys` PASS。
+
+### 关联
+- 分支 `cache-cleanup-settings`（D 盘 worktree 隔离）；PRD 见 `01-docs/PRD-CACHE-CLEANUP-2026-09-23.md`。
+
+---
+
 # [未发布] fix(ops-center): 预设模型排序按钮灰显锁死修复——所见即所得作用域（2026-09-23，model-sort-visible）
 
 ### 变更
