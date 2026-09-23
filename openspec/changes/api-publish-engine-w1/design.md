@@ -4,7 +4,7 @@
 
 ## Context
 
-- 逆向事实源 bundle 在盘（`D:\Data\yixiaoer-extracted\packages\main\dist\index.cjs`），W1 三平台 API 序列已有逐字切片（`01-docs/rpa-api-publish/evidence/yx-slices-v2*.txt`）。
+- 逆向事实源 bundle 在盘（`D:\Data\refpub-bundle\packages\main\dist\index.cjs`），W1 三平台 API 序列已有逐字切片（`01-docs/rpa-api-publish/evidence/yx-slices-v2*.txt`）。
 - 现有 `packages/api-publish-engine` 的 adapters 为未验证猜测骨架（含 fabricated endpoint），本次以真实链替换；`signer.js` 有远程对比后门需拆除。
 - DOM RPA 老链（`apps/desktop/electron/services/rpa-view-platforms.js`）保持可用作降级目标，本期零改动。
 
