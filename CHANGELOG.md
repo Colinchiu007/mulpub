@@ -49,6 +49,42 @@
 - 承接 PR-1 `PRD-ACCOUNT-IS-ACTIVE-BATCH-2026-09-23.md`（#2282 已合并）：同一账号卡片，启用态与登录态已正交，本次补齐第三个维度「资料真源」。
 
 ---
+# [未发布] fix(scripts): worktree 删除护栏 R4 补命令行持有者识别并删前拒删（2026-09-23，wt-remove-longpath）
+
+### Fix
+
+- **R4 只按可执行文件路径认持有者**：原停止规则只看进程的 exe 是否落在 worktree 内，漏掉 `node <wt>\node_modules\.bin\..\vitest\vitest.mjs run` 这类「exe 在外、命令行在内」的持有者——它正握着 worktree 里的文件句柄。补 `Test-PathReferencedByLine`（按命令行匹配，含边界判定：`...\wt` 不得命中 `...\wt2`；正斜杠命令行归一化；`-Root` 带尾分隔符仍匹配）与 `Resolve-ProcessAncestors`、`Split-WorktreeHolders`（显式排除自身与祖先进程，否则脚本会被自己的 `-Worktree` 参数判成持有者，永远删不掉）。
+- **可达状态集变化**：R5 不再短路后，R6 第一次真的会带着活句柄去删，留下「git 注册已摘 + 目录半删」的中间态（本次真实踩到：`apps\desktop` 被另一个会话的 `vitest run` 占用）。因此在任何破坏性动作之前加 busy-holder 扫描与 gate：命中持有者或**进程枚举失败**均以退出码 9 拒绝（无法证明空闲不等于空闲），`-WhatIf` 也提前显示 `would REFUSE`。
+- **不扩杀伤面**：R4 原有的停止规则一字未改，仍只停「可执行文件位于 worktree 内」的进程；新识别出的持有者只上报、不强杀。
+- **已知边界（写在脚本头，不假装解决）**：持有者扫描只匹配可执行文件路径与命令行，因为 `Win32_Process` 不暴露进程当前工作目录；「exe 在外、命令行不含路径、但 cwd 在 worktree 内」的进程（实测见过 IDE 终端遗留的 `git cat-file --batch-check`）仍会放行，此时 R6 会停在部分删除——状态可恢复且必然上报，处置是另行按 PEB 读 cwd 定位该管道进程后重试。
+
+### Testing
+
+- `scripts/worktree-fs-longpath.test.ps1` 在 PowerShell 5.1 下 28/28（新增 13 条断言，含上述三类边界与自身/祖先排除）；`PSParser::ParseFile` 三个脚本 parse-errors=0。
+- 真实 `-WhatIf` 打在跑着 vite dev server 的 `mp-ops-latest`：输出 `busy holders : 2` 与 `would REFUSE : 2 live holder(s) -> exit 9`，未改任何文件。
+
+### Docs
+
+- `01-docs/learnings.md` 追加「护栏修复会改变可达状态集」与「模板字面量吃掉反斜杠」两条；`.quality-gates.md` 本任务记录追加 R4 增量行与范围偏离说明。
+
+# [未发布] fix(scripts): worktree 删除护栏的长路径致盲与短路（2026-09-23，wt-remove-longpath）
+
+### Fix
+
+- **R3 链接扫描静默漏报（最危险）**：护栏原以 `cmd /c dir /aL /s /b` 查找 junction/symlink，该命令在超过 MAX_PATH 处**不报错地少报**（本机实测：14 个条目只看到 6 个，stderr 完全为空）。于是「0 个外逸链接」可能在级联删除主工作区之前绿灯放行——这条护栏存在的唯一理由就是防该级联。改为经 `\\?\` 扩展长度前缀全深度遍历，且**扫描不完整即 fail closed**（新增退出码 7）：部分扫描不再被当作安全证据。
+- **R5 短路 R6（控制流缺陷）**：`git worktree remove` 只要 rc≠0 就 `exit 1`。git 的内部顺序是先删行政登记与工作树链接文件、最后删目录，因此「目录删除失败」（`error: failed to delete ...: Filename too long`）时登记已清、只剩目录——恰好是唯一需要 R6 清理的状态，却被 R5 的 exit 挡住。改为按**观测状态**（是否仍注册 / 目录是否仍在）决策：仅 `hard_fail`（仍注册）保留原阻断行为，其余降级为警告并继续走 R6。
+- **R6 无 `\\?\` 前缀**：`[IO.Directory]::Delete($wt, $true)` 在 PowerShell 5.1（`LongPathsEnabled=0`、git `core.longpaths` 未设）下超过 260 字符必然再失败一次。改为长路径递归删除，失败再退到 `robocopy <空目录> <目标> /MIR /XJ` 镜像清空兜底（`/XJ` 使残留链接让镜像非空，从而根目录删除失败，天然 fail closed）。
+- **库解析兜底**：dot-source 时 `$PSScriptRoot` 指向调用方目录，改用 `$PSCommandPath` 取脚本自身路径；找不到 `worktree-fs-longpath.ps1` 时以退出码 8 拒绝运行，绝不允许降级成「无护栏删除」。
+
+### Testing
+
+- 新增 `scripts/worktree-fs-longpath.ps1`（长路径原语：`Get-LongPath` / `Remove-LongPathPrefix` / `Test-FsEntry` / `Test-FsReparsePoint` / `Get-FsLinkReport` / `Remove-FsLink` / `Remove-FsDirectory` / `Clear-FsDirectoryByMirror` / `Resolve-RemoveDisposition`）与 `scripts/worktree-fs-longpath.test.ps1`：Windows PowerShell 5.1 下 15 条断言全绿，含两条常驻红灯——无 `\\?\` 前缀的递归删除在同一 fixture 上**必须仍然失败**（否则 fixture 变浅、测试静默退化为 no-op），以及遍历**不得穿过** junction（`Enumerated -eq 2`）。
+- 端到端演练：构造最深 590 字符残留目录的临时 worktree，真实复现 `Filename too long` → R5 判定 `purge_residual` 并降级为警告 → R6 `io-recursive` 删除 → R7 主工作区基线一致 → exit 0；另验证无残留的正常路径（rc=0、`residual-only purge: False`）未被破坏；`PSParser::Tokenize` 0 error、产物纯 ASCII 纯 CRLF。
+
+### Docs
+
+- `scripts/README.md` 登记新脚本与新测试；`01-docs/learnings.md` 追加「漏报比报错更危险」复盘；`.quality-gates.md` 新增本任务执行记录，并回填上一任务 PR #2231 的最终 squash SHA `bbb572cef`（原行停留在首个人工证据与未来时态）。
+
 
 # [未发布] fix(security): P0-1 收口——打包版不再吃内置 DEV 信任锚（audit-remediation 收尾）
 
@@ -12520,3 +12556,4 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 真实 Electron 验收已通过：快手 passport 打开并扫码二维码就绪、同 profile 重启账号恢复、视频表单填充与目标账号选择、QM-1 打包启动验证。最终快手发布仍待用户确认后执行。
 - 修复快手扫码登录覆盖创作者中心：二维码登录与普通网页登录共用 auth-login 虚拟标签；扫码页在 TabBar/NavBar 下方全屏显示，启动时隐藏原创作者中心，成功、取消或超时后仅清理扫码 View 并恢复原标签。
 - 收紧百家号/快手的发布成功证据：历史 localStorage、当前 URL、旧链接和页面正文不再可推断本次发布；仅使用当前发布响应的受限 ID 或标题/时间窗口核验的作品 artifact。发布 diagnostics 只保留去 query 的请求摘要，原始响应、token 与用户正文不会离开主进程捕获边界；发布点击异常会释放网络监听。
+
