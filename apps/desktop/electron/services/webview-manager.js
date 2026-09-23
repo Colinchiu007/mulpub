@@ -169,6 +169,12 @@ class WebviewManager extends EventEmitter {
     this._sidebarWidth = SIDEBAR_WIDTH_DEFAULT
     // 壳态（T0-6b）：'browser'（浏览器壳，默认）| 'workbench'（工作台壳态，内嵌视图互斥隐藏）
     this._shellMode = 'browser'
+    // 弹窗互斥（2026-09-23 Bug 修复）：活动浮层 owner 集合。WebContentsView 是原生图层，
+    // 永远压在主窗口 DOM 之上（z-index 无效）；应用级模态浮层（设置弹窗/升级弹窗/关闭
+    // 确认框）打开期间必须挂起全部内嵌视图，否则浮层被外部网页整块盖住——用户看到的是
+    // 「点设置后屏幕闪一下、弹窗没出现」。
+    /** @type {Set<string>} */
+    this._overlaySuspensions = new Set()
   }
 
   // ─── 虚拟登录标签集成 ──────────────────────────
@@ -445,9 +451,9 @@ class WebviewManager extends EventEmitter {
     }
     var view = new WebContentsView({ webPreferences: viewWebPreferences })
 
-    // 隐藏其他标签页，显示当前
+    // 隐藏其他标签页，显示当前；弹窗互斥挂起期间新标签以隐藏态挂载
     self._hideAllTabs()
-    view.setVisible(true)
+    view.setVisible(!self.isEmbeddedViewsSuspended())
     self.mainWindow.contentView.addChildView(view)
 
     // 设置初始状态
@@ -640,9 +646,9 @@ class WebviewManager extends EventEmitter {
       self._tabViews.get(self._activeTabId).setVisible(false)
     }
 
-    // 显示目标标签
+    // 显示目标标签（弹窗互斥挂起期间保持隐藏，浮层关闭后由 _repositionAll 归位）
     var targetView = self._tabViews.get(tabId)
-    targetView.setVisible(true)
+    targetView.setVisible(!self.isEmbeddedViewsSuspended())
     self._activeTabId = tabId
 
     // 调整位置
@@ -1149,6 +1155,66 @@ class WebviewManager extends EventEmitter {
     return this._shellMode === 'workbench'
   }
 
+  // ─── 弹窗互斥（内嵌视图挂起，2026-09-23 Bug 修复）────────────────
+  // 应用级模态浮层打开期间隐藏全部内嵌视图（浏览器标签 + 登录视图 + 扫码视图），
+  // 关闭后恢复。ref-count 语义：多个浮层叠加挂起时，最后一个释放才恢复，
+  // 避免先关闭的浮层把仍被上层浮层压住的内嵌视图错误恢复。
+
+  isEmbeddedViewsSuspended () {
+    return this._overlaySuspensions.size > 0
+  }
+
+  /**
+   * 浮层打开 → 挂起内嵌视图。
+   * @param {string} owner 浮层标识（如 'settings-dialog'），重复挂起幂等
+   * @returns {boolean} 是否新增了挂起（false = owner 非法或已在挂起集合中）
+   */
+  suspendEmbeddedViewsForOverlay (owner) {
+    if (typeof owner !== 'string' || !owner) {
+      log.warn('WebviewManager', 'Invalid overlay suspend owner ignored')
+      return false
+    }
+    if (this._overlaySuspensions.has(owner)) return false
+    const first = this._overlaySuspensions.size === 0
+    this._overlaySuspensions.add(owner)
+    if (first) {
+      this._hideAllTabs()
+      if (this._authViewManager && typeof this._authViewManager.hide === 'function') {
+        this._authViewManager.hide()
+      }
+      if (this._qrCodeLogin && typeof this._qrCodeLogin.hide === 'function') {
+        this._qrCodeLogin.hide()
+      }
+      log.info('WebviewManager', 'Embedded views suspended for overlay: ' + owner)
+    }
+    return true
+  }
+
+  /**
+   * 浮层关闭 → 释放挂起；计数归零且处于浏览器壳时恢复显示并重定位。
+   * 未知 owner 释放无效（防计数漂移）；workbench 壳态下不恢复（由 setShellMode 驱动）。
+   * @param {string} owner
+   * @returns {boolean} 是否真正恢复了内嵌视图
+   */
+  releaseEmbeddedViewsForOverlay (owner) {
+    if (typeof owner !== 'string' || !this._overlaySuspensions.has(owner)) {
+      log.warn('WebviewManager', 'Unknown overlay release ignored: ' + owner)
+      return false
+    }
+    this._overlaySuspensions.delete(owner)
+    if (this._overlaySuspensions.size > 0) return false
+    if (this._shellMode !== 'workbench') {
+      // 登录标签活动时恢复登录视图（挂起期间它被 hide 掉了，_repositionAll 不接管其可见性）
+      if (this._activeTabId === AUTH_TAB_ID && this._authTabInfo) {
+        const loginViewManager = this._getActiveLoginViewManager()
+        if (loginViewManager && typeof loginViewManager.show === 'function') loginViewManager.show()
+      }
+      this._repositionAll()
+    }
+    log.info('WebviewManager', 'Embedded views resumed after overlay: ' + owner)
+    return true
+  }
+
   setSidebarWidth (width) {
     // 守卫：宽度必须严格 > 0。width <= 0 会让内嵌视图 x 落到 0、覆盖 x=0 的 MpSidebar，
     // 拦截侧边栏全部点击（2026-09-15「平台链接浮层盖住侧边栏」同类 Bug 的防御层之一）。
@@ -1289,6 +1355,12 @@ class WebviewManager extends EventEmitter {
    */
   _repositionAll () {
     if (!this.mainWindow) return
+    // 弹窗互斥：浮层挂起期间只允许调整位置不允许恢复可见性（2026-09-23 Bug 修复），
+    // 挂起态由 releaseEmbeddedViewsForOverlay / setShellMode('browser') 归位时恢复。
+    if (this.isEmbeddedViewsSuspended()) {
+      this._hideAllTabs()
+      return
+    }
     var sidebarWidth = this._sidebarWidth || SIDEBAR_WIDTH_DEFAULT
 
     // 登录标签活动态：登录视图由 AuthViewManager 自行定位（全屏 y=76），
@@ -1507,6 +1579,19 @@ class WebviewManager extends EventEmitter {
       try {
         self.setShellMode(mode)
         return { code: 0 }
+      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
+    }))
+
+    // ─── 弹窗互斥（2026-09-23）：应用级浮层打开/关闭时挂起/恢复内嵌视图 ───
+    ipcMain.handle('page-manager:suspend-embedded-views', withSenderCheck(function (_, owner) {
+      try {
+        return { code: 0, data: { suspended: self.suspendEmbeddedViewsForOverlay(owner) } }
+      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
+    }))
+
+    ipcMain.handle('page-manager:resume-embedded-views', withSenderCheck(function (_, owner) {
+      try {
+        return { code: 0, data: { resumed: self.releaseEmbeddedViewsForOverlay(owner) } }
       } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
 

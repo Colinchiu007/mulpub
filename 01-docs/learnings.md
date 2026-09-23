@@ -15540,3 +15540,27 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - 陷阱：生成器里在模板字面量中写反斜杠时，`\'` 之类的序列被当作转义处理，落盘结果少一层反斜杠。本次 PowerShell 侧的 `$Root -replace '/', '\'` 变成 `-replace '/', ''`、`.TrimEnd('\')` 变成 `.TrimEnd('')`：函数照旧解析通过、跑起来不报错，只是不再剥尾分隔符——语法检查和 `PSParser::ParseFile` 都发现不了。最终是新增的那条边界用例（`-Root` 带尾分隔符必须仍匹配）把它钉死。同一个坑本轮还以另一种形式复现：文档生成脚本自身因反引号/反斜杠混排直接语法报错，改为「markdown 片段文件 + 无转义拼接器」后才干净落地。
 - 规则：生成含反斜杠的代码时用 `String.fromCharCode(92)` 拼接或写占位符再替换；纯文本/文档内容不要塞进 JS 字符串，落成片段文件按字面读取。写完立刻「读回文件 + 断言实际字节/关键行」，不要相信写入调用返回成功。
 - 配套教训（同一次事故）：对同一文件的多处插入必须基于演进中的缓冲区顺序应用——各自基于原始快照会让最后一次写覆盖前几次（`safe-worktree-remove.ps1` 一度只剩 1/3 的改动）；保真校验也要从「原内容是否为子串」改成「原内容逐行是否为子序列」，因为中间插入天然破坏连续性，用子串校验会把正确的补丁判成失败。
+
+## settings-modal-webview-occlusion-2026-09-23：弹窗互斥——内嵌 WebContentsView 遮挡应用级浮层修复（分支 settings-modal-webview-occlusion，PR #2294）
+
+### 根因（第一性）
+- `WebContentsView`（浏览器/登录标签的外部网页）是主进程原生合成图层，**永远压在渲染进程 DOM 之上，CSS z-index 无效**。活动标签为外部网页时打开 SettingsDialog/UpgradeModal/ElMessageBox 确认框，浮层 DOM 正常挂载但被整块盖住——用户感知「点设置后屏幕闪一下、弹窗没出现」。
+- 可见性链路此前只有两个驱动源：标签切换（setVisible）与 T0-6b 壳态互斥（setShellMode），都不覆盖「渲染层弹模态浮层」→ 归类「流程缺失 + 契约缺失」，单测/E2E/视觉基线全部逃逸（原生层不在 DOM 树内，选择器看不到遮挡）。
+
+### 实现范式（可复用）
+- 与壳态互斥同构的 **ref-count 挂起/恢复**：主进程 `_overlaySuspensions: Set<owner>`，0→1 才 `_hideAllTabs()`+hide 登录/扫码视图，归零且非 workbench 才恢复；**布尔量不够**——并发浮层先关者会把仍被上层压住的网页错误恢复。
+- 释放必须走 `finally`（确认框三条出口：确认/取消/异常）；未知 owner 释放无效（防计数漂移）；挂起期间 `_repositionAll`/`createNewTabPage`/`switchToTab` 全部尊重挂起态（否则 resize 会把网页拉回浮层之上）。
+- 渲染层统一经 `useEmbeddedViewSuspension.js` composable（异常静默降级，绝不阻断浮层本身）；IPC 走 `withSenderCheck`；改 preload 源后必须重打包 `index.bundle.js` 并把 bundle 内容纳入测试断言（拦截遗漏）。
+- 通查纪律：模态（有交互闭环诉求）才接入；瞬时 toast/浮层刻意不接入（挂起致闪烁、生命周期短），显式记录为已知残余限制而非静默遗漏。
+
+### 逃逸链与堵口（本次踩坑）
+- **PowerShell 5 `Set-Content -Encoding UTF8` 写 BOM**：`git commit -F` 把 BOM 并入标题首字（GitHub 显示「锘縀fix…」），须无 BOM UTF-8 写消息文件，已污染用 `git commit --amend -F` 修正。
+- **harness 内联命令引号拆解**：`$_`、`node -e "...method(...)..."_ 内联复杂命令被外层双引号拆坏（CommandNotFoundException/SyntaxError），一律落地 .js/.ps1 脚本再执行；JS 字符串内容含内嵌单引号会截断字面量（SyntaxError: Unexpected string）。
+- **git/node stderr 假失败**：push 的 `remote:` 提示、worktree 的 `Preparing worktree` 走 stderr 被 PowerShell 升级为 NativeCommandError，判定成败看副作用（`git ls-remote`/`rev-parse`）。
+- 守卫测试双层模式（静态源码正则链路断言 + `Object.create(prototype)` mock 行为断言，同 shell-mode-6b.test.js）能以零 Electron 环境成本锁住「主进程+preload+bundle+渲染层」全链路，任何一环断裂即红。
+
+### 验证
+- TDD 红→绿：`overlay-view-suspension.test.js` 实现前 10 失败、实现后 10 通过；desktop 全量 627 files / 11240 tests 通过；QM-1 `electron-builder --win --dir` exit 0；PR #2294 auto-merge squash。契约文档 `01-docs/PRD-OVERLAY-VIEW-SUSPENSION-2026-09-23.md`，AGENTS.md QM-2 新增「应用级浮层弹窗互斥合同」门禁。
+
+### EverOS 沉淀契约修正
+- `POST /api/v1/memory/add` 顶层**必填 `session_id`**（缺失 422 "Field required: session_id"，既有记忆只记了 message 级 sender_id/timestamp）；add 成功后调 `/api/v1/memory/flush`（同 session_id）返回 `status:"extracted"`。
