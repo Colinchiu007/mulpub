@@ -59,7 +59,9 @@ class BilibiliAdapter extends BasePlatformAdapter {
 
   async uploadVideo(td, cookie, cancelToken) {
     const videoPath = td.video && (td.video.path || td.video.localPath) || td.videoPath || td.filePath;
-    if (!videoPath || !fs.existsSync(videoPath)) { const e = new Error("B站上传：视频文件不存在 " + videoPath); e.code = "BILI_NO_FILE"; throw e; }
+    // 空上传契约：与同级适配器一致返回 null（不抛异常）；仅当给了路径却文件缺失才报错
+    if (!videoPath) return null;
+    if (!fs.existsSync(videoPath)) { const e = new Error("B站上传：视频文件不存在 " + videoPath); e.code = "BILI_NO_FILE"; throw e; }
     const size = fs.statSync(videoPath).size;
     const mid = pickCookieValue(cookie, "DedeUserID");
     const ts = String(Date.now());
