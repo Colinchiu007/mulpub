@@ -697,6 +697,23 @@ spacer（首次放行、17min 节流零请求 waitMs、越 18min 再放行、不
 - 回归：phase4-events / ipc-handlers.publish / publish-history 共 47 测绿；ESLint（Gate 11）无 error。测试全程 mock `publishViaApi`，不外发、无品牌词。
 - 待办（下一子切片，需桌面应用活体视觉验收）：§6.1 发布记录「发布方式」徽标三态渲染 + 详情分片历史 + `publish.api.*` locale 成对（zh/en，Gate 7）。
 
+### 12.10 §6.1 发布方式徽标三态渲染 + publish.api.* i18n（前端落地，随本 PR）
+
+> 定位：§12.9 后端已把发布方式 `mode`（`api`/`dom`）随 `task.result` 写入 history。本节把它渲染为发布记录卡片的「发布方式」徽标，并补齐 `publish.api.*` 文案（zh/en 成对，Gate 7）。
+
+**交互与显示项**：
+- 位置：`PublishHistory.vue` 记录卡 `.record-delivery` 行，紧随状态徽标（成功/失败/待处理）与平台名之后。
+- 三态取值：`api` → 「API 直连」（蓝 `#1d4ed8`/底 `#eaf2fe`）；`dom` → 「RPA 浏览器」（紫 `#5b21b6`/底 `#f1f0f7`）；`fallback` → 「降级发布」（琥珀 `#9a6700`/底 `#fff6df`，§5 服务层 api-then-dom 降级接入后启用）。
+- 数据源：`record.result.mode`（`deliveryModeValue`）；非 {api,dom,fallback} 或缺失 → 空串 → **不渲染徽标**（旧记录/RPA 历史无 mode 时保持原样，向后兼容）。
+- 悬停提示（`title`，`deliveryModeHint`）：`api`=「通过平台官方 HTTP API 直连发布」；`dom`=「通过隐形浏览器自动化发布」；`fallback`=「API 发布不可用，已自动降级为浏览器发布」。
+- 可测试锚点：`data-testid="delivery-mode-<recordId>"`。
+
+**i18n 文案（publish.api.*，zh/en 成对）**：`modeApi`/`modeDom`/`modeFallback`（徽标标签）+ `modeApiHint`/`modeDomHint`/`modeFallbackHint`（提示）。zh 用中文、en 用英文，`i18n.test.js` 逐键校验成对（Gate 7）。
+
+**测试与验证**：`PublishHistory.test.js` 新增 3 例（`record.result.mode=api` 渲染「API 直连」、`mode=dom` 渲染「RPA 浏览器」、无 `result.mode` 不渲染徽标），文件内 28 测全绿（原 25 + 新 3）；`i18n.test.js` + `model-providers-copy.test.js` 共 22 测绿（zh/en 成对）；ESLint（Gate 11）无 error；Gate 12 品牌残留扫描通过。渲染为 jsdom DOM 级功能验证（徽标存在性 + 文案 + 条件显隐），像素级视觉签核随 §7 活体轮在打包应用内复核。
+
+**待办**：§6.1 余下「详情分片历史」（记录详情弹窗按平台分片展示各子发布结果与 mode）随 §7 活体轮一并落地；`fallback` 徽标态待 §5 服务层 api-then-dom 降级返回 `mode: fallback` 后自然生效。
+
 ## 附：验收记录（活体证据回写区，随波更新）
 
 | 波次 | 平台 | 日期 | 作品ID | 链接 | 截图 | 降级 | 结论 |

@@ -170,6 +170,14 @@ export default {
     publishing: 'Publishing...',
     success: 'Published successfully',
     failed: 'Publish failed',
+    api: {
+      modeApi: 'Direct API',
+      modeDom: 'Browser RPA',
+      modeFallback: 'Fallback',
+      modeApiHint: 'Published directly via the platform official HTTP API',
+      modeDomHint: 'Published via headless browser automation',
+      modeFallbackHint: 'API publish unavailable; automatically fell back to browser publish',
+    },
   },
   accounts: {
     add: 'Add Account',

@@ -570,3 +570,46 @@ describe('PublishHistory', () => {
     expect(recordMainRule).not.toMatch(/calc\(/)
   })
 })
+
+describe('PublishHistory 发布方式徽标（§6.1）', () => {
+  beforeEach(() => {
+    i18n.global.locale.value = 'zh'
+    vi.clearAllMocks()
+    identityAuthenticatedRef.value = false
+  })
+
+  async function mountWithMode (mode) {
+    historyListMock.mockReset().mockResolvedValue({
+      code: 0,
+      data: {
+        total: 1,
+        records: [{
+          id: 'rec-mode', title: '图文文章', platform: 'baijiahao', status: 'success',
+          timestamp: '2026-09-23T08:00:00.000Z',
+          ...(mode ? { result: { mode } } : {}),
+        }],
+      },
+    })
+    const wrapper = mount(PublishHistory, { global: { plugins: [i18n] } })
+    await flushPromises()
+    await nextTick()
+    return wrapper
+  }
+
+  it('record.result.mode=api 显示「API 直连」徽标', async () => {
+    const wrapper = await mountWithMode('api')
+    const badge = wrapper.find('[data-testid="delivery-mode-rec-mode"]')
+    expect(badge.exists()).toBe(true)
+    expect(badge.text()).toContain('API 直连')
+  })
+
+  it('record.result.mode=dom 显示「RPA 浏览器」徽标', async () => {
+    const wrapper = await mountWithMode('dom')
+    expect(wrapper.find('[data-testid="delivery-mode-rec-mode"]').text()).toContain('RPA 浏览器')
+  })
+
+  it('无 result.mode 不显示发布方式徽标', async () => {
+    const wrapper = await mountWithMode(null)
+    expect(wrapper.find('[data-testid="delivery-mode-rec-mode"]').exists()).toBe(false)
+  })
+})
