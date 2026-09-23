@@ -1493,3 +1493,583 @@ Expected: 两个 exit 0
 git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 add packages/api-publish-engine/src/auth/subscription-service.js packages/api-publish-engine/test/subscription-service.test.js
 git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 commit -m "feat(member-center): P1-T4 订阅服务（核销幂等/后台开通/到期降级/视图）"
 ```
+
+---
+
+## Task 5：runtime 与 CLI 接线（subscriptionService 注入）
+
+**Files:**
+- Modify: `packages/api-publish-engine/src/auth/logto-runtime.js`（第 125 行 `entitlementProvider` 创建之后；返回对象 139-149 行）
+- Modify: `packages/api-publish-engine/bin/publish-api`（第 101 行 `entitlementSigner` 注入行之后）
+- Test: `packages/api-publish-engine/test/logto-runtime.test.js`（追加子测试）
+
+- [ ] **Step 1: 写失败测试**
+
+在 `packages/api-publish-engine/test/logto-runtime.test.js` 最后一个 `test(...)` 之前追加（沿用文件已有的 fake repository 模式）：
+
+```js
+test('createLogtoRuntime 组装 subscriptionService', async (t) => {
+  await t.test('repository 就绪时返回 SubscriptionService 实例', async () => {
+    const { createLogtoRuntime } = require('../src/auth/logto-runtime')
+    const { SubscriptionService } = require('../src/auth/subscription-service')
+    const fakeRepository = {
+      async assertReady() { return { database: 'ready', schema: 'ready' } },
+      async close() {},
+    }
+    const runtime = await createLogtoRuntime({
+      env: { IDENTITY_AUTH_ENABLED: 'true', LOGTO_ENDPOINT: 'https://auth.example.com', LOGTO_APP_ID: 'app' },
+      repository: fakeRepository,
+      verifier: { verify: async () => ({ subject: 's' }) },
+    })
+    assert.ok(runtime.subscriptionService instanceof SubscriptionService)
+    assert.strictEqual(runtime.subscriptionService.repository, fakeRepository)
+  })
+})
+```
+
+注：若文件头部 require 尚无 `test`/`assert`，沿用存量引入（存量文件已引入 node:test 与 assert）；若 `createLogtoRuntime` 对 env 有必填校验（如 webhook/introspection），参照存量测试中最小配置场景补全 env 字段，断言目标不变。
+
+- [ ] **Step 2: 运行确认失败**
+
+Run: `node packages/api-publish-engine/test/logto-runtime.test.js`
+Expected: FAIL — `runtime.subscriptionService` 为 undefined
+
+- [ ] **Step 3: 接线实现**
+
+修改 `packages/api-publish-engine/src/auth/logto-runtime.js`：
+
+1. 文件头部 require 区追加：
+
+```js
+const { SubscriptionService } = require('./subscription-service')
+```
+
+2. 第 125 行 `const entitlementProvider = options.entitlementProvider || new PostgresEntitlementProvider(repository)` 之后追加：
+
+```js
+    const subscriptionService = new SubscriptionService({
+      repository,
+      planOverrides: options.planOverrides || null,
+    })
+```
+
+3. 返回对象（139-149 行）在 `entitlementSigner,` 之后插入一行：
+
+```js
+      subscriptionService,
+```
+
+修改 `packages/api-publish-engine/bin/publish-api`：第 101 行 `entitlementSigner: identityRuntime && identityRuntime.entitlementSigner,` 之后插入：
+
+```js
+    subscriptionService: identityRuntime && identityRuntime.subscriptionService,
+```
+
+- [ ] **Step 4: 运行确认通过**
+
+Run：
+```powershell
+node packages/api-publish-engine/test/logto-runtime.test.js
+node scripts/run-tests.js
+```
+Expected: exit 0（全量无存量回归）
+
+- [ ] **Step 5: Commit**
+
+```powershell
+git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 add packages/api-publish-engine/src/auth/logto-runtime.js packages/api-publish-engine/bin/publish-api packages/api-publish-engine/test/logto-runtime.test.js
+git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 commit -m "feat(member-center): P1-T5 runtime/CLI 接线 subscriptionService"
+```
+
+---
+
+## Task 6：HTTP 端点与 /me 会员聚合
+
+**Files:**
+- Modify: `packages/api-publish-engine/src/publish-api-server.js`（头部 require；构造器 100 行附近；`_requiredScope` 384-391；`_buildEntitlement` 540 行后；`/api/v1/me` 处理器 697-727；新路由插在 `/api/v1/me` 处理器之后）
+- Test: `packages/api-publish-engine/test/member-commerce-api.test.js`
+
+端点合同（scope 见括号）：
+| 方`法` | 路径 | scope | 说明 |
+|---|---|---|---|
+| GET | `/api/v1/plans` | profile:read | 价目目录（矩阵+价格） |
+| POST | `/api/v1/redeem` | profile:write | 兑换码核销 |
+| GET | `/api/v1/me` | profile:read | 既有响应新增 `membership`（fail-soft） |
+| GET | `/api/v1/me/orders` | profile:read | 订单列表 |
+| GET | `/api/v1/me/notifications` | profile:read | 通知列表+未读数 |
+| POST | `/api/v1/me/notifications/read` | profile:write | 全部标已读 |
+| GET | `/api/v1/me/sessions` | profile:read | 活跃设备会话 |
+| POST | `/api/v1/me/sessions/revoke-others` | profile:write | 下线其它设备 |
+| PATCH | `/api/v1/me/profile` | profile:write | 改 displayName/avatarUrl |
+| POST | `/api/v1/admin/member/grant` | admin:users | 后台开通 |
+| POST | `/api/v1/admin/member/redeem-codes` | admin:users | 批量生成兑换码 |
+
+`CommerceError{code,status}` 由 `_commerceFailure` 直接映射 HTTP 状态码；`subscriptionService` 未配置时会员端点回 503 `SUBSCRIPTION_SERVICE_NOT_CONFIGURED`，`/me` 聚合缺失 `membership` 字段但主响应不变（fail-soft）。
+
+注：admin grant 的 `userId` 不存在时由 `identity_subscriptions` 外键拦截，P1 接受 500（ops-center P4 从用户列表选择，不手输 id）；阶段 2 再补 `USER_NOT_FOUND` 预检。
+
+- [ ] **Step 1: 写失败测试**
+
+创建 `packages/api-publish-engine/test/member-commerce-api.test.js`（沿用 `publish-api-logto-auth.test.js` 的 `TestPublishApiServer` + 真实 HTTP 风格）：
+
+```js
+const assert = require('assert')
+const http = require('http')
+const { TestPublishApiServer: PublishApiServer } = require('./test-publish-api-server')
+
+function request(port, method, path, token, body, extraHeaders = {}) {
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      hostname: '127.0.0.1', port, method, path,
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...extraHeaders },
+    }, (res) => {
+      let data = ''
+      res.on('data', (chunk) => { data += chunk })
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, body: data ? JSON.parse(data) : null }) }
+        catch (error) { reject(new Error(`响应非 JSON (${res.statusCode}): ${data.slice(0, 200)}`)) }
+      })
+    })
+    req.on('error', reject)
+    if (body) req.write(JSON.stringify(body))
+    req.end()
+  })
+}
+
+function createRepositoryStub() {
+  return {
+    calls: [],
+    async findBySubject(provider, subject) {
+      return { id: 'business-user-1', auth_provider: provider, auth_subject: subject, status: 'active', display_name: '用户甲' }
+    },
+    async create() { throw new Error('存量测试不应创建用户') },
+    async countUnreadNotifications(userId) { this.calls.push(['countUnread', userId]); return 2 },
+    async listOrders(userId, options) { this.calls.push(['listOrders', userId, options]); return [{ id: 'ord-1', plan: 'pro', amount: 0, channel: 'redeem', status: 'paid' }] },
+    async listNotifications(userId, options) { this.calls.push(['listNotifications', userId, options]); return [{ id: 'ntf-1', title: '公告', read_at: null }] },
+    async markNotificationsRead(userId) { this.calls.push(['markRead', userId]); return ['ntf-1'] },
+    async listActiveSessions(userId) { this.calls.push(['listSessions', userId]); return [{ id: 'ses-x', device_id: 'device-a' }] },
+    async upsertSession(record) { this.calls.push(['upsertSession', record]); return { id: 'ses-x', ...record } },
+    async revokeOtherSessions(userId, keepDeviceId) { this.calls.push(['revokeOthers', userId, keepDeviceId]); return ['ses-old'] },
+    async updateProfile(id, patch) { this.calls.push(['updateProfile', id, patch]); return { id, display_name: patch.display_name, avatar_url: patch.avatar_url } },
+  }
+}
+
+function createServiceStub(overrides = {}) {
+  const repository = createRepositoryStub()
+  return {
+    repository,
+    planOverrides: null,
+    async getSubscriptionView(userId) {
+      if (overrides.subscriptionFails) throw new Error('会员视图不可用')
+      return { plan: 'standard', status: 'active', periodStart: '2026-09-01T00:00:00Z', periodEnd: '2026-10-01T00:00:00Z', entitlement: { plan: 'standard', features: ['cloud_publish'], quota: {}, limits: {} } }
+    },
+    async getUsageView() { return { plan: 'standard', features: [{ feature: 'cloud_publish', used: 1, limit: 1500 }] } },
+    async redeem({ userId, code }) {
+      if (overrides.redeemNotFound) throw Object.assign(new Error('不存在'), { code: 'REDEEM_CODE_NOT_FOUND', status: 404 })
+      return { idempotent: false, code: 'ABCD-EFGH-JKMN', plan: 'pro' }
+    },
+    async grant({ userId, plan }) {
+      if (overrides.grantInvalid) throw Object.assign(new Error('档位'), { code: 'PLAN_INVALID', status: 400 })
+      return { plan, order: { id: 'ord-admin', channel: 'admin_grant' } }
+    },
+    async createRedeemBatch({ count }) { return { batch: 'b1', codes: ['ABCD-EFGH-JKMN'] } },
+  }
+}
+
+function createVerifier() {
+  return {
+    verify: async (token) => {
+      if (token === 'member-read') return { subject: 'sub-me', scopes: ['profile:read'] }
+      if (token === 'member-write') return { subject: 'sub-me', scopes: ['profile:read', 'profile:write'] }
+      if (token === 'admin-token') return { subject: 'sub-admin', scopes: ['admin:users'] }
+      if (token === 'publish-token') return { subject: 'sub-me', scopes: ['publish:read', 'publish:submit'] }
+      throw Object.assign(new Error('AUTH_TOKEN_INVALID'), { code: 'AUTH_TOKEN_INVALID', status: 401 })
+    },
+  }
+}
+
+async function main() {
+  // 场景 1：完整会员链路
+  const service = createServiceStub()
+  const server = new PublishApiServer({
+    dryRun: true,
+    logtoVerifier: createVerifier(),
+    businessIdentityRepository: createRepositoryStub(),
+    entitlementProvider: {
+      async getForUser() { return { plan: 'standard', features: ['cloud_publish'], quota: { cloud_publish_monthly: 1500 }, limits: { daily_publish: 50 } } },
+    },
+    subscriptionService: service,
+  })
+  await server.start(0)
+  const port = server._server.address().port
+  try {
+    const plans = await request(port, 'GET', '/api/v1/plans', 'member-read')
+    assert.strictEqual(plans.status, 200)
+    assert.strictEqual(plans.body.plans.length, 3)
+    assert.strictEqual(plans.body.plans[1].priceMonthlyCents, 2900)
+    console.log('  ✅ GET /api/v1/plans 价目目录')
+
+    const me = await request(port, 'GET', '/api/v1/me', 'member-read', null, { 'X-Device-ID': 'device-aaaaaaaaaaaa' })
+    assert.strictEqual(me.status, 200)
+    assert.strictEqual(me.body.membership.subscription.plan, 'standard')
+    assert.strictEqual(me.body.membership.unreadNotifications, 2)
+    assert.strictEqual(me.body.membership.usage.features[0].feature, 'cloud_publish')
+    assert.deepStrictEqual(me.body.entitlement.limits, { daily_publish: 50 }, 'limits 必须透传')
+    assert.ok(service.repository.calls.some((call) => call[0] === 'upsertSession' && call[1].deviceId === 'device-aaaaaaaaaaaa'), '/me 应登记设备会话')
+    console.log('  ✅ GET /api/v1/me 聚合 membership + 设备登记 + limits 透传')
+
+    const meNoDevice = await request(port, 'GET', '/api/v1/me', 'member-read')
+    assert.strictEqual(meNoDevice.status, 200, '缺 X-Device-ID 不影响 /me')
+    console.log('  ✅ /me 无设备头不受影响')
+
+    const orders = await request(port, 'GET', '/api/v1/me/orders', 'member-read')
+    assert.strictEqual(orders.status, 200)
+    assert.strictEqual(orders.body.orders[0].id, 'ord-1')
+    const notifications = await request(port, 'GET', '/api/v1/me/notifications', 'member-read')
+    assert.strictEqual(notifications.status, 200)
+    assert.strictEqual(notifications.body.unreadCount, 2)
+    const markRead = await request(port, 'POST', '/api/v1/me/notifications/read', 'member-write', {})
+    assert.strictEqual(markRead.status, 200)
+    assert.deepStrictEqual(markRead.body.ids, ['ntf-1'])
+    const sessions = await request(port, 'GET', '/api/v1/me/sessions', 'member-read')
+    assert.strictEqual(sessions.status, 200)
+    assert.strictEqual(sessions.body.sessions[0].device_id, 'device-a')
+    const revoke = await request(port, 'POST', '/api/v1/me/sessions/revoke-others', 'member-write', { deviceId: 'device-a' })
+    assert.deepStrictEqual(revoke.body.revoked, ['ses-old'])
+    const profile = await request(port, 'PATCH', '/api/v1/me/profile', 'member-write', { displayName: '新名字' })
+    assert.strictEqual(profile.status, 200)
+    assert.strictEqual(profile.body.user.displayName, '新名字')
+    console.log('  ✅ orders/notifications/sessions/profile 会员端点')
+
+    const readOnlyWrite = await request(port, 'PATCH', '/api/v1/me/profile', 'member-read', { displayName: 'x' })
+    assert.strictEqual(readOnlyWrite.status, 403, 'profile:read 不能写资料')
+    const redeemWithRead = await request(port, 'POST', '/api/v1/redeem', 'member-read', { code: 'ABCD-EFGH-JKMN' })
+    assert.strictEqual(redeemWithRead.status, 403, '核销需要 profile:write')
+    const publishScopeRejected = await request(port, 'GET', '/api/v1/plans', 'publish-token')
+    assert.strictEqual(publishScopeRejected.status, 403, 'publish scope 不能读价目')
+    console.log('  ✅ scope 边界（读/写/无关 scope 隔离）')
+
+    const redeem = await request(port, 'POST', '/api/v1/redeem', 'member-write', { code: 'abcd-efgh-jkmn' })
+    assert.strictEqual(redeem.status, 200)
+    assert.strictEqual(redeem.body.plan, 'pro')
+    console.log('  ✅ POST /api/v1/redeem 成功核销')
+
+    const adminGrant = await request(port, 'POST', '/api/v1/admin/member/grant', 'admin-token', { userId: 'u-x', plan: 'standard', durationDays: 30 })
+    assert.strictEqual(adminGrant.status, 200)
+    assert.strictEqual(adminGrant.body.order.channel, 'admin_grant')
+    const adminBatch = await request(port, 'POST', '/api/v1/admin/member/redeem-codes', 'admin-token', { plan: 'pro', durationDays: 365, count: 1 })
+    assert.strictEqual(adminBatch.status, 200)
+    assert.strictEqual(adminBatch.body.codes.length, 1)
+    const memberAdminRejected = await request(port, 'POST', '/api/v1/admin/member/grant', 'member-write', { userId: 'u-x', plan: 'standard', durationDays: 30 })
+    assert.strictEqual(memberAdminRejected.status, 403, '非 admin scope 不得开通')
+    console.log('  ✅ admin 会员运营端点')
+
+    // 存量回归：发布链路不受会员路由影响
+    const publish = await request(port, 'POST', '/api/v1/publish', 'publish-token', { platform: 'zhihu', title: 'x' })
+    assert.strictEqual(publish.status, 200)
+    console.log('  ✅ 发布链路无回归')
+  } finally {
+    await server.stop()
+  }
+
+  // 场景 2：错误映射与 fail-soft
+  const failServer = new PublishApiServer({
+    dryRun: true,
+    logtoVerifier: createVerifier(),
+    businessIdentityRepository: createRepositoryStub(),
+    entitlementProvider: { async getForUser() { return { plan: 'free', features: [] } } },
+    subscriptionService: createServiceStub({ redeemNotFound: true, subscriptionFails: true }),
+  })
+  await failServer.start(0)
+  const failPort = failServer._server.address().port
+  try {
+    const notFound = await request(failPort, 'POST', '/api/v1/redeem', 'member-write', { code: 'ABCD-EFGH-JKMN' })
+    assert.strictEqual(notFound.status, 404)
+    assert.strictEqual(notFound.body.error, 'REDEEM_CODE_NOT_FOUND')
+    const meDegraded = await request(failPort, 'GET', '/api/v1/me', 'member-read')
+    assert.strictEqual(meDegraded.status, 200, '会员聚合失败不得阻断 /me 主响应')
+    assert.strictEqual(meDegraded.body.user.id, 'business-user-1')
+    assert.strictEqual(meDegraded.body.membership, undefined)
+    console.log('  ✅ CommerceError 状态码映射 + membership fail-soft')
+  } finally {
+    await failServer.stop()
+  }
+
+  // 场景 3：未配置商务服务的降级
+  const bareServer = new PublishApiServer({
+    dryRun: true,
+    logtoVerifier: createVerifier(),
+    businessIdentityRepository: createRepositoryStub(),
+    entitlementProvider: { async getForUser() { return { plan: 'free', features: [] } } },
+  })
+  await bareServer.start(0)
+  const barePort = bareServer._server.address().port
+  try {
+    const bareMe = await request(barePort, 'GET', '/api/v1/me', 'member-read')
+    assert.strictEqual(bareMe.status, 200)
+    assert.strictEqual(bareMe.body.membership, undefined)
+    const barePlans = await request(barePort, 'GET', '/api/v1/plans', 'member-read')
+    assert.strictEqual(barePlans.status, 200, 'plans 不依赖 subscriptionService')
+    const bareRedeem = await request(barePort, 'POST', '/api/v1/redeem', 'member-write', { code: 'ABCD-EFGH-JKMN' })
+    assert.strictEqual(bareRedeem.status, 503)
+    assert.strictEqual(bareRedeem.body.error, 'SUBSCRIPTION_SERVICE_NOT_CONFIGURED')
+    console.log('  ✅ 未配置商务服务的 503/降级合同')
+  } finally {
+    await bareServer.stop()
+  }
+  console.log('member-commerce-api: 全部通过')
+}
+
+main().catch((error) => { console.error(error); process.exit(1) })
+```
+
+- [ ] **Step 2: 运行确认失败**
+
+Run: `node packages/api-publish-engine/test/member-commerce-api.test.js`
+Expected: FAIL — `GET /api/v1/plans` 返回 404（路由不存在）或 403（scope 误匹配 publish:submit）
+
+- [ ] **Step 3: 实现路由层**
+
+修改 `packages/api-publish-engine/src/publish-api-server.js`，共 6 处：
+
+**3a. 文件头部 require 区追加（与其他 auth require 同段）：**
+
+```js
+const { getPlanCatalog } = require("./auth/plan-matrix")
+```
+
+**3b. 构造器（100 行 `entitlementSigner` 之后）追加：**
+
+```js
+    this._subscriptionService = this._opts.subscriptionService || null
+```
+
+**3c. `_requiredScope`（384-391 行）整体替换（会员规则前置于 POST 兜底行，靠 early-return 避免 `/api/v1/plans` 被 `startsWith("/api/v1/plan")` 吞掉）：**
+
+```js
+  _requiredScope(req) {
+    const url = requestPath(req)
+    if (url === "/api/v1/health" || url === "/api/v1/ready") return null
+    if (url === "/api/v1/me" || url === "/api/v1/plans") return "profile:read"
+    if (url === "/api/v1/redeem") return "profile:write"
+    if (url.indexOf("/api/v1/me/") === 0) {
+      return req.method === "GET" || req.method === "HEAD" ? "profile:read" : "profile:write"
+    }
+    if (url.indexOf("/api/v1/admin/member/") === 0) return "admin:users"
+    if (url.startsWith("/api/v1/keys") || url.startsWith("/api/v1/plugins") || url.startsWith("/api/v1/logs")) return "admin:users"
+    if (req.method === "POST" || url.startsWith("/api/v1/schedule") || url.startsWith("/api/v1/plan")) return "publish:submit"
+    return "publish:read"
+  }
+```
+
+**3d. `_buildEntitlement`（540 行 quota 透传之后）补 limits 透传：**
+
+```js
+    if (entitlement.limits && typeof entitlement.limits === "object" && !Array.isArray(entitlement.limits)) response.limits = entitlement.limits
+```
+
+**3e. 辅助方法（插在 `_buildEntitlementSnapshot` 之后）：**
+
+```js
+  /** CommerceError{code,status} 直接映射 HTTP；>=500 记 error 日志，业务错误不污染 error 日志。 */
+  _commerceFailure(req, res, error) {
+    const status = error && Number.isInteger(error.status) ? error.status : 500
+    const code = error && error.code ? error.code : "COMMERCE_INTERNAL_ERROR"
+    if (status >= 500) this._logError(code, error, this._ctx(req))
+    this._json(res, status, { error: code, message: status >= 500 ? "服务暂时不可用" : (error && error.message) || "请求未生效" })
+  }
+
+  _memberUserId(req) {
+    const user = req.auth && req.auth.businessUser
+    return user && typeof user.id === "string" ? user.id : null
+  }
+
+  /** X-Device-ID 合同与快照签发一致（^[A-Za-z0-9._:-]{16,128}$）；不合法返回 null 而非抛错（会话登记是尽力而为）。 */
+  _deviceIdFrom(req) {
+    const deviceId = req.headers && req.headers["x-device-id"]
+    return typeof deviceId === "string" && /^[A-Za-z0-9._:-]{16,128}$/.test(deviceId) ? deviceId : null
+  }
+
+  _commerceRepository() {
+    const repository = (this._subscriptionService && this._subscriptionService.repository) || this._businessIdentityRepository
+    return repository && typeof repository.listOrders === "function" ? repository : null
+  }
+```
+
+**3f. `/api/v1/me` 处理器改造（697-727 行）：** 在 `entitlementSnapshot` 赋值成功之后、`this._json(res, 200, {` 之前插入 membership 聚合：
+
+```js
+        let membership = null;
+        try {
+          if (this._subscriptionService) {
+            const commerceRepository = this._commerceRepository();
+            const [subscription, usage, unreadNotifications] = await Promise.all([
+              this._subscriptionService.getSubscriptionView(businessUser.id),
+              this._subscriptionService.getUsageView(businessUser.id),
+              commerceRepository ? commerceRepository.countUnreadNotifications(businessUser.id) : Promise.resolve(0),
+            ]);
+            membership = { subscription, usage, unreadNotifications };
+            const deviceId = this._deviceIdFrom(req);
+            if (deviceId && commerceRepository && typeof commerceRepository.upsertSession === "function") {
+              await commerceRepository.upsertSession({
+                userId: businessUser.id,
+                deviceId,
+                deviceName: typeof req.headers["x-device-name"] === "string" ? req.headers["x-device-name"].slice(0, 100) : null,
+              });
+            }
+          }
+        } catch (error) {
+          this._logError("MEMBERSHIP_UNAVAILABLE", error, this._ctx(req));
+          membership = null;
+        }
+```
+
+并把响应对象改为（增加最后一行）：
+
+```js
+        this._json(res, 200, {
+          user: {
+            id: businessUser.id,
+            status: businessUser.status || "active",
+            displayName: businessUser.display_name || null,
+            avatarUrl: businessUser.avatar_url || null,
+          },
+          entitlement,
+          ...(entitlementSnapshot ? { entitlementSnapshot } : {}),
+          ...(membership ? { membership } : {}),
+        });
+```
+
+**3g. 会员路由（插在 `/api/v1/me` 处理器的 `return; }` 之后、`--- Key Management ---` 之前）：**
+
+```js
+      // --- 会员中心 P1：目录 / 核销 / 订单 / 通知 / 会话 / 资料 / 运营入口 ---
+      if (method === "GET" && url === "/api/v1/plans") {
+        this._json(res, 200, { plans: getPlanCatalog((this._subscriptionService && this._subscriptionService.planOverrides) || null) });
+        return;
+      }
+
+      if (method === "POST" && url === "/api/v1/redeem") {
+        if (!this._subscriptionService) { this._json(res, 503, { error: "SUBSCRIPTION_SERVICE_NOT_CONFIGURED" }); return; }
+        const userId = this._memberUserId(req);
+        if (!userId) { this._json(res, 503, { error: "BUSINESS_USER_REPOSITORY_NOT_CONFIGURED" }); return; }
+        var redeemBody = await this._parseBody(req);
+        try {
+          var redeemResult = await this._subscriptionService.redeem({ userId, code: redeemBody && redeemBody.code });
+          this._json(res, 200, { success: true, ...redeemResult });
+        } catch (error) { this._commerceFailure(req, res, error); }
+        return;
+      }
+
+      if (url === "/api/v1/me/orders" || url === "/api/v1/me/notifications" || url === "/api/v1/me/notifications/read" ||
+        url === "/api/v1/me/sessions" || url === "/api/v1/me/sessions/revoke-others" || url === "/api/v1/me/profile") {
+        const commerceRepository = this._commerceRepository();
+        if (!commerceRepository) { this._json(res, 503, { error: "BUSINESS_USER_REPOSITORY_NOT_CONFIGURED" }); return; }
+        const userId = this._memberUserId(req);
+        if (!userId) { this._json(res, 503, { error: "BUSINESS_USER_REPOSITORY_NOT_CONFIGURED" }); return; }
+        try {
+          if (method === "GET" && url === "/api/v1/me/orders") {
+            this._json(res, 200, { orders: await commerceRepository.listOrders(userId, { limit: 50, offset: 0 }) });
+            return;
+          }
+          if (method === "GET" && url === "/api/v1/me/notifications") {
+            const [notifications, unreadCount] = await Promise.all([
+              commerceRepository.listNotifications(userId, { limit: 50, offset: 0 }),
+              commerceRepository.countUnreadNotifications(userId),
+            ]);
+            this._json(res, 200, { notifications, unreadCount });
+            return;
+          }
+          if (method === "POST" && url === "/api/v1/me/notifications/read") {
+            this._json(res, 200, { ids: await commerceRepository.markNotificationsRead(userId) });
+            return;
+          }
+          if (method === "GET" && url === "/api/v1/me/sessions") {
+            this._json(res, 200, { sessions: await commerceRepository.listActiveSessions(userId) });
+            return;
+          }
+          if (method === "POST" && url === "/api/v1/me/sessions/revoke-others") {
+            var revokeBody = await this._parseBody(req);
+            const keepDeviceId = revokeBody && typeof revokeBody.deviceId === "string" ? revokeBody.deviceId : this._deviceIdFrom(req);
+            if (!keepDeviceId) { this._json(res, 400, { error: "DEVICE_ID_REQUIRED" }); return; }
+            this._json(res, 200, { revoked: await commerceRepository.revokeOtherSessions(userId, keepDeviceId) });
+            return;
+          }
+          if ((method === "PATCH" || method === "PUT") && url === "/api/v1/me/profile") {
+            var profileBody = await this._parseBody(req);
+            var patch = {};
+            if (profileBody && Object.prototype.hasOwnProperty.call(profileBody, "displayName")) {
+              if (typeof profileBody.displayName !== "string" || !profileBody.displayName.trim() || profileBody.displayName.length > 60) {
+                this._json(res, 400, { error: "DISPLAY_NAME_INVALID" }); return;
+              }
+              patch.display_name = profileBody.displayName.trim();
+            }
+            if (profileBody && Object.prototype.hasOwnProperty.call(profileBody, "avatarUrl")) {
+              if (profileBody.avatarUrl !== null && (typeof profileBody.avatarUrl !== "string" || profileBody.avatarUrl.length > 500)) {
+                this._json(res, 400, { error: "AVATAR_URL_INVALID" }); return;
+              }
+              patch.avatar_url = profileBody.avatarUrl;
+            }
+            if (!Object.keys(patch).length) { this._json(res, 400, { error: "PROFILE_PATCH_EMPTY" }); return; }
+            const updated = await commerceRepository.updateProfile(userId, patch);
+            if (!updated) { this._json(res, 503, { error: "PROFILE_UPDATE_UNAVAILABLE" }); return; }
+            this._json(res, 200, { user: { id: updated.id, displayName: updated.display_name || null, avatarUrl: updated.avatar_url || null } });
+            return;
+          }
+          this._json(res, 405, { error: "METHOD_NOT_ALLOWED" });
+          return;
+        } catch (error) { this._commerceFailure(req, res, error); return; }
+      }
+
+      if (url.indexOf("/api/v1/admin/member/") === 0) {
+        if (!this._subscriptionService) { this._json(res, 503, { error: "SUBSCRIPTION_SERVICE_NOT_CONFIGURED" }); return; }
+        try {
+          if (method === "POST" && url === "/api/v1/admin/member/grant") {
+            var grantBody = await this._parseBody(req);
+            if (!grantBody || typeof grantBody.userId !== "string" || !grantBody.userId) { this._json(res, 400, { error: "USER_ID_REQUIRED" }); return; }
+            var grantResult = await this._subscriptionService.grant({
+              userId: grantBody.userId,
+              plan: grantBody.plan,
+              durationDays: grantBody.durationDays,
+              providerReference: grantBody.providerReference || null,
+              operator: grantBody.operator || null,
+            });
+            this._json(res, 200, { success: true, ...grantResult });
+            return;
+          }
+          if (method === "POST" && url === "/api/v1/admin/member/redeem-codes") {
+            var batchBody = await this._parseBody(req);
+            var batchResult = await this._subscriptionService.createRedeemBatch({
+              plan: batchBody && batchBody.plan,
+              durationDays: batchBody && batchBody.durationDays,
+              count: batchBody && batchBody.count,
+              batch: batchBody && batchBody.batch || null,
+              expiresAt: batchBody && batchBody.expiresAt || null,
+            });
+            this._json(res, 200, { success: true, ...batchResult });
+            return;
+          }
+          this._json(res, 404, { error: "ROUTE_NOT_FOUND" });
+          return;
+        } catch (error) { this._commerceFailure(req, res, error); return; }
+      }
+```
+
+**3h. 端点文档表（1069-1101 行附近）补录**：在既有端点清单追加上述 11 条路径与一句话说明（格式照旧），保持文档同步（QM-5）。
+
+- [ ] **Step 4: 运行确认通过**
+
+Run：
+```powershell
+node packages/api-publish-engine/test/member-commerce-api.test.js
+node packages/api-publish-engine/test/publish-api-logto-auth.test.js
+node scripts/run-tests.js
+```
+Expected: 全部 exit 0（存量 auth 测试验证 scope 改造无回归）
+
+- [ ] **Step 5: Commit**
+
+```powershell
+git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 add packages/api-publish-engine/src/publish-api-server.js packages/api-publish-engine/test/member-commerce-api.test.js
+git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 commit -m "feat(member-center): P1-T6 会员/商务 HTTP 端点与 /me 聚合"
+```
