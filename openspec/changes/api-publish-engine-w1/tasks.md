@@ -36,6 +36,7 @@
 ## 6. UI 显示项 + i18n
 
 - [ ] 6.1 发布记录「发布方式」徽标三态 + 详情分片历史；locale 成对 `publish.api.*`（zh/en）
+> §5.4 桌面风控挂起信号生产端已落地（随本波 §6.1 后端 PR，见 PRD §12.12）：`publish-risk.js` `isRiskBlocked(task.error)` + `phase4-events.js` `task:failed` 命中发 `publish:risk-hold`（{platform,accountId,taskId,error}），为 §6.1 通知中心消费契约。待办：渲染层通知 UI（恢复/停止）+ preload onRiskHold + 桌面 riskSuspender 接队列派发前置守卫（真正挂起后续发布，端到端验收绑定 §7 真实风控触发）。
 
 > §6.1 徽标三态已落地（随本波 §6.1 PR，见 PRD §12.10）：`PublishHistory.vue` 记录卡按 `record.result.mode` 渲染「发布方式」徽标 api/dom/fallback 三态 + `publish.api.*` locale（zh/en 成对，i18n.test.js 校验）；无 mode 向后兼容不渲染。待办：本项「详情分片历史」（详情弹窗按平台分片展示子结果与 mode）随 §7 活体轮一并落地。
 > §6.1 详情分片增强已落地（随本波 §6.1 PR，见 PRD §12.11）：详情弹窗按 `record.result` 展示发布方式（api/dom/fallback）、作品 ID（`postId`）、作品链接（`url`，外链 `target=_blank rel=noopener`）；无对应字段则该行隐藏（旧记录向后兼容）。多平台「一记录多子结果」的完整分片列表待平台适配器把子结果数组写入 `result.subResults` 后扩展（随 §7）。

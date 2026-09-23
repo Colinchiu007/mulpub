@@ -11,6 +11,7 @@
  * 验收标准 BUGFIX-PLAN Bug-1: phase 文件 ≤ 80 行
  */
 const log = require('../services/logger')
+const { isRiskBlocked } = require('../services/publish-risk')
 
 /**
  * 接线 taskQueue 事件监听
@@ -87,6 +88,11 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
       win.webContents.send('publish:progress', {
         platform: task.platform, stage: '✗ 发布失败: ' + task.error, taskId: task.id, error: task.error,
       })
+      if (isRiskBlocked(task.error)) {
+        win.webContents.send('publish:risk-hold', {
+          platform: task.platform, accountId: (task.article && task.article.accountId) || null, taskId: task.id, error: task.error,
+        })
+      }
     }
   })
 
