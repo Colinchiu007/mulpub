@@ -571,8 +571,11 @@ class PublishApiServer {
 
   /** CommerceError{code,status} 直接映射 HTTP；>=500 记 error 日志，业务错误不污染 error 日志。 */
   _commerceFailure(req, res, error) {
-    const status = error && Number.isInteger(error.status) ? error.status : 500
-    const code = error && error.code ? error.code : "COMMERCE_INTERNAL_ERROR"
+    // status 夹紧：只接受 [400,599] 的整数，否则一律 500（防止服务层 bug 把内部失败伪装成 200，或 status 越界触发 writeHead RangeError 丢失原错误码）。
+    const rawStatus = error && error.status
+    const status = Number.isInteger(rawStatus) && rawStatus >= 400 && rawStatus <= 599 ? rawStatus : 500
+    // code 形状校验：必须是语义码（^[A-Z][A-Z0-9_]{2,63}$），否则换兜底码，绝不外泄 SQLSTATE 等内部原文。
+    const code = safeErrorCode(error, "COMMERCE_INTERNAL_ERROR")
     if (status >= 500) this._logError(code, error, this._ctx(req))
     this._json(res, status, { error: code, message: status >= 500 ? "服务暂时不可用" : (error && error.message) || "请求未生效" })
   }
@@ -586,6 +589,15 @@ class PublishApiServer {
   _deviceIdFrom(req) {
     const deviceId = req.headers && req.headers["x-device-id"]
     return typeof deviceId === "string" && /^[A-Za-z0-9._:-]{16,128}$/.test(deviceId) ? deviceId : null
+  }
+
+  /** X-Device-Name 入库前清洗：设备名是尽力而为的画像数据，含控制字符或尖括号（存储型 XSS 载荷）一律丢弃为 null，不阻断请求；与 avatarUrl/displayName 守卫对称。 */
+  _deviceNameFrom(req) {
+    const raw = req.headers && req.headers["x-device-name"]
+    if (typeof raw !== "string") return null
+    const name = raw.slice(0, 100)
+    if (/[\u0000-\u001f\u007f<>]/.test(name)) return null
+    return name.length ? name : null
   }
 
   _commerceRepository() {
@@ -603,7 +615,7 @@ class PublishApiServer {
     res.end = function() { res.end = _origEnd; res.end.apply(res, arguments); if (_self._accessLogger) _self._accessLogger.log(req, res, _startTime, { requestId: req.requestId, path: url, errorCode: (req._errorCode || null) }); };
 
     if (method === "OPTIONS") {
-      res.writeHead(204, { "Access-Control-Allow-Origin": "http://localhost:5174", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Device-ID", "X-Request-Id": req.requestId });
+      res.writeHead(204, { "Access-Control-Allow-Origin": "http://localhost:5174", "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Device-ID, X-Device-Name", "X-Request-Id": req.requestId });
       res.end();
       return;
     }
@@ -746,27 +758,41 @@ class PublishApiServer {
           return;
         }
         let membership = null;
-        try {
-          if (this._subscriptionService) {
-            const commerceRepository = this._commerceRepository();
-            const [subscription, usage, unreadNotifications] = await Promise.all([
-              this._subscriptionService.getSubscriptionView(businessUser.id),
-              this._subscriptionService.getUsageView(businessUser.id),
-              commerceRepository ? commerceRepository.countUnreadNotifications(businessUser.id) : Promise.resolve(0),
-            ]);
-            membership = { subscription, usage, unreadNotifications };
-            const deviceId = this._deviceIdFrom(req);
-            if (deviceId && commerceRepository && typeof commerceRepository.upsertSession === "function") {
+        if (this._subscriptionService) {
+          const commerceRepository = this._commerceRepository();
+          // 逐槽降级：某槽失败置 null，其余槽保留；subscription 是会员视图锚点，其失败才导致整个 membership 缺失。
+          const [subRes, usageRes, unreadRes] = await Promise.allSettled([
+            this._subscriptionService.getSubscriptionView(businessUser.id),
+            this._subscriptionService.getUsageView(businessUser.id),
+            // 未配置商务仓储或计数失败 → null（未知），绝不吐 0（会与 /me/orders 的 503 自相矛盾，误导前端徽标）。
+            commerceRepository && typeof commerceRepository.countUnreadNotifications === "function"
+              ? commerceRepository.countUnreadNotifications(businessUser.id)
+              : Promise.resolve(null),
+          ]);
+          if (subRes.status === "fulfilled") {
+            membership = {
+              subscription: subRes.value,
+              usage: usageRes.status === "fulfilled" ? usageRes.value : null,
+              unreadNotifications: unreadRes.status === "fulfilled" ? unreadRes.value : null,
+            };
+          } else {
+            this._logError("MEMBERSHIP_UNAVAILABLE", subRes.reason, this._ctx(req));
+          }
+          if (usageRes.status === "rejected") this._logError("MEMBERSHIP_UNAVAILABLE", usageRes.reason, this._ctx(req));
+          if (unreadRes.status === "rejected") this._logWarn("MEMBERSHIP_UNAVAILABLE", unreadRes.reason, this._ctx(req));
+          // 会话登记为真 best-effort：独立 try/catch，失败仅记 WARN，不得连带清空已取到的 membership。
+          const deviceId = this._deviceIdFrom(req);
+          if (deviceId && commerceRepository && typeof commerceRepository.upsertSession === "function") {
+            try {
               await commerceRepository.upsertSession({
                 userId: businessUser.id,
                 deviceId,
-                deviceName: typeof req.headers["x-device-name"] === "string" ? req.headers["x-device-name"].slice(0, 100) : null,
+                deviceName: this._deviceNameFrom(req),
               });
+            } catch (error) {
+              this._logWarn("MEMBERSHIP_UNAVAILABLE", error, this._ctx(req));
             }
           }
-        } catch (error) {
-          this._logError("MEMBERSHIP_UNAVAILABLE", error, this._ctx(req));
-          membership = null;
         }
         this._json(res, 200, {
           user: {
@@ -784,7 +810,10 @@ class PublishApiServer {
 
       // --- 会员中心 P1：目录 / 核销 / 订单 / 通知 / 会话 / 资料 / 运营入口 ---
       if (method === "GET" && url === "/api/v1/plans") {
-        this._json(res, 200, { plans: getPlanCatalog((this._subscriptionService && this._subscriptionService.planOverrides) || null) });
+        // 目录构造可能因运营 override 配置非法抛 PLAN_MATRIX_CONFIG_INVALID：必须走 _commerceFailure 保留语义码，而非落外层兜底成 INTERNAL_SERVER_ERROR。
+        try {
+          this._json(res, 200, { plans: getPlanCatalog((this._subscriptionService && this._subscriptionService.planOverrides) || null) });
+        } catch (error) { this._commerceFailure(req, res, error); }
         return;
       }
 
@@ -868,6 +897,8 @@ class PublishApiServer {
       }
 
       if (url.indexOf("/api/v1/admin/member/") === 0) {
+        // 运营端点会花钱/发权益：只认经 scope 校验的 logto 身份，拒绝静态主密钥（api_key 分支不校验 requiredScope）。
+        if (!(req.auth && req.auth.authType === "logto")) { this._json(res, 403, { error: "AUTH_SCOPE_MISSING" }); return; }
         if (!this._subscriptionService) { this._json(res, 503, { error: "SUBSCRIPTION_SERVICE_NOT_CONFIGURED" }); return; }
         try {
           if (method === "POST" && url === "/api/v1/admin/member/grant") {
