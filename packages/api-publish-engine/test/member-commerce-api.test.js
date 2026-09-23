@@ -209,6 +209,246 @@ async function main() {
   } finally {
     await bareServer.stop()
   }
+  // ===== 场景 4：评审收口的契约测试（H1-H6 行为变更 + 状态码映射回归锁）=====
+  const DEV = "device-aaaaaaaaaaaa";
+  function makeRepo(over) {
+    over = over || {};
+    return {
+      calls: [],
+      async findBySubject(provider, subject) { return { id: "business-user-1", auth_provider: provider, auth_subject: subject, status: "active", display_name: "用户甲" }; },
+      async listOrders() { return []; },
+      async create() { throw new Error("unexpected create"); },
+      async listNotifications() { return []; },
+      async markNotificationsRead() { return []; },
+      async listActiveSessions() { return []; },
+      async updateProfile(id, patch) { return { id: id, display_name: patch.display_name, avatar_url: patch.avatar_url }; },
+      async countUnreadNotifications() { if (over.countThrows) throw Object.assign(new Error("boom"), { code: "NOTIF_COUNT_FAILED", status: 503 }); return 5; },
+      async upsertSession(rec) { this.calls.push(["upsertSession", rec]); if (over.upsertThrows) throw Object.assign(new Error("need device"), { code: "SESSION_DEVICE_REQUIRED", status: 400 }); return { id: "ses", device_id: rec.deviceId }; },
+    };
+  }
+  function makeService(over) {
+    over = over || {};
+    const repository = over.repository || makeRepo(over);
+    return {
+      repository: repository,
+      planOverrides: over.planOverrides || null,
+      async getSubscriptionView() { if (over.subscriptionFails) throw new Error("sub down"); return { plan: "standard", status: "active", entitlement: { plan: "standard", features: [], quota: {}, limits: {} } }; },
+      async getUsageView() { if (over.usageFails) throw new Error("usage down"); return { plan: "standard", features: [{ feature: "cloud_publish", used: 1, limit: 1500 }] }; },
+      async redeem() { if (over.redeemThrow) throw over.redeemThrow; return { plan: "pro" }; },
+      async grant() { if (over.grantInvalid) throw Object.assign(new Error("plan"), { code: "PLAN_INVALID", status: 400 }); return { plan: "pro", order: { id: "ord-admin", channel: "admin_grant" } }; },
+      async createRedeemBatch() { return { batch: "b1", codes: ["ABCD-EFGH-JKMN"] }; },
+    };
+  }
+  async function startCommerceServer(service, extra) {
+    const server = new PublishApiServer(Object.assign({
+      dryRun: true,
+      logtoVerifier: createVerifier(),
+      businessIdentityRepository: service.repository,
+      entitlementProvider: { async getForUser() { return { plan: "standard", features: ["cloud_publish"], quota: {}, limits: {} }; } },
+      subscriptionService: service,
+    }, extra || {}));
+    await server.start(0);
+    return { server: server, port: server._server.address().port };
+  }
+  function rawReq(port, method, path, headers) {
+    return new Promise((resolve, reject) => {
+      const r = http.request({ hostname: "127.0.0.1", port: port, method: method, path: path, headers: headers || {} }, (res) => {
+        let d = ""; res.on("data", (c) => { d += c; });
+        res.on("end", () => { resolve({ status: res.statusCode, headers: res.headers, body: d ? JSON.parse(d) : null }); });
+      });
+      r.on("error", reject); r.end();
+    });
+  }
+
+  // H1：_commerceFailure 夹紧 status + 校验 code 形状
+  for (const inj of [
+    { e: { code: "WEIRD", status: 200 }, want: 500 },
+    { e: { code: "23505" }, want: 500 },
+    { e: { code: "REDEEM_CODE_GONE", status: 99999 }, want: 500 },
+  ]) {
+    const svc = makeService({ redeemThrow: Object.assign(new Error("inject"), inj.e) });
+    const started = await startCommerceServer(svc);
+    try {
+      const r = await request(started.port, "POST", "/api/v1/redeem", "member-write", { code: "X" });
+      assert.strictEqual(r.status, inj.want, "H1 status 夹紧 " + JSON.stringify(inj.e));
+      if (inj.e.code === "23505") assert.notStrictEqual(r.body.error, "23505", "H1 不得外泄内部 SQLSTATE");
+      if (inj.e.status === 99999) { assert.strictEqual(r.body.error, "REDEEM_CODE_GONE", "H1 语义码不得被吞"); assert.notStrictEqual(r.body.error, "INTERNAL_SERVER_ERROR"); }
+      if (inj.e.status === 200) assert.strictEqual(r.body.message, "服务暂时不可用", "H1 大于等于 500 掩码");
+    } finally { await started.server.stop(); }
+  }
+
+  // H2：逐槽降级 / unread null / upsert best-effort
+  {
+    const svc = makeService({ usageFails: true });
+    const started = await startCommerceServer(svc);
+    try {
+      const r = await request(started.port, "GET", "/api/v1/me", "member-read");
+      assert.strictEqual(r.status, 200);
+      assert.ok(r.body.membership, "subscription 成功则 membership 必须存在");
+      assert.ok(r.body.membership.subscription, "subscription 槽保留");
+      assert.strictEqual(r.body.membership.usage, null, "usage 槽失败置 null");
+    } finally { await started.server.stop(); }
+  }
+  {
+    const repo = makeRepo();
+    delete repo.countUnreadNotifications;
+    const svc = makeService({ repository: repo });
+    const started = await startCommerceServer(svc);
+    try {
+      const r = await request(started.port, "GET", "/api/v1/me", "member-read");
+      assert.strictEqual(r.body.membership.unreadNotifications, null, "未配置计数不得吐 0");
+    } finally { await started.server.stop(); }
+  }
+  {
+    const svc = makeService({ upsertThrows: true });
+    const started = await startCommerceServer(svc);
+    try {
+      const r = await request(started.port, "GET", "/api/v1/me", "member-read", null, { "X-Device-ID": DEV });
+      assert.strictEqual(r.status, 200);
+      assert.ok(r.body.membership.subscription);
+      assert.ok(r.body.membership.usage);
+      assert.strictEqual(r.body.membership.unreadNotifications, 5);
+    } finally { await started.server.stop(); }
+  }
+
+  // H3：X-Device-Name 入库前清洗
+  {
+    const svc = makeService({});
+    const started = await startCommerceServer(svc);
+    try {
+      await request(started.port, "GET", "/api/v1/me", "member-read", null, { "X-Device-ID": DEV, "X-Device-Name": "<img src=x onerror=alert(1)>" });
+      const rec = svc.repository.calls.filter((c) => c[0] === "upsertSession").pop()[1];
+      assert.ok(rec.deviceName === null || (!/[<>]/.test(rec.deviceName) && !/[\u0000-\u001f\u007f]/.test(rec.deviceName)), "尖括号载荷须被清洗");
+      await request(started.port, "GET", "/api/v1/me", "member-read", null, { "X-Device-ID": DEV, "X-Device-Name": "MacBook Pro (Chrome)" });
+      const rec2 = svc.repository.calls.filter((c) => c[0] === "upsertSession").pop()[1];
+      assert.strictEqual(rec2.deviceName, "MacBook Pro (Chrome)", "正常设备名不得被误伤");
+    } finally { await started.server.stop(); }
+  }
+
+  // H4：admin 会员端点拒绝静态主密钥，接受经 scope 校验的 logto
+  {
+    const svc = makeService({});
+    const started = await startCommerceServer(svc, { identityAuthRequired: false, apiKey: "legacy-master-key", autoMigrate: false });
+    try {
+      const r = await request(started.port, "POST", "/api/v1/admin/member/grant", "legacy-master-key", { userId: "u-x", plan: "pro", durationDays: 365 });
+      assert.strictEqual(r.status, 403, "主密钥不得开通会员权益");
+      assert.strictEqual(r.body.error, "AUTH_SCOPE_MISSING");
+    } finally { await started.server.stop(); }
+    const svc2 = makeService({});
+    const started2 = await startCommerceServer(svc2);
+    try {
+      const ok = await request(started2.port, "POST", "/api/v1/admin/member/grant", "admin-token", { userId: "u-x", plan: "standard", durationDays: 30 });
+      assert.strictEqual(ok.status, 200, "logto admin 正常路径不得被堵");
+    } finally { await started2.server.stop(); }
+  }
+
+  // H5：OPTIONS 预检须含 PATCH 与 X-Device-Name
+  {
+    const svc = makeService({});
+    const started = await startCommerceServer(svc);
+    try {
+      const pre = await rawReq(started.port, "OPTIONS", "/api/v1/me/profile", { Origin: "http://localhost:5174" });
+      assert.ok(/PATCH/.test(pre.headers["access-control-allow-methods"] || ""), "预检方法须含 PATCH");
+      assert.ok(/X-Device-Name/i.test(pre.headers["access-control-allow-headers"] || ""), "预检头须含 X-Device-Name");
+    } finally { await started.server.stop(); }
+  }
+
+  // H6：/plans 目录非法 overrides → 保留 PLAN_MATRIX_CONFIG_INVALID
+  {
+    const svc = makeService({ planOverrides: [{ bad: 1 }] });
+    const started = await startCommerceServer(svc);
+    try {
+      const r = await request(started.port, "GET", "/api/v1/plans", "member-read");
+      assert.strictEqual(r.status, 500, "非法 overrides 应 500");
+      assert.strictEqual(r.body.error, "PLAN_MATRIX_CONFIG_INVALID", "语义码不得被兜底吞掉");
+    } finally { await started.server.stop(); }
+  }
+
+  // redeem 状态码映射回归锁
+  for (const map of [
+    { code: "REDEEM_CODE_NOT_FOUND", status: 404 },
+    { code: "REDEEM_CODE_USED", status: 409 },
+    { code: "REDEEM_CODE_EXPIRED", status: 410 },
+    { code: "REDEEM_CODE_FORMAT", status: 400 },
+  ]) {
+    const svc = makeService({ redeemThrow: Object.assign(new Error("r"), { code: map.code, status: map.status }) });
+    const started = await startCommerceServer(svc);
+    try {
+      const r = await request(started.port, "POST", "/api/v1/redeem", "member-write", { code: "X" });
+      assert.strictEqual(r.status, map.status, "redeem 映射 " + map.code);
+      assert.strictEqual(r.body.error, map.code);
+    } finally { await started.server.stop(); }
+  }
+
+  // grantInvalid 分支真正被触发 → PLAN_INVALID 400
+  {
+    const svc = makeService({ grantInvalid: true });
+    const started = await startCommerceServer(svc);
+    try {
+      const r = await request(started.port, "POST", "/api/v1/admin/member/grant", "admin-token", { userId: "u-x", plan: "ghost" });
+      assert.strictEqual(r.status, 400);
+      assert.strictEqual(r.body.error, "PLAN_INVALID");
+    } finally { await started.server.stop(); }
+  }
+
+  // 入参契约 400：PROFILE_PATCH_EMPTY / DISPLAY_NAME_INVALID / USER_ID_REQUIRED
+  {
+    const svc = makeService({});
+    const started = await startCommerceServer(svc);
+    try {
+      const empty = await request(started.port, "PATCH", "/api/v1/me/profile", "member-write", {});
+      assert.strictEqual(empty.status, 400);
+      assert.strictEqual(empty.body.error, "PROFILE_PATCH_EMPTY");
+      const badName = await request(started.port, "PATCH", "/api/v1/me/profile", "member-write", { displayName: "   " });
+      assert.strictEqual(badName.status, 400);
+      assert.strictEqual(badName.body.error, "DISPLAY_NAME_INVALID");
+      const noUser = await request(started.port, "POST", "/api/v1/admin/member/grant", "admin-token", { plan: "pro" });
+      assert.strictEqual(noUser.status, 400);
+      assert.strictEqual(noUser.body.error, "USER_ID_REQUIRED");
+    } finally { await started.server.stop(); }
+  }
+
+  // 405 家族 + admin GET 404 ROUTE_NOT_FOUND
+  {
+    const svc = makeService({});
+    const started = await startCommerceServer(svc);
+    try {
+      const del = await request(started.port, "DELETE", "/api/v1/me/orders", "member-write");
+      assert.strictEqual(del.status, 405);
+      assert.strictEqual(del.body.error, "METHOD_NOT_ALLOWED");
+      const postNtf = await request(started.port, "POST", "/api/v1/me/notifications", "member-write", {});
+      assert.strictEqual(postNtf.status, 405);
+      assert.strictEqual(postNtf.body.error, "METHOD_NOT_ALLOWED");
+      const adminGet = await request(started.port, "GET", "/api/v1/admin/member/grant", "admin-token");
+      assert.strictEqual(adminGet.status, 404);
+      assert.strictEqual(adminGet.body.error, "ROUTE_NOT_FOUND");
+    } finally { await started.server.stop(); }
+  }
+
+  // PUT /me/profile 别名 → 与 PATCH 同行为
+  {
+    const svc = makeService({});
+    const started = await startCommerceServer(svc);
+    try {
+      const viaPut = await request(started.port, "PUT", "/api/v1/me/profile", "member-write", { displayName: "别名生效" });
+      assert.strictEqual(viaPut.status, 200);
+      assert.strictEqual(viaPut.body.user.displayName, "别名生效");
+    } finally { await started.server.stop(); }
+  }
+
+  // membership 与 entitlementSnapshot 共存
+  {
+    const svc = makeService({});
+    const started = await startCommerceServer(svc, { entitlementSigner: { async sign(snapshot) { return { token: "sig." + snapshot.plan }; } } });
+    try {
+      const r = await request(started.port, "GET", "/api/v1/me", "member-read", null, { "X-Device-ID": DEV });
+      assert.strictEqual(r.status, 200);
+      assert.ok(r.body.membership, "membership 必须存在");
+      assert.ok(r.body.entitlementSnapshot, "entitlementSnapshot 必须共存");
+      assert.strictEqual(r.body.entitlementSnapshot.token, "sig.standard");
+    } finally { await started.server.stop(); }
+  }
+  console.log("  ✅ 场景 4：H1-H6 收口 + 契约回归锁（redeem 映射 / grantInvalid / 400 契约 / 405 家族 / PUT 别名 / 共存形状）");
   console.log('member-commerce-api: 全部通过')
 }
 
