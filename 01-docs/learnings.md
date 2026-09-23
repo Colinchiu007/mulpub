@@ -15638,3 +15638,13 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **回归保护（QM-5④）**：时序断言用 order 数组（`addScriptToEvaluateOnNewDocument` push 先于 `loadURL`）+ 注入成功后 `did-finish-load` 触发不再产生 `executeJavaScript` 补注入与二段导航；降级用例断言旧行为（补注入 + `loadURL` times(2)）；`checkLocalCredentials` 假保存→false / `finder_username` 标记→true / cookies 非空→true 三例，且既有 INCONCLUSIVE 用例按加严契约拆分（加严改变了布尔契约时，受影响旧用例要按新契约逐一改判而不是删除）。
 - **预防措施（QM-5⑤）**：`.quality-gates.md` 安全类新增两条永久门禁——「登录态判定必须三态收敛，凭证检测入口禁止布尔从宽」+「凭证恢复必须先于首个导航生效，禁止依赖事后二次导航补救」。
 - **可迁移规律（pattern）**：新增平台适配时必须显式登记该平台的**登录态判定机制维度**：服务端 302 / 前端 SPA 自判 / 是否依赖 localStorage 双因子（`PLATFORM_LS_SESSION_MARKERS`）。判定机制不同的平台共用一套恢复时序，最快的那个弹回决策决定整条链的正确性基线；只在「最宽松平台」上验证等于没验证。
+
+## 运营中心"推数据即生效"的隐含前提是"管道已建好且跑通"——新可下发内容类型的铺轨成本被误读为"这个功能更难"（ops-center-delivery-channels，2026-09-23）
+
+- **两类"上线生效"不是一回事，混为一谈会错估工作量（pattern）**：既有功能"改配置秒生效"是因为**数据流过一条早已 ship 并跑通的管道**（前端有现成消费逻辑 + 鉴权通道已验证）；而一个**新的可下发内容类型**（appMenu）需要先建整条纵向管道——后端下发字段 + 桌面归一化（`app-menu-config.js`/`normalizeAppMenu`）+ IPC 通道（`ops-center-sync:appMenu`）+ preload 绑定 + 渲染层读取。判据：新特性要不要动代码，先问(a)桌面端有没有该内容类型的消费管道 (b)它走哪条通道 (c)是不是首个依赖某条新鉴权链路的。任一为"否/新"即铺轨期，之后才回归"数据即生效"。
+
+- **同一 `syncNow()` 里藏着鉴权/安全等级不同的两条通道，症状只在其中一条暴露（pitfall）**：`_fetchCatalog`（`/model-presets/catalog`，静态 `X-Catalog-Key`，展示数据、低门槛）与 `_fetchRuntime`（`/runtime/bootstrap`，含 appMenu/公告/版本/敏感词/featureFlags/pipelineOptions，零配置 Bearer + Ed25519 验签、能改应用行为、高门槛）。模型目录类功能一直"秒生效"掩盖了 runtime 通道从未在零配置态跑通的事实——直到 appMenu 这个首个只吃 runtime 通道的功能上线才暴露。教训：**别用"某类数据能同步"推断"所有下发通道都通"**，按通道分别验证。
+
+- **判态用被污染的字段 = 短路不发请求（pitfall，本次根因）**：`getConfig()` 把自动发现 URL 并入返回的 `url`，`_syncNowInner` 又用 `!cfg.url` 判"是否手动配置态"，零配置下 `url` 恒真 → 误判手动态却无 Key → 直接短路"未配置 Ops Center API Key"、同步根本不发起。读态字段与判态字段必须分离（新增 `_getManualUrl()` 读 raw 手动值，不与自动发现回退混用）。凡"用一个 getter 加工过的值再去判原始语义"，先疑短路。
+
+- **高权限下发通道的安全前置是有意成本，不是过度设计（pattern）**：runtime bootstrap 能改应用行为，故验签 fail-closed，打包版无自定义公钥锚直接 `NO_PRODUCTION_TRUST_ANCHOR` 跳过同步。这让"菜单生效"比"模型列表生效"多了后端配私钥 + 桌面配公钥两步。评估"为什么这么麻烦"时，先分清该内容类型是"展示数据"还是"行为配置"，后者重前置是设计意图，别为了省事把 fail-closed 改成 fail-open。
