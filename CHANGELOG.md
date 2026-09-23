@@ -1,3 +1,21 @@
+# [未发布] refactor(selfcheck): 限流自检迁移运营中心 + 桌面保留隐藏执行端（PR-1）
+
+### 变更
+- **桌面模型设置页下线限流自检一级入口/弹窗/表单/方法/样式（P0-1）**：移除 `ModelProviders.vue` 的 `selfcheck-entry` 按钮、`showSelfCheckDialog` 弹窗、`selfCheckForm` 六参数表单、`openSelfCheck/runSelfCheck/reportSelfCheck` 方法及 `.selfcheck-form/.selfcheck-row` 样式；同步删除因失去引用而变孤儿的 `ref` / `ElMessage,ElMessageBox` / `getApi` import。自检定位为非终端用户功能，运营中心为唯一正门。
+- **真机执行端完整保留（P0-3）**：`electron/services/rate-limit-self-check.js`、IPC 通道 `rate-limit:self-check` / `rate-limit:report`、preload `rateLimitSelfCheck` / `rateLimitReport` 一律不动——桌面端仍是唯一能以真实 `ApiUsageGovernor` 跑 `simulated=0` 对拍并上报运营中心的执行端。
+- **locale zh/en 成对清理（P0-2）**：删除 28 个自检专用用户可见键（`selfCheck*` / `runSelfCheck` / `reportSelfCheck` / 六参数 label / `passTag`/`failTag`/`close` 等），保留被 provider 配置表单复用的 `limitPer5hLabel`。
+- **高级/诊断新增黑盒一键诊断入口（P0-6）**：`LogsSettings.vue` 引入抽离组件 `NetSchedDiagnose.vue`（诊断 IPC 统一经 `src/api/rate-limit` 桥接层，渲染层零直调 `window.electronAPI`） 新增 `net-sched-diagnose` 卡片，固定内部参数调用真实自检，仅回显红绿灯结论，不向终端用户暴露 6 个调度参数；文案走 `settings.diagnose.*`（zh/en 成对新增）。
+- **运营中心契约校验红绿灯结论（P0-7）**：`RateLimitVerifier.vue` 契约表新增「结论」列，规则任一 FAIL→需调整，换算并发=1→偏紧，否则合理。
+- **测试**：删除失效的 `selfcheck-dialog-layout.test.js`，新增源码契约回归 `selfcheck-migrate.test.js`（P0-1 入口下线 / P0-3 执行端保留 / P0-6 黑盒入口无参数 / P0-2 locale 成对）。
+
+### 验证
+- 定向契约 `selfcheck-migrate.test.js` 4/4 绿；ESLint（vue）0 error；`check-locale-sync.js --keys` PASS、`--cjk` PASS（基线未新增硬编码中文）；`ops-center/frontend npm run build` exit 0（RateLimitVerifier 产物生成）。
+- 债务熔断 PASS（黑盒诊断卡抽离为独立组件，LogsSettings.vue 回到 500 行阈值以下）；frontend-consistency 单轨制 PASS（新增 src/api/rate-limit.js 桥接层，渲染层不直调 window.electronAPI）。
+
+### 关联
+- 分支 `selfcheck-ops-migrate`（worktree 隔离，D 盘）；PRD `01-docs/PRD-RATE-LIMIT-SELFCHECK-MIGRATE-OPS-CENTER-2026-09-23.md`；PR-2（P0-8 发布失败被动附带诊断）另立 PR。
+
+---
 # [未发布] fix(security): P1 审计第三批——IPC 注入契约 fail-closed + 管理后台 Cookie 会话 + P2 安全小项（2026-09-22，audit-batch-3）
 
 ### 变更
@@ -437,7 +455,6 @@
 - **config/platforms.yaml**：经该工具对真实运营中心后端（:8010）执行合并——12 平台补齐 enabled 字段并归一引号风格；tencent_video/baijiahao/instagram 仅本地存在，保留未动。
 - **背景**：桌面端 opsCenterSync 配置 Key 经 safeStorage 加密、外部无法伪造；方案 C（会话凭证换取同步凭证，独立 PR 推进中）落地前，本工具提供不依赖桌面应用登录态的本机预同步通道。
 - **CI**：`scripts/*.js` 默认 gitignore，新增 sync-platform-config.js/.test.js 白名单例外；quality-gate.yml Gate 2b 挂入新单测。
-- **CHANGELOG 去损**：清除 origin/main 头部残留的孤立冲突标记块（`>>>>>>> theirs`，2026-09-21 并发 prepend 事故残留）。
 
 ### 验证
 - 新增 `scripts/sync-platform-config.test.js`（node --test）7 用例全过：共享字段更新/人工字段保留/布尔归一/新增占位段/localOnly 保留/函数级幂等/dump+头拼接字节级幂等（防注释粘连复辟）。

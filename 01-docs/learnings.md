@@ -15353,6 +15353,27 @@ Bug 修复走完整 QM-5（根因溯源 / 逃逸链 / 系统性漏洞 / 修复+�
 ### 本次交付
 3 commits（9ef12de13 实现 / d347deba9 评审修复 / f10d9fc02 文档）；ops-center 后端全量 pytest 414 passed、前端 build exit 0；CodeReview 无 CRITICAL/MAJOR；PR#2246 auto-merge squash。桌面端零改动（applyCatalog 只消费最终 sort_order）。
 
+## selfcheck-ops-migrate-2026-09-23：限流自检迁移运营中心 + 桌面保留隐藏执行端（PR-1，分支 selfcheck-ops-migrate，PR#2253）
+
+### 需求
+把「限流自检」从桌面模型设置页的一级入口下线，运营中心成为唯一正门；桌面端仅保留隐藏的真机执行端（真实 ApiUsageGovernor + 假 adapter 跑 simulated=0 对拍）。PR-1 做减法（P0-1 入口/弹窗/表单/方法/样式下线、P0-2 locale zh/en 成对清理保留复用的 limitPer5hLabel、P0-3 执行端不动、P0-5 删失效布局测试换契约测试、P0-6 高级/诊断黑盒一键诊断、P0-7 运营中心契约红绿灯结论列）；P0-8 发布失败被动附带诊断侵入发布主链路，另立 PR-2。
+
+### 可复用结论
+
+- **能力定位决定入口归属（pattern）**：非终端用户日常功能（限流自检=调度器/网关的运维验证）不应占据桌面一级入口，应下沉到运营中心唯一正门；但能真实执行的那一端（Electron 里的真 governor）必须原样保留，只下线「面向人的 UI」，不下线「执行能力」。判据：问「这是给人点的功能，还是给系统验证配置的手段」——后者归运营/诊断，前者才留桌面。
+- **黑盒一键诊断=固定内部参数 + 仅回显红绿灯（pattern）**：生产可见的诊断入口绝不能把内部调度参数（rpm/requestCount/duration/并发/冷却/5h 限额）暴露成输入框。做法：调用方写死一组安全探针参数，返回体只解析 assertions 的 pass 计数 → ok/warn/fail 三态 → 单个 t(key) 文案。回归测试要断言「渲染层不出现 el-input-number/inject429 等参数入口」，把「无参数」本身锁成契约。
+- **渲染层 IPC 必须走 src/api 桥接单轨制（pitfall，frontend-consistency Gate 10）**：新写的诊断组件初版直接 `window.electronAPI.rateLimitSelfCheck(...)`，被 check-frontend-consistency.js（rendererIpcDirect 基线 0）拦红。正解：在 src/api/rate-limit.js 用 invokeWithFallback 包一层，组件 import 该桥接函数；桥接函数在无 API 时返回 `{code:-1}` 兜底，调用侧据 res.data.assertions 缺失自然降级为 fail，不必再写 `if(!eapi) ...` 守卫。
+- **债务熔断 filesOver500 不因功能新增而涨基线（pattern，debt circuit breaker）**：往 LogsSettings.vue 加约 50 行诊断卡使文件 469→519，越过 500 阈值 → FILES_OVER_500 100>基线99 红。`--update` 是留给「经审查的债务清理（降）」的，不能用来给净增债务开门。正解：把自包含的诊断卡抽成独立组件 NetSchedDiagnose.vue（LogsSettings 回到 473 行 <500），既满足门禁又是净减债务，符合「选最简单方案」。
+- **CI 早期 gate 失败会遮蔽后续 gate（pitfall，质量节拍）**：QG Static 串行步骤在 Gate 10 就 exit 非零，其后的 Gate 11 全量 eslint / Gate 12 品牌 / Gate 1 tsc 根本没跑到。因此修掉一个靠前的红 gate 后，本地必须把后面这些从未被评估过的 gate 对本次新增文件全跑一遍（`eslint electron/ src/ --quiet`、tsc --noEmit、check-no-brand-residue），否则会得到「本地全绿、CI 又红一个新红」的反复。
+- **合并后定向复验的文件集须从合并 diff 推出，且 locale 自动合并要复验成对性（沿用 merge-verification-scope）**：本次与 origin/main 合并自动并入了对方 zh/en 改动，成对门禁虽未破，仍须重跑 --keys；CHANGELOG 冲突是 prepend-prepend，按行号删标记做并集，不做正则内容替换。
+- **Qoder Write 偶发 unknown 失败 + PS5.1 BOM 双坑（tooling）**：写 workspace 外 worktree 用 .agent_context 内 Node 中转脚本；Write 工具对工作区内文件也会偶发 reason:unknown，可靠绕行=PowerShell 单引号 here-string @'...'@ + Set-Content；但 Set-Content -Encoding UTF8 会写 BOM 使 node 首行 `锘縓` 报错，落盘后须 `[IO.File]::WriteAllBytes(p,(ReadAllBytes p)[3..])` 剥前 3 字节；喂 git/gh 的消息/正文用 `WriteAllText(...,UTF8Encoding($false))` 从源头无 BOM。
+
+### 逃逸链与堵口
+原自检入口 UI 的布局测试 selfcheck-dialog-layout.test.js 随入口下线失效 → 删除并新增源码契约 selfcheck-migrate.test.js（P0-1 入口不含 selfcheck-entry/表单方法、P0-3 执行端文件+IPC 通道+preload 方法 existsSync/正则、P0-6 诊断走桥接组件且无参数入口、P0-2 locale 成对）。黑盒「无参数」此前无任何测试锁死，靠 P0-6 契约补上；诊断「走桥接非直调」靠 CI Gate 10 基线兜底。
+
+### 本次交付
+worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 PASS（LogsSettings.vue 473<500）；frontend-consistency PASS（新增 src/api/rate-limit.js）；全量 eslint/tsc/brand 本地复验 0 error；locale --keys/--cjk PASS；ops-center build exit 0。PR#2253（auto-merge squash）；CHANGELOG 前置条目 + 本 learnings 回写。
+
 ## 爆款库第四链路「发布→回采→写回爆款库」线上闭合实证（viral-fourth-link-live-verification，2026-09-23）
 
 ### 可复用结论
