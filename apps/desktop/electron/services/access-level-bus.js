@@ -35,7 +35,7 @@ function warn (logger, msg) {
  */
 function createAccessLevelInvalidator (BrowserWindow, logger) {
   return function broadcastAccessLevelInvalidated (reason) {
-    let windows = []
+    let windows
     try {
       windows = (BrowserWindow && typeof BrowserWindow.getAllWindows === 'function')
         ? (BrowserWindow.getAllWindows() || [])
