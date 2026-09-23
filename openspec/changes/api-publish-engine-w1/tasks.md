@@ -20,7 +20,7 @@
 
 ## 4. 视频号 / B站 / 百家号 发布链（TDD 逐平台）
 
-- [ ] 4.1 视频号：红测契约（authKey→applyuploaddfs→uploadpartdfs→complete→post）→ 实现 → 绿
+- [x] 4.1 视频号：红测契约（authKey→applyuploaddfs→uploadpartdfs→complete→post）→ 实现 → 绿
 - [ ] 4.2 B站：红测契约（preupload/X-Upos-Auth→upos PUT→/x/vu/web/add，csrf=bili_jct）→ 实现 → 绿
 - [x] 4.3 百家号文章：红测契约（自域 token→uploadproxy→save/publish）→ 实现 → 绿
 - [ ] 4.4 三平台 adapters 改为委托新链；AI 声明字段平移

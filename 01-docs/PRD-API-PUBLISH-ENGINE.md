@@ -302,7 +302,50 @@ token 逐级传递（edit 带 baseToken / save 带 publishToken）、headers 白
 `publish.api.baijiahao.login_expired`、`publish.api.baijiahao.missing_cookie`。
 
 **实现状态**：§4.3 ✅、§4.5（百家号维度）✅。§4.4（旧 `adapters/baijiahao.js` 视频链
-变薄委托本文章链、外部接口不变）待后续切片；视频号 §4.1、B站 §4.2 链待后续切片。
+变薄委托本文章链、外部接口不变）待后续切片；B站 §4.2 链待后续切片（视频号 §4.1 见 §12.2）。
+
+
+### 12.2 视频号（微信 channels）视频链 `src/publish/platforms/shipinhao-video.js` ✅
+
+`ShipinhaoVideoChain`，注入两个 axios 客户端：`api`（`channels.weixin.qq.com`）与
+`cdn`（`finderassistancea.video.qq.com`），均走 §11.2 `createHttpClient` + `requestWithRetry`；
+测试时二者同指本机假服务器，杜绝外发。
+
+**请求序列（5 步，逐字对齐证据 `evidence/yx-slices-v2.txt`）**：
+
+| 步 | 方法/路径 | 客户端 | 关键头 | 提取/返回 |
+|----|-----------|--------|--------|-----------|
+| 1 authKey | `POST /cgi-bin/mmfinderassistant-bin/helper/helper_upload_params` | api | `cookie`,`referer` | body `{timestamp,_log_finder_id,rawKeyBuff:null}` → `authKey` |
+| 2 applyuploaddfs | `PUT /applyuploaddfs` | cdn | `X-Arguments(scene=2)`,`Authorization=authKey`,`Content-MD5:"null"` | `{BlockSum,BlockPartLength[]}` → `UploadID` |
+| 3 uploadpartdfs(×N) | `PUT /uploadpartdfs?PartNumber&UploadID` | cdn | `Content-MD5=md5(chunk)`,`X-Arguments(scene=0)`,`Authorization`,`Content-Type:application/octet-stream` | 二进制分片 → `ETag` |
+| 4 completepartuploaddfs | `POST /completepartuploaddfs?UploadID` | cdn | `X-Arguments(scene=2)`,`Authorization` | `{TransFlag:"0_0",PartInfo:[{PartNumber,ETag}]}` → 视频 url |
+| 5 publish | `POST /cgi-bin/mmfinderassistant-bin/post/post_{create\|draft}` | api | `referer`,`cookie`,`Content-type:application/json` | postData(JSON) → `{errCode,data.postId}` |
+
+**分片器（复用 §11.2 chunker）**：片长 **8388608**（8MiB）；`BlockSum=ceil(size/8MiB)`，
+`BlockPartLength` 为各片实际字节数组（末片为余数）；`PartNumber` 从 **1** 递增；
+每片 `Content-MD5` 为该片字节的 md5(hex)。`X-Arguments` 固定 `apptype=251`，含
+`filetype/weixinnum/filekey(URL 编码)/filesize/taskid/scene`。
+
+**数据校验（fail-closed，发首请求前）**：
+- 缺 `cookie` → 抛 `ShipinhaoVideoError`（`data_error`），**零请求**。
+- 缺 `userAgent` → 抛（`request_error`），零请求。
+- 视频文件不存在 → 抛（`io_error`），**零请求**（`fs.existsSync` 前置）。
+- `authKey` 缺失（响应无字段）→ 抛且**绝不触达任何 CDN 写请求**。
+
+**私密优先**：`opts.draft !== false` → `post_draft`；`draft:false` → `post_create`。
+`errCode!=0` 返回 `{success:false,code,errMsg}`；风控/登录失效停报，不换号、不降级 DOM。
+
+**§4.5 零请求/契约单测（`test/shipinhao-video-chain.test.js`，7 例全绿）**：五步序列逐字、
+`BlockSum`/`BlockPartLength` 与 8MiB 边界（1MB→1 片、8MiB+100→2 片 `[8388608,100]`）、
+`Content-MD5`/`X-Arguments(scene)`/`Authorization` 头、分片字节完整性、PartInfo ETag、
+`post_draft`/`post_create` 路由、三态零请求、`buildXArguments` 纯函数。
+
+**UI 显示项 / i18n**：「发布方式」徽标 `api`；分片历史展示 `PartNumber`/`ETag`；失败详情
+展示 `error`。key：`publish.api.shipinhao.risk`、`publish.api.shipinhao.file_missing`、
+`publish.api.shipinhao.progress`（`视频上传中 {done}/{total}`）。
+
+**实现状态**：§4.1 ✅、§4.5（视频号维度）✅。§4.4（旧 `adapters/shipinhao.js` 变薄委托本链）
+待后续切片；B站 §4.2 链待后续切片。
 
 
 ---

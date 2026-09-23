@@ -267,6 +267,7 @@ publishModes:
 | 2026-09-23 | W1 §2 | 签名收口进程内注册表 `src/signer/registry.js`（fail-closed），门面物理拆除远程签名通道（端点覆盖/远程取签/端口映射/axios 直连全删），`getDouyinSignature`/`getKuaishouSignature` 向后兼容 | PR#2307 `db7d4188ca`；signer 16 测全绿；源码 grep 远程 token 零残留 |
 | 2026-09-23 | W1 §3 | 新增 `src/publish/core`：`http-base`（timeout60s+风控重试!isJson≤3+代理注入+PublishHttpError对齐error-codes）、`chunker`（8MiB闭区间三边界）、`emit-gate`（10%里程碑/5s时间节流/幂等补100）；契约假服务器 `test/helpers/fake-http.js` | PR#2307 `e808fc37cb`；17 测全绿 |
 | 2026-09-23 | W1 §5 | 新增 `publish-spacer`（同账号≥18min虚拟时钟）+ `publish-mode`（三态总闸降级矩阵，风控/登录失效停报不降级不换号） | PR#2307 `b9b260d298`；15 测全绿 |
+| 2026-09-23 | W1 §4.1 | 新增视频号视频发布链 `src/publish/platforms/shipinhao-video.js`（委托 publish/core，注入 api/cdn 双客户端）：authKey(helper_upload_params)→applyuploaddfs(BlockSum/BlockPartLength,X-Arguments scene=2)→uploadpartdfs(8MiB 分片,Content-MD5=md5,scene=0)→completepartuploaddfs(PartInfo ETag)→post_create/post_draft(私密优先)；缺 cookie/文件不存在/authKey 缺失 fail-closed 零请求 | PR#2307；`shipinhao-video-chain.test.js` 7 测全绿；全量回归 17 文件/119 测绿；PRD §12.2 |
 | 2026-09-23 | W1 §4.3 | 新增百家号图文发布链 `src/publish/platforms/baijiahao-article.js`（委托 publish/core）：baseToken(`/?source=inner` 正则)→publishToken(`pcui/article/edit` 响应头)→uploadproxy→私密优先 `save?callback=bjhdraft`/正式 `publish?type=news`；标题 149 字节截断；缺 cookie/UA、baseToken 未命中 fail-closed 零请求；errno=10000015 风控停止不降级 | PR#2307；`baijiahao-article-chain.test.js` 8 测全绿；全量回归 16 文件/112 测绿；PRD §12.1 |
 
 > 详细实现契约（模块签名、数据校验、错误/提示语义、测试矩阵）见
