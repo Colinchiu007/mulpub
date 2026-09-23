@@ -16989,16 +16989,16 @@ is_default: 1
 同一条链路真实发布 **2 条**并通过独立 `web-interface/view` 回查（`code=0`、`state=0` 公开）：
 - topic01 → **bvid `BV1MahW6tE36`**（aid 117317988063126）
 - topic02 → **bvid `BV1DxhW6hEwZ`**（aid 117318055106795）
-证明链路稳定可复现，非偶发。回归单测 `packages/api-publish-engine/test/bilibili-upos.test.js`（5 例，纯逻辑不联网）。
+证明链路稳定可复现，非偶发。回归单测 `packages/api-publish-engine/test/bilibili-upos.test.js`（6 例，纯逻辑不联网）。
 
 
 ### 内容纯净要求：发布标题/简介/正文去「自动发布」水印（2026-09-23）
 
-- **需求**：真实发布内容时，标题、简介（desc）、正文一律不得携带「（由多平台一键发布工具自动发布）」等自动发布水印 boilerplate。
-- **实现**：ilibili 适配器 uildPostData 引入 _cleanText()，对 	itle/desc 做防御性净化——正则剥离任意全/半角括号包裹、含「自动发布 / 一键发布工具 / 由多平台」的整段 boilerplate 及残留换行后 	rim；因此无论上游改写引擎/队列传入何种文本，最终提交给平台的标题与简介都保持纯净。
-- **数据校验**：单测 ilibili-upos.test.js 以「标题/正文含水印」为输入，断言 uildPostData 产出的 	itle/desc 均不含上述关键词，作为回归保护，防止未来再次注入水印。
+- **需求（用户硬要求）**：真实发布内容时，标题、简介（desc）、正文一律不得携带「（由多平台一键发布工具自动发布）」等自动发布水印 boilerplate。
+- **实现**：`bilibili` 适配器 `buildPostData` 引入 `_cleanText()`，对 `title`/`desc` 做防御性净化——正则剥离任意全/半角括号包裹、含「自动发布 / 一键发布工具 / 由多平台」的整段 boilerplate 及残留换行后 `trim`；因此无论上游改写引擎/队列传入何种文本，最终提交给平台的标题与简介都保持纯净。
+- **数据校验**：单测 `bilibili-upos.test.js` 以「标题/正文含水印」为输入，断言 `buildPostData` 产出的 `title`/`desc` 均不含上述关键词，作为回归保护，防止未来再次注入水印。
 - **交互提示文字**：正文/简介直接透传用户内容，不再自动追加任何来源标注或工具签名。
-- **活体验证**：净化后重投 B站 topic02 得新稿 BV1YNh46kE8T，desc 无水印。
+- **活体验证**：净化后重投 B站 topic02 得新稿 `BV1YNh46kE8T`，`desc` 无水印（提交即净化）。
 
 ## 全仓代码体检整改：安全加固与质量门禁需求（audit-remediation-20260922，四批全量）
 
