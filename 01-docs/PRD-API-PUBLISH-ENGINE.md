@@ -772,6 +772,59 @@ spacer（首次放行、17min 节流零请求 waitMs、越 18min 再放行、不
 
 **待办（§5 架构切片，端到端验收绑定 §7）**：桌面 `riskSuspender` 状态接入发布队列派发前置守卫——真正「挂起」该平台/账号后续发布（当前仅信息提示），并在通知内提供「恢复 / 停止」显式 action；完整方案是让桌面发布路径改走/包裹引擎 `publishWithMode`（跨边界架构改，先出设计 / engine-review）。
 
+### 12.14 §5 桌面风控挂起守卫 enforcement：发布队列派发前置守卫设计（engine-review 待评审，本 PR 仅出设计不实现）
+
+> 定位：§5.4 生产端（PR#2335）已识别风控并发 publish:risk-hold；§6.1 消费端（PR#2337）已把信号送达渲染层做信息提示。本节闭合最后一环——让「风控命中」真正拦截该平台/账号的后续发布，并在通知内提供「恢复 / 停止」显式 action。属跨边界架构改，按 quality-rhythm Phase1.1 先出本设计、过 /plan-eng-review 后再进入 TDD 实现切片。
+
+#### 12.14.1 现状锚点（实现前必读）
+- 唯一派发点：bootstrap.js:81 taskQueue.setExecutor 闭包 —— 每任务先 context.signal.aborted 检查，再 publisherRouter.createPublisher(platform, ...) 然后 await publisher.publish(task, ...)。
+- 路由表：publisher-router.js ROUTE_TABLE 按平台给 mode（bilibili/baijiahao 为 api，其余 rpa_vm），createPublisher 据此选 Publisher；桌面发布不经引擎 publishWithMode。
+- 生产端：bootstrap/phase4-events.js 在 task:failed 且 isRiskBlocked(task.error) 时 win.webContents.send(publish:risk-hold,{platform,accountId,taskId,error})。
+- 引擎已有能力（§12.7，packages/api-publish-engine）：createRiskSuspender（账号级挂起态：suspend/isSuspended/resume/listSuspended），但桌面链路当前未接入其实例。
+
+#### 12.14.2 方案选型（engine-review 待确认）
+- 方案A（选定·最小侵入）：在 setExecutor 顶部加 riskGuard 前置检查——命中挂起则 throw 一个可识别的 RiskSuspendedError，任务标 blocked、不触达 publisher；新增 preload/api IPC 面 publishRisk.{suspend,resume,listSuspended,isSuspended} 渲染层调用；通知内 action 按钮接 resume/suspend。守卫态来源：新建桌面侧 riskSuspender 单例（复用引擎 createRiskSuspender 纯逻辑，DI 注入 now/logger），phase4-events 命中风控时调用其 suspend(platform, accountId)，executor 派发前调用 isSuspended。
+- 方案B（更大改造·暂不采纳）：桌面发布整体改走/包裹引擎 publishWithMode，统一 mode 双轨 + 频控 + 风控挂起。收益是单一发布收口，代价是大范围重写 executor 与 publisher 契约、回归面广，另列后续波次评估，本切片不做（避免不可验证半接线）。
+
+#### 12.14.3 数据校验（fail-closed）
+- 守卫键：accountId 优先；accountId 缺失时退回 platform 维度（保守：宁可多拦不可漏放）。isSuspended(key) 返回 true 即阻断。
+- suspend 入参校验：platform 非空字符串、accountId 允许 null（升 platform 级）；非法入参抛 TypeError（英文消息，避免命中 Gate7 --cjk 渲染层中文扫描）。
+- 持久化：挂起态需重启存活——写 store（key: publish.riskSuspended，值为 {key,platform,accountId,at,error,reason} 列表 JSON）；启动时 loadSuspended 回填。读失败按空集（不阻断正常发布），写失败仅告警不抛。
+- 解除：resume(key) 显式调用才解，且从持久化移除；无任何自动恢复/自动换号路径（合规红线：风控即停，人工确认）。
+
+#### 12.14.4 流程与时序
+1. 任务失败 → phase4-events isRiskBlocked 命中 → riskSuspender.suspend(platform,accountId) + 发 publish:risk-hold（现有）+ 发 publish:risk-suspended 全量态变更事件（新增，供徽标/列表刷新）。
+2. 同平台/账号下一任务进 executor → 派发前 riskGuard：若 isSuspended 命中 → throw RiskSuspendedError → taskQueue 标 blocked，history track=suspended，不发真实发布请求。
+3. 渲染层通知「恢复」→ invoke publishRisk.resume(key) → suspend 集合移除 + 广播 publish:risk-suspended → 后续任务放行；「停止」→ 停该账号后续（等同保持挂起 + 关闭队列中该平台待派任务，标 cancelled）。
+
+#### 12.14.5 IPC 契约（新增面，须同步 preload + api 桥接 + preload.test.js 键数快照 + build:preload 重建 bundle）
+- invoke publishRisk:listSuspended() -> Array<{key,platform,accountId,at,reason}>（渲染层拉被挂起清单，账号管理页红点）。
+- invoke publishRisk:resume(key) -> boolean（显式恢复）。
+- invoke publishRisk:isSuspended({platform,accountId}) -> boolean。
+- listener publish:risk-suspended(payload)（态变更广播，preload onRiskSuspended 返回 removeListener，与 onRiskHold 同构）。
+- 变更纪律：新增 preload 暴露方法后必须 node scripts/build-preload.js 重建 index.bundle.js + home-shell-preload.bundle.js 并纳入同一 commit（否则 build-preload.test.js:56 bundle-vs-source 深比较挂 → 重型观测门红，见内置 common_pitfalls 记忆）。
+
+#### 12.14.6 交互显示项与提示文字（i18n zh/en 成对，禁渲染层中文字面量入 string 常量以外位置）
+- 通知（升级 §6.1）：风控挂起 toast 增加两个 action 按钮——「恢复」「停止」。文案 publish.riskHold.body 保持信息提示；新增 publish.riskHold.resume=「恢复」/publish.riskHold.stop=「停止」/publish.riskHold.suspended=「该平台/账号已挂起，后续发布将暂停」。
+- 账号管理页：被挂起账号显示红色状态点 + 「已挂起」标签（读 publishRisk:listSuspended）。
+- 发布历史：track=suspended 记录显示「风控暂停」，配「恢复」按钮（对齐 §12.7.5）。
+- 恢复成功 toast publish.riskHold.resumed=「已恢复，后续发布将继续」；失败 publish.riskHold.resumeFailed=「恢复失败，请稍后重试」。
+
+#### 12.14.7 测试矩阵（TDD·本机假依赖零外发）
+- riskSuspender（桌面单例，复用引擎纯逻辑）：suspend/isSuspended/resume/listSuspended + accountId 缺失降 platform + 持久化 load/save 往返 + 非法入参 TypeError。
+- executor 前置守卫（bootstrap.test.js 注入 mock riskGuard）：命中挂起 → publisher.createPublisher 零调用 + 抛 RiskSuspendedError；未命中 → 正常放行；resume 后放行。
+- phase4-events 扩充：风控命中除 publish:risk-hold 外额外 riskSuspender.suspend + 广播 publish:risk-suspended；普通失败不挂起。
+- preload.test.js / publisher.test.js / ipc-contract：新方法键数快照递增（+N 精确核对）、listener 存在性、invoke 通道登记；改后重建 bundle 纳入 commit。
+- i18n parity（zh/en 成对 Gate7 --keys）+ --cjk 预检 + ESLint Gate11 + Gate12 品牌扫描。
+- 端到端正确性验收绑定 §7（真实账号、间隔≥18min、风控即停绝不自动换号、私密草稿优先、真实触发一次挂起→通知恢复→确认后续放行），用户门槛，不可用单测替代。
+
+#### 12.14.8 engine-review 待确认点（进入实现前必须敲定）
+- 守卫键粒度：accountId 级 vs platform 级 vs platform+账号 复合；多账号同平台的挂起是否相互隔离（决策账：风控即停不换号，故挂起应精确到触发账号，勿误伤同平台其它号）。
+- 挂起态与 scheduler 待派任务：命中挂起时是否同时暂停 scheduler 对该平台的排期，还是仅在 executor 末端拦截。
+- 是否复用引擎 createRiskSuspender 实例，还是桌面独立实现（倾向复用纯逻辑、DI 注入桌面 store 持久化）。
+- 方案B（整体走 publishWithMode）是否单列后续波次；本切片只做方案A 前提下，§12.7 引擎 riskSuspender 与桌面 riskSuspender 的单一事实源如何界定。
+
+> 状态：设计交付（本 PR）。实现切片待 /plan-eng-review 通过 + 上述 4 待确认点敲定后，另起隔离 worktree 分支按 TDD 落地。
 ## 附：验收记录（活体证据回写区，随波更新）
 
 | 波次 | 平台 | 日期 | 作品ID | 链接 | 截图 | 降级 | 结论 |
