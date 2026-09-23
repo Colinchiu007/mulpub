@@ -44,7 +44,13 @@ test('PostgresIdentityRepository', async (t) => {
     assert.match(sql, /CREATE TABLE IF NOT EXISTS identity_subscriptions/)
     assert.match(sql, /CREATE TABLE IF NOT EXISTS identity_entitlement_usage/)
     assert.match(sql, /CREATE TABLE IF NOT EXISTS identity_user_sessions/)
+    assert.match(sql, /CREATE TABLE IF NOT EXISTS identity_orders/)
+    assert.match(sql, /CREATE TABLE IF NOT EXISTS identity_redeem_codes/)
+    assert.match(sql, /CREATE TABLE IF NOT EXISTS identity_notifications/)
     assert.match(sql, /ALTER TABLE identity_users\s+ADD COLUMN IF NOT EXISTS last_event_created_at/)
+    assert.match(sql, /ALTER TABLE identity_user_sessions ADD COLUMN IF NOT EXISTS device_id TEXT/)
+    assert.match(sql, /ALTER TABLE identity_user_sessions ADD COLUMN IF NOT EXISTS device_name TEXT/)
+    assert.match(sql, /ALTER TABLE identity_user_sessions ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ/)
   })
 
   await t.test('生产 readiness 只检查连接、migration ledger 和关键表，不执行 DDL', async () => {
@@ -53,6 +59,7 @@ test('PostgresIdentityRepository', async (t) => {
       'identity_schema_migrations', 'identity_users', 'identity_subscriptions',
       'identity_entitlement_snapshots', 'identity_entitlement_usage',
       'identity_webhook_events', 'identity_user_sessions',
+      'identity_orders', 'identity_redeem_codes', 'identity_notifications',
     ]
     const pool = {
       async query(text, values) {
@@ -83,6 +90,7 @@ test('PostgresIdentityRepository', async (t) => {
       'identity_schema_migrations', 'identity_users', 'identity_subscriptions',
       'identity_entitlement_snapshots', 'identity_entitlement_usage',
       'identity_webhook_events', 'identity_user_sessions',
+      'identity_orders', 'identity_redeem_codes', 'identity_notifications',
     ]
     const makeRepository = (ledgerRows) => {
       const pool = {
@@ -128,12 +136,13 @@ test('PostgresIdentityRepository', async (t) => {
 
   await t.test('生产 PostgreSQL 迁移与运行时所需表保持一致', () => {
     const migrationDirectory = path.resolve(__dirname, '../../../migrations/postgresql')
-    const sql = ['002_logto_identity.sql', '003_logto_webhook_events.sql']
+    const sql = ['002_logto_identity.sql', '003_logto_webhook_events.sql', '004_member_commerce.sql']
       .map((name) => fs.readFileSync(path.join(migrationDirectory, name), 'utf8'))
       .join('\n')
     for (const table of [
       'identity_users', 'identity_subscriptions', 'identity_entitlement_snapshots',
       'identity_entitlement_usage', 'identity_webhook_events', 'identity_user_sessions',
+      'identity_orders', 'identity_redeem_codes', 'identity_notifications',
     ]) {
       assert.match(sql, new RegExp(`CREATE TABLE IF NOT EXISTS ${table}`))
     }
