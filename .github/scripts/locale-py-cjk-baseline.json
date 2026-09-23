@@ -40,7 +40,7 @@
   "packages/python-backend/src/multi_publish/publishers/account_paths.py:32",
   "packages/python-backend/src/multi_publish/publishers/account_paths.py:44",
   "packages/python-backend/src/multi_publish/publishers/account_paths.py:52",
-  "packages/python-backend/src/multi_publish/publishers/base.py:331",
+  "packages/python-backend/src/multi_publish/publishers/base.py:359",
   "packages/python-backend/src/multi_publish/publishers/douyin.py:141",
   "packages/python-backend/src/multi_publish/publishers/douyin.py:317",
   "packages/python-backend/src/multi_publish/publishers/douyin.py:360",

@@ -1,0 +1,376 @@
+{
+  "//": "依赖漏洞审计挂账清单（audit-batch-4）。升级/新增依赖后请跑：node scripts/check-dep-audit.js --update 并补齐 decision/note。",
+  "reviewBy": "2026-12-31",
+  "advisories": [
+    {
+      "source": "npm",
+      "id": "GHSA-2883-xcg3-v3hh",
+      "module": "js-yaml",
+      "severity": "high",
+      "patched": ">=4.3.2",
+      "roots": [
+        "apps__desktop",
+        "packages__api-publish-engine",
+        "packages__shared-utils"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "js-yaml 是本仓直接依赖（根 ^4.3.0 / api-publish-engine ^4.2.0 / shared-utils ^4.2.0，代码内 11 处引用），但 lockfile 解析到的版本低于修复版；caret 范围已覆盖 >=4.3.2，动作=刷新 lockfile（pnpm update js-yaml），无需改 manifest。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-28wg-ghj8-5hjv",
+      "module": "nanoid",
+      "severity": "high",
+      "patched": ">=3.3.16",
+      "roots": [
+        "apps__desktop",
+        "packages__remotion-composer",
+        "packages__ui"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "nanoid 在本仓零直接引用（仅 01-docs/ui-reference 的第三方 asar 样例里出现），属 vite/postcss 链的传递依赖；随宿主包升级收敛到 >=3.3.18。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-2v37-7h3g-55p8",
+      "module": "nanoid",
+      "severity": "high",
+      "patched": ">=3.3.18",
+      "roots": [
+        "apps__desktop",
+        "packages__remotion-composer",
+        "packages__ui"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "nanoid 第二条公告，与 GHSA-28wg-ghj8-5hjv 同一升级动作覆盖（取更高修复版本）。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-36fh-84j7-cv5h",
+      "module": "jszip",
+      "severity": "moderate",
+      "patched": ">=3.8.0",
+      "roots": [
+        "apps__desktop"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "jszip 由 apps/desktop 的文档导入链引入；升级 PR 提到 >=3.8.0。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-3jxr-9vmj-r5cp",
+      "module": "brace-expansion",
+      "severity": "high",
+      "patched": ">=1.1.16",
+      "roots": [
+        "apps__desktop"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "brace-expansion 为 minimatch/glob 传递依赖，仅影响构建期文件匹配；升级 PR 提到 >=1.1.18。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-4cwx-7wf7-3272",
+      "module": "undici",
+      "severity": "high",
+      "patched": ">=7.29.0",
+      "roots": [
+        ".",
+        "apps__desktop",
+        "packages__rpa-engine"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "undici 由 packages/rpa-engine 的 HTTP/浏览器驱动链引入；undici 属 Node fetch 底层，优先级高，升级 PR 提到 >=7.29.0。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-4mjr-xmp4-gh2g",
+      "module": "qs",
+      "severity": "moderate",
+      "patched": ">=6.16.0",
+      "roots": [
+        "packages__ai-writer-api"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "qs 为 packages/ai-writer-api 的 express 传递依赖；升级 PR 提到 >=6.16.0。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-5jgf-p345-68v8",
+      "module": "fast-uri",
+      "severity": "high",
+      "patched": ">=3.1.6",
+      "roots": [
+        "packages__remotion-composer"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "fast-uri 为 ajv（schema 校验）在 packages/remotion-composer 的传递依赖；升级 PR 提到 >=3.1.6。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-5p4m-2wfm-xmqj",
+      "module": "js-yaml",
+      "severity": "high",
+      "patched": ">=4.3.1",
+      "roots": [
+        "apps__desktop",
+        "packages__api-publish-engine",
+        "packages__shared-utils"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "同上 js-yaml 的第二条公告，与 GHSA-2883-xcg3-v3hh 同一刷新动作覆盖（取更高修复版本 >=4.3.2）。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-73wf-gq98-2v4g",
+      "module": "browserslist",
+      "severity": "high",
+      "patched": ">=4.28.7",
+      "roots": [
+        "packages__remotion-composer"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "browserslist 为 remotion-composer 构建期传递依赖，不参与运行时；升级 PR 提到 >=4.28.7。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-7p8r-x3mc-p8w7",
+      "module": "fast-uri",
+      "severity": "high",
+      "patched": ">=3.1.5",
+      "roots": [
+        "packages__remotion-composer"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "fast-uri 第二条公告，与 GHSA-5jgf 同一升级动作覆盖。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-8xcm-r25x-g524",
+      "module": "undici",
+      "severity": "moderate",
+      "patched": ">=7.29.0",
+      "roots": [
+        ".",
+        "apps__desktop",
+        "packages__rpa-engine"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "undici 第二条公告，与 GHSA-4cwx 同一升级动作覆盖。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-c83g-rgw3-j3cx",
+      "module": "browserslist",
+      "severity": "high",
+      "patched": ">=4.28.7",
+      "roots": [
+        "packages__remotion-composer"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "browserslist 第二条公告，与 GHSA-73wf 同一升级动作覆盖。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-f65p-4m7j-42xc",
+      "module": "fast-uri",
+      "severity": "high",
+      "patched": ">=3.1.6",
+      "roots": [
+        "packages__remotion-composer"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "fast-uri 第三条公告，与 GHSA-5jgf 同一升级动作覆盖。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-fph4-wmhf-6fwf",
+      "module": "fast-uri",
+      "severity": "high",
+      "patched": ">=3.1.6",
+      "roots": [
+        "packages__remotion-composer"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "fast-uri 第四条公告，与 GHSA-5jgf 同一升级动作覆盖。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-fxqj-rqcc-2cmp",
+      "module": "postcss",
+      "severity": "moderate",
+      "patched": ">=8.5.23",
+      "roots": [
+        "apps__desktop",
+        "packages__remotion-composer",
+        "packages__ui"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "postcss 主要为 vite/stylelint 链的传递依赖，但 apps/desktop/src/views/Dashboard.style-guard.test.js 直接引用了 postcss 解析样式，升级后需跑 desktop vitest；提到 >=8.5.23。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-jqff-g426-hqxp",
+      "module": "fast-uri",
+      "severity": "high",
+      "patched": ">=3.1.6",
+      "roots": [
+        "packages__remotion-composer"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "fast-uri 第五条公告，与 GHSA-5jgf 同一升级动作覆盖。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-jr45-8vmc-qm54",
+      "module": "undici",
+      "severity": "moderate",
+      "patched": ">=7.29.0",
+      "roots": [
+        ".",
+        "apps__desktop",
+        "packages__rpa-engine"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "undici 第三条公告，与 GHSA-4cwx 同一升级动作覆盖。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-m8rv-5g2x-5cg5",
+      "module": "undici",
+      "severity": "moderate",
+      "patched": ">=7.29.0",
+      "roots": [
+        ".",
+        "apps__desktop",
+        "packages__rpa-engine"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "undici 第四条公告，与 GHSA-4cwx 同一升级动作覆盖。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-mh99-v99m-4gvg",
+      "module": "brace-expansion",
+      "severity": "high",
+      "patched": ">=1.1.17",
+      "roots": [
+        "apps__desktop"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "brace-expansion 第二条公告，与 GHSA-3jxr 同一升级动作覆盖。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-r28c-9q8g-f849",
+      "module": "postcss",
+      "severity": "high",
+      "patched": ">=8.5.18",
+      "roots": [
+        "apps__desktop",
+        "packages__remotion-composer",
+        "packages__ui"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "postcss 第二条公告，与 GHSA-fxqj 同一升级动作覆盖（取更高修复版本）。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-rgj7-g3m4-5g8c",
+      "module": "sharp",
+      "severity": "high",
+      "patched": ">=0.35.4",
+      "roots": [
+        "packages__shared-utils"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "sharp 是 packages/shared-utils 的直接生产依赖（^0.35.1，5 处引用：封面裁剪/缩略图），修复版 >=0.35.4 已落在 caret 范围内，刷新 lockfile 即可；因涉及图片输出，升后需单独回归封面裁剪。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-rgw5-rvv9-x895",
+      "module": "brace-expansion",
+      "severity": "high",
+      "patched": ">=1.1.18",
+      "roots": [
+        "apps__desktop"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "brace-expansion 第三条公告，与 GHSA-3jxr 同一升级动作覆盖（取更高修复版本）。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-v2hh-gcrm-f6hx",
+      "module": "fast-uri",
+      "severity": "high",
+      "patched": ">=3.1.4",
+      "roots": [
+        "packages__remotion-composer"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "fast-uri 第六条公告，与 GHSA-5jgf 同一升级动作覆盖。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-v3r7-h72x-cjcm",
+      "module": "undici",
+      "severity": "moderate",
+      "patched": ">=7.29.0",
+      "roots": [
+        ".",
+        "apps__desktop",
+        "packages__rpa-engine"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "undici 第五条公告，与 GHSA-4cwx 同一升级动作覆盖。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-v422-hmwv-36x6",
+      "module": "body-parser",
+      "severity": "low",
+      "patched": ">=1.20.6",
+      "roots": [
+        "packages__ai-writer-api"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "body-parser 为 ai-writer-api 的 express 传递依赖，低风险；升级 PR 提到 >=1.20.6。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-w5vr-8v7q-w6rv",
+      "module": "baseline-browser-mapping",
+      "severity": "moderate",
+      "patched": ">=2.11.0",
+      "roots": [
+        "packages__remotion-composer"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "baseline-browser-mapping 与 browserslist 同族构建期数据包；升级 PR 提到 >=2.11.0。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-x5fp-wj9c-mxmx",
+      "module": "qs",
+      "severity": "moderate",
+      "patched": ">=6.15.4",
+      "roots": [
+        "packages__ai-writer-api"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "qs 第二条公告，与 GHSA-4mjr 同一升级动作覆盖（取更高修复版本）。"
+    },
+    {
+      "source": "pip",
+      "id": "PYSEC-2026-1325",
+      "module": "ecdsa",
+      "severity": "unknown",
+      "patched": "",
+      "roots": [
+        "ops-center/backend"
+      ],
+      "decision": "no-fix-available",
+      "note": "ecdsa 由 python-jose[cryptography] 传递引入，确实在签名校验路径上被调用（ops-center/backend/services/logto_verifier.py 以 algorithms=[\"RS256\",\"ES256\"] 调 jose_jwt.decode）。但 PYSEC-2026-1325 是 Minerva 计时侧信道，影响面限定在私钥运算（SigningKey.sign_digest），本仓不持私钥、不签发 JWT，只做验签；上游明确「side channel out of scope，no planned fix」，无可用修复版本。真正的收敛动作是把 python-jose 换成 PyJWT/cryptography 直接验签（另行立项），而不是等 ecdsa 升版。"
+    }
+  ]
+}

@@ -148,10 +148,23 @@ function buildComposeCommand({ report, assets, outputPath, fps = 30 }) {
  * 失败 VIDEOCLONE_COMPOSE_FAILED（retryable）；输出写 artifacts.output：
  * - probeOk：ffprobe 是否实测（失败时 durationSec 回退计划值，由消费方按 plan-fallback 处理）
  * - shots 三态：数组（实测切点，≥1 段；零切点=单段=合法实测）| null（场景检测失败/未注入）
+ * - probeError / sceneError：降级原因（成功时为 null），经 pipeline 流入 similarity.warnings
  */
 function createFfmpegCompose({
   ffmpegRunner = null, ffprobeRunner = runFfprobe, sceneRunner = runFfmpegSceneDetect, outputDir = null, fps = 30,
+  logger = null,
 } = {}) {
+  // 降级留痕（审计 P2·静默 catch 收口）：ffprobe 校验失败与场景检测失败都是「有意不阻断」，
+  // 但原先连失败原因都没留下——上游只能看到 probeOk=false / shots=null 两个布尔值，
+  // 线上无法区分是路径不存在、超时还是解码失败。这里同时做两件事：
+  // 1) 把原因写进 artifacts.output，随 measured 报告一路流到 similarity.warnings（用户可见）；
+  // 2) 注入 logger 时补一条 warn（未注入不外抛，保持 adapter 纯函数式）。
+  function noteFailure (stage, err) {
+    const msg = String((err && err.message) || err);
+    if (logger && typeof logger.warn === 'function') logger.warn('VideoClone:' + stage, msg);
+    return msg;
+  }
+
   async function run(ctx) {
     const report = ctx.report;
     const assets = ctx.artifacts.assets || {};
@@ -179,15 +192,21 @@ function createFfmpegCompose({
     }
     let meta = null;
     let probeOk = false;
-    try { meta = await ffprobeRunner(outputPath); probeOk = true; } catch { /* 输出校验失败仍返回，由相似度/门禁兜底 */ }
+    let probeError = null;
+    // 输出校验失败仍返回，由相似度/门禁兜底（时长走 plan-fallback）
+    try { meta = await ffprobeRunner(outputPath); probeOk = true; } catch (err) { probeError = noteFailure('probe', err); }
     let shots = null;
     let sceneMethod = null;
+    let sceneError = null;
     if (typeof sceneRunner === 'function') {
       try {
         const cutTimes = await sceneRunner(outputPath, { threshold: 0.3 });
         shots = timesToShots(Array.isArray(cutTimes) ? cutTimes : [], meta ? meta.durationSec : built.totalDurationSec);
         sceneMethod = 'ffmpeg-scene';
-      } catch { /* 场景检测失败不阻断：shots=null，由相似度层显式降级 */ }
+      } catch (err) {
+        // 场景检测失败不阻断：shots=null，由相似度层显式降级
+        sceneError = noteFailure('scene-detect', err);
+      }
     }
     ctx.artifacts.output = {
       path: outputPath,
@@ -199,6 +218,8 @@ function createFfmpegCompose({
       probeOk,
       shots,
       sceneMethod,
+      probeError,
+      sceneError,
     };
     return 'compose';
   }

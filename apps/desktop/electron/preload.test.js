@@ -586,18 +586,31 @@ describe('preload 动态许可证权限', () => {
       expect(() => exposedApi.publishWechat({ title: '免费版' }))
         .toThrow(/许可证权限不足/)
 
+      // 审计 P2·性能税回归保护：主进程未推失效事件时，TTL 内的重复调用不得再打同步 IPC
+      const sendSyncCallsBefore = __electronMock.ipcRenderer.sendSync.mock.calls.length
+      expect(() => exposedApi.publishWechat({ title: '免费版' }))
+        .toThrow(/许可证权限不足/)
+      expect(() => exposedApi.publishWechat({ title: '免费版' }))
+        .toThrow(/许可证权限不足/)
+      expect(__electronMock.ipcRenderer.sendSync.mock.calls.length).toBe(sendSyncCallsBefore)
+
+      // 主进程推送失效 → 不重载窗口，升级立即生效
       accessLevel = 'authenticated'
+      __electronMock.ipcRenderer.emit('auth:access-level-invalidated', { reason: 'license-activate' })
       await expect(exposedApi.publishWechat({ title: '专业版' })).resolves.toEqual({
         channel: 'publish:wechat',
         args: { title: '专业版' },
       })
 
       accessLevel = 'public'
+      __electronMock.ipcRenderer.emit('auth:access-level-invalidated', { reason: 'license-deactivate' })
       expect(() => exposedApi.publishWechat({ title: '已降级' }))
         .toThrow(/许可证权限不足/)
       expect(__electronMock.ipcRenderer.invoke).toHaveBeenCalledTimes(1)
       expect(__electronMock.ipcRenderer.sendSync)
         .toHaveBeenCalledWith('auth:get-access-level')
+      // 两次推送之间最多回源一次：3 次受限调用共 2 次同步 IPC（推送前 1 次 + 每次推送后 1 次）
+      expect(__electronMock.ipcRenderer.sendSync.mock.calls.length).toBe(sendSyncCallsBefore + 2)
     } finally {
       delete require.cache[preloadPath]
       __electronMock.contextBridge.exposeInMainWorld = originalExpose

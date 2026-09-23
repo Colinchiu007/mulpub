@@ -192,6 +192,46 @@ async def async_retry(fn: Callable[[], Coroutine], max_retries: int = 5, interva
     raise last_exc  # type: ignore
 
 
+async def wait_until(
+    predicate,
+    timeout_s: float,
+    interval_s: float = 0.5,
+) -> bool:
+    """条件轮询工具（替代固定 ``asyncio.sleep``）。
+
+    Args:
+        predicate: 无参可调用，返回真值即视为条件成立；同步/异步均可；
+            抛异常按「本轮条件不成立」处理（页面导航中等瞬时错误不该终止等待）。
+        timeout_s: 等待上限（秒），到点仍不成立返回 False。
+        interval_s: 轮询间隔（秒），最后一次轮询会被裁剪到上限时刻，不越过 deadline。
+
+    Returns:
+        True 表示条件在时限内成立；False 表示超时。
+
+    调用方必须显式处理 False 分支并记录「超时原因」：多数 RPA 场景里「等不到」
+    只代表页面结构不匹配，不等于操作失败，直接判失败会把可用路径改坏。
+    """
+    import asyncio
+    import inspect
+    import time
+
+    deadline = time.monotonic() + max(0.0, float(timeout_s))
+    step = max(0.05, float(interval_s))
+    while True:
+        try:
+            value = predicate()
+            if inspect.isawaitable(value):
+                value = await value
+            if value:
+                return True
+        except Exception:
+            value = False
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        await asyncio.sleep(min(step, remaining))
+
+
 # ─── Per-Field 重试状态机（参考产品 renderTaskMap 风格）───────────
 
 

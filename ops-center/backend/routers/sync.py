@@ -66,14 +66,16 @@ async def sync_status(
     """Check sync status across all projects."""
     projects = await config_service.get_all_projects(db)
     import os
+    # 只需要条数，旧实现对每个项目各发一次全表 SELECT（N+1，且把整表配置行读进内存）。
+    # 改为一次 GROUP BY 统计，2 条 SQL 覆盖全部项目。
+    counts = await config_service.get_config_counts_by_project(db)
     result = []
     for p in projects:
-        items = await config_service.get_configs_by_project(db, p.code)
         file_exists = os.path.exists(p.config_file_path) if p.config_file_path else False
         result.append({
             "project": p.code,
             "config_file": p.config_file_path,
             "file_exists": file_exists,
-            "items_in_db": len(items),
+            "items_in_db": int(counts.get(p.code, 0)),
         })
     return {"projects": result}

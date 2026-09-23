@@ -88,6 +88,48 @@
 
 
 
+# [未发布] chore(audit): P2 技术债第四批——脆弱等待条件化 + N+1/单事务 + 级别缓存 + 降级留痕 + 行数与依赖门禁（2026-09-22，audit-batch-4）
+
+
+## audit-batch-4（P2，未发版，与 audit-batch-1/2/3 一起等下次发版收口）
+
+
+### Performance
+
+- **脆弱等待全部条件化**：① 链接采集 `url-collector` 用 `waitForFunction` 判「`readyState===complete` 且候选正文容器 `innerText>=200`（无语义容器退化为 body>=4000）」替代原来注释写着「最多 10s」、实际只盲等 2s 的 `waitForTimeout(2000)`，上限 10s / 间隔 250ms，超时只 warn 并按当前 DOM 继续采集（不新增失败路径）。该等待与 `page.content()` 导航竞态重试同属「只依赖 Playwright Page」的一层，已拆到 `electron/services/url-collector-page-wait.js`——本批改动使 `url-collector.js` 从 488 行涨到 547 行，被自己刚立的逐文件行数门禁判住（`FILES_OVER_500: 100 > baseline 99`），处置口径是**拆文件而不是放宽基线**；`url-collector.js` 内保留 `_waitForContentReady` / `_readPageContentWithRetry` 薄委托（采集入口与既有用例契约不变，489 行）；② 文生视频轮询由「先 sleep 10s 才查」改为立即查询 + 具名上限（`VIDEO_POLL_TIMEOUT_MS=600s` / `INTERVAL=10s`）+ 末次窗口不足即退出；③ 小红书发布器 `sleep(3)` / `sleep(30)` 换成新公共原语 `publishers.base.wait_until` 轮询「上传控件可见 / 标题输入框可见」（10s / 30s 上限、0.5s 间隔），predicate 抛异常按本轮不成立处理；④ `rpa-view-helpers._waitForResponse` 用 WeakMap 按 session 串行化——`session.webRequest.onCompleted` 是会话级单例，并发注册互相覆盖导致先发者只能靠 60s 超时兜底
+- **受限 API 不再每次打同步 IPC**：新增 `electron/core/access-level.js` 作为「级别集合 / 查询通道 / 失效事件 / TTL」单一来源，preload 侧改为「主进程推送失效 + 2s TTL 兜底」缓存；刻意只推失效不推级别（级别判定含 sender 可信度，服务端才是权威，缓存不可能提权），非法值/异常一律按 `public` 失败关闭。许可证激活/注销/试用与身份状态变更四处显式广播，不重载窗口即生效
+- **运营中心后端四处税**：审计日志掩码由「每行 old/new 各回查配置项」（limit=500 时最多 1000 次 SELECT）改为一次 `IN` 批量预取；`GET /sync/status` 由逐项目全表 SELECT 改为一次 GROUP BY；`PUT /config/batch` 由「逐条 upsert + 逐条 COMMIT」改为 1 次预取 + 单事务，任一条异常整体回滚（不再留半更新、配置与审计不再不成套）；SSRF 校验的 `socket.getaddrinfo` 丢进 `asyncio.to_thread`（阻塞 DNS 曾会卡死整个事件循环）
+- **通用适配器不再重复上传**：`generic-adapter` 的 `uploadVideo()` / `uploadCover()` 原先各跑一遍 orchestrator 的 `upload()`，同一任务文件被传两遍（带宽/配额翻倍、平台侧冗余素材、大视频耗时翻倍）；现按任务指纹共享同一 in-flight Promise，失败不缓存以保留上层重试语义，>32 条即清空
+
+
+### Fixes
+
+- **有意降级必须留痕**（原先全是 `catch {}`，线上无从区分「路径不存在 / 超时 / 解码失败」）：video-clone compose 新增 `probeError` / `sceneError` 并沿 measured 报告流入用户可见的 `similarity.warnings.probeFailed` / `sceneDetectReason`（无原因时给 `unknown` 占位）；story2video slideshow 新增 `createDegradationSink(onWarn)`，四处降级点 `audio-duration`（时长回退 8s）/ `bgm-load`（无配乐）/ `audio-mix`（成片静音，最需被看见）/ `recorder-stop`（预期竞态）统一留痕，未注入回调则落 `console.warn`，留痕自身绝不二次抛错；rewrite-engine 知识库损坏 JSON 不再静默当空库、演进调度定时器异常留痕
+- **文生视频失败原因不再含糊**：原来统一报「视频生成超时或失败」，现拆为「任务状态为 failed」与「轮询超时（上限 600s，末次状态=running）」两类并带 provider
+- **动效/转场枚举收口为单一来源**：桌面端「恢复上次使用选项」白名单里 `imageEffect` / `transition` 两处手抄字面量改由 `story2video-engine/effects-library` 派生的 `IMAGE_EFFECT_IDS` / `TRANSITION_EFFECT_IDS` 提供（`'none'` 恒置顶、其余保持登记顺序，UI 行为零变化）；引擎新增效果后不再把用户已存值判为陈旧值静默丢弃；同时删除无消费方的重复副本 `src/views/create-view-utils.js`
+
+
+### Security
+
+- **批量写入必须与单条同语义**（rebase 时暴露的真实回归风险）：第 4 批 worktree 基线早于 PR #2226，批量改造初版直接 `existing.value = value` 写明文入库；若按常规解冲突会静默回退第 2 批 P1-5「敏感配置写库前加密」。现将加密、`secret_flag` 以库中既有标记为准、掩码回显不覆盖真实凭据、审计只存掩码（`_apply_upsert` 返回 `audit_old/audit_new`）全部收进单点由两条入口共用；存量密文不可解时抛错导致整批回滚（fail-closed）。`_mask_value` 改为幂等（已含 `***` 不二次掩码）
+- **`ops-center/backend/requirements.txt` 12 行依赖全部补上版本上限**：只写 `>=` 等于把「上游发布破坏性版本」交给运气。实测教训已写进文件注释——上限收得比已公告漏洞的修复版本还低，等于把解析结果钉在漏洞版本上（`cryptography` 一度写 `<46.0.0`，`pip-audit` 当场报出 7 条公告，查得最新 50.0.1 后改 `<51.0.0`）；`pip install --dry-run` 验证可解析
+
+
+### Testing
+
+- 新增 13 个用例文件 + 2 个门禁判定用例：桌面端 `url-collector-content-ready` / `videogen-stages-poll` / `rpa-view-helpers-wait-queue` / `access-level-cache` / `access-level-bus` / `effects-single-source`，`preload.test.js` 补 `sendSync` 调用计数与「推送后不重载即生效」断言，test-setup 的 `ipcRenderer` mock 支持 `on/off/emit` 记录（否则推送契约无法回归）；Python 侧 `test_p4_wait_until.py`、`test_p4_txn_and_queries.py`（含批量加密语义与掩码回显两条 P1-5 融合保护）；引擎侧 `compose-degradation-trace` / `effects-and-degradation` / `knowledge-base-corrupt-trace` / `knowledge-evolution-scheduler-timers` / `generic-adapter-upload-once`
+- 新增两块门禁及其判定用例：`.github/scripts/check-max-lines.js`（逐文件行数，`limit=500` / `growthAllowance=200`，新代码阻断 + 存量 99 条挂账防腐 + 已还债必须清账（本批 `url-collector.js` 还债后按规则清账；挂账条目参考值不随 `--update` 整体上移，避免棘轮被顺手放松），扫描口径与 debt-budget 一致并由用例字面量比对防漂移）、`scripts/check-dep-audit.js`（实跑 npm + pip-audit，29 条挂账每条必须带 `decision`/`note`/`reviewBy=2026-12-31`，扫描器不可用时只 warning）；CI 分别接入 `debt-guard.yml` 与新 workflow `dep-audit.yml`（PR + 每周一 03:00 + 手动）
+- QM-5 红验证：11 个变异逐个「基线绿 + 植入后红 + finally 还原」全通过（TTL 缓存被禁用 / preload 不订阅失效事件 / max-lines 丢 `NEW_OVER_LIMIT` / dep-audit 丢 `NEW_ADVISORY` / `wait_until` 把瞬时异常上抛 / `batch_upsert` 退回逐条 COMMIT / compose 丢 ffprobe 降级原因 / 桌面端枚举退回手抄字面量，以及 P1-5 融合四条：更新路径明文入库 / `secret_flag` 只认入参（批量把敏感项降级为明文）/ 掩码回显覆盖真实凭据 / 新建路径明文入库）。末条踩到的坑值得记下：只跑本批新增的 `test_p4_txn_and_queries.py` 判为「未抓住」，并入第 2 批的 `test_p1_config_secret.py` 后才转红——红验证必须按**语义归属**选套件，不能只跑本批新增文件，否则会把「已被别人保护」误判成「测试是假的」
+
+- **CI 自修（PR #2252 首跑暴露 2 项红）**：① `--py-cjk` 行号偏移假阳性——本批往 `publishers/base.py` 插入 `wait_until` 使既有中文 `raise` 从门禁口径 331 行移到 359 行，用探针文件取证后对 `locale-py-cjk-baseline.json` 做**净零换号**（条目数仍 79，不走 `--update-py-baseline` 以免顺手吸收别处真新增）；② `dep-audit.yml` 照抄了 `cache: pnpm`，而该 job 不执行 `pnpm install`、pnpm store 目录不存在，`setup-node` 的 Post 步骤以 `Path Validation Error` 判红 → 去掉缓存并留注释。
+
+- **CI 自修第二轮（PR #2252 复跑暴露的第 3 项红）**：`QG Static / Gate 11 - ESLint (error-level gate)` 判红，归因链值得记下——CI 日志因 302 跳转丢 token 取不到，改本地复现；stylish 输出把责任文件显示成 `access-level-cache.js`，单跑该文件 rc=0，用 `--format json` 取 `filePath` 才锁定真凶 `electron/services/access-level-bus.js:38:9 no-useless-assignment`（`let windows = []` 的初值必被 `try` 覆盖、`catch` 分支已提前 `return 0`，初值永不参与判定）。修法是**消除无用初值**（`let windows`）而非 `eslint-disable` 放宽规则；复跑 `pnpm exec eslint electron/ src/ --quiet` rc=0，相关 2 文件 17 用例全绿，并按 QM-5 做红验证（摘掉 catch 内 `return 0` → base rc=0 / mutated rc=1，证明该分支确有覆盖）。
+
+### Documentation
+
+- `docs/audit-remediation-batch4-2026-09-22.md`：本批 10 项的具名参数、判定口径、超时与降级文案原文、显示项影响、运维复核命令、QM-5 反哺汇总表
+- 体检报告 §76 `flutter-skill-bridge` 处置判据取证结论（判据「全仓 rg 零引用即删」成立，git 侧无可删项，该名称仅存在于评审产物中，不为不存在的模块补 README）
+- **PRD 详细补充**：`01-docs/PRD.md` 新增「全仓代码体检整改：安全加固与质量门禁需求（audit-remediation-20260922，四批全量）」总章（需求矩阵 → 交付物 → 门禁；9 条启动期安全闸门含逐字 `[P0-x]` 文案；密钥与凭据治理 7 项泄露面复选框并显式声明「不由代码合并且关闭」；Cookie 会话属性来源表与双通道优先级；IPC 守卫五分类与基线数字；path_guard code→HTTP 映射与 SSRF 残余风险；P2 条件等待具名常量与逐字超时/降级文案；门禁索引与本地复核命令表；未覆盖维度与限期）；`ops-center/docs/PRD.md` 新增 `12A.26 运营端安全加固与会话治理`（数据校验 / 功能逻辑 / 交互逻辑 / 显示项与提示文字 / 回归保护 / 运维指引 / 验收标准）。
 
 ---
 

@@ -71,6 +71,8 @@ const RELATION_TYPES = [
 const NEGATION_WORDS = ['不', '非', '无', '未', '别', '反', '不是', '并非', '并非如此']
 
 // 生命周期阈值（天数）
+const fallbackLogger = require('./logger-fallback')
+
 const LIFECYCLE = {
   STALE_DAYS: 90,
   DEPRECATED_DAYS: 180,
@@ -81,9 +83,11 @@ class KnowledgeBase {
   /**
    * @param {object} options
    * @param {object} options.storage - 持久化存储接口 { get(key), set(key, value) }
+   * @param {object} [options.logger] - 日志出口 { info/warn/error/debug(tag, msg) }，缺省落 console
    */
   constructor(options = {}) {
     this._storage = options.storage
+    this._logger = options.logger || fallbackLogger
     this._data = null
   }
 
@@ -97,7 +101,10 @@ class KnowledgeBase {
       try {
         this._data = JSON.parse(stored)
         this._migrate()
-      } catch {
+      } catch (err) {
+        // 存量数据损坏 → 回退默认知识库是有意降级，但等价于「用户偏好静默清零」，
+        // 属数据丢失级事件，必须留痕（审计 P2：有意降级但无线上留痕）。
+        this._logger.warn('KnowledgeBase', '知识库存储数据不可解析，已回退默认值（用户既有偏好丢失）: ' + String((err && err.message) || err))
         this._data = JSON.parse(JSON.stringify(DEFAULT_KB))
       }
     } else {
