@@ -258,3 +258,16 @@ publishModes:
 - `多账号API发布技术方案-v1.md` — 原始逆向调研（保留）
 - `evidence/yx-slices-v2.txt`、`evidence/yx-slices-v2b.txt` — 逐字切片
 - `openspec/changes/api-publish-engine-w1/` — W1 change 契约
+
+
+## 11. 修订记录
+
+| 日期 | 波次 | 变更 | 佐证 |
+|------|------|------|------|
+| 2026-09-23 | W1 §2 | 签名收口进程内注册表 `src/signer/registry.js`（fail-closed），门面物理拆除远程签名通道（端点覆盖/远程取签/端口映射/axios 直连全删），`getDouyinSignature`/`getKuaishouSignature` 向后兼容 | PR#2307 `db7d4188ca`；signer 16 测全绿；源码 grep 远程 token 零残留 |
+| 2026-09-23 | W1 §3 | 新增 `src/publish/core`：`http-base`（timeout60s+风控重试!isJson≤3+代理注入+PublishHttpError对齐error-codes）、`chunker`（8MiB闭区间三边界）、`emit-gate`（10%里程碑/5s时间节流/幂等补100）；契约假服务器 `test/helpers/fake-http.js` | PR#2307 `e808fc37cb`；17 测全绿 |
+| 2026-09-23 | W1 §5 | 新增 `publish-spacer`（同账号≥18min虚拟时钟）+ `publish-mode`（三态总闸降级矩阵，风控/登录失效停报不降级不换号） | PR#2307 `b9b260d298`；15 测全绿 |
+
+> 详细实现契约（模块签名、数据校验、错误/提示语义、测试矩阵）见
+> `01-docs/PRD-API-PUBLISH-ENGINE.md` §11。§4 三平台链、§6 UI 接线、§7 活体验收
+> 在本基座之上继续；W2 启动前依 W1 活体结果再修订本方案。

@@ -155,6 +155,104 @@
 
 ---
 
+## 11. W1 地基实现契约（§2/§3/§5 已交付，随 PR#2307）
+
+> 本节是「实现即文档」的收口：地基三段（签名注册表、发布核心基座、频控+双轨路由）
+> 已合入 `packages/api-publish-engine`，逐模块给出契约、数据校验、错误/提示语义。
+> §4 三平台链、§6 UI 接线、§7 活体验收在此基座之上继续。
+
+### 11.1 进程内签名注册表（src/signer/*）——合规红线落地
+
+**功能逻辑**：所有平台签名经唯一入口 `registry.sign(signCommand, payload)` 求值；
+运行时**不存在任何远程签名通道**。签名句柄/密钥只存内存，不落盘、不进安装包。
+
+**模块契约**：
+- `src/signer/registry.js` → `createRegistry()`：`register(signCommand, implFn)` /
+  `sign(signCommand, payload)` / `has` / `list` / `unregister`。
+- `src/signer/index.js`：默认注册表，收编 Tier-A 本地算法：
+  `kuaishou.ns-sig3`、`douyin.browser-params`、`xiaohongshu.x-s`、`csdn.hmac-sha256`、
+  `shipinhao.content-md5`（`base64(MD5(buffer))`）。
+- `src/signer.js` 门面：`getDouyinSignature(url, ua)` / `getKuaishouSignature(path, body, cookie)`
+  向后兼容（douyin/kuaishou/xiaohongshu 三调用点零改动）。
+
+**数据校验（fail-closed）**：
+- `signCommand` 必须为非空字符串，否则 `register` 抛错；
+- 未注册 `signCommand` 调 `sign` → 抛 `unknown signCommand "..." (fail-closed, refusing to publish)`，
+  **绝不回退远程、绝不返回伪签名**；
+- 空 buffer → `shipinhao.content-md5` 抛错；
+- 远程通道拆除清单（源码 grep 零残留 + 门面注释不含被禁 token 字面量）。
+
+**提示文字（内部错误 message，经上层映射到 UI）**：
+- 未注册命令：`签名命令未注册：<cmd>（已拒绝发布）`
+- 快手缺 `api_ph`：返回空签名（由 §5.2「签名字段非空」上层校验拦截）。
+
+### 11.2 发布核心基座（src/publish/core/*）
+
+**`http-base.js`（$http 等价物）**
+- `createHttpClient({baseURL,timeout,headers,agents:{httpAgent,httpsAgent},validateStatus})`：
+  默认 `timeout=60000ms`、`validateStatus=2xx`；代理 agent 透传（深合并，按值断言）。
+- `requestWithRetry(client, reqCfg, {maxAttempts=3, retryDelayMs=1000, isJson})`：
+  **风控重试条件 = 响应非 JSON**（平台返回 HTML 风控页 → 重试），总尝试 ≤3；
+  HTTP 状态码错误/网络异常**不属于**该重试条件，直接抛出保留原始语义；
+  耗尽抛 `PublishHttpError(code=data_error|request_error)`（对齐 `error-codes.js`）。
+- 提示文字：风控 `risk-control response (non-JSON) at <method> <url>`；请求失败 `request failed: <msg>`。
+
+**`chunker.js`（FileChunker 等价物）**
+- `chunkTotal(totalBytes, {chunkSize=8388608})` → `[{index,start,end,size,contentRange}]`；
+  `contentRange = "bytes <start>-<end>/<total>"`（闭区间，HTTP 规范形态）。
+- 数据校验：`totalBytes<=0` 或非有限 → 抛错；`chunkSize` 非正整数 → 抛错；
+  三边界（整除/非整除/小于单片）逐一单测。
+
+**`emit-gate.js`（UploadEmitGate 等价物）**
+- `createEmitGate({totalBytes, onProgress, clock, intervalMs=5000})`：
+  `<100MB` 每 10% 里程碑去重上报（同档/重复/回退吞掉）；`>=100MB` 每 `intervalMs` 时间节流；
+  `report(bytes)` 越界裁剪到 `[0,total]`；`done()` 幂等补发 100%。
+- 数据校验：`totalBytes<=0` 抛错。进度百分比即 §6.2 分片进度历史数据源。
+
+**`test/helpers/fake-http.js`（契约测试基建）**
+- `startFakeServer(routes)` 绑 `127.0.0.1:0`，逐字记录 `method/url/headers/body/rawBody`；
+  路由支持 `times` 消费计数（可编程重试序列）；二进制分片原样保留。
+- **不变量**：所有契约测试仅打本机假服务器（配合远程通道拆除 = 测试禁外发双保险，CI 无网络依赖）。
+
+### 11.3 频控闸门 + 双轨路由决策核
+
+**`publish-spacer.js`（§5.3 频控，用户决策 Q8）**
+- `createPublishSpacer({minIntervalMs=18*60*1000, clock})`：同 `(platform, accountId)`
+  两次发布提交须间隔 ≥18 分钟；`allow/record/tryAcquire/reset`；不同账号相互独立。
+- 数据校验：缺 `platform` 或 `accountId` → 抛错（fail-closed）。
+- 显示/提示：不足间隔返回 `{allow:false, waitMs}`，UI 据此提示「距上次发布不足 18 分钟，请 <waitMs> 后重试」。
+- 进程内台账不持久化；重启后保守放行首条（由总闸兜底）。
+
+**`publish-mode.js`（§5.1/§5.2 三态总闸决策矩阵）**
+- `normalizeMode(mode)`：空/未定义 → 默认 `api-then-dom`；非法值抛错。
+- `decideRoute({mode, outcome})` → `{route: api|dom|stop, degrade, reasonCode}`。
+- **降级矩阵（合规红线：风控/登录失效不降级、不换号）**：
+
+| publishMode \ outcome | success | risk_blocked | login_expired | transient_error | unsupported |
+|---|---|---|---|---|---|
+| `api-only` | api | **stop** | **stop** | stop | stop |
+| `api-then-dom` | api | **stop** | **stop** | dom(degrade) | dom(degrade) |
+| `dom-only` | 初始即 dom，不进 api | — | — | — | — |
+
+- `reasonCode`：`ok / mode_dom_only / mode_unsupported_fallback / transient_error_fallback /
+  risk_blocked_stop / login_expired_stop / api_failed_stop` → 结构化日志 `degraded+reasonCode`。
+- **交互逻辑**：DOM 执行包装层 `publishWithMode()` 随 §4 三平台链就绪落地（消费本决策核输出）。
+
+### 11.4 测试与门禁矩阵（地基，已全绿）
+
+| 模块 | 测试文件 | 组 | 用例数 | 关键断言 |
+|---|---|---|---|---|
+| signer registry | signer-registry.test.js | direct | 10 | 未知命令 fail-closed、句柄不落盘 |
+| signer 门面 | signer.test.js | vitest | 6 | 远程通道拆除、MP_SIGNER_BASE 被忽略 |
+| http-base | http-base.test.js | vitest | 6 | !isJson 重试≤3、代理透传、状态码不重试 |
+| chunker/emit-gate | publish-core.test.js | vitest | 11 | 三边界、里程碑、时间节流 |
+| spacer/mode | publish-governance.test.js | vitest | 15 | 17:59拒/18:00放/18:01放、降级全矩阵 |
+
+回归：`node scripts/run-tests.js` 全绿；Gate 12 品牌残留 PASS；文档同步门禁由本节满足。
+
+
+---
+
 ## 附：验收记录（活体证据回写区，随波更新）
 
 | 波次 | 平台 | 日期 | 作品ID | 链接 | 截图 | 降级 | 结论 |
