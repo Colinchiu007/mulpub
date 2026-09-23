@@ -427,6 +427,8 @@ Code review 时除逻辑正确性外，必须逐项检查：
 
 - **Adapter capability 单一来源**：修改 `BaseAdapter.KNOWN_METHODS` 后必须检索所有 Adapter 的 `capabilities()` 手动覆盖；已进入 `KNOWN_METHODS` 的能力不得再次 `concat`。回归测试必须断言 `supports(method) === true`、能力只出现一次，并覆盖 `ModelProviderManager` 的调用入口。
 
+- **应用级浮层弹窗互斥合同（overlay view suspension）**：`WebContentsView`（浏览器/登录标签的外部网页）是压在渲染进程 DOM 之上的原生图层，CSS z-index 无效。新增任何应用级**模态**浮层（居中弹窗、`fixed inset:0` 遮罩、阻塞交互的 `ElMessageBox.confirm`）时，必须经 `src/composables/useEmbeddedViewSuspension.js` 挂起/恢复内嵌视图（owner 唯一标识、suspend/release 成对、释放走 `finally`），并在 `apps/desktop/src/overlay-view-suspension.test.js` 登记该 owner 的接入断言。修改 `WebviewManager` 可见性链路（`setVisible` / `_repositionAll` / `setShellMode` / 挂起三方法）必须同跑 `overlay-view-suspension.test.js` + `shell-mode-6b.test.js` 全量；修改 `electron/preload/page-manager.js` 必须重打包 `index.bundle.js`（bundle 断言拦截遗漏）。瞬时非模态浮层（toast/回到顶部/更新通知/ElMessage）明确不接入（挂起致闪烁、无交互闭环），残余限制见 `01-docs/PRD-OVERLAY-VIEW-SUSPENSION-2026-09-23.md` §6。
+
 - **自动更新静默合同**：打包应用必须关闭 electron-updater console logger；检查更新阶段的网络阻断和缺失 `latest*.yml` 按 `not-available` 处理，签名、下载和安装等真实错误不得吞掉。修改更新服务后必须打包启动 8 秒并确认 stderr 无 updater 网络/404 栈。
 
 - **文件 glob 覆盖**：`package.json` 的 `files` 数组必须包含所有被 require 的非 node\_modules 文件

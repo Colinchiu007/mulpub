@@ -885,6 +885,10 @@ var require_page_manager = __commonJS({
           setSidebarWidth: (width) => ipcRenderer2.invoke("page-manager:set-sidebar-width", width),
           // T0-6b 壳态互斥：渲染层上报壳态（'workbench'|'browser'），主进程切换内嵌视图可见性
           setShellMode: (mode) => ipcRenderer2.invoke("page-manager:set-shell-mode", mode),
+          // 弹窗互斥（2026-09-23）：应用级模态浮层打开期间挂起内嵌 WebContentsView，
+          // 否则原生图层压住弹窗（设置/升级/关闭确认）。owner 标识浮层来源，ref-count 释放。
+          suspendEmbeddedViews: (owner) => ipcRenderer2.invoke("page-manager:suspend-embedded-views", owner),
+          resumeEmbeddedViews: (owner) => ipcRenderer2.invoke("page-manager:resume-embedded-views", owner),
           /**
            * 监听导航状态变化（URL/标题/前进后退状态）
            * callback 收到 { tabId, url, title, canGoBack, canGoForward }

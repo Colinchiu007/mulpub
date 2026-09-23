@@ -97,6 +97,7 @@ import SidebarUpdateButton from '@/components/SidebarUpdateButton.vue'
 import { invokePageManager } from '@/api/electron-bridge'
 import { opsCenterSyncAppMenu } from '@/api/ops-center-sync'
 import { useAppVersion } from '@/composables/useAppVersion'
+import { suspendEmbeddedViewsForOverlay, releaseEmbeddedViewsForOverlay } from '@/composables/useEmbeddedViewSuspension'
 import brandLogoUrl from '@/assets/brand/tom-fish-logo.png'
 
 const route = useRoute()
@@ -155,6 +156,13 @@ const hasActiveMoreItem = computed(() => moreItems.value.some((item) => isActive
 // 硬刷新深链时 onMounted 早于 route.path 就绪，需路由解析后再展开（2026-09-21）。
 watch(() => route.path, () => {
   if (hasActiveMoreItem.value) moreOpen.value = true
+})
+
+// 弹窗互斥（2026-09-23 Bug 修复）：升级弹窗是渲染层全屏遮罩浮层，浏览器标签
+// （外部网页 WebContentsView）活动时会被原生图层整个压住；打开期间挂起内嵌视图。
+watch(showUpgradeModal, (open) => {
+  if (open) suspendEmbeddedViewsForOverlay('upgrade-modal')
+  else releaseEmbeddedViewsForOverlay('upgrade-modal')
 })
 
 // ── 左侧导航栏宽度同步到主进程（避免 WebContentsView 遮挡侧边栏）──

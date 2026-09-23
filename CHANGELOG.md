@@ -140,6 +140,22 @@
 - 本 PR 为纯文档，不改任何生产代码；登记一条新的不稳定项：`QG Coverage` 里 `electron/tests/test_scheduler_parity.test.js`（调度器模拟器与真实 governor 六组对拍）在 runner 负载下偶发不相等，与本次改动无因果：同期含代码改动的 #2274/#2275/#2279/#2281/#2282 五个 PR 的 `QG Coverage` 全部 SUCCESS，只有个别 run 命中，定性为负载相关偶发；已按独立缺陷登记（证据文档第六节），处置方向与本批「脆弱等待条件化」同口径（条件化断言或注入固定时钟）。
 
 ---
+# [未发布] fix(desktop): 应用级浮层被内嵌 WebContentsView 遮挡——弹窗互斥（内嵌视图挂起）机制（settings-modal-webview-occlusion，2026-09-23）
+
+### 变更
+- **根因**：浏览器/登录标签中的外部网页由主进程 `WebContentsView` 承载，是压在渲染进程 DOM 之上的原生图层（CSS z-index 无效）。活动标签为外部网页时打开设置弹窗（`SettingsDialog`）/升级弹窗（`UpgradeModal`，fixed inset:0 全屏遮罩）/关闭未保存标签确认框（`ElMessageBox`），浮层被整块盖住——用户感知「点设置后屏幕闪一下、弹窗没出现」。内嵌视图可见性此前仅由标签切换与 T0-6b 壳态互斥驱动，未覆盖「渲染层弹模态浮层」场景。
+- **弹窗互斥（ref-count 挂起/恢复）**：`WebviewManager` 新增 `_overlaySuspensions: Set<string>` 与 `suspendEmbeddedViewsForOverlay(owner)` / `releaseEmbeddedViewsForOverlay(owner)` / `isEmbeddedViewsSuspended()`——首个浮层挂起时 `_hideAllTabs()` + 登录/扫码视图 hide；计数归零且非 workbench 壳态时恢复登录视图可见性并 `_repositionAll()`。`_repositionAll` / `createNewTabPage` / `switchToTab` 三处可见性链路全部尊重挂起态（resize/侧栏拖宽/浮层期间开新标签均不得把网页拉回浮层之上）。
+- **IPC 契约**：新通道 `page-manager:suspend-embedded-views` / `page-manager:resume-embedded-views`（均 `withSenderCheck`），preload `page-manager.js` 暴露 `suspendEmbeddedViews(owner)` / `resumeEmbeddedViews(owner)` 并重打包 `index.bundle.js`。
+- **渲染层接入**：新 composable `src/composables/useEmbeddedViewSuspension.js`（模块级 owner 去重、任何异常静默降级不阻断浮层）；`App.vue` 设置弹窗（owner `settings-dialog`）与关闭确认框（owner `tab-close-confirm`，finally 释放）；`MpSidebar.vue` 升级弹窗（owner `upgrade-modal`）。
+- **通查结论**：ProfileMenu 限侧边栏容器内不受影响；BackToTop / PipelineBackgroundToast / UpdateNotification / 全局 ElMessage 为瞬时浮层，记录为已知残余限制（挂起会造成闪烁、且无交互闭环诉求，见 PRD §6）。
+
+### 测试
+- TDD 红→绿：`src/overlay-view-suspension.test.js` 10 例（静态链路 ×7 + 主进程行为 mock ×3），实现前 10 失败、实现后 10 通过；未知 owner 释放无效、计数未归零不恢复、workbench 壳态释放不 reposition、非法 owner 拒绝挂起均有断言。
+- 回归：`shell-mode-6b` / `ipc-contract` / `build-preload` 16 例；MpSidebar/UpgradeModal/SettingsDialog 42 例；apps/desktop 全量 vitest **627 files / 11240 tests 通过**；QM-1 `electron-builder --win --dir` exit 0。
+
+### 关联
+- 分支 `settings-modal-webview-occlusion`（D 盘 worktree `mp-settings-modal-webview-occlusion` 隔离）；详细契约见 `01-docs/PRD-OVERLAY-VIEW-SUSPENSION-2026-09-23.md`；AGENTS.md QM-2 新增「应用级浮层弹窗互斥合同」门禁条目。
+
 # [未发布] fix(security): P0-8 补漏——启动校验按模式拒绝 systemd 未展开字面量（audit-remediation 收尾）
 
 ### 变更
