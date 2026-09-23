@@ -38,6 +38,8 @@
 - [ ] 6.1 发布记录「发布方式」徽标三态 + 详情分片历史；locale 成对 `publish.api.*`（zh/en）
 - [ ] 6.2 IPC 参数 `JSON.parse(JSON.stringify())` 脱壳；渲染端无中文字面量（Gate 扫描）
 
+> §6 后端基座已落地（随本波§6 PR，见 PRD §12.9）：`publisher-router.js` `ApiPublisher` 图文/视频分流（修复 §4.4 百家号 article-only 桌面抛「缺少视频文件路径」）+ `ApiPublisher`/`RpaVmPublisher` 返回 `mode:'api'`/`'dom'` 作为 6.1 徽标数据源；`publish:batch` 已做 `JSON.parse(JSON.stringify(article))` 脱壳（ipc-handlers/publish.js，6.2 前半）。待办：6.1 发布记录「发布方式」徽标三态渲染 + 分片历史 + `publish.api.*` locale（需桌面应用活体视觉验收）。
+
 ## 7. 质量门禁与交付
 
 - [ ] 7.1 若触 `apps/desktop/electron/`：QM-1 打包三件套（electron-builder --win --dir + asar list + require 链 + 8s 启动无 stderr）
