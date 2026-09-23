@@ -23,7 +23,6 @@
  *
  * 与 rpa-view-manager.js 和 store/index.js 的 mixin 模式一致，保证 require('./content-intelligence') 接口不变。
  */
-const { ipcMain } = require('electron')
 // eslint-disable-next-line no-unused-vars
 const { calculateStats, deduplicateResults, calculateHourDistribution } = require('./content-intelligence-utils')
 const log = require('./logger')
@@ -273,7 +272,13 @@ class ContentIntelligence {
   // ── IPC Handlers ─────────────────────────────────────────────────
 
   registerIpcHandlers (injectedIpcMain) {
-    const ipcMain = injectedIpcMain || require("electron").ipcMain;
+    // P1-14：必须注入 access-controlled ipcMain（createAccessControlledIpcMain）。
+    // 禁止回退全局 ipcMain —— 那会同时绕过 isTrustedSender 来源校验与许可证/权益门禁，
+    // 且在纯 Node（单测）下退化成无信息量的 TypeError。未注入即 fail-closed 抛错。
+    if (!injectedIpcMain) {
+      throw new Error('[IPC] content-intelligence registerIpcHandlers 需要注入受控 ipcMain（禁止使用全局 ipcMain）');
+    }
+    const ipcMain = injectedIpcMain;
     // R52 修复：所有 handler 统一为 { code, data, message } 格式
     // Search for topic intelligence (方案 A)
     ipcMain.handle('intelligence:search', async (event, arg) => {

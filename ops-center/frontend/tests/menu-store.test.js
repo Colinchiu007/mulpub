@@ -1,3 +1,4 @@
+/** @vitest-environment jsdom */
 import { describe, expect, it, beforeEach } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { DEFAULT_MENU_ORDER } from '../src/config/menuItems'

@@ -283,6 +283,28 @@ describe('publish IPC 可信来源正常工作', () => {
     })
   })
 
+  // smoke5（2026-09-23）实锤：视频发布要等上传完成（强判定≤7min），队列默认 180s
+  // 超时会在上传中途杀任务（"Task timed out after 180000ms"），视频任务需 15min 预算
+  it('publish:batch 视频任务传入 30 分钟超时，纯图文任务不传超时', async () => {
+    const deps = createMockDeps()
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const handler = ipcMain._get('publish:batch')
+
+    await handler(TRUSTED_EVENT, {
+      platforms: [{ platform: 'kuaishou', accountId: 'ks-1' }],
+      article: { title: '视频标题', video_path: 'D:/v.mp4' },
+    })
+    expect(deps.taskQueue.add).toHaveBeenLastCalledWith(expect.objectContaining({ timeout: 1800000 }))
+
+    await handler(TRUSTED_EVENT, {
+      platforms: [{ platform: 'zhihu', accountId: 'zh-1' }],
+      article: { title: '图文标题' },
+    })
+    const textCall = deps.taskQueue.add.mock.calls[deps.taskQueue.add.mock.calls.length - 1][0]
+    expect(textCall.timeout).toBeUndefined()
+  })
+
   it('publish:batch 拒绝缺少平台或账号的对象目标', async () => {
     const deps = createMockDeps()
     const ipcMain = createMockIpcMain()

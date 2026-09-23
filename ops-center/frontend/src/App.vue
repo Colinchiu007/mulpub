@@ -33,13 +33,14 @@
 
 <script setup>
 import { computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 import { useMenuStore } from './stores/menu'
 import PageGuide from './components/PageGuide.vue'
 import { getPageGuide } from './pageGuides'
 
 const route = useRoute()
+const router = useRouter()
 const authStore = useAuthStore()
 const menuStore = useMenuStore()
 
@@ -47,8 +48,11 @@ const menuStore = useMenuStore()
 // 避免两处各自维护过滤规则导致漂移（2026-09-21 菜单设置少 5 项事故）
 const visibleMenuItems = computed(() => menuStore.visibleForRole(authStore.role))
 
-function logout() {
-  authStore.logout()
+async function logout() {
+  // 登出是一次网络往返（后端下发 Max-Age=0 的过期 Cookie）：必须 await 后再跳转，
+  // 否则会短暂停留在受保护页面上继续展示旧数据。
+  await authStore.logout()
+  router.push('/login')
 }
 
 const pageGuide = computed(() => getPageGuide(route.name))
