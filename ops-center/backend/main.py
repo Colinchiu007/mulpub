@@ -79,6 +79,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# P1-15：统一安全响应头。后端同时服务 API 与（反向代理后面的）静态资源，
+# 即便 SPA 由 nginx 托管，这里也保证「直连后端端口」不会漏发头。
+# CSP 为空字符串时显式不下发（交由 CDN / nginx 统一下发，避免双重头导致浏览器取交集后失效）。
+@app.middleware("http")
+async def security_headers(request, call_next):
+    """下发 CSP / X-Content-Type-Options / Referrer-Policy / X-Frame-Options。
+
+    - ``Content-Security-Policy``：default-src 'self' 起步，配合 ``frame-ancestors 'none'``
+      阻断被点击劫持嵌框；``object-src 'none'`` / ``base-uri 'self'`` / ``form-action 'self'``
+      封死插件、<base> 劫持与表单重定向这三条经典 XSS 落地路径。
+    - ``X-Content-Type-Options: nosniff``：禁止把 JSON 响应嗅探成脚本（旧版 IE/兜底攻击面）。
+    - ``Referrer-Policy: no-referrer``：避免带 token 的 URL 经 Referer 外泄给第三方。
+    - ``X-Frame-Options: DENY``：为不支持 CSP 的老浏览器保留的嵌框兜底。
+    """
+    response = await call_next(request)
+    csp = (settings.content_security_policy or "").strip()
+    if csp:
+        response.headers.setdefault("Content-Security-Policy", csp)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    frame_options = (settings.x_frame_options or "").strip()
+    if frame_options:
+        response.headers.setdefault("X-Frame-Options", frame_options)
+    return response
+
 # Routers
 app.include_router(config.router)
 app.include_router(sync.router)

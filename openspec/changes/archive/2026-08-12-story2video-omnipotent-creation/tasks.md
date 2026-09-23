@@ -26,7 +26,7 @@
 
 ## 文档与质量门禁
 - [x] 3.1 PRD.md（01-docs 与 ops-center/docs）补充：数据校验、流程、功能逻辑、交互逻辑、显示项、提示文字
-- [x] 3.201 -docs 相关文档（如 Story2Video PRD/learnings）同步；CHANGELOG 记录
+- [x] 3.2 01-docs 相关文档（如 Story2Video PRD/learnings）同步；CHANGELOG 记录
 - [x] 3.3 质量节拍：双模型审查（Claude 完成 2 轮：设计评审 + 代码审查；antigravity 地区不可用降级记录）→ Critical/Warning 修复 → 回归复测全绿
 - [x] 3.4 全量相关测试通过（text-config/stages/pipeline-engine/ipc/ui/i18n）+ QM-1 打包（如涉 electron 主进程打包验证）
 - [x] 3.5 E2E 真实流程：已登录 Profile + 保存的模型 key，跑通 manual（全部图片轮播 2 图选择 → TTS → 合成）与全自动基线

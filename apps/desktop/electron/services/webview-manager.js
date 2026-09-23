@@ -10,7 +10,7 @@
  *   左侧导航栏宽度同步
  */
 const { EventEmitter } = require('events')
-const { app, WebContentsView, session, ipcMain } = require('electron')
+const { app, WebContentsView, session } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
@@ -26,6 +26,8 @@ const { computeEmbeddedViewBounds, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } = requ
 const { attachLoginNetworkDiagnostics } = require('./login-network-diagnostics')
 // 内嵌主页标签（home-shell）的开发态地址与主窗口加载源保持同一配置（DEV_SERVER_HOST/PORT）
 const { config, getUrl } = require('../config/app-config')
+// 主进程 → executeJavaScript 的安全值传递原语（不再把数据裸拼进脚本文本，详见模块注释）
+const { buildEvalScript } = require('../core/js-eval-payload')
 
 // 左侧导航栏宽度（与前端 MpSidebar 的 CSS 变量 --mp-sidebar-width 保持一致）
 // 默认 200px，窄屏（≤900px）时 68px；由渲染进程通过 IPC 动态同步
@@ -485,19 +487,20 @@ class WebviewManager extends EventEmitter {
       ? accountCredential.localStorage
       : null
     if (credLocalStorage && Object.keys(credLocalStorage).length > 0) {
-      var credLsData = JSON.stringify(credLocalStorage)
+      // 凭证内容经安全序列化后作为 IIFE 实参传入：凭证文件被外部写入时也无法改写脚本本体
+      // （旧写法把 JSON.stringify 结果裸拼进 `var data = ` —— 是否可逃逸完全依赖引擎宽容度）。
+      var credLsScript = buildEvalScript(
+        'data',
+        [credLocalStorage],
+        '  Object.keys(data).forEach(function(k) {\n' +
+        '    try { localStorage.setItem(k, data[k]); } catch (e) { /* ignore */ }\n' +
+        '  })'
+      )
       var localStorageRestored = false
       view.webContents.on('did-finish-load', function () {
         if (localStorageRestored) return
         localStorageRestored = true
-        Promise.resolve(view.webContents.executeJavaScript(
-          '(function() {\n' +
-          '  var data = ' + credLsData + ';\n' +
-          '  Object.keys(data).forEach(function(k) {\n' +
-          '    try { localStorage.setItem(k, data[k]); } catch (e) { /* ignore */ }\n' +
-          '  });\n' +
-          '})()'
-        )).then(function () {
+        Promise.resolve(view.webContents.executeJavaScript(credLsScript)).then(function () {
           // 首次页面可能已按“未登录”状态渲染；写入 token 后重新请求目标页，
           // 让平台在首个有效应用请求中读取到 localStorage。
           if (initialUrl && initialUrl !== 'about:blank') {
@@ -1352,7 +1355,13 @@ class WebviewManager extends EventEmitter {
    * 注册 IPC handlers（供 main.js 调用）
    */
   registerIpcHandlers (injectedIpcMain) {
-    var ipcMain = injectedIpcMain || require('electron').ipcMain;
+    // P1-14：必须注入 access-controlled ipcMain（createAccessControlledIpcMain）。
+    // 禁止回退全局 ipcMain —— 那会同时绕过 isTrustedSender 来源校验与许可证/权益门禁，
+    // 且在纯 Node（单测）下退化成无信息量的 TypeError。未注入即 fail-closed 抛错。
+    if (!injectedIpcMain) {
+      throw new Error('[IPC] webview-manager registerIpcHandlers 需要注入受控 ipcMain（禁止使用全局 ipcMain）');
+    }
+    var ipcMain = injectedIpcMain;
     var self = this;
 
     // ─── page-manager: IPC handlers（新标签页系统）──

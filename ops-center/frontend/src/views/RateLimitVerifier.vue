@@ -115,6 +115,11 @@
           <el-table-column prop="max_concurrent" label="换算并发" width="100" align="center">
             <template #default="{ row }">{{ row.max_concurrent ?? '—' }}</template>
           </el-table-column>
+          <el-table-column label="结论" width="130" align="center">
+            <template #default="{ row }">
+              <el-tag :type="contractVerdict(row).type" size="small">{{ contractVerdict(row).label }}</el-tag>
+            </template>
+          </el-table-column>
           <el-table-column label="校验规则" min-width="320">
             <template #default="{ row }">
               <div v-for="rule in row.rules" :key="rule.rule" style="display:flex;gap:8px;align-items:center;padding:2px 0">
@@ -203,19 +208,9 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import axios from 'axios'
+import { createApiClient } from '../api/http'
 
-const api = axios.create({ baseURL: '/api/v1' })
-api.interceptors.request.use(c => {
-  const s = localStorage.getItem('ops_token')
-  if (s) {
-    try {
-      const token = JSON.parse(s).token
-      if (token) c.headers.Authorization = `Bearer ${token}`
-    } catch {}
-  }
-  return c
-})
+const api = createApiClient()
 
 const tab = ref('sim')
 const presets = ref([])
@@ -314,6 +309,15 @@ async function loadContract () {
   } finally {
     contractLoading.value = false
   }
+}
+
+// 红绿灯结论：任一规则 FAIL => 需调整；并发换算为 1 => 偏紧；否则合理
+function contractVerdict (row) {
+  const rules = Array.isArray(row.rules) ? row.rules : []
+  const failed = rules.some(r => r && r.pass === false)
+  if (failed) return { type: 'danger', label: '✗ 配置需调整' }
+  if (row.max_concurrent === 1) return { type: 'warning', label: '⚠ 偏紧' }
+  return { type: 'success', label: '✓ 合理' }
 }
 
 // 验证记录

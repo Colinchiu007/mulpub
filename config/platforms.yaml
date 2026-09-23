@@ -99,6 +99,10 @@ platforms:
     comment_url: ''
     cover_size: 1080x1440
     max_title: 55
+    # 2026-09 live DOM 取证（01-docs/evidence/rpa-dom-2026-09-23/d4-1-kuaishou.json）：快手编辑页
+    # 没有独立标题输入框，作品标题与描述共用 div#work-description-edit[contenteditable]
+    # （placeholder=“作品描述不会写？试试智能文案”）；RPA 因此把标题+正文合并写进
+    # 该编辑器（rpa-view-platforms._composeEditorCaption），长度上限即 max_content。
     max_content: 1000
     has_api: false
     enabled: true

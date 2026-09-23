@@ -39,7 +39,8 @@ class DouyinAdapter extends BaseAdapter {
 
   buildUrl (target) {
     if (typeof target === 'string') return target
-    if (target.videoId) return 'https://www.douyin.com/video/' + target.videoId
+    // 路径段同样要编码：含 / # ? 的 id 会跳到别的路由或截断 URL（体检报告 P2 安全小项）
+    if (target.videoId) return 'https://www.douyin.com/video/' + encodeURIComponent(String(target.videoId))
     return target.url
   }
 

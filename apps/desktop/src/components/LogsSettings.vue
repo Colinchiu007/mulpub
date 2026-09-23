@@ -34,6 +34,8 @@
       {{ t('settings.logs.autoClearHint') }}
     </div>
 
+    <NetSchedDiagnose />
+
     <!-- 摘要卡片 -->
     <div class="log-summary">
       <div class="summary-row">
@@ -111,8 +113,10 @@ import { onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { logsGetInfo, logsClear, submitFeedback as submitFeedbackRequest } from '@/api/publisher'
 import { getAppLocale, setAppLocale } from '@/i18n'
+import NetSchedDiagnose from './NetSchedDiagnose.vue'
 
 const { t } = useI18n()
+
 const loading = ref(false)
 const clearing = ref(false)
 const info = reactive({ dir: '', totalBytes: 0, fileCount: 0, maxFileBytes: 0, files: [] })

@@ -5,6 +5,8 @@
  * 对齐层编排：/align 取词级时间 → story2video-engine subtitle-aligner 聚合到分句块。
  * 继承 BasePythonBridge：start/stop/attach/healthCheck/watchdog/restart 由基类提供。
  */
+const path = require('path')
+const os = require('os')
 const { BasePythonBridge } = require('./base-python-bridge')
 const { config } = require('../config/app-config')
 
@@ -15,6 +17,32 @@ const ALIGNER_DIR = process.env.ALIGNER_DIR || (() => {
   const path = require('path')
   return path.join(__dirname, '..', '..', '..', 'packages', 'audio-aligner')
 })()
+
+/**
+ * audio-aligner 的音频目录白名单（体检报告 P2 安全小项：audio_path 无目录约束）。
+ *
+ * Python 侧默认只信系统临时目录（fail-closed），桌面端把真实落盘位置显式告诉它：
+ *  - os.tmpdir()：AssetGenerator 的 TTS 产物默认根目录（<tmp>/story2video/assets/...）
+ *  - userData：语音克隆样本等跨会话持久文件
+ * 外部已设置 AUDIO_ALIGNER_ALLOWED_DIRS 时视为追加项，不静默丢弃部署方的配置。
+ *
+ * @param {Record<string, string|undefined>} [env]
+ * @returns {string} 以 path.delimiter 连接的允许目录
+ */
+function resolveAllowedAudioDirs (env = process.env) {
+  const extra = String(env.AUDIO_ALIGNER_ALLOWED_DIRS || '').split(path.delimiter).filter(Boolean)
+  return [os.tmpdir(), _userDataDir(), ...extra].filter(Boolean).join(path.delimiter)
+}
+
+/** 取 userData；纯 Node 单测下 require('electron') 返回的是路径字符串，app 不存在 ⇒ 退化为空 */
+function _userDataDir () {
+  try {
+    const { app } = require('electron')
+    return app && typeof app.getPath === 'function' ? app.getPath('userData') : ''
+  } catch (_) {
+    return ''
+  }
+}
 
 /** aligner Python 包是否可用（存在 aligner/ 模块）——不可用时对齐服务 fail-fast 跳过，不 spawn */
 function isAlignerAvailable () {
@@ -36,6 +64,14 @@ class AlignerBridge extends BasePythonBridge {
       log,
       requestTimeout: 300000, // ASR base 模型 CPU 单场景 <30s，留 5min 余量
     })
+  }
+
+  /**
+   * 告诉子进程「哪些目录里的音频才允许被转写」——不注入则 Python 侧只认系统临时目录。
+   * @returns {Record<string, string>}
+   */
+  _spawnEnv () {
+    return { AUDIO_ALIGNER_ALLOWED_DIRS: resolveAllowedAudioDirs() }
   }
 
   /**
@@ -65,3 +101,4 @@ class AlignerBridge extends BasePythonBridge {
 module.exports = AlignerBridge
 module.exports.isAlignerAvailable = isAlignerAvailable
 module.exports.ALIGNER_DIR = ALIGNER_DIR
+module.exports.resolveAllowedAudioDirs = resolveAllowedAudioDirs
