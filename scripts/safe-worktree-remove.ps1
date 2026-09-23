@@ -43,6 +43,16 @@
     unprefixed delete still fails on the same fixture, so the tests cannot decay into a
     no-op if the fixture ever stops exercising MAX_PATH.
 
+    Known boundary of the busy-holder scan (exit code 9): it matches the worktree path against
+    ExecutablePath and CommandLine only, because Win32_Process exposes neither of the two things that
+    would make it complete - a process CWD is not published there, and reading it costs a PEB walk per
+    process. A process whose executable lives outside the worktree and whose command line never names
+    the path, while its CWD sits inside it (seen in practice: an IDE terminal leaving a hanging
+    `git cat-file --batch-check` behind), therefore passes the scan and can still make R6 delete part
+    of the tree. R6 failing leaves the directory registered-with-git-but-half-present, which is
+    recoverable and always reported; the unblock is to locate that CWD owner out of band (NtQuery-
+    InformationProcess + ReadProcessMemory over each PID) and stop only that plumbing process.
+
 .PARAMETER Worktree
     Absolute path of the worktree to remove.
 
@@ -242,6 +252,29 @@ $dirty = @(if ($registered) { git -C $wt status --porcelain 2>$null })
 Write-Host "  git-registered : $registered"
 Write-Host "  worktree dirty : $($dirty.Count)"
 
+# ---------------- busy-holder scan (before anything is destroyed) ----------------
+# Runs ahead of the WhatIf branch on purpose: -WhatIf has to show the refusal it would hit.
+$allProcs = @()
+$procEnumError = ''
+try {
+    $allProcs = @(Get-CimInstance -ClassName Win32_Process -ErrorAction Stop)
+} catch {
+    $procEnumError = $_.Exception.Message
+}
+$busy = $null
+if (-not $procEnumError) {
+    $ances = @(Resolve-ProcessAncestors -Processes $allProcs -SelfId $PID)
+    $busy = Split-WorktreeHolders -Processes $allProcs -Worktree $wt -SelfId $PID -AncestorIds $ances
+    Write-Host "  busy holders : $($busy.Holders.Count) process(es) reach inside without living inside"
+    foreach ($p in $busy.Holders) {
+        $cl = [string]$p.CommandLine
+        if ($cl.Length -gt 150) { $cl = $cl.Substring(0, 150) + '...' }
+        Write-Host "    #$($p.ProcessId) $($p.Name)  $cl"
+    }
+} else {
+    Write-Host "  busy holders : UNKNOWN (process enumeration failed: $procEnumError)"
+}
+
 # ---------------- WhatIf ----------------
 if ($WhatIf) {
     Write-Host ""
@@ -251,6 +284,9 @@ if ($WhatIf) {
     $forceFlag = if ($Force) { '--force ' } else { '' }
     Write-Host ("  would run    : git -C `"{0}`" worktree remove {1}`"{2}`"" -f $main, $forceFlag, $wt)
     Write-Host "  would then   : Remove-FsDirectory `$wt (\\?\ prefixed), falling back to Clear-FsDirectoryByMirror, if the directory remains"
+    if ($procEnumError) { Write-Host "  would REFUSE : idleness unproven (process enumeration failed) -> exit 9" }
+    elseif ($busy.Holders.Count -gt 0) { Write-Host "  would REFUSE : $($busy.Holders.Count) live holder(s) -> exit 9" }
+    else { Write-Host "  would pass   : no process references this worktree" }
     Write-Host "  would verify : main status + stash count unchanged vs baseline"
     Remove-Item -LiteralPath $baselineFile -ErrorAction SilentlyContinue
     exit 0
@@ -301,6 +337,26 @@ if ($procs.Count -eq 0) { Write-Host "  none" }
 foreach ($p in $procs) {
     Write-Host "  STOP $($p.ProcessName) #$($p.Id)  $($p.Path)"
     Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+}
+
+# ---------------- gate: live holders / unproven idleness ----------------
+if ($procEnumError) {
+    Write-Host ""
+    Write-Host "  BLOCKED: processes could not be enumerated ($procEnumError), so the tree's idleness is"
+    Write-Host "  unproven. Refusing anyway: an unproven busy state is exactly the false negative this"
+    Write-Host "  guard exists for - R3 learned the same lesson from the link scanner."
+    Remove-Item -LiteralPath $baselineFile -ErrorAction SilentlyContinue
+    exit 9
+}
+if ($busy.Holders.Count -gt 0) {
+    Write-Host ""
+    Write-Host "  BLOCKED: $($busy.Holders.Count) process(es) hold paths inside $wt while their executable"
+    Write-Host "  lives outside it (e.g. a global node running <$wt>\...\vitest), so R4 cannot judge"
+    Write-Host "  whether stopping them is safe - they usually belong to another session."
+    Write-Host "  Deleting now would leave a half-removed tree. Let them finish (or stop them yourself)"
+    Write-Host "  and re-run; the script is safe to repeat."
+    Remove-Item -LiteralPath $baselineFile -ErrorAction SilentlyContinue
+    exit 9
 }
 
 # ---------------- R5 git worktree remove ----------------

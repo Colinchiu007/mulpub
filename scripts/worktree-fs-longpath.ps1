@@ -215,3 +215,82 @@ function Resolve-RemoveDisposition {
     if (-not $DirPresent) { return 'unregistered_empty' }
     return 'purge_residual'
 }
+
+# ---------------- busy-holder classification (pure, no process-table access) ----------------
+# R4 used to stop only the processes whose *executable* lives inside the worktree. That misses the
+# case that actually bit on 2026-09-23: "node <wt>\node_modules\.bin\..\vitest\vitest.mjs run"
+# executes a node.exe from OUTSIDE the worktree while holding files INSIDE it. Deleting underneath
+# such a handle leaves a half-removed tree - git drops the registration first, the directory delete
+# then fails on the live handle, and R6 can only finish whatever is still unlocked. That is a worse
+# end state than refusing, so the guard runs BEFORE anything is destroyed.
+#
+# The helpers stay pure (they take Win32_Process-shaped rows and return verdicts) so the decision is
+# testable without a live process table, i.e. on any CI runner.
+#
+# Known limit, stated rather than hidden: an unelevated Get-CimInstance cannot always read the
+# CommandLine of another user's process, so such a holder stays invisible. That is still strictly
+# narrower than the old exe-path-only rule.
+
+function Test-PathReferencedByLine {
+    param([AllowNull()][string]$CommandLine, [Parameter(Mandatory = $true)][string]$Root)
+    if ([string]::IsNullOrEmpty($CommandLine)) { return $false }
+    $needle = ($Root -replace '/', '\').TrimEnd('\')
+    # Root may arrive with forward slashes or a trailing separator; the scan below always stops
+    # right under the root, so the needle must not keep one.
+    if (-not $needle) { return $false }
+    # Command lines from git/node mix backslashes and forward slashes freely and Windows paths are
+    # case-insensitive, so both sides are compared in one normalised space.
+    $hay = $CommandLine -replace '/', '\'
+    $i = 0
+    while (($i = $hay.IndexOf($needle, $i, [StringComparison]::OrdinalIgnoreCase)) -ge 0) {
+        $after = $i + $needle.Length
+        if ($after -ge $hay.Length) { return $true }
+        # The match must end on a boundary: a request for ...\mp-foo must NOT report ...\mp-foobar,
+        # or every sibling worktree named like ours would block removal forever. A backslash IS a
+        # boundary - the path simply continues below the worktree root.
+        if ($hay.Substring($after, 1) -notmatch '[A-Za-z0-9_.~-]') { return $true }
+        $i = $after
+    }
+    return $false
+}
+
+function Resolve-ProcessAncestors {
+    param([Parameter(Mandatory = $true)][array]$Processes, [Parameter(Mandatory = $true)][int]$SelfId)
+    $byId = @{}
+    foreach ($p in $Processes) {
+        if ($null -ne $p -and $null -ne $p.ProcessId) { $byId[[int]$p.ProcessId] = $p }
+    }
+    $chain = @(); $cur = $SelfId; $guard = 0
+    while ($byId.ContainsKey($cur) -and $guard -lt 64) {
+        $guard++
+        if ($null -eq $byId[$cur].ParentProcessId) { break }
+        $parent = [int]$byId[$cur].ParentProcessId
+        if ($parent -le 0 -or $parent -eq $cur -or $chain -contains $parent) { break }
+        $chain += $parent; $cur = $parent
+    }
+    return $chain
+}
+
+function Split-WorktreeHolders {
+    param(
+        [Parameter(Mandatory = $true)][array]$Processes,
+        [Parameter(Mandatory = $true)][string]$Worktree,
+        [Parameter(Mandatory = $true)][int]$SelfId,
+        [int[]]$AncestorIds = @()
+    )
+    $skip = @($SelfId) + @($AncestorIds)
+    $kill = @(); $holders = @()
+    foreach ($p in $Processes) {
+        if ($null -eq $p -or $null -eq $p.ProcessId) { continue }
+        # Self and ancestors carry our own -Worktree argument; counting them would make every run
+        # block itself.
+        if ($skip -contains [int]$p.ProcessId) { continue }
+        $exe = [string]$p.ExecutablePath
+        # Exe inside => this worktree owns it => R4's existing, deliberately narrow stop rule.
+        if ($exe -and (Test-PathReferencedByLine -CommandLine $exe -Root $Worktree)) { $kill += $p; continue }
+        # Exe outside (or unreadable) while the command line reaches inside => a holder that most
+        # likely belongs to another session. Reported, never killed.
+        if (Test-PathReferencedByLine -CommandLine ([string]$p.CommandLine) -Root $Worktree) { $holders += $p }
+    }
+    return [pscustomobject]@{ KillList = $kill; Holders = $holders }
+}

@@ -1,3 +1,21 @@
+# [未发布] fix(scripts): worktree 删除护栏 R4 补命令行持有者识别并删前拒删（2026-09-23，wt-remove-longpath）
+
+### Fix
+
+- **R4 只按可执行文件路径认持有者**：原停止规则只看进程的 exe 是否落在 worktree 内，漏掉 `node <wt>\node_modules\.bin\..\vitest\vitest.mjs run` 这类「exe 在外、命令行在内」的持有者——它正握着 worktree 里的文件句柄。补 `Test-PathReferencedByLine`（按命令行匹配，含边界判定：`...\wt` 不得命中 `...\wt2`；正斜杠命令行归一化；`-Root` 带尾分隔符仍匹配）与 `Resolve-ProcessAncestors`、`Split-WorktreeHolders`（显式排除自身与祖先进程，否则脚本会被自己的 `-Worktree` 参数判成持有者，永远删不掉）。
+- **可达状态集变化**：R5 不再短路后，R6 第一次真的会带着活句柄去删，留下「git 注册已摘 + 目录半删」的中间态（本次真实踩到：`apps\desktop` 被另一个会话的 `vitest run` 占用）。因此在任何破坏性动作之前加 busy-holder 扫描与 gate：命中持有者或**进程枚举失败**均以退出码 9 拒绝（无法证明空闲不等于空闲），`-WhatIf` 也提前显示 `would REFUSE`。
+- **不扩杀伤面**：R4 原有的停止规则一字未改，仍只停「可执行文件位于 worktree 内」的进程；新识别出的持有者只上报、不强杀。
+- **已知边界（写在脚本头，不假装解决）**：持有者扫描只匹配可执行文件路径与命令行，因为 `Win32_Process` 不暴露进程当前工作目录；「exe 在外、命令行不含路径、但 cwd 在 worktree 内」的进程（实测见过 IDE 终端遗留的 `git cat-file --batch-check`）仍会放行，此时 R6 会停在部分删除——状态可恢复且必然上报，处置是另行按 PEB 读 cwd 定位该管道进程后重试。
+
+### Testing
+
+- `scripts/worktree-fs-longpath.test.ps1` 在 PowerShell 5.1 下 28/28（新增 13 条断言，含上述三类边界与自身/祖先排除）；`PSParser::ParseFile` 三个脚本 parse-errors=0。
+- 真实 `-WhatIf` 打在跑着 vite dev server 的 `mp-ops-latest`：输出 `busy holders : 2` 与 `would REFUSE : 2 live holder(s) -> exit 9`，未改任何文件。
+
+### Docs
+
+- `01-docs/learnings.md` 追加「护栏修复会改变可达状态集」与「模板字面量吃掉反斜杠」两条；`.quality-gates.md` 本任务记录追加 R4 增量行与范围偏离说明。
+
 # [未发布] fix(scripts): worktree 删除护栏的长路径致盲与短路（2026-09-23，wt-remove-longpath）
 
 ### Fix
@@ -12487,3 +12505,4 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 真实 Electron 验收已通过：快手 passport 打开并扫码二维码就绪、同 profile 重启账号恢复、视频表单填充与目标账号选择、QM-1 打包启动验证。最终快手发布仍待用户确认后执行。
 - 修复快手扫码登录覆盖创作者中心：二维码登录与普通网页登录共用 auth-login 虚拟标签；扫码页在 TabBar/NavBar 下方全屏显示，启动时隐藏原创作者中心，成功、取消或超时后仅清理扫码 View 并恢复原标签。
 - 收紧百家号/快手的发布成功证据：历史 localStorage、当前 URL、旧链接和页面正文不再可推断本次发布；仅使用当前发布响应的受限 ID 或标题/时间窗口核验的作品 artifact。发布 diagnostics 只保留去 query 的请求摘要，原始响应、token 与用户正文不会离开主进程捕获边界；发布点击异常会释放网络监听。
+

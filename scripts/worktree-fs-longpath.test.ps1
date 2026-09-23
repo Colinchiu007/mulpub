@@ -128,6 +128,36 @@ try {
         if ($got -ne $r.want) { $bad2++; Write-Host "  rc=$($r.rc) reg=$($r.reg) dir=$($r.dir) got=$got want=$($r.want)" }
     }
     Check 'Resolve-RemoveDisposition maps observed state, not exit code alone' ($bad2 -eq 0) "$bad2 row(s) wrong"
+    # ---- 10) holder classification (the R4 argv blind-spot regression) ----
+    $wtRoot = 'D:\Data\projects\mp-worktrees\mp-foo'
+    $rowsP = @(
+        [pscustomobject]@{ ProcessId = 100; Name = 'node.exe'; ParentProcessId = 101; ExecutablePath = 'C:\nodejs\node.exe'; CommandLine = 'node   "D:\Data\projects\mp-worktrees\mp-foo\node_modules\.bin\..\vitest\vitest.mjs" run' }
+        [pscustomobject]@{ ProcessId = 101; Name = 'cmd.exe';   ParentProcessId = 0;   ExecutablePath = 'C:\Windows\System32\cmd.exe'; CommandLine = 'cmd /c powershell -File safe-worktree-remove.ps1 -Worktree D:\Data\projects\mp-worktrees\mp-foo' }
+        [pscustomobject]@{ ProcessId = 999; Name = 'powershell.exe'; ParentProcessId = 101; ExecutablePath = 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'; CommandLine = 'powershell -File safe-worktree-remove.ps1 -Worktree D:\Data\projects\mp-worktrees\mp-foo' }
+        [pscustomobject]@{ ProcessId = 102; Name = 'esbuild.exe'; ParentProcessId = 100; ExecutablePath = 'D:\Data\projects\mp-worktrees\mp-foo\node_modules\@esbuild\win32-x64\esbuild.exe'; CommandLine = 'esbuild --service=0.0' }
+        [pscustomobject]@{ ProcessId = 103; Name = 'node.exe'; ParentProcessId = 1; ExecutablePath = ''; CommandLine = 'node D:/Data/projects/mp-worktrees/mp-foo/scripts/x.js' }
+        [pscustomobject]@{ ProcessId = 104; Name = 'node.exe'; ParentProcessId = 1; ExecutablePath = 'C:\nodejs\node.exe'; CommandLine = 'node D:\Data\projects\mp-worktrees\mp-foobar\y.js' }
+        [pscustomobject]@{ ProcessId = 105; Name = 'chrome.exe'; ParentProcessId = 1; ExecutablePath = 'C:\Program Files\Google\Chrome\chrome.exe'; CommandLine = '--type=renderer' }
+    )
+    $ancesP = @(Resolve-ProcessAncestors -Processes $rowsP -SelfId 999)
+    $splitP = Split-WorktreeHolders -Processes $rowsP -Worktree $wtRoot -SelfId 999 -AncestorIds $ancesP
+    $holderIds = @($splitP.Holders.ProcessId)
+    $killIds = @($splitP.KillList.ProcessId)
+    Check 'the invoking script and its ancestors are never holders' (-not ($holderIds -contains 999) -and -not ($holderIds -contains 101)) ($holderIds -join ',')
+    Check 'exe-outside + argv-inside is reported as a holder' ($holderIds -contains 100) ($holderIds -join ',')
+    Check 'forward slashes in the command line still count as a reference' ($holderIds -contains 103) ($holderIds -join ',')
+    Check 'a sibling worktree with a longer name is not matched by prefix' (-not ($holderIds -contains 104) -and -not ($killIds -contains 104)) 'false positive'
+    Check 'an unrelated process is ignored entirely' (-not ($holderIds -contains 105)) 'noise'
+    Check 'the esbuild living inside stays on the narrow stop list' ($killIds -contains 102) ($killIds -join ',')
+    Check 'holder and stop lists are disjoint' (@(Compare-Object $holderIds $killIds -IncludeEqual -ExcludeDifferent).Count -eq 0) 'overlap'
+
+    # ---- 11) Test-PathReferencedByLine boundary semantics ----
+    Check 'a reference continuing below the root matches' (Test-PathReferencedByLine -CommandLine 'open D:\a\b\wt\file.txt' -Root 'D:\a\b\wt') ''
+    Check 'a trailing separator on the root still matches' (Test-PathReferencedByLine -CommandLine 'D:\a\b\wt\x' -Root 'D:\a\b\wt\') ''
+    Check 'a bare root reference matches' (Test-PathReferencedByLine -CommandLine 'remove D:\a\b\wt' -Root 'D:\a\b\wt') ''
+    Check 'a longer sibling name must not match' (-not (Test-PathReferencedByLine -CommandLine 'D:\a\b\wt2\x' -Root 'D:\a\b\wt')) 'false positive'
+    Check 'empty command line is never a reference' (-not (Test-PathReferencedByLine -CommandLine '' -Root 'D:\a\b\wt')) ''
+    Check 'null command line is never a reference' (-not (Test-PathReferencedByLine -CommandLine $null -Root 'D:\a\b\wt')) ''
 } finally {
     [void](Remove-FsDirectory $work)
     Write-Host "cleanup: $work gone = $(-not (Test-FsEntry $work))"
