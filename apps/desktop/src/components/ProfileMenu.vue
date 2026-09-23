@@ -17,7 +17,7 @@
     >
       <span class="mp-avatar-wrap" aria-hidden="true">
         <span v-if="revealingLogin" class="mp-avatar-spinner" data-testid="mp-profile-spinner"></span>
-        <span v-else class="mp-avatar">{{ hasSessionIdentity ? avatarInitial : '⚡' }}</span>
+        <span v-else class="mp-avatar"><template v-if="hasSessionIdentity">{{ avatarInitial }}</template><el-icon v-else><User /></el-icon></span>
         <i class="mp-avatar-dot" :class="`is-${identityStatus}`" data-testid="mp-profile-status"></i>
       </span>
       <span class="mp-profile-copy">

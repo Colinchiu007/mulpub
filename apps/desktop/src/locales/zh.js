@@ -2612,6 +2612,17 @@ export default {
     searchResults: '搜索结果',
     reference: '参考',
     titleAnalysis: '标题分析',
+    benchmarkTitle: '内容基准比较',
+    keywordMonitorTitle: '关键词监测',
+    dataPointsCount: '{n} 条数据',
+    referenceFinderTitle: '引用查找',
+    templatePickerTitle: '内容模板',
+    categoryReport: '报告',
+    categoryMarketing: '营销',
+    categoryEducation: '教育',
+    categorySocial: '社交',
+    titleAssistantTitle: '标题参考',
+    trendingTitle: '热门趋势',
   },
 
   tagSuggest: {

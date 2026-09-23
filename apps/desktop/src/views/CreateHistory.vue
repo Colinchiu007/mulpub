@@ -31,7 +31,7 @@
       </div>
       <div v-else>
         <div v-if="renderError" class="history-error"><p>{{ renderError }}</p><UiButton size="sm" @click="loadRenders">重试</UiButton></div>
-        <EmptyState v-if="renders.length === 0" icon="🎬" :title="$t('emptyStates.createHistoryRenders.title')" :description="$t('emptyStates.createHistoryRenders.message')">
+        <EmptyState v-if="renders.length === 0" icon="VideoCamera" :title="$t('emptyStates.createHistoryRenders.title')" :description="$t('emptyStates.createHistoryRenders.message')">
           <template #actions>
             <UiButton @click="$router.push('/create')">去创作</UiButton>
           </template>
@@ -39,7 +39,7 @@
         <div v-else class="render-list">
           <div v-for="(r, i) in renders" :key="i" class="render-card" tabindex="0" role="button" @keydown.enter="$router.push('/create/result?path=' + encodeURIComponent(r.outputPath || ''))" @click="$router.push('/create/result?path=' + encodeURIComponent(r.outputPath || ''))">
             <div class="render-info">
-              <span class="render-icon">🎬</span>
+              <span class="render-icon"><el-icon><VideoCamera /></el-icon></span>
               <div class="render-meta">
                 <span class="render-name">{{ r.composition || r.name || '视频 ' + (i + 1) }}</span>
                 <span class="render-time">{{ formatTime(r.completedAt || r.createdAt) }}</span>
@@ -103,6 +103,7 @@
 </template>
 
 <script>
+import { VideoCamera } from '@element-plus/icons-vue'
 import '@/styles/history-page.css'
 import { pipelineHistory } from '@/api/publisher'
 import UiButton from '../components/UiButton.vue'

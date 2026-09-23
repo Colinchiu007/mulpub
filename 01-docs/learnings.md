@@ -15345,6 +15345,14 @@ Bug 修复走完整 QM-5（根因溯源 / 逃逸链 / 系统性漏洞 / 修复+�
 
 - **合并后定向复验的「文件集合」必须从合并 diff 推出，而不是从本 PR 的工作清单推出（merge-verification-scope）**：本次本地按「本 PR 触及的 8 个测试文件」全绿后推送，CI 却红 4 项——唯一失败文件是**对方 PR 随合并新增**的 `account-batch-check.test.js`，它断言的正是被我方语义改掉的超时口径。判据：合并后至少跑一次全量；若只能定向，则文件集 = 两侧改动测试文件的并集 ∪ 所有状态为 `A` 的新增测试文件 ∪ 这些文件所测实现的调用方。
 - **收敛口径到已择一的契约时，标题与文档注释要一起改（semantic-drift-in-test-names）**：`超过硬超时计入失效` 这类标题本身就是错误语义的载体，只改断言不改标题，下一个读者会被标题误导回旧口径；同时借机把该文件此前缺失的固化断言（`persistLoginState` 被以 `unverified` 调用、`persisted.ok`）补上，使「收敛」不等于「放松」。
+## 白名单登记制守卫 = 系统性盲区：emoji 功能图标 41 处逃逸复盘（kb-personal-empty-icon，2026-09-23）
+
+- **现象（pitfall）**：`icon-usage.test.js` 守卫早已规定「功能图标位禁用 emoji」，但采用 **FILES 白名单逐文件登记制**（历史仅 9 个文件），其余 24 个组件/视图全部处于守卫盲区，新代码违规 CI 不可见，累计逃逸 41 处。属「审查盲区 + 流程缺失」类漏洞，与「测试场景缺失」不同层：规则在、检查器在、覆盖面不在。
+- **修复模式**：批量收敛时**必须同 PR 把全部触及文件登记进 FILES**（本次 9→34），并把新引入的禁用码点（📭 U+1F4ED）加入 ICON_EMOJI 清单；否则守卫形同虚设。
+- **vitest mock 连锁坑**：受限 `vi.mock('@element-plus/icons-vue', () => ({...字面量清单}))` 在业务代码新 import 图标后抛 "No X export is defined"。vitest 用 `prop in target`（**has trap**）判断导出存在性——Proxy 兜底只加 get trap 无效，必须 `has: () => true` + guard 清单（__esModule/then/catch/default/Symbol(Symbol.toStringTag)）。
+- **图标名必须经导出校验**：`Suggestion` 在 @element-plus/icons-vue 中不存在（💡 语义映射改用 `MagicStick`）；写映射表前先 `node -e "console.log(Object.keys(require('@element-plus/icons-vue')))"` 核对。
+- **Tooling（Windows/Node 补丁）**：① Write 报 "unknown 失败"时文件常已落盘，先 existsSync 验证；② CRLF 文件跨行匹配前必须 `\r\n→\n` 归一化、写回还原；③ PowerShell 控制台 mojibake 仅是显示层——CHANGELOG 块标题实际是 `[未发布]` 而非乱码肉眼读出的「本次发布」，锚点判断一律用码点比对；④ PRD.md front block 在文件内重复出现（既有状态），插入类补丁先统计 needle 出现次数，取首次出现并断言位置上限；⑤ PowerShell `>` 重定向产物是 UTF-16，Node 调试输出一律 fs.writeFileSync。
+- **适用边界**：所有「白名单/登记制」守卫（图标、locale、路由登记）新增覆盖文件时必须同步登记；批量图标/组件替换前先把受影响测试的受限 mock 改 Proxy 兜底，再改业务代码。
 
 
 ## model-sort-visible-2026-09-23：预设模型排序「所见即所得」refinement，灰显锁死修复（分支 codex/model-sort-visible，PR#2246）
@@ -15403,6 +15411,13 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 
 实证在 live mp-app-live2（shared-user-data profile）完成，不改任何仓库代码：停 7 个 electron 前先热备份 `shared-user-data.backups\seed-<ts>\`（db+wal+shm），灌数脚本幂等（先 DELETE 固定种子 id 再精确 INSERT 两行）。用户决定**种子行不清理**，保留为常态验证样本（vv-seed-bili-0001 / tc-seed-bili-0001 + 1 条 auto 快照）。实证结果回写 `PRD-RECRAWL-TRIGGER-DEBUG-2026-09-22.md` §7 与 `PRD-VIRAL-LIBRARY-INTEGRATION-2026-09-22.md` 附录 C。经验同步内置记忆 + EverOS。
 
+## emoji 转 el-icon 会击穿 Gate 7 file||content 基线键形态——locale 化须同步组件测试 i18n 注入（2026-09-23，kb-personal-empty-icon / PR #2249 CI 补齐）
+
+- **根因模式（pitfall）**：CI Gate 7 `check-locale-sync.js --cjk` 新版基线按 `file||content` 键存储。把模板区块标题的 emoji 前缀（「📊 内容基准比较」）替换为 el-icon 后，文本节点内容键变为「内容基准比较」，旧键失配 → 12 处既有硬编码被判「新增」，QG Static 红灯在 merge main 后才暴露（基线键形态迁移属改动自身副作用，与合并无关）。
+- **修复模式（pattern）**：禁止 `--update-baseline` 掩盖；把 12 处文案迁入 `intelligence.*` locale（zh/en 成对，zh 值与原文案逐字一致，插值文案用 `{n}` 参数化），模板改 `$t(...)` / `:title="$t(...)"`，script 内标签映射改 `useI18n().t`。
+- **连锁坑（pitfall）**：直接 `mount(Comp)` 的组件测试无 i18n 插件，locale 化后 42 例报 `$t is not a function`。按仓库 TagSuggester 惯例在测试顶部经 test-utils `config.global.plugins` 注入 `createI18n({legacy:false,locale:"zh",messages:{zh,en}})`——vitest 每文件独立模块环境，全局 config 变更不跨文件污染，且免改每个 mount 调用点。
+- **预防措施**：任何「emoji→el-icon / 模板文本改动」任务，提交前本地必跑 `node .github/scripts/check-locale-sync.js --cjk`（QG Static 由 CI 才暴露的教训——vitest 门禁不含 .github/scripts node:test 套件）；对已 $t 化组件新增/迁移文案时，同步检查其组件测试是否具备 i18n 插件。
+
 
 ## cache-cleanup-settings-2026-09-23：设置-通用「缓存清理」全栈功能（分支 cache-cleanup-settings，PR #2262）
 
@@ -15423,3 +15438,13 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 
 ### 本次交付
 - rebase 至最新 origin/main（含 audit-batch-3），CHANGELOG 冲突保留双方条目；缓存后端 10 测试 + preload 360 回归全绿；Gate 17 IPC sender 守卫 PASS（绕过 0）；ESLint/build:vue/locale-sync `--keys` 通过；PR #2262 auto-merge squash。
+
+## 2026-09-23 债务熔断挂账：merge 暴露 main 侧未登记超大文件（PR #2249 CI 补齐）
+
+- **现象**：emoji 图标 PR #2249 merge origin/main 后，required check「债务熔断检查」报 `NEW_OVER_LIMIT: LogsSettings.vue 598 行 >= 500`，但本 PR 未碰过该文件。
+- **根因**：`check-max-lines.js` 逐文件判定「超限且不在 max-lines-baseline.json 挂账清单 → 阻断」。LogsSettings.vue 被 main 的 #2262（缓存清理）+#2253（selfcheck）叠胖到 598 行，而清单最后更新停在 #2252，从没登记它——债务在 main 上就已产生，只是本 PR merge 把三方状态凑齐后才在 PR 检查里显形。
+- **教训/做法**：
+  1. 遇到 merge 后才暴露的超限红灯，先 `git diff origin/main HEAD -- <file>` 确认是否本 PR 引入；非本 PR 引入 = 存量债，走「挂账」而非「拆文件」。
+  2. **只用精确补登，慎用全量 `--update`**：全量重生成会把清单里几十个存量文件相对 main 历史的行数漂移一次性吞进来，让一个窄 PR 变成「重排全仓债务基线」，diff 巨大且掩盖真实增长信号。字典序定位单条插入即可。
+  3. 验证三件套：`check-max-lines.js`（无违规、超限=挂账数）、`node --test check-max-lines.test.js`（含「真实仓现状清单一致」主断言）、`check-debt-budget.js`（聚合棘轮 filesOver500 持平）。
+- **边界**：debt-guard.yml 无 paths-ignore，其 job 名「债务熔断检查」是 ruleset main-ci-gate 的 required check，任何 PR 都必须绿，纯文档 PR 也不能跳。

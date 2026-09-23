@@ -2611,6 +2611,17 @@ export default {
     searchResults: 'Search results',
     reference: 'Reference',
     titleAnalysis: 'Title analysis',
+    benchmarkTitle: 'Content benchmark',
+    keywordMonitorTitle: 'Keyword monitor',
+    dataPointsCount: '{n} data points',
+    referenceFinderTitle: 'Reference finder',
+    templatePickerTitle: 'Content templates',
+    categoryReport: 'Report',
+    categoryMarketing: 'Marketing',
+    categoryEducation: 'Education',
+    categorySocial: 'Social',
+    titleAssistantTitle: 'Title reference',
+    trendingTitle: 'Trending topics',
   },
 
   tagSuggest: {

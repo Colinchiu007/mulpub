@@ -85,7 +85,9 @@ vi.mock('@/utils/notifyCore', () => ({
 }))
 
 vi.mock('element-plus', () => ({}))
-vi.mock('@element-plus/icons-vue', () => ({}))
+vi.mock('@element-plus/icons-vue', () => {
+  const __icon = { template: "<span />" }; const __guard = ["__esModule", "then", "catch", "default", "Symbol(Symbol.toStringTag)"]; return new Proxy({}, { has: () => true, get: (t, p) => (typeof p === "string" && !__guard.includes(p) ? __icon : undefined) });
+})
 
 import RewriteView from './RewriteView.vue'
 

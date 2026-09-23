@@ -60,7 +60,7 @@
 
           <!-- Grouped: content + traffic -->
           <template v-if="g.detail">
-            <div style="font-size: var(--font-size-xs);color:var(--muted);margin:4px 0 3px">📝 {{ t('tagSuggest.contentTags') }}</div>
+            <div style="font-size: var(--font-size-xs);color:var(--muted);margin:4px 0 3px"><el-icon><EditPen /></el-icon> {{ t('tagSuggest.contentTags') }}</div>
             <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px">
               <span v-for="tag in g.detail.content" :key="'c-'+tag"
                 class="cohere-tag cohere-tag-info"
@@ -69,7 +69,7 @@
               </span>
             </div>
 
-            <div style="font-size: var(--font-size-xs);color:var(--muted);margin:4px 0 3px">🔥 {{ t('tagSuggest.trafficTags') }}</div>
+            <div style="font-size: var(--font-size-xs);color:var(--muted);margin:4px 0 3px"><el-icon><TrendCharts /></el-icon> {{ t('tagSuggest.trafficTags') }}</div>
             <div style="display:flex;flex-wrap:wrap;gap:4px">
               <span v-for="tag in g.detail.traffic" :key="'t-'+tag"
                 class="cohere-tag cohere-tag-success"
@@ -115,6 +115,7 @@
 </template>
 
 <script setup>
+import { EditPen, TrendCharts } from '@element-plus/icons-vue'
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { usePlatformStore } from '@/stores/platforms'

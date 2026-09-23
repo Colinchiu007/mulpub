@@ -20,12 +20,15 @@
     <EmptyState
       v-else-if="!items.length"
       data-testid="personal-knowledge-empty"
-      icon="📚"
       :title="t('knowledgeBase.empty.personal.title')"
       :description="t('knowledgeBase.empty.personal.message')"
       :action-text="t('knowledgeBase.empty.personal.action')"
       @action="emit('create')"
-    />
+    >
+      <template #icon>
+        <el-icon color="var(--color-primary)"><Collection /></el-icon>
+      </template>
+    </EmptyState>
     <div v-else class="kb-card-grid">
       <div v-for="item in items" :key="item.id" class="cohere-card kb-personal-card">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
@@ -37,7 +40,7 @@
         </div>
         <div v-if="item.title" style="font-weight:600;margin-bottom:4px">{{ item.title }}</div>
         <div style="color:var(--text-secondary);font-size: var(--font-size-sm);line-height:1.5">{{ (item.content || '').slice(0, 200) }}{{ (item.content || '').length > 200 ? '...' : '' }}</div>
-        <div v-if="item.source_file" style="font-size: var(--font-size-xs);color:var(--muted);margin-top:8px">📄 {{ item.source_file }}</div>
+        <div v-if="item.source_file" style="display:flex;align-items:center;gap:4px;font-size: var(--font-size-xs);color:var(--muted);margin-top:8px"><el-icon><Document /></el-icon>{{ item.source_file }}</div>
         <div style="font-size: var(--font-size-xs);color:var(--muted);margin-top:4px">{{ item.created_at ? item.created_at.slice(0, 10) : '' }}</div>
       </div>
     </div>
@@ -61,6 +64,7 @@
 import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Collection, Document } from '@element-plus/icons-vue'
 import { listPersonalItems, deletePersonalItem, PERSONAL_CATEGORIES, PERSONAL_CATEGORY_LABELS } from '@/api/knowledge-library'
 import PersonalFormDialog from '@/components/PersonalFormDialog.vue'
 
