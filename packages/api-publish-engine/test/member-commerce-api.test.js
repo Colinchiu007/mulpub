@@ -451,6 +451,80 @@ async function main() {
     } finally { await started.server.stop(); }
   }
   console.log("  ✅ 场景 4：H1-H6 收口 + 契约回归锁（redeem 映射 / grantInvalid / 400 契约 / 405 家族 / PUT 别名 / 共存形状）");
+
+  // ===== 场景 5：MF-1 settle 前置（到期临界 entitlement 与 membership/snapshot 三者 plan 必须一致）=====
+  {
+    // 闭包变量模拟 _entitlementProvider 缓存里的当前 plan；初始为降级前的旧付费快照 standard。
+    let cachedPlan = "standard";
+    let settleRan = false;
+    const repo5 = makeRepo();
+    const svc5 = {
+      repository: repo5,
+      planOverrides: null,
+      async getSubscriptionView() {
+        // 模拟 settleExpiry：被调用即重写缓存（把 plan 降级为 free）并返回降级后的会员视图。
+        cachedPlan = "free";
+        settleRan = true;
+        return { plan: "free", status: "expired", entitlement: { plan: "free", features: [], quota: {}, limits: {} } };
+      },
+      async getUsageView() { return { plan: "free", features: [] }; },
+    };
+    const server5 = new PublishApiServer({
+      dryRun: true,
+      logtoVerifier: createVerifier(),
+      businessIdentityRepository: repo5,
+      entitlementProvider: { async getForUser() { return { plan: cachedPlan, features: ["cloud_publish"], quota: {}, limits: {} }; } },
+      entitlementSigner: { async sign(s) { return { token: "sig." + s.plan }; } },
+      subscriptionService: svc5,
+    });
+    await server5.start(0);
+    try {
+      const r = await request(server5._server.address().port, "GET", "/api/v1/me", "member-read", null, { "X-Device-ID": DEV });
+      assert.strictEqual(r.status, 200);
+      assert.ok(settleRan, "getSubscriptionView（settle）必须被调用");
+      assert.strictEqual(r.body.entitlement.plan, r.body.membership.subscription.plan, "MF-1：entitlement 必须读到 settle 之后的 plan，与 membership 一致");
+      assert.strictEqual(r.body.entitlement.plan, "free", "MF-1：到期临界 entitlement.plan 必须为降级后的 free，不得是过期付费的 standard");
+      assert.ok(r.body.entitlementSnapshot, "配 signer + 合法设备头应签发快照");
+      assert.strictEqual(r.body.entitlementSnapshot.token, "sig." + r.body.entitlement.plan, "MF-1：快照 plan 必须与 entitlement 一致，不得签发过期付费快照");
+    } finally { await server5.stop(); }
+    console.log("  ✅ 场景 5：MF-1 settle 前置，entitlement/snapshot/membership 三者 plan 一致");
+  }
+
+  // ===== 场景 6：MF-2 缺头不阻断 /me；畸形头仍 400（契约）=====
+  {
+    const repo6 = makeRepo();
+    const svc6 = makeService({ repository: repo6 });
+    const server6 = new PublishApiServer({
+      dryRun: true,
+      logtoVerifier: createVerifier(),
+      businessIdentityRepository: repo6,
+      entitlementProvider: { async getForUser() { return { plan: "standard", features: ["cloud_publish"], quota: {}, limits: {} }; } },
+      entitlementSigner: { async sign(s) { return { token: "sig." + s.plan }; } },
+      subscriptionService: svc6,
+    });
+    await server6.start(0);
+    const p6 = server6._server.address().port;
+    try {
+      // 缺 X-Device-ID：不得让整个 /me 变 400，应 200 且跳过快照，membership 仍在。
+      const noHeader = await request(p6, "GET", "/api/v1/me", "member-read");
+      assert.strictEqual(noHeader.status, 200, "MF-2：缺 X-Device-ID 不得让整个 /me 变 400");
+      assert.strictEqual(noHeader.body.entitlementSnapshot, undefined, "MF-2：快照构建失败应跳过（缺省）");
+      assert.ok(noHeader.body.membership, "MF-2：membership 仍须存在");
+      assert.strictEqual(noHeader.body.entitlement.plan, "standard", "MF-2：entitlement 仍正常返回");
+      // 畸形 X-Device-ID（过短 'x'）：有头但畸形 → 仍 400，沿用 299ef43b7e 既有 400 契约，与 auth 测试同源。
+      const badHeader = await request(p6, "GET", "/api/v1/me", "member-read", null, { "X-Device-ID": "x" });
+      assert.strictEqual(badHeader.status, 400, "MF-2：有头但畸形 → 维持 DEVICE_ID_INVALID 400 契约");
+      assert.strictEqual(badHeader.body.error, "DEVICE_ID_INVALID", "MF-2：畸形设备头语义码不变");
+      assert.strictEqual(badHeader.body.entitlementSnapshot, undefined, "MF-2：400 响应不含快照");
+      // 正向契约不回归：合法 16+ 位设备头 → 200 且快照正常签发。
+      const goodHeader = await request(p6, "GET", "/api/v1/me", "member-read", null, { "X-Device-ID": DEV });
+      assert.strictEqual(goodHeader.status, 200);
+      assert.ok(goodHeader.body.entitlementSnapshot, "MF-2：合法设备头快照必须正常签发（正向契约不回归）");
+      assert.strictEqual(goodHeader.body.entitlementSnapshot.token, "sig.standard");
+    } finally { await server6.stop(); }
+    console.log("  ✅ 场景 6：MF-2 缺头跳过快照 /me 仍 200；畸形头维持 400 契约");
+  }
+
   console.log('member-commerce-api: 全部通过')
 }
 

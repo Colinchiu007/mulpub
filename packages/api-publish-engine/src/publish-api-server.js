@@ -552,6 +552,9 @@ class PublishApiServer {
   async _buildEntitlementSnapshot(req, entitlement) {
     if (!this._entitlementSigner || typeof this._entitlementSigner.sign !== "function") return null
     const deviceId = req.headers && req.headers["x-device-id"]
+    // MF-2（CCG W1）：无设备头 = 客户端未请求权威快照，跳过快照（返回 null）而非拒绝 /me。
+    if (deviceId === undefined || deviceId === null || deviceId === "") return null
+    // 有头但畸形（含路径穿越等）仍 fail closed 抛 400，沿用 299ef43b7e 既有权威契约，不降级。
     if (typeof deviceId !== "string" || !/^[A-Za-z0-9._:-]{16,128}$/.test(deviceId)) {
       throw Object.assign(new Error("DEVICE_ID_INVALID"), { code: "DEVICE_ID_INVALID", status: 400 })
     }
@@ -744,19 +747,9 @@ class PublishApiServer {
           return;
         }
         const businessUser = req.auth.businessUser;
-        let entitlement;
-        let entitlementSnapshot;
-        try {
-          entitlement = await this._buildEntitlement(req);
-          entitlementSnapshot = await this._buildEntitlementSnapshot(req, entitlement);
-        } catch (error) {
-          this._logError(error && error.code ? error.code : "ENTITLEMENT_UNAVAILABLE", error, this._ctx(req));
-          this._json(res, error && error.status ? error.status : 503, {
-            error: error && error.code ? error.code : "ENTITLEMENT_UNAVAILABLE",
-            message: error && error.status === 400 ? "设备标识无效" : "权益暂时不可用",
-          });
-          return;
-        }
+        // MF-1：先结算 membership（getSubscriptionView 内部 settleExpiry 会重写权益缓存），再读 entitlement，
+        // 使 entitlement / entitlementSnapshot 与 membership.subscription 落在同一 settle 之后的状态，
+        // 杜绝到期临界返回自相矛盾的过期付费快照。membership 块不依赖 entitlement，可安全前置。
         let membership = null;
         if (this._subscriptionService) {
           const commerceRepository = this._commerceRepository();
@@ -793,6 +786,21 @@ class PublishApiServer {
               this._logWarn("MEMBERSHIP_UNAVAILABLE", error, this._ctx(req));
             }
           }
+        }
+        let entitlement;
+        let entitlementSnapshot;
+        try {
+          entitlement = await this._buildEntitlement(req);
+          // MF-2（收窄）：无头时 _buildEntitlementSnapshot 返回 null → /me 200（CCG W1 无头不阻断）；
+          // 有头且畸形仍抛 DEVICE_ID_INVALID → 走下方 catch 变 400（沿用 299ef43b7e 既有契约）。
+          entitlementSnapshot = await this._buildEntitlementSnapshot(req, entitlement);
+        } catch (error) {
+          this._logError(error && error.code ? error.code : "ENTITLEMENT_UNAVAILABLE", error, this._ctx(req));
+          this._json(res, error && error.status ? error.status : 503, {
+            error: error && error.code ? error.code : "ENTITLEMENT_UNAVAILABLE",
+            message: error && error.status === 400 ? "设备标识无效" : "权益暂时不可用",
+          });
+          return;
         }
         this._json(res, 200, {
           user: {
