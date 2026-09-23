@@ -15395,3 +15395,10 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 ### 本次决策记录
 
 实证在 live mp-app-live2（shared-user-data profile）完成，不改任何仓库代码：停 7 个 electron 前先热备份 `shared-user-data.backups\seed-<ts>\`（db+wal+shm），灌数脚本幂等（先 DELETE 固定种子 id 再精确 INSERT 两行）。用户决定**种子行不清理**，保留为常态验证样本（vv-seed-bili-0001 / tc-seed-bili-0001 + 1 条 auto 快照）。实证结果回写 `PRD-RECRAWL-TRIGGER-DEBUG-2026-09-22.md` §7 与 `PRD-VIRAL-LIBRARY-INTEGRATION-2026-09-22.md` 附录 C。经验同步内置记忆 + EverOS。
+
+## emoji 转 el-icon 会击穿 Gate 7 file||content 基线键形态——locale 化须同步组件测试 i18n 注入（2026-09-23，kb-personal-empty-icon / PR #2249 CI 补齐）
+
+- **根因模式（pitfall）**：CI Gate 7 `check-locale-sync.js --cjk` 新版基线按 `file||content` 键存储。把模板区块标题的 emoji 前缀（「📊 内容基准比较」）替换为 el-icon 后，文本节点内容键变为「内容基准比较」，旧键失配 → 12 处既有硬编码被判「新增」，QG Static 红灯在 merge main 后才暴露（基线键形态迁移属改动自身副作用，与合并无关）。
+- **修复模式（pattern）**：禁止 `--update-baseline` 掩盖；把 12 处文案迁入 `intelligence.*` locale（zh/en 成对，zh 值与原文案逐字一致，插值文案用 `{n}` 参数化），模板改 `$t(...)` / `:title="$t(...)"`，script 内标签映射改 `useI18n().t`。
+- **连锁坑（pitfall）**：直接 `mount(Comp)` 的组件测试无 i18n 插件，locale 化后 42 例报 `$t is not a function`。按仓库 TagSuggester 惯例在测试顶部经 test-utils `config.global.plugins` 注入 `createI18n({legacy:false,locale:"zh",messages:{zh,en}})`——vitest 每文件独立模块环境，全局 config 变更不跨文件污染，且免改每个 mount 调用点。
+- **预防措施**：任何「emoji→el-icon / 模板文本改动」任务，提交前本地必跑 `node .github/scripts/check-locale-sync.js --cjk`（QG Static 由 CI 才暴露的教训——vitest 门禁不含 .github/scripts node:test 套件）；对已 $t 化组件新增/迁移文案时，同步检查其组件测试是否具备 i18n 插件。
