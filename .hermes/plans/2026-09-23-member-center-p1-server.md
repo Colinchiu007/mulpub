@@ -2073,3 +2073,72 @@ Expected: 全部 exit 0（存量 auth 测试验证 scope 改造无回归）
 git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 add packages/api-publish-engine/src/publish-api-server.js packages/api-publish-engine/test/member-commerce-api.test.js
 git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 commit -m "feat(member-center): P1-T6 会员/商务 HTTP 端点与 /me 聚合"
 ```
+
+---
+
+## Task 7：全量回归与收尾
+
+- [ ] **Step 1: 全包测试**
+
+```powershell
+cd D:\Data\projects\mp-worktrees\mp-member-center-p1
+pnpm --filter @multi-publish/api-publish-engine test
+```
+
+Expected: exit 0（含 5 个新增测试文件与全部存量）
+
+- [ ] **Step 2: 生产迁移演练（本地 Postgres 可用时执行，不可用则记录跳过原因待 CI/部署时补）**
+
+```powershell
+$env:BUSINESS_DATABASE_URL = 'postgres://postgres:***@localhost:5432/mp_member_p1'
+node scripts/migrate-postgres.js
+node -e "const {PostgresIdentityRepository}=require('./packages/api-publish-engine/src/auth/postgres-identity-repository'); new PostgresIdentityRepository({connectionString: process.env.BUSINESS_DATABASE_URL, production: true}).assertReady().then(r=>console.log(r)).catch(e=>{console.error(e.code||e.message);process.exit(1)})"
+```
+
+Expected: 迁移 001-004 全部 applied；`assertReady` 返回 `{ database: 'ready', schema: 'ready' }`（fail closed：新表缺失/账本 checksum 不符必须报错）
+
+- [ ] **Step 3: 质量门禁自检**
+
+逐项过 `.quality-gates.md` 自检清单（开发阶段：测试全通过 / 错误处理到位 / 手动验证）；本包不改 `apps/desktop/electron/` 与 `packages/rpa-engine/`，QM-1 打包验证由 P2（桌面 IPC）任务承担。
+
+- [ ] **Step 4: CHANGELOG + 最终提交**
+
+`CHANGELOG.md` Unreleased 段追加：`会员中心 P1 服务端底座：三档权益矩阵、兑换码核销、订单、消息中心、设备会话与会员 API`。
+
+```powershell
+git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 add CHANGELOG.md
+git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 commit -m "docs(member-center): P1-T7 CHANGELOG 收口"
+```
+
+---
+
+## spec §8/§9 验收映射（P1 承担部分）
+
+| spec 条目 | P1 任务 | 证据 |
+|---|---|---|
+| §8-2 兑换码/后台开通后套餐与配额刷新（服务端侧） | Task 4 redeem/grant + Task 3 `putEntitlement` version+1 回写快照 | `subscription-service.test.js`、`member-commerce-repository.test.js` |
+| §8-3 三档矩阵数值一致（含直接调用回归） | Task 2 `plan-matrix.js` 唯一真源 + Task 6 `/api/v1/plans` | `plan-matrix.test.js` 逐字断言 |
+| §8-4 设备列会话/注销；消息接收/已读（服务端侧） | Task 3 upsertSession/revoke + Task 6 sessions/notifications 端点 | `member-commerce-api.test.js` scope 边界断言 |
+| §8-5 订单以服务端为准 | Task 1 `identity_orders` + Task 3 `listOrders` + Task 6 `/me/orders` | 同上 |
+| §8-6 既有场景不回归 | Task 0 Step 3 基线 + Task 7 Step 1 全量 | run-tests 全绿 |
+| §9 契约测试（/me 结构 + 矩阵断言） | Task 6 membership 聚合 + limits/quota 透传 | `member-commerce-api.test.js` 场景 1/2/3 |
+| §9 兑换码幂等/重复/过期/跨账号 | Task 4 状态机（400/404/409/410 + 本人重放） | `subscription-service.test.js` |
+| §9 订阅状态机（续叠/到期降级） | Task 3 `applySubscription` 续叠 + Task 4 `settleExpiry` | 两测试文件对应子用例 |
+| §9 设备会话（当前会话保活） | Task 3 `IS DISTINCT FROM` 保活语义 | `member-commerce-repository.test.js` |
+| §8-1（UI 7 栏）/ §8-2 客户端 30s 刷新与离线快照 / §9 前端与打包 | → P2（桌面 IPC/服务层）与 P3（会员中心前端） | 不在本计划范围 |
+| ops-center 运营入口（§10 待办） | → P4；P1 仅提供 admin:* 端点 | 不在本计划范围 |
+
+---
+
+## 决策日志
+
+| # | 决策 | 理由 | 被否方案 |
+|---|---|---|---|
+| D1 | 无限值统一用 -1；唯独 pro 日发布用有限高值 1000 | `consumeFeature` 校验 `limit >= 0`，被扣减的 feature（cloud_publish）不得出现 -1；spec 本身即「不限（默认上限 1000，运营可配）」 | 新增 unlimited 布尔字段（双真源，否） |
+| D2 | 日发布→月配额采用 ×30 折算双口径（`quota.cloud_publish_monthly` 扣减，`limits.daily_publish` 展示） | 现有扣减只有 UTC 月周期一条路；日窗口拦截推 P2 增强 | 新建 daily 周期表（迁移面大，P1 不值） |
+| D3 | 到期惰性降级（/me 访问触发 `settleExpiry`） | 无现成 cron/调度设施；惰性方案无后台任务也能保证最终一致 | 定时任务扫描（需新增调度依赖，否） |
+| D4 | 会话确定性主键 `ses-sha256(userId:deviceId)`，重登复活 revoked 行 | 避免每次 /me 新插一行导致表无限膨胀；与登录页「本设备」识别稳定 | 每登一次新行（需 TTL 清理作业，否） |
+| D5 | 广播通知 fan-out 每用户一行 | 已读状态 per-user 天然成立；表结构简单，量级（用户数 × 广播次数）P1 可接受 | 全局表+已读关联表（多一张表一次 join，否） |
+| D6 | 兑换码字母表排除 I/O/0/1，4-4-4 分组 | 电话/人工录入场景防错；与存量 `LicenseManager.activate` 输入习惯兼容 | UUID 全字长（人工传播成本高，否） |
+| D7 | 拆 4 份子计划（P1 服务端→P2 桌面→P3 前端→P4 运营），本轮只写 P1 | 用户确认；每份独立可交付可测试 | 单份大计划（跨 4 子系统，粒度失控，否） |
+| D8 | 路由层不另建鉴权中间件，沿用 `_requiredScope` early-return 链 | 会员路径在 POST 兜底行之前 return，避免 `/plans` 被 `startsWith('/api/v1/plan')` 吞进 publish:submit | 新增 express 式中间件（与现有手写路由链不合，否） |
