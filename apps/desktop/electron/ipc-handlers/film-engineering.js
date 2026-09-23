@@ -33,6 +33,7 @@ const { getFilmMediaRoot } = require('../services/film-engineering/film-render')
 const {
   runProduction, planBatches, loadLedger, resolveResumePlan, buildRenderManifest, shotFileName, PRODUCTION_BATCH_SIZE,
 } = require('../services/film-engineering/production-driver')
+const { runBatchViaVideoGen } = require('../services/film-engineering/production-runner')
 
 const MAX_SCRIPT_LENGTH = 10000
 const MAX_CHARACTER_MAP_KEYS = 10
@@ -41,7 +42,6 @@ const MAX_GENERATE_BATCH = 20
 const MAX_RECYCLE_BATCH = 50
 const RECYCLE_CONCURRENCY = 4
 const MAX_PRODUCTION_SHOTS = 1000
-const PRODUCTION_BATCH_CONCURRENCY = 2
 // 计划预览估算口径（design Risks：POC 实测单镜 4.5-8.5MB 取上限；并发 2、单镜均值 ~10min）
 const DISK_ESTIMATE_BYTES_PER_SHOT = 8 * 1024 * 1024
 const WALLCLOCK_SECONDS_PER_SHOT = 300
@@ -54,38 +54,6 @@ function defaultFilmProbe (runId, count) {
     if (!fs.existsSync(path.join(dir, shotFileName(i)))) missing.push(i)
   }
   return { missing }
-}
-
-/**
- * 真实批次执行（任务 7.2）：逐镜 getShot 取原文 prompt → generateShotVideo 子跑
- * （提交→轮询→下载落 runDir/shot_NNN.mp4），批内并发 2（design 墙钟口径）；
- * 单镜失败经 onShotProgress 上报，批收口由 driver 磁盘复核裁决（不信自报）。
- */
-async function runBatchViaVideoGen ({ batch, service, aiGenerator, aspect, seconds, log, deps, onShotProgress }) {
-  const providerCfg = resolveFilmVideoProvider(aiGenerator)
-  if (!providerCfg) throw new Error('VIDEO_MODEL_NOT_CONFIGURED: 影视工程批量出片需要视频模型，请在模型设置中配置并设为默认视频 Provider 后重试')
-  const runDir = getFilmRunDir(batch.runId)
-  try { fs.mkdirSync(runDir, { recursive: true }) } catch { /* 目录已存在，忽略 */ }
-  const gen = deps._testGenerateShotVideo || generateShotVideo
-  const queue = batch.shotIds.map((shotId, i) => ({ shotId, i }))
-  const worker = async () => {
-    while (queue.length > 0) {
-      const job = queue.shift()
-      if (!job) return
-      let shot = null
-      try { shot = service.getShot(job.shotId) } catch { /* 视为该镜失败 */ }
-      if (!shot || typeof shot.prompt !== 'string' || !shot.prompt.trim()) {
-        onShotProgress(job.i, 'failed')
-        continue
-      }
-      const r = await gen({
-        shot: { ...shot, shotId: job.shotId }, index: job.i, runDir, aspect, seconds,
-        providerCfg, sleep: deps._testSleep, download: deps._testDownload, log,
-      })
-      onShotProgress(job.i, r && r.success ? 'done' : 'failed')
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(PRODUCTION_BATCH_CONCURRENCY, batch.shotIds.length) }, worker))
 }
 
 function validateProductionArgs (EC, params) {
