@@ -24,6 +24,25 @@ const { PublisherRouter, ROUTE_TABLE } = require("../services/publisher-router")
 // P0-3 回归：直接测 resolvePlatformArticle/buildPublishArticle 的平台特有字段透传（不经过 route）
 const routerSrc = require("../services/publisher-router");
 
+describe("主链路回归：B站队列路由到 ApiPublisher（Tier-A upos）", () => {
+  const store = { getAccount: vi.fn(() => null), getDefaultAccount: vi.fn(() => null) }
+  const accountManager = {
+    loadSavedCredentials: vi.fn(() => ({
+      platform: "bilibili",
+      cookies: [{ name: "bili_jct", value: "abcdef0123456789abcdef01", domain: ".bilibili.com" }],
+      localStorage: {},
+    })),
+  }
+  it("ROUTE_TABLE.bilibili 使用 api 模式（非 rpa_vm）", () => {
+    expect(ROUTE_TABLE.bilibili.mode).toBe("api")
+  })
+  it("createPublisher(bilibili) 创建 ApiPublisher", () => {
+    const r = new PublisherRouter()
+    const p = r.createPublisher("bilibili", { store, accountManager })
+    expect(p.constructor.name).toBe("ApiPublisher")
+  })
+})
+
 describe("ApiPublisher（baijiahao api 模式）", () => {
   const store = {
     getAccount: vi.fn(() => null),
