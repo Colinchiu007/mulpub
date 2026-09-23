@@ -86,10 +86,13 @@
 
 - **CI 自修（PR #2252 首跑暴露 2 项红）**：① `--py-cjk` 行号偏移假阳性——本批往 `publishers/base.py` 插入 `wait_until` 使既有中文 `raise` 从门禁口径 331 行移到 359 行，用探针文件取证后对 `locale-py-cjk-baseline.json` 做**净零换号**（条目数仍 79，不走 `--update-py-baseline` 以免顺手吸收别处真新增）；② `dep-audit.yml` 照抄了 `cache: pnpm`，而该 job 不执行 `pnpm install`、pnpm store 目录不存在，`setup-node` 的 Post 步骤以 `Path Validation Error` 判红 → 去掉缓存并留注释。
 
+- **CI 自修第二轮（PR #2252 复跑暴露的第 3 项红）**：`QG Static / Gate 11 - ESLint (error-level gate)` 判红，归因链值得记下——CI 日志因 302 跳转丢 token 取不到，改本地复现；stylish 输出把责任文件显示成 `access-level-cache.js`，单跑该文件 rc=0，用 `--format json` 取 `filePath` 才锁定真凶 `electron/services/access-level-bus.js:38:9 no-useless-assignment`（`let windows = []` 的初值必被 `try` 覆盖、`catch` 分支已提前 `return 0`，初值永不参与判定）。修法是**消除无用初值**（`let windows`）而非 `eslint-disable` 放宽规则；复跑 `pnpm exec eslint electron/ src/ --quiet` rc=0，相关 2 文件 17 用例全绿，并按 QM-5 做红验证（摘掉 catch 内 `return 0` → base rc=0 / mutated rc=1，证明该分支确有覆盖）。
+
 ### Documentation
 
 - `docs/audit-remediation-batch4-2026-09-22.md`：本批 10 项的具名参数、判定口径、超时与降级文案原文、显示项影响、运维复核命令、QM-5 反哺汇总表
 - 体检报告 §76 `flutter-skill-bridge` 处置判据取证结论（判据「全仓 rg 零引用即删」成立，git 侧无可删项，该名称仅存在于评审产物中，不为不存在的模块补 README）
+- **PRD 详细补充**：`01-docs/PRD.md` 新增「全仓代码体检整改：安全加固与质量门禁需求（audit-remediation-20260922，四批全量）」总章（需求矩阵 → 交付物 → 门禁；9 条启动期安全闸门含逐字 `[P0-x]` 文案；密钥与凭据治理 7 项泄露面复选框并显式声明「不由代码合并且关闭」；Cookie 会话属性来源表与双通道优先级；IPC 守卫五分类与基线数字；path_guard code→HTTP 映射与 SSRF 残余风险；P2 条件等待具名常量与逐字超时/降级文案；门禁索引与本地复核命令表；未覆盖维度与限期）；`ops-center/docs/PRD.md` 新增 `12A.26 运营端安全加固与会话治理`（数据校验 / 功能逻辑 / 交互逻辑 / 显示项与提示文字 / 回归保护 / 运维指引 / 验收标准）。
 
 ---
 
