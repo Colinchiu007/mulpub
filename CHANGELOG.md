@@ -1,3 +1,42 @@
+# [未发布] fix(security): P1 审计第三批——IPC 注入契约 fail-closed + 管理后台 Cookie 会话 + P2 安全小项（2026-09-22，audit-batch-3）
+
+### 变更
+- **P1-14 IPC 注入契约（apps/desktop/electron）**：10 个 service 的 `registerIpcHandlers(injectedIpcMain)` 原写法 `const ipcMain = injectedIpcMain || require('electron').ipcMain`，漏注入即静默注册到**全局** ipcMain —— 同时绕过 `isTrustedSender` 来源校验与 `createAccessControlledIpcMain` 的许可证/权益门禁，且在纯 Node 单测里退化成一个无信息量的 TypeError。统一改为**未注入即抛可操作错误**（对齐同仓 cloud-publisher 的 MAJOR-3 范式），并删除随之成为死代码的模块级 `ipcMain` 解构。新增 `.github/scripts/check-ipc-sender-guard.js` 单一口径盘点（递归 electron、注释/字符串感知、`handle` 与同步 `on` 分列，五分类 explicit/injected/global/sync-unguarded/unknown）+ 双校验（清单式防漂移含陈旧条目失败、比例式防稀释 `minGuardedRatio` 只升不降）+ 豁免清单 `electron/ipc-guard-exemptions.json`；接入 quality-gate **Gate 17**。现状：注册点 407（handle 404 / on 3）、显式守卫 273、咽喉点 134、unknown 0、绕过 0、占比 67.1%。
+- **P1-15 管理后台会话（ops-center）**：登录不再把 HS256 JWT 放进响应体（旧前端存 localStorage + 手拼 `Authorization`，一处 XSS 即管理员会话接管，且 7 个 view 各抄一份样板导致加固改不全）。改为签发 **HttpOnly + SameSite=Lax + Path=/ 会话 Cookie**，响应体只回 `{username, role, expires_in, csrf_header}`；新增 `POST /api/auth/logout`（delete_cookie，刻意免鉴权免 CSRF 头）与 `GET /api/auth/session`（`/me` 别名，会话水合）。中间件改双通道：Bearer 优先且非法不回落 Cookie；Cookie 会话的非幂等方法必须带 `X-Ops-Session`，缺失 403。CSP **三层下发**（后端 `security_headers` / nginx 模板含 `frame-ancestors 'none'` / vite dev meta），新增 7 个可配置项（`OPS_SESSION_COOKIE_*`、`OPS_CSRF_HEADER`、`OPS_CONTENT_SECURITY_POLICY`、`OPS_X_FRAME_OPTIONS`），TTL 与 `TOKEN_TTL_HOURS` 同源。前端 `stores/auth.js` 去 token/去 localStorage/去 `isTokenExpired`，`api/http.js` 统一 `createApiClient()`（withCredentials + CSRF 头注入 + 401 清态跳登录、403 不清态），7 个 view 收敛样板，路由守卫改 async 水合。附带加固：`Settings.__repr_args__` 凭据字段脱敏（实测一次测试失败就会把 Ed25519 私钥明文打进日志）。防复发门禁 `check-ops-session-hygiene.js` 接入 **Gate 18**。
+- **P2 安全小项（4 项同口径收口）**：① `ai-writer-api` 的 `key !== apiKey` 短路比较改 `src/auth.js#timingSafeKeyEqual`（SHA-256 后 `crypto.timingSafeEqual`，非字符串/空值 fail-closed）；② `collection-engine` 4 个 adapter（bilibili/douyin/xiaohongshu/zhihu）`buildUrl` 的 id 一律 `encodeURIComponent(String(id))` —— 体检报告只点 B 站 query，路径段同源缺陷一并收紧；③ `webview-manager` 凭证 localStorage 恢复不再把 `JSON.stringify` 裸拼进 `executeJavaScript`（Electron 43 的 `executeJavaScript` 不接收参数），改新增原语 `electron/core/js-eval-payload.js`（反斜杠加倍过两层词法 + `'`/`<>&`/U+2028/U+2029 转义 + 页面侧 `JSON.parse` 还原，不可序列化即抛错）；④ `audio-aligner` 的 `POST /align` 增加 `aligner/path_guard.py` 目录约束（先 realpath 再 `commonpath` 判包含、**目录边界先于存在性判定**以免 403/404 沦为文件枚举 oracle；未配置时默认只允许系统临时目录 fail-closed），`/health` 暴露 `allowed_roots`、日志改用规范化路径，桌面端 `BasePythonBridge._spawnEnv()` 钩子由 `AlignerBridge` 注入 `AUDIO_ALIGNER_ALLOWED_DIRS`（tmp + userData + 外部追加）。
+
+### 验证
+- TDD 红→绿：新增 `ipc-injection-contract.test.js`（静态 + 3 行为例）、`check-ipc-sender-guard.test.js`（15 node:test）、`test_p1_15_session_cookie.py`（13）、`check-ops-session-hygiene.test.js`（7）、`api-key-timing.test.js`（13，含静态不变量）、`build-url-encoding.test.js`（9）、`js-eval-payload.test.js`（13）、`test_p2_path_guard.py`（28）、`aligner-bridge-audio-dirs.test.js`（6）；`core/ipc-security.test.js` 补 file:// realpath 边界回归；重写 ops 前端 auth-store / http-client 契约并修正 `vitest.config.js` include 只覆盖 `src/**` 导致 `tests/` 下 6 个用例文件从不执行。
+- 本地：audio-aligner pytest 28 passed/1 skipped、ai-writer-api 23 passed、collection-engine 11 files/102 passed、apps/desktop P2 定向 4 files/86 passed、ops-center 前端 8 files/42 passed；ESLint 0 errors。
+- QM-5 红验证（4 变异全部转红、恢复无残留）：M1 退回 `!==`、M2 退回 id 裸拼、M3 退回裸拼 `JSON.stringify`、M4 跳过 `resolve_audio_path`。
+- 详细规格（数据校验、契约、交互逻辑、显示项、提示文字、运维指引、决策与残余风险）见 `docs/audit-remediation-batch3-2026-09-22.md`；踩坑反哺见 `01-docs/learnings.md`。
+
+### 关联
+- 分支 `codex/audit-p1-depth`（worktree 隔离，D 盘）；`.adversarial/codebase-audit-20260922/proposal-v7.md` 问题 14 / 15 / §71 / §90。
+- CI 门禁增量：`quality-gate.yml` Gate 17（IPC sender 覆盖）、Gate 18（ops 会话卫生）。
+
+---
+
+# [未发布] fix(ops-center): 预设模型排序按钮灰显锁死修复——所见即所得作用域（2026-09-23，model-sort-visible）
+
+### 变更
+- **后端 `reorder_model_preset` 新增 `visible_ids` 作用域（所见即所得）**：只在「当前可见/筛选序列原本占据的顺序槽」内移动目标行，序列外（隐藏项、其它类别）预设绝对位置不变；缺省时退化为全量重排（向后兼容）；移动后仍全列表归一化 0..n-1。
+- **路由校验 fail-closed**：`visible_ids` 非数组 → 400；目标不在作用域或空序列 → 404（CodeReview 修复：`visible_ids=[]` 不再因真值判断误落全量分支静默改写全表顺序，`if visible_ids:` 改 `is not None`）。
+- **前端移除灰显锁**：删除 `sortLocked` computed、灰显 title 与「请先清除分类筛选并开启含隐藏项」警告；`reorderModelPreset(id, action, visibleIds)` 提交当前可见 id 序列，按钮 `:disabled` 仅保留可见序列首末边界与 busy 态；页面说明改为「排序所见即所得」口径。
+
+### 根因与逃逸
+- 根因：PR #2232 CodeReview 期为防「筛选视图 $index 与全量下标错位」引入灰显锁，但 `includeHidden` 默认关闭使锁在默认视图恒真——防护过严把功能锁死，属可用性缺陷。本轮改为作用域化重排，从语义上消除错位，锁不再必要。
+- 逃逸链：ops-center pytest 仅断言全量语义（无筛选视图交互用例）→ 前端无组件级测试覆盖 disabled 条件 → 人工验收只在「含隐藏项开启」路径下进行。已补不连续可见序列判别用例堵口。
+
+### 验证
+- TDD 红→绿：新增 4 判别用例（不连续可见序列 [0,2,3] 槽位置换、序列内边界 noop、目标越界 404、空序列 404），红测 `1 failed` → 实现后转绿；ops-center 后端全量 pytest **414 passed**；前端 vite build exit 0。
+- CodeReview：范围 5874e4bda..d347deba9，1 MINOR（空数组退化）已按建议修复并补测试，无 CRITICAL/MAJOR。
+
+### 关联
+- 分支 `codex/model-sort-visible`（worktree 隔离，D 盘）；PR #2232 后续 refinement，规格见 `01-docs/PRD-MODEL-LIST-SORT-ORDER-2026-09-23.md` §4.5。
+
+---
+
 # [未发布] fix(accounts): 账号登录态持久化真源统一 + 检测三态收敛（D1/D2/D3）
 
 ### 变更

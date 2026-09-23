@@ -2400,7 +2400,9 @@ class PipelineEngine {
       }
     }
     const normalizedResult = { ...result };
-    if (normalizedResult.success && this._shouldCheckpoint(fullStage, run.params)) {
+    // executor 显式声明 checkpoint:false 时直通不暂停（StageExecutor 返回合同既有字段，
+    // 用于零计费直通 run——如 film-engineering 收口合成 manifest 模式）；truthy 行为不变。
+    if (normalizedResult.success && normalizedResult.checkpoint !== false && this._shouldCheckpoint(fullStage, run.params)) {
       normalizedResult.checkpoint = normalizedResult.checkpoint || fullStage.checkpointType || 'stage';
       normalizedResult.checkpointMeta = {
         stageName: stage.name,

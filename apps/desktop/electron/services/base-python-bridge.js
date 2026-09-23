@@ -135,6 +135,15 @@ class BasePythonBridge {
   }
 
   /**
+   * 子类追加的 spawn 环境变量（默认空）。
+   * 用途：把只有主进程知道的信息（例如音频目录白名单）告诉 Python 子进程，
+   * 而不是指望部署方手工在 process.env 里配。
+   * @returns {Record<string, string>}
+   * @protected
+   */
+  _spawnEnv () { return {} }
+
+  /**
    * spawn 子进程并监听生命周期事件
    * @param {string} pythonCmd
    * @returns {Promise<import('child_process').ChildProcess>}
@@ -151,7 +160,7 @@ class BasePythonBridge {
       }
       const proc = spawn(pythonCmd, ['-m', this.pythonModule], {
         cwd: this.workDir,
-        env: { ...process.env, PORT: String(this.port), PYTHONUNBUFFERED: '1' },
+        env: { ...process.env, PORT: String(this.port), PYTHONUNBUFFERED: '1', ...this._spawnEnv() },
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true
       })

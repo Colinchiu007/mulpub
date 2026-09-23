@@ -40,14 +40,9 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getProjectConfig, updateConfigItem } from '../api/config'
-import axios from 'axios'
+import { createApiClient } from '../api/http'
 
-const api = axios.create({ baseURL: '/api/v1' })
-api.interceptors.request.use(c => {
-  const s = localStorage.getItem('ops_token')
-  if (s) { try { c.headers.Authorization = `Bearer ${JSON.parse(s).token}` } catch {} }
-  return c
-})
+const api = createApiClient()
 
 const platforms = ref([])
 const loading = ref(false)

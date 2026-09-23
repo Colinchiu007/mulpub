@@ -14,7 +14,7 @@
  *   使用 executeJavaScript 周期性扫描页面 DOM，
  *   检测 <img> 元素中带 QR/scan/qrcode 特征或大于 100x100 的图片
  */
-const { WebContentsView, session, ipcMain } = require('electron')
+const { WebContentsView, session } = require('electron')
 const path = require('path')
 const log = require('./logger')
 // eslint-disable-next-line no-unused-vars
@@ -649,7 +649,13 @@ class QrCodeLogin {
    * 注册 IPC handlers
    */
   registerIpcHandlers (injectedIpcMain) {
-    const ipcMain = injectedIpcMain || require("electron").ipcMain;
+    // P1-14：必须注入 access-controlled ipcMain（createAccessControlledIpcMain）。
+    // 禁止回退全局 ipcMain —— 那会同时绕过 isTrustedSender 来源校验与许可证/权益门禁，
+    // 且在纯 Node（单测）下退化成无信息量的 TypeError。未注入即 fail-closed 抛错。
+    if (!injectedIpcMain) {
+      throw new Error('[IPC] qrcode-login registerIpcHandlers 需要注入受控 ipcMain（禁止使用全局 ipcMain）');
+    }
+    const ipcMain = injectedIpcMain;
     ipcMain.handle('auth:open-qrcode-login', withSenderCheck(async (event, platform) => {
       try {
         const result = await this.openLogin(platform)

@@ -1,3 +1,25 @@
+## 真实冒烟是 mock 测试的照妖镜：manifest 直通三缺口与引擎闸放宽合同（film-full-corpus-production，2026-09-23）
+
+- **现象（pitfall）**：组 8 前端/mock 集成测试 614 用例全绿，但 9.3 真实主进程 compose 冒烟在 load_template 阶段即 fail——前四阶段执行器只认 kitDir/selectedShots，不认 renderManifest；generate_videos 直通后引擎仍按 checkpointRequired 暂停成本闸；render manifest 模式全新 runId 目录不存在 writeConcatList ENOENT。三个缺口全部逃过 mock 层（mock stageExecutor 直接返回成功，不经真实 PIPELINES 编排）。
+- **修复模式（pattern）**：直通分支一律"非空数组才直通 + fail-closed 负锚保留"（无 manifest 无选择仍拒绝），直通输出带 `passthrough:true, manifestMode:true` 可审计；引擎暂停条件从 truthy 改为显式哨兵——executor 返回 `checkpoint:false` 才跳过闸（`normalizedResult.checkpoint !== false`），缺省/truthy 行为不变，13 条既有流水线零影响，并配"正常流仍在成本闸 paused"回归锚。
+- **可推广结论**：任何"绕过既有闸/检查"的直通设计，优先用**显式 false 哨兵**而不是删检查或加布尔开关透传；放宽条件的 PR 必须同时带负锚测试。涉及多阶段编排的功能，mock 集成测试收口前必须补一次真实链路（真实 provider 或真实 ffmpeg/HTTP 至少一项）冒烟，把编排层、目录布局、闸策略全部过一遍。
+- **IPC 事件负载纪律（pattern）**：高频进度事件（逐镜）经固定窗口节流（EVENT_MERGE_MS=500 取最新计数、doneCount 单调不回退），负载只带计数/索引不带 ID 数组，并写守卫断言——防大 kit 规模（6,558 镜）下 IPC 序列化膨胀。
+- **断点续跑事实源（pattern）**：台账记录意图，磁盘产物记录事实；resume 用 probe(runId) 复算 missing 清单，不信任乐观状态。runId 确定性派生（`prod-<taskId>-b<idx>`）是两者能对齐的前提。
+- **对账口径教训（pitfall）**：语料取证用 prompt 前缀 500 字符截断去重得 2,795，完整规范化 SHA1 实为 6,500——去重键的截断策略直接决定数量级结论；统计口径与导入口径必须同一函数实现（dry-run 与 build 同源），并在正式导入前对账。
+- **工程环境（pitfall，Windows/agent）**：SearchReplace/Write 对 workspace 外 worktree 文件报 45405，一律 staging 编辑 + Copy-Item 落盘，勾选 worktree tasks.md 用 node 字符串替换脚本；后台 Bash 命令可能卡在 PowerShell `>>` 续行提示实际未执行（本会话两次），长命令用前台大 timeout 并以产物时间戳核实；`@electron/asar` 的 `extractFile` API 对 152MB 生产包误报 not found，asar 内容验证改走 `pnpm exec asar extract` CLI 到 temp 再直读。
+## 安全门禁整改的可复用口径与本批 9 个坑（2026-09-22，audit-batch-3）
+
+- **统计口径必须先固化再谈修复（pitfall）**：体检报告里的「336 个 handle / 约 215 个带守卫」无法复现——它沿用 `check-ipc-bridge.js` 的**非递归**目录扫描且只认字符串通道名，既漏 electron 子目录又把 EventEmitter 的 `.on()` 计入噪声。教训：任何「覆盖率型门禁」落地前，先把口径写成可执行脚本（递归范围 + 生产源码判定 + 分类规则 + `--json` 输出），再报数字；否则整改目标本身就是幻觉。
+- **双校验优于单阈值（pattern）**：清单式豁免（防漂移，且**陈旧条目同样判失败**）+ 比例式下限（防「把已有守卫摘掉整体躺进咽喉点」的稀释）缺一不可；下限值只允许上调、禁止下调，否则门禁会随一次重构静默退化。
+- **行为用例无法区分的缺陷必须补静态不变量（pattern）**：`key !== apiKey` 与恒定时间比较在功能测试里表现完全一致（耗时差异不在单测可信分辨率内）；同理「7 个 view 各自 `axios.create`」这类结构性缺陷也无法靠行为断言守住。做法：在同一测试文件里追加「读源码断言含 X / 不含 Y」的静态用例，并让 CI 门禁脚本与之双写，防止只改测试不改实现。
+- **红验证脚本必须先断言变异锚点唯一命中（pitfall）**：`b3-p2-red-check.py` 首次 M2 用 `'?bvid=' + …` 作锚点，源码实为 `'/x/web-interface/view?bvid=' + …`，`str.count()` 为 0 ⇒ 变异没发生却报告「RED」。纪律：每个变异前 `assert src.count(old) == 1`，且变异后 `git grep` 确认无残留标记。
+- **拼接进 JS 脚本文本的字面量要过两层词法（pitfall）**：`toSafeJsLiteral` 产出的是「内容为 JSON 文本的 JS 字符串字面量」。若不做 `\\` → `\\\\`，JSON 的 `\n` / `\"` 会先被 **JS 词法**消耗成真实换行/引号，交给页面侧 `JSON.parse` 即报 `Bad control character in string literal`。同理，`buildEvalScript` 不能把 JSON 文本作为 IIFE **实参**传入（页面里 `data` 就成了字符串，`Object.keys(data)` 得到字符下标）——必须在 IIFE 内 `var x = JSON.parse(literal)` 还原。Electron 43 的 `executeJavaScript(code, userGesture?)` **不接收参数**，没有参数通道可逃。
+- **目录边界先于存在性判定（pattern）**：越界校验与 `exists()` 的顺序颠倒，会把 403 变成 404，等于给调用方一个「外部文件是否存在」的枚举 oracle。包含判定统一 `realpath` + `os.path.commonpath`（不用字符串前缀，避免 `/a/dist` vs `/a/dist-evil`；跨盘符/UNC 抛 `ValueError` 即判不包含），与桌面端 `core/ipc-security.js` 的 file:// 边界同口径——同一仓库出现第二套「包含关系」定义必然漂移。
+- **fail-closed 默认值要选「默认可用」的那一档（pattern）**：`audio_path` 白名单未配置时若取空集，桌面端首启即不可用；若取全盘，等于默认存在任意文件读取。真实 TTS 产物落在 `os.tmpdir()/story2video`，故默认取系统临时目录，并由主进程经 `BasePythonBridge._spawnEnv()` 钩子注入 `tmp + userData + 外部已设值（视为追加项）`——不要让部署方手工配 env 来补主进程已知的信息。
+- **Windows 测试环境两个反直觉事实（pitfall）**：① pytest 的 `tmp_path` 位于系统 TEMP 内（本机 `TEMP=D:\Temp`），**不能**用来构造「允许目录之外」的样本路径，改用盘根目录；② worktree 缺 pnpm workspace 链接时 `cmd /c mklink` 会被工具侧守卫拒绝（40441），改用 `New-Item -ItemType Junction`（`node_modules` 不入库）。另：vitest ESM 测试里 `__dirname` 不可靠（ESM 用 `fileURLToPath(import.meta.url)`，CJS 用 `process.cwd()`）；pytest fixture 里 `client._called = x` 若 `client` 是被装饰的函数会挂在**函数对象**上而非 TestClient 实例，须先实例化再赋值再返回。
+- **CHANGELOG.md 是 git 眼里的 binary（pitfall）**：文件含 NUL 字节 ⇒ `i/-text`，`text=auto` 归一化失效，任何「按行重写」脚本都会造成 12k 行伪 diff。批量解冲突必须**字节级保持 CRLF**，并警惕「merge 冲突块的公共后缀在文件深处才恢复」使 ours 块包含大量对方已有条目——此时简单并集=整块重复，正确语义是「以对方全文为基底，只插本方独有条目」。落地后必做：`git diff --numstat origin/main` 逐文件核对，确认只有预期的增删行数。
+
+---
 ## CI-only 测试超时：全局 testTimeout 与插桩/满载放大叠加的坑（fix-main-ci-red，2026-09-21）
 
 - **背景**：main 两个 CI 红灯均为「本地绿、CI 红」的超时类失败：① `pixel-diff-baseline-guard.test.js`「现存全部真实基线均通过守卫」在 QG Coverage job（v8 插桩）下超全局 10s testTimeout（本地无插桩实测 ~2.2s，21 个基线 PNG 共 3.3MB 逐个解码）；② `logger.test.js`「appendFile 回调永不触发时写队列超时兜底」在 Desktop shard 满载下 1s 固定重试窗不够。
@@ -15263,3 +15285,25 @@ Bug 修复走完整 QM-5（根因溯源 / 逃逸链 / 系统性漏洞 / 修复+�
 
 - **合并后定向复验的「文件集合」必须从合并 diff 推出，而不是从本 PR 的工作清单推出（merge-verification-scope）**：本次本地按「本 PR 触及的 8 个测试文件」全绿后推送，CI 却红 4 项——唯一失败文件是**对方 PR 随合并新增**的 `account-batch-check.test.js`，它断言的正是被我方语义改掉的超时口径。判据：合并后至少跑一次全量；若只能定向，则文件集 = 两侧改动测试文件的并集 ∪ 所有状态为 `A` 的新增测试文件 ∪ 这些文件所测实现的调用方。
 - **收敛口径到已择一的契约时，标题与文档注释要一起改（semantic-drift-in-test-names）**：`超过硬超时计入失效` 这类标题本身就是错误语义的载体，只改断言不改标题，下一个读者会被标题误导回旧口径；同时借机把该文件此前缺失的固化断言（`persistLoginState` 被以 `unverified` 调用、`persisted.ok`）补上，使「收敛」不等于「放松」。
+
+
+## model-sort-visible-2026-09-23：预设模型排序「所见即所得」refinement，灰显锁死修复（分支 codex/model-sort-visible，PR#2246）
+
+### 需求
+用户报告 PR#2232 交付的运营中心 4 图标排序按钮默认视图全部灰显（提示「排序功能用于全量列表，请先清除分类筛选并开启含隐藏项」），功能实际不可用。经 AskUserQuestion 选定「所见即所得·根治」：reorder 只在当前可见序列内重排，彻底去掉灰显。
+
+### 可复用结论
+
+- **CodeReview 的防御措施本身要过可用性验收（pitfall）**：#2232 为防「筛选视图 $index 与全量下标错位」引入 `sortLocked = Boolean(filterCategory) || !includeHidden`，而 `includeHidden` 默认 false → 锁在默认视图恒真，把刚交付的功能整体锁死。判据：任何「条件禁用」的防护，验收必须覆盖**页面默认状态**下主操作可用；防护的禁用条件与控件默认值组合要在测试矩阵里出现，不能只测「开关打开后行为正确」。
+- **错位类缺陷的根治是作用域化语义，不是禁用（pattern）**：所见即所得 reorder = 服务端按自身 `_display_order()` 取全量 rows → `slots` = 可见行在 rows 中的位置集合 → 在 `vis = rows[slots]` 内 pop/insert → 写回 `rows[slots[k]]`。序列外行绝对位置不变；服务端重取交集、忽略前端传入顺序，天然防篡改；移动后仍全列表归一化 0..n-1。前端只需提交 `visible_ids = presets.value.map(p => p.id)`。
+- **判别用例必须能区分新旧实现（pattern，TDD）**：前缀切片 `ids_all[:3]` 使槽位==绝对下标，新旧实现结果相同，测试形同虚设；改用**不连续可见序列 `[0,2,3]`** 并断言作用域外行 `ids_all[1]` 绝对位置不变，旧全量实现必红。写回归测试时先问「旧代码能过这条吗」，过则无判别力。
+- **可选集合参数用 `is not None` 而非真值判断（pitfall，CodeReview MINOR）**：`if visible_ids:` 使 `[]`（空作用域）误落「缺省→全量重排」分支，静默改写全表顺序，违背 fail-closed。哨兵语义：None=缺省、[]=空作用域（一律 not-found→404），必须各配一条判别测试。
+- **worktree add 假成功的识别与降级（pitfall）**：报 exit 0 且打出 checkout 提示，但 `git worktree list` 无条目、路径不存在（分支 ref 却已创建）——属半失效。修复路径：确认分支 ref 落点后，**复用**一个依赖已就绪的既有 worktree 直接 `git checkout <branch>`，并用「写文件再 Read」验证 HEAD/branch/ancestor/dirty 四项，不信任终端回显。
+- **本会话终端三大陷阱（tooling）**：① PowerShell `>` 重定向产出 UTF-16LE 文件，node/Read 读回乱码——结果核验用 node `readFileSync(utf16le)` 双编码探测或直接 stdout；② 长命令行经 Bash 工具转后台会卡在 `>>` 续行提示**根本没执行**（文件不生成即信号）——长命令一律落成 .ps1 用 `powershell -File` 执行；③ 输出归因失败/截断常态化，git/pytest/gh 结论必须以回读文件为准。
+- **Qoder 编辑工具跨 workspace 边界（pattern 沿用）**：worktree 文件读写继续用 msort-patch.js（Node 补丁执行器：find 唯一性计数 + CRLF 归一）+ spec.js；spec 中含反引号的模板串用 `BT` 变量拼接，中文内容经 .md staging 不受损。
+
+### 逃逸链与堵口
+单元测试（后端 reorder 只测全量语义）→ 集成（前端无组件级 disabled 断言）→ 人工验收（只在含隐藏项开启路径下点过按钮）。堵口：4 条判别用例（不连续序列槽位置换 / 序列内 noop / 越界 404 / 空序列 404）进 `test_model_presets_api.py`，PRD §4.5 固化「默认视图可用」为验收标准。
+
+### 本次交付
+3 commits（9ef12de13 实现 / d347deba9 评审修复 / f10d9fc02 文档）；ops-center 后端全量 pytest 414 passed、前端 build exit 0；CodeReview 无 CRITICAL/MAJOR；PR#2246 auto-merge squash。桌面端零改动（applyCatalog 只消费最终 sort_order）。

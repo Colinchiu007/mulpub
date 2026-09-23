@@ -16,6 +16,7 @@
 
 var express = require("express")
 var AiWriter = require("@multi-publish/ai-writer")
+var { timingSafeKeyEqual } = require("./auth")
 
 var DEFAULT_PORT = 3487
 // 安全：必须显式设置 AI_WRITER_API_KEY，不再提供弱默认值
@@ -39,7 +40,9 @@ function createApp(options) {
   app.use("/api/ai", function(req, res, next) {
     if (req.path === "/health") return next()  // skip auth for health
     var key = req.headers["x-api-key"]
-    if (!key || key !== apiKey) {
+    // 恒定时间比较（体检报告 P2 安全小项）：`!==` 在首个差异字节短路，耗时可被用来逐字节猜密钥；
+    // 非字符串（重复头会给出数组）与空串一律 401，不给「两侧都空 ⇒ 相等」留口子。
+    if (!timingSafeKeyEqual(key, apiKey)) {
       return res.status(401).json({ error: "Unauthorized. Set X-API-Key header." })
     }
     next()

@@ -9,7 +9,7 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 
-const { loadFilmKit, validateManifest, validateShotLibrary, validateReferences, validateDoctrine } = require('./kit-loader')
+const { loadFilmKit, loadFilmKitChain, validateManifest, validateShotLibrary, validateReferences, validateDoctrine, validateShotSceneRefs, FILM_PROMPT_MAX_LEN } = require('./kit-loader')
 
 const UUID = '3caa2f3a-52b5-4293-9237-0c8f76c7158a'
 
@@ -198,4 +198,109 @@ it('validateDoctrine: 块/规则/词汇表非空', () => {
   const kit = makeKit()
   expect(validateDoctrine(kit.doctrine).ok).toBe(true)
   expect(validateDoctrine({ blocks: [], rules: [], glossary: [] }).ok).toBe(false)
+})
+
+
+// ---------- film-full-corpus-production L1：两级 kit 回退链与扩展 schema（任务 3.1/3.3） ----------
+
+it('FILM_PROMPT_MAX_LEN 导出为单一常量 50000（D4 四处同源）', () => {
+  const loader = require('./kit-loader')
+  expect(FILM_PROMPT_MAX_LEN).toBe(50000)
+  expect(loader.MAX_PROMPT_LENGTH).toBe(FILM_PROMPT_MAX_LEN) // 兼容别名同值
+})
+
+it('chain：userData 全量优先于精简包', () => {
+  const full = tmpDir()
+  const bundled = tmpDir()
+  writeKit(full, makeKit())
+  writeKit(bundled, makeKit())
+  const warns = []
+  const r = loadFilmKitChain({ dirs: [{ dir: full, label: 'userData-full' }, { dir: bundled, label: 'asar-bundled' }], log: { warn: (m) => warns.push(m) } })
+  expect(r.ok).toBe(true)
+  expect(r.kit.source).toBe('userData-full')
+  expect(r.kit.dir).toBe(full)
+  expect(r.fallbacks).toEqual([])
+  expect(warns.length).toBe(0)
+})
+
+it('chain：全量损坏回退精简——错误可见（log.warn）非静默', () => {
+  const full = tmpDir()
+  const bundled = tmpDir()
+  writeKit(full, makeKit())
+  writeKit(bundled, makeKit())
+  fs.writeFileSync(path.join(full, 'shot-library.json'), '{ broken json')
+  const warns = []
+  const r = loadFilmKitChain({ dirs: [{ dir: full, label: 'userData-full' }, { dir: bundled, label: 'asar-bundled' }], log: { warn: (m) => warns.push(m) } })
+  expect(r.ok).toBe(true)
+  expect(r.kit.source).toBe('asar-bundled')
+  expect(r.fallbacks.length).toBe(1)
+  expect(r.fallbacks[0].reason).toContain('shot-library.json')
+  expect(warns.some((w) => String(w).includes('FILM_KIT_FALLBACK'))).toBe(true)
+})
+
+it('chain：全量目录缺失（未导入）→ 直接用精简，不算 fallback 错误', () => {
+  const bundled = tmpDir()
+  writeKit(bundled, makeKit())
+  const r = loadFilmKitChain({ dirs: [{ dir: path.join(tmpDir(), 'nope'), label: 'userData-full' }, { dir: bundled, label: 'asar-bundled' }] })
+  expect(r.ok).toBe(true)
+  expect(r.kit.source).toBe('asar-bundled')
+  expect(r.missing.length).toBe(1)
+  expect(r.fallbacks).toEqual([])
+})
+
+it('chain：两级均不可用 → ok:false 且 error 含 FILM_KIT_UNAVAILABLE', () => {
+  const bad = tmpDir()
+  writeKit(bad, makeKit())
+  fs.writeFileSync(path.join(bad, 'film-manifest.json'), '[]')
+  const r = loadFilmKitChain({ dirs: [{ dir: bad, label: 'userData-full' }, { dir: path.join(tmpDir(), 'nope'), label: 'asar-bundled' }] })
+  expect(r.ok).toBe(false)
+  expect(r.error).toContain('FILM_KIT_UNAVAILABLE')
+  expect(r.error).toContain('film-manifest.json') // 校验错误含文件与条目索引
+})
+
+it('chain：dirs 为空 → fail-closed', () => {
+  const r = loadFilmKitChain({ dirs: [] })
+  expect(r.ok).toBe(false)
+  expect(r.error).toContain('FILM_KIT_UNAVAILABLE')
+})
+
+it('扩展字段校验：durationSec/aspectRatio/iterationCount/adoptedJobAt 非法值拒绝', () => {
+  const badD = [{ ...makeKit().shots[0], durationSec: -3 }]
+  expect(validateShotLibrary(badD).ok).toBe(false)
+  const badA = [{ ...makeKit().shots[0], aspectRatio: 916 }]
+  expect(validateShotLibrary(badA).ok).toBe(false)
+  const badI = [{ ...makeKit().shots[0], iterationCount: 1.5 }]
+  expect(validateShotLibrary(badI).ok).toBe(false)
+  const badT = [{ ...makeKit().shots[0], adoptedJobAt: 'yesterday' }]
+  expect(validateShotLibrary(badT).ok).toBe(false)
+  const good = [{ ...makeKit().shots[0], durationSec: 12, aspectRatio: '21:9', iterationCount: 3, adoptedJobAt: 1778180608.86 }]
+  expect(validateShotLibrary(good).ok).toBe(true)
+})
+
+it('prompt 边界：恰为 FILM_PROMPT_MAX_LEN 通过，超一字符拒绝', () => {
+  const atLimit = [{ ...makeKit().shots[0], prompt: 'x'.repeat(FILM_PROMPT_MAX_LEN) }]
+  expect(validateShotLibrary(atLimit).ok).toBe(true)
+  const over = [{ ...makeKit().shots[0], prompt: 'x'.repeat(FILM_PROMPT_MAX_LEN + 1) }]
+  const r = validateShotLibrary(over)
+  expect(r.ok).toBe(false)
+  expect(r.error).toContain('50000')
+})
+
+it('shotId-sceneId 交叉引用：sceneId 不在 manifest 中拒绝', () => {
+  const kit = makeKit()
+  expect(validateShotSceneRefs(kit.shots, kit.manifest).ok).toBe(true)
+  const orphan = [{ ...kit.shots[0], sceneId: 'no-such-scene' }]
+  const r = validateShotSceneRefs(orphan, kit.manifest)
+  expect(r.ok).toBe(false)
+  expect(r.error).toContain('no-such-scene')
+})
+
+it('loadFilmKit 集成交叉引用：孤儿 shot 使整级校验失败', () => {
+  const dir = tmpDir()
+  const kit = makeKit()
+  kit.shots[0].sceneId = 'ghost-scene'
+  writeKit(dir, kit)
+  const r = loadFilmKit({ kitDir: dir })
+  expect(r.ok).toBe(false)
+  expect(r.error).toContain('ghost-scene')
 })

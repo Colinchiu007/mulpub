@@ -205,7 +205,8 @@ describe('BatchManager.executeBatch 入队与终态合同', () => {
       { title: '文章', content: '正文', platforms: ['wechat_mp'] },
     ])
     const manager = new BatchManager(store)
-    manager.registerIpcHandlers()
+    // P1-14：注入契约收紧后必须显式传入受控 ipcMain（不再回退全局）
+    manager.registerIpcHandlers(__electronMock.ipcMain)
 
     const response = await __electronMock.ipcMain._handlers['batch:execute']({}, 'batch-1')
 
@@ -251,7 +252,8 @@ describe('BatchManager.executeBatch 入队与终态合同', () => {
     const store = { listBatchJobs: vi.fn() }
     const manager = new BatchManager(store)
     manager.setOwnerSubjectProvider(() => null)
-    manager.registerIpcHandlers()
+    // P1-14：注入契约收紧后必须显式传入受控 ipcMain（不再回退全局）
+    manager.registerIpcHandlers(__electronMock.ipcMain)
 
     const response = await __electronMock.ipcMain._handlers['batch:list']({})
 

@@ -188,12 +188,30 @@ describe('CommentManager', () => {
   })
 
   describe('IPC 来源与参数合同', () => {
+    // P1-14 迁移：registerIpcHandlers 只接受注入的受控 ipcMain（createAccessControlledIpcMain），
+    // 用例自带记录器，不再依赖全局 electron mock 的 ipcMain 侧写。
+    function createRecordingIpcMain() {
+      const handlers = {}
+      return {
+        handle: (channel, fn) => { handlers[channel] = fn },
+        handlers,
+      }
+    }
+
+    let ipcMainFake
+
     beforeEach(() => {
-      cm.registerIpcHandlers()
+      ipcMainFake = createRecordingIpcMain()
+      cm.registerIpcHandlers(ipcMainFake)
+    })
+
+    it('未注入受控 ipcMain 时 fail-closed（禁止回退全局 ipcMain）', () => {
+      expect(() => cm.registerIpcHandlers()).toThrow(/需要注入受控 ipcMain/)
+      expect(() => cm.registerIpcHandlers(undefined)).toThrow(/禁止使用全局 ipcMain/)
     })
 
     it('comment:list 拒绝不可信来源', async () => {
-      const handler = __electronMock.ipcMain._handlers['comment:list']
+      const handler = ipcMainFake.handlers['comment:list']
       const listComments = vi.spyOn(cm, 'listComments')
 
       await expect(handler(UNTRUSTED_EVENT, {
@@ -204,7 +222,7 @@ describe('CommentManager', () => {
     })
 
     it('comment:list 只把 accountId 交给主进程凭据解析', async () => {
-      const handler = __electronMock.ipcMain._handlers['comment:list']
+      const handler = ipcMainFake.handlers['comment:list']
       const listComments = vi.spyOn(cm, 'listComments').mockResolvedValue([])
 
       await expect(handler(TRUSTED_EVENT, {
@@ -217,7 +235,7 @@ describe('CommentManager', () => {
     })
 
     it('comment:status 拒绝不可信来源', async () => {
-      const handler = __electronMock.ipcMain._handlers['comment:status']
+      const handler = ipcMainFake.handlers['comment:status']
 
       await expect(handler(UNTRUSTED_EVENT)).resolves.toEqual({
         code: -3,
