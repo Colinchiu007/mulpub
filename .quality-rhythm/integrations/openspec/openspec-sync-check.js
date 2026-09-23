@@ -140,6 +140,80 @@ function inspectActiveChangeTasks(root, change) {
   }]
 }
 
+function inspectTasksMdIntegrity(root, changeRelDir, changeId) {
+  const tasksFile = path.join(root, "openspec", "changes", changeRelDir, "tasks.md")
+  if (!fs.existsSync(tasksFile)) return []
+  let content
+  try {
+    content = fs.readFileSync(tasksFile, "utf8")
+  } catch (error) {
+    return [{
+      code: "TASKS_MD_UNREADABLE",
+      change: changeId,
+      file: normalizeRelative(root, tasksFile),
+      message: "tasks.md could not be read: " + error.message,
+    }]
+  }
+
+  const file = normalizeRelative(root, tasksFile)
+  const violations = []
+  const seen = new Map()
+  const groups = new Map()
+  for (const match of content.matchAll(/^[ \t]*-[ \t]*\[[ xX]\][ \t]+(\d+)\.(\d+)(?![\d.])([^\r\n]*)/gm)) {
+    const key = match[1] + "." + match[2]
+    const text = match[3].replace(/\s+/g, " ").trim()
+    const dupKey = key + "\u0000" + text
+    seen.set(dupKey, (seen.get(dupKey) || 0) + 1)
+    if (!groups.has(match[1])) groups.set(match[1], new Set())
+    groups.get(match[1]).add(Number(match[2]))
+  }
+
+  for (const [dupKey, count] of seen) {
+    if (count > 1) {
+      const [key, text] = dupKey.split("\u0000")
+      violations.push({
+        code: "TASKS_MD_DUPLICATE_TASK_ID",
+        change: changeId,
+        file,
+        task: key,
+        count,
+        message: "task " + key + " appears " + count + " times with identical text in tasks.md (duplicated or corrupted checkbox block): " + text.slice(0, 80),
+      })
+    }
+  }
+  for (const [group, ms] of groups) {
+    const max = Math.max(...ms)
+    const missing = []
+    for (let index = 1; index <= max; index += 1) {
+      if (!ms.has(index)) missing.push(group + "." + index)
+    }
+    if (missing.length > 0) {
+      violations.push({
+        code: "TASKS_MD_NUMBERING_GAP",
+        change: changeId,
+        file,
+        group,
+        missing,
+        message: "tasks.md group " + group + " has numbering gap: missing " + missing.join(", "),
+      })
+    }
+  }
+  return violations
+}
+
+function scanTasksMdIntegrity(root, changeIndex) {
+  const violations = []
+  for (const change of changeIndex.active) {
+    violations.push(...inspectTasksMdIntegrity(root, change, change))
+  }
+  for (const [change, entries] of changeIndex.archives) {
+    for (const entry of entries) {
+      violations.push(...inspectTasksMdIntegrity(root, path.join("archive", entry), change))
+    }
+  }
+  return violations
+}
+
 function scanRepository(rootPath) {
   const root = path.resolve(rootPath)
   const tasksDirectory = path.join(root, ".ccg", "tasks")
@@ -211,6 +285,8 @@ function scanRepository(rootPath) {
       }
     }
   }
+
+  violations.push(...scanTasksMdIntegrity(root, changeIndex))
 
   const exitCode = errors.length > 0 ? 2 : (violations.length > 0 ? 1 : 0)
   return {
@@ -290,6 +366,7 @@ module.exports = {
   normalizeAssociations,
   parseArguments,
   inspectActiveChangeTasks,
+  inspectTasksMdIntegrity,
   hasSupersessionEvidence,
   scanRepository,
 }
