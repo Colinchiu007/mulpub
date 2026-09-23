@@ -15,6 +15,7 @@ const VITEST_FILES = new Set([
   'kuaishou-ai-declaration.test.js',
   'oss-uploader.test.js',
   'publish-core.test.js',
+  'publish-governance.test.js',
   'signer.test.js',
   'tiktok.test.js',
   'twitter.test.js',
