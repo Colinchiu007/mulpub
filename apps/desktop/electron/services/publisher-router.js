@@ -435,7 +435,7 @@ class RpaVmPublisher {
           throw new Error(result.error || '发布结果缺少平台作品 ID')
         }
         const diagnostics = sanitizePublishDiagnostics(result.diagnostics)
-        return { success: true, url: sanitizePublishResultUrl(result.url), ...(postId ? { postId } : {}), platform, ...(diagnostics ? { diagnostics } : {}) }
+        return { success: true, url: sanitizePublishResultUrl(result.url), ...(postId ? { postId } : {}), platform, mode: 'dom', ...(diagnostics ? { diagnostics } : {}) }
       }
       throw new Error(result.error || 'RPA 鍙戝竷澶辫触')
     } finally {
@@ -473,10 +473,14 @@ class ApiPublisher {
     if (signal && signal.aborted) throw new Error('任务已取消')
 
     const videoPath = article.video_path
-    if (!videoPath) throw new Error('缺少视频文件路径')
-    const videoInfo = await this.probeVideo(videoPath)
-    if (!videoInfo || !videoInfo.width || !videoInfo.height) throw new Error('视频信息探测失败（ffprobe 不可用或文件损坏）')
-    if (videoInfo.width < videoInfo.height) throw new Error('竖版视频暂不支持 API 发布，请使用 RPA 发布')
+    // 图文 vs 视频分流：无 video_path 即图文（百家号/头条号只发图文，Q14，见 PRD §12.8）
+    const isArticle = !videoPath
+    let videoInfo = null
+    if (!isArticle) {
+      videoInfo = await this.probeVideo(videoPath)
+      if (!videoInfo || !videoInfo.width || !videoInfo.height) throw new Error('视频信息探测失败（ffprobe 不可用或文件损坏）')
+      if (videoInfo.width < videoInfo.height) throw new Error('竖版视频暂不支持 API 发布，请使用 RPA 发布')
+    }
 
     const publishViaApi = this.publishApi || require('@multi-publish/api-publish-engine/src/index').publishViaApi
     const taskData = {
@@ -486,14 +490,20 @@ class ApiPublisher {
       draft: article.draft === true,
       // AI 生成内容声明：默认勾选（AI 生成内容），仅显式 false 时取消勾选
       aiGenerated: article.aiGenerated !== false,
-      video: {
+    }
+    if (!isArticle) {
+      taskData.video = {
         path: videoPath,
         duration: Number(videoInfo.duration) || 0,
         width: Number(videoInfo.width),
         height: Number(videoInfo.height),
-      },
+      }
+      if (article.cover_path) taskData.cover = article.cover_path
+    } else {
+      // 图文：正文内联图片与作者透传给文章链消费
+      if (Array.isArray(article.images) && article.images.length) taskData.images = article.images
+      if (article.author) taskData.author = article.author
     }
-    if (article.cover_path) taskData.cover = article.cover_path
     // P0-3：平台特有字段透传到 API taskData（adapter 按需消费；B站 tid/copyright、
     // YouTube categoryId/privacy、TikTok privacy_level、百家号 original/location）
     if (article.category !== undefined) taskData.category = article.category

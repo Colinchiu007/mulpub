@@ -670,6 +670,33 @@ spacer（首次放行、17min 节流零请求 waitMs、越 18min 再放行、不
 **Gate / 合规**：只直连 baijiahao 官方域名，无任何远程签名；测试仅本机假 HTTP / 纯表单函数，零外发。Gate 12 品牌残留扫描 6021 tracked 文件 PASS。
 
 
+## 12.9 桌面集成后端：图文 API 发布分流 + 发布方式记录（§6 后端基座，随本 PR）
+
+> 定位：§4.4 百家号 re-point（Q14 只发图文）暴露了桌面发布路由层的集成缺陷——`apps/desktop/electron/services/publisher-router.js` 的 `ApiPublisher.publish` 硬依赖 `article.video_path` 并做 ffprobe 横版校验，图文任务（无视频）会在到达引擎适配器之前抛「缺少视频文件路径」。本节定义桌面侧的图文/视频分流与「发布方式」记录，作为 §6.1 发布记录徽标的数据源。
+
+### 12.9.1 功能逻辑与流程
+- `ApiPublisher.publish(task, opts)` 先 `buildPublishArticle` 解析平台化内容 + `loadAuthForTask` 取凭证；随后按 `article.video_path` 是否存在分流：
+  - **图文模式**（`isArticle = !videoPath`）：跳过 ffprobe，构造不含 `video` 字段的 `taskData`（`title/content/tags/draft/aiGenerated`），并透传 `images`（来自正文内联图，由 `RichTextProcessor` 提取）与 `author`；不再要求封面/时长/分辨率。
+  - **视频模式**（有 videoPath）：维持原行为——`probeVideo` 探测宽高时长，宽 < 高抛「竖版视频暂不支持 API 发布，请使用 RPA 发布」，`taskData.video` 携 path/duration/width/height，带 `cover`。
+  - 两种模式均保留平台特有字段透传（B站 category/copyright、百家号 original/location、合集/播放列表、商品/任务）。
+- 最终统一 `publishViaApi(platform, taskData, cookie, {timeout, draft, signal})`；成功返回 `{success, url(脱敏), postId, platform, mode:'api'}`。
+- **发布方式记录**：`ApiPublisher` 返回 `mode:'api'`（图文/视频均如此）；`RpaVmPublisher` 成功返回新补 `mode:'dom'`。`bootstrap/phase4-events.js` 的 `task:success` 已把整个 `task.result`（含 mode）写入 `history.addRecord`，无需改动即成为 §6.1 徽标数据源。
+
+### 12.9.2 数据校验（fail-closed）
+- 凭证缺失：图文/视频均要求 cookie 非空，否则抛「平台 Cookie 缺失（账号 … 未登录或凭证不可用）」，零请求。
+- 图文不再要求 video_path；视频仍强校验横版（宽高可探测且宽≥高）。
+- 发布结果缺 postId：抛「发布结果缺少平台作品 ID」，不写成功历史。
+- 取消信号：`signal.aborted` 在发布前/后各检一次，成功响应不覆盖取消语义。
+
+### 12.9.3 交互显示项与提示文字
+- 发布记录（§6.1，待 UI 专轮渲染）「发布方式」徽标三态取值：`api`（直连平台 HTTP API）/ `dom`（RPA 隐形浏览器）/ 降级（api-then-dom 降级，随 §5 服务层接入后补）；数据源 `record.result.mode`。
+- 图文路径无视频相关提示；视频路径保留「竖版视频暂不支持 API 发布，请使用 RPA 发布」「视频信息探测失败（ffprobe 不可用或文件损坏）」。
+
+### 12.9.4 测试与验证
+- `publisher-router.test.js` 新增 4 例：图文不调 probeVideo 且 taskData 无 video 字段并返回 mode:api、images（来自正文）+author 透传、draft 透传到 taskData 与 opts、RPA 成功返回 mode:dom；文件内 57 测全绿，既往视频冒用例不受影响。
+- 回归：phase4-events / ipc-handlers.publish / publish-history 共 47 测绿；ESLint（Gate 11）无 error。测试全程 mock `publishViaApi`，不外发、无品牌词。
+- 待办（下一子切片，需桌面应用活体视觉验收）：§6.1 发布记录「发布方式」徽标三态渲染 + 详情分片历史 + `publish.api.*` locale 成对（zh/en，Gate 7）。
+
 ## 附：验收记录（活体证据回写区，随波更新）
 
 | 波次 | 平台 | 日期 | 作品ID | 链接 | 截图 | 降级 | 结论 |

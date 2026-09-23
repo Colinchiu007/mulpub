@@ -955,3 +955,57 @@ describe("PublisherRouter", () => {
     });
   });
 });
+
+describe("ApiPublisher 图文模式（§4.4 百家号 article-only 的桌面接线）", () => {
+  const store = { getAccount: vi.fn(() => null), getDefaultAccount: vi.fn(() => null) }
+  const accountManager = {
+    loadSavedCredentials: vi.fn(() => ({
+      platform: "baijiahao",
+      cookies: [{ name: "BAIDUID", value: "ABC", domain: ".baijiahao.baidu.com" }],
+      localStorage: {},
+    })),
+  }
+  const mk = () => new PublisherRouter().createPublisher("baijiahao", {
+    store, accountManager, publishViaApi: publishViaApiMock,
+  })
+  it("无 video_path 走图文：不调 probeVideo、taskData 无 video 字段、返回 mode:api", async () => {
+    let probed = false
+    const p = new PublisherRouter().createPublisher("baijiahao", {
+      store, accountManager,
+      probeVideo: async () => { probed = true; return { width: 1, height: 1, duration: 1 } },
+      publishViaApi: publishViaApiMock,
+    })
+    publishViaApiMock.mockResolvedValue({ success: true, publishId: "ART_1", url: "https://baijiahao.baidu.com/pcui/article/ART_1" })
+    const result = await p.publish({ id: "t-art", platform: "baijiahao", article: { accountId: "a1", title: "图文标题", content: "正文", tags: ["x"] } })
+    expect(probed).toBe(false)
+    expect(result.mode).toBe("api")
+    expect(result.postId).toBe("ART_1")
+    const sent = publishViaApiMock.mock.calls.at(-1)[1]
+    expect(sent.title).toBe("图文标题")
+    expect(sent.video).toBeUndefined()
+  })
+  it("图文透传 images（来自正文）与 author", async () => {
+    publishViaApiMock.mockResolvedValue({ success: true, publishId: "ART_2", url: "" })
+    const p = mk()
+    await p.publish({ id: "t-art2", platform: "baijiahao", article: { accountId: "a1", title: "T", content: '<img src="https://e.com/a.jpg">', author: "张三" } })
+    const sent = publishViaApiMock.mock.calls.at(-1)[1]
+    expect(sent.images).toEqual(["https://e.com/a.jpg"])
+    expect(sent.author).toBe("张三")
+    expect(sent.video).toBeUndefined()
+  })
+  it("图文 draft 透传（私密草稿优先）到 taskData 与 opts", async () => {
+    publishViaApiMock.mockResolvedValue({ success: true, publishId: "D1", url: "" })
+    const p = mk()
+    await p.publish({ id: "t-draft", platform: "baijiahao", article: { accountId: "a1", title: "T", content: "C", draft: true } })
+    expect(publishViaApiMock).toHaveBeenCalledWith("baijiahao", expect.objectContaining({ draft: true }), expect.any(String), expect.objectContaining({ draft: true }))
+  })
+})
+
+describe("RpaVmPublisher 发布方式标记", () => {
+  it("RPA 成功返回 mode:dom（发布方式徽标三态数据源）", async () => {
+    const rpaViewManager = { publish: vi.fn(async () => ({ success: true, url: "https://example.com/post/1" })) }
+    const publisher = new PublisherRouter().createPublisher("wechat_mp", { rpaViewManager, store: { getAccount: vi.fn(() => null) } })
+    const result = await publisher.publish({ id: "t-rpa", platform: "wechat_mp", article: { title: "T", content: "C" } })
+    expect(result.mode).toBe("dom")
+  })
+})
