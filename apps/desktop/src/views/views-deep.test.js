@@ -152,9 +152,9 @@ describe("HomeView (deep)", () => {
     i18n.global.locale.value = "zh";
     vi.clearAllMocks();
     window.electronAPI = {
-      storeGetPublishStats: vi.fn().mockResolvedValue({ code: 0, data: { total: 100, success: 95, failed: 5 } }),
-      storeListAccounts: vi.fn().mockResolvedValue({ code: 0, data: [{ id: "a1" }, { id: "a2" }, { id: "a3" }] }),
-      historyList: vi.fn().mockResolvedValue({ code: 0, data: [] }),
+      dashboardStats: vi.fn().mockResolvedValue({ code: 0, data: { total: 100, success: 95, failed: 5, perPlatform: {}, daily: [] } }),
+      historyList: vi.fn().mockResolvedValue({ code: 0, data: { total: 0, records: [] } }),
+      listAccounts: vi.fn().mockResolvedValue({ code: 0, data: [{ id: "a1" }, { id: "a2" }, { id: "a3" }] }),
     };
   });
 
@@ -174,7 +174,7 @@ describe("HomeView (deep)", () => {
     mount(mod.default, { global: { plugins: [i18n] } });
     await new Promise(r => setTimeout(r, 10));
     await nextTick();
-    expect(window.electronAPI.storeGetPublishStats).toHaveBeenCalled();
+    expect(window.electronAPI.dashboardStats).toHaveBeenCalled();
   });
 
   it("shows platform tags from store", async () => {
