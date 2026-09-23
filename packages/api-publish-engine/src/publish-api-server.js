@@ -15,6 +15,7 @@ const ApiKeyManager = require("./api-key-manager");
 const { requireScopes } = require("./auth/logto-auth");
 const { BusinessIdentityError, assertBusinessUserActive, ensureBusinessUser } = require("./auth/business-identity");
 const { LOGTO_WEBHOOK_SIGNATURE_HEADER, LogtoWebhookError } = require("./auth/logto-webhook");
+const { getPlanCatalog } = require("./auth/plan-matrix")
 
 const GZIP_MIN_BYTES = 256;
 
@@ -98,6 +99,7 @@ class PublishApiServer {
     this._businessIdentityRepository = this._opts.businessIdentityRepository || null
     this._entitlementProvider = this._opts.entitlementProvider || null
     this._entitlementSigner = this._opts.entitlementSigner || null
+    this._subscriptionService = this._opts.subscriptionService || null
     this._readinessProbe = this._opts.readinessProbe || null
     this._publishViaApi = typeof this._opts.publishViaApi === "function" ? this._opts.publishViaApi : publishViaApi
     this._log = this._opts.log || logger
@@ -384,7 +386,12 @@ class PublishApiServer {
   _requiredScope(req) {
     const url = requestPath(req)
     if (url === "/api/v1/health" || url === "/api/v1/ready") return null
-    if (url === "/api/v1/me") return "profile:read"
+    if (url === "/api/v1/me" || url === "/api/v1/plans") return "profile:read"
+    if (url === "/api/v1/redeem") return "profile:write"
+    if (url.indexOf("/api/v1/me/") === 0) {
+      return req.method === "GET" || req.method === "HEAD" ? "profile:read" : "profile:write"
+    }
+    if (url.indexOf("/api/v1/admin/member/") === 0) return "admin:users"
     if (url.startsWith("/api/v1/keys") || url.startsWith("/api/v1/plugins") || url.startsWith("/api/v1/logs")) return "admin:users"
     if (req.method === "POST" || url.startsWith("/api/v1/schedule") || url.startsWith("/api/v1/plan")) return "publish:submit"
     return "publish:read"
@@ -538,6 +545,7 @@ class PublishApiServer {
       : []))
     const response = { plan, features }
     if (entitlement.quota && typeof entitlement.quota === "object" && !Array.isArray(entitlement.quota)) response.quota = entitlement.quota
+    if (entitlement.limits && typeof entitlement.limits === "object" && !Array.isArray(entitlement.limits)) response.limits = entitlement.limits
     return response
   }
 
@@ -559,6 +567,30 @@ class PublishApiServer {
     }
     const signed = await this._entitlementSigner.sign(snapshot)
     return signed && typeof signed === "object" ? signed : { token: signed }
+  }
+
+  /** CommerceError{code,status} 直接映射 HTTP；>=500 记 error 日志，业务错误不污染 error 日志。 */
+  _commerceFailure(req, res, error) {
+    const status = error && Number.isInteger(error.status) ? error.status : 500
+    const code = error && error.code ? error.code : "COMMERCE_INTERNAL_ERROR"
+    if (status >= 500) this._logError(code, error, this._ctx(req))
+    this._json(res, status, { error: code, message: status >= 500 ? "服务暂时不可用" : (error && error.message) || "请求未生效" })
+  }
+
+  _memberUserId(req) {
+    const user = req.auth && req.auth.businessUser
+    return user && typeof user.id === "string" ? user.id : null
+  }
+
+  /** X-Device-ID 合同与快照签发一致（^[A-Za-z0-9._:-]{16,128}$）；不合法返回 null 而非抛错（会话登记是尽力而为）。 */
+  _deviceIdFrom(req) {
+    const deviceId = req.headers && req.headers["x-device-id"]
+    return typeof deviceId === "string" && /^[A-Za-z0-9._:-]{16,128}$/.test(deviceId) ? deviceId : null
+  }
+
+  _commerceRepository() {
+    const repository = (this._subscriptionService && this._subscriptionService.repository) || this._businessIdentityRepository
+    return repository && typeof repository.listOrders === "function" ? repository : null
   }
 
   async _handle(req, res) {
@@ -713,6 +745,29 @@ class PublishApiServer {
           });
           return;
         }
+        let membership = null;
+        try {
+          if (this._subscriptionService) {
+            const commerceRepository = this._commerceRepository();
+            const [subscription, usage, unreadNotifications] = await Promise.all([
+              this._subscriptionService.getSubscriptionView(businessUser.id),
+              this._subscriptionService.getUsageView(businessUser.id),
+              commerceRepository ? commerceRepository.countUnreadNotifications(businessUser.id) : Promise.resolve(0),
+            ]);
+            membership = { subscription, usage, unreadNotifications };
+            const deviceId = this._deviceIdFrom(req);
+            if (deviceId && commerceRepository && typeof commerceRepository.upsertSession === "function") {
+              await commerceRepository.upsertSession({
+                userId: businessUser.id,
+                deviceId,
+                deviceName: typeof req.headers["x-device-name"] === "string" ? req.headers["x-device-name"].slice(0, 100) : null,
+              });
+            }
+          }
+        } catch (error) {
+          this._logError("MEMBERSHIP_UNAVAILABLE", error, this._ctx(req));
+          membership = null;
+        }
         this._json(res, 200, {
           user: {
             id: businessUser.id,
@@ -722,8 +777,127 @@ class PublishApiServer {
           },
           entitlement,
           ...(entitlementSnapshot ? { entitlementSnapshot } : {}),
+          ...(membership ? { membership } : {}),
         });
         return;
+      }
+
+      // --- 会员中心 P1：目录 / 核销 / 订单 / 通知 / 会话 / 资料 / 运营入口 ---
+      if (method === "GET" && url === "/api/v1/plans") {
+        this._json(res, 200, { plans: getPlanCatalog((this._subscriptionService && this._subscriptionService.planOverrides) || null) });
+        return;
+      }
+
+      if (method === "POST" && url === "/api/v1/redeem") {
+        if (!this._subscriptionService) { this._json(res, 503, { error: "SUBSCRIPTION_SERVICE_NOT_CONFIGURED" }); return; }
+        const userId = this._memberUserId(req);
+        if (!userId) { this._json(res, 503, { error: "BUSINESS_USER_REPOSITORY_NOT_CONFIGURED" }); return; }
+        var redeemBody = await this._parseBody(req);
+        try {
+          var redeemResult = await this._subscriptionService.redeem({ userId, code: redeemBody && redeemBody.code });
+          this._json(res, 200, { success: true, ...redeemResult });
+        } catch (error) { this._commerceFailure(req, res, error); }
+        return;
+      }
+
+      if (url === "/api/v1/me/orders" || url === "/api/v1/me/notifications" || url === "/api/v1/me/notifications/read" ||
+        url === "/api/v1/me/sessions" || url === "/api/v1/me/sessions/revoke-others" || url === "/api/v1/me/profile") {
+        const commerceRepository = this._commerceRepository();
+        if (!commerceRepository) { this._json(res, 503, { error: "BUSINESS_USER_REPOSITORY_NOT_CONFIGURED" }); return; }
+        const userId = this._memberUserId(req);
+        if (!userId) { this._json(res, 503, { error: "BUSINESS_USER_REPOSITORY_NOT_CONFIGURED" }); return; }
+        try {
+          if (method === "GET" && url === "/api/v1/me/orders") {
+            this._json(res, 200, { orders: await commerceRepository.listOrders(userId, { limit: 50, offset: 0 }) });
+            return;
+          }
+          if (method === "GET" && url === "/api/v1/me/notifications") {
+            const [notifications, unreadCount] = await Promise.all([
+              commerceRepository.listNotifications(userId, { limit: 50, offset: 0 }),
+              commerceRepository.countUnreadNotifications(userId),
+            ]);
+            this._json(res, 200, { notifications, unreadCount });
+            return;
+          }
+          if (method === "POST" && url === "/api/v1/me/notifications/read") {
+            this._json(res, 200, { ids: await commerceRepository.markNotificationsRead(userId) });
+            return;
+          }
+          if (method === "GET" && url === "/api/v1/me/sessions") {
+            this._json(res, 200, { sessions: await commerceRepository.listActiveSessions(userId) });
+            return;
+          }
+          if (method === "POST" && url === "/api/v1/me/sessions/revoke-others") {
+            // 只认经正则校验的 X-Device-ID：若改用未校验的 body.deviceId，任意串都无匹配会话，
+            // IS DISTINCT FROM 语义下会把当前会话一起下线（自断登录态）。
+            const keepDeviceId = this._deviceIdFrom(req);
+            if (!keepDeviceId) { this._json(res, 400, { error: "DEVICE_ID_REQUIRED" }); return; }
+            this._json(res, 200, { revoked: await commerceRepository.revokeOtherSessions(userId, keepDeviceId) });
+            return;
+          }
+          if ((method === "PATCH" || method === "PUT") && url === "/api/v1/me/profile") {
+            var profileBody = await this._parseBody(req);
+            var patch = {};
+            if (profileBody && Object.prototype.hasOwnProperty.call(profileBody, "displayName")) {
+              if (typeof profileBody.displayName !== "string" || !profileBody.displayName.trim()
+                  || profileBody.displayName.length > 60
+                  || /[\u0000-\u001f\u007f]/.test(profileBody.displayName)) {
+                this._json(res, 400, { error: "DISPLAY_NAME_INVALID" }); return;
+              }
+              patch.display_name = profileBody.displayName.trim();
+            }
+            if (profileBody && Object.prototype.hasOwnProperty.call(profileBody, "avatarUrl")) {
+              // 存储型 XSS 面：URL 字段必须限死 scheme，javascript: 与 data:text/html 一律 fail closed
+              const avatar = profileBody.avatarUrl;
+              const avatarOk = /^(https?:)?\/\/[^\s"'<>]+$/i.test(avatar)
+                || /^data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=]+$/i.test(avatar);
+              if (avatar !== null && (typeof avatar !== "string" || avatar.length > 500 || !avatarOk)) {
+                this._json(res, 400, { error: "AVATAR_URL_INVALID" }); return;
+              }
+              patch.avatar_url = avatar;
+            }
+            if (!Object.keys(patch).length) { this._json(res, 400, { error: "PROFILE_PATCH_EMPTY" }); return; }
+            const updated = await commerceRepository.updateProfile(userId, patch);
+            if (!updated) { this._json(res, 503, { error: "PROFILE_UPDATE_UNAVAILABLE" }); return; }
+            this._json(res, 200, { user: { id: updated.id, displayName: updated.display_name || null, avatarUrl: updated.avatar_url || null } });
+            return;
+          }
+          this._json(res, 405, { error: "METHOD_NOT_ALLOWED" });
+          return;
+        } catch (error) { this._commerceFailure(req, res, error); return; }
+      }
+
+      if (url.indexOf("/api/v1/admin/member/") === 0) {
+        if (!this._subscriptionService) { this._json(res, 503, { error: "SUBSCRIPTION_SERVICE_NOT_CONFIGURED" }); return; }
+        try {
+          if (method === "POST" && url === "/api/v1/admin/member/grant") {
+            var grantBody = await this._parseBody(req);
+            if (!grantBody || typeof grantBody.userId !== "string" || !grantBody.userId) { this._json(res, 400, { error: "USER_ID_REQUIRED" }); return; }
+            var grantResult = await this._subscriptionService.grant({
+              userId: grantBody.userId,
+              plan: grantBody.plan,
+              durationDays: grantBody.durationDays,
+              providerReference: grantBody.providerReference || null,
+              operator: grantBody.operator || null,
+            });
+            this._json(res, 200, { success: true, ...grantResult });
+            return;
+          }
+          if (method === "POST" && url === "/api/v1/admin/member/redeem-codes") {
+            var batchBody = await this._parseBody(req);
+            var batchResult = await this._subscriptionService.createRedeemBatch({
+              plan: batchBody && batchBody.plan,
+              durationDays: batchBody && batchBody.durationDays,
+              count: batchBody && batchBody.count,
+              batch: batchBody && batchBody.batch || null,
+              expiresAt: batchBody && batchBody.expiresAt || null,
+            });
+            this._json(res, 200, { success: true, ...batchResult });
+            return;
+          }
+          this._json(res, 404, { error: "ROUTE_NOT_FOUND" });
+          return;
+        } catch (error) { this._commerceFailure(req, res, error); return; }
       }
 
       // --- Key Management ---
@@ -1067,7 +1241,17 @@ p{color:#6e6e73}
         var endpoints = [
           { m: "GET", p: "/api/v1/health", d: "Liveness check, no auth required" },
           { m: "GET", p: "/api/v1/ready", d: "Readiness check for business DB, migrations and OIDC/JWKS, no auth required" },
-          { m: "GET", p: "/api/v1/me", d: "Get current business user and authoritative entitlement. Signed snapshots require X-Device-ID" },
+          { m: "GET", p: "/api/v1/me", d: "Get current business user, authoritative entitlement and membership aggregation (fail-soft). Signed snapshots require X-Device-ID" },
+          { m: "GET", p: "/api/v1/plans", d: "Plan catalog with prices and entitlements (scope profile:read)" },
+          { m: "POST", p: "/api/v1/redeem", d: "Redeem a membership code for current user. Body: { code } (scope profile:write)" },
+          { m: "GET", p: "/api/v1/me/orders", d: "List current user's orders (scope profile:read)" },
+          { m: "GET", p: "/api/v1/me/notifications", d: "List current user's notifications with unread count (scope profile:read)" },
+          { m: "POST", p: "/api/v1/me/notifications/read", d: "Mark all notifications as read (scope profile:write)" },
+          { m: "GET", p: "/api/v1/me/sessions", d: "List active device sessions (scope profile:read)" },
+          { m: "POST", p: "/api/v1/me/sessions/revoke-others", d: "Revoke other device sessions. Requires valid X-Device-ID header to keep current device (scope profile:write)" },
+          { m: "PATCH", p: "/api/v1/me/profile", d: "Update own displayName/avatarUrl. Body: { displayName?, avatarUrl? } (scope profile:write)" },
+          { m: "POST", p: "/api/v1/admin/member/grant", d: "Admin grants a plan. Body: { userId, plan, durationDays } (scope admin:users)" },
+          { m: "POST", p: "/api/v1/admin/member/redeem-codes", d: "Admin batch-generates redeem codes. Body: { plan, durationDays, count } (scope admin:users)" },
           { m: "GET", p: "/api/v1/platforms", d: "List all supported platforms" },
           { m: "POST", p: "/api/v1/publish", d: "Publish to one platform. Body: { platform, title, content, tags, cookie }" },
           { m: "POST", p: "/api/v1/batch-publish", d: "Batch publish to multiple platforms. Body: { platforms, title, content, tags, cookie }" },
