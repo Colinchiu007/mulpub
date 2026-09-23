@@ -11,6 +11,8 @@ export async function publishBatch(platforms, article) { return invokeWithFallba
 
 export function onProgress(callback) { return bridgeOn("Progress", callback) }
 
+export function onRiskHold(callback) { return bridgeOn("RiskHold", callback) }
+
 // ─── AI 写作 API ──────────────────────────
 export async function modelProviderIsConfigured(category) { return invokeWithFallback("modelProviderIsConfigured", { code: -1, data: false }, category) }
 export async function modelProviderGetDefault(category) { return invokeWithFallback("modelProviderGetDefault", { code: -1, data: null }, category) }

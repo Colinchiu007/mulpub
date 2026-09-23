@@ -178,6 +178,9 @@ export default {
       modeDomHint: '通过隐形浏览器自动化发布',
       modeFallbackHint: 'API 发布不可用，已自动降级为浏览器发布',
     },
+    riskHold: {
+      body: '检测到「{platform}」发布触发风控，请前往该账号确认状态后再继续发布',
+    },
   },
   accounts: {
     add: '添加账号',

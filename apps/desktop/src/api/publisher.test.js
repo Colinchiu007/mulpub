@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const exportedNames = [
   // 发布
-  "publishWechat", "publishBatch", "onProgress",
+  "publishWechat", "publishBatch", "onProgress", "onRiskHold",
   // AI 写作
   "modelProviderIsConfigured", "aiIsConfigured", "aiGenerateTitles",
   "aiEnhanceContent", "aiGenerateSummary",
@@ -104,6 +104,7 @@ const apiMeta = {
 publishWechat: { args: [{ title: "t", content: "c" }], fallback: undefined, returns: "undefined" },
   publishBatch: { args: [["wx"], { title: "t" }], fallback: { code: -1, message: "electronAPI not available" }, throws: false },
   onProgress: { args: [vi.fn()], fallback: undefined, returns: "function" },
+  onRiskHold: { args: [vi.fn()], fallback: undefined, returns: "function" },
   modelProviderIsConfigured: { args: ["llm"], fallback: { code: -1, data: false }, returns: "object" },
   aiIsConfigured: { args: [], fallback: { code: -1, data: false }, returns: "object" },
   aiGenerateTitles: { args: ["AI 技术"], fallback: { code: -1, data: [] }, returns: "object" },
