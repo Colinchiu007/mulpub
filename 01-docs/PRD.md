@@ -17072,8 +17072,11 @@ is_default: 1
 | 7 | CORS 危险组合 | `allow_credentials=True` 且 `cors_origins` 含 `*` | SystemExit | `[P0-6] CORS allow_origins='*' with credentials=True is insecure; specify explicit whitelist (e.g. https://app.example.com).` |
 | 8 | 加密主密钥缺失 | `OPS_ENCRYPTION_KEY` 为空且未显式放行 | SystemExit | `[P0-4] OPS_ENCRYPTION_KEY not configured. Generate: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
 | 9 | 运行时签名私钥缺失 | 未配置私钥/路径 | 接口级 fail-closed | `/api/v1/runtime/bootstrap` 返回 **404**（不下发未签名配置） |
+| 10 | 未展开的 unit 文件字面量（P0-8） | 值中出现 `${` 或 `$(`（`OPS_JWT_SECRET` / `OPS_ENCRYPTION_KEY` / `OPS_ADMIN_PASSWORD` 三处同源） | SystemExit | `[P0-8] {field} contains unexpanded unit-file reference '${...}'; systemd Environment= does not expand ${VAR} — inject a real random value via EnvironmentFile= instead.` |
 
 **显式开发逃生阀**：`OPS_ALLOW_EPHEMERAL_KEY=true` 才允许临时 Fernet 密钥，且必须打 warn：`[P0-4] OPS_ENCRYPTION_KEY not set; ephemeral key generated. DEVELOPMENT ONLY — encrypted data unrecoverable after restart.`；测试/`ENVIRONMENT=development` 下同样只 warn 不静默。
+
+**判据顺序与实现补漏（2026-09-23）**：第 10 条走 `_reject_unexpanded(value, field)`，在 `_validate_jwt_secret` 中置于长度检查**之前**，使 `${PO_SECRET_KEY}` 的归因是「未展开字面量」而非顺带的 "too short"；`run_startup_security_checks` 另对三个凭据字段各调一次（同一 systemd 机制同源）。补漏前状态：本 PRD 与体检报告均把「拒绝 `${`/`$(` 字面量」写成完成态，但实现只有长度/弱值/弱前缀三类判据，**长度 ≥32 的未展开字面量可绕过闸门** —— 属「文档超前于实现」的漂移，现由 `config._reject_unexpanded` + `tests/test_p0_jwt_literal.py`（6 例）与变异验证（摘掉任一判据接入点即转红）双向锁定。
 
 **通过态显示项**：日志 `[P0] All startup security checks passed.` 与 `[P0] Startup security checks passed.`（启动闸门与运行期各一条）。
 

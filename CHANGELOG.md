@@ -1,3 +1,16 @@
+# [未发布] fix(security): P0-8 补漏——启动校验按模式拒绝 systemd 未展开字面量（audit-remediation 收尾）
+
+### 变更
+- **`ops-center/backend/config.py`**：新增 `_UNEXPANDED_MARKERS = ("${", "$(")` 与 `_reject_unexpanded(value, field)`（命中即 `SystemExit`，提示 `[P0-8] {field} contains unexpanded unit-file reference ...`）。接入两处：`_validate_jwt_secret` 的**首道**判据（早于长度检查，避免 `${PO_SECRET_KEY}` 被顺带归因成 "too short"）；`run_startup_security_checks` 对 `OPS_JWT_SECRET` / `OPS_ENCRYPTION_KEY` / `OPS_ADMIN_PASSWORD` 三字段同判据。
+- **缺陷性质**：体检报告问题 8 要求「启动校验额外拒绝含 `${`/`$(` 的字面量」，PRD 第二节此前也已写成完成态，但实现只有长度/前缀/弱值三类判据 —— **长度 ≥32 的未展开字面量可绕过闸门**。属文档超前于实现的漂移，本次补齐实现并以回归测试双向锁定。
+
+### 验证
+- TDD 红→绿：新增 `ops-center/backend/tests/test_p0_jwt_literal.py` 6 例（短字面量归因、≥32 字符字面量、`$(...)` 命令替换、字面量夹在长随机串中间、强随机值不得误杀、启动检查覆盖加密主密钥的静态不变量）；修复前 5 failed / 1 passed，修复后 6 passed。
+- 变异验证：摘掉 `_validate_jwt_secret` 接入点 → 4 failed；摘掉启动检查对 `OPS_ENCRYPTION_KEY` 的接入点 → 4 failed；还原 → 6 passed。
+- 门禁：`cd ops-center/backend && python -m pytest` **442 passed**（180s）。
+
+### 关联
+- 分支 `codex/audit-p0-jwt-literal`（D 盘 worktree 隔离）；需求见 `01-docs/PRD.md`「全仓代码体检整改」第二节第 10 条与「判据顺序与实现补漏」段；来源 `.adversarial/codebase-audit-20260922/proposal-v7.md` 问题 8。
 # [未发布] fix(accounts): 账号「启用状态」与「登录态」正交解耦 —— 批量启用/停用接通 is_active 真链路（2026-09-23，account-is-active-batch）
 
 ### 变更
