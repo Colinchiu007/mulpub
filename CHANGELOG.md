@@ -84,6 +84,7 @@
 - 新增两块门禁及其判定用例：`.github/scripts/check-max-lines.js`（逐文件行数，`limit=500` / `growthAllowance=200`，新代码阻断 + 存量 99 条挂账防腐 + 已还债必须清账（本批 `url-collector.js` 还债后按规则清账；挂账条目参考值不随 `--update` 整体上移，避免棘轮被顺手放松），扫描口径与 debt-budget 一致并由用例字面量比对防漂移）、`scripts/check-dep-audit.js`（实跑 npm + pip-audit，29 条挂账每条必须带 `decision`/`note`/`reviewBy=2026-12-31`，扫描器不可用时只 warning）；CI 分别接入 `debt-guard.yml` 与新 workflow `dep-audit.yml`（PR + 每周一 03:00 + 手动）
 - QM-5 红验证：11 个变异逐个「基线绿 + 植入后红 + finally 还原」全通过（TTL 缓存被禁用 / preload 不订阅失效事件 / max-lines 丢 `NEW_OVER_LIMIT` / dep-audit 丢 `NEW_ADVISORY` / `wait_until` 把瞬时异常上抛 / `batch_upsert` 退回逐条 COMMIT / compose 丢 ffprobe 降级原因 / 桌面端枚举退回手抄字面量，以及 P1-5 融合四条：更新路径明文入库 / `secret_flag` 只认入参（批量把敏感项降级为明文）/ 掩码回显覆盖真实凭据 / 新建路径明文入库）。末条踩到的坑值得记下：只跑本批新增的 `test_p4_txn_and_queries.py` 判为「未抓住」，并入第 2 批的 `test_p1_config_secret.py` 后才转红——红验证必须按**语义归属**选套件，不能只跑本批新增文件，否则会把「已被别人保护」误判成「测试是假的」
 
+- **CI 自修（PR #2252 首跑暴露 2 项红）**：① `--py-cjk` 行号偏移假阳性——本批往 `publishers/base.py` 插入 `wait_until` 使既有中文 `raise` 从门禁口径 331 行移到 359 行，用探针文件取证后对 `locale-py-cjk-baseline.json` 做**净零换号**（条目数仍 79，不走 `--update-py-baseline` 以免顺手吸收别处真新增）；② `dep-audit.yml` 照抄了 `cache: pnpm`，而该 job 不执行 `pnpm install`、pnpm store 目录不存在，`setup-node` 的 Post 步骤以 `Path Validation Error` 判红 → 去掉缓存并留注释。
 
 ### Documentation
 

@@ -1,3 +1,18 @@
+## 门禁与 rebase 的自我反噬：9 个可复用口径（2026-09-22，audit-p2-debt / 第 4 批）
+
+- **新门禁必须先过自己的新代码（pitfall）**：本批刚立起「单文件 > 500 行」棘轮，同一批的等待条件化改造就把 `url-collector.js` 顶到 547 行。处置是**拆文件**（新增 `url-collector-page-wait.js` 133 行 + 主文件留 1 行薄委托 → 489 行），而不是给主文件加豁免或放宽基线；同时把「不得再出现 `page.waitForTimeout(`」「必须 require 新模块」「probe 走 `waitForFunction`」写成用例里的静态不变量，防止委托被回滚。
+- **`--update` 型基线命令是棘轮的对偶（pitfall）**：`check-max-lines.js --update` 会把全部 grandfathered 文件的**当前**行数写回基线（实测 6 个文件被偷偷抬高：`preload/index.bundle.js` 1334→1404、`ipc-handlers/account.js` 571→645…），等于借「清账」之名放松门禁。还债时唯一允许的最小编辑＝**删掉已还清的那一条**；做法是先 `git checkout -- 基线文件` 复原 HEAD 版，再逐条删 + JSON 解析校验。同理 `--update-py-baseline` 也不用于本批。
+- **行号键控基线的偏移假阳性（pitfall）**：`--py-cjk` 的 id 是 `file:剥离注释后的行号`。本批在 `publishers/base.py` 插入 40 行 `wait_until`，把既有 `raise NotImplementedError("此发布器不支持手动登录")` 从 331 推到 359，门禁就报「1 new hardcoded CJK message」。取证手法：**把 `origin/main` 版文件以探针文件名放进同一目录**跑一次门禁（探针不在基线里 → 它的命中会连文案一起打印出来），直接读出 main 侧真实行号；确认后做净零换号（条目数保持 79）。这类假阳性是行号键控设计的固有缺陷，长期修法是把 id 换成内容指纹。
+- **append-only 巨型文件的 rebase 并集 ≠ 删冲突标记（pitfall）**：`CHANGELOG.md` 把冲突两侧正文都当「新增」拼接，等于把整份历史复制一遍（症状：diff `+12580/-0`，`# [` 顶层条目 235 vs main 118，14 个标题重复）。正确做法：`git checkout --ours -- CHANGELOG.md` 取 main 的**字节原文**，再只 prepend 本批条目；**行尾必须跟随 main 原文**——对 CRLF 文件做 `rstrip("\r")` 后整体重写会把全文件行尾翻转，diff 立刻变成「整文件重写」。
+- **本批新条目要从「干净来源」精确定位，别从冲突块猜边界（pitfall）**：猜「我方侧顶部直到第一个已在 main 里出现的标题」失效了，因为分支自身已携带一份早先被污染的 CHANGELOG，于是 prepend 进来一堆陈旧副本、真正的本批条目反而没进去。改为从 rebase 前的分支尖端按标题精确切一片，并加结构断言：`HEAD 顶层条目数 == main+1`、目标标题出现次数 == 1、重复条目数不增。
+- **新增 workflow 的缓存配置要和「本 job 是否产出 store 目录」配套（pitfall）**：`dep-audit.yml` 只跑 `pnpm audit` / `pip-audit`、不 `pnpm install`，却照抄了 `cache: pnpm` → `actions/setup-node` 的 Post 步骤报 `Path Validation Error: Path(s) ... do(es) not exist` 把 job 判红（QG 主 workflow 因为有 install 所以从不暴露）。这类红在步骤名上，不在业务输出里，必须看 job 的失败步骤列表定位。
+- **红验证要按语义归属选套件（pitfall）**：给 `config_service._apply_upsert` 植入「新建路径明文入库」变异时，只跑本批 `test_p4_txn_and_queries.py` 判为「没抓住」；该语义实际由第 2 批的 `test_p1_config_secret.py` 守护，并套件后即转红。结论：变异验证的命令应按**被改动语义的守护套件**全集拼装，不是按「本批新增文件」。变异脚本本身还必须①先断言锚点唯一命中，②按字节读写还原（文本模式读 + `newline=""` 写会把 CRLF 折成 LF，留下 `git status` 假 modified 而 `git diff --numstat` 为空）。
+- **worktree 镜像落盘的反向同步纪律（pitfall）**：用「整目录镜像 → worktree」的回拷脚本时，过时的镜像会把 worktree 里较新的文件倒退（实测抹掉 `test_p4_txn_and_queries.py` 的 72 行 P1-5 融合回归用例，靠 `git checkout --` 救回）。此后：任何在 worktree 内直接改的文件立刻做 worktree→镜像反向同步，日常落盘只用单文件拷贝脚本。
+- **磁盘容量是硬中断（pitfall）**：D 盘写满时 `git add` 直接 `fatal: unable to write loose object file: No space left on device`，而落盘脚本的失败常常是静默的。长批次开工前先测 free space，收尾时清掉自己产出的大日志（本批一次清理换回 ~18MB 才把两个提交推过去）。
+
+---
+
+---
 ## 真实冒烟是 mock 测试的照妖镜：manifest 直通三缺口与引擎闸放宽合同（film-full-corpus-production，2026-09-23）
 
 - **现象（pitfall）**：组 8 前端/mock 集成测试 614 用例全绿，但 9.3 真实主进程 compose 冒烟在 load_template 阶段即 fail——前四阶段执行器只认 kitDir/selectedShots，不认 renderManifest；generate_videos 直通后引擎仍按 checkpointRequired 暂停成本闸；render manifest 模式全新 runId 目录不存在 writeConcatList ENOENT。三个缺口全部逃过 mock 层（mock stageExecutor 直接返回成功，不经真实 PIPELINES 编排）。
