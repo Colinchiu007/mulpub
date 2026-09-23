@@ -17018,6 +17018,25 @@ is_default: 1
   队列直达平台并拿结构化裁决，可观测性从「无回执」升级为「平台 message + 明确额度规则」。
 - 详见 `01-docs/rpa-api-publish/evidence/mainchain-app-queue-gate-2026-09-23.md`。
 
+### 前端主链路活体可视化验证（热门选题 → 一键生成视频 → 故事讲述流水线，2026-09-23）
+
+- **补齐维度**：后端发布链已由上节队列 E2E 坐实；本节以 CDP 驱动活体 Electron 渲染进程，补齐
+  objective 前端一寸「热门选题页点【生成视频】→ 自动改写 → 自动故事讲述流水线」的**可视化证据**
+  （native `Input.dispatchMouseEvent` 真实点击 + `Page.captureScreenshot` 截图 + `Runtime.evaluate` 读 DOM）。
+- **热门选题页渲染**：路由 `#/hot-topics`（`HotTopics.vue`）；被 Bilibili 创作者中心 BrowserView 覆盖时，
+  native 点「首页」tab 切回 Vue 页面。页面含标题/副标题、分类过滤（综合230/财经49/科技27/娱乐49…）、
+  10+ 条实时热榜，**每行均带【生成视频】按钮**。
+- **点击→弹窗启动**：点第一条【生成视频】，弹「一键生成视频 · <选题>」，提示文字
+  **「已开始生成视频，改写文案后将自动启动故事讲述流水线」**，进度 0%。
+- **阶段动态推进（非卡 0%）**：两次读数证明流水线自主逐阶段推进——文案改写✓(17秒)→文案拆分✓(拆为
+  35 个场景)→内容增强·场景上下文✓(整理 35 场景背景)→提示词优化⟳（**26/35 → 31/35**，总进度 **42%→43%**）；
+  后续 AI视频场景选择 / 图片·视频·旁白生成 / 视频合成 / 发布 排队。合成耗时与视频时长正相关
+  （1 分钟 5–8 分钟…），完整出片慢，但**实际 mp4 产出已由更早 5/5 mp4 端到端证据坐实**。
+- **交互/显示项**：弹窗含阶段清单（每阶段状态图标 ✓/⟳/○、耗时、开始/完成时间戳）、总进度条、
+  「后台运行」「取消」按钮、合成时间说明文案。
+- 截图与详情见 `01-docs/rpa-api-publish/evidence/ui-flow/`（`hot-topics-page.png` /
+  `gen-video-modal-start.png` / `gen-video-pipeline-43pct.png` / `README.md`）。
+
 
 ### 内容纯净要求：发布标题/简介/正文去「自动发布」水印（2026-09-23）
 
@@ -17115,6 +17134,22 @@ is_default: 1
    - [ ] 全环境轮换完成并留存轮换记录，新公钥验签通过。
 
    > 状态：本仓可自动化部分（1、5 的取证与 3/4 的代码侧）已随 #2214 交付；逐机项属外部运维，交付物为 `ops-center/deploy/KEY-ROTATION-GUIDE.md`（含双钥/宽限期/回滚步骤与记录表）。**这些复选框不由代码合并且关闭**，须在部署评审中逐项签字。
+
+#### 3.1 信任锚闸门的实现补漏（2026-09-23，audit 收尾）
+
+第三节第 2 条此前同样处于「文档超前于实现」状态：`ops-center-sync.js::verifyRuntimeSignature` 对**未配置** `runtimePublicKey` 的情况无条件回落内置 DEV 公钥，`app.isPackaged` 从未参与判定 —— 即打包发行版照样吃 DEV 信任锚，持有已泄露 DEV 私钥者可向生产客户端下发整份运行时策略。本次补齐实现：
+
+| 项 | 口径 |
+|---|---|
+| 判据模块 | `apps/desktop/electron/services/runtime-trust-anchor.js`：`resolveTrustAnchor(configuredPem, devFallbackKey)` → 有自定义锚用自定义；无锚且未打包回落 DEV 公钥；无锚且已打包返回 `NO_PRODUCTION_TRUST_ANCHOR`；无锚且 DEV 公钥被裁返回 `NO_PUBLIC_KEY` |
+| 打包态判定 | 唯一权威 `require('electron').app.isPackaged === true`；取不到 electron（纯 node 脚本 / vitest 无 mock）按「未打包」处理；探针异常按最保守的「生产态」处理 |
+| 接入点 | `verifyRuntimeSignature(payload, publicKeyPem)` 在结构/签名校验之后、`createPublicKey` 之前解析锚；`anchor.error` 直接作为 `reason` 返回（fail-closed） |
+| 数据校验（配置侧，既有） | `saveConfig` 仍要求 `runtimePublicKey` 为合法 Ed25519 PEM，非法值拒绝保存并返回 `runtimePublicKey 必须是合法 Ed25519 公钥`；空值视为「未配置」而非「清除」（保留现值） |
+| 用户可见提示 | 同步失败提示：`运行时策略验签失败（NO_PRODUCTION_TRUST_ANCHOR），已拒绝应用任何运行时策略：打包版需在「运营中心同步配置」填写自定义 Ed25519 公钥作为信任锚`；日志侧同名 reason，便于逐机定位 |
+| 显示项影响 | 命中该拒绝时：公告不展示、版本发布/灰度策略不生效（走内置默认）、敏感词仅内置词库、应用菜单与 pipelineOptions 不定制 —— 客户端可正常离线使用，不崩不白屏 |
+| 防复发 | `apps/desktop/electron/services/runtime-trust-anchor.test.js` 10 例（4 态锚解析 + 3 判定保守性 + 3 端到端验签）；变异自证：撤掉 `verifyRuntimeSignature` 的锚接入 → 「打包 + 无锚必须被拒」转红（1 failed / 9 passed），还原全绿 |
+
+**运维动作（发版前置检查）**：打包发行版随包分发的配置里必须已写入生产 `runtimePublicKey`；灰度期先以「旧客户端可继续用旧锚、新客户端用新锚」的双钥窗口验证（见 `ops-center/deploy/KEY-ROTATION-GUIDE.md`），再放量。若漏配，现象不是崩溃而是「运营中心下发的策略全部不生效」，排查首查该 reason。
 
 ### 四、管理后台会话（P1-15：HttpOnly Cookie + CSRF + CSP）
 

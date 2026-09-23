@@ -50,6 +50,20 @@
 
 ---
 
+# [未发布] fix(security): P0-1 收口——打包版不再吃内置 DEV 信任锚（audit-remediation 收尾）
+
+### 变更
+- **新增 `apps/desktop/electron/services/runtime-trust-anchor.js`**：`resolveTrustAnchor()` 统一裁决运行时策略验签的信任锚 —— 有自定义 `runtimePublicKey` 用自定义；无锚且未打包回落内置 DEV 公钥（开发/演示自验）；无锚且**已打包** → `NO_PRODUCTION_TRUST_ANCHOR`（fail-closed）。打包态判定只用 `app.isPackaged`，探针异常按最保守的生产态处理。
+- **`ops-center-sync.js::verifyRuntimeSignature`** 接入该裁决，替换原先「无条件回落 `DEFAULT_RUNTIME_PUBLIC_KEY`」；`NO_PUBLIC_KEY` 空 PEM 分支随之消失（锚解析要么给 PEM 要么给 error）。命中新拒绝原因时，同步报错补一句可操作提示：`打包版需在「运营中心同步配置」填写自定义 Ed25519 公钥作为信任锚`。
+- **缺陷性质**：与 P0-8 同一类 —— PRD 第三节第 2 条把「默认公钥仅在 `app.isPackaged === false` 生效」写成完成态，代码里根本没有该判据，生产客户端可被 DEV 私钥持有者下发公告/版本策略/敏感词/应用菜单。本次补齐实现并双向锁定。
+
+### 验证
+- 新增 `runtime-trust-anchor.test.js` **10 例**（锚解析 4 态 + 判定保守性 3 + `verifyRuntimeSignature` 端到端 3）；连同既有 `ops-center-sync.test.js` 共 **70 passed**（含「未打包 + 无锚仍吃 DEV 公钥」护栏，开发体验不回退）。
+- 变异自证（QM-5 红验证）：撤掉 `verifyRuntimeSignature` 的锚接入 → 「打包 + 无锚：即便签名是用 DEV 私钥合法签的，也必须被拒」转红（1 failed / 9 passed），还原后全绿、字节一致。
+- 行数门禁：`ops-center-sync.js` 570→577，落在 `growthAllowance=200` 容差内、未新增挂账条目；**刻意不跑 `--update`** —— 该命令是仓内增量重扫，会把他人已增长的条目（如 `Accounts.vue` 1365→1432）一并吸收进本次登记值，属「顺手抬别人的基线」，实跑 `check-max-lines.js` 判定「挂账清单与现实一致」即为通过。
+
+### 关联
+- 分支 `codex/audit-p01-trust-anchor`（D 盘 worktree 隔离）；需求口径 `01-docs/PRD.md`「全仓代码体检整改」第三节第 2 条 + 新增 3.1 段；来源 `.adversarial/codebase-audit-20260922/proposal-v7.md` 问题 1；运维指引 `ops-center/deploy/KEY-ROTATION-GUIDE.md`。
 # [未发布] docs(audit): 全仓体检整改收尾全量证据归档 + PRD 验收项订正
 
 ### 变更
