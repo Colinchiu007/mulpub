@@ -52,6 +52,18 @@ class RenderEngineRegistry:
             )
         return self.get(runtime, ctx)
 
+    def capabilities_all(self, ctx: RenderContext) -> "dict[str, object]":
+        """Return each registered engine's static EngineCapabilities descriptor.
+
+        get_info() sources capability reporting from here (ARCH A5 single source).
+        Factories are constructed with a throwaway ctx purely to read the frozen
+        class-level capabilities; no subprocess or availability probe happens.
+        """
+        out: "dict[str, object]" = {}
+        for runtime_id, factory in self._factories.items():
+            out[runtime_id] = factory(ctx).capabilities
+        return out
+
     def preflight_all(self, ctx: RenderContext) -> "dict[str, PreflightResult]":
         out: "dict[str, PreflightResult]" = {}
         for runtime_id, factory in self._factories.items():

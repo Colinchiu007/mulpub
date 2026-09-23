@@ -56,6 +56,20 @@ from multi_publish.video_creation.providers.video.composition_registry import (
 from multi_publish.video_creation.providers.video.subtitle_style import (
     resolve_subtitle_style as _resolve_subtitle_style_impl,
 )
+from multi_publish.video_creation.providers.video.engines import (
+    RenderContext,
+    RenderEngineRegistry,
+    RenderRequest,
+)
+from multi_publish.video_creation.providers.video.engines.ffmpeg_adapter import (
+    FFmpegAdapter,
+)
+from multi_publish.video_creation.providers.video.engines.hyperframes_adapter import (
+    HyperFramesAdapter,
+)
+from multi_publish.video_creation.providers.video.engines.remotion_adapter import (
+    RemotionAdapter,
+)
 
 
 class VideoCompose(BaseTool):
@@ -288,6 +302,30 @@ class VideoCompose(BaseTool):
         }
         # Backwards-compat alias — some proposal skills inspect this name.
         info["render_runtimes"] = info["render_engines"]
+
+        # T5: capability matrix sourced from the render-engine registry (ARCH A5
+        # single source of truth), not hardcoded prose. Purely additive; the
+        # availability booleans above keep their exact preflight semantics.
+        try:
+            _probe_ctx = RenderContext(
+                output_path=Path("renders/_probe.mp4"),
+                profile=None,
+                asset_lookup={},
+                proposal_packet=None,
+            )
+            caps = self._engine_registry().capabilities_all(_probe_ctx)
+            info["render_engine_capabilities"] = {
+                rid: {
+                    "id": c.id,
+                    "name": c.name,
+                    "word_level_captions": c.word_level_captions,
+                    "native_transitions": c.native_transitions,
+                    "unavailable_fallback": c.unavailable_fallback,
+                }
+                for rid, c in caps.items()
+            }
+        except Exception:  # never let capability reporting break get_info
+            pass
 
         if remotion_ok:
             info["remotion_components"] = self._REMOTION_COMPONENTS
@@ -1328,6 +1366,22 @@ class VideoCompose(BaseTool):
 
         return None
 
+    def _engine_registry(self) -> RenderEngineRegistry:
+        """Lazily build the render-engine registry (T5 single dispatch source).
+
+        Registers host-bound factories (not instances) so resolve() stays free of
+        cross-call subprocess state. atelier is intentionally absent - it is an
+        orchestrator short-circuit handled earlier in _render, never a runtime id.
+        """
+        reg = getattr(self, "_engine_registry_cache", None)
+        if reg is None:
+            reg = RenderEngineRegistry()
+            reg.register("remotion", lambda ctx: RemotionAdapter(self, ctx))
+            reg.register("hyperframes", lambda ctx: HyperFramesAdapter(self, ctx))
+            reg.register("ffmpeg", lambda ctx: FFmpegAdapter(self, ctx))
+            self._engine_registry_cache = reg
+        return reg
+
     def _render(self, inputs: dict[str, Any]) -> ToolResult:
         """High-level render: assemble edit decisions + asset manifest into final video.
 
@@ -1412,25 +1466,7 @@ class VideoCompose(BaseTool):
                 ),
             )
 
-        if render_runtime == "hyperframes":
-            return self._render_via_hyperframes(
-                inputs=inputs,
-                edit_decisions=edit_decisions,
-                asset_manifest=asset_manifest,
-                resolved_cuts=resolved_cuts,
-                output_path=output_path,
-                profile=profile,
-            )
-        if render_runtime == "ffmpeg":
-            # Caller explicitly asked for FFmpeg — don't auto-upgrade to Remotion.
-            return self._render_via_ffmpeg(
-                inputs=inputs,
-                edit_decisions=edit_decisions,
-                resolved_cuts=resolved_cuts,
-                output_path=output_path,
-                profile=profile,
-            )
-        if render_runtime != "remotion":
+        if render_runtime not in self._engine_registry().ids():
             return ToolResult(
                 success=False,
                 error=(
@@ -1440,7 +1476,44 @@ class VideoCompose(BaseTool):
                 ),
             )
 
-        # --- Explicit Remotion path (render_runtime == 'remotion') ---
+        # T5: dispatch through the render-engine registry. The adapter wraps
+        # the same _render_via_* path today\'s if/elif invoked, so the verbatim
+        # ToolResult it carries back keeps behaviour byte-identical (governance
+        # prose for empty/unknown runtime stays in this orchestrator above).
+        ctx = RenderContext(
+            output_path=output_path,
+            profile=None,
+            asset_lookup=asset_lookup,
+            proposal_packet=inputs.get("proposal_packet"),
+            raw_inputs=inputs,
+            profile_name=profile,
+        )
+        req = RenderRequest(
+            edit_decisions=edit_decisions,
+            resolved_cuts=resolved_cuts,
+            asset_manifest=asset_manifest,
+        )
+        adapter = self._engine_registry().get(render_runtime, ctx)
+        result = adapter.render(req, ctx)
+        return result.tool_result
+
+    def _render_via_remotion(
+        self,
+        *,
+        inputs: dict[str, Any],
+        edit_decisions: dict[str, Any],
+        resolved_cuts: list[dict],
+        output_path: Path,
+        profile: str | None,
+    ) -> ToolResult:
+        """Explicit Remotion runtime path (RF-2 governance downgrade + fallback).
+
+        Extracted verbatim from _render at T5 so the thin _render dispatches
+        through RenderEngineRegistry with zero behavior change. Handles
+        needs_remotion routing to _remotion_render, the 3-option downgrade
+        BLOCKER on failure (never a silent fallback), the FFmpeg _compose
+        fallback when Remotion is unavailable, and the final self-review.
+        """
         if self._needs_remotion(resolved_cuts):
             remotion_inputs: dict[str, Any] = {
                 "edit_decisions": dict(edit_decisions, cuts=resolved_cuts),

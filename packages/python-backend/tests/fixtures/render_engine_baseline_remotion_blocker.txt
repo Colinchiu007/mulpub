@@ -1,0 +1,8 @@
+Remotion render failed for renderer_family='unknown'. Underlying error: remotion engine boom
+
+This composition requires Remotion (images, text cards, animations). Options:
+  1. Fix Remotion setup (cd remotion-composer && npm install)
+  2. Re-run with operation='compose' for FFmpeg-only (video cuts only)
+  3. Approve a degraded FFmpeg render (still images → Ken Burns)
+
+Per governance: renderer downgrade requires user approval.
