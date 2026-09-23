@@ -15,7 +15,7 @@
 const fs = require('fs')
 const path = require('path')
 
-const { loadFilmKit } = require('./kit-loader')
+const { loadFilmKitChain } = require('./kit-loader')
 const { ShotLibrary } = require('./shot-library')
 const { ScriptAdapter } = require('./script-adapt')
 
@@ -25,7 +25,8 @@ const MAX_GENERATE_BATCH = 20
 class FilmEngineeringService {
   /**
    * @param {object} opts
-   * @param {string} [opts.kitDir] - film-kit 目录（默认 electron/film-kit）
+   * @param {string} [opts.kitDir] - film-kit 目录（默认 electron/film-kit，回退链末级）
+   * @param {string} [opts.userDataKitDir] - userData 全量 kit 目录（回退链首级，任务 3.2）
    * @param {object} [opts.log]
    * @param {object|null} [opts.assetGenerator] - AssetGenerator 实例（勾选生成用）
    * @param {object|null} [opts.llm] - 可选 LLM 润色器（ScriptAdapter 用）
@@ -33,6 +34,7 @@ class FilmEngineeringService {
   constructor (opts) {
     opts = opts || {}
     this.kitDir = opts.kitDir || DEFAULT_KIT_DIR
+    this.userDataKitDir = opts.userDataKitDir || null
     this.log = opts.log || null
     this.assetGenerator = opts.assetGenerator || null
     this.llm = opts.llm || null
@@ -46,9 +48,14 @@ class FilmEngineeringService {
   _ensureKit () {
     if (this._kit) return this._kit
     if (this._loadError) throw this._loadError
-    const loaded = loadFilmKit({ kitDir: this.kitDir })
+    // 两级回退链（任务 3.2）：userData 全量优先，损坏回退 asar 精简包（错误可见非静默）
+    const dirs = []
+    if (this.userDataKitDir) dirs.push({ dir: this.userDataKitDir, label: 'userData-full' })
+    dirs.push({ dir: this.kitDir, label: 'asar-bundled' })
+    const loaded = loadFilmKitChain({ dirs, log: this.log || undefined })
     if (!loaded.ok) {
-      const err = new Error('FILM_KIT_UNAVAILABLE: ' + loaded.error)
+      const raw = String(loaded.error || '')
+      const err = new Error(raw.startsWith('FILM_KIT_UNAVAILABLE') ? raw : 'FILM_KIT_UNAVAILABLE: ' + raw)
       this._loadError = err
       throw err
     }
@@ -64,6 +71,7 @@ class FilmEngineeringService {
       const kit = this._ensureKit()
       return {
         available: true,
+        kitSource: kit.source || 'asar-bundled',
         filmMeta: kit.manifest.filmMeta,
         sceneCount: kit.manifest.scenes.length,
         shotCount: kit.shots.length,
@@ -86,8 +94,8 @@ class FilmEngineeringService {
     return this._ensure().listScenes()
   }
 
-  listShots (sceneId) {
-    return this._ensure().listShots(sceneId)
+  listShots (sceneId, opts) {
+    return this._ensure().listShots(sceneId, opts)
   }
 
   getShot (shotId) {
@@ -97,6 +105,12 @@ class FilmEngineeringService {
   getDoctrine () {
     const kit = this._ensureKit()
     return kit.doctrine
+  }
+
+  /** kit 登记的下载来源域清单（D7）：shot-downloader 只信该清单，精确匹配不通配 */
+  getAllowedHosts () {
+    const kit = this._ensureKit()
+    return Array.isArray(kit.manifest.allowedHosts) ? kit.manifest.allowedHosts.slice() : []
   }
 
   buildCopyText (shotId, mode) {

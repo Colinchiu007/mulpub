@@ -59,6 +59,11 @@ function registerFilmEngineeringStages (pipelineEngine) {
         if (Array.isArray(selected) && selected.length > 0) {
           return { success: true, output: { template: null, passthrough: true } }
         }
+        // 收口合成流（9.3 冒烟回归）：仅携带 renderManifest 的 compose run 无需模板 → 直通。
+        const mf = ctxFlatOrNested(context, 'renderManifest', null)
+        if (Array.isArray(mf) && mf.length > 0) {
+          return { success: true, output: { template: null, passthrough: true, manifestMode: true } }
+        }
         return { success: false, error: 'film_load_template 需要 params.kitDir' }
       }
       const loaded = loadFilmKit({ kitDir })
@@ -148,6 +153,11 @@ function registerFilmEngineeringStages (pipelineEngine) {
         if (Array.isArray(existingSelected) && existingSelected.length > 0) {
           return { success: true, output: { selectedShots: existingSelected, passthrough: true } }
         }
+        // 收口合成流（9.3 冒烟回归）：manifest-only compose run 无分镜可选 → 空选择直通。
+        const mfSel = ctxFlatOrNested(context, 'renderManifest', null)
+        if (Array.isArray(mfSel) && mfSel.length > 0) {
+          return { success: true, output: { selectedShots: [], passthrough: true, manifestMode: true } }
+        }
         return { success: false, error: 'film_select_shots 需要非空 params.selectedShotIds' }
       }
       if (!template || !template.shots) {
@@ -179,6 +189,19 @@ function registerFilmEngineeringStages (pipelineEngine) {
       const nestedSelected = ctxFlatOrNested(context, 'selectedShots', 'select_shots')
       const selectedShots = Array.isArray(nestedSelected) ? nestedSelected : []
       if (selectedShots.length === 0) {
+        // 收口合成流（9.3 冒烟回归）：manifest-only compose run 无提示词可导 → 空导出直通。
+        const mfExp = ctxFlatOrNested(context, 'renderManifest', null)
+        if (Array.isArray(mfExp) && mfExp.length > 0) {
+          return {
+            success: true,
+            output: {
+              export: { json: '[]', markdown: '' },
+              fileName: 'film-engineering-prompts-' + new Date().toISOString().slice(0, 10) + '.json',
+              passthrough: true,
+              manifestMode: true,
+            },
+          }
+        }
         return { success: false, error: 'film_export_prompts 需要 context.selectedShots（先执行 film_select_shots）' }
       }
       const format = (params && params.format) || 'json'

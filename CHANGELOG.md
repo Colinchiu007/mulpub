@@ -15,6 +15,26 @@
 - 分支 `selfcheck-ops-migrate`（worktree 隔离，D 盘）；PRD `01-docs/PRD-RATE-LIMIT-SELFCHECK-MIGRATE-OPS-CENTER-2026-09-23.md`；PR-2（P0-8 发布失败被动附带诊断）另立 PR。
 
 ---
+# [未发布] fix(ops-center): 预设模型排序按钮灰显锁死修复——所见即所得作用域（2026-09-23，model-sort-visible）
+
+### 变更
+- **后端 `reorder_model_preset` 新增 `visible_ids` 作用域（所见即所得）**：只在「当前可见/筛选序列原本占据的顺序槽」内移动目标行，序列外（隐藏项、其它类别）预设绝对位置不变；缺省时退化为全量重排（向后兼容）；移动后仍全列表归一化 0..n-1。
+- **路由校验 fail-closed**：`visible_ids` 非数组 → 400；目标不在作用域或空序列 → 404（CodeReview 修复：`visible_ids=[]` 不再因真值判断误落全量分支静默改写全表顺序，`if visible_ids:` 改 `is not None`）。
+- **前端移除灰显锁**：删除 `sortLocked` computed、灰显 title 与「请先清除分类筛选并开启含隐藏项」警告；`reorderModelPreset(id, action, visibleIds)` 提交当前可见 id 序列，按钮 `:disabled` 仅保留可见序列首末边界与 busy 态；页面说明改为「排序所见即所得」口径。
+
+### 根因与逃逸
+- 根因：PR #2232 CodeReview 期为防「筛选视图 $index 与全量下标错位」引入灰显锁，但 `includeHidden` 默认关闭使锁在默认视图恒真——防护过严把功能锁死，属可用性缺陷。本轮改为作用域化重排，从语义上消除错位，锁不再必要。
+- 逃逸链：ops-center pytest 仅断言全量语义（无筛选视图交互用例）→ 前端无组件级测试覆盖 disabled 条件 → 人工验收只在「含隐藏项开启」路径下进行。已补不连续可见序列判别用例堵口。
+
+### 验证
+- TDD 红→绿：新增 4 判别用例（不连续可见序列 [0,2,3] 槽位置换、序列内边界 noop、目标越界 404、空序列 404），红测 `1 failed` → 实现后转绿；ops-center 后端全量 pytest **414 passed**；前端 vite build exit 0。
+- CodeReview：范围 5874e4bda..d347deba9，1 MINOR（空数组退化）已按建议修复并补测试，无 CRITICAL/MAJOR。
+
+### 关联
+- 分支 `codex/model-sort-visible`（worktree 隔离，D 盘）；PR #2232 后续 refinement，规格见 `01-docs/PRD-MODEL-LIST-SORT-ORDER-2026-09-23.md` §4.5。
+
+---
+
 # [未发布] fix(accounts): 账号登录态持久化真源统一 + 检测三态收敛（D1/D2/D3）
 
 ### 变更

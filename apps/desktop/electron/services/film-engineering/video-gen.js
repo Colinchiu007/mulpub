@@ -201,6 +201,17 @@ function registerFilmVideoStages (pipelineEngine) {
     async ({ runId, stage, params, context, onProgress, _testSleep, _testDownload }) => {
       emitStageStart(onProgress, { messageKey: 'stageProgress.filmGenerateVideosStart' })
       const shots = (context && Array.isArray(context.selectedShots)) ? context.selectedShots : []
+      // 全量出片收口合成 run（组 8，任务 7.2 收口链）：无 selectedShots 但携带 renderManifest 时
+      // 直通成本闸（零 provider 调用、不产 costCheck），后续 render 阶段按 manifest 跨 run 聚合合成。
+      if (shots.length === 0 && Array.isArray(context && context.renderManifest) && context.renderManifest.length > 0) {
+        return {
+          success: true,
+          // 零计费直通 run 对成本确认入口闸无意义：显式声明 checkpoint:false，
+          // 引擎（_executeStage）尊重该字段不再按 stageDefs.checkpointRequired 暂停（9.3 冒烟回归）。
+          checkpoint: false,
+          output: { manifestMode: true, entryCount: context.renderManifest.length },
+        }
+      }
       if (shots.length === 0) {
         return { success: false, error: 'film_generate_videos 需要 context.selectedShots（先执行 film_select_shots）' }
       }
