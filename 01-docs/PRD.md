@@ -17239,12 +17239,12 @@ is_default: 1
 |---|---|---|
 | Gate 17 IPC 守卫覆盖 | 五分类 + `minGuardedRatio 0.65` + global/fallback 硬错误 | `node .github/scripts/check-ipc-sender-guard.js --base-dir apps/desktop` |
 | Gate 18 会话卫生 | 必存在结构 + 禁用模式 | `node .github/scripts/check-ops-session-hygiene.js` |
-| 逐文件行数（含 Python 对等口径） | `DEFAULT_LIMIT=500`、膨胀容差 `200` 行、挂账 99 条（其中 `.py` 25 条，含 `model_preset_service.py 1188`、`prompt_eval_service.py 1043`、`CreateView.vue 5657`、`story2video-stages.js 3866`、`pipeline-engine.js 2722`、`publish-api-server.js 1156`、`text-segmentation.ts 1389`） | `node .github/scripts/check-max-lines.js`；违规类型 `NEW_OVER_LIMIT` / `LEDGER_GREW` / `STALE_LEDGER_ENTRY` |
+| 逐文件行数（含 Python 对等口径） | `DEFAULT_LIMIT=500`、膨胀容差 `200` 行、挂账 99 条（其中 `.py` 25 条，含 `model_preset_service.py 1188`、`prompt_eval_service.py 1043`、`CreateView.vue 5657`、`story2video-stages.js 3866`、`pipeline-engine.js 2722`、`publish-api-server.js 1156`、`text-segmentation.ts 1389`） | `node .github/scripts/check-max-lines.js`；违规类型 `NEW_OVER_LIMIT` / `LEDGER_GREW` / `STALE_LEDGER_ENTRY`（文件真没了）/ `DEBT_REPAID_LEDGER`（债已还、账未销），另有非阻断提示 `LEDGER_RESURRECTED`（墓碑条目被并发带回）。还完债：`node .github/scripts/check-max-lines.js --prune <仓内相对路径>` |
 | 依赖漏洞审计 | 实跑 `npm audit` + `pip-audit`；违规类型 `NEW_ADVISORY`（基线外新公告）/ 基线腐化 / 挂账到期；`decision ∈ {upgrade-tracked, accepted-risk, not-exploitable, no-fix-available}`；当前 29 条挂账 + `reviewBy` | `node scripts/check-dep-audit.js`（`NPM_AUDIT_REGISTRY=https://registry.npmjs.org`）；判定逻辑 `node --test scripts/check-dep-audit.test.js` |
 | Python 硬编码中文文案 | `file:line` 基线 79 条，新增即红 | `node .github/scripts/check-locale-sync.js --py-cjk` |
 | 文档同步（doc-gate） | 改代码必须同批改 `PRD.md`/`CHANGELOG.md`/`docs/`/`01-docs/` | `bash scripts/check-docs-sync.sh --base=<b> --head=HEAD` |
 
-**棘轮自洽原则**：新代码越线 ⇒ 拆文件，不放宽基线（本批实例：`url-collector.js` 条件等待改造后涨到 547 行 ⇒ 拆出 `url-collector-page-wait.js`（489 + 133 行），并把基线清账）。还债只允许两种最小编辑：删除已还清条目、同一文案的净零换号。禁止用 `--update` 掩盖别处新增（`--update` 是棘轮的对偶，会静默吸收真问题）。
+**棘轮自洽原则**：新代码越线 ⇒ 拆文件，不放宽基线（本批实例：`url-collector.js` 条件等待改造后涨到 547 行 ⇒ 拆出 `url-collector-page-wait.js`（489 + 133 行），并把基线清账）。还债只允许两种最小编辑：删除已还清条目、同一文案的净零换号。禁止用 `--update` 掩盖别处新增（`--update` 是棘轮的对偶，会静默吸收真问题）。`--update` 自本次起在代码层面兑现这句话：默认只做增量登记（不抬高已有登记值、不删键、不覆盖 `pruned`），全量重生必须显式 `--update --rewrite` 并人工逐行审 diff。
 
 ### 十、未覆盖维度与限期处置
 
@@ -17269,3 +17269,37 @@ is_default: 1
 - [x] 依赖漏洞与超大文件均有可复核基线（29 条 CVE 挂账 + `reviewBy`；99 条行数挂账）。
 - [ ] `packages/flutter-skill-bridge` 判据结论入 CHANGELOG，并随下个发版周期末确认无回潮。
 - [ ] P0 泄露面逐机清单由运维在部署评审中签字（第三节 7 项复选框）。
+
+### 十二、行数挂账清单的三态语义与墓碑（audit 收尾·防「门禁逃逸」）
+
+背景：同一僵尸条目 `apps/desktop/src/components/LogsSettings.vue: 598` 在 2026-09-22/23 一天内**复发 3 次**，每次都让 main 处于违规态并把在飞的无关 PR 全链卡红。取证结论不是「有人手滑」，而是门禁自身的两处设计缺陷（详见 `docs/audit-remediation-ledger-guard-2026-09-23.md`）。
+
+#### 12.1 三态语义（数据校验口径）
+
+| 状态 | 判据 | 码 | 是否阻断 | 唯一正确处方 |
+|---|---|---|---|---|
+| 账目腐烂 | 清单有键，且文件**不在**受管扫描范围（删除 / 改名 / 移出 `SCAN_DIRS`） | `STALE_LEDGER_ENTRY` | 阻断 | `--prune <路径>`（墓碑值取登记值，因文件已不存在） |
+| 债已还、账未销 | 清单有键，文件在、行数 `< limit(500)` | `DEBT_REPAID_LEDGER` | 阻断 | `--prune <路径>`（墓碑值取当前行数，门禁口径 `split('\n').length`） |
+| 已知复活 | 同上，且该路径已在 `pruned` 立碑 | `LEDGER_RESURRECTED` | **不阻断**（仅 ⚠️） | 下次触碰清单时 `--prune`；不得为消提示而改门禁 |
+| 重新欠债 | 文件行数 `>= limit` 且该路径有墓碑 | `NEW_OVER_LIMIT` | 阻断 | 拆文件；**不得**重新挂账 |
+
+墓碑的两条不变量（用例锁定，改动即红）：① `pruned` 命中即取消 `files` 的挂账豁免，同路径重新超限按新债处理；② `pruned` 命中且文件仍低于阈值时降级为提示，不参与退出码。二者共同保证「僵尸条目既不能当免死金牌，也不能用来卡死别人」。
+
+#### 12.2 命令与显示项（提示文字逐字）
+
+- `node .github/scripts/check-max-lines.js` → 表头 `limit=500 growthAllowance=200 超限文件=N 挂账=M 墓碑=K`；违规行前缀 `❌ `，提示行前缀 `⚠️ `，全清 `✅ 无新增超大文件，挂账清单与现实一致。`；退出码 = 违规数 > 0 ? 1 : 0（**提示不影响退出码**）。
+- `--prune <路径>` 成功：`✅ 已单键清账：<路径> → 从 files 移除，在 pruned 立碑（<行数> 行）` + `   仅改动该一处；其余挂账与顺序未动。`（rc=0）。
+- `--prune` 被拒（rc=2）两类：清单内无该键 → `挂账清单里没有 <路径>，无需清账…`；文件仍超限 → `<路径> 仍超限（现 N 行 >= 500），债务未还，不得发墓碑；请先拆分`。被拒时**不写文件**。
+- `--update` 增量：`✅ 增量登记完成：新增 X 条（现有 Y 条）`，并对 `⚠️ 拒绝抬高 K 个已有登记值`、`⚠️ 不会静默删账 R 条`、`❗ 墓碑路径重新超限，不得重新挂账` 分别列出明细；`--update --rewrite` 额外打印 `⚠️ --rewrite 会重排键并抬高/删除登记值，掩盖别人的存量漂移，必须人工逐行审 diff。`
+
+#### 12.3 CI 触发口径
+
+`debt-guard.yml` 的 `on:` 必须同时含 `pull_request: branches:[main]` 与 `push: branches:[main]`，且**不得**出现生效的 `paths-ignore:`（纯文档 PR 会因 required check 缺失永久 BLOCKED）。job 显示名 `债务熔断检查` 是 ruleset `main-ci-gate` 的 required check，改名等于关掉门禁。以上四条由用例 `防回归：debt-guard 必须同时监听 pull_request 与 push 到 main` 直接读 workflow 文本断言，不再依赖人工记忆。
+
+#### 12.4 验收标准
+
+- [x] 「已降到阈值以下」分支在生产路径可达（用 `collectOverLimit + scanAllLines` 组合喂给 `evaluate`，用例 回归① 断言真命中）。
+- [x] 已还债条目被并发带回时不阻断链条，且该路径重新超限仍被阻断（回归②③）。
+- [x] 清账只能单键、可拒、幂等（回归⑤⑥）。
+- [x] `--update` 无法再悄悄抬高或删改别人的登记值（回归⑦）。
+- [x] main 自身违规会在 5 分钟内显红（push 触发 + 断言用例）。
