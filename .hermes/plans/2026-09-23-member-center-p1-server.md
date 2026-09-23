@@ -569,6 +569,14 @@ git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 commit -m "feat(member-
 
 ---
 
+> **实施期质量评审补录（Task 2 已完成，代码与本节一致）**：commit `b9bc30d78` 落地上述主体，`6b9b68cd5` 追加四项改动（测试 9→15 例，全包基线 253 tests / 250 pass / 0 fail）：
+> 1. `validateOverridesShape(overrides)` 在 `mergePlanSection` 首部调用（两个公开入口对称受保护）：顶层非对象/数组、**档位键拼错**（如 `{ standart: {...} }`）一律抛错；`{ standard: null }` 显式视为「该档位不覆盖」不报错。原现状是金钱/配额配置注入点 fail-open（静默走旧价）。
+> 2. 所有校验抛点改用错误工厂：`invalid()` → `code: 'PLAN_MATRIX_CONFIG_INVALID', status: 500`（部署期缺陷）；`invalidPlan()` → `code: 'PLAN_INVALID', status: 400`（入参缺陷）。**Task 6 HTTP 层必须按 `err.code`/`err.status` 映射，不得再依赖 message 正则。**
+> 3. `MIN_ONE_KEYS = ['concurrentTasks']` 拒绝 `< 1`；`dailyPublish: 0` 仍合法（语义为“当期不可发布”，非病态）。
+> 4. 模块加载末尾 `deepFreeze(BASE_MATRIX)` 作 tripwire（防后人往里塞嵌套对象导致浅拷贝别名污染）。
+
+---
+
 ## Task 3：仓储层商务读写（postgres-identity-repository.js 扩展）
 
 **Files:**
@@ -2228,6 +2236,7 @@ git -C D:\Data\projects\mp-worktrees\mp-member-center-p1 commit -m "docs(member-
 | D10 | spec §3.7 的绑定手机/邮箱、修改密码不在 P1 做服务端端点 | 这三项的真源是 Logto，本项目已有 OIDC 登录链路；服务端自建改密/绑定会形成双真源 | 服务端代理 Logto Management API（需额外密钥与作用域，P1 不值）。延至 P2/P3 以 Account Center 跳转实现 |
 | D11 | 到期降级只在 `/me` 路径触发（惰性 settle），且 `settleExpiry` 已改为单事务 | 发布扣减路径（`_consumeEntitlementFeature` → `getForUser` 读快照）不 settle，过期用户到下次 `/me` 前仍按旧快照扣减；桌面端启动即调 `/me`，窗口≈单次会话生命周期；P1 无支付回调也无定时设施 | 在发布热路径加 settle（每请求一次写查询 + 行锁，否）；阶段 2 上调度后改为对账作业 |
 | D12 | `quota` 与 `limits` 双口径下发：`quota.*` 供服务端扣减，`limits.*` 供展示 | `consumeFeature` 只认 `${feature}_monthly`，日窗口/平台数无扣减源 | 只发 quota（前端无法渲染「日发布 50」类展示，否） |
+| D13 | 实施期将 plan-matrix 的 overrides 校验由 fail-open 改为 fail-closed，并给校验错误补 `code`/`status` | 质量评审实测发现 `{ standart: ... }`（档位键拼错）/`42`/`[]` 均静默回退基线——运营改价未生效而服务照常 200；且 `src/auth/*` 既有约定是 `Object.assign(new Error(code), {code, status})`，无 code 则 Task 6 无法区分配置缺陷（500）与入参缺陷（400） | 只靠启动日志告警（无强制，否）；新增配置校验中间件（多一个抽象层，否） |
 
 ---
 
