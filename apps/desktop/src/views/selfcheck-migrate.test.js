@@ -15,6 +15,7 @@ const vue = read('src/views/ModelProviders.vue')
 const preload = read('electron/preload/index.js')
 const ipc = read('electron/ipc-handlers/rate-limit.js')
 const logs = read('src/components/LogsSettings.vue')
+const diagnose = read('src/components/NetSchedDiagnose.vue')
 const zh = read('src/locales/zh.js')
 const en = read('src/locales/en.js')
 
@@ -36,9 +37,10 @@ describe('限流自检迁移运营中心 · 回归契约', () => {
   })
 
   it('P0-6：高级/诊断含黑盒一键诊断入口且不暴露 6 参数', () => {
-    expect(logs).toMatch(/net-sched-diagnose/)
+    expect(logs).toMatch(/NetSchedDiagnose/)
+    expect(diagnose).toMatch(/net-sched-diagnose/)
     // 黑盒：诊断卡内不出现参数输入（inject429 / rpm el-input-number 等）
-    expect(logs).not.toMatch(/inject429|inject_429/)
+    expect(diagnose).not.toMatch(/inject429|inject_429|el-input-number/)
   })
 
   it('P0-2：自检专用 locale 键在 zh/en 成对移除（保留复用的 limitPer5hLabel）', () => {
