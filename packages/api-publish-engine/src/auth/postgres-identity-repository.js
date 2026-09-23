@@ -140,7 +140,7 @@ const UPSERT_SUBSCRIPTION = `INSERT INTO identity_subscriptions
      updated_at = NOW()
    RETURNING *`
 
-// provider_reference 在 identity_subscriptions 上是 UNIQUE（002_logto_identity.sql:29）。撞该约束意味着调用方
+// provider_reference 在 identity_subscriptions 上是 UNIQUE（migrations/postgresql/002_logto_identity.sql:29）。撞该约束意味着调用方
 // 复用了同一幂等键（重放/误填同值），属可预期的 409，不得冒泡成裸 23505 → 500。约束名固化在仓储层，服务层无需知道。
 const ORDER_REFERENCE_CONFLICT_CONSTRAINT = 'identity_subscriptions_provider_reference_key'
 

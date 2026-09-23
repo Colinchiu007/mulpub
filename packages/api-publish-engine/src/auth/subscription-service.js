@@ -30,6 +30,25 @@ function generateRedeemCode() {
 }
 
 /**
+ * 时间字段统一序列化（复评 I-N1）：真 pg 驱动把 TIMESTAMPTZ 列还原成 JS Date，而仓储顶层字段是
+ * .toISOString() 的 string——同一响应体不得混用两种形态（进程内消费者做 .slice()/字符串比较时，
+ * 全 string 的测试永远发现不了只在真 pg 下暴露的差异）。
+ * 规则：null/undefined→null；Date→toISOString()（Invalid Date 归 null，绝不冒泡 RangeError 成 500）；
+ * string/number→经 new Date(value) 判定，非法返回 null（不许 String(value) 让非法值伪装成合法字符串），
+ * 合法吐规范化 ISO；其它类型→null。
+ */
+function toIsoOrNull(value) {
+  if (value === null || value === undefined) return null
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value.toISOString()
+  if (typeof value === 'string' || typeof value === 'number') {
+    const parsed = new Date(value)
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
+  }
+  return null
+}
+
+
+/**
  * 仓储返回的 identity_subscriptions 原始行（snake_case）→ 规范化 DTO（camelCase）。
  * 白名单构造：只吐前端契约字段，内部列（provider_reference 等）一律不出现在响应体。缺字段用 null。
  */
@@ -39,8 +58,8 @@ function toSubscriptionDto(row) {
     id: row.id ?? null,
     plan: row.plan ?? null,
     status: row.status ?? null,
-    periodStart: row.current_period_start ?? null,
-    periodEnd: row.current_period_end ?? null,
+    periodStart: toIsoOrNull(row.current_period_start),
+    periodEnd: toIsoOrNull(row.current_period_end),
   }
 }
 
@@ -55,7 +74,7 @@ function toOrderDto(row) {
     currency: row.currency ?? null,
     channel: row.channel ?? null,
     status: row.status ?? null,
-    createdAt: row.created_at ?? null,
+    createdAt: toIsoOrNull(row.created_at),
   }
 }
 
@@ -100,8 +119,8 @@ class SubscriptionService {
     return {
       plan,
       status: subscription ? subscription.status : 'free',
-      periodStart: subscription ? subscription.current_period_start : null,
-      periodEnd: subscription ? subscription.current_period_end : null,
+      periodStart: subscription ? toIsoOrNull(subscription.current_period_start) : null,
+      periodEnd: subscription ? toIsoOrNull(subscription.current_period_end) : null,
       entitlement: this.entitlementPayload(plan),
     }
   }
@@ -140,12 +159,12 @@ class SubscriptionService {
       idempotent: true,
       code,
       plan: row.plan,
-      redeemedAt: row.used_at,
+      redeemedAt: toIsoOrNull(row.used_at),
       subscription: alive ? toSubscriptionDto(active) : null,
       order: null,
       version: null,
-      periodStart: alive ? (active.current_period_start ?? null) : null,
-      periodEnd: alive ? (active.current_period_end ?? null) : null,
+      periodStart: alive ? toIsoOrNull(active.current_period_start) : null,
+      periodEnd: alive ? toIsoOrNull(active.current_period_end) : null,
     }
   }
 
@@ -201,7 +220,7 @@ class SubscriptionService {
         idempotent: false,
         code: normalized,
         plan: row.plan,
-        redeemedAt: this.now().toISOString(),
+        redeemedAt: toIsoOrNull(this.now()),
         subscription: toSubscriptionDto(applied.subscription),
         order: toOrderDto(applied.order),
         version: applied.version ?? null,
@@ -221,7 +240,7 @@ class SubscriptionService {
       throw new CommerceError('时长必须为正整数天', 'DURATION_INVALID', 400)
     }
     return this.repository.commerceTransaction(async (tx) => {
-      // provider_reference 在 identity_subscriptions 上是 UNIQUE（002:29），默认值必须逐次唯一，
+      // provider_reference 在 identity_subscriptions 上是 UNIQUE（migrations/postgresql/002_logto_identity.sql:29），默认值必须逐次唯一，
       // 否则同一 operator 连续给两个用户开通时第二个必然撞唯一约束导致整个事务回滚。
       const grantOrderId = `ord-${crypto.randomUUID()}`
       const applied = await tx.applySubscription({

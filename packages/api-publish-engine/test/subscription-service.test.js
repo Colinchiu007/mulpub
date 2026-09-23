@@ -16,6 +16,9 @@ function createRepositoryFixture(initial = {}) {
     expiryResult: initial.expiryResult || null,
     usage: initial.usage || [],
     txCalls: [],
+    markUsedCalls: [],
+    // G3（N-N2）：注入仓储层抛错（如撞 provider_reference UNIQUE → 409），验证服务编排短路
+    applyThrows: initial.applyThrows || null,
     async commerceTransaction(callback) {
       const self = this
       return callback({
@@ -30,6 +33,7 @@ function createRepositoryFixture(initial = {}) {
           return self.entitlementWrites.length
         },
         async markRedeemCodeUsed(code, userId) {
+          self.markUsedCalls.push(code)
           const row = self.codes.get(code)
           if (!row || row.status !== 'active') {
             throw Object.assign(new Error('REDEEM_CODE_RACE'), { code: 'REDEEM_CODE_RACE', status: 409 })
@@ -40,21 +44,24 @@ function createRepositoryFixture(initial = {}) {
           return row
         },
         async applySubscription(args) {
+          if (self.applyThrows) throw self.applyThrows
           self.subscriptionWrites.push(args)
           self.orders.push(args.order)
-          // 模拟仓储 RETURNING * 的原始 snake_case 行：若服务层退回 spread 原始行，这些键会泄漏进响应体
+          // 模拟仓储 RETURNING * 的原始 snake_case 行：若服务层退回 spread 原始行，这些键会泄漏进响应体。
+          // G1 真 pg 保真：TIMESTAMPTZ 列经 pg 驱动返回 JS Date（这里 current_period_end/created_at 用真 Date），
+          // 顶层 periodStart/periodEnd 则是仓储 .toISOString() 的产物（同一时刻的规范化 string）。
           return {
             subscription: {
               id: `sub-${args.userId}`, user_id: args.userId, plan: args.plan, status: 'active',
-              current_period_start: '2026-09-23T00:00:00.000Z', current_period_end: '2026-10-23T00:00:00.000Z',
+              current_period_start: '2026-09-23T00:00:00.000Z', current_period_end: new Date('2026-10-23T00:00:00.000Z'),
               provider_reference: args.order.providerReference || null,
             },
             order: {
               id: args.order.id, user_id: args.userId, plan: args.plan, amount: args.order.amount,
-              currency: args.order.currency, channel: args.order.channel, status: 'paid', created_at: '2026-09-23T00:00:00.000Z',
+              currency: args.order.currency, channel: args.order.channel, status: 'paid', created_at: new Date('2026-09-23T00:00:00.000Z'),
             },
             version: self.entitlementWrites.length + 1,
-            periodStart: 'ps', periodEnd: 'pe',
+            periodStart: '2026-09-23T00:00:00.000Z', periodEnd: '2026-10-23T00:00:00.000Z',
           }
         },
         async createNotification(record) { self.txCalls.push('createNotification'); self.notifications.push(record) },
@@ -141,6 +148,22 @@ test('redeem 兑换码核销状态机', async (t) => {
     assert.strictEqual(repository.orders.length, 0)
   })
 
+  await t.test('applySubscription 冲突短路：不标记已用、不发通知、码仍 active（G3 · N-N2）', async () => {
+    const conflict = Object.assign(new Error('ORDER_REFERENCE_CONFLICT'), { code: 'ORDER_REFERENCE_CONFLICT', status: 409 })
+    const { service, repository } = createService({
+      codes: [{ code: 'ABCD-EFGH-JKMN', plan: 'pro', duration_days: 30 }],
+      applyThrows: conflict,
+    })
+    await assert.rejects(
+      service.redeem({ userId: 'u-1', code: 'ABCD-EFGH-JKMN' }),
+      (err) => err.code === 'ORDER_REFERENCE_CONFLICT' && err.status === 409,
+    )
+    // 锁的是服务编排顺序：applySubscription 失败必须发生在记账/通知之前（真实回滚已由 member-commerce-repository.test.js 覆盖）
+    assert.deepStrictEqual(repository.markUsedCalls, [], '冲突后不得再标记兑换码已用')
+    assert.strictEqual(repository.notifications.length, 0, '冲突后不得发通知')
+    assert.strictEqual(repository.codes.get('ABCD-EFGH-JKMN').status, 'active', '冲突后码状态不得被改动')
+  })
+
   await t.test('首次与本人重放返回体键集合完全一致，且不外泄 snake_case（F3 契约）', async () => {
     const { service } = createService({ codes: [{ code: 'ABCD-EFGH-JKMN', plan: 'pro', duration_days: 30 }] })
     const first = await service.redeem({ userId: 'u-1', code: 'ABCD-EFGH-JKMN' })
@@ -163,13 +186,17 @@ test('redeem 兑换码核销状态机', async (t) => {
   await t.test('本人重放按存活性判定回填权益：未过期吐当期、过期未结算吐 null（F3 · M-3）', async () => {
     const alive = createService({
       codes: [{ code: 'ABCD-EFGH-JKMN', status: 'used', used_by: 'u-1', used_at: '2026-09-22T00:00:00Z' }],
-      current: { id: 'sub-u-1', user_id: 'u-1', plan: 'pro', status: 'active', current_period_start: '2026-09-01T00:00:00Z', current_period_end: '2026-10-01T00:00:00Z' },
+      current: { id: 'sub-u-1', user_id: 'u-1', plan: 'pro', status: 'active', current_period_start: new Date('2026-09-01T00:00:00Z'), current_period_end: new Date('2026-10-01T00:00:00Z') },
     })
     const aliveView = await alive.service.redeem({ userId: 'u-1', code: 'ABCD-EFGH-JKMN' })
     assert.strictEqual(aliveView.idempotent, true)
     assert.ok(aliveView.subscription, '未过期 active 应回填 subscription')
-    assert.strictEqual(aliveView.subscription.periodEnd, '2026-10-01T00:00:00Z')
-    assert.strictEqual(aliveView.periodEnd, '2026-10-01T00:00:00Z')
+    // G1：getActiveSubscription 返回行以真 Date 模拟 pg，DTO 出来必须是 ISO string
+    assert.strictEqual(typeof aliveView.subscription.periodEnd, 'string', '重放 subscription.periodEnd 不得透传 Date')
+    assert.strictEqual(aliveView.subscription.periodEnd, '2026-10-01T00:00:00.000Z')
+    assert.strictEqual(aliveView.periodEnd, '2026-10-01T00:00:00.000Z')
+    // 同源锁：顶层 periodEnd 与 subscription.periodEnd 表意同一事实，不得漂移
+    assert.strictEqual(aliveView.periodEnd, aliveView.subscription.periodEnd)
     assert.strictEqual(aliveView.order, null, '重放不回吐订单')
     assert.strictEqual(aliveView.version, null)
 
@@ -251,10 +278,12 @@ test('grant / createRedeemBatch / settleExpiry / 视图', async (t) => {
   await t.test('getSubscriptionView：无订阅回 free，有订阅回当期档位', async () => {
     const empty = createService()
     assert.strictEqual((await empty.service.getSubscriptionView('u-1')).plan, 'free')
-    const paid = createService({ current: { id: 'sub-u-1', plan: 'pro', status: 'active', current_period_start: '2026-09-01T00:00:00Z', current_period_end: '2026-10-01T00:00:00Z' } })
+    // G1：真 pg 的 Date 行经视图归一后必须是 ISO string
+    const paid = createService({ current: { id: 'sub-u-1', plan: 'pro', status: 'active', current_period_start: new Date('2026-09-01T00:00:00Z'), current_period_end: new Date('2026-10-01T00:00:00Z') } })
     const view = await paid.service.getSubscriptionView('u-1')
     assert.strictEqual(view.plan, 'pro')
-    assert.strictEqual(view.periodEnd, '2026-10-01T00:00:00Z')
+    assert.strictEqual(typeof view.periodEnd, 'string', '视图 periodEnd 不得透传 Date')
+    assert.strictEqual(view.periodEnd, '2026-10-01T00:00:00.000Z')
     assert.strictEqual(view.entitlement.limits.concurrent_tasks, 10)
   })
 
@@ -270,5 +299,49 @@ test('grant / createRedeemBatch / settleExpiry / 视图', async (t) => {
     const video = usageView.features.find((item) => item.feature === 'video_create')
     assert.strictEqual(video.used, 0)
     assert.strictEqual(video.limit, 500)
+  })
+})
+
+test('redeem 时间字段序列化形态统一（G1 · 真 pg Date → ISO string）', async (t) => {
+  await t.test('首次 redeem：DTO 时间字段均为 ISO string，顶层 periodEnd 与 subscription.periodEnd 同源相等', async () => {
+    const { service } = createService({ codes: [{ code: 'ABCD-EFGH-JKMN', plan: 'pro', duration_days: 30 }] })
+    const result = await service.redeem({ userId: 'u-1', code: 'ABCD-EFGH-JKMN' })
+    // 仓储原始行的时间列是真 Date（fixture 保真），DTO 出来必须已归一为 ISO string
+    assert.strictEqual(typeof result.subscription.periodEnd, 'string', 'subscription.periodEnd 不得透传 Date')
+    assert.strictEqual(result.subscription.periodEnd, '2026-10-23T00:00:00.000Z')
+    assert.strictEqual(typeof result.order.createdAt, 'string', 'order.createdAt 不得透传 Date')
+    assert.strictEqual(result.order.createdAt, '2026-09-23T00:00:00.000Z')
+    assert.strictEqual(typeof result.redeemedAt, 'string')
+    assert.strictEqual(result.redeemedAt, '2026-09-23T00:00:00.000Z')
+    // 同源锁：顶层 periodEnd（仓储 .toISOString 产物）与 subscription.periodEnd（行归一）表意同一事实
+    assert.strictEqual(result.periodEnd, result.subscription.periodEnd)
+  })
+
+  await t.test('非法输入归一为 null：Invalid Date / 不可解析 string 不得冒泡成 500', async () => {
+    const { service } = createService({
+      codes: [{ code: 'ABCD-EFGH-JKMN', status: 'used', used_by: 'u-1', used_at: 'not-a-date' }],
+      current: {
+        id: 'sub-u-1', user_id: 'u-1', plan: 'pro', status: 'active',
+        current_period_start: new Date('invalid'), current_period_end: new Date('2026-10-01T00:00:00Z'),
+      },
+    })
+    const result = await service.redeem({ userId: 'u-1', code: 'ABCD-EFGH-JKMN' })
+    assert.strictEqual(result.idempotent, true)
+    assert.strictEqual(result.redeemedAt, null, '不可解析的 used_at 应归一为 null 而非 RangeError')
+    assert.strictEqual(result.subscription.periodStart, null, 'Invalid Date 应归一为 null')
+    assert.strictEqual(result.subscription.periodEnd, '2026-10-01T00:00:00.000Z')
+  })
+
+  await t.test('number 时间戳归一为 ISO string；其它类型（object）归一为 null', async () => {
+    const { service } = createService({
+      codes: [{ code: 'ABCD-EFGH-JKMN', status: 'used', used_by: 'u-1', used_at: 1727000000000 }],
+      current: {
+        id: 'sub-u-1', user_id: 'u-1', plan: 'pro', status: 'active',
+        current_period_start: {}, current_period_end: new Date('2026-10-01T00:00:00Z'),
+      },
+    })
+    const result = await service.redeem({ userId: 'u-1', code: 'ABCD-EFGH-JKMN' })
+    assert.strictEqual(result.redeemedAt, new Date(1727000000000).toISOString())
+    assert.strictEqual(result.subscription.periodStart, null)
   })
 })
