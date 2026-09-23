@@ -135,6 +135,7 @@ const SYSTEM_METHODS = [
   'modelProviderTest', 'modelProviderPresets', 'modelProviderIsConfigured',
   'modelProviderLogs', 'modelProviderCleanLogs',
   'logsGetInfo', 'logsClear', 'logError', 'notifyLog',
+  'cacheGetStats', 'cacheClear',
   'promptLibraryGet', 'promptLibrarySave', 'promptLibraryActivate',
 ]
 
@@ -204,7 +205,7 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(45)
   })
 
-  it('system 模块应导出 145 个方法', () => {
+  it('system 模块应导出 147 个方法', () => {
     const { createSystemApi } = require('./preload/system')
     const r = createSystemApi(ipcRenderer)
     // 136 + opsCenterSyncGet/Save/Now/Runtime/PipelineOptions（运营后台同步 + 运行时策略）
@@ -215,11 +216,11 @@ describe('preload 子模块方法数', () => {
     // + opsCenterSyncAppMenu（#1839 运营中心侧边栏显隐排序下发）
     // + onUploadProgress（#1853 分片上传实时进度事件）
     // - 10（分屏监控 webview:* API 随监控功能移除，网页查看统一走 pageManager）
-    expect(Object.keys(r).length).toBe(145)
+    expect(Object.keys(r).length).toBe(147)
   })
 
-  it('合并后 api 总键数应为 317（pipelineConfirmStageGate + P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus/servicesRestart + urlCollectNeedsStealth + promptLibraryGet/Save/Activate + updateInstallNow + opsCenterSyncAppMenu + onUploadProgress + renderStartAiVideo + PR-2 F8 getRecentImpactSnapshots - webview 分屏监控 API 移除）', () => {
-    expect(Object.keys(api).length).toBe(317)
+  it('合并后 api 总键数应为 319（pipelineConfirmStageGate + P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus/servicesRestart + urlCollectNeedsStealth + promptLibraryGet/Save/Activate + updateInstallNow + opsCenterSyncAppMenu + onUploadProgress + renderStartAiVideo + PR-2 F8 getRecentImpactSnapshots - webview 分屏监控 API 移除）', () => {
+    expect(Object.keys(api).length).toBe(319)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
@@ -236,8 +237,8 @@ describe('preload 子模块方法数', () => {
     expect(ACCOUNT_METHODS.length).toBe(45)
   })
 
-  it('SYSTEM_METHODS 常量长度应为 132', () => {
-    expect(SYSTEM_METHODS.length).toBe(132)
+  it('SYSTEM_METHODS 常量长度应为 134', () => {
+    expect(SYSTEM_METHODS.length).toBe(134)
   })
 
   it('IDENTITY_METHODS 常量长度应为 5', () => {

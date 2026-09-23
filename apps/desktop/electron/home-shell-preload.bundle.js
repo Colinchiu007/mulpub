@@ -579,6 +579,9 @@ var require_system = __commonJS({
         // 应用日志 API（设置-通用设置：查看/清理/渲染进程错误上报）
         logsGetInfo: () => ipcRenderer2.invoke("logs:info"),
         logsClear: () => ipcRenderer2.invoke("logs:clear"),
+        // 缓存清理 API（设置-通用设置：统计/清理临时缓存）
+        cacheGetStats: () => ipcRenderer2.invoke("cache:stats"),
+        cacheClear: () => ipcRenderer2.invoke("cache:clear"),
         logError: (message) => ipcRenderer2.invoke("logs:error", { message }),
         submitFeedback: (payload) => ipcRenderer2.invoke("feedback:submit", payload),
         // 通知日志上报（notify:log）——renderer notify() 通道内部调用，写结构化日志行
@@ -812,6 +815,10 @@ var require_page_manager = __commonJS({
           getHomeTab: () => ipcRenderer2.invoke("page-manager:get-home-tab"),
           saveCookies: (tabId) => ipcRenderer2.invoke("page-manager:save-cookies", tabId),
           saveAccountTabCredentials: (tabId) => ipcRenderer2.invoke("page-manager:save-account-tab-credentials", tabId),
+          // 查询账号标签凭证保存态（方案二：关闭护栏）
+          getAccountTabSaveState: (tabId) => ipcRenderer2.invoke("page-manager:account-tab-save-state", tabId),
+          // 批量保存全部未保存账号标签（方案三：全部保存）
+          saveAllUnsavedAccounts: () => ipcRenderer2.invoke("page-manager:save-all-unsaved-accounts"),
           // ── Event subscription ──
           subscribeEvents: () => ipcRenderer2.invoke("page-manager:subscribe-events"),
           unsubscribeEvents: () => ipcRenderer2.invoke("page-manager:unsubscribe-events"),
@@ -910,7 +917,16 @@ var require_film_engineering = __commonJS({
           adaptScript: (payload) => ipcRendererRef.invoke("film-engineering:adapt-script", payload),
           exportPrompts: (selectedShots, format) => ipcRendererRef.invoke("film-engineering:export", selectedShots, format),
           generateSelected: (selectedShots, opts) => ipcRendererRef.invoke("film-engineering:generate-selected", selectedShots, opts),
-          retryShot: (payload) => ipcRendererRef.invoke("film-engineering:retry-shot", payload)
+          retryShot: (payload) => ipcRendererRef.invoke("film-engineering:retry-shot", payload),
+          downloadRecycled: (payload) => ipcRendererRef.invoke("film-engineering:download-recycled", payload),
+          productionPlan: (payload) => ipcRendererRef.invoke("film-engineering:production-plan", payload),
+          productionRunBatch: (payload) => ipcRendererRef.invoke("film-engineering:production-run-batch", payload),
+          productionStatus: (payload) => ipcRendererRef.invoke("film-engineering:production-status", payload),
+          onProductionUpdate: (callback) => {
+            const h = (_e, p) => callback(p);
+            ipcRendererRef.on("film-engineering:production-update", h);
+            return () => ipcRendererRef.removeListener("film-engineering:production-update", h);
+          }
         }
       };
     }
@@ -1002,7 +1018,7 @@ var require_knowledge_library = __commonJS({
         addManualSnapshot: (trackedContentId, metrics) => ipcRenderer2.invoke("performance:add-manual-snapshot", trackedContentId, metrics),
         recomputeAttribution: () => ipcRenderer2.invoke("performance:recompute-attribution"),
         listPatternPerformance: (params) => ipcRenderer2.invoke("performance:list-pattern-performance", params),
-        triggerPerformanceRecrawl: () => ipcRenderer2.invoke("performance:trigger-recrawl"),
+        triggerPerformanceRecrawl: (opts) => ipcRenderer2.invoke("performance:trigger-recrawl", opts),
         // 个人知识库
         addPersonalToLibrary: (item) => ipcRenderer2.invoke("knowledge-library:add-personal", item),
         addPersonalBatchToLibrary: (items) => ipcRenderer2.invoke("knowledge-library:add-personal-batch", items),
@@ -1118,6 +1134,8 @@ var require_access_control = __commonJS({
       "logsClear",
       "logError",
       "notifyLog",
+      "cacheGetStats",
+      "cacheClear",
       "renderGetStatus",
       "renderInstallDeps",
       "onRenderInstallProgress",
@@ -1172,7 +1190,12 @@ var require_access_control = __commonJS({
       "filmEngineering.adaptScript",
       "filmEngineering.exportPrompts",
       "filmEngineering.generateSelected",
-      "filmEngineering.retryShot"
+      "filmEngineering.retryShot",
+      "filmEngineering.downloadRecycled",
+      "filmEngineering.productionPlan",
+      "filmEngineering.productionRunBatch",
+      "filmEngineering.productionStatus",
+      "filmEngineering.onProductionUpdate"
     ];
     function hasAccess(currentLevel, requiredLevel) {
       if (requiredLevel === "public") return true;
