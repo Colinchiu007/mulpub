@@ -19,6 +19,7 @@
 | #2270 | Phase 4 复盘落库 + PRD 条目计数订正为实测 P2×12 | 2026-09-23 09:35:47 | `e925df7973` | +96/−1 | 3 |
 | #2289 | **本文所载**收尾全量证据归档 + PRD 第十一节验收项订正 | 2026-09-23 10:06:14 | `a49531d203` | +142/−1 | 3 |
 | #2291 | P0-1 收口：打包版不再吃内置 DEV 信任锚（**本文订正过程中挖出的真实缺陷**，非措辞问题） | 2026-09-23 10:36:53 | `55cd32baaa` | +210/−3 | 5 |
+| 本次提交 | 订正本文 P0-1 行的私钥字面量计数（#2291 合并后 `git grep` 实测 7 处 / 6 个测试文件，原写 6 处 / 5 文件）；纯文档，不新增代码、不改门禁语义 | — | — | — | 2 |
 
 **合并纪律**：每个 PR 均独立 worktree（`D:\Data\projects\mp-worktrees\*`）→ 主题化提交 → rebase 到最新 `origin/main`（文档冲突按并集解，不丢任何一行）→ `gh pr merge --squash --auto`。
 
@@ -26,7 +27,7 @@
 
 | 条目 | 证据（文件:行/符号） | 防复发位置 |
 |---|---|---|
-| P0-1 Ed25519 私钥入库 | 私钥字面量全仓命中 **6 处 / 5 个测试文件**（`apps/desktop/electron/services/ops-center-sync.test.js:25`、`ops-center/backend/tests/conftest.py:17`、`test_platform_defs_api.py:19`、`test_runtime_policy_api.py:23,32`、`test_p0_security.py:186`——最后一处是「`.env.example` 里不该出现 PEM」的断言本身），**非测试命中 0**。信任锚闸门：内置 DEV 公钥只对未打包态生效，**由 #2291 补齐**——`apps/desktop/electron/services/runtime-trust-anchor.js::resolveTrustAnchor` 四态裁决（有锚用锚 / 无锚+未打包回落 DEV / 无锚+已打包 `NO_PRODUCTION_TRUST_ANCHOR` / DEV 公钥被裁 `NO_PUBLIC_KEY`），接入 `ops-center-sync.js::verifyRuntimeSignature`（fail-closed，整份策略不应用） | `runtime-trust-anchor.test.js` 10 例（含「打包 + 无锚 → 即便签名用 DEV 私钥合法签也必须被拒」）+ `ops-center-sync.test.js` 60 例；指引 `ops-center/deploy/KEY-ROTATION-GUIDE.md` |
+| P0-1 Ed25519 私钥入库 | 私钥字面量全仓 `git grep` 命中 **7 处 / 6 个测试文件**：真实 PEM 测试夹具 6 处 / 5 文件（`apps/desktop/electron/services/ops-center-sync.test.js:25`、`apps/desktop/electron/services/runtime-trust-anchor.test.js:25`（#2291 为四态裁决新增的 DEV 私钥夹具）、`ops-center/backend/tests/conftest.py:17`、`test_platform_defs_api.py:19`、`test_runtime_policy_api.py:23,32`），另 1 处 `test_p0_security.py:186` 是「`.env.example` 里不该出现 PEM」的断言本身；**非测试命中 0**。本行计数基准 `abc307cfa6`（#2291 合并后由 6 处 / 5 文件复算为 7 处 / 6 文件，见交付清单末行）。信任锚闸门：内置 DEV 公钥只对未打包态生效，**由 #2291 补齐**——`apps/desktop/electron/services/runtime-trust-anchor.js::resolveTrustAnchor` 四态裁决（有锚用锚 / 无锚+未打包回落 DEV / 无锚+已打包 `NO_PRODUCTION_TRUST_ANCHOR` / DEV 公钥被裁 `NO_PUBLIC_KEY`），接入 `ops-center-sync.js::verifyRuntimeSignature`（fail-closed，整份策略不应用） | `runtime-trust-anchor.test.js` 10 例（含「打包 + 无锚 → 即便签名用 DEV 私钥合法签也必须被拒」）+ `ops-center-sync.test.js` 60 例；指引 `ops-center/deploy/KEY-ROTATION-GUIDE.md` |
 | P0-2 JWT 弱密钥闸门 | `ops-center/backend/config.py::_validate_jwt_secret`（长度 ≥32 / 弱值表 / 弱前缀）+ `run_startup_security_checks` 聚合 fail-closed | `test_p0_security.py`；systemd 未展开字面量补漏在 #2276（`_reject_unexpanded` + `tests/test_p0_jwt_literal.py`） |
 | P0-3 `decrypt_key` 参数 | `ops-center/backend/services/key_service.py::decrypt_key`（单参数 + 精确异常），调用方 `model_preset_service.py` | `ops-center/backend/tests/test_key_service.py` 断言解密明文 == 真实 Key |
 | P0-4 加密主密钥静默自生成 | `config.py`：缺 `OPS_ENCRYPTION_KEY` 且未显式放行 → `SystemExit`；`OPS_ALLOW_EPHEMERAL_KEY=true` 才允许临时密钥并打 warn | `[P0-4]` 启动闸门 |
@@ -116,4 +117,6 @@ node .github/scripts/check-ops-session-hygiene.js
 npx vitest run runtime-trust-anchor.test.js ops-center-sync.test.js
 # 5) 后端安全闸门
 cd ops-center/backend && python -m pytest -q tests/test_p0_security.py tests/test_p1_15_session_cookie.py tests/test_key_service.py
+# 6) 私钥字面量只剩测试夹具（测量基准 abc307cfa6：7 处 grep 命中 / 6 个测试文件，非测试 0）
+git grep -n -E -e "BEGIN (RSA |EC )?PRIVATE KEY" origin/main -- "*.py" "*.js" "*.ts" "*.vue"
 ```
