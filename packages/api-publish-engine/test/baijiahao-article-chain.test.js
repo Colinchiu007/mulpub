@@ -136,4 +136,18 @@ describe("publish/platforms/baijiahao-article", function () {
     expect(Buffer.byteLength(t, "utf8")).toBeLessThanOrEqual(TITLE_MAX_BYTES);
     expect(truncateTitle("短标题")).toBe("短标题");
   });
+
+  test("AI 声明：buildArticleFormData 默认勾选 aigc_bjh_status is_checked=1", function () {
+    const chain = new BaijiahaoArticleChain({ userAgent: UA, cookie: "c" });
+    const fd = chain.buildArticleFormData({ title: "T", content: "C" });
+    expect(fd).toContain("activity_list%5B0%5D%5Bid%5D=aigc_bjh_status");
+    expect(fd).toContain("activity_list%5B0%5D%5Bis_checked%5D=1");
+  });
+
+  test("AI 声明：aiGenerated=false → is_checked=0（人工创作如实取消）", function () {
+    const chain = new BaijiahaoArticleChain({ userAgent: UA, cookie: "c" });
+    const fd = chain.buildArticleFormData({ title: "T", content: "C", aiGenerated: false });
+    expect(fd).toContain("activity_list%5B0%5D%5Bid%5D=aigc_bjh_status");
+    expect(fd).toContain("activity_list%5B0%5D%5Bis_checked%5D=0");
+  });
 });
