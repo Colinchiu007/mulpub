@@ -268,6 +268,34 @@ describe('PublishHistory', () => {
     expect(detail).toContain('120')
     expect(detail).toContain('详情正文')
   })
+  it('详情弹窗展示发布方式、作品 ID 与作品链接', async () => {
+    historyListMock.mockReset().mockResolvedValue({
+      code: 0,
+      data: {
+        total: 1,
+        records: [{ id: 'detail-mode', title: 'API 发布', platform: 'baijiahao', status: 'success', result: { mode: 'api', postId: 'post-998', url: 'https://example.com/p/998' } }],
+      },
+    })
+    const wrapper = mountView()
+    await flushHistory()
+    await wrapper.get('[data-testid="detail-detail-mode"]').trigger('click')
+    await flushHistory()
+    const detail = wrapper.get('.record-detail-modal')
+    expect(detail.text()).toContain('发布方式')
+    expect(detail.text()).toContain('API 直连')
+    expect(detail.text()).toContain('post-998')
+    expect(detail.get('[data-testid="detail-link"]').attributes('href')).toBe('https://example.com/p/998')
+    expect(detail.get('[data-testid="detail-link"]').attributes('rel')).toBe('noopener')
+  })
+  it('详情弹窗无 result 时不渲染发布方式/作品ID/链接行', async () => {
+    const wrapper = mountView()
+    await flushHistory()
+    await wrapper.get('[data-testid="detail-record-1"]').trigger('click')
+    await flushHistory()
+    const detail = wrapper.get('.record-detail-modal')
+    expect(detail.text()).not.toContain('发布方式')
+    expect(detail.find('[data-testid="detail-link"]').exists()).toBe(false)
+  })
   it('搜索和状态筛选只保留匹配记录', async () => {
     historyListMock.mockResolvedValue({
       code: 0,

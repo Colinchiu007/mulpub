@@ -714,6 +714,26 @@ spacer（首次放行、17min 节流零请求 waitMs、越 18min 再放行、不
 
 **待办**：§6.1 余下「详情分片历史」（记录详情弹窗按平台分片展示各子发布结果与 mode）随 §7 活体轮一并落地；`fallback` 徽标态待 §5 服务层 api-then-dom 降级返回 `mode: fallback` 后自然生效。
 
+### 12.11 §6.1 发布详情弹窗分片增强：发布方式 / 作品 ID / 作品链接（前端落地，随本 PR）
+
+> 定位：§12.10 已在记录卡渲染「发布方式」徽标。本节把同一 `record.result` 数据源延伸到记录详情弹窗，逐字段展示发布方式、平台作品 ID 与作品链接，便于运营从历史反查已发布内容。
+
+**功能逻辑与数据源**：
+- 详情弹窗 `selectedRecord = { ...listRecord, ...historyGet.data }`；`result` 字段来自 list 记录（`publish-history.js` 的 `addRecord` 以 `...safeRecord` 整体持久化 `result`，`listRecords` 原样回传）。
+- helper `resultValue(record, key)`：仅接受 `record.result[key]` 为 `string`/`number`（转字符串），其余（缺失/对象/数组/null）返回空串。
+
+**交互与显示项**（`.record-detail-grid`，「发布模式」行之后条件渲染）：
+- **发布方式**（`detailDeliveryMode`）：`v-if="deliveryModeValue(selectedRecord)"`，值复用 `deliveryModeLabel`（api=「API 直连」/dom=「RPA 浏览器」/fallback=「降级发布」）。
+- **作品 ID**（`detailPostId`）：`v-if="resultValue(selectedRecord,'postId')"`，值 `result.postId`。
+- **作品链接**（`detailLink`）：`v-if="resultValue(selectedRecord,'url')"`，渲染 `<a :href target="_blank" rel="noopener" class="detail-link" data-testid="detail-link">`（外链新标签、`rel=noopener` 防反向窗口劫持；`word-break: break-all` 防长链溢出）。
+- 向后兼容：任一字段缺失 → 该行 `v-if` 不渲染（旧记录/RPA 历史无 `result` 时详情弹窗保持原样）。
+
+**i18n 文案（historyPage.*，zh/en 成对）**：`detailDeliveryMode`（发布方式/Delivery mode）、`detailPostId`（作品 ID/Post ID）、`detailLink`（作品链接/Post link）。
+
+**测试与验证**：`PublishHistory.test.js` 新增 2 例（带 `result:{mode:'api',postId,url}` 渲染三行 + 断 `detail-link` 的 `href`/`rel=noopener`；无 `result` 时 `detail` 不含「发布方式」且无 `detail-link`），文件 30 测全绿（原 28 + 新 2）；i18n 相关 20 测绿；ESLint（Gate 11）无 error；Gate 12 品牌扫描 6055 PASS。像素级视觉随 §7 活体轮在打包应用内复核。
+
+**待办**：多平台「一条记录 → 多个平台子结果」的完整分片列表（每子结果独立 mode/postId/url），待平台适配器把子结果数组写入 `result.subResults` 后扩展；`fallback` 态随 §5 服务层 api-then-dom 降级自然生效。
+
 ## 附：验收记录（活体证据回写区，随波更新）
 
 | 波次 | 平台 | 日期 | 作品ID | 链接 | 截图 | 降级 | 结论 |
