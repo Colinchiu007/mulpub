@@ -167,6 +167,10 @@
 4. 设备管理能列活跃会话并注销其它设备；消息能接收/标记已读。
 5. 订单/账单以服务端为准，本地缓存与服务端一致。
 6. zh/en 成对；QM-1 打包验证通过；Story2Video 等既有场景不回归。
+> **核查记录（2026-09-24 · R-C 运行态闭环）**：
+> - **已通过**：单元/集成测试全绿（renderer vitest 63 + electron vitest 215 + api-publish-engine node --test），覆盖标准 3（三档门禁/配额，含绕过 renderer 的直接调用与非支持枚举回归）；运行态渲染核查通过——会员中心 UI shell 在 Vite + ipc-mock（authenticated/pro）下整页渲染正常、UpgradeModal 变现入口（套餐对比/激活码/试用）可用、无 page error，覆盖标准 1 的「登录→卡片可用」与标准 6 的 locales 成对（本次无新增用户可见文案）。
+> - **待补验**：标准 1 的「7 栏」为 §4 目标态，P1 实际交付单页 flat card list（子路由壳属 P1-frontend）；标准 2（兑换码 30s 刷新/离线快照）、4（设备管理/消息）、5（订单服务端为准）依赖 ops-center 后台三入口与真实链路联调；标准 6 的 QM-1 完整打包待发布前执行（本次未改 apps/desktop/electron/ 运行时代码）。
+> - **数据源提示**：「版本与许可证」卡读本地 `licenseStore`、「会员权益」卡读服务端 `identity.entitlement`，两源可不一致，P1-frontend 应收敛为以 entitlement 快照为单一真源（对齐 §5.1）。
 
 ---
 
