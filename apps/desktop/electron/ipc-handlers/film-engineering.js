@@ -14,6 +14,7 @@
  *   film-engineering:adapt-script        (script, characterMap, llmEnabled?)
  *   film-engineering:export              (selectedShots, format)
  *   film-engineering:generate-selected   (selectedShots, opts)
+ *   film-engineering:upload-reference    ({ dataUrl })
  *   film-engineering:download-recycled   ({ taskId, items: [{ shotId, orderIndex }] })
  *   film-engineering:production-plan     ({ shotIds })
  *   film-engineering:production-run-batch ({ taskId, shotIds, batchIndex, aspect?, seconds? })
@@ -30,6 +31,7 @@ const {
 } = require('../services/film-engineering/video-gen')
 const { downloadShot } = require('../services/film-engineering/shot-downloader')
 const { getFilmMediaRoot } = require('../services/film-engineering/film-render')
+const { saveReference } = require('../services/film-engineering/reference-store')
 const {
   runProduction, planBatches, loadLedger, resolveResumePlan, buildRenderManifest, shotFileName, PRODUCTION_BATCH_SIZE,
 } = require('../services/film-engineering/production-driver')
@@ -225,6 +227,28 @@ function registerHandlers (ipcMain, deps) {
       log.warn('[film-engineering] generate-selected error:', e instanceof Error ? e.message : String(e))
       return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e) }
     }
+  }))
+
+  // 参考图上传落盘（画布 - 参考图喂给生成）：渲染端把用户选的本地图片读成
+  // dataURL 提交；saveReference 做魔数嗅探/大小上限/服务端生成文件名，落盘
+  // 受控媒体根 references/，返回规范化绝对路径供生成/重试通道引用。
+  ipcMain.handle('film-engineering:upload-reference', withSenderCheck(async (_event, payload) => {
+    const params = payload || {}
+    if (typeof params.dataUrl !== 'string' || !params.dataUrl) {
+      return { code: EC.VALIDATION_ERROR, message: '参考图数据（dataUrl）不能为空' }
+    }
+    const save = deps._testSaveReference || saveReference
+    let r
+    try {
+      r = await save({ mediaRoot: getFilmMediaRoot(), dataUrl: params.dataUrl })
+    } catch (e) {
+      log.warn('[film-engineering] upload-reference error:', e instanceof Error ? e.message : String(e))
+      return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e) }
+    }
+    if (!r || !r.ok) {
+      return { code: EC.VALIDATION_ERROR, message: (r && r.error) || '参考图保存失败' }
+    }
+    return { code: 0, data: { path: r.path, fileName: r.fileName, bytes: r.bytes, mime: r.mime } }
   }))
 
   // 单镜重试（D7）：service 直调，覆盖该镜 shot_NNN.mp4，绝不触碰流水线阶段状态机；
