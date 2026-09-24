@@ -20,7 +20,7 @@
 
 - [x] 4.1 TDD 先写 `uploadReference` 主进程 handler 用例：类型白名单/大小上限/路径越界 fail-closed/sender 校验（≤3h）
 - [x] 4.2 实现 `uploadReference` 落盘到受控媒体根 `references/` + preload 暴露，返回规范化路径（≤2h）
-- [ ] 4.3 【剩余】主进程把 `localReferences` 转 provider 参考输入 + 不支持参考的 provider 能力降级并提示（前端侧 `initialContext.localReferences` 透传已完成，引擎消费未接线）（≤4h）
+- [x] 4.3 主进程把 `localReferences` 转 provider 参考输入 + 不支持参考的 provider 能力降级并提示（新增 `video-reference-inputs.js` 显式映射表探测 + 受控根路径纵深防御 + dataURL 首帧注入；`video-gen.js` 集成 referenceWarnings/costCheck.references）（≤4h）
 - [x] 4.4 参考图节点连到分镜/生成节点即注入上游本地图（`buildGeneratePayload` → `localReferences`），无参考走纯文本路径（≤2h）
 
 ## 5. 全链路驱动到成片
@@ -37,6 +37,6 @@
 
 - [x] 7.1 i18n：画布所有可见文案进 locales（zh/en 成对，Gate7 keys/cjk/pair 本地全绿），产品名词复用既有映射未新增（≤2h）
 - [x] 7.2 路由正式切画布，旧页保留于 `/film-engineering/classic` 作回退（deprecated 代码注释待补，暂不删码）（≤2h）
-- [ ] 7.3 【进行中】更新 `docs/features/` 影视工程 PRD：画布交互、初始拆分镜、参考图喂生成、数据校验/流程/提示文字细则（≤3h）
+- [x] 7.3 更新影视工程 PRD：已新增 `01-docs/PRD-FILM-ENGINEERING-CANVAS-2026-09-24.md` §12 v1 实现状态（画布交互、初始拆分镜、参考图喂生成、数据校验/流程/显示项/提示文字细则）（≤3h）
 - [ ] 7.4 【剩余】视觉回归基线更新 + E2E `test:e2e:film-engineering` 适配画布；本地 `check:all` 绿（≤4h）
 - [ ] 7.5 【部分】推分支 + 创建 PR #2342 + 启用 squash auto-merge（已做）；CI 通过后自动合并、openspec sync/archive 与质量节拍复盘三同步（待 CI 绿后收尾）（≤2h）

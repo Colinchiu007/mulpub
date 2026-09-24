@@ -250,8 +250,28 @@
 
 ### 12.5 已知边界（后续切片）
 
-- **4.3 引擎侧消费未接线**：`localReferences` 已透传进 `initialContext`，但 pipeline provider 层图生图/角色一致性输入映射与能力降级提示未完成，端到端一致性下一切片接入。
 - **5.2 逐镜重试**：失败镜暂无画布内重试按钮（retryShot 通道已有，UI 未挂）。
 - **5.3 合成入口**：成片当前跳经典视图承载合成/另存；画布内直合成后置。
 - **1.3 / 3.3 / 7.4**：基线功能对齐表、LLM 降级非阻断回显、视觉回归 + E2E 适配未完成。
 - **实现约定**：`src/` 渲染端模块必须用 ESM 命名导出（`module.exports` 在 vitest 可过但 Rollup `vite build` 会报 "not exported"，CI build/electron-tests/gui-test 三门禁拦截）。
+
+### 12.6 引擎侧参考图消费合同（tasks 4.3 已收口，主进程 `video-reference-inputs.js` + `video-gen.js`）
+
+**数据流**：画布连线 → `buildGeneratePayload` 产出 `localReferences: [{shotId, paths}]`（paths 为 upload-reference IPC 返回的受控根内绝对路径）→ `initialContext` → `film_generate_videos` 执行器逐镜解析为 provider 参考输入参数。
+
+**能力探测（显式映射表，保守默认不支持）**：`VIDEO_REFERENCE_PARAM_BY_PROVIDER = { minimax: 'firstFrameImage', 'agnes-video': 'image', 'agnes-multimodal': 'image' }`（均经 adapter 源码核实）。不扩张 `BaseAdapter.KNOWN_METHODS`（避开“Adapter capability 单一来源”铁律）；未列入的 provider（seedance/kling/veo/mock 等）一律视为不支持。
+
+**数据校验（纵深防御，不信任边界第二道闸）**：
+- 形状归一化 `normalizeLocalReferences`：非数组/非对象条目/空 shotId/paths 非数组/非字符串路径一律防御跳过，绝不抛异常；
+- 路径必须 `path.resolve` 后位于受控媒体根（`os.tmpdir()/film-engineering`，与 reference-store 落盘根同值）内，越界（含 `..` 遍历/绝对路径外指）**不读取内容只报告** `outside-media-root`；
+- 文件必须存在、是普通文件、≤10MB（读取侧兜底）、魔数嗅探通过（只认 PNG/JPEG/WEBP，不信扩展名）；
+- 合法图片编码为 `data:image/<mime>;base64,...` 注入对应参数（首帧语义：一镜多参考 v1 取首个有效；部分无效跳过并追加“部分参考无效已跳过” warning）。
+
+**降级与提示（不静默失败、不阻断出片）**：
+- provider 不支持参考输入但有连线 → 该镜降级纯文本生成，`output.referenceWarnings: [{shotId, reason}]` 明示（reason 含 providerId）；
+- 参考全部不可用（不存在/越界/嗅探失败）→ 不注入但 warning 汇总，镜仍照常出片；
+- 无 `localReferences`（含空数组）→ 行为与既有逐字节一致（向后兼容，载荷无参考字段、无 warning 键）。
+
+**成本确认卡增量**：`costCheck.references = { shotsWithReferences, providerSupportsReference }`，前端确认卡可据此显示“N 镜携带参考图，当前 provider 支持/不支持参考输入”；闸前仍零 provider 调用。
+
+**测试**：`video-reference-inputs.test.js`（10 用例：探测/归一化/注入/降级/越界拒绝）+ `video-gen.test.js` 集成 describe（5 用例：向后兼容/能力内注入/能力降级/路径安全/成本卡摘要），共 15 用例；回归覆盖 film-engineering 全目录 207 用例。

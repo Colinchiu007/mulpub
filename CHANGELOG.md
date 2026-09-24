@@ -1,3 +1,15 @@
+# [未发布] feat(影视工程): 画布参考图引擎侧消费闭环（tasks 4.3）——连线注入→provider 参考输入→能力降级提示（2026-09-24，film-engineering-canvas）
+
+### 变更
+- **`apps/desktop/electron/services/film-engineering/video-reference-inputs.js`**（新）：显式映射表（minimax/agnes-video/agnes-multimodal → 参考参数名，未列入保守视为不支持）；`normalizeLocalReferences` 形状归一化防御；受控媒体根内路径纵深校验（越界不读只报）+ 魔数嗅探 → dataURL 首帧注入。
+- **`video-gen.js`**：`film_generate_videos` 消费 `context.localReferences`（缺省行为逐字节不变）；不支持参考的 provider 降级纯文本出片 + `output.referenceWarnings` 明示；`costCheck.references` 确认卡新增参考摘要。
+
+### 测试
+- `video-reference-inputs.test.js`（10 用例）+ `video-gen.test.js` 集成 describe（5 用例）；film-engineering 全目录 207 用例回归全绿。
+
+### 文档
+- PRD §12.6 新增引擎侧参考图消费合同；tasks.md 4.3 勾选。
+
 # [未发布] feat(影视工程): 短剧画布 v1 最小闭环——剧本→拆分镜→连线注入参考→逐镜生成→成片（2026-09-24，film-engineering-canvas，PR #2342）
 
 ### 变更
