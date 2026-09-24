@@ -2353,14 +2353,15 @@ export default {
       "statusGenerating": "Generating",
       "statusDone": "Done",
       "statusFailed": "Failed",
-      "adapt": { "btn": "Split shots", "done": "Generated {n} shots", "scriptLimitHint": "Script up to 10000 characters", "emptyScript": "Script cannot be empty", "scriptTooLong": "Script exceeds the 10000-character limit", "failed": "Shot split failed, please retry" },
+      "adapt": { "btn": "Split shots", "done": "Generated {n} shots", "scriptLimitHint": "Script up to 10000 characters", "emptyScript": "Script cannot be empty", "scriptTooLong": "Script exceeds the 10000-character limit", "failed": "Shot split failed, please retry", "llmFallback": "LLM polish did not apply this time; shots were generated with the built-in rule engine." },
       "upload": { "character": "Upload character ref", "scene": "Upload scene ref", "ok": "Reference added" },
       "generate": { "btn": "Generate selected", "none": "Select the shot nodes to generate first" },
       "toolbar": { "clear": "Clear canvas", "classic": "Classic view", "cancel": "Cancel", "confirmCost": "Confirm cost & generate" },
       "cost": { "title": "Cost confirmation", "hint": "Videos will be generated for {n} shots; billing starts only after you confirm." },
       "final": { "title": "Final film generated", "open": "Open classic view to view / export" },
       "ref": { "invalidFile": "Failed to read the file", "badType": "Only PNG / JPEG / WEBP images are supported", "tooLarge": "Reference exceeds the 10MB limit", "uploadFailed": "Reference upload failed" },
-      "edgeRule": { "sameNode": "Cannot connect to itself", "duplicate": "This edge already exists", "unknownType": "Unknown node type", "unsupportedPair": "Only Reference to Shot edges are supported" }
+      "edgeRule": { "sameNode": "Cannot connect to itself", "duplicate": "This edge already exists", "unknownType": "Unknown node type", "unsupportedPair": "Only Reference to Shot edges are supported" },
+      "retry": { "failed": "Shot retry failed. Please try again later or continue in the classic view." }
     },
   },
 

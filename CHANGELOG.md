@@ -1,3 +1,19 @@
+# [未发布] feat(影视工程): 短剧画布 v2 收口——LLM 降级回显 / 失败单镜就地重试 / 成片画布内取用 / E2E 双段适配（2026-09-24，film-engineering-canvas）
+
+### 变更
+- **`FilmCanvasView.vue`**：3.3 拆分镜后 `llmEnhanced !== true` 且勾选润色 → 追加非阻断 warning（`canvas.adapt.llmFallback`）；5.2 `onRetryShot(shotId)` 经 `findShotResultIndex` fail-closed 定位 run 快照 index 调 `retryShot`，通道失败回显 `canvas.retry.failed`；5.3 done banner 新增「打开所在文件夹/另存」（复用 `story2videoShowInFolder`/`story2videoSaveAs` 合同）。
+- **`ShotNode.vue`**：failed 态渲染「重试」按钮（`shot-retry`，`@click.stop` emit shotId，脏数据无 shotId 不渲染）。
+- **`film-canvas-model.js`**：新增纯函数 `findShotResultIndex`（非数组/空串/非负整数 index/未命中一律 null；重复 shotId 取首个）。
+- **E2E（7.4）**：`film-engineering-real.js` 双段化——画布主流程（落 `.film-canvas-view`、拆分镜生 shot 节点、生成入口启用）+ 经典段（`#/film-engineering/classic`）全量保留；像素 idle 基线不受影响（新增元素均 v-if）。
+- **i18n**：成对新增 `filmEngineering.canvas.adapt.llmFallback`、`filmEngineering.canvas.retry.failed`（zh/en，Gate7 绿）。
+
+### 测试
+- 新增 `FilmCanvasView.actions.test.js`（8 用例）+ `ShotNode.test.js`（4 用例）+ `findShotResultIndex` describe（3 用例）；film-canvas 全家桶 53 用例、视觉契约 29 用例、e2e 契约 2 用例全绿；ESLint 与 6 项静态门禁 PASS。
+
+### 文档
+- PRD 新增 §12.7 v2 增量细则（数据校验/交互/显示项/文案合同）；`openspec/changes/film-engineering-canvas/baseline-audit.md`（1.3 基线 13 项对齐表）；tasks.md 1.3/3.3/5.2/5.3/7.4 勾选收口。
+
+---
 # [未发布] fix(今日头条): 应用运行中突然崩溃退出根治——toutiao 登录检测隐藏浏览器渲染崩溃守卫（2026-09-24，toutiao-render-crash-guard）
 
 ### 变更
@@ -12,6 +28,8 @@
 ### 关联
 - Code Review：无 CRITICAL/MAJOR；MINOR-1 已补「两个渲染崩溃 Set 插入点不同、不可合并」对照注释。
 - 根因排查与修复见 PR #2353。
+
+---
 
 # [未发布] feat(影视工程): 画布参考图引擎侧消费闭环（tasks 4.3）——连线注入→provider 参考输入→能力降级提示（2026-09-24，film-engineering-canvas）
 
