@@ -138,3 +138,44 @@ buildPostData_v2 = ($,S,T,N,P,O) => async {   // $=载荷(标题/文案/封面�
 ########## ree-public-key@2671737 (publish$4 create_v2 头组 K 提取，逐字) ##########
 let K="";$!=null&&$.includes("bd_ticket_guard_client_data=")?K=JSON.parse(Buffer.from(decodeURIComponent((te=(ne=$.split("bd_ticket_guard_client_data=")[1])==null?void 0:ne.split(";")[0])==null?void 0:te.trim()),"base64").toString("utf-8"))["bd-ticket-guard-ree-public-key"]:$!=null&&$.includes("bd_ticket_guard_client_data_v2=")&&(K=JSON.parse(Buffer.from(decodeURIComponent((ue=(oe=$.split("bd_ticket_guard_client_data_v2=")[1])==null?void 0:oe.split(";")[0])==null?void 0:ue.trim()),"base64").toString("utf-8")).ree_public_key)
 // 结论：plain 优先（键 "bd-ticket-guard-ree-public-key"），否则 _v2（键 .ree_public_key）；均无则 K=""
+
+########## W2 抖音上传链 commit/finish 补探（tasks 1.1 延伸，探针 w2-probe-uploadpart-48/commit-49，2026-09-24）##########
+# 源 bundle size=8401332 / SHA256=EC829DA4...8008BC 校验完好。以下均为平台公开接口常量与字段名，无真实私钥/cookie/AK/SK；中文明示报错以 [zh-msg] 占位（源为 mojibake）。
+
+########## uploadVideoPart$2@2663266 (视频分片 transfer，★POST 非 PUT，service=vod) ##########
+uploadVideoPart$2 = (buf, S=partNum, T=partSize, N=userId, P=uploadId, O=applyResult, M=proxy) => {
+  let U = O?.Result?.InnerUploadAddress?.UploadNodes[0];
+  UploadNodes.length>1 && (!U.SessionKey || !U.UploadHost || !U.StoreInfos?.length) && (U = ...UploadNodes[1]);
+  let L = crc.crc32(buf).toString(16).replace("-",""); for (; L.length<8; ) L = `0${L}`;   // 补零至 8 hex
+  const K = {"Content-CRC32":L, Authorization:U?.StoreInfos[0].Auth, "Content-Type":"application/octet-stream", "X-Storage-U":N, "User-Agent":UA, Referer:"https://creator.douyin.com/creator-micro/content/publish?enter_from=publish_page", Origin:"https://creator.douyin.com/"};
+  const W = `https://${U.UploadHost}/upload/v1/${U.StoreInfos[0]?.StoreUri}?uploadid=${P}&part_number=${S}&phase=transfer&part_offset=${(S-1)*T}`;
+  let V = await http.post(W, Buffer.from(buf), {retryCondition:!isJson, headers:K, proxy:M});
+  V.status!=403 && !(V.data&&typeof V.data=="object") && (V = await http.post(W, Buffer.from(buf), {headers:K}));   // 单次降级重试
+  V.data&&typeof V.data=="object" && (V.data.partNum=S, ...crc 校验由上层 uploadVideo$8 消费)
+  return V.data;
+}
+
+########## 视频 finish phase=finish @2665400 ##########
+const M={Authorization:O?.StoreInfos[0].Auth,"Content-Type":"text/plain;charset=UTF-8",Referer:"https://creator.douyin.com/creator-micro/content/publish?enter_from=publish_page",Origin:"https://creator.douyin.com/","X-Storage-U":$,"User-Agent":UA};
+const U=`https://${O.UploadHost}/upload/v1/${O.StoreInfos[0]?.StoreUri}?uploadid=${S}&phase=finish&uploadmode=part`;
+POST(U, T=partsBody, {retryCondition:!isJson, headers:M}) -> L.data
+
+########## 视频 CommitUploadInner @2666200 (aws4 拦截实例 T，service=vod) ##########
+const O={SessionKey:P?.SessionKey, Functions:[{name:"GetMeta"},{name:"Snapshot",input:{SnapshotTime:0}}]};   // P=applyResult.UploadNodes[0]（多节点回退[1]）
+const M={Referer:"https://creator.douyin.com/creator-micro/content/publish?enter_from=publish_page",Origin:"https://creator.douyin.com","User-Agent":UA,"X-Amz-Content-Sha256":CalcSha256Hex$2(JSON.stringify(O))};
+T.post("https://vod.bytedanceapi.com", O, {retryCondition:!isJson, headers:M, params:{Action:"CommitUploadInner",Version:"2020-11-19",SpaceName:"aweme",app_id:2906,user_id:$}}) -> U.data
+# 结果：Result.Results[0].Vid = videoId（buildPostData_v2 读取）
+
+########## 封面 apply ApplyImageUpload @840668 (imagex) ##########
+GET https://imagex.bytedanceapi.com params{Action:"ApplyImageUpload",Version:"2018-08-01",ServiceId:"jm8ajry58r",app_id:2906,user_id:$,s:rand} headers{Origin:"https://creator.douyin.com","User-Agent":UA} retryCondition:!isJson -> Result.InnerUploadAddress.UploadNodes
+########## 封面单传 uploadImage$b @841421 (★POST，无 query) ##########
+M={"Content-CRC32":crc.crc32(buf).toString(16).replace("-",""),Authorization:P?.StoreInfos[0].Auth,"Content-Type":"application/octet-stream","X-Storage-U":$,"User-Agent":UA,referer:".../content/publish?enter_from=publish_page"}
+POST `https://${P.UploadHost}/upload/v1/${P.StoreInfos[0].StoreUri}` body=buf -> res(.data.crc32 存在即成功)
+########## 封面 CommitImageUpload @842511 (aws4 实例 S，service=imagex) ##########
+P={SessionKey:T.Result.InnerUploadAddress.UploadNodes[0].SessionKey}
+S.post("https://imagex.bytedanceapi.com",P,{headers:{User-Agent,Accept:"*/*",Origin:"https://creator.douyin.com",Referer:".../content/publish?enter_from=publish_page","X-Amz-Content-Sha256":CalcSha256Hex$2(JSON.stringify(P))},params:{Action:"CommitImageUpload",Version:"2018-08-01",ServiceId:"jm8ajry58r",app_id:2906,user_id:$}} -> Result.Results[0].Uri = cover poster
+
+########## csrf/auth 逐字（@837894，供步骤 1/2）##########
+getSdkToken$2($,S=0): N=["https://creator.douyin.com/web/api/media/anchor/search","https://creator.douyin.com/web/api/media/aweme/create/","https://creator.douyin.com/aweme/v1/creator/homepage/module/"]; P=N[S%N.length]; HEAD(P,{headers:{cookie,Accept:"application/json, text/plain, */*",referer:"https://creator.douyin.com/content/upload","x-secsdk-csrf-request":1,"x-secsdk-csrf-version":"1.2.7"}}).headers["x-ware-csrf-token"].toString().split(",")[1] ?? ""
+getAuthKey$2($): GET https://creator.douyin.com/web/api/media/upload/auth/v5/ {retryCondition:!isJson, headers:{cookie,Accept,referer:".../content/publish?enter_from=publish_page"}} -> {auth(JSON str→{AccessKeyID,SecretAccessKey,SessionToken}), status_code, status_msg}
+

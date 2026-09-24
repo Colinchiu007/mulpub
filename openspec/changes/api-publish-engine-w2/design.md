@@ -34,14 +34,14 @@
    3a) apply：GET https://vod.bytedanceapi.com params{Action:"ApplyUploadInner", Version:"2020-11-19",
        SpaceName:"aweme", FileType:"video", IsInner:1, FileSize:size, app_id:2906, user_id, s:rand}
        retryCondition=!isJson → Result.InnerUploadAddress.UploadNodes[]（SessionKey/UploadHost/StoreInfos[].Auth/StoreUri）
-   3b) 分片：aws4 拦截 http 实例 PUT；partSize 默认 3145728(3MiB)，>500MB→5MiB，>1GB→10MiB
+   3b) 分片：aws4 拦截 http 实例，每片 ★POST（非 PUT）/upload/v1/{StoreUri}?uploadid&part_number&phase=transfer&part_offset；Content-CRC32 补零至 8 hex；partSize 默认 3145728(3MiB)，>500MB→5MiB，>1GB→10MiB
        size≤partSize 走单片；否则分片并发（在途上限 O，Promise.race 回收），每片 uploadVideoPart 校验 res.data.crc32，
        Map<partNum,crc32> 收齐（缺片 <总片数 → io_error）；uploadId = Guid
-   3c) finish/commit → Result.Results[0].Vid = videoId（字段名 Vid，已取证）
+   3c) finish：POST ?phase=finish&uploadmode=part（Content-Type text/plain）→ commit：POST vod CommitUploadInner body{SessionKey, Functions:[GetMeta,Snapshot{SnapshotTime:0}]} + X-Amz-Content-Sha256 → Result.Results[0].Vid = videoId（@2665400/@2666200 已取证）
 4) 封面（service:"imagex"，同源 aws4，region cn-north-1）：
    apply：GET https://imagex.bytedanceapi.com params{Action:"ApplyImageUpload", Version:"2018-08-01",
      ServiceId:"jm8ajry58r", app_id:2906, user_id, s:rand} → InnerUploadAddress.UploadNodes[0]
-   单 PUT `https://${UploadHost}/upload/v1/${StoreInfos[0].StoreUri}`
+   单 POST `https://${UploadHost}/upload/v1/${StoreInfos[0].StoreUri}`（无 query）→ CommitImageUpload body{SessionKey}+X-Amz-Content-Sha256
      headers{"Content-CRC32":crc32(buf).hex, "Authorization":StoreInfos[0].Auth, "Content-Type":octet-stream, "X-Storage-U":user_id}
    → Result.Results[0].Uri = poster/coverUri（字段名 Uri，已取证）
 5) 提交：POST create_v2/?read_aid=2906&cookie_enabled=true&...&aid=1128&support_h265=1
