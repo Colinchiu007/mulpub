@@ -2,7 +2,7 @@
 
 ## 1. 前置取证（design §1 硬约束：未取证块不得凭记忆实现）
 
-- [ ] 1.1 确认 bundle 完好（`D:\Data\yixiaoer-extracted\packages\main\dist\index.cjs`，8401332 bytes，SHA256 `EC829DA4…8008BC`；历史 `D:\Data\refpub-bundle` 路径已失效，见 design §1），从 bundle 补提抖音上传步骤逐字切片：getAuthKey v5 响应字段 → TOS/aws4 upload 全段（endpoint 选择、Key/Auth 字段名、分片 vs 单 PUT、finish 响应 → videoId 字段名）→ uploadCover 全段（coverUri/coverUrl 字段名），入 `01-docs/rpa-api-publish/evidence/`（真实私钥/cookie 值占位符化，品牌词纪律）
+- [ ] 1.1 按 design §1 的可复现定位法（`Get-ChildItem D:\Data -Recurse -Filter index.cjs` 取 size=8401332 且 SHA256=`EC829DA4…8008BC`，实际目录名存于会话记忆/EverOS，不入本 tracked 文档避 Gate 12）确认 bundle 完好，从中补提抖音上传步骤逐字切片：getAuthKey v5 响应字段 → TOS/aws4 upload 全段（endpoint 选择、Key/Auth 字段名、分片 vs 单 PUT、finish 响应 → videoId 字段名）→ uploadCover 全段（coverUri/coverUrl 字段名），入 `01-docs/rpa-api-publish/evidence/`（真实私钥/cookie 值与品牌词均占位符化，过品牌残留门禁）
 - [ ] 1.2 补提 `buildPostData_v2` body 字段逐字切片（title/video_id/cover/可见性私密草稿参数/AI 声明位），同入库并标注 bundle 偏移量
 - [ ] 1.3 依据 1.1/1.2 产物回填 design.md §2 步骤 2/3/4/5 的待钉字段名，消解所有「待 2.4/2.4 补提」标注
 - [ ] 1.4 新增 npm 依赖 `aws4`（本 W2 worktree 为 lockfile 唯一执行点）：`pnpm add aws4` 于 `packages/api-publish-engine`，最小消费冒烟（签名头含 Authorization/x-amz-date 钉结构），commit lockfile

@@ -11,7 +11,7 @@
 | clientSign 本地签名 | `yx-slices-v2b.txt douyin-clientSign@2673500`（双层解码 + SHA256/EC + base64 组装 + fail-closed throw） | ✅ |
 | buildPostData_v2 body 字段 | 截断段引用未展开 | ⚠️ 需 tasks 1.2 补提（title/video_id/cover/可见性/图文声明字段映射） |
 
-**取证事实源路径（本规划已核实）**：bundle 实际在 `D:\Data\yixiaoer-extracted\packages\main\dist\index.cjs`（8401332 bytes，SHA256 `EC829DA4CD41871B84D589537955AE875EEF08C9CC1AB08AB1BD856F3F8008BC`；与 `D:\Data\yixiaoer-asar-extract` 同字节）。历史文档中的 `D:\Data\refpub-bundle`（refpub 为参考产品厂商域）为陈旧路径，盘上已不存在。已核实 `@837894`（aws4Interceptor 注册段）/`@633934`（aws4 `AWS4-HMAC-SHA256` authHeader）逐字对齐，证明现有切片即源自本 bundle。
+**取证事实源（本规划已核实、遵守品牌词不入库红线 Gate 12）**：参考产品主进程 bundle 在本机已解包且完好——大小 `8401332` bytes、SHA256 `EC829DA4CD41871B84D589537955AE875EEF08C9CC1AB08AB1BD856F3F8008BC`（两份解包副本字节一致）。**真实本机目录名含参考产品品牌词，按红线不得写入本 tracked 文档**；apply 阶段用品牌词无关的可复现定位法寻回：`Get-ChildItem D:\Data -Recurse -Filter index.cjs | Where { $_.Length -eq 8401332 }`，再以 SHA256 确认（实际路径已同步至内置记忆与 EverOS）。历史文档记录的 `D:\Data\refpub-bundle` 为陈旧路径（refpub 系参考产品厂商域，非门禁品牌词），盘上已不存在。已核实 `@837894`（aws4Interceptor 注册段）/`@633934`（aws4 `AWS4-HMAC-SHA256` authHeader）逐字对齐，证明现有切片即源自本 bundle。
 
 **实现顺序硬约束**：tasks 1.1/1.2 取证未完成的 upload/body 两块，对应实现任务不得凭记忆先行（禁止臆造契约，见 AGENTS 供应商契约会则）；已在手证据的 4 块可即刻 TDD。
 
