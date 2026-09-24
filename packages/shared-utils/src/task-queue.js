@@ -525,7 +525,8 @@ class TaskQueue extends EventEmitter {
       if (task.cancelRequested || task.status === 'cancelled') return
       task.error = e.message
 
-      if (task.retriesLeft > 0) {
+      // 风控即停等不可重试错误（e.noRetry）直接判失败，不进入重试环
+      if (!e.noRetry && task.retriesLeft > 0) {
         task.retriesLeft--
         task.status = 'pending'
         this.emit('task:retry', task)

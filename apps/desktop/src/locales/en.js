@@ -179,6 +179,12 @@ export default {
       modeFallbackHint: 'API publish unavailable; automatically fell back to browser publish',
     },
     riskHold: {
+
+      suspended: 'Risk control detected. {count} publish target(s) including "{platform}" have been paused automatically. Confirm on the platform side, then resume manually',
+      resumeConfirm: 'Resume publishing to "{platform}"? Make sure the risk control is lifted on the platform side, otherwise it will pause again',
+      resumed: 'Resumed publishing to "{platform}"',
+      resumeFailed: 'Failed to resume publishing: {message}',
+      resume: 'Resume publishing',
       body: 'Risk control detected while publishing to "{platform}". Check this account status before publishing again',
     },
   },

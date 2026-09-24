@@ -352,3 +352,90 @@ describe('useTabStore 凭证保存态（批量登录保存三方案）', () => {
     expect(r).toMatchObject({ isAccountTab: true, credentialSaveState: 'unsaved' })
   })
 })
+
+describe("useTabStore home-shell 聚焦态与 spaRoute 同步（方案 B 侧边栏跟随）", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    window.electronAPI = {};
+  });
+
+  afterEach(() => {
+    delete window.electronAPI;
+  });
+
+  function createShellTabApi() {
+    const shellTab = {
+      tabId: "shell-1",
+      url: "",
+      title: "新标签页",
+      loading: false,
+      canGoBack: false,
+      canGoForward: false,
+      isActive: true,
+      isHome: false,
+      homeShell: true,
+      spaRoute: "/collection",
+    };
+    return createPageManagerApi({
+      getAllTabs: vi.fn().mockResolvedValue({
+        code: 0,
+        data: [
+          {
+            tabId: "home",
+            url: "",
+            title: "首页",
+            loading: false,
+            canGoBack: false,
+            canGoForward: false,
+            isActive: false,
+            isHome: true,
+          },
+          shellTab,
+        ],
+      }),
+      getActiveTab: vi.fn().mockResolvedValue({ code: 0, data: { ...shellTab } }),
+    });
+  }
+
+  it("聚焦标签 homeShell=true 时 activeTabIsHomeShell 为 true", async () => {
+    const { api } = createShellTabApi();
+    window.electronAPI.pageManager = api;
+    const store = useTabStore();
+
+    await store.init();
+
+    expect(store.activeTabId).toBe("shell-1");
+    expect(store.activeTabIsHomeShell).toBe(true);
+    expect(store.isHomeTab).toBe(false);
+  });
+
+  it("onNavigationChanged 携带 spaRoute/homeShell 时实时更新对应 tab", async () => {
+    const { api, handlers } = createShellTabApi();
+    window.electronAPI.pageManager = api;
+    const store = useTabStore();
+
+    await store.init();
+    handlers.get("navigation-changed")({
+      tabId: "shell-1",
+      url: "",
+      title: "新标签页",
+      homeShell: true,
+      spaRoute: "/publish",
+    });
+
+    const tab = store.tabs.find((t) => t.tabId === "shell-1");
+    expect(tab.spaRoute).toBe("/publish");
+    expect(tab.homeShell).toBe(true);
+  });
+
+  it("普通网页标签聚焦时 activeTabIsHomeShell 为 false（不误判）", async () => {
+    const { api } = createPageManagerApi();
+    window.electronAPI.pageManager = api;
+    const store = useTabStore();
+
+    await store.init();
+
+    expect(store.activeTabId).toBe("btab-1");
+    expect(store.activeTabIsHomeShell).toBe(false);
+  });
+});

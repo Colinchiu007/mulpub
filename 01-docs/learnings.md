@@ -15648,3 +15648,11 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **判态用被污染的字段 = 短路不发请求（pitfall，本次根因）**：`getConfig()` 把自动发现 URL 并入返回的 `url`，`_syncNowInner` 又用 `!cfg.url` 判"是否手动配置态"，零配置下 `url` 恒真 → 误判手动态却无 Key → 直接短路"未配置 Ops Center API Key"、同步根本不发起。读态字段与判态字段必须分离（新增 `_getManualUrl()` 读 raw 手动值，不与自动发现回退混用）。凡"用一个 getter 加工过的值再去判原始语义"，先疑短路。
 
 - **高权限下发通道的安全前置是有意成本，不是过度设计（pattern）**：runtime bootstrap 能改应用行为，故验签 fail-closed，打包版无自定义公钥锚直接 `NO_PRODUCTION_TRUST_ANCHOR` 跳过同步。这让"菜单生效"比"模型列表生效"多了后端配私钥 + 桌面配公钥两步。评估"为什么这么麻烦"时，先分清该内容类型是"展示数据"还是"行为配置"，后者重前置是设计意图，别为了省事把 fail-closed 改成 fail-open。
+
+## 共享外层 chrome 与内嵌实例的路由错位——「点菜单没反应」根因是驱动了被覆盖的不可见标签（shared-chrome-focus-nav，2026-09-24）
+
+- **现象（pitfall）**：在「+」新建的 home-shell 标签聚焦时，点击左侧共享侧边栏菜单项，当前标签毫无反应——实际路由跳转发生在被 `WebContentsView` 覆盖、用户不可见的第一个「首页」虚拟标签上，用户以为「点了没反应」。表面像路由 bug，实为「哪个文档在响应点击」的归属错位。
+- **根因溯源（第一性）**：共享 chrome 模型下 `MpSidebar` 只渲染在外层主窗口（内嵌 home-shell 实例按上游 PRD-TAB-INDEPENDENT-HOME 刻意不渲染 `MpSidebar` 以避免双份 chrome），但外层 `MpSidebar` 的 `<router-link>` 驱动的是外层主窗口自己的 vue-router 实例——它对应的是 home 虚拟标签，而非当前聚焦的 home-shell `WebContentsView`。可见的聚焦内容矩形与其路由控制器分属两个文档，点击自然「落空」。
+- **规则（pattern）**：混合架构（1 主 SPA + N 个 `WebContentsView`/iframe 内嵌独立文档）里，任何「跨文档共享的外层控件」要操作「当前聚焦的那个内嵌文档」，必须走**定向 IPC**而非依赖外层自身 router：外层点击 → 主进程按 activeTab 判定归属 → `view.webContents.send` 定向投递到该内嵌实例 → 实例订阅后在**自身** router 内跳转；内嵌文档路由变化再经 `did-navigate-in-page` 回传状态（`spaRoute`）广播给外层，令高亮跟随聚焦标签真实路由，而不是外层 route。
+- **可迁移信号（pattern）**：判断「点了没反应」类缺陷是否属于此类，先问三件事——(a) 被点击的控件渲染在哪个文档？(b) 它调用的路由/状态控制器属于哪个文档？(c) 用户视觉上聚焦的是哪个文档？三者不一致即为 chrome/内容错位，修法是把「控制域」对齐到「聚焦域」，而非在错误控制器上打补丁。
+- **回归保护（QM-5④）**：新增 home-shell 定向导航必须同时覆盖——受理路径（活动标签为存活 home-shell → `handled:true` 且定向 send）、非法/非 home-shell/视图已销毁 → `handled:false` fail-open 回退到外层；侧边栏 `navPath` computed 在 home-shell 聚焦时读 `activeTab.spaRoute`、否则读 `route.path`；内嵌实例 `on('home-shell-navigate')` 订阅 + `onBeforeUnmount` 对称退订。仅测外层 router.push 会漏掉整条跨文档链路。

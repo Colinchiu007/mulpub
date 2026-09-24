@@ -65,6 +65,7 @@ const PUBLISH_METHODS = [
   'schedulerCreate', 'schedulerList', 'schedulerCancel',
   'onProgress',
   'onRiskHold',
+  'onRiskSuspended', 'listSuspendedRisk', 'resumeRisk', 'isSuspendedRisk',
   'pipelineList', 'pipelineGet', 'pipelineStart', 'pipelinePause', 'pipelineResume',
   'pipelineCancel', 'pipelineStatus', 'pipelineAdvance', 'pipelineHistory', 'pipelineFetch',
   'pipelineStartOrchestrated', 'pipelineExecuteStage',
@@ -194,10 +195,10 @@ describe('preload 子模块工厂函数', () => {
 
 // === 总方法数验证（防止漏迁移或重复）===
 describe('preload 子模块方法数', () => {
-  it('publish 模块应导出 119 个键（pipelineConfirmStageGate + P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + urlCollectNeedsStealth + renderStartAiVideo + PR-2 F8 getRecentImpactSnapshots）', () => {
+  it('publish 模块应导出 123 个键（W1 §5 enforcement：+onRiskSuspended/listSuspendedRisk/resumeRisk/isSuspendedRisk）', () => {
     const { createPublishApi } = require('./preload/publish')
     const r = createPublishApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(119)
+    expect(Object.keys(r).length).toBe(123)
   })
 
   it('account 模块应导出 46 个方法', () => {
@@ -221,11 +222,11 @@ describe('preload 子模块方法数', () => {
   })
 
   it('合并后 api 总键数应为 320（accountSetActive + pipelineConfirmStageGate + P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus/servicesRestart + urlCollectNeedsStealth + promptLibraryGet/Save/Activate + updateInstallNow + opsCenterSyncAppMenu + onUploadProgress + renderStartAiVideo + PR-2 F8 getRecentImpactSnapshots - webview 分屏监控 API 移除）', () => {
-    expect(Object.keys(api).length).toBe(321)
+    expect(Object.keys(api).length).toBe(325)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
-    expect(PUBLISH_METHODS.length).toBe(83)
+    expect(PUBLISH_METHODS.length).toBe(87)
     expect(PUBLISH_METHODS).toEqual(expect.arrayContaining([
       'pipelineStartOrchestrated',
       'pipelineExecuteStage',

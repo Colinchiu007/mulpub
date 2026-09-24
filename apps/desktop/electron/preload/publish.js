@@ -123,6 +123,15 @@ function createPublishApi(ipcRenderer, options = {}) {
       ipcRenderer.on('publish:risk-hold', handler)
       return () => ipcRenderer.removeListener('publish:risk-hold', handler)
     },
+    // W1 §5 enforcement：风控挂起清单查询/显式恢复 + 挂起状态变更广播
+    onRiskSuspended: (callback) => {
+      const handler = (_, data) => callback(data)
+      ipcRenderer.on('publish:risk-suspended', handler)
+      return () => ipcRenderer.removeListener('publish:risk-suspended', handler)
+    },
+    listSuspendedRisk: () => ipcRenderer.invoke('publishRisk:listSuspended'),
+    resumeRisk: (payload) => ipcRenderer.invoke('publishRisk:resume', payload),
+    isSuspendedRisk: (payload) => ipcRenderer.invoke('publishRisk:isSuspended', payload),
 
     // Pipeline 流水线 API（Phase 3）
     pipelineList: () => ipcRenderer.invoke('pipeline:list'),

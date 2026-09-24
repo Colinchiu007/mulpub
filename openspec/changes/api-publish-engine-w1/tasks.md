@@ -32,12 +32,14 @@
 - [x] 5.2 `publishWithMode()`：api-then-dom 降级落 DOM、risk/login 不降级；结构化日志 `degraded+reasonCode`（§5.2 执行包装 publish-mode-runner.js 已交付，19 例 TDD，见 PRD §12.5；与 §4 链/index.publishViaApi 接线成产品入口随 §5.1/§5.4 落地；§5.1/§5.4 已交付，且 §5 服务入口已在 index.js 组装为 publishWithMode 单例（publish-service.js），四件套统一入口收口完成，见 PRD §12.7）
 - [x] 5.3 18min 频控（虚拟时钟边界单测 17:59 拒 / 18:01 放）
 - [x] 5.4 risk_blocked 挂起该平台/账号 + 通知（恢复/停止），不影响其他平台/账号（`risk-suspender.createRiskSuspender` 纯内存、账号级默认、幂等单次通知、显式 resume；与 `publishWithMode` 联动：入口挂起守卫零请求、风控命中即挂起、login 不挂起；risk-suspender.test.js 14 例 TDD，见 PRD §12.6）
+- [x] 5.5 桌面端 enforcement 实现切片（2026-09-24，设计 §12.14 四点 decided → 实现确认 PRD §12.15）：桌面 `riskSuspender` DI 单例（`electron/services/risk-suspender-store.js` 复用引擎纯逻辑 + store 键 `publish.riskSuspended` 持久化懒水合）；`bootstrap.js` setExecutor 派发前置守卫命中挂起 → 抛 `RiskSuspendedError`（noRetry=true → shared-utils task-queue 跳过重试直接 failed）、`createPublisher` 零调用；`phase4-events.js` 风控命中即 suspend（platform+accountId 复合键，accountId 缺失降平台级）+ `publish:risk-suspended` 全量清单权威广播；IPC `publishRisk.{listSuspended,resume,isSuspended}` + preload `onRiskSuspended`（bundle 重建同 commit）；渲染层 `risk-suspended-tracker.js`（纯 DI，onChange 单向镜像）+ `stores/risk.js`（Pinia）+ 账号页 `RiskSuspendedBanner.vue`（仅挂起时渲染，恢复必经 notifyConfirm 人工确认，绝不自动恢复/换号）；i18n `publish.riskHold.*` 5 键（zh/en 成对）。全绿：合并回归 710 + tracker 14 + store 8 + banner 3 + ipc 5 + store服务 16 + task-queue 23；Gate7 --keys/--cjk、Gate11、Gate12 PASS。端到端真实风控验收绑 §7
 
 ## 6. UI 显示项 + i18n
 
 - [ ] 6.1 发布记录「发布方式」徽标三态 + 详情分片历史；locale 成对 `publish.api.*`（zh/en）
 > §5.4 桌面风控挂起信号生产端已落地（随本波 §6.1 后端 PR，见 PRD §12.12）：`publish-risk.js` `isRiskBlocked(task.error)` + `phase4-events.js` `task:failed` 命中发 `publish:risk-hold`（{platform,accountId,taskId,error}），为 §6.1 通知中心消费契约。待办：渲染层通知 UI（恢复/停止）+ preload onRiskHold + 桌面 riskSuspender 接队列派发前置守卫（真正挂起后续发布，端到端验收绑定 §7 真实风控触发）。
 > §6.1 风控挂起通知「消费端」已落地（随本波，见 PRD §12.13）：`preload.onRiskHold` → `api/publisher.onRiskHold` → `risk-hold-notifier.js`（纯 DI，规整事件 + 近端列表上限 50）→ `main.js` 经统一通知通道 `useNotify.notifyWarning('publish.riskHold.body')` 弹 warning toast；i18n `publish.riskHold.body`（zh/en 成对）。仅信息提示（不声明已暂停/自动恢复）。待办：桌面 `riskSuspender` 接发布队列派发前置守卫（真正挂起后续发布）+ 通知内「恢复/停止」action（§5 架构切片，端到端验收绑定 §7 真实风控触发）。
+> §5 enforcement 实现切片已收口上述待办（2026-09-24，见任务 5.5 与 PRD §12.15）：桌面 riskSuspender 已接发布队列派发前置守卫（命中挂起零请求直接 failed 不重试）、渲染层已交付挂起横幅与「恢复发布」人工确认 action；真实风控触发的端到端挂起验收随 §7 活体轮执行。
 
 > §6.1 徽标三态已落地（随本波 §6.1 PR，见 PRD §12.10）：`PublishHistory.vue` 记录卡按 `record.result.mode` 渲染「发布方式」徽标 api/dom/fallback 三态 + `publish.api.*` locale（zh/en 成对，i18n.test.js 校验）；无 mode 向后兼容不渲染。待办：本项「详情分片历史」（详情弹窗按平台分片展示子结果与 mode）随 §7 活体轮一并落地。
 > §6.1 详情分片增强已落地（随本波 §6.1 PR，见 PRD §12.11）：详情弹窗按 `record.result` 展示发布方式（api/dom/fallback）、作品 ID（`postId`）、作品链接（`url`，外链 `target=_blank rel=noopener`）；无对应字段则该行隐藏（旧记录向后兼容）。多平台「一记录多子结果」的完整分片列表待平台适配器把子结果数组写入 `result.subResults` 后扩展（随 §7）。
