@@ -164,17 +164,21 @@ describe('接线守卫：采集能力必须被真实入口调用（防装饰性�
   })
 
   it('三条真实登录入口都产出 accountInfo（不再是零调用的 account:add 死通道）', () => {
-    for (const p of ['../services/auth-view-manager', '../services/qrcode-login', '../services/webview-manager']) {
+    // webview-manager 拆分后账号资料采集调用落在 credential-saver.js 子模块
+    const webviewManagerSrc = read('../services/webview-manager/credential-saver')
+    for (const p of ['../services/auth-view-manager', '../services/qrcode-login']) {
       const src = read(p)
       expect(src, p + ' 必须调用账号资料采集器').toMatch(/collectWithWebContents|extractAccountInfoFromWebContents/)
       expect(src, p + ' 必须把采集结果随凭证一起落库').toMatch(/accountInfo/)
     }
+    expect(webviewManagerSrc, 'webview-manager 必须调用账号资料采集器').toMatch(/collectWithWebContents|extractAccountInfoFromWebContents/)
+    expect(webviewManagerSrc, 'webview-manager 必须把采集结果随凭证一起落库').toMatch(/accountInfo/)
   })
 
   it('采集实现单一来源：主进程与三个服务不得各自复制一份 DOM 采集', () => {
     const src = read(modulePath)
     expect((src.match(/og:image/g) || []).length, 'DOM 采集只允许存在于 shared-utils').toBeLessThanOrEqual(0)
     expect((read('../services/auth-view-manager').match(/og:image/g) || []).length).toBe(0)
-    expect((read('../services/webview-manager').match(/og:image/g) || []).length).toBe(0)
+    expect((read('../services/webview-manager/credential-saver').match(/og:image/g) || []).length).toBe(0)
   })
 })

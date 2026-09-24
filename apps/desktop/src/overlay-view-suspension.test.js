@@ -23,7 +23,12 @@ const ROOT = path.resolve(__dirname, '..')
 
 describe('弹窗互斥：静态链路完整性', () => {
   it('webview-manager 注册挂起/恢复 IPC handler 与方法', () => {
-    const src = fs.readFileSync(path.join(ROOT, 'electron/services/webview-manager.js'), 'utf8')
+    // webview-manager 拆分后合读各子模块
+    const src = [
+      'electron/services/webview-manager/index.js',
+      'electron/services/webview-manager/layout.js',
+      'electron/services/webview-manager/ipc-handlers.js'
+    ].map(f => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n')
     expect(src).toContain("ipcMain.handle('page-manager:suspend-embedded-views'")
     expect(src).toContain("ipcMain.handle('page-manager:resume-embedded-views'")
     expect(src).toContain('suspendEmbeddedViewsForOverlay (owner)')
@@ -33,7 +38,12 @@ describe('弹窗互斥：静态链路完整性', () => {
   })
 
   it('挂起期间不得恢复可见性：_repositionAll / createNewTabPage / switchToTab 均有守卫', () => {
-    const src = fs.readFileSync(path.join(ROOT, 'electron/services/webview-manager.js'), 'utf8')
+    const src = [
+      'electron/services/webview-manager/index.js',
+      'electron/services/webview-manager/layout.js',
+      'electron/services/webview-manager/tab-lifecycle.js',
+      'electron/services/webview-manager/tab-query.js'
+    ].map(f => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n')
     // _repositionAll：挂起时隐藏全部标签并直接返回，不 setVisible(true)
     expect(src).toMatch(/_repositionAll \(\) \{[\s\S]*?if \(this\.isEmbeddedViewsSuspended\(\)\) \{\s*this\._hideAllTabs\(\)\s*return\s*\}/)
     // createNewTabPage：挂起时新标签以隐藏态挂载
