@@ -15,6 +15,12 @@ const SAFE_IDENTIFIER = /^[a-zA-Z0-9_-]+$/
 // 稳定后再保存，避免把加载中间态的半截导航误判为登录成功（对齐 auth-view-manager 的 3s 自动完成，此处略短）。
 const AUTO_SAVE_DEBOUNCE_MS = 1500
 
+// CDP addScriptToEvaluateOnNewDocument 的完成时限（毫秒）。根因（2026-09-24 头条
+// 账号标签事故）：该命令在部分账号分区可永久挂起（标签存活期内从未返回），而首个
+// 导航被门控在注入 promise 之后 → 页面「一直加载不出来」。超时降级旧
+// did-finish-load 补注入路径（fail-open）：导航不得被 CDP 无限期阻塞。
+const LS_INJECTION_TIMEOUT_MS = 2500
+
 // 固定首页标签 ID（对齐参考产品：第 1 个标签永远是应用主页，不可关闭，不占用真实 WebContentsView）
 const HOME_TAB_ID = 'home'
 
@@ -31,6 +37,7 @@ module.exports = {
   SIDEBAR_WIDTH_DEFAULT,
   SAFE_IDENTIFIER,
   AUTO_SAVE_DEBOUNCE_MS,
+  LS_INJECTION_TIMEOUT_MS,
   HOME_TAB_ID,
   AUTH_TAB_ID,
   HOME_SHELL_PARAM

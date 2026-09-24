@@ -10,6 +10,7 @@ const os = require('os')
 const { pathToFileURL } = require('url')
 const { config, getUrl } = require('../../config/app-config')
 const { HOME_SHELL_PARAM } = require('./constants')
+const { LS_INJECTION_TIMEOUT_MS } = require('./constants')
 
 function _getUserDataDir () {
   try { return app.getPath('userData') } catch (e) { return path.join(os.homedir(), '.multi-publish') }
@@ -38,20 +39,33 @@ function _injectLocalStorageAtDocumentStart (view, script) {
       log.warn('WebviewManager', 'debugger attach failed, LS early injection fallback: ' + ((e && e.message) || 'unknown'))
       return false
     }
-    return Promise.resolve(dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: script }))
-      .then(function () {
+    var pending = Promise.resolve(dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: script }))
+    // 挂起防护：sendCommand 可能永不 resolve/reject（2026-09-24 头条事故），用超时
+    // 竞态封顶首个导航的阻塞时长。迟到的成功仍会让注入对后续导航生效（localStorage
+    // 写入幂等，无害）；迟到的失败已在下方收敛为 outcome，不外溢 unhandled rejection。
+    var settled = new Promise(function (resolve) {
+      var timer = setTimeout(function () { resolve('timeout') }, LS_INJECTION_TIMEOUT_MS)
+      if (timer && typeof timer.unref === 'function') timer.unref()
+      pending.then(function () { clearTimeout(timer); resolve('ok') },
+        function (e) { clearTimeout(timer); resolve({ error: e }) })
+    })
+    return settled.then(function (outcome) {
+      if (outcome === 'ok') {
         try {
           view.webContents.once('did-navigate', function () {
             try { dbg.detach() } catch (_) { /* already detached */ }
           })
         } catch (_) { /* once 不可用时保持 attach，webContents 销毁会一并释放 */ }
         return true
-      })
-      .catch(function (e2) {
-        log.warn('WebviewManager', 'addScriptToEvaluateOnNewDocument failed, LS early injection fallback: ' + ((e2 && e2.message) || 'unknown'))
-        try { dbg.detach() } catch (_) { /* ignore */ }
-        return false
-      })
+      }
+      if (outcome === 'timeout') {
+        log.warn('WebviewManager', 'addScriptToEvaluateOnNewDocument timed out after ' + LS_INJECTION_TIMEOUT_MS + 'ms (hung CDP command), LS early injection fallback')
+      } else {
+        log.warn('WebviewManager', 'addScriptToEvaluateOnNewDocument failed, LS early injection fallback: ' + ((outcome && outcome.error && outcome.error.message) || 'unknown'))
+      }
+      try { dbg.detach() } catch (_) { /* ignore（命令仍挂起时 detach 可能抛错，降级路径不依赖它） */ }
+      return false
+    })
   })
 }
 

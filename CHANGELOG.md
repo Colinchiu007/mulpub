@@ -1,3 +1,89 @@
+# [未发布] fix(webview): CDP 本地存储注入挂起改超时降级，首个导航不被无限门控（头条标签卡死事故回归对）（2026-09-24，fix-toutiao-tab-load-hang）
+
+### 变更
+- **`apps/desktop/electron/services/webview-manager.js`**：`Page.addScriptToEvaluateOnNewDocument` 在部分账号分区可永久挂起（2026-09-24 头条标签事故日志：命令在标签存活期内从未返回），而首个导航被门控在该 promise 之后，导致页面「一直加载不出来」。新增 `LS_INJECTION_TIMEOUT_MS=2500` 超时竞态 fail-open：超时降级旧 `did-finish-load` 补注入路径，导航不得被 CDP 无限阻塞；标签关闭后命令才失败时，`webContents` 已销毁则静默跳过补注入（修 `loadURL` TypeError 与未处理拒绝）。与 #2353（不写坏缓存）互为不同层防线。
+
+### 测试
+- `webview-manager.test.js` 新增 2 条事故回归对：CDP 命令永久挂起→超时降级且首个导航照常发生；标签关闭后命令才失败→无未处理拒绝。全文件 68 用例绿。
+
+---
+
+---
+# [未发布] fix(账号管理): 账号卡片平台名/账号名/粉丝/检查记录/折行显示与数据修复（2026-09-24，account-card-display-fix）
+
+### 变更
+- **`packages/shared-utils/src/account-name-guard.js`**（新）：账号昵称噪声判定单一数据源（会话 chrome 关键词 / ≥2 计数词 / 已知页面标题），采集与展示两端共用，真实昵称不误杀。
+- **`AccountManagementCard.vue`**：顶部 chip 由账号名改渲染平台名；`accountName()` 命中噪声回落平台名；`LAST_CHECK_KEYS` 补 `last_validated` 消除误显「暂无检查记录」；归属徽章列 `44px`→`max-content` + `nowrap` 修折行。
+- **`account-profile.js`**：`profileForCreate`/`buildProfilePatch` 对噪声昵称不入库。
+- **`http-login-checker.js`**：douyin/toutiao/tencent_video/bilibili 新增 `extract`，导出 `fetchAccountInfoViaHttpApi`（对齐参考实现：带 Cookie 读平台 API JSON，非 DOM）。
+- **`account-manager.js`**：HTTP 检测成功旁路 `refreshProfileFromHttpApi` 回填昵称/粉丝；用户手输昵称受保护不被冲掉。
+
+### 测试
+- 新增 `account-name-guard.test.js`(5) / `account-profile-guard.test.js`(4) / `http-login-checker-info.test.js`(6)；`AccountManagementCard.test.js` 追加 4 例；相关全绿。
+
+### 文档
+- `01-docs/PRD-ACCOUNT-CARD-DISPLAY-FIX-2026-09-24.md`：根因/四层设计/数据校验/显示项/交互流程/边界限制/验收/测试矩阵。
+# [未发布] feat(影视工程): 短剧画布 v2 收口——LLM 降级回显 / 失败单镜就地重试 / 成片画布内取用 / E2E 双段适配（2026-09-24，film-engineering-canvas）
+
+### 变更
+- **`FilmCanvasView.vue`**：3.3 拆分镜后 `llmEnhanced !== true` 且勾选润色 → 追加非阻断 warning（`canvas.adapt.llmFallback`）；5.2 `onRetryShot(shotId)` 经 `findShotResultIndex` fail-closed 定位 run 快照 index 调 `retryShot`，通道失败回显 `canvas.retry.failed`；5.3 done banner 新增「打开所在文件夹/另存」（复用 `story2videoShowInFolder`/`story2videoSaveAs` 合同）。
+- **`ShotNode.vue`**：failed 态渲染「重试」按钮（`shot-retry`，`@click.stop` emit shotId，脏数据无 shotId 不渲染）。
+- **`film-canvas-model.js`**：新增纯函数 `findShotResultIndex`（非数组/空串/非负整数 index/未命中一律 null；重复 shotId 取首个）。
+- **E2E（7.4）**：`film-engineering-real.js` 双段化——画布主流程（落 `.film-canvas-view`、拆分镜生 shot 节点、生成入口启用）+ 经典段（`#/film-engineering/classic`）全量保留；像素 idle 基线不受影响（新增元素均 v-if）。
+- **i18n**：成对新增 `filmEngineering.canvas.adapt.llmFallback`、`filmEngineering.canvas.retry.failed`（zh/en，Gate7 绿）。
+
+### 测试
+- 新增 `FilmCanvasView.actions.test.js`（8 用例）+ `ShotNode.test.js`（4 用例）+ `findShotResultIndex` describe（3 用例）；film-canvas 全家桶 53 用例、视觉契约 29 用例、e2e 契约 2 用例全绿；ESLint 与 6 项静态门禁 PASS。
+
+### 文档
+- PRD 新增 §12.7 v2 增量细则（数据校验/交互/显示项/文案合同）；`openspec/changes/film-engineering-canvas/baseline-audit.md`（1.3 基线 13 项对齐表）；tasks.md 1.3/3.3/5.2/5.3/7.4 勾选收口。
+
+---
+# [未发布] fix(今日头条): 应用运行中突然崩溃退出根治——toutiao 登录检测隐藏浏览器渲染崩溃守卫（2026-09-24，toutiao-render-crash-guard）
+
+### 变更
+- **`apps/desktop/electron/publishers/account-manager.js`**：`checkLoginStatus` 在「即将 `playwrightManager.getContext({ show:false })` 开隐藏浏览器」这一步前新增渲染崩溃守卫 `RENDER_CRASH_PRONE_OPEN_PLATFORMS = new Set(['toutiao'])`，命中即返回 `{ valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', reason: 'render-crash-prone-http-inconclusive' }`；刻意不并入前置 `RENDER_CRASH_PRONE_PLATFORMS`（那会绕过 toutiao 的 `COOKIE_REQUIRED_PLATFORMS` 无 Cookie 快速路径，回归既有测试）。
+
+### 修复
+- **应用运行中整体退出（exit code 0xFFFF7003 / 4294930435）**：toutiao 账号有 Cookie 但 HTTP 登录检测返回不确定时，降级打开隐藏 sandbox 窗口加载 mp.toutiao.com 做 DOM 检测，触发原生渲染崩溃（crashpad not connected）导致 Electron 主进程退出。经 `mp-start-dev.exit.log` 时间线证伪早期「#2327 回归」误判（崩溃码首现早于 #2327 提交）。改判未确认第三态，绝不再开该崩溃窗口；toutiao 上游全部 Cookie 分类保留。
+
+### 验证
+- TDD：新增 `account-manager-toutiao-render-crash.test.js`（2 例：HTTP 不确定不得调用 `getContext` / HTTP 有效直接返回且不开浏览器）；RED→GREEN，`account-manager.test.js` + `http-login-checker.test.js` 全量 107 passed（VITEST_EXIT=0）。此前方案调整导致的「toutiao 无 Cookie + localStorage → CHECK_LOGIN_COOKIE_EXPIRED」回归已恢复。
+
+### 关联
+- Code Review：无 CRITICAL/MAJOR；MINOR-1 已补「两个渲染崩溃 Set 插入点不同、不可合并」对照注释。
+- 根因排查与修复见 PR #2353。
+
+---
+
+# [未发布] feat(影视工程): 画布参考图引擎侧消费闭环（tasks 4.3）——连线注入→provider 参考输入→能力降级提示（2026-09-24，film-engineering-canvas）
+
+### 变更
+- **`apps/desktop/electron/services/film-engineering/video-reference-inputs.js`**（新）：显式映射表（minimax/agnes-video/agnes-multimodal → 参考参数名，未列入保守视为不支持）；`normalizeLocalReferences` 形状归一化防御；受控媒体根内路径纵深校验（越界不读只报）+ 魔数嗅探 → dataURL 首帧注入。
+- **`video-gen.js`**：`film_generate_videos` 消费 `context.localReferences`（缺省行为逐字节不变）；不支持参考的 provider 降级纯文本出片 + `output.referenceWarnings` 明示；`costCheck.references` 确认卡新增参考摘要。
+
+### 测试
+- `video-reference-inputs.test.js`（10 用例）+ `video-gen.test.js` 集成 describe（5 用例）；film-engineering 全目录 207 用例回归全绿。
+
+### 文档
+- PRD §12.6 新增引擎侧参考图消费合同；tasks.md 4.3 勾选。
+
+# [未发布] feat(影视工程): 短剧画布 v1 最小闭环——剧本→拆分镜→连线注入参考→逐镜生成→成片（2026-09-24，film-engineering-canvas，PR #2342）
+
+### 变更
+- **`apps/desktop/src/views/FilmCanvasView.vue`**（新）：Vue Flow 画布主视图，左侧剧本/选项面板 + 工具栏（拆分镜/上传参考/生成/清空/回退经典页）+ 成本确认卡 + 成片 banner。
+- **`apps/desktop/src/components/film-canvas/`**（新）：ScriptInputNode / ReferenceNode / ShotNode 三类自定义节点，带 Handle 与状态徽标。
+- **`apps/desktop/src/composables/film-canvas-model.js` + `useFilmCanvas.js`**（新）：边合法性类型矩阵、拆分镜铺节点、连线即注入（buildLocalReferences）、画布序列化往返与 localStorage 持久化。
+- **`apps/desktop/src/composables/useFilmVideoGen.js`**：`start()` 新增 `opts.localReferences` 非空时随 `initialContext` 透传 pipeline（缺省行为不变）。
+- **IPC/preload**：新增 `uploadReference`（类型白名单+魔数+10MB+路径越界 fail-closed+sender 校验），落盘受控媒体根 `references/`。
+- **路由**：`/film-engineering` 切画布，旧三栏页移至 `/film-engineering/classic` 作回退。
+- **i18n**：`locales/zh.js`/`en.js` 成对新增 `filmEngineering.canvas.*`（Gate7 全绿）。
+- **约定**：渲染端 `src/` 模块必须 ESM 命名导出（CJS `module.exports` 在 vitest 可过但 Rollup build 失败）。
+
+### 文档
+- `01-docs/PRD-FILM-ENGINEERING-CANVAS-2026-09-24.md` 新增 §12 v1 实现状态（数据校验/交互流程/显示项提示文字/已知边界）；`openspec/changes/film-engineering-canvas/` tasks 勾选回写。
+
+---
 # [未发布] feat(账号): 登录态失效改为「头像遮罩」呈现——「已失效」压在头像上、头像旁徽章不再重复（2026-09-24，avatar-expired-mask）
 
 ### 变更

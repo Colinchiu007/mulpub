@@ -32,6 +32,13 @@ const log = require('../services/logger')
  * @property {(cookieHeader:string)=>boolean} [precheck] - 请求前 cookie 预检（如 bilibili 必须含 bili_jct）
  */
 
+/** 从平台响应字段安全取正整数计数（取不到返回 undefined，让调用方保持原值） */
+function toCount (v) {
+  const n = typeof v === 'number' ? v : (typeof v === 'string' && v.trim() ? Number(v) : NaN)
+  if (!Number.isFinite(n) || n < 0) return undefined
+  return Math.round(n)
+}
+
 /** @type {Record<string, HttpCheckApi>} */
 const HTTP_CHECK_APIS = {
   douyin: {
@@ -50,6 +57,10 @@ const HTTP_CHECK_APIS = {
       const msg = data.status_msg || data.msg || data.message
       if (typeof msg === 'string' && msg.includes('未登录')) return false
       return undefined // 其余一切（其他码/缺字段/结构变更）→ 不确定，降级
+    },
+    extract: (d) => {
+      const u = (d && d.data && (d.data.user || d.data)) || {}
+      return { nickname: u.nickname || u.nick_name || u.uname || '', followers: toCount(u.follower_count != null ? u.follower_count : u.fans_count), platformAccountId: String(u.uid || u.user_id || '') }
     }
   },
   toutiao: {
@@ -64,6 +75,10 @@ const HTTP_CHECK_APIS = {
       const msg = data.message || data.msg || data.status_msg
       if (typeof msg === 'string' && /未登录|请先登录|登录过期|重新登录/.test(msg)) return false
       return undefined
+    },
+    extract: (d) => {
+      const u = (d && d.data && d.data.user) || {}
+      return { nickname: u.name || u.screen_name || '', followers: toCount(u.fans_count != null ? u.fans_count : u.follower_count), platformAccountId: String(u.id || u.user_id || '') }
     }
   },
   // 公众号：对齐参考产品 getWeixingongzhonghaoUserInfo —— GET loginpage 页（带 cookie），
@@ -108,6 +123,10 @@ const HTTP_CHECK_APIS = {
       if (data.errCode === 300333 || data.errCode === 300334) return false
       if (data.errCode === 0 && data.data && data.data.finderUser) return true
       return undefined
+    },
+    extract: (d) => {
+      const f = (d && d.data && d.data.finderUser) || {}
+      return { nickname: f.nickname || f.finderUsername || '', followers: toCount(f.fansCount != null ? f.fansCount : f.fans_count), platformAccountId: String(f.uniqId || '') }
     }
   },
   // bilibili：对齐参考产品 getBilibiliUserInfo —— GET nav 接口（带 cookie + Referer），
@@ -125,6 +144,10 @@ const HTTP_CHECK_APIS = {
       if (data.code === -101) return false
       if (data.code === 0 && data.data && data.data.mid) return true
       return undefined
+    },
+    extract: (d) => {
+      const u = (d && d.data) || {}
+      return { nickname: u.uname || '', followers: toCount(u.fans), platformAccountId: String(u.mid || '') }
     }
   }
 }
@@ -263,4 +286,53 @@ async function tryHttpLoginCheck (platform, cookies, accountId) {
   return { valid: httpResult.valid, code: httpResult.code }
 }
 
-module.exports = { checkLoginViaHttpApi, isHttpCheckSupported, cookiesToHeader, tryHttpLoginCheck }
+/**
+ * 用保存的 Cookie 调平台创作者 API 提取账号资料（昵称/粉丝/平台ID）。
+ * 与登录检测共用同一批已注册端点（对齐参考实现：不抓 DOM，直接读结构化 JSON）。
+ * 只在平台注册了 extract 且响应可解析时返回字段；任何异常/缺字段一律省略键，
+ * 由调用方（refreshProfileFromHttpApi）经 buildProfilePatch 决定「缺席=不修改」。
+ * @param {string} platform
+ * @param {Array<{name:string, value:string}>} cookies
+ * @returns {Promise<{supported: boolean, nickname?: string, followers?: number, platformAccountId?: string}>}
+ */
+async function fetchAccountInfoViaHttpApi (platform, cookies) {
+  const api = HTTP_CHECK_APIS[platform]
+  if (!api || typeof api.extract !== 'function') return { supported: false }
+  const cookieHeader = cookiesToHeader(cookies)
+  if (!cookieHeader) return { supported: true }
+  if (typeof api.precheck === 'function' && !api.precheck(cookieHeader)) return { supported: true }
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), HTTP_CHECK_TIMEOUT_MS)
+  try {
+    const fetchOptions = {
+      method: api.method || 'GET',
+      headers: {
+        ...api.headers,
+        Cookie: cookieHeader,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      },
+      signal: controller.signal,
+      redirect: 'manual'
+    }
+    if (api.method === 'POST') {
+      fetchOptions.headers['Content-Type'] = api.contentType || 'application/json'
+      fetchOptions.body = typeof api.body === 'function' ? api.body() : (api.body || '{}')
+    }
+    const response = await fetch(api.url, fetchOptions)
+    clearTimeout(timer)
+    if (!response.ok) return { supported: true }
+    const data = await response.json().catch(() => null)
+    if (!data || typeof data !== "object") return { supported: true }
+    const info = api.extract(data) || {}
+    const out = { supported: true }
+    if (typeof info.nickname === 'string' && info.nickname.trim()) out.nickname = info.nickname.trim()
+    if (typeof info.followers === 'number') out.followers = info.followers
+    if (typeof info.platformAccountId === 'string' && info.platformAccountId) out.platformAccountId = info.platformAccountId
+    return out
+  } catch (e) {
+    clearTimeout(timer)
+    return { supported: true }
+  }
+}
+
+module.exports = { checkLoginViaHttpApi, isHttpCheckSupported, cookiesToHeader, tryHttpLoginCheck, fetchAccountInfoViaHttpApi }

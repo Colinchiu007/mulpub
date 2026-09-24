@@ -341,3 +341,28 @@ describe('头像失效回落（PRD-ACCOUNT-PROFILE-INFO T10）', () => {
     expect(wrapper.find('.account-avatar svg').exists()).toBe(true)
   })
 })
+
+describe('账号卡片显示修复（PRD-ACCOUNT-CARD-DISPLAY-FIX-2026-09-24）', () => {
+  it('顶部平台名 chip 显示平台名而非账号名', () => {
+    const wrapper = mountCard({ account: { id: 'account-1', platform: 'kuaishou', status: 'active', account_name: '0粉丝0关注0获赞账号认证退出登录命运石' }, platformLabel: '快手' })
+    expect(wrapper.get('.platform-chip').text()).toContain('快手')
+    expect(wrapper.get('.platform-chip').text()).not.toContain('0粉丝')
+  })
+  it('噪声账号名回落平台名，真实昵称不受影响', () => {
+    const dirty = mountCard({ account: { id: 'account-1', platform: 'douyin', status: 'active', account_name: '作品发布' }, platformLabel: '抖音' })
+    expect(dirty.get('.account-name-button').text()).toContain('抖音')
+    const ok = mountCard({ account: { id: 'account-1', platform: 'wechat_mp', status: 'active', account_name: '数字生命丘丘' }, platformLabel: '微信公众号' })
+    expect(ok.get('.account-name-button').text()).toContain('数字生命丘丘')
+  })
+  it('已检测账号（last_validated）不再显示「暂无检查记录」', () => {
+    const wrapper = mountCard({ account: { id: 'account-1', platform: 'douyin', status: 'active', account_name: '数字丘丘', last_validated: '2026-09-24T05:39:39.040Z' } })
+    const check = wrapper.get('[data-testid="account-check-account-1"]')
+    expect(check.text()).toContain('最近检查')
+    expect(check.text()).not.toContain('暂无检查记录')
+  })
+  it('归属标签徽章不换行（源码契约：grid max-content + nowrap）', () => {
+    const vueSrc = fs.readFileSync('./src/features/accounts/components/AccountManagementCard.vue', 'utf8')
+    expect(vueSrc).toContain('grid-template-columns: max-content minmax(0, 1fr);')
+    expect(vueSrc).toMatch(/\.account-assignees > div > span \{[^}]*white-space: nowrap;/)
+  })
+})

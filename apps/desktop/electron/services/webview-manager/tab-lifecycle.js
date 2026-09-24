@@ -153,6 +153,8 @@ module.exports = {
         '  })'
       )
       var registerLsFallback = function () {
+        // 异步门控解除时标签可能已关闭：webContents 已销毁则静默跳过补注入
+        if (!view.webContents) return
         var localStorageRestored = false
         view.webContents.on('did-finish-load', function () {
           if (localStorageRestored) return
@@ -178,9 +180,12 @@ module.exports = {
     }
 
     var navigateAfterCookies = function () {
-      if (initialUrl && initialUrl !== 'about:blank') {
-        view.webContents.loadURL(initialUrl).catch(function (e) { log.warn('WebviewManager', 'nav failed url=' + String(initialUrl).slice(0, 200) + ' err=' + ((e && e.message) || 'unknown')) })
-      }
+      if (!initialUrl || initialUrl === 'about:blank') return
+      // 异步门控（Cookie 恢复 / LS 早期注入含超时竞态）解除时标签可能已被用户关闭：
+      // 真实 Electron 中 webContents 销毁后属性不复存在，直接调 loadURL 会抛出
+      // TypeError 并作为未处理拒绝外溢（2026-09-24 头条事故日志实锤）。
+      if (!view.webContents || (typeof view.webContents.isDestroyed === 'function' && view.webContents.isDestroyed())) return
+      view.webContents.loadURL(initialUrl).catch(function (e) { log.warn('WebviewManager', 'nav failed url=' + String(initialUrl).slice(0, 200) + ' err=' + ((e && e.message) || 'unknown')) })
     }
     var preNavPromises = cookieRestorations.slice()
     if (lsInjection) preNavPromises.push(lsInjection)

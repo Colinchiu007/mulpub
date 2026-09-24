@@ -141,19 +141,23 @@ export function useFilmVideoGen () {
     }
   }
 
-  /** 发起视频生成 run（5.1 面板入口）：>10 镜前端拦截（后端兜底在 executor/重试通道） */
+  /** 发起视频生成 run（5.1 面板入口）：>10 镜前端拦截（后端兜底在 executor/重试通道）。
+   * opts.localReferences（画布连线注入，可为空）：非空时随 initialContext 透传给引擎侧消费。 */
   async function start (selectedShots, opts = {}) {
     const shots = Array.isArray(selectedShots) ? selectedShots : []
     if (shots.length === 0) return { ok: false, errorCode: 'noShots' }
     if (shots.length > FILM_MAX_VIDEO_BATCH) return { ok: false, errorCode: 'tooManyShots' }
     const aspect = FILM_VIDEO_ASPECTS.includes(opts.aspect) ? opts.aspect : FILM_VIDEO_DEFAULT_ASPECT
     const seconds = FILM_VIDEO_DURATIONS.includes(Number(opts.seconds)) ? Number(opts.seconds) : FILM_VIDEO_DEFAULT_SECONDS
+    const localReferences = Array.isArray(opts.localReferences) && opts.localReferences.length > 0 ? opts.localReferences : null
     busy.value = true
     try {
       // IPC 脱壳：Vue 响应式数组 → 纯 JSON（prompt 逐字符原文直送，不做任何改写）
+      const initialContext = { selectedShots: shots }
+      if (localReferences) initialContext.localReferences = localReferences
       const payload = JSON.parse(JSON.stringify({
         autoAdvance: true,
-        initialContext: { selectedShots: shots },
+        initialContext,
         aspect,
         seconds,
       }))

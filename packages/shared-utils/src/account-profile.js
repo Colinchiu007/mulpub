@@ -17,6 +17,7 @@
  */
 
 const { PLATFORM_ACCOUNT_INFO_SELECTORS } = require('./platform-definitions')
+const { isNoiseAccountName } = require('./account-name-guard')
 
 /**
  * 页面内采集账号资料。参数为 { platformSelectors }，返回命中字段；未命中不产出键。
@@ -184,8 +185,10 @@ async function collectWithWebContents (webContents, platform) {
 function profileForCreate (accountInfo, fallbackName) {
   const src = isPlainObject(accountInfo) ? accountInfo : {}
   const followers = toFiniteCount(src.followers)
+  const nick = trimText(src.nickName)
+  const cleanNick = nick && !isNoiseAccountName(nick) ? nick : ''
   return {
-    account_name: trimText(src.nickName) || trimText(fallbackName),
+    account_name: cleanNick || trimText(fallbackName),
     platform_account_id: trimText(src.platformAccountId) || '',
     followers: followers === null ? null : followers,
     avatar: trimText(src.avatar) || '',
@@ -202,8 +205,9 @@ function profileForCreate (accountInfo, fallbackName) {
 function buildProfilePatch (accountInfo, current) {
   const src = isPlainObject(accountInfo) ? accountInfo : {}
   const cur = isPlainObject(current) ? current : null
+  const rawNick = trimText(src.nickName)
   const candidates = [
-    ['account_name', trimText(src.nickName)],
+    ['account_name', rawNick && !isNoiseAccountName(rawNick) ? rawNick : ''],
     ['avatar', trimText(src.avatar)],
     ['platform_account_id', trimText(src.platformAccountId)],
     ['followers', src.followers === undefined || src.followers === null || src.followers === '' ? null : toFiniteCount(src.followers)],

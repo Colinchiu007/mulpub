@@ -25,6 +25,11 @@ const path = require('path')
 const { mapWithModelBudget, withModelBudget } = require('../model-call-scheduler')
 const { emitStageStart, emitStageItem, emitStageComplete } = require('../stage-progress')
 const { resolveProviderDefaultModel } = require('../model-provider-manager')
+const {
+  normalizeLocalReferences,
+  resolveShotReferenceInput,
+  supportsVideoReferenceInput,
+} = require('./video-reference-inputs')
 
 const FILM_VIDEO_STAGE_TYPES = {
   GENERATE_VIDEOS: 'film_generate_videos',
@@ -54,11 +59,18 @@ function pickFilmFrameCount (seconds) {
   return 441
 }
 
+/** film-engineering 受控媒体根（与 reference-store 落盘根、film-render getFilmMediaRoot 同值；
+ * 不直接 require film-render 是因为它反向依赖本模块，避免循环 require） */
+function getFilmMediaRoot () {
+  return path.join(os.tmpdir(), 'film-engineering')
+}
+
 /**
  * 构建单镜提交载荷：prompt 逐字符原文；画幅映射 width/height（source 不下发尺寸）；
  * numFrames/frameRate 双写命名兼容（agnes 读驼峰、ltx 读下划线，沿用 videogen 载荷形状）。
+ * referencePayload（tasks 4.3）：画布连线参考解析出的 provider 参考输入参数，缺省不注入。
  */
-function buildShotSubmitPayload ({ shot, aspect, seconds, model }) {
+function buildShotSubmitPayload ({ shot, aspect, seconds, model, referencePayload }) {
   const numFrames = pickFilmFrameCount(seconds)
   /** @type {Record<string, unknown>} */
   const payload = {
@@ -67,6 +79,7 @@ function buildShotSubmitPayload ({ shot, aspect, seconds, model }) {
     frameRate: FILM_FRAME_RATE,
     num_frames: numFrames,
     frame_rate: FILM_FRAME_RATE,
+    ...(referencePayload || {}),
   }
   if (model) payload.model = model
   if (aspect === '16x9') {
@@ -135,7 +148,7 @@ async function downloadToFile (url, dest) {
  * 单镜生成：提交 → 轮询 → 下载。sleep/download 可注入（测试零等待 + 假落盘）。
  * 失败不抛出，统一返回 { index, shotId, success, path? , error? }。
  */
-async function generateShotVideo ({ shot, index, runDir, aspect, seconds, providerCfg, providerRunContext, sleep, download, log }) {
+async function generateShotVideo ({ shot, index, runDir, aspect, seconds, providerCfg, providerRunContext, refMap, mediaRoot, refWarnings, sleep, download, log }) {
   const sleepFn = sleep || ((ms) => new Promise((r) => setTimeout(r, ms)))
   const downloadFn = download || downloadToFile
   // 单镜失败统一出口：先记 warn（镜头序号 + shotId + 可辨识原因）再返回，杜绝静默失败
@@ -145,8 +158,23 @@ async function generateShotVideo ({ shot, index, runDir, aspect, seconds, provid
     }
     return { index, shotId: shot.shotId, success: false, error: reason }
   }
+  // 画布参考输入（tasks 4.3）：注入失败不阻断出片，降级纯文本 + 汇总 warning 明示
+  let referencePayload = null
+  if (refMap && refMap.size > 0) {
+    try {
+      const resolved = resolveShotReferenceInput({
+        providerId: providerCfg.providerId, refMap, shotId: shot.shotId, mediaRoot,
+      })
+      if (resolved.refParam) referencePayload = resolved.refParam
+      if (resolved.warning && Array.isArray(refWarnings)) refWarnings.push(resolved.warning)
+    } catch (e) {
+      if (log && typeof log.warn === 'function') {
+        log.warn('FilmVideoGen', 'shot ' + index + ' reference resolve error: ' + ((e && e.message) || e))
+      }
+    }
+  }
   try {
-    const payload = buildShotSubmitPayload({ shot, aspect, seconds, model: providerCfg.model })
+    const payload = buildShotSubmitPayload({ shot, aspect, seconds, model: providerCfg.model, referencePayload })
     const submit = await providerCfg.manager.callAdapter(
       providerCfg.providerId, 'generateVideo', payload,
       providerRunContext ? { providerRunContext } : undefined,
@@ -246,6 +274,8 @@ function registerFilmVideoStages (pipelineEngine) {
           error: '影视工程视频生成需要视频模型（如 Seedance / Kling / Veo / CogVideo 等），请在模型设置中配置并设为默认视频 Provider 后重试',
         }
       }
+      // 画布参考输入（tasks 4.3）：缺省不携带 → 空 Map，全部行为与既有一致（向后兼容）
+      const refMap = normalizeLocalReferences(context && context.localReferences)
       // 成本确认入口闸：未确认时只产出确认卡载荷，不发生任何 provider 调用（所有路径同受闸）
       const costConfirmed = !!(context && context.cost_confirmation && context.cost_confirmation.confirmed === true)
       if (!costConfirmed) {
@@ -260,6 +290,10 @@ function registerFilmVideoStages (pipelineEngine) {
               seconds,
               providerId: providerCfg.providerId,
               model: providerCfg.model || '',
+              references: {
+                shotsWithReferences: shots.filter(s => s && refMap.has(s.shotId)).length,
+                providerSupportsReference: supportsVideoReferenceInput(providerCfg.providerId),
+              },
               shots: shots.map((s, i) => ({
                 index: i,
                 shotId: s.shotId,
@@ -273,6 +307,9 @@ function registerFilmVideoStages (pipelineEngine) {
       }
       const runDir = getFilmRunDir(runId)
       fs.mkdirSync(runDir, { recursive: true })
+      const mediaRoot = getFilmMediaRoot()
+      /** @type {Array<{shotId: string, reason: string}>} */
+      const refWarnings = []
 
       /** @type {Array<{index: number, shotId: string, success: boolean, path?: string, error?: string}>} */
       let results
@@ -295,6 +332,7 @@ function registerFilmVideoStages (pipelineEngine) {
             { governor, type: 'video', providerId: providerCfg.providerId, model: providerCfg.model },
             () => generateShotVideo({
               shot, index, runDir, aspect, seconds, providerCfg,
+              refMap, mediaRoot, refWarnings,
               sleep: _testSleep, download: _testDownload, log,
             }),
           ),
@@ -307,6 +345,7 @@ function registerFilmVideoStages (pipelineEngine) {
         for (let i = 0; i < shots.length; i++) {
           results.push(await generateShotVideo({
             shot: shots[i], index: i, runDir, aspect, seconds, providerCfg,
+            refMap, mediaRoot, refWarnings,
             sleep: _testSleep, download: _testDownload, log,
           }))
         }
@@ -339,6 +378,7 @@ function registerFilmVideoStages (pipelineEngine) {
           videoResults: results,
           runDir,
           partialFailure: ok.length < shots.length,
+          ...(refWarnings.length > 0 ? { referenceWarnings: refWarnings } : {}),
         },
       }
     },
@@ -353,6 +393,7 @@ module.exports = {
   FILM_ASPECTS,
   FILM_DURATIONS,
   getFilmRunDir,
+  getFilmMediaRoot,
   pickFilmFrameCount,
   buildShotSubmitPayload,
   resolveFilmVideoProvider,

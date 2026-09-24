@@ -110,6 +110,31 @@ describe('useFilmVideoGen', () => {
     expect(params.aspect).toBe('9x16')
     expect(params.seconds).toBe(8)
     expect(params.initialContext.selectedShots.map((s) => s.prompt)).toEqual(shots.map((s) => s.prompt))
+    // 未传 localReferences 时 initialContext 不携带该键（向后兼容）
+    expect('localReferences' in params.initialContext).toBe(false)
+    c.dispose()
+  })
+
+  it('画布连线注入：opts.localReferences 非空时随 initialContext 透传且纯 JSON', async () => {
+    publisher.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { success: true, runId: 'run-1' } })
+    publisher.pipelineGetRunContext.mockResolvedValue({ code: 0, data: baseSnapshot() })
+    const c = useFilmVideoGen()
+    const refs = [{ shotId: 'adapt-001', paths: ['/r/a.png', '/r/b.jpg'] }]
+    const res = await c.start(makeShots(2), { aspect: '16x9', seconds: 5, localReferences: refs })
+    expect(res.ok).toBe(true)
+    const params = publisher.pipelineStartOrchestrated.mock.calls[0][1]
+    expect(() => structuredClone(params)).not.toThrow()
+    expect(params.initialContext.localReferences).toEqual(refs)
+    c.dispose()
+  })
+
+  it('opts.localReferences 空数组 → 归一化为不注入', async () => {
+    publisher.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { success: true, runId: 'run-1' } })
+    publisher.pipelineGetRunContext.mockResolvedValue({ code: 0, data: baseSnapshot() })
+    const c = useFilmVideoGen()
+    await c.start(makeShots(1), { aspect: '16x9', seconds: 5, localReferences: [] })
+    const params = publisher.pipelineStartOrchestrated.mock.calls[0][1]
+    expect('localReferences' in params.initialContext).toBe(false)
     c.dispose()
   })
 
