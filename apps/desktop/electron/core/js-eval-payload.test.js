@@ -110,11 +110,12 @@ describe('buildEvalScript', () => {
  * 担心的是「下次改邻近代码时又回到裸拼 JSON.stringify」，而不是运行时回归。
  */
 describe('调用方不得再裸拼 JSON.stringify 到 executeJavaScript', () => {
-  const target = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'services', 'webview-manager.js')
-  const src = fs.readFileSync(target, 'utf8')
+  // webview-manager 拆分后 buildEvalScript 调用落在 tab-lifecycle.js / utils.js
+  const targetDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'services', 'webview-manager')
+  const src = ['utils.js', 'tab-lifecycle.js'].map(f => fs.readFileSync(path.join(targetDir, f), 'utf8')).join('\n')
 
   it('webview-manager 的 localStorage 恢复已改用 buildEvalScript', () => {
-    expect(src).toContain("require('../core/js-eval-payload')")
+    expect(src).toContain("require('../../core/js-eval-payload')")
     expect(src).toContain('buildEvalScript(')
   })
 

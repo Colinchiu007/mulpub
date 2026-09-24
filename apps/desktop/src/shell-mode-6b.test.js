@@ -18,14 +18,22 @@ const ROOT = path.resolve(__dirname, '..')
 
 describe('T0-6b 壳态互斥：静态链路完整性', () => {
   it('webview-manager 注册 page-manager:set-shell-mode handler', () => {
-    const src = fs.readFileSync(path.join(ROOT, 'electron/services/webview-manager.js'), 'utf8')
+    // webview-manager 拆分为 webview-manager/ 目录，合并各模块源码做静态断言
+    const src = [
+      'electron/services/webview-manager/index.js',
+      'electron/services/webview-manager/layout.js',
+      'electron/services/webview-manager/ipc-handlers.js'
+    ].map(f => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n')
     expect(src).toContain("ipcMain.handle('page-manager:set-shell-mode'")
     expect(src).toContain('setShellMode (mode)')
     expect(src).toContain("this._shellMode = 'browser'") // 构造器默认值
   })
 
   it('webview-manager setShellMode：workbench 隐藏 / browser 恢复', () => {
-    const src = fs.readFileSync(path.join(ROOT, 'electron/services/webview-manager.js'), 'utf8')
+    const src = [
+      'electron/services/webview-manager/index.js',
+      'electron/services/webview-manager/layout.js'
+    ].map(f => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n')
     // workbench 分支：隐藏全部（标签 + 登录视图 + 扫码视图）
     expect(src).toMatch(/setShellMode[\s\S]*?workbench[\s\S]*?_hideAllTabs\(\)/)
     expect(src).toMatch(/setShellMode[\s\S]*?this\._authViewManager\.hide\(\)/)
