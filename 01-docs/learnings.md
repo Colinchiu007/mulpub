@@ -15695,3 +15695,9 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **规约**：渲染端要用的 shared-utils 模块必须配 ESM `*.browser.js` 孪生文件并在 `apps/desktop/vite.config.js` alias（先例：platform-definitions）；主进程仍用 CJS 原版。
 - **防漂移**：孪生文件的词表从 CJS 源 require 后 JSON 序列化生成；parity 测试逐案比对判定 + 词表 toEqual，任一侧单改即红。
 - **验证**：渲染层新增 import 后，除单测外必须起 dev server 拉一次组件 transform 结果，确认 import 指向 .browser.js（单测绿 ≠ dev 运行时可用）。
+## 门控首个导航的异步 promise 必须带超时与销毁守卫（cdp-nav-gate-hang，2026-09-24）
+
+- **Bug 模式（pitfall）**：PR #2327 把 CDP `debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument')` 挂为标签首个导航的前置条件（`Promise.all` 门控后才 `loadURL`）。该命令在部分账号分区可**永久挂起**（2026-09-24 头条标签事故日志实锤：命令在标签存活期内从未返回）→ 页面「一直加载不出来」；标签关闭瞬间命令才以 `target closed` 失败 → 回调对已销毁 `webContents` 调 `loadURL` 抛未处理 TypeError。CDP 命令、`webContents` 异步方法、扩展协议调用都属于「可能永不 settle 的 promise」，await 它们等于把核心路径交给无下限的外部实现。
+- **规则（pattern）**：任何「门控首个导航/核心交互」的异步 promise 必须①用超时竞态封顶阻塞时长并 fail-open 降级到既有慢路径（timer 记得 `unref()`，避免钉住事件循环）；②门控解除后的所有延迟回调先做销毁守卫（`view.webContents` 存在性 + `isDestroyed()`），异步窗口期内标签随时可能被用户关闭。
+- **可迁移信号（QM-5④回归模板）**：为每个「导航前置 await」写一对回归测试——(a) 依赖**永久挂起**：fake timers 推进时间，断言导航照常发生且降级路径已注册；(b) 依赖**在目标销毁后才失败**：断言无 unhandledRejection 外溢。只 mock「成功 / 立即失败」两条路径的测试正是这类缺陷的逃逸盲区——#2327 的测试就止步于此。判断手法：看到 `await` 一个非本项目实现的 promise 挡在 `loadURL` 前面，先问「它永不返回怎么办」。
+

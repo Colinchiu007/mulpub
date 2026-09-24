@@ -42,6 +42,12 @@ const SAFE_IDENTIFIER = /^[a-zA-Z0-9_-]+$/
 // 稳定后再保存，避免把加载中间态的半截导航误判为登录成功（对齐 auth-view-manager 的 3s 自动完成，此处略短）。
 const AUTO_SAVE_DEBOUNCE_MS = 1500
 
+// CDP addScriptToEvaluateOnNewDocument 的完成时限（毫秒）。根因（2026-09-24 头条
+// 账号标签事故）：该命令在部分账号分区可永久挂起（标签存活期内从未返回），而首个
+// 导航被门控在注入 promise 之后 → 页面「一直加载不出来」。超时降级旧
+// did-finish-load 补注入路径（fail-open）：导航不得被 CDP 无限期阻塞。
+const LS_INJECTION_TIMEOUT_MS = 2500
+
 function _getUserDataDir () {
   try { return app.getPath('userData') } catch (e) { return path.join(os.homedir(), '.multi-publish') }
 }
@@ -68,20 +74,33 @@ function _injectLocalStorageAtDocumentStart (view, script) {
       log.warn('WebviewManager', 'debugger attach failed, LS early injection fallback: ' + ((e && e.message) || 'unknown'))
       return false
     }
-    return Promise.resolve(dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: script }))
-      .then(function () {
+    var pending = Promise.resolve(dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: script }))
+    // 挂起防护：sendCommand 可能永不 resolve/reject（2026-09-24 头条事故），用超时
+    // 竞态封顶首个导航的阻塞时长。迟到的成功仍会让注入对后续导航生效（localStorage
+    // 写入幂等，无害）；迟到的失败已在下方收敛为 outcome，不外溢 unhandled rejection。
+    var settled = new Promise(function (resolve) {
+      var timer = setTimeout(function () { resolve('timeout') }, LS_INJECTION_TIMEOUT_MS)
+      if (timer && typeof timer.unref === 'function') timer.unref()
+      pending.then(function () { clearTimeout(timer); resolve('ok') },
+        function (e) { clearTimeout(timer); resolve({ error: e }) })
+    })
+    return settled.then(function (outcome) {
+      if (outcome === 'ok') {
         try {
           view.webContents.once('did-navigate', function () {
             try { dbg.detach() } catch (_) { /* already detached */ }
           })
         } catch (_) { /* once 不可用时保持 attach，webContents 销毁会一并释放 */ }
         return true
-      })
-      .catch(function (e2) {
-        log.warn('WebviewManager', 'addScriptToEvaluateOnNewDocument failed, LS early injection fallback: ' + ((e2 && e2.message) || 'unknown'))
-        try { dbg.detach() } catch (_) { /* ignore */ }
-        return false
-      })
+      }
+      if (outcome === 'timeout') {
+        log.warn('WebviewManager', 'addScriptToEvaluateOnNewDocument timed out after ' + LS_INJECTION_TIMEOUT_MS + 'ms (hung CDP command), LS early injection fallback')
+      } else {
+        log.warn('WebviewManager', 'addScriptToEvaluateOnNewDocument failed, LS early injection fallback: ' + ((outcome && outcome.error && outcome.error.message) || 'unknown'))
+      }
+      try { dbg.detach() } catch (_) { /* ignore（命令仍挂起时 detach 可能抛错，降级路径不依赖它） */ }
+      return false
+    })
   })
 }
 
@@ -568,6 +587,8 @@ class WebviewManager extends EventEmitter {
       // 失败才降级旧路径（fail-open）。降级注册时机安全：导航被 lsInjection promise 阻塞，
       // did-finish-load 必在注册完成后才可能触发。
       var registerLsFallback = function () {
+        // 异步门控解除时标签可能已关闭：webContents 已销毁则静默跳过补注入
+        if (!view.webContents) return
         var localStorageRestored = false
         view.webContents.on('did-finish-load', function () {
           if (localStorageRestored) return
@@ -600,9 +621,12 @@ class WebviewManager extends EventEmitter {
     // Cookie 必须在首个导航请求前完成。否则平台会先收到无凭证请求并把标签
     // 重定向到登录页，随后才写入 Cookie，用户看到的就是“账号已添加但未登录”。
     var navigateAfterCookies = function () {
-      if (initialUrl && initialUrl !== 'about:blank') {
-        view.webContents.loadURL(initialUrl).catch(function (e) { log.warn('WebviewManager', 'nav failed url=' + String(initialUrl).slice(0, 200) + ' err=' + ((e && e.message) || 'unknown')) })
-      }
+      if (!initialUrl || initialUrl === 'about:blank') return
+      // 异步门控（Cookie 恢复 / LS 早期注入含超时竞态）解除时标签可能已被用户关闭：
+      // 真实 Electron 中 webContents 销毁后属性不复存在，直接调 loadURL 会抛出
+      // TypeError 并作为未处理拒绝外溢（2026-09-24 头条事故日志实锤）。
+      if (!view.webContents || (typeof view.webContents.isDestroyed === 'function' && view.webContents.isDestroyed())) return
+      view.webContents.loadURL(initialUrl).catch(function (e) { log.warn('WebviewManager', 'nav failed url=' + String(initialUrl).slice(0, 200) + ' err=' + ((e && e.message) || 'unknown')) })
     }
     var preNavPromises = cookieRestorations.slice()
     // localStorage 早期注入同样必须挡在首个导航之前（与 Cookie 同契约：先于首个导航生效）

@@ -1,3 +1,14 @@
+# [未发布] fix(webview): CDP 本地存储注入挂起改超时降级，首个导航不被无限门控（头条标签卡死事故回归对）（2026-09-24，fix-toutiao-tab-load-hang）
+
+### 变更
+- **`apps/desktop/electron/services/webview-manager.js`**：`Page.addScriptToEvaluateOnNewDocument` 在部分账号分区可永久挂起（2026-09-24 头条标签事故日志：命令在标签存活期内从未返回），而首个导航被门控在该 promise 之后，导致页面「一直加载不出来」。新增 `LS_INJECTION_TIMEOUT_MS=2500` 超时竞态 fail-open：超时降级旧 `did-finish-load` 补注入路径，导航不得被 CDP 无限阻塞；标签关闭后命令才失败时，`webContents` 已销毁则静默跳过补注入（修 `loadURL` TypeError 与未处理拒绝）。与 #2353（不写坏缓存）互为不同层防线。
+
+### 测试
+- `webview-manager.test.js` 新增 2 条事故回归对：CDP 命令永久挂起→超时降级且首个导航照常发生；标签关闭后命令才失败→无未处理拒绝。全文件 68 用例绿。
+
+---
+
+---
 # [未发布] fix(账号管理): 账号卡片平台名/账号名/粉丝/检查记录/折行显示与数据修复（2026-09-24，account-card-display-fix）
 
 ### 变更
