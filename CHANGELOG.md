@@ -13,6 +13,70 @@
 - Code Review：无 CRITICAL/MAJOR；MINOR-1 已补「两个渲染崩溃 Set 插入点不同、不可合并」对照注释。
 - 根因排查与修复见 PR #2353。
 
+# [未发布] feat(影视工程): 画布参考图引擎侧消费闭环（tasks 4.3）——连线注入→provider 参考输入→能力降级提示（2026-09-24，film-engineering-canvas）
+
+### 变更
+- **`apps/desktop/electron/services/film-engineering/video-reference-inputs.js`**（新）：显式映射表（minimax/agnes-video/agnes-multimodal → 参考参数名，未列入保守视为不支持）；`normalizeLocalReferences` 形状归一化防御；受控媒体根内路径纵深校验（越界不读只报）+ 魔数嗅探 → dataURL 首帧注入。
+- **`video-gen.js`**：`film_generate_videos` 消费 `context.localReferences`（缺省行为逐字节不变）；不支持参考的 provider 降级纯文本出片 + `output.referenceWarnings` 明示；`costCheck.references` 确认卡新增参考摘要。
+
+### 测试
+- `video-reference-inputs.test.js`（10 用例）+ `video-gen.test.js` 集成 describe（5 用例）；film-engineering 全目录 207 用例回归全绿。
+
+### 文档
+- PRD §12.6 新增引擎侧参考图消费合同；tasks.md 4.3 勾选。
+
+# [未发布] feat(影视工程): 短剧画布 v1 最小闭环——剧本→拆分镜→连线注入参考→逐镜生成→成片（2026-09-24，film-engineering-canvas，PR #2342）
+
+### 变更
+- **`apps/desktop/src/views/FilmCanvasView.vue`**（新）：Vue Flow 画布主视图，左侧剧本/选项面板 + 工具栏（拆分镜/上传参考/生成/清空/回退经典页）+ 成本确认卡 + 成片 banner。
+- **`apps/desktop/src/components/film-canvas/`**（新）：ScriptInputNode / ReferenceNode / ShotNode 三类自定义节点，带 Handle 与状态徽标。
+- **`apps/desktop/src/composables/film-canvas-model.js` + `useFilmCanvas.js`**（新）：边合法性类型矩阵、拆分镜铺节点、连线即注入（buildLocalReferences）、画布序列化往返与 localStorage 持久化。
+- **`apps/desktop/src/composables/useFilmVideoGen.js`**：`start()` 新增 `opts.localReferences` 非空时随 `initialContext` 透传 pipeline（缺省行为不变）。
+- **IPC/preload**：新增 `uploadReference`（类型白名单+魔数+10MB+路径越界 fail-closed+sender 校验），落盘受控媒体根 `references/`。
+- **路由**：`/film-engineering` 切画布，旧三栏页移至 `/film-engineering/classic` 作回退。
+- **i18n**：`locales/zh.js`/`en.js` 成对新增 `filmEngineering.canvas.*`（Gate7 全绿）。
+- **约定**：渲染端 `src/` 模块必须 ESM 命名导出（CJS `module.exports` 在 vitest 可过但 Rollup build 失败）。
+
+### 文档
+- `01-docs/PRD-FILM-ENGINEERING-CANVAS-2026-09-24.md` 新增 §12 v1 实现状态（数据校验/交互流程/显示项提示文字/已知边界）；`openspec/changes/film-engineering-canvas/` tasks 勾选回写。
+
+---
+# [未发布] feat(账号): 登录态失效改为「头像遮罩」呈现——「已失效」压在头像上、头像旁徽章不再重复（2026-09-24，avatar-expired-mask）
+
+### 变更
+- **`apps/desktop/src/features/accounts/components/AccountManagementCard.vue`**：新增 `showAvatarMask`（`accountStatusKind === 'expired'`）作为**状态载体唯一开关**。失效态在 `.account-avatar` 内叠 `<span class="avatar-status-mask expired">已失效</span>`（`position: absolute` + `top: 55%`/`translateY(-50%)` + 左右铺满，被头像 `overflow: hidden` 裁成弓形；`background: rgba(0,0,0,.55)`、`color: #fff`、`font-size: var(--font-size-xs,12px)`、`pointer-events: none`），同时头像旁 `.login-badge` 由 `v-if="!showAvatarMask"` 关闭——遮罩与徽章互斥且穷尽，同一卡片内 `account-status-{id}` 节点数恒为 1。`.account-avatar` 补 `position: relative` 作为定位上下文。
+- **判定逻辑零改动**：`accountStatusKind` / `statusLabel` / `statusClass` 全部保持原样，只改「用哪个节点承载状态文字」。`online`（已登录）/`unverified`（未确认）/`error`（异常）/`unknown`（暂无检查记录）四态**仍走头像旁徽章**，遮罩只代表失效——避免把「不可用」与「不知道」混为同一视觉语义。
+- **无障碍语义随载体迁移而非丢失**：遮罩沿用 `data-testid="account-status-{id}"` + `role="status"` + `aria-label="账号登录状态：{文案}"`；`aria-label` 提取为共用的 `statusAriaLabel` computed，杜绝两种载体下措辞漂移。既有按 testid 取文案的单测与 `account-login-state-tristate.js` E2E 对载体切换保持透明，无需改动。
+
+### 新增
+- **`apps/desktop/tests/e2e/specs/account-avatar-expired-mask.js`**（真实浏览器渲染态硬断言，11 项 checks 全绿）：注入 `expired` + `active` 两账号与内联 SVG 头像，一次 `evaluate` 取全 computed style 与 `getBoundingClientRect`，断言遮罩存在/文案「已失效」/`role`+`aria`/`absolute`+`rgba(0,0,0,.55)`+`#fff`/遮罩盒落在头像盒内且头像 `overflow:hidden`+`position:relative`/失效卡片 `.login-badge` 计数 0/有效卡片无遮罩且徽章「已登录」/列表视图规则一致/零 console+page error，并落两张截图存证。
+- **`01-docs/PRD-AVATAR-EXPIRED-MASK-2026-09-24.md`**：显示规则规格（R1 遮罩 / R2 徽章不再重复 / R3 已登录保留）、范围界定、数据流程、功能逻辑、遮罩视觉规格、两视图几何实测值、无障碍契约、数据校验、9 类边界场景、测试矩阵、验收标准、不做项。
+
+### 修复
+- **同一信息双份呈现**：失效账号此前在头像旁显示「已失效」徽章，本次按需求把状态收敛到头像本体，卡片信息密度下降、失效辨识度提升。
+- **文档与代码漂移（顺带校正）**：`PRD-ACCOUNT-LOGIN-STATE-PERSISTENCE-2026-09-23.md` §8.1 表中 `inactive`/`offline` 仍写「映射为已登录/offline 徽章」，与 `accountStatusKind` 现状（统一落 `unknown` 兜底）不符，按实测校正并标注日期。
+
+### 数据校验纪律
+1. 遮罩触发条件必须是 `accountStatusKind()` 归一化（`String(...).trim().toLowerCase()`）后的精确 `expired`；词表外脏值（`inactive`/`offline`/空值）一律 `unknown`，**不得**误出遮罩。
+2. 遮罩挂在 `.account-avatar` 容器而非 `<img>` 上——`#2290` 的 `@error → avatarBroken → <UserFilled>` 回落后，占位图标 + 遮罩 + 文案必须仍完整（已由单测锁死）。
+3. `pointer-events: none` 是硬约束：卡片整体点击（打开创作者中心）与批量模式勾选不得被遮罩拦截。
+4. 不新增任何用户可见文案，「已失效」复用既有 `accountsPage.accountCardLabels.statusExpired`（zh）/ `statusExpired`（en: Invalid），locales 零改动 → CI Gate 7 `--pair-base` 变更=false、`--cjk` 无新增硬编码。
+
+### 显示项与提示文字
+- 失效卡片：头像上「已失效」遮罩带（白字半透明黑底）；头像旁徽章消失；账号名/粉丝/负责人·运营人·代理/最近检查/操作按钮（设置·验证·删除·去登录）全部不变。
+- 已登录卡片：头像无遮罩，头像旁绿色「已登录」徽章保留。
+- 未确认 / 异常 / 暂无检查记录：文案与配色均不变（琥珀 / 红 / 灰徽章）。
+- 实测几何：网格视图头像 62×62、遮罩 60×18（带高约占头像 29%）；列表视图头像 46.7×62、遮罩 44.7×18（随头像宽度自适应铺满）。
+
+### 关联
+- 上游判定真源 `01-docs/PRD-ACCOUNT-LOGIN-STATE-PERSISTENCE-2026-09-23.md`（三态判定不变，本文仅改显示载体，已同步其 §8.1 与 `UI-INVENTORY.md` §6.7）。
+- 与 `#2290`（账号昵称/头像真实获取与回落）共存：新增回归用例锁死「头像加载失败回落时遮罩仍在」。
+- 像素视觉门禁不适用（如实记录）：`run-pixel-tests.js` 含 `accounts-list` 视图，但仓库跟踪的 `base-screenshots` 无该基线，属「首次生成即通过」，抓不到本改动 → 视觉证据以 §新增 的运行态计算样式/几何断言 + 截图目视为准。
+
+### 验证
+- 定向单测 12 文件 **252 passed / 2 skipped**（vitest exit 0）；`AccountManagementCard.test.js` 新增 5 条用例（含样式契约读源断言，沿用 JSDOM 不应用 scoped CSS 的既有惯例）。
+- 真实浏览器 E2E **11/11 checks passed**，零 console/page error。
+- 静态门禁全绿：`check-max-lines`（超限99/挂账99/墓碑1，无新增）、`check-debt-budget`（fanOut 65/65、circularDeps 0）、`check-no-brand-residue`、`check-locale-sync`（`--pair-base`/`--cjk`/`--keys`/`--py-cjk`）、`check-color-literals`、`check-css-var-defined`、`check-font-size-scale`、`check-vue-style-parse`、`check-frontend-consistency`、`check-hardcoded-secrets`、`check-scoped-root`、`check-route-registry`；ESLint 0 error。
 # [未发布] fix(ui): 新建标签点击共享侧边栏「没反应」——共享侧边栏驱动当前聚焦标签（2026-09-24，tab-sidebar-focus-nav）
 
 ### 变更

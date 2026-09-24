@@ -671,17 +671,17 @@ describe('子模块 require 链可加载', () => {
 })
 
 describe('影视工程 film-engineering preload API', () => {
-  it('createFilmEngineeringApi 应为函数且返回 16 个方法', () => {
+  it('createFilmEngineeringApi 应为函数且返回 17 个方法', () => {
     const { createFilmEngineeringApi } = require('./preload/film-engineering')
     expect(typeof createFilmEngineeringApi).toBe('function')
     const api = createFilmEngineeringApi(ipcRenderer)
-    expect(Object.keys(api.filmEngineering).length).toBe(16)
+    expect(Object.keys(api.filmEngineering).length).toBe(17)
   })
 
   it.each([
     ['status', 'film-engineering:status', []],
     ['listScenes', 'film-engineering:list-scenes', []],
-    ['listShots', 'film-engineering:list-shots', ['scene-1']],
+    ['listShots', 'film-engineering:list-shots', ['scene-1', { limit: 100, offset: 0 }]],
     ['getShot', 'film-engineering:get-shot', ['shot-1']],
     ['doctrine', 'film-engineering:doctrine', []],
     ['copyText', 'film-engineering:copy-text', ['shot-1', 'full']],
@@ -689,6 +689,7 @@ describe('影视工程 film-engineering preload API', () => {
     ['adaptScript', 'film-engineering:adapt-script', [{ script: '第一场\n剧情', characterMap: { ROKO: '小强' } }]],
     ['exportPrompts', 'film-engineering:export', [[{ shotId: 's1', prompt: 'p' }], 'markdown']],
     ['generateSelected', 'film-engineering:generate-selected', [[{ shotId: 's1', prompt: 'p' }], { aspectRatio: '16:9' }]],
+    ['uploadReference', 'film-engineering:upload-reference', [{ dataUrl: 'data:image/png;base64,AAAA' }]],
     ['retryShot', 'film-engineering:retry-shot', [{ runId: 'run-1', shotIndex: 0 }]],
     ['downloadRecycled', 'film-engineering:download-recycled', [{ taskId: 't1', items: [{ shotId: 's1', orderIndex: 0 }] }]],
     ['productionPlan', 'film-engineering:production-plan', [{ shotIds: ['s1'] }]],
@@ -701,6 +702,7 @@ describe('影视工程 film-engineering preload API', () => {
     api.filmEngineering[method](...args)
     expect(ipcRenderer.invoke).toHaveBeenCalledTimes(1)
     expect(ipcRenderer.invoke.mock.calls[0][0]).toBe(channel)
+    expect(ipcRenderer.invoke.mock.calls[0].slice(1)).toEqual(args)
   })
 
   it('film-engineering 为公开方法（未登录可用）且主进程通道公开', () => {
