@@ -15673,3 +15673,18 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **Windows 下用 Junction 复用主仓 node_modules 跑测试/dev server（preference，含前置校验）**：新 worktree 无 `node_modules`，对 root 与 `apps/desktop`、`packages/*` 各建 `New-Item -ItemType Junction` 指向主仓同名目录，即可直接 `node node_modules/vitest/vitest.mjs run …`、`node node_modules/eslint/bin/eslint.js …`、起 `vite`，省掉一次全量 `pnpm install`。**前置硬条件**：两个 ref 之间的 `pnpm-lock.yaml` 必须无差异（本轮核对：仅 root `package.json` 差 1 行），否则物理链接的依赖树与锁文件不符，测试结果不可信。用完起停 dev server 要复核端口释放（`Get-NetTCPConnection -State Listen -LocalPort <port>` 计数归 0）。
 
 - **PowerShell 管道的退出码陷阱（pitfall）**：`node … 2>&1 | Select-Object -Last 30` 下，stderr 有输出会让 PS 把命令判为失败（vitest 实际 `exit 0` 却报非零）。**手法**：需要真实退出码时一律重定向到文件（`> out.log 2>&1`）后立刻打印 `$LASTEXITCODE`，不在管道下游取退出码。
+
+
+## 账号卡片显示/数据修复——噪声昵称守卫与 API 回填四层法（account-card-display-fix，2026-09-24，PR #2358）
+
+- **DOM 抓取回退到 document.title 是账号名噪声的系统性根因（pitfall）**：`account-profile.js` 昵称多层回退最后落到 `document.title`，把「作品发布/头条号/百家号/视频号助手/Bilibili 创作者中心」等页面标题当昵称写库；快手整块容器 textContent（「0粉丝0关注0获赞账号认证退出登录…」）被通用选择器抓成昵称。**修复模式**：新增单一数据源守卫 `packages/shared-utils/src/account-name-guard.js` 的 `isNoiseAccountName`（会话 chrome 关键词 / 计数词命中≥2 / 已知页面标题精确命中），采集出口（`profileForCreate`/`buildProfilePatch`）与渲染显示（`AccountManagementCard.accountName()`）两端共用。真实昵称「数字生命丘丘」/含单个「关注」的昵称不得误杀——计数词命中≥2 才判噪声，正是为「关注的旅人」这类留活口。
+
+- **API 回填昵称的「昵称保护纪律」（pattern）**：`account-manager.js` `refreshProfileFromHttpApi` 在 HTTP 登录检测判 `valid===true` 时旁路回填，但**仅当现网名命中噪声或缺失时才用 API 昵称覆盖**；现网名非噪声（含用户手动改名）→ 从 patch 删除 `account_name`，只回填粉丝/平台ID/头像。否则每次检测都会冲掉用户手输的备注名。所有「后台自动回填用户可编辑字段」的场景都该套这层守卫。
+
+- **对齐蚁小二：账号资料一律带 Cookie 调平台创作者 HTTP API 读结构化 JSON，不做 DOM 抓取（pattern）**：复用 `http-login-checker.js` 登录检测**同一批** API 端点（douyin `creator/pc/user/info`、toutiao `get_media_info`、tencent_video `auth_data.finderUser`、bilibili `web-interface/nav`）加 `extract`，零新增网络请求即得权威昵称/粉丝。`toCount`（正整数才认）保证脏值不下发。**边界**：快手 `infoV2` 需 `__NS_sig3` 签名（蚁小二 `getSign$5`）未逆向，本期无 API 粉丝来源，诚实走 DOM+噪声守卫+显示回落，不假装解决。
+
+- **显示字段键清单必须含真实写入字段（pitfall，「暂无检查记录」误显）**：`LAST_CHECK_KEYS` 缺真实字段 `last_validated`，导致已检测账号仍走「从未检测」兜底文案。凡「取第一个存在的键显示」的清单，须与后端实际落库字段名逐一核对，命名漂移（snake/camel）要全覆盖。
+
+- **徽章标签折行：固定 px 列宽 → max-content + white-space:nowrap（pattern）**：`.account-assignees > div` 列 `44px` 容不下三字标签+padding 触发换行；改 `max-content minmax(0,1fr)` + 徽章 span `nowrap`。CSS 契约 JSDOM 测不到，沿用项目惯例用 `fs.readFileSync('.vue')` 切片做源码契约断言。
+
+- **worktree（workspace 外）文件编辑 + CRLF 锚点归一化（pitfall，本轮真实代价）**：任务 worktree 在共享根之外，SearchReplace/Write 报 "can not edit the file outside the projects"；改用「内容暂存 `.agent_context/stage/` + Node 脚本 fs 锚点替换」写入。Node 脚本锚点替换必须按目标文件 EOL 归一化（worktree 检出常为 CRLF，脚本内 \n 锚点须转 \r\n），否则 ANCHOR NOT FOUND。`01-docs/**/*.md` 被 `.gitignore` 忽略，PRD/learnings 一律 `git add -f`。
