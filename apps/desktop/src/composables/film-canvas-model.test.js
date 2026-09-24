@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   NODE_TYPES, validateCanvasEdge, shotsToNodes, mergeNodesKeepPosition,
-  collectShotReferences, buildLocalReferences,
+  collectShotReferences, buildLocalReferences, findShotResultIndex,
   serializeCanvasState, deserializeCanvasState,
 } from './film-canvas-model'
 
@@ -135,5 +135,25 @@ describe('序列化往返（持久化合同）', () => {
     expect(deserializeCanvasState('not json')).toBeNull()
     expect(deserializeCanvasState({ schemaVersion: 99, nodes: [], edges: [] })).toBeNull()
     expect(deserializeCanvasState(null)).toBeNull()
+  })
+})
+
+describe('findShotResultIndex 单镜重试定位', () => {
+  it('命中返回 run 快照 index', () => {
+    const rs = [{ index: 0, shotId: 'a' }, { index: 1, shotId: 'b' }]
+    expect(findShotResultIndex(rs, 'b')).toBe(1)
+  })
+  it('fail-closed：空数组/null/空串/非串/未命中/非法 index 一律 null', () => {
+    expect(findShotResultIndex([], 'a')).toBeNull()
+    expect(findShotResultIndex(null, 'a')).toBeNull()
+    expect(findShotResultIndex([{ index: 0, shotId: 'a' }], '')).toBeNull()
+    expect(findShotResultIndex([{ index: 0, shotId: 'a' }], 7)).toBeNull()
+    expect(findShotResultIndex([{ index: 0, shotId: 'a' }], 'zz')).toBeNull()
+    expect(findShotResultIndex([{ index: -1, shotId: 'a' }], 'a')).toBeNull()
+    expect(findShotResultIndex([{ index: 1.5, shotId: 'a' }], 'a')).toBeNull()
+    expect(findShotResultIndex([{ shotId: 'a' }], 'a')).toBeNull()
+  })
+  it('重复 shotId 取首个命中（快照顺序即镜序）', () => {
+    expect(findShotResultIndex([{ index: 2, shotId: 'a' }, { index: 5, shotId: 'a' }], 'a')).toBe(2)
   })
 })

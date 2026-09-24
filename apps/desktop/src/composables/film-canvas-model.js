@@ -207,6 +207,23 @@ function deserializeCanvasState (raw) {
 
 // 对外导出统一用 ESM 命名导出（渲染端经 Rollup/vite build 消费，CJS module.exports 会导致
 // "xxx is not exported" 构建失败）；ALL_NODE_TYPES/EDGE_RULES 导出防御性拷贝，避免调用方改写内部规则。
+/**
+ * 单镜重试定位：在 run 结果（useFilmVideoGen.shotResults 形状）里找 shotId 对应的 index。
+ * fail-closed：results 非数组 / shotId 非空串不成立 / 未命中 / index 非法一律返回 null，
+ * 调用方（视图 onRetryShot）据此提示失败，绝不带着臆造 index 去调 retry 通道。
+ * @param {Array<{index?: number, shotId?: string}>|null|undefined} results
+ * @param {string} shotId
+ * @returns {number|null}
+ */
+function findShotResultIndex (results, shotId) {
+  if (!Array.isArray(results) || typeof shotId !== 'string' || !shotId) return null
+  for (const r of results) {
+    if (r && r.shotId === shotId && Number.isInteger(r.index) && r.index >= 0) return r.index
+  }
+  return null
+}
+
+
 const ALL_NODE_TYPES_LIST = [...ALL_NODE_TYPES]
 const EDGE_RULES_SNAPSHOT = Object.fromEntries(Object.entries(EDGE_RULES).map(([k, v]) => [k, [...v]]))
 
@@ -223,4 +240,5 @@ export {
   buildLocalReferences,
   serializeCanvasState,
   deserializeCanvasState,
+  findShotResultIndex,
 }
