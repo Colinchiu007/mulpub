@@ -15673,3 +15673,9 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **Windows 下用 Junction 复用主仓 node_modules 跑测试/dev server（preference，含前置校验）**：新 worktree 无 `node_modules`，对 root 与 `apps/desktop`、`packages/*` 各建 `New-Item -ItemType Junction` 指向主仓同名目录，即可直接 `node node_modules/vitest/vitest.mjs run …`、`node node_modules/eslint/bin/eslint.js …`、起 `vite`，省掉一次全量 `pnpm install`。**前置硬条件**：两个 ref 之间的 `pnpm-lock.yaml` 必须无差异（本轮核对：仅 root `package.json` 差 1 行），否则物理链接的依赖树与锁文件不符，测试结果不可信。用完起停 dev server 要复核端口释放（`Get-NetTCPConnection -State Listen -LocalPort <port>` 计数归 0）。
 
 - **PowerShell 管道的退出码陷阱（pitfall）**：`node … 2>&1 | Select-Object -Last 30` 下，stderr 有输出会让 PS 把命令判为失败（vitest 实际 `exit 0` 却报非零）。**手法**：需要真实退出码时一律重定向到文件（`> out.log 2>&1`）后立刻打印 `$LASTEXITCODE`，不在管道下游取退出码。
+## 门控首个导航的异步 promise 必须带超时与销毁守卫（cdp-nav-gate-hang，2026-09-24）
+
+- **Bug 模式（pitfall）**：PR #2327 把 CDP `debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument')` 挂为标签首个导航的前置条件（`Promise.all` 门控后才 `loadURL`）。该命令在部分账号分区可**永久挂起**（2026-09-24 头条标签事故日志实锤：命令在标签存活期内从未返回）→ 页面「一直加载不出来」；标签关闭瞬间命令才以 `target closed` 失败 → 回调对已销毁 `webContents` 调 `loadURL` 抛未处理 TypeError。CDP 命令、`webContents` 异步方法、扩展协议调用都属于「可能永不 settle 的 promise」，await 它们等于把核心路径交给无下限的外部实现。
+- **规则（pattern）**：任何「门控首个导航/核心交互」的异步 promise 必须①用超时竞态封顶阻塞时长并 fail-open 降级到既有慢路径（timer 记得 `unref()`，避免钉住事件循环）；②门控解除后的所有延迟回调先做销毁守卫（`view.webContents` 存在性 + `isDestroyed()`），异步窗口期内标签随时可能被用户关闭。
+- **可迁移信号（QM-5④回归模板）**：为每个「导航前置 await」写一对回归测试——(a) 依赖**永久挂起**：fake timers 推进时间，断言导航照常发生且降级路径已注册；(b) 依赖**在目标销毁后才失败**：断言无 unhandledRejection 外溢。只 mock「成功 / 立即失败」两条路径的测试正是这类缺陷的逃逸盲区——#2327 的测试就止步于此。判断手法：看到 `await` 一个非本项目实现的 promise 挡在 `loadURL` 前面，先问「它永不返回怎么办」。
+
