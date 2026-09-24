@@ -179,6 +179,12 @@ export default {
       modeFallbackHint: 'API 发布不可用，已自动降级为浏览器发布',
     },
     riskHold: {
+
+      suspended: '检测到风控，「{platform}」等 {count} 个发布目标已自动暂停后续发布，请在平台侧确认后手动恢复',
+      resumeConfirm: '确认恢复「{platform}」的发布？请确保已在平台侧解除风控，否则会再次触发暂停',
+      resumed: '已恢复「{platform}」的发布',
+      resumeFailed: '恢复发布失败：{message}',
+      resume: '恢复发布',
       body: '检测到「{platform}」发布触发风控，请前往该账号确认状态后再继续发布',
     },
   },

@@ -26,6 +26,7 @@
         :to="item.to"
         class="mp-primary-item"
         :class="{ active: isActive(item) }"
+        @click.prevent="onNavClick(item.to)"
         :data-testid="`mp-primary-${item.key}`"
         :aria-current="isActive(item) ? 'page' : undefined"
       >
@@ -57,6 +58,7 @@
           role="menuitem"
           class="mp-more-item"
           :class="{ active: isActive(item) }"
+          @click.prevent="onNavClick(item.to)"
           :aria-current="isActive(item) ? 'page' : undefined"
           :data-testid="`mp-more-item-${item.key}`"
         >
@@ -94,7 +96,8 @@ import UpgradeModal from '@/components/UpgradeModal.vue'
 import ProfileMenu from '@/components/ProfileMenu.vue'
 import SidebarServiceStatus from '@/components/SidebarServiceStatus.vue'
 import SidebarUpdateButton from '@/components/SidebarUpdateButton.vue'
-import { invokePageManager } from '@/api/electron-bridge'
+import { invokePageManager, getApi } from '@/api/electron-bridge'
+import { useTabStore } from '@/stores/tab'
 import { opsCenterSyncAppMenu } from '@/api/ops-center-sync'
 import { useAppVersion } from '@/composables/useAppVersion'
 import { suspendEmbeddedViewsForOverlay, releaseEmbeddedViewsForOverlay } from '@/composables/useEmbeddedViewSuspension'
@@ -102,6 +105,7 @@ import brandLogoUrl from '@/assets/brand/tom-fish-logo.png'
 
 const route = useRoute()
 const router = useRouter()
+const tabStore = useTabStore()
 const { t } = useI18n()
 const moreOpen = ref(false)
 const showUpgradeModal = ref(false)
@@ -148,13 +152,54 @@ const moreItems = computed(() =>
   resolvedMenu.value.more.filter((item) => item.visible).map(withLocalizedLabel),
 )
 
+/**
+ * 侧边栏高亮依据的路径（方案 B：共享侧边栏跟随当前聚焦标签）：
+ * - 聚焦内嵌主页实例（home-shell）时，用主进程回传的该实例真实 SPA 路由 activeTab.spaRoute；
+ * - 否则（首页虚拟标签 / 普通网页标签）用主窗口 vue-router 当前路径 route.path。
+ */
+const navPath = computed(() => {
+  if (tabStore.activeTabIsHomeShell) {
+    const sr = tabStore.activeTab && tabStore.activeTab.spaRoute
+    return (typeof sr === 'string' && sr) ? sr.split('?')[0] : '/'
+  }
+  return route.path
+})
+
+/**
+ * 侧边栏导航点击：把「点了没反应」变为「当前标签可见跳转」。
+ * - 聚焦内嵌主页实例（home-shell）→ 经 IPC 定向让该实例自身 router.push，主窗口隐藏路由保持不动；
+ * - 聚焦普通网页标签 → 先切回首页标签再导航，让变化可见；
+ * - 聚焦首页标签 → 维持原有主窗口路由跳转。
+ */
+async function onNavClick (to) {
+  if (typeof to !== 'string' || !to) return
+  if (tabStore.activeTabIsHomeShell) {
+    const api = getApi()
+    try {
+      const res = api && api.pageManager && typeof api.pageManager.navigateActiveHomeShell === 'function'
+        ? await api.pageManager.navigateActiveHomeShell(to)
+        : null
+      if (res && res.data && res.data.handled) return
+    } catch (error) {
+      console.warn('[sidebar] navigate home-shell failed', error)
+    }
+  }
+  if (!tabStore.isHomeTab) {
+    const homeTab = tabStore.tabs.find((tab) => tab.isHome)
+    if (homeTab && tabStore.activeTabId !== homeTab.tabId) {
+      try { await tabStore.switchToTab(homeTab.tabId) } catch (error) { console.warn('[sidebar] switch home failed', error) }
+    }
+  }
+  try { await router.push(to) } catch (error) { console.warn('[sidebar] navigate failed', error) }
+}
+
 /** 「更多」组是否存在当前路由命中项（触发器常驻高亮依据，2026-09-21 选中态修复） */
 const hasActiveMoreItem = computed(() => moreItems.value.some((item) => isActive(item)))
 
 // 路由变化时若落在「更多」组 → 自动展开菜单，让选中项可见。
 // 用 watch 而非仅 onMounted：真实应用初始路由是异步解析的，
 // 硬刷新深链时 onMounted 早于 route.path 就绪，需路由解析后再展开（2026-09-21）。
-watch(() => route.path, () => {
+watch(navPath, () => {
   if (hasActiveMoreItem.value) moreOpen.value = true
 })
 
@@ -193,12 +238,13 @@ onUnmounted(() => {
 })
 
 function isActive (item) {
-  if (item.key === 'home') return route.path === '/'
-  return route.path === item.to || route.path.startsWith(`${item.to}/`)
+  const path = navPath.value
+  if (item.key === 'home') return path === '/'
+  return path === item.to || path.startsWith(item.to + '/')
 }
 
 function goToPublish () {
-  router.push('/publish')
+  onNavClick('/publish')
 }
 </script>
 

@@ -12,7 +12,8 @@ function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
   const { withSenderCheck } = require('./helpers')
   // eslint-disable-next-line no-unused-vars
-  const { taskQueue, history, BrowserWindow, log, identityService } = deps
+  // eslint-disable-next-line no-unused-vars
+  const { taskQueue, history, BrowserWindow, log, identityService, riskSuspender } = deps
 
   // 平台和账号标识会进入发布路由及下游 URL，只允许单一路径段。
   function isSafePathSegment(value) {
@@ -405,6 +406,58 @@ function registerHandlers(ipcMain, deps) {
       ipcLog('info', 'history:delete', 'ok', `deleted=${result.deleted} ids=${normalizedIds.join(',')}`)
       return { code: 0, data: result, message: '发布记录已删除' }
     } catch (e) { ipcLog('error', 'history:delete', 'error', `message=${e.message}`); return { code: EC.REQUEST_ERROR, message: e.message } }
+  }))
+
+  // ─── W1 §5 enforcement：风控挂起守卫查询/恢复 ───
+  function isRiskPlatformValid(value) {
+    return typeof value === 'string' && /^[a-zA-Z0-9_-]+$/.test(value)
+  }
+
+  ipcMain.handle('publishRisk:listSuspended', withSenderCheck(async () => {
+    try {
+      if (!riskSuspender) return { code: EC.REQUEST_ERROR, message: '风控挂起服务未初始化' }
+      return { code: 0, data: riskSuspender.listSuspended() }
+    } catch (e) { ipcLog('error', 'publishRisk:listSuspended', 'error', `message=${e.message}`); return { code: EC.REQUEST_ERROR, message: e.message } }
+  }))
+
+  ipcMain.handle('publishRisk:resume', withSenderCheck(async (event, payload) => {
+    const startedAt = Date.now()
+    ipcLog('info', 'publishRisk:resume', 'enter', `payload=${JSON.stringify(payload)}`)
+    try {
+      if (!riskSuspender) return { code: EC.REQUEST_ERROR, message: '风控挂起服务未初始化' }
+      const platform = payload && payload.platform
+      const accountId = payload && payload.accountId
+      if (!isRiskPlatformValid(platform)) {
+        ipcLog('warn', 'publishRisk:resume', 'validation-failed', 'platform 格式无效')
+        return { code: EC.VALIDATION_ERROR, message: 'platform 必须为合法平台标识' }
+      }
+      if (accountId != null && !isRiskPlatformValid(String(accountId))) {
+        ipcLog('warn', 'publishRisk:resume', 'validation-failed', 'accountId 格式无效')
+        return { code: EC.VALIDATION_ERROR, message: 'accountId 格式无效' }
+      }
+      // §5 合规红线：resume 仅显式人工触发，不存在自动恢复
+      const changed = riskSuspender.resume(platform, accountId == null ? null : String(accountId))
+      const suspended = riskSuspender.listSuspended()
+      try {
+        for (const win of BrowserWindow.getAllWindows()) {
+          if (win && !win.isDestroyed()) win.webContents.send('publish:risk-suspended', { suspended })
+        }
+      } catch (e) { ipcLog('warn', 'publishRisk:resume', 'broadcast-failed', e.message) }
+      ipcLog('info', 'publishRisk:resume', 'ok', `platform=${platform} accountId=${accountId ?? '-'} changed=${changed} 耗时=${Date.now() - startedAt}ms`)
+      return { code: 0, data: { changed, suspended } }
+    } catch (e) { ipcLog('error', 'publishRisk:resume', 'error', `message=${e.message}`); return { code: EC.REQUEST_ERROR, message: e.message } }
+  }))
+
+  ipcMain.handle('publishRisk:isSuspended', withSenderCheck(async (event, payload) => {
+    try {
+      if (!riskSuspender) return { code: EC.REQUEST_ERROR, message: '风控挂起服务未初始化' }
+      const platform = payload && payload.platform
+      const accountId = payload && payload.accountId
+      if (!isRiskPlatformValid(platform)) {
+        return { code: EC.VALIDATION_ERROR, message: 'platform 必须为合法平台标识' }
+      }
+      return { code: 0, data: riskSuspender.isSuspended(platform, accountId == null ? null : String(accountId)) }
+    } catch (e) { ipcLog('error', 'publishRisk:isSuspended', 'error', `message=${e.message}`); return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
 
   ipcMain.handle('dashboard:stats', withSenderCheck(async () => {

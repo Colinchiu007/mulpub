@@ -34,6 +34,24 @@
 - 定向单测 12 文件 **252 passed / 2 skipped**（vitest exit 0）；`AccountManagementCard.test.js` 新增 5 条用例（含样式契约读源断言，沿用 JSDOM 不应用 scoped CSS 的既有惯例）。
 - 真实浏览器 E2E **11/11 checks passed**，零 console/page error。
 - 静态门禁全绿：`check-max-lines`（超限99/挂账99/墓碑1，无新增）、`check-debt-budget`（fanOut 65/65、circularDeps 0）、`check-no-brand-residue`、`check-locale-sync`（`--pair-base`/`--cjk`/`--keys`/`--py-cjk`）、`check-color-literals`、`check-css-var-defined`、`check-font-size-scale`、`check-vue-style-parse`、`check-frontend-consistency`、`check-hardcoded-secrets`、`check-scoped-root`、`check-route-registry`；ESLint 0 error。
+# [未发布] fix(ui): 新建标签点击共享侧边栏「没反应」——共享侧边栏驱动当前聚焦标签（2026-09-24，tab-sidebar-focus-nav）
+
+### 变更
+- **`apps/desktop/electron/services/webview-manager.js`**：tab state 新增 `spaRoute`；新增模块级 `_parseHashRoute(url)` 从 home-shell 标签 hash 路由提取 SPA 路径；`did-navigate`（壳态自然结束清空 / 仍壳态解析）与 `did-navigate-in-page`（页内 hash 导航更新 `spaRoute`）写回；`_broadcastNav`/`getAllTabs`/`getActiveTab` 一律携带 `homeShell` + `spaRoute`；新增 `navigateActiveHomeShell(path)`（仅活动标签为存活的 home-shell 时定向 `webContents.send('page-manager:home-shell-navigate', {path})`，否则 `handled:false`）与 IPC handler `page-manager:navigate-active-home-shell`（`withSenderCheck`）。
+- **`apps/desktop/electron/preload/page-manager.js`**：新增 `navigateActiveHomeShell(path)`；重建 `index.bundle.js` 与 `home-shell-preload.bundle.js`（内嵌实例经双判据后 `require('./preload/index.js')` 复用同一 `pageManager.on`）。
+- **`apps/desktop/src/stores/tab.js`**：新增 `activeTabIsHomeShell` computed getter（`activeTab.homeShell === true`）；`onNavigationChanged` 实时更新 `tab.spaRoute`/`tab.homeShell`；导出新 getter。
+- **`apps/desktop/src/App.vue`**：内嵌主页实例（`isHomeShell`）订阅 `pageManager.on('home-shell-navigate')`，收到 `{path}` 后在**本实例自身** `router.push`；`onBeforeUnmount` 对称退订。
+- **`apps/desktop/src/layouts/MpSidebar.vue`**：`<router-link>` 加 `@click.prevent="onNavClick(item.to)"`；新增 `navPath` computed（home-shell 聚焦→`activeTab.spaRoute`，否则→`route.path`）与 `onNavClick`（home-shell→IPC 定向；普通网页标签→先切回 home 再导航；异常/handled:false→fail-open 回退）；`isActive` 改读 `navPath`；`goToPublish` 走 `onNavClick`；「更多」自动展开的 watch 由 `route.path` 改为 `navPath`。
+
+### 修复
+- **新建 home-shell 标签聚焦时点击左侧共享侧边栏「毫无反应」**：根因是共享侧边栏只渲染在外层主窗口（内嵌实例按 PRD-TAB-INDEPENDENT-HOME 不渲染 `MpSidebar`），其 `router-link` 驱动的是被 `WebContentsView` 覆盖、不可见的 home 虚拟标签路由。改为「点菜单 = 当前聚焦标签跳转」：home-shell 标签由主进程定向 IPC 让该实例自身导航，普通网页标签先切回首页标签再导航，侧边栏高亮同步跟随聚焦标签真实路由（`spaRoute`）。
+
+### 验证
+- TDD：webview-manager 新增 5 例（`navigateActiveHomeShell` 受理/非法 path 拒绝/非 home-shell 拒绝/页内导航更新 `spaRoute` 并经 `getActiveTab`+`getAllTabs` 暴露/壳态自然结束清空）；tab store 新增 3 例（`activeTabIsHomeShell` 真/假、`onNavigationChanged` 实时更新 `spaRoute`）；MpSidebar 新增独立文件 4 例（home-shell 定向、网页标签回退切换、高亮跟随 `spaRoute`、handled:false 回退）。
+- 本地门禁：`eslint electron/ src/ --quiet` EXIT0；CI 口径 `tsc --noEmit` EXIT0；`build:preload` 重建；`test:preload:sandbox` BOTH_MODES_OK；相关 vitest 全绿（webview-manager 66 / tab 14 / MpSidebar 全套 33 / home-shell 12）。
+
+### 关联
+- 上游 `01-docs/PRD-TAB-INDEPENDENT-HOME-2026-09-22.md`（PR #2230）；本特性 PRD `01-docs/PRD-TAB-SIDEBAR-FOCUS-NAV-2026-09-24.md`；经验沉淀见 `01-docs/learnings.md`（shared-chrome-focus-nav）。
 
 # [未发布] docs(member-center): 会员中心阶段 2 支付 spec CEO 评审结论（v1.1 SELECTIVE EXPANSION，2026-09-24，member-center-p2-review）
 

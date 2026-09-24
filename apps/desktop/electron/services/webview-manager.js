@@ -172,6 +172,25 @@ function _urlHasHomeShellParam (url) {
   }
 }
 
+/**
+ * 从内嵌主页标签（home-shell）hash 路由 URL 中提取 SPA 路由路径（'#' 之后、'?' 之前）。
+ * hash 历史形态：.../index.html?mp-home-shell=1#/collection?tab=x -> '/collection'。
+ * 无 hash / 异常回落 '/'。用于共享左侧边栏高亮跟随当前聚焦标签的真实页面。
+ * @param {string} url
+ * @returns {string}
+ */
+function _parseHashRoute (url) {
+  if (typeof url !== 'string') return '/'
+  const hashIdx = url.indexOf('#')
+  if (hashIdx === -1) return '/'
+  let route = url.slice(hashIdx + 1)
+  const qIdx = route.indexOf('?')
+  if (qIdx !== -1) route = route.slice(0, qIdx)
+  if (!route) route = '/'
+  if (route.charAt(0) !== '/') route = '/' + route
+  return route
+}
+
 // 各平台创作者中心/后台 URL → @multi-publish/shared-utils/src/platform-definitions
 
 class WebviewManager extends EventEmitter {
@@ -506,6 +525,7 @@ class WebviewManager extends EventEmitter {
         url: homeShell ? '' : initialUrl,
         title: initialTitle,
         homeShell: homeShell,
+        spaRoute: homeShell ? '/' : '',
         titleLocked: Boolean(opts && typeof opts.title === 'string' && opts.title.trim()),
         loading: false,
         canGoBack: false,
@@ -788,7 +808,9 @@ class WebviewManager extends EventEmitter {
         // 账号标签标识：渲染层据此显示「保存账号」按钮（批量登录标签无 isLogin）
         accountId: state.accountId || null,
         platform: state.platform || null,
-        credentialSaveState: state.credentialSaveState || null
+        credentialSaveState: state.credentialSaveState || null,
+        homeShell: !!state.homeShell,
+        spaRoute: state.spaRoute || ''
       })
     })
     // 虚拟登录标签（对齐参考产品全屏登录）
@@ -828,7 +850,9 @@ class WebviewManager extends EventEmitter {
       isHome: this._activeTabId === this._homeTabId,
       accountId: state.accountId || null,
       platform: state.platform || null,
-      credentialSaveState: state.credentialSaveState || null
+      credentialSaveState: state.credentialSaveState || null,
+      homeShell: !!state.homeShell,
+      spaRoute: state.spaRoute || ''
     }
   }
 
@@ -914,6 +938,34 @@ class WebviewManager extends EventEmitter {
    * @param {string} url
    * @returns {boolean}
    */
+  /**
+   * 驱动「当前聚焦的内嵌主页标签（home-shell）」在其自身 SPA 内导航到给定的 hash 路由。
+   * 共享左侧边栏始终只有一份（属主窗口 chrome），其 router-link 默认驱动首页虚拟标签；
+   * 当用户聚焦的是 home-shell 新标签时，侧边栏点击改走本方法：主进程定向把路由指令
+   * 只发给活动标签的 webContents，由该独立 SPA 实例自己 router.push（hash 导航，走
+   * did-navigate-in-page，不触发壳态自然结束）。非 home-shell 活动标签返回 handled:false，
+   * 渲染层回退为「切回首页标签 + 导航」，保证变化可见。
+   * @param {string} path hash 路由（如 '/collection'）
+   * @returns {{ handled: boolean }}
+   */
+  navigateActiveHomeShell (path) {
+    var self = this
+    if (typeof path !== 'string' || path.charAt(0) !== '/') return { handled: false }
+    var tabId = self._activeTabId
+    if (!tabId || !self._tabStates.has(tabId)) return { handled: false }
+    var state = self._tabStates.get(tabId)
+    if (!state.homeShell) return { handled: false }
+    var view = self._tabViews.get(tabId)
+    if (!view || !view.webContents || (typeof view.webContents.isDestroyed === 'function' && view.webContents.isDestroyed())) return { handled: false }
+    try {
+      view.webContents.send('page-manager:home-shell-navigate', { path: path })
+      return { handled: true }
+    } catch (e) {
+      log.warn('WebviewManager', 'home-shell navigate send failed: ' + ((e && e.message) || e))
+      return { handled: false }
+    }
+  }
+
   navigateTab (tabId, url) {
     var self = this
     var view = self._tabViews.get(tabId)
@@ -1363,10 +1415,12 @@ class WebviewManager extends EventEmitter {
         state.titleLocked = false
         state.url = url
         state.realUrl = url
+        state.spaRoute = ''
       } else if (state.homeShell) {
         // 仍在壳态（主页自身加载/刷新）：真实地址只记内部字段，对外展示/广播恒为空串
         state.realUrl = url
         state.url = ''
+        state.spaRoute = _parseHashRoute(url)
       } else {
         state.url = url
       }
@@ -1379,7 +1433,7 @@ class WebviewManager extends EventEmitter {
    view.webContents.on('did-navigate-in-page', function (event, url) {
      if (!self._tabStates.has(tabId)) return
      var state = self._tabStates.get(tabId)
-     if (state.homeShell) { state.realUrl = url } else { state.url = url }
+     if (state.homeShell) { state.realUrl = url; state.spaRoute = _parseHashRoute(url) } else { state.url = url }
      self._broadcastNav(tabId)
      self._maybeScheduleAutoSave(tabId, state)
    })
@@ -1484,7 +1538,9 @@ class WebviewManager extends EventEmitter {
       url: state.url,
       title: state.title,
       canGoBack: state.canGoBack,
-      canGoForward: state.canGoForward
+      canGoForward: state.canGoForward,
+      homeShell: !!state.homeShell,
+      spaRoute: state.spaRoute || ''
     })
   }
 
@@ -1532,6 +1588,14 @@ class WebviewManager extends EventEmitter {
         self.navigateTab(arg.tabId, arg.url)
         return { code: 0 }
       } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
+    }))
+
+    // 共享左侧边栏驱动当前聚焦的 home-shell 标签在其自身 SPA 内导航（见 navigateActiveHomeShell）
+    ipcMain.handle('page-manager:navigate-active-home-shell', withSenderCheck(function (_, arg) {
+      try {
+        var path = arg && arg.path
+        return { code: 0, data: self.navigateActiveHomeShell(path) }
+      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message, data: { handled: false } } }
     }))
 
     ipcMain.handle('page-manager:go-back', withSenderCheck(function (_, tabId) {

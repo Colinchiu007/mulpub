@@ -19,6 +19,7 @@ import { reportError } from './utils/report-error'
 import { getApi } from './api/electron-bridge'
 import { onRiskHold } from './api/publisher'
 import { createRiskHoldNotifier } from './services/risk-hold-notifier'
+import { useRiskStore } from './stores/risk'
 import { useNotify } from './composables/useNotify'
 import EmptyState from './components/EmptyState.vue'
 import LoadingState from './components/LoadingState.vue'
@@ -60,7 +61,7 @@ app.mount('#app')
 // W1 §6.1 风控挂起通知消费端：主进程 publish:risk-hold → 渲染层统一通知通道。
 // 仅信息提示（不宣称已自动挂起队列 / 自动恢复）；真正的挂起守卫由 §5 后续切片承担。
 try {
-  const { notifyWarning } = useNotify()
+  const { notifyWarning, notifyConfirm } = useNotify()
   createRiskHoldNotifier({
     onRiskHold,
     notify: (event) => notifyWarning('publish.riskHold.body', {
@@ -68,4 +69,23 @@ try {
       module: 'publish',
     }),
   }).start()
+  // W1 §5 enforcement：订阅权威挂起清单（publish:risk-suspended），供账号页徽标 + 恢复入口。
+  // 被动广播只做信息提示；恢复由 RiskSuspendedBanner 主动触发（经 tracker.confirm 人工确认，绝不自动恢复）。
+  try {
+    useRiskStore().start({
+      confirm: (info) => notifyConfirm('publish.riskHold.resumeConfirm', {
+        params: { platform: (info && info.platform) || '' },
+        module: 'publish',
+      }),
+      notify: (event) => {
+        if (event && event.kind === 'suspended') {
+          const first = (event.suspended || [])[0]
+          notifyWarning('publish.riskHold.suspended', {
+            params: { count: event.count || 0, platform: first ? (first.platform || '') : '' },
+            module: 'publish',
+          })
+        }
+      },
+    })
+  } catch (_) { /* 挂起态接线失败不影响主流程 */ }
 } catch (_) { /* 通知接线失败不影响主流程 */ }

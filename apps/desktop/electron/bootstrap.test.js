@@ -99,6 +99,11 @@ const mockIdentityServiceFactory = {
   enabled: vi.fn(() => false),
 }
 const mockStory2VideoMediaServer = { start: vi.fn(), stop: vi.fn(), createUrl: vi.fn() }
+const mockRiskSuspender = {
+  isSuspended: vi.fn(function () { return false }),
+  suspend: vi.fn(),
+  listSuspended: vi.fn(function () { return [] }),
+}
 
 // container.get 返回的 mock 服务映射
 const services = {
@@ -130,6 +135,7 @@ const services = {
   templateManager: mockTemplateManager,
   aiWriter: defaultMock(),
   aggregatorBridge: defaultMock(),
+  riskSuspender: mockRiskSuspender,
 }
 
 // ─── 注册所有深层依赖 mock（替代 vi.mock） ───
@@ -372,6 +378,18 @@ describe('bootstrap — createAppContext', () => {
 
     await expect(executor({ id: 'task-2', platform: 'weibo' })).resolves.toEqual({ ok: true })
     expect(activeWindow.webContents.send).toHaveBeenCalled()
+  })
+
+  it('风控挂起平台在 executor 派发前被拦截并抛不可重试错误', async () => {
+    createAppContext()
+    mockRiskSuspender.isSuspended.mockImplementationOnce(function () { return true })
+    const executor = mockTaskQueue.setExecutor.mock.calls.at(-1)[0]
+
+    await expect(executor({ id: 'task-r', platform: 'weixin_hf', article: { accountId: 'acc-1' } })).rejects.toMatchObject({
+      code: 'risk_suspended', noRetry: true, blocked: true, platform: 'weixin_hf',
+    })
+    expect(mockRiskSuspender.isSuspended).toHaveBeenCalledWith('weixin_hf', 'acc-1')
+    expect(mockPublisherRouter.createPublisher).not.toHaveBeenCalled()
   })
 
   it('taskQueue.on 注册 4 个事件（task:success/failed/blocked/retry）', () => {
@@ -667,3 +685,4 @@ describe('bootstrap — runWhenReady', () => {
     }
   })
 })
+

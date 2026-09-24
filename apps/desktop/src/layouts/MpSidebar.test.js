@@ -11,6 +11,7 @@ const invokeMock = vi.hoisted(() => vi.fn())
 vi.mock('@/api/electron-bridge', () => ({
   invoke: invokeMock,
   invokePageManager: vi.fn(),
+  getApi: () => null,
 }))
 
 vi.mock('vue-router', () => ({
@@ -63,6 +64,18 @@ const serviceStatusState = vi.hoisted(() => ({
 
 vi.mock('@/stores/serviceStatus', () => ({
   useServiceStatusStore: () => serviceStatusState,
+}))
+
+// 组件（方案 B）新增 useTabStore 依赖：本测试不装 pinia，按既有 store mock 风格提供聚焦态
+vi.mock('@/stores/tab', () => ({
+  useTabStore: () => ({
+    activeTabIsHomeShell: false,
+    isHomeTab: true,
+    activeTab: { tabId: 'home', spaRoute: '', isHome: true },
+    tabs: [{ tabId: 'home', isHome: true }],
+    activeTabId: 'home',
+    switchToTab: vi.fn(),
+  }),
 }))
 
 import MpSidebar from './MpSidebar.vue'

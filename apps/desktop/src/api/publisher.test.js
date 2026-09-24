@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const exportedNames = [
   // 发布
   "publishWechat", "publishBatch", "onProgress", "onRiskHold",
+  "onRiskSuspended", "listSuspendedRisk", "resumeRisk", "isSuspendedRisk",
   // AI 写作
   "modelProviderIsConfigured", "aiIsConfigured", "aiGenerateTitles",
   "aiEnhanceContent", "aiGenerateSummary",
@@ -105,6 +106,10 @@ publishWechat: { args: [{ title: "t", content: "c" }], fallback: undefined, retu
   publishBatch: { args: [["wx"], { title: "t" }], fallback: { code: -1, message: "electronAPI not available" }, throws: false },
   onProgress: { args: [vi.fn()], fallback: undefined, returns: "function" },
   onRiskHold: { args: [vi.fn()], fallback: undefined, returns: "function" },
+  onRiskSuspended: { args: [vi.fn()], fallback: undefined, returns: "function" },
+  listSuspendedRisk: { args: [], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
+  resumeRisk: { args: [{ platform: "weixin" }], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
+  isSuspendedRisk: { args: [{ platform: "weixin" }], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
   modelProviderIsConfigured: { args: ["llm"], fallback: { code: -1, data: false }, returns: "object" },
   aiIsConfigured: { args: [], fallback: { code: -1, data: false }, returns: "object" },
   aiGenerateTitles: { args: ["AI 技术"], fallback: { code: -1, data: [] }, returns: "object" },

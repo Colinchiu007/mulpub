@@ -103,6 +103,7 @@
       role="tabpanel"
       :aria-labelledby="`account-status-tab-${filter}`"
     >
+      <RiskSuspendedBanner />
       <section v-if="accountTab === 'share'" class="module-placeholder" data-testid="account-share-panel">
         <div class="module-placeholder-icon" aria-hidden="true"><el-icon><Link /></el-icon></div>
         <h2>{{ t('accountsPage.shareTitle') }}</h2>
@@ -320,6 +321,7 @@ import AccountGroupsPanel from '@/features/accounts/components/AccountGroupsPane
 import AccountLoginDialog from '@/features/accounts/components/AccountLoginDialog.vue'
 import AccountManagementCard from '@/features/accounts/components/AccountManagementCard.vue'
 import AccountProxyDialog from '@/features/accounts/components/AccountProxyDialog.vue'
+import RiskSuspendedBanner from '@/features/accounts/components/RiskSuspendedBanner.vue'
 import { useAccountActions } from '@/composables/useAccountActions'
 import { accountBatchCheckLogin } from '@/api/publisher'
 import { getApi } from '@/api/electron-bridge'

@@ -4,7 +4,7 @@
  *
  * 从 bootstrap.js 拆出：taskQueue 事件监听
  * - task:success → 发布成功通知 + 历史记录 + 发布监控 + 影响力追踪 + 回采登记
- * - task:failed → 发布失败通知
+ * - task:failed → 发布失败通知（风控命中 → 同步登记挂起，§5 enforcement）
  * - publish:blocked → 发布间隔限制通知
  * - task:retry → 重试通知
  *
@@ -12,6 +12,7 @@
  */
 const log = require('../services/logger')
 const { isRiskBlocked } = require('../services/publish-risk')
+const { isRiskSuspendedMessage } = require('../services/risk-suspender-store')
 
 /**
  * 接线 taskQueue 事件监听
@@ -22,8 +23,9 @@ const { isRiskBlocked } = require('../services/publish-risk')
  * @param {object} deps.publishImpactTracker
  * @param {object} [deps.store] - 效果闭环：tracked_content 登记（可选）
  * @param {Function} deps.getMainWin
+ * @param {object} [deps.riskSuspender] - 风控挂起守卫（desktop-risk-suspender，可选）
  */
-function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpactTracker, getMainWin, store }) {
+function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpactTracker, getMainWin, store, riskSuspender }) {
   taskQueue.on('task:success', (task) => {
     const win = getMainWin()
     if (win && !win.isDestroyed()) {
@@ -88,9 +90,17 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
       win.webContents.send('publish:progress', {
         platform: task.platform, stage: '✗ 发布失败: ' + task.error, taskId: task.id, error: task.error,
       })
-      if (isRiskBlocked(task.error)) {
+      if (isRiskBlocked(task.error) && !isRiskSuspendedMessage(task.error)) {
+        const accountId = (task.article && task.article.accountId) || null
+        // §5 enforcement：风控命中 → 平台/账号即时挂起（resume 仅显式），并广播全量挂起清单供前端刷新
+        if (riskSuspender) {
+          try {
+            riskSuspender.suspend(task.platform, accountId, { reason: 'risk_blocked', error: task.error })
+            win.webContents.send('publish:risk-suspended', { suspended: riskSuspender.listSuspended() })
+          } catch (e) { log.warn('RiskSuspender', 'suspend failed: ' + e.message) }
+        }
         win.webContents.send('publish:risk-hold', {
-          platform: task.platform, accountId: (task.article && task.article.accountId) || null, taskId: task.id, error: task.error,
+          platform: task.platform, accountId, taskId: task.id, error: task.error,
         })
       }
     }

@@ -324,6 +324,11 @@ function createContainer(options) {
   container.register("taskQueue", function() { return new TaskQueue(options.taskQueue || { maxConcurrent: 3 }); });
   container.register("aggregatorBridge", function(c) { return new AggregatorBridge(c.get("taskQueue")); });
   container.register("publisherRouter", function() { return new PublisherRouter(); });
+  // §5 风控挂起守卫（W1 enforcement）：桌面唯一真源 DI 单例，持久化复用 store.getSetting/setSetting
+  container.register("riskSuspender", function(c) {
+    const { createDesktopRiskSuspender } = require('../services/risk-suspender-store');
+    return createDesktopRiskSuspender({ store: c.get("store"), log: logger });
+  });
   container.register("publishIntervalGuard", function(c) {
     const s = c.get("store");
     return new PublishIntervalGuard({

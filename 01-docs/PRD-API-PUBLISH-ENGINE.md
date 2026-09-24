@@ -818,13 +818,75 @@ spacer（首次放行、17min 节流零请求 waitMs、越 18min 再放行、不
 - i18n parity（zh/en 成对 Gate7 --keys）+ --cjk 预检 + ESLint Gate11 + Gate12 品牌扫描。
 - 端到端正确性验收绑定 §7（真实账号、间隔≥18min、风控即停绝不自动换号、私密草稿优先、真实触发一次挂起→通知恢复→确认后续放行），用户门槛，不可用单测替代。
 
-#### 12.14.8 engine-review 待确认点（进入实现前必须敲定）
-- 守卫键粒度：accountId 级 vs platform 级 vs platform+账号 复合；多账号同平台的挂起是否相互隔离（决策账：风控即停不换号，故挂起应精确到触发账号，勿误伤同平台其它号）。
-- 挂起态与 scheduler 待派任务：命中挂起时是否同时暂停 scheduler 对该平台的排期，还是仅在 executor 末端拦截。
-- 是否复用引擎 createRiskSuspender 实例，还是桌面独立实现（倾向复用纯逻辑、DI 注入桌面 store 持久化）。
-- 方案B（整体走 publishWithMode）是否单列后续波次；本切片只做方案A 前提下，§12.7 引擎 riskSuspender 与桌面 riskSuspender 的单一事实源如何界定。
+#### 12.14.8 engine-review 待确认点（已决裁 · decided 2026-09-24）
+- **① 守卫键粒度 = platform+accountId 复合，accountId 缺失降 platform 级（decided）**：直接复用引擎 `risk-suspender.js` 的 `keyOf(platform,accountId)=platform+'::'+(accountId??'*')` 语义。风控命中时若 `task.article.accountId` 存在 → `suspend(platform, accountId)` 只挂触发账号（决策账：风控即停不换号、勿误伤同平台其它号）；accountId 缺失 → `suspend(platform, undefined)` 保守升平台级覆盖该平台所有账号（宁可多拦不可漏放）。executor 派发前用 `isSuspended(platform, taskAccountId)` 判定，语义与引擎完全一致（平台级覆盖全部、细粒度仅命中该账号）。
+- **② scheduler 联动 = 不动 scheduler，仅 executor 末端拦截（decided）**：最小爆炸半径。挂起时不暂停 scheduler 对该平台的排期，已排期任务照常出队，但在 setExecutor 派发入口被 `riskGuard` 拦截并 `throw RiskSuspendedError`，任务标 blocked、`createPublisher` 零调用、不发真实发布请求。scheduler 契约/持久化不改。
+- **③ 复用方式 = 复用引擎 createRiskSuspender 纯逻辑 + 桌面薄封装持久化（decided）**：桌面新建 `services/risk-suspender-store.js` 的 `createDesktopRiskSuspender({store, clock, log})`，内部 `require('@multi-publish/api-publish-engine/src/publish/core/risk-suspender')` 拿到纯逻辑实例（该 workspace 包已是 apps/desktop 直接依赖，深路径 require 系既有先例），外包「懒水合 + suspend/resume 后回写 store」的持久化壳。引擎实例管内存态与键语义，桌面壳只管重启存活。
+- **④ 单一事实源 = 桌面 riskSuspender 单例（DI 容器注册）为队列 enforcement 唯一真源（decided）**：executor 守卫、phase4-events 挂起、IPC 查询/恢复全部读写同一 DI 单例（`container.get('riskSuspender')`）。引擎 publish-mode-runner 内部的 riskSuspender 仅服务引擎 publishWithMode 路径，桌面发布走 publisherRouter 不经该路径，两者互不共享状态、互不冲突；若后续波次（方案B）迁移到 publishWithMode 再统一，本切片不接线。
 
-> 状态：设计交付（本 PR）。实现切片待 /plan-eng-review 通过 + 上述 4 待确认点敲定后，另起隔离 worktree 分支按 TDD 落地。
+> 状态：engine-review 四点全部 decided，进入实现切片（见 §12.15）。
+
+### 12.15 §5 桌面风控挂起守卫 enforcement：实现落地（本 PR，TDD）
+
+> 承接 §12.14 设计（四点 decided），本切片按 TDD 落地方案A「薄前置守卫」。全部改动零外发、纯内存/注入依赖可测；端到端正确性仍绑定 §7 活体验收（用户门槛，单测不可替代）。
+
+#### 12.15.1 桌面 riskSuspender 服务（`services/risk-suspender-store.js`）
+- `createDesktopRiskSuspender({ store, clock, log })`：复用引擎 `createRiskSuspender` 纯逻辑，notify 钩子用于「态变更后回写 store 持久化」（幂等，写失败仅告警不抛）。
+- 持久化键 `publish.riskSuspended`，值为引擎 `listSuspended()` 全量数组的 JSON（`{platform,accountId,reason,at}` 列表）。**懒水合**：首次 `isSuspended/listSuspended/resume` 前从 store 读回并 `suspend(...)` 回填（`hydrated` 标志防重复）；读失败/无 store 按空集（不阻断正常发布，fail-open on read）。
+- 暴露面：`suspend/isSuspended/getSuspension/resume/listSuspended/clear/size` 透传引擎语义，另 `hydrate()` 供显式预热。
+- 合规红线：无自动恢复计时器、无自动换号；`resume` 仅显式调用生效（IPC 或人工）。
+
+#### 12.15.2 executor 前置守卫（`bootstrap.js` setExecutor）
+- DI 注册 `riskSuspender`（`container.setup.js`，依赖 store 的懒单例），`phase1-context.js` 提取进 `services` 组。
+- setExecutor 顶部 `signal.aborted` 检查之后、`emitProgress` 之前插入 `riskGuard`：`if (riskSuspender.isSuspended(platform, taskAccountId)) throw new RiskSuspendedError(platform, taskAccountId)`（`RiskSuspendedError` 定义于 risk-suspender-store，`code='risk_suspended'`、消息含 `risk_suspended`）。命中即 `createPublisher` 零调用。
+- 任务账号取 `task.article && task.article.accountId`（与 phase4-events 生产端同源），缺失传 undefined 触发平台级判定。
+- **shared-utils 重试契约（`packages/shared-utils/src/task-queue.js`）**：`RiskSuspendedError` 携带 `noRetry=true`，task-queue 失败重试判定改为 `if (!e.noRetry && task.retriesLeft > 0)` —— 被挂起拦截的任务跳过自动重试直接标 failed（防「挂起→重试→再挂起」的重试风暴与重复广播），回归测试 `tests/task-queue.test.js`（noRetry 场景）。
+
+#### 12.15.3 生产端挂起（`bootstrap/phase4-events.js`）
+- task:failed 命中 `isRiskBlocked(task.error)` 且非 RiskSuspendedError（`task.error` 不含 `risk_suspended`，避免拦截任务再挂起）→ `riskSuspender.suspend(platform, accountId, { reason: 'risk_blocked', error })`，随后照发 `publish:risk-hold`（既有）并新增广播 `publish:risk-suspended`（全量挂起态，供徽标/列表刷新）。
+- `wireTaskQueueEvents` 新增 `riskSuspender` 入参（可空，空时退回纯提示语义不挂起，向后兼容既有测试）。
+
+#### 12.15.4 IPC 契约落地（`ipc-handlers/publish.js` + `preload/publish.js` + `src/api/publisher.js`）
+- 主进程 `ipcMain.handle`：`publishRisk:listSuspended` → `{code:0,data:[{key,platform,accountId,at,reason}]}`；`publishRisk:resume`（入参 {platform,accountId}）→ `{code:0,data:true|false}`；`publishRisk:isSuspended`（入参 {platform,accountId}）→ `{code:0,data:boolean}`。均 `withSenderCheck`，缺 platform 返回 `VALIDATION_ERROR`。
+- preload `createPublishApi` 新增 `listSuspendedRisk()` / `resumeRisk({platform,accountId})` / `isSuspendedRisk({platform,accountId})` invoke 通道 + `onRiskSuspended(cb)` listener（与 `onRiskHold` 同构，返回 removeListener）。
+- `src/api/publisher.js` 新增 `listSuspendedRisk/resumeRisk/isSuspendedRisk`（invokeWithFallback）+ `onRiskSuspended`（bridgeOn("RiskSuspended")）。
+- **bundle 重建纪律**：改 preload 后 `node scripts/build-preload.js` 重建 `index.bundle.js`+`home-shell-preload.bundle.js` 纳入同一 commit；同步 `preload.test.js` 键数快照 + `publisher.test.js` 方法清单（见内置 common_pitfalls）。
+
+#### 12.15.5 渲染层消费（tracker 纯服务 + Pinia store 镜像 + 挂起横幅）
+
+渲染层采用三层自包含结构（可单测、响应式单向数据流）：
+
+**（a）`src/services/risk-suspended-tracker.js` — 纯逻辑服务（全部依赖注入，零模块级副作用）**
+
+- `createRiskSuspendedTracker({ onRiskSuspended, notify, listSuspended?, resumeRisk?, confirm?, onChange? })`。
+- **数据校验**：广播 payload 经 `normalize` 归一，兼容三种形态——裸数组 / `{suspended:[…]}` / `{code:0,data:[…]}`；过滤无 `platform` 字符串的记录；`accountId` 缺失归一为 `null`（平台级挂起）。
+- **功能逻辑**：`handle(payload)` 整体替换挂起清单（权威快照语义，非增量合并），清单非空才 `notify({kind:'suspended', suspended, count})`（空清单只刷新镜像不打扰用户）；`isSuspended(platform, accountId)` 与主进程/引擎同语义——平台级记录（accountId=null）覆盖该平台全部账号，细粒度记录仅命中该账号；`refresh()` 拉取失败或返回非清单结构时保留上次清单、不抛错（fail-soft），仅拿到合法清单结构才应用。
+- **onChange 与 notify 双回调分工**：`onChange(list)` 在每次清单应用时都回调（含清空），是 store 响应式镜像的唯一数据源；`notify(event)` 只发用户可感知事件（suspended/resumed/resumeFailed）。此设计消除了「start 初次 refresh 异步清空与广播竞态」导致的镜像漂移（回归测试锁定）。
+- `start()` 幂等：重复调用不重复订阅；首次调用即注册 `onRiskSuspended` 订阅并触发 `refresh()` 预热；返回 unsubscribe。
+- **恢复必经人工确认（合规红线）**：`resume(platform, accountId)` 先校验 platform 合法（非法返回 `{ok:false,reason:'invalid'}`），再调用 `confirm({platform,accountId})`——`confirm` 缺省为 `async()=>false`，即**不注入确认就永不自动恢复**；confirm 抛错按未确认处理。确认后调 `resumeRisk({platform,accountId})`：`code===0` → 应用返回清单（或 refresh 兜底）+ `notify({kind:'resumed'})` → `{ok:true,changed}`；非零/抛错 → `notify({kind:'resumeFailed',message})` → `{ok:false,reason:'error'}`。
+
+**（b）`src/stores/risk.js` — Pinia 响应式镜像**
+
+- `useRiskStore`：`suspended` 为 `ref([])`，只从 tracker `onChange` 单向同步（禁止第二写入源）；`isSuspended(platform,accountId)`/`count()` 供组件查询；`start(hooks)` 幂等创建 tracker 并接线（confirm/notify 由调用方注入）；`resume`/`refresh` 委托 tracker；`stop`/`setSuspended` 供测试与会话切换。
+
+**（c）`src/features/accounts/components/RiskSuspendedBanner.vue` — 账号页挂起横幅**
+
+- **显示项**：挂载于 `Accounts.vue` `<main>` 首位；`v-if="items.length"` —— 无挂起时零占位。每条挂起记录渲染：平台名 + 账号标识（`accountId` 为空显示「全部账号」文案）+「恢复发布」按钮；`busyKeys` 按 `platform::accountId` 键防重复点击。
+- **交互逻辑**：点击恢复 → tracker.resume（内部先弹 `notifyConfirm` 人工确认）→ 确认后 IPC `resumeRisk` → 成功 `notifySuccess(publish.riskHold.resumed)`；失败 `notifyError(publish.riskHold.resumeFailed, {message})`；用户取消确认或入参非法 → 静默（无打扰）。清单刷新经主进程 `publish:risk-suspended` 权威广播回流，组件不本地乐观更新。
+
+**（d）`src/main.js` 接线与 i18n 真值（zh/en 成对，Gate7 --keys 147 键全通过）**
+
+- §6.1 既有 `createRiskHoldNotifier`（`onRiskHold` → `publish.riskHold.body` 信息提示）保留不动；新增 `useRiskStore().start({ confirm: notifyConfirm 桥接, notify: 仅 'suspended' 事件广播 notifyWarning })`，双层 try/catch 包裹（接线失败不影响主流程）。
+- `publish.riskHold` 本切片新增 5 键（zh 真值）：`suspended`=「检测到风控，「{platform}」等 {count} 个发布目标已自动暂停后续发布，请在平台侧确认后手动恢复」；`resumeConfirm`=「确认恢复「{platform}」的发布？请确保已在平台侧解除风控，否则会再次触发暂停」；`resumed`=「已恢复「{platform}」的发布」；`resumeFailed`=「恢复发布失败：{message}」；`resume`=「恢复发布」。en 成对；渲染层无裸中文字面量（Gate7 --cjk 基线无新增）。
+
+#### 12.15.6 测试矩阵（本机零外发）
+- `risk-suspender-store.test.js`：suspend/isSuspended/resume + accountId 缺失降平台 + 持久化 save/load 往返 + 懒水合幂等 + 读失败 fail-open + 写失败不抛 + RiskSuspendedError。
+- `bootstrap.test.js` 注入 mock riskSuspender：命中挂起 → createPublisher 零调用 + 抛 RiskSuspendedError；未命中 → 放行。
+- `phase4-events.test.js`：风控命中额外 suspend + 广播 publish:risk-suspended；RiskSuspendedError 任务不再挂起；普通失败不挂起。
+- `ipc-contract.test.js`（自动约束：新 invoke 通道须有 handler）+ `publish.test.js` handler envelope/校验 + `preload.test.js`/`publisher.test.js` 键数快照 + `build-preload.test.js` bundle-vs-source 深比较。
+- i18n parity Gate7 --keys/--cjk + ESLint Gate11 + Gate12 品牌扫描。
+- **实现确认（2026-09-24）**：`risk-suspended-tracker.test.js` 14 用例（normalize 三形态/过滤/isSuspended 平台级覆盖/resume 必经 confirm 三态/onChange 每次应用含清空/start 幂等）；`stores/risk.test.js` 8 用例（含初次 refresh 竞态用 `vi.waitFor` flush 锁定）；`RiskSuspendedBanner.source.test.js` 3 用例（源码契约：v-if、必经 store.resume、无裸中文）；`publish-risk-ipc.test.js` 5 用例（独立文件顶层 `__enableElectronMock()` 使 withSenderCheck 测试态放行 + localhost:5174 senderFrame）。
+- **门禁证据**：合并回归 7 文件 710 passed；build-preload/home-shell 9 passed（bundle-vs-source 深比较）；Accounts.test.js 95 + accounts-compile 8 + grid.source 3 = 105 passed/1 skipped；Gate7 --keys PASS（147 键）/--cjk PASS（基线 1581/当前 1362 无新增）；Gate11 ESLint（apps/desktop electron/+src/ --quiet）exit 0（修复 risk-suspender-store.js `no-useless-assignment`）；Gate12 品牌残留 PASS；shared-utils `task-queue.test.js` 23 passed。CI Gate11 仅覆盖 apps/desktop（quality-gate.yml L118-122），shared-utils 不在 lint 门禁面。
 ## 附：验收记录（活体证据回写区，随波更新）
 
 | 波次 | 平台 | 日期 | 作品ID | 链接 | 截图 | 降级 | 结论 |

@@ -13,6 +13,12 @@ export function onProgress(callback) { return bridgeOn("Progress", callback) }
 
 export function onRiskHold(callback) { return bridgeOn("RiskHold", callback) }
 
+// ─── 风控挂起守卫 API（W1 §5 enforcement）─────────
+export function onRiskSuspended(callback) { return bridgeOn("RiskSuspended", callback) }
+export async function listSuspendedRisk() { return invokeWithFallback("listSuspendedRisk", { code: -1, message: 'electronAPI not available' }) }
+export async function resumeRisk(payload) { return invokeWithFallback("resumeRisk", { code: -1, message: 'electronAPI not available' }, payload) }
+export async function isSuspendedRisk(payload) { return invokeWithFallback("isSuspendedRisk", { code: -1, message: 'electronAPI not available' }, payload) }
+
 // ─── AI 写作 API ──────────────────────────
 export async function modelProviderIsConfigured(category) { return invokeWithFallback("modelProviderIsConfigured", { code: -1, data: false }, category) }
 export async function modelProviderGetDefault(category) { return invokeWithFallback("modelProviderGetDefault", { code: -1, data: null }, category) }
