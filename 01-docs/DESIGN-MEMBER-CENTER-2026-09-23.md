@@ -184,7 +184,7 @@
 
 ## 10. 待办登记（进入实施计划前）
 
-- [ ] 阶段 2 spec：支付通道选型（Paddle / Lemon Squeezy / 国内托管）+ 自动续费 + webhook。
+- [x] 阶段 2 spec：支付通道选型（Paddle / Lemon Squeezy / 国内托管）+ 自动续费 + webhook。→ 已产出 `01-docs/DESIGN-MEMBER-CENTER-P2-PAYMENT-2026-09-24.md`（2026-09-24，待 CEO 签字）。
 - [ ] ops-center 后台：兑换码批次生成、订阅手动开通、消息发布三个运营入口。
 - [ ] `config.yaml`：§2 带 `*` 数值的运营可配项落地。
 - [ ] 数据迁移：本地 `payment-orders.json` → 服务端订单的一次性迁移/兼容策略。
