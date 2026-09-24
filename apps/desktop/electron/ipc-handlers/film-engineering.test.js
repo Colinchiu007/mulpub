@@ -83,6 +83,7 @@ const CHANNELS = [
   'film-engineering:adapt-script',
   'film-engineering:export',
   'film-engineering:generate-selected',
+  'film-engineering:upload-reference',
   'film-engineering:download-recycled',
   'film-engineering:production-plan',
   'film-engineering:production-run-batch',
@@ -236,6 +237,43 @@ describe('film-engineering IPC 正常通道', () => {
     const result = await ipcMain._get('film-engineering:generate-selected')(TRUSTED_EVENT, many, {})
     expect(result.code).toBe(-2)
     expect(deps.filmEngineeringService.generateSelected).not.toHaveBeenCalled()
+  })
+
+  it('upload-reference 正常落盘返回规范化路径', async () => {
+    const saveStub = vi.fn(async ({ mediaRoot }) => ({
+      ok: true,
+      path: nodePath.join(mediaRoot, 'references', 'ref-0123456789abcdef.png'),
+      fileName: 'ref-0123456789abcdef.png',
+      bytes: 68,
+      mime: 'image/png',
+    }))
+    const deps = makeDeps({ _testSaveReference: saveStub })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const result = await ipcMain._get('film-engineering:upload-reference')(TRUSTED_EVENT, { dataUrl: 'data:image/png;base64,AAAA' })
+    expect(result.code).toBe(0)
+    expect(result.data.fileName).toBe('ref-0123456789abcdef.png')
+    expect(saveStub).toHaveBeenCalledTimes(1)
+    expect(typeof saveStub.mock.calls[0][0].mediaRoot).toBe('string')
+    expect(saveStub.mock.calls[0][0].mediaRoot).toMatch(/film-engineering/)
+  })
+
+  it('upload-reference 空 dataUrl 返回 VALIDATION_ERROR 且不落盘', async () => {
+    const saveStub = vi.fn()
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, makeDeps({ _testSaveReference: saveStub }))
+    const result = await ipcMain._get('film-engineering:upload-reference')(TRUSTED_EVENT, {})
+    expect(result.code).toBe(-2)
+    expect(saveStub).not.toHaveBeenCalled()
+  })
+
+  it('upload-reference 内容嗅探失败按校验错误返回', async () => {
+    const saveStub = vi.fn(async () => ({ ok: false, error: '仅支持 PNG / JPEG / WEBP 格式参考图' }))
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, makeDeps({ _testSaveReference: saveStub }))
+    const result = await ipcMain._get('film-engineering:upload-reference')(TRUSTED_EVENT, { dataUrl: 'data:application/x-msdownload;base64,TVog' })
+    expect(result.code).toBe(-2)
+    expect(result.message).toMatch(/PNG/)
   })
 })
 

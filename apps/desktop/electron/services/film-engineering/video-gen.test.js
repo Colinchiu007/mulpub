@@ -37,13 +37,14 @@ function makeEngine (opts = {}) {
   const executors = new Map()
   const calls = []
   const optimizeCalls = []
+  const pid = opts.providerId || 'mock-video'
   const manager = {
     getDefault (type) {
       if (opts.noVideoProvider && type === 'video') return null
       if (type !== 'video') return null
-      return { id: 'mock-video', config: { models: ['mv-1'], capability_models: { video: 'mv-1' } } }
+      return { id: pid, config: { models: ['mv-1'], capability_models: { video: 'mv-1' } } }
     },
-    getProvider () { return { id: 'mock-video' } },
+    getProvider () { return { id: pid } },
     callAdapter: async (providerId, method, payload) => {
       calls.push({ providerId, method, payload })
       if (method === 'generateVideo') {
@@ -85,6 +86,7 @@ function runInput (engine, runId, shots, params = {}, opts = {}) {
   const fn = engine._executors.get(FILM_VIDEO_STAGE_TYPES.GENERATE_VIDEOS)
   expect(fn, 'film_generate_videos not registered').toBeTruthy()
   const context = { selectedShots: shots }
+  if (opts.localReferences) context.localReferences = opts.localReferences
   // 默认模拟用户已过成本确认闸（confirmed 重入）；成本闸专项测试传 costGate:true 跳过
   if (!opts.costGate) {
     context.cost_confirmation = { confirmed: true, confirmedAt: new Date().toISOString() }
@@ -301,5 +303,85 @@ describe('film_generate_videos - 成本确认闸（specs: 成本确认 checkpoin
     expect(res.output.awaitingConfirmation).toBeUndefined()
     expect(res.output.videoResults.length).toBe(2)
     expect(engine._calls.filter(c => c.method === 'generateVideo').length).toBe(2)
+  })
+})
+
+describe('film_generate_videos - 画布参考图输入（tasks 4.3：引擎侧消费 localReferences）', () => {
+  // 1x1 PNG：落盘到受控媒体根 references/ 下，模拟 upload-reference 产物
+  const PNG_1x1 = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64',
+  )
+  const MEDIA_ROOT = path.join(os.tmpdir(), 'film-engineering')
+
+  /** 写入受控根内参考图；abs=false 时返回越界路径（不写盘） */
+  function refPath (name, { abs = true } = {}) {
+    const p = path.join(MEDIA_ROOT, 'references', name)
+    if (abs) {
+      fs.mkdirSync(path.dirname(p), { recursive: true })
+      fs.writeFileSync(p, PNG_1x1)
+    }
+    return p
+  }
+
+  it('向后兼容：无 localReferences 时提交载荷与既有一致（无参考字段、无 warning）', async () => {
+    const engine = makeEngine()
+    const res = await runInput(engine, 't-ref-none', [makeShot(0)])
+    expect(res.success).toBe(true)
+    const submit = engine._calls.find(c => c.method === 'generateVideo')
+    expect('image' in submit.payload).toBe(false)
+    expect('firstFrameImage' in submit.payload).toBe(false)
+    expect(res.output.referenceWarnings).toBeUndefined()
+  })
+
+  it('能力内注入：agnes-video 连线参考 → 提交载荷携带 image dataURL（首帧语义）', async () => {
+    const engine = makeEngine({ providerId: 'agnes-video' })
+    const p = refPath('ref-unit-a.png')
+    const shots = [makeShot(0), makeShot(1)]
+    const res = await runInput(engine, 't-ref-inject', shots, {}, { localReferences: [{ shotId: 'shot-0', paths: [p] }] })
+    expect(res.success).toBe(true)
+    const submits = engine._calls.filter(c => c.method === 'generateVideo')
+    const s0 = submits.find(c => /runs #0/.test(c.payload.prompt))
+    const s1 = submits.find(c => /runs #1/.test(c.payload.prompt))
+    expect(s0.payload.image).toBe('data:image/png;base64,' + PNG_1x1.toString('base64'))
+    expect('firstFrameImage' in s0.payload).toBe(false)
+    expect('image' in s1.payload).toBe(false) // 未连线镜不受影响
+    expect(res.output.referenceWarnings).toBeUndefined()
+  })
+
+  it('能力降级：provider 不支持参考输入 → 明示 warning 且照常纯文本出片', async () => {
+    const engine = makeEngine()
+    const p = refPath('ref-unit-b.png')
+    const res = await runInput(engine, 't-ref-degrade', [makeShot(0)], {}, { localReferences: [{ shotId: 'shot-0', paths: [p] }] })
+    expect(res.success).toBe(true)
+    const submit = engine._calls.find(c => c.method === 'generateVideo')
+    expect('image' in submit.payload).toBe(false)
+    expect('firstFrameImage' in submit.payload).toBe(false)
+    expect(res.output.referenceWarnings.length).toBe(1)
+    expect(res.output.referenceWarnings[0].shotId).toBe('shot-0')
+    expect(res.output.referenceWarnings[0].reason).toContain('mock-video')
+  })
+
+  it('路径安全：越界/不存在参考不进载荷，镜仍出片并 warning', async () => {
+    const engine = makeEngine({ providerId: 'minimax' })
+    const shots = [makeShot(0)]
+    const bad = [{ shotId: 'shot-0', paths: [refPath('ref-unit-evil.png', { abs: false }), '/nope/missing.png'] }]
+    const res = await runInput(engine, 't-ref-unsafe', shots, {}, { localReferences: bad })
+    expect(res.success).toBe(true)
+    const submit = engine._calls.find(c => c.method === 'generateVideo')
+    expect('firstFrameImage' in submit.payload).toBe(false)
+    expect(res.output.referenceWarnings.length).toBe(1)
+    expect(res.output.referenceWarnings[0].reason).toContain('outside-media-root')
+  })
+
+  it('成本确认卡携带参考摘要（shotsWithReferences/providerSupportsReference），闸前零 provider 调用不变', async () => {
+    const engine = makeEngine()
+    const p = refPath('ref-unit-c.png')
+    const shots = [makeShot(0), makeShot(1)]
+    const res = await runInput(engine, 't-ref-gate', shots, {}, { costGate: true, localReferences: [{ shotId: 'shot-0', paths: [p] }] })
+    expect(res.output.awaitingConfirmation).toBe(true)
+    expect(res.output.costCheck.references.shotsWithReferences).toBe(1)
+    expect(res.output.costCheck.references.providerSupportsReference).toBe(false)
+    expect(engine._calls.length).toBe(0)
   })
 })

@@ -1,3 +1,31 @@
+# [未发布] feat(影视工程): 画布参考图引擎侧消费闭环（tasks 4.3）——连线注入→provider 参考输入→能力降级提示（2026-09-24，film-engineering-canvas）
+
+### 变更
+- **`apps/desktop/electron/services/film-engineering/video-reference-inputs.js`**（新）：显式映射表（minimax/agnes-video/agnes-multimodal → 参考参数名，未列入保守视为不支持）；`normalizeLocalReferences` 形状归一化防御；受控媒体根内路径纵深校验（越界不读只报）+ 魔数嗅探 → dataURL 首帧注入。
+- **`video-gen.js`**：`film_generate_videos` 消费 `context.localReferences`（缺省行为逐字节不变）；不支持参考的 provider 降级纯文本出片 + `output.referenceWarnings` 明示；`costCheck.references` 确认卡新增参考摘要。
+
+### 测试
+- `video-reference-inputs.test.js`（10 用例）+ `video-gen.test.js` 集成 describe（5 用例）；film-engineering 全目录 207 用例回归全绿。
+
+### 文档
+- PRD §12.6 新增引擎侧参考图消费合同；tasks.md 4.3 勾选。
+
+# [未发布] feat(影视工程): 短剧画布 v1 最小闭环——剧本→拆分镜→连线注入参考→逐镜生成→成片（2026-09-24，film-engineering-canvas，PR #2342）
+
+### 变更
+- **`apps/desktop/src/views/FilmCanvasView.vue`**（新）：Vue Flow 画布主视图，左侧剧本/选项面板 + 工具栏（拆分镜/上传参考/生成/清空/回退经典页）+ 成本确认卡 + 成片 banner。
+- **`apps/desktop/src/components/film-canvas/`**（新）：ScriptInputNode / ReferenceNode / ShotNode 三类自定义节点，带 Handle 与状态徽标。
+- **`apps/desktop/src/composables/film-canvas-model.js` + `useFilmCanvas.js`**（新）：边合法性类型矩阵、拆分镜铺节点、连线即注入（buildLocalReferences）、画布序列化往返与 localStorage 持久化。
+- **`apps/desktop/src/composables/useFilmVideoGen.js`**：`start()` 新增 `opts.localReferences` 非空时随 `initialContext` 透传 pipeline（缺省行为不变）。
+- **IPC/preload**：新增 `uploadReference`（类型白名单+魔数+10MB+路径越界 fail-closed+sender 校验），落盘受控媒体根 `references/`。
+- **路由**：`/film-engineering` 切画布，旧三栏页移至 `/film-engineering/classic` 作回退。
+- **i18n**：`locales/zh.js`/`en.js` 成对新增 `filmEngineering.canvas.*`（Gate7 全绿）。
+- **约定**：渲染端 `src/` 模块必须 ESM 命名导出（CJS `module.exports` 在 vitest 可过但 Rollup build 失败）。
+
+### 文档
+- `01-docs/PRD-FILM-ENGINEERING-CANVAS-2026-09-24.md` 新增 §12 v1 实现状态（数据校验/交互流程/显示项提示文字/已知边界）；`openspec/changes/film-engineering-canvas/` tasks 勾选回写。
+
+---
 # [未发布] feat(账号): 登录态失效改为「头像遮罩」呈现——「已失效」压在头像上、头像旁徽章不再重复（2026-09-24，avatar-expired-mask）
 
 ### 变更

@@ -287,13 +287,22 @@ export const ROUTE_REGISTRY = Object.freeze([
     entryFrom: '/create',
   },
   {
-    // 暗路由：从 /create（CreateView.vue 选择 film-engineering 流水线）进入
+    // 暗路由：从 /create（CreateView.vue 选择 film-engineering 流水线）进入；主视图为短剧画布 FilmCanvasView.vue
     path: '/film-engineering',
     name: 'FilmEngineering',
-    view: 'FilmEngineeringView.vue',
+    view: 'FilmCanvasView.vue',
     navEntry: null,
     internal: true,
     entryFrom: '/create',
+  },
+  {
+    // 暗路由：经典三栏视图回退入口，仅从 /film-engineering 画布工具栏「回退经典页」进入
+    path: '/film-engineering/classic',
+    name: 'FilmEngineeringClassic',
+    view: 'FilmEngineeringView.vue',
+    navEntry: null,
+    internal: true,
+    entryFrom: '/film-engineering',
   },
   {
     // 暗路由：全仓库无跳转来源，只能靠 URL 直达（入口待确认）
