@@ -27,6 +27,24 @@
 
 ---
 
+# [未发布] docs(member-center): 会员中心阶段 2 支付 spec CEO 评审结论（v1.1 SELECTIVE EXPANSION，2026-09-24，member-center-p2-review）
+
+### 变更
+- `01-docs/DESIGN-MEMBER-CENTER-P2-PAYMENT-2026-09-24.md` 升 v1.1：新增「⭐ CEO 评审结论」章，明确三条进入编码前的硬性红线（R-A 先做单通道沙箱 spike 反推并冻结 `PaymentProvider` 接口、R-B plan-matrix 真实定价与通道费率/固定费共同拍板、R-C 阶段 1 会员面板 dogfood 闭环前不叠 P2 编码），范围模式定为 SELECTIVE EXPANSION。
+- graft 三项高杠杆扩展（均优先复用通道原生能力）：§7.6 免费试用 `trial_days`、§7.7 首日促销码 coupon（含续约期 duration 正确性铁律）、§7.8 自助收据/发票门户（优先通道 hosted 客户门户，无门户才只读降级）；同步扩展 `PaymentProvider.createCheckout/capabilities`、`NormalizedEvent`（新增 `subscription.trial_started`/`trial_end`、`discount`/`couponCode`）、数据模型（`identity_orders.discount/coupon_code`、`identity_subscriptions.trial_ends_at`）、§6.1 事件映射表、§9 端点（`/me/portal-session`、`COUPON_INVALID`/`TRIAL_UNSUPPORTED`）、§10 前端交互、§12 验收项 10-12、§13 测试策略。
+- 明确延后：取消时 win-back 挽留优惠 → 记为阶段 2.1，不入本 spec 实施范围。
+
+### 关联
+- 上游 `01-docs/DESIGN-MEMBER-CENTER-P2-PAYMENT-2026-09-24.md` v1（PR #2341 已合并）。本轮为纯文档评审结论 graft，无运行时代码改动，对外契约零影响。
+# [未发布] docs(member-center): 新增会员中心阶段 2「真实支付与自动续费」设计 spec（2026-09-24，member-center-p2-spec）
+
+### 变更
+- 新增 `01-docs/DESIGN-MEMBER-CENTER-P2-PAYMENT-2026-09-24.md`：会员中心阶段 2 支付设计文档，承接阶段 1（PR #2314 已合并）置灰的「支付回调」第三写入通道，覆盖支付通道选型（MoR vs PSP、Paddle/Lemon Squeezy/国内托管对比）、`PaymentProvider` 通道无关抽象接口、数据模型扩展（`identity_orders`/`identity_subscriptions` 补字段、新建 `identity_payment_customers`、复用 `identity_webhook_events`）、结账与订阅创建流程、webhook 事件归一化与订阅状态机（乱序/幂等/防重放）、自动续费/续费失败 dunning/升降级/退款、验签与金额服务端真源等安全铁律、端点契约与数据校验、前端交互与提示文字（解锁自动续费开关）、迁移灰度回滚、验收标准与 TDD 测试策略。
+- `01-docs/DESIGN-MEMBER-CENTER-2026-09-23.md` §10 待办登记：勾除「阶段 2 spec」项并指向新文档。
+
+### 关联
+- 上游真源 `01-docs/DESIGN-MEMBER-CENTER-2026-09-23.md`（阶段 1，CEO 已签字）；本文档为阶段 2 spec，待 CEO 签字后进入实施计划。
+- 纯文档变更，无运行时代码改动；对外契约零影响。
 # [未发布] fix(视频号): 账号点击弹回登录页根治——CDP document-start 早期注入凭证 localStorage + checkLocalCredentials 加严（2026-09-24，legacy-fake-credential-heal）
 
 ### 变更

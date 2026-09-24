@@ -20,16 +20,17 @@ const DEV_CSP = [
   "form-action 'self'",
 ].join('; ')
 
-function opsDevCspMeta() {
+export function opsDevCspMeta() {
   return {
     name: 'ops-dev-csp-meta',
     apply: 'serve',
     transformIndexHtml(html) {
       return {
         html,
-        headTags: [
+        tags: [
           {
             tag: 'meta',
+            injectTo: 'head-prepend',
             attrs: { 'http-equiv': 'Content-Security-Policy', content: DEV_CSP },
           },
         ],
