@@ -874,6 +874,8 @@ var require_page_manager = __commonJS({
           goForward: (tabId) => ipcRenderer2.invoke("page-manager:go-forward", tabId),
           reload: (tabId, ignoreCache) => ipcRenderer2.invoke("page-manager:reload", { tabId, ignoreCache }),
           searchOrNavigate: (query, tabId) => ipcRenderer2.invoke("page-manager:search-or-navigate", { query, tabId }),
+          // 共享左侧边栏驱动当前聚焦的 home-shell 标签在其自身 SPA 内导航（主进程定向投递到该标签 webContents）
+          navigateActiveHomeShell: (path) => ipcRenderer2.invoke("page-manager:navigate-active-home-shell", { path }),
           // ── Query ──
           getAllTabs: () => ipcRenderer2.invoke("page-manager:get-all-tabs"),
           getActiveTab: () => ipcRenderer2.invoke("page-manager:get-active-tab"),
