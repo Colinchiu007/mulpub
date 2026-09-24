@@ -24,11 +24,19 @@ function isProdSource (name) {
   return name.endsWith('.js') && !name.endsWith('.test.js') && !name.endsWith('.d.ts')
 }
 
-function listProdFiles (dir) {
-  return fs.readdirSync(dir)
-    .filter(isProdSource)
-    .filter((f) => fs.statSync(path.join(dir, f)).isFile())
-    .map((f) => path.join(dir, f))
+function listProdFiles (dir, recursive = true) {
+  const results = []
+  for (const entry of fs.readdirSync(dir)) {
+    const full = path.join(dir, entry)
+    const stat = fs.statSync(full)
+    if (stat.isFile() && isProdSource(entry)) {
+      results.push(full)
+    } else if (stat.isDirectory() && recursive) {
+      // 递归扫描子目录（如 webview-manager/ 拆分模块）
+      results.push(...listProdFiles(full, true))
+    }
+  }
+  return results
 }
 
 const ALL_FILES = [...listProdFiles(SERVICES_DIR), ...listProdFiles(HANDLERS_DIR)]
@@ -47,7 +55,12 @@ describe('P1-14 IPC 注入契约（静态）', () => {
   it('至少覆盖到全部历史受影响文件（防止用例空转）', () => {
     const covered = ALL_FILES
       .filter((f) => REGISTRATION_RE.test(fs.readFileSync(f, 'utf8')))
-      .map((f) => path.basename(f))
+      .map((f) => {
+        const rel = path.relative(SERVICES_DIR, f)
+        // webview-manager 拆分后 registerIpcHandlers 在 webview-manager/ipc-handlers.js，
+        // 用目录名映射回历史文件名，保持契约断言的语义不变
+        return rel.startsWith('webview-manager' + path.sep) ? 'webview-manager.js' : path.basename(f)
+      })
     // 11 个服务曾使用回退写法（cloud-publisher 已先行修好，同样落在守卫集合内）
     for (const name of [
       'batch-manager.js', 'comment-manager.js', 'content-intelligence.js',
