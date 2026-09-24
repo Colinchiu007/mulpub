@@ -18,6 +18,8 @@ function createPageManagerApi(ipcRenderer) {
       goForward: (tabId) => ipcRenderer.invoke('page-manager:go-forward', tabId),
       reload: (tabId, ignoreCache) => ipcRenderer.invoke('page-manager:reload', { tabId, ignoreCache }),
       searchOrNavigate: (query, tabId) => ipcRenderer.invoke('page-manager:search-or-navigate', { query, tabId }),
+      // 共享左侧边栏驱动当前聚焦的 home-shell 标签在其自身 SPA 内导航（主进程定向投递到该标签 webContents）
+      navigateActiveHomeShell: (path) => ipcRenderer.invoke('page-manager:navigate-active-home-shell', { path }),
 
       // ── Query ──
       getAllTabs: () => ipcRenderer.invoke('page-manager:get-all-tabs'),

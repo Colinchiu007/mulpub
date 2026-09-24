@@ -30,6 +30,8 @@ export const useTabStore = defineStore('tabs', () => {
   // ── Getters ──
   const activeTab = computed(() => tabs.value.find(t => t.tabId === activeTabId.value) || null)
   const isHomeTab = computed(() => activeTab.value?.isHome === true)
+  // 聚焦标签是内嵌主页实例（+ 新标签）：共享左侧边栏据此把点击改投递到该实例，实现「点菜单→当前标签跳转」
+  const activeTabIsHomeShell = computed(() => activeTab.value?.homeShell === true)
   const hasTabs = computed(() => tabs.value.length > 0)
   const tabCount = computed(() => tabs.value.length)
   // 待保存（未回写凭证）的账号标签：驱动「全部保存」按钮与角标计数。
@@ -175,6 +177,8 @@ export const useTabStore = defineStore('tabs', () => {
         if (tab) {
           tab.title = data.title || tab.title
           tab.url = data.url || tab.url
+          if (typeof data.spaRoute === 'string') tab.spaRoute = data.spaRoute
+          if (typeof data.homeShell === 'boolean') tab.homeShell = data.homeShell
         }
         if (data.tabId === activeTabId.value) {
           navigation.value = {
@@ -395,6 +399,7 @@ export const useTabStore = defineStore('tabs', () => {
     // Getters
     activeTab,
     isHomeTab,
+    activeTabIsHomeShell,
     hasTabs,
     tabCount,
     unsavedTabs,

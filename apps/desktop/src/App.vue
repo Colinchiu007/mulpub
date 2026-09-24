@@ -194,6 +194,8 @@ async function onSaveAccount () {
 
 const showSettingsDialog = ref(false)
 let unsubscribeNavigate = null
+// 内嵌主页实例订阅「共享左侧边栏」下发的导航指令（方案 B：点菜单驱动当前聚焦标签）
+let unsubscribeHomeShellNav = null
 
 // 弹窗互斥（2026-09-23 Bug 修复）：浏览器/登录标签（外部网页 WebContentsView）活动时，
 // 原生图层永远压在渲染层 DOM 之上——设置弹窗打开后「屏幕闪一下但没出现」。
@@ -341,12 +343,24 @@ onMounted(() => {
       router.push(route)
     })
   }
+  // 内嵌主页实例：接收主进程定向投递的侧边栏导航指令，在本实例自身 router 内跳转。
+  // hash 路由导航走 did-navigate-in-page（search 含 mp-home-shell=1 不变），不会触发壳态自然结束。
+  if (isHomeShell && api && api.pageManager && typeof api.pageManager.on === 'function') {
+    unsubscribeHomeShellNav = api.pageManager.on('home-shell-navigate', (payload) => {
+      const path = payload && payload.path
+      if (typeof path === 'string' && path.charAt(0) === '/') {
+        try { router.push(path) } catch (error) { console.warn('[home-shell] navigate failed', error) }
+      }
+    })
+  }
 })
 
 onBeforeUnmount(() => {
   spaNav.dispose()
   if (typeof unsubscribeNavigate === 'function') unsubscribeNavigate()
   unsubscribeNavigate = null
+  if (typeof unsubscribeHomeShellNav === 'function') unsubscribeHomeShellNav()
+  unsubscribeHomeShellNav = null
   if (!isHomeShell) tabStore.dispose()
   identityStore.dispose()
 })

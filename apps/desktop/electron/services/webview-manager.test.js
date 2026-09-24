@@ -1243,3 +1243,66 @@ describe('WebviewManager home-shell 内嵌主页标签', () => {
     expect(state.homeShell).toBe(false)
   })
 })
+
+describe('共享左侧边栏驱动聚焦 home-shell 标签（方案 B：navigateActiveHomeShell + spaRoute 回归）', () => {
+  function createHomeShellTab () {
+    patchViewAndSessionMocks()
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+    const tabId = wm.createNewTabPage({ homeShell: true })
+    const view = wm._tabViews.get(tabId)
+    view.webContents.send = vi.fn()
+    return { wm, tabId, view }
+  }
+
+  it('聚焦标签是 home-shell：把 hash 路由定向发给其 webContents 并返回 handled:true', () => {
+    const { wm, view } = createHomeShellTab()
+    const res = wm.navigateActiveHomeShell('/collection')
+    expect(res).toEqual({ handled: true })
+    expect(view.webContents.send).toHaveBeenCalledWith('page-manager:home-shell-navigate', { path: '/collection' })
+  })
+
+  it('非法 path（不以 / 开头 / 非字符串）拒绝且不发送', () => {
+    const { wm, view } = createHomeShellTab()
+    expect(wm.navigateActiveHomeShell('collection')).toEqual({ handled: false })
+    expect(wm.navigateActiveHomeShell(null)).toEqual({ handled: false })
+    expect(wm.navigateActiveHomeShell(123)).toEqual({ handled: false })
+    expect(view.webContents.send).not.toHaveBeenCalled()
+  })
+
+  it('聚焦标签是普通网页（非 home-shell）→ handled:false，让渲染层回退切回首页', () => {
+    patchViewAndSessionMocks()
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+    const tabId = wm.createNewTabPage({ url: 'https://creator.douyin.com/' })
+    const view = wm._tabViews.get(tabId)
+    view.webContents.send = vi.fn()
+    expect(wm.navigateActiveHomeShell('/collection')).toEqual({ handled: false })
+    expect(view.webContents.send).not.toHaveBeenCalled()
+  })
+
+  it('home-shell 页内 hash 导航：更新 spaRoute 并经 getActiveTab/getAllTabs 暴露 homeShell+spaRoute', () => {
+    const { wm, tabId, view } = createHomeShellTab()
+    const handlers = view.webContents._handlers
+    handlers['did-navigate-in-page']({}, 'http://localhost:5174/index.html?mp-home-shell=1#/publish?tab=1')
+    expect(wm._tabStates.get(tabId).spaRoute).toBe('/publish')
+    const active = wm.getActiveTab()
+    expect(active.homeShell).toBe(true)
+    expect(active.spaRoute).toBe('/publish')
+    const all = wm.getAllTabs().find((t) => t.tabId === tabId)
+    expect(all.homeShell).toBe(true)
+    expect(all.spaRoute).toBe('/publish')
+  })
+
+  it('home-shell 壳态自然结束（文档级导航去外站）：清空 spaRoute 并解除 homeShell', () => {
+    const { wm, tabId, view } = createHomeShellTab()
+    const handlers = view.webContents._handlers
+    handlers['did-navigate']({}, 'https://www.baidu.com/')
+    const state = wm._tabStates.get(tabId)
+    expect(state.homeShell).toBe(false)
+    expect(state.spaRoute).toBe('')
+    expect(wm.getActiveTab().homeShell).toBe(false)
+  })
+})
