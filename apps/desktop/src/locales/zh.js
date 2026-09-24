@@ -2354,14 +2354,15 @@ export default {
       "statusGenerating": "生成中",
       "statusDone": "已完成",
       "statusFailed": "失败",
-      "adapt": { "btn": "拆分镜", "done": "已生成 {n} 个分镜", "scriptLimitHint": "剧本最多 10000 字", "emptyScript": "剧本不能为空", "scriptTooLong": "剧本超过 10000 字上限", "failed": "拆分镜失败，请重试" },
+      "adapt": { "btn": "拆分镜", "done": "已生成 {n} 个分镜", "scriptLimitHint": "剧本最多 10000 字", "emptyScript": "剧本不能为空", "scriptTooLong": "剧本超过 10000 字上限", "failed": "拆分镜失败，请重试", "llmFallback": "LLM 润色本次未生效，分镜按内置规则架构生成。" },
       "upload": { "character": "上传人物参考", "scene": "上传场景参考", "ok": "参考图已添加" },
       "generate": { "btn": "生成所选", "none": "请先选择要生成的分镜节点" },
       "toolbar": { "clear": "清空画布", "classic": "经典视图", "cancel": "取消", "confirmCost": "确认成本并生成" },
       "cost": { "title": "成本确认", "hint": "将为 {n} 个分镜生成视频，确认后才开始计费。" },
       "final": { "title": "成片已生成", "open": "前往经典视图查看/导出" },
       "ref": { "invalidFile": "文件读取失败", "badType": "仅支持 PNG / JPEG / WEBP 图片", "tooLarge": "参考图超过 10MB 上限", "uploadFailed": "参考图上传失败" },
-      "edgeRule": { "sameNode": "不能连接到自身", "duplicate": "该连线已存在", "unknownType": "未知节点类型", "unsupportedPair": "仅支持「参考图 → 分镜」连线" }
+      "edgeRule": { "sameNode": "不能连接到自身", "duplicate": "该连线已存在", "unknownType": "未知节点类型", "unsupportedPair": "仅支持「参考图 → 分镜」连线" },
+      "retry": { "failed": "该镜重试失败，请稍后再试或前往经典视图处理" }
     },
   },
 

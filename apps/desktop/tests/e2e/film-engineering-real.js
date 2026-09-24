@@ -4,7 +4,8 @@
  * 电影工程真实 Electron E2E。
  *
  * 使用已打包的 Multi-Publish.exe，通过真实 preload/IPC/film-kit 驱动页面，
- * 覆盖入口、分镜库、详情、复制、导出、剧本套用、方法论和生成入口。
+ * 覆盖画布主流程（剧本文本→拆分镜→分镜节点→生成入口）、经典视图分镜库、详情、
+ * 复制、导出、剧本套用、方法论和生成入口。
  * 生成图片是否真正成功取决于测试 profile 中是否配置图片 Provider；
  * 未配置时把“Provider 不可用”记录为环境阻断，但把参数校验错误视为失败。
  */
@@ -171,8 +172,28 @@ async function run () {
     await page.screenshot({ path: path.join(OUTPUT_DIR, '01-create-film-engineering.png'), fullPage: true })
 
     await entry.click()
+    await page.locator('.film-canvas-view').waitFor({ state: 'visible', timeout: 30000 })
+    check('点击入口进入电影工程短剧画布', true, await page.url())
+
+    // ===== 7.4 画布主流程：剧本文本 → 拆分镜 → 分镜节点落布 → 生成入口 =====
+    const engineAlert = page.locator('.fcv-alert')
+    check('画布引擎可用（无 engineUnavailable 告警）', !(await engineAlert.isVisible().catch(() => false)))
+    const scriptBox = page.locator('[data-testid="fcv-script"] textarea').first()
+    await scriptBox.waitFor({ state: 'visible', timeout: 15000 })
+    await scriptBox.fill('第1场\n小林在雨夜走进车站。\n\n第2场\n小林在月台发现一枚旧钥匙。')
+    await page.locator('[data-testid="fcv-adapt"]').click()
+    const shotNodes = page.locator('.vue-flow__node-shot')
+    const shotNodesLoaded = await waitFor(async () => (await shotNodes.count()) > 0, 30000, 250)
+    check('画布拆分镜：剧本生成 shot 节点', Boolean(shotNodesLoaded), 'count=' + await shotNodes.count())
+    await assertNoValidationMessage(page, '画布拆分镜')
+    const canvasGenerate = page.locator('[data-testid="fcv-generate"]')
+    check('画布生成入口存在且启用', (await canvasGenerate.count()) > 0 && !(await canvasGenerate.isDisabled().catch(() => true)))
+    await page.screenshot({ path: path.join(OUTPUT_DIR, '02-film-canvas.png'), fullPage: true })
+
+    // ===== 经典三栏视图（回退入口）：原有覆盖全部保留 =====
+    await page.evaluate(() => { window.location.hash = '#/film-engineering/classic' })
     await page.locator('.film-engineering-view').waitFor({ state: 'visible', timeout: 30000 })
-    check('点击入口进入电影工程', true, await page.url())
+    check('经典视图回退入口可达', true, await page.url())
 
     const unavailable = page.locator('.fe-empty-detail')
     const available = page.locator('.fe-meta-title')

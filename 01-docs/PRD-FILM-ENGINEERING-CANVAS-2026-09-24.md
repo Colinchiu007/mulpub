@@ -250,9 +250,9 @@
 
 ### 12.5 已知边界（后续切片）
 
-- **5.2 逐镜重试**：失败镜暂无画布内重试按钮（retryShot 通道已有，UI 未挂）。
-- **5.3 合成入口**：成片当前跳经典视图承载合成/另存；画布内直合成后置。
-- **1.3 / 3.3 / 7.4**：基线功能对齐表、LLM 降级非阻断回显、视觉回归 + E2E 适配未完成。
+- **5.2 逐镜重试**：✅ v2 已收口——ShotNode `failed` 态渲染「重试」按钮（title 复用 `filmEngineering.video.retry`），点击 emit shotId；视图经 `findShotResultIndex` fail-closed 定位 run 快照 index 后调 `retryShot`，详见 §12.7。
+- **5.3 合成入口**：✅ v2 已收口——done banner 直出「打开所在文件夹 / 另存」（复用 `story2videoShowInFolder`/`story2videoSaveAs` IPC 合同），跳经典视图链接保留，详见 §12.7。
+- **1.3 / 3.3 / 7.4**：✅ v2 已收口——基线对齐表见 `openspec/changes/film-engineering-canvas/baseline-audit.md`（13 项逐条）；LLM 降级回显 `canvas.adapt.llmFallback`；E2E 双段适配 + 像素 idle 基线不受影响，详见 §12.7。
 - **实现约定**：`src/` 渲染端模块必须用 ESM 命名导出（`module.exports` 在 vitest 可过但 Rollup `vite build` 会报 "not exported"，CI build/electron-tests/gui-test 三门禁拦截）。
 
 ### 12.6 引擎侧参考图消费合同（tasks 4.3 已收口，主进程 `video-reference-inputs.js` + `video-gen.js`）
@@ -275,3 +275,29 @@
 **成本确认卡增量**：`costCheck.references = { shotsWithReferences, providerSupportsReference }`，前端确认卡可据此显示“N 镜携带参考图，当前 provider 支持/不支持参考输入”；闸前仍零 provider 调用。
 
 **测试**：`video-reference-inputs.test.js`（10 用例：探测/归一化/注入/降级/越界拒绝）+ `video-gen.test.js` 集成 describe（5 用例：向后兼容/能力内注入/能力降级/路径安全/成本卡摘要），共 15 用例；回归覆盖 film-engineering 全目录 207 用例。
+
+### 12.7 v2 增量（apply 交付回写，2026-09-24，分支 `film-canvas-v2`）
+
+**范围**：tasks 1.3 / 3.3 / 5.2 / 5.3 / 7.4 收口。引擎与 IPC 通道零改动，纯视图接线 + 一个纯函数模型层。
+
+**3.3 LLM 降级非阻断回显**
+- 交互：勾选「LLM 润色」发起拆分镜，若响应 `llmEnhanced !== true`，拆分镜照常成功（success 提示不变），**追加** `ElMessage.warning('filmEngineering.canvas.adapt.llmFallback')`（"LLM 润色本次未生效，分镜按内置规则架构生成。"）；未勾选润色时引擎返回 false 属预期，不提示。
+- 数据校验：判定条件 `form.llmEnabled === true && r.llmEnhanced !== true`，严格布尔，缺字段视为未生效（保守提示）。
+
+**5.2 画布内失败单镜就地重试**
+- 交互：ShotNode `status === 'failed'` 且 `data.shot.shotId` 为非空串时，节点脚部渲染红色「重试」小按钮（`data-testid="shot-retry"`，title 复用 `filmEngineering.video.retry`）；点击 `$emit('retry', shotId)`（`@click.stop` 不触发删除）。
+- 视图链路：`onRetryShot(shotId)` → `findShotResultIndex(shotResults, shotId)` 定位 run 快照 index → 置节点 `generating` → `retryShot(index)`（复用 `film-engineering:retry-shot` IPC，prompt 由主进程从 run 快照逐字取，前端不回传）。
+- 数据校验（fail-closed，模型层纯函数）：results 非数组 / shotId 非空串 / index 非负整数 / 未命中一律返回 `null`，视图回显 `canvas.retry.failed`（"该镜重试失败，请稍后再试或前往经典视图处理"）且**绝不**带臆造 index 调通道；通道返回非 ok → 节点回 `failed` + 同 key 提示；成功 → `syncShotStatuses()` 由轮询回显终态。重复 shotId 取首个命中（快照顺序即镜序）。
+- 显示项：重试期间节点徽标走既有 `statusGenerating`；不新增按钮态。
+
+**5.3 合成入口（成片取用）**
+- 交互：`phase === 'done' && finalPath` 时 banner 新增「打开所在文件夹」`[data-testid="fcv-open-folder"]` 与「另存」`[data-testid="fcv-save-as"]` 两个 link 按钮，文案复用 `filmEngineering.video.openFolder/saveAs`（零新增 key）；分别调 `story2videoShowInFolder(finalPath)` / `story2videoSaveAs(finalPath)`（publisher.js invokeWithFallback 合同，主进程 IPC 已有 sender 校验）。跳经典视图链接保留。
+- 数据校验：`finalPath` 为空不渲染 banner（既有 `v-if`），点击处理函数内二重守卫。
+
+**文案合同**：新增仅 2 对 locale key——`filmEngineering.canvas.adapt.llmFallback`、`filmEngineering.canvas.retry.failed`（zh/en 成对，Gate7 pair/cjk 绿）；其余全部复用既有 key。
+
+**7.4 E2E / 视觉基线**
+- `tests/e2e/film-engineering-real.js` 改双段：①画布段——入口点击落 `.film-canvas-view`、引擎告警缺失检查、`fcv-script` 填本 → `fcv-adapt` → `.vue-flow__node-shot` 计数 >0、`fcv-generate` 启用；②经典段——导航 `#/film-engineering/classic` 后原有全部分镜库/复制/导出/套用/方法论/成本闸检查保留。契约测试 `film-engineering-real.test.js` 2 用例绿。
+- 像素基线：v2 新增元素（重试按钮、banner 双按钮）均为 v-if 条件渲染，各视图 idle 默认态截图不变，无需重录基线；视觉契约 `visual-view-runner.test.js` + `condition-waiting.test.js` 共 29 用例绿。
+
+**测试**：新增 `FilmCanvasView.actions.test.js` 8 用例（3.3 三态 / 5.2 三态 / 5.3 两态）+ `ShotNode.test.js` 4 用例（按钮渲染/emit/脏数据/stop 冒泡）+ `film-canvas-model.test.js` findShotResultIndex describe 3 用例；回归 film-canvas 全家桶 53 用例绿。
