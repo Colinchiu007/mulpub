@@ -520,6 +520,10 @@ async function checkLoginStatus (platform, accountId) {
     // 原生渲染崩溃（crashpad not connected，主进程 exit code 0xFFFF7003）导致整个应用退出。
     // 走到此处说明 HTTP 检测不确定；此前会降级开隐藏浏览器 -> 崩溃。改判未确认（与 tencent_video
     // 早期分支同语义），绝不再开这个会崩的窗口。toutiao 的无 Cookie 快速路径等分类仍在上游保留。
+
+    // ⚠️ 与函数上方 RENDER_CRASH_PRONE_PLATFORMS（前置 HTTP/本地分类，命中 tencent_video）是
+    // 不同插入点、不同语义：那个自己走 HTTP 早返回，这个只切断 getContext 前的浏览器降级。
+    // 二者切勿合并——并入前置会绕过 toutiao 的无 Cookie 快速路径（回归既有测试）。
     const RENDER_CRASH_PRONE_OPEN_PLATFORMS = new Set(['toutiao'])
     if (RENDER_CRASH_PRONE_OPEN_PLATFORMS.has(platform)) {
       log.warn('AccountManager', 'checkLoginStatus: INCONCLUSIVE render-crash-prone, skip hidden browser ' + platform + ':' + accountId + ' cookies=' + cookies.length + ' lsKeys=' + lsKeys)
