@@ -423,4 +423,25 @@ describe('TaskQueue', () => {
     expect(events).toContain('added')
     expect(events).toContain('start')
   })
+
+  test('noRetry 错误（风控即停）跳过重试直接判失败', async () => {
+    const queue = new TaskQueue({ defaultRetry: 2 })
+    let attempts = 0
+    const failed = new Promise(resolve => queue.once('task:failed', resolve))
+    let retryCount = 0
+    queue.on('task:retry', () => { retryCount++ })
+    queue.setExecutor(async () => {
+      attempts += 1
+      const err = new Error('publish blocked: risk_suspended for weixin/acc1')
+      err.noRetry = true
+      throw err
+    })
+    queue.add({ platform: 'weixin', article: { title: '风控即停', accountId: 'acc1' } })
+    const task = await failed
+    expect(attempts).toBe(1)
+    expect(retryCount).toBe(0)
+    expect(task.status).toBe('failed')
+    expect(task.error).toContain('risk_suspended')
+  })
 })
+

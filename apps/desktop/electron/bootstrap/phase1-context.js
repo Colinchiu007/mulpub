@@ -453,6 +453,7 @@ function extractContext(container) {
   promptBridge.modelProviderManager = modelProviderManager
   const serviceBus = container.get('serviceBus')
   const pluginRegistry = container.get('pluginRegistry')
+  const riskSuspender = container.get('riskSuspender')
 
   // ─── 分组返回 + 过渡期 Proxy 兼容层 ───
   // 旧消费者 context.store 仍可用（Proxy 转发到 context.infra.store）
@@ -474,7 +475,7 @@ function extractContext(container) {
       renderEngine, compositionManager, aiGenerator, assetGenerator, videoEngine, pipelineEngine,
       story2videoBatchQueue, runStateStore,
       modelProviderManager, providerRouter, providerManager, opsCenterSync, usageReporter,
-      _aggregatorBridge, publisherRouter, _PublishAlert,
+      _aggregatorBridge, publisherRouter, _PublishAlert, riskSuspender,
       splitterBridge, promptBridge, serviceBus, pluginRegistry,
       projectService, boardService, contactSheetService, approvalGateService,
       executionRecorder,
