@@ -1,9 +1,27 @@
 # 会员中心阶段 2 · 真实支付与自动续费设计（Member Center P2 Payment Spec）
 
-> 版本 v1 | 日期 2026-09-24 | 状态：🟡 待 CEO 签字（本文档为阶段 2 spec，签字后进入实施计划）
+> 版本 v1.1 | 日期 2026-09-24 | 状态：🟡 CEO 评审完成（SELECTIVE EXPANSION）· 待最终签字后进入实施计划
 > 范围：Multi-Publish 桌面端「会员中心」订阅变现的**真实支付链路**——支付通道选型、通道无关抽象、订阅创建/续费/取消写入、自动续费、续费/退款 webhook。
 > 上游真源：`01-docs/DESIGN-MEMBER-CENTER-2026-09-23.md`（阶段 1，已 CEO 签字、PR #2314 已合并落地）、`packages/api-publish-engine/src/auth/postgres-commerce-store.js`、`.../publish-api-commerce.js`、`ops-center/docs/pricing-strategy.md`
 > 阶段 1 地基复用：`identity_subscriptions`、`identity_orders`、`identity_redeem_codes`、`identity_entitlement_snapshots`、`identity_entitlement_usage`、`identity_webhook_events`；统一 upsert 的第 ③ 写入通道（支付回调）在阶段 1 置灰，本 spec 将其点亮。
+
+---
+
+## ⭐ CEO 评审结论（v1.1，2026-09-24 · SELECTIVE EXPANSION）
+
+本轮以创始人/CEO 模式评审，结论为 **SELECTIVE EXPANSION**：保持既有范围与安全红线，graft 三项高杠杆扩展，延后一项。
+
+**三条红线（进入编码前必须满足，硬性前置）：**
+- **R-A 先 spike 反推抽象**：§2.3 首个生产通道供应商未定，抽象层不得对着空气锁定。实施第一步是对**单一通道**做沙箱 spike（真实结账 + 真实 webhook 载荷），用实际载荷格式（尤其幂等 ID、`custom_data` 回传、退款/proration 能力边界）反推并冻结 `PaymentProvider` 接口，再接第二通道验证可插拔。
+- **R-B 定价与通道共同决策**：MoR 约 5% + $0.50/笔的固定费，对低价档（如 ¥6–12）毛利侵蚀显著。plan-matrix 真实定价（P1 §10 待办）必须与选定通道的费率/固定费**一起拍板**，不得先建计费后定价格。
+- **R-C P1 会员面板 dogfood 闭环前不叠 P2 编码**：阶段 1 会员中心 UI shell 尚未在运行态完整验证（联调/dogfood 未闭环）。先闭环 P1，再在其上叠加支付，避免未验证面积翻倍、故障难定位。
+
+**graft 的扩展（均优先复用通道原生能力，成本前置评估）：**
+- ✅ **免费试用 `trial_days`**（订阅转化第一杠杆，见 §7.6）。
+- ✅ **首日促销码 coupon**（通道原生 coupon，续约期正确性进金额校验，见 §7.7）。
+- ✅ **自助收据/发票门户**（优先用通道 hosted 客户门户而非自建，见 §7.8）。
+
+**明确延后：** ⏸ **取消时 win-back 挽留优惠** → 记为阶段 2.1（运营复杂度不匹配 MVP 付费体量）。
 
 ---
 
@@ -33,7 +51,7 @@
 - 多币种税务自主申报（选 MoR 通道即由供应商承担，见 §2）。
 - 按量计费/钱包充值（credit top-up）——本阶段只做**周期订阅**（月/年）。
 - 团队/企业席位、合同采购、对公转账（企业能力另立 spec）。
-- 优惠券/促销码系统（阶段 2.1，仅预留 `discount` 字段位）。
+- 复杂促销引擎（多层叠加、自动定价、A/B 促销）——阶段 2 仅接入**通道原生单品促销码 coupon**（见 §7.7），不自建营销引擎。
 - 支付通道自助切换的运营后台 UI（先以配置驱动，见 §2.4）。
 
 ---
@@ -92,7 +110,7 @@ payment:
 // 概念签名（实施时落 packages/api-publish-engine/src/auth/payment-providers/*）
 interface PaymentProvider {
   // 创建一次订阅结账会话，返回收银台跳转/嵌入所需的 checkout 载荷
-  createCheckout({ userId, plan, period, currency, successUrl, cancelUrl }): { checkoutToken, checkoutUrl, expiresAt }
+  createCheckout({ userId, plan, period, currency, trialDays?, couponCode?, successUrl, cancelUrl }): { checkoutToken, checkoutUrl, expiresAt }
 
   // 主动取消（若通道不支持 API 立即取消，实现内部转标记 cancel-at-period-end）
   cancelSubscription({ providerSubId, atPeriodEnd }): { status, effectiveAt }
@@ -104,15 +122,16 @@ interface PaymentProvider {
   parseWebhook(rawReq): NormalizedEvent
 
   // 通道能力声明（供上层降级决策）
-  capabilities(): { immediateCancel: bool, refunds: bool, proration: bool, autoRenewToggle: bool }
+  capabilities(): { immediateCancel: bool, refunds: bool, proration: bool, autoRenewToggle: bool, trial: bool, coupons: bool, customerPortal: bool }
 }
 
 // 归一化事件（屏蔽通道差异，喂给 §6 状态机）
 type NormalizedEvent = {
   provider, externalEventId,   // 幂等键
   type: 'checkout.completed' | 'subscription.activated' | 'subscription.renewed'
-      | 'subscription.canceled' | 'payment.failed' | 'refunded' | 'subscription.plan_changed',
-  providerSubId, userId?, plan?, period?, amount?, currency?,
+      | 'subscription.canceled' | 'payment.failed' | 'refunded' | 'subscription.plan_changed'
+      | 'subscription.trial_started' | 'subscription.trial_end',
+  providerSubId, userId?, plan?, period?, amount?, currency?, discount?, couponCode?,
   occurredAt, currentPeriodEnd?, raw   // raw 仅入库不外泄
 }
 ```
@@ -127,11 +146,11 @@ type NormalizedEvent = {
 - 复用列：`id / user_id / plan / amount / currency / channel / status / created_at / paid_at / refunded_at / invoice_status`。
 - `channel` 取值扩展：`redeem`（兑换码，阶段1）| `ops_admin`（后台开通，阶段1）| `paddle` | `lemon_squeezy` | `domestic_hosting`（阶段2）。
 - `status` 语义收敛为状态机产物：`pending → paid → (refunded | failed)`；`pending` 由 `createCheckout` 落库，终态由 webhook 驱动。
-- **新增可空列**（迁移见 §11）：`provider_order_id`、`provider_sub_id`、`period`（month|year）。
+- **新增可空列**（迁移见 §11）：`provider_order_id`、`provider_sub_id`、`period`（month|year）、`discount`（券减免额，服务端算）、`coupon_code`（核销的促销码，仅审计用，金额仍以回调结算额为准）。
 
 ### 4.2 `identity_subscriptions`（阶段 1 已建，补续费字段）
 - 复用：`plan / user_id / period / status / expires_at`。
-- 新增可空列：`provider`、`provider_sub_id`、`auto_renew`（bool，默认 false）、`cancel_at_period_end`（bool）、`last_event_id`（幂等水位）、`renewal_state`（`active | past_due | canceled`）。
+- 新增可空列：`provider`、`provider_sub_id`、`auto_renew`（bool，默认 false）、`cancel_at_period_end`（bool）、`last_event_id`（幂等水位）、`renewal_state`（`active | past_due | canceled`）、`trial_ends_at`（试用到期时刻，null=非试用）。
 - 唯一约束建议 `(user_id)` 主订阅 + 历史归档，续费只更新 `expires_at` 与 `status`。
 
 ### 4.3 `identity_payment_customers`（新建，用户↔通道客户映射）
@@ -187,6 +206,8 @@ type NormalizedEvent = {
 | `subscription.canceled` | `subscription.canceled` | `subscription_cancelled`/`scheduled_cancel` | 取消/退订 | cancel_at_period_end→到期回落 free；立即→即刻收缩 |
 | `refunded` | `adjustment.created`(refund) | `order_refunded` | 退款通知 | 订单 refunded、订阅回滚、权益收回、通知用户 |
 | `subscription.plan_changed` | `subscription.updated`(items变) | `subscription_updated`(plan变) | 套餐变更 | 升级即刻、降级下周期（§7.3） |
+| `subscription.trial_started` | `subscription.trial_started`(若启用 trial) | `subscription_created`(trial) | 试用开始通知 | 建订阅 active、写 `trial_ends_at`、试用期内不计费 |
+| `subscription.trial_end` | `transaction.paid`(试用转付费) | `subscription_payment_success`(试用后首扣) | 试用转付费通知 | 清 `trial_ends_at`、订单 paid、进入正常续费周期 |
 
 ### 6.2 状态机（订阅 renewal_state + 订单 status 联动）
 ```
@@ -227,6 +248,22 @@ pending --> (超时/失败) --> failed
 - `refunded` 事件驱动：订单 `refunded`、订阅按通道 policy 回滚或置到期、权益即时收缩、`identity_notifications` 推送退款结果。
 - 退款入口仅**申请**（`POST /api/v1/me/orders/{id}/refund-request`），是否可退由通道/运营判定，不承诺即时退款成功。
 
+### 7.6 免费试用 trial_days（graft）
+- 结账时可带 `trialDays`（若 `capabilities().trial`）。服务端据 plan-matrix + 通道 trial 能力下发，客户端不可自造天数绕过计费。
+- 试用期内订阅 `active` 但**无扣款订单**（或 0 额订单），`trial_ends_at` 标记到期。
+- 到期由通道发起首扣 → `subscription.trial_end`/`transaction.paid` → 转正常续费周期，签发正式 `paid` 订单。
+- 试用期内关闭自动续费：到期不扣款，回落 free，**不产生欠费/dunning**。
+- 反滥用：同 `user_id`/同支付指纹仅享一次试用（`capabilities` 决定是否支持，否则服务端记 `trial_ends_at` 历史去重）。
+
+### 7.7 促销码 coupon（graft，通道原生优先）
+- 结账可带 `couponCode`（若 `capabilities().coupons`）。**校验与减免一律在通道侧**完成，服务端不自行算折扣价（避免与通道结算额分叉）。
+- **续约期正确性铁律（CEO 红线）**：coupon 有「一次性 / 逐期 / 前 N 期」三种生效域。归一化事件的 `amount` 必须区分**首期减免额**与**续约原价**；`subscription.renewed` 事件的金额校验须按 coupon 的 duration 语义判定，**“首月半价”类券不得错误作用于续约**——`PAYMENT_AMOUNT_MISMATCH` 对账须把 coupon duration 纳入期望值计算，避免误报/漏报。
+- 促销码有效性以通道回执为准：`checkout` 阶段通道拒绝无效码 → 归一化 `400 COUPON_INVALID`，不落 `pending` 订单。
+
+### 7.8 自助收据 / 发票门户（graft，不自建）
+- **优先复用通道 hosted 客户门户**（Paddle/国内托管多提供换卡、发票下载、订阅管理）：新增 `POST /api/v1/me/portal-session` → provider 返回一次性 `portalUrl`（有时效），前端跳转。**不镜像敏感支付因子到本地**。
+- 仅当通道无门户（`capabilities().customerPortal=false`）时，退化为**只读**发票列表（读 `identity_orders` 已回填的 `invoice_status`），发票实体下载仍走通道。
+
 ---
 
 ## 8. 安全（支付是最高危面）
@@ -251,12 +288,13 @@ pending --> (超时/失败) --> failed
 
 | 端点 | 方法 | scope | 校验 | 成功 | 主要错误码 |
 |---|---|---|---|---|---|
-| `/api/v1/me/checkout` | POST | `profile:write` | `plan∈{free,standard,pro}`；`period∈{month,year}`（free 拒绝 400 PLAN_INVALID） | 200 `{checkoutUrl,checkoutToken,expiresAt,orderId}` | 400 CHECKOUT_PLAN_INVALID / 400 CHECKOUT_PERIOD_INVALID / 503 PAYMENT_PROVIDER_UNAVAILABLE |
+| `/api/v1/me/checkout` | POST | `profile:write` | `plan∈{free,standard,pro}`；`period∈{month,year}`（free 拒绝 400 PLAN_INVALID）；可选 `trialDays`（须 ≤ plan-matrix 上限且通道支持）、`couponCode`（格式校验后交通道验证） | 200 `{checkoutUrl,checkoutToken,expiresAt,orderId}` | 400 CHECKOUT_PLAN_INVALID / 400 CHECKOUT_PERIOD_INVALID / 400 COUPON_INVALID / 400 TRIAL_UNSUPPORTED / 503 PAYMENT_PROVIDER_UNAVAILABLE |
 | `/api/v1/me/subscription` | GET | `profile:read` | — | 200 `{plan,period,expiresAt,autoRenew,cancelAtPeriodEnd,renewalState}` | 503 MEMBERSHIP_UNAVAILABLE(fail-soft 200 不含段) |
 | `/api/v1/me/subscription/auto-renew` | PATCH | `profile:write` | `enabled` 必须布尔 | 200 `{autoRenew,cancelAtPeriodEnd}` | 400 AUTO_RENEW_PARAM_INVALID / 405 METHOD_NOT_ALLOWED |
 | `/api/v1/me/subscription/cancel` | POST | `profile:write` | 可选 `atPeriodEnd`(默 true) | 200 `{status,effectiveAt}` | 400 CANCEL_AT_PERIOD_END_UNSUPPORTED（通道不支持立即取消时） |
 | `/api/v1/me/orders` | GET | `profile:read` | 分页 `limit≤100` | 200 订单列表 | — |
 | `/api/v1/me/orders/{id}/refund-request` | POST | `profile:write` | 订单须属本用户且 `paid` | 202 `{requestId,status:pending}` | 404 ORDER_NOT_FOUND / 409 ORDER_NOT_REFUNDABLE |
+| `/api/v1/me/portal-session` | POST | `profile:read` | 用户须有 `identity_payment_customers` 映射 | 200 `{portalUrl,expiresAt}` | 503 PORTAL_UNAVAILABLE / 404 CUSTOMER_NOT_FOUND |
 
 **服务到服务端点：**
 
@@ -284,6 +322,8 @@ pending --> (超时/失败) --> failed
 ### 10.2 升级/结账流
 - 套餐对比卡 → 选套餐/周期 → 「前往支付」→ 内嵌或跳转收银台；返回后订阅卡显示「支付处理中」占位骨架（非错误态），轮询 `/me/subscription` 或收快照回刷后更新为生效态。
 - 失败/取消返回：提示「支付未完成，未扣款，可重试」，不产生 `paid` 订单。
+- 支持试用的套餐：升级卡展示「免费 N 天试用，随时取消」CTA（据 `capabilities().trial`），结账页确认「试用到期前不会扣款」。
+- 促销码输入框：结账页可填 coupon，失焦即调 checkout 预校验通道回执；无效提示「优惠码不可用或已过期」（续约期减免语义由服务端保证，前端不承诺“永久折扣”文案）。
 
 ### 10.3 文案随通道能力动态化
 - 不支持立即取消的通道：取消按钮「将在本周期结束时取消」（据 `capabilities().immediateCancel`）。
@@ -291,7 +331,7 @@ pending --> (超时/失败) --> failed
 
 ### 10.4 订单与账单
 - 订单历史列表：时间、套餐、金额+币种、状态徽标（待支付/已支付/已退款/失败）、发票状态。
-- 发票申请入口（阶段 2 仅入口占位或对接供应商门户）；退款入口仅 `paid` 订单可用。
+- 发票/收据：优先「管理订阅/账单」按钮跳通道客户门户（`/me/portal-session`）；通道无门户时提供只读发票列表（实体下载仍走通道）。退款入口仅 `paid` 订单可用。
 
 ### 10.5 i18n
 - 所有新增用户可见文案写入 `locales/zh.js` + `en.js` **成对**（CI Gate 7 `check-locale-sync.js` 拦截）；产品名词入 `01-docs/i18n-glossary.md`。
@@ -319,6 +359,9 @@ pending --> (超时/失败) --> failed
 7. 金额一律服务端计算；客户端传金额被忽略。
 8. 至少一个国内通道 + 一个国际通道（Paddle 或 LS）经同一抽象层跑通，配置零代码切换验证。
 9. zh/en 成对；QM-1 打包验证通过；阶段 1 全部场景（兑换码/后台/权益矩阵/门禁）不回归。
+10. 免费试用：试用期内不产生扣款、`trial_ends_at` 正确；到期首扣转正常周期；试用内关自动续费到期直接回落 free 不产生欠费；同用户二次试用被拒。
+11. 促销码：无效码在 checkout 被通道拒 → 400 COUPON_INVALID 不落单；“首月半价”类券续约按原价扣款且**不触发误报对账**（duration 语义正确）。
+12. 客户门户：`/me/portal-session` 返回有时效 `portalUrl` 可跳转；通道无门户时降级只读发票列表，本地不镜像敏感支付因子。
 
 ---
 
@@ -333,14 +376,25 @@ pending --> (超时/失败) --> failed
 - **前端**：自动续费开关解锁、past_due 横幅、支付处理中占位、通道能力文案（立即取消 vs 到期取消）、IPC 纯 JSON 序列化。
 - **打包**：改 `apps/desktop/electron/` 后 QM-1 完整打包 + require 链 + 8s 启动不崩。
 - **沙箱端到端**：用通道 test 密钥跑支付成功/续费/失败/退款/取消五条链路后再切 live。
+- **试用**：`trial_started`→`trial_end`→首扣转付费；试用期无扣款；到期未续回落 free；二次试用去重拒绝。
+- **促销码续约正确性**：once/forever/`repeated`(N 期) 三种 duration 下，首期减免额 vs 续约原价的金额校验；续约不得误套首期折扣；mismatch 对账纳入 coupon duration 期望。
+- **客户门户**：portal-session 签发时效 URL、无门户通道降级只读列表、敏感字段不外泄。
 
 ---
 
 ## 14. 待办登记（进入实施计划前）
 
+**CEO 红线前置（必须先满足，见 §⭐）：**
+- [ ] R-A：单通道沙箱 spike 完成，用真实载荷反推并冻结 `PaymentProvider` 接口（含 trial/coupon/portal 能力边界）。
+- [ ] R-B：plan-matrix 真实定价与选定通道费率/固定费共同拍板。
+- [ ] R-C：阶段 1 会员中心 UI shell 完成运行态联调 + dogfood 闭环。
+
+**常规待办：**
 - [ ] 通道尽调落地：确定首个生产通道国内托管供应商与合同/费率、验签方式、沙箱开通。
 - [ ] `PaymentProvider` 接口与目录冻结（`payment-providers/{domestic_hosting,paddle,lemon_squeezy}.js`）。
 - [ ] 迁移脚本评审：§4 新增列、`identity_payment_customers` 建表。
 - [ ] webhook 端点与用户态端点鉴权 allowlist 评审（§8/§9）。
 - [ ] dunning 定时任务归属（供应商侧 vs 本侧调度）与 `grace_hours` 数值确认。
 - [ ] 发票/退款申请是否与 ops-center 后台联动的边界确认。
+- [ ] trial/coupon/portal 三项 graft 的通道原生能力确认（选定通道后据 `capabilities()` 落地，缺失项降级方案见 §7.6–7.8）。
+- ⏸ win-back 挽留优惠（阶段 2.1，CEO 评审明确延后，不入本 spec 实施范围）。
