@@ -3,7 +3,7 @@
 - 日期：2026-09-24
 - 分支 / worktree：`codex/account-card-display-fix` @ `D:/Data/projects/mp-worktrees/mp-account-card-display-fix`
 - 触发：用户截图（electron.exe_20260924_134429）反馈账号卡片平台名/账号名/粉丝/检查记录/折行多处显示错误
-- 参考：蚁小二（yixiaoer）逆向工程（`D:/Data/yixiaoer-extracted/`）——账号资料一律「带 Cookie 调平台创作者 API 读结构化 JSON」，不做 DOM 抓取
+- 参考：参考实现（refimpl）逆向工程（`D:/Data/ref-impl-extracted/`）——账号资料一律「带 Cookie 调平台创作者 API 读结构化 JSON」，不做 DOM 抓取
 
 ## 1. 问题清单与根因（7 现象 → 5 根因）
 
@@ -36,11 +36,11 @@
 ### Layer C — 采集写回守卫（`account-profile.js`）
 - `profileForCreate` / `buildProfilePatch` 在生成 `account_name` 前经 `isNoiseAccountName` 过滤：命中噪声 → 不下发/回落 fallback。防止新采集再把页面标题/容器文本写脏。DOM 抓取通道保持可用，但出口有闸。
 
-### Layer D — 数据层 API 提取（对齐蚁小二，`http-login-checker.js` + `account-manager.js`）
+### Layer D — 数据层 API 提取（对齐参考实现，`http-login-checker.js` + `account-manager.js`）
 - `http-login-checker.js` 为已注册平台（douyin / toutiao / tencent_video / bilibili）新增 `extract(data)`，从登录检测**同一批** API 响应直接取昵称/粉丝/平台ID：
   - douyin `creator/pc/user/info` → `data.{nickname, follower_count/fans_count, uid}`
   - toutiao `get_media_info` → `data.user.{name/screen_name, fans_count, id}`
-  - tencent_video `auth_data` → `data.finderUser.{nickname, fansCount, uniqId}`（与蚁小二 `getUserinfo` 一致）
+  - tencent_video `auth_data` → `data.finderUser.{nickname, fansCount, uniqId}`（与参考实现 `getUserinfo` 一致）
   - bilibili `web-interface/nav` → `data.{uname, mid}`（nav 不含粉丝，仅回填昵称/ID）
 - 新增导出 `fetchAccountInfoViaHttpApi(platform, cookies)`：复用端点与 Cookie 头；无 extract 平台（kuaishou 需 `__NS_sig3` 签名，本期未接）/无 Cookie/precheck 失败/非 2xx/解析失败一律 `{ supported }` 不带字段（缺席即不修改）。
 - `account-manager.js` 新增 `refreshProfileFromHttpApi`：HTTP 检测判 `valid===true` 时旁路回填。
@@ -76,7 +76,7 @@
 
 ## 6. 边界与已知限制
 
-- **快手粉丝**：`infoV2` 需 `__NS_sig3` 签名（蚁小二 `getSign$5`），本期未接入 HTTP 提取；快手走 DOM 通道 + 噪声守卫 + 显示回落，粉丝暂无 API 来源时保持「暂无数据」。后续如需可单独立项做签名逆向。
+- **快手粉丝**：`infoV2` 需 `__NS_sig3` 签名（参考实现 `getSign$5`），本期未接入 HTTP 提取；快手走 DOM 通道 + 噪声守卫 + 显示回落，粉丝暂无 API 来源时保持「暂无数据」。后续如需可单独立项做签名逆向。
 - **公众号昵称**：登录页 HTML 未必内嵌昵称，未做 HTML 提取；真实存量昵称「数字生命丘丘」由噪声守卫保留。
 - **bilibili 粉丝**：nav 接口不含粉丝，仅回填昵称/ID，粉丝走 DOM 或后续专项接口。
 
@@ -99,3 +99,26 @@
 | `packages/shared-utils/src/__tests__/account-profile-guard.test.js` | `profileForCreate`/`buildProfilePatch` 噪声昵称不入库、粉丝照常回填 |
 | `apps/desktop/electron/publishers/http-login-checker-info.test.js` | `fetchAccountInfoViaHttpApi` 各平台提取、无 cookie/无 extract 省略、bilibili precheck 不发请求 |
 | `apps/desktop/.../AccountManagementCard.test.js`（追加 4 例） | chip 显平台名、噪声回落平台名/真实名保留、`last_validated`→「最近检查」、徽章 nowrap 源码契约 |
+
+---
+
+## 附录：渲染层 ESM 孪生约定（CI Browser E2E 复盘补充）
+
+**背景（PR #2358 CI 复盘）**：渲染层 `AccountManagementCard.vue` 直接具名导入 CJS 模块
+`@multi-publish/shared-utils/src/account-name-guard`，单测（vitest 有 CJS interop）全绿，
+但 vite dev server 以 `/@fs/` 原样提供该文件，浏览器不执行 `module.exports`，
+报 `does not provide an export named 'isNoiseAccountName'`，/accounts 整页路由加载失败，
+连带 QG Browser E2E（flow-2）与 QG Visual（accounts 就绪超时）双双红灯。
+
+**仓库既有约定（platform-definitions 先例）**：凡渲染端要消费的 shared-utils 模块，必须提供
+ESM 孪生文件 `*.browser.js`（具名 `export`），并在 `apps/desktop/vite.config.js` 的
+`resolve.alias` 中把裸模块 id 指向孪生文件；主进程继续用 CJS 原版，不改 Node 端契约。
+
+**本次落地**：
+1. `packages/shared-utils/src/account-name-guard.browser.js`：关键词表由 CJS 源 require 后 JSON 序列化生成，杜绝手抄转写错误；
+2. `vite.config.js` alias：`@multi-publish/shared-utils/src/account-name-guard` → `account-name-guard.browser.js`；
+3. 防漂移回归：`account-name-guard.test.js` 新增 parity 套件——逐案比对 CJS/ESM 判定，并断言三张词表两侧 `toEqual` 完全一致（任一侧单改即红）。
+
+**验证标准**：起 vite dev 后 `GET /features/accounts/components/AccountManagementCard.vue`，
+transform 结果中的 import 必须解析到 `account-name-guard.browser.js` 且该 URL 返回 200、含 `export function isNoiseAccountName`。
+单测通过 ≠ dev 运行时可用，涉渲染层新导入一律补本条探测。

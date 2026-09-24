@@ -36,7 +36,7 @@ describe("http-login-checker fetchAccountInfoViaHttpApi", () => {
       await checker.fetchAccountInfoViaHttpApi("douyin", [{ name: "sessionid", value: "x" }]),
     ).toEqual({ supported: true, nickname: "抖昵称", platformAccountId: "u1" });
   });
-  it("tencent_video 提取昵称与粉丝 fansCount（对齐蚁小二 finderUser）", async () => {
+  it("tencent_video 提取昵称与粉丝 fansCount（对齐参考实现 finderUser）", async () => {
     vi.stubGlobal(
       "fetch",
       vi

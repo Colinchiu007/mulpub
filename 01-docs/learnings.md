@@ -15681,10 +15681,17 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 
 - **API 回填昵称的「昵称保护纪律」（pattern）**：`account-manager.js` `refreshProfileFromHttpApi` 在 HTTP 登录检测判 `valid===true` 时旁路回填，但**仅当现网名命中噪声或缺失时才用 API 昵称覆盖**；现网名非噪声（含用户手动改名）→ 从 patch 删除 `account_name`，只回填粉丝/平台ID/头像。否则每次检测都会冲掉用户手输的备注名。所有「后台自动回填用户可编辑字段」的场景都该套这层守卫。
 
-- **对齐蚁小二：账号资料一律带 Cookie 调平台创作者 HTTP API 读结构化 JSON，不做 DOM 抓取（pattern）**：复用 `http-login-checker.js` 登录检测**同一批** API 端点（douyin `creator/pc/user/info`、toutiao `get_media_info`、tencent_video `auth_data.finderUser`、bilibili `web-interface/nav`）加 `extract`，零新增网络请求即得权威昵称/粉丝。`toCount`（正整数才认）保证脏值不下发。**边界**：快手 `infoV2` 需 `__NS_sig3` 签名（蚁小二 `getSign$5`）未逆向，本期无 API 粉丝来源，诚实走 DOM+噪声守卫+显示回落，不假装解决。
+- **对齐参考实现：账号资料一律带 Cookie 调平台创作者 HTTP API 读结构化 JSON，不做 DOM 抓取（pattern）**：复用 `http-login-checker.js` 登录检测**同一批** API 端点（douyin `creator/pc/user/info`、toutiao `get_media_info`、tencent_video `auth_data.finderUser`、bilibili `web-interface/nav`）加 `extract`，零新增网络请求即得权威昵称/粉丝。`toCount`（正整数才认）保证脏值不下发。**边界**：快手 `infoV2` 需 `__NS_sig3` 签名（参考实现 `getSign$5`）未逆向，本期无 API 粉丝来源，诚实走 DOM+噪声守卫+显示回落，不假装解决。
 
 - **显示字段键清单必须含真实写入字段（pitfall，「暂无检查记录」误显）**：`LAST_CHECK_KEYS` 缺真实字段 `last_validated`，导致已检测账号仍走「从未检测」兜底文案。凡「取第一个存在的键显示」的清单，须与后端实际落库字段名逐一核对，命名漂移（snake/camel）要全覆盖。
 
 - **徽章标签折行：固定 px 列宽 → max-content + white-space:nowrap（pattern）**：`.account-assignees > div` 列 `44px` 容不下三字标签+padding 触发换行；改 `max-content minmax(0,1fr)` + 徽章 span `nowrap`。CSS 契约 JSDOM 测不到，沿用项目惯例用 `fs.readFileSync('.vue')` 切片做源码契约断言。
 
 - **worktree（workspace 外）文件编辑 + CRLF 锚点归一化（pitfall，本轮真实代价）**：任务 worktree 在共享根之外，SearchReplace/Write 报 "can not edit the file outside the projects"；改用「内容暂存 `.agent_context/stage/` + Node 脚本 fs 锚点替换」写入。Node 脚本锚点替换必须按目标文件 EOL 归一化（worktree 检出常为 CRLF，脚本内 \n 锚点须转 \r\n），否则 ANCHOR NOT FOUND。`01-docs/**/*.md` 被 `.gitignore` 忽略，PRD/learnings 一律 `git add -f`。
+
+### 渲染层消费 shared-utils CJS 模块必须走 .browser.js 孪生 + vite alias
+
+- **坑**：vitest 对 CJS 有 interop，`import { x } from '.../cjs-file'` 单测全绿；但 vite dev 以 `/@fs/` 原样吐 CJS，浏览器具名导入报 `does not provide an export named`，整页路由挂掉（QG Browser E2E + QG Visual 连带红）。
+- **规约**：渲染端要用的 shared-utils 模块必须配 ESM `*.browser.js` 孪生文件并在 `apps/desktop/vite.config.js` alias（先例：platform-definitions）；主进程仍用 CJS 原版。
+- **防漂移**：孪生文件的词表从 CJS 源 require 后 JSON 序列化生成；parity 测试逐案比对判定 + 词表 toEqual，任一侧单改即红。
+- **验证**：渲染层新增 import 后，除单测外必须起 dev server 拉一次组件 transform 结果，确认 import 指向 .browser.js（单测绿 ≠ dev 运行时可用）。

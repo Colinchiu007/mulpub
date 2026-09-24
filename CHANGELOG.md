@@ -4,7 +4,7 @@
 - **`packages/shared-utils/src/account-name-guard.js`**（新）：账号昵称噪声判定单一数据源（会话 chrome 关键词 / ≥2 计数词 / 已知页面标题），采集与展示两端共用，真实昵称不误杀。
 - **`AccountManagementCard.vue`**：顶部 chip 由账号名改渲染平台名；`accountName()` 命中噪声回落平台名；`LAST_CHECK_KEYS` 补 `last_validated` 消除误显「暂无检查记录」；归属徽章列 `44px`→`max-content` + `nowrap` 修折行。
 - **`account-profile.js`**：`profileForCreate`/`buildProfilePatch` 对噪声昵称不入库。
-- **`http-login-checker.js`**：douyin/toutiao/tencent_video/bilibili 新增 `extract`，导出 `fetchAccountInfoViaHttpApi`（对齐蚁小二：带 Cookie 读平台 API JSON，非 DOM）。
+- **`http-login-checker.js`**：douyin/toutiao/tencent_video/bilibili 新增 `extract`，导出 `fetchAccountInfoViaHttpApi`（对齐参考实现：带 Cookie 读平台 API JSON，非 DOM）。
 - **`account-manager.js`**：HTTP 检测成功旁路 `refreshProfileFromHttpApi` 回填昵称/粉丝；用户手输昵称受保护不被冲掉。
 
 ### 测试

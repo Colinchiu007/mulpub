@@ -680,7 +680,7 @@ async function refreshProfileFromPage (page, platform, accountId) {
 
 /**
  * HTTP 登录检测成功时的资料回填：用平台创作者 API（复用 http-login-checker 端点，
- * 对齐蚁小二：不抓 DOM）拿昵称/粉丝，走 buildProfilePatch 只下发命中且变化的字段。
+ * 对齐参考实现：不抓 DOM）拿昵称/粉丝，走 buildProfilePatch 只下发命中且变化的字段。
  * 昵称保护：仅当现网名命中噪声或缺失时才用 API 昵称覆盖，避免冲掉用户手动改过的名字；
  * 粉丝/平台ID/头像等增量字段照常回填。任何失败只 warn 返回 false，绝不影响登录态判定。
  * @returns {Promise<boolean>} 是否实际写回了资料字段

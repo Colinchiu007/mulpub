@@ -25,3 +25,21 @@ describe("account-name-guard isNoiseAccountName", () => {
     expect(isNoiseAccountName("关注的旅人")).toBe(false);
   });
 });
+
+// 渲染端 ESM 孪生文件与主进程 CJS 判定必须逐案一致（vite dev /@fs 不能消费 CJS，故双实现；本测试防漂移）。
+import * as cjsGuard from '../account-name-guard.js'
+import * as esmGuard from '../account-name-guard.browser.js'
+
+describe('account-name-guard browser twin parity (PRD-ACCOUNT-CARD-DISPLAY-FIX-2026-09-24)', () => {
+  const cases = ['', '   ', '数字生命丘丘', '作品发布', '头条号', '百家号', 'Bilibili 创作者中心', '0粉丝0关注0获赞账号认证退出登录命运石', '关注', '粉丝', '视频号助手', '微信公众号'] + cjsGuard.NOISE_KEYWORDS.map(kw => '小明' + kw) + cjsGuard.KNOWN_PAGE_TITLES.map(x => ' ' + x.toUpperCase() + ' ')
+  it('CJS/ESM 判定逐案一致', () => {
+    for (const c of cases) {
+      expect([c, esmGuard.isNoiseAccountName(c)]).toEqual([c, cjsGuard.isNoiseAccountName(c)])
+    }
+  })
+  it('关键词/指标词表两侧完全一致（任一侧单改即红）', () => {
+    expect(esmGuard.NOISE_KEYWORDS).toEqual(cjsGuard.NOISE_KEYWORDS)
+    expect(esmGuard.METRIC_WORDS).toEqual(cjsGuard.METRIC_WORDS)
+    expect(esmGuard.KNOWN_PAGE_TITLES).toEqual(cjsGuard.KNOWN_PAGE_TITLES)
+  })
+})

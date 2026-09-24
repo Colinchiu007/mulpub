@@ -288,7 +288,7 @@ async function tryHttpLoginCheck (platform, cookies, accountId) {
 
 /**
  * 用保存的 Cookie 调平台创作者 API 提取账号资料（昵称/粉丝/平台ID）。
- * 与登录检测共用同一批已注册端点（对齐蚁小二：不抓 DOM，直接读结构化 JSON）。
+ * 与登录检测共用同一批已注册端点（对齐参考实现：不抓 DOM，直接读结构化 JSON）。
  * 只在平台注册了 extract 且响应可解析时返回字段；任何异常/缺字段一律省略键，
  * 由调用方（refreshProfileFromHttpApi）经 buildProfilePatch 决定「缺席=不修改」。
  * @param {string} platform
