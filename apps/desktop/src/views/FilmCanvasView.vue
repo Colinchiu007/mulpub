@@ -197,16 +197,16 @@ function gotoClassic () { router.push('/film-engineering/classic') }
 .film-canvas-view { display: flex; flex-direction: column; height: 100%; min-height: 0; position: relative; }
 .fcv-topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--el-border-color, #dcdfe6); flex-wrap: wrap; }
 .fcv-brand { display: flex; flex-direction: column; }
-.fcv-title { font-size: 16px; font-weight: 600; }
-.fcv-subtitle { font-size: 12px; color: var(--el-text-color-secondary, #909399); }
+.fcv-title { font-size: var(--font-size-md); font-weight: 600; }
+.fcv-subtitle { font-size: var(--font-size-xs); color: var(--el-text-color-secondary, #909399); }
 .fcv-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .fcv-select { width: 110px; }
 .fcv-file { display: none; }
 .fcv-script { padding: 10px 16px; border-bottom: 1px solid var(--el-border-color, #dcdfe6); }
-.fcv-script-meta { display: flex; justify-content: space-between; margin-top: 6px; font-size: 12px; color: var(--el-text-color-secondary, #909399); }
+.fcv-script-meta { display: flex; justify-content: space-between; margin-top: 6px; font-size: var(--font-size-xs); color: var(--el-text-color-secondary, #909399); }
 .fcv-llm { display: flex; align-items: center; gap: 4px; }
 .fcv-alert { margin: 10px 16px; }
 .fcv-canvas { flex: 1; min-height: 0; position: relative; }
 .fcv-cost-hint { margin: 0; line-height: 1.6; }
-.fcv-final { position: absolute; right: 24px; bottom: 24px; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 8px; background: var(--el-color-success-light-9, #f0f9eb); color: var(--el-color-success, #67c23a); font-size: 13px; z-index: 10; }
+.fcv-final { position: absolute; right: 24px; bottom: 24px; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 8px; background: var(--el-color-success-light-9, #f0f9eb); color: var(--el-color-success, #67c23a); font-size: var(--font-size-sm); z-index: 10; }
 </style>

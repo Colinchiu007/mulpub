@@ -32,11 +32,11 @@ defineProps({
   border-radius: 8px;
   background: var(--el-bg-color, #fff);
   padding: 10px 12px;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
 }
 .fe-node.is-selected { border-color: var(--color-primary); }
 .fe-node__head { display: flex; justify-content: space-between; margin-bottom: 6px; }
-.fe-node__type { color: var(--el-text-color-secondary, #909399); font-size: 11px; letter-spacing: 1px; }
-.fe-node__title { font-weight: 600; font-size: 13px; margin-bottom: 4px; word-break: break-all; }
+.fe-node__type { color: var(--el-text-color-secondary, #909399); font-size: var(--font-size-xs); letter-spacing: 1px; }
+.fe-node__title { font-weight: 600; font-size: var(--font-size-sm); margin-bottom: 4px; word-break: break-all; }
 .fe-node__meta { color: var(--el-text-color-secondary, #909399); }
 </style>
