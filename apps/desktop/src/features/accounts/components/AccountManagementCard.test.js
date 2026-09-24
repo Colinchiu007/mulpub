@@ -1,3 +1,4 @@
+import fs from 'fs'
 import { mount } from '@vue/test-utils'
 import i18n from '@/i18n'
 import { nextTick } from 'vue'
@@ -70,7 +71,7 @@ describe('AccountManagementCard', () => {
     expect(wrapper.find('[data-testid="select-account-1"]').exists()).toBe(false)
   })
 
-  it('失效账号（checkedExpiredIds 命中）展示「已失效」徽章、登录按钮并上抛原始账号对象', async () => {
+  it('失效账号（checkedExpiredIds 命中）展示「已失效」状态、登录按钮并上抛原始账号对象', async () => {
     const expiredAccount = { ...account, status: 'expired' }
     const checkedExpiredIds = new Set(['account-1'])
     const wrapper = mountCard({ account: expiredAccount, checkedExpiredIds })
@@ -82,6 +83,61 @@ describe('AccountManagementCard', () => {
     await wrapper.get('[data-testid="login-account-1"]').trigger('click')
 
     expect(wrapper.emitted('open-login')).toEqual([[expiredAccount]])
+  })
+
+  it('失效账号把「已失效」渲染为头像遮罩，头像旁不再出现徽章', () => {
+    const wrapper = mountCard({ account: { ...account, status: 'expired' } })
+    const avatar = wrapper.get('.account-avatar')
+    const mask = avatar.get('[data-testid="account-status-account-1"]')
+
+    expect(mask.classes()).toContain('avatar-status-mask')
+    expect(mask.classes()).toContain('expired')
+    expect(mask.text()).toBe('已失效')
+    expect(mask.attributes('role')).toBe('status')
+    expect(mask.attributes('aria-label')).toBe('账号登录状态：已失效')
+    // 同一信息只出现一次：头像旁的旧徽章不再渲染
+    expect(wrapper.find('.login-badge').exists()).toBe(false)
+    expect(wrapper.findAll('[data-testid="account-status-account-1"]')).toHaveLength(1)
+    expect(avatar.classes()).toContain('has-status-mask')
+  })
+
+  it('已登录账号保留头像旁的「已登录」徽章，头像不加遮罩', () => {
+    const wrapper = mountCard()
+    const badge = wrapper.get('.login-badge')
+
+    expect(badge.text()).toBe('已登录')
+    expect(badge.classes()).toContain('online')
+    expect(wrapper.find('.avatar-status-mask').exists()).toBe(false)
+    expect(wrapper.get('.account-avatar').classes()).not.toContain('has-status-mask')
+  })
+
+  it('未确认与异常状态仍走徽章，不吃遮罩语义（遮罩只代表失效）', () => {
+    for (const status of ['unverified', 'error', 'unknown']) {
+      const wrapper = mountCard({ account: { ...account, status } })
+      expect(wrapper.find('.avatar-status-mask').exists()).toBe(false)
+      expect(wrapper.get('.login-badge').exists()).toBe(true)
+    }
+  })
+
+  it('头像图片加载失败回落占位图标时，失效遮罩仍然显示', async () => {
+    const wrapper = mountCard({ account: { ...account, status: 'expired', avatar: 'https://cdn.invalid/a.png' } })
+    await wrapper.get('.account-avatar img').trigger('error')
+
+    expect(wrapper.find('.account-avatar img').exists()).toBe(false)
+    expect(wrapper.get('.account-avatar .avatar-status-mask').text()).toBe('已失效')
+  })
+
+  it('遮罩样式契约：头像为定位容器，遮罩绝对定位覆盖并自带半透明底', () => {
+    // JSDOM 不应用 scoped CSS，布局契约改为读源码断言
+    const vueSrc = fs.readFileSync('./src/features/accounts/components/AccountManagementCard.vue', 'utf8')
+    const avatarRule = vueSrc.slice(vueSrc.indexOf('.account-avatar {'), vueSrc.indexOf('.account-avatar img'))
+    const maskRule = vueSrc.slice(vueSrc.indexOf('.account-avatar .avatar-status-mask'))
+
+    expect(avatarRule).toContain('position: relative;')
+    expect(avatarRule).toContain('overflow: hidden;')
+    expect(maskRule).toContain('position: absolute;')
+    expect(maskRule).toContain('background: rgba(0, 0, 0, 0.55);')
+    expect(maskRule).toContain('color: #fff;')
   })
 
   it('历史脏值 inactive / offline 不再谎称「已登录」，统一落到未检查兜底', () => {
