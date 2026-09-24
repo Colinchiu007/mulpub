@@ -10,7 +10,7 @@ const os = require('os')
 const { app } = require('electron')
 const log = require('../services/logger')
 const playwrightManager = require('../services/playwright-manager')
-const { tryHttpLoginCheck } = require('./http-login-checker')
+const { tryHttpLoginCheck, fetchAccountInfoViaHttpApi } = require('./http-login-checker')
 const pythonBridge = require('../services/python-bridge')
 const accountStateRestorer = require('../services/account-state-restorer')
 const credentialStore = require('../services/credential-store')
@@ -59,6 +59,7 @@ const {
 } = require('@multi-publish/shared-utils/src/platform-definitions')
 // 账号资料（昵称/头像/平台ID/粉丝）采集与「字段缺席=不修改」写回契约的单一实现
 const profileUtils = require('@multi-publish/shared-utils/src/account-profile')
+const { isNoiseAccountName } = require('@multi-publish/shared-utils/src/account-name-guard')
 
 // 平台登录 URL / 名称 / 选择器 → @multi-publish/shared-utils/src/platform-definitions
 
@@ -471,6 +472,7 @@ async function checkLoginStatus (platform, accountId) {
       const httpResult = await tryHttpLoginCheck(platform, cookies, accountId)
       if (httpResult) {
         log.info('AccountManager', 'checkLoginStatus: render-crash-prone platform ' + platform + ':' + accountId + ' http-check valid=' + httpResult.valid + ' code=' + httpResult.code)
+        if (httpResult.valid === true) await refreshProfileFromHttpApi(platform, accountId, cookies)
         return httpResult
       }
       log.info('AccountManager', 'checkLoginStatus: render-crash-prone platform ' + platform + ':' + accountId + ' http-check inconclusive')
@@ -512,7 +514,10 @@ async function checkLoginStatus (platform, accountId) {
 
     // HTTP API 快速路径（参考同类产品）：Cookie 直接调平台 API，<1s/平台。
     const httpResult = await tryHttpLoginCheck(platform, cookies, accountId)
-    if (httpResult) return httpResult
+    if (httpResult) {
+      if (httpResult.valid === true) await refreshProfileFromHttpApi(platform, accountId, cookies)
+      return httpResult
+    }
 
     log.info('AccountManager', 'checkLoginStatus: start ' + platform + ':' + accountId + ' url=' + loginUrl + ' cookies=' + cookies.length + ' lsKeys=' + Object.keys(localStorageData).length + ' selectors=' + (Array.isArray(successSelector) ? '[' + successSelector.length + ' candidates]' : (successSelector ? '1' : '0')))
 
@@ -669,6 +674,40 @@ async function refreshProfileFromPage (page, platform, accountId) {
     return true
   } catch (e) {
     log.warn('AccountManager', 'refreshProfileFromPage 忽略异常 ' + platform + ':' + accountId + ' err=' + (e && e.message ? e.message : String(e)))
+    return false
+  }
+}
+
+/**
+ * HTTP 登录检测成功时的资料回填：用平台创作者 API（复用 http-login-checker 端点，
+ * 对齐参考实现：不抓 DOM）拿昵称/粉丝，走 buildProfilePatch 只下发命中且变化的字段。
+ * 昵称保护：仅当现网名命中噪声或缺失时才用 API 昵称覆盖，避免冲掉用户手动改过的名字；
+ * 粉丝/平台ID/头像等增量字段照常回填。任何失败只 warn 返回 false，绝不影响登录态判定。
+ * @returns {Promise<boolean>} 是否实际写回了资料字段
+ */
+async function refreshProfileFromHttpApi (platform, accountId, cookies) {
+  try {
+    if (!isSafePathSegment(platform) || !isSafePathSegment(accountId)) return false
+    const info = await fetchAccountInfoViaHttpApi(platform, cookies)
+    if (!info || !info.supported) return false
+    const current = await pythonBridge.requestBackend('GET', '/api/accounts/' + accountId)
+    const curData = current && current.code === 0 && current.data ? current.data : null
+    const patch = profileUtils.buildProfilePatch(
+      { nickName: info.nickname, followers: info.followers, platformAccountId: info.platformAccountId },
+      curData
+    )
+    const curName = curData ? String(curData.account_name || '').trim() : ''
+    if (patch.account_name && curName && !isNoiseAccountName(curName)) delete patch.account_name
+    if (Object.keys(patch).length === 0) return false
+    const result = await pythonBridge.requestBackend('PATCH', '/api/accounts/' + accountId, patch)
+    if (!result || result.code !== 0) {
+      log.warn('AccountManager', 'refreshProfileFromHttpApi: 资料回填写入失败 ' + platform + ':' + accountId + ' code=' + (result && result.code))
+      return false
+    }
+    log.info('AccountManager', 'refreshProfileFromHttpApi: 已回填资料字段 ' + platform + ':' + accountId + ' keys=' + Object.keys(patch).join(','))
+    return true
+  } catch (e) {
+    log.warn('AccountManager', 'refreshProfileFromHttpApi 忽略异常 ' + platform + ':' + accountId + ' err=' + (e && e.message ? e.message : String(e)))
     return false
   }
 }
@@ -1151,6 +1190,7 @@ module.exports = {
   extractAccountInfo,
   extractAccountInfoFromWebContents,
   refreshProfileFromPage,
+  refreshProfileFromHttpApi,
   restoreCookies,
   restoreLocalStorage,
   loadSavedCredentials,

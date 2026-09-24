@@ -36,6 +36,8 @@ export default defineConfig({
       // 浏览器不能执行共享包中的 CommonJS module.exports。
       '@multi-publish/shared-utils/src/platform-definitions':
         path.resolve(__dirname, '..', '..', 'packages/shared-utils/src/platform-definitions.browser.js'),
+      '@multi-publish/shared-utils/src/account-name-guard':
+        path.resolve(__dirname, '..', '..', 'packages/shared-utils/src/account-name-guard.browser.js'),
     }
   },
   // workspace 包不在 node_modules 下，开发服务器不会默认预构建其 CommonJS 入口。

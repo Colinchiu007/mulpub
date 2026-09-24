@@ -7,6 +7,22 @@
 - `webview-manager.test.js` 新增 2 条事故回归对：CDP 命令永久挂起→超时降级且首个导航照常发生；标签关闭后命令才失败→无未处理拒绝。全文件 68 用例绿。
 
 ---
+
+---
+# [未发布] fix(账号管理): 账号卡片平台名/账号名/粉丝/检查记录/折行显示与数据修复（2026-09-24，account-card-display-fix）
+
+### 变更
+- **`packages/shared-utils/src/account-name-guard.js`**（新）：账号昵称噪声判定单一数据源（会话 chrome 关键词 / ≥2 计数词 / 已知页面标题），采集与展示两端共用，真实昵称不误杀。
+- **`AccountManagementCard.vue`**：顶部 chip 由账号名改渲染平台名；`accountName()` 命中噪声回落平台名；`LAST_CHECK_KEYS` 补 `last_validated` 消除误显「暂无检查记录」；归属徽章列 `44px`→`max-content` + `nowrap` 修折行。
+- **`account-profile.js`**：`profileForCreate`/`buildProfilePatch` 对噪声昵称不入库。
+- **`http-login-checker.js`**：douyin/toutiao/tencent_video/bilibili 新增 `extract`，导出 `fetchAccountInfoViaHttpApi`（对齐参考实现：带 Cookie 读平台 API JSON，非 DOM）。
+- **`account-manager.js`**：HTTP 检测成功旁路 `refreshProfileFromHttpApi` 回填昵称/粉丝；用户手输昵称受保护不被冲掉。
+
+### 测试
+- 新增 `account-name-guard.test.js`(5) / `account-profile-guard.test.js`(4) / `http-login-checker-info.test.js`(6)；`AccountManagementCard.test.js` 追加 4 例；相关全绿。
+
+### 文档
+- `01-docs/PRD-ACCOUNT-CARD-DISPLAY-FIX-2026-09-24.md`：根因/四层设计/数据校验/显示项/交互流程/边界限制/验收/测试矩阵。
 # [未发布] feat(影视工程): 短剧画布 v2 收口——LLM 降级回显 / 失败单镜就地重试 / 成片画布内取用 / E2E 双段适配（2026-09-24，film-engineering-canvas）
 
 ### 变更

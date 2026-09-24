@@ -24,7 +24,7 @@
       <span class="platform-chip">
         <img v-if="isIconUrl(platformIcon)" :src="platformIcon" class="platform-icon-img" :alt="platformLabel" width="24" height="24" aria-hidden="true">
 <span v-else class="platform-icon" aria-hidden="true">{{ platformIcon }}</span>
-        {{ accountDisplayName }}
+        {{ platformLabel }}
       </span>
       <button
         class="favorite-button"
@@ -142,6 +142,7 @@ import { computed, nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { CircleCheck, Delete, EditPen, Monitor, Refresh, Setting, Star, StarFilled, UserFilled } from '@element-plus/icons-vue'
 import { isAccountActive } from '@/utils/account-active'
+import { isNoiseAccountName } from '@multi-publish/shared-utils/src/account-name-guard'
 
 const props = defineProps({
   account: { type: Object, required: true },
@@ -219,8 +220,13 @@ const OWNER_KEYS = ['owner', 'owner_name', 'ownerName', 'account_owner', 'accoun
 const PUBLISHER_KEYS = ['publisher', 'publisher_name', 'publisherName', 'operator', 'operator_name', 'operatorName', '运营人', '发布人']
 const FOLLOWER_KEYS = ['followers', 'follower_count', 'followers_count', 'fans', 'fans_count', 'fansCount', '粉丝数']
 
+// 存量脏数据守卫：早期采集把页面容器文本/页面标题写进了 account_name（如「0粉丝0关注…退出登录」
+// 「作品发布」「Bilibili 创作者中心」）。命中噪声规则时宁可用平台名兜底，也不展示垃圾文本；
+// 真实昵称（如「数字生命丘丘」）不受影响。判定与采集端共用 account-name-guard 单一来源。
 function accountName (account) {
-  return account.account_name || account.name || t('accountsPage.accountCardLabels.unnamedAccount')
+  const raw = String(account.account_name || account.name || '').trim()
+  if (raw && !isNoiseAccountName(raw)) return raw
+  return props.platformLabel || t('accountsPage.accountCardLabels.unnamedAccount')
 }
 
 function valueLabel (value) {
@@ -282,7 +288,7 @@ function statusClass (account) {
   return accountStatusKind(account)
 }
 
-const LAST_CHECK_KEYS = ['last_login_check_at', 'lastLoginCheckAt', 'login_checked_at', 'loginCheckedAt', 'last_checked_at', 'lastCheckedAt', 'checked_at', 'checkedAt']
+const LAST_CHECK_KEYS = ['last_login_check_at', 'lastLoginCheckAt', 'login_checked_at', 'loginCheckedAt', 'last_checked_at', 'lastCheckedAt', 'checked_at', 'checkedAt', 'last_validated', 'lastValidated', 'validated_at', 'validatedAt']
 const CHECK_REASON_KEYS = ['login_check_error', 'loginCheckError', 'last_login_error', 'lastLoginError', 'status_reason', 'statusReason']
 
 function loginCheckLabel (account) {
@@ -540,7 +546,7 @@ function isIconUrl (value) {
 .account-assignees > div {
   min-width: 0;
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-columns: max-content minmax(0, 1fr);
   align-items: center;
   gap: 8px;
   color: var(--text-muted, #85858f);
@@ -551,6 +557,7 @@ function isIconUrl (value) {
   padding: 2px 5px;
   border-radius: 4px;
   text-align: center;
+  white-space: nowrap;
 }
 
 /* 参考产品契约：负责人蓝 / 运营人灰 / 代理紫 */
