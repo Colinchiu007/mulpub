@@ -1,3 +1,18 @@
+# [未发布] fix(今日头条): 应用运行中突然崩溃退出根治——toutiao 登录检测隐藏浏览器渲染崩溃守卫（2026-09-24，toutiao-render-crash-guard）
+
+### 变更
+- **`apps/desktop/electron/publishers/account-manager.js`**：`checkLoginStatus` 在「即将 `playwrightManager.getContext({ show:false })` 开隐藏浏览器」这一步前新增渲染崩溃守卫 `RENDER_CRASH_PRONE_OPEN_PLATFORMS = new Set(['toutiao'])`，命中即返回 `{ valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', reason: 'render-crash-prone-http-inconclusive' }`；刻意不并入前置 `RENDER_CRASH_PRONE_PLATFORMS`（那会绕过 toutiao 的 `COOKIE_REQUIRED_PLATFORMS` 无 Cookie 快速路径，回归既有测试）。
+
+### 修复
+- **应用运行中整体退出（exit code 0xFFFF7003 / 4294930435）**：toutiao 账号有 Cookie 但 HTTP 登录检测返回不确定时，降级打开隐藏 sandbox 窗口加载 mp.toutiao.com 做 DOM 检测，触发原生渲染崩溃（crashpad not connected）导致 Electron 主进程退出。经 `mp-start-dev.exit.log` 时间线证伪早期「#2327 回归」误判（崩溃码首现早于 #2327 提交）。改判未确认第三态，绝不再开该崩溃窗口；toutiao 上游全部 Cookie 分类保留。
+
+### 验证
+- TDD：新增 `account-manager-toutiao-render-crash.test.js`（2 例：HTTP 不确定不得调用 `getContext` / HTTP 有效直接返回且不开浏览器）；RED→GREEN，`account-manager.test.js` + `http-login-checker.test.js` 全量 107 passed（VITEST_EXIT=0）。此前方案调整导致的「toutiao 无 Cookie + localStorage → CHECK_LOGIN_COOKIE_EXPIRED」回归已恢复。
+
+### 关联
+- Code Review：无 CRITICAL/MAJOR；MINOR-1 已补「两个渲染崩溃 Set 插入点不同、不可合并」对照注释。
+- 根因排查与修复见 PR #2353。
+
 # [未发布] feat(影视工程): 画布参考图引擎侧消费闭环（tasks 4.3）——连线注入→provider 参考输入→能力降级提示（2026-09-24，film-engineering-canvas）
 
 ### 变更
