@@ -41,15 +41,24 @@
     </header>
 
     <div class="account-profile">
-      <div class="account-avatar">
+      <div class="account-avatar" :class="{ 'has-status-mask': showAvatarMask }">
         <img v-if="showAvatar" :src="account.avatar || account.avatar_url" alt="" @error="avatarBroken = true">
         <UserFilled v-else />
+        <!-- 失效态：状态文字直接压在头像上（头像即状态载体），头像旁不再重复出徽章 -->
+        <span
+          v-if="showAvatarMask"
+          :class="['avatar-status-mask', statusClass(account)]"
+          :data-testid="`account-status-${account.id}`"
+          role="status"
+          :aria-label="statusAriaLabel"
+        >{{ statusLabel(account) }}</span>
       </div>
       <span
+        v-if="!showAvatarMask"
         :class="['login-badge', statusClass(account)]"
         :data-testid="`account-status-${account.id}`"
         role="status"
-        :aria-label="t('accountsPage.accountCardLabels.accountLoginStatus', { status: statusLabel(account) })"
+        :aria-label="statusAriaLabel"
       >{{ statusLabel(account) }}</span>
       <div class="account-identity">
         <button
@@ -166,6 +175,11 @@ const nameInput = ref(null)
 const avatarBroken = ref(false)
 const showAvatar = computed(() => !avatarBroken.value && !!(props.account.avatar || props.account.avatar_url))
 const accountDisplayName = computed(() => accountName(props.account))
+
+// 状态载体分流：失效态把「已失效」画到头像上，其余状态（已登录/未确认/异常/暂无检查记录）仍用头像旁徽章。
+const statusKind = computed(() => accountStatusKind(props.account))
+const showAvatarMask = computed(() => statusKind.value === 'expired')
+const statusAriaLabel = computed(() => t('accountsPage.accountCardLabels.accountLoginStatus', { status: statusLabel(props.account) }))
 
 /**
  * 卡片整体点击（对齐参考产品：点击账号卡片打开该账号创作者中心）。
@@ -414,6 +428,7 @@ function isIconUrl (value) {
 }
 
 .account-avatar {
+  position: relative;
   width: 62px;
   height: 62px;
   display: grid;
@@ -427,6 +442,23 @@ function isIconUrl (value) {
 
 .account-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .account-avatar svg { width: 27px; height: 27px; }
+
+/* 失效遮罩：半透明黑带横跨头像中部，白字「已失效」，随圆形头像裁切 */
+.account-avatar .avatar-status-mask {
+  position: absolute;
+  top: 55%;
+  right: 0;
+  left: 0;
+  transform: translateY(-50%);
+  padding: 1px 0;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: var(--font-size-xs, 12px);
+  line-height: 16px;
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+}
 
 .login-badge {
   margin-top: -4px;

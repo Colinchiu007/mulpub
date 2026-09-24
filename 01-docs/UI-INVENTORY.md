@@ -564,7 +564,8 @@
 | **入口** | Accounts.vue 卡片网格/列表 |
 | **内容** | 头像 + 名称 + 状态徽章 + 停用标记 + 粉丝数 + 负责人/运营人/代理 + 操作按钮 |
 | **操作按钮** | 设置、验证、重新登录、删除 |
-| **状态徽章（登录态）** | 已登录(绿)、已失效(红)、未确认(琥珀)、异常(红)、暂无检查记录(灰) —— 只由 `status` 决定 |
+| **状态徽章（登录态）** | 已登录(绿)、未确认(琥珀)、异常(红)、暂无检查记录(灰) —— 只由 `status` 决定；**已失效不再用徽章，改为头像遮罩带（白字「已失效」，`avatar-status-mask`，2026-09-24）** |
+| **失效遮罩（登录态）** | `accountStatusKind === 'expired'` 时在 `.account-avatar`（`position: relative` + `overflow: hidden`）内叠 `<span class="avatar-status-mask expired" role="status" data-testid="account-status-{id}">已失效</span>`：`position: absolute`、`top: 55%` + `translateY(-50%)`、左右铺满被圆裁切、`background: rgba(0,0,0,.55)`、`color: #fff`、`pointer-events: none`（不阻断卡片点击/批量勾选）。此时头像旁徽章 `v-if` 关闭，同一信息只出现一次；`online/unverified/error/unknown` 四态仍走徽章。详见 `01-docs/PRD-AVATAR-EXPIRED-MASK-2026-09-24.md` |
 | **停用标记（启用态）** | `is_active === false` 时账号明细行追加「已停用」灰底标记（`account-disabled-flag`，`role="status"` + `aria-label`），同时卡片加 `is-disabled`（虚线边框 + 降饱和 + 半透明，不改布局尺寸）；与登录徽章完全正交，两者可同时出现 |
 | **头像回落（资料真源）** | 有 `avatar` / `avatar_url` 且未判定失效时渲染 `<img>`（`alt=""`，昵称文本已在旁，非装饰信息缺失），`@error` 触发即置 `avatarBroken` 并回落 `<UserFilled>`，不留空白框；昵称取序 `account_name` → `name` → 平台显示名 |
 | **支持** | 批量选择 checkbox、收藏星标、重命名、默认账号标识、停用标识 |

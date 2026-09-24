@@ -15648,3 +15648,21 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **判态用被污染的字段 = 短路不发请求（pitfall，本次根因）**：`getConfig()` 把自动发现 URL 并入返回的 `url`，`_syncNowInner` 又用 `!cfg.url` 判"是否手动配置态"，零配置下 `url` 恒真 → 误判手动态却无 Key → 直接短路"未配置 Ops Center API Key"、同步根本不发起。读态字段与判态字段必须分离（新增 `_getManualUrl()` 读 raw 手动值，不与自动发现回退混用）。凡"用一个 getter 加工过的值再去判原始语义"，先疑短路。
 
 - **高权限下发通道的安全前置是有意成本，不是过度设计（pattern）**：runtime bootstrap 能改应用行为，故验签 fail-closed，打包版无自定义公钥锚直接 `NO_PRODUCTION_TRUST_ANCHOR` 跳过同步。这让"菜单生效"比"模型列表生效"多了后端配私钥 + 桌面配公钥两步。评估"为什么这么麻烦"时，先分清该内容类型是"展示数据"还是"行为配置"，后者重前置是设计意图，别为了省事把 fail-closed 改成 fail-open。
+
+## 换「显示载体」不是换文案——载体切换的节点身份守恒与像素门禁盲区（avatar-status-mask-carrier-swap，2026-09-24）
+
+- **补丁锚点必须取自 worktree 文件，不是主工作区（pitfall，本轮真实代价）**：共享主目录 HEAD（`265cf7ee`）落后 origin/main（`c5337a27e6`）多个 PR，按主工作区读到的代码写补丁块，会把**已合并的功能改回去**——本轮真的把 `#2290` 的 `<img v-if="showAvatar" … @error="avatarBroken = true">` 覆盖成旧写法 `v-if="account.avatar || account.avatar_url"`，丢了头像加载失败回落。**判定手法**：建 worktree 后第一件事是读 worktree 内的目标文件定锚点；`apply` 脚本报「anchor NOT FOUND」不是"换个锚字符串重试"，而是**"我对现状的理解可能已过期"的一手证据**，必须回去读 worktree/origin 的真实内容。本轮另一处同因：测试用例名 `inactive 状态保持显示「已登录」` 在 origin/main 已被换成「历史脏值…落到未检查兜底」。**边界**：所有基于 `git worktree` 的隔离任务都适用；单工作区直接改码不适用。
+
+- **载体切换要「节点身份守恒」，否则一片下游测试连带重写（pattern）**：把「已失效」从头像旁徽章搬到头像遮罩时，两个载体共用同一 `data-testid="account-status-{id}"` + `role="status"` + 同一 `aria-label`（提取为共用 computed，防措辞漂移）。收益：既有单测与 `account-login-state-tristate.js` E2E（按 testid 取 innerText 断言「已失效」）**零改动即继续有效**，屏幕阅读器语义不丢。**配套断言**：必须加「同卡内该 testid 节点数 === 1」，否则"遮罩 + 徽章"双份播报不会被任何现有测试发现。适用边界：任何"同一信息换渲染节点"的重构（徽章↔文字↔图标↔遮罩↔角标）。
+
+- **叠加层（overlay）三条硬约束，缺一条就是交互 bug（pattern）**：① `pointer-events: none` —— 卡片整体可点（打开创作者中心）与批量勾选不得被覆盖层拦截，且要在 E2E 里断言计算样式而非指望"看起来能点"；② 覆盖层挂在**容器**（`.account-avatar` + `position: relative`）上而不是被覆盖元素（`<img>`）上 —— 否则 `<img>` 被 `v-if` 移除（加载失败回落）时覆盖层一起消失；③ 容器必须已有 `overflow: hidden` + 圆角才能把矩形横带裁成与头像同形的弓形。回归保护：专门写「`img` 触发 error 后覆盖层仍在」的用例，这是最容易被忽略的组合态。
+
+- **「有像素门禁」不等于「这个视图被像素门禁保护」（pitfall，逃逸分析结论）**：`run-pixel-tests.js` 的清单里**有** `accounts-list` 视图，看着像已被覆盖；但仓库跟踪的 `base-screenshots` 只有 22 个基线且**不含 accounts-list**，本地亦无 baselines 目录 → 该视图在 CI 里走 `BASELINE_CREATED`（首次生成即通过），对本次改动**零判别力**。同类误判：见清单有名就认为有保护。**正确判定手法**：`git ls-files tests/visual-testing/base-screenshots | grep <view>` 确认基线真的被跟踪，而不是只看 runner 配置里的视图名。**替代证据**：改用真实浏览器 `getComputedStyle` + `getBoundingClientRect` 硬断言（绝对定位/背景色/文字色/覆盖盒落在容器内/两视图各测一次），并落截图供人工目视。
+
+- **JSDOM 拿不到 scoped CSS 计算值 → 样式契约用「读 .vue 源码」断言（pattern，沿用项目既有惯例）**：`mount` 后 `getComputedStyle` 在 JSDOM 下不应用 `<style scoped>`，布局契约（`position: relative`/`absolute`、`background: rgba(...)`、`overflow: hidden`）在单测里测不到。项目既有做法（`Accounts.test.js`）是 `fs.readFileSync('./src/.../X.vue')` 后切片断言关键声明；本次新增「遮罩样式契约」用例沿用该模式，真正的运行态样式交给上一条的浏览器 E2E。两层互补：源码契约防"有人删了 CSS 声明"，E2E 防"声明存在但被覆盖/优先级失效"。
+
+- **不新增文案也是门禁决策（pattern）**：遮罩文案复用既有 `statusExpired`，locales 零改动 → Gate 7 `--pair-base` 变更=false、`--cjk` 基线不动（当前 1362 / 基线 1581）。若"顺手"加一条「头像加载失败」提示，就会同时触碰 zh/en 成对与 `src/` 非 locales 中文字面量两条 CI 拦截。先问「这条文案有没有真实用户价值」，没有就不产生门禁面。
+
+- **Windows 下用 Junction 复用主仓 node_modules 跑测试/dev server（preference，含前置校验）**：新 worktree 无 `node_modules`，对 root 与 `apps/desktop`、`packages/*` 各建 `New-Item -ItemType Junction` 指向主仓同名目录，即可直接 `node node_modules/vitest/vitest.mjs run …`、`node node_modules/eslint/bin/eslint.js …`、起 `vite`，省掉一次全量 `pnpm install`。**前置硬条件**：两个 ref 之间的 `pnpm-lock.yaml` 必须无差异（本轮核对：仅 root `package.json` 差 1 行），否则物理链接的依赖树与锁文件不符，测试结果不可信。用完起停 dev server 要复核端口释放（`Get-NetTCPConnection -State Listen -LocalPort <port>` 计数归 0）。
+
+- **PowerShell 管道的退出码陷阱（pitfall）**：`node … 2>&1 | Select-Object -Last 30` 下，stderr 有输出会让 PS 把命令判为失败（vitest 实际 `exit 0` 却报非零）。**手法**：需要真实退出码时一律重定向到文件（`> out.log 2>&1`）后立刻打印 `$LASTEXITCODE`，不在管道下游取退出码。

@@ -169,9 +169,20 @@ else /* 历史数据缺 status */        → is_active===false ? 'inactive' : 'a
 | `expired` | `expired` | 已失效 | Invalid | 红 `#fff1f0 / #b42318` | 有负向证据；卡片显示「去登录」 |
 | `unverified` | `unverified` | **未确认** | **Unconfirmed** | 琥珀 `#fffaf0 / #974706` | 检测发生过但无法判定；**不计入失效数量、不显示「去登录」** |
 | 无 status（从未检测） | `unknown` | 暂无检查记录 | No check record | 灰 `#f7f7f8 / #777985` | 与「未确认」刻意区分 |
-| `inactive` / `offline` | `offline` | 已登录 | Logged in | 灰 | 启用/停用语义（见 §12） |
+| `inactive` / `offline`（历史脏值） | `unknown` | 暂无检查记录 | No check record | 灰 | 2026-09-24 校正：与 `accountStatusKind` 实测一致，脏值不再映射「已登录」，统一落兜底（见 §12） |
 
 徽章节点：`data-testid="account-status-{id}"`、`role="status"`、`aria-label="账号登录状态：{文案}"`。
+
+> **2026-09-24 显示载体变更（`PRD-AVATAR-EXPIRED-MASK-2026-09-24.md`）**：上表**判定口径不变**，仅「已失效」的文字载体从头像旁徽章改为**头像图片上的半透明遮罩带**（白字「已失效」，随圆形头像裁切），且失效态不再渲染头像旁徽章；「已登录」等其余四态载体不变。上表 `expired` 行的「红徽章」描述按此理解。
+
+#### 8.1.1 状态载体分流（2026-09-24 起）
+
+| kind | 载体 | 节点 | 互斥保证 |
+|------|------|------|----------|
+| `expired` | **头像遮罩** | `<span class="avatar-status-mask expired">` 位于 `.account-avatar` 内 | 模板 `v-if="showAvatarMask"` 与徽章 `v-if="!showAvatarMask"` 互斥且穷尽，同一卡片内 `account-status-{id}` 节点数恒为 1 |
+| `online` / `unverified` / `error` / `unknown` | 头像旁徽章 | `<span class="login-badge {kind}">` | 同上 |
+
+两个载体共用 `data-testid="account-status-{id}"`、`role="status"`、`aria-label="账号登录状态：{文案}"`，因此既有按 testid 取文案的 E2E/单测对载体切换保持透明。
 
 ### 8.2 新增/变更 i18n key（zh / en 成对，CI Gate 7 校验）
 
