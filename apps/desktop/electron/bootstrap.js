@@ -10,6 +10,7 @@
  */
 const { app } = require('electron')
 const log = require('./services/logger')
+const { RiskSuspendedError } = require('./services/risk-suspender-store')
 // P0-8 pubfail passive diagnose (PR-2, proposal-v3): wire executor + logger/app.
 // Un-wired state keeps the module disabled with zero side effects; errors in wiring must never block boot.
 try {
@@ -77,10 +78,15 @@ function createAppContext() {
 
   // 保留原位：taskQueue.setExecutor 闭包（依赖 getMainWin + publisherRouter + rpaViewManager，高风险）
   const { taskQueue, publisherRouter, rpaViewManager, store,
-    history, publishMonitor, publishImpactTracker, AccountManager } = ctx
+    history, publishMonitor, publishImpactTracker, AccountManager, riskSuspender } = ctx
   taskQueue.setExecutor(async (task, context = {}) => {
     if (context.signal?.aborted) throw new Error('任务已取消')
     const platform = task.platform
+    // §5 风控挂起 enforcement：命中挂起的平台/账号在派发前拦截（RiskSuspendedError.noRetry → 不重试）
+    const taskAccountId = task.article && task.article.accountId
+    if (riskSuspender && riskSuspender.isSuspended(platform, taskAccountId)) {
+      throw new RiskSuspendedError(platform, taskAccountId)
+    }
     const emitProgress = (stage) => {
       const win = getMainWin()
       if (win && !win.isDestroyed()) {
@@ -104,7 +110,7 @@ function createAppContext() {
 
   // 保留原位：任务事件接线（拆分到 bootstrap/phase4-events.js）
   wireTaskQueueEvents({
-    taskQueue, history, publishMonitor, publishImpactTracker, getMainWin,
+    taskQueue, history, publishMonitor, publishImpactTracker, getMainWin, riskSuspender,
     store: ctx.store || (ctx.container && ctx.container.get('store')),
   })
 

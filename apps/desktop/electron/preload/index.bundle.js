@@ -165,6 +165,15 @@ var require_publish = __commonJS({
           ipcRenderer2.on("publish:risk-hold", handler);
           return () => ipcRenderer2.removeListener("publish:risk-hold", handler);
         },
+        // W1 §5 enforcement：风控挂起清单查询/显式恢复 + 挂起状态变更广播
+        onRiskSuspended: (callback) => {
+          const handler = (_, data) => callback(data);
+          ipcRenderer2.on("publish:risk-suspended", handler);
+          return () => ipcRenderer2.removeListener("publish:risk-suspended", handler);
+        },
+        listSuspendedRisk: () => ipcRenderer2.invoke("publishRisk:listSuspended"),
+        resumeRisk: (payload) => ipcRenderer2.invoke("publishRisk:resume", payload),
+        isSuspendedRisk: (payload) => ipcRenderer2.invoke("publishRisk:isSuspended", payload),
         // Pipeline 流水线 API（Phase 3）
         pipelineList: () => ipcRenderer2.invoke("pipeline:list"),
         pipelineGet: (name) => ipcRenderer2.invoke("pipeline:get", name),
