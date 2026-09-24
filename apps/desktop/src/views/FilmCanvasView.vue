@@ -16,7 +16,9 @@ import '@vue-flow/controls/dist/style.css'
 import '@vue-flow/minimap/dist/style.css'
 
 import { useFilmCanvas } from '@/composables/useFilmCanvas'
+import { findShotResultIndex } from '@/composables/film-canvas-model'
 import { useFilmVideoGen, FILM_VIDEO_ASPECTS, FILM_VIDEO_DURATIONS, FILM_MAX_VIDEO_BATCH } from '@/composables/useFilmVideoGen'
+import { story2videoShowInFolder, story2videoSaveAs } from '@/api/publisher'
 import ScriptInputNode from '@/components/film-canvas/ScriptInputNode.vue'
 import ReferenceNode from '@/components/film-canvas/ReferenceNode.vue'
 import ShotNode from '@/components/film-canvas/ShotNode.vue'
@@ -32,7 +34,7 @@ const { nodes, edges, form, status, adaptLoading, uploading,
 
 const vg = useFilmVideoGen()
 const { phase, busy, costCheck, shotResults, finalPath, chosen,
-  start, confirmCost, cancelCost, dispose } = vg
+  start, confirmCost, cancelCost, retryShot, dispose } = vg
 
 const fileInput = ref(null)
 const uploadKind = ref('character')
@@ -68,6 +70,8 @@ async function onAdapt () {
   if (!r.ok) { ElMessage.error(errText(r.errorCode)); return }
   ElMessage.success(t('filmEngineering.canvas.adapt.done', { n: r.total }))
   if (r.warnings && r.warnings.length) ElMessage.warning(r.warnings.join('; '))
+  // 3.3 LLM 降级合同：用户勾选了润色但引擎未走 LLM（无 key/调用失败等），非阻断提示，分镜仍按内置规则产出
+  if (form.llmEnabled === true && r.llmEnhanced !== true) ElMessage.warning(t('filmEngineering.canvas.adapt.llmFallback'))
 }
 
 function pickFile (kind) {
@@ -112,9 +116,27 @@ async function onGenerate (ids) {
   syncShotStatuses()
 }
 
+// 5.2 失败单镜就地重试：shotId -> run 快照 index 定位（模型层纯函数 fail-closed），
+// 复用 film-engineering:retry-shot 通道（prompt 由主进程从 run 快照逐字取原文，不经优化器）。
+async function onRetryShot (shotId) {
+  const idx = findShotResultIndex(shotResults.value, shotId)
+  if (idx === null) { ElMessage.error(t('filmEngineering.canvas.retry.failed')); return }
+  setShotStatus(shotId, { status: 'generating' })
+  const res = await retryShot(idx)
+  if (!res || !res.ok) {
+    setShotStatus(shotId, { status: 'failed' })
+    ElMessage.error(t('filmEngineering.canvas.retry.failed'))
+    return
+  }
+  syncShotStatuses()
+}
+
 async function onConfirmCost () { await confirmCost(); syncShotStatuses() }
 async function onCancelCost () { await cancelCost() }
 function onOpenFinal () { router.push('/film-engineering/classic') }
+// 5.3 成片入口进画布：复用 story2video reveal/save 合同（主进程 sender 校验 + 路径越界防护）
+async function onOpenFinalFolder () { if (finalPath.value) await story2videoShowInFolder(finalPath.value) }
+async function onSaveFinalAs () { if (finalPath.value) await story2videoSaveAs(finalPath.value) }
 function gotoClassic () { router.push('/film-engineering/classic') }
 </script>
 
@@ -168,7 +190,7 @@ function gotoClassic () { router.push('/film-engineering/classic') }
           <ReferenceNode v-bind="nodeProps" type="sceneRef" @remove="removeNode" />
         </template>
         <template #node-shot="nodeProps">
-          <ShotNode v-bind="nodeProps" @remove="removeNode" />
+          <ShotNode v-bind="nodeProps" @remove="removeNode" @retry="onRetryShot" />
         </template>
         <Background />
         <Controls />
@@ -185,9 +207,11 @@ function gotoClassic () { router.push('/film-engineering/classic') }
       </template>
     </el-dialog>
 
-    <!-- 成片完成提示条 -->
+    <!-- 成片完成提示条（5.3：打开所在文件夹 / 另存为 进画布，经典视图链接保留） -->
     <div v-if="phase === 'done' && finalPath" class="fcv-final" data-testid="fcv-final">
       <span>{{ t('filmEngineering.canvas.final.title') }}</span>
+      <el-button size="small" link data-testid="fcv-open-folder" @click="onOpenFinalFolder">{{ t('filmEngineering.video.openFolder') }}</el-button>
+      <el-button size="small" link data-testid="fcv-save-as" @click="onSaveFinalAs">{{ t('filmEngineering.video.saveAs') }}</el-button>
       <el-button size="small" link @click="onOpenFinal">{{ t('filmEngineering.canvas.final.open') }}</el-button>
     </div>
   </div>
