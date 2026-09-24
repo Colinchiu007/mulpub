@@ -34,7 +34,7 @@ defineProps({
   padding: 10px 12px;
   font-size: 12px;
 }
-.fe-node.is-selected { border-color: var(--el-color-primary, #409eff); }
+.fe-node.is-selected { border-color: var(--color-primary); }
 .fe-node__head { display: flex; justify-content: space-between; margin-bottom: 6px; }
 .fe-node__type { color: var(--el-text-color-secondary, #909399); font-size: 11px; letter-spacing: 1px; }
 .fe-node__title { font-weight: 600; font-size: 13px; margin-bottom: 4px; word-break: break-all; }

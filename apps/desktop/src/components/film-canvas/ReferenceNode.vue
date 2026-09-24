@@ -41,7 +41,7 @@ function isCharacter () {
   padding: 10px 12px;
   font-size: 12px;
 }
-.fe-node.is-selected { border-color: var(--el-color-primary, #409eff); }
+.fe-node.is-selected { border-color: var(--color-primary); }
 .fe-node__head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
 .fe-node__type { color: var(--el-color-warning, #e6a23c); font-size: 11px; letter-spacing: 1px; }
 .fe-node__remove { border: none; background: transparent; cursor: pointer; color: var(--el-text-color-secondary, #909399); font-size: 14px; line-height: 1; }

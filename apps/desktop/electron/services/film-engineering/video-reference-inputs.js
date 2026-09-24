@@ -80,7 +80,7 @@ function resolveShotReferenceInput ({ providerId, refMap, shotId, mediaRoot = pa
   /** @type {string[]} */
   const failureReasons = []
   for (const p of paths) {
-    let reason = null
+    let reason
     try {
       const abs = path.resolve(p)
       if (!isWithin(mediaRoot, abs)) {

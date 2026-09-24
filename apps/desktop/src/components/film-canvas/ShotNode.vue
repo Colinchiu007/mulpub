@@ -56,7 +56,7 @@ function promptPreview (p) {
   padding: 10px 12px;
   font-size: 12px;
 }
-.fe-node.is-selected { border-color: var(--el-color-primary, #409eff); }
+.fe-node.is-selected { border-color: var(--color-primary); }
 .fe-node__head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
 .fe-node__type { color: var(--el-text-color-secondary, #909399); font-size: 11px; letter-spacing: 1px; }
 .fe-node__remove { border: none; background: transparent; cursor: pointer; color: var(--el-text-color-secondary, #909399); font-size: 14px; line-height: 1; }
@@ -67,6 +67,6 @@ function promptPreview (p) {
 .fe-node__badge.is-generating { background: var(--el-color-warning-light-9, #fdf6ec); color: var(--el-color-warning, #e6a23c); }
 .fe-node__badge.is-done { background: var(--el-color-success-light-9, #f0f9eb); color: var(--el-color-success, #67c23a); }
 .fe-node__badge.is-failed { background: var(--el-color-danger-light-9, #fef0f0); color: var(--el-color-danger, #f56c6c); }
-.fe-node__refs { color: var(--el-color-primary, #409eff); font-size: 11px; }
+.fe-node__refs { color: var(--color-primary); font-size: 11px; }
 .fe-node__out { margin-top: 6px; color: var(--el-text-color-secondary, #909399); font-size: 11px; word-break: break-all; }
 </style>
