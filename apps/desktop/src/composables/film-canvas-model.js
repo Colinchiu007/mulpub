@@ -205,10 +205,15 @@ function deserializeCanvasState (raw) {
   return { schemaVersion: CANVAS_SCHEMA_VERSION, nodes, edges, meta: (obj.meta && typeof obj.meta === 'object') ? obj.meta : {} }
 }
 
-module.exports = {
+// 对外导出统一用 ESM 命名导出（渲染端经 Rollup/vite build 消费，CJS module.exports 会导致
+// "xxx is not exported" 构建失败）；ALL_NODE_TYPES/EDGE_RULES 导出防御性拷贝，避免调用方改写内部规则。
+const ALL_NODE_TYPES_LIST = [...ALL_NODE_TYPES]
+const EDGE_RULES_SNAPSHOT = Object.fromEntries(Object.entries(EDGE_RULES).map(([k, v]) => [k, [...v]]))
+
+export {
   NODE_TYPES,
-  ALL_NODE_TYPES: [...ALL_NODE_TYPES],
-  EDGE_RULES: Object.fromEntries(Object.entries(EDGE_RULES).map(([k, v]) => [k, [...v]])),
+  ALL_NODE_TYPES_LIST as ALL_NODE_TYPES,
+  EDGE_RULES_SNAPSHOT as EDGE_RULES,
   LAYOUT,
   CANVAS_SCHEMA_VERSION,
   validateCanvasEdge,

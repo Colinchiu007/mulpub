@@ -1,3 +1,20 @@
+# [未发布] feat(影视工程): 短剧画布 v1 最小闭环——剧本→拆分镜→连线注入参考→逐镜生成→成片（2026-09-24，film-engineering-canvas，PR #2342）
+
+### 变更
+- **`apps/desktop/src/views/FilmCanvasView.vue`**（新）：Vue Flow 画布主视图，左侧剧本/选项面板 + 工具栏（拆分镜/上传参考/生成/清空/回退经典页）+ 成本确认卡 + 成片 banner。
+- **`apps/desktop/src/components/film-canvas/`**（新）：ScriptInputNode / ReferenceNode / ShotNode 三类自定义节点，带 Handle 与状态徽标。
+- **`apps/desktop/src/composables/film-canvas-model.js` + `useFilmCanvas.js`**（新）：边合法性类型矩阵、拆分镜铺节点、连线即注入（buildLocalReferences）、画布序列化往返与 localStorage 持久化。
+- **`apps/desktop/src/composables/useFilmVideoGen.js`**：`start()` 新增 `opts.localReferences` 非空时随 `initialContext` 透传 pipeline（缺省行为不变）。
+- **IPC/preload**：新增 `uploadReference`（类型白名单+魔数+10MB+路径越界 fail-closed+sender 校验），落盘受控媒体根 `references/`。
+- **路由**：`/film-engineering` 切画布，旧三栏页移至 `/film-engineering/classic` 作回退。
+- **i18n**：`locales/zh.js`/`en.js` 成对新增 `filmEngineering.canvas.*`（Gate7 全绿）。
+- **约定**：渲染端 `src/` 模块必须 ESM 命名导出（CJS `module.exports` 在 vitest 可过但 Rollup build 失败）。
+
+### 文档
+- `01-docs/PRD-FILM-ENGINEERING-CANVAS-2026-09-24.md` 新增 §12 v1 实现状态（数据校验/交互流程/显示项提示文字/已知边界）；`openspec/changes/film-engineering-canvas/` tasks 勾选回写。
+
+---
+
 # [未发布] fix(视频号): 账号点击弹回登录页根治——CDP document-start 早期注入凭证 localStorage + checkLocalCredentials 加严（2026-09-24，legacy-fake-credential-heal）
 
 ### 变更

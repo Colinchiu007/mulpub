@@ -1,11 +1,11 @@
 // @vitest-environment node
 // 画布纯模型单测：边合法性矩阵 / 拆分镜铺节点 / 连线注入收集 / 序列化往返净化
 import { describe, it, expect } from 'vitest'
-const {
+import {
   NODE_TYPES, validateCanvasEdge, shotsToNodes, mergeNodesKeepPosition,
   collectShotReferences, buildLocalReferences,
   serializeCanvasState, deserializeCanvasState,
-} = require('./film-canvas-model')
+} from './film-canvas-model'
 
 describe('validateCanvasEdge 边合法性矩阵', () => {
   it('参考图 -> 分镜 合法', () => {
