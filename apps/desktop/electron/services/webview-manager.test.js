@@ -604,6 +604,88 @@ describe('WebviewManager.createNewTabPage 账号登录态恢复', () => {
     __electronMock.__webContentsDebuggerFactory = null
   })
 
+  // ─── 2026-09-24 头条账号标签「一直加载不出来」事故回归对（两条不变量）───
+  // 根因（PR #2327 引入）：首个导航被门控在 CDP addScriptToEvaluateOnNewDocument 的
+  // promise 上，而该命令在头条账号分区可永久挂起（事故日志：标签存活近 2 分钟命令
+  // 从未返回，关闭瞬间才以 target closed 失败）→ 页面永不导航；关闭后回调又对已销毁
+  // webContents 调 loadURL → 未处理 TypeError。
+  it('CDP 命令永久挂起时超时降级，首个导航照常发生（头条加载挂死回归）', async () => {
+    patchViewAndSessionMocks()
+    __electronMock.__webContentsDebuggerFactory = function () {
+      return {
+        attach: vi.fn(function () {}),
+        // 永不 resolve/reject：忠实镜像事故现场的 CDP 挂起
+        sendCommand: vi.fn(function () { return new Promise(function () {}) }),
+        detach: vi.fn(),
+      }
+    }
+    credentialLoadMock.mockReturnValue({ localStorage: { session_token: 'hang' } })
+    vi.useFakeTimers()
+    try {
+      const mod = await import('./webview-manager.js')
+      const WM = mod.default || mod
+      const wm = new WM()
+      wm.mainWindow = createMainWindow()
+
+      wm.createNewTabPage({ url: 'https://mp.toutiao.com/', platform: 'toutiao', accountId: 'tt-hang-1' })
+      const view = wm._tabViews.get(wm._activeTabId)
+
+      await vi.advanceTimersByTimeAsync(0)
+      expect(view.webContents.loadURL).not.toHaveBeenCalled() // 导航仍被早期注入门控（契约：先于首个导航）
+
+      await vi.advanceTimersByTimeAsync(10000) // 超过 LS_INJECTION_TIMEOUT_MS
+      expect(view.webContents.loadURL).toHaveBeenCalledWith('https://mp.toutiao.com/')
+      // 超时后走旧补注入路径（fail-open），LS 仍会在 did-finish-load 后恢复
+      expect(view.webContents._handlers['did-finish-load']).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+      __electronMock.__webContentsDebuggerFactory = null
+    }
+  })
+
+  it('标签关闭后 CDP 命令才失败时，导航回调静默跳过且不产生未处理拒绝（loadURL undefined 回归）', async () => {
+    patchViewAndSessionMocks()
+    const unhandled = []
+    const onUnhandled = (err) => { unhandled.push(err) }
+    process.on('unhandledRejection', onUnhandled)
+    let rejectCmd = null
+    __electronMock.__webContentsDebuggerFactory = function () {
+      return {
+        attach: vi.fn(function () {}),
+        sendCommand: vi.fn(function () {
+          return new Promise(function (_resolve, reject) { rejectCmd = reject })
+        }),
+        detach: vi.fn(),
+      }
+    }
+    credentialLoadMock.mockReturnValue({ localStorage: { session_token: 'hang' } })
+    try {
+      const mod = await import('./webview-manager.js')
+      const WM = mod.default || mod
+      const wm = new WM()
+      wm.mainWindow = createMainWindow()
+      wm.createNewTabPage({ url: 'https://mp.toutiao.com/', platform: 'toutiao', accountId: 'tt-close-1' })
+      const tabId = wm._activeTabId
+      const view = wm._tabViews.get(tabId)
+      // 真实 Electron：close 之后 view.webContents 不复存在
+      view.webContents.close = vi.fn(function () { view.webContents = undefined })
+      // 微任务冲刷：让早期注入链完成 sendCommand 调用并登记 reject 句柄
+      await new Promise(resolve => setTimeout(resolve, 0))
+
+      wm.closeTab(tabId)
+      // 忠实镜像事故时序：关闭瞬间 CDP 命令才以 target closed 失败
+      expect(typeof rejectCmd).toBe('function')
+      rejectCmd(new Error('target closed while handling command'))
+      await new Promise(resolve => setTimeout(resolve, 0))
+      await new Promise(resolve => setTimeout(resolve, 0))
+
+      expect(unhandled).toEqual([])
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
+      __electronMock.__webContentsDebuggerFactory = null
+    }
+  })
+
   it('将 Playwright Cookie 的 expires/sameSite 转为 Electron 字段', async () => {
     const partitions = patchViewAndSessionMocks()
     credentialLoadMock.mockReturnValue({
