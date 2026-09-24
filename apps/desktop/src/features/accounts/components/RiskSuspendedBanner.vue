@@ -94,7 +94,7 @@ async function onResume(it) {
   margin-bottom: 8px;
 }
 .risk-suspended-title {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   color: var(--el-color-warning, #e6a23c);
   font-weight: 600;
 }
@@ -116,15 +116,15 @@ async function onResume(it) {
   border: 1px solid var(--el-border-color-lighter, #ebeef5);
 }
 .risk-suspended-tag {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
 }
 .risk-suspended-account {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--el-text-color-secondary, #909399);
 }
 .risk-suspended-resume {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   padding: 2px 10px;
   border-radius: 4px;
   border: 1px solid var(--el-color-warning, #e6a23c);
