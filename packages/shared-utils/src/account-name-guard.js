@@ -1,4 +1,4 @@
-"use strict";
+'use strict'
 /**
  * account-name-guard.js — 账号昵称「噪声」判定（单一数据源）
  *
@@ -20,65 +20,31 @@
 
 // 会话入口 / 后台 chrome 关键词：出现在 account_name 里必为抓错容器或标题。
 const NOISE_KEYWORDS = [
-  "退出登录",
-  "账号认证",
-  "扫码登录",
-  "请登录",
-  "立即登录",
-  "创作者中心",
-  "创作中心",
-  "数据中心",
-  "发布记录",
-  "作品管理",
-  "内容管理",
-  "首页",
-  "设置",
-  "提现",
-  "收益",
-];
+  '退出登录', '账号认证', '扫码登录', '请登录', '立即登录',
+  '创作者中心', '创作中心', '数据中心', '发布记录', '作品管理',
+  '内容管理', '首页', '设置', '提现', '收益'
+]
 
 // 平台指标计数词：命中 ≥2 个才判噪声（避免误杀含单个「关注/粉丝」的真实昵称）。
-const METRIC_WORDS = ["粉丝", "获赞", "关注者", "粉丝数", "关注数"];
+const METRIC_WORDS = ['粉丝', '获赞', '关注者', '粉丝数', '关注数']
 
 // 已知「页面标题/菜单名」被误当昵称的精确集合（比较前小写去空格）。
 const KNOWN_PAGE_TITLES = [
-  "作品发布",
-  "头条号",
-  "百家号",
-  "视频号助手",
-  "视频号",
-  "bilibili 创作者中心",
-  "bilibili",
-  "哔哩哔哩",
-  "哔哩哔哩创作中心",
-  "微信公众号",
-  "公众号",
-  "大鱼号",
-  "搜狐号",
-  "网易号",
-  "一点号",
-  "爱奇艺号",
-  "企鹅号",
-  "网易订阅号",
-];
+  '作品发布', '头条号', '百家号', '视频号助手', '视频号',
+  'bilibili 创作者中心', 'bilibili', '哔哩哔哩', '哔哩哔哩创作中心',
+  '微信公众号', '公众号', '大鱼号', '搜狐号', '网易号', '一点号',
+  '爱奇艺号', '企鹅号', '网易订阅号'
+]
 
-function isNoiseAccountName(name) {
-  const raw = typeof name === "string" ? name.trim() : "";
-  if (!raw) return true; // 空值没有可展示信息，视同噪声（由调用方决定兜底文案）
-  if (NOISE_KEYWORDS.some((kw) => raw.includes(kw))) return true;
-  const metricHits = METRIC_WORDS.reduce(
-    (n, w) => n + (raw.split(w).length - 1),
-    0,
-  );
-  if (metricHits >= 2) return true;
-  const lowered = raw.toLowerCase();
-  if (KNOWN_PAGE_TITLES.includes(lowered)) return true;
-  return false;
+function isNoiseAccountName (name) {
+  const raw = typeof name === 'string' ? name.trim() : ''
+  if (!raw) return true // 空值没有可展示信息，视同噪声（由调用方决定兜底文案）
+  if (NOISE_KEYWORDS.some(kw => raw.includes(kw))) return true
+  const metricHits = METRIC_WORDS.reduce((n, w) => n + (raw.split(w).length - 1), 0)
+  if (metricHits >= 2) return true
+  const lowered = raw.toLowerCase()
+  if (KNOWN_PAGE_TITLES.includes(lowered)) return true
+  return false
 }
 
-module.exports = {
-  isNoiseAccountName,
-  NOISE_KEYWORDS,
-  METRIC_WORDS,
-  KNOWN_PAGE_TITLES,
-};
+module.exports = { isNoiseAccountName, NOISE_KEYWORDS, METRIC_WORDS, KNOWN_PAGE_TITLES }
