@@ -39,4 +39,4 @@
 - [x] 7.2 路由正式切画布，旧页保留于 `/film-engineering/classic` 作回退（deprecated 代码注释待补，暂不删码）（≤2h）
 - [x] 7.3 更新影视工程 PRD：已新增 `01-docs/PRD-FILM-ENGINEERING-CANVAS-2026-09-24.md` §12 v1 实现状态（画布交互、初始拆分镜、参考图喂生成、数据校验/流程/显示项/提示文字细则）（≤3h）
 - [x] 7.4 视觉回归基线（新增元素均 v-if，idle 基线不受影响）+ E2E `test:e2e:film-engineering` 适配画布（双段：画布主流程 + 经典段全保留）；契约测试与相关门禁本地绿（≤4h）
-- [ ] 7.5 【部分】推分支 + 创建 PR #2342 + 启用 squash auto-merge（已做）；CI 通过后自动合并、openspec sync/archive 与质量节拍复盘三同步（待 CI 绿后收尾）（≤2h）
+- [x] 7.5 【完成】推分支 + PR #2342（v1，15ad0e1681）+ PR #2359（v2，85c78e08a2）均 CI 全绿 squash auto-merge；openspec sync（4 条画布需求并入主 spec）/archive（本 PR）与质量节拍复盘、记忆沉淀已落地（≤2h）
