@@ -31,6 +31,15 @@
 
 ---
 
+# [未发布] fix(会员中心): entitlement 单一真源收敛，版本卡登录态跟随服务端权益快照（2026-09-25，member-center-entitlement-truth）
+
+### 变更
+- **`apps/desktop/src/views/MemberCenter.vue`**：新增 `entitlementAuthoritative` 派生态——登录且已有服务端权益快照时，「版本与许可证」卡的套餐名/有效期/升级按钮与「会员权益」卡同源（收敛自设计 §5.1），消除「免费版 vs 专业版」双卡自相矛盾；未登录或 entitlement 缺失回退本地 licenseStore 不变。
+
+### 测试
+- `MemberCenter.test.js`：修正固化双卡矛盾的旧断言（licenseFree→planPro）并断言 pro 权益下升级入口隐藏；新增 trial 一致性、entitlement 缺失回退 2 用例；8/8 绿。
+
+---
 # [未发布] fix(webview): CDP 本地存储注入挂起改超时降级，首个导航不被无限门控（头条标签卡死事故回归对）（2026-09-24，fix-toutiao-tab-load-hang）
 
 ### 变更
