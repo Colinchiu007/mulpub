@@ -1,0 +1,210 @@
+﻿# W3 快手/小红书 API 链取证切片（bundle 逐字提取，品牌词占位符化）
+# 来源：同 W2 bundle（SHA256 EC829DA4...8008BC, 8401332 bytes），可复现定位法确认完好
+# 提取时间：2026-09-25
+# 合规：所有 <EXT_SIGNER> 占位原始第三方签名服务域名；Gate 12 已过
+
+## 一、快手链（kuaishou）
+
+### 1.1 getSign$5 定义 @char1341682 — 签名生成（外包服务）
+
+signUrl = "http://<EXT_SIGNER>:"
+signPorts = ["5004","5005","5006","5007","5008"]
+regex$2 = /kuaishou\.web\.cp\.api_ph=([a-z0-9]+)/
+cacheSign$1 = {} (内存缓存)
+
+getSign$5(bodyStr):
+  md5 = MD5(bodyStr)
+  if cacheSign[md5] return cached
+  POST http://<EXT_SIGNER>:<port>/Sign/GetSign
+    body: {url:"", cookie:md5, signType:"browser", signCommand:"kuaishou"}
+  -> response.data.signature
+  retry 1x (delay 1s) if empty
+  cache and return
+
+结论: sig3 = 外部 HTTP 服务返回的字符串。
+本地注册表 signer/index.js@23 的 MD5(api_ph|body) 为近似猜测,需 S0 活体探针验证。
+
+### 1.2 getUploadArgsResponse$9 @char1344875
+
+POST cp.kuaishou.com/rest/cp/works/v2/video/pc/upload/pre?__NS_sig3=${getSign(body)}
+Headers: cookie, Referer=.../publish/video, Content-Type=application/json
+Body: {uploadType:1, "kuaishou.web.cp.api_ph":api_ph_or_guid}
+-> {data:{token, endPoints[0]}, result}
+
+### 1.3 uploadVideoPart$b @char1379772
+
+POST ${endPoints[0]}/api/upload/fragment?upload_token=${token}&fragment_id=${N}
+Headers: Referer, Content-Range:"bytes start-end/total", Content-Type:application/stream
+Body: Buffer(chunk)
+-> {checksum} (required)
+分片大小 be=4194304 (4MiB), 并发窗口 M(default 3)
+
+### 1.4 getUploadedVideoStatusResponse (complete)
+
+POST ${endPoints[0]}/api/upload/complete?fragment_count=${N}&upload_token=${token}
+Headers: Referer, Content-Type:null
+Body: "" (empty)
+-> result must ==1 (retry once)
+
+### 1.5 getUploadedVideoInfo$3 (finish)
+
+POST cp.kuaishou.com/rest/cp/works/v2/video/pc/upload/finish?__NS_sig3=${getSign(bodyStr)}
+Headers: cookie, Referer, Content-type:application/json
+Body: {token, fileName, fileTyp:"video/mp4", fileLength, "kuaishou.web.cp.api_ph":ph}
+-> {data:{fileId}}
+
+### 1.6 uploadImage$7 (cover)
+
+POST cp.kuaishou.com/rest/cp/works/v2/video/pc/upload/cover/upload
+Headers: cookie, Referer
+Body: multipart FormData {file(Buffer,"blob","image/jpeg"), api_ph}
+-> {data:{coverKey}}
+
+### 1.7 buildPostData$I 完整字段 @char1381420
+
+输入: (taskInfo, fileId, coverKey, api_ph, cookie, pkCoverKey)
+输出: JSON string
+
+{
+  caption, pkCoverKey, pkCoverSize:"a", pkCoverTimeStamp:0, pkCoverType:2,
+  poiId, latitude:"", longitude:"",
+  domain:$.domain??"", secondDomain:$.secondDomain??"",
+  coverCropped:false, coverKey, coverType:coverKey?3:1,
+  fileId, "kuaishou.web.cp.api_ph":api_ph,
+  movieId:"", notifyResult:0,
+  photoStatus:$.visibilityType??1, photoType:0,
+  publishTime:$.publishTime??0,
+  downloadType:2 (only if $.downloadType==2),
+  disableNearbyShow:true (conditional),
+  allowSameFrame:true (conditional),
+  associateTasks:[id] (conditional),
+  declareInfo:{source} (conditional, source!=4),
+  collectionId (conditional)
+}
+
+### 1.8 publish$i @char1384532
+
+POST cp.kuaishou.com/rest/cp/works/v2/video/pc/submit?__NS_sig3=${getSign(bodyStr)}
+Headers: cookie, Referer, Content-Type:application/json;charset=UTF-8
+Body: buildPostData result string
+-> {result, message, currentTime}
+  result==1 success, publishId=currentTime.substring(0,10)
+
+### 1.9 getWaitPublishResponse (回查)
+
+POST cp.kuaishou.com/rest/cp/works/v2/video/pc/photo/list
+Body: {queryType:"2",cursor:MAX,startTime:now-5min,endTime:MAX,limit:30,api_ph}
+-> list[].unPublishCoverKey matches -> publishId=uploadTime.substring(0,10)
+
+### 1.10 publishKuaishouVideo 编排 @char1389174
+
+(cookie, taskInfo, progressCb, N=3, P=3):
+  1. fileExists, stat
+  2. uploadVideo$v: args->parts->complete->finish->fileId (retry P, 109=break)
+  3. uploadImage$7 cover->coverKey (retry P)
+  4. optional pkCover uploadImage$7
+  5. buildPostData$I -> bodyStr
+  6. publish$i(cookie, bodyStr, proxy)
+  7. result==1 -> getWaitPublishResponse
+  8. publishTime override publishId if set
+
+### 1.11 __NS_sig3 拼接点清单
+
+/upload/pre         YES
+/api/upload/fragment  NO
+/api/upload/complete  NO
+/upload/finish       YES
+/upload/cover/upload  NO
+/video/pc/submit     YES
+/photo/list (query)  NO (getWaitPublish)
+/creator queries     YES
+
+## 二、小红书链（xiaohongshu）
+
+### 2.1 getNewSign @char1237054
+
+signUrl$1 = "http://<EXT_SIGNER>:"
+signPorts$1 = ["5004","5005","5006","5007","5008"]
+
+getNewSign(path, body):
+  parts = [path]; if(body) parts.push(encodeURIComponent(body))
+  POST http://<EXT_SIGNER>:<port>/Sign/GetSign
+    body: {url:"", cookie:JSON.stringify(parts), signType:"browser", signCommand:"newxiaohongshu"}
+  -> response.data.signature.replace(/\\/g,'"')
+  retry 3x rotating ports
+  return JSON string: {X-s, X-t, a1, X-S-Common?}
+
+### 2.2 publish$k / publish$j (submit)
+
+Both: POST edith.xiaohongshu.com/web_api/sns/v2/note
+  X-s = sig["X-s"], X-t = sig["X-t"], X-S-Common = sig["X-S-Common"]??""
+  a1 value injected into cookie
+  !sig["X-s"] -> throw "签名失败"
+  -> {code, msg, data:{id}}
+  code==0 -> success, publishId=data.id
+  msg.includes("canvas illegal") -> code=-110
+
+### 2.3 Upload chain (video)
+
+getUploadArgsResponse$a(cookie, "video") -> uploadTempPermits[0]
+getUploadIdResponse$4(permit) -> XML <UploadId>xxx</UploadId>
+分片 5MiB (Le=5242880), 并发 M
+-> fileIds[0]
+
+### 2.4 Upload chain (image/dynamic)
+
+getUploadArgsResponse$a(cookie, "image") -> uploadTempPermits[0]{fileIds,uploadAddr}
+uploadImage$8(buffer, permit) -> response includes fileIds[0]
+
+### 2.5 buildPostData$K (video submission body)
+
+nodes[{type_extra:{file_id:videoId}}], cover{file_id}, title, desc,
+topics[{id,name,link,type:"topic"}] (max 10), at_users, location, visibility
+
+### 2.6 所有 xiaohongshu 已认证 API 均带 X-s/X-t
+
+/web_api/sns/v2/note (publish) YES
+/web_api/sns/v1/search/* YES
+/web_api/sns/capa/postgw/* YES
+/api/sns/web/v1/comment/* YES
+/api/sns/red/livemall/* YES
+ark.xiaohongshu.com goods NO
+binary upload endpoints NO
+
+### 2.7 合规止步判据
+
+x-s/x-t 生成算法完全依赖外包签名服务，无反推本地公式的已知路径。
+本地 getXiaohongshuSign 为未验证近似。
+裁决：小红书链保持 Tier-B 待验证，不阻塞快手链。
+
+## 三、公共发现
+
+### 3.1 两平台共用签名服务
+
+| 维度 | 快手 | 小红书 |
+|------|------|--------|
+| signCommand | "kuaishou" | "newxiaohongshu" |
+| 输入 | MD5(bodyStr) | JSON([path,encodedBody]) |
+| 输出 | sig3 string | JSON{X-s,X-t,a1} |
+| 缓存 | 有 | 无 |
+| 重试 | 1+1 | 3x port rotation |
+
+### 3.2 本地公式关键发现
+
+bundle 中 getSign$5 的输入是 MD5(bodyStr) 即整个请求 body 的 MD5。
+而本地注册表 getKuaishouSign(body, apiPh) 的公式为 MD5(api_ph | JSON(body))。
+两者输入格式不一致，S0 探针须验证本地公式是否被平台接受。
+
+### 3.3 api_ph 提取器
+
+regex = /kuaishou\.web\.cp\.api_ph=([a-z0-9]+)/
+所有快手链函数依赖此正则从 cookie string 提取 api_ph。
+缺失时 fallback 为 Guid.NewGuid().replace(/-/g,"") 新生成。
+
+## 四、Spike S0 判据设计依据
+
+S0 正确做法：对最低风险已认证查询端点(getUserInfoResponse$3)分别发：
+1. 不带 __NS_sig3 -> 预期被拒
+2. 带本地公式 sig3 -> 观察平台接受性
+3. 带空字符串 sig3 -> 观察
+三种结果组合判定 Tier-A 可行性。

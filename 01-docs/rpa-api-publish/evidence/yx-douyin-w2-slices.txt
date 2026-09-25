@@ -1,0 +1,181 @@
+########## W2 抖音取证补提（tasks 1.1/1.2，2026-09-24）##########
+# 源 bundle 已按 size=8401332 / SHA256=EC829DA4...8008BC 校验完好（真实本机目录名含参考产品品牌词，遵守 Gate 12 红线不写入本文件；定位法见 openspec change design §1）。
+# 品牌词/密钥均已排除：以下仅为平台公开接口常量与字段名，无真实私钥/cookie/AK/SK 值。中文明示的报错文案以 [zh-msg] 占位（源为 mojibake）。
+
+########## 编排入口 douyinPublishVideo @ ~2742xxx ##########
+douyinPublishVideo = ($,S,T,N,P=3,O=3) => async {
+  logger.info(`[douyin video publish] ${S.taskId}`);
+  SetProgressNewEvent(T, publishing, "[zh-msg]", S.taskId);
+  const M = {code:0, msg:"", taskId:S.taskId};
+  try {
+    let He; if (S.proxy?.serverAdd) He = createKuaiProxyAgent(S.proxy);
+    // 步骤 0 前置：视频文件不存在 → io_error，零网络请求（fail-closed）
+    if (!fs.existsSync(S.video?.localPath ?? "")) {
+      M.code = errorCode.io_error; M.msg = "[zh-msg 视频文件不存在]:" + S.video.localPath; return M; ...
+    }
+    ...  // → uploadVideo$8 → buildPostData_v2 → create_v2（见 yx-bundle-slices @2672895）
+  }
+}
+
+########## getAuthKey v5 消费 + aws4 视频上传 uploadVideo$8 @ ~2737967 ##########
+uploadVideo$8 = ($,S,T,N,P,O,M,U) => async {   // M=cookie, P=user_id?, O=并发上限, T=结果累加器
+  let L = null;
+  try {
+    const me = await getAuthKey$2(M);                       // GET upload/auth/v5/ → {auth, status_code}
+    if (!(me && me.auth)) { T.code = me.status_code; T.msg = "[zh-msg 获取上传授权失败]:" + me.status_msg; return null; }
+    S.cancelToken?.throwIfCancelled(privateKey);
+    S.node = me;
+    const ge = await fs.promises.stat(S.video.localPath);   // 取 size
+    L = await fs.promises.open(S.video.localPath, "r");
+    const pe = JSON.parse(me.auth);                         // {AccessKeyID, SecretAccessKey, SessionToken}
+    const _e = createHttpInstance();
+    _e.interceptors.request.use(aws4Interceptor({           // ★ service:"vod"（封面是 "imagex"）
+      instance: _e, options: { region: "cn-north-1", service: "vod" },
+      credentials: { accessKeyId: pe.AccessKeyID, secretAccessKey: pe.SecretAccessKey, sessionToken: pe.SessionToken }
+    }));
+    const we = await getVideoUploadArgs(ge.size, P, _e);    // apply → Result.InnerUploadAddress.UploadNodes
+    if (!(we?.Result?.InnerUploadAddress?.UploadNodes)) { T.code = we.status_code; T.msg = "[zh-msg]:" + (we.status_msg ?? we.Error?.Message); return null; }
+    const Me = new Map, Ce = Guid.NewGuid().toString();     // Me: partNum→crc32；Ce: uploadId
+    let Pe = 0, Ie = 3145728;                               // Ie = partSize 默认 3 MiB
+    ge.size > 500*1024*1024 ? Ie = 5*1024*1024 : ge.size > 1024*1024*1024 && (Ie = 10*1024*1024);
+    const Te = Math.ceil(ge.size / Ie);                     // 总片数
+    const Oe = [];                                          // 在途分片 promise（并发限 O）
+    if (Ie >= ge.size) {                                    // ★ 小文件：单 PUT（1 片）
+      const qe = Buffer.alloc(ge.size), He = await L.read(qe, 0, ge.size, Pe);
+      if (He.buffer.length > 0) {
+        const Ge = await uploadVideoPart$2(He.buffer, 1, Ie, P, Ce, we);
+        if (!Ge?.data?.crc32) { T.code = Ge.code; T.msg = "[zh-msg 分片上传失败]:" + Ge.message; return null; }
+        Me.set(Ge.partNum, Ge.data.crc32);
+      } else { T.code = errorCode.io_error; T.msg = "[zh-msg 读取视频文件失败]:" + S.video.localPath; return null; }
+    } else {                                                // ★ 大文件：分片并发，逐片 uploadVideoPart$2 校验 data.crc32
+      let qe = 0;
+      for (; Pe < ge.size; ) {
+        qe++; let He = Ie, Ge = Buffer.alloc(Ie);
+        Pe + Ie > ge.size && (He = ge.size - Pe, Ge = Buffer.alloc(He));
+        const ze = await L.read(Ge, 0, He, Pe);
+        if (ze.buffer.length > 0) {
+          Oe.push(uploadVideoPart$2(ze.buffer, qe, Ie, P, Ce, we));
+          if (Oe.length > O) {                              // 超并发上限 → race 回收最早在途片
+            const Ze = await Promise.race(Oe);
+            if (!Ze?.data?.crc32) { T.code = Ze.code; T.msg = "[zh-msg]:" + Ze.message; return null; }
+            Me.set(Ze.partNum, Ze.data.crc32);
+            const it = await Oe.splice(0,1)[0];
+            if (!it?.data?.crc32) { T.code = it.code; T.msg = "[zh-msg]:" + it.message; return null; }
+            Me.set(it.partNum, it.data.crc32);
+          }
+          Pe += ze.buffer.length; if (He < Ie) break;
+        } else { T.code = errorCode.io_error; T.msg = "[zh-msg 读取失败]:" + S.video.localPath; return null; }
+      }
+      for (; Oe.length > 0; ) {                             // 排空剩余在途
+        const qe2 = await Oe.splice(0,1)[0];
+        if (!qe2?.data?.crc32) { T.code = qe2.code; T.msg = "[zh-msg]:" + qe2.message; return null; }
+        Me.set(qe2.partNum, qe2.data?.crc32 ?? "");
+      }
+    }
+    if (Me.size < Te) { T.code = errorCode.io_error; T.msg = "[zh-msg 分片缺失]:" + S.video.localPath; return null; }
+    // → 上传完成 commit（UploadNodes/StoreInfos 组装，Result.Results 非空即成功）返回 je
+    // ... 省略 commit 细节：je.Result.Results[0].Vid 即 videoId（见 buildPostData_v2 读取）
+    return je?.Result?.Results?.length > 0 ? (T.code=0, T.msg="", je) : (T.code=-1, null);
+  } catch (me) { ... T.code=errorCode.unknown_error; T.msg="[zh-msg 视频上传失败]"; return null; }
+  finally { L?.close(); }
+}
+
+########## getVideoUploadArgs（apply upload，视频 = vod）@ 2702882 ##########
+getVideoUploadArgs = (size, S, T=http, N) => async {
+  const P = Math.random().toString(36).substring(2), O = {};
+  O.Referer = "https://creator.douyin.com/creator-micro/content/publish?enter_from=publish_page";
+  O["User-Agent"] = HttpConfig.userAgent;
+  const M = await T.get("https://vod.bytedanceapi.com", {
+    retryCondition: (U,L)=>!isJson(L.data),
+    params: { Action: "ApplyUploadInner", Version: "2020-11-19", SpaceName: "aweme", FileType: "video",
+              IsInner: 1, FileSize: size, app_id: 2906, user_id: S, s: P },
+    headers: O, proxy: N });
+  return M?.data;
+}
+# 对比：封面 getImageUploadArgs$3 → GET https://imagex.bytedanceapi.com params{Action:"ApplyImageUpload",Version:"2018-08-01",ServiceId:"jm8ajry58r",app_id:2906,user_id:$,s:rand}
+
+########## uploadCover$d（封面 aws4，imagex）单 PUT 细节 @ 839726~842xxx ##########
+# aws4 options: {region:"cn-north-1", service:"imagex", credentials:{AccessKeyID,SecretAccessKey,SessionToken from JSON.parse(T.auth)}}
+# 组装上传（单 PUT）：
+#   let P = T.Result.InnerUploadAddress.UploadNodes[0]（多节点时校验 SessionKey/UploadHost/StoreInfos 非空否则取 [1]）
+#   headers = { "Content-CRC32": crc.crc32(buf).toString(16).replace("-",""), "Authorization": P.StoreInfos[0].Auth,
+#               "Content-Type":"application/octet-stream", "X-Storage-U": userId, "User-Agent", referer }
+#   PUT `https://${P.UploadHost}/upload/v1/${P.StoreInfos[0].StoreUri}`
+#   成功判据：res.data.crc32 存在；封面 finish 结果 V.Result.Results[0].Uri → poster
+
+########## buildPostData_v2 body（create_v2 提交体）@ 2688323 — tasks 1.2 ##########
+buildPostData_v2 = ($,S,T,N,P,O) => async {   // $=载荷(标题/文案/封面尺寸/visibility), S=封面结果(poster), T=视频结果(Vid), N=?, P=?, O=横向封面结果
+  const M = { item: {
+    common: {
+      text: "", caption: "",
+      item_title: $.title ?? "",                       // ★ 标题
+      activity: "[]", text_extra: "", challenges: "", mentions: "", hashtag_source: "", hot_sentence: "",
+      visibility_type: $.visibility_type ?? 0,          // ★ 可见性（整数，透传；0=公开，私密/草稿取值待活体确认 Q15）
+      download: $.download ?? 1, timing: $.timing ?? 0,
+      creation_id: `jdhajhsh${Date.now()}`, media_type: 4,
+      video_id: T?.Result?.Results[0]?.Vid,             // ★ videoId ← 上传 finish Result.Results[0].Vid
+      music_source: 0, music_id: $.musicInfo?.music_id ?? $.musicInfo?.id_str, music_end_time: ($.musicInfo?.duration ?? 1)*1000,
+    },
+    cooperation: { co_info: "" },
+    cover: {
+      custom_cover_image_height: $.cover?.height ?? 335, custom_cover_image_width: $.cover?.width ?? 251,
+      poster: S?.Result?.Results[0]?.Uri,               // ★ 封面 URI ← 封面上传 Result.Results[0].Uri
+      poster_delay: 0,
+      horizontal_custom_cover_image_uri: O?.Result?.Results[0]?.Uri ?? S?.Result?.Results[0]?.Uri,
+      horizontal_cover_tsp: 0, horizontal_custom_cover_image_height: $.horizontalCover?.height ?? $.cover?.height ?? 335,
+      horizontal_custom_cover_image_width: $.horizontalCover?.width ?? $.cover?.width ?? 447,
+      cover_tools_extend_info: "", cover_tools_info: "",
+    },
+    mix: {}, chapter: {...json...}, anchor: {},
+    sync: { limit_client_keys: undefined, should_sync: $.should_sync === 1, sync_to_toutiao: 0 },
+    open_platform: {}, assistant: { is_preview: 0, is_post_assistant: 1 },
+    declare: { user_declare_info: "{}" },               // ★ AI 声明位（user_declare_info，默认空 JSON；本项目不自动声明）
+  }};
+  // 文案内 topic/activity/friend 富文本 → text_extra/hashtag 偏移数组（L/K/W），最终 U=htmlDecode(文案)
+  // ... 返回 M（.trim() 后作为 create_v2 body POST）
+}
+
+########## ree-public-key@2671737 (publish$4 create_v2 头组 K 提取，逐字) ##########
+let K="";$!=null&&$.includes("bd_ticket_guard_client_data=")?K=JSON.parse(Buffer.from(decodeURIComponent((te=(ne=$.split("bd_ticket_guard_client_data=")[1])==null?void 0:ne.split(";")[0])==null?void 0:te.trim()),"base64").toString("utf-8"))["bd-ticket-guard-ree-public-key"]:$!=null&&$.includes("bd_ticket_guard_client_data_v2=")&&(K=JSON.parse(Buffer.from(decodeURIComponent((ue=(oe=$.split("bd_ticket_guard_client_data_v2=")[1])==null?void 0:oe.split(";")[0])==null?void 0:ue.trim()),"base64").toString("utf-8")).ree_public_key)
+// 结论：plain 优先（键 "bd-ticket-guard-ree-public-key"），否则 _v2（键 .ree_public_key）；均无则 K=""
+
+########## W2 抖音上传链 commit/finish 补探（tasks 1.1 延伸，探针 w2-probe-uploadpart-48/commit-49，2026-09-24）##########
+# 源 bundle size=8401332 / SHA256=EC829DA4...8008BC 校验完好。以下均为平台公开接口常量与字段名，无真实私钥/cookie/AK/SK；中文明示报错以 [zh-msg] 占位（源为 mojibake）。
+
+########## uploadVideoPart$2@2663266 (视频分片 transfer，★POST 非 PUT，service=vod) ##########
+uploadVideoPart$2 = (buf, S=partNum, T=partSize, N=userId, P=uploadId, O=applyResult, M=proxy) => {
+  let U = O?.Result?.InnerUploadAddress?.UploadNodes[0];
+  UploadNodes.length>1 && (!U.SessionKey || !U.UploadHost || !U.StoreInfos?.length) && (U = ...UploadNodes[1]);
+  let L = crc.crc32(buf).toString(16).replace("-",""); for (; L.length<8; ) L = `0${L}`;   // 补零至 8 hex
+  const K = {"Content-CRC32":L, Authorization:U?.StoreInfos[0].Auth, "Content-Type":"application/octet-stream", "X-Storage-U":N, "User-Agent":UA, Referer:"https://creator.douyin.com/creator-micro/content/publish?enter_from=publish_page", Origin:"https://creator.douyin.com/"};
+  const W = `https://${U.UploadHost}/upload/v1/${U.StoreInfos[0]?.StoreUri}?uploadid=${P}&part_number=${S}&phase=transfer&part_offset=${(S-1)*T}`;
+  let V = await http.post(W, Buffer.from(buf), {retryCondition:!isJson, headers:K, proxy:M});
+  V.status!=403 && !(V.data&&typeof V.data=="object") && (V = await http.post(W, Buffer.from(buf), {headers:K}));   // 单次降级重试
+  V.data&&typeof V.data=="object" && (V.data.partNum=S, ...crc 校验由上层 uploadVideo$8 消费)
+  return V.data;
+}
+
+########## 视频 finish phase=finish @2665400 ##########
+const M={Authorization:O?.StoreInfos[0].Auth,"Content-Type":"text/plain;charset=UTF-8",Referer:"https://creator.douyin.com/creator-micro/content/publish?enter_from=publish_page",Origin:"https://creator.douyin.com/","X-Storage-U":$,"User-Agent":UA};
+const U=`https://${O.UploadHost}/upload/v1/${O.StoreInfos[0]?.StoreUri}?uploadid=${S}&phase=finish&uploadmode=part`;
+POST(U, T=partsBody, {retryCondition:!isJson, headers:M}) -> L.data
+
+########## 视频 CommitUploadInner @2666200 (aws4 拦截实例 T，service=vod) ##########
+const O={SessionKey:P?.SessionKey, Functions:[{name:"GetMeta"},{name:"Snapshot",input:{SnapshotTime:0}}]};   // P=applyResult.UploadNodes[0]（多节点回退[1]）
+const M={Referer:"https://creator.douyin.com/creator-micro/content/publish?enter_from=publish_page",Origin:"https://creator.douyin.com","User-Agent":UA,"X-Amz-Content-Sha256":CalcSha256Hex$2(JSON.stringify(O))};
+T.post("https://vod.bytedanceapi.com", O, {retryCondition:!isJson, headers:M, params:{Action:"CommitUploadInner",Version:"2020-11-19",SpaceName:"aweme",app_id:2906,user_id:$}}) -> U.data
+# 结果：Result.Results[0].Vid = videoId（buildPostData_v2 读取）
+
+########## 封面 apply ApplyImageUpload @840668 (imagex) ##########
+GET https://imagex.bytedanceapi.com params{Action:"ApplyImageUpload",Version:"2018-08-01",ServiceId:"jm8ajry58r",app_id:2906,user_id:$,s:rand} headers{Origin:"https://creator.douyin.com","User-Agent":UA} retryCondition:!isJson -> Result.InnerUploadAddress.UploadNodes
+########## 封面单传 uploadImage$b @841421 (★POST，无 query) ##########
+M={"Content-CRC32":crc.crc32(buf).toString(16).replace("-",""),Authorization:P?.StoreInfos[0].Auth,"Content-Type":"application/octet-stream","X-Storage-U":$,"User-Agent":UA,referer:".../content/publish?enter_from=publish_page"}
+POST `https://${P.UploadHost}/upload/v1/${P.StoreInfos[0].StoreUri}` body=buf -> res(.data.crc32 存在即成功)
+########## 封面 CommitImageUpload @842511 (aws4 实例 S，service=imagex) ##########
+P={SessionKey:T.Result.InnerUploadAddress.UploadNodes[0].SessionKey}
+S.post("https://imagex.bytedanceapi.com",P,{headers:{User-Agent,Accept:"*/*",Origin:"https://creator.douyin.com",Referer:".../content/publish?enter_from=publish_page","X-Amz-Content-Sha256":CalcSha256Hex$2(JSON.stringify(P))},params:{Action:"CommitImageUpload",Version:"2018-08-01",ServiceId:"jm8ajry58r",app_id:2906,user_id:$}} -> Result.Results[0].Uri = cover poster
+
+########## csrf/auth 逐字（@837894，供步骤 1/2）##########
+getSdkToken$2($,S=0): N=["https://creator.douyin.com/web/api/media/anchor/search","https://creator.douyin.com/web/api/media/aweme/create/","https://creator.douyin.com/aweme/v1/creator/homepage/module/"]; P=N[S%N.length]; HEAD(P,{headers:{cookie,Accept:"application/json, text/plain, */*",referer:"https://creator.douyin.com/content/upload","x-secsdk-csrf-request":1,"x-secsdk-csrf-version":"1.2.7"}}).headers["x-ware-csrf-token"].toString().split(",")[1] ?? ""
+getAuthKey$2($): GET https://creator.douyin.com/web/api/media/upload/auth/v5/ {retryCondition:!isJson, headers:{cookie,Accept,referer:".../content/publish?enter_from=publish_page"}} -> {auth(JSON str→{AccessKeyID,SecretAccessKey,SessionToken}), status_code, status_msg}
+

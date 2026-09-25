@@ -74,8 +74,8 @@ t("shipinhao.content-md5 空 buffer fail-closed", async () => {
 t("合规红线：registry 与 signer 门面源码不含远程通道痕迹", () => {
   const regSrc = fs.readFileSync(path.join(__dirname, "..", "src", "signer", "registry.js"), "utf8");
   const idxSrc = fs.readFileSync(path.join(__dirname, "..", "src", "signer", "index.js"), "utf8");
-  const facadeSrc = fs.readFileSync(path.join(__dirname, "..", "src", "signer.js"), "utf8");
-  [regSrc, idxSrc, facadeSrc].forEach((src, i) => {
+  const facadeSrc = fs.readFileSync(path.join(__dirname, "..", "src", "signer.js"), "utf8"); const douyinGuardSrc = fs.readFileSync(path.join(__dirname, "..", "src", "signer", "douyin-ticket-guard.js"), "utf8");
+  [regSrc, idxSrc, facadeSrc, douyinGuardSrc].forEach((src, i) => {
     assertEqual(/MP_SIGNER_BASE|getRemoteSign|SIGNER_PORTS|refpub|require\(["']axios["']\)|require\(["']http["']\)/.test(src), false, "file#" + i + " contains banned remote-channel token");
   });
 });
