@@ -1,4 +1,15 @@
+## 测试全绿的功能从未生效：按运行时并不存在的宿主 API 字段写代码，mock 夹具把错误形状固化（zhihu-ua-sanitize-noop，2026-09-25）
+
+- **凭字段名想象宿主 API，而不是查它的归属（pitfall，第一性引入点）**：`configureUserAgentFallback` 读 `app.userAgent`，但 Electron 的 `App` 接口只有 `userAgentFallback`，`userAgent` 挂在 `WebContents` 上。真实 Electron 43.1.1 实测 `typeof app.userAgent === 'undefined'` → 函数第一行取到空串 → 一律 `return {configured:false}` → **这段专为规避知乎登录风控（拒绝下发短信验证码）而写的净化逻辑从未执行过一次**，症状却是「代码在、注释在、测试在、单测全绿」。**判定手法**：写任何宿主 API 属性前，在**已安装**的类型声明里确认该属性挂在哪个 interface 上（`node_modules/electron/electron.d.ts`），或直接运行时打印一次；「属性名看起来合理」不构成证据。
+- **手搓 mock 的形状必须来自真实运行时，否则测的是夹具不是宿主（pitfall，逃逸根因）**：原 5 条单测全部构造 `{ app: { userAgent: '...' } }` —— 一个真实 Electron 里不存在的形状，所以实现读不到字段也不红。更糟的是 `{app: {}}` 那条用例断言 `configured:false`，恰好把「读不到字段就什么都不做」这个**错误行为当期望结果固化**：任何按真实 App 形状写的断言都会红，而它绿了。**教训**：给宿主 API 写 mock 时，夹具字段集要么抄 d.ts，要么运行时 dump 一次真实对象；并且要有一条「真实形状」用例（只带宿主真有的字段）与「假形状」用例并存。
+- **回归锁要钉「不许读某字段」的行为，而不只是钉输出（pattern）**：仅断言返回值挡不住「两个字段都读、优先读错的」这类回退。做法：`Object.defineProperty(app, 'userAgent', { get () { reads += 1; return WRONG_UA } })`，再 `expect(reads).toBe(0)`。同理，幂等性单列一条（二次调用不得再改写），防止将来改成「每次覆盖」。
+- **把「前提」本身也钉成真实依赖测试（pattern）**：新增一条对已安装 `electron.d.ts` 的结构断言——`App` 接口声明 `userAgentFallback` 且不声明 `userAgent`。上游若真加了 `App.userAgent`，这条先红并提示重新审视取源，而不是留下一个悄悄失效的净化函数。electron 未安装的门禁环境用 `describe.skipIf(dts === null)` 跳过，避免假红。
+- **返回 `{configured:boolean}` 的配置类函数，未生效分支必须留日志（pitfall）**：`main.js` 原先只在 `configured` 为真时 `console.log`，未生效时零输出——「永久 no-op」在运行日志里完全无痕，用户只能看到远端平台的报错。**判定**：任何以布尔表达成功/跳过的启动配置，`else` 分支一律 `warn`，否则等价于吞掉失败。
+- **「代码里设置了 X」≠「线上发出的请求带 X」：出站行为用本机回显服务抓 A/B（pattern）**：最终判定不靠单测，靠真实链路取证——本机 `http.createServer` 回显 `req.headers['user-agent']`，会话用生产同一个 `createSession()` 分区、`webPreferences` 与生产 `createAuthView` 一致（`sandbox:true`/`contextIsolation:true`），同一脚本跑「不净化 / 净化」两遍对照出站头。补充口径：`Sec-CH-UA` 系列客户端提示**只在 HTTPS 请求上发送**，本机 http 回显看不到，不要把「没看到」当成「不存在」。
+
 ## 批量出片逐镜失败原因被三层静默吞掉——观测缺口的逃逸链与收口（film-gen-shot-error-observability，2026-09-23）
+
+
 
 - **静默吞错的「三层漏斗」：每层各自「合理」，合起来把信息丢光（pitfall）**：单镜失败原因要穿过 `video-gen.generateShotVideo`（失败只 `return {success:false,error}` 不记日志）→ handler `runBatchViaVideoGen`（`r.error` 拿到手却 `onShotProgress(i,'failed')` 不带原因，`getShot` 空 `catch` 把「取原文异常」一律冒充「分镜不存在」）→ `production-driver`（`onShotProgress` 签名根本没有 error 通道、台账 `shots[]` 没有 `error` 字段）。每一层单看都不算 bug（「上层会处理」），串起来就是前端与台账只剩裸 `failed`。**判定手法**：追一条错误信息从产生到落库/上屏的完整路径，任一环「拿到原因却没往下带」就是断点；修的时候必须在**产生层记 warn + 存储层落字段 + 传输层带 reason** 三处同时补，缺一处仍会再吞。**教训**：新增「失败可辨识」类需求，先画这条链、逐环确认有无丢弃，再动手。
 
@@ -15656,22 +15667,22 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **规则（pattern）**：混合架构（1 主 SPA + N 个 `WebContentsView`/iframe 内嵌独立文档）里，任何「跨文档共享的外层控件」要操作「当前聚焦的那个内嵌文档」，必须走**定向 IPC**而非依赖外层自身 router：外层点击 → 主进程按 activeTab 判定归属 → `view.webContents.send` 定向投递到该内嵌实例 → 实例订阅后在**自身** router 内跳转；内嵌文档路由变化再经 `did-navigate-in-page` 回传状态（`spaRoute`）广播给外层，令高亮跟随聚焦标签真实路由，而不是外层 route。
 - **可迁移信号（pattern）**：判断「点了没反应」类缺陷是否属于此类，先问三件事——(a) 被点击的控件渲染在哪个文档？(b) 它调用的路由/状态控制器属于哪个文档？(c) 用户视觉上聚焦的是哪个文档？三者不一致即为 chrome/内容错位，修法是把「控制域」对齐到「聚焦域」，而非在错误控制器上打补丁。
 - **回归保护（QM-5④）**：新增 home-shell 定向导航必须同时覆盖——受理路径（活动标签为存活 home-shell → `handled:true` 且定向 send）、非法/非 home-shell/视图已销毁 → `handled:false` fail-open 回退到外层；侧边栏 `navPath` computed 在 home-shell 聚焦时读 `activeTab.spaRoute`、否则读 `route.path`；内嵌实例 `on('home-shell-navigate')` 订阅 + `onBeforeUnmount` 对称退订。仅测外层 router.push 会漏掉整条跨文档链路。
-## 换「显示载体」不是换文案——载体切换的节点身份守恒与像素门禁盲区（avatar-status-mask-carrier-swap，2026-09-24）
-
-- **补丁锚点必须取自 worktree 文件，不是主工作区（pitfall，本轮真实代价）**：共享主目录 HEAD（`265cf7ee`）落后 origin/main（`c5337a27e6`）多个 PR，按主工作区读到的代码写补丁块，会把**已合并的功能改回去**——本轮真的把 `#2290` 的 `<img v-if="showAvatar" … @error="avatarBroken = true">` 覆盖成旧写法 `v-if="account.avatar || account.avatar_url"`，丢了头像加载失败回落。**判定手法**：建 worktree 后第一件事是读 worktree 内的目标文件定锚点；`apply` 脚本报「anchor NOT FOUND」不是"换个锚字符串重试"，而是**"我对现状的理解可能已过期"的一手证据**，必须回去读 worktree/origin 的真实内容。本轮另一处同因：测试用例名 `inactive 状态保持显示「已登录」` 在 origin/main 已被换成「历史脏值…落到未检查兜底」。**边界**：所有基于 `git worktree` 的隔离任务都适用；单工作区直接改码不适用。
-
-- **载体切换要「节点身份守恒」，否则一片下游测试连带重写（pattern）**：把「已失效」从头像旁徽章搬到头像遮罩时，两个载体共用同一 `data-testid="account-status-{id}"` + `role="status"` + 同一 `aria-label`（提取为共用 computed，防措辞漂移）。收益：既有单测与 `account-login-state-tristate.js` E2E（按 testid 取 innerText 断言「已失效」）**零改动即继续有效**，屏幕阅读器语义不丢。**配套断言**：必须加「同卡内该 testid 节点数 === 1」，否则"遮罩 + 徽章"双份播报不会被任何现有测试发现。适用边界：任何"同一信息换渲染节点"的重构（徽章↔文字↔图标↔遮罩↔角标）。
-
-- **叠加层（overlay）三条硬约束，缺一条就是交互 bug（pattern）**：① `pointer-events: none` —— 卡片整体可点（打开创作者中心）与批量勾选不得被覆盖层拦截，且要在 E2E 里断言计算样式而非指望"看起来能点"；② 覆盖层挂在**容器**（`.account-avatar` + `position: relative`）上而不是被覆盖元素（`<img>`）上 —— 否则 `<img>` 被 `v-if` 移除（加载失败回落）时覆盖层一起消失；③ 容器必须已有 `overflow: hidden` + 圆角才能把矩形横带裁成与头像同形的弓形。回归保护：专门写「`img` 触发 error 后覆盖层仍在」的用例，这是最容易被忽略的组合态。
-
-- **「有像素门禁」不等于「这个视图被像素门禁保护」（pitfall，逃逸分析结论）**：`run-pixel-tests.js` 的清单里**有** `accounts-list` 视图，看着像已被覆盖；但仓库跟踪的 `base-screenshots` 只有 22 个基线且**不含 accounts-list**，本地亦无 baselines 目录 → 该视图在 CI 里走 `BASELINE_CREATED`（首次生成即通过），对本次改动**零判别力**。同类误判：见清单有名就认为有保护。**正确判定手法**：`git ls-files tests/visual-testing/base-screenshots | grep <view>` 确认基线真的被跟踪，而不是只看 runner 配置里的视图名。**替代证据**：改用真实浏览器 `getComputedStyle` + `getBoundingClientRect` 硬断言（绝对定位/背景色/文字色/覆盖盒落在容器内/两视图各测一次），并落截图供人工目视。
-
-- **JSDOM 拿不到 scoped CSS 计算值 → 样式契约用「读 .vue 源码」断言（pattern，沿用项目既有惯例）**：`mount` 后 `getComputedStyle` 在 JSDOM 下不应用 `<style scoped>`，布局契约（`position: relative`/`absolute`、`background: rgba(...)`、`overflow: hidden`）在单测里测不到。项目既有做法（`Accounts.test.js`）是 `fs.readFileSync('./src/.../X.vue')` 后切片断言关键声明；本次新增「遮罩样式契约」用例沿用该模式，真正的运行态样式交给上一条的浏览器 E2E。两层互补：源码契约防"有人删了 CSS 声明"，E2E 防"声明存在但被覆盖/优先级失效"。
-
-- **不新增文案也是门禁决策（pattern）**：遮罩文案复用既有 `statusExpired`，locales 零改动 → Gate 7 `--pair-base` 变更=false、`--cjk` 基线不动（当前 1362 / 基线 1581）。若"顺手"加一条「头像加载失败」提示，就会同时触碰 zh/en 成对与 `src/` 非 locales 中文字面量两条 CI 拦截。先问「这条文案有没有真实用户价值」，没有就不产生门禁面。
-
-- **Windows 下用 Junction 复用主仓 node_modules 跑测试/dev server（preference，含前置校验）**：新 worktree 无 `node_modules`，对 root 与 `apps/desktop`、`packages/*` 各建 `New-Item -ItemType Junction` 指向主仓同名目录，即可直接 `node node_modules/vitest/vitest.mjs run …`、`node node_modules/eslint/bin/eslint.js …`、起 `vite`，省掉一次全量 `pnpm install`。**前置硬条件**：两个 ref 之间的 `pnpm-lock.yaml` 必须无差异（本轮核对：仅 root `package.json` 差 1 行），否则物理链接的依赖树与锁文件不符，测试结果不可信。用完起停 dev server 要复核端口释放（`Get-NetTCPConnection -State Listen -LocalPort <port>` 计数归 0）。
-
+## 换「显示载体」不是换文案——载体切换的节点身份守恒与像素门禁盲区（avatar-status-mask-carrier-swap，2026-09-24）
+
+- **补丁锚点必须取自 worktree 文件，不是主工作区（pitfall，本轮真实代价）**：共享主目录 HEAD（`265cf7ee`）落后 origin/main（`c5337a27e6`）多个 PR，按主工作区读到的代码写补丁块，会把**已合并的功能改回去**——本轮真的把 `#2290` 的 `<img v-if="showAvatar" … @error="avatarBroken = true">` 覆盖成旧写法 `v-if="account.avatar || account.avatar_url"`，丢了头像加载失败回落。**判定手法**：建 worktree 后第一件事是读 worktree 内的目标文件定锚点；`apply` 脚本报「anchor NOT FOUND」不是"换个锚字符串重试"，而是**"我对现状的理解可能已过期"的一手证据**，必须回去读 worktree/origin 的真实内容。本轮另一处同因：测试用例名 `inactive 状态保持显示「已登录」` 在 origin/main 已被换成「历史脏值…落到未检查兜底」。**边界**：所有基于 `git worktree` 的隔离任务都适用；单工作区直接改码不适用。
+
+- **载体切换要「节点身份守恒」，否则一片下游测试连带重写（pattern）**：把「已失效」从头像旁徽章搬到头像遮罩时，两个载体共用同一 `data-testid="account-status-{id}"` + `role="status"` + 同一 `aria-label`（提取为共用 computed，防措辞漂移）。收益：既有单测与 `account-login-state-tristate.js` E2E（按 testid 取 innerText 断言「已失效」）**零改动即继续有效**，屏幕阅读器语义不丢。**配套断言**：必须加「同卡内该 testid 节点数 === 1」，否则"遮罩 + 徽章"双份播报不会被任何现有测试发现。适用边界：任何"同一信息换渲染节点"的重构（徽章↔文字↔图标↔遮罩↔角标）。
+
+- **叠加层（overlay）三条硬约束，缺一条就是交互 bug（pattern）**：① `pointer-events: none` —— 卡片整体可点（打开创作者中心）与批量勾选不得被覆盖层拦截，且要在 E2E 里断言计算样式而非指望"看起来能点"；② 覆盖层挂在**容器**（`.account-avatar` + `position: relative`）上而不是被覆盖元素（`<img>`）上 —— 否则 `<img>` 被 `v-if` 移除（加载失败回落）时覆盖层一起消失；③ 容器必须已有 `overflow: hidden` + 圆角才能把矩形横带裁成与头像同形的弓形。回归保护：专门写「`img` 触发 error 后覆盖层仍在」的用例，这是最容易被忽略的组合态。
+
+- **「有像素门禁」不等于「这个视图被像素门禁保护」（pitfall，逃逸分析结论）**：`run-pixel-tests.js` 的清单里**有** `accounts-list` 视图，看着像已被覆盖；但仓库跟踪的 `base-screenshots` 只有 22 个基线且**不含 accounts-list**，本地亦无 baselines 目录 → 该视图在 CI 里走 `BASELINE_CREATED`（首次生成即通过），对本次改动**零判别力**。同类误判：见清单有名就认为有保护。**正确判定手法**：`git ls-files tests/visual-testing/base-screenshots | grep <view>` 确认基线真的被跟踪，而不是只看 runner 配置里的视图名。**替代证据**：改用真实浏览器 `getComputedStyle` + `getBoundingClientRect` 硬断言（绝对定位/背景色/文字色/覆盖盒落在容器内/两视图各测一次），并落截图供人工目视。
+
+- **JSDOM 拿不到 scoped CSS 计算值 → 样式契约用「读 .vue 源码」断言（pattern，沿用项目既有惯例）**：`mount` 后 `getComputedStyle` 在 JSDOM 下不应用 `<style scoped>`，布局契约（`position: relative`/`absolute`、`background: rgba(...)`、`overflow: hidden`）在单测里测不到。项目既有做法（`Accounts.test.js`）是 `fs.readFileSync('./src/.../X.vue')` 后切片断言关键声明；本次新增「遮罩样式契约」用例沿用该模式，真正的运行态样式交给上一条的浏览器 E2E。两层互补：源码契约防"有人删了 CSS 声明"，E2E 防"声明存在但被覆盖/优先级失效"。
+
+- **不新增文案也是门禁决策（pattern）**：遮罩文案复用既有 `statusExpired`，locales 零改动 → Gate 7 `--pair-base` 变更=false、`--cjk` 基线不动（当前 1362 / 基线 1581）。若"顺手"加一条「头像加载失败」提示，就会同时触碰 zh/en 成对与 `src/` 非 locales 中文字面量两条 CI 拦截。先问「这条文案有没有真实用户价值」，没有就不产生门禁面。
+
+- **Windows 下用 Junction 复用主仓 node_modules 跑测试/dev server（preference，含前置校验）**：新 worktree 无 `node_modules`，对 root 与 `apps/desktop`、`packages/*` 各建 `New-Item -ItemType Junction` 指向主仓同名目录，即可直接 `node node_modules/vitest/vitest.mjs run …`、`node node_modules/eslint/bin/eslint.js …`、起 `vite`，省掉一次全量 `pnpm install`。**前置硬条件**：两个 ref 之间的 `pnpm-lock.yaml` 必须无差异（本轮核对：仅 root `package.json` 差 1 行），否则物理链接的依赖树与锁文件不符，测试结果不可信。用完起停 dev server 要复核端口释放（`Get-NetTCPConnection -State Listen -LocalPort <port>` 计数归 0）。
+
 - **PowerShell 管道的退出码陷阱（pitfall）**：`node … 2>&1 | Select-Object -Last 30` 下，stderr 有输出会让 PS 把命令判为失败（vitest 实际 `exit 0` 却报非零）。**手法**：需要真实退出码时一律重定向到文件（`> out.log 2>&1`）后立刻打印 `$LASTEXITCODE`，不在管道下游取退出码。
 
 

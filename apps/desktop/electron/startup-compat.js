@@ -147,21 +147,22 @@ function configureGraphics ({
  * 净化 Electron 默认 UA，去掉 Electron/<version> 与 <AppName>/<version> 标记。
  *
  * 背景：知乎等平台的登录风控会识别 UA 中的 Electron 标记并拒绝下发短信验证码
- * （报错 10001:请求参数异常，请升级客户端后重试）。参考产品通过设置
+ * （报错 10001:请求参数异常，请升级客户端后重试 / 客户端异常）。参考产品通过设置
  * app.userAgentFallback 为标准浏览器 UA 解决同类问题。本函数采用动态方案：
- * 读取当前 app.userAgent（跟随 Chromium 内核版本），仅剔除 Electron 相关 token，
- * 避免硬编码 UA 版本随内核升级而过期。
+ * 读取 app.userAgentFallback（Electron 的 App 接口只暴露这一个 UA 入口，
+ * `userAgent` 属于 WebContents，读它会得到 undefined 并让净化静默失效），
+ * 仅剔除 Electron 相关 token，避免硬编码 UA 版本随内核升级而过期。
  *
  * 仅在 UA 确实包含 Electron 标记时才写入 userAgentFallback，保持幂等与最小侵入。
  *
- * @param {{ app: { userAgent?: string, userAgentFallback?: string } | null | undefined }} options
+ * @param {{ app: { userAgentFallback?: string } | null | undefined }} options
  * @returns {{ configured: boolean, userAgent?: string }}
  */
 function configureUserAgentFallback ({ app } = {}) {
-  const originalUa = typeof app?.userAgent === 'string' ? app.userAgent : ''
+  const originalUa = typeof app?.userAgentFallback === 'string' ? app.userAgentFallback : ''
   if (!originalUa) return { configured: false }
 
-  // Electron 默认 UA 形如：
+  // Electron 默认 userAgentFallback 形如：
   // Mozilla/5.0 (...) Multi-Publish/1.2.3 Chrome/150.0.7871.114 Electron/43.1.1 Safari/537.36
   // 采用标准 token 白名单：只保留 Mozilla/Chrome/Safari/AppleWebKit 等浏览器原生 token，
   // 剔除 Electron/x.y.z 与 <AppName>/x.y.z（位置无关，避免正则误删 Mozilla/5.0）。

@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
+import { createRequire } from 'node:module'
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import {
   configureGraphics,
@@ -200,33 +202,63 @@ describe('shared-data anchor detection', () => {
   })
 })
 
+// 真实 Electron 的 App 接口只提供 `userAgentFallback`；`userAgent` 属于 WebContents，
+// App 上并不存在。夹具必须按这个真实形状构造，否则「净化静默不生效」这类缺陷测不出来。
+const ELECTRON_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Multi-Publish/1.2.3 Chrome/150.0.7871.114 Electron/43.1.1 Safari/537.36'
+const SANITIZED_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.114 Safari/537.36'
+
+/** 构造与真实 Electron App 同形状的夹具：只有 userAgentFallback，没有 userAgent。 */
+function createElectronShapedApp (userAgent = ELECTRON_UA) {
+  return { userAgentFallback: userAgent }
+}
+
 describe('user-agent fallback sanitization', () => {
-  it('strips Electron and app name tokens from the default UA', () => {
-    const app = {
-      getPath: vi.fn(() => '/tmp/default-user-data'),
-      setPath: vi.fn(),
-      userAgent:
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Multi-Publish/1.2.3 Chrome/150.0.7871.114 Electron/43.1.1 Safari/537.36',
-    }
+  it('真实 Electron App 形状（只有 userAgentFallback）下必须完成净化', () => {
+    const app = createElectronShapedApp()
 
     const result = configureUserAgentFallback({ app })
 
-    expect(result).toEqual({
-      configured: true,
-      userAgent:
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.114 Safari/537.36',
+    expect(result).toEqual({ configured: true, userAgent: SANITIZED_UA })
+    expect(app.userAgentFallback).toBe(SANITIZED_UA)
+    expect(app.userAgentFallback).not.toMatch(/Electron\//)
+    expect(app.userAgentFallback).not.toContain('Multi-Publish/')
+  })
+
+  it('只从 userAgentFallback 取 UA 源，绝不读 App 上不存在的 userAgent', () => {
+    const app = createElectronShapedApp()
+    let userAgentReads = 0
+    Object.defineProperty(app, 'userAgent', {
+      get () {
+        userAgentReads += 1
+        return ELECTRON_UA
+      },
+      configurable: true,
     })
-    expect(app.userAgentFallback).toBe(result.userAgent)
+
+    const result = configureUserAgentFallback({ app })
+
+    expect(userAgentReads).toBe(0)
+    expect(result).toEqual({ configured: true, userAgent: SANITIZED_UA })
+  })
+
+  it('重复调用保持幂等，不会二次改写', () => {
+    const app = createElectronShapedApp()
+
+    expect(configureUserAgentFallback({ app })).toEqual({ configured: true, userAgent: SANITIZED_UA })
+    expect(configureUserAgentFallback({ app })).toEqual({ configured: false })
+    expect(app.userAgentFallback).toBe(SANITIZED_UA)
   })
 
   it('keeps the UA untouched when it carries no Electron markers', () => {
     const plainUa = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36'
-    const app = { userAgent: plainUa }
+    const app = createElectronShapedApp(plainUa)
 
     const result = configureUserAgentFallback({ app })
 
     expect(result).toEqual({ configured: false })
-    expect(app.userAgentFallback).toBeUndefined()
+    expect(app.userAgentFallback).toBe(plainUa)
   })
 
   it('returns not-configured for a non-Electron-like app object', () => {
@@ -236,9 +268,9 @@ describe('user-agent fallback sanitization', () => {
   })
 
   it('never produces consecutive spaces when stripping tokens', () => {
-    const app = {
-      userAgent: 'Mozilla/5.0 Chrome/150.0.0.0 Electron/43.1.1 Multi-Publish/1.2.3 Safari/537.36',
-    }
+    const app = createElectronShapedApp(
+      'Mozilla/5.0 Chrome/150.0.0.0 Electron/43.1.1 Multi-Publish/1.2.3 Safari/537.36',
+    )
 
     const result = configureUserAgentFallback({ app })
 
@@ -247,9 +279,9 @@ describe('user-agent fallback sanitization', () => {
   })
 
   it('keeps Edge-family browser tokens when sanitizing', () => {
-    const app = {
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36 Edg/150.0.0.0',
-    }
+    const app = createElectronShapedApp(
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36 Edg/150.0.0.0',
+    )
 
     const result = configureUserAgentFallback({ app })
 
@@ -257,3 +289,32 @@ describe('user-agent fallback sanitization', () => {
     expect(result.configured).toBe(false)
   })
 })
+
+// 真实依赖锁：净化函数的正确性前提「Electron App 上没有 userAgent」直接来自
+// 已安装 Electron 的类型声明，而不是我对 API 的记忆。前提一旦被上游改变，
+// 这里必须先变红，避免再次出现「按不存在的 API 写字段、单测靠 mock 全绿」。
+const installedElectronDts = (() => {
+  try {
+    const req = createRequire(import.meta.url)
+    const electronPkgDir = path.dirname(req.resolve('electron'))
+    return readFileSync(path.join(electronPkgDir, 'electron.d.ts'), 'utf8')
+  } catch (_) {
+    return null
+  }
+})()
+
+describe.skipIf(installedElectronDts === null)(
+  'user-agent source contract against installed Electron typings',
+  () => {
+    it('App 接口声明 userAgentFallback 且不声明 userAgent', () => {
+      const appInterfaceStart = installedElectronDts.indexOf('  interface App extends')
+      expect(appInterfaceStart).toBeGreaterThan(-1)
+      const appInterfaceEnd = installedElectronDts.indexOf('\n  }', appInterfaceStart)
+      expect(appInterfaceEnd).toBeGreaterThan(appInterfaceStart)
+      const appInterface = installedElectronDts.slice(appInterfaceStart, appInterfaceEnd)
+
+      expect(appInterface).toMatch(/userAgentFallback: string;/)
+      expect(appInterface.includes('userAgent: string;')).toBe(false)
+    })
+  },
+)

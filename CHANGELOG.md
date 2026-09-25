@@ -1,3 +1,26 @@
+# [未发布] fix(desktop): UA 净化读的是 Electron App 上不存在的 userAgent 字段，知乎登录风控规避从未生效（2026-09-25，fix-zhihu-ua-sanitize）
+
+### 变更
+- **`apps/desktop/electron/startup-compat.js`**：`configureUserAgentFallback` 的 UA 取源由 `app.userAgent` 改为 `app.userAgentFallback`。Electron 的 `App` 接口只暴露 `userAgentFallback`（`userAgent` 挂在 `WebContents` 上），实测真实 Electron 43.1.1 下 `typeof app.userAgent === 'undefined'`，函数第一行即拿到空串并 `return { configured: false }` —— **这段为规避知乎登录风控而写的净化逻辑，自引入起从未执行过一次**，登录页收到的始终是带 `Electron/43.1.1` 与 `Multi-Publish/<ver>` 标记的原始 UA。
+- **`apps/desktop/electron/main.js`**：净化未生效时补 `console.warn`。原先只在成功分支打印，「永久 no-op」这类回归在日志里零痕迹，与静默吞错等价。
+
+### 影响
+- 症状：账户管理新增知乎账号，登录页点「发送手机验证码」被知乎侧拒绝并提示「客户端异常」。当日主进程日志佐证：知乎两次 `auth:open-login` 均走完整 300s 超时（`13:36`、`13:44`），同链路微信/抖音登录 `ok` —— 平台特异性失败，与知乎按 UA 标记拒绝下发验证码的既有记录一致（该文件注释自陈的成因）。
+- UA 是**全站出站指纹**：修复后所有内嵌登录/浏览器标签（知乎、微博、头条、B站等）统一以标准 Chrome UA 出网。回归对照实测净化前后出站头，净化后无任何头部含 `electron` 字样。
+- 待用户侧最终验收：真实点击知乎「发送手机验证码」确认风控放行。若仍被拒，下一步是覆盖 `session.setUserAgent` 的 UA-CH 客户端提示（`Chrome/150.0.7871.114` 完整版本号与 `Sec-CH-UA` 品牌列表仍与正式版 Chrome 的 `150.0.0.0` 口径不同）。
+
+### 测试
+- `apps/desktop/electron/startup-compat.test.js` 夹具全部改为**真实 Electron App 形状**（只有 `userAgentFallback`，不带 `userAgent`）：修复前 4 条断言红，修复后 **18 passed**。
+- 新增两道反复发锁：① 给夹具的 `userAgent` 挂计数字段读取的 getter，断言读取次数为 0（锁「不许读这个字段」的行为，而非只锁输出）；② 真实依赖锁——对已安装的 `node_modules/electron/electron.d.ts` 断言 `App` 接口声明 `userAgentFallback` 且不声明 `userAgent`，把「前提」本身钉住，electron 未安装时 `describe.skipIf` 跳过。
+- 线级验证（不入库，临时探针）：本机回显 HTTP 服务 + 真实 `createSession` auth 分区会话 + `sandbox:true` WebContents，A/B 对照出站 `User-Agent` 头——净化关：含 `ua-probe2/1.0.0` 与 `Electron/43.1.1`；净化开：`...Chrome/150.0.7871.114 Safari/537.36`，两项均 false。
+- QM-1 本地打包验证见 `.quality-gates.md`；QM-6 CCG 双模型外部评审本机 `codeagent-wrapper` 不可用，**未执行登记**。
+
+### 文档
+- `01-docs/learnings.md`：新增「测试全绿的功能从未生效——按运行时不存在的 API 字段写代码，mock 夹具把错误形状固化」。
+- `AGENTS.md` QM-2：新增「宿主 API 字段归属核实」必检项。
+
+---
+
 # [未发布] fix(session-guard): 修 git 2.55 下 hash-object 参数互斥，冷克隆机写保护计划任务得以注册（2026-09-25，fix-session-guard-git255）
 
 ### 变更

@@ -462,6 +462,12 @@ Code review 时除逻辑正确性外，必须逐项检查：
 
 - **预设/种子类语义合同（R85）**：`getAvailablePresets`、`getAvailableTemplates`、`getAvailableProfiles` 等“可配置目录”类 API 必须返回该类别全部内置预设，**不得用“是否已入库”判断能否添加**。种子初始化（`_seedPresets` / `INSERT OR IGNORE`）只表示“目录存在”，不表示“用户已完成配置”；“是否已配置”必须用 `api_key_enc IS NOT NULL AND enabled = 1` 等业务字段判定。修改此类 API 时必须运行 [`model-provider-preset-integration.test.js`](apps/desktop/electron/services/model-provider-preset-integration.test.js) 并覆盖：(1) 空 userData 初始化后预设列表非空；(2) 种子已入库但预设列表仍返回全部项；(3) 用户选预设后保存路径走“ID 冲突 → 降级更新”而非创建重复行。详见 [01-docs/learnings.md 模型预设列表为空 Bug 复盘](01-docs/learnings.md)。
 
+- **宿主 API 字段归属必须先核实（Electron/浏览器 API 不得凭字段名写）**：读 `app.*` / `webContents.*` / 任何宿主对象属性前，必须在**已安装**的类型声明里确认该属性挂在哪个接口上（Electron 为 `node_modules/electron/electron.d.ts`），或运行时打印一次。反例：`configureUserAgentFallback` 读 `app.userAgent`（真实 Electron 上不存在，UA 只在 `app.userAgentFallback`），导致知乎登录风控规避逻辑长期静默 no-op，而单测因手搓 `{app:{userAgent}}` 假形状全绿。配套要求：① mock 的字段集来自 d.ts 或运行时 dump，并保留一条「真实形状」用例（只带宿主真有的字段）；② 关键取源用计数字段 getter 断言「未读错误字段」；③ 前提本身做真实依赖锁（对 `electron.d.ts` 结构断言，缺 electron 时 skip）。
+
+- **静默配置失败必须留日志**：任何以 `{configured: boolean}` / 布尔返回值表达「已生效 / 已跳过」的启动期配置函数，调用点的未生效分支一律 `console.warn` 或 `log.warn`；只在成功分支打印等于吞掉失败，回归在运行日志里零痕迹。
+
+- **出站行为以线级取证为准**：断言「请求头 / UA / 证书 / 编码已设置」时，最终证据必须来自真实链路抓到的出站数据（本机回显 HTTP 服务 + 生产同款 session/webPreferences 做开关 A/B），单测绿不代表线上头部变了。注意 `Sec-CH-UA` 系列客户端提示只在 HTTPS 请求发送，本机 http 回显看不到，不得据此判「不存在」。
+
 - **测试断言不得反向固化错误行为**：任何断言“X 已初始化所以 Y 应为空”的测试必须额外验证“Y 为空是用户期望行为”而非“实现副作用”。当 X 的初始化是系统自动行为（如种子写入）时，Y 的空状态几乎一定是 Bug，必须改为“Y 应返回全部可配置项”。composable 测试不得只 mock IPC 返回空数组，至少包含一条“IPC 返回非空数据 → composable 转发到响应式状态”的真实数据路径用例。
 
 - **GUI 主窗口等待预算**：Electron GUI runner 必须使用条件轮询等待主窗口，等待上限必须覆盖 `createWindow()` 之前所有串行启动阶段的健康检查 timeout 总和并保留余量。修改 Bridge 启动顺序、健康检查 timeout 或窗口创建时机时，必须同步更新假时钟边界回归；不得通过测试专用 skip 开关静默绕过生产启动路径。
