@@ -164,13 +164,15 @@ function configureUserAgentFallback ({ app } = {}) {
 
   // Electron 默认 userAgentFallback 形如：
   // Mozilla/5.0 (...) Multi-Publish/1.2.3 Chrome/150.0.7871.114 Electron/43.1.1 Safari/537.36
+  // dev 模式下 app 名取自 package.json 的 name，可为作用域名 @multi-publish/desktop，
+  // 故产品标记允许以 @ 开头；否则该 token 不匹配、会被整段保留进浏览器 UA。
   // 采用标准 token 白名单：只保留 Mozilla/Chrome/Safari/AppleWebKit 等浏览器原生 token，
   // 剔除 Electron/x.y.z 与 <AppName>/x.y.z（位置无关，避免正则误删 Mozilla/5.0）。
   const KEEP_TOKENS = new Set(['Mozilla', 'Chrome', 'Safari', 'AppleWebKit', 'Gecko', 'like', 'Edg'])
   const sanitized = originalUa
     .split(' ')
     .filter((token) => {
-      const match = token.match(/^([A-Za-z][A-Za-z0-9_.-]*)\//)
+      const match = token.match(/^@?([A-Za-z][A-Za-z0-9_.-]*)\//)
       return !(match && !KEEP_TOKENS.has(match[1]))
     })
     .join(' ')

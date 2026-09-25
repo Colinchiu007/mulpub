@@ -288,6 +288,25 @@ describe('user-agent fallback sanitization', () => {
     // 纯浏览器 UA（含 Edg token）不含 Electron 标记 → 不修改
     expect(result.configured).toBe(false)
   })
+
+  // dev 模式（electron . 直接加载 apps/desktop）下 app 名取自 package.json 的
+  // name = "@multi-publish/desktop"，Electron 会把它塞进 UA。真实运行态 CDP
+  // /json/version 实测残留 `@multi-publish/desktop/0.1.0`：非字母开头的作用域名
+  // 标记若不一起剔除，知乎风控仍可据此识别非标准浏览器。
+  it('剔除以 @ 开头的作用域包名标记（dev 模式真实 UA 形状）', () => {
+    const app = createElectronShapedApp(
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) @multi-publish/desktop/0.1.0 Chrome/150.0.7871.114 Electron/43.1.1 Safari/537.36',
+    )
+
+    const result = configureUserAgentFallback({ app })
+
+    expect(result).toEqual({
+      configured: true,
+      userAgent: SANITIZED_UA,
+    })
+    expect(app.userAgentFallback).toBe(SANITIZED_UA)
+    expect(app.userAgentFallback).not.toContain('@multi-publish')
+  })
 })
 
 // 真实依赖锁：净化函数的正确性前提「Electron App 上没有 userAgent」直接来自

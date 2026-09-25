@@ -3,6 +3,7 @@
 ### 变更
 - **`apps/desktop/electron/startup-compat.js`**：`configureUserAgentFallback` 的 UA 取源由 `app.userAgent` 改为 `app.userAgentFallback`。Electron 的 `App` 接口只暴露 `userAgentFallback`（`userAgent` 挂在 `WebContents` 上），实测真实 Electron 43.1.1 下 `typeof app.userAgent === 'undefined'`，函数第一行即拿到空串并 `return { configured: false }` —— **这段为规避知乎登录风控而写的净化逻辑，自引入起从未执行过一次**，登录页收到的始终是带 `Electron/43.1.1` 与 `Multi-Publish/<ver>` 标记的原始 UA。
 - **`apps/desktop/electron/main.js`**：净化未生效时补 `console.warn`。原先只在成功分支打印，「永久 no-op」这类回归在日志里零痕迹，与静默吞错等价。
+- **`apps/desktop/electron/startup-compat.js`（第二处，由真实运行态复核暴露）**：token 白名单正则由 `^([A-Za-z]…)\//` 改为 `^@?([A-Za-z]…)\//`。dev 模式（`electron .` 加载 `apps/desktop`）下 app 名取自 `package.json` 的 `name`，是**作用域名** `@multi-publish/desktop`；原正则要求 token 以字母开头，`@` 开头一律不匹配 → 该 token 被当作浏览器原生字段整段保留。连真实实例复核时，CDP `/json/version` 实测 UA 仍带 `@multi-publish/desktop/0.1.0`。原单测夹具用的是打包态产品名 `Multi-Publish/1.2.3`（无 `@`），所以这条漏口测不出来。修复后实测：`Electron/`、`@multi-publish`、大小写不敏感的 `multi-publish` 三项全部 false。
 - **`apps/desktop/electron/services/login-network-diagnostics.js` + `auth-view-manager.js`**（可观测性补强，用户选定追加）：新增 `attachAuthResponseDiagnostics`，把「登录被平台风控拒绝」的原因写进主进程日志。此前该失败只表现为 `auth:open-login timeout`（300s 后一条超时），拒绝原因完全不可见。实现复用 `attachCdpDetection` 已 attach 的 debugger，仅 `Network.enable` + 被动 `Network.getResponseBody`，**不新增第二个 attach、不拦截请求**（`Fetch.requestPaused` 会改变登录热路径时序）；仅对已登记平台（zhihu）生效，其余平台零新增监听面。
 
 ### 日志安全口径（新增诊断）
