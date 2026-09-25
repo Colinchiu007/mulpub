@@ -14,10 +14,25 @@
 
 - **「代码里设置了 X」≠「线上发出的请求带 X」：出站行为用本机回显服务抓 A/B（pattern）**：最终判定不靠单测，靠真实链路取证——本机 `http.createServer` 回显 `req.headers['user-agent']`，会话用生产同一个 `createSession()` 分区、`webPreferences` 与生产 `createAuthView` 一致（`sandbox:true`/`contextIsolation:true`），同一脚本跑「不净化 / 净化」两遍对照出站头。补充口径：`Sec-CH-UA` 系列客户端提示**只在 HTTPS 请求上发送**，本机 http 回显看不到，不要把「没看到」当成「不存在」。
 
+## 共享订阅集合被「无 id 就全清」误删：原生视图照常显示而标签栏永不出新标签（fix-tab-subscription-leak，2026-09-25）
+
+- **主进程里的「渲染实例订阅集合」是跨实例共享资源，注销接口不能有无 id 全清兜底（pitfall，本 Bug 第一性原因）**：`WebviewManager._subscribers` 由每个 SPA 实例在 `tabStore.init()` 各加一条，但 `page-manager:unsubscribe-events` 写的是 `if (subscriberId) delete; else clear()`，而 preload 的 `unsubscribeEvents()` **根本不传参** —— 于是 `App.vue` 任一非 home-shell 实例卸载（`tabStore.dispose()`）就把所有实例的订阅一次抹光，且永远无法自愈（没有重连机制）。此后 `_broadcast` 遍历空集合，TabBar 再也收不到 `tab-created`。症状极具误导性：登录视图是原生 `WebContentsView`，`addChildView` 后照常盖在内容区，用户看到的是「登录页在本标签打开了、没开新标签」，第一反应都会去怀疑标签注册逻辑，而它其实完全正常。**判定手法**：见到「内嵌网页显示正常但标签栏不更新」，第一步量主进程订阅集合大小，不要先读 `auth-tab.js`。
+
+- **用 `Date.now()` 作订阅 id：同毫秒两实例撞成同一条，Set 去重后互相持有对方的句柄（pitfall，独立第二成因）**：`'default-' + Date.now()` 在同一毫秒内两次 `subscribe` 返回**完全相同的 id**，`Set` 只留一条，两个实例都以为自己有独立订阅 —— 任一方按 id 注销也会删掉对方的。修 clear 的同时必须把 id 换成「自增序号 + 时间戳(base36) + 随机串」。**教训**：任何「调用方向服务方领取句柄、日后凭句柄归还」的 id，唯一性必须由服务方保证，不能依赖时钟精度。回归测试要断言两次连续 subscribe 得到两个不同 id，否则这条永远测不出来（第一个 Bug 的测试恰好掩盖它 —— 断言 `size===2` 才暴露）。
+
+- **「重启应用就好了」= 状态被重置的订阅/连接类缺陷的强信号（pattern，定位手法）**：本次用户报回退、日志却显示主进程 35ms 内就打了 `Auth login tab opened: wechat_mp`，静态读代码全链路无错。真正的证据链是：① `--remote-debugging-port`（dev 启动自带，用 `netstat -ano | grep <electron主进程pid>` 取真实端口，不要猜 9222）连上运行中的实例；② 在渲染层直接调 `electronAPI.pageManager.getAllTabs()` 拿主进程真值，与 `document.querySelectorAll('[data-testid^="tab-"]')` 的 DOM 实况对照 —— 一次探针就能把「主进程没做 / 广播没人收 / 收到没渲染」三种根因分开；③ 顺手补一次 `subscribeEvents()`，若现象立刻消失即锁定订阅类缺陷。本次正是这第三下把根因钉死的（也说明：**探针可能顺手修好现场，结论要如实标注为「前后对照」而非干净复现**）。
+
+- **多实例化改造会把「单实例时代无害的清理代码」变成跨实例误删（architecture，逃逸根因）**：`dispose() → unsubscribeEvents()` 从 #812 起就存在，单实例时代只有应用退出才走，误删无人察觉；`f7e93ceb`（#2230「新标签内嵌独立 SPA 实例」）引入多实例共存后，同一行代码变成缺陷。**教训**：做「一个改成多个」的架构改动时，必须把「按全局集合 clear()/reset() 的清理点」全量列一遍并逐个改成按自身句柄精确删除，这是该类改造固定的回归面。
+
+- **改 preload 必须重打包两个 bundle，且要用内容断言而非「构建成功」作证（pattern）**：`node apps/desktop/scripts/build-preload.js` 会同时生成 `electron/preload/index.bundle.js` 与 `electron/home-shell-preload.bundle.js`（后者不在 preload 目录下，容易以为只有一个）。构建脚本成功不等于签名真的进去 —— 必须 `grep "unsubscribe-events" index.bundle.js` 看到 `(subscriberId) => ...invoke(..., { subscriberId })` 才算收口。
+
+- **新 worktree 里 electron-builder 会在 renderer 缺失的情况下「打包成功」（pitfall，本轮真实踩到）**：隔离 worktree 从不跑 vite build，apps/desktop/dist 不存在，builder 照样 exit 0 产出 win-unpacked，唯一线索是日志里两条 file source doesn't exist from=.../dist/fonts。启动后 stderr 报 ERR_FILE_NOT_FOUND 指向 app.asar/dist/index.html，窗口白屏但进程活着 4 个 —— 也就是说 AGENTS.md 的「存活不等于通过」在这一步之前根本没机会生效，而「无 stderr 命中」也会被骗过。固化口径：在新 worktree 跑 QM-1 必须先 pnpm run build:vue 再 builder（即 pnpm run build:dir 的语义），并把 asar list 里必须存在 /dist/index.html 作为打包后、启动前的第三道检查。
+
+- **向 bash 里嵌入的 node -e 传含反引号或美元符的文本会静默毁掉文件（pitfall，本轮我自己造成并躲过了自查）**：在双引号 bash 命令串里写 node -e "…反引号…\$…" 时，反引号被 bash 当命令替换执行、内容被替换成命令输出，结果把 learnings.md 的一段文本从句子中间截断，并把下一个条目的一级标题焊进了上一条 bullet，还整段复制了一份。更糟的是我的自查没抓到：多重集校验只测「原行有没有丢」，重复行与焊进去的行都是「只增不减」，报告里写的是「丢失 0 行 ✅」，看起来完全健康。**修法**：改文档一律用编辑工具直接落盘，不经 shell 传参；自查必须双向 —— 既测丢行，也测关键锚点的出现次数（本次就是 preload bullet 出现 2 次、标题出现在非行首位置这两个信号才暴露）。
+
+
+
 ## 批量出片逐镜失败原因被三层静默吞掉——观测缺口的逃逸链与收口（film-gen-shot-error-observability，2026-09-23）
-
-
-
 - **静默吞错的「三层漏斗」：每层各自「合理」，合起来把信息丢光（pitfall）**：单镜失败原因要穿过 `video-gen.generateShotVideo`（失败只 `return {success:false,error}` 不记日志）→ handler `runBatchViaVideoGen`（`r.error` 拿到手却 `onShotProgress(i,'failed')` 不带原因，`getShot` 空 `catch` 把「取原文异常」一律冒充「分镜不存在」）→ `production-driver`（`onShotProgress` 签名根本没有 error 通道、台账 `shots[]` 没有 `error` 字段）。每一层单看都不算 bug（「上层会处理」），串起来就是前端与台账只剩裸 `failed`。**判定手法**：追一条错误信息从产生到落库/上屏的完整路径，任一环「拿到原因却没往下带」就是断点；修的时候必须在**产生层记 warn + 存储层落字段 + 传输层带 reason** 三处同时补，缺一处仍会再吞。**教训**：新增「失败可辨识」类需求，先画这条链、逐环确认有无丢弃，再动手。
 
 - **seam 只测成功路径 = 失败合同根本没被测到（pitfall，逃逸根因）**：既有 `film-engineering.e2e-int` 的 `_testGenerateShotVideo` seam 只返回 `{success:true}`、`production-driver.test` 的 `runBatch` 只调 `onShotProgress(i,'done')`——所有断言都在成功Happy Path 上，`error` 通道哪怕整个不存在也不会红。这就是这个缺口能长期潜伏的直接原因：不是「测试写错」，是「失败场景零覆盖」。**修法**：回归保护测试必须显式构造失败注入（提交 `code≠0` / 无 taskId / 轮询超时 / `catch` / `getShot` 抛异常 / provider 拒绝），并断言**原因字符串逐层可见**（warn 载荷含 shotId+原因、台账 `shots[].error` 非空、事件 `reason` 回显）。凡「错误处理」类改动，先写红测钉死失败注入，再实现。
@@ -15719,3 +15734,11 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **规则（pattern）**：任何「门控首个导航/核心交互」的异步 promise 必须①用超时竞态封顶阻塞时长并 fail-open 降级到既有慢路径（timer 记得 `unref()`，避免钉住事件循环）；②门控解除后的所有延迟回调先做销毁守卫（`view.webContents` 存在性 + `isDestroyed()`），异步窗口期内标签随时可能被用户关闭。
 - **可迁移信号（QM-5④回归模板）**：为每个「导航前置 await」写一对回归测试——(a) 依赖**永久挂起**：fake timers 推进时间，断言导航照常发生且降级路径已注册；(b) 依赖**在目标销毁后才失败**：断言无 unhandledRejection 外溢。只 mock「成功 / 立即失败」两条路径的测试正是这类缺陷的逃逸盲区——#2327 的测试就止步于此。判断手法：看到 `await` 一个非本项目实现的 promise 挡在 `loadURL` 前面，先问「它永不返回怎么办」。
 
+
+## 多行标签列宽须跨行共享 grid，源码契约断言不得锁死未验证的实现写法（account-badge-align，2026-09-25，PR #2382）
+
+- **坑（pitfall，「修一个显示 Bug 引入另一个」）**：PR #2358 为修归属徽章折行，把 `.account-assignees > div` 的列宽从固定 `44px` 改成每行各自的 `max-content minmax(0, 1fr)`。折行修好了，但 `max-content` 只在**单个 grid 容器内**求解——三行是三个互相独立的 grid，每行只按**自己那行**的标签宽度定列宽，于是 2 字的「代理」徽章 34px、3 字的「负责人/运营人」46px，值列左边缘跟着偏 12px。**修复模式**：列定义放到父容器，行元素 `display: contents` 交出自身盒子 → 两列跨行共享宽度，徽章按 grid 默认 `stretch` 撑满等宽、`text-align: center` 保持居中；`color/font-size` 随列定义上移（`display: contents` 仍传递继承）。不写死 px，中英文 locale 自动对齐。
+
+- **坑（pitfall，测试反向固化错误行为）**：同批新增的源码契约用例断言 `toContain('grid-template-columns: max-content minmax(0, 1fr);')`，把**引入错位的实现细节本身**当契约锁死——绿灯反成回归阻力（本次改动必须先改这条断言才能过）。凡 `fs.readFileSync('.vue')` 正则切片的源码契约，断言对象必须是**用户可见不变量**（等宽、不折行、不溢出），不能是某一版实现写法。自查手法：写断言前问「这条断言在 Bug 版本里是否也是绿的？」——是则它抓不住这个 Bug。
+
+- **手法（pattern，jsdom 量不到几何 → 用系统 Edge 实测）**：vitest 跑 jsdom 无布局引擎，CSS 对齐类 Bug 对单测天然免疫；视觉回归也拦不住（`accounts-list` 用例只等 `.mp-workspace .accounts-page` 容器，CI 无账号数据时渲染空态，卡片根本不出现）。本机无 Playwright 浏览器，改用 `playwright-core` + `chromium.launch({ channel: 'msedge', executablePath: 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe' })`：把 `.vue` 的 `<style>` 块正则切出、连同 `styles/tokens.css` 注入空白页，`getBoundingClientRect()` 比对各行徽章 `width`/`right` 与值列 `x` 的去重集合是否为 1。**必须同时跑「修复前实现」确认它会 FAIL**，否则等于没加检查。

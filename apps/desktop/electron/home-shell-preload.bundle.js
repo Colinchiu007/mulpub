@@ -897,7 +897,7 @@ var require_page_manager = __commonJS({
           saveAllUnsavedAccounts: () => ipcRenderer2.invoke("page-manager:save-all-unsaved-accounts"),
           // ── Event subscription ──
           subscribeEvents: () => ipcRenderer2.invoke("page-manager:subscribe-events"),
-          unsubscribeEvents: () => ipcRenderer2.invoke("page-manager:unsubscribe-events"),
+          unsubscribeEvents: (subscriberId) => ipcRenderer2.invoke("page-manager:unsubscribe-events", { subscriberId }),
           // ── 左侧导航栏宽度同步 ──
           setSidebarWidth: (width) => ipcRenderer2.invoke("page-manager:set-sidebar-width", width),
           // T0-6b 壳态互斥：渲染层上报壳态（'workbench'|'browser'），主进程切换内嵌视图可见性
