@@ -21,7 +21,10 @@ try {
     Set-Content -LiteralPath 'apps/tracked.js' -Value "export const tracked = 'v1'`n" -Encoding UTF8
     Set-Content -LiteralPath 'docs/readme.md' -Value '# docs' -Encoding UTF8
     Set-Content -LiteralPath 'node_modules/pkg/index.js' -Value 'module.exports = 1' -Encoding UTF8
-    Set-Content -LiteralPath '.gitignore' -Value "node_modules/`ndist/`n" -Encoding UTF8
+    # 夹具必须与真实仓库同形：真实 .gitignore 含 .agent_context/（见仓库根 .gitignore），
+    # 而守护在拦截时会往仓库根写 .agent_context/write-guard-alert.json 供后续会话感知。
+    # 不在夹具里忽略它，下面的「restore 后 status 仍干净」会把这个设计内的告警文件误判为脏。
+    Set-Content -LiteralPath '.gitignore' -Value "node_modules/`ndist/`n.agent_context/`n" -Encoding UTF8
     & git add -A
     & git commit -q -m 'fixture'
     Pop-Location

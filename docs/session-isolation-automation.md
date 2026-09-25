@@ -64,6 +64,21 @@ worktree 依赖通过 pnpm 全局 store 硬链接复用（`pnpm config get store
 
 健康巡检只读，不会自动 stash、切分支、删除文件或覆盖用户变更；写保护会自动隔离运行时目录的直接写入并把 tracked 文件恢复到 HEAD。异常时通过退出码、用户目录 JSON 和隔离日志暴露问题；恢复动作仍使用 session-init.sh 或 safe-worktree-remove.ps1。
 
+## 冷克隆引导的两个已知拦路石（git 2.55 实测）
+
+新电脑跑 `scripts/bootstrap-write-guard.ps1` 时，会在 `[2/5] 自检` 阶段失败，导致 `[3/5] 注册计划任务` 与 `[4/5] 启动 watcher` 永远到不了。两处原因：
+
+1. **`git hash-object` 参数互斥**：`guard-shared-root-writes.ps1` 的 `Test-MatchesIndex` 曾用 `hash-object --no-filters --path <p> -- <file>`。git 2.55 的 usage 明确 `--path=<file>` 与 `--no-filters` 互斥，同时传是**直接 error 而非降级**，于是守护碰到「被改动的 tracked 文件」整链失败：
+   `error: Can't use --path with --no-filters`。原始字节口径不需要 `--path`；过滤器口径仍由紧随其后的 `$filteredHash` 覆盖，两级比对语义不变。
+2. **自检夹具与真实仓库不同形**：`session-write-guard.test.ps1` 的临时仓库 `.gitignore` 原本只有 `node_modules/` 与 `dist/`，缺 `.agent_context/`（仓库根 `.gitignore` 是忽略它的）。而守护按设计会在仓库根写 `.agent_context/write-guard-alert.json` 供后续会话感知违规，于是断言「restore 后 status 仍干净」把这个设计内的文件误判为脏。
+
+两点排查提示：
+
+- 自检里 `PASS: tracked file is restored from HEAD` 读的是 `git show HEAD:<path>`（HEAD 内容），**不检查工作区文件**，属假 PASS；真正有信号的是紧随其后的 status 干净断言。改这类断言时留意别被它骗过。
+- 手工复现守护行为时，Git Bash 的 `/tmp` 与 Write 工具的 `/tmp` 可能映射到不同盘符目录；给 PowerShell 传路径要用 `cygpath -w` 取真实 Windows 路径，否则会静默命中不存在目录的分支。
+
+修复后 `session-write-guard.test.ps1` 应输出 `PASS: 14 session write guard checks`。
+
 ## 自检
 
     powershell -ExecutionPolicy Bypass -File scripts/session-isolation-automation.test.ps1
