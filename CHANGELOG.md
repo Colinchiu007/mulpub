@@ -18,6 +18,71 @@
 
 ---
 
+# [未发布] fix(应用菜单): 跨端同步收敛——目录增量补齐 / 下发兜底序号 / 运营配置不被目录失败门控 / 启动同步后自动刷新（2026-09-25，app-menu-sync-convergence）
+
+> 生效模型（产品决策）：应用端**只在启动时同步一次**运营配置，运营端改动在客户端**下次启动**生效；那次启动同步完成后侧边栏自动刷新，用户无需任何操作。**应用端界面不出现任何运营相关入口或信息**（`ModelProviders.vue` 既有注释即「运营同步对用户透明：配置卡片已隐藏」）。
+
+### 变更
+- **`ops-center/backend/services/app_menu_service.py`**：`_seed_if_empty`（仅表全空时播种）→ `_provision_from_catalog`，按 `CATALOG` **增量补齐缺失行且只补不改**已有行，四个入口（列表/保存/恢复默认/下发）共用。修复 `copy-library`（#bcd1b663 加入目录）在已部署实例上永久缺席 → 运营端看不到该项、无法配置，而应用端照常显示的漂移。补齐改用 SQLite `INSERT ... ON CONFLICT DO NOTHING`（补齐现在每请求都跑，页面 GET 与客户端 bootstrap 同瞬双插会被 `item_key` UNIQUE 打成 `IntegrityError` → 500）；且**只 flush 不 commit**，事务由各入口统一收口（否则 `upsert_items` 声称的「校验失败整批不写入」会被提前落盘）。
+- **同文件 `get_bootstrap_app_menu`**：DB 缺行项的 `sort_order` 兜底由 `0` 改为**目录序号**。此前 0 会让该项在应用端被顶到一级导航第 2 位（应用端按 `sort_order` 升序渲染），与运营端页面显示的目录位置错位。
+- **同文件 `list_items`**：只返回 `CATALOG` 内的 key。DB 里可能有已从目录移除的历史行（如 `monitor`），而它本就不下发；继续显示会让运营者看到一个应用端不存在、也配置不了的项，重新制造「两侧不同步」错觉。页面与下发从此共用同一份集合。
+- **`apps/desktop/electron/services/ops-center-sync.js`**：模型目录与运行时策略由「catalog 成功 → 才拉 runtime」的门控，改为 `Promise.allSettled` **并行且互不门控**；整体超时预算保持单请求 10s（不叠加为 20s）。新增 `_syncRuntimeBestEffort` / `_applyRuntimeSettled`；`模型服务未就绪` 分支仍拉运行时。
+- **同文件 `applyRuntime`**：新增 `setOnRuntimeUpdated` 通知器（setter 注入，因服务在 bootstrap phase1 构造、那时主窗口不存在），**回调只收 syncedAt、不收配置内容**；回调抛错不影响已应用的运行时状态。
+- **`electron/bootstrap/phase3-services.js`**：接线通知器，向主窗口发送 `ops-center:runtime-updated` 事件（载荷仅 `{ syncedAt }`），窗口未创建/已销毁时静默跳过。
+- **`electron/preload/system.js` + `access-control.js` + `index.bundle.js`（重打包）**：暴露并登记 `onOpsCenterRuntimeUpdated`（public：订阅只收到一个时间戳、不返回运营数据；事件到达后的 `opsCenterSyncAppMenu` 仍受 `authenticated` 门控）。
+- **`src/layouts/MpSidebar.vue`**：`onMounted` 订阅变更事件重拉菜单、`onUnmounted` 成对取消订阅；`loadAppMenu` 改为**仅在取到有效配置时整体替换**，重拉失败保留上一份（不再瞬时坍回本地默认）。**价值点**：启动同步（+3s）晚于侧边栏首帧，此前用户要多重启一次才看得到本次改动，现在启动后数秒内自动到位。
+- **`src/api/ops-center-sync.js`**：新增 `onOpsCenterRuntimeUpdated()` 封装，非 Electron 环境返回空操作。
+- **`ops-center/frontend/src/views/AppMenu.vue`**：页面提示改写——目录自动补齐（无需点「恢复默认」）；生效时机说明为「客户端启动时同步一次，改动在下次启动生效」，并明确**应用端不暴露任何同步入口**。
+
+### 根因与逃逸（摘要，全文见专项文档 §16）
+- 三个独立缺陷叠加：① 目录新增项永不落库；② 缺行兜底 `sort_order=0`；③ `appMenu` 被模型目录同步成功门控。
+- 逃逸主因是**测试拓扑**：`test_app_menu_api.py` 的 autouse 夹具每例 `drop_all/create_all` 重建空表，「存量库 + 目录演进」这条边在测试里不存在；桌面端 63 例中无一条让 catalog 失败，门控路径从不执行。
+- CI 只做桌面端内部自洽校验（`check-route-registry.js` 对 Python `CATALOG` 仅提示人工同步），漂移发生在数据库里，CI 结构上看不见。
+- 环境侧证据：受影响机器 profile 的 `settings` 表既无 `opsCenterSync` 也无 `opsCenterRuntime` → 从未成功完成一次同步。
+- **QM-6 双模型外部评审补获两处自审漏项**：① 文档与页面文案指引用户去点一个产品已有意隐藏的「立即同步」入口（`ModelProviders.vue:580` 注明「运营同步对用户透明：配置卡片已隐藏」），使「免重启生效」的承诺没有闭环；② 补齐从「仅空表跑一次」变成「每请求都跑」后新引入的并发唯一键冲突、以及提前 commit 破坏批次原子性。两者均已修，并把生效模型按产品决策收敛为「启动时同步一次」。**但第二轮复评证明首轮那条 Critical 只修了一半**：当时只改了 `AppMenu.vue` 与专项文档 §10.1，同一文档的 §2 约束表、§6.2 流程图、§10 提示清单 T1、§14 遗留 L1 共 4 处仍在教用户去点「立即同步」，`ops-center/docs/PRD.md:812`、`ops-center/docs/OPERATIONS.md:194` 另有 2 处同类残留。本轮按「全仓 sweep 而非逐处改」收口：6 处全部改写为「启动时同步一次、下次启动生效、界面不提供手动入口」，并在 PRD 里如实登记 `runSyncNow` 自卡片隐藏后已无生产调用方（本 PR 未一并删除）。**第三轮收口 + 一处被推翻的自我结论**：claude 判 `critical_cleared: true`（20 处命中全定性、0 残留），codex 前两次尝试 RC=1 无输出。**但 codex 第三次成功输出推翻了我「全仓扫到 0 命中」的判据**：本仓 `01-docs/PRD.md`、`01-docs/learnings.md` 等文档含 NUL 字节，`grep`/`rg` 默认将其判为二进制并**静默跳过**（同一文件 `grep -rn` 计 1、`grep -rna` 计 10），我的扫描与 claude 的复核都踩在这个盲区上。改用 `-a` 复扫后另得 **15 处现行文档残留**（`01-docs/PRD.md` §7.4.5 十处、`PRD-sync-zero-config.md` 两处、`PRD-MODEL-LIST-SORT-ORDER-2026-09-23.md` 一处、`product-manual.md` 两处）。逐条核对后：**全部属于「模型服务运营同步卡片」那条旧线**——卡片由更早的 PR 有意隐藏却未同步文档，与本 PR 的应用菜单链路无关；而本 PR 所辖的 `AppMenu.vue` / `MpSidebar.vue` / 下发与订阅链路 `-a` 复扫为 **0**。故结论限定为：本 PR 范围内 Critical 清零；15 处既有文档债登记为另案（`tasks.md` 第 52 项），**不在本 PR 顺手改写**——那需要该功能线现行行为的准确口径，凭猜改会制造新的假事实。收口判据同时升级并写入 `AGENTS.md`：**全仓关键词复扫必须带 `-a`，且须确认扫描器没有把这些文件当二进制**。另我本行初稿曾把这批残留误记为「第三轮 codex 的反对意见、其引文是历史 blob」，核对原始输出后已撤回该说法。
+
+### 测试
+- `ops-center/backend/tests/test_app_menu_api.py` 15 → **21**：缺行补齐 / 回填不覆盖运营者配置 / 页面与下发集合与顺序恒等 / **并发补齐不得抛 IntegrityError** / **被拒批次不得落任何盘** / **目录外历史行两侧都不出现**。三条新断言按 AGENTS.md 做过「回退到旧实现即红」的实测（并发用例以 5 个 session 真实触发双插）。
+- **本 PR 自己引入的第二颗雷（第四轮定位）**：上面那条并发补齐用例用 5 路 `async_session` 放大竞态窗口，会在默认队列连接池里留下**绑定当前事件循环**的连接；pytest-asyncio 每条用例换新循环，后续模块从池里拿到这些连接会读到过期 WAL 读快照，看不见自己前面测试刚建的父行，于是在**完全无关的** `test_prompt_eval_engine_dual.py` 报 `FOREIGN KEY constraint failed`。#2397 的按模块清库**不足以**覆盖它。修法：制造并发 session 的用例在 `finally` 里 `await engine.dispose()` 归还池。反证实测——装回该行全量 **455 passed**，仅把它替换成 `pass` 立刻 **1 failed / 454 passed**。
+- `electron/services/ops-center-sync.test.js` +6（目录 500 仍应用菜单 / 未就绪仍拉 runtime / 通知器触发且载荷只带时间戳 / 未接线兼容 / 回调抛错隔离），并把「超时」用例升级为并行契约（假时钟单次推进 + 断言两个端点各被请求一次），63 → **69** 绿。
+- `electron/bootstrap/phase3-services.test.js` +1（channel 与载荷只带 syncedAt + 窗口不可用静默跳过），29 绿。
+- `electron/preload.test.js`：`onOpsCenterRuntimeUpdated` 进 `LISTENER_CASES`，并新增行为级用例（channel 名、event/payload 拆参、按同一 channel+handler 退订）——计数断言证不了绑错 channel 与漏退订。
+- `src/layouts/MpSidebar.appmenu.test.js` +3（事件到达免重启 / 重拉失败保留上一份 / 卸载取消订阅），9 → 12 绿。
+- 本轮受影响 5 个测试文件合计 **487 passed**；locale 成对与 CJK 基线、route-registry、债务熔断门禁 PASS。
+
+### 文档
+- `01-docs/FEATURE-APP-MENU-2026-09-15.md` → v1.2：修正长期过期的目录表（19 项含 `monitor` → 20 项）、已撤销的「不支持跨组」限制与生效时机；新增 §3.2 目录供给规则、§6.2/6.4 两通道并行下发与运营配置变更通知链、§10.1 桌面端同步失败可见性（定稿为「仅主进程日志」）、**§16 跨端同步收敛修复（QM-5 Bug 反思循环 5 步产出物，含 16.6 遗留与部署待办）**。
+- `openspec/changes/app-menu-sync-convergence/`（proposal / design D1-D7 / specs/app-menu/spec.md / tasks）：`openspec validate --strict` 通过；D6 记录「启动时同步一次」生效模型决策，D7 记录并发与事务收口；Rejected 补「轮询」与「死键文案」两条；spec 用「运营同步对用户透明」Requirement 取代原「部分成功提示」Requirement。
+- `01-docs/PRD.md`（应用菜单章节两处拷贝同步更新）：目录表 20 项、流程、排序与分组语义、交互逻辑、显示项、提示文字要点。
+- `01-docs/learnings.md` 置顶新增跨端目录漂移复盘（+35 行，无删除）。
+- `AGENTS.md` QM-2 新增两条 MUST 门禁：「跨端目录常量 ↔ 存量数据必须前向兼容」「多通道同步编排不得失败互锁」。
+- `.quality-gates.md` 追加本次执行记录与 QM-6 双模型评审轮次。
+
+# [未发布] test(ops-center): 根治后端全量套件的跨模块库污染（2026-09-26，ops-backend-test-isolation）
+
+### 现象与归属
+- `ops-center/backend` 全量 `pytest tests/` 稳定红 1 例：`test_prompt_eval_engine_dual.py::test_dual_summary_zero_denominator_null` → `sqlite3.IntegrityError: FOREIGN KEY constraint failed`。**单跑该文件 28 例全绿、单跑该例也绿**，典型「单跑绿、全量红」。
+- 在**不含本次改动**的 main 上本地全量跑，得到**同一条失败**（1 failed / 431 passed）→ 非某个业务 PR 引入。该测试文件自 2026-08-14（#822）就在 main；`ops-center CI` 只在 PR 改到 ops-center 路径时触发、main 自身从不跑全量后端套件，所以这条组合长期无人执行。
+
+### 根因
+- 30 余个 API 测试文件都在**模块级**先 `os.environ["OPS_DB_PATH"] = <自己的临时库>`、再 `from config import settings`；而 `settings` 是**导入期单例**（`tests/conftest.py` 开头早就为签名密钥写过同类注释，只补了密钥没补库路径）。pytest 按字母序收集，第一个 import config 的文件会永久绑定 `db_path`，**其后所有文件自设的临时库一律失效** → 整个 session 共用同一个 SQLite 文件。
+- 再叠加各文件 teardown 的 `Base.metadata.drop_all`（拆的是共用库的全部表）与用例普遍隐含的「我建的第一条记录 id 就是 1」：跨模块累计的 rowid 让父行查不到，写子表即触发外键失败。
+
+### 修复（集中兜住，不要求 30 个文件各自改写）
+- `ops-center/backend/tests/conftest.py`：新增 `_reset_shared_database()` 与按模块 autouse 的 `_isolate_database_per_test_module`。每个测试模块的第一个用例前，用**同步** SQLAlchemy 引擎（不碰 async 连接池、不受事件循环切换限制）幂等 `create_all` 补回被 `drop_all` 拆掉的表，再按 `sorted_tables` **逆序**清空全部行并复位 `sqlite_sequence`，让每个模块都从「表齐全 + rowid 从 1 起」的确定状态起跑。删除顺序天然满足外键依赖，故不使用在事务内即为 no-op 的 `PRAGMA foreign_keys`。
+
+### 回归锁（带反证）
+- 新增 `tests/test_zz_conftest_isolation_a_wrecker.py`（制造方：插 3 行 `prompt_eval_cases` 推进 rowid，teardown `drop_all` 拆整库）与 `tests/test_zz_conftest_isolation_b_consumer.py`（消费方：**不建表不清库**，断言进入时表为空、新建父行 `id == 1`，并用该 id 写外键子行 `prompt_eval_runs` 提交——即原故障点）。文件名 `zz_` 保证它们排在既有模块之后，不改变「谁是第一个绑定 settings 的文件」。
+- 反证（证明这把锁真能失败）：把 conftest 里的 `_reset_shared_database()` 临时改为 `pass` 后，消费方立刻 `sqlite3.OperationalError: no such table: prompt_eval_cases`（1 failed / 1 passed）；恢复后回归对 2 passed、全量 **449 passed**。
+
+### 纪律落地
+- `AGENTS.md` QM-3 新增 MUST：「测试库/配置状态必须按模块确定化，不得依赖导入顺序」，含归属纪律——全量红而单跑绿时，先在未改动的 main 上跑同一条全量对照，既不认领既有缺陷为本次引入，也不以「不是我改的」放行。
+
+
+---
+
+
+
 # [未发布] fix(tab): 跨实例事件订阅按 subscriberId 精确注销，修复「添加账号登录页不出新标签」（2026-09-25，fix-tab-subscription-leak）
 
 ### 变更

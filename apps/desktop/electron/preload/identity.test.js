@@ -8,14 +8,19 @@ describe('createIdentityApi', () => {
       removeListener: vi.fn(),
     }
     const api = createIdentityApi(ipcRenderer)
-    expect(Object.keys(api)).toEqual(['identityGetState', 'identitySignIn', 'identitySwitchAccount', 'identitySignOut', 'onIdentityStateChanged'])
+    expect(Object.keys(api)).toEqual(['identityGetState', 'identitySignIn', 'identitySwitchAccount', 'identitySignOut', 'identitySessions', 'identitySessionsRevokeOthers', 'identityNotifications', 'identityNotificationsMarkRead', 'onIdentityStateChanged'])
     expect(api).not.toHaveProperty('identityGetAccessToken')
     api.identityGetState()
     api.identitySignIn()
     api.identitySwitchAccount()
     api.identitySignOut()
+    api.identitySessions()
+    api.identitySessionsRevokeOthers()
+    api.identityNotifications()
+    api.identityNotificationsMarkRead()
     expect(ipcRenderer.invoke.mock.calls.map(([channel]) => channel)).toEqual([
       'identity:get-state', 'identity:sign-in', 'identity:switch-account', 'identity:sign-out',
+      'identity:sessions', 'identity:sessions-revoke-others', 'identity:notifications', 'identity:notifications-mark-read',
     ])
     const callback = vi.fn()
     const dispose = api.onIdentityStateChanged(callback)
