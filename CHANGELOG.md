@@ -30,6 +30,24 @@
 
 
 
+# [未发布] fix(docs-gate): 文档同步门禁的脚本工具豁免改指仓库根 scripts/（此前为不存在的 team/scripts/）（2026-09-25，fix-docs-gate-scripts-whitelist）
+
+### 变更
+- **`scripts/check-docs-sync.sh`**：第二阶段「跳过脚本工具」的豁免由 `^team/scripts/` 改为 `^scripts/`。`team/` 目录在本仓库根本不存在（`git ls-files team/*` 为空），该路径是通用模板残留（`doc-gate.yml` 底部「启用方式」原文即要求"确保 team/scripts/ 在仓库根目录"），于是豁免永不生效，根级 `scripts/` 下 83 个工具脚本被一律判为「运行时代码变更」而强制要求同步文档。这与 AGENTS.md「分层分支策略」（`scripts/` 属流程层，允许 main 直接小步提交）以及 `guard-shared-root-writes.ps1` 自己的放行清单（含 `scripts`）互相矛盾。
+- **`.github/workflows/doc-gate.yml`**：底部模板说明改写为真实口径，并显式提示勿再写 `team/scripts/`（防同类漂移复发）。
+
+### 影响
+- 纯 `scripts/` 工具 PR 不再被误拦；`.github/`、`openspec/`、`.ccg/`、`package-lock.json` 等既有豁免口径不变，运行时代码缺文档仍照样拦红。
+- 直接动因：PR #2375（写保护注册修复）只改 `scripts/` 却被本门禁拦红，同期其他 PR 因 diff 里带 `01-docs/` 而侥幸通过，故该漂移长期未被发现。
+
+### 测试
+- 新增 `scripts/check-docs-sync.test.sh`（6 用例，在 `os` 临时目录自建带 origin 的真实 git 仓库跑真脚本，非 mock）：正向锁「纯 `scripts/` 放行」，负向锁「`apps/` 缺文档仍拦红、豁免不得外溢」，并回挂 `.github/`、`openspec/`、`package-lock.json` 三条既有豁免防回归。
+- 该测试接入 `doc-gate.yml`，作为硬门禁之前的自检步骤（此前 `check-docs-sync.sh` 全仓零测试，是本轮逃逸分析的结论）。
+- 反证：用 `git show HEAD:scripts/check-docs-sync.sh` 的修复前副本跑同一测试，第 1 项精确失败并复现 CI 原文「❌ 代码/配置有变更，但未同步更新 PRD 或相关文档」，其余 5 项不受影响；修复后 6 项全 PASS。
+- `node --test .github/scripts/workflow-contract.test.js` 22 项全过（含「Doc Gate 对所有 main PR 运行真实文档与测试门禁」），确认新增步骤未触碰 workflow 结构契约。
+
+---
+
 # [未发布] feat(运营中心): 会员权益开通页——订阅手动开通转发 engine admin grant（2026-09-25，member-center-c2-grant）
 
 ### 变更
@@ -41,6 +59,7 @@
 - 新增 `tests/test_member_grant_api.py` 5 例（503 未配置/本地校验/转发载荷与 Bearer/上游透传/非 admin 拒绝）全绿；ops-center 后端全量 447 passed；前端 build 通过。
 
 ---
+
 # [未发布] fix(session-guard): 修 git 2.55 下 hash-object 参数互斥，冷克隆机写保护计划任务得以注册（2026-09-25，fix-session-guard-git255）
 
 ### 变更
