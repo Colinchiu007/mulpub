@@ -207,7 +207,7 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(46)
   })
 
-  it('system 模块应导出 147 个方法', () => {
+  it('system 模块应导出 148 个方法', () => {
     const { createSystemApi } = require('./preload/system')
     const r = createSystemApi(ipcRenderer)
     // 136 + opsCenterSyncGet/Save/Now/Runtime/PipelineOptions（运营后台同步 + 运行时策略）
@@ -217,12 +217,13 @@ describe('preload 子模块方法数', () => {
     // + updateInstallNow（侧边栏「新版本」点击即退出安装）
     // + opsCenterSyncAppMenu（#1839 运营中心侧边栏显隐排序下发）
     // + onUploadProgress（#1853 分片上传实时进度事件）
+    // + onOpsCenterRuntimeUpdated（2026-09-25 运营配置变更后广播，侧边栏免重启刷新）
     // - 10（分屏监控 webview:* API 随监控功能移除，网页查看统一走 pageManager）
-    expect(Object.keys(r).length).toBe(147)
+    expect(Object.keys(r).length).toBe(148)
   })
 
-  it('合并后 api 总键数应为 320（accountSetActive + pipelineConfirmStageGate + P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus/servicesRestart + urlCollectNeedsStealth + promptLibraryGet/Save/Activate + updateInstallNow + opsCenterSyncAppMenu + onUploadProgress + renderStartAiVideo + PR-2 F8 getRecentImpactSnapshots - webview 分屏监控 API 移除 + A1 identitySessions/identitySessionsRevokeOthers/identityNotifications/identityNotificationsMarkRead）', () => {
-    expect(Object.keys(api).length).toBe(329)
+  it('合并后 api 总键数应为 330（accountSetActive + pipelineConfirmStageGate + P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus/servicesRestart + urlCollectNeedsStealth + promptLibraryGet/Save/Activate + updateInstallNow + opsCenterSyncAppMenu + onUploadProgress + renderStartAiVideo + PR-2 F8 getRecentImpactSnapshots - webview 分屏监控 API 移除 + A1 identitySessions/identitySessionsRevokeOthers/identityNotifications/identityNotificationsMarkRead + onOpsCenterRuntimeUpdated（330 = main 的 329 + 本 PR 新增 1）', () => {
+    expect(Object.keys(api).length).toBe(330)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
@@ -428,13 +429,14 @@ describe('Story2Video 媒体导入桥接', () => {
   })
 })
 
-// === 监听器类方法返回 cancel 函数（抽样 4 个）===
+// === 监听器类方法返回 cancel 函数（抽样 5 个）===
 describe('监听器类方法返回 cancel 函数', () => {
   const LISTENER_CASES = [
     'onProgress',
     'onUpdateStatus',
     'onAuthViewOpened',
     'onQrCodeOpened',
+    'onOpsCenterRuntimeUpdated',
   ]
 
   it.each(LISTENER_CASES)('%s(callback) 应返回 cancel 函数', (method) => {
@@ -447,6 +449,25 @@ describe('监听器类方法返回 cancel 函数', () => {
     expect(ipcRenderer.removeListener).not.toHaveBeenCalled()
     cancel()
     expect(ipcRenderer.removeListener).toHaveBeenCalledTimes(1)
+  })
+
+  // 计数断言只能证明「方法数没变」，证不了通道名/载荷/退订是否接对。
+  // 绑错 channel、回调转发丢参数、cancel 漏移除监听，都会在真实窗口里才暴露。
+  it('onOpsCenterRuntimeUpdated 应绑定正确 channel、透传载荷且按同一 channel 退订', () => {
+    const seen = []
+    const cancel = api.onOpsCenterRuntimeUpdated((payload) => seen.push(payload))
+
+    expect(ipcRenderer.on).toHaveBeenCalledTimes(1)
+    const [channel, handler] = ipcRenderer.on.mock.calls[0]
+    expect(channel).toBe('ops-center:runtime-updated')
+
+    // 主进程 send 的第一个参数是 event，业务载荷在第二位
+    handler({ senderFrame: {} }, { syncedAt: 'server-t' })
+    expect(seen).toEqual([{ syncedAt: 'server-t' }])
+
+    cancel()
+    // cancel 必须用同一 channel + 同一 handler 退订，否则会漏移除监听（窗口重建后重复拉取）
+    expect(ipcRenderer.removeListener).toHaveBeenCalledWith(channel, handler)
   })
 })
 

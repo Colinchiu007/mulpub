@@ -279,6 +279,17 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
     if (opsCenterSync && typeof opsCenterSync.setOpsCenterUrl === 'function' && identityEnv && identityEnv.OPS_CENTER_URL) {
       opsCenterSync.setOpsCenterUrl(identityEnv.OPS_CENTER_URL)
     }
+    // 运营配置（应用菜单/公告/功能开关）落地后广播渲染端重拉：
+    // 启动那次同步晚于侧边栏首帧渲染，不广播则用户要多重启一次才看到本次改动。
+    // 载荷只带服务端同步时间，不带配置内容（读取仍走受验签保护的 IPC 路径）。
+    if (opsCenterSync && typeof opsCenterSync.setOnRuntimeUpdated === 'function') {
+      opsCenterSync.setOnRuntimeUpdated((payload) => {
+        const win = getMainWin()
+        if (!win || win.isDestroyed()) return
+        const syncedAt = (payload && typeof payload.syncedAt === 'string' && payload.syncedAt) || new Date().toISOString()
+        win.webContents.send('ops-center:runtime-updated', { syncedAt })
+      })
+    }
 
     const cloudPublisher = new CloudPublisher({
       orchestratorUrl: process.env.ORCHESTRATOR_URL || '',
