@@ -1,3 +1,33 @@
+# [未发布] feat(desktop): 公众号登录视图挂会话级诊断 + 出码计时，「二维码刷很久」从日志黑洞变为可归因（2026-09-25，auth-qr-instrument）
+
+### 变更
+- **`electron/services/auth-view-manager.js`**：`openLogin` 在 `createSession` 之后、`loadURL` **之前**挂 `attachLoginNetworkDiagnostics(authSession, { platform, accountId })`。补齐 #1887 文档 §7 自己列为「未来扩展」而未做的项——诊断此前只挂在 `persist:account-*`，而「添加账号」用的是每次新建的 `persist:auth-*` 分区，登录 iframe 内二维码请求失败**不触发**外层 `did-fail-load`，两条叠加使该路径成为日志黑洞。挂接为旁路：`try/catch` + warn，观测不得成为新故障点。另 `did-finish-load` 记录相对 `loadURL` 的耗时与当时的页面可见性；`show()/hide()` 记录可见性切换（判定后台节流嫌疑的唯一入口）。
+- **`electron/services/login-network-diagnostics.js`**：新增出码计时，按 `#n` 序号记录 `getqrcode` 每次完成相对挂接点的耗时、状态码与 `content-length`（上限 6 条）。**刻意只跟 `getqrcode`、不跟 `l/qrconnect`**——后者是 15s 一轮的长轮询，计入会无限刷屏并掩盖「首码到底几秒到达」这个唯一要回答的问题。`status=200 + contentLength=0` 即 #1888 记录的微信静默拒绝特征，现在可直接从日志判定。监听器仍只在 `onCompleted` 注册一次（保住既有「恰好一次」契约）。
+- **`test-setup.js`**：`session.fromPartition` 由恒返回同一个 `defaultSession` 改为每次返回新 session 对象（贴近真实 Electron：分区即独立 session），并补 `webRequest`/`resolveProxy` spy 容器与 `getVisibilityState`。诊断幂等标记写在 session 实例上，共享单例会让「监听恰好注册一次」的断言依赖用例顺序。经确认全仓 0 处引用 `defaultSession`，无既有依赖。
+
+### 影响
+- 零行为变更、零 UI/文案变化（locales zh/en 未触碰，`check-locale-sync --pair-base HEAD` PASS）。用户在登录视图上看不到任何差别，差别只出现在主进程日志里。
+- 下次复现「二维码慢」时，`grep -E "LoginNetDiag|login page finished|login view setVisible"` 即可在「首屏本身就慢 / 出码迟到 / 身份被服务端静默拒绝 / 出码窗口落在 hidden 时段被节流」四类之间定生杀，不必再靠外部浏览器反推。
+- 本轮已用实测排除三个看似合理的假设（详见调查文档 §3）：本机 Clash Verge 代理**不在**微信链路路径上（CN 出口 IP 直连与走代理相同、`l/qrconnect` hold 15.183s vs 15.180s、代理与直连渲染 DOM 字节完全一致）；`res.wx.qq.com` 的 8–9s 异常是微信 CDN 对 404 自身限速而非代理；`#1888` 的旧 Cookie 根因结构上不可能命中每次新建的空分区。
+
+### 测试
+- 新增 `login-network-diagnostics.test.js` 5 例（出码计时格式、200 空体特征、无响应头边界、6 条上限与序号序列 `toEqual` 精确断言、长轮询不刷屏）+ `auth-view-manager.test.js` 4 例（诊断挂接且 filter **精确等于**微信链路域名数组、首屏耗时+可见性、可见性切换、挂接失败不阻断）。TDD 红灯先行已实测确认：`login-network-diagnostics.test.js` 实现前 **4 failed | 15 passed**（`toEqual` 实收 `[]`），`auth-view-manager.test.js` 实现前 **4 failed | 26 passed**（`AssertionError: expected "info" to be called with arguments … Number of calls: 0`）。两处红灯都是「断言真取不到东西」而非崩溃报错，且同期 26 例既有用例全绿，顺带证明测试桩改动未造成回归。
+- 定向 117 passed（含共用该诊断模块的 `webview-manager.test.js`）；因动过 `setVisible` 语义，按 AGENTS.md 补跑 `overlay-view-suspension.test.js` + `shell-mode-6b.test.js` **17 passed**。
+- 全量 `apps/desktop` vitest：**1 failed | 649 files passed | 1 skipped**（1146s）。唯一失败为 `feedback.test.js` 的 `EPERM: operation not permitted, symlink`——本机未开 Windows 开发者模式的既有环境红灯，与本次改动无关（同日 `main` 基线实测同为该 1 项）。
+
+### 文档
+- 新增 `01-docs/INVESTIGATE-LOGIN-QR-SLOW-2026-09-25.md`：症状/调用链（带行号）/六个已排除假设的实测数据/剩余两嫌疑/**§5.4 复现后按日志读的判定表**/QM-5 五步。
+- `AGENTS.md` QM-2 新增「登录承载路径的观测与节流口径单一来源」：4 条登录承载路径都必须挂诊断并显式声明 `backgroundThrottling` 取值；禁止把异步观测 `await` 在首个导航之前。
+- `01-docs/learnings.md` 记录 `auth-partition-observability-gap`（pitfall + pattern + 测试桩坑 + 反向排除记录）。
+
+### 未覆盖（如实登记）
+- 本机无已登录 profile，无法在此复现真实出码，判定表待应用侧复现后回填。
+- `waitForAuthorizationGuide`（`Accounts.vue:771`）首次未确认时**硬阻断**登录视图创建，是另一条独立成因，本次未插桩。
+- `qrcode-login.js`（对话框「扫码」模式）未改动：本入口不涉及，避免扩大爆炸半径；该路径另有 `did-finish-load` 后才开始检测 + 2s 轮询无首扫的结构性延迟。
+- QM-6 CCG 双模型外部评审：本机 `codeagent-wrapper` 不在 PATH，**未执行**。
+
+---
+
 # [未发布] fix(session-guard): 修 git 2.55 下 hash-object 参数互斥，冷克隆机写保护计划任务得以注册（2026-09-25，fix-session-guard-git255）
 
 ### 变更

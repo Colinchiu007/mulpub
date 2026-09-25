@@ -19,6 +19,9 @@ const {
 // 账号资料（昵称/头像/平台ID）采集器：登录成功那一刻随凭证一起产出（PRD-ACCOUNT-PROFILE-INFO-2026-09-23）
 const accountProfile = require('@multi-publish/shared-utils/src/account-profile')
 const { attachCdpDetection } = require('./auth-view-cdp')
+// 会话级网络诊断：iframe 内的二维码请求失败不会触发外层 webContents 的 did-fail-load，
+// 不挂它就等于对「二维码刷很久」完全无感知
+const { attachLoginNetworkDiagnostics } = require('./login-network-diagnostics')
 const { createSession, setCookies, restoreLocalStorage, restoreIndexedDB, createAuthView } = require('./auth-view-session')
 // 内嵌视图定位唯一来源：必须用「客户区」尺寸，禁用 getBounds() 外框尺寸（见 view-bounds.js）
 const { computeEmbeddedViewBounds, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } = require('./view-bounds')
@@ -115,12 +118,42 @@ class AuthViewManager {
 
   /** 显示登录视图（虚拟标签切换回来时调用） */
   show() {
-    if (this.currentView) this.currentView.setVisible(true)
+    if (this.currentView) {
+      this.currentView.setVisible(true)
+      this._logVisibilityChange(true)
+    }
   }
 
   /** 隐藏登录视图（切换到其他标签时调用） */
   hide() {
-    if (this.currentView) this.currentView.setVisible(false)
+    if (this.currentView) {
+      this.currentView.setVisible(false)
+      this._logVisibilityChange(false)
+    }
+  }
+
+  /**
+   * @param {import('electron').WebContentsView | null} view
+   * @returns {string}
+   */
+  _visibilityOf(view) {
+    try {
+      return String(view.webContents.getVisibilityState())
+    } catch (_e) {
+      // 视图可能已销毁；此值仅用于日志定位，不参与登录判定
+      return 'unknown'
+    }
+  }
+
+  /**
+   * 出码窗口若整体落在 hidden 时段，Chromium 的后台节流会推迟二维码 iframe 的定时器与重绘
+   *（本视图未设 backgroundThrottling:false，而账号标签路径 tab-lifecycle.js 显式关了它）。
+   * 因此必须留下切换时刻，否则「刷很久」无法与节流对上。
+   */
+  _logVisibilityChange(shown) {
+    log.info('AuthView', 'login view setVisible=' + shown +
+      ' platform=' + this.currentPlatform +
+      ' visibility=' + this._visibilityOf(this.currentView))
   }
 
   /**
@@ -252,6 +285,14 @@ class AuthViewManager {
       this._rejectLogin = reject
 
       const authSession = createSession(accountId, session)
+      // 补齐 #1887 §7 遗留项：诊断此前只挂在 persist:account-*，
+      // 而「添加账号」用的是每次新建的 persist:auth-* 分区，出码链路完全无日志。
+      // 旁路观测，挂接失败只告警，不得让可观测性变成新的故障点。
+      try {
+        attachLoginNetworkDiagnostics(authSession, { platform, accountId })
+      } catch (e) {
+        log.warn('AuthView', 'login network diag attach failed: ' + ((e && e.message) || 'unknown'))
+      }
       const view = createAuthView(accountId, this._getPreloadPath(), authSession)
       this.currentView = view
       const attempt = this._createLoginAttempt()
@@ -263,6 +304,7 @@ class AuthViewManager {
       this._positionView()
       view.setVisible(true)
       // R49 修复：loadURL 返回 Promise，必须 .catch()
+      const loadStartedAt = Date.now()
       view.webContents.loadURL(loginUrl).catch(function () { /* ignore nav errors */ })
 
       // 通知渲染进程：登录视图已打开（触发虚拟登录标签显示）
@@ -290,6 +332,10 @@ class AuthViewManager {
       // 注：若登录页加载失败（只有 did-fail-load），phase 保持 true，本会话退化为
       // 手动“我已完成登录”/CDP 完成，属 fail-closed 的可接受行为。
       view.webContents.on('did-finish-load', () => {
+        // 首屏耗时 + 当时的页面可见性：与 LoginNetDiag 的 qr response 计时对照，
+        // 就能分清「首屏本身就慢」与「首屏快但出码迟到」两类完全不同的根因
+        log.info('AuthView', 'login page finished after ' + (Date.now() - loadStartedAt) +
+          'ms platform=' + platform + ' visibility=' + this._visibilityOf(view))
         if (attempt && attempt.initialRedirectPhase) attempt.initialRedirectPhase = false
       })
 

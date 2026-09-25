@@ -187,3 +187,86 @@ describe('login-network-diagnostics — onCompleted handler', () => {
     expect(log.info).not.toHaveBeenCalled()
   })
 })
+
+// 出码计时：persist:auth-* 登录视图此前零日志，二维码"刷很久"无法归因。
+// 只跟踪 getqrcode（二维码字节本体），不跟踪 l/qrconnect（15s 长轮询会无限刷屏）。
+describe('login-network-diagnostics — 出码计时（getqrcode）', () => {
+  const QR_URL = 'https://mp.weixin.qq.com/cgi-bin/scanloginqrcode?action=getqrcode&random=1'
+
+  function getCompletedHandler (ses) {
+    return ses.webRequest.onCompleted.mock.calls[0][1]
+  }
+
+  function attach () {
+    const ses = createSession()
+    mod.attachLoginNetworkDiagnostics(ses, { platform: 'wechat_mp', accountId: 'auth-1' })
+    return ses
+  }
+
+  // 刻意不打桩 Date.now：vitest 自身也会调用 Date.now，mockReturnValueOnce 的取值队列会被
+  // 无关消费错位，留下顺序依赖的假红（AGENTS.md 2026-09-17 长期红灯教训）。
+  // 耗时数值用结构正则锁格式（负数/NaN 不匹配 \d+，同样能抓），
+  // 可确定性断言的部分（序号序列、字段有无）用 toEqual 精确断言 —— 满足 QM-3 结构断言口径。
+
+  it('首个 getqrcode 完成 → 记录 tag/序号/耗时(ms)/状态/体长度', () => {
+    const ses = attach()
+    getCompletedHandler(ses)({
+      url: QR_URL,
+      statusCode: 200,
+      responseHeaders: { headers: [{ name: 'Content-Length', value: '7632' }] }
+    })
+
+    expect(log.info).toHaveBeenCalledTimes(1)
+    expect(log.info.mock.calls[0][0]).toBe('LoginNetDiag')
+    expect(log.info.mock.calls[0][1]).toMatch(
+      /^\[wechat_mp\/auth-1\] qr response #1 after \d+ms status=200 contentLength=7632$/)
+  })
+
+  it('HTTP 200 + content-length 0（微信静默拒绝特征）→ 如实记录 contentLength=0', () => {
+    const ses = attach()
+    getCompletedHandler(ses)({
+      url: QR_URL,
+      statusCode: 200,
+      responseHeaders: { headers: [{ name: 'content-length', value: '0' }] }
+    })
+
+    expect(log.info.mock.calls[0][1]).toMatch(
+      /^\[wechat_mp\/auth-1\] qr response #1 after \d+ms status=200 contentLength=0$/)
+  })
+
+  it('响应头缺失 → 不追加 contentLength 字段，耗时仍被记录（边界）', () => {
+    const ses = attach()
+    getCompletedHandler(ses)({ url: QR_URL, statusCode: 200 })
+
+    expect(log.info.mock.calls[0][1]).toMatch(
+      /^\[wechat_mp\/auth-1\] qr response #1 after \d+ms status=200$/)
+  })
+
+  it('出码尝试逐次编号，超过上限后不再记录（防反复刷新刷屏）', () => {
+    const ses = attach()
+    const handler = getCompletedHandler(ses)
+
+    for (let i = 0; i < 8; i++) handler({ url: QR_URL, statusCode: 200 })
+
+    const seq = log.info.mock.calls
+      .map(function (c) { return String(c[1]) })
+      .filter(function (m) { return m.indexOf('qr response #') !== -1 })
+      .map(function (m) { return m.replace(/after \d+ms/, 'after Xms') })
+    expect(seq).toEqual([
+      '[wechat_mp/auth-1] qr response #1 after Xms status=200',
+      '[wechat_mp/auth-1] qr response #2 after Xms status=200',
+      '[wechat_mp/auth-1] qr response #3 after Xms status=200',
+      '[wechat_mp/auth-1] qr response #4 after Xms status=200',
+      '[wechat_mp/auth-1] qr response #5 after Xms status=200',
+      '[wechat_mp/auth-1] qr response #6 after Xms status=200'
+    ])
+  })
+
+  it('长轮询 l/qrconnect 的 200 不计入出码日志（回归：既有"200→无日志"契约不被破坏）', () => {
+    const ses = attach()
+    getCompletedHandler(ses)({ url: 'https://long.open.weixin.qq.com/connect/l/qrconnect?uuid=x', statusCode: 200 })
+
+    expect(log.info).not.toHaveBeenCalled()
+    expect(log.warn).not.toHaveBeenCalled()
+  })
+})

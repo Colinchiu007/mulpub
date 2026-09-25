@@ -15701,3 +15701,12 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **规则（pattern）**：任何「门控首个导航/核心交互」的异步 promise 必须①用超时竞态封顶阻塞时长并 fail-open 降级到既有慢路径（timer 记得 `unref()`，避免钉住事件循环）；②门控解除后的所有延迟回调先做销毁守卫（`view.webContents` 存在性 + `isDestroyed()`），异步窗口期内标签随时可能被用户关闭。
 - **可迁移信号（QM-5④回归模板）**：为每个「导航前置 await」写一对回归测试——(a) 依赖**永久挂起**：fake timers 推进时间，断言导航照常发生且降级路径已注册；(b) 依赖**在目标销毁后才失败**：断言无 unhandledRejection 外溢。只 mock「成功 / 立即失败」两条路径的测试正是这类缺陷的逃逸盲区——#2327 的测试就止步于此。判断手法：看到 `await` 一个非本项目实现的 promise 挡在 `loadURL` 前面，先问「它永不返回怎么办」。
 
+
+## 观测机制被标注「未来扩展」时，新承载路径会长期是日志黑洞（auth-partition-observability-gap，2026-09-25）
+
+- **坑（pitfall）**：#1887 建 `attachLoginNetworkDiagnostics` 时只在 `WebviewManager` 的 `persist:account-*` 分支挂接，把「auth 独立窗口同样挂接」写进文档 §7 当**未来扩展**。此后「添加账号」用的 `persist:auth-*` 分区**一个日志都没有**，而它的登录 iframe 请求失败**不触发**外层 `did-fail-load`——两条叠加，用户报「二维码刷很久」时主进程完全无感知，只能靠外部浏览器复现反推。机制文档里的「待办/未来扩展」不等于「安全」：它描述的是**已知的观测缺口**，缺口存在的每一天都在积累无法归因的工单。
+- **规则（pattern）**：新建任何「旁路观测」机制时，必须**同一 PR 覆盖全部同类承载路径**（本项目登录承载有 4 条：`AuthViewManager.openLogin` / 账号标签 `createNewTabPage` / `QrCodeLogin` / `loginSilent` 隐藏窗口），或在 spec 里把未覆盖路径登记为**显式风险 + 判定影响面**，不得写成中性语气的「未来扩展」。判据：问一句「这条路径出问题，我能不能从日志里看出是网络还是应用」。
+- **可迁移信号（QM-5④回归模板）**：观测挂接要用**行为断言**而非「调用过某函数」——`auth-view-manager.test.js` 断言 `session.webRequest.onCompleted` 收到 `{ urls: [...] }` 且用 `toEqual` 精确比域名数组（改 `URL_FILTERS` 即红），而不是 spy 掉诊断模块断言「被调用过」（那只能证明 mock 生效）。
+- **配套坑（tool）**：诊断的幂等标记写在 session 实例上（`ses.__loginNetDiagAttached`）。测试桩若让 `session.fromPartition` 恒返回同一个 `defaultSession`，标记会跨用例残留，使「监听注册恰好一次」的断言依赖用例顺序——假红/假绿温床。桩应每次返回新 session 对象（真实 Electron 语义：分区即独立 session）。
+- **反向排除记录**：本次先用实测排掉了 3 个看似合理的假设，全部有据（CN 出口 IP 直连与走代理相同→微信流量本就走 DIRECT；`l/qrconnect` hold 15.183s vs 15.180s→代理未掐长轮询；Edge 代理/直连渲染 DOM 字节完全一致）。教训：**`res.wx.qq.com` 的 8–9s 不是代理问题，是微信 CDN 对 404 自身限速**，直连同样 1–8s；异常耗时务必做 A/B 对照再下结论，否则会把工单修到不存在的根因上。详见 `01-docs/INVESTIGATE-LOGIN-QR-SLOW-2026-09-25.md` §3。
+- **编辑工具的行尾陷阱（pitfall，本轮真实代价）**：`learnings.md` 是 CRLF 文件，用 Edit 工具在其尾部追加一段，会把**相邻无关的 8 行**静默重排（`git diff --numstat` 报 24 增 16 删，`git diff -w` 却报 8 增 0 删 → 差额纯是行尾）。改法：`git checkout HEAD -- <单文件>` 回退后用 **Node 全程 Buffer 追加**（`fs.readFileSync` 得 Buffer，段落 `Buffer.from(text,'utf8')`，先把 `\n`→`\r\n` 再 concat 写回）。**切勿**用 `latin1` 读写再混入 utf8 字符串——往返对原内容无损，但新追加的中文会被按单字节打乱成乱码。中转文件别放 `/tmp`：Git Bash 的 `/tmp` 与 Node 解析的 `/tmp`（= `D:\tmp`）映射不同，实测 ENOENT。
