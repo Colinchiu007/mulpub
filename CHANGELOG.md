@@ -1,3 +1,21 @@
+# [未发布] fix(accounts): 账号管理页工具栏逐字竖排修复——8 列 grid 换成可换行 flex（2026-09-26，fix-accounts-toolbar-overflow）
+
+### 变更
+- **`apps/desktop/src/views/Accounts.vue`**：`.account-controls` 由 8 列 `grid-template-columns`（`e3e33af0` 引入）改为 `display: flex; flex-wrap: wrap` + 显式收缩分工——按钮/图标组 `flex: 0 0 auto` 不收缩，只让两个搜索框与筛选下拉收缩（下拉配 `text-overflow: ellipsis`）；`.filter-tabs button`、`.account-count` 补 `white-space: nowrap`；同步清理已失效的 `justify-self` / `grid-template-columns` 断点声明。
+- **根因**：该 grid 各列 min-content 之和约 1600px，而真实用户视口为 1920 物理 ÷ Windows 125% 缩放 = 1536 CSS，减 200 侧边栏仅 1336px。Grid 无换行机制，只能横向溢出并把 `auto` 轨道压回 min-content；中文可在任意字符间断行，故轨道退化成「1 个汉字宽」→「全部/已登录/未登录/收藏」逐字竖排、统计文字折 3 行、底部出现横向滚动条。同行按钮组幸免，只因 `.account-command-bar .page-button` 早已有 `nowrap`——同族坑当时只修了一半。
+
+### 影响
+- 1536 视口工具栏恢复单行、零横向溢出；1440/1336/1100 视口优雅换行（2–3 行），任何宽度不再出现逐字竖排。
+- 单行代价：负责人/发布人两个下拉在窄屏以省略号收口（如「负责人…」）。产品文案「（暂无数据）」未改动，因它是空态的唯一提示。
+
+### 测试
+- `apps/desktop/src/views/Accounts.test.js` 新增源码契约断言：`.account-controls` 必须 `display:flex` + `flex-wrap:wrap` 且不得出现 `grid-template-columns`；`.filter-tabs button` 与 `.account-count` 必须 `white-space:nowrap`。**反证**：五条断言在 `git show HEAD:` 的修复前副本上全部 FAIL、修复后全部 PASS。
+- 真实渲染验证（真实组件 + 本地 Vite + 无头 Edge 实测轨道宽度）：修复前 1336 容器溢出 470px、按钮 35×65；修复后 1536 视口单行零溢出、按钮 44×30 / 57×30 横排。
+- `vitest run src/` 全量 212 文件 / 3533 passed / 2 skipped / 0 failed；`eslint --quiet` 干净。
+- **逃逸分析结论**：单元测试无布局引擎；视觉回归 `accounts-list.png` 基线（1920×1080 CSS）**捕获时缺陷已存在**（基线里四个状态按钮本就是两行竖排），像素 diff 恒为 0。该基线需重新捕获，且视觉回归应补「按缩放折算的 CSS 视口」用例——详见 `01-docs/learnings.md`。
+
+---
+
 # [未发布] fix(docs-gate): 文档同步门禁的脚本工具豁免改指仓库根 scripts/（此前为不存在的 team/scripts/）（2026-09-25，fix-docs-gate-scripts-whitelist）
 
 ### 变更

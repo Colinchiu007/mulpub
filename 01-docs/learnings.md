@@ -15701,3 +15701,21 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **规则（pattern）**：任何「门控首个导航/核心交互」的异步 promise 必须①用超时竞态封顶阻塞时长并 fail-open 降级到既有慢路径（timer 记得 `unref()`，避免钉住事件循环）；②门控解除后的所有延迟回调先做销毁守卫（`view.webContents` 存在性 + `isDestroyed()`），异步窗口期内标签随时可能被用户关闭。
 - **可迁移信号（QM-5④回归模板）**：为每个「导航前置 await」写一对回归测试——(a) 依赖**永久挂起**：fake timers 推进时间，断言导航照常发生且降级路径已注册；(b) 依赖**在目标销毁后才失败**：断言无 unhandledRejection 外溢。只 mock「成功 / 立即失败」两条路径的测试正是这类缺陷的逃逸盲区——#2327 的测试就止步于此。判断手法：看到 `await` 一个非本项目实现的 promise 挡在 `loadURL` 前面，先问「它永不返回怎么办」。
 
+## 工具栏 8 列 grid 的「最小内容宽度」超过真实视口，中文轨道被压成逐字竖排——视觉回归基线视口口径错位（accounts-toolbar-overflow，2026-09-26）
+
+- **Bug 现象**：账号管理页工具栏右侧「全部/已登录/未登录/收藏」四个按钮逐字竖排（实测 35×65px），`N 个平台，M 个账号` 折成 3 行，底部出现横向滚动条。同一行的「一键检测/批量操作/添加账号」却完全正常。
+
+- **第一性原因（pitfall）**：`e3e33af0`（2026-08-04）把工具栏排成 8 列 `grid-template-columns: ... auto auto auto auto auto minmax(100px,auto)`，其**最小内容宽度之和 ≈ 1600px**。CSS Grid 没有换行机制：容器一旦窄于该值，只能横向溢出并把 `auto` 轨道压回 min-content。而**中日韩文本可在任意字符间断行**，`auto` 轨道的 min-content 就是「1 个汉字 + padding」≈ 35px，于是文案退化成逐字竖排。同提交里 `.account-command-bar .page-button { white-space: nowrap }` 恰好保护了按钮组——这解释了「为什么只有两处坏」，也说明当时已踩过同族坑、只是没扫全。
+
+- **逃逸链（QM-5②）**：
+  - 单元测试：JSDOM 无布局引擎，`Accounts.test.js` 只断言 `.account-controls` 存在性，对轨道宽度零感知 → 必然漏。
+  - 视觉回归 `test:visual:pixel`：**基线把 Bug 当成了正确答案**（AGENTS.md「测试断言不得反向固化错误行为」在视觉层的翻版）。实查 `tests/visual-testing/base-screenshots/accounts-list.png`（1920×1080 CSS）：其中「全部/已登录/未登录/收藏」四个按钮**已经是两行竖排**（`已登`/`录`），即基线捕获时缺陷就已存在，此后像素 diff 恒为 0，永远绿。叠加第二层口径错位：基线用 1920 CSS 视口，而**真实用户是 1920 物理像素 ÷ Windows 125% 缩放 = 1536 CSS，减 200 侧边栏 = 1336 容器**，比基线窄 384px，破图程度从「两行」恶化成「逐字竖排」。两层叠加使该缺陷在 CI 完全不可见。
+  - 断点错配：`@media (max-width: 1100px)` 以**视口宽度**为条件，而真正的约束量是**轨道总宽**，两者之间 1100–1600px 的整段区间无人看守。
+
+- **修复（pattern）**：改 `display: flex; flex-wrap: wrap` + 显式收缩分工——按钮/图标组一律 `flex: 0 0 auto`（不参与收缩），只让两个搜索框与筛选下拉收缩（下拉配 `text-overflow: ellipsis`），并给 `.filter-tabs button`、`.account-count` 补 `white-space: nowrap`。窗口不足时整条工具栏优雅换行，任何宽度都不再逐字竖排。实测（真实组件 + 真实 Vite + 无头 Edge）：1536 视口单行零溢出，1440/1336/1100 视口换行且文案正常。
+
+- **可迁移判据**：凡用 `grid-template-columns` 硬编码列数排一行工具栏/表单头，先算「各列 min-content 之和」再对照**最低支持分辨率的 CSS 宽度（物理像素 ÷ 缩放因子 − 侧栏）**；含中文的轨道若为 `auto`/`minmax(100px,auto)` 且未 `nowrap`，等于埋了一颗逐字竖排的雷。CJK 场景下 `auto` 轨道的最小宽度不是「词」而是「字」，这一点与英文布局直觉相反。
+
+- **回归保护**：`Accounts.test.js` 新增源码契约断言（沿用项目既有 `fs.readFileSync('.vue')` 切片惯例）——`.account-controls` 必须 `display:flex` + `flex-wrap:wrap` 且**不得**出现 `grid-template-columns`；`.filter-tabs button` 与 `.account-count` 必须 `white-space:nowrap`。已反证：五条断言在旧实现上全部 FAIL、新实现全部 PASS。
+
+- **待收口的机制缺口（未在本轮落地）**：① `accounts-list.png` 基线含缺陷，本修复会使其产生像素 diff，需在装有 Playwright 浏览器的环境用 `test:visual:update-baseline` 重新捕获并人工审核（本机无浏览器缓存，未能本地跑 `test:visual:pixel`）；② 视觉回归应补一档「按 Windows 常见缩放折算后的 CSS 视口」（1536×912、1366×768）用例——只按 1920 CSS 拍基线，等于给缩放用户留了盲区；③ 基线捕获后应做一次「基线自身是否已破图」的人工抽检，否则错误会被永久固化为参照物。

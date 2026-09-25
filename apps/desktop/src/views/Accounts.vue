@@ -1182,8 +1182,8 @@ onUnmounted(() => {
   outline-offset: 2px;
 }
 .account-controls {
-  display: grid;
-  grid-template-columns: minmax(220px, 320px) auto 1fr;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 14px;
   padding: 14px 24px 10px;
@@ -1207,9 +1207,9 @@ onUnmounted(() => {
 .clear-search { position: absolute; right: 6px; width: 26px; height: 26px; display: grid; place-items: center; border: 0; background: transparent; color: #92939c; cursor: pointer; }
 .clear-search svg { width: 13px; height: 13px; }
 .filter-tabs { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border-radius: 7px; background: var(--color-bg-inset); }
-.filter-tabs button { min-height: 30px; padding: 4px 11px; border: 0; border-radius: 5px; background: transparent; color: #6f7079; font-size: var(--font-size-sm); cursor: pointer; }
+.filter-tabs button { min-height: 30px; padding: 4px 9px; border: 0; border-radius: 5px; background: transparent; color: #6f7079; font-size: var(--font-size-sm); white-space: nowrap; cursor: pointer; }
 .filter-tabs button.active { background: var(--color-bg-card); color: #5048e5; box-shadow: 0 1px 3px rgba(28, 28, 35, 0.12); }
-.account-count { justify-self: end; color: #85858f; font-size: var(--font-size-xs); }
+.account-count { color: #85858f; font-size: var(--font-size-xs); white-space: nowrap; }
 .batch-toolbar { min-height: 42px; display: flex; align-items: center; gap: 12px; padding: 6px 24px; border-bottom: 1px solid #e8e8ec; background: var(--color-bg-inset); }
 .batch-toolbar label { display: inline-flex; align-items: center; gap: 7px; font-size: var(--font-size-sm); cursor: pointer; }
 .batch-toolbar input { width: 15px; height: 15px; accent-color: #5048e5; }
@@ -1308,8 +1308,7 @@ onUnmounted(() => {
 }
 .floating-close-button svg { width: 15px; height: 15px; }
 @media (max-width: 900px) {
-  .account-controls { grid-template-columns: 1fr; }
-  .account-count { justify-self: start; }
+  .account-count { margin-left: 0; }
   .account-workspace { grid-template-columns: 1fr; }
   .platform-filter-panel { overflow-x: auto; flex-direction: row; border-right: 0; border-bottom: 1px solid var(--border-light, #e8e8ec); padding: 10px 12px; }
   .platform-filter-heading { display: none; }
@@ -1323,22 +1322,32 @@ onUnmounted(() => {
 </style>
 
 <style scoped>
-.account-controls { grid-template-columns: minmax(160px, 220px) minmax(220px, 1fr) auto auto auto auto auto minmax(100px, auto); }
+/* 工具栏收缩预算：原先用 8 列 grid 排布，最小内容宽度约 1600px，而常见窗口
+   （1920 物理 / 125% 缩放 = 1536 CSS，减 200 侧边栏 = 1336）容纳不下；grid 没有换行机制，
+   只能横向溢出并把最右侧轨道压到 min-content——中文可在任意字符间断行，
+   「全部/已登录/未登录/收藏」因此被压成逐字竖排。改为 flex-wrap + 显式收缩分工：
+   按钮与图标组一律不收缩，只有两个搜索框和筛选下拉参与收缩（下拉用省略号收口），
+   窗口实在不足时整条工具栏换行兜底，不再出现逐字竖排。 */
+.account-controls { gap: 10px; padding: 14px 20px 10px; }
+.account-controls > * { min-width: 0; }
+.account-sort-controls, .account-view-toggle, .account-command-bar, .filter-tabs, .account-count { flex: 0 0 auto; }
+.account-count { margin-left: auto; }
 /* 账号卡片网格列口径单一来源：加载骨架 mp-skeleton-grid 与真实卡片栅格 account-card-grid 消费同一组 CSS 变量，
    两端列数与间距天然一致；width 100% 让骨架栅格在 flex 居中的 loading-state 内仍占满面板，
    避免 auto-fill 在不确定宽度下塌缩成 1 列（即"加载中 1 列 → 加载完突然多列"布局跳动的根因）。 */
 .account-results-panel { --account-grid-columns: repeat(auto-fill, minmax(280px, 1fr)); --account-grid-gap: 24px; }
 .account-card-grid { grid-template-columns: var(--account-grid-columns); gap: var(--account-grid-gap); }
 .loading-state .mp-skeleton-grid { width: 100%; grid-template-columns: var(--account-grid-columns); gap: var(--account-grid-gap); }
-.platform-search-box { min-width: 0; }
-.account-command-bar { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; }
-.account-command-bar .page-button { white-space: nowrap; }
-.account-toolbar-selects { display: flex; align-items: center; gap: 12px; }
+.platform-search-box { flex: 1 1 112px; min-width: 84px; }
+.account-controls > .search-box:not(.platform-search-box) { flex: 1 1 112px; min-width: 84px; }
+.account-command-bar { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.account-command-bar .page-button { white-space: nowrap; padding: 5px 8px; }
+.account-toolbar-selects { display: flex; align-items: center; flex: 1 1 180px; min-width: 148px; gap: 8px; }
 .account-sort-controls { display: inline-flex; align-items: center; gap: 4px; }
-.account-sort-controls select { min-width: 116px; height: 36px; border: 1px solid #e8ebf2; border-radius: 8px; padding: 0 10px; background: #f8f9fc; color: #5f6475; font-size: var(--font-size-sm); }
+.account-sort-controls select { width: 92px; min-width: 0; height: 36px; border: 1px solid #e8ebf2; border-radius: 8px; padding: 0 10px; background: #f8f9fc; color: #5f6475; font-size: var(--font-size-sm); text-overflow: ellipsis; }
 .account-sort-controls button { width: 36px; height: 36px; border: 1px solid #e8ebf2; border-radius: 8px; background: #f8f9fc; color: #5048e5; font-size: var(--font-size-md); line-height: 1; cursor: pointer; }
 .account-sort-controls button:focus-visible { outline: 2px solid #5048e5; outline-offset: 2px; }
-.account-toolbar-selects select { min-width: 132px; height: 36px; border: 1px solid #e8ebf2; border-radius: 8px; padding: 0 12px; background: #f8f9fc; color: #9aa0b2; font-size: var(--font-size-sm); }
+.account-toolbar-selects select { flex: 1 1 0; min-width: 0; height: 36px; border: 1px solid #e8ebf2; border-radius: 8px; padding: 0 8px; background: #f8f9fc; color: #9aa0b2; font-size: var(--font-size-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .account-view-toggle { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid #e8ebf2; border-radius: 8px; background: #f8f9fc; }
 .account-view-toggle button { width: 32px; height: 30px; border: 0; border-radius: 6px; background: transparent; color: #8b92a7; font-size: var(--font-size-md); cursor: pointer; }
 .account-view-toggle button[aria-pressed="true"] { background: var(--color-bg-card); color: #5048e5; box-shadow: 0 1px 3px rgba(44, 48, 77, .12); }
@@ -1353,7 +1362,6 @@ onUnmounted(() => {
 @media (max-width: 1100px) { .account-toolbar-selects { display: none; } }
 @media (max-width: 720px) { .account-view-toggle { display: none; } }
 @media (max-width: 900px) {
-  .account-controls { grid-template-columns: 1fr; }
   .account-toolbar-selects { flex-wrap: wrap; }
   .account-sort-controls { flex-wrap: wrap; }
   .account-command-bar { justify-content: flex-start; flex-wrap: wrap; }

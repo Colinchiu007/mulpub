@@ -1252,6 +1252,21 @@ describe("AccountsView", () => {
     expect(vueSrc).toMatch(/\.account-identity\s*\{\s*min-width:\s*0/);
   });
 
+  // 回归保护：工具栏排布模型（commit e3e33af0 引入的 8 列 grid 曾在 1536 CSS 视口下
+  // 横向溢出 470px，把「全部/已登录/未登录/收藏」压成逐字竖排——见下方断言说明）
+  it("账号工具栏用可换行 flex 排布，中文控件不得被压成逐字竖排", () => {
+    const vueSrc = fs.readFileSync("./src/views/Accounts.vue", "utf8");
+    const controlsBlocks = vueSrc.match(/\.account-controls\s*\{[^}]*\}/g).join("\n");
+    // 固定列数的 grid 没有换行机制：轨道最小内容宽度之和一旦超过容器就只能横向溢出，
+    // 而中文可在任意字符间断行，被压缩的轨道会退化成 1 个汉字宽（逐字竖排）。
+    expect(controlsBlocks).toMatch(/display:\s*flex/);
+    expect(controlsBlocks).toMatch(/flex-wrap:\s*wrap/);
+    expect(controlsBlocks).not.toMatch(/grid-template-columns/);
+    // 含中文文案的控件组必须显式禁止折行，否则其 min-content 只有 1 个汉字宽。
+    expect(vueSrc.match(/\.filter-tabs button\s*\{[^}]*\}/)[0]).toMatch(/white-space:\s*nowrap/);
+    expect(vueSrc.match(/\.account-count\s*\{[^}]*\}/)[0]).toMatch(/white-space:\s*nowrap/);
+  });
+
   // 回归保护：loadGroups 必须在 onMounted 时被调用
   // 此 bug 曾导致 Accounts.vue 报 70 次 console error（commit d016596 修复）
   it("calls loadGroups on mount", async () => {
