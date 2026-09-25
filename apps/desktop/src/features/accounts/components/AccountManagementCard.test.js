@@ -365,4 +365,11 @@ describe('账号卡片显示修复（PRD-ACCOUNT-CARD-DISPLAY-FIX-2026-09-24）'
     expect(vueSrc).toContain('grid-template-columns: max-content minmax(0, 1fr);')
     expect(vueSrc).toMatch(/\.account-assignees > div > span \{[^}]*white-space: nowrap;/)
   })
+  it('归属标签三行共用同一 grid 列，徽章等宽、值列左边缘对齐（源码契约）', () => {
+    const vueSrc = fs.readFileSync('./src/features/accounts/components/AccountManagementCard.vue', 'utf8')
+    // 列定义必须在 .account-assignees 上，行元素用 display: contents 交出自身盒子，
+    // 否则每行各自 max-content 取自己那行的宽度，「代理」比「负责人」窄。
+    expect(vueSrc).toMatch(/\.account-assignees \{[^}]*grid-template-columns: max-content minmax\(0, 1fr\);/)
+    expect(vueSrc).toMatch(/\.account-assignees > div \{[^}]*display: contents;/)
+  })
 })
