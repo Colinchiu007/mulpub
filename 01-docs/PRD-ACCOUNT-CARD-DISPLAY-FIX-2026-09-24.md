@@ -122,3 +122,50 @@ ESM 孪生文件 `*.browser.js`（具名 `export`），并在 `apps/desktop/vite
 **验证标准**：起 vite dev 后 `GET /features/accounts/components/AccountManagementCard.vue`，
 transform 结果中的 import 必须解析到 `account-name-guard.browser.js` 且该 URL 返回 200、含 `export function isNoiseAccountName`。
 单测通过 ≠ dev 运行时可用，涉渲染层新导入一律补本条探测。
+
+---
+
+## 9. 追加修复：归属标签三行徽章等宽对齐（2026-09-25，PR #2382）
+
+**现象**：卡片网格视图下「负责人 / 运营人 / 代理」三行徽章右边缘与值列左边缘参差（用户截图红框处）。
+
+### QM-5 ① 第一性原因
+
+`be181b69`（PR #2358，本文档主体）为修「徽章折行」，把 `.account-assignees > div` 的列宽从固定 `44px`
+改成每行各自的 `max-content minmax(0, 1fr)`。折行修掉了，但 `max-content` 只在**单个 grid 容器内**求解——
+三行是三个互相独立的 grid，每行只按自己那行的标签宽度定列宽：2 字的「代理」徽章 34px，
+3 字的「负责人/运营人」46px，值列起点随之偏 12px。**属「修一个显示 Bug 引入另一个」。**
+
+### QM-5 ② 逃逸链
+
+| 层级 | 为什么没拦住 |
+|---|---|
+| 单元测试 | #2358 同批新增的「徽章不换行（源码契约）」用例断言 `toContain('grid-template-columns: max-content minmax(0, 1fr);')`，恰好把**引入错位的实现细节本身**锁成契约，对「列宽是否跨行共享」零断言 |
+| 单元测试（环境） | vitest 跑在 jsdom，无布局引擎，任何几何错位对它天然免疫 |
+| 视觉回归 | `accounts-list` 用例只等页面容器 `.mp-workspace .accounts-page`，CI 无账号数据时渲染空态，卡片根本不出现 |
+| 人工审查 | 清单里没有「多行标签列右边缘对齐」这一项 |
+
+### QM-5 ③ 系统性漏洞
+
+两类：**断言质量不足**（源码文本契约把致 Bug 的实现写法当契约固化，绿灯反成回归阻力）+
+**测试场景缺失**（CSS 几何无真实布局引擎断言）。
+
+### QM-5 ④ 修复与回归保护
+
+列定义上移到 `.account-assignees`，行元素改 `display: contents` 交出自身盒子 → 两列跨三行共享宽度，
+徽章按 grid 默认 `stretch` 撑满等宽、`text-align: center` 保持居中；`color/font-size` 随列定义一并上移
+（`display: contents` 仍传递继承）。不写死像素，中英文 locale 均自动对齐。
+
+- **回归锁**：`AccountManagementCard.test.js` 新增契约用例，断言「列定义在容器上 + 行元素 `display: contents`」，
+  回退成每行独立 grid 即红。
+- **几何实测（反证检查有效）**：`playwright-core` 驱动系统 Edge，样式直接取 `.vue` 的 `<style>` 块连同
+  `styles/tokens.css` 注入空白页，`getBoundingClientRect()` 比对三行徽章 `width`/`right` 与值列 `x`：
+  修复前实现 **FAIL**（46/46/34，值列 54/54/42）→ 证明该检查能抓住本 Bug；
+  修复后中文 **PASS**（46/46/46，值列 54 全等）、英文 **PASS**（63.13 全等）。
+- **验收补充**：账号卡片三行归属标签徽章等宽、右边缘齐平、值列左边缘齐平（中/英文各查一次）。
+
+### QM-5 ⑤ 防再次发生
+
+已落 `01-docs/learnings.md`（account-badge-align 一节）：多行标签列宽须跨行共享 grid；
+源码契约断言只能锁**用户可见不变量**（等宽/不折行/不溢出），不得锁某一版实现写法；
+jsdom 量不到几何，CSS 对齐类改动须用真实浏览器实测并同时验证「修复前实现会 FAIL」。
