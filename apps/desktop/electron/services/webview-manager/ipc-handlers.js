@@ -108,18 +108,45 @@ module.exports = {
       } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
 
-    ipcMain.handle('page-manager:subscribe-events', withSenderCheck(function (_, arg) {
+    ipcMain.handle('page-manager:subscribe-events', withSenderCheck(function (event, arg) {
       try {
-        var subscriberId = (arg && arg.subscriberId) || 'default-' + Date.now()
+        // id 必须逐次唯一：同一毫秒内多个 SPA 实例订阅会取到相同值，
+        // Set 去重后两方共享一条订阅，任一方注销即误删另一方。
+        self._subscriberSeq = (self._subscriberSeq || 0) + 1
+        var subscriberId = (arg && arg.subscriberId) ||
+          'sub-' + self._subscriberSeq + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8)
         self._subscribers.add(subscriberId)
+        // 按 sender 记账并在渲染进程销毁时回收：注销已不再全清，若崩溃/被杀的实例
+        // 无人回收，其 id 会永久驻留，使每次广播对同一主窗口多发一条重复 IPC。
+        var sender = event && event.sender
+        if (sender && typeof sender.once === 'function') {
+          var owned = self._senderSubscribers.get(sender)
+          if (!owned) {
+            owned = new Set()
+            self._senderSubscribers.set(sender, owned)
+            sender.once('destroyed', function () {
+              self._senderSubscribers.delete(sender)
+              owned.forEach(function (id) { self._subscribers.delete(id) })
+            })
+          }
+          owned.add(subscriberId)
+        }
         return { code: 0, data: { subscriberId: subscriberId } }
       } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
 
     ipcMain.handle('page-manager:unsubscribe-events', withSenderCheck(function (_, arg) {
       try {
+        // 只按调用方自身的 id 注销。缺失 id 时不做任何删除：_subscribers 是跨
+        // 渲染进程实例共享的集合，清空会让其他实例永久收不到 tab-created/tab-switched
+        // （登录页照常弹出，但 TabBar 不再出现新标签）。
         var subscriberId = (arg && arg.subscriberId) || ''
-        if (subscriberId) { self._subscribers.delete(subscriberId) } else { self._subscribers.clear() }
+        if (subscriberId) {
+          self._subscribers.delete(subscriberId)
+          self._senderSubscribers.forEach(function (ids) { ids.delete(subscriberId) })
+        } else {
+          log.warn('WebviewManager', 'unsubscribe-events 缺失 subscriberId，已忽略')
+        }
         return { code: 0 }
       } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
     }))

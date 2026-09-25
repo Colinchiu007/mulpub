@@ -33,8 +33,8 @@ function createPageManagerApi(ipcRenderer) {
       saveAllUnsavedAccounts: () => ipcRenderer.invoke('page-manager:save-all-unsaved-accounts'),
 
       // ── Event subscription ──
-      subscribeEvents: () => ipcRenderer.invoke('page-manager:subscribe-events'),
-      unsubscribeEvents: () => ipcRenderer.invoke('page-manager:unsubscribe-events'),
+      subscribeEvents: (subscriberId) => ipcRenderer.invoke('page-manager:subscribe-events', { subscriberId }),
+      unsubscribeEvents: (subscriberId) => ipcRenderer.invoke('page-manager:unsubscribe-events', { subscriberId }),
 
       // ── 左侧导航栏宽度同步 ──
       setSidebarWidth: (width) => ipcRenderer.invoke('page-manager:set-sidebar-width', width),

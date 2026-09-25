@@ -1,5 +1,18 @@
-## 批量出片逐镜失败原因被三层静默吞掉——观测缺口的逃逸链与收口（film-gen-shot-error-observability，2026-09-23）
+## 共享订阅集合被「无 id 就全清」误删：原生视图照常显示而标签栏永不出新标签（fix-tab-subscription-leak，2026-09-25）
 
+- **主进程里的「渲染实例订阅集合」是跨实例共享资源，注销接口不能有无 id 全清兜底（pitfall，本 Bug 第一性原因）**：`WebviewManager._subscribers` 由每个 SPA 实例在 `tabStore.init()` 各加一条，但 `page-manager:unsubscribe-events` 写的是 `if (subscriberId) delete; else clear()`，而 preload 的 `unsubscribeEvents()` **根本不传参** —— 于是 `App.vue` 任一非 home-shell 实例卸载（`tabStore.dispose()`）就把所有实例的订阅一次抹光，且永远无法自愈（没有重连机制）。此后 `_broadcast` 遍历空集合，TabBar 再也收不到 `tab-created`。症状极具误导性：登录视图是原生 `WebContentsView`，`addChildView` 后照常盖在内容区，用户看到的是「登录页在本标签打开了、没开新标签」，第一反应都会去怀疑标签注册逻辑，而它其实完全正常。**判定手法**：见到「内嵌网页显示正常但标签栏不更新」，第一步量主进程订阅集合大小，不要先读 `auth-tab.js`。
+
+- **用 `Date.now()` 作订阅 id：同毫秒两实例撞成同一条，Set 去重后互相持有对方的句柄（pitfall，独立第二成因）**：`'default-' + Date.now()` 在同一毫秒内两次 `subscribe` 返回**完全相同的 id**，`Set` 只留一条，两个实例都以为自己有独立订阅 —— 任一方按 id 注销也会删掉对方的。修 clear 的同时必须把 id 换成「自增序号 + 时间戳(base36) + 随机串」。**教训**：任何「调用方向服务方领取句柄、日后凭句柄归还」的 id，唯一性必须由服务方保证，不能依赖时钟精度。回归测试要断言两次连续 subscribe 得到两个不同 id，否则这条永远测不出来（第一个 Bug 的测试恰好掩盖它 —— 断言 `size===2` 才暴露）。
+
+- **「重启应用就好了」= 状态被重置的订阅/连接类缺陷的强信号（pattern，定位手法）**：本次用户报回退、日志却显示主进程 35ms 内就打了 `Auth login tab opened: wechat_mp`，静态读代码全链路无错。真正的证据链是：① `--remote-debugging-port`（dev 启动自带，用 `netstat -ano | grep <electron主进程pid>` 取真实端口，不要猜 9222）连上运行中的实例；② 在渲染层直接调 `electronAPI.pageManager.getAllTabs()` 拿主进程真值，与 `document.querySelectorAll('[data-testid^="tab-"]')` 的 DOM 实况对照 —— 一次探针就能把「主进程没做 / 广播没人收 / 收到没渲染」三种根因分开；③ 顺手补一次 `subscribeEvents()`，若现象立刻消失即锁定订阅类缺陷。本次正是这第三下把根因钉死的（也说明：**探针可能顺手修好现场，结论要如实标注为「前后对照」而非干净复现**）。
+
+- **多实例化改造会把「单实例时代无害的清理代码」变成跨实例误删（architecture，逃逸根因）**：`dispose() → unsubscribeEvents()` 从 #812 起就存在，单实例时代只有应用退出才走，误删无人察觉；`f7e93ceb`（#2230「新标签内嵌独立 SPA 实例」）引入多实例共存后，同一行代码变成缺陷。**教训**：做「一个改成多个」的架构改动时，必须把「按全局集合 clear()/reset() 的清理点」全量列一遍并逐个改成按自身句柄精确删除，这是该类改造固定的回归面。
+
+- **改 preload 必须重打包两个 bundle，且要用内容断言而非「构建成功」作证（pattern）**：`node apps/desktop/scripts/build-preload.js` 会同时生成 `electron/preload/index.bundle.js` 与 `electron/home-shell-preload.bundle.js`（后者不在 preload 目录下，容易以为只有一个）。构建脚本成功不等于签名真的进去 —— 必须 `grep "unsubscribe-events" index.bundle.js` 看到 `(subscriberId) => ...invoke(..., { subscriberId })` 才算收口。
+
+
+
+## 批量出片逐镜失败原因被三层静默吞掉——观测缺口的逃逸链与收口（film-gen-shot-error-observability，2026-09-23）
 - **静默吞错的「三层漏斗」：每层各自「合理」，合起来把信息丢光（pitfall）**：单镜失败原因要穿过 `video-gen.generateShotVideo`（失败只 `return {success:false,error}` 不记日志）→ handler `runBatchViaVideoGen`（`r.error` 拿到手却 `onShotProgress(i,'failed')` 不带原因，`getShot` 空 `catch` 把「取原文异常」一律冒充「分镜不存在」）→ `production-driver`（`onShotProgress` 签名根本没有 error 通道、台账 `shots[]` 没有 `error` 字段）。每一层单看都不算 bug（「上层会处理」），串起来就是前端与台账只剩裸 `failed`。**判定手法**：追一条错误信息从产生到落库/上屏的完整路径，任一环「拿到原因却没往下带」就是断点；修的时候必须在**产生层记 warn + 存储层落字段 + 传输层带 reason** 三处同时补，缺一处仍会再吞。**教训**：新增「失败可辨识」类需求，先画这条链、逐环确认有无丢弃，再动手。
 
 - **seam 只测成功路径 = 失败合同根本没被测到（pitfall，逃逸根因）**：既有 `film-engineering.e2e-int` 的 `_testGenerateShotVideo` seam 只返回 `{success:true}`、`production-driver.test` 的 `runBatch` 只调 `onShotProgress(i,'done')`——所有断言都在成功Happy Path 上，`error` 通道哪怕整个不存在也不会红。这就是这个缺口能长期潜伏的直接原因：不是「测试写错」，是「失败场景零覆盖」。**修法**：回归保护测试必须显式构造失败注入（提交 `code≠0` / 无 taskId / 轮询超时 / `catch` / `getShot` 抛异常 / provider 拒绝），并断言**原因字符串逐层可见**（warn 载荷含 shotId+原因、台账 `shots[].error` 非空、事件 `reason` 回显）。凡「错误处理」类改动，先写红测钉死失败注入，再实现。
@@ -15656,22 +15669,22 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **规则（pattern）**：混合架构（1 主 SPA + N 个 `WebContentsView`/iframe 内嵌独立文档）里，任何「跨文档共享的外层控件」要操作「当前聚焦的那个内嵌文档」，必须走**定向 IPC**而非依赖外层自身 router：外层点击 → 主进程按 activeTab 判定归属 → `view.webContents.send` 定向投递到该内嵌实例 → 实例订阅后在**自身** router 内跳转；内嵌文档路由变化再经 `did-navigate-in-page` 回传状态（`spaRoute`）广播给外层，令高亮跟随聚焦标签真实路由，而不是外层 route。
 - **可迁移信号（pattern）**：判断「点了没反应」类缺陷是否属于此类，先问三件事——(a) 被点击的控件渲染在哪个文档？(b) 它调用的路由/状态控制器属于哪个文档？(c) 用户视觉上聚焦的是哪个文档？三者不一致即为 chrome/内容错位，修法是把「控制域」对齐到「聚焦域」，而非在错误控制器上打补丁。
 - **回归保护（QM-5④）**：新增 home-shell 定向导航必须同时覆盖——受理路径（活动标签为存活 home-shell → `handled:true` 且定向 send）、非法/非 home-shell/视图已销毁 → `handled:false` fail-open 回退到外层；侧边栏 `navPath` computed 在 home-shell 聚焦时读 `activeTab.spaRoute`、否则读 `route.path`；内嵌实例 `on('home-shell-navigate')` 订阅 + `onBeforeUnmount` 对称退订。仅测外层 router.push 会漏掉整条跨文档链路。
-## 换「显示载体」不是换文案——载体切换的节点身份守恒与像素门禁盲区（avatar-status-mask-carrier-swap，2026-09-24）
-
-- **补丁锚点必须取自 worktree 文件，不是主工作区（pitfall，本轮真实代价）**：共享主目录 HEAD（`265cf7ee`）落后 origin/main（`c5337a27e6`）多个 PR，按主工作区读到的代码写补丁块，会把**已合并的功能改回去**——本轮真的把 `#2290` 的 `<img v-if="showAvatar" … @error="avatarBroken = true">` 覆盖成旧写法 `v-if="account.avatar || account.avatar_url"`，丢了头像加载失败回落。**判定手法**：建 worktree 后第一件事是读 worktree 内的目标文件定锚点；`apply` 脚本报「anchor NOT FOUND」不是"换个锚字符串重试"，而是**"我对现状的理解可能已过期"的一手证据**，必须回去读 worktree/origin 的真实内容。本轮另一处同因：测试用例名 `inactive 状态保持显示「已登录」` 在 origin/main 已被换成「历史脏值…落到未检查兜底」。**边界**：所有基于 `git worktree` 的隔离任务都适用；单工作区直接改码不适用。
-
-- **载体切换要「节点身份守恒」，否则一片下游测试连带重写（pattern）**：把「已失效」从头像旁徽章搬到头像遮罩时，两个载体共用同一 `data-testid="account-status-{id}"` + `role="status"` + 同一 `aria-label`（提取为共用 computed，防措辞漂移）。收益：既有单测与 `account-login-state-tristate.js` E2E（按 testid 取 innerText 断言「已失效」）**零改动即继续有效**，屏幕阅读器语义不丢。**配套断言**：必须加「同卡内该 testid 节点数 === 1」，否则"遮罩 + 徽章"双份播报不会被任何现有测试发现。适用边界：任何"同一信息换渲染节点"的重构（徽章↔文字↔图标↔遮罩↔角标）。
-
-- **叠加层（overlay）三条硬约束，缺一条就是交互 bug（pattern）**：① `pointer-events: none` —— 卡片整体可点（打开创作者中心）与批量勾选不得被覆盖层拦截，且要在 E2E 里断言计算样式而非指望"看起来能点"；② 覆盖层挂在**容器**（`.account-avatar` + `position: relative`）上而不是被覆盖元素（`<img>`）上 —— 否则 `<img>` 被 `v-if` 移除（加载失败回落）时覆盖层一起消失；③ 容器必须已有 `overflow: hidden` + 圆角才能把矩形横带裁成与头像同形的弓形。回归保护：专门写「`img` 触发 error 后覆盖层仍在」的用例，这是最容易被忽略的组合态。
-
-- **「有像素门禁」不等于「这个视图被像素门禁保护」（pitfall，逃逸分析结论）**：`run-pixel-tests.js` 的清单里**有** `accounts-list` 视图，看着像已被覆盖；但仓库跟踪的 `base-screenshots` 只有 22 个基线且**不含 accounts-list**，本地亦无 baselines 目录 → 该视图在 CI 里走 `BASELINE_CREATED`（首次生成即通过），对本次改动**零判别力**。同类误判：见清单有名就认为有保护。**正确判定手法**：`git ls-files tests/visual-testing/base-screenshots | grep <view>` 确认基线真的被跟踪，而不是只看 runner 配置里的视图名。**替代证据**：改用真实浏览器 `getComputedStyle` + `getBoundingClientRect` 硬断言（绝对定位/背景色/文字色/覆盖盒落在容器内/两视图各测一次），并落截图供人工目视。
-
-- **JSDOM 拿不到 scoped CSS 计算值 → 样式契约用「读 .vue 源码」断言（pattern，沿用项目既有惯例）**：`mount` 后 `getComputedStyle` 在 JSDOM 下不应用 `<style scoped>`，布局契约（`position: relative`/`absolute`、`background: rgba(...)`、`overflow: hidden`）在单测里测不到。项目既有做法（`Accounts.test.js`）是 `fs.readFileSync('./src/.../X.vue')` 后切片断言关键声明；本次新增「遮罩样式契约」用例沿用该模式，真正的运行态样式交给上一条的浏览器 E2E。两层互补：源码契约防"有人删了 CSS 声明"，E2E 防"声明存在但被覆盖/优先级失效"。
-
-- **不新增文案也是门禁决策（pattern）**：遮罩文案复用既有 `statusExpired`，locales 零改动 → Gate 7 `--pair-base` 变更=false、`--cjk` 基线不动（当前 1362 / 基线 1581）。若"顺手"加一条「头像加载失败」提示，就会同时触碰 zh/en 成对与 `src/` 非 locales 中文字面量两条 CI 拦截。先问「这条文案有没有真实用户价值」，没有就不产生门禁面。
-
-- **Windows 下用 Junction 复用主仓 node_modules 跑测试/dev server（preference，含前置校验）**：新 worktree 无 `node_modules`，对 root 与 `apps/desktop`、`packages/*` 各建 `New-Item -ItemType Junction` 指向主仓同名目录，即可直接 `node node_modules/vitest/vitest.mjs run …`、`node node_modules/eslint/bin/eslint.js …`、起 `vite`，省掉一次全量 `pnpm install`。**前置硬条件**：两个 ref 之间的 `pnpm-lock.yaml` 必须无差异（本轮核对：仅 root `package.json` 差 1 行），否则物理链接的依赖树与锁文件不符，测试结果不可信。用完起停 dev server 要复核端口释放（`Get-NetTCPConnection -State Listen -LocalPort <port>` 计数归 0）。
-
+## 换「显示载体」不是换文案——载体切换的节点身份守恒与像素门禁盲区（avatar-status-mask-carrier-swap，2026-09-24）
+
+- **补丁锚点必须取自 worktree 文件，不是主工作区（pitfall，本轮真实代价）**：共享主目录 HEAD（`265cf7ee`）落后 origin/main（`c5337a27e6`）多个 PR，按主工作区读到的代码写补丁块，会把**已合并的功能改回去**——本轮真的把 `#2290` 的 `<img v-if="showAvatar" … @error="avatarBroken = true">` 覆盖成旧写法 `v-if="account.avatar || account.avatar_url"`，丢了头像加载失败回落。**判定手法**：建 worktree 后第一件事是读 worktree 内的目标文件定锚点；`apply` 脚本报「anchor NOT FOUND」不是"换个锚字符串重试"，而是**"我对现状的理解可能已过期"的一手证据**，必须回去读 worktree/origin 的真实内容。本轮另一处同因：测试用例名 `inactive 状态保持显示「已登录」` 在 origin/main 已被换成「历史脏值…落到未检查兜底」。**边界**：所有基于 `git worktree` 的隔离任务都适用；单工作区直接改码不适用。
+
+- **载体切换要「节点身份守恒」，否则一片下游测试连带重写（pattern）**：把「已失效」从头像旁徽章搬到头像遮罩时，两个载体共用同一 `data-testid="account-status-{id}"` + `role="status"` + 同一 `aria-label`（提取为共用 computed，防措辞漂移）。收益：既有单测与 `account-login-state-tristate.js` E2E（按 testid 取 innerText 断言「已失效」）**零改动即继续有效**，屏幕阅读器语义不丢。**配套断言**：必须加「同卡内该 testid 节点数 === 1」，否则"遮罩 + 徽章"双份播报不会被任何现有测试发现。适用边界：任何"同一信息换渲染节点"的重构（徽章↔文字↔图标↔遮罩↔角标）。
+
+- **叠加层（overlay）三条硬约束，缺一条就是交互 bug（pattern）**：① `pointer-events: none` —— 卡片整体可点（打开创作者中心）与批量勾选不得被覆盖层拦截，且要在 E2E 里断言计算样式而非指望"看起来能点"；② 覆盖层挂在**容器**（`.account-avatar` + `position: relative`）上而不是被覆盖元素（`<img>`）上 —— 否则 `<img>` 被 `v-if` 移除（加载失败回落）时覆盖层一起消失；③ 容器必须已有 `overflow: hidden` + 圆角才能把矩形横带裁成与头像同形的弓形。回归保护：专门写「`img` 触发 error 后覆盖层仍在」的用例，这是最容易被忽略的组合态。
+
+- **「有像素门禁」不等于「这个视图被像素门禁保护」（pitfall，逃逸分析结论）**：`run-pixel-tests.js` 的清单里**有** `accounts-list` 视图，看着像已被覆盖；但仓库跟踪的 `base-screenshots` 只有 22 个基线且**不含 accounts-list**，本地亦无 baselines 目录 → 该视图在 CI 里走 `BASELINE_CREATED`（首次生成即通过），对本次改动**零判别力**。同类误判：见清单有名就认为有保护。**正确判定手法**：`git ls-files tests/visual-testing/base-screenshots | grep <view>` 确认基线真的被跟踪，而不是只看 runner 配置里的视图名。**替代证据**：改用真实浏览器 `getComputedStyle` + `getBoundingClientRect` 硬断言（绝对定位/背景色/文字色/覆盖盒落在容器内/两视图各测一次），并落截图供人工目视。
+
+- **JSDOM 拿不到 scoped CSS 计算值 → 样式契约用「读 .vue 源码」断言（pattern，沿用项目既有惯例）**：`mount` 后 `getComputedStyle` 在 JSDOM 下不应用 `<style scoped>`，布局契约（`position: relative`/`absolute`、`background: rgba(...)`、`overflow: hidden`）在单测里测不到。项目既有做法（`Accounts.test.js`）是 `fs.readFileSync('./src/.../X.vue')` 后切片断言关键声明；本次新增「遮罩样式契约」用例沿用该模式，真正的运行态样式交给上一条的浏览器 E2E。两层互补：源码契约防"有人删了 CSS 声明"，E2E 防"声明存在但被覆盖/优先级失效"。
+
+- **不新增文案也是门禁决策（pattern）**：遮罩文案复用既有 `statusExpired`，locales 零改动 → Gate 7 `--pair-base` 变更=false、`--cjk` 基线不动（当前 1362 / 基线 1581）。若"顺手"加一条「头像加载失败」提示，就会同时触碰 zh/en 成对与 `src/` 非 locales 中文字面量两条 CI 拦截。先问「这条文案有没有真实用户价值」，没有就不产生门禁面。
+
+- **Windows 下用 Junction 复用主仓 node_modules 跑测试/dev server（preference，含前置校验）**：新 worktree 无 `node_modules`，对 root 与 `apps/desktop`、`packages/*` 各建 `New-Item -ItemType Junction` 指向主仓同名目录，即可直接 `node node_modules/vitest/vitest.mjs run …`、`node node_modules/eslint/bin/eslint.js …`、起 `vite`，省掉一次全量 `pnpm install`。**前置硬条件**：两个 ref 之间的 `pnpm-lock.yaml` 必须无差异（本轮核对：仅 root `package.json` 差 1 行），否则物理链接的依赖树与锁文件不符，测试结果不可信。用完起停 dev server 要复核端口释放（`Get-NetTCPConnection -State Listen -LocalPort <port>` 计数归 0）。
+
 - **PowerShell 管道的退出码陷阱（pitfall）**：`node … 2>&1 | Select-Object -Last 30` 下，stderr 有输出会让 PS 把命令判为失败（vitest 实际 `exit 0` 却报非零）。**手法**：需要真实退出码时一律重定向到文件（`> out.log 2>&1`）后立刻打印 `$LASTEXITCODE`，不在管道下游取退出码。
 
 

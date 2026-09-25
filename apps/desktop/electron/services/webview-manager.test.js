@@ -1388,3 +1388,78 @@ describe('共享左侧边栏驱动聚焦 home-shell 标签（方案 B：navigate
     expect(wm.getActiveTab().homeShell).toBe(false)
   })
 })
+
+describe('page-manager 事件订阅按 subscriberId 精确删除', () => {
+  function register () {
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    const map = new Map()
+    wm.registerIpcHandlers({ handle: (channel, fn) => map.set(channel, fn) })
+    const call = (channel, arg, event) => map.get(channel)(event || {}, arg)
+    return { wm, call }
+  }
+
+  // 模拟一个渲染进程 webContents：可注册 once 监听并由测试触发销毁
+  function createSender () {
+    const handlers = {}
+    return {
+      isDestroyed: () => false,
+      once: (ev, cb) => { handlers[ev] = cb },
+      fire: (ev) => { if (handlers[ev]) handlers[ev]() }
+    }
+  }
+
+  async function subscribe (call, sender) {
+    const res = await call('page-manager:subscribe-events', undefined, sender ? { sender: sender } : {})
+    return res && res.data && res.data.subscriberId
+  }
+
+  it('subscribe-events 回传 subscriberId 供渲染层注销时使用', async () => {
+    const { call } = register()
+    expect(typeof await subscribe(call)).toBe('string')
+  })
+
+  it('实例 A 按自己的 id 注销后，实例 B 仍能收到标签广播', async () => {
+    const { wm, call } = register()
+    const idA = await subscribe(call)
+    const idB = await subscribe(call)
+    // 显式断言 id 互不相同：原实现 'default-' + Date.now() 在同一毫秒会撞成同一个，
+    // 只靠 Set 去重后的 size 判定会让断言成败依赖平台定时器精度。
+    expect(idA).not.toBe(idB)
+    expect(wm._subscribers.size).toBe(2)
+
+    await call('page-manager:unsubscribe-events', { subscriberId: idA })
+    expect(wm._subscribers.has(idA)).toBe(false)
+    expect(wm._subscribers.has(idB)).toBe(true)
+
+    wm._broadcast('tab-created', { tabId: 'auth-login', isLogin: true })
+    const sends = wm.mainWindow.webContents.send.mock.calls.map((c) => c[1].subscriberId)
+    expect(sends).toEqual([idB])
+  })
+
+  it('缺失 subscriberId 的注销不得清空其他实例的订阅（多 SPA 实例共存回归锁）', async () => {
+    const { wm, call } = register()
+    const idA = await subscribe(call)
+    const idB = await subscribe(call)
+
+    await call('page-manager:unsubscribe-events', {})
+
+    expect(Array.from(wm._subscribers)).toEqual([idA, idB])
+    wm._broadcast('tab-switched', { tabId: 'auth-login', isLogin: true })
+    expect(wm.mainWindow.webContents.send).toHaveBeenCalledTimes(2)
+  })
+
+  it('渲染进程销毁时回收该实例订阅，其他实例订阅存活（禁止全清后的回收路径）', async () => {
+    const { wm, call } = register()
+    const senderA = createSender()
+    const senderB = createSender()
+    const idA = await subscribe(call, senderA)
+    const idB = await subscribe(call, senderB)
+    expect(wm._subscribers.size).toBe(2)
+
+    senderA.fire('destroyed')
+
+    expect(wm._subscribers.has(idA)).toBe(false)
+    expect(wm._subscribers.has(idB)).toBe(true)
+  })
+})
