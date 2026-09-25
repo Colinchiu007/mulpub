@@ -33,6 +33,30 @@
 
 ---
 
+# [未发布] test(ops-center): 根治后端全量套件的跨模块库污染（2026-09-26，ops-backend-test-isolation）
+
+### 现象与归属
+- `ops-center/backend` 全量 `pytest tests/` 稳定红 1 例：`test_prompt_eval_engine_dual.py::test_dual_summary_zero_denominator_null` → `sqlite3.IntegrityError: FOREIGN KEY constraint failed`。**单跑该文件 28 例全绿、单跑该例也绿**，典型「单跑绿、全量红」。
+- 在**不含本次改动**的 main 上本地全量跑，得到**同一条失败**（1 failed / 431 passed）→ 非某个业务 PR 引入。该测试文件自 2026-08-14（#822）就在 main；`ops-center CI` 只在 PR 改到 ops-center 路径时触发、main 自身从不跑全量后端套件，所以这条组合长期无人执行。
+
+### 根因
+- 30 余个 API 测试文件都在**模块级**先 `os.environ["OPS_DB_PATH"] = <自己的临时库>`、再 `from config import settings`；而 `settings` 是**导入期单例**（`tests/conftest.py` 开头早就为签名密钥写过同类注释，只补了密钥没补库路径）。pytest 按字母序收集，第一个 import config 的文件会永久绑定 `db_path`，**其后所有文件自设的临时库一律失效** → 整个 session 共用同一个 SQLite 文件。
+- 再叠加各文件 teardown 的 `Base.metadata.drop_all`（拆的是共用库的全部表）与用例普遍隐含的「我建的第一条记录 id 就是 1」：跨模块累计的 rowid 让父行查不到，写子表即触发外键失败。
+
+### 修复（集中兜住，不要求 30 个文件各自改写）
+- `ops-center/backend/tests/conftest.py`：新增 `_reset_shared_database()` 与按模块 autouse 的 `_isolate_database_per_test_module`。每个测试模块的第一个用例前，用**同步** SQLAlchemy 引擎（不碰 async 连接池、不受事件循环切换限制）幂等 `create_all` 补回被 `drop_all` 拆掉的表，再按 `sorted_tables` **逆序**清空全部行并复位 `sqlite_sequence`，让每个模块都从「表齐全 + rowid 从 1 起」的确定状态起跑。删除顺序天然满足外键依赖，故不使用在事务内即为 no-op 的 `PRAGMA foreign_keys`。
+
+### 回归锁（带反证）
+- 新增 `tests/test_zz_conftest_isolation_a_wrecker.py`（制造方：插 3 行 `prompt_eval_cases` 推进 rowid，teardown `drop_all` 拆整库）与 `tests/test_zz_conftest_isolation_b_consumer.py`（消费方：**不建表不清库**，断言进入时表为空、新建父行 `id == 1`，并用该 id 写外键子行 `prompt_eval_runs` 提交——即原故障点）。文件名 `zz_` 保证它们排在既有模块之后，不改变「谁是第一个绑定 settings 的文件」。
+- 反证（证明这把锁真能失败）：把 conftest 里的 `_reset_shared_database()` 临时改为 `pass` 后，消费方立刻 `sqlite3.OperationalError: no such table: prompt_eval_cases`（1 failed / 1 passed）；恢复后回归对 2 passed、全量 **449 passed**。
+
+### 纪律落地
+- `AGENTS.md` QM-3 新增 MUST：「测试库/配置状态必须按模块确定化，不得依赖导入顺序」，含归属纪律——全量红而单跑绿时，先在未改动的 main 上跑同一条全量对照，既不认领既有缺陷为本次引入，也不以「不是我改的」放行。
+
+
+---
+
+
 # [未发布] fix(tab): 跨实例事件订阅按 subscriberId 精确注销，修复「添加账号登录页不出新标签」（2026-09-25，fix-tab-subscription-leak）
 
 ### 变更
