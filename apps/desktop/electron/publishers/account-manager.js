@@ -305,15 +305,15 @@ async function saveCapturedAccount (platform, captured, options = {}) {
   // loginVerified === false 表示只有弱证据（如 account:add 的「URL 变了」而选择器未命中），
   // 此时保持后端的 unverified 不动，等一次真实检测；默认（未显式传）视为已验证。
   const loginVerified = options.loginVerified !== false
-  let persisted = { ok: false, reason: 'weak-login-evidence' }
   const validatedAt = new Date().toISOString()
+  let persisted = { ok: false }
   if (!loginVerified) {
     log.info('AccountManager', `新建账号登录证据不足（仅 URL 变化/无选择器命中），不固化登录态: ${platform}:${accountId}`)
   } else {
     persisted = await persistLoginState(accountId, platform, 'active', validatedAt)
-  }
-  if (!persisted.ok) {
-    log.warn('AccountManager', `新建账号登录态固化失败: ${platform}:${accountId} reason=${persisted.reason || 'unknown'} — 凭证可用但登录态未回写，需重新检测`)
+    if (!persisted.ok) {
+      log.warn('AccountManager', `新建账号登录态固化失败: ${platform}:${accountId} reason=${persisted.reason || 'unknown'} — 凭证可用但登录态未回写，需重新检测`)
+    }
   }
 
   // 状态记录仅含公开元数据，用于列表恢复和删除清理。
