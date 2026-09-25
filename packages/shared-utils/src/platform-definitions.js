@@ -68,7 +68,14 @@ const PLATFORM_LOGIN_SUCCESS_PATTERNS = {
   // 的无 Cookie 凭证（E2E 实测 cookies=0）。登录成功后的创作者后台路径为
   // /platform，据此精确匹配。
   tencent_video: ['channels.weixin.qq.com/platform'],
-  kuaishou: ['cp.kuaishou.com', 'passport.kuaishou.com'],
+  // 快手登录页在独立域 passport.kuaishou.com/pc/account/login，登录成功后由平台自己的
+  // 回调跳板 cp.kuaishou.com/rest/infra/sts 送回 cp.kuaishou.com/profile。
+  // 2026-09-25 实测：未登录访问 cp.kuaishou.com/ 也会被前端路由到同一个 /profile
+  // （只渲染营销壳），所以 cp 域无法靠路径区分登录态，必须靠 hasPlatformSessionCookie
+  // 的会话凭证判定；而 passport 是纯登录域，任何路径都不可能是登录成功信号。
+  // 此前 passport.kuaishou.com 被同时列入 AUTH_HOSTS 与成功模式，导致登录视图刚打开
+  // 就被判「登录成功」，把只有埋点 Cookie 的登录页存成有效账号（账号名即登录页标题）。
+  kuaishou: ['cp.kuaishou.com'],
   // 头条号登录页与创作后台同域（mp.toutiao.com）：未登录访问会 302 到
   // /login（2026-09-13 实测），裸域名模式会把预登录登录页误判为“登录成功”，
   // 导致登录视图提前关闭并保存无效账号（与百家号同款 bug）。
@@ -97,7 +104,9 @@ const PLATFORM_AUTH_HOSTS = {
   douyin: ['www.douyin.com', 'creator.douyin.com'],
   xiaohongshu: ['creator.xiaohongshu.com'],
   tencent_video: ['channels.weixin.qq.com'],
-  kuaishou: ['cp.kuaishou.com', 'passport.kuaishou.com'],
+  // 不含 passport.kuaishou.com：那是登录域，见上方成功模式注释。Cookie 采集域
+  // （PLATFORM_COOKIE_DOMAINS）仍保留它，登录态由根域 Cookie 承载，不受影响。
+  kuaishou: ['cp.kuaishou.com'],
   toutiao: ['mp.toutiao.com'],
   bilibili: ['www.bilibili.com', 'bilibili.com', 'member.bilibili.com'],
   baijiahao: ['baijiahao.baidu.com'],
@@ -155,6 +164,34 @@ function hasPlatformLsSessionMarker (platform, localStorageData) {
 
 function normalizeHost (value) {
   return String(value || '').trim().toLowerCase().replace(/^\.+/, '').replace(/\.$/, '')
+}
+
+// 平台会话凭证标记：登录页本身也会写入埋点 Cookie，「有 Cookie」不等于「已登录」。
+// 快手实测：未登录访问 cp.kuaishou.com 即有 did/wid/kwssectoken/kwpsecproductname/
+// kwfv1/kwscode 六个匿名 Cookie，登录成功后才出现 kuaishou.web.cp.api_st（会话票据，
+// 名字即登录 URL 里的 sid）、userId 与 bUserId。因此凡声明了标记的平台，登录完成
+// 与凭证入库都必须命中其中至少一个非空值；未声明的平台沿用既有行为。
+// 新增标记键必须以真实登录态 DevTools/CDP 实测取证为准，且不得混入设备/埋点标识
+// （did、_did、wid、divid 等一律不可用）。
+const PLATFORM_SESSION_COOKIE_MARKERS = {
+  kuaishou: ['kuaishou.web.cp.api_st', 'userId', 'bUserId'],
+}
+
+/**
+ * 判定已采集的 Cookie 是否构成该平台的真实登录态。
+ * @param {string} platform
+ * @param {Array<{name?: string, value?: string}>} cookies
+ * @returns {boolean} 未声明标记的平台返回 true（不改变既有行为）
+ */
+function hasPlatformSessionCookie (platform, cookies) {
+  const markers = PLATFORM_SESSION_COOKIE_MARKERS[platform]
+  if (!Array.isArray(markers) || markers.length === 0) return true
+  if (!Array.isArray(cookies)) return false
+  return cookies.some(cookie => {
+    if (!cookie || !markers.includes(cookie.name)) return false
+    const value = cookie.value
+    return typeof value === 'string' ? value.trim().length > 0 : Boolean(value)
+  })
 }
 
 /**
@@ -272,8 +309,10 @@ module.exports = {
   PLATFORM_AUTH_HOSTS,
   PLATFORM_COOKIE_DOMAINS,
   PLATFORM_LS_SESSION_MARKERS,
+  PLATFORM_SESSION_COOKIE_MARKERS,
   isPlatformAuthHost,
   hasPlatformLsSessionMarker,
+  hasPlatformSessionCookie,
   isPlatformLoginSuccessUrl,
   isPlatformCookieDomain,
   PLATFORM_LOGIN_SUCCESS_SELECTORS,

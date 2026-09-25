@@ -4,7 +4,7 @@
  * Cookie/localStorage 提取、自动保存、批量保存
  */
 const log = require('../logger')
-const { isPlatformLoginSuccessUrl } = require('@multi-publish/shared-utils/src/platform-definitions')
+const { hasPlatformSessionCookie, isPlatformLoginSuccessUrl } = require('@multi-publish/shared-utils/src/platform-definitions')
 const accountProfile = require('@multi-publish/shared-utils/src/account-profile')
 const { AUTO_SAVE_DEBOUNCE_MS } = require('./constants')
 
@@ -90,6 +90,12 @@ module.exports = {
     }
     if (cookies.length === 0) {
       log.warn('WebviewManager', 'saveAccountTabCredentials: 0 cookies extracted for ' + platform + ':' + accountId + '（可能未登录或分区不匹配）')
+    }
+    // 契约：平台声明了会话标记时，未命中非空标记一律不入库、保持 unsaved。
+    // 登录页也会写入埋点 Cookie（2026-09-25 快手假成功），"有 Cookie"不等于"已登录"。
+    if (!hasPlatformSessionCookie(platform, cookies)) {
+      log.warn('WebviewManager', 'saveAccountTabCredentials: session evidence missing for ' + platform + ':' + accountId + ' cookies=' + cookies.length + '，保持 unsaved')
+      return { ok: false, reason: 'session-evidence-missing', accountId: accountId, platform: platform }
     }
     try {
       // 昵称/头像随重新登录一起采集（此前该入口只下发 name=标签标题，资料恒空）

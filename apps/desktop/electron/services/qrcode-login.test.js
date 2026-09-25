@@ -224,7 +224,7 @@ describe('QrCodeLogin 凭证边界', () => {
     const qrCodeLogin = new QrCodeLogin({ accountManager })
     qrCodeLogin.setMainWindow(createMainWindow())
     const extractAuthData = vi.spyOn(qrCodeLogin, '_extractAuthData').mockResolvedValue({
-      cookies: [{ name: 'session', value: 'secret' }],
+      cookies: [{ name: 'kuaishou.web.cp.api_st', value: 'secret' }],
       localStorage: {},
       accountName: '快手账号',
     })
@@ -237,6 +237,28 @@ describe('QrCodeLogin 凭证边界', () => {
 
     expect(extractAuthData).toHaveBeenCalledTimes(1)
     expect(accountManager.saveCapturedAccount).toHaveBeenCalledWith('kuaishou', expect.objectContaining({ name: '快手账号' }))
+  })
+
+  // 2026-09-25 回归：cp.kuaishou.com/profile 在未登录时也会被前端路由命中，
+  // 且登录页就带有埋点 Cookie，因此 URL 命中 + "有 Cookie" 仍不足以入库。
+  it('快手 URL 命中但 Cookie 缺会话标记时不得入库', async () => {
+    const accountManager = createManager()
+    const qrCodeLogin = new QrCodeLogin({ accountManager })
+    qrCodeLogin.setMainWindow(createMainWindow())
+    vi.spyOn(qrCodeLogin, '_extractAuthData').mockResolvedValue({
+      cookies: [{ name: 'did', value: 'anon' }, { name: 'wid', value: 'anon' }],
+      localStorage: {},
+      accountName: '快手，记录世界 记录你',
+    })
+    const loginPromise = qrCodeLogin.openLogin('kuaishou', 0).catch(error => error)
+    const handlers = createdViews[0].handlers
+    handlers['did-finish-load']({})
+    handlers['did-navigate-in-page']({}, 'https://cp.kuaishou.com/profile')
+    await vi.advanceTimersByTimeAsync(2000)
+
+    expect(accountManager.saveCapturedAccount).not.toHaveBeenCalled()
+    qrCodeLogin.close()
+    expect(await loginPromise).toBeInstanceOf(Error)
   })
 
   it('忽略把平台成功路径放在 query 中的恶意外部 URL', async () => {

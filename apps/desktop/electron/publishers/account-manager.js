@@ -56,6 +56,7 @@ const {
   getPlatformName,
   isPlatformCookieDomain,
   hasPlatformLsSessionMarker,
+  hasPlatformSessionCookie,
 } = require('@multi-publish/shared-utils/src/platform-definitions')
 // 账号资料（昵称/头像/平台ID/粉丝）采集与「字段缺席=不修改」写回契约的单一实现
 const profileUtils = require('@multi-publish/shared-utils/src/account-profile')
@@ -170,6 +171,14 @@ async function captureCookies (platform, timeout = 300000) {
     // 获取所有 Cookie
     const cookies = await context.cookies()
     log.info('AccountManager', ` 捕获到 ${cookies.length} 个 Cookie`)
+
+    // 「登录检测」通过不等于已登录：方式2 只判 host 变化，快手从 cp.kuaishou.com 跳到
+    // passport.kuaishou.com 登录页时就立即满足它，采到的全是埋点 Cookie（2026-09-26 CCG 评审
+    // Warning 2）。声明了会话标记的平台必须命中非空标记，才允许返回给 addAccount 入库。
+    if (!hasPlatformSessionCookie(platform, cookies)) {
+      log.warn('AccountManager', `captureCookies: session evidence missing for ${platform} cookies=${cookies.length}，不入库`)
+      throw new Error(`${platformName} 未检测到登录态，请在弹出的浏览器窗口中完成登录后重试`)
+    }
 
     // 尝试从页面获取账号名称
     let accountName = platformName

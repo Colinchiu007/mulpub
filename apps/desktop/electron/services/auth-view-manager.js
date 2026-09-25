@@ -13,6 +13,7 @@ const path = require('path')
 const log = require('./logger')
 const {
   PLATFORM_LOGIN_URLS,
+  hasPlatformSessionCookie,
   isPlatformCookieDomain,
   isPlatformLoginSuccessUrl,
 } = require('@multi-publish/shared-utils/src/platform-definitions')
@@ -43,8 +44,11 @@ function normalizeIndexedDBSnapshot(value) {
   }
 }
 
-function hasCapturedCredentials(authData) {
+function hasCapturedCredentials(authData, platform) {
   if (!authData || typeof authData !== 'object' || Array.isArray(authData)) return false
+  // 平台声明了会话标记时，「采集到任何东西」不再足够：登录页同样会写入埋点 Cookie 与
+  // localStorage（快手实测登录页即有 9 个 Cookie），必须命中真实登录态标记才算登录完成。
+  if (!hasPlatformSessionCookie(platform, authData.cookies)) return false
   const hasCookies = Array.isArray(authData.cookies) && authData.cookies.length > 0
   const hasLocalStorage = Boolean(
     authData.localStorage &&
@@ -213,7 +217,9 @@ class AuthViewManager {
       try {
         if (!this._isCurrentLoginAttempt(attempt)) return
         const authData = await this._extractAuthData(attempt.view, attempt.platform)
-        if (!hasCapturedCredentials(authData)) {
+        if (!hasCapturedCredentials(authData, attempt.platform)) {
+          // 静默跳过会让「为什么没自动完成」无从排查，这里必须留下判定依据。
+          log.warn('AuthView', `auto-completion skipped (no session evidence): ${attempt.platform} cookies=${authData && Array.isArray(authData.cookies) ? authData.cookies.length : 'n/a'}`)
           if (this._isCurrentLoginAttempt(attempt)) this._autoCompletionAttemptId = null
           return
         }
@@ -354,7 +360,7 @@ class AuthViewManager {
     if (!attempt) return true
 
     const authData = await this._extractAuthData(attempt.view, attempt.platform)
-    if (!hasCapturedCredentials(authData)) {
+    if (!hasCapturedCredentials(authData, attempt.platform)) {
       throw new Error('未检测到登录凭证，请先在平台页面完成登录')
     }
     if (!this._settleLogin(attempt, authData)) {
@@ -382,7 +388,10 @@ class AuthViewManager {
   _checkLoginCompleted(url, attempt = this._getLoginAttempt()) {
     if (!attempt || !this._isCurrentLoginAttempt(attempt)) return
     if (isPlatformLoginSuccessUrl(attempt.platform, url)) {
-      log.info('AuthView', 'URL pattern detected login success: ' + attempt.platform)
+      // URL 必须入日志：2026-09-25 快手「登录页被误判为登录成功」只能靠误存账号名
+      // （网页标题）反推命中地址，就是因为这里只打了平台名。logger.redact 已对
+      // access_token/Bearer/JWT 形态的值脱敏，可安全打印完整 URL。
+      log.info('AuthView', `URL pattern detected login success: ${attempt.platform} ${url}`)
       this._scheduleAutoCompletion('url', attempt)
     }
   }
@@ -537,7 +546,11 @@ class AuthViewManager {
       await new Promise(r => setTimeout(r, 2000))
 
       const currentUrl = win.webContents.getURL()
-      const isValid = isPlatformLoginSuccessUrl(platform, currentUrl)
+      // URL 判定对「登录页与后台同 URL」的平台不成立（快手两种状态都在 /profile）。
+      // 静默校验必须同时确认已存凭证里有真实会话标记，否则本修复之前入库的假账号会
+      // 永远报「有效」，把问题掩盖成后端状态异常（2026-09-26 CCG 评审 Warning 3）。
+      const isValid = isPlatformLoginSuccessUrl(platform, currentUrl) &&
+        hasPlatformSessionCookie(platform, cookies)
 
       let accountName = null
       try { accountName = await win.webContents.getTitle() } catch (_e) { /* ignore */ }

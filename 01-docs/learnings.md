@@ -1,3 +1,19 @@
+## 「登录页 = 登录成功」第四次复发：平台元数据静默失效与凭证假保存（kuaishou-login-false-success，2026-09-26）
+
+- **一次「顺手改对」的 URL 会静默废掉另一处守卫（pitfall，第一性引入点）**：`isPlatformLoginSuccessUrl` 的防误判靠两条并列前提——「URL 等于 `PLATFORM_LOGIN_URLS[platform]` 的 origin+path 一律不算成功」＋「成功模式只匹配登录后才会出现的域/路径」。`c3c39557`（账号管理页 10 项质量修复，第 4 条本意只改「创作者中心 URL」）把 `PLATFORM_LOGIN_URLS.kuaishou` 从 `passport.kuaishou.com/pc/account/login` 改回 `cp.kuaishou.com/`，第一条守卫当场失效（登录页不再等于登录 URL），而 `aedfc701` 为扫码登录加进 `AUTH_HOSTS`/成功模式的裸域名 `passport.kuaishou.com` 仍在，于是**登录页自己被判定为登录成功**。**判定手法**：改任何 `PLATFORM_LOGIN_URLS` 条目时，必须同时问「哪条守卫的前提变了」，不能只看这一行是不是更合理。
+
+- **「登录页与后台同域」是同一类 Bug 的第四次复发，而门禁只覆盖了前三次（审查盲区）**：百家号（2026-08-12）、头条（2026-09-13）、视频号（2026-09-14）都写过「裸域名把预登录页误判成登录成功 → 视图提前关闭 → 保存无效凭证」的注释与负例测试，`platform-definitions.test.js` 对这三家各有用例，**唯独快手没有**——所以 `aedfc701`/`c3c39557` 两次改动都没有任何断言会红。同类 bug 换平台再犯一次的成本，等于「补该平台的负例」而不是「重查根因」。**修法**：新增/修改平台登录元数据的 PR，必须同 PR 落该平台的「登录页不算成功」负例，已写入 AGENTS.md QM-2。
+
+- **「有 Cookie」不是登录证据：登录页自带埋点 Cookie，会让假成功看起来完全合法（测试场景缺失）**：被误存的快手账号有 `cookies=9 lsKeys=9`，`hasCapturedCredentials` 只看「有没有东西」因此一律放行；那 9 个是 `did`/`wid`/`kwssectoken`/`kwpsecproductname`/`kwfv1`/`kwscode` 这类匿名标识，真实登录态是登录成功后才出现的 `kuaishou.web.cp.api_st`（名字就是登录 URL 里的 `sid`）/ `userId` / `bUserId`。更根本的是：**快手未登录访问 `cp.kuaishou.com/` 会被前端路由到 `/profile`，登录成功回落也是 `/profile`**——URL 路径在该平台本质上不可区分，只能靠会话凭证。**判定手法**：要区分「登录态」就必须找一个「登录动作之后才会存在」的东西（会话票据 / LS 标记），而不是「页面上有 Cookie」；标记键必须实测取证，不得混入设备/埋点标识。
+
+- **只打平台名不打 URL 的判定日志，会把一次可秒判的事故变成考古（observability pitfall）**：`AuthView` 的 `URL pattern detected login success: kuaishou` 不带命中地址，本次只能靠「误存账号名恰好是网页 `<title>`」＋ curl 比对 passport 页标题才反推出停在登录页。**修法**：任何「按 URL/模式判定状态机迁移」的日志必须带上被命中的原始输入；`hasCapturedCredentials` 这类静默 `return` 必须记 warn 说明拦下理由，否则「为什么没自动完成」无从查起。
+
+- **收口类修复的「入口清单」必须穷举，自审会漏（pitfall，QM-6 实证）**：本次给「凭证入库」加会话标记门禁，自审认定了三个入口（auth-view-manager、qrcode-login、webview-manager/credential-saver）并全部改完、测完、反证过；跨模型外部评审仍指出**第四个**——`account-manager.captureCookies()` → `addAccount()` → `saveCapturedAccount()`（IPC `account:add`），它同样把 Cookie 直接写进凭证库，且它的「登录检测方式 2」只判 `window.location.host` 是否偏离登录 URL 的 host，对快手而言一跳到 passport 就立即为真，假成功形态与主 Bug 一模一样。**教训**：加「统一门禁」时，先用「谁能把这类数据落到库里」反查一遍（grep 持久化函数名本身，而不是顺着调用链找），把写库函数列成清单逐个打勾；顺着 UI 流程想入口必然漏掉旁路 API。判定「收口完成」的依据是「所有写库点都被拦」，不是「我改过的文件都测过了」。
+
+- **门禁改动会立刻暴露「用假数据冒充凭证」的既有测试（正向收益）**：加会话标记门禁后 `qrcode-login.test.js`/`webview-manager.test.js` 各有用例转红，其 fixture 正是 `{name:'session',value:'secret'}` 这种「随便一个 Cookie 就当凭证」的形态——它们一直在为假成功背书。改门禁时**不要为了变绿而放宽门禁**，要按真实合同改 fixture（本次改为真实会话票据），并另加「只有埋点 Cookie 必须被拦」的负例。
+
+---
+
 ## 批量出片逐镜失败原因被三层静默吞掉——观测缺口的逃逸链与收口（film-gen-shot-error-observability，2026-09-23）
 
 - **静默吞错的「三层漏斗」：每层各自「合理」，合起来把信息丢光（pitfall）**：单镜失败原因要穿过 `video-gen.generateShotVideo`（失败只 `return {success:false,error}` 不记日志）→ handler `runBatchViaVideoGen`（`r.error` 拿到手却 `onShotProgress(i,'failed')` 不带原因，`getShot` 空 `catch` 把「取原文异常」一律冒充「分镜不存在」）→ `production-driver`（`onShotProgress` 签名根本没有 error 通道、台账 `shots[]` 没有 `error` 字段）。每一层单看都不算 bug（「上层会处理」），串起来就是前端与台账只剩裸 `failed`。**判定手法**：追一条错误信息从产生到落库/上屏的完整路径，任一环「拿到原因却没往下带」就是断点；修的时候必须在**产生层记 warn + 存储层落字段 + 传输层带 reason** 三处同时补，缺一处仍会再吞。**教训**：新增「失败可辨识」类需求，先画这条链、逐环确认有无丢弃，再动手。
