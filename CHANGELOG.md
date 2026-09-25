@@ -1,3 +1,19 @@
+# [未发布] fix(session-isolation): 健康门禁的钩子比对改为「仓库源须为前缀」，容忍第三方尾部追加块（2026-09-25，fix-health-hook-append-tolerance）
+
+### 变更
+- `scripts/mp-worktree-health.ps1`：`-RequireHooks` 由「`Get-FileHash` 逐字节相等」改为「**已装钩子必须以仓库源原文逐字节开头**」，并新增 `identical` / `appendedBytes` 报告字段（`match` 语义随之变为前缀包含，`$hooksBad` 与调用方无需改）。比对走 `[IO.File]::ReadAllBytes`，不经过编码层。
+
+### 影响
+- 修的是「门禁随最后碰钩子的工具而翻面」：Qoder CLI 会向 `.git/hooks/*` 追加 AI tracker 块，`install-git-hooks.ps1` 又把钩子覆盖回源原文，两者交替写入使 `-RequireHooks` 无规律摆动（2026-09-25 实测：23:03 因追加块返回 1；23:55 一次重装后同一份旧脚本又返回 0）。共享根是 main-only 协调目录，`-RequireHooks` 变红会卡住每个运行时代码任务的前置健康门禁，实际后果是逼人绕过检查而不是修好检查。
+- **检测强度未削弱**：改写源本体、在源之前插入内容、钩子缺失，仍一律判不一致并返回非零（case 3/4/5 锁定）。仅「源原文完整保留在开头 + 纯尾部追加」被放行，且追加字节数如实入报告，不静默忽略。
+
+### 测试
+- 新增 `scripts/mp-worktree-health.test.ps1`（11 断言）：在 `%TEMP%` 自建真实 git 仓库，逐场景改写 `.git/hooks/post-checkout` 后调用真脚本、读真报告 JSON，非 mock。正向（同装 / 追加块）+ 负向（本体改写 / 前置注入 / 缺失）+ 精确字节数断言（`appendedBytes` 必须等于追加串的 UTF-8 字节数）。
+- 反证：以 `git show HEAD:` 取修复前（逐字节哈希）实现跑同一套件 → **5 项失败**（含「追加块应被容忍」），证明断言可失效、不是恒真；修复版 11 项全 PASS。
+- 夹具写入统一用 `[IO.File]::WriteAllBytes`：`Set-Content/Add-Content -Encoding UTF8` 在 PowerShell 5.1 下会写 BOM，使已装钩子与无 BOM 的源天然不等，造成与本逻辑无关的假失败。
+
+---
+
 # [未发布] fix(session-guard): 修 git 2.55 下 hash-object 参数互斥，冷克隆机写保护计划任务得以注册（2026-09-25，fix-session-guard-git255）
 
 ### 变更

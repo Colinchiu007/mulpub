@@ -3,7 +3,9 @@
     检查 Multi-Publish 共享主目录是否满足隔离合同。
 .DESCRIPTION
     只读检查：主 worktree 必须是 main、干净、无事故 marker，hooks 必须与
-    权威源一致，所有 linked worktree 必须位于隔离目录（默认仓库父目录下 mp-worktrees）；
+    权威源一致（已装钩子须以仓库源原文开头，允许其后追加第三方块，报告中的
+    appendedBytes 记录追加长度；改写或前置注入仍判为不一致），
+    所有 linked worktree 必须位于隔离目录（默认仓库父目录下 mp-worktrees）；
     可选的 -RequireWriteGuard 同时校验实时写保护任务已注册且正在运行。
 #>
 [CmdletBinding()]
@@ -60,9 +62,25 @@ $hookResults = @()
 foreach ($name in @('pre-commit','post-checkout')) {
     $source = Join-Path $root "scripts/hooks/$name"
     $installed = Join-Path $common "hooks/$name"
-    $sourceHash = if (Test-Path $source) { (Get-FileHash $source -Algorithm SHA256).Hash } else { $null }
-    $installedHash = if (Test-Path $installed) { (Get-FileHash $installed -Algorithm SHA256).Hash } else { $null }
-    $hookResults += [ordered]@{ name=$name; sourceExists=[bool]$sourceHash; installedExists=[bool]$installedHash; match=($sourceHash -and $sourceHash -eq $installedHash) }
+    $sourceBytes = if (Test-Path -LiteralPath $source) { [IO.File]::ReadAllBytes($source) } else { $null }
+    $installedBytes = if (Test-Path -LiteralPath $installed) { [IO.File]::ReadAllBytes($installed) } else { $null }
+    # Compare bytes, not hashes: the repo hook body must appear verbatim at the very
+    # start of the installed hook. A trailing third-party block (e.g. an IDE-injected
+    # tracker appended to .git/hooks/*) is tolerated and reported as appendedBytes,
+    # while any rewrite / prepend / middle edit of the authoritative body still fails.
+    # Byte-exact equality was rejected because it turns such an append into a permanent
+    # -RequireHooks red light, which pushes sessions toward bypassing the gate.
+    $prefixMatch = $false
+    $appendedBytes = 0
+    if ($sourceBytes -and $installedBytes -and $installedBytes.Length -ge $sourceBytes.Length) {
+        $prefixMatch = $true
+        for ($i = 0; $i -lt $sourceBytes.Length; $i++) {
+            if ($sourceBytes[$i] -ne $installedBytes[$i]) { $prefixMatch = $false; break }
+        }
+        if ($prefixMatch) { $appendedBytes = $installedBytes.Length - $sourceBytes.Length }
+    }
+    $identical = ($prefixMatch -and $appendedBytes -eq 0)
+    $hookResults += [ordered]@{ name=$name; sourceExists=[bool]$sourceBytes; installedExists=[bool]$installedBytes; identical=$identical; match=$prefixMatch; appendedBytes=$appendedBytes }
 }
 
 $guardTask = Get-ScheduledTask -TaskPath '\Multi-Publish\' -TaskName 'Session Isolation Write Guard' -ErrorAction SilentlyContinue
