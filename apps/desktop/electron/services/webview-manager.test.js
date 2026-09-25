@@ -1410,7 +1410,8 @@ describe('page-manager 事件订阅按 subscriberId 精确删除', () => {
   }
 
   async function subscribe (call, sender) {
-    const res = await call('page-manager:subscribe-events', undefined, sender ? { sender: sender } : {})
+    // 生产环境 event.sender 必然存在（缺失即被拒绝），未显式传入时给一个独立 sender
+    const res = await call('page-manager:subscribe-events', undefined, { sender: sender || createSender() })
     return res && res.data && res.data.subscriberId
   }
 
@@ -1461,5 +1462,32 @@ describe('page-manager 事件订阅按 subscriberId 精确删除', () => {
 
     expect(wm._subscribers.has(idA)).toBe(false)
     expect(wm._subscribers.has(idB)).toBe(true)
+  })
+
+  it('订阅 id 由服务方生成，调用方传入的值不得被采信（唯一性不可绕过）', async () => {
+    const { wm, call } = register()
+    const res = await call('page-manager:subscribe-events', { subscriberId: 'caller-supplied' }, { sender: createSender() })
+    expect(res.code).toBe(0)
+    expect(res.data.subscriberId).not.toBe('caller-supplied')
+    expect(Array.from(wm._subscribers)).toEqual([res.data.subscriberId])
+  })
+
+  it('sender 已销毁时拒绝订阅，不留下无人回收的条目', async () => {
+    const { wm, call } = register()
+    const dead = createSender()
+    dead.isDestroyed = () => true
+    const res = await call('page-manager:subscribe-events', undefined, { sender: dead })
+    expect(res.code).not.toBe(0)
+    expect(wm._subscribers.size).toBe(0)
+    expect(wm._senderSubscribers.size).toBe(0)
+  })
+
+  it('注销后该 id 从 sender 记账集合中一并剪除', async () => {
+    const { wm, call } = register()
+    const sender = createSender()
+    const id = await subscribe(call, sender)
+    await call('page-manager:unsubscribe-events', { subscriberId: id })
+    expect(wm._subscribers.has(id)).toBe(false)
+    expect(wm._senderSubscribers.get(sender).has(id)).toBe(false)
   })
 })

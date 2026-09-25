@@ -108,29 +108,29 @@ module.exports = {
       } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
 
-    ipcMain.handle('page-manager:subscribe-events', withSenderCheck(function (event, arg) {
+    ipcMain.handle('page-manager:subscribe-events', withSenderCheck(function (event) {
       try {
-        // id 必须逐次唯一：同一毫秒内多个 SPA 实例订阅会取到相同值，
-        // Set 去重后两方共享一条订阅，任一方注销即误删另一方。
-        self._subscriberSeq = (self._subscriberSeq || 0) + 1
-        var subscriberId = (arg && arg.subscriberId) ||
-          'sub-' + self._subscriberSeq + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8)
+        var sender = event && event.sender
+        if (!sender || typeof sender.once !== 'function' || sender.isDestroyed()) {
+          return { code: EC.REQUEST_ERROR, message: '渲染进程不可用，无法订阅标签事件' }
+        }
+        // id 一律由服务方生成，且不采信调用方传入值：唯一性是跨实例误删的根因，
+        // 让调用方自带 id 等于把这个保证重新交还给调用方。
+        self._subscriberSeq += 1
+        var subscriberId = 'sub-' + self._subscriberSeq + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8)
         self._subscribers.add(subscriberId)
         // 按 sender 记账并在渲染进程销毁时回收：注销已不再全清，若崩溃/被杀的实例
         // 无人回收，其 id 会永久驻留，使每次广播对同一主窗口多发一条重复 IPC。
-        var sender = event && event.sender
-        if (sender && typeof sender.once === 'function') {
-          var owned = self._senderSubscribers.get(sender)
-          if (!owned) {
-            owned = new Set()
-            self._senderSubscribers.set(sender, owned)
-            sender.once('destroyed', function () {
-              self._senderSubscribers.delete(sender)
-              owned.forEach(function (id) { self._subscribers.delete(id) })
-            })
-          }
-          owned.add(subscriberId)
+        var owned = self._senderSubscribers.get(sender)
+        if (!owned) {
+          owned = new Set()
+          self._senderSubscribers.set(sender, owned)
+          sender.once('destroyed', function () {
+            self._senderSubscribers.delete(sender)
+            owned.forEach(function (id) { self._subscribers.delete(id) })
+          })
         }
+        owned.add(subscriberId)
         return { code: 0, data: { subscriberId: subscriberId } }
       } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
     }))

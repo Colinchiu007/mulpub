@@ -3,7 +3,13 @@
 ### 变更
 - **`apps/desktop/electron/services/webview-manager/ipc-handlers.js`**：`page-manager:unsubscribe-events` 原先在**缺失 subscriberId 时执行 `_subscribers.clear()`**。`_subscribers` 是跨渲染进程实例共享的集合（每个 SPA 实例一条）， preload 的 `unsubscribeEvents()` 又不传参，因此任一非 home-shell 实例卸载（`App.vue:364 → tabStore.dispose()`）会把**所有实例**的订阅一次抹光。此后主进程 `_broadcast` 遍历空集合，TabBar 永久收不到 `tab-created` / `tab-switched`——登录视图是原生 `WebContentsView`，`addChildView` 后照常压在内容区，用户看到的就是「登录页在当前标签里打开了，标签栏毫无动静」。现改为：只按调用方自身 id 删除，缺失 id 一律忽略并告警，不再有任何清空路径。
 - **同文件 `page-manager:subscribe-events`**：id 生成从 `'default-' + Date.now()` 改为「自增序号 + 时间戳(base36) + 随机串」。原实现在同一毫秒内两次订阅会取到**同一个 id**，`Set` 去重后两个实例共享一条订阅，任一方注销即误删另一方——这是本 Bug 的第二条独立成因。
-- **`apps/desktop/electron/preload/page-manager.js`**：`subscribeEvents(subscriberId)` / `unsubscribeEvents(subscriberId)` 透传参数，使渲染层能拿到并回传自己的 id。
+- **`apps/desktop/electron/preload/page-manager.js`**：`unsubscribeEvents(subscriberId)` 透传参数，使渲染层能注销自己的那条订阅；`subscribeEvents()` 保持无参 —— id 必须由服务方生成（QM-6 第二轮评审指出，保留调用方传 id 的分支等于把「唯一性」这个保证重新交还给调用方，正是本次要建立的原则）。
+
+### QM-6 第二轮（前端模型 opencode）追加修复
+- **移除调用方自带 id 的分支**：`subscribe-events` 一律服务端生成 id；无可用 `sender`（含已销毁）时直接拒绝订阅，不再留下无人回收的条目。
+- **`_senderSubscribers` 剪枝**：注销时同步从 sender 记账集合中删除该 id，避免长生命周期 sender 累积陈旧条目；JSDoc 键类型收敛为 `Map<import('electron').WebContents, Set<string>>`；`_subscriberSeq` 去掉构造函数初始化后残留的 `|| 0` 死兜底。
+- 新增 3 条测试（服务方生成不可绕过 / 已销毁 sender 拒绝订阅 / 注销后剪除记账），修复前实测 RED 2 条；`webview-manager.test.js` **75 passed**，定向 8 文件 **489 passed**。
+- **修 `01-docs/learnings.md` 的自身损坏**：`e92ce3d6` 那次文档提交把我的置顶复盘整段复制了一份，并把 H2 标题焊进上一条 bullet 句子中间 —— 成因是在 bash 双引号里向 `node -e` 传含反引号与 `$` 的文本，反引号被 bash 当命令替换执行掉。已还原到完好版本再经编辑工具补写，并新增该陷阱的复盘条目。（合并 origin/main 与此无关，已核实对侧对该文件零新增。）
 - **`apps/desktop/src/stores/tab.js`**：`init()` 保存 `subscribeEvents()` 返回的 `subscriberId`，`dispose()` 用该 id 注销（未取到 id 时传 `null`，由主进程忽略）。
 - 重新生成 `apps/desktop/electron/preload/index.bundle.js` 与 `apps/desktop/electron/home-shell-preload.bundle.js`（QM-2：改 preload 必须重打包）。
 - **补回收路径（QM-6 评审驱动）**：拿掉 `clear()` 等于抽掉唯一的订阅回收手段，因此 `subscribe-events` 改为按 `event.sender`（webContents）记账，并在其 `destroyed` 事件里回收该实例名下的全部 id —— 崩溃或被杀而没走到 `dispose()` 的实例不再留下永久驻留的孤儿订阅（否则每次广播对同一主窗口多发一条重复 IPC）。`_subscriberSeq` / `_senderSubscribers` 一并列入 `index.js` 构造函数初始化，与 `_tabViews`/`_tabIdCounter` 等同类状态同风格。

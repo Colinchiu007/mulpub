@@ -44,7 +44,7 @@ class WebviewManager extends EventEmitter {
     this._subscriberSeq = 0
     // 渲染进程 webContents → 该实例名下的订阅 id 集合。注销不再全清，
     // 因此崩溃/被杀而未走 dispose 的实例必须由 webContents destroyed 回收。
-    /** @type {Map<any, Set<string>>} */
+    /** @type {Map<import('electron').WebContents, Set<string>>} */
     this._senderSubscribers = new Map()
 
     // ─── 虚拟登录标签（对齐参考产品全屏登录体验）──────────

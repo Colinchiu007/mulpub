@@ -896,7 +896,7 @@ var require_page_manager = __commonJS({
           // 批量保存全部未保存账号标签（方案三：全部保存）
           saveAllUnsavedAccounts: () => ipcRenderer2.invoke("page-manager:save-all-unsaved-accounts"),
           // ── Event subscription ──
-          subscribeEvents: (subscriberId) => ipcRenderer2.invoke("page-manager:subscribe-events", { subscriberId }),
+          subscribeEvents: () => ipcRenderer2.invoke("page-manager:subscribe-events"),
           unsubscribeEvents: (subscriberId) => ipcRenderer2.invoke("page-manager:unsubscribe-events", { subscriberId }),
           // ── 左侧导航栏宽度同步 ──
           setSidebarWidth: (width) => ipcRenderer2.invoke("page-manager:set-sidebar-width", width),
