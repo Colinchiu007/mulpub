@@ -74,6 +74,11 @@ class Settings(BaseSettings):
     runtime_signing_private_key: str = ""
     # 运行时配置签名私钥 PEM 文件路径（与 runtime_signing_private_key 二选一，路径优先）
     runtime_signing_key_path: str = ""
+    # engine 管理端转发（订阅手动开通，阶段 1 不走支付）：ops 后端持 admin:users scope 的
+    # logto M2M token 调 api-publish-engine /api/v1/admin/member/grant。
+    # 任一未配置 → 开通端点 503 fail-closed（与 redemption_secret 同一模式）。
+    engine_admin_base_url: str = ""
+    engine_admin_token: str = ""
     feedback_media_dir: str = "data/feedback-media"
     feedback_max_message_chars: int = 10000
     feedback_max_archive_bytes: int = 25 * 1024 * 1024
