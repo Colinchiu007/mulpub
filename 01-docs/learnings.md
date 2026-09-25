@@ -8,7 +8,17 @@
 
 - **多实例化改造会把「单实例时代无害的清理代码」变成跨实例误删（architecture，逃逸根因）**：`dispose() → unsubscribeEvents()` 从 #812 起就存在，单实例时代只有应用退出才走，误删无人察觉；`f7e93ceb`（#2230「新标签内嵌独立 SPA 实例」）引入多实例共存后，同一行代码变成缺陷。**教训**：做「一个改成多个」的架构改动时，必须把「按全局集合 clear()/reset() 的清理点」全量列一遍并逐个改成按自身句柄精确删除，这是该类改造固定的回归面。
 
-- **改 preload 必须重打包两个 bundle，且要用内容断言而非「构建成功」作证（pattern）**：`node apps/desktop/scripts/build-preload.js` 会同时生成 `electron/preload/index.bundle.js` 与 `electron/home-shell-preload.bundle.js`（后者不在 preload 目录下，容易以为只有一个）。构建脚本成功不等于签名真的进去 —— 必须 `grep "unsubscribe-events" index.bundle.js` 看到 `(subscriberId) => ...invoke(..., { subscriberId })` 才算收口。
+- **改 preload 必须重打包两个 bundle，且要用内容断言而非「构建成功」作证（pattern）**：`node apps/desktop/scripts/build-preload.js` 会同时生成 `electron/preload/index.bundle.js` 与 `electron/home-shell-preload.bundle.js`（后者不在 preload 目录下，容易以为只有一个）。构建脚本成功不等于签名真的进去 **新 worktree 里 `electron-builder --dir` 会在 renderer 缺失的情况下「打包成功」**：隔离 worktree 从不跑 `vite build`，`apps/desktop/dist` 不存在，builder 照样 exit 0 产出 `win-unpacked`，唯一线索是日志里两条 `file source doesn't exist from=.../dist/fonts`。启动后 stderr 报 `ERR_FILE_NOT_FOUND …/app.asar/dist/index.html`，窗口白屏但进程活着 4 个 —— 「存活 + 无 stderr 命中」在这一步之前根本没机会生效。固化口径：在新 worktree 跑 QM-1，必须先 `pnpm run build:vue` 再 builder（即 `pnpm run build:dir` 的语义），并把 `asar list | grep ^/dist/index.html## 共享订阅集合被「无 id 就全清」误删：原生视图照常显示而标签栏永不出新标签（fix-tab-subscription-leak，2026-09-25）
+
+- **主进程里的「渲染实例订阅集合」是跨实例共享资源，注销接口不能有无 id 全清兜底（pitfall，本 Bug 第一性原因）**：`WebviewManager._subscribers` 由每个 SPA 实例在 `tabStore.init()` 各加一条，但 `page-manager:unsubscribe-events` 写的是 `if (subscriberId) delete; else clear()`，而 preload 的 `unsubscribeEvents()` **根本不传参** —— 于是 `App.vue` 任一非 home-shell 实例卸载（`tabStore.dispose()`）就把所有实例的订阅一次抹光，且永远无法自愈（没有重连机制）。此后 `_broadcast` 遍历空集合，TabBar 再也收不到 `tab-created`。症状极具误导性：登录视图是原生 `WebContentsView`，`addChildView` 后照常盖在内容区，用户看到的是「登录页在本标签打开了、没开新标签」，第一反应都会去怀疑标签注册逻辑，而它其实完全正常。**判定手法**：见到「内嵌网页显示正常但标签栏不更新」，第一步量主进程订阅集合大小，不要先读 `auth-tab.js`。
+
+- **用 `Date.now()` 作订阅 id：同毫秒两实例撞成同一条，Set 去重后互相持有对方的句柄（pitfall，独立第二成因）**：`'default-' + Date.now()` 在同一毫秒内两次 `subscribe` 返回**完全相同的 id**，`Set` 只留一条，两个实例都以为自己有独立订阅 —— 任一方按 id 注销也会删掉对方的。修 clear 的同时必须把 id 换成「自增序号 + 时间戳(base36) + 随机串」。**教训**：任何「调用方向服务方领取句柄、日后凭句柄归还」的 id，唯一性必须由服务方保证，不能依赖时钟精度。回归测试要断言两次连续 subscribe 得到两个不同 id，否则这条永远测不出来（第一个 Bug 的测试恰好掩盖它 —— 断言 `size===2` 才暴露）。
+
+- **「重启应用就好了」= 状态被重置的订阅/连接类缺陷的强信号（pattern，定位手法）**：本次用户报回退、日志却显示主进程 35ms 内就打了 `Auth login tab opened: wechat_mp`，静态读代码全链路无错。真正的证据链是：① `--remote-debugging-port`（dev 启动自带，用 `netstat -ano | grep <electron主进程pid>` 取真实端口，不要猜 9222）连上运行中的实例；② 在渲染层直接调 `electronAPI.pageManager.getAllTabs()` 拿主进程真值，与 `document.querySelectorAll('[data-testid^="tab-"]')` 的 DOM 实况对照 —— 一次探针就能把「主进程没做 / 广播没人收 / 收到没渲染」三种根因分开；③ 顺手补一次 `subscribeEvents()`，若现象立刻消失即锁定订阅类缺陷。本次正是这第三下把根因钉死的（也说明：**探针可能顺手修好现场，结论要如实标注为「前后对照」而非干净复现**）。
+
+- **多实例化改造会把「单实例时代无害的清理代码」变成跨实例误删（architecture，逃逸根因）**：`dispose() → unsubscribeEvents()` 从 #812 起就存在，单实例时代只有应用退出才走，误删无人察觉；`f7e93ceb`（#2230「新标签内嵌独立 SPA 实例」）引入多实例共存后，同一行代码变成缺陷。**教训**：做「一个改成多个」的架构改动时，必须把「按全局集合 clear()/reset() 的清理点」全量列一遍并逐个改成按自身句柄精确删除，这是该类改造固定的回归面。
+
+- **改 preload 必须重打包两个 bundle，且要用内容断言而非「构建成功」作证（pattern）**：`node apps/desktop/scripts/build-preload.js` 会同时生成 `electron/preload/index.bundle.js` 与 `electron/home-shell-preload.bundle.js`（后者不在 preload 目录下，容易以为只有一个）。 作为打包后、启动前的第三道检查。 —— 必须 `grep "unsubscribe-events" index.bundle.js` 看到 `(subscriberId) => ...invoke(..., { subscriberId })` 才算收口。
 
 
 
