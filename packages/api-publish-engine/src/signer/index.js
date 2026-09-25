@@ -14,6 +14,7 @@ const crypto = require('crypto')
 const local = require('../signer-local')
 const { createRegistry } = require('./registry')
 const douyinTicketGuard = require('./douyin-ticket-guard')
+const { createBrowserPageProvider } = require('./browser-page-provider')
 
 const registry = createRegistry()
 
@@ -61,4 +62,17 @@ registry.register('douyin.ticket-guard-ree-public-key', (payload) => {
   return douyinTicketGuard.extractReePublicKey(p.cookie)
 })
 
-module.exports = { registry, createRegistry, sign: registry.sign, register: registry.register, has: registry.has, list: registry.list }
+// ---- Browser-page provider（W3 签名页基建）----
+// 单例 provider，桌面装配层通过 setBridge() 注入 IPC 通道
+const browserPageProvider = createBrowserPageProvider()
+
+// Tier-B 备选 command（本地公式不变，spike S0 验证后决定走哪个）：
+// 未注入 bridge 时求签自动 fail-closed 抛「签名页未就绪」
+registry.register('kuaishou.ns-sig3-browser', async (payload) => {
+  return browserPageProvider.sign('kuaishou.ns-sig3', payload)
+})
+registry.register('xiaohongshu.x-s-browser', async (payload) => {
+  return browserPageProvider.sign('xiaohongshu.x-s', payload)
+})
+
+module.exports = { registry, createRegistry, sign: registry.sign, register: registry.register, has: registry.has, list: registry.list, browserPageProvider }
