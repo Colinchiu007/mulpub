@@ -15,11 +15,11 @@
 
 ## 3. douyin-video 发布链（TDD，链契约测试先行）
 
-- [ ] 3.1 红测：`douyin-video-chain.test.js`——127.0.0.1 假服务器钉全链步骤序列（csrf HEAD → auth/v5 → upload → finish → cover → create_v2）与每步 method/URL 前缀/headers 白名单/query 串（含 `a_bogus=` 空值、msToken cookie 提取与 `a12man123masb` 回退伪值）/body 字段（对照 1.1/1.2 切片逐字段）
-- [ ] 3.2 红测：fail-closed 零请求面——四类签名材料 cookie（s_sdk_crypt_sdk / s_sdk_sign_data_key / bd_ticket_guard_client_data / sid_tt）逐一缺失、视频文件不存在（io_error）、私钥非法，均断言零网络请求
-- [ ] 3.3 实现 `publish/platforms/douyin-video.js` 步骤 0-1：前置校验（零请求 fail-closed）+ getSdkToken（URL 池 idx%3 轮换、`x-secsdk-csrf-request:1`/`1.2.7`、`x-ware-csrf-token.split(",")[1]`），复用 `publish/core` http-base/contract/errors
-- [ ] 3.4 实现步骤 2-4：getAuthKey v5（retryCondition=!isJson ≤3）→ aws4 签名上传（region cn-north-1；分片/单 PUT 以 1.1 取证为准，分片对齐 8388608）→ finish 取 videoId → 封面上传
-- [ ] 3.5 实现步骤 5-6：create_v2 提交（完整 `bd-ticket-guard-*` 头组、client-data 本地签出、Referer/Origin、可见性私密/草稿参数 Q15）+ 响应裁决（`x-tt-verify-passport-decision` → risk_blocked；`status_code===0 && aweme_id` → `{success, publishId, mode:"api"}`；登录失效码族 → login_expired 不降级）；3.1/3.2 转绿
+- [x] 3.1 红测：`douyin-video-chain.test.js`——127.0.0.1 假服务器钉全链步骤序列（csrf HEAD → auth/v5 → upload → finish → cover → create_v2）与每步 method/URL 前缀/headers 白名单/query 串（含 `a_bogus=` 空值、msToken cookie 提取与 `a12man123masb` 回退伪值）/body 字段（对照 1.1/1.2 切片逐字段）
+- [x] 3.2 红测：fail-closed 零请求面——四类签名材料 cookie（s_sdk_crypt_sdk / s_sdk_sign_data_key / bd_ticket_guard_client_data / sid_tt）逐一缺失、视频文件不存在（io_error）、私钥非法，均断言零网络请求
+- [x] 3.3 实现 `publish/platforms/douyin-video.js` 步骤 0-1：前置校验（零请求 fail-closed）+ getSdkToken（URL 池 idx%3 轮换、`x-secsdk-csrf-request:1`/`1.2.7`、`x-ware-csrf-token.split(",")[1]`），复用 `publish/core` http-base/contract/errors
+- [x] 3.4 实现步骤 2-4：getAuthKey v5（retryCondition=!isJson ≤3）→ aws4 签名上传（region cn-north-1；分片/单 PUT 以 1.1 取证为准，分片对齐 8388608）→ finish 取 videoId → 封面上传
+- [x] 3.5 实现步骤 5-6：create_v2 提交（完整 `bd-ticket-guard-*` 头组、client-data 本地签出、Referer/Origin、可见性私密/草稿参数 Q15）+ 响应裁决（`x-tt-verify-passport-decision` → risk_blocked；`status_code===0 && aweme_id` → `{success, publishId, mode:"api"}`；登录失效码族 → login_expired 不降级）；3.1/3.2 转绿
 
 ## 4. Adapter 接线与旧骨架下线
 

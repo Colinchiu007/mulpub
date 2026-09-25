@@ -13,6 +13,7 @@ const VITEST_FILES = new Set([
   'shipinhao-adapter.test.js',
   'bilibili-video-chain.test.js',
   'douyin-client-sign.test.js',
+  'douyin-video-chain.test.js',
   'bilibili-upos.test.js',
   'cos-uploader.test.js',
   'e2e-publish-full-chain.test.js',
