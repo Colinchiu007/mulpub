@@ -12,9 +12,9 @@
 
 ## 2. 签名页基建（TDD：假页面离线自测先行，design §1/§2）
 
-- [ ] 2.1 红测：`packages/api-publish-engine/test/browser-page-provider.test.js`——假 bridge 注入注册/求签/未注入 fail-closed（「签名页未就绪」语义）/仅 `verified` command 服务/返回值必须纯 JSON 字符串；注册表远程通道零命中断言扩展
-- [ ] 2.2 实现 `signer/browser-page-provider.js`（bridge 注入形态）+ `signer/index.js` 追加注册 `kuaishou.ns-sig3`（browser-page 版按 spike 裁决覆盖或并存）与 `xiaohongshu.x-s` provider 槽；2.1 转绿；VITEST_FILES 登记（node UTF-8 脚本）
-- [ ] 2.3 红测（Electron 集成，本机临时假 webpack 页面）：`apps/desktop` 侧 signer-page-manager 契约——域锁拒绝导航、webpackChunk push 劫持抽取、拦截法比对一致/不一致两分支、限流第 4 次置 degraded、IPC 白名单外 command 拒绝、注入脚本无 `Function.prototype.toString`/`JSON.stringify(fn)` 回传
+- [x] 2.1 红测：`packages/api-publish-engine/test/browser-page-provider.test.js`——假 bridge 注入注册/求签/未注入 fail-closed（「签名页未就绪」语义）/仅 `verified` command 服务/返回值必须纯 JSON 字符串；注册表远程通道零命中断言扩展
+- [x] 2.2 实现 `signer/browser-page-provider.js`（bridge 注入形态）+ `signer/index.js` 追加注册 `kuaishou.ns-sig3`（browser-page 版按 spike 裁决覆盖或并存）与 `xiaohongshu.x-s` provider 槽；2.1 转绿；VITEST_FILES 登记（node UTF-8 脚本）
+- [x] 2.3 红测（Electron 集成，本机临时假 webpack 页面）：`apps/desktop` 侧 signer-page-manager 契约——域锁拒绝导航、webpackChunk push 劫持抽取、拦截法比对一致/不一致两分支、限流第 4 次置 degraded、IPC 白名单外 command 拒绝、注入脚本无 `Function.prototype.toString`/`JSON.stringify(fn)` 回传
 - [ ] 2.4 实现 `apps/desktop/electron/signer/`（signer-page-manager + 抽取器模板 + 拦截双验证 + `signer:invoke`/`signer:status` 白名单 IPC + preload 桥）；2.3 转绿；**QM-1 打包三件套**（builder --dir → asar list/require 链 → exe 8s 存活 stderr 干净）+ preload sandbox 两模式验证
 - [ ] 2.5 locales 成对：新增用户可见文案（签名页未就绪/登录已失效/降级提示）zh/en 写入 `apps/desktop/src/locales/`（Gate 7）
 
