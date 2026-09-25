@@ -63,3 +63,14 @@
 - [x] 41. 新回归断言经「回退旧实现即红」实测（并发与原子性两条）
 - [x] 42. `AGENTS.md` 门禁 ③ 改为条件式：结果面向用户才需区分部分成功；链路对用户透明时禁止新增 locale 键
 - [ ] 43. 第二轮复评（Critical 清零确认）后放开 auto-merge
+
+
+## QM-6 第二轮复评后的第三轮（2026-09-25）
+
+- [x] 43. 复评判首轮 Critical **只修了一半**：`01-docs/FEATURE-APP-MENU-2026-09-15.md` §2 约束表、§6.2 下发流程图、§10 提示清单 T1、§14 遗留 L1 共 4 处仍是旧表述 → 全部改写为「启动时同步一次 / 下次启动生效 / 界面不提供手动入口」
+- [x] 44. 同类残留扩到本 change 之外：`ops-center/docs/PRD.md:812`（描述已隐藏的同步卡片）、`ops-center/docs/OPERATIONS.md:194`（教运营者「桌面端点立即同步」）→ 改写并在 PRD 里如实登记 `runSyncNow` 已无生产调用方
+- [x] 45. 收口方式由「逐处改」换成「关键词全仓扫 + 每条命中显式定性」：`立即同步` / `手动同步` 在 `.md/.vue/.py` 的命中逐条判定（6 改 / 历史归档与无关同名保留）；含不带关键词的变体「（自动或手动）」1 处
+- [x] 46. `AGENTS.md` QM-2 两条新门禁与本文 §16.5 P7 落地「文案类修复必须复扫到 0 命中」
+- [x] 47. 合并 `origin/main`（#2377/#2378）：`CHANGELOG.md` 手工解冲突时发现**本分支此前用范围替换加节，吞掉了 main 上两节**（`fix-toutiao-tab-load-hang`、`account-card-display-fix`）→ 改「取上游全文 + 前置新节」重建，核对 `git diff --numstat origin/main -- CHANGELOG.md` = **41 插入 / 0 删除**
+- [x] 48. 合并后重跑：ops-center 前端 `npm test` 57 passed / 10 files + `npm run build` PASS；后端 `test_app_menu_api.py` 21 passed
+- [ ] 50. 遗留（本 change 不做）：清理 `useOpsCenterSync.runSyncNow` 与 `modelProviders.syncNow`（zh/en）死键及其 3 条用例；跨端 CATALOG 一致性 CI 断言（见 §16.6）
