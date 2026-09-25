@@ -77,7 +77,9 @@
 - [x] 50. 补注册写保护计划任务：**受本机权限阻断**（见下条证据），Health 任务已注册成功，Write Guard 任务无法注册
 - [ ] 51. 遗留（本 change 不做）：清理 `useOpsCenterSync.runSyncNow` 与 `modelProviders.syncNow`（zh/en）死键及其 3 条用例；跨端 CATALOG 一致性 CI 断言（见 §16.6）
 
-### 50. 写保护计划任务注册结果（2026-09-25 23:0x，本机权限实测）
+### 50. 写保护计划任务注册结果（2026-09-25 23:0x→23:2x，本机权限实测 + 已闭合）
+
+**最终状态：两个计划任务均已注册、watcher 常驻、共享根健康门禁返回 0。**
 
 - `bootstrap-write-guard.ps1` 在共享根（已含 #2375 修复）跑通到 `[2/5] 自检` 的注册步骤：
   `Session Isolation Health` **注册成功**（`Get-ScheduledTask -TaskPath '\Multi-Publish'` 可见，State=Ready）。
@@ -86,8 +88,24 @@
   `-AtLogOn` 的三种组合（plain / ExecutionTimeLimit 3650d / 2min）**全部 FAIL**，
   `-Once` **PASS** → 不是任务名、路径、时限或动作的问题，是**非管理员令牌不允许注册登录触发器**。
 - 换 API 路径同样失败：`schtasks /Create /SC ONLOGON`（无嵌套引号干扰的最小 /TR）返回 RC=1 拒绝访问。
-- 账户事实：`IsInRole(Administrator)=False`、`EnableLUA=1`、`ConsentPromptBehaviorAdmin=5`；
-  注册当前为**受限令牌**，需管理员凭据提权才能建 AtLogOn 任务；若账户本身不是管理员，则 UAC 也不解决，须换凭据。
-- **未采用的绕过方案**（避免静默改变隔离机制语义，留待用户决定）：
-  把 guard 的触发器改成 `-Once + -RepetitionInterval`（受限用户可注册，但不是"登录即常驻"，watcher 有间歇窗口），
+- 账户事实（提权前）：`IsInRole(Administrator)=False`、`EnableLUA=1`、`ConsentPromptBehaviorAdmin=5`，而 `to_co` **在** local Administrators 组内 → 只是当前进程为受限令牌，UAC 提权可解。
+- **✅ 闭合方式（经用户批准提权）**：`Start-Process powershell -Verb RunAs -File <ASCII-only 包装脚本>`（包装脚本内先回写 `elevated=True` 再调 `install-session-isolation-task.ps1 -Minutes 15`）→ 两个任务均注册成功；随后**非提权** `Start-ScheduledTask -TaskName 'Session Isolation Write Guard' -TaskPath '\Multi-Publish\'` 让 watcher 立即常驻。
+- **复验（不采信 `$LASTEXITCODE`）**：`Get-ScheduledTask` → Health=Ready、Write Guard=Running；`Get-ScheduledTaskInfo.LastTaskResult=267009`（0x41301＝正在运行，非错误）；`guard-shared-root-writes.ps1 -Watch` 进程存在；健康报告 `writeGuard = {taskRegistered:true, running:true, violations:0, quarantineCount:0, ok:true}`。
+- **⚠️ 注册成功后不得再以非提权身份重跑 `bootstrap-write-guard.ps1`**：其 `[2/5] 自检` 会以 `-Force` 重注册那个 AtLogOn 任务，受限令牌下 0x80070005 失败并打断 bootstrap（本次实测复现）。同理 `installer_rc=1` 是 `&` 调用 .ps1 后 `$LASTEXITCODE` 的残留值，与成败无关——按它记账会把"已注册成功"误记为失败。
+- **顺带修掉两处挡住"环境缺口已闭合"结论的红项**（与写保护本身无关）：健康报告当时为
+  `marker:false` + `hooks[post-checkout].match:false`。分别按文档动作处理：
+  ① `session-guard.ps1 -Branch main` 写 `.agent_context/expected-branch`（该文件由 session-guard 负责，钩子本身不写它）；
+  ② `install-git-hooks.ps1` 把 `scripts/hooks/*` 覆盖安装到 `.git/hooks/`，使 installed 与仓库源一致（`git hash-object` 均为 `f6bbd56927`）。
+  之后 `mp-worktree-health.ps1 -RequireWriteGuard -RequireClean -RequireHooks -RequirePrimary` 返回 **0 / ok=true**（11 个 worktree 全 ok）。
+- **该红项的根因不在本 PR 范围，且我未把它查清（如实登记）**：曾假设"某个 worktree 的旧版钩子经共享 `.git/hooks` 覆盖了机器级钩子"，
+  实测**不成立**——11 个 worktree 的 `scripts/hooks/post-checkout` 哈希全部相同。仓库里另有 `mp-fix-health-hook-append-tolerance`
+  工作区正在处理"健康检查对钩子的比对容忍度"，`match:false` 更可能属于那一类（例如安装后被其他工具追加内容）。
+  **副作用声明**：我为让门禁转绿执行了覆盖安装，因此当时 `.git/hooks/post-checkout` 上若有其他工具追加的内容已被替换；
+  该文件不受 git 跟踪、无备份，此项不可复原。后续排障归那一工作区，本 PR 不再动钩子。
+- **⚠️ 本次留下的一处取证失误（记为教训）**：我在覆盖安装**之前**没有留存或 diff 旧的 `.git/hooks/post-checkout`，
+  等于销毁了案发现场。更严重的是，我一度把原因写成"旧版用 `${2}` 取来源 commit"——那是**未实测的推断且与事实相反**
+  （现行源文件用 `BRANCH_CHECKOUT="${3:-0}"`，且该钩子是共享根分支守卫，与 expected-branch 无关），已在同一次编辑中删除。
+  规则：修漂移前先 `cp` 现场或 `diff --no-index` 落证据；写进仓库记录的因果句必须有当次可复跑的命令支撑，
+  "看起来能解释现象"不构成证据。
+- **当初考虑过但未采用的绕过方案**（会静默改变隔离机制语义）：把 guard 触发器改成 `-Once + -RepetitionInterval`（受限用户可注册，但不是"登录即常驻"，watcher 有间歇窗口），
   或改由 `startup` 文件夹/注册表 `Run` 键自启（同样非计划任务，且不受 `mp-worktree-health.ps1 -RequireWriteGuard` 认可）。
