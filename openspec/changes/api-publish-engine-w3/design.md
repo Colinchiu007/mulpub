@@ -1,8 +1,9 @@
-# Design: api-publish-engine-w3（签名页基建 + 快手 sig3 spike + 快手/小红书链）
+﻿# Design: api-publish-engine-w3（签名页基建 + 快手 sig3 spike + 快手/小红书链）
 
 ## §0 取证锚点与关键发现（实现前必读，禁止凭记忆）
 
 证据文件（文档域，tracked）：
+- `01-docs/rpa-api-publish/evidence/yx-kuaishou-w3-slices.txt`：快手/小红书完整链逐字切片（W3 Group1 补提，含 sig3/getNewSign 外包服务确认、buildPostData 全字段、端点签名单）
 - `01-docs/rpa-api-publish/evidence/yx-slices-v2.txt`：`getSign$5@1341838`、`__NS_sig3@1342665/@1343225`、`getUploadArgsResponse$9@1344875/@1357008`、`uploadVideoPart$b@1379772/@1386455`、`publishKuaishouVideo@1389174`
 - `01-docs/rpa-api-publish/evidence/yx-bundle-slices.txt`：`checkKuaiShouLogin@1378035/@1425381`、活动链 `__NS_sig3=` 拼接段（URL 前缀 `cp.kuaishou.com/rest/v2/...?__NS_sig3=`）
 - bundle 完好性判据沿用 W2 tasks 1.1 的可复现定位法（size/SHA256 钉文件，实际目录名存会话记忆/EverOS，不入 tracked 文档，避 Gate 12）
@@ -58,17 +59,30 @@ apps/desktop/electron/signer/            packages/api-publish-engine/
 
 ## §5 快手发布链（api-publish-kuaishou-chain，仅 spike go）
 
-步骤（字段名以 Group 1 补提切片为准，先红测后实现）：
-1. 前置校验（cookie `kuaishou.web.cp.api_ph` 等签名/鉴权材料，fail-closed 零请求）
-2. `getUploadArgs`（切片 @1344875）→ 3. 分片上传（@1386455，`needParts` 分支、cancelToken）→ 4. finish/complete（`@/rest/cp/works/v2/video/pc/upload/finish`，result∈{1,109} 特判）
-5. 封面上传 → 6. 发布提交（`publishKuaishouVideo@1389174`；`ai_generated` 声明字段从现有 adapter 平移，默认如实声明；可见性私密/草稿参数 Q15）
-- `KuaishouAdapter` 变薄委托（对齐 W2 `douyin.js` 形态：override `execute` + granular 空安全契约方法）；旧骨架远程签名拼参路径下线；grep 门禁扩展：`src/adapters`+`src/publish` 无外包签名服务 URL 片段常量。
-- platforms.yaml kuaishou `publishMode` 翻转 api-then-dom + publish-mode 回归扩展 kuaishou 行。
+步骤（字段名已回填，源自 `evidence/yx-kuaishou-w3-slices.txt` §1.1-§1.11）：
+1. 前置校验：cookie 中 regex `/kuaishou\.web\.cp\.api_ph=([a-z0-9]+)/` 提取 api_ph，fail-closed 零请求
+2. `getUploadArgs`：POST `/upload/pre?__NS_sig3=`，body=`{uploadType:1, api_ph}` → `{token, endPoints[0]}`
+3. 分片上传：POST `{endpoint}/api/upload/fragment?upload_token&fragment_id`，Content-Range `bytes s-e/total`，4MiB/片 → `{checksum}`
+4. complete：POST `{endpoint}/api/upload/complete?fragment_count&upload_token`，空 body → result==1
+5. finish：POST `/upload/finish?__NS_sig3=`，body=`{token,fileName,fileTyp:"video/mp4",fileLength,api_ph}` → `{fileId}`
+6. 封面：POST `/upload/cover/upload` multipart FormData(file, api_ph) → `{coverKey}`
+7. buildPostData：组装提交 body（caption/coverKey/coverType/fileId/api_ph/photoStatus/photoType/publishTime/domain/secondDomain/coverCropped:false 等，详见切片 §1.7）
+8. submit：POST `/video/pc/submit?__NS_sig3=` → `{result,currentTime}`; result==1 成功, publishId=currentTime.substring(0,10)
+9. 回查：POST `/photo/list` queryType:"2" 近 5min → match unPublishCoverKey → 确认 photoId
+- 错误语义：result==109 → login_expired 停任务不降级; 外包签名 URL 片段 grep 门禁(src/adapters+src/publish 零命中)
+- `KuaishouAdapter` 变薄委托（对齐 W2 `douyin.js` 形态）；旧骨架远程签名拼参路径下线
+- platforms.yaml kuaishou `publishMode` 翻转 api-then-dom + publish-mode 回归扩展 kuaishou 行
+- __NS_sig3 带签端点清单：upload/pre, upload/finish, video/pc/submit, creator 查询类; 不带签：fragment, complete, cover, photo/list
 
 ## §6 小红书链（api-publish-xiaohongshu-chain，前置取证不满足即止步）
 
-- 现有证据仅 `getXiaohongshuProMessage` 段（`yx-slices-v2.txt@96` 区域）→ Group 1 必须补提完整链切片（上传+发布+x-s/x-t 生成调用点）；补提发现字段面缺口过大或链依赖未钉的 `x-s` 生成算法 → **小红书并入 W4 或止步**，波不阻塞快手。
-- `xiaohongshu.x-s` 注册表现存 `getXiaohongshuSign(path, body)` 近似实现同样须经 S0 式探针裁决后才可入链。
+**Group 1 补提结论（详见 `evidence/yx-kuaishou-w3-slices.txt` §2.1-§2.7）**：
+- `getNewSign(path, body)` 输入=`JSON([path, encodeURIComponent(body)])`，输出=`{X-s, X-t, a1, X-S-Common?}`，signCommand="newxiaohongshu"，与快手共用同一外包签名服务。
+- 发布提交：POST `edith.xiaohongshu.com/web_api/sns/v2/note`，X-s/X-t 必填，`!sig["X-s"]` → throw; code==0 && data.id → 成功。
+- 视频链：getUploadArgs("video") → getUploadId(XML) → 5MiB分片 → fileIds[0]; buildPostData$K(nodes/cover/topics max10).
+- 图文链：getUploadArgs("image") → uploadImage$8(buffer→uploadAddr) → fileIds[0]; publish$j 同 endpoint.
+- **止步裁决**：x-s/x-t 算法完全依赖外包服务，无反推本地公式的已知路径，本地 getXiaohongshuSign 为未验证近似。小红书链保持 Tier-B 待验证，**不阻塞快手链**；若签名页基建 W3 验证不通过即止步入 W4。
+- `xiaohongshu.x-s` 注册表 provider 槽预留（签名页基建可服务），但本波不激活链实现。
 
 ## §7 风控接线与合规墙
 

@@ -2,13 +2,13 @@
 
 ## 0. 环境就绪
 
-- [ ] 0.1 worktree 依赖就绪：`pnpm install --frozen-lockfile && node scripts/ensure-electron.js && node scripts/verify-worktree-deps.js`；确认 Write Guard watcher 运行、pre-flight 守卫通过
+- [x] 0.1 worktree 依赖就绪：`pnpm install --frozen-lockfile && node scripts/ensure-electron.js && node scripts/verify-worktree-deps.js`；确认 Write Guard watcher 运行、pre-flight 守卫通过
 
 ## 1. 前置取证（design §0 硬约束：未取证块不得凭记忆实现）
 
-- [ ] 1.1 按 W2 可复现定位法确认 bundle 完好，补提快手完整链逐字切片：getUploadArgs 请求/响应字段全段 → 分片上传（needParts/分片大小/cancelToken）→ finish（result 语义码表含 109）→ 封面 → 发布提交 body 逐字段（含 `ai_generated` 位、可见性私密/草稿参数）→ `__NS_sig3` 拼接点清单（哪些端点带签/哪些不带），入 `01-docs/rpa-api-publish/evidence/`（品牌词与真实值占位符化，过 Gate 12）
-- [ ] 1.2 补提小红书完整链切片（上传 + 发布提交 + `x-s`/`x-t` 生成调用点全段）；缺口过大即依 design §6 记录止步裁决（不阻塞后续组）
-- [ ] 1.3 依据 1.1/1.2 回填 design §5/§6 待钉字段名，消解「以切片为准」占位标注
+- [x] 1.1 按 W2 可复现定位法确认 bundle 完好，补提快手完整链逐字切片：getUploadArgs 请求/响应字段全段 → 分片上传（needParts/分片大小/cancelToken）→ finish（result 语义码表含 109）→ 封面 → 发布提交 body 逐字段（含 `ai_generated` 位、可见性私密/草稿参数）→ `__NS_sig3` 拼接点清单（哪些端点带签/哪些不带），入 `01-docs/rpa-api-publish/evidence/`（品牌词与真实值占位符化，过 Gate 12）
+- [x] 1.2 补提小红书完整链切片（上传 + 发布提交 + `x-s`/`x-t` 生成调用点全段）；缺口过大即依 design §6 记录止步裁决（不阻塞后续组）
+- [x] 1.3 依据 1.1/1.2 回填 design §5/§6 待钉字段名，消解「以切片为准」占位标注
 
 ## 2. 签名页基建（TDD：假页面离线自测先行，design §1/§2）
 
