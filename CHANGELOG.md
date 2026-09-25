@@ -1,3 +1,21 @@
+# [未发布] fix(session-guard): 修 git 2.55 下 hash-object 参数互斥，冷克隆机写保护计划任务得以注册（2026-09-25，fix-session-guard-git255）
+
+### 变更
+- **`scripts/guard-shared-root-writes.ps1`**：`Test-MatchesIndex` 的 `hash-object --no-filters --path <p> -- <file>` 去掉 `--path`。git 2.55 usage 明确 `--path=<file>` 与 `--no-filters` 互斥（同时传直接 error，不降级），导致守护碰到被改动的 tracked 文件时整链失败（`Can't use --path with --no-filters`）。原始字节口径不需要 `--path`；过滤器口径仍由其后的 `$filteredHash` 覆盖，两级比对语义不变。
+- **`scripts/session-write-guard.test.ps1`**：自检夹具的 `.gitignore` 补 `.agent_context/`，与真实仓库（根 `.gitignore` 已忽略该目录）同形。守护按设计会在仓库根写 `.agent_context/write-guard-alert.json` 供后续会话感知违规，夹具缺该忽略项时「restore 后 status 仍干净」会把设计内文件误判为脏。**断言强度未降**——仍校验恢复不残留 tracked 脏状态。
+
+### 影响
+- 此前在新克隆机器上 `bootstrap-write-guard.ps1` 于 `[2/5] 自检` 抛错退出，`Session Isolation Write Guard` 计划任务与 watcher **永远注册不上**（AGENTS.md 会话隔离前置检查无法满足）。修复后引导可完整走完 5 步。
+- 纯工具脚本，不改运行时代码与 CI 配置。
+
+### 测试
+- `session-write-guard.test.ps1` 修复前卡在第 5 项，修复后 **14 项全 PASS**；`session-isolation-automation.test.ps1` 通过。
+
+### 文档
+- `docs/session-isolation-automation.md` 新增「冷克隆引导的两个已知拦路石（git 2.55 实测）」一节，含排查提示：自检里 `PASS: tracked file is restored from HEAD` 读的是 HEAD 内容而非工作区文件（假 PASS）；Git Bash 与 Write 工具的 `/tmp` 可能不同映射，传 PowerShell 需用 `cygpath -w`。
+
+---
+
 # [未发布] fix(webview): CDP 本地存储注入挂起改超时降级，首个导航不被无限门控（头条标签卡死事故回归对）（2026-09-24，fix-toutiao-tab-load-hang）
 
 ### 变更
