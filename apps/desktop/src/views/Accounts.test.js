@@ -1084,6 +1084,37 @@ describe("AccountsView", () => {
     await running;
   });
 
+  // 回归保护：检测中按钮只显示短标签。命令栏是 flex:0 0 auto 不参与收缩，
+  // 长进度文案（含平台名）会撑宽它并把整条工具栏挤到换行（实测高 63px→91px、状态切换器换位），
+  // 而详细进度本就由同一 v-if 条件的全屏遮罩承载，按钮上的长文案被遮罩盖住根本不可读。
+  it("batchCheckAllLogins 检测中按钮文案保持短标签，不随进度增长", async () => {
+    const publisher = await import("@/api/publisher");
+    let resolveBatch;
+    publisher.accountBatchCheckLogin.mockReturnValue(new Promise(r => { resolveBatch = r }));
+    let emit = null;
+    window.electronAPI = {
+      onAccountsBatchCheckProgress: (cb) => { emit = cb; return () => { emit = null } },
+    };
+    _testAccounts.push({ id: "s1", platform: "zhihu", status: "active", account_name: "知乎号" });
+    const w = await mountView();
+
+    const running = w.vm.batchCheckAllLogins();
+    await nextTick();
+    emit({ phase: "start", checked: 0, total: 1, platform: "zhihu", accountId: "s1" });
+    await nextTick();
+
+    const btn = w.find('[data-testid="account-batch-check-all"]');
+    expect(btn.text()).toBe(i18n.global.t("accountsPage.batchCheckAllBusy"));
+    expect(btn.text()).not.toContain("/");
+
+    const overlay = w.find('[data-testid="batch-check-overlay"]');
+    expect(overlay.exists()).toBe(true);
+    expect(overlay.find(".batch-check-progress").text()).toContain("0/1");
+
+    resolveBatch({ code: 0, data: { results: [{ accountId: "s1", platform: "zhihu", valid: true }], checkedAt: "2026-09-22T00:00:00Z" } });
+    await running;
+  });
+
   it("batchCheckAllLogins 遮罩展示递增的已耗时秒数，让等待可感知", async () => {
     const publisher = await import("@/api/publisher");
     let resolveBatch;

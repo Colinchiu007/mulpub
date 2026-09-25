@@ -49,6 +49,8 @@
         <button type="button" data-testid="account-view-list" :aria-pressed="accountViewMode === 'list'" @click="accountViewMode = 'list'">☷</button>
       </div>
       <div class="account-command-bar" :aria-label="t('accountsPage.actionsAria')">
+        <!-- 检测中只显示短标签：详细进度由 .batch-check-overlay 承载（同 v-if 条件，遮罩正盖住本按钮），
+             而命令栏 flex:0 0 auto 不收缩，长进度文案会撑宽它并把整条工具栏挤到换行。 -->
         <button
           class="page-button secondary"
           type="button"
@@ -56,7 +58,7 @@
           :disabled="batchCheckAllBusy || totalAccounts === 0"
           :title="t('accountsPage.batchCheckAll')"
           @click="batchCheckAllLogins"
-        >{{ batchCheckAllBusy ? batchCheckAllProgressText : t('accountsPage.batchCheckAll') }}</button>
+        >{{ batchCheckAllBusy ? t('accountsPage.batchCheckAllBusy') : t('accountsPage.batchCheckAll') }}</button>
         <button class="page-button secondary" type="button" data-testid="account-batch" @click="accountBatchMode = !accountBatchMode">{{ t('accountsPage.batchAction') }}</button>
         <button class="page-button primary" type="button" data-testid="account-add" @click="showAddDialog = true"><Plus />{{ t('accountsPage.addAccount') }}</button>
       </div>

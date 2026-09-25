@@ -15726,6 +15726,9 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 
 - **可迁移判据**：凡用 `grid-template-columns` 硬编码列数排一行工具栏/表单头，先算「各列 min-content 之和」再对照**最低支持分辨率的 CSS 宽度（物理像素 ÷ 缩放因子 − 侧栏）**；含中文的轨道若为 `auto`/`minmax(100px,auto)` 且未 `nowrap`，等于埋了一颗逐字竖排的雷。CJK 场景下 `auto` 轨道的最小宽度不是「词」而是「字」，这一点与英文布局直觉相反。
 
+- **连带缺陷（pitfall，同一工具栏的第二颗雷）**：修完换行后压测发现，「一键检测」按钮在检测中会渲染 `batchCheckAllProgressText`（含平台名，可达「检测中 12/14：微信公众号 · 账号名」），而命令栏被设为 `flex: 0 0 auto` 不收缩 → 按钮 242→329→498px，实测把工具栏从 1 行顶成 2 行、状态切换器换位，**检测过程中布局跳动**。关键判据：详细进度本就由**同一 `v-if` 条件**的全屏遮罩 `batch-check-overlay`（`position: fixed; inset: 0`，45% 深色 + `backdrop-filter: blur(2px)`）承载——按钮上的长文案被遮罩盖住根本不可读，属纯冗余。故按钮只需显示短状态标签 `batchCheckAllBusy`，零信息损失地消除跳动。
+- **可迁移判据**：凡「不收缩容器」内的文本会随状态增长（进度、计数、动态标签），必须给它宽度上界（定宽 / `max-width` + `text-overflow: ellipsis`），否则它会把兄弟元素挤出换行；若该长文案同时被一个模态遮罩承载，则按钮侧的长文案是纯冗余，应直接降级为短状态标签而不是截断。写完布局修复要按「最长可能文案」重压一遍，别只验静态基线。
+
 - **回归保护**：`Accounts.test.js` 新增源码契约断言（沿用项目既有 `fs.readFileSync('.vue')` 切片惯例）——`.account-controls` 必须 `display:flex` + `flex-wrap:wrap` 且**不得**出现 `grid-template-columns`；`.filter-tabs button` 与 `.account-count` 必须 `white-space:nowrap`。已反证：五条断言在旧实现上全部 FAIL、新实现全部 PASS。
 
 - **待收口的机制缺口（未在本轮落地）**：① `accounts-list.png` 基线含缺陷，本修复会使其产生像素 diff，需在装有 Playwright 浏览器的环境用 `test:visual:update-baseline` 重新捕获并人工审核（本机无浏览器缓存，未能本地跑 `test:visual:pixel`）；② 视觉回归应补一档「按 Windows 常见缩放折算后的 CSS 视口」（1536×912、1366×768）用例——只按 1920 CSS 拍基线，等于给缩放用户留了盲区；③ 基线捕获后应做一次「基线自身是否已破图」的人工抽检，否则错误会被永久固化为参照物。
