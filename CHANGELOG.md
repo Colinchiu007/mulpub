@@ -16,7 +16,8 @@
 - 症状：账户管理新增知乎账号，登录页点「发送手机验证码」被知乎侧拒绝并提示「客户端异常」。当日主进程日志佐证：知乎两次 `auth:open-login` 均走完整 300s 超时（`13:36`、`13:44`），同链路微信/抖音登录 `ok` —— 平台特异性失败，与知乎按 UA 标记拒绝下发验证码的既有记录一致（该文件注释自陈的成因）。
 - **回归窗口**：`git log -L` 溯源到 `1dc84e59`（2026-09-11 `fix(startup): 净化 Electron UA 规避知乎登录风控 10001`）—— 那次提交是为修同一症状而生的，根因与方案都对，只是取源写错，因此**知乎短信验证码登录自 2026-09-11 起实际上一直没被修好**，且该 Bug 已逃逸两次（第一次：`startup-compat.test.js` 未被 vitest include；第二次：测试跑到了但夹具是真实运行时不存在的形状）。
 - UA 是**全站出站指纹**：修复后所有内嵌登录/浏览器标签（知乎、微博、头条、B站等）统一以标准 Chrome UA 出网。回归对照实测净化前后出站头，净化后无任何头部含 `electron` 字样。
-- 待用户侧最终验收：真实点击知乎「发送手机验证码」确认风控放行。若仍被拒，下一步是覆盖 `session.setUserAgent` 的 UA-CH 客户端提示（`Chrome/150.0.7871.114` 完整版本号与 `Sec-CH-UA` 品牌列表仍与正式版 Chrome 的 `150.0.0.0` 口径不同）。
+- **验收结果（2026-09-26 真机 PASS）**：修复实例启动即打印 `[startup] 已净化 User-Agent`，用户完成知乎短信验证码登录 —— `auth:open-login ok platform=zhihu accountId=e52215b3 耗时=36679ms`（对照修复前同一链路 `timeout 耗时=300023ms`），账号落库并通过凭据校验（cookies=25 / lsKeys=25），`accounts:list` 8 平台全部 active、expired=0。**因果定性**：成功发生在第一笔修复（仅剔除 `Electron/`，仍残留作用域包名）之后，故判定知乎的拒发判据是 `Electron/` 标记本身；第三笔包名收口属指纹卫生，非本案致因。
+- ~~待用户侧最终验收~~（已闭环，见上条）。若将来再次被拒，下一层候选是覆盖 UA-CH 客户端提示（`session.setUserAgent(ua, {userAgentMetadata})`，把 `Chrome/150.0.7871.114` 对齐正式版 Chrome 的 `150.0.0.0` 口径与 `Google Chrome` 品牌项）——本次无证据表明它是必要条件，未做。
 
 ### 测试
 - `apps/desktop/electron/startup-compat.test.js` 夹具全部改为**真实 Electron App 形状**（只有 `userAgentFallback`，不带 `userAgent`）：修复前 4 条断言红，修复后 **18 passed**。
