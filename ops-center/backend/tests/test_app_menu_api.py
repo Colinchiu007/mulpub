@@ -364,7 +364,7 @@ async def test_concurrent_provisioning_never_raises_integrity_error():
     """
     import asyncio
 
-    from database import async_session
+    from database import async_session, engine
     from services.app_menu_service import _provision_from_catalog
 
     await _drop_row("copy-library")
@@ -374,7 +374,14 @@ async def test_concurrent_provisioning_never_raises_integrity_error():
             await _provision_from_catalog(db)
             await db.commit()
 
-    results = await asyncio.gather(*[worker() for _ in range(5)], return_exceptions=True)
+    try:
+        results = await asyncio.gather(*[worker() for _ in range(5)], return_exceptions=True)
+    finally:
+        # 5 路并发会在默认队列连接池里留下**绑定当前事件循环**的连接；pytest-asyncio 每条用例
+        # 换新循环，后续模块从池里取到这些连接会读到过期的 WAL 读快照，看不见自己前面测试刚建的
+        # 父行，表现为远处模块报 FOREIGN KEY constraint failed（本仓 2026-09-26 实测：只 deselect
+        # 本用例，全量即由 1 failed 变 454 passed）。故制造并发 session 的用例必须自己归还池。
+        await engine.dispose()
     assert [r for r in results if isinstance(r, Exception)] == []
 
     async with _client() as client:

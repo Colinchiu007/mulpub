@@ -15794,3 +15794,11 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **pitfall（SQLite 细节）**：① `PRAGMA foreign_keys` 在事务内是 no-op，别指望它兜住删除顺序——用 `sorted_tables` 逆序删；② 自增主键是 rowid（非 `AUTOINCREMENT`），`DELETE FROM t` 后 id 会回到 1，因此"清行"就能复原假设，但必须**顺带清 `sqlite_sequence`**（若存在），否则一旦某表真用了 AUTOINCREMENT，行号仍会单调上涨。
 - **pattern（回归锁要能反证）**：新加的隔离用例必须验证"去掉修复就变红"。做法：把 fixture 调用改成 `pass` 跑一次（本次立刻 `no such table: prompt_eval_cases`），再恢复。改完务必 `grep` 确认临时标记（`TEMP-NEUTER`）已清除——本次差点把 no-op 留在文件里提交。
 - **pitfall（临时改动的自我防护）**：写"恢复断言"时不要断言被改字符串的出现次数为 1——恢复后它会同时出现在 `def` 行与调用行，计数为 2，`assert` 反而让恢复**没执行**，破坏态静默留在工作树里。恢复用备份文件 `cp` 覆盖 + `grep` 双向核验（标记应为 0、调用点应为 1）。
+
+
+### 复盘：测试里开并发 session 会毒化连接池，故障落在八竿子打不着的模块上（2026-09-26）
+
+- **pitfall**：一条「5 路 `async_session` 并发」的用例能让**另一个文件的远处测试**报 `FOREIGN KEY constraint failed`。链条：SQLAlchemy 默认队列池把连接留在池里 → 这些连接绑定当时的 event loop → pytest-asyncio 每条用例新循环 → 后续模块取到旧连接时读到**过期的 WAL 读快照**，看不见自己前面刚建的父行。所以「报错误的地方」和「制造状态的测试」隔着两个文件，按报错位置去查永远查不到。
+- **pattern（定责到具体用例）**：怀疑本 PR 自带雷时，用 `pytest --deselect=<本 PR 新增用例>` 跑全量做二分；判据是「摘掉它是否变绿」+「摘掉修复是否变红」双向闭合。本次实测：加 `await engine.dispose()` → 455 passed；仅把该行换成 `pass` → 1 failed / 454 passed。
+- **pitfall（自我误读）**：我在同一轮里把**修复前**的二分结果和**修复后**的复跑混着读，一度得出「#1 与 #2/#3 相互作用」的错误结论。教训：做对照实验时，任何一次改动（哪怕摘一行）之后，之前所有数字作废，必须重跑再比对。
+- **pattern**：#2397 的「按模块清库」是必要的，但**不充分**——清库解决状态残留，不解决**连接池跨事件循环**残留。两类要分开修。

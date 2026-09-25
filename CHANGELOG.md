@@ -23,6 +23,7 @@
 
 ### 测试
 - `ops-center/backend/tests/test_app_menu_api.py` 15 → **21**：缺行补齐 / 回填不覆盖运营者配置 / 页面与下发集合与顺序恒等 / **并发补齐不得抛 IntegrityError** / **被拒批次不得落任何盘** / **目录外历史行两侧都不出现**。三条新断言按 AGENTS.md 做过「回退到旧实现即红」的实测（并发用例以 5 个 session 真实触发双插）。
+- **本 PR 自己引入的第二颗雷（第四轮定位）**：上面那条并发补齐用例用 5 路 `async_session` 放大竞态窗口，会在默认队列连接池里留下**绑定当前事件循环**的连接；pytest-asyncio 每条用例换新循环，后续模块从池里拿到这些连接会读到过期 WAL 读快照，看不见自己前面测试刚建的父行，于是在**完全无关的** `test_prompt_eval_engine_dual.py` 报 `FOREIGN KEY constraint failed`。#2397 的按模块清库**不足以**覆盖它。修法：制造并发 session 的用例在 `finally` 里 `await engine.dispose()` 归还池。反证实测——装回该行全量 **455 passed**，仅把它替换成 `pass` 立刻 **1 failed / 454 passed**。
 - `electron/services/ops-center-sync.test.js` +6（目录 500 仍应用菜单 / 未就绪仍拉 runtime / 通知器触发且载荷只带时间戳 / 未接线兼容 / 回调抛错隔离），并把「超时」用例升级为并行契约（假时钟单次推进 + 断言两个端点各被请求一次），63 → **69** 绿。
 - `electron/bootstrap/phase3-services.test.js` +1（channel 与载荷只带 syncedAt + 窗口不可用静默跳过），29 绿。
 - `electron/preload.test.js`：`onOpsCenterRuntimeUpdated` 进 `LISTENER_CASES`，并新增行为级用例（channel 名、event/payload 拆参、按同一 channel+handler 退订）——计数断言证不了绑错 channel 与漏退订。
