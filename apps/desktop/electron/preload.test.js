@@ -222,8 +222,8 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(148)
   })
 
-  it('合并后 api 总键数应为 326（accountSetActive + pipelineConfirmStageGate + P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus/servicesRestart + urlCollectNeedsStealth + promptLibraryGet/Save/Activate + updateInstallNow + opsCenterSyncAppMenu + onUploadProgress + renderStartAiVideo + PR-2 F8 getRecentImpactSnapshots + onOpsCenterRuntimeUpdated - webview 分屏监控 API 移除）', () => {
-    expect(Object.keys(api).length).toBe(326)
+  it('合并后 api 总键数应为 330（accountSetActive + pipelineConfirmStageGate + P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus/servicesRestart + urlCollectNeedsStealth + promptLibraryGet/Save/Activate + updateInstallNow + opsCenterSyncAppMenu + onUploadProgress + renderStartAiVideo + PR-2 F8 getRecentImpactSnapshots - webview 分屏监控 API 移除 + A1 identitySessions/identitySessionsRevokeOthers/identityNotifications/identityNotificationsMarkRead + onOpsCenterRuntimeUpdated（330 = main 的 329 + 本 PR 新增 1）', () => {
+    expect(Object.keys(api).length).toBe(330)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
