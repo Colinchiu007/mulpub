@@ -92,8 +92,8 @@ while IFS= read -r file; do
   if [[ "$file" =~ ^\.github/ ]]; then
     continue
   fi
-  # 跳过脚本工具
-  if [[ "$file" =~ ^team/scripts/ ]]; then
+  # 跳过脚本工具（仓库根 scripts/：AGENTS.md「分层分支策略」将其与 docs/openspec 同列为流程层）
+  if [[ "$file" =~ ^scripts/ ]]; then
     continue
   fi
   # 跳过 OpenSpec / CCG 流程工件（规格与任务记录，非运行时代码）
