@@ -32,12 +32,16 @@ function accountInfoCollector (arg) {
     : null
   const info = {}
   const textOf = (s) => (typeof s === 'string' ? s.trim() : '')
-  const trySelectors = (selectors) => {
+  // 昵称长度上限：超过这个长度的「文本」几乎必然是整块容器文本而非名字（容器 textContent
+  // 会把统计块、菜单、占位文案一并吃进来）。放在采集端而非噪声守卫，因为用户手写的长名字
+  // 不该被展示端判成垃圾并藏起来。
+  const NICK_MAX_LEN = 30
+  const trySelectors = (selectors, maxLen) => {
     for (const sel of selectors) {
       const el = document.querySelector(sel)
       if (el) {
         const text = textOf(el.textContent)
-        if (text) return text
+        if (text && (!maxLen || text.length <= maxLen)) return text
       }
     }
     return null
@@ -52,31 +56,21 @@ function accountInfoCollector (arg) {
   // 平台专用选择器优先，未命中必须继续试通用选择器（只提供平台表的一行不会覆盖全部 DOM 形态）
   const withFallback = (specific, generic) => (Array.isArray(specific) && specific.length ? specific.concat(generic) : generic)
 
-  // 昵称：平台专用 → 通用多层回退
+  // 昵称：平台专用 → 通用「名字节点」选择器。
+  // 通用表刻意只留语义明确指向名字的选择器：历史上这里还有 .user-info、
+  // [class*="profile"] h1/strong、[class*="creator"] h1/span，它们会命中页面上任意
+  // 装饰容器，2026-09-26 生产库的「485.9万人看过」（统计块）与
+  // 「分享此刻的想法...同步到圈子发想法」（输入框占位）就是这两条抓出来的。
   const nickSelectors = withFallback(platformSelectors && platformSelectors.nickname, [
     '[class*="nickname"]', '[class*="username"]', '[class*="user-name"]',
-    '.user-info', '.profile-name', '#nickname', '#username',
-    '[data-user-name]', '[class*="profile"] h1', '[class*="profile"] strong',
-    '[class*="creator"] h1', '[class*="creator"] span',
+    '.profile-name', '#nickname', '#username', '[data-user-name]',
   ])
-  let nickName = trySelectors(nickSelectors) || ''
-
-  // 回退 1：og:title；回退 2：twitter:title（限长 <50，避免把摘要当昵称）
-  if (!nickName) {
-    const metaTitle = document.querySelector('meta[property="og:title"]')
-    const content = metaTitle ? textOf(metaTitle.getAttribute('content')) : ''
-    if (content && content.length < 50) nickName = content
-  }
-  if (!nickName) {
-    const twitterTitle = document.querySelector('meta[name="twitter:title"]')
-    const content = twitterTitle ? textOf(twitterTitle.getAttribute('content')) : ''
-    if (content && content.length < 50) nickName = content
-  }
-  // 回退 3：document.title 去掉平台后缀（如 " - 哔哩哔哩"）
-  if (!nickName) {
-    const rawTitle = textOf(document.title)
-    if (rawTitle) nickName = rawTitle.replace(/\s*[-–—|·]\s*(.+)$/, '').trim() || rawTitle
-  }
+  // 昵称只认名字节点。曾经这里还有 og:title → twitter:title → document.title 三级兜底，
+  // 把「网页标题」当昵称写进了 account_name（小红书创作服务平台 / 快手创作者服务平台 /
+  // 抖音创作者中心 / 哔哩哔哩 (゜ —— 最后一条还因去后缀正则按首个连字符截断而残缺）。
+  // 网页标题永远不是账号昵称，故不采纳任何标题类来源：未命中就不产出 nickName 键，
+  // 由 buildProfilePatch 的「键缺席 = 不修改」保住上一次的真值，展示端回落平台名。
+  const nickName = trySelectors(nickSelectors, NICK_MAX_LEN)
   if (nickName) info.nickName = nickName
 
   // 头像：img src 系列 → 背景图 url() → og:image

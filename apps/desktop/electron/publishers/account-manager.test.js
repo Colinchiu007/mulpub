@@ -379,10 +379,13 @@ describe('account-manager — 捕获凭证持久化', () => {
     })
 
     expect(result).toEqual({ id: 'account-1', platform: 'wechat_mp', name: '公众号' })
+    // '公众号' 是 account-name-guard 的 KNOWN_PAGE_TITLES 成员（微信公众平台首页的 document.title
+    // 就是这个），而 captured.name 同时是 account_name 的兜底 —— 未过守卫就会把站点名写进真源。
+    // 现由 resolveAccountDisplayName 在唯一入口处拦截并回落平台显示名。
     expect(pythonBridge.requestBackend).toHaveBeenCalledWith('POST', '/api/accounts', {
       platform: 'wechat_mp',
-      name: '公众号',
-      account_name: '公众号',
+      name: '微信公众号',
+      account_name: '微信公众号',
       platform_account_id: 'wx-1',
       followers: null,
       avatar: '',

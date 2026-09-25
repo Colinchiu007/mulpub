@@ -462,7 +462,12 @@ Code review 时除逻辑正确性外，必须逐项检查：
 
 - **预设/种子类语义合同（R85）**：`getAvailablePresets`、`getAvailableTemplates`、`getAvailableProfiles` 等“可配置目录”类 API 必须返回该类别全部内置预设，**不得用“是否已入库”判断能否添加**。种子初始化（`_seedPresets` / `INSERT OR IGNORE`）只表示“目录存在”，不表示“用户已完成配置”；“是否已配置”必须用 `api_key_enc IS NOT NULL AND enabled = 1` 等业务字段判定。修改此类 API 时必须运行 [`model-provider-preset-integration.test.js`](apps/desktop/electron/services/model-provider-preset-integration.test.js) 并覆盖：(1) 空 userData 初始化后预设列表非空；(2) 种子已入库但预设列表仍返回全部项；(3) 用户选预设后保存路径走“ID 冲突 → 降级更新”而非创建重复行。详见 [01-docs/learnings.md 模型预设列表为空 Bug 复盘](01-docs/learnings.md)。
 
-- **测试断言不得反向固化错误行为**：任何断言“X 已初始化所以 Y 应为空”的测试必须额外验证“Y 为空是用户期望行为”而非“实现副作用”。当 X 的初始化是系统自动行为（如种子写入）时，Y 的空状态几乎一定是 Bug，必须改为“Y 应返回全部可配置项”。composable 测试不得只 mock IPC 返回空数组，至少包含一条“IPC 返回非空数据 → composable 转发到响应式状态”的真实数据路径用例。
+- **测试断言不得反向固化错误行为**：任何断言“X 已初始化所以 Y 应为空”的测试必须额外验证“Y 为空是用户期望行为”而非“实现副作用”。当 X 的初始化是系统自动行为（如种子写入）时，Y 的空状态几乎一定是 Bug，必须改为“Y 应返回全部可配置项”。composable 测试不得只 mock IPC 返回空数组，至少包含一条“IPC 返回非空数据 → composable 转发到响应式状态”的真实数据路径用例。**同一类缺陷的另一形态**：为「兜底/回退逻辑」写的用例，如果断言的是「兜底产出的结果正确」，就会把兜底本身的错误钉成契约（2026-09-26 账号昵称 Bug：`account-profile-collector.test.js` 断言「选择器全 miss 时回落 `document.title` 并剥掉平台后缀」为正确，而生产库 6/7 条脏 `account_name` 正是该兜底产出的）。写这类用例前必须先问「这个兜底源在语义上能不能等于被提取字段」；不能等于就把断言改成「不采纳」，并额外用**真实平台数据形态**（含颜文字、内嵌连字符、整块容器文本）做 fixture，不得只用为通过而构造的干净样例。
+
+- **DOM 采集禁止把「标题类来源」当结构化身份字段**：昵称/用户名/账号名等身份字段只能来自**语义指向该字段的选择器**命中；`document.title`、`og:title`、`twitter:title` 是页面标题，永远不是账号昵称，一律不得作为兜底（未命中就不产出该键，交给「字段缺席 = 不修改」语义与展示端平台名回落）。同理禁止宽匹配选择器（`.user-info`、`[class*="creator"] span`、`[class*="profile"] strong` 这类会命中统计块/占位文案的容器），采集候选必须带长度上限等形态约束。修改 `accountInfoCollector` 或任何页面内采集器时必须跑 `apps/desktop/electron/tests/account-profile-collector.test.js` 全量。**同一缺陷的第二落点**：`auth-view-manager` 的 `captured.name` 就是 `document.title`，它既直接 POST/PATCH 进真源 `name`，又是 `profileForCreate` 的昵称兜底 —— 显示名/账号名的**每一个写入口**都必须过 `isNoiseAccountName`（新增 `resolveAccountDisplayName` 作为唯一入口），加校验时必须逐参数问「这个参数是否也承载同一待验证的东西」，名字带 `fallback` / `default` 的参数是校验最常见的漏项；改这两处写回点必须跑 `account-manager.test.js` + `account-manager-profile.test.js`。
+
+- **枚举式黑名单必须配结构化正向契约**：任何「判定某串是垃圾/非法值」的守卫，不得只靠逐个列举已知坏值（`KNOWN_*` 集合是打地鼠，换平台换文案即复发）。必须同时存在按**形态指纹**的泛化规则（如「数字+量词+统计项」「以站点 chrome 词结尾」「含省略号」「括号开合不等」），并且**测试样本不得取自被枚举集合本身**（用黑名单测黑名单等于自证）。新增坏值时，先问能否写成形态规则，只有不能才进枚举表；新增枚举项必须同步补形态规则的负控用例，防止其误杀面扩大。判定函数存在 CJS/ESM 孪生实现时，新词表与新规则一律纳入 parity 断言（正则按 `source`+`flags` 比较）。
+
 
 - **GUI 主窗口等待预算**：Electron GUI runner 必须使用条件轮询等待主窗口，等待上限必须覆盖 `createWindow()` 之前所有串行启动阶段的健康检查 timeout 总和并保留余量。修改 Bridge 启动顺序、健康检查 timeout 或窗口创建时机时，必须同步更新假时钟边界回归；不得通过测试专用 skip 开关静默绕过生产启动路径。
 

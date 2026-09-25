@@ -1,3 +1,31 @@
+# [未发布] fix(accounts): 账号卡片昵称不再显示成网页标题/统计块，噪声守卫从枚举黑名单升级为形态契约（2026-09-26，account-nickname-noise-fix）
+
+### 现象与根因
+- 账号管理页 7 个账号里 6 个的昵称显示为垃圾文本（`485.9万人看过` / `分享此刻的想法...同步到圈子发想法` / `哔哩哔哩 (゜` / `小红书创作服务平台` / `快手创作者服务平台` / `抖音`）。真源 `accounts.json` 的 `account_name` 本身就是脏的，不是显示层取错字段。
+- 第一性引入点 `852ae22c`（#2290）：`accountInfoCollector` 在昵称选择器全 miss 时依次回落 `og:title` → `twitter:title` → `document.title`，把「网页标题」当成「账号昵称」。后两条兜底产出的正是 `小红书创作服务平台` / `快手创作者服务平台` / `抖音创作者中心`；`document.title` 去后缀正则 `/\s*[-–—|·]\s*(.+)$/` 匹配的是**第一个**分隔符，真实 B 站标题 `哔哩哔哩 (゜-゜)つロ 干杯~-bilibili` 在颜文字内部的 `-` 处被切断，逐字符复现出库里的 `哔哩哔哩 (゜`。
+- 另两条来自通用选择器过宽：`[class*="creator"] span` 命中页面统计块，`.user-info` / `[class*="profile"] strong` 命中输入框占位与整块容器文本。
+- `be181b69`（#2370 系列）补的 `account-name-guard.js` 是**枚举式黑名单**，对这批新形态只拦住了 1/6（`抖音创作者中心`），因此卡片上 5 条继续直出。
+
+### 变更
+- **`packages/shared-utils/src/account-profile.js`**：删除 `og:title` / `twitter:title` / `document.title` 三级昵称兜底 —— 网页标题永远不是账号昵称。选择器未命中即不产出 `nickName` 键，由 `buildProfilePatch()` 既有的「键缺席 = 不修改」语义保住上一次真值，展示端回落平台名。通用昵称选择器表收窄为语义明确指向名字节点的 7 条（移除 `.user-info`、`[class*="profile"] h1/strong`、`[class*="creator"] h1/span`）；`trySelectors` 新增可选 `maxLen`，昵称候选上限 30 字符。**长度只放采集端不放展示守卫**：用户手写的长名字不该被藏起来。
+- **`packages/shared-utils/src/account-name-guard.js` + `account-name-guard.browser.js`（CJS/ESM 孪生同步）**：在保留既有枚举规则之上新增 5 条按形态指纹的泛化规则 —— 站点 chrome 后缀（`endsWith`：创作者服务平台/创作服务平台/服务平台/工作台/管理后台/开放平台/数据中心）、指标量词（数字+量词+统计项）、占位文案指纹（省略号）、截断指纹（中英文括号开合数量不等）、标题形态指纹（空格包裹的 ` - ` / ` | ` / ` · `，即 `<title>页面名 - 站点名</title>` 的形状）。`profileForCreate` / `buildProfilePatch` 已调用守卫，写库侧随守卫升级自动加强。
+- **`apps/desktop/electron/publishers/account-manager.js`（审查自己 diff 时发现的第三处同源缺陷）**：`auth-view-manager.js:340` 把 `document.title` 装进 `captured.name`，而创建与重登两条写回路径原样把它 POST/PATCH 进真源 `name` 字段，**并且**把它当 `profileForCreate` 的昵称兜底 —— 守卫只覆盖主字段、不覆盖 `fallbackName`，等于给网页标题留一条绕过口（`'公众号'` 本身就是 `KNOWN_PAGE_TITLES` 成员，守卫早就认识它，只是没人调用）。新增 `resolveAccountDisplayName(rawName, platform)` 作为两处唯一入口，命中噪声即回落平台显示名。
+- **存量脏数据（决策：展示回落 + 验证回填，不写迁移）**：守卫升级后 6 条脏名全部命中噪声 → 卡片直接显示平台名；`douyin`/`toutiao`/`wechat_mp`/`bilibili` 已注册 HTTP `extract`，点「验证」即经 `refreshProfileFromHttpApi` 用平台 API 真昵称覆盖（该路径本就只在现网名命中噪声时才覆盖，用户手输名受保护）。`xiaohongshu`/`kuaishou`/`zhihu` 需重新登录一次由 DOM 采集补齐。
+
+### 逃逸链为什么全绿（见 `01-docs/BUGFIX-ACCOUNT-NICKNAME-NOISE-2026-09-26.md`）
+- `account-profile-collector.test.js` 有一条用例**正面断言「回落 document.title 并剥掉平台后缀」为正确**，fixture 用为通过而构造的干净标题 —— 测试把缺陷钉成了契约。
+- `account-name-guard.test.js` 的样本全部取自 `KNOWN_PAGE_TITLES` 自身枚举 —— 用黑名单测黑名单，天然免疫新垃圾形态。
+
+### 测试
+- `packages/shared-utils/src/__tests__/account-name-guard.test.js`：新增 3 组 —— 6 条生产脏值 `filter(isNoiseAccountName)` 结果 `toEqual` 原数组（精确结构断言，非 `toContain`）；8 条真实昵称/品牌名负控（`36氪`/`1998年的夏天`/`阿b(≧▽≦)`/`某地政务服务中心` 不得误杀）；逐规则边界。CJS↔ESM parity 扩展到新词表与正则 `source`+`flags`。
+- `apps/desktop/electron/tests/account-profile-collector.test.js`：把 3 条错误断言**反转为「标题一律不采纳」**，新增「选择器不得命中统计块/占位容器」「超长容器文本不采纳」。
+- `apps/desktop/electron/publishers/account-manager-profile.test.js` 与 `account-manager.test.js`：另有 2 条用例**正面断言网页标题成为账号名**（`name: '公众号'` → `account_name: '公众号'`；`runCreate({})` → `'头条号'`），同样属「反向固化错误行为」，已改为断言回落平台名，并各补一条「干净真实昵称仍保留、不得一律降级」的反向用例。改前实测 RED：`- "account_name": "公众号"` / `+ "account_name": "微信公众号"`。
+- **反证**：用 `git show HEAD:<path>` 取改动前实现跑新判据 —— 守卫 6 条脏值中 5 条 `old=false`（新规则改正），8 条负控新旧均 `false`（未引入误杀）；采集器 8 个 fixture 在旧实现下全部被采纳。证明断言可失败、非恒真。
+- 规模：`packages/shared-utils` **121 passed | 1 skipped**；`apps/desktop` 账号相关 12 文件 **396 passed | 1 skipped**；eslint rc=0。
+- 文档：`01-docs/BUGFIX-ACCOUNT-NICKNAME-NOISE-2026-09-26.md`、`01-docs/learnings.md` 置顶 7 条复盘、`AGENTS.md` QM-2 新增 3 条门禁条目。
+
+---
+
 # [未发布] fix(tab): 跨实例事件订阅按 subscriberId 精确注销，修复「添加账号登录页不出新标签」（2026-09-25，fix-tab-subscription-leak）
 
 ### 变更
