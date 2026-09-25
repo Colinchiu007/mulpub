@@ -1981,6 +1981,8 @@ export default {
     syncFailed: 'Sync failed',
     syncError: 'Sync error',
     syncSuccess: (ctx) => 'Sync success: ' + ctx.named('count') + ' providers updated (' + ctx.named('time') + ')',
+    // Two independent channels: don't report a flat "Sync failed" when runtime settings did arrive
+    syncPartialSuccess: (ctx) => 'Model catalog sync incomplete; Ops Center settings (menu/announcements) updated. Reason: ' + ctx.named('reason'),
   },
   // i18n-sync-hardening (2026-08-13): single source for user-facing-error.js copy
   userErrors: {

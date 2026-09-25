@@ -232,18 +232,25 @@ describe('OpsCenterSync syncNow', () => {
     const store = makeStore()
     const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
     svc.saveConfig({ url: 'https://ops.example.com', apiKey: 'k' })
-    global.fetch = vi.fn((_url, opts) => new Promise((_resolve, reject) => {
+    const fetchMock = vi.fn((_url, opts) => new Promise((_resolve, reject) => {
       opts.signal && opts.signal.addEventListener('abort', () => {
         const e = new Error('The operation was aborted')
         e.name = 'AbortError'
         reject(e)
       })
     }))
+    global.fetch = fetchMock
     const pending = svc.syncNow()
+    // 两条通道并行发起：同一次 10s 推进必须同时触发目录与运行时的中止定时器。
+    // 若实现退化为串行，运行时的定时器尚未创建，此处推进不会让它超时，await 将挂死到用例超时。
     vi.advanceTimersByTime(10001)
     const res = await pending
     expect(res.code).toBe(-1)
     expect(res.message).toContain('超时')
+    expect(res.runtimeApplied).toBe(false)
+    const urls = fetchMock.mock.calls.map((c) => String(c[0]))
+    expect(urls.filter((u) => u.includes('/model-presets/catalog'))).toHaveLength(1)
+    expect(urls.filter((u) => u.includes('/runtime/bootstrap'))).toHaveLength(1)
   })
 
   it('响应超过 1MB / 非法 JSON / 缺 items → 拒绝', async () => {
@@ -384,6 +391,73 @@ describe('OpsCenterSync 运行时策略（公告/版本/内容安全）', () => 
     } finally {
       global.fetch = originalFetch
     }
+  })
+
+  // 回归 2026-09-25 事故：runtime（含运营中心下发的应用菜单）曾被挂在「目录拉取成功」之后，
+  // 目录一失败就整条链路 return，菜单永远拉不到且只在启动后 3 秒试一次 —— 表现为
+  // 「运营中心改了菜单/顺序，应用侧毫无变化」。两条通道必须各自独立 best-effort。
+  it('syncNow 目录失败时仍拉取 runtime，appMenu 照样落到缓存', async () => {
+    const store = makeStore()
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    svc.saveConfig({ url: 'https://ops.example.com', apiKey: 'k' })
+    const appMenu = { items: [{ key: 'copy-library', visible: true, sort_order: 6, group: 'primary' }] }
+    const originalFetch = global.fetch
+    global.fetch = vi.fn(async (url) => {
+      if (String(url).includes('/runtime/bootstrap')) {
+        return jsonResp({ body: signRuntimePayload({ announcements: [], update_policy: null, content_policy: null, appMenu, synced_at: 't' }) })
+      }
+      return jsonResp({ status: 500 })
+    })
+    try {
+      const res = await svc.syncNow()
+      // 目录确实失败，原样上报，不被掩盖
+      expect(res.code).toBe(-1)
+      expect(res.runtimeApplied).toBe(true)
+      expect(svc.getAppMenu()).toMatchObject({ items: [{ key: 'copy-library', sort_order: 6, group: 'primary' }] })
+    } finally {
+      global.fetch = originalFetch
+    }
+  })
+
+  it('模型服务未就绪时仍拉取 runtime（菜单不依赖 modelProviderManager）', async () => {
+    const store = makeStore()
+    const svc = new OpsCenterSync({ store, log: LOG })
+    svc.saveConfig({ url: 'https://ops.example.com', apiKey: 'k' })
+    const originalFetch = global.fetch
+    global.fetch = vi.fn(async (url) => {
+      if (String(url).includes('/runtime/bootstrap')) {
+        return jsonResp({ body: signRuntimePayload({ announcements: [], update_policy: null, content_policy: null, synced_at: 't' }) })
+      }
+      return jsonResp({ body: { items: [] } })
+    })
+    try {
+      const res = await svc.syncNow()
+      expect(res.message).toBe('模型服务未就绪')
+      expect(res.runtimeApplied).toBe(true)
+    } finally {
+      global.fetch = originalFetch
+    }
+  })
+
+  it('runtime 应用成功后回调 onRuntimeUpdated，供主进程广播刷新侧边栏', () => {
+    const onRuntimeUpdated = vi.fn()
+    const svc = new OpsCenterSync({ store: makeStore(), modelProviderManager: makeManager(), log: LOG })
+    svc.setOnRuntimeUpdated(onRuntimeUpdated)
+    svc.applyRuntime({ announcements: [{ title: '公告', severity: 'info', content: '' }], synced_at: 't' })
+    expect(onRuntimeUpdated).toHaveBeenCalledTimes(1)
+  })
+
+  it('未接线 onRuntimeUpdated 时 applyRuntime 照常工作（向后兼容）', () => {
+    const svc = new OpsCenterSync({ store: makeStore(), modelProviderManager: makeManager(), log: LOG })
+    svc.applyRuntime({ announcements: [], synced_at: 't' })
+    expect(svc.getRuntimeState().syncedAt).toBe('t')
+  })
+
+  it('onRuntimeUpdated 抛错不得影响 runtime 应用结果', () => {
+    const svc = new OpsCenterSync({ store: makeStore(), modelProviderManager: makeManager(), log: LOG })
+    svc.setOnRuntimeUpdated(() => { throw new Error('窗口已销毁') })
+    expect(() => svc.applyRuntime({ announcements: [], synced_at: 't' })).not.toThrow()
+    expect(svc.getRuntimeState().syncedAt).toBe('t')
   })
 })
 

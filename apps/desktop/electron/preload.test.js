@@ -207,7 +207,7 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(46)
   })
 
-  it('system 模块应导出 147 个方法', () => {
+  it('system 模块应导出 148 个方法', () => {
     const { createSystemApi } = require('./preload/system')
     const r = createSystemApi(ipcRenderer)
     // 136 + opsCenterSyncGet/Save/Now/Runtime/PipelineOptions（运营后台同步 + 运行时策略）
@@ -217,12 +217,13 @@ describe('preload 子模块方法数', () => {
     // + updateInstallNow（侧边栏「新版本」点击即退出安装）
     // + opsCenterSyncAppMenu（#1839 运营中心侧边栏显隐排序下发）
     // + onUploadProgress（#1853 分片上传实时进度事件）
+    // + onOpsCenterRuntimeUpdated（2026-09-25 运营配置变更后广播，侧边栏免重启刷新）
     // - 10（分屏监控 webview:* API 随监控功能移除，网页查看统一走 pageManager）
-    expect(Object.keys(r).length).toBe(147)
+    expect(Object.keys(r).length).toBe(148)
   })
 
-  it('合并后 api 总键数应为 320（accountSetActive + pipelineConfirmStageGate + P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus/servicesRestart + urlCollectNeedsStealth + promptLibraryGet/Save/Activate + updateInstallNow + opsCenterSyncAppMenu + onUploadProgress + renderStartAiVideo + PR-2 F8 getRecentImpactSnapshots - webview 分屏监控 API 移除）', () => {
-    expect(Object.keys(api).length).toBe(325)
+  it('合并后 api 总键数应为 326（accountSetActive + pipelineConfirmStageGate + P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus/servicesRestart + urlCollectNeedsStealth + promptLibraryGet/Save/Activate + updateInstallNow + opsCenterSyncAppMenu + onUploadProgress + renderStartAiVideo + PR-2 F8 getRecentImpactSnapshots + onOpsCenterRuntimeUpdated - webview 分屏监控 API 移除）', () => {
+    expect(Object.keys(api).length).toBe(326)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {

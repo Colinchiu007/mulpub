@@ -1,3 +1,44 @@
+# [未发布] fix(应用菜单): 跨端同步收敛——目录增量补齐 / 下发兜底序号 / 运营配置不被目录失败门控 + 免重启生效（2026-09-25，app-menu-sync-convergence）
+
+### 变更
+- **`ops-center/backend/services/app_menu_service.py`**：`_seed_if_empty`（仅表全空时播种）→ `_provision_from_catalog`，改为按 `CATALOG` **增量补齐缺失行且只补不改**已有行。修复 `copy-library`（#bcd1b663 加入目录）在已部署实例上永久缺席 → 运营端「应用菜单」页看不到该项、无法配置，而应用端照常显示的漂移。四个入口（列表/保存/恢复默认/下发）共用。
+- **同文件 `get_bootstrap_app_menu`**：DB 缺行项的 `sort_order` 兜底由 `0` 改为**目录序号**。此前 0 会让该项在应用端被顶到一级导航第 2 位（应用端按 `sort_order` 升序渲染），与运营端页面显示的目录位置错位。
+- **`apps/desktop/electron/services/ops-center-sync.js`**：模型目录与运行时策略由「catalog 成功 → 才拉 runtime」的串行门控，改为 `Promise.allSettled` **并行且互不门控**；整体超时预算保持单请求 10s（不叠加为 20s）。新增 `_syncRuntimeBestEffort` / `_applyRuntimeSettled`；`模型服务未就绪` 分支仍拉运行时。抽出 `makeAuth` 避免两条通道重复构造鉴权。
+- **同文件 `applyRuntime`**：末尾回调新增的 `setOnRuntimeUpdated` 通知器（setter 注入，因服务在 bootstrap phase1 构造、那时主窗口不存在）；回调抛错不影响已应用的运行时状态。
+- **`electron/bootstrap/phase3-services.js`**：接线通知器 → `webContents.send('ops-center:runtime-updated', { syncedAt })`，窗口未创建/已销毁时静默跳过。
+- **`electron/preload/system.js` + `access-control.js` + `index.bundle.js`（重打包）**：暴露并登记 `onOpsCenterRuntimeUpdated`（public：订阅不返回运营数据，事件到达后的 `opsCenterSyncAppMenu` 仍受 `authenticated` 门控）。
+- **`src/layouts/MpSidebar.vue`**：`onMounted` 订阅变更事件重拉菜单、`onUnmounted` 成对取消订阅；`loadAppMenu` 改为**仅在取到有效配置时整体替换**，重拉失败保留上一份（不再瞬时坍回本地默认）。
+- **`src/api/ops-center-sync.js`**：新增 `onOpsCenterRuntimeUpdated()` 封装，非 Electron 环境返回空操作。
+- **`src/composables/useOpsCenterSync.js`**：新增「部分成功」分支（`code=-1` 且 `runtimeApplied=true`）→ `notifyWarning` + 展示原因，不再笼统报「同步失败」；错误态保持为空。
+- **`src/locales/zh.js` / `en.js`**：成对新增 `modelProviders.syncPartialSuccess`（原因后置，避免与自带句号相连产生「。；」断裂）。
+- **`ops-center/frontend/src/views/AppMenu.vue`**：页面提示改写——目录自动补齐（无需点「恢复默认」）、「设置 → 模型服务 → 立即同步」即可生效无需重启、仍无服务端主动推送。
+
+### 根因与逃逸（摘要，全文见专项文档 §16）
+- 三个独立缺陷叠加：① 目录新增项永不落库；② 缺行兜底 `sort_order=0`；③ `appMenu` 被模型目录同步成功门控。
+- 逃逸主因是**测试拓扑**：`test_app_menu_api.py` 的 autouse 夹具每例 `drop_all/create_all` 重建空表，「存量库 + 目录演进」这条边在测试里不存在；桌面端 55 例中无一条让 catalog 失败，门控路径从不执行。
+- CI 只做桌面端内部自洽校验（`check-route-registry.js` 对 Python `CATALOG` 仅 `console.error` 提示人工同步），漂移发生在数据库，CI 看不见。
+- 环境侧证据：受影响机器 profile 的 `settings` 表既无 `opsCenterSync` 也无 `opsCenterRuntime` → 从未成功完成一次同步。
+
+### 测试
+- `ops-center/backend/tests/test_app_menu_api.py` +3（缺行补齐 / 回填不覆盖运营者配置 / 页面与下发项目集合与顺序恒等），15 → 18 绿；后端全量 **445 passed** 无回归。
+- `electron/services/ops-center-sync.test.js` +5（目录 500 仍应用菜单 / 未就绪仍拉 runtime / 通知器触发 / 未接线兼容 / 回调抛错隔离），并把「超时」用例升级为并行契约（假时钟单次推进 + 断言两个端点各请求一次），63 → 68 绿。
+- `electron/bootstrap/phase3-services.test.js` +1（广播 channel + 窗口不可用静默跳过），29 绿。
+- `src/layouts/MpSidebar.appmenu.test.js` +3（事件到达免重启 / 重拉失败保留上一份 / 卸载取消订阅），9 → 12 绿。
+- `src/composables/useOpsCenterSync.test.js` +1（部分成功不落错误态，断言取 i18n 键渲染结果而非文案字面量），9 绿。
+
+### 文档
+- `01-docs/FEATURE-APP-MENU-2026-09-15.md` → v1.2：修正长期过期的目录表（19 项含 `monitor` → 20 项）、已撤销的「不支持跨组」、生效时机；新增 §3.2 目录供给规则、§6.2/6.3/6.4 双通道与通知链、§7.4 兜底扩展、§10.1 桌面端同步提示清单、**§16 跨端同步收敛修复（Bug 反思循环 5 步产出物）**、§13 测试覆盖实测数。
+- `01-docs/PRD.md`：应用菜单章节重写（两份重复副本同步更新）——补目录供给/同步拓扑/生效时机/跨组语义/交互逻辑/显示项/提示文字/兜底/验收 A19–A28。
+- `openspec/changes/app-menu-sync-convergence/`：proposal / design（5 项决策 + 3 项 Rejected）/ specs(app-menu) 6 条 ADDED Requirement / tasks。
+- `AGENTS.md` QM-2：新增「跨端目录常量 ↔ 存量数据必须前向兼容」与「多通道同步编排不得失败互锁」两条门禁。
+- `01-docs/learnings.md`：3 条 pitfall + 1 条 pattern。
+
+### 部署待办
+线上 `app_menu_items` 需本次修复部署后才补齐 `copy-library`；部署后须实测运营端出现该项（共 20 项），**不得**用点「恢复默认」代替（会连带重置运营者已有的显隐与排序）。
+
+---
+
+
 # [未发布] fix(webview): CDP 本地存储注入挂起改超时降级，首个导航不被无限门控（头条标签卡死事故回归对）（2026-09-24，fix-toutiao-tab-load-hang）
 
 ### 变更

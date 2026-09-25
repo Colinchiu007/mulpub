@@ -298,6 +298,36 @@ describe('phase3-services.startServices', () => {
     expect(opsCenterSync.setGetAccessToken).toHaveBeenCalledWith(expect.any(Function))
   })
 
+  it('运营配置落地后广播 ops-center:runtime-updated，让侧边栏免重启刷新', async () => {
+    const send = vi.fn()
+    let currentWin = { isDestroyed: vi.fn(() => false), webContents: { send } }
+    const opsCenterSync = { setGetAccessToken: vi.fn(), setOpsCenterUrl: vi.fn(), setOnRuntimeUpdated: vi.fn() }
+    const deps = makeMockDeps({
+      createIdentityService: vi.fn(async () => ({
+        getState: vi.fn(() => ({ status: 'authenticated', user: { sub: 'user-a' } })),
+        getAccessToken: vi.fn(async () => 'jwt'),
+      })),
+      loadIdentityRuntimeEnv: vi.fn(() => ({ IDENTITY_AUTH_ENABLED: 'true', OPS_CENTER_URL: 'https://ops.iart.work' })),
+      opsCenterSync,
+      getMainWin: vi.fn(() => currentWin),
+    })
+    await startServices(deps)
+
+    expect(opsCenterSync.setOnRuntimeUpdated).toHaveBeenCalledWith(expect.any(Function))
+    const notify = opsCenterSync.setOnRuntimeUpdated.mock.calls[0][0]
+
+    notify({ syncedAt: 'server-t' })
+    expect(send).toHaveBeenCalledWith('ops-center:runtime-updated', expect.objectContaining({ syncedAt: expect.any(String) }))
+
+    // 窗口尚未创建 / 已销毁时广播静默跳过：同步结果已落盘，通知不得成为失败源
+    send.mockClear()
+    currentWin = null
+    expect(() => notify({})).not.toThrow()
+    currentWin = { isDestroyed: vi.fn(() => true), webContents: { send } }
+    expect(() => notify({})).not.toThrow()
+    expect(send).not.toHaveBeenCalled()
+  })
+
   it('方案C 零配置：identityEnv 无 OPS_CENTER_URL 时不调用 setOpsCenterUrl', async () => {
     const identityEnv = { IDENTITY_AUTH_ENABLED: 'true' }
     const identityService = { getState: vi.fn(() => ({ status: 'signed_out' })), getAccessToken: vi.fn(async () => '') }

@@ -15701,3 +15701,25 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **规则（pattern）**：任何「门控首个导航/核心交互」的异步 promise 必须①用超时竞态封顶阻塞时长并 fail-open 降级到既有慢路径（timer 记得 `unref()`，避免钉住事件循环）；②门控解除后的所有延迟回调先做销毁守卫（`view.webContents` 存在性 + `isDestroyed()`），异步窗口期内标签随时可能被用户关闭。
 - **可迁移信号（QM-5④回归模板）**：为每个「导航前置 await」写一对回归测试——(a) 依赖**永久挂起**：fake timers 推进时间，断言导航照常发生且降级路径已注册；(b) 依赖**在目标销毁后才失败**：断言无 unhandledRejection 外溢。只 mock「成功 / 立即失败」两条路径的测试正是这类缺陷的逃逸盲区——#2327 的测试就止步于此。判断手法：看到 `await` 一个非本项目实现的 promise 挡在 `loadURL` 前面，先问「它永不返回怎么办」。
 
+
+## 应用菜单跨端同步收敛——目录演进缺供给、门控方向做反与夹具盲区（app-menu-sync-convergence，2026-09-25）
+
+- **目录常量演进必须配「存量数据增量补齐」，"仅空表播种"是定时炸弹（pitfall）**：`ops-center/backend/services/app_menu_service.py` 的 `_seed_if_empty` 以「表记录数为 0」为唯一播种条件。`copy-library` 于 `bcd1b663`（2026-09-19）加入 `CATALOG` 后，任何已部署实例的 `app_menu_items` 都永久缺这一行 → 运营中心「应用菜单」页看不到该项、无法配置，而桌面端（按下发目录遍历）照常显示，两侧项目与顺序就此漂移。修复：`_provision_from_catalog` 在**读取/写入/恢复默认/下发四个入口**前按目录补齐缺失行，且**只补不改已有行**（覆盖已有行会把运营者配置抹掉，比缺行更糟）。判据：任何「种子/目录/可配置清单」类代码，看到 `if count == 0` 或 `if (empty) seed` 就追问「目录新增了项，存量库怎么办」。同族先例见 R85「预设/种子类语义合同」。
+
+- **兜底值取 0 会被下游当作真实排序位（pitfall）**：`get_bootstrap_app_menu` 对 DB 缺行项兜底 `sort_order = 0`，而应用端 `sidebar-menu-merge` 按 `sort_order` 升序渲染 → 该项被顶到一级导航第 2 位（紧跟 `home`，它的目录序号本就是 0）。「未配置」必须表达为**中性值**（该函数用目录序号；渲染端合并层用 `null` + 「无值排最后」），不能用 0 —— 0 在排序语义里是第一名的位置。
+
+- **best-effort 分支挂在「主通道成功之后」= 反向门控（pitfall，最隐蔽的一条）**：#1862 把 runtime 拉取包进 try/catch 并注释「失败仅 warn，不影响目录同步结果」——方向是对的（runtime 失败不影响 catalog），但它位于 `items = await _fetchCatalog()` 的**后面**，而 catalog 失败路径直接 `return`。结果是「runtime 失败不拖累 catalog」成立，「catalog 失败导致 runtime 永不执行」同样成立。判据：给 best-effort 分支问一句「**它前面的每一次 return/throw，会不会让我根本没机会执行**」。修复用 `Promise.allSettled` 并行而非调换串行顺序。
+
+- **串行改并行必须拿超时预算当证据（pattern）**：最初的修复是把 runtime 提到 catalog 之前（串行），全量测试立刻把「超时（10 秒）」用例挂死到用例级超时——两条 10s 请求叠加成最坏 20s。并行后既解耦又保持单请求 10s，**既有断言无需放宽**。回归锁法：假时钟**单次** `advanceTimersByTime(10001)` + 断言**两个端点各被请求一次**；若实现退化为串行，第二条请求的定时器在推进时尚未创建，用例会挂死——用「挂死」本身当作结构断言。
+
+- **「每例重建空表」的夹具测不到「存量数据 + 目录演进」这条边（pitfall，逃逸主因）**：`test_app_menu_api.py` 的 autouse 夹具每例 `drop_all`/`create_all`，于是每一例都只走「空表全量播种」分支。这不是断言太松，是**测试拓扑里没有那条边**——15 例全绿却对漂移完全免疫。修法是加一个「先建全量库、再删掉某一项」的历史状态构造器（`_drop_row`）来模拟存量实例。凡「种子/迁移/目录补齐」类逻辑，必须有一条从**非空旧状态**出发的用例。
+
+- **跨端清单一致性 CI 只查代码不查数据就是假绿（pitfall）**：`.github/scripts/check-route-registry.js` 校验桌面端 `navEntry` 集合 == `SIDEBAR_MENU_KEY_ORDER`（内部自洽），对 Python `CATALOG` 只 `console.error` 提示「请手动同步」。两侧代码清单当时确实一致 → CI 全绿；漂移发生在**运行库**里，CI 结构上看不到。这类「双真源（代码清单 ↔ 存量数据）」问题只能靠**补齐逻辑 + 从旧状态出发的测试**兜，不能指望结构校验。
+
+- **同步结果提示要区分「部分成功」，否则用户会用重启应用来排障（pitfall）**：两条通道解耦后 `code=-1` 且 `runtimeApplied=true` 成为常态组合。若 UI 仍统一报「同步失败」，运营者会认为改动没生效而反复重启——恰好是要消灭的现象。做法：新增 `modelProviders.syncPartialSuccess`（zh/en 成对）走 `notifyWarning`，且 `{reason}` 取 `formatUserError` 映射后的可读句并**后置到句尾**（前置会把自带句子的原因夹出「。；」断裂）。
+
+- **「改了没生效」先看客户端有没有落盘缓存（pattern，排障手法）**：本次先用 profile SQLite 取证——`settings` 表只有 `identity_device_id` 与 `keyword_monitor_state`，**既无 `opsCenterSync` 也无 `opsCenterRuntime`**，直接证明该客户端从未完成过一次同步（而非"同步了但配置不对"）。跨端配置类问题，第一步是查客户端侧缓存键在不在，再谈远端数据对不对。
+
+- **用 Python 就地改写仓库内大文档会把 LF 翻成 CRLF，制造整文件假 diff（pitfall，本轮真实代价）**：`io.open(p).read()` 走通用换行，`io.open(p,'w').write()` 在 Windows 默认按 `os.linespath` 翻译 → LF 文件变成全 CRLF，`git diff --stat` 报 17556 插入/17386 删除（PRD 实际只改两节）。修法：以二进制读、显式 `replace(b'\r\n', b'\n')` 回写，或用 `newline=''`。纪律：**批量改写 tracked 文件后必须 `git diff --stat` 核对改动量是否与意图匹配**，量级异常立即修回换行符再继续。
+
+- **SearchReplace/Write 的 old_string 少写一行会静默删行（pitfall）**：本会话两次把「在既有用例前插入新用例」写成「删掉既有用例的首行」——Edit 只匹配 `old_string`，插入意图必须让 `old_string` 与 `new_string` **都完整包含**被保留的那几行。纪律：改测试文件后跑 `git diff <file> | grep "^-"`，纯新增的改动必须**零删除行**。

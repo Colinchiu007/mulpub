@@ -254,6 +254,10 @@ function createSystemApi(ipcRenderer) {
     opsCenterSyncRuntime: () => ipcRenderer.invoke('ops-center-sync:runtime'),
     opsCenterSyncPipelineOptions: () => ipcRenderer.invoke('ops-center-sync:pipelineOptions'),
     opsCenterSyncAppMenu: () => ipcRenderer.invoke('ops-center-sync:appMenu'),
+    // 运营配置变更通知（主进程 applyRuntime 成功后广播）：渲染端据此重拉，免重启生效
+    onOpsCenterRuntimeUpdated: (cb) => {
+      const h = (_, d) => cb(d); ipcRenderer.on('ops-center:runtime-updated', h); return () => ipcRenderer.removeListener('ops-center:runtime-updated', h)
+    },
     modelProviderGet: (id) => ipcRenderer.invoke('model-provider:get', id),
     modelProviderCreate: (data) => ipcRenderer.invoke('model-provider:create', data),
     modelProviderUpdate: (id, data) => ipcRenderer.invoke('model-provider:update', id, data),

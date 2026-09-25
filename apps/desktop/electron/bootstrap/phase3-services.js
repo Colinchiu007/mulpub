@@ -279,6 +279,14 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
     if (opsCenterSync && typeof opsCenterSync.setOpsCenterUrl === 'function' && identityEnv && identityEnv.OPS_CENTER_URL) {
       opsCenterSync.setOpsCenterUrl(identityEnv.OPS_CENTER_URL)
     }
+    // 运营配置（应用菜单/公告/功能开关）落地后广播渲染端重拉：
+    // 否则「运营中心改了菜单」只能等重启应用才生效（2026-09-25 跨端不同步复盘）。
+    if (opsCenterSync && typeof opsCenterSync.setOnRuntimeUpdated === 'function') {
+      opsCenterSync.setOnRuntimeUpdated(() => {
+        const win = getMainWin()
+        if (win && !win.isDestroyed()) win.webContents.send('ops-center:runtime-updated', { syncedAt: new Date().toISOString() })
+      })
+    }
 
     const cloudPublisher = new CloudPublisher({
       orchestratorUrl: process.env.ORCHESTRATOR_URL || '',

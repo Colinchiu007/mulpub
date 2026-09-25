@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { defineComponent } from 'vue'
 import { mount } from '@vue/test-utils'
 import i18n from '@/i18n'
+import { formatUserError } from '@/utils/user-facing-error'
 
 const apiMock = {
   opsCenterSyncGet: vi.fn(),
@@ -127,6 +128,27 @@ describe('useOpsCenterSync', () => {
     const res3 = await s3.runSyncNow()
     expect(res3.code).toBe(-1)
     expect(s3.syncError.value).toContain('401/403')
+  })
+
+  it('runSyncNow 目录未完成但运营配置已下发 → 提示部分成功，不落错误态', async () => {
+    apiMock.opsCenterSyncSave.mockResolvedValue({
+      code: 0,
+      config: { url: 'https://ops.iart.work', apiKeyConfigured: false, autoSync: true, lastSyncedAt: '' },
+    })
+    const reason = '无法连接 Ops Center: timeout'
+    apiMock.opsCenterSyncNow.mockResolvedValue({ code: -1, message: reason, runtimeApplied: true, runtimeSyncedAt: 'server-t' })
+    const s = setupSync()
+    const res = await s.runSyncNow()
+
+    expect(res.code).toBe(-1)
+    // 断言取 i18n 键的渲染结果而非文案字面量，避免文案调整造成假红；
+    // 原因文本经 formatUserError 映射为用户可读句，故用同一函数推导期望值。
+    const mappedReason = formatUserError(
+      { code: -1, message: reason },
+      { fallback: i18n.global.t('modelProviders.syncFailed') },
+    ).message
+    expect(s.syncStatus.value).toBe(i18n.global.t('modelProviders.syncPartialSuccess', { reason: mappedReason }))
+    expect(s.syncError.value).toBe('')
   })
 
   it('autoConnected 零配置模式：syncConfigured=true + autoConnected/autoUrl 暴露', async () => {

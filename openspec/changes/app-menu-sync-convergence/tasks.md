@@ -1,0 +1,51 @@
+# Tasks
+
+## 后端（ops-center）
+
+- [x] 1. `app_menu_service.py`：`_seed_if_empty` → `_provision_from_catalog`，按 CATALOG 增量补齐缺失行（只补不改已有行）
+- [x] 2. `app_menu_service.py`：`get_bootstrap_app_menu` 缺行 `sort_order` 兜底由 `0` 改为目录序号
+- [x] 3. 模块 docstring 增补「目录供给」契约段，说明为何不能只在全空时播种
+- [x] 4. `tests/test_app_menu_api.py`：3 条回归（缺行补齐 / 不覆盖运营者配置 / 页面与下发项目集合与顺序一致）
+- [x] 5. 夹具改用 `_provision_from_catalog`；`_seed_if_empty` 全仓引用点清零
+- [ ] 6. 后端门禁：`pytest` 全量（445 基线 + 3 新增）
+
+## 桌面端主进程
+
+- [x] 7. `_syncNowInner`：目录与运行时改为 `Promise.allSettled` 并行且互不门控，保持 10s 单请求预算
+- [x] 8. 抽出 `_syncRuntimeBestEffort` / `_applyRuntimeSettled`，`模型服务未就绪` 分支仍拉运行时
+- [x] 9. 新增 `setOnRuntimeUpdated` 注入点；`applyRuntime` 末尾回调，回调抛错不影响已应用状态
+- [x] 10. `phase3-services.js` 接线：广播 `ops-center:runtime-updated`，窗口未创建/已销毁时静默跳过
+- [x] 11. `preload/system.js` 暴露 `onOpsCenterRuntimeUpdated`；`access-control.js` 登记为 public；重打包 `index.bundle.js`
+- [x] 12. `electron/services/ops-center-sync.test.js`：4 条回归（目录 500 仍应用菜单 / 未就绪仍拉 runtime / 回调触发 / 回调抛错无影响）+ 超时用例升级为并行契约
+- [x] 13. `electron/bootstrap/phase3-services.test.js`：广播 channel 与窗口不可用两条断言
+
+## 桌面端渲染层
+
+- [x] 14. `src/api/ops-center-sync.js`：新增 `onOpsCenterRuntimeUpdated` 封装（非 Electron 环境返回空操作）
+- [x] 15. `MpSidebar.vue`：onMounted 订阅、onUnmounted 成对取消；`loadAppMenu` 改为「仅成功时替换」
+- [x] 16. `MpSidebar.appmenu.test.js`：3 条回归（事件到达免重启 / 重拉失败保留上一份 / 卸载取消订阅）
+- [x] 17. `useOpsCenterSync.js`：新增部分成功分支，走 `notifyWarning` 且不落 `syncError`
+- [x] 18. `locales/zh.js` + `en.js` 成对新增 `modelProviders.syncPartialSuccess`
+- [x] 19. `useOpsCenterSync.test.js`：部分成功断言（取 i18n 键渲染结果，不写字面量）
+- [ ] 20. 桌面端门禁：vitest 全量 + QM-1 打包验证 + `test:visual:pixel`
+
+## 运营中心前端
+
+- [x] 21. `AppMenu.vue`：更新生效时机与目录自动对齐说明，移除「需重启应用」表述
+- [ ] 22. 前端门禁：`npm test` + `npm run build`
+
+## 文档与收口
+
+- [ ] 23. `01-docs/FEATURE-APP-MENU-2026-09-15.md`：修正过期内容（19 项 → 20 项、跨组限制已撤销），补数据供给/同步通道/生效时机/显示项与提示文字
+- [ ] 24. `01-docs/PRD.md`：补「应用菜单同步」章节（数据校验、流程、功能逻辑、交互逻辑、显示项、提示文字）
+- [ ] 25. `CHANGELOG.md` 收口本次变更（修复级）
+- [ ] 26. `01-docs/learnings.md`：记录「双真源目录缺供给机制」pitfall 与「串行改并行的预算证据」pattern
+- [ ] 27. `AGENTS.md` QM-2 增补跨端目录契约门禁条目
+- [ ] 28. Bug 反思循环 5 步产出物（根因/逃逸链/系统性漏洞/回归保护/预防措施）
+
+## 交付
+
+- [ ] 29. QM-6 双模型外部评审（claude + opencode），Critical 清零
+- [ ] 30. 提交、推送、创建 PR、CI 通过后合并
+- [ ] 31. 部署后验证：线上 ops-center 列表出现 `copy-library`；桌面端点「立即同步」后侧边栏免重启更新
+- [ ] 32. 记忆三写：内置记忆 / 外部记忆 / EverOS

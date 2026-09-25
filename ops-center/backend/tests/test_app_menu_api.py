@@ -33,13 +33,13 @@ CATALOG_SIZE = 20
 @pytest_asyncio.fixture(autouse=True)
 async def setup_db():
     from database import Base, async_session, engine
-    from services.app_menu_service import _seed_if_empty
+    from services.app_menu_service import _provision_from_catalog
 
     settings.catalog_api_key = os.environ.get("OPS_CATALOG_API_KEY", "catalog-test-key")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     async with async_session() as db:
-        await _seed_if_empty(db)
+        await _provision_from_catalog(db)
     yield
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
@@ -329,6 +329,91 @@ async def test_bootstrap_requires_catalog_key():
     async with _client() as client:
         resp = await client.get("/api/v1/runtime/bootstrap", headers={"X-Catalog-Key": "wrong"})
         assert resp.status_code == 401
+
+
+# ─── 目录演进回填（跨端同步契约）───────────────────────────
+# 回归 2026-09-25 事故：copy-library 由 #bcd1b663 加入 CATALOG，但已在该提交前播种过的
+# 生产库不会补齐该行 —— 运营端页面（读 DB）看不到该项、无法配置，桌面端（读下发）却照样
+# 显示，两侧菜单项目与顺序就此漂移。以下三例锁住「DB 必须跟随 CATALOG 演进」这条契约。
+
+
+async def _drop_row(item_key: str) -> None:
+    """模拟「库里没有这一项」的历史状态（老库 + 目录新增项）。"""
+    import sqlalchemy as sa
+
+    from database import async_session
+    from models import AppMenuItem
+
+    async with async_session() as db:
+        row = (
+            await db.execute(sa.select(AppMenuItem).where(AppMenuItem.item_key == item_key))
+        ).scalar_one()
+        await db.delete(row)
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_catalog_evolution_backfills_missing_row_in_list():
+    """库里缺失目录新增项时，列表读取必须补齐该行（不得只在全空时播种）。"""
+    async with _client() as client:
+        await _drop_row("copy-library")
+
+        h = _admin_headers()
+        data = (await client.get("/api/v1/app-menu", headers=h)).json()
+        keys = [i["item_key"] for i in data["items"]]
+
+        assert len(keys) == CATALOG_SIZE, keys
+        assert "copy-library" in keys
+        primary = [i["item_key"] for i in data["items"] if i["group"] == "primary"]
+        assert primary == DEFAULT_PRIMARY
+
+
+@pytest.mark.asyncio
+async def test_backfill_does_not_clobber_operator_config():
+    """回填只补欠账，不得覆盖运营者已有的显隐与排序。"""
+    async with _client() as client:
+        h = _admin_headers()
+        await client.put(
+            "/api/v1/app-menu",
+            json={"items": [{"item_key": "library", "visible": False, "sort_order": 42}]},
+            headers=h,
+        )
+        await _drop_row("copy-library")
+
+        by_key = {i["item_key"]: i for i in (await client.get("/api/v1/app-menu", headers=h)).json()["items"]}
+        assert by_key["library"]["visible"] is False
+        assert by_key["library"]["sort_order"] == 42
+        # 补进来的新项按目录默认：可见 + 目录序号 + 目录分组
+        assert by_key["copy-library"]["visible"] is True
+        assert by_key["copy-library"]["sort_order"] == DEFAULT_PRIMARY.index("copy-library")
+        assert by_key["copy-library"]["group"] == "primary"
+
+
+@pytest.mark.asyncio
+async def test_list_and_bootstrap_never_diverge_on_item_set_and_order():
+    """页面与下发必须同一份项目集合、同一套顺序 —— 这是「不同步」的直接断言。"""
+    from services.app_menu_service import CATALOG, CATALOG_KEYS
+
+    async with _client() as client:
+        h = _admin_headers()
+        await _drop_row("copy-library")
+
+        page = (await client.get("/api/v1/app-menu", headers=h)).json()["items"]
+        delivered = (await client.get("/api/v1/runtime/bootstrap", headers=_catalog_headers())).json()["appMenu"]["items"]
+
+        assert {i["item_key"] for i in page} == set(CATALOG_KEYS)
+        assert {i["key"] for i in delivered} == set(CATALOG_KEYS)
+
+        # 缺行项的下发 sort_order 必须是目录序号，而不是 0（0 会把它顶到分组最前）
+        delivered_by_key = {i["key"]: i for i in delivered}
+        assert delivered_by_key["copy-library"]["sort_order"] == CATALOG_KEYS.index("copy-library")
+
+        expected_primary_order = [k for k, _l, g, _d in CATALOG if g == "primary"]
+        primary_sorted = sorted(
+            (i for i in delivered if i["group"] == "primary"),
+            key=lambda i: i["sort_order"],
+        )
+        assert [i["key"] for i in primary_sorted] == expected_primary_order
 
 
 # ─── 恢复默认 ──────────────────────────────────────────────

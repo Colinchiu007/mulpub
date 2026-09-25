@@ -52,3 +52,15 @@ export async function opsCenterSyncAppMenu () {
   if (!api || !api.opsCenterSyncAppMenu) return { code: -1, message: 'electronAPI not available', data: null }
   return api.opsCenterSyncAppMenu()
 }
+
+/**
+ * 订阅「运营配置已更新」事件（主进程 applyRuntime 成功后广播）。
+ * 运营中心改菜单/公告/开关后，渲染端据此重拉配置，无需重启应用即可生效。
+ * @param {(payload: {syncedAt?: string}) => void} callback
+ * @returns {Function} 取消订阅函数（非 Electron 环境返回空操作）
+ */
+export function onOpsCenterRuntimeUpdated (callback) {
+  const api = getApi()
+  if (!api || typeof api.onOpsCenterRuntimeUpdated !== 'function') return () => {}
+  return api.onOpsCenterRuntimeUpdated(callback)
+}

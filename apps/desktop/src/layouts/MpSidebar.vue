@@ -98,7 +98,7 @@ import SidebarServiceStatus from '@/components/SidebarServiceStatus.vue'
 import SidebarUpdateButton from '@/components/SidebarUpdateButton.vue'
 import { invokePageManager, getApi } from '@/api/electron-bridge'
 import { useTabStore } from '@/stores/tab'
-import { opsCenterSyncAppMenu } from '@/api/ops-center-sync'
+import { opsCenterSyncAppMenu, onOpsCenterRuntimeUpdated } from '@/api/ops-center-sync'
 import { useAppVersion } from '@/composables/useAppVersion'
 import { suspendEmbeddedViewsForOverlay, releaseEmbeddedViewsForOverlay } from '@/composables/useEmbeddedViewSuspension'
 import brandLogoUrl from '@/assets/brand/tom-fish-logo.png'
@@ -123,15 +123,17 @@ const appMenuConfig = ref(null)
 /**
  * 拉取运营中心下发的应用菜单配置（IPC：ops-center-sync:appMenu）。
  * 任何异常都降级为本地默认菜单（fail-open）——运营侧配置异常不能让用户失去导航能力。
- * 注：桌面端主进程在启动 3s 后自动同步一次；运营侧改配置后需重新同步或重启才生效（无推送）。
+ * 首帧在 onMounted 拉取；此后由主进程广播的 ops-center:runtime-updated 触发重拉，
+ * 运营侧改配置无需重启应用即可生效。
  */
 async function loadAppMenu () {
   try {
     const res = await opsCenterSyncAppMenu()
     const data = res && res.code === 0 && res.data && typeof res.data === 'object' ? res.data : null
-    appMenuConfig.value = data
+    // 仅在取到有效配置时整体替换：重拉失败时保留上一份，避免已生效的运营配置被瞬时网络异常抹掉
+    if (data) appMenuConfig.value = data
   } catch {
-    appMenuConfig.value = null
+    /* 保留现有配置；首帧失败时 appMenuConfig 仍为 null，即本地默认菜单 */
   }
 }
 
@@ -212,6 +214,7 @@ watch(showUpgradeModal, (open) => {
 
 // ── 左侧导航栏宽度同步到主进程（避免 WebContentsView 遮挡侧边栏）──
 let _sidebarObserver = null
+let _unsubscribeRuntimeUpdated = null
 onMounted(() => {
   // 深链/刷新落在「更多」组路由时自动展开菜单，让选中项可见（选中态修复配套）
   if (hasActiveMoreItem.value) moreOpen.value = true
@@ -219,6 +222,8 @@ onMounted(() => {
   loadVersion()
   // 运营中心「应用菜单」配置：异步拉取；失败/未下发时保持默认菜单，不阻塞首屏
   loadAppMenu()
+  // 主进程每次应用运营配置后广播此事件 → 重拉菜单，免去「改完必须重启应用」
+  _unsubscribeRuntimeUpdated = onOpsCenterRuntimeUpdated(() => { loadAppMenu() })
   const el = document.querySelector('.mp-sidebar')
   if (el) {
     const syncWidth = () => {
@@ -234,6 +239,11 @@ onUnmounted(() => {
   if (_sidebarObserver) {
     _sidebarObserver.disconnect()
     _sidebarObserver = null
+  }
+  // 订阅必须成对释放：侧边栏会随窗口重建再次挂载，泄漏监听器会导致重复拉取
+  if (_unsubscribeRuntimeUpdated) {
+    try { _unsubscribeRuntimeUpdated() } catch { /* 释放失败不影响卸载 */ }
+    _unsubscribeRuntimeUpdated = null
   }
 })
 

@@ -16,7 +16,7 @@ import { useNotify } from './useNotify'
 export function useOpsCenterSync () {
   const { t } = useI18n()
   // 统一通知通道（D1 决策）：toast 走 useNotify（带 notify:log 上报）
-  const { notifyError, notifySuccess } = useNotify()
+  const { notifyError, notifySuccess, notifyWarning } = useNotify()
   // ─── 状态 ─────────────────────────────────────
   const syncUrl = ref('')
   const syncApiKey = ref('')
@@ -104,6 +104,12 @@ export function useOpsCenterSync () {
         syncStatus.value = t('modelProviders.syncSuccess', { count: res.updated || 0, time: formatLastSync(res.syncedAt) })
         lastSyncedAt.value = res.syncedAt || ''
         notifySuccess('modelProviders.syncSuccess', { message: syncStatus.value })
+      } else if (res.runtimeApplied) {
+        // 目录与运营配置是两条独立通道：目录未完成但运营配置（菜单/公告/开关）已下发时，
+        // 笼统报「同步失败」会让人以为白改了，反而去反复重启应用。
+        const reason = formatUserError(res, { fallback: t('modelProviders.syncFailed') }).message
+        syncStatus.value = t('modelProviders.syncPartialSuccess', { reason })
+        notifyWarning('modelProviders.syncPartialSuccess', { message: syncStatus.value })
       } else {
         syncError.value = formatUserError(res, { fallback: t('modelProviders.syncFailed') }).message
         notifyError('modelProviders.syncFailed', { message: syncError.value })

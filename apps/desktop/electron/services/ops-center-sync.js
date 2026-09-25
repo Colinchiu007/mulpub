@@ -122,6 +122,8 @@ class OpsCenterSync {
     this._platformConfig = null
     this._templateManager = null
     this._keywordMonitor = null
+    // 运营配置落地后通知主进程广播渲染端（免重启生效）；由 bootstrap 经 setter 注入
+    this._onRuntimeUpdated = null
     // 方案C 零配置：运营中心自动发现 URL（由 bootstrap 经 setOpsCenterUrl 注入，优先于全局 env，避免污染其他读取者）
     this._autoOpsCenterUrl = ''
   }
@@ -223,41 +225,64 @@ class OpsCenterSync {
     const useBearer = !manualUrl && !!auto && !cfg.apiKeyConfigured
     if (!effectiveUrl) return { code: -1, message: '未配置 Ops Center 地址' }
     if (!useBearer && !cfg.apiKeyConfigured) return { code: -1, message: '未配置 Ops Center API Key' }
+
+    const makeAuth = () => (useBearer
+      ? { type: 'bearer', getAccessToken: auto.getAccessToken }
+      : { type: 'catalog-key', value: this._readEncryptedKey() })
+
     if (!this._manager || typeof this._manager.applyCatalog !== 'function') {
-      return { code: -1, message: '模型服务未就绪' }
+      // 模型服务未就绪时目录无处应用，但运营菜单/公告等运行时策略仍须下发
+      return { code: -1, message: '模型服务未就绪', ...await this._syncRuntimeBestEffort(effectiveUrl, makeAuth) }
     }
 
-    let items
-    try {
-      const auth = useBearer ? { type: 'bearer', getAccessToken: auto.getAccessToken } : { type: 'catalog-key', value: this._readEncryptedKey() }
-      items = await this._fetchCatalog(effectiveUrl, auth)
-    } catch (e) {
-      return { code: -1, message: e.message }
+    // 两条通道彼此独立且并行：目录（模型服务商配置）与运行时策略（公告/版本发布/应用菜单/功能开关）。
+    // 串行会让任一条异常时另一条也拿不到（2026-09-25 复盘：目录失败导致运营菜单永远拉不到），
+    // 并行同时保证整体超时预算仍是单请求的 10s，而不是两条相加。
+    const [catalogSettled, runtimeSettled] = await Promise.allSettled([
+      this._fetchCatalog(effectiveUrl, makeAuth()),
+      this._fetchRuntime(effectiveUrl, makeAuth()),
+    ])
+    const runtimeResult = this._applyRuntimeSettled(runtimeSettled)
+
+    if (catalogSettled.status === 'rejected') {
+      return { code: -1, message: String((catalogSettled.reason && catalogSettled.reason.message) || catalogSettled.reason), ...runtimeResult }
     }
 
-    const result = this._manager.applyCatalog(items)
-    if (result.code !== 0) return result
+    const result = this._manager.applyCatalog(catalogSettled.value)
+    if (result.code !== 0) return { ...result, ...runtimeResult }
 
     // 更新 lastSyncedAt
     const nowIso = new Date().toISOString()
     const updated = { url: manualUrl || '', apiKeyEnc: this._getStoredKeyEnc(), autoSync: cfg.autoSync, lastSyncedAt: nowIso, runtimePublicKey: cfg.runtimePublicKey || '' }
     try { this._store.setSetting(SETTING_KEY, JSON.stringify(updated)) } catch { /* 非关键 */ }
 
-    // 运行时策略（公告/版本发布/内容安全）best-effort 拉取：失败仅 warn，不影响目录同步结果
-    let runtimeApplied = false
-    let runtimeSyncedAt = ''
-    try {
-      const runtimeAuth = useBearer ? { type: 'bearer', getAccessToken: auto.getAccessToken } : { type: 'catalog-key', value: this._readEncryptedKey() }
-      const runtime = await this._fetchRuntime(effectiveUrl, runtimeAuth)
-      this.applyRuntime(runtime)
-      runtimeApplied = true
-      runtimeSyncedAt = runtime.synced_at || ''
-    } catch (e) {
-      this._log.warn('OpsCenterSync', 'runtime sync skipped: ' + e.message)
-    }
-
     this._log.info('OpsCenterSync', `catalog synced: ${result.updated} providers (at ${nowIso})`)
-    return { code: 0, updated: result.updated, syncedAt: nowIso, runtimeApplied, runtimeSyncedAt }
+    return { code: 0, updated: result.updated, syncedAt: nowIso, ...runtimeResult }
+  }
+
+  /** 拉取并应用运行时策略，失败仅告警（不影响调用方的目录结果） */
+  async _syncRuntimeBestEffort(effectiveUrl, authFactory) {
+    try {
+      const runtime = await this._fetchRuntime(effectiveUrl, authFactory())
+      return this._applyRuntimeSettled({ status: 'fulfilled', value: runtime })
+    } catch (e) {
+      return this._applyRuntimeSettled({ status: 'rejected', reason: e })
+    }
+  }
+
+  /** 收敛 allSettled 的 runtime 结果：应用成功返回 applied，任何异常降级为 warn 不抛 */
+  _applyRuntimeSettled(settled) {
+    if (settled.status === 'fulfilled') {
+      try {
+        this.applyRuntime(settled.value)
+        return { runtimeApplied: true, runtimeSyncedAt: settled.value.synced_at || '' }
+      } catch (e) {
+        this._log.warn('OpsCenterSync', 'runtime apply error: ' + String((e && e.message) || e))
+        return { runtimeApplied: false, runtimeSyncedAt: '' }
+      }
+    }
+    this._log.warn('OpsCenterSync', 'runtime sync skipped: ' + String((settled.reason && settled.reason.message) || settled.reason))
+    return { runtimeApplied: false, runtimeSyncedAt: '' }
   }
 
   _getStoredKeyEnc() {
@@ -403,6 +428,15 @@ class OpsCenterSync {
     this._autoOpsCenterUrl = normalizeUrl(url || '') || ''
   }
 
+  /**
+   * 注入运行时策略变更通知器（由 bootstrap 在窗口就绪后接线）：
+   * applyRuntime 成功后调用，主进程据此广播渲染端重拉配置，
+   * 使「运营中心改了菜单/开关」不再依赖重启应用才生效。
+   */
+  setOnRuntimeUpdated(fn) {
+    this._onRuntimeUpdated = typeof fn === 'function' ? fn : null
+  }
+
   /** 应用运行时策略：公告缓存 + 敏感词重建 + 更新策略推送 */
   applyRuntime(payload) {
     if (!payload || typeof payload !== 'object') return
@@ -474,6 +508,11 @@ class OpsCenterSync {
       }
     }
     this._log.info('OpsCenterSync', 'runtime applied: ' + next.announcements.length + ' announcements, policy=' + (next.updatePolicy ? 'set' : 'none'))
+    // 通知渲染端重拉运营配置（菜单/公告/功能开关），使「改了没生效」不再依赖重启。
+    // 回调仅负责广播，任何窗口异常都不得影响已应用的运行时状态。
+    if (this._onRuntimeUpdated) {
+      try { this._onRuntimeUpdated(next) } catch (e) { this._log.warn('OpsCenterSync', 'runtime updated notify error: ' + String((e && e.message) || e)) }
+    }
   }
 
   /** 敏感词过滤器：内置词库 + 远程内容安全策略词库（惰性构建） */
