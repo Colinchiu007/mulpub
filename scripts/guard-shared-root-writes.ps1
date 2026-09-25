@@ -88,7 +88,9 @@ function Test-MatchesIndex([string]$relative, [string]$full) {
     $stage = @(Git @('ls-files','--stage','--',$relative) 2>$null)
     if ($stage.Count -ne 1 -or $stage[0] -notmatch '^100(644|755|120000)\s([0-9a-f]{40})\s') { return $false }
     $indexHash = $Matches[2]
-    $diskHash = @(Git @('hash-object','--no-filters','--path',$relative,'--',$full) 2>$null)
+    # git 2.55 起 hash-object 的 --path 与 --no-filters 互斥（usage: [--path=<file> | --no-filters]），
+    # 同时传会直接 error 而非降级；原始字节口径无需 --path，过滤器口径见下一行的 $filteredHash。
+    $diskHash = @(Git @('hash-object','--no-filters','--',$full) 2>$null)
     if ($diskHash.Count -ge 1 -and $diskHash[0].Trim() -eq $indexHash) { return $true }
     $filteredHash = @(Git @('hash-object','--path',$relative,'--',$full) 2>$null)
     return ($filteredHash.Count -ge 1 -and $filteredHash[0].Trim() -eq $indexHash)
