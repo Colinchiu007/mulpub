@@ -23,9 +23,9 @@
 
 ## 4. Adapter 接线与旧骨架下线
 
-- [ ] 4.1 `DouyinAdapter.publish` 变薄委托 `publishDouyinVideo`（§4.4 模式，对齐 shipinhao-adapter 测试形态）：`douyin-adapter.test.js` 覆盖成功/失败归一/fail-closed 透传/零请求
-- [ ] 4.2 旧 `aweme/post` 链与 `getDouyinSignature` 消费点整体删除；grep 门禁：`aweme/post|_signature` 在 `packages/api-publish-engine/src` 运行时代码零命中（测试 fixture 除外，按 W1 门禁脚本模式落断言）
-- [ ] 4.3 `config/platforms.yaml` douyin `publishMode: dom-only → api-then-dom`；publish-mode 回归套件扩展 douyin 行（api-then-dom 降级 DOM、risk_blocked 不降级）
+- [x] 4.1 `DouyinAdapter.publish` 变薄委托 `publishDouyinVideo`（§4.4 模式，对齐 shipinhao-adapter 测试形态）：`douyin-adapter.test.js` 覆盖成功/失败归一/fail-closed 透传/零请求
+- [x] 4.2 旧 `aweme/post` 链与 `getDouyinSignature` 消费点整体删除；grep 门禁：`aweme/post|_signature` 在 `packages/api-publish-engine/src` 运行时代码零命中（测试 fixture 除外，按 W1 门禁脚本模式落断言）
+- [x] 4.3 `config/platforms.yaml` douyin `publishMode: dom-only → api-then-dom`；publish-mode 回归套件扩展 douyin 行（api-then-dom 降级 DOM、risk_blocked 不降级）
 
 ## 5. 风险接线与门禁
 

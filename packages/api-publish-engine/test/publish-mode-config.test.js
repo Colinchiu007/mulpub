@@ -31,8 +31,12 @@ describe('§5.1 platforms.yaml publishMode 字段', function () {
     expect(platforms.baijiahao.publishMode).toBe('api-then-dom')
   })
 
+  test('W2 波（抖音）为 api-then-dom', function () {
+    expect(platforms.douyin.publishMode).toBe('api-then-dom')
+  })
+
   test('未入波平台为 dom-only（含 has_api:true 但暂缓的 youtube/facebook 等）', function () {
-    const w1 = { tencent_video: 1, bilibili: 1, baijiahao: 1 }
+    const w1 = { tencent_video: 1, bilibili: 1, baijiahao: 1, douyin: 1 }
     Object.keys(platforms).forEach(function (k) {
       if (!w1[k]) expect(platforms[k].publishMode).toBe('dom-only')
     })
@@ -56,10 +60,11 @@ describe('§5.1 getPublishMode 读取器', function () {
     expect(router.getPublishMode('tencent_video')).toBe('api-then-dom')
     expect(router.getPublishMode('bilibili')).toBe('api-then-dom')
     expect(router.getPublishMode('baijiahao')).toBe('api-then-dom')
+    expect(router.getPublishMode('douyin')).toBe('api-then-dom')
   })
 
   test('未入波/未知平台解析为 dom-only', function () {
-    expect(router.getPublishMode('douyin')).toBe('dom-only')
+    expect(router.getPublishMode('weibo')).toBe('dom-only')
     expect(router.getPublishMode('nonexistent_platform')).toBe('dom-only')
   })
 
