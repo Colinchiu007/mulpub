@@ -17,23 +17,23 @@ describe('menuStore', () => {
     expect(paths[paths.length - 1]).toBe('/settings')
   })
 
-  it('move changes position and persists to localStorage', () => {
+  it('moveInVisible changes position and persists to localStorage', () => {
     const store = useMenuStore()
-    store.move('/usage', 1)
+    store.moveInVisible('/usage', 1)
     expect(store.order).toContain('/usage')
     expect(localStorage.getItem('ops_menu_order')).toBeTruthy()
   })
 
   it('reset restores default menu order', () => {
     const store = useMenuStore()
-    store.move('/usage', 1)
+    store.moveInVisible('/usage', 1)
     store.reset()
     expect(store.order).toEqual(DEFAULT_MENU_ORDER)
   })
 
   it('preserves saved order across rehydration', () => {
     const store = useMenuStore()
-    store.move('/diagnostics', -1)
+    store.moveInVisible('/diagnostics', -1)
     const after = store.order.slice()
     const freshStore = useMenuStore()
     expect(freshStore.order).toEqual(after)

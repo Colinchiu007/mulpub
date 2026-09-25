@@ -5,7 +5,7 @@
       <el-tab-pane label="菜单排序" name="menu-order">
         <el-card shadow="never">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-            <span>拖拽菜单项调整左侧菜单顺序，或点击箭头微调；设置会自动保存。</span>
+            <span>拖拽菜单项调整左侧菜单顺序，或点击 ⤒ 移到首位、↑ 上移、↓ 下移、⤓ 移到末位微调；位移只在当前角色可见的菜单内生效，设置会自动保存。</span>
             <el-button @click="menuStore.reset()">恢复默认排序</el-button>
           </div>
           <div class="menu-order-list">
@@ -26,8 +26,10 @@
               <el-icon><component :is="item.icon" /></el-icon>
               <span class="row-label">{{ item.label }}</span>
               <span class="row-actions">
-                <el-button link type="primary" :disabled="index === 0" @click="menuStore.move(item.path, -1)">上移</el-button>
-                <el-button link type="primary" :disabled="index === visibleItems.length - 1" @click="menuStore.move(item.path, 1)">下移</el-button>
+                <el-button link type="primary" title="移到首位" aria-label="移到首位" :disabled="index === 0" @click="menuStore.moveToVisibleEdge(item.path, 'top', visiblePaths)">⤒</el-button>
+                <el-button link type="primary" title="上移" aria-label="上移" :disabled="index === 0" @click="menuStore.moveInVisible(item.path, -1, visiblePaths)">↑</el-button>
+                <el-button link type="primary" title="下移" aria-label="下移" :disabled="index === visibleItems.length - 1" @click="menuStore.moveInVisible(item.path, 1, visiblePaths)">↓</el-button>
+                <el-button link type="primary" title="移到末位" aria-label="移到末位" :disabled="index === visibleItems.length - 1" @click="menuStore.moveToVisibleEdge(item.path, 'bottom', visiblePaths)">⤓</el-button>
               </span>
             </div>
           </div>
@@ -51,6 +53,9 @@ const authStore = useAuthStore()
 // admin 可操作全部菜单项（含 adminOnly），非 admin 只见公共项。
 // 2026-09-21 修复：此前此处硬编码 `!adminOnly`，导致 admin 设置页比侧边栏少 5 项。
 const visibleItems = computed(() => menuStore.visibleForRole(authStore.role))
+// 位移按可见序列解析目标（详见 menuStore.moveToVisibleEdge / moveInVisible 注释），
+// 因此要把当前角色可见的 path 列表原样传给 store。
+const visiblePaths = computed(() => visibleItems.value.map((item) => item.path))
 
 // 拖拽用 path 而非下标定位：visibleItems 是按角色过滤后的可见列表，
 // 其下标与 store 的完整 order 下标可能不一致（非 admin 视角 adminOnly 项造成漂移），

@@ -37,17 +37,6 @@ export const useMenuStore = defineStore('menu', () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(order.value))
   }
 
-  function move(path, offset) {
-    const from = order.value.indexOf(path)
-    const to = from + offset
-    if (from < 0 || to < 0 || to >= order.value.length) return
-    const next = [...order.value]
-    const [item] = next.splice(from, 1)
-    next.splice(to, 0, item)
-    order.value = next
-    persist()
-  }
-
   function moveBefore(path, targetPath) {
     const from = order.value.indexOf(path)
     const target = order.value.indexOf(targetPath)
@@ -87,10 +76,34 @@ export const useMenuStore = defineStore('menu', () => {
     persist()
   }
 
+  // 「菜单设置」页的位移（⤒ 首位 / ↑ 上移 / ↓ 下移 / ⤓ 末位）必须按**可见序列**解析目标，
+  // 再落到完整 order：视图渲染的是 visibleForRole 过滤后的列表，非 admin 视角下可见下标与
+  // 完整 order 下标不一致（#1941 已把拖拽改为按 path 定位，箭头此前仍直改 order 会移动错项、
+  // 或在用户看不见任何变化时悄悄改掉 admin 的顺序）。与 #2246「序列外的项不受影响」同一原则。
+  function moveToVisibleEdge(path, edge, visiblePaths) {
+    const vis = visiblePaths || order.value
+    if (!vis.includes(path)) return
+    const target = edge === 'top' ? vis[0] : edge === 'bottom' ? vis[vis.length - 1] : null
+    if (!target || target === path) return
+    reorderByPath(path, target)
+  }
+
+  function moveInVisible(path, offset, visiblePaths) {
+    const vis = visiblePaths || order.value
+    const at = vis.indexOf(path)
+    if (at < 0) return
+    const target = vis[at + offset]
+    if (!target) return
+    reorderByPath(path, target)
+  }
+
   function reset() {
     order.value = [...DEFAULT_MENU_ORDER]
     persist()
   }
 
-  return { order, orderedItems, visibleForRole, move, moveBefore, reorder, reorderByPath, reset }
+  return {
+    order, orderedItems, visibleForRole, moveBefore, reorder,
+    reorderByPath, moveToVisibleEdge, moveInVisible, reset,
+  }
 })
