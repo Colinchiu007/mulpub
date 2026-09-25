@@ -40,6 +40,11 @@ jobs:
         run: |
           gh --version || (echo "❌ gh CLI 未安装" && exit 1)
 
+      - name: 门禁自检（check-docs-sync 白名单回归）
+        run: |
+          chmod +x scripts/check-docs-sync.test.sh
+          bash scripts/check-docs-sync.test.sh
+
       - name: 检查文档同步（硬门禁）
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -89,7 +94,8 @@ jobs:
 #
 # 启用方式：
 #   1. 将本文件复制到各项目的 .github/workflows/doc-gate.yml
-#   2. 确保 team/scripts/ 在仓库根目录
+#   2. 门禁脚本与自检放在仓库根 scripts/（本仓库无 team/ 目录；
+#      check-docs-sync.sh 的脚本工具豁免口径与之绑定，勿再写 team/scripts/）
 #   3. 项目必须用 GitHub（GitLab/Bitbucket 不适用）
 #
 # 绕过机制：
