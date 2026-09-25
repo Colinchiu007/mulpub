@@ -801,6 +801,10 @@ var require_identity = __commonJS({
         identitySignIn: () => ipcRenderer2.invoke("identity:sign-in"),
         identitySwitchAccount: () => ipcRenderer2.invoke("identity:switch-account"),
         identitySignOut: () => ipcRenderer2.invoke("identity:sign-out"),
+        identitySessions: () => ipcRenderer2.invoke("identity:sessions"),
+        identitySessionsRevokeOthers: () => ipcRenderer2.invoke("identity:sessions-revoke-others"),
+        identityNotifications: () => ipcRenderer2.invoke("identity:notifications"),
+        identityNotificationsMarkRead: () => ipcRenderer2.invoke("identity:notifications-mark-read"),
         onIdentityStateChanged: (callback) => {
           const handler = (_event, state) => callback(state);
           ipcRenderer2.on("identity:state-changed", handler);
