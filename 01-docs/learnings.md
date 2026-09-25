@@ -15701,6 +15701,15 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **规则（pattern）**：任何「门控首个导航/核心交互」的异步 promise 必须①用超时竞态封顶阻塞时长并 fail-open 降级到既有慢路径（timer 记得 `unref()`，避免钉住事件循环）；②门控解除后的所有延迟回调先做销毁守卫（`view.webContents` 存在性 + `isDestroyed()`），异步窗口期内标签随时可能被用户关闭。
 - **可迁移信号（QM-5④回归模板）**：为每个「导航前置 await」写一对回归测试——(a) 依赖**永久挂起**：fake timers 推进时间，断言导航照常发生且降级路径已注册；(b) 依赖**在目标销毁后才失败**：断言无 unhandledRejection 外溢。只 mock「成功 / 立即失败」两条路径的测试正是这类缺陷的逃逸盲区——#2327 的测试就止步于此。判断手法：看到 `await` 一个非本项目实现的 promise 挡在 `loadURL` 前面，先问「它永不返回怎么办」。
 
+
+## 多行标签列宽须跨行共享 grid，源码契约断言不得锁死未验证的实现写法（account-badge-align，2026-09-25，PR #2382）
+
+- **坑（pitfall，「修一个显示 Bug 引入另一个」）**：PR #2358 为修归属徽章折行，把 `.account-assignees > div` 的列宽从固定 `44px` 改成每行各自的 `max-content minmax(0, 1fr)`。折行修好了，但 `max-content` 只在**单个 grid 容器内**求解——三行是三个互相独立的 grid，每行只按**自己那行**的标签宽度定列宽，于是 2 字的「代理」徽章 34px、3 字的「负责人/运营人」46px，值列左边缘跟着偏 12px。**修复模式**：列定义放到父容器，行元素 `display: contents` 交出自身盒子 → 两列跨行共享宽度，徽章按 grid 默认 `stretch` 撑满等宽、`text-align: center` 保持居中；`color/font-size` 随列定义上移（`display: contents` 仍传递继承）。不写死 px，中英文 locale 自动对齐。
+
+- **坑（pitfall，测试反向固化错误行为）**：同批新增的源码契约用例断言 `toContain('grid-template-columns: max-content minmax(0, 1fr);')`，把**引入错位的实现细节本身**当契约锁死——绿灯反成回归阻力（本次改动必须先改这条断言才能过）。凡 `fs.readFileSync('.vue')` 正则切片的源码契约，断言对象必须是**用户可见不变量**（等宽、不折行、不溢出），不能是某一版实现写法。自查手法：写断言前问「这条断言在 Bug 版本里是否也是绿的？」——是则它抓不住这个 Bug。
+
+- **手法（pattern，jsdom 量不到几何 → 用系统 Edge 实测）**：vitest 跑 jsdom 无布局引擎，CSS 对齐类 Bug 对单测天然免疫；视觉回归也拦不住（`accounts-list` 用例只等 `.mp-workspace .accounts-page` 容器，CI 无账号数据时渲染空态，卡片根本不出现）。本机无 Playwright 浏览器，改用 `playwright-core` + `chromium.launch({ channel: 'msedge', executablePath: 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe' })`：把 `.vue` 的 `<style>` 块正则切出、连同 `styles/tokens.css` 注入空白页，`getBoundingClientRect()` 比对各行徽章 `width`/`right` 与值列 `x` 的去重集合是否为 1。**必须同时跑「修复前实现」确认它会 FAIL**，否则等于没加检查。
+
 ## 工具栏 8 列 grid 的「最小内容宽度」超过真实视口，中文轨道被压成逐字竖排——视觉回归基线视口口径错位（accounts-toolbar-overflow，2026-09-26）
 
 - **Bug 现象**：账号管理页工具栏右侧「全部/已登录/未登录/收藏」四个按钮逐字竖排（实测 35×65px），`N 个平台，M 个账号` 折成 3 行，底部出现横向滚动条。同一行的「一键检测/批量操作/添加账号」却完全正常。
@@ -15710,6 +15719,7 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **逃逸链（QM-5②）**：
   - 单元测试：JSDOM 无布局引擎，`Accounts.test.js` 只断言 `.account-controls` 存在性，对轨道宽度零感知 → 必然漏。
   - 视觉回归 `test:visual:pixel`：**基线把 Bug 当成了正确答案**（AGENTS.md「测试断言不得反向固化错误行为」在视觉层的翻版）。实查 `tests/visual-testing/base-screenshots/accounts-list.png`（1920×1080 CSS）：其中「全部/已登录/未登录/收藏」四个按钮**已经是两行竖排**（`已登`/`录`），即基线捕获时缺陷就已存在，此后像素 diff 恒为 0，永远绿。叠加第二层口径错位：基线用 1920 CSS 视口，而**真实用户是 1920 物理像素 ÷ Windows 125% 缩放 = 1536 CSS，减 200 侧边栏 = 1336 容器**，比基线窄 384px，破图程度从「两行」恶化成「逐字竖排」。两层叠加使该缺陷在 CI 完全不可见。
+  - 与同页 `account-badge-align`（PR #2382）的结论互为补充：视觉回归对账号页布局缺陷有**两重**盲区——基线自身固化缺陷（本地重捕时）+ CI 无账号数据只渲染空态、卡片与工具栏根本不出现。两者叠加意味着 `test:visual:pixel` 对账号页布局**基本不构成门禁**，勿以其绿灯作为「布局没退化」的依据。
   - 断点错配：`@media (max-width: 1100px)` 以**视口宽度**为条件，而真正的约束量是**轨道总宽**，两者之间 1100–1600px 的整段区间无人看守。
 
 - **修复（pattern）**：改 `display: flex; flex-wrap: wrap` + 显式收缩分工——按钮/图标组一律 `flex: 0 0 auto`（不参与收缩），只让两个搜索框与筛选下拉收缩（下拉配 `text-overflow: ellipsis`），并给 `.filter-tabs button`、`.account-count` 补 `white-space: nowrap`。窗口不足时整条工具栏优雅换行，任何宽度都不再逐字竖排。实测（真实组件 + 真实 Vite + 无头 Edge）：1536 视口单行零溢出，1440/1336/1100 视口换行且文案正常。
