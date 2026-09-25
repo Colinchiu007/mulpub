@@ -72,11 +72,35 @@ describe('MemberCenter', () => {
     await wrapper.vm.$nextTick()
     expect(wrapper.text()).toContain('用户甲')
     expect(wrapper.text()).toContain('memberCenter.statusConnected')
-    expect(wrapper.get('[data-testid="member-center-plan"]').text()).toContain('memberCenter.licenseFree')
+    expect(wrapper.get('[data-testid="member-center-plan"]').text()).toContain('memberCenter.planPro')
     expect(wrapper.get('[data-testid="member-center-entitlement-plan"]').text()).toContain('memberCenter.planPro')
+    expect(wrapper.find('[data-testid="member-center-upgrade"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="member-center-pro-active"]').exists()).toBe(true)
     expect(wrapper.get('[data-testid="member-center-features"]').findAll('li')).toHaveLength(2)
     expect(wrapper.get('[data-testid="member-center-quota"]').exists()).toBe(true)
     expect(wrapper.get('[data-testid="member-center-version"]').text()).toBe('0.1.0')
+  })
+
+  it('已登录 trial entitlement：版本卡与权益卡一致显示 trial，升级入口保留', async () => {
+    const wrapper = await mountMemberCenter()
+    identityStore = (await import('@/stores/identity')).useIdentityStore()
+    identityStore.status = 'authenticated'
+    identityStore.user = { sub: 'sub-1', name: '用户甲', username: '', picture: '' }
+    identityStore.entitlement = { plan: 'trial', features: [], source: 'online', expiresAt: 1893456000, quota: null }
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('[data-testid="member-center-plan"]').text()).toContain('memberCenter.planTrial')
+    expect(wrapper.get('[data-testid="member-center-entitlement-plan"]').text()).toContain('memberCenter.planTrial')
+    expect(wrapper.find('[data-testid="member-center-upgrade"]').exists()).toBe(true)
+  })
+
+  it('已登录但 entitlement 缺失时版本卡回退本地 licenseStore', async () => {
+    const wrapper = await mountMemberCenter()
+    identityStore = (await import('@/stores/identity')).useIdentityStore()
+    identityStore.status = 'authenticated'
+    identityStore.user = { sub: 'sub-1', name: '用户甲', username: '', picture: '' }
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('[data-testid="member-center-plan"]').text()).toContain('memberCenter.licenseFree')
+    expect(wrapper.find('[data-testid="member-center-upgrade"]').exists()).toBe(true)
   })
 
   it('无 entitlement 时不渲染权益卡与配额卡', async () => {
