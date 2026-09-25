@@ -76,7 +76,18 @@
 - [x] 49. QM-6 第三轮收口确认：claude 判 `critical_cleared: true`、0 残留（20 处命中全定性，并补出 `Dashboard.vue` 同名按钮属平台内容同步、`locales` 的 `syncNow` 死键）；codex 两次尝试均无结论输出（RC=1），故本轮记为**单模型确认**
 - [x] 50. 补注册写保护计划任务：**受本机权限阻断**（见下条证据），Health 任务已注册成功，Write Guard 任务无法注册
 - [x] 51. QM-6 第三轮 codex 成功输出**推翻**本 change「全仓 `-a` 前扫到 0 命中」的判据：`01-docs/PRD.md` / `learnings.md` 等含 NUL 字节的文档被 grep/rg 默认当二进制静默跳过（同文件 `grep -rn` 计 1、`grep -rna` 计 10），改用 `-a` 复扫另得 15 处现行文档残留；已逐条核实并把「复扫必须带 `-a`」写入 `AGENTS.md` 门禁
-- [ ] 52. 另案（**不属本 change 范围**）：清理「模型服务运营同步卡片」旧线的 15 处文档残留——`01-docs/PRD.md:584/3991/4006/4037/4048/9115/12522/12537/12568/12579`（§7.4.5 卡片交互与验收 ① 仍要求用户点「立即同步」）、`01-docs/PRD-sync-zero-config.md:127/148`（状态「待评审」，仍设计保留该按钮）、`01-docs/PRD-MODEL-LIST-SORT-ORDER-2026-09-23.md:75`（页面说明含「重启或手动同步」）、`01-docs/product-manual.md:321/342`（用户手册把「立即同步」列为可用操作）。该卡片已由更早的 PR 有意隐藏（见 CHANGELOG `ModelProviders.vue（Part B 设计纠偏）` 条目），修法需先确认该功能线现行口径，故本 PR 不顺手改
+- [ ] 52. 另案（**不属本 change 范围**，已核实现行事实供接手者直接用）：清理「模型服务运营同步卡片」旧线的 15 处文档残留。
+  现行代码事实（2026-09-26 实测，改文档以这三条为准）：
+  ① 卡片由 **`0c91b837`（#2199 "hide ops backend config from users"）** 隐藏；`ModelProviders.vue` 现仅剩 3 处命中且全非入口
+  （424 行是「限流由运营后台同步下发」提示文案、526 行注释、1346 行 CSS 注释），**页面上不存在可点击的同步卡片**；
+  ② 但 IPC 与 preload 通道**仍在**：`ipc-handlers/ops-center-sync.js:30` 仍注册 `ops-center-sync:now`、
+  `preload/system.js:253` 仍暴露 `opsCenterSyncNow`；③ `autoSync` 语义仍在（`services/ops-center-sync.js:141/151/176`）。
+  故正确口径为「能力保留、入口对用户隐藏、生效时机＝客户端启动时同步一次」：既不能照旧文案写「用户点立即同步」，
+  也不能写成「该能力已删除」。
+  待改清单：`01-docs/PRD.md:584/3991/4006/4037/4048/9115/12522/12537/12568/12579`（§7.4.5 交互与验收 ① 要求点「立即同步」）、
+  `01-docs/PRD-sync-zero-config.md:127/148`（状态仍「待评审」，设计上保留该按钮，与 ① 冲突，应标注为被后续决策取代）、
+  `01-docs/PRD-MODEL-LIST-SORT-ORDER-2026-09-23.md:75`（页面说明含「重启或手动同步」）、
+  `01-docs/product-manual.md:321/342`（用户手册把「立即同步」列为可用操作）
 - [ ] 53. 遗留（本 change 不做）：清理 `useOpsCenterSync.runSyncNow` 与 `modelProviders.syncNow`（zh/en）死键及其 3 条用例；跨端 CATALOG 一致性 CI 断言（见 §16.6）
 
 ### 50. 写保护计划任务注册结果（2026-09-25 23:0x→23:2x，本机权限实测 + 已闭合）
