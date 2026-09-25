@@ -3,9 +3,17 @@
 ### 变更
 - **`apps/desktop/electron/startup-compat.js`**：`configureUserAgentFallback` 的 UA 取源由 `app.userAgent` 改为 `app.userAgentFallback`。Electron 的 `App` 接口只暴露 `userAgentFallback`（`userAgent` 挂在 `WebContents` 上），实测真实 Electron 43.1.1 下 `typeof app.userAgent === 'undefined'`，函数第一行即拿到空串并 `return { configured: false }` —— **这段为规避知乎登录风控而写的净化逻辑，自引入起从未执行过一次**，登录页收到的始终是带 `Electron/43.1.1` 与 `Multi-Publish/<ver>` 标记的原始 UA。
 - **`apps/desktop/electron/main.js`**：净化未生效时补 `console.warn`。原先只在成功分支打印，「永久 no-op」这类回归在日志里零痕迹，与静默吞错等价。
+- **`apps/desktop/electron/services/login-network-diagnostics.js` + `auth-view-manager.js`**（可观测性补强，用户选定追加）：新增 `attachAuthResponseDiagnostics`，把「登录被平台风控拒绝」的原因写进主进程日志。此前该失败只表现为 `auth:open-login timeout`（300s 后一条超时），拒绝原因完全不可见。实现复用 `attachCdpDetection` 已 attach 的 debugger，仅 `Network.enable` + 被动 `Network.getResponseBody`，**不新增第二个 attach、不拦截请求**（`Fetch.requestPaused` 会改变登录热路径时序）；仅对已登记平台（zhihu）生效，其余平台零新增监听面。
+
+### 日志安全口径（新增诊断）
+
+- 只落四类诊断字段：端点、HTTP 状态、`error.code`、`error.message`（超 80 字截断）；**不整体转储响应体**——知乎短信请求的 query 带手机号、部分响应带 token/昵称。
+- URL 落日志前一律剥离 `query`/`hash`；`base64` 响应不解析。
+- `Network.loadingFailed` 事件本身不含 url，改由 `Network.requestWillBeSent` 按 `requestId` 登记（上限 64 条）后回查。
 
 ### 影响
 - 症状：账户管理新增知乎账号，登录页点「发送手机验证码」被知乎侧拒绝并提示「客户端异常」。当日主进程日志佐证：知乎两次 `auth:open-login` 均走完整 300s 超时（`13:36`、`13:44`），同链路微信/抖音登录 `ok` —— 平台特异性失败，与知乎按 UA 标记拒绝下发验证码的既有记录一致（该文件注释自陈的成因）。
+- **回归窗口**：`git log -L` 溯源到 `1dc84e59`（2026-09-11 `fix(startup): 净化 Electron UA 规避知乎登录风控 10001`）—— 那次提交是为修同一症状而生的，根因与方案都对，只是取源写错，因此**知乎短信验证码登录自 2026-09-11 起实际上一直没被修好**，且该 Bug 已逃逸两次（第一次：`startup-compat.test.js` 未被 vitest include；第二次：测试跑到了但夹具是真实运行时不存在的形状）。
 - UA 是**全站出站指纹**：修复后所有内嵌登录/浏览器标签（知乎、微博、头条、B站等）统一以标准 Chrome UA 出网。回归对照实测净化前后出站头，净化后无任何头部含 `electron` 字样。
 - 待用户侧最终验收：真实点击知乎「发送手机验证码」确认风控放行。若仍被拒，下一步是覆盖 `session.setUserAgent` 的 UA-CH 客户端提示（`Chrome/150.0.7871.114` 完整版本号与 `Sec-CH-UA` 品牌列表仍与正式版 Chrome 的 `150.0.0.0` 口径不同）。
 
@@ -13,7 +21,9 @@
 - `apps/desktop/electron/startup-compat.test.js` 夹具全部改为**真实 Electron App 形状**（只有 `userAgentFallback`，不带 `userAgent`）：修复前 4 条断言红，修复后 **18 passed**。
 - 新增两道反复发锁：① 给夹具的 `userAgent` 挂计数字段读取的 getter，断言读取次数为 0（锁「不许读这个字段」的行为，而非只锁输出）；② 真实依赖锁——对已安装的 `node_modules/electron/electron.d.ts` 断言 `App` 接口声明 `userAgentFallback` 且不声明 `userAgent`，把「前提」本身钉住，electron 未安装时 `describe.skipIf` 跳过。
 - 线级验证（不入库，临时探针）：本机回显 HTTP 服务 + 真实 `createSession` auth 分区会话 + `sandbox:true` WebContents，A/B 对照出站 `User-Agent` 头——净化关：含 `ua-probe2/1.0.0` 与 `Electron/43.1.1`；净化开：`...Chrome/150.0.7871.114 Safari/537.36`，两项均 false。
-- QM-1 本地打包验证见 `.quality-gates.md`；QM-6 CCG 双模型外部评审本机 `codeagent-wrapper` 不可用，**未执行登记**。
+- 新增 `attachAuthResponseDiagnostics` 19 例（`login-network-diagnostics.test.js`）：未登记平台/debugger 形状不符/`Network.enable` 被拒三类降级路径不挂接不抛；成功体不记日志；HTTP 200+error 体与 HTTP≥400 两种拒绝形态用精确 `toBe` 逐字符锁定摘要格式；**4 道安全锁**——响应体内手机号/token/昵称不得出现在任何日志、URL query/hash 必须剥离、超长 message 截断、非字符串 message 不得渲染成 `[object Object]`；`ERR_ABORTED` 降噪；无关 CDP 事件（`Fetch.requestPaused`）完全忽略。写测阶段先确认全红（`attachAuthResponseDiagnostics is not a function`）。
+- 全量：`pnpm exec vitest run` → **Tests 11504 passed / 1 failed / 3 skipped（651 文件）**。唯一红灯 `electron/services/feedback.test.js` 停在 `fs.symlinkSync` 的 `EPERM`（本机未开开发者模式），`git diff --name-only HEAD~1 HEAD` 不含该文件、其最后改动为无关提交 `7b236003` → 判定为环境性既有红，非本次回归。
+- QM-1 本地打包验证：见 `.quality-gates.md`（首轮为**假通过**——新 worktree 未建 `dist/`，builder 仍 rc=0 而产物白屏；补 `vite build` 重做后以「主窗口已显示 + 0 加载失败签名 + `[startup] 已净化 User-Agent`」为通过依据）。QM-6 CCG 双模型外部评审本机 `codeagent-wrapper` 不可用，**未执行登记**。
 
 ### 文档
 - `01-docs/learnings.md`：新增「测试全绿的功能从未生效——按运行时不存在的 API 字段写代码，mock 夹具把错误形状固化」。

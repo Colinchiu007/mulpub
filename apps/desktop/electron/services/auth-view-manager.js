@@ -19,6 +19,7 @@ const {
 // 账号资料（昵称/头像/平台ID）采集器：登录成功那一刻随凭证一起产出（PRD-ACCOUNT-PROFILE-INFO-2026-09-23）
 const accountProfile = require('@multi-publish/shared-utils/src/account-profile')
 const { attachCdpDetection } = require('./auth-view-cdp')
+const { attachAuthResponseDiagnostics } = require('./login-network-diagnostics')
 const { createSession, setCookies, restoreLocalStorage, restoreIndexedDB, createAuthView } = require('./auth-view-session')
 // 内嵌视图定位唯一来源：必须用「客户区」尺寸，禁用 getBounds() 外框尺寸（见 view-bounds.js）
 const { computeEmbeddedViewBounds, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } = require('./view-bounds')
@@ -299,6 +300,10 @@ class AuthViewManager {
         log.info('AuthView', 'CDP detected login success')
         this._scheduleAutoCompletion('cdp', attempt)
       })
+
+      // 登录被平台风控拒绝时（知乎「客户端异常」类症状）把拒绝原因写进日志；
+      // 复用上面 attachCdpDetection 已 attach 的 debugger，不新增第二个 attach。
+      attachAuthResponseDiagnostics(view.webContents.debugger, { platform, accountId })
 
       // 超时
       if (timeout > 0) {

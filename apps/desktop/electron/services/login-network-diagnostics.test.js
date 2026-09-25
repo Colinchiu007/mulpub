@@ -187,3 +187,268 @@ describe('login-network-diagnostics — onCompleted handler', () => {
     expect(log.info).not.toHaveBeenCalled()
   })
 })
+
+// ─── attachAuthResponseDiagnostics（登录关键端点响应体诊断，CDP 被动读取）───
+
+const ZHIHU_SMS_URL = 'https://www.zhihu.com/api/v4/signin/sms_send'
+
+// 构造 mock debugger：收集 'message' 监听器，sendCommand 可编程返回
+function createDebugger (responseBody, opts) {
+  const handlers = []
+  const dbg = {
+    __handlers: handlers,
+    sendCommand: vi.fn().mockImplementation(async (method) => {
+      if (method === 'Network.getResponseBody') {
+        if (opts && opts.rejectBody) throw new Error('No resource with given identifier found')
+        return { body: responseBody, base64Encoded: false }
+      }
+      if (opts && opts.enableThrows) throw new Error('Debugger is not attached')
+      return {}
+    }),
+    on: vi.fn((event, fn) => { if (event === 'message') handlers.push(fn) }),
+  }
+  return dbg
+}
+
+// 取出唯一注册的 message 监听器
+function messageHandler (dbg) {
+  expect(dbg.__handlers.length).toBe(1)
+  return dbg.__handlers[0]
+}
+
+describe('login-network-diagnostics — attachAuthResponseDiagnostics 挂接面', () => {
+  it('未登记的平台一律不挂：不 enable Network、不注册监听、返回 false', () => {
+    const dbg = createDebugger('{}')
+
+    expect(mod.attachAuthResponseDiagnostics(dbg, { platform: 'wechat_mp', accountId: 'a1' })).toBe(false)
+    expect(dbg.sendCommand).not.toHaveBeenCalled()
+    expect(dbg.on).not.toHaveBeenCalled()
+  })
+
+  it('debugger 缺失或形状不对 → 返回 false 且不抛', () => {
+    expect(mod.attachAuthResponseDiagnostics(null, { platform: 'zhihu' })).toBe(false)
+    expect(mod.attachAuthResponseDiagnostics(undefined, { platform: 'zhihu' })).toBe(false)
+    expect(mod.attachAuthResponseDiagnostics({}, { platform: 'zhihu' })).toBe(false)
+  })
+
+  it('知乎 → enable Network 一次并注册一个监听，返回 true', () => {
+    const dbg = createDebugger('{}')
+
+    expect(mod.attachAuthResponseDiagnostics(dbg, { platform: 'zhihu', accountId: 'a1' })).toBe(true)
+    expect(dbg.sendCommand).toHaveBeenCalledTimes(1)
+    expect(dbg.sendCommand.mock.calls[0][0]).toBe('Network.enable')
+    expect(dbg.on).toHaveBeenCalledTimes(1)
+    expect(dbg.on.mock.calls[0][0]).toBe('message')
+  })
+
+  it('重复挂接幂等：同一 debugger 不叠加监听（防一次失败刷多行日志）', () => {
+    const dbg = createDebugger('{}')
+    mod.attachAuthResponseDiagnostics(dbg, { platform: 'zhihu', accountId: 'a1' })
+    mod.attachAuthResponseDiagnostics(dbg, { platform: 'zhihu', accountId: 'a2' })
+
+    expect(dbg.sendCommand).toHaveBeenCalledTimes(1)
+    expect(dbg.on).toHaveBeenCalledTimes(1)
+    expect(dbg.__handlers.length).toBe(1)
+  })
+
+  it('Network.enable 被拒（debugger 未 attach / 域不可用）→ 降级不挂监听、不外抛', async () => {
+    const dbg = createDebugger('{}', { enableThrows: true })
+
+    const attached = mod.attachAuthResponseDiagnostics(dbg, { platform: 'zhihu', accountId: 'a1' })
+    // 诊断不得影响登录热路径：等一轮微任务让 enable 的 rejection 落地
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(attached).toBe(true)
+    expect(dbg.__handlers.length).toBe(1)
+    expect(log.warn).not.toHaveBeenCalled()
+  })
+})
+
+describe('login-network-diagnostics — attachAuthResponseDiagnostics 响应判定', () => {
+  it('知乎 200 + error 体（风控拒绝的典型形态）→ warn 记 code 与 message', async () => {
+    const dbg = createDebugger(JSON.stringify({ error: { code: 10001, message: '请求参数异常，请升级客户端后重试' } }))
+    mod.attachAuthResponseDiagnostics(dbg, { platform: 'zhihu', accountId: 'auth-zhihu-1' })
+
+    await messageHandler(dbg)({}, 'Network.responseReceived', {
+      requestId: 'r1', response: { url: ZHIHU_SMS_URL, status: 200 },
+    })
+
+    expect(log.warn).toHaveBeenCalledTimes(1)
+    expect(log.warn.mock.calls[0][0]).toBe('LoginRespDiag')
+    // 精确结构断言（QM-3）：整条摘要逐字符锁定，防止字段顺序/分隔符漂移
+    expect(log.warn.mock.calls[0][1]).toBe(
+      '[zhihu/auth-zhihu-1] 关键端点被拒 url=' + ZHIHU_SMS_URL + ' http=200 code=10001 message=请求参数异常，请升级客户端后重试',
+    )
+    expect(log.info).not.toHaveBeenCalled()
+  })
+
+  it('成功体（无 error）→ 不记任何日志，但确实查过响应体', async () => {
+    const dbg = createDebugger(JSON.stringify({ success: true }))
+    mod.attachAuthResponseDiagnostics(dbg, { platform: 'zhihu', accountId: 'a1' })
+
+    await messageHandler(dbg)({}, 'Network.responseReceived', {
+      requestId: 'r1', response: { url: ZHIHU_SMS_URL, status: 200 },
+    })
+
+    expect(log.warn).not.toHaveBeenCalled()
+    expect(log.info).not.toHaveBeenCalled()
+    expect(dbg.sendCommand).toHaveBeenCalledWith('Network.getResponseBody', { requestId: 'r1' })
+  })
+
+  it('HTTP >= 400 且响应体不可解析 → 仍记一条含状态码的 warn（降级不丢信号）', async () => {
+    const dbg = createDebugger('not-json-at-all')
+    mod.attachAuthResponseDiagnostics(dbg, { platform: 'zhihu', accountId: 'a1' })
+
+    await messageHandler(dbg)({}, 'Network.responseReceived', {
+      requestId: 'r1', response: { url: ZHIHU_SMS_URL, status: 403 },
+    })
+
+    expect(log.warn).toHaveBeenCalledTimes(1)
+    expect(log.warn.mock.calls[0][1]).toBe(
+      '[zhihu/a1] 关键端点被拒 url=' + ZHIHU_SMS_URL + ' http=403 code=<none> message=<unparsable>',
+    )
+  })
+
+  it('响应体已被网络栈回收（getResponseBody 抛错）→ 记 HTTP 状态且不产生未处理拒绝', async () => {
+    const dbg = createDebugger('', { rejectBody: true })
+    mod.attachAuthResponseDiagnostics(dbg, { platform: 'zhihu', accountId: 'a1' })
+
+    await expect(messageHandler(dbg)({}, 'Network.responseReceived', {
+      requestId: 'missing', response: { url: ZHIHU_SMS_URL, status: 500 },
+    })).resolves.toBeUndefined()
+
+    expect(log.warn).toHaveBeenCalledTimes(1)
+    expect(log.warn.mock.calls[0][1]).toContain('http=500')
+  })
+
+  it('非关键端点（静态资源 / 其他域名）→ 不查响应体、不记日志', async () => {
+    const dbg = createDebugger(JSON.stringify({ error: { code: 1, message: 'x' } }))
+    mod.attachAuthResponseDiagnostics(dbg, { platform: 'zhihu', accountId: 'a1' })
+    const before = dbg.sendCommand.mock.calls.length
+
+    await messageHandler(dbg)({}, 'Network.responseReceived', {
+      requestId: 'r2', response: { url: 'https://static.zhihu.com/zse-asset/v4/main.js', status: 500 },
+    })
+    await messageHandler(dbg)({}, 'Network.responseReceived', {
+      requestId: 'r3', response: { url: 'https://evil.example.com/api/v4/signin/sms_send', status: 500 },
+    })
+
+    expect(dbg.sendCommand.mock.calls.length).toBe(before)
+    expect(log.warn).not.toHaveBeenCalled()
+  })
+
+  it('无关 CDP 事件（Fetch.requestPaused 等）→ 完全忽略', async () => {
+    const dbg = createDebugger('{}')
+    mod.attachAuthResponseDiagnostics(dbg, { platform: 'zhihu', accountId: 'a1' })
+
+    await messageHandler(dbg)({}, 'Fetch.requestPaused', { requestId: 'r1' })
+
+    expect(log.warn).not.toHaveBeenCalled()
+    expect(log.info).not.toHaveBeenCalled()
+  })
+
+  // 真实 CDP 的 Network.loadingFailed 事件**不带 url**，只有 requestId，
+  // 所以 URL 必须在 requestWillBeSent 时按 requestId 登记，失败时回查。
+  it('Network.loadingFailed → 回查 requestWillBeSent 登记的 URL，warn 记 net 错误分类', async () => {
+    const dbg = createDebugger('{}')
+    mod.attachAuthResponseDiagnostics(dbg, { platform: 'zhihu', accountId: 'a1' })
+    const handler = messageHandler(dbg)
+
+    await handler({}, 'Network.requestWillBeSent', {
+      requestId: 'r9', request: { url: ZHIHU_SMS_URL + '?tel=13800001111' }, type: 'XHR',
+    })
+    await handler({}, 'Network.loadingFailed', {
+      requestId: 'r9', type: 'XHR', errorText: 'ERR_PROXY_CONNECTION_FAILED', canceled: false,
+    })
+
+    expect(log.warn).toHaveBeenCalledTimes(1)
+    expect(log.warn.mock.calls[0][1]).toBe(
+      '[zhihu/a1] 关键端点请求失败 url=' + ZHIHU_SMS_URL + ' netError=ERR_PROXY_CONNECTION_FAILED → 代理不可达或认证失败：检查系统代理与账号代理设置',
+    )
+  })
+
+  it('requestWillBeSent 对非关键端点不登记、不记日志', async () => {
+    const dbg = createDebugger('{}')
+    mod.attachAuthResponseDiagnostics(dbg, { platform: 'zhihu', accountId: 'a1' })
+    const handler = messageHandler(dbg)
+
+    await handler({}, 'Network.requestWillBeSent', {
+      requestId: 'r10', request: { url: 'https://static.zhihu.com/zse-asset/v4/main.js' }, type: 'Script',
+    })
+    await handler({}, 'Network.loadingFailed', { requestId: 'r10', errorText: 'ERR_ABORTED' })
+
+    expect(log.warn).not.toHaveBeenCalled()
+  })
+})
+
+describe('login-network-diagnostics — attachAuthResponseDiagnostics 日志脱敏（安全锁）', () => {
+  // 日志只允许「端点 + 状态码 + error.code + error.message」四类诊断字段，
+  // 绝不整体转储响应体，也绝不记录 URL 的 query/hash —— 知乎短信请求的 query/body
+  // 会带手机号，部分接口响应会带 token。
+  const SECRET_PHONE = '13800001111'
+  const SECRET_TOKEN = 'Bearer.zhihu.session.token'
+
+  const allLoggedText = () => [log.warn, log.info]
+    .flatMap((fn) => fn.mock.calls.map((c) => c.join(' ')))
+    .join('\n')
+
+  it('响应体内的手机号 / token 不得出现在任何日志中', async () => {
+    const dbg = createDebugger(JSON.stringify({
+      error: { code: 100, message: '客户端异常' },
+      data: { mobile: SECRET_PHONE, access_token: SECRET_TOKEN, name: '张三' },
+    }))
+    mod.attachAuthResponseDiagnostics(dbg, { platform: 'zhihu', accountId: 'a1' })
+
+    await messageHandler(dbg)({}, 'Network.responseReceived', {
+      requestId: 'r1', response: { url: ZHIHU_SMS_URL, status: 200 },
+    })
+
+    expect(log.warn).toHaveBeenCalledTimes(1)
+    expect(allLoggedText()).not.toContain(SECRET_PHONE)
+    expect(allLoggedText()).not.toContain(SECRET_TOKEN)
+    expect(allLoggedText()).not.toContain('张三')
+  })
+
+  it('URL 的 query / hash 一律剥离后再落日志', async () => {
+    const dbg = createDebugger(JSON.stringify({ error: { code: 100, message: '客户端异常' } }))
+    mod.attachAuthResponseDiagnostics(dbg, { platform: 'zhihu', accountId: 'a1' })
+
+    await messageHandler(dbg)({}, 'Network.responseReceived', {
+      requestId: 'r1',
+      response: { url: ZHIHU_SMS_URL + '?tel=' + SECRET_PHONE + '&token=' + SECRET_TOKEN + '#frag' + SECRET_PHONE, status: 200 },
+    })
+
+    expect(allLoggedText()).not.toContain(SECRET_PHONE)
+    expect(allLoggedText()).not.toContain(SECRET_TOKEN)
+    expect(log.warn.mock.calls[0][1]).toBe(
+      '[zhihu/a1] 关键端点被拒 url=' + ZHIHU_SMS_URL + ' http=200 code=100 message=客户端异常',
+    )
+  })
+
+  it('超长 message 截断，不整段回显', async () => {
+    const long = '详细风控说明'.repeat(60)
+    const dbg = createDebugger(JSON.stringify({ error: { code: 100, message: long } }))
+    mod.attachAuthResponseDiagnostics(dbg, { platform: 'zhihu', accountId: 'a1' })
+
+    await messageHandler(dbg)({}, 'Network.responseReceived', {
+      requestId: 'r1', response: { url: ZHIHU_SMS_URL, status: 200 },
+    })
+
+    const msg = log.warn.mock.calls[0][1]
+    expect(msg.length).toBeLessThanOrEqual(300)
+    expect(msg).toMatch(/\.\.\.$/)
+  })
+
+  it('非字符串 error.message（数字 / 对象）→ 归一为字符串表示，不注入对象', async () => {
+    const dbg = createDebugger(JSON.stringify({ error: { code: 'abc', message: { nested: SECRET_TOKEN } } }))
+    mod.attachAuthResponseDiagnostics(dbg, { platform: 'zhihu', accountId: 'a1' })
+
+    await messageHandler(dbg)({}, 'Network.responseReceived', {
+      requestId: 'r1', response: { url: ZHIHU_SMS_URL, status: 200 },
+    })
+
+    expect(allLoggedText()).not.toContain(SECRET_TOKEN)
+    expect(allLoggedText()).not.toContain('[object Object]')
+  })
+})
