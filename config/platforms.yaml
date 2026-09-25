@@ -53,7 +53,7 @@ platforms:
     enabled: true
   douyin:
     has_api: false
-    publishMode: dom-only   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
+    publishMode: api-then-dom   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
     name: 抖音
     type: mixed
     icon: 🎵

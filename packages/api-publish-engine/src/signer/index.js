@@ -13,6 +13,7 @@
 const crypto = require('crypto')
 const local = require('../signer-local')
 const { createRegistry } = require('./registry')
+const douyinTicketGuard = require('./douyin-ticket-guard')
 
 const registry = createRegistry()
 
@@ -47,6 +48,17 @@ registry.register('shipinhao.content-md5', (payload) => {
   const buf = payload && payload.buffer
   if (!buf || !buf.length) throw new Error('signer: shipinhao.content-md5 requires non-empty buffer')
   return crypto.createHash('md5').update(buf).digest('base64')
+})
+
+// 抖音 ticket-guard 本地签名（W2 D4：进程内 registry，替代第三方签名通道）
+registry.register('douyin.ticket-guard-client-data', (payload) => {
+  const p = payload || {}
+  return douyinTicketGuard.clientSign(p.cookie)
+})
+
+registry.register('douyin.ticket-guard-ree-public-key', (payload) => {
+  const p = payload || {}
+  return douyinTicketGuard.extractReePublicKey(p.cookie)
 })
 
 module.exports = { registry, createRegistry, sign: registry.sign, register: registry.register, has: registry.has, list: registry.list }
