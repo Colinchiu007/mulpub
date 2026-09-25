@@ -90,3 +90,50 @@
 ### 合规确认（S2a）
 - 全程仅对公开静态 JS 资源做未认证 GET（等价浏览器查看源代码），无 cookie、无登录态、无签名请求、无发布、无风控面触碰。
 - 未在任何 tracked 文件落混淆源码切片或真实签名值；脚本置于 gitignored staging。
+
+
+
+---
+
+## S2b 活体真页抽取终判 —— 结果：**Tier-A GO**（页面自带签名器为我方独立构造请求产出的 sig3 被平台接受）
+
+> 执行日期：2026-09-26 · 用户授权代操作（测试账号）· 方式：Playwright chromium + 注入 partition cookie，加载登录态 `cp.kuaishou.com`
+> 探针：`.agent_context/staging/w3-s2b-{cookie-freshness,page-probe,phaseC}.js`（gitignored，签名值/cookie 明文只在页面内存使用，绝不回传/落 tracked）
+
+### 现场前提核实
+- 登录态有效：`passToken`→2026-10-13、`api_ph`→2026-10-07、`did`/`userId` 均 valid（partition `rpa-rpa-kuaishou-a4505f45-6`）。
+- headless chromium 加载 `cp.kuaishou.com/profile`：**未跳登录、未触发风控/验证码**（result 码全程正常业务码，无验证页）。
+
+### Phase A — 页面自然签名流量（被动捕获，零主动发）
+- 进入控制台自然发出 **27 条 `POST <端点>?__NS_sig3=<值>`**（唯一 query 键 `__NS_sig3`，body 为 JSON）。
+- 证实：sig3 由页面内 `$encode`（Nimble VM）**实时产出**，自动化浏览器环境下同样生成 → 推翻「需真人浏览器才能签」的担忧。
+
+### Phase B — webpack 模块 29924 导出形状（不 dump 源码）
+- 运行全局 `window["webpackChunkks_fe_creator_platform"]`；require 捕获须用 **三元 push**：`chunk.push([[probeId], {}, (r)=>{req=r}])`（runtime 回调在第 3 槽，此前二元写法抓不到 —— EXTRACTOR bug 根因）。
+- 导出 `PJ`/`nM`/`u$`，均 `arity=1`（单对象入参 `{url,type,params}`）。
+
+### Phase C — 独立构造请求接受性对照（Tier-A 终判，只读端点）
+| 变体 | 请求 | HTTP | result | 说明 |
+|------|------|------|--------|------|
+| A | `POST /rest/v2/creator/pc/authority/account/current` + **我方调用 `PJ({url,type:'json',params})` 复算的 sig3** | 200 | **`1`（成功，956B）** | 平台接受 |
+| B | 同端点 **不带 sig3** | 200 | **`500002`（拒绝，63B）** | 平台强制校验 |
+
+- `PJ` 与 `u$` 对独立构造入参均产出 `__NS_sig3=<56 字符>`；`nM` 产出 335 字符非 sig3 串（sig4/hxfalcon 路径）。
+- **判据 `ACCEPT_SIG_ONLY(强)`**：带我方复算签成功 + 无签被拒 ⇒ 端点确实强制 sig3，且页面自带签名器对**独立构造**（非抓包回放）的请求产出被服务端接受的合法 sig3。
+
+### 判决（design §4 语义）
+- **S2 = GO**：「隐藏页调用平台自带签名器为我方请求产 sig3」策略**成立且合规**（用户自己登录态官方页面内 JS 自签，非第三方外包服务，不触 §7 grep 门禁）。放行 Group 4/5 快手 API 发布链开发与 platforms.yaml 翻转。
+- **回填 S0 结论**：S0 本地公式 `MD5(api_ph+"|"+body)`=32 位裸 hex，**结构上短于真 sig3（56 字符 VM 产物）**，故 S0 本地近似永远不等于真签——本地签名器路线对快手 sig3 **作废**，唯一可行是页面内抽取。
+- **风险残留（发布链开发期须覆盖）**：sig3 是否绑定会话 nonce/时效导致「同一 payload 隔时复算值不同但仍各自有效」——本测已证「新构造新签新发」即时有效；submit 端点（f 白名单内，含发布副作用）待发布链集成时由用户在场走一次真实发布做最终回归（S3 语义），不再阻塞 Group 4/5 开发。
+
+### EXTRACTOR_SCRIPT 重写形态（供 Group 4 落地）
+1. 全局名：`window["webpackChunkks_fe_creator_platform"]`（替换 `webpackChunk`/`webpackChunk_kuaishou_pc`）。
+2. require 捕获：`chunk.push([['__mp_sig_probe__'], {}, function (r) { captured = r }])`（三元，runtime 槽）。
+3. moduleId `29924`；导出选 `PJ`（`u$` 等价备用）。
+4. 调用：**异步** `const s = await PJ({ url, type: 'json', params })`；返回串 `__NS_sig3=<值>` → 剥离前缀得裸签名值交回 manager。
+5. fail-closed：全局缺失/抓不到 require/导出非函数/返回无 `__NS_sig3=` → 逐个降级，不回传函数体源码。
+
+### 合规确认（S2b）
+- 全程仅对**只读**签名端点各发 1 次认证请求（A/B 对照），单次、无重试、无发布、无换号。
+- 未触发风控（无 403/滑块/验证页；500002 是通用「无签拒绝」业务码非风控）。
+- 签名值、cookie、api_ph/api_st 明文均未落任何 tracked 文件；探针脚本置于 gitignored staging。
