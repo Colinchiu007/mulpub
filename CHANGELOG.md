@@ -16,6 +16,18 @@
 
 ---
 
+# [未发布] feat(运营中心): 会员权益开通页——订阅手动开通转发 engine admin grant（2026-09-25，member-center-c2-grant）
+
+### 变更
+- **`ops-center/backend/services/member_grant_service.py` / `routers/member_grant.py`**（新）：`POST /api/v1/member/grants` 本地校验（userId/plan/durationDays）后经 httpx 转发 engine `/api/v1/admin/member/grant`（Bearer M2M token）；上游错误按状态码+错误码透传；未配置 → 503 fail-closed。
+- **`ops-center/backend/config.py`**：新增 `engine_admin_base_url` / `engine_admin_token`（OPS_ 前缀 env；token 命中 *_token 后缀自动进掩码名单）。
+- **`ops-center/frontend`**：新增「会员权益开通」页 `MemberGrants.vue` + api + 路由 + 菜单 + pageGuides；开通成功展示订单信息，提示 admin_grant 记账与用户通知联动。
+
+### 测试
+- 新增 `tests/test_member_grant_api.py` 5 例（503 未配置/本地校验/转发载荷与 Bearer/上游透传/非 admin 拒绝）全绿；ops-center 后端全量 447 passed；前端 build 通过。
+
+---
+
 # [未发布] fix(session-guard): 修 git 2.55 下 hash-object 参数互斥，冷克隆机写保护计划任务得以注册（2026-09-25，fix-session-guard-git255）
 
 ### 变更
@@ -49,6 +61,15 @@
 
 ---
 
+# [未发布] fix(会员中心): entitlement 单一真源收敛，版本卡登录态跟随服务端权益快照（2026-09-25，member-center-entitlement-truth）
+
+### 变更
+- **`apps/desktop/src/views/MemberCenter.vue`**：新增 `entitlementAuthoritative` 派生态——登录且已有服务端权益快照时，「版本与许可证」卡的套餐名/有效期/升级按钮与「会员权益」卡同源（收敛自设计 §5.1），消除「免费版 vs 专业版」双卡自相矛盾；未登录或 entitlement 缺失回退本地 licenseStore 不变。
+
+### 测试
+- `MemberCenter.test.js`：修正固化双卡矛盾的旧断言（licenseFree→planPro）并断言 pro 权益下升级入口隐藏；新增 trial 一致性、entitlement 缺失回退 2 用例；8/8 绿。
+
+---
 # [未发布] fix(webview): CDP 本地存储注入挂起改超时降级，首个导航不被无限门控（头条标签卡死事故回归对）（2026-09-24，fix-toutiao-tab-load-hang）
 
 ### 变更

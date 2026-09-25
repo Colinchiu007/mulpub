@@ -101,6 +101,12 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/member-grants',
+    name: 'MemberGrants',
+    component: () => import('../views/MemberGrants.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/announcements',
     name: 'Announcements',
     component: () => import('../views/Announcements.vue'),
