@@ -7397,7 +7397,7 @@ listAccounts → pythonBackend GET /api/accounts → toPublicAccount
 | 失败降级 | **fail-open**：未下发或结构非法 → 全部可见 + 默认顺序（绝不阻塞导航） |
 | 目录供给 | `_provision_from_catalog`：读取/写入/下发前按 `CATALOG` **增量补齐**缺失行，**只补不改**已有行 |
 | 同步拓扑 | 模型目录与运行时策略**并行且互不门控**（`Promise.allSettled`），整体超时预算保持单请求 10s |
-| 生效时机 | 桌面端启动后自动同步一次；此后每次同步成功即广播 `ops-center:runtime-updated` 并**即时刷新侧边栏，无需重启**。运营端保存不自动触达客户端（无服务端推送），需客户端一次同步（自动或手动「立即同步」） |
+| 生效时机 | 应用端**只在启动时同步一次**：运营端改动在客户端**下次启动**生效；那次启动同步完成后广播 `ops-center:runtime-updated` 并即时刷新侧边栏，用户无需操作、也不需要二次重启。**应用端不暴露任何同步入口**（运营同步对用户透明），亦无服务端主动推送 |
 
 ### 数据校验要点
 
@@ -7426,7 +7426,7 @@ listAccounts → pythonBackend GET /api/accounts → toPublicAccount
 ```
 运营侧：打开页面 → GET（先按目录补齐缺失行）→ 拖动/切换 → PUT（整批原子）
         → 服务端校验 + 强制项纠正 → 落库 → 返回全量列表 + corrections
-下发侧：客户端启动后 3s 或用户点「立即同步」
+下发侧：客户端启动后 3s（唯一自动同步时机；应用端无手动入口）
         → 并行 GET catalog + GET runtime/bootstrap
         → bootstrap 分支：验签 → normalizeAppMenu → 落 settings.opsCenterRuntime
                           → 广播 ops-center:runtime-updated
@@ -7474,11 +7474,10 @@ listAccounts → pythonBackend GET /api/accounts → toPublicAccount
 | 恢复默认确认 | `将恢复为默认设置：全部菜单项显示，并恢复默认顺序。此操作会立即覆盖当前配置，是否继续？` | confirm |
 | 加载失败 | `加载应用菜单失败` 或后端 `detail` | error |
 | 桌面端同步成功（`code=0`） | `同步成功：更新 {count} 个服务商（{time}）` | success |
-| 桌面端**部分成功**（`code=-1` 且 `runtimeApplied=true`） | `模型目录同步未完成；运营配置（菜单/公告等）已更新。原因：{reason}` | **warning** |
+| 桌面端同步结果 | **无用户可见提示**：运营同步对用户透明、同步卡片已隐藏；目录与运行时两条通道的失败区分只写主进程日志 | 日志 |
 | 桌面端同步失败（`code=-1` 且 `runtimeApplied=false`） | `同步失败` + `formatUserError` 映射后的原因 | error |
 
-> 「部分成功」是两条通道解耦后的常态组合，必须与「完全失败」在文案与级别上分开：
-> 否则运营者会误判为没生效而反复重启应用。`{reason}` 取映射后的用户可读句，故原因后置到句尾。
+> 曾有「部分成功」toast 方案，经 QM-6 外部评审指出其 UI 入口并不存在（`ModelProviders.vue:580`「运营同步对用户透明：配置卡片已隐藏」），新增 locale 键会立即沦为 AGENTS.md 禁止的死键，故撤销；两条通道的失败区分改由主进程日志承担（`runtime sync skipped: <原因>` 等），运营侧排障走日志而非应用界面。
 
 ### 兜底规则
 
@@ -7513,7 +7512,7 @@ listAccounts → pythonBackend GET /api/accounts → toPublicAccount
 - **A25**：同步成功后主窗口收到 `ops-center:runtime-updated`；窗口未创建/已销毁时静默跳过且不抛错。
 - **A26**：侧边栏收到事件后免重启更新显隐与顺序；卸载时取消订阅，不残留监听器。
 - **A27**：重拉失败（IPC 报错）→ 保留上一份配置，菜单不瞬时坍回默认。
-- **A28**：`code=-1` 且 `runtimeApplied=true` → 状态区显示「部分成功 + 原因」，错误态为空。
+- **A28**：应用端界面**不出现**任何运营同步入口或提示文案；目录失败与运行时策略失败仅体现在主进程日志中。
 ## §BackToTop 全局「回到顶部」浮标（2026-09-14 新增）
 
 > 变更标识：`back-to-top-button`。完整 PRD 见 `01-docs/PRD-BACK-TO-TOP-BUTTON-2026-09-14.md`；
@@ -15910,7 +15909,7 @@ listAccounts → pythonBackend GET /api/accounts → toPublicAccount
 | 失败降级 | **fail-open**：未下发或结构非法 → 全部可见 + 默认顺序（绝不阻塞导航） |
 | 目录供给 | `_provision_from_catalog`：读取/写入/下发前按 `CATALOG` **增量补齐**缺失行，**只补不改**已有行 |
 | 同步拓扑 | 模型目录与运行时策略**并行且互不门控**（`Promise.allSettled`），整体超时预算保持单请求 10s |
-| 生效时机 | 桌面端启动后自动同步一次；此后每次同步成功即广播 `ops-center:runtime-updated` 并**即时刷新侧边栏，无需重启**。运营端保存不自动触达客户端（无服务端推送），需客户端一次同步（自动或手动「立即同步」） |
+| 生效时机 | 应用端**只在启动时同步一次**：运营端改动在客户端**下次启动**生效；那次启动同步完成后广播 `ops-center:runtime-updated` 并即时刷新侧边栏，用户无需操作、也不需要二次重启。**应用端不暴露任何同步入口**（运营同步对用户透明），亦无服务端主动推送 |
 
 ### 数据校验要点
 
@@ -15939,7 +15938,7 @@ listAccounts → pythonBackend GET /api/accounts → toPublicAccount
 ```
 运营侧：打开页面 → GET（先按目录补齐缺失行）→ 拖动/切换 → PUT（整批原子）
         → 服务端校验 + 强制项纠正 → 落库 → 返回全量列表 + corrections
-下发侧：客户端启动后 3s 或用户点「立即同步」
+下发侧：客户端启动后 3s（唯一自动同步时机；应用端无手动入口）
         → 并行 GET catalog + GET runtime/bootstrap
         → bootstrap 分支：验签 → normalizeAppMenu → 落 settings.opsCenterRuntime
                           → 广播 ops-center:runtime-updated
@@ -15987,11 +15986,10 @@ listAccounts → pythonBackend GET /api/accounts → toPublicAccount
 | 恢复默认确认 | `将恢复为默认设置：全部菜单项显示，并恢复默认顺序。此操作会立即覆盖当前配置，是否继续？` | confirm |
 | 加载失败 | `加载应用菜单失败` 或后端 `detail` | error |
 | 桌面端同步成功（`code=0`） | `同步成功：更新 {count} 个服务商（{time}）` | success |
-| 桌面端**部分成功**（`code=-1` 且 `runtimeApplied=true`） | `模型目录同步未完成；运营配置（菜单/公告等）已更新。原因：{reason}` | **warning** |
+| 桌面端同步结果 | **无用户可见提示**：运营同步对用户透明、同步卡片已隐藏；目录与运行时两条通道的失败区分只写主进程日志 | 日志 |
 | 桌面端同步失败（`code=-1` 且 `runtimeApplied=false`） | `同步失败` + `formatUserError` 映射后的原因 | error |
 
-> 「部分成功」是两条通道解耦后的常态组合，必须与「完全失败」在文案与级别上分开：
-> 否则运营者会误判为没生效而反复重启应用。`{reason}` 取映射后的用户可读句，故原因后置到句尾。
+> 曾有「部分成功」toast 方案，经 QM-6 外部评审指出其 UI 入口并不存在（`ModelProviders.vue:580`「运营同步对用户透明：配置卡片已隐藏」），新增 locale 键会立即沦为 AGENTS.md 禁止的死键，故撤销；两条通道的失败区分改由主进程日志承担（`runtime sync skipped: <原因>` 等），运营侧排障走日志而非应用界面。
 
 ### 兜底规则
 
@@ -16026,7 +16024,7 @@ listAccounts → pythonBackend GET /api/accounts → toPublicAccount
 - **A25**：同步成功后主窗口收到 `ops-center:runtime-updated`；窗口未创建/已销毁时静默跳过且不抛错。
 - **A26**：侧边栏收到事件后免重启更新显隐与顺序；卸载时取消订阅，不残留监听器。
 - **A27**：重拉失败（IPC 报错）→ 保留上一份配置，菜单不瞬时坍回默认。
-- **A28**：`code=-1` 且 `runtimeApplied=true` → 状态区显示「部分成功 + 原因」，错误态为空。
+- **A28**：应用端界面**不出现**任何运营同步入口或提示文案；目录失败与运行时策略失败仅体现在主进程日志中。
 ## §BackToTop 全局「回到顶部」浮标（2026-09-14 新增）
 
 > 变更标识：`back-to-top-button`。完整 PRD 见 `01-docs/PRD-BACK-TO-TOP-BUTTON-2026-09-14.md`；

@@ -317,7 +317,8 @@ describe('phase3-services.startServices', () => {
     const notify = opsCenterSync.setOnRuntimeUpdated.mock.calls[0][0]
 
     notify({ syncedAt: 'server-t' })
-    expect(send).toHaveBeenCalledWith('ops-center:runtime-updated', expect.objectContaining({ syncedAt: expect.any(String) }))
+    // 广播只带服务端同步时间，不得夹带配置内容
+    expect(send).toHaveBeenCalledWith('ops-center:runtime-updated', { syncedAt: 'server-t' })
 
     // 窗口尚未创建 / 已销毁时广播静默跳过：同步结果已落盘，通知不得成为失败源
     send.mockClear()

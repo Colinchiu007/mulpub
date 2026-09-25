@@ -32,10 +32,12 @@
 - THEN 该项 `visible=true`、`group` 取目录默认分组、`sort_order` 等于其目录序号
 - AND 一级导航按 `sort_order` 升序排列后的 key 序列等于 `CATALOG` 中 primary 组的声明顺序
 
-#### Scenario: 历史脏 key 不下发
-- GIVEN DB 中存在不在 `CATALOG` 内的历史 key
-- WHEN 生成下发载荷
-- THEN 该项不出现在载荷中（fail-closed 出口），且不影响其余项
+#### Scenario: 历史脏 key 两侧都不出现
+- GIVEN DB 中存在不在 `CATALOG` 内的历史 key（如已移除的 `monitor`）
+- WHEN 运营者打开「应用菜单」页
+- THEN 页面不显示该项（`list_items` 按 `CATALOG_KEYS` 过滤），因为下发侧本就过滤，显示它只会再次制造「两侧不同步」的错觉
+- AND 该项不出现在下发载荷中，且不影响其余项
+- AND 该行不被删除（删除不可逆，保留以便人工判断）
 
 ### Requirement: 运营配置与模型目录两条同步通道彼此独立
 
@@ -60,15 +62,15 @@
 - THEN 两个端点各被请求一次
 - AND 结果 `code=-1`、`message` 含超时、`runtimeApplied=false`
 
-### Requirement: 运营配置变更后应用端免重启生效
+### Requirement: 启动同步完成后应用端自动刷新（不新增用户入口）
 
 主进程每次成功应用运行时策略后 SHALL 通知渲染端，侧边栏据此重拉菜单配置并更新渲染；该通知 MUST NOT 携带配置内容（仅时间戳），配置读取仍走原有受验签保护的 IPC 路径。
 
 #### Scenario: 同步完成后菜单即时更新
 - GIVEN 应用已启动且侧边栏已渲染
 - WHEN 运营配置被同步并成功应用
-- THEN 主进程向主窗口广播 `ops-center:runtime-updated`
-- AND 侧边栏重拉配置后一级导航按新配置显隐与排序，无需重启应用
+- THEN 主进程向主窗口广播 `ops-center:runtime-updated`，载荷仅含服务端同步时间
+- AND 侧边栏重拉配置后一级导航按新配置显隐与排序，用户无需二次重启（启动同步晚于首帧渲染，不广播则本次改动要等到下次启动才可见）
 
 #### Scenario: 窗口不可用时不得报错
 - GIVEN 主窗口尚未创建或已销毁
@@ -86,24 +88,19 @@
 - WHEN 侧边栏首次渲染
 - THEN 使用本地默认菜单定义
 
-### Requirement: 同步结果提示须区分部分成功
+### Requirement: 运营同步对用户透明
 
-当模型目录同步未完成而运行时策略已成功下发时，设置页 SHALL 显示「部分成功 + 原因」并走告警级提示，MUST NOT 显示笼统的「同步失败」。文案 SHALL 以 zh/en 成对维护于 locales。
+运营配置同步链路 SHALL NOT 在应用端界面出现任何入口或文案（含同步地址、API Key、「立即同步」按钮、同步结果 toast）。桌面端 `ModelProviders.vue` 已隐藏运营同步配置卡片，该决策为产品约束；目录与运行时两条通道的失败区分 SHALL 由主进程日志承担。系统 SHALL NOT 为不可达的反馈路径新增 locale 键。
 
-#### Scenario: 目录未完成但运营配置已更新
-- GIVEN 同步返回 `code=-1` 且 `runtimeApplied=true`
-- WHEN 渲染同步结果
-- THEN 状态区显示 `modelProviders.syncPartialSuccess` 的渲染结果，含目录失败原因
-- AND 错误态保持为空
-
-#### Scenario: 两条通道均失败
-- GIVEN 同步返回 `code=-1` 且 `runtimeApplied=false`
-- WHEN 渲染同步结果
-- THEN 显示同步失败并给出错误原因
+#### Scenario: 界面不暴露运营同步
+- GIVEN 任意已登录或未登录的桌面端会话
+- WHEN 渲染设置页与模型服务页
+- THEN 不存在任何运营中心地址、API Key 或手动同步入口
+- AND 目录失败与运行时策略失败均可在主进程日志中区分（`runtime sync skipped: <原因>` 等）
 
 ### Requirement: 运营端页面须说明真实生效时机
 
-「应用菜单」页的说明文案 SHALL 与实际机制一致：目录新增项由后端自动补齐（无需点「恢复默认」）；配置在客户端下次同步成功时生效，可通过设置页「立即同步」主动触发，无需重启应用；系统当前仍不提供服务端主动推送。
+「应用菜单」页的说明文案 SHALL 与实际机制一致：目录新增项由后端自动补齐（无需点「恢复默认」）；应用端**只在启动时同步一次**，故运营端改动在客户端下次启动时生效，那次同步完成后自动刷新侧边栏；文案 SHALL NOT 指引最终用户去应用端执行任何同步操作（应用端不暴露同步入口）；系统不提供服务端主动推送。
 
 #### Scenario: 文案与机制一致
 - WHEN 运营者打开「应用菜单」页

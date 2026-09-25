@@ -445,6 +445,8 @@ describe('OpsCenterSync 运行时策略（公告/版本/内容安全）', () => 
     svc.setOnRuntimeUpdated(onRuntimeUpdated)
     svc.applyRuntime({ announcements: [{ title: '公告', severity: 'info', content: '' }], synced_at: 't' })
     expect(onRuntimeUpdated).toHaveBeenCalledTimes(1)
+    // 只允许传时间戳：把整份运行时配置交给广播侧，等于绕过验签读取路径（design D4）
+    expect(onRuntimeUpdated).toHaveBeenCalledWith({ syncedAt: 't' })
   })
 
   it('未接线 onRuntimeUpdated 时 applyRuntime 照常工作（向后兼容）', () => {

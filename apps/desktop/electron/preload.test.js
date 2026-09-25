@@ -429,13 +429,14 @@ describe('Story2Video 媒体导入桥接', () => {
   })
 })
 
-// === 监听器类方法返回 cancel 函数（抽样 4 个）===
+// === 监听器类方法返回 cancel 函数（抽样 5 个）===
 describe('监听器类方法返回 cancel 函数', () => {
   const LISTENER_CASES = [
     'onProgress',
     'onUpdateStatus',
     'onAuthViewOpened',
     'onQrCodeOpened',
+    'onOpsCenterRuntimeUpdated',
   ]
 
   it.each(LISTENER_CASES)('%s(callback) 应返回 cancel 函数', (method) => {
@@ -448,6 +449,25 @@ describe('监听器类方法返回 cancel 函数', () => {
     expect(ipcRenderer.removeListener).not.toHaveBeenCalled()
     cancel()
     expect(ipcRenderer.removeListener).toHaveBeenCalledTimes(1)
+  })
+
+  // 计数断言只能证明「方法数没变」，证不了通道名/载荷/退订是否接对。
+  // 绑错 channel、回调转发丢参数、cancel 漏移除监听，都会在真实窗口里才暴露。
+  it('onOpsCenterRuntimeUpdated 应绑定正确 channel、透传载荷且按同一 channel 退订', () => {
+    const seen = []
+    const cancel = api.onOpsCenterRuntimeUpdated((payload) => seen.push(payload))
+
+    expect(ipcRenderer.on).toHaveBeenCalledTimes(1)
+    const [channel, handler] = ipcRenderer.on.mock.calls[0]
+    expect(channel).toBe('ops-center:runtime-updated')
+
+    // 主进程 send 的第一个参数是 event，业务载荷在第二位
+    handler({ senderFrame: {} }, { syncedAt: 'server-t' })
+    expect(seen).toEqual([{ syncedAt: 'server-t' }])
+
+    cancel()
+    // cancel 必须用同一 channel + 同一 handler 退订，否则会漏移除监听（窗口重建后重复拉取）
+    expect(ipcRenderer.removeListener).toHaveBeenCalledWith(channel, handler)
   })
 })
 

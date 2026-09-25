@@ -1982,8 +1982,6 @@ export default {
     syncFailed: '同步失败',
     syncError: '同步异常',
     syncSuccess: (ctx) => '同步成功：更新 ' + ctx.named('count') + ' 个服务商（' + ctx.named('time') + '）',
-    // 两条通道独立：目录失败但运营配置（菜单/公告/开关）已下发时不得笼统报「同步失败」
-    syncPartialSuccess: (ctx) => '模型目录同步未完成；运营配置（菜单/公告等）已更新。原因：' + ctx.named('reason'),
   },
   // i18n-sync-hardening（2026-08-13）：user-facing-error.js 文案单源收口，模块不再持有 zh/en 文案
   userErrors: {

@@ -24,9 +24,9 @@
 - [x] 14. `src/api/ops-center-sync.js`：新增 `onOpsCenterRuntimeUpdated` 封装（非 Electron 环境返回空操作）
 - [x] 15. `MpSidebar.vue`：onMounted 订阅、onUnmounted 成对取消；`loadAppMenu` 改为「仅成功时替换」
 - [x] 16. `MpSidebar.appmenu.test.js`：3 条回归（事件到达免重启 / 重拉失败保留上一份 / 卸载取消订阅）
-- [x] 17. `useOpsCenterSync.js`：新增部分成功分支，走 `notifyWarning` 且不落 `syncError`
-- [x] 18. `locales/zh.js` + `en.js` 成对新增 `modelProviders.syncPartialSuccess`
-- [x] 19. `useOpsCenterSync.test.js`：部分成功断言（取 i18n 键渲染结果，不写字面量）
+- [x] 17. ~~`useOpsCenterSync.js` 部分成功分支~~ **已撤销**（QM-6：该 UI 入口不存在，见 §「QM-6 第二轮」）
+- [x] 18. ~~locales 成对新增 `syncPartialSuccess`~~ **已撤销**（死键）
+- [x] 19. ~~`useOpsCenterSync.test.js` 部分成功断言~~ **已撤销**
 - [ ] 20. 桌面端门禁：vitest 全量 + QM-1 打包验证 + `test:visual:pixel`
 
 ## 运营中心前端
@@ -47,5 +47,19 @@
 
 - [ ] 29. QM-6 双模型外部评审（claude + opencode），Critical 清零
 - [ ] 30. 提交、推送、创建 PR、CI 通过后合并
-- [ ] 31. 部署后验证：线上 ops-center 列表出现 `copy-library`；桌面端点「立即同步」后侧边栏免重启更新
+- [ ] 31. 部署后验证：线上 ops-center 列表出现 `copy-library`（共 20 项）；客户端下次启动后侧边栏按运营端显隐与顺序渲染（无需用户手动同步）
 - [ ] 32. 记忆三写：内置记忆 / 外部记忆 / EverOS
+
+## QM-6 双模型外部评审后的第二轮（2026-09-25）
+
+- [x] 33. 生效模型改口径：应用端**启动时同步一次**，不引入轮询、不引入推送、不暴露任何同步入口
+- [x] 34. `AppMenu.vue` 页面文案去掉「用户在设置页点立即同步」的指引，改为「客户端下次启动生效」
+- [x] 35. 撤销 `modelProviders.syncPartialSuccess`（zh/en）与 `useOpsCenterSync` 部分成功分支及其测试（死键，UI 不可达）
+- [x] 36. 补齐改用 SQLite `INSERT ... ON CONFLICT DO NOTHING`（并发唯一键冲突）
+- [x] 37. 补齐只 `flush()`，由四个入口各自 `commit()`（恢复 `upsert_items` 整批原子性）
+- [x] 38. `list_items` 按 `CATALOG_KEYS` 过滤，页面与下发同一份集合（脏 key 不显示也不下发，保留不删）
+- [x] 39. 广播回调只传 `{ syncedAt }`，不传配置内容（对齐 D4）；phase3 转发起同步时间
+- [x] 40. preload 新监听器进 `LISTENER_CASES` + 行为级用例（channel / event+payload 拆参 / 同一 channel+handler 退订）
+- [x] 41. 新回归断言经「回退旧实现即红」实测（并发与原子性两条）
+- [x] 42. `AGENTS.md` 门禁 ③ 改为条件式：结果面向用户才需区分部分成功；链路对用户透明时禁止新增 locale 键
+- [ ] 43. 第二轮复评（Critical 清零确认）后放开 auto-merge

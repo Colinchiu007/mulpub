@@ -1,67 +1,32 @@
-# [未发布] fix(应用菜单): 跨端同步收敛——目录增量补齐 / 下发兜底序号 / 运营配置不被目录失败门控 + 免重启生效（2026-09-25，app-menu-sync-convergence）
+# [未发布] fix(应用菜单): 跨端同步收敛——目录增量补齐 / 下发兜底序号 / 运营配置不被目录失败门控 / 启动同步后自动刷新（2026-09-25，app-menu-sync-convergence）
+
+> 生效模型（产品决策）：应用端**只在启动时同步一次**运营配置，运营端改动在客户端**下次启动**生效；那次启动同步完成后侧边栏自动刷新，用户无需任何操作。**应用端界面不出现任何运营相关入口或信息**（`ModelProviders.vue` 既有注释即「运营同步对用户透明：配置卡片已隐藏」）。
 
 ### 变更
-- **`ops-center/backend/services/app_menu_service.py`**：`_seed_if_empty`（仅表全空时播种）→ `_provision_from_catalog`，改为按 `CATALOG` **增量补齐缺失行且只补不改**已有行。修复 `copy-library`（#bcd1b663 加入目录）在已部署实例上永久缺席 → 运营端「应用菜单」页看不到该项、无法配置，而应用端照常显示的漂移。四个入口（列表/保存/恢复默认/下发）共用。
+- **`ops-center/backend/services/app_menu_service.py`**：`_seed_if_empty`（仅表全空时播种）→ `_provision_from_catalog`，按 `CATALOG` **增量补齐缺失行且只补不改**已有行，四个入口（列表/保存/恢复默认/下发）共用。修复 `copy-library`（#bcd1b663 加入目录）在已部署实例上永久缺席 → 运营端看不到该项、无法配置，而应用端照常显示的漂移。补齐改用 SQLite `INSERT ... ON CONFLICT DO NOTHING`（补齐现在每请求都跑，页面 GET 与客户端 bootstrap 同瞬双插会被 `item_key` UNIQUE 打成 `IntegrityError` → 500）；且**只 flush 不 commit**，事务由各入口统一收口（否则 `upsert_items` 声称的「校验失败整批不写入」会被提前落盘）。
 - **同文件 `get_bootstrap_app_menu`**：DB 缺行项的 `sort_order` 兜底由 `0` 改为**目录序号**。此前 0 会让该项在应用端被顶到一级导航第 2 位（应用端按 `sort_order` 升序渲染），与运营端页面显示的目录位置错位。
-- **`apps/desktop/electron/services/ops-center-sync.js`**：模型目录与运行时策略由「catalog 成功 → 才拉 runtime」的串行门控，改为 `Promise.allSettled` **并行且互不门控**；整体超时预算保持单请求 10s（不叠加为 20s）。新增 `_syncRuntimeBestEffort` / `_applyRuntimeSettled`；`模型服务未就绪` 分支仍拉运行时。抽出 `makeAuth` 避免两条通道重复构造鉴权。
-- **同文件 `applyRuntime`**：末尾回调新增的 `setOnRuntimeUpdated` 通知器（setter 注入，因服务在 bootstrap phase1 构造、那时主窗口不存在）；回调抛错不影响已应用的运行时状态。
-- **`electron/bootstrap/phase3-services.js`**：接线通知器 → `webContents.send('ops-center:runtime-updated', { syncedAt })`，窗口未创建/已销毁时静默跳过。
-- **`electron/preload/system.js` + `access-control.js` + `index.bundle.js`（重打包）**：暴露并登记 `onOpsCenterRuntimeUpdated`（public：订阅不返回运营数据，事件到达后的 `opsCenterSyncAppMenu` 仍受 `authenticated` 门控）。
-- **`src/layouts/MpSidebar.vue`**：`onMounted` 订阅变更事件重拉菜单、`onUnmounted` 成对取消订阅；`loadAppMenu` 改为**仅在取到有效配置时整体替换**，重拉失败保留上一份（不再瞬时坍回本地默认）。
+- **同文件 `list_items`**：只返回 `CATALOG` 内的 key。DB 里可能有已从目录移除的历史行（如 `monitor`），而它本就不下发；继续显示会让运营者看到一个应用端不存在、也配置不了的项，重新制造「两侧不同步」错觉。页面与下发从此共用同一份集合。
+- **`apps/desktop/electron/services/ops-center-sync.js`**：模型目录与运行时策略由「catalog 成功 → 才拉 runtime」的门控，改为 `Promise.allSettled` **并行且互不门控**；整体超时预算保持单请求 10s（不叠加为 20s）。新增 `_syncRuntimeBestEffort` / `_applyRuntimeSettled`；`模型服务未就绪` 分支仍拉运行时。
+- **同文件 `applyRuntime`**：新增 `setOnRuntimeUpdated` 通知器（setter 注入，因服务在 bootstrap phase1 构造、那时主窗口不存在），**回调只收 syncedAt、不收配置内容**；回调抛错不影响已应用的运行时状态。
+- **`electron/bootstrap/phase3-services.js`**：接线通知器，向主窗口发送 `ops-center:runtime-updated` 事件（载荷仅 `{ syncedAt }`），窗口未创建/已销毁时静默跳过。
+- **`electron/preload/system.js` + `access-control.js` + `index.bundle.js`（重打包）**：暴露并登记 `onOpsCenterRuntimeUpdated`（public：订阅只收到一个时间戳、不返回运营数据；事件到达后的 `opsCenterSyncAppMenu` 仍受 `authenticated` 门控）。
+- **`src/layouts/MpSidebar.vue`**：`onMounted` 订阅变更事件重拉菜单、`onUnmounted` 成对取消订阅；`loadAppMenu` 改为**仅在取到有效配置时整体替换**，重拉失败保留上一份（不再瞬时坍回本地默认）。**价值点**：启动同步（+3s）晚于侧边栏首帧，此前用户要多重启一次才看得到本次改动，现在启动后数秒内自动到位。
 - **`src/api/ops-center-sync.js`**：新增 `onOpsCenterRuntimeUpdated()` 封装，非 Electron 环境返回空操作。
-- **`src/composables/useOpsCenterSync.js`**：新增「部分成功」分支（`code=-1` 且 `runtimeApplied=true`）→ `notifyWarning` + 展示原因，不再笼统报「同步失败」；错误态保持为空。
-- **`src/locales/zh.js` / `en.js`**：成对新增 `modelProviders.syncPartialSuccess`（原因后置，避免与自带句号相连产生「。；」断裂）。
-- **`ops-center/frontend/src/views/AppMenu.vue`**：页面提示改写——目录自动补齐（无需点「恢复默认」）、「设置 → 模型服务 → 立即同步」即可生效无需重启、仍无服务端主动推送。
+- **`ops-center/frontend/src/views/AppMenu.vue`**：页面提示改写——目录自动补齐（无需点「恢复默认」）；生效时机说明为「客户端启动时同步一次，改动在下次启动生效」，并明确**应用端不暴露任何同步入口**。
 
 ### 根因与逃逸（摘要，全文见专项文档 §16）
 - 三个独立缺陷叠加：① 目录新增项永不落库；② 缺行兜底 `sort_order=0`；③ `appMenu` 被模型目录同步成功门控。
-- 逃逸主因是**测试拓扑**：`test_app_menu_api.py` 的 autouse 夹具每例 `drop_all/create_all` 重建空表，「存量库 + 目录演进」这条边在测试里不存在；桌面端 55 例中无一条让 catalog 失败，门控路径从不执行。
-- CI 只做桌面端内部自洽校验（`check-route-registry.js` 对 Python `CATALOG` 仅 `console.error` 提示人工同步），漂移发生在数据库，CI 看不见。
+- 逃逸主因是**测试拓扑**：`test_app_menu_api.py` 的 autouse 夹具每例 `drop_all/create_all` 重建空表，「存量库 + 目录演进」这条边在测试里不存在；桌面端 63 例中无一条让 catalog 失败，门控路径从不执行。
+- CI 只做桌面端内部自洽校验（`check-route-registry.js` 对 Python `CATALOG` 仅提示人工同步），漂移发生在数据库里，CI 结构上看不见。
 - 环境侧证据：受影响机器 profile 的 `settings` 表既无 `opsCenterSync` 也无 `opsCenterRuntime` → 从未成功完成一次同步。
-
+- **QM-6 双模型外部评审补获两处自审漏项**：① 文档与页面文案指引用户去点一个产品已有意隐藏的「立即同步」入口（`ModelProviders.vue:580` 注明「运营同步对用户透明：配置卡片已隐藏」），使「免重启生效」的承诺没有闭环；② 补齐从「仅空表跑一次」变成「每请求都跑」后新引入的并发唯一键冲突、以及提前 commit 破坏批次原子性。两者均已修，并把生效模型按产品决策收敛为「启动时同步一次」。
 ### 测试
-- `ops-center/backend/tests/test_app_menu_api.py` +3（缺行补齐 / 回填不覆盖运营者配置 / 页面与下发项目集合与顺序恒等），15 → 18 绿；后端全量 **445 passed** 无回归。
-- `electron/services/ops-center-sync.test.js` +5（目录 500 仍应用菜单 / 未就绪仍拉 runtime / 通知器触发 / 未接线兼容 / 回调抛错隔离），并把「超时」用例升级为并行契约（假时钟单次推进 + 断言两个端点各请求一次），63 → 68 绿。
-- `electron/bootstrap/phase3-services.test.js` +1（广播 channel + 窗口不可用静默跳过），29 绿。
+- `ops-center/backend/tests/test_app_menu_api.py` 15 → **21**：缺行补齐 / 回填不覆盖运营者配置 / 页面与下发集合与顺序恒等 / **并发补齐不得抛 IntegrityError** / **被拒批次不得落任何盘** / **目录外历史行两侧都不出现**。三条新断言按 AGENTS.md 做过「回退到旧实现即红」的实测（并发用例以 5 个 session 真实触发双插）。
+- `electron/services/ops-center-sync.test.js` +6（目录 500 仍应用菜单 / 未就绪仍拉 runtime / 通知器触发且载荷只带时间戳 / 未接线兼容 / 回调抛错隔离），并把「超时」用例升级为并行契约（假时钟单次推进 + 断言两个端点各被请求一次），63 → **69** 绿。
+- `electron/bootstrap/phase3-services.test.js` +1（channel 与载荷只带 syncedAt + 窗口不可用静默跳过），29 绿。
+- `electron/preload.test.js`：`onOpsCenterRuntimeUpdated` 进 `LISTENER_CASES`，并新增行为级用例（channel 名、event/payload 拆参、按同一 channel+handler 退订）——计数断言证不了绑错 channel 与漏退订。
 - `src/layouts/MpSidebar.appmenu.test.js` +3（事件到达免重启 / 重拉失败保留上一份 / 卸载取消订阅），9 → 12 绿。
-- `src/composables/useOpsCenterSync.test.js` +1（部分成功不落错误态，断言取 i18n 键渲染结果而非文案字面量），9 绿。
-
-### 文档
-- `01-docs/FEATURE-APP-MENU-2026-09-15.md` → v1.2：修正长期过期的目录表（19 项含 `monitor` → 20 项）、已撤销的「不支持跨组」、生效时机；新增 §3.2 目录供给规则、§6.2/6.3/6.4 双通道与通知链、§7.4 兜底扩展、§10.1 桌面端同步提示清单、**§16 跨端同步收敛修复（Bug 反思循环 5 步产出物）**、§13 测试覆盖实测数。
-- `01-docs/PRD.md`：应用菜单章节重写（两份重复副本同步更新）——补目录供给/同步拓扑/生效时机/跨组语义/交互逻辑/显示项/提示文字/兜底/验收 A19–A28。
-- `openspec/changes/app-menu-sync-convergence/`：proposal / design（5 项决策 + 3 项 Rejected）/ specs(app-menu) 6 条 ADDED Requirement / tasks。
-- `AGENTS.md` QM-2：新增「跨端目录常量 ↔ 存量数据必须前向兼容」与「多通道同步编排不得失败互锁」两条门禁。
-- `01-docs/learnings.md`：3 条 pitfall + 1 条 pattern。
-
-### 部署待办
-线上 `app_menu_items` 需本次修复部署后才补齐 `copy-library`；部署后须实测运营端出现该项（共 20 项），**不得**用点「恢复默认」代替（会连带重置运营者已有的显隐与排序）。
-
----
-
-
-# [未发布] fix(webview): CDP 本地存储注入挂起改超时降级，首个导航不被无限门控（头条标签卡死事故回归对）（2026-09-24，fix-toutiao-tab-load-hang）
-
-### 变更
-- **`apps/desktop/electron/services/webview-manager.js`**：`Page.addScriptToEvaluateOnNewDocument` 在部分账号分区可永久挂起（2026-09-24 头条标签事故日志：命令在标签存活期内从未返回），而首个导航被门控在该 promise 之后，导致页面「一直加载不出来」。新增 `LS_INJECTION_TIMEOUT_MS=2500` 超时竞态 fail-open：超时降级旧 `did-finish-load` 补注入路径，导航不得被 CDP 无限阻塞；标签关闭后命令才失败时，`webContents` 已销毁则静默跳过补注入（修 `loadURL` TypeError 与未处理拒绝）。与 #2353（不写坏缓存）互为不同层防线。
-
-### 测试
-- `webview-manager.test.js` 新增 2 条事故回归对：CDP 命令永久挂起→超时降级且首个导航照常发生；标签关闭后命令才失败→无未处理拒绝。全文件 68 用例绿。
-
----
-
----
-# [未发布] fix(账号管理): 账号卡片平台名/账号名/粉丝/检查记录/折行显示与数据修复（2026-09-24，account-card-display-fix）
-
-### 变更
-- **`packages/shared-utils/src/account-name-guard.js`**（新）：账号昵称噪声判定单一数据源（会话 chrome 关键词 / ≥2 计数词 / 已知页面标题），采集与展示两端共用，真实昵称不误杀。
-- **`AccountManagementCard.vue`**：顶部 chip 由账号名改渲染平台名；`accountName()` 命中噪声回落平台名；`LAST_CHECK_KEYS` 补 `last_validated` 消除误显「暂无检查记录」；归属徽章列 `44px`→`max-content` + `nowrap` 修折行。
-- **`account-profile.js`**：`profileForCreate`/`buildProfilePatch` 对噪声昵称不入库。
-- **`http-login-checker.js`**：douyin/toutiao/tencent_video/bilibili 新增 `extract`，导出 `fetchAccountInfoViaHttpApi`（对齐参考实现：带 Cookie 读平台 API JSON，非 DOM）。
-- **`account-manager.js`**：HTTP 检测成功旁路 `refreshProfileFromHttpApi` 回填昵称/粉丝；用户手输昵称受保护不被冲掉。
-
-### 测试
-- 新增 `account-name-guard.test.js`(5) / `account-profile-guard.test.js`(4) / `http-login-checker-info.test.js`(6)；`AccountManagementCard.test.js` 追加 4 例；相关全绿。
-
+- 本轮受影响 5 个测试文件合计 **487 passed**；locale 成对与 CJK 基线、route-registry、债务熔断门禁 PASS。
 ### 文档
 - `01-docs/PRD-ACCOUNT-CARD-DISPLAY-FIX-2026-09-24.md`：根因/四层设计/数据校验/显示项/交互流程/边界限制/验收/测试矩阵。
 # [未发布] feat(影视工程): 短剧画布 v2 收口——LLM 降级回显 / 失败单镜就地重试 / 成片画布内取用 / E2E 双段适配（2026-09-24，film-engineering-canvas）

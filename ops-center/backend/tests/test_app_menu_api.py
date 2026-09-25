@@ -40,6 +40,8 @@ async def setup_db():
         await conn.run_sync(Base.metadata.create_all)
     async with async_session() as db:
         await _provision_from_catalog(db)
+        # 补齐只 flush、不自行提交（事务由调用方收口），夹具必须自己 commit 才留下种子行
+        await db.commit()
     yield
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
@@ -350,6 +352,94 @@ async def _drop_row(item_key: str) -> None:
         ).scalar_one()
         await db.delete(row)
         await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_provisioning_never_raises_integrity_error():
+    """补齐现在每个请求都跑：页面 GET 与客户端 bootstrap 可能同瞬判定同一 key 缺失并双插，
+    item_key 的 UNIQUE 约束会把落败方打成 IntegrityError → 500。必须冲突静默。
+
+    竞态窗口取决于调度顺序，本用例用多个并发 session 放大窗口；即便某次运行未触发双插，
+    它也锁住了「补齐幂等 + 冲突不报错 + 不产生重复行」这条契约不因改回 db.add 而回归。
+    """
+    import asyncio
+
+    from database import async_session
+    from services.app_menu_service import _provision_from_catalog
+
+    await _drop_row("copy-library")
+
+    async def worker():
+        async with async_session() as db:
+            await _provision_from_catalog(db)
+            await db.commit()
+
+    results = await asyncio.gather(*[worker() for _ in range(5)], return_exceptions=True)
+    assert [r for r in results if isinstance(r, Exception)] == []
+
+    async with _client() as client:
+        keys = [i["item_key"] for i in (await client.get("/api/v1/app-menu", headers=_admin_headers())).json()["items"]]
+        assert keys.count("copy-library") == 1
+
+
+@pytest.mark.asyncio
+async def test_rejected_batch_does_not_persist_provisioning():
+    """upsert_items 声明「任一条校验失败整批不写入」。
+
+    补齐若在自己的事务里 commit，就会出现「请求返回 400、库里却已被写入」的部分写入；
+    补齐必须只 flush，由调用方统一收口。故被拒批次之后，直接从库读该行必须不存在。
+    """
+    import sqlalchemy as sa
+
+    from database import async_session
+    from models import AppMenuItem
+
+    async with _client() as client:
+        await _drop_row("copy-library")
+        resp = await client.put(
+            "/api/v1/app-menu",
+            json={"items": [
+                {"item_key": "copy-library", "visible": False, "sort_order": 6},
+                {"item_key": "not-exist", "visible": True},
+            ]},
+            headers=_admin_headers(),
+        )
+        assert resp.status_code == 400
+
+        async with async_session() as db:
+            row = (
+                await db.execute(sa.select(AppMenuItem).where(AppMenuItem.item_key == "copy-library"))
+            ).scalar_one_or_none()
+        assert row is None, "被拒绝的批次不得落任何盘（含补齐行）"
+
+
+@pytest.mark.asyncio
+async def test_legacy_row_outside_catalog_hidden_from_page_and_bootstrap():
+    """已从目录移除的历史行（如 monitor）不得出现在页面上。
+
+    下发本就按 CATALOG 过滤；页面若多显示一项，运营者会看到一个应用端不存在、也配置
+    不了的项，再次得到「两侧不同步」的错觉 —— 「页面 ⊇ 下发」不是可接受的契约。
+    """
+    import sqlalchemy as sa
+
+    from database import async_session
+    from models import AppMenuItem
+    from services.app_menu_service import CATALOG_KEYS
+
+    async with async_session() as db:
+        db.add(AppMenuItem(
+            item_key="monitor", label="监控", group="more", visible=1,
+            forced_visible=0, sort_order=3, description="历史遗留", updated_at="", updated_by="",
+        ))
+        await db.commit()
+
+    async with _client() as client:
+        page_keys = [i["item_key"] for i in (await client.get("/api/v1/app-menu", headers=_admin_headers())).json()["items"]]
+        assert "monitor" not in page_keys
+        assert set(page_keys) == set(CATALOG_KEYS)
+
+        delivered = (await client.get("/api/v1/runtime/bootstrap", headers=_catalog_headers())).json()["appMenu"]["items"]
+        assert {i["key"] for i in delivered} == set(CATALOG_KEYS)
 
 
 @pytest.mark.asyncio

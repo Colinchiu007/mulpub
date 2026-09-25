@@ -338,8 +338,8 @@
   → primaryItems / moreItems 过滤 visible 后渲染
 ```
 
-**生效时机**：客户端启动后自动同步一次；此后每次同步成功即广播刷新侧边栏，**无需重启应用**。
-运营端保存本身不触达客户端（无服务端推送），需等客户端下次同步（自动或手动「立即同步」）。
+**生效时机**：应用端**只在启动时同步一次**，故运营端改动在客户端**下次启动**生效；那次启动同步完成即广播刷新侧边栏，用户无需任何操作、也不需要二次重启。
+**产品约束**：应用端界面不出现任何运营相关入口或文案，因此不提供「让用户点一下立即生效」的路径；也不做周期性轮询（避免无谓请求与服务端负载），同步失败区分由主进程日志承担。
 
 **保留上一份（2026-09-25）**：`loadAppMenu` 仅在取到有效配置时替换状态。
 首帧失败 → 保持 `null` → fail-open 本地默认菜单（行为不变）；
@@ -513,24 +513,19 @@ el-card
 | T17 | 运营中心菜单入口 | `应用菜单` |
 | T18 | 后端校验错误 | 见 §5.1 表格「中文提示」列 |
 
-### 10.1 桌面端「设置 → 模型服务 → 立即同步」结果提示（2026-09-25 新增）
+### 10.1 桌面端同步失败的可见性（2026-09-25 定稿）
 
-i18n 键位于 `modelProviders` 组，zh/en 成对维护（CI Gate 7 `check-locale-sync.js --keys` 拦截漏配）。
+桌面端**不提供**任何同步结果 toast。原因：运营同步按产品决策对用户透明（`apps/desktop/src/views/ModelProviders.vue` 内注释「运营同步对用户透明：配置卡片已隐藏」），同步配置卡片在界面上已被隐藏，`useOpsCenterSync.runSyncNow()` 没有可达的 UI 入口。
 
-| 编号 | i18n key | 触发条件 | 中文文案 | 级别 |
-|------|----------|----------|----------|------|
-| T19 | `modelProviders.syncSuccess` | `code=0` | `同步成功：更新 {count} 个服务商（{time}）` | success |
-| T20 | `modelProviders.syncPartialSuccess` | `code=-1` 且 `runtimeApplied=true` | `模型目录同步未完成；运营配置（菜单/公告等）已更新。原因：{reason}` | **warning** |
-| T21 | `modelProviders.syncFailed` | `code=-1` 且 `runtimeApplied=false` | `同步失败`（状态区展示 `formatUserError` 映射后的原因） | error |
-| T22 | `modelProviders.syncError` | 调用抛异常 | `同步异常` | error |
+曾在本 PR 中途加过 `modelProviders.syncPartialSuccess`（「目录未完成但运营配置已更新」）与对应 composable 分支，经 QM-6 外部评审指出该反馈路径的 UI 根本不存在，属于 AGENTS.md 明令禁止的「locale 死键」，**已撤销**（`src/locales/zh.js` / `en.js` 与 `useOpsCenterSync.js` 相对上游零差异）。
 
-> **为什么必须有 T20**：两条通道解耦后，「目录失败 + 运营配置已成功」成为常态组合。
-> 若仍统一报「同步失败」，运营者会认为改动没生效而反复重启应用——这恰好是本次要消灭的现象。
-> `{reason}` 取 `formatUserError` 映射后的用户可读句（而非原始堆栈/英文 error），
-> 因此文案把原因后置到句尾，避免与原因自带句号相连产生「。；」这类断裂。
-> 守卫测试：`src/composables/useOpsCenterSync.test.js`（断言取 i18n 键渲染结果，不写字面量）。
+改由主进程日志承担区分度（`electron/services/ops-center-sync.js`）：
 
----
+| 情形 | 日志 |
+|------|------|
+| 目录通道失败 | `OpsCenterSync` info/warn + `syncNow` 返回 `code=-1, message=<原因>` |
+| 运行时策略（含菜单）拉取或验签失败 | `runtime sync skipped: <原因>` / `runtime apply error: <原因>`（warn） |
+| 两条通道均成功 | `catalog synced: N providers (at <时间>)` + `runtime applied: N announcements, policy=...` |
 
 ## 11. 非功能需求
 

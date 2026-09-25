@@ -509,9 +509,10 @@ class OpsCenterSync {
     }
     this._log.info('OpsCenterSync', 'runtime applied: ' + next.announcements.length + ' announcements, policy=' + (next.updatePolicy ? 'set' : 'none'))
     // 通知渲染端重拉运营配置（菜单/公告/功能开关），使「改了没生效」不再依赖重启。
+    // 只传时间戳、不传配置内容：配置读取必须继续走受验签保护的 IPC 路径（design D4）。
     // 回调仅负责广播，任何窗口异常都不得影响已应用的运行时状态。
     if (this._onRuntimeUpdated) {
-      try { this._onRuntimeUpdated(next) } catch (e) { this._log.warn('OpsCenterSync', 'runtime updated notify error: ' + String((e && e.message) || e)) }
+      try { this._onRuntimeUpdated({ syncedAt: next.syncedAt }) } catch (e) { this._log.warn('OpsCenterSync', 'runtime updated notify error: ' + String((e && e.message) || e)) }
     }
   }
 

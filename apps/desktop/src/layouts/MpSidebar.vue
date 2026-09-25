@@ -124,7 +124,7 @@ const appMenuConfig = ref(null)
  * 拉取运营中心下发的应用菜单配置（IPC：ops-center-sync:appMenu）。
  * 任何异常都降级为本地默认菜单（fail-open）——运营侧配置异常不能让用户失去导航能力。
  * 首帧在 onMounted 拉取；此后由主进程广播的 ops-center:runtime-updated 触发重拉，
- * 运营侧改配置无需重启应用即可生效。
+ * 运营侧改动在客户端下次启动同步后自动可见（应用端不暴露手动同步入口）。
  */
 async function loadAppMenu () {
   try {
