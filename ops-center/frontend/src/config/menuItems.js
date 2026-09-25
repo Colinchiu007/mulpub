@@ -1,7 +1,7 @@
 import {
   Bell, Camera, Connection, Cpu, DataAnalysis, DataLine, Document, Edit, FolderOpened,
   Grid, HomeFilled, Key, Lock, MagicStick, Monitor, Operation, Postcard, Refresh,
-  Search, ChatDotRound, Setting, Switch, SwitchButton, Tickets, Timer, TrendCharts,
+  Search, ChatDotRound, Medal, Setting, Switch, SwitchButton, Tickets, Timer, TrendCharts,
 } from '@element-plus/icons-vue'
 
 export const MENU_ITEMS = [
@@ -17,6 +17,7 @@ export const MENU_ITEMS = [
   { path: '/system-health', label: '系统健康', icon: Monitor },
   { path: '/licenses', label: '许可证管理', icon: Tickets },
   { path: '/redemption-codes', label: '兑换码', icon: Postcard },
+  { path: '/member-grants', label: '会员权益开通', icon: Medal },
   { path: '/announcements', label: '运营公告', icon: Bell },
   { path: '/update-policy', label: '版本发布策略', icon: Refresh },
   { path: '/content-policy', label: '内容安全策略', icon: Lock },
