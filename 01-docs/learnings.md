@@ -15701,3 +15701,12 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **规则（pattern）**：任何「门控首个导航/核心交互」的异步 promise 必须①用超时竞态封顶阻塞时长并 fail-open 降级到既有慢路径（timer 记得 `unref()`，避免钉住事件循环）；②门控解除后的所有延迟回调先做销毁守卫（`view.webContents` 存在性 + `isDestroyed()`），异步窗口期内标签随时可能被用户关闭。
 - **可迁移信号（QM-5④回归模板）**：为每个「导航前置 await」写一对回归测试——(a) 依赖**永久挂起**：fake timers 推进时间，断言导航照常发生且降级路径已注册；(b) 依赖**在目标销毁后才失败**：断言无 unhandledRejection 外溢。只 mock「成功 / 立即失败」两条路径的测试正是这类缺陷的逃逸盲区——#2327 的测试就止步于此。判断手法：看到 `await` 一个非本项目实现的 promise 挡在 `loadURL` 前面，先问「它永不返回怎么办」。
 
+
+## 契约只锁一半同族路径，另一半就成了沉默缺陷——新增账号显示「未确认」（login-state-solidify-sibling-path，2026-09-25）
+
+- **第一性引入点**：`7913534f`（#2205）为「保存凭证 = 一次成功的主动登录」建立契约，但只在 `updateCapturedAccount` 落地 `status='active'` 回写；`5874e4bd`（#2233）随后把后端 `create_account` 的默认登录态设为 `unverified`。两条改动各自自洽，合起来却让创建路径（`saveCapturedAccount`）永久停在「未确认」，直到用户手动点一次检测。
+- **实证优先于推断**：`backend-data/accounts.json` 里 23:00–23:06 新增的 6 个账号 `status=unverified` 且 `last_validated == created_at`（Python 6 位微秒格式 = 只有 `create_account` 写过）；同日唯一 `status=active` 的 `wechat_mp`，其 `last_validated` 是 JS 3 位毫秒格式，`app-2026-09-25.log:14881` 正是它的 `checkLoginStatus → persistLoginState`。**时间戳的小数位数就是写作者的指纹**——查「这个字段是谁写的」，先比格式，比读代码猜测快且不可辩驳。
+- **逃逸链**：① 单元测试——`account-manager-relogin-status.test.js` 只 describe 了 `updateCapturedAccount`，创建路径无对应用例；`account-manager.test.js` 的创建用例用 `toEqual` 锁死「返回值不含 status」这一当时事实，把缺陷固化成断言。② 集成/E2E——`account-login-state-tristate.js` 全部从「后端已有 status」起步，从未覆盖「刚创建完的第一帧」。③ 代码审查——#2205 与 #2233 分属不同 PR，各自 review 只看单条改动是否自洽，没有人跨 PR 追「这条契约的另一半在哪」。
+- **系统性漏洞类型（测试场景缺失）**：同一条业务不变量在多条同族实现路径上落地时，回归测试习惯按路径逐个补，缺少「先枚举全部同族入口再逐个确认有锁定断言」的收口动作。判定手法：给契约起个名，grep 出所有应满足它的函数名，看是不是只有一个具备测试。
+- **预防措施落地**：AGENTS.md QM-2 新增「登录态固化契约覆盖全部『凭证落盘』同族路径」条目；创建路径补 3 条回归（PATCH 携带 active / 凭证落盘必须在 PATCH 之前 / 凭证失败不得出现 active）。
+- **可迁移信号**：修 A 路径的同类 Bug 时先问「B 路径呢」。兄弟函数（create vs update、导入 vs 手填、种子 vs 运行时）几乎总会漏掉一边，而漏掉的通常是**新数据入口**——它的症状不是「老功能坏了」，而是「所有新建的一上线就坏」，因此极易被误读成设计如此而长期放过。

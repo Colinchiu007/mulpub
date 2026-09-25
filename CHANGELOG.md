@@ -1,3 +1,23 @@
+# [未发布] fix(账号管理): 新增账号登录态即时固化为 active，修「新添加的账户全部显示未确认」（2026-09-25，fix-new-account-unverified）
+
+### 变更
+- **`apps/desktop/electron/publishers/account-manager.js` `saveCapturedAccount`**：加密凭证落盘成功后追加 `persistLoginState(accountId, platform, 'active')` 回写 `status` + `last_validated`，返回值同步携带两者。此前创建路径 POST `/api/accounts` 不下发 `status`，后端 `create_account` 以 `DEFAULT_ACCOUNT_STATUS='unverified'` 落库，主进程又不做任何固化，于是「刚在登录窗口里扫码/密码登录成功」的新账号在账号页一律显示「未确认」，必须再手动点一次检测才变「已登录」。兄弟函数 `updateCapturedAccount`（重新登录）在 #2205 就按「凭证落盘 = 一次成功的主动登录」回写 active，本次把同一条契约补齐到创建路径。
+- **顺序与失败语义**：固化必须晚于 `saveCredential` 成功（凭证未落盘不得把真源置为 active）；回写失败只 `log.warn` 不阻断新增——账号与凭证已可用，返回值此时如实透传后端原值，不冒充已登录。
+
+### 影响
+- 用户可见：新增账号（`account:add` / `auth:open-login` 新登录 / 扫码登录三条入口同汇流于此函数）保存后徽章直接为「已登录」，无需再点检测。
+- 既有 6 个在本次修复前添加、仍显示「未确认」的账号**不做数据回填**：`unverified` 对它们仍是诚实结论，点一次「一键检测」即可按真实Cookie状态收敛（与 #2282「需重新点一次检测——这是修正而非回归」口径一致）。
+
+### 测试
+- 新增 3 条创建路径回归（`account-manager-relogin-status.test.js`）：PATCH 携带 `status=active` + `last_validated`、返回值携带 active；固化顺序 `POST → 凭证落盘 → PATCH`；凭证落盘失败时回滚且全程不出现 `status=active`。修复前实测 `2 failed | 3 passed`（断言可失败性已反证），修复后 `5 passed`。
+- 同 PR 更新 `account-manager.test.js` 三条 `toEqual` 断言（此前锁死「返回值不含 status」，把缺陷固化成了契约），并为「后端只写公开元数据」用例补 PATCH 固化断言。
+- 账号相关 14 个测试文件 `463 passed`；QM-1 离线打包通过。
+
+### 文档
+- `AGENTS.md` QM-2 新增「登录态固化契约覆盖全部『凭证落盘』同族路径」条目；`01-docs/learnings.md` 记录根因、时间戳指纹排查法与逃逸链。
+
+---
+
 # [未发布] fix(session-guard): 修 git 2.55 下 hash-object 参数互斥，冷克隆机写保护计划任务得以注册（2026-09-25，fix-session-guard-git255）
 
 ### 变更

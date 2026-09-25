@@ -458,6 +458,7 @@ Code review 时除逻辑正确性外，必须逐项检查：
 
 - **Adapter 能力注册表同步**：修改 `BaseAdapter.KNOWN_METHODS` 后必须全局检索同名 `supports()` / `capabilities()` 手工覆盖和旧测试断言；标准能力只能出现一次，所有受影响 Adapter 必须断言 `supports()` 为 true 且 `capabilities()` 无重复项。
 
+- **登录态固化契约覆盖全部「凭证落盘」同族路径**：主进程任何成功捕获并落盘加密凭证的入口——`saveCapturedAccount`（新登录创建）与 `updateCapturedAccount`（重新登录更新）——都必须在凭证写成功之后把 `status='active'` + `last_validated` 回写唯一真源（后端 `accounts.json`），且顺序不可颠倒：凭证未落盘不得把真源置为 active（防半成功）。只锁其中一条路径会把另一条留成沉默缺陷——创建路径漏写时，后端 `create_account` 的 `DEFAULT_ACCOUNT_STATUS='unverified'` 会让每个新账号在账号页显示「未确认」，直到用户手动再点一次检测。新增或修改任一条路径时必须运行 [account-manager-relogin-status.test.js](apps/desktop/electron/publishers/account-manager-relogin-status.test.js) 全量（含创建路径三条回归），并断言返回值同样携带 `status`：`auth:open-login` 把它直接交给 `toPublicAccount`，缺它则「新增成功」的那一帧仍渲染未确认。
 - **E2E fixture 断言渲染语义**：路由/工作流测试不得用内部枚举值断言已经过本地化或格式化的 UI 文案。优先使用稳定状态 class/testid 加用户可见文本，并在 UI 映射函数变更时同步运行受影响路由用例。
 
 - **预设/种子类语义合同（R85）**：`getAvailablePresets`、`getAvailableTemplates`、`getAvailableProfiles` 等“可配置目录”类 API 必须返回该类别全部内置预设，**不得用“是否已入库”判断能否添加**。种子初始化（`_seedPresets` / `INSERT OR IGNORE`）只表示“目录存在”，不表示“用户已完成配置”；“是否已配置”必须用 `api_key_enc IS NOT NULL AND enabled = 1` 等业务字段判定。修改此类 API 时必须运行 [`model-provider-preset-integration.test.js`](apps/desktop/electron/services/model-provider-preset-integration.test.js) 并覆盖：(1) 空 userData 初始化后预设列表非空；(2) 种子已入库但预设列表仍返回全部项；(3) 用户选预设后保存路径走“ID 冲突 → 降级更新”而非创建重复行。详见 [01-docs/learnings.md 模型预设列表为空 Bug 复盘](01-docs/learnings.md)。

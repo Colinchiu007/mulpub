@@ -378,7 +378,19 @@ describe('account-manager — 捕获凭证持久化', () => {
       accountInfo: { platformAccountId: 'wx-1' },
     })
 
-    expect(result).toEqual({ id: 'account-1', platform: 'wechat_mp', name: '公众号' })
+    // 创建路径返回真源 + 本次固化的登录态（新增账号立刻显示「已登录」，不必再手动检测）
+    expect(result).toEqual({
+      id: 'account-1',
+      platform: 'wechat_mp',
+      name: '公众号',
+      status: 'active',
+      last_validated: expect.any(String),
+    })
+    expect(pythonBridge.requestBackend).toHaveBeenCalledWith(
+      'PATCH',
+      '/api/accounts/account-1',
+      { status: 'active', last_validated: expect.any(String) }
+    )
     expect(pythonBridge.requestBackend).toHaveBeenCalledWith('POST', '/api/accounts', {
       platform: 'wechat_mp',
       name: '公众号',
@@ -427,7 +439,13 @@ describe('account-manager — 捕获凭证持久化', () => {
       cookies: [],
       localStorage: { access_token: 'private-token' },
       name: '知乎账号',
-    })).resolves.toEqual({ id: 'account-local-token', platform: 'zhihu', name: '知乎账号' })
+    })).resolves.toEqual({
+      id: 'account-local-token',
+      platform: 'zhihu',
+      name: '知乎账号',
+      status: 'active',
+      last_validated: expect.any(String),
+    })
 
     expect(pythonBridge.requestBackend).toHaveBeenCalledWith('POST', '/api/accounts', {
       platform: 'zhihu',
@@ -455,7 +473,12 @@ describe('account-manager — 捕获凭证持久化', () => {
       indexedDB: { auth: { token: 'private' } },
       name: '   ',
       accountInfo: [],
-    })).resolves.toEqual({ accountId: 'account-indexed-db', platform: 'wechat_mp' })
+    })).resolves.toEqual({
+      accountId: 'account-indexed-db',
+      platform: 'wechat_mp',
+      status: 'active',
+      last_validated: expect.any(String),
+    })
 
     expect(pythonBridge.requestBackend).toHaveBeenCalledWith('POST', '/api/accounts', {
       platform: 'wechat_mp',

@@ -291,6 +291,15 @@ async function saveCapturedAccount (platform, captured, options = {}) {
     throw new Error('加密凭证保存失败，账号创建已回滚')
   }
   log.info('AccountManager', `Saved credential store for account ${accountId}`)
+  // 凭证已成功落盘 = 一次成功的主动登录，必须同步固化 status=active + last_validated，
+  // 否则后端 create_account 的 DEFAULT_ACCOUNT_STATUS='unverified' 会让刚登录成功的新账号
+  // 在账号页显示「未确认」，直到用户手动再点一次检测。与 updateCapturedAccount 同一条契约：
+  // 顺序不可颠倒，凭证未落盘时不允许把真源置为 active（见上一条回滚分支）。
+  const validatedAt = new Date().toISOString()
+  const persisted = await persistLoginState(accountId, platform, 'active', validatedAt)
+  if (!persisted.ok) {
+    log.warn('AccountManager', `新建账号登录态固化失败: ${platform}:${accountId} reason=${persisted.reason || 'unknown'} — 凭证可用但登录态未回写，需重新检测`)
+  }
 
   // 状态记录仅含公开元数据，用于列表恢复和删除清理。
   try {
@@ -311,7 +320,9 @@ async function saveCapturedAccount (platform, captured, options = {}) {
   }
 
   log.info('AccountManager', ` 账号添加成功: ${name} (${platform})`)
-  return result.data
+  // 返回值只在真源确实写成功时才叠加 active：auth:open-login 把它直接交给 toPublicAccount，
+  // 缺它则「新增成功」的那一帧仍渲染未确认；固化失败时如实返回后端原值，不冒充已登录。
+  return persisted.ok ? { ...result.data, status: 'active', last_validated: validatedAt } : result.data
 }
 
 /**
