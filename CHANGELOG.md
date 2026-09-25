@@ -1,3 +1,43 @@
+# [未发布] test(ops-center): 根治后端全量套件的跨模块库污染（2026-09-26，ops-backend-test-isolation）
+
+### 现象与归属
+- `ops-center/backend` 全量 `pytest tests/` 稳定红 1 例：`test_prompt_eval_engine_dual.py::test_dual_summary_zero_denominator_null` → `sqlite3.IntegrityError: FOREIGN KEY constraint failed`。**单跑该文件 28 例全绿、单跑该例也绿**，典型「单跑绿、全量红」。
+- 在**不含本次改动**的 main 上本地全量跑，得到**同一条失败**（1 failed / 431 passed）→ 非某个业务 PR 引入。该测试文件自 2026-08-14（#822）就在 main；`ops-center CI` 只在 PR 改到 ops-center 路径时触发、main 自身从不跑全量后端套件，所以这条组合长期无人执行。
+
+### 根因
+- 30 余个 API 测试文件都在**模块级**先 `os.environ["OPS_DB_PATH"] = <自己的临时库>`、再 `from config import settings`；而 `settings` 是**导入期单例**（`tests/conftest.py` 开头早就为签名密钥写过同类注释，只补了密钥没补库路径）。pytest 按字母序收集，第一个 import config 的文件会永久绑定 `db_path`，**其后所有文件自设的临时库一律失效** → 整个 session 共用同一个 SQLite 文件。
+- 再叠加各文件 teardown 的 `Base.metadata.drop_all`（拆的是共用库的全部表）与用例普遍隐含的「我建的第一条记录 id 就是 1」：跨模块累计的 rowid 让父行查不到，写子表即触发外键失败。
+
+### 修复（集中兜住，不要求 30 个文件各自改写）
+- `ops-center/backend/tests/conftest.py`：新增 `_reset_shared_database()` 与按模块 autouse 的 `_isolate_database_per_test_module`。每个测试模块的第一个用例前，用**同步** SQLAlchemy 引擎（不碰 async 连接池、不受事件循环切换限制）幂等 `create_all` 补回被 `drop_all` 拆掉的表，再按 `sorted_tables` **逆序**清空全部行并复位 `sqlite_sequence`，让每个模块都从「表齐全 + rowid 从 1 起」的确定状态起跑。删除顺序天然满足外键依赖，故不使用在事务内即为 no-op 的 `PRAGMA foreign_keys`。
+
+### 回归锁（带反证）
+- 新增 `tests/test_zz_conftest_isolation_a_wrecker.py`（制造方：插 3 行 `prompt_eval_cases` 推进 rowid，teardown `drop_all` 拆整库）与 `tests/test_zz_conftest_isolation_b_consumer.py`（消费方：**不建表不清库**，断言进入时表为空、新建父行 `id == 1`，并用该 id 写外键子行 `prompt_eval_runs` 提交——即原故障点）。文件名 `zz_` 保证它们排在既有模块之后，不改变「谁是第一个绑定 settings 的文件」。
+- 反证（证明这把锁真能失败）：把 conftest 里的 `_reset_shared_database()` 临时改为 `pass` 后，消费方立刻 `sqlite3.OperationalError: no such table: prompt_eval_cases`（1 failed / 1 passed）；恢复后回归对 2 passed、全量 **449 passed**。
+
+### 纪律落地
+- `AGENTS.md` QM-3 新增 MUST：「测试库/配置状态必须按模块确定化，不得依赖导入顺序」，含归属纪律——全量红而单跑绿时，先在未改动的 main 上跑同一条全量对照，既不认领既有缺陷为本次引入，也不以「不是我改的」放行。
+
+---
+
+# [未发布] fix(docs-gate): 文档同步门禁的脚本工具豁免改指仓库根 scripts/（此前为不存在的 team/scripts/）（2026-09-25，fix-docs-gate-scripts-whitelist）
+
+### 变更
+- **`scripts/check-docs-sync.sh`**：第二阶段「跳过脚本工具」的豁免由 `^team/scripts/` 改为 `^scripts/`。`team/` 目录在本仓库根本不存在（`git ls-files team/*` 为空），该路径是通用模板残留（`doc-gate.yml` 底部「启用方式」原文即要求"确保 team/scripts/ 在仓库根目录"），于是豁免永不生效，根级 `scripts/` 下 83 个工具脚本被一律判为「运行时代码变更」而强制要求同步文档。这与 AGENTS.md「分层分支策略」（`scripts/` 属流程层，允许 main 直接小步提交）以及 `guard-shared-root-writes.ps1` 自己的放行清单（含 `scripts`）互相矛盾。
+- **`.github/workflows/doc-gate.yml`**：底部模板说明改写为真实口径，并显式提示勿再写 `team/scripts/`（防同类漂移复发）。
+
+### 影响
+- 纯 `scripts/` 工具 PR 不再被误拦；`.github/`、`openspec/`、`.ccg/`、`package-lock.json` 等既有豁免口径不变，运行时代码缺文档仍照样拦红。
+- 直接动因：PR #2375（写保护注册修复）只改 `scripts/` 却被本门禁拦红，同期其他 PR 因 diff 里带 `01-docs/` 而侥幸通过，故该漂移长期未被发现。
+
+### 测试
+- 新增 `scripts/check-docs-sync.test.sh`（6 用例，在 `os` 临时目录自建带 origin 的真实 git 仓库跑真脚本，非 mock）：正向锁「纯 `scripts/` 放行」，负向锁「`apps/` 缺文档仍拦红、豁免不得外溢」，并回挂 `.github/`、`openspec/`、`package-lock.json` 三条既有豁免防回归。
+- 该测试接入 `doc-gate.yml`，作为硬门禁之前的自检步骤（此前 `check-docs-sync.sh` 全仓零测试，是本轮逃逸分析的结论）。
+- 反证：用 `git show HEAD:scripts/check-docs-sync.sh` 的修复前副本跑同一测试，第 1 项精确失败并复现 CI 原文「❌ 代码/配置有变更，但未同步更新 PRD 或相关文档」，其余 5 项不受影响；修复后 6 项全 PASS。
+- `node --test .github/scripts/workflow-contract.test.js` 22 项全过（含「Doc Gate 对所有 main PR 运行真实文档与测试门禁」），确认新增步骤未触碰 workflow 结构契约。
+
+---
+
 # [未发布] feat(运营中心): 会员权益开通页——订阅手动开通转发 engine admin grant（2026-09-25，member-center-c2-grant）
 
 ### 变更
@@ -9,6 +49,7 @@
 - 新增 `tests/test_member_grant_api.py` 5 例（503 未配置/本地校验/转发载荷与 Bearer/上游透传/非 admin 拒绝）全绿；ops-center 后端全量 447 passed；前端 build 通过。
 
 ---
+
 # [未发布] fix(session-guard): 修 git 2.55 下 hash-object 参数互斥，冷克隆机写保护计划任务得以注册（2026-09-25，fix-session-guard-git255）
 
 ### 变更

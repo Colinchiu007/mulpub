@@ -15701,3 +15701,14 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **规则（pattern）**：任何「门控首个导航/核心交互」的异步 promise 必须①用超时竞态封顶阻塞时长并 fail-open 降级到既有慢路径（timer 记得 `unref()`，避免钉住事件循环）；②门控解除后的所有延迟回调先做销毁守卫（`view.webContents` 存在性 + `isDestroyed()`），异步窗口期内标签随时可能被用户关闭。
 - **可迁移信号（QM-5④回归模板）**：为每个「导航前置 await」写一对回归测试——(a) 依赖**永久挂起**：fake timers 推进时间，断言导航照常发生且降级路径已注册；(b) 依赖**在目标销毁后才失败**：断言无 unhandledRejection 外溢。只 mock「成功 / 立即失败」两条路径的测试正是这类缺陷的逃逸盲区——#2327 的测试就止步于此。判断手法：看到 `await` 一个非本项目实现的 promise 挡在 `loadURL` 前面，先问「它永不返回怎么办」。
 
+
+
+### 复盘：单跑绿、全量红 ——「导入期单例 + 模块级设 env」让 30 个测试文件共用一个库（2026-09-26）
+
+- **pitfall**：`config.settings` 这类在 import 时就实例化的单例，会让「模块级先 `os.environ[...] = ...` 再 `from config import settings`」的写法**只对第一个被收集的文件有效**。pytest 按字母序收集，于是第一个 import config 的测试文件替全 session 定了库路径，后面每个文件精心构造的 `tempfile + uuid` 独立库**全部静默失效**（没有任何报错，只有远处的外键失败）。症状是「单跑绿、全量红」，极易被误判为"某个业务 PR 引入了回归"。
+- **pattern（定位）**：先跑三条命令分清层级——① 单跑失败用例（绿）；② 单跑其所在文件（绿）；③ 全量（红）。三者组合即"跨文件状态耦合"，不必读代码就能定性。随后去查"谁在模块级写全局"，而不是去猜业务改动。
+- **pattern（归属）**：在**未改动的 main** 上跑同一条全量做对照，再结合"这条 CI 到底在哪些提交上跑过"判断。本例 `ops-center CI` 只在 PR 触到 ops-center 路径时运行、main 自身从不跑全量后端套件，于是 2026-08-14 落地的脆弱组合潜伏了六周，被一个无关 PR 第一次跑出来。别认领，也别拿"不是我改的"当放行理由。
+- **pattern（修法层级）**：根治点是让状态**按模块确定化**，集中写进 `tests/conftest.py`（同步引擎幂等 `create_all` + 按 `sorted_tables` 逆序清行 + 复位 `sqlite_sequence`），而不是去改 30 个测试文件；后者会演变成大 diff 且漏改无法察觉。
+- **pitfall（SQLite 细节）**：① `PRAGMA foreign_keys` 在事务内是 no-op，别指望它兜住删除顺序——用 `sorted_tables` 逆序删；② 自增主键是 rowid（非 `AUTOINCREMENT`），`DELETE FROM t` 后 id 会回到 1，因此"清行"就能复原假设，但必须**顺带清 `sqlite_sequence`**（若存在），否则一旦某表真用了 AUTOINCREMENT，行号仍会单调上涨。
+- **pattern（回归锁要能反证）**：新加的隔离用例必须验证"去掉修复就变红"。做法：把 fixture 调用改成 `pass` 跑一次（本次立刻 `no such table: prompt_eval_cases`），再恢复。改完务必 `grep` 确认临时标记（`TEMP-NEUTER`）已清除——本次差点把 no-op 留在文件里提交。
+- **pitfall（临时改动的自我防护）**：写"恢复断言"时不要断言被改字符串的出现次数为 1——恢复后它会同时出现在 `def` 行与调用行，计数为 2，`assert` 反而让恢复**没执行**，破坏态静默留在工作树里。恢复用备份文件 `cp` 覆盖 + `grep` 双向核验（标记应为 0、调用点应为 1）。
