@@ -65,10 +65,10 @@
             <span class="member-center-plan-name" data-testid="member-center-plan">{{ licenseLabel }}</span>
             <span class="member-center-plan-meta">{{ licenseMeta }}</span>
           </div>
-          <button v-if="!licenseStore.isPro" class="cohere-btn-primary" data-testid="member-center-upgrade" @click="showUpgrade = true">
+          <button v-if="showUpgradeCta" class="cohere-btn-primary" data-testid="member-center-upgrade" @click="showUpgrade = true">
             {{ t('memberCenter.upgradePro') }}
           </button>
-          <span v-else class="member-center-plan-check" data-testid="member-center-pro-active">✓</span>
+          <span v-else-if="isProActive" class="member-center-plan-check" data-testid="member-center-pro-active">✓</span>
         </div>
         <p class="member-center-upgrade-hint">{{ t('memberCenter.upgradeHint') }}</p>
         <UpgradeModal v-if="showUpgrade" @close="showUpgrade = false" />
@@ -152,14 +152,24 @@ const errorMessage = computed(() => {
   return secondary === primary ? primary : `${primary} ${secondary}`
 })
 const entitlement = computed(() => identityStore.entitlement)
+// A2 单一真源：登录且已有服务端权益快照时，版本卡与权益卡同源展示，不再读本地 licenseStore
+const entitlementAuthoritative = computed(() => hasSessionIdentity.value && Boolean(entitlement.value))
+const showUpgradeCta = computed(() => (entitlementAuthoritative.value ? entitlement.value.plan !== 'pro' : !licenseStore.isPro))
+const isProActive = computed(() => (entitlementAuthoritative.value ? entitlement.value.plan === 'pro' : licenseStore.isPro))
 
 const avatarInitial = computed(() => Array.from(displayName.value || 'M')[0].toUpperCase())
 const licenseLabel = computed(() => {
+  if (entitlementAuthoritative.value) return entitlementPlanLabel.value
   if (licenseStore.isPro) return t('memberCenter.licensePro')
   if (licenseStore.isTrial) return t('memberCenter.licenseTrial')
   return t('memberCenter.licenseFree')
 })
 const licenseMeta = computed(() => {
+  if (entitlementAuthoritative.value) {
+    return entitlement.value.expiresAt
+      ? t('memberCenter.expiresAt', { date: formatExpiresAt(entitlement.value.expiresAt) })
+      : t('memberCenter.noExpiry')
+  }
   if (licenseStore.isPro) return t('memberCenter.licenseUnlimited')
   if (licenseStore.info?.daysRemaining > 0 && licenseStore.isTrial) {
     return t('memberCenter.daysRemaining', { days: licenseStore.info.daysRemaining })
