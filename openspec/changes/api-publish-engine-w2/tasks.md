@@ -29,8 +29,8 @@
 
 ## 5. 风险接线与门禁
 
-- [ ] 5.1 `publish-risk.isRiskBlocked` 新增 douyin 信号（`x-tt-verify-passport-decision` 响应头、`status_code===110` 验证失败语义），命中 → 挂起 `platform::accountId` + `publish:risk-suspended` 广播（复用桌面横幅零新 UI，W1 §5 enforcement 自动覆盖）；补单元回归
-- [ ] 5.2 全量门禁：api-publish-engine 全测 + 桌面受影响 suites + QG 静态检查；如触碰 `apps/desktop/electron/` 或 `packages/rpa-engine/` 则补跑 QM-1 打包三件套（builder --dir → asar list/extract require 链 → exe 8s 存活）
+- [x] 5.1 `publish-risk.isRiskBlocked` 新增 douyin 信号（`x-tt-verify-passport-decision` 响应头、`status_code===110` 验证失败语义），命中 → 挂起 `platform::accountId` + `publish:risk-suspended` 广播（复用桌面横幅零新 UI，W1 §5 enforcement 自动覆盖）；补单元回归
+- [x] 5.2 全量门禁：api-publish-engine 全测 + 桌面受影响 suites + QG 静态检查；如触碰 `apps/desktop/electron/` 或 `packages/rpa-engine/` 则补跑 QM-1 打包三件套（builder --dir → asar list/extract require 链 → exe 8s 存活）
 
 ## 6. 交付与活体裁决（M2）
 
