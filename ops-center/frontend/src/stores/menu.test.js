@@ -58,25 +58,25 @@ describe('menu store - reorder', () => {
   })
 })
 
-describe('menu store - move', () => {
+describe('menu store - moveInVisible（不传可见序列时按完整 order）', () => {
   it('上移（offset -1）减小索引', () => {
     const store = useMenuStore()
     const path = store.order[2]
-    store.move(path, -1)
+    store.moveInVisible(path, -1)
     expect(store.order.indexOf(path)).toBe(1)
   })
 
   it('下移（offset +1）增大索引', () => {
     const store = useMenuStore()
     const path = store.order[0]
-    store.move(path, 1)
+    store.moveInVisible(path, 1)
     expect(store.order.indexOf(path)).toBe(1)
   })
 
   it('首项下移越界安全忽略', () => {
     const store = useMenuStore()
     const path = store.order[0]
-    store.move(path, -1)
+    store.moveInVisible(path, -1)
     expect(store.order.indexOf(path)).toBe(0)
   })
 })
