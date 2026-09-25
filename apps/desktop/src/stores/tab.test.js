@@ -62,7 +62,7 @@ function createPageManagerApi({ getAllTabs, getActiveTab } = {}) {
       handlers.set("navigation-changed", callback);
       return () => handlers.delete("navigation-changed");
     }),
-    subscribeEvents: vi.fn().mockResolvedValue({ code: 0 }),
+    subscribeEvents: vi.fn().mockResolvedValue({ code: 0, data: { subscriberId: "sub-1-abc" } }),
     unsubscribeEvents: vi.fn().mockResolvedValue({ code: 0 }),
   };
   return { api, handlers };
@@ -437,5 +437,28 @@ describe("useTabStore home-shell 聚焦态与 spaRoute 同步（方案 B 侧边�
 
     expect(store.activeTabId).toBe("btab-1");
     expect(store.activeTabIsHomeShell).toBe(false);
+  });
+
+  it("dispose 用 init 拿到的 subscriberId 注销，不裸调 unsubscribeEvents", async () => {
+    const { api } = createPageManagerApi();
+    window.electronAPI.pageManager = api;
+    const store = useTabStore();
+
+    await store.init();
+    await store.dispose();
+
+    expect(api.unsubscribeEvents).toHaveBeenCalledWith("sub-1-abc");
+  });
+
+  it("订阅未返回 id 时 dispose 传 null，交由主进程忽略而非清空全部订阅", async () => {
+    const { api } = createPageManagerApi();
+    api.subscribeEvents = vi.fn().mockResolvedValue({ code: 0 });
+    window.electronAPI.pageManager = api;
+    const store = useTabStore();
+
+    await store.init();
+    await store.dispose();
+
+    expect(api.unsubscribeEvents).toHaveBeenCalledWith(null);
   });
 });
