@@ -23,7 +23,7 @@
       :title="`已开通：${lastResult.plan}（订单 ${lastResult.order?.id || '—'}）`"
       style="max-width:560px"
     />
-    <p style="color:var(--el-text-color-secondary);font-size:13px;margin-top:12px;max-width:560px">
+    <p style="color:var(--el-text-color-secondary);font-size:var(--font-size-sm);margin-top:12px;max-width:560px">
       开通将记入订单（channel=admin_grant、金额 0），并向用户消息中心推送通知；自动续费开关由服务端订阅表统一管理。
       需后端已配置 engine 管理服务（OPS_ENGINE_ADMIN_BASE_URL / OPS_ENGINE_ADMIN_TOKEN），未配置时返回 503。
     </p>
