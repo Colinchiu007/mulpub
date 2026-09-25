@@ -1,3 +1,14 @@
+# [未发布] feat(运营中心): 会员权益开通页——订阅手动开通转发 engine admin grant（2026-09-25，member-center-c2-grant）
+
+### 变更
+- **`ops-center/backend/services/member_grant_service.py` / `routers/member_grant.py`**（新）：`POST /api/v1/member/grants` 本地校验（userId/plan/durationDays）后经 httpx 转发 engine `/api/v1/admin/member/grant`（Bearer M2M token）；上游错误按状态码+错误码透传；未配置 → 503 fail-closed。
+- **`ops-center/backend/config.py`**：新增 `engine_admin_base_url` / `engine_admin_token`（OPS_ 前缀 env；token 命中 *_token 后缀自动进掩码名单）。
+- **`ops-center/frontend`**：新增「会员权益开通」页 `MemberGrants.vue` + api + 路由 + 菜单 + pageGuides；开通成功展示订单信息，提示 admin_grant 记账与用户通知联动。
+
+### 测试
+- 新增 `tests/test_member_grant_api.py` 5 例（503 未配置/本地校验/转发载荷与 Bearer/上游透传/非 admin 拒绝）全绿；ops-center 后端全量 447 passed；前端 build 通过。
+
+---
 # [未发布] fix(session-guard): 修 git 2.55 下 hash-object 参数互斥，冷克隆机写保护计划任务得以注册（2026-09-25，fix-session-guard-git255）
 
 ### 变更
