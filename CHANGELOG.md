@@ -37,6 +37,90 @@
 - `AGENTS.md` QM-2 新增两条 MUST 门禁：「跨端目录常量 ↔ 存量数据必须前向兼容」「多通道同步编排不得失败互锁」。
 - `.quality-gates.md` 追加本次执行记录与 QM-6 双模型评审轮次。
 
+# [未发布] test(ops-center): 根治后端全量套件的跨模块库污染（2026-09-26，ops-backend-test-isolation）
+
+### 现象与归属
+- `ops-center/backend` 全量 `pytest tests/` 稳定红 1 例：`test_prompt_eval_engine_dual.py::test_dual_summary_zero_denominator_null` → `sqlite3.IntegrityError: FOREIGN KEY constraint failed`。**单跑该文件 28 例全绿、单跑该例也绿**，典型「单跑绿、全量红」。
+- 在**不含本次改动**的 main 上本地全量跑，得到**同一条失败**（1 failed / 431 passed）→ 非某个业务 PR 引入。该测试文件自 2026-08-14（#822）就在 main；`ops-center CI` 只在 PR 改到 ops-center 路径时触发、main 自身从不跑全量后端套件，所以这条组合长期无人执行。
+
+### 根因
+- 30 余个 API 测试文件都在**模块级**先 `os.environ["OPS_DB_PATH"] = <自己的临时库>`、再 `from config import settings`；而 `settings` 是**导入期单例**（`tests/conftest.py` 开头早就为签名密钥写过同类注释，只补了密钥没补库路径）。pytest 按字母序收集，第一个 import config 的文件会永久绑定 `db_path`，**其后所有文件自设的临时库一律失效** → 整个 session 共用同一个 SQLite 文件。
+- 再叠加各文件 teardown 的 `Base.metadata.drop_all`（拆的是共用库的全部表）与用例普遍隐含的「我建的第一条记录 id 就是 1」：跨模块累计的 rowid 让父行查不到，写子表即触发外键失败。
+
+### 修复（集中兜住，不要求 30 个文件各自改写）
+- `ops-center/backend/tests/conftest.py`：新增 `_reset_shared_database()` 与按模块 autouse 的 `_isolate_database_per_test_module`。每个测试模块的第一个用例前，用**同步** SQLAlchemy 引擎（不碰 async 连接池、不受事件循环切换限制）幂等 `create_all` 补回被 `drop_all` 拆掉的表，再按 `sorted_tables` **逆序**清空全部行并复位 `sqlite_sequence`，让每个模块都从「表齐全 + rowid 从 1 起」的确定状态起跑。删除顺序天然满足外键依赖，故不使用在事务内即为 no-op 的 `PRAGMA foreign_keys`。
+
+### 回归锁（带反证）
+- 新增 `tests/test_zz_conftest_isolation_a_wrecker.py`（制造方：插 3 行 `prompt_eval_cases` 推进 rowid，teardown `drop_all` 拆整库）与 `tests/test_zz_conftest_isolation_b_consumer.py`（消费方：**不建表不清库**，断言进入时表为空、新建父行 `id == 1`，并用该 id 写外键子行 `prompt_eval_runs` 提交——即原故障点）。文件名 `zz_` 保证它们排在既有模块之后，不改变「谁是第一个绑定 settings 的文件」。
+- 反证（证明这把锁真能失败）：把 conftest 里的 `_reset_shared_database()` 临时改为 `pass` 后，消费方立刻 `sqlite3.OperationalError: no such table: prompt_eval_cases`（1 failed / 1 passed）；恢复后回归对 2 passed、全量 **449 passed**。
+
+### 纪律落地
+- `AGENTS.md` QM-3 新增 MUST：「测试库/配置状态必须按模块确定化，不得依赖导入顺序」，含归属纪律——全量红而单跑绿时，先在未改动的 main 上跑同一条全量对照，既不认领既有缺陷为本次引入，也不以「不是我改的」放行。
+
+
+---
+
+
+
+# [未发布] fix(tab): 跨实例事件订阅按 subscriberId 精确注销，修复「添加账号登录页不出新标签」（2026-09-25，fix-tab-subscription-leak）
+
+### 变更
+- **`apps/desktop/electron/services/webview-manager/ipc-handlers.js`**：`page-manager:unsubscribe-events` 原先在**缺失 subscriberId 时执行 `_subscribers.clear()`**。`_subscribers` 是跨渲染进程实例共享的集合（每个 SPA 实例一条）， preload 的 `unsubscribeEvents()` 又不传参，因此任一非 home-shell 实例卸载（`App.vue:364 → tabStore.dispose()`）会把**所有实例**的订阅一次抹光。此后主进程 `_broadcast` 遍历空集合，TabBar 永久收不到 `tab-created` / `tab-switched`——登录视图是原生 `WebContentsView`，`addChildView` 后照常压在内容区，用户看到的就是「登录页在当前标签里打开了，标签栏毫无动静」。现改为：只按调用方自身 id 删除，缺失 id 一律忽略并告警，不再有任何清空路径。
+- **同文件 `page-manager:subscribe-events`**：id 生成从 `'default-' + Date.now()` 改为「自增序号 + 时间戳(base36) + 随机串」。原实现在同一毫秒内两次订阅会取到**同一个 id**，`Set` 去重后两个实例共享一条订阅，任一方注销即误删另一方——这是本 Bug 的第二条独立成因。
+- **`apps/desktop/electron/preload/page-manager.js`**：`unsubscribeEvents(subscriberId)` 透传参数，使渲染层能注销自己的那条订阅；`subscribeEvents()` 保持无参 —— id 必须由服务方生成（QM-6 第二轮评审指出，保留调用方传 id 的分支等于把「唯一性」这个保证重新交还给调用方，正是本次要建立的原则）。
+
+### QM-6 第二轮（前端模型 opencode）追加修复
+- **移除调用方自带 id 的分支**：`subscribe-events` 一律服务端生成 id；无可用 `sender`（含已销毁）时直接拒绝订阅，不再留下无人回收的条目。
+- **`_senderSubscribers` 剪枝**：注销时同步从 sender 记账集合中删除该 id，避免长生命周期 sender 累积陈旧条目；JSDoc 键类型收敛为 `Map<import('electron').WebContents, Set<string>>`；`_subscriberSeq` 去掉构造函数初始化后残留的 `|| 0` 死兜底。
+- 新增 3 条测试（服务方生成不可绕过 / 已销毁 sender 拒绝订阅 / 注销后剪除记账），修复前实测 RED 2 条；`webview-manager.test.js` **75 passed**，定向 8 文件 **489 passed**。
+- **修 `01-docs/learnings.md` 的自身损坏**：`e92ce3d6` 那次文档提交把我的置顶复盘整段复制了一份，并把 H2 标题焊进上一条 bullet 句子中间 —— 成因是在 bash 双引号里向 `node -e` 传含反引号与 `$` 的文本，反引号被 bash 当命令替换执行掉。已还原到完好版本再经编辑工具补写，并新增该陷阱的复盘条目。（合并 origin/main 与此无关，已核实对侧对该文件零新增。）
+- **`apps/desktop/src/stores/tab.js`**：`init()` 保存 `subscribeEvents()` 返回的 `subscriberId`，`dispose()` 用该 id 注销（未取到 id 时传 `null`，由主进程忽略）。
+- 重新生成 `apps/desktop/electron/preload/index.bundle.js` 与 `apps/desktop/electron/home-shell-preload.bundle.js`（QM-2：改 preload 必须重打包）。
+- **补回收路径（QM-6 评审驱动）**：拿掉 `clear()` 等于抽掉唯一的订阅回收手段，因此 `subscribe-events` 改为按 `event.sender`（webContents）记账，并在其 `destroyed` 事件里回收该实例名下的全部 id —— 崩溃或被杀而没走到 `dispose()` 的实例不再留下永久驻留的孤儿订阅（否则每次广播对同一主窗口多发一条重复 IPC）。`_subscriberSeq` / `_senderSubscribers` 一并列入 `index.js` 构造函数初始化，与 `_tabViews`/`_tabIdCounter` 等同类状态同风格。
+- **`tab.js` `dispose()` 收口**：`_subscriberId = null` 移到 `if (api)` 之外，桥不可用时也清本地记录，避免下次 `init()` 覆写后旧订阅再无人可注销。
+
+### 根因与影响面
+- 现象首现于「账号管理 → 添加账号 → 微信公众号 → 打开登录页」，但缺陷位于 WebviewManager 事件总线路由层，**影响所有依赖 `tab-created/tab-switched/tab-closed` 广播的标签栏同步**（新建标签、关闭标签、切换标签、批量登录标签角标）。
+- 触发条件是 `f7e93ceb`（#2230「新标签内嵌独立 SPA 实例」，2026-09-23）引入多 SPA 实例共存之后才成立的；单实例时代 `dispose()` 只在应用退出时执行，误删无人察觉。
+- 运行态实证：主进程日志 35ms 内已打出 `WebviewManager Auth login tab opened: wechat_mp`（标签注册成功），而渲染层 TabBar 无任何 `tab-created` 到达；补注一个订阅者后同一操作立刻正常，双向印证。
+
+### 测试
+- `apps/desktop/electron/services/webview-manager.test.js` 新增 describe「page-manager 事件订阅按 subscriberId 精确删除」3 用例：subscribe 回传 id；实例 A 注销自身后实例 B 仍收到广播（断言 `send` 的 `subscriberId` 精确等于 B）；**缺失 id 的注销不得清空其他实例订阅**（修复前 RED：`expected [] to equal [idA, idB]`，且两 id 相同导致 size 为 1）。
+- `apps/desktop/src/stores/tab.test.js` 新增 2 用例：`dispose` 以 init 取得的 `subscriberId` 调 `unsubscribeEvents`；订阅未返回 id 时传 `null` 而非裸调。
+- QM-6 评审后追加：`webview-manager.test.js`「渲染进程销毁时回收该实例订阅，其他实例订阅存活」（修复前实测 RED：`destroyed` 后 `has(idA)` 仍为 `true`），并把唯一性判定从「依赖 Set 去重后的 size」改为显式 `expect(idA).not.toBe(idB)`，去掉对平台定时器精度的依赖。全文件 **72 passed**。
+- 全量回归：`pnpm exec vitest run`（apps/desktop）+ QM-1 打包见 `.quality-gates.md`。
+
+---
+
+
+
+# [未发布] fix(docs-gate): 文档同步门禁的脚本工具豁免改指仓库根 scripts/（此前为不存在的 team/scripts/）（2026-09-25，fix-docs-gate-scripts-whitelist）
+
+### 变更
+- **`scripts/check-docs-sync.sh`**：第二阶段「跳过脚本工具」的豁免由 `^team/scripts/` 改为 `^scripts/`。`team/` 目录在本仓库根本不存在（`git ls-files team/*` 为空），该路径是通用模板残留（`doc-gate.yml` 底部「启用方式」原文即要求"确保 team/scripts/ 在仓库根目录"），于是豁免永不生效，根级 `scripts/` 下 83 个工具脚本被一律判为「运行时代码变更」而强制要求同步文档。这与 AGENTS.md「分层分支策略」（`scripts/` 属流程层，允许 main 直接小步提交）以及 `guard-shared-root-writes.ps1` 自己的放行清单（含 `scripts`）互相矛盾。
+- **`.github/workflows/doc-gate.yml`**：底部模板说明改写为真实口径，并显式提示勿再写 `team/scripts/`（防同类漂移复发）。
+
+### 影响
+- 纯 `scripts/` 工具 PR 不再被误拦；`.github/`、`openspec/`、`.ccg/`、`package-lock.json` 等既有豁免口径不变，运行时代码缺文档仍照样拦红。
+- 直接动因：PR #2375（写保护注册修复）只改 `scripts/` 却被本门禁拦红，同期其他 PR 因 diff 里带 `01-docs/` 而侥幸通过，故该漂移长期未被发现。
+
+### 测试
+- 新增 `scripts/check-docs-sync.test.sh`（6 用例，在 `os` 临时目录自建带 origin 的真实 git 仓库跑真脚本，非 mock）：正向锁「纯 `scripts/` 放行」，负向锁「`apps/` 缺文档仍拦红、豁免不得外溢」，并回挂 `.github/`、`openspec/`、`package-lock.json` 三条既有豁免防回归。
+- 该测试接入 `doc-gate.yml`，作为硬门禁之前的自检步骤（此前 `check-docs-sync.sh` 全仓零测试，是本轮逃逸分析的结论）。
+- 反证：用 `git show HEAD:scripts/check-docs-sync.sh` 的修复前副本跑同一测试，第 1 项精确失败并复现 CI 原文「❌ 代码/配置有变更，但未同步更新 PRD 或相关文档」，其余 5 项不受影响；修复后 6 项全 PASS。
+- `node --test .github/scripts/workflow-contract.test.js` 22 项全过（含「Doc Gate 对所有 main PR 运行真实文档与测试门禁」），确认新增步骤未触碰 workflow 结构契约。
+
+---
+
+# [未发布] feat(运营中心): 会员权益开通页——订阅手动开通转发 engine admin grant（2026-09-25，member-center-c2-grant）
+
+### 变更
+- **`ops-center/backend/services/member_grant_service.py` / `routers/member_grant.py`**（新）：`POST /api/v1/member/grants` 本地校验（userId/plan/durationDays）后经 httpx 转发 engine `/api/v1/admin/member/grant`（Bearer M2M token）；上游错误按状态码+错误码透传；未配置 → 503 fail-closed。
+- **`ops-center/backend/config.py`**：新增 `engine_admin_base_url` / `engine_admin_token`（OPS_ 前缀 env；token 命中 *_token 后缀自动进掩码名单）。
+- **`ops-center/frontend`**：新增「会员权益开通」页 `MemberGrants.vue` + api + 路由 + 菜单 + pageGuides；开通成功展示订单信息，提示 admin_grant 记账与用户通知联动。
+
+### 测试
+- 新增 `tests/test_member_grant_api.py` 5 例（503 未配置/本地校验/转发载荷与 Bearer/上游透传/非 admin 拒绝）全绿；ops-center 后端全量 447 passed；前端 build 通过。
 
 ---
 
@@ -73,6 +157,15 @@
 
 ---
 
+# [未发布] fix(会员中心): entitlement 单一真源收敛，版本卡登录态跟随服务端权益快照（2026-09-25，member-center-entitlement-truth）
+
+### 变更
+- **`apps/desktop/src/views/MemberCenter.vue`**：新增 `entitlementAuthoritative` 派生态——登录且已有服务端权益快照时，「版本与许可证」卡的套餐名/有效期/升级按钮与「会员权益」卡同源（收敛自设计 §5.1），消除「免费版 vs 专业版」双卡自相矛盾；未登录或 entitlement 缺失回退本地 licenseStore 不变。
+
+### 测试
+- `MemberCenter.test.js`：修正固化双卡矛盾的旧断言（licenseFree→planPro）并断言 pro 权益下升级入口隐藏；新增 trial 一致性、entitlement 缺失回退 2 用例；8/8 绿。
+
+---
 # [未发布] fix(webview): CDP 本地存储注入挂起改超时降级，首个导航不被无限门控（头条标签卡死事故回归对）（2026-09-24，fix-toutiao-tab-load-hang）
 
 ### 变更
