@@ -18,6 +18,38 @@
 
 ---
 
+# [未发布] fix(tab): 跨实例事件订阅按 subscriberId 精确注销，修复「添加账号登录页不出新标签」（2026-09-25，fix-tab-subscription-leak）
+
+### 变更
+- **`apps/desktop/electron/services/webview-manager/ipc-handlers.js`**：`page-manager:unsubscribe-events` 原先在**缺失 subscriberId 时执行 `_subscribers.clear()`**。`_subscribers` 是跨渲染进程实例共享的集合（每个 SPA 实例一条）， preload 的 `unsubscribeEvents()` 又不传参，因此任一非 home-shell 实例卸载（`App.vue:364 → tabStore.dispose()`）会把**所有实例**的订阅一次抹光。此后主进程 `_broadcast` 遍历空集合，TabBar 永久收不到 `tab-created` / `tab-switched`——登录视图是原生 `WebContentsView`，`addChildView` 后照常压在内容区，用户看到的就是「登录页在当前标签里打开了，标签栏毫无动静」。现改为：只按调用方自身 id 删除，缺失 id 一律忽略并告警，不再有任何清空路径。
+- **同文件 `page-manager:subscribe-events`**：id 生成从 `'default-' + Date.now()` 改为「自增序号 + 时间戳(base36) + 随机串」。原实现在同一毫秒内两次订阅会取到**同一个 id**，`Set` 去重后两个实例共享一条订阅，任一方注销即误删另一方——这是本 Bug 的第二条独立成因。
+- **`apps/desktop/electron/preload/page-manager.js`**：`unsubscribeEvents(subscriberId)` 透传参数，使渲染层能注销自己的那条订阅；`subscribeEvents()` 保持无参 —— id 必须由服务方生成（QM-6 第二轮评审指出，保留调用方传 id 的分支等于把「唯一性」这个保证重新交还给调用方，正是本次要建立的原则）。
+
+### QM-6 第二轮（前端模型 opencode）追加修复
+- **移除调用方自带 id 的分支**：`subscribe-events` 一律服务端生成 id；无可用 `sender`（含已销毁）时直接拒绝订阅，不再留下无人回收的条目。
+- **`_senderSubscribers` 剪枝**：注销时同步从 sender 记账集合中删除该 id，避免长生命周期 sender 累积陈旧条目；JSDoc 键类型收敛为 `Map<import('electron').WebContents, Set<string>>`；`_subscriberSeq` 去掉构造函数初始化后残留的 `|| 0` 死兜底。
+- 新增 3 条测试（服务方生成不可绕过 / 已销毁 sender 拒绝订阅 / 注销后剪除记账），修复前实测 RED 2 条；`webview-manager.test.js` **75 passed**，定向 8 文件 **489 passed**。
+- **修 `01-docs/learnings.md` 的自身损坏**：`e92ce3d6` 那次文档提交把我的置顶复盘整段复制了一份，并把 H2 标题焊进上一条 bullet 句子中间 —— 成因是在 bash 双引号里向 `node -e` 传含反引号与 `$` 的文本，反引号被 bash 当命令替换执行掉。已还原到完好版本再经编辑工具补写，并新增该陷阱的复盘条目。（合并 origin/main 与此无关，已核实对侧对该文件零新增。）
+- **`apps/desktop/src/stores/tab.js`**：`init()` 保存 `subscribeEvents()` 返回的 `subscriberId`，`dispose()` 用该 id 注销（未取到 id 时传 `null`，由主进程忽略）。
+- 重新生成 `apps/desktop/electron/preload/index.bundle.js` 与 `apps/desktop/electron/home-shell-preload.bundle.js`（QM-2：改 preload 必须重打包）。
+- **补回收路径（QM-6 评审驱动）**：拿掉 `clear()` 等于抽掉唯一的订阅回收手段，因此 `subscribe-events` 改为按 `event.sender`（webContents）记账，并在其 `destroyed` 事件里回收该实例名下的全部 id —— 崩溃或被杀而没走到 `dispose()` 的实例不再留下永久驻留的孤儿订阅（否则每次广播对同一主窗口多发一条重复 IPC）。`_subscriberSeq` / `_senderSubscribers` 一并列入 `index.js` 构造函数初始化，与 `_tabViews`/`_tabIdCounter` 等同类状态同风格。
+- **`tab.js` `dispose()` 收口**：`_subscriberId = null` 移到 `if (api)` 之外，桥不可用时也清本地记录，避免下次 `init()` 覆写后旧订阅再无人可注销。
+
+### 根因与影响面
+- 现象首现于「账号管理 → 添加账号 → 微信公众号 → 打开登录页」，但缺陷位于 WebviewManager 事件总线路由层，**影响所有依赖 `tab-created/tab-switched/tab-closed` 广播的标签栏同步**（新建标签、关闭标签、切换标签、批量登录标签角标）。
+- 触发条件是 `f7e93ceb`（#2230「新标签内嵌独立 SPA 实例」，2026-09-23）引入多 SPA 实例共存之后才成立的；单实例时代 `dispose()` 只在应用退出时执行，误删无人察觉。
+- 运行态实证：主进程日志 35ms 内已打出 `WebviewManager Auth login tab opened: wechat_mp`（标签注册成功），而渲染层 TabBar 无任何 `tab-created` 到达；补注一个订阅者后同一操作立刻正常，双向印证。
+
+### 测试
+- `apps/desktop/electron/services/webview-manager.test.js` 新增 describe「page-manager 事件订阅按 subscriberId 精确删除」3 用例：subscribe 回传 id；实例 A 注销自身后实例 B 仍收到广播（断言 `send` 的 `subscriberId` 精确等于 B）；**缺失 id 的注销不得清空其他实例订阅**（修复前 RED：`expected [] to equal [idA, idB]`，且两 id 相同导致 size 为 1）。
+- `apps/desktop/src/stores/tab.test.js` 新增 2 用例：`dispose` 以 init 取得的 `subscriberId` 调 `unsubscribeEvents`；订阅未返回 id 时传 `null` 而非裸调。
+- QM-6 评审后追加：`webview-manager.test.js`「渲染进程销毁时回收该实例订阅，其他实例订阅存活」（修复前实测 RED：`destroyed` 后 `has(idA)` 仍为 `true`），并把唯一性判定从「依赖 Set 去重后的 size」改为显式 `expect(idA).not.toBe(idB)`，去掉对平台定时器精度的依赖。全文件 **72 passed**。
+- 全量回归：`pnpm exec vitest run`（apps/desktop）+ QM-1 打包见 `.quality-gates.md`。
+
+---
+
+
+
 # [未发布] fix(docs-gate): 文档同步门禁的脚本工具豁免改指仓库根 scripts/（此前为不存在的 team/scripts/）（2026-09-25，fix-docs-gate-scripts-whitelist）
 
 ### 变更

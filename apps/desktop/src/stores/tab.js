@@ -22,6 +22,8 @@ export const useTabStore = defineStore('tabs', () => {
 
   // ── Unsubscribe handles ──
   const _unsubscribes = []
+  // 主进程下发的本实例订阅 id；注销时只删自己那一条
+  let _subscriberId = null
   let _tabsRefreshRequest = 0
   let _navigationRefreshRequest = 0
   let _tabUpdateVersion = 0
@@ -201,8 +203,9 @@ export const useTabStore = defineStore('tabs', () => {
       })
     )
 
-    // 订阅主进程事件流
-    await api.subscribeEvents()
+    // 订阅主进程事件流（保存自己的 subscriberId，注销时只删自己）
+    const subRes = await api.subscribeEvents()
+    _subscriberId = (subRes && subRes.data && subRes.data.subscriberId) || null
 
     // 创建 home tab（首页标签，不创建 WebContentsView）
     const homeTab = {
@@ -232,8 +235,10 @@ export const useTabStore = defineStore('tabs', () => {
         try { unsub() } catch (_) { /* ignore */ }
       }
       _unsubscribes.length = 0
-      await api.unsubscribeEvents()
+      await api.unsubscribeEvents(_subscriberId)
     }
+    // 桥不可用时也要清掉本地记录，否则下次 init 覆写后旧订阅再无人可注销
+    _subscriberId = null
   }
 
   /**
