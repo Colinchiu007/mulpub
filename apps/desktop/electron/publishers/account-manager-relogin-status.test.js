@@ -161,3 +161,75 @@ describe('saveCapturedAccount — 新建账号保存凭证即回写 status=activ
     expect(activePatch, '凭证未落盘时不允许把真源置为 active').toBeUndefined()
   })
 })
+
+/**
+ * 固化失败分支：真源没写成功时返回值不得声称 active。
+ * 否则「新增/重新登录成功」的那一帧渲染成已登录，下一次 load() 又回退成未确认/失效，
+ * 用户看到的是一次虚假的成功。两条同族路径共用这一条语义。
+ */
+describe('登录态固化失败 — 返回值不冒充已登录', () => {
+  beforeEach(() => {
+    global.__enableElectronMock()
+    global.__resetElectronMock()
+    global.__electronMock.app.getPath = function () { return 'C:/test-user-data' }
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('创建路径 PATCH 固化失败：不阻断新增，但返回值如实透传真源原值', async () => {
+    const accountManager = loadAccountManager()
+    const requestBackend = vi.spyOn(require('../services/python-bridge'), 'requestBackend')
+      .mockResolvedValueOnce({ code: 0, data: { id: 'acc-pf', platform: 'douyin', status: 'unverified' } })
+      .mockResolvedValueOnce({ code: -1, message: 'BACKEND_UNAVAILABLE' })
+    vi.spyOn(accountManager.credentialStore, 'saveCredential').mockReturnValue(true)
+    vi.spyOn(accountManager.accountStateRestorer, 'saveAccountRecord').mockReturnValue(true)
+
+    const saved = await accountManager.saveCapturedAccount('douyin', {
+      cookies: [{ name: 'sessionid', value: 'fresh', domain: '.douyin.com' }]
+    })
+
+    const patchCall = requestBackend.mock.calls.find(call => call[0] === 'PATCH')
+    expect(patchCall, '仍应尝试固化登录态').toBeDefined()
+    expect(saved.status, '真源没写成功就不允许声称 active').not.toBe('active')
+    expect(saved.status).toBe('unverified')
+    expect(saved.last_validated, '不得夹带一个从未落盘的时间戳').toBeUndefined()
+  })
+
+  it('重新登录路径 PATCH 失败：返回值保留真源 expired，不冒充 active', async () => {
+    const accountManager = loadAccountManager()
+    vi.spyOn(require('../services/python-bridge'), 'requestBackend')
+      .mockResolvedValueOnce({ code: 0, data: { id: 'acc-uf', platform: 'toutiao', status: 'expired' } })
+      .mockResolvedValueOnce({ code: 422, message: 'ACCOUNT_STATUS_INVALID' })
+    vi.spyOn(accountManager.credentialStore, 'saveCredential').mockReturnValue(true)
+    vi.spyOn(accountManager.accountStateRestorer, 'saveAccountRecord').mockReturnValue(true)
+
+    const saved = await accountManager.updateCapturedAccount(
+      'toutiao',
+      { cookies: [{ name: 'sid_tt', value: 'fresh', domain: '.toutiao.com' }], name: '头条号' },
+      'acc-uf'
+    )
+
+    expect(saved.status, '真源仍为 expired 时返回值不得声称 active').not.toBe('active')
+    expect(saved.status).toBe('expired')
+  })
+
+  it('登录证据不足（account:add 仅 URL 变化）时保持 unverified，不固化 active', async () => {
+    const accountManager = loadAccountManager()
+    const requestBackend = vi.spyOn(require('../services/python-bridge'), 'requestBackend')
+      .mockResolvedValueOnce({ code: 0, data: { id: 'acc-weak', platform: 'zhihu', status: 'unverified' } })
+    vi.spyOn(accountManager.credentialStore, 'saveCredential').mockReturnValue(true)
+    vi.spyOn(accountManager.accountStateRestorer, 'saveAccountRecord').mockReturnValue(true)
+
+    const saved = await accountManager.saveCapturedAccount(
+      'zhihu',
+      { cookies: [{ name: 'z_c0', value: 'v', domain: '.zhihu.com' }] },
+      { loginVerified: false }
+    )
+
+    expect(requestBackend.mock.calls.filter(c => c[0] === 'PATCH'), '弱证据不得发固化请求').toHaveLength(0)
+    expect(saved.status).not.toBe('active')
+    expect(saved.status).toBe('unverified')
+  })
+})

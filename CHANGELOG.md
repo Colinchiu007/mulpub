@@ -3,18 +3,22 @@
 ### 变更
 - **`apps/desktop/electron/publishers/account-manager.js` `saveCapturedAccount`**：加密凭证落盘成功后追加 `persistLoginState(accountId, platform, 'active')` 回写 `status` + `last_validated`，返回值同步携带两者。此前创建路径 POST `/api/accounts` 不下发 `status`，后端 `create_account` 以 `DEFAULT_ACCOUNT_STATUS='unverified'` 落库，主进程又不做任何固化，于是「刚在登录窗口里扫码/密码登录成功」的新账号在账号页一律显示「未确认」，必须再手动点一次检测才变「已登录」。兄弟函数 `updateCapturedAccount`（重新登录）在 #2205 就按「凭证落盘 = 一次成功的主动登录」回写 active，本次把同一条契约补齐到创建路径。
 - **顺序与失败语义**：固化必须晚于 `saveCredential` 成功（凭证未落盘不得把真源置为 active）；回写失败只 `log.warn` 不阻断新增——账号与凭证已可用，返回值此时如实透传后端原值，不冒充已登录。
+- **`updateCapturedAccount` 同口径收口（QM-6 评审 W1/W3）**：该函数此前在 PATCH 失败时仍硬编码返回 `status:'active'`，且 PATCH 体与返回值各取一次 `new Date()`。现改为复用同一个 `validatedAt`，并按 PATCH 结果决定是否声称 active——真源没写成功就保留后端原状态，消除「重新登录那一帧显示已登录、下次刷新回退成失效」的虚假成功。
+- **登录证据分级（QM-6 评审 W1 衍生，防本次改动引入假阳性）**：`captureCookies` 把「URL host 离开登录页」也算登录成功，属弱证据（用户未登录却导航到别的域名同样满足）。`account:add`（首次运行引导页真实入口）因此可能捕获非登录态 Cookie。现 `captureCookies` 返回 `loginVerified`（选择器命中=正向，仅 URL 变化=弱），`saveCapturedAccount` 收到 `loginVerified:false` 时**不发固化请求**、保持后端 `unverified` 等一次真实检测；`auth:open-login` 与扫码登录走 DOM/确认证据，行为不变。`smartWait` 改为返回选择器是否命中，复用既有 3 秒等待、不新增延时。
 
 ### 影响
-- 用户可见：新增账号（`account:add` / `auth:open-login` 新登录 / 扫码登录三条入口同汇流于此函数）保存后徽章直接为「已登录」，无需再点检测。
+- 用户可见：新增账号（`auth:open-login` 新登录 / 扫码登录 `auth:open-qrcode-login` / `account:add` 三条入口同汇流于 `saveCapturedAccount`）保存后徽章直接为「已登录」，无需再点检测；`account:add` 在仅有弱证据时仍显示「未确认」，由用户点检测得到诚实结论。
 - 既有 6 个在本次修复前添加、仍显示「未确认」的账号**不做数据回填**：`unverified` 对它们仍是诚实结论，点一次「一键检测」即可按真实Cookie状态收敛（与 #2282「需重新点一次检测——这是修正而非回归」口径一致）。
 
 ### 测试
-- 新增 3 条创建路径回归（`account-manager-relogin-status.test.js`）：PATCH 携带 `status=active` + `last_validated`、返回值携带 active；固化顺序 `POST → 凭证落盘 → PATCH`；凭证落盘失败时回滚且全程不出现 `status=active`。修复前实测 `2 failed | 3 passed`（断言可失败性已反证），修复后 `5 passed`。
+- 新增 6 条回归（`account-manager-relogin-status.test.js`，共 8 例）：两条路径的固化与返回值携带 active、固化顺序 `POST → 凭证落盘 → PATCH`、凭证落盘失败回滚不出现 active、固化失败两条路径均如实透传真源原值、`loginVerified:false` 弱证据不发固化请求。
+- 断言可失败性已双向反证：创建用例首跑 `2 failed | 3 passed`；把 `updateCapturedAccount` 返回值临时改回旧实现后新增用例 `1 failed | 6 passed`，随后恢复实现全绿。
+- IPC 边界口径同步（`ipc-handlers/account.test.js`，共 48 例）：`auth:open-login` 两用例的 mock 与断言改为 `status=active` + `status_source='backend'` + `last_validated`（此前 mock 不含 status，把 `absent-fallback → unverified` 当成了新契约）；新增一条「固化失败 IPC 如实返回 unverified」。
 - 同 PR 更新 `account-manager.test.js` 三条 `toEqual` 断言（此前锁死「返回值不含 status」，把缺陷固化成了契约），并为「后端只写公开元数据」用例补 PATCH 固化断言。
-- 账号相关 14 个测试文件 `463 passed`；QM-1 离线打包通过。
+- 账号相关 14 个测试文件 `463 passed`（首轮）→ 评审修补后 `387 passed / 11 files`（publishers + ipc-handlers + webview-manager + qrcode-login + Accounts），QM-1 离线打包通过并复核 asar 产物含新逻辑。
 
 ### 文档
-- `AGENTS.md` QM-2 新增「登录态固化契约覆盖全部『凭证落盘』同族路径」条目；`01-docs/learnings.md` 记录根因、时间戳指纹排查法与逃逸链。
+- `AGENTS.md` QM-2 新增「登录态固化契约覆盖全部『凭证落盘』同族路径」条目；`01-docs/learnings.md` 记录根因、时间戳指纹排查法与逃逸链；`01-docs/PRD-ACCOUNT-LOGIN-STATE-PERSISTENCE-2026-09-23.md` 作为登录态唯一契约源同步收口——§5 单一写者架构图补入创建路径一行，§7.3 由「重新登录 / 保存凭证」扩为「登录 / 保存凭证（创建与更新两条同族路径）」并写明共用不变量、固化顺序与失败语义，§回归保护表新增 `account-manager-relogin-status.test.js` 一行。
 
 ---
 

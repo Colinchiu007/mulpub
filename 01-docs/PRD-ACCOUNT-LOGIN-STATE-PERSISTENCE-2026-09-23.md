@@ -105,6 +105,9 @@ merged = mergeCookies(
    accounts:batch-check-login / account:check-login ──► AccountManager.persistLoginState()
    login-status-monitor（30 分钟定期）  ──────────────► 同上
    重新登录保存凭证 updateCapturedAccount ────────────► status=active（同一次 PATCH）
+   新登录保存凭证 saveCapturedAccount ────────────────► status=active（凭证落盘后补一次 PATCH）
+     ├ 扫码登录 QrCodeLogin._onLoginSuccess ─────────► 同上（直接调用 saveCapturedAccount）
+     └ account:add → captureCookies 仅 URL 变化（弱证据）─► 不固化，保持 unverified
 ```
 
 **禁止项（有测试强制）：**
@@ -146,8 +149,16 @@ else /* 历史数据缺 status */        → is_active===false ? 'inactive' : 'a
 ### 7.2 单账号「验证」
 `account:check-login` 同样在返回前完成固化（与批量同口径），返回体保持 `{ code:0, data: status }` 向后兼容。
 
-### 7.3 重新登录 / 保存凭证
+### 7.3 登录 / 保存凭证（创建与更新两条同族路径）
 `auth:login-silent`、登录页保存 → `updateCapturedAccount` PATCH 带 `status:'active' + last_validated`；Cookie 提取失败时**不保存**并返回 `reason:'cookie-extract-failed'`（避免落一份"看起来成功、实则无 Cookie"的凭证）。
+
+新登录 → `saveCapturedAccount`（调用方共三条：`auth:open-login`、扫码登录 `QrCodeLogin._onLoginSuccess`、`account:add`）：先 POST 建行（后端 `create_account` 以 `unverified` 初始化），**加密凭证落盘成功后**再补一次 PATCH `status:'active' + last_validated`，返回值同步携带两者以保持 IPC 合同与真源一致。用户可见状态由真源决定——渲染层在 `auth:completed` 后重新拉 `accounts:list`，返回值不是首帧渲染来源。
+
+两条路径共用同一条不变量：**成功捕获并落盘凭证 = 一次成功的主动登录**，因此都必须固化 `active`，不得只锁其中一条（创建路径漏写曾让每个新账号一上线就显示「未确认」，直到用户手动点一次检测）。
+
+约束与失败语义：固化必须晚于凭证落盘（凭证未落盘不得把真源置为 active，防半成功）；回写失败只 `log.warn` 不阻断新增——账号与凭证已可用，返回值此时如实透传后端原值，不冒充已登录。`updateCapturedAccount` 同受该语义约束：PATCH 失败时返回值保留真源原状态，不再硬编码 active。
+
+**登录证据分级（2026-09-25 补）**：`captureCookies` 的成功判据有两种——成功选择器命中（正向证据）与「URL host 离开登录页」（弱证据）。弱证据下用户可能并未登录却导航到了其它域名，此时 `saveCapturedAccount` 收到 `loginVerified:false`，**不固化登录态**，让账号保持 `unverified` 直至一次真实检测。`auth:open-login` 与扫码登录走 DOM/确认证据，不传该标记即视为已验证。
 
 ### 7.4 首页失效横幅
 `refresh()` 调 `accountBatchCheckLogin`，仅 `valid === false` 计入 `expiredAccounts` / `expiredAccountCount`；持久化失败通过 `reportError` 暴露；横幅不再回写 status。
@@ -212,7 +223,8 @@ else /* 历史数据缺 status */        → is_active===false ? 'inactive' : 'a
 |------|------|------------|
 | `packages/python-backend/tests/test_server_account_lifecycle.py` | +8 | status 初始化 / 持久化 / 三态回显 / 非法值 400 不污染 / 与 is_active 正交 / legacy 读侧归一化 |
 | `electron/services/webview-manager.test.js` | +2（共 51） | 用 `cookies.get` 提取；session 缺失 fail-loud 且不落空凭证；测试替身暴露 `getAll` 不存在 |
-| `electron/publishers/account-manager.test.js` | +9（共 64） | 三态判定、分区 Cookie 合并、`persistLoginState` 唯一写者、非法 status 不发请求、后端失败可见 |
+| `electron/publishers/account-manager.test.js` | +9（共 64） | 三态判定、分区 Cookie 合并、`persistLoginState` 唯一写者、非法 status 不发请求、后端失败可见；创建路径返回值断言按「携带 active」新口径更新（此前 `toEqual` 锁死了不含 status 的旧事实） |
+| `electron/publishers/account-manager-relogin-status.test.js` | +6（共 8） | 两条路径固化携带 `status=active`+`last_validated`；固化顺序 `POST → 凭证落盘 → PATCH`；凭证落盘失败回滚不出现 active；固化失败（PATCH 非 0）两条路径均如实透传真源原值；`loginVerified:false` 弱证据不发固化请求 |
 | `electron/ipc-handlers/account.test.js` | +7（共 47） | expired 粘滞、unverified 透传、脏值降级派生、无凭证强制 expired、批量三态透传 + 逐账号固化、异常记 unverified、固化失败可见、单账号检测也固化 |
 | `electron/services/login-status-monitor.test.js` | 新建 10 | 读后端真源、写唯一写者、不写 SQLite、三态、无变化不回写、expired 跳过、失败可见、变更才广播 |
 | `electron/publishers/http-login-checker.test.js` | +1 | 视频号 POST body timestamp 每次请求重新求值 |
