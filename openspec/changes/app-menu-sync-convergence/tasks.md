@@ -73,4 +73,21 @@
 - [x] 46. `AGENTS.md` QM-2 两条新门禁与本文 §16.5 P7 落地「文案类修复必须复扫到 0 命中」
 - [x] 47. 合并 `origin/main`（#2377/#2378）：`CHANGELOG.md` 手工解冲突时发现**本分支此前用范围替换加节，吞掉了 main 上两节**（`fix-toutiao-tab-load-hang`、`account-card-display-fix`）→ 改「取上游全文 + 前置新节」重建，核对 `git diff --numstat origin/main -- CHANGELOG.md` = **41 插入 / 0 删除**
 - [x] 48. 合并后重跑：ops-center 前端 `npm test` 57 passed / 10 files + `npm run build` PASS；后端 `test_app_menu_api.py` 21 passed
-- [ ] 50. 遗留（本 change 不做）：清理 `useOpsCenterSync.runSyncNow` 与 `modelProviders.syncNow`（zh/en）死键及其 3 条用例；跨端 CATALOG 一致性 CI 断言（见 §16.6）
+- [x] 49. QM-6 第三轮收口确认：claude 判 `critical_cleared: true`、0 残留（20 处命中全定性，并补出 `Dashboard.vue` 同名按钮属平台内容同步、`locales` 的 `syncNow` 死键）；codex 两次尝试均无结论输出（RC=1），故本轮记为**单模型确认**
+- [x] 50. 补注册写保护计划任务：**受本机权限阻断**（见下条证据），Health 任务已注册成功，Write Guard 任务无法注册
+- [ ] 51. 遗留（本 change 不做）：清理 `useOpsCenterSync.runSyncNow` 与 `modelProviders.syncNow`（zh/en）死键及其 3 条用例；跨端 CATALOG 一致性 CI 断言（见 §16.6）
+
+### 50. 写保护计划任务注册结果（2026-09-25 23:0x，本机权限实测）
+
+- `bootstrap-write-guard.ps1` 在共享根（已含 #2375 修复）跑通到 `[2/5] 自检` 的注册步骤：
+  `Session Isolation Health` **注册成功**（`Get-ScheduledTask -TaskPath '\Multi-Publish'` 可见，State=Ready）。
+- `Session Isolation Write Guard` 注册报 `Register-ScheduledTask : 拒绝访问 HRESULT 0x80070005`。
+- **二分定位到触发器类型**（同 principal、同 action、同文件夹，只换参数）：
+  `-AtLogOn` 的三种组合（plain / ExecutionTimeLimit 3650d / 2min）**全部 FAIL**，
+  `-Once` **PASS** → 不是任务名、路径、时限或动作的问题，是**非管理员令牌不允许注册登录触发器**。
+- 换 API 路径同样失败：`schtasks /Create /SC ONLOGON`（无嵌套引号干扰的最小 /TR）返回 RC=1 拒绝访问。
+- 账户事实：`IsInRole(Administrator)=False`、`EnableLUA=1`、`ConsentPromptBehaviorAdmin=5`；
+  注册当前为**受限令牌**，需管理员凭据提权才能建 AtLogOn 任务；若账户本身不是管理员，则 UAC 也不解决，须换凭据。
+- **未采用的绕过方案**（避免静默改变隔离机制语义，留待用户决定）：
+  把 guard 的触发器改成 `-Once + -RepetitionInterval`（受限用户可注册，但不是"登录即常驻"，watcher 有间歇窗口），
+  或改由 `startup` 文件夹/注册表 `Run` 键自启（同样非计划任务，且不受 `mp-worktree-health.ps1 -RequireWriteGuard` 认可）。
