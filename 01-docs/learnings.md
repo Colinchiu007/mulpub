@@ -15,6 +15,22 @@
 - **反证也要防「污染真实数据」这个反身风险（preference，本轮主动偏离任务措辞）**：任务写的是「把 fixture 改成 no-op 必须立刻变红」。但账号 fixture 的作用正是把 `ACCOUNTS_FILE` 从模块默认路径（本机 = 真实的 `userData/backend-data/accounts.json`）挪开；改成彻底 no-op 会让反证用例**把测试数据写进用户真实账号库**。改为「有指向、但不隔离」（全部用例共用一个固定临时目录）来做反证，同样证明 per-test 唯一性承重，且不碰真实数据。**口径**：给「隔离/清理」类机制做反证时，先问反证本身会不会造成它所要防的那个后果。
 
 - **仓库刻意设的「精确计数」门禁会随任何新增通道而红，这是特性不是脆弱（pattern）**：`preload.test.js` 断言 account 模块导出 46 个、api 总键数 330 个。新增 `accountRename` 必然把它俩变红。同步时按既有风格**在 it 标题里留痕**（`331 = 上一基线 330 + 本 PR 新增 1`），否则下一个改动的人无从判断这个数是有意为之还是漂移。改 preload 还要重建 `index.bundle.js` 与 `home-shell-preload.bundle.js` 并用内容 grep 自证（`grep -c "account:rename"`），「构建成功」不等于签名真的进去。
+## 「登录页 = 登录成功」第四次复发：平台元数据静默失效与凭证假保存（kuaishou-login-false-success，2026-09-26）
+
+- **一次「顺手改对」的 URL 会静默废掉另一处守卫（pitfall，第一性引入点）**：`isPlatformLoginSuccessUrl` 的防误判靠两条并列前提——「URL 等于 `PLATFORM_LOGIN_URLS[platform]` 的 origin+path 一律不算成功」＋「成功模式只匹配登录后才会出现的域/路径」。`c3c39557`（账号管理页 10 项质量修复，第 4 条本意只改「创作者中心 URL」）把 `PLATFORM_LOGIN_URLS.kuaishou` 从 `passport.kuaishou.com/pc/account/login` 改回 `cp.kuaishou.com/`，第一条守卫当场失效（登录页不再等于登录 URL），而 `aedfc701` 为扫码登录加进 `AUTH_HOSTS`/成功模式的裸域名 `passport.kuaishou.com` 仍在，于是**登录页自己被判定为登录成功**。**判定手法**：改任何 `PLATFORM_LOGIN_URLS` 条目时，必须同时问「哪条守卫的前提变了」，不能只看这一行是不是更合理。
+
+- **「登录页与后台同域」是同一类 Bug 的第四次复发，而门禁只覆盖了前三次（审查盲区）**：百家号（2026-08-12）、头条（2026-09-13）、视频号（2026-09-14）都写过「裸域名把预登录页误判成登录成功 → 视图提前关闭 → 保存无效凭证」的注释与负例测试，`platform-definitions.test.js` 对这三家各有用例，**唯独快手没有**——所以 `aedfc701`/`c3c39557` 两次改动都没有任何断言会红。同类 bug 换平台再犯一次的成本，等于「补该平台的负例」而不是「重查根因」。**修法**：新增/修改平台登录元数据的 PR，必须同 PR 落该平台的「登录页不算成功」负例，已写入 AGENTS.md QM-2。
+
+- **「有 Cookie」不是登录证据：登录页自带埋点 Cookie，会让假成功看起来完全合法（测试场景缺失）**：被误存的快手账号有 `cookies=9 lsKeys=9`，`hasCapturedCredentials` 只看「有没有东西」因此一律放行；那 9 个是 `did`/`wid`/`kwssectoken`/`kwpsecproductname`/`kwfv1`/`kwscode` 这类匿名标识，真实登录态是登录成功后才出现的 `kuaishou.web.cp.api_st`（名字就是登录 URL 里的 `sid`）/ `userId` / `bUserId`。更根本的是：**快手未登录访问 `cp.kuaishou.com/` 会被前端路由到 `/profile`，登录成功回落也是 `/profile`**——URL 路径在该平台本质上不可区分，只能靠会话凭证。**判定手法**：要区分「登录态」就必须找一个「登录动作之后才会存在」的东西（会话票据 / LS 标记），而不是「页面上有 Cookie」；标记键必须实测取证，不得混入设备/埋点标识。
+
+- **只打平台名不打 URL 的判定日志，会把一次可秒判的事故变成考古（observability pitfall）**：`AuthView` 的 `URL pattern detected login success: kuaishou` 不带命中地址，本次只能靠「误存账号名恰好是网页 `<title>`」＋ curl 比对 passport 页标题才反推出停在登录页。**修法**：任何「按 URL/模式判定状态机迁移」的日志必须带上被命中的原始输入；`hasCapturedCredentials` 这类静默 `return` 必须记 warn 说明拦下理由，否则「为什么没自动完成」无从查起。
+
+- **收口类修复的「入口清单」必须穷举，自审会漏（pitfall，QM-6 实证）**：本次给「凭证入库」加会话标记门禁，自审认定了三个入口（auth-view-manager、qrcode-login、webview-manager/credential-saver）并全部改完、测完、反证过；跨模型外部评审仍指出**第四个**——`account-manager.captureCookies()` → `addAccount()` → `saveCapturedAccount()`（IPC `account:add`），它同样把 Cookie 直接写进凭证库，且它的「登录检测方式 2」只判 `window.location.host` 是否偏离登录 URL 的 host，对快手而言一跳到 passport 就立即为真，假成功形态与主 Bug 一模一样。**教训**：加「统一门禁」时，先用「谁能把这类数据落到库里」反查一遍（grep 持久化函数名本身，而不是顺着调用链找），把写库函数列成清单逐个打勾；顺着 UI 流程想入口必然漏掉旁路 API。判定「收口完成」的依据是「所有写库点都被拦」，不是「我改过的文件都测过了」。
+
+- **门禁改动会立刻暴露「用假数据冒充凭证」的既有测试（正向收益）**：加会话标记门禁后 `qrcode-login.test.js`/`webview-manager.test.js` 各有用例转红，其 fixture 正是 `{name:'session',value:'secret'}` 这种「随便一个 Cookie 就当凭证」的形态——它们一直在为假成功背书。改门禁时**不要为了变绿而放宽门禁**，要按真实合同改 fixture（本次改为真实会话票据），并另加「只有埋点 Cookie 必须被拦」的负例。
+
+---
+
 ## 抬超时数字治不了无界等待：子进程握手的 marker 匹配必须按累计缓冲，且诊断要抢在框架超时之前（credential-lock-handshake-flake，2026-09-26）
 
 - **一个用例的超时值被抬过两次，就是在宣告它的等待没有预算（pitfall，本条第一性）**：`credential-store.test.js` 的 Windows 文件锁用例 `Error: Test timed out in 60000ms`，而这颗雷已被「抬数字」修过两次 —— `71e76a5e` 10s→30s、`1e22e68f` 30s→60s，两次提交信息都写着「消除 CI 负载下偶发超时」，代码注释里还留着"显式超时 30s"没跟上。**识别信号**：`git log -L <行区间>:<文件>` 看到同一个 timeout 常量被单调抬高；注释数字与代码数字不一致（说明那次改动只是改数值，没重读逻辑）。**口径**：超时抬高一次都算一次带证据的决策，必须先回答"它在等谁、那段等待有没有边界"；无界等待抬到多大都只是"多久之后才失败"。
