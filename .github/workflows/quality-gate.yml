@@ -815,10 +815,73 @@ jobs:
           if-no-files-found: ignore
           retention-days: 5
 
+  business-api-postgres:
+    name: QG Business API Postgres
+    # 账号云镜像的迁移与仓储必须跑在真 PostgreSQL 上：Windows runner 不支持 services:，
+    # 因此这是独立的 ubuntu-latest job，而不是塞进 windows 的 unit-tests（AGENTS.md
+    # 「Docker runner 文件集 / PostgreSQL migration 最小权限」同族口径）。
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: mulpub_test
+          POSTGRES_PASSWORD: mulpub_test_pw
+          POSTGRES_DB: mulpub_business_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mulpub_test -d mulpub_business_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.13.1
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+      - name: "Gate 4p-1 - 真实迁移（含 005_cloud_accounts）先 dry-run 再执行"
+        env:
+          BUSINESS_DATABASE_URL: postgresql://mulpub_test:mulpub_test_pw@127.0.0.1:5432/mulpub_business_test
+        run: |
+          cd packages/api-publish-engine
+          node scripts/migrate-postgres.js --dry-run
+          node scripts/migrate-postgres.js | tee /tmp/migrate.json
+          node -e "
+            const r=JSON.parse(require('fs').readFileSync('/tmp/migrate.json','utf8'));
+            const hit=r.applied.concat(r.skipped).includes('005_cloud_accounts.sql');
+            if(!hit){console.error('LEDGER_MISSING_005_cloud_accounts');process.exit(1);}
+            console.log('005_cloud_accounts.sql 已在真实库执行:', r.applied.includes('005_cloud_accounts.sql')?'applied':'skipped');
+          "
+      - name: "Gate 4p-2 - 真库二次执行必须幂等（重复迁移不得重复建表或改 checksum）"
+        env:
+          BUSINESS_DATABASE_URL: postgresql://mulpub_test:mulpub_test_pw@127.0.0.1:5432/mulpub_business_test
+        run: |
+          cd packages/api-publish-engine
+          node scripts/migrate-postgres.js | tee /tmp/migrate2.json
+          node -e "
+            const r=JSON.parse(require('fs').readFileSync('/tmp/migrate2.json','utf8'));
+            if(r.applied.length){console.error('MIGRATION_NOT_IDEMPOTENT::'+r.applied.join(','));process.exit(1);}
+          "
+      - name: "Gate 4p-3 - 云账号仓储真 SQL 回归（合并键唯一约束 / 墓碑 / 按用户隔离 / 密文不含明文）"
+        env:
+          BUSINESS_DATABASE_URL: postgresql://mulpub_test:mulpub_test_pw@127.0.0.1:5432/mulpub_business_test
+          BUSINESS_DATABASE_MIGRATIONS_DIR: ${{ github.workspace }}/migrations/postgresql
+        run: |
+          cd packages/api-publish-engine
+          node --test test/cloud-accounts-postgres-real.test.js
+
   gate-result:
     name: Gate Result
     runs-on: windows-latest
-    needs: [static-gates, unit-tests, desktop-shards, coverage, visual, e2e, autonomous]
+    needs: [static-gates, unit-tests, desktop-shards, coverage, business-api-postgres, visual, e2e, autonomous]
     if: always()
     timeout-minutes: 5
     steps:
@@ -832,6 +895,7 @@ jobs:
           echo "unit tests   : ${{ needs.unit-tests.result }}"
           echo "desktop shards: ${{ needs.desktop-shards.result }}"
           echo "coverage     : ${{ needs.coverage.result }}"
+          echo "biz-api pg   : ${{ needs.business-api-postgres.result }}"
           echo "visual gate  : ${{ needs.visual.result }}"
           echo "browser E2E  : ${{ needs.e2e.result }}"
           echo "autonomous   : ${{ needs.autonomous.result }}"
