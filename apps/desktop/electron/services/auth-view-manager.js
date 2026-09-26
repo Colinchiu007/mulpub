@@ -23,7 +23,7 @@ const accountProfile = require('@multi-publish/shared-utils/src/account-profile'
 const { attachCdpDetection } = require('./auth-view-cdp')
 // 会话级网络诊断：iframe 内的二维码请求失败不会触发外层 webContents 的 did-fail-load，
 // 不挂它就等于对「二维码刷很久」完全无感知
-const { attachLoginNetworkDiagnostics, attachAuthResponseDiagnostics } = require('./login-network-diagnostics')
+const { attachLoginNetworkDiagnostics, attachAuthResponseDiagnostics, attachLoginPageNoiseCancel } = require('./login-network-diagnostics')
 const { createSession, setCookies, restoreLocalStorage, restoreIndexedDB, createAuthView } = require('./auth-view-session')
 // 内嵌视图定位唯一来源：必须用「客户区」尺寸，禁用 getBounds() 外框尺寸（见 view-bounds.js）
 const { computeEmbeddedViewBounds, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } = require('./view-bounds')
@@ -317,6 +317,7 @@ class AuthViewManager {
       // 旁路观测，挂接失败只告警，不得让可观测性变成新的故障点。
       try {
         attachLoginNetworkDiagnostics(authSession, { platform, accountId })
+        attachLoginPageNoiseCancel(authSession, { platform, accountId })
       } catch (e) {
         log.warn('AuthView', 'login network diag attach failed: ' + ((e && e.message) || 'unknown'))
       }
@@ -588,6 +589,7 @@ class AuthViewManager {
       webPreferences: {
         session: session.fromPartition(`persist:silent-auth-${platform}-${Date.now()}`, { cache: true }),
         contextIsolation: true, nodeIntegration: false, sandbox: true,
+        backgroundThrottling: false, // 该窗全程 show:false，隐藏页会被降频定时器并停掉 rAF
       },
     })
 

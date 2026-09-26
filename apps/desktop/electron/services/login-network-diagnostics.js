@@ -172,17 +172,62 @@ function attachLoginNetworkDiagnostics (ses, ctx) {
  *
  * @param {{ on: Function, sendCommand: Function } | null | undefined} debuggerObj
  * @param {{ platform?: string, accountId?: string }} [ctx]
- * @returns {boolean} 是否已挂接（未登记的平台返回 false，零新增监听面）
+ * @returns {boolean} 是否已挂接（两档都不命中的平台返回 false，零新增监听面）
  */
+// 登录页自带的装饰性大文件（视频号背景 mp4）与 ORB 必拒的上报域名。
+// 刻意用完整常量而非「含 .mp4」「含 localhost」这种宽匹配：后者会误伤其它平台背景视频
+// 与我们自己的 127.0.0.1 本地服务。本机微信客户端探测也不拦 —— 它即时失败，且拦掉就
+// 等于取消「在本机微信里确认登录」这条快捷路径。
+const LOGIN_NOISE_URLS = [
+  'https://res.wx.qq.com/t/wx_fed/finder/static-assets/finder-common-assets/res/finder-helper/2560x864_helper.mp4',
+  'https://res.wx.qq.com/t/wx_fed/finder/static-assets/finder-common-assets/res/finder-helper/2560x864_MCN.mp4',
+]
+const LOGIN_NOISE_PREFIXES = ['https://support.weixin.qq.com/cgi-bin/mmsupportmesh']
+// 监听面收窄到这两个 host：不匹配 host 的请求根本不会进回调。
+const LOGIN_NOISE_FILTERS = ['https://res.wx.qq.com/*', 'https://support.weixin.qq.com/cgi-bin/mmsupportmesh*']
+
+function isLoginPageNoiseUrl (url) {
+  if (typeof url !== 'string' || !url) return false
+  if (LOGIN_NOISE_URLS.indexOf(url) !== -1) return true
+  for (const pfx of LOGIN_NOISE_PREFIXES) { if (url.indexOf(pfx) === 0) return true }
+  return false
+}
+
+/**
+ * 默认关：需 MP_LOGIN_NOISE_CANCEL=1 才注册（先做 A/B 取证，再决定是否变默认行为）。
+ * @returns {boolean} 是否已挂接
+ */
+function attachLoginPageNoiseCancel (ses, ctx) {
+  if (process.env.MP_LOGIN_NOISE_CANCEL !== '1') return false
+  if (!ses || !ses.webRequest || typeof ses.webRequest.onBeforeRequest !== 'function') return false
+  if (ses.__loginNoiseAttached) return true
+  ses.__loginNoiseAttached = true
+  var tag = '[' + ((ctx && ctx.platform) || 'unknown') + '/' + ((ctx && ctx.accountId) || 'unknown') + '] '
+  var cancelled = 0
+  ses.webRequest.onBeforeRequest({ urls: LOGIN_NOISE_FILTERS.slice() }, function (details, callback) {
+    var hit = isLoginPageNoiseUrl(details && details.url)
+    if (hit && cancelled < QR_IMAGE_LOG_LIMIT) {
+      cancelled += 1
+      log.info('LoginNoise', tag + 'cancel 登录页噪音 ' + ((details.url || '').split('?')[0].split('/').pop()))
+    }
+    callback({ cancel: hit })
+  })
+  return true
+}
+
 function attachAuthResponseDiagnostics (debuggerObj, ctx) {
   if (!debuggerObj || typeof debuggerObj.on !== 'function' || typeof debuggerObj.sendCommand !== 'function') return false
   var platform = (ctx && ctx.platform) || 'unknown'
-  if (!AUTH_ENDPOINT_MATCHERS[platform]) return false
+  if (!AUTH_ENDPOINT_MATCHERS[platform] && QR_BYTE_OBSERVE_PLATFORMS.indexOf(platform) < 0) return false
   if (debuggerObj.__loginRespDiagAttached) return true
   debuggerObj.__loginRespDiagAttached = true
 
   var tag = '[' + platform + '/' + ((ctx && ctx.accountId) || 'unknown') + '] '
   var urlByRequestId = new Map()
+  // 二维码请求单独登记：diagnosticUrl() 会抹掉 query，而 getqrcode 恰好只在 query 里
+  var qrByRequestId = new Set()
+  var qrFinished = 0
+  var attachedAtMs = Date.now()
 
   // Network.enable 失败（域不可用 / debugger 实际未 attach）只降级为「收不到事件」，
   // 绝不让观测代码影响登录本身。
@@ -203,6 +248,10 @@ function attachAuthResponseDiagnostics (debuggerObj, ctx) {
       if (method === 'Network.requestWillBeSent') {
         var sentUrl = params && params.request && params.request.url
         if (requestId && matchesAuthEndpoint(platform, sentUrl)) remember(requestId, diagnosticUrl(sentUrl))
+        if (requestId && isQrImageUrl(sentUrl)) {
+          if (qrByRequestId.size >= MAX_TRACKED_REQUESTS) qrByRequestId.delete(qrByRequestId.values().next().value)
+          qrByRequestId.add(requestId)
+        }
         return
       }
 
@@ -214,6 +263,17 @@ function attachAuthResponseDiagnostics (debuggerObj, ctx) {
         if (errorText === 'ERR_ABORTED') return
         log.warn('LoginRespDiag', tag + '关键端点请求失败 url=' + failedUrl +
           ' netError=' + errorText + ' → ' + classifyNetError(errorText))
+        return
+      }
+
+      // 出码真实字节数：webRequest 层拿不到跨域 iframe 的 content-length，只有 CDP 给得出。
+      if (method === 'Network.loadingFinished') {
+        if (!requestId || !qrByRequestId.has(requestId)) return
+        qrByRequestId.delete(requestId)
+        if (qrFinished >= QR_IMAGE_LOG_LIMIT) return
+        qrFinished += 1
+        var bytes = params && typeof params.encodedDataLength === 'number' ? params.encodedDataLength : 'unknown'
+        log.info('LoginRespDiag', tag + 'qr bytes #' + qrFinished + ' after ' + (Date.now() - attachedAtMs) + 'ms encodedDataLength=' + bytes)
         return
       }
 
@@ -253,6 +313,11 @@ const AUTH_ENDPOINT_MATCHERS = {
   },
 }
 
+// 只观察「出码真实字节数」的平台：enable Network 但永不 getResponseBody。
+// 与 AUTH_ENDPOINT_MATCHERS 分两档，是因为「读响应体」有隐私与时序代价，而 loadingFinished
+// 只带一个数字 —— 二者成本不同档，门槛也不该同一张表。
+const QR_BYTE_OBSERVE_PLATFORMS = ['wechat_mp', 'tencent_video']
+
 const MAX_TRACKED_REQUESTS = 64
 const MAX_MESSAGE_CHARS = 80
 
@@ -288,4 +353,4 @@ function extractAuthError (bodyText) {
   return { code: code, message: message }
 }
 
-module.exports = { attachLoginNetworkDiagnostics, attachAuthResponseDiagnostics, classifyNetError }
+module.exports = { attachLoginNetworkDiagnostics, attachAuthResponseDiagnostics, attachLoginPageNoiseCancel, isLoginPageNoiseUrl, classifyNetError }

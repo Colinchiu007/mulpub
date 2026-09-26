@@ -16120,3 +16120,12 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **authOpenLogin 不带 accountId 会静默建新账号（pitfall，探针副作用）**：auth:open-login 完成流程里 saveCapturedAccount（无 id 建号）vs updateCapturedAccount（有 id 刷新）。探针复用登录态视图但未传 accountId，触发自动完成建出重复账号 0e7a4bdf。修复：驱动 auth 视图一律显式传既有 accountId；探针后用 accountList + 分区目录 CreationTime 取证是否误建，误建即删。登记副作用比「假装无副作用」重要——已写进侦察证据文档。
 - **electron-builder --dir 不带 vite build，测试面会静默缺 renderer（pitfall，QM-1 首轮假通过）**：worktree 无 dist/ 构建残留时，直接 pnpm exec electron-builder --dir 打出的 asar 里没有 \dist\index.html，exe 启动报 ERR_FILE_NOT_FOUND——但 builder 本身 exit 0、asar 里 electron/ 主进程文件齐全，「清单里找得到新模块」这类验证全部通过。修复：QM-1 统一走 pnpm run build:dir（build:vue + builder）。**口径：打包验证的成立条件必须包含 renderer 入口存在（asar list 断言 \dist\index.html）+ exe 存活且 stderr 无 ERR_FILE_NOT_FOUND/ENOTDIR**，只验主进程捆入等于验了半个产物。
 - **共享根证据文件随 PR 收编进 worktree evidence 目录（pattern）**：活体验收产物（applog/progress/verdict）最初落在共享根（未跟踪），提交前先 Copy 进 worktree 01-docs/**/evidence/ 再随 PR 提交；.md/.png 被 gitignore（/01-docs/**/*.md、*.png）时按 spike-verdict.md 先例 git add -f，并在 PR 正文注明。EOL 幻影（git diff --ignore-all-space 为空）的 bundle 文件不纳入提交面。
+
+
+## cancel 第三方页面请求的安全性是"借来的"——因为我们的登录视图没挂 did-fail-load（cancel-prerequisite-error-page，2026-09-27）
+
+- **背景**：给登录页做噪音 cancel（只拦 `res.wx.qq.com` 两个 `2560x864_*.mp4` 与 `support.weixin.qq.com/cgi-bin/mmsupportmesh`）时对照竞品参考产品，它敢在 `*://*/*` 上 cancel 的**前提**是其 `did-fail-load` 带 `isMainFrame && errorCode !== -3` 门禁（-3 = `ERR_ABORTED`），之后才跳自家错误页。
+- **我们的现状**：登录视图**根本没挂 `did-fail-load`**（全仓唯一一处在 `rpa-view-session.js:31`，属 RPA 发布路径），所以 cancel 子资源不会被误判成"登录页加载失败"而弹自家错误页。
+- **为什么这是"借来的安全"**：安全来自"缺少那段逻辑"，不是来自"我们做了防护"。**将来任何人给登录视图加「失败→错误页」，都必须同时补 `errorCode !== -3` 与 `isMainFrame` 门禁**，否则一次 cancel 就会把登录页换成错误页 —— 而 cancel 默认关（`MP_LOGIN_NOISE_CANCEL=1`）意味着这个回归只会在有人打开开关、又恰好加了错误页之后才爆，测试面完全覆盖不到。
+- **宽匹配禁区（同批证据）**：竞品用 `url.includes("output.mp4")` 这种不限 host 的裸子串。我们若照抄成 `includes(".mp4")` 会直接废掉其它平台的背景视频，写成 `includes("localhost")` 会误伤我们自己的 `127.0.0.1:<随机端口>` 服务。约束：host+路径收窄在 **webRequest filter 层**（不匹配 host 的请求根本进不到回调），判定用完整常量或前缀常量，并锁一条「filter 数组精确等于预期」的结构断言。
+- **刻意不拦的一条**：`localhost.weixin.qq.com:13013-14015/api/check-login`（微信页探测本机客户端）。它即时失败（`ERR_CONNECTION_CLOSED`，一批 6 个共约 3 秒），拦掉省不下多少，却会永久取消「在本机微信里确认登录」这条快捷路径 —— 收益与代价不对等。

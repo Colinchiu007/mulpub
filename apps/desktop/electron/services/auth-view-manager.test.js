@@ -818,6 +818,60 @@ describe('AuthViewManager 登录视图可观测性（回归：persist:auth-* 分
     })
   })
 
+  // 节流取值必须"显式声明"：留默认等于没写理由 —— 上一轮就是留默认导致真机恒 bgThrottle=true。
+  describe('登录承载路径 backgroundThrottling 显式声明锁（四类承载同口径）', () => {
+    const fsLock = require('fs')
+    const pathLock = require('path')
+
+    // 隐藏期承载（全程不被绘制）必须 false；可见期承载允许 true，但两者都必须写出来。
+    const CARRIERS = [
+      ['auth-view-session.js', true],
+      ['qrcode-login.js', true],
+      ['identity/identity-auth-window.js', false],
+      ['auth-view-manager.js', false],
+    ]
+
+    function declOf (file) {
+      const p = pathLock.join(__dirname, file)
+      if (!fsLock.existsSync(p)) throw new Error('登录承载文件不存在：' + file)
+      const lines = fsLock.readFileSync(p, 'utf8').split(/\r?\n/)
+      for (const raw of lines) {
+        const l = raw.trim()
+        // 注释里的 backgroundThrottling:false 不算声明 —— 上一版就是被注释字样骗过
+        if (l.startsWith('*') || l.startsWith('//') || l.startsWith('/*')) continue
+        const m = l.match(/backgroundThrottling:\s*(true|false)/)
+        if (m) return m[1] === 'false' ? false : true
+      }
+      return null
+    }
+
+    it('每个登录承载文件都必须显式声明 backgroundThrottling（留默认即视为未声明）', () => {
+      const missing = CARRIERS.filter(([f]) => declOf(f) === null).map(([f]) => f)
+      expect(missing, '以下登录承载路径未声明 backgroundThrottling').toEqual([])
+    })
+
+    it('隐藏期承载声明 false、可见期承载声明 true（分档即门禁口径）', () => {
+      expect(declOf('identity/identity-auth-window.js')).toBe(false)
+      expect(declOf('auth-view-manager.js')).toBe(false)
+      expect(declOf('auth-view-session.js')).toBe(true)
+      expect(declOf('qrcode-login.js')).toBe(true)
+    })
+
+    it('loginSilent 真的把 backgroundThrottling:false 传给了隐藏 BrowserWindow', () => {
+      const electron = require('electron')
+      const AuthViewManager = require('./auth-view-manager')
+      const m = new AuthViewManager()
+      const before = electron.BrowserWindow.mock.calls.length
+      const pending = m.loginSilent('wechat_mp', [], {}, {})
+      pending.catch(() => {}) // 内部 3s 兜底定时器不该阻塞断言
+      const calls = electron.BrowserWindow.mock.calls
+      expect(calls.length).toBeGreaterThan(before)
+      const opts = calls[calls.length - 1][0]
+      expect(opts.show).toBe(false)
+      expect(opts.webPreferences.backgroundThrottling).toBe(false)
+    })
+  })
+
   it('诊断挂接失败不阻断登录流程（可观测性是旁路，不能变成新的故障点）', async () => {
     const { diagSession } = wireView()
     diagSession.webRequest.onErrorOccurred = vi.fn(function () { throw new Error('boom') })

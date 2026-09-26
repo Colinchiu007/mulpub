@@ -1,3 +1,25 @@
+# [未发布] fix(desktop): 登录承载节流按「是否可能被绘制」分两档 + CDP 只数字节观测 + 登录页噪音 cancel 实验开关（2026-09-27，login-qr-throttle-and-netobs）
+
+### 变更
+- **节流取值**：四类登录承载此前全部留默认，实测只有账号标签路径设了 `false`。`loginSilent`（全程 `show:false` 且 loadURL 后固定等 3 秒收凭证）与 OIDC `identity-auth-window`（靠 `ready-to-show`/`dom-ready`/`did-finish-load` 才显示，即远端页加载期一直隐藏）改为 `backgroundThrottling:false`；`createAuthView`（openLogin）与 `QrCodeLogin` 建好即 `setVisible(true)`，按真机 `drawn=true` 证据**显式写 `true` 并附理由**，不再留默认。
+- **出码真实字节数**：把 CDP 观测拆成两档 —— `AUTH_ENDPOINT_MATCHERS`（会 `getResponseBody`，有隐私与时序代价）与新增 `QR_BYTE_OBSERVE_PLATFORMS=[wechat_mp,tencent_video]`（只 `Network.enable` 读 `loadingFinished.encodedDataLength`）。二维码请求单独登记 requestId（`diagnosticUrl()` 会抹 query，而 `getqrcode` 恰在 query 里），输出 `qr bytes #n after Xms encodedDataLength=N`，缺字段显式记 `unknown`。
+- **登录页噪音 cancel**：新增 `attachLoginPageNoiseCancel`，**默认关**（`MP_LOGIN_NOISE_CANCEL=1` 才注册），只拦 `res.wx.qq.com` 两个 `2560x864_*.mp4` 与 `support.weixin.qq.com/cgi-bin/mmsupportmesh` 前缀；filter 在 webRequest 层就收窄到两个 host。刻意不拦 `localhost.weixin.qq.com:13013-14015` 客户端探测（即时失败，拦掉会取消「在本机微信里确认登录」快捷路径）。
+
+### 影响
+- 节流取值属登录热路径的行为变更，但仅作用于两处**本来就隐藏**的窗口；可见登录视图行为不变（真机已证出码期 `drawn=true`，节流无可作用对象）。
+- cancel 默认关 ⇒ 现网零行为变化，先取 A/B 证据（比末次 `login page finished`）再决定是否转默认开。
+- 零新增用户可见文案（locales 未触碰）。
+
+### 测试
+- 三段各自 TDD：(a) 4 failed→0；(b) 4 failed→0；(c) 4 failed（`TypeError: not a function`）→0。合跑 `auth-view-manager` + `login-network-diagnostics` 85 passed，相关面（含 `account-manager`）159 passed，eslint 0 error。
+- 新增「登录承载 `backgroundThrottling` 显式声明锁」：按文件读真实声明，**注释里的字样不算**（跳过 `*`/`//` 行）；并断言 loginSilent 真的把 `false` 传给了隐藏 `BrowserWindow`。
+- 新增「observe-only 隐私边界」两条：observe-only 平台即便收到 `responseReceived` 也绝不 `getResponseBody`；两档都不命中的平台连 `Network.enable` 都不发。
+- 变异反证 9/9 全部变红（(a) 3 条、(b) 3 条、(c) 3 条：去默认关守卫 / filter 放宽成 `*://*/*` / 判定改 `includes('.mp4')`）。(a) 的 M4（把"缺失锁"改 no-op）未变红，原因是被"分档锁"冗余覆盖 —— 如实记录，不当作 4/4。
+- QM-1 离线打包 `BUILD_EXIT=0` + asar 取证的记录见 `.quality-gates.md` 同节。
+
+### 文档
+- `AGENTS.md` QM-2「登录承载路径的观测与节流口径单一来源」补第⑤⑥条（节流两档 + CDP 两档，禁止再以"避免 CDP 事件量"一概否决轻观测）。
+- `01-docs/learnings.md` 新增 `cancel-prerequisite-error-page`：我们 cancel 的安全性来自"登录视图没挂 `did-fail-load`"，属**借来的安全** —— 将来谁加"失败→错误页"必须同时补 `isMainFrame && errorCode !== -3` 门禁；并记宽匹配禁区。
 # [未发布] fix(login): 裸域名成功模式加形态否决层，采集侧「方式 2」改判据（2026-09-26，platform-login-evidence-hardening）
 
 ### 变更
