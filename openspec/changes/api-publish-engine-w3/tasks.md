@@ -26,7 +26,7 @@
   - S2a 静态侦察：**Tier-A 方向成立**（sig3 由快手页面自带 `$encode` VM 生成，非第三方外包，不触 §7 grep 门禁）。S2b 活体终判：**Tier-A GO**（页面签名器为我方独立构造请求产出的 sig3 被平台接受，新构造新签新发即时有效）。Group 4/5 放行
 - [ ] 3.3 S3 复算直发活体（用户在场）：抽取函数签名直发 1 条真实请求（私密/草稿优先、间隔 ≥18min）
   - 状态：未单独执行；S2b 已证「独立构造请求接受性」核心命题，S3 语义延期至 6.3 发布链集成验收（submit 端点真实发布由用户在场做最终回归），不再阻塞 Group 4/5 开发
-- [x] 3.4 M3 裁决记录：S0-S3 结果（含失败现场）写 `evidence/api-w3-kuaishou/spike-verdict.md` + 回写 PRD F12/techdoc v2 修订记录；**no-go → 跳到 6.1 收尾**（Group 4/5 不合并、platforms.yaml 不动、基建单独评审）
+- [x] 3.4 M3 裁决记录：S0-S3 结果（含失败现场）写 `evidence/api-w3-kuaishou/spike-verdict.md` + 回写 PRD F12（`01-docs/PRD-API-PUBLISH-ENGINE.md` §4 P2 表）/techdoc v2 修订记录；**no-go → 跳到 6.1 收尾**（Group 4/5 不合并、platforms.yaml 不动、基建单独评审）
   - 裁决：**go**（S2b Tier-A）→ 进入 Group 4；PRD F12/techdoc v2 回写随 6.4 收口
 
 ## 4. 快手发布链（仅 spike go；TDD 链契约测试先行）
@@ -44,6 +44,11 @@
 ## 6. 门禁与交付
 
 - [ ] 6.1 全量门禁：api-publish-engine run-tests 全绿 + 桌面受影响 suites + QG 静态（品牌残留/远程通道零命中扩展/__mpSigner 常量扫描）+ QM-1 最终包验证；`openspec validate` 通过
+  - 已验（2026-09-26，origin/main `f71343a82d`）：引擎 `run-tests.js` EXIT=0 **31 files / 258 tests 全绿**（direct-node 套件 `=== ALL PASSED ===`）；QG 静态 Gate12 品牌残留 PASS（6201 tracked 文件）/ Gate3 硬编码密钥 PASS / Gate7 `--pair-base 0ef09cce5f` zh+en 成对 PASS + `--keys` PASS（4204 键）；桌面 signer suites `signer-assembly` + `signer-page-manager` 2 files / 37 tests 绿；`openspec validate --strict` valid。
+  - 口径修正：design §7 的「`__mpSigner` 常量扫描」全仓 **0 命中**（实现实际命名为 `__MP_SIGN_CHUNK_GLOBAL__`/`__MP_SIGN_MODULE_ID__`/`__MP_SIGN_EXPORT__`/`__MP_SIGN_PAYLOAD__` 占位符 + `__mp_sig_probe__` 探针块名），该条为空洞门禁；真实合规属性（禁止回传函数体源码）由 `signer-page-manager.test.js` 断言 `Function.prototype.toString`/`JSON.stringify(fn)` 零回传覆盖。
+  - 仍开放：**QM-1 最终包验证**与活体同波（6.3 需真实 Electron 窗口跑发布链，打包产物即验收载体）；本波未触碰 `apps/desktop/electron/`（#2413 基建波已做过 QM-1 三件套）。
 - [ ] 6.2 PR/autoMerge（基建与链可分 PR：基建先行独立可回滚）；CI 全绿自动合并
 - [ ] 6.3 （spike go 时）活体裁决验收（用户在场）：快手真实标题私密/草稿 1 条、间隔 ≥18min、前台回查、证据四件套入 `evidence/api-w3-kuaishou/`；风控即停绝不换号
-- [ ] 6.4 收口：M3 结论回写 PRD F12/F13 与 techdoc v2；`openspec archive` + learnings/记忆三投
+- [ ] 6.4 收口：M3 结论回写 PRD F12/F13 与 techdoc v2（两者均在 `01-docs/PRD-API-PUBLISH-ENGINE.md` §4 P2 表——⚠️ 不是 `01-docs/PRD.md`，后者 F12=多平台实时监控、F13=评论管理，与本特性无关；交叉引用原按记忆书写，2026-09-26 核实纠偏）；`openspec archive` + learnings/记忆三投
+  - M3 裁决（S0 INCONCLUSIVE / S2a Tier-A 方向成立 / S2b Tier-A GO）与 F13 止步（x-s/x-t 依赖外包服务、页面内可抽取性未经 spike）属**已定决策**，2026-09-26 先行回写 PRD §4/§9/§10 + techdoc v2 §2/§4.2/§6.1/§11，防上下文断联；
+  - 活体证据四件套回写（PRD 附录验收表实数据）与 `openspec archive` 仍阻塞于 6.3（用户在场），与 W1 §7.5-7.7 / W2 §6.2-6.4 同形态尾债，建议一次真实账号窗口三波合并验收。
