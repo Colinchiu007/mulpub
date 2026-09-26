@@ -1351,22 +1351,40 @@ describe('setAccountActive 启用态唯一写者（与登录态正交）', () =>
   })
 })
 
-describe('captureCookies 会话凭证门禁（第 4 个入库入口）', () => {
+describe('captureCookies 登录完成判据与会话凭证门禁（第 4 个入库入口）', () => {
   // 2026-09-26 CCG 评审 Warning 2：captureCookies 的「方式 2」只判 window.location.host
   // 是否偏离 PLATFORM_LOGIN_URLS 的 host。快手登录入口 cp.kuaishou.com 会被前端带到
   // passport.kuaishou.com 登录页 —— host 已变，于是用户还没登录就被判「登录完成」，
   // 采到的全是埋点 Cookie，再经 addAccount → saveCapturedAccount 直接入库。
-  function mockPlaywrightPage (cookies) {
+  // 同日后续项把语义改写为：①导航必须落在平台可信域且不是登录页（isPlatformLeftLoginPage）；
+  // ②同域平台（快手登录前后都在 cp.kuaishou.com）只能靠已声明的会话凭证标记判定完成。
+  const LOGIN_TIMEOUT_MS = 500
+
+  function mockPlaywrightPage ({ cookies = [], urls = [], selectorHits = false, urlThrows = 0 } = {}) {
+    let urlIndex = 0
+    let throwsLeft = urlThrows
     const page = {
       addInitScript: vi.fn(async () => {}),
       goto: vi.fn(async () => {}),
-      // 长 timeout 的那次调用是「等待用户登录」的方式1 分支：真实场景里选择器始终不出现，
-      // 必须让它悬着，才能由方式2（host 变化）判定登录完成——这正是快手误判的形态。
-      // 短 timeout 的两次是预检与 smartWait 兜底，按未命中处理。
-      waitForSelector: vi.fn((selector, opts) => ((opts && opts.timeout) > 10000
-        ? new Promise(() => {})
-        : Promise.reject(new Error('selector not found')))),
-      waitForFunction: vi.fn(async () => {}),
+      url: vi.fn(() => {
+        if (throwsLeft > 0) {
+          throwsLeft--
+          throw new Error('navigation in flight')
+        }
+        return urls[Math.min(urlIndex++, urls.length - 1)] || ''
+      }),
+      waitForSelector: vi.fn((selector, opts) => {
+        if (selectorHits) return Promise.resolve(true)
+        // 只有「等待用户登录」那一次用的是调用方传入的 timeout；真实浏览器里选择器
+        // 始终不出现时它会一直悬着。预检（5s）与 smartWait（3s）按未命中处理。
+        return (opts && opts.timeout === LOGIN_TIMEOUT_MS)
+          ? new Promise(() => {})
+          : Promise.reject(new Error('selector not found'))
+      }),
+      // 陷阱：页面内 host 比较已从实现中移除，任何人改回去都会在这里炸出明确原因。
+      waitForFunction: vi.fn(async () => {
+        throw new Error('legacy 方式2（页面内 host 比较）不得再被调用')
+      }),
       evaluate: vi.fn(async () => ({})),
       $: vi.fn(async () => null),
       close: vi.fn(async () => {}),
@@ -1379,29 +1397,90 @@ describe('captureCookies 会话凭证门禁（第 4 个入库入口）', () => {
     return page
   }
 
+  // 轮询间隔可经环境变量收紧，避免单测真等 5 分钟（与实现里的硬超时同一预算）
+  beforeEach(() => { process.env.MP_ACCOUNT_LOGIN_POLL_MS = '5' })
+  afterEach(() => { delete process.env.MP_ACCOUNT_LOGIN_POLL_MS })
+
   it('快手只采到埋点 Cookie 时抛错，不返回可入库凭证', async () => {
     global.__enableElectronMock()
     global.__resetElectronMock()
     const accountManager = loadAccountManager()
-    mockPlaywrightPage([
-      { name: 'did', value: 'anon' },
-      { name: 'wid', value: 'anon' },
-      { name: 'kwssectoken', value: 'anon' },
-    ])
+    // 选择器命中 = 正向证据，但埋点 Cookie 不构成会话证据，门禁仍必须拦住
+    mockPlaywrightPage({
+      selectorHits: true,
+      cookies: [
+        { name: 'did', value: 'anon' },
+        { name: 'wid', value: 'anon' },
+        { name: 'kwssectoken', value: 'anon' },
+      ],
+    })
 
-    await expect(accountManager.captureCookies('kuaishou', 60000)).rejects.toThrow('未检测到登录态')
+    await expect(accountManager.captureCookies('kuaishou', LOGIN_TIMEOUT_MS)).rejects.toThrow('未检测到登录态')
+  })
+
+  it('跳到 passport 登录页不再算登录完成（方式2 语义收口）', async () => {
+    global.__enableElectronMock()
+    global.__resetElectronMock()
+    const accountManager = loadAccountManager()
+    const page = mockPlaywrightPage({
+      urls: ['https://passport.kuaishou.com/pc/account/login/?sid=kuaishou.web.cp.api&callback=https%3A%2F%2Fcp.kuaishou.com%2Frest%2Finfra%2Fsts'],
+      cookies: [{ name: 'did', value: 'anon' }],
+    })
+
+    await expect(accountManager.captureCookies('kuaishou', LOGIN_TIMEOUT_MS)).rejects.toThrow('登录超时')
+    expect(page.waitForFunction).not.toHaveBeenCalled()
+  })
+
+  it('同域平台靠会话票据出现即完成（不需要选择器命中）', async () => {
+    global.__enableElectronMock()
+    global.__resetElectronMock()
+    const accountManager = loadAccountManager()
+    // 登录前后 URL 都是 cp.kuaishou.com，URL 判定本质上不可区分；
+    // 快手登录页 DOM 也不一定命中选择器，必须由会话凭证标记把「已登录」测出来。
+    mockPlaywrightPage({
+      urls: ['https://cp.kuaishou.com/profile'],
+      cookies: [
+        { name: 'did', value: 'anon' },
+        { name: 'kuaishou.web.cp.api_st', value: 'ST-real' },
+      ],
+    })
+
+    const result = await accountManager.captureCookies('kuaishou', LOGIN_TIMEOUT_MS)
+
+    expect(result.cookies.map(c => c.name)).toContain('kuaishou.web.cp.api_st')
+    expect(result.loginVerified).toBe(false) // 票据只证明可入库，不证明正向证据
+  })
+
+  it('page.url() 瞬态抛错不得提前放弃方式2（QM-6 Info 3）', async () => {
+    global.__enableElectronMock()
+    global.__resetElectronMock()
+    const accountManager = loadAccountManager()
+    // 真实 Playwright 在导航进行中读 url() 可能瞬态抛错；一旦据此结束整个方式2，
+    // 同域平台就退回到「只能靠选择器」，用户白等一次超时。
+    mockPlaywrightPage({
+      urlThrows: 1,
+      urls: ['https://cp.kuaishou.com/profile'],
+      cookies: [{ name: 'userId', value: '42' }],
+    })
+
+    const result = await accountManager.captureCookies('kuaishou', LOGIN_TIMEOUT_MS)
+
+    expect(result.cookies.map(c => c.name)).toContain('userId')
   })
 
   it('命中会话票据后正常返回凭证（防空门禁把流程锁死）', async () => {
     global.__enableElectronMock()
     global.__resetElectronMock()
     const accountManager = loadAccountManager()
-    mockPlaywrightPage([
-      { name: 'did', value: 'anon' },
-      { name: 'kuaishou.web.cp.api_st', value: 'ST-1' },
-    ])
+    mockPlaywrightPage({
+      selectorHits: true,
+      cookies: [
+        { name: 'did', value: 'anon' },
+        { name: 'kuaishou.web.cp.api_st', value: 'ST-1' },
+      ],
+    })
 
-    const result = await accountManager.captureCookies('kuaishou', 60000)
+    const result = await accountManager.captureCookies('kuaishou', LOGIN_TIMEOUT_MS)
 
     expect(result.cookies.map(c => c.name)).toContain('kuaishou.web.cp.api_st')
   })
@@ -1410,10 +1489,28 @@ describe('captureCookies 会话凭证门禁（第 4 个入库入口）', () => {
     global.__enableElectronMock()
     global.__resetElectronMock()
     const accountManager = loadAccountManager()
-    mockPlaywrightPage([{ name: 'session', value: 'x' }])
-
-    await expect(accountManager.captureCookies('wechat_mp', 60000)).resolves.toMatchObject({
+    // wechat_mp 登录页与后台同域且未声明标记：只能由选择器判定，行为与改动前一致
+    mockPlaywrightPage({
+      selectorHits: true,
       cookies: [{ name: 'session', value: 'x' }],
     })
+
+    await expect(accountManager.captureCookies('wechat_mp', LOGIN_TIMEOUT_MS)).resolves.toMatchObject({
+      cookies: [{ name: 'session', value: 'x' }],
+    })
+  })
+
+  it('未声明标记的平台不会因「有 Cookie」被方式2 提前判定完成', async () => {
+    global.__enableElectronMock()
+    global.__resetElectronMock()
+    const accountManager = loadAccountManager()
+    const page = mockPlaywrightPage({
+      urls: ['https://mp.weixin.qq.com/'],
+      cookies: [{ name: 'anything', value: 'v' }],
+    })
+
+    // fail-open 的 hasPlatformSessionCookie 不得被当成登录证据，否则会立刻假成功
+    await expect(accountManager.captureCookies('wechat_mp', LOGIN_TIMEOUT_MS)).rejects.toThrow('登录超时')
+    expect(page.waitForFunction).not.toHaveBeenCalled()
   })
 })
