@@ -986,11 +986,14 @@ describe('WebviewManager 批量登录凭证自动保存与护栏（方案一/二
   // 用真实 createNewTabPage 建「待保存」账号标签（cleanSession → credentialSaveState:'unsaved'），
   // 再解除初始重定向守卫，模拟登录页首帧已过、可判定登录成功。
   function createUnsavedAccountTab(wm, opts = {}) {
-    const { platform = 'douyin', accountId = 'acc-1', url = 'https://creator.douyin.com/' } = opts
+    const { platform = 'douyin', accountId = 'acc-1', url = 'https://creator.douyin.com/', cookies } = opts
     const tabId = wm.createNewTabPage({ url, platform, accountId, cleanSession: true })
     const state = wm._tabStates.get(tabId)
     state.initialRedirectPhase = false
-    return { tabId, state, view: wm._tabViews.get(tabId) }
+    const view = wm._tabViews.get(tabId)
+    // 声明了会话标记的平台必须给出真实登录态 Cookie，否则会被 fail-closed 拦下
+    if (cookies && view.webContents.session) view.webContents.session.cookies._store = cookies
+    return { tabId, state, view }
   }
 
   it('getAllTabs/getActiveTab 透传 credentialSaveState（方案三角标数据源）', () => {
@@ -1192,7 +1195,9 @@ describe('WebviewManager 批量登录凭证自动保存与护栏（方案一/二
     wm._subscribers.add('test-subscriber')
     wm.setAccountManager(makeAccountManager())
     const t1 = createUnsavedAccountTab(wm, { accountId: 'a1', platform: 'douyin' }).tabId
-    const t2 = createUnsavedAccountTab(wm, { accountId: 'a2', platform: 'kuaishou' }).tabId
+    const t2 = createUnsavedAccountTab(wm, {
+      accountId: 'a2', platform: 'kuaishou', cookies: [{ name: 'kuaishou.web.cp.api_st', value: 'ST-1', domain: '.kuaishou.com' }],
+    }).tabId
     wm.createNewTabPage({ url: 'https://www.baidu.com' }) // 浏览标签，非账号 → 跳过
     const res = await wm.saveAllUnsavedAccounts()
     expect(res).toMatchObject({ attempted: 2, saved: 2 })
@@ -1211,12 +1216,35 @@ describe('WebviewManager 批量登录凭证自动保存与护栏（方案一/二
         ? Promise.reject(new Error('boom')) : Promise.resolve()),
     })
     createUnsavedAccountTab(wm, { accountId: 'a1', platform: 'douyin' })
-    const t2 = createUnsavedAccountTab(wm, { accountId: 'a2', platform: 'kuaishou' }).tabId
+    const t2 = createUnsavedAccountTab(wm, {
+      accountId: 'a2', platform: 'kuaishou', cookies: [{ name: 'kuaishou.web.cp.api_st', value: 'ST-1', domain: '.kuaishou.com' }],
+    }).tabId
     const res = await wm.saveAllUnsavedAccounts()
     expect(res.attempted).toBe(2)
     expect(res.saved).toBe(1)
     expect(res.failed).toEqual([{ accountId: 'a1', platform: 'douyin', reason: 'boom' }])
     expect(wm._tabStates.get(t2).credentialSaveState).toBe('saved')
+  })
+
+  // 2026-09-25 回归：快手登录页也带有埋点 Cookie，"提取到 Cookie"不等于"已登录"。
+  // 未命中会话标记必须不入库、保持 unsaved，让账号留在「待保存」而不是变成有效账号。
+  it('快手账号标签只有埋点 Cookie 时拒绝入库并保持 unsaved', async () => {
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+    const accountManager = makeAccountManager()
+    wm.setAccountManager(accountManager)
+    const { tabId } = createUnsavedAccountTab(wm, {
+      accountId: 'a-ks',
+      platform: 'kuaishou',
+      cookies: [{ name: 'did', value: 'anon', domain: '.kuaishou.com' }, { name: 'wid', value: 'anon', domain: '.kuaishou.com' }],
+    })
+
+    const result = await wm.saveAccountTabCredentials(tabId)
+
+    expect(result).toMatchObject({ ok: false, reason: 'session-evidence-missing', platform: 'kuaishou' })
+    expect(accountManager.updateCapturedAccount).not.toHaveBeenCalled()
+    expect(wm._tabStates.get(tabId).credentialSaveState).toBe('unsaved')
   })
 })
 

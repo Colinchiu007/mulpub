@@ -69,6 +69,57 @@ describe('AuthViewManager 凭证边界', () => {
     expect(manager._resolveLogin).not.toHaveBeenCalled()
   })
 
+  // 2026-09-25 回归：快手登录页在 passport.kuaishou.com，登录成功后回落到
+  // cp.kuaishou.com/profile —— 与未登录时被前端路由到的地址完全相同。
+  // 仅凭 URL 判定会让视图刚打开就自动关闭并把登录页的埋点 Cookie 存成有效账号。
+  it('快手登录页 Cookie 不能构成登录完成（URL 命中但缺会话标记）', async () => {
+    const anonymous = ['did', 'wid', 'kwssectoken', 'kwpsecproductname', 'kwfv1', 'kwscode']
+      .map(name => ({ name, value: 'anon', domain: '.kuaishou.com' }))
+    const manager = new AuthViewManager()
+    manager.mainWindow = createMainWindow()
+    manager.currentPlatform = 'kuaishou'
+    manager.currentView = createView(anonymous)
+    manager._resolveLogin = vi.fn()
+    const close = vi.spyOn(manager, 'close')
+
+    manager._checkLoginCompleted('https://cp.kuaishou.com/profile')
+    await vi.advanceTimersByTimeAsync(3500)
+
+    expect(manager._resolveLogin).not.toHaveBeenCalled()
+    expect(close).not.toHaveBeenCalled()
+  })
+
+  it('快手命中会话票据后才结束登录并回传凭证', async () => {
+    const manager = new AuthViewManager()
+    manager.mainWindow = createMainWindow()
+    manager.currentPlatform = 'kuaishou'
+    const cookies = [
+      { name: 'did', value: 'anon', domain: '.kuaishou.com' },
+      { name: 'kuaishou.web.cp.api_st', value: 'ST-1', domain: '.kuaishou.com' },
+    ]
+    manager.currentView = createView(cookies)
+    // _settleLogin 会先把 this._resolveLogin 置空再调用，必须自持引用才能断言
+    const resolveLogin = vi.fn()
+    manager._resolveLogin = resolveLogin
+
+    manager._checkLoginCompleted('https://cp.kuaishou.com/profile')
+    await vi.advanceTimersByTimeAsync(3500)
+
+    expect(resolveLogin).toHaveBeenCalledTimes(1)
+    expect(resolveLogin.mock.calls[0][0].cookies).toEqual(cookies)
+  })
+
+  it('用户确认完成登录时，缺会话标记必须报错而不是入库', async () => {
+    const manager = new AuthViewManager()
+    manager.mainWindow = createMainWindow()
+    manager.currentPlatform = 'kuaishou'
+    manager.currentView = createView([{ name: 'did', value: 'anon', domain: '.kuaishou.com' }])
+    manager._resolveLogin = vi.fn()
+
+    await expect(manager.completeLogin()).rejects.toThrow('未检测到登录凭证')
+    expect(manager._resolveLogin).not.toHaveBeenCalled()
+  })
+
   it('只提取当前平台域名范围内的 Cookie', async () => {
     const manager = new AuthViewManager()
     const view = createView([

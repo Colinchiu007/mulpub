@@ -21,6 +21,7 @@ const log = require('./logger')
 const {
   PLATFORM_LOGIN_URLS,
   QR_CODE_PLATFORMS,
+  hasPlatformSessionCookie,
   isPlatformCookieDomain,
   isPlatformLoginSuccessUrl,
 } = require('@multi-publish/shared-utils/src/platform-definitions')
@@ -499,6 +500,12 @@ class QrCodeLogin {
     }
 
     const { cookies, localStorage, accountName, accountInfo } = authData
+    // URL 命中不等于已登录：登录页同样会写入埋点 Cookie（2026-09-25 快手假成功）。
+    // 平台声明了会话标记时，必须命中非空标记才允许入库。
+    if (!hasPlatformSessionCookie(loginSession.platform, cookies)) {
+      log.warn('QrCodeLogin', `Login completion rejected (no session evidence): ${loginSession.platform} cookies=${Array.isArray(cookies) ? cookies.length : 'n/a'}`)
+      throw new Error('未检测到登录态，请在手机上确认登录后重试')
+    }
     log.info('QrCodeLogin', `Login success: ${cookies.length} cookies, account: ${accountName}`)
 
     if (!this.accountManager || typeof this.accountManager.saveCapturedAccount !== 'function') {
