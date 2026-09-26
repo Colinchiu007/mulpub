@@ -638,6 +638,12 @@ var require_system = __commonJS({
         opsCenterSyncRuntime: () => ipcRenderer2.invoke("ops-center-sync:runtime"),
         opsCenterSyncPipelineOptions: () => ipcRenderer2.invoke("ops-center-sync:pipelineOptions"),
         opsCenterSyncAppMenu: () => ipcRenderer2.invoke("ops-center-sync:appMenu"),
+        // 运营配置变更通知（主进程 applyRuntime 成功后广播）：渲染端据此重拉，免重启生效
+        onOpsCenterRuntimeUpdated: (cb) => {
+          const h = (_, d) => cb(d);
+          ipcRenderer2.on("ops-center:runtime-updated", h);
+          return () => ipcRenderer2.removeListener("ops-center:runtime-updated", h);
+        },
         modelProviderGet: (id) => ipcRenderer2.invoke("model-provider:get", id),
         modelProviderCreate: (data) => ipcRenderer2.invoke("model-provider:create", data),
         modelProviderUpdate: (id, data) => ipcRenderer2.invoke("model-provider:update", id, data),
@@ -801,6 +807,10 @@ var require_identity = __commonJS({
         identitySignIn: () => ipcRenderer2.invoke("identity:sign-in"),
         identitySwitchAccount: () => ipcRenderer2.invoke("identity:switch-account"),
         identitySignOut: () => ipcRenderer2.invoke("identity:sign-out"),
+        identitySessions: () => ipcRenderer2.invoke("identity:sessions"),
+        identitySessionsRevokeOthers: () => ipcRenderer2.invoke("identity:sessions-revoke-others"),
+        identityNotifications: () => ipcRenderer2.invoke("identity:notifications"),
+        identityNotificationsMarkRead: () => ipcRenderer2.invoke("identity:notifications-mark-read"),
         onIdentityStateChanged: (callback) => {
           const handler = (_event, state) => callback(state);
           ipcRenderer2.on("identity:state-changed", handler);
@@ -897,7 +907,7 @@ var require_page_manager = __commonJS({
           saveAllUnsavedAccounts: () => ipcRenderer2.invoke("page-manager:save-all-unsaved-accounts"),
           // ── Event subscription ──
           subscribeEvents: () => ipcRenderer2.invoke("page-manager:subscribe-events"),
-          unsubscribeEvents: () => ipcRenderer2.invoke("page-manager:unsubscribe-events"),
+          unsubscribeEvents: (subscriberId) => ipcRenderer2.invoke("page-manager:unsubscribe-events", { subscriberId }),
           // ── 左侧导航栏宽度同步 ──
           setSidebarWidth: (width) => ipcRenderer2.invoke("page-manager:set-sidebar-width", width),
           // T0-6b 壳态互斥：渲染层上报壳态（'workbench'|'browser'），主进程切换内嵌视图可见性
@@ -1204,6 +1214,9 @@ var require_access_control = __commonJS({
       "opsCenterSyncSave",
       "opsCenterSyncNow",
       "opsCenterSyncRuntime",
+      // 订阅本身只收到一个时间戳、不返回任何运营数据，故 public；
+      // 事件到达后的重拉（opsCenterSyncAppMenu）仍受 authenticated 门控。
+      "onOpsCenterRuntimeUpdated",
       // 模型服务商：读方法未登录可用（离线查看/测试已配置模型）；
       // 写方法（Create/Update/Delete/SetDefault/CleanLogs）为 authenticated，未登录调用被拒。
       "modelProviderGetDefault",

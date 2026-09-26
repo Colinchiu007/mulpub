@@ -1,5 +1,22 @@
-## 批量出片逐镜失败原因被三层静默吞掉——观测缺口的逃逸链与收口（film-gen-shot-error-observability，2026-09-23）
+## 共享订阅集合被「无 id 就全清」误删：原生视图照常显示而标签栏永不出新标签（fix-tab-subscription-leak，2026-09-25）
 
+- **主进程里的「渲染实例订阅集合」是跨实例共享资源，注销接口不能有无 id 全清兜底（pitfall，本 Bug 第一性原因）**：`WebviewManager._subscribers` 由每个 SPA 实例在 `tabStore.init()` 各加一条，但 `page-manager:unsubscribe-events` 写的是 `if (subscriberId) delete; else clear()`，而 preload 的 `unsubscribeEvents()` **根本不传参** —— 于是 `App.vue` 任一非 home-shell 实例卸载（`tabStore.dispose()`）就把所有实例的订阅一次抹光，且永远无法自愈（没有重连机制）。此后 `_broadcast` 遍历空集合，TabBar 再也收不到 `tab-created`。症状极具误导性：登录视图是原生 `WebContentsView`，`addChildView` 后照常盖在内容区，用户看到的是「登录页在本标签打开了、没开新标签」，第一反应都会去怀疑标签注册逻辑，而它其实完全正常。**判定手法**：见到「内嵌网页显示正常但标签栏不更新」，第一步量主进程订阅集合大小，不要先读 `auth-tab.js`。
+
+- **用 `Date.now()` 作订阅 id：同毫秒两实例撞成同一条，Set 去重后互相持有对方的句柄（pitfall，独立第二成因）**：`'default-' + Date.now()` 在同一毫秒内两次 `subscribe` 返回**完全相同的 id**，`Set` 只留一条，两个实例都以为自己有独立订阅 —— 任一方按 id 注销也会删掉对方的。修 clear 的同时必须把 id 换成「自增序号 + 时间戳(base36) + 随机串」。**教训**：任何「调用方向服务方领取句柄、日后凭句柄归还」的 id，唯一性必须由服务方保证，不能依赖时钟精度。回归测试要断言两次连续 subscribe 得到两个不同 id，否则这条永远测不出来（第一个 Bug 的测试恰好掩盖它 —— 断言 `size===2` 才暴露）。
+
+- **「重启应用就好了」= 状态被重置的订阅/连接类缺陷的强信号（pattern，定位手法）**：本次用户报回退、日志却显示主进程 35ms 内就打了 `Auth login tab opened: wechat_mp`，静态读代码全链路无错。真正的证据链是：① `--remote-debugging-port`（dev 启动自带，用 `netstat -ano | grep <electron主进程pid>` 取真实端口，不要猜 9222）连上运行中的实例；② 在渲染层直接调 `electronAPI.pageManager.getAllTabs()` 拿主进程真值，与 `document.querySelectorAll('[data-testid^="tab-"]')` 的 DOM 实况对照 —— 一次探针就能把「主进程没做 / 广播没人收 / 收到没渲染」三种根因分开；③ 顺手补一次 `subscribeEvents()`，若现象立刻消失即锁定订阅类缺陷。本次正是这第三下把根因钉死的（也说明：**探针可能顺手修好现场，结论要如实标注为「前后对照」而非干净复现**）。
+
+- **多实例化改造会把「单实例时代无害的清理代码」变成跨实例误删（architecture，逃逸根因）**：`dispose() → unsubscribeEvents()` 从 #812 起就存在，单实例时代只有应用退出才走，误删无人察觉；`f7e93ceb`（#2230「新标签内嵌独立 SPA 实例」）引入多实例共存后，同一行代码变成缺陷。**教训**：做「一个改成多个」的架构改动时，必须把「按全局集合 clear()/reset() 的清理点」全量列一遍并逐个改成按自身句柄精确删除，这是该类改造固定的回归面。
+
+- **改 preload 必须重打包两个 bundle，且要用内容断言而非「构建成功」作证（pattern）**：`node apps/desktop/scripts/build-preload.js` 会同时生成 `electron/preload/index.bundle.js` 与 `electron/home-shell-preload.bundle.js`（后者不在 preload 目录下，容易以为只有一个）。构建脚本成功不等于签名真的进去 —— 必须 `grep "unsubscribe-events" index.bundle.js` 看到 `(subscriberId) => ...invoke(..., { subscriberId })` 才算收口。
+
+- **新 worktree 里 electron-builder 会在 renderer 缺失的情况下「打包成功」（pitfall，本轮真实踩到）**：隔离 worktree 从不跑 vite build，apps/desktop/dist 不存在，builder 照样 exit 0 产出 win-unpacked，唯一线索是日志里两条 file source doesn't exist from=.../dist/fonts。启动后 stderr 报 ERR_FILE_NOT_FOUND 指向 app.asar/dist/index.html，窗口白屏但进程活着 4 个 —— 也就是说 AGENTS.md 的「存活不等于通过」在这一步之前根本没机会生效，而「无 stderr 命中」也会被骗过。固化口径：在新 worktree 跑 QM-1 必须先 pnpm run build:vue 再 builder（即 pnpm run build:dir 的语义），并把 asar list 里必须存在 /dist/index.html 作为打包后、启动前的第三道检查。
+
+- **向 bash 里嵌入的 node -e 传含反引号或美元符的文本会静默毁掉文件（pitfall，本轮我自己造成并躲过了自查）**：在双引号 bash 命令串里写 node -e "…反引号…\$…" 时，反引号被 bash 当命令替换执行、内容被替换成命令输出，结果把 learnings.md 的一段文本从句子中间截断，并把下一个条目的一级标题焊进了上一条 bullet，还整段复制了一份。更糟的是我的自查没抓到：多重集校验只测「原行有没有丢」，重复行与焊进去的行都是「只增不减」，报告里写的是「丢失 0 行 ✅」，看起来完全健康。**修法**：改文档一律用编辑工具直接落盘，不经 shell 传参；自查必须双向 —— 既测丢行，也测关键锚点的出现次数（本次就是 preload bullet 出现 2 次、标题出现在非行首位置这两个信号才暴露）。
+
+
+
+## 批量出片逐镜失败原因被三层静默吞掉——观测缺口的逃逸链与收口（film-gen-shot-error-observability，2026-09-23）
 - **静默吞错的「三层漏斗」：每层各自「合理」，合起来把信息丢光（pitfall）**：单镜失败原因要穿过 `video-gen.generateShotVideo`（失败只 `return {success:false,error}` 不记日志）→ handler `runBatchViaVideoGen`（`r.error` 拿到手却 `onShotProgress(i,'failed')` 不带原因，`getShot` 空 `catch` 把「取原文异常」一律冒充「分镜不存在」）→ `production-driver`（`onShotProgress` 签名根本没有 error 通道、台账 `shots[]` 没有 `error` 字段）。每一层单看都不算 bug（「上层会处理」），串起来就是前端与台账只剩裸 `failed`。**判定手法**：追一条错误信息从产生到落库/上屏的完整路径，任一环「拿到原因却没往下带」就是断点；修的时候必须在**产生层记 warn + 存储层落字段 + 传输层带 reason** 三处同时补，缺一处仍会再吞。**教训**：新增「失败可辨识」类需求，先画这条链、逐环确认有无丢弃，再动手。
 
 - **seam 只测成功路径 = 失败合同根本没被测到（pitfall，逃逸根因）**：既有 `film-engineering.e2e-int` 的 `_testGenerateShotVideo` seam 只返回 `{success:true}`、`production-driver.test` 的 `runBatch` 只调 `onShotProgress(i,'done')`——所有断言都在成功Happy Path 上，`error` 通道哪怕整个不存在也不会红。这就是这个缺口能长期潜伏的直接原因：不是「测试写错」，是「失败场景零覆盖」。**修法**：回归保护测试必须显式构造失败注入（提交 `code≠0` / 无 taskId / 轮询超时 / `catch` / `getShot` 抛异常 / provider 拒绝），并断言**原因字符串逐层可见**（warn 载荷含 shotId+原因、台账 `shots[].error` 非空、事件 `reason` 回显）。凡「错误处理」类改动，先写红测钉死失败注入，再实现。
@@ -15656,22 +15673,22 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **规则（pattern）**：混合架构（1 主 SPA + N 个 `WebContentsView`/iframe 内嵌独立文档）里，任何「跨文档共享的外层控件」要操作「当前聚焦的那个内嵌文档」，必须走**定向 IPC**而非依赖外层自身 router：外层点击 → 主进程按 activeTab 判定归属 → `view.webContents.send` 定向投递到该内嵌实例 → 实例订阅后在**自身** router 内跳转；内嵌文档路由变化再经 `did-navigate-in-page` 回传状态（`spaRoute`）广播给外层，令高亮跟随聚焦标签真实路由，而不是外层 route。
 - **可迁移信号（pattern）**：判断「点了没反应」类缺陷是否属于此类，先问三件事——(a) 被点击的控件渲染在哪个文档？(b) 它调用的路由/状态控制器属于哪个文档？(c) 用户视觉上聚焦的是哪个文档？三者不一致即为 chrome/内容错位，修法是把「控制域」对齐到「聚焦域」，而非在错误控制器上打补丁。
 - **回归保护（QM-5④）**：新增 home-shell 定向导航必须同时覆盖——受理路径（活动标签为存活 home-shell → `handled:true` 且定向 send）、非法/非 home-shell/视图已销毁 → `handled:false` fail-open 回退到外层；侧边栏 `navPath` computed 在 home-shell 聚焦时读 `activeTab.spaRoute`、否则读 `route.path`；内嵌实例 `on('home-shell-navigate')` 订阅 + `onBeforeUnmount` 对称退订。仅测外层 router.push 会漏掉整条跨文档链路。
-## 换「显示载体」不是换文案——载体切换的节点身份守恒与像素门禁盲区（avatar-status-mask-carrier-swap，2026-09-24）
-
-- **补丁锚点必须取自 worktree 文件，不是主工作区（pitfall，本轮真实代价）**：共享主目录 HEAD（`265cf7ee`）落后 origin/main（`c5337a27e6`）多个 PR，按主工作区读到的代码写补丁块，会把**已合并的功能改回去**——本轮真的把 `#2290` 的 `<img v-if="showAvatar" … @error="avatarBroken = true">` 覆盖成旧写法 `v-if="account.avatar || account.avatar_url"`，丢了头像加载失败回落。**判定手法**：建 worktree 后第一件事是读 worktree 内的目标文件定锚点；`apply` 脚本报「anchor NOT FOUND」不是"换个锚字符串重试"，而是**"我对现状的理解可能已过期"的一手证据**，必须回去读 worktree/origin 的真实内容。本轮另一处同因：测试用例名 `inactive 状态保持显示「已登录」` 在 origin/main 已被换成「历史脏值…落到未检查兜底」。**边界**：所有基于 `git worktree` 的隔离任务都适用；单工作区直接改码不适用。
-
-- **载体切换要「节点身份守恒」，否则一片下游测试连带重写（pattern）**：把「已失效」从头像旁徽章搬到头像遮罩时，两个载体共用同一 `data-testid="account-status-{id}"` + `role="status"` + 同一 `aria-label`（提取为共用 computed，防措辞漂移）。收益：既有单测与 `account-login-state-tristate.js` E2E（按 testid 取 innerText 断言「已失效」）**零改动即继续有效**，屏幕阅读器语义不丢。**配套断言**：必须加「同卡内该 testid 节点数 === 1」，否则"遮罩 + 徽章"双份播报不会被任何现有测试发现。适用边界：任何"同一信息换渲染节点"的重构（徽章↔文字↔图标↔遮罩↔角标）。
-
-- **叠加层（overlay）三条硬约束，缺一条就是交互 bug（pattern）**：① `pointer-events: none` —— 卡片整体可点（打开创作者中心）与批量勾选不得被覆盖层拦截，且要在 E2E 里断言计算样式而非指望"看起来能点"；② 覆盖层挂在**容器**（`.account-avatar` + `position: relative`）上而不是被覆盖元素（`<img>`）上 —— 否则 `<img>` 被 `v-if` 移除（加载失败回落）时覆盖层一起消失；③ 容器必须已有 `overflow: hidden` + 圆角才能把矩形横带裁成与头像同形的弓形。回归保护：专门写「`img` 触发 error 后覆盖层仍在」的用例，这是最容易被忽略的组合态。
-
-- **「有像素门禁」不等于「这个视图被像素门禁保护」（pitfall，逃逸分析结论）**：`run-pixel-tests.js` 的清单里**有** `accounts-list` 视图，看着像已被覆盖；但仓库跟踪的 `base-screenshots` 只有 22 个基线且**不含 accounts-list**，本地亦无 baselines 目录 → 该视图在 CI 里走 `BASELINE_CREATED`（首次生成即通过），对本次改动**零判别力**。同类误判：见清单有名就认为有保护。**正确判定手法**：`git ls-files tests/visual-testing/base-screenshots | grep <view>` 确认基线真的被跟踪，而不是只看 runner 配置里的视图名。**替代证据**：改用真实浏览器 `getComputedStyle` + `getBoundingClientRect` 硬断言（绝对定位/背景色/文字色/覆盖盒落在容器内/两视图各测一次），并落截图供人工目视。
-
-- **JSDOM 拿不到 scoped CSS 计算值 → 样式契约用「读 .vue 源码」断言（pattern，沿用项目既有惯例）**：`mount` 后 `getComputedStyle` 在 JSDOM 下不应用 `<style scoped>`，布局契约（`position: relative`/`absolute`、`background: rgba(...)`、`overflow: hidden`）在单测里测不到。项目既有做法（`Accounts.test.js`）是 `fs.readFileSync('./src/.../X.vue')` 后切片断言关键声明；本次新增「遮罩样式契约」用例沿用该模式，真正的运行态样式交给上一条的浏览器 E2E。两层互补：源码契约防"有人删了 CSS 声明"，E2E 防"声明存在但被覆盖/优先级失效"。
-
-- **不新增文案也是门禁决策（pattern）**：遮罩文案复用既有 `statusExpired`，locales 零改动 → Gate 7 `--pair-base` 变更=false、`--cjk` 基线不动（当前 1362 / 基线 1581）。若"顺手"加一条「头像加载失败」提示，就会同时触碰 zh/en 成对与 `src/` 非 locales 中文字面量两条 CI 拦截。先问「这条文案有没有真实用户价值」，没有就不产生门禁面。
-
-- **Windows 下用 Junction 复用主仓 node_modules 跑测试/dev server（preference，含前置校验）**：新 worktree 无 `node_modules`，对 root 与 `apps/desktop`、`packages/*` 各建 `New-Item -ItemType Junction` 指向主仓同名目录，即可直接 `node node_modules/vitest/vitest.mjs run …`、`node node_modules/eslint/bin/eslint.js …`、起 `vite`，省掉一次全量 `pnpm install`。**前置硬条件**：两个 ref 之间的 `pnpm-lock.yaml` 必须无差异（本轮核对：仅 root `package.json` 差 1 行），否则物理链接的依赖树与锁文件不符，测试结果不可信。用完起停 dev server 要复核端口释放（`Get-NetTCPConnection -State Listen -LocalPort <port>` 计数归 0）。
-
+## 换「显示载体」不是换文案——载体切换的节点身份守恒与像素门禁盲区（avatar-status-mask-carrier-swap，2026-09-24）
+
+- **补丁锚点必须取自 worktree 文件，不是主工作区（pitfall，本轮真实代价）**：共享主目录 HEAD（`265cf7ee`）落后 origin/main（`c5337a27e6`）多个 PR，按主工作区读到的代码写补丁块，会把**已合并的功能改回去**——本轮真的把 `#2290` 的 `<img v-if="showAvatar" … @error="avatarBroken = true">` 覆盖成旧写法 `v-if="account.avatar || account.avatar_url"`，丢了头像加载失败回落。**判定手法**：建 worktree 后第一件事是读 worktree 内的目标文件定锚点；`apply` 脚本报「anchor NOT FOUND」不是"换个锚字符串重试"，而是**"我对现状的理解可能已过期"的一手证据**，必须回去读 worktree/origin 的真实内容。本轮另一处同因：测试用例名 `inactive 状态保持显示「已登录」` 在 origin/main 已被换成「历史脏值…落到未检查兜底」。**边界**：所有基于 `git worktree` 的隔离任务都适用；单工作区直接改码不适用。
+
+- **载体切换要「节点身份守恒」，否则一片下游测试连带重写（pattern）**：把「已失效」从头像旁徽章搬到头像遮罩时，两个载体共用同一 `data-testid="account-status-{id}"` + `role="status"` + 同一 `aria-label`（提取为共用 computed，防措辞漂移）。收益：既有单测与 `account-login-state-tristate.js` E2E（按 testid 取 innerText 断言「已失效」）**零改动即继续有效**，屏幕阅读器语义不丢。**配套断言**：必须加「同卡内该 testid 节点数 === 1」，否则"遮罩 + 徽章"双份播报不会被任何现有测试发现。适用边界：任何"同一信息换渲染节点"的重构（徽章↔文字↔图标↔遮罩↔角标）。
+
+- **叠加层（overlay）三条硬约束，缺一条就是交互 bug（pattern）**：① `pointer-events: none` —— 卡片整体可点（打开创作者中心）与批量勾选不得被覆盖层拦截，且要在 E2E 里断言计算样式而非指望"看起来能点"；② 覆盖层挂在**容器**（`.account-avatar` + `position: relative`）上而不是被覆盖元素（`<img>`）上 —— 否则 `<img>` 被 `v-if` 移除（加载失败回落）时覆盖层一起消失；③ 容器必须已有 `overflow: hidden` + 圆角才能把矩形横带裁成与头像同形的弓形。回归保护：专门写「`img` 触发 error 后覆盖层仍在」的用例，这是最容易被忽略的组合态。
+
+- **「有像素门禁」不等于「这个视图被像素门禁保护」（pitfall，逃逸分析结论）**：`run-pixel-tests.js` 的清单里**有** `accounts-list` 视图，看着像已被覆盖；但仓库跟踪的 `base-screenshots` 只有 22 个基线且**不含 accounts-list**，本地亦无 baselines 目录 → 该视图在 CI 里走 `BASELINE_CREATED`（首次生成即通过），对本次改动**零判别力**。同类误判：见清单有名就认为有保护。**正确判定手法**：`git ls-files tests/visual-testing/base-screenshots | grep <view>` 确认基线真的被跟踪，而不是只看 runner 配置里的视图名。**替代证据**：改用真实浏览器 `getComputedStyle` + `getBoundingClientRect` 硬断言（绝对定位/背景色/文字色/覆盖盒落在容器内/两视图各测一次），并落截图供人工目视。
+
+- **JSDOM 拿不到 scoped CSS 计算值 → 样式契约用「读 .vue 源码」断言（pattern，沿用项目既有惯例）**：`mount` 后 `getComputedStyle` 在 JSDOM 下不应用 `<style scoped>`，布局契约（`position: relative`/`absolute`、`background: rgba(...)`、`overflow: hidden`）在单测里测不到。项目既有做法（`Accounts.test.js`）是 `fs.readFileSync('./src/.../X.vue')` 后切片断言关键声明；本次新增「遮罩样式契约」用例沿用该模式，真正的运行态样式交给上一条的浏览器 E2E。两层互补：源码契约防"有人删了 CSS 声明"，E2E 防"声明存在但被覆盖/优先级失效"。
+
+- **不新增文案也是门禁决策（pattern）**：遮罩文案复用既有 `statusExpired`，locales 零改动 → Gate 7 `--pair-base` 变更=false、`--cjk` 基线不动（当前 1362 / 基线 1581）。若"顺手"加一条「头像加载失败」提示，就会同时触碰 zh/en 成对与 `src/` 非 locales 中文字面量两条 CI 拦截。先问「这条文案有没有真实用户价值」，没有就不产生门禁面。
+
+- **Windows 下用 Junction 复用主仓 node_modules 跑测试/dev server（preference，含前置校验）**：新 worktree 无 `node_modules`，对 root 与 `apps/desktop`、`packages/*` 各建 `New-Item -ItemType Junction` 指向主仓同名目录，即可直接 `node node_modules/vitest/vitest.mjs run …`、`node node_modules/eslint/bin/eslint.js …`、起 `vite`，省掉一次全量 `pnpm install`。**前置硬条件**：两个 ref 之间的 `pnpm-lock.yaml` 必须无差异（本轮核对：仅 root `package.json` 差 1 行），否则物理链接的依赖树与锁文件不符，测试结果不可信。用完起停 dev server 要复核端口释放（`Get-NetTCPConnection -State Listen -LocalPort <port>` 计数归 0）。
+
 - **PowerShell 管道的退出码陷阱（pitfall）**：`node … 2>&1 | Select-Object -Last 30` 下，stderr 有输出会让 PS 把命令判为失败（vitest 实际 `exit 0` 却报非零）。**手法**：需要真实退出码时一律重定向到文件（`> out.log 2>&1`）后立刻打印 `$LASTEXITCODE`，不在管道下游取退出码。
 
 
@@ -15701,3 +15718,113 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **规则（pattern）**：任何「门控首个导航/核心交互」的异步 promise 必须①用超时竞态封顶阻塞时长并 fail-open 降级到既有慢路径（timer 记得 `unref()`，避免钉住事件循环）；②门控解除后的所有延迟回调先做销毁守卫（`view.webContents` 存在性 + `isDestroyed()`），异步窗口期内标签随时可能被用户关闭。
 - **可迁移信号（QM-5④回归模板）**：为每个「导航前置 await」写一对回归测试——(a) 依赖**永久挂起**：fake timers 推进时间，断言导航照常发生且降级路径已注册；(b) 依赖**在目标销毁后才失败**：断言无 unhandledRejection 外溢。只 mock「成功 / 立即失败」两条路径的测试正是这类缺陷的逃逸盲区——#2327 的测试就止步于此。判断手法：看到 `await` 一个非本项目实现的 promise 挡在 `loadURL` 前面，先问「它永不返回怎么办」。
 
+
+## 应用菜单跨端同步收敛——目录演进缺供给、门控方向做反与夹具盲区（app-menu-sync-convergence，2026-09-25）
+
+- **目录常量演进必须配「存量数据增量补齐」，"仅空表播种"是定时炸弹（pitfall）**：`ops-center/backend/services/app_menu_service.py` 的 `_seed_if_empty` 以「表记录数为 0」为唯一播种条件。`copy-library` 于 `bcd1b663`（2026-09-19）加入 `CATALOG` 后，任何已部署实例的 `app_menu_items` 都永久缺这一行 → 运营中心「应用菜单」页看不到该项、无法配置，而桌面端（按下发目录遍历）照常显示，两侧项目与顺序就此漂移。修复：`_provision_from_catalog` 在**读取/写入/恢复默认/下发四个入口**前按目录补齐缺失行，且**只补不改已有行**（覆盖已有行会把运营者配置抹掉，比缺行更糟）。判据：任何「种子/目录/可配置清单」类代码，看到 `if count == 0` 或 `if (empty) seed` 就追问「目录新增了项，存量库怎么办」。同族先例见 R85「预设/种子类语义合同」。
+
+- **兜底值取 0 会被下游当作真实排序位（pitfall）**：`get_bootstrap_app_menu` 对 DB 缺行项兜底 `sort_order = 0`，而应用端 `sidebar-menu-merge` 按 `sort_order` 升序渲染 → 该项被顶到一级导航第 2 位（紧跟 `home`，它的目录序号本就是 0）。「未配置」必须表达为**中性值**（该函数用目录序号；渲染端合并层用 `null` + 「无值排最后」），不能用 0 —— 0 在排序语义里是第一名的位置。
+
+- **best-effort 分支挂在「主通道成功之后」= 反向门控（pitfall，最隐蔽的一条）**：#1862 把 runtime 拉取包进 try/catch 并注释「失败仅 warn，不影响目录同步结果」——方向是对的（runtime 失败不影响 catalog），但它位于 `items = await _fetchCatalog()` 的**后面**，而 catalog 失败路径直接 `return`。结果是「runtime 失败不拖累 catalog」成立，「catalog 失败导致 runtime 永不执行」同样成立。判据：给 best-effort 分支问一句「**它前面的每一次 return/throw，会不会让我根本没机会执行**」。修复用 `Promise.allSettled` 并行而非调换串行顺序。
+
+- **串行改并行必须拿超时预算当证据（pattern）**：最初的修复是把 runtime 提到 catalog 之前（串行），全量测试立刻把「超时（10 秒）」用例挂死到用例级超时——两条 10s 请求叠加成最坏 20s。并行后既解耦又保持单请求 10s，**既有断言无需放宽**。回归锁法：假时钟**单次** `advanceTimersByTime(10001)` + 断言**两个端点各被请求一次**；若实现退化为串行，第二条请求的定时器在推进时尚未创建，用例会挂死——用「挂死」本身当作结构断言。
+
+- **「每例重建空表」的夹具测不到「存量数据 + 目录演进」这条边（pitfall，逃逸主因）**：`test_app_menu_api.py` 的 autouse 夹具每例 `drop_all`/`create_all`，于是每一例都只走「空表全量播种」分支。这不是断言太松，是**测试拓扑里没有那条边**——15 例全绿却对漂移完全免疫。修法是加一个「先建全量库、再删掉某一项」的历史状态构造器（`_drop_row`）来模拟存量实例。凡「种子/迁移/目录补齐」类逻辑，必须有一条从**非空旧状态**出发的用例。
+
+- **跨端清单一致性 CI 只查代码不查数据就是假绿（pitfall）**：`.github/scripts/check-route-registry.js` 校验桌面端 `navEntry` 集合 == `SIDEBAR_MENU_KEY_ORDER`（内部自洽），对 Python `CATALOG` 只 `console.error` 提示「请手动同步」。两侧代码清单当时确实一致 → CI 全绿；漂移发生在**运行库**里，CI 结构上看不到。这类「双真源（代码清单 ↔ 存量数据）」问题只能靠**补齐逻辑 + 从旧状态出发的测试**兜，不能指望结构校验。
+
+- **同步结果提示要区分「部分成功」，否则用户会用重启应用来排障（pitfall）**：两条通道解耦后 `code=-1` 且 `runtimeApplied=true` 成为常态组合。若 UI 仍统一报「同步失败」，运营者会认为改动没生效而反复重启——恰好是要消灭的现象。做法：新增 `modelProviders.syncPartialSuccess`（zh/en 成对）走 `notifyWarning`，且 `{reason}` 取 `formatUserError` 映射后的可读句并**后置到句尾**（前置会把自带句子的原因夹出「。；」断裂）。
+
+- **「改了没生效」先看客户端有没有落盘缓存（pattern，排障手法）**：本次先用 profile SQLite 取证——`settings` 表只有 `identity_device_id` 与 `keyword_monitor_state`，**既无 `opsCenterSync` 也无 `opsCenterRuntime`**，直接证明该客户端从未完成过一次同步（而非"同步了但配置不对"）。跨端配置类问题，第一步是查客户端侧缓存键在不在，再谈远端数据对不对。
+
+- **用 Python 就地改写仓库内大文档会把 LF 翻成 CRLF，制造整文件假 diff（pitfall，本轮真实代价）**：`io.open(p).read()` 走通用换行，`io.open(p,'w').write()` 在 Windows 默认按 `os.linespath` 翻译 → LF 文件变成全 CRLF，`git diff --stat` 报 17556 插入/17386 删除（PRD 实际只改两节）。修法：以二进制读、显式 `replace(b'\r\n', b'\n')` 回写，或用 `newline=''`。纪律：**批量改写 tracked 文件后必须 `git diff --stat` 核对改动量是否与意图匹配**，量级异常立即修回换行符再继续。
+
+- **SearchReplace/Write 的 old_string 少写一行会静默删行（pitfall）**：本会话两次把「在既有用例前插入新用例」写成「删掉既有用例的首行」——Edit 只匹配 `old_string`，插入意图必须让 `old_string` 与 `new_string` **都完整包含**被保留的那几行。纪律：改测试文件后跑 `git diff <file> | grep "^-"`，纯新增的改动必须**零删除行**。
+
+## 文档会承诺一个产品有意隐藏的入口——写用户可见指引前先确认入口可达（app-menu-sync-convergence，2026-09-25，QM-6 抓出）
+
+- **Critical 模式（pitfall）**：修完跨端同步后，我在运营中心页面文案、CHANGELOG、PRD 三处一致地写「用户在 设置 → 模型服务 点立即同步即可生效，无需重启」。而 `ModelProviders.vue:580` 的既有注释是「运营同步对用户透明：配置卡片已隐藏」——那个按钮在界面里**不存在**。三处文档同源复制粘贴，所以内部完全自洽、交叉引用也没毛病，自审 100% 发现不了。**判据**：凡写「用户可以做 X」的文案，必须顺着 X 找到渲染它的组件，确认它没被 v-if / 特性开关 / 设计决策隐藏；确认动作是 grep 组件里的调用方，而不是读自己的文档。
+- **规则（pattern）**：产品边界类决策（「某能力对用户透明」「某模块只在后台」）一旦落到代码里，它就是文档的约束源。写运营侧/用户侧文案前先读那一层注释与卡片可见性，再决定承诺什么。本次后果严重：「免重启生效」的承诺整体没有闭环，客户端仍只能靠启动那一次同步。
+- **死键连带（pitfall）**：为一个不可达的反馈路径新增 `modelProviders.syncPartialSuccess`（zh/en）+ composable 分支 + 测试，三件事一起绿、一起自洽，但是死代码。撤销时把 locale、分支、测试一并删，改由主进程日志承担区分度（`runtime sync skipped: <原因>`）。**自检信号**：新增面向 UI 的 i18n 键时，先问「哪个组件、什么状态下会显示它」，答不出具体渲染点就是死键。
+- **语义收窄优于扩大（pattern）**：产品决策定为「只在启动时同步一次」后，正确动作不是加轮询去满足我原先写的承诺，而是把承诺改成现实（下次启动生效）。保留下来的广播仍有真实价值：启动同步（+3s）晚于侧边栏首帧，没广播用户要多重启一次才看到本次改动——这条独立收益与「是否加手动入口」无关。
+
+## 补齐类逻辑从「只跑一次」改成「每请求都跑」必须重估并发与事务边界（app-menu-sync-convergence，2026-09-25）
+
+- **pitfall**：`_seed_if_empty`（空表才播种，进程生命周期内实际只触发一次）改成增量补齐后，执行频率变成**每个请求**。两个随之出现、原实现不可能命中的故障：① 并发双插撞 `item_key` UNIQUE → `IntegrityError` → 500（页面 GET 与客户端 bootstrap 会同瞬到达）；② 自带 `commit()` 让 `upsert_items` 的「校验失败整批不写入」契约失效（补齐已落盘，后面才抛 ValueError）。修法分别是 SQLite `INSERT ... ON CONFLICT DO NOTHING` 与「只 flush、由调用方 commit」。
+- **规则（pattern）**：改动任何「初始化/种子/补齐」函数的**调用频率**时，把它的失败模式重新推一遍——原来单线程一次性的假设（无并发、无部分提交）在新频率下是否仍成立。
+- **测试质量（pattern）**：这类回归必须做「回退到旧实现即红」的实测，否则并发用例可能是装饰性的。手法：临时把实现改回旧版跑新用例（本次两条都红），确认后再还原。并发用例用 `asyncio.gather` 开 5 个 session 放大窗口，本次实测确实触发了双插。
+
+
+### 复盘：文案类 Bug 修复「逐处改」必然复发（QM-6 第二轮复评判 Critical 复发，2026-09-25）
+
+- **pitfall**：一次「文档/页面文案指引用户去点一个已隐藏入口」的 Critical，我首轮只改了当时 grep 到的
+  头两个落点（页面组件 + 专项文档的一节），就在 CHANGELOG 和门禁表里写下「页面文案/CHANGELOG/PRD/spec
+  全部改写」。第二轮复评直接判定**同一文档另有 4 处**（约束表 / 流程图 / 提示清单 / 遗留表）+ 另两份现行
+  文档各 1 处仍是旧表述。**"我改了我知道的那几处"不等于"这类表述已清零"**——声明覆盖面时用偏窄的措辞，
+  等于在文档里制造一条新的假事实。
+- **pattern（收口方式）**：文案类修复的完成判据必须是**关键词全仓复扫到 0 命中**，而不是"把评审提出的
+  那几个行号改完"。流程：① 选关键词（本次是「立即同步」「手动同步」，还要含不带关键词的变体如
+  「（自动或手动）」）→ ② 全仓扫 `.md/.vue/.py` → ③ 对**每条命中显式定性**（改 / 历史归档记录 /
+  与本次无关的功能同名）→ ④ 复扫确认剩余命中全部有定性理由。本次逐条定性里最有价值的两条反例：
+  `Dashboard.vue` 的「立即同步」按钮其实是平台内容同步（`syncAll` 来自 `@/api/publisher`），与运营下发无关；
+  归档目录 `openspec/changes/archive/**` 与历史 CHANGELOG 条目**应当保留**，不是残留。
+- **pitfall**：关键词扫有天然盲区——第 6 处残留写的是「（自动或手动）」，不含"立即同步"四字，是改完
+  前 5 处后回读上下文才发现的。定性每条命中时顺手读它所在的那一行全文，别只看是否匹配。
+- **pitfall（工具）**：`codeagent-wrapper` 只回显**最后一条 agent_message**；后端 CLI 若在中途进度句后
+  因网络流断（本次 `stream disconnected before completion`）退出，wrapper 会以 RC=1 返回一句看起来像结论的
+  过程话。判"评审有没有出结果"要看输出**是否是约定的 JSON 主体**，不能只看 RC 或有无文字。
+  续接办法：`codeagent-wrapper --backend <name> --lite resume <session_id> -`，并在续接提示里
+  **禁止再执行命令、只要最终 JSON**——已读过的上下文够用，重跑一遍反而更容易再断。
+
+## 多行标签列宽须跨行共享 grid，源码契约断言不得锁死未验证的实现写法（account-badge-align，2026-09-25，PR #2382）
+
+- **坑（pitfall，「修一个显示 Bug 引入另一个」）**：PR #2358 为修归属徽章折行，把 `.account-assignees > div` 的列宽从固定 `44px` 改成每行各自的 `max-content minmax(0, 1fr)`。折行修好了，但 `max-content` 只在**单个 grid 容器内**求解——三行是三个互相独立的 grid，每行只按**自己那行**的标签宽度定列宽，于是 2 字的「代理」徽章 34px、3 字的「负责人/运营人」46px，值列左边缘跟着偏 12px。**修复模式**：列定义放到父容器，行元素 `display: contents` 交出自身盒子 → 两列跨行共享宽度，徽章按 grid 默认 `stretch` 撑满等宽、`text-align: center` 保持居中；`color/font-size` 随列定义上移（`display: contents` 仍传递继承）。不写死 px，中英文 locale 自动对齐。
+
+- **坑（pitfall，测试反向固化错误行为）**：同批新增的源码契约用例断言 `toContain('grid-template-columns: max-content minmax(0, 1fr);')`，把**引入错位的实现细节本身**当契约锁死——绿灯反成回归阻力（本次改动必须先改这条断言才能过）。凡 `fs.readFileSync('.vue')` 正则切片的源码契约，断言对象必须是**用户可见不变量**（等宽、不折行、不溢出），不能是某一版实现写法。自查手法：写断言前问「这条断言在 Bug 版本里是否也是绿的？」——是则它抓不住这个 Bug。
+
+- **手法（pattern，jsdom 量不到几何 → 用系统 Edge 实测）**：vitest 跑 jsdom 无布局引擎，CSS 对齐类 Bug 对单测天然免疫；视觉回归也拦不住（`accounts-list` 用例只等 `.mp-workspace .accounts-page` 容器，CI 无账号数据时渲染空态，卡片根本不出现）。本机无 Playwright 浏览器，改用 `playwright-core` + `chromium.launch({ channel: 'msedge', executablePath: 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe' })`：把 `.vue` 的 `<style>` 块正则切出、连同 `styles/tokens.css` 注入空白页，`getBoundingClientRect()` 比对各行徽章 `width`/`right` 与值列 `x` 的去重集合是否为 1。**必须同时跑「修复前实现」确认它会 FAIL**，否则等于没加检查。
+
+
+### 复盘：单跑绿、全量红 ——「导入期单例 + 模块级设 env」让 30 个测试文件共用一个库（2026-09-26）
+
+- **pitfall**：`config.settings` 这类在 import 时就实例化的单例，会让「模块级先 `os.environ[...] = ...` 再 `from config import settings`」的写法**只对第一个被收集的文件有效**。pytest 按字母序收集，于是第一个 import config 的测试文件替全 session 定了库路径，后面每个文件精心构造的 `tempfile + uuid` 独立库**全部静默失效**（没有任何报错，只有远处的外键失败）。症状是「单跑绿、全量红」，极易被误判为"某个业务 PR 引入了回归"。
+- **pattern（定位）**：先跑三条命令分清层级——① 单跑失败用例（绿）；② 单跑其所在文件（绿）；③ 全量（红）。三者组合即"跨文件状态耦合"，不必读代码就能定性。随后去查"谁在模块级写全局"，而不是去猜业务改动。
+- **pattern（归属）**：在**未改动的 main** 上跑同一条全量做对照，再结合"这条 CI 到底在哪些提交上跑过"判断。本例 `ops-center CI` 只在 PR 触到 ops-center 路径时运行、main 自身从不跑全量后端套件，于是 2026-08-14 落地的脆弱组合潜伏了六周，被一个无关 PR 第一次跑出来。别认领，也别拿"不是我改的"当放行理由。
+- **pattern（修法层级）**：根治点是让状态**按模块确定化**，集中写进 `tests/conftest.py`（同步引擎幂等 `create_all` + 按 `sorted_tables` 逆序清行 + 复位 `sqlite_sequence`），而不是去改 30 个测试文件；后者会演变成大 diff 且漏改无法察觉。
+- **pitfall（SQLite 细节）**：① `PRAGMA foreign_keys` 在事务内是 no-op，别指望它兜住删除顺序——用 `sorted_tables` 逆序删；② 自增主键是 rowid（非 `AUTOINCREMENT`），`DELETE FROM t` 后 id 会回到 1，因此"清行"就能复原假设，但必须**顺带清 `sqlite_sequence`**（若存在），否则一旦某表真用了 AUTOINCREMENT，行号仍会单调上涨。
+- **pattern（回归锁要能反证）**：新加的隔离用例必须验证"去掉修复就变红"。做法：把 fixture 调用改成 `pass` 跑一次（本次立刻 `no such table: prompt_eval_cases`），再恢复。改完务必 `grep` 确认临时标记（`TEMP-NEUTER`）已清除——本次差点把 no-op 留在文件里提交。
+- **pitfall（临时改动的自我防护）**：写"恢复断言"时不要断言被改字符串的出现次数为 1——恢复后它会同时出现在 `def` 行与调用行，计数为 2，`assert` 反而让恢复**没执行**，破坏态静默留在工作树里。恢复用备份文件 `cp` 覆盖 + `grep` 双向核验（标记应为 0、调用点应为 1）。
+
+
+### 复盘：测试里开并发 session 会毒化连接池，故障落在八竿子打不着的模块上（2026-09-26）
+
+- **pitfall**：一条「5 路 `async_session` 并发」的用例能让**另一个文件的远处测试**报 `FOREIGN KEY constraint failed`。链条：SQLAlchemy 默认队列池把连接留在池里 → 这些连接绑定当时的 event loop → pytest-asyncio 每条用例新循环 → 后续模块取到旧连接时读到**过期的 WAL 读快照**，看不见自己前面刚建的父行。所以「报错误的地方」和「制造状态的测试」隔着两个文件，按报错位置去查永远查不到。
+- **pattern（定责到具体用例）**：怀疑本 PR 自带雷时，用 `pytest --deselect=<本 PR 新增用例>` 跑全量做二分；判据是「摘掉它是否变绿」+「摘掉修复是否变红」双向闭合。本次实测：加 `await engine.dispose()` → 455 passed；仅把该行换成 `pass` → 1 failed / 454 passed。
+- **pitfall（自我误读）**：我在同一轮里把**修复前**的二分结果和**修复后**的复跑混着读，一度得出「#1 与 #2/#3 相互作用」的错误结论。教训：做对照实验时，任何一次改动（哪怕摘一行）之后，之前所有数字作废，必须重跑再比对。
+- **pattern**：#2397 的「按模块清库」是必要的，但**不充分**——清库解决状态残留，不解决**连接池跨事件循环**残留。两类要分开修。
+
+## 工具栏 8 列 grid 的「最小内容宽度」超过真实视口，中文轨道被压成逐字竖排——视觉回归基线视口口径错位（accounts-toolbar-overflow，2026-09-26）
+
+- **Bug 现象**：账号管理页工具栏右侧「全部/已登录/未登录/收藏」四个按钮逐字竖排（实测 35×65px），`N 个平台，M 个账号` 折成 3 行，底部出现横向滚动条。同一行的「一键检测/批量操作/添加账号」却完全正常。
+
+- **第一性原因（pitfall）**：`e3e33af0`（2026-08-04）把工具栏排成 8 列 `grid-template-columns: ... auto auto auto auto auto minmax(100px,auto)`，其**最小内容宽度之和 ≈ 1600px**。CSS Grid 没有换行机制：容器一旦窄于该值，只能横向溢出并把 `auto` 轨道压回 min-content。而**中日韩文本可在任意字符间断行**，`auto` 轨道的 min-content 就是「1 个汉字 + padding」≈ 35px，于是文案退化成逐字竖排。同提交里 `.account-command-bar .page-button { white-space: nowrap }` 恰好保护了按钮组——这解释了「为什么只有两处坏」，也说明当时已踩过同族坑、只是没扫全。
+
+- **逃逸链（QM-5②）**：
+  - 单元测试：JSDOM 无布局引擎，`Accounts.test.js` 只断言 `.account-controls` 存在性，对轨道宽度零感知 → 必然漏。
+  - 视觉回归 `test:visual:pixel` 拦不住，但**原因不是「diff 恒为 0」**（我最初这样写，已被 CI 产物实测推翻）。真实机制是**阈值与差异面积错配**：`PIXEL_THRESHOLD=0.06`（6% 全页容差），而截图是 `fullPage` 1920×1080≈207 万像素，工具栏只占约 1336×63≈8.4 万（≈4% 画面），其中真正变化的像素更少。CI 产物 `report-*.json` 实测：本 PR 的 `accounts-list` misMatch=**3.66%**（18 个视图里最高，第二名 2.16%），仍 < 6% → `PASSED`。
+  - **同一视图在未改动的 main 上就已 misMatch=2.48%**，说明基线与 CI 实际渲染长期不一致（committed 基线含 8 个账号数据，CI 环境不同），门禁本就带着约 2.5pp 的「无主漂移」在跑。本 PR 把它推到 3.66%，余量只剩 2.34pp——下一个动账号页的人只要再加 >2.34% 就会红，而那个 diff 混杂了基线漂移 + 本次改动 + 他的改动，**无法归因**。这才是该视图门禁的真实失效方式，也说明「调紧阈值」不能单独解决，得先让基线与 CI 渲染条件一致。
+  - 基线也确实固化了缺陷（第二重，独立成立）：实查 `base-screenshots/accounts-list.png`，「全部/已登录/未登录/收藏」四个按钮**已是两行竖排**——即便阈值调紧，也是拿缺陷当参照物判对错。
+  - 视口口径错位（第三重）：基线按 1920 CSS 视口拍，而真实用户是 1920 物理像素 ÷ Windows 125% 缩放 = 1536 CSS，减 200 侧边栏 = 1336 容器，比基线窄 384px，破图程度从「两行」恶化成「逐字竖排」。
+  - 与同页 `account-badge-align`（PR #2382）的结论互为补充：视觉回归对账号页布局缺陷有**两重**盲区——基线自身固化缺陷（本地重捕时）+ CI 无账号数据只渲染空态、卡片与工具栏根本不出现。两者叠加意味着 `test:visual:pixel` 对账号页布局**基本不构成门禁**，勿以其绿灯作为「布局没退化」的依据。
+  - 断点错配：`@media (max-width: 1100px)` 以**视口宽度**为条件，而真正的约束量是**轨道总宽**，两者之间 1100–1600px 的整段区间无人看守。
+
+- **修复（pattern）**：改 `display: flex; flex-wrap: wrap` + 显式收缩分工——按钮/图标组一律 `flex: 0 0 auto`（不参与收缩），只让两个搜索框与筛选下拉收缩（下拉配 `text-overflow: ellipsis`），并给 `.filter-tabs button`、`.account-count` 补 `white-space: nowrap`。窗口不足时整条工具栏优雅换行，任何宽度都不再逐字竖排。实测（真实组件 + 真实 Vite + 无头 Edge）：1536 视口单行零溢出，1440/1336/1100 视口换行且文案正常。
+
+- **可迁移判据**：凡用 `grid-template-columns` 硬编码列数排一行工具栏/表单头，先算「各列 min-content 之和」再对照**最低支持分辨率的 CSS 宽度（物理像素 ÷ 缩放因子 − 侧栏）**；含中文的轨道若为 `auto`/`minmax(100px,auto)` 且未 `nowrap`，等于埋了一颗逐字竖排的雷。CJK 场景下 `auto` 轨道的最小宽度不是「词」而是「字」，这一点与英文布局直觉相反。
+
+- **连带缺陷（pitfall，同一工具栏的第二颗雷）**：修完换行后压测发现，「一键检测」按钮在检测中会渲染 `batchCheckAllProgressText`（含平台名，可达「检测中 12/14：微信公众号 · 账号名」），而命令栏被设为 `flex: 0 0 auto` 不收缩 → 按钮 242→329→498px，实测把工具栏从 1 行顶成 2 行、状态切换器换位，**检测过程中布局跳动**。关键判据：详细进度本就由**同一 `v-if` 条件**的全屏遮罩 `batch-check-overlay`（`position: fixed; inset: 0`，45% 深色 + `backdrop-filter: blur(2px)`）承载——按钮上的长文案被遮罩盖住根本不可读，属纯冗余。故按钮只需显示短状态标签 `batchCheckAllBusy`，零信息损失地消除跳动。
+- **可迁移判据**：凡「不收缩容器」内的文本会随状态增长（进度、计数、动态标签），必须给它宽度上界（定宽 / `max-width` + `text-overflow: ellipsis`），否则它会把兄弟元素挤出换行；若该长文案同时被一个模态遮罩承载，则按钮侧的长文案是纯冗余，应直接降级为短状态标签而不是截断。写完布局修复要按「最长可能文案」重压一遍，别只验静态基线。
+
+- **回归保护**：`Accounts.test.js` 新增源码契约断言（沿用项目既有 `fs.readFileSync('.vue')` 切片惯例）——`.account-controls` 必须 `display:flex` + `flex-wrap:wrap` 且**不得**出现 `grid-template-columns`；`.filter-tabs button` 与 `.account-count` 必须 `white-space:nowrap`。已反证：五条断言在旧实现上全部 FAIL、新实现全部 PASS。
+
+- **待收口的机制缺口（未在本轮落地）**：① `accounts-list.png` 基线含缺陷，本修复会使其产生像素 diff，需在装有 Playwright 浏览器的环境用 `test:visual:update-baseline` 重新捕获并人工审核（本机无浏览器缓存，未能本地跑 `test:visual:pixel`）；② 视觉回归应补一档「按 Windows 常见缩放折算后的 CSS 视口」（1536×912、1366×768）用例——只按 1920 CSS 拍基线，等于给缩放用户留了盲区；③ 基线捕获后应做一次「基线自身是否已破图」的人工抽检，否则错误会被永久固化为参照物。

@@ -63,4 +63,46 @@ describe('identity IPC', () => {
     await expect(handlers['identity:get-state']({ senderFrame: { url: 'app://localhost/index.html' } }))
       .resolves.toEqual({ code: -3, message: 'IDENTITY_STATE_UNAVAILABLE' })
   })
+
+  it('会员通道转发自鉴权请求并按路径白名单接线', async () => {
+    const registerIdentityHandlers = require('./identity')
+    const handlers = {}
+    const authService = {
+      getState: () => ({ user: { sub: 'sub-9' } }),
+      memberApiService: { request: vi.fn(async (payload) => ({ ok: true, ...payload })) },
+    }
+    registerIdentityHandlers({ handle: (channel, handler) => { handlers[channel] = handler } }, { authService })
+    const event = { senderFrame: { url: 'app://localhost/index.html' } }
+
+    await expect(handlers['identity:sessions'](event))
+      .resolves.toEqual({ code: 0, data: { ok: true, subject: 'sub-9', path: '/api/v1/me/sessions' } })
+    await expect(handlers['identity:sessions-revoke-others'](event)).resolves.toMatchObject({
+      code: 0, data: { path: '/api/v1/me/sessions/revoke-others' },
+    })
+    await expect(handlers['identity:notifications'](event)).resolves.toMatchObject({
+      code: 0, data: { path: '/api/v1/me/notifications' },
+    })
+    await expect(handlers['identity:notifications-mark-read'](event)).resolves.toMatchObject({
+      code: 0, data: { path: '/api/v1/me/notifications/read' },
+    })
+    expect(authService.memberApiService.request).toHaveBeenCalledTimes(4)
+  })
+
+  it('会员通道在身份服务未启用或会话异常时返回脱敏错误码', async () => {
+    const registerIdentityHandlers = require('./identity')
+    const handlers = {}
+    registerIdentityHandlers({ handle: (channel, handler) => { handlers[channel] = handler } })
+    const event = { senderFrame: { url: 'app://localhost/index.html' } }
+    await expect(handlers['identity:sessions'](event))
+      .resolves.toEqual({ code: -3, message: 'IDENTITY_NOT_CONFIGURED' })
+
+    const authService = {
+      memberApiService: { request: vi.fn(async () => { throw Object.assign(new Error('x'), { code: 'ENTITLEMENT_SESSION_MISMATCH' }) }) },
+    }
+    const handlers2 = {}
+    registerIdentityHandlers({ handle: (channel, handler) => { handlers2[channel] = handler } }, { authService })
+    await expect(handlers2['identity:notifications'](event))
+      .resolves.toEqual({ code: -3, message: 'ENTITLEMENT_SESSION_MISMATCH' })
+  })
 })
+

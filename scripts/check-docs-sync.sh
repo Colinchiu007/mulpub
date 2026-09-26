@@ -92,8 +92,8 @@ while IFS= read -r file; do
   if [[ "$file" =~ ^\.github/ ]]; then
     continue
   fi
-  # 跳过脚本工具
-  if [[ "$file" =~ ^team/scripts/ ]]; then
+  # 跳过脚本工具（仓库根 scripts/：AGENTS.md「分层分支策略」将其与 docs/openspec 同列为流程层）
+  if [[ "$file" =~ ^scripts/ ]]; then
     continue
   fi
   # 跳过 OpenSpec / CCG 流程工件（规格与任务记录，非运行时代码）
@@ -108,6 +108,13 @@ while IFS= read -r file; do
     continue
   fi
   if [[ "$file" =~ ^CHANGELOG\.md$ ]]; then
+    continue
+  fi
+  # 跳过质量节拍门禁执行日志（仓库根 .quality-gates.md）。
+  # 只作「非代码」豁免，刻意不进 PRD_PATTERN：它是流程留痕，不是产品/架构文档，
+  # 若让它充当「文档已同步」的证据，代码 + 只补一行门禁日志的 PR 就能绕过本门禁
+  # （回归锁见 scripts/check-docs-sync.test.sh 的负向用例）。
+  if [[ "$file" =~ ^\.quality-gates\.md$ ]]; then
     continue
   fi
   # 忽略 node_modules 和构建产物

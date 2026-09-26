@@ -538,19 +538,19 @@ function isIconUrl (value) {
 .account-assignees {
   width: min(100%, 220px);
   display: grid;
-  gap: 6px;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 8px;
+  align-items: center;
   margin-top: 12px;
+  color: var(--text-muted, #85858f);
+  font-size: var(--font-size-xs);
   text-align: left;
 }
 
+/* 行元素交出自身盒子，两列才能跨三行共享宽度：否则每行按自己那行的 max-content
+   定列宽，「代理」徽章比「负责人」窄，值列左边缘参差。 */
 .account-assignees > div {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  align-items: center;
-  gap: 8px;
-  color: var(--text-muted, #85858f);
-  font-size: var(--font-size-xs);
+  display: contents;
 }
 
 .account-assignees > div > span {
