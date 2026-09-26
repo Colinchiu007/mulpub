@@ -20,17 +20,21 @@
 
 ## 3. M3 spike 门禁（时间盒 1 个工作日，逐序短路；S0/S2/S3 用户在场门槛）
 
-- [ ] 3.1 S0 公式探针（用户在场，最低风险已认证查询端点，零发布副作用）：无 sig3 / 本地公式 sig3 双发比对平台接受性 → 裁决 `kuaishou.ns-sig3` Tier-A 可行性；通过则 S2/S3 短路
-- [ ] 3.2 S2 真页抽取+拦截比对（用户在场）：`cp.kuaishou.com` 登录态抠 sig3 函数，同 payload 复算 == 页面真发值；V-partition 复用方式一并验证记录
+- [x] 3.1 S0 公式探针（用户在场，最低风险已认证查询端点，零发布副作用）：无 sig3 / 本地公式 sig3 双发比对平台接受性 → 裁决 `kuaishou.ns-sig3` Tier-A 可行性；通过则 S2/S3 短路
+  - 结果：**INCONCLUSIVE**（探针端点不校验 sig3，无法区分无签/近似签/真签；本地公式 MD5 为 32 位裸 hex 结构上短于真 sig3 56 字符，本地签名器路线作废）→ 不短路，继续 S2。详见 `evidence/api-w3-kuaishou/spike-verdict.md`
+- [x] 3.2 S2 真页抽取+拦截比对（用户在场）：`cp.kuaishou.com` 登录态抠 sig3 函数，同 payload 复算 == 页面真发值；V-partition 复用方式一并验证记录
+  - S2a 静态侦察：**Tier-A 方向成立**（sig3 由快手页面自带 `$encode` VM 生成，非第三方外包，不触 §7 grep 门禁）。S2b 活体终判：**Tier-A GO**（页面签名器为我方独立构造请求产出的 sig3 被平台接受，新构造新签新发即时有效）。Group 4/5 放行
 - [ ] 3.3 S3 复算直发活体（用户在场）：抽取函数签名直发 1 条真实请求（私密/草稿优先、间隔 ≥18min）
-- [ ] 3.4 M3 裁决记录：S0-S3 结果（含失败现场）写 `evidence/api-w3-kuaishou/spike-verdict.md` + 回写 PRD F12/techdoc v2 修订记录；**no-go → 跳到 6.1 收尾**（Group 4/5 不合并、platforms.yaml 不动、基建单独评审）
+  - 状态：未单独执行；S2b 已证「独立构造请求接受性」核心命题，S3 语义延期至 6.3 发布链集成验收（submit 端点真实发布由用户在场做最终回归），不再阻塞 Group 4/5 开发
+- [x] 3.4 M3 裁决记录：S0-S3 结果（含失败现场）写 `evidence/api-w3-kuaishou/spike-verdict.md` + 回写 PRD F12/techdoc v2 修订记录；**no-go → 跳到 6.1 收尾**（Group 4/5 不合并、platforms.yaml 不动、基建单独评审）
+  - 裁决：**go**（S2b Tier-A）→ 进入 Group 4；PRD F12/techdoc v2 回写随 6.4 收口
 
 ## 4. 快手发布链（仅 spike go；TDD 链契约测试先行）
 
-- [ ] 4.1 红测 `kuaishou-video-chain.test.js`：127.0.0.1 假服务器钉全链序列（args→分片→finish→封面→提交）method/URL/headers/body 逐字段对照 1.1 切片；fail-closed 面（api_ph 缺失/视频不存在/签名空或 <40）零请求；`result===109` → login_expired 不降级
-- [ ] 4.2 实现 `publish/platforms/kuaishou-video.js`（复用 core http-base/contract/errors + 注册表求签分派）；4.1 转绿
-- [ ] 4.3 `KuaishouAdapter` 变薄委托（对齐 W2 douyin.js 形态，granular 空安全契约）+ `kuaishou-adapter.test.js`；旧骨架远程签名拼参路径下线 + grep 门禁（外包签名服务 URL 片段 `src/adapters`+`src/publish` 零命中）
-- [ ] 4.4 platforms.yaml kuaishou `publishMode` 翻转 api-then-dom + publish-mode 回归扩展 kuaishou 行（api-then-dom 降级 DOM、risk_blocked 不降级）
+- [x] 4.1 红测 `kuaishou-video-chain.test.js`：127.0.0.1 假服务器钉全链序列（args→分片→finish→封面→提交）method/URL/headers/body 逐字段对照 1.1 切片；fail-closed 面（api_ph 缺失/视频不存在/签名空或 <40）零请求；`result===109` → login_expired 不降级
+- [x] 4.2 实现 `publish/platforms/kuaishou-video.js`（复用 core http-base/contract/errors + 注册表求签分派）；4.1 转绿（链 19 测绿，求签仅经 `kuaishou.ns-sig3-browser` 注册表 command，零 HTTP 签名通道）
+- [x] 4.3 `KuaishouAdapter` 变薄委托（对齐 W2 douyin.js 形态，granular 空安全契约）+ `kuaishou-adapter.test.js`；旧骨架远程签名拼参路径下线 + grep 门禁（外包签名服务 URL 片段 `src/adapters`+`src/publish` 零命中，`kuaishou-legacy-chain-gate.test.js`）；既有 e2e/ai-declaration 测试同步适配新 caption 形态
+- [x] 4.4 platforms.yaml kuaishou `publishMode` 翻转 api-then-dom（has_api 同步 true）+ publish-mode 回归扩展 kuaishou 行（api-then-dom 入波断言；risk_blocked/login_expired 不降级由 publish-mode-runner 既有契约覆盖）
 
 ## 5. 小红书链（1.2 取证通过时执行，否则记录止步跳过）
 

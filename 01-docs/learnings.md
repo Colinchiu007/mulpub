@@ -15891,3 +15891,21 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **注意区分**：quality-gate run 里 `QG Unit Tests`（Gate 4 全量 workspace 单测）与 `QG Desktop Shards (1/2)/(2/2)` 是**并行独立 job**——单个 job 失败不代表 desktop 面全挂，读 jobs 逐步 conclusion 定位，别按 run 级 conclusion 粗判。
 - **拉 CI 日志的 Windows 绕行（pitfall）**：`gh api .../logs` 响应含终端转义序列会被 gh 新版安全策略拦截（"pass --allow-escape-sequences to output it anyway"）；PowerShell `>` 重定向会把 stdout 落为 UTF-16LE。可`gh api "repos/:owner/:repo/actions/jobs/<id>/logs" --allow-escape-sequences > file` 后按 UTF-16LE 探测读取；`--jq` 表达式含 `[]`/`|` 会被 PowerShell 撕碎参数，改 `--json X > file` + Node 脚本解析（按 BOM 判 utf16le/utf8）。
 - **预防（待排期，未在本 PR 做）**：parity 类「真实时钟对拍」测试天然在共享 runner 不稳定——后续应给 duration 比对加相对容差或在模拟器/ governor 双侧改虚拟时钟；登记前该文件失败按本条三步归因。
+
+## 一个绝对容差不能服务跨量级用例：对拍类测试的容差必须由「预测值」按比例驱动（parity-tolerance-scale，2026-09-26）
+
+- **现象（pitfall，误红而非误绿）**：main run `36213551939` 的 `QG Desktop Shards (1/2)` 挂在 `test_scheduler_parity.test.js` 的 `quota-5h-real`：模拟器预测 21000ms、真实 governor 实测 22653ms，差 **1653ms**，而容差 1500ms —— **只超 153ms**。
+
+- **结构性根因**：6 组用例期望耗时跨度约 **14 倍**（1500ms → 21000ms），却共用同一个 `runParity(1500)` 绝对容差。对 1.5s 的用例它是 100%（形同不设防），对 21s 的用例它只有 7.1%（CI 满载下必然被挂钟抖动击穿）。**绝对容差在跨量级用例上不等价**，这类误红会随机器负载随机出现，与代码无关。
+
+- **定性方法（先证明是抖动不是分歧）**：本机真跑 `node scripts/compare-scheduler-models.js` → `quota-5h-real` 实测差 **6ms**、`PARITY OK`、exit=0。模型无分歧 + 同测试在上一个 head 为绿 + 区间内唯一提交未碰 governor → 判定 flaky。**"跑一次真实的看差多少"比读代码猜便宜得多，也是唯一能区分"误红/真回归"的证据。**
+
+- **修复（pattern）**：容差改为 `max(绝对下限, 比例 × 期望耗时)`。效果是**只放宽出问题的那一组**（21000ms：7.1% → 10%），其余五组容差数值完全不变 —— 这是与"整体调大阈值"的关键区别，后者会静默降低全部用例的灵敏度。
+
+- **必须锁死的反模式**：容差的分母**必须是模拟器预测值，不能是真实测量值**。用实测值会让一次变慢自己撑大自己的容差，回归永远抓不住（自证式绿灯）。已用断言固化：`durationTolerance(31000) > durationTolerance(21000)`，并断言 +5000ms（约 24%）仍判失败，证明放宽没放过真回归。
+
+- **可迁移判据**：见到"固定毫秒/固定字节/固定条数"的容差，先问**被测对象的量级跨度是多少倍**。跨度 >3 倍就该改成相对量（比例、分位数）或分档，并保留绝对下限兜住小对象。同族：`--testTimeout` 对快慢用例一刀切、`debt-baseline` 的行数棘轮对大小文件一视同仁。
+
+- **排障口径**：失败信息必须自带「实际生效容差」与「本次差值」。上一轮只 dump 了 python/real 两个 JSON，看不出 1653 是超了绝对下限还是超了比例，逼着人去翻脚本 —— **门禁的可诊断性本身就是门禁的一部分**。
+
+- **时序耦合**：本条是 #2410（`Gate Result` 改为真实聚合）的**前置**。一旦必需检查开始真拦，这种 153ms 之差的抖动会从"无人察觉"变成"随机拦停所有 PR"。**给静默门禁补上判定之前，必须先确认它不会把既有抖动变成误拦** —— 先盘红名单，再上判定。
