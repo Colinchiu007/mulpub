@@ -823,16 +823,32 @@ jobs:
     timeout-minutes: 5
     steps:
       # --- Gate result ---
+      # 本 job 是 main 的必需状态检查，但历史上只 echo 不判定，上游全红它也恒绿。
+      # 口径：success/skipped 放行，其余（failure/cancelled/timed_out/action_required/空值）一律拦。
+      # skipped 放行的依据：上游失败会把其下游置为 skipped，失败本身已由那个 failed 的上游捕获。
       - name: "Gate result"
+        shell: pwsh
         run: |
-          echo "=============================="
-          echo "  quality-rhythm CI gate report"
-          echo "=============================="
-          echo "static       : ${{ needs.static-gates.result }}"
-          echo "unit tests   : ${{ needs.unit-tests.result }}"
-          echo "desktop shards: ${{ needs.desktop-shards.result }}"
-          echo "coverage     : ${{ needs.coverage.result }}"
-          echo "visual gate  : ${{ needs.visual.result }}"
-          echo "browser E2E  : ${{ needs.e2e.result }}"
-          echo "autonomous   : ${{ needs.autonomous.result }}"
-          echo "=============================="
+          $results = [ordered]@{
+            'static-gates'   = '${{ needs.static-gates.result }}'
+            'unit-tests'     = '${{ needs.unit-tests.result }}'
+            'desktop-shards' = '${{ needs.desktop-shards.result }}'
+            'coverage'       = '${{ needs.coverage.result }}'
+            'visual'         = '${{ needs.visual.result }}'
+            'e2e'            = '${{ needs.e2e.result }}'
+            'autonomous'     = '${{ needs.autonomous.result }}'
+          }
+          Write-Host "=============================="
+          Write-Host "  quality-rhythm CI gate report"
+          Write-Host "=============================="
+          foreach ($k in $results.Keys) {
+            Write-Host ("  {0,-15}: {1}" -f $k, $results[$k])
+          }
+          Write-Host "=============================="
+          $allowed = @('success', 'skipped')
+          $blocking = @($results.Keys | Where-Object { $allowed -notcontains $results[$_] })
+          if ($blocking.Count -gt 0) {
+            Write-Host "[GATE-RESULT] FAIL - blocking job(s): $($blocking -join ', ')"
+            exit 1
+          }
+          Write-Host "[GATE-RESULT] PASS - all upstream jobs succeeded"
