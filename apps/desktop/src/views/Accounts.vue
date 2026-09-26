@@ -55,10 +55,22 @@
           class="page-button secondary"
           type="button"
           data-testid="account-batch-check-all"
-          :disabled="batchCheckAllBusy || totalAccounts === 0"
+          :disabled="batchCheckAllBusy || cloudSyncRunning || totalAccounts === 0"
           :title="t('accountsPage.batchCheckAll')"
           @click="batchCheckAllLogins"
         >{{ batchCheckAllBusy ? t('accountsPage.batchCheckAllBusy') : t('accountsPage.batchCheckAll') }}</button>
+        <!-- 账号云镜像同步入口：由运营 feature flag `account_cloud_sync` 控制显隐（ADR-0006，缺失/不可达一律关闭）。
+             与一键检测互斥（PRD §5.8）：两者并行会同时改登录态，任一先结束都会让另一份结论错乱。 -->
+        <button
+          v-if="cloudSyncFlagEnabled"
+          class="page-button secondary"
+          type="button"
+          data-testid="account-cloud-sync"
+          :disabled="totalAccounts === 0 || batchCheckAllBusy || cloudSyncRunning"
+          :title="cloudSyncButtonTitle"
+          :aria-label="t('accountsPage.cloudSyncAria')"
+          @click="openCloudSync"
+        >{{ cloudSyncRunning ? t('accountsPage.cloudSyncBusy') : t('accountsPage.cloudSync') }}</button>
         <button class="page-button secondary" type="button" data-testid="account-batch" @click="accountBatchMode = !accountBatchMode">{{ t('accountsPage.batchAction') }}</button>
         <button class="page-button primary" type="button" data-testid="account-add" @click="showAddDialog = true"><Plus />{{ t('accountsPage.addAccount') }}</button>
       </div>
@@ -303,6 +315,17 @@
       @close="closeProxyDialog"
     />
 
+    <!-- 云镜像同步弹窗：弹窗打开时才拉摘要；synced 仅在批次终态触发一次列表刷新（恢复出的账号会改变本机列表） -->
+    <AccountCloudSyncDialog
+      :visible="cloudSyncDialogVisible"
+      :local-count="totalAccounts"
+      :platform-label="platformLabel"
+      :platform-icon="platformIcon"
+      @close="cloudSyncDialogVisible = false"
+      @synced="handleCloudSynced"
+      @running-change="handleCloudSyncRunning"
+    />
+
     <AccountAuthorizationGuide
       :visible="showAuthorizationGuide"
       :platform-name="authPlatformName"
@@ -318,6 +341,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Close, Delete, FolderOpened, Link, Plus, Search, UserFilled, WarningFilled } from '@element-plus/icons-vue'
 import { useNotify } from '@/composables/useNotify'
 import AccountAuthorizationGuide from '@/features/accounts/components/AccountAuthorizationGuide.vue'
+import AccountCloudSyncDialog from '@/features/accounts/components/AccountCloudSyncDialog.vue'
 import AccountFavoritesPanel from '@/features/accounts/components/AccountFavoritesPanel.vue'
 import AccountGroupsPanel from '@/features/accounts/components/AccountGroupsPanel.vue'
 import AccountLoginDialog from '@/features/accounts/components/AccountLoginDialog.vue'
@@ -339,6 +363,7 @@ import { formatUserError } from '@/utils/user-facing-error'
 import { resolveAccountDisplayName } from '@/utils/account-display-name'
 import { useIdentityStore } from '@/stores/identity'
 import { useLoginGate } from '@/composables/useLoginGate'
+import { FEATURE_FLAG_ACCOUNT_CLOUD_SYNC, useFeatureFlag } from '@/composables/useFeatureFlag'
 
 const filterOptions = computed(() => [
   { value: 'all', label: t('accountsPage.filterAll') },
@@ -387,6 +412,14 @@ const searchInput = ref('')
 const platformSearchInput = ref('')
 const accountBatchMode = ref(false)
 const batchCheckAllBusy = ref(false)
+// ─── 账号云镜像同步（PRD-CLOUD-ACCOUNT-SYNC-2026-09-27 §10）───────────
+// 入口显隐只由运营 feature flag 决定（ADR-0006：缺失 / 未同步过 / 网络不可达一律按关闭），
+// 不新建 IPC，复用 ops-center-sync 的 runtime 链路。
+// cloudSyncRunning 由弹窗 running-change 事件回灌：进行中关闭弹窗属「后台继续」，
+// 批次仍在跑，按钮必须保持禁用，并与一键检测互斥（PRD §5.8）。
+const { enabled: cloudSyncFlagEnabled, refresh: refreshCloudSyncFlag } = useFeatureFlag(FEATURE_FLAG_ACCOUNT_CLOUD_SYNC)
+const cloudSyncDialogVisible = ref(false)
+const cloudSyncRunning = ref(false)
 // 一键检测进度（进度卡顿修复 2026-09-22）：checked 只反映已完成数，
 // current 记录「正在检测」的平台（并发下可多个），配合秒表让等待可感知；
 // 此前只在使用完成边界刷新计数，单个耗时账号会让遮罩看起来死住。
@@ -953,6 +986,8 @@ async function checkLogin (account) {
  */
 async function batchCheckAllLogins () {
   if (batchCheckAllBusy.value) return
+  // 与【同步云端】互斥（PRD §5.8）：两条链路都会改登录态，并行时任一先结束都会让另一份结论错乱。
+  if (cloudSyncRunning.value) return
   const accounts = accountStore.accounts || []
   if (accounts.length === 0) {
     notifyWarning('accountsPage.batchCheckAllNoAccounts')
@@ -1048,6 +1083,38 @@ async function batchCheckAllLogins () {
     verifyingIds.value = new Set()
     batchCheckAllBusy.value = false
   }
+}
+
+/**
+ * 【同步云端】按钮的 title：按「当前真正挡住它的那一条」给原因文案
+ * （PRD §10.4 门控与错误表；三种禁用原因不能共用一句）。
+ */
+const cloudSyncButtonTitle = computed(() => {
+  if (cloudSyncRunning.value) return t('accountsPage.cloudSyncBusy')
+  if (batchCheckAllBusy.value) return t('accountsPage.cloudSyncGateBusy')
+  if (totalAccounts.value === 0) return t('accountsPage.cloudSyncNoAccounts')
+  return t('accountsPage.cloudSync')
+})
+
+function handleCloudSyncRunning (running) {
+  cloudSyncRunning.value = Boolean(running)
+}
+
+/** 批次终态刷新一次本机列表：下行恢复会新增账号；逐条刷新会让列表在同步过程中反复跳动。 */
+async function handleCloudSynced () {
+  await accountStore.load()
+}
+
+/**
+ * 点击【同步云端】：先过登录门（未登录弹引导，取消则一个云请求都不发，PRD §11 前两行），
+ * 通过后只打开弹窗——摘要由弹窗打开时自行拉取（§10.1 状态机 idle → loading-digest）。
+ */
+async function openCloudSync () {
+  if (cloudSyncRunning.value || batchCheckAllBusy.value) return
+  if (totalAccounts.value === 0) return
+  const ok = await ensureLogin()
+  if (!ok) return
+  cloudSyncDialogVisible.value = true
 }
 
 /**
@@ -1149,6 +1216,8 @@ onMounted(() => {
   accountStore.loadGroups()
   startAccountEvents()
   refresh()
+  // 运营开关只影响入口显隐，读不到即关闭（ADR-0006），因此不阻塞首帧、失败也不提示
+  refreshCloudSyncFlag()
 })
 
 onUnmounted(() => {

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   PLATFORM_LOGIN_URLS,
+  PLATFORM_SESSION_COOKIE_MARKERS,
   hasPlatformSessionCookie,
   isPlatformCookieDomain,
   isPlatformLoginSuccessUrl,
@@ -136,5 +137,57 @@ describe('platform authentication URL boundaries', () => {
     // 未声明标记的平台沿用既有行为，本次改动不扩大爆炸半径
     expect(hasPlatformSessionCookie('douyin', [])).toBe(true)
     expect(hasPlatformSessionCookie('wechat_mp', [{ name: 'anything', value: 'v' }])).toBe(true)
+  })
+
+  // ─── 会话标记表自身的形态契约（PRD-CLOUD-ACCOUNT-SYNC §5.1 / adr/0004 前置）───
+  // 快手的 platform_uid 只能来自「登录成功后才写入」的身份 Cookie，而这张表就是
+  // 「登录成功后才出现」的唯一起点证据；表本身退化（混入埋点/设备标识）会让下游
+  // 所有把守点（auth-view-manager / qrcode-login / credential-saver / account-manager
+  // captureCookies，以及 http-login-checker 的 cookie 型 uid 提取）同时失效，
+  // 所以这里锁的是表，不是某一个调用点。
+  const DEVICE_OR_TRACKING_NAMES = [
+    'did', '_did', 'wid', 'divid', 'uuid', 'guid', 'webId', 'gid', 'clientid',
+    'kwssectoken', 'kwpsecproductname', 'kwfv1', 'kwscode',
+  ]
+  // 结构化正向契约（不是逐个坏值列举）：标记名必须显式承载「会话票据 / 用户身份」语义
+  const SESSION_MARKER_SHAPE =
+    /user_?id|(^|[._-])(st|sid|auth|token|tk)([._-]|$)|(^|[._-])(session|sess)([._-]|$)|session_?id/i
+
+  it('会话标记表非空，且每个平台的每个标记名都承载「会话票据/用户身份」语义', () => {
+    const platforms = Object.keys(PLATFORM_SESSION_COOKIE_MARKERS)
+    // 规模下界：解析退化成空集合会让本锁假绿
+    expect(platforms.length).toBeGreaterThanOrEqual(1)
+    expect(PLATFORM_SESSION_COOKIE_MARKERS.kuaishou.length).toBeGreaterThanOrEqual(1)
+    for (const platform of platforms) {
+      const markers = PLATFORM_SESSION_COOKIE_MARKERS[platform]
+      expect(Array.isArray(markers), platform + ' 标记表必须是数组').toBe(true)
+      expect(markers.length, platform + ' 标记表不得为空').toBeGreaterThanOrEqual(1)
+      for (const marker of markers) {
+        expect(DEVICE_OR_TRACKING_NAMES, platform + ' 混入了设备/埋点标识: ' + marker).not.toContain(marker)
+        expect(marker, platform + ' 的标记名不承载会话/身份语义: ' + marker).toMatch(SESSION_MARKER_SHAPE)
+      }
+    }
+  })
+
+  it('快手 uid 可用的身份标记就是表里那条 userId（与 CDP 实测同一份证据）', () => {
+    // http-login-checker 的 kuaishou uid 来源（cookie `userId`）不得自立一套键名：
+    // 该键必须同时是「登录态标记」，否则它随时可能变成又一个匿名设备标识。
+    expect(PLATFORM_SESSION_COOKIE_MARKERS.kuaishou).toContain('userId')
+    expect(hasPlatformSessionCookie('kuaishou', [{ name: 'userId', value: '5321009876543' }])).toBe(true)
+  })
+
+  it('快手登录页形态（cp 域同 URL + 只有埋点 Cookie）既不算登录成功，也凑不出任何会话标记', () => {
+    // 2026-09-25 事故形态复现：登录视图停在 passport 登录域，或停在 cp.kuaishou.com/profile
+    // 的营销壳上，此时 9 个 Cookie 全是匿名埋点。两个门禁必须同时拒绝。
+    const anonymousLoginShell = ['did', 'wid', '_did', 'divid', 'kwssectoken', 'kwpsecproductname', 'kwfv1', 'kwscode']
+      .map(name => ({ name, value: 'anon-value' }))
+    expect(isPlatformLoginSuccessUrl('kuaishou', 'https://passport.kuaishou.com/pc/account/login/')).toBe(false)
+    expect(hasPlatformSessionCookie('kuaishou', anonymousLoginShell)).toBe(false)
+    // 只有 URL 到位（可被判「成功」）而标记缺失时，标记门禁仍是最后一道闸
+    expect(isPlatformLoginSuccessUrl('kuaishou', 'https://cp.kuaishou.com/profile')).toBe(true)
+    expect(hasPlatformSessionCookie('kuaishou', anonymousLoginShell)).toBe(false)
+    // 埋点标识冒充身份：值再像 ID 也不算登录态
+    expect(hasPlatformSessionCookie('kuaishou', [{ name: 'did', value: '5321009876543' }])).toBe(false)
+    expect(hasPlatformSessionCookie('kuaishou', [{ name: 'divid', value: '5321009876543' }])).toBe(false)
   })
 })
