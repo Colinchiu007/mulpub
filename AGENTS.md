@@ -659,6 +659,7 @@ npm run test:all:visual
 4. **baseline 更新需人工审核** diff 图,确认是预期变化后再覆盖
 5. **像素失败后**必须跑 `npm run test:visual:agent` 生成报告,Agent 用 view\_image 看图判断
 6. 所有命令必须在 `apps/desktop/` 目录下执行
+7. **基线必须与比对环境同源（MUST）**：`test:visual:pixel` 在 CI 用 `windows-latest` + CI 的 Chromium/字体渲染做比对，因此**基线只能取自 CI 产物**（`quality-gate-visual-reports` artifact 里的 `screenshots/<view>-current.png`），**禁止**把本地 `test:visual:update-baseline` 截出的图直接提交。反例实测：`accounts-list.png` 曾在本地机器上捕获并入库，与 CI 渲染产生 **3.659%** 的全页文字亚像素重影差异（两次不同分支 CI run 之间比对为 **0 px**，证明 CI 渲染是确定性的），而 `PIXEL_THRESHOLD=0.06` 是**全页**容差——门禁因此长期被环境噪声吃掉、对局部回归近乎失明。判据：换/补基线后必须自证「新基线 vs 同一次 CI 渲染 = 0 px」，并确认差异中**属于本次代码改动的比例**（分区统计），不能让噪声占大头却报「PASSED」。
 
 ### 失败处理流程
 
