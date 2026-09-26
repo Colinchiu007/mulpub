@@ -270,10 +270,14 @@ describe('FunctionalRunner 应用就绪超时后的有界重载合同', () => {
   function createReadyHarness(options = {}) {
     const runner = new FunctionalRunner({ url: 'http://127.0.0.1:5174' });
     const navCalls = [];
+    const reloadCalls = [];
     let attempt = 0;
     runner.page = {
       goto: async (url) => {
         navCalls.push(url);
+      },
+      reload: async (opts) => {
+        reloadCalls.push(opts || null);
       },
       waitForURL: async () => {
         attempt += 1;
@@ -286,28 +290,114 @@ describe('FunctionalRunner 应用就绪超时后的有界重载合同', () => {
         throw new Error(options.readyTimeoutMessage || TRANSIENT_READY_TIMEOUT);
       },
     };
-    return { runner, navCalls, attemptOf: () => attempt };
+    return { runner, navCalls, reloadCalls, attemptOf: () => attempt };
   }
 
   function transientFailure(errorText = 'net::ERR_NO_BUFFER_SPACE') {
     return { url: 'http://127.0.0.1:5174/src/main.js', errorText, at: Date.now() };
   }
 
+  it('恢复动作必须真的重取子资源：goto 同一 URL 是 same-document 导航，不算重载', async () => {
+    // 实测（Edge + 本机 vite:5174，2026-09-27）：
+    //   对完全相同的 URL 再 page.goto 一次 ⇒ window.__probe 存活、JS 子资源重新请求 **0** 次
+    //   page.reload() ⇒ probe 消失、重新请求 64 个模块
+    // 所以假 page 必须带这条语义：否则「重载」在单测里只是一个被记录下来的调用，
+    // 在真实浏览器里却是什么都没重做的 2×15s 空转 —— 应用照样不挂载，红还是红。
+    const runner = new FunctionalRunner({ url: 'http://127.0.0.1:5174' });
+    const calls = { goto: 0, reload: 0 };
+    let mounted = false;
+    let lastUrl = null;
+    let attempt = 0;
+    runner.page = {
+      goto: async (url) => {
+        calls.goto += 1;
+        if (url !== lastUrl) mounted = false;
+        lastUrl = url;
+      },
+      reload: async () => {
+        calls.reload += 1;
+        mounted = true;
+      },
+      waitForURL: async () => {
+        attempt += 1;
+        if (attempt === 1) runner.resourceFailures.push(transientFailure());
+      },
+      locator: () => ({ waitFor: async () => {} }),
+      waitForFunction: async () => {
+        if (mounted) return undefined;
+        throw new Error(TRANSIENT_READY_TIMEOUT);
+      },
+    };
+
+    await runner.goto('/accounts');
+
+    assert.equal(calls.reload, 1, '恢复必须走 reload()（唯一会重新拉取子资源的原语）');
+    assert.equal(calls.goto, 1, '不得用「对同一 URL 再 goto 一次」冒充重载');
+  });
+
+  it('reload 本身再被瞬时打断时继续用满预算，其他错误原样抛出', async () => {
+    const runner = new FunctionalRunner({ url: 'http://127.0.0.1:5174' });
+    const calls = { goto: 0, reload: 0 };
+    let mounted = false;
+    let attempt = 0;
+    runner.page = {
+      goto: async () => { calls.goto += 1; },
+      reload: async (opts) => {
+        calls.reload += 1;
+        if (calls.reload === 1) throw new Error('page.reload: net::ERR_NO_BUFFER_SPACE at reload');
+        mounted = true;
+      },
+      waitForURL: async () => {
+        attempt += 1;
+        if (attempt === 1) runner.resourceFailures.push(transientFailure());
+      },
+      locator: () => ({ waitFor: async () => {} }),
+      waitForFunction: async () => {
+        if (mounted) return undefined;
+        throw new Error(TRANSIENT_READY_TIMEOUT);
+      },
+    };
+
+    await runner.goto('/accounts');
+
+    assert.equal(calls.reload, 2, '文档导航又被打断 ⇒ 用下一轮预算继续恢复，而不是把重载当成失败');
+    assert.deepEqual(runner.actions.map((a) => a.kind), ['appReadyReload', 'appReadyReload', 'goto']);
+  });
+
+  it('重载之后本轮没有新的资源失败 ⇒ 立刻收口，不得拿上一轮的旧证据烧完预算', async () => {
+    const { runner, navCalls, reloadCalls } = createReadyHarness({
+      succeedFromAttempt: Infinity,
+      onAttempt: (n, r) => { if (n === 1) r.resourceFailures.push(transientFailure()); },
+    });
+
+    await assert.rejects(
+      () => runner.goto('/accounts'),
+      (received) => received.message === TRANSIENT_READY_TIMEOUT,
+    );
+
+    assert.equal(reloadCalls.length, 1, '只有第一轮有证据 ⇒ 只重载一次');
+    assert.equal(navCalls.length, 1);
+    assert.deepEqual(runner.actions.map((a) => a.kind), ['appReadyReload']);
+  });
+
   it('资源失败 + 就绪超时时重载一次并记账 appReadyReload', async () => {
-    const { runner, navCalls } = createReadyHarness({
+    const { runner, navCalls, reloadCalls } = createReadyHarness({
       succeedFromAttempt: 2,
       onAttempt: (n, r) => { if (n === 1) r.resourceFailures.push(transientFailure()); },
     });
 
     await runner.goto('/accounts');
 
-    assert.deepEqual(navCalls, ['http://127.0.0.1:5174/#/accounts', 'http://127.0.0.1:5174/#/accounts']);
+    assert.deepEqual(navCalls, ['http://127.0.0.1:5174/#/accounts']);
+    assert.equal(reloadCalls.length, 1, '恢复只走 reload()');
+    assert.equal(reloadCalls[0].waitUntil, 'domcontentloaded');
+    assert.equal(Number.isFinite(reloadCalls[0].timeout), true, 'reload 必须自带超时预算');
     assert.deepEqual(runner.actions.map((a) => a.kind), ['appReadyReload', 'goto']);
     assert.equal(runner.actions[0].reason, 'net::ERR_NO_BUFFER_SPACE');
   });
 
   it('没有瞬时资源证据时就绪超时必须原样抛出，不得重载（不得把真故障藏进重试）', async () => {
-    const { runner, navCalls } = createReadyHarness({ succeedFromAttempt: Infinity });
+    const { runner, navCalls, reloadCalls } = createReadyHarness({ succeedFromAttempt: Infinity });
     const before = runner.actions.length;
 
     await assert.rejects(
@@ -316,22 +406,24 @@ describe('FunctionalRunner 应用就绪超时后的有界重载合同', () => {
     );
 
     assert.equal(navCalls.length, 1, '无证据不得重载');
+    assert.equal(reloadCalls.length, 0, '无证据不得 reload');
     assert.equal(runner.actions.length, before, '无证据不得记账重载');
   });
 
   it('非超时的就绪错误即使伴随资源失败也不重载', async () => {
     const realError = new Error('page.waitForFunction: ReferenceError: outlet is undefined');
-    const { runner, navCalls } = createReadyHarness({
+    const { runner, navCalls, reloadCalls } = createReadyHarness({
       readyError: realError,
       onAttempt: (n, r) => { if (n === 1) r.resourceFailures.push(transientFailure()); },
     });
 
     await assert.rejects(() => runner.goto('/accounts'), (received) => received === realError);
     assert.equal(navCalls.length, 1);
+    assert.equal(reloadCalls.length, 0);
   });
 
   it('重载预算上限 2 次：耗尽后抛出最后一次超时，且保留最后一次尝试的 console 证据', async () => {
-    const { runner, navCalls } = createReadyHarness({
+    const { runner, navCalls, reloadCalls } = createReadyHarness({
       succeedFromAttempt: Infinity,
       onAttempt: (n, r) => {
         r.resourceFailures.push(transientFailure());
@@ -344,7 +436,8 @@ describe('FunctionalRunner 应用就绪超时后的有界重载合同', () => {
       (received) => received.message === TRANSIENT_READY_TIMEOUT,
     );
 
-    assert.equal(navCalls.length, 3, '1 次导航 + 2 次重载');
+    assert.equal(navCalls.length, 1, '导航只做一次');
+    assert.equal(reloadCalls.length, 2, '恢复预算恰好 2 次 reload');
     assert.deepEqual(
       runner.actions.filter((a) => a.kind === 'appReadyReload').map((a) => a.attempt),
       [1, 2],
@@ -357,11 +450,12 @@ describe('FunctionalRunner 应用就绪超时后的有界重载合同', () => {
   });
 
   it('上一次导航留下的陈旧资源失败不得作为本次重载证据', async () => {
-    const { runner, navCalls } = createReadyHarness({ succeedFromAttempt: Infinity });
+    const { runner, navCalls, reloadCalls } = createReadyHarness({ succeedFromAttempt: Infinity });
     runner.resourceFailures.push(transientFailure());
 
     await assert.rejects(() => runner.goto('/accounts'));
     assert.equal(navCalls.length, 1);
+    assert.equal(reloadCalls.length, 0);
     assert.equal(runner.actions.filter((a) => a.kind === 'appReadyReload').length, 0);
   });
 
@@ -403,7 +497,7 @@ describe('FunctionalRunner 应用就绪超时后的有界重载合同', () => {
   });
 
   it('runner 自身预算耗尽的错误也要按超时识别（否则重载路径永不触发）', async () => {
-    const { runner, navCalls } = createReadyHarness({
+    const { runner, navCalls, reloadCalls } = createReadyHarness({
       succeedFromAttempt: 2,
       readyTimeoutMessage: '等待应用就绪超时（15000ms）：/accounts',
       onAttempt: (n, r) => { if (n === 1) r.resourceFailures.push(transientFailure()); },
@@ -411,7 +505,8 @@ describe('FunctionalRunner 应用就绪超时后的有界重载合同', () => {
 
     await runner.goto('/accounts');
 
-    assert.equal(navCalls.length, 2, '预算耗尽同样应触发一次有界重载');
+    assert.equal(navCalls.length, 1, '导航只做一次');
+    assert.equal(reloadCalls.length, 1, '预算耗尽同样应触发一次有界 reload');
   });
 
   it('产物必须暴露重载记账与已恢复的瞬时噪音（不得伪造成没发生过）', async () => {
