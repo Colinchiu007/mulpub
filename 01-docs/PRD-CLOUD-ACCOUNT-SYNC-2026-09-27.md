@@ -232,21 +232,25 @@ digest(local) == digest(cloud) ? → 无冲突（unchanged）
 
 ### 7.2 `PUT /api/v1/me/accounts`（批量 upsert）
 
-请求体 `{ accounts: [...] }`，每项含 §6.2 字段 + `credentialEnvelope: { v:1, alg:"A256GCM", iv, ciphertext, tag, encryptedDataKey, digest, credentialUpdatedAt }`。
+请求体 `{ accounts: [...] }`，每项含 §6.2 字段 + `credential`（`{cookies, localStorage, indexedDB}`，经 TLS 上行，服务端落库前才加密）+ 可选 `force`（冲突裁决后本机胜出的强制覆盖标记 `'local-wins'`；云端胜出回写时为 `'cloud-wins'`）。
 
-响应 `{ code, data: { results: [{ platform, platformUid, outcome, errorCode? }] } }`，`outcome ∈ created|updated|unchanged|rejected`。逐条独立裁决，一条失败不影响其余（MUST NOT 整批回滚）。
+**凭证摘要由服务端计算**，客户端不自算：摘要口径（cookies 规范化排序 + 丢弃非语义字段）一旦在两处各写一份必然漂移，而漂移的表现是 `unchanged` 被误判成冲突、每次同步都重写一遍凭证。客户端只消费服务端回传的裁决结果。
 
-幂等：同一 `(platform, platformUid)` 且 `credentialDigest` 相同 → `unchanged` 且不更新 `updated_at`。
+响应 `{ code, data: { results: [{ platform, platformUid, outcome, errorCode?, credentialFreshness? }] } }`，`outcome ∈ created|updated|unchanged|conflict|rejected`；`conflict` 时 `credentialFreshness ∈ {local, cloud}` 指明哪一方的 `credential_updated_at` 较新（供客户端实测裁决定序）。逐条独立裁决，一条失败不影响其余（MUST NOT 整批回滚）。
+
+幂等：同一 `(platform, platformUid)` 且服务端算得的摘要未变 → `unchanged` 且不更新 `updated_at`。
 
 ### 7.3 `POST /api/v1/me/accounts/sync`
 
 服务端裁决端点（供客户端在合并计划不确定时索取权威视图）：入本机计划摘要，出 `actions: [{key, action, reason}]` + 需要解密的凭证槽。若实现上把裁决完全放客户端，本端点退化为"批量取凭证"：`{ keys: [{platform, platformUid}] } → { credentials: [{platform, platformUid, credentialEnvelope}] }`。**本期按后者实现**（客户端裁决，服务端只存取），因为凭证解密必须在服务端做、而合并键判定不需要服务器状态。
 
-### 7.4 `DELETE /api/v1/me/accounts`（断开云端）
+### 7.4 `POST /api/v1/me/accounts/disconnect`（断开云端）
 
-无请求体（归属只认 token）。响应 `{ code, data: { deletedAccounts, deletedTombstones } }`。
-前置：请求头 `X-Confirm-Disconnect: cloud`（防误触的显式二次确认标记，由 UI 在用户输入确认后附带）。
+请求体 `{ confirm: "cloud" }`（防误触的显式二次确认标记，由 UI 在用户确认后附带；服务端 MUST 独立校验该值，缺失即 400 `DISCONNECT_CONFIRMATION_REQUIRED`）。归属只认 token，MUST NOT 接受请求体里的 user/subject 字段。
+响应 `{ code, data: { deletedAccounts, deletedTombstones } }`。
 失败：`{ error: "CLOUD_DISCONNECT_PARTIAL", deletedAccounts, remaining }` → 客户端 MUST 显示失败并保留入口。
+
+> 用 POST 而非 `DELETE`：本仓所有变更类云接口都是 POST（`/me/sessions/revoke-others`、`/me/notifications/read`），且 `DELETE` 带 body 在反向代理与 HTTP 客户端上是长期歧义源；同时会员白名单 `ME_API_PATHS` 里该路径只放开 `POST` 一个方法，方法集中不存在"能 DELETE 却删多了"的余地。
 
 ### 7.5 错误码全表
 
@@ -271,12 +275,12 @@ digest(local) == digest(cloud) ? → 无冲突（unchanged）
 
 ## 八、加密契约
 
-1. 生成：每次上行对每条凭证 `dk = randomBytes(32)`；`ciphertext = AES-256-GCM(key=dk, iv = randomBytes(12), aad = "${userId}|${platform}|${platformUid}")`。
-2. `encryptedDataKey = KMS.encrypt(dk, keyId = "user:${userId}")`；DK 明文在内存中用后 MUST `zeroMemory`。
+1. **加密发生在服务端收到 `PUT` 之后、写库之前**：对每条凭证 `dk = randomBytes(32)`；`ciphertext = AES-256-GCM(key=dk, iv = randomBytes(12), aad = "${userId}|${platform}|${platformUid}")`。客户端不做加密、不持有主密钥——客户端加密要么把明文 DK 一起传上去（等于没加密），要么多一次 GenerateDataKey 往返；本项目的信任边界就是"服务端持有 KMS 主密钥"，两种做法安全上限相同，多一条链路只多一处漂移点。
+2. `encryptedDataKey = KMS.wrap(dk, keyId = "user:${userId}")`；DK 明文在进程内用后必须清零。
 3. KMS 抽象层接口：`{ wrap(dk, keyId) → Promise<Buffer>, unwrap(cipherDk, keyId) → Promise<Buffer> }`。本机实现用环境密钥文件（仅开发/测试），生产实现接云 KMS；实现缺失 → `KMS_UNAVAILABLE`，**禁止**退化为"不加密"或"用固定密钥"。
 4. AAD 绑定三元组，防跨账号/跨用户串解（换 AAD 必须解密失败）。
 5. 桌面侧解密后写本机 `credential-store`，用**本机** safeStorage 主密钥重新加密；云端 DK 密文与本机 `.enc` 文件互不可解，两套体系独立。
-6. `credential_digest` = SHA-256(规范化 JSON 排序后的凭证)。规范化 MUST 固定：cookies 按 `(domain, path, name)` 字典序、丢弃 `expirationDate/lastAccessTime/session/hostOnly` 等非语义字段后序列化。否则同一次登录会产生不同摘要，把 `unchanged` 误判成冲突。
+6. `credential_digest` = SHA-256(规范化 JSON 排序后的凭证)，**只在服务端计算**（见 §7.2）。规范化 MUST 固定：cookies 按 `(domain, path, name)` 字典序、丢弃 `expirationDate/lastAccessTime/session/hostOnly` 等非语义字段后序列化。否则同一次登录会产生不同摘要，把 `unchanged` 误判成冲突。客户端侧禁止另写一份 normalization：本仓已有"同一判定逻辑抄成三份导致行为漂移"的先例（登录态三态映射），摘要口径同理。
 
 ## 九、IPC 与 preload 契约
 
@@ -284,12 +288,13 @@ digest(local) == digest(cloud) ? → 无冲突（unchanged）
 | --- | --- | --- |
 | renderer → main | `accounts:cloud-digest` | → `{ code, data: { total, byPlatform, tombstones, reachable, errorCode? } }` |
 | renderer → main | `accounts:cloud-sync` | 入 `{ }`；出终态汇总 `{ code, data: { created, updated, unchanged, restored, skipped, conflicts, invalid, failed, items: [...] } }` |
-| renderer → main | `accounts:cloud-disconnect` | 入 `{ confirm: 'cloud' }`；出 `{ code, data: { deletedAccounts, deletedTombstones } }` |
+| renderer → main | `accounts:cloud-disconnect` | 入 `{ confirm: 'cloud' }`；出 `{ code, data: { deletedAccounts, deletedTombstones } \| null, errorCode? }` |
+| renderer → main | `accounts:cloud-sync-abort` | 出 `{ code, data: { aborted: boolean } }`；置中止标记，当前条完成后停止（不硬杀在途请求） |
 | main → renderer 事件 | `accounts:cloud-sync-progress` | `{ phase:'start'\|'done', index, total, platform, accountId?, outcome?, code?, elapsedMs? }` |
 
 约束：
 - 三个 invoke 方法 MUST 过 `withSenderCheck`（CI Gate 17），MUST 在 `apps/desktop/electron/preload/account.js` 暴露，MUST 登记 `preload.test.js` 的 `ACCOUNT_METHODS`（`:86-100`），MUST 重新构建 `index.bundle.js` 与 `home-shell-preload.bundle.js`（改 `preload/page-manager.js` 类文件漏 bundle 会被 bundle 断言拦截）。
-- `access-control.js`：三个方法 MUST NOT 落入默认宽松分支；`accounts:cloud-sync`/`disconnect` 属写操作，按 `authenticated` 及以上门控并显式声明。
+- `access-control.js`：四个 invoke 方法 MUST NOT 落入默认宽松分支；`accounts:cloud-sync`/`cloud-disconnect`/`cloud-sync-abort` 属写操作或状态变更，按 `authenticated` 及以上门控并显式声明。
 - 进度事件 MUST 有 start（执行前）+ done（终态）两个边界（AGENTS.md 批量 IPC 双边界规则；先例 `ipc-handlers/account.js:580-591`）。
 - IPC 入参 MUST 是纯 JSON；从 Pinia ref 取出的对象 MUST `JSON.parse(JSON.stringify(x))` 脱壳（"An object could not be cloned"）。
 
