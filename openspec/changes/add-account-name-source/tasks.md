@@ -95,6 +95,10 @@
   - 🟠 **`Accounts.vue:836` 改名去重比较用 raw 字段**：用户输入恰等于被守卫隐藏的那串脏值时，改名静默 no-op 且零反馈。改为与卡片显示值同源。
   - 两条评审点到但**本轮不改**、登记为债务：`ipc-handlers/store.js` 另有第二份 `publicAccountFields`（不含 `name_source`、仍做 `account_name || name` 合并，当前无渲染端消费者）；`src/api/publisher.js` 的 `accountUpdate` 失去最后消费者成为死导出，而它正是「写了不显示」的断链。
 
+- [x] 9.8 **本 PR 自己造成的静默退化（自查发现，非评审提出）**：合并 `#2414` 后去看它重捕的 `accounts-list.png`，发现 CI 视觉基线里确实渲染着 8 个带名字的账号，顺藤摸到 `tests/e2e/fixtures/accounts.json` —— 它把显示名放在 `name`、完全没有 `account_name`（本 PR 之前的数据模型，当时 IPC 会做 `account_name || name` 合并）。本 PR 撤掉那道合并 + 摘除 `name` 候选，两条叠加会让这 8 张卡片全部退化成平台名，而**三道门禁都不会红**：没有任何测试断言这些名字；该夹具经 `fixture-loader.js` 注入 `window.__fixtures` 走 IPC mock、绕过主进程白名单；Gate 7 `PIXEL_THRESHOLD=0.06` 吸收得掉整页文字变化。
+  - 处置：夹具按当前模型补 `account_name`（逐行核对渲染文本 8/8 与既有基线一致，故**不需要重捕 PNG**）；`acc_wechat_001` 标 `name_source=manual`，让 e2e/视觉数据真正覆盖「manual 原样显示、不过守卫」这条分支。
+  - 锁：`e2e-quality-infrastructure.test.js` 新增形状断言（每行必须有非空 `account_name`、`name_source` 取值合法、至少一条 manual），49 例全绿；变异「把夹具改回只有 `name`」→ 该锁变红并点名缺失字段，改回后逐字节还原。
+  - 可 generalize 的判据：**撤掉一处隐式合并时，必须连喂给测试与视觉的夹具数据形状一起改**。退化若只发生在像素层，那一层恰恰是这套门禁最瞎的（0.06 容差 + 无人断言文案）。
 ## 10. 文档与归档三同步
 
 - [x] 10.1 `CHANGELOG.md` 收口：显式写「改名此前是空操作」「发布页账号显示值变化」两条用户可见影响
