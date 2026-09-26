@@ -16038,3 +16038,12 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **顺带修掉的认知错误（记录以免以讹传讹）**：我最初断言「基线固化缺陷 → 像素 diff 恒为 0 → 永远绿」。实测推翻——diff 从来不是 0（main 上就有 2.48%，改动后 3.66%），真正的失效机制是**阈值与差异面积错配 + 基线来源环境噪声**。"基线固化缺陷"这一重确实独立成立，但它不是门禁失灵的原因。教训：**给逃逸链下结论前，先去 artifact 里把真实数值读出来**；"恒为 0"这种漂亮解释往往是想出来的。
 
 - **配套工具口径**：本地无 Playwright 时，用 `pngjs` + `pixelmatch` 以 `threshold 0.1 / includeAA false` 复算，实测与 CI 报告值精确到三位小数吻合（3.6592% vs 3.659%），可作为基线工作的可信管线；分区统计（按 x/y 区间累加差异像素）能区分"噪声"与"本次改动的真实归属"。
+
+
+## 活体页面「找不到元素」先判登录态，再疑选择器；QM-1 打包必须证明 renderer 真进产物（kuaishou-w3-live-fix D1/D2，2026-09-26）
+
+- **登录态失效会伪装成「选择器漂移」，直接改选择器是无效功（pitfall，D2 定性反转）**：6.3 活体验收 DOM 轨 publish_btn 7 候选全 timeout，初判为快手改版、选择器过期。CDP 探针打开 auth 分区视图实测：/profile 渲染的是登出营销页（hasLoginWord:true / hasConsoleWord:false），发布页导航被重定向回登出页——**页面根本没有发布按钮，7 候选面对的从来不是发布表单**。规约：平台页面上任何「元素等待超时/找不到」类失败，侦察顺序固定为 ①先采页面身份判定（title/body 关键文本、是否含「立即登录/扫码登录」、有无控制台导航词）②再判 DOM 结构漂移；未过①就改选择器一律视为无效功。识别信号：多个语义不同的候选同时全 timeout——漂移很少整族同死，整族同死更像整页不可达。
+- **「渲染线程冻结」假象的排除链（pattern，探针方法论）**：导航后 Runtime.evaluate 全部超时，逐层排除才定位真因：全元素 getComputedStyle 枚举太重（改零布局：textContent/offsetParent）→ 反调试 debugger 语句（Debugger.setSkipAllPauses 无效、无 Debugger.paused 事件）→ CDP 域检测（不开任何域的最小连接仍超时）→ 忙循环（renderer CPU 采样 12s 仅 0.36s，空闲）。真因：登出重定向链上的模态对话框（唯一命中 el-button confirm__btn「确定」）阻塞渲染线程。教训：**模态对话框 = evaluate 超时的高优先级嫌疑，CPU 空闲 + 超时即可锁定，不必穷举其他假说**。
+- **authOpenLogin 不带 accountId 会静默建新账号（pitfall，探针副作用）**：auth:open-login 完成流程里 saveCapturedAccount（无 id 建号）vs updateCapturedAccount（有 id 刷新）。探针复用登录态视图但未传 accountId，触发自动完成建出重复账号 0e7a4bdf。修复：驱动 auth 视图一律显式传既有 accountId；探针后用 accountList + 分区目录 CreationTime 取证是否误建，误建即删。登记副作用比「假装无副作用」重要——已写进侦察证据文档。
+- **electron-builder --dir 不带 vite build，测试面会静默缺 renderer（pitfall，QM-1 首轮假通过）**：worktree 无 dist/ 构建残留时，直接 pnpm exec electron-builder --dir 打出的 asar 里没有 \dist\index.html，exe 启动报 ERR_FILE_NOT_FOUND——但 builder 本身 exit 0、asar 里 electron/ 主进程文件齐全，「清单里找得到新模块」这类验证全部通过。修复：QM-1 统一走 pnpm run build:dir（build:vue + builder）。**口径：打包验证的成立条件必须包含 renderer 入口存在（asar list 断言 \dist\index.html）+ exe 存活且 stderr 无 ERR_FILE_NOT_FOUND/ENOTDIR**，只验主进程捆入等于验了半个产物。
+- **共享根证据文件随 PR 收编进 worktree evidence 目录（pattern）**：活体验收产物（applog/progress/verdict）最初落在共享根（未跟踪），提交前先 Copy 进 worktree 01-docs/**/evidence/ 再随 PR 提交；.md/.png 被 gitignore（/01-docs/**/*.md、*.png）时按 spike-verdict.md 先例 git add -f，并在 PR 正文注明。EOL 幻影（git diff --ignore-all-space 为空）的 bundle 文件不纳入提交面。
