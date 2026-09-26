@@ -1,4 +1,25 @@
+## 改名功能自引入起就是空操作：写副本不等于写完成，以及「合法性守卫」必须记来源而非猜形态（add-account-name-source，2026-09-26）
+
+- **「用户输入落盘」的写入口必须证明它写的是被读取的那份真源（pitfall，本 Bug 第一性原因）**：`renameAccount` 走 `accountUpdate` → `store:update-account` → **Electron SQLite**，而账号列表读 **python-backend `accounts.json`**。于是改名从来没有生效过，且 `src/api/publisher.js:103` 早就写着「不得改回 accountUpdate：那条通道写 Electron SQLite，而账号列表根本不从那里读，写了也不显示」—— **注释知道这件事，代码却仍在这么干，测试还把它断言成正确行为**（`stores/accounts.test.js:915`：`expect(accountUpdate).toHaveBeenCalledWith(id, {name})`）。这是本仓「装饰性链路」的第四次复发。**判定手法**：接到「某写入口已实现」的结论时，从「列表/详情读哪张表」反查写入目标；两者不同即缺陷，与返回码无关。写入口的测试必须断言**具体通道与被写对象**，不能只断言 `code === 0`。
+
+- **症状会被下游缺陷伪装成另一个 Bug（pitfall，为什么它藏了这么久）**：用户改名后界面回落到旧值，看起来像「显示层守卫误杀」，而真实原因是写入从未落地。上一轮修昵称显示时我正是停在「显示层过滤太宽」这一层，把后果当成了原因。**教训**：一个「改了没反应」的现象，必须先分诊是「没写进去」还是「写进去了没显示」——两者修法完全不同。分诊手法：改完直接读真源文件（本机 `userData/backend-data/accounts.json`）看字段有没有变，一眼可判。
+
+- **噪声/合法性守卫的判据不能是「文本形态」，必须是「来源意图」（architecture，本 change 的核心决策）**：`isNoiseAccountName` 的职责是藏掉系统抓错的文本。但用户手改的名字也会命中形态规则（含 ` - ` / ` · ` / 省略号、以「服务平台」结尾、括号不闭合），于是 `阿飞 - 自由职业`、`Rhythm · 音乐厅`、`广东政务服务平台` 被永久藏掉，连编辑框回填的都是回落值 —— 用户的命名在 UI 上不可达。反过来用「现网名不像噪声」推断「这是不是手改名」也两个方向都错：合法机器昵称被无谓保护（永远更新不动），而**用户名字恰好长得像噪声时会被抓取结果直接冲掉**（实测报错：`expected { account_name: '平台返回的昵称' } to not have property "account_name"`）。**结论**：「过滤坏数据」与「尊重用户输入」是同一判断的两个相反答案，只能靠显式来源字段（`name_source`）承载，靠规则松紧调不出同时成立。
+
+- **来源字段必须绑定在「界面实际优先读取的那个字段」上（pitfall，规划期自己写错并被实现证伪）**：design 初稿写「改名写 `name` + `name_source='manual'`」，但卡片读的是 `account_name || name` —— 优先位是 `account_name`。照初稿实现，凡 `account_name` 已有合法昵称的账号改名后仍显示旧昵称，`manual` 永远不可见，**整个 change 白修**。规划时只写了「记来源」，没写「来源描述哪个字段」，这个空洞直到实现才暴露。**口径**：给「哪个字段的元数据」这类伴随字段做设计时，必须同时写明它绑定的目标字段与该字段的读取优先级；写完立刻用一条具体数据（真实存量行）走一遍端到端，比再读一遍文档更能发现这类错位。
+
+- **新增持久化字段要穿过多道手工白名单，漏一道就「改了没反应」且两侧单测都绿（pitfall）**：本仓账号字段要穿 `_account_to_dict`（python）与 `publicAccountFields`（IPC）两道白名单。漏改任意一道，后端测自己返回了、IPC 测自己透传了输入，**两边都绿而链路是断的**。收口手法：加一道读源码的「接线守卫」（`account-name-source-passthrough.test.js`），断言每道白名单都含该键 —— 它不是行为测试，而是防止行为测试的输入被静默滤掉。同类：禁止在中间层做提前合并（`account_name || name`），那会让上游彻底失去区分能力。
+
+- **`require` 期解构会让 `vi.spyOn(消费方, fn)` 静默失效、测试假绿（pitfall，本轮差点放过）**：`account-manager.js:13` 写的是 `const { tryHttpLoginCheck, fetchAccountInfoViaHttpApi } = require('./http-login-checker')`，第 704 行调的是那个**本地绑定**。于是 `vi.spyOn(accountManager, 'fetchAccountInfoViaHttpApi')` 拦不住任何东西，测试会调用真实实现 —— 而断言恰好也可能通过，表现为假绿。正确顺序：先给仍被 `require.cache` 保留的依赖模块装 spy，再清消费方缓存重新 require，解构才会拿到被替换后的引用。**推广判据**：凡「测试通过但说不清它到底拦住了什么」，就去查被 mock 的东西是不是在 require 期就被复制成了局部变量。
+
+- **反证也要防「污染真实数据」这个反身风险（preference，本轮主动偏离任务措辞）**：任务写的是「把 fixture 改成 no-op 必须立刻变红」。但账号 fixture 的作用正是把 `ACCOUNTS_FILE` 从模块默认路径（本机 = 真实的 `userData/backend-data/accounts.json`）挪开；改成彻底 no-op 会让反证用例**把测试数据写进用户真实账号库**。改为「有指向、但不隔离」（全部用例共用一个固定临时目录）来做反证，同样证明 per-test 唯一性承重，且不碰真实数据。**口径**：给「隔离/清理」类机制做反证时，先问反证本身会不会造成它所要防的那个后果。
+
+- **仓库刻意设的「精确计数」门禁会随任何新增通道而红，这是特性不是脆弱（pattern）**：`preload.test.js` 断言 account 模块导出 46 个、api 总键数 330 个。新增 `accountRename` 必然把它俩变红。同步时按既有风格**在 it 标题里留痕**（`331 = 上一基线 330 + 本 PR 新增 1`），否则下一个改动的人无从判断这个数是有意为之还是漂移。改 preload 还要重建 `index.bundle.js` 与 `home-shell-preload.bundle.js` 并用内容 grep 自证（`grep -c "account:rename"`），「构建成功」不等于签名真的进去。
+
 ## 账号昵称显示成网页标题：兜底源语义错误 + 测试把缺陷钉成契约 + 枚举黑名单打地鼠（account-nickname-noise-fix，2026-09-26）
+
+
+
 
 - **「找不到就退而求其次拿标题」是身份字段采集的头号语义错误（pitfall，本 Bug 第一性原因）**：`accountInfoCollector` 在昵称选择器全 miss 时依次回落 `og:title` → `twitter:title` → `document.title`，把「网页标题」当成「账号昵称」的同义物写进了 `account_name`。生产库 7 个账号 6 个是脏的，其中 `小红书创作服务平台`/`快手创作者服务平台`/`抖音创作者中心` 三条**就是各平台创作者后台的页面标题本身**。**口径**：昵称/用户名/账号 ID 这类身份字段只能来自语义指向该字段的选择器；标题类来源（`document.title`、`og:*`、`twitter:*`）承载的是「这个页面叫什么」，与「这个账号叫什么」是两个不同命题，一律不得作为兜底。正确兜底是**不产出该键**，交给既有的「字段缺席 = 不修改」语义 + 展示端平台名回落 —— 宁可空，不可错。
 

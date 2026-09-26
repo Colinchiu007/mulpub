@@ -657,6 +657,27 @@ async function extractAccountInfoFromWebContents (webContents, platform = '') {
 }
 
 /**
+ * 资料回填的昵称保护判据：就地修改 patch，返回是否有实际改动。
+ *
+ * 判据是 `name_source`（用户是否显式命名），不是「现网名长得像不像噪声」。
+ * 旧实现用后者，两个方向都会错：现网名是合法机器昵称时被无谓保护（永远更新不动），
+ * 用户手改的名字恰好含 ` - ` / ` · ` / 省略号时被直接冲掉（2026-09-26 实测复现）。
+ *
+ * 顺带约束：只有真的写 account_name 时才同时下发 name_source='auto'，
+ * 否则「保护住昵称」的请求会顺手把 manual 降级成 auto。
+ * @param {object} patch buildProfilePatch 的产物（就地修改）
+ * @param {object|null} current 后端当前账号对象
+ */
+function guardProfilePatchBySource (patch, current) {
+  if (!patch || !patch.account_name) return
+  if (current && current.name_source === 'manual') {
+    delete patch.account_name
+    return
+  }
+  patch.name_source = 'auto'
+}
+
+/**
  * 登录态检测已经停在「已登录的页面上」时，顺手补齐该账号缺失/变化的昵称与头像。
  *
  * 为什么放在检测里：存量账号是在接线修好之前登录的，真源里 account_name 往往是网页
@@ -677,6 +698,7 @@ async function refreshProfileFromPage (page, platform, accountId) {
     const current = await pythonBridge.requestBackend('GET', '/api/accounts/' + accountId)
     if (!current || current.code !== 0 || !current.data) return false
     const patch = profileUtils.buildProfilePatch(info, current.data)
+    guardProfilePatchBySource(patch, current.data)
     if (Object.keys(patch).length === 0) return false
     const result = await pythonBridge.requestBackend('PATCH', '/api/accounts/' + accountId, patch)
     if (!result || result.code !== 0) {
@@ -694,7 +716,7 @@ async function refreshProfileFromPage (page, platform, accountId) {
 /**
  * HTTP 登录检测成功时的资料回填：用平台创作者 API（复用 http-login-checker 端点，
  * 对齐参考实现：不抓 DOM）拿昵称/粉丝，走 buildProfilePatch 只下发命中且变化的字段。
- * 昵称保护：仅当现网名命中噪声或缺失时才用 API 昵称覆盖，避免冲掉用户手动改过的名字；
+ * 昵称保护：见 guardProfilePatchBySource —— 按 name_source 判定，用户显式命名一律不覆盖。
  * 粉丝/平台ID/头像等增量字段照常回填。任何失败只 warn 返回 false，绝不影响登录态判定。
  * @returns {Promise<boolean>} 是否实际写回了资料字段
  */
@@ -709,8 +731,7 @@ async function refreshProfileFromHttpApi (platform, accountId, cookies) {
       { nickName: info.nickname, followers: info.followers, platformAccountId: info.platformAccountId },
       curData
     )
-    const curName = curData ? String(curData.account_name || '').trim() : ''
-    if (patch.account_name && curName && !isNoiseAccountName(curName)) delete patch.account_name
+    guardProfilePatchBySource(patch, curData)
     if (Object.keys(patch).length === 0) return false
     const result = await pythonBridge.requestBackend('PATCH', '/api/accounts/' + accountId, patch)
     if (!result || result.code !== 0) {
@@ -1085,6 +1106,37 @@ async function setAccountActive (accountId, platform, isActive) {
 }
 
 /**
+ * 用户显式改名：写后端 accounts.json 真源，并把来源标为 manual。
+ *
+ * 为什么不用 accountUpdate：那条通道写 Electron SQLite，而账号列表读后端 JSON，
+ * 写了不显示（见 src/api/publisher.js:103 的同款注释）。参照 setAccountActive 的写法。
+ *
+ * 为什么必须同时写 name_source：展示层靠它跳过噪声守卫。用户起的名字可能含
+ * ` - ` / ` · ` / 省略号或以「服务平台」结尾，都会被形态规则判成抓取错误而藏掉。
+ * @returns {Promise<{ok: boolean, account?: object, reason?: string, code?: number, message?: string}>}
+ */
+async function renameAccount (accountId, platform, newName) {
+  if (!accountId || !isSafePathSegment(accountId)) return { ok: false, reason: 'invalid-account-id' }
+  const name = typeof newName === 'string' ? newName.trim() : ''
+  if (!name) return { ok: false, reason: 'empty-name' }
+  try {
+    const result = await pythonBridge.requestBackend('PATCH', '/api/accounts/' + accountId, {
+      account_name: name,
+      name_source: 'manual',
+    })
+    if (!result || result.code !== 0) {
+      log.warn('AccountManager', 'renameAccount 写回后端失败 ' + platform + ':' + accountId + ' code=' + (result && result.code) + ' message=' + (result && result.message))
+      return { ok: false, reason: 'backend-error', code: result && result.code, message: (result && result.message) || '改名失败' }
+    }
+    log.info('AccountManager', 'renameAccount 已固化用户命名 ' + platform + ':' + accountId)
+    return { ok: true, account: result.data }
+  } catch (e) {
+    log.warn('AccountManager', 'renameAccount 异常 ' + platform + ':' + accountId + ' ' + (e && e.message ? e.message : String(e)))
+    return { ok: false, reason: 'exception', message: (e && e.message) ? e.message : String(e) }
+  }
+}
+
+/**
  * 更新已有账号凭证（重新登录场景）。
  * 覆盖 credentialStore 中的加密凭据，并通过 Python 后端更新公开元数据。
  * @param {string} platform
@@ -1214,6 +1266,7 @@ module.exports = {
   loginStatusFromCheckResult,
   persistLoginState,
   setAccountActive,
+  renameAccount,
   setOwnerSubjectProvider,
   accountStateRestorer,
   credentialStore,

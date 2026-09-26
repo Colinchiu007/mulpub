@@ -39,10 +39,10 @@ describe('updateCapturedAccount — PATCH 只下发命中字段（T8）', () => 
   })
   afterEach(() => { vi.restoreAllMocks() })
 
-  async function runUpdate (accountInfo) {
+  async function runUpdate (accountInfo, current) {
     const accountManager = loadAccountManager()
     const requestBackend = vi.spyOn(require('../services/python-bridge'), 'requestBackend')
-      .mockResolvedValueOnce({ code: 0, data: { ...CURRENT_ACCOUNT } })
+      .mockResolvedValueOnce({ code: 0, data: current ? { ...CURRENT_ACCOUNT, ...current } : { ...CURRENT_ACCOUNT } })
       .mockResolvedValueOnce({ code: 0, data: {} })
     vi.spyOn(accountManager.credentialStore, 'saveCredential').mockReturnValue(true)
     vi.spyOn(accountManager.accountStateRestorer, 'saveAccountRecord').mockReturnValue(true)
@@ -84,10 +84,84 @@ describe('updateCapturedAccount — PATCH 只下发命中字段（T8）', () => 
   // auth-view-manager 的 source.name 取的就是 document.title，它既直接 PATCH 回真源的
   // name 字段，又是创建路径 profileForCreate 的昵称兜底 —— 兜底不过守卫等于给网页标题
   // 留一条绕过口（2026-09-26 生产库的「小红书创作服务平台」等即此路径产物）。
-  it('更新路径：PATCH 的 name 不得是命中噪声的网页标题，回落平台名', async () => {
+  it('更新路径：PATCH 的 name 同样不得是命中噪声的网页标题，回落平台名', async () => {
     const { patchBody } = await runUpdate({})
     // captured.name = '头条号 - 个人中心'（A - B 是页面标题指纹）
     expect(patchBody.name).toBe('今日头条')
+  })
+})
+
+describe('回填保护必须按 name_source 判定，不得再靠文本形态猜', () => {
+  beforeEach(() => {
+    global.__enableElectronMock()
+    global.__resetElectronMock()
+    global.__electronMock.app.getPath = function () { return 'C:/test-user-data' }
+  })
+  afterEach(() => { vi.restoreAllMocks() })
+
+  async function runHttp (current, nickname) {
+    // 顺序是承重的：account-manager.js:13 在 require 期就把 fetchAccountInfoViaHttpApi
+    // 解构成本地绑定，:704 调的是那个绑定而不是模块属性。所以必须先给（仍被 require.cache
+    // 保留的）http-login-checker 装好 spy，再清掉 account-manager 缓存重新 require，
+    // 解构才会拿到被替换后的引用。反过来写会静默调用真实实现并让断言假绿。
+    const checker = require('./http-login-checker')
+    vi.spyOn(checker, 'fetchAccountInfoViaHttpApi').mockResolvedValue({
+      supported: true, nickname, followers: 777,
+    })
+    const accountManager = loadAccountManager()
+    const requestBackend = vi.spyOn(require('../services/python-bridge'), 'requestBackend')
+      .mockResolvedValueOnce({ code: 0, data: { ...CURRENT_ACCOUNT, ...current } })
+      .mockResolvedValueOnce({ code: 0, data: {} })
+
+    const ok = await accountManager.refreshProfileFromHttpApi('toutiao', 'acc-1', TOUTIAO_COOKIE)
+    const patchCall = requestBackend.mock.calls.find(call => call[0] === 'PATCH')
+    return { patchBody: patchCall && patchCall[2], ok }
+  }
+
+  // 这条是「猜」与「读意图」的唯一分水岭：旧实现见到非噪声的现网名就一律保护，
+  // 于是机器抓来的旧昵称永远无法被更好的抓取结果更新；而它并不是用户手写的。
+  it('现网名为 auto 且非噪声时，必须允许被抓取结果覆盖', async () => {
+    const { patchBody } = await runHttp(
+      { account_name: '老自动昵称', name_source: 'auto' },
+      '新自动昵称',
+    )
+    expect(patchBody.account_name).toBe('新自动昵称')
+  })
+
+  it('现网名为 manual 时一律不得覆盖，即使抓取值完全合格', async () => {
+    const { patchBody } = await runHttp(
+      { account_name: '阿飞 - 自由职业', name_source: 'manual' },
+      '平台返回的昵称',
+    )
+    expect(patchBody).not.toHaveProperty('account_name')
+    // 粉丝等增量字段照常回填，不得因昵称受保护而一起丢掉
+    expect(patchBody.followers).toBe(777)
+  })
+
+  it('manual 的行不得被回填顺带降级为 auto', async () => {
+    const { patchBody } = await runHttp(
+      { account_name: '阿飞 - 自由职业', name_source: 'manual' },
+      '平台返回的昵称',
+    )
+    expect(patchBody).not.toHaveProperty('name_source')
+  })
+
+  it('实际写入昵称时必须同时把来源标为 auto', async () => {
+    const { patchBody } = await runHttp(
+      { account_name: '', name_source: 'auto' },
+      '新自动昵称',
+    )
+    expect(patchBody.account_name).toBe('新自动昵称')
+    expect(patchBody.name_source).toBe('auto')
+  })
+
+  it('抓取值为噪声时不得写入，也不得改动来源标记', async () => {
+    const { patchBody } = await runHttp(
+      { account_name: '', name_source: 'auto' },
+      '小红书创作服务平台',
+    )
+    expect(patchBody).not.toHaveProperty('account_name')
+    expect(patchBody).not.toHaveProperty('name_source')
   })
 })
 
@@ -143,7 +217,8 @@ describe('refreshProfileFromPage — 检测成功时回填存量账号（T9）',
 
     await expect(accountManager.refreshProfileFromPage(page, 'toutiao', 'acc-1')).resolves.toBe(true)
     const patchCall = requestBackend.mock.calls.find(call => call[0] === 'PATCH')
-    expect(patchCall[2]).toEqual({ account_name: '回填昵称', avatar: 'https://cdn/new.png' })
+    // 实际写入昵称时必须同时声明来源，否则下一次回填又只能靠猜文本形态。
+    expect(patchCall[2]).toEqual({ account_name: '回填昵称', name_source: 'auto', avatar: 'https://cdn/new.png' })
     expect(patchCall[2]).not.toHaveProperty('status')
     expect(patchCall[2]).not.toHaveProperty('last_validated')
   })

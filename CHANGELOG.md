@@ -1,3 +1,37 @@
+# [未发布] feat(accounts): 账号显示名引入 name_source，改名从空操作变为真正生效（2026-09-26，add-account-name-source）
+
+### 用户可见变化（两条，必须点名）
+1. **改名此前是空操作，现在生效了。** `renameAccount` 一直走 `accountUpdate` → `store:update-account` 写 **Electron SQLite**，而账号列表读的是 **python-backend `accounts.json`** —— `src/api/publisher.js:103` 早已注明「写了也不显示」。用户在卡片上改名后界面立刻回落到旧值，且**编辑框回填的也是那个回落值**，看起来像「改名功能坏了」。现新增 `account:rename` 通道 → `AccountManager.renameAccount` → 后端 PATCH 真源。这是本仓「装饰性链路」问题的第四次复发。
+2. **发布页账号选择器的显示值会变。** `PublishTargetSelector.vue:35,76` 此前只读 `account.name`，而实测存量 7 条的 `name` **全部是网页标题**（`公众号` / `首页 - 知乎` / `快手，记录世界 记录你` / `头条号` / `哔哩哔哩 (゜-゜)つロ 干杯~-bilibili`）。改走统一解析入口后，这些位置显示的是过滤后的昵称或平台名，不再是网页标题。属修正而非回归，但确实是界面文案变化。
+
+### 变更
+- **`packages/python-backend/src/server.py`**：账号新增 `name_source` 字段（`auto` | `manual`），配 `_normalize_account_name_source()`（与既有 `_normalize_account_status` / `_normalize_account_active` 同风格，缺失/非法一律归一为 `auto`）；create 落盘、PATCH 分支、`_account_to_dict` 投影三处接入。类型取 `str | None` 而非 `Literal` —— spec 要求非法值**归一**而不是 422。
+- **`apps/desktop/electron/ipc-handlers/account.js`**：`publicAccountFields` 加 `name_source`；**撤掉 `account_name: account_name || name` 提前合并** —— 那一道合并正是「主进程先把页面名伪装成昵称、渲染层无从区分来源」的根源。
+- **`apps/desktop/electron/publishers/account-manager.js`**：新增 `renameAccount`（写 `account_name` + `name_source='manual'`）；回填保护从「猜文本形态」改为读来源，落地为共享判据 `guardProfilePatchBySource(patch, current)`，`refreshProfileFromHttpApi` 与 `refreshProfileFromPage` 同一处收口。只有**真的**写昵称时才下发 `name_source='auto'`，避免昵称被保护住时顺带把 `manual` 降级。
+- **`apps/desktop/electron/ipc-handlers/account-rename.js`（新）**：改名 IPC 通道，单独成文件（对齐 `account-active.js` 的既有决定：`account.js` 已在超大文件挂账清单上）。含 sender 校验、路径段白名单、空名/超长拒绝、失败码透传。
+- **`apps/desktop/src/utils/account-display-name.js`（新）**：账号显示名的**唯一解析入口**。`manual` ⇒ 原样返回、不过任何形态规则；`auto`/缺失 ⇒ 过噪声守卫，命中才试 `name`（同样过守卫），都不合格才回落平台名。
+- **渲染层消费点全部改走该入口**：`AccountManagementCard.vue`、`AccountGroupsPanel.vue`、`AccountGroupManager.vue`、`PlatformAccountGroup.vue`；`stores/accounts.js` 的 `renameAccount` 改调 `accountRename` 并摘掉已无消费者的 `accountUpdate` 导入。
+- **`packages/shared-utils/src/account-name-guard{,.browser}.js`**：补齐 CJS 对 `hasUnbalancedBrackets` 的导出（此前 ESM 导出、CJS 只内部使用，两侧 API 面漂移），并纳入 parity 断言。
+
+### 为什么必须是来源字段，而不是继续调规则
+噪声守卫的职责是「藏掉系统抓错的文本」，用户显式命名也过这层守卫时，`阿飞 - 自由职业`、`Rhythm · 音乐厅`、`小美…的厨房`、`广东政务服务平台` 会被一起藏掉。而反向用「现网名不像噪声」推断「这是不是手改名」的两个方向都会错：合法机器昵称被无谓保护（永远更新不动），用户手改名**恰好长得像噪声时被直接冲掉**（实测复现：`expected { account_name: '平台返回的昵称' } to not have property "account_name"`）。二者需要的是同一判断的两个相反答案，只能靠 `name_source` 承载。
+
+### 测试（TDD 红灯先行 + 3 处反证）
+- 新增：`test_server_account_name_source.py`(6)、`account-rename.test.js`(16)、`account-name-source-passthrough.test.js`(4)、`src/utils/account-display-name.test.js`(23)、卡片显示名口径(9)、store 改名(4)、后端隔离反证对(2)。
+- **反转 6 处「测试反向固化错误行为」**：`account.test.js` 的 5 条 `toEqual` 断言其 mock 从未提供 `account_name`、却断言 `account_name === name`（把 IPC 提前合并钉成契约）；`stores/accounts.test.js:915` 断言 `accountUpdate(id,{name})`（把断链钉成契约）。
+- **反证 3 处**：① `_normalize_account_name_source` 改成恒返回 `manual` → 2 条立刻变红，且红的成因已追清（投影侧对存量 `auto` 的归一）；② 后端隔离 fixture 改成「共用固定路径」→ 消费方因制造方泄漏的那一行变红（**不能改成彻底 no-op**，那会把数据写进本机真实 `accounts.json`）；③ 新写通道测试首跑即因 `__electronMock.app.isPackaged` 未置 false 而拿到 `-3`，修正后 16 绿。
+- **一处 mock 陷阱（会造成假绿）**：`account-manager.js:13` 在 `require` 期就把 `fetchAccountInfoViaHttpApi` 解构为本地绑定，`vi.spyOn(accountManager, …)` 拦不住；必须先给仍被 `require.cache` 保留的 `http-login-checker` 装 spy，再清 account-manager 缓存重新 require。
+- 门禁同步：`preload.test.js` 的导出计数 account 46→47、api 总数 330→331（仓库刻意设的精确计数门禁）；重建两个 preload bundle 并核对含 `account:rename`（QM-2）。
+- 规模：`packages/shared-utils` 全量绿；`packages/python-backend` 红名单与改动前基线 `diff` **完全一致（43 条，零新增）**，账号面全绿；`apps/desktop` 全量见 `.quality-gates.md`。
+- 文档：`openspec/changes/add-account-name-source/`（proposal / spec 7 Requirements 20 Scenarios / design D1-D6 / tasks 37 项 / baseline-audit）、`01-docs/learnings.md`、`AGENTS.md` QM-2 三条新门禁。
+
+### 已知遗留
+- 存量行的 `name_source` 一律归为 `auto`，历史上若有人用其它途径（非本通道）写过用户命名，仍会被过滤。实测本机 7 条不存在此情况（`account_name` 与 `name` 均为抓取值）。
+- SQLite 侧未加 `name_source` 列：依 1.2 核实，SQLite 非读源（就绪门禁只取 `_store._ready`），改名改走后其 `name` 成为无消费者的陈旧副本。若将来 SQLite 被提升为读源，必须回补该列（tasks 4.5 已登记）。
+- 不提供「恢复自动获取」的反向操作：改名即 `manual`，无 UI 出口回退，留待后续 change。
+
+---
+
 # [未发布] fix(accounts): 账号卡片昵称不再显示成网页标题/统计块，噪声守卫从枚举黑名单升级为形态契约（2026-09-26，account-nickname-noise-fix）
 
 ### 现象与根因

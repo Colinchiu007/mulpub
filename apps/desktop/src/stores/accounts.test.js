@@ -7,6 +7,7 @@ vi.mock("@/api/publisher", () => ({
   accountSetDefault: vi.fn(),
   accountUpdate: vi.fn(),
   accountSetActive: vi.fn(),
+  accountRename: vi.fn(),
   getPlatformDefinitions: vi.fn(),
 }));
 
@@ -14,6 +15,7 @@ import { useAccountStore } from "./accounts.js";
 import { usePlatformStore } from "./platforms.js";
 import {
   accountDelete,
+  accountRename,
   accountSetActive,
   accountSetDefault,
   accountUpdate,
@@ -904,28 +906,46 @@ describe("useAccountStore", () => {
       expect(listAccounts).not.toHaveBeenCalled();
     });
 
-    it("renameAccount 成功后重新加载并返回原响应", async () => {
+    // 旧断言 `expect(accountUpdate).toHaveBeenCalledWith("a1", { name: "新名称" })` 把
+    // 「改名写进 Electron SQLite」这条断链钉成了正确行为 —— 而账号列表读的是后端
+    // accounts.json，所以改名实际是空操作（publisher.js:103 早已注明「写了也不显示」）。
+    // 这是本仓「装饰性链路」的第四次复发，见 openspec: add-account-name-source。
+    it("renameAccount 必须写后端真源通道，不得再走写 SQLite 的 accountUpdate", async () => {
       const response = { code: 0 };
-      accountUpdate.mockResolvedValue(response);
+      accountRename.mockResolvedValue(response);
       const store = useAccountStore();
+      store.accounts = [{ id: "a1", platform: "wx" }];
 
       await expect(store.renameAccount("a1", "新名称")).resolves.toBe(response);
-      expect(accountUpdate).toHaveBeenCalledWith("a1", { name: "新名称" });
+      expect(accountRename).toHaveBeenCalledWith("a1", "wx", "新名称");
+      expect(accountUpdate).not.toHaveBeenCalled();
       expect(listAccounts).toHaveBeenCalledTimes(1);
+    });
+
+    it("renameAccount 在账号不存在时直接失败，不发出任何写请求", async () => {
+      const store = useAccountStore();
+      store.accounts = [{ id: "other", platform: "wx" }];
+
+      await expect(store.renameAccount("a1", "新名称")).resolves.toMatchObject({ code: -2 });
+      expect(accountRename).not.toHaveBeenCalled();
+      expect(accountUpdate).not.toHaveBeenCalled();
+      expect(listAccounts).not.toHaveBeenCalled();
     });
 
     it("renameAccount 业务失败时不重新加载", async () => {
       const response = { code: 1, message: "duplicate" };
-      accountUpdate.mockResolvedValue(response);
+      accountRename.mockResolvedValue(response);
       const store = useAccountStore();
+      store.accounts = [{ id: "a1", platform: "wx" }];
 
       await expect(store.renameAccount("a1", "重复名称")).resolves.toBe(response);
       expect(listAccounts).not.toHaveBeenCalled();
     });
 
     it("renameAccount API 异常时返回统一失败结果", async () => {
-      accountUpdate.mockRejectedValue(new Error("timeout"));
+      accountRename.mockRejectedValue(new Error("timeout"));
       const store = useAccountStore();
+      store.accounts = [{ id: "a1", platform: "wx" }];
 
       // 超时类错误映射为「原因 + 建议」本地化文案，不直出英文原始文本
       await expect(store.renameAccount("a1", "新名称")).resolves.toEqual({ code: -1, message: "操作超时。请稍后重试；若持续出现请重启应用。" });

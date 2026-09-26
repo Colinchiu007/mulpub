@@ -373,3 +373,49 @@ describe('账号卡片显示修复（PRD-ACCOUNT-CARD-DISPLAY-FIX-2026-09-24）'
     expect(vueSrc).toMatch(/\.account-assignees > div \{[^}]*display: contents;/)
   })
 })
+
+// 评审指出：5 条形态规则此前只在主进程守卫层有覆盖，展示端零回归网。
+// 而展示端恰恰是「用户手改名被藏起来」这个后果唯一会暴露出来的地方。
+describe('AccountManagementCard 显示名解析口径', () => {
+  const nameOf = (props) => mountCard(props).get('.account-name-button span').text()
+
+  it.each([
+    '阿飞 - 自由职业',
+    'Rhythm · 音乐厅',
+    '小美…的厨房',
+    '广东政务服务平台',
+  ])('manual 命名 %s 必须原样显示，不得回落平台名', (name) => {
+    expect(nameOf({
+      account: { id: 'account-1', platform: 'zhihu', status: 'active', account_name: name, name_source: 'manual' },
+    })).toBe(name)
+  })
+
+  it.each([
+    '485.9万人看过',
+    '分享此刻的想法...同步到圈子发想法',
+    '小红书创作服务平台',
+  ])('auto 脏值 %s 回落平台名', (name) => {
+    expect(nameOf({
+      account: { id: 'account-1', platform: 'zhihu', status: 'active', account_name: name, name_source: 'auto' },
+    })).toBe('知乎')
+  })
+
+  it('编辑框回填的必须是当前显示名（不得回填成回落的平台名而盖掉用户输入）', async () => {
+    const wrapper = mountCard({
+      account: {
+        id: 'account-1', platform: 'zhihu', status: 'active',
+        account_name: '阿飞 - 自由职业', name_source: 'manual',
+      },
+    })
+
+    await wrapper.get('.account-name-button').trigger('click')
+
+    expect(wrapper.get('.account-name-input').element.value).toBe('阿飞 - 自由职业')
+  })
+
+  it('manual 但 account_name 为空时仍回落平台名（不得显示空串）', () => {
+    expect(nameOf({
+      account: { id: 'account-1', platform: 'zhihu', status: 'active', account_name: '', name_source: 'manual' },
+    })).toBe('知乎')
+  })
+})

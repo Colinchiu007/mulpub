@@ -103,6 +103,7 @@ function isNoiseAccountName (name) {
 
 module.exports = {
   isNoiseAccountName,
+  hasUnbalancedBrackets,
   NOISE_KEYWORDS,
   METRIC_WORDS,
   KNOWN_PAGE_TITLES,
