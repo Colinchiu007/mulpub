@@ -74,7 +74,6 @@ class FunctionalRunner {
     this.recoveredTransientErrors = [];
     // navigate() 前的 resourceFailures 长度：证据只算本次导航新产生的
     this.resourceFailureMark = 0;
-    this.lastNavigationUrl = null;
     this.actions = [];
     this.checks = [];
     this.resetSequence = 0;
@@ -229,7 +228,22 @@ class FunctionalRunner {
         });
         this._discardTransientConsoleNoise();
         await waitForNavigationRetry();
-        await this.navigate(this.lastNavigationUrl);
+        // 恢复动作必须是会**重新拉取子资源**的原语。实测（Edge + 本机 vite）：对完全相同的
+        // URL 再 page.goto 一次属于 same-document 导航 —— window 状态存活、JS 子资源 0 次重请求，
+        // 于是"重载"只是白烧 2×15s 后再抛同一个超时；只有 page.reload() 会重新取 chunk。
+        this.resourceFailureMark = this.resourceFailures.length;
+        try {
+          await this.page.reload({ waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT });
+        } catch (reloadError) {
+          // 文档导航本身又被同一个瞬时码打断：这本身就是一条瞬时观测，记进同一份证据账 ——
+          // 否则下一轮会因"没有新证据"而放弃剩余预算，而故障条件明明还在。
+          if (!isTransientNavigationError(reloadError)) throw reloadError;
+          this.resourceFailures.push({
+            url: 'page.reload',
+            errorText: TRANSIENT_NETWORK_ERROR,
+            at: Date.now(),
+          });
+        }
       }
     }
   }
