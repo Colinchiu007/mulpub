@@ -17,6 +17,7 @@ const log = require('./logger')
 const { supportsApi, publishViaApi, apiRouter } = require('@multi-publish/api-publish-engine')
 const { ProgressThrottle } = require('./rpa-progress-throttle')
 const { FieldRetryState } = require('./rpa-field-retry')
+const { collectAuthPartitionCookies } = require('./auth-partition')
 
 // 桥接 api-publish-engine 的 CancelToken（参考产品复用：阶段级可恢复取消）
 const { CancelToken } = require('@multi-publish/api-publish-engine/src/base-adapter')
@@ -57,11 +58,25 @@ class RpaViewManager {
     if (apiEnabled && supportsApi(platform)) {
       this._emitProgress(platform,'using API publish engine...',5)
       try {
-        const cookie = authData?.cookies
+        let cookie = authData?.cookies
           ? (Array.isArray(authData.cookies)
             ? authData.cookies.map(c => c.name + '=' + c.value).join('; ')
             : authData.cookies)
           : '';
+        // D1 兜底（kuaishou-w3-live-fix）：凭证 store 为空时只读登录态所在的 Electron auth 分区。
+        // 根因：部分平台（如快手）登录 cookie 只落在 persist:* 分区、未同步进凭证 store，
+        // 空串会被 adapter fail-closed，API 链 0 步未跑（live-verdict-20260926 D1）。
+        // 纪律：仅只读补串，不写凭证 store；兜底后仍为空则保持既有 fail-closed 语义。
+        if (!cookie) {
+          const acctId = (article && article.accountId) || (authData && authData.accountId) || null
+          const fallback = await collectAuthPartitionCookies(platform, acctId)
+          if (fallback.cookieString) {
+            cookie = fallback.cookieString
+            log.info('RpaView', 'API publish cookie fallback from auth partition ' + fallback.partition + ' (' + fallback.count + ' cookies) platform=' + platform)
+          } else {
+            log.warn('RpaView', 'API publish cookie fallback empty (no platform cookies in auth partition) platform=' + platform + ' accountId=' + (acctId || '(none)'))
+          }
+        }
         const apiResult = await Promise.race([
           publishViaApi(platform, article, cookie, {
             onProgress: (pct, msg) => this._emitProgress(platform, msg, pct)
