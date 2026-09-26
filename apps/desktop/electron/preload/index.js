@@ -42,6 +42,7 @@ const { createAggregationApi } = require('./aggregation')
 const { createHotTopicsApi } = require('./hot-topics')
 const { createAutoPipelineApi } = require('./auto-pipeline')
 const { createKnowledgeLibraryApi } = require('./knowledge-library')
+const { createSignerApi } = require('./signer')
 const {
   ADMIN_ONLY_METHODS,
   PUBLIC_METHODS,
@@ -105,6 +106,8 @@ const fullApi = {
   ...createHotTopicsApi(ipcRenderer),
   ...createAutoPipelineApi(ipcRenderer),
   ...createKnowledgeLibraryApi(ipcRenderer),
+  // 签名页桥（W3 task 2.4，authenticated）：仅白名单 command，无任何任意 JS 求值通道
+  ...createSignerApi(ipcRenderer),
   // P2 限流自检（authenticated，默认受限）
   rateLimitSelfCheck: (params) => ipcRenderer.invoke('rate-limit:self-check', params),
   rateLimitReport: (payload) => ipcRenderer.invoke('rate-limit:report', payload),
