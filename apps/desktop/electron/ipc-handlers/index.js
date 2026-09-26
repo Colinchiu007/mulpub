@@ -8,6 +8,8 @@ function registerAllHandlers(ipcMain, deps) {
   require('./store')(ipcMain, deps)
   require('./proxy')(ipcMain, deps)
   require('./account')(ipcMain, deps)
+  // 账号云镜像同步（digest / sync / disconnect），归属只认已登录身份
+  require('./cloud-account')(ipcMain, deps)
   require('./keyword')(ipcMain, deps)
   require('./publish')(ipcMain, deps)
   require('./analytics')(ipcMain, deps)

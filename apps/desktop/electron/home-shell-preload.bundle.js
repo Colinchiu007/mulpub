@@ -326,6 +326,11 @@ var require_account = __commonJS({
         accountSetProxy: (accountId, platform, proxy) => ipcRenderer2.invoke("account:set-proxy", { accountId, platform, proxy }),
         accountSetActive: (accountId, platform, isActive) => ipcRenderer2.invoke("account:set-active", { accountId, platform, isActive }),
         accountRename: (accountId, platform, name) => ipcRenderer2.invoke("account:rename", { accountId, platform, name }),
+        // 账号云镜像同步 API
+        accountsCloudDigest: () => ipcRenderer2.invoke("accounts:cloud-digest"),
+        accountsCloudSync: () => ipcRenderer2.invoke("accounts:cloud-sync"),
+        accountsCloudDisconnect: (confirm) => ipcRenderer2.invoke("accounts:cloud-disconnect", { confirm }),
+        accountsCloudSyncAbort: () => ipcRenderer2.invoke("accounts:cloud-sync-abort"),
         // 内嵌浏览器登录 API
         authOpenLogin: (platform, accountId) => ipcRenderer2.invoke("auth:open-login", { platform, accountId }),
         authCompleteLogin: () => ipcRenderer2.invoke("auth:complete-login"),
@@ -379,6 +384,11 @@ var require_account = __commonJS({
           const h = (_, d) => cb(d);
           ipcRenderer2.on("accounts:batch-check-progress", h);
           return () => ipcRenderer2.removeListener("accounts:batch-check-progress", h);
+        },
+        onAccountsCloudSyncProgress: (cb) => {
+          const h = (_, d) => cb(d);
+          ipcRenderer2.on("accounts:cloud-sync-progress", h);
+          return () => ipcRenderer2.removeListener("accounts:cloud-sync-progress", h);
         },
         // OAuth 认证 API
         oauthStart: (opts) => ipcRenderer2.invoke("oauth:start", opts),
