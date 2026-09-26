@@ -24,6 +24,7 @@ beforeEach(async () => {
 function createSession (proxyResult) {
   return {
     webRequest: {
+      onBeforeRequest: vi.fn(),
       onErrorOccurred: vi.fn(),
       onCompleted: vi.fn()
     },
@@ -598,4 +599,55 @@ describe('login-network-diagnostics — observe-only 档的隐私边界', () => 
     expect(mod.attachAuthResponseDiagnostics(dbg, { platform: 'douyin' })).toBe(false)
     expect(dbg.sendCommand.mock.calls.filter(c => c[0] === 'Network.enable').length).toBe(0)
   })
-})
+})
+
+// ─── 登录页噪音 cancel（MP_LOGIN_NOISE_CANCEL=1 才生效，默认关）───
+const HELPER_MP4 = 'https://res.wx.qq.com/t/wx_fed/finder/static-assets/finder-common-assets/res/finder-helper/2560x864_helper.mp4'
+const MCN_MP4 = 'https://res.wx.qq.com/t/wx_fed/finder/static-assets/finder-common-assets/res/finder-helper/2560x864_MCN.mp4'
+
+describe('login-network-diagnostics — 登录页噪音 cancel', () => {
+  const saved = process.env.MP_LOGIN_NOISE_CANCEL
+  afterEach(() => {
+    if (saved === undefined) delete process.env.MP_LOGIN_NOISE_CANCEL
+    else process.env.MP_LOGIN_NOISE_CANCEL = saved
+  })
+
+  it('默认关：不注册 onBeforeRequest、返回 false', () => {
+    delete process.env.MP_LOGIN_NOISE_CANCEL
+    const ses = createSession()
+    expect(mod.attachLoginPageNoiseCancel(ses, { platform: 'wechat_mp' })).toBe(false)
+    expect(ses.webRequest.onBeforeRequest).not.toHaveBeenCalled()
+  })
+
+  it('开关打开时注册的 filter 必须精确到两个 host（防误伤本机服务）', () => {
+    process.env.MP_LOGIN_NOISE_CANCEL = '1'
+    const ses = createSession()
+    expect(mod.attachLoginPageNoiseCancel(ses, { platform: 'wechat_mp' })).toBe(true)
+    expect(ses.webRequest.onBeforeRequest).toHaveBeenCalledTimes(1)
+    expect(ses.webRequest.onBeforeRequest.mock.calls[0][0].urls).toEqual([
+      'https://res.wx.qq.com/*',
+      'https://support.weixin.qq.com/cgi-bin/mmsupportmesh*',
+    ])
+  })
+
+  it('只认两条完整常量 URL 与 mmsupportmesh 前缀，不按扩展名或 localhost 一刀切', () => {
+    expect(mod.isLoginPageNoiseUrl(HELPER_MP4)).toBe(true)
+    expect(mod.isLoginPageNoiseUrl(MCN_MP4)).toBe(true)
+    expect(mod.isLoginPageNoiseUrl('https://support.weixin.qq.com/cgi-bin/mmsupportmeshnodelogicsvr-bin/cube?biz=3512')).toBe(true)
+    expect(mod.isLoginPageNoiseUrl('https://mp.weixin.qq.com/other/bg.mp4')).toBe(false)
+    expect(mod.isLoginPageNoiseUrl('https://localhost.weixin.qq.com:13013/api/check-login')).toBe(false)
+    expect(mod.isLoginPageNoiseUrl('http://127.0.0.1:8299/api/health')).toBe(false)
+  })
+
+  it('命中即 cancel:true，未命中 cancel:false', () => {
+    process.env.MP_LOGIN_NOISE_CANCEL = '1'
+    const ses = createSession()
+    mod.attachLoginPageNoiseCancel(ses, { platform: 'wechat_mp' })
+    const handler = ses.webRequest.onBeforeRequest.mock.calls[0][1]
+    let res = null
+    handler({ url: MCN_MP4 }, r => { res = r })
+    expect(res).toEqual({ cancel: true })
+    handler({ url: 'https://res.wx.qq.com/a/keep.js' }, r => { res = r })
+    expect(res).toEqual({ cancel: false })
+  })
+})

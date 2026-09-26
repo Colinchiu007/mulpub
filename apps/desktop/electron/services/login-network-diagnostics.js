@@ -174,6 +174,47 @@ function attachLoginNetworkDiagnostics (ses, ctx) {
  * @param {{ platform?: string, accountId?: string }} [ctx]
  * @returns {boolean} 是否已挂接（两档都不命中的平台返回 false，零新增监听面）
  */
+// 登录页自带的装饰性大文件（视频号背景 mp4）与 ORB 必拒的上报域名。
+// 刻意用完整常量而非「含 .mp4」「含 localhost」这种宽匹配：后者会误伤其它平台背景视频
+// 与我们自己的 127.0.0.1 本地服务。本机微信客户端探测也不拦 —— 它即时失败，且拦掉就
+// 等于取消「在本机微信里确认登录」这条快捷路径。
+const LOGIN_NOISE_URLS = [
+  'https://res.wx.qq.com/t/wx_fed/finder/static-assets/finder-common-assets/res/finder-helper/2560x864_helper.mp4',
+  'https://res.wx.qq.com/t/wx_fed/finder/static-assets/finder-common-assets/res/finder-helper/2560x864_MCN.mp4',
+]
+const LOGIN_NOISE_PREFIXES = ['https://support.weixin.qq.com/cgi-bin/mmsupportmesh']
+// 监听面收窄到这两个 host：不匹配 host 的请求根本不会进回调。
+const LOGIN_NOISE_FILTERS = ['https://res.wx.qq.com/*', 'https://support.weixin.qq.com/cgi-bin/mmsupportmesh*']
+
+function isLoginPageNoiseUrl (url) {
+  if (typeof url !== 'string' || !url) return false
+  if (LOGIN_NOISE_URLS.indexOf(url) !== -1) return true
+  for (const pfx of LOGIN_NOISE_PREFIXES) { if (url.indexOf(pfx) === 0) return true }
+  return false
+}
+
+/**
+ * 默认关：需 MP_LOGIN_NOISE_CANCEL=1 才注册（先做 A/B 取证，再决定是否变默认行为）。
+ * @returns {boolean} 是否已挂接
+ */
+function attachLoginPageNoiseCancel (ses, ctx) {
+  if (process.env.MP_LOGIN_NOISE_CANCEL !== '1') return false
+  if (!ses || !ses.webRequest || typeof ses.webRequest.onBeforeRequest !== 'function') return false
+  if (ses.__loginNoiseAttached) return true
+  ses.__loginNoiseAttached = true
+  var tag = '[' + ((ctx && ctx.platform) || 'unknown') + '/' + ((ctx && ctx.accountId) || 'unknown') + '] '
+  var cancelled = 0
+  ses.webRequest.onBeforeRequest({ urls: LOGIN_NOISE_FILTERS.slice() }, function (details, callback) {
+    var hit = isLoginPageNoiseUrl(details && details.url)
+    if (hit && cancelled < QR_IMAGE_LOG_LIMIT) {
+      cancelled += 1
+      log.info('LoginNoise', tag + 'cancel 登录页噪音 ' + ((details.url || '').split('?')[0].split('/').pop()))
+    }
+    callback({ cancel: hit })
+  })
+  return true
+}
+
 function attachAuthResponseDiagnostics (debuggerObj, ctx) {
   if (!debuggerObj || typeof debuggerObj.on !== 'function' || typeof debuggerObj.sendCommand !== 'function') return false
   var platform = (ctx && ctx.platform) || 'unknown'
@@ -312,4 +353,4 @@ function extractAuthError (bodyText) {
   return { code: code, message: message }
 }
 
-module.exports = { attachLoginNetworkDiagnostics, attachAuthResponseDiagnostics, classifyNetError }
+module.exports = { attachLoginNetworkDiagnostics, attachAuthResponseDiagnostics, attachLoginPageNoiseCancel, isLoginPageNoiseUrl, classifyNetError }
