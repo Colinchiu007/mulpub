@@ -63,3 +63,10 @@
 | W5 | 模型 B：`statusChanged` 命名与「是否改写真源」语义有偏差 | **不采纳（有据）**：该字段两个消费方（`persistedCount`、`last_validated` 镜像刷新）要的正是「本轮有没有写」；改名牵动 preload/渲染/e2e/locale 四处而无行为收益。已在 PRD §7.6 与 AGENTS.md 写明口径 |
 | 独立性 | 模型 B 的 `codeagent-wrapper.exe` 缺失，实为主代理自审 | 如实登记：本轮 **有效发现 10 条 / 独立模型 1 个**，不得记作「双模型交叉评审 PASS」 |
 | S1 | 自查发现（非评审提出）：单账号「验证」把无定论冒充「已失效」并弹去登录 —— 与批量侧同一契约的漏项 | **采纳**：`Accounts.vue` 的 `checkLogin()` 按 `valid` 三值分叉，新增 locale 键 `accountsPage.loginUnconfirmed`（zh/en 成对）；同时修正 3 条按旧形状（超时 mock 成 `valid:false`、items 不带 `loginStatus`）的夹具，并新增「loginStatus 缺席保持原徽章」用例 |
+
+## 归档核对（2026-09-26，随 delta 并入 openspec/specs/desktop/login-state-evidence 一并收口）
+
+- 交付事实：PR #2433 以 squash 合并为 `9af97b1c`，17 项检查通过 / 1 项 skipped（`release` 仅随 tag 触发）。合并后 `mp-app-live` 快进并实机启动，运行日志取到一轮真实批量检测：8 个账号检测前已全为 `active`，仍逐个 `persisted=true`、`last_validated` 由 `05:15:08.853Z` 集体刷新为 `08:21:53.791Z` —— 即「正向证据同值仍须回写」这条判据在真机流量下成立（评审原案「值相同即跳过」会抑制这 8 次写入并冻结宽限锚点）。
+- 仍未做（不补勾）：**1.2** 未取「改动前全量红名单」本地基线（判定既有失败靠逐条归因 + CI 对照）；**5.3** 未为 `useExpiredAccountsBanner` 新增「无定论不计入失效横幅」断言（既有断言已隐含该口径，但未针对性加锁）。
+- **6.5 已勾选但其中一条未满足，如实登记**：该条目内含「QM-6 双模型外部评审」。实际只有 1 个独立外部模型（claude）产出，第二模型入口 `codeagent-wrapper.exe` 缺失、其输出由主代理降级完成。因此 QM-6 的「双模型并行」条件在本变更上**未成立**，勾选仅代表其余门禁（全量回归 / QM-1 打包 / PR 过 CI）已满足。逐条处置见上方「QM-6 评审收口」表。
+- 另有一项本机未执行：QM-4 视觉回归与 5.2 e2e 规范均因缺 Playwright 浏览器捆绑未在本地实跑，由 CI 的 `QG Visual`（18 个核心视图 pixel 子集）兜底；`QG Browser E2E` 亦通过。

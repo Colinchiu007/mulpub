@@ -13,6 +13,15 @@ describe('scheduler 模拟器与真实 governor 对拍', () => {
   it('六组固定输入关键指标一致（含 429 注入、5h 额度、真实参数、并发推进）', async () => {
     const results = await runParity(1500)
     for (const r of results) {
+      // 每次跑都打印逐用例的「预测 / 实测 / 差值 / 生效容差」。调容差需要的是分布，
+      // 而只在失败时才有的信息等于每三个月拿到一个孤立样本 —— 上一轮就是靠 1653/1640
+      // 两个偶发样本才判出漂移是「常量 + 比例」，靠猜会把门禁调成既不灵敏也不稳定。
+      console.log('[parity] ' + r.name
+        + ' python=' + r.python.total_duration_ms
+        + ' real=' + r.real.total_duration_ms
+        + ' diff=' + r.diffTotalDurationMs
+        + ' allowed=' + r.allowedTotalDurationMs
+        + ' pass=' + r.pass)
       // 失败信息必须带上「实际生效容差」与「本次差值」：上一轮 main 红时只给了 python/real
       // 两个 JSON，看不出 1653ms 是超了 1500 还是超了比例，排障要回头翻脚本。
       expect(r.pass, r.name + ' ' + JSON.stringify(r.checks)
