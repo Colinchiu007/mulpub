@@ -304,7 +304,7 @@ describe('login-network-diagnostics — attachAuthResponseDiagnostics 挂接面'
   it('未登记的平台一律不挂：不 enable Network、不注册监听、返回 false', () => {
     const dbg = createDebugger('{}')
 
-    expect(mod.attachAuthResponseDiagnostics(dbg, { platform: 'wechat_mp', accountId: 'a1' })).toBe(false)
+    expect(mod.attachAuthResponseDiagnostics(dbg, { platform: 'douyin', accountId: 'a1' })).toBe(false)
     expect(dbg.sendCommand).not.toHaveBeenCalled()
     expect(dbg.on).not.toHaveBeenCalled()
   })
@@ -536,3 +536,66 @@ describe('login-network-diagnostics — attachAuthResponseDiagnostics 日志脱�
     expect(allLoggedText()).not.toContain('[object Object]')
   })
 })
+
+
+// ─── 出码真实字节数：跨域 iframe 的 responseHeaders 被 Chromium 屏蔽，只有 CDP 给得出字节 ───
+describe('login-network-diagnostics — 出码真实字节数（CDP Network.loadingFinished）', () => {
+  const QR_URL = 'https://mp.weixin.qq.com/cgi-bin/scanloginqrcode?action=getqrcode&t=1'
+
+  function attachWechat () {
+    const dbg = createDebugger('{}')
+    expect(mod.attachAuthResponseDiagnostics(dbg, { platform: 'wechat_mp', accountId: 'a1' })).toBe(true)
+    return messageHandler(dbg)
+  }
+
+  it('二维码请求也登记：loadingFinished 报出 encodedDataLength 真字节数', async () => {
+    const onMessage = attachWechat()
+    await onMessage(null, 'Network.requestWillBeSent', { requestId: 'r1', request: { url: QR_URL } })
+    await onMessage(null, 'Network.loadingFinished', { requestId: 'r1', encodedDataLength: 7632 })
+    const line = log.info.mock.calls.map(c => c[1]).filter(s => String(s).indexOf('qr bytes #') >= 0)
+    expect(line.length).toBe(1)
+    expect(line[0]).toMatch(/^\[wechat_mp\/a1\] qr bytes #1 after \d+ms encodedDataLength=7632$/)
+  })
+
+  it('未登记的 requestId 不产出字节数日志（不与 auth 端点混淆）', async () => {
+    const onMessage = attachWechat()
+    await onMessage(null, 'Network.loadingFinished', { requestId: 'ghost', encodedDataLength: 999 })
+    expect(log.info.mock.calls.filter(c => String(c[1]).indexOf('qr bytes #') >= 0).length).toBe(0)
+  })
+
+  it('缺 encodedDataLength 时显式记 unknown，不静默省略该列', async () => {
+    const onMessage = attachWechat()
+    await onMessage(null, 'Network.requestWillBeSent', { requestId: 'r2', request: { url: QR_URL } })
+    await onMessage(null, 'Network.loadingFinished', { requestId: 'r2' })
+    const line = log.info.mock.calls.map(c => c[1]).filter(s => String(s).indexOf('qr bytes #') >= 0)
+    expect(line[0]).toMatch(/ encodedDataLength=unknown$/)
+  })
+
+  it('非二维码端点即便有字节数也不记（只锁 getqrcode 一条路径）', async () => {
+    const onMessage = attachWechat()
+    await onMessage(null, 'Network.requestWillBeSent', { requestId: 'r3', request: { url: ZHIHU_SMS_URL } })
+    await onMessage(null, 'Network.loadingFinished', { requestId: 'r3', encodedDataLength: 42 })
+    expect(log.info.mock.calls.filter(c => String(c[1]).indexOf('qr bytes #') >= 0).length).toBe(0)
+  })
+})
+
+describe('login-network-diagnostics — observe-only 档的隐私边界', () => {
+  const BIZLOGIN = 'https://mp.weixin.qq.com/cgi-bin/bizlogin?action=login'
+
+  it('observe-only 平台即便有响应事件也永不 getResponseBody（只有 MATCHERS 里的平台读体）', async () => {
+    const dbg = createDebugger('{"base_resp":{"ret":14199}}')
+    expect(mod.attachAuthResponseDiagnostics(dbg, { platform: 'wechat_mp', accountId: 'a1' })).toBe(true)
+    const onMessage = messageHandler(dbg)
+    await onMessage(null, 'Network.requestWillBeSent', { requestId: 'b1', request: { url: BIZLOGIN } })
+    await onMessage(null, 'Network.responseReceived', { requestId: 'b1', response: { url: BIZLOGIN, status: 200 } })
+    const bodyCalls = dbg.sendCommand.mock.calls.filter(c => c[0] === 'Network.getResponseBody')
+    expect(bodyCalls.length).toBe(0)
+    expect(log.warn.mock.calls.filter(c => String(c[1]).indexOf('被拒') >= 0).length).toBe(0)
+  })
+
+  it('两档都不命中的平台不 enable Network（douyin 仍为零监听面）', () => {
+    const dbg = createDebugger('{}')
+    expect(mod.attachAuthResponseDiagnostics(dbg, { platform: 'douyin' })).toBe(false)
+    expect(dbg.sendCommand.mock.calls.filter(c => c[0] === 'Network.enable').length).toBe(0)
+  })
+})

@@ -172,17 +172,21 @@ function attachLoginNetworkDiagnostics (ses, ctx) {
  *
  * @param {{ on: Function, sendCommand: Function } | null | undefined} debuggerObj
  * @param {{ platform?: string, accountId?: string }} [ctx]
- * @returns {boolean} 是否已挂接（未登记的平台返回 false，零新增监听面）
+ * @returns {boolean} 是否已挂接（两档都不命中的平台返回 false，零新增监听面）
  */
 function attachAuthResponseDiagnostics (debuggerObj, ctx) {
   if (!debuggerObj || typeof debuggerObj.on !== 'function' || typeof debuggerObj.sendCommand !== 'function') return false
   var platform = (ctx && ctx.platform) || 'unknown'
-  if (!AUTH_ENDPOINT_MATCHERS[platform]) return false
+  if (!AUTH_ENDPOINT_MATCHERS[platform] && QR_BYTE_OBSERVE_PLATFORMS.indexOf(platform) < 0) return false
   if (debuggerObj.__loginRespDiagAttached) return true
   debuggerObj.__loginRespDiagAttached = true
 
   var tag = '[' + platform + '/' + ((ctx && ctx.accountId) || 'unknown') + '] '
   var urlByRequestId = new Map()
+  // 二维码请求单独登记：diagnosticUrl() 会抹掉 query，而 getqrcode 恰好只在 query 里
+  var qrByRequestId = new Set()
+  var qrFinished = 0
+  var attachedAtMs = Date.now()
 
   // Network.enable 失败（域不可用 / debugger 实际未 attach）只降级为「收不到事件」，
   // 绝不让观测代码影响登录本身。
@@ -203,6 +207,10 @@ function attachAuthResponseDiagnostics (debuggerObj, ctx) {
       if (method === 'Network.requestWillBeSent') {
         var sentUrl = params && params.request && params.request.url
         if (requestId && matchesAuthEndpoint(platform, sentUrl)) remember(requestId, diagnosticUrl(sentUrl))
+        if (requestId && isQrImageUrl(sentUrl)) {
+          if (qrByRequestId.size >= MAX_TRACKED_REQUESTS) qrByRequestId.delete(qrByRequestId.values().next().value)
+          qrByRequestId.add(requestId)
+        }
         return
       }
 
@@ -214,6 +222,17 @@ function attachAuthResponseDiagnostics (debuggerObj, ctx) {
         if (errorText === 'ERR_ABORTED') return
         log.warn('LoginRespDiag', tag + '关键端点请求失败 url=' + failedUrl +
           ' netError=' + errorText + ' → ' + classifyNetError(errorText))
+        return
+      }
+
+      // 出码真实字节数：webRequest 层拿不到跨域 iframe 的 content-length，只有 CDP 给得出。
+      if (method === 'Network.loadingFinished') {
+        if (!requestId || !qrByRequestId.has(requestId)) return
+        qrByRequestId.delete(requestId)
+        if (qrFinished >= QR_IMAGE_LOG_LIMIT) return
+        qrFinished += 1
+        var bytes = params && typeof params.encodedDataLength === 'number' ? params.encodedDataLength : 'unknown'
+        log.info('LoginRespDiag', tag + 'qr bytes #' + qrFinished + ' after ' + (Date.now() - attachedAtMs) + 'ms encodedDataLength=' + bytes)
         return
       }
 
@@ -252,6 +271,11 @@ const AUTH_ENDPOINT_MATCHERS = {
     path: /\/api\/v4\/(signin|signup|sms|captcha|verify|check_exists)/,
   },
 }
+
+// 只观察「出码真实字节数」的平台：enable Network 但永不 getResponseBody。
+// 与 AUTH_ENDPOINT_MATCHERS 分两档，是因为「读响应体」有隐私与时序代价，而 loadingFinished
+// 只带一个数字 —— 二者成本不同档，门槛也不该同一张表。
+const QR_BYTE_OBSERVE_PLATFORMS = ['wechat_mp', 'tencent_video']
 
 const MAX_TRACKED_REQUESTS = 64
 const MAX_MESSAGE_CHARS = 80
