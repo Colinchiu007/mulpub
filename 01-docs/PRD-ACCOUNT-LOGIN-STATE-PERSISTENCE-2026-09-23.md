@@ -43,7 +43,7 @@
 | 字段 | 类型 | 取值 | 默认 | 语义 |
 |------|------|------|------|------|
 | `status` | string | `active` \| `expired` \| `unverified` | `unverified` | 登录态。`active`=最近一次真实校验确认有效；`expired`=最近一次真实校验确认失效；`unverified`=从未检测或检测无法判定 |
-| `last_validated` | string(ISO8601) | — | — | 最近一次**主动检测/凭证保存**的时间戳，仅作展示与排期参考，**不参与判定** |
+| `last_validated` | string(ISO8601) | — | — | 最近一次**状态定论写入**的时间戳（正/负证据与凭证落盘路径回写）。2026-09-26 起**参与判定**：§7.6 的超龄兜底以它为锚点。字段名易被误读为「最近一次有效验证」——后端创建账号（`status=unverified`）同样会写它，真实语义是「最近一次定论时间」 |
 | `is_active` | boolean | true/false | true | 账号「启用/停用」，与登录态**正交**（见 §12 已知边界） |
 
 后端读侧归一化（`_normalize_account_status`）：缺失、非字符串、大小写异常、历史脏值（如 `LOGIN_OK`）一律降级为 `unverified`。**读侧必须 fail-safe：绝不允许把未知值当成「已登录」。**
@@ -152,7 +152,9 @@ else /* 历史数据缺 status */        → is_active===false ? 'inactive' : 'a
 `account:check-login` 同样在返回前完成固化（与批量同口径），返回体保持 `{ code:0, data: status }` 向后兼容。
 2026-09-26 起 `data` 额外携带 `loginStatus` 与 `statusChanged`（**只增不改**的兼容扩展）：
 `statusChanged:false` 表示本轮无定论、真源未动，`loginStatus` 即保持后的原状态；单账号入口不持有现状，
-只在「无定论」分支按需 `GET /api/accounts/:id` 读一次真源（有明确结论不多这一跳）。
+只在「无定论」分支按需 `GET /api/accounts/:id` 读一次真源（有明确结论不多这一跳）；**现状读不到时本轮什么都不做**，`loginStatus` 回传 `null`。
+
+`Accounts.vue` 的 `checkLogin()` MUST 按 `data.valid` 三值分叉，而不是历史实现的 truthy 二值：`true` → 成功提示；`false` → 会话失效标记 + 「去登录」确认框；`undefined`（含 `CHECK_LOGIN_TIMEOUT` / `CHECK_LOGIN_INCONCLUSIVE` / 请求失败）→ 只提示「未能确认」，**既不加入 `checkedExpiredIds`、也不清除既有标记**。否则「点一次验证就被提示重新登录」会把一次网络抖动放大成用户主动去重登（与批量侧 §7.1 同一口径，此前只有批量侧做到了）。
 
 ### 7.3 登录 / 保存凭证（创建与更新两条同族路径）
 `auth:login-silent`、登录页保存 → `updateCapturedAccount` PATCH 带 `status:'active' + last_validated`；Cookie 提取失败时**不保存**并返回 `reason:'cookie-extract-failed'`（避免落一份"看起来成功、实则无 Cookie"的凭证）。
@@ -196,8 +198,20 @@ else /* 历史数据缺 status */        → is_active===false ? 'inactive' : 'a
 本缺陷之所以能长期存在，正是因为同一个映射此前被抄了三份（第三处曾各自把无定论算成 `unverified`），
 修一处不传导到另两处。凭证落盘（登录 / 重新登录）属正向证据，继续直写 `active`，不经该函数形成双门控。
 
+**写者层三条补充约束**（规则函数只回答「该写什么」，回答不了「这一次写还有没有意义」，故留在 `persistCheckOutcome` 与监控循环，不下沉）：
+
+| 情形 | 动作 | 依据 |
+|---|---|---|
+| 无定论 + 规则值已等于现状（典型：`unverified` 再测一轮仍无定论） | **不发写请求** | 值未变仍 PATCH 会把 `last_validated` 伪造成一次没有结论的检测，「最近检查」与超龄锚点同时被污染 |
+| 无定论 + 真源现状读不到（`account:check-login` 的 `GET /api/accounts/{id}` 失败） | **不发写请求**，`loginStatus` 回传 `null` | 现状未知时猜 `active` 或抹成 `unverified` 都是臆断；一次 GET 抖动即降级等于给振荡留了第二扇门 |
+| 正向证据 + 现状已是 `active` | **照常回写** | 宽限期锚点必须刷新，否则常青账号会在 7 天后被自己的兜底降级（外部评审建议「值相同一律跳过」不予采纳，理由即此） |
+
+`statusChanged` 表达的因此是「本轮是否改写了真源」，不是「status 字面是否变化」。渲染层 `Accounts.vue` 只跟随 `loginStatus` 更新徽章，`loginStatus` 缺席即保持原样，MUST NOT 再从 `valid` 三元推导状态——那会在展示层把同一条规则绕开一次。
+
 **代价（必须写清）**：会话实际已失效但检测长期拿不到定论的账号，会在宽限期内继续显示「已登录」。
 缓解：明确失效仍立即 `expired`；7 天超龄自动降级；发布链路不读 `status`（已核实仅首页计数与失效横幅消费）。
+
+**已知残余（本轮不修，如实登记）**：`login-status-monitor` 沿用既有约束「结论未变即不回写」，所以 30 分钟定期检测**不会**为持续有效的账号刷新 `last_validated`；锚点只由手动一键检测/单账号验证与实际状态翻转刷新。后果是长期只做定期检测的账号可能在 7 天后被降为 `unverified`，下一轮检测拿到正向证据即恢复 `active`（自愈窗口 ≤30 分钟，且不属于「已失效却显示已登录」的危险方向）。若后续要收口，应给监控加「锚点年龄 > N 小时才补写」的低频刷新，而不是直接去掉 `next === current` 跳过（那会变成每 30 分钟一次的写放大）。
 
 ---
 

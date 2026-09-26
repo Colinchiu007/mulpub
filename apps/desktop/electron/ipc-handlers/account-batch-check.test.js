@@ -300,6 +300,30 @@ describe('accounts:batch-check-login 单账号超时', () => {
     expect(done[0].persisted).toBe(true)
   })
 
+  it('硬超时打在 status=active 的账号上：属无证据，保持 active 且不写真源', async () => {
+    // 上方用例的夹具不带 status，只能验「无现状 → 如实落 unverified」；
+    // 本用例补上真源现状，锁住超时不得把已确认的登录态抹成未确认（QM-6 W2）。
+    process.env.MP_BATCH_CHECK_CONCURRENCY = '1'
+    process.env.MP_BATCH_CHECK_ACCOUNT_TIMEOUT_MS = '60'
+    const sends = []
+    const lastValidated = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    const deps = createMockDeps({
+      accounts: [{ id: 'a1', platform: 'douyin', status: 'active', last_validated: lastValidated }],
+      sends,
+      checkLoginStatus: () => new Promise((resolve) => setTimeout(() => resolve({ valid: true }), 500)),
+    })
+
+    const result = await invokeBatch(deps, ['a1'])
+    const item = result.data.results[0]
+
+    expect(item.code).toBe('CHECK_LOGIN_TIMEOUT')
+    expect(item.loginStatus).toBe('active')
+    expect(item.statusChanged).toBe(false)
+    expect(item.last_validated).toBe(lastValidated)
+    expect(deps.AccountManager.persistLoginState).not.toHaveBeenCalled()
+    expect(progressEvents(sends).filter((e) => e.phase === 'done')[0].loginStatus).toBe('active')
+  })
+
   it('超时后原检测迟到的 reject 不产生 unhandledRejection', async () => {
     process.env.MP_BATCH_CHECK_CONCURRENCY = '1'
     process.env.MP_BATCH_CHECK_ACCOUNT_TIMEOUT_MS = '40'

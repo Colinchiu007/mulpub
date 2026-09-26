@@ -66,7 +66,6 @@ function createMockDeps(overrides = {}) {
       getAccountProxyStatus: vi.fn(() => ({ configured: false })),
       checkLocalCredentials: vi.fn(() => false),
       persistLoginState: vi.fn(async () => ({ ok: true })),
-      loginStatusFromCheckResult: vi.fn((r) => (r && r.valid === true ? 'active' : r && r.valid === false ? 'expired' : 'unverified')),
     },
     BACKEND_PLATFORMS: new Set(),
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -1225,14 +1224,46 @@ describe('登录态单向证据规则（IPC 层接入）', () => {
     expect(r2.data).toMatchObject({ valid: undefined, loginStatus: 'active', statusChanged: false })
   })
 
-  it('单账号：真源读不到时按未定论如实落 unverified（不臆断为已登录）', async () => {
+  it('单账号：真源读不到时本轮不改写（GET 抖动不得把已确认账号抹成未确认）', async () => {
     const deps = createMockDeps()
     deps.pythonBridge.requestBackend.mockResolvedValue({ code: -1, message: 'BACKEND_UNAVAILABLE' })
     deps.AccountManager.checkLoginStatus.mockResolvedValue({ valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE' })
 
     const result = await ipcMain_and_call(deps, 'account:check-login', { platform: 'douyin', accountId: 'a9' })
 
-    expect(deps.AccountManager.persistLoginState).toHaveBeenCalledWith('a9', 'douyin', 'unverified', expect.any(String))
-    expect(result.data).toMatchObject({ loginStatus: 'unverified', statusChanged: true })
+    expect(deps.AccountManager.persistLoginState, '现状未知既不能猜 active 也不得降级为 unverified').not.toHaveBeenCalled()
+    expect(result.data.valid).toBeUndefined()
+    expect(result.data.statusChanged).toBe(false)
+    expect(result.data.loginStatus, '无从判断现状就不该给出登录态，渲染层据此保持原徽章').toBeNull()
+  })
+
+  it('批量：无定论且现状本就是 unverified → 不发冗余 PATCH，也不伪造 last_validated', async () => {
+    const lv = iso(40 * DAY)
+    const deps = createMockDeps()
+    deps.AccountManager.listAccounts.mockResolvedValue([
+      { id: 'a-none', platform: 'toutiao', status: 'unverified', last_validated: lv },
+    ])
+    deps.AccountManager.checkLoginStatus.mockResolvedValue({ valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE' })
+
+    const result = await ipcMain_and_call(deps, 'accounts:batch-check-login', {})
+    const item = result.data.results[0]
+
+    expect(deps.AccountManager.persistLoginState, '值未变又无新证据，多写一次只会污染 last_validated').not.toHaveBeenCalled()
+    expect(item.loginStatus).toBe('unverified')
+    expect(item.statusChanged).toBe(false)
+    expect(item.last_validated, '未改写就不该有新定论时间').not.toBe(result.data.checkedAt)
+  })
+
+  it('批量：正向证据且现状已是 active → 仍须回写，宽限锚点不得冻结', async () => {
+    const deps = createMockDeps()
+    deps.AccountManager.listAccounts.mockResolvedValue([
+      { id: 'a-alive', platform: 'douyin', status: 'active', last_validated: iso(30 * DAY) },
+    ])
+    deps.AccountManager.checkLoginStatus.mockResolvedValue({ valid: true, code: 'CHECK_LOGIN_SUCCESS' })
+
+    const result = await ipcMain_and_call(deps, 'accounts:batch-check-login', {})
+
+    expect(deps.AccountManager.persistLoginState, '正向证据必须刷新 last_validated，否则宽限期会把常青账号降级').toHaveBeenCalledWith('a-alive', 'douyin', 'active', result.data.checkedAt)
+    expect(result.data.results[0].last_validated).toBe(result.data.checkedAt)
   })
 })

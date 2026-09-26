@@ -1410,6 +1410,7 @@ export default {
     batchCheckAllCurrent: (ctx) => 'Checking now: ' + ctx.named('platforms'),
     batchCheckAllElapsed: (ctx) => 'Elapsed: ' + ctx.named('seconds') + 's',
     batchCheckAllStarted: (ctx) => 'Checking login status of ' + ctx.named('count') + ' accounts…',
+    loginUnconfirmed: 'Could not confirm {platform} login: this check returned no verdict, status unchanged',
     batchCheckAllDone: (ctx) => 'Check complete: ' + ctx.named('valid') + ' valid, ' + ctx.named('invalid') + ' expired' + (Number(ctx.named('unconfirmed')) > 0 ? ', ' + ctx.named('unconfirmed') + ' unresolved (status kept)' : ''),
     batchCheckAllAllValid: (ctx) => 'Check complete: all ' + ctx.named('count') + ' accounts are valid',
     batchCheckAllPersistFailed: (ctx) => 'Check finished, but login status of ' + ctx.named('count') + ' account(s) could not be saved. Please retry or check the backend service',

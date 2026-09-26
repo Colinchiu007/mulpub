@@ -60,8 +60,6 @@ const {
 // 账号资料（昵称/头像/平台ID/粉丝）采集与「字段缺席=不修改」写回契约的单一实现
 const profileUtils = require('@multi-publish/shared-utils/src/account-profile')
 const { isNoiseAccountName } = require('@multi-publish/shared-utils/src/account-name-guard')
-// 登录态单向证据规则的唯一实现（三个调用点共用，见该模块头注释）
-const loginStateRule = require('@multi-publish/shared-utils/src/login-state')
 
 // 平台登录 URL / 名称 / 选择器 → @multi-publish/shared-utils/src/platform-definitions
 
@@ -1036,13 +1034,6 @@ function mergeCookies (primary, extra) {
   return merged
 }
 
-/** 三态检测结果 → 持久化 status 的唯一映射（禁止各处自行三元判断造成口径漂移）。 */
-function loginStatusFromCheckResult (result) {
-  if (result && result.valid === true) return 'active'
-  if (result && result.valid === false) return 'expired'
-  return 'unverified'
-}
-
 /**
  * 固化登录态到唯一真源（后端 accounts.json 的 status 字段）。
  *
@@ -1075,14 +1066,6 @@ async function persistLoginState (accountId, platform, status, validatedAt) {
     log.warn('AccountManager', 'persistLoginState 异常 ' + platform + ':' + accountId + ' ' + (e && e.message ? e.message : String(e)))
     return { ok: false, reason: 'exception', error: (e && e.message) ? e.message : String(e), status: normalized }
   }
-}
-
-/**
- * 单向证据规则 —— 转发 @multi-publish/shared-utils/src/login-state（唯一实现；本模块
- * 曾与 IPC、监控各持一份映射，才让振荡「修一处不传导」）。同名出口是既有公开面。
- */
-function loginStatusTransition (args) {
-  return loginStateRule.loginStatusTransition(args)
 }
 
 /**
@@ -1250,9 +1233,7 @@ module.exports = {
   checkLocalCredentials,
   getAccountPartitionCookies,
   mergeCookies,
-  loginStatusFromCheckResult,
   persistLoginState,
-  loginStatusTransition,
   setAccountActive,
   setOwnerSubjectProvider,
   accountStateRestorer,

@@ -57,11 +57,7 @@ function registerHandlers(ipcMain, deps) {
 
   const LOGIN_STATUSES = ['active', 'expired', 'unverified']
 
-  /**
-   * 检测结论 → 应写入真源的登录态；返回 null = 本轮无新证据，不改写。
-   * 判定唯一来源是 @multi-publish/shared-utils/src/login-state —— 本层与监控层曾各自
-   * 持一份映射、都把无定论算成 unverified，才是 active ↔ unverified 振荡的源头。
-   */
+  /** 检测结论 → 应写入真源的登录态；null = 本轮无新证据不改写。判定唯一来源见 shared-utils/login-state。 */
   function loginStatusFromCheck (status, checkError, account, nowMs) {
     const next = loginStatusTransition({
       result: status,
@@ -74,7 +70,7 @@ function registerHandlers(ipcMain, deps) {
     return next === null || LOGIN_STATUSES.indexOf(next) >= 0 ? next : 'unverified'
   }
 
-  /** 读真源现状，只为「无定论要不要保持」这一判定服务；失败返回 null，按未定论处理。 */
+  /** 读真源现状，只为「无定论要不要保持」服务；读不到返回 null = 本轮不改写。 */
   async function readAccountSnapshot (accountId) {
     try {
       const res = await pythonBridge.requestBackend('GET', '/api/accounts/' + accountId)
@@ -91,9 +87,13 @@ function registerHandlers(ipcMain, deps) {
     const definitive = !checkError && status && (status.valid === true || status.valid === false)
     if (!definitive && !snapshot) snapshot = await readAccountSnapshot(accountId)
     const next = loginStatusFromCheck(status, checkError, snapshot, Date.parse(checkedAt))
-    if (next === null) {
-      const keptStatus = (snapshot && snapshot.status) || 'unverified'
-      ipcLog('info', 'account:persist-outcome', 'kept', `platform=${platform} accountId=${accountId} reason=${checkError ? 'check-error' : (status && status.code) || 'inconclusive'} keptStatus=${keptStatus}`)
+    const current = snapshot && snapshot.status
+    // 无定论（含检测异常/硬超时/现状读不到）= 没有新证据，一律不改写：规则给出 null 时已明示，
+    // 值已等于现状时多一次 PATCH 只会把 last_validated 伪造成一次没结论的检测，现状未知时
+    // 猜 active 或抹成 unverified 都会再造振荡。正/负证据则必须回写以刷新宽限锚点。
+    if (!definitive && (next === null || !snapshot || next === current)) {
+      const keptStatus = current || null
+      ipcLog('info', 'account:persist-outcome', 'kept', `platform=${platform} accountId=${accountId} reason=${checkError ? 'check-error' : (status && status.code) || (snapshot ? 'inconclusive' : 'snapshot-unavailable')} keptStatus=${keptStatus}`)
       return { ok: true, status: null, changed: false, keptStatus }
     }
     const persisted = await persistLoginStatus(platform, accountId, next, checkedAt)

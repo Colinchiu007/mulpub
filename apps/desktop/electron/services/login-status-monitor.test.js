@@ -44,7 +44,6 @@ beforeEach(async () => {
     listAccounts: vi.fn(async () => []),
     checkLoginStatus: vi.fn(async () => ({ valid: true, code: 'CHECK_LOGIN_SUCCESS' })),
     persistLoginState: vi.fn(async () => ({ ok: true })),
-    loginStatusFromCheckResult: vi.fn((r) => (r && r.valid === true ? 'active' : r && r.valid === false ? 'expired' : 'unverified')),
   }
   const mod = await import('./login-status-monitor.js')
   createLoginStatusMonitor = mod.createLoginStatusMonitor

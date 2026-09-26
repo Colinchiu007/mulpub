@@ -44,7 +44,8 @@ const OVERRIDE_SOURCE = `
     'acc-toutiao': { valid: true, code: 'CHECK_LOGIN_SUCCESS', loginStatus: 'active' },
     // 无定论：主进程不改写真源，回传「保持后的原状态」并带 statusChanged=false
     'acc-channels': { valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', loginStatus: 'active', statusChanged: false },
-    'acc-fresh': { valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', loginStatus: 'unverified', statusChanged: true },
+    // 写者层判据：现状已是 unverified 且本轮无定论 → 不写真源（statusChanged=false）
+    'acc-fresh': { valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', loginStatus: 'unverified', statusChanged: false },
   };
   function retry(fn, attempts) {
     if (fn()) return;

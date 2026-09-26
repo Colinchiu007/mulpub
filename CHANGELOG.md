@@ -13,7 +13,8 @@
 - 有意反转既有契约：#2233 的 D3 采取「无定论即降级」，本变更改为「无定论保持 + 超龄降级」。D3 想治的「已失效却显示已登录」假阳性仍被覆盖 —— `valid===false` 立即 `expired`，且新增「从未有结论 + 无定论 → 保持未确认」的双侧断言。
 
 ### 测试
-- 新增 `electron/publishers/account-manager-login-state-transition.test.js`（7 例，规则表 6 行 + grace 边界 + 定论时间缺失/非法 + `checkError` 等价 + 纯函数不得打后端）。
+- **单账号「验证」不再把「未取到定论」冒充「已失效」**：`Accounts.vue` 的 `checkLogin()` 原以 truthy 二值分叉，超时 / 无定论 / 请求失败一并落进「已失效」分支，弹出「去登录」确认框并把账号计入会话失效集合 —— 一次网络抖动就被放大成用户主动重登。现按 `valid` 三值分叉，`undefined` 只提示「未能确认」（新增 locale 键 `accountsPage.loginUnconfirmed`，zh/en 成对），既不加入也不清除 `checkedExpiredIds`。同步修正 `Accounts.test.js` 三条按旧形状（超时 mock 成 `valid:false`、items 不带 `loginStatus`）构造的夹具。
+- 新增 `packages/shared-utils/src/__tests__/login-state.test.js`（9 例，规则表 6 行 + `checkError` 与 `valid` 并存 + grace 边界与非法值回落 + 纯函数不做 I/O + 导出面收口）。规则表在**唯一真源**处断言，不再经 `account-manager` 转发测；`account-manager` 侧的第三份映射 `loginStatusFromCheckResult` 与同名转发 shim 一并删除，改由 `account-manager-relogin-status.test.js` 的结构锁守住「不得复活」。
 - 新增 IPC 层 6 例（保持 active / 保持 expired / 超龄降级 / 异常与超时同权 / 单账号不多读真源 / 真源读不到时如实 unverified）；监控层把原「无定论即固化 unverified」单条用例拆成 4 条（保持 / 缺时间戳降级 / expired 保持 / 超龄降级并广播）。
 - 文案新增 `src/locales/accounts-batch-check-copy.test.js`：按 AGENTS.md QM-3「文本结构断言 MUST」用 `toBe` 精确断言 zh/en 整句与「unconfirmed=0 时段落整体缺席」。
 - **三向反证**（证明断言有鉴别力，非恒真）：① 规则改回「无定论一律抹掉」（= 修复前语义）→ 规则表 3/4 与 IPC 层各 4 条立刻变红；② 去掉超龄降级 → 规则 5 变红；③ 恢复后全绿。
