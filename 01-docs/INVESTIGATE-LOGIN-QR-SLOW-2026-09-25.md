@@ -189,3 +189,23 @@ https://mp.weixin.qq.com/mp/fereport?action=csp_report
 同一次全量跑里 stderr 出现 `electron.d.ts 不可用，跳过宿主 API 前提锁` —— 定位用 `path.join(__dirname, '..', '..', 'node_modules', ...)`，从 `apps/desktop/electron/services` 数两级 `..` 只到 `apps/desktop`，而本仓 `node-linker=hoisted`，electron 在**仓库根** `node_modules`。结果两条依赖 d.ts 的锁（前提锁、通配锁）在本地与 CI **从未执行过任何断言**。
 
 连带撤回一条 §10/CHANGELOG 的旧结论："注入 bogus 名后契约锁 2 failed" 的红其实来自**日志格式断言**。修复：改为逐级上溯查找 + 找不到即红 + 声明集规模下界（实测 410）；三条变异反证各自变红（源码改调不存在方法 / `findDts` 指向不存在包 / 成员正则退化）。详见 learnings `decorative-contract-lock`。
+
+## 12. §4.2 后台节流嫌疑：已证伪（2026-09-26 18:26 真机第三次复现）
+
+探针随 #2420（squash `9cbe3a14`）落 main 后，`mp-app-live` 实例于 16:21 重启并加载新代码（该树 `HEAD=9af97b1c`、`dirty=0`、`git merge-base --is-ancestor 9cbe3a14 HEAD` 为真）。本次**不重启用户会话**，改经 CDP 端口 11415 调 `window.electronAPI.authOpenLogin(wechat_mp, null)` 复现，随后 `authClose` 收口（`auth:close ok 耗时=6ms`，`auth:open-login cancelled 耗时=115719ms`）。
+
+```
+[2026-09-26T10:26:43.511Z] AccountIPC auth:open-login enter :: platform=wechat_mp accountId=<none>
+[2026-09-26T10:26:44.523Z] AuthView login page finished after 983ms platform=wechat_mp drawn=true bgThrottle=true
+[2026-09-26T10:26:45.028Z] LoginNetDiag [wechat_mp/auth-wechat_mp-1790418403514] qr response #1 after 1497ms status=200 contentLength=redacted
+```
+
+按 §5.4 判定表第 3 行的口径读这一行：
+
+- `bgThrottle=true`：后台节流**确实处于开启**（我们没关它）—— 该维度第一次被真实读到，此前一直是 `unknown`。
+- `drawn=true`，且 1497ms 后二维码到达时仍为 drawn 态：视图全程处于"应绘制"状态，Chromium 后台节流**没有可作用的隐藏窗口** ⇒ 在本路径上无可观测影响。
+- 结论：§4.2 嫌疑**证伪**。`createAuthView` 补 `backgroundThrottling:false` **决定不做** —— 无证据支持，且会给登录热路径加一处无收益的行为变更。
+
+三次同档测量合并看：公众号 11:53 `656ms`/`1072ms`、18:26 `983ms`/`1497ms`；`tencent_video` 12:04 首文档 `1394ms` + 末次 `did-finish-load` `12167ms`（§11.1）。支持本篇主结论：**首屏与出码都不慢，"刷了很久"来自微信登录页自身行为**（§10 结论三 + §11.1）。
+
+**覆盖限制（如实登记）**：`authClose` 走销毁路径、不经 `hide()`，因此关闭时**不会**产生 `login view setVisible=false drawn=…` 那一行。要正面观测「出码窗口落在未绘制时段」，需在登录页保持打开时切到别的标签再切回（`hide()`/`show()` 路径）。本次未做，因为上述结论不依赖该观测。
