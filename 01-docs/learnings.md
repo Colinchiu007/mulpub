@@ -15852,3 +15852,12 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **配套坑（tool）**：诊断的幂等标记写在 session 实例上（`ses.__loginNetDiagAttached`）。测试桩若让 `session.fromPartition` 恒返回同一个 `defaultSession`，标记会跨用例残留，使「监听注册恰好一次」的断言依赖用例顺序——假红/假绿温床。桩应每次返回新 session 对象（真实 Electron 语义：分区即独立 session）。
 - **反向排除记录**：本次先用实测排掉了 3 个看似合理的假设，全部有据（CN 出口 IP 直连与走代理相同→微信流量本就走 DIRECT；`l/qrconnect` hold 15.183s vs 15.180s→代理未掐长轮询；Edge 代理/直连渲染 DOM 字节完全一致）。教训：**`res.wx.qq.com` 的 8–9s 不是代理问题，是微信 CDN 对 404 自身限速**，直连同样 1–8s；异常耗时务必做 A/B 对照再下结论，否则会把工单修到不存在的根因上。详见 `01-docs/INVESTIGATE-LOGIN-QR-SLOW-2026-09-25.md` §3。
 - **编辑工具的行尾陷阱（pitfall，本轮真实代价）**：`learnings.md` 是 CRLF 文件，用 Edit 工具在其尾部追加一段，会把**相邻无关的 8 行**静默重排（`git diff --numstat` 报 24 增 16 删，`git diff -w` 却报 8 增 0 删 → 差额纯是行尾）。改法：`git checkout HEAD -- <单文件>` 回退后用 **Node 全程 Buffer 追加**（`fs.readFileSync` 得 Buffer，段落 `Buffer.from(text,'utf8')`，先把 `\n`→`\r\n` 再 concat 写回）。**切勿**用 `latin1` 读写再混入 utf8 字符串——往返对原内容无损，但新追加的中文会被按单字节打乱成乱码。中转文件别放 `/tmp`：Git Bash 的 `/tmp` 与 Node 解析的 `/tmp`（= `D:\tmp`）映射不同，实测 ENOENT。
+
+
+## CI 单测失败先做「改动范围归因 + 同内容多 run」双判再动手——scheduler-parity 时序 flake（api-publish-w3 PR #2413，2026-09-26）
+
+- **现象**：PR #2413（签名页基建）QG Unit Tests 的 Gate 4 失败，唯一红测是 `electron/tests/test_scheduler_parity.test.js`「concurrency-real 场景 total_duration_ms 对拍」——本 PR diff 完全没碰 scheduler/parity 任何文件。本地单跑该文件 2 测全绿（77s），据此判定为共享 runner 负载下的时序 flaky，`gh run rerun --failed` 后转绿。
+- **判定手法（pattern）**：CI 单测红的归因三步——① `git diff --stat origin/main...HEAD -- '*关键词*'` 确认失败文件是否在本 PR 改动面内；② 本地以同命令单跑该测试文件复现（绿 = 强烈 flaky 信号）；③ 查同内容/邻近内容历史 run 的 pass/fail 反复记录（沿用 learnings「E2E 抖动以同内容多 run + 失败点判断」纪律，扩大到 Gate 4）。三步都不指向本 PR 才 rerun，禁止无归因直接 rerun 掩盖真回归。
+- **注意区分**：quality-gate run 里 `QG Unit Tests`（Gate 4 全量 workspace 单测）与 `QG Desktop Shards (1/2)/(2/2)` 是**并行独立 job**——单个 job 失败不代表 desktop 面全挂，读 jobs 逐步 conclusion 定位，别按 run 级 conclusion 粗判。
+- **拉 CI 日志的 Windows 绕行（pitfall）**：`gh api .../logs` 响应含终端转义序列会被 gh 新版安全策略拦截（"pass --allow-escape-sequences to output it anyway"）；PowerShell `>` 重定向会把 stdout 落为 UTF-16LE。可`gh api "repos/:owner/:repo/actions/jobs/<id>/logs" --allow-escape-sequences > file` 后按 UTF-16LE 探测读取；`--jq` 表达式含 `[]`/`|` 会被 PowerShell 撕碎参数，改 `--json X > file` + Node 脚本解析（按 BOM 判 utf16le/utf8）。
+- **预防（待排期，未在本 PR 做）**：parity 类「真实时钟对拍」测试天然在共享 runner 不稳定——后续应给 duration 比对加相对容差或在模拟器/ governor 双侧改虚拟时钟；登记前该文件失败按本条三步归因。
