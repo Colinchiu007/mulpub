@@ -42,7 +42,7 @@
 | --- | --- | --- |
 | 已登录用户（Logto sub 可解析出业务用户） | 应用已登录且 `entitlement` 有效 | 复用 `useLoginGate.ensureLogin`：弹登录引导，登录后自动续做；取消则流程不启动、无云请求 |
 | 身份服务不可用（`status === 'disabled' \| 'error'`） | — | fail-closed：`notifyWarning('loginGate.disabledMessage')` 并拒绝，不弹登录框 |
-| feature flag `account_cloud_sync` 为真 | 运营中心 `runtime/bootstrap` 已下发 | 按钮不渲染（缺失/网络不可达/未同步过 → 一律按关闭） |
+| feature flag `account_cloud_sync` 为真 | 运营中心 `runtime/bootstrap` 已下发；**开启是双条件**：该行 `enabled=1` 且 `value="true"`（运行时只下发 `enabled=1` 的行并取 `typed_value`，只开 `enabled` 而 `value` 仍为 `"false"` 时桌面端拿到的还是 `false`） | 按钮不渲染（缺失/网络不可达/未同步过 → 一律按关闭） |
 | 本地至少 1 个账号 | `accountStore.accounts.length > 0` | 按钮 `disabled`，`title` 提示"暂无可同步的账号" |
 
 ## 四、数据流总览
@@ -290,7 +290,16 @@ digest(local) == digest(cloud) ? → 无冲突（unchanged）
 | renderer → main | `accounts:cloud-sync` | 入 `{ }`；出终态汇总 `{ code, data: { created, updated, unchanged, restored, skipped, conflicts, invalid, failed, items: [...] } }` |
 | renderer → main | `accounts:cloud-disconnect` | 入 `{ confirm: 'cloud' }`；出 `{ code, data: { deletedAccounts, deletedTombstones } \| null, errorCode? }` |
 | renderer → main | `accounts:cloud-sync-abort` | 出 `{ code, data: { aborted: boolean } }`；置中止标记，当前条完成后停止（不硬杀在途请求） |
-| main → renderer 事件 | `accounts:cloud-sync-progress` | `{ phase:'start'\|'done', index, total, platform, accountId?, outcome?, code?, elapsedMs? }` |
+| main → renderer 事件 | `accounts:cloud-sync-progress` | `{ phase:'start'\|'done', rowKey, index, total, platform, accountId?, outcome?, code?, elapsedMs? }` |
+
+**`rowKey` 是渲染层行标识的唯一来源（MUST）**：每个进度事件（`start` 与 `done` 两个边界都要）都必须携带同一条账号的 `rowKey`，
+且 `start` 与 `done` 取到的值必须相同。上行阶段取 `String(account.id)`；恢复阶段取 `'restore:' + platform + ':' + platformUid`
+——因为恢复项此刻**还没有本机 accountId**（正是这次恢复才创建），若渲染层优先取 `accountId` 就会让一条账号在界面上裂成两行，
+`doneCount`、进度百分比与汇总区同时失真（本条由 QM-6 外部评审发现，回归锁 `cloud-account-sync.test.js`
+「恢复阶段 start 与 done 必须同一 rowKey」+「结构锁：源码里每个进度 send 都必须带 rowKey」）。
+渲染层 `rowKeyOf` 的取键顺序为 `rowKey → accountId → platform-index → platform`，
+**禁止**使用 `rows.length` 这类随调用时序变化的量（键不稳定 = 双边界语义失效）；末位 `platform` 兜底的取舍是
+「同平台合并成一行」而非「凭空多一行」，宁可少一行也不让进度失真。
 
 约束：
 - 三个 invoke 方法 MUST 过 `withSenderCheck`（CI Gate 17），MUST 在 `apps/desktop/electron/preload/account.js` 暴露，MUST 登记 `preload.test.js` 的 `ACCOUNT_METHODS`（`:86-100`），MUST 重新构建 `index.bundle.js` 与 `home-shell-preload.bundle.js`（改 `preload/page-manager.js` 类文件漏 bundle 会被 bundle 断言拦截）。
@@ -340,7 +349,22 @@ idle →（点按钮）→ loading-digest →（成功）→ digest-confirm →�
 
 结果标签颜色语义：成功类 `success`、跳过/已最新 `muted`、冲突 `warning`、失效/失败 `danger`。
 
+**汇总区逐类计数（chips）的口径**：优先按终态 `items` 统计（与逐条列表同源，绝不允许出现两个口径）；
+只有旧载荷/`items` 缺席时才回落 `counters`，回落映射表 `COUNTER_TO_OUTCOME` 的唯一落点在
+`apps/desktop/src/features/accounts/composables/useCloudSyncRows.js`，别处不得再抄一份。两条细则：
+- `uid-unavailable` **必须**出现在 chips 里（曾被静默漏掉：主进程已回传 `uidUnavailable` 计数，
+  而渲染层的兜底表没有这一项，导致「跳过了几条」用户看不到）；
+- 兜底表**故意不含 `conflicts`**：主进程把 `conflict-resolved-local` 与 `conflict-resolved-cloud`
+  合并成一个 `conflicts` 计数，没有逐条 `items` 就判不出是哪一侧胜出——宁可少一枚 chip，也不给一条错标签
+  （与服务端 `extractUidFromHtml` 的「不确定就不给结论」同口径）。汇总文字仍按 `counters` 如实反映成功/失败数。
+
 ### 10.4 提示文案全表（zh，en 见 locales 文件，MUST 成对）
+
+> 文案落位（实现事实）：本表全部键位于 `apps/desktop/src/locales/accounts-cloud-sync/{zh,en}.js`，
+> 由装配文件 `locales/{zh,en}.js` 以 `import` + 对象展开接回 `accountsPage` 命名空间，**键名与访问路径不变**
+> （仍写作 `accountsPage.cloudSync*`）。拆出子模块是因为 `locales/zh.js` 已 3300+ 行、逐文件行数门禁的处方是拆分；
+> CI 门禁 `check-locale-sync.js` 已同步支持「装配文件跟随 import」解析键集，并把成对口径泛化为
+> 「`locales/` 目录下每个 `zh.js` ↔ 同目录 `en.js`」，拆文件不会打开单边文案的口子。
 
 **按钮与标题**
 
@@ -471,7 +495,13 @@ idle →（点按钮）→ loading-digest →（成功）→ digest-confirm →�
 **发布顺序（硬约束）**
 1. 后端先上：执行 `005_cloud_accounts.sql` 迁移 → 部署带 `/api/v1/me/accounts` 的业务 API → KMS 生产实现配好并冒烟 `wrap/unwrap`。
 2. 桌面端合并发布（flag 仍为 false，用户看不到入口）。
-3. 打开 `account_cloud_sync` flag → 灰度观察。
+3. 打开 `account_cloud_sync` flag → 灰度观察。该 key 已登记进 ops-center `SEED_FLAGS`（`value_type=boolean`、
+   `value="false"`、`enabled=0`），供给逻辑是「已存在即跳过」的**增量补齐**，因此存量部署启动后会自动出现该项且默认关闭，
+   运营无需手敲 key（回归锁 `ops-center/backend/tests/test_feature_flags_api.py::test_cloud_sync_flag_seeded_into_existing_deployment`
+   从**非空旧状态**出发验证「只补不改」）。
+
+运维细节（KMS 生产实现要求、迁移与 readiness 的先后、Nginx 路由、开关双条件、未执行项登记）见
+`01-docs/OPS-CLOUD-ACCOUNT-SYNC-2026-09-27.md`。
 
 回滚：关 flag（入口消失，已上云数据保留不动）；彻底回退需额外执行云端数据清除（按用户或全量）。
 

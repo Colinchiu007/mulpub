@@ -22,6 +22,16 @@ SEED_FLAGS = [
         "value": "1080p",
         "description": "输出分辨率能力开关：1080p（默认，禁止 4K）| 4k（开启）；桌面端引擎 fail-closed 拒绝越界分辨率",
     },
+    {
+        # 账号云镜像同步入口（ADR-0006 / PRD-CLOUD-ACCOUNT-SYNC-2026-09-27 §15）：
+        # 默认关，由运营在灰度就绪后手动打开。缺了这条种子，存量部署的管理页永远看不到该项
+        # （「表为空才播种」的供给逻辑对存量部署无效），只能靠运营手敲 key。
+        "key": "account_cloud_sync",
+        "value_type": "boolean",
+        "value": "false",
+        "enabled": 0,
+        "description": "账号管理页【同步云端】入口开关：默认关闭；开启（enabled=true 且 value=true）后桌面端才请求云端账号摘要并允许上传/恢复凭证镜像",
+    },
 ]
 
 
@@ -114,7 +124,8 @@ async def ensure_feature_flags_seeded(db: AsyncSession) -> None:
         if await _get(db, s["key"]) is not None:
             continue
         db.add(FeatureFlag(key=s["key"], value_type=s["value_type"], value=s["value"],
-                           description=s["description"], enabled=1, updated_at=now, updated_by="seed"))
+                           description=s["description"], enabled=int(s.get("enabled", 1)),
+                           updated_at=now, updated_by="seed"))
     try:
         await db.commit()
     except IntegrityError:

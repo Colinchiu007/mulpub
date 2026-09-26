@@ -29,6 +29,8 @@ import infoTestRaw from './http-login-checker-info.test.js?raw'
 
 // shared-utils 是 CJS 包：与 account-profile-collector.test.js 同款 require 取法
 // （命名 import 依赖打包器的 CJS 静态分析，仓库既有先例一律走 require）
+// uid 取值原语已拆到 ./platform-uid；结构锁跟着代码搬，否则锁会对着旧落点假绿。
+const uidPrimitives = require('./platform-uid')
 const accountProfileModule = require('@multi-publish/shared-utils/src/account-profile')
 const { PLATFORM_ACCOUNT_INFO_SELECTORS } = require('@multi-publish/shared-utils/src/platform-definitions')
 
@@ -177,18 +179,18 @@ describe('八平台 platform_uid 提取覆盖结构锁', () => {
     expect(generic.length, '未从采集器源码解析出通用身份属性清单').toBeGreaterThan(0)
     // 采集器侧是 CSS 属性选择器（`[data-user-id]`），HTTP 侧是属性名（`data-user-id`）：
     // 去掉选择器括号后逐项相等（顺序无关），任一侧增删都要同步另一侧
-    expect([...checker.UID_HTML_ATTRS].sort(), 'HTTP 通道与 DOM 通道的身份属性清单漂移').toEqual(generic.slice().sort())
+    expect([...uidPrimitives.UID_HTML_ATTRS].sort(), 'HTTP 通道与 DOM 通道的身份属性清单漂移').toEqual(generic.slice().sort())
   })
   it('uid 形态白名单拒绝占位与超长文本（normalizeUid 是三条来源共用的唯一收口）', () => {
     for (const bad of ['', '   ', '0', 'null', 'undefined', '{{userId}}', '首页 - 知乎', 'x'.repeat(65), '<script>', 'a b']) {
-      expect(checker.normalizeUid(bad), '非法 uid 候选被放行: ' + JSON.stringify(bad)).toBe('')
+      expect(uidPrimitives.normalizeUid(bad), '非法 uid 候选被放行: ' + JSON.stringify(bad)).toBe('')
     }
-    expect(checker.normalizeUid(' 5321009876543 ')).toBe('5321009876543')
-    expect(checker.normalizeUid(31000000)).toBe('31000000')
+    expect(uidPrimitives.normalizeUid(' 5321009876543 ')).toBe('5321009876543')
+    expect(uidPrimitives.normalizeUid(31000000)).toBe('31000000')
   })
   it('HTML 身份属性在页面内出现多个互不相同的值时不产出（访客身份不得当本机 uid）', () => {
-    expect(checker.extractUidFromHtml('<div data-user-id="a1"></div>')).toBe('a1')
-    expect(checker.extractUidFromHtml('<i data-user-id="a1"></i><b data-user-id="b2"></b>')).toBe('')
-    expect(checker.extractUidFromHtml('<div>登录知乎</div>')).toBe('')
+    expect(uidPrimitives.extractUidFromHtml('<div data-user-id="a1"></div>')).toBe('a1')
+    expect(uidPrimitives.extractUidFromHtml('<i data-user-id="a1"></i><b data-user-id="b2"></b>')).toBe('')
+    expect(uidPrimitives.extractUidFromHtml('<div>登录知乎</div>')).toBe('')
   })
 })

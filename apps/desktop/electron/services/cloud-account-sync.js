@@ -36,89 +36,27 @@
  * @property {{info?:Function, warn?:Function, error?:Function}} [log]
  */
 
-const OUTCOME = {
-  CREATED: 'created',
-  UPDATED: 'updated',
-  UNCHANGED: 'unchanged',
-  RESTORED: 'restored',
-  SKIPPED_TOMBSTONE: 'skipped-tombstone',
-  CONFLICT_LOCAL: 'conflict-resolved-local',
-  CONFLICT_CLOUD: 'conflict-resolved-cloud',
-  CONFLICT_UNRESOLVED: 'conflict-unresolved',
-  INVALID_CREDENTIAL: 'invalid-credential',
-  UID_UNAVAILABLE: 'uid-unavailable',
-  FAILED: 'failed',
-}
+const {
+  ACCOUNT_PATH,
+  DIGEST_TIMEOUT_MS,
+  DISCONNECT_PATH,
+  OUTCOME,
+  SYNC_PATH,
+  TIMEOUT_SENTINEL,
+  emptySummary,
+  errorMessage,
+  finishSummary,
+  isTimeout,
+  keyOf,
+  mapWithConcurrency,
+  raceWithTimeout,
+  resolveInt,
+} = require('./cloud-account-core')
 
-const ACCOUNT_PATH = '/api/v1/me/accounts'
-const SYNC_PATH = '/api/v1/me/accounts/sync'
-const DISCONNECT_PATH = '/api/v1/me/accounts/disconnect'
-const DIGEST_TIMEOUT_MS = 10000
 
-const TIMEOUT_SENTINEL = Symbol('cloudSyncTimeout')
+// 凭证冲突裁决独立成模块：它是唯一会改写本机有效凭证的路径（见该文件头注释）。
+const { createConflictResolver } = require('./cloud-account-conflict')
 
-function resolveInt (raw, fallback, min, max) {
-  const n = Number.parseInt(String(raw ?? ''), 10)
-  if (!Number.isFinite(n) || n < min || n > max) return fallback
-  return n
-}
-
-function errorMessage (e) { return String((e && (/** @type {any} */ (e).code || /** @type {any} */ (e).message)) || e || 'unknown') }
-
-function keyOf (platform, uid) { return `${String(platform || '')}|${String(uid == null ? '' : uid)}` }
-
-/**
- * 硬超时：超时后原 promise 的 reject 必须就地吃掉，否则变成 unhandledRejection
- * （AGENTS.md「批量 IPC 进度双边界与超时预算契约」的回归要求）。
- */
-function raceWithTimeout (promiseOrValue, timeoutMs, timeoutValue) {
-  const guarded = promiseOrValue instanceof Promise ? promiseOrValue : Promise.resolve(promiseOrValue)
-  // 非 Promise 分支下 catch 不存在，统一走 Promise.resolve 包装
-  const settled = guarded.catch((e) => ({ __cloudSyncError: errorMessage(e) }))
-  let timer = null
-  const timeout = new Promise((resolve) => {
-    timer = setTimeout(() => resolve(TIMEOUT_SENTINEL), timeoutMs)
-    if (timer && typeof timer.unref === 'function') timer.unref()
-  })
-  return Promise.race([settled, timeout]).then((value) => {
-    if (timer) clearTimeout(timer)
-    return value
-  }, (e) => { if (timer) clearTimeout(timer); throw e })
-}
-
-function isTimeout (v) { return v === TIMEOUT_SENTINEL }
-
-/** 固定并发映射；结果落位由调用方按 index 处理，完成顺序不影响结果集 */
-async function mapWithConcurrency (items, limit, worker) {
-  const size = Math.max(1, Math.min(limit, items.length || 1))
-  let cursor = 0
-  const runners = new Array(size).fill(null).map(async () => {
-    while (cursor < items.length) {
-      const index = cursor++
-      await worker(items[index], index)
-    }
-  })
-  await Promise.all(runners)
-}
-
-function emptySummary () {
-  return {
-    created: 0, updated: 0, unchanged: 0, restored: 0, skipped: 0,
-    conflicts: 0, invalid: 0, uidUnavailable: 0, failed: 0,
-    items: [], queuedCheck: 0, elapsedMs: 0, aborted: false, errorCode: null,
-  }
-}
-
-/**
- * 从逐条结果重新推导聚合计数。冲突/失效/身份不明三类必须在终态收口时按 items 结算，
- * 否则中途分支少加一次计数就会汇出一个「全部成功」的假事实。
- */
-function finishSummary (summary) {
-  summary.conflicts = summary.items.filter((i) => String(i.outcome || '').startsWith('conflict-')).length
-  summary.invalid = summary.items.filter((i) => i.outcome === OUTCOME.INVALID_CREDENTIAL).length
-  summary.uidUnavailable = summary.items.filter((i) => i.outcome === OUTCOME.UID_UNAVAILABLE).length
-  return summary
-}
 
 function createCloudAccountSync (deps) {
   const {
@@ -130,6 +68,8 @@ function createCloudAccountSync (deps) {
   const concurrency = resolveInt(env.MP_CLOUD_SYNC_CONCURRENCY, 3, 1, 8)
   const accountTimeoutMs = resolveInt(env.MP_CLOUD_SYNC_ACCOUNT_TIMEOUT_MS, 20000, 1000, 120000)
   const totalBudgetMs = resolveInt(env.MP_CLOUD_SYNC_TOTAL_TIMEOUT_MS, 180000, 5000, 600000)
+
+  const { resolveCredentialConflict } = createConflictResolver({ checkLogin, accountTimeoutMs })
 
   let running = false
   let abortRequested = false
@@ -244,41 +184,6 @@ function createCloudAccountSync (deps) {
     return row
   }
 
-  /** 判一份凭证在本机是否真能用；返回 'valid' | 'invalid' | 'inconclusive' */
-  async function verdict (platform, credential) {
-    const cookies = credential && Array.isArray(credential.cookies) ? credential.cookies : null
-    if (!cookies || !cookies.length) return 'invalid'
-    const res = await raceWithTimeout(
-      Promise.resolve(checkLogin(platform, cookies)).catch((e) => ({ __cloudSyncError: errorMessage(e) })),
-      accountTimeoutMs, TIMEOUT_SENTINEL,
-    )
-    if (isTimeout(res)) return 'inconclusive'
-    if (res && res.__cloudSyncError) return 'inconclusive'
-    if (res && res.valid === true) return 'valid'
-    if (res && res.valid === false) return 'invalid'
-    return 'inconclusive'
-  }
-
-  /**
-   * 凭证冲突四分支（PRD §5.5）：较新者优先并先实测，两份都失效保留本机并标需重登，
-   * 两份都无定论一律保留本机且不写负结论（单向证据规则）。
-   * 较新一份由服务端在 conflict 裁决里给出 `credentialFreshness`；拿不到时按本机较新处理。
-   */
-  async function resolveCredentialConflict (platform, localCredential, cloudCredential, cloudNewer) {
-    const ordered = cloudNewer
-      ? [{ which: 'cloud', cred: cloudCredential }, { which: 'local', cred: localCredential }]
-      : [{ which: 'local', cred: localCredential }, { which: 'cloud', cred: cloudCredential }]
-
-    const verdicts = []
-    for (const cand of ordered) {
-      const v = await verdict(platform, cand.cred)
-      verdicts.push({ ...cand, verdict: v })
-      if (v === 'valid') return { winner: cand.which, credential: cand.cred, verdicts }
-    }
-    const anyInconclusive = verdicts.some((v) => v.verdict === 'inconclusive')
-    return { winner: 'keep-local', credential: localCredential, invalid: !anyInconclusive, verdicts }
-  }
-
   // ── 上行 ────────────────────────────────────────────────────────
   function toUpsertPayload (row) {
     return {
@@ -391,7 +296,7 @@ function createCloudAccountSync (deps) {
 
       await mapWithConcurrency(locals, concurrency, async (account, index) => {
         if (abortRequested) return
-        send({ phase: 'start', index: index + 1, total: locals.length, platform: account.platform, accountId: account.id, name: account.name || '' })
+        send({ phase: 'start', rowKey: String(account.id), index: index + 1, total: locals.length, platform: account.platform, accountId: account.id, name: account.name || '' })
         const row = await raceWithTimeout(
           Promise.resolve(loadLocalRow(account, subject)).catch((e) => ({ __cloudSyncError: errorMessage(e) })),
           accountTimeoutMs, TIMEOUT_SENTINEL,
@@ -400,14 +305,14 @@ function createCloudAccountSync (deps) {
           prepared[index] = null
           summary.failed += 1
           summary.items.push({ accountId: account.id, platform: account.platform, name: account.name || '', outcome: OUTCOME.FAILED, code: 'SYNC_BUDGET_EXCEEDED' })
-          send({ phase: 'done', index: index + 1, total: locals.length, platform: account.platform, accountId: account.id, name: account.name || '', outcome: OUTCOME.FAILED, code: 'SYNC_BUDGET_EXCEEDED' })
+          send({ phase: 'done', rowKey: String(account.id), index: index + 1, total: locals.length, platform: account.platform, accountId: account.id, name: account.name || '', outcome: OUTCOME.FAILED, code: 'SYNC_BUDGET_EXCEEDED' })
           return
         }
         if (row.__cloudSyncError) {
           prepared[index] = null
           summary.failed += 1
           summary.items.push({ accountId: account.id, platform: account.platform, name: account.name || '', outcome: OUTCOME.FAILED, code: row.__cloudSyncError })
-          send({ phase: 'done', index: index + 1, total: locals.length, platform: account.platform, accountId: account.id, name: account.name || '', outcome: OUTCOME.FAILED, code: row.__cloudSyncError })
+          send({ phase: 'done', rowKey: String(account.id), index: index + 1, total: locals.length, platform: account.platform, accountId: account.id, name: account.name || '', outcome: OUTCOME.FAILED, code: row.__cloudSyncError })
           return
         }
         prepared[index] = row
@@ -469,20 +374,20 @@ function createCloudAccountSync (deps) {
           const outcome = await settleConflict(subject, row, res)
           summary.conflicts += 1
           summary.items.push({ accountId: row.accountId, platform: row.platform, name: row.displayName, outcome })
-          send({ phase: 'done', platform: row.platform, accountId: row.accountId, name: row.displayName, outcome })
+          send({ phase: 'done', rowKey: String(row.accountId), platform: row.platform, accountId: row.accountId, name: row.displayName, outcome })
           continue
         }
         if (res.outcome === 'rejected') {
           summary.failed += 1
           summary.items.push({ accountId: row.accountId, platform: row.platform, name: row.displayName, outcome: OUTCOME.FAILED, code: res.errorCode || 'ACCOUNT_REJECTED' })
-          send({ phase: 'done', platform: row.platform, accountId: row.accountId, name: row.displayName, outcome: OUTCOME.FAILED, code: res.errorCode })
+          send({ phase: 'done', rowKey: String(row.accountId), platform: row.platform, accountId: row.accountId, name: row.displayName, outcome: OUTCOME.FAILED, code: res.errorCode })
           continue
         }
         const counter = outcomeToCounter[res.outcome]
         if (counter) summary[counter] += 1
         else { summary.failed += 1; summary.items.push({ accountId: row.accountId, platform: row.platform, name: row.displayName, outcome: OUTCOME.FAILED, code: res.errorCode || 'CLOUD_RESULT_MISSING' }); continue }
         summary.items.push({ accountId: row.accountId, platform: row.platform, name: row.displayName, outcome: res.outcome, code: res.errorCode })
-        send({ phase: 'done', platform: row.platform, accountId: row.accountId, name: row.displayName, outcome: res.outcome, code: res.errorCode })
+        send({ phase: 'done', rowKey: String(row.accountId), platform: row.platform, accountId: row.accountId, name: row.displayName, outcome: res.outcome, code: res.errorCode })
       }
 
       // 云端有、本机无 → 恢复
@@ -491,9 +396,13 @@ function createCloudAccountSync (deps) {
       const toRestore = cloudAccounts.filter((c) => c.platform && c.platformUid
         && !localKeys.has(keyOf(c.platform, c.platformUid))
         && !tombstoneKeys.has(keyOf(c.platform, c.platformUid)))
-      for (const c of toRestore) {
+      for (const [i, c] of toRestore.entries()) {
         if (abortRequested) break
-        send({ phase: 'start', index: 0, total: toRestore.length, platform: c.platform, name: c.displayName || c.accountName || '' })
+        // 恢复项此刻还没有本機 accountId（正是这次恢复才创建的），
+        // 所以行键只能用云端身份 (platform, platformUid)：start 与 done 必须取到同一个值，
+        // 否则一条恢复会在界面上裂成两行。
+        const rowKey = 'restore:' + c.platform + ':' + c.platformUid
+        send({ phase: 'start', rowKey, index: i + 1, total: toRestore.length, platform: c.platform, name: c.displayName || c.accountName || '' })
         const result = await raceWithTimeout(
           Promise.resolve(restoreToLocal(subject, c, startedAt)).catch((e) => ({ outcome: OUTCOME.FAILED, code: errorMessage(e) })),
           accountTimeoutMs, TIMEOUT_SENTINEL,
@@ -502,7 +411,7 @@ function createCloudAccountSync (deps) {
         if (settled.outcome === OUTCOME.RESTORED) summary.restored += 1
         else summary.failed += 1
         summary.items.push({ accountId: settled.accountId || null, platform: c.platform, name: c.displayName || '', outcome: settled.outcome, code: settled.code })
-        send({ phase: 'done', index: 0, total: toRestore.length, platform: c.platform, accountId: settled.accountId || null, name: c.displayName || '', outcome: settled.outcome, code: settled.code })
+        send({ phase: 'done', rowKey, index: i + 1, total: toRestore.length, platform: c.platform, accountId: settled.accountId || null, name: c.displayName || '', outcome: settled.outcome, code: settled.code })
       }
 
       summary.queuedCheck = summary.items.filter((i) => i.outcome === OUTCOME.RESTORED).length
@@ -572,4 +481,4 @@ function createCloudAccountSync (deps) {
   }
 }
 
-module.exports = { createCloudAccountSync, OUTCOME, keyOf, mapWithConcurrency, raceWithTimeout, TIMEOUT_SENTINEL }
+module.exports = { createCloudAccountSync, OUTCOME, keyOf, TIMEOUT_SENTINEL }

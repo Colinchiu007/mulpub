@@ -1,6 +1,11 @@
 // @ts-check
+import fs from 'node:fs'
+import path from 'node:path'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { createCloudAccountSync, raceWithTimeout, TIMEOUT_SENTINEL } from './cloud-account-sync'
+import { createCloudAccountSync } from './cloud-account-sync'
+
+// 超时原语已拆到 ./cloud-account-core，测试的引用跟着代码走（不留在编排器上留兼容出口）
+import { raceWithTimeout, TIMEOUT_SENTINEL } from './cloud-account-core'
 
 const SUBJECT = 'sub-owner-a'
 
@@ -337,3 +342,55 @@ describe('超时原语', () => {
 })
 
 beforeEach(() => { vi.clearAllMocks() })
+
+describe('账号云同步 —— 进度行键（rowKey）', () => {
+  it('恢复阶段 start 与 done 必须同一 rowKey，同平台多条不得挤成一行', async () => {
+    // 回归：恢复项此刻还没有本机 accountId（正是这次恢复才创建），旧实现让 rowKeyOf 优先取 accountId，
+    // 于是 start 落在 platform-index、done 落在 accountId，一条账号在界面上裂成两行，doneCount/百分比同时失真。
+    const f = makeFixture({
+      accounts: [],
+      respond: (o) => {
+        if (o.method === 'GET') return {
+          accounts: [
+            { platform: 'douyin', platformUid: 'u9', displayName: '云端甲', status: 'active' },
+            { platform: 'douyin', platformUid: 'u8', displayName: '云端乙', status: 'active' },
+          ],
+          tombstones: [],
+        }
+        if (o.path === '/api/v1/me/accounts/sync') return { credentials: [
+          { platform: 'douyin', platformUid: 'u9', credential: cred('c9') },
+          { platform: 'douyin', platformUid: 'u8', credential: cred('c8') },
+        ] }
+        return { results: [] }
+      },
+    })
+    const res = await f.service.sync(SUBJECT)
+    expect(res.data.restored).toBe(2)
+
+    const restoreEvents = f.events.filter((ev) => String(ev.rowKey || '').startsWith('restore:douyin:'))
+    expect(restoreEvents.length).toBe(4) // 两条账号 x start/done
+    const keys = [...new Set(restoreEvents.map((ev) => ev.rowKey))]
+    expect(keys.sort()).toEqual(['restore:douyin:u8', 'restore:douyin:u9'])
+    for (const key of keys) {
+      const pair = restoreEvents.filter((ev) => ev.rowKey === key)
+      expect(pair.map((ev) => ev.phase)).toEqual(['start', 'done'])
+      // index 也必须逐条递增（旧实现恒为 0）
+      expect(pair[0].index).toBe(pair[1].index)
+      expect(pair[0].index).toBeGreaterThan(0)
+    }
+    // done 带回了新建的 accountId，但行键仍是 start 时那个，不因此改名
+    const doneEvents = restoreEvents.filter((ev) => ev.phase === 'done')
+    expect(doneEvents.every((ev) => ev.accountId)).toBe(true)
+    expect(new Set(doneEvents.map((ev) => ev.rowKey))).toEqual(new Set(keys))
+  })
+
+  it('结构锁：源码里每个进度 send 都必须带 rowKey（防下一个出口又漏）', () => {
+    // 与 cloud-account-tombstone.test.js 同一口径：测试 cwd = apps/desktop
+    const src = fs.readFileSync(path.resolve(process.cwd(), 'electron/services/cloud-account-sync.js'), 'utf8')
+    const sends = src.match(/send\(\{\s*phase:\s*'(?:start|done)'[^}]*\}/gs) || []
+    expect(sends.length).toBeGreaterThanOrEqual(7)
+    const missing = sends.filter((snippet) => !/\browKey\b/.test(snippet))
+    // 缺 rowKey 的具体事件直接列出来，别只报一个数字
+    expect(missing.map((snippet) => snippet.replace(/\s+/g, ' ').slice(0, 90))).toEqual([])
+  })
+})

@@ -35,7 +35,6 @@
     "apps/desktop/electron/services/tts-voice-clone-service.js": 1748,
     "apps/desktop/electron/services/video-prompt-engine-contract.js": 759,
     "apps/desktop/electron/services/videogen-stages.js": 975,
-    
     "apps/desktop/src/api/publisher.js": 501,
     "apps/desktop/src/components/AiWriterPanel.vue": 642,
     "apps/desktop/src/components/ProfileMenu.vue": 606,

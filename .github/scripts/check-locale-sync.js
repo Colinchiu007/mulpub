@@ -78,21 +78,27 @@ function runPairCheck (base) {
     console.error('[locale-sync] 请确认 base ref 存在（CI 中先 git fetch origin main）')
     process.exit(2)
   }
-  const zhFile = 'apps/desktop/src/locales/zh.js'
-  const enFile = 'apps/desktop/src/locales/en.js'
-  const zhChanged = changed.includes(zhFile)
-  const enChanged = changed.includes(enFile)
-  if (zhChanged && !enChanged) {
-    console.error(`[locale-sync] FAIL：本提交只修改了 ${zhFile}，未成对修改 ${enFile}`)
+  const localeDir = 'apps/desktop/src/locales'
+  // 成对口径按「同目录下的 zh.js ↔ en.js」判定：装配文件（locales/zh.js）与按功能拆出的
+  // 子模块（locales/<feature>/zh.js）走同一条规则，拆文件不会打开单边文案的口子。
+  const unpaired = []
+  for (const file of changed) {
+    if (!file.startsWith(localeDir + '/') && file !== `${localeDir}/zh.js`) continue
+    const base = file.slice(localeDir.length + 1)
+    if (!/(^|\/)(zh|en)\.js$/.test(base)) continue
+    const counterpart = localeDir + '/' + base.replace(/(zh|en)\.js$/, matched => (matched === 'zh.js' ? 'en.js' : 'zh.js'))
+    if (!changed.includes(counterpart)) unpaired.push({ file, counterpart })
+  }
+  if (unpaired.length > 0) {
+    for (const { file, counterpart } of unpaired) {
+      console.error(`[locale-sync] FAIL：本提交只修改了 ${file}，未成对修改 ${counterpart}`)
+    }
     console.error('[locale-sync] 修改 locale 文件必须 zh/en 成对提交（i18n-content-sync L1）')
     process.exit(1)
   }
-  if (enChanged && !zhChanged) {
-    console.error(`[locale-sync] FAIL：本提交只修改了 ${enFile}，未成对修改 ${zhFile}`)
-    console.error('[locale-sync] 修改 locale 文件必须 zh/en 成对提交（i18n-content-sync L1）')
-    process.exit(1)
-  }
-  console.log(`[locale-sync] pair check PASS（${zhFile} 变更=${zhChanged}，${enFile} 变更=${enChanged}）`)
+  const zhChanged = changed.includes(`${localeDir}/zh.js`)
+  const enChanged = changed.includes(`${localeDir}/en.js`)
+  console.log(`[locale-sync] pair check PASS（${localeDir}/zh.js 变更=${zhChanged}，${localeDir}/en.js 变更=${enChanged}，成对校验覆盖 locale 目录下全部 zh/en 文件）`)
 }
 
 function toPosixRel (file) {
@@ -372,10 +378,57 @@ function collectUsedKeys () {
   return used
 }
 
-/** 从 locale 文件加载 key 集合（点分路径叶子）。 */
+/** 相对 spec → 绝对文件路径（Vite 允许省略 .js 扩展名，这里同口径试三种）。 */
+function resolveLocaleSpec (dir, spec) {
+  for (const candidate of [spec, spec + '.js', path.join(spec, 'index.js')]) {
+    const abs = path.resolve(dir, candidate)
+    try { if (fs.statSync(abs).isFile()) return abs } catch (_) { /* 继续试下一个 */ }
+  }
+  throw new Error(`无法解析 locale 依赖「${spec}」（相对 ${toPosixRel(dir)}）`)
+}
+
+/**
+ * 求值一个 locale 模块，返回其默认导出对象。
+ *
+ * locale 允许是「装配文件」：顶部 import 若干按功能拆出的子模块，再在对象字面量里展开
+ * （locales/zh.js 已 3300+ 行，逐文件门禁的处方是拆分，而拆出的子模块必须仍被本门禁看见，
+ * 否则 key 存在性检查会静默漏判——漏判的表现正是 vue-i18n 把键名原样打到界面上）。
+ *
+ * 不能用 require：locale 是 ESM 且含箭头函数 Message Formatters，只在真实 JS 求值下成立。
+ * 因此手工剥离相对 import、递归求值子模块，再以形参注入装配作用域。
+ * 解析不了的一律抛错（宁可红，不可当作「key 不存在/存在」瞎判）。
+ */
+function evalLocaleModule (localeFile, seen = new Set (), depth = 0) {
+  const abs = path.resolve(localeFile)
+  if (seen.has(abs)) throw new Error(`locale 模块循环引用：${toPosixRel(abs)}`)
+  if (depth > 4) throw new Error(`locale 模块嵌套过深（>4 层）：${toPosixRel(abs)}`)
+  const nextSeen = new Set (seen)
+  nextSeen.add(abs)
+  const names = []
+  const values = []
+  const src = fs.readFileSync(abs, 'utf8')
+  const importRe = /^[ \t]*import\s+([A-Za-z0-9_$]+)\s+from\s+['"](\.[^'"]*)['"];?[ \t]*\r?\n/gm
+  const body = src.replace(importRe, (_m, ident, spec) => {
+    names.push(ident)
+    values.push(evalLocaleModule(resolveLocaleSpec(path.dirname(abs), spec), nextSeen, depth + 1))
+    return ''
+  })
+  // 允许 export default 前有 JSDoc/行注释（子模块文件即如此），只剥掉这一处声明本身
+  // 残留 import 说明本解析器没覆盖该 import 形式（命名/命名空间/副作用/混合导入）。
+  // 绝不允许它带着 import 语句进 Function 求值或干脆被忽略——那会让子模块的键被静默判为「不存在/存在」，
+  // 而界面上的表现是 vue-i18n 把键名原样打出来，门禁却报 PASS。
+  const leftover = body.match(/^[ \t]*import\b[^\n]*/m)
+  if (leftover) throw new Error(`locale 文件含本门禁不支持的 import 形式（只会跟随默认相对导入）：${toPosixRel(abs)} →「${leftover[0].trim()}」`)
+  const exportRe = /^\s*export\s+default\s+/m
+  if (!exportRe.test(body)) throw new Error(`locale 文件缺少 export default 对象：${toPosixRel(abs)}`)
+  const literal = body.replace(exportRe, '')
+  // eslint-disable-next-line no-new-func —— locale 文案含 Message Formatter 函数，既有口径即按 JS 求值
+  return Function (...names, `return (${literal})`) (...values)
+}
+
+/** 从 locale 文件加载 key 集合（点分路径叶子，含 import 进来的子模块）。 */
 function loadLocaleKeys (localeFile) {
-  const src = fs.readFileSync(localeFile, 'utf8')
-  const tree = Function('return (' + src.replace(/^export default\s*/, '') + ')')()
+  const tree = evalLocaleModule(localeFile)
   const keys = new Set()
   ;(function walk (node, prefix) {
     for (const [k, v] of Object.entries(node)) {
@@ -420,13 +473,19 @@ function runKeysCheck () {
   console.log(`[locale-sync] key existence check PASS（${used.size} 个使用中的 key 均存在于 zh/en）`)
 }
 
-const opts = parseArgs()
-let ran = false
-if (opts.pairBase) { runPairCheck(opts.pairBase); ran = true }
-if (opts.cjk) { runCjkScan(opts); ran = true }
-if (opts.keys) { runKeysCheck(); ran = true }
-if (opts.pyCjk) { runPyCjkScan(opts); ran = true }
-if (!ran) {
-  console.error('用法：node .github/scripts/check-locale-sync.js --pair-base <ref> | --cjk [--update-baseline] | --keys | --py-cjk [--update-py-baseline]')
-  process.exit(2)
+if (require.main === module) {
+  const opts = parseArgs()
+  let ran = false
+  if (opts.pairBase) { runPairCheck(opts.pairBase); ran = true }
+  if (opts.cjk) { runCjkScan(opts); ran = true }
+  if (opts.keys) { runKeysCheck(); ran = true }
+  if (opts.pyCjk) { runPyCjkScan(opts); ran = true }
+  if (!ran) {
+    console.error('用法：node .github/scripts/check-locale-sync.js --pair-base <ref> | --cjk [--update-baseline] | --keys | --py-cjk [--update-py-baseline]')
+    process.exit(2)
+  }
 }
+
+// 导出求值器供单测直接喂临时夹具（locale 装配文件 + 子模块的解析口径必须能被独立验证，
+// 而 --keys 只读固定路径，无法构造「子模块丢失/键集漂移」这类反证场景）。
+module.exports = { evalLocaleModule, loadLocaleKeys, resolveLocaleSpec }

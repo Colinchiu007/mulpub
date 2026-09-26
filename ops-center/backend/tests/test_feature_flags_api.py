@@ -157,13 +157,50 @@ async def test_feature_flags_runtime_bootstrap():
 
 @pytest.mark.asyncio
 async def test_feature_flags_count_cap():
-    from services.feature_flag_service import MAX_FEATURE_FLAGS
+    from services.feature_flag_service import MAX_FEATURE_FLAGS, SEED_FLAGS
     async with _client() as client:
         h = _admin_headers()
-        # 种子占 1 个名额：MAX-1 个新建后达到上限
-        for i in range(MAX_FEATURE_FLAGS - 1):
+        # 种子占 len(SEED_FLAGS) 个名额：余量填满后达到上限
+        # （历史写法硬编码「种子占 1 个」，新增任何一枚种子都会让本用例假红——名额必须由种子清单推导）
+        for i in range(MAX_FEATURE_FLAGS - len(SEED_FLAGS)):
             r = await client.post("/api/v1/feature-flags", json={"key": f"cap.{i}", "value_type": "string", "value": "v"}, headers=h)
             assert r.status_code == 200, r.text
-        # 第 MAX+1 个 → 400（避免桌面端 100 项上限静默全丢）
+        # 再一个 → 400（避免桌面端 100 项上限静默全丢）
         r = await client.post("/api/v1/feature-flags", json={"key": "cap.overflow", "value_type": "string", "value": "v"}, headers=h)
         assert r.status_code == 400 and "上限" in r.text
+
+
+@pytest.mark.asyncio
+async def test_cloud_sync_flag_seeded_into_existing_deployment():
+    """存量部署必须增量补齐新种子（AGENTS.md「跨端目录常量 ↔ 存量数据必须前向兼容」）。
+
+    桌面端按 feature flag 决定【同步云端】按钮显隐；若管理页永远看不到该开关，
+    运营只能手敲 key 才能开灰度——「表为空才播种」的供给逻辑对存量部署完全无效。
+    本用例从**非空旧状态**出发：先按旧清单种子、删掉新 key、再跑一次供给。
+    """
+    from services.feature_flag_service import ensure_feature_flags_seeded, list_feature_flags
+    import sqlalchemy as sa
+    from database import async_session
+    from models import FeatureFlag
+
+    new_key = "account_cloud_sync"
+    old_key = "videoCreation.maxOutputResolution"
+
+    async with async_session() as db:
+        # 模拟存量库：只有旧种子，且运营已把旧种子改成非默认值
+        await db.execute(sa.delete(FeatureFlag).where(FeatureFlag.key == new_key))
+        existing = (await db.execute(sa.select(FeatureFlag).where(FeatureFlag.key == old_key))).scalar_one()
+        existing.value = "4k"
+        existing.enabled = 1
+        existing.updated_by = "operator"
+        await db.commit()
+
+        await ensure_feature_flags_seeded(db)
+
+        flags = {f["key"]: f for f in await list_feature_flags(db)}
+        assert new_key in flags, "存量部署必须补齐新种子，否则管理页永远看不到该开关"
+        assert flags[new_key]["enabled"] is False, "账号云同步开关必须默认关闭（ADR-0006）"
+        assert flags[new_key]["value_type"] == "boolean"
+        # 只补不改：覆盖运营配置比缺行更糟
+        assert flags[old_key]["value"] == "4k"
+        assert flags[old_key]["updated_by"] == "operator"

@@ -136,3 +136,104 @@ test('check-locale-sync --cjk：行号漂移不产生假阳性（回归：PR #17
     fs.writeFileSync(abs, orig)
   }
 })
+
+// ─── locale 装配文件（import 子模块）解析口径 ───────────────────────────
+// locales/zh.js 已 3300+ 行，逐文件行数门禁的处方是「拆分」。拆出的子模块必须仍被
+// --keys 看见：否则漏判的表现为 vue-i18n 把键名原样打到界面上，而门禁全绿。
+const localeGate = require('./check-locale-sync.js')
+
+function writeLocaleFixture (t, files) {
+  const fs = require('node:fs')
+  const os = require('node:os')
+  const path2 = require('node:path')
+  const dir = fs.mkdtempSync(path2.join(os.tmpdir(), `locale-gate-${t}-`))
+  for (const [rel, content] of Object.entries(files)) {
+    const abs = path2.join(dir, rel)
+    fs.mkdirSync(path2.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, content.replace(/\n/g, process.platform === 'win32' ? '\r\n' : '\n'))
+  }
+  return { dir, file: rel => path2.join(dir, rel) }
+}
+
+test('check-locale-sync：装配文件 import 的子模块键必须进入键集', () => {
+  const fx = writeLocaleFixture('assembly', {
+    'zh.js': [
+      "import feature from './feature/zh'",
+      '',
+      'export default {',
+      '  common: { ok: \"好的\" },',
+      '  accountsPage: {',
+      '    ...feature,',
+      '  },',
+      '}',
+      '',
+    ].join('\n'),
+    'feature/zh.js': [
+      '/** 子模块也允许带文件头注释 */',
+      'export default {',
+      "  cloudSync: '同步云端',",
+      '  cloudSyncErr: {',
+      "    kmsUnavailable: '加密服务未就绪',",
+      '  },',
+      '}',
+      '',
+    ].join('\n'),
+  })
+  const keys = localeGate.loadLocaleKeys(fx.file('zh.js'))
+  assert.equal(keys.has('common.ok'), true)
+  assert.equal(keys.has('accountsPage.cloudSync'), true, '子模块展开的键必须可见')
+  assert.equal(keys.has('accountsPage.cloudSyncErr.kmsUnavailable'), true, '子模块嵌套键必须可见')
+})
+
+test('check-locale-sync（反证）：子模块缺失必须抛错，不得静默当成「无该键」', () => {
+  const fx = writeLocaleFixture('missing-child', {
+    'zh.js': [
+      "import feature from './feature/zh'",
+      '',
+      'export default { accountsPage: { ...feature } }',
+      '',
+    ].join('\n'),
+  })
+  assert.throws(() => localeGate.loadLocaleKeys(fx.file('zh.js')), /无法解析 locale 依赖/)
+})
+
+test('check-locale-sync（反证）：无 export default 的文件不得被当成空键集放行', () => {
+  const fx = writeLocaleFixture('no-export', { 'zh.js': "export const x = { a: 'b' }\n" })
+  assert.throws(() => localeGate.loadLocaleKeys(fx.file('zh.js')), /缺少 export default/)
+})
+
+test('check-locale-sync（反证）：循环引用必须抛错而非无限递归', () => {
+  const fx = writeLocaleFixture('cycle', {
+    'zh.js': "import a from './a'\nexport default { ...a }\n",
+    'a.js': "import z from './zh'\nexport default { cycle: 'x' }\n",
+  })
+  assert.throws(() => localeGate.loadLocaleKeys(fx.file('zh.js')), /循环引用/)
+})
+
+test('check-locale-sync（反证）：不受支持的 import 形式必须抛错，不得静默漏判子模块键', () => {
+  // 命名导入 / 命名空间导入 / 副作用导入都不在「跟随默认相对导入」的解析范围内。
+  // 若放它们进求值或被忽略，表现是子模块的键被当成不存在（或反过来误判存在），而门禁报 PASS——
+  // 界面上就是 vue-i18n 把键名原样打出来。因此一律显式失败。
+  for (const form of [
+    "import { a } from './feature/zh'",
+    "import * as all from './feature/zh'",
+    "import './feature/zh'",
+  ]) {
+    const fx = writeLocaleFixture('import-form', {
+      'zh.js': form + '\nexport default { accountsPage: { keep: "x" } }\n',
+      'feature/zh.js': "export default { cloudSync: '同步云端' }\n",
+    })
+    assert.throws(() => localeGate.loadLocaleKeys(fx.file('zh.js')), /不支持的 import 形式/, form)
+  }
+})
+
+test('check-locale-sync：真实 locales 确为装配文件且子模块键经装配可见（防结构锁空转）', () => {
+  const fs = require('node:fs')
+  const zhAbs = path.join(__dirname, '..', '..', 'apps/desktop/src/locales/zh.js')
+  const src = fs.readFileSync(zhAbs, 'utf8')
+  assert.match(src, /^import\s+\w+\s+from\s+['"]\.\/[\w\-/]+['"]/m, 'locales/zh.js 必须真的含相对 import，否则本用例形同 no-op')
+  const keys = localeGate.loadLocaleKeys(zhAbs)
+  assert.equal(keys.has('accountsPage.cloudSync'), true)
+  assert.equal(keys.has('accountsPage.cloudSyncErr.kmsUnavailable'), true)
+  assert.ok(keys.size > 3000, `真实 zh 键集规模异常（${keys.size}）`)
+})
