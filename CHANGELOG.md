@@ -1,3 +1,36 @@
+# [未发布] test(desktop): 测试层禁止真实出站 + 自旋必须让出宏任务（缺陷 G 家族清扫，含 Gate 19 棘轮）（2026-09-26，test-unbounded-network-guards）
+
+### 为什么是"家族"而不是第四个孤例
+本会话连续四颗随机红同属一类病 —— **等待没有边界**：① `#2423` E2E 就绪判据恒真（懒加载 chunk 从未被 await）；② `#2416`/`#2438` 对拍挂钟容差；③ `#2442` PowerShell 锁握手的无界等待；④ 本次 `zhihu-favlist.test.js` 真实出站。前三颗各修一处后，探子全仓清点给出规模事实：**`nock`/`msw`/`setupServer` 命中 0** —— "测试不出网"从来没有传输层兜底，只靠逐文件手工注入，漏一处就是一颗雷。所以这一片不再逐颗打地鼠。
+
+### 根因（确证 1 例，含一个结构性发现）
+- `zhihu-favlist.test.js` 的 `list 成功 → code 0 + favlists` **从未测过成功路径**：它直接 await 真实 handler，而 handler 内部 `new ZhihuFavlistService({ log })` **不接受 axios 注入**（服务本身有 `opts.axios` 通道，是全链路上唯一漏掉的一环），于是走真出站；用例只断言 `toHaveProperty("code")`，错误路径也能通过 —— 名字叫"成功"、实际永远走失败。**一条永远不该绿的断言一直绿着。**
+- **预算倒挂**：服务侧 axios `timeout: 15000` > `testTimeout=10000`（CI 另显式传 `--testTimeout=10000`）⇒ 网络挂起时永远是框架先赢，报错只剩 `Test timed out in 10000ms`，既无主机也无出路。这是"为什么这类红总是无法归因"的结构解释。
+- `identity-auth-window.test.js:332/334` `while (...) await Promise.resolve()`：只让出**微任务**，vitest 基于 `setTimeout` 的超时机制打不断它，条件永不满足即 worker 死循环，只能靠 job 级 30 分钟预算硬杀（表现为"CI 无故卡死"）。
+
+### 变更
+- **`apps/desktop/test-setup.js` 出站守卫**（唯一兜底点）：拦 `net.Socket.prototype.connect` 的非 loopback 目标，emit `[TEST-NETWORK-BLOCKED] <host>:<port>` + 注入指引；放行 `127.0.0.1`/`::1`/`localhost`/`0.0.0.0` 与 unix/pipe（全仓 31 个测试文件依赖 `listen(0,'127.0.0.1')`）；拦在 connect 入口 ⇒ 连 DNS 都不发生。**读不出目标时一次性 `console.warn`** —— 静默放过等于守卫被 Node 一次升级悄悄摘掉。
+- **`zhihu-favlist.test.js`**：把那条假用例换成三条真断言 —— 成功路径（Items→favlists 字段映射 + 断言请求经过桩、URL 与 `Bearer` 头正确）、网络失败（`code -1` + 「网络连接失败」文案 + 不透出堆栈）、未配 Secret（`code -1` 且**一次都不出站**）。axios 经 `__registerMock("axios", 桩)` 拦下（复用仓库既有 `Module._load` 机制，**不改生产代码**）。
+- **`identity-auth-window.test.js`**：新增 `waitUntil(cond, describeState, timeoutMs=2000)`，让出宏任务 + 带预算 + 超时抛「等到第几个、实际几个」。
+- **新门禁 Gate 19** `.github/scripts/check-test-microtask-spin.js`（零容忍、无基线）：单行式与块式微任务自旋；含 7 条自证 —— 4 条"合法写法不得命中"反例 + 真实仓库 0 命中棘轮。workflow 侧按仓库惯例接（事故背景注释 + `本地同口径` 行 + 逐条 `$LASTEXITCODE`）。
+
+### 过程中被自己/被仓库抓出的四处错误（如实登记）
+1. **守卫第一版是无效的**：按 `options.host` 读目标，但 Node 24 的 http/undici 实际把 `[options, cb]` **作为单个数组参数**传入 ⇒ 判成 unknown 静默放过，用例仍挂 5s/10s。靠打印真实参数形状定位，改为递归展开数组；也正是这次教训催生"读不出目标必须出声"的规则。
+2. **新用例被 `.gitignore` 静默排除**：`.gitignore:59` 的 `test-*.js`（本意是清临时产物）未锚定目录，把我起名 `test-setup-network-guard.test.js` 的文件整份吞掉，`git status` 里看不见它 ⇒ CI 永远不会跑它。**是仓库自带的 `e2e-quality-infrastructure.test.js > 源代码测试文件不得被 .gitignore 静默排除` 拦下来的** —— 该门禁正是 #2416 同型事故后加的。修法用改名（→ `network-egress-guard.test.js`），不动 `.gitignore`。
+3. **门禁扫出了自己（提交后才暴露）**：门禁的扫描清单取自 `git ls-files`，新写的 `check-test-microtask-spin.test.js` 在未提交时不在清单内 —— 我先前那句「948 个测试文件 0 命中」是在自我盲区里测的。提交后门禁立刻命中自己夹具里的两行 `while (x) await Promise.resolve()`（单行式正例 + 「注释不得命中」反例字符串），已改为拼接字符串规避，并把「0 违规必须在文件入库后复测」写进 learnings。
+4. **CI 抓出了本地测不出的第四处（假绿）**：守卫在 GitHub 的 Node 22 上确实拦住了出站，但 `_http_client` 会把 socket 的早期错误**改写成 `socket hang up`**，我精心写的 `[TEST-NETWORK-BLOCKED] <host>` 文案到不了调用方 —— 于是"必须立刻拿到可诊断错误"这条断言在 CI 红、在本地（Node 24）绿。**"可诊断性依赖运行时版本"正是守卫自己制造的新问题**。修法：拦截时**同时记账**（`globalThis.__mpBlockedEgress`）+ 按 host 去重 `console.warn`，断言改为「秒失败 + 账本里有这一条」这类版本无关的不变量，只有原始 socket 路径（Node 不改写文案）仍直接断言标记文案。顺带修掉双次 emit 造成的 `Unhandled Errors` 噪声（有监听者时 emit + `destroy()`；无监听者时 `destroy(error)` 保持响亮）。
+
+### 测试与实测规模
+- TDD 全程留痕：守卫 6 条先 RED（3 条挂到 5s/10s/5s + 3 条 loopback/pipe 绿）→ 修数组展开后 6/6、87ms；zhihu 3 条先 RED（`expected -1 to be 0`、`'网络连接失败: Network Error'` 证明仍在真出网）→ 注册桩后 10/10 用 6ms；Gate 19 首跑精确命中 `identity-auth-window.test.js:332/334`（RED），修完全仓 948 文件 0 命中。
+- **爆炸面实测**：apps/desktop 全量 vitest **656 passed | 2 failed | 1 skipped（659 文件，11666 用例）**；两条失败定责 —— ①是我新文件被 gitignore 吞（已改名修掉）②`feedback.test.js` 的 `EPERM: symlink` 是本机非开发者模式的既有基线失败（见项目记忆），与守卫无关。**结论：出站守卫在 656 个文件上零误伤。**
+- eslint rc=0；`workflow-contract` / `autonomous-loop-workflow` / `check-route-registry` 结构契约 45/45 未受影响（只加 step）。
+- 文档：AGENTS.md QM-3 新增 1 条 MUST（禁止真实出站 / 自旋让出宏任务 / 预算倒挂检查 / 新测试文件名不得命中 gitignore）；`01-docs/learnings.md` 置顶复盘。
+
+### 残余限制（本片未覆盖，如实划界）
+- 守卫只装在 `apps/desktop`（其 vitest 主配置的 setupFiles）。`packages/*` 的 11 个 vitest 配置与 `api-publish-engine` 的 `node --test` + 自研 harness 尚未覆盖 —— 覆盖需改 12 处注入点，另开切片。
+- 清点的「疑似真出网 21 文件」与「其它无预算等待约 55 文件」未逐一处理；其中 `collection-engine` 的 `_http` 注入路径全仓 0 次使用、`agent-judge` 仅靠 `--llm=none` 命令行防出网，是两条最该先跟的线索。
+- 全仓 35 处 per-test 超时中 **34 处 > 全局 `testTimeout=10000`** ⇒ "全局预算是上界"这一前提在仓库里已不成立；若把它做成棘轮会一次报出 34 项，故本片未做，留作独立决策。
+- `zhihu-favlist.js` 仍缺 axios/favlistService 的依赖注入通道（服务已有 `opts.axios`，handler 没往下传）。补它属生产代码改动（触发 QM-1 打包验证），本片刻意用测试侧注册桩绕开，登记为后续项。
 # [未发布] feat(accounts): 账号显示名引入 name_source，改名从空操作变为真正生效（2026-09-26，add-account-name-source）
 
 ### 用户可见变化（两条，必须点名）

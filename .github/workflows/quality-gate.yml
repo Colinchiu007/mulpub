@@ -233,6 +233,22 @@ jobs:
           node .github/scripts/check-ops-session-hygiene.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # --- Gate 19: 测试层微任务自旋（缺陷 G / L 级：零容忍，无基线）---
+      # 接入日期：2026-09-26
+      # 事故背景：本会话连续四颗随机红同属一类病 —— 等待没有边界。其中
+      # `identity-auth-window.test.js` 写作 `while (...) await Promise.resolve()`：
+      # 微任务让出不走宏任务阶段，vitest 的 testTimeout 打不断它，条件永不满足时就是
+      # worker 死循环，只能靠 job 级 30 分钟预算硬杀（表现为"CI 无故卡死"，无堆栈无主机）。
+      # 同族另三例已各自修掉（#2423 路由 chunk 就绪判据、#2438 对拍挂钟容差、#2442 文件锁握手）。
+      # 本卡点把"自旋必须让出宏任务"固化成静态不变量（含门禁自身的夹具自证 + 真实仓库 0 命中棘轮）。
+      # 本地同口径：node .github/scripts/check-test-microtask-spin.js
+      - name: "Gate 19 - test microtask spin (bounded, interruptible waits)"
+        run: |
+          node --test .github/scripts/check-test-microtask-spin.test.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .github/scripts/check-test-microtask-spin.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
   unit-tests:
     name: QG Unit Tests
     runs-on: windows-latest
