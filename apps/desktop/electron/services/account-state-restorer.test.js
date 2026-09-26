@@ -2,72 +2,14 @@ import { afterEach, describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { spawn } from 'node:child_process'
+import lockHelper from '../../../../test-helpers/windows-file-lock.js'
+
+const { holdExclusiveWindowsFileLock } = lockHelper
 
 import * as restorer from './account-state-restorer.js'
 
 const previousUserDataDir = process.env.ELECTRON_USER_DATA_DIR
 let userDataDir
-
-function holdExclusiveWindowsFileLock (filePath, holdMs) {
-  const script = [
-    '& {',
-    'param($file, $holdMs)',
-    '$handle = [IO.File]::Open($file, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)',
-    'try {',
-    '[Console]::Out.WriteLine("LOCKED")',
-    '[Console]::Out.Flush()',
-    '[Threading.Thread]::Sleep([int]$holdMs)',
-    '} finally { $handle.Dispose() }',
-    '}',
-  ].join('\n')
-  const child = spawn('powershell.exe', [
-    '-NoProfile',
-    '-NonInteractive',
-    '-Command',
-    script,
-    filePath,
-    String(holdMs),
-  ], {
-    windowsHide: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
-
-  let stderr = ''
-  let locked = false
-  let resolveLocked
-  let rejectLocked
-  const lockedPromise = new Promise((resolve, reject) => {
-    resolveLocked = resolve
-    rejectLocked = reject
-  })
-  const exitPromise = new Promise((resolve, reject) => {
-    child.once('error', error => {
-      rejectLocked(error)
-      reject(error)
-    })
-    child.stderr.on('data', chunk => { stderr += chunk.toString() })
-    child.stdout.on('data', chunk => {
-      if (!locked && chunk.toString().includes('LOCKED')) {
-        locked = true
-        resolveLocked()
-      }
-    })
-    child.once('exit', code => {
-      if (!locked) rejectLocked(new Error(`PowerShell exited before locking the file: ${stderr}`))
-      if (code === 0) resolve()
-      else reject(new Error(`PowerShell file lock exited with code ${code}: ${stderr}`))
-    })
-  })
-
-  return lockedPromise.then(
-    () => ({ exitPromise }),
-    async error => {
-      try { await exitPromise } catch (_) { /* 原始锁定错误包含更完整的上下文 */ }
-      throw error
-    },
-  )
-}
 
 afterEach(() => {
   if (previousUserDataDir === undefined) delete process.env.ELECTRON_USER_DATA_DIR
@@ -181,11 +123,11 @@ describe('account-state-restorer', () => {
         accountInfo: { nickname: '知乎' },
       }) + '\n', 'utf8')
 
-      const { exitPromise } = await holdExclusiveWindowsFileLock(statePath, 250)
+      const fileLock = await holdExclusiveWindowsFileLock(statePath, 250)
       try {
         restorer.init()
       } finally {
-        await exitPromise
+        await fileLock.release()
       }
 
       const state = fs.readFileSync(statePath, 'utf8')

@@ -1,3 +1,17 @@
+## 抬超时数字治不了无界等待：子进程握手的 marker 匹配必须按累计缓冲，且诊断要抢在框架超时之前（credential-lock-handshake-flake，2026-09-26）
+
+- **一个用例的超时值被抬过两次，就是在宣告它的等待没有预算（pitfall，本条第一性）**：`credential-store.test.js` 的 Windows 文件锁用例 `Error: Test timed out in 60000ms`，而这颗雷已被「抬数字」修过两次 —— `71e76a5e` 10s→30s、`1e22e68f` 30s→60s，两次提交信息都写着「消除 CI 负载下偶发超时」，代码注释里还留着"显式超时 30s"没跟上。**识别信号**：`git log -L <行区间>:<文件>` 看到同一个 timeout 常量被单调抬高；注释数字与代码数字不一致（说明那次改动只是改数值，没重读逻辑）。**口径**：超时抬高一次都算一次带证据的决策，必须先回答"它在等谁、那段等待有没有边界"；无界等待抬到多大都只是"多久之后才失败"。
+
+- **stream 的 data 事件不是消息边界，marker 匹配必须按累计缓冲（pitfall，可迁移到任何子进程/IPC 握手）**：`child.stdout.on('data', chunk => chunk.toString().includes('LOCKED'))` 只在**单个事件**里找标记。PowerShell 一次 `WriteLine("LOCKED")` 可能被拆成 `'LOC'` + `'KED'` 两个 data 事件 —— 于是**累计缓冲里明明有 `LOCKED`，判定永远是 false**，握手 promise 永不 settle。已实测反证：旧逻辑喂 `'LOC','KED\r\n'` 得到 `true / false`（文本在、状态没成）。**修法**：握手状态做成累计匹配器（`createLockHandshake().feed(chunk)`），并且**大小写敏感**，避免 `loc`/`Locked` 之类噪声误判成已锁定。同族先例：按行缓冲读 stdout、用 `includes` 判 stdout 进度标记。
+
+- **诊断必须抢在框架超时之前到达，否则红里只剩一句 "Test timed out"（pattern）**：给每段等待加**显式预算**（本例握手 20s、释放 30s），且预算之和要**明显小于用例自身的超时上限**（60s），错误消息里带上阶段名 + 预算 + 累计 stdout + 子进程 stderr。这样下一次红直接可归因，而不是留人再去猜"是 PowerShell 没起来、还是锁没释放"。预算同时用 env 可覆盖，便于排障时放大。相关既有规则：AGENTS.md「诊断属旁路，不得把 await 挂在首个导航之前」——同一条预算与守卫纪律。
+
+- **同一份夹具被抄成三份 = 同类缺陷乘三 + 已经开始分化（architecture，与「登录态三态映射抄三份」同族）**：`holdExclusiveWindowsFileLock` 原样存在于 `credential-store.test.js`、`account-state-restorer.test.js`、`api-key-manager-atomic-write.test.js`，三份共享同一个无界握手；其中一份已经额外打了个 `.then(_, async e => { await exitPromise... })` 的补丁来规避 unhandledRejection —— 这就是抄本分化的实证。**收口**：唯一实现落在 `test-helpers/`（CJS，同时满足 vitest 的 ESM 消费者与 `node --test` 的 require 消费者），三处 import，净删 166 行。**判据**：修任何"看起来只有一处"的缺陷前先 `grep -rn '^function <同名>'`，出现两份以上就必须先合并再修，否则修好的那份会成为唯一正确的抄本，其余继续红。
+
+- **测试夹具里放注入 seam 是正当的，因为被测对象本身就是进程边界（preference，写下来免得被当过度设计摘掉）**：helper 接受 `options.spawnImpl`，单测因此能覆盖"子进程从不输出标记""锁定前退出""锁不释放"三条预算路径，而不必真起 PowerShell 或真造一次 chunk 拆分（后者几乎无法稳定复现 —— 那正是它偶尔红的原因）。**判据**：seam 只开在测试夹具/工具模块上，不得为测试在生产入口加注入点。
+
+- **红在非相关 PR 上时，三步定责齐全才允许说"既有 flake"（pattern，本会话第三次实测）**：① 取该 PR 的 rebase 基线 sha；② 查 main 在同一 sha 上同一 job 的结论（本次 `fd447f86` = success）；③ 核对该 PR 的 diff 是否触碰被测文件（本次只改视觉基线 PNG 与文档）。三步缺一不可 —— 否则要么认领了别人的雷，要么放过了自己的。
+
 ## 「max(下限, 比例)」仍是单点假设：对拍类容差要先测漂移形状，再决定它是常量项、比例项还是两者之和（parity-tolerance-additive，2026-09-26）
 
 > 本条**取代**同日更早那条《一个绝对容差不能服务跨量级用例：对拍类测试的容差必须由「预测值」按比例驱动》的**修法结论**（该条的根因分析仍成立）。它把纯绝对容差换成 `max(绝对下限, 10%×期望)`，当天又被 CI 打回一次。
