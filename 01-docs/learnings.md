@@ -1,3 +1,26 @@
+## 「登录页 = 登录成功」第五次收口：把逐平台手工 tightening 换成形态否决层 + 棘轮清单（platform-login-evidence-hardening，2026-09-26）
+
+- **同一个 Bug 手工修第四次就已经是系统性缺陷了（系统性漏洞：测试场景缺失）**：百家号（08-12）、头条（09-13）、视频号（09-14）、快手（09-25）四次都是「出事故 → 给该平台把裸域名换成带路径的模式 + 补一条负例」。本轮不再逐家补洞，而是在 `isPlatformLoginSuccessUrl` 前面加一层按路径指纹的否决（`LOGIN_PAGE_PATH_MARKERS`），一次性覆盖全部 15 个平台。**判据**：同一形态的缺陷第 3 次出现时就该停止「个案修复」，改写成一条泛化规则 + 一份从数据自动算出的欠账清单，否则修复速度永远追不上平台数量。
+
+- **泛化规则扫出的成员比人工点名的多（棘轮锁的第一笔收益）**：原任务只点名小红书/抖音/Instagram/Facebook 四家。按「成功模式是否为 host-only 形态」自动计算后是 **7 家**：多出的 `youtube`（`studio.youtube.com`）、`bilibili`（`www.bilibili.com/`）、以及最意外的 **`zhihu`**——它的 `zhuanlan.zhihu.com` 是匿名可读的裸域名模式，任何专栏文章 URL 都算「登录成功」，此前没有任何人怀疑过。**教训**：给「已知 N 处」的缺陷写修复时，先把判据写成能从数据里算出全量的形式（而不是拿着清单逐个改），清单本身是产出物。
+
+- **curl 重定向链只能单向取证（环境差异，别把「没跳转」读成「安全」**）：实测 `creator.xiaohongshu.com/`、`creator.douyin.com/` 未登录都返回 **200 且无 HTTP 跳转**（登录墙由前端路由到 `/login`），`studio.youtube.com/` 则 302 到 `accounts.google.com/v3/signin/identifier`。所以「有 302 到登录页」是可靠证据（否决层即可收口），「无跳转」既可能是匿名可达也可能是 JS 路由，**必须回落到会话标记**，而标记键要 DevTools 真实登录态才能取——这 7 家因此登记为欠账，不猜。**判据**：先问这个测量手段能证明什么方向，再决定它能否作为「无需修复」的证据。
+
+- **否决层只准扫路径、扫 query 会把成功页反判成登录页（边界值）**：OAuth 回跳普遍把登录地址塞进 `continue`/`next` 参数（实测 Google 的 `?continue=https%3A%2F%2Fstudio.youtube.com%2F&flowEntry=ServiceLogin`），拿 query 判会让「刚登录成功的回跳 URL」永久命中否决。同理词表刻意排除 `auth`/`oauth`，因为 youtube 已声明 `accounts.google.com/o/oauth2/approval` 为成功回跳点。**词表纪律**：`LOGIN_PAGE_PATH_MARKERS` 每一项都注了实测证据出处，`signup`/`sso`/`verify` 因无实测证据被明确排除（避免用推测扩大误杀面），并配了一条负控用例（`creator-micro/home`、`/new/home`、`?next=%2Faccounts%2Flogin%2F` 必须仍算成功）。
+
+- **`hasPlatformSessionCookie` 返回 true 有两种含义，混用即假成功（测试质量不足）**：未声明标记的平台它恒返回 true（当时为了零爆炸半径的 fail-open）。方式2 改写时若直接「轮询到有 Cookie 就算登录完成」，对 14 个未声明标记的平台等于**瞬间假成功**，比原 Bug 更糟。因此新增 `hasPlatformSessionCookieMarkers` 作为前置判据，并专门留一条用例（`未声明标记的平台不会因「有 Cookie」被方式2 提前判定完成`）+ 一条反证（把它改成恒真立刻变红）。**判据**：任何「宽松兜底型」判定函数被新调用方当作正向证据复用之前，必须先补一个「这个门禁到底在不在把关」的独立谓词。
+
+- **「离开登录页」不是「已登录」，而同域平台只能靠凭证（captureCookies 方式2 语义收口）**：旧判据 `window.location.host !== 登录页 host` 对快手而言「点登录按钮跳到 passport」就为真，对登录前后同域的平台（快手 `/profile`）又永远不为真——即它**只会误判、不会真判**。新判据两条并联：① `isPlatformLeftLoginPage`（离开登录 host + 落在可信域 + 非登录页）；② 该平台**已声明**的会话标记出现。②同时修好了可用性：同域平台不再必须命中 DOM 选择器，避免收口后从「假成功」变成「永远超时」。另把未声明标记平台的 Cookie **名字**（绝不记值）并入既有日志行，作为下次逐平台取证的现场来源。
+
+- **mock 忠实度会让测试「假红/假绿」，而断言取错平台会让期望值本身是错的（两条同日踩坑）**：① `waitForSelector` 若对所有超时一律 reject，`Promise.race` 会被方式1 抢先判负，方式2 的轮询根本没机会跑——测试报「登录超时」看似合理，实际测的是 mock；真实语义是「等待用户登录」那一次必须悬着，只按调用方传入的 timeout 精确识别。② 我最初用 `creator.douyin.com/?from=login` 断言「query 不参与否决」，但 douyin 的配置登录页就是根路径，该 URL 早被「等于配置登录页」守卫拦下——期望值写成 true 是错的，实际生效的是另一条守卫。**判据**：写负控用例前先确认这条断言唯一能触发的是哪一层守卫。
+
+- **行数门禁（1259/1261 只剩 2 行）会直接塑造实现形状（约束记录）**：`account-manager.js` 登记值 1061 + 容差 200，当前 main 已 1250 行，本轮所有改动只能净增 9 行，因此轮询判据并进既有 `Promise.race` 分支、取证日志并进既有 `log.info` 行，而不是新开函数或新加日志。**注意**：这类「余量耗尽」是欠账信号，应在 PR 里如实登记为拆分该文件的理由，而不是靠压注释续命（上次 LEDGER_GREW 的根因是分支落后，不是写多了）。
+
+- **外部评审的「事实陈述」与「提议动作」要分开处置，全盘照做会引入更严重的回归（QM-6 实证）**：后端模型 Warning #1 指出 `hasPlatformSessionCookieMarkers` 只用在 1 个入库入口，另 3 个入口仍直接调 `hasPlatformSessionCookie`，并建议三处同步加前置门禁。**事实正确**（覆盖确实不对称），但照做会让 **14 个未取证平台立刻无法登录**——`hasPlatformSessionCookie` 在这三处的语义是「本轮证据未被反证」（fail-open 是当时刻意的零爆炸半径选择），不是「已证实登录」。处置：采纳内核（真问题是**取证**只长在 Playwright 侧 → 给 auth-view 侧补同一条待取证日志，并断言 Cookie 值绝不进日志），拒绝做法，并把评审自己给出的另一条路（补齐标记后缺口自动关闭）登记为收口条件。**判据**：收到评审意见先拆「它陈述的事实」与「它提议的动作」，前者用 grep 核实、后者用「谁会因此用不了什么」推演，再定采纳范围。同理，它的 Warning #2（`verify` 指纹误杀登录后验证页）在我已删词之后才返回——**评审快照会过期，落笔前必须对照当前文件而不是评审稿**。
+
+---
+
+
 ## 「登录页 = 登录成功」第四次复发：平台元数据静默失效与凭证假保存（kuaishou-login-false-success，2026-09-26）
 
 - **一次「顺手改对」的 URL 会静默废掉另一处守卫（pitfall，第一性引入点）**：`isPlatformLoginSuccessUrl` 的防误判靠两条并列前提——「URL 等于 `PLATFORM_LOGIN_URLS[platform]` 的 origin+path 一律不算成功」＋「成功模式只匹配登录后才会出现的域/路径」。`c3c39557`（账号管理页 10 项质量修复，第 4 条本意只改「创作者中心 URL」）把 `PLATFORM_LOGIN_URLS.kuaishou` 从 `passport.kuaishou.com/pc/account/login` 改回 `cp.kuaishou.com/`，第一条守卫当场失效（登录页不再等于登录 URL），而 `aedfc701` 为扫码登录加进 `AUTH_HOSTS`/成功模式的裸域名 `passport.kuaishou.com` 仍在，于是**登录页自己被判定为登录成功**。**判定手法**：改任何 `PLATFORM_LOGIN_URLS` 条目时，必须同时问「哪条守卫的前提变了」，不能只看这一行是不是更合理。

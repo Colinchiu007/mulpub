@@ -2,8 +2,12 @@ import { describe, expect, it } from 'vitest'
 
 import {
   PLATFORM_LOGIN_URLS,
+  PLATFORM_LOGIN_SUCCESS_PATTERNS,
+  PLATFORM_SESSION_COOKIE_MARKERS,
   hasPlatformSessionCookie,
+  hasPlatformSessionCookieMarkers,
   isPlatformCookieDomain,
+  isPlatformLeftLoginPage,
   isPlatformLoginSuccessUrl,
 } from '../platform-definitions.js'
 
@@ -136,5 +140,143 @@ describe('platform authentication URL boundaries', () => {
     // 未声明标记的平台沿用既有行为，本次改动不扩大爆炸半径
     expect(hasPlatformSessionCookie('douyin', [])).toBe(true)
     expect(hasPlatformSessionCookie('wechat_mp', [{ name: 'anything', value: 'v' }])).toBe(true)
+  })
+})
+
+// 登录页指纹否决层：成功模式为裸域名（host-only）的平台，URL 判定本质上把「该平台的
+// 任意页面」都当成登录成功，登录页自身也不例外。百家号/头条/视频号/快手此前是逐个手工
+// 收紧的，本 describe 锁的是泛化形态规则（路径含 login/passport/sso 等登录页指纹即否决）。
+describe('login-page fingerprint deny (裸域名成功平台的登录页不算成功)', () => {
+  // 逐平台负例：AGENTS.md「平台登录成功判定合同」要求改任一平台判定必须留一条负例。
+  // 地址来源见每条注释，未实测的只用作形态负例（断言的是「含登录页指纹即否决」这条规则）。
+  it('xiaohongshu: 登录页不算成功（2026-09-26 用户实测 creator.xiaohongshu.com/login）', () => {
+    expect(isPlatformLoginSuccessUrl('xiaohongshu', 'https://creator.xiaohongshu.com/login')).toBe(false)
+    expect(isPlatformLoginSuccessUrl('xiaohongshu', 'https://creator.xiaohongshu.com/login/?from=creator')).toBe(false)
+    // 登录成功后的创作页不受影响
+    expect(isPlatformLoginSuccessUrl('xiaohongshu', 'https://creator.xiaohongshu.com/new/home')).toBe(true)
+  })
+
+  it('douyin: 登录页与 passport 跳板不算成功（形态负例，2026-09-26 curl 确认可达）', () => {
+    expect(isPlatformLoginSuccessUrl('douyin', 'https://www.douyin.com/login/')).toBe(false)
+    expect(isPlatformLoginSuccessUrl('douyin', 'https://creator.douyin.com/passport/page_login/')).toBe(false)
+    expect(isPlatformLoginSuccessUrl('douyin', 'https://creator.douyin.com/creator-micro/home')).toBe(true)
+  })
+
+  it('instagram: 登录页及其任意变体不算成功（裸模式 instagram.com/ 曾命中所有路径）', () => {
+    expect(isPlatformLoginSuccessUrl('instagram', 'https://www.instagram.com/accounts/login/')).toBe(false)
+    expect(isPlatformLoginSuccessUrl('instagram', 'https://www.instagram.com/accounts/login/?next=%2F')).toBe(false)
+    expect(isPlatformLoginSuccessUrl('instagram', 'https://www.instagram.com/')).toBe(true)
+  })
+
+  it('facebook: 登录页及其设备分支跳转不算成功（裸模式 facebook.com/ 曾命中所有路径）', () => {
+    expect(isPlatformLoginSuccessUrl('facebook', 'https://www.facebook.com/login/')).toBe(false)
+    expect(isPlatformLoginSuccessUrl('facebook', 'https://www.facebook.com/login/device-based/regular/login/')).toBe(false)
+    expect(isPlatformLoginSuccessUrl('facebook', 'https://www.facebook.com/')).toBe(true)
+  })
+
+  it('youtube: Google 登录页不再被当成登录成功（2026-09-26 实测未登录 302 到 v3/signin/identifier）', () => {
+    expect(isPlatformLoginSuccessUrl('youtube',
+      'https://accounts.google.com/v3/signin/identifier?continue=https%3A%2F%2Fstudio.youtube.com%2F&flowEntry=ServiceLogin')).toBe(false)
+    // 已声明为成功模式的 OAuth 授权页不得被否决层误杀（登录成功回跳点）
+    expect(isPlatformLoginSuccessUrl('youtube', 'https://accounts.google.com/o/oauth2/approval?state=done')).toBe(true)
+  })
+
+  it('否决层不吞掉非登录路径，也不放宽域名边界', () => {
+    expect(isPlatformLoginSuccessUrl('bilibili', 'https://www.bilibili.com/')).toBe(true)
+    expect(isPlatformLoginSuccessUrl('xiaohongshu', 'https://creator.xiaohongshu.com.evil.example/login')).toBe(false)
+    expect(isPlatformLoginSuccessUrl('xiaohongshu', 'https://evil.example/?next=creator.xiaohongshu.com/login')).toBe(false)
+    // 否决只看路径，query 里出现 login 不足以判成登录页（OAuth 回跳常把登录地址放在参数里）
+    expect(isPlatformLoginSuccessUrl('instagram', 'https://www.instagram.com/?next=%2Faccounts%2Flogin%2F')).toBe(true)
+    // 反之 query 不能把非可信域洗成成功
+    expect(isPlatformLoginSuccessUrl('instagram', 'https://evil.example/?next=www.instagram.com%2F')).toBe(false)
+  })
+
+  it('全部平台的配置登录页一律不算登录成功（含否决层生效对照）', () => {
+    for (const [platform, loginUrl] of Object.entries(PLATFORM_LOGIN_URLS)) {
+      expect(isPlatformLoginSuccessUrl(platform, loginUrl), platform).toBe(false)
+    }
+  })
+})
+
+// 采集侧（Playwright captureCookies「方式 2」）判据：离开登录页 ≠ 已登录，
+// 必须落在平台可信域且不是登录/passport 页，才允许结束等待。
+describe('isPlatformLeftLoginPage (captureCookies 方式2 判据)', () => {
+  it('rejects navigating onto a pure login host (2026-09-26 快手事故形态)', () => {
+    // 快手：cp.kuaishou.com/ → passport.kuaishou.com/pc/account/login 是「正在登录」，
+    // 旧判据只看 host 变化，点一下登录按钮即满足并采到全是埋点 Cookie。
+    expect(isPlatformLeftLoginPage('kuaishou',
+      'https://passport.kuaishou.com/pc/account/login/?sid=kuaishou.web.cp.api&callback=https%3A%2F%2Fcp.kuaishou.com%2Frest%2Finfra%2Fsts')).toBe(false)
+    // 同域内导航（含登录成功后的 /profile）不算「离开」，交给选择器与会话标记判定
+    expect(isPlatformLeftLoginPage('kuaishou', 'https://cp.kuaishou.com/profile')).toBe(false)
+  })
+
+  it('rejects login pages on trusted hosts', () => {
+    expect(isPlatformLeftLoginPage('youtube',
+      'https://accounts.google.com/v3/signin/identifier?continue=https%3A%2F%2Fstudio.youtube.com%2F')).toBe(false)
+    expect(isPlatformLeftLoginPage('bilibili', 'https://passport.bilibili.com/login')).toBe(false)
+    expect(isPlatformLeftLoginPage('twitter', 'https://twitter.com/i/flow/login')).toBe(false)
+  })
+
+  it('accepts a real navigation to another trusted platform host', () => {
+    expect(isPlatformLeftLoginPage('bilibili', 'https://www.bilibili.com/')).toBe(true)
+    expect(isPlatformLeftLoginPage('twitter', 'https://x.com/home')).toBe(true)
+    expect(isPlatformLeftLoginPage('weibo', 'https://www.weibo.com/hot')).toBe(true)
+  })
+
+  it('rejects untrusted hosts and garbage input', () => {
+    expect(isPlatformLeftLoginPage('kuaishou', 'https://evil.example/done')).toBe(false)
+    expect(isPlatformLeftLoginPage('kuaishou', 'not a url')).toBe(false)
+    expect(isPlatformLeftLoginPage('kuaishou', '')).toBe(false)
+    expect(isPlatformLeftLoginPage('kuaishou', undefined)).toBe(false)
+    expect(isPlatformLeftLoginPage('unknown_platform', 'https://x.com/home')).toBe(false)
+    expect(isPlatformLeftLoginPage('kuaishou', 'javascript:alert(1)')).toBe(false)
+  })
+})
+
+// 棘轮锁：把「URL 单独判成登录成功、但没有任何会话凭证把守」的平台钉成显式清单。
+// 新增平台若用裸域名成功模式又不声明会话标记 → 立刻变红；补上标记 → 必须同步从清单删除。
+describe('session-evidence gap ratchet (裸域名成功模式必须配会话标记)', () => {
+  const hostOnlyPattern = pattern => /^[a-z0-9.-]+$/i.test(String(pattern).replace(/\/+$/, ''))
+
+  const bareHostPlatforms = Object.keys(PLATFORM_LOGIN_SUCCESS_PATTERNS)
+    .filter(p => (PLATFORM_LOGIN_SUCCESS_PATTERNS[p] || []).some(hostOnlyPattern))
+    .sort()
+
+  it('每个裸域名成功模式平台要么声明会话标记、要么留在待取证清单内', () => {
+    const markerless = bareHostPlatforms
+      .filter(p => !Array.isArray(PLATFORM_SESSION_COOKIE_MARKERS[p]) || PLATFORM_SESSION_COOKIE_MARKERS[p].length === 0)
+      .sort()
+    // 2026-09-26 实测：这些平台的未登录落地页与登录成功页在 URL 上无法区分
+    // （小红书/抖音 creator 根路径 200 无 HTTP 跳转；Instagram/Facebook 裸模式命中任意路径；
+    //  YouTube/Bilibili 根路径匿名可达；知乎的 zhuanlan.zhihu.com 是匿名可读裸域名，
+    //  由本锁自身首次扫出）。补标记需逐平台 DevTools/CDP 真实登录态取证，禁止猜测。
+    expect(markerless).toEqual(['bilibili', 'douyin', 'facebook', 'instagram', 'xiaohongshu', 'youtube', 'zhihu'])
+    // 快手是「裸域名 + 已声明标记」的合规先例，不得出现在缺口清单里
+    expect(markerless).not.toContain('kuaishou')
+  })
+
+  it('裸域名判据本身按形态工作，不靠枚举平台名', () => {
+    // host-only（判定为「裸域名」）：真正的裸 host，含尾斜杠变体
+    expect(['instagram.com/', 'facebook.com/', 'cp.kuaishou.com', 'www.bilibili.com/', 'douyin.com', 'creator.xiaohongshu.com']
+      .filter(hostOnlyPattern).sort())
+      .toEqual(['cp.kuaishou.com', 'creator.xiaohongshu.com', 'douyin.com', 'facebook.com/', 'instagram.com/', 'www.bilibili.com/'])
+    // 带路径/非 host 形态（判定为「不裸」）：这些模式即使无标记也不进缺口清单
+    expect(['profile_v4', 'cgi-bin/home', 'weibo.com/home', 'accounts.google.com/o/oauth2/approval', 'zhihu.com/people', 'tiktok.com/upload', 'channels.weixin.qq.com/platform']
+      .filter(hostOnlyPattern))
+      .toEqual([])
+  })
+
+  it('hasPlatformSessionCookieMarkers 如实反映门禁是否真在把关', () => {
+    expect(hasPlatformSessionCookieMarkers('kuaishou')).toBe(true)
+    expect(hasPlatformSessionCookieMarkers('douyin')).toBe(false)
+    expect(hasPlatformSessionCookieMarkers('unknown_platform')).toBe(false)
+    // 声明成空数组等于没声明：不得被误判为「已有会话凭证门禁」
+    PLATFORM_SESSION_COOKIE_MARKERS.__probe_empty__ = []
+    try {
+      expect(hasPlatformSessionCookieMarkers('__probe_empty__')).toBe(false)
+      expect(hasPlatformSessionCookie('__probe_empty__', [])).toBe(true)
+    } finally {
+      delete PLATFORM_SESSION_COOKIE_MARKERS.__probe_empty__
+    }
   })
 })

@@ -178,6 +178,18 @@ const PLATFORM_SESSION_COOKIE_MARKERS = {
 }
 
 /**
+ * 该平台是否已声明会话凭证标记（即 hasPlatformSessionCookie 是否真的在把关）。
+ * 未声明标记时 hasPlatformSessionCookie 一律返回 true（沿用既有宽松行为），调用方若把
+ * 它当作「已登录」的证据就会拿到假成功，必须先用本判据区分。
+ * @param {string} platform
+ * @returns {boolean}
+ */
+function hasPlatformSessionCookieMarkers (platform) {
+  const markers = PLATFORM_SESSION_COOKIE_MARKERS[platform]
+  return Array.isArray(markers) && markers.length > 0
+}
+
+/**
  * 判定已采集的 Cookie 是否构成该平台的真实登录态。
  * @param {string} platform
  * @param {Array<{name?: string, value?: string}>} cookies
@@ -205,6 +217,29 @@ function isPlatformAuthHost (platform, hostname) {
 }
 
 /**
+ * 登录页路径指纹：路径里出现这些串，当前页面本身就是登录/注册流程的一部分，
+ * 无论该平台成功模式多宽都不算登录成功。裸域名成功模式（douyin/xiaohongshu/
+ * instagram/facebook/youtube/bilibili/zhihu）必然命中登录页自己，此层是它们
+ * 在补上会话标记取证之前的唯一泛化防线。
+ * 只扫路径、不扫 query/hash：OAuth 回跳地址常把 /login 放在 continue 参数里，
+ * 拿 query 判会把登录成功页反判成登录页。
+ * 刻意不含 auth/authorize/oauth：youtube 已声明 accounts.google.com/o/oauth2/approval
+ * 为登录成功回跳点，纳入即误杀（见 platform-definitions.test.js 对应用例）。
+ * 每一项都必须对应一个真实测过的落地页，不得靠猜测加词（signup/sso/verify 因无实测证据未列入）：
+ *   login    小红书 creator.xiaohongshu.com/login（用户实测）、facebook /login/device-based/...
+ *   signin   知乎 www.zhihu.com/signin（本文件配置）、Google accounts.google.com/v3/signin/identifier（实测）
+ *   register 百家号 /pcui/register/index（2026-08-12 实测，见上方成功模式注释）
+ *   passport 快手 passport.kuaishou.com/pc/account/login（2026-09-25 实测）、B站 passport.bilibili.com/login
+ */
+const LOGIN_PAGE_PATH_MARKERS = ['login', 'signin', 'register', 'passport']
+
+/** @param {string} pathname @returns {boolean} */
+function isPlatformLoginPagePath (pathname) {
+  const path = String(pathname || '').toLowerCase()
+  return LOGIN_PAGE_PATH_MARKERS.some(marker => path.includes(marker))
+}
+
+/**
  * @param {string} platform
  * @param {string} rawUrl
  * @returns {boolean}
@@ -214,6 +249,7 @@ function isPlatformLoginSuccessUrl (platform, rawUrl) {
   try { parsed = new URL(String(rawUrl)) } catch (_) { return false }
   if (!['http:', 'https:'].includes(parsed.protocol)) return false
   if (!isPlatformAuthHost(platform, parsed.hostname)) return false
+  if (isPlatformLoginPagePath(parsed.pathname)) return false
   try {
     const loginUrl = new URL(PLATFORM_LOGIN_URLS[platform])
     const normalizePath = pathname => pathname.replace(/\/+$/, '') || '/'
@@ -225,6 +261,31 @@ function isPlatformLoginSuccessUrl (platform, rawUrl) {
   const haystack = `${parsed.hostname}${parsed.pathname}${parsed.search}`.toLowerCase()
   return (PLATFORM_LOGIN_SUCCESS_PATTERNS[platform] || [])
     .some(pattern => haystack.includes(String(pattern).toLowerCase()))
+}
+
+/**
+ * 采集侧「已离开登录页」判据：供 Playwright 等待用户登录时替代裸 host 比较。
+ * 必须同时满足①host 相对登录页发生变化②落在平台可信域③不是登录/passport 页。
+ * 注意本函数只证明「导航离开了登录流程」，不证明「已登录」——后者一律由
+ * hasPlatformSessionCookie 与登录成功选择器把守，不得用它替代。
+ * @param {string} platform
+ * @param {string} rawUrl
+ * @returns {boolean}
+ */
+function isPlatformLeftLoginPage (platform, rawUrl) {
+  const loginUrl = PLATFORM_LOGIN_URLS[platform]
+  if (!loginUrl) return false
+  let parsed
+  let loginHost
+  try {
+    parsed = new URL(String(rawUrl))
+    loginHost = normalizeHost(new URL(loginUrl).hostname)
+  } catch (_) { return false }
+  if (!['http:', 'https:'].includes(parsed.protocol)) return false
+  const host = normalizeHost(parsed.hostname)
+  if (!host || !loginHost || host === loginHost) return false
+  if (!isPlatformAuthHost(platform, host)) return false
+  return !isPlatformLoginPagePath(parsed.pathname)
 }
 
 /**
@@ -313,7 +374,9 @@ module.exports = {
   isPlatformAuthHost,
   hasPlatformLsSessionMarker,
   hasPlatformSessionCookie,
+  hasPlatformSessionCookieMarkers,
   isPlatformLoginSuccessUrl,
+  isPlatformLeftLoginPage,
   isPlatformCookieDomain,
   PLATFORM_LOGIN_SUCCESS_SELECTORS,
   PLATFORM_ACCOUNT_INFO_SELECTORS,

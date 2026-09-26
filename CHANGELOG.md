@@ -1,3 +1,40 @@
+# [未发布] fix(login): 裸域名成功模式加形态否决层，采集侧「方式 2」改判据（2026-09-26，platform-login-evidence-hardening）
+
+### 变更
+- **`packages/shared-utils/src/platform-definitions.js`**：新增 `LOGIN_PAGE_PATH_MARKERS` 路径指纹否决层（`login`/`signin`/`register`/`passport`，逐项注实测证据出处），`isPlatformLoginSuccessUrl` 在可信域校验之后、模式匹配之前先否决登录页。**只扫 pathname 不扫 query/hash**（OAuth 回跳的 `continue=.../login` 会把成功页反判成登录页），且刻意排除 `auth`/`oauth`（youtube 已声明 `accounts.google.com/o/oauth2/approval` 为成功回跳点）。收口此前需逐平台手工收紧的同族缺陷：`isPlatformLoginSuccessUrl('xiaohongshu','https://creator.xiaohongshu.com/login')` 由 `true` 转 `false`，抖音/Instagram/Facebook 登录页同批生效。
+- **新增 `isPlatformLeftLoginPage(platform, url)`**：采集侧「已离开登录流程」判据（离开登录 host ＋ 落在 `PLATFORM_AUTH_HOSTS` ＋ 非登录页路径），显式声明它**不证明已登录**，会话证据仍由 `hasPlatformSessionCookie` 把守。
+- **新增 `hasPlatformSessionCookieMarkers(platform)`**：把「门禁真在把关」与「fail-open 恒真」区分开——`hasPlatformSessionCookie` 对未声明标记的平台返回 true，任何想拿它当正向证据的调用方必须先过这个前置判据。
+- **`apps/desktop/electron/publishers/account-manager.js` `captureCookies()`「方式 2」**：从页面内 `window.location.host !== loginHost` 改为驱动侧轮询（默认 2s，可用 `MP_ACCOUNT_LOGIN_POLL_MS` 覆盖，硬超时预算不变）满足任一即结束等待：① `isPlatformLeftLoginPage`；② 该平台**已声明**的会话标记出现。旧判据对快手是「点登录跳 passport 即为真」的纯误判源，而对登录前后同域的平台（`/profile`）永远不为真——即只会误判不会真判；新增的第 ② 条同时把这类平台从「必须命中 DOM 选择器」解放出来，避免收口后由「假成功」变成「永远超时」。未声明标记的平台沿用既有行为，且不会因「有 Cookie」被提前判定完成。
+- **取证可观测性（QM-6 Warning 1 的部分采纳）**：两处登录完成入口各加一条「待取证」日志——`captureCookies` 既有日志行追加 `names=`，`auth-view-manager` 的 `hasCapturedCredentials` 通过且平台未声明标记时记 `pending session-marker evidence for <platform>: ... names=...`（**只记 Cookie 名，绝不记值**，用例断言值不得出现在日志里）。之所以不把 `hasPlatformSessionCookieMarkers` 变成 auth-view/qrcode-login/credential-saver 三处的硬门禁：那会让 14 个未取证平台立刻无法登录，属「用打断功能换形式统一」；评审建议中的另一条路（补齐标记后缺口自动关闭）才是正解，本条只负责把取证材料从 DevTools 手工抄录变成应用自身日志产出。
+- **`captureCookies` 方式 2 的轮询对瞬态错误继续重试**（QM-6 Info 3）：导航进行中读 `page.url()`/`cookies()` 抛错不再直接结束整个方式 2（那会让同域平台退回「只能靠选择器」，用户白等一次超时）；浏览器真关闭时由方式 1 的 reject 快速收敛，硬超时预算不变。
+
+### 测量与欠账登记
+- 未登录 curl 分类：`creator.xiaohongshu.com/`、`creator.douyin.com/` 返回 200 且**无 HTTP 跳转**（登录墙由前端路由），`studio.youtube.com/` 302 到 `accounts.google.com/v3/signin/identifier`。故「302 到登录页」可单靠否决层收口，「无跳转」必须回落到会话标记。
+- 由「成功模式是否为 host-only 形态」自动算出的**待取证清单为 7 个平台**：`douyin`、`xiaohongshu`、`instagram`、`facebook`、`youtube`、`bilibili`、**`zhihu`**（`zhuanlan.zhihu.com` 是匿名可读裸域名，原任务未点名、由棘轮锁自身首次扫出）。标记键需真实登录态取证，本 PR 不做猜测，登记为后续项。
+
+### QM-6 双模型外部评审处置（逐条）
+- **Warning #1**（标记门禁只覆盖 4 入口中的 1 个）：**部分采纳**。采纳其可取内核（取证覆盖不对称 → 已补 auth-view 侧日志）；拒绝其建议的硬做法（在另外三处入口加 `hasPlatformSessionCookieMarkers` 前置门禁）——`hasPlatformSessionCookie` 在那三处的语义是「未被反证」而非「已证实」，收紧会立刻打断 14 个未取证平台的登录；评审自己给出的另一条路（补齐标记后缺口自动关闭）才是正解。
+- **Warning #2**（`verify` 指纹会误杀登录后验证页）：**已由更早期的修改消解**——评审快照之后 `verify`/`signup`/`sso` 因无实测证据已从词表删除，现只剩 4 项且逐项挂证据出处。
+- **Info #3**（轮询 catch 立即结束方式 2）：**采纳**，先补红测试再改为按轮次重试。
+- **Info #4**（同域平台 `isPlatformLeftLoginPage` 恒 false）：**确认非回归**（旧 host 判据同样如此），并用「会话标记出现」这条并联判据实际补上了该能力。
+- **Info #5**（否决层顺带拦住旧守卫漏掉的注册页）：**记录为额外收益**。
+- **Info #6**（子串匹配的理论误杀面）：**保留子串匹配并记录理由**——路径段全等匹配会漏掉实测存在的驼峰形态（Google `/ServiceLogin`）；当前 15 个平台声明的成功模式经逐项核对无一含这 4 个指纹；万一误杀，失效方向是「不自动完成 → 用户点『我已完成登录』」，属可控的 fail-closed 而非静默错判。
+- 前端模型（opencode）三次调用全败并登记：即使按 `<workdir>` 位置参数显式传入，它仍对被审目录发起 `external_directory` 权限请求并被 wrapper 自动拒绝 → exit 1（比旧记录「后端不可用」更精确的根因）。
+
+### 测试
+- `platform-definitions.test.js` 新增 3 个 describe / 13 例：逐平台「登录页不算成功」负例（小红书实测地址、抖音/Instagram/Facebook 形态负例、Google 实测地址）、`isPlatformLeftLoginPage` 正负例（含快手 passport 事故形态）、裸域名/标记缺口**棘轮结构锁**（`toEqual` 钉住清单，只能缩小、新增即红）＋ 判据形态自身的负控 + `hasPlatformSessionCookieMarkers` 如实性。
+- `account-manager.test.js` 重写 `captureCookies` describe 为 7 例，含「跳到 passport 不再算登录完成」「同域平台靠会话票据完成」「未声明标记不得凭有 Cookie 提前收工」「`page.url()` 瞬态抛错不得结束方式2」，并在 mock 内放置 legacy `waitForFunction` 陷阱断言其不再被调用。
+- `auth-view-manager.test.js` 新增 1 例：未声明标记平台完成登录时产出待取证日志（断言 Cookie 名出现、**值绝不出现**），且已声明标记的快手不得产出。
+- 反证：否决层改恒不否决 → 5 例转红；`isPlatformLeftLoginPage` 退回旧 host 比较 → shared-utils 3 例 + desktop 1 例转红；`hasPlatformSessionCookieMarkers` 改恒真 → 1 例转红；三处均按字节还原（sha256 一致）。
+- 回归：`packages/shared-utils` 全量 314 passed / 10 skipped；`account-manager.test.js` 81 passed。
+
+### 文档
+- `AGENTS.md`「平台登录成功判定合同」追加三条（形态否决层与只扫路径、裸域名⇒必须声明标记的棘轮口径、采集侧禁止用 host 变化作判据）；`01-docs/learnings.md` 新增「第五次收口」条目。
+
+---
+
+
+
 # [未发布] fix(accounts): 修快手登录页被误判「登录成功」致视图自动关闭并存入无效凭证（2026-09-26，kuaishou-login-false-success）
 
 ### 变更

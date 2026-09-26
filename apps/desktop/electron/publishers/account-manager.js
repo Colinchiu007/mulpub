@@ -57,6 +57,8 @@ const {
   isPlatformCookieDomain,
   hasPlatformLsSessionMarker,
   hasPlatformSessionCookie,
+  hasPlatformSessionCookieMarkers,
+  isPlatformLeftLoginPage,
 } = require('@multi-publish/shared-utils/src/platform-definitions')
 // 账号资料（昵称/头像/平台ID/粉丝）采集与「字段缺席=不修改」写回契约的单一实现
 const profileUtils = require('@multi-publish/shared-utils/src/account-profile')
@@ -152,18 +154,22 @@ async function captureCookies (platform, timeout = 300000) {
           }
           return false
         })(),
-        // 方式2: 等待 URL 变化（非登录页）
+        // 方式2: 轮询「导航离开登录流程」或「会话凭证出现」。旧判据只看 host 是否偏离登录页，
+        // 快手点「登录」跳到 passport.kuaishou.com 就满足（2026-09-26 事故形态）；而登录前后
+        // 同域的平台（快手 cp.kuaishou.com/profile）URL 根本无法区分，只能靠已声明的会话标记。
         (async () => {
-          try {
-            await page.waitForFunction(
-              (loginHost) => window.location.host !== loginHost,
-              new URL(loginUrl).host,
-              { timeout, polling: 2000 }
-            )
-            return true
-          } catch {
-            return false
+          const deadline = Date.now() + timeout
+          const pollMs = Number(process.env.MP_ACCOUNT_LOGIN_POLL_MS) || 2000
+          while (Date.now() < deadline) {
+            try {
+              if (isPlatformLeftLoginPage(platform, page.url() || '')) return true
+              // fail-open 平台不得凭「有 Cookie」提前收工，先确认门禁真在把关
+              if (hasPlatformSessionCookieMarkers(platform) &&
+                hasPlatformSessionCookie(platform, await context.cookies())) return true
+            } catch { /* 导航中读 url()/cookies() 会瞬态抛错：留到下一轮，硬超时兜底（QM-6 Info 3） */ }
+            await new Promise(resolve => setTimeout(resolve, pollMs))
           }
+          return false
         })(),
       ])
 
@@ -177,7 +183,10 @@ async function captureCookies (platform, timeout = 300000) {
 
     // 获取所有 Cookie
     const cookies = await context.cookies()
-    log.info('AccountManager', ` 捕获到 ${cookies.length} 个 Cookie`)
+    // 未声明会话标记的平台：顺带记下 Cookie 名（只记名字，绝不记值），作为逐平台取证标记的现场来源
+    const evidenceNames = hasPlatformSessionCookieMarkers(platform) ? ''
+      : ' names=' + [...new Set(cookies.map(c => c && c.name).filter(Boolean))].slice(0, 40).join(',')
+    log.info('AccountManager', ` 捕获到 ${cookies.length} 个 Cookie${evidenceNames}`)
 
     // 「登录检测」通过不等于已登录：方式2 只判 host 变化，快手从 cp.kuaishou.com 跳到
     // passport.kuaishou.com 登录页时就立即满足它，采到的全是埋点 Cookie（2026-09-26 CCG 评审
