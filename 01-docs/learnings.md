@@ -24,6 +24,8 @@
 - **反证也要防「污染真实数据」这个反身风险（preference，本轮主动偏离任务措辞）**：任务写的是「把 fixture 改成 no-op 必须立刻变红」。但账号 fixture 的作用正是把 `ACCOUNTS_FILE` 从模块默认路径（本机 = 真实的 `userData/backend-data/accounts.json`）挪开；改成彻底 no-op 会让反证用例**把测试数据写进用户真实账号库**。改为「有指向、但不隔离」（全部用例共用一个固定临时目录）来做反证，同样证明 per-test 唯一性承重，且不碰真实数据。**口径**：给「隔离/清理」类机制做反证时，先问反证本身会不会造成它所要防的那个后果。
 
 - **仓库刻意设的「精确计数」门禁会随任何新增通道而红，这是特性不是脆弱（pattern）**：`preload.test.js` 断言 account 模块导出 46 个、api 总键数 330 个。新增 `accountRename` 必然把它俩变红。同步时按既有风格**在 it 标题里留痕**（`331 = 上一基线 330 + 本 PR 新增 1`），否则下一个改动的人无从判断这个数是有意为之还是漂移。改 preload 还要重建 `index.bundle.js` 与 `home-shell-preload.bundle.js` 并用内容 grep 自证（`grep -c "account:rename"`），「构建成功」不等于签名真的进去。
+
+- **扫全仓的门禁看不见它自己，直到它的文件被 git 跟踪（pitfall，本 PR 提交后才暴露）**：门禁扫描清单来自 `git ls-files`，所以新写的 `check-test-microtask-spin.test.js` 在未提交状态下不在清单里 —— 我据此得到过一次「948 文件 0 命中」的干净结论并写进 PR。提交后文件被跟踪，门禁立刻扫出**自己夹具里的两行** `while (x) await Promise.resolve()`（一条单行式正例、一条「注释行不得命中」的反例字符串）。两个后果：① 夹具字符串不得原样包含被扫描的模式（用拼接）；② 任何「扫仓库」的门禁，其「当前 0 违规」的验收必须在**文件已入库之后**再测一次，否则那次通过是自我盲区里的假干净。同族纪律见 QM-2「反证纪律：把锁改成 no-op 必须立刻变红」。
 ## 「登录页 = 登录成功」第四次复发：平台元数据静默失效与凭证假保存（kuaishou-login-false-success，2026-09-26）
 
 - **一次「顺手改对」的 URL 会静默废掉另一处守卫（pitfall，第一性引入点）**：`isPlatformLoginSuccessUrl` 的防误判靠两条并列前提——「URL 等于 `PLATFORM_LOGIN_URLS[platform]` 的 origin+path 一律不算成功」＋「成功模式只匹配登录后才会出现的域/路径」。`c3c39557`（账号管理页 10 项质量修复，第 4 条本意只改「创作者中心 URL」）把 `PLATFORM_LOGIN_URLS.kuaishou` 从 `passport.kuaishou.com/pc/account/login` 改回 `cp.kuaishou.com/`，第一条守卫当场失效（登录页不再等于登录 URL），而 `aedfc701` 为扫码登录加进 `AUTH_HOSTS`/成功模式的裸域名 `passport.kuaishou.com` 仍在，于是**登录页自己被判定为登录成功**。**判定手法**：改任何 `PLATFORM_LOGIN_URLS` 条目时，必须同时问「哪条守卫的前提变了」，不能只看这一行是不是更合理。

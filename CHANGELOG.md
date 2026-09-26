@@ -14,9 +14,10 @@
 - **`identity-auth-window.test.js`**：新增 `waitUntil(cond, describeState, timeoutMs=2000)`，让出宏任务 + 带预算 + 超时抛「等到第几个、实际几个」。
 - **新门禁 Gate 19** `.github/scripts/check-test-microtask-spin.js`（零容忍、无基线）：单行式与块式微任务自旋；含 7 条自证 —— 4 条"合法写法不得命中"反例 + 真实仓库 0 命中棘轮。workflow 侧按仓库惯例接（事故背景注释 + `本地同口径` 行 + 逐条 `$LASTEXITCODE`）。
 
-### 过程中被自己/被仓库抓出的两处错误（如实登记）
+### 过程中被自己/被仓库抓出的三处错误（如实登记）
 1. **守卫第一版是无效的**：按 `options.host` 读目标，但 Node 24 的 http/undici 实际把 `[options, cb]` **作为单个数组参数**传入 ⇒ 判成 unknown 静默放过，用例仍挂 5s/10s。靠打印真实参数形状定位，改为递归展开数组；也正是这次教训催生"读不出目标必须出声"的规则。
 2. **新用例被 `.gitignore` 静默排除**：`.gitignore:59` 的 `test-*.js`（本意是清临时产物）未锚定目录，把我起名 `test-setup-network-guard.test.js` 的文件整份吞掉，`git status` 里看不见它 ⇒ CI 永远不会跑它。**是仓库自带的 `e2e-quality-infrastructure.test.js > 源代码测试文件不得被 .gitignore 静默排除` 拦下来的** —— 该门禁正是 #2416 同型事故后加的。修法用改名（→ `network-egress-guard.test.js`），不动 `.gitignore`。
+3. **门禁扫出了自己（提交后才暴露）**：门禁的扫描清单取自 `git ls-files`，新写的 `check-test-microtask-spin.test.js` 在未提交时不在清单内 —— 我先前那句「948 个测试文件 0 命中」是在自我盲区里测的。提交后门禁立刻命中自己夹具里的两行 `while (x) await Promise.resolve()`（单行式正例 + 「注释不得命中」反例字符串），已改为拼接字符串规避，并把「0 违规必须在文件入库后复测」写进 learnings。
 
 ### 测试与实测规模
 - TDD 全程留痕：守卫 6 条先 RED（3 条挂到 5s/10s/5s + 3 条 loopback/pipe 绿）→ 修数组展开后 6/6、87ms；zhihu 3 条先 RED（`expected -1 to be 0`、`'网络连接失败: Network Error'` 证明仍在真出网）→ 注册桩后 10/10 用 6ms；Gate 19 首跑精确命中 `identity-auth-window.test.js:332/334`（RED），修完全仓 948 文件 0 命中。

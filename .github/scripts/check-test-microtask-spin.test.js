@@ -14,7 +14,10 @@ const { findMicrotaskSpins, listTestFiles, scan } = require('./check-test-microt
 const HITS = (text) => findMicrotaskSpins(text, 'fixture.js').length
 
 test('单行式 while + await Promise.resolve() 必须命中', () => {
-  assert.equal(HITS('while (list.length < 1) await Promise.resolve()\n'), 1)
+  // 夹具字符串本身要**避开**被扫描：字符串拼接后本文件不再含完整模式。
+  // 否则门禁会把自己的夹具当违规 —— 而这只在文件被 git 跟踪之后才暴露
+  // （扫描清单来自 `git ls-files`），提交前跑是测不出来的。
+  assert.equal(HITS('while (list.length < 1) await ' + 'Promise.resolve()\n'), 1)
 })
 
 test('块式循环内只有微任务让出时必须命中', () => {
@@ -58,7 +61,8 @@ test('带 deadline 的轮询（Date.now() 预算）不得命中', () => {
 
 test('非循环内的 await Promise.resolve() 不得命中；注释行不得命中', () => {
   assert.equal(HITS('await Promise.resolve()\nconsole.log(1)\n'), 0)
-  assert.equal(HITS('// while (x) await Promise.resolve()  这是文档里的示例\n'), 0)
+  // 同上：夹具字符串不得原样含完整模式，否则本文件自己会被门禁扫出
+  assert.equal(HITS('// while (x) await ' + 'Promise.resolve()  这是文档里的示例\n'), 0)
 })
 
 test('棘轮：真实仓库当前必须是 0 处微任务自旋', () => {
