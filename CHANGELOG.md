@@ -20,6 +20,157 @@
 ### 文档
 - `AGENTS.md` QM-2「登录承载路径的观测与节流口径单一来源」补第⑤⑥条（节流两档 + CDP 两档，禁止再以"避免 CDP 事件量"一概否决轻观测）。
 - `01-docs/learnings.md` 新增 `cancel-prerequisite-error-page`：我们 cancel 的安全性来自"登录视图没挂 `did-fail-load`"，属**借来的安全** —— 将来谁加"失败→错误页"必须同时补 `isMainFrame && errorCode !== -3` 门禁；并记宽匹配禁区。
+# [未发布] fix(e2e): 瞬时「子资源」故障让应用永不挂载——就绪超时改为「有证据才重载」并补证据卫生（缺陷 I，2026-09-27，e2e-transient-resource-reload）
+
+### 症状与指纹
+main `861cc66d` 的 `QG Browser E2E` 红：`/accounts` 挂在「spec 未抛出异常」，`locator('#app')` 15000ms 内从未变为可见，而 Playwright 的诊断行写着 **`34 × locator resolved`**；同一次 run 的产物里 `consoleErrors: [{"text":"Failed to load resource: net::ERR_NO_BUFFER_SPACE"}]`。
+**「resolved 34 次」不是「快好了」**：`#app` 是 index.html 里常驻的挂载点，节点一直在却零高度 ⇒ Vue 从未挂载。等一个恒存在的节点的可操作性，等于把「挂载失败」表现成「等待超时」。
+
+### 根因：#2423 只修了同一个错误码的一条路径
+`net::ERR_NO_BUFFER_SPACE`（Windows runner 临时网络缓冲耗尽）会打断**两条**路径：
+1. **文档导航** —— `page.goto` 自己抛错 ⇒ #2423 的 `navigate()` 已能重试一次，这条路已闭合。
+2. **子资源**（Vite 按需编译的模块 chunk / CSS）—— `goto` 成功返回，失败只出现在 `page.on('requestfailed')` 里，而**这个监听从来没挂过**；于是应用壳子永远挂不起来，只能硬红。
+同一个错误码在「导航」上已被本仓库认可为可恢复，在「子资源」上却被当作应用故障 —— 这是判据不完整，不是产品缺陷。
+
+### 第二层问题：恢复逻辑会自毒（本片真正的收获）
+即使加上重载，这次运行**仍然会红**：`route-functional-suite.js` 既把 `report.consoleErrors.length` 计入退出码，又有 `expectNoConsoleError()` 一条检查；而重载不会抹掉旧页面状态里已经记录的那条 console 错误 ⇒ 「已经恢复了」的运行被自家门禁判红，修好运行时却留着红。所以重试设计必须包含**它自己产生的证据怎么处理**：
+- 按错误码**精确**把 `Failed to load resource: net::ERR_NO_BUFFER_SPACE` 从 `consoleErrors` 移出，落进独立留痕 `recoveredTransientErrors`；**非该码的错误一律不得移出**（真错误重载成功也照样红）。
+- 产物新增 `transientRecoveries` / `recoveredConsoleErrors` 两个字段 —— 不伪造成「没发生过」，CI 产物里可查第几次重载、哪些资源失败。
+- **重载预算耗尽时末次尝试的证据必须原样保留**（有测试专门锁这一条）。
+
+### 变更
+- `functional-runner.js`：新增 `attachPageObservers(page)`（console / pageerror / **requestfailed** 三类监听从 `launch()` 收敛而来）；`navigate()` 在 `goto` 之前落证据光标 `resourceFailureMark`；`waitForAppReady` 拆为「有界重载外层 + `_waitForReadyOnce` 单次等待」，只在「超时 ∧ 本次导航期内有该错误码」时重载，上限 `MAX_APP_READY_RELOADS = 2`；`TRANSIENT_NAVIGATION_ERROR` 更名 `TRANSIENT_NETWORK_ERROR`（同一码现在覆盖两条路径）；`isPlaywrightTimeout` → `isAppReadyTimeout` 并**额外识别 runner 自身预算耗尽的中文错误**（否则该分支永远不会触发重载）。
+- `functional-runner.test.js`：+12 条合同（有界重载 / 无证据不重载 / 非超时不重载 / 预算 2 次耗尽后原样抛 / 陈旧证据不作数 / 清噪只清该码 / 产物留痕 / 观测挂载三事件 / console 过滤口径不变 / `launch` 结构锁）。
+- AGENTS.md QM-3：把上述口径写成上一条规则的**镜像要求**（不新增独立条目，避免同一纪律在文档里分裂成两处）。
+
+### 反证（把锁改成 no-op 必须变红，实测 4/4 红）
+`MAX_APP_READY_RELOADS=0` → 6 条红；证据光标 `.slice(0)`（陈旧证据也算）→ 1 条红；清噪条件改成 `if (true)` → 2 条红；删掉 `requestfailed` 监听 → 1 条红。变异脚本逐条恢复后基线 23/23 绿、文件字节级还原。
+
+### 未做的验证（如实登记，不假装通过）
+- **本机没有 Playwright 浏览器**（`%LOCALAPPDATA%\ms-playwright` 与 `apps/desktop/.playwright-browsers` 均不存在），因此真实浏览器路径**未在本地跑过**；本片的浏览器级证据只能由 CI Gate 8 兑现。已把本地 vite(5174) 起停跑通，但 18 个 spec 全部在 `browserType.launch` 阶段失败 —— 该失败与本片改动无关（未装浏览器），不作为通过或不通过的证据。
+- QM-1 打包：本片只改 `apps/desktop/tests/`，未触发「修改 electron/ 或 rpa-engine/」的前提，**未执行**。
+- QM-6 CCG 双模型外部评审：**未执行**（纯测试基建、低爆炸面），按仓库纪律登记为缺口。
+
+# [未发布] test(desktop): 测试层禁止真实出站 + 自旋必须让出宏任务（缺陷 G 家族清扫，含 Gate 19 棘轮）（2026-09-26，test-unbounded-network-guards）
+
+### 为什么是"家族"而不是第四个孤例
+本会话连续四颗随机红同属一类病 —— **等待没有边界**：① `#2423` E2E 就绪判据恒真（懒加载 chunk 从未被 await）；② `#2416`/`#2438` 对拍挂钟容差；③ `#2442` PowerShell 锁握手的无界等待；④ 本次 `zhihu-favlist.test.js` 真实出站。前三颗各修一处后，探子全仓清点给出规模事实：**`nock`/`msw`/`setupServer` 命中 0** —— "测试不出网"从来没有传输层兜底，只靠逐文件手工注入，漏一处就是一颗雷。所以这一片不再逐颗打地鼠。
+
+### 根因（确证 1 例，含一个结构性发现）
+- `zhihu-favlist.test.js` 的 `list 成功 → code 0 + favlists` **从未测过成功路径**：它直接 await 真实 handler，而 handler 内部 `new ZhihuFavlistService({ log })` **不接受 axios 注入**（服务本身有 `opts.axios` 通道，是全链路上唯一漏掉的一环），于是走真出站；用例只断言 `toHaveProperty("code")`，错误路径也能通过 —— 名字叫"成功"、实际永远走失败。**一条永远不该绿的断言一直绿着。**
+- **预算倒挂**：服务侧 axios `timeout: 15000` > `testTimeout=10000`（CI 另显式传 `--testTimeout=10000`）⇒ 网络挂起时永远是框架先赢，报错只剩 `Test timed out in 10000ms`，既无主机也无出路。这是"为什么这类红总是无法归因"的结构解释。
+- `identity-auth-window.test.js:332/334` `while (...) await Promise.resolve()`：只让出**微任务**，vitest 基于 `setTimeout` 的超时机制打不断它，条件永不满足即 worker 死循环，只能靠 job 级 30 分钟预算硬杀（表现为"CI 无故卡死"）。
+
+### 变更
+- **`apps/desktop/test-setup.js` 出站守卫**（唯一兜底点）：拦 `net.Socket.prototype.connect` 的非 loopback 目标，emit `[TEST-NETWORK-BLOCKED] <host>:<port>` + 注入指引；放行 `127.0.0.1`/`::1`/`localhost`/`0.0.0.0` 与 unix/pipe（全仓 31 个测试文件依赖 `listen(0,'127.0.0.1')`）；拦在 connect 入口 ⇒ 连 DNS 都不发生。**读不出目标时一次性 `console.warn`** —— 静默放过等于守卫被 Node 一次升级悄悄摘掉。
+- **`zhihu-favlist.test.js`**：把那条假用例换成三条真断言 —— 成功路径（Items→favlists 字段映射 + 断言请求经过桩、URL 与 `Bearer` 头正确）、网络失败（`code -1` + 「网络连接失败」文案 + 不透出堆栈）、未配 Secret（`code -1` 且**一次都不出站**）。axios 经 `__registerMock("axios", 桩)` 拦下（复用仓库既有 `Module._load` 机制，**不改生产代码**）。
+- **`identity-auth-window.test.js`**：新增 `waitUntil(cond, describeState, timeoutMs=2000)`，让出宏任务 + 带预算 + 超时抛「等到第几个、实际几个」。
+- **新门禁 Gate 19** `.github/scripts/check-test-microtask-spin.js`（零容忍、无基线）：单行式与块式微任务自旋；含 7 条自证 —— 4 条"合法写法不得命中"反例 + 真实仓库 0 命中棘轮。workflow 侧按仓库惯例接（事故背景注释 + `本地同口径` 行 + 逐条 `$LASTEXITCODE`）。
+
+### 过程中被自己/被仓库抓出的四处错误（如实登记）
+1. **守卫第一版是无效的**：按 `options.host` 读目标，但 Node 24 的 http/undici 实际把 `[options, cb]` **作为单个数组参数**传入 ⇒ 判成 unknown 静默放过，用例仍挂 5s/10s。靠打印真实参数形状定位，改为递归展开数组；也正是这次教训催生"读不出目标必须出声"的规则。
+2. **新用例被 `.gitignore` 静默排除**：`.gitignore:59` 的 `test-*.js`（本意是清临时产物）未锚定目录，把我起名 `test-setup-network-guard.test.js` 的文件整份吞掉，`git status` 里看不见它 ⇒ CI 永远不会跑它。**是仓库自带的 `e2e-quality-infrastructure.test.js > 源代码测试文件不得被 .gitignore 静默排除` 拦下来的** —— 该门禁正是 #2416 同型事故后加的。修法用改名（→ `network-egress-guard.test.js`），不动 `.gitignore`。
+3. **门禁扫出了自己（提交后才暴露）**：门禁的扫描清单取自 `git ls-files`，新写的 `check-test-microtask-spin.test.js` 在未提交时不在清单内 —— 我先前那句「948 个测试文件 0 命中」是在自我盲区里测的。提交后门禁立刻命中自己夹具里的两行 `while (x) await Promise.resolve()`（单行式正例 + 「注释不得命中」反例字符串），已改为拼接字符串规避，并把「0 违规必须在文件入库后复测」写进 learnings。
+4. **CI 抓出了本地测不出的第四处（假绿）**：守卫在 GitHub 的 Node 22 上确实拦住了出站，但 `_http_client` 会把 socket 的早期错误**改写成 `socket hang up`**，我精心写的 `[TEST-NETWORK-BLOCKED] <host>` 文案到不了调用方 —— 于是"必须立刻拿到可诊断错误"这条断言在 CI 红、在本地（Node 24）绿。**"可诊断性依赖运行时版本"正是守卫自己制造的新问题**。修法：拦截时**同时记账**（`globalThis.__mpBlockedEgress`）+ 按 host 去重 `console.warn`，断言改为「秒失败 + 账本里有这一条」这类版本无关的不变量，只有原始 socket 路径（Node 不改写文案）仍直接断言标记文案。顺带修掉双次 emit 造成的 `Unhandled Errors` 噪声（有监听者时 emit + `destroy()`；无监听者时 `destroy(error)` 保持响亮）。
+
+### 测试与实测规模
+- TDD 全程留痕：守卫 6 条先 RED（3 条挂到 5s/10s/5s + 3 条 loopback/pipe 绿）→ 修数组展开后 6/6、87ms；zhihu 3 条先 RED（`expected -1 to be 0`、`'网络连接失败: Network Error'` 证明仍在真出网）→ 注册桩后 10/10 用 6ms；Gate 19 首跑精确命中 `identity-auth-window.test.js:332/334`（RED），修完全仓 948 文件 0 命中。
+- **爆炸面实测**：apps/desktop 全量 vitest **656 passed | 2 failed | 1 skipped（659 文件，11666 用例）**；两条失败定责 —— ①是我新文件被 gitignore 吞（已改名修掉）②`feedback.test.js` 的 `EPERM: symlink` 是本机非开发者模式的既有基线失败（见项目记忆），与守卫无关。**结论：出站守卫在 656 个文件上零误伤。**
+- eslint rc=0；`workflow-contract` / `autonomous-loop-workflow` / `check-route-registry` 结构契约 45/45 未受影响（只加 step）。
+- 文档：AGENTS.md QM-3 新增 1 条 MUST（禁止真实出站 / 自旋让出宏任务 / 预算倒挂检查 / 新测试文件名不得命中 gitignore）；`01-docs/learnings.md` 置顶复盘。
+
+### 残余限制（本片未覆盖，如实划界）
+- 守卫只装在 `apps/desktop`（其 vitest 主配置的 setupFiles）。`packages/*` 的 11 个 vitest 配置与 `api-publish-engine` 的 `node --test` + 自研 harness 尚未覆盖 —— 覆盖需改 12 处注入点，另开切片。
+- 清点的「疑似真出网 21 文件」与「其它无预算等待约 55 文件」未逐一处理；其中 `collection-engine` 的 `_http` 注入路径全仓 0 次使用、`agent-judge` 仅靠 `--llm=none` 命令行防出网，是两条最该先跟的线索。
+- 全仓 35 处 per-test 超时中 **34 处 > 全局 `testTimeout=10000`** ⇒ "全局预算是上界"这一前提在仓库里已不成立；若把它做成棘轮会一次报出 34 项，故本片未做，留作独立决策。
+- `zhihu-favlist.js` 仍缺 axios/favlistService 的依赖注入通道（服务已有 `opts.axios`，handler 没往下传）。补它属生产代码改动（触发 QM-1 打包验证），本片刻意用测试侧注册桩绕开，登记为后续项。
+# [未发布] feat(accounts): 账号显示名引入 name_source，改名从空操作变为真正生效（2026-09-26，add-account-name-source）
+
+### 用户可见变化（两条，必须点名）
+1. **改名此前是空操作，现在生效了。** `renameAccount` 一直走 `accountUpdate` → `store:update-account` 写 **Electron SQLite**，而账号列表读的是 **python-backend `accounts.json`** —— `src/api/publisher.js:103` 早已注明「写了也不显示」。用户在卡片上改名后界面立刻回落到旧值，且**编辑框回填的也是那个回落值**，看起来像「改名功能坏了」。现新增 `account:rename` 通道 → `AccountManager.renameAccount` → 后端 PATCH 真源。这是本仓「装饰性链路」问题的第四次复发。
+2. **发布页账号选择器的显示值会变。** `PublishTargetSelector.vue:35,76` 此前只读 `account.name`，而实测存量 7 条的 `name` **全部是网页标题**（`公众号` / `首页 - 知乎` / `快手，记录世界 记录你` / `头条号` / `哔哩哔哩 (゜-゜)つロ 干杯~-bilibili`）。改走统一解析入口后，这些位置显示的是过滤后的昵称或平台名，不再是网页标题。属修正而非回归，但确实是界面文案变化。
+
+### 变更
+- **`packages/python-backend/src/server.py`**：账号新增 `name_source` 字段（`auto` | `manual`），配 `_normalize_account_name_source()`（与既有 `_normalize_account_status` / `_normalize_account_active` 同风格，缺失/非法一律归一为 `auto`）；create 落盘、PATCH 分支、`_account_to_dict` 投影三处接入。类型取 `str | None` 而非 `Literal` —— spec 要求非法值**归一**而不是 422。
+- **`apps/desktop/electron/ipc-handlers/account.js`**：`publicAccountFields` 加 `name_source`；**撤掉 `account_name: account_name || name` 提前合并** —— 那一道合并正是「主进程先把页面名伪装成昵称、渲染层无从区分来源」的根源。
+- **`apps/desktop/electron/publishers/account-manager.js`**：新增 `renameAccount`（写 `account_name` + `name_source='manual'`）；回填保护从「猜文本形态」改为读来源，落地为共享判据 `guardProfilePatchBySource(patch, current)`，`refreshProfileFromHttpApi` 与 `refreshProfileFromPage` 同一处收口。只有**真的**写昵称时才下发 `name_source='auto'`，避免昵称被保护住时顺带把 `manual` 降级。
+- **`apps/desktop/electron/ipc-handlers/account-rename.js`（新）**：改名 IPC 通道，单独成文件（对齐 `account-active.js` 的既有决定：`account.js` 已在超大文件挂账清单上）。含 sender 校验、路径段白名单、空名/超长拒绝、失败码透传。
+- **`apps/desktop/src/utils/account-display-name.js`（新）**：账号显示名的**唯一解析入口**。`manual` ⇒ 原样返回、不过任何形态规则；`auto`/缺失 ⇒ 过噪声守卫，不合格直接回落平台名。**`name` 一律不作为显示名来源**（它由主进程写成 `document.title`；实测本机 accounts.json 8 条里 `name` 全是标题/标语，4 条合法昵称全在 `account_name`。曾把它当第二候选，独立评审指出后摘除——见「独立评审」节）。
+- **渲染层消费点全部改走该入口**（7 处）：`AccountManagementCard.vue`、`AccountGroupsPanel.vue`、`AccountGroupManager.vue`、`PlatformAccountGroup.vue`、`PublishTargetSelector.vue`、`Publish.vue`、`usePlatformAccounts.js`（侧栏文案），外加 `stores/accounts.js` 的排序键与搜索命中、`Accounts.vue` 的改名去重比较与删除确认文案；`stores/accounts.js` 的 `renameAccount` 改调 `accountRename` 并摘掉已无消费者的 `accountUpdate` 导入。
+- **`packages/shared-utils/src/account-name-guard{,.browser}.js`**：补齐 CJS 对 `hasUnbalancedBrackets` 的导出（此前 ESM 导出、CJS 只内部使用，两侧 API 面漂移），并纳入 parity 断言。
+
+### 为什么必须是来源字段，而不是继续调规则
+噪声守卫的职责是「藏掉系统抓错的文本」，用户显式命名也过这层守卫时，`阿飞 - 自由职业`、`Rhythm · 音乐厅`、`小美…的厨房`、`广东政务服务平台` 会被一起藏掉。而反向用「现网名不像噪声」推断「这是不是手改名」的两个方向都会错：合法机器昵称被无谓保护（永远更新不动），用户手改名**恰好长得像噪声时被直接冲掉**（实测复现：`expected { account_name: '平台返回的昵称' } to not have property "account_name"`）。二者需要的是同一判断的两个相反答案，只能靠 `name_source` 承载。
+
+### 独立评审（QM-6 替代，2 条 CRITICAL + 5 条 MAJOR）
+CCG 双模型外部评审本机不可用（无 `.ccg/config.toml`、`codeagent-wrapper` 不在 PATH），降级为两路互不知情的独立上下文评审。抓出两处我自己在 CHANGELOG / tasks 里**已勾成已完成而实际没做**的项，以及一处会反转本 change 核心不变量的沉默缺陷：
+
+1. 🔴 `updateCapturedAccount`（重新登录）是第三条「凭证落盘」路径，前两条 `refreshProfile*` 都过了 `guardProfilePatchBySource`，唯独它没有。后果：用户改完名再登录一次，抓到的昵称就覆盖了 `account_name`，而 `name_source` 仍留着 `manual` —— 这一行此后再没有任何一道会过滤它。已补守卫并钉 2 条用例。
+2. 🔴 发布页账号选择器（`PublishTargetSelector.vue` / `Publish.vue`）当时根本没改，本文件「用户可见变化」第 2 条却已写成改了。现已真实接入并补 6 条行为用例。
+3. 🟠 摘掉 `name` 作为第二显示候选（理由见上）。真实数据里唯一受影响的是快手的 `name` = `快手，记录世界 记录你` —— 形态规则判不出这类标语，保留它等于让原 Bug 从第二扇门复发。
+4. 🟠 主进程侧那份同名函数改名 `resolveCapturedDisplayName`：它与渲染层入口签名不同（收 `(rawName, platform)`），同名异义是口径漂移与 grep 误用的高发点。
+5. 🟠 排序/搜索/侧栏/删除确认等 6 处仍读 raw 字段，现全部与卡片同源；并把「唯一入口」的守卫从**写死 3 个文件的白名单**改成**全仓扫描**（白名单对新写一处手搓回退完全失明），用变异证明该锁会变红。
+
+### 测试（TDD 红灯先行 + 3 处反证）
+- 新增：`test_server_account_name_source.py`(6)、`account-rename.test.js`(16)、`account-name-source-passthrough.test.js`(4)、`src/utils/account-display-name.test.js`(23)、卡片显示名口径(9)、store 改名(4)、后端隔离反证对(2)。
+- **反转 6 处「测试反向固化错误行为」**：`account.test.js` 的 5 条 `toEqual` 断言其 mock 从未提供 `account_name`、却断言 `account_name === name`（把 IPC 提前合并钉成契约）；`stores/accounts.test.js:915` 断言 `accountUpdate(id,{name})`（把断链钉成契约）。
+- **反证 3 处**：① `_normalize_account_name_source` 改成恒返回 `manual` → 2 条立刻变红，且红的成因已追清（投影侧对存量 `auto` 的归一）；② 后端隔离 fixture 改成「共用固定路径」→ 消费方因制造方泄漏的那一行变红（**不能改成彻底 no-op**，那会把数据写进本机真实 `accounts.json`）；③ 新写通道测试首跑即因 `__electronMock.app.isPackaged` 未置 false 而拿到 `-3`，修正后 16 绿。
+- **一处 mock 陷阱（会造成假绿）**：`account-manager.js:13` 在 `require` 期就把 `fetchAccountInfoViaHttpApi` 解构为本地绑定，`vi.spyOn(accountManager, …)` 拦不住；必须先给仍被 `require.cache` 保留的 `http-login-checker` 装 spy，再清 account-manager 缓存重新 require。
+- 门禁同步：`preload.test.js` 的导出计数 account 46→47、api 总数 330→331（仓库刻意设的精确计数门禁）；重建两个 preload bundle 并核对含 `account:rename`（QM-2）。
+- 规模：`packages/shared-utils` 全量绿；`packages/python-backend` 红名单与改动前基线 `diff` **完全一致（43 条，零新增）**，账号面全绿；`apps/desktop` 全量见 `.quality-gates.md`。
+- 文档：`openspec/changes/add-account-name-source/`（proposal / spec 7 Requirements 20 Scenarios / design D1-D6 / tasks 37 项 / baseline-audit）、`01-docs/learnings.md`、`AGENTS.md` QM-2 三条新门禁。
+
+### 已知遗留
+- 存量行的 `name_source` 一律归为 `auto`，历史上若有人用其它途径（非本通道）写过用户命名，仍会被过滤。实测本机 7 条不存在此情况（`account_name` 与 `name` 均为抓取值）。
+- SQLite 侧未加 `name_source` 列：依 1.2 核实，SQLite 非读源（就绪门禁只取 `_store._ready`），改名改走后其 `name` 成为无消费者的陈旧副本。若将来 SQLite 被提升为读源，必须回补该列（tasks 4.5 已登记）。
+- 不提供「恢复自动获取」的反向操作：改名即 `manual`，无 UI 出口回退，留待后续 change。
+# [未发布] fix(accounts): 修快手登录页被误判「登录成功」致视图自动关闭并存入无效凭证（2026-09-26，kuaishou-login-false-success）
+
+### 变更
+- **`packages/shared-utils/src/platform-definitions.js`**：`PLATFORM_AUTH_HOSTS.kuaishou` 与 `PLATFORM_LOGIN_SUCCESS_PATTERNS.kuaishou` 移除纯登录域 `passport.kuaishou.com`（`aedfc701` 为扫码登录把它加进成功模式，`c3c39557` 又把 `PLATFORM_LOGIN_URLS.kuaishou` 从 passport 登录页改回 `cp.kuaishou.com/`，使「等于初始登录 URL 一律不算成功」的守卫静默失效 → 登录视图打开 3.3s 即被判登录成功）。新增 `PLATFORM_SESSION_COOKIE_MARKERS` + `hasPlatformSessionCookie()`：登录页同样写入埋点 Cookie（实测 `did`/`wid`/`kwssectoken`/`kwpsecproductname`/`kwfv1`/`kwscode`），「有 Cookie」不等于「已登录」；未声明标记的平台沿用既有行为，零爆炸半径。
+- **`apps/desktop/electron/services/auth-view-manager.js`**：`hasCapturedCredentials(authData, platform)` 增加会话标记门禁，同时覆盖自动完成与手动「我已完成登录」两条入库路径；被拦时记 warn（含 cookie 数）而不是静默跳过；URL 检测命中日志补上命中的完整 URL（本次只能靠误存账号名＝网页标题反推命中地址）。
+- **`apps/desktop/electron/services/qrcode-login.js` / `apps/desktop/electron/services/webview-manager/credential-saver.js`**：扫码登录入库与账号标签凭证保存（自动/手动/批量）同样要求命中会话标记，未命中分别抛「未检测到登录态」/ 返回 `session-evidence-missing` 并保持 unsaved。
+- **`apps/desktop/electron/publishers/account-manager.js`**（CCG 双模型评审 Warning 2 补漏）：`captureCookies()` 在返回凭证前校验会话标记。这是**第四个**入库入口（IPC `account:add` → `addAccount` → `saveCapturedAccount`），其「方式 2」只判 `window.location.host` 是否偏离 `PLATFORM_LOGIN_URLS` 的 host——快手 `cp.kuaishou.com` 一跳到 `passport.kuaishou.com` 登录页就立即满足，会在用户未登录时判「登录完成」并直接入库，假成功形态与本次主 Bug 完全相同。未命中即抛「未检测到登录态」。
+- **`apps/desktop/electron/services/auth-view-manager.js` `loginSilent()`**（评审 Warning 3）：静默校验从「仅 URL」改为「URL + 会话标记」，否则本修复之前入库的假账号会永远报「有效」，把坏数据掩盖成后端状态异常。
+
+### CCG 双模型外部评审（QM-6）
+- 后端模型（claude）产出 3 Warning + 2 Info，无 Critical；Warning 2/3 已在本 PR 内修复并补测试。前端模型（opencode）三次调用全败（详见记忆 `reference-ccg-workflow`：wrapper 侧缺陷，非提示词问题），按 QM-6 规则登记跳过。
+- Warning 1（`hasPlatformSessionCookie` 对未声明平台 fail-open，小红书/抖音仍是裸域名成功模式）实测确认：`isPlatformLoginSuccessUrl('xiaohongshu', 'https://creator.xiaohongshu.com/login')` 返回 `true`。属同构潜在 Bug，但补标记需逐平台 DevTools 取证，**不在本 PR 范围**，另开单跟踪。
+
+### 测试
+- 新增断言：`platform-definitions.test.js`（快手登录页 URL 负例 + 会话标记 6 断言）、`auth-view-manager.test.js` 3 例、`qrcode-login.test.js` 1 例、`webview-manager.test.js` 1 例。反证：临时禁用 `hasPlatformSessionCookie` 后 5 条新断言全部转红、正向用例仍绿；禁用前 `isPlatformLoginSuccessUrl('kuaishou', 'https://passport.kuaishou.com/')` 实测返回 true（即 Bug 本身）。
+- 同步更新既有 fixture：`qrcode-login.test.js` 快手扫码用例、`webview-manager.test.js` 方案三批量用例（原以 `session=secret` 冒充凭证，正是被拦下的形态，改为真实会话票据）。
+
+---
+
+# [未发布] fix(e2e): 应用就绪判据收紧到「路由内容出口」，根治导航后第一条断言随机误红（2026-09-26，e2e-route-mount-race）
+
+### 现象与根因
+- `QG Browser E2E`（`route-functional-suite`）在 CI 上随机失败，形态特征极稳定：**同一条用例里「页面标题渲染」红、紧随其后的卡片/列表断言绿**，且落点路由不固定（本轮 dashboard、下一轮 create）。30 次 main run 中 2 次需要重跑（约 6.7%），而 GitHub 只展示**最新一次 attempt** 的结论，聚合看板读起来是 100% 绿——抖动被完全掩盖。
+- 第一性引入点：`apps/desktop/tests/e2e/helpers/functional-runner.js` 的 `waitForAppReady()` 用 `(app.textContent || '').trim().length > 0` 作为第三个就绪条件，判据挂在 `#app` 上。`#app` **常驻侧边栏**（主页 / 发布 / 账号 / …），导航前后一直有文字 ⇒ 该条件**恒为真**，等于完全没有等待懒加载路由 chunk 挂载（Vite 按需编译，首次进入某路由才编译其 chunk）。
+- 后果：导航后的第一条断言 `route-functional-suite.js:833` 的「页面标题渲染」只剩 `CONDITION_TIMEOUT = 5000ms` 去独自吸收 chunk 编译时间；CI 满载时编译超过 5s ⇒ 误红。而它烧掉的这 5s 恰好让紧随的 `exercise()`（834 行）赶上加载完成 ⇒ 「标题红、卡片绿」。**这不是偶发，是判据失效 + 预算被第一条断言独吞**的确定性结构，随机性只来自机器负载。
+- 排除的假说：`isLoginTab`（`App.vue:122`，由 `tabStore.activeTab` 推导）在浏览器 E2E 上下文恒为 false，因此 `router-view v-if="!isLoginTab"` 分支不可能合法地渲染出空出口——空出口就是「还没挂载」，不是「正常空态」。
+
+### 变更
+- **`functional-runner.js`**：就绪判据拆成 `strictReady()`——在原有 `hash` 一致 + `#app[data-v-app]` 两条之上，要求 `[data-testid="mp-workspace"], [data-testid="fullscreen-view"]`（`App.vue` 的两个路由内容出口）`textContent` 非空。两个出口都纳入，避免登录标签页那套 `fullscreen-view` 布局被判永不就绪。
+- **回退不新增硬失败**：严格判据**仅在 Playwright 超时**（`isPlaywrightTimeout()` 匹配 `Timeout Nms exceeded` / `waiting for function` / `TimeoutError`）时，退回旧的宽松判据再给 `ROUTE_OUTLET_FALLBACK_TIMEOUT = 3000ms` 预算。判据收紧不该把原本的间歇误红变成确定性红；非超时错误一律原样抛出，不被兜底吞掉。
+
+### 逃逸链为什么全绿
+- **单元层**：`functional-runner.test.js` 原有 5 条用例全部只覆盖 `goto()` 的瞬时导航故障恢复合同，把 `waitForAppReady` 整体 mock 掉 ⇒ 就绪判据本身**零断言**。
+- **集成层**：`waitForAppReady` 是测试基建而非被测代码，业务侧测试不会调用它。
+- **E2E 层**：它自己就是 E2E 的守门人，无法守自己——判据恒真是「断言写了但等于没写」，只有把它的返回值暴露成可断言的谓词才测得到。
+- **审查层**：`(app.textContent).trim().length > 0` 看起来是一条合理的「有内容」检查，review 时不会怀疑常驻侧边栏会让它免疫。
+
+### 测试
+- `apps/desktop/tests/e2e/helpers/functional-runner.test.js` 新增 `FunctionalRunner 应用就绪判据合同` 7 条用例。技术上用**捕获谓词 + 假 DOM**：mock `page.waitForFunction` 把回调函数抠出来，用最小 DOM stub 直接调用并断言布尔返回值——不需要真实浏览器，也不需要起 Vite，因此这条回归能进 CI 的快速单元阶段。
+- 覆盖：侧边栏有文字但出口为空（**必须未就绪**，本 Bug 的可执行证据）/ 出口有文字（就绪）/ 只认 `mp-workspace` 不够，`fullscreen-view` 同样算 / 两个出口都不存在（未就绪，不把挂载失败当成功）/ hash 不匹配（一律未就绪，防残留内容假就绪）/ 严格判据超时→回退恰好触发一次 / 非超时错误→原样抛出不重试。
+- **反证**：先写测试后改实现，旧实现下 9 条中 2 条 RED，其中 `AssertionError: 空出口必须未就绪` 即恒真判据的直接证据。
+- 规模：`node --test functional-runner.test.js` **11 passed / 0 fail**；`route-functional-suite.test.js` 1/1；`eslint --quiet` rc=0。
+- **CI 接线已存在**，无需新增：`quality-gate.yml:668` 已执行 `node apps/desktop/tests/e2e/helpers/functional-runner.test.js`。
+
+### 影响与残余限制
+- 只改测试基建，零生产行为变更、零 UI/文案变化（locales 未触碰）。
+- 本次只治「判据恒真」这一颗雷。E2E 抖动是否归零需以**合入后连续若干 main run 的 `QG Browser E2E` 首次 attempt** 为准；判定红名单时必须读每个 run 的全部 attempt，不能只看聚合结论（已记入 `01-docs/learnings.md`）。
 
 ---
 

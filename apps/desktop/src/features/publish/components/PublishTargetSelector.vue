@@ -32,7 +32,7 @@
                   :disabled="disabled || account.disabled"
                   @change="$emit('toggle-account', platform.id, account.id)"
                 />
-                <span>{{ account.name || account.id?.slice(0, 8) || '未命名账号' }}</span>
+                <span data-testid="account-display-name">{{ accountDisplayName(account, platform.label) }}</span>
                 <span v-if="account.is_default" class="target-account__default">默认</span>
                 <span
                   v-if="account.disabled"
@@ -53,6 +53,15 @@
 <script setup>
 import { computed, ref } from 'vue'
 import i18n from '@/i18n'
+import { resolveAccountDisplayName } from '@/utils/account-display-name'
+
+// 显示名一律走账号卡片同一入口（name_source=manual 原样显示、auto 过噪声守卫、
+// 都不合格才回落平台名）。此前这里只读 `account.name`，而 auth-view-manager 写进
+// `name` 的就是 document.title，于是发布页选择器显示的是「首页 - 知乎」这类网页标题。
+const unnamedAccountText = computed(() => i18n.global.t('accountsPage.accountCardLabels.unnamedAccount'))
+function accountDisplayName (account, platformLabel) {
+  return resolveAccountDisplayName(account, { platformLabel }) || account.id?.slice(0, 8) || unnamedAccountText.value
+}
 
 const props = defineProps({
   groups: { type: Array, default: () => [] },
@@ -73,7 +82,7 @@ const filteredGroups = computed(() => {
       items: (group.items || []).filter(platform => {
         const platformMatch = (platform.id + ' ' + platform.label).toLowerCase().includes(keyword)
         const accountMatch = (platform.accounts || []).some(account => {
-          return (account.id + ' ' + (account.name || '')).toLowerCase().includes(keyword)
+          return (account.id + ' ' + accountDisplayName(account, platform.label)).toLowerCase().includes(keyword)
         })
         return platformMatch || accountMatch
       }),

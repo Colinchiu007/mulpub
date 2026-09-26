@@ -115,7 +115,7 @@
               :checked="(group.accountIds || []).includes(account.id)"
               @change="$emit('toggle-account', group.id, account.id)"
             >
-            <span class="member-name">{{ account.account_name || account.name || '未命名账号' }}</span>
+            <span class="member-name">{{ memberName(account) }}</span>
             <span class="member-platform">{{ platformLabel(account.platform) }}</span>
           </label>
           <div v-if="eligibleAccounts(group).length === 0" class="member-empty">该分组平台下暂无可选账号</div>
@@ -128,6 +128,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { Delete, FolderOpened, Plus, Search } from '@element-plus/icons-vue'
+import { resolveAccountDisplayName } from '@/utils/account-display-name'
 
 const props = defineProps({
   groups: { type: Array, default: () => [] },
@@ -136,6 +137,12 @@ const props = defineProps({
   platformLabel: { type: Function, default: value => value },
 })
 const emit = defineEmits(['create', 'delete', 'rename', 'set-platform', 'toggle-account'])
+
+// 必须与账号卡片同一口径：此前这里直出 `account_name || name`，不过噪声守卫，
+// 于是同一账号在「分组管理」里仍显示抓错的网页标题（openspec: add-account-name-source）。
+function memberName (account) {
+  return resolveAccountDisplayName(account, { platformLabel: props.platformLabel(account.platform) }) || '未命名账号'
+}
 
 const searchInput = ref('')
 const platformFilter = ref('')

@@ -60,7 +60,7 @@
                 :checked="(group.accountIds || []).includes(account.id)"
                 @change="$emit('toggle-account', group.id, account.id)"
               >
-              <span class="member-name">{{ account.account_name || account.name || '未命名账号' }}</span>
+              <span class="member-name">{{ memberName(account) }}</span>
               <span class="member-platform">{{ platformLabel(account.platform) }}</span>
             </label>
           </div>
@@ -78,6 +78,7 @@ import { ref } from 'vue'
 import { Delete, Plus } from '@element-plus/icons-vue'
 import UiButton from '@/components/UiButton.vue'
 import UiModal from '@/components/UiModal.vue'
+import { resolveAccountDisplayName } from '@/utils/account-display-name'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -87,6 +88,11 @@ const props = defineProps({
   platforms: { type: Array, default: () => [] },
 })
 const emit = defineEmits(['create', 'delete', 'rename', 'set-platform', 'toggle-account', 'close'])
+
+// 与账号卡片共用同一解析口径，避免「分组界面直出抓错的网页标题」。
+function memberName (account) {
+  return resolveAccountDisplayName(account, { platformLabel: props.platformLabel(account.platform) }) || '未命名账号'
+}
 const newGroupName = ref('')
 const editingGroupId = ref('')
 const editingGroupName = ref('')

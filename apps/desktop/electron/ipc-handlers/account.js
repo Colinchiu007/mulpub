@@ -181,7 +181,7 @@ function registerHandlers(ipcMain, deps) {
   }
 
   const publicAccountFields = [
-    'id', 'platform', 'name', 'account_name', 'platform_account_id', 'avatar', 'avatar_url',
+    'id', 'platform', 'name', 'account_name', 'name_source', 'platform_account_id', 'avatar', 'avatar_url',
     'status', 'status_source', 'is_active', 'is_default', 'has_cookies', 'cookie_count',
     'has_auth_data', 'last_validated', 'created_at', 'updated_at', 'last_used_at', 'auth_method',
     'followers', 'owner', 'publisher', 'last_login_check_at', 'login_check_error', 'status_reason',
@@ -316,7 +316,12 @@ function registerHandlers(ipcMain, deps) {
       ...safeAccount,
       has_cookies: hasCred,
       cookie_count: hasCred ? 1 : 0,
-      account_name: safeAccount.account_name || safeAccount.name || '',
+      // 不得写成 `account_name || name`：name 是平台显示名/历史兼容位，实测存量 7 条的
+      // name 全部是网页标题（公众号 / 首页 - 知乎 / 快手，记录世界 记录你）。在这里合并
+      // 等于主进程就把「页面名」伪装成「昵称」，渲染层拿到手已无法区分，也就无法按
+      // name_source 分流「机器抓取要过滤」与「用户命名不过滤」。
+      account_name: typeof safeAccount.account_name === 'string' ? safeAccount.account_name : '',
+      name_source: safeAccount.name_source === 'manual' ? 'manual' : 'auto',
       status: effectiveStatus,
       status_source: statusSource,
       is_default: Boolean(safeAccount.is_default) || String(defaultId) === String(safeAccount.id),
@@ -746,6 +751,12 @@ function registerHandlers(ipcMain, deps) {
   // 而 account.js 已在行数挂账清单上（登记值 571，main 实测 728），继续往里堆会撞
   // check-max-lines 的膨胀容差。这里只把本模块已有的上下文闭包注入进去，判定口径不复制第二份。
   require('./account-active').registerAccountActiveHandler(ipcMain, {
+    AccountManager, getOwnerSubject, ipcLog, isSafePathSegment: _isSafePathSegment
+  })
+
+  // 显示名改名通道同理单独成文件（./account-rename.js）：它必须写后端 accounts.json 真源，
+  // 而不是沿用写 Electron SQLite 的 accountUpdate —— 那条通道写了列表读不到，改名一直是空操作。
+  require('./account-rename').registerAccountRenameHandler(ipcMain, {
     AccountManager, getOwnerSubject, ipcLog, isSafePathSegment: _isSafePathSegment
   })
 

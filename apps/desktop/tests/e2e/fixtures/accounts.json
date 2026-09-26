@@ -1,13 +1,13 @@
 {
   "accounts": [
-    { "id": "acc_weibo_001", "platform": "weibo", "name": "测试微博账号1", "is_default": true, "status": "online", "created_at": "2026-01-15T08:30:00Z" },
-    { "id": "acc_weibo_002", "platform": "weibo", "name": "测试微博账号2", "is_default": false, "status": "active", "created_at": "2026-02-20T10:00:00Z" },
-    { "id": "acc_zhihu_001", "platform": "zhihu", "name": "知乎测试号", "is_default": true, "status": "online", "created_at": "2026-03-10T14:00:00Z" },
-    { "id": "acc_douyin_001", "platform": "douyin", "name": "抖音测试号", "is_default": true, "status": "active", "created_at": "2026-04-05T09:00:00Z" },
-    { "id": "acc_xhs_001", "platform": "xiaohongshu", "name": "小红书测试", "is_default": true, "status": "online", "created_at": "2026-05-12T11:30:00Z" },
-    { "id": "acc_wechat_001", "platform": "wechat_mp", "name": "微信公众号A", "is_default": true, "status": "active", "created_at": "2026-06-01T16:00:00Z" },
-    { "id": "acc_bili_001", "platform": "bilibili", "name": "B站测试UP", "is_default": true, "status": "online", "created_at": "2026-06-15T12:00:00Z" },
-    { "id": "acc_baijiahao_001", "platform": "baijiahao", "name": "百家号测试", "is_default": true, "status": "active", "created_at": "2026-07-01T08:00:00Z" }
+    { "id": "acc_weibo_001", "platform": "weibo", "name": "测试微博账号1", "account_name": "测试微博账号1", "is_default": true, "status": "online", "created_at": "2026-01-15T08:30:00Z" },
+    { "id": "acc_weibo_002", "platform": "weibo", "name": "测试微博账号2", "account_name": "测试微博账号2", "is_default": false, "status": "active", "created_at": "2026-02-20T10:00:00Z" },
+    { "id": "acc_zhihu_001", "platform": "zhihu", "name": "知乎测试号", "account_name": "知乎测试号", "is_default": true, "status": "online", "created_at": "2026-03-10T14:00:00Z" },
+    { "id": "acc_douyin_001", "platform": "douyin", "name": "抖音测试号", "account_name": "抖音测试号", "is_default": true, "status": "active", "created_at": "2026-04-05T09:00:00Z" },
+    { "id": "acc_xhs_001", "platform": "xiaohongshu", "name": "小红书测试", "account_name": "小红书测试", "is_default": true, "status": "online", "created_at": "2026-05-12T11:30:00Z" },
+    { "id": "acc_wechat_001", "platform": "wechat_mp", "name": "微信公众号A", "account_name": "微信公众号A", "name_source": "manual", "is_default": true, "status": "active", "created_at": "2026-06-01T16:00:00Z" },
+    { "id": "acc_bili_001", "platform": "bilibili", "name": "B站测试UP", "account_name": "B站测试UP", "is_default": true, "status": "online", "created_at": "2026-06-15T12:00:00Z" },
+    { "id": "acc_baijiahao_001", "platform": "baijiahao", "name": "百家号测试", "account_name": "百家号测试", "is_default": true, "status": "active", "created_at": "2026-07-01T08:00:00Z" }
   ],
   "platforms": [
     "wechat_mp", "zhihu", "weibo", "douyin", "xiaohongshu",

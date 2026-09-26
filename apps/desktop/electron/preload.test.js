@@ -201,10 +201,10 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(123)
   })
 
-  it('account 模块应导出 46 个方法', () => {
+  it('account 模块应导出 47 个方法（+accountRename：改名写后端真源，openspec add-account-name-source）', () => {
     const { createAccountApi } = require('./preload/account')
     const r = createAccountApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(46)
+    expect(Object.keys(r).length).toBe(47)
   })
 
   it('system 模块应导出 148 个方法', () => {
@@ -222,8 +222,8 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(148)
   })
 
-  it('合并后 api 总键数应为 330（accountSetActive + pipelineConfirmStageGate + P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus/servicesRestart + urlCollectNeedsStealth + promptLibraryGet/Save/Activate + updateInstallNow + opsCenterSyncAppMenu + onUploadProgress + renderStartAiVideo + PR-2 F8 getRecentImpactSnapshots - webview 分屏监控 API 移除 + A1 identitySessions/identitySessionsRevokeOthers/identityNotifications/identityNotificationsMarkRead + onOpsCenterRuntimeUpdated（330 = main 的 329 + 本 PR 新增 1）', () => {
-    expect(Object.keys(api).length).toBe(330)
+  it('合并后 api 总键数应为 331（accountSetActive + pipelineConfirmStageGate + P2-2 generateAiCover + pipelineCancelRun + P3-7 listPlatformCollections + servicesGetStatus/servicesRestart + urlCollectNeedsStealth + promptLibraryGet/Save/Activate + updateInstallNow + opsCenterSyncAppMenu + onUploadProgress + renderStartAiVideo + PR-2 F8 getRecentImpactSnapshots - webview 分屏监控 API 移除 + A1 identitySessions/identitySessionsRevokeOthers/identityNotifications/identityNotificationsMarkRead + onOpsCenterRuntimeUpdated + accountRename（331 = 上一基线 330 + 本 PR 新增 1）', () => {
+    expect(Object.keys(api).length).toBe(331)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {

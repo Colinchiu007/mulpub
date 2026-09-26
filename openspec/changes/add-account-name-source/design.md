@@ -28,8 +28,9 @@
 
 ## Decisions
 
-**D1：`name_source` 落在后端 `accounts.json`，取值 `Literal["auto","manual"]`，缺失一律归一为 `auto`。**
+**D1：`name_source` 落在后端 `accounts.json`，取值 `auto` / `manual`，缺失一律归一为 `auto`。**
 新增 `_normalize_account_name_source()`，与既有 `_normalize_account_status`（`:251-258`）、`_normalize_account_active`（`:261-273`）同风格，在投影（`:405-420`）与 PATCH（`:555-576`）两处各调一次。
+*实现期修正*：字段类型用 `str | None` 而非 `Literal["auto","manual"] | None`。因为 spec 要求非法值**归一为 auto**，而 `Literal` 会让 `"foo"` 直接 422，语义不符；`status` 也是同样的 `str | None` + 显式处理。同理大小写不敏感（`"MANUAL"` → `manual`）以对齐 `_normalize_account_status` 的 `strip().lower()` 约定。
 *备选*：启动时遍历补齐所有行的该字段并回写文件 —— 否决：需要在启动路径做整文件原子重写，Windows 上引入 `renameSync` 冲突面（`AGENTS.md` 的「Windows 原子文件替换重试」条目），且读时归一已能给出确定语义，写盘补齐不增加正确性。
 *备选*：不加字段、继续用 `isNoiseAccountName` 猜 —— 否决：这正是本 change 要消除的根因，猜错的方向是「藏掉用户的字」。
 
@@ -38,9 +39,16 @@
 *备选*：在 IPC 层直接把 `name_source` 应用掉、给渲染层一个算好的 `displayName` —— 否决：会让编辑框回填值与显示值分家（评审实测的「编辑框回填的是平台名」正是这种提前合并的后果），且排序/搜索需要同一口径却拿不到原始字段。
 **排序与搜索 MUST 用解析后的显示名**，否则用户搜不到、排不到自己起的名字。
 
-**D3：改名改走后端 PATCH 真源，并同批写 `name_source='manual'`。**
+**D3：改名改走后端 PATCH 真源，并同批写 `account_name` + `name_source='manual'`。**
 `renameAccount` 不再使用 `accountUpdate`（SQLite 通道）。沿用 `publisher.js` 中已被验证可用的后端通道形态（`batchSetActive` 即因同类问题被明确要求「不得改回 accountUpdate」，见 `publisher.js:102-103`、`stores/accounts.js:398-401`）。改名失败 MUST 保留旧值并提示，不得出现界面与存储分裂。
-*备选*：保留 SQLite 通道、在读取时做双源合并 —— 否决：两份真源的读读不一致无法靠合并消除，且会把断链缺陷留在原地。
+
+**字段语义（实现期修正，原 D3 有误）**：`name_source` 描述的是 **`account_name`**，不是 `name`。理由：卡片 `AccountManagementCard.vue:227` 的读取顺序是 `account_name || name`，`account_name` 是优先显示位。若按原 D3 把手改名写进 `name`，则凡是 `account_name` 已有合法机器昵称的账号（例：微信公众号 `数字生命丘丘`）改名后仍显示 `account_name`，`manual` 永远不可见 —— 本 change 的核心目标直接落空。故：
+- `account_name` = 显示名主体，机器回填写它（`auto`）、用户改名也写它（`manual`）；`name_source` 记录它的来源。
+- `name` = 平台显示名 / 历史兼容字段，不再参与优先显示位，仅作为 `account_name` 为空时的兜底候选之一。
+- 连带收益：`refreshProfileFromHttpApi` 现有的「`account_name` 非噪声 ⇒ 不覆盖」启发式，升级为「`name_source === 'manual'` ⇒ 不覆盖」，判据从猜文本形态变成读显式意图。
+
+*备选*：把 `name` 从显示链彻底移除（单一显示字段）—— 否决：`PublishTargetSelector.vue:35,76` 等核心发布路径目前只读 `name`，一并改动会把回归面从账号页扩大到发布页，超出本 change 边界。
+*备选*：卡片改为优先读 `name` —— 否决：实测 7 条存量的 `name` 全部是网页标题（`首页 - 知乎`、`公众号`、`快手，记录世界 记录你`），等于让标题盖住真实昵称，比现状更糟。
 
 **D4：回填保护由「非噪声即保护」改为「`name_source === 'manual'` 即不覆盖」。**
 `refreshProfileFromHttpApi`（`account-manager.js:701-725`）与 `refreshProfileFromPage`（`:672-691`）读 `name_source` 短路；`auto` 值仍走噪声判定 + 「新值合格才覆盖」。噪声守卫本身不动。

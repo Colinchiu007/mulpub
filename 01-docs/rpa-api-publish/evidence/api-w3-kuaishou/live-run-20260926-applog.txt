@@ -1,0 +1,130 @@
+# 6.3 活体验收 run 2026-09-26T08:19:21Z~08:23:26Z (kuaishou a4505f45, task_1_1790410761499)
+[2026-09-26T08:19:15.751Z] [INFO] PythonBackend 2026-09-26 16:19:15.752 | INFO     | __main__:_request_log_middleware:183 | request method=GET path=/api/health status=200 duration_ms=1.3 request_id=0d370149c4b74faba67bf360ce601a9c
+[2026-09-26T08:19:21.497Z] [INFO] PublishIPC publish:batch enter :: platforms=[kuaishou:a4505f45] title="凌晨四点的工厂，老张和那批微米级误差" | video="8cf8ab62be3acf89623f4e18e01867c37630\mud6t754_wwcm\video.mp4" | tags=2
+[2026-09-26T08:19:21.586Z] [INFO] RpaView publish start platform=kuaishou hasTitle=true hasVideo=true timeoutMs=1800000
+[2026-09-26T08:19:21.591Z] [INFO] RpaView [kuaishou] using API publish engine...
+[2026-09-26T08:19:21.593Z] [INFO] PublishIPC publish:batch ok :: taskIds=[task_1_1790410761499] 耗时=96ms
+[2026-09-26T08:19:21.594Z] [ERROR] RpaView API publish kuaishou: kuaishou: 账号信息缺失，请重新授权此账号再试
+[2026-09-26T08:19:21.594Z] [WARN] RpaView API failed, falling back to RPA for kuaishou
+[2026-09-26T08:19:21.595Z] [INFO] RpaView [kuaishou] starting browser...
+[2026-09-26T08:19:21.633Z] [INFO] RpaView [kuaishou] cookies restored
+[2026-09-26T08:19:21.659Z] [INFO] RpaView [kuaishou] supplemented 16/16 cookies from auth partition account-a4505f45
+[2026-09-26T08:19:21.962Z] [WARN] RpaView page console: %cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security
+[2026-09-26T08:19:21.963Z] [INFO] RpaView browser storage restored
+[2026-09-26T08:19:21.970Z] [INFO] RpaView [kuaishou] publish config=provided; selectorCount=10; publishButtons=7; titleInputs=2; fileInputs=2; hasCoverInput=true; hasTitle=true; hasVideo=true; hasCover=false
+[2026-09-26T08:19:21.971Z] [INFO] RpaView [kuaishou] navigating...
+[2026-09-26T08:19:22.295Z] [WARN] RpaView page console: %cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security
+[2026-09-26T08:19:25.315Z] [INFO] RpaView [kuaishou] post-nav dialogs dismissed: 放弃
+[2026-09-26T08:19:25.316Z] [INFO] RpaView [kuaishou] file input hasVideo=true selectorCount=2
+[2026-09-26T08:19:25.316Z] [INFO] RpaView [kuaishou] uploading file...
+[2026-09-26T08:19:25.346Z] [INFO] RpaView CDP file: video.mp4
+[2026-09-26T08:19:45.755Z] [INFO] PythonBackend 2026-09-26 16:19:45.756 | INFO     | __main__:_request_log_middleware:183 | request method=GET path=/api/health status=200 duration_ms=1.6 request_id=a6af04cc1cd24c9faea0f3ae9c54c37a
+[2026-09-26T08:19:50.363Z] [INFO] RpaView [kuaishou] file uploaded
+[2026-09-26T08:19:50.364Z] [INFO] RpaView [kuaishou] title input hasTitle=true titleType=string selectorCount=2
+[2026-09-26T08:20:00.367Z] [INFO] RpaView waitForElement timeout sel=input[placeholder*="标题"] timeoutMs=10000 url=https://cp.kuaishou.com/article/publish/video?tabType=1
+[2026-09-26T08:20:03.371Z] [INFO] RpaView waitForElement timeout sel=[class*="title"] input timeoutMs=3000 url=https://cp.kuaishou.com/article/publish/video?tabType=1
+[2026-09-26T08:20:03.373Z] [INFO] RpaView [kuaishou] no dedicated title field, title falls back to editor sel=#work-description-edit
+[2026-09-26T08:20:03.373Z] [INFO] RpaView [kuaishou] filling title...
+[2026-09-26T08:20:03.561Z] [INFO] RpaView [kuaishou] content already composed into editor caption, skip separate fill
+[2026-09-26T08:20:03.562Z] [INFO] RpaView [kuaishou] preparing AI declaration...
+[2026-09-26T08:20:03.564Z] [INFO] RpaView [kuaishou] AI declaration result: ALREADY:true
+[2026-09-26T08:20:04.574Z] [INFO] RpaView [kuaishou] AI declaration prep state=done aiGenerated=true option=ALREADY:true
+[2026-09-26T08:20:04.575Z] [INFO] RpaView [kuaishou] DIAG[publish2] pubBtn=7 cfgHasApi=true prePublishHook=
+[2026-09-26T08:20:04.575Z] [INFO] RpaView [kuaishou] publishing...
+[2026-09-26T08:20:07.578Z] [INFO] RpaView waitForElement timeout sel=button:has-text("发布") timeoutMs=3000 url=https://cp.kuaishou.com/article/publish/video?tabType=1
+[2026-09-26T08:20:10.585Z] [INFO] RpaView waitForElement timeout sel=button:has-text("发表") timeoutMs=3000 url=https://cp.kuaishou.com/article/publish/video?tabType=1
+[2026-09-26T08:20:13.602Z] [INFO] RpaView waitForElement timeout sel=span:has-text("发 布") timeoutMs=3000 url=https://cp.kuaishou.com/article/publish/video?tabType=1
+[2026-09-26T08:20:13.618Z] [INFO] RpaView [kuaishou] verifying...
+[2026-09-26T08:20:15.763Z] [INFO] PythonBackend 2026-09-26 16:20:15.763 | INFO     | __main__:_request_log_middleware:183 | request method=GET path=/api/health status=200 duration_ms=1.0 request_id=22c71abbbfdc4d28acc6f1a8c8e1caf3
+[2026-09-26T08:20:19.128Z] [WARN] RpaView page console: %cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security
+[2026-09-26T08:20:23.797Z] [WARN] RpaView page console: %cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security
+[2026-09-26T08:20:28.750Z] [WARN] RpaView page console: %cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security
+[2026-09-26T08:20:36.686Z] [WARN] RpaView page console: %cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security
+[2026-09-26T08:20:41.206Z] [WARN] RpaView [kuaishou] publish signal lacked platform ID; endpoint=https://cp.kuaishou.com/article/publish/video responses=0
+[2026-09-26T08:20:41.208Z] [WARN] RpaView publish failed platform=kuaishou error=发布结果缺少平台作品 ID url=https://cp.kuaishou.com/article/publish/video
+[2026-09-26T08:20:41.215Z] [ERROR] Executor Publish failed for kuaishou: 发布结果缺少平台作品 ID
+[2026-09-26T08:20:41.312Z] [INFO] RpaView publish start platform=kuaishou hasTitle=true hasVideo=true timeoutMs=1800000
+[2026-09-26T08:20:41.313Z] [INFO] RpaView [kuaishou] using API publish engine...
+[2026-09-26T08:20:41.314Z] [ERROR] RpaView API publish kuaishou: kuaishou: 账号信息缺失，请重新授权此账号再试
+[2026-09-26T08:20:41.314Z] [WARN] RpaView API failed, falling back to RPA for kuaishou
+[2026-09-26T08:20:41.314Z] [INFO] RpaView [kuaishou] starting browser...
+[2026-09-26T08:20:41.361Z] [INFO] RpaView [kuaishou] cookies restored
+[2026-09-26T08:20:41.393Z] [INFO] RpaView [kuaishou] supplemented 16/16 cookies from auth partition account-a4505f45
+[2026-09-26T08:20:41.827Z] [WARN] RpaView page console: %cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security
+[2026-09-26T08:20:41.828Z] [INFO] RpaView browser storage restored
+[2026-09-26T08:20:41.829Z] [INFO] RpaView [kuaishou] publish config=provided; selectorCount=10; publishButtons=7; titleInputs=2; fileInputs=2; hasCoverInput=true; hasTitle=true; hasVideo=true; hasCover=false
+[2026-09-26T08:20:41.829Z] [INFO] RpaView [kuaishou] navigating...
+[2026-09-26T08:20:42.631Z] [WARN] RpaView page console: %cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security
+[2026-09-26T08:20:45.400Z] [INFO] RpaView [kuaishou] post-nav dialogs dismissed: 放弃
+[2026-09-26T08:20:45.401Z] [INFO] RpaView [kuaishou] file input hasVideo=true selectorCount=2
+[2026-09-26T08:20:45.402Z] [INFO] RpaView [kuaishou] uploading file...
+[2026-09-26T08:20:45.424Z] [INFO] RpaView CDP file: video.mp4
+[2026-09-26T08:20:45.771Z] [INFO] PythonBackend 2026-09-26 16:20:45.770 | INFO     | __main__:_request_log_middleware:183 | request method=GET path=/api/health status=200 duration_ms=1.8 request_id=09e15d1ec3e842a08bea81f863bd7a6f
+[2026-09-26T08:21:10.441Z] [INFO] RpaView [kuaishou] file uploaded
+[2026-09-26T08:21:10.442Z] [INFO] RpaView [kuaishou] title input hasTitle=true titleType=string selectorCount=2
+[2026-09-26T08:21:15.773Z] [INFO] PythonBackend 2026-09-26 16:21:15.771 | INFO     | __main__:_request_log_middleware:183 | request method=GET path=/api/health status=200 duration_ms=1.6 request_id=246d8e308b35494f9378e25917cdb7f8
+[2026-09-26T08:21:20.447Z] [INFO] RpaView waitForElement timeout sel=input[placeholder*="标题"] timeoutMs=10000 url=https://cp.kuaishou.com/article/publish/video?tabType=1
+[2026-09-26T08:21:23.449Z] [INFO] RpaView waitForElement timeout sel=[class*="title"] input timeoutMs=3000 url=https://cp.kuaishou.com/article/publish/video?tabType=1
+[2026-09-26T08:21:23.450Z] [INFO] RpaView [kuaishou] no dedicated title field, title falls back to editor sel=#work-description-edit
+[2026-09-26T08:21:23.451Z] [INFO] RpaView [kuaishou] filling title...
+[2026-09-26T08:21:23.638Z] [INFO] RpaView [kuaishou] content already composed into editor caption, skip separate fill
+[2026-09-26T08:21:23.638Z] [INFO] RpaView [kuaishou] preparing AI declaration...
+[2026-09-26T08:21:23.642Z] [INFO] RpaView [kuaishou] AI declaration result: ALREADY:true
+[2026-09-26T08:21:24.655Z] [INFO] RpaView [kuaishou] AI declaration prep state=done aiGenerated=true option=ALREADY:true
+[2026-09-26T08:21:24.656Z] [INFO] RpaView [kuaishou] DIAG[publish2] pubBtn=7 cfgHasApi=true prePublishHook=
+[2026-09-26T08:21:24.656Z] [INFO] RpaView [kuaishou] publishing...
+[2026-09-26T08:21:27.660Z] [INFO] RpaView waitForElement timeout sel=button:has-text("发布") timeoutMs=3000 url=https://cp.kuaishou.com/article/publish/video?tabType=1
+[2026-09-26T08:21:30.664Z] [INFO] RpaView waitForElement timeout sel=button:has-text("发表") timeoutMs=3000 url=https://cp.kuaishou.com/article/publish/video?tabType=1
+[2026-09-26T08:21:33.672Z] [INFO] RpaView waitForElement timeout sel=span:has-text("发 布") timeoutMs=3000 url=https://cp.kuaishou.com/article/publish/video?tabType=1
+[2026-09-26T08:21:33.690Z] [INFO] RpaView [kuaishou] verifying...
+[2026-09-26T08:21:39.034Z] [WARN] RpaView page console: %cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security
+[2026-09-26T08:21:43.886Z] [WARN] RpaView page console: %cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security
+[2026-09-26T08:21:45.775Z] [INFO] PythonBackend 2026-09-26 16:21:45.773 | INFO     | __main__:_request_log_middleware:183 | request method=GET path=/api/health status=200 duration_ms=1.5 request_id=51ac2e1f6de040689fd73d74566f29c0
+[2026-09-26T08:21:49.299Z] [WARN] RpaView page console: %cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security
+[2026-09-26T08:21:57.297Z] [WARN] RpaView page console: %cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security
+[2026-09-26T08:22:02.031Z] [WARN] RpaView [kuaishou] publish signal lacked platform ID; endpoint=https://cp.kuaishou.com/article/publish/video responses=0
+[2026-09-26T08:22:02.033Z] [WARN] RpaView publish failed platform=kuaishou error=发布结果缺少平台作品 ID url=https://cp.kuaishou.com/article/publish/video
+[2026-09-26T08:22:02.042Z] [ERROR] Executor Publish failed for kuaishou: 发布结果缺少平台作品 ID
+[2026-09-26T08:22:02.158Z] [INFO] RpaView publish start platform=kuaishou hasTitle=true hasVideo=true timeoutMs=1800000
+[2026-09-26T08:22:02.159Z] [INFO] RpaView [kuaishou] using API publish engine...
+[2026-09-26T08:22:02.160Z] [ERROR] RpaView API publish kuaishou: kuaishou: 账号信息缺失，请重新授权此账号再试
+[2026-09-26T08:22:02.160Z] [WARN] RpaView API failed, falling back to RPA for kuaishou
+[2026-09-26T08:22:02.161Z] [INFO] RpaView [kuaishou] starting browser...
+[2026-09-26T08:22:02.212Z] [INFO] RpaView [kuaishou] cookies restored
+[2026-09-26T08:22:02.256Z] [INFO] RpaView [kuaishou] supplemented 16/16 cookies from auth partition account-a4505f45
+[2026-09-26T08:22:04.493Z] [WARN] RpaView page console: %cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security
+[2026-09-26T08:22:04.495Z] [INFO] RpaView browser storage restored
+[2026-09-26T08:22:04.496Z] [INFO] RpaView [kuaishou] publish config=provided; selectorCount=10; publishButtons=7; titleInputs=2; fileInputs=2; hasCoverInput=true; hasTitle=true; hasVideo=true; hasCover=false
+[2026-09-26T08:22:04.496Z] [INFO] RpaView [kuaishou] navigating...
+[2026-09-26T08:22:05.670Z] [WARN] RpaView page console: %cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security
+[2026-09-26T08:22:08.685Z] [INFO] RpaView [kuaishou] post-nav dialogs dismissed: 放弃
+[2026-09-26T08:22:08.686Z] [INFO] RpaView [kuaishou] file input hasVideo=true selectorCount=2
+[2026-09-26T08:22:08.687Z] [INFO] RpaView [kuaishou] uploading file...
+[2026-09-26T08:22:08.719Z] [INFO] RpaView CDP file: video.mp4
+[2026-09-26T08:22:15.778Z] [INFO] PythonBackend 2026-09-26 16:22:15.777 | INFO     | __main__:_request_log_middleware:183 | request method=GET path=/api/health status=200 duration_ms=2.1 request_id=9d94bfd5cd73412b99573822d5f91f8f
+[2026-09-26T08:22:33.729Z] [INFO] RpaView [kuaishou] file uploaded
+[2026-09-26T08:22:33.730Z] [INFO] RpaView [kuaishou] title input hasTitle=true titleType=string selectorCount=2
+[2026-09-26T08:22:43.734Z] [INFO] RpaView waitForElement timeout sel=input[placeholder*="标题"] timeoutMs=10000 url=https://cp.kuaishou.com/article/publish/video?tabType=1
+[2026-09-26T08:22:45.788Z] [INFO] PythonBackend 2026-09-26 16:22:45.787 | INFO     | __main__:_request_log_middleware:183 | request method=GET path=/api/health status=200 duration_ms=0.9 request_id=f3293bb128ea46109f9e4312ce86d667
+[2026-09-26T08:22:46.739Z] [INFO] RpaView waitForElement timeout sel=[class*="title"] input timeoutMs=3000 url=https://cp.kuaishou.com/article/publish/video?tabType=1
+[2026-09-26T08:22:46.741Z] [INFO] RpaView [kuaishou] no dedicated title field, title falls back to editor sel=#work-description-edit
+[2026-09-26T08:22:46.742Z] [INFO] RpaView [kuaishou] filling title...
+[2026-09-26T08:22:46.971Z] [INFO] RpaView [kuaishou] content already composed into editor caption, skip separate fill
+[2026-09-26T08:22:46.971Z] [INFO] RpaView [kuaishou] preparing AI declaration...
+[2026-09-26T08:22:46.976Z] [INFO] RpaView [kuaishou] AI declaration result: ALREADY:true
+[2026-09-26T08:22:47.983Z] [INFO] RpaView [kuaishou] AI declaration prep state=done aiGenerated=true option=ALREADY:true
+[2026-09-26T08:22:47.984Z] [INFO] RpaView [kuaishou] DIAG[publish2] pubBtn=7 cfgHasApi=true prePublishHook=
+[2026-09-26T08:22:47.985Z] [INFO] RpaView [kuaishou] publishing...
+[2026-09-26T08:22:51.003Z] [INFO] RpaView waitForElement timeout sel=button:has-text("发布") timeoutMs=3000 url=https://cp.kuaishou.com/article/publish/video?tabType=1
+[2026-09-26T08:22:54.019Z] [INFO] RpaView waitForElement timeout sel=button:has-text("发表") timeoutMs=3000 url=https://cp.kuaishou.com/article/publish/video?tabType=1
+[2026-09-26T08:22:57.030Z] [INFO] RpaView waitForElement timeout sel=span:has-text("发 布") timeoutMs=3000 url=https://cp.kuaishou.com/article/publish/video?tabType=1
+[2026-09-26T08:22:57.052Z] [INFO] RpaView [kuaishou] verifying...
+[2026-09-26T08:23:02.979Z] [WARN] RpaView page console: %cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security
+[2026-09-26T08:23:08.110Z] [WARN] RpaView page console: %cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security
+[2026-09-26T08:23:13.671Z] [WARN] RpaView page console: %cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security
+[2026-09-26T08:23:15.795Z] [INFO] PythonBackend 2026-09-26 16:23:15.793 | INFO     | __main__:_request_log_middleware:183 | request method=GET path=/api/health status=200 duration_ms=1.3 request_id=d0e641906d834634bfd1a37ae5c26443
+[2026-09-26T08:23:21.745Z] [WARN] RpaView page console: %cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security
+[2026-09-26T08:23:26.220Z] [WARN] RpaView [kuaishou] publish signal lacked platform ID; endpoint=https://cp.kuaishou.com/article/publish/video responses=0
+[2026-09-26T08:23:26.221Z] [WARN] RpaView publish failed platform=kuaishou error=发布结果缺少平台作品 ID url=https://cp.kuaishou.com/article/publish/video
+[2026-09-26T08:23:26.228Z] [ERROR] Executor Publish failed for kuaishou: 发布结果缺少平台作品 ID
+[2026-09-26T08:23:45.811Z] [INFO] PythonBackend 2026-09-26 16:23:45.809 | INFO     | __main__:_request_log_middleware:183 | request method=GET path=/api/health status=200 duration_ms=1.9 request_id=1832ac06ce1743d2a9f2df7e73219b77

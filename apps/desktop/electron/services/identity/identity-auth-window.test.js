@@ -37,6 +37,22 @@ function deferred() {
   return { promise, resolve, reject }
 }
 
+/**
+ * 等待某个外部状态出现。**必须让出宏任务**：原先写作 `while (...) await Promise.resolve()`
+ * 只在微任务队列里自旋，vitest 基于 setTimeout 的 testTimeout 打不断它 —— 生产侧一旦不再创建窗口，
+ * 就是整个 worker 死循环，只能靠 CI job 级 30 分钟预算硬杀（表现为"无故卡死"的红灯）。
+ * 现在既有预算也会响亮失败，说清"等到第几个、实际几个"。
+ */
+async function waitUntil (cond, describeState, timeoutMs = 2000) {
+  const deadline = Date.now() + timeoutMs
+  while (!cond()) {
+    if (Date.now() > deadline) {
+      throw new Error(`${describeState()}（预算 ${timeoutMs}ms 内未达成）`)
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  }
+}
+
 describe('IdentityAuthWindow', () => {
   let fake
   let shell
@@ -331,9 +347,9 @@ describe('IdentityAuthWindow', () => {
     })
 
     const firstOpen = authWindow.open('https://auth.example.com/sign-in?attempt=1')
-    while (fake.instances.length < 1) await Promise.resolve()
+    await waitUntil(() => fake.instances.length >= 1, () => `第 1 个认证窗口未创建，实际 ${fake.instances.length} 个`)
     const secondOpen = authWindow.open('https://auth.example.com/sign-in?attempt=2')
-    while (fake.instances.length < 2) await Promise.resolve()
+    await waitUntil(() => fake.instances.length >= 2, () => `第 2 个认证窗口未创建，实际 ${fake.instances.length} 个`)
     loads[0].reject(new Error('旧窗口加载失败'))
     await expect(firstOpen).resolves.toBeUndefined()
     loads[1].resolve()

@@ -1,3 +1,59 @@
+## 「重试/恢复」必须连它自己产生的证据一起设计，否则修好了运行、修不红门（e2e-transient-resource-reload，2026-09-27）
+
+- **同一个错误码往往有多条传播路径，只修第一条等于没修（pitfall，本片的根因）**：`net::ERR_NO_BUFFER_SPACE` 上一次由 #2423 处理，但只处理了「`page.goto` 自己抛错」的**文档导航**路径；子资源（Vite 按需编译的模块 chunk / CSS）失败时 `goto` **成功返回**，唯一的信号是 `page.on('requestfailed')` —— 而这个监听从来没挂过，于是应用壳子永不挂载，同一个错误码在本仓库被一半地认可为"可恢复"。**口径**：给任何瞬时故障加恢复逻辑时，先穷举这个错误码能从哪些通道冒出来（抛错 / 事件 / console / 退出码 / 产物字段），逐条问"这条路径我处理了吗"；只处理你撞见的那一条，就是给下一条留雷。
+- **`N × locator resolved` 是"在等错东西"的指纹，不是"快好了"（pattern，可直接用于排障）**：`locator('#app').waitFor({state:'visible'})` 超时却打印 `34 × locator resolved` ⇒ 节点一直存在但零高度 = 容器常驻、内容从未挂载。凡是"resolved 很多次仍超时"，第一动作不是加大超时，而是去产物里找**同一次运行**的 `consoleErrors` / 网络证据，并改判为"等的是外壳、该等内容出口"（配合上一条规则：判据锚定最小出口）。这条指纹读法比"重试一次"更可复用。
+- **恢复逻辑必须自带证据卫生，否则"已恢复"的运行仍被自家门禁判红（pitfall，本片最值钱的一条）**：加上重载后我一开始以为完事了 —— 但 `route-functional-suite.js` 既检查 `expectNoConsoleError()` 又把 `report.consoleErrors.length` 计入退出码，而**重载不会抹掉旧页面状态里已记录的那条 console 错误**。结果：应用真的恢复了、断言全绿，门照样红。修法是把"恢复"当作一次状态转换：属于该错误码的证据按码**精确**移出判据清单、落入独立留痕（`recoveredTransientErrors` → 产物 `transientRecoveries` / `recoveredConsoleErrors`），并且**非该码一律不移出**、**预算耗尽时末次证据必须保留**。**推广**：任何 retry/fallback/reload 型恢复，写完之后都要单独问一句"上一次失败尝试留在观测系统里的痕迹谁负责处理"；处理方式是"移出判据 + 留下痕迹"，而不是"继续判红"或"当没发生"。
+- **防污染要落在"证据光标"上，而不是"清理全局数组"上（pattern）**：`requestfailed` 采集是整页生命周期累加的，若判据看的是"有没有任何一次资源失败"，一次真实故障会让后续所有 spec 各自重载 2 次（表现为一次抖动演变成整轮全红 + 时长翻倍）。做法是**每次导航前**记 `resourceFailures.length` 快照、判据只看 `slice(mark)`，重载时复用同一个 `navigate()` 从而重新落位光标。**一般化**：任何"从累加观测数组里判断本轮是否发生 X"的设计都需要一个本轮游标；清空数组的写法看似简单，会把跨轮次的因果链剪断，也让并行/顺序变化时行为漂移。
+- **需要真实浏览器才能执行的挂载代码，用"方法收敛 + 结构锁"两层覆盖（pattern）**：`launch()` 要 `chromium.launch()`，单测跑不了；把 console/pageerror/requestfailed 三类监听收进 `attachPageObservers(page)`，用假 page（记录 `on` 的事件名并可 `emit`）测采集形状与既有过滤口径，再补一条源码结构锁断言 `launch()` 里出现 `this.attachPageObservers(this.page)` 且不再内联 `this.page.on(` —— 否则方法写好了却被绕开，测试仍然全绿。**这比"给 launch 塞依赖注入"便宜，也比"只测方法存在"可靠。**
+- **超时判据必须认识自己抛的错，否则恢复路径是死代码（pitfall）**：`isPlaywrightTimeout` 只匹配英文 `Timeout ...ms exceeded`，而 runner 自身在预算被前序步骤耗尽时抛的是中文「等待应用就绪超时（15000ms）」—— 这条分支下重载**永远不会触发**。凡"识别错误类型决定是否重试"的实现，必须把**自己代码里所有抛出点**过一遍（不只有第三方库），并为"自家错误文案"单独锁一条用例（本片已加）。改名 `isAppReadyTimeout` 同义：判据的名字要说明它判的是什么，不然下一个人只会往里加 Playwright 的形状。
+- **反证要做成逐条可重放的脚本，一次覆盖多个锁（verification）**：本片把 4 个变异（预算改 0 / 光标 `.slice(0)` / 清噪条件改 `if (true)` / 删 `requestfailed` 监听）写成一份临时脚本，备份→变异→跑→还原→最后校验字节级一致，得到 `6/1/1/2 条红 + restored 23/23 绿` 的对照表。**收益**：手工逐个试变异很容易在第二次就偷懒，脚本化后每加一条锁都能顺手反证一遍；同时也满足仓库纪律"任何防再犯锁必须做一次把锁改成 no-op 立刻变红的变异"。**教训补充**：解析测试输出的正则要先确认 reporter 的真实格式（我先用 `# fail N`（TAP）解析 spec reporter 的输出，得到 `-1` 却被判成"RED 未触发"，差点误报反证失败）—— 反证脚本本身也要有"锚点没找到就 SKIP 并明说"的分支，否则静默给出假结论。
+- **跑不了的验证必须写在纸面上，不许用相邻证据冒充（verification，纪律）**：本机 `%LOCALAPPDATA%\ms-playwright` 与 `apps/desktop/.playwright-browsers` 都不存在 ⇒ 18 个 spec 全部死在 `browserType.launch`。我把本地 vite 起停跑通**不等于**真实浏览器路径验证过 —— 浏览器级证据只能由 CI Gate 8 兑现。同理本片 QM-1（只改 `tests/`，前提不成立，未执行）与 QM-6（未执行）都按缺口登记，不写成"已通过"。
+## 同一个根因第四次出现时停止逐颗修：清点是「家族 vs 孤例」的唯一判据（test-unbounded-network-guards，2026-09-26）
+
+- **判"是不是家族"要看处方是否同一条，而不是症状是否相似（pattern，本片的方法论）**：本会话四颗随机红的表面现象完全不同（E2E 标题断言红 / 对拍超时 / 文件锁 60s 超时 / IPC 用例 10s 超时），但处方是同一句 —— **给等待加边界，并让诊断比框架先到**。出现第三次时就该停止"再修一颗"，改为先做清点。清点给出的才是可决策的规模：`nock`/`msw`/`setupServer` 全仓命中 **0**（没有任何传输层兜底）、疑似真出网 21 文件、其它无预算等待约 55 文件、**35 处 per-test 超时里 34 处大于全局 `testTimeout=10000`**（"全局预算是上界"这个前提其实早已不成立）。**没有这组数字，我会在第四颗上继续写单点修复。**
+- **"永远不该绿却绿着"的断言，识别信号写在注释里（pitfall）**：`zhihu-favlist.test.js > list 成功 → code 0 + favlists` 实际只 `expect(r).toHaveProperty("code")`，而错误路径也带 `code` ⇒ 它测的从来不是成功。注释里明写「真实网络调用会失败（无真实 secret/网络），验证错误路径结构」——**用例名承诺 A、注释承认测的是 B**，这类错位是最高性价比的审查目标。修法是拆成两条真断言（成功路径 + 失败路径），并要求成功那条**顺带证明请求经过桩**（断言 URL 与 `Bearer` 头），否则它下次仍会悄悄变成真出网。
+- **预算倒挂 = "谁先到期"决定你能看到什么信息（pitfall，本片最可迁移的一条）**：服务侧 axios `timeout: 15000` 大于框架 `testTimeout: 10000` ⇒ 挂起时永远由框架先赢，红里只剩 `Test timed out in 10000ms`，真实原因（DNS？连接被拒？对端挂起？）连同堆栈一起被吃掉。**口径**：凡"期望被调方失败"的用例，被测侧超时必须**严格小于**框架超时；否则等于主动放弃可归因性。反过来也成立 —— 守卫类兜底要在框架之前触发（本片守卫的 20s/30s 预算刻意小于用例 60s 上限，同一条纪律第三次出现）。
+- **`await Promise.resolve()` 让出的不是宏任务 ⇒ 框架超时对它免疫（pitfall，"要有超时"之外的第二层要求）**：`while (cond) await Promise.resolve()` 只在微任务队列自旋，事件循环走不到宏任务阶段，vitest/node:test 那些基于 `setTimeout` 的超时打不断它，条件永不满足就是 worker 死循环，CI 只能靠 job 级 30 分钟预算硬杀（表现为"无故卡死、无堆栈"）。**可打断性**是比"设了超时值"更强的要求：轮询必须让出宏任务（`setTimeout(r, 0)` / `vi.advanceTimersByTimeAsync`）并自带 deadline + 响亮错误。已固化成零容忍门禁 `check-test-microtask-spin.js`（Gate 19），配 4 条"合法写法不得命中"的反例夹具 —— 只测"能抓到"不测"不误伤"的静态门禁，会在下一个真实用例上被拆台。
+- **给运行时核心对象打补丁，参数形状必须实测，且读不出来时必须出声（pattern，本片我亲自写错的那版）**：我以为 `http`/`undici` 会以 `options.host` 调 `Socket.prototype.connect`，实测 Node 24 传的是 **`[options, cb]` 这个数组作为单个参数** ⇒ 我的解析判成 unknown、静默放过，守卫形同虚设而测试仍然挂。修法是递归展开数组；更重要的是加了一条 **"读不出目标就 `console.warn`"** —— 静默放过的守卫会随一次运行时升级无声失效，而它的"没报错"看起来和正常工作一模一样。同一教训适用于任何结构断言：定位不到必须红，不允许 `return`/skip（见 QM-2「宿主 API 字段归属」「禁止数 `..` 层级」）。
+
+- **跨运行时可移植性：不要拿"错误文案能穿透"当契约（pitfall，本条写完当天就被 CI 追加的一课）**：守卫在本地 Node 24 上把 `[TEST-NETWORK-BLOCKED] example.com:8099` 原样送到调用方，我据此断言"可诊断"；GitHub runner 是 Node 22，`_http_client` 会把 socket 的早期错误**统一改写成 `socket hang up`**，文案丢失 ⇒ 同一条断言在 CI 红、本地绿。**教训**：凡是"通过错误对象传递信息"的设计，必须问"这条信息会不会被中间层改写"；http/undici/gRPC 这类客户端库普遍会重写。可靠做法是把事实记到**与错误通道无关**的地方（本例：守卫自维护的 `globalThis.__mpBlockedEgress` 账本 + 按 host 去重 `console.warn`），断言只依赖"秒失败 + 账本有记录"这类版本无关不变量；只有在 Node 不改写文案的原始 socket 路径上才直接断言标记。**这同时暴露了一个更普遍的盲点**：本地与 CI 的 Node 主版本不同（24 vs 22）时，我的"本地全量跑过"不构成 CI 等价证据 —— 与 [[project-mulpub-known-test-failures]] 里"环境差异导致的假绿"同族，凡涉及核心模块行为（http/undici/FS/网络栈/信号）的改动，必须让 CI 跑一次才算收口。
+- **给"踩过的坑"建静态门禁，收益会在后续会话自动兑现（pattern，本片最省力的一次胜利）**：新加的测试文件叫 `test-setup-network-guard.test.js`，被 `.gitignore:59` 的 `test-*.js`（本意清临时产物、未锚定目录）整份吞掉，`git status` 里根本看不见它 —— CI 从此不会跑这条守卫，而且没人会察觉。抓到它的是仓库自带的 `e2e-quality-infrastructure.test.js > 源代码测试文件不得被 .gitignore 静默排除`，正是 #2416 同型事故之后补的门禁。**两次教训叠加**：① 这类"仓库曾经手动绕过的坑"值得固化成静态不变量；② 修法优先**改名避开**而不是给 `.gitignore` 开 allowlist —— 后者会让规则与例外共存，下一个人只会复制例外。
+- **装了全局兜底之后，必须量一次爆炸面再收口（verification，别用抽样代替）**：守卫只跑自己那 6 条用例绿了不算数 —— 真正的问题是它会不会误伤那 31 个依赖 loopback 的文件、以及有没有把某个"其实依赖真网络能通"的隐性用例打挂。实跑 apps/desktop 全量：**656 passed | 2 failed**；两条失败各自定责（1 条是我自己的 gitignore 事故、1 条是本机 `EPERM: symlink` 既有基线），才能写下"零误伤"。**判据**：任何全局生效的测试基建改动，验收证据必须是全量数字 + 逐条失败定责，不能是定向用例。
+## 改名功能自引入起就是空操作：写副本不等于写完成，以及「合法性守卫」必须记来源而非猜形态（add-account-name-source，2026-09-26）
+
+- **「用户输入落盘」的写入口必须证明它写的是被读取的那份真源（pitfall，本 Bug 第一性原因）**：`renameAccount` 走 `accountUpdate` → `store:update-account` → **Electron SQLite**，而账号列表读 **python-backend `accounts.json`**。于是改名从来没有生效过，且 `src/api/publisher.js:103` 早就写着「不得改回 accountUpdate：那条通道写 Electron SQLite，而账号列表根本不从那里读，写了也不显示」—— **注释知道这件事，代码却仍在这么干，测试还把它断言成正确行为**（`stores/accounts.test.js:915`：`expect(accountUpdate).toHaveBeenCalledWith(id, {name})`）。这是本仓「装饰性链路」的第四次复发。**判定手法**：接到「某写入口已实现」的结论时，从「列表/详情读哪张表」反查写入目标；两者不同即缺陷，与返回码无关。写入口的测试必须断言**具体通道与被写对象**，不能只断言 `code === 0`。
+
+- **症状会被下游缺陷伪装成另一个 Bug（pitfall，为什么它藏了这么久）**：用户改名后界面回落到旧值，看起来像「显示层守卫误杀」，而真实原因是写入从未落地。上一轮修昵称显示时我正是停在「显示层过滤太宽」这一层，把后果当成了原因。**教训**：一个「改了没反应」的现象，必须先分诊是「没写进去」还是「写进去了没显示」——两者修法完全不同。分诊手法：改完直接读真源文件（本机 `userData/backend-data/accounts.json`）看字段有没有变，一眼可判。
+
+- **噪声/合法性守卫的判据不能是「文本形态」，必须是「来源意图」（architecture，本 change 的核心决策）**：`isNoiseAccountName` 的职责是藏掉系统抓错的文本。但用户手改的名字也会命中形态规则（含 ` - ` / ` · ` / 省略号、以「服务平台」结尾、括号不闭合），于是 `阿飞 - 自由职业`、`Rhythm · 音乐厅`、`广东政务服务平台` 被永久藏掉，连编辑框回填的都是回落值 —— 用户的命名在 UI 上不可达。反过来用「现网名不像噪声」推断「这是不是手改名」也两个方向都错：合法机器昵称被无谓保护（永远更新不动），而**用户名字恰好长得像噪声时会被抓取结果直接冲掉**（实测报错：`expected { account_name: '平台返回的昵称' } to not have property "account_name"`）。**结论**：「过滤坏数据」与「尊重用户输入」是同一判断的两个相反答案，只能靠显式来源字段（`name_source`）承载，靠规则松紧调不出同时成立。
+
+- **来源字段必须绑定在「界面实际优先读取的那个字段」上（pitfall，规划期自己写错并被实现证伪）**：design 初稿写「改名写 `name` + `name_source='manual'`」，但卡片读的是 `account_name || name` —— 优先位是 `account_name`。照初稿实现，凡 `account_name` 已有合法昵称的账号改名后仍显示旧昵称，`manual` 永远不可见，**整个 change 白修**。规划时只写了「记来源」，没写「来源描述哪个字段」，这个空洞直到实现才暴露。**口径**：给「哪个字段的元数据」这类伴随字段做设计时，必须同时写明它绑定的目标字段与该字段的读取优先级；写完立刻用一条具体数据（真实存量行）走一遍端到端，比再读一遍文档更能发现这类错位。
+
+- **新增持久化字段要穿过多道手工白名单，漏一道就「改了没反应」且两侧单测都绿（pitfall）**：本仓账号字段要穿 `_account_to_dict`（python）与 `publicAccountFields`（IPC）两道白名单。漏改任意一道，后端测自己返回了、IPC 测自己透传了输入，**两边都绿而链路是断的**。收口手法：加一道读源码的「接线守卫」（`account-name-source-passthrough.test.js`），断言每道白名单都含该键 —— 它不是行为测试，而是防止行为测试的输入被静默滤掉。同类：禁止在中间层做提前合并（`account_name || name`），那会让上游彻底失去区分能力。
+
+- **`require` 期解构会让 `vi.spyOn(消费方, fn)` 静默失效、测试假绿（pitfall，本轮差点放过）**：`account-manager.js:13` 写的是 `const { tryHttpLoginCheck, fetchAccountInfoViaHttpApi } = require('./http-login-checker')`，第 704 行调的是那个**本地绑定**。于是 `vi.spyOn(accountManager, 'fetchAccountInfoViaHttpApi')` 拦不住任何东西，测试会调用真实实现 —— 而断言恰好也可能通过，表现为假绿。正确顺序：先给仍被 `require.cache` 保留的依赖模块装 spy，再清消费方缓存重新 require，解构才会拿到被替换后的引用。**推广判据**：凡「测试通过但说不清它到底拦住了什么」，就去查被 mock 的东西是不是在 require 期就被复制成了局部变量。
+
+- **反证也要防「污染真实数据」这个反身风险（preference，本轮主动偏离任务措辞）**：任务写的是「把 fixture 改成 no-op 必须立刻变红」。但账号 fixture 的作用正是把 `ACCOUNTS_FILE` 从模块默认路径（本机 = 真实的 `userData/backend-data/accounts.json`）挪开；改成彻底 no-op 会让反证用例**把测试数据写进用户真实账号库**。改为「有指向、但不隔离」（全部用例共用一个固定临时目录）来做反证，同样证明 per-test 唯一性承重，且不碰真实数据。**口径**：给「隔离/清理」类机制做反证时，先问反证本身会不会造成它所要防的那个后果。
+
+- **仓库刻意设的「精确计数」门禁会随任何新增通道而红，这是特性不是脆弱（pattern）**：`preload.test.js` 断言 account 模块导出 46 个、api 总键数 330 个。新增 `accountRename` 必然把它俩变红。同步时按既有风格**在 it 标题里留痕**（`331 = 上一基线 330 + 本 PR 新增 1`），否则下一个改动的人无从判断这个数是有意为之还是漂移。改 preload 还要重建 `index.bundle.js` 与 `home-shell-preload.bundle.js` 并用内容 grep 自证（`grep -c "account:rename"`），「构建成功」不等于签名真的进去。
+
+- **扫全仓的门禁看不见它自己，直到它的文件被 git 跟踪（pitfall，本 PR 提交后才暴露）**：门禁扫描清单来自 `git ls-files`，所以新写的 `check-test-microtask-spin.test.js` 在未提交状态下不在清单里 —— 我据此得到过一次「948 文件 0 命中」的干净结论并写进 PR。提交后文件被跟踪，门禁立刻扫出**自己夹具里的两行** `while (x) await Promise.resolve()`（一条单行式正例、一条「注释行不得命中」的反例字符串）。两个后果：① 夹具字符串不得原样包含被扫描的模式（用拼接）；② 任何「扫仓库」的门禁，其「当前 0 违规」的验收必须在**文件已入库之后**再测一次，否则那次通过是自我盲区里的假干净。同族纪律见 QM-2「反证纪律：把锁改成 no-op 必须立刻变红」。
+## 「登录页 = 登录成功」第四次复发：平台元数据静默失效与凭证假保存（kuaishou-login-false-success，2026-09-26）
+
+- **一次「顺手改对」的 URL 会静默废掉另一处守卫（pitfall，第一性引入点）**：`isPlatformLoginSuccessUrl` 的防误判靠两条并列前提——「URL 等于 `PLATFORM_LOGIN_URLS[platform]` 的 origin+path 一律不算成功」＋「成功模式只匹配登录后才会出现的域/路径」。`c3c39557`（账号管理页 10 项质量修复，第 4 条本意只改「创作者中心 URL」）把 `PLATFORM_LOGIN_URLS.kuaishou` 从 `passport.kuaishou.com/pc/account/login` 改回 `cp.kuaishou.com/`，第一条守卫当场失效（登录页不再等于登录 URL），而 `aedfc701` 为扫码登录加进 `AUTH_HOSTS`/成功模式的裸域名 `passport.kuaishou.com` 仍在，于是**登录页自己被判定为登录成功**。**判定手法**：改任何 `PLATFORM_LOGIN_URLS` 条目时，必须同时问「哪条守卫的前提变了」，不能只看这一行是不是更合理。
+
+- **「登录页与后台同域」是同一类 Bug 的第四次复发，而门禁只覆盖了前三次（审查盲区）**：百家号（2026-08-12）、头条（2026-09-13）、视频号（2026-09-14）都写过「裸域名把预登录页误判成登录成功 → 视图提前关闭 → 保存无效凭证」的注释与负例测试，`platform-definitions.test.js` 对这三家各有用例，**唯独快手没有**——所以 `aedfc701`/`c3c39557` 两次改动都没有任何断言会红。同类 bug 换平台再犯一次的成本，等于「补该平台的负例」而不是「重查根因」。**修法**：新增/修改平台登录元数据的 PR，必须同 PR 落该平台的「登录页不算成功」负例，已写入 AGENTS.md QM-2。
+
+- **「有 Cookie」不是登录证据：登录页自带埋点 Cookie，会让假成功看起来完全合法（测试场景缺失）**：被误存的快手账号有 `cookies=9 lsKeys=9`，`hasCapturedCredentials` 只看「有没有东西」因此一律放行；那 9 个是 `did`/`wid`/`kwssectoken`/`kwpsecproductname`/`kwfv1`/`kwscode` 这类匿名标识，真实登录态是登录成功后才出现的 `kuaishou.web.cp.api_st`（名字就是登录 URL 里的 `sid`）/ `userId` / `bUserId`。更根本的是：**快手未登录访问 `cp.kuaishou.com/` 会被前端路由到 `/profile`，登录成功回落也是 `/profile`**——URL 路径在该平台本质上不可区分，只能靠会话凭证。**判定手法**：要区分「登录态」就必须找一个「登录动作之后才会存在」的东西（会话票据 / LS 标记），而不是「页面上有 Cookie」；标记键必须实测取证，不得混入设备/埋点标识。
+
+- **只打平台名不打 URL 的判定日志，会把一次可秒判的事故变成考古（observability pitfall）**：`AuthView` 的 `URL pattern detected login success: kuaishou` 不带命中地址，本次只能靠「误存账号名恰好是网页 `<title>`」＋ curl 比对 passport 页标题才反推出停在登录页。**修法**：任何「按 URL/模式判定状态机迁移」的日志必须带上被命中的原始输入；`hasCapturedCredentials` 这类静默 `return` 必须记 warn 说明拦下理由，否则「为什么没自动完成」无从查起。
+
+- **收口类修复的「入口清单」必须穷举，自审会漏（pitfall，QM-6 实证）**：本次给「凭证入库」加会话标记门禁，自审认定了三个入口（auth-view-manager、qrcode-login、webview-manager/credential-saver）并全部改完、测完、反证过；跨模型外部评审仍指出**第四个**——`account-manager.captureCookies()` → `addAccount()` → `saveCapturedAccount()`（IPC `account:add`），它同样把 Cookie 直接写进凭证库，且它的「登录检测方式 2」只判 `window.location.host` 是否偏离登录 URL 的 host，对快手而言一跳到 passport 就立即为真，假成功形态与主 Bug 一模一样。**教训**：加「统一门禁」时，先用「谁能把这类数据落到库里」反查一遍（grep 持久化函数名本身，而不是顺着调用链找），把写库函数列成清单逐个打勾；顺着 UI 流程想入口必然漏掉旁路 API。判定「收口完成」的依据是「所有写库点都被拦」，不是「我改过的文件都测过了」。
+
+- **门禁改动会立刻暴露「用假数据冒充凭证」的既有测试（正向收益）**：加会话标记门禁后 `qrcode-login.test.js`/`webview-manager.test.js` 各有用例转红，其 fixture 正是 `{name:'session',value:'secret'}` 这种「随便一个 Cookie 就当凭证」的形态——它们一直在为假成功背书。改门禁时**不要为了变绿而放宽门禁**，要按真实合同改 fixture（本次改为真实会话票据），并另加「只有埋点 Cookie 必须被拦」的负例。
+
+---
+
 ## 抬超时数字治不了无界等待：子进程握手的 marker 匹配必须按累计缓冲，且诊断要抢在框架超时之前（credential-lock-handshake-flake，2026-09-26）
 
 - **一个用例的超时值被抬过两次，就是在宣告它的等待没有预算（pitfall，本条第一性）**：`credential-store.test.js` 的 Windows 文件锁用例 `Error: Test timed out in 60000ms`，而这颗雷已被「抬数字」修过两次 —— `71e76a5e` 10s→30s、`1e22e68f` 30s→60s，两次提交信息都写着「消除 CI 负载下偶发超时」，代码注释里还留着"显式超时 30s"没跟上。**识别信号**：`git log -L <行区间>:<文件>` 看到同一个 timeout 常量被单调抬高；注释数字与代码数字不一致（说明那次改动只是改数值，没重读逻辑）。**口径**：超时抬高一次都算一次带证据的决策，必须先回答"它在等谁、那段等待有没有边界"；无界等待抬到多大都只是"多久之后才失败"。
@@ -21,8 +77,24 @@
 - **放宽后的判别力要用「仍能抓住多大的真回归」量化（pattern）**：容差不该只按「最近一次误红的尺寸 + 余量」定。11000ms 用例新容差 2600ms（含 58% 余量），而模型真回归表现为整倍级偏差（+100% = 11000ms 远超 2600），所以灵敏力保留 —— 这条要写成断言（本 PR 有 `+100% 必须超容差`），否则下次放宽时没人知道还剩多少灵敏度。
 - **调参依据必须是分布，不是失败样本 ⇒ 每次跑都打点（pitfall→pattern）**：旧实现只在失败时才把 `python / real / diff / allowed` 写进断言消息，于是三个月才攒到一个孤立数字，调容差全靠猜。现在每轮跑对 6 个用例各打一行 `[parity] name python= real= diff= allowed= pass=`。本机实测差值只有 22/27/-102/6/4/43ms，与 CI 的 1640ms 形成对照 —— 这本身就证明漂移由 CI 负载驱动而非代码，也给了下次重估 ratio 的原料。**口径**：任何「只在失败时输出」的可观测性，等价于没有可观测性；阈值/容差类参数尤其要在**正常**时候也输出实测值。
 - **红在谁的 PR 上 ≠ 谁引入的，定责要拿基线对照（pattern，沿用 #2414 实测）**：#2414（只改一张视觉基线 PNG + 文档）的 shard 红，实际是 #2416 未收口的残留。定责三步：① 取该 PR 的 rebase 基线 sha；② 查 main 在**同一 sha** 上同一 job 的结论（这里是 `aa090b92` = success）；③ 核对本 PR diff 是否触碰被测文件（未触碰）。三步齐全才可以说「既有 flake」，否则就是认领了别人的雷或放过了自己的雷。
+## E2E 就绪判据恒真：把「有内容」挂在常驻侧边栏上，等于没等懒加载路由挂载（e2e-route-mount-race，2026-09-26）
+
+- **「容器有文字」这类判据必须先问「它什么时候会没文字」（pitfall，本 Bug 第一性原因）**：`waitForAppReady()` 的第三个条件是 `(document.querySelector('#app').textContent || '').trim().length > 0`。`#app` 是 Vue 挂载点，内部**常驻侧边栏**（主页 / 发布 / 账号 / …），导航前后一直有文字 ⇒ 条件恒为真 ⇒ 懒加载路由 chunk（Vite 按需编译，首次进入某路由才编译）从未被等待。**口径**：写任何「就绪/稳定」判据前，先构造一个「目标状态尚未达成」的时刻，问这条判据在那个时刻是不是 false；不能构造出 false 的判据就是装饰性的。同一形状的先例：`#app` 存在、`data-v-app` 属性存在也都是恒真（挂载成功后不会撤回），只有**内容出口**的文本才有 false 时刻。
+
+- **判据失效的指纹是「第一条断言红、紧随的绿，且落点不固定」（pattern，本次靠形态特征定位根因）**：`route-functional-suite.js:833` 的「页面标题渲染」是导航后第一条断言，独自用 `CONDITION_TIMEOUT = 5000ms` 去吸收 chunk 编译；超时后它烧掉的 5s 恰好让 834 行 `exercise()` 里的卡片断言赶上加载完成。于是表现为「标题红、卡片绿」，随机性只来自机器负载，落点随哪个路由先撞上慢编译而变。**识别信号**：同一用例内按执行顺序单调衰减的失败率（越早的断言越容易红）几乎一定不是被测功能的问题，而是**前置等待没生效**。反过来，如果失败集中在最后一条断言，才更可能是功能本身。
+
+- **测试基建的判据没有守门人，用「捕获谓词 + 假 DOM」把它变成可断言的纯函数（pattern，本次最有复用价值的手法）**：`functional-runner.js` 是被所有 E2E 用例使用的基建，`waitForAppReady` 是它的守门条件，而它自己就是 E2E —— 无法自守。原 5 条单元测试把 `waitForAppReady` 整个 mock 掉，所以判据本身零断言。做法：`page.waitForFunction = (fn, arg) => { captured.push(fn); return Promise.resolve(); }` 把回调抠出来，再用一个最小 DOM stub（`querySelector` 按选择器返回带 `textContent` 的对象）直接调用并断言布尔返回值。**不需要真实浏览器、不需要起 Vite**，因此这条回归进得了 CI 的快速单元阶段（`quality-gate.yml:668` 已有接线）。代价是它只锁判据逻辑、不锁 Playwright 调用形状，所以额外断言了「严格判据超时→回退恰好触发一次」与「非超时错误原样抛出不重试」。
+
+- **收紧门禁必须带回退，且回退只在超时分支触发（architecture，避免把误红换成硬失败）**：把就绪判据从宽改严有第二类风险 —— 极少数路由可能合法地不往出口渲染文字（本项目 `isLoginTab` 分支走 `fullscreen-view`；虽经核实浏览器 E2E 上下文里它恒为 false，但那是可漂移的推导而非保证），一律判不就绪会把「偶发误红」变成「每次必红」。写法：`try { 严格判据 } catch (e) { if (!isPlaywrightTimeout(e)) throw e; 旧宽松判据 + 独立短预算 }`。两条纪律：① 非超时错误必须原样抛出，否则兜底会吞掉真实故障（选择器写错、页面崩溃都表现为非超时）；② 回退预算要单独命名常量（`ROUTE_OUTLET_FALLBACK_TIMEOUT`），不能复用 `remainingTimeout()`，否则两条判据合起来超过总预算。
+
+- **GitHub 只展示每个检查的「最新 attempt」，重跑过的 flake 在聚合看板上完全隐形（pitfall，为什么我先得出「红名单为 0」的错误结论）**：判定「哪些必需检查长期红」时只看了 `--json statusCheckRollup` 的结论，于是 30 次 main run 里 2 次需要重跑的 `QG Browser E2E`（约 6.7%）被读成 100% 绿。**口径**：抖动审计必须逐 run 读全部 attempts（含被判为 stale 的那次），或至少统计 `run attempt > 1` 的比例；只看最新结论只能发现「一直红」的检查，发现不了「红了重跑就绿」的检查。这条也决定合入顺序：`Gate Result` 一类「聚合上游结论」的门禁如果在其上游有 flake 时上线，会把抖动放大成随机阻断合入。
+
+- **先写测试拿到 RED 才算证明根因，形态推断只是线索（pattern，沿用 QM-5 第 4 步）**：从「标题红卡片绿」的形态推断出恒真判据之后，没有直接改实现，而是先写就绪判据合同用例 —— 旧实现下 9 条中 2 条 RED，其中 `AssertionError: 空出口必须未就绪` 就是恒真的可执行证据。**判据**：一条线索（形态特征、日志、代码直觉）在变成改动前，必须能收敛成一条「改前必红、改后必绿」的断言；否则它只是解释，不是证据。
 
 ## 账号昵称显示成网页标题：兜底源语义错误 + 测试把缺陷钉成契约 + 枚举黑名单打地鼠（account-nickname-noise-fix，2026-09-26）
+
+
+
 
 - **「找不到就退而求其次拿标题」是身份字段采集的头号语义错误（pitfall，本 Bug 第一性原因）**：`accountInfoCollector` 在昵称选择器全 miss 时依次回落 `og:title` → `twitter:title` → `document.title`，把「网页标题」当成「账号昵称」的同义物写进了 `account_name`。生产库 7 个账号 6 个是脏的，其中 `小红书创作服务平台`/`快手创作者服务平台`/`抖音创作者中心` 三条**就是各平台创作者后台的页面标题本身**。**口径**：昵称/用户名/账号 ID 这类身份字段只能来自语义指向该字段的选择器；标题类来源（`document.title`、`og:*`、`twitter:*`）承载的是「这个页面叫什么」，与「这个账号叫什么」是两个不同命题，一律不得作为兜底。正确兜底是**不产出该键**，交给既有的「字段缺席 = 不修改」语义 + 展示端平台名回落 —— 宁可空，不可错。
 
@@ -16011,10 +16083,19 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **配套工具口径**：本地无 Playwright 时，用 `pngjs` + `pixelmatch` 以 `threshold 0.1 / includeAA false` 复算，实测与 CI 报告值精确到三位小数吻合（3.6592% vs 3.659%），可作为基线工作的可信管线；分区统计（按 x/y 区间累加差异像素）能区分"噪声"与"本次改动的真实归属"。
 
 
+## 活体页面「找不到元素」先判登录态，再疑选择器；QM-1 打包必须证明 renderer 真进产物（kuaishou-w3-live-fix D1/D2，2026-09-26）
+
+- **登录态失效会伪装成「选择器漂移」，直接改选择器是无效功（pitfall，D2 定性反转）**：6.3 活体验收 DOM 轨 publish_btn 7 候选全 timeout，初判为快手改版、选择器过期。CDP 探针打开 auth 分区视图实测：/profile 渲染的是登出营销页（hasLoginWord:true / hasConsoleWord:false），发布页导航被重定向回登出页——**页面根本没有发布按钮，7 候选面对的从来不是发布表单**。规约：平台页面上任何「元素等待超时/找不到」类失败，侦察顺序固定为 ①先采页面身份判定（title/body 关键文本、是否含「立即登录/扫码登录」、有无控制台导航词）②再判 DOM 结构漂移；未过①就改选择器一律视为无效功。识别信号：多个语义不同的候选同时全 timeout——漂移很少整族同死，整族同死更像整页不可达。
+- **「渲染线程冻结」假象的排除链（pattern，探针方法论）**：导航后 Runtime.evaluate 全部超时，逐层排除才定位真因：全元素 getComputedStyle 枚举太重（改零布局：textContent/offsetParent）→ 反调试 debugger 语句（Debugger.setSkipAllPauses 无效、无 Debugger.paused 事件）→ CDP 域检测（不开任何域的最小连接仍超时）→ 忙循环（renderer CPU 采样 12s 仅 0.36s，空闲）。真因：登出重定向链上的模态对话框（唯一命中 el-button confirm__btn「确定」）阻塞渲染线程。教训：**模态对话框 = evaluate 超时的高优先级嫌疑，CPU 空闲 + 超时即可锁定，不必穷举其他假说**。
+- **authOpenLogin 不带 accountId 会静默建新账号（pitfall，探针副作用）**：auth:open-login 完成流程里 saveCapturedAccount（无 id 建号）vs updateCapturedAccount（有 id 刷新）。探针复用登录态视图但未传 accountId，触发自动完成建出重复账号 0e7a4bdf。修复：驱动 auth 视图一律显式传既有 accountId；探针后用 accountList + 分区目录 CreationTime 取证是否误建，误建即删。登记副作用比「假装无副作用」重要——已写进侦察证据文档。
+- **electron-builder --dir 不带 vite build，测试面会静默缺 renderer（pitfall，QM-1 首轮假通过）**：worktree 无 dist/ 构建残留时，直接 pnpm exec electron-builder --dir 打出的 asar 里没有 \dist\index.html，exe 启动报 ERR_FILE_NOT_FOUND——但 builder 本身 exit 0、asar 里 electron/ 主进程文件齐全，「清单里找得到新模块」这类验证全部通过。修复：QM-1 统一走 pnpm run build:dir（build:vue + builder）。**口径：打包验证的成立条件必须包含 renderer 入口存在（asar list 断言 \dist\index.html）+ exe 存活且 stderr 无 ERR_FILE_NOT_FOUND/ENOTDIR**，只验主进程捆入等于验了半个产物。
+- **共享根证据文件随 PR 收编进 worktree evidence 目录（pattern）**：活体验收产物（applog/progress/verdict）最初落在共享根（未跟踪），提交前先 Copy 进 worktree 01-docs/**/evidence/ 再随 PR 提交；.md/.png 被 gitignore（/01-docs/**/*.md、*.png）时按 spike-verdict.md 先例 git add -f，并在 PR 正文注明。EOL 幻影（git diff --ignore-all-space 为空）的 bundle 文件不纳入提交面。
+
+
 ## cancel 第三方页面请求的安全性是"借来的"——因为我们的登录视图没挂 did-fail-load（cancel-prerequisite-error-page，2026-09-27）
 
 - **背景**：给登录页做噪音 cancel（只拦 `res.wx.qq.com` 两个 `2560x864_*.mp4` 与 `support.weixin.qq.com/cgi-bin/mmsupportmesh`）时对照竞品蚁小二，它敢在 `*://*/*` 上 cancel 的**前提**是其 `did-fail-load` 带 `isMainFrame && errorCode !== -3` 门禁（-3 = `ERR_ABORTED`），之后才跳自家错误页。
 - **我们的现状**：登录视图**根本没挂 `did-fail-load`**（全仓唯一一处在 `rpa-view-session.js:31`，属 RPA 发布路径），所以 cancel 子资源不会被误判成"登录页加载失败"而弹自家错误页。
 - **为什么这是"借来的安全"**：安全来自"缺少那段逻辑"，不是来自"我们做了防护"。**将来任何人给登录视图加「失败→错误页」，都必须同时补 `errorCode !== -3` 与 `isMainFrame` 门禁**，否则一次 cancel 就会把登录页换成错误页 —— 而 cancel 默认关（`MP_LOGIN_NOISE_CANCEL=1`）意味着这个回归只会在有人打开开关、又恰好加了错误页之后才爆，测试面完全覆盖不到。
 - **宽匹配禁区（同批证据）**：竞品用 `url.includes("output.mp4")` 这种不限 host 的裸子串。我们若照抄成 `includes(".mp4")` 会直接废掉其它平台的背景视频，写成 `includes("localhost")` 会误伤我们自己的 `127.0.0.1:<随机端口>` 服务。约束：host+路径收窄在 **webRequest filter 层**（不匹配 host 的请求根本进不到回调），判定用完整常量或前缀常量，并锁一条「filter 数组精确等于预期」的结构断言。
-- **刻意不拦的一条**：`localhost.weixin.qq.com:13013-14015/api/check-login`（微信页探测本机客户端）。它即时失败（`ERR_CONNECTION_CLOSED`，一批 6 个共约 3 秒），拦掉省不下多少，却会永久取消「在本机微信里确认登录」这条快捷路径 —— 收益与代价不对等。
+- **刻意不拦的一条**：`localhost.weixin.qq.com:13013-14015/api/check-login`（微信页探测本机客户端）。它即时失败（`ERR_CONNECTION_CLOSED`，一批 6 个共约 3 秒），拦掉省不下多少，却会永久取消「在本机微信里确认登录」这条快捷路径 —— 收益与代价不对等。

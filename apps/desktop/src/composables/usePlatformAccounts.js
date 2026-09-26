@@ -14,6 +14,7 @@
 import { ref, computed } from 'vue'
 import { accountList, accountSetDefault } from '@/api/publisher'
 import platformDisplayDefinitions from '@multi-publish/shared-utils/src/platform-display-definitions.json'
+import { resolveAccountDisplayName } from '@/utils/account-display-name'
 
 const { PLATFORM_NAMES, PLATFORM_ICONS } = platformDisplayDefinitions
 
@@ -41,7 +42,11 @@ export function getDefaultAccount(accounts) {
  */
 export function getAccountText(accounts) {
   const def = getDefaultAccount(accounts)
-  return def ? def.name || '已登录' : '未登录'
+  // 侧栏平台账号文案同样走唯一入口：`def.name` 由主进程写成 document.title，
+  // 不做过滤就会在侧栏出现「首页 - 知乎」这类网页标题。
+  return def ? (resolveAccountDisplayName(def, {
+    platformLabel: PLATFORM_NAMES[def.platform] || '',
+  }) || '已登录') : '未登录'
 }
 
 /**

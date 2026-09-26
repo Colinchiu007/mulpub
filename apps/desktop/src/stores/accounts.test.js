@@ -7,23 +7,29 @@ vi.mock("@/api/publisher", () => ({
   accountSetDefault: vi.fn(),
   accountUpdate: vi.fn(),
   accountSetActive: vi.fn(),
+  accountRename: vi.fn(),
   getPlatformDefinitions: vi.fn(),
 }));
 
 import { useAccountStore } from "./accounts.js";
+import i18n from "@/i18n";
 import { usePlatformStore } from "./platforms.js";
 import {
   accountDelete,
+  accountRename,
   accountSetActive,
   accountSetDefault,
   accountUpdate,
   listAccounts,
 } from "@/api/publisher";
 
+// 夹具按**当前数据模型**建模：显示名落在 account_name，`name` 是主进程写入的
+// document.title（真实 accounts.json 8 条里 name 全是页面标题/标语）。
+// 早期夹具把昵称放在 name 上，等于把「标题当身份字段」这层错误钉成契约。
 const accountsFixture = [
-  { id: "wx-1", platform: "wechat_mp", name: "Beta", status: "active", created_at: "2026-02-01" },
-  { id: "zh-1", platform: "zhihu", account_name: "Alpha", status: "offline", created_at: "2026-01-01" },
-  { id: "wx-2", platform: "wechat_mp", name: "Gamma", status: "online", created_at: null },
+  { id: "wx-1", platform: "wechat_mp", name: "公众号", account_name: "Beta", status: "active", created_at: "2026-02-01" },
+  { id: "zh-1", platform: "zhihu", name: "首页 - 知乎", account_name: "Alpha", status: "offline", created_at: "2026-01-01" },
+  { id: "wx-2", platform: "wechat_mp", name: "公众号", account_name: "Gamma", status: "online", created_at: null },
 ];
 
 describe("useAccountStore", () => {
@@ -280,17 +286,19 @@ describe("useAccountStore", () => {
       expect(store.accounts.map(account => account.id)).toEqual(["wx-1", "zh-1", "wx-2"]);
     });
 
-    it("名称排序使用 account_name 和空字符串作为回退值", () => {
+    it("名称排序按解析后的显示名，绝不按 name（网页标题落盘位）排", () => {
       const store = useAccountStore();
       store.accounts = [
         { id: "empty" },
         { id: "account-name", account_name: "Alpha" },
-        { id: "name", name: "beta" },
+        { id: "title-only", name: "beta" },
       ];
 
-      expect(store.filteredAccounts.map(account => account.id)).toEqual(["empty", "account-name", "name"]);
+      // title-only 解析后没有可用显示名（本行无 platform → 平台名也为空），与 empty 同组排在前；
+      // 关键是它绝不按 'beta' 排到最后 —— 那等于让 document.title 参与排序。
+      expect(store.filteredAccounts.map(account => account.id)).toEqual(["empty", "title-only", "account-name"]);
       store.sortOrder = "desc";
-      expect(store.filteredAccounts.map(account => account.id)).toEqual(["name", "account-name", "empty"]);
+      expect(store.filteredAccounts.map(account => account.id)).toEqual(["account-name", "empty", "title-only"]);
     });
 
     it("名称排序与卡片显示统一优先使用 account_name", () => {
@@ -904,28 +912,53 @@ describe("useAccountStore", () => {
       expect(listAccounts).not.toHaveBeenCalled();
     });
 
-    it("renameAccount 成功后重新加载并返回原响应", async () => {
+    // 旧断言 `expect(accountUpdate).toHaveBeenCalledWith("a1", { name: "新名称" })` 把
+    // 「改名写进 Electron SQLite」这条断链钉成了正确行为 —— 而账号列表读的是后端
+    // accounts.json，所以改名实际是空操作（publisher.js:103 早已注明「写了也不显示」）。
+    // 这是本仓「装饰性链路」的第四次复发，见 openspec: add-account-name-source。
+    it("renameAccount 必须写后端真源通道，不得再走写 SQLite 的 accountUpdate", async () => {
       const response = { code: 0 };
-      accountUpdate.mockResolvedValue(response);
+      accountRename.mockResolvedValue(response);
       const store = useAccountStore();
+      store.accounts = [{ id: "a1", platform: "wx" }];
 
       await expect(store.renameAccount("a1", "新名称")).resolves.toBe(response);
-      expect(accountUpdate).toHaveBeenCalledWith("a1", { name: "新名称" });
+      expect(accountRename).toHaveBeenCalledWith("a1", "wx", "新名称");
+      expect(accountUpdate).not.toHaveBeenCalled();
       expect(listAccounts).toHaveBeenCalledTimes(1);
+    });
+
+    it("renameAccount 在账号不存在时直接失败，不发出任何写请求", async () => {
+      const store = useAccountStore();
+      store.accounts = [{ id: "other", platform: "wx" }];
+
+      await expect(store.renameAccount("a1", "新名称")).resolves.toEqual({
+        code: -2,
+        // 断言「文案出自这个 key」而不是把中文字面量焊进测试（QM-3：渲染端测试断言 i18n
+        // 键而非 locale 字面量，否则文案一调即假红）。键缺失时 vue-i18n 会静默回落成
+        // key 字符串，所以这里仍比原来的 toMatchObject({code}) 严格。
+        message: i18n.global.t("accountsPage.accountNotFound"),
+      });
+      expect(i18n.global.t("accountsPage.accountNotFound")).not.toBe("accountsPage.accountNotFound");
+      expect(accountRename).not.toHaveBeenCalled();
+      expect(accountUpdate).not.toHaveBeenCalled();
+      expect(listAccounts).not.toHaveBeenCalled();
     });
 
     it("renameAccount 业务失败时不重新加载", async () => {
       const response = { code: 1, message: "duplicate" };
-      accountUpdate.mockResolvedValue(response);
+      accountRename.mockResolvedValue(response);
       const store = useAccountStore();
+      store.accounts = [{ id: "a1", platform: "wx" }];
 
       await expect(store.renameAccount("a1", "重复名称")).resolves.toBe(response);
       expect(listAccounts).not.toHaveBeenCalled();
     });
 
     it("renameAccount API 异常时返回统一失败结果", async () => {
-      accountUpdate.mockRejectedValue(new Error("timeout"));
+      accountRename.mockRejectedValue(new Error("timeout"));
       const store = useAccountStore();
+      store.accounts = [{ id: "a1", platform: "wx" }];
 
       // 超时类错误映射为「原因 + 建议」本地化文案，不直出英文原始文本
       await expect(store.renameAccount("a1", "新名称")).resolves.toEqual({ code: -1, message: "操作超时。请稍后重试；若持续出现请重启应用。" });
