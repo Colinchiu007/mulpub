@@ -22,6 +22,17 @@ function read (rel) {
   return fs.readFileSync(path.join(REPO_ROOT, rel), 'utf8')
 }
 
+/** 判定「手搓的显示名回退」：回退链里真的引用了 `.name`。
+ *  `.name` 是主进程写入 `document.title` 的落盘位，那才是会冒充账号名的东西；
+ *  `account_name: x.account_name || ''` 这类空串兜底不属于显示名路径，不该被算进来
+ *  （第一版就把 `base-store.js` 的一条空串兜底误判成了违规）。 */
+function isRawDisplayFallback (line) {
+  const m = line.match(/(?:account_name|name|display_name|displayName)\s*:\s*(.+)$/)
+  if (!m) return false
+  const value = m[1]
+  return /\|\|/.test(value) && /account_name/.test(value) && /\.name\b/.test(value)
+}
+
 describe('name_source 投影白名单接线守卫', () => {
   it('后端 _account_to_dict 必须输出 name_source（否则前端永远拿不到）', () => {
     const src = read('packages/python-backend/src/server.py')
@@ -89,5 +100,50 @@ describe('name_source 投影白名单接线守卫', () => {
     }
     walk(path.join(REPO_ROOT, 'apps/desktop/src'))
     expect(offenders, '以下位置绕过唯一入口手搓显示名回退：\n' + offenders.join('\n')).toEqual([])
+  })
+
+  // 同一把锁扩到主进程。只拦「把回退链赋给一个承载显示名的字段」这种形态（日志串里出现
+  // account_name || id 不是显示名路径，不该被算进来），命中项必须是**显式登记的死通道**，
+  // 且逐条给出复核证据 —— 债务写进散文会过期，写进断言才会被下一笔改动撞出来。
+  it('主进程承载显示名的字段不得手搓回退（例外只能是已复核的死通道，且清单只减不增）', () => {
+    // 只拦「回退链里真的引用了 `.name`」这一种 —— `.name` 是 document.title 的落盘位，
+    // 那才是会冒充账号名的东西。`account_name: a.account_name || ''` 这种空串兜底不是显示名路径。
+    const isRawDisplayFallback = (line) => {
+      const m = line.match(/(?:account_name|name|display_name|displayName)\s*:\s*(.+)$/)
+      if (!m) return false
+      const value = m[1]
+      return /\|\|/.test(value) && /account_name/.test(value) && /\.name\b/.test(value)
+    }
+    // 登记格式：'相对路径:行号' -> 复核结论。新增条目必须同时给出「零消费者」的实测证据。
+    const KNOWN_DEAD_CHANNELS = new Map([
+      ['apps/desktop/electron/ipc-handlers/store.js:73',
+        'store:list-accounts / store:get-account：grep -rna storeListAccounts|storeGetAccount apps/desktop/src 排除 .test.js 后 0 命中，唯一引用是 Home.test.js:226 断言它不被调用'],
+      ['apps/desktop/electron/ipc-handlers/account.js:707',
+        'accounts:batch-open-login：grep -rna batchOpenLogin apps/desktop/src 0 命中（preload 暴露了 accountBatchOpenLogin 但渲染层无调用方），故当前不可见；一旦接线必须改走唯一入口'],
+    ])
+    const offenders = []
+    const unsanctioned = []
+    const walk = (dir) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name)
+        if (entry.isDirectory()) { walk(full); continue }
+        if (!/\.js$/.test(entry.name) || /\.test\.js$/.test(entry.name)) continue
+        const rel = path.relative(REPO_ROOT, full).split(path.sep).join('/')
+        fs.readFileSync(full, 'utf8').split(/\r?\n/).forEach((line, i) => {
+          const t = line.trim()
+          if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*')) return
+          if (!isRawDisplayFallback(t)) return
+          const key = rel + ':' + (i + 1)
+          if (KNOWN_DEAD_CHANNELS.has(key)) { offenders.push(key); return }
+          unsanctioned.push(key + '  ' + t)
+        })
+      }
+    }
+    walk(path.join(REPO_ROOT, 'apps/desktop/electron'))
+    expect(unsanctioned, '主进程新增了一处手搓显示名回退，必须改走唯一入口或按死通道复核后登记：\n' + unsanctioned.join('\n')).toEqual([])
+    // 反向：登记的死通道若已被删除/改好，清单也必须收口，不留僵尸例外
+    for (const key of KNOWN_DEAD_CHANNELS.keys()) {
+      expect(offenders, '登记的死通道 ' + key + ' 已不再命中，请把它从清单里删掉（债务已还清）').toContain(key)
+    }
   })
 })
