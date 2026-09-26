@@ -96,7 +96,17 @@ const electronMock = {
       cookies: { get: function () { return Promise.resolve([]) }, set: function () { return Promise.resolve() } },
       on: function () {},
     },
-    fromPartition: function () { return this.defaultSession },
+    // 每个分区返回**新对象**（真实 Electron 语义：分区即独立 session）。
+    // 若恒返回 defaultSession，login-network-diagnostics 的幂等标记
+    // ses.__loginNetDiagAttached 会跨用例残留，使「监听注册一次」断言依赖用例顺序。
+    fromPartition: function () {
+      return {
+        cookies: { get: function () { return Promise.resolve([]) }, set: function () { return Promise.resolve() } },
+        on: function () {},
+        webRequest: { onErrorOccurred: vi.fn(function () {}), onCompleted: vi.fn(function () {}) },
+        resolveProxy: vi.fn(function () { return Promise.resolve('DIRECT') }),
+      }
+    },
   },
   ipcMain: {
     _handlers: {},
@@ -141,6 +151,8 @@ const electronMock = {
       loadURL: function () { return Promise.resolve() },
       executeJavaScript: function () { return Promise.resolve() },
       isDestroyed: function () { return false },
+      // 出码耗时日志需读取页面可见性（后台节流是二维码迟到的候选根因之一）
+      getVisibilityState: function () { return 'visible' },
     }
     // 用 vi.fn 记录布局调用：回归测试需断言登录视图从 (0,0) 铺满、不依赖硬编码偏移
     this.setBounds = vi.fn(function () {})

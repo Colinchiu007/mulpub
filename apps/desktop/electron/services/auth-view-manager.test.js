@@ -344,6 +344,7 @@ describe('AuthViewManager 凭证边界', () => {
         executeJavaScript: vi.fn().mockResolvedValue({}),
         close: vi.fn(),
         isDestroyed: vi.fn(() => false),
+        getVisibilityState: vi.fn(() => 'visible'),
         on: vi.fn((event, callback) => { handlers[event] = callback }),
         debugger: { attach: vi.fn(), detach: vi.fn(), sendCommand: vi.fn().mockResolvedValue({}), on: vi.fn() },
       },
@@ -582,5 +583,136 @@ describe('AuthViewManager 登录页承载方式（回归：主窗口顶部多层
     expect(manager.currentPlatform).toBeNull()
 
     await loginPromise
+  })
+})
+
+// 「添加账号 → 公众号」走 openLogin，分区是每次全新的 persist:auth-*，
+// 而 iframe 内的二维码请求不触发外层 did-fail-load —— 该路径此前零日志，
+// 用户报「二维码刷很久」时主进程无从归因（#1887 §7 把 auth 挂接列为未做项）。
+describe('AuthViewManager 登录视图可观测性（回归：persist:auth-* 分区此前零日志）', () => {
+  const QR_FILTERS = {
+    urls: [
+      '*://*.weixin.qq.com/*',
+      '*://*.wx.qq.com/*',
+      '*://weixin.qq.com/*',
+      '*://wx.qq.com/*'
+    ]
+  }
+
+  let originalFromPartition
+  let originalWebContentsView
+
+  beforeEach(() => {
+    originalFromPartition = __electronMock.session.fromPartition
+    originalWebContentsView = __electronMock.WebContentsView
+  })
+
+  afterEach(() => {
+    __electronMock.session.fromPartition = originalFromPartition
+    __electronMock.WebContentsView = originalWebContentsView
+  })
+
+  // 登录视图的 session 必须是可断言的 spy 容器：诊断监听到底有没有挂上，只有这里能证明
+  function wireView () {
+    const handlers = {}
+    const diagSession = {
+      cookies: { get: vi.fn().mockResolvedValue([]) },
+      webRequest: { onErrorOccurred: vi.fn(), onCompleted: vi.fn() },
+      resolveProxy: vi.fn().mockResolvedValue('DIRECT'),
+    }
+    __electronMock.session.fromPartition = vi.fn(function () { return diagSession })
+    const view = {
+      setBounds: vi.fn(),
+      setVisible: vi.fn(),
+      webContents: {
+        session: diagSession,
+        loadURL: vi.fn().mockResolvedValue(undefined),
+        executeJavaScript: vi.fn().mockResolvedValue({}),
+        close: vi.fn(),
+        isDestroyed: vi.fn(() => false),
+        getVisibilityState: vi.fn(() => 'visible'),
+        on: vi.fn(function (evt, cb) { handlers[evt] = cb; return this }),
+        once: vi.fn(function () { return this }),
+        debugger: { attach: vi.fn(), detach: vi.fn(), sendCommand: vi.fn().mockResolvedValue({}), on: vi.fn() },
+      },
+    }
+    __electronMock.WebContentsView = vi.fn(function () { return view })
+    return { view, handlers, diagSession }
+  }
+
+  // logger 必须在 wireView/import 之后取：文件级 beforeEach 做过 vi.resetModules()，
+  // 提前 require 拿到的是旧实例，spy 会静默失效并让断言恒真。
+  function spyLogInfo () {
+    const log = require('./logger')
+    return vi.spyOn(log, 'info').mockImplementation(function () {})
+  }
+
+  function openLogin () {
+    const manager = new AuthViewManager()
+    manager.setMainWindow(createMainWindow())
+    const pending = manager.openLogin('wechat_mp', 0).catch(function () {})
+    return { manager, pending }
+  }
+
+  it('openLogin 给登录视图分区挂上会话级诊断（补齐 iframe 二维码请求盲区）', async () => {
+    const { diagSession } = wireView()
+    const { manager, pending } = openLogin()
+
+    expect(diagSession.webRequest.onCompleted).toHaveBeenCalledTimes(1)
+    expect(diagSession.webRequest.onCompleted.mock.calls[0][0]).toEqual(QR_FILTERS)
+    expect(diagSession.webRequest.onErrorOccurred).toHaveBeenCalledTimes(1)
+    expect(diagSession.webRequest.onErrorOccurred.mock.calls[0][0]).toEqual(QR_FILTERS)
+
+    manager.close()
+    await pending
+  })
+
+  it('did-finish-load 记录相对 loadURL 的耗时与页面可见性（首屏迟到归因入口）', async () => {
+    const { handlers } = wireView()
+    const log = spyLogInfo()
+    const { manager, pending } = openLogin()
+
+    handlers['did-finish-load']()
+
+    expect(log).toHaveBeenCalledWith('AuthView', expect.stringMatching(
+      /^login page finished after \d+ms platform=wechat_mp visibility=visible$/))
+
+    manager.close()
+    await pending
+  })
+
+  it('hide()/show() 记录可见性切换，用于判断出码窗口是否落在被节流时段', async () => {
+    const { view } = wireView()
+    const log = spyLogInfo()
+    const { manager, pending } = openLogin()
+
+    view.webContents.getVisibilityState = vi.fn(() => 'hidden')
+    manager.hide()
+    expect(log).toHaveBeenCalledWith('AuthView',
+      'login view setVisible=false platform=wechat_mp visibility=hidden')
+
+    view.webContents.getVisibilityState = vi.fn(() => 'visible')
+    manager.show()
+    expect(log).toHaveBeenCalledWith('AuthView',
+      'login view setVisible=true platform=wechat_mp visibility=visible')
+
+    manager.close()
+    await pending
+  })
+
+  it('诊断挂接失败不阻断登录流程（可观测性是旁路，不能变成新的故障点）', async () => {
+    const { diagSession } = wireView()
+    diagSession.webRequest.onErrorOccurred = vi.fn(function () { throw new Error('boom') })
+    const log = spyLogInfo()
+    const warnSpy = vi.spyOn(require('./logger'), 'warn').mockImplementation(function () {})
+    const { manager, pending } = openLogin()
+
+    expect(manager.currentView).toBeTruthy()
+    expect(warnSpy).toHaveBeenCalledWith('AuthView', expect.stringContaining('boom'))
+
+    manager.close()
+    await pending
+    log.mockRestore()
+    warnSpy.mockRestore()
   })
 })

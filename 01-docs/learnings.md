@@ -1,3 +1,4 @@
+
 ## 「登录页 = 登录成功」第四次复发：平台元数据静默失效与凭证假保存（kuaishou-login-false-success，2026-09-26）
 
 - **一次「顺手改对」的 URL 会静默废掉另一处守卫（pitfall，第一性引入点）**：`isPlatformLoginSuccessUrl` 的防误判靠两条并列前提——「URL 等于 `PLATFORM_LOGIN_URLS[platform]` 的 origin+path 一律不算成功」＋「成功模式只匹配登录后才会出现的域/路径」。`c3c39557`（账号管理页 10 项质量修复，第 4 条本意只改「创作者中心 URL」）把 `PLATFORM_LOGIN_URLS.kuaishou` 从 `passport.kuaishou.com/pc/account/login` 改回 `cp.kuaishou.com/`，第一条守卫当场失效（登录页不再等于登录 URL），而 `aedfc701` 为扫码登录加进 `AUTH_HOSTS`/成功模式的裸域名 `passport.kuaishou.com` 仍在，于是**登录页自己被判定为登录成功**。**判定手法**：改任何 `PLATFORM_LOGIN_URLS` 条目时，必须同时问「哪条守卫的前提变了」，不能只看这一行是不是更合理。
@@ -13,6 +14,22 @@
 - **门禁改动会立刻暴露「用假数据冒充凭证」的既有测试（正向收益）**：加会话标记门禁后 `qrcode-login.test.js`/`webview-manager.test.js` 各有用例转红，其 fixture 正是 `{name:'session',value:'secret'}` 这种「随便一个 Cookie 就当凭证」的形态——它们一直在为假成功背书。改门禁时**不要为了变绿而放宽门禁**，要按真实合同改 fixture（本次改为真实会话票据），并另加「只有埋点 Cookie 必须被拦」的负例。
 
 ---
+
+## 测试全绿的功能从未生效：按运行时并不存在的宿主 API 字段写代码，mock 夹具把错误形状固化（zhihu-ua-sanitize-noop，2026-09-25）
+
+- **凭字段名想象宿主 API，而不是查它的归属（pitfall，第一性引入点）**：`configureUserAgentFallback` 读 `app.userAgent`，但 Electron 的 `App` 接口只有 `userAgentFallback`，`userAgent` 挂在 `WebContents` 上。真实 Electron 43.1.1 实测 `typeof app.userAgent === 'undefined'` → 函数第一行取到空串 → 一律 `return {configured:false}` → **这段专为规避知乎登录风控（拒绝下发短信验证码）而写的净化逻辑从未执行过一次**，症状却是「代码在、注释在、测试在、单测全绿」。**判定手法**：写任何宿主 API 属性前，在**已安装**的类型声明里确认该属性挂在哪个 interface 上（`node_modules/electron/electron.d.ts`），或直接运行时打印一次；「属性名看起来合理」不构成证据。
+- **手搓 mock 的形状必须来自真实运行时，否则测的是夹具不是宿主（pitfall，逃逸根因）**：原 5 条单测全部构造 `{ app: { userAgent: '...' } }` —— 一个真实 Electron 里不存在的形状，所以实现读不到字段也不红。更糟的是 `{app: {}}` 那条用例断言 `configured:false`，恰好把「读不到字段就什么都不做」这个**错误行为当期望结果固化**：任何按真实 App 形状写的断言都会红，而它绿了。**教训**：给宿主 API 写 mock 时，夹具字段集要么抄 d.ts，要么运行时 dump 一次真实对象；并且要有一条「真实形状」用例（只带宿主真有的字段）与「假形状」用例并存。
+- **回归锁要钉「不许读某字段」的行为，而不只是钉输出（pattern）**：仅断言返回值挡不住「两个字段都读、优先读错的」这类回退。做法：`Object.defineProperty(app, 'userAgent', { get () { reads += 1; return WRONG_UA } })`，再 `expect(reads).toBe(0)`。同理，幂等性单列一条（二次调用不得再改写），防止将来改成「每次覆盖」。
+- **把「前提」本身也钉成真实依赖测试（pattern）**：新增一条对已安装 `electron.d.ts` 的结构断言——`App` 接口声明 `userAgentFallback` 且不声明 `userAgent`。上游若真加了 `App.userAgent`，这条先红并提示重新审视取源，而不是留下一个悄悄失效的净化函数。electron 未安装的门禁环境用 `describe.skipIf(dts === null)` 跳过，避免假红。
+- **同一个 Bug 已逃逸两次，两次是不同机制（pitfall，git blame 溯源结论）**：`1dc84e59`（2026-09-11 `fix(startup): 净化 Electron UA 规避知乎登录风控 10001`）本来就是为修这个症状而生的提交——根因判断（UA 带 `Multi-Publish/` 与 `Electron/` 标记被风控拒发验证码）和方案（参考产品设 `app.userAgentFallback`）全对，只在实现时把取源写成 `app.userAgent`。而那次提交自己的 message 里还写着「逃逸修复：`startup-compat.test.js` 自 `5093a330` 引入起从未被 vitest include 覆盖」。**第一次逃逸 = 测试文件根本没被跑到；第二次逃逸 = 测试被跑到、但夹具是真实运行时不存在的形状**。教训：修 Bug 必须逐层登记「为什么这一层没拦住」，不能以「我补了测试」收口。
+- **「模拟真实 X」的验证口径等于没验证（pitfall）**：那次提交的验证行是「electron-builder 打包成功且 asar 内含修复；**模拟**真实 UA 验证净化后无 Electron 标记且保留 Chrome 版本」。打包只证明代码进了产物，模拟只证明逻辑自洽，两者都不触碰真实运行时，于是「从未执行过一次」被两重绿光掩护了两周。**判定**：涉宿主/浏览器 API 的修复，验收证据必须至少有一条来自真实进程的输出——本次是打包产物的启动日志 `[startup] 已净化 User-Agent`（修复前这行永远不出现）与本机回显服务抓到的出站 `User-Agent` 头开关 A/B。
+- **返回 `{configured:boolean}` 的配置类函数，未生效分支必须留日志（pitfall）**：`main.js` 原先只在 `configured` 为真时 `console.log`，未生效时零输出——「永久 no-op」在运行日志里完全无痕，用户只能看到远端平台的报错。**判定**：任何以布尔表达成功/跳过的启动配置，`else` 分支一律 `warn`，否则等价于吞掉失败。
+- **净化规则的「真实形状」必须同时覆盖 dev 态与打包态（pitfall，本轮由连真实实例才暴露）**：token 白名单正则 `^([A-Za-z][\w.-]*)\/` 漏掉了**以 `@` 开头的作用域包名**。打包态 `app.name` 是 `Multi-Publish`（能被剔），而 dev 态 `electron .` 取 `package.json` 的 `name` = `@multi-publish/desktop` → 正则不匹配、整段保留，UA 仍带产品指纹。单测夹具当初照抄了打包态形状（`Multi-Publish/1.2.3`），所以这一漏口对单测完全免疫。**判定手法**：凡「按字符串形状识别宿主/产品指纹」的规则，测试夹具必须把每种运行态（dev / 打包 / 不同 name 来源）各列一条；最终还要连真实实例读一次（本轮为 CDP `/json/version` 的 `User-Agent` 字段）。
+
+- **QM-1「启动不崩溃」用「无错误关键字」判定会假通过，必须断言正向签名（pitfall，本次真实踩到）**：新 worktree 从未跑过 `vite build`，`apps/desktop/dist/` 不存在，而 electron-builder **仍然 rc=0** 产出一个白屏包（`files` 里 `dist` 缺失不报错）。首轮我按「进程存活 + grep 无 `Failed to load platform config`/`ENOTDIR`/updater 栈」判了 PASS，实际日志里明明白白有 `Failed to load URL: ...app.asar/dist/index.html` 和 `[ERROR] window 加载主窗口失败：ERR_FILE_NOT_FOUND (-6)`——只是不在我那份错误关键字清单里。**口径**：打包后启动验证必须断言正向签名 `window 主窗口已显示`，并先确认 asar 内含 `/dist/index.html`；「没有报错」永远不等于「能用」。
+- **观测类补丁要用「事件字段的事实」而不是「事件名字」来设计（pattern）**：`Network.loadingFailed` 直觉上有 url，实际 CDP 参数只有 `requestId`/`errorText`/`canceled`，url 必须在 `Network.requestWillBeSent` 时按 requestId 登记再回查（并设上限防泄漏）。写测时先照真实事件形状构造夹具（而不是给自己方便地塞 `response.url`），才能在设计阶段就暴露这个缺口。
+
+- **「代码里设置了 X」≠「线上发出的请求带 X」：出站行为用本机回显服务抓 A/B（pattern）**：最终判定不靠单测，靠真实链路取证——本机 `http.createServer` 回显 `req.headers['user-agent']`，会话用生产同一个 `createSession()` 分区、`webPreferences` 与生产 `createAuthView` 一致（`sandbox:true`/`contextIsolation:true`），同一脚本跑「不净化 / 净化」两遍对照出站头。补充口径：`Sec-CH-UA` 系列客户端提示**只在 HTTPS 请求上发送**，本机 http 回显看不到，不要把「没看到」当成「不存在」。
 
 ## 共享订阅集合被「无 id 就全清」误删：原生视图照常显示而标签栏永不出新标签（fix-tab-subscription-leak，2026-09-25）
 
@@ -15844,3 +15861,11 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **回归保护**：`Accounts.test.js` 新增源码契约断言（沿用项目既有 `fs.readFileSync('.vue')` 切片惯例）——`.account-controls` 必须 `display:flex` + `flex-wrap:wrap` 且**不得**出现 `grid-template-columns`；`.filter-tabs button` 与 `.account-count` 必须 `white-space:nowrap`。已反证：五条断言在旧实现上全部 FAIL、新实现全部 PASS。
 
 - **待收口的机制缺口（未在本轮落地）**：① `accounts-list.png` 基线含缺陷，本修复会使其产生像素 diff，需在装有 Playwright 浏览器的环境用 `test:visual:update-baseline` 重新捕获并人工审核（本机无浏览器缓存，未能本地跑 `test:visual:pixel`）；② 视觉回归应补一档「按 Windows 常见缩放折算后的 CSS 视口」（1536×912、1366×768）用例——只按 1920 CSS 拍基线，等于给缩放用户留了盲区；③ 基线捕获后应做一次「基线自身是否已破图」的人工抽检，否则错误会被永久固化为参照物。
+## 观测机制被标注「未来扩展」时，新承载路径会长期是日志黑洞（auth-partition-observability-gap，2026-09-25）
+
+- **坑（pitfall）**：#1887 建 `attachLoginNetworkDiagnostics` 时只在 `WebviewManager` 的 `persist:account-*` 分支挂接，把「auth 独立窗口同样挂接」写进文档 §7 当**未来扩展**。此后「添加账号」用的 `persist:auth-*` 分区**一个日志都没有**，而它的登录 iframe 请求失败**不触发**外层 `did-fail-load`——两条叠加，用户报「二维码刷很久」时主进程完全无感知，只能靠外部浏览器复现反推。机制文档里的「待办/未来扩展」不等于「安全」：它描述的是**已知的观测缺口**，缺口存在的每一天都在积累无法归因的工单。
+- **规则（pattern）**：新建任何「旁路观测」机制时，必须**同一 PR 覆盖全部同类承载路径**（本项目登录承载有 4 条：`AuthViewManager.openLogin` / 账号标签 `createNewTabPage` / `QrCodeLogin` / `loginSilent` 隐藏窗口），或在 spec 里把未覆盖路径登记为**显式风险 + 判定影响面**，不得写成中性语气的「未来扩展」。判据：问一句「这条路径出问题，我能不能从日志里看出是网络还是应用」。
+- **可迁移信号（QM-5④回归模板）**：观测挂接要用**行为断言**而非「调用过某函数」——`auth-view-manager.test.js` 断言 `session.webRequest.onCompleted` 收到 `{ urls: [...] }` 且用 `toEqual` 精确比域名数组（改 `URL_FILTERS` 即红），而不是 spy 掉诊断模块断言「被调用过」（那只能证明 mock 生效）。
+- **配套坑（tool）**：诊断的幂等标记写在 session 实例上（`ses.__loginNetDiagAttached`）。测试桩若让 `session.fromPartition` 恒返回同一个 `defaultSession`，标记会跨用例残留，使「监听注册恰好一次」的断言依赖用例顺序——假红/假绿温床。桩应每次返回新 session 对象（真实 Electron 语义：分区即独立 session）。
+- **反向排除记录**：本次先用实测排掉了 3 个看似合理的假设，全部有据（CN 出口 IP 直连与走代理相同→微信流量本就走 DIRECT；`l/qrconnect` hold 15.183s vs 15.180s→代理未掐长轮询；Edge 代理/直连渲染 DOM 字节完全一致）。教训：**`res.wx.qq.com` 的 8–9s 不是代理问题，是微信 CDN 对 404 自身限速**，直连同样 1–8s；异常耗时务必做 A/B 对照再下结论，否则会把工单修到不存在的根因上。详见 `01-docs/INVESTIGATE-LOGIN-QR-SLOW-2026-09-25.md` §3。
+- **编辑工具的行尾陷阱（pitfall，本轮真实代价）**：`learnings.md` 是 CRLF 文件，用 Edit 工具在其尾部追加一段，会把**相邻无关的 8 行**静默重排（`git diff --numstat` 报 24 增 16 删，`git diff -w` 却报 8 增 0 删 → 差额纯是行尾）。改法：`git checkout HEAD -- <单文件>` 回退后用 **Node 全程 Buffer 追加**（`fs.readFileSync` 得 Buffer，段落 `Buffer.from(text,'utf8')`，先把 `\n`→`\r\n` 再 concat 写回）。**切勿**用 `latin1` 读写再混入 utf8 字符串——往返对原内容无损，但新追加的中文会被按单字节打乱成乱码。中转文件别放 `/tmp`：Git Bash 的 `/tmp` 与 Node 解析的 `/tmp`（= `D:\tmp`）映射不同，实测 ENOENT。
