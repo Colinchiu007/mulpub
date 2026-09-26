@@ -60,14 +60,14 @@
 - [x] 6.2 GREEN：实现 `apps/desktop/src/utils/account-display-name.js`，内部复用 `@multi-publish/shared-utils/src/account-name-guard`（走 vite alias 的 ESM 孪生），**不改** `isNoiseAccountName` 签名
 - [x] 6.3 卡片接入：`AccountManagementCard.vue` 的 `accountName()`(`:226-230`) 改调 helper；确认编辑框回填(`:78`) 与 `aria-label`/`:title`(`:6`,`:15`,`:20`) 用的是同一个解析值
 - [x] 6.4 分组接入：`AccountGroupsPanel.vue:118`、`AccountGroupManager.vue:63`、`PlatformAccountGroup.vue:126` 全部改调 helper；补一条「同一账号在卡片与分组面板显示同一个值」的跨组件一致性用例
-- [x] 6.5 排序/搜索/其它接入：`stores/accounts.js:138`（排序键）、`:166-167`（搜索命中）、`usePlatformAccounts.js:44`、`Accounts.vue:836`（改名去重比较）改走解析后的显示名 —— 用户必须能搜到、排到自己起的名字
-- [x] 6.6 发布页接入并确认：`PublishTargetSelector.vue:35,76`、`Publish.vue:128` 此前只读 `account.name`（即网页标题），改走 helper 后显示值会变。跑 `npm run test:visual:pixel` 前先看该页基线是否需人工审核更新，并在 CHANGELOG 显式记为「用户可见变化」
+- [x] 6.5 排序/搜索/其它接入：`stores/accounts.js:138`（排序键）、`:166-167`（搜索命中）、`usePlatformAccounts.js:44`、`Accounts.vue:836`（改名去重比较）改走解析后的显示名 —— 用户必须能搜到、排到自己起的名字。**本项曾被假勾**：独立评审（两位同时指出）实测四处全部未改，卡片显示「今日头条」而列表按脏 `account_name` 排序/命中。本轮真实落地：新增 `stores/accounts.js` 的 `displayNameOf()`（内部即唯一入口 + 平台名回落），排序键、搜索命中、`usePlatformAccounts.getAccountText`（侧栏）、`Accounts.vue` 改名去重比较与删除确认文案全部改走它；`account-name-source-passthrough.test.js` 另加一条**全仓扫描**（非白名单）断言渲染层不再出现 `account_name ||` 手搓回退，并用「把 `Accounts.vue` 那行改回 raw」的变异证明该锁会变红（4 处 → 红，还原后字节一致）
+- [x] 6.6 发布页接入并确认：`PublishTargetSelector.vue:35,76`、`Publish.vue:128` 此前只读 `account.name`（即网页标题），改走 helper 后显示值会变。跑 `npm run test:visual:pixel` 前先看该页基线是否需人工审核更新，并在 CHANGELOG 显式记为「用户可见变化」。**本项曾被假勾**：CHANGELOG 用户可见变化第 2 条与 `PublishTargetSelector.vue:35,76` 都按「已接入」写成，而该文件根本不在 diff 里（独立评审发现，实测 10 条显示名场景反证）。本轮真实接入并补 6 条行为用例：`auto` 脏值/标题回落平台名、`manual` 原样显示、合法昵称不被平台名覆盖、平台名也拿不到才用 id 前 8 位、搜索命中显示名而不再命中被隐藏的标题；变异回 raw `account.name` 时其中 4 条立刻变红。视觉基线仍待 9.3 在有 dev server 的环境补跑。
 
 ## 7. 改名落到读取真源
 
 - [x] 7.1 RED：`stores/accounts.test.js` / `Accounts.test.js` 新增 —— `renameAccount(id, '阿飞 - 自由职业')` 必须调用**后端 PATCH 通道**（断言具体 API 与参数 `{ name, name_source: 'manual' }`），且 `load()` 之后卡片显示该名字；失败路径断言界面保留旧值并提示
 - [x] 7.2 GREEN：`stores/accounts.js:434-437` 改走 `publisher.js` 中打后端真源的通道（参照 `batchSetActive` 因同类问题被明确要求的写法，见 `publisher.js:102-103`）；不得再使用写 SQLite 的 `accountUpdate`
-- [x] 7.3 手动验证（不可用测试替代）：真实 Electron 窗口里改名 → 卡片立即生效 → 重启应用后仍生效；同时验证一个含 ` - ` 的名字不被藏
+- [ ] 7.3 手动验证（不可用测试替代）：真实 Electron 窗口里改名 → 卡片立即生效 → 重启应用后仍生效；同时验证一个含 ` - ` 的名字不被藏。**未执行**：QM-1 的 8 秒启动因本 worktree 打包未捆 python-backend（`spawn python ENOENT`）→ 账号列表加载不了 → 改名链路根本没走到（见 `.quality-gates.md` 同条自证）。本项此前被勾成 `[x]` 属**假完成**，独立评审指出后改回。须在 `mp-app-live` 同步本分支后于真实窗口补做。
 
 ## 8. 守卫孪生与 parity
 
@@ -86,6 +86,14 @@
   - **门禁自身的第二份拷贝未修**：`--py-cjk` 基线仍按 `file:line` 存储，而渲染端 `--cjk` 早在 2026-09-12（PR #1732 事故）已迁到 `file||content`。本 PR 在 `server.py` 上方插入约 19 行即让 17 条**既有**中文 `raise` 整体错位、全部报成「新增」。先用 main/branch 逐文件内容集对照证明 `src/server.py` 命中集 11↔11、新增 0 条（即红项纯属行号漂移），再把 `resolveContentBaseline` 抽成两侧共用、`--update-py-baseline` 改吐内容键、基线一次性迁移（79 → 67 条，同文件同文案去重）。
   - **反证**：`check-locale-sync.test.js` 新增 `--py-cjk` 行号漂移回归（插一行必须仍 PASS）与「新增中文 raise 必须变红」两条，后者同时断言 `server.py` 逐字节还原，防止内容基线退化为常绿。9 条自测全绿。
   - 9.2 的「locale 成对」当时是按「我有没有成对新增键」判过的，没跑 `--cjk` 本身；后续把「跑门禁脚本」而非「自查改动」作为 9.2 的完成判据。
+- [x] 9.7 QM-6 替代：CCG 双模型外部评审**本机仍不可用**（`.ccg/config.toml` 不存在、`codeagent-wrapper` 不在 PATH，本轮二次核实），按 9.4 约定降级为**两路独立上下文评审**（后端/规格轴 + 前端/可维护性轴，并行派发、互不告知对方结论）。合计 2 条 CRITICAL + 5 条 MAJOR，处置如下：
+  - 🔴 **`updateCapturedAccount` 未过 `guardProfilePatchBySource`**：三条「凭证落盘」同族路径里只锁了两条（正是 AGENTS.md 点名的沉默缺陷形态）。用户改名后再登录 → 抓到的昵称覆盖 `account_name` 而 `name_source` 仍为 `manual` → 该行此后再无任何一道会过滤它，**反转本 change 的核心不变量**。已补守卫 + 2 条用例（manual 不覆盖且不顺带降级 / auto 正常覆盖并同步来源）；变异「删掉那行守卫」→ 恰好这 2 条变红。
+  - 🔴 **发布页选择器未接入唯一入口**（详见 6.6，并伴随 CHANGELOG / tasks 假完成）。
+  - 🟠 **`name` 作为第二显示候选被摘除**（评审 MAJOR：规格从未授权，而 `account-display-name.test.js:49-51` 已把它钉成契约 = 「测试反向固化错误行为」）。定案依据是真实 `accounts.json` 8 条：`name` 全是 `document.title`，4 条合法昵称全在 `account_name`；摘除后唯一受影响的存量行是快手，其 `name` = `快手，记录世界 记录你`（无分隔符/省略号/平台后缀，形态规则判不出）—— 保留即让原 Bug 从第二扇门复发。规格已补 Scenario 钉住，`usePlatformAccounts.getAccountText`（侧栏）同步。
+  - 🟠 **两份同名 `resolveAccountDisplayName` 签名不同**（主进程收 `(rawName, platform)`、渲染层收 `(account, options)`）→ 主进程侧改名 `resolveCapturedDisplayName`，并在文件头写明「刻意不同名」的理由（AGENTS.md「禁止第四份映射」防的正是这个形态）。
+  - 🟠 **内容键去重弱点**：`file||content` 把同文件同文案的第 2..N 次命中并成一条，「复用一条已入基线的中文串」这条最省事的绕过路径对门禁完全免疫（实测 py 侧 79 处命中 → 67 个键，`server.py||账号不存在` 已出现 5 次而基线只有 1 条）。改为 `file||content||#N` 出现次序键并重生成基线（67 → 79），另加专属反证「复用一条已入基线的中文也必须变红」。渲染端**本轮不同步**：其基线是热文件（近 60 天被 8 个 PR 改过，历史上还有两笔「基线行号随行更新」的手工修线提交），后缀化会产生 1581 行纯格式 churn 并与并发会话必冲突 —— 已登记为债务（见 `.quality-gates.md`「新登记债务项」）。
+  - 🟠 **`Accounts.vue:836` 改名去重比较用 raw 字段**：用户输入恰等于被守卫隐藏的那串脏值时，改名静默 no-op 且零反馈。改为与卡片显示值同源。
+  - 两条评审点到但**本轮不改**、登记为债务：`ipc-handlers/store.js` 另有第二份 `publicAccountFields`（不含 `name_source`、仍做 `account_name || name` 合并，当前无渲染端消费者）；`src/api/publisher.js` 的 `accountUpdate` 失去最后消费者成为死导出，而它正是「写了不显示」的断链。
 
 ## 10. 文档与归档三同步
 

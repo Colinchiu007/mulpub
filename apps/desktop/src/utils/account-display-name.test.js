@@ -46,12 +46,20 @@ describe('resolveAccountDisplayName — auto 必须过噪声守卫', () => {
 })
 
 describe('resolveAccountDisplayName — 兜底链与边界', () => {
-  it('account_name 为空时试 name，但 name 也要过守卫', () => {
+  // 本用例曾是「name 也当第二候选（过守卫）」的契约。该候选在真实数据上只会放行形态规则
+  // 抓不到的页面标题（快手 name = 「快手，记录世界 记录你」：无连字符/省略号/平台后缀，
+  // 守卫判不出噪声），即 Bug 的第二落点。故断言反转：name 一律不作为显示名来源。
+  it('account_name 不合格时绝不采用 name（name 恒为 document.title 落盘位）', () => {
     expect(resolveAccountDisplayName({ account_name: '', name: '我的小号', name_source: 'auto' }, OPT))
-      .toBe('我的小号')
-    // 实测存量 7 条的 name 全是网页标题，因此 name 绝不能免过滤
+      .toBe('今日头条')
     expect(resolveAccountDisplayName({ account_name: '', name: '首页 - 知乎' }, OPT)).toBe('今日头条')
     expect(resolveAccountDisplayName({ account_name: '', name: '公众号' }, OPT)).toBe('今日头条')
+    // 真实存量形态：account_name 是「快手创作者服务平台」（命中平台后缀被拦），
+    // name 是页面标语（守卫判不出）—— 旧实现会显示这条标语。
+    expect(resolveAccountDisplayName({
+      account_name: '快手创作者服务平台',
+      name: '快手，记录世界 记录你',
+    }, OPT)).toBe('今日头条')
   })
 
   it('两个字段都不合格时回落平台名', () => {

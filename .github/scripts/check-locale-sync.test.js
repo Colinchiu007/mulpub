@@ -90,6 +90,26 @@ test('check-locale-sync --py-cjk：新增中文 raise 必须变红（反证，�
   assert.ok(restored.equals(orig), 'counter-proof must restore server.py byte-for-byte')
 })
 
+test('check-locale-sync --py-cjk：复用一条已入基线的中文也必须变红（||#N 出现次序后缀）', () => {
+  // 无后缀的 file||content 键把「同文件同文案的第 2..N 次命中」并成一条 —— 而复用已存在的
+  // 中文串正是加硬编码最省事的写法（实测 server.py 里 `账号不存在` 已有 5 处）。
+  // 本用例是那条去重弱点的专属反证：只跑上一条「全新文案」用例不足以证明它被堵住了。
+  const fs = require('fs')
+  const file = 'packages/python-backend/src/server.py'
+  const abs = path.join(__dirname, '..', '..', file)
+  const orig = fs.readFileSync(abs)
+  const probe = "\n\ndef _locale_sync_reuse_counterproof():\n    raise ValueError('账号不存在')\n"
+  try {
+    fs.writeFileSync(abs, Buffer.concat([orig, Buffer.from(probe)]))
+    const r = run(['--py-cjk'])
+    assert.equal(r.ok, false, 're-using an already-baselined CJK message must fail the scan')
+    assert.match(r.err, /账号不存在/)
+  } finally {
+    fs.writeFileSync(abs, orig)
+  }
+  assert.ok(fs.readFileSync(abs).equals(orig), 'reuse counter-proof must restore server.py byte-for-byte')
+})
+
 test('check-locale-sync --cjk：基线为 file||content 新格式（行号漂移免疫，2026-09-12 修复）', () => {
   const baseline = JSON.parse(require('fs').readFileSync(
     require('path').join(__dirname, 'locale-cjk-baseline.json'), 'utf8'))

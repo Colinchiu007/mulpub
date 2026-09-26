@@ -16,7 +16,7 @@ const accountStateRestorer = require('../services/account-state-restorer')
 const credentialStore = require('../services/credential-store')
 const { normalizeProxyConfig, toPublicProxyConfig } = require('../services/proxy-config')
 const {
-  resolveAccountDisplayName,
+  resolveCapturedDisplayName,
   guardProfilePatchBySource,
   renameAccount: renameAccountViaBackend,
 } = require('./account-name-write')
@@ -70,7 +70,6 @@ const {
 } = require('@multi-publish/shared-utils/src/platform-definitions')
 // 账号资料（昵称/头像/平台ID/粉丝）采集与「字段缺席=不修改」写回契约的单一实现
 const profileUtils = require('@multi-publish/shared-utils/src/account-profile')
-const { isNoiseAccountName } = require('@multi-publish/shared-utils/src/account-name-guard')
 
 // 平台登录 URL / 名称 / 选择器 → @multi-publish/shared-utils/src/platform-definitions
 
@@ -269,7 +268,7 @@ async function saveCapturedAccount (platform, captured, options = {}) {
   if (cookies.length === 0 && Object.keys(localStorageData).length === 0 && Object.keys(indexedDB).length === 0) {
     throw new Error('未捕获到有效登录凭证')
   }
-  const name = resolveAccountDisplayName(source.name, platform)
+  const name = resolveCapturedDisplayName(source.name, platform)
   const accountInfo = source.accountInfo && typeof source.accountInfo === 'object' && !Array.isArray(source.accountInfo)
     ? source.accountInfo
     : {}
@@ -1122,7 +1121,7 @@ async function updateCapturedAccount (platform, captured, accountId) {
   if (cookies.length === 0 && Object.keys(localStorageData).length === 0 && Object.keys(indexedDB).length === 0) {
     throw new Error('未捕获到有效登录凭证')
   }
-  const name = resolveAccountDisplayName(source.name, platform)
+  const name = resolveCapturedDisplayName(source.name, platform)
   const accountInfo = source.accountInfo && typeof source.accountInfo === 'object' && !Array.isArray(source.accountInfo)
     ? source.accountInfo
     : {}
@@ -1159,6 +1158,10 @@ async function updateCapturedAccount (platform, captured, accountId) {
   // 失效」（今日头条）。顺序不可颠倒：凭证未落盘时不允许把真源置为 active
   // （防半成功状态）。
   const profilePatch = profileUtils.buildProfilePatch(accountInfo, account)
+  // 第三条「凭证落盘」同族路径，必须与前两条 refreshProfile* 过同一个守卫：
+  // 重新登录时抓到的昵称不得覆盖用户显式命名，否则 name_source 仍是 manual
+  // 而值已换成机器脏值，之后再没有任何一道会过滤它 —— 正好反转本 change 的核心不变量。
+  guardProfilePatchBySource(profilePatch, account)
   // PATCH 体与返回值复用同一 validatedAt：两处各取 new Date() 会相差一个网络往返，排障对不上
   const validatedAt = new Date().toISOString()
   let metaResult = null

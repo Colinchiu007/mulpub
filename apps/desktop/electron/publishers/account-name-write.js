@@ -17,7 +17,12 @@ const { isNoiseAccountName } = require('@multi-publish/shared-utils/src/account-
 const { getPlatformName } = require('@multi-publish/shared-utils/src/platform-definitions')
 
 /**
- * 解析账号显示名。`captured.name` 来自 auth-view-manager 的 `document.title`，
+ * 解析**主进程采集到的**显示名。刻意不叫 `resolveAccountDisplayName` —— 渲染层
+ * `src/utils/account-display-name.js` 里那个同名函数签名不同（收 account 对象、看
+ * `name_source`、可返回空串），两者共用一个名字是 grep 误用与口径漂移的高发点
+ * （AGENTS.md「禁止第四份映射」防的就是这个形态）。
+ *
+ * `captured.name` 来自 auth-view-manager 的 `document.title`，
  * 它既是 POST/PATCH 直接写进真源 `name` 字段的值，又是 `profileForCreate` 的昵称兜底 ——
  * 不在这唯一一处入口过噪声守卫，等于给「网页标题冒充账号名」留一条绕过口
  * （2026-09-26 生产库的「小红书创作服务平台 / 快手创作者服务平台 / 抖音创作者中心」即此路径产物）。
@@ -26,7 +31,7 @@ const { getPlatformName } = require('@multi-publish/shared-utils/src/platform-de
  * @param {string} platform
  * @returns {string}
  */
-function resolveAccountDisplayName (rawName, platform) {
+function resolveCapturedDisplayName (rawName, platform) {
   const trimmed = typeof rawName === 'string' ? rawName.trim() : ''
   return trimmed && !isNoiseAccountName(trimmed) ? trimmed : getPlatformName(platform)
 }
@@ -89,4 +94,4 @@ async function renameAccount (accountId, platform, newName, deps) {
   }
 }
 
-module.exports = { resolveAccountDisplayName, guardProfilePatchBySource, renameAccount }
+module.exports = { resolveCapturedDisplayName, guardProfilePatchBySource, renameAccount }

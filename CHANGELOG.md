@@ -9,12 +9,21 @@
 - **`apps/desktop/electron/ipc-handlers/account.js`**：`publicAccountFields` 加 `name_source`；**撤掉 `account_name: account_name || name` 提前合并** —— 那一道合并正是「主进程先把页面名伪装成昵称、渲染层无从区分来源」的根源。
 - **`apps/desktop/electron/publishers/account-manager.js`**：新增 `renameAccount`（写 `account_name` + `name_source='manual'`）；回填保护从「猜文本形态」改为读来源，落地为共享判据 `guardProfilePatchBySource(patch, current)`，`refreshProfileFromHttpApi` 与 `refreshProfileFromPage` 同一处收口。只有**真的**写昵称时才下发 `name_source='auto'`，避免昵称被保护住时顺带把 `manual` 降级。
 - **`apps/desktop/electron/ipc-handlers/account-rename.js`（新）**：改名 IPC 通道，单独成文件（对齐 `account-active.js` 的既有决定：`account.js` 已在超大文件挂账清单上）。含 sender 校验、路径段白名单、空名/超长拒绝、失败码透传。
-- **`apps/desktop/src/utils/account-display-name.js`（新）**：账号显示名的**唯一解析入口**。`manual` ⇒ 原样返回、不过任何形态规则；`auto`/缺失 ⇒ 过噪声守卫，命中才试 `name`（同样过守卫），都不合格才回落平台名。
-- **渲染层消费点全部改走该入口**：`AccountManagementCard.vue`、`AccountGroupsPanel.vue`、`AccountGroupManager.vue`、`PlatformAccountGroup.vue`；`stores/accounts.js` 的 `renameAccount` 改调 `accountRename` 并摘掉已无消费者的 `accountUpdate` 导入。
+- **`apps/desktop/src/utils/account-display-name.js`（新）**：账号显示名的**唯一解析入口**。`manual` ⇒ 原样返回、不过任何形态规则；`auto`/缺失 ⇒ 过噪声守卫，不合格直接回落平台名。**`name` 一律不作为显示名来源**（它由主进程写成 `document.title`；实测本机 accounts.json 8 条里 `name` 全是标题/标语，4 条合法昵称全在 `account_name`。曾把它当第二候选，独立评审指出后摘除——见「独立评审」节）。
+- **渲染层消费点全部改走该入口**（7 处）：`AccountManagementCard.vue`、`AccountGroupsPanel.vue`、`AccountGroupManager.vue`、`PlatformAccountGroup.vue`、`PublishTargetSelector.vue`、`Publish.vue`、`usePlatformAccounts.js`（侧栏文案），外加 `stores/accounts.js` 的排序键与搜索命中、`Accounts.vue` 的改名去重比较与删除确认文案；`stores/accounts.js` 的 `renameAccount` 改调 `accountRename` 并摘掉已无消费者的 `accountUpdate` 导入。
 - **`packages/shared-utils/src/account-name-guard{,.browser}.js`**：补齐 CJS 对 `hasUnbalancedBrackets` 的导出（此前 ESM 导出、CJS 只内部使用，两侧 API 面漂移），并纳入 parity 断言。
 
 ### 为什么必须是来源字段，而不是继续调规则
 噪声守卫的职责是「藏掉系统抓错的文本」，用户显式命名也过这层守卫时，`阿飞 - 自由职业`、`Rhythm · 音乐厅`、`小美…的厨房`、`广东政务服务平台` 会被一起藏掉。而反向用「现网名不像噪声」推断「这是不是手改名」的两个方向都会错：合法机器昵称被无谓保护（永远更新不动），用户手改名**恰好长得像噪声时被直接冲掉**（实测复现：`expected { account_name: '平台返回的昵称' } to not have property "account_name"`）。二者需要的是同一判断的两个相反答案，只能靠 `name_source` 承载。
+
+### 独立评审（QM-6 替代，2 条 CRITICAL + 5 条 MAJOR）
+CCG 双模型外部评审本机不可用（无 `.ccg/config.toml`、`codeagent-wrapper` 不在 PATH），降级为两路互不知情的独立上下文评审。抓出两处我自己在 CHANGELOG / tasks 里**已勾成已完成而实际没做**的项，以及一处会反转本 change 核心不变量的沉默缺陷：
+
+1. 🔴 `updateCapturedAccount`（重新登录）是第三条「凭证落盘」路径，前两条 `refreshProfile*` 都过了 `guardProfilePatchBySource`，唯独它没有。后果：用户改完名再登录一次，抓到的昵称就覆盖了 `account_name`，而 `name_source` 仍留着 `manual` —— 这一行此后再没有任何一道会过滤它。已补守卫并钉 2 条用例。
+2. 🔴 发布页账号选择器（`PublishTargetSelector.vue` / `Publish.vue`）当时根本没改，本文件「用户可见变化」第 2 条却已写成改了。现已真实接入并补 6 条行为用例。
+3. 🟠 摘掉 `name` 作为第二显示候选（理由见上）。真实数据里唯一受影响的是快手的 `name` = `快手，记录世界 记录你` —— 形态规则判不出这类标语，保留它等于让原 Bug 从第二扇门复发。
+4. 🟠 主进程侧那份同名函数改名 `resolveCapturedDisplayName`：它与渲染层入口签名不同（收 `(rawName, platform)`），同名异义是口径漂移与 grep 误用的高发点。
+5. 🟠 排序/搜索/侧栏/删除确认等 6 处仍读 raw 字段，现全部与卡片同源；并把「唯一入口」的守卫从**写死 3 个文件的白名单**改成**全仓扫描**（白名单对新写一处手搓回退完全失明），用变异证明该锁会变红。
 
 ### 测试（TDD 红灯先行 + 3 处反证）
 - 新增：`test_server_account_name_source.py`(6)、`account-rename.test.js`(16)、`account-name-source-passthrough.test.js`(4)、`src/utils/account-display-name.test.js`(23)、卡片显示名口径(9)、store 改名(4)、后端隔离反证对(2)。

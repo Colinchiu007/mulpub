@@ -49,9 +49,45 @@ describe('name_source 投影白名单接线守卫', () => {
       'apps/desktop/src/features/accounts/components/AccountManagementCard.vue',
       'apps/desktop/src/features/accounts/components/AccountGroupsPanel.vue',
       'apps/desktop/src/features/accounts/components/AccountGroupManager.vue',
+      'apps/desktop/src/features/publish/components/PublishTargetSelector.vue',
+      'apps/desktop/src/composables/usePlatformAccounts.js',
+      'apps/desktop/src/stores/accounts.js',
+      'apps/desktop/src/views/Accounts.vue',
     ]
     for (const rel of consumers) {
       expect(read(rel), rel + ' 必须改用共享解析入口').toContain('utils/account-display-name')
     }
+  })
+
+  // 上面那份消费者清单是**白名单**，对「新写一处 raw 回退」完全失明 —— 实测本 PR 自己就漏了
+  // 发布页选择器（PublishTargetSelector.vue 只读 account.name，而 account.name 由主进程写成
+  // document.title），并且两处 CHANGELOG/tasks 还把它勾成已完成。故补一条全仓扫描：
+  // 渲染层不得再出现 `xxx.account_name || xxx.name` 这种手搓显示名回退。
+  it('渲染层不得残留手搓的 `account_name || name` 显示名回退（全仓扫描，非白名单）', () => {
+    const offenders = []
+    const walk = (dir) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+          if (entry.name === 'locales' || entry.name === 'node_modules') continue
+          walk(full)
+          continue
+        }
+        if (!/\.(?:vue|js)$/.test(entry.name)) continue
+        if (/\.test\.js$/.test(entry.name)) continue
+        const rel = path.relative(REPO_ROOT, full).split(path.sep).join('/')
+        const lines = fs.readFileSync(full, 'utf8').split(/\r?\n/)
+        lines.forEach((line, i) => {
+          const t = line.trim()
+          // 注释里合法地讨论这条规则（本 PR 就有两处），只拦活代码
+          if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*')) return
+          if (/account_name\s*(\?\?)?\s*\|\|/.test(t)) {
+            offenders.push(rel + ':' + (i + 1) + '  ' + t)
+          }
+        })
+      }
+    }
+    walk(path.join(REPO_ROOT, 'apps/desktop/src'))
+    expect(offenders, '以下位置绕过唯一入口手搓显示名回退：\n' + offenders.join('\n')).toEqual([])
   })
 })

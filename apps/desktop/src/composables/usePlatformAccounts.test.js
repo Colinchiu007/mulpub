@@ -89,9 +89,16 @@ describe('usePlatformAccounts — 纯函数', () => {
   })
 
   describe('getAccountText', () => {
-    it('有账号时返回 name', () => {
-      const accounts = [{ id: 'a1', name: '我的账号', is_default: true }]
+    it('有显示名时返回 account_name（与账号卡片同源）', () => {
+      const accounts = [{ id: 'a1', account_name: '我的账号', is_default: true }]
       expect(getAccountText(accounts)).toBe('我的账号')
+    })
+
+    it('name 是 document.title 落盘位，绝不作为侧栏文案', () => {
+      // 真实 accounts.json 里 douyin 的 name 就是「抖音创作者中心」这类标题
+      expect(getAccountText([{ id: 'a1', platform: 'douyin', name: '抖音创作者中心', is_default: true }]))
+        .toBe('抖音')
+      expect(getAccountText([{ id: 'a1', name: '首页 - 知乎', is_default: true }])).toBe('已登录')
     })
 
     it('有账号但无 name 时返回"已登录"', () => {
@@ -311,7 +318,7 @@ describe('usePlatformAccounts — composable setup', () => {
     window.electronAPI = {}
     const r = usePlatformAccounts()
     r.platformAccounts.value = {
-      wechat_mp: [{ id: 'a1', name: '测试', status: 'active', is_default: true }],
+      wechat_mp: [{ id: 'a1', account_name: '测试', status: 'active', is_default: true }],
     }
     expect(r.getDefaultAccount('wechat_mp').id).toBe('a1')
     expect(r.getAccountText('wechat_mp')).toBe('测试')

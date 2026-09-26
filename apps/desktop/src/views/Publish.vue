@@ -125,7 +125,7 @@
                         :checked="isBatchAccountSelected(a, p.id, account.id)"
                         @change="toggleBatchAccount(a, p.id, account.id)"
                       />
-                      <span>{{ account.name || account.id?.slice(0, 8) }}</span>
+                      <span>{{ resolveAccountDisplayName(account, { platformLabel: p.label }) }}</span>
                     </label>
                   </div>
                 </template>
@@ -602,6 +602,7 @@ import {
 } from '@/features/publish/publish-contract'
 import PlatformOverridePanel from '@/features/publish/components/PlatformOverridePanel.vue'
 import PublishTargetSelector from '@/features/publish/components/PublishTargetSelector.vue'
+import { resolveAccountDisplayName } from '@/utils/account-display-name'
 import { usePublishPlatformCatalog } from '@/features/publish/usePublishPlatformCatalog'
 
 const route = useRoute()

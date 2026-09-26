@@ -4,6 +4,7 @@ import { listAccounts, accountDelete, accountSetDefault, accountSetActive, accou
 import { usePlatformStore } from '@/stores/platforms'
 import { formatUserError } from '@/utils/user-facing-error'
 import { isAccountActive } from '@/utils/account-active'
+import { resolveAccountDisplayName } from '@/utils/account-display-name'
 import i18n from '@/i18n'
 
 // 上游瞬时不可用（身份服务 JWKS 抖动 / 后端 5xx / 网络与超时）时保留上一次列表：
@@ -134,8 +135,16 @@ export const useAccountStore = defineStore('accounts', () => {
     return value === 'active' || value === 'online' ? 1 : 0
   }
 
+  // 排序/搜索/显示必须同源：卡片显示「今日头条」（脏昵称被守卫隐藏）而列表按那串脏值
+  // 排序或命中，用户会看到顺序莫名其妙、且搜得到屏幕上根本没出现过的名字。
+  function displayNameOf (account) {
+    return resolveAccountDisplayName(account, {
+      platformLabel: platformStore.getLabel(account.platform) || account.platform,
+    })
+  }
+
   function sortValue (account, field) {
-    if (field === 'name') return normalizeText(account.account_name || account.name)
+    if (field === 'name') return normalizeText(displayNameOf(account))
     if (field === 'platform') return normalizeText(platformStore.getLabel(account.platform) || account.platform)
     if (field === 'created_at' || field === 'last_used_at') return normalizeDate(account[field])
     if (field === 'followers') return normalizeNumber(account.followers ?? account.follower_count ?? account.followers_count ?? account.fans ?? account.fans_count ?? account.fansCount ?? account['粉丝数'])
@@ -163,8 +172,7 @@ export const useAccountStore = defineStore('accounts', () => {
     if (searchQuery.value) {
       const q = searchQuery.value.toLowerCase()
       result = result.filter(acc =>
-        (acc.name || '').toLowerCase().includes(q) ||
-        (acc.account_name || '').toLowerCase().includes(q) ||
+        displayNameOf(acc).toLowerCase().includes(q) ||
         (acc.platform || '').toLowerCase().includes(q) ||
         String(platformStore.getLabel(acc.platform) || '').toLowerCase().includes(q)
       )

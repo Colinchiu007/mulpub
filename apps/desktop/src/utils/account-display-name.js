@@ -10,8 +10,9 @@
  * 口径：
  * - `account_name` 是首选显示位（机器回填写它、用户改名也写它），`name_source` 描述它的来源。
  * - `manual` ⇒ 原样返回，不过任何形态规则。
- * - `auto` / 缺失 ⇒ 过守卫；命中噪声才继续试 `name`（同样过守卫），都不合格才回落平台名。
- * - `name` 是平台显示名/历史兼容位，主进程 IPC 层不得再用它填充 `account_name`。
+ * - `auto` / 缺失 ⇒ 过守卫；不合格直接回落平台名。
+ * - `name` 是 `document.title` 的落盘位（平台显示名/历史兼容位），**永不作为显示名来源**；
+ *   主进程 IPC 层也不得再用它填充 `account_name`。
  */
 import { isNoiseAccountName } from '@multi-publish/shared-utils/src/account-name-guard'
 
@@ -30,9 +31,11 @@ export function resolveAccountDisplayName (account, options = {}) {
   if (primary && acc.name_source === 'manual') return primary
   if (primary && !isNoiseAccountName(primary)) return primary
 
-  const secondary = typeof acc.name === 'string' ? acc.name.trim() : ''
-  if (secondary && !isNoiseAccountName(secondary)) return secondary
-
+  // `name` **不是**显示名来源：主进程写进它的就是 auth-view-manager 的 `document.title`
+  // （实测本机 accounts.json 8 条，`name` 全是页面标题/标语，而 4 条合法昵称全落在
+  // `account_name`）。把它留作第二候选，唯一效果是把形态规则抓不到的那类标题放出去 ——
+  // 快手的 `name` 是「快手，记录世界 记录你」，无连字符、无省略号、无平台后缀，
+  // isNoiseAccountName 判不出来，页面标语就会冒充账号名。回落平台名至少不会说谎。
   return fallback
 }
 

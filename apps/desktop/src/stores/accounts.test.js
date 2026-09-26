@@ -12,6 +12,7 @@ vi.mock("@/api/publisher", () => ({
 }));
 
 import { useAccountStore } from "./accounts.js";
+import i18n from "@/i18n";
 import { usePlatformStore } from "./platforms.js";
 import {
   accountDelete,
@@ -22,10 +23,13 @@ import {
   listAccounts,
 } from "@/api/publisher";
 
+// 夹具按**当前数据模型**建模：显示名落在 account_name，`name` 是主进程写入的
+// document.title（真实 accounts.json 8 条里 name 全是页面标题/标语）。
+// 早期夹具把昵称放在 name 上，等于把「标题当身份字段」这层错误钉成契约。
 const accountsFixture = [
-  { id: "wx-1", platform: "wechat_mp", name: "Beta", status: "active", created_at: "2026-02-01" },
-  { id: "zh-1", platform: "zhihu", account_name: "Alpha", status: "offline", created_at: "2026-01-01" },
-  { id: "wx-2", platform: "wechat_mp", name: "Gamma", status: "online", created_at: null },
+  { id: "wx-1", platform: "wechat_mp", name: "公众号", account_name: "Beta", status: "active", created_at: "2026-02-01" },
+  { id: "zh-1", platform: "zhihu", name: "首页 - 知乎", account_name: "Alpha", status: "offline", created_at: "2026-01-01" },
+  { id: "wx-2", platform: "wechat_mp", name: "公众号", account_name: "Gamma", status: "online", created_at: null },
 ];
 
 describe("useAccountStore", () => {
@@ -282,17 +286,19 @@ describe("useAccountStore", () => {
       expect(store.accounts.map(account => account.id)).toEqual(["wx-1", "zh-1", "wx-2"]);
     });
 
-    it("名称排序使用 account_name 和空字符串作为回退值", () => {
+    it("名称排序按解析后的显示名，绝不按 name（网页标题落盘位）排", () => {
       const store = useAccountStore();
       store.accounts = [
         { id: "empty" },
         { id: "account-name", account_name: "Alpha" },
-        { id: "name", name: "beta" },
+        { id: "title-only", name: "beta" },
       ];
 
-      expect(store.filteredAccounts.map(account => account.id)).toEqual(["empty", "account-name", "name"]);
+      // title-only 解析后没有可用显示名（本行无 platform → 平台名也为空），与 empty 同组排在前；
+      // 关键是它绝不按 'beta' 排到最后 —— 那等于让 document.title 参与排序。
+      expect(store.filteredAccounts.map(account => account.id)).toEqual(["empty", "title-only", "account-name"]);
       store.sortOrder = "desc";
-      expect(store.filteredAccounts.map(account => account.id)).toEqual(["name", "account-name", "empty"]);
+      expect(store.filteredAccounts.map(account => account.id)).toEqual(["account-name", "empty", "title-only"]);
     });
 
     it("名称排序与卡片显示统一优先使用 account_name", () => {
@@ -928,8 +934,12 @@ describe("useAccountStore", () => {
 
       await expect(store.renameAccount("a1", "新名称")).resolves.toEqual({
         code: -2,
-        message: "账号不存在或已被删除",
+        // 断言「文案出自这个 key」而不是把中文字面量焊进测试（QM-3：渲染端测试断言 i18n
+        // 键而非 locale 字面量，否则文案一调即假红）。键缺失时 vue-i18n 会静默回落成
+        // key 字符串，所以这里仍比原来的 toMatchObject({code}) 严格。
+        message: i18n.global.t("accountsPage.accountNotFound"),
       });
+      expect(i18n.global.t("accountsPage.accountNotFound")).not.toBe("accountsPage.accountNotFound");
       expect(accountRename).not.toHaveBeenCalled();
       expect(accountUpdate).not.toHaveBeenCalled();
       expect(listAccounts).not.toHaveBeenCalled();

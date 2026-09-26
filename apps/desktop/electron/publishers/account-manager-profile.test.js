@@ -89,6 +89,31 @@ describe('updateCapturedAccount — PATCH 只下发命中字段（T8）', () => 
     // captured.name = '头条号 - 个人中心'（A - B 是页面标题指纹）
     expect(patchBody.name).toBe('今日头条')
   })
+
+  // AGENTS.md「登录态固化契约覆盖全部『凭证落盘』同族路径」：三条入口必须过同一个守卫。
+  // 本条在修前是沉默缺陷 —— 前两条 refreshProfile* 都过了 guardProfilePatchBySource，
+  // 唯独重新登录这条直接 ...profilePatch，于是 manual 名被抓取脏值覆盖后 name_source
+  // 仍留在 manual，之后再没有任何一道会过滤它（正好反转本 change 的核心不变量）。
+  it('manual 命名不得被重新登录抓取到的昵称覆盖（第三条凭证落盘路径同守卫）', async () => {
+    const { patchBody } = await runUpdate(
+      { nickName: '重新登录抓到的昵称' },
+      { account_name: '阿飞 - 自由职业', name_source: 'manual' },
+    )
+    expect(patchBody).not.toHaveProperty('account_name')
+    // 保护住昵称的请求也不得顺带把来源降级
+    expect(patchBody).not.toHaveProperty('name_source')
+    // 登录态回写不受影响：守卫只管资料字段
+    expect(patchBody.status).toBe('active')
+  })
+
+  it('现网名为 auto 时，重新登录抓到的昵称照常覆盖并同步来源为 auto', async () => {
+    const { patchBody } = await runUpdate(
+      { nickName: '重新登录抓到的昵称' },
+      { account_name: '老自动昵称', name_source: 'auto' },
+    )
+    expect(patchBody.account_name).toBe('重新登录抓到的昵称')
+    expect(patchBody.name_source).toBe('auto')
+  })
 })
 
 describe('回填保护必须按 name_source 判定，不得再靠文本形态猜', () => {
