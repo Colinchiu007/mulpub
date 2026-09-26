@@ -434,7 +434,7 @@ export const useAccountStore = defineStore('accounts', () => {
   async function renameAccount(accountId, newName) {
     // 必须先定位平台：改名通道走后端 PATCH，而真源按 platform + accountId 归属。
     const target = accounts.value.find(item => item.id === accountId)
-    if (!target) return { code: -2, message: '账号不存在' }
+    if (!target) return { code: -2, message: i18n.global.t('accountsPage.accountNotFound') }
     try {
       // 走 accountRename（写后端 accounts.json 真源 + name_source='manual'），
       // 不再用 accountUpdate —— 那条写 Electron SQLite，账号列表读不到，改名是空操作。

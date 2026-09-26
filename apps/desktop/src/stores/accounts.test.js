@@ -926,7 +926,10 @@ describe("useAccountStore", () => {
       const store = useAccountStore();
       store.accounts = [{ id: "other", platform: "wx" }];
 
-      await expect(store.renameAccount("a1", "新名称")).resolves.toMatchObject({ code: -2 });
+      await expect(store.renameAccount("a1", "新名称")).resolves.toEqual({
+        code: -2,
+        message: "账号不存在或已被删除",
+      });
       expect(accountRename).not.toHaveBeenCalled();
       expect(accountUpdate).not.toHaveBeenCalled();
       expect(listAccounts).not.toHaveBeenCalled();

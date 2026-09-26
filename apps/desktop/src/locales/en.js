@@ -1509,6 +1509,7 @@ export default {
     setDefaultSuccess: (ctx) => 'Set ' + ctx.named('platform') + ' as default account',
     setDefaultFailed: 'Failed to set default account',
     renameFailed: 'Rename failed',
+    accountNotFound: 'Account not found or already deleted',
     proxySaved: 'Account proxy saved',
     proxyCleared: 'Account proxy cleared',
     saveProxyFailed: 'Failed to save proxy',

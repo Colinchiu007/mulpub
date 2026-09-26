@@ -81,6 +81,11 @@
 - [ ] 9.3 视觉回归 `npm run test:visual:pixel`（发布页与账号页显示值变化），基线更新需人工审核 diff 图
 - [ ] 9.4 QM-6 CCG 双模型外部评审：本机 `codeagent-wrapper` 不在 PATH 且 `.ccg/config.toml` 缺失，若仍不可用则按 `.quality-gates.md` 既有先例**如实登记未执行 + 环境证据**，并以独立上下文评审替代，不得谎称通过
 - [x] 9.5 `openspec validate add-account-name-source --strict` 通过；`.quality-gates.md` 追加本次执行记录（含反证证据与 fresh 数字）
+- [x] 9.6 CI `QG Static` 首次真实红（`check-locale-sync`）后收口，两类根因分开处理：
+  - **本 PR 真错**：`stores/accounts.js` 的 `renameAccount` 新写了硬编码中文 `'账号不存在'`，违反 AGENTS.md「新增用户可见文案一律写入 locales」。改为 `i18n.global.t('accountsPage.accountNotFound')`，zh/en 成对新增，并把原来只断言 `code: -2` 的用例升级为精确断言本地化后的文案（否则键缺失时静默回落 key 字符串，测试照绿）。
+  - **门禁自身的第二份拷贝未修**：`--py-cjk` 基线仍按 `file:line` 存储，而渲染端 `--cjk` 早在 2026-09-12（PR #1732 事故）已迁到 `file||content`。本 PR 在 `server.py` 上方插入约 19 行即让 17 条**既有**中文 `raise` 整体错位、全部报成「新增」。先用 main/branch 逐文件内容集对照证明 `src/server.py` 命中集 11↔11、新增 0 条（即红项纯属行号漂移），再把 `resolveContentBaseline` 抽成两侧共用、`--update-py-baseline` 改吐内容键、基线一次性迁移（79 → 67 条，同文件同文案去重）。
+  - **反证**：`check-locale-sync.test.js` 新增 `--py-cjk` 行号漂移回归（插一行必须仍 PASS）与「新增中文 raise 必须变红」两条，后者同时断言 `server.py` 逐字节还原，防止内容基线退化为常绿。9 条自测全绿。
+  - 9.2 的「locale 成对」当时是按「我有没有成对新增键」判过的，没跑 `--cjk` 本身；后续把「跑门禁脚本」而非「自查改动」作为 9.2 的完成判据。
 
 ## 10. 文档与归档三同步
 
