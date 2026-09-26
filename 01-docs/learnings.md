@@ -15874,6 +15874,15 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **反向排除记录**：本次先用实测排掉了 3 个看似合理的假设，全部有据（CN 出口 IP 直连与走代理相同→微信流量本就走 DIRECT；`l/qrconnect` hold 15.183s vs 15.180s→代理未掐长轮询；Edge 代理/直连渲染 DOM 字节完全一致）。教训：**`res.wx.qq.com` 的 8–9s 不是代理问题，是微信 CDN 对 404 自身限速**，直连同样 1–8s；异常耗时务必做 A/B 对照再下结论，否则会把工单修到不存在的根因上。详见 `01-docs/INVESTIGATE-LOGIN-QR-SLOW-2026-09-25.md` §3。
 - **编辑工具的行尾陷阱（pitfall，本轮真实代价）**：`learnings.md` 是 CRLF 文件，用 Edit 工具在其尾部追加一段，会把**相邻无关的 8 行**静默重排（`git diff --numstat` 报 24 增 16 删，`git diff -w` 却报 8 增 0 删 → 差额纯是行尾）。改法：`git checkout HEAD -- <单文件>` 回退后用 **Node 全程 Buffer 追加**（`fs.readFileSync` 得 Buffer，段落 `Buffer.from(text,'utf8')`，先把 `\n`→`\r\n` 再 concat 写回）。**切勿**用 `latin1` 读写再混入 utf8 字符串——往返对原内容无损，但新追加的中文会被按单字节打乱成乱码。中转文件别放 `/tmp`：Git Bash 的 `/tmp` 与 Node 解析的 `/tmp`（= `D:\tmp`）映射不同，实测 ENOENT。
 
+## 契约只锁一半同族路径，另一半就成了沉默缺陷——新增账号显示「未确认」（login-state-solidify-sibling-path，2026-09-25）
+
+- **第一性引入点**：`7913534f`（#2205）为「保存凭证 = 一次成功的主动登录」建立契约，但只在 `updateCapturedAccount` 落地 `status='active'` 回写；`5874e4bd`（#2233）随后把后端 `create_account` 的默认登录态设为 `unverified`。两条改动各自自洽，合起来却让创建路径（`saveCapturedAccount`）永久停在「未确认」，直到用户手动点一次检测。
+- **实证优先于推断**：`backend-data/accounts.json` 里 23:00–23:06 新增的 6 个账号 `status=unverified` 且 `last_validated == created_at`（Python 6 位微秒格式 = 只有 `create_account` 写过）；同日唯一 `status=active` 的 `wechat_mp`，其 `last_validated` 是 JS 3 位毫秒格式，`app-2026-09-25.log:14881` 正是它的 `checkLoginStatus → persistLoginState`。**时间戳的小数位数就是写作者的指纹**——查「这个字段是谁写的」，先比格式，比读代码猜测快且不可辩驳。
+- **逃逸链**：① 单元测试——`account-manager-relogin-status.test.js` 只 describe 了 `updateCapturedAccount`，创建路径无对应用例；`account-manager.test.js` 的创建用例用 `toEqual` 锁死「返回值不含 status」这一当时事实，把缺陷固化成断言。② 集成/E2E——`account-login-state-tristate.js` 全部从「后端已有 status」起步，从未覆盖「刚创建完的第一帧」。③ 代码审查——#2205 与 #2233 分属不同 PR，各自 review 只看单条改动是否自洽，没有人跨 PR 追「这条契约的另一半在哪」。
+- **系统性漏洞类型（测试场景缺失）**：同一条业务不变量在多条同族实现路径上落地时，回归测试习惯按路径逐个补，缺少「先枚举全部同族入口再逐个确认有锁定断言」的收口动作。判定手法：给契约起个名，grep 出所有应满足它的函数名，看是不是只有一个具备测试。
+- **预防措施落地**：AGENTS.md QM-2 新增「登录态固化契约覆盖全部『凭证落盘』同族路径」条目；创建路径补 3 条回归（PATCH 携带 active / 凭证落盘必须在 PATCH 之前 / 凭证失败不得出现 active）。
+- **可迁移信号**：修 A 路径的同类 Bug 时先问「B 路径呢」。兄弟函数（create vs update、导入 vs 手填、种子 vs 运行时）几乎总会漏掉一边，而漏掉的通常是**新数据入口**——它的症状不是「老功能坏了」，而是「所有新建的一上线就坏」，因此极易被误读成设计如此而长期放过。
+- **顺带挖出的第二条缺陷（跨模型评审贡献）**：`captureCookies` 的登录判据是 `Promise.race([选择器命中, URL host 离开登录页])` —— 后者是**弱证据**：用户没登录、只是导航到了别的域名也会赢。补齐创建路径的固化后，这条弱证据会直接把「其实没登录」的账号标成已登录，比修复前更糟。因此固化登录态时必须问「凭证从哪来、证据强度够不够」，弱证据入口（`account:add` / 首次运行引导）传 `loginVerified:false` 保持 `unverified`。启示：修「显示不出已登录」时，同一个写入动作会把上游所有证据不足的入口一起放大成假阳性——写侧越主动，读侧越要证据。
 
 ## CI 单测失败先做「改动范围归因 + 同内容多 run」双判再动手——scheduler-parity 时序 flake（api-publish-w3 PR #2413，2026-09-26）
 
