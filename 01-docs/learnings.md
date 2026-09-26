@@ -1,19 +1,23 @@
+## 账号昵称显示成网页标题：兜底源语义错误 + 测试把缺陷钉成契约 + 枚举黑名单打地鼠（account-nickname-noise-fix，2026-09-26）
 
-## 「登录页 = 登录成功」第四次复发：平台元数据静默失效与凭证假保存（kuaishou-login-false-success，2026-09-26）
+- **「找不到就退而求其次拿标题」是身份字段采集的头号语义错误（pitfall，本 Bug 第一性原因）**：`accountInfoCollector` 在昵称选择器全 miss 时依次回落 `og:title` → `twitter:title` → `document.title`，把「网页标题」当成「账号昵称」的同义物写进了 `account_name`。生产库 7 个账号 6 个是脏的，其中 `小红书创作服务平台`/`快手创作者服务平台`/`抖音创作者中心` 三条**就是各平台创作者后台的页面标题本身**。**口径**：昵称/用户名/账号 ID 这类身份字段只能来自语义指向该字段的选择器；标题类来源（`document.title`、`og:*`、`twitter:*`）承载的是「这个页面叫什么」，与「这个账号叫什么」是两个不同命题，一律不得作为兜底。正确兜底是**不产出该键**，交给既有的「字段缺席 = 不修改」语义 + 展示端平台名回落 —— 宁可空，不可错。
 
-- **一次「顺手改对」的 URL 会静默废掉另一处守卫（pitfall，第一性引入点）**：`isPlatformLoginSuccessUrl` 的防误判靠两条并列前提——「URL 等于 `PLATFORM_LOGIN_URLS[platform]` 的 origin+path 一律不算成功」＋「成功模式只匹配登录后才会出现的域/路径」。`c3c39557`（账号管理页 10 项质量修复，第 4 条本意只改「创作者中心 URL」）把 `PLATFORM_LOGIN_URLS.kuaishou` 从 `passport.kuaishou.com/pc/account/login` 改回 `cp.kuaishou.com/`，第一条守卫当场失效（登录页不再等于登录 URL），而 `aedfc701` 为扫码登录加进 `AUTH_HOSTS`/成功模式的裸域名 `passport.kuaishou.com` 仍在，于是**登录页自己被判定为登录成功**。**判定手法**：改任何 `PLATFORM_LOGIN_URLS` 条目时，必须同时问「哪条守卫的前提变了」，不能只看这一行是不是更合理。
+- **为兜底逻辑写的测试会把缺陷钉成契约，且永远全绿（pitfall，本 Bug 的真正逃逸原因）**：`account-profile-collector.test.js` 有一条用例正面断言「全部缺失时回落 document.title 并剥掉平台后缀」，fixture 用 `我的主页 - 哔哩哔哩` 这种为通过而构造的干净标题。**两个叠加缺陷**：① 断言的对象本身就是错误的兜底行为；② fixture 回避了真实形态。去后缀正则 `/\s*[-––—|·]\s*(.+)$/` 匹配的是**第一个**分隔符，真实 B 站标题 `哔哩哔哩 (゜-゜)つロ 干杯~-bilibili` 在颜文字内部那个 `-` 处就被切断，产出残缺的 `哔哩哔哩 (゜`（逐字符复现）。**教训**：写「回退/兜底」类用例前先问「这个兜底源在语义上能不能等于被提取字段」；不能等于就把断言改成「不采纳」，并且 fixture 必须取自**生产真实数据形态**而不是理想样例。识别信号：一条测试在描述里出现「回落 / fallback / 兜底」+「并剥掉 X」这种复合行为断言，值得单独审一次。
 
-- **「登录页与后台同域」是同一类 Bug 的第四次复发，而门禁只覆盖了前三次（审查盲区）**：百家号（2026-08-12）、头条（2026-09-13）、视频号（2026-09-14）都写过「裸域名把预登录页误判成登录成功 → 视图提前关闭 → 保存无效凭证」的注释与负例测试，`platform-definitions.test.js` 对这三家各有用例，**唯独快手没有**——所以 `aedfc701`/`c3c39557` 两次改动都没有任何断言会红。同类 bug 换平台再犯一次的成本，等于「补该平台的负例」而不是「重查根因」。**修法**：新增/修改平台登录元数据的 PR，必须同 PR 落该平台的「登录页不算成功」负例，已写入 AGENTS.md QM-2。
+- **枚举式黑名单守卫是打地鼠，且「用黑名单测黑名单」会自证正确（pitfall，为什么它长期停在拦住 1/6）**：`account-name-guard.js` 的 `KNOWN_PAGE_TITLES` 逐个列举已见过的垃圾标题，配套测试的样本**全部取自该集合自身** —— 于是守卫永远全绿，而每换一种垃圾形态就要改一次代码。修法不是继续加词，而是补**按形态指纹的泛化规则**：数字+量词+统计项（`485.9万人看过`）、以站点 chrome 词结尾（`…创作服务平台`）、含省略号（`分享此刻的想法...同步到圈子发想法`，输入框占位文案的指纹）、括号开合数量不等（`哔哩哔哩 (゜`，截断片段的指纹）。四条新规则各自配了负控（`36氪`/`1998年的夏天`/`1.2万`/`阿b(≧▽≦)`/`某地政务服务中心` 不得误杀）。**口径**：新增坏值时先问能否写成形态规则，只有不能才进枚举表。
 
-- **「有 Cookie」不是登录证据：登录页自带埋点 Cookie，会让假成功看起来完全合法（测试场景缺失）**：被误存的快手账号有 `cookies=9 lsKeys=9`，`hasCapturedCredentials` 只看「有没有东西」因此一律放行；那 9 个是 `did`/`wid`/`kwssectoken`/`kwpsecproductname`/`kwfv1`/`kwscode` 这类匿名标识，真实登录态是登录成功后才出现的 `kuaishou.web.cp.api_st`（名字就是登录 URL 里的 `sid`）/ `userId` / `bUserId`。更根本的是：**快手未登录访问 `cp.kuaishou.com/` 会被前端路由到 `/profile`，登录成功回落也是 `/profile`**——URL 路径在该平台本质上不可区分，只能靠会话凭证。**判定手法**：要区分「登录态」就必须找一个「登录动作之后才会存在」的东西（会话票据 / LS 标记），而不是「页面上有 Cookie」；标记键必须实测取证，不得混入设备/埋点标识。
+- **宽匹配 DOM 选择器吃进统计块与占位文案（pitfall，另外两条脏值的来源）**：通用昵称表里的 `.user-info`、`[class*="profile"] strong`、`[class*="creator"] span` 会命中页面上任意装饰容器，`textContent` 把整块文本一起带回（`485.9万人看过` 来自 `[class*="creator"] span`，已用旧实现实测复现）。收口成「语义明确指向名字节点」的 7 条 + 采集端长度上限（30 字符）。**长度只放采集端、不放展示守卫**：用户手写的长名字不该被展示层判成垃圾藏起来 —— 同一约束放在不同层，误杀面完全不同。
 
-- **只打平台名不打 URL 的判定日志，会把一次可秒判的事故变成考古（observability pitfall）**：`AuthView` 的 `URL pattern detected login success: kuaishou` 不带命中地址，本次只能靠「误存账号名恰好是网页 `<title>`」＋ curl 比对 passport 页标题才反推出停在登录页。**修法**：任何「按 URL/模式判定状态机迁移」的日志必须带上被命中的原始输入；`hasCapturedCredentials` 这类静默 `return` 必须记 warn 说明拦下理由，否则「为什么没自动完成」无从查起。
+- **反证手法：用 `git show HEAD:<path>` 取改动前实现，在同一 fixture 上跑新判据（pattern，本次最有价值的一步）**：新增「能抓住老 Bug」的断言，最大的风险是断言恒真。做法是把旧实现源码从 HEAD 取出、`vm.runInNewContext`（配 `require` 桩，因为旧模块顶层 require 了平台表）或 `new Function('document', …)` 注入 JSDOM 的 document，然后逐条打印旧实现的结果。**必须区分两类输出**：`CAUGHT-BY-NEW-RULES`（旧实现给出错误答案、新规则改正）与 `passes-by-accident`（旧实现本来就对，该用例不承担回归保护）。本次守卫 6 条脏值里 5 条是前者、1 条是后者，负控 8 条全是后者 —— 这才同时证明了「抓得住」和「不误杀」。
 
-- **收口类修复的「入口清单」必须穷举，自审会漏（pitfall，QM-6 实证）**：本次给「凭证入库」加会话标记门禁，自审认定了三个入口（auth-view-manager、qrcode-login、webview-manager/credential-saver）并全部改完、测完、反证过；跨模型外部评审仍指出**第四个**——`account-manager.captureCookies()` → `addAccount()` → `saveCapturedAccount()`（IPC `account:add`），它同样把 Cookie 直接写进凭证库，且它的「登录检测方式 2」只判 `window.location.host` 是否偏离登录 URL 的 host，对快手而言一跳到 passport 就立即为真，假成功形态与主 Bug 一模一样。**教训**：加「统一门禁」时，先用「谁能把这类数据落到库里」反查一遍（grep 持久化函数名本身，而不是顺着调用链找），把写库函数列成清单逐个打勾；顺着 UI 流程想入口必然漏掉旁路 API。判定「收口完成」的依据是「所有写库点都被拦」，不是「我改过的文件都测过了」。
+- **噪声守卫只覆盖主字段、不覆盖兜底参数，等于留一条绕过口（pitfall，审查自己 diff 时才发现的第三处同源缺陷）**：`profileForCreate(accountInfo, fallbackName)` 对 `accountInfo.nickName` 过 `isNoiseAccountName`，却把 `fallbackName` **原样**当 `account_name` 返回；而 `fallbackName` 来自 `account-manager.js` 的 `captured.name`，那个值正是 `auth-view-manager.js` 里 `executeJavaScript('document.title')` 的产物。于是采集器修好之后，新增账号仍会把站点名写进真源 —— 而且 `'公众号'` 本来就是 `KNOWN_PAGE_TITLES` 成员，**守卫早就认识它，只是那条路径上没人调用守卫**。同一份垃圾还有第二个落点：`name` 字段自己既直接 POST/PATCH 进真源，又是卡片 `account_name || name` 的兜底。**口径**：给一个函数加校验时，必须逐个参数问「这个参数会不会也承载同一个待验证的东西」，尤其名字里带 `fallback` / `default` 的 —— 兜底参数是校验最常见的漏项。识别信号：守卫函数在一个模块里只被调用 1 次，而该函数有 3 个可能来源。
 
-- **门禁改动会立刻暴露「用假数据冒充凭证」的既有测试（正向收益）**：加会话标记门禁后 `qrcode-login.test.js`/`webview-manager.test.js` 各有用例转红，其 fixture 正是 `{name:'session',value:'secret'}` 这种「随便一个 Cookie 就当凭证」的形态——它们一直在为假成功背书。改门禁时**不要为了变绿而放宽门禁**，要按真实合同改 fixture（本次改为真实会话票据），并另加「只有埋点 Cookie 必须被拦」的负例。
+- **反证要逐条区分 CAUGHT 与 passes-by-accident，只看「全绿」不等于有保护力（pattern，操作化定义）**：把改动前实现跑在新判据上后逐条打标签 —— `CAUGHT-BY-NEW-RULES`（旧实现给出错误答案、新规则改正）才承担回归保护；`passes-by-accident`（旧实现本来就对）不证明任何事，但**必须同时存在且方向正确**，否则说明新规则误杀面失控。本次守卫侧 6 条 CAUGHT、9 条负控全为 `passes-by-accident/false`（未引入误杀）；采集器侧 8 个 fixture 在旧实现下全部被采纳为昵称，含逐字符复现生产库的 `哔哩哔哩 (゜`。
 
----
+- **展示层守卫修好了不等于数据修好了，但也不代表要写迁移（preference，用户 2026-09-26 选定）**：面对库里 6 条脏 `account_name`，用户选「展示回落 + 验证回填」而不是「一次性显式清洗写空串」。理由：`refreshProfileFromHttpApi` 本就只在「现网名命中噪声」时才用平台 API 昵称覆盖，守卫升级即自动获得修复路径，零迁移代码、零数据丢失风险。**代价要如实报**：只有注册了 HTTP `extract` 的平台（douyin/toutiao/wechat_mp/bilibili）能自助回填，其余需重新登录一次。反例风险：给 `buildProfilePatch` 开「允许下发空串」的口子会直接破坏它存在的理由（防提取失败反清空真值）。
+
+- **守卫作用于展示端时无法区分「采集写入」与「用户手动改名」（architecture，本次明确不解决的边界）**：卡片 `accountName()` 对 `account.account_name` 一视同仁地过守卫，因此命中新规则的用户自选名（如真把账号命名为「XX服务平台」）会被回落成平台名。彻底解决需要给账号表加 `name_source` 列（schema 变更），本次按「后果仅为显示层、且下次回填会用平台真名覆盖」接受该残留，并在 `AGENTS.md` QM-2 与 Bug 复盘文档里登记为已知遗留。**教训**：噪声类守卫的误杀面必须显式写下来，不能只说「真实昵称不误杀」。
+
 
 ## 测试全绿的功能从未生效：按运行时并不存在的宿主 API 字段写代码，mock 夹具把错误形状固化（zhihu-ua-sanitize-noop，2026-09-25）
 
@@ -15869,3 +15873,15 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **配套坑（tool）**：诊断的幂等标记写在 session 实例上（`ses.__loginNetDiagAttached`）。测试桩若让 `session.fromPartition` 恒返回同一个 `defaultSession`，标记会跨用例残留，使「监听注册恰好一次」的断言依赖用例顺序——假红/假绿温床。桩应每次返回新 session 对象（真实 Electron 语义：分区即独立 session）。
 - **反向排除记录**：本次先用实测排掉了 3 个看似合理的假设，全部有据（CN 出口 IP 直连与走代理相同→微信流量本就走 DIRECT；`l/qrconnect` hold 15.183s vs 15.180s→代理未掐长轮询；Edge 代理/直连渲染 DOM 字节完全一致）。教训：**`res.wx.qq.com` 的 8–9s 不是代理问题，是微信 CDN 对 404 自身限速**，直连同样 1–8s；异常耗时务必做 A/B 对照再下结论，否则会把工单修到不存在的根因上。详见 `01-docs/INVESTIGATE-LOGIN-QR-SLOW-2026-09-25.md` §3。
 - **编辑工具的行尾陷阱（pitfall，本轮真实代价）**：`learnings.md` 是 CRLF 文件，用 Edit 工具在其尾部追加一段，会把**相邻无关的 8 行**静默重排（`git diff --numstat` 报 24 增 16 删，`git diff -w` 却报 8 增 0 删 → 差额纯是行尾）。改法：`git checkout HEAD -- <单文件>` 回退后用 **Node 全程 Buffer 追加**（`fs.readFileSync` 得 Buffer，段落 `Buffer.from(text,'utf8')`，先把 `\n`→`\r\n` 再 concat 写回）。**切勿**用 `latin1` 读写再混入 utf8 字符串——往返对原内容无损，但新追加的中文会被按单字节打乱成乱码。中转文件别放 `/tmp`：Git Bash 的 `/tmp` 与 Node 解析的 `/tmp`（= `D:\tmp`）映射不同，实测 ENOENT。
+
+## 契约只锁一半同族路径，另一半就成了沉默缺陷——新增账号显示「未确认」（login-state-solidify-sibling-path，2026-09-25）
+
+- **第一性引入点**：`7913534f`（#2205）为「保存凭证 = 一次成功的主动登录」建立契约，但只在 `updateCapturedAccount` 落地 `status='active'` 回写；`5874e4bd`（#2233）随后把后端 `create_account` 的默认登录态设为 `unverified`。两条改动各自自洽，合起来却让创建路径（`saveCapturedAccount`）永久停在「未确认」，直到用户手动点一次检测。
+- **实证优先于推断**：`backend-data/accounts.json` 里 23:00–23:06 新增的 6 个账号 `status=unverified` 且 `last_validated == created_at`（Python 6 位微秒格式 = 只有 `create_account` 写过）；同日唯一 `status=active` 的 `wechat_mp`，其 `last_validated` 是 JS 3 位毫秒格式，`app-2026-09-25.log:14881` 正是它的 `checkLoginStatus → persistLoginState`。**时间戳的小数位数就是写作者的指纹**——查「这个字段是谁写的」，先比格式，比读代码猜测快且不可辩驳。
+- **逃逸链**：① 单元测试——`account-manager-relogin-status.test.js` 只 describe 了 `updateCapturedAccount`，创建路径无对应用例；`account-manager.test.js` 的创建用例用 `toEqual` 锁死「返回值不含 status」这一当时事实，把缺陷固化成断言。② 集成/E2E——`account-login-state-tristate.js` 全部从「后端已有 status」起步，从未覆盖「刚创建完的第一帧」。③ 代码审查——#2205 与 #2233 分属不同 PR，各自 review 只看单条改动是否自洽，没有人跨 PR 追「这条契约的另一半在哪」。
+- **系统性漏洞类型（测试场景缺失）**：同一条业务不变量在多条同族实现路径上落地时，回归测试习惯按路径逐个补，缺少「先枚举全部同族入口再逐个确认有锁定断言」的收口动作。判定手法：给契约起个名，grep 出所有应满足它的函数名，看是不是只有一个具备测试。
+- **预防措施落地**：AGENTS.md QM-2 新增「登录态固化契约覆盖全部『凭证落盘』同族路径」条目；创建路径补 3 条回归（PATCH 携带 active / 凭证落盘必须在 PATCH 之前 / 凭证失败不得出现 active）。
+- **可迁移信号**：修 A 路径的同类 Bug 时先问「B 路径呢」。兄弟函数（create vs update、导入 vs 手填、种子 vs 运行时）几乎总会漏掉一边，而漏掉的通常是**新数据入口**——它的症状不是「老功能坏了」，而是「所有新建的一上线就坏」，因此极易被误读成设计如此而长期放过。
+- **顺带挖出的第二条缺陷（跨模型评审贡献）**：`captureCookies` 的登录判据是 `Promise.race([选择器命中, URL host 离开登录页])` —— 后者是**弱证据**：用户没登录、只是导航到了别的域名也会赢。补齐创建路径的固化后，这条弱证据会直接把「其实没登录」的账号标成已登录，比修复前更糟。因此固化登录态时必须问「凭证从哪来、证据强度够不够」，弱证据入口（`account:add` / 首次运行引导）传 `loginVerified:false` 保持 `unverified`。启示：修「显示不出已登录」时，同一个写入动作会把上游所有证据不足的入口一起放大成假阳性——写侧越主动，读侧越要证据。
+
+

@@ -1,20 +1,49 @@
-
-# [未发布] fix(accounts): 修快手登录页被误判「登录成功」致视图自动关闭并存入无效凭证（2026-09-26，kuaishou-login-false-success）
+# [未发布] fix(账号管理): 新增账号登录态即时固化为 active，修「新添加的账户全部显示未确认」（2026-09-25，fix-new-account-unverified）
 
 ### 变更
-- **`packages/shared-utils/src/platform-definitions.js`**：`PLATFORM_AUTH_HOSTS.kuaishou` 与 `PLATFORM_LOGIN_SUCCESS_PATTERNS.kuaishou` 移除纯登录域 `passport.kuaishou.com`（`aedfc701` 为扫码登录把它加进成功模式，`c3c39557` 又把 `PLATFORM_LOGIN_URLS.kuaishou` 从 passport 登录页改回 `cp.kuaishou.com/`，使「等于初始登录 URL 一律不算成功」的守卫静默失效 → 登录视图打开 3.3s 即被判登录成功）。新增 `PLATFORM_SESSION_COOKIE_MARKERS` + `hasPlatformSessionCookie()`：登录页同样写入埋点 Cookie（实测 `did`/`wid`/`kwssectoken`/`kwpsecproductname`/`kwfv1`/`kwscode`），「有 Cookie」不等于「已登录」；未声明标记的平台沿用既有行为，零爆炸半径。
-- **`apps/desktop/electron/services/auth-view-manager.js`**：`hasCapturedCredentials(authData, platform)` 增加会话标记门禁，同时覆盖自动完成与手动「我已完成登录」两条入库路径；被拦时记 warn（含 cookie 数）而不是静默跳过；URL 检测命中日志补上命中的完整 URL（本次只能靠误存账号名＝网页标题反推命中地址）。
-- **`apps/desktop/electron/services/qrcode-login.js` / `apps/desktop/electron/services/webview-manager/credential-saver.js`**：扫码登录入库与账号标签凭证保存（自动/手动/批量）同样要求命中会话标记，未命中分别抛「未检测到登录态」/ 返回 `session-evidence-missing` 并保持 unsaved。
-- **`apps/desktop/electron/publishers/account-manager.js`**（CCG 双模型评审 Warning 2 补漏）：`captureCookies()` 在返回凭证前校验会话标记。这是**第四个**入库入口（IPC `account:add` → `addAccount` → `saveCapturedAccount`），其「方式 2」只判 `window.location.host` 是否偏离 `PLATFORM_LOGIN_URLS` 的 host——快手 `cp.kuaishou.com` 一跳到 `passport.kuaishou.com` 登录页就立即满足，会在用户未登录时判「登录完成」并直接入库，假成功形态与本次主 Bug 完全相同。未命中即抛「未检测到登录态」。
-- **`apps/desktop/electron/services/auth-view-manager.js` `loginSilent()`**（评审 Warning 3）：静默校验从「仅 URL」改为「URL + 会话标记」，否则本修复之前入库的假账号会永远报「有效」，把坏数据掩盖成后端状态异常。
+- **`apps/desktop/electron/publishers/account-manager.js` `saveCapturedAccount`**：加密凭证落盘成功后追加 `persistLoginState(accountId, platform, 'active')` 回写 `status` + `last_validated`，返回值同步携带两者。此前创建路径 POST `/api/accounts` 不下发 `status`，后端 `create_account` 以 `DEFAULT_ACCOUNT_STATUS='unverified'` 落库，主进程又不做任何固化，于是「刚在登录窗口里扫码/密码登录成功」的新账号在账号页一律显示「未确认」，必须再手动点一次检测才变「已登录」。兄弟函数 `updateCapturedAccount`（重新登录）在 #2205 就按「凭证落盘 = 一次成功的主动登录」回写 active，本次把同一条契约补齐到创建路径。
+- **顺序与失败语义**：固化必须晚于 `saveCredential` 成功（凭证未落盘不得把真源置为 active）；回写失败只 `log.warn` 不阻断新增——账号与凭证已可用，返回值此时如实透传后端原值，不冒充已登录。
+- **`updateCapturedAccount` 同口径收口（QM-6 评审 W1/W3）**：该函数此前在 PATCH 失败时仍硬编码返回 `status:'active'`，且 PATCH 体与返回值各取一次 `new Date()`。现改为复用同一个 `validatedAt`，并按 PATCH 结果决定是否声称 active——真源没写成功就保留后端原状态，消除「重新登录那一帧显示已登录、下次刷新回退成失效」的虚假成功。
+- **登录证据分级（QM-6 评审 W1 衍生，防本次改动引入假阳性）**：`captureCookies` 把「URL host 离开登录页」也算登录成功，属弱证据（用户未登录却导航到别的域名同样满足）。`account:add`（首次运行引导页真实入口）因此可能捕获非登录态 Cookie。现 `captureCookies` 返回 `loginVerified`（选择器命中=正向，仅 URL 变化=弱），`saveCapturedAccount` 收到 `loginVerified:false` 时**不发固化请求**、保持后端 `unverified` 等一次真实检测；`auth:open-login` 与扫码登录走 DOM/确认证据，行为不变。`smartWait` 改为返回选择器是否命中，复用既有 3 秒等待、不新增延时。
 
-### CCG 双模型外部评审（QM-6）
-- 后端模型（claude）产出 3 Warning + 2 Info，无 Critical；Warning 2/3 已在本 PR 内修复并补测试。前端模型（opencode）三次调用全败（详见记忆 `reference-ccg-workflow`：wrapper 侧缺陷，非提示词问题），按 QM-6 规则登记跳过。
-- Warning 1（`hasPlatformSessionCookie` 对未声明平台 fail-open，小红书/抖音仍是裸域名成功模式）实测确认：`isPlatformLoginSuccessUrl('xiaohongshu', 'https://creator.xiaohongshu.com/login')` 返回 `true`。属同构潜在 Bug，但补标记需逐平台 DevTools 取证，**不在本 PR 范围**，另开单跟踪。
+### 影响
+- 用户可见：新增账号（`auth:open-login` 新登录 / 扫码登录 `auth:open-qrcode-login` / `account:add` 三条入口同汇流于 `saveCapturedAccount`）保存后徽章直接为「已登录」，无需再点检测；`account:add` 在仅有弱证据时仍显示「未确认」，由用户点检测得到诚实结论。
+- 既有 6 个在本次修复前添加、仍显示「未确认」的账号**不做数据回填**：`unverified` 对它们仍是诚实结论，点一次「一键检测」即可按真实Cookie状态收敛（与 #2282「需重新点一次检测——这是修正而非回归」口径一致）。
 
 ### 测试
-- 新增断言：`platform-definitions.test.js`（快手登录页 URL 负例 + 会话标记 6 断言）、`auth-view-manager.test.js` 3 例、`qrcode-login.test.js` 1 例、`webview-manager.test.js` 1 例。反证：临时禁用 `hasPlatformSessionCookie` 后 5 条新断言全部转红、正向用例仍绿；禁用前 `isPlatformLoginSuccessUrl('kuaishou', 'https://passport.kuaishou.com/')` 实测返回 true（即 Bug 本身）。
-- 同步更新既有 fixture：`qrcode-login.test.js` 快手扫码用例、`webview-manager.test.js` 方案三批量用例（原以 `session=secret` 冒充凭证，正是被拦下的形态，改为真实会话票据）。
+- 新增 6 条回归（`account-manager-relogin-status.test.js`，共 8 例）：两条路径的固化与返回值携带 active、固化顺序 `POST → 凭证落盘 → PATCH`、凭证落盘失败回滚不出现 active、固化失败两条路径均如实透传真源原值、`loginVerified:false` 弱证据不发固化请求。
+- 断言可失败性已双向反证：创建用例首跑 `2 failed | 3 passed`；把 `updateCapturedAccount` 返回值临时改回旧实现后新增用例 `1 failed | 6 passed`，随后恢复实现全绿。
+- IPC 边界口径同步（`ipc-handlers/account.test.js`，共 48 例）：`auth:open-login` 两用例的 mock 与断言改为 `status=active` + `status_source='backend'` + `last_validated`（此前 mock 不含 status，把 `absent-fallback → unverified` 当成了新契约）；新增一条「固化失败 IPC 如实返回 unverified」。
+- 同 PR 更新 `account-manager.test.js` 三条 `toEqual` 断言（此前锁死「返回值不含 status」，把缺陷固化成了契约），并为「后端只写公开元数据」用例补 PATCH 固化断言。
+- 账号相关 14 个测试文件 `463 passed`（首轮）→ 评审修补后 `387 passed / 11 files`（publishers + ipc-handlers + webview-manager + qrcode-login + Accounts），QM-1 离线打包通过并复核 asar 产物含新逻辑。
+
+### 文档
+- `AGENTS.md` QM-2 新增「登录态固化契约覆盖全部『凭证落盘』同族路径」条目；`01-docs/learnings.md` 记录根因、时间戳指纹排查法与逃逸链；`01-docs/PRD-ACCOUNT-LOGIN-STATE-PERSISTENCE-2026-09-23.md` 作为登录态唯一契约源同步收口——§5 单一写者架构图补入创建路径一行，§7.3 由「重新登录 / 保存凭证」扩为「登录 / 保存凭证（创建与更新两条同族路径）」并写明共用不变量、固化顺序与失败语义，§回归保护表新增 `account-manager-relogin-status.test.js` 一行。
+# [未发布] fix(accounts): 账号卡片昵称不再显示成网页标题/统计块，噪声守卫从枚举黑名单升级为形态契约（2026-09-26，account-nickname-noise-fix）
+
+### 现象与根因
+- 账号管理页 7 个账号里 6 个的昵称显示为垃圾文本（`485.9万人看过` / `分享此刻的想法...同步到圈子发想法` / `哔哩哔哩 (゜` / `小红书创作服务平台` / `快手创作者服务平台` / `抖音`）。真源 `accounts.json` 的 `account_name` 本身就是脏的，不是显示层取错字段。
+- 第一性引入点 `852ae22c`（#2290）：`accountInfoCollector` 在昵称选择器全 miss 时依次回落 `og:title` → `twitter:title` → `document.title`，把「网页标题」当成「账号昵称」。后两条兜底产出的正是 `小红书创作服务平台` / `快手创作者服务平台` / `抖音创作者中心`；`document.title` 去后缀正则 `/\s*[-–—|·]\s*(.+)$/` 匹配的是**第一个**分隔符，真实 B 站标题 `哔哩哔哩 (゜-゜)つロ 干杯~-bilibili` 在颜文字内部的 `-` 处被切断，逐字符复现出库里的 `哔哩哔哩 (゜`。
+- 另两条来自通用选择器过宽：`[class*="creator"] span` 命中页面统计块，`.user-info` / `[class*="profile"] strong` 命中输入框占位与整块容器文本。
+- `be181b69`（#2370 系列）补的 `account-name-guard.js` 是**枚举式黑名单**，对这批新形态只拦住了 1/6（`抖音创作者中心`），因此卡片上 5 条继续直出。
+
+### 变更
+- **`packages/shared-utils/src/account-profile.js`**：删除 `og:title` / `twitter:title` / `document.title` 三级昵称兜底 —— 网页标题永远不是账号昵称。选择器未命中即不产出 `nickName` 键，由 `buildProfilePatch()` 既有的「键缺席 = 不修改」语义保住上一次真值，展示端回落平台名。通用昵称选择器表收窄为语义明确指向名字节点的 7 条（移除 `.user-info`、`[class*="profile"] h1/strong`、`[class*="creator"] h1/span`）；`trySelectors` 新增可选 `maxLen`，昵称候选上限 30 字符。**长度只放采集端不放展示守卫**：用户手写的长名字不该被藏起来。
+- **`packages/shared-utils/src/account-name-guard.js` + `account-name-guard.browser.js`（CJS/ESM 孪生同步）**：在保留既有枚举规则之上新增 5 条按形态指纹的泛化规则 —— 站点 chrome 后缀（`endsWith`：创作者服务平台/创作服务平台/服务平台/工作台/管理后台/开放平台/数据中心）、指标量词（数字+量词+统计项）、占位文案指纹（省略号）、截断指纹（中英文括号开合数量不等）、标题形态指纹（空格包裹的 ` - ` / ` | ` / ` · `，即 `<title>页面名 - 站点名</title>` 的形状）。`profileForCreate` / `buildProfilePatch` 已调用守卫，写库侧随守卫升级自动加强。
+- **`apps/desktop/electron/publishers/account-manager.js`（审查自己 diff 时发现的第三处同源缺陷）**：`auth-view-manager.js:340` 把 `document.title` 装进 `captured.name`，而创建与重登两条写回路径原样把它 POST/PATCH 进真源 `name` 字段，**并且**把它当 `profileForCreate` 的昵称兜底 —— 守卫只覆盖主字段、不覆盖 `fallbackName`，等于给网页标题留一条绕过口（`'公众号'` 本身就是 `KNOWN_PAGE_TITLES` 成员，守卫早就认识它，只是没人调用）。新增 `resolveAccountDisplayName(rawName, platform)` 作为两处唯一入口，命中噪声即回落平台显示名。
+- **存量脏数据（决策：展示回落 + 验证回填，不写迁移）**：守卫升级后 6 条脏名全部命中噪声 → 卡片直接显示平台名；`douyin`/`toutiao`/`wechat_mp`/`bilibili` 已注册 HTTP `extract`，点「验证」即经 `refreshProfileFromHttpApi` 用平台 API 真昵称覆盖（该路径本就只在现网名命中噪声时才覆盖，用户手输名受保护）。`xiaohongshu`/`kuaishou`/`zhihu` 需重新登录一次由 DOM 采集补齐。
+
+### 逃逸链为什么全绿（见 `01-docs/BUGFIX-ACCOUNT-NICKNAME-NOISE-2026-09-26.md`）
+- `account-profile-collector.test.js` 有一条用例**正面断言「回落 document.title 并剥掉平台后缀」为正确**，fixture 用为通过而构造的干净标题 —— 测试把缺陷钉成了契约。
+- `account-name-guard.test.js` 的样本全部取自 `KNOWN_PAGE_TITLES` 自身枚举 —— 用黑名单测黑名单，天然免疫新垃圾形态。
+
+### 测试
+- `packages/shared-utils/src/__tests__/account-name-guard.test.js`：新增 3 组 —— 6 条生产脏值 `filter(isNoiseAccountName)` 结果 `toEqual` 原数组（精确结构断言，非 `toContain`）；8 条真实昵称/品牌名负控（`36氪`/`1998年的夏天`/`阿b(≧▽≦)`/`某地政务服务中心` 不得误杀）；逐规则边界。CJS↔ESM parity 扩展到新词表与正则 `source`+`flags`。
+- `apps/desktop/electron/tests/account-profile-collector.test.js`：把 3 条错误断言**反转为「标题一律不采纳」**，新增「选择器不得命中统计块/占位容器」「超长容器文本不采纳」。
+- `apps/desktop/electron/publishers/account-manager-profile.test.js` 与 `account-manager.test.js`：另有 2 条用例**正面断言网页标题成为账号名**（`name: '公众号'` → `account_name: '公众号'`；`runCreate({})` → `'头条号'`），同样属「反向固化错误行为」，已改为断言回落平台名，并各补一条「干净真实昵称仍保留、不得一律降级」的反向用例。改前实测 RED：`- "account_name": "公众号"` / `+ "account_name": "微信公众号"`。
+- **反证**：用 `git show HEAD:<path>` 取改动前实现跑新判据 —— 守卫 6 条脏值中 5 条 `old=false`（新规则改正），8 条负控新旧均 `false`（未引入误杀）；采集器 8 个 fixture 在旧实现下全部被采纳。证明断言可失败、非恒真。
+- 规模：`packages/shared-utils` **121 passed | 1 skipped**；`apps/desktop` 账号相关 12 文件 **396 passed | 1 skipped**；eslint rc=0。
+- 文档：`01-docs/BUGFIX-ACCOUNT-NICKNAME-NOISE-2026-09-26.md`、`01-docs/learnings.md` 置顶 7 条复盘、`AGENTS.md` QM-2 新增 3 条门禁条目。
 
 ---
 

@@ -720,10 +720,13 @@ describe('account IPC 可信来源正常工作', () => {
       indexedDB: { auth: { token: 'private-token' } },
     }
     deps.authViewManager.openLogin.mockResolvedValue(captured)
+    // 真实 saveCapturedAccount 凭证落盘后会固化登录态并把 active 带回返回值
     deps.AccountManager.saveCapturedAccount.mockResolvedValue({
       id: 'yt-1',
       platform: 'youtube',
       name: '频道账号',
+      status: 'active',
+      last_validated: '2026-09-25T15:00:00.000Z',
     })
     deps.AccountManager.checkLocalCredentials.mockReturnValue(true)
     const ipcMain = createMockIpcMain()
@@ -738,8 +741,9 @@ describe('account IPC 可信来源正常工作', () => {
         platform: 'youtube',
         name: '频道账号',
         account_name: '频道账号',
-        status: 'unverified',
-        status_source: 'absent-fallback',
+        status: 'active',
+        status_source: 'backend',
+        last_validated: '2026-09-25T15:00:00.000Z',
         is_default: false,
         has_cookies: true,
         cookie_count: 1,
@@ -773,6 +777,8 @@ describe('account IPC 可信来源正常工作', () => {
       platform: 'wechat_mp',
       name: '公众号',
       cookies: captured.cookies,
+      status: 'active',
+      last_validated: '2026-09-25T15:00:00.000Z',
     })
     deps.AccountManager.checkLocalCredentials.mockReturnValue(true)
     const ipcMain = createMockIpcMain()
@@ -789,8 +795,9 @@ describe('account IPC 可信来源正常工作', () => {
         platform: 'wechat_mp',
         name: '公众号',
         account_name: '公众号',
-        status: 'unverified',
-        status_source: 'absent-fallback',
+        status: 'active',
+        status_source: 'backend',
+        last_validated: '2026-09-25T15:00:00.000Z',
         is_default: false,
         has_cookies: true,
         cookie_count: 1,
@@ -911,6 +918,31 @@ describe('account IPC 可信来源正常工作', () => {
     expect(deps.AccountManager.checkLoginStatus).toHaveBeenCalledWith('youtube', 'yt-2')
     expect(deps.pythonBridge.requestBackend).not.toHaveBeenCalled()
     expect(result).toEqual({ code: 0, data: { valid: true, message: '登录有效' } })
+  })
+
+  it('auth:open-login 固化失败时如实返回 unverified，不冒充已登录', async () => {
+    const deps = createMockDeps()
+    deps.authViewManager.openLogin.mockResolvedValue({
+      name: '频道账号',
+      cookies: [{ name: 'session', value: 'secret', domain: '.youtube.com' }],
+    })
+    // 真源没写成功 → saveCapturedAccount 如实透传后端原值
+    deps.AccountManager.saveCapturedAccount.mockResolvedValue({
+      id: 'yt-9',
+      platform: 'youtube',
+      name: '频道账号',
+      status: 'unverified',
+    })
+    deps.AccountManager.checkLocalCredentials.mockReturnValue(true)
+    deps.BrowserWindow.getAllWindows.mockReturnValue([])
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('auth:open-login')(TRUSTED_EVENT, 'youtube')
+
+    expect(result.code).toBe(0)
+    expect(result.data.status).toBe('unverified')
+    expect(result.data.status_source).toBe('backend')
   })
 
   it('account:add 可信来源正常调用 AccountManager', async () => {
