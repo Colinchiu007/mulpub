@@ -1,3 +1,30 @@
+# [未发布] test(desktop): Windows 文件锁夹具三份抄本合并为共享 helper，修掉无界握手导致的 60s 超时（2026-09-26，credential-lock-handshake-flake）
+
+### 现象与根因
+- PR #2414 的 `QG Desktop Shards (2/2)` 红：`credential-store.test.js > Windows 主密钥短暂锁释放后仍能完成格式迁移` → `Error: Test timed out in 60000ms`（run `36237637566` / job `108392212464`）。与 #2414 无关（它只改视觉基线 PNG 与文档，未碰这些文件），main 在 `fd447f86` 上同一 job 为 success ⇒ 既有 flake。
+- **这颗雷被「抬数字」修过两次**：`71e76a5e` 把 10s→30s（提交信息就写着"消除 CI 全量负载下偶发超时"），`1e22e68f` 再 30s→60s，代码注释里还留着"显式超时 30s"没跟上。**抬超时只决定它多久之后才失败，治不了无界的等待。**
+- 第一性缺陷：握手判定写成 `child.stdout.on('data', chunk => chunk.toString().includes('LOCKED'))` —— **只看单个 data 事件**。Node 的 stream data 事件不代表对端 write 边界，PowerShell 一次 `WriteLine("LOCKED")` 完全可能被拆成 `'LOC'` + `'KED'`，于是永远匹配不到，`lockedPromise` 永不 settle，用例挂到超时。**跨块不匹配 + 等待无预算**两者叠加，才表现为"偶尔红、且无论超时多少都是超时"。
+- **同一份实现被抄成三份**（`credential-store.test.js` / `account-state-restorer.test.js` / `api-key-manager-atomic-write.test.js`），三份同病，且已经开始分化：第三份还多了一段 `.then(_, async e => { await exitPromise... })` 的补丁。这与「登录态三态映射被抄成三份」是同一类系统性缺陷。
+
+### 变更
+- **新增 `test-helpers/windows-file-lock.js`**（CJS，零依赖）作为唯一实现，两条不变量：① 握手按**累计缓冲**判定（`createLockHandshake()` 纯对象，跨块免疫）；② 握手与释放各带**显式预算**（默认 20s / 30s，可用 `MP_WINDOWS_LOCK_HANDSHAKE_TIMEOUT_MS` / `MP_WINDOWS_LOCK_RELEASE_TIMEOUT_MS` 覆盖），预算必须小于用例自身超时上限，否则诊断信息会被框架超时抢先；超时错误里带阶段名 + 预算 + 累计 stdout + stderr，下一次红直接可读。
+- 握手失败时 `child.kill()` 回收子进程（否则挂死的 powershell 会一直握着真实文件句柄，污染后续用例）；`exitPromise` 预先挂一个 `catch` 消费方，避免无人 await 时的 unhandledRejection（返回的仍是同一个 promise，await 方照样拿到 rejection）。
+- **三处抄本全部删除并改为 import 共享 helper**（净删 166 行），等待点由裸 `await exitPromise` 改为 `await fileLock.release()`（走预算）。CJS/ESM 两种消费方式都覆盖：两个 vitest 文件走 default import 后解构，`api-publish-engine` 的 `node --test` 文件直接 `require`。
+
+### 测试
+- 新增 `apps/desktop/electron/services/windows-file-lock.test.js` 10 条（落在 vitest `include` 的 `electron/services/**/*.test.js` 内，**自动被 Desktop Shards 收走，无需改 CI**）。
+  - 机制本体：`feed('LOC')` → false、`feed('KED')` → true（跨块）；标记大小写敏感（`loc` / `Locked` / `lock file held` 不得判成已锁定）；锁定后不得回退且保留累计原文。
+  - 预算：子进程从不输出标记 → 必须在 `handshakeTimeoutMs` 内 reject 且断言 `child.kill` 被调用（用注入 `spawnImpl` 的假子进程，无需真起 PowerShell）；子进程锁定前退出 → 错误含 stderr 原文；锁不释放 → `release()` 在预算内失败。
+  - `exitPromise` 无人 await 时不得产生 unhandledRejection（注册 `process.on('unhandledRejection')` 断言未被调用）。
+  - 一条真跑 Windows 的集成用例（握手 <15s、`holdMs` 后句柄释放、文件内容原样可读回）。
+- **反证**：把改动前那段单块匹配逻辑原样跑出，喂入 `'LOC'` + `'KED\r\n'` —— 累计缓冲里**确实含有 `LOCKED`**，而 `locked` 始终为 `false`（`true / false`），即永不 settle；新实现第二块即 `true`。另实测：先写测试→旧结构下 1 failed（`Cannot find module test-helpers/windows-file-lock.js`，特性缺失），实现后 10/10。
+- 规模：新 helper 测试 **10 passed**；三份被迁移的文件 **33 passed**（其中三个真 Windows 锁用例各 ~0.7–0.8s）；`api-key-manager-atomic-write.test.js` **1 passed** 716ms；`eslint --quiet` rc=0。
+
+### 影响与残余限制
+- 纯测试基建，零生产代码变更、零 UI/文案变化（locales 未触碰）。
+- 预算默认值 20s / 30s 是「远大于常态握手耗时（实测 ~0.6s）」与「小于 60s 用例上限」之间的取值；若 CI 上真的出现 PowerShell 冷启动超 20s，会先看到带 stderr 的明确错误而不是裸超时 —— 那才是需要调预算的信号。
+- `test-helpers/**` 不在任何 eslint 配置的作用域内（与 `scripts/**` 同状态），本次未扩大 eslint 范围。
+
 # [未发布] fix(test): scheduler 对拍容差改为「绝对下限 + 比例」（单调加宽），根治 #2416 残留的中间量级误红（2026-09-26，parity-tolerance-additive）
 
 ### 现象与归因（不是新问题，是 #2416 的修复不够）
