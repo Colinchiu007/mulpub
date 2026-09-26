@@ -60,6 +60,8 @@ const {
 // 账号资料（昵称/头像/平台ID/粉丝）采集与「字段缺席=不修改」写回契约的单一实现
 const profileUtils = require('@multi-publish/shared-utils/src/account-profile')
 const { isNoiseAccountName } = require('@multi-publish/shared-utils/src/account-name-guard')
+// 登录态单向证据规则的唯一实现（三个调用点共用，见该模块头注释）
+const loginStateRule = require('@multi-publish/shared-utils/src/login-state')
 
 // 平台登录 URL / 名称 / 选择器 → @multi-publish/shared-utils/src/platform-definitions
 
@@ -1079,81 +1081,18 @@ async function persistLoginState (accountId, platform, status, validatedAt) {
   }
 }
 
-/** 「无定论时保持原状」的默认宽限期（天）。防止已失效却永远显示已登录的僵尸绿灯。 */
-const LOGIN_STATE_GRACE_DEFAULT_DAYS = 7
-
-/** 宽限期毫秒数；非法值（0 / 负数 / 非数字）一律回落默认，避免出现零宽限或永不降级。 */
-function resolveLoginGraceMs () {
-  const raw = Number(process.env.MP_LOGIN_STATE_GRACE_DAYS)
-  if (!Number.isFinite(raw) || raw <= 0) return LOGIN_STATE_GRACE_DEFAULT_DAYS * 24 * 60 * 60 * 1000
-  return raw * 24 * 60 * 60 * 1000
-}
-
 /**
- * 单向证据规则：检测结果 + 当前真源 → 应写入的登录态；返回 null 表示「本轮不改写真源」。
+ * 单向证据规则（转发到 @multi-publish/shared-utils/src/login-state）。
  *
- * 存在的理由：`expired` 早已被当作粘滞态（login-status-monitor 明确不擅自翻案），但 `active`
- * 曾无对等保护 —— 检测的 7 个「无定论」出口与 IPC 层 checkError 分支都会把正向结论抹成
- * unverified，而监控的判据是「结论变了就回写」，于是 active ↔ unverified 周期性来回。
- * 根因是把「没拿到新证据」当成了「拿到反证」。这里把它拆开：只有正/负证据才改写真源。
- *
- * 纯函数：不读环境变量以外的全局状态、不做 I/O（时钟由 nowMs 注入，便于假时钟回归）。
- * @param {object} args
- * @param {any} [args.result] checkLoginStatus 的三态返回
- * @param {string} [args.checkError] 检测自身异常信息（属「无证据」，不是失效证据）
- * @param {string} [args.currentStatus] 真源当前登录态
- * @param {string} [args.lastValidated] 真源最近一次定论时间
- * @param {number} [args.nowMs] 注入的当前时刻
- * @param {number} [args.graceMs] 覆盖宽限期（测试用）
+ * 实现为什么不留在本模块：同一个「检测三态 + 真源现状 → 要不要改写真源」的判定此前被抄了
+ * 三份（本模块、ipc-handlers/account.js、login-status-monitor），三处都把无定论映射成
+ * unverified，于是 active ↔ unverified 每 30 分钟来回一次。唯一实现放共享层，三个调用点
+ * 直接 import，杜绝再长出第四份。此处保留同名出口是因为它是本模块既有公开面。
+ * @param {object} args 见 shared-utils/src/login-state
  * @returns {'active'|'expired'|'unverified'|null}
  */
 function loginStatusTransition (args) {
-  const { result, checkError, currentStatus, lastValidated, nowMs, graceMs } = args || {}
-  if (!checkError && result && result.valid === true) return 'active'
-  if (!checkError && result && result.valid === false) return 'expired'
-  // 走到这里 = 无定论：既不能证明有效，也不能证明失效。
-  if (currentStatus === 'expired') return null
-  // 「从未有结论」与历史脏值都必须继续诚实呈现为 unverified，不得冒充已有结论。
-  if (currentStatus !== 'active') return 'unverified'
-  const grace = Number.isFinite(graceMs) && graceMs > 0 ? graceMs : resolveLoginGraceMs()
-  const now = Number.isFinite(nowMs) ? nowMs : Date.now()
-  const at = Date.parse(lastValidated)
-  if (!Number.isFinite(at)) return 'unverified'
-  return (now - at) > grace ? 'unverified' : null
-}
-
-/**
- * 检测结论的唯一持久化入口：按 loginStatusTransition 决定是否写真源。
- * 调用方（单账号检测 / 批量检测 / 后台监控）MUST 走这里，不得各自映射三态。
- * 无定论且调用方未提供现状时按需读一次真源；有明确结论不多这一跳。
- * @returns {Promise<{ok: boolean, status: string|null, changed: boolean, keptStatus?: string, reason?: string}>}
- */
-async function persistCheckResult (args) {
-  const { accountId, platform, result, checkError, nowMs } = args || {}
-  if (!accountId || !isSafePathSegment(accountId)) return { ok: false, status: null, changed: false, reason: 'invalid-account-id' }
-  let currentStatus = args.currentStatus
-  let lastValidated = args.lastValidated
-  const definitive = !checkError && Boolean(result) && (result.valid === true || result.valid === false)
-  if (!definitive && currentStatus !== 'active' && currentStatus !== 'expired' && currentStatus !== 'unverified') {
-    try {
-      const res = await pythonBridge.requestBackend('GET', '/api/accounts/' + accountId)
-      if (res && res.code === 0 && res.data) {
-        currentStatus = res.data.status
-        lastValidated = res.data.last_validated
-      }
-    } catch (e) {
-      log.warn('AccountManager', 'persistCheckResult 读取真源现状失败 ' + platform + ':' + accountId + ' ' + (e && e.message ? e.message : String(e)))
-    }
-  }
-  const next = loginStatusTransition({ result, checkError, currentStatus, lastValidated, nowMs })
-  if (next === null) {
-    const keptStatus = currentStatus || 'unverified'
-    log.info('AccountManager', 'persistCheckResult 本轮无定论，保持真源不动 ' + platform + ':' + accountId + ' status=' + keptStatus)
-    return { ok: true, status: null, changed: false, keptStatus }
-  }
-  const at = new Date(Number.isFinite(nowMs) ? nowMs : Date.now()).toISOString()
-  const persisted = await persistLoginState(accountId, platform, next, at)
-  return { ...persisted, changed: true, status: next }
+  return loginStateRule.loginStatusTransition(args)
 }
 
 /**
@@ -1326,7 +1265,6 @@ module.exports = {
   loginStatusFromCheckResult,
   persistLoginState,
   loginStatusTransition,
-  persistCheckResult,
   setAccountActive,
   setOwnerSubjectProvider,
   accountStateRestorer,
