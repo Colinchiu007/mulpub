@@ -1350,3 +1350,70 @@ describe('setAccountActive 启用态唯一写者（与登录态正交）', () =>
     expect(result.error).toContain('connection refused')
   })
 })
+
+describe('captureCookies 会话凭证门禁（第 4 个入库入口）', () => {
+  // 2026-09-26 CCG 评审 Warning 2：captureCookies 的「方式 2」只判 window.location.host
+  // 是否偏离 PLATFORM_LOGIN_URLS 的 host。快手登录入口 cp.kuaishou.com 会被前端带到
+  // passport.kuaishou.com 登录页 —— host 已变，于是用户还没登录就被判「登录完成」，
+  // 采到的全是埋点 Cookie，再经 addAccount → saveCapturedAccount 直接入库。
+  function mockPlaywrightPage (cookies) {
+    const page = {
+      addInitScript: vi.fn(async () => {}),
+      goto: vi.fn(async () => {}),
+      // 长 timeout 的那次调用是「等待用户登录」的方式1 分支：真实场景里选择器始终不出现，
+      // 必须让它悬着，才能由方式2（host 变化）判定登录完成——这正是快手误判的形态。
+      // 短 timeout 的两次是预检与 smartWait 兜底，按未命中处理。
+      waitForSelector: vi.fn((selector, opts) => ((opts && opts.timeout) > 10000
+        ? new Promise(() => {})
+        : Promise.reject(new Error('selector not found')))),
+      waitForFunction: vi.fn(async () => {}),
+      evaluate: vi.fn(async () => ({})),
+      $: vi.fn(async () => null),
+      close: vi.fn(async () => {}),
+    }
+    const playwrightManager = require('../services/playwright-manager')
+    vi.spyOn(playwrightManager, 'getContext').mockResolvedValue({
+      newPage: async () => page,
+      cookies: async () => cookies,
+    })
+    return page
+  }
+
+  it('快手只采到埋点 Cookie 时抛错，不返回可入库凭证', async () => {
+    global.__enableElectronMock()
+    global.__resetElectronMock()
+    const accountManager = loadAccountManager()
+    mockPlaywrightPage([
+      { name: 'did', value: 'anon' },
+      { name: 'wid', value: 'anon' },
+      { name: 'kwssectoken', value: 'anon' },
+    ])
+
+    await expect(accountManager.captureCookies('kuaishou', 60000)).rejects.toThrow('未检测到登录态')
+  })
+
+  it('命中会话票据后正常返回凭证（防空门禁把流程锁死）', async () => {
+    global.__enableElectronMock()
+    global.__resetElectronMock()
+    const accountManager = loadAccountManager()
+    mockPlaywrightPage([
+      { name: 'did', value: 'anon' },
+      { name: 'kuaishou.web.cp.api_st', value: 'ST-1' },
+    ])
+
+    const result = await accountManager.captureCookies('kuaishou', 60000)
+
+    expect(result.cookies.map(c => c.name)).toContain('kuaishou.web.cp.api_st')
+  })
+
+  it('未声明会话标记的平台沿用既有行为', async () => {
+    global.__enableElectronMock()
+    global.__resetElectronMock()
+    const accountManager = loadAccountManager()
+    mockPlaywrightPage([{ name: 'session', value: 'x' }])
+
+    await expect(accountManager.captureCookies('wechat_mp', 60000)).resolves.toMatchObject({
+      cookies: [{ name: 'session', value: 'x' }],
+    })
+  })
+})
