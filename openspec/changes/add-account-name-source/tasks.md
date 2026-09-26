@@ -78,7 +78,7 @@
 
 - [x] 9.1 `packages/shared-utils`、`packages/python-backend`、`apps/desktop` 三处全量测试通过，红名单逐项对照 1.3 基线，确认无新增失败（既有 `feedback.test.js` symlink EPERM 属环境项）
 - [x] 9.2 `pnpm exec eslint` 覆盖所有改动文件 rc=0；locale 若新增文案必须 zh/en 成对（CI Gate 7）
-- [ ] 9.3 视觉回归 `npm run test:visual:pixel`（发布页与账号页显示值变化），基线更新需人工审核 diff 图
+- [ ] 9.3 视觉回归 `npm run test:visual:pixel`（发布页与账号页显示值变化），基线更新需人工审核 diff 图。**本机仍不可执行**（worktree 无 Playwright 浏览器，且按 AGENTS.md 禁止借用其他 worktree 的产物做测试证据），CI `QG Visual` 已在本 head 转绿。**但必须写清这条绿不能当证据**：Gate 7 用的是 `PIXEL_THRESHOLD=0.06` 的**整页**容差，实测一次 CI 的 18 个视图里有 2.16% / 1.61% / 1.43% / 1.06% 的漂移全部静默通过 —— 本 PR 改的正是账号页 8 张卡片的文字，量级恰好落在盲区里。真正兜住这件事的是 9.8（夹具形状锁），不是像素层。人工审核 diff 图仍待有 Playwright 的环境补做。
 - [ ] 9.4 QM-6 CCG 双模型外部评审：本机 `codeagent-wrapper` 不在 PATH 且 `.ccg/config.toml` 缺失，若仍不可用则按 `.quality-gates.md` 既有先例**如实登记未执行 + 环境证据**，并以独立上下文评审替代，不得谎称通过
 - [x] 9.5 `openspec validate add-account-name-source --strict` 通过；`.quality-gates.md` 追加本次执行记录（含反证证据与 fresh 数字）
 - [x] 9.6 CI `QG Static` 首次真实红（`check-locale-sync`）后收口，两类根因分开处理：
