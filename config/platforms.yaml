@@ -110,8 +110,8 @@ platforms:
     # （placeholder=“作品描述不会写？试试智能文案”）；RPA 因此把标题+正文合并写进
     # 该编辑器（rpa-view-platforms._composeEditorCaption），长度上限即 max_content。
     max_content: 1000
-    has_api: false
-    publishMode: dom-only   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
+    has_api: true
+    publishMode: api-then-dom   # W3 §5.4 快手 API 发布链入波（签名页未就绪/不支持时可降级 DOM）
     enabled: true
   toutiao:
     id: 3
