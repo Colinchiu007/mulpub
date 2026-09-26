@@ -115,6 +115,13 @@ async function createIdentityService(options = {}) {
     storage: tokenStorage,
     authWindow,
   })
+  const { createMemberApiService } = require('./member-api-service')
+  // tokenProvider 延迟绑定到 authService（构造顺序在后可空引用占位）。
+  let authServiceRef = null
+  const memberApiService = options.memberApiService || createMemberApiService({
+    entitlementService,
+    tokenProvider: () => authServiceRef.getAccessToken(),
+  })
   const createAuthService = options.createAuthService || ((serviceOptions) => new AuthService(serviceOptions))
   const authService = createAuthService({
     client,
@@ -151,6 +158,9 @@ async function createIdentityService(options = {}) {
       }
     })
   }
+  authServiceRef = authService
+  // 组合式挂载：会员侧 API 不侵入 AuthService 职责，IPC 层经 instance 直接取用。
+  authService.memberApiService = memberApiService
   await authService.restore()
   prewarmDiscovery({
     authService,

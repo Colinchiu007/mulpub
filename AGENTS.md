@@ -427,6 +427,8 @@ Code review 时除逻辑正确性外，必须逐项检查：
 
 - **Adapter capability 单一来源**：修改 `BaseAdapter.KNOWN_METHODS` 后必须检索所有 Adapter 的 `capabilities()` 手动覆盖；已进入 `KNOWN_METHODS` 的能力不得再次 `concat`。回归测试必须断言 `supports(method) === true`、能力只出现一次，并覆盖 `ModelProviderManager` 的调用入口。
 
+- **登录承载路径的观测与节流口径单一来源**：任何新增或改造的登录承载方式（`AuthViewManager.openLogin` 的 `persist:auth-*`、`WebviewManager` 账号标签的 `persist:account-*`、`QrCodeLogin` 扫码视图、`loginSilent` 隐藏窗口）都必须同时满足两条：①在 `loadURL` **之前**挂 `attachLoginNetworkDiagnostics(session, { platform, accountId })`——第三方登录页的二维码由 iframe 加载，其内部请求失败**不触发**外层 `webContents` 的 `did-fail-load`，不挂即日志黑洞；②显式声明 `backgroundThrottling` 取值并给出理由（承载第三方轮询型登录页的视图应为 `false`，先例 `tab-lifecycle.js` / `rpa-view-session.js` / `playwright-manager.js`）。回归锁：`auth-view-manager.test.js` 的「登录视图可观测性」describe 断言 `onCompleted` filter **精确等于** `URL_FILTERS`；修改 `login-network-diagnostics.js` 的 `URL_FILTERS` 或出码端点判定（`getqrcode`）必须同步该断言。诊断属旁路：`try/catch` + warn，**禁止**把 `resolveProxy`/CDP 等异步观测 `await` 在首个导航之前（见 learnings「门控首个导航的异步 promise 必须带超时与销毁守卫」）。另注意 `test-setup.js` 的 `session.fromPartition` 每次返回新 session 对象——诊断幂等标记挂在 session 实例上，共享单例会使「监听注册恰好一次」退化为顺序依赖。
+
 - **应用级浮层弹窗互斥合同（overlay view suspension）**：`WebContentsView`（浏览器/登录标签的外部网页）是压在渲染进程 DOM 之上的原生图层，CSS z-index 无效。新增任何应用级**模态**浮层（居中弹窗、`fixed inset:0` 遮罩、阻塞交互的 `ElMessageBox.confirm`）时，必须经 `src/composables/useEmbeddedViewSuspension.js` 挂起/恢复内嵌视图（owner 唯一标识、suspend/release 成对、释放走 `finally`），并在 `apps/desktop/src/overlay-view-suspension.test.js` 登记该 owner 的接入断言。修改 `WebviewManager` 可见性链路（`setVisible` / `_repositionAll` / `setShellMode` / 挂起三方法）必须同跑 `overlay-view-suspension.test.js` + `shell-mode-6b.test.js` 全量；修改 `electron/preload/page-manager.js` 必须重打包 `index.bundle.js`（bundle 断言拦截遗漏）。瞬时非模态浮层（toast/回到顶部/更新通知/ElMessage）明确不接入（挂起致闪烁、无交互闭环），残余限制见 `01-docs/PRD-OVERLAY-VIEW-SUSPENSION-2026-09-23.md` §6。
 
 - **自动更新静默合同**：打包应用必须关闭 electron-updater console logger；检查更新阶段的网络阻断和缺失 `latest*.yml` 按 `not-available` 处理，签名、下载和安装等真实错误不得吞掉。修改更新服务后必须打包启动 8 秒并确认 stderr 无 updater 网络/404 栈。
@@ -462,6 +464,16 @@ Code review 时除逻辑正确性外，必须逐项检查：
 - **E2E fixture 断言渲染语义**：路由/工作流测试不得用内部枚举值断言已经过本地化或格式化的 UI 文案。优先使用稳定状态 class/testid 加用户可见文本，并在 UI 映射函数变更时同步运行受影响路由用例。
 
 - **预设/种子类语义合同（R85）**：`getAvailablePresets`、`getAvailableTemplates`、`getAvailableProfiles` 等“可配置目录”类 API 必须返回该类别全部内置预设，**不得用“是否已入库”判断能否添加**。种子初始化（`_seedPresets` / `INSERT OR IGNORE`）只表示“目录存在”，不表示“用户已完成配置”；“是否已配置”必须用 `api_key_enc IS NOT NULL AND enabled = 1` 等业务字段判定。修改此类 API 时必须运行 [`model-provider-preset-integration.test.js`](apps/desktop/electron/services/model-provider-preset-integration.test.js) 并覆盖：(1) 空 userData 初始化后预设列表非空；(2) 种子已入库但预设列表仍返回全部项；(3) 用户选预设后保存路径走“ID 冲突 → 降级更新”而非创建重复行。详见 [01-docs/learnings.md 模型预设列表为空 Bug 复盘](01-docs/learnings.md)。
+
+- **宿主 API 字段归属必须先核实（Electron/浏览器 API 不得凭字段名写）**：读 `app.*` / `webContents.*` / 任何宿主对象属性前，必须在**已安装**的类型声明里确认该属性挂在哪个接口上（Electron 为 `node_modules/electron/electron.d.ts`），或运行时打印一次。反例：`configureUserAgentFallback` 读 `app.userAgent`（真实 Electron 上不存在，UA 只在 `app.userAgentFallback`），导致知乎登录风控规避逻辑长期静默 no-op，而单测因手搓 `{app:{userAgent}}` 假形状全绿。配套要求：① mock 的字段集来自 d.ts 或运行时 dump，并保留一条「真实形状」用例（只带宿主真有的字段）；② 关键取源用计数字段 getter 断言「未读错误字段」；③ 前提本身做真实依赖锁（对 `electron.d.ts` 结构断言，缺 electron 时 skip）。
+
+- **静默配置失败必须留日志**：任何以 `{configured: boolean}` / 布尔返回值表达「已生效 / 已跳过」的启动期配置函数，调用点的未生效分支一律 `console.warn` 或 `log.warn`；只在成功分支打印等于吞掉失败，回归在运行日志里零痕迹。
+
+- **出站行为以线级取证为准**：断言「请求头 / UA / 证书 / 编码已设置」时，最终证据必须来自真实链路抓到的出站数据（本机回显 HTTP 服务 + 生产同款 session/webPreferences 做开关 A/B），单测绿不代表线上头部变了。注意 `Sec-CH-UA` 系列客户端提示只在 HTTPS 请求发送，本机 http 回显看不到，不得据此判「不存在」。
+
+- **跨端目录常量 ↔ 存量数据必须前向兼容（MUST）**：凡「代码内目录常量 + 数据库表」双真源结构（如 `app_menu_service.CATALOG` ↔ `app_menu_items`），目录新增条目时**禁止**只用「表为空才播种」的供给逻辑——存量部署永不获得新行，管理页会看不到该项、无法配置，而按目录遍历下发的客户端照常显示，两侧项目与顺序同时漂移。供给必须是**增量补齐且只补不改已有行**（覆盖已有行会抹掉运营者配置，比缺行更糟），并在读取/写入/重置/下发**全部**入口调用。缺行兜底值必须取**目录序号**而非 `0`（0 在排序语义里是第一名）。回归锁必须有一条从**非空旧状态**出发（先建全量再删一项）的用例——「每例 `drop_all/create_all` 重建空表」的夹具对这类缺陷完全免疫。同族先例见 R85。CI 的结构校验（清单 ↔ 清单自洽）**不能**作为通过证据：漂移发生在运行库里，CI 看不到。
+
+- **多通道同步编排不得失败互锁（MUST）**：一个 handler/服务内先后拉取多条独立通道（如模型目录 catalog 与运行时策略 runtime/bootstrap）时，任何一条的失败或提前 `return` **不得**阻止另一条执行——「best-effort 分支」若写在主通道 `await` 之后，就等同于反向门控（主通道失败 ⇒ 该分支永远不执行）。必须用 `Promise.allSettled` 并行解耦，并遵守：① 并行不得叠加超时预算（整体仍是单请求超时，不得退化为串行求和）；② 结果对象必须逐通道如实上报（如 `code/message` 属目录，`runtimeApplied/runtimeSyncedAt` 属运行时），不得因一条成功而掩盖另一条失败；③ 若该通道结果**面向用户展示**，文案必须区分「部分成功」与「完全失败」，否则用户会用反复重启应用来排障；若产品决定该链路**对用户透明**（界面无任何入口，如桌面端运营中心同步卡片已隐藏），则**不得为不存在的反馈路径新增 locale 键**（AGENTS.md 禁止死键），区分度改由主进程日志承担。写 UI 反馈前先确认调用方是否可达。回归锁：为「A 失败时 B 仍须执行」单独写一条注入用例；并行预算用假时钟**单次**推进 + 断言**每个端点各被请求一次**（实现退化为串行时该用例会挂死，挂死本身即结构断言）。
 
 - **测试断言不得反向固化错误行为**：任何断言“X 已初始化所以 Y 应为空”的测试必须额外验证“Y 为空是用户期望行为”而非“实现副作用”。当 X 的初始化是系统自动行为（如种子写入）时，Y 的空状态几乎一定是 Bug，必须改为“Y 应返回全部可配置项”。composable 测试不得只 mock IPC 返回空数组，至少包含一条“IPC 返回非空数据 → composable 转发到响应式状态”的真实数据路径用例。
 
@@ -521,6 +533,9 @@ Code review 时除逻辑正确性外，必须逐项检查：
 
 - **文本结构断言（MUST）**：凡断言**文本结构**（换行 / 分段 / 分隔符 / 字段顺序 / 序列化格式）的测试，必须**至少一条 `toBe` / `toEqual` 精确断言或结构断言**（如 `expect(out.split("\n")).toEqual([...])`），`toContain` 仅可作为补充。原因：纯 `toContain` 子串匹配对结构性回归**完全免疫** —— 正文被压成一整行时每个子串依然命中（2026-09-16 采集页正文换行全丢即由此逃逸，见 `01-docs/BUGFIX-COLLECT-NEWLINE-PRESERVE-2026-09-16.md`）。新增/修改文本提取、解析、格式化类代码时必须同时补一条精确断言，并用「修复前实现副本」实测确认该断言能抓住 Bug。
 
+- **全仓关键词复扫必须带 `-a`（MUST）**：本仓 `01-docs/PRD.md`、`01-docs/learnings.md` 等历史文档含 NUL 字节，`grep`/`rg` 默认把这类文件判为二进制并**静默跳过**，只输出一行 `Binary file ... matches`，命中数直接归零——于是「全仓扫到 0 命中」这类收口结论对真正有问题的文件完全失明（2026-09-26 实测：`grep -rn 立即同步 01-docs/PRD.md` = 1，`grep -rna` = 10）。凡以「扫到 0」作为完成判据的检查，一律 `grep -na` / `rg -a`，并额外确认**扫描器没有把这些文件当二进制**（`grep -c` 单文件计数对照）。
+
+- **测试库/配置状态必须按模块确定化，不得依赖导入顺序（MUST）**：`config.settings` 这类**导入期单例**会让「模块级设环境变量再 import」的写法只对第一个被收集的测试文件生效——其余文件自设的临时库全部失效，整个 session 共用同一份状态，任一文件 teardown 里的 `drop_all` 都会波及其他文件，表现为「单跑绿、全量红」的假失败。修法：在 `tests/conftest.py` 里做**按模块**的 autouse 重置（幂等补齐 schema + 按外键逆序清空全部行 + 复位 `sqlite_sequence`），并用回归对锁定（制造方推进 rowid 并 `drop_all`，消费方不建表不清库、断言新父行 `id == 1` 且能写外键子行）；把该 fixture 改成 no-op 必须**立刻变红**，否则锁是装饰性的。既有案例：`ops-center/backend/tests/conftest.py::_isolate_database_per_test_module` + `tests/test_zz_conftest_isolation_a_wrecker.py` / `..._b_consumer.py`。归属纪律：全量红而单跑绿时，先在**未改动的 main** 上跑同一条全量做对照，既禁止把既有缺陷认领成本 PR 引入，也禁止反过来以「不是我改的」直接放行。 **但对照只证明「既有缺陷存在」，不证明「本 PR 无关」**：本 PR 自己可能叠加第二颗独立的雷（实测：#2397 清库修好后，本仓一条 5 路 `async_session` 并发的用例仍会让远处模块报外键失败）。所以必须二分到自己身上——用 `--deselect` 逐条摘除本 PR 新增用例跑全量，配合「摘掉修复即变红」的反证定责。规则：**在测试里开并发 session 的用例，必须在 `finally` 里 `await engine.dispose()` 归还连接池**（aiosqlite 池连接绑定事件循环，跨用例复用会读到过期 WAL 快照）。
 - **文本空白归一化（MUST NOT）**：清理 HTML 源码缩进噪声时**禁止**用 `replace(/\s+/g, ' ')` —— `\s` 含 `\n`/`\r`/`\u2028`/`\u2029`/全角空格 `\u3000`/NBSP `\u00a0`/BOM `\ufeff`，会把**语义换行一起压掉**，正文变成一整行。正确口径：行内空白压缩用 `[^\S\n]+`（显式排除换行）；块级结构（`p`/`h1-h6`/`blockquote` → 段间空行，`div`/`li`/`tr` → 单换行，`td`/`th` → 制表符，`<br>` → 换行，`<pre>` → 原样保留）在 DOM 层转成换行，最后只做「连续 3 个以上换行压成 1 个空行」收口。正文提取统一复用 `apps/desktop/electron/services/readable-text.js`（`extractReadableText` / `normalizeExtractedText`），禁止在采集通道里另写一套。
 
 - **门禁断言随「平台/实现迁移」同步（MUST）**：凡改动 **runner / OS / 工作流步骤名 / 组件实现细节 / 工具抽取 / locale 值 / 文件增删**，必须全仓检索并**同 PR 更新**锁死旧前提的门禁断言与基线，否则会留下**长期不可自愈的假红灯**（无人认领、且与本 PR 无关）。已知必须同步的文件：

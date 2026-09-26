@@ -10,6 +10,13 @@ CATALOG 的 key 与分组顺序与桌面端 `apps/desktop/src/config/sidebar-men
 
 二者方向相反是刻意的：写入口要严，读出口要宽。
 
+目录供给（收敛两侧真源）
+------------------------
+页面列表读 DB，下发载荷遍历 CATALOG，因此 DB 必须始终跟随 CATALOG 演进：
+`_provision_from_catalog` 在每次读取/写入/下发前补齐目录新增项（只补欠账，不覆盖
+运营者已有的显隐/排序/分组）。缺少这一步时，新增菜单项会在运营端页面永久消失，
+而应用端照常显示，两侧项目与顺序就此漂移（2026-09-25 事故复盘）。
+
 强制显示项
 ----------
 `FORCED_VISIBLE_KEYS` 中的四项（发布/账号/采集/视频创作）在运营端开关灰显不可关闭；
@@ -20,6 +27,7 @@ CATALOG 的 key 与分组顺序与桌面端 `apps/desktop/src/config/sidebar-men
 import datetime
 
 import sqlalchemy as sa
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import AppMenuItem
@@ -93,27 +101,46 @@ def _to_sort_order(value, fallback: int) -> int:
     return min(num, MAX_SORT_ORDER)
 
 
-async def _seed_if_empty(db: AsyncSession) -> None:
-    """表为空时按目录播种（幂等）。首个 GET/PUT/bootstrap 调用触发。"""
-    count = (await db.execute(sa.select(sa.func.count()).select_from(AppMenuItem))).scalar_one()
-    if count:
-        return
+async def _provision_from_catalog(db: AsyncSession) -> None:
+    """按目录供给库：空表全量播种，非空表补齐目录新增项（幂等、并发安全）。
+
+    为什么不复用「仅全空时播种」：CATALOG 会随桌面端新增菜单而演进（2026-09-19 的
+    copy-library 即由此逃逸），而表非空后旧逻辑永不再写入，导致新增项在运营端页面
+    永久缺失、无法配置，与桌面端（按下发目录渲染）漂移。
+
+    只补欠账、不改已有行：运营者设置过的显隐/排序/分组一律保留。
+
+    两点实现约束：
+
+    1. **ON CONFLICT DO NOTHING**：本函数现在每个请求都会跑，页面 GET 与客户端
+       bootstrap 可能同时判定同一 key 缺失并双插，`item_key` 的 UNIQUE 约束会把其中
+       一个打成 IntegrityError → 500。用方言级 upsert 让并发落败方静默跳过。
+    2. **只 flush 不 commit**：事务由调用方统一收口。否则 `upsert_items` 里补齐已落盘
+       而后续校验抛 ValueError，会留下「整批不写入」契约之外的部分写入。
+    """
+    existing = set((await db.execute(sa.select(AppMenuItem.item_key))).scalars().all())
     now = _now()
-    for index, (key, label, group, description) in enumerate(CATALOG):
-        db.add(
-            AppMenuItem(
-                item_key=key,
-                label=label,
-                group=group,
-                visible=1,
-                forced_visible=1 if is_forced_visible(key) else 0,
-                sort_order=index,
-                description=description,
-                updated_at=now,
-                updated_by="",
-            )
-        )
-    await db.commit()
+    rows = [
+        {
+            "item_key": key,
+            "label": label,
+            "group": group,
+            "visible": 1,
+            "forced_visible": 1 if is_forced_visible(key) else 0,
+            "sort_order": index,
+            "description": description,
+            "updated_at": now,
+            "updated_by": "",
+        }
+        for index, (key, label, group, description) in enumerate(CATALOG)
+        if key not in existing
+    ]
+    if not rows:
+        return
+    await db.execute(
+        sqlite_insert(AppMenuItem).values(rows).on_conflict_do_nothing(index_elements=["item_key"])
+    )
+    await db.flush()
 
 
 def _group_rank():
@@ -122,13 +149,19 @@ def _group_rank():
 
 
 async def list_items(db: AsyncSession) -> list[dict]:
-    """列出全部菜单项（按分组 + 排序值）。"""
-    await _seed_if_empty(db)
+    """列出目录内的菜单项（按分组 + 排序值）。
+
+    只返回 `CATALOG` 内的 key：DB 里可能有已从目录移除的历史行（如 `monitor`），
+    而它不会下发给应用端。若继续显示在页面上，运营者会看到一个应用端根本不存在、
+    也配置不了的项——正是「两侧不同步」错觉的来源。页面与下发必须同一份集合。
+    """
+    await _provision_from_catalog(db)
+    await db.commit()
     rows = (
         await db.execute(
-            sa.select(AppMenuItem).order_by(
-                _group_rank(), AppMenuItem.sort_order, AppMenuItem.item_key
-            )
+            sa.select(AppMenuItem)
+            .where(AppMenuItem.item_key.in_(CATALOG_KEYS))
+            .order_by(_group_rank(), AppMenuItem.sort_order, AppMenuItem.item_key)
         )
     ).scalars().all()
     return [_item_to_dict(row) for row in rows]
@@ -147,7 +180,7 @@ async def upsert_items(db: AsyncSession, items: list, updated_by: str = "") -> d
     if len(items) > MAX_MENU_ITEMS:
         raise ValueError(f"菜单项数量超过上限 {MAX_MENU_ITEMS}")
 
-    await _seed_if_empty(db)
+    await _provision_from_catalog(db)
     now = _now()
     corrections: list[str] = []
     seen: set[str] = set()
@@ -211,7 +244,7 @@ async def upsert_items(db: AsyncSession, items: list, updated_by: str = "") -> d
 
 async def reset_items(db: AsyncSession, updated_by: str = "") -> dict:
     """恢复默认：全部可见 + 目录定义顺序 + 强制项标记回归。"""
-    await _seed_if_empty(db)
+    await _provision_from_catalog(db)
     now = _now()
     rows = (await db.execute(sa.select(AppMenuItem))).scalars().all()
     by_key = {row.item_key: row for row in rows}
@@ -243,17 +276,20 @@ async def get_bootstrap_app_menu(db: AsyncSession) -> dict:
     （2026-09-16 起撤销原 D-GRP 限制）——应用端 sidebar-menu-merge 据此决定菜单项落在
     一级导航还是「更多」折叠菜单。group 非法/缺失时应用端 fail-open 回退本地定义（C1）。
     """
-    await _seed_if_empty(db)
+    await _provision_from_catalog(db)
+    await db.commit()
     rows = (await db.execute(sa.select(AppMenuItem))).scalars().all()
     by_key = {row.item_key: row for row in rows}
 
     items = []
-    for key, _label, _group, _description in CATALOG:
+    for index, (key, _label, _group, _description) in enumerate(CATALOG):
         row = by_key.get(key)
         visible = bool(row.visible) if row is not None else True
         if is_forced_visible(key):
             visible = True
-        sort_order = int(row.sort_order) if row is not None and row.sort_order is not None else 0
+        # 兜底序号用目录位置而非 0：0 会让缺行项在应用端被顶到分组最前（应用端按
+        # sort_order 升序渲染），与运营端页面上看到的位置再次错位。
+        sort_order = int(row.sort_order) if row is not None and row.sort_order is not None else index
         group = row.group if row is not None and row.group else _group
         # 防御纵深：强制显示项永远落在一级导航
         if is_forced_visible(key):

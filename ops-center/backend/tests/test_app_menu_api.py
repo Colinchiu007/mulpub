@@ -33,13 +33,15 @@ CATALOG_SIZE = 20
 @pytest_asyncio.fixture(autouse=True)
 async def setup_db():
     from database import Base, async_session, engine
-    from services.app_menu_service import _seed_if_empty
+    from services.app_menu_service import _provision_from_catalog
 
     settings.catalog_api_key = os.environ.get("OPS_CATALOG_API_KEY", "catalog-test-key")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     async with async_session() as db:
-        await _seed_if_empty(db)
+        await _provision_from_catalog(db)
+        # 补齐只 flush、不自行提交（事务由调用方收口），夹具必须自己 commit 才留下种子行
+        await db.commit()
     yield
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
@@ -329,6 +331,186 @@ async def test_bootstrap_requires_catalog_key():
     async with _client() as client:
         resp = await client.get("/api/v1/runtime/bootstrap", headers={"X-Catalog-Key": "wrong"})
         assert resp.status_code == 401
+
+
+# ─── 目录演进回填（跨端同步契约）───────────────────────────
+# 回归 2026-09-25 事故：copy-library 由 #bcd1b663 加入 CATALOG，但已在该提交前播种过的
+# 生产库不会补齐该行 —— 运营端页面（读 DB）看不到该项、无法配置，桌面端（读下发）却照样
+# 显示，两侧菜单项目与顺序就此漂移。以下三例锁住「DB 必须跟随 CATALOG 演进」这条契约。
+
+
+async def _drop_row(item_key: str) -> None:
+    """模拟「库里没有这一项」的历史状态（老库 + 目录新增项）。"""
+    import sqlalchemy as sa
+
+    from database import async_session
+    from models import AppMenuItem
+
+    async with async_session() as db:
+        row = (
+            await db.execute(sa.select(AppMenuItem).where(AppMenuItem.item_key == item_key))
+        ).scalar_one()
+        await db.delete(row)
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_provisioning_never_raises_integrity_error():
+    """补齐现在每个请求都跑：页面 GET 与客户端 bootstrap 可能同瞬判定同一 key 缺失并双插，
+    item_key 的 UNIQUE 约束会把落败方打成 IntegrityError → 500。必须冲突静默。
+
+    竞态窗口取决于调度顺序，本用例用多个并发 session 放大窗口；即便某次运行未触发双插，
+    它也锁住了「补齐幂等 + 冲突不报错 + 不产生重复行」这条契约不因改回 db.add 而回归。
+    """
+    import asyncio
+
+    from database import async_session, engine
+    from services.app_menu_service import _provision_from_catalog
+
+    await _drop_row("copy-library")
+
+    async def worker():
+        async with async_session() as db:
+            await _provision_from_catalog(db)
+            await db.commit()
+
+    try:
+        results = await asyncio.gather(*[worker() for _ in range(5)], return_exceptions=True)
+    finally:
+        # 5 路并发会在默认队列连接池里留下**绑定当前事件循环**的连接；pytest-asyncio 每条用例
+        # 换新循环，后续模块从池里取到这些连接会读到过期的 WAL 读快照，看不见自己前面测试刚建的
+        # 父行，表现为远处模块报 FOREIGN KEY constraint failed（本仓 2026-09-26 实测：只 deselect
+        # 本用例，全量即由 1 failed 变 454 passed）。故制造并发 session 的用例必须自己归还池。
+        await engine.dispose()
+    assert [r for r in results if isinstance(r, Exception)] == []
+
+    async with _client() as client:
+        keys = [i["item_key"] for i in (await client.get("/api/v1/app-menu", headers=_admin_headers())).json()["items"]]
+        assert keys.count("copy-library") == 1
+
+
+@pytest.mark.asyncio
+async def test_rejected_batch_does_not_persist_provisioning():
+    """upsert_items 声明「任一条校验失败整批不写入」。
+
+    补齐若在自己的事务里 commit，就会出现「请求返回 400、库里却已被写入」的部分写入；
+    补齐必须只 flush，由调用方统一收口。故被拒批次之后，直接从库读该行必须不存在。
+    """
+    import sqlalchemy as sa
+
+    from database import async_session
+    from models import AppMenuItem
+
+    async with _client() as client:
+        await _drop_row("copy-library")
+        resp = await client.put(
+            "/api/v1/app-menu",
+            json={"items": [
+                {"item_key": "copy-library", "visible": False, "sort_order": 6},
+                {"item_key": "not-exist", "visible": True},
+            ]},
+            headers=_admin_headers(),
+        )
+        assert resp.status_code == 400
+
+        async with async_session() as db:
+            row = (
+                await db.execute(sa.select(AppMenuItem).where(AppMenuItem.item_key == "copy-library"))
+            ).scalar_one_or_none()
+        assert row is None, "被拒绝的批次不得落任何盘（含补齐行）"
+
+
+@pytest.mark.asyncio
+async def test_legacy_row_outside_catalog_hidden_from_page_and_bootstrap():
+    """已从目录移除的历史行（如 monitor）不得出现在页面上。
+
+    下发本就按 CATALOG 过滤；页面若多显示一项，运营者会看到一个应用端不存在、也配置
+    不了的项，再次得到「两侧不同步」的错觉 —— 「页面 ⊇ 下发」不是可接受的契约。
+    """
+    import sqlalchemy as sa
+
+    from database import async_session
+    from models import AppMenuItem
+    from services.app_menu_service import CATALOG_KEYS
+
+    async with async_session() as db:
+        db.add(AppMenuItem(
+            item_key="monitor", label="监控", group="more", visible=1,
+            forced_visible=0, sort_order=3, description="历史遗留", updated_at="", updated_by="",
+        ))
+        await db.commit()
+
+    async with _client() as client:
+        page_keys = [i["item_key"] for i in (await client.get("/api/v1/app-menu", headers=_admin_headers())).json()["items"]]
+        assert "monitor" not in page_keys
+        assert set(page_keys) == set(CATALOG_KEYS)
+
+        delivered = (await client.get("/api/v1/runtime/bootstrap", headers=_catalog_headers())).json()["appMenu"]["items"]
+        assert {i["key"] for i in delivered} == set(CATALOG_KEYS)
+
+
+@pytest.mark.asyncio
+async def test_catalog_evolution_backfills_missing_row_in_list():
+    """库里缺失目录新增项时，列表读取必须补齐该行（不得只在全空时播种）。"""
+    async with _client() as client:
+        await _drop_row("copy-library")
+
+        h = _admin_headers()
+        data = (await client.get("/api/v1/app-menu", headers=h)).json()
+        keys = [i["item_key"] for i in data["items"]]
+
+        assert len(keys) == CATALOG_SIZE, keys
+        assert "copy-library" in keys
+        primary = [i["item_key"] for i in data["items"] if i["group"] == "primary"]
+        assert primary == DEFAULT_PRIMARY
+
+
+@pytest.mark.asyncio
+async def test_backfill_does_not_clobber_operator_config():
+    """回填只补欠账，不得覆盖运营者已有的显隐与排序。"""
+    async with _client() as client:
+        h = _admin_headers()
+        await client.put(
+            "/api/v1/app-menu",
+            json={"items": [{"item_key": "library", "visible": False, "sort_order": 42}]},
+            headers=h,
+        )
+        await _drop_row("copy-library")
+
+        by_key = {i["item_key"]: i for i in (await client.get("/api/v1/app-menu", headers=h)).json()["items"]}
+        assert by_key["library"]["visible"] is False
+        assert by_key["library"]["sort_order"] == 42
+        # 补进来的新项按目录默认：可见 + 目录序号 + 目录分组
+        assert by_key["copy-library"]["visible"] is True
+        assert by_key["copy-library"]["sort_order"] == DEFAULT_PRIMARY.index("copy-library")
+        assert by_key["copy-library"]["group"] == "primary"
+
+
+@pytest.mark.asyncio
+async def test_list_and_bootstrap_never_diverge_on_item_set_and_order():
+    """页面与下发必须同一份项目集合、同一套顺序 —— 这是「不同步」的直接断言。"""
+    from services.app_menu_service import CATALOG, CATALOG_KEYS
+
+    async with _client() as client:
+        h = _admin_headers()
+        await _drop_row("copy-library")
+
+        page = (await client.get("/api/v1/app-menu", headers=h)).json()["items"]
+        delivered = (await client.get("/api/v1/runtime/bootstrap", headers=_catalog_headers())).json()["appMenu"]["items"]
+
+        assert {i["item_key"] for i in page} == set(CATALOG_KEYS)
+        assert {i["key"] for i in delivered} == set(CATALOG_KEYS)
+
+        # 缺行项的下发 sort_order 必须是目录序号，而不是 0（0 会把它顶到分组最前）
+        delivered_by_key = {i["key"]: i for i in delivered}
+        assert delivered_by_key["copy-library"]["sort_order"] == CATALOG_KEYS.index("copy-library")
+
+        expected_primary_order = [k for k, _l, g, _d in CATALOG if g == "primary"]
+        primary_sorted = sorted(
+            (i for i in delivered if i["group"] == "primary"),
+            key=lambda i: i["sort_order"],
+        )
+        assert [i["key"] for i in primary_sorted] == expected_primary_order
 
 
 # ─── 恢复默认 ──────────────────────────────────────────────

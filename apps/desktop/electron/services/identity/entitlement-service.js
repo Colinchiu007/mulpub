@@ -151,6 +151,18 @@ class EntitlementService {
     }
   }
 
+  /** 受控请求原语（仅供 member-api-service 白名单路径使用，不暴露内部状态）。 */
+  get fetcher() { return this._fetcher }
+
+  get deviceId() { return this._deviceId }
+
+  get apiUrl() { return this._apiUrl }
+
+  /** subject 与当前权益会话一致才放行（sign-out/换账号后旧 subject 即拒绝）。 */
+  canReadMembership(subject) {
+    return Boolean(this._current && subject && this._current.subject === subject)
+  }
+
   hasFeature(feature, { onlineOnly = false } = {}) {
     return Boolean(this._current && (!onlineOnly || this._current.source === 'online') && this._current.features.includes(feature))
   }

@@ -19,6 +19,8 @@ import { SIDEBAR_MENU_DEFINITION } from '@/config/sidebar-menu'
 
 const routeState = vi.hoisted(() => ({ path: '/' }))
 const appMenuResult = vi.hoisted(() => ({ value: { code: 0, data: null } }))
+// 运营配置变更订阅桩：记录当前回调，用于模拟主进程广播
+const appMenuListener = vi.hoisted(() => ({ cb: null }))
 
 vi.mock('vue-router', () => ({
   useRoute: () => routeState,
@@ -38,6 +40,10 @@ vi.mock('@/composables/useAppVersion', async () => {
 
 vi.mock('@/api/ops-center-sync', () => ({
   opsCenterSyncAppMenu: () => Promise.resolve(appMenuResult.value),
+  onOpsCenterRuntimeUpdated: (cb) => {
+    appMenuListener.cb = cb
+    return () => { appMenuListener.cb = null }
+  },
 }))
 
 import MpSidebar from './MpSidebar.vue'
@@ -211,5 +217,59 @@ describe('MpSidebar — 应用菜单配置生效', () => {
     const sidebar = await mountSidebar()
 
     expect(primaryKeys(sidebar)).toEqual([...DEFAULT_PRIMARY])
+  })
+
+  // 回归 2026-09-25：菜单此前只在 onMounted 拉取一次，运营中心改完必须重启应用才可见。
+  it('运营配置变更事件到达 → 免重启重拉并更新一级导航', async () => {
+    appMenuResult.value = { code: 0, data: null }
+    const sidebar = await mountSidebar()
+
+    expect(appMenuListener.cb).toBeTypeOf('function')
+    expect(primaryKeys(sidebar)).toEqual([...DEFAULT_PRIMARY])
+
+    appMenuResult.value = {
+      code: 0,
+      data: {
+        items: [
+          { key: 'home', visible: false, sort_order: 0 },
+          { key: 'dashboard', visible: false, sort_order: 1 },
+        ],
+      },
+    }
+    await appMenuListener.cb({ syncedAt: 'server-t' })
+    await flushPromises()
+    await flushPromises()
+
+    const keys = primaryKeys(sidebar)
+    expect(keys).not.toContain('home')
+    expect(keys).not.toContain('dashboard')
+    // 未涉及的项不受影响（重拉是整体替换，不是增量 patch）
+    expect(keys).toContain('copy-library')
+    expect(keys).toContain('rewrite')
+  })
+
+  it('重拉失败（IPC 报错）→ 保留上一次可用配置，不清空菜单', async () => {
+    appMenuResult.value = {
+      code: 0,
+      data: { items: [{ key: 'dashboard', visible: false, sort_order: 1 }] },
+    }
+    const sidebar = await mountSidebar()
+    expect(primaryKeys(sidebar)).not.toContain('dashboard')
+
+    appMenuResult.value = { code: -1, message: '无法连接 Ops Center', data: null }
+    await appMenuListener.cb({})
+    await flushPromises()
+    await flushPromises()
+
+    expect(primaryKeys(sidebar)).not.toContain('dashboard')
+  })
+
+  it('卸载时取消订阅，不残留重复监听', async () => {
+    await mountSidebar()
+    expect(appMenuListener.cb).toBeTypeOf('function')
+
+    wrapper.unmount()
+    wrapper = null
+    expect(appMenuListener.cb).toBeNull()
   })
 })
