@@ -13,9 +13,11 @@
  *   1. 请求失败（onErrorOccurred）→ 分类提示（代理/DNS/连接）
  *   2. 关键端点 HTTP >= 400（onCompleted）→ warn/info 记录
  *   3. 挂接时探测代理解析路径（resolveProxy）→ 直接回答"二维码请求会走哪个代理"
+ *   4. 出码计时（onCompleted）→ getqrcode 每次完成的相对耗时与响应体长度，
+ *      用于回答"二维码刷了很久才显示"里到底是首码迟到，还是 200 空体被反复重试
  *
- * 通过 attachLoginNetworkDiagnostics 挂到账号 session（persist:account-*）上；
- * 幂等标记防止同一 session 被多个登录标签复用时监听器翻倍。
+ * 通过 attachLoginNetworkDiagnostics 同时挂到账号 session（persist:account-*）与
+ * 登录视图 session（persist:auth-*）上；幂等标记防止同一 session 被多个登录标签复用时监听器翻倍。
  */
 const log = require('./logger')
 
@@ -58,9 +60,42 @@ function isQrConnectUrl (url) {
   return typeof url === 'string' && (url.indexOf('mpqrconnect') !== -1 || url.indexOf('qrconnect') !== -1)
 }
 
+// 出码端点：二维码字节本体的获取路径。刻意不含 l/qrconnect —— 那是 15s 一轮的
+// 长轮询，计入会无限刷屏并掩盖"首码到底几秒到达"这个唯一要回答的问题。
+const QR_IMAGE_MARKER = 'getqrcode'
+// 出码尝试日志上限：微信码约 30s 过期刷新，长时间停留在登录页会持续产生请求
+const QR_IMAGE_LOG_LIMIT = 6
+
+/**
+ * 是否为出码端点（二维码图片本体的获取路径）
+ * @param {string} url
+ * @returns {boolean}
+ */
+function isQrImageUrl (url) {
+  return typeof url === 'string' && url.indexOf(QR_IMAGE_MARKER) !== -1
+}
+
+/**
+ * 从 webRequest 响应头里取 Content-Length（大小写不敏感）
+ * webRequest 不保证暴露响应体大小，取不到时返回 null 由调用方省略字段
+ * @param {any} details
+ * @returns {string|null}
+ */
+function readContentLength (details) {
+  const headers = details && details.responseHeaders && details.responseHeaders.headers
+  if (!Array.isArray(headers)) return null
+  for (let i = 0; i < headers.length; i++) {
+    const name = headers[i] && headers[i].name
+    if (typeof name === 'string' && name.toLowerCase() === 'content-length') {
+      return String(headers[i].value)
+    }
+  }
+  return null
+}
+
 /**
  * 在 session 上挂接登录网络诊断监听（幂等，重复调用直接 return）
- * @param {Electron.Session} ses - 账号 session（persist:account-* 分区）
+ * @param {Electron.Session} ses - 登录用 session（persist:account-* 账号分区 / persist:auth-* 登录视图分区）
  * @param {{platform?: string, accountId?: string}} [ctx] - 标签上下文，用于日志定位
  */
 function attachLoginNetworkDiagnostics (ses, ctx) {
@@ -71,6 +106,9 @@ function attachLoginNetworkDiagnostics (ses, ctx) {
   var accountId = (ctx && ctx.accountId) || 'unknown'
   var tag = '[' + platform + '/' + accountId + '] '
   var filter = { urls: URL_FILTERS }
+  // 挂接点即计时原点：openLogin 在 loadURL 前一刻挂上，相对耗时可直接当作"首屏到出码"
+  const attachedAt = Date.now()
+  let qrImageCount = 0
 
   // 请求失败：iframe 内部失败也能在此捕获；ERR_ABORTED 属正常导航取消，跳过降噪
   ses.webRequest.onErrorOccurred(filter, function (details) {
@@ -84,6 +122,19 @@ function attachLoginNetworkDiagnostics (ses, ctx) {
   // 关键端点 HTTP >= 400：二维码端点告警，其余普通记录
   ses.webRequest.onCompleted(filter, function (details) {
     var status = details && details.statusCode
+
+    // 出码计时：从挂接点（openLogin 在 loadURL 前一刻挂上）到二维码字节到达的相对耗时。
+    // 反复刷新的次数本身就是症状 —— contentLength=0 即 #1888 记录的"200 空体静默拒绝"特征。
+    // 只在此处记，不另设监听器：既有契约要求 onCompleted 在单 session 上注册恰好一次。
+    if (isQrImageUrl(details && details.url) && qrImageCount < QR_IMAGE_LOG_LIMIT) {
+      qrImageCount += 1
+      const contentLength = readContentLength(details)
+      log.info('LoginNetDiag', tag + 'qr response #' + qrImageCount +
+        ' after ' + (Date.now() - attachedAt) + 'ms' +
+        ' status=' + status +
+        (contentLength === null ? '' : ' contentLength=' + contentLength))
+    }
+
     if (typeof status !== 'number' || status < 400) return
     var msg = tag + 'HTTP ' + status + ' ' + String(details.url).slice(0, 120)
     if (isQrConnectUrl(details.url)) {
