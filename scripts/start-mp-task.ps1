@@ -56,13 +56,22 @@ New-Item -ItemType Directory -Force -Path $worktreeRoot | Out-Null
 
 if ($NoDeps) { $env:GWM_SKIP_DEPS = '1' }
 $env:MP_WORKTREES = $worktreeRoot
+# git 在**成功**时也会往 stderr 写进度（实测 `Preparing worktree (new branch 'x')`、fetch 的
+# `From https://...`）。Windows PowerShell 5.1 下「$ErrorActionPreference = Stop」配「2>&1 捕获
+# native 命令的 stderr」会把这行良性输出变成终止性 NativeCommandError，脚本在下一行之前就中止 ——
+# 后果是 worktree 其实已经建成、脚本却以 rc=1 退出，并跳过 .git 校验、结果报告与开 shell
+# （曾两次被误判成「静默失败」和「只有 fetch 失败才 rc=1」）。成败一律以 $LASTEXITCODE
+# 与 worktree 存在性为准，所以捕获期间必须临时放宽 EAP，结束后原样恢复。
+$captureErrorActionPreference = $ErrorActionPreference
 try {
     # 2026-09-15：Join-Path 产生反斜杠路径，Git Bash 的 dirname/cd 会因转义失败 →
     # 统一改为正斜杠传入（Git Bash 对 D:/... 形式可正常解析）。
     $initScript = (Join-Path $repo 'scripts/session-init.sh') -replace '\\', '/'
+    $ErrorActionPreference = 'Continue'
     $output = & $bash $initScript $TaskName 2>&1
     $exitCode = $LASTEXITCODE
 } finally {
+    $ErrorActionPreference = $captureErrorActionPreference
     Remove-Item Env:GWM_SKIP_DEPS -ErrorAction SilentlyContinue
     Remove-Item Env:MP_WORKTREES -ErrorAction SilentlyContinue
 }

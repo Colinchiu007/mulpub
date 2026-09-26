@@ -1,3 +1,42 @@
+# [未发布] fix(scripts): start-mp-task 在「已成功建成 worktree」时也返回 rc=1 —— EAP=Stop 把 git 的良性 stderr 变成终止错误（缺陷 J，2026-09-27，fix-start-mp-task-stderr）
+
+### 现象与本会话付出的代价
+隔离入口 `scripts/start-mp-task.ps1` 在**完全成功**地建好 worktree 之后仍以 rc=1 退出，并跳过 `.git` 存在性校验、结果报告与开 shell。本会话先后给出过两次**都错**的归因：
+1. 「脚本静默失败：exit 0 却没建 worktree」—— 实际是 `cmd | tail` 吃掉了真退出码；
+2. 「只有 fetch 失败才会 rc=1，脚本本身有两道硬校验所以没问题」—— 实际成功路径照样 rc=1。
+两次都是**从单次观测外推、没有做机制级最小复现**。真正的机制是第三次才拿到的。
+
+### 根因（一行可复现）
+`start-mp-task.ps1:19` 设 `$ErrorActionPreference = 'Stop'`，`:63` 写作 `$output = & $bash $initScript $TaskName 2>&1`。
+Windows PowerShell 5.1 下「EAP=Stop + 用 `2>&1` 捕获 native 命令的 stderr」会把**任意一行** stderr 变成终止性错误。最小复现（不建任何 worktree）：
+
+```powershell
+$ErrorActionPreference='Stop'; $o = & cmd /c 'echo x 1>&2' 2>&1   # → 实测抛 RemoteException
+```
+
+而 git 在**成功**时也要往 stderr 写进度。实测原文（本机跑修复前的脚本，同一命令行）：
+
+```
+bash.exe : Preparing worktree (new branch 'fix-start-mp-task-stderr')
+位于 …\start-mp-task.ps1:63 字符: 15
+    + FullyQualifiedErrorId : NativeCommandError
+```
+⇒ 脚本恰好在捕获行中止，`git worktree list` 里 worktree 明明已存在（`9a2e35fe [fix-start-mp-task-stderr]`），退出码却是 1。
+
+### 变更
+- `start-mp-task.ps1`：把捕获包进「保存 → 临时 `Continue` → `finally` 原样恢复」的 EAP 作用域，判成败一律用 `$LASTEXITCODE` 与 worktree 存在性（本来就是这两道校验，只是此前根本执行不到）。
+- **新增结构锁 `scripts/start-mp-task.test.js`（4 条，接进 `quality-gate.yml` Gate 2b）**：① 顶部仍是 `Stop`（前提）；② **每一处** `2>&1` 捕获都必须处在「已放宽」的 EAP 作用域内；③ 放宽必须在同一 `try` 的 `finally` 里恢复（不允许整段脚本降级成 Continue）；④ 放宽之前不得出现任何捕获点。注释行里的 `2>&1` 一律排除（写锁的人自己踩了一次：说明文字命中正则，锁自我报警）。
+- **真机行为验证（修复前后同一命令对照，零残留）**：修复前 → 在 `:63` 抛 `NativeCommandError`（worktree 已建成）；修复后 → 子进程 stderr 被完整采集并打印，脚本走到自己的判定分支，输出 `session-init.sh 失败，退出码 128`（本次是 `worktree add` 撞已存在分支的真实失败）。同一条命令行，从「在捕获处炸掉」变成「按设计报告子进程结论」。
+
+### 反证（把锁改成 no-op 必须变红）
+去掉捕获期放宽 → 2 条红；放宽但忘记恢复 → 1 条红；整段降级成 Continue（不保存/恢复）→ 1 条红；还原后 0 红且源文件字节级一致。
+
+### 未做的验证（如实登记）
+- CI 侧只跑结构锁；「真机行为验证」是本机 PowerShell 5.1 手工证据，GitHub runner 的 PowerShell 版本/配置差异未覆盖（结构锁不依赖版本，故不敏感）。
+- QM-1 打包：只改 `scripts/` 与 CI 配置，未触发前提，未执行。
+- QM-6 CCG 双模型外部评审：未执行（纯工具脚本 + 测试），按缺口登记。
+- 同族风险未一并处理：`start-mp-task.ps1` 里另有若干 `& powershell -File …` / `& git …` 调用**没有** `2>&1`，因此不落入本锁的判据（stderr 直写宿主不会产生 ErrorRecord）——这是「不捕获就不受害」的巧合而非设计；若将来有人给这些调用加 `2>&1`，结构锁会立刻拦下。
+
 # [未发布] fix(desktop): 登录承载节流按「是否可能被绘制」分两档 + CDP 只数字节观测 + 登录页噪音 cancel 实验开关（2026-09-27，login-qr-throttle-and-netobs）
 
 ### 变更
