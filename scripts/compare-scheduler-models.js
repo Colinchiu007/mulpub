@@ -17,6 +17,26 @@ const { spawnSync } = require('child_process')
 const path = require('path')
 const { runSelfCheck } = require('../apps/desktop/electron/services/rate-limit-self-check')
 
+/**
+ * total_duration_ms 的容差口径。
+ *
+ * 六组用例的期望耗时跨度约 14 倍（~1.5s → 21s），只用一个绝对容差在量级上不等价：
+ * 对 21s 的 quota-5h-real，1500ms 仅 7.1%，CI 满载下挂钟抖动 1653ms 即误判失败；
+ * 对 1.5s 的用例，同样 1500ms 却是 100%，形同不设防。
+ * 故取 max(绝对下限, 比例 × 期望耗时)：短用例由下限保护（不放宽），
+ * 长用例获得与自身量级成比例的余量（真回归仍要超出该比例才被抓）。
+ *
+ * 必须传「模拟器预测值」而非「真实测量值」：用实测值做分母会让一次变慢
+ * 自己撑大自己的容差，回归将永远抓不住。
+ */
+const PARITY_TOLERANCE_FLOOR_MS = 1500
+const PARITY_TOLERANCE_RATIO = 0.1
+
+function durationTolerance (expectedMs) {
+  const base = Number.isFinite(expectedMs) && expectedMs > 0 ? expectedMs : 0
+  return Math.max(PARITY_TOLERANCE_FLOOR_MS, base * PARITY_TOLERANCE_RATIO)
+}
+
 const CASES = [
   { name: 'rpm120-concurrency2', params: { rpm: 120, maxConcurrent: 2, requestCount: 8, requestDurationMs: 20 } },
   { name: 'rpm30-concurrency1', params: { rpm: 30, maxConcurrent: 1, requestCount: 4, requestDurationMs: 20 } },
@@ -67,22 +87,27 @@ function pythonMetrics (params) {
   return JSON.parse(lines[lines.length - 1])
 }
 
-async function runParity (toleranceMs = 1500) {
+async function runParity (toleranceMs = PARITY_TOLERANCE_FLOOR_MS) {
   const results = []
   for (const c of CASES) {
     const py = pythonMetrics(c.params)
     const real = await runSelfCheck(c.params)
+    // 下限取调用方传入值（默认 1500ms），并按期望耗时放大比例余量；
+    // 分母必须是 py.total_duration_ms（预测值），不得用 real，见 durationTolerance 注释。
+    const allowed = Math.max(toleranceMs, durationTolerance(py.total_duration_ms))
     const checks = {
       max_concurrent_observed: real.metrics.max_concurrent_observed === py.max_concurrent_observed,
       rate_limited_count: real.metrics.rate_limited_count === py.rate_limited_count,
       quota_exceeded_count: real.metrics.quota_exceeded_count === py.quota_exceeded_count,
-      total_duration_ms: Math.abs(real.metrics.total_duration_ms - py.total_duration_ms) <= toleranceMs,
+      total_duration_ms: Math.abs(real.metrics.total_duration_ms - py.total_duration_ms) <= allowed,
     }
     results.push({
       name: c.name,
       python: py,
       real: real.metrics,
       checks,
+      allowedTotalDurationMs: allowed,
+      diffTotalDurationMs: real.metrics.total_duration_ms - py.total_duration_ms,
       pass: Object.values(checks).every(Boolean),
     })
   }
@@ -132,7 +157,7 @@ async function main () {
   process.exit(ok ? 0 : 1)
 }
 
-module.exports = { runParity, CASES, runKnownDiffs, KNOWN_DIFF_CASES }
+module.exports = { runParity, CASES, runKnownDiffs, KNOWN_DIFF_CASES, durationTolerance, PARITY_TOLERANCE_FLOOR_MS, PARITY_TOLERANCE_RATIO }
 
 if (require.main === module) {
   main().catch((e) => { console.error(e); process.exit(1) })
