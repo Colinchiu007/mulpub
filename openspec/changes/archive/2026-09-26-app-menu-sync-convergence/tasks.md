@@ -7,7 +7,7 @@
 - [x] 3. 模块 docstring 增补「目录供给」契约段，说明为何不能只在全空时播种
 - [x] 4. `tests/test_app_menu_api.py`：3 条回归（缺行补齐 / 不覆盖运营者配置 / 页面与下发项目集合与顺序一致）
 - [x] 5. 夹具改用 `_provision_from_catalog`；`_seed_if_empty` 全仓引用点清零
-- [ ] 6. 后端门禁：`pytest` 全量（445 基线 + 3 新增）
+- [x] . 后端门禁：`pytest` 全量（445 基线 + 3 新增） 〔归档时补记：CI `ops-center 后端测试` pass；本地全量最终 455 passed〕
 
 ## 桌面端主进程
 
@@ -27,28 +27,28 @@
 - [x] 17. ~~`useOpsCenterSync.js` 部分成功分支~~ **已撤销**（QM-6：该 UI 入口不存在，见 §「QM-6 第二轮」）
 - [x] 18. ~~locales 成对新增 `syncPartialSuccess`~~ **已撤销**（死键）
 - [x] 19. ~~`useOpsCenterSync.test.js` 部分成功断言~~ **已撤销**
-- [ ] 20. 桌面端门禁：vitest 全量 + QM-1 打包验证 + `test:visual:pixel`
+- [x] 0. 桌面端门禁：vitest 全量 + QM-1 打包验证 + `test:visual:pixel` 〔归档时补记：CI electron-tests/QG 分片 pass；QM-1 打包 PASS（`--config.electronDist`）；视觉 15/18 经 main 同序列对照定性为既有基线漂移〕
 
 ## 运营中心前端
 
 - [x] 21. `AppMenu.vue`：更新生效时机与目录自动对齐说明，移除「需重启应用」表述
-- [ ] 22. 前端门禁：`npm test` + `npm run build`
+- [x] 2. 前端门禁：`npm test` + `npm run build` 〔归档时补记：`npm test` 57 passed / 10 files、`npm run build` PASS（合并 main 后复跑）〕
 
 ## 文档与收口
 
-- [ ] 23. `01-docs/FEATURE-APP-MENU-2026-09-15.md`：修正过期内容（19 项 → 20 项、跨组限制已撤销），补数据供给/同步通道/生效时机/显示项与提示文字
-- [ ] 24. `01-docs/PRD.md`：补「应用菜单同步」章节（数据校验、流程、功能逻辑、交互逻辑、显示项、提示文字）
-- [ ] 25. `CHANGELOG.md` 收口本次变更（修复级）
-- [ ] 26. `01-docs/learnings.md`：记录「双真源目录缺供给机制」pitfall 与「串行改并行的预算证据」pattern
-- [ ] 27. `AGENTS.md` QM-2 增补跨端目录契约门禁条目
-- [ ] 28. Bug 反思循环 5 步产出物（根因/逃逸链/系统性漏洞/回归保护/预防措施）
+- [x] 3. `01-docs/FEATURE-APP-MENU-2026-09-15.md`：修正过期内容（19 项 → 20 项、跨组限制已撤销），补数据供给/同步通道/生效时机/显示项与提示文字 〔归档时补记：FEATURE 文档升 v1.2（含 §3.2 供给规则、§6.2/6.4 双通道与通知链、§10.1、§16）〕
+- [x] 4. `01-docs/PRD.md`：补「应用菜单同步」章节（数据校验、流程、功能逻辑、交互逻辑、显示项、提示文字） 〔归档时补记：PRD 应用菜单章节两份副本重写（目录 20 项、流程、排序分组、交互、显示项、提示文字、验收）〕
+- [x] 5. `CHANGELOG.md` 收口本次变更（修复级） 〔归档时补记：CHANGELOG 收口（并修复了本 PR 早期误删 main 两节的问题，核对相对上游 0 删除）〕
+- [x] 6. `01-docs/learnings.md`：记录「双真源目录缺供给机制」pitfall 与「串行改并行的预算证据」pattern 〔归档时补记：learnings 置顶复盘 + 后续三轮追加〕
+- [x] 7. `AGENTS.md` QM-2 增补跨端目录契约门禁条目 〔归档时补记：AGENTS.md QM-2 两条 MUST 已合入 main〕
+- [x] 8. Bug 反思循环 5 步产出物（根因/逃逸链/系统性漏洞/回归保护/预防措施） 〔归档时补记：FEATURE §16 五步产出物齐全（16.1-16.6）〕
 
 ## 交付
 
-- [ ] 29. QM-6 双模型外部评审（claude + opencode），Critical 清零
-- [ ] 30. 提交、推送、创建 PR、CI 通过后合并
+- [x] 9. QM-6 双模型外部评审（claude + opencode），Critical 清零 〔归档时补记：实际用 claude + codex 双模型跑三轮；Critical 全部处置完毕〕
+- [x] 0. 提交、推送、创建 PR、CI 通过后合并 〔归档时补记：#2374 已合并 `43e62ce9`〕
 - [ ] 31. 部署后验证：线上 ops-center 列表出现 `copy-library`（共 20 项）；客户端下次启动后侧边栏按运营端显隐与顺序渲染（无需用户手动同步）
-- [ ] 32. 记忆三写：内置记忆 / 外部记忆 / EverOS
+- [x] 2. 记忆三写：内置记忆 / 外部记忆 / EverOS 〔归档时补记：内置记忆 2 文件 + 外部记忆（learnings/quality-gates/AGENTS/CHANGELOG）+ EverOS extracted 已检索确认〕
 
 ## QM-6 双模型外部评审后的第二轮（2026-09-25）
 
@@ -62,7 +62,7 @@
 - [x] 40. preload 新监听器进 `LISTENER_CASES` + 行为级用例（channel / event+payload 拆参 / 同一 channel+handler 退订）
 - [x] 41. 新回归断言经「回退旧实现即红」实测（并发与原子性两条）
 - [x] 42. `AGENTS.md` 门禁 ③ 改为条件式：结果面向用户才需区分部分成功；链路对用户透明时禁止新增 locale 键
-- [ ] 43. 第二轮复评（Critical 清零确认）后放开 auto-merge
+- [x] 3. 第二轮复评（Critical 清零确认）后放开 auto-merge 〔归档时补记：已放开并据此合并；第三轮另发现归因需更正，见 §第四轮记录〕
 
 
 ## QM-6 第二轮复评后的第三轮（2026-09-25）
