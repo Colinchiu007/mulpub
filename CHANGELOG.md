@@ -38,6 +38,37 @@ CCG 双模型外部评审本机不可用（无 `.ccg/config.toml`、`codeagent-w
 - 存量行的 `name_source` 一律归为 `auto`，历史上若有人用其它途径（非本通道）写过用户命名，仍会被过滤。实测本机 7 条不存在此情况（`account_name` 与 `name` 均为抓取值）。
 - SQLite 侧未加 `name_source` 列：依 1.2 核实，SQLite 非读源（就绪门禁只取 `_store._ready`），改名改走后其 `name` 成为无消费者的陈旧副本。若将来 SQLite 被提升为读源，必须回补该列（tasks 4.5 已登记）。
 - 不提供「恢复自动获取」的反向操作：改名即 `manual`，无 UI 出口回退，留待后续 change。
+# [未发布] fix(e2e): 应用就绪判据收紧到「路由内容出口」，根治导航后第一条断言随机误红（2026-09-26，e2e-route-mount-race）
+
+### 现象与根因
+- `QG Browser E2E`（`route-functional-suite`）在 CI 上随机失败，形态特征极稳定：**同一条用例里「页面标题渲染」红、紧随其后的卡片/列表断言绿**，且落点路由不固定（本轮 dashboard、下一轮 create）。30 次 main run 中 2 次需要重跑（约 6.7%），而 GitHub 只展示**最新一次 attempt** 的结论，聚合看板读起来是 100% 绿——抖动被完全掩盖。
+- 第一性引入点：`apps/desktop/tests/e2e/helpers/functional-runner.js` 的 `waitForAppReady()` 用 `(app.textContent || '').trim().length > 0` 作为第三个就绪条件，判据挂在 `#app` 上。`#app` **常驻侧边栏**（主页 / 发布 / 账号 / …），导航前后一直有文字 ⇒ 该条件**恒为真**，等于完全没有等待懒加载路由 chunk 挂载（Vite 按需编译，首次进入某路由才编译其 chunk）。
+- 后果：导航后的第一条断言 `route-functional-suite.js:833` 的「页面标题渲染」只剩 `CONDITION_TIMEOUT = 5000ms` 去独自吸收 chunk 编译时间；CI 满载时编译超过 5s ⇒ 误红。而它烧掉的这 5s 恰好让紧随的 `exercise()`（834 行）赶上加载完成 ⇒ 「标题红、卡片绿」。**这不是偶发，是判据失效 + 预算被第一条断言独吞**的确定性结构，随机性只来自机器负载。
+- 排除的假说：`isLoginTab`（`App.vue:122`，由 `tabStore.activeTab` 推导）在浏览器 E2E 上下文恒为 false，因此 `router-view v-if="!isLoginTab"` 分支不可能合法地渲染出空出口——空出口就是「还没挂载」，不是「正常空态」。
+
+### 变更
+- **`functional-runner.js`**：就绪判据拆成 `strictReady()`——在原有 `hash` 一致 + `#app[data-v-app]` 两条之上，要求 `[data-testid="mp-workspace"], [data-testid="fullscreen-view"]`（`App.vue` 的两个路由内容出口）`textContent` 非空。两个出口都纳入，避免登录标签页那套 `fullscreen-view` 布局被判永不就绪。
+- **回退不新增硬失败**：严格判据**仅在 Playwright 超时**（`isPlaywrightTimeout()` 匹配 `Timeout Nms exceeded` / `waiting for function` / `TimeoutError`）时，退回旧的宽松判据再给 `ROUTE_OUTLET_FALLBACK_TIMEOUT = 3000ms` 预算。判据收紧不该把原本的间歇误红变成确定性红；非超时错误一律原样抛出，不被兜底吞掉。
+
+### 逃逸链为什么全绿
+- **单元层**：`functional-runner.test.js` 原有 5 条用例全部只覆盖 `goto()` 的瞬时导航故障恢复合同，把 `waitForAppReady` 整体 mock 掉 ⇒ 就绪判据本身**零断言**。
+- **集成层**：`waitForAppReady` 是测试基建而非被测代码，业务侧测试不会调用它。
+- **E2E 层**：它自己就是 E2E 的守门人，无法守自己——判据恒真是「断言写了但等于没写」，只有把它的返回值暴露成可断言的谓词才测得到。
+- **审查层**：`(app.textContent).trim().length > 0` 看起来是一条合理的「有内容」检查，review 时不会怀疑常驻侧边栏会让它免疫。
+
+### 测试
+- `apps/desktop/tests/e2e/helpers/functional-runner.test.js` 新增 `FunctionalRunner 应用就绪判据合同` 7 条用例。技术上用**捕获谓词 + 假 DOM**：mock `page.waitForFunction` 把回调函数抠出来，用最小 DOM stub 直接调用并断言布尔返回值——不需要真实浏览器，也不需要起 Vite，因此这条回归能进 CI 的快速单元阶段。
+- 覆盖：侧边栏有文字但出口为空（**必须未就绪**，本 Bug 的可执行证据）/ 出口有文字（就绪）/ 只认 `mp-workspace` 不够，`fullscreen-view` 同样算 / 两个出口都不存在（未就绪，不把挂载失败当成功）/ hash 不匹配（一律未就绪，防残留内容假就绪）/ 严格判据超时→回退恰好触发一次 / 非超时错误→原样抛出不重试。
+- **反证**：先写测试后改实现，旧实现下 9 条中 2 条 RED，其中 `AssertionError: 空出口必须未就绪` 即恒真判据的直接证据。
+- 规模：`node --test functional-runner.test.js` **11 passed / 0 fail**；`route-functional-suite.test.js` 1/1；`eslint --quiet` rc=0。
+- **CI 接线已存在**，无需新增：`quality-gate.yml:668` 已执行 `node apps/desktop/tests/e2e/helpers/functional-runner.test.js`。
+
+### 影响与残余限制
+- 只改测试基建，零生产行为变更、零 UI/文案变化（locales 未触碰）。
+- 本次只治「判据恒真」这一颗雷。E2E 抖动是否归零需以**合入后连续若干 main run 的 `QG Browser E2E` 首次 attempt** 为准；判定红名单时必须读每个 run 的全部 attempt，不能只看聚合结论（已记入 `01-docs/learnings.md`）。
+
+---
+
 # [未发布] test(visual): accounts-list 基线改由 CI 产物重捕，消除 3.66% 环境噪声（2026-09-26，fix-visual-baseline-accounts-list）
 
 ### 变更
