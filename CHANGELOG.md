@@ -1,3 +1,28 @@
+# [未发布] fix(desktop): 登录视图节流探针改读 d.ts 已核实字段——原 getVisibilityState 在宿主上不存在，日志恒 unknown（2026-09-26，auth-login-visibility-fix）
+
+### 变更
+- **`electron/services/auth-view-manager.js`**：`_visibilityOf()`（读 `view.webContents.getVisibilityState()`）替换为 `_throttleProbeOf()`，改读两个 **经 `node_modules/electron/electron.d.ts` 逐个核实**的宿主字段：`view.getVisible()`（属 `class View`，`WebContentsView extends View` 继承而来；d.ts 明示它是"是否应绘制"，**不等于屏幕可见**）与 `view.webContents.getBackgroundThrottling()`（属 `class WebContents`）。日志由 `visibility=unknown` 变为 `drawn=<bool> bgThrottle=<bool>`。
+- **`electron/services/login-network-diagnostics.js`**：出码计时行在 `responseHeaders` 取不到 `content-length` 时显式记 `contentLength=redacted`。真机已证实跨域 iframe 的响应头被 Chromium 屏蔽，此前静默省略字段会让读日志的人以为"这行本来就没有该列"，从而漏判 `200 + 空体` 这个服务端静默拒绝特征。
+- **`test-setup.js`**：`WebContentsView` 夹具删除手搓的 `getVisibilityState`，换成 `getVisible()`（View 上）+ `getBackgroundThrottling()`（webContents 上）。原夹具**凭空补了宿主没有的方法**，正是让这条死探针测不出来的直接原因。
+
+### 影响
+- 插桩本身的计时结论不受影响（首屏 656ms / 二维码字节 1072ms 已由真机日志取到），受影响的是**后台节流这一维至今没有有效观测**——`visibility=unknown` 意味着上一版对"节流嫌疑"既没证实也没证伪。本修复补上该探针后才具备判定能力。
+- 行为零变更、零新增用户可见文案（locales 未触碰）。
+
+### 测试
+- `auth-view-manager.test.js` 新增 describe「宿主 API 归属契约锁」3 例：① 解析已安装的 `electron.d.ts`，断言 `class WebContents` 段内确有 `getBackgroundThrottling(): boolean;`、`class View` 段内确有 `getVisible(): boolean;`、且 `WebContentsView extends View`（缺 electron 时 skip）；② 断言源码不再出现 `getVisibilityState|VisibilityState`；③ **通配锁**——把源码里所有 `.webContents.X(` 调用名收集起来，逐个要求出现在 `class WebContents` 声明集内，未声明即红。
+- 夹具的 `setVisible` 改为真正翻转 `getVisible()` 返回值（原为常量 true，"出码窗口落在未绘制时段"这条判据永远测不到）。
+- **反证已实测**（防空转锁）：把 `getBackgroundThrottling()` 改名成宿主不存在的 `getBogusVisibilityFlag()`，契约锁立刻 **2 failed**；还原后 33 passed。
+- 定向 73 passed；全量 `apps/desktop` vitest **1 failed / 11592 passed / 3 skipped**（655 文件，1008s），唯一失败为本机既有环境红 `feedback.test.js:32` 的 `EPERM: operation not permitted, symlink`（HEAD 版本同一 `symlinkSync` 夹具，本 PR 未触及该文件与 logger）。
+- QM-1 离线打包 `REAL_EXIT=0`，并对 asar 产物做 `node --check` 与签名取证：`getBackgroundThrottling` 2 处、`view.getVisible()` 1 处、`drawn=`/`bgThrottle=` 各 2 处、`contentLength=redacted` 2 处、**`getVisibilityState` 残留 0 处**。
+
+### 文档
+- `AGENTS.md` QM-2「登录承载路径的观测与节流口径单一来源」补第③条：节流/可见性探针只准读 d.ts 已核实字段，并点名 `getVisibilityState` 在 Electron 43 的 d.ts 中出现 **0 次**；同时登记契约锁的变异反证结论。
+- `01-docs/learnings.md` 记录本案：与 #2398 的 `app.userAgent` 同族，且**mock 补字段会让死 API 在单测里看起来完全正常**。
+
+
+---
+
 # [未发布] feat(desktop): 公众号登录视图挂会话级诊断 + 出码计时，「二维码刷很久」从日志黑洞变为可归因（2026-09-25，auth-qr-instrument）
 
 ### 变更

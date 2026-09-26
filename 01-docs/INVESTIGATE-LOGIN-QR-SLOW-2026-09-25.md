@@ -129,3 +129,34 @@ grep -E "LoginNetDiag|login page finished|login view setVisible" \
   用户感知也可能是「很久才出来」——属另一条独立成因，本次未插桩。
 - `qrcode-login.js`（对话框「扫码」模式）未改动：本次入口不涉及，避免扩大爆炸半径。
   该路径另有 `did-finish-load` 后才开始检测 + 2s 轮询无首扫的结构性延迟。
+
+---
+
+## 10. 真机首次取证结果（2026-09-26，插桩上线后）
+
+插桩随 `#2394`（squash `48ffcafc`）进 main 后，`mp-app-live` 实例（11:52 启动）产出第一条真实数据：
+
+| 时间 (UTC) | 事件 |
+|---|---|
+| 03:53:52.620 | `auth:open-login enter platform=wechat_mp` |
+| 03:53:52.634 | `LoginNetDiag ... proxy for open.weixin.qq.com → PROXY 127.0.0.1:7897` |
+| 03:53:53.280 | `AuthView login page finished after 656ms` |
+| 03:53:53.694 | `LoginNetDiag ... qr response #1 after 1072ms status=200` |
+
+**结论一：本次不慢。** 首屏 656ms、二维码字节 1072ms 到达 → §4 的两个 app 侧嫌疑（冷分区、后台节流）在该次复现中都不成立；按 §5.4 判定表属于「首屏与出码都快」一档。
+
+**结论二：修正 §3 的代理表述。** 应用内 auth 分区解析出的代理是 `PROXY 127.0.0.1:7897`，即 **Clash Verge 确实在路径上**；此前"CN 出口 IP 与直连相同"证明的是它对 CN 域名**直通**，不等于"不在路径上"。定性不变（未增加可测延迟），措辞以本节为准。
+
+**结论三：「刷了很久」的观感来源另有其项。** 该次登录窗口内每约 5 秒重复一轮失败请求，全部是微信登录页**自身探测本机微信 PC 客户端**：
+
+```
+https://localhost.weixin.qq.com:13013|13014|13015|14013|14014|14015/api/check-login
+https://support.weixin.qq.com/cgi-bin/mmsupportmesh
+https://mp.weixin.qq.com/mp/fereport?action=csp_report
+```
+
+6 个端口逐个试、失败即重来，页面在此期间持续转圈。属微信页自身行为，应用侧无法改变，也不应为此改代码。
+
+**结论四：本次修复的由来。** 同一行里的 `visibility=unknown` 暴露出 §4.2 的探针读的是宿主上不存在的 `getVisibilityState()`（Electron 43 d.ts 中出现 0 次），故节流维度**当时无法判定**；已由 `auth-login-visibility-fix` 改为 `drawn=` / `bgThrottle=` 并补三条宿主 API 归属契约锁（详见 CHANGELOG 同节与 learnings `dead-probe-green-mock-blindness`）。§4.2 在拿到新数据前保持未决。
+
+**读日志的正确姿势（补 §5.4）**：判定"慢不慢"只看 `login page finished after Nms` 与 `qr response #1 after Mms` 两个数；`localhost.weixin.qq.com` 的批量失败是微信自身探测，不要当成本应用的故障。日志落在 `D:\tmp\Multi-Publish-debug-profile\logs\app-YYYY-MM-DD.log`（调试 profile），而 `%LOCALAPPDATA%\Temp\multi-publish-logs\` 那份是**单测**写的，二者不要混。

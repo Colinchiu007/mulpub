@@ -133,27 +133,32 @@ class AuthViewManager {
   }
 
   /**
+   * 读两个宿主真字段用于归因：视图是否被绘制（View.getVisible）、后台节流是否开启
+   * （WebContents.getBackgroundThrottling）。
+   * d.ts 明示 getVisible 是"应否绘制"，不等于屏幕可见（仍可能被遮挡或移出视野），
+   * 二者与节流开关共同决定二维码 iframe 的定时器/重绘是否被 Chromium 推迟。
    * @param {import('electron').WebContentsView | null} view
    * @returns {string}
    */
-  _visibilityOf(view) {
+  _throttleProbeOf(view) {
     try {
-      return String(view.webContents.getVisibilityState())
+      return 'drawn=' + view.getVisible() +
+        ' bgThrottle=' + view.webContents.getBackgroundThrottling()
     } catch (_e) {
       // 视图可能已销毁；此值仅用于日志定位，不参与登录判定
-      return 'unknown'
+      return 'drawn=unknown bgThrottle=unknown'
     }
   }
 
   /**
-   * 出码窗口若整体落在 hidden 时段，Chromium 的后台节流会推迟二维码 iframe 的定时器与重绘
+   * 出码窗口若整体落在未绘制时段，Chromium 的后台节流会推迟二维码 iframe 的定时器与重绘
    *（本视图未设 backgroundThrottling:false，而账号标签路径 tab-lifecycle.js 显式关了它）。
    * 因此必须留下切换时刻，否则「刷很久」无法与节流对上。
    */
   _logVisibilityChange(shown) {
     log.info('AuthView', 'login view setVisible=' + shown +
       ' platform=' + this.currentPlatform +
-      ' visibility=' + this._visibilityOf(this.currentView))
+      ' ' + this._throttleProbeOf(this.currentView))
   }
 
   /**
@@ -335,7 +340,7 @@ class AuthViewManager {
         // 首屏耗时 + 当时的页面可见性：与 LoginNetDiag 的 qr response 计时对照，
         // 就能分清「首屏本身就慢」与「首屏快但出码迟到」两类完全不同的根因
         log.info('AuthView', 'login page finished after ' + (Date.now() - loadStartedAt) +
-          'ms platform=' + platform + ' visibility=' + this._visibilityOf(view))
+          'ms platform=' + platform + ' ' + this._throttleProbeOf(view))
         if (attempt && attempt.initialRedirectPhase) attempt.initialRedirectPhase = false
       })
 

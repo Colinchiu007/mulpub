@@ -293,7 +293,7 @@ describe('AuthViewManager 凭证边界', () => {
         executeJavaScript: vi.fn().mockResolvedValue({}),
         close: vi.fn(),
         isDestroyed: vi.fn(() => false),
-        getVisibilityState: vi.fn(() => 'visible'),
+        getBackgroundThrottling: vi.fn(() => true),
         on: vi.fn((event, callback) => { handlers[event] = callback }),
         debugger: { attach: vi.fn(), detach: vi.fn(), sendCommand: vi.fn().mockResolvedValue({}), on: vi.fn() },
       },
@@ -570,16 +570,20 @@ describe('AuthViewManager 登录视图可观测性（回归：persist:auth-* 分
       resolveProxy: vi.fn().mockResolvedValue('DIRECT'),
     }
     __electronMock.session.fromPartition = vi.fn(function () { return diagSession })
+    // drawn 跟随 setVisible 变化：真实 Electron 上 getVisible() 反映的正是 setVisible 的结果，
+    // 若夹具写成常量，"出码窗口落在未绘制时段"这条判据就永远测不到。
+    let drawn = true
     const view = {
       setBounds: vi.fn(),
-      setVisible: vi.fn(),
+      setVisible: vi.fn(function (v) { drawn = v }),
+      getVisible: vi.fn(function () { return drawn }),
       webContents: {
         session: diagSession,
         loadURL: vi.fn().mockResolvedValue(undefined),
         executeJavaScript: vi.fn().mockResolvedValue({}),
         close: vi.fn(),
         isDestroyed: vi.fn(() => false),
-        getVisibilityState: vi.fn(() => 'visible'),
+        getBackgroundThrottling: vi.fn(() => true),
         on: vi.fn(function (evt, cb) { handlers[evt] = cb; return this }),
         once: vi.fn(function () { return this }),
         debugger: { attach: vi.fn(), detach: vi.fn(), sendCommand: vi.fn().mockResolvedValue({}), on: vi.fn() },
@@ -616,7 +620,7 @@ describe('AuthViewManager 登录视图可观测性（回归：persist:auth-* 分
     await pending
   })
 
-  it('did-finish-load 记录相对 loadURL 的耗时与页面可见性（首屏迟到归因入口）', async () => {
+  it('did-finish-load 记录相对 loadURL 的耗时与绘制/节流状态（首屏迟到归因入口）', async () => {
     const { handlers } = wireView()
     const log = spyLogInfo()
     const { manager, pending } = openLogin()
@@ -624,29 +628,81 @@ describe('AuthViewManager 登录视图可观测性（回归：persist:auth-* 分
     handlers['did-finish-load']()
 
     expect(log).toHaveBeenCalledWith('AuthView', expect.stringMatching(
-      /^login page finished after \d+ms platform=wechat_mp visibility=visible$/))
+      /^login page finished after \d+ms platform=wechat_mp drawn=true bgThrottle=true$/))
 
     manager.close()
     await pending
   })
 
-  it('hide()/show() 记录可见性切换，用于判断出码窗口是否落在被节流时段', async () => {
+  it('hide()/show() 记录绘制与节流状态，用于判断出码窗口是否落在被节流时段', async () => {
     const { view } = wireView()
     const log = spyLogInfo()
     const { manager, pending } = openLogin()
 
-    view.webContents.getVisibilityState = vi.fn(() => 'hidden')
     manager.hide()
     expect(log).toHaveBeenCalledWith('AuthView',
-      'login view setVisible=false platform=wechat_mp visibility=hidden')
+      'login view setVisible=false platform=wechat_mp drawn=false bgThrottle=true')
 
-    view.webContents.getVisibilityState = vi.fn(() => 'visible')
+    view.webContents.getBackgroundThrottling = vi.fn(() => false)
     manager.show()
     expect(log).toHaveBeenCalledWith('AuthView',
-      'login view setVisible=true platform=wechat_mp visibility=visible')
+      'login view setVisible=true platform=wechat_mp drawn=true bgThrottle=false')
 
     manager.close()
     await pending
+  })
+
+  // 上一版这里读 view.webContents.getVisibilityState()，而 Electron 43.1.1 的 d.ts 里
+  // 压根没有 VisibilityState 这个类型（真机日志恒为 visibility=unknown），
+  // 单测却因手搓夹具把这个字段补上了而全绿 —— 与 #2398 的 app.userAgent 同源。
+  // 这三条锁把「探针读的必须是宿主真有的字段」变成机器可判定的事。
+  describe('AuthViewManager 宿主 API 归属契约锁（防再犯死 API 探针）', () => {
+    const fs = require('fs')
+    const path = require('path')
+
+    function readSource () {
+      return fs.readFileSync(path.join(__dirname, 'auth-view-manager.js'), 'utf8')
+    }
+
+    function readClassBlock (name) {
+      const dts = path.join(__dirname, '..', '..', 'node_modules', 'electron', 'electron.d.ts')
+      if (!fs.existsSync(dts)) return null
+      const body = fs.readFileSync(dts, 'utf8')
+      const start = body.indexOf('class ' + name + ' extends')
+      if (start < 0) return null
+      const end = body.indexOf('\n  }', start)
+      return body.slice(start, end < 0 ? body.length : end)
+    }
+
+    it('真实 electron.d.ts 上我们用到的字段确实存在（缺 electron 时 skip）', () => {
+      const wc = readClassBlock('WebContents')
+      const view = readClassBlock('View')
+      if (wc === null || view === null) {
+        console.warn('electron.d.ts 不可用，跳过宿主 API 前提锁')
+        return
+      }
+      expect(wc).toMatch(/^\s{4}getBackgroundThrottling\(\): boolean;$/m)
+      expect(view).toMatch(/^\s{4}getVisible\(\): boolean;$/m)
+      expect(readClassBlock('WebContentsView')).toMatch(/class WebContentsView extends View/)
+      // 反面：读过的死字段必须确认宿主真没有，否则这条锁形同虚设
+      expect(wc).not.toMatch(/getVisibilityState/)
+    })
+
+    it('源码不再出现 getVisibilityState 这类宿主不存在的可见性字段', () => {
+      expect(readSource()).not.toMatch(/getVisibilityState|VisibilityState/)
+    })
+
+    it('源码里对 webContents 的方法调用必须都在 electron.d.ts 的 WebContents 上声明', () => {
+      const members = readClassBlock('WebContents')
+      if (members === null) return
+      const declared = new Set(
+        [...members.matchAll(/^\s{4}([a-zA-Z][A-Za-z0-9_]*)\(/gm)].map(m => m[1])
+      )
+      const used = [...readSource().matchAll(/\.webContents\.([a-zA-Z][A-Za-z0-9_]*)\(/g)].map(m => m[1])
+      expect(used.length).toBeGreaterThan(0)
+      const undeclared = [...new Set(used)].filter(name => !declared.has(name))
+      expect(undeclared).toEqual([])
+    })
   })
 
   it('诊断挂接失败不阻断登录流程（可观测性是旁路，不能变成新的故障点）', async () => {

@@ -132,7 +132,9 @@ function attachLoginNetworkDiagnostics (ses, ctx) {
       log.info('LoginNetDiag', tag + 'qr response #' + qrImageCount +
         ' after ' + (Date.now() - attachedAt) + 'ms' +
         ' status=' + status +
-        (contentLength === null ? '' : ' contentLength=' + contentLength))
+        // 跨域 iframe 的 responseHeaders 会被 Chromium 屏蔽，取不到时显式标 redacted，
+        // 否则读日志的人会以为"这行本来没这个字段"，而漏掉 200 空体这一关键特征
+        ' contentLength=' + (contentLength === null ? 'redacted' : contentLength))
     }
 
     if (typeof status !== 'number' || status < 400) return
