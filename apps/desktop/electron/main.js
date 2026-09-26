@@ -19,6 +19,8 @@ try {
   const uaConfig = configureUserAgentFallback({ app })
   if (uaConfig.configured) {
     console.log('[startup] 已净化 User-Agent（移除 Electron 标记，规避平台登录风控）')
+  } else {
+    console.warn('[startup] User-Agent 未净化（UA 不含 Electron 标记或取不到 userAgentFallback）；知乎等平台登录风控可能拒绝下发验证码')
   }
   if (storageConfig.fallback) {
     console.warn(`[startup] 默认 userData 不可写，已切换到 ${storageConfig.path}`)

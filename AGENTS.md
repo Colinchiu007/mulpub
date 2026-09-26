@@ -462,6 +462,12 @@ Code review 时除逻辑正确性外，必须逐项检查：
 
 - **预设/种子类语义合同（R85）**：`getAvailablePresets`、`getAvailableTemplates`、`getAvailableProfiles` 等“可配置目录”类 API 必须返回该类别全部内置预设，**不得用“是否已入库”判断能否添加**。种子初始化（`_seedPresets` / `INSERT OR IGNORE`）只表示“目录存在”，不表示“用户已完成配置”；“是否已配置”必须用 `api_key_enc IS NOT NULL AND enabled = 1` 等业务字段判定。修改此类 API 时必须运行 [`model-provider-preset-integration.test.js`](apps/desktop/electron/services/model-provider-preset-integration.test.js) 并覆盖：(1) 空 userData 初始化后预设列表非空；(2) 种子已入库但预设列表仍返回全部项；(3) 用户选预设后保存路径走“ID 冲突 → 降级更新”而非创建重复行。详见 [01-docs/learnings.md 模型预设列表为空 Bug 复盘](01-docs/learnings.md)。
 
+- **宿主 API 字段归属必须先核实（Electron/浏览器 API 不得凭字段名写）**：读 `app.*` / `webContents.*` / 任何宿主对象属性前，必须在**已安装**的类型声明里确认该属性挂在哪个接口上（Electron 为 `node_modules/electron/electron.d.ts`），或运行时打印一次。反例：`configureUserAgentFallback` 读 `app.userAgent`（真实 Electron 上不存在，UA 只在 `app.userAgentFallback`），导致知乎登录风控规避逻辑长期静默 no-op，而单测因手搓 `{app:{userAgent}}` 假形状全绿。配套要求：① mock 的字段集来自 d.ts 或运行时 dump，并保留一条「真实形状」用例（只带宿主真有的字段）；② 关键取源用计数字段 getter 断言「未读错误字段」；③ 前提本身做真实依赖锁（对 `electron.d.ts` 结构断言，缺 electron 时 skip）。
+
+- **静默配置失败必须留日志**：任何以 `{configured: boolean}` / 布尔返回值表达「已生效 / 已跳过」的启动期配置函数，调用点的未生效分支一律 `console.warn` 或 `log.warn`；只在成功分支打印等于吞掉失败，回归在运行日志里零痕迹。
+
+- **出站行为以线级取证为准**：断言「请求头 / UA / 证书 / 编码已设置」时，最终证据必须来自真实链路抓到的出站数据（本机回显 HTTP 服务 + 生产同款 session/webPreferences 做开关 A/B），单测绿不代表线上头部变了。注意 `Sec-CH-UA` 系列客户端提示只在 HTTPS 请求发送，本机 http 回显看不到，不得据此判「不存在」。
+
 - **跨端目录常量 ↔ 存量数据必须前向兼容（MUST）**：凡「代码内目录常量 + 数据库表」双真源结构（如 `app_menu_service.CATALOG` ↔ `app_menu_items`），目录新增条目时**禁止**只用「表为空才播种」的供给逻辑——存量部署永不获得新行，管理页会看不到该项、无法配置，而按目录遍历下发的客户端照常显示，两侧项目与顺序同时漂移。供给必须是**增量补齐且只补不改已有行**（覆盖已有行会抹掉运营者配置，比缺行更糟），并在读取/写入/重置/下发**全部**入口调用。缺行兜底值必须取**目录序号**而非 `0`（0 在排序语义里是第一名）。回归锁必须有一条从**非空旧状态**出发（先建全量再删一项）的用例——「每例 `drop_all/create_all` 重建空表」的夹具对这类缺陷完全免疫。同族先例见 R85。CI 的结构校验（清单 ↔ 清单自洽）**不能**作为通过证据：漂移发生在运行库里，CI 看不到。
 
 - **多通道同步编排不得失败互锁（MUST）**：一个 handler/服务内先后拉取多条独立通道（如模型目录 catalog 与运行时策略 runtime/bootstrap）时，任何一条的失败或提前 `return` **不得**阻止另一条执行——「best-effort 分支」若写在主通道 `await` 之后，就等同于反向门控（主通道失败 ⇒ 该分支永远不执行）。必须用 `Promise.allSettled` 并行解耦，并遵守：① 并行不得叠加超时预算（整体仍是单请求超时，不得退化为串行求和）；② 结果对象必须逐通道如实上报（如 `code/message` 属目录，`runtimeApplied/runtimeSyncedAt` 属运行时），不得因一条成功而掩盖另一条失败；③ 若该通道结果**面向用户展示**，文案必须区分「部分成功」与「完全失败」，否则用户会用反复重启应用来排障；若产品决定该链路**对用户透明**（界面无任何入口，如桌面端运营中心同步卡片已隐藏），则**不得为不存在的反馈路径新增 locale 键**（AGENTS.md 禁止死键），区分度改由主进程日志承担。写 UI 反馈前先确认调用方是否可达。回归锁：为「A 失败时 B 仍须执行」单独写一条注入用例；并行预算用假时钟**单次**推进 + 断言**每个端点各被请求一次**（实现退化为串行时该用例会挂死，挂死本身即结构断言）。

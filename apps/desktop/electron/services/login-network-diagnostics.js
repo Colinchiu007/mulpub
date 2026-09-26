@@ -106,4 +106,133 @@ function attachLoginNetworkDiagnostics (ses, ctx) {
   }
 }
 
-module.exports = { attachLoginNetworkDiagnostics, classifyNetError }
+/**
+ * 登录关键端点的「响应体」诊断——复用 auth-view-cdp 已 attach 的 debugger，
+ * 只 enable Network 并被动查询响应，不拦截、不改写、不新增第二个 attach。
+ *
+ * 为什么不用 session.webRequest：知乎等平台的风控拒绝常以 HTTP 200 +
+ * `{"error":{"code","message"}}` 返回，状态码口径看不到拒绝原因；
+ * 而 Fetch.requestPaused 拦截会改变登录热路径时序（#2353、头条标签卡死同类风险）。
+ *
+ * 日志只允许落「端点 + 状态码 + error.code + error.message」四类字段：
+ * 整体转储响应体会把手机号 / token / 昵称写进可被用户上传的反馈日志里。
+ *
+ * @param {{ on: Function, sendCommand: Function } | null | undefined} debuggerObj
+ * @param {{ platform?: string, accountId?: string }} [ctx]
+ * @returns {boolean} 是否已挂接（未登记的平台返回 false，零新增监听面）
+ */
+function attachAuthResponseDiagnostics (debuggerObj, ctx) {
+  if (!debuggerObj || typeof debuggerObj.on !== 'function' || typeof debuggerObj.sendCommand !== 'function') return false
+  var platform = (ctx && ctx.platform) || 'unknown'
+  if (!AUTH_ENDPOINT_MATCHERS[platform]) return false
+  if (debuggerObj.__loginRespDiagAttached) return true
+  debuggerObj.__loginRespDiagAttached = true
+
+  var tag = '[' + platform + '/' + ((ctx && ctx.accountId) || 'unknown') + '] '
+  var urlByRequestId = new Map()
+
+  // Network.enable 失败（域不可用 / debugger 实际未 attach）只降级为「收不到事件」，
+  // 绝不让观测代码影响登录本身。
+  try {
+    Promise.resolve(debuggerObj.sendCommand('Network.enable')).catch(function () { /* fail-open */ })
+  } catch (_e) { /* fail-open */ }
+
+  // Network.loadingFailed 事件本身不带 url，必须在发请求时按 requestId 登记
+  var remember = function (requestId, safeUrl) {
+    if (urlByRequestId.size >= MAX_TRACKED_REQUESTS) urlByRequestId.delete(urlByRequestId.keys().next().value)
+    urlByRequestId.set(requestId, safeUrl)
+  }
+
+  debuggerObj.on('message', async function (_event, method, params) {
+    try {
+      var requestId = params && params.requestId
+
+      if (method === 'Network.requestWillBeSent') {
+        var sentUrl = params && params.request && params.request.url
+        if (requestId && matchesAuthEndpoint(platform, sentUrl)) remember(requestId, diagnosticUrl(sentUrl))
+        return
+      }
+
+      if (method === 'Network.loadingFailed') {
+        if (!requestId || !urlByRequestId.has(requestId)) return
+        var failedUrl = urlByRequestId.get(requestId)
+        urlByRequestId.delete(requestId)
+        var errorText = (params && params.errorText) || '<unknown>'
+        if (errorText === 'ERR_ABORTED') return
+        log.warn('LoginRespDiag', tag + '关键端点请求失败 url=' + failedUrl +
+          ' netError=' + errorText + ' → ' + classifyNetError(errorText))
+        return
+      }
+
+      if (method !== 'Network.responseReceived') return
+      var response = params && params.response
+      var url = response && response.url
+      if (!matchesAuthEndpoint(platform, url)) return
+
+      var status = typeof response.status === 'number' ? response.status : 0
+      var bodyText = ''
+      try {
+        var result = await debuggerObj.sendCommand('Network.getResponseBody', { requestId: requestId })
+        // base64（图片等）一律不解析，避免把二进制片段写进日志
+        if (result && !result.base64Encoded) bodyText = String(result.body || '')
+      } catch (_e) { bodyText = '' }
+
+      var authError = extractAuthError(bodyText)
+      if (!authError && status < 400) { urlByRequestId.delete(requestId); return }
+      log.warn('LoginRespDiag', tag + '关键端点被拒 url=' + diagnosticUrl(url) +
+        ' http=' + status +
+        ' code=' + (authError ? authError.code : '<none>') +
+        ' message=' + (authError ? authError.message : '<none>'))
+      urlByRequestId.delete(requestId)
+    } catch (e) {
+      log.info('LoginRespDiag', tag + '诊断自身异常: ' + ((e && e.message) || 'unknown'))
+    }
+  })
+
+  return true
+}
+
+// 需要观察登录拒绝原因的平台；未登记平台不挂接，避免无谓的 CDP 事件量
+const AUTH_ENDPOINT_MATCHERS = {
+  zhihu: {
+    hosts: ['www.zhihu.com', 'zhihu.com'],
+    path: /\/api\/v4\/(signin|signup|sms|captcha|verify|check_exists)/,
+  },
+}
+
+const MAX_TRACKED_REQUESTS = 64
+const MAX_MESSAGE_CHARS = 80
+
+// 只保留 scheme+host+path：知乎短信请求的 query 会带手机号
+function diagnosticUrl (url) {
+  if (typeof url !== 'string' || !url) return '<unknown>'
+  return url.split('?')[0].split('#')[0]
+}
+
+function matchesAuthEndpoint (platform, url) {
+  var rule = AUTH_ENDPOINT_MATCHERS[platform]
+  if (!rule || typeof url !== 'string' || !url) return false
+  var host = ''
+  try { host = new URL(url).hostname } catch (_e) { return false }
+  var onPlatformHost = rule.hosts.some(function (h) { return host === h || host.endsWith('.' + h) })
+  return onPlatformHost && rule.path.test(url)
+}
+
+// 返回 null 表示「没有业务错误」；返回对象表示确实拿到了拒绝原因
+function extractAuthError (bodyText) {
+  if (typeof bodyText !== 'string' || !bodyText) return { code: '<none>', message: '<unparsable>' }
+  var parsed
+  try { parsed = JSON.parse(bodyText) } catch (_e) { return { code: '<none>', message: '<unparsable>' } }
+  if (!parsed || typeof parsed !== 'object') return null
+  var err = parsed.error
+  if (!err || typeof err !== 'object') return null
+  var code = (typeof err.code === 'string' || typeof err.code === 'number') ? String(err.code) : '<invalid>'
+  var rawMessage = typeof err.message === 'string' ? err.message
+    : (err.message === undefined ? '<none>' : '<non-string>')
+  var message = rawMessage.length > MAX_MESSAGE_CHARS
+    ? rawMessage.slice(0, MAX_MESSAGE_CHARS) + '...'
+    : rawMessage
+  return { code: code, message: message }
+}
+
+module.exports = { attachLoginNetworkDiagnostics, attachAuthResponseDiagnostics, classifyNetError }
