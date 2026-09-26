@@ -253,9 +253,15 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
       ? Promise.resolve(cloudRegistration).then(registerCentralHandlers)
       : registerCentralHandlers()
     if (isThenable(result)) {
-      return Promise.resolve(result).then(() => registerUsageHandlers(controlledIpcMain, usageTracker))
+      return Promise.resolve(result).then(() => {
+        registerUsageHandlers(controlledIpcMain, usageTracker)
+        require('../signer/provider').setupSignerAssembly({ ipcMain: controlledIpcMain, BrowserWindow })
+      })
     }
     registerUsageHandlers(controlledIpcMain, usageTracker)
+    // W3 task 2.4：签名页基建装配（manager↔assembly↔provider↔IPC，
+    // controlledIpcMain 已过 isTrustedSender 咽喉点，signer:* 属 via=injected）
+    require('../signer/provider').setupSignerAssembly({ ipcMain: controlledIpcMain, BrowserWindow })
     return undefined
   }))
 }

@@ -1,4 +1,9 @@
 export default {
+  signer: {
+    pageNotReady: '签名服务未就绪，请稍后重试或重新登录对应账号',
+    loginExpired: '该账号登录已失效，请重新登录后再试',
+    degraded: '签名服务暂时降级，部分发布可能失败，请稍候自动恢复或重试',
+  },
   tabs: {
     newTabTitle: '新标签页',
     newTabAria: '新建标签页',

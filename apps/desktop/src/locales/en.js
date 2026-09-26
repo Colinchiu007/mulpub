@@ -1,4 +1,9 @@
 export default {
+  signer: {
+    pageNotReady: 'Signer service not ready. Please retry later or sign in to the account again.',
+    loginExpired: 'This account session has expired. Please sign in again and retry.',
+    degraded: 'Signer service is temporarily degraded; some publishes may fail. Please wait for self-healing or retry.',
+  },
   tabs: {
     newTabTitle: 'New Tab',
     newTabAria: 'Open a new tab',
