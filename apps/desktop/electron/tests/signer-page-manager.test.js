@@ -34,6 +34,20 @@ describe('signer-page-manager: 抽取器脚本不回传函数体', () => {
   it('不含 JSON.stringify(fn) 形式的整体序列化', () => {
     expect(EXTRACTOR_SCRIPT).not.toMatch(/JSON\s*\.\s*stringify\s*\(\s*fn\b/)
   })
+  it('S2b 异步契约：async IIFE + await 调用签名器', () => {
+    expect(EXTRACTOR_SCRIPT).toMatch(/async function/)
+    expect(EXTRACTOR_SCRIPT).toMatch(/await /)
+  })
+  it('S2b require 捕获用 webpack5 三元 push（runtime 槽，非二元）', () => {
+    expect(EXTRACTOR_SCRIPT).toMatch(/push\(\[[^\]]*\],\s*\{\},\s*function/)
+  })
+  it('S2b 全局名经占位符注入（不硬编码旧 webpackChunk）', () => {
+    expect(EXTRACTOR_SCRIPT).toMatch(/window\[__MP_SIGN_CHUNK_GLOBAL__\]/)
+    expect(EXTRACTOR_SCRIPT).not.toMatch(/webpackChunk_kuaishou_pc/)
+  })
+  it('S2b 剥离 __NS_sig3= 前缀返回裸签名值', () => {
+    expect(EXTRACTOR_SCRIPT).toMatch(/__NS_sig3=/)
+  })
 })
 
 function makeManager () {

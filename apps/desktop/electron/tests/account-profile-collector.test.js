@@ -37,25 +37,36 @@ describe('accountInfoCollector — 昵称多层回退（T1）', () => {
     expect(collect('<span class="user-nickname">通用昵称</span>').nickName).toBe('通用昵称')
   })
 
-  it('无 DOM 命中时回落 og:title，超 50 字不采纳', () => {
-    const dom = new JSDOM('<!doctype html><html><head><meta property="og:title" content="公众号甲"></head><body></body></html>')
-    const factory = new Function('document', 'return (' + ap.accountInfoCollector.toString() + ')')
-    expect(factory(dom.window.document)({}).nickName).toBe('公众号甲')
-    const long = 'x'.repeat(60)
-    const dom2 = new JSDOM('<!doctype html><html><head><meta property="og:title" content="' + long + '"></head><body></body></html>')
-    expect(factory(dom2.window.document)({}).nickName).toBeUndefined()
+  // 历史断言（「无 DOM 命中时回落 og/twitter/document.title」）把网页标题当成了昵称来源，
+  // 属于「测试反向固化错误行为」：2026-09-26 生产库 6 条脏 account_name 里有 4 条
+  // （小红书创作服务平台 / 快手创作者服务平台 / 抖音创作者中心 / 哔哩哔哩 (゜）正是这条兜底产出的。
+  // 网页标题永远不是账号昵称，故此处改为断言「标题一律不采纳」。
+  it('标题类来源一律不作为昵称（og:title / twitter:title / document.title）', () => {
+    const cases = [
+      '<meta property="og:title" content="公众号甲">',
+      '<meta name="twitter:title" content="推特标题名">',
+      '<title>我的主页 - 哔哩哔哩</title>',
+      '<title>哔哩哔哩 (゜-゜)つロ 干杯~-bilibili</title>',
+      '<title>小红书创作服务平台</title>',
+    ]
+    for (const head of cases) {
+      const dom = new JSDOM('<!doctype html><html><head>' + head + '</head><body></body></html>')
+      const factory = new Function('document', 'return (' + ap.accountInfoCollector.toString() + ')')
+      expect([head, factory(dom.window.document)({}).nickName]).toEqual([head, undefined])
+    }
   })
 
-  it('og:title 缺失时回落 twitter:title', () => {
-    const dom = new JSDOM('<!doctype html><html><head><meta name="twitter:title" content="推特标题名"></head><body></body></html>')
-    const factory = new Function('document', 'return (' + ap.accountInfoCollector.toString() + ')')
-    expect(factory(dom.window.document)({}).nickName).toBe('推特标题名')
+  it('昵称选择器不得命中统计块/占位文案等装饰容器', () => {
+    // 生产脏数据的另外两条来源：宽匹配选择器吃到了页面统计块与输入框占位文案。
+    expect(collect('<div class="creator-data"><span>485.9万人看过</span></div>').nickName).toBeUndefined()
+    expect(collect('<div class="user-info">分享此刻的想法...同步到圈子发想法</div>').nickName).toBeUndefined()
+    expect(collect('<div class="profile-card"><strong>0粉丝0关注0获赞</strong></div>').nickName).toBeUndefined()
   })
 
-  it('全部缺失时回落 document.title 并剥掉平台后缀', () => {
-    const dom = new JSDOM('<!doctype html><html><head><title>我的主页 - 哔哩哔哩</title></head><body></body></html>')
-    const factory = new Function('document', 'return (' + ap.accountInfoCollector.toString() + ')')
-    expect(factory(dom.window.document)({}).nickName).toBe('我的主页')
+  it('昵称候选超长（容器整块文本）不采纳，短昵称正常采纳', () => {
+    const long = '甲'.repeat(31)
+    expect(collect('<span class="user-nickname">' + long + '</span>').nickName).toBeUndefined()
+    expect(collect('<span class="user-nickname">甲乙丙</span>').nickName).toBe('甲乙丙')
   })
 })
 

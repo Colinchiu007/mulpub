@@ -26,21 +26,24 @@ function isAllowedNavigation (url, platform) {
   }
 }
 
-const EXTRACTOR_SCRIPT = `(function () {
-  var chunk = window.webpackChunk || window.webpackChunk_kuaishou_pc || null;
-  if (!chunk || !Array.isArray(chunk.push)) return { ok: false, reason: 'no-webpack-chunk' };
-  var grab = function (moduleId) {
-    var captured = null;
-    try {
-      chunk.push([['__mp_sig_probe__'], function (req) { captured = req(moduleId); }]);
-    } catch (e) { return { ok: false, reason: 'grab-threw' }; }
-    return captured;
-  };
-  var mod = grab(__MP_SIGN_MODULE_ID__);
-  if (!mod || typeof mod[__MP_SIGN_EXPORT__] !== 'function') return { ok: false, reason: 'sign-fn-missing' };
-  var fn = mod[__MP_SIGN_EXPORT__];
-  var out = fn(__MP_SIGN_PAYLOAD__);
-  return { ok: true, signature: (typeof out === 'string') ? out : String(out == null ? '' : out) };
+// S2b 实证形态：webpack5 三元 push（require 捕获在 runtime 槽）；导出签名为 async，入 {url,type,params}，
+// 产出 `__NS_sig3=<值>` 串 → 剥前缀得裸签名值。禁止回传函数体源码（无 toString/JSON.stringify(fn)）。
+const EXTRACTOR_SCRIPT = `(async function () {
+  var chunk = window[__MP_SIGN_CHUNK_GLOBAL__];
+  if (!chunk || !Array.isArray(chunk) || typeof chunk.push !== 'function') return { ok: false, reason: 'no-webpack-chunk' };
+  var captured = null, grabErr = null;
+  try {
+    chunk.push([['__mp_sig_probe__'], {}, function (req) { try { captured = req(__MP_SIGN_MODULE_ID__); } catch (e) { grabErr = String((e && e.message) || e); } }]);
+  } catch (e) { return { ok: false, reason: 'push-threw' }; }
+  if (!captured) return { ok: false, reason: grabErr ? 'require-threw' : 'require-miss' };
+  if (typeof captured[__MP_SIGN_EXPORT__] !== 'function') return { ok: false, reason: 'sign-fn-missing' };
+  var out;
+  try { out = await captured[__MP_SIGN_EXPORT__](__MP_SIGN_PAYLOAD__); } catch (e) { return { ok: false, reason: 'sign-threw' }; }
+  if (typeof out !== 'string' || !out) return { ok: false, reason: 'sign-not-string' };
+  var m = /__NS_sig3=([^&]+)/.exec(out);
+  var sig = m ? m[1] : out;
+  if (!sig) return { ok: false, reason: 'sig-empty' };
+  return { ok: true, signature: sig };
 })()`
 
 function createSignerPageManager (deps) {

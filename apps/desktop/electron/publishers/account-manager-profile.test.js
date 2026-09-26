@@ -80,6 +80,15 @@ describe('updateCapturedAccount — PATCH 只下发命中字段（T8）', () => 
     const { patchBody } = await runUpdate({})
     expect(patchBody).not.toHaveProperty('account_name')
   })
+
+  // auth-view-manager 的 source.name 取的就是 document.title，它既直接 PATCH 回真源的
+  // name 字段，又是创建路径 profileForCreate 的昵称兜底 —— 兜底不过守卫等于给网页标题
+  // 留一条绕过口（2026-09-26 生产库的「小红书创作服务平台」等即此路径产物）。
+  it('更新路径：PATCH 的 name 不得是命中噪声的网页标题，回落平台名', async () => {
+    const { patchBody } = await runUpdate({})
+    // captured.name = '头条号 - 个人中心'（A - B 是页面标题指纹）
+    expect(patchBody.name).toBe('今日头条')
+  })
 })
 
 describe('saveCapturedAccount — 创建路径（POST）', () => {
@@ -90,22 +99,30 @@ describe('saveCapturedAccount — 创建路径（POST）', () => {
   })
   afterEach(() => { vi.restoreAllMocks() })
 
-  async function runCreate (accountInfo) {
+  async function runCreate (accountInfo, sourceName = '头条号') {
     const accountManager = loadAccountManager()
     const requestBackend = vi.spyOn(require('../services/python-bridge'), 'requestBackend')
       .mockResolvedValueOnce({ code: 0, data: { accountId: 'acc-new' } })
     vi.spyOn(accountManager.credentialStore, 'saveCredential').mockReturnValue(true)
     vi.spyOn(accountManager.accountStateRestorer, 'saveAccountRecord').mockReturnValue(true)
     await accountManager.saveCapturedAccount('toutiao', {
-      cookies: TOUTIAO_COOKIE, name: '头条号', accountInfo,
+      cookies: TOUTIAO_COOKIE, name: sourceName, accountInfo,
     })
     const posts = requestBackend.mock.calls.filter(call => call[0] === 'POST')
     return posts.length ? posts[posts.length - 1][2] : undefined
   }
 
-  it('昵称命中写昵称，未命中回落显示名（新行无旧值可保护）', async () => {
+  // 旧断言 `runCreate({}).account_name === '头条号'` 把网页标题写进 account_name 钉成了契约
+  // （'头条号' 本身就是 KNOWN_PAGE_TITLES 成员）。昵称未命中时兜底必须过同一份噪声守卫。
+  it('昵称命中写昵称；未命中时显示名兜底过守卫，命中噪声回落平台名', async () => {
     expect((await runCreate({ nickName: '真名', avatar: 'https://x/a.png' })).account_name).toBe('真名')
-    expect((await runCreate({})).account_name).toBe('头条号')
+    const polluted = await runCreate({})
+    expect(polluted.account_name).toBe('今日头条')
+    expect(polluted.name).toBe('今日头条')
+    // 干净的真实昵称形态仍作为显示名保留，不得一律降级成平台名
+    const clean = await runCreate({}, '数字生命丘丘')
+    expect(clean.account_name).toBe('数字生命丘丘')
+    expect(clean.name).toBe('数字生命丘丘')
   })
 })
 
