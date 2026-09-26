@@ -41,3 +41,64 @@ def _inject_runtime_signing_key():
     except ImportError:  # conftest 在无 config 的场景（如仅运行非 API 测试）安全降级
         pass
     yield
+
+
+_RESET_MODULES: set = set()
+
+
+def _reset_shared_database() -> None:
+    """把当前库补回完整 schema 并清空所有行，使 rowid 从 1 重新计。
+
+    用**同步**引擎做：不碰 async engine 的连接池，因此不受「事件循环已切换」限制。
+    删除顺序取 `sorted_tables` 逆序，天然满足外键依赖，故无需（也不应依赖）
+    `PRAGMA foreign_keys` —— 该 pragma 在事务内是 no-op。
+    """
+    from sqlalchemy import create_engine, text
+
+    import models  # noqa: F401  触发全部表的元数据注册
+    from config import settings
+    from database import Base
+
+    engine = create_engine(f"sqlite:///{settings.db_path}")
+    try:
+        Base.metadata.create_all(engine)  # 幂等：补回被上一模块 drop_all 拆掉的表
+        with engine.begin() as conn:
+            for table in reversed(Base.metadata.sorted_tables):
+                conn.execute(text(f"DELETE FROM {table.name}"))
+            has_seq = conn.execute(
+                text("SELECT 1 FROM sqlite_master WHERE name = 'sqlite_sequence'")
+            ).fetchone()
+            if has_seq:
+                conn.execute(text("DELETE FROM sqlite_sequence"))
+    finally:
+        engine.dispose()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_database_per_test_module(request):
+    """每个测试模块的第一个用例开始前，把共享库恢复到确定的空表状态。
+
+    根因：各 API 测试模块都在**模块级**先设 `os.environ["OPS_DB_PATH"] = <自己的临时库>`，
+    再 `from config import settings`；而 `settings` 是导入期实例化的单例（见本文件开头注释），
+    pytest 按字母序收集模块，**第一个** import config 的模块就永久绑定了 db_path，后面所有模块
+    自设的临时库全部失效 → 整个 session 共用一个 SQLite 文件。再叠加各模块 teardown 里的
+    `Base.metadata.drop_all`（拆的是共用的全部表）与用例普遍隐含的「我建的第一条记录 id 就是 1」
+    假设，跨模块累计的行号会让后续模块报 `FOREIGN KEY constraint failed`。
+
+    2026-09-25 在**未改动的 main** 上全量跑即可复现（`tests/test_prompt_eval_engine_dual.py::
+    test_dual_summary_zero_denominator_null` 失败，单独跑该文件或该用例均通过），与本仓库
+    业务代码无关；此前该组合长期未被执行，因为 `ops-center CI` 只在 PR 改动 ops-center 路径时触发，
+    main 自身不跑全量后端套件。
+
+    这里集中兜住，不要求 30 来个测试文件各自改写。
+    """
+    module = getattr(request.node, "module", None)
+    if module is not None:
+        key = module.__name__
+        if key not in _RESET_MODULES:
+            _RESET_MODULES.add(key)
+            try:
+                _reset_shared_database()
+            except ImportError:  # 纯单测模块无 config/database，跳过
+                pass
+    yield

@@ -77,6 +77,11 @@ run_case "运行时代码 + 01-docs 文档同步 → 通过" 0 apps/desktop/src/
 run_case ".github/ 既有豁免不回归" 0 .github/workflows/quality-gate.yml
 run_case "openspec/ 流程工件豁免不回归" 0 openspec/changes/demo/tasks.md
 run_case "package-lock.json 既有豁免不回归" 0 package-lock.json
+# 历史：2026-09-25 PR #2384 只改仓库根 .quality-gates.md（质量节拍的门禁执行日志），
+#      却因该文件既不在 PRD_PATTERN、也不在任何豁免里而撞红，
+#      被判成「改了代码却没同步文档」。正向锁它属流程层，负向锁它不得越权当作文档证据。
+run_case "纯 .quality-gates.md（门禁执行日志）属流程层，无需同步文档" 0 .quality-gates.md
+run_case "负向：.quality-gates.md 不得充当「文档已同步」的证据" 1 apps/desktop/src/views/Case.vue .quality-gates.md
 
 echo ""
 if [ "$FAILED" -eq 0 ]; then

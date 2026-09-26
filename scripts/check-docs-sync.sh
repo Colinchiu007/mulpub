@@ -110,6 +110,13 @@ while IFS= read -r file; do
   if [[ "$file" =~ ^CHANGELOG\.md$ ]]; then
     continue
   fi
+  # 跳过质量节拍门禁执行日志（仓库根 .quality-gates.md）。
+  # 只作「非代码」豁免，刻意不进 PRD_PATTERN：它是流程留痕，不是产品/架构文档，
+  # 若让它充当「文档已同步」的证据，代码 + 只补一行门禁日志的 PR 就能绕过本门禁
+  # （回归锁见 scripts/check-docs-sync.test.sh 的负向用例）。
+  if [[ "$file" =~ ^\.quality-gates\.md$ ]]; then
+    continue
+  fi
   # 忽略 node_modules 和构建产物
   if [[ "$file" =~ node_modules|dist/ ]]; then
     continue

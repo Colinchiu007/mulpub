@@ -34,6 +34,9 @@ const PUBLIC_METHODS = [
   'syncAll', 'syncPlatform', 'syncCached',
   'modelProviderList', 'modelProviderGet',
   'opsCenterSyncGet', 'opsCenterSyncSave', 'opsCenterSyncNow', 'opsCenterSyncRuntime',
+  // 订阅本身只收到一个时间戳、不返回任何运营数据，故 public；
+  // 事件到达后的重拉（opsCenterSyncAppMenu）仍受 authenticated 门控。
+  'onOpsCenterRuntimeUpdated',
   // 模型服务商：读方法未登录可用（离线查看/测试已配置模型）；
   // 写方法（Create/Update/Delete/SetDefault/CleanLogs）为 authenticated，未登录调用被拒。
   'modelProviderGetDefault',
