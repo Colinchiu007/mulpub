@@ -16,6 +16,7 @@ function registerHandlers(ipcMain, deps) {
   const { withSenderCheck } = require('./helpers')
   const { toPublicProxyConfig } = require('../services/proxy-config')
   const { PLATFORM_LOGIN_URLS } = require('@multi-publish/shared-utils/src/platform-definitions')
+  const { loginStatusTransition } = require('@multi-publish/shared-utils/src/login-state')
   const { authViewManager, pythonBridge, AccountManager, log, BrowserWindow, store, identityService } = deps
 
   function getOwnerSubject () {
@@ -56,24 +57,47 @@ function registerHandlers(ipcMain, deps) {
 
   const LOGIN_STATUSES = ['active', 'expired', 'unverified']
 
-  /**
-   * 把 checkLoginStatus 的三态结果收敛为可持久化的登录态字符串。
-   * 优先复用 AccountManager.loginStatusFromCheckResult（跨层单一口径）；
-   * 主进程未装配该方法时按相同规则兜底，避免 IPC 层与 Manager 层语义漂移。
-   * @param {any} status
-   * @param {string} checkError 检测自身抛出的异常信息（非「登录已失效」证据）
-   */
-  function loginStatusFromCheck (status, checkError) {
-    if (checkError) return 'unverified'
-    if (typeof AccountManager.loginStatusFromCheckResult === 'function') {
-      try {
-        const mapped = AccountManager.loginStatusFromCheckResult(status)
-        if (LOGIN_STATUSES.indexOf(mapped) >= 0) return mapped
-      } catch (_) { /* 口径函数异常 → 走兜底映射 */ }
+  /** 检测结论 → 应写入真源的登录态；null = 本轮无新证据不改写。判定唯一来源见 shared-utils/login-state。 */
+  function loginStatusFromCheck (status, checkError, account, nowMs) {
+    const next = loginStatusTransition({
+      result: status,
+      checkError,
+      currentStatus: account && account.status,
+      lastValidated: account && account.last_validated,
+      nowMs,
+    })
+    // 规则函数只允许返回三态或 null；出现意外值时按「无结论」处理，绝不臆断为已登录
+    return next === null || LOGIN_STATUSES.indexOf(next) >= 0 ? next : 'unverified'
+  }
+
+  /** 读真源现状，只为「无定论要不要保持」服务；读不到返回 null = 本轮不改写。 */
+  async function readAccountSnapshot (accountId) {
+    try {
+      const res = await pythonBridge.requestBackend('GET', '/api/accounts/' + accountId)
+      if (res && res.code === 0 && res.data && typeof res.data === 'object') return res.data
+    } catch (e) {
+      ipcLog('warn', 'account:persist-outcome', 'snapshot-failed', `accountId=${accountId} message=${e instanceof Error ? e.message : String(e)}`)
     }
-    if (status && status.valid === true) return 'active'
-    if (status && status.valid === false) return 'expired'
-    return 'unverified'
+    return null
+  }
+
+  /** 把一次检测结论落进真源，并如实回报本轮到底改没改。 */
+  async function persistCheckOutcome (platform, accountId, status, checkError, account, checkedAt) {
+    let snapshot = account
+    const definitive = !checkError && status && (status.valid === true || status.valid === false)
+    if (!definitive && !snapshot) snapshot = await readAccountSnapshot(accountId)
+    const next = loginStatusFromCheck(status, checkError, snapshot, Date.parse(checkedAt))
+    const current = snapshot && snapshot.status
+    // 无定论（含检测异常/硬超时/现状读不到）= 没有新证据，一律不改写：规则给出 null 时已明示，
+    // 值已等于现状时多一次 PATCH 只会把 last_validated 伪造成一次没结论的检测，现状未知时
+    // 猜 active 或抹成 unverified 都会再造振荡。正/负证据则必须回写以刷新宽限锚点。
+    if (!definitive && (next === null || !snapshot || next === current)) {
+      const keptStatus = current || null
+      ipcLog('info', 'account:persist-outcome', 'kept', `platform=${platform} accountId=${accountId} reason=${checkError ? 'check-error' : (status && status.code) || (snapshot ? 'inconclusive' : 'snapshot-unavailable')} keptStatus=${keptStatus}`)
+      return { ok: true, status: null, changed: false, keptStatus }
+    }
+    const persisted = await persistLoginStatus(platform, accountId, next, checkedAt)
+    return { ...persisted, changed: true, status: next, keptStatus: next }
   }
 
   /**
@@ -529,10 +553,10 @@ function registerHandlers(ipcMain, deps) {
       }
       const status = await AccountManager.checkLoginStatus(platform, accountId)
       const checkedAt = new Date().toISOString()
-      const loginStatus = loginStatusFromCheck(status, '')
-      const persisted = await persistLoginStatus(platform, accountId, loginStatus, checkedAt)
-      ipcLog('info', 'account:check-login', 'ok', `platform=${platform} accountId=${accountId} valid=${status?.valid} loginStatus=${loginStatus} persisted=${persisted.ok} 耗时=${Date.now() - startedAt}ms`)
-      return { code: 0, data: status }
+      const outcome = await persistCheckOutcome(platform, accountId, status, '', null, checkedAt)
+      ipcLog('info', 'account:check-login', 'ok', `platform=${platform} accountId=${accountId} valid=${status?.valid} loginStatus=${outcome.status || outcome.keptStatus} changed=${outcome.changed} persisted=${outcome.ok} 耗时=${Date.now() - startedAt}ms`)
+      // data 仍是检测三态原样返回（向后兼容）；是否改写了真源由 statusChanged 表达
+      return { code: 0, data: { ...status, loginStatus: outcome.status || outcome.keptStatus, statusChanged: outcome.changed } }
     } catch (e) { ipcLog('error', 'account:check-login', 'error', `platform=${arg?.platform} accountId=${arg?.accountId} message=${e instanceof Error ? e.message : String(e)}`); return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e), data: { valid: false } } }
   }))
 
@@ -606,16 +630,24 @@ function registerHandlers(ipcMain, deps) {
           valid = undefined
           code = (status && status.code) || 'CHECK_LOGIN_INCONCLUSIVE'
         }
-        const loginStatus = loginStatusFromCheck(status, checkError)
-        const persisted = await persistLoginStatus(platform, accountId, loginStatus, checkedAt)
-        if (persisted.ok) persistedCount++
+        // 单向证据规则：无定论时保持真源原状，不抹掉既有正/负结论
+        const outcome = await persistCheckOutcome(platform, accountId, status, checkError, account, checkedAt)
+        const loginStatus = outcome.status || outcome.keptStatus
+        if (outcome.ok && outcome.changed) persistedCount++
+        const persisted = {
+          ok: outcome.ok,
+          ...(outcome.status ? { status: outcome.status } : {}),
+          ...(outcome.changed ? {} : { kept: true }),
+          ...(outcome.reason ? { reason: outcome.reason } : {}),
+        }
         const item = {
           platform,
           accountId,
           valid,
           code,
           loginStatus,
-          last_validated: checkedAt,
+          statusChanged: outcome.changed,
+          last_validated: outcome.changed ? checkedAt : (account && account.last_validated),
           persisted,
         }
         if (checkError) item.error = checkError

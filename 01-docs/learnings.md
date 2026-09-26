@@ -15895,6 +15895,25 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 
 ## CI 单测失败先做「改动范围归因 + 同内容多 run」双判再动手——scheduler-parity 时序 flake（api-publish-w3 PR #2413，2026-09-26）
 
+
+## 「没拿到新证据」被当成反证 + 同一映射抄三份，让状态每 30 分钟自我否定（evidence-direction-asymmetry，2026-09-26）
+
+- **症状与根因**：已登录账号在一键检测后跳成「未确认」，30 分钟后监控又把它改回。 `login-status-monitor.js:75` 早已写明「expired 属粘滞态，自动循环不擅自翻案，避免与手动一键检测结论互相拉扯」，但 `active` 没有任何对等保护：检测的 7 个无定论出口 + IPC 的 `checkError` 分支统统映射成 `unverified`，而回写判据是 `next !== current`。一句话：**把「证据缺席」当成了「反证成立」**。
+- **为什么能长期存活（比根因更值得记）**：同一个「三态 → status」映射被抄了三份（`account-manager` / `ipc-handlers/account.js` / `login-status-monitor`）。三份都把无定论算成 `unverified`，于是"修一处不传导到另两处"，任何单点修复都会被另外两条路径重新制造出来。收口动作：唯一实现下沉 `packages/shared-utils/src/login-state.js`，三个调用点直接 import，并让「历史脏值」这类假现状也如实落 unverified。
+- **修对称缺陷必须同时看两侧风险**：#2233 当年是为了治「已失效却显示已登录」的假阳性，做法是「无定论即降级」——矫枉必须带另一侧的刹车。本次反转配了两道防回归到假绿灯的闸：`valid===false` 立即 `expired`；「从未有结论 + 无定论」仍显示未确认；再加 7 天超龄兜底，避免乐观状态无限期存续。
+- **可迁移信号（判据）**：看到「状态机里某个值既是『未知』又是『降级后的结果』」时停下来 —— 这两种语义挤在一个枚举值里，一定会演化成分支。判定手法：列出该状态所有写入路径与它们的**证据方向**（正向/负向/无），只要有一条路径在「无证据」时改写状态，它就是下一个振荡源。
+- **契约反转要留路标**：改法与既有测试断言相反时（本例 `account-login-state-tristate.js` 的 D3），必须在断言旁写明「有意反转 + 理由 + 两侧如何都覆盖」，否则下一个会话会把它当被改坏的测试原样改回去。
+## QM-6 评审收口：修复振荡的分支自己又开了第二扇门（fix-login-state-oscillation，2026-09-26）
+
+- **为「读现状」新增的兜底路径，失败分支必须用同一条证据规则审一遍（pitfall，本分支最严重的自我引入缺陷）**：为了让「无定论要不要保持 active」拿到现状，我在 IPC 层新加了 `readAccountSnapshot()`，并把它的失败写成「按未定论如实落 `unverified`」。于是一次 `GET /api/accounts/{id}` 抖动，就能把一个刚被确认有效的账号抹成未确认 —— 正是本分支要消灭的东西，被本分支的新代码从另一条路径重新制造出来。**识别信号**：一个修「不对称」的 PR 里新增了读取/兜底分支，而该分支的失败动作写成了「降级到某个具体枚举值」。**口径**：任何新加的读取路径，其失败动作只能是「本轮什么都不做」，不得替规则函数决定降级值。
+
+- **外部评审建议必须构造边界反例后再采纳，"看起来更简单"不等于正确（pattern，本次唯一被驳回的建议方案）**：两个模型都指出「`next === current` 时应跳过写库」，字面执行会连带跳过「正向证据 + 现状已是 `active`」这一格 —— 而 `active` 的宽限期锚点正是 `last_validated`，不刷新就意味着一个常年检测通过的账号在 7 天后被自己的兜底降级。**最终采纳的是收窄版判据**：只在「本轮无新证据」且（现状读不到 / 规则值为 null / 规则值已等于现状）时跳过；正向证据一律回写。**教训**：评审给的是「症状 + 一个候选修法」，症状通常真，修法常是按局部视角写的；动手前先为建议写一条反例测试（本次那条「正向证据且现状已是 active → 仍须回写」就是这条反例，它在原建议下必红）。
+
+- **一条断言只否定三个错项里的一个，就仍然会把 Bug 钉成契约（pitfall，对 AGENTS.md「测试断言不得反向固化错误行为」的实证补充）**：我写的是 `expect(...).toBe('unverified')` 配注释「不臆断为已登录」—— 读起来像在守边界，实际只排除了 `active` 这一个错答，把 `unverified` 这个错答写成了期望值。**口径**：为「未知/失败」分支写断言前，先穷举行动集合（不改写 / 猜正向 / 猜负向 / 报错），逐个问「这条断言排除了其中几个」；只排除一个的断言等于替实现选边。
+
+- **「同一份规则该在哪一层被测」取决于规则的唯一实现在哪一层（pattern，测试迁移的理由）**：规则表原先测在 `account-manager` 的转发 shim 上，等于把「规则」和「某一次转发」绑在一起，还给第四份映射留了藏身之处。收口：表测在 `packages/shared-utils/src/__tests__/login-state.test.js`（真源层），`account-manager` 侧只留一条**结构锁**（`loginStatusFromCheckResult` 与 `loginStatusTransition` 均 `toBeUndefined()`），写者层的三条判据测在 IPC。转发 shim 与被替代的映射一并删除 —— 保留「向后兼容出口」就是把口径漂移留在手边。
+
+- **第二模型降级为自审时，必须显式登记「双模型」这一条不成立（pitfall，流程诚实）**：本轮 `codeagent-wrapper.exe` 缺失，第二个模型的输出实际由主代理完成，但结论有效（并抓到了第一个模型漏掉的真缺陷）。**口径**：登记 QM-6 时写清「有效发现数 N / 独立模型数 M」，不得用两次同源的自审冒充跨模型交叉审查。
 - **现象**：PR #2413（签名页基建）QG Unit Tests 的 Gate 4 失败，唯一红测是 `electron/tests/test_scheduler_parity.test.js`「concurrency-real 场景 total_duration_ms 对拍」——本 PR diff 完全没碰 scheduler/parity 任何文件。本地单跑该文件 2 测全绿（77s），据此判定为共享 runner 负载下的时序 flaky，`gh run rerun --failed` 后转绿。
 - **判定手法（pattern）**：CI 单测红的归因三步——① `git diff --stat origin/main...HEAD -- '*关键词*'` 确认失败文件是否在本 PR 改动面内；② 本地以同命令单跑该测试文件复现（绿 = 强烈 flaky 信号）；③ 查同内容/邻近内容历史 run 的 pass/fail 反复记录（沿用 learnings「E2E 抖动以同内容多 run + 失败点判断」纪律，扩大到 Gate 4）。三步都不指向本 PR 才 rerun，禁止无归因直接 rerun 掩盖真回归。
 - **注意区分**：quality-gate run 里 `QG Unit Tests`（Gate 4 全量 workspace 单测）与 `QG Desktop Shards (1/2)/(2/2)` 是**并行独立 job**——单个 job 失败不代表 desktop 面全挂，读 jobs 逐步 conclusion 定位，别按 run 级 conclusion 粗判。

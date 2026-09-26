@@ -906,8 +906,13 @@ async function checkLogin (account) {
   notifyInfo('accountsPage.verifyingLogin', { params: { platform: platformName } })
   try {
     const result = await accountActions.checkLogin(account)
-    if (result?.code === 0 && result.data?.valid) {
+    const verdict = result?.code === 0 ? result.data?.valid : undefined
+    if (verdict === true) {
       notifySuccess('accountsPage.loginValid', { message: t('accountsPage.loginValid', { platform: platformName }) })
+    } else if (verdict === undefined) {
+      // 三态契约：既非有效也非失效 = 本轮未取到定论。不得冒充「已失效」弹出去登录引导，
+      // 也不得反向清除既有的会话失效标记 —— 与批量侧同一口径，证据缺席时什么都不改。
+      notifyInfo('accountsPage.loginUnconfirmed', { params: { platform: platformName } })
     } else {
       checkedExpiredIds.value.add(id)
       // 使用错误码映射到 i18n 文案，避免后端硬编码消息直接展示
@@ -993,8 +998,9 @@ async function batchCheckAllLogins () {
     const checkedAt = result.data?.checkedAt || new Date().toISOString()
     for (const item of results) {
       if (!item?.accountId) continue
-      // 三态口径：valid === true 正常 / valid === false 失效 / valid === undefined 未确认。
-      // 「未确认」既不计入失效数量、也不加入失效集合 —— 不冒充任何一侧结论。
+      // 三态口径：valid === true 正常 / valid === false 失效 / valid === undefined 本轮未取到定论。
+      // 未取到定论既不计入失效数量、也不加入失效集合 —— 不冒充任何一侧结论；
+      // 且主进程此时不会改写真源，loginStatus 回传的是**保持后的原状态**（单向证据规则）。
       if (item.valid === true) {
         validCount++
         checkedExpiredIds.value.delete(item.accountId)
@@ -1012,8 +1018,11 @@ async function batchCheckAllLogins () {
         // 渲染层不得再自行写 status —— 历史实现写的是 Electron 本地 SQLite
         // （store:update-account），而读取端是后端 accounts.json，两边 id 都不互通，
         // 这正是「一键检测后重进账号页又显示已登录」的根因。
-        account.status = item.loginStatus || (item.valid === true ? 'active' : item.valid === false ? 'expired' : 'unverified')
-        account.last_validated = checkedAt
+        // 状态只跟随主进程真源结论：loginStatus 缺席（现状读不到）时保持原样，
+        // 渲染层不再从 valid 三元推导，否则单向证据规则在展示层又被绕开一次。
+        if (item.loginStatus) account.status = item.loginStatus
+        // 未改写真源时不得本地伪造一个新的定论时间，否则「最近检查」会指向一次没有结论的检测
+        if (item.statusChanged !== false) account.last_validated = checkedAt
       }
       if (item.persisted && item.persisted.ok === false) persistFailedIds.push(item.accountId)
     }
