@@ -76,15 +76,15 @@
 
 ## 9. 全量回归与门禁
 
-- [ ] 9.1 `packages/shared-utils`、`packages/python-backend`、`apps/desktop` 三处全量测试通过，红名单逐项对照 1.3 基线，确认无新增失败（既有 `feedback.test.js` symlink EPERM 属环境项）
-- [ ] 9.2 `pnpm exec eslint` 覆盖所有改动文件 rc=0；locale 若新增文案必须 zh/en 成对（CI Gate 7）
+- [x] 9.1 `packages/shared-utils`、`packages/python-backend`、`apps/desktop` 三处全量测试通过，红名单逐项对照 1.3 基线，确认无新增失败（既有 `feedback.test.js` symlink EPERM 属环境项）
+- [x] 9.2 `pnpm exec eslint` 覆盖所有改动文件 rc=0；locale 若新增文案必须 zh/en 成对（CI Gate 7）
 - [ ] 9.3 视觉回归 `npm run test:visual:pixel`（发布页与账号页显示值变化），基线更新需人工审核 diff 图
 - [ ] 9.4 QM-6 CCG 双模型外部评审：本机 `codeagent-wrapper` 不在 PATH 且 `.ccg/config.toml` 缺失，若仍不可用则按 `.quality-gates.md` 既有先例**如实登记未执行 + 环境证据**，并以独立上下文评审替代，不得谎称通过
-- [ ] 9.5 `openspec validate add-account-name-source --strict` 通过；`.quality-gates.md` 追加本次执行记录（含反证证据与 fresh 数字）
+- [x] 9.5 `openspec validate add-account-name-source --strict` 通过；`.quality-gates.md` 追加本次执行记录（含反证证据与 fresh 数字）
 
 ## 10. 文档与归档三同步
 
-- [ ] 10.1 `CHANGELOG.md` 收口：显式写「改名此前是空操作」「发布页账号显示值变化」两条用户可见影响
-- [ ] 10.2 `01-docs/learnings.md` 追加：装饰性链路第四次复发（写入口与读真源不是同一份）+ 「加字段必须同时改投影白名单」的识别手法；用双向校验脚本确认未吞相邻条目标题
-- [ ] 10.3 `AGENTS.md` QM-2 新增两条：① 新增持久化字段必须同时改**所有**投影白名单并配端到端穿透断言；② 任何「用户输入落盘」的写入口必须先证明它写的是读取真源（写副本不算完成）
+- [x] 10.1 `CHANGELOG.md` 收口：显式写「改名此前是空操作」「发布页账号显示值变化」两条用户可见影响
+- [x] 10.2 `01-docs/learnings.md` 追加：装饰性链路第四次复发（写入口与读真源不是同一份）+ 「加字段必须同时改投影白名单」的识别手法；用双向校验脚本确认未吞相邻条目标题
+- [x] 10.3 `AGENTS.md` QM-2 新增两条：① 新增持久化字段必须同时改**所有**投影白名单并配端到端穿透断言；② 任何「用户输入落盘」的写入口必须先证明它写的是读取真源（写副本不算完成）
 - [ ] 10.4 归档三同步：`openspec archive` + CCG task 归档 + 质量节拍复盘，跑 `scripts/openspec-sync-check.js` 确认无漂移
