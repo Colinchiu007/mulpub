@@ -1,3 +1,23 @@
+# [未发布] fix(accounts): 账号管理页工具栏逐字竖排修复——8 列 grid 换成可换行 flex（2026-09-26，fix-accounts-toolbar-overflow）
+
+### 变更
+- **`apps/desktop/src/views/Accounts.vue`**：`.account-controls` 由 8 列 `grid-template-columns`（`e3e33af0` 引入）改为 `display: flex; flex-wrap: wrap` + 显式收缩分工——按钮/图标组 `flex: 0 0 auto` 不收缩，只让两个搜索框与筛选下拉收缩（下拉配 `text-overflow: ellipsis`）；`.filter-tabs button`、`.account-count` 补 `white-space: nowrap`；同步清理已失效的 `justify-self` / `grid-template-columns` 断点声明。
+- **根因**：该 grid 各列 min-content 之和约 1600px，而真实用户视口为 1920 物理 ÷ Windows 125% 缩放 = 1536 CSS，减 200 侧边栏仅 1336px。Grid 无换行机制，只能横向溢出并把 `auto` 轨道压回 min-content；中文可在任意字符间断行，故轨道退化成「1 个汉字宽」→「全部/已登录/未登录/收藏」逐字竖排、统计文字折 3 行、底部出现横向滚动条。同行按钮组幸免，只因 `.account-command-bar .page-button` 早已有 `nowrap`——同族坑当时只修了一半。
+
+### 影响
+- 1536 视口工具栏恢复单行、零横向溢出；1440/1336/1100 视口优雅换行（2–3 行），任何宽度不再出现逐字竖排。
+- 单行代价：负责人/发布人两个下拉在窄屏以省略号收口（如「负责人…」）。产品文案「（暂无数据）」未改动，因它是空态的唯一提示。
+- **一键检测按钮文案收敛为短标签**（同文件 59 行）：原先检测中把 `batchCheckAllProgressText`（含平台名，可达「检测中 12/14：微信公众号 · 账号名」）渲染到按钮上，而命令栏 `flex: 0 0 auto` 不参与收缩，实测按钮 242→498px 会把整条工具栏从 1 行挤成 2 行、状态切换器换位——检测过程中布局跳动。详细进度本就由**同一 `v-if` 条件**的全屏遮罩（`batch-check-overlay`，45% 深色 + 2px 模糊）承载，按钮上的长文案被遮罩盖住根本不可读，属纯冗余。现改为只显示 `batchCheckAllBusy`（「检测中…」）。
+
+### 测试
+- `apps/desktop/src/views/Accounts.test.js` 新增源码契约断言：`.account-controls` 必须 `display:flex` + `flex-wrap:wrap` 且不得出现 `grid-template-columns`；`.filter-tabs button` 与 `.account-count` 必须 `white-space:nowrap`。**反证**：五条断言在 `git show HEAD:` 的修复前副本上全部 FAIL、修复后全部 PASS。
+- 真实渲染验证（真实组件 + 本地 Vite + 无头 Edge 实测轨道宽度）：修复前 1336 容器溢出 470px、按钮 35×65；修复后 1536 视口单行零溢出、按钮 44×30 / 57×30 横排。长进度压测：旧实现下命令栏随进度 242→329→498px 并触发行数 1→2、状态切换器换位；收敛为短标签后恒为 242px、恒 1 行。
+- `Accounts.test.js` 新增按钮文案回归用例（真实进度事件总线驱动，非 mock 终值）：断言检测中按钮 `toBe(batchCheckAllBusy)` 且不含 `/`，同时断言遮罩仍承载 `0/1` 详细进度（信息不丢失）。**反证**：临时回退按钮表达式后该用例失败，报 `expected '检测中 0/1：知乎' to be '检测中…'`。
+- `vitest run src/` 全量 212 文件 / 3533 passed / 2 skipped / 0 failed；`eslint --quiet` 干净。
+- **逃逸分析结论**：单元测试无布局引擎。视觉回归未拦住的原因**不是**「基线 diff 恒为 0」（我最初这样写，已被 CI 产物推翻）：`PIXEL_THRESHOLD=0.06` 是**全页**容差，而 `fullPage` 截图约 207 万像素、工具栏仅占约 4% 画面，局部条带变化天然吃不满。CI `report-*.json` 实测本 PR 的 `accounts-list` misMatch=**3.66%**（18 视图最高，第二名 2.16%），仍 < 6% 故 PASSED。更值得注意的是**未改动的 main 上该视图就已 misMatch=2.48%**——基线与 CI 渲染长期不一致，门禁本就带着约 2.5pp 无主漂移；本 PR 后余量只剩 2.34pp，下一个动账号页的人加出 >2.34% 就会红，且 diff 混杂三方无法归因。此外基线确实固化了缺陷（四个状态按钮本就是两行竖排），视口口径也仍与真实用户差一个缩放因子（1920 CSS vs 1536 CSS）。收口需三件事一起做：基线重捕 + 让基线与 CI 渲染条件一致 + 补「按缩放折算视口」用例——详见 `01-docs/learnings.md`。
+
+---
+
 # [未发布] fix(应用菜单): 跨端同步收敛——目录增量补齐 / 下发兜底序号 / 运营配置不被目录失败门控 / 启动同步后自动刷新（2026-09-25，app-menu-sync-convergence）
 
 > 生效模型（产品决策）：应用端**只在启动时同步一次**运营配置，运营端改动在客户端**下次启动**生效；那次启动同步完成后侧边栏自动刷新，用户无需任何操作。**应用端界面不出现任何运营相关入口或信息**（`ModelProviders.vue` 既有注释即「运营同步对用户透明：配置卡片已隐藏」）。
