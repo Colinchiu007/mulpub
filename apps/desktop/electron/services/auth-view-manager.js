@@ -572,6 +572,7 @@ class AuthViewManager {
       webPreferences: {
         session: session.fromPartition(`persist:silent-auth-${platform}-${Date.now()}`, { cache: true }),
         contextIsolation: true, nodeIntegration: false, sandbox: true,
+        backgroundThrottling: false, // 该窗全程 show:false，隐藏页会被降频定时器并停掉 rAF
       },
     })
 

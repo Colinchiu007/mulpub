@@ -160,6 +160,7 @@ class QrCodeLogin {
           contextIsolation: true,
           nodeIntegration: false,
           sandbox: true,
+          backgroundThrottling: true, // 与 openLogin 同档：addChildView 后立即 setVisible(true)
         }
       })
       loginSession.view = view

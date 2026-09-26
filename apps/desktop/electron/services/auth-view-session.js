@@ -192,6 +192,7 @@ function createAuthView(accountId, preloadPath, sessionInstance) {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      backgroundThrottling: true, // 可见激活标签，真机实测出码期间 drawn=true（见 INVESTIGATE §12）
     }
   })
 }

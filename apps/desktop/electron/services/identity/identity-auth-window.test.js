@@ -81,6 +81,8 @@ describe('IdentityAuthWindow', () => {
       },
     })
     expect(window.options.webPreferences).not.toHaveProperty('preload')
+    // 窗口在 ready-to-show / dom-ready / did-finish-load 之前一直是 show:false，隐藏页会被降频定时器并停掉 rAF
+    expect(window.options.webPreferences.backgroundThrottling).toBe(false)
     expect(window.shown).toBeFalsy()
     window.emit('ready-to-show')
     expect(window.shown).toBe(true)

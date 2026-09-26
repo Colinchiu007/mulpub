@@ -128,6 +128,7 @@ class IdentityAuthWindow {
         nodeIntegration: false,
         sandbox: true,
         session: authSession,
+        backgroundThrottling: false, // 展示前一直是 show:false，授权页 JS 不该被后台节流拖慢
       },
     })
     this._window = window
