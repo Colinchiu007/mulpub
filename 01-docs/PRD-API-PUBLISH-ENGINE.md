@@ -36,7 +36,7 @@
 | F3 | 百家号文章 API 发布 | 自域 token（edit 响应头 + BJH__INIT__AUTH 正则）→ uploadproxy 传图 → 文章保存/发布 | ai-writer 同题图文稿发布成功可回查 |
 | F4 | 签名注册表（进程内） | `registry.sign(signCommand, payload)`；Tier A 本地实现收编；未知 command fail-closed | 单测覆盖注册/查找/失败路径；无任何网络出口 |
 | F5 | 远程签名通道拆除 | 删 `MP_SIGNER_BASE`/`getRemoteSign` 及 `SIGNER_PORTS` | grep 门禁：`signer.js` 无 axios 签名外发；相关旧单测改写 |
-| F6 | publishMode 双轨总闸 | `config/platforms.yaml` 三态（api-then-dom/api-only/dom-rpa），默认 api-then-dom；降级条件矩阵（技术方案 §6.3） | 路由单测：三态 × 可降级/停报/不降级全覆盖 |
+| F6 | publishMode 双轨总闸 | `config/platforms.yaml` 逐平台 `publishMode` 三态（api-only / api-then-dom / **dom-only**），默认 api-then-dom；降级条件矩阵（技术方案 §6.3）。〔2026-09-26 校正：本行原写第三态为 `dom-rpa`，与落地不一致；以 `src/api-router.js` 的 `VALID_MODES` 与 `publish-mode-config.test.js` 为准，实际枚举为 `dom-only`，且 `publishMode` 为平台段内联字段、非顶层 `publishModes:` 块〕 | 路由单测：三态 × 可降级/停报/不降级全覆盖 |
 | F7 | 发布频控 | 同账号两次 API 发布提交间隔 ≥18 分钟（队列调度层） | 虚拟时钟边界单测（17:59 拒 / 18:01 放） |
 | F8 | 发布方式显示项 | 发布记录新增「发布方式」徽标：API 直发/网页降级/仅API失败 | UI 渲染单测 + 视觉抽查截图 |
 | F9 | 风控停止交互 | risk_blocked → 平台队列挂起 + 通知（文案 §6.3）+ 人工恢复/停止按钮 | Electron 窗口手动验证：模拟假服务器返回 HTML → 通知出现、平台挂起、其他平台不受影响 |
@@ -50,12 +50,12 @@
 
 ### P2（W3/W4）
 
-| # | 功能 | 验收标准 |
-|---|------|----------|
-| F12 | 签名页基建 + 快手 spike | webpack 模块抽取 + 网络拦截双验证；spike 三步（抽取/比对/活体直发）任一失败即止步，快手保持 dom-rpa |
-| F13 | 小红书 API 发布 | 仅当 F12 签名基建验证通过 |
-| F14 | 头条号文章 | W4 前置取证其链无外包签名，否则并入签名页契约或止步 |
-| F15 | 知乎视频+文章 | 复用 zhihuPublishVideo@2119327 / publishZhihuArticle@2106013 链；W4 前置取证自包含性 |
+| # | 功能 | 验收标准 | 状态（2026-09-26 W3 回写） |
+|---|------|----------|------|
+| F12 | 签名页基建 + 快手 spike | webpack 模块抽取 + 网络拦截双验证；spike 三步（抽取/比对/活体直发）任一失败即止步，快手保持 dom-rpa | **✅ W3 已交付（2026-09-26，PR #2413/#2388/#2424）**：基建（signer-page-manager + 抽取器 + 拦截双验证 + 白名单 IPC + preload 桥 + locales 成对）已入 main；**M3 裁决 = GO**（S0 公式探针 INCONCLUSIVE→本地签名器路线作废；S2a 静态侦察 Tier-A 方向成立；S2b 活体终判 **Tier-A GO**——页面自带 `$encode` VM 为我方独立构造请求产出的 sig3 被平台接受）。快手链已按 `api-then-dom` 入波（九步链 + caption 合同 + 109/非 JSON 语义），契约面 258 测全绿。**S3 真实直发（三步中的第三步）未单独执行，语义并入 §8 活体验收**，详见 `rpa-api-publish/evidence/api-w3-kuaishou/spike-verdict.md` |
+| F13 | 小红书 API 发布 | 仅当 F12 签名基建验证通过 | **⏸ 止步（未入本波）**：F12 基建虽 GO，但小红书专属前置未满足——`x-s/x-t` 在参考产品 bundle 中经 `getNewSign` 走**外包签名服务**（与快手共用同一服务），无反推本地公式的已知路径，旧 `getXiaohongshuSign` 属未验证近似；**页面内是否存在可抽取的 x-s 签名器尚未经一次快手同型 spike 验证**（Tier-B 待验证）。`xiaohongshu.x-s` 注册表 provider 槽已预留可被签名页基建服务，链实现待该 spike 通过后再启。详见技术方案 v2 §6 止步裁决 |
+| F14 | 头条号文章 | W4 前置取证其链无外包签名，否则并入签名页契约或止步 | ⏳ 未启动（W4） |
+| F15 | 知乎视频+文章 | 复用 zhihuPublishVideo@2119327 / publishZhihuArticle@2106013 链；W4 前置取证自包含性 | ⏳ 未启动（W4） |
 
 ### 明确不做（本期）
 
@@ -140,8 +140,8 @@
 | M0（已达成） | 逆向取证 + 21 问设计锁定 + 技术方案 v2 | 本文档 §1-§8 齐备 |
 | M1 | W1 上线：F1-F10 全绿 + 3 平台活体证据 | §8 流程走完 |
 | M2 | W2 抖音裁决：通过或回退（二选一，有记录） | F11 判据 |
-| M3 | W3 spike 裁决（止损阀） | F12 三步判据 |
-| M4 | W4 长尾 + DOM 退役评估开始 | F14/F15 + §6.4 |
+| M3 | W3 spike 裁决（止损阀）**已达成 2026-09-26：GO** | F12 三步判据——S0 INCONCLUSIVE / S2a 方向成立 / S2b Tier-A GO；S3 真实直发待活体验收（不阻塞开发） |
+| M4 | W4 长尾 + DOM 退役评估开始 | F14/F15 + §6.4；前置：F13 小红书需一次页面内 x-s 可抽取性 spike 才能解锁 |
 
 ## 10. 风险登记
 
@@ -149,7 +149,8 @@
 |------|------|------|
 | 平台 API 改版使参考产品链失效 | 高 | 契约测试红→修复循环；双轨 DOM 保底；W1 证据链可回源比对 |
 | 活体发布触发账号风控 | 中 | 18 分钟频控 + 私密优先 + 风控即停不换号（用户决策 Q8） |
-| 快手 sig3 抽取不可行 | 中 | spike 止损阀（Q19），失败面已封闭：留 DOM |
+| 快手 sig3 抽取不可行 | 中 | **已证伪（2026-09-26 S2b Tier-A GO）**：页面自带 `$encode` VM 产签可被我方独立构造请求复用，失败面未启用（无需回 DOM） |
+| 小红书 x-s 页内不可抽 | 待定→**已入风险面** | 未经 spike；依 §6 止步裁决不启链，保持 dom-only；开链前必做页面内可抽取性验证 |
 | 参考产品 bundle 被清理（曾发生） | 低 | 逐字切片已入本仓 evidence（120KB），文档域持久化 |
 | 中文文案进 locales 遗漏 en | 低 | Gate 7 CI 硬拦截 |
 
@@ -887,8 +888,59 @@ spacer（首次放行、17min 节流零请求 waitMs、越 18min 再放行、不
 - i18n parity Gate7 --keys/--cjk + ESLint Gate11 + Gate12 品牌扫描。
 - **实现确认（2026-09-24）**：`risk-suspended-tracker.test.js` 14 用例（normalize 三形态/过滤/isSuspended 平台级覆盖/resume 必经 confirm 三态/onChange 每次应用含清空/start 幂等）；`stores/risk.test.js` 8 用例（含初次 refresh 竞态用 `vi.waitFor` flush 锁定）；`RiskSuspendedBanner.source.test.js` 3 用例（源码契约：v-if、必经 store.resume、无裸中文）；`publish-risk-ipc.test.js` 5 用例（独立文件顶层 `__enableElectronMock()` 使 withSenderCheck 测试态放行 + localhost:5174 senderFrame）。
 - **门禁证据**：合并回归 7 文件 710 passed；build-preload/home-shell 9 passed（bundle-vs-source 深比较）；Accounts.test.js 95 + accounts-compile 8 + grid.source 3 = 105 passed/1 skipped；Gate7 --keys PASS（147 键）/--cjk PASS（基线 1581/当前 1362 无新增）；Gate11 ESLint（apps/desktop electron/+src/ --quiet）exit 0（修复 risk-suspender-store.js `no-useless-assignment`）；Gate12 品牌残留 PASS；shared-utils `task-queue.test.js` 23 passed。CI Gate11 仅覆盖 apps/desktop（quality-gate.yml L118-122），shared-utils 不在 lint 门禁面。
+
+## 13. W3 实现契约：签名页基建 + 快手发布链（随 PR #2388 / #2413 / #2424 交付）
+
+### 13.1 求签通道单一事实源（合规红线型）
+
+- 引擎侧新增 `src/signer/browser-page-provider.js`（166 行）：bridge 由桌面装配层注入，提供 `verified` command 白名单服务；**未注入 → fail-closed「签名页未就绪」**（可降级语义），返回值必须为纯 JSON 字符串。
+- 注册表新增两个 browser-page 命令（`src/signer/index.js`）：`kuaishou.ns-sig3-browser` → `browserPageProvider.sign('kuaishou.ns-sig3', payload)`；`xiaohongshu.x-s-browser` 同构（**槽已预留，链未激活**，见 §4 F13）。
+- 本模块**零 HTTP 签名通道、零第三方外包**；旧遗留本地公式命令 `kuaishou.ns-sig3`（`local.getKuaishouSign`）**已被 S0 证伪为不可用路径**（MD5 32 位裸 hex 短于真 sig3 56 字符），仅为向后兼容留槽，**发布链不得引用**（由 `kuaishou-legacy-chain-gate.test.js` grep 门禁守：`src/adapters` + `src/publish` 对 `GetSign`/`signPorts`/`getKuaishouSignature`/`refpub` 零命中，注释行豁免）。
+- 桌面侧 `apps/desktop/electron/signer/`：`signer-page-manager.js`（域锁 + webpackChunk push 劫持抽取 + 拦截法双验证 + 限流第 4 次置 degraded）/ `signer-assembly.js`（模板占位符注入：`__MP_SIGN_CHUNK_GLOBAL__`、`__MP_SIGN_MODULE_ID__`、`__MP_SIGN_EXPORT__`、`__MP_SIGN_PAYLOAD__`，探针块名 `__mp_sig_probe__`）/ `provider.js` + `signer:invoke`/`signer:status` 白名单 IPC + preload 桥。**禁止回传函数体源码**（无 `Function.prototype.toString`/`JSON.stringify(fn)`）。
+
+### 13.2 快手视频九步链 `src/publish/platforms/kuaishou-video.js`（409 行）
+
+逐字对照 `evidence/yx-kuaishou-w3-slices.txt` §1.1-§1.11（链文件头注为权威清单）：
+
+| # | 步骤 | 端点 / 动作 | 带签 | 关键契约 |
+|---|------|------------|------|----------|
+| 0 | 前置校验 | cookie 提 `api_ph` + 视频文件存在 | — | **fail-closed 零请求**；`api_ph` 缺失不回退伪造 Guid |
+| 1 | 预上传 | `POST /rest/cp/works/v2/video/pc/upload/pre` | ★ | body `{uploadType:1, api_ph}` → `{token, endPoints[0]}` |
+| 2 | 分片×N | `{endpoint}/api/upload/fragment?upload_token&fragment_id` | — | `Content-Range bytes s-e/total` + `Content-Type: application/stream` → `{checksum}` |
+| 3 | 合并 | `complete?fragment_count&upload_token` | — | 空 body → `result==1`；**失败按切片语义重试一次** |
+| 4 | 完成 | `upload/finish` | ★ | body `{token, fileName, fileTyp:"video/mp4", fileLength, api_ph}` → **`{fileId}`**；`result===109` → `login_expired` 停报不降级 |
+| 5 | 封面 | `cover/upload` | — | multipart `FormData{file(image/jpeg), api_ph}` → `{coverKey}` |
+| 6 | 组装 body | `buildKuaishouPostData(taskData, uploadResult, ctx)` | — | 全字段组装（切片 §1.7）；条件字段按 taskData 存在才带（`??` 语义）；`ai_generated` 平移 W2 治理——**默认如实声明 1** |
+| 7 | 提交 | `video/pc/submit` | ★ | `Content-Type: application/json;charset=UTF-8` → `result==1` 成功，`publishId = currentTime.substring(0,10)`；非 JSON（验证页）→ `risk_blocked` 不重试刷签 |
+| 8 | 回查 | `photo/list`（`queryType:"2"` 近 5min） | — | `match unPublishCoverKey` → publishId 兜底 `uploadTime` |
+
+- 带签端点仅 **pre / finish / submit** 三个（技术方案 §5 签名字段本地断言：签名串非空且 `MIN_SIG_LEN = 40`，不满即 fail-closed 抛错、**零请求**）。
+- 错误语义归一：`result==109`→`login_expired`、submit 非 JSON→`risk_blocked`——两者**停报不降级、不换号**（§5.4 合规红线）；签名页未就绪→`unsupported`，此类引擎性失败在 `api-then-dom` 下可降级 DOM。
+
+### 13.3 Adapter 变薄委托与 caption 字段合同
+
+- `src/adapters/kuaishou.js`（89 行）对齐 W2 `douyin.js` 形态：`execute` → `chain.run`；granular `uploadVideo`/`uploadCover` 返 `null`；`_chain(cookie, clients)` 支持 `_chainOverride` 注入供测。
+- **快手无独立标题字段**：`buildKuaishouPostData` 输出 `caption` = `title` + `content` + `tags`（带 `#` 前缀）以 `\n` 合并，与 DOM RPA `_composeEditorCaption` 语义一致；`ai_generated` 默认 1（`aiGenerated:false` → 0）。旧骨架测试（`kuaishou-ai-declaration.test.js`/`e2e-publish-full-chain.test.js`）已同步适配 caption 形态，不得再断言 `data.title/content/tags` 独立字段。
+
+### 13.4 publishMode 翻转与回归（#2424）
+
+- `config/platforms.yaml` 快手段：`has_api: false → true`，`publishMode: dom-only → api-then-dom`（签名页未就绪/不支持时可降级 DOM）。
+- `publish-mode-config.test.js` 扩展：W3 波断言 `api-then-dom` + `has_api===true`；未入波集 `w1` 表加 `kuaishou: 1`；`getPublishMode('kuaishou')` 进三态遍历。
+- **已知不一致（待后续小波收口）**：`has_api` 属遗留派生标志（`shouldUseApi`），与 `publishMode` 总闸不同步是设计内的（youtube `has_api:true`+`dom-only` 为锚点用例）；但快手本波翻为 true、而同属已入波的 douyin/tencent_video 仍为 false，属标志位语义漂移，建议统一以 `publishMode` 为单一总闸并重新定义 `has_api` 含义（或删除）。
+
+### 13.5 测试与门禁矩阵（本机零外发）
+
+- 新增三测登记 `scripts/run-tests.js` VITEST_FILES：`kuaishou-video-chain.test.js`（链 19 测：全链序列 method/URL/headers/body 逐字段对照切片 + fail-closed 面）、`kuaishou-adapter.test.js`（委托断言）、`kuaishou-legacy-chain-gate.test.js`（grep 门禁）。
+- 基建侧：`browser-page-provider.test.js`（引擎）+ `signer-page-manager.test.js`/`signer-assembly.test.js`（桌面 2 files / 37 测）。
+- **W3 收口门禁复验（2026-09-26，origin/main `f71343a82d`）**：引擎 `run-tests.js` EXIT=0，**31 files / 258 tests 全绿**；Gate12 品牌残留 PASS（6201 tracked 文件）/ Gate3 密钥 PASS / Gate7 成对+键存在 PASS；`openspec validate api-publish-engine-w3 --strict` valid。
+- 未完成的收口项（诚实登记，不得视为已验）：**QM-1 最终包验证**与 **6.3 活体裁决验收**（真实标题私密/草稿 1 条、间隔 ≥18min、前台回查、证据四件套）同属需用户在场的下一波；W1 §7.5-7.7 / W2 §6.2-6.4 为同形态尾债，建议一次真实账号窗口三波合并验收。
+
+---
+
 ## 附：验收记录（活体证据回写区，随波更新）
 
 | 波次 | 平台 | 日期 | 作品ID | 链接 | 截图 | 降级 | 结论 |
 |------|------|------|--------|------|------|------|------|
-| — | （W1 验收后回写） | | | | | | |
+| W3 | 快手（api-then-dom） | 2026-09-26 | — 待活体 | — | — | 未测 | **链契约 258 测全绿 + M3 裁决 GO**；S3 真实直发与活体回查**未执行**（需用户在场，见 §13.5） |
+| W1/W2 | 视频号/B站/百家号/抖音 | — | — | — | — | 未测 | 活体验收与 M2 裁决回查仍开放（W1 §7.5-7.7 / W2 §6.2-6.4） |
+| — | （旧占位：W1 验收后回写） | | | | | | |

@@ -234,12 +234,14 @@ describe('login-network-diagnostics — 出码计时（getqrcode）', () => {
       /^\[wechat_mp\/auth-1\] qr response #1 after \d+ms status=200 contentLength=0$/)
   })
 
-  it('响应头缺失 → 不追加 contentLength 字段，耗时仍被记录（边界）', () => {
+  it('响应头缺失 → 显式记 contentLength=redacted，不留隐式缺口（边界）', () => {
     const ses = attach()
     getCompletedHandler(ses)({ url: QR_URL, statusCode: 200 })
 
+    // 跨域 iframe 的 responseHeaders 会被 Chromium 屏蔽，真机实测确实取不到；
+    // 若不显式标注，读日志的人会以为"这一行本来就没有该字段"而漏判空体拒绝。
     expect(log.info.mock.calls[0][1]).toMatch(
-      /^\[wechat_mp\/auth-1\] qr response #1 after \d+ms status=200$/)
+      /^\[wechat_mp\/auth-1\] qr response #1 after \d+ms status=200 contentLength=redacted$/)
   })
 
   it('出码尝试逐次编号，超过上限后不再记录（防反复刷新刷屏）', () => {
@@ -253,12 +255,12 @@ describe('login-network-diagnostics — 出码计时（getqrcode）', () => {
       .filter(function (m) { return m.indexOf('qr response #') !== -1 })
       .map(function (m) { return m.replace(/after \d+ms/, 'after Xms') })
     expect(seq).toEqual([
-      '[wechat_mp/auth-1] qr response #1 after Xms status=200',
-      '[wechat_mp/auth-1] qr response #2 after Xms status=200',
-      '[wechat_mp/auth-1] qr response #3 after Xms status=200',
-      '[wechat_mp/auth-1] qr response #4 after Xms status=200',
-      '[wechat_mp/auth-1] qr response #5 after Xms status=200',
-      '[wechat_mp/auth-1] qr response #6 after Xms status=200'
+      '[wechat_mp/auth-1] qr response #1 after Xms status=200 contentLength=redacted',
+      '[wechat_mp/auth-1] qr response #2 after Xms status=200 contentLength=redacted',
+      '[wechat_mp/auth-1] qr response #3 after Xms status=200 contentLength=redacted',
+      '[wechat_mp/auth-1] qr response #4 after Xms status=200 contentLength=redacted',
+      '[wechat_mp/auth-1] qr response #5 after Xms status=200 contentLength=redacted',
+      '[wechat_mp/auth-1] qr response #6 after Xms status=200 contentLength=redacted'
     ])
   })
 

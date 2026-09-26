@@ -15,22 +15,26 @@
 - [x] 2.1 红测：`packages/api-publish-engine/test/browser-page-provider.test.js`——假 bridge 注入注册/求签/未注入 fail-closed（「签名页未就绪」语义）/仅 `verified` command 服务/返回值必须纯 JSON 字符串；注册表远程通道零命中断言扩展
 - [x] 2.2 实现 `signer/browser-page-provider.js`（bridge 注入形态）+ `signer/index.js` 追加注册 `kuaishou.ns-sig3`（browser-page 版按 spike 裁决覆盖或并存）与 `xiaohongshu.x-s` provider 槽；2.1 转绿；VITEST_FILES 登记（node UTF-8 脚本）
 - [x] 2.3 红测（Electron 集成，本机临时假 webpack 页面）：`apps/desktop` 侧 signer-page-manager 契约——域锁拒绝导航、webpackChunk push 劫持抽取、拦截法比对一致/不一致两分支、限流第 4 次置 degraded、IPC 白名单外 command 拒绝、注入脚本无 `Function.prototype.toString`/`JSON.stringify(fn)` 回传
-- [ ] 2.4 实现 `apps/desktop/electron/signer/`（signer-page-manager + 抽取器模板 + 拦截双验证 + `signer:invoke`/`signer:status` 白名单 IPC + preload 桥）；2.3 转绿；**QM-1 打包三件套**（builder --dir → asar list/require 链 → exe 8s 存活 stderr 干净）+ preload sandbox 两模式验证
-- [ ] 2.5 locales 成对：新增用户可见文案（签名页未就绪/登录已失效/降级提示）zh/en 写入 `apps/desktop/src/locales/`（Gate 7）
+- [x] 2.4 实现 `apps/desktop/electron/signer/`（signer-page-manager + 抽取器模板 + 拦截双验证 + `signer:invoke`/`signer:status` 白名单 IPC + preload 桥）；2.3 转绿；**QM-1 打包三件套**（builder --dir → asar list/require 链 → exe 8s 存活 stderr 干净）+ preload sandbox 两模式验证
+- [x] 2.5 locales 成对：新增用户可见文案（签名页未就绪/登录已失效/降级提示）zh/en 写入 `apps/desktop/src/locales/`（Gate 7）
 
 ## 3. M3 spike 门禁（时间盒 1 个工作日，逐序短路；S0/S2/S3 用户在场门槛）
 
-- [ ] 3.1 S0 公式探针（用户在场，最低风险已认证查询端点，零发布副作用）：无 sig3 / 本地公式 sig3 双发比对平台接受性 → 裁决 `kuaishou.ns-sig3` Tier-A 可行性；通过则 S2/S3 短路
-- [ ] 3.2 S2 真页抽取+拦截比对（用户在场）：`cp.kuaishou.com` 登录态抠 sig3 函数，同 payload 复算 == 页面真发值；V-partition 复用方式一并验证记录
+- [x] 3.1 S0 公式探针（用户在场，最低风险已认证查询端点，零发布副作用）：无 sig3 / 本地公式 sig3 双发比对平台接受性 → 裁决 `kuaishou.ns-sig3` Tier-A 可行性；通过则 S2/S3 短路
+  - 结果：**INCONCLUSIVE**（探针端点不校验 sig3，无法区分无签/近似签/真签；本地公式 MD5 为 32 位裸 hex 结构上短于真 sig3 56 字符，本地签名器路线作废）→ 不短路，继续 S2。详见 `evidence/api-w3-kuaishou/spike-verdict.md`
+- [x] 3.2 S2 真页抽取+拦截比对（用户在场）：`cp.kuaishou.com` 登录态抠 sig3 函数，同 payload 复算 == 页面真发值；V-partition 复用方式一并验证记录
+  - S2a 静态侦察：**Tier-A 方向成立**（sig3 由快手页面自带 `$encode` VM 生成，非第三方外包，不触 §7 grep 门禁）。S2b 活体终判：**Tier-A GO**（页面签名器为我方独立构造请求产出的 sig3 被平台接受，新构造新签新发即时有效）。Group 4/5 放行
 - [ ] 3.3 S3 复算直发活体（用户在场）：抽取函数签名直发 1 条真实请求（私密/草稿优先、间隔 ≥18min）
-- [ ] 3.4 M3 裁决记录：S0-S3 结果（含失败现场）写 `evidence/api-w3-kuaishou/spike-verdict.md` + 回写 PRD F12/techdoc v2 修订记录；**no-go → 跳到 6.1 收尾**（Group 4/5 不合并、platforms.yaml 不动、基建单独评审）
+  - 状态：未单独执行；S2b 已证「独立构造请求接受性」核心命题，S3 语义延期至 6.3 发布链集成验收（submit 端点真实发布由用户在场做最终回归），不再阻塞 Group 4/5 开发
+- [x] 3.4 M3 裁决记录：S0-S3 结果（含失败现场）写 `evidence/api-w3-kuaishou/spike-verdict.md` + 回写 PRD F12（`01-docs/PRD-API-PUBLISH-ENGINE.md` §4 P2 表）/techdoc v2 修订记录；**no-go → 跳到 6.1 收尾**（Group 4/5 不合并、platforms.yaml 不动、基建单独评审）
+  - 裁决：**go**（S2b Tier-A）→ 进入 Group 4；PRD F12/techdoc v2 回写随 6.4 收口
 
 ## 4. 快手发布链（仅 spike go；TDD 链契约测试先行）
 
-- [ ] 4.1 红测 `kuaishou-video-chain.test.js`：127.0.0.1 假服务器钉全链序列（args→分片→finish→封面→提交）method/URL/headers/body 逐字段对照 1.1 切片；fail-closed 面（api_ph 缺失/视频不存在/签名空或 <40）零请求；`result===109` → login_expired 不降级
-- [ ] 4.2 实现 `publish/platforms/kuaishou-video.js`（复用 core http-base/contract/errors + 注册表求签分派）；4.1 转绿
-- [ ] 4.3 `KuaishouAdapter` 变薄委托（对齐 W2 douyin.js 形态，granular 空安全契约）+ `kuaishou-adapter.test.js`；旧骨架远程签名拼参路径下线 + grep 门禁（外包签名服务 URL 片段 `src/adapters`+`src/publish` 零命中）
-- [ ] 4.4 platforms.yaml kuaishou `publishMode` 翻转 api-then-dom + publish-mode 回归扩展 kuaishou 行（api-then-dom 降级 DOM、risk_blocked 不降级）
+- [x] 4.1 红测 `kuaishou-video-chain.test.js`：127.0.0.1 假服务器钉全链序列（args→分片→finish→封面→提交）method/URL/headers/body 逐字段对照 1.1 切片；fail-closed 面（api_ph 缺失/视频不存在/签名空或 <40）零请求；`result===109` → login_expired 不降级
+- [x] 4.2 实现 `publish/platforms/kuaishou-video.js`（复用 core http-base/contract/errors + 注册表求签分派）；4.1 转绿（链 19 测绿，求签仅经 `kuaishou.ns-sig3-browser` 注册表 command，零 HTTP 签名通道）
+- [x] 4.3 `KuaishouAdapter` 变薄委托（对齐 W2 douyin.js 形态，granular 空安全契约）+ `kuaishou-adapter.test.js`；旧骨架远程签名拼参路径下线 + grep 门禁（外包签名服务 URL 片段 `src/adapters`+`src/publish` 零命中，`kuaishou-legacy-chain-gate.test.js`）；既有 e2e/ai-declaration 测试同步适配新 caption 形态
+- [x] 4.4 platforms.yaml kuaishou `publishMode` 翻转 api-then-dom（has_api 同步 true）+ publish-mode 回归扩展 kuaishou 行（api-then-dom 入波断言；risk_blocked/login_expired 不降级由 publish-mode-runner 既有契约覆盖）
 
 ## 5. 小红书链（1.2 取证通过时执行，否则记录止步跳过）
 
@@ -40,6 +44,11 @@
 ## 6. 门禁与交付
 
 - [ ] 6.1 全量门禁：api-publish-engine run-tests 全绿 + 桌面受影响 suites + QG 静态（品牌残留/远程通道零命中扩展/__mpSigner 常量扫描）+ QM-1 最终包验证；`openspec validate` 通过
+  - 已验（2026-09-26，origin/main `f71343a82d`）：引擎 `run-tests.js` EXIT=0 **31 files / 258 tests 全绿**（direct-node 套件 `=== ALL PASSED ===`）；QG 静态 Gate12 品牌残留 PASS（6201 tracked 文件）/ Gate3 硬编码密钥 PASS / Gate7 `--pair-base 0ef09cce5f` zh+en 成对 PASS + `--keys` PASS（4204 键）；桌面 signer suites `signer-assembly` + `signer-page-manager` 2 files / 37 tests 绿；`openspec validate --strict` valid。
+  - 口径修正：design §7 的「`__mpSigner` 常量扫描」全仓 **0 命中**（实现实际命名为 `__MP_SIGN_CHUNK_GLOBAL__`/`__MP_SIGN_MODULE_ID__`/`__MP_SIGN_EXPORT__`/`__MP_SIGN_PAYLOAD__` 占位符 + `__mp_sig_probe__` 探针块名），该条为空洞门禁；真实合规属性（禁止回传函数体源码）由 `signer-page-manager.test.js` 断言 `Function.prototype.toString`/`JSON.stringify(fn)` 零回传覆盖。
+  - 仍开放：**QM-1 最终包验证**与活体同波（6.3 需真实 Electron 窗口跑发布链，打包产物即验收载体）；本波未触碰 `apps/desktop/electron/`（#2413 基建波已做过 QM-1 三件套）。
 - [ ] 6.2 PR/autoMerge（基建与链可分 PR：基建先行独立可回滚）；CI 全绿自动合并
 - [ ] 6.3 （spike go 时）活体裁决验收（用户在场）：快手真实标题私密/草稿 1 条、间隔 ≥18min、前台回查、证据四件套入 `evidence/api-w3-kuaishou/`；风控即停绝不换号
-- [ ] 6.4 收口：M3 结论回写 PRD F12/F13 与 techdoc v2；`openspec archive` + learnings/记忆三投
+- [ ] 6.4 收口：M3 结论回写 PRD F12/F13 与 techdoc v2（两者均在 `01-docs/PRD-API-PUBLISH-ENGINE.md` §4 P2 表——⚠️ 不是 `01-docs/PRD.md`，后者 F12=多平台实时监控、F13=评论管理，与本特性无关；交叉引用原按记忆书写，2026-09-26 核实纠偏）；`openspec archive` + learnings/记忆三投
+  - M3 裁决（S0 INCONCLUSIVE / S2a Tier-A 方向成立 / S2b Tier-A GO）与 F13 止步（x-s/x-t 依赖外包服务、页面内可抽取性未经 spike）属**已定决策**，2026-09-26 先行回写 PRD §4/§9/§10 + techdoc v2 §2/§4.2/§6.1/§11，防上下文断联；
+  - 活体证据四件套回写（PRD 附录验收表实数据）与 `openspec archive` 仍阻塞于 6.3（用户在场），与 W1 §7.5-7.7 / W2 §6.2-6.4 同形态尾债，建议一次真实账号窗口三波合并验收。

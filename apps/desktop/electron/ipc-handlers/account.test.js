@@ -66,7 +66,6 @@ function createMockDeps(overrides = {}) {
       getAccountProxyStatus: vi.fn(() => ({ configured: false })),
       checkLocalCredentials: vi.fn(() => false),
       persistLoginState: vi.fn(async () => ({ ok: true })),
-      loginStatusFromCheckResult: vi.fn((r) => (r && r.valid === true ? 'active' : r && r.valid === false ? 'expired' : 'unverified')),
     },
     BACKEND_PLATFORMS: new Set(),
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -502,7 +501,12 @@ describe('account IPC 可信来源正常工作', () => {
 
     const result = await ipcMain._get('account:check-login')(TRUSTED_EVENT, { platform: 'toutiao', accountId: 'acc-1' })
 
-    expect(result).toEqual({ code: 0, data: { valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' } })
+    // 新增字段是「只增不改」的向后兼容扩展：loginStatus 让单账号检测也能告知渲染层
+    // 「真源到底改没改」，statusChanged=false 时卡片必须保持原徽章而不是闪成未确认。
+    expect(result).toEqual({
+      code: 0,
+      data: { valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED', loginStatus: 'expired', statusChanged: true },
+    })
     expect(deps.AccountManager.persistLoginState).toHaveBeenCalledWith('acc-1', 'toutiao', 'expired', expect.any(String))
   })
 
@@ -721,10 +725,13 @@ describe('account IPC 可信来源正常工作', () => {
       indexedDB: { auth: { token: 'private-token' } },
     }
     deps.authViewManager.openLogin.mockResolvedValue(captured)
+    // 真实 saveCapturedAccount 凭证落盘后会固化登录态并把 active 带回返回值
     deps.AccountManager.saveCapturedAccount.mockResolvedValue({
       id: 'yt-1',
       platform: 'youtube',
       name: '频道账号',
+      status: 'active',
+      last_validated: '2026-09-25T15:00:00.000Z',
     })
     deps.AccountManager.checkLocalCredentials.mockReturnValue(true)
     const ipcMain = createMockIpcMain()
@@ -740,8 +747,9 @@ describe('account IPC 可信来源正常工作', () => {
         name: '频道账号',
         account_name: '',                 // 撤掉 IPC 层 account_name||name 合并后：mock 未提供昵称，必须留空
         name_source: 'auto',
-        status: 'unverified',
-        status_source: 'absent-fallback',
+        status: 'active',
+        status_source: 'backend',
+        last_validated: '2026-09-25T15:00:00.000Z',
         is_default: false,
         has_cookies: true,
         cookie_count: 1,
@@ -775,6 +783,8 @@ describe('account IPC 可信来源正常工作', () => {
       platform: 'wechat_mp',
       name: '公众号',
       cookies: captured.cookies,
+      status: 'active',
+      last_validated: '2026-09-25T15:00:00.000Z',
     })
     deps.AccountManager.checkLocalCredentials.mockReturnValue(true)
     const ipcMain = createMockIpcMain()
@@ -792,8 +802,9 @@ describe('account IPC 可信来源正常工作', () => {
         name: '公众号',
         account_name: '',                 // 撤掉 IPC 层 account_name||name 合并后：mock 未提供昵称，必须留空
         name_source: 'auto',
-        status: 'unverified',
-        status_source: 'absent-fallback',
+        status: 'active',
+        status_source: 'backend',
+        last_validated: '2026-09-25T15:00:00.000Z',
         is_default: false,
         has_cookies: true,
         cookie_count: 1,
@@ -913,7 +924,32 @@ describe('account IPC 可信来源正常工作', () => {
 
     expect(deps.AccountManager.checkLoginStatus).toHaveBeenCalledWith('youtube', 'yt-2')
     expect(deps.pythonBridge.requestBackend).not.toHaveBeenCalled()
-    expect(result).toEqual({ code: 0, data: { valid: true, message: '登录有效' } })
+    expect(result).toEqual({ code: 0, data: { valid: true, message: '登录有效', loginStatus: 'active', statusChanged: true } })
+  })
+
+  it('auth:open-login 固化失败时如实返回 unverified，不冒充已登录', async () => {
+    const deps = createMockDeps()
+    deps.authViewManager.openLogin.mockResolvedValue({
+      name: '频道账号',
+      cookies: [{ name: 'session', value: 'secret', domain: '.youtube.com' }],
+    })
+    // 真源没写成功 → saveCapturedAccount 如实透传后端原值
+    deps.AccountManager.saveCapturedAccount.mockResolvedValue({
+      id: 'yt-9',
+      platform: 'youtube',
+      name: '频道账号',
+      status: 'unverified',
+    })
+    deps.AccountManager.checkLocalCredentials.mockReturnValue(true)
+    deps.BrowserWindow.getAllWindows.mockReturnValue([])
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('auth:open-login')(TRUSTED_EVENT, 'youtube')
+
+    expect(result.code).toBe(0)
+    expect(result.data.status).toBe('unverified')
+    expect(result.data.status_source).toBe('backend')
   })
 
   it('account:add 可信来源正常调用 AccountManager', async () => {
@@ -1171,5 +1207,131 @@ describe('accounts:list 投影必须透传 name_source 且不得用 name 填充 
       expect(account, '字段 ' + key + ' 不得出现在 IPC 投影里').not.toHaveProperty(key)
     }
     expect(account.has_cookies).toBe(true)
+  })
+})
+
+describe('登录态单向证据规则（IPC 层接入）', () => {
+  // 契约：无定论不得把既有结论抹成 unverified（openspec/changes/fix-login-state-oscillation）
+  const DAY = 24 * 60 * 60 * 1000
+  const iso = (msAgo) => new Date(Date.now() - msAgo).toISOString()
+
+  it('批量：无定论 + 现状 active 且未超龄 → 不写真源，statusChanged=false 且仍报 active', async () => {
+    const lv = iso(DAY)
+    const deps = createMockDeps()
+    deps.AccountManager.listAccounts.mockResolvedValue([
+      { id: 'a-keep', platform: 'tencent_video', status: 'active', last_validated: lv },
+    ])
+    deps.AccountManager.checkLoginStatus.mockResolvedValue({ valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE' })
+
+    const result = await ipcMain_and_call(deps, 'accounts:batch-check-login', {})
+    const item = result.data.results[0]
+
+    expect(deps.AccountManager.persistLoginState, '无定论不得发写真源').not.toHaveBeenCalled()
+    expect(item.loginStatus).toBe('active')
+    expect(item.statusChanged).toBe(false)
+    expect(item.persisted).toMatchObject({ ok: true, kept: true })
+    expect(item.code).toBe('CHECK_LOGIN_INCONCLUSIVE')
+    expect(item.last_validated, '未改写就不该伪造一个新的定论时间').toBe(lv)
+  })
+
+  it('批量：无定论 + 现状 expired → 保持 expired（不得被翻成未确认）', async () => {
+    const deps = createMockDeps()
+    deps.AccountManager.listAccounts.mockResolvedValue([
+      { id: 'a-dead', platform: 'toutiao', status: 'expired', last_validated: iso(DAY) },
+    ])
+    deps.AccountManager.checkLoginStatus.mockResolvedValue({ valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE' })
+
+    const result = await ipcMain_and_call(deps, 'accounts:batch-check-login', {})
+
+    expect(deps.AccountManager.persistLoginState).not.toHaveBeenCalled()
+    expect(result.data.results[0].loginStatus).toBe('expired')
+    expect(result.data.results[0].statusChanged).toBe(false)
+  })
+
+  it('批量：无定论 + 现状 active 但已超龄 → 降级 unverified（防僵尸绿灯）', async () => {
+    const deps = createMockDeps()
+    deps.AccountManager.listAccounts.mockResolvedValue([
+      { id: 'a-stale', platform: 'douyin', status: 'active', last_validated: iso(30 * DAY) },
+    ])
+    deps.AccountManager.checkLoginStatus.mockResolvedValue({ valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE' })
+
+    const result = await ipcMain_and_call(deps, 'accounts:batch-check-login', {})
+
+    expect(deps.AccountManager.persistLoginState).toHaveBeenCalledWith('a-stale', 'douyin', 'unverified', result.data.checkedAt)
+    expect(result.data.results[0].loginStatus).toBe('unverified')
+    expect(result.data.results[0].statusChanged).toBe(true)
+  })
+
+  it('批量：检测抛异常（含硬超时）同样属无证据，不得抹掉 active', async () => {
+    const deps = createMockDeps()
+    deps.AccountManager.listAccounts.mockResolvedValue([
+      { id: 'a-hang', platform: 'baijiahao', status: 'active', last_validated: iso(DAY) },
+    ])
+    deps.AccountManager.checkLoginStatus.mockRejectedValue(new Error('检测超时（>60000ms）'))
+
+    const result = await ipcMain_and_call(deps, 'accounts:batch-check-login', {})
+
+    expect(deps.AccountManager.persistLoginState).not.toHaveBeenCalled()
+    expect(result.data.results[0].valid).toBeUndefined()
+    expect(result.data.results[0].loginStatus).toBe('active')
+    expect(result.data.results[0].code).toBe('CHECK_LOGIN_ERROR')
+  })
+
+  it('单账号：明确结论不多读真源；无定论才按需读一次现状', async () => {
+    const deps = createMockDeps()
+    deps.AccountManager.checkLoginStatus.mockResolvedValue({ valid: true, code: 'CHECK_LOGIN_SUCCESS' })
+    await ipcMain_and_call(deps, 'account:check-login', { platform: 'douyin', accountId: 'a1' })
+    expect(deps.pythonBridge.requestBackend).not.toHaveBeenCalled()
+
+    const deps2 = createMockDeps()
+    deps2.pythonBridge.requestBackend.mockResolvedValue({ code: 0, data: { id: 'a1', platform: 'douyin', status: 'active', last_validated: iso(DAY) } })
+    deps2.AccountManager.checkLoginStatus.mockResolvedValue({ valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE' })
+    const r2 = await ipcMain_and_call(deps2, 'account:check-login', { platform: 'douyin', accountId: 'a1' })
+    expect(deps2.pythonBridge.requestBackend).toHaveBeenCalledWith('GET', '/api/accounts/a1')
+    expect(deps2.AccountManager.persistLoginState).not.toHaveBeenCalled()
+    expect(r2.data).toMatchObject({ valid: undefined, loginStatus: 'active', statusChanged: false })
+  })
+
+  it('单账号：真源读不到时本轮不改写（GET 抖动不得把已确认账号抹成未确认）', async () => {
+    const deps = createMockDeps()
+    deps.pythonBridge.requestBackend.mockResolvedValue({ code: -1, message: 'BACKEND_UNAVAILABLE' })
+    deps.AccountManager.checkLoginStatus.mockResolvedValue({ valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE' })
+
+    const result = await ipcMain_and_call(deps, 'account:check-login', { platform: 'douyin', accountId: 'a9' })
+
+    expect(deps.AccountManager.persistLoginState, '现状未知既不能猜 active 也不得降级为 unverified').not.toHaveBeenCalled()
+    expect(result.data.valid).toBeUndefined()
+    expect(result.data.statusChanged).toBe(false)
+    expect(result.data.loginStatus, '无从判断现状就不该给出登录态，渲染层据此保持原徽章').toBeNull()
+  })
+
+  it('批量：无定论且现状本就是 unverified → 不发冗余 PATCH，也不伪造 last_validated', async () => {
+    const lv = iso(40 * DAY)
+    const deps = createMockDeps()
+    deps.AccountManager.listAccounts.mockResolvedValue([
+      { id: 'a-none', platform: 'toutiao', status: 'unverified', last_validated: lv },
+    ])
+    deps.AccountManager.checkLoginStatus.mockResolvedValue({ valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE' })
+
+    const result = await ipcMain_and_call(deps, 'accounts:batch-check-login', {})
+    const item = result.data.results[0]
+
+    expect(deps.AccountManager.persistLoginState, '值未变又无新证据，多写一次只会污染 last_validated').not.toHaveBeenCalled()
+    expect(item.loginStatus).toBe('unverified')
+    expect(item.statusChanged).toBe(false)
+    expect(item.last_validated, '未改写就不该有新定论时间').not.toBe(result.data.checkedAt)
+  })
+
+  it('批量：正向证据且现状已是 active → 仍须回写，宽限锚点不得冻结', async () => {
+    const deps = createMockDeps()
+    deps.AccountManager.listAccounts.mockResolvedValue([
+      { id: 'a-alive', platform: 'douyin', status: 'active', last_validated: iso(30 * DAY) },
+    ])
+    deps.AccountManager.checkLoginStatus.mockResolvedValue({ valid: true, code: 'CHECK_LOGIN_SUCCESS' })
+
+    const result = await ipcMain_and_call(deps, 'accounts:batch-check-login', {})
+
+    expect(deps.AccountManager.persistLoginState, '正向证据必须刷新 last_validated，否则宽限期会把常青账号降级').toHaveBeenCalledWith('a-alive', 'douyin', 'active', result.data.checkedAt)
+    expect(result.data.results[0].last_validated).toBe(result.data.checkedAt)
   })
 })

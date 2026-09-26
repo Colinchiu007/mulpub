@@ -15894,3 +15894,97 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **配套坑（tool）**：诊断的幂等标记写在 session 实例上（`ses.__loginNetDiagAttached`）。测试桩若让 `session.fromPartition` 恒返回同一个 `defaultSession`，标记会跨用例残留，使「监听注册恰好一次」的断言依赖用例顺序——假红/假绿温床。桩应每次返回新 session 对象（真实 Electron 语义：分区即独立 session）。
 - **反向排除记录**：本次先用实测排掉了 3 个看似合理的假设，全部有据（CN 出口 IP 直连与走代理相同→微信流量本就走 DIRECT；`l/qrconnect` hold 15.183s vs 15.180s→代理未掐长轮询；Edge 代理/直连渲染 DOM 字节完全一致）。教训：**`res.wx.qq.com` 的 8–9s 不是代理问题，是微信 CDN 对 404 自身限速**，直连同样 1–8s；异常耗时务必做 A/B 对照再下结论，否则会把工单修到不存在的根因上。详见 `01-docs/INVESTIGATE-LOGIN-QR-SLOW-2026-09-25.md` §3。
 - **编辑工具的行尾陷阱（pitfall，本轮真实代价）**：`learnings.md` 是 CRLF 文件，用 Edit 工具在其尾部追加一段，会把**相邻无关的 8 行**静默重排（`git diff --numstat` 报 24 增 16 删，`git diff -w` 却报 8 增 0 删 → 差额纯是行尾）。改法：`git checkout HEAD -- <单文件>` 回退后用 **Node 全程 Buffer 追加**（`fs.readFileSync` 得 Buffer，段落 `Buffer.from(text,'utf8')`，先把 `\n`→`\r\n` 再 concat 写回）。**切勿**用 `latin1` 读写再混入 utf8 字符串——往返对原内容无损，但新追加的中文会被按单字节打乱成乱码。中转文件别放 `/tmp`：Git Bash 的 `/tmp` 与 Node 解析的 `/tmp`（= `D:\tmp`）映射不同，实测 ENOENT。
+
+
+## 夹具补出来的方法会让死 API 探针在单测里完全正常（dead-probe-green-mock-blindness，2026-09-26）
+
+- **坑（pitfall）**：#2394 给登录视图加"节流/可见性"探针时读了 `webContents.getVisibilityState()`。该字段在 Electron 43.1.1 的 `node_modules/electron/electron.d.ts` 里**出现 0 次**，真机日志因此恒为 `visibility=unknown`——探针是死的，对判定零贡献。而单测全绿，因为**同一次改动亲手往夹具里加了 `getVisibilityState: vi.fn(() => 'visible')`**：夹具替宿主"创造"了一个不存在的方法，测试于是只能证明"我读了我写的那个名字"，不能证明"宿主真有它"。与 #2398 的 `app.userAgent`（真无，UA 在 `app.userAgentFallback`）同族，但本案更隐蔽——被读的是**我自己刚加进 mock 的字段**。
+- **规则（pattern）**：写任何 `宿主对象.方法()` 之前，先在已安装的类型声明里定位它属于哪个接口（`awk '/class WebContents extends/{f=1} f&&/^  }/{f=0} f' electron.d.ts | grep -nE "getBackgroundThrottling\(|isVisible\("`）。夹具字段集只能来自 d.ts 或运行时 dump，**禁止**为了"让测试过"而补字段。本案可用的真字段：`WebContentsView.getVisible()`（继承自 `View`，d.ts 明示是"应否绘制"≠屏幕可见）、`WebContents.getBackgroundThrottling()`；`isVisible()` 在 `WebContents` 段内不存在，不可用。
+- **可迁移信号（锁的写法，QM-5④模板）**：把"读对字段"从口头纪律升级为机器可判定，需要四条一起才有牙齿——① **前提锁**：断言 d.ts 的 `class WebContents` / `class View` 段内确有这些签名，且**定位 d.ts 禁止数 `..` 层级、找不到即必须红**（否则本条永不执行，见下二阶坑）；② **禁词锁**：断言源码 `not.toMatch(/getVisibilityState|VisibilityState/)`；③ **通配锁**：正则收集源码里所有 `.webContents.X(` 的 `X`，要求 `X ⊆ d.ts 声明集`，断言 `未声明集合 toEqual([])`——只有③能防住"下次换成另一个不存在的名字"，①②都只防本次这一口；④ **规模下界**：断言解析出的声明集 `size > 100`（实测 410），否则"正则不命中→空集合"会让③对任何调用名一律放行而假绿。
+- **二阶坑：契约锁自身可以是死的（decorative-contract-lock）**：上述①③两条锁用 `path.join(__dirname, '..', '..', 'node_modules', 'electron', 'electron.d.ts')` 定位 d.ts，并写成"取不到就 `return`（等同 skip）"。本仓 `node-linker=hoisted`，electron 实际装在**仓库根** `node_modules`，从 `apps/desktop/electron/services` 数两级 `..` 只到 `apps/desktop` → 路径恒不存在 → ①③**在本地与 CI 上从未执行过一行断言**，只有②在跑，而我把它登记成"已实测有效"。**判据**：任何"防再犯锁"写完，先做一次「让锁的前置条件失效（找不到文件 / 解析退化 / fixture 改 no-op），必须立刻变红」的变异；能静默跳过的锁等于把规则写成注释，跨依赖布局（hoisted / isolated / CI 装依赖顺序不同）时静默退化。定位法：从 `__dirname` 逐级 `path.dirname` 上溯探测，命中即返回，穷尽仍无则让断言报错。
+- **反证是必需动作，不是可选项**：锁写完必须做一次变异实验（把真字段临时改成 `getBogusVisibilityFlag()` 跑一遍，期望变红，再还原期望变绿）。反证还必须说清"红的是哪几条断言"——本案第一版登记的 `2 failed` 其实全部来自日志格式断言，与契约锁无关。改对 d.ts 定位后重做三条变异：源码改调 bogus 方法→红；把 `findDts` 指向不存在的包→红（不再 skip）；把成员正则改成不可能形态使声明集退化→红。**没有反证的契约锁默认按装饰性处理**——同一天另一条"fixture 改成 no-op 必须立刻变红"的规矩是同一件事。
+- **顺带一条夹具纪律**：`setVisible: vi.fn()` 这种"记调用但不改状态"的夹具，会让 `getVisible()` 只能返回常量，于是"出码窗口落在未绘制时段"这类判据**结构上不可测**。夹具应让 `setVisible` 真正翻转 `getVisible()` 的返回源（本案改为 `let drawn = true`）。
+## 契约只锁一半同族路径，另一半就成了沉默缺陷——新增账号显示「未确认」（login-state-solidify-sibling-path，2026-09-25）
+
+- **第一性引入点**：`7913534f`（#2205）为「保存凭证 = 一次成功的主动登录」建立契约，但只在 `updateCapturedAccount` 落地 `status='active'` 回写；`5874e4bd`（#2233）随后把后端 `create_account` 的默认登录态设为 `unverified`。两条改动各自自洽，合起来却让创建路径（`saveCapturedAccount`）永久停在「未确认」，直到用户手动点一次检测。
+- **实证优先于推断**：`backend-data/accounts.json` 里 23:00–23:06 新增的 6 个账号 `status=unverified` 且 `last_validated == created_at`（Python 6 位微秒格式 = 只有 `create_account` 写过）；同日唯一 `status=active` 的 `wechat_mp`，其 `last_validated` 是 JS 3 位毫秒格式，`app-2026-09-25.log:14881` 正是它的 `checkLoginStatus → persistLoginState`。**时间戳的小数位数就是写作者的指纹**——查「这个字段是谁写的」，先比格式，比读代码猜测快且不可辩驳。
+- **逃逸链**：① 单元测试——`account-manager-relogin-status.test.js` 只 describe 了 `updateCapturedAccount`，创建路径无对应用例；`account-manager.test.js` 的创建用例用 `toEqual` 锁死「返回值不含 status」这一当时事实，把缺陷固化成断言。② 集成/E2E——`account-login-state-tristate.js` 全部从「后端已有 status」起步，从未覆盖「刚创建完的第一帧」。③ 代码审查——#2205 与 #2233 分属不同 PR，各自 review 只看单条改动是否自洽，没有人跨 PR 追「这条契约的另一半在哪」。
+- **系统性漏洞类型（测试场景缺失）**：同一条业务不变量在多条同族实现路径上落地时，回归测试习惯按路径逐个补，缺少「先枚举全部同族入口再逐个确认有锁定断言」的收口动作。判定手法：给契约起个名，grep 出所有应满足它的函数名，看是不是只有一个具备测试。
+- **预防措施落地**：AGENTS.md QM-2 新增「登录态固化契约覆盖全部『凭证落盘』同族路径」条目；创建路径补 3 条回归（PATCH 携带 active / 凭证落盘必须在 PATCH 之前 / 凭证失败不得出现 active）。
+- **可迁移信号**：修 A 路径的同类 Bug 时先问「B 路径呢」。兄弟函数（create vs update、导入 vs 手填、种子 vs 运行时）几乎总会漏掉一边，而漏掉的通常是**新数据入口**——它的症状不是「老功能坏了」，而是「所有新建的一上线就坏」，因此极易被误读成设计如此而长期放过。
+- **顺带挖出的第二条缺陷（跨模型评审贡献）**：`captureCookies` 的登录判据是 `Promise.race([选择器命中, URL host 离开登录页])` —— 后者是**弱证据**：用户没登录、只是导航到了别的域名也会赢。补齐创建路径的固化后，这条弱证据会直接把「其实没登录」的账号标成已登录，比修复前更糟。因此固化登录态时必须问「凭证从哪来、证据强度够不够」，弱证据入口（`account:add` / 首次运行引导）传 `loginVerified:false` 保持 `unverified`。启示：修「显示不出已登录」时，同一个写入动作会把上游所有证据不足的入口一起放大成假阳性——写侧越主动，读侧越要证据。
+
+## CI 单测失败先做「改动范围归因 + 同内容多 run」双判再动手——scheduler-parity 时序 flake（api-publish-w3 PR #2413，2026-09-26）
+
+
+## 「没拿到新证据」被当成反证 + 同一映射抄三份，让状态每 30 分钟自我否定（evidence-direction-asymmetry，2026-09-26）
+
+- **症状与根因**：已登录账号在一键检测后跳成「未确认」，30 分钟后监控又把它改回。 `login-status-monitor.js:75` 早已写明「expired 属粘滞态，自动循环不擅自翻案，避免与手动一键检测结论互相拉扯」，但 `active` 没有任何对等保护：检测的 7 个无定论出口 + IPC 的 `checkError` 分支统统映射成 `unverified`，而回写判据是 `next !== current`。一句话：**把「证据缺席」当成了「反证成立」**。
+- **为什么能长期存活（比根因更值得记）**：同一个「三态 → status」映射被抄了三份（`account-manager` / `ipc-handlers/account.js` / `login-status-monitor`）。三份都把无定论算成 `unverified`，于是"修一处不传导到另两处"，任何单点修复都会被另外两条路径重新制造出来。收口动作：唯一实现下沉 `packages/shared-utils/src/login-state.js`，三个调用点直接 import，并让「历史脏值」这类假现状也如实落 unverified。
+- **修对称缺陷必须同时看两侧风险**：#2233 当年是为了治「已失效却显示已登录」的假阳性，做法是「无定论即降级」——矫枉必须带另一侧的刹车。本次反转配了两道防回归到假绿灯的闸：`valid===false` 立即 `expired`；「从未有结论 + 无定论」仍显示未确认；再加 7 天超龄兜底，避免乐观状态无限期存续。
+- **可迁移信号（判据）**：看到「状态机里某个值既是『未知』又是『降级后的结果』」时停下来 —— 这两种语义挤在一个枚举值里，一定会演化成分支。判定手法：列出该状态所有写入路径与它们的**证据方向**（正向/负向/无），只要有一条路径在「无证据」时改写状态，它就是下一个振荡源。
+- **契约反转要留路标**：改法与既有测试断言相反时（本例 `account-login-state-tristate.js` 的 D3），必须在断言旁写明「有意反转 + 理由 + 两侧如何都覆盖」，否则下一个会话会把它当被改坏的测试原样改回去。
+## QM-6 评审收口：修复振荡的分支自己又开了第二扇门（fix-login-state-oscillation，2026-09-26）
+
+- **为「读现状」新增的兜底路径，失败分支必须用同一条证据规则审一遍（pitfall，本分支最严重的自我引入缺陷）**：为了让「无定论要不要保持 active」拿到现状，我在 IPC 层新加了 `readAccountSnapshot()`，并把它的失败写成「按未定论如实落 `unverified`」。于是一次 `GET /api/accounts/{id}` 抖动，就能把一个刚被确认有效的账号抹成未确认 —— 正是本分支要消灭的东西，被本分支的新代码从另一条路径重新制造出来。**识别信号**：一个修「不对称」的 PR 里新增了读取/兜底分支，而该分支的失败动作写成了「降级到某个具体枚举值」。**口径**：任何新加的读取路径，其失败动作只能是「本轮什么都不做」，不得替规则函数决定降级值。
+
+- **外部评审建议必须构造边界反例后再采纳，"看起来更简单"不等于正确（pattern，本次唯一被驳回的建议方案）**：两个模型都指出「`next === current` 时应跳过写库」，字面执行会连带跳过「正向证据 + 现状已是 `active`」这一格 —— 而 `active` 的宽限期锚点正是 `last_validated`，不刷新就意味着一个常年检测通过的账号在 7 天后被自己的兜底降级。**最终采纳的是收窄版判据**：只在「本轮无新证据」且（现状读不到 / 规则值为 null / 规则值已等于现状）时跳过；正向证据一律回写。**教训**：评审给的是「症状 + 一个候选修法」，症状通常真，修法常是按局部视角写的；动手前先为建议写一条反例测试（本次那条「正向证据且现状已是 active → 仍须回写」就是这条反例，它在原建议下必红）。
+
+- **一条断言只否定三个错项里的一个，就仍然会把 Bug 钉成契约（pitfall，对 AGENTS.md「测试断言不得反向固化错误行为」的实证补充）**：我写的是 `expect(...).toBe('unverified')` 配注释「不臆断为已登录」—— 读起来像在守边界，实际只排除了 `active` 这一个错答，把 `unverified` 这个错答写成了期望值。**口径**：为「未知/失败」分支写断言前，先穷举行动集合（不改写 / 猜正向 / 猜负向 / 报错），逐个问「这条断言排除了其中几个」；只排除一个的断言等于替实现选边。
+
+- **「同一份规则该在哪一层被测」取决于规则的唯一实现在哪一层（pattern，测试迁移的理由）**：规则表原先测在 `account-manager` 的转发 shim 上，等于把「规则」和「某一次转发」绑在一起，还给第四份映射留了藏身之处。收口：表测在 `packages/shared-utils/src/__tests__/login-state.test.js`（真源层），`account-manager` 侧只留一条**结构锁**（`loginStatusFromCheckResult` 与 `loginStatusTransition` 均 `toBeUndefined()`），写者层的三条判据测在 IPC。转发 shim 与被替代的映射一并删除 —— 保留「向后兼容出口」就是把口径漂移留在手边。
+
+- **第二模型降级为自审时，必须显式登记「双模型」这一条不成立（pitfall，流程诚实）**：本轮 `codeagent-wrapper.exe` 缺失，第二个模型的输出实际由主代理完成，但结论有效（并抓到了第一个模型漏掉的真缺陷）。**口径**：登记 QM-6 时写清「有效发现数 N / 独立模型数 M」，不得用两次同源的自审冒充跨模型交叉审查。
+- **现象**：PR #2413（签名页基建）QG Unit Tests 的 Gate 4 失败，唯一红测是 `electron/tests/test_scheduler_parity.test.js`「concurrency-real 场景 total_duration_ms 对拍」——本 PR diff 完全没碰 scheduler/parity 任何文件。本地单跑该文件 2 测全绿（77s），据此判定为共享 runner 负载下的时序 flaky，`gh run rerun --failed` 后转绿。
+- **判定手法（pattern）**：CI 单测红的归因三步——① `git diff --stat origin/main...HEAD -- '*关键词*'` 确认失败文件是否在本 PR 改动面内；② 本地以同命令单跑该测试文件复现（绿 = 强烈 flaky 信号）；③ 查同内容/邻近内容历史 run 的 pass/fail 反复记录（沿用 learnings「E2E 抖动以同内容多 run + 失败点判断」纪律，扩大到 Gate 4）。三步都不指向本 PR 才 rerun，禁止无归因直接 rerun 掩盖真回归。
+- **注意区分**：quality-gate run 里 `QG Unit Tests`（Gate 4 全量 workspace 单测）与 `QG Desktop Shards (1/2)/(2/2)` 是**并行独立 job**——单个 job 失败不代表 desktop 面全挂，读 jobs 逐步 conclusion 定位，别按 run 级 conclusion 粗判。
+- **拉 CI 日志的 Windows 绕行（pitfall）**：`gh api .../logs` 响应含终端转义序列会被 gh 新版安全策略拦截（"pass --allow-escape-sequences to output it anyway"）；PowerShell `>` 重定向会把 stdout 落为 UTF-16LE。可`gh api "repos/:owner/:repo/actions/jobs/<id>/logs" --allow-escape-sequences > file` 后按 UTF-16LE 探测读取；`--jq` 表达式含 `[]`/`|` 会被 PowerShell 撕碎参数，改 `--json X > file` + Node 脚本解析（按 BOM 判 utf16le/utf8）。
+- **预防（待排期，未在本 PR 做）**：parity 类「真实时钟对拍」测试天然在共享 runner 不稳定——后续应给 duration 比对加相对容差或在模拟器/ governor 双侧改虚拟时钟；登记前该文件失败按本条三步归因。
+
+## 一个绝对容差不能服务跨量级用例：对拍类测试的容差必须由「预测值」按比例驱动（parity-tolerance-scale，2026-09-26）
+
+- **现象（pitfall，误红而非误绿）**：main run `36213551939` 的 `QG Desktop Shards (1/2)` 挂在 `test_scheduler_parity.test.js` 的 `quota-5h-real`：模拟器预测 21000ms、真实 governor 实测 22653ms，差 **1653ms**，而容差 1500ms —— **只超 153ms**。
+
+- **结构性根因**：6 组用例期望耗时跨度约 **14 倍**（1500ms → 21000ms），却共用同一个 `runParity(1500)` 绝对容差。对 1.5s 的用例它是 100%（形同不设防），对 21s 的用例它只有 7.1%（CI 满载下必然被挂钟抖动击穿）。**绝对容差在跨量级用例上不等价**，这类误红会随机器负载随机出现，与代码无关。
+
+- **定性方法（先证明是抖动不是分歧）**：本机真跑 `node scripts/compare-scheduler-models.js` → `quota-5h-real` 实测差 **6ms**、`PARITY OK`、exit=0。模型无分歧 + 同测试在上一个 head 为绿 + 区间内唯一提交未碰 governor → 判定 flaky。**"跑一次真实的看差多少"比读代码猜便宜得多，也是唯一能区分"误红/真回归"的证据。**
+
+- **修复（pattern）**：容差改为 `max(绝对下限, 比例 × 期望耗时)`。效果是**只放宽出问题的那一组**（21000ms：7.1% → 10%），其余五组容差数值完全不变 —— 这是与"整体调大阈值"的关键区别，后者会静默降低全部用例的灵敏度。
+
+- **必须锁死的反模式**：容差的分母**必须是模拟器预测值，不能是真实测量值**。用实测值会让一次变慢自己撑大自己的容差，回归永远抓不住（自证式绿灯）。已用断言固化：`durationTolerance(31000) > durationTolerance(21000)`，并断言 +5000ms（约 24%）仍判失败，证明放宽没放过真回归。
+
+- **可迁移判据**：见到"固定毫秒/固定字节/固定条数"的容差，先问**被测对象的量级跨度是多少倍**。跨度 >3 倍就该改成相对量（比例、分位数）或分档，并保留绝对下限兜住小对象。同族：`--testTimeout` 对快慢用例一刀切、`debt-baseline` 的行数棘轮对大小文件一视同仁。
+
+- **排障口径**：失败信息必须自带「实际生效容差」与「本次差值」。上一轮只 dump 了 python/real 两个 JSON，看不出 1653 是超了绝对下限还是超了比例，逼着人去翻脚本 —— **门禁的可诊断性本身就是门禁的一部分**。
+
+- **时序耦合**：本条是 #2410（`Gate Result` 改为真实聚合）的**前置**。一旦必需检查开始真拦，这种 153ms 之差的抖动会从"无人察觉"变成"随机拦停所有 PR"。**给静默门禁补上判定之前，必须先确认它不会把既有抖动变成误拦** —— 先盘红名单，再上判定。
+
+## grep 类门禁必须自带「阳性样本」元测试——否则 0 命中只是空洞通过（vacuous-gate-blindness，2026-09-26，api-publish-w3）
+
+- **现象**：design §7 要求「`__mpSigner` 不得作为字符串常量出现在 `packages/`、`apps/` 运行时代码」。W3 收口复验时按该口径扫全仓 `.js` → **0 命中**，看起来「PASS」。
+- **根因**：实现从来没用过 `__mpSigner` 这个名字。真实命名是 `signer-assembly.js` 的四个模板占位符 `__MP_SIGN_CHUNK_GLOBAL__`/`__MP_SIGN_MODULE_ID__`/`__MP_SIGN_EXPORT__`/`__MP_SIGN_PAYLOAD__` + 探针块名 `__mp_sig_probe__`。门禁扫的是计划期草稿里的假想命名——一个从未存在过的字符串永远 0 命中。
+- **代价**：文档写着「已守」，评审者与后续会话都以为有这层保护。真实属性（禁止把函数体源码回传出去）恰好另有 `signer-page-manager.test.js` 断言 `Function.prototype.toString`/`JSON.stringify(fn)` 零回传，才没变成真漏洞——**这是运气，不是门禁的功劳**。
+- **规约（新增静态/扫描类门禁的三条硬要求）**：
+  1. **阳性样本自测**：给扫描器喂一段故意违规的样本，断言它必须被抓到（元测试或 `--selftest` 模式）。没有阳性样本的门禁按「不存在」处理。
+  2. **待扫词表由代码生成**，不由人写：能从模块常量导出就导出（改名即红），否则至少在门禁测试里断言词表与实现同名符号一一对应。
+  3. **0 命中必须可区分**「扫到了但没违规」与「压根没扫到东西」：输出扫描面大小（文件数）。现成先例——Gate 12 品牌残留输出 `PASS（扫描 6201 个 tracked 文件…）`，本仓库新增静态门禁一律照此格式。
+- **适用边界**：所有 `scripts/check-*.js` / `.github/scripts/check-*.js` / 测试内 grep 门禁（如 `*-legacy-chain-gate.test.js`）。
+
+## 跨文档引用需求项必须带文件路径，否则同名编号把人指到无关文件（doc-anchor-collision，2026-09-26，api-publish-w3 tasks 6.4）
+
+- **现象**：tasks 6.4 写「M3 结论回写 **PRD F12/F13**」。按字面去 `01-docs/PRD.md` 找，F12=多平台实时监控、F13=评论管理，与 API 发布毫无关系；真正的 F12/F13 在 `01-docs/PRD-API-PUBLISH-ENGINE.md` §4 P2 表。差点回写错文件。
+- **根因**：本仓库多份 PRD 共用 `F1…Fn` 命名空间，「PRD + 裸编号」至少命中两个文件。同类先例 AGENTS.md 已记过一次（历史裸名 `PRD.md` 指向不存在的文件，让走「先文档再代码」前置门的人误判缺 PRD 而跳过门禁）。
+- **规约**：跨文档引用一律「**路径 + 锚点**」（`01-docs/PRD-API-PUBLISH-ENGINE.md §4 F12`），不写「PRD F12」；引用方的编号表若需要记状态，就在所属文档内加状态列，别把状态写进引用它的任务文件。
+- **顺手挖出的同类漂移（修引用时才发现）**：techdoc v2 §6.1 与 PRD F6 都写双轨第三态为 `dom-rpa`，且 §6.1 示例是顶层 `publishModes:` 聚合块——**与实际落地完全不一致**。权威口径在 `api-router.js` 的 `VALID_MODES`（`api-only|api-then-dom|dom-only`）与读真 yaml 的 `publish-mode-config.test.js`；配置形态是**平台段内联 `publishMode`**，无顶层块。
+- **规约**：设计稿里的「配置形态/枚举名」属于易腐内容——**落地波必须回写设计稿对应小节**，写成「实际值 + 指向权威测试锚点」，而不是留着让后来者按设计稿去 grep 一个不存在的键。判据：任何人按文档原文去代码里找，找得到就是活的。
+
+## 契约层全绿 ≠ 活体层已验——翻转双轨总闸的 PR 必须自带降级保底与活体状态（contract-green-not-live-green，2026-09-26，api-publish-w3 Group 4）
+
+- **现象**：W3 把快手 `publishMode: dom-only → api-then-dom` 合入 main，但 spike 三步的第三步（复算签名真实直发）与活体验收（tasks 6.3）都**未执行**。平台侧接受性只有 S2b「独立构造请求被接受」的证据，没有我方完整九步链真实走完一次的证据。
+- **为什么当时可接受**：三态语义里 `unsupported`（签名页未就绪）**可降级 DOM**，旧 DOM 链仍在，最坏是退回原状而非不可用；`risk_blocked`/`login_expired` 则停报不降级不换号。风险敞口被降级保底关住了。
+- **为什么仍必须登记**：**入波 = 生产路径已改变**，而「258 测全绿」极易被下游读成「已在真平台验证过」。本次三波（W1/W2/W3）全部卡在同一形态尾债（活体验收 → 证据回写 → archive），就是这个缺口在攒着。
+- **规约（翻转平台总闸的 PR 正文必写三件事）**：
+  1. 降级保底路径与触发条件（哪一类失败可降级、哪一类必须停报）；
+  2. 活体状态**明示**「契约已验 / 活体未验」并指向未勾任务号，禁止以「测试全绿」替代；
+  3. 关波条件写死为活体证据四件套（真实标题、间隔 ≥18min、前台回查、截图），未收口不得 `openspec archive`。
+- **落地**：已按此在 PRD §13.5 + 附录验收表记「— 待活体」，而不是留一句「后续验证」的口头待办。

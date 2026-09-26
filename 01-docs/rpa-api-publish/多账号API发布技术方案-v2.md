@@ -50,8 +50,8 @@
 | B站 | ✅ | 延后 | 全本地（csrf=bili_jct + X-Upos-Auth） | W1 | `publishBilibiliVideo@1466868`、`getUploadIdResponse$3@1457472`(preupload/upos)、`/x/vu/web/add@1462478` |
 | 百家号 | ❌无参照 | ✅ | token 自域响应（Tier A） | W1 | `getBaijiahaoPublishArticleToken@1841535`、`BJH__INIT__AUTH@1842459`、`pcui/picture/uploadproxy@1857820` |
 | 抖音 | ✅ | — | 准自包含：本地 clientSign(SHA256+EC私钥) + **空 a_bogus 先验** | W2 | `create_v2@2672901/2674350`、`clientSign@2673851`、`x-secsdk-csrf-request@1525855`(getSdkToken)、`getUploadedVideoInfo$3@1380840`(快手复用注意) |
-| 快手 | ✅ | — | `__NS_sig3` 外包签名（参考产品服务端 VM，回源不可得）→ **浏览器辅助签名** | W3(spike) | `getSign$5@1341838`、`__NS_sig3@1342665/1343225`、`getUploadArgsResponse$9@1344875`、`uploadVideoPart$b@1386455`、`publishKuaishouVideo@1389174` |
-| 小红书 | ✅ | — | `x-s/x-t` 外包（→5096）→ 同 W3 签名页 | W3 | 切片含 `getXiaohongshuProMessage`；完整链 W3 前置补提 |
+| 快手 | ✅ | — | `__NS_sig3` 外包签名（参考产品服务端 VM，回源不可得）→ **浏览器辅助签名** | W3(spike) | `getSign$5@1341838`、`__NS_sig3@1342665/1343225`、`getUploadArgsResponse$9@1344875`、`uploadVideoPart$b@1386455`、`publishKuaishouVideo@1389174`〔**W3 已落地 2026-09-26**：S2b 证实页内自带 `$encode` VM 产签（非外包）→ Tier-A GO；链 `src/publish/platforms/kuaishou-video.js` 入 `api-then-dom`，详 §4.2〕 |
+| 小红书 | ✅ | — | `x-s/x-t` 外包（→5096）→ 同 W3 签名页 | W3 | 切片含 `getXiaohongshuProMessage`；完整链 W3 前置补提〔**W3 止步**：切片已提但页内 x-s 可抽取性未经 spike，Tier-B 待验证，链不激活；详 §6〕 |
 | 头条号 | ❌无参照 | ✅ | 自有签名（→5031/5032）→ 签名页 | W4 | `pcui`相邻段 `@1732179` 区、`getSdkToken` 复用段（头条 mp.toutiao.com 域） |
 | 知乎 | ✅ | ✅ | **不在外包表**（x-zse 0 命中）→ 疑似自包含，W4 前置取证 | W4 | `publishZhihuArticle@2106013`、`zhihuPublishVideo@2119327`、`zhihuPublishDynamic@2126523`、聚合对象 `@2132700` |
 
@@ -120,6 +120,17 @@ index.js                # 导出；adapters/ 旧骨架逐个改为委托 platfor
 2. 拦截法比对：同 payload 本地复算 == 页面真发请求的 `__NS_sig3`。
 3. 用复算签名直发一条真实 API（活体）。三步任一失败 → **止步**：快手/小红书保持 DOM RPA，签名页基建仅保留已验证平台可用时再启用。
 
+**执行结果（2026-09-26，证据：`evidence/api-w3-kuaishou/spike-verdict.md`）**
+
+| 探针 | 结果 | 影响 |
+|------|------|------|
+| S0 本地公式可行性 | **INCONCLUSIVE** | 探针端点不校验 sig3，无法区分无签/近似签/真签；本地 MD5 为 32 位裸 hex，结构上短于真 sig3（56 字符）→ **本地签名器路线作废**，不短路 |
+| S2a 静态侦察 | **Tier-A 方向成立** | sig3 由快手页面自带 `$encode` VM 生成，**非第三方外包**，不触 §7 grep 门禁 |
+| S2b 活体终判 | **Tier-A GO** | 页面签名器为我方**独立构造**请求产出的 sig3 被平台接受（新构造新签新发即时有效）→ Group 4/5 放行 |
+| S3 复算直发活体 | **未单独执行** | S2b 已证「独立构造请求接受性」核心命题；S3 语义延期至发布链集成验收（submit 真实发布由用户在场做最终回归），不阻塞开发 |
+
+> 止损阀未触发（裁决 go）。但必须区分两层事实：**契约层已验（本机假服务器 258 测全绿）≠ 活体层已验**——真实发布回查（含频控 ≥18min、风控即停）仍未做，`config/platforms.yaml` 却已翻为 `api-then-dom`。因此入波不等于可生产依赖：签名页未就绪时降级 DOM 保底，且必须在用户在场窗口跑完活体才能关波。
+
 ---
 
 ## 5. 数据校验（每步合同，假服务器钉死 + 活体抽检）
@@ -147,19 +158,26 @@ index.js                # 导出；adapters/ 旧骨架逐个改为委托 platfor
 
 ## 6. 双轨降级与 publishMode
 
-### 6.1 配置（`config/platforms.yaml` 增段）
+### 6.1 配置（`config/platforms.yaml`）
+
+【2026-09-26 校正】本节原设计稿写为顶层 `publishModes:` 块且第三态名 `dom-rpa`，**与实际落地不一致**。权威口径以 `packages/api-publish-engine/src/api-router.js` 的 `VALID_MODES` 与 `test/publish-mode-config.test.js`（读真 yaml）为准：
+
+- 形态：`publishMode` 是**平台段内联字段**（与 `has_api` 同层），非顶层聚合块；
+- 三态枚举：`api-only` | `api-then-dom` | `dom-only`（**无** `dom-rpa`）；
+- 当前实值（节选）：
 
 ```yaml
-publishModes:
-  shipinhao: api-then-dom   # 允许值: api-then-dom | api-only | dom-rpa
-  bilibili: api-then-dom
-  baijiahao: api-then-dom
-  douyin: api-then-dom
-  kuaishou: dom-rpa         # W3 spike 通过前保持 dom-rpa
-  xiaohongshu: dom-rpa
-  toutiaohao: api-then-dom  # W4 起生效
-  zhihu: api-then-dom
+# 逐平台内联；未入波平台一律 dom-only
+tencent_video: { has_api: false, publishMode: api-then-dom }   # W1
+bilibili:      { has_api: true,  publishMode: api-then-dom }   # W1
+baijiahao:     { has_api: true,  publishMode: api-then-dom }   # W1
+douyin:        { has_api: false, publishMode: api-then-dom }   # W2
+kuaishou:      { has_api: true,  publishMode: api-then-dom }   # W3（本波翻转）
+xiaohongshu:   { has_api: false, publishMode: dom-only }       # §6 止步，未入波
+youtube:       { has_api: true,  publishMode: dom-only }       # 有 API 但未入波（锚点用例）
 ```
+
+> 语义：`publishMode` 为双轨**单一总闸**，`getPublishMode()` 优先读字段、字段缺失才由 `has_api` 派生。已知遗留不一致：`has_api` 与总闸不同步属设计内（youtube 为锚），但 W1/W2/W3 入波平台中仅 kuaishou 同步翻了 `has_api: true`（douyin/tencent_video 仍 false）——标志位语义漂移，待后续小波统一（以 `publishMode` 为唯一真源，重定义或删除 `has_api`）。
 
 ### 6.2 语义
 
@@ -258,6 +276,10 @@ publishModes:
 - `多账号API发布技术方案-v1.md` — 原始逆向调研（保留）
 - `evidence/yx-slices-v2.txt`、`evidence/yx-slices-v2b.txt` — 逐字切片
 - `openspec/changes/api-publish-engine-w1/` — W1 change 契约
+- `openspec/changes/api-publish-engine-w2/`、`openspec/changes/api-publish-engine-w3/` — W2/W3 change 契约（均未归档，尾债为活体验收 + 回写 + archive）
+- `evidence/api-w3-kuaishou/spike-verdict.md` — **M3 spike 裁决记录**（S0/S2a/S2b/S3 含失败现场，§4.2 佐证）
+- `evidence/yx-kuaishou-w3-slices.txt` — W3 前置取证切片（§1 快手九步链逐字、§2 小红书链与止步裁决依据）
+- `01-docs/PRD-API-PUBLISH-ENGINE.md` §13 — W3 实现契约（求签单一事实源 / 九步链 / caption 合同 / 门禁矩阵）
 
 
 ## 11. 修订记录
@@ -283,6 +305,8 @@ publishModes:
 | 2026-09-23 | W1 §6.1 桌面风控挂起通知消费端（preload onRiskHold + risk-hold-notifier） | 承接 §5.4 生产端 `publish:risk-hold`。`preload/publish.js` 加 `onRiskHold`（ipcRenderer.on，同构 onProgress）；`api/publisher.js` 加 `onRiskHold`（bridgeOn "RiskHold"）；新增 `src/services/risk-hold-notifier.js` `createRiskHoldNotifier({onRiskHold,notify,now?,maxRecent?})` 纯 DI（start 幂等订阅、规整 {platform,accountId,taskId,error,at}、近端列表上限 50、stop 取消、缺字段安全）；`main.js` 薄接线经统一通知通道 `useNotify.notifyWarning('publish.riskHold.body')` 弹 warning toast。i18n `publish.riskHold.body`（zh/en，仅信息提示，不声明已暂停/自动恢复）。risk-hold-notifier.test.js 6 例 + publisher.test.js +onRiskHold + preload.test.js 键数快照 118→119/320→321/82→83；i18n parity、ESLint 无 error、Gate12 PASS。待办：桌面 riskSuspender 接队列派发守卫（真正挂起）+ 通知内恢复/停止 action（§5 架构切片，端到端随 §7）。 | 本 PR；PRD §12.13 |
 | 2026-09-23 | W1 §4.4 百家号 re-point（视频链→文章链，Q14 只发图文） | `src/adapters/baijiahao.js` 由 457 行视频链（preupload/分片/complete/video-process/publishVideo）整体下线，改薄委托 `BaijiahaoArticleChain`（约 70 行）：`execute` → `chain.run`（缺标题 fail-closed 零请求、私密草稿优先 `draft!==false`、链失败透传 error/code、成功归一 publishId/url）；图文无视频 uploadVideo/uploadCover→null；`buildPostData` 委托链表单。AI 声明 `aigc_bjh_status`（默认 is_checked=1，aiGenerated:false→0）平移到链 `buildArticleFormData`，URLSearchParams 方括号自动编码 %5B/%5D。钉视频测试重写：`baijiahao-api-chain.test.js` 378→10 例委托接线、`e2e` 百家号殹改委托文章链 4 例（移除 createTempVideo/视频 mock）；链级真实 HTTP/token/风控覆盖不降（迁入 article-chain 假服务器，+2 AI 断言）。全量回归 23 文件/173 测 EXIT=0，Gate12 6021 PASS | PR#2307；PRD §12.8 |
 | 2026-09-24 | W1 §5 桌面风控挂起守卫 enforcement 实现落地（TDD） | 设计 PRD §12.14（engine-review 四点 decided）→ 实现确认 §12.15。桌面新增 `apps/desktop/electron/services/risk-suspender-store.js`：`createDesktopRiskSuspender({store,clock,log})` 复用引擎 `risk-suspender` 纯逻辑（键语义 platform::accountId 一致）+ store 键 `publish.riskSuspended` 持久化（懒水合、写失败 fail-soft、读失败空集），暴露 suspend/isSuspended/resume/listSuspended/clear + `RiskSuspendedError`（code=risk_suspended、noRetry=true）；DI 容器注册 riskSuspender 单例为 enforcement 唯一真源；`bootstrap.js` setExecutor 派发前置守卫命中挂起即 throw（createPublisher 零请求）；`phase4-events.js` 风控命中（isRiskBlocked 且非拦截消息）即 suspend（accountId 缺失降平台级）+ 新增 `publish:risk-suspended` 全量清单权威广播；IPC 三通道 `publishRisk.{listSuspended,resume,isSuspended}` + preload `onRiskSuspended`（bundle 重建纳入同一 commit、preload.test 键数快照同步）；`packages/shared-utils/src/task-queue.js` 重试判定改 `if (!e.noRetry && ...)`（挂起任务跳过重试直接 failed 防重试风暴）；渲染层 `risk-suspended-tracker.js`（纯 DI，normalize 三形态、onChange 为响应式唯一镜像源、resume 必经 confirm 缺省拒绝）+ `stores/risk.js`（Pinia）+ 账号页 `RiskSuspendedBanner.vue`（v-if 仅挂起时渲染、逐条「恢复发布」经 notifyConfirm 人工确认，绝不自动恢复/换号）+ main.js 接线；i18n `publish.riskHold.{suspended,resumeConfirm,resumed,resumeFailed,resume}`（zh/en 成对）。门禁：合并回归 710 测绿、tracker 14 + store 8 + banner 3 + ipc 5 + risk-suspender-store 16 + task-queue 23、Accounts 105、Gate7 --keys(147)/--cjk、Gate11 ESLint、Gate12 全 PASS。端到端真实风控挂起验收仍绑 §7 活体 | 本 PR；PRD §12.15 |
+| 2026-09-26 | W3 §1/§2 签名页基建（Tier-A 求签通道） | 引擎侧新增 `src/signer/browser-page-provider.js`（166 行，bridge 注入形态）：未注入→fail-closed「签名页未就绪」（unsupported 可降级）、仅 `verified` command 服务、返回值必须纯 JSON 字符串；`signer/index.js` 追加 `kuaishou.ns-sig3-browser`（转调本地同名 command 的 browser provider 入口）与 `xiaohongshu.x-s-browser`（**槽预留、链未激活**）。桌面侧 `apps/desktop/electron/signer/`：`signer-page-manager.js`（域锁拒导航 + webpackChunk push 劫持抽取 + 拦截法双验证 + 限流第 4 次置 degraded）/ `signer-assembly.js`（模板仅注入占位符值，**禁止 `Function.prototype.toString`/`JSON.stringify(fn)` 回传函数体**）/ `provider.js` + `signer:invoke`/`signer:status` 白名单 IPC + preload 桥；locales「签名页未就绪/登录已失效/降级提示」zh/en 成对（Gate7）。M3 spike 裁决见 §4.2 表（go）。 | PR#2388（task 2.3/2.4 首片）、PR#2413（装配层+preload 桥+EXTRACTOR S2b 重写+locales）；`browser-page-provider.test.js` + 桌面 `signer-page-manager`/`signer-assembly` 2 files/37 测绿；QM-1 打包三件套（asar list/require 链/exe 存活）+ preload sandbox 两模式已验；PRD §13.1 |
+| 2026-09-26 | W3 §5 快手视频 API 发布链 + adapter 变薄 | 新增 `src/publish/platforms/kuaishou-video.js`（409 行，九步链逐字对照切片 §1.1-§1.11）：步骤 0 前置校验（cookie 提 `api_ph` 不回退伪造 Guid + 视频文件存在，fail-closed 零请求）→ `upload/pre`★ → `fragment×N`（Content-Range + application/stream→checksum）→ `complete`（失败按切片重试一次）→ `upload/finish`★→`{fileId}` → `cover/upload`（multipart）→ `buildPostData` → `video/pc/submit`★（`publishId=currentTime.substring(0,10)`）→ `photo/list` 回查（兜底 `uploadTime`）。带签仅 **pre/finish/submit**；签名单一事实源=注册表 command `kuaishou.ns-sig3-browser`（本模块零 HTTP 签名通道、零外包）；`MIN_SIG_LEN=40` 不满即抛。错误语义：`result===109`→`login_expired`、submit 非 JSON→`risk_blocked`（两者停报不降级不换号）、签名页未就绪→`unsupported`（可降级）。`src/adapters/kuaishou.js` 90→89 行变薄委托（对齐 W2 douyin.js：`execute`→`chain.run`、granular 返 null、`_chainOverride` 供测）；**旧骨架远程签名拼参路径下线** + grep 门禁（`src/adapters`+`src/publish` 对 `GetSign`/`signPorts`/`getKuaishouSignature`/`refpub` 零命中，注释豁免）。**caption 字段合同**：快手无独立标题字段，`title`+`content`+`tags`（`#` 前缀）以 `\n` 合并为 `caption`（与 DOM RPA `_composeEditorCaption` 语义一致），`ai_generated` 默认 1；旧骨架测（ai-declaration/e2e）同步改适配。`config/platforms.yaml` 快手 `has_api` false→true、`publishMode` dom-only→api-then-dom + `publish-mode-config.test.js` W3 回归。 | PR#2424；新增 `kuaishou-video-chain.test.js`（链 19）/`kuaishou-adapter.test.js`/`kuaishou-legacy-chain-gate.test.js` 登记 VITEST_FILES；收口复验 **31 files/258 tests EXIT=0**（origin/main `f71343a82d`）+ Gate12/3/7 PASS + `openspec validate --strict` valid；**QM-1 最终包与活体验收未做（绑 6.3 用户在场）**；PRD §13 |
 
 > 详细实现契约（模块签名、数据校验、错误/提示语义、测试矩阵）见
 > `01-docs/PRD-API-PUBLISH-ENGINE.md` §11。§4 三平台链、§6 UI 接线、§7 活体验收

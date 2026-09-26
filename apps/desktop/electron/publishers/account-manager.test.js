@@ -378,7 +378,20 @@ describe('account-manager — 捕获凭证持久化', () => {
       accountInfo: { platformAccountId: 'wx-1' },
     })
 
-    expect(result).toEqual({ id: 'account-1', platform: 'wechat_mp', name: '公众号' })
+    // 创建路径返回真源 + 本次固化的登录态（新增账号立刻显示「已登录」，不必再手动检测）
+    // 注：返回值是后端 POST 的原样回显（name 仍为传入的 '公众号'），昵称守卫作用在下方 POST 请求体上。
+    expect(result).toEqual({
+      id: 'account-1',
+      platform: 'wechat_mp',
+      name: '公众号',
+      status: 'active',
+      last_validated: expect.any(String),
+    })
+    expect(pythonBridge.requestBackend).toHaveBeenCalledWith(
+      'PATCH',
+      '/api/accounts/account-1',
+      { status: 'active', last_validated: expect.any(String) }
+    )
     // '公众号' 是 account-name-guard 的 KNOWN_PAGE_TITLES 成员（微信公众平台首页的 document.title
     // 就是这个），而 captured.name 同时是 account_name 的兜底 —— 未过守卫就会把站点名写进真源。
     // 现由 resolveAccountDisplayName 在唯一入口处拦截并回落平台显示名。
@@ -430,7 +443,13 @@ describe('account-manager — 捕获凭证持久化', () => {
       cookies: [],
       localStorage: { access_token: 'private-token' },
       name: '知乎账号',
-    })).resolves.toEqual({ id: 'account-local-token', platform: 'zhihu', name: '知乎账号' })
+    })).resolves.toEqual({
+      id: 'account-local-token',
+      platform: 'zhihu',
+      name: '知乎账号',
+      status: 'active',
+      last_validated: expect.any(String),
+    })
 
     expect(pythonBridge.requestBackend).toHaveBeenCalledWith('POST', '/api/accounts', {
       platform: 'zhihu',
@@ -458,7 +477,12 @@ describe('account-manager — 捕获凭证持久化', () => {
       indexedDB: { auth: { token: 'private' } },
       name: '   ',
       accountInfo: [],
-    })).resolves.toEqual({ accountId: 'account-indexed-db', platform: 'wechat_mp' })
+    })).resolves.toEqual({
+      accountId: 'account-indexed-db',
+      platform: 'wechat_mp',
+      status: 'active',
+      last_validated: expect.any(String),
+    })
 
     expect(pythonBridge.requestBackend).toHaveBeenCalledWith('POST', '/api/accounts', {
       platform: 'wechat_mp',
@@ -1210,14 +1234,6 @@ describe('persistLoginState 登录态唯一写者', () => {
     expect(result.code).toBe(404)
   })
 
-  it('loginStatusFromCheckResult 是三态检测结果的唯一映射口径', async () => {
-    const accountManager = loadAccountManager()
-    expect(accountManager.loginStatusFromCheckResult({ valid: true })).toBe('active')
-    expect(accountManager.loginStatusFromCheckResult({ valid: false })).toBe('expired')
-    expect(accountManager.loginStatusFromCheckResult({ valid: undefined })).toBe('unverified')
-    expect(accountManager.loginStatusFromCheckResult({})).toBe('unverified')
-    expect(accountManager.loginStatusFromCheckResult(null)).toBe('unverified')
-  })
 })
 
 describe('account-manager — listAccounts 错误透传', () => {

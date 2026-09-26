@@ -123,6 +123,11 @@ scripts/*.js
 !scripts/detect-unwired-exports.test.js
 !scripts/sync-platform-config.js
 !scripts/sync-platform-config.test.js
+# scripts/*.js is ignored wholesale above, so every tracked script needs its own
+# negation. That per-file allowlist silently loses NEW test files (git add won't
+# warn). Test files must always be tracked, so un-ignore them by pattern instead.
+!scripts/*.test.js
+!scripts/compare-scheduler-models.js
 screenshot_script*.js
 temp_debug.txt
 coverage/

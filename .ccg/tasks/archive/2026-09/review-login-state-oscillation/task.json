@@ -1,0 +1,12 @@
+{
+  "id": "review-login-state-oscillation",
+  "title": "审查登录态状态机修复 diff",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "desktop-auth",
+  "currentPhase": "completed",
+  "nextAction": "审查完成，待归档",
+  "createdAt": "2026-09-26T00:00:00Z",
+  "branch": "fix-login-state-oscillation"
+}

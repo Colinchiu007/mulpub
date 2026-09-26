@@ -43,7 +43,7 @@
 | 字段 | 类型 | 取值 | 默认 | 语义 |
 |------|------|------|------|------|
 | `status` | string | `active` \| `expired` \| `unverified` | `unverified` | 登录态。`active`=最近一次真实校验确认有效；`expired`=最近一次真实校验确认失效；`unverified`=从未检测或检测无法判定 |
-| `last_validated` | string(ISO8601) | — | — | 最近一次**主动检测/凭证保存**的时间戳，仅作展示与排期参考，**不参与判定** |
+| `last_validated` | string(ISO8601) | — | — | 最近一次**状态定论写入**的时间戳（正/负证据与凭证落盘路径回写）。2026-09-26 起**参与判定**：§7.6 的超龄兜底以它为锚点。字段名易被误读为「最近一次有效验证」——后端创建账号（`status=unverified`）同样会写它，真实语义是「最近一次定论时间」 |
 | `is_active` | boolean | true/false | true | 账号「启用/停用」，与登录态**正交**（见 §12 已知边界） |
 
 后端读侧归一化（`_normalize_account_status`）：缺失、非字符串、大小写异常、历史脏值（如 `LOGIN_OK`）一律降级为 `unverified`。**读侧必须 fail-safe：绝不允许把未知值当成「已登录」。**
@@ -105,6 +105,11 @@ merged = mergeCookies(
    accounts:batch-check-login / account:check-login ──► AccountManager.persistLoginState()
    login-status-monitor（30 分钟定期）  ──────────────► 同上
    重新登录保存凭证 updateCapturedAccount ────────────► status=active（同一次 PATCH）
+   新登录保存凭证 saveCapturedAccount ────────────────► status=active（凭证落盘后补一次 PATCH）
+   ↑ 三者判定统一走 @multi-publish/shared-utils/src/login-state 的 loginStatusTransition
+     （返回 null = 本轮无新证据，**不改写真源**；见 §7.6）
+     ├ 扫码登录 QrCodeLogin._onLoginSuccess ─────────► 同上（直接调用 saveCapturedAccount）
+     └ account:add → captureCookies 仅 URL 变化（弱证据）─► 不固化，保持 unverified
 ```
 
 **禁止项（有测试强制）：**
@@ -145,9 +150,22 @@ else /* 历史数据缺 status */        → is_active===false ? 'inactive' : 'a
 
 ### 7.2 单账号「验证」
 `account:check-login` 同样在返回前完成固化（与批量同口径），返回体保持 `{ code:0, data: status }` 向后兼容。
+2026-09-26 起 `data` 额外携带 `loginStatus` 与 `statusChanged`（**只增不改**的兼容扩展）：
+`statusChanged:false` 表示本轮无定论、真源未动，`loginStatus` 即保持后的原状态；单账号入口不持有现状，
+只在「无定论」分支按需 `GET /api/accounts/:id` 读一次真源（有明确结论不多这一跳）；**现状读不到时本轮什么都不做**，`loginStatus` 回传 `null`。
 
-### 7.3 重新登录 / 保存凭证
+`Accounts.vue` 的 `checkLogin()` MUST 按 `data.valid` 三值分叉，而不是历史实现的 truthy 二值：`true` → 成功提示；`false` → 会话失效标记 + 「去登录」确认框；`undefined`（含 `CHECK_LOGIN_TIMEOUT` / `CHECK_LOGIN_INCONCLUSIVE` / 请求失败）→ 只提示「未能确认」，**既不加入 `checkedExpiredIds`、也不清除既有标记**。否则「点一次验证就被提示重新登录」会把一次网络抖动放大成用户主动去重登（与批量侧 §7.1 同一口径，此前只有批量侧做到了）。
+
+### 7.3 登录 / 保存凭证（创建与更新两条同族路径）
 `auth:login-silent`、登录页保存 → `updateCapturedAccount` PATCH 带 `status:'active' + last_validated`；Cookie 提取失败时**不保存**并返回 `reason:'cookie-extract-failed'`（避免落一份"看起来成功、实则无 Cookie"的凭证）。
+
+新登录 → `saveCapturedAccount`（调用方共三条：`auth:open-login`、扫码登录 `QrCodeLogin._onLoginSuccess`、`account:add`）：先 POST 建行（后端 `create_account` 以 `unverified` 初始化），**加密凭证落盘成功后**再补一次 PATCH `status:'active' + last_validated`，返回值同步携带两者以保持 IPC 合同与真源一致。用户可见状态由真源决定——渲染层在 `auth:completed` 后重新拉 `accounts:list`，返回值不是首帧渲染来源。
+
+两条路径共用同一条不变量：**成功捕获并落盘凭证 = 一次成功的主动登录**，因此都必须固化 `active`，不得只锁其中一条（创建路径漏写曾让每个新账号一上线就显示「未确认」，直到用户手动点一次检测）。
+
+约束与失败语义：固化必须晚于凭证落盘（凭证未落盘不得把真源置为 active，防半成功）；回写失败只 `log.warn` 不阻断新增——账号与凭证已可用，返回值此时如实透传后端原值，不冒充已登录。`updateCapturedAccount` 同受该语义约束：PATCH 失败时返回值保留真源原状态，不再硬编码 active。
+
+**登录证据分级（2026-09-25 补）**：`captureCookies` 的成功判据有两种——成功选择器命中（正向证据）与「URL host 离开登录页」（弱证据）。弱证据下用户可能并未登录却导航到了其它域名，此时 `saveCapturedAccount` 收到 `loginVerified:false`，**不固化登录态**，让账号保持 `unverified` 直至一次真实检测。`auth:open-login` 与扫码登录走 DOM/确认证据，不传该标记即视为已验证。
 
 ### 7.4 首页失效横幅
 `refresh()` 调 `accountBatchCheckLogin`，仅 `valid === false` 计入 `expiredAccounts` / `expiredAccountCount`；持久化失败通过 `reportError` 暴露；横幅不再回写 status。
@@ -155,7 +173,45 @@ else /* 历史数据缺 status */        → is_active===false ? 'inactive' : 'a
 ### 7.5 定期检测（30 分钟）
 - 只遍历 `status ∈ {active, online, unverified}` 的账号（已 expired 不自动翻案）。
 - 结论与后端一致时不回写（避免每轮无意义 PATCH、避免刷 `updated_at`）。
+- **无定论不回写也不广播**（`loginStatusTransition` 返回 `null`）：这是 §7.6 单向证据规则的一部分，
+  终结此前「active ↔ unverified 每 30 分钟来回」的振荡。
 - 有变化才广播 `account:status-changed`（含 `changedCount`，恢复为 active 也通知）。
+
+### 7.6 单向证据规则（2026-09-26，openspec/changes/fix-login-state-oscillation）
+
+**规则**：登录态真源只被**正向证据**（检测有效 → `active`）或**负向证据**（检测明确失效 → `expired`）改写。
+「本轮没拿到定论」（无定论 / 检测自身异常 / 硬超时）**既不是正向也不是负向**，MUST NOT 被当成反证去覆盖既有结论。
+
+| 检测结论 | 真源现状 | 写入 |
+|---|---|---|
+| `valid === true` | 任意 | `active` |
+| `valid === false` | 任意 | `expired` |
+| 无定论 / 异常 | `expired` | 不改写（与 §7.5 既有粘滞一致） |
+| 无定论 / 异常 | `active` 且最近定论在宽限期内 | 不改写 |
+| 无定论 / 异常 | `active` 但已超龄 / 定论时间缺失或非法 | `unverified`（僵尸绿灯兜底） |
+| 无定论 / 异常 | 缺失 / 已是 `unverified` / 历史脏值 | `unverified`（从未有结论仍诚实） |
+
+宽限期默认 **7 天**，由 `MP_LOGIN_STATE_GRACE_DAYS` 调整；非正数或非数字一律回落默认（杜绝「零宽限每轮降级」与「Infinity 永不降级」两个极端）。
+
+**唯一实现**：`packages/shared-utils/src/login-state.js`。三个调用点（`account:check-login`、
+`accounts:batch-check-login`、`login-status-monitor`）**直接 import 同一函数**，不得再各自维护映射表 ——
+本缺陷之所以能长期存在，正是因为同一个映射此前被抄了三份（第三处曾各自把无定论算成 `unverified`），
+修一处不传导到另两处。凭证落盘（登录 / 重新登录）属正向证据，继续直写 `active`，不经该函数形成双门控。
+
+**写者层三条补充约束**（规则函数只回答「该写什么」，回答不了「这一次写还有没有意义」，故留在 `persistCheckOutcome` 与监控循环，不下沉）：
+
+| 情形 | 动作 | 依据 |
+|---|---|---|
+| 无定论 + 规则值已等于现状（典型：`unverified` 再测一轮仍无定论） | **不发写请求** | 值未变仍 PATCH 会把 `last_validated` 伪造成一次没有结论的检测，「最近检查」与超龄锚点同时被污染 |
+| 无定论 + 真源现状读不到（`account:check-login` 的 `GET /api/accounts/{id}` 失败） | **不发写请求**，`loginStatus` 回传 `null` | 现状未知时猜 `active` 或抹成 `unverified` 都是臆断；一次 GET 抖动即降级等于给振荡留了第二扇门 |
+| 正向证据 + 现状已是 `active` | **照常回写** | 宽限期锚点必须刷新，否则常青账号会在 7 天后被自己的兜底降级（外部评审建议「值相同一律跳过」不予采纳，理由即此） |
+
+`statusChanged` 表达的因此是「本轮是否改写了真源」，不是「status 字面是否变化」。渲染层 `Accounts.vue` 只跟随 `loginStatus` 更新徽章，`loginStatus` 缺席即保持原样，MUST NOT 再从 `valid` 三元推导状态——那会在展示层把同一条规则绕开一次。
+
+**代价（必须写清）**：会话实际已失效但检测长期拿不到定论的账号，会在宽限期内继续显示「已登录」。
+缓解：明确失效仍立即 `expired`；7 天超龄自动降级；发布链路不读 `status`（已核实仅首页计数与失效横幅消费）。
+
+**已知残余（本轮不修，如实登记）**：`login-status-monitor` 沿用既有约束「结论未变即不回写」，所以 30 分钟定期检测**不会**为持续有效的账号刷新 `last_validated`；锚点只由手动一键检测/单账号验证与实际状态翻转刷新。后果是长期只做定期检测的账号可能在 7 天后被降为 `unverified`，下一轮检测拿到正向证据即恢复 `active`（自愈窗口 ≤30 分钟，且不属于「已失效却显示已登录」的危险方向）。若后续要收口，应给监控加「锚点年龄 > N 小时才补写」的低频刷新，而不是直接去掉 `next === current` 跳过（那会变成每 30 分钟一次的写放大）。
 
 ---
 
@@ -212,7 +268,8 @@ else /* 历史数据缺 status */        → is_active===false ? 'inactive' : 'a
 |------|------|------------|
 | `packages/python-backend/tests/test_server_account_lifecycle.py` | +8 | status 初始化 / 持久化 / 三态回显 / 非法值 400 不污染 / 与 is_active 正交 / legacy 读侧归一化 |
 | `electron/services/webview-manager.test.js` | +2（共 51） | 用 `cookies.get` 提取；session 缺失 fail-loud 且不落空凭证；测试替身暴露 `getAll` 不存在 |
-| `electron/publishers/account-manager.test.js` | +9（共 64） | 三态判定、分区 Cookie 合并、`persistLoginState` 唯一写者、非法 status 不发请求、后端失败可见 |
+| `electron/publishers/account-manager.test.js` | +9（共 64） | 三态判定、分区 Cookie 合并、`persistLoginState` 唯一写者、非法 status 不发请求、后端失败可见；创建路径返回值断言按「携带 active」新口径更新（此前 `toEqual` 锁死了不含 status 的旧事实） |
+| `electron/publishers/account-manager-relogin-status.test.js` | +6（共 8） | 两条路径固化携带 `status=active`+`last_validated`；固化顺序 `POST → 凭证落盘 → PATCH`；凭证落盘失败回滚不出现 active；固化失败（PATCH 非 0）两条路径均如实透传真源原值；`loginVerified:false` 弱证据不发固化请求 |
 | `electron/ipc-handlers/account.test.js` | +7（共 47） | expired 粘滞、unverified 透传、脏值降级派生、无凭证强制 expired、批量三态透传 + 逐账号固化、异常记 unverified、固化失败可见、单账号检测也固化 |
 | `electron/services/login-status-monitor.test.js` | 新建 10 | 读后端真源、写唯一写者、不写 SQLite、三态、无变化不回写、expired 跳过、失败可见、变更才广播 |
 | `electron/publishers/http-login-checker.test.js` | +1 | 视频号 POST body timestamp 每次请求重新求值 |

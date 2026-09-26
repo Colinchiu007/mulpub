@@ -6,6 +6,14 @@
  *   D2 今日头条已登录却显示「已失效」（降级假阴性）
  *   D3 视频号已失效却显示「已登录」（降级假阳性）
  *
+ * D3 的实现方式已被 openspec/changes/fix-login-state-oscillation **有意反转**（勿当改错）：
+ * 当时的做法是「本轮无定论 → 把状态改写成未确认」，结果「没拿到新证据」被当成反证，
+ * 已登录账号每轮检测都在 已登录 ↔ 未确认 之间来回跳。新规则是**单向证据**：
+ * 无定论不改写真源（保持原结论），只有明确失效才 expired，且 active 超过宽限期
+ * （默认 7 天）仍无定论才降级。因此这里同时断言两侧：
+ *   - 已有正向结论 + 本轮无定论 → 必须仍是「已登录」（旧做法会错显未确认）
+ *   - 从未有结论 + 本轮无定论 → 必须仍是「未确认」（不得回到 D3 的假绿灯）
+ *
  * 断言点：
  *   1. 后端 status 三态各自渲染对应徽章（未确认 = 第三态，不复用已登录/已失效样式）
  *   2. 一键检测后：徽章按检测结论更新，且汇总文案区分「失效」与「未确认」
@@ -25,13 +33,19 @@ const OVERRIDE_SOURCE = `
   var BACKEND = [
     { id: 'acc-douyin', platform: 'douyin', name: '抖音视频号', account_name: '抖音-固化回归', status: 'expired', status_source: 'backend', is_active: true, last_validated: '2026-09-22T15:38:27.000Z' },
     { id: 'acc-toutiao', platform: 'toutiao', name: '今日头条号', account_name: '头条-固化回归', status: 'active', status_source: 'backend', is_active: true, last_validated: '2026-09-22T15:38:27.000Z' },
-    { id: 'acc-channels', platform: 'tencent_video', name: '视频号', account_name: '视频号-固化回归', status: 'unverified', status_source: 'backend', is_active: true, last_validated: null },
+    // 已有正向结论（宽限期内刚定论过）+ 本轮无定论 → 必须保持「已登录」
+    { id: 'acc-channels', platform: 'tencent_video', name: '视频号', account_name: '视频号-固化回归', status: 'active', status_source: 'backend', is_active: true, last_validated: new Date(Date.now() - 3600 * 1000).toISOString() },
+    // 从未有结论 + 本轮无定论 → 保持「未确认」，不冒充任何一侧
+    { id: 'acc-fresh', platform: 'baijiahao', name: '百家号', account_name: '百家号-无结论', status: 'unverified', status_source: 'backend', is_active: true, last_validated: null },
   ];
   // 一键检测结论：抖音=失效、头条=有效（修复 D2）、视频号=未确认（修复 D3）
   var CHECK_RESULTS = {
     'acc-douyin': { valid: false, code: 'CHECK_LOGIN_FAILED', loginStatus: 'expired' },
     'acc-toutiao': { valid: true, code: 'CHECK_LOGIN_SUCCESS', loginStatus: 'active' },
-    'acc-channels': { valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', loginStatus: 'unverified' },
+    // 无定论：主进程不改写真源，回传「保持后的原状态」并带 statusChanged=false
+    'acc-channels': { valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', loginStatus: 'active', statusChanged: false },
+    // 写者层判据：现状已是 unverified 且本轮无定论 → 不写真源（statusChanged=false）
+    'acc-fresh': { valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', loginStatus: 'unverified', statusChanged: false },
   };
   function retry(fn, attempts) {
     if (fn()) return;
@@ -108,7 +122,8 @@ async function run(r) {
   // 1. 三态徽章（进入页面即反映后端固化值，不重新推断）
   await record(r, '后端 status=expired → 徽章「已失效」', (await badgeText(r, 'acc-douyin')) === '已失效');
   await record(r, '后端 status=active → 徽章「已登录」（修复 D2）', (await badgeText(r, 'acc-toutiao')) === '已登录');
-  await record(r, '后端 status=unverified → 徽章「未确认」（修复 D3 第三态）', (await badgeText(r, 'acc-channels')) === '未确认');
+  await record(r, '后端 status=active 且宽限期内 → 徽章「已登录」（视频号不再被无定论抹掉）', (await badgeText(r, 'acc-channels')) === '已登录');
+  await record(r, '后端 status=unverified（从未有结论）→ 徽章「未确认」（修复 D3 第三态）', (await badgeText(r, 'acc-fresh')) === '未确认');
   await r.screenshot('01-tristate-from-backend');
 
   // 2. 一键检测
@@ -118,14 +133,15 @@ async function run(r) {
     await r.page.waitForFunction(() => !document.querySelector('[data-testid="batch-check-overlay"]'), null, { timeout: 25000 });
   } catch (e) { /* 遮罩未消失由后续断言暴露 */ }
   await record(r, '检测后：头条号仍为「已登录」', (await badgeText(r, 'acc-toutiao')) === '已登录');
-  await record(r, '检测后：视频号降级为「未确认」而非「已登录」', (await badgeText(r, 'acc-channels')) === '未确认');
+  await record(r, '检测后：视频号本轮无定论 → 仍保持「已登录」（单向证据规则，不再振荡）', (await badgeText(r, 'acc-channels')) === '已登录');
+  await record(r, '检测后：从未有结论的百家号仍「未确认」（不得回到 D3 假绿灯）', (await badgeText(r, 'acc-fresh')) === '未确认');
   await record(r, '检测后：抖音号为「已失效」', (await badgeText(r, 'acc-douyin')) === '已失效');
   await r.screenshot('02-after-batch-check');
 
-  // 3. 汇总文案区分失效与未确认
+  // 3. 汇总文案区分「失效」与「本轮未取到定论（保持原状态）」
   const toastText = await r.page.locator('body').innerText();
-  await record(r, '汇总文案含「1 个失效」与「1 个未确认」',
-    /1\s*个失效/.test(toastText) && /1\s*个未确认/.test(toastText),
+  await record(r, '汇总文案含「1 个失效」与「2 个未取到定论（保持原状态）」',
+    /1\s*个失效/.test(toastText) && /2\s*个未取到定论（保持原状态）/.test(toastText),
     { matched: /检测完成[^\n]*/.exec(toastText)?.[0] || null });
 
   // 4. 单一写者：渲染层不得再自行写 Electron SQLite
@@ -136,9 +152,10 @@ async function run(r) {
   await record(r, '渲染层零次 accountUpdate（登录态唯一写者=主进程）',
     writerStats.updateCalls === 0 && writerStats.batchCalls === 1, writerStats);
 
-  // 5. 未确认账号不被当作失效（无「登录」按钮）
+  // 5. 未确认账号不被当作失效（无「登录」按钮）—— 用从未有结论的百家号验证，
+  // 视频号此时是「已登录」，不再承担这一语义。
   await record(r, '未确认账号不提供「登录」入口（不计入 checkedExpiredIds）',
-    (await r.page.locator('[data-testid="login-acc-channels"]').count()) === 0);
+    (await r.page.locator('[data-testid="login-acc-fresh"]').count()) === 0);
 
   // 6. D1 回归：退出账号页再进入，显示仍为固化值
   await r.resetToRoute('/accounts');
@@ -146,8 +163,8 @@ async function run(r) {
     (await badgeText(r, 'acc-douyin')) === '已失效');
   await record(r, '重进账号页：头条号仍显示「已登录」',
     (await badgeText(r, 'acc-toutiao')) === '已登录');
-  await record(r, '重进账号页：视频号仍显示「未确认」',
-    (await badgeText(r, 'acc-channels')) === '未确认');
+  await record(r, '重进账号页：视频号仍显示「已登录」（无定论不改写真源）',
+    (await badgeText(r, 'acc-channels')) === '已登录');
   await r.screenshot('03-reentered-accounts');
 
   await record(r, '无 console error', (r.consoleErrors || []).length === 0,

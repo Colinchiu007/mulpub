@@ -68,19 +68,21 @@ const { isNoiseAccountName } = require('@multi-publish/shared-utils/src/account-
  * @param {object} page
  * @param {string|null} successSelector
  * @param {number} fallbackMs
- * @returns {Promise<void>}
+ * @returns {Promise<boolean>} 成功选择器是否命中（无选择器或未命中为 false）
  */
 async function smartWait (page, successSelector, fallbackMs = 3000) {
   if (successSelector) {
     try {
       await page.waitForSelector(successSelector, { timeout: fallbackMs })
+      return true
     } catch {
       // Selector not found — just wait a bit
       await new Promise(r => setTimeout(r, fallbackMs))
+      return false
     }
-  } else {
-    await new Promise(r => setTimeout(r, fallbackMs))
   }
+  await new Promise(r => setTimeout(r, fallbackMs))
+  return false
 }
 
 /**
@@ -116,10 +118,14 @@ async function captureCookies (platform, timeout = 300000) {
 
     // 如果是公众号，先检查是否已经有登录态
     let loggedIn = false
+    // 证据分级：选择器命中 = 正向；仅「URL host 离开登录页」= 弱证据（没登录却导航到
+    // 别的域名同样满足），弱证据不得据此固化 active。
+    let positiveEvidence = false
     if (successSelector) {
       try {
         await page.waitForSelector(successSelector, { timeout: 5000 })
         loggedIn = true
+        positiveEvidence = true
         log.info('AccountManager', ` ${platformName} 已登录，直接捕获 Cookie`)
       } catch {
         log.info('AccountManager', ` 等待用户在 ${platformName} 登录...`)
@@ -137,6 +143,7 @@ async function captureCookies (platform, timeout = 300000) {
           if (successSelector) {
             try {
               await page.waitForSelector(successSelector, { timeout })
+              positiveEvidence = true
               return true
             } catch {
               return false
@@ -163,8 +170,8 @@ async function captureCookies (platform, timeout = 300000) {
         throw new Error(`${platformName} 登录超时（${Math.round(timeout / 1000 / 60)} 分钟）`)
       }
 
-      // 额外等待页面稳定
-      await smartWait(page, successSelector, 3000)
+      // 额外等待页面稳定（命中选择器同样算正向证据）
+      if (await smartWait(page, successSelector, 3000)) positiveEvidence = true
     }
 
     // 获取所有 Cookie
@@ -203,7 +210,7 @@ async function captureCookies (platform, timeout = 300000) {
         accountInfo = await extractAccountInfo(page, platform)
     } catch { /* ignore account info errors */ }
 
-    return { cookies, name: accountName, localStorage: localStorageData, accountInfo }
+    return { cookies, name: accountName, localStorage: localStorageData, accountInfo, loginVerified: loggedIn || positiveEvidence }
   } finally {
     // 关闭页面，但保留浏览器上下文（其他页面可能还在用）
     await page.close().catch(() => {})
@@ -217,14 +224,14 @@ async function captureCookies (platform, timeout = 300000) {
  */
 async function addAccount (platform, options = {}) {
   const ownerSubject = resolveOwnerSubject(options.ownerSubject)
-  const { cookies, name, localStorage: localStorageData, accountInfo } = await captureCookies(platform)
+  const { cookies, name, localStorage: localStorageData, accountInfo, loginVerified } = await captureCookies(platform)
 
   return saveCapturedAccount(platform, {
     cookies,
     name,
     localStorage: localStorageData,
     accountInfo,
-  }, { ownerSubject })
+  }, { ownerSubject, loginVerified })
 }
 
 /**
@@ -304,6 +311,21 @@ async function saveCapturedAccount (platform, captured, options = {}) {
     throw new Error('加密凭证保存失败，账号创建已回滚')
   }
   log.info('AccountManager', `Saved credential store for account ${accountId}`)
+  // 凭证已成功落盘 = 一次成功的主动登录，必须固化 status=active + last_validated，否则后端
+  // create_account 的默认 unverified 会让新账号显示「未确认」直到手动再检测（与
+  // updateCapturedAccount 同一契约；顺序不可颠倒，见上一条回滚分支）。
+  // loginVerified=false = 只有弱证据（account:add 仅 URL 变了、选择器未命中）：保持 unverified。
+  const loginVerified = options.loginVerified !== false
+  const validatedAt = new Date().toISOString()
+  let persisted = { ok: false }
+  if (!loginVerified) {
+    log.info('AccountManager', `新建账号登录证据不足（仅 URL 变化/无选择器命中），不固化登录态: ${platform}:${accountId}`)
+  } else {
+    persisted = await persistLoginState(accountId, platform, 'active', validatedAt)
+    if (!persisted.ok) {
+      log.warn('AccountManager', `新建账号登录态固化失败: ${platform}:${accountId} reason=${persisted.reason || 'unknown'} — 凭证可用但登录态未回写，需重新检测`)
+    }
+  }
 
   // 状态记录仅含公开元数据，用于列表恢复和删除清理。
   try {
@@ -324,7 +346,8 @@ async function saveCapturedAccount (platform, captured, options = {}) {
   }
 
   log.info('AccountManager', ` 账号添加成功: ${name} (${platform})`)
-  return result.data
+  // 只在真源确实写成功后才叠加 active，保持 IPC 返回与真源一致（可见状态由真源决定）
+  return persisted.ok ? { ...result.data, status: 'active', last_validated: validatedAt } : result.data
 }
 
 /**
@@ -1032,13 +1055,6 @@ function mergeCookies (primary, extra) {
   return merged
 }
 
-/** 三态检测结果 → 持久化 status 的唯一映射（禁止各处自行三元判断造成口径漂移）。 */
-function loginStatusFromCheckResult (result) {
-  if (result && result.valid === true) return 'active'
-  if (result && result.valid === false) return 'expired'
-  return 'unverified'
-}
-
 /**
  * 固化登录态到唯一真源（后端 accounts.json 的 status 字段）。
  *
@@ -1199,21 +1215,25 @@ async function updateCapturedAccount (platform, captured, accountId) {
   // 失效」（今日头条）。顺序不可颠倒：凭证未落盘时不允许把真源置为 active
   // （防半成功状态）。
   const profilePatch = profileUtils.buildProfilePatch(accountInfo, account)
+  // PATCH 体与返回值复用同一 validatedAt：两处各取 new Date() 会相差一个网络往返，排障对不上
+  const validatedAt = new Date().toISOString()
+  let metaResult = null
   try {
-    const metaResult = await pythonBridge.requestBackend('PATCH', '/api/accounts/' + accountId, {
+    metaResult = await pythonBridge.requestBackend('PATCH', '/api/accounts/' + accountId, {
       name,
       ...profilePatch,
       status: 'active',
-      last_validated: new Date().toISOString(),
+      last_validated: validatedAt,
     })
-    if (metaResult.code !== 0) {
+    if (!metaResult || metaResult.code !== 0) {
       // 凭证已落盘但元数据/登录态没写回真源 = 半成功，必须显式暴露（历史上这里
       // 因 AccountUpdateRequest 拒绝 status 字段而持续 422，只留一行无信息日志）。
-      log.warn('AccountManager', '更新后端账号元数据失败: ' + accountId + ' code=' + metaResult.code + ' message=' + (metaResult.message || ''))
+      log.warn('AccountManager', '更新后端账号元数据失败: ' + accountId + ' code=' + (metaResult && metaResult.code) + ' message=' + ((metaResult && metaResult.message) || ''))
     }
   } catch (e) {
     log.warn('AccountManager', '更新后端账号元数据异常: ' + e.message)
   }
+  const metaPersisted = Boolean(metaResult && metaResult.code === 0)
 
   // 更新本地状态记录
   try {
@@ -1235,8 +1255,10 @@ async function updateCapturedAccount (platform, captured, accountId) {
 
   log.info('AccountManager', '账号凭证已更新: ' + name + ' (' + platform + ', ' + accountId + ')')
   // 返回值以真源为底再叠加本次实际下发的资料字段：提取失败时调用方拿到的仍是旧昵称/旧头像，
-  // 而不是空串（否则渲染层会把「没取到」显示成「已被清空」）。
-  return { ...account, ...profilePatch, name, status: 'active', last_validated: new Date().toISOString() }
+  // 而不是空串（否则渲染层会把「没取到」显示成「已被清空」）。登录态同理：只有真源写成功才声称 active
+  return metaPersisted
+    ? { ...account, ...profilePatch, name, status: 'active', last_validated: validatedAt }
+    : { ...account, ...profilePatch, name }
 }
 
 module.exports = {
@@ -1263,7 +1285,6 @@ module.exports = {
   checkLocalCredentials,
   getAccountPartitionCookies,
   mergeCookies,
-  loginStatusFromCheckResult,
   persistLoginState,
   setAccountActive,
   renameAccount,

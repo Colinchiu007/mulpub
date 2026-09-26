@@ -1136,6 +1136,27 @@ var require_knowledge_library = __commonJS({
   }
 });
 
+// electron/preload/signer.js
+var require_signer = __commonJS({
+  "electron/preload/signer.js"(exports2, module2) {
+    "use strict";
+    var BROWSER_COMMAND_SUFFIX = "-browser";
+    function createSignerApi2(ipcRenderer2) {
+      return {
+        signerInvoke: async (command, payload) => {
+          if (typeof command !== "string" || !command.endsWith(BROWSER_COMMAND_SUFFIX)) {
+            return { code: -2, message: "signerInvoke: only *-browser signer commands are exposed" };
+          }
+          return ipcRenderer2.invoke("signer:invoke", { command, payload: payload || {} });
+        },
+        signerStatus: (platform) => ipcRenderer2.invoke("signer:status", { platform }),
+        signerPrewarm: (platform, sessionKey) => ipcRenderer2.invoke("signer:prewarm", { platform, sessionKey })
+      };
+    }
+    module2.exports = { createSignerApi: createSignerApi2, BROWSER_COMMAND_SUFFIX };
+  }
+});
+
 // electron/preload/access-control.js
 var require_access_control = __commonJS({
   "electron/preload/access-control.js"(exports2, module2) {
@@ -1395,6 +1416,7 @@ var { createAggregationApi } = require_aggregation();
 var { createHotTopicsApi } = require_hot_topics();
 var { createAutoPipelineApi } = require_auto_pipeline();
 var { createKnowledgeLibraryApi } = require_knowledge_library();
+var { createSignerApi } = require_signer();
 var {
   ADMIN_ONLY_METHODS,
   PUBLIC_METHODS,
@@ -1442,6 +1464,8 @@ var fullApi = {
   ...createHotTopicsApi(ipcRenderer),
   ...createAutoPipelineApi(ipcRenderer),
   ...createKnowledgeLibraryApi(ipcRenderer),
+  // 签名页桥（W3 task 2.4，authenticated）：仅白名单 command，无任何任意 JS 求值通道
+  ...createSignerApi(ipcRenderer),
   // P2 限流自检（authenticated，默认受限）
   rateLimitSelfCheck: (params) => ipcRenderer.invoke("rate-limit:self-check", params),
   rateLimitReport: (payload) => ipcRenderer.invoke("rate-limit:report", payload)

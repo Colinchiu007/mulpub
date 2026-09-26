@@ -27,19 +27,17 @@ describe("KuaishouAdapter AI 内容声明", () => {
     expect(adapter.buildPostData({ title: "t", aiGenerated: 1 }).ai_generated).toBe(1)
   })
 
-  it("保留原有字段", () => {
+  // W3 §5.3 变薄委托后形态：快手无独立标题字段，title/content/tags 合并进 caption（与 DOM RPA _composeEditorCaption 一致）；
+  // ai_generated 语义平移保持不变。
+  it("标题/正文/话题合并进 caption（平台字段映射）", () => {
     const data = adapter.buildPostData({ title: "完整", content: "内容", tags: ["科技"], aiGenerated: false })
-    expect(data.title).toBe("完整")
-    expect(data.content).toBe("内容")
-    expect(data.tags).toEqual(["科技"])
+    expect(data.caption).toBe("完整\n内容\n#科技")
     expect(data.ai_generated).toBe(0)
   })
 
-  it("空数据仍默认 AI 生成", () => {
+  it("空数据仍默认 AI 生成，caption 为空串", () => {
     const data = adapter.buildPostData({})
     expect(data.ai_generated).toBe(1)
-    expect(data.title).toBe("")
-    expect(data.content).toBe("")
-    expect(data.tags).toEqual([])
+    expect(data.caption).toBe("")
   })
 })

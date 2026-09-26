@@ -1,4 +1,9 @@
 export default {
+  signer: {
+    pageNotReady: '签名服务未就绪，请稍后重试或重新登录对应账号',
+    loginExpired: '该账号登录已失效，请重新登录后再试',
+    degraded: '签名服务暂时降级，部分发布可能失败，请稍候自动恢复或重试',
+  },
   tabs: {
     newTabTitle: '新标签页',
     newTabAria: '新建标签页',
@@ -1406,7 +1411,8 @@ export default {
     batchCheckAllCurrent: (ctx) => '正在检测：' + ctx.named('platforms'),
     batchCheckAllElapsed: (ctx) => '已耗时 ' + ctx.named('seconds') + ' 秒',
     batchCheckAllStarted: (ctx) => '开始检测 ' + ctx.named('count') + ' 个账号的登录状态…',
-    batchCheckAllDone: (ctx) => '检测完成：' + ctx.named('valid') + ' 个正常，' + ctx.named('invalid') + ' 个失效' + (Number(ctx.named('unconfirmed')) > 0 ? '，' + ctx.named('unconfirmed') + ' 个未确认' : ''),
+    loginUnconfirmed: '未能确认 {platform} 的登录状态：本轮检测未取到定论，登录状态保持不变',
+    batchCheckAllDone: (ctx) => '检测完成：' + ctx.named('valid') + ' 个正常，' + ctx.named('invalid') + ' 个失效' + (Number(ctx.named('unconfirmed')) > 0 ? '，' + ctx.named('unconfirmed') + ' 个未取到定论（保持原状态）' : ''),
     batchCheckAllAllValid: (ctx) => '检测完成：' + ctx.named('count') + ' 个账号登录状态全部正常',
     batchCheckAllPersistFailed: (ctx) => '检测完成，但有 ' + ctx.named('count') + ' 个账号的登录状态未能保存到服务端，请重试或检查后端服务',
     persistFailedTitle: (ctx) => '登录态固化失败（' + ctx.named('count') + ' 个账号）',
