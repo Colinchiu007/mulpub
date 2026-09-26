@@ -38,6 +38,35 @@ CCG 双模型外部评审本机不可用（无 `.ccg/config.toml`、`codeagent-w
 - 存量行的 `name_source` 一律归为 `auto`，历史上若有人用其它途径（非本通道）写过用户命名，仍会被过滤。实测本机 7 条不存在此情况（`account_name` 与 `name` 均为抓取值）。
 - SQLite 侧未加 `name_source` 列：依 1.2 核实，SQLite 非读源（就绪门禁只取 `_store._ready`），改名改走后其 `name` 成为无消费者的陈旧副本。若将来 SQLite 被提升为读源，必须回补该列（tasks 4.5 已登记）。
 - 不提供「恢复自动获取」的反向操作：改名即 `manual`，无 UI 出口回退，留待后续 change。
+# [未发布] test(visual): accounts-list 基线改由 CI 产物重捕，消除 3.66% 环境噪声（2026-09-26，fix-visual-baseline-accounts-list）
+
+### 变更
+- **`apps/desktop/tests/visual-testing/base-screenshots/accounts-list.png`**：整图替换为 CI 产物（run `36213551939`，head `c1b0bf27`，artifact `quality-gate-visual-reports` 内 `screenshots/accounts-list-current.png`）。尺寸不变（1920x1080），sha256 由 `c9447bc0c62ef316` 变为 `d7c00326528ed2b5`。
+- **`AGENTS.md` QM-4 新增第 7 条（MUST）**：基线必须与比对环境同源——CI 用 `windows-latest` + CI 的 Chromium/字体渲染比对，故基线只能取自 CI 产物，禁止把本地 `test:visual:update-baseline` 的截图入库；并要求换基线后自证「新基线 vs 同次 CI 渲染 = 0 px」+ 分区统计差异归属。
+
+### 根因（实测，非推测）
+旧基线是在**本地机器**上捕获入库的，与 CI 渲染存在全局文字亚像素重影。用与仓库比对器同口径（`pngjs` + `pixelmatch`，`threshold 0.1 / includeAA false`）复算：
+
+| 对比 | 差异 |
+| --- | --- |
+| committed 基线 vs CI(main) 渲染 | **3.659%**（75877 px） |
+| CI(main, `c1b0bf27`) vs CI(另一分支) 渲染 | **0 px / 0.0000%** |
+
+两次不同分支的 CI run 渲染**逐字节一致**，证明 CI 是确定性的；3.659% 全部来自基线来源环境不同。分区拆解旧基线 vs CI：工具栏（本次账号页改动的真实归属）只占总画面 0.91%，顶栏/卡片区/侧边栏的文字重影合计约 9.6%——即**约 91% 的差异是环境噪声，不是代码变化**。
+
+而 `PIXEL_THRESHOLD=0.06` 是**全页**容差，噪声长期占掉 3.66% 后，门禁对这个视图只剩 2.34pp 余量，对局部条带回归近乎失明。这解释了为什么账号页工具栏「逐字竖排」缺陷（#2400 修复）能长期带着绿灯通过 QG Visual。
+
+### 影响
+- 新基线与 CI 渲染精确一致（自证 0 px），**6% 阈值余量全部还给门禁**：此后任何真实回归都要靠自己的像素变化量去撞阈值，而不再是被噪声稀释。
+- 基线内容同时修正为**修复后**的正确渲染（工具栏「全部/已登录/未登录/收藏」横排、统计文字单行、两个筛选下拉省略号收口），不再把 #2400 之前的缺陷当参照物。
+- 未改动比对器与阈值（保持 `PIXEL_THRESHOLD=0.06`）：本次只消除噪声来源，不放宽也不收紧判定口径，避免影响其他 17 个视图。
+
+### 测试
+- 自证：新基线 vs 同次 CI 渲染 = **0 px / 0.0000%**。
+- 口径一致性：本地复算 committed 基线 vs CI = 3.6592%，与 CI 自己报告的 3.659% 精确到三位小数吻合，证明本地 pngjs+pixelmatch 管线与 CI 同口径、可用于基线工作。
+- 尺寸守卫：新旧基线均 1920x1080，不会触发 `pixel-diff.js` 的「尺寸不一致 → misMatch=100% / passed=false」分支。
+- 人工审核：已按 QM-4 规则 4 查看 diff 图与新基线内容（见 PR 附图）。
+- 局限：本机无 Playwright 浏览器，无法跑 `test:visual:pixel` 全量；最终确认以本 PR 的 QG Visual 结果为准（预期 accounts-list 从 3.66% 降到 ~0%）。
 # [未发布] test(desktop): Windows 文件锁夹具三份抄本合并为共享 helper，修掉无界握手导致的 60s 超时（2026-09-26，credential-lock-handshake-flake）
 
 ### 现象与根因
