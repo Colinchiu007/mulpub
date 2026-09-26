@@ -235,6 +235,21 @@ async function addAccount (platform, options = {}) {
 }
 
 /**
+ * 解析账号显示名。`captured.name` 来自 auth-view-manager 的 `document.title`，
+ * 它既是 POST/PATCH 直接写进真源 `name` 字段的值，又是 `profileForCreate` 的昵称兜底 ——
+ * 不在这唯一一处入口过噪声守卫，等于给「网页标题冒充账号名」留一条绕过口
+ * （2026-09-26 生产库的「小红书创作服务平台 / 快手创作者服务平台 / 抖音创作者中心」即此路径产物）。
+ * 命中噪声一律回落平台名；判定与卡片展示端、采集写回端共用 account-name-guard 单一来源。
+ * @param {unknown} rawName
+ * @param {string} platform
+ * @returns {string}
+ */
+function resolveAccountDisplayName (rawName, platform) {
+  const trimmed = typeof rawName === 'string' ? rawName.trim() : ''
+  return trimmed && !isNoiseAccountName(trimmed) ? trimmed : getPlatformName(platform)
+}
+
+/**
  * 保存已由浏览器或扫码流程捕获的账号凭证。
  * 凭证只在主进程流转，渲染进程只接收后端返回的脱敏账号信息。
  * @param {string} platform
@@ -258,9 +273,7 @@ async function saveCapturedAccount (platform, captured, options = {}) {
   if (cookies.length === 0 && Object.keys(localStorageData).length === 0 && Object.keys(indexedDB).length === 0) {
     throw new Error('未捕获到有效登录凭证')
   }
-  const name = typeof source.name === 'string' && source.name.trim()
-    ? source.name.trim()
-    : getPlatformName(platform)
+  const name = resolveAccountDisplayName(source.name, platform)
   const accountInfo = source.accountInfo && typeof source.accountInfo === 'object' && !Array.isArray(source.accountInfo)
     ? source.accountInfo
     : {}
@@ -1124,9 +1137,7 @@ async function updateCapturedAccount (platform, captured, accountId) {
   if (cookies.length === 0 && Object.keys(localStorageData).length === 0 && Object.keys(indexedDB).length === 0) {
     throw new Error('未捕获到有效登录凭证')
   }
-  const name = typeof source.name === 'string' && source.name.trim()
-    ? source.name.trim()
-    : getPlatformName(platform)
+  const name = resolveAccountDisplayName(source.name, platform)
   const accountInfo = source.accountInfo && typeof source.accountInfo === 'object' && !Array.isArray(source.accountInfo)
     ? source.accountInfo
     : {}
