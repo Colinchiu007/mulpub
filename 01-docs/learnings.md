@@ -15893,6 +15893,13 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **可迁移信号**：修 A 路径的同类 Bug 时先问「B 路径呢」。兄弟函数（create vs update、导入 vs 手填、种子 vs 运行时）几乎总会漏掉一边，而漏掉的通常是**新数据入口**——它的症状不是「老功能坏了」，而是「所有新建的一上线就坏」，因此极易被误读成设计如此而长期放过。
 - **顺带挖出的第二条缺陷（跨模型评审贡献）**：`captureCookies` 的登录判据是 `Promise.race([选择器命中, URL host 离开登录页])` —— 后者是**弱证据**：用户没登录、只是导航到了别的域名也会赢。补齐创建路径的固化后，这条弱证据会直接把「其实没登录」的账号标成已登录，比修复前更糟。因此固化登录态时必须问「凭证从哪来、证据强度够不够」，弱证据入口（`account:add` / 首次运行引导）传 `loginVerified:false` 保持 `unverified`。启示：修「显示不出已登录」时，同一个写入动作会把上游所有证据不足的入口一起放大成假阳性——写侧越主动，读侧越要证据。
 
+## CI 单测失败先做「改动范围归因 + 同内容多 run」双判再动手——scheduler-parity 时序 flake（api-publish-w3 PR #2413，2026-09-26）
+
+- **现象**：PR #2413（签名页基建）QG Unit Tests 的 Gate 4 失败，唯一红测是 `electron/tests/test_scheduler_parity.test.js`「concurrency-real 场景 total_duration_ms 对拍」——本 PR diff 完全没碰 scheduler/parity 任何文件。本地单跑该文件 2 测全绿（77s），据此判定为共享 runner 负载下的时序 flaky，`gh run rerun --failed` 后转绿。
+- **判定手法（pattern）**：CI 单测红的归因三步——① `git diff --stat origin/main...HEAD -- '*关键词*'` 确认失败文件是否在本 PR 改动面内；② 本地以同命令单跑该测试文件复现（绿 = 强烈 flaky 信号）；③ 查同内容/邻近内容历史 run 的 pass/fail 反复记录（沿用 learnings「E2E 抖动以同内容多 run + 失败点判断」纪律，扩大到 Gate 4）。三步都不指向本 PR 才 rerun，禁止无归因直接 rerun 掩盖真回归。
+- **注意区分**：quality-gate run 里 `QG Unit Tests`（Gate 4 全量 workspace 单测）与 `QG Desktop Shards (1/2)/(2/2)` 是**并行独立 job**——单个 job 失败不代表 desktop 面全挂，读 jobs 逐步 conclusion 定位，别按 run 级 conclusion 粗判。
+- **拉 CI 日志的 Windows 绕行（pitfall）**：`gh api .../logs` 响应含终端转义序列会被 gh 新版安全策略拦截（"pass --allow-escape-sequences to output it anyway"）；PowerShell `>` 重定向会把 stdout 落为 UTF-16LE。可`gh api "repos/:owner/:repo/actions/jobs/<id>/logs" --allow-escape-sequences > file` 后按 UTF-16LE 探测读取；`--jq` 表达式含 `[]`/`|` 会被 PowerShell 撕碎参数，改 `--json X > file` + Node 脚本解析（按 BOM 判 utf16le/utf8）。
+- **预防（待排期，未在本 PR 做）**：parity 类「真实时钟对拍」测试天然在共享 runner 不稳定——后续应给 duration 比对加相对容差或在模拟器/ governor 双侧改虚拟时钟；登记前该文件失败按本条三步归因。
 
 ## 一个绝对容差不能服务跨量级用例：对拍类测试的容差必须由「预测值」按比例驱动（parity-tolerance-scale，2026-09-26）
 
