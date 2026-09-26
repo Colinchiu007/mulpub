@@ -7361,59 +7361,133 @@ listAccounts → pythonBackend GET /api/accounts → toPublicAccount
 > **详细设计文档**：`01-docs/FEATURE-APP-MENU-2026-09-15.md`
 > （含完整数据模型、API 契约、逐条校验规则、业务流程、交互逻辑、显示项、全部提示文字、验收标准、测试覆盖）
 >
-> **版本** v1.0 · **日期** 2026-09-15 · **状态** 已实现
+> **版本** v1.2 · **日期** 2026-09-15 · **最近更新** 2026-09-25（跨端同步收敛，见本节「目录供给」与「生效时机」）
+> · **状态** 已实现 · 规格承载 `openspec/changes/app-menu-sync-convergence/`
 
 ### 目标
 
-在运营中心新增入口「应用菜单」，管理应用端（桌面端）左侧边栏菜单项的**显示 / 隐藏**与**组内排序**。
-其中「发布、账号、采集、视频创作」为系统核心入口，**强制显示**（运营端开关灰显不可关闭）。
-应用端左侧边栏按运营中心设置的顺序渲染。
+在运营中心提供入口「应用菜单」，管理应用端（桌面端）左侧边栏菜单项的**显示 / 隐藏**、**组内排序**与
+**跨组移动（一级导航 ↔ 更多）**。
+其中「发布、账号、采集、视频创作」为系统核心入口，**强制显示且锁定在一级导航**（运营端开关灰显不可关闭、不可拖出）。
+应用端左侧边栏按运营中心设置的顺序与分组渲染。
 
-### 菜单目录（19 项，key 为跨端唯一契约）
+### 菜单目录（20 项，key 为跨端唯一契约）
 
-| 分组 | 菜单项 |
+真源两处，必须同序同名：桌面端 `apps/desktop/src/config/route-registry.js` 的 `SIDEBAR_MENU_KEY_ORDER`
++ 各项 `navEntry.group`；运营中心 `ops-center/backend/services/app_menu_service.py` 的 `CATALOG`。
+
+| 分组 | 菜单项（按目录顺序） |
 |------|--------|
-| 一级导航 `primary` | `home` 主页、`publish` 发布（强制）、`accounts` 账号（强制）、`dashboard` 数据、`create` 视频创作（强制）、`collection` 采集（强制） |
-| 更多菜单 `more` | `monitor` 监控、`calendar` 发布日历、`comments` 私信评论、`cloud-publish` CLI、`library` 素材库、`keywords` 关键词监控、`viral` 爆款分析、`prompt-eval` 提示词评估、`rewrite` 文案改写、`hot-topics` 热门选题、`model-providers` 模型提供商、`knowledge-base` 知识库、`performance-insights` 数据洞察、`member-center` 会员中心 |
+| 一级导航 `primary` | `home` 主页、`publish` 发布（强制）、`accounts` 账号（强制）、`dashboard` 数据、`create` 视频创作（强制）、`collection` 采集（强制）、`copy-library` 文案库、`rewrite` 文案改写 |
+| 更多菜单 `more` | `calendar` 发布日历、`comments` 私信评论、`cloud-publish` CLI、`library` 素材库、`keywords` 关键词监控、`viral` 爆款分析、`prompt-eval` 提示词评估、`hot-topics` 热门选题、`model-providers` 模型提供商、`knowledge-base` 知识库、`performance-insights` 数据洞察、`member-center` 会员中心 |
+
+> 目录演进：#1840 移除 `monitor`（分屏监控），20 → 19；2026-09-15 `rewrite` more → primary；
+> 2026-09-19 新增 `copy-library`，19 → 20。`key` 一旦发布不得改名（改名 = 旧配置失效）。
 
 ### 核心结论卡片
 
 | 项目 | 内容 |
 |------|------|
-| 新增数据表 | `app_menu_items`（ops-center SQLite，11 个字段，`item_key` 唯一） |
-| 新增 API | `GET /api/v1/app-menu`、`PUT /api/v1/app-menu`、`POST /api/v1/app-menu/reset` |
-| 下发通道 | 复用 `GET /api/v1/runtime/bootstrap`，新增 `appMenu` 字段（**在 Ed25519 签名覆盖范围内**） |
+| 数据表 | `app_menu_items`（ops-center SQLite，11 个字段，`item_key` 唯一） |
+| 管理 API | `GET /api/v1/app-menu`、`PUT /api/v1/app-menu`、`POST /api/v1/app-menu/reset` |
+| 下发通道 | 复用 `GET /api/v1/runtime/bootstrap` 的 `appMenu` 字段（**在 Ed25519 签名覆盖范围内**） |
 | 应用端读取 | IPC `ops-center-sync:appMenu` → `resolveSidebarMenu()` 合并 → 侧边栏渲染 |
 | 权限 | 读需登录；写需管理员（非 admin → 403） |
 | 强制项保护 | **三层**：UI 开关灰显 / 服务端强制纠正 + `corrections` 留痕 / 应用端渲染层无条件可见 |
 | 失败降级 | **fail-open**：未下发或结构非法 → 全部可见 + 默认顺序（绝不阻塞导航） |
-| 生效时机 | 桌面端启动 3s 后自动同步；运营修改后需重新同步或重启（无实时推送） |
+| 目录供给 | `_provision_from_catalog`：读取/写入/下发前按 `CATALOG` **增量补齐**缺失行，**只补不改**已有行 |
+| 同步拓扑 | 模型目录与运行时策略**并行且互不门控**（`Promise.allSettled`），整体超时预算保持单请求 10s |
+| 生效时机 | 应用端**只在启动时同步一次**：运营端改动在客户端**下次启动**生效；那次启动同步完成后广播 `ops-center:runtime-updated` 并即时刷新侧边栏，用户无需操作、也不需要二次重启。**应用端不暴露任何同步入口**（运营同步对用户透明），亦无服务端主动推送 |
 
 ### 数据校验要点
 
 | 位置 | 规则 | 失败处理 |
 |------|------|----------|
 | 运营端写入 | `items` 必须为数组、≤200 项、条目必须为对象、`item_key` 非空且存在于目录、同批不重复 | **400 fail-closed**，整批不写入 |
+| 运营端写入 | `group` 取值 | 仅允许 `primary` / `more`，未知分组 **400 fail-closed** |
 | 运营端写入 | `sort_order` 为空/非数字/负数 | **保留原值**（不归零），避免误改排序 |
+| 运营端写入 | `sort_order` 上限 | >9999 截断为 9999 |
 | 运营端写入 | `visible` 白名单为真（`true`/`1`/`"1"`/`"true"`） | 其余一律视为隐藏 |
 | 运营端写入 | 强制项提交 `visible=false` | 200 + **强制纠正为可见** + 记入 `corrections` |
+| 运营端写入 | 强制项被拖入 `more` | 200 + **纠正回 `primary`** + 记入 `corrections` |
+| 目录供给 | 表非空但缺目录项 | 自动补行（`visible=1` / 目录序号 / 目录分组），**已有行字段一律不动** |
+| 目录供给 | DB 中存在不在目录内的历史脏 key | 保留在表中，但**不下发**（出口 fail-closed） |
+| 下发兜底 | 某目录项在 DB 无行 | `visible=true`、`group` 取目录值、**`sort_order` 取目录序号（不是 0）** |
 | 应用端主进程 | 结构非法 / >200 项 | 返回 `null`（渲染端 fail-open） |
 | 应用端主进程 | `__proto__` / `constructor` / `prototype` key | 丢弃该条 |
-| 应用端渲染 | 强制项 | 无视下发值，**永远可见** |
+| 应用端主进程 | `group` 非白名单原文（含大小写变体/缺失） | 归一化为 `null`，渲染端按本地定义分组兜底 |
+| 应用端渲染 | 强制项 | 无视下发值，**永远可见**且**永远留在一级导航** |
 | 应用端渲染 | 下发里本地不存在的 key | 静默忽略（不新增菜单项） |
-| 应用端渲染 | 本地有、下发无 | 可见 + 排在该组已配置项之后 |
+| 应用端渲染 | 本地有、下发无 | 可见 + 按本地定义位置 |
+| 应用端渲染 | 已有生效配置后重拉失败 | **保留上一份配置**，不瞬时坍回本地默认 |
 
-### 排序语义
+### 流程
 
-- **组内排序**：`primary` 与 `more` 两组各自独立排序（UI 结构为平铺导航 + 折叠面板，无法跨组穿插）。
-- 比较器：`sort_order` 升序 → 相同按定义顺序 → 无值排在最后并保持定义顺序。
-- 运营端点击 ↑↓ 后，该组 `sort_order` 归一化为 `0..n-1`。
+```
+运营侧：打开页面 → GET（先按目录补齐缺失行）→ 拖动/切换 → PUT（整批原子）
+        → 服务端校验 + 强制项纠正 → 落库 → 返回全量列表 + corrections
+下发侧：客户端启动后 3s（唯一自动同步时机；应用端无手动入口）
+        → 并行 GET catalog + GET runtime/bootstrap
+        → bootstrap 分支：验签 → normalizeAppMenu → 落 settings.opsCenterRuntime
+                          → 广播 ops-center:runtime-updated
+        → catalog   分支：applyCatalog → 更新 lastSyncedAt
+渲染侧：MpSidebar onMounted 拉取 + 订阅变更事件重拉 → resolveSidebarMenu 合并 → 渲染
+        onUnmounted 成对取消订阅
+```
+
+### 排序与分组语义
+
+- **组内独立排序**：`primary` 与 `more` 各按 `sort_order` 升序；比较器为
+  `sort_order` 升序 → 相同则按本地定义顺序 → 无值者排最后并保持定义顺序。
+- **跨组移动**：`group` 是下发契约字段，应用端据此决定菜单项归属；强制项锁定一级导航。
+- 运营端拖动后该组 `sort_order` 归一化为 `0..n-1`，避免历史重复值导致排序不确定。
+
+### 交互逻辑（运营中心页面）
+
+| 控件 | 行为 | 禁用条件 |
+|------|------|----------|
+| 刷新 | 重新 GET，覆盖当前编辑（脏数据静默丢弃） | 保存中 / 恢复中 |
+| 恢复默认 | 确认弹窗 → POST `/reset` → 全量回到目录默认（可见 + 目录顺序 + 目录分组） | 保存中 / 加载中 |
+| 保存 | 收集全量项 → PUT → 用响应覆盖列表 | 保存中 |
+| 显示开关 | 切换 `visible`，置脏标记 | **强制项始终 disabled**（含 Tooltip） |
+| ↑ / ↓ | 组内交换并归一化 `sort_order`，置脏标记 | 组内首/末行 |
+| 拖拽到同组另一项 | 组内重排 | 强制项可组内拖动 |
+| 拖拽到目标分组空白处 | **跨组移动**；拖到具体项上不跨组 | 强制项不可移入 `more` |
+| 强制显示 Tag | 仅展示 | — |
+
+### 显示项
+
+| 位置 | 内容 |
+|------|------|
+| 工具栏左侧 | `共 {N} 项 · 已隐藏 {M} 项`，脏时追加橙色 `● 有未保存的修改` |
+| 表格列 | 顺序（↑↓）· 显示（开关）· 菜单项（名称，隐藏时灰化 + 删除线，强制项跟 `强制显示` Tag）· 标识（`item_key` 等宽）· 说明（`description`，超长省略 + Tooltip） |
+| 应用端一级导航 | 可见的 `primary` 项，按运营顺序 |
+| 应用端设置按钮 | 固定在一级导航末尾，**不可配置**（功能入口，非路由菜单项） |
+| 应用端「更多」 | 仅当 `more` 组存在可见项时渲染，顺序在设置按钮之后 |
+
+### 提示文字要点（完整清单见详细文档 §10、§10.1）
+
+| 场景 | 文案 | 级别 |
+|------|------|------|
+| 保存成功 | `已保存 {N} 项` | success |
+| 保存含纠正 | `已保存。以下强制显示项被系统纠正为「显示」：{keys}` | warning |
+| 恢复默认确认 | `将恢复为默认设置：全部菜单项显示，并恢复默认顺序。此操作会立即覆盖当前配置，是否继续？` | confirm |
+| 加载失败 | `加载应用菜单失败` 或后端 `detail` | error |
+| 桌面端同步成功（`code=0`） | `同步成功：更新 {count} 个服务商（{time}）` | success |
+| 桌面端同步结果 | **无用户可见提示**：运营同步对用户透明、同步卡片已隐藏；目录与运行时两条通道的失败区分只写主进程日志 | 日志 |
+| 桌面端同步失败（`code=-1` 且 `runtimeApplied=false`） | `同步失败` + `formatUserError` 映射后的原因 | error |
+
+> 曾有「部分成功」toast 方案，经 QM-6 外部评审指出其 UI 入口并不存在（`ModelProviders.vue:580`「运营同步对用户透明：配置卡片已隐藏」），新增 locale 键会立即沦为 AGENTS.md 禁止的死键，故撤销；两条通道的失败区分改由主进程日志承担（`runtime sync skipped: <原因>` 等），运营侧排障走日志而非应用界面。
 
 ### 兜底规则
 
 | 场景 | 行为 |
 |------|------|
-| 配置未下发 / 拉取失败 / 结构非法 | 全部菜单项可见 + 定义顺序 |
+| 首帧未下发 / 拉取失败 / 结构非法 | 全部菜单项可见 + 本地定义顺序（fail-open） |
+| 已有生效配置后重拉失败 | 保留上一份配置，不清空菜单 |
+| 模型目录同步失败 | 不影响运行时策略（含菜单）拉取与应用 |
+| 运行时策略拉取失败 | 不影响模型目录同步 |
+| payload 验签失败 | 整体拒绝，保留上次快照（fail-closed） |
 | 「更多」组全部隐藏 | 「更多」按钮与折叠面板均不渲染 |
 | 一级导航全部隐藏 | 不会发生（4 个强制项恒可见） |
 | 当前所在路由被隐藏 | 页面仍可通过 URL 访问；菜单不再高亮（隐藏 ≠ 禁用） |
@@ -7429,6 +7503,16 @@ listAccounts → pythonBackend GET /api/accounts → toPublicAccount
 - A14：`more` 组全部隐藏 → 「更多」按钮消失。
 - A15：下发 201 项（超限）→ 应用端整体降级为默认菜单。
 - A17：payload 被篡改 → 验签失败，整体拒绝并保留上次快照。
+- **A19**：历史库缺 `copy-library` 行 → 打开页面后该项自动出现，共 20 项，位置与顺序符合目录。
+- **A20**：回填后「素材库」原有的 `visible=false` 与 `sort_order=42` 保持不变。
+- **A21**：页面项目集合 == 下发项目集合 == `CATALOG` key 集合；一级导航按下发 `sort_order` 升序 == 目录声明序。
+- **A22**：模型目录端点 500 → `runtimeApplied=true`，应用菜单仍写入本地缓存并在重启后恢复。
+- **A23**：模型服务未就绪 → 返回「模型服务未就绪」，运行时策略仍被拉取与应用。
+- **A24**：两端点均无响应 → 单次 10s 推进后各被请求一次，`code=-1`、`message` 含超时、`runtimeApplied=false`。
+- **A25**：同步成功后主窗口收到 `ops-center:runtime-updated`；窗口未创建/已销毁时静默跳过且不抛错。
+- **A26**：侧边栏收到事件后免重启更新显隐与顺序；卸载时取消订阅，不残留监听器。
+- **A27**：重拉失败（IPC 报错）→ 保留上一份配置，菜单不瞬时坍回默认。
+- **A28**：应用端界面**不出现**任何运营同步入口或提示文案；目录失败与运行时策略失败仅体现在主进程日志中。
 ## §BackToTop 全局「回到顶部」浮标（2026-09-14 新增）
 
 > 变更标识：`back-to-top-button`。完整 PRD 见 `01-docs/PRD-BACK-TO-TOP-BUTTON-2026-09-14.md`；
@@ -15789,59 +15873,133 @@ listAccounts → pythonBackend GET /api/accounts → toPublicAccount
 > **详细设计文档**：`01-docs/FEATURE-APP-MENU-2026-09-15.md`
 > （含完整数据模型、API 契约、逐条校验规则、业务流程、交互逻辑、显示项、全部提示文字、验收标准、测试覆盖）
 >
-> **版本** v1.0 · **日期** 2026-09-15 · **状态** 已实现
+> **版本** v1.2 · **日期** 2026-09-15 · **最近更新** 2026-09-25（跨端同步收敛，见本节「目录供给」与「生效时机」）
+> · **状态** 已实现 · 规格承载 `openspec/changes/app-menu-sync-convergence/`
 
 ### 目标
 
-在运营中心新增入口「应用菜单」，管理应用端（桌面端）左侧边栏菜单项的**显示 / 隐藏**与**组内排序**。
-其中「发布、账号、采集、视频创作」为系统核心入口，**强制显示**（运营端开关灰显不可关闭）。
-应用端左侧边栏按运营中心设置的顺序渲染。
+在运营中心提供入口「应用菜单」，管理应用端（桌面端）左侧边栏菜单项的**显示 / 隐藏**、**组内排序**与
+**跨组移动（一级导航 ↔ 更多）**。
+其中「发布、账号、采集、视频创作」为系统核心入口，**强制显示且锁定在一级导航**（运营端开关灰显不可关闭、不可拖出）。
+应用端左侧边栏按运营中心设置的顺序与分组渲染。
 
-### 菜单目录（19 项，key 为跨端唯一契约）
+### 菜单目录（20 项，key 为跨端唯一契约）
 
-| 分组 | 菜单项 |
+真源两处，必须同序同名：桌面端 `apps/desktop/src/config/route-registry.js` 的 `SIDEBAR_MENU_KEY_ORDER`
++ 各项 `navEntry.group`；运营中心 `ops-center/backend/services/app_menu_service.py` 的 `CATALOG`。
+
+| 分组 | 菜单项（按目录顺序） |
 |------|--------|
-| 一级导航 `primary` | `home` 主页、`publish` 发布（强制）、`accounts` 账号（强制）、`dashboard` 数据、`create` 视频创作（强制）、`collection` 采集（强制） |
-| 更多菜单 `more` | `monitor` 监控、`calendar` 发布日历、`comments` 私信评论、`cloud-publish` CLI、`library` 素材库、`keywords` 关键词监控、`viral` 爆款分析、`prompt-eval` 提示词评估、`rewrite` 文案改写、`hot-topics` 热门选题、`model-providers` 模型提供商、`knowledge-base` 知识库、`performance-insights` 数据洞察、`member-center` 会员中心 |
+| 一级导航 `primary` | `home` 主页、`publish` 发布（强制）、`accounts` 账号（强制）、`dashboard` 数据、`create` 视频创作（强制）、`collection` 采集（强制）、`copy-library` 文案库、`rewrite` 文案改写 |
+| 更多菜单 `more` | `calendar` 发布日历、`comments` 私信评论、`cloud-publish` CLI、`library` 素材库、`keywords` 关键词监控、`viral` 爆款分析、`prompt-eval` 提示词评估、`hot-topics` 热门选题、`model-providers` 模型提供商、`knowledge-base` 知识库、`performance-insights` 数据洞察、`member-center` 会员中心 |
+
+> 目录演进：#1840 移除 `monitor`（分屏监控），20 → 19；2026-09-15 `rewrite` more → primary；
+> 2026-09-19 新增 `copy-library`，19 → 20。`key` 一旦发布不得改名（改名 = 旧配置失效）。
 
 ### 核心结论卡片
 
 | 项目 | 内容 |
 |------|------|
-| 新增数据表 | `app_menu_items`（ops-center SQLite，11 个字段，`item_key` 唯一） |
-| 新增 API | `GET /api/v1/app-menu`、`PUT /api/v1/app-menu`、`POST /api/v1/app-menu/reset` |
-| 下发通道 | 复用 `GET /api/v1/runtime/bootstrap`，新增 `appMenu` 字段（**在 Ed25519 签名覆盖范围内**） |
+| 数据表 | `app_menu_items`（ops-center SQLite，11 个字段，`item_key` 唯一） |
+| 管理 API | `GET /api/v1/app-menu`、`PUT /api/v1/app-menu`、`POST /api/v1/app-menu/reset` |
+| 下发通道 | 复用 `GET /api/v1/runtime/bootstrap` 的 `appMenu` 字段（**在 Ed25519 签名覆盖范围内**） |
 | 应用端读取 | IPC `ops-center-sync:appMenu` → `resolveSidebarMenu()` 合并 → 侧边栏渲染 |
 | 权限 | 读需登录；写需管理员（非 admin → 403） |
 | 强制项保护 | **三层**：UI 开关灰显 / 服务端强制纠正 + `corrections` 留痕 / 应用端渲染层无条件可见 |
 | 失败降级 | **fail-open**：未下发或结构非法 → 全部可见 + 默认顺序（绝不阻塞导航） |
-| 生效时机 | 桌面端启动 3s 后自动同步；运营修改后需重新同步或重启（无实时推送） |
+| 目录供给 | `_provision_from_catalog`：读取/写入/下发前按 `CATALOG` **增量补齐**缺失行，**只补不改**已有行 |
+| 同步拓扑 | 模型目录与运行时策略**并行且互不门控**（`Promise.allSettled`），整体超时预算保持单请求 10s |
+| 生效时机 | 应用端**只在启动时同步一次**：运营端改动在客户端**下次启动**生效；那次启动同步完成后广播 `ops-center:runtime-updated` 并即时刷新侧边栏，用户无需操作、也不需要二次重启。**应用端不暴露任何同步入口**（运营同步对用户透明），亦无服务端主动推送 |
 
 ### 数据校验要点
 
 | 位置 | 规则 | 失败处理 |
 |------|------|----------|
 | 运营端写入 | `items` 必须为数组、≤200 项、条目必须为对象、`item_key` 非空且存在于目录、同批不重复 | **400 fail-closed**，整批不写入 |
+| 运营端写入 | `group` 取值 | 仅允许 `primary` / `more`，未知分组 **400 fail-closed** |
 | 运营端写入 | `sort_order` 为空/非数字/负数 | **保留原值**（不归零），避免误改排序 |
+| 运营端写入 | `sort_order` 上限 | >9999 截断为 9999 |
 | 运营端写入 | `visible` 白名单为真（`true`/`1`/`"1"`/`"true"`） | 其余一律视为隐藏 |
 | 运营端写入 | 强制项提交 `visible=false` | 200 + **强制纠正为可见** + 记入 `corrections` |
+| 运营端写入 | 强制项被拖入 `more` | 200 + **纠正回 `primary`** + 记入 `corrections` |
+| 目录供给 | 表非空但缺目录项 | 自动补行（`visible=1` / 目录序号 / 目录分组），**已有行字段一律不动** |
+| 目录供给 | DB 中存在不在目录内的历史脏 key | 保留在表中，但**不下发**（出口 fail-closed） |
+| 下发兜底 | 某目录项在 DB 无行 | `visible=true`、`group` 取目录值、**`sort_order` 取目录序号（不是 0）** |
 | 应用端主进程 | 结构非法 / >200 项 | 返回 `null`（渲染端 fail-open） |
 | 应用端主进程 | `__proto__` / `constructor` / `prototype` key | 丢弃该条 |
-| 应用端渲染 | 强制项 | 无视下发值，**永远可见** |
+| 应用端主进程 | `group` 非白名单原文（含大小写变体/缺失） | 归一化为 `null`，渲染端按本地定义分组兜底 |
+| 应用端渲染 | 强制项 | 无视下发值，**永远可见**且**永远留在一级导航** |
 | 应用端渲染 | 下发里本地不存在的 key | 静默忽略（不新增菜单项） |
-| 应用端渲染 | 本地有、下发无 | 可见 + 排在该组已配置项之后 |
+| 应用端渲染 | 本地有、下发无 | 可见 + 按本地定义位置 |
+| 应用端渲染 | 已有生效配置后重拉失败 | **保留上一份配置**，不瞬时坍回本地默认 |
 
-### 排序语义
+### 流程
 
-- **组内排序**：`primary` 与 `more` 两组各自独立排序（UI 结构为平铺导航 + 折叠面板，无法跨组穿插）。
-- 比较器：`sort_order` 升序 → 相同按定义顺序 → 无值排在最后并保持定义顺序。
-- 运营端点击 ↑↓ 后，该组 `sort_order` 归一化为 `0..n-1`。
+```
+运营侧：打开页面 → GET（先按目录补齐缺失行）→ 拖动/切换 → PUT（整批原子）
+        → 服务端校验 + 强制项纠正 → 落库 → 返回全量列表 + corrections
+下发侧：客户端启动后 3s（唯一自动同步时机；应用端无手动入口）
+        → 并行 GET catalog + GET runtime/bootstrap
+        → bootstrap 分支：验签 → normalizeAppMenu → 落 settings.opsCenterRuntime
+                          → 广播 ops-center:runtime-updated
+        → catalog   分支：applyCatalog → 更新 lastSyncedAt
+渲染侧：MpSidebar onMounted 拉取 + 订阅变更事件重拉 → resolveSidebarMenu 合并 → 渲染
+        onUnmounted 成对取消订阅
+```
+
+### 排序与分组语义
+
+- **组内独立排序**：`primary` 与 `more` 各按 `sort_order` 升序；比较器为
+  `sort_order` 升序 → 相同则按本地定义顺序 → 无值者排最后并保持定义顺序。
+- **跨组移动**：`group` 是下发契约字段，应用端据此决定菜单项归属；强制项锁定一级导航。
+- 运营端拖动后该组 `sort_order` 归一化为 `0..n-1`，避免历史重复值导致排序不确定。
+
+### 交互逻辑（运营中心页面）
+
+| 控件 | 行为 | 禁用条件 |
+|------|------|----------|
+| 刷新 | 重新 GET，覆盖当前编辑（脏数据静默丢弃） | 保存中 / 恢复中 |
+| 恢复默认 | 确认弹窗 → POST `/reset` → 全量回到目录默认（可见 + 目录顺序 + 目录分组） | 保存中 / 加载中 |
+| 保存 | 收集全量项 → PUT → 用响应覆盖列表 | 保存中 |
+| 显示开关 | 切换 `visible`，置脏标记 | **强制项始终 disabled**（含 Tooltip） |
+| ↑ / ↓ | 组内交换并归一化 `sort_order`，置脏标记 | 组内首/末行 |
+| 拖拽到同组另一项 | 组内重排 | 强制项可组内拖动 |
+| 拖拽到目标分组空白处 | **跨组移动**；拖到具体项上不跨组 | 强制项不可移入 `more` |
+| 强制显示 Tag | 仅展示 | — |
+
+### 显示项
+
+| 位置 | 内容 |
+|------|------|
+| 工具栏左侧 | `共 {N} 项 · 已隐藏 {M} 项`，脏时追加橙色 `● 有未保存的修改` |
+| 表格列 | 顺序（↑↓）· 显示（开关）· 菜单项（名称，隐藏时灰化 + 删除线，强制项跟 `强制显示` Tag）· 标识（`item_key` 等宽）· 说明（`description`，超长省略 + Tooltip） |
+| 应用端一级导航 | 可见的 `primary` 项，按运营顺序 |
+| 应用端设置按钮 | 固定在一级导航末尾，**不可配置**（功能入口，非路由菜单项） |
+| 应用端「更多」 | 仅当 `more` 组存在可见项时渲染，顺序在设置按钮之后 |
+
+### 提示文字要点（完整清单见详细文档 §10、§10.1）
+
+| 场景 | 文案 | 级别 |
+|------|------|------|
+| 保存成功 | `已保存 {N} 项` | success |
+| 保存含纠正 | `已保存。以下强制显示项被系统纠正为「显示」：{keys}` | warning |
+| 恢复默认确认 | `将恢复为默认设置：全部菜单项显示，并恢复默认顺序。此操作会立即覆盖当前配置，是否继续？` | confirm |
+| 加载失败 | `加载应用菜单失败` 或后端 `detail` | error |
+| 桌面端同步成功（`code=0`） | `同步成功：更新 {count} 个服务商（{time}）` | success |
+| 桌面端同步结果 | **无用户可见提示**：运营同步对用户透明、同步卡片已隐藏；目录与运行时两条通道的失败区分只写主进程日志 | 日志 |
+| 桌面端同步失败（`code=-1` 且 `runtimeApplied=false`） | `同步失败` + `formatUserError` 映射后的原因 | error |
+
+> 曾有「部分成功」toast 方案，经 QM-6 外部评审指出其 UI 入口并不存在（`ModelProviders.vue:580`「运营同步对用户透明：配置卡片已隐藏」），新增 locale 键会立即沦为 AGENTS.md 禁止的死键，故撤销；两条通道的失败区分改由主进程日志承担（`runtime sync skipped: <原因>` 等），运营侧排障走日志而非应用界面。
 
 ### 兜底规则
 
 | 场景 | 行为 |
 |------|------|
-| 配置未下发 / 拉取失败 / 结构非法 | 全部菜单项可见 + 定义顺序 |
+| 首帧未下发 / 拉取失败 / 结构非法 | 全部菜单项可见 + 本地定义顺序（fail-open） |
+| 已有生效配置后重拉失败 | 保留上一份配置，不清空菜单 |
+| 模型目录同步失败 | 不影响运行时策略（含菜单）拉取与应用 |
+| 运行时策略拉取失败 | 不影响模型目录同步 |
+| payload 验签失败 | 整体拒绝，保留上次快照（fail-closed） |
 | 「更多」组全部隐藏 | 「更多」按钮与折叠面板均不渲染 |
 | 一级导航全部隐藏 | 不会发生（4 个强制项恒可见） |
 | 当前所在路由被隐藏 | 页面仍可通过 URL 访问；菜单不再高亮（隐藏 ≠ 禁用） |
@@ -15857,6 +16015,16 @@ listAccounts → pythonBackend GET /api/accounts → toPublicAccount
 - A14：`more` 组全部隐藏 → 「更多」按钮消失。
 - A15：下发 201 项（超限）→ 应用端整体降级为默认菜单。
 - A17：payload 被篡改 → 验签失败，整体拒绝并保留上次快照。
+- **A19**：历史库缺 `copy-library` 行 → 打开页面后该项自动出现，共 20 项，位置与顺序符合目录。
+- **A20**：回填后「素材库」原有的 `visible=false` 与 `sort_order=42` 保持不变。
+- **A21**：页面项目集合 == 下发项目集合 == `CATALOG` key 集合；一级导航按下发 `sort_order` 升序 == 目录声明序。
+- **A22**：模型目录端点 500 → `runtimeApplied=true`，应用菜单仍写入本地缓存并在重启后恢复。
+- **A23**：模型服务未就绪 → 返回「模型服务未就绪」，运行时策略仍被拉取与应用。
+- **A24**：两端点均无响应 → 单次 10s 推进后各被请求一次，`code=-1`、`message` 含超时、`runtimeApplied=false`。
+- **A25**：同步成功后主窗口收到 `ops-center:runtime-updated`；窗口未创建/已销毁时静默跳过且不抛错。
+- **A26**：侧边栏收到事件后免重启更新显隐与顺序；卸载时取消订阅，不残留监听器。
+- **A27**：重拉失败（IPC 报错）→ 保留上一份配置，菜单不瞬时坍回默认。
+- **A28**：应用端界面**不出现**任何运营同步入口或提示文案；目录失败与运行时策略失败仅体现在主进程日志中。
 ## §BackToTop 全局「回到顶部」浮标（2026-09-14 新增）
 
 > 变更标识：`back-to-top-button`。完整 PRD 见 `01-docs/PRD-BACK-TO-TOP-BUTTON-2026-09-14.md`；
