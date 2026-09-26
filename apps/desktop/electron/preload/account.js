@@ -41,6 +41,12 @@ function createAccountApi(ipcRenderer) {
     accountSetActive: (accountId, platform, isActive) => ipcRenderer.invoke('account:set-active', { accountId, platform, isActive }),
     accountRename: (accountId, platform, name) => ipcRenderer.invoke('account:rename', { accountId, platform, name }),
 
+    // 账号云镜像同步 API
+    accountsCloudDigest: () => ipcRenderer.invoke('accounts:cloud-digest'),
+    accountsCloudSync: () => ipcRenderer.invoke('accounts:cloud-sync'),
+    accountsCloudDisconnect: (confirm) => ipcRenderer.invoke('accounts:cloud-disconnect', { confirm }),
+    accountsCloudSyncAbort: () => ipcRenderer.invoke('accounts:cloud-sync-abort'),
+
     // 内嵌浏览器登录 API
     authOpenLogin: (platform, accountId) => ipcRenderer.invoke('auth:open-login', { platform, accountId }),
     authCompleteLogin: () => ipcRenderer.invoke('auth:complete-login'),
@@ -83,6 +89,9 @@ function createAccountApi(ipcRenderer) {
     },
     onAccountsBatchCheckProgress: (cb) => {
       const h = (_, d) => cb(d); ipcRenderer.on('accounts:batch-check-progress', h); return () => ipcRenderer.removeListener('accounts:batch-check-progress', h)
+    },
+    onAccountsCloudSyncProgress: (cb) => {
+      const h = (_, d) => cb(d); ipcRenderer.on('accounts:cloud-sync-progress', h); return () => ipcRenderer.removeListener('accounts:cloud-sync-progress', h)
     },
 
     // OAuth 认证 API

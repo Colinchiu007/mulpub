@@ -1,6 +1,6 @@
 {
   "name": "@multi-publish/desktop",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "婢舵艾閽╅崣鏉垮敶鐎归€涚闁款喖褰傜敮鍐╊攽闂堛垻顏?(Electron + RpaViewManager)",
   "author": "Colin Chiu <colin.chiu@colinchiu.com>",
   "main": "electron/main.js",

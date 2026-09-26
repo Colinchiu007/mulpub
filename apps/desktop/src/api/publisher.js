@@ -112,6 +112,24 @@ export async function accountRename (accountId, platform, name) {
   return invokeWithFallback('accountRename', { code: -1, message: 'electronAPI not available' }, accountId, platform, name)
 }
 
+// ─── 账号云镜像同步 API（PRD-CLOUD-ACCOUNT-SYNC-2026-09-27 §9）──────
+// 主进程通道：accounts:cloud-digest / accounts:cloud-sync / accounts:cloud-disconnect。
+// 三个方法均无参数或由调用方给出纯 JSON 标量（invokeWithFallback 内部再统一脱壳一次），
+// 禁止把 Pinia ref 里的 reactive 对象直接传进来（"An object could not be cloned"）。
+export async function accountsCloudDigest() { return invokeWithFallback("accountsCloudDigest", { code: -1, message: 'electronAPI not available' }) }
+
+export async function accountsCloudSync() { return invokeWithFallback("accountsCloudSync", { code: -1, message: 'electronAPI not available' }) }
+
+export async function accountsCloudDisconnect(confirm) { return invokeWithFallback("accountsCloudDisconnect", { code: -1, message: 'electronAPI not available' }, confirm) }
+
+// 请求中止进行中的批次：主进程置中止标记，当前条完成后停止（不硬杀在途请求）。
+// 返回 { code: 0, data: { aborted: boolean } }；aborted=false 表示批次本就不在跑，调用方不得伪造终态。
+export async function accountsCloudSyncAbort() { return invokeWithFallback("accountsCloudSyncAbort", { code: -1, message: 'electronAPI not available' }) }
+
+// 逐条进度事件（main → renderer）：payload { phase:'start'|'done', index, total, platform, accountId, name, outcome, code, elapsedMs }
+// 返回退订函数；非 Electron 环境返回空操作（与 onProgress 等既有事件包装同一口径）。
+export function onAccountsCloudSyncProgress(callback) { return bridgeOn("AccountsCloudSyncProgress", callback) }
+
 // ─── 内嵌浏览器登录 API ──────────────────
 export async function authOpenLogin(platform, accountId) { return invokeWithFallback("authOpenLogin", { code: -1 }, platform, accountId) }
 

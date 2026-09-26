@@ -190,6 +190,11 @@ vi.mock("@/api/publisher", () => ({
   accountDelete: vi.fn().mockResolvedValue({ code: 0 }),
   accountCheckLogin: vi.fn().mockResolvedValue({ code: 0, data: { valid: true } }),
   accountBatchCheckLogin: vi.fn().mockResolvedValue({ code: 0, data: { results: [], checkedAt: "2026-09-11T00:00:00Z" } }),
+  // 账号云镜像同步（AccountCloudSyncDialog 真实调用的四个方法；默认 code:-1 = 摘要失败态）
+  accountsCloudDigest: vi.fn().mockResolvedValue({ code: -1, message: 'stub' }),
+  accountsCloudSync: vi.fn().mockResolvedValue({ code: -1, message: 'stub' }),
+  accountsCloudDisconnect: vi.fn().mockResolvedValue({ code: -1, message: 'stub' }),
+  onAccountsCloudSyncProgress: vi.fn(() => () => {}),
   authOpenLogin: vi.fn().mockResolvedValue({ code: 0 }),
   authCompleteLogin: vi.fn().mockResolvedValue({ code: 0, data: true }),
   authOpenQrCodeLogin: vi.fn().mockResolvedValue({ code: 0 }),
@@ -217,6 +222,7 @@ vi.mock("@/components/UiModal.vue", () => ({
 }));
 
 import AccountsView from "./Accounts.vue";
+import AccountCloudSyncDialog from "@/features/accounts/components/AccountCloudSyncDialog.vue";
 
 // Helper to create a pre-configured mount
 function createAccountsView(props = {}) {
@@ -1743,4 +1749,164 @@ describe("AccountsView", () => {
     }
   });
 
+});
+
+describe("AccountsView — 【同步云端】入口（feature flag / 登录门 / 与一键检测互斥）", () => {
+  const CLOUD_SYNC_FLAG = "account_cloud_sync";
+
+  /** 运营 runtime 夹具：ADR-0006 要求「缺失 / 未同步过 / 不可达」一律按关闭，故三态都要能造出来 */
+  function stubRuntimeFlags (featureFlags) {
+    window.electronAPI = {
+      opsCenterSyncRuntime: async () => ({ code: 0, data: { featureFlags } }),
+    };
+  }
+
+  async function flush (times = 6) {
+    for (let index = 0; index < times; index += 1) await nextTick();
+  }
+
+  beforeEach(async () => {
+    i18n.global.locale.value = "zh";
+    setActivePinia(createPinia());
+    vi.clearAllMocks();
+    const publisher = await import("@/api/publisher");
+    publisher.accountBatchCheckLogin.mockResolvedValue({ code: 0, data: { results: [], checkedAt: "2026-09-27T00:00:00Z" } });
+    publisher.accountsCloudDigest.mockResolvedValue({
+      code: 0,
+      data: { total: 1, byPlatform: [{ platform: "douyin", count: 1 }], tombstones: 0, localCount: 1, reachable: true },
+    });
+    publisher.accountsCloudSync.mockResolvedValue({
+      code: 0,
+      data: { created: 0, updated: 0, unchanged: 0, restored: 0, skipped: 0, conflicts: 0, invalid: 0, failed: 0, items: [] },
+    });
+    publisher.onAccountsCloudSyncProgress.mockReturnValue(() => {});
+    _testAccounts.length = 0;
+    _testAccounts.push({ id: "cloud-1", platform: "douyin", name: "云同步账号", account_name: "云同步账号", status: "active" });
+    _groups.length = 0;
+    _accountError.value = null;
+    _accountErrorCode.value = null;
+    _accountFilters.searchQuery = "";
+    _accountFilters.filterStatus = "all";
+    _accountFilters.filterPlatform = "";
+    _accountSort.sortBy = ref("name");
+    _accountSort.sortOrder = ref("asc");
+    _routeState.path = "/accounts";
+    _routeState.query = {};
+    _identityState.isAuthenticated = false;
+    _ensureLogin.mockReset();
+    _ensureLogin.mockResolvedValue(false);
+    localStorage.setItem("account-authorization-guide-seen", "1");
+    window.electronAPI = {};
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("flag 缺失（运营 runtime 不可达）时不渲染入口（ADR-0006 fail-closed）", async () => {
+    window.electronAPI = {};
+    const w = await mountView();
+    expect(w.find('[data-testid="account-cloud-sync"]').exists()).toBe(false);
+  });
+
+  it("flag 显式为 false 时不渲染入口", async () => {
+    stubRuntimeFlags({ [CLOUD_SYNC_FLAG]: false });
+    const w = await mountView();
+    expect(w.find('[data-testid="account-cloud-sync"]').exists()).toBe(false);
+  });
+
+  it("flag 为 true 且本机有账号时渲染入口，按钮文案与 title 走 i18n 键", async () => {
+    stubRuntimeFlags({ [CLOUD_SYNC_FLAG]: true });
+    const w = await mountView();
+    const btn = w.find('[data-testid="account-cloud-sync"]');
+    expect(btn.exists()).toBe(true);
+    expect(btn.text()).toBe(i18n.global.t("accountsPage.cloudSync"));
+    expect(btn.attributes("title")).toBe(i18n.global.t("accountsPage.cloudSync"));
+    expect(btn.attributes("aria-label")).toBe(i18n.global.t("accountsPage.cloudSyncAria"));
+    expect(btn.attributes("disabled")).toBeUndefined();
+  });
+
+  it("flag 开但本机 0 账号时入口禁用，title 说明原因", async () => {
+    stubRuntimeFlags({ [CLOUD_SYNC_FLAG]: true });
+    _testAccounts.length = 0;
+    const w = await mountView();
+    const btn = w.get('[data-testid="account-cloud-sync"]');
+    expect(btn.attributes("disabled")).toBeDefined();
+    expect(btn.attributes("title")).toBe(i18n.global.t("accountsPage.cloudSyncNoAccounts"));
+  });
+
+  it("未登录点击：只走登录门，不打开弹窗也不发任何云请求", async () => {
+    stubRuntimeFlags({ [CLOUD_SYNC_FLAG]: true });
+    _ensureLogin.mockResolvedValue(false);
+    const publisher = await import("@/api/publisher");
+    const w = await mountView();
+
+    await w.get('[data-testid="account-cloud-sync"]').trigger("click");
+    await flush();
+
+    expect(_ensureLogin).toHaveBeenCalledTimes(1);
+    expect(w.find('[data-testid="account-cloud-sync-body"]').exists()).toBe(false);
+    expect(publisher.accountsCloudDigest).not.toHaveBeenCalled();
+    expect(publisher.accountsCloudSync).not.toHaveBeenCalled();
+  });
+
+  it("登录成功后点击才打开弹窗，摘要由弹窗打开时拉取（PRD §10.1）", async () => {
+    stubRuntimeFlags({ [CLOUD_SYNC_FLAG]: true });
+    _ensureLogin.mockResolvedValue(true);
+    const publisher = await import("@/api/publisher");
+    const w = await mountView();
+    publisher.accountsCloudDigest.mockClear();
+
+    await w.get('[data-testid="account-cloud-sync"]').trigger("click");
+    await flush();
+
+    expect(w.find('[data-testid="account-cloud-sync-body"]').exists()).toBe(true);
+    expect(publisher.accountsCloudDigest).toHaveBeenCalledTimes(1);
+  });
+
+  it("一键检测进行中：入口禁用并说明「登录检测进行中」（PRD §5.8 互斥）", async () => {
+    stubRuntimeFlags({ [CLOUD_SYNC_FLAG]: true });
+    const publisher = await import("@/api/publisher");
+    let resolveBatch;
+    publisher.accountBatchCheckLogin.mockReturnValue(new Promise(resolve => { resolveBatch = resolve; }));
+    const w = await mountView();
+
+    const running = w.vm.batchCheckAllLogins();
+    await flush();
+
+    const btn = w.get('[data-testid="account-cloud-sync"]');
+    expect(btn.attributes("disabled")).toBeDefined();
+    expect(btn.attributes("title")).toBe(i18n.global.t("accountsPage.cloudSyncGateBusy"));
+
+    resolveBatch({ code: 0, data: { results: [], checkedAt: "2026-09-27T00:00:00Z" } });
+    await running;
+  });
+
+  it("同步进行中：入口显示进行中文案，并反向禁用一键检测（互相 disable 双向锁）", async () => {
+    stubRuntimeFlags({ [CLOUD_SYNC_FLAG]: true });
+    const w = await mountView();
+
+    w.findComponent(AccountCloudSyncDialog).vm.$emit("running-change", true);
+    await flush();
+
+    expect(w.get('[data-testid="account-cloud-sync"]').attributes("title"))
+      .toBe(i18n.global.t("accountsPage.cloudSyncBusy"));
+    expect(w.get('[data-testid="account-cloud-sync"]').attributes("disabled")).toBeDefined();
+    expect(w.get('[data-testid="account-batch-check-all"]').attributes("disabled")).toBeDefined();
+
+    w.findComponent(AccountCloudSyncDialog).vm.$emit("running-change", false);
+    await flush();
+    expect(w.get('[data-testid="account-cloud-sync"]').attributes("disabled")).toBeUndefined();
+  });
+
+  it("批次终态 synced 事件回灌父级：刷新一次账号列表（父模板 @synced 绑定合同）", async () => {
+    stubRuntimeFlags({ [CLOUD_SYNC_FLAG]: true });
+    const w = await mountView();
+    _spies.load.mockClear();
+
+    w.findComponent(AccountCloudSyncDialog).vm.$emit("synced");
+    await flush();
+
+    expect(_spies.load).toHaveBeenCalledTimes(1);
+  });
 });

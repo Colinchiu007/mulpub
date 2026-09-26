@@ -17,7 +17,22 @@ function registerHandlers(ipcMain, deps) {
   const { toPublicProxyConfig } = require('../services/proxy-config')
   const { PLATFORM_LOGIN_URLS } = require('@multi-publish/shared-utils/src/platform-definitions')
   const { loginStatusTransition } = require('@multi-publish/shared-utils/src/login-state')
-  const { authViewManager, pythonBridge, AccountManager, log, BrowserWindow, store, identityService } = deps
+  const { authViewManager, pythonBridge, AccountManager, log, BrowserWindow, store, identityService, credentialStore, app } = deps
+
+  // 本机删除账号 → 云端墓碑（best-effort）。必须在删除前解析 uid：凭证就是要删的东西。
+  const { createCloudTombstoneRecorder } = require('../services/cloud-account-tombstone')
+  const { fetchAccountInfoViaHttpApi } = require('../publishers/http-login-checker')
+  let cloudUserDataDir = ''
+  try { cloudUserDataDir = app && typeof app.getPath === 'function' ? app.getPath('userData') : '' } catch (_) { /* 取不到目录时墓碑只能退回真源已有 uid */ }
+  const cloudTombstone = createCloudTombstoneRecorder({
+    fetchAccountInfo: (platform, cookies) => fetchAccountInfoViaHttpApi(platform, cookies),
+    credentialStore,
+    userDataDir: cloudUserDataDir,
+    apiClient: identityService && identityService.memberApiService
+      ? { request: (o) => identityService.memberApiService.request(o) }
+      : null,
+    log,
+  })
 
   function getOwnerSubject () {
     if (!identityService) return undefined
@@ -530,6 +545,21 @@ function registerHandlers(ipcMain, deps) {
       if (!_isSafePathSegment(accountId)) {
         ipcLog('warn', 'account:delete', 'validation-failed', `accountId=${accountId}`)
         return { code: EC.VALIDATION_ERROR, message: '缺少或非法 accountId 参数' }
+      }
+      // 墓碑必须在删除**之前**登记：解析 platform_uid 的二级来源是「带凭证调平台接口」，
+      // 而凭证正是本次要删掉的文件。失败只 warn，不回滚本机删除（用户强意图）。
+      const subjectForTombstone = getOwnerSubject()
+      if (typeof subjectForTombstone === 'string' && subjectForTombstone) {
+        try {
+          const all = await AccountManager.listAccounts()
+          const target = Array.isArray(all) ? all.find((a) => a && a.id === accountId) : null
+          const tomb = await cloudTombstone.record(subjectForTombstone, target)
+          if (!tomb.recorded) {
+            ipcLog('warn', 'account:delete', 'cloud-tombstone-skipped', `accountId=${accountId} reason=${tomb.reason}`)
+          }
+        } catch (e) {
+          ipcLog('warn', 'account:delete', 'cloud-tombstone-error', `accountId=${accountId} message=${e instanceof Error ? e.message : String(e)}`)
+        }
       }
       await AccountManager.deleteAccount(accountId)
       ipcLog('info', 'account:delete', 'ok', `accountId=${accountId} 耗时=${Date.now() - startedAt}ms`)

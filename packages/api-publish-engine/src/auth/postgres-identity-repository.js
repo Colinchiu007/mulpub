@@ -16,6 +16,8 @@ const REQUIRED_SCHEMA_RELATIONS = [
   'identity_orders',
   'identity_redeem_codes',
   'identity_notifications',
+  'cloud_accounts',
+  'cloud_account_tombstones',
 ]
 
 const SCHEMA = [
@@ -125,6 +127,46 @@ const SCHEMA = [
   `ALTER TABLE identity_user_sessions ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ`,
   `CREATE INDEX IF NOT EXISTS idx_identity_user_sessions_device
     ON identity_user_sessions(user_id) WHERE device_id IS NOT NULL`,
+  // 005 账号云镜像：与 migrations/postgresql/005_cloud_accounts.sql 的 DDL 逐字一致（防漂移锁见
+  // test/cloud-accounts-schema-drift.test.js）。迁移内的 SQL 注释不镜像进此数组——比对口径只对迁移侧
+  // 去注释，带入会造成永久假红；注释语义（合并键/墓碑约束的理由）以迁移文件为真源。
+  `CREATE TABLE IF NOT EXISTS cloud_accounts (
+    id BIGSERIAL PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES identity_users(id) ON DELETE CASCADE,
+    platform TEXT NOT NULL,
+    platform_uid TEXT NOT NULL,
+    display_name TEXT NOT NULL CHECK (display_name <> '' AND char_length(display_name) <= 200),
+    account_name TEXT CHECK (account_name IS NULL OR char_length(account_name) <= 200),
+    avatar TEXT CHECK (avatar IS NULL OR char_length(avatar) <= 1024),
+    followers BIGINT CHECK (followers IS NULL OR followers >= 0),
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    credential_ciphertext BYTEA NOT NULL,
+    credential_iv BYTEA NOT NULL,
+    credential_auth_tag BYTEA NOT NULL,
+    encrypted_data_key BYTEA NOT NULL,
+    credential_digest TEXT NOT NULL,
+    last_reported_status TEXT CHECK (last_reported_status IS NULL OR last_reported_status IN ('active', 'expired', 'unverified')),
+    credential_updated_at TIMESTAMPTZ NOT NULL,
+    metadata_updated_at TIMESTAMPTZ NOT NULL,
+    last_sync_device_label TEXT CHECK (last_sync_device_label IS NULL OR char_length(last_sync_device_label) <= 64),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT cloud_accounts_user_platform_uid_key UNIQUE (user_id, platform, platform_uid),
+    CONSTRAINT cloud_accounts_platform_uid_present CHECK (platform_uid <> '')
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_cloud_accounts_user_platform
+    ON cloud_accounts(user_id, platform)`,
+  `CREATE TABLE IF NOT EXISTS cloud_account_tombstones (
+    id BIGSERIAL PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES identity_users(id) ON DELETE CASCADE,
+    platform TEXT NOT NULL,
+    platform_uid TEXT NOT NULL,
+    deleted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT cloud_account_tombstones_user_platform_uid_key UNIQUE (user_id, platform, platform_uid),
+    CONSTRAINT cloud_account_tombstones_platform_uid_present CHECK (platform_uid <> '')
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_cloud_account_tombstones_user
+    ON cloud_account_tombstones(user_id, platform, platform_uid)`,
 ]
 
 class PostgresWebhookTransaction {

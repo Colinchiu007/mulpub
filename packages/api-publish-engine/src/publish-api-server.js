@@ -18,6 +18,7 @@ const { LOGTO_WEBHOOK_SIGNATURE_HEADER, LogtoWebhookError } = require("./auth/lo
 const { getPlanCatalog } = require("./auth/plan-matrix")
 const { safeErrorCode } = require("./auth/safe-error-code")
 const { applyCommerceHelpers } = require("./auth/publish-api-commerce")
+const { applyCloudAccountHelpers } = require("./auth/publish-api-cloud-accounts")
 
 const GZIP_MIN_BYTES = 256;
 
@@ -865,6 +866,13 @@ class PublishApiServer {
         } catch (error) { this._commerceFailure(req, res, error); return; }
       }
 
+      if (this._isCloudAccountsUrl(url)) {
+        // 账号云镜像面：必须排在鉴权之后（req.auth.businessUser 由 _ensureRequestIdentity 填充），
+        // 且归属只取服务端解析出的 userId，绝不读请求体里的 user/subject。
+        await this._handleCloudAccounts(req, res, method, url);
+        return;
+      }
+
       if (url.indexOf("/api/v1/admin/member/") === 0) {
         // 运营端点会花钱/发权益：只认经 scope 校验的 logto 身份，拒绝静态主密钥（api_key 分支不校验 requiredScope）。
         if (!(req.auth && req.auth.authType === "logto")) { this._json(res, 403, { error: "AUTH_SCOPE_MISSING" }); return; }
@@ -1327,6 +1335,7 @@ p{color:#6e6e73}
 }
 
 applyCommerceHelpers(PublishApiServer);
+applyCloudAccountHelpers(PublishApiServer);
 
 PublishApiServer.registerShutdownSignals = function(server) {
   var sig = function() { server.stop(); };

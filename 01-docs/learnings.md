@@ -16090,3 +16090,30 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **authOpenLogin 不带 accountId 会静默建新账号（pitfall，探针副作用）**：auth:open-login 完成流程里 saveCapturedAccount（无 id 建号）vs updateCapturedAccount（有 id 刷新）。探针复用登录态视图但未传 accountId，触发自动完成建出重复账号 0e7a4bdf。修复：驱动 auth 视图一律显式传既有 accountId；探针后用 accountList + 分区目录 CreationTime 取证是否误建，误建即删。登记副作用比「假装无副作用」重要——已写进侦察证据文档。
 - **electron-builder --dir 不带 vite build，测试面会静默缺 renderer（pitfall，QM-1 首轮假通过）**：worktree 无 dist/ 构建残留时，直接 pnpm exec electron-builder --dir 打出的 asar 里没有 \dist\index.html，exe 启动报 ERR_FILE_NOT_FOUND——但 builder 本身 exit 0、asar 里 electron/ 主进程文件齐全，「清单里找得到新模块」这类验证全部通过。修复：QM-1 统一走 pnpm run build:dir（build:vue + builder）。**口径：打包验证的成立条件必须包含 renderer 入口存在（asar list 断言 \dist\index.html）+ exe 存活且 stderr 无 ERR_FILE_NOT_FOUND/ENOTDIR**，只验主进程捆入等于验了半个产物。
 - **共享根证据文件随 PR 收编进 worktree evidence 目录（pattern）**：活体验收产物（applog/progress/verdict）最初落在共享根（未跟踪），提交前先 Copy 进 worktree 01-docs/**/evidence/ 再随 PR 提交；.md/.png 被 gitignore（/01-docs/**/*.md、*.png）时按 spike-verdict.md 先例 git add -f，并在 PR 正文注明。EOL 幻影（git diff --ignore-all-space 为空）的 bundle 文件不纳入提交面。
+
+
+## 竞品做法的因果链必须先拆开，否则会把「体验」当免费的抄过来（pattern）
+
+需求写「账号和云端同步 + 换设备免扫码」时，看起来是一个功能。对蚁小二 4.13.19 的逆向取证（`D:\Data\逆向工程_蚁小二4.0\packages\main\dist\index.cjs`）给出的是一条因果链，不是一堆可挑选的特性清单：它换设备免扫码（`:263` 按 `spaceId` 从对象存储拉 gzip 凭证）**之所以成立**，是因为它把完整 cookie 上云（`:118248` 无条件 POST `cookie: JSON.stringify(cookies)`）；它的客户端**没有去重、没有合并算法、没有墓碑**（全仓 `已存在|重复|tombstone|deleted_at` 命中 0，electron-store 只有 deviceId / reptileVersion / rpaVersion / rapData / isVertical 五个键，账号完全不落盘），**之所以不需要**，是因为它是「云端为真源 + 本地无状态执行器」的形态。
+
+推论：本项目要「本地真源 + 双向合并 + 免扫码」，就必须自己造它跳过的那一层（墓碑、LWW、冲突实测），不能因为竞品没做就判定不需要。反过来，若坚持「凭证不出本机」，免扫码在物理上不可能，此时唯一诚实的设计是恢复后要求重新登录。**把「不上云但免扫码」当成需求去做，等于要求一个不存在的机制。** 附带的反面教训：蚁小二本地 socket 服务写了一套完整的 RS256 客户端令牌校验，却用常量 `enableClientTokenValidation = false`（`:126746`）整体关掉 —— 同机任意进程可下发 `open-auth-view` 取走凭证。做本机回环通道时不要抄这个。
+
+## 同一个判定逻辑抄成第二份，就是下一个振荡 bug（pitfall，本仓又一例）
+
+凭证摘要（判 unchanged / updated / conflict 用）需要「规范化 JSON → SHA-256」。桌面侧本来可以照着服务端再写一份 cookies 排序 + 丢弃 `expirationDate/lastAccessTime/session/hostOnly` 的实现 —— 没写。原因不是省事：本案与 #2433（登录态三态映射被抄成 `account-manager` / `ipc-handlers/account.js` / `login-status-monitor` 三份，导致已登录账号每 30 分钟在「已登录 ↔ 未确认」之间来回）**结构同构** —— 两份实现不会同时错，会各自漂移，而漂移在单测里互相印证为正确。同类先例还有 `isNoiseAccountName` 的 CJS/ESM 孪生（新增词表必须进 parity 断言）。
+
+落地口径：摘要只在服务端算一份，客户端只消费服务端回传的裁决结果（`created/updated/unchanged/conflict`）。将来若必须在客户端算，先把服务端实现抽进 `packages/shared-utils` 并补 parity 锁（正则按 `source`+`flags` 比较），不接受「两处保持一致」的口头约定。
+
+## 「有 Cookie」不等于「已登录」：Cookie 型身份必须先过会话门禁（pitfall）
+
+补八平台 `platform_uid` 时，快手是唯一走「从已保存凭证的 Cookie 取身份」的平台（`userId`，2026-09-25 CDP 实测登录成功后才写入）。这条通道真正的风险不是取不到值，而是**取到别人的或未登录的值**：未登录形态同样存在 `did/wid/_did/divid/kwssectoken` 这类埋点与设备标识，把它们当身份会让同机两个账号并成一条，或让未登录账号被当成已登录上行凭证。
+
+防线两条缺一不可：① 先过 `hasPlatformSessionCookie(platform, cookies)`（数据源 `PLATFORM_SESSION_COOKIE_MARKERS`）才允许产出 uid；② 标记表本身必须有**结构化正向契约**（形态正则 + 埋点名单一律不放行），不能只靠逐个列举坏值 —— AGENTS.md「枚举式黑名单必须配结构化正向契约」作用在身份字段上的后果比作用在文案判定上严重得多，因为错合并不表现为失败，而是静默改变数据归属。
+
+HTML 通道的对应风险是「页面里 `data-user-id` 不止一个」（评论区、协作成员、推荐作者卡片都带），取「第一个命中」等于把本机账号身份绑到一个随机访客上 —— 比取不到更糟。实现因此加了**唯一性守卫**：命中值不唯一即不产出（黑名单语义，不确定就不给结论）。
+
+## 反证要做在「锁本身」上，而不是「业务改动」上（pattern）
+
+本次四组反证里最能说明问题的是快手那组：把负例测试标题从「未登录（login page …）」改成「匿名 Cookie …」之后，**业务测试文件 27 例依旧全绿**，只有覆盖结构锁变红（`kuaishou 缺少负例 … expected 0 to be greater than or equal to 1`）。这同时证明了两件事：锁在真跑；而「删掉一个负例不会有任何人察觉」不是推测，是实测 —— 被删的那个负例对该测试文件自身的通过与否毫无贡献。
+
+口径：任何「防再犯锁」必须做一次**把锁本身改成 no-op 必须立刻变红**的变异；只证明「改业务会让它红」不能证明锁被执行过。

@@ -85,6 +85,27 @@ describe('弹窗互斥：静态链路完整性', () => {
     const src = fs.readFileSync(path.join(ROOT, 'src/layouts/MpSidebar.vue'), 'utf8')
     expect(src).toMatch(/watch\(showUpgradeModal, \(open\) => \{[\s\S]*?suspendEmbeddedViewsForOverlay\('upgrade-modal'\)[\s\S]*?releaseEmbeddedViewsForOverlay\('upgrade-modal'\)/)
   })
+
+  // owner 登记表：AccountCloudSyncDialog（账号云镜像同步弹窗，PRD-CLOUD-ACCOUNT-SYNC-2026-09-27 §10.1）
+  // 是居中模态浮层，必须挂起/恢复内嵌视图；owner 唯一且 suspend/release 成对、release 走 finally。
+  it('AccountCloudSyncDialog：【同步云端】弹窗接入挂起，owner 为 account-cloud-sync-dialog', () => {
+    const src = fs.readFileSync(path.join(ROOT, 'src/features/accounts/components/AccountCloudSyncDialog.vue'), 'utf8')
+    expect(src).toMatch(/const OVERLAY_OWNER = ['"]account-cloud-sync-dialog['"]/)
+
+    // 逐函数取块（不用跨函数的懒惰匹配，否则锁会在实现被拆开时假绿）
+    const suspendBlock = src.match(/async function suspendOverlay \(\) \{[\s\S]*?\n\}/)
+    const releaseBlock = src.match(/async function releaseOverlay \(\) \{[\s\S]*?\n\}/)
+    const closeBlock = src.match(/async function requestClose \(\) \{[\s\S]*?\n\}/)
+    const unmountBlock = src.match(/onBeforeUnmount\(\(\) => \{[\s\S]*?\n\}\)/)
+    expect(suspendBlock && suspendBlock[0]).toContain('await suspendEmbeddedViewsForOverlay(OVERLAY_OWNER)')
+    expect(releaseBlock && releaseBlock[0]).toContain('await releaseEmbeddedViewsForOverlay(OVERLAY_OWNER)')
+    // 关闭路径：进行中关闭＝后台继续（只退订、不取消批次），但释放挂起必须在 finally 里
+    expect(closeBlock && closeBlock[0]).toMatch(/try \{[\s\S]*?unsubscribeProgress\(\)[\s\S]*?\} finally \{[\s\S]*?releaseOverlay\(\)/)
+    // 卸载兜底：组件销毁不得残留挂起计数
+    expect(unmountBlock && unmountBlock[0]).toContain('releaseOverlay()')
+    // 不得复用其它浮层的 owner（否则 ref-count 会把别人的释放吞掉）
+    expect(src).not.toMatch(/suspendEmbeddedViewsForOverlay\(['"](?!account-cloud-sync-dialog)/)
+  })
 })
 
 describe('弹窗互斥：WebviewManager 行为（mock）', () => {
