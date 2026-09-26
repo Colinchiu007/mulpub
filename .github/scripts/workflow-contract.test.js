@@ -308,6 +308,30 @@ test('桌面测试分片契约：desktop-shards 矩阵与 unit-tests 排除桌�
   assert.equal(rootPkg.scripts['test:desktop:shard'], undefined);
 });
 
+// 回归保护：gate-result 是 main 的必需状态检查，但它曾只有一串 echo、无任何 exit 判定，
+// 上游全红也恒退出 0 —— 等于一个永不变红的"必需检查"。反证方式：把本用例跑在修复前的
+// quality-gate.yml 上，/\$blocking/ 与 /exit 1/ 两条断言必然失败。
+test('gate-result 必须真正聚合上游结论（不得退回只 echo 不判定的空转形态）', () => {
+  const workflow = yaml.load(fs.readFileSync(qualityGatePath, 'utf8'));
+  const job = workflow.jobs['gate-result'];
+  assert.ok(job, 'gate-result job 必须存在');
+  // if: always() 保证上游失败时本 job 仍运行，从而有机会作出判定
+  assert.equal(job.if, 'always()', 'gate-result 必须带 if: always()');
+  assert.deepEqual(
+    job.needs,
+    ['static-gates', 'unit-tests', 'desktop-shards', 'coverage', 'visual', 'e2e', 'autonomous'],
+    'gate-result 必须聚合全部上游 job',
+  );
+  const step = job.steps.find(s => s.name === 'Gate result');
+  assert.ok(step, 'Gate result 步骤必须存在');
+  assert.match(step.run, /\$blocking/, '必须计算阻断项集合');
+  assert.match(step.run, /\$allowed\s*=\s*@\('success',\s*'skipped'\)/, "放行口径必须是 success/skipped");
+  assert.match(step.run, /exit 1/, '存在阻断项时必须以非零码退出');
+  // 这两条锁住"静默丢弃"复发：visual / e2e 的结论必须进入聚合
+  assert.match(step.run, /needs\.visual\.result/, 'visual 结论必须参与聚合');
+  assert.match(step.run, /needs\.e2e\.result/, 'browser E2E 结论必须参与聚合');
+});
+
 test('shared-utils 测试超时预算（冷启动 flaky 回归保护）', () => {
   const cfg = fs.readFileSync(path.join(__dirname, '..', '..', 'packages', 'shared-utils', 'vitest.config.js'), 'utf8');
   assert.match(cfg, /testTimeout:\s*10000/);

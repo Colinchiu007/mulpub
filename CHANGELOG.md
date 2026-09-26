@@ -1,3 +1,19 @@
+# [未发布] fix(ci): gate-result 由「只 echo 不判定」改为真实聚合上游结论（2026-09-26，fix-ci-gate-result-aggregation）
+
+### 变更
+- **`.github/workflows/quality-gate.yml`**：`gate-result` job 的 `Gate result` 步骤原先只有 11 行 `echo`，把 `needs.*.result` 打印出来就结束，**没有任何 `exit` 判定**，又带 `if: always()`，于是上游全红它照样 success。现改为 `[ordered]@{}` 收集 7 个上游结论 → 逐项打印 → 计算阻断项集合 `$blocking` → 非空即 `exit 1`。放行口径 `success` / `skipped`；`skipped` 放行的依据是「上游失败会把其下游置为 skipped，失败本身已由那个 failed 的上游捕获」。空串（表达式缺失）按 fail-closed 拦。步骤显式声明 `shell: pwsh`，运行时消息一律 ASCII，规避 runner 侧中文编码风险。
+- **`.github/scripts/workflow-contract.test.js`**：新增契约用例，锁住 `$blocking` / `$allowed = @('success', 'skipped')` / `exit 1` 三个结构锚点，并额外断言 `needs.visual.result`、`needs.e2e.result` 必须参与聚合（这两个结论此前被静默丢弃），防止退回空转形态。
+
+### 影响
+- **这是 main 的 4 条必需状态检查之一，此前等于零保护**：实际拦截只剩 `build` + `QG Unit Tests` + `QG Coverage` 三条；`QG Visual`、`QG Browser E2E`、`QG Static`、`QG Desktop Shards`、`QG Autonomous` 红掉都不拦合并，而 `Gate Result` 仍显示绿灯——「必需检查过了」这句话此前不含视觉/E2E 保障。
+- **新增拦停数为 0（已实测）**：改动前盘过 main 最近两次已完成的 quality-gate run，9 个 job 全为 success；7 个在飞 PR 的 `bucket=="fail"` 红项均为空。因此判定生效后不会立刻拦停任何现存 PR。
+- 副作用（预期且正确）：今后任一上游 job 失败或被取消，`Gate Result` 会随之变红并拦住合并。
+
+### 测试
+- **行为实测**（把内嵌 PowerShell 从 YAML 抽出，替换 `${{ needs.*.result }}` 占位后用 PowerShell 实跑退出码）6/6 通过：全绿→0；visual 失败→1；e2e 取消→1；coverage skipped→0；多 job 红→1（输出列出全部阻断项）；取值缺失→1（fail-closed）。
+- **反证**：① 旧版步骤无 `exit` 语句，喂入 `visual=failure` 后打印 `visual gate : failure` 却**退出 0**；② 新契约用例跑在 `git show HEAD:` 的修复前 workflow 上，精确失败于「必须计算阻断项集合」。
+- `node --test .github/scripts/workflow-contract.test.js` → 23 tests / 0 fail。
+- 局限：本地以 Windows PowerShell 5.1 验证，CI 用 pwsh 7；所用构造（`[ordered]@{}`、`-notcontains`、`Where-Object`）两版通用。
 # [未发布] fix(login): 裸域名成功模式加形态否决层，采集侧「方式 2」改判据（2026-09-26，platform-login-evidence-hardening）
 
 ### 变更

@@ -16111,6 +16111,21 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **顺带修掉的认知错误（记录以免以讹传讹）**：我最初断言「基线固化缺陷 → 像素 diff 恒为 0 → 永远绿」。实测推翻——diff 从来不是 0（main 上就有 2.48%，改动后 3.66%），真正的失效机制是**阈值与差异面积错配 + 基线来源环境噪声**。"基线固化缺陷"这一重确实独立成立，但它不是门禁失灵的原因。教训：**给逃逸链下结论前，先去 artifact 里把真实数值读出来**；"恒为 0"这种漂亮解释往往是想出来的。
 
 - **配套工具口径**：本地无 Playwright 时，用 `pngjs` + `pixelmatch` 以 `threshold 0.1 / includeAA false` 复算，实测与 CI 报告值精确到三位小数吻合（3.6592% vs 3.659%），可作为基线工作的可信管线；分区统计（按 x/y 区间累加差异像素）能区分"噪声"与"本次改动的真实归属"。
+## 必需状态检查可以是装饰性的：验证门禁是否生效，要问「它有失败路径吗」而非「它绿了吗」（gate-result-vacuous，2026-09-26）
+
+- **现象（pitfall，静默失效而非报错）**：`quality-gate.yml` 的 `gate-result` job 是 main 的 4 条**必需状态检查**之一，但它的完整定义只有 801–821 行、**只有一个 `echo` 步骤**，把 `needs.*.result` 打印出来就结束，没有任何 `exit` 判定，还带 `if: always()`。结果：上游 9 个 job 全红，`Gate Result` 照样 success。实测反证——把 `visual=failure` 喂进旧版步骤，它输出 `visual gate : failure` 然后**退出 0**。
+
+- **第一性原因**：GitHub 的「必需状态检查」只校验**该 context 是否成功**，不校验它是否真的检查了任何东西。把 job 设计成「汇总报告」时，很容易只写报告忘了写判定，而 `if: always()` 恰好掩盖了这点——它保证 job 永远运行、永远成功，看起来「一直很稳」，实为恒真。**门禁的可靠性来自它的失败路径，失败路径从未被执行过的门禁等于没有门禁。**
+
+- **实际后果**：main 的有效保护只剩 `build` + `QG Unit Tests` + `QG Coverage` 三条；`QG Visual`、`QG Browser E2E`、`QG Static`、`QG Desktop Shards`、`QG Autonomous` 红掉都不拦合并，而汇报里「必需检查已过」这句话并不含视觉/E2E 保障。**任何人引用「Gate Result 绿」作为质量证据都是错的。**
+
+- **修复（pattern）**：`[ordered]@{}` 收集全部上游结论 → 逐项打印 → `$blocking = 键集合中不在 @('success','skipped') 的项` → 非空即 `exit 1`。三条口径要显式写明理由：① `skipped` 放行，因为上游失败会把其下游置为 skipped、失败本身已由那个 failed 的上游捕获；② 表达式缺失导致的**空串按 fail-closed 拦**（不能因取不到值就放行）；③ 运行时消息一律 ASCII，规避 runner 侧中文编码风险（见 powershell-script-encoding 一族）。
+
+- **改门禁必做的两步前置**：① **盘红名单**——先枚举 main 最近若干次 run 的**逐 job** 结论，确认没有长期静默红着的作业，否则判定一生效就立刻拦停全部 PR；② **盘在飞 PR**——`gh pr checks <n> --json name,bucket` 看 `bucket=="fail"`，确认新增拦停数为 0。本次实测两者均为空，才敢直接生效。
+
+- **可迁移判据**：审任何一个被当作「质量证据」的检查，先问三件事——**它有哪几条 `exit 1` / `throw` 路径？这些路径被真实触发过吗（反证）？它 `if:` 的求值时机是否让它恒好？** 同族先例：`debt-baseline` 棘轮只比数值不比对账、`check-docs-sync` 白名单指向不存在的 `team/scripts/`（#2380）、`.quality-gates.md` 未被豁免（#2399）——都是「门禁存在但守不住东西」。
+
+- **回归保护**：`.github/scripts/workflow-contract.test.js` 新增契约用例，锁 `$blocking` / `$allowed = @('success','skipped')` / `exit 1` 三个结构锚点，并额外断言 `needs.visual.result`、`needs.e2e.result` 必须参与聚合（这两个结论此前被静默丢弃）。反证：该用例跑在 `git show HEAD:` 的修复前 workflow 上，精确失败于「必须计算阻断项集合」。另有 6 场景行为实测（全绿→0 / visual 失败→1 / e2e 取消→1 / coverage skipped→0 / 多红→1 且列全 / 空值→1）。
 
 
 ## 活体页面「找不到元素」先判登录态，再疑选择器；QM-1 打包必须证明 renderer 真进产物（kuaishou-w3-live-fix D1/D2，2026-09-26）
