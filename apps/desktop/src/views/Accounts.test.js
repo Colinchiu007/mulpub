@@ -991,14 +991,15 @@ describe("AccountsView", () => {
 
   // ── 登录态固化与三态回归 ──
 
-  it("batchCheckAllLogins 未确认（valid 缺失）不计入失效，也不冒充已登录", async () => {
+  it("batchCheckAllLogins 未取到定论（valid 缺失）不计入失效，且保持真源原状态", async () => {
     const { accountBatchCheckLogin, accountUpdate } = await import("@/api/publisher");
     accountBatchCheckLogin.mockResolvedValue({
       code: 0,
       data: {
         results: [
-          { accountId: "u1", platform: "tencent_video", code: "CHECK_LOGIN_INCONCLUSIVE", loginStatus: "unverified", persisted: { ok: true, status: "unverified" } },
-          { accountId: "u2", platform: "toutiao", valid: false, code: "CHECK_LOGIN_COOKIE_EXPIRED", loginStatus: "expired", persisted: { ok: true, status: "expired" } },
+          // 单向证据规则：u1 无定论 → 真源不动，主进程回传保持后的 active（statusChanged=false）
+          { accountId: "u1", platform: "tencent_video", code: "CHECK_LOGIN_INCONCLUSIVE", loginStatus: "active", statusChanged: false, persisted: { ok: true, kept: true } },
+          { accountId: "u2", platform: "toutiao", valid: false, code: "CHECK_LOGIN_COOKIE_EXPIRED", loginStatus: "expired", statusChanged: true, persisted: { ok: true, status: "expired" } },
         ],
         checkedAt: "2026-09-11T08:00:00Z",
       },
@@ -1011,7 +1012,9 @@ describe("AccountsView", () => {
 
     await w.vm.batchCheckAllLogins();
 
-    expect(_testAccounts.find(a => a.id === "u1").status).toBe("unverified");
+    // 无定论不得把已登录渲染成未确认（此前正是这里造成徽章来回跳）
+    expect(_testAccounts.find(a => a.id === "u1").status).toBe("active");
+    expect(_testAccounts.find(a => a.id === "u1").last_validated, "未改写就不该有更新的定论时间").toBeUndefined();
     expect(_testAccounts.find(a => a.id === "u2").status).toBe("expired");
     expect(w.vm.checkedExpiredIds.has("u1")).toBe(false);
     expect(w.vm.checkedExpiredIds.has("u2")).toBe(true);

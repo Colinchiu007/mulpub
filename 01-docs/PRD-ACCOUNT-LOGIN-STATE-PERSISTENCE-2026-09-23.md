@@ -106,6 +106,8 @@ merged = mergeCookies(
    login-status-monitor（30 分钟定期）  ──────────────► 同上
    重新登录保存凭证 updateCapturedAccount ────────────► status=active（同一次 PATCH）
    新登录保存凭证 saveCapturedAccount ────────────────► status=active（凭证落盘后补一次 PATCH）
+   ↑ 三者判定统一走 @multi-publish/shared-utils/src/login-state 的 loginStatusTransition
+     （返回 null = 本轮无新证据，**不改写真源**；见 §7.6）
      ├ 扫码登录 QrCodeLogin._onLoginSuccess ─────────► 同上（直接调用 saveCapturedAccount）
      └ account:add → captureCookies 仅 URL 变化（弱证据）─► 不固化，保持 unverified
 ```
@@ -148,6 +150,9 @@ else /* 历史数据缺 status */        → is_active===false ? 'inactive' : 'a
 
 ### 7.2 单账号「验证」
 `account:check-login` 同样在返回前完成固化（与批量同口径），返回体保持 `{ code:0, data: status }` 向后兼容。
+2026-09-26 起 `data` 额外携带 `loginStatus` 与 `statusChanged`（**只增不改**的兼容扩展）：
+`statusChanged:false` 表示本轮无定论、真源未动，`loginStatus` 即保持后的原状态；单账号入口不持有现状，
+只在「无定论」分支按需 `GET /api/accounts/:id` 读一次真源（有明确结论不多这一跳）。
 
 ### 7.3 登录 / 保存凭证（创建与更新两条同族路径）
 `auth:login-silent`、登录页保存 → `updateCapturedAccount` PATCH 带 `status:'active' + last_validated`；Cookie 提取失败时**不保存**并返回 `reason:'cookie-extract-failed'`（避免落一份"看起来成功、实则无 Cookie"的凭证）。
@@ -166,7 +171,33 @@ else /* 历史数据缺 status */        → is_active===false ? 'inactive' : 'a
 ### 7.5 定期检测（30 分钟）
 - 只遍历 `status ∈ {active, online, unverified}` 的账号（已 expired 不自动翻案）。
 - 结论与后端一致时不回写（避免每轮无意义 PATCH、避免刷 `updated_at`）。
+- **无定论不回写也不广播**（`loginStatusTransition` 返回 `null`）：这是 §7.6 单向证据规则的一部分，
+  终结此前「active ↔ unverified 每 30 分钟来回」的振荡。
 - 有变化才广播 `account:status-changed`（含 `changedCount`，恢复为 active 也通知）。
+
+### 7.6 单向证据规则（2026-09-26，openspec/changes/fix-login-state-oscillation）
+
+**规则**：登录态真源只被**正向证据**（检测有效 → `active`）或**负向证据**（检测明确失效 → `expired`）改写。
+「本轮没拿到定论」（无定论 / 检测自身异常 / 硬超时）**既不是正向也不是负向**，MUST NOT 被当成反证去覆盖既有结论。
+
+| 检测结论 | 真源现状 | 写入 |
+|---|---|---|
+| `valid === true` | 任意 | `active` |
+| `valid === false` | 任意 | `expired` |
+| 无定论 / 异常 | `expired` | 不改写（与 §7.5 既有粘滞一致） |
+| 无定论 / 异常 | `active` 且最近定论在宽限期内 | 不改写 |
+| 无定论 / 异常 | `active` 但已超龄 / 定论时间缺失或非法 | `unverified`（僵尸绿灯兜底） |
+| 无定论 / 异常 | 缺失 / 已是 `unverified` / 历史脏值 | `unverified`（从未有结论仍诚实） |
+
+宽限期默认 **7 天**，由 `MP_LOGIN_STATE_GRACE_DAYS` 调整；非正数或非数字一律回落默认（杜绝「零宽限每轮降级」与「Infinity 永不降级」两个极端）。
+
+**唯一实现**：`packages/shared-utils/src/login-state.js`。三个调用点（`account:check-login`、
+`accounts:batch-check-login`、`login-status-monitor`）**直接 import 同一函数**，不得再各自维护映射表 ——
+本缺陷之所以能长期存在，正是因为同一个映射此前被抄了三份（第三处曾各自把无定论算成 `unverified`），
+修一处不传导到另两处。凭证落盘（登录 / 重新登录）属正向证据，继续直写 `active`，不经该函数形成双门控。
+
+**代价（必须写清）**：会话实际已失效但检测长期拿不到定论的账号，会在宽限期内继续显示「已登录」。
+缓解：明确失效仍立即 `expired`；7 天超龄自动降级；发布链路不读 `status`（已核实仅首页计数与失效横幅消费）。
 
 ---
 

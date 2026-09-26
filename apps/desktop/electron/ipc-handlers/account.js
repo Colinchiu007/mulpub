@@ -58,15 +58,9 @@ function registerHandlers(ipcMain, deps) {
   const LOGIN_STATUSES = ['active', 'expired', 'unverified']
 
   /**
-   * 检测结论 → 应写入真源的登录态；返回 null 表示「本轮不改写」。
-   *
-   * 口径唯一来源是 @multi-publish/shared-utils/src/login-state（单向证据规则：只有正/负
-   * 证据才改写真源，无定论不得把 active/expired 抹成 unverified）。本层不得再自带映射表：
-   * 此前 IPC 与监控各抄一份，才让同一个缺陷在三处同时存在、修一处不传导到另外两处。
-   * @param {any} status checkLoginStatus 的三态结果
-   * @param {string} checkError 检测自身异常（属「无证据」，不是失效证据）
-   * @param {{status?: string, last_validated?: string}} [account] 真源现状
-   * @param {number} [nowMs]
+   * 检测结论 → 应写入真源的登录态；返回 null = 本轮无新证据，不改写。
+   * 判定唯一来源是 @multi-publish/shared-utils/src/login-state —— 本层与监控层曾各自
+   * 持一份映射、都把无定论算成 unverified，才是 active ↔ unverified 振荡的源头。
    */
   function loginStatusFromCheck (status, checkError, account, nowMs) {
     const next = loginStatusTransition({
@@ -80,11 +74,7 @@ function registerHandlers(ipcMain, deps) {
     return next === null || LOGIN_STATUSES.indexOf(next) >= 0 ? next : 'unverified'
   }
 
-  /**
-   * 把一次检测结论落进真源，并如实回报「本轮到底改没改」。
-   * @returns {Promise<{ok: boolean, status: string|null, changed: boolean, keptStatus: string, reason?: string}>}
-   */
-  /** 读一份真源现状（只为「无定论要不要保持」这一判定服务）。失败返回 null，按未定论处理。 */
+  /** 读真源现状，只为「无定论要不要保持」这一判定服务；失败返回 null，按未定论处理。 */
   async function readAccountSnapshot (accountId) {
     try {
       const res = await pythonBridge.requestBackend('GET', '/api/accounts/' + accountId)
@@ -95,6 +85,7 @@ function registerHandlers(ipcMain, deps) {
     return null
   }
 
+  /** 把一次检测结论落进真源，并如实回报本轮到底改没改。 */
   async function persistCheckOutcome (platform, accountId, status, checkError, account, checkedAt) {
     let snapshot = account
     const definitive = !checkError && status && (status.valid === true || status.valid === false)

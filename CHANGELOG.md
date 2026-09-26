@@ -1,3 +1,30 @@
+# [未发布] fix(登录态): 单向证据规则终结「已登录 ↔ 未确认」每 30 分钟振荡（2026-09-26，fix-login-state-oscillation）
+
+### 变更
+- **规则**：登录态真源 `accounts.json.status` 只被**正向证据**（检测有效 → `active`）或**负向证据**（检测明确失效 → `expired`）改写。「本轮没拿到定论」（`CHECK_LOGIN_INCONCLUSIVE` / 检测自身异常 / 硬超时）既不是正向也不是负向，**不再**被当成反证去覆盖既有结论；`unverified` 回归其本义「从未有过结论」。
+- **`packages/shared-utils/src/login-state.js`（新增，唯一实现）**：纯函数 `loginStatusTransition`（返回 `null` = 本轮不改写）+ `resolveLoginGraceMs`。超龄兜底默认 **7 天**（`MP_LOGIN_STATE_GRACE_DAYS`，非正数/非数字一律回落默认，杜绝「零宽限每轮降级」与「Infinity 永不降级」）。
+- **三处调用点收敛**：`account-manager` 保留同名出口改为转发；`ipc-handlers/account.js`（`account:check-login` / `accounts:batch-check-login`）与 `services/login-status-monitor.js` 直接 import 同一函数，**删除各自映射表**。此前同一个三态映射被抄成三份、三处都把无定论算成 `unverified`，是该缺陷能长期存在且「修一处不传导到另两处」的机制。
+- **IPC 契约（只增不改的向后兼容扩展）**：批量结果项新增 `statusChanged`，`loginStatus` 改为表达「真源生效值」（保持时即原状态），未改写时不再本地伪造 `last_validated`；单账号检测返回体 `data` 新增 `loginStatus` / `statusChanged`。单账号入口不持有现状，仅在「无定论」分支按需 `GET /api/accounts/:id` 读一次真源（有明确结论不多这一跳）。
+- **渲染层文案**：一键检测汇总把「N 个未确认」改为「N 个未取到定论（保持原状态）」（`batchCheckAllDone` zh/en 成对，CI Gate 7 通过），避免用户把「保持原状」误读成「账号出问题了」。
+
+### 影响
+- 用户可见：已登录账号在检测拿不到定论（视频号等平台风控/接口抖动常见）时**不再**跳成「未确认」；连续 7 天仍无任何定论才降级并提示重登，不会形成无限期绿灯。
+- 代价（如实写明）：实际已失效但检测长期无定论的账号，在宽限期内仍显示「已登录」。缓解：明确失效立即 `expired`；发布链路不读 `status`（已核实仅首页 `activeCount` 与失效横幅消费），因此不会阻断发布。
+- 有意反转既有契约：#2233 的 D3 采取「无定论即降级」，本变更改为「无定论保持 + 超龄降级」。D3 想治的「已失效却显示已登录」假阳性仍被覆盖 —— `valid===false` 立即 `expired`，且新增「从未有结论 + 无定论 → 保持未确认」的双侧断言。
+
+### 测试
+- 新增 `electron/publishers/account-manager-login-state-transition.test.js`（7 例，规则表 6 行 + grace 边界 + 定论时间缺失/非法 + `checkError` 等价 + 纯函数不得打后端）。
+- 新增 IPC 层 6 例（保持 active / 保持 expired / 超龄降级 / 异常与超时同权 / 单账号不多读真源 / 真源读不到时如实 unverified）；监控层把原「无定论即固化 unverified」单条用例拆成 4 条（保持 / 缺时间戳降级 / expired 保持 / 超龄降级并广播）。
+- 文案新增 `src/locales/accounts-batch-check-copy.test.js`：按 AGENTS.md QM-3「文本结构断言 MUST」用 `toBe` 精确断言 zh/en 整句与「unconfirmed=0 时段落整体缺席」。
+- **三向反证**（证明断言有鉴别力，非恒真）：① 规则改回「无定论一律抹掉」（= 修复前语义）→ 规则表 3/4 与 IPC 层各 4 条立刻变红；② 去掉超龄降级 → 规则 5 变红；③ 恢复后全绿。
+- 回归：`publishers + account + batch-check + monitor + Accounts + locales` 共 234 + 101 passed。
+
+### 文档
+- `openspec/changes/fix-login-state-oscillation/`（proposal / tasks / specs/desktop/login-state-evidence）；PRD 新增 §7.6 规则表并同步 §5 / §7.2 / §7.5；`AGENTS.md` QM-2 新增强制条目；`01-docs/learnings.md` 记录「缺证据 ≠ 反证」与「同一映射抄三份导致修一处不传导」。
+- 另案（本变更不做）：`status_reason` / `last_login_check_at` 落库需后端 `AccountUpdateRequest` 加字段与迁移语义，「为什么保持」目前只进日志与检测结果。
+
+---
+
 # [未发布] fix(账号管理): 新增账号登录态即时固化为 active，修「新添加的账户全部显示未确认」（2026-09-25，fix-new-account-unverified）
 
 ### 变更

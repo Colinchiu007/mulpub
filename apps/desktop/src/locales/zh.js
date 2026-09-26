@@ -1411,7 +1411,7 @@ export default {
     batchCheckAllCurrent: (ctx) => '正在检测：' + ctx.named('platforms'),
     batchCheckAllElapsed: (ctx) => '已耗时 ' + ctx.named('seconds') + ' 秒',
     batchCheckAllStarted: (ctx) => '开始检测 ' + ctx.named('count') + ' 个账号的登录状态…',
-    batchCheckAllDone: (ctx) => '检测完成：' + ctx.named('valid') + ' 个正常，' + ctx.named('invalid') + ' 个失效' + (Number(ctx.named('unconfirmed')) > 0 ? '，' + ctx.named('unconfirmed') + ' 个未确认' : ''),
+    batchCheckAllDone: (ctx) => '检测完成：' + ctx.named('valid') + ' 个正常，' + ctx.named('invalid') + ' 个失效' + (Number(ctx.named('unconfirmed')) > 0 ? '，' + ctx.named('unconfirmed') + ' 个未取到定论（保持原状态）' : ''),
     batchCheckAllAllValid: (ctx) => '检测完成：' + ctx.named('count') + ' 个账号登录状态全部正常',
     batchCheckAllPersistFailed: (ctx) => '检测完成，但有 ' + ctx.named('count') + ' 个账号的登录状态未能保存到服务端，请重试或检查后端服务',
     persistFailedTitle: (ctx) => '登录态固化失败（' + ctx.named('count') + ' 个账号）',

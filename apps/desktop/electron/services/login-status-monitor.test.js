@@ -87,7 +87,23 @@ describe('login-status-monitor 账号真源与唯一写者', () => {
     expect(store.updateAccount).not.toHaveBeenCalled()
   })
 
-  it('检测无法判定时固化 unverified，不冒充 expired', async () => {
+  // 单向证据规则（openspec/changes/fix-login-state-oscillation）：无定论既不是正向也不是
+  // 负向证据，MUST NOT 覆盖既有结论 —— 下面两条取代旧的「无法判定即固化 unverified」单条用例。
+  it('无定论 + 现状 active 且宽限期内有定论 → 不回写也不广播（终结 active↔unverified 振荡）', async () => {
+    accountManager.listAccounts.mockResolvedValue([
+      { id: 'acc-tv', platform: 'tencent_video', status: 'active', last_validated: new Date(Date.now() - 60 * 60 * 1000).toISOString() },
+    ])
+    accountManager.checkLoginStatus.mockResolvedValue({ valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', reason: 'http-check-inconclusive' })
+    const sends = []
+    const monitor = createMonitor({ getMainWin: () => ({ isDestroyed: () => false, webContents: { send: (...a) => sends.push(a) } }) })
+
+    await monitor._runOnce()
+
+    expect(accountManager.persistLoginState, '没有新证据就不该动真源').not.toHaveBeenCalled()
+    expect(sends, '没有变化就不该广播').toHaveLength(0)
+  })
+
+  it('无定论 + 现状 active 但定论时间缺失 → 按超龄降级 unverified（不做无限期绿灯）', async () => {
     accountManager.listAccounts.mockResolvedValue([
       { id: 'acc-tv', platform: 'tencent_video', status: 'active' },
     ])
@@ -97,6 +113,34 @@ describe('login-status-monitor 账号真源与唯一写者', () => {
     await monitor._runOnce()
 
     expect(accountManager.persistLoginState).toHaveBeenCalledWith('acc-tv', 'tencent_video', 'unverified', expect.any(String))
+  })
+
+  it('无定论 + 现状 expired → 保持 expired（与既有粘滞一致，不得被翻成未确认）', async () => {
+    accountManager.listAccounts.mockResolvedValue([
+      { id: 'acc-dead', platform: 'toutiao', status: 'expired', last_validated: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString() },
+    ])
+    accountManager.checkLoginStatus.mockResolvedValue({ valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE' })
+    const monitor = createMonitor()
+
+    await monitor._runOnce()
+
+    expect(accountManager.persistLoginState).not.toHaveBeenCalled()
+  })
+
+  it('active 定论已超过宽限期后仍无定论 → 降级并广播（僵尸绿灯兜底）', async () => {
+    process.env.MP_LOGIN_STATE_GRACE_DAYS = '7'
+    accountManager.listAccounts.mockResolvedValue([
+      { id: 'acc-old', platform: 'douyin', status: 'active', last_validated: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString() },
+    ])
+    accountManager.checkLoginStatus.mockResolvedValue({ valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE' })
+    const sends = []
+    const monitor = createMonitor({ getMainWin: () => ({ isDestroyed: () => false, webContents: { send: (...a) => sends.push(a) } }) })
+
+    await monitor._runOnce()
+
+    expect(accountManager.persistLoginState).toHaveBeenCalledWith('acc-old', 'douyin', 'unverified', expect.any(String))
+    expect(sends.map((s) => s[0])).toContain('account:status-changed')
+    delete process.env.MP_LOGIN_STATE_GRACE_DAYS
   })
 
   it('检测有效时固化 active（覆盖此前遗留的 expired）', async () => {

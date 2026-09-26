@@ -993,8 +993,9 @@ async function batchCheckAllLogins () {
     const checkedAt = result.data?.checkedAt || new Date().toISOString()
     for (const item of results) {
       if (!item?.accountId) continue
-      // 三态口径：valid === true 正常 / valid === false 失效 / valid === undefined 未确认。
-      // 「未确认」既不计入失效数量、也不加入失效集合 —— 不冒充任何一侧结论。
+      // 三态口径：valid === true 正常 / valid === false 失效 / valid === undefined 本轮未取到定论。
+      // 未取到定论既不计入失效数量、也不加入失效集合 —— 不冒充任何一侧结论；
+      // 且主进程此时不会改写真源，loginStatus 回传的是**保持后的原状态**（单向证据规则）。
       if (item.valid === true) {
         validCount++
         checkedExpiredIds.value.delete(item.accountId)
@@ -1013,7 +1014,8 @@ async function batchCheckAllLogins () {
         // （store:update-account），而读取端是后端 accounts.json，两边 id 都不互通，
         // 这正是「一键检测后重进账号页又显示已登录」的根因。
         account.status = item.loginStatus || (item.valid === true ? 'active' : item.valid === false ? 'expired' : 'unverified')
-        account.last_validated = checkedAt
+        // 未改写真源时不得本地伪造一个新的定论时间，否则「最近检查」会指向一次没有结论的检测
+        if (item.statusChanged !== false) account.last_validated = checkedAt
       }
       if (item.persisted && item.persisted.ok === false) persistFailedIds.push(item.accountId)
     }
