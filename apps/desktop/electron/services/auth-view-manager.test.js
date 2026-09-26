@@ -664,9 +664,24 @@ describe('AuthViewManager 登录视图可观测性（回归：persist:auth-* 分
       return fs.readFileSync(path.join(__dirname, 'auth-view-manager.js'), 'utf8')
     }
 
+    // 逐级上溯找 electron.d.ts：本仓 node-linker=hoisted，electron 装在 worktree 根，
+    // 从 __dirname 数 `..` 的层数在不同布局（hoisted / isolated / CI）下会指错，
+    // 一旦指错就变成「静默跳过」的装饰性锁。
+    function findDts () {
+      let dir = __dirname
+      for (let i = 0; i < 8; i += 1) {
+        const cand = path.join(dir, 'node_modules', 'electron', 'electron.d.ts')
+        if (fs.existsSync(cand)) return cand
+        const parent = path.dirname(dir)
+        if (parent === dir) break
+        dir = parent
+      }
+      return null
+    }
+
     function readClassBlock (name) {
-      const dts = path.join(__dirname, '..', '..', 'node_modules', 'electron', 'electron.d.ts')
-      if (!fs.existsSync(dts)) return null
+      const dts = findDts()
+      if (dts === null) return null
       const body = fs.readFileSync(dts, 'utf8')
       const start = body.indexOf('class ' + name + ' extends')
       if (start < 0) return null
@@ -674,13 +689,20 @@ describe('AuthViewManager 登录视图可观测性（回归：persist:auth-* 分
       return body.slice(start, end < 0 ? body.length : end)
     }
 
-    it('真实 electron.d.ts 上我们用到的字段确实存在（缺 electron 时 skip）', () => {
+    // 依赖装齐是本锁的前提，不是跳过理由：跑得起 vitest 就跑得起这条断言。
+    function requireBlocks (...names) {
+      const missing = names.filter(n => readClassBlock(n) === null)
+      expect(
+        missing,
+        'electron.d.ts 未找到或解析失败 —— 宿主 API 归属锁禁止静默跳过（missing: ' + missing.join(',') + '）'
+      ).toEqual([])
+      return names
+    }
+
+    it('真实 electron.d.ts 上我们用到的字段确实存在（解析失败必须红，不得跳过）', () => {
+      requireBlocks('WebContents', 'View', 'WebContentsView')
       const wc = readClassBlock('WebContents')
       const view = readClassBlock('View')
-      if (wc === null || view === null) {
-        console.warn('electron.d.ts 不可用，跳过宿主 API 前提锁')
-        return
-      }
       expect(wc).toMatch(/^\s{4}getBackgroundThrottling\(\): boolean;$/m)
       expect(view).toMatch(/^\s{4}getVisible\(\): boolean;$/m)
       expect(readClassBlock('WebContentsView')).toMatch(/class WebContentsView extends View/)
@@ -693,11 +715,13 @@ describe('AuthViewManager 登录视图可观测性（回归：persist:auth-* 分
     })
 
     it('源码里对 webContents 的方法调用必须都在 electron.d.ts 的 WebContents 上声明', () => {
+      requireBlocks('WebContents')
       const members = readClassBlock('WebContents')
-      if (members === null) return
       const declared = new Set(
         [...members.matchAll(/^\s{4}([a-zA-Z][A-Za-z0-9_]*)\(/gm)].map(m => m[1])
       )
+      // 下界：解析退化成空集合时，本锁会「全都不违规」而假绿；先证明声明集是真的
+      expect(declared.size, 'WebContents 声明集异常小，d.ts 解析疑似退化').toBeGreaterThan(100)
       const used = [...readSource().matchAll(/\.webContents\.([a-zA-Z][A-Za-z0-9_]*)\(/g)].map(m => m[1])
       expect(used.length).toBeGreaterThan(0)
       const undeclared = [...new Set(used)].filter(name => !declared.has(name))

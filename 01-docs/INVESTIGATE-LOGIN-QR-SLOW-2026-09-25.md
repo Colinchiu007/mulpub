@@ -160,3 +160,32 @@ https://mp.weixin.qq.com/mp/fereport?action=csp_report
 **结论四：本次修复的由来。** 同一行里的 `visibility=unknown` 暴露出 §4.2 的探针读的是宿主上不存在的 `getVisibilityState()`（Electron 43 d.ts 中出现 0 次），故节流维度**当时无法判定**；已由 `auth-login-visibility-fix` 改为 `drawn=` / `bgThrottle=` 并补三条宿主 API 归属契约锁（详见 CHANGELOG 同节与 learnings `dead-probe-green-mock-blindness`）。§4.2 在拿到新数据前保持未决。
 
 **读日志的正确姿势（补 §5.4）**：判定"慢不慢"只看 `login page finished after Nms` 与 `qr response #1 after Mms` 两个数；`localhost.weixin.qq.com` 的批量失败是微信自身探测，不要当成本应用的故障。日志落在 `D:\tmp\Multi-Publish-debug-profile\logs\app-YYYY-MM-DD.log`（调试 profile），而 `%LOCALAPPDATA%\Temp\multi-publish-logs\` 那份是**单测**写的，二者不要混。
+## 11. 第二轮真机数据与两处新发现（2026-09-26 午后）
+
+§10 之后又捕获一次登录（同一构建，仍带 `visibility=unknown` 死探针）。日志源仍是 `D:\tmp\Multi-Publish-debug-profile\logs\app-2026-09-26.log`。
+
+| UTC | 事件 |
+|---|---|
+| 04:04:54.747 | `auth:open-login enter platform=tencent_video` |
+| 04:04:56.162 | `AuthView login page finished after **1394ms**`（首个文档） |
+| 04:05:00.8 → 04:05:03.8 | `localhost.weixin.qq.com:13013/13014/13015/14013/14014/14015/api/check-login` 逐个 `ERR_FAILED` + `ERR_CONNECTION_CLOSED`，约 5s 一轮 |
+| 04:05:06.935 | `AuthView login page finished after **12167ms**`（同视图**第二次** `did-finish-load`） |
+| 04:05:15.034 | `auth:complete-login ok 耗时=74ms` |
+
+### 11.1 「刷了很久」的量级终于对上了，但仍不在应用侧
+
+从 `open-login` 到 `complete-login` 共 20.3s，其中**首个文档只花 1.4s**，后面 10.8s 是登录页自己的跳转链：`channels.weixin.qq.com/login.html` 连开两次即 `ERR_ABORTED`、两个 2560×864 背景 `mp4` 与 `weixin_v3.ttf`（`ERR_CACHE_MISS`）被中止，再叠上 §10 结论三的 6 端口本机客户端探测。`did-finish-load` 要等子框架与资源收敛，所以第二个数才是用户眼里的"转圈时长"。
+
+**判据修正**：§5.4 的判定表此前默认只看一条 `login page finished`。同一视图出现**多条**时，应以**首条**为"文档可达性"、以**末条**为"用户观感时长"；两者差值大即说明页面在自我跳转/加载外链资源，而非我们 `loadURL` 慢。
+
+### 11.2 出码计时对非公众号路径不覆盖（已知缺口，暂不扩范围）
+
+本次 `tencent_video` 全程 **0 条** `qr response #` 日志：`QR_IMAGE_MARKER = 'getqrcode'` 只匹配 `mp.weixin.qq.com/cgi-bin/scanloginqrcode?action=getqrcode`，腾讯视频登录走的是 `open.weixin.qq.com/connect/qrconnect`，二维码字节不经该端点。因此「出码几秒」这一指标目前**只对公众号入口成立**；`§4` 判定表中依赖它的那两行对其它平台不可用。
+
+决定：不在本次修复里扩端点白名单——没有需求方要求量化其它平台的出码耗时，且扩大 `URL_FILTERS` 会同时收紧 `auth-view-manager.test.js` 里"filter 精确等于 `URL_FILTERS`"那条锁，属独立决策。缺口如实登记于此。
+
+### 11.3 顺带查出：本 PR 自己的契约锁是装饰性的（已修）
+
+同一次全量跑里 stderr 出现 `electron.d.ts 不可用，跳过宿主 API 前提锁` —— 定位用 `path.join(__dirname, '..', '..', 'node_modules', ...)`，从 `apps/desktop/electron/services` 数两级 `..` 只到 `apps/desktop`，而本仓 `node-linker=hoisted`，electron 在**仓库根** `node_modules`。结果两条依赖 d.ts 的锁（前提锁、通配锁）在本地与 CI **从未执行过任何断言**。
+
+连带撤回一条 §10/CHANGELOG 的旧结论："注入 bogus 名后契约锁 2 failed" 的红其实来自**日志格式断言**。修复：改为逐级上溯查找 + 找不到即红 + 声明集规模下界（实测 410）；三条变异反证各自变红（源码改调不存在方法 / `findDts` 指向不存在包 / 成员正则退化）。详见 learnings `decorative-contract-lock`。
