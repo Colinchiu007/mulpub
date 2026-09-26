@@ -16094,7 +16094,7 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 
 ## cancel 第三方页面请求的安全性是"借来的"——因为我们的登录视图没挂 did-fail-load（cancel-prerequisite-error-page，2026-09-27）
 
-- **背景**：给登录页做噪音 cancel（只拦 `res.wx.qq.com` 两个 `2560x864_*.mp4` 与 `support.weixin.qq.com/cgi-bin/mmsupportmesh`）时对照竞品蚁小二，它敢在 `*://*/*` 上 cancel 的**前提**是其 `did-fail-load` 带 `isMainFrame && errorCode !== -3` 门禁（-3 = `ERR_ABORTED`），之后才跳自家错误页。
+- **背景**：给登录页做噪音 cancel（只拦 `res.wx.qq.com` 两个 `2560x864_*.mp4` 与 `support.weixin.qq.com/cgi-bin/mmsupportmesh`）时对照竞品参考产品，它敢在 `*://*/*` 上 cancel 的**前提**是其 `did-fail-load` 带 `isMainFrame && errorCode !== -3` 门禁（-3 = `ERR_ABORTED`），之后才跳自家错误页。
 - **我们的现状**：登录视图**根本没挂 `did-fail-load`**（全仓唯一一处在 `rpa-view-session.js:31`，属 RPA 发布路径），所以 cancel 子资源不会被误判成"登录页加载失败"而弹自家错误页。
 - **为什么这是"借来的安全"**：安全来自"缺少那段逻辑"，不是来自"我们做了防护"。**将来任何人给登录视图加「失败→错误页」，都必须同时补 `errorCode !== -3` 与 `isMainFrame` 门禁**，否则一次 cancel 就会把登录页换成错误页 —— 而 cancel 默认关（`MP_LOGIN_NOISE_CANCEL=1`）意味着这个回归只会在有人打开开关、又恰好加了错误页之后才爆，测试面完全覆盖不到。
 - **宽匹配禁区（同批证据）**：竞品用 `url.includes("output.mp4")` 这种不限 host 的裸子串。我们若照抄成 `includes(".mp4")` 会直接废掉其它平台的背景视频，写成 `includes("localhost")` 会误伤我们自己的 `127.0.0.1:<随机端口>` 服务。约束：host+路径收窄在 **webRequest filter 层**（不匹配 host 的请求根本进不到回调），判定用完整常量或前缀常量，并锁一条「filter 数组精确等于预期」的结构断言。
