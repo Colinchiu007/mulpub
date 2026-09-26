@@ -334,7 +334,9 @@ idle →（点按钮）→ loading-digest →（成功）→ digest-confirm →�
 | 逐条列表 | 每账号一行：平台图标、账号名、结果标签（已上传/已更新/已是最新/已恢复/已跳过/冲突已解决/凭证失效/失败）、失败时原因文案 |
 | 已用时 | 秒表，1s tick（复用一键检测的 ticker 模式） |
 | 汇总区 | 终态后出现：成功 n / 更新 n / 恢复 n / 跳过 n / 冲突 n / 需重登 n / 失败 n |
-| 操作 | 进行中：【后台继续】（关弹窗不取消批次）；终态：【完成】 |
+| 操作 | 进行中：【停止同步】（显式中止，见下）+【后台继续】（仅关弹窗，批次不打断）；终态：【完成】 |
+
+> **两个动作语义不同，不得合并**：`【后台继续】` = 关闭弹窗、同步照常进行到终态（重开弹窗可看结果）；`【停止同步】` = 请求中止，**当前条完成后**停止发起新账号，已完成的结果保留，剩余账号计 `cancelled`。中止按钮在 IPC 回执后不得自行伪造"已停止"终态；若批次其实已自然结束（`data.aborted === false`），按钮直接失效并走正常汇总流程。
 
 结果标签颜色语义：成功类 `success`、跳过/已最新 `muted`、冲突 `warning`、失效/失败 `danger`。
 
@@ -394,12 +396,14 @@ idle →（点按钮）→ loading-digest →（成功）→ digest-confirm →�
 | `accountsPage.cloudDisconnectConfirm` | 将清除云端全部 {count} 个账号镜像，本机账号与登录状态不受影响。是否继续？ |
 | `accountsPage.cloudDisconnectSuccess` | 云端账号已清除 |
 | `accountsPage.cloudDisconnectFailed` | 云端未完全清除：{deleted} 已删，{remaining} 仍在，请重试 |
-| `accountsPage.cloudSync.err.unauthorized` | 请先登录后再同步 |
-| `accountsPage.cloudSync.err.serviceUnavailable` | 云端同步服务暂不可用，请稍后再试 |
-| `accountsPage.cloudSync.err.kmsUnavailable` | 云端加密服务未就绪，本次未上传任何凭证 |
-| `accountsPage.cloudSync.err.credentialTooLarge` | 该账号登录数据过大，无法上传 |
-| `accountsPage.cloudSync.err.budgetExceeded` | 同步超时，未完成 |
-| `accountsPage.cloudSync.err.inProgress` | 已有一次同步在进行中 |
+| `accountsPage.cloudSyncErr.unauthorized` | 请先登录后再同步 |
+| `accountsPage.cloudSyncErr.serviceUnavailable` | 云端同步服务暂不可用，请稍后再试 |
+| `accountsPage.cloudSyncErr.kmsUnavailable` | 云端加密服务未就绪，本次未上传任何凭证 |
+| `accountsPage.cloudSyncErr.credentialTooLarge` | 该账号登录数据过大，无法上传 |
+| `accountsPage.cloudSyncErr.budgetExceeded` | 同步超时，未完成 |
+| `accountsPage.cloudSyncErr.inProgress` | 已有一次同步在进行中 |
+
+> **键名口径（实现约束，不要改回点分）**：原设计写作 `cloudSync.err.<code>`，但 `accountsPage.cloudSync` 已经是按钮文案的**叶子**，vue-i18n 无法让同一路径同时是叶子和父对象（点分平铺键不会被路径解析命中，已实测）。故错误码文案统一落 `accountsPage.cloudSyncErr.<code>`，沿用同命名空间 `accountCheckStatus` 错误码表的先例。§7.5 里那些**只存在于服务端**的校验码（`ACCOUNT_NAME_NOISE` 等）不在 `cloudSyncErr` 下建条目——那会造出 AGENTS.md 禁止的死键，改为按语义分组映射到少数几条用户可读文案。
 
 文案纪律：拼接类汇总（`cloudSyncDone`/`cloudSyncPartial`）MUST 有整句字面量精确断言测试，覆盖条件段有无两种形态（QM-3 + 先例 `locales/accounts-batch-check-copy.test.js`）。用户可见文案一律进 locales，渲染层 `src/` 非 locales 文件不得新增中文字面量（CI Gate 7）。
 
@@ -415,7 +419,9 @@ idle →（点按钮）→ loading-digest →（成功）→ digest-confirm →�
 | 本机 0 账号 | 按钮 disabled + title 说明 | 无 |
 | 单账号 uid 取不到 | 该行"未能确认账号身份，已跳过" | 该账号不上行；其余照常 |
 | 部分账号失败 | "同步部分完成：n 成功 / m 失败"并列出原因 | 失败账号不写云端 |
-| 批次中途关窗 | 当前条完成后停止；已完成的保留 | 计划内剩余条计 cancelled，不重试 |
+| 批次进行中关弹窗（后台继续） | 弹窗关闭，同步照常进行到终态；重开可看结果 | 不中断，结果照常落盘 |
+| 用户点【停止同步】 | 按钮转"正在停止…"并失效，当前条完成后停止 | 已完成的结果保留，剩余账号计 `cancelled`，MUST NOT 伪造终态 |
+| 停止时批次已自然结束 | 按钮直接失效，走正常汇总 | 无额外影响 |
 | 单账号超时 | 该行计失败 + "同步超时" | 迟到 reject MUST NOT 冒 unhandledRejection |
 | KMS 不可用 | 明确提示"未上传任何凭证" | MUST NOT 出现明文降级 |
 | 恢复后检测判失效 | 该行"凭证已失效，需重新登录" | 账号留在列表，status=expired 由本机证据产生 |

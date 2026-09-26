@@ -1,3 +1,35 @@
+# [未发布] feat(cloud-account-sync): 账号管理页【同步云端】—— 账号与凭证加密镜像到业务 API，支持跨设备免扫码恢复（2026-09-27，cloud-account-sync）
+
+### 为什么这次不是"接一个现成接口"
+动手前全仓取证：`ops-center/backend/models.py` 的 `account` 命中数为 **0**、`accounts.json` 的内容从未出过本机（`server.py:484` 收到 cookies 直接 400 `ACCOUNT_METADATA_ONLY`）、`openspec/specs/story2video-pipeline-config-profiles/spec.md:129` 与 `01-docs/ARCH-REFACTOR-ROADMAP-2026-08-31.md:871` 都把"账号同步/云同步"写成**显式排除项**。所以这是一个从零建的后端面，不是接已有能力；按 M+ 复杂度走 openspec change + worktree 隔离 + 全链路门禁。
+
+### 关键设计（12 项决策的收口，理由见 `docs/adr/0001`–`0006`、`CONTEXT.md`）
+- **落点选业务 API 而不是运营中心**：账号是"归属于某个登录身份"的用户私有数据，业务 API 已有 Postgres + Logto 身份 + `Bearer`+`X-Device-Id` 客户端封装；运营中心是配置下发与脱敏聚合域，鉴权是静态 `X-Catalog-Key`，把账号放进去归属维度天然缺失。
+- **合并键 = `(platform, platform_uid)`**，显示名/昵称/页面标题**永不**参与。竞品取证印证：蚁小二 `index.cjs:87265` 把 `id/platformUserId/platformUserName` 分三列，上云送的 `userId` 就是平台原生 uid（视频号 `finderUser.uniqId`、快手 `data.userId`、微博 `user.id`）。本仓原先只有 4/8 平台能取到 uid，本机真源 `platform_account_id` 填充率实测 **3/8**（知乎的 name 甚至是"首页 - 知乎"这类页面标题），因此把 uid 覆盖补齐定为本功能上线的前置条件，而不是留一个"靠昵称猜"的降级路径——猜错会把两台设备的不同账号并成一条，撤销要改云端数据。
+- **凭证上云换取免扫码，但用信封加密落库**：随机数据密钥 AES-256-GCM，AAD 绑定 `(user_id, platform, platform_uid)`，数据密钥再由按用户隔离的主密钥经服务端 KMS 抽象层包裹；KMS 缺失 fail-closed 为 `KMS_UNAVAILABLE`，禁止降级明文。取竞品的能力，不取它"明文托管 + 本地 socket JWT 校验写了 RS256 却用常量关掉"的形态。
+- **凭证摘要只在服务端算一份**：桌面侧曾考虑也实现一份规范化摘要，被否决——本仓已有"同一个三态映射抄成三份，导致已登录账号每 30 分钟来回振荡"的事故（#2433），摘要口径同理，两份实现必然漂移，漂移的表现是 `unchanged` 被误判成冲突、每次同步重写一遍凭证。
+
+### 与既有硬契约的冲突点（这是本次最需要谨慎的地方）
+- **登录态不跨设备传播**：恢复到本机的账号一律 `status='unverified'`、`last_validated` 取本机时刻且不参与 7 天超龄兜底，随后自动排队一次本机检测。若让云端结论直接写真源，等于"没有本机证据却声称已登录"，旧设备时间戳还会让新设备立刻判失效——正是 #2433 刚关上的那扇门。
+- **云端墓碑只阻止复活，不反向删除本机账号与凭证**：本机凭证删除不可恢复，合并键判错时反向删除等于跨设备抹号。
+- **`ACCOUNT_METADATA_ONLY` 保持不变**：那条 400 管的是本地真源不收凭证，与云端镜像是两条独立通道，不是本特性的门禁。
+
+### 变更
+- **云端**：`migrations/postgresql/005_cloud_accounts.sql`（`cloud_accounts` + `cloud_account_tombstones`，唯一键 `(user_id, platform, platform_uid)`）；`src/cloud-accounts/{credential-digest,envelope-crypto,validate-account,cloud-account-repository,handlers,index}.js`；`src/auth/publish-api-cloud-accounts.js` 接线 + `publish-api-server.js` 路由派发（在鉴权之后，归属只取服务端解析出的 `businessUser.id`）。断开云端统一为 `POST /api/v1/me/accounts/disconnect` + body `{confirm:'cloud'}`，**不留 DELETE 别名**。
+- **主进程**：`services/cloud-account-sync.js`（合并计划、逐条 start/done 双边界、并发 3 / 单账号 20s / 总预算 180s 均可用环境变量覆盖、迟到 reject 不冒 unhandledRejection）；`ipc-handlers/cloud-account.js` 四通道全部 `withSenderCheck`；`preload/account.js` 暴露 5 个方法并重建两份 bundle；`member-api-service.js` 白名单从"只放路径"收紧为"路径 + 方法"双维。
+- **渲染层**：`Accounts.vue` 命令栏【同步云端】按钮 + `AccountCloudSyncDialog.vue`（摘要确认态 → 过程态同弹窗切换、逐条结果、进度条复用一键检测口径）+ 【停止同步】中止阀 + 断开云端退路；入口由运营中心 feature flag `account_cloud_sync` 控制，默认关闭；`useFeatureFlag.js` 复用 `opsCenterSyncRuntime` 既有链路，读不到一律 fail-closed。
+- **uid 补齐**：`http-login-checker.js` 新增 `uidSource: json|html|cookie` 三通道与 `normalizeUid` 形态白名单（正则 + 占位值黑名单，不用枚举坏值打地鼠）；HTML 通道带**唯一性守卫**（评论区/协作成员也带 `data-user-id`，取"第一个命中"会把本机身份绑到随机访客上，比取不到更糟）；快手不注册端点、只从已过 `hasPlatformSessionCookie` 门禁的 `userId` Cookie 派生，登录检测行为零漂移（`hasLoginCheck()` 钉住）。
+
+### 验证与如实登记的未执行项
+- 已实测：主进程 `cloud-account-sync.test.js` 20/20（含**反证**——把"恢复即 unverified"改成冒充 active，3 条立刻红）；uid 覆盖结构锁 25/25 + info 27/27（反证：改名/删负例都能变红，删负例时**业务测试仍全绿、只有锁红**，正是补住了"删一个负例无人察觉"）；渲染层 157/157、全量 `src` 3634 passed 无回归；服务端存储层 104/104（4 次反证）；`workflow-contract` 22/22；locale 成对与 CJK 基线门禁 PASS。
+- **未执行（不得当作已完成）**：八平台真凭据线级取证（tasks 3.6）—— 小红书/知乎 SSR 是否真直出身份属性、快手 `userId` 是否严格等于平台原生主键，仓库内**无实测证据**，可靠性等级已在代码注释标注，未命中即走 `uid-unavailable` 整体跳过上行，不会退化成猜值；生产 ECS 发布与真实 `multi_publish_api` 角色的迁移 runner；云 KMS 生产实现与密钥轮转；双设备端到端；`production-smoke.js`。生产部署与灰度开关打开顺序见 PRD §十五。
+- **新增 CI job**：`quality-gate` 的 `business-api-postgres`（ubuntu + `postgres:16-alpine` service，Windows runner 不支持 `services:`）。真库回归覆盖 fake client 结构上免疫的失败：DDL 语法、唯一约束与 `ON CONFLICT` 目标列不匹配（真库直接 42P10）、BYTEA↔Buffer、TIMESTAMPTZ↔Date、`ON DELETE CASCADE` 级联、按用户行级隔离、库内取证不含 cookie 明文。无 `BUSINESS_DATABASE_URL` 时该文件整体 SKIP——**跳过不等于通过**，已纳入 `gate-result` 汇总（注意 `gate-result` 目前只打印不传播失败，属既有缺口，另有分支在处理）。
+
+### 合规
+用户全部平台登录钥匙首次离开本机。首次同步弹窗内的隐私提示行即为同意点，`credential_updated_at` + 「断开云端」构成可撤回路径；隐私声明需新增"平台登录凭证加密托管"条目（AGENTS.md 凭证边界条款已同步修订）。
+
+
+
 # [未发布] test(desktop): 测试层禁止真实出站 + 自旋必须让出宏任务（缺陷 G 家族清扫，含 Gate 19 棘轮）（2026-09-26，test-unbounded-network-guards）
 
 ### 为什么是"家族"而不是第四个孤例
