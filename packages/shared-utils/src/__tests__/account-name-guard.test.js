@@ -100,5 +100,12 @@ describe('account-name-guard browser twin parity (PRD-ACCOUNT-CARD-DISPLAY-FIX-2
     expect(esmGuard.TITLE_SEPARATOR_PATTERN.source).toBe(cjsGuard.TITLE_SEPARATOR_PATTERN.source)
     expect(esmGuard.OPEN_BRACKETS).toBe(cjsGuard.OPEN_BRACKETS)
     expect(esmGuard.CLOSE_BRACKETS).toBe(cjsGuard.CLOSE_BRACKETS)
+    // 导出面也必须对称：两侧都导出 hasUnbalancedBrackets 且判定逐例一致
+    // （评审指出 CJS 曾只内部使用、ESM 导出，两侧 API 面漂移）。
+    expect(typeof esmGuard.hasUnbalancedBrackets).toBe('function')
+    expect(typeof cjsGuard.hasUnbalancedBrackets).toBe('function')
+    for (const s of ['哔哩哔哩 (゜', 'A(B)', '阿b(≧▽≦)', '小新的日常(vlog)', '（未完', '）多余', '无括号']) {
+      expect([s, esmGuard.hasUnbalancedBrackets(s)]).toEqual([s, cjsGuard.hasUnbalancedBrackets(s)])
+    }
   })
 })

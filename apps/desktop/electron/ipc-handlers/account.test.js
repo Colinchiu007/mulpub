@@ -251,7 +251,8 @@ describe('account IPC 可信来源正常工作', () => {
         id: 'acc-1',
         platform: 'wechat_mp',
         name: '公众号',
-        account_name: '公众号',
+        account_name: '',                 // 撤掉 IPC 层 account_name||name 合并后：mock 未提供昵称，必须留空
+        name_source: 'auto',
         is_active: true,
         status: 'unverified',
         status_source: 'absent-fallback',
@@ -744,7 +745,8 @@ describe('account IPC 可信来源正常工作', () => {
         id: 'yt-1',
         platform: 'youtube',
         name: '频道账号',
-        account_name: '频道账号',
+        account_name: '',                 // 撤掉 IPC 层 account_name||name 合并后：mock 未提供昵称，必须留空
+        name_source: 'auto',
         status: 'active',
         status_source: 'backend',
         last_validated: '2026-09-25T15:00:00.000Z',
@@ -798,7 +800,8 @@ describe('account IPC 可信来源正常工作', () => {
         id: 'account-1',
         platform: 'wechat_mp',
         name: '公众号',
-        account_name: '公众号',
+        account_name: '',                 // 撤掉 IPC 层 account_name||name 合并后：mock 未提供昵称，必须留空
+        name_source: 'auto',
         status: 'active',
         status_source: 'backend',
         last_validated: '2026-09-25T15:00:00.000Z',
@@ -975,7 +978,8 @@ describe('account IPC 可信来源正常工作', () => {
         id: 'acc-1',
         platform: 'wechat',
         name: '公众号',
-        account_name: '公众号',
+        account_name: '',                 // 撤掉 IPC 层 account_name||name 合并后：mock 未提供昵称，必须留空
+        name_source: 'auto',
         status: 'unverified',
         status_source: 'absent-fallback',
         is_default: false,
@@ -1023,7 +1027,8 @@ describe('account IPC 可信来源正常工作', () => {
       id: 'acc-1',
       platform: 'wechat_mp',
       name: '公众号',
-      account_name: '公众号',
+      account_name: '',                 // 撤掉 IPC 层 account_name||name 合并后：mock 未提供昵称，必须留空
+      name_source: 'auto',
       status: 'unverified',
       status_source: 'absent-fallback',
       is_default: false,
@@ -1139,6 +1144,69 @@ describe('登录态判定不得由 is_active 派生（正交性回归）', () =>
     expect(result.data[0].status).toBe('active')
     expect(result.data[0].status_source).toBe('backend')
     expect(result.data[0].is_active).toBe(false)
+  })
+})
+
+describe('accounts:list 投影必须透传 name_source 且不得用 name 填充 account_name', () => {
+  function listDeps (source) {
+    return createMockDeps({
+      AccountManager: {
+        listAccounts: vi.fn().mockResolvedValue([source]),
+        checkLocalCredentials: vi.fn(() => true),
+      },
+    })
+  }
+
+  it('后端返回 name_source=manual 时必须原样出现在投影结果里', async () => {
+    const result = await ipcMain_and_call(
+      listDeps({ id: 'a1', platform: 'toutiao', name: '今日头条', account_name: '阿飞 - 自由职业', name_source: 'manual' }),
+      'accounts:list',
+    )
+
+    expect(result.data[0].name_source).toBe('manual')
+    expect(result.data[0].account_name).toBe('阿飞 - 自由职业')
+  })
+
+  it('后端未提供 name_source 时按 auto 输出（不得缺席，缺席会让渲染层无法分流）', async () => {
+    const result = await ipcMain_and_call(
+      listDeps({ id: 'a1', platform: 'toutiao', name: '今日头条', account_name: '真昵称' }),
+      'accounts:list',
+    )
+
+    expect(result.data[0].name_source).toBe('auto')
+  })
+
+  it('account_name 缺席时不得用 name 顶替 —— 那是网页标题冒充昵称的通道', async () => {
+    const result = await ipcMain_and_call(
+      listDeps({ id: 'a1', platform: 'wechat_mp', name: '公众号' }),
+      'accounts:list',
+    )
+
+    // '公众号' 是 account-name-guard 的 KNOWN_PAGE_TITLES 成员。此前 IPC 层把它
+    // 合并进 account_name，等于在主进程里就把「平台页面名」伪装成「账号昵称」，
+    // 使渲染层无法区分二者。现在必须原样留空，由展示层回落平台名。
+    expect(result.data[0].account_name).toBe('')
+    expect(result.data[0].name).toBe('公众号')
+    expect(result.data[0].name_source).toBe('auto')
+  })
+
+  it('撤掉提前合并后敏感字段仍必须被移除（白名单不得因改动放宽）', async () => {
+    const result = await ipcMain_and_call(
+      listDeps({
+        id: 'a1', platform: 'toutiao', name: '今日头条', account_name: '真昵称',
+        cookies: [{ name: 'session', value: 'secret' }],
+        auth_data: { local_storage: { token: 'private' } },
+        access_token: '不得暴露',
+        refresh_token: '不得暴露',
+      }),
+      'accounts:list',
+    )
+
+    const account = result.data[0]
+    for (const key of ['cookies', 'auth_data', 'access_token', 'refresh_token']) {
+      expect(account, '字段 ' + key + ' 不得出现在 IPC 投影里').not.toHaveProperty(key)
+    }
+    expect(account.has_cookies).toBe(true)
   })
 })
 

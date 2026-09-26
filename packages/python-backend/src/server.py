@@ -273,6 +273,24 @@ def _normalize_account_active(value) -> bool:
     return True
 
 
+# 显示名来源：auto = 系统从平台页面/接口/平台固定名称取得；manual = 用户在界面上显式改名。
+# 展示层靠这两个值分流「过噪声守卫」与「原样显示」，因此它必须是持久化字段，
+# 不能靠文本形态反推 —— 反推的方向恰好是错的：用户起的名字也可能长得像抓取错误。
+ACCOUNT_NAME_SOURCES = ("auto", "manual")
+DEFAULT_ACCOUNT_NAME_SOURCE = "auto"
+
+
+def _normalize_account_name_source(value) -> str:
+    """来源读侧 fail-safe：缺失/非法/历史脏值一律按 auto 处理。
+
+    降级方向选 auto 而不是 manual：auto 只是让名字多过一层噪声过滤（最坏回落平台名），
+    manual 则会让历史抓错的网页标题绕过过滤直接显示在账号卡片上。
+    """
+    if isinstance(value, str) and value.strip().lower() in ACCOUNT_NAME_SOURCES:
+        return value.strip().lower()
+    return DEFAULT_ACCOUNT_NAME_SOURCE
+
+
 class AccountCreateRequest(BaseModel):
     # 兼容旧客户端的字段仅用于返回明确的 400；不再接受或持久化任何凭据。
     model_config = ConfigDict(extra="forbid")
@@ -280,6 +298,8 @@ class AccountCreateRequest(BaseModel):
     platform: str
     name: str
     account_name: str | None = None
+    # 新建时来源必然是 auto（登录捕获/接口回填），显式改名只发生在 PATCH 路径。
+    name_source: str | None = None
     platform_account_id: str | None = None
     followers: int | None = None
     avatar: str | None = None
@@ -294,6 +314,9 @@ class AccountUpdateRequest(BaseModel):
 
     name: str | None = None
     account_name: str | None = None
+    # 与 name/account_name 同批下发：用户显式改名必须同时把来源置为 manual，
+    # 否则渲染层无法区分「手改名」与「抓取值」，会把手改名当噪声藏掉。
+    name_source: str | None = None
     platform_account_id: str | None = None
     followers: int | None = None
     avatar: str | None = None
@@ -408,6 +431,8 @@ def _account_to_dict(a: dict) -> dict:
         "platform": a["platform"],
         "name": a["name"],
         "account_name": a.get("account_name", ""),
+        # 历史数据无该键 → 归一化为 auto（只读归一，不反向写盘）。
+        "name_source": _normalize_account_name_source(a.get("name_source")),
         "platform_account_id": a.get("platform_account_id", ""),
         "followers": a.get("followers"),
         "avatar": a.get("avatar", ""),
@@ -517,6 +542,7 @@ def create_account(req: AccountCreateRequest, request: Request):
         "platform": pt.value,
         "name": req.name,
         "account_name": req.account_name or "",
+        "name_source": _normalize_account_name_source(req.name_source),
         "platform_account_id": req.platform_account_id or "",
         "followers": req.followers,
         "avatar": req.avatar or "",
@@ -556,6 +582,8 @@ def patch_account(account_id: str, req: AccountUpdateRequest, request: Request):
         a["name"] = req.name
     if req.account_name is not None:
         a["account_name"] = req.account_name
+    if req.name_source is not None:
+        a["name_source"] = _normalize_account_name_source(req.name_source)
     if req.platform_account_id is not None:
         a["platform_account_id"] = req.platform_account_id
     if req.followers is not None:

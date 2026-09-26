@@ -15,6 +15,17 @@ const pythonBridge = require('../services/python-bridge')
 const accountStateRestorer = require('../services/account-state-restorer')
 const credentialStore = require('../services/credential-store')
 const { normalizeProxyConfig, toPublicProxyConfig } = require('../services/proxy-config')
+const {
+  resolveCapturedDisplayName,
+  guardProfilePatchBySource,
+  renameAccount: renameAccountViaBackend,
+} = require('./account-name-write')
+
+// 公开签名保持三参（AccountManager.renameAccount 是 IPC 的合同面），依赖在此绑定。
+// 必须把 pythonBridge 作为**模块对象**传下去而不是它的函数引用：本文件第 13 行那种
+// 「require 期解构成本地绑定」的写法已证明会让测试里的 vi.spyOn 拦不到、静默走真实实现。
+const renameAccount = (accountId, platform, newName) =>
+  renameAccountViaBackend(accountId, platform, newName, { isSafePathSegment, pythonBridge, log })
 
 // 安全：凭证写入路径使用 Electron userData 目录，而非当前工作目录
 function getUserDataDir () {
@@ -62,7 +73,6 @@ const {
 } = require('@multi-publish/shared-utils/src/platform-definitions')
 // 账号资料（昵称/头像/平台ID/粉丝）采集与「字段缺席=不修改」写回契约的单一实现
 const profileUtils = require('@multi-publish/shared-utils/src/account-profile')
-const { isNoiseAccountName } = require('@multi-publish/shared-utils/src/account-name-guard')
 
 // 平台登录 URL / 名称 / 选择器 → @multi-publish/shared-utils/src/platform-definitions
 
@@ -253,21 +263,6 @@ async function addAccount (platform, options = {}) {
 }
 
 /**
- * 解析账号显示名。`captured.name` 来自 auth-view-manager 的 `document.title`，
- * 它既是 POST/PATCH 直接写进真源 `name` 字段的值，又是 `profileForCreate` 的昵称兜底 ——
- * 不在这唯一一处入口过噪声守卫，等于给「网页标题冒充账号名」留一条绕过口
- * （2026-09-26 生产库的「小红书创作服务平台 / 快手创作者服务平台 / 抖音创作者中心」即此路径产物）。
- * 命中噪声一律回落平台名；判定与卡片展示端、采集写回端共用 account-name-guard 单一来源。
- * @param {unknown} rawName
- * @param {string} platform
- * @returns {string}
- */
-function resolveAccountDisplayName (rawName, platform) {
-  const trimmed = typeof rawName === 'string' ? rawName.trim() : ''
-  return trimmed && !isNoiseAccountName(trimmed) ? trimmed : getPlatformName(platform)
-}
-
-/**
  * 保存已由浏览器或扫码流程捕获的账号凭证。
  * 凭证只在主进程流转，渲染进程只接收后端返回的脱敏账号信息。
  * @param {string} platform
@@ -291,7 +286,7 @@ async function saveCapturedAccount (platform, captured, options = {}) {
   if (cookies.length === 0 && Object.keys(localStorageData).length === 0 && Object.keys(indexedDB).length === 0) {
     throw new Error('未捕获到有效登录凭证')
   }
-  const name = resolveAccountDisplayName(source.name, platform)
+  const name = resolveCapturedDisplayName(source.name, platform)
   const accountInfo = source.accountInfo && typeof source.accountInfo === 'object' && !Array.isArray(source.accountInfo)
     ? source.accountInfo
     : {}
@@ -718,6 +713,7 @@ async function refreshProfileFromPage (page, platform, accountId) {
     const current = await pythonBridge.requestBackend('GET', '/api/accounts/' + accountId)
     if (!current || current.code !== 0 || !current.data) return false
     const patch = profileUtils.buildProfilePatch(info, current.data)
+    guardProfilePatchBySource(patch, current.data)
     if (Object.keys(patch).length === 0) return false
     const result = await pythonBridge.requestBackend('PATCH', '/api/accounts/' + accountId, patch)
     if (!result || result.code !== 0) {
@@ -735,7 +731,7 @@ async function refreshProfileFromPage (page, platform, accountId) {
 /**
  * HTTP 登录检测成功时的资料回填：用平台创作者 API（复用 http-login-checker 端点，
  * 对齐参考实现：不抓 DOM）拿昵称/粉丝，走 buildProfilePatch 只下发命中且变化的字段。
- * 昵称保护：仅当现网名命中噪声或缺失时才用 API 昵称覆盖，避免冲掉用户手动改过的名字；
+ * 昵称保护：见 guardProfilePatchBySource —— 按 name_source 判定，用户显式命名一律不覆盖。
  * 粉丝/平台ID/头像等增量字段照常回填。任何失败只 warn 返回 false，绝不影响登录态判定。
  * @returns {Promise<boolean>} 是否实际写回了资料字段
  */
@@ -750,8 +746,7 @@ async function refreshProfileFromHttpApi (platform, accountId, cookies) {
       { nickName: info.nickname, followers: info.followers, platformAccountId: info.platformAccountId },
       curData
     )
-    const curName = curData ? String(curData.account_name || '').trim() : ''
-    if (patch.account_name && curName && !isNoiseAccountName(curName)) delete patch.account_name
+    guardProfilePatchBySource(patch, curData)
     if (Object.keys(patch).length === 0) return false
     const result = await pythonBridge.requestBackend('PATCH', '/api/accounts/' + accountId, patch)
     if (!result || result.code !== 0) {
@@ -1144,7 +1139,7 @@ async function updateCapturedAccount (platform, captured, accountId) {
   if (cookies.length === 0 && Object.keys(localStorageData).length === 0 && Object.keys(indexedDB).length === 0) {
     throw new Error('未捕获到有效登录凭证')
   }
-  const name = resolveAccountDisplayName(source.name, platform)
+  const name = resolveCapturedDisplayName(source.name, platform)
   const accountInfo = source.accountInfo && typeof source.accountInfo === 'object' && !Array.isArray(source.accountInfo)
     ? source.accountInfo
     : {}
@@ -1181,6 +1176,10 @@ async function updateCapturedAccount (platform, captured, accountId) {
   // 失效」（今日头条）。顺序不可颠倒：凭证未落盘时不允许把真源置为 active
   // （防半成功状态）。
   const profilePatch = profileUtils.buildProfilePatch(accountInfo, account)
+  // 第三条「凭证落盘」同族路径，必须与前两条 refreshProfile* 过同一个守卫：
+  // 重新登录时抓到的昵称不得覆盖用户显式命名，否则 name_source 仍是 manual
+  // 而值已换成机器脏值，之后再没有任何一道会过滤它 —— 正好反转本 change 的核心不变量。
+  guardProfilePatchBySource(profilePatch, account)
   // PATCH 体与返回值复用同一 validatedAt：两处各取 new Date() 会相差一个网络往返，排障对不上
   const validatedAt = new Date().toISOString()
   let metaResult = null
@@ -1253,6 +1252,7 @@ module.exports = {
   mergeCookies,
   persistLoginState,
   setAccountActive,
+  renameAccount,
   setOwnerSubjectProvider,
   accountStateRestorer,
   credentialStore,

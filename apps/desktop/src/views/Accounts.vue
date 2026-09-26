@@ -336,6 +336,7 @@ import { useI18n } from 'vue-i18n'
 import { PLATFORM_DASHBOARD_URLS, PLATFORM_LOGIN_URLS } from '@multi-publish/shared-utils/src/platform-definitions'
 import { getPlatformIconUrl } from '@/composables/usePlatformIconUrl'
 import { formatUserError } from '@/utils/user-facing-error'
+import { resolveAccountDisplayName } from '@/utils/account-display-name'
 import { useIdentityStore } from '@/stores/identity'
 import { useLoginGate } from '@/composables/useLoginGate'
 
@@ -833,7 +834,9 @@ async function setDefault (account) {
 
 async function renameAccount (account, nextName) {
   const name = nextName.trim()
-  if (!name || name === (account.account_name || account.name)) return
+  // 「未改动」判定必须与卡片实际显示值同源。用 raw `account_name || name` 比较时，用户输入
+  // 恰好等于那串被守卫隐藏的脏值会静默 no-op 且零反馈 —— 屏幕上根本没显示那串字。
+  if (!name || name === resolveAccountDisplayName(account, { platformLabel: platformLabel(account.platform) })) return
   try {
     const result = await accountStore.renameAccount(account.id, name)
     if (result?.code !== 0) notifyError('accountsPage.renameFailed', { message: formatUserError(result, { fallback: t('accountsPage.renameFailed') }).message })
@@ -1082,7 +1085,7 @@ async function openLoginPage (account) {
 async function removeAccount (account) {
   const confirmed = await notifyConfirm('accountsPage.confirmDeleteAccount', {
     title: t('accountsPage.confirmDeleteTitle'),
-    params: { platform: platformLabel(account.platform), name: account.account_name || account.name || '' },
+    params: { platform: platformLabel(account.platform), name: resolveAccountDisplayName(account, { platformLabel: platformLabel(account.platform) }) },
   })
   if (!confirmed) return
   try {

@@ -78,4 +78,64 @@ describe('PublishTargetSelector', () => {
     expect(wrapper.get('[data-testid="account-wechat_mp-wx-2"]').element.disabled).toBe(false)
     expect(wrapper.get('[data-testid="target-account-disabled-flag"]').text()).toBe('已停用')
   })
+
+  // 归属 openspec change add-account-name-source 的「所有展示账号名的界面必须共用同一口径」
+  // 需求。此前本组件只读 `account.name`，而主进程写进 `name` 的正是 document.title
+  // （auth-view-manager 的 captured.name），于是发布页选择器显示的是「首页 - 知乎」这类
+  // 网页标题，且用户改的名在这里永远不可见 —— 选错账号发布无从察觉。
+  describe('账号显示名必须与账号卡片同源（resolveAccountDisplayName）', () => {
+    const mountWith = (accounts) => mount(PublishTargetSelector, {
+      props: {
+        groups: [{
+          label: '国内平台',
+          items: [{ id: 'zhihu', label: '知乎', accounts }],
+        }],
+        selectedPlatforms: ['zhihu'],
+        selectedAccounts: {},
+      },
+    })
+    const nameOf = (wrapper) => wrapper.get('[data-testid="account-display-name"]').text()
+
+    it('auto 来源的统计块脏值与网页标题都被过滤，回落平台名', () => {
+      expect(nameOf(mountWith([
+        { id: 'zh-1', account_name: '485.9万人看过', name: '首页 - 知乎', name_source: 'auto' },
+      ]))).toBe('知乎')
+    })
+
+    it('manual 来源原样显示，含被守卫判脏的形态也不过滤', () => {
+      expect(nameOf(mountWith([
+        { id: 'zh-1', account_name: '阿飞 - 自由职业', name: '首页 - 知乎', name_source: 'manual' },
+      ]))).toBe('阿飞 - 自由职业')
+    })
+
+    it('非噪声的抓取昵称正常显示，不被平台名覆盖', () => {
+      expect(nameOf(mountWith([
+        { id: 'zh-1', account_name: '数字生命丘丘', name: '首页 - 知乎', name_source: 'auto' },
+      ]))).toBe('数字生命丘丘')
+    })
+
+    it('全部字段不合格时回落平台名，平台名也拿不到才用 id 前 8 位', () => {
+      expect(nameOf(mountWith([{ id: 'abcdefgh1234', name: '' }]))).toBe('知乎')
+      const noLabel = mount(PublishTargetSelector, {
+        props: {
+          groups: [{ label: '国内平台', items: [{ id: 'x', label: '', accounts: [{ id: 'abcdefgh1234' }] }] }],
+          selectedPlatforms: ['x'],
+          selectedAccounts: {},
+        },
+      })
+      expect(noLabel.get('[data-testid="account-display-name"]').text()).toBe('abcdefgh')
+    })
+
+    it('搜索命中显示名，不再命中被守卫隐藏的网页标题', async () => {
+      const wrapper = mountWith([
+        { id: 'zh-1', account_name: '数字生命丘丘', name: '首页 - 知乎', name_source: 'auto' },
+      ])
+      // 命中当前显示值
+      await wrapper.get('input[type="search"]').setValue('丘丘')
+      expect(wrapper.findAll('[data-testid^="account-zhihu-"]').length).toBe(1)
+      // 「首页」只存在于被过滤掉的 name 里；旧实现用 raw account.name 匹配，这一条会命中
+      await wrapper.get('input[type="search"]').setValue('首页')
+      expect(wrapper.findAll('[data-testid^="account-zhihu-"]').length).toBe(0)
+    })
+  })
 })

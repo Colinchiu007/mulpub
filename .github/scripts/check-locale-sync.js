@@ -129,11 +129,11 @@ function scanPyUserVisibleCjk (file) {
 
 function runPyCjkScan (opts) {
   const files = listFiles(PY_SRC_DIR).filter(f => f.endsWith('.py'))
-  const hits = []
-  for (const file of files) hits.push(...scanPyUserVisibleCjk(file))
+  const hits = annotateContentKeys([].concat(...files.map(scanPyUserVisibleCjk)), true)
 
   if (opts.updatePyBaseline) {
-    const baseline = [...new Set(hits.map(h => h.id))].sort()
+    // 与渲染端同一口径：按「文件 + 文案内容（+ 文件内出现次序）」入基线，行号漂移不产生假阳性。
+    const baseline = [...new Set(hits.map(h => h.contentKey))].sort()
     fs.writeFileSync(PY_BASELINE_FILE, JSON.stringify(baseline, null, 2) + '\n')
     console.log('[locale-sync] python CJK baseline updated: ' + baseline.length + ' entries (' + PY_BASELINE_FILE + ')')
     process.exit(0)
@@ -146,11 +146,11 @@ function runPyCjkScan (opts) {
     console.error('[locale-sync] FAIL: cannot read python CJK baseline ' + PY_BASELINE_FILE + '; first-time init requires --update-py-baseline')
     process.exit(1)
   }
-  const fresh = hits.filter(h => !baseline.has(h.id))
+  const contentBaseline = resolveContentBaseline(baseline, hits)
+  const fresh = hits.filter(h => !contentBaseline.has(h.contentKey))
   const byFile = {}
   for (const h of fresh) {
-    const file = h.id.split(':')[0]
-    ;(byFile[file] = byFile[file] || []).push(h)
+    ;(byFile[h.file] = byFile[h.file] || []).push(h)
   }
   if (fresh.length > 0) {
     console.error('[locale-sync] FAIL: python-backend has ' + fresh.length + ' new hardcoded CJK user-visible messages (baseline ' + baseline.size + ')')
@@ -268,44 +268,67 @@ function contentBaselineFrom (legacyBaseline, currentHits) {
   }
   // 当前命中按 file:line 索引，把旧基线行号映射为该行当前内容（若该行仍有命中）
   const byLineKey = new Map()
-  for (const h of currentHits) byLineKey.set(h.id, h.snippet)
-  const contentSet = new Set()
+  for (const h of currentHits) byLineKey.set(h.id, h)
+  const matched = []
   for (const [file, lines] of legacyLinesByFile) {
-    for (const line of lines) {
-      const snippet = byLineKey.get(file + ':' + line)
-      if (snippet !== undefined) contentSet.add(file + '||' + snippet)
+    for (const line of [...lines].sort((a, b) => a - b)) {
+      const h = byLineKey.get(file + ':' + line)
+      if (h !== undefined) matched.push(h)
     }
   }
-  return contentSet
+  // 复用命中上已标注的 contentKey，保证与比较侧口径一致（含 ||#N 后缀时也不例外）
+  return new Set(matched.map((h) => h.contentKey))
+}
+
+/** 给命中对象标注内容键 `contentKey`。
+ *  纯 `file||content` 会把同一条中文在一个文件里的第 2..N 次命中并成一条，于是「复用一条
+ *  已入基线的文案」—— 加硬编码中文最省事的写法 —— 对门禁完全免疫（实测 py 侧 79 处命中
+ *  只收敛出 67 个键，`server.py||账号不存在` 已出现 5 次而基线只有 1 条）。
+ *  `withOccurrence` 为真时按文件内出现次序追加 `||#N` 后缀；次序与行号无关，因此对行号
+ *  漂移仍然免疫。渲染端基线是热文件（近 60 天被 8 个 PR 改过）且仍是无后缀形态，
+ *  本轮只给 py 侧开启，渲染端后缀迁移另立债务。 */
+function annotateContentKeys (hits, withOccurrence) {
+  const seen = new Map()
+  for (const h of hits) {
+    const base = h.file + '||' + h.snippet
+    if (!withOccurrence) {
+      h.contentKey = base
+      continue
+    }
+    const n = (seen.get(base) || 0) + 1
+    seen.set(base, n)
+    h.contentKey = base + '||#' + n
+  }
+  return hits
+}
+
+/** 基线双格式解析，--cjk 与 --py-cjk 共用：
+ *  新格式（含 '||'）直接用作内容集；旧格式（file:line）借当前命中回填内容再比较。
+ *  2026-09-26：python 侧曾漏掉这次迁移，一次普通的 server.py 上方插入就让 17 条既有基线
+ *  整体行号漂移、全部报成「新增硬编码」——与渲染端 PR #1732 事故同一类根因。 */
+function resolveContentBaseline (rawBaseline, hits) {
+  const isNewFormat = rawBaseline.size === 0 || [...rawBaseline].some((e) => e.includes('||'))
+  return isNewFormat ? rawBaseline : contentBaselineFrom(rawBaseline, hits)
 }
 
 function runCjkScan (opts) {
   const files = listFiles(SRC_DIR).filter(shouldScanFile)
   const hits = []
   for (const file of files) hits.push(...scanCjkHits(file))
+  annotateContentKeys(hits, false)
 
   if (opts.updateBaseline) {
     // 新基线格式：file||content（去重排序）。同文件同内容只记一条，行号无关。
-    const baseline = [...new Set(hits.map(h => h.file + '||' + h.snippet))].sort()
+    const baseline = [...new Set(hits.map(h => h.contentKey))].sort()
     fs.writeFileSync(BASELINE_FILE, JSON.stringify(baseline, null, 2) + '\n')
     console.log(`[locale-sync] CJK baseline updated: ${baseline.length} 条（${BASELINE_FILE}）`)
     process.exit(0)
   }
 
   const baseline = loadBaseline()
-  // 双格式兼容：新基线直接是 file||content 集合；旧基线（file:line）经内容回填转换。
-  const isNewFormat = baseline.size === 0 || [...baseline].some(e => e.includes('||'))
-  let contentBaseline
-  if (isNewFormat) {
-    contentBaseline = baseline
-  } else {
-    contentBaseline = contentBaselineFrom(baseline, hits)
-  }
+  const contentBaseline = resolveContentBaseline(baseline, hits)
   const currentIds = new Set(hits.map(h => h.id))
-  const currentContentKeys = hits.map(h => h.file + '||' + h.snippet)
-  const fresh = isNewFormat
-    ? hits.filter((h, i) => !contentBaseline.has(currentContentKeys[i]))
-    : hits.filter(h => !contentBaseline.has(h.file + '||' + h.snippet))
+  const fresh = hits.filter(h => !contentBaseline.has(h.contentKey))
   const byFile = {}
   for (const h of fresh) {
     const file = h.file
