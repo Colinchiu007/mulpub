@@ -21,7 +21,7 @@ const accountProfile = require('@multi-publish/shared-utils/src/account-profile'
 const { attachCdpDetection } = require('./auth-view-cdp')
 // 会话级网络诊断：iframe 内的二维码请求失败不会触发外层 webContents 的 did-fail-load，
 // 不挂它就等于对「二维码刷很久」完全无感知
-const { attachLoginNetworkDiagnostics } = require('./login-network-diagnostics')
+const { attachLoginNetworkDiagnostics, attachAuthResponseDiagnostics } = require('./login-network-diagnostics')
 const { createSession, setCookies, restoreLocalStorage, restoreIndexedDB, createAuthView } = require('./auth-view-session')
 // 内嵌视图定位唯一来源：必须用「客户区」尺寸，禁用 getBounds() 外框尺寸（见 view-bounds.js）
 const { computeEmbeddedViewBounds, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } = require('./view-bounds')
@@ -345,6 +345,10 @@ class AuthViewManager {
         log.info('AuthView', 'CDP detected login success')
         this._scheduleAutoCompletion('cdp', attempt)
       })
+
+      // 登录被平台风控拒绝时（知乎「客户端异常」类症状）把拒绝原因写进日志；
+      // 复用上面 attachCdpDetection 已 attach 的 debugger，不新增第二个 attach。
+      attachAuthResponseDiagnostics(view.webContents.debugger, { platform, accountId })
 
       // 超时
       if (timeout > 0) {
