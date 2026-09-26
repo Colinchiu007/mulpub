@@ -176,6 +176,7 @@ describe('signer-assembly: 主进程接线 registerSignerAssembly', () => {
       provider,
       assembly: { sign: async () => 's', prewarm: async () => ({ ok: true }) },
       ipcMain: { handle: (ch, fn) => { handlers[ch] = fn; calls.push(['handle', ch]) } },
+      isTrustedSender: () => true,
       log: { info: () => {}, warn: () => {}, error: () => {} },
     })
     expect(calls).toEqual(expect.arrayContaining([
@@ -195,5 +196,61 @@ describe('signer-assembly: 主进程接线 registerSignerAssembly', () => {
     // 会让 manager 放行、创建隐藏页并导航未激活平台活页（触达未取证域，越红线）。
     expect(calls).not.toContainEqual(['verified', 'xiaohongshu.x-s-browser'])
     expect(calls).not.toContainEqual(['providerVerify', 'xiaohongshu.x-s-browser'])
+  })
+
+  // Gate 17（P1-14）：signer:prewarm 会触发隐藏页创建（活的副作用面），
+  // 注册点必须显式 isTrustedSender 校验（defense-in-depth，不依赖咽喉点注入静态可判定）。
+  function makeWiring (isTrusted) {
+    const { registerSignerAssembly } = require(ASSEMBLY_MODULE)
+    const pageCalls = []
+    const noop = () => {}
+    registerSignerAssembly({
+      manager: {
+        registerIpcHandlers: noop,
+        registerCommand: noop,
+        markVerified: noop,
+        _setSignFn: noop,
+      },
+      provider: null,
+      assembly: {
+        sign: async () => 's',
+        prewarm: async () => ({ ok: true }),
+        getOrCreatePage: async (p, k) => { pageCalls.push([p, k]); return { id: 'fake' } },
+      },
+      ipcMain: { handle: (ch, fn) => { (handlersRef[ch] = handlersRef[ch] || []).push(fn) } },
+      isTrustedSender: isTrusted,
+      log: { info: noop, warn: noop, error: noop },
+    })
+    return pageCalls
+  }
+
+  let handlersRef
+  beforeEach(() => { handlersRef = {} })
+
+  it('缺少 isTrustedSender 依赖 → fail-closed 抛错', () => {
+    const { registerSignerAssembly } = require(ASSEMBLY_MODULE)
+    expect(() => registerSignerAssembly({
+      manager: { registerIpcHandlers: () => {}, registerCommand: () => {}, markVerified: () => {}, _setSignFn: () => {} },
+      assembly: { sign: async () => 's', prewarm: async () => ({ ok: true }) },
+      ipcMain: { handle: () => {} },
+      log: { info: () => {}, warn: () => {}, error: () => {} },
+    })).toThrow(/isTrustedSender/)
+  })
+
+  it('signer:prewarm 未受信 sender → 拒绝且不创建隐藏页', async () => {
+    const pageCalls = makeWiring(() => false)
+    const handler = handlersRef['signer:prewarm'][0]
+    const res = await handler({ senderFrame: { url: 'https://evil.example' } }, { platform: 'kuaishou', sessionKey: 'a1' })
+    expect(res).toMatchObject({ code: -2 })
+    expect(res.message).toMatch(/未授权|untrusted|unauthorized/i)
+    expect(pageCalls).toHaveLength(0)
+  })
+
+  it('signer:prewarm 受信 sender → 正常预热', async () => {
+    const pageCalls = makeWiring(() => true)
+    const handler = handlersRef['signer:prewarm'][0]
+    const res = await handler({ senderFrame: { url: 'http://localhost:5173/' } }, { platform: 'kuaishou', sessionKey: 'a1' })
+    expect(res.code).toBe(0)
+    expect(pageCalls).toEqual([['kuaishou', 'a1']])
   })
 })

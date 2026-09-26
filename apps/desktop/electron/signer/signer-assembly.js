@@ -200,6 +200,12 @@ function registerSignerAssembly (deps) {
   if (!ipcMain || typeof ipcMain.handle !== 'function') {
     throw new Error('signer-assembly: registerSignerAssembly requires ipcMain with handle()')
   }
+  // Gate 17（P1-14）：prewarm 会触发隐藏页创建（活的副作用面），必须显式校验 sender 来源，
+  // 不依赖 controlledIpcMain 咽喉点注入（静态不可判定即违规，缺依赖 fail-closed）。
+  const isTrustedSender = deps.isTrustedSender
+  if (typeof isTrustedSender !== 'function') {
+    throw new Error('signer-assembly: registerSignerAssembly requires isTrustedSender(event)')
+  }
   const assembly = deps.assembly
   if (!assembly || typeof assembly.sign !== 'function' || typeof assembly.prewarm !== 'function') {
     throw new Error('signer-assembly: registerSignerAssembly requires assembly ({ sign, prewarm })')
@@ -230,7 +236,11 @@ function registerSignerAssembly (deps) {
     return assembly.sign(ctx)
   })
   manager.registerIpcHandlers(ipcMain)
-  ipcMain.handle('signer:prewarm', async (_event, args) => {
+  ipcMain.handle('signer:prewarm', async (event, args) => {
+    if (!isTrustedSender(event)) {
+      log.warn('Signer', 'signer:prewarm rejected: untrusted sender')
+      return { code: -2, message: 'signer:prewarm: 未授权的调用来源 (untrusted sender)' }
+    }
     const platform = args && args.platform
     const sessionKey = args && args.sessionKey
     if (!PROFILES[platform]) return { code: -2, message: 'signer:prewarm: unknown platform' }

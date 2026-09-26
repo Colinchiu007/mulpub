@@ -9,6 +9,8 @@
  * - timeoutMs 对齐 #2363 CDP 挂起超时降级经验（15s）
  */
 const log = require('../services/logger')
+const { app } = require('electron')
+const { isTrustedSender } = require('../core/ipc-security')
 const { createSignerPageManager } = require('./signer-page-manager')
 const { createSignerAssembly, registerSignerAssembly } = require('./signer-assembly')
 
@@ -29,7 +31,11 @@ function setupSignerAssembly (electronDeps) {
     log: { info: (a, m) => log.info(a, m), warn: (a, m) => log.warn(a, m), error: (a, m) => log.error(a, m) },
     timeoutMs: 15000,
   })
-  wired = registerSignerAssembly({ manager, provider: browserPageProvider, ipcMain, assembly, log })
+  // Gate 17：prewarm 注册点显式 sender 校验（主进程内闭包，app 延迟求值）
+  wired = registerSignerAssembly({
+    manager, provider: browserPageProvider, ipcMain, assembly, log,
+    isTrustedSender: (event) => isTrustedSender(event, app),
+  })
   return wired
 }
 
