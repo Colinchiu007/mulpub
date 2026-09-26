@@ -1079,6 +1079,83 @@ async function persistLoginState (accountId, platform, status, validatedAt) {
   }
 }
 
+/** 「无定论时保持原状」的默认宽限期（天）。防止已失效却永远显示已登录的僵尸绿灯。 */
+const LOGIN_STATE_GRACE_DEFAULT_DAYS = 7
+
+/** 宽限期毫秒数；非法值（0 / 负数 / 非数字）一律回落默认，避免出现零宽限或永不降级。 */
+function resolveLoginGraceMs () {
+  const raw = Number(process.env.MP_LOGIN_STATE_GRACE_DAYS)
+  if (!Number.isFinite(raw) || raw <= 0) return LOGIN_STATE_GRACE_DEFAULT_DAYS * 24 * 60 * 60 * 1000
+  return raw * 24 * 60 * 60 * 1000
+}
+
+/**
+ * 单向证据规则：检测结果 + 当前真源 → 应写入的登录态；返回 null 表示「本轮不改写真源」。
+ *
+ * 存在的理由：`expired` 早已被当作粘滞态（login-status-monitor 明确不擅自翻案），但 `active`
+ * 曾无对等保护 —— 检测的 7 个「无定论」出口与 IPC 层 checkError 分支都会把正向结论抹成
+ * unverified，而监控的判据是「结论变了就回写」，于是 active ↔ unverified 周期性来回。
+ * 根因是把「没拿到新证据」当成了「拿到反证」。这里把它拆开：只有正/负证据才改写真源。
+ *
+ * 纯函数：不读环境变量以外的全局状态、不做 I/O（时钟由 nowMs 注入，便于假时钟回归）。
+ * @param {object} args
+ * @param {any} [args.result] checkLoginStatus 的三态返回
+ * @param {string} [args.checkError] 检测自身异常信息（属「无证据」，不是失效证据）
+ * @param {string} [args.currentStatus] 真源当前登录态
+ * @param {string} [args.lastValidated] 真源最近一次定论时间
+ * @param {number} [args.nowMs] 注入的当前时刻
+ * @param {number} [args.graceMs] 覆盖宽限期（测试用）
+ * @returns {'active'|'expired'|'unverified'|null}
+ */
+function loginStatusTransition (args) {
+  const { result, checkError, currentStatus, lastValidated, nowMs, graceMs } = args || {}
+  if (!checkError && result && result.valid === true) return 'active'
+  if (!checkError && result && result.valid === false) return 'expired'
+  // 走到这里 = 无定论：既不能证明有效，也不能证明失效。
+  if (currentStatus === 'expired') return null
+  // 「从未有结论」与历史脏值都必须继续诚实呈现为 unverified，不得冒充已有结论。
+  if (currentStatus !== 'active') return 'unverified'
+  const grace = Number.isFinite(graceMs) && graceMs > 0 ? graceMs : resolveLoginGraceMs()
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now()
+  const at = Date.parse(lastValidated)
+  if (!Number.isFinite(at)) return 'unverified'
+  return (now - at) > grace ? 'unverified' : null
+}
+
+/**
+ * 检测结论的唯一持久化入口：按 loginStatusTransition 决定是否写真源。
+ * 调用方（单账号检测 / 批量检测 / 后台监控）MUST 走这里，不得各自映射三态。
+ * 无定论且调用方未提供现状时按需读一次真源；有明确结论不多这一跳。
+ * @returns {Promise<{ok: boolean, status: string|null, changed: boolean, keptStatus?: string, reason?: string}>}
+ */
+async function persistCheckResult (args) {
+  const { accountId, platform, result, checkError, nowMs } = args || {}
+  if (!accountId || !isSafePathSegment(accountId)) return { ok: false, status: null, changed: false, reason: 'invalid-account-id' }
+  let currentStatus = args.currentStatus
+  let lastValidated = args.lastValidated
+  const definitive = !checkError && Boolean(result) && (result.valid === true || result.valid === false)
+  if (!definitive && currentStatus !== 'active' && currentStatus !== 'expired' && currentStatus !== 'unverified') {
+    try {
+      const res = await pythonBridge.requestBackend('GET', '/api/accounts/' + accountId)
+      if (res && res.code === 0 && res.data) {
+        currentStatus = res.data.status
+        lastValidated = res.data.last_validated
+      }
+    } catch (e) {
+      log.warn('AccountManager', 'persistCheckResult 读取真源现状失败 ' + platform + ':' + accountId + ' ' + (e && e.message ? e.message : String(e)))
+    }
+  }
+  const next = loginStatusTransition({ result, checkError, currentStatus, lastValidated, nowMs })
+  if (next === null) {
+    const keptStatus = currentStatus || 'unverified'
+    log.info('AccountManager', 'persistCheckResult 本轮无定论，保持真源不动 ' + platform + ':' + accountId + ' status=' + keptStatus)
+    return { ok: true, status: null, changed: false, keptStatus }
+  }
+  const at = new Date(Number.isFinite(nowMs) ? nowMs : Date.now()).toISOString()
+  const persisted = await persistLoginState(accountId, platform, next, at)
+  return { ...persisted, changed: true, status: next }
+}
+
 /**
  * 固化启用态到唯一真源（后端 accounts.json 的 is_active 字段）。
  *
@@ -1248,6 +1325,8 @@ module.exports = {
   mergeCookies,
   loginStatusFromCheckResult,
   persistLoginState,
+  loginStatusTransition,
+  persistCheckResult,
   setAccountActive,
   setOwnerSubjectProvider,
   accountStateRestorer,
