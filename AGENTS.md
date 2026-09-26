@@ -69,7 +69,7 @@
 
 - **C. 写码前先** **`git rev-parse --abbrev-ref HEAD`** **确认当前不是共享根的** **`main`；任何 git 写操作前先** **`cd`** **到中立目录再** **`git -C <绝对路径>`，不在可疑 cwd 跑 git。**
 
-**工具层（治本，待排期）：** 统一路径规范（bash 侧 `cygpath -u`、PowerShell 侧 `cygpath -w`）；`git worktree add` 后立即 `git -C <绝对路径> rev-parse --show-toplevel` 验证可进入，失败则 `git worktree remove --force` 并告警，不留半失效注册。
+**工具层（治本，待排期）：** 统一路径规范（bash 侧 `cygpath -u`、PowerShell 侧 `cygpath -w`）；`git worktree add` 后立即 `git -C <绝对路径> rev-parse --show-toplevel` 验证可进入，失败则 `git worktree remove --force` 并告警，不留半失效注册。**⛔ 隔离入口脚本自身的退出码不得与副作用不一致（2026-09-27 实测并修复）**：`start-mp-task.ps1` 顶部 `$ErrorActionPreference='Stop'` 与 `:63` 的 `$output = & $bash … 2>&1` 组合，在 PowerShell 5.1 下会把 git **成功时**写的 stderr（实测 `Preparing worktree (new branch 'x')`）变成终止性 `NativeCommandError` ⇒ worktree 已建成却 rc=1，并跳过 `.git` 校验、结果报告与开 shell（曾两次被误判成「静默失败」和「只有 fetch 失败才 rc=1」）。这类错配才是"半失效 worktree + 手动 rm 注册"事故的上游。**口径**：① 凡在 PS 里用 `2>&1` 捕获 native 子进程输出，捕获期必须临时 `$ErrorActionPreference='Continue'` 并在 `finally` 原样恢复，判成败一律用 `$LASTEXITCODE` + 显式产物校验；② 判该入口成败一律以 `git worktree list` + `git -C <路径> rev-parse --abbrev-ref HEAD` 实证，不得以 rc 或管道末段退出码（`cmd | tail` 会吃掉真 rc）代替；③ 回归锁 `scripts/start-mp-task.test.js`（结构锁，已接 `quality-gate.yml` Gate 2b）—— 新增任何 `2>&1` 捕获点而未处在放宽作用域内即变红；注释行里的 `2>&1` 不算捕获点（判据要求同时出现调用运算符 `& $`）。
 
 **流程层（防并发冲突）：** 开 worktree 前先 `git worktree list` + 扫 `.git/worktrees`，检查同模块活跃 worktree；建立中央登记 `openspec/active-tasks.json`（分支 + 改动文件清单），开新任务前比对，合并后销账。
 
