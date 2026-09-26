@@ -1,3 +1,22 @@
+# [未发布] fix(accounts): 修快手登录页被误判「登录成功」致视图自动关闭并存入无效凭证（2026-09-26，kuaishou-login-false-success）
+
+### 变更
+- **`packages/shared-utils/src/platform-definitions.js`**：`PLATFORM_AUTH_HOSTS.kuaishou` 与 `PLATFORM_LOGIN_SUCCESS_PATTERNS.kuaishou` 移除纯登录域 `passport.kuaishou.com`（`aedfc701` 为扫码登录把它加进成功模式，`c3c39557` 又把 `PLATFORM_LOGIN_URLS.kuaishou` 从 passport 登录页改回 `cp.kuaishou.com/`，使「等于初始登录 URL 一律不算成功」的守卫静默失效 → 登录视图打开 3.3s 即被判登录成功）。新增 `PLATFORM_SESSION_COOKIE_MARKERS` + `hasPlatformSessionCookie()`：登录页同样写入埋点 Cookie（实测 `did`/`wid`/`kwssectoken`/`kwpsecproductname`/`kwfv1`/`kwscode`），「有 Cookie」不等于「已登录」；未声明标记的平台沿用既有行为，零爆炸半径。
+- **`apps/desktop/electron/services/auth-view-manager.js`**：`hasCapturedCredentials(authData, platform)` 增加会话标记门禁，同时覆盖自动完成与手动「我已完成登录」两条入库路径；被拦时记 warn（含 cookie 数）而不是静默跳过；URL 检测命中日志补上命中的完整 URL（本次只能靠误存账号名＝网页标题反推命中地址）。
+- **`apps/desktop/electron/services/qrcode-login.js` / `apps/desktop/electron/services/webview-manager/credential-saver.js`**：扫码登录入库与账号标签凭证保存（自动/手动/批量）同样要求命中会话标记，未命中分别抛「未检测到登录态」/ 返回 `session-evidence-missing` 并保持 unsaved。
+- **`apps/desktop/electron/publishers/account-manager.js`**（CCG 双模型评审 Warning 2 补漏）：`captureCookies()` 在返回凭证前校验会话标记。这是**第四个**入库入口（IPC `account:add` → `addAccount` → `saveCapturedAccount`），其「方式 2」只判 `window.location.host` 是否偏离 `PLATFORM_LOGIN_URLS` 的 host——快手 `cp.kuaishou.com` 一跳到 `passport.kuaishou.com` 登录页就立即满足，会在用户未登录时判「登录完成」并直接入库，假成功形态与本次主 Bug 完全相同。未命中即抛「未检测到登录态」。
+- **`apps/desktop/electron/services/auth-view-manager.js` `loginSilent()`**（评审 Warning 3）：静默校验从「仅 URL」改为「URL + 会话标记」，否则本修复之前入库的假账号会永远报「有效」，把坏数据掩盖成后端状态异常。
+
+### CCG 双模型外部评审（QM-6）
+- 后端模型（claude）产出 3 Warning + 2 Info，无 Critical；Warning 2/3 已在本 PR 内修复并补测试。前端模型（opencode）三次调用全败（详见记忆 `reference-ccg-workflow`：wrapper 侧缺陷，非提示词问题），按 QM-6 规则登记跳过。
+- Warning 1（`hasPlatformSessionCookie` 对未声明平台 fail-open，小红书/抖音仍是裸域名成功模式）实测确认：`isPlatformLoginSuccessUrl('xiaohongshu', 'https://creator.xiaohongshu.com/login')` 返回 `true`。属同构潜在 Bug，但补标记需逐平台 DevTools 取证，**不在本 PR 范围**，另开单跟踪。
+
+### 测试
+- 新增断言：`platform-definitions.test.js`（快手登录页 URL 负例 + 会话标记 6 断言）、`auth-view-manager.test.js` 3 例、`qrcode-login.test.js` 1 例、`webview-manager.test.js` 1 例。反证：临时禁用 `hasPlatformSessionCookie` 后 5 条新断言全部转红、正向用例仍绿；禁用前 `isPlatformLoginSuccessUrl('kuaishou', 'https://passport.kuaishou.com/')` 实测返回 true（即 Bug 本身）。
+- 同步更新既有 fixture：`qrcode-login.test.js` 快手扫码用例、`webview-manager.test.js` 方案三批量用例（原以 `session=secret` 冒充凭证，正是被拦下的形态，改为真实会话票据）。
+
+---
+
 # [未发布] fix(e2e): 应用就绪判据收紧到「路由内容出口」，根治导航后第一条断言随机误红（2026-09-26，e2e-route-mount-race）
 
 ### 现象与根因
