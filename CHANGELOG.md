@@ -1,3 +1,34 @@
+# [未发布] fix(e2e): 瞬时「子资源」故障让应用永不挂载——就绪超时改为「有证据才重载」并补证据卫生（缺陷 I，2026-09-27，e2e-transient-resource-reload）
+
+### 症状与指纹
+main `861cc66d` 的 `QG Browser E2E` 红：`/accounts` 挂在「spec 未抛出异常」，`locator('#app')` 15000ms 内从未变为可见，而 Playwright 的诊断行写着 **`34 × locator resolved`**；同一次 run 的产物里 `consoleErrors: [{"text":"Failed to load resource: net::ERR_NO_BUFFER_SPACE"}]`。
+**「resolved 34 次」不是「快好了」**：`#app` 是 index.html 里常驻的挂载点，节点一直在却零高度 ⇒ Vue 从未挂载。等一个恒存在的节点的可操作性，等于把「挂载失败」表现成「等待超时」。
+
+### 根因：#2423 只修了同一个错误码的一条路径
+`net::ERR_NO_BUFFER_SPACE`（Windows runner 临时网络缓冲耗尽）会打断**两条**路径：
+1. **文档导航** —— `page.goto` 自己抛错 ⇒ #2423 的 `navigate()` 已能重试一次，这条路已闭合。
+2. **子资源**（Vite 按需编译的模块 chunk / CSS）—— `goto` 成功返回，失败只出现在 `page.on('requestfailed')` 里，而**这个监听从来没挂过**；于是应用壳子永远挂不起来，只能硬红。
+同一个错误码在「导航」上已被本仓库认可为可恢复，在「子资源」上却被当作应用故障 —— 这是判据不完整，不是产品缺陷。
+
+### 第二层问题：恢复逻辑会自毒（本片真正的收获）
+即使加上重载，这次运行**仍然会红**：`route-functional-suite.js` 既把 `report.consoleErrors.length` 计入退出码，又有 `expectNoConsoleError()` 一条检查；而重载不会抹掉旧页面状态里已经记录的那条 console 错误 ⇒ 「已经恢复了」的运行被自家门禁判红，修好运行时却留着红。所以重试设计必须包含**它自己产生的证据怎么处理**：
+- 按错误码**精确**把 `Failed to load resource: net::ERR_NO_BUFFER_SPACE` 从 `consoleErrors` 移出，落进独立留痕 `recoveredTransientErrors`；**非该码的错误一律不得移出**（真错误重载成功也照样红）。
+- 产物新增 `transientRecoveries` / `recoveredConsoleErrors` 两个字段 —— 不伪造成「没发生过」，CI 产物里可查第几次重载、哪些资源失败。
+- **重载预算耗尽时末次尝试的证据必须原样保留**（有测试专门锁这一条）。
+
+### 变更
+- `functional-runner.js`：新增 `attachPageObservers(page)`（console / pageerror / **requestfailed** 三类监听从 `launch()` 收敛而来）；`navigate()` 在 `goto` 之前落证据光标 `resourceFailureMark`；`waitForAppReady` 拆为「有界重载外层 + `_waitForReadyOnce` 单次等待」，只在「超时 ∧ 本次导航期内有该错误码」时重载，上限 `MAX_APP_READY_RELOADS = 2`；`TRANSIENT_NAVIGATION_ERROR` 更名 `TRANSIENT_NETWORK_ERROR`（同一码现在覆盖两条路径）；`isPlaywrightTimeout` → `isAppReadyTimeout` 并**额外识别 runner 自身预算耗尽的中文错误**（否则该分支永远不会触发重载）。
+- `functional-runner.test.js`：+12 条合同（有界重载 / 无证据不重载 / 非超时不重载 / 预算 2 次耗尽后原样抛 / 陈旧证据不作数 / 清噪只清该码 / 产物留痕 / 观测挂载三事件 / console 过滤口径不变 / `launch` 结构锁）。
+- AGENTS.md QM-3：把上述口径写成上一条规则的**镜像要求**（不新增独立条目，避免同一纪律在文档里分裂成两处）。
+
+### 反证（把锁改成 no-op 必须变红，实测 4/4 红）
+`MAX_APP_READY_RELOADS=0` → 6 条红；证据光标 `.slice(0)`（陈旧证据也算）→ 1 条红；清噪条件改成 `if (true)` → 2 条红；删掉 `requestfailed` 监听 → 1 条红。变异脚本逐条恢复后基线 23/23 绿、文件字节级还原。
+
+### 未做的验证（如实登记，不假装通过）
+- **本机没有 Playwright 浏览器**（`%LOCALAPPDATA%\ms-playwright` 与 `apps/desktop/.playwright-browsers` 均不存在），因此真实浏览器路径**未在本地跑过**；本片的浏览器级证据只能由 CI Gate 8 兑现。已把本地 vite(5174) 起停跑通，但 18 个 spec 全部在 `browserType.launch` 阶段失败 —— 该失败与本片改动无关（未装浏览器），不作为通过或不通过的证据。
+- QM-1 打包：本片只改 `apps/desktop/tests/`，未触发「修改 electron/ 或 rpa-engine/」的前提，**未执行**。
+- QM-6 CCG 双模型外部评审：**未执行**（纯测试基建、低爆炸面），按仓库纪律登记为缺口。
+
 # [未发布] test(desktop): 测试层禁止真实出站 + 自旋必须让出宏任务（缺陷 G 家族清扫，含 Gate 19 棘轮）（2026-09-26，test-unbounded-network-guards）
 
 ### 为什么是"家族"而不是第四个孤例
