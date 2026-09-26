@@ -32,6 +32,13 @@ const NAVIGATION_TIMEOUT = 20000;
 const NAVIGATION_RETRY_DELAY_MS = 100;
 const TRANSIENT_NAVIGATION_ERROR = 'net::ERR_NO_BUFFER_SPACE';
 const MAX_NAVIGATION_ATTEMPTS = 2;
+// 严格就绪判据超时后，回退到旧宽松判据的重试预算（只在超时情形触发，不吞其他错误）。
+const ROUTE_OUTLET_FALLBACK_TIMEOUT = 3000;
+
+function isPlaywrightTimeout(error) {
+  const message = String((error && error.message) || error || '');
+  return /Timeout \d+ms exceeded|waiting for function|TimeoutError/i.test(message);
+}
 
 function isTransientNavigationError(error) {
   return String(error?.message || error).includes(TRANSIENT_NAVIGATION_ERROR);
@@ -178,13 +185,31 @@ class FunctionalRunner {
 
     await this.page.waitForURL((currentUrl) => currentUrl.hash === expectedHash, { timeout: remainingTimeout() });
     await this.page.locator('#app').waitFor({ state: 'visible', timeout: remainingTimeout() });
-    await this.page.waitForFunction((hash) => {
+    // 就绪判据：必须等「路由内容出口」渲染出文字。旧判据用 `#app.textContent` 非空表示就绪，
+    // 但 #app 常驻侧边栏（主页/发布/账号…），该条件恒为真 —— 等于没等懒加载路由 chunk 挂载
+    // （Vite 按需编译）。后果是导航后第一条断言只剩 CONDITION_TIMEOUT 去等 chunk，CI 满载时
+    // 随机超时；而它烧掉的时间又让紧随的断言恰好赶上加载完成，表现为「标题红、紧随的卡片绿」
+    // 且落点路由不固定。出口见 App.vue：data-testid="mp-workspace" / "fullscreen-view"。
+    const strictReady = (hash) => {
       const app = document.querySelector('#app');
-      return window.location.hash === hash &&
-        app &&
-        app.hasAttribute('data-v-app') &&
-        (app.textContent || '').trim().length > 0;
-    }, expectedHash, { timeout: remainingTimeout() });
+      if (!(window.location.hash === hash && app && app.hasAttribute('data-v-app'))) return false;
+      const outlet = app.querySelector('[data-testid="mp-workspace"], [data-testid="fullscreen-view"]');
+      return !!outlet && (outlet.textContent || '').trim().length > 0;
+    };
+    try {
+      await this.page.waitForFunction(strictReady, expectedHash, { timeout: remainingTimeout() });
+    } catch (error) {
+      // 兜底：极少数路由可能不往出口渲染文字（如 isLoginTab 分支）。判据收紧不该把原本的
+      // 间歇误红变成确定性硬失败，故退回旧的宽松判据再给一次短预算。
+      if (!isPlaywrightTimeout(error)) throw error;
+      await this.page.waitForFunction((hash) => {
+        const app = document.querySelector('#app');
+        return window.location.hash === hash &&
+          app &&
+          app.hasAttribute('data-v-app') &&
+          (app.textContent || '').trim().length > 0;
+      }, expectedHash, { timeout: ROUTE_OUTLET_FALLBACK_TIMEOUT });
+    }
   }
 
   /** 等待指定选择器出现 */
