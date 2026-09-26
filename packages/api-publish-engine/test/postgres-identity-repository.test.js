@@ -51,6 +51,8 @@ test('PostgresIdentityRepository', async (t) => {
     assert.match(sql, /ALTER TABLE identity_user_sessions ADD COLUMN IF NOT EXISTS device_id TEXT/)
     assert.match(sql, /ALTER TABLE identity_user_sessions ADD COLUMN IF NOT EXISTS device_name TEXT/)
     assert.match(sql, /ALTER TABLE identity_user_sessions ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ/)
+    assert.match(sql, /CREATE TABLE IF NOT EXISTS cloud_accounts/)
+    assert.match(sql, /CREATE TABLE IF NOT EXISTS cloud_account_tombstones/)
   })
 
   await t.test('生产 readiness 只检查连接、migration ledger 和关键表，不执行 DDL', async () => {
@@ -60,6 +62,7 @@ test('PostgresIdentityRepository', async (t) => {
       'identity_entitlement_snapshots', 'identity_entitlement_usage',
       'identity_webhook_events', 'identity_user_sessions',
       'identity_orders', 'identity_redeem_codes', 'identity_notifications',
+      'cloud_accounts', 'cloud_account_tombstones',
     ]
     const pool = {
       async query(text, values) {
@@ -91,6 +94,7 @@ test('PostgresIdentityRepository', async (t) => {
       'identity_entitlement_snapshots', 'identity_entitlement_usage',
       'identity_webhook_events', 'identity_user_sessions',
       'identity_orders', 'identity_redeem_codes', 'identity_notifications',
+      'cloud_accounts', 'cloud_account_tombstones',
     ]
     const makeRepository = (ledgerRows) => {
       const pool = {
@@ -136,13 +140,14 @@ test('PostgresIdentityRepository', async (t) => {
 
   await t.test('生产 PostgreSQL 迁移与运行时所需表保持一致', () => {
     const migrationDirectory = path.resolve(__dirname, '../../../migrations/postgresql')
-    const sql = ['002_logto_identity.sql', '003_logto_webhook_events.sql', '004_member_commerce.sql']
+    const sql = ['002_logto_identity.sql', '003_logto_webhook_events.sql', '004_member_commerce.sql', '005_cloud_accounts.sql']
       .map((name) => fs.readFileSync(path.join(migrationDirectory, name), 'utf8'))
       .join('\n')
     for (const table of [
       'identity_users', 'identity_subscriptions', 'identity_entitlement_snapshots',
       'identity_entitlement_usage', 'identity_webhook_events', 'identity_user_sessions',
       'identity_orders', 'identity_redeem_codes', 'identity_notifications',
+      'cloud_accounts', 'cloud_account_tombstones',
     ]) {
       assert.match(sql, new RegExp(`CREATE TABLE IF NOT EXISTS ${table}`))
     }

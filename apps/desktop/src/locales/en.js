@@ -1418,7 +1418,7 @@ export default {
     batchCheckAllNoAccounts: 'No accounts to check',
     batchCheckAllFailed: 'Check-all failed, please retry later',
     // ─── 账号云镜像同步（PRD-CLOUD-ACCOUNT-SYNC-2026-09-27 §10.4，与 zh.js 行序一致）───
-    // 错误文案键落位说明见 zh.js 同段注释：flat 点分键不会被 vue-i18n 命中，故为 cloudSyncErr.<code>。
+    // 错误文案键落位说明见 zh.js 同段注释：flat 点分键不会被 vue-i18n 命中，故为 cloudSyncErr.<group>。
     cloudSync: 'Sync to Cloud',
     cloudSyncBusy: 'Syncing…',
     cloudSyncTitle: 'Sync to Cloud',
@@ -1470,6 +1470,14 @@ export default {
       credentialTooLarge: 'The sign-in data of this account is too large to upload',
       budgetExceeded: 'Sync timed out before completing',
       inProgress: 'A sync is already in progress',
+      // Grouped by user-facing meaning rather than one key per server code (see AccountCloudSyncDialog.vue)
+      invalidData: 'The account details are malformed and were not uploaded',
+      invalidCredential: 'The sign-in data is malformed and was not uploaded',
+      tooMany: 'Too many accounts in this batch, nothing was uploaded',
+      // Only for disconnect-type failures inside the sync progress list; the Disconnect button keeps cloudDisconnectFailed (with counts)
+      disconnectPartial: 'The cloud was not fully cleared, please retry',
+      // Fallback for any unlisted code: a failed row never shows an empty reason
+      cloudFailed: 'The cloud did not accept this account, please try again later',
     },
     autoSaved: 'Login credentials saved automatically',
     autoSavedWithPlatform: (ctx) => ctx.named('platform') + ' login credentials saved automatically',

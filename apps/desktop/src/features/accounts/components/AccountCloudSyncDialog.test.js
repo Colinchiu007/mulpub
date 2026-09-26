@@ -456,6 +456,163 @@ describe('AccountCloudSyncDialog — 过程态与终态', () => {
     }
   })
 
+  // ── 失败行原因文案：错误码 → 语义分组（PRD §7.5 全表收口）────────────────
+  // 口径：
+  //   - 断言一律与 i18n **键** 的解析结果比较，不写 locale 字面量（文案调整不假红）；
+  //   - 每个分组 1 例，逐码喂进 done 事件，断言该行的原因栏渲染出组文案；
+  //   - 未知码必须落兜底句（失败行永远有文字），且后端原始码只出现在 data-error-code
+  //     属性上、绝不出现在任何用户可见文字里。
+  describe('失败行原因文案（错误码分组与未知码兜底）', () => {
+    /** 属于 invalidData 组的全部服务端字段/请求体校验码（validate-account.js 真源） */
+    const INVALID_DATA_CODES = [
+      'ACCOUNT_FIELD_NOT_ALLOWED',
+      'ACCOUNT_PLATFORM_UNSUPPORTED',
+      'ACCOUNT_UID_INVALID',
+      'ACCOUNT_NAME_NOISE',
+      'ACCOUNT_AVATAR_INVALID',
+      'ACCOUNT_FOLLOWERS_INVALID',
+      'ACCOUNT_TIMESTAMP_INVALID',
+      'ACCOUNT_DEVICE_LABEL_INVALID',
+      'ACCOUNT_BATCH_INVALID',
+    ]
+
+    /** 每次出码换一个 accountId：跨码复用同一 id 会让下一条码覆盖上一行，断言只吃得到最后一码 */
+    let rowSeq = 0
+
+    /** 起一个由本测试收口的批次，推入一条（可带码的）done 事件，返回该行的可读片段 */
+    async function openFailedRow (code, outcome = 'failed') {
+      // 每轮换一个**未收口**的批次 promise：外层 beforeEach 的 resolveSync 是一次性的，
+      // 循环里复用会让第二轮起批次立刻"已结束"、进度事件被退订，行根本渲染不出来
+      let resolveBatch
+      _publisher.accountsCloudSync.mockReturnValue(new Promise(resolve => { resolveBatch = resolve }))
+      const source = installProgressSource()
+      const wrapper = mountDialog()
+      await flush()
+      await wrapper.get('[data-testid="cloud-sync-start"]').trigger('click')
+      await flush()
+      const id = `e${(rowSeq += 1)}`
+      const payload = { phase: 'done', index: 0, total: 1, platform: 'zhihu', accountId: id, name: 'Z1', outcome }
+      if (code !== undefined) payload.code = code
+      source.push(payload)
+      await nextTick()
+      return {
+        wrapper,
+        source,
+        id,
+        row: () => wrapper.get(`[data-testid="cloud-sync-item-${id}"]`),
+        reason: () => wrapper.get(`[data-testid="cloud-sync-item-reason-${id}"]`).text(),
+        finish: async () => {
+          resolveBatch(syncSummary({ failed: 1 }))
+          await flush()
+        },
+      }
+    }
+
+    it('字段格式类码（ACCOUNT_*）逐个都渲染 cloudSyncErr.invalidData，不再留空白原因栏', async () => {
+      for (const code of INVALID_DATA_CODES) {
+        const row = await openFailedRow(code)
+        expect(row.reason(), `code=${code}`).toBe(tk('accountsPage.cloudSyncErr.invalidData'))
+        expect(row.reason(), `code=${code}`).not.toBe('')
+        await row.finish()
+      }
+    })
+
+    it('CREDENTIAL_SHAPE_INVALID 渲染 cloudSyncErr.invalidCredential', async () => {
+      const row = await openFailedRow('CREDENTIAL_SHAPE_INVALID')
+      expect(row.reason()).toBe(tk('accountsPage.cloudSyncErr.invalidCredential'))
+      await row.finish()
+    })
+
+    it('ACCOUNT_BATCH_TOO_LARGE 渲染 cloudSyncErr.tooMany', async () => {
+      const row = await openFailedRow('ACCOUNT_BATCH_TOO_LARGE')
+      expect(row.reason()).toBe(tk('accountsPage.cloudSyncErr.tooMany'))
+      await row.finish()
+    })
+
+    it('断开类码（CLOUD_DISCONNECT_PARTIAL / DISCONNECT_CONFIRMATION_REQUIRED）渲染 cloudSyncErr.disconnectPartial', async () => {
+      for (const code of ['CLOUD_DISCONNECT_PARTIAL', 'DISCONNECT_CONFIRMATION_REQUIRED']) {
+        const row = await openFailedRow(code)
+        expect(row.reason(), `code=${code}`).toBe(tk('accountsPage.cloudSyncErr.disconnectPartial'))
+        await row.finish()
+      }
+    })
+
+    it('云端侧码（ACCOUNT_REJECTED / INTERNAL_SERVER_ERROR / ROUTE_NOT_FOUND / METHOD_NOT_ALLOWED / CLOUD_ACCOUNTS_NOT_CONFIGURED）渲染 cloudSyncErr.cloudFailed', async () => {
+      for (const code of ['ACCOUNT_REJECTED', 'INTERNAL_SERVER_ERROR', 'ROUTE_NOT_FOUND', 'METHOD_NOT_ALLOWED', 'CLOUD_ACCOUNTS_NOT_CONFIGURED']) {
+        const row = await openFailedRow(code)
+        expect(row.reason(), `code=${code}`).toBe(tk('accountsPage.cloudSyncErr.cloudFailed'))
+        await row.finish()
+      }
+    })
+
+    it('未登记的新码（SOMETHING_NEW）同样有文字并走 cloudFailed，界面不出现裸码字符串', async () => {
+      const row = await openFailedRow('SOMETHING_NEW')
+      const text = row.reason()
+      expect(text).toBe(tk('accountsPage.cloudSyncErr.cloudFailed'))
+      expect(text.length).toBeGreaterThan(0)
+      // 原始码不得直出为文字（本仓规则：UI 不展示内部枚举）
+      expect(row.row().text()).not.toContain('SOMETHING_NEW')
+      expect(row.wrapper.text()).not.toContain('SOMETHING_NEW')
+      await row.finish()
+    })
+
+    it('主进程回传的任意非枚举错误串也只走兜底句，不直出原文', async () => {
+      const row = await openFailedRow('connect ETIMEDOUT 10.0.0.1:443')
+      expect(row.reason()).toBe(tk('accountsPage.cloudSyncErr.cloudFailed'))
+      expect(row.row().text()).not.toContain('ETIMEDOUT')
+      await row.finish()
+    })
+
+    it('原始码保留在该行的 data-error-code 属性上（开发者侧排障钩子，非可见文字）', async () => {
+      const row = await openFailedRow('ACCOUNT_UID_INVALID')
+      expect(row.row().attributes('data-error-code')).toBe('ACCOUNT_UID_INVALID')
+      expect(row.row().text()).not.toContain('ACCOUNT_UID_INVALID')
+      await row.finish()
+    })
+
+    it('失败行没有码时也给兜底文字（「失败」不允许孤零零没有解释）', async () => {
+      const row = await openFailedRow(undefined)
+      expect(row.reason()).toBe(tk('accountsPage.cloudSyncErr.cloudFailed'))
+      // 无码即不产出该属性，避免行上挂一个空字符串误导排障
+      expect(row.row().attributes('data-error-code')).toBeUndefined()
+      await row.finish()
+    })
+
+    it('成功行不带码时不渲染原因行（兜底不得扩到非失败结果）', async () => {
+      const source = installProgressSource()
+      const wrapper = mountDialog()
+      await flush()
+      await wrapper.get('[data-testid="cloud-sync-start"]').trigger('click')
+      await flush()
+      source.push({ phase: 'done', index: 0, total: 1, platform: 'zhihu', accountId: 'e2', name: 'Z2', outcome: 'created' })
+      await nextTick()
+
+      expect(wrapper.find('[data-testid="cloud-sync-item-reason-e2"]').exists()).toBe(false)
+      expect(wrapper.get('[data-testid="cloud-sync-item-e2"]').attributes('data-error-code')).toBeUndefined()
+      expect(wrapper.get('[data-testid="cloud-sync-item-outcome-e2"]').text()).toBe(tk('accountsPage.cloudOutcomeCreated'))
+
+      resolveSync(syncSummary({ created: 1 }))
+      await flush()
+    })
+
+    it('终态 items 的 code 为空串时不抹掉 done 事件已落地的分组文案', async () => {
+      const source = installProgressSource()
+      const wrapper = mountDialog()
+      await flush()
+      await wrapper.get('[data-testid="cloud-sync-start"]').trigger('click')
+      await flush()
+      source.push({ phase: 'done', index: 0, total: 1, platform: 'zhihu', accountId: 'e3', name: 'Z3', outcome: 'failed', code: 'CREDENTIAL_TOO_LARGE' })
+      await nextTick()
+      expect(wrapper.get('[data-testid="cloud-sync-item-reason-e3"]').text()).toBe(tk('accountsPage.cloudSyncErr.credentialTooLarge'))
+
+      // 批次汇总里同一条账号的 code 为空（normalizeSummaryData 把 null 归一为 ''）
+      resolveSync(syncSummary({ failed: 1, items: [{ platform: 'zhihu', accountId: 'e3', name: 'Z3', outcome: 'failed', code: '' }] }))
+      await flush()
+      expect(wrapper.get('[data-testid="cloud-sync-item-reason-e3"]').text()).toBe(tk('accountsPage.cloudSyncErr.credentialTooLarge'))
+      expect(wrapper.get('[data-testid="cloud-sync-item-e3"]').attributes('data-error-code')).toBe('CREDENTIAL_TOO_LARGE')
+    })
+  })
+
   describe('【停止同步】中止阀', () => {
     it('过程态渲染出【停止同步】并与【后台继续】并列；批次收口后按钮不再存在', async () => {
       installProgressSource()

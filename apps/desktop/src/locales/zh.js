@@ -1421,7 +1421,8 @@ export default {
     // ─── 账号云镜像同步（PRD-CLOUD-ACCOUNT-SYNC-2026-09-27 §10.4，与 en.js 行序一致）───
     // 错误文案键落位说明：PRD 写的是 accountsPage.cloudSync.err.<code>，但 vue-i18n 只按对象路径
     // 解析——'cloudSync' 不能既是按钮文案叶子又是 err 的父对象（已实测 flat 点分键不会被命中）。
-    // 因此沿用同命名空间 accountCheckStatus 的「错误码→文案」嵌套表先例，落为 cloudSyncErr.<code>。
+    // 因此沿用同命名空间 accountCheckStatus 的「错误码→文案」嵌套表先例，落为 cloudSyncErr.<分组名>
+    // （分组而非逐码：见 AccountCloudSyncDialog.vue 的 ERROR_CODE_GROUPS 与 §7.5 码表）。
     cloudSync: '同步云端',
     cloudSyncBusy: '同步中…',
     cloudSyncTitle: '同步到云端',
@@ -1473,6 +1474,14 @@ export default {
       credentialTooLarge: '该账号登录数据过大，无法上传',
       budgetExceeded: '同步超时，未完成',
       inProgress: '已有一次同步在进行中',
+      // 以下按「语义分组」而非逐码建键（原因见 AccountCloudSyncDialog.vue 的码表注释）
+      invalidData: '账号信息格式不正确，未上传',
+      invalidCredential: '登录数据格式不正确，未上传',
+      tooMany: '本次提交账号过多，未上传',
+      // 只用于同步过程区里的断开类失败行；断开云端按钮自身的失败提示仍是上面的 cloudDisconnectFailed（含计数）
+      disconnectPartial: '云端未完全清除，请重试',
+      // 未登记码的兜底句：失败行的原因栏不允许空白
+      cloudFailed: '云端未接受该账号，请稍后重试',
     },
     autoSaved: '登录凭证已自动保存',
     autoSavedWithPlatform: (ctx) => ctx.named('platform') + ' 登录凭证已自动保存',

@@ -18,6 +18,8 @@ const ME_API_PATHS = new Map([
   ['/api/v1/me/accounts', { methods: ['GET', 'PUT'] }],
   // 按合并键取回云端凭证（恢复与冲突裁决用）
   ['/api/v1/me/accounts/sync', { methods: ['POST'] }],
+  // 本机删除账号后登记墓碑（best-effort，失败不阻断本机删除）
+  ['/api/v1/me/accounts/tombstones', { methods: ['POST'] }],
   // 清除该身份在云端的全部账号镜像与墓碑；confirm 由服务端二次校验
   ['/api/v1/me/accounts/disconnect', { methods: ['POST'] }],
 ])
