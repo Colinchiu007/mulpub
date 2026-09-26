@@ -248,3 +248,248 @@ describe('FunctionalRunner 应用就绪判据合同', () => {
     assert.equal(calls, 1, '非超时错误不得触发回退重试');
   });
 });
+
+/**
+ * 回归保护：应用就绪等待超时后，必须能从不敌时的「瞬时子资源故障」中有界恢复。
+ *
+ * 事故原型（2026-09-26，main 861cc66d 的 QG Browser E2E）：/accounts 挂在
+ * 「spec 未抛出异常」——`locator('#app')` 15000ms 内从未变为可见，且诊断里
+ * `34 × locator resolved` 说明节点一直存在（index.html 的挂载点）却零高度，
+ * 也就是 Vue 从未挂载；同一次 run 的产物 consoleErrors 记着
+ * `Failed to load resource: net::ERR_NO_BUFFER_SPACE`。
+ *
+ * #2423 的瞬时重试只包住了「page.goto 自己抛错」那条路径。文档导航成功、
+ * 而子资源（模块 chunk / CSS）被 Windows 临时网络缓冲耗尽打断时，goto 不抛错，
+ * 应用壳子永远挂不起来 —— 同一个错误码在「导航」上已被认可为可恢复，
+ * 在「子资源」上却只能硬红。
+ */
+describe('FunctionalRunner 应用就绪超时后的有界重载合同', () => {
+  const TRANSIENT_CONSOLE_TEXT = 'Failed to load resource: net::ERR_NO_BUFFER_SPACE';
+  const TRANSIENT_READY_TIMEOUT = 'page.waitForFunction: Timeout 15000ms exceeded.';
+
+  function createReadyHarness(options = {}) {
+    const runner = new FunctionalRunner({ url: 'http://127.0.0.1:5174' });
+    const navCalls = [];
+    let attempt = 0;
+    runner.page = {
+      goto: async (url) => {
+        navCalls.push(url);
+      },
+      waitForURL: async () => {
+        attempt += 1;
+        if (options.onAttempt) options.onAttempt(attempt, runner);
+      },
+      locator: () => ({ waitFor: async () => {} }),
+      waitForFunction: async () => {
+        if (options.readyError) throw options.readyError;
+        if (attempt >= (options.succeedFromAttempt ?? Infinity)) return undefined;
+        throw new Error(options.readyTimeoutMessage || TRANSIENT_READY_TIMEOUT);
+      },
+    };
+    return { runner, navCalls, attemptOf: () => attempt };
+  }
+
+  function transientFailure(errorText = 'net::ERR_NO_BUFFER_SPACE') {
+    return { url: 'http://127.0.0.1:5174/src/main.js', errorText, at: Date.now() };
+  }
+
+  it('资源失败 + 就绪超时时重载一次并记账 appReadyReload', async () => {
+    const { runner, navCalls } = createReadyHarness({
+      succeedFromAttempt: 2,
+      onAttempt: (n, r) => { if (n === 1) r.resourceFailures.push(transientFailure()); },
+    });
+
+    await runner.goto('/accounts');
+
+    assert.deepEqual(navCalls, ['http://127.0.0.1:5174/#/accounts', 'http://127.0.0.1:5174/#/accounts']);
+    assert.deepEqual(runner.actions.map((a) => a.kind), ['appReadyReload', 'goto']);
+    assert.equal(runner.actions[0].reason, 'net::ERR_NO_BUFFER_SPACE');
+  });
+
+  it('没有瞬时资源证据时就绪超时必须原样抛出，不得重载（不得把真故障藏进重试）', async () => {
+    const { runner, navCalls } = createReadyHarness({ succeedFromAttempt: Infinity });
+    const before = runner.actions.length;
+
+    await assert.rejects(
+      () => runner.goto('/accounts'),
+      (received) => received instanceof Error && received.message === TRANSIENT_READY_TIMEOUT,
+    );
+
+    assert.equal(navCalls.length, 1, '无证据不得重载');
+    assert.equal(runner.actions.length, before, '无证据不得记账重载');
+  });
+
+  it('非超时的就绪错误即使伴随资源失败也不重载', async () => {
+    const realError = new Error('page.waitForFunction: ReferenceError: outlet is undefined');
+    const { runner, navCalls } = createReadyHarness({
+      readyError: realError,
+      onAttempt: (n, r) => { if (n === 1) r.resourceFailures.push(transientFailure()); },
+    });
+
+    await assert.rejects(() => runner.goto('/accounts'), (received) => received === realError);
+    assert.equal(navCalls.length, 1);
+  });
+
+  it('重载预算上限 2 次：耗尽后抛出最后一次超时，且保留最后一次尝试的 console 证据', async () => {
+    const { runner, navCalls } = createReadyHarness({
+      succeedFromAttempt: Infinity,
+      onAttempt: (n, r) => {
+        r.resourceFailures.push(transientFailure());
+        r.consoleErrors.push({ text: TRANSIENT_CONSOLE_TEXT, at: Date.now() });
+      },
+    });
+
+    await assert.rejects(
+      () => runner.goto('/accounts'),
+      (received) => received.message === TRANSIENT_READY_TIMEOUT,
+    );
+
+    assert.equal(navCalls.length, 3, '1 次导航 + 2 次重载');
+    assert.deepEqual(
+      runner.actions.filter((a) => a.kind === 'appReadyReload').map((a) => a.attempt),
+      [1, 2],
+    );
+    assert.equal(
+      runner.consoleErrors.filter((e) => e.text === TRANSIENT_CONSOLE_TEXT).length,
+      1,
+      '末次尝试仍未恢复，其错误证据必须留在清单里',
+    );
+  });
+
+  it('上一次导航留下的陈旧资源失败不得作为本次重载证据', async () => {
+    const { runner, navCalls } = createReadyHarness({ succeedFromAttempt: Infinity });
+    runner.resourceFailures.push(transientFailure());
+
+    await assert.rejects(() => runner.goto('/accounts'));
+    assert.equal(navCalls.length, 1);
+    assert.equal(runner.actions.filter((a) => a.kind === 'appReadyReload').length, 0);
+  });
+
+  it('成功恢复后把已恢复的瞬时 console 噪音移出错误清单并留痕，真实错误仍判失败', async () => {
+    const { runner } = createReadyHarness({
+      succeedFromAttempt: 2,
+      onAttempt: (n, r) => {
+        if (n > 1) return;
+        r.resourceFailures.push(transientFailure());
+        r.consoleErrors.push({ text: TRANSIENT_CONSOLE_TEXT, at: Date.now() });
+        r.consoleErrors.push({ text: 'TypeError: cannot read x', at: Date.now() });
+      },
+    });
+
+    await runner.goto('/accounts');
+
+    assert.deepEqual(runner.consoleErrors.map((e) => e.text), ['TypeError: cannot read x']);
+    assert.deepEqual(runner.recoveredTransientErrors.map((e) => e.text), [TRANSIENT_CONSOLE_TEXT]);
+    assert.equal(await runner.expectNoConsoleError(), false, '真实错误仍须让门禁变红');
+  });
+
+  it('瞬时资源故障以外的资源失败不得被移出 console 清单', async () => {
+    const { runner } = createReadyHarness({
+      succeedFromAttempt: 2,
+      onAttempt: (n, r) => {
+        if (n > 1) return;
+        r.resourceFailures.push(transientFailure());
+        r.consoleErrors.push({
+          text: 'Failed to load resource: the server responded with a status of 500',
+          at: Date.now(),
+        });
+      },
+    });
+
+    await runner.goto('/accounts');
+
+    assert.equal(runner.consoleErrors.length, 1, '非瞬时错误不得被清掉');
+    assert.equal(runner.recoveredTransientErrors.length, 0);
+  });
+
+  it('runner 自身预算耗尽的错误也要按超时识别（否则重载路径永不触发）', async () => {
+    const { runner, navCalls } = createReadyHarness({
+      succeedFromAttempt: 2,
+      readyTimeoutMessage: '等待应用就绪超时（15000ms）：/accounts',
+      onAttempt: (n, r) => { if (n === 1) r.resourceFailures.push(transientFailure()); },
+    });
+
+    await runner.goto('/accounts');
+
+    assert.equal(navCalls.length, 2, '预算耗尽同样应触发一次有界重载');
+  });
+
+  it('产物必须暴露重载记账与已恢复的瞬时噪音（不得伪造成没发生过）', async () => {
+    const { runner } = createReadyHarness({
+      succeedFromAttempt: 2,
+      onAttempt: (n, r) => {
+        if (n > 1) return;
+        r.resourceFailures.push(transientFailure());
+        r.consoleErrors.push({ text: TRANSIENT_CONSOLE_TEXT, at: Date.now() });
+      },
+    });
+
+    await runner.goto('/accounts');
+    const report = runner.generateReport();
+
+    assert.equal(report.transientRecoveries.length, 1);
+    assert.equal(report.transientRecoveries[0].kind, 'appReadyReload');
+    assert.deepEqual(report.consoleErrors, []);
+    assert.deepEqual(report.recoveredConsoleErrors.map((e) => e.text), [TRANSIENT_CONSOLE_TEXT]);
+  });
+});
+
+/**
+ * 资源失败采集必须真的挂在 page 上：launch() 需要真实浏览器，无法在单测里跑，
+ * 因此把挂载逻辑收敛为 attachPageObservers(page)，用假 page 验证注册的事件与采集形状，
+ * 并用源码锁保证 launch() 确实走这个方法（而不是另起一套内联监听）。
+ */
+describe('FunctionalRunner 页面观测挂载合同', () => {
+  function createFakePage() {
+    const handlers = {};
+    return {
+      on: (event, fn) => { handlers[event] = fn; },
+      handlers,
+      emit: (event, ...args) => handlers[event](...args),
+    };
+  }
+
+  it('注册 console / pageerror / requestfailed 三类监听并采集资源失败', () => {
+    const runner = new FunctionalRunner({});
+    const page = createFakePage();
+
+    runner.attachPageObservers(page);
+
+    assert.deepEqual(Object.keys(page.handlers).sort(), ['console', 'pageerror', 'requestfailed']);
+    page.emit('requestfailed', {
+      url: () => 'http://127.0.0.1:5174/node_modules/.vite/deps/chunk.js?v=1',
+      failure: () => ({ errorText: 'net::ERR_NO_BUFFER_SPACE' }),
+    });
+    page.emit('requestfailed', {
+      url: () => 'http://127.0.0.1:5174/src/ok.js',
+      failure: () => null,
+    });
+    assert.deepEqual(runner.resourceFailures.map((f) => f.errorText), [
+      'net::ERR_NO_BUFFER_SPACE',
+      '',
+    ]);
+    assert.equal(runner.resourceFailures[0].url.includes('chunk.js'), true);
+  });
+
+  it('保留既有 console 过滤口径（vite/HMR 噪音不入清单）', () => {
+    const runner = new FunctionalRunner({});
+    const page = createFakePage();
+    runner.attachPageObservers(page);
+
+    page.emit('console', { type: () => 'error', text: () => '[vite] hot updated' });
+    page.emit('console', { type: () => 'warning', text: () => 'deprecated' });
+    page.emit('console', { type: () => 'error', text: () => 'TypeError: boom' });
+    page.emit('pageerror', { message: 'Uncaught ReferenceError: x is not defined' });
+
+    assert.deepEqual(runner.consoleErrors.map((e) => e.text), ['TypeError: boom']);
+    assert.deepEqual(runner.pageErrors.map((e) => e.message), ['Uncaught ReferenceError: x is not defined']);
+  });
+
+  it('launch 必须复用 attachPageObservers，不得再内联监听', () => {
+    const source = require('fs').readFileSync(require.resolve('./functional-runner'), 'utf8');
+    const launchBody = source.slice(source.indexOf('async launch()'), source.indexOf('async close()'));
+
+    assert.match(launchBody, /this\.attachPageObservers\(this\.page\)/);
+    assert.doesNotMatch(launchBody, /this\.page\.on\(/, '监听应全部收敛到 attachPageObservers');
+  });
+});

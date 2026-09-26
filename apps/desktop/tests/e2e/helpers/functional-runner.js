@@ -30,18 +30,22 @@ const DEFAULT_APP_READY_TIMEOUT = 15000;
 const RESET_APP_READY_TIMEOUT = 15000;
 const NAVIGATION_TIMEOUT = 20000;
 const NAVIGATION_RETRY_DELAY_MS = 100;
-const TRANSIENT_NAVIGATION_ERROR = 'net::ERR_NO_BUFFER_SPACE';
+// Windows runner 临时网络缓冲耗尽时，文档导航与子资源请求都可能出现该错误码。
+const TRANSIENT_NETWORK_ERROR = 'net::ERR_NO_BUFFER_SPACE';
 const MAX_NAVIGATION_ATTEMPTS = 2;
+const MAX_APP_READY_RELOADS = 2;
 // 严格就绪判据超时后，回退到旧宽松判据的重试预算（只在超时情形触发，不吞其他错误）。
 const ROUTE_OUTLET_FALLBACK_TIMEOUT = 3000;
 
-function isPlaywrightTimeout(error) {
+// 「等待就绪超时」的两种来源：Playwright 自己的等待超时，以及本 runner 在预算被
+// 前序步骤耗尽时抛出的错误。两者都必须能被重载路径识别，否则该路径永远不触发。
+function isAppReadyTimeout(error) {
   const message = String((error && error.message) || error || '');
-  return /Timeout \d+ms exceeded|waiting for function|TimeoutError/i.test(message);
+  return /Timeout \d+ms exceeded|waiting for function|TimeoutError|等待应用就绪超时/i.test(message);
 }
 
 function isTransientNavigationError(error) {
-  return String(error?.message || error).includes(TRANSIENT_NAVIGATION_ERROR);
+  return String(error?.message || error).includes(TRANSIENT_NETWORK_ERROR);
 }
 
 function waitForNavigationRetry() {
@@ -64,6 +68,13 @@ class FunctionalRunner {
     this.page = null;
     this.consoleErrors = [];
     this.pageErrors = [];
+    // 本次导航期内失败的子资源（用于识别瞬时网络故障，不作为失败判据）
+    this.resourceFailures = [];
+    // 已从 consoleErrors 移出留痕的瞬时噪音（发生过，但已随重载恢复）
+    this.recoveredTransientErrors = [];
+    // navigate() 前的 resourceFailures 长度：证据只算本次导航新产生的
+    this.resourceFailureMark = 0;
+    this.lastNavigationUrl = null;
     this.actions = [];
     this.checks = [];
     this.resetSequence = 0;
@@ -99,9 +110,22 @@ class FunctionalRunner {
     });
 
     this.page = await this.context.newPage();
+    this.attachPageObservers(this.page);
 
+    // 确保输出目录存在
+    [this.reportsDir, this.screenshotDir, path.join(this.screenshotDir, this.specName)].forEach((d) => {
+      fs.mkdirSync(d, { recursive: true });
+    });
+  }
+
+  /**
+   * 绑定页面级观测事件。单独成方法是为了能在不启动真实浏览器的前提下测试挂载：
+   * requestfailed 是「文档导航自己没抛错、但子资源被打断」的唯一信号，
+   * 缺它就只能把应用永不挂载当成硬故障。
+   */
+  attachPageObservers(page) {
     // 收集 console error / pageerror
-    this.page.on('console', (msg) => {
+    page.on('console', (msg) => {
       if (msg.type() === 'error') {
         const text = msg.text();
         // 过滤已知的 vite hmr 噪音
@@ -110,13 +134,15 @@ class FunctionalRunner {
         this.consoleErrors.push({ text: text.slice(0, 500), at: Date.now() });
       }
     });
-    this.page.on('pageerror', (err) => {
+    page.on('pageerror', (err) => {
       this.pageErrors.push({ message: err.message.slice(0, 500), at: Date.now() });
     });
-
-    // 确保输出目录存在
-    [this.reportsDir, this.screenshotDir, path.join(this.screenshotDir, this.specName)].forEach((d) => {
-      fs.mkdirSync(d, { recursive: true });
+    page.on('requestfailed', (request) => {
+      this.resourceFailures.push({
+        url: String(request.url && typeof request.url === 'function' ? request.url() : '').slice(0, 300),
+        errorText: String((request.failure() || {}).errorText || ''),
+        at: Date.now(),
+      });
     });
   }
 
@@ -153,6 +179,9 @@ class FunctionalRunner {
    * 其他错误和第二次失败必须原样抛出，避免隐藏真实路由或应用启动故障。
    */
   async navigate(url) {
+    // 光标必须在 goto 之前落位：本次导航期间的资源失败才算证据，上一次导航残留的不算。
+    this.lastNavigationUrl = url;
+    this.resourceFailureMark = this.resourceFailures.length;
     for (let attempt = 1; attempt <= MAX_NAVIGATION_ATTEMPTS; attempt += 1) {
       try {
         return await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT });
@@ -163,7 +192,7 @@ class FunctionalRunner {
         this.actions.push({
           kind: 'navigationRetry',
           attempt,
-          reason: TRANSIENT_NAVIGATION_ERROR,
+          reason: TRANSIENT_NETWORK_ERROR,
           at: Date.now(),
         });
         await waitForNavigationRetry();
@@ -171,8 +200,42 @@ class FunctionalRunner {
     }
   }
 
-  /** 等待 Vue 完成挂载并切换到目标路由 */
+  /**
+   * 等待 Vue 完成挂载并切换到目标路由（含瞬时故障重载）。
+   *
+   * 「文档导航成功、子资源（模块 chunk / CSS）被瞬时网络故障打断」时 page.goto 不抛错，
+   * 应用壳子永远挂不起来 —— #2423 的导航重试覆盖不到这条路。此处只在
+   * 「超时 + 本次导航期内确有该错误码的资源失败」时给有限次重载；
+   * 无瞬时证据 / 非超时错误 / 预算耗尽一律原样抛出，避免把真实挂载故障藏进重试。
+   */
   async waitForAppReady(route, timeout = DEFAULT_APP_READY_TIMEOUT) {
+    for (let reload = 0; reload <= MAX_APP_READY_RELOADS; reload += 1) {
+      try {
+        await this._waitForReadyOnce(route, timeout);
+        return;
+      } catch (error) {
+        const transient = this.resourceFailures
+          .slice(this.resourceFailureMark)
+          .filter((failure) => failure.errorText.includes(TRANSIENT_NETWORK_ERROR));
+        if (!isAppReadyTimeout(error) || transient.length === 0 || reload === MAX_APP_READY_RELOADS) {
+          throw error;
+        }
+        this.actions.push({
+          kind: 'appReadyReload',
+          attempt: reload + 1,
+          reason: TRANSIENT_NETWORK_ERROR,
+          failedResources: transient.slice(0, 5).map((failure) => failure.url),
+          at: Date.now(),
+        });
+        this._discardTransientConsoleNoise();
+        await waitForNavigationRetry();
+        await this.navigate(this.lastNavigationUrl);
+      }
+    }
+  }
+
+  /** 单次就绪等待（不含重载）。 */
+  async _waitForReadyOnce(route, timeout) {
     const expectedHash = '#' + route;
     const deadline = Date.now() + timeout;
     const remainingTimeout = () => {
@@ -201,7 +264,7 @@ class FunctionalRunner {
     } catch (error) {
       // 兜底：极少数路由可能不往出口渲染文字（如 isLoginTab 分支）。判据收紧不该把原本的
       // 间歇误红变成确定性硬失败，故退回旧的宽松判据再给一次短预算。
-      if (!isPlaywrightTimeout(error)) throw error;
+      if (!isAppReadyTimeout(error)) throw error;
       await this.page.waitForFunction((hash) => {
         const app = document.querySelector('#app');
         return window.location.hash === hash &&
@@ -210,6 +273,20 @@ class FunctionalRunner {
           (app.textContent || '').trim().length > 0;
       }, expectedHash, { timeout: ROUTE_OUTLET_FALLBACK_TIMEOUT });
     }
+  }
+
+  /**
+   * 重载会丢弃本次尝试的页面状态，因此属于瞬时网络故障的 console 噪音不再作为
+   * 失败判据 —— 但它必须留在 recoveredTransientErrors 里进产物（发生过什么可查），
+   * 不得伪造成「没发生过」。非瞬时的 console 错误一律留在清单，重载成功也照样红。
+   */
+  _discardTransientConsoleNoise() {
+    const kept = [];
+    for (const entry of this.consoleErrors) {
+      if (entry.text.includes(TRANSIENT_NETWORK_ERROR)) this.recoveredTransientErrors.push(entry);
+      else kept.push(entry);
+    }
+    this.consoleErrors = kept;
   }
 
   /** 等待指定选择器出现 */
@@ -450,6 +527,8 @@ class FunctionalRunner {
       checks: { total: this.checks.length, passed, failed },
       consoleErrors: this.consoleErrors,
       pageErrors: this.pageErrors,
+      transientRecoveries: this.actions.filter((action) => action.kind === 'appReadyReload'),
+      recoveredConsoleErrors: this.recoveredTransientErrors,
       details: this.checks
     };
   }
