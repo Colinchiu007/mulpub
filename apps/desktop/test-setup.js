@@ -13,6 +13,109 @@
  */
 const Module = require('module')
 
+// ─── 出站网络守卫（缺陷 G）───
+// 为什么必须有：全仓 `nock` / `msw` / `setupServer` 命中为 **0** —— 没有任何传输层兜底，
+// "测试不出网"完全依赖每个文件手工注入桩。漏一处就是一次真出站，而真出站挂起时先撞上的是框架
+// testTimeout（10s），报错只剩一句 `Test timed out in 10000ms`，既看不到目标主机也看不出该注入什么。
+// 加守卫前实测：一条 `fetch('http://example.org:8099/')` 的用例正好挂满 10.009s 被框架杀掉。
+// 更糟的是"预算倒挂"：生产侧 axios `timeout: 15000` > `testTimeout=10000`，框架必然抢先。
+//
+// 口径：
+// - **放行** loopback（127/8、::1、localhost、0.0.0.0）与 unix / named pipe —— 全仓 31 个测试文件
+//   依赖 `listen(0, '127.0.0.1')` 的临时端口本地服务，误伤它们的代价远高于漏拦一例真出网。
+// - 其余一律按 Node 自身连接失败语义 **异步 emit 'error'**（nextTick，给调用方同步挂 handler 的窗口），
+//   错误信息里必须带主机名 + 出路指引，让人一次就能修对。
+// - 在 connect 入口拦，因此 DNS 也不会发生（不会把 CI 拖进解析超时）。
+const net = require('net')
+const NETWORK_GUARD_APPLIED = '__mpTestNetworkGuardApplied'
+
+function isLoopbackHostForTest (rawHost) {
+  const host = String(rawHost || '').trim().replace(/^\[(.*)\]$/, '$1').toLowerCase()
+  if (!host) return false
+  if (host === 'localhost' || host === '::1' || host === '0.0.0.0' || host === '::') return true
+  if (host.startsWith('127.')) return true
+  if (host.startsWith('::ffff:127.')) return true
+  return false
+}
+
+function readConnectTarget (args) {
+  const first = args[0]
+  // Node 24 的 http/undici 走 `net:254 Object.connect` 时，会把 `[options, cb]` **作为单个数组参数**
+  // 传给 Socket.prototype.connect（实测 arg0 = Array，keys=['0','1']）。不展平就会把目标判成
+  // unknown 而直接放过 —— 第一版守卫正是这样漏掉的，必须递归展开一层。
+  if (Array.isArray(first)) return readConnectTarget(first)
+  if (first && typeof first === 'object') {
+    if (typeof first.path === 'string' && first.path) return { kind: 'path' }
+    return { kind: 'host', host: first.host || first.hostname, port: first.port }
+  }
+  if (typeof first === 'string') {
+    // 'connect(path)' 走这里；'connect(host, port)' 也走这里，用分隔符区分
+    if (first.includes('/') || first.includes('\\')) return { kind: 'path' }
+    return { kind: 'host', host: first, port: typeof args[1] === 'number' ? args[1] : undefined }
+  }
+  if (typeof first === 'number') {
+    return { kind: 'host', host: typeof args[1] === 'string' ? args[1] : undefined, port: first }
+  }
+  return { kind: 'unknown' }
+}
+
+if (!net.Socket.prototype.connect[NETWORK_GUARD_APPLIED]) {
+  const originalConnect = net.Socket.prototype.connect
+  const guardedConnect = function (...args) {
+    const target = readConnectTarget(args)
+    if (target.kind !== 'path' && !target.host) {
+      // 读不出目标就放行是必要的（不能因守卫误伤正常用例），但必须**出声**：
+      // 静默放过等于守卫被 Node 的一次版本升级悄悄摘掉，正是本仓库已经吃过两次的"假绿"形状。
+      if (!net.Socket.prototype.connect.__mpGuardWarned) {
+        net.Socket.prototype.connect.__mpGuardWarned = true
+        console.warn('[TEST-NETWORK-BLOCKED] 守卫警告：无法从 connect 参数中识别目标主机（kind='
+          + target.kind + '），本次放行。Node 版本=' + process.version
+          + '，arg0 类型=' + (args[0] && args[0].constructor && args[0].constructor.name))
+      }
+    }
+    if (target.kind === 'host' && target.host && !isLoopbackHostForTest(target.host)) {
+      const socket = this
+      const portText = target.port === undefined ? '' : ':' + target.port
+      const detail = `[TEST-NETWORK-BLOCKED] 单元测试禁止真实出站连接：${target.host}${portText}。`
+        + '请注入传输层桩（global.fetch = vi.fn() / __registerMock("axios", 桩) / 构造注入 axios|fetchImpl），'
+        + '或把被测服务起在 127.0.0.1 的临时端口（listen(0, "127.0.0.1")）后访问 loopback 地址。'
+      const error = new Error(detail)
+      error.code = 'ERR_TEST_NETWORK_BLOCKED'
+      error.host = target.host
+      error.port = target.port
+
+      // **必须同时落一份"账"并 console.warn**：Node 22 的 _http_client 会把 socket 早期错误改写成
+      // `socket hang up`（CI 实测，本地 Node 24 不会），错误文案到不了调用方 —— 只在异常里带信息
+      // 等于"可诊断性依赖运行时版本"。记录 + 打印与版本无关。
+      const blocked = globalThis.__mpBlockedEgress || (globalThis.__mpBlockedEgress = { list: [], seen: new Set() })
+      const key = target.host + portText
+      blocked.list.push({ host: target.host, port: target.port, at: Date.now(), node: process.version })
+      if (!blocked.seen.has(key)) {
+        blocked.seen.add(key)
+        console.warn(detail)
+      }
+
+      process.nextTick(() => {
+        const hasListener = socket.listenerCount('error') > 0
+        if (!socket.destroyed && hasListener) {
+          try { socket.emit('error', error) } catch (_) { /* 已被上层消化 */ }
+          // destroy **不带** error 参数：上面已 emit 过，再传 error 会让 Node 二次触发 'error'，
+          // 而调用方常用 once('error') —— 第二次没有监听者就变成 unhandled error 污染 CI 日志。
+          socket.destroy()
+        } else {
+          // 没有错误监听者的调用方：把错误交给 Node 默认处理（抛出未捕获异常 = 响亮失败）。
+          // 不能只 destroy() —— 那会让"等 error 事件"的调用方静默挂起，比崩掉更糟。
+          socket.destroy(error)
+        }
+      })
+      return socket
+    }
+    return originalConnect.apply(this, args)
+  }
+  guardedConnect[NETWORK_GUARD_APPLIED] = true
+  net.Socket.prototype.connect = guardedConnect
+}
+
 // ─── 语言确定性 ───
 // 测试环境固定系统语言为 zh-CN（user-facing-messages 规范），保证中文文案断言可复现。
 // 该赋值已抽到 setupFiles 的**第一项** test-setup-locale.js：本文件顶部的 import 会被
