@@ -28,6 +28,123 @@
 
 ---
 
+# [未发布] fix(accounts): 账号管理页工具栏逐字竖排修复——8 列 grid 换成可换行 flex（2026-09-26，fix-accounts-toolbar-overflow）
+
+### 变更
+- **`apps/desktop/src/views/Accounts.vue`**：`.account-controls` 由 8 列 `grid-template-columns`（`e3e33af0` 引入）改为 `display: flex; flex-wrap: wrap` + 显式收缩分工——按钮/图标组 `flex: 0 0 auto` 不收缩，只让两个搜索框与筛选下拉收缩（下拉配 `text-overflow: ellipsis`）；`.filter-tabs button`、`.account-count` 补 `white-space: nowrap`；同步清理已失效的 `justify-self` / `grid-template-columns` 断点声明。
+- **根因**：该 grid 各列 min-content 之和约 1600px，而真实用户视口为 1920 物理 ÷ Windows 125% 缩放 = 1536 CSS，减 200 侧边栏仅 1336px。Grid 无换行机制，只能横向溢出并把 `auto` 轨道压回 min-content；中文可在任意字符间断行，故轨道退化成「1 个汉字宽」→「全部/已登录/未登录/收藏」逐字竖排、统计文字折 3 行、底部出现横向滚动条。同行按钮组幸免，只因 `.account-command-bar .page-button` 早已有 `nowrap`——同族坑当时只修了一半。
+
+### 影响
+- 1536 视口工具栏恢复单行、零横向溢出；1440/1336/1100 视口优雅换行（2–3 行），任何宽度不再出现逐字竖排。
+- 单行代价：负责人/发布人两个下拉在窄屏以省略号收口（如「负责人…」）。产品文案「（暂无数据）」未改动，因它是空态的唯一提示。
+- **一键检测按钮文案收敛为短标签**（同文件 59 行）：原先检测中把 `batchCheckAllProgressText`（含平台名，可达「检测中 12/14：微信公众号 · 账号名」）渲染到按钮上，而命令栏 `flex: 0 0 auto` 不参与收缩，实测按钮 242→498px 会把整条工具栏从 1 行挤成 2 行、状态切换器换位——检测过程中布局跳动。详细进度本就由**同一 `v-if` 条件**的全屏遮罩（`batch-check-overlay`，45% 深色 + 2px 模糊）承载，按钮上的长文案被遮罩盖住根本不可读，属纯冗余。现改为只显示 `batchCheckAllBusy`（「检测中…」）。
+
+### 测试
+- `apps/desktop/src/views/Accounts.test.js` 新增源码契约断言：`.account-controls` 必须 `display:flex` + `flex-wrap:wrap` 且不得出现 `grid-template-columns`；`.filter-tabs button` 与 `.account-count` 必须 `white-space:nowrap`。**反证**：五条断言在 `git show HEAD:` 的修复前副本上全部 FAIL、修复后全部 PASS。
+- 真实渲染验证（真实组件 + 本地 Vite + 无头 Edge 实测轨道宽度）：修复前 1336 容器溢出 470px、按钮 35×65；修复后 1536 视口单行零溢出、按钮 44×30 / 57×30 横排。长进度压测：旧实现下命令栏随进度 242→329→498px 并触发行数 1→2、状态切换器换位；收敛为短标签后恒为 242px、恒 1 行。
+- `Accounts.test.js` 新增按钮文案回归用例（真实进度事件总线驱动，非 mock 终值）：断言检测中按钮 `toBe(batchCheckAllBusy)` 且不含 `/`，同时断言遮罩仍承载 `0/1` 详细进度（信息不丢失）。**反证**：临时回退按钮表达式后该用例失败，报 `expected '检测中 0/1：知乎' to be '检测中…'`。
+- `vitest run src/` 全量 212 文件 / 3533 passed / 2 skipped / 0 failed；`eslint --quiet` 干净。
+- **逃逸分析结论**：单元测试无布局引擎。视觉回归未拦住的原因**不是**「基线 diff 恒为 0」（我最初这样写，已被 CI 产物推翻）：`PIXEL_THRESHOLD=0.06` 是**全页**容差，而 `fullPage` 截图约 207 万像素、工具栏仅占约 4% 画面，局部条带变化天然吃不满。CI `report-*.json` 实测本 PR 的 `accounts-list` misMatch=**3.66%**（18 视图最高，第二名 2.16%），仍 < 6% 故 PASSED。更值得注意的是**未改动的 main 上该视图就已 misMatch=2.48%**——基线与 CI 渲染长期不一致，门禁本就带着约 2.5pp 无主漂移；本 PR 后余量只剩 2.34pp，下一个动账号页的人加出 >2.34% 就会红，且 diff 混杂三方无法归因。此外基线确实固化了缺陷（四个状态按钮本就是两行竖排），视口口径也仍与真实用户差一个缩放因子（1920 CSS vs 1536 CSS）。收口需三件事一起做：基线重捕 + 让基线与 CI 渲染条件一致 + 补「按缩放折算视口」用例——详见 `01-docs/learnings.md`。
+
+---
+
+# [未发布] fix(应用菜单): 跨端同步收敛——目录增量补齐 / 下发兜底序号 / 运营配置不被目录失败门控 / 启动同步后自动刷新（2026-09-25，app-menu-sync-convergence）
+
+> 生效模型（产品决策）：应用端**只在启动时同步一次**运营配置，运营端改动在客户端**下次启动**生效；那次启动同步完成后侧边栏自动刷新，用户无需任何操作。**应用端界面不出现任何运营相关入口或信息**（`ModelProviders.vue` 既有注释即「运营同步对用户透明：配置卡片已隐藏」）。
+
+### 变更
+- **`ops-center/backend/services/app_menu_service.py`**：`_seed_if_empty`（仅表全空时播种）→ `_provision_from_catalog`，按 `CATALOG` **增量补齐缺失行且只补不改**已有行，四个入口（列表/保存/恢复默认/下发）共用。修复 `copy-library`（#bcd1b663 加入目录）在已部署实例上永久缺席 → 运营端看不到该项、无法配置，而应用端照常显示的漂移。补齐改用 SQLite `INSERT ... ON CONFLICT DO NOTHING`（补齐现在每请求都跑，页面 GET 与客户端 bootstrap 同瞬双插会被 `item_key` UNIQUE 打成 `IntegrityError` → 500）；且**只 flush 不 commit**，事务由各入口统一收口（否则 `upsert_items` 声称的「校验失败整批不写入」会被提前落盘）。
+- **同文件 `get_bootstrap_app_menu`**：DB 缺行项的 `sort_order` 兜底由 `0` 改为**目录序号**。此前 0 会让该项在应用端被顶到一级导航第 2 位（应用端按 `sort_order` 升序渲染），与运营端页面显示的目录位置错位。
+- **同文件 `list_items`**：只返回 `CATALOG` 内的 key。DB 里可能有已从目录移除的历史行（如 `monitor`），而它本就不下发；继续显示会让运营者看到一个应用端不存在、也配置不了的项，重新制造「两侧不同步」错觉。页面与下发从此共用同一份集合。
+- **`apps/desktop/electron/services/ops-center-sync.js`**：模型目录与运行时策略由「catalog 成功 → 才拉 runtime」的门控，改为 `Promise.allSettled` **并行且互不门控**；整体超时预算保持单请求 10s（不叠加为 20s）。新增 `_syncRuntimeBestEffort` / `_applyRuntimeSettled`；`模型服务未就绪` 分支仍拉运行时。
+- **同文件 `applyRuntime`**：新增 `setOnRuntimeUpdated` 通知器（setter 注入，因服务在 bootstrap phase1 构造、那时主窗口不存在），**回调只收 syncedAt、不收配置内容**；回调抛错不影响已应用的运行时状态。
+- **`electron/bootstrap/phase3-services.js`**：接线通知器，向主窗口发送 `ops-center:runtime-updated` 事件（载荷仅 `{ syncedAt }`），窗口未创建/已销毁时静默跳过。
+- **`electron/preload/system.js` + `access-control.js` + `index.bundle.js`（重打包）**：暴露并登记 `onOpsCenterRuntimeUpdated`（public：订阅只收到一个时间戳、不返回运营数据；事件到达后的 `opsCenterSyncAppMenu` 仍受 `authenticated` 门控）。
+- **`src/layouts/MpSidebar.vue`**：`onMounted` 订阅变更事件重拉菜单、`onUnmounted` 成对取消订阅；`loadAppMenu` 改为**仅在取到有效配置时整体替换**，重拉失败保留上一份（不再瞬时坍回本地默认）。**价值点**：启动同步（+3s）晚于侧边栏首帧，此前用户要多重启一次才看得到本次改动，现在启动后数秒内自动到位。
+- **`src/api/ops-center-sync.js`**：新增 `onOpsCenterRuntimeUpdated()` 封装，非 Electron 环境返回空操作。
+- **`ops-center/frontend/src/views/AppMenu.vue`**：页面提示改写——目录自动补齐（无需点「恢复默认」）；生效时机说明为「客户端启动时同步一次，改动在下次启动生效」，并明确**应用端不暴露任何同步入口**。
+
+### 根因与逃逸（摘要，全文见专项文档 §16）
+- 三个独立缺陷叠加：① 目录新增项永不落库；② 缺行兜底 `sort_order=0`；③ `appMenu` 被模型目录同步成功门控。
+- 逃逸主因是**测试拓扑**：`test_app_menu_api.py` 的 autouse 夹具每例 `drop_all/create_all` 重建空表，「存量库 + 目录演进」这条边在测试里不存在；桌面端 63 例中无一条让 catalog 失败，门控路径从不执行。
+- CI 只做桌面端内部自洽校验（`check-route-registry.js` 对 Python `CATALOG` 仅提示人工同步），漂移发生在数据库里，CI 结构上看不见。
+- 环境侧证据：受影响机器 profile 的 `settings` 表既无 `opsCenterSync` 也无 `opsCenterRuntime` → 从未成功完成一次同步。
+- **QM-6 双模型外部评审补获两处自审漏项**：① 文档与页面文案指引用户去点一个产品已有意隐藏的「立即同步」入口（`ModelProviders.vue:580` 注明「运营同步对用户透明：配置卡片已隐藏」），使「免重启生效」的承诺没有闭环；② 补齐从「仅空表跑一次」变成「每请求都跑」后新引入的并发唯一键冲突、以及提前 commit 破坏批次原子性。两者均已修，并把生效模型按产品决策收敛为「启动时同步一次」。**但第二轮复评证明首轮那条 Critical 只修了一半**：当时只改了 `AppMenu.vue` 与专项文档 §10.1，同一文档的 §2 约束表、§6.2 流程图、§10 提示清单 T1、§14 遗留 L1 共 4 处仍在教用户去点「立即同步」，`ops-center/docs/PRD.md:812`、`ops-center/docs/OPERATIONS.md:194` 另有 2 处同类残留。本轮按「全仓 sweep 而非逐处改」收口：6 处全部改写为「启动时同步一次、下次启动生效、界面不提供手动入口」，并在 PRD 里如实登记 `runSyncNow` 自卡片隐藏后已无生产调用方（本 PR 未一并删除）。**第三轮收口 + 一处被推翻的自我结论**：claude 判 `critical_cleared: true`（20 处命中全定性、0 残留），codex 前两次尝试 RC=1 无输出。**但 codex 第三次成功输出推翻了我「全仓扫到 0 命中」的判据**：本仓 `01-docs/PRD.md`、`01-docs/learnings.md` 等文档含 NUL 字节，`grep`/`rg` 默认将其判为二进制并**静默跳过**（同一文件 `grep -rn` 计 1、`grep -rna` 计 10），我的扫描与 claude 的复核都踩在这个盲区上。改用 `-a` 复扫后另得 **15 处现行文档残留**（`01-docs/PRD.md` §7.4.5 十处、`PRD-sync-zero-config.md` 两处、`PRD-MODEL-LIST-SORT-ORDER-2026-09-23.md` 一处、`product-manual.md` 两处）。逐条核对后：**全部属于「模型服务运营同步卡片」那条旧线**——卡片由更早的 PR 有意隐藏却未同步文档，与本 PR 的应用菜单链路无关；而本 PR 所辖的 `AppMenu.vue` / `MpSidebar.vue` / 下发与订阅链路 `-a` 复扫为 **0**。故结论限定为：本 PR 范围内 Critical 清零；15 处既有文档债登记为另案（`tasks.md` 第 52 项），**不在本 PR 顺手改写**——那需要该功能线现行行为的准确口径，凭猜改会制造新的假事实。收口判据同时升级并写入 `AGENTS.md`：**全仓关键词复扫必须带 `-a`，且须确认扫描器没有把这些文件当二进制**。另我本行初稿曾把这批残留误记为「第三轮 codex 的反对意见、其引文是历史 blob」，核对原始输出后已撤回该说法。
+
+### 测试
+- `ops-center/backend/tests/test_app_menu_api.py` 15 → **21**：缺行补齐 / 回填不覆盖运营者配置 / 页面与下发集合与顺序恒等 / **并发补齐不得抛 IntegrityError** / **被拒批次不得落任何盘** / **目录外历史行两侧都不出现**。三条新断言按 AGENTS.md 做过「回退到旧实现即红」的实测（并发用例以 5 个 session 真实触发双插）。
+- **本 PR 自己引入的第二颗雷（第四轮定位）**：上面那条并发补齐用例用 5 路 `async_session` 放大竞态窗口，会在默认队列连接池里留下**绑定当前事件循环**的连接；pytest-asyncio 每条用例换新循环，后续模块从池里拿到这些连接会读到过期 WAL 读快照，看不见自己前面测试刚建的父行，于是在**完全无关的** `test_prompt_eval_engine_dual.py` 报 `FOREIGN KEY constraint failed`。#2397 的按模块清库**不足以**覆盖它。修法：制造并发 session 的用例在 `finally` 里 `await engine.dispose()` 归还池。反证实测——装回该行全量 **455 passed**，仅把它替换成 `pass` 立刻 **1 failed / 454 passed**。
+- `electron/services/ops-center-sync.test.js` +6（目录 500 仍应用菜单 / 未就绪仍拉 runtime / 通知器触发且载荷只带时间戳 / 未接线兼容 / 回调抛错隔离），并把「超时」用例升级为并行契约（假时钟单次推进 + 断言两个端点各被请求一次），63 → **69** 绿。
+- `electron/bootstrap/phase3-services.test.js` +1（channel 与载荷只带 syncedAt + 窗口不可用静默跳过），29 绿。
+- `electron/preload.test.js`：`onOpsCenterRuntimeUpdated` 进 `LISTENER_CASES`，并新增行为级用例（channel 名、event/payload 拆参、按同一 channel+handler 退订）——计数断言证不了绑错 channel 与漏退订。
+- `src/layouts/MpSidebar.appmenu.test.js` +3（事件到达免重启 / 重拉失败保留上一份 / 卸载取消订阅），9 → 12 绿。
+- 本轮受影响 5 个测试文件合计 **487 passed**；locale 成对与 CJK 基线、route-registry、债务熔断门禁 PASS。
+
+### 文档
+- `01-docs/FEATURE-APP-MENU-2026-09-15.md` → v1.2：修正长期过期的目录表（19 项含 `monitor` → 20 项）、已撤销的「不支持跨组」限制与生效时机；新增 §3.2 目录供给规则、§6.2/6.4 两通道并行下发与运营配置变更通知链、§10.1 桌面端同步失败可见性（定稿为「仅主进程日志」）、**§16 跨端同步收敛修复（QM-5 Bug 反思循环 5 步产出物，含 16.6 遗留与部署待办）**。
+- `openspec/changes/app-menu-sync-convergence/`（proposal / design D1-D7 / specs/app-menu/spec.md / tasks）：`openspec validate --strict` 通过；D6 记录「启动时同步一次」生效模型决策，D7 记录并发与事务收口；Rejected 补「轮询」与「死键文案」两条；spec 用「运营同步对用户透明」Requirement 取代原「部分成功提示」Requirement。
+- `01-docs/PRD.md`（应用菜单章节两处拷贝同步更新）：目录表 20 项、流程、排序与分组语义、交互逻辑、显示项、提示文字要点。
+- `01-docs/learnings.md` 置顶新增跨端目录漂移复盘（+35 行，无删除）。
+- `AGENTS.md` QM-2 新增两条 MUST 门禁：「跨端目录常量 ↔ 存量数据必须前向兼容」「多通道同步编排不得失败互锁」。
+- `.quality-gates.md` 追加本次执行记录与 QM-6 双模型评审轮次。
+
+# [未发布] test(ops-center): 根治后端全量套件的跨模块库污染（2026-09-26，ops-backend-test-isolation）
+
+### 现象与归属
+- `ops-center/backend` 全量 `pytest tests/` 稳定红 1 例：`test_prompt_eval_engine_dual.py::test_dual_summary_zero_denominator_null` → `sqlite3.IntegrityError: FOREIGN KEY constraint failed`。**单跑该文件 28 例全绿、单跑该例也绿**，典型「单跑绿、全量红」。
+- 在**不含本次改动**的 main 上本地全量跑，得到**同一条失败**（1 failed / 431 passed）→ 非某个业务 PR 引入。该测试文件自 2026-08-14（#822）就在 main；`ops-center CI` 只在 PR 改到 ops-center 路径时触发、main 自身从不跑全量后端套件，所以这条组合长期无人执行。
+
+### 根因
+- 30 余个 API 测试文件都在**模块级**先 `os.environ["OPS_DB_PATH"] = <自己的临时库>`、再 `from config import settings`；而 `settings` 是**导入期单例**（`tests/conftest.py` 开头早就为签名密钥写过同类注释，只补了密钥没补库路径）。pytest 按字母序收集，第一个 import config 的文件会永久绑定 `db_path`，**其后所有文件自设的临时库一律失效** → 整个 session 共用同一个 SQLite 文件。
+- 再叠加各文件 teardown 的 `Base.metadata.drop_all`（拆的是共用库的全部表）与用例普遍隐含的「我建的第一条记录 id 就是 1」：跨模块累计的 rowid 让父行查不到，写子表即触发外键失败。
+
+### 修复（集中兜住，不要求 30 个文件各自改写）
+- `ops-center/backend/tests/conftest.py`：新增 `_reset_shared_database()` 与按模块 autouse 的 `_isolate_database_per_test_module`。每个测试模块的第一个用例前，用**同步** SQLAlchemy 引擎（不碰 async 连接池、不受事件循环切换限制）幂等 `create_all` 补回被 `drop_all` 拆掉的表，再按 `sorted_tables` **逆序**清空全部行并复位 `sqlite_sequence`，让每个模块都从「表齐全 + rowid 从 1 起」的确定状态起跑。删除顺序天然满足外键依赖，故不使用在事务内即为 no-op 的 `PRAGMA foreign_keys`。
+
+### 回归锁（带反证）
+- 新增 `tests/test_zz_conftest_isolation_a_wrecker.py`（制造方：插 3 行 `prompt_eval_cases` 推进 rowid，teardown `drop_all` 拆整库）与 `tests/test_zz_conftest_isolation_b_consumer.py`（消费方：**不建表不清库**，断言进入时表为空、新建父行 `id == 1`，并用该 id 写外键子行 `prompt_eval_runs` 提交——即原故障点）。文件名 `zz_` 保证它们排在既有模块之后，不改变「谁是第一个绑定 settings 的文件」。
+- 反证（证明这把锁真能失败）：把 conftest 里的 `_reset_shared_database()` 临时改为 `pass` 后，消费方立刻 `sqlite3.OperationalError: no such table: prompt_eval_cases`（1 failed / 1 passed）；恢复后回归对 2 passed、全量 **449 passed**。
+
+### 纪律落地
+- `AGENTS.md` QM-3 新增 MUST：「测试库/配置状态必须按模块确定化，不得依赖导入顺序」，含归属纪律——全量红而单跑绿时，先在未改动的 main 上跑同一条全量对照，既不认领既有缺陷为本次引入，也不以「不是我改的」放行。
+
+
+---
+
+
+
+# [未发布] fix(tab): 跨实例事件订阅按 subscriberId 精确注销，修复「添加账号登录页不出新标签」（2026-09-25，fix-tab-subscription-leak）
+
+### 变更
+- **`apps/desktop/electron/services/webview-manager/ipc-handlers.js`**：`page-manager:unsubscribe-events` 原先在**缺失 subscriberId 时执行 `_subscribers.clear()`**。`_subscribers` 是跨渲染进程实例共享的集合（每个 SPA 实例一条）， preload 的 `unsubscribeEvents()` 又不传参，因此任一非 home-shell 实例卸载（`App.vue:364 → tabStore.dispose()`）会把**所有实例**的订阅一次抹光。此后主进程 `_broadcast` 遍历空集合，TabBar 永久收不到 `tab-created` / `tab-switched`——登录视图是原生 `WebContentsView`，`addChildView` 后照常压在内容区，用户看到的就是「登录页在当前标签里打开了，标签栏毫无动静」。现改为：只按调用方自身 id 删除，缺失 id 一律忽略并告警，不再有任何清空路径。
+- **同文件 `page-manager:subscribe-events`**：id 生成从 `'default-' + Date.now()` 改为「自增序号 + 时间戳(base36) + 随机串」。原实现在同一毫秒内两次订阅会取到**同一个 id**，`Set` 去重后两个实例共享一条订阅，任一方注销即误删另一方——这是本 Bug 的第二条独立成因。
+- **`apps/desktop/electron/preload/page-manager.js`**：`unsubscribeEvents(subscriberId)` 透传参数，使渲染层能注销自己的那条订阅；`subscribeEvents()` 保持无参 —— id 必须由服务方生成（QM-6 第二轮评审指出，保留调用方传 id 的分支等于把「唯一性」这个保证重新交还给调用方，正是本次要建立的原则）。
+
+### QM-6 第二轮（前端模型 opencode）追加修复
+- **移除调用方自带 id 的分支**：`subscribe-events` 一律服务端生成 id；无可用 `sender`（含已销毁）时直接拒绝订阅，不再留下无人回收的条目。
+- **`_senderSubscribers` 剪枝**：注销时同步从 sender 记账集合中删除该 id，避免长生命周期 sender 累积陈旧条目；JSDoc 键类型收敛为 `Map<import('electron').WebContents, Set<string>>`；`_subscriberSeq` 去掉构造函数初始化后残留的 `|| 0` 死兜底。
+- 新增 3 条测试（服务方生成不可绕过 / 已销毁 sender 拒绝订阅 / 注销后剪除记账），修复前实测 RED 2 条；`webview-manager.test.js` **75 passed**，定向 8 文件 **489 passed**。
+- **修 `01-docs/learnings.md` 的自身损坏**：`e92ce3d6` 那次文档提交把我的置顶复盘整段复制了一份，并把 H2 标题焊进上一条 bullet 句子中间 —— 成因是在 bash 双引号里向 `node -e` 传含反引号与 `$` 的文本，反引号被 bash 当命令替换执行掉。已还原到完好版本再经编辑工具补写，并新增该陷阱的复盘条目。（合并 origin/main 与此无关，已核实对侧对该文件零新增。）
+- **`apps/desktop/src/stores/tab.js`**：`init()` 保存 `subscribeEvents()` 返回的 `subscriberId`，`dispose()` 用该 id 注销（未取到 id 时传 `null`，由主进程忽略）。
+- 重新生成 `apps/desktop/electron/preload/index.bundle.js` 与 `apps/desktop/electron/home-shell-preload.bundle.js`（QM-2：改 preload 必须重打包）。
+- **补回收路径（QM-6 评审驱动）**：拿掉 `clear()` 等于抽掉唯一的订阅回收手段，因此 `subscribe-events` 改为按 `event.sender`（webContents）记账，并在其 `destroyed` 事件里回收该实例名下的全部 id —— 崩溃或被杀而没走到 `dispose()` 的实例不再留下永久驻留的孤儿订阅（否则每次广播对同一主窗口多发一条重复 IPC）。`_subscriberSeq` / `_senderSubscribers` 一并列入 `index.js` 构造函数初始化，与 `_tabViews`/`_tabIdCounter` 等同类状态同风格。
+- **`tab.js` `dispose()` 收口**：`_subscriberId = null` 移到 `if (api)` 之外，桥不可用时也清本地记录，避免下次 `init()` 覆写后旧订阅再无人可注销。
+
+### 根因与影响面
+- 现象首现于「账号管理 → 添加账号 → 微信公众号 → 打开登录页」，但缺陷位于 WebviewManager 事件总线路由层，**影响所有依赖 `tab-created/tab-switched/tab-closed` 广播的标签栏同步**（新建标签、关闭标签、切换标签、批量登录标签角标）。
+- 触发条件是 `f7e93ceb`（#2230「新标签内嵌独立 SPA 实例」，2026-09-23）引入多 SPA 实例共存之后才成立的；单实例时代 `dispose()` 只在应用退出时执行，误删无人察觉。
+- 运行态实证：主进程日志 35ms 内已打出 `WebviewManager Auth login tab opened: wechat_mp`（标签注册成功），而渲染层 TabBar 无任何 `tab-created` 到达；补注一个订阅者后同一操作立刻正常，双向印证。
+
+### 测试
+- `apps/desktop/electron/services/webview-manager.test.js` 新增 describe「page-manager 事件订阅按 subscriberId 精确删除」3 用例：subscribe 回传 id；实例 A 注销自身后实例 B 仍收到广播（断言 `send` 的 `subscriberId` 精确等于 B）；**缺失 id 的注销不得清空其他实例订阅**（修复前 RED：`expected [] to equal [idA, idB]`，且两 id 相同导致 size 为 1）。
+- `apps/desktop/src/stores/tab.test.js` 新增 2 用例：`dispose` 以 init 取得的 `subscriberId` 调 `unsubscribeEvents`；订阅未返回 id 时传 `null` 而非裸调。
+- QM-6 评审后追加：`webview-manager.test.js`「渲染进程销毁时回收该实例订阅，其他实例订阅存活」（修复前实测 RED：`destroyed` 后 `has(idA)` 仍为 `true`），并把唯一性判定从「依赖 Set 去重后的 size」改为显式 `expect(idA).not.toBe(idB)`，去掉对平台定时器精度的依赖。全文件 **72 passed**。
+- 全量回归：`pnpm exec vitest run`（apps/desktop）+ QM-1 打包见 `.quality-gates.md`。
+
+---
+
+
+
 # [未发布] fix(docs-gate): 文档同步门禁的脚本工具豁免改指仓库根 scripts/（此前为不存在的 team/scripts/）（2026-09-25，fix-docs-gate-scripts-whitelist）
 
 ### 变更

@@ -809,7 +809,7 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 | 错误映射 | 401/403→Key 无效；404→未启用目录同步；超时→同步请求超时（10 秒）；连接失败→无法连接 Ops Center；其余→HTTP {status} |
 | 写入 | `ModelProviderManager.applyCatalog`：合并限流/模型/能力；不覆盖 api_key/enabled/is_default/base_url；缺失行插入（is_preset=1/enabled=0）；本地独有行不清除；限流 null/非法值清除本地并回退默认 |
 | Governor | 写库后 `_applyGovernorLimits()`：rate_per_minute→setProviderLimits、limit_per_5h→setProviderTokenWindows(5h) |
-| 前端 | 模型设置页「运营后台同步」卡片（地址/Key/自动同步/立即同步/上次同步时间/状态文案）；限流与预设模型列表只读 |
+| 前端 | 模型设置页仅保留只读门控所需的 `syncConfigured`（同步下来的官方预设模型不可手改）；「运营后台同步」卡片（地址/Key/自动同步/立即同步/上次同步时间/状态文案）**已按产品决策对用户隐藏**——运营下发对最终用户透明，界面不出现任何同步入口，目录与运行时策略均在**应用启动时**自动拉取（启动同步由主进程 `apps/desktop/electron/services/ops-center-sync.js` 完成；渲染层 `useOpsCenterSync.runSyncNow` 自该卡片隐藏后**已无生产调用方**，仅测试覆盖，本 PR 未一并删除。生效时机详见 `01-docs/FEATURE-APP-MENU-2026-09-15.md` §10.1） |
 
 ### 12A.10.3 测试
 

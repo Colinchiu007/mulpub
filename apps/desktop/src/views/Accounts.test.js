@@ -1084,6 +1084,37 @@ describe("AccountsView", () => {
     await running;
   });
 
+  // 回归保护：检测中按钮只显示短标签。命令栏是 flex:0 0 auto 不参与收缩，
+  // 长进度文案（含平台名）会撑宽它并把整条工具栏挤到换行（实测高 63px→91px、状态切换器换位），
+  // 而详细进度本就由同一 v-if 条件的全屏遮罩承载，按钮上的长文案被遮罩盖住根本不可读。
+  it("batchCheckAllLogins 检测中按钮文案保持短标签，不随进度增长", async () => {
+    const publisher = await import("@/api/publisher");
+    let resolveBatch;
+    publisher.accountBatchCheckLogin.mockReturnValue(new Promise(r => { resolveBatch = r }));
+    let emit = null;
+    window.electronAPI = {
+      onAccountsBatchCheckProgress: (cb) => { emit = cb; return () => { emit = null } },
+    };
+    _testAccounts.push({ id: "s1", platform: "zhihu", status: "active", account_name: "知乎号" });
+    const w = await mountView();
+
+    const running = w.vm.batchCheckAllLogins();
+    await nextTick();
+    emit({ phase: "start", checked: 0, total: 1, platform: "zhihu", accountId: "s1" });
+    await nextTick();
+
+    const btn = w.find('[data-testid="account-batch-check-all"]');
+    expect(btn.text()).toBe(i18n.global.t("accountsPage.batchCheckAllBusy"));
+    expect(btn.text()).not.toContain("/");
+
+    const overlay = w.find('[data-testid="batch-check-overlay"]');
+    expect(overlay.exists()).toBe(true);
+    expect(overlay.find(".batch-check-progress").text()).toContain("0/1");
+
+    resolveBatch({ code: 0, data: { results: [{ accountId: "s1", platform: "zhihu", valid: true }], checkedAt: "2026-09-22T00:00:00Z" } });
+    await running;
+  });
+
   it("batchCheckAllLogins 遮罩展示递增的已耗时秒数，让等待可感知", async () => {
     const publisher = await import("@/api/publisher");
     let resolveBatch;
@@ -1250,6 +1281,21 @@ describe("AccountsView", () => {
     const vueSrc = fs.readFileSync("./src/features/accounts/components/PlatformAccountGroup.vue", "utf8");
     expect(vueSrc).toMatch(/grid-template-columns:\s*20px 28px 38px minmax\(180px, 1fr\) auto/);
     expect(vueSrc).toMatch(/\.account-identity\s*\{\s*min-width:\s*0/);
+  });
+
+  // 回归保护：工具栏排布模型（commit e3e33af0 引入的 8 列 grid 曾在 1536 CSS 视口下
+  // 横向溢出 470px，把「全部/已登录/未登录/收藏」压成逐字竖排——见下方断言说明）
+  it("账号工具栏用可换行 flex 排布，中文控件不得被压成逐字竖排", () => {
+    const vueSrc = fs.readFileSync("./src/views/Accounts.vue", "utf8");
+    const controlsBlocks = vueSrc.match(/\.account-controls\s*\{[^}]*\}/g).join("\n");
+    // 固定列数的 grid 没有换行机制：轨道最小内容宽度之和一旦超过容器就只能横向溢出，
+    // 而中文可在任意字符间断行，被压缩的轨道会退化成 1 个汉字宽（逐字竖排）。
+    expect(controlsBlocks).toMatch(/display:\s*flex/);
+    expect(controlsBlocks).toMatch(/flex-wrap:\s*wrap/);
+    expect(controlsBlocks).not.toMatch(/grid-template-columns/);
+    // 含中文文案的控件组必须显式禁止折行，否则其 min-content 只有 1 个汉字宽。
+    expect(vueSrc.match(/\.filter-tabs button\s*\{[^}]*\}/)[0]).toMatch(/white-space:\s*nowrap/);
+    expect(vueSrc.match(/\.account-count\s*\{[^}]*\}/)[0]).toMatch(/white-space:\s*nowrap/);
   });
 
   // 回归保护：loadGroups 必须在 onMounted 时被调用
