@@ -15883,3 +15883,14 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **二阶坑：契约锁自身可以是死的（decorative-contract-lock）**：上述①③两条锁用 `path.join(__dirname, '..', '..', 'node_modules', 'electron', 'electron.d.ts')` 定位 d.ts，并写成"取不到就 `return`（等同 skip）"。本仓 `node-linker=hoisted`，electron 实际装在**仓库根** `node_modules`，从 `apps/desktop/electron/services` 数两级 `..` 只到 `apps/desktop` → 路径恒不存在 → ①③**在本地与 CI 上从未执行过一行断言**，只有②在跑，而我把它登记成"已实测有效"。**判据**：任何"防再犯锁"写完，先做一次「让锁的前置条件失效（找不到文件 / 解析退化 / fixture 改 no-op），必须立刻变红」的变异；能静默跳过的锁等于把规则写成注释，跨依赖布局（hoisted / isolated / CI 装依赖顺序不同）时静默退化。定位法：从 `__dirname` 逐级 `path.dirname` 上溯探测，命中即返回，穷尽仍无则让断言报错。
 - **反证是必需动作，不是可选项**：锁写完必须做一次变异实验（把真字段临时改成 `getBogusVisibilityFlag()` 跑一遍，期望变红，再还原期望变绿）。反证还必须说清"红的是哪几条断言"——本案第一版登记的 `2 failed` 其实全部来自日志格式断言，与契约锁无关。改对 d.ts 定位后重做三条变异：源码改调 bogus 方法→红；把 `findDts` 指向不存在的包→红（不再 skip）；把成员正则改成不可能形态使声明集退化→红。**没有反证的契约锁默认按装饰性处理**——同一天另一条"fixture 改成 no-op 必须立刻变红"的规矩是同一件事。
 - **顺带一条夹具纪律**：`setVisible: vi.fn()` 这种"记调用但不改状态"的夹具，会让 `getVisible()` 只能返回常量，于是"出码窗口落在未绘制时段"这类判据**结构上不可测**。夹具应让 `setVisible` 真正翻转 `getVisible()` 的返回源（本案改为 `let drawn = true`）。
+## 契约只锁一半同族路径，另一半就成了沉默缺陷——新增账号显示「未确认」（login-state-solidify-sibling-path，2026-09-25）
+
+- **第一性引入点**：`7913534f`（#2205）为「保存凭证 = 一次成功的主动登录」建立契约，但只在 `updateCapturedAccount` 落地 `status='active'` 回写；`5874e4bd`（#2233）随后把后端 `create_account` 的默认登录态设为 `unverified`。两条改动各自自洽，合起来却让创建路径（`saveCapturedAccount`）永久停在「未确认」，直到用户手动点一次检测。
+- **实证优先于推断**：`backend-data/accounts.json` 里 23:00–23:06 新增的 6 个账号 `status=unverified` 且 `last_validated == created_at`（Python 6 位微秒格式 = 只有 `create_account` 写过）；同日唯一 `status=active` 的 `wechat_mp`，其 `last_validated` 是 JS 3 位毫秒格式，`app-2026-09-25.log:14881` 正是它的 `checkLoginStatus → persistLoginState`。**时间戳的小数位数就是写作者的指纹**——查「这个字段是谁写的」，先比格式，比读代码猜测快且不可辩驳。
+- **逃逸链**：① 单元测试——`account-manager-relogin-status.test.js` 只 describe 了 `updateCapturedAccount`，创建路径无对应用例；`account-manager.test.js` 的创建用例用 `toEqual` 锁死「返回值不含 status」这一当时事实，把缺陷固化成断言。② 集成/E2E——`account-login-state-tristate.js` 全部从「后端已有 status」起步，从未覆盖「刚创建完的第一帧」。③ 代码审查——#2205 与 #2233 分属不同 PR，各自 review 只看单条改动是否自洽，没有人跨 PR 追「这条契约的另一半在哪」。
+- **系统性漏洞类型（测试场景缺失）**：同一条业务不变量在多条同族实现路径上落地时，回归测试习惯按路径逐个补，缺少「先枚举全部同族入口再逐个确认有锁定断言」的收口动作。判定手法：给契约起个名，grep 出所有应满足它的函数名，看是不是只有一个具备测试。
+- **预防措施落地**：AGENTS.md QM-2 新增「登录态固化契约覆盖全部『凭证落盘』同族路径」条目；创建路径补 3 条回归（PATCH 携带 active / 凭证落盘必须在 PATCH 之前 / 凭证失败不得出现 active）。
+- **可迁移信号**：修 A 路径的同类 Bug 时先问「B 路径呢」。兄弟函数（create vs update、导入 vs 手填、种子 vs 运行时）几乎总会漏掉一边，而漏掉的通常是**新数据入口**——它的症状不是「老功能坏了」，而是「所有新建的一上线就坏」，因此极易被误读成设计如此而长期放过。
+- **顺带挖出的第二条缺陷（跨模型评审贡献）**：`captureCookies` 的登录判据是 `Promise.race([选择器命中, URL host 离开登录页])` —— 后者是**弱证据**：用户没登录、只是导航到了别的域名也会赢。补齐创建路径的固化后，这条弱证据会直接把「其实没登录」的账号标成已登录，比修复前更糟。因此固化登录态时必须问「凭证从哪来、证据强度够不够」，弱证据入口（`account:add` / 首次运行引导）传 `loginVerified:false` 保持 `unverified`。启示：修「显示不出已登录」时，同一个写入动作会把上游所有证据不足的入口一起放大成假阳性——写侧越主动，读侧越要证据。
+
+
