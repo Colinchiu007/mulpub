@@ -25,6 +25,41 @@
 
 ---
 
+# [未发布] fix(test): scheduler 对拍容差改为「绝对下限 + 期望耗时比例」，根治 main 抖动误红（2026-09-26，fix-scheduler-parity-tolerance）
+
+### 变更
+- **`scripts/compare-scheduler-models.js`**：新增导出 `durationTolerance(expectedMs)`、`PARITY_TOLERANCE_FLOOR_MS`(1500)、`PARITY_TOLERANCE_RATIO`(0.1)。`runParity` 的 `total_duration_ms` 判定由「6 组共用一个 1500ms 绝对容差」改为 `max(绝对下限, 10% × 模拟器预测耗时)`；结果对象新增 `allowedTotalDurationMs` / `diffTotalDurationMs` 便于排障。
+- **`apps/desktop/electron/tests/test_scheduler_parity.test.js`**：失败信息带上「实际生效容差」与「本次差值」。上一轮 main 红时消息只给了 python/real 两个 JSON，看不出 1653ms 是超了绝对下限还是超了比例，排障得回头翻脚本。
+- **`scripts/compare-scheduler-models.test.js`（新，7 用例）**：并接入 `quality-gate.yml` Gate 2b（`node --test scripts/compare-scheduler-models.test.js`），避免成为未接线测试。
+- **`.gitignore` 新增 `!scripts/*.test.js`（+ 显式 `!scripts/compare-scheduler-models.js`）**：`scripts/*.js` 被整体忽略，每个要入库的脚本都得单独加反向声明——**新建的测试文件会被静默忽略，`git add` 也不报警**（本次 `compare-scheduler-models.test.js` 就是这么差点丢掉的，靠 `git status` 里看不见它才发现；`compare-scheduler-models.js` 本身也是当初 force-add 进去的，清单里根本没有它的反向声明）。测试文件永远应当被跟踪，故改为按模式整体放行，根治复发。已核实 `scripts/` 下唯一未跟踪的 `.test.js` 就是本次新增的那个，通用规则不会放出意外文件。
+
+### 根因（实测，非推测）
+main run `36213551939`（head `c1b0bf27`）的 `QG Desktop Shards (1/2)` 失败于 `quota-5h-real`：python 预测 21000ms、真实 governor 实测 22653ms，差 **1653ms**，而容差是 1500ms —— **只超了 153ms**。
+
+六组用例的期望耗时跨度约 **14 倍**（1500ms → 21000ms），却共用同一个绝对容差，量级上根本不等价：
+
+| 用例 | 期望耗时 | 旧容差占比 | 新容差 |
+| --- | --- | --- | --- |
+| quota-5h | 1500ms | 100.0% | 1500ms（不变） |
+| inject-429 | 2811ms | 53.4% | 1500ms（不变） |
+| rpm120-concurrency2 | 3520ms | 42.6% | 1500ms（不变） |
+| concurrency-real | 9000ms | 16.7% | 1500ms（不变） |
+| **quota-5h-real** | **21000ms** | **7.1%** | **2100ms（10%）** |
+
+**只有出问题的那一组被放宽，其余五组完全不变** —— 不是整体放松门禁。
+
+### 归属与 flaky 定性
+- 本机真跑 `node scripts/compare-scheduler-models.js`：`quota-5h-real` python=21000 / real=**21006**（差 6ms），**PARITY OK、六组全 PASS、exit=0**。模型本身无分歧，1653ms 纯属 CI 满载 runner（655 文件、`--maxWorkers=1`）的挂钟抖动。
+- 同一测试在上一个 head `f1685063` 存在且 shard1/2 = success；区间内唯一提交 #2398 未触碰 governor/scheduler → 判定为 flaky，非真回归，也非本会话引入。
+
+### 关键设计约束（已用测试锁死）
+容差**必须由模拟器预测值驱动，不能用真实测量值** —— 否则一次变慢会自己撑大自己的容差，回归永远抓不住。`durationTolerance(31000) > durationTolerance(21000)` 这一条断言专门防这个反模式。同时断言 +5000ms（约 24%）仍超容差，证明放宽没有放过真回归。
+
+### 测试
+- `node --test scripts/compare-scheduler-models.test.js` → **7/7 通过**；TDD 先红（函数未导出，`actual: undefined`）后绿。
+- 端到端：本机真跑对拍脚本 `PARITY OK` / `exit=0`。
+- 覆盖：短用例不被放宽、长用例按比例、复现 CI 的 1653ms 必须通过、+5000ms 真回归必须失败、分母不得用实测值、退化输入（0/负/NaN/undefined/null）不产生 NaN 或低于下限。
+- 关联：本 PR 是合入 #2410（gate-result 真实聚合）的**前置**。一旦 `Gate Result` 开始真实拦截，这个 153ms 之差的抖动会从「无人察觉」变成「随机拦停所有 PR」。
 # [未发布] fix(账号管理): 新增账号登录态即时固化为 active，修「新添加的账户全部显示未确认」（2026-09-25，fix-new-account-unverified）
 
 ### 变更
