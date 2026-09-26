@@ -1,3 +1,93 @@
+# [未发布] fix(登录态): 单向证据规则终结「已登录 ↔ 未确认」每 30 分钟振荡（2026-09-26，fix-login-state-oscillation）
+
+### 变更
+- **规则**：登录态真源 `accounts.json.status` 只被**正向证据**（检测有效 → `active`）或**负向证据**（检测明确失效 → `expired`）改写。「本轮没拿到定论」（`CHECK_LOGIN_INCONCLUSIVE` / 检测自身异常 / 硬超时）既不是正向也不是负向，**不再**被当成反证去覆盖既有结论；`unverified` 回归其本义「从未有过结论」。
+- **`packages/shared-utils/src/login-state.js`（新增，唯一实现）**：纯函数 `loginStatusTransition`（返回 `null` = 本轮不改写）+ `resolveLoginGraceMs`。超龄兜底默认 **7 天**（`MP_LOGIN_STATE_GRACE_DAYS`，非正数/非数字一律回落默认，杜绝「零宽限每轮降级」与「Infinity 永不降级」）。
+- **三处调用点收敛**：`account-manager` 保留同名出口改为转发；`ipc-handlers/account.js`（`account:check-login` / `accounts:batch-check-login`）与 `services/login-status-monitor.js` 直接 import 同一函数，**删除各自映射表**。此前同一个三态映射被抄成三份、三处都把无定论算成 `unverified`，是该缺陷能长期存在且「修一处不传导到另两处」的机制。
+- **IPC 契约（只增不改的向后兼容扩展）**：批量结果项新增 `statusChanged`，`loginStatus` 改为表达「真源生效值」（保持时即原状态），未改写时不再本地伪造 `last_validated`；单账号检测返回体 `data` 新增 `loginStatus` / `statusChanged`。单账号入口不持有现状，仅在「无定论」分支按需 `GET /api/accounts/:id` 读一次真源（有明确结论不多这一跳）。
+- **渲染层文案**：一键检测汇总把「N 个未确认」改为「N 个未取到定论（保持原状态）」（`batchCheckAllDone` zh/en 成对，CI Gate 7 通过），避免用户把「保持原状」误读成「账号出问题了」。
+
+### 影响
+- 用户可见：已登录账号在检测拿不到定论（视频号等平台风控/接口抖动常见）时**不再**跳成「未确认」；连续 7 天仍无任何定论才降级并提示重登，不会形成无限期绿灯。
+- 代价（如实写明）：实际已失效但检测长期无定论的账号，在宽限期内仍显示「已登录」。缓解：明确失效立即 `expired`；发布链路不读 `status`（已核实仅首页 `activeCount` 与失效横幅消费），因此不会阻断发布。
+- 有意反转既有契约：#2233 的 D3 采取「无定论即降级」，本变更改为「无定论保持 + 超龄降级」。D3 想治的「已失效却显示已登录」假阳性仍被覆盖 —— `valid===false` 立即 `expired`，且新增「从未有结论 + 无定论 → 保持未确认」的双侧断言。
+
+### 测试
+- **单账号「验证」不再把「未取到定论」冒充「已失效」**：`Accounts.vue` 的 `checkLogin()` 原以 truthy 二值分叉，超时 / 无定论 / 请求失败一并落进「已失效」分支，弹出「去登录」确认框并把账号计入会话失效集合 —— 一次网络抖动就被放大成用户主动重登。现按 `valid` 三值分叉，`undefined` 只提示「未能确认」（新增 locale 键 `accountsPage.loginUnconfirmed`，zh/en 成对），既不加入也不清除 `checkedExpiredIds`。同步修正 `Accounts.test.js` 三条按旧形状（超时 mock 成 `valid:false`、items 不带 `loginStatus`）构造的夹具。
+- 新增 `packages/shared-utils/src/__tests__/login-state.test.js`（9 例，规则表 6 行 + `checkError` 与 `valid` 并存 + grace 边界与非法值回落 + 纯函数不做 I/O + 导出面收口）。规则表在**唯一真源**处断言，不再经 `account-manager` 转发测；`account-manager` 侧的第三份映射 `loginStatusFromCheckResult` 与同名转发 shim 一并删除，改由 `account-manager-relogin-status.test.js` 的结构锁守住「不得复活」。
+- 新增 IPC 层 6 例（保持 active / 保持 expired / 超龄降级 / 异常与超时同权 / 单账号不多读真源 / 真源读不到时如实 unverified）；监控层把原「无定论即固化 unverified」单条用例拆成 4 条（保持 / 缺时间戳降级 / expired 保持 / 超龄降级并广播）。
+- 文案新增 `src/locales/accounts-batch-check-copy.test.js`：按 AGENTS.md QM-3「文本结构断言 MUST」用 `toBe` 精确断言 zh/en 整句与「unconfirmed=0 时段落整体缺席」。
+- **三向反证**（证明断言有鉴别力，非恒真）：① 规则改回「无定论一律抹掉」（= 修复前语义）→ 规则表 3/4 与 IPC 层各 4 条立刻变红；② 去掉超龄降级 → 规则 5 变红；③ 恢复后全绿。
+- 回归：`publishers + account + batch-check + monitor + Accounts + locales` 共 234 + 101 passed。
+
+### 文档
+- `openspec/changes/fix-login-state-oscillation/`（proposal / tasks / specs/desktop/login-state-evidence）；PRD 新增 §7.6 规则表并同步 §5 / §7.2 / §7.5；`AGENTS.md` QM-2 新增强制条目；`01-docs/learnings.md` 记录「缺证据 ≠ 反证」与「同一映射抄三份导致修一处不传导」。
+- 另案（本变更不做）：`status_reason` / `last_login_check_at` 落库需后端 `AccountUpdateRequest` 加字段与迁移语义，「为什么保持」目前只进日志与检测结果。
+
+---
+
+# [未发布] fix(desktop): 登录视图节流探针改读 d.ts 已核实字段——原 getVisibilityState 在宿主上不存在，日志恒 unknown（2026-09-26，auth-login-visibility-fix）
+
+### 变更
+- **`electron/services/auth-view-manager.js`**：`_visibilityOf()`（读 `view.webContents.getVisibilityState()`）替换为 `_throttleProbeOf()`，改读两个 **经 `node_modules/electron/electron.d.ts` 逐个核实**的宿主字段：`view.getVisible()`（属 `class View`，`WebContentsView extends View` 继承而来；d.ts 明示它是"是否应绘制"，**不等于屏幕可见**）与 `view.webContents.getBackgroundThrottling()`（属 `class WebContents`）。日志由 `visibility=unknown` 变为 `drawn=<bool> bgThrottle=<bool>`。
+- **`electron/services/login-network-diagnostics.js`**：出码计时行在 `responseHeaders` 取不到 `content-length` 时显式记 `contentLength=redacted`。真机已证实跨域 iframe 的响应头被 Chromium 屏蔽，此前静默省略字段会让读日志的人以为"这行本来就没有该列"，从而漏判 `200 + 空体` 这个服务端静默拒绝特征。
+- **`test-setup.js`**：`WebContentsView` 夹具删除手搓的 `getVisibilityState`，换成 `getVisible()`（View 上）+ `getBackgroundThrottling()`（webContents 上）。原夹具**凭空补了宿主没有的方法**，正是让这条死探针测不出来的直接原因。
+- **`auth-view-manager.test.js`（第二轮自查修的是"锁本身"）**：契约锁原先用 `path.join(__dirname, '..', '..')` 硬拼 `apps/desktop/node_modules/electron/electron.d.ts`。本仓 `node-linker=hoisted`，electron 实际装在 **worktree 根** `node_modules`，该路径在本仓任何布局下都不存在 → 两条依赖 d.ts 的锁一直走 `return` **静默跳过**，通配锁等于没跑。改为从 `__dirname` 逐级上溯查找 `node_modules/electron/electron.d.ts`（不数 `..` 层数）、找不到即红、并对声明集大小加**下界断言**（`declared.size > 100`，实测 410）防"解析退化→假绿"。
+
+### 影响
+- 插桩本身的计时结论不受影响（首屏 656ms / 二维码字节 1072ms 已由真机日志取到），受影响的是**后台节流这一维至今没有有效观测**——`visibility=unknown` 意味着上一版对"节流嫌疑"既没证实也没证伪。本修复补上该探针后才具备判定能力。
+- 行为零变更、零新增用户可见文案（locales 未触碰）。
+
+### 测试
+- `auth-view-manager.test.js` 新增 describe「宿主 API 归属契约锁」3 例：① 解析已安装的 `electron.d.ts`，断言 `class WebContents` 段内确有 `getBackgroundThrottling(): boolean;`、`class View` 段内确有 `getVisible(): boolean;`、且 `WebContentsView extends View`（**解析失败必须红，不允许 skip**）；② 断言源码不再出现 `getVisibilityState|VisibilityState`；③ **通配锁**——把源码里所有 `.webContents.X(` 调用名收集起来，逐个要求出现在 `class WebContents` 声明集内，未声明即红。
+- 夹具的 `setVisible` 改为真正翻转 `getVisible()` 返回值（原为常量 true，"出码窗口落在未绘制时段"这条判据永远测不到）。
+- **反证（撤回上一版结论并重做）**：上一版登记"把 `getBackgroundThrottling()` 改名 → 契约锁立刻 2 failed"是**错误归因** —— 当时两条 d.ts 锁因路径不存在一直静默跳过，那 2 个红来自**日志格式断言**，不是契约锁。改对路径后重做三条变异，全部 `rc=1` 被抓住：A 源码改调宿主不存在的 `getBogusVisibilityFlag()`（通配锁红）、B `findDts` 指向不存在的包（前提锁红而非跳过）、C 成员正则改成不可能形态使声明集退化（下界断言红）。三条变异各自命中且还原后 `git diff --stat` 只剩真实改动。
+- 定向（`auth-view-manager.test.js` + `login-network-diagnostics.test.js`）**69 passed**；eslint 0 error（28 条既有 `no-var` 警告）。全量 `apps/desktop` vitest 的 1 failed / 11592 passed / 3 skipped（655 文件，1008s）是**同步 main 之前**那一次 head 的实测，唯一失败为本机既有环境红 `feedback.test.js:32` 的 `EPERM: operation not permitted, symlink`（HEAD 版本同一 `symlinkSync` 夹具，本 PR 未触及该文件与 logger）；合并 `origin/main`（#2409/#2413）后的全量以 CI `QG Unit Tests` 为准，不再本地重复登记。
+- QM-1 离线打包 `REAL_EXIT=0`，并对 asar 产物做 `node --check` 与签名取证：`getBackgroundThrottling` 2 处、`view.getVisible()` 1 处、`drawn=`/`bgThrottle=` 各 2 处、`contentLength=redacted` 2 处、**`getVisibilityState` 残留 0 处**。
+
+### 文档
+- `AGENTS.md` QM-2「登录承载路径的观测与节流口径单一来源」补第③④条：节流/可见性探针只准读 d.ts 已核实字段（点名 `getVisibilityState` 在 Electron 43 d.ts 中出现 **0 次**），并新增第④条「**定位宿主声明文件禁止数 `..` 层级**」——须逐级上溯查找、找不到即红、对解析结果加规模下界断言，且任何防再犯锁必须做一次「让锁本身失效即变红」的变异。
+- `01-docs/learnings.md` 记录本案两节：与 #2398 的 `app.userAgent` 同族（**mock 补字段会让死 API 在单测里看起来完全正常**）；以及二阶坑 `decorative-contract-lock`（锁自己的前置路径失效 → 静默 skip → 被误登记为"已实测有效"）。
+- `01-docs/INVESTIGATE-LOGIN-QR-SLOW-2026-09-25.md` 新增 §11 第二轮真机数据：`tencent_video` 首文档 1394ms / 第二次 `did-finish-load` 12167ms / 全程 20.3s，据此修正 §5.4 判据（多条 finished 时首条=文档可达性、末条=用户观感）；并登记 `getqrcode` 出码计时对非公众号路径**不覆盖**这一已知缺口。
+
+
+---
+
+# [未发布] fix(test): scheduler 对拍容差改为「绝对下限 + 期望耗时比例」，根治 main 抖动误红（2026-09-26，fix-scheduler-parity-tolerance）
+
+### 变更
+- **`scripts/compare-scheduler-models.js`**：新增导出 `durationTolerance(expectedMs)`、`PARITY_TOLERANCE_FLOOR_MS`(1500)、`PARITY_TOLERANCE_RATIO`(0.1)。`runParity` 的 `total_duration_ms` 判定由「6 组共用一个 1500ms 绝对容差」改为 `max(绝对下限, 10% × 模拟器预测耗时)`；结果对象新增 `allowedTotalDurationMs` / `diffTotalDurationMs` 便于排障。
+- **`apps/desktop/electron/tests/test_scheduler_parity.test.js`**：失败信息带上「实际生效容差」与「本次差值」。上一轮 main 红时消息只给了 python/real 两个 JSON，看不出 1653ms 是超了绝对下限还是超了比例，排障得回头翻脚本。
+- **`scripts/compare-scheduler-models.test.js`（新，7 用例）**：并接入 `quality-gate.yml` Gate 2b（`node --test scripts/compare-scheduler-models.test.js`），避免成为未接线测试。
+- **`.gitignore` 新增 `!scripts/*.test.js`（+ 显式 `!scripts/compare-scheduler-models.js`）**：`scripts/*.js` 被整体忽略，每个要入库的脚本都得单独加反向声明——**新建的测试文件会被静默忽略，`git add` 也不报警**（本次 `compare-scheduler-models.test.js` 就是这么差点丢掉的，靠 `git status` 里看不见它才发现；`compare-scheduler-models.js` 本身也是当初 force-add 进去的，清单里根本没有它的反向声明）。测试文件永远应当被跟踪，故改为按模式整体放行，根治复发。已核实 `scripts/` 下唯一未跟踪的 `.test.js` 就是本次新增的那个，通用规则不会放出意外文件。
+
+### 根因（实测，非推测）
+main run `36213551939`（head `c1b0bf27`）的 `QG Desktop Shards (1/2)` 失败于 `quota-5h-real`：python 预测 21000ms、真实 governor 实测 22653ms，差 **1653ms**，而容差是 1500ms —— **只超了 153ms**。
+
+六组用例的期望耗时跨度约 **14 倍**（1500ms → 21000ms），却共用同一个绝对容差，量级上根本不等价：
+
+| 用例 | 期望耗时 | 旧容差占比 | 新容差 |
+| --- | --- | --- | --- |
+| quota-5h | 1500ms | 100.0% | 1500ms（不变） |
+| inject-429 | 2811ms | 53.4% | 1500ms（不变） |
+| rpm120-concurrency2 | 3520ms | 42.6% | 1500ms（不变） |
+| concurrency-real | 9000ms | 16.7% | 1500ms（不变） |
+| **quota-5h-real** | **21000ms** | **7.1%** | **2100ms（10%）** |
+
+**只有出问题的那一组被放宽，其余五组完全不变** —— 不是整体放松门禁。
+
+### 归属与 flaky 定性
+- 本机真跑 `node scripts/compare-scheduler-models.js`：`quota-5h-real` python=21000 / real=**21006**（差 6ms），**PARITY OK、六组全 PASS、exit=0**。模型本身无分歧，1653ms 纯属 CI 满载 runner（655 文件、`--maxWorkers=1`）的挂钟抖动。
+- 同一测试在上一个 head `f1685063` 存在且 shard1/2 = success；区间内唯一提交 #2398 未触碰 governor/scheduler → 判定为 flaky，非真回归，也非本会话引入。
+
+### 关键设计约束（已用测试锁死）
+容差**必须由模拟器预测值驱动，不能用真实测量值** —— 否则一次变慢会自己撑大自己的容差，回归永远抓不住。`durationTolerance(31000) > durationTolerance(21000)` 这一条断言专门防这个反模式。同时断言 +5000ms（约 24%）仍超容差，证明放宽没有放过真回归。
+
+### 测试
+- `node --test scripts/compare-scheduler-models.test.js` → **7/7 通过**；TDD 先红（函数未导出，`actual: undefined`）后绿。
+- 端到端：本机真跑对拍脚本 `PARITY OK` / `exit=0`。
+- 覆盖：短用例不被放宽、长用例按比例、复现 CI 的 1653ms 必须通过、+5000ms 真回归必须失败、分母不得用实测值、退化输入（0/负/NaN/undefined/null）不产生 NaN 或低于下限。
+- 关联：本 PR 是合入 #2410（gate-result 真实聚合）的**前置**。一旦 `Gate Result` 开始真实拦截，这个 153ms 之差的抖动会从「无人察觉」变成「随机拦停所有 PR」。
 # [未发布] fix(账号管理): 新增账号登录态即时固化为 active，修「新添加的账户全部显示未确认」（2026-09-25，fix-new-account-unverified）
 
 ### 变更

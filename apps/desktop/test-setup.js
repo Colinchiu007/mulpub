@@ -151,12 +151,14 @@ const electronMock = {
       loadURL: function () { return Promise.resolve() },
       executeJavaScript: function () { return Promise.resolve() },
       isDestroyed: function () { return false },
-      // 出码耗时日志需读取页面可见性（后台节流是二维码迟到的候选根因之一）
-      getVisibilityState: function () { return 'visible' },
+      // 后台节流开关（真实 WebContents 上的方法；VisibilityState 类字段宿主并不存在）
+      getBackgroundThrottling: function () { return true },
     }
     // 用 vi.fn 记录布局调用：回归测试需断言登录视图从 (0,0) 铺满、不依赖硬编码偏移
     this.setBounds = vi.fn(function () {})
     this.setVisible = vi.fn(function () {})
+    // View.getVisible()（d.ts 明示为"应否绘制"，非屏幕可见）——归因日志读它
+    this.getVisible = function () { return true }
   },
   Menu: {
     buildFromTemplate: function (t) { return t },

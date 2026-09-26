@@ -13,7 +13,12 @@ describe('scheduler 模拟器与真实 governor 对拍', () => {
   it('六组固定输入关键指标一致（含 429 注入、5h 额度、真实参数、并发推进）', async () => {
     const results = await runParity(1500)
     for (const r of results) {
-      expect(r.pass, r.name + ' ' + JSON.stringify(r.checks) + ' python=' + JSON.stringify(r.python) + ' real=' + JSON.stringify(r.real)).toBe(true)
+      // 失败信息必须带上「实际生效容差」与「本次差值」：上一轮 main 红时只给了 python/real
+      // 两个 JSON，看不出 1653ms 是超了 1500 还是超了比例，排障要回头翻脚本。
+      expect(r.pass, r.name + ' ' + JSON.stringify(r.checks)
+        + ' diffTotalDurationMs=' + r.diffTotalDurationMs
+        + ' allowedTotalDurationMs=' + r.allowedTotalDurationMs
+        + ' python=' + JSON.stringify(r.python) + ' real=' + JSON.stringify(r.real)).toBe(true)
     }
   }, 120000)
 

@@ -914,6 +914,29 @@ describe("AccountsView", () => {
     expect(ElMessageBox.confirm).toHaveBeenCalled();
   });
 
+  it("checkLogin 无定论时不得冒充失效：不弹去登录、不加入会话失效集合", async () => {
+    // 三态契约：valid 既非 true 也非 false = 本轮未取到定论。历史实现用 truthy 判断，
+    // 把 undefined 一并送进「已失效」分支并弹出「去登录」确认框 —— 与批量侧口径不一致。
+    const { accountCheckLogin } = await import("@/api/publisher");
+    accountCheckLogin.mockResolvedValue({ code: 0, data: { valid: undefined, code: "CHECK_LOGIN_INCONCLUSIVE" } });
+    const w = await mountView();
+    await w.vm.checkLogin({ platform: "douyin", id: "a1" });
+    const { ElMessageBox, ElMessage } = await import("element-plus");
+    expect(ElMessageBox.confirm).not.toHaveBeenCalled();
+    expect(ElMessage.success).not.toHaveBeenCalled();
+    expect(ElMessage.info).toHaveBeenCalled();
+    expect(w.vm.checkedExpiredIds.has("a1"), "没拿到定论就不得给账号加失效标记").toBe(false);
+  });
+
+  it("checkLogin 无定论时也不得清除既有的会话失效标记", async () => {
+    const { accountCheckLogin } = await import("@/api/publisher");
+    const w = await mountView();
+    w.vm.checkedExpiredIds.add("a1");
+    accountCheckLogin.mockResolvedValue({ code: 0, data: { valid: undefined, code: "CHECK_LOGIN_INCONCLUSIVE" } });
+    await w.vm.checkLogin({ platform: "douyin", id: "a1" });
+    expect(w.vm.checkedExpiredIds.has("a1"), "无证据同样不得反向翻案").toBe(true);
+  });
+
   it("checkLogin catches exception", async () => {
     const { accountCheckLogin } = await import("@/api/publisher");
     accountCheckLogin.mockRejectedValue(new Error("check failed"));
@@ -929,8 +952,8 @@ describe("AccountsView", () => {
       code: 0,
       data: {
         results: [
-          { accountId: "a1", platform: "douyin", valid: true, code: "CHECK_LOGIN_SUCCESS" },
-          { accountId: "a2", platform: "zhihu", valid: false, code: "CHECK_LOGIN_COOKIE_EXPIRED" },
+          { accountId: "a1", platform: "douyin", valid: true, code: "CHECK_LOGIN_SUCCESS", loginStatus: "active", statusChanged: true },
+          { accountId: "a2", platform: "zhihu", valid: false, code: "CHECK_LOGIN_COOKIE_EXPIRED", loginStatus: "expired", statusChanged: true },
         ],
         checkedAt: "2026-09-11T08:00:00Z",
       },
@@ -969,8 +992,8 @@ describe("AccountsView", () => {
       code: 0,
       data: {
         results: [
-          { accountId: "b1", platform: "douyin", valid: true },
-          { accountId: "b2", platform: "zhihu", valid: true },
+          { accountId: "b1", platform: "douyin", valid: true, loginStatus: "active", statusChanged: true },
+          { accountId: "b2", platform: "zhihu", valid: true, loginStatus: "active", statusChanged: true },
         ],
         checkedAt: "2026-09-11T08:00:00Z",
       },
@@ -991,14 +1014,15 @@ describe("AccountsView", () => {
 
   // ── 登录态固化与三态回归 ──
 
-  it("batchCheckAllLogins 未确认（valid 缺失）不计入失效，也不冒充已登录", async () => {
+  it("batchCheckAllLogins 未取到定论（valid 缺失）不计入失效，且保持真源原状态", async () => {
     const { accountBatchCheckLogin, accountUpdate } = await import("@/api/publisher");
     accountBatchCheckLogin.mockResolvedValue({
       code: 0,
       data: {
         results: [
-          { accountId: "u1", platform: "tencent_video", code: "CHECK_LOGIN_INCONCLUSIVE", loginStatus: "unverified", persisted: { ok: true, status: "unverified" } },
-          { accountId: "u2", platform: "toutiao", valid: false, code: "CHECK_LOGIN_COOKIE_EXPIRED", loginStatus: "expired", persisted: { ok: true, status: "expired" } },
+          // 单向证据规则：u1 无定论 → 真源不动，主进程回传保持后的 active（statusChanged=false）
+          { accountId: "u1", platform: "tencent_video", code: "CHECK_LOGIN_INCONCLUSIVE", loginStatus: "active", statusChanged: false, persisted: { ok: true, kept: true } },
+          { accountId: "u2", platform: "toutiao", valid: false, code: "CHECK_LOGIN_COOKIE_EXPIRED", loginStatus: "expired", statusChanged: true, persisted: { ok: true, status: "expired" } },
         ],
         checkedAt: "2026-09-11T08:00:00Z",
       },
@@ -1011,7 +1035,9 @@ describe("AccountsView", () => {
 
     await w.vm.batchCheckAllLogins();
 
-    expect(_testAccounts.find(a => a.id === "u1").status).toBe("unverified");
+    // 无定论不得把已登录渲染成未确认（此前正是这里造成徽章来回跳）
+    expect(_testAccounts.find(a => a.id === "u1").status).toBe("active");
+    expect(_testAccounts.find(a => a.id === "u1").last_validated, "未改写就不该有更新的定论时间").toBeUndefined();
     expect(_testAccounts.find(a => a.id === "u2").status).toBe("expired");
     expect(w.vm.checkedExpiredIds.has("u1")).toBe(false);
     expect(w.vm.checkedExpiredIds.has("u2")).toBe(true);
@@ -1178,14 +1204,17 @@ describe("AccountsView", () => {
     }
   });
 
-  it("batchCheckAllLogins 将超时账号计入失效并回写 expired", async () => {
+  it("batchCheckAllLogins 超时账号保持原状态：不计入失效、不回写 expired", async () => {
+    // 原用例把超时 mock 成 valid:false 并断言渲染成「已失效」+ 计入失效集合，
+    // 那是三态契约之前的形状：主进程对超时返回 valid:undefined 且不改写真源，
+    // 回传的 loginStatus 是「保持后的原状态」。断言的是这条真实合同，不是渲染层的推导。
     const publisher = await import("@/api/publisher");
     publisher.accountBatchCheckLogin.mockResolvedValue({
       code: 0,
       data: {
         results: [
-          { accountId: "s1", platform: "douyin", valid: false, code: "CHECK_LOGIN_TIMEOUT", error: "检测超时（>60000ms）" },
-          { accountId: "s2", platform: "zhihu", valid: true, code: "CHECK_LOGIN_SUCCESS" },
+          { accountId: "s1", platform: "douyin", valid: undefined, code: "CHECK_LOGIN_TIMEOUT", error: "检测超时（>60000ms）", loginStatus: "active", statusChanged: false },
+          { accountId: "s2", platform: "zhihu", valid: true, code: "CHECK_LOGIN_SUCCESS", loginStatus: "active", statusChanged: true },
         ],
         checkedAt: "2026-09-22T00:00:00Z",
       },
@@ -1198,11 +1227,33 @@ describe("AccountsView", () => {
 
     await w.vm.batchCheckAllLogins();
 
-    expect(_testAccounts.find(a => a.id === "s1").status).toBe("expired");
+    expect(_testAccounts.find(a => a.id === "s1").status).toBe("active");
     expect(_testAccounts.find(a => a.id === "s2").status).toBe("active");
-    expect(w.vm.checkedExpiredIds.has("s1")).toBe(true);
+    expect(w.vm.checkedExpiredIds.has("s1"), "未取到定论不得计入失效集合").toBe(false);
     const { ElMessage } = await import("element-plus");
     expect(ElMessage.warning).toHaveBeenCalledWith(expect.stringContaining("1"));
+  });
+
+  it("batchCheckAllLogins 登录态缺席时保持原徽章，不从 valid 反推", async () => {
+    // 主进程在「现状读不到」时本轮不写真源并回传 loginStatus=null；渲染层此时必须什么都不改。
+    // 若这里退回按 item.valid 三元推导，单向证据规则就在展示层被绕开了一次。
+    const publisher = await import("@/api/publisher");
+    publisher.accountBatchCheckLogin.mockResolvedValue({
+      code: 0,
+      data: {
+        results: [
+          { accountId: "n1", platform: "douyin", valid: undefined, code: "CHECK_LOGIN_INCONCLUSIVE", loginStatus: null, statusChanged: false },
+        ],
+        checkedAt: "2026-09-26T00:00:00Z",
+      },
+    });
+    _testAccounts.push({ id: "n1", platform: "douyin", status: "active", account_name: "抖音" });
+    const w = await mountView();
+
+    await w.vm.batchCheckAllLogins();
+
+    expect(_testAccounts.find(a => a.id === "n1").status).toBe("active");
+    expect(w.vm.checkedExpiredIds.has("n1")).toBe(false);
   });
 
   it("batchCheckAllLogins 无账号时提示且不调用 IPC", async () => {

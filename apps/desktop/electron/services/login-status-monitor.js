@@ -17,6 +17,8 @@
  * 默认间隔 30 分钟，可通过 opts.intervalMs 配置。
  */
 const logger = require('./logger')
+// 登录态单向证据规则的唯一实现（本模块曾自持一份 _loginStatusOf，是振荡的三个源头之一）
+const { loginStatusTransition } = require('@multi-publish/shared-utils/src/login-state')
 
 const DEFAULT_INTERVAL_MS = 30 * 60 * 1000  // 30 分钟
 
@@ -79,9 +81,11 @@ function createLoginStatusMonitor (opts) {
         try {
           logger.info('LoginMonitor', 'checking ' + acc.platform + ':' + (acc.name || acc.account_name || acc.id) + ' (current status=' + (current || '?') + ')')
           const result = await _accountManager.checkLoginStatus(acc.platform, acc.id)
-          const next = _loginStatusOf(result)
+          // 单向证据规则：无定论（含超时/异常）返回 null = 本轮不改写真源，也不广播
+          const next = _loginStatusTransition(result, acc)
           logger.info('LoginMonitor', 'result ' + acc.platform + ':' + acc.id + ' valid=' + (result && result.valid) + ' -> ' + next + ' code=' + (result && result.code) + (result && result.valid !== true ? ' error=' + ((result && (result.error || result.message)) || '') : ''))
-          if (next === current) continue // 结论未变化，不回写，避免每轮无意义 PATCH
+          // 无新证据或结论未变都不回写：后者是原注释的既有约束，前者终结 active↔unverified 振荡
+          if (next === null || next === current) continue
           const validatedAt = new Date().toISOString()
           const persisted = await _persist(acc, next, validatedAt)
           if (!persisted || !persisted.ok) {
@@ -113,19 +117,17 @@ function createLoginStatusMonitor (opts) {
   }
 
   /**
-   * checkLoginStatus 三态 → 可持久化登录态（优先复用 account-manager 的单一口径函数）。
+   * 本轮检测 → 应写入的登录态（null = 不改写）。现状与最近定论时间都取自真源快照，
+   * 因此无定论时能保持 active/expired，超龄的 active 才降级。
    * @param {any} result
+   * @param {object} acc 后端 accounts.json 的账号快照
    */
-  function _loginStatusOf (result) {
-    if (typeof _accountManager.loginStatusFromCheckResult === 'function') {
-      try {
-        const mapped = _accountManager.loginStatusFromCheckResult(result)
-        if (mapped === 'active' || mapped === 'expired' || mapped === 'unverified') return mapped
-      } catch (_) { /* 口径函数异常 → 走兜底映射 */ }
-    }
-    if (result && result.valid === true) return 'active'
-    if (result && result.valid === false) return 'expired'
-    return 'unverified'
+  function _loginStatusTransition (result, acc) {
+    return loginStatusTransition({
+      result,
+      currentStatus: acc.status,
+      lastValidated: acc.last_validated,
+    })
   }
 
   /** 登录态唯一写者：失败不抛异常，返回 { ok, reason } 供上层记录。 */

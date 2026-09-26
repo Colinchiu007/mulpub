@@ -233,3 +233,17 @@ describe('登录态固化失败 — 返回值不冒充已登录', () => {
     expect(saved.status).toBe('unverified')
   })
 })
+
+// tasks.md 3.4：凭证落盘即正向证据，固化路径 MUST NOT 经过单向证据规则函数——
+// 否则「无定论保持原状」会把刚登录成功的新账号重新挡在 active 之外，与本修复互相抵消。
+// 规则唯一实现已下沉到 @multi-publish/shared-utils/src/login-state，account-manager 侧
+// 既不该再有映射，也不该再有转发 shim（那会让第四份口径有藏身之处）。
+describe('account-manager 不再自带登录态映射（单一口径结构锁）', () => {
+  it('loginStatusFromCheckResult 与 loginStatusTransition 均已移除', () => {
+    global.__enableElectronMock()
+    global.__resetElectronMock()
+    const accountManager = loadAccountManager()
+    expect(accountManager.loginStatusFromCheckResult, '第三份映射不得复活').toBeUndefined()
+    expect(accountManager.loginStatusTransition, '转发 shim 会让规则表在错误的层被测').toBeUndefined()
+  })
+})

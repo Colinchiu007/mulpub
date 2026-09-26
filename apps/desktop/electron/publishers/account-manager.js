@@ -119,8 +119,8 @@ async function captureCookies (platform, timeout = 300000) {
 
     // 如果是公众号，先检查是否已经有登录态
     let loggedIn = false
-    // 登录证据分级：成功选择器命中 = 正向证据；仅「URL host 离开了登录页」= 弱证据——
-    // 用户没登录却导航到别的域名同样满足弱证据。弱证据不得据此固化 active。
+    // 证据分级：选择器命中 = 正向；仅「URL host 离开登录页」= 弱证据（没登录却导航到
+    // 别的域名同样满足），弱证据不得据此固化 active。
     let positiveEvidence = false
     if (successSelector) {
       try {
@@ -320,12 +320,10 @@ async function saveCapturedAccount (platform, captured, options = {}) {
     throw new Error('加密凭证保存失败，账号创建已回滚')
   }
   log.info('AccountManager', `Saved credential store for account ${accountId}`)
-  // 凭证已成功落盘 = 一次成功的主动登录，必须同步固化 status=active + last_validated，
-  // 否则后端 create_account 的 DEFAULT_ACCOUNT_STATUS='unverified' 会让刚登录成功的新账号
-  // 在账号页显示「未确认」，直到用户手动再点一次检测。与 updateCapturedAccount 同一条契约：
-  // 顺序不可颠倒，凭证未落盘时不允许把真源置为 active（见上一条回滚分支）。
-  // loginVerified === false 表示只有弱证据（如 account:add 的「URL 变了」而选择器未命中），
-  // 此时保持后端的 unverified 不动，等一次真实检测；默认（未显式传）视为已验证。
+  // 凭证已成功落盘 = 一次成功的主动登录，必须固化 status=active + last_validated，否则后端
+  // create_account 的默认 unverified 会让新账号显示「未确认」直到手动再检测（与
+  // updateCapturedAccount 同一契约；顺序不可颠倒，见上一条回滚分支）。
+  // loginVerified=false = 只有弱证据（account:add 仅 URL 变了、选择器未命中）：保持 unverified。
   const loginVerified = options.loginVerified !== false
   const validatedAt = new Date().toISOString()
   let persisted = { ok: false }
@@ -357,9 +355,7 @@ async function saveCapturedAccount (platform, captured, options = {}) {
   }
 
   log.info('AccountManager', ` 账号添加成功: ${name} (${platform})`)
-  // 返回值只在真源确实写成功时才叠加 active，保持 IPC 返回与后端真源一致（渲染层在
-  // auth:completed 后重新拉列表，用户可见状态以真源为准）；固化失败或证据不足时如实
-  // 透传后端原值，不冒充已登录。
+  // 只在真源确实写成功后才叠加 active，保持 IPC 返回与真源一致（可见状态由真源决定）
   return persisted.ok ? { ...result.data, status: 'active', last_validated: validatedAt } : result.data
 }
 
@@ -1047,13 +1043,6 @@ function mergeCookies (primary, extra) {
   return merged
 }
 
-/** 三态检测结果 → 持久化 status 的唯一映射（禁止各处自行三元判断造成口径漂移）。 */
-function loginStatusFromCheckResult (result) {
-  if (result && result.valid === true) return 'active'
-  if (result && result.valid === false) return 'expired'
-  return 'unverified'
-}
-
 /**
  * 固化登录态到唯一真源（后端 accounts.json 的 status 字段）。
  *
@@ -1183,8 +1172,7 @@ async function updateCapturedAccount (platform, captured, accountId) {
   // 失效」（今日头条）。顺序不可颠倒：凭证未落盘时不允许把真源置为 active
   // （防半成功状态）。
   const profilePatch = profileUtils.buildProfilePatch(accountInfo, account)
-  // PATCH 体与返回值必须报告同一次验证时刻：两处各取 new Date() 会让真源与返回体相差
-  // 一个网络往返，排障时对不上（与 saveCapturedAccount 复用 validatedAt 的口径一致）。
+  // PATCH 体与返回值复用同一 validatedAt：两处各取 new Date() 会相差一个网络往返，排障对不上
   const validatedAt = new Date().toISOString()
   let metaResult = null
   try {
@@ -1224,8 +1212,7 @@ async function updateCapturedAccount (platform, captured, accountId) {
 
   log.info('AccountManager', '账号凭证已更新: ' + name + ' (' + platform + ', ' + accountId + ')')
   // 返回值以真源为底再叠加本次实际下发的资料字段：提取失败时调用方拿到的仍是旧昵称/旧头像，
-  // 而不是空串（否则渲染层会把「没取到」显示成「已被清空」）。登录态同理：只有真源确实写成功
-  // 才声称 active，否则如实透传后端原值，不让「重新登录」那一帧冒充已登录。
+  // 而不是空串（否则渲染层会把「没取到」显示成「已被清空」）。登录态同理：只有真源写成功才声称 active
   return metaPersisted
     ? { ...account, ...profilePatch, name, status: 'active', last_validated: validatedAt }
     : { ...account, ...profilePatch, name }
@@ -1255,7 +1242,6 @@ module.exports = {
   checkLocalCredentials,
   getAccountPartitionCookies,
   mergeCookies,
-  loginStatusFromCheckResult,
   persistLoginState,
   setAccountActive,
   setOwnerSubjectProvider,

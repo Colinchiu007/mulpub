@@ -81,30 +81,63 @@ describe('E2E 百家号 API 发布全链路（委托文章链）', () => {
   })
 })
 
-describe('E2E 快手 API 发布全链路', () => {
+// 快手（W3 §5.3 变薄委托）：适配器 execute 委托单体链 KuaishouVideoChain.run，
+// 链级 HTTP/求签/风控契约在 kuaishou-video-chain.test.js（本机假 HTTP 服务器）完整覆盖；
+// 旧骨架 publish() + 远程签名拼参路径已下线，此处只验「委托接线」。
+function fakeVideoChain (captured) {
+  return {
+    async run (taskData, opts) {
+      captured.taskData = taskData
+      captured.opts = opts
+      return { success: true, mode: 'api', publishId: 'KS_VIDEO_E2E', platform: 'kuaishou' }
+    },
+  }
+}
+
+describe('E2E 快手 API 发布全链路（委托视频链）', () => {
   let adapter
   beforeEach(() => { adapter = new KuaishouAdapter() })
 
-  it('buildPostData 默认 AI 生成 + 发布成功', async () => {
-    mockHttp(adapter, {
-      post: () => ({ data: { result: 1, code: 200, id: 'KS_VIDEO_E2E' } }),
-    })
+  it('buildPostData 默认 AI 生成（ai_generated=1）', () => {
     const postData = adapter.buildPostData({ title: 'E2E 快手', content: 'AI 生成', tags: ['测试'] })
     expect(postData.ai_generated).toBe(1)
-    const result = await adapter.publish(COOKIE, postData)
+    expect(postData.caption).toBe('E2E 快手\nAI 生成\n#测试')
+  })
+
+  it('execute 委托视频链 run，返回 publishId', async () => {
+    const captured = {}
+    adapter._chainOverride = fakeVideoChain(captured)
+    const result = await adapter.execute({
+      title: 'E2E 快手', content: 'AI 生成', tags: ['测试'],
+      video: { path: __filename },
+    }, COOKIE)
     expect(result.success).toBe(true)
+    expect(result.platform).toBe('kuaishou')
     expect(result.publishId).toBe('KS_VIDEO_E2E')
   })
 
-  it('aiGenerated=false → ai_generated=0', () => {
-    expect(adapter.buildPostData({ title: '人工', aiGenerated: false }).ai_generated).toBe(0)
+  it('execute 透传 aiGenerated=false 给视频链', async () => {
+    const captured = {}
+    adapter._chainOverride = fakeVideoChain(captured)
+    await adapter.execute({ title: '人工', aiGenerated: false, video: { path: __filename } }, COOKIE)
+    expect(captured.taskData.aiGenerated).toBe(false)
   })
 
-  it('发布失败返回错误消息', async () => {
-    mockHttp(adapter, { post: () => ({ data: { result: 0, error_msg: '内容违规' } }) })
-    const result = await adapter.publish(COOKIE, adapter.buildPostData({ title: 'test' }))
+  it('链返回失败（内容违规）→ 透传错误消息', async () => {
+    adapter._chainOverride = {
+      async run () { return { success: false, platform: 'kuaishou', error: '内容违规' } },
+    }
+    const result = await adapter.execute({ title: 'test', video: { path: __filename } }, COOKIE)
     expect(result.success).toBe(false)
     expect(result.error).toContain('违规')
+  })
+
+  it('缺 cookie → data_error 且不调链（fail-closed 零请求）', async () => {
+    let called = false
+    adapter._chainOverride = { async run () { called = true; return { success: true } } }
+    const result = await adapter.execute({ title: 't', video: { path: __filename } }, '')
+    expect(result.success).toBe(false)
+    expect(called).toBe(false)
   })
 })
 

@@ -1234,14 +1234,6 @@ describe('persistLoginState 登录态唯一写者', () => {
     expect(result.code).toBe(404)
   })
 
-  it('loginStatusFromCheckResult 是三态检测结果的唯一映射口径', async () => {
-    const accountManager = loadAccountManager()
-    expect(accountManager.loginStatusFromCheckResult({ valid: true })).toBe('active')
-    expect(accountManager.loginStatusFromCheckResult({ valid: false })).toBe('expired')
-    expect(accountManager.loginStatusFromCheckResult({ valid: undefined })).toBe('unverified')
-    expect(accountManager.loginStatusFromCheckResult({})).toBe('unverified')
-    expect(accountManager.loginStatusFromCheckResult(null)).toBe('unverified')
-  })
 })
 
 describe('account-manager — listAccounts 错误透传', () => {
