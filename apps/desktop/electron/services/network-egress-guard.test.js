@@ -34,13 +34,21 @@ function getErrorOfUrl (url) {
 }
 
 describe('test-setup 出站网络守卫', () => {
-  it('http.get 到非 loopback 主机：必须立刻拿到带守卫标记与主机名的错误，而不是真出网或挂起', async () => {
+  it('http.get 到非 loopback 主机：必须秒失败并被守卫记账（不依赖错误文案穿透运行时）', async () => {
+    const startedAt = Date.now()
     const error = await getErrorOfUrl('http://example.com:8099/__mp_test_egress__')
+    const elapsed = Date.now() - startedAt
     expect(error, '守卫未生效：请求竟然成功了').not.toBeNull()
-    expect(error.message).toMatch(BLOCK_MARKER)
-    expect(error.message).toContain('example.com')
-    // 错误信息必须自带出路，否则排障的人只会看到一句 anonymous 失败
-    expect(error.message).toMatch(/127\.0\.0\.1|loopback/)
+    // 核心不变量是「不再挂起」：无守卫时这里是 5s/10s（本 PR 的 RED 现场）
+    expect(elapsed).toBeLessThan(3000)
+    // 文案不作断言：Node 22 的 _http_client 会把 socket 早期错误改写成 `socket hang up`
+    // （CI 实测），本地 Node 24 则原样透传 —— 拿文案当契约就变成"可诊断性依赖运行时版本"。
+    // 因此守卫同时记账 + console.warn，这里断言账本，版本无关且更可机器化。
+    const ledger = globalThis.__mpBlockedEgress
+    expect(ledger, '守卫没有记账，说明它根本没触发').toBeTruthy()
+    const hit = ledger.list.find((e) => e.host === 'example.com' && e.port === 8099)
+    expect(hit, '账本里没有本次出站：' + JSON.stringify(ledger.list)).toBeTruthy()
+    expect(hit.node).toBe(process.version)
   })
 
   it('fetch（undici）同样被拦，且守卫标记能在错误链上读到', async () => {

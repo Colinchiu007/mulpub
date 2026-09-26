@@ -76,16 +76,37 @@ if (!net.Socket.prototype.connect[NETWORK_GUARD_APPLIED]) {
     if (target.kind === 'host' && target.host && !isLoopbackHostForTest(target.host)) {
       const socket = this
       const portText = target.port === undefined ? '' : ':' + target.port
-      const error = new Error(
-        `[TEST-NETWORK-BLOCKED] 单元测试禁止真实出站连接：${target.host}${portText}。`
+      const detail = `[TEST-NETWORK-BLOCKED] 单元测试禁止真实出站连接：${target.host}${portText}。`
         + '请注入传输层桩（global.fetch = vi.fn() / __registerMock("axios", 桩) / 构造注入 axios|fetchImpl），'
-        + '或把被测服务起在 127.0.0.1 的临时端口（listen(0, "127.0.0.1")）后访问 loopback 地址。',
-      )
+        + '或把被测服务起在 127.0.0.1 的临时端口（listen(0, "127.0.0.1")）后访问 loopback 地址。'
+      const error = new Error(detail)
       error.code = 'ERR_TEST_NETWORK_BLOCKED'
       error.host = target.host
       error.port = target.port
+
+      // **必须同时落一份"账"并 console.warn**：Node 22 的 _http_client 会把 socket 早期错误改写成
+      // `socket hang up`（CI 实测，本地 Node 24 不会），错误文案到不了调用方 —— 只在异常里带信息
+      // 等于"可诊断性依赖运行时版本"。记录 + 打印与版本无关。
+      const blocked = globalThis.__mpBlockedEgress || (globalThis.__mpBlockedEgress = { list: [], seen: new Set() })
+      const key = target.host + portText
+      blocked.list.push({ host: target.host, port: target.port, at: Date.now(), node: process.version })
+      if (!blocked.seen.has(key)) {
+        blocked.seen.add(key)
+        console.warn(detail)
+      }
+
       process.nextTick(() => {
-        try { socket.emit('error', error) } finally { socket.destroy() }
+        const hasListener = socket.listenerCount('error') > 0
+        if (!socket.destroyed && hasListener) {
+          try { socket.emit('error', error) } catch (_) { /* 已被上层消化 */ }
+          // destroy **不带** error 参数：上面已 emit 过，再传 error 会让 Node 二次触发 'error'，
+          // 而调用方常用 once('error') —— 第二次没有监听者就变成 unhandled error 污染 CI 日志。
+          socket.destroy()
+        } else {
+          // 没有错误监听者的调用方：把错误交给 Node 默认处理（抛出未捕获异常 = 响亮失败）。
+          // 不能只 destroy() —— 那会让"等 error 事件"的调用方静默挂起，比崩掉更糟。
+          socket.destroy(error)
+        }
       })
       return socket
     }
