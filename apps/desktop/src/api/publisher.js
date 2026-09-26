@@ -105,6 +105,13 @@ export async function accountSetActive (accountId, platform, isActive) {
   return invokeWithFallback('accountSetActive', { code: -1, message: 'electronAPI not available' }, accountId, platform, isActive)
 }
 
+// 显示名改名写通道：主进程 AccountManager.renameAccount → 后端 PATCH account_name +
+// name_source='manual'（唯一真源）。不得改回 accountUpdate：那条通道写 Electron SQLite，
+// 账号列表根本不从那里读，改名会静默失效。
+export async function accountRename (accountId, platform, name) {
+  return invokeWithFallback('accountRename', { code: -1, message: 'electronAPI not available' }, accountId, platform, name)
+}
+
 // ─── 内嵌浏览器登录 API ──────────────────
 export async function authOpenLogin(platform, accountId) { return invokeWithFallback("authOpenLogin", { code: -1 }, platform, accountId) }
 

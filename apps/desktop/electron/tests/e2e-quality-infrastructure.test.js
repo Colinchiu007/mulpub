@@ -661,6 +661,27 @@ describe('账号 E2E 契约', () => {
     }
   })
 
+  it('账号 fixture 必须把显示名放在 account_name（name 是 document.title 落盘位）', () => {
+    // 本 PR 撤掉了 IPC 层 `account_name = account_name || name` 的提前合并，并摘除了展示层
+    // 对 `name` 的候选资格。夹具若仍按旧模型只填 `name`，视觉/e2e 跑出来的 8 张卡片会全部
+    // 退化成平台名 —— 而没有任何一条断言会红：没人检查这些名字，且 Gate 7 的
+    // PIXEL_THRESHOLD=0.06 吸收得掉整页文字变化。所以形状必须被钉在这里。
+    const accounts = JSON.parse(fs.readFileSync(accountFixturePath, 'utf8')).accounts
+
+    expect(accounts.length).toBeGreaterThan(0)
+    for (const account of accounts) {
+      expect(typeof account.account_name, account.id + ' 缺少 account_name（显示名会退化成平台名）')
+        .toBe('string')
+      expect(account.account_name.trim().length, account.id + ' account_name 不得为空').toBeGreaterThan(0)
+      if (account.name_source !== undefined) {
+        expect(['auto', 'manual'], account.id + ' name_source 取值非法').toContain(account.name_source)
+      }
+    }
+    // 至少一条 manual，使 e2e/视觉数据覆盖「manual 原样显示、不过守卫」这条分支
+    expect(accounts.some((a) => a.name_source === 'manual'),
+      'fixture 至少要有一条 name_source=manual').toBe(true)
+  })
+
   it('新增账号响应与生产序列化字段一致', async () => {
     const mockWindow = loadProviderMock()
     const response = await mockWindow.electronAPI.accountAdd('weibo')

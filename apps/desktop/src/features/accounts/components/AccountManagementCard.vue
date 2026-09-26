@@ -142,7 +142,7 @@ import { computed, nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { CircleCheck, Delete, EditPen, Monitor, Refresh, Setting, Star, StarFilled, UserFilled } from '@element-plus/icons-vue'
 import { isAccountActive } from '@/utils/account-active'
-import { isNoiseAccountName } from '@multi-publish/shared-utils/src/account-name-guard'
+import { resolveAccountDisplayName } from '@/utils/account-display-name'
 
 const props = defineProps({
   account: { type: Object, required: true },
@@ -220,13 +220,11 @@ const OWNER_KEYS = ['owner', 'owner_name', 'ownerName', 'account_owner', 'accoun
 const PUBLISHER_KEYS = ['publisher', 'publisher_name', 'publisherName', 'operator', 'operator_name', 'operatorName', '运营人', '发布人']
 const FOLLOWER_KEYS = ['followers', 'follower_count', 'followers_count', 'fans', 'fans_count', 'fansCount', '粉丝数']
 
-// 存量脏数据守卫：早期采集把页面容器文本/页面标题写进了 account_name（如「0粉丝0关注…退出登录」
-// 「作品发布」「Bilibili 创作者中心」）。命中噪声规则时宁可用平台名兜底，也不展示垃圾文本；
-// 真实昵称（如「数字生命丘丘」）不受影响。判定与采集端共用 account-name-guard 单一来源。
+// 存量脏数据守卫与「用户手改名不得被藏」这两条诉求由同一个解析入口满足：
+// 判定口径集中在 utils/account-display-name，卡片与分组面板共用，避免各写一套而漂移。
 function accountName (account) {
-  const raw = String(account.account_name || account.name || '').trim()
-  if (raw && !isNoiseAccountName(raw)) return raw
-  return props.platformLabel || t('accountsPage.accountCardLabels.unnamedAccount')
+  return resolveAccountDisplayName(account, { platformLabel: props.platformLabel }) ||
+    t('accountsPage.accountCardLabels.unnamedAccount')
 }
 
 function valueLabel (value) {

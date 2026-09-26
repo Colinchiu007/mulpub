@@ -85,6 +85,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { CircleCheck, Connection, Delete, Link, Plus, Star, StarFilled, UserFilled } from '@element-plus/icons-vue'
+import { resolveAccountDisplayName } from '@/utils/account-display-name'
 
 const props = defineProps({
   group: { type: Object, required: true },
@@ -123,7 +124,7 @@ function showAvatar (account) {
 }
 
 function accountName (account) {
-  return account.account_name || account.name || '未命名账号'
+  return resolveAccountDisplayName(account, { platformLabel: props.platformLabel }) || '未命名账号'
 }
 
 function isActive (account) {

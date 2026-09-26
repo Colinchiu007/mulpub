@@ -1510,6 +1510,7 @@ export default {
     setDefaultSuccess: (ctx) => '已设为 ' + ctx.named('platform') + ' 默认账号',
     setDefaultFailed: '设置默认账号失败',
     renameFailed: '重命名失败',
+    accountNotFound: '账号不存在或已被删除',
     proxySaved: '账号代理已保存',
     proxyCleared: '账号代理已清除',
     saveProxyFailed: '保存代理失败',
