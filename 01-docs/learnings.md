@@ -16009,3 +16009,12 @@ worktree 隔离（D 盘）；契约 selfcheck-migrate.test.js 4/4；debt 熔断 
 - **顺带修掉的认知错误（记录以免以讹传讹）**：我最初断言「基线固化缺陷 → 像素 diff 恒为 0 → 永远绿」。实测推翻——diff 从来不是 0（main 上就有 2.48%，改动后 3.66%），真正的失效机制是**阈值与差异面积错配 + 基线来源环境噪声**。"基线固化缺陷"这一重确实独立成立，但它不是门禁失灵的原因。教训：**给逃逸链下结论前，先去 artifact 里把真实数值读出来**；"恒为 0"这种漂亮解释往往是想出来的。
 
 - **配套工具口径**：本地无 Playwright 时，用 `pngjs` + `pixelmatch` 以 `threshold 0.1 / includeAA false` 复算，实测与 CI 报告值精确到三位小数吻合（3.6592% vs 3.659%），可作为基线工作的可信管线；分区统计（按 x/y 区间累加差异像素）能区分"噪声"与"本次改动的真实归属"。
+
+
+## cancel 第三方页面请求的安全性是"借来的"——因为我们的登录视图没挂 did-fail-load（cancel-prerequisite-error-page，2026-09-27）
+
+- **背景**：给登录页做噪音 cancel（只拦 `res.wx.qq.com` 两个 `2560x864_*.mp4` 与 `support.weixin.qq.com/cgi-bin/mmsupportmesh`）时对照竞品蚁小二，它敢在 `*://*/*` 上 cancel 的**前提**是其 `did-fail-load` 带 `isMainFrame && errorCode !== -3` 门禁（-3 = `ERR_ABORTED`），之后才跳自家错误页。
+- **我们的现状**：登录视图**根本没挂 `did-fail-load`**（全仓唯一一处在 `rpa-view-session.js:31`，属 RPA 发布路径），所以 cancel 子资源不会被误判成"登录页加载失败"而弹自家错误页。
+- **为什么这是"借来的安全"**：安全来自"缺少那段逻辑"，不是来自"我们做了防护"。**将来任何人给登录视图加「失败→错误页」，都必须同时补 `errorCode !== -3` 与 `isMainFrame` 门禁**，否则一次 cancel 就会把登录页换成错误页 —— 而 cancel 默认关（`MP_LOGIN_NOISE_CANCEL=1`）意味着这个回归只会在有人打开开关、又恰好加了错误页之后才爆，测试面完全覆盖不到。
+- **宽匹配禁区（同批证据）**：竞品用 `url.includes("output.mp4")` 这种不限 host 的裸子串。我们若照抄成 `includes(".mp4")` 会直接废掉其它平台的背景视频，写成 `includes("localhost")` 会误伤我们自己的 `127.0.0.1:<随机端口>` 服务。约束：host+路径收窄在 **webRequest filter 层**（不匹配 host 的请求根本进不到回调），判定用完整常量或前缀常量，并锁一条「filter 数组精确等于预期」的结构断言。
+- **刻意不拦的一条**：`localhost.weixin.qq.com:13013-14015/api/check-login`（微信页探测本机客户端）。它即时失败（`ERR_CONNECTION_CLOSED`，一批 6 个共约 3 秒），拦掉省不下多少，却会永久取消「在本机微信里确认登录」这条快捷路径 —— 收益与代价不对等。
