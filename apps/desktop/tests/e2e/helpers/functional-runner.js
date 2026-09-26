@@ -179,7 +179,6 @@ class FunctionalRunner {
    */
   async navigate(url) {
     // 光标必须在 goto 之前落位：本次导航期间的资源失败才算证据，上一次导航残留的不算。
-    this.lastNavigationUrl = url;
     this.resourceFailureMark = this.resourceFailures.length;
     for (let attempt = 1; attempt <= MAX_NAVIGATION_ATTEMPTS; attempt += 1) {
       try {
