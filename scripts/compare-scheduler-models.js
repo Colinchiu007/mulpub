@@ -23,8 +23,14 @@ const { runSelfCheck } = require('../apps/desktop/electron/services/rate-limit-s
  * 六组用例的期望耗时跨度约 14 倍（~1.5s → 21s），只用一个绝对容差在量级上不等价：
  * 对 21s 的 quota-5h-real，1500ms 仅 7.1%，CI 满载下挂钟抖动 1653ms 即误判失败；
  * 对 1.5s 的用例，同样 1500ms 却是 100%，形同不设防。
- * 故取 max(绝对下限, 比例 × 期望耗时)：短用例由下限保护（不放宽），
- * 长用例获得与自身量级成比例的余量（真回归仍要超出该比例才被抓）。
+ *
+ * 但取 max(下限, 比例) 也还不够：concurrency-real 期望 11000ms 时比例项只有 1100ms，
+ * 于是退化回 1500 的固定下限，而 CI 上该用例的实测抖动是 1640ms —— 又一次误判失败。
+ * 两个数据点合起来说明真实 governor 的挂钟漂移是「固定项 + 与时长成正比的累积项」
+ * （11000 上 14.9%、21000 上 7.9%），既不是纯常量也不是纯比例。
+ * 故取 **绝对下限 + 比例 × 期望耗时**，并向上取整为整毫秒：短用例仍由下限保护，
+ * 长用例在固定项之上再获得比例余量；该口径在原口径之上单调加宽，不会在任何用例上
+ * 收紧出新的假红，而真回归（如 +100% 量级）仍远超容差、照样抓得住。
  *
  * 必须传「模拟器预测值」而非「真实测量值」：用实测值做分母会让一次变慢
  * 自己撑大自己的容差，回归将永远抓不住。
@@ -34,7 +40,7 @@ const PARITY_TOLERANCE_RATIO = 0.1
 
 function durationTolerance (expectedMs) {
   const base = Number.isFinite(expectedMs) && expectedMs > 0 ? expectedMs : 0
-  return Math.max(PARITY_TOLERANCE_FLOOR_MS, base * PARITY_TOLERANCE_RATIO)
+  return Math.ceil(PARITY_TOLERANCE_FLOOR_MS + base * PARITY_TOLERANCE_RATIO)
 }
 
 const CASES = [

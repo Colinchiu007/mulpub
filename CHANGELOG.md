@@ -1,3 +1,31 @@
+# [未发布] fix(test): scheduler 对拍容差改为「绝对下限 + 比例」（单调加宽），根治 #2416 残留的中间量级误红（2026-09-26，parity-tolerance-additive）
+
+### 现象与归因（不是新问题，是 #2416 的修复不够）
+- PR #2414 的 `QG Desktop Shards (1/2)` 红：`AssertionError: concurrency-real {...,"total_duration_ms":false} diffTotalDurationMs=1640 allowedTotalDurationMs=1500`（python=11000 / real=12640，job `108349933889`，run `36222207527`）。
+- **定责证据**：main 在 `aa090b92`（即 #2416 的 squash 合并提交，也正是 #2414 的 rebase 基线）同一 job 为 **success**；#2414 只改了一张视觉基线 PNG 与文档，未触碰该测试。所以这是 #2416 未收口的同一颗雷，而非 #2414 引入。
+- **为什么 `max(下限, 比例×期望)` 仍会红**：11000ms 用例的比例项只有 1100ms < 1500 下限 ⇒ `max()` 在该量级**退化回固定下限**，而 CI 实测抖动是 1640ms。两个真实样本合起来给出漂移的形状：21000ms 上 1653ms（7.9%）、11000ms 上 1640ms（14.9%）—— 绝对值几乎相同、相对值差一倍，说明 CI 挂钟漂移是「**固定项 + 随时长累积的比例项**」，既不是纯常量（#2416 之前的假设）也不是纯比例（#2416 的假设）。4 个 20ms 级合成用例从未红过，也印证漂移不来自进程固定开销，而来自真实 governor 定时器在 10–20s 尺度上的累积误差。
+
+### 变更
+- **`scripts/compare-scheduler-models.js`**：`durationTolerance` 由 `max(FLOOR, ratio×expected)` 改为 **`ceil(FLOOR + ratio×expected)`**（FLOOR 1500ms、ratio 10% 两个常量都不动）。生效容差：1500→1650、11000→**2600**（本次 1640 通过，余量 58%）、21000→3600、30000→4500。
+- **只放宽不收紧是硬约束**：`FLOOR + ratio×e ≥ max(FLOOR, ratio×e)` 对一切 e 成立，所以本改动**不可能在任何用例上造出新的假红** —— 这是选加法而不是「再调一个更大的固定下限」的原因（后者会在 1.5s 级短用例上把容差推到 167% 期望值，等于撤掉那几组的时长校验）。
+- **`向上取整`**：比例项会产生小数（如 14999→2999.9），取整使容差恒为整毫秒且只会更宽，日志与断言可读。
+- **`apps/desktop/electron/tests/test_scheduler_parity.test.js`**：每轮跑逐用例 `console.log` 打印 `python / real / diff / allowed / pass`。调容差需要的是**分布**，而旧实现只在失败时才给数字 —— 上一轮就是靠 1653、1640 两个偶发孤立样本才反推出漂移形状，靠单样本猜会把门禁调成既不灵敏也不稳定。
+
+### 测试
+- `scripts/compare-scheduler-models.test.js`：新增 4 条 + 改写 3 条既有用例（它们把上一轮 `max()` 口径钉成了契约，必须随口径一起改）。
+  - **复现本次真实超差**：断言 `1640 > max(1500, 10%×11000)`（前提，证明旧口径确实抓不住）且 `1640 <= durationTolerance(11000)`。
+  - **单调安全**：对 13 个期望值（0…120000）逐个断言新容差 ≥ 旧口径。
+  - **整毫秒** + 精确取值 `toBe` 结构断言（1500→1650、11000→2600、21000→3600、14999→3000）。
+  - **判别力保留**：`+100%` 量级偏差（11000）仍必须超容差；「分母必须是预测值」那条锁保留。
+- **反证**：先改测试后改实现 → 旧实现下 **5 failed / 5 passed**，失败项即上述新契约与三条被改写的旧断言（`2100 !== 3600` 等），证明断言可失败、非恒真。
+- 规模：`node --test scripts/compare-scheduler-models.test.js` **10 passed / 0 fail**；`vitest run electron/tests/test_scheduler_parity.test.js` **2 passed**（真跑 70.6s，本机实测 diff 仅 22/27/-102/6/4/43ms，与「漂移由 CI 负载驱动」的判断一致）；`node scripts/compare-scheduler-models.js` 端到端 `PARITY OK` rc=0；eslint rc=0。
+
+### 残余限制
+- 1640ms 仍是**单个样本**（第二个同类样本）。容差按「固定项+比例」建模后留了 58% 余量，且现在有逐轮分布数据；若未来仍红，应据分布重估 ratio，而不是再拍一个下限数字。
+- 本 PR 与 #2410 有耦合：`Gate Result` 一旦真聚合全部上游，这类非必需 job 的红会直接阻断合入，所以容差必须先于它落地。
+
+---
+
 # [未发布] fix(登录态): 单向证据规则终结「已登录 ↔ 未确认」每 30 分钟振荡（2026-09-26，fix-login-state-oscillation）
 
 ### 变更
