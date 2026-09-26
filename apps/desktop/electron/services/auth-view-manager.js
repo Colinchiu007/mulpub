@@ -14,6 +14,7 @@ const log = require('./logger')
 const {
   PLATFORM_LOGIN_URLS,
   hasPlatformSessionCookie,
+  hasPlatformSessionCookieMarkers,
   isPlatformCookieDomain,
   isPlatformLoginSuccessUrl,
 } = require('@multi-publish/shared-utils/src/platform-definitions')
@@ -47,6 +48,19 @@ function normalizeIndexedDBSnapshot(value) {
   }
 }
 
+// 待取证平台的现场证据：登录完成时记下 Cookie 名（**只记名字，绝不记值**）。
+// 未声明会话标记的平台（小红书/抖音/Instagram/Facebook 等，清单见 platform-definitions
+// 的棘轮锁）目前只能靠 URL 判定登录完成，补标记需要真实登录态取证——这一行就是
+// 把取证材料从 DevTools 手工抄录变成应用自身日志产出，登录一次即得一次样本。
+// 注意：这里刻意不收紧判定（不加 hasPlatformSessionCookieMarkers 硬门禁），否则 14 个
+// 未取证平台会立刻无法登录，属于「用打断功能换取形式统一」。
+function logPendingSessionEvidence (platform, cookies) {
+  if (hasPlatformSessionCookieMarkers(platform)) return
+  const names = [...new Set((Array.isArray(cookies) ? cookies : [])
+    .map(cookie => cookie && cookie.name).filter(Boolean))].slice(0, 40)
+  log.info('AuthView', `pending session-marker evidence for ${platform}: cookies=${names.length} names=${names.join(',')}`)
+}
+
 function hasCapturedCredentials(authData, platform) {
   if (!authData || typeof authData !== 'object' || Array.isArray(authData)) return false
   // 平台声明了会话标记时，「采集到任何东西」不再足够：登录页同样会写入埋点 Cookie 与
@@ -65,7 +79,9 @@ function hasCapturedCredentials(authData, platform) {
     !Array.isArray(authData.indexedDB) &&
     Object.keys(authData.indexedDB).length > 0,
   )
-  return hasCookies || hasLocalStorage || hasIndexedDB
+  const hasCredentials = hasCookies || hasLocalStorage || hasIndexedDB
+  if (hasCredentials) logPendingSessionEvidence(platform, authData.cookies)
+  return hasCredentials
 }
 
 class AuthViewManager {

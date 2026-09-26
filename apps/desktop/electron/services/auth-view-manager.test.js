@@ -120,6 +120,44 @@ describe('AuthViewManager 凭证边界', () => {
     expect(manager._resolveLogin).not.toHaveBeenCalled()
   })
 
+  it('未声明会话标记的平台完成登录时记下待取证证据（只记 Cookie 名，不记值）', async () => {
+    // 取证纪律：这条日志是「哪个平台该补 PLATFORM_SESSION_COOKIE_MARKERS」的现场材料，
+    // 值一律不得进日志；已声明标记的平台不得产出（否则会把「已在把关」误报成欠账）。
+    const infoSpy = vi.spyOn(require('./logger'), 'info').mockImplementation(function () {})
+    const pendingManager = new AuthViewManager()
+    pendingManager.mainWindow = createMainWindow()
+    pendingManager.currentView = createView([
+      { name: 'web_session_probe', value: 'SECRET-VALUE-42', domain: '.xiaohongshu.com' },
+    ])
+    pendingManager.currentPlatform = 'xiaohongshu'
+    pendingManager.currentAccountId = 'auth-xiaohongshu-1'
+    pendingManager._resolveLogin = vi.fn()
+
+    await expect(pendingManager.completeLogin()).resolves.toBe(true)
+
+    const evidence = infoSpy.mock.calls
+      .map(call => String(call[1]))
+      .find(line => line.includes('pending session-marker evidence'))
+    expect(evidence).toContain('xiaohongshu')
+    expect(evidence).toContain('web_session_probe')
+    expect(evidence).not.toContain('SECRET-VALUE-42')
+
+    const doneManager = new AuthViewManager()
+    doneManager.mainWindow = createMainWindow()
+    doneManager.currentView = createView([
+      { name: 'kuaishou.web.cp.api_st', value: 'ST-1', domain: '.kuaishou.com' },
+    ])
+    doneManager.currentPlatform = 'kuaishou'
+    doneManager.currentAccountId = 'auth-kuaishou-1'
+    doneManager._resolveLogin = vi.fn()
+    infoSpy.mockClear()
+
+    await expect(doneManager.completeLogin()).resolves.toBe(true)
+
+    expect(infoSpy.mock.calls.map(call => String(call[1]))
+      .some(line => line.includes('pending session-marker evidence'))).toBe(false)
+  })
+
   it('只提取当前平台域名范围内的 Cookie', async () => {
     const manager = new AuthViewManager()
     const view = createView([
