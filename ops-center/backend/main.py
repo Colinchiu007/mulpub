@@ -149,7 +149,10 @@ async def health():
 # Run: uvicorn main:app --reload --port 8010
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8010, reload=True)
+    # 只绑回环：登录由本服务自签发管理员会话（routers/auth.py），绑 0.0.0.0 会把
+    # /api/auth/login 暴露给局域网内任意机器。生产不经这里——
+    # deploy/ops-center.service 的 ExecStart 显式 `--host 127.0.0.1`。
+    uvicorn.run("main:app", host="127.0.0.1", port=8010, reload=True)
 
 
 

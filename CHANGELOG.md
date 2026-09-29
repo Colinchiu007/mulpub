@@ -1,3 +1,24 @@
+# [未发布] fix(ops-center): 开发入口只绑回环 + 清库夹具不得作用于仓库内库（ops-dev-bind-loopback，2026-09-29）
+
+### 起因与真实根因
+- 用户报「运营中心 admin 密码登录不上」。**凭据本身没错**：实测 `.env` 的 `OPS_ADMIN_PASSWORD` 与 `admins.password_hash`（`pbkdf2_sha256$200000$…`）逐字节 PBKDF2 复算比对为 True（只输出布尔，不打印口令）。
+- 真实原因是**后端进程不在**，而代理层把症状伪装成了「密码错」：`/api/auth` 由 ops-center 自己在 :8010 承载（早就不依赖 platform-orchestrator），vite 代理在后端缺席时返回 **500 空 body**，界面上与 401 无法区分。分诊口径落 `ops-center/docs/OPERATIONS.md` §11：`curl` 直连 8010 得 `000`＋经 5173 得 500＝进程不在；401＝凭据不符；503＝`admins` 为空或未配置；429＝**内存**限速（同 `username|ip` 5 次/60 秒，重启即清，库里没有可查的表）。
+- 机器自 09-25 05:57 未重启、库最后写入停在 09-25 21:13，即后端是那晚之后就没在跑；本机 WSL 未安装，运营中心只可能跑在 Windows 侧。5173 的 vite 经 `/src/views/AppMenu.vue` 内容比对确认服务的是共享主工作区、且已是合入后的「启动时同步一次」文案。
+
+### 排障过程中挖出的两处缺陷
+- ① `ops-center/backend/main.py` 的开发入口写死 `host="0.0.0.0"`。本服务**自签发**管理员会话，绑全网卡等于把 `/api/auth/login` 的爆破面交给局域网内任意机器。生产不经这里：`deploy/ops-center.service` 的 `ExecStart` 早已显式 `--host 127.0.0.1`，`deploy/nginx-ops.conf` 反代的也是 `127.0.0.1:8010`——本次用用例把这条前提钉住，防止后来者把改动误判成会打断部署。
+- ② **我自己上一轮（#2397）引入的**：autouse 清库夹具 `conftest._reset_shared_database()` 无差别 `DELETE` 全部表，目标取自导入期单例 `config.settings.db_path`，而该默认值是**相对 cwd** 的 `data/config.db`。整轮套件绑到哪个库，取决于「第一个被收集且设了 `OPS_DB_PATH` 的模块」；49 个测试模块里有 12 个不设该变量。实跑复现：在 `ops-center/backend` 里单跑 `pytest tests/test_security_config.py`，靶库 `admins` 行 **1 → 0**——也就是把运营中心开发库（含管理员账号）整体清空。全量套件之所以一直无害且全绿，只因恰好 `test_app_menu_api.py` 按字母序排第一并设了临时库。
+
+### 修复与证据
+- 开发入口改为 `host="127.0.0.1"`（端口 8010 保持不动，nginx 与 vite 两侧都写死它）。
+- `tests/conftest.py` 在**导入期**就把 `OPS_DB_PATH`/`OPS_CONFIG_OUTPUT_DIR` 兜底到会话级临时目录（宿主显式设置仍优先），**收窄**「谁先导入谁定绑」这条脆弱前提——`setdefault` 只兜住未显式赋值的模块，自己写 `OPS_DB_PATH` 的模块仍然是定绑者，所以下面那道纯谓词防线不能省；并在清库动作**开始之前**用纯谓词 `is_safe_reset_target()` 拒绝仓库内目标，违反即 `RuntimeError`（不允许「先清完再报」）。
+- 新增回归锁 `tests/test_main_dev_bind.py`（3 例）与 `tests/test_conftest_db_isolation.py`（3 例）。手法要点：前者用 `runpy.run_path(run_name="__main__")` **真跑**入口代码、只把 `uvicorn.run` 换成探针，断言它**实际收到的** host 实参；后者用**真子进程 + 从环境里弹掉 `OPS_DB_PATH`** 跑一次收集，读出 `settings.db_path` 的实际绑定结果——都不是「断言源码里出现了某个字符串」那种记录性锁。
+- 红→绿对照（修复前先跑一次，确认锁真的会红）：4 failed，报错原文含 `把库绑到了仓库内路径 …\ops-center\backend\data\config.db` 与 `'0.0.0.0' not in {'0.0.0.0', '::'}`；实现后同两文件 6 passed。
+- 真场景对照：同一条命令、同一个环境（弹掉 `OPS_DB_PATH` 单跑 `test_security_config.py`），标记行修复前 1→0、修复后 **1→1**。反证只在 worktree 自己的 `data/config.db` 上做，共享根的库全程未被指向。
+- ops-center 后端全量套件：基线 **456 passed** → 修复后 **462 passed**（456+6，0 failed，193.43s）。
+- 文档同步：AGENTS.md 目录树里「登录经 platform-orchestrator /api/auth」按 `grep -na` 全仓 sweep 纠正（并补一条 MUST：删数据类夹具自身必须 fail-closed 校验目标在仓库外）；`ops-center/docs/PRD.md` §6.4 认证方案整段改为自持口径（PBKDF2-SHA256/200000、HS256 8h、Cookie+CSRF 头、内存限速、fail-closed、`ensure_admin_seeded` 只建不改），并如实标注鉴权分级表里「已登录（任意 role）」一列在当前唯一签发路径下与 admin 等价；`ops-center/docs/OPERATIONS.md` 新增 §11 本地启动/分诊/凭据核对/WAL 不可删。
+- 运维事实留痕：`data/config.db` 主文件可以长期只有 4KB，全部数据压在未落盘的 `config.db-wal`（实测约 0.8MB、37 张表）里——属 SQLite 正常行为，但**删 `-wal` 等于删库**，清理临时文件时 `*-wal`/`*-shm` 不在可删清单内。
+
 # [未发布] fix(dev启动链): 把「文档承诺」的 MP_CDP_ALLOW_ALL_ORIGINS 补成真实开关，并锁住接线与留痕（2026-09-30，fix-dev-launcher-cdp-origins）
 
 ### 根因不是「环境变量没传到 electron」，而是这个开关从来没有实现

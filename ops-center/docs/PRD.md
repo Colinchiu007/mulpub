@@ -351,8 +351,12 @@ CREATE TABLE config_group_items (
 
 ### 6.4 认证方案
 
-- 复用 orchestrator 的 JWT 体系（共享 `PO_SECRET_KEY`）
-- Admin 操作需要 `role: admin`
+- 认证由 ops-center **自持**（2026-08-10 起不再依赖 platform-orchestrator，也不接 Logto）：口令 PBKDF2-SHA256（随机 salt、200000 迭代，存储格式 `pbkdf2_sha256$iterations$salt_hex$hash_hex`）；会话为 HS256 JWT（`OPS_JWT_SECRET`，TTL 8 小时），payload 固定 `role: "admin"`
+- Admin 操作需要 `role: admin`，由 `middleware/auth.py:require_admin` 统一拦截（403「需要管理员权限」）
+- 会话载体：登录成功后 JWT **只**写入 HttpOnly + SameSite=Lax 会话 Cookie（响应体刻意不含 `token`/`access_token`，避免 XSS 外带）；基于 Cookie 的**非安全方法**必须携带自定义头 `X-Ops-Session`（CSRF 第二层，缺头 403）。另有 Bearer 通道供桌面端/脚本机器对机器使用，优先级高于 Cookie
+- 登录限速为**进程内存**计数（键 `username|ip`）：连续 5 次失败锁定 60 秒 → 429，重启即清零、不落库（无 `login_locks` 表，排障时不要去找它）
+- fail-closed：`admins` 表为空且未配置 `OPS_ADMIN_USERNAME`/`OPS_ADMIN_PASSWORD` → 503「未配置管理员账号」；用户名不存在与密码错误统一返回 401（并做一次 dummy 校验抹平时序侧信道）；`OPS_ADMIN_PASSWORD` 命中弱口令表或长度不足时启动检查直接失败
+- 口令来源单一：`ensure_admin_seeded` **只在 `admins` 表为空时创建，从不更新已有行**——改 `.env` 里的口令不会同步进库，两边可长期脱钩（要么用「修改密码」流程，要么清空 `admins` 后重启让其重新 seed）
 - 查看密钥明文需要额外二次确认（前端输入密码或 OTP）
 - 可选：IP 白名单限制（仅 ECS 内网 + 指定公网 IP 可访问）
 
@@ -367,8 +371,8 @@ CREATE TABLE config_group_items (
 | 配置项读取（项目配置、feature-gates） | ✅ | ✅ |
 | 配置项写入 / 批量 / 密钥写 / 快照写 | ❌ 403 | ✅ |
 
-> 说明：orchestrator 登录签发的 JWT 不含 `role` 字段，因此普通登录用户天然是「只读」角色；
-> 运营管理写操作依赖带 `role: admin` 的 token（由 orchestrator API Key 路径或运营侧签发）。
+> 说明（2026-09-29 按实现纠正）：自持登录后**当前唯一**的签发路径是（截至 2026-09；若将来新增其它签发方，本条与下表口径需同步重评） `auth_service.create_access_token`，其 payload 恒带 `role: "admin"`；
+> 因此下表「已登录（任意 role）」一列在当前实现下**与 admin 列等价**（不存在非 admin 的签发方）。该分级表保留为鉴权合同（`require_admin` 仍实际拦截写面），不是对现状的角色描述。
 
 **环境一致性检查语义（2026-08-09 修订）**：
 - 检查对象是 ops-center 进程内可观察的环境变量（`PO_SECRET_KEY`/`TS_SECRET_KEY` 等）。

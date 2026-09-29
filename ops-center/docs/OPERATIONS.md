@@ -229,3 +229,49 @@
 
 
 
+
+## 11. 本地启动与「admin 登录不上」分诊（2026-09-29）
+
+### 11.1 启动口径
+
+- 后端：`cd ops-center/backend && uvicorn main:app --host 127.0.0.1 --port 8010`（开发入口 `python main.py` 同样只绑回环）。
+- 生产：`deploy/ops-center.service` 的 `ExecStart` 显式 `--host 127.0.0.1`，`deploy/nginx-ops.conf` 反代 `127.0.0.1:8010`。**不要**改成 `0.0.0.0` 来「让别的机器能访问」——登录由本服务自签发管理员会话，绑全网卡等于把 `/api/auth/login` 的爆破面交给局域网。
+- 确实需要局域网/其它设备访问时**显式传参**，不要改默认值：`uvicorn main:app --host 0.0.0.0 --port 8010`。这样做的代价要一起承担：`OPS_JWT_SECRET` 必须是强随机值、`OPS_ADMIN_PASSWORD` 必须过启动强度校验（弱口令表已内置）、且只在受信网络内临时开着——本服务自签发管理员会话，绑全网卡就是把 `/api/auth/login` 交给同网段任意机器。用 `python main.py` 这条路拿到的是回环，需要局域网请改用上面的显式命令。
+- 前端：`cd ops-center/frontend && npm run dev`（`strictPort` 固定 5173，`/api/auth`、`/api/v1`、`/api` 全部代理到 :8010）。
+
+### 11.2 分诊三步（症状相同、根因不同，别先动口令）
+
+| 观测 | 含义 | 下一步 |
+|------|------|--------|
+| `curl http://127.0.0.1:8010/health` → 连接被拒（`http_code=000`）；经 5173 打 `/api/auth/login` → **500 空 body**（本机 vite 实测值；不同 vite/http-proxy 版本可能返回 502 带 HTML 错误页——`500 空 body` 与 `502` 都同样指向「后端不在」，判据是「不是 401/503/429 这三种业务状态码」而不是具体数字） | 后端进程不在（最常见） | 先起后端，不要改口令 |
+| 登录返回 **401** | 用户名或密码不匹配（用户不存在也返回 401） | 核对 `.env` 与 `admins.password_hash`（见 11.3） |
+| 登录返回 **503**「未配置管理员账号」 | `admins` 表为空且未配 `OPS_ADMIN_USERNAME/PASSWORD` | 检查 `.env`；若库被清空过，重启会按 `.env` 重新 seed |
+| 登录返回 **429** | 内存限速命中（5 次/60 秒） | 等 60 秒或重启进程即清，无库表可查 |
+
+三个长得像 health 的端点归属不同，**只有第一个能当就绪探针**（2026-09-29 对运行中服务实测）：
+
+| 路径 | 实测 | 用途 |
+|------|------|------|
+| `GET /health` | 200 `{"status":"ok","service":"ops-center","version":"0.1.0"}` | 存活/就绪探针（`main.py` 裸路由，不鉴权） |
+| `GET /api/v1/health` | **404** | 不存在，别写进探针或文档 |
+| `GET /api/v1/system/health` | 401 | admin「一键巡检」业务接口（`routers/health.py`，需会话/Bearer），不是存活探针 |
+就绪判断请用**轮询**而不是单次固定超时：冷启动要先跑 DB 初始化（日志 `Initializing database...`）与一批 `CREATE INDEX IF NOT EXISTS`，耗时随机器负载变化；本会话没有量出可复现的稳定分布，因此**不给具体秒数**，拿不到 200 时先读启动日志定位卡在哪一阶段。另：**隔离 worktree 里起不来是预期行为**——worktree 不含被 gitignore 的 `ops-center/backend/.env`，启动安全门会 fail-closed 抛 `RuntimeError: 未配置安全的 OpsCenter JWT 密钥`（实测调用链 `main.py:37 → config.py:165 → config.py:131`）。要么从主工作区取 `.env`，要么显式注入 `OPS_JWT_SECRET` 等变量；不要为了让服务起来而关掉这道校验。
+
+### 11.3 凭据核对（只读、不打印口令）
+
+存储格式为 `pbkdf2_sha256$iterations$salt_hex$hash_hex`。用只读连接取出哈希，再按同样参数复算比对，**只输出布尔值**：
+
+```
+sqlite3.connect("file:data/config.db?mode=ro", uri=True)
+  → select password_hash from admins where username = ?
+hashlib.pbkdf2_hmac("sha256", <.env 口令>.encode(), bytes.fromhex(salt), int(iterations))
+  → hmac.compare_digest(digest, expected)
+```
+
+注意 `ensure_admin_seeded` 只在建表首启时写入，**不会**把 `.env` 的新口令同步进已有行；反之清空 `admins` 后重启会按 `.env` 重新 seed。
+
+### 11.4 数据库文件的可变性（清理磁盘前必读）
+
+- 运行库是 `data/config.db` + `config.db-wal`（WAL 模式）。WAL 未落盘时，主文件可以只有 4KB 而**全部数据都在 `-wal` 里**（实测 37 张表的数据压在 0.8MB WAL 内属正常状态）。
+- 因此**删除或移动 `-wal` 等于删库**。做「清理临时文件」这类操作时，`*-wal`/`*-shm` 一律不在可删清单内；要备份就**整组一起拷**（`config.db` + `config.db-wal` + `config.db-shm`）。或者先执行 `PRAGMA wal_checkpoint(TRUNCATE)` 把 WAL 收拢进主文件、确认 `-wal` 归零后只拷主文件——注意 checkpoint 本身**只是把日志写回主库并截断，不产生任何副本**，做完仍必须拷贝，不能把「已 checkpoint」当成「已备份」。
+- 该路径是**相对当前工作目录**解析的：在不同目录/ worktree 里启动服务，用的是各自独立的 `data/config.db`——排障时先确认进程的实际 cwd。

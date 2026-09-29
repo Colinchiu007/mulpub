@@ -6,9 +6,31 @@ test_runtime_policy_api.py 等后续模块设置，导致 bootstrap 相关测试
 而 404。此处用 setdefault 在收集阶段统一注入，保证任何测试模块首次 import config
 时 settings 已携带 DEV 私钥（与 .env.example / ops-center-sync.js 内置公钥配对）。
 """
+import atexit
 import os
+import shutil
+import tempfile
+import uuid
+from pathlib import Path
 
 import pytest
+
+# 会话级库路径兜底（2026-09-29）：`config.settings` 是导入期单例，而 `db_path` 的默认值是
+# **相对 cwd** 的 `data/config.db`。历史上隔离全靠「第一个被收集的测试模块恰好设了
+# OPS_DB_PATH」——一旦单跑一个不设该变量的模块（`pytest tests/test_security_config.py`），
+# 下面的 autouse 清库夹具就会去 DELETE 共享开发库的全部行（含 admins，症状即 admin 登录 503）。
+# conftest 先于所有测试模块导入，所以在这里兜住；宿主已显式设置 OPS_DB_PATH 时仍然优先。
+_SESSION_TMP = tempfile.mkdtemp(prefix=f"ops_pytest_{uuid.uuid4().hex[:8]}_")
+os.environ.setdefault("OPS_DB_PATH", os.path.join(_SESSION_TMP, "config.db"))
+os.environ.setdefault("OPS_CONFIG_OUTPUT_DIR", os.path.join(_SESSION_TMP, "configs"))
+atexit.register(shutil.rmtree, _SESSION_TMP, True)
+
+
+def is_safe_reset_target(path) -> bool:
+    """清库目标是否安全：必须落在仓库之外（系统临时目录等）。"""
+    target = Path(str(path)).resolve()
+    repo_root = Path(__file__).resolve().parents[3]  # tests/conftest.py -> backend -> ops-center -> repo
+    return repo_root != target and repo_root not in target.parents
 
 # DEV 签名密钥对（2026-09-02 生成）：与 apps/desktop/electron/services/ops-center-sync.js
 # 内置默认公钥 / ops-center-sync.test.js DEV 密钥对 / backend/.env.example DEV 私钥完全一致，
@@ -46,12 +68,15 @@ def _inject_runtime_signing_key():
 _RESET_MODULES: set = set()
 
 
-def _reset_shared_database() -> None:
+def _reset_shared_database(db_path: str | None = None) -> None:
     """把当前库补回完整 schema 并清空所有行，使 rowid 从 1 重新计。
 
     用**同步**引擎做：不碰 async engine 的连接池，因此不受「事件循环已切换」限制。
     删除顺序取 `sorted_tables` 逆序，天然满足外键依赖，故无需（也不应依赖）
     `PRAGMA foreign_keys` —— 该 pragma 在事务内是 no-op。
+
+    这是一个无差别 DELETE 全部表的动作，所以**动手之前**必须先过 `is_safe_reset_target`：
+    目标落在仓库内就意味着要清的是共享开发库（含 admins），宁可让测试直接报错。
     """
     from sqlalchemy import create_engine, text
 
@@ -59,7 +84,14 @@ def _reset_shared_database() -> None:
     from config import settings
     from database import Base
 
-    engine = create_engine(f"sqlite:///{settings.db_path}")
+    target = settings.db_path if db_path is None else db_path
+    if not is_safe_reset_target(target):
+        raise RuntimeError(
+            f"拒绝清空仓库内数据库 {target!r}：那会删掉共享开发库的全部行（含 admins）。"
+            f"请把 OPS_DB_PATH 指向系统临时目录后重跑。"
+        )
+
+    engine = create_engine(f"sqlite:///{target}")
     try:
         Base.metadata.create_all(engine)  # 幂等：补回被上一模块 drop_all 拆掉的表
         with engine.begin() as conn:
