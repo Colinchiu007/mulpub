@@ -121,7 +121,11 @@ module.exports = {
       // "true"，故旧 `[contenteditable="true"]` 落空（日志 `content editor not found among 4 candidates`）。
       // 显式补 `.ProseMirror` 并把通用 contenteditable 放宽为属性存在选择器。
       editor: ['.ProseMirror', '[contenteditable="true"]', '[contenteditable]', '.ql-editor', '.editor-content', '.notranslate'],
-      publish_btn: ['button:has-text("预览并发布")', 'button:has-text("发布")', 'button:has-text("发表")', '.publish-btn', '[class*="submit"]'],
+      // 2026-09-30 收紧（配合 `:has-text` 根因修复）：解析器择优顺序为
+      // 「精确 → 叶子精确 → 包含 → 任意包含」，故 `button:has-text("发布")` 在本页
+      // **没有精确匹配**时会退化成**包含**匹配 ⇒ 命中「**定时发布**」这类危险控件！
+      // 因此只保留**文本明确**的候选，不再放宽泛的「发布」「发表」。
+      publish_btn: ['button:has-text("预览并发布")', '.publish-btn', 'button:has-text("确认发布")'],
     },
     youtube: {
       create_btn: ['#create-icon', 'ytcp-button#create-icon', 'button[aria-label="创建视频"]'],
