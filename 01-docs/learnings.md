@@ -16930,3 +16930,47 @@ React fiber 探针（读 `__reactInternalInstance` / `__reactEventHandlers`）**
 把固定 `sleep` 改为**轮询就绪条件**后，验证窗口从"经常跑不完"变为"稳定跑完"。
 
 **一句话**：*证明"不是它"和证明"是它"一样要留下证据；而取值时先确认"那个东西还在不在"。*
+
+## 试错无法区分「设计如此」与「实现有 bug」——关键机制必须读源码定案（read-source-over-trial-and-error，2026-10-01）
+
+**案例**：头条发布按钮点击后零网络请求。我为此做了 **14 项排除**、**7 次有依据的修复**，全部失败：
+选择器 / 执行通道（executeJavaScript vs CDP）/ 内容量 / 封面 hook / 网络捕获 / 焦点 / 重渲染窗口 /
+后台节流 / disabled / 诊断探针干扰 / loading 门控 / `_e` deferred 被占用 / 真实鼠标事件 / 遮挡。
+
+**转折点**：我改为**读页面已加载的 JS chunk**（在页面内 `fetch` 各 chunk 并检索符号），
+一次就读出了根因 —— 头条的提交**设计上就是两段式**：
+```js
+// 主发布按钮 onClick
+case 0: fe.setGuided(),
+        _e ? (_e.resolve(), [2])                    // 分支A：deferred 已存在 ⇒ 仅唤醒
+           : (addTEA("click_core_article_publish", aa),
+              !m && b && d.mergeIn({publishImmediately:!0}),
+              [4, sleep("defer-publish", 0)]);      // 分支B：首点 ⇒ 只挂起，【不提交】
+case 1: e.sent(), d.doPublish(k.Zb.PUBLISH), [2]    // 第二段才真正提交
+```
+`_e.resolve()` 的**唯一**出现处在「定时时间选择弹窗」的 `onOk`：
+```js
+onOk: case 0: d.setFormData({timingTime, timingStatus:1}), d.mergeIn({publishImmediately:!1}),
+             [4, sleep("defer-time-publish", 0)];
+      case 1: t.sent(), _e && _e.resolve(), [2]      // ← 官方唤醒点
+onCancel: _e && _e.reject()
+```
+变量语义也一并读出：`m = r.publishing`（正在发布中）、`b = E.timingStatus`（定时态）、
+`w = E.isFansArticle`（粉丝必达）、`d` = store dispatcher（`doPublish`/`mergeIn`）。
+
+**为什么试错永远找不到**：
+- 14 项排除**都**建立在「点击应当立即提交」这个**未经证实的假设**上；
+- 而源码表明**首次点击设计上就不提交** ⇒ 再怎么修通道/解遮挡/连点，都只是在"让第一次点击生效"，
+  方向上就是错的（连点也无效，因为第二次点击时 `_e` 仍为空，又落回分支 B）。
+
+**⭐ 方法论**：
+1. **遇到"点了没反应"，先问"这是设计如此还是 bug"** —— 试错无法回答，只有读源码能；
+2. **读源码的低成本路径**：在页面内 `fetch` 已加载的 chunk（`script[src]` + `performance.getEntriesByType("resource")`），
+   检索关键符号（按钮文案、state 字段名、埋点名如 `click_core_article_publish`、API 路径片段）；
+   本项目靠这招一次读出变量语义与两段式机制，比 14 轮试错都管用。
+3. **压缩代码里仍能找到语义锚点**：埋点字符串（`"click_core_article_publish"`）、API 路径（`/mp/agw/article/publish`）、
+   具名 sleep（`"defer-publish"` / `"defer-time-publish"`）都不会被压缩，是最好的检索入口。
+4. **注意"符号搜不到"也是信息**：本例检索 `sleep` 的实现跨 61 个 chunk 未命中（`found:[]`），
+   说明它在 vendor/内联脚本中 —— 此时应转向运行时观测，而不是继续静态检索。
+
+**一句话**：*当同一个症状怎么改都不变，停下来问"它是不是本来就该这样"，然后去读源码。*
