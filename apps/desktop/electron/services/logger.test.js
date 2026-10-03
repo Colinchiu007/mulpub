@@ -283,9 +283,10 @@ describe('logger 服务', () => {
       })
       await logger.flush()
       const content = fs.readFileSync(path.join(dir, listLogFiles(dir)[0]), 'utf8')
-      // 换行被转义为 \n 字面量，不产生真实换行注入
+      // 换行/回车在写入前已折叠为空格、不进入 JSON 转义，亦不产生真实换行注入
       expect(content).not.toContain('line1\n[FAKE]')
-      expect(content).toContain('\\n')
+      expect(content).not.toContain('\\n')
+      expect(content).toMatch(/line1 \[FAKE\] injected\s+line2/)
     })
   })
 })

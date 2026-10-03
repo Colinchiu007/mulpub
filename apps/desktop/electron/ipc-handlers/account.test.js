@@ -68,7 +68,7 @@ function createMockDeps(overrides = {}) {
       persistLoginState: vi.fn(async () => ({ ok: true })),
     },
     BACKEND_PLATFORMS: new Set(),
-    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
     BrowserWindow: { getAllWindows: vi.fn(() => []) },
     store: { getSetting: vi.fn(), setSetting: vi.fn() },
     ...overrides,

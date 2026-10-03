@@ -17,7 +17,7 @@ function createMockIpcMain() {
   return { handle: vi.fn((channel, fn) => { handlers[channel] = fn }), on: vi.fn(), _get: (channel) => handlers[channel] }
 }
 
-vi.mock('../services/logger', () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }))
+vi.mock('../services/logger', () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }))
 vi.mock('../services/offline-manager', () => ({ isOffline: vi.fn(() => false), addToCache: vi.fn() }))
 __enableElectronMock()
 
@@ -30,7 +30,7 @@ let originalNodeEnv
 let originalIsPackaged
 
 function createLogRecorder() {
-  return { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+  return { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
 }
 
 async function loadHandlers() {
@@ -98,6 +98,32 @@ describe('Publish IPC 日志增强', () => {
     const calls = log.info.mock.calls.map((c) => c.join(' '))
     expect(calls.some((c) => c.includes('publish:batch') && c.includes('enter') && c.includes('baijiahao'))).toBe(true)
     expect(calls.some((c) => c.includes('publish:batch') && c.includes('ok') && c.includes('task_log_test') && c.includes('耗时'))).toBe(true)
+    const notifyCalls = log.notify.mock.calls.map((c) => c.join(' '))
+    expect(notifyCalls.some((c) => c.includes('batch-ok'))).toBe(true)
+    const batchOkMeta = log.notify.mock.calls.find((c) => c[1] === 'batch-ok')
+    expect(batchOkMeta).toBeTruthy()
+    expect(batchOkMeta[2].params.taskIds).toEqual(['task_log_test'])
+    expect(typeof batchOkMeta[2].params.durationMs).toBe('number')
+  })
+
+  it('publish:batch 异常记录 batch-error 通知（含 errorCategory 与脱敏 error）', async () => {
+    const log = createLogRecorder()
+    const ipcMain = createMockIpcMain()
+    const deps = publishDeps(log)
+    deps.taskQueue.add.mockImplementation(() => { throw new Error('queue boom') })
+    registerPublish(ipcMain, deps)
+    const result = await ipcMain._get('publish:batch')(TRUSTED_EVENT, {
+      platforms: [{ platform: 'baijiahao', accountId: 'd39af89b' }],
+      article: { title: 'E2E 测试', video_path: 'D:/01.mp4', tags: ['E2E'] },
+    })
+    expect(result.code).not.toBe(0)
+    const notifyCalls = log.notify.mock.calls.map((c) => c.join(' '))
+    expect(notifyCalls.some((c) => c.includes('batch-error'))).toBe(true)
+    const batchErrMeta = log.notify.mock.calls.find((c) => c[1] === 'batch-error')
+    expect(batchErrMeta[2].errorCategory).toBe('publish_batch')
+    expect(batchErrMeta[2].level).toBe('ERROR')
+    expect(String(batchErrMeta[2].error)).toContain('queue boom')
+    expect(typeof batchErrMeta[2].params.durationMs).toBe('number')
   })
 
   it('publish:batch 校验失败记录 validation-failed 日志', async () => {
@@ -143,6 +169,11 @@ describe('Account IPC 日志增强', () => {
    const calls = log.info.mock.calls.map((c) => c.join(' '))
    expect(calls.some((c) => c.includes('accounts:list') && c.includes('enter'))).toBe(true)
    expect(calls.some((c) => c.includes('accounts:list') && c.includes('ok') && c.includes('count=1') && c.includes('baijiahao'))).toBe(true)
+    const notifyMeta = log.notify.mock.calls.find((c) => c[1] === 'accounts-list-ok')
+    expect(notifyMeta).toBeTruthy()
+    expect(notifyMeta[2].params.count).toBe(1)
+    expect(notifyMeta[2].params.platforms).toEqual(['baijiahao'])
+    expect(notifyMeta[2].level).toBe('INFO')
  })
 
  it('accounts:list 后端失败记录 backend-failed 日志', async () => {
@@ -165,6 +196,11 @@ describe('Account IPC 日志增强', () => {
     expect(result.code).toBe(0)
     const calls = log.info.mock.calls.map((c) => c.join(' '))
     expect(calls.some((c) => c.includes('auth:open-login') && c.includes('ok') && c.includes('acct-1'))).toBe(true)
+    const notifyMeta = log.notify.mock.calls.find((c) => c[1] === 'auth-open-login-ok')
+    expect(notifyMeta).toBeTruthy()
+    expect(notifyMeta[2].params.platform).toBe('baijiahao')
+    expect(notifyMeta[2].params.accountId).toBe('acct-1')
+    expect(notifyMeta[2].level).toBe('INFO')
   })
 
   it('account:delete 成功记录 ok 日志（含 accountId）', async () => {
@@ -175,5 +211,9 @@ describe('Account IPC 日志增强', () => {
     expect(result.code).toBe(0)
     const calls = log.info.mock.calls.map((c) => c.join(' '))
     expect(calls.some((c) => c.includes('account:delete') && c.includes('ok') && c.includes('d39af89b'))).toBe(true)
+    const notifyMeta = log.notify.mock.calls.find((c) => c[1] === 'account-delete-ok')
+    expect(notifyMeta).toBeTruthy()
+    expect(notifyMeta[2].params.accountId).toBe('d39af89b')
+    expect(notifyMeta[2].level).toBe('INFO')
   })
 })

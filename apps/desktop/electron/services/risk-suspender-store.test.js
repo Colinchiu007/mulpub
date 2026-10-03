@@ -76,7 +76,7 @@ describe('risk-suspender-store.createDesktopRiskSuspender', () => {
   it('store 读取失败 fail-open：不抛错、不误挂起', () => {
     const bad = { getSetting () { throw new Error('db locked') }, setSetting () {} }
     const warns = []
-    const s = createDesktopRiskSuspender({ store: bad, log: { warn: (...a) => warns.push(a) } })
+    const s = createDesktopRiskSuspender({ store: bad, log: { notify: (...a) => warns.push(a) } })
     expect(s.isSuspended('weixin', 'acc1')).toBe(false)
     expect(warns.length).toBe(1)
   })
@@ -84,7 +84,7 @@ describe('risk-suspender-store.createDesktopRiskSuspender', () => {
   it('store 写入失败仅告警不抛出，内存态仍可用', () => {
     const bad = { getSetting: () => undefined, setSetting () { throw new Error('disk full') } }
     const warns = []
-    const s = createDesktopRiskSuspender({ store: bad, log: { warn: (...a) => warns.push(a) } })
+    const s = createDesktopRiskSuspender({ store: bad, log: { notify: (...a) => warns.push(a) } })
     expect(() => s.suspend('weixin', 'acc1', { reason: 'risk_blocked' })).not.toThrow()
     expect(s.isSuspended('weixin', 'acc1')).toBe(true)
     expect(warns.length).toBe(1)

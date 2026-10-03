@@ -50,7 +50,7 @@ function isRiskSuspendedMessage (errorMessage) {
  * @param {object} [deps]
  * @param {{getSetting:Function,setSetting:Function}} [deps.store] - 持久化后端（缺省仅内存态）
  * @param {() => number} [deps.clock] - 时间戳来源（测试注入）
- * @param {{warn?:Function,error?:Function}} [deps.log] - 日志（写失败仅告警不抛）
+ * @param {{notify?:Function}} [deps.log] - 日志（写失败仅告警不抛）
  */
 function createDesktopRiskSuspender (deps = {}) {
   const store = deps.store || null
@@ -65,7 +65,7 @@ function createDesktopRiskSuspender (deps = {}) {
       store.setSetting(SETTING_KEY, inner.listSuspended())
     } catch (e) {
       // 写失败仅告警，不影响内存态与发布流程（fail-soft）
-      if (log && typeof log.warn === 'function') log.warn('RiskSuspender', 'persist failed: ' + (e && e.message))
+      if (log && typeof log.notify === 'function') log.notify('RiskSuspender', 'persist-failed', { level: 'WARN', error: String(e && e.message) })
     }
   }
 
@@ -78,7 +78,7 @@ function createDesktopRiskSuspender (deps = {}) {
     try {
       raw = store.getSetting(SETTING_KEY)
     } catch (e) {
-      if (log && typeof log.warn === 'function') log.warn('RiskSuspender', 'hydrate read failed: ' + (e && e.message))
+      if (log && typeof log.notify === 'function') log.notify('RiskSuspender', 'hydrate-read-failed', { level: 'WARN', error: String(e && e.message) })
       return
     }
     if (!Array.isArray(raw)) return

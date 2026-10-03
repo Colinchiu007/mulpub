@@ -38,7 +38,7 @@ class PublishImpactTracker {
   scheduleImpactTracking (opts) {
     const { articleId, title, keywords, platform } = opts
     if (!articleId) {
-      log.warn('ImpactTracker', 'scheduleImpactTracking: missing articleId')
+      log.notify('ImpactTracker', 'schedule-missing-article-id', { level: 'WARN' })
       return
     }
 
@@ -47,11 +47,11 @@ class PublishImpactTracker {
 
     const searchKeywords = keywords || title
     if (!searchKeywords) {
-      log.warn('ImpactTracker', 'scheduleImpactTracking: no keywords/title to search')
+      log.notify('ImpactTracker', 'schedule-no-keywords', { level: 'WARN' })
       return
     }
 
-    log.info('ImpactTracker', `Scheduled tracking for "${title?.slice(0, 40)}" (${articleId})`)
+    log.notify('ImpactTracker', 'schedule-ok', { level: 'INFO', params: { articleId, title: (title || '').slice(0, 40) } })
 
     const intervals = []
     const schedule = []
@@ -91,18 +91,19 @@ class PublishImpactTracker {
    */
   async _captureSnapshot (articleId, title, keywords, platform, label) {
     try {
-      log.info('ImpactTracker', `Capturing ${label} snapshot for ${articleId}`)
+      log.notify('ImpactTracker', 'snapshot-capture-start', { level: 'INFO', params: { articleId, label } })
 
       const result = await this.ci.searchMentions(keywords, { limit: 8, noCache: true })
 
       await this.ci.saveImpactSnapshot(articleId, title, keywords, result)
 
-      log.info('ImpactTracker',
-        `${label} snapshot saved: ${result.total} mentions for "${title?.slice(0, 30)}"`
-      )
+      log.notify('ImpactTracker', 'snapshot-saved', {
+        level: 'INFO',
+        params: { articleId, label, total: result.total, title: (title || '').slice(0, 30) },
+      })
       return result
     } catch (e) {
-      log.error('ImpactTracker', `Snapshot error (${label}): ${e.message}`)
+      log.notify('ImpactTracker', 'snapshot-error', { level: 'ERROR', params: { articleId, label }, error: String(e.message) })
       return null
     }
   }
@@ -166,7 +167,7 @@ class PublishImpactTracker {
         // M-8 修复：统一为标准 { code, data, message } 格式
         return { code: 0, data: this.getActiveTrackings() }
       } catch (e) {
-        log.error('ImpactTracker', 'getActive error: ' + e.message)
+        log.notify('ImpactTracker', 'get-active-error', { level: 'ERROR', error: String(e.message) })
         return { code: EC.REQUEST_ERROR, message: e.message, data: [] }
       }
     })
@@ -183,7 +184,7 @@ class PublishImpactTracker {
           keywords: r.keywords ? JSON.parse(r.keywords) : null,
         })) }
       } catch (e) {
-        log.error('ImpactTracker', 'getRecentSnapshots error: ' + e.message)
+        log.notify('ImpactTracker', 'get-recent-snapshots-error', { level: 'ERROR', error: String(e.message) })
         return { code: EC.REQUEST_ERROR, message: e.message, data: [] }
       }
     })

@@ -39,7 +39,7 @@ function createMonitorTask (task) {
   const pollUrl = CHECK_URLS[platform]
   
   if (!pollUrl) {
-    log.warn('PublishMonitor', `No check URL for platform: ${platform}`)
+    log.notify('PublishMonitor', 'check-url-missing', { level: 'WARN', params: { platform } })
     callback && callback({ status: 'skipped', message: '不支持的状态查询平台' })
     return { stop: () => {} }
   }
@@ -69,17 +69,17 @@ function createMonitorTask (task) {
       // still pending
       retries++
       if (retries >= maxRetries) {
-        log.warn('PublishMonitor', `Timeout monitoring ${platform}:${postId} after ${maxRetries} retries`)
+        log.notify('PublishMonitor', 'monitor-timeout', { level: 'WARN', params: { platform, postId, maxRetries } })
         callback && callback({ status: 'timeout', postId, message: '状态查询超时' })
         return
       }
       
-      log.info('PublishMonitor', `Poll ${retries}/${maxRetries} for ${platform}:${postId} → ${result.status}`)
+      log.notify('PublishMonitor', 'poll-progress', { level: 'INFO', params: { retries, maxRetries, platform, postId, status: result.status } })
       timerId = setTimeout(poll, POLL_INTERVAL)
       // R28 修复：unref 让定时器不阻止进程退出
       if (timerId && timerId.unref) timerId.unref()
     } catch (e) {
-      log.error('PublishMonitor', `Poll error for ${platform}:${postId}: ${e.message}`)
+      log.notify('PublishMonitor', 'poll-error', { level: 'ERROR', params: { platform, postId }, error: String(e.message) })
       retries++
       if (retries >= maxRetries) {
         callback && callback({ status: 'error', postId, message: e.message })

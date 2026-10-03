@@ -309,9 +309,11 @@ function registerHandlers(ipcMain, deps) {
       })
     })
       ipcLog('info', 'publish:batch', 'ok', `taskIds=[${taskIds.join(',')}] 耗时=${Date.now() - startedAt}ms`)
+      log.notify('PublishIPC', 'batch-ok', { params: { taskIds, durationMs: Date.now() - startedAt }, level: 'INFO' })
       return { code: 0, data: { taskIds }, message: taskIds.length + " tasks added" }
     } catch (e) {
       ipcLog('error', 'publish:batch', 'error', `message=${e.message} 耗时=${Date.now() - startedAt}ms`)
+      log.notify('PublishIPC', 'batch-error', { params: { durationMs: Date.now() - startedAt }, errorCategory: 'publish_batch', level: 'ERROR', error: String(e.message) })
       return { code: EC.REQUEST_ERROR, message: e.message }
     }
   }))

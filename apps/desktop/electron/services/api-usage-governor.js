@@ -19,6 +19,7 @@
 const { ProviderError, ERROR_CODES, classifyProviderFailure } = require('./adapters/_base/provider-error')
 const { quotaExceededError, reserveRequestsBudget, releaseRequestsBudget } = require('./token-budget-windows')
 const { AsyncLocalStorage } = require('async_hooks')
+const { createLogSampler } = require('./log-sampler')
 
 const WINDOW_MS = 60 * 1000
 const MAX_QUEUE_WAIT_MS = 30 * 1000
@@ -71,6 +72,11 @@ class ApiUsageGovernor {
     // P1 调度可观测性：providerId -> { queuedCount, cooldownCount, queueWaitMs, cooldownWaitMs }
     // 仅计数排队/冷却实际等待，不改调度语义；由用量上报取走并清零（内存计数，重启归零可接受）
     this._observability = new Map()
+    // P1-4 日志风暴护栏：重试循环按 sampleEvery 抽样、maxBurst 硬上限，首末必记
+    this._retrySampler = createLogSampler({
+      sampleEvery: options.retryLogSampleEvery ?? 10,
+      maxBurst: options.retryLogMaxBurst ?? 50,
+    })
     this._maxPaceWaitMs = Number.isFinite(Number(options.maxPaceWaitMs)) && Number(options.maxPaceWaitMs) > 0
       ? Number(options.maxPaceWaitMs)
       : MAX_PACE_WAIT_MS
@@ -79,6 +85,12 @@ class ApiUsageGovernor {
         if (limits && typeof limits === 'object') this._providerLimits.set(providerId, { ...limits })
       }
     }
+  }
+
+  /** 观测性埋点：仅当上层注入带 notify 的真实 logger 时才发射；否则静默降级（默认 mock 无 notify）。 */
+  _notify(messageKey, meta = {}) {
+    if (typeof this._log.notify !== 'function') return
+    this._log.notify('ApiGovernor', messageKey, meta)
   }
 
   setEnabled(enabled) {
@@ -304,6 +316,11 @@ class ApiUsageGovernor {
       const waiter = st.waiters[index]
       if (waiter.deadline <= now) {
         st.waiters.splice(index, 1)
+        this._notify('queue-timeout', {
+          params: { key },
+          errorCategory: 'rate_limit',
+          level: 'WARN',
+        })
         waiter.reject(new ProviderError(ERROR_CODES.RATE_LIMITED, '排队等待超时，请稍后重试。', { providerId: key }))
         continue
       }
@@ -347,6 +364,11 @@ class ApiUsageGovernor {
     st.nextSlotAt = base + intervalMs
     const waitMs = base - now
     if (waitMs > this._maxPaceWaitMs) {
+      this._notify('pace-over-limit', {
+        params: { key, waitMs },
+        errorCategory: 'rate_limit',
+        level: 'WARN',
+      })
       throw new ProviderError(
         ERROR_CODES.RATE_LIMITED,
         '当前请求频率已达上限，请稍后再试。',
@@ -360,6 +382,11 @@ class ApiUsageGovernor {
     const remaining = st.cooldownUntil - Date.now()
     if (remaining <= 0) return
     if (remaining > MAX_COOLDOWN_WAIT_MS) {
+      this._notify('cooldown-over-limit', {
+        params: { key, remainingMs: remaining },
+        errorCategory: 'rate_limit',
+        level: 'WARN',
+      })
       throw new ProviderError(
         ERROR_CODES.RATE_LIMITED,
         '该模型 API 处于限流冷却期，请稍等约 ' + Math.ceil(remaining / 1000) + ' 秒后重试。',
@@ -423,7 +450,14 @@ class ApiUsageGovernor {
       // 阈值语义（2026-08-12 与模拟器对拍审计，token 类不变）：准入用 >=（第 limit+1 个起拒，
       // 第 limit 个放行），事后断言用 >（第 limit 次成功调用仍被允许，只有真超出才追认失败）。
       if (win.field === 'requests') continue
-      if (win.used > win.limit) throw this._quotaExceeded(key, win)
+      if (win.used > win.limit) {
+        this._notify('quota-exceeded', {
+          params: { key, field: win.field, used: win.used, limit: win.limit },
+          errorCategory: 'quota',
+          level: 'ERROR',
+        })
+        throw this._quotaExceeded(key, win)
+      }
     }
   }
 
@@ -439,19 +473,46 @@ class ApiUsageGovernor {
       } catch (error) {
         lastError = error
         const cls = classifyProviderFailure(error)
+        // P1-4 日志风暴护栏：每次失败重试都经采样器，首末必记、中间抽样、burst 封顶
+        if (this._retrySampler(attempt, {})) {
+          this._notify('retry-attempt', {
+            params: { key, attempt, failureClass: String(cls) },
+            errorCategory: String(cls),
+            level: 'WARN',
+          })
+        }
         if (cls === 'rate') {
           const cooldown = retryAfterMs(error) || limits.cooldownMs
           st.cooldownUntil = Date.now() + cooldown
           st.rateFactor = Math.max(0.2, st.rateFactor * RATE_ADAPT_FACTOR)
-          if (attempt >= limits.retry429) throw error
+          if (attempt >= limits.retry429) {
+            this._notify('retry429-exhausted', {
+              params: { key, attempt },
+              errorCategory: 'rate_limit',
+              level: 'ERROR',
+            })
+            throw error
+          }
           await sleep(jitter(cooldown / 3) * attempt)
           continue
         }
         if (cls === 'transient') {
-          if (attempt >= TRANSIENT_RETRIES) throw error
+          if (attempt >= TRANSIENT_RETRIES) {
+            this._notify('transient-retry-exhausted', {
+              params: { key, attempt },
+              errorCategory: 'transient',
+              level: 'ERROR',
+            })
+            throw error
+          }
           await sleep(500 * attempt)
           continue
         }
+        this._notify('provider-error', {
+          params: { key },
+          errorCategory: String(cls),
+          level: 'ERROR',
+        })
         throw error
       }
     }
