@@ -810,6 +810,24 @@ jobs:
           }
           Write-Host "[GATE-7] All visual tests passed"
 
+      # Gate 7b：基线新鲜度（PR 侧、partial 形态）。
+      # 存在的理由：#2761 改了发布表单 UI 却没刷新基线，而新鲜度检查当时只接在
+      # visual-test.yml（2026-09-17 起不再由 PR 触发）里 ⇒ 它全绿合并、main 连红 11 次。
+      # 那道门禁是探测器，这一步把它变成防线。
+      #
+      # 为什么必须 partial：本 job 只跑浅色像素套（暗色套与 views 套件只在 visual-test.yml 跑），
+      # 所以本次运行只产出一部分基线的同源渲染。partial = **只缩小判定面，绝不弱化已判的那部分**：
+      # 无渲染的记为 skipped 并逐个点名打印（不得静默），有渲染而过期的照常判红。
+      # 覆盖面以现场打印为准，不在此写死数字（写死就会漂）。
+      - name: "Gate 7b - Baseline freshness (PR-side, partial)"
+        shell: bash
+        run: |
+          node --test scripts/check-baseline-freshness.test.js
+          node scripts/check-baseline-freshness.js \
+            --renders=apps/desktop/tests/visual-testing/screenshots \
+            --baselines=apps/desktop/tests/visual-testing/base-screenshots \
+            --partial
+
       - name: "Upload GUI quality artifacts"
         if: always()
         uses: actions/upload-artifact@v4

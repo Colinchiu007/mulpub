@@ -60,17 +60,26 @@ const KNOWN_DYNAMIC = {};
 /**
  * @returns {{violations: string[], uncovered: string[], notes: string[], checked: number, rows: object[]}}
  */
-function evaluateFreshness (baselinesDir, rendersDir, deps, maxDriftPx = 0) {
+function evaluateFreshness (baselinesDir, rendersDir, deps, maxDriftPx = 0, partial = false) {
   const { PNG, pixelmatch } = deps || loadDeps();
   const names = fs.readdirSync(baselinesDir).filter((f) => f.endsWith('.png')).sort();
   const violations = [];
   const uncovered = [];
+  const skipped = [];
   const notes = [];
   const rows = [];
   for (const name of names) {
     const hit = findRender(rendersDir, name.replace(/\.png$/, ''));
     if (!hit) {
       uncovered.push(name);
+      // partial 模式：本次运行**根本没产这张图**（例如 PR 侧的 QG Visual 只跑浅色像素套）。
+      // 这不是「基线过期」，也不是欠账 —— 判据不存在时不得改变结论；但必须逐个点名跳过，
+      // 否则 partial 会悄悄退化成「少判几张也没人知道」。
+      if (partial) {
+        skipped.push(name);
+        rows.push({ name, driftPx: null, note: 'partial: no render in this run' });
+        continue;
+      }
       if (!KNOWN_UNCOVERED[name]) {
         violations.push(`UNCOVERED_BASELINE: ${name} 在 CI 里没有同名渲染，且未带理由登记（清单只能缩小）`);
       }
@@ -99,7 +108,7 @@ function evaluateFreshness (baselinesDir, rendersDir, deps, maxDriftPx = 0) {
       }
     }
   }
-  return { violations, uncovered, notes, checked: names.length, rows };
+  return { violations, uncovered, skipped, notes, checked: names.length, rows };
 }
 
 function main (argv = process.argv.slice(2)) {
@@ -111,18 +120,19 @@ function main (argv = process.argv.slice(2)) {
   const baselinesDir = get('baselines', path.join(DESKTOP, 'tests/visual-testing/base-screenshots'));
   const rendersDir = get('renders', '');
   const maxDriftPx = Number(get('max-drift-px', '0'));
+  const partial = argv.includes('--partial');
   if (!rendersDir || !fs.existsSync(rendersDir)) {
-    console.error('用法：node scripts/check-baseline-freshness.js --renders=<CI screenshots 目录> [--baselines=...] [--max-drift-px=0]');
+    console.error('用法：node scripts/check-baseline-freshness.js --renders=<CI screenshots 目录> [--baselines=...] [--max-drift-px=0] [--partial]');
     console.error('缺 --renders 时无法判定（不得默认通过）。');
     return 1;
   }
-  const { violations, uncovered, notes, checked, rows } = evaluateFreshness(baselinesDir, rendersDir, null, maxDriftPx);
+  const { violations, uncovered, skipped = [], notes, checked, rows } = evaluateFreshness(baselinesDir, rendersDir, null, maxDriftPx, partial);
   const drifted = rows.filter((r) => typeof r.driftPx === 'number' && r.driftPx > maxDriftPx);
   // 已登记且在预算内的动态漂移只出声、不打 ❌ —— 否则 rc=0 与满屏 ❌ 同时出现，
   // 读日志的人会按 ❌ 计数判断成败，等于把"允许"显示成"失败"。
   const allowed = new Set(notes.map((n) => n.replace(/^DYNAMIC_ALLOWED: ([^ ]+) .*/, '$1')));
   const offending = drifted.filter((r) => !allowed.has(r.name));
-  console.log(`基线新鲜度：检查 ${checked} 张 / 违规 ${offending.length} 张 / 登记内动态漂移 ${allowed.size} 张 / CI 无渲染 ${uncovered.length} 张`);
+  console.log(`基线新鲜度${partial ? '[partial：只判本次有渲染的那些]' : ''}：检查 ${checked} 张 / 违规 ${offending.length} 张 / 登记内动态漂移 ${allowed.size} 张 / CI 无渲染 ${uncovered.length} 张 / 本次跳过 ${skipped.length} 张`);
   for (const r of offending) console.log(`  ❌ ${r.name} ${r.driftPx} px (${r.pct}%) 来源=${r.from}`);
   for (const v of violations) {
     if (v.startsWith('BASELINE_STALE') || v.startsWith('DYNAMIC_ALLOWED')) continue;
@@ -131,9 +141,16 @@ function main (argv = process.argv.slice(2)) {
   for (const n of notes) console.log('  ⚠️  ' + n);
   // 结论文案必须与实际漂移集合一致：存在任何非零漂移时不得说"全部逐像素相等"。
   if (!violations.length) {
+    const judged = checked - uncovered.length;
     console.log(drifted.length
-      ? `✅ 除 ${drifted.length} 张已登记动态视图外，其余 ${checked - drifted.length - uncovered.length} 张逐像素等于本次 CI 渲染`
-      : `✅ 全部 ${checked - uncovered.length} 张有渲染的基线逐像素等于本次 CI 渲染`);
+      ? `✅ 除 ${drifted.length} 张已登记动态视图外，其余 ${judged - drifted.length} 张逐像素等于本次 CI 渲染`
+      : `✅ 全部 ${judged} 张有渲染的基线逐像素等于本次 CI 渲染`);
+  }
+  if (skipped.length) {
+    // 观察者必须报告自己的盲区：partial 少判了谁必须逐个列出来，
+    // 否则「PR 上绿」会被下一个会话读成「全部基线都验过」。
+    console.log(`⚠️ partial 模式未判定 ${skipped.length} 张（本次运行没有它们的渲染）：`);
+    for (const n of skipped) console.log(`   · ${n}`);
   }
   return violations.length ? 1 : 0;
 }

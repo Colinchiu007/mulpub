@@ -78,5 +78,9 @@
     "reason": "本 PR 自身尚未合并 ⇒ 顶部记录的 远程同步 停在 PENDING；合并后由后续 docs PR 回填 PASS 并删除本条（回填与销账必须同一次发生）。回填者＝p01-local-endpoint-evidence 合并后的 re-sync 会话，按 head 分支名查 PR → merge SHA。",
     "status": "PENDING",
     "line": 1
+  },
+  "本次执行记录：基线新鲜度门禁接进 PR 侧（Gate 7b，partial 形态）+ 按同一次 CI 渲染重建 36 张漂移基线（freshness-gate-on-pr，2026-10-03）": {
+    "reason": "本 PR 尚未合并，远程同步只能在合并后取证。回填者＝后续 docs PR，口径：git log origin/main --grep=(#2815)$ 取合并 SHA 与时间、git ls-remote --heads origin freshness-gate-on-pr 返回 0 行证远端分支已随 squash 删除。回填与删除本登记项必须同一次发生。",
+    "status": "PENDING"
   }
 }

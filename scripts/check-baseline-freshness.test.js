@@ -196,3 +196,61 @@ test('KNOWN_DYNAMIC 必须为空：实时值一律在采集层钉住，不靠漂
   assert.deepEqual(Object.keys(D.KNOWN_DYNAMIC), [],
     '登记表非空 ⇒ 采集层没能钉住这些视图，须修根因而非留预算')
 })
+
+// ---- partial 模式：只缩小判定面，不得弱化已判的那部分 ----
+test('partial：本次无渲染的基线记为 skipped，不报违规也不报未登记欠账', () => {
+  const { dir, baselines, renders } = mkDirs()
+  try {
+    fs.writeFileSync(path.join(baselines, 'ghost.png'), pngWithBlock(1, false))
+    const r = D.evaluateFreshness(baselines, renders, null, 0, true)
+    assert.deepEqual(r.skipped, ['ghost.png'], '无渲染必须进 skipped')
+    assert.deepEqual(r.violations, [], 'partial 下无渲染不得判违规')
+    assert.deepEqual(r.uncovered, ['ghost.png'], 'uncovered 仍如实记录，供打印盲区')
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('partial：有渲染但过期的基线仍必须判红 —— partial 不是免检', () => {
+  const { dir, baselines, renders } = mkDirs()
+  try {
+    fs.writeFileSync(path.join(baselines, 'stale.png'), pngWithBlock(1, false))
+    fs.writeFileSync(path.join(renders, 'stale.png'), pngWithBlock(1, true))
+    fs.writeFileSync(path.join(baselines, 'ghost.png'), pngWithBlock(1, false))
+    const r = D.evaluateFreshness(baselines, renders, null, 0, true)
+    assert.equal(r.violations.length, 1, '过期那张仍须判红')
+    assert.match(r.violations[0], /^BASELINE_STALE: stale\.png/)
+    assert.deepEqual(r.skipped, ['ghost.png'])
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('默认（不带 --partial）行为不变：未登记的无渲染仍判 UNCOVERED_BASELINE', () => {
+  const { dir, baselines, renders } = mkDirs()
+  try {
+    fs.writeFileSync(path.join(baselines, 'ghost.png'), pngWithBlock(1, false))
+    const r = D.evaluateFreshness(baselines, renders)
+    assert.equal(r.violations.length, 1, '严格模式必须仍然拦')
+    assert.match(r.violations[0], /^UNCOVERED_BASELINE: ghost\.png/)
+    assert.deepEqual(r.skipped, [], '严格模式不产 skipped')
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('main() 在 partial 下必须逐个点名未判定的基线（观察者要报告自己的盲区）', () => {
+  const { dir, baselines, renders } = mkDirs()
+  const logs = []
+  const errs = []
+  const origLog = console.log
+  const origErr = console.error
+  try {
+    fs.writeFileSync(path.join(baselines, 'ghost.png'), pngWithBlock(1, false))
+    console.log = (...a) => logs.push(a.join(' '))
+    console.error = (...a) => errs.push(a.join(' '))
+    const rc = D.main(['--renders=' + renders, '--baselines=' + baselines, '--partial'])
+    assert.equal(rc, 0, 'partial 下无渲染不得让进程失败')
+    assert.ok(logs.some((l) => l.includes('partial 模式未判定 1 张')), '必须报出跳过几张')
+    assert.ok(logs.some((l) => l.includes('ghost.png')), '必须逐个点名，不能只报数字')
+    assert.ok(logs.some((l) => l.includes('[partial')), '汇总行必须标明处于 partial')
+  } finally {
+    console.log = origLog
+    console.error = origErr
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})

@@ -727,3 +727,28 @@ test('跑桌面测试的质量门禁作业必须先备好 Electron 二进制（�
   assert.match(ensureSrc, /install\.js 执行后 dist 仍不完整[\s\S]{0,80}process\.exit\(1\)/,
     'ensure-electron.js 必须在装完仍不完整时非零退出，否则"准备步骤会红"这件事本身消失');
 })
+
+// Gate 7b：把基线新鲜度从「只在 main push 上事后报警」变成 PR 侧的阻断防线。
+// 动因（实测）：#2761 改了发布表单 UI 未刷新基线，而检查器当时只接在 visual-test.yml
+// （2026-09-17 起不再由 PR 触发）里 ⇒ 该 PR 全绿合并、main 连红 11 次。
+test('quality-gate 的 visual job 必须含 PR 侧基线新鲜度步骤（Gate 7b，partial 形态）', () => {
+  const wf = yaml.load(fs.readFileSync(qualityGatePath, 'utf8'));
+  const steps = wf.jobs.visual.steps;
+  assert.ok(Array.isArray(steps) && steps.length > 0, 'visual job 必须有 steps')
+
+  const idxGate7 = steps.findIndex((s) => typeof s.name === 'string' && s.name.includes('Gate 7 - Visual regression'))
+  const idxFresh = steps.findIndex((s) => typeof s.name === 'string' && /Gate 7b - Baseline freshness/.test(s.name))
+  // 先断言两个坐标都存在：findIndex 返回 -1 会让下面的顺序断言退化成永真
+  assert.notStrictEqual(idxGate7, -1, 'Gate 7 像素步骤必须仍存在（它被改名会静默废掉本条顺序锁）')
+  assert.notStrictEqual(idxFresh, -1, '缺少 Gate 7b 基线新鲜度步骤')
+  assert.ok(idxFresh > idxGate7, '新鲜度必须在像素步骤之后（它判的是本次刚产出的渲染）')
+
+  const fresh = steps[idxFresh]
+  assert.match(String(fresh.name), /partial/, '步骤名必须标明 partial 形态，避免被读成全量判定')
+  assert.strictEqual(fresh.shell, 'bash', '必须 bash：一个 run 块里两条命令，pwsh 不会中途退出（装饰性门禁）')
+  const body = String(fresh.run)
+  assert.match(body, /node --test scripts\/check-baseline-freshness\.test\.js/, '必须先跑检查器自身单测')
+  assert.match(body, /--partial\b/, '必须带 --partial：本 job 只跑浅色像素套，无渲染的不得判成过期')
+  assert.match(body, /--renders=apps\/desktop\/tests\/visual-testing\/screenshots/, '渲染目录必须指向本次产物')
+  assert.doesNotMatch(body, /continue-on-error/, '不得降级为非阻断')
+})
