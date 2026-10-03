@@ -17175,3 +17175,9 @@ rpa-engine 的 `test=vitest run`，`include: tests/**/*.test.js`。我新写的�
 - **字段恒回退的第一性诊断（pitfall）**：某参数「看起来总不生效」时，沿调用链逐层 grep 该字段的**读点**（谁在消费）与**写点**（谁在传），找出键名不匹配的层。本案 aspect_ratio 在 stages/asset-generator 全程正确传递，到 agnes-image.js 断链——它只读 params.ratio（Agnes API 请求体字段名被误用作入参名），不匹配即静默回退默认 16:9。引入点 commit c9df8bf5（2026-07-15 新增 9 供应商 Adapter），封装请求体正确、入参名照抄请求体字段是失误根源。**边界：凡「适配器入参 → 供应商请求体」存在改名的层都适用**；同名透传层不受此限。
 - **静默断链的测试逃逸原因（pattern）**：单元测试只断言「传入键 → 请求体」的回显（当时用 ratio 键测），等于**用实现定义测试**，断链键永远测不到；逃逸链 = 无契约键行为测试（单测层）→ 适配器边界无统一契约锁（集成层）→ 视觉黑边肉眼才暴露（E2E 层无图片尺寸断言）→ review 只看单文件 diff 不查调用方实参（审查层）。修复 = 契约键行为回归（3 用例）+ image-adapter-aspect-contract.test.js 结构锁（扫源码断言解析表达式双键齐全，变异反证 3 用例变红）+ AGENTS.md QM-2 新增「适配器入参键必须与调用方契约键一致」门禁。
 - **QM-1 打包启动测试的环境陷阱（operational）**：DSH 会话进程树带 ELECTRON_RUN_AS_NODE=1，打包 Electron 继承后以纯 Node 模式启动、立刻 exit 0 且零 stderr——形似「单实例锁让路」的假象。判据与修复：启动测试前 Remove-Item Env:ELECTRON_RUN_AS_NODE；辅以 ELECTRON_USER_DATA_DIR 隔离 userData 避免与其他会话的单实例锁竞争。另：worktree 内 electron-builder 只打包主进程不构建 renderer，需先 pnpm run build:vue，否则启动报 ERR_FILE_NOT_FOUND（主进程仍存活，别被「进程没死」骗过）。
+## 01-docs 下的 .md 会被 .gitignore 静默吞掉：新增文档必须 `git add -f`（automation-content-category，2026-10-03）
+
+- **机制**：`.gitignore:266` 有 `/01-docs/**/*.md` 规则（注释写的是「本地分析/交付文档产物，非源码」）。新增 PRD/使用说明时普通 `git add` 会**静默跳过** —— 不报错、不提示、`git status` 里也看不到。结果是「文档已写」的假象：CHANGELOG 与主 PRD 都引用了文件路径，git 里却根本没有文件，合并后链接指向不存在的文件。
+- **本次实战**：PR #2792 的两份文档（专项 PRD + 使用说明）就因此从未入库，是合并后逐个 `git ls-tree origin/main` 核对交付物时才发现的。既有 PRD（如 `01-docs/PRD-HOT-TOPICS-CATEGORY-SUPPLY-2026-09-20.md`）历史上都是 force-add 进来的。
+- **正解**：`git add -f 01-docs/xxx.md`。
+- **判据（可复用）**：**交付物清单要在合并后逐个 `git ls-tree origin/main` 核对，而不是凭「我写过了」或凭 `git status` 干净来判断。** `git status` 干净 + 文件在磁盘上 ≠ 文件已入库。这个坑的失效方向是「静默」，与「顺序 bug 表现为永远静默」同族 —— 都不会报错。
