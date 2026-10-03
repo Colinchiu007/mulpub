@@ -460,32 +460,40 @@ class TaskQueue extends EventEmitter {
     this.emit('task:start', task)
     this._saveState()
 
-    // ── 发布频率控制检查 ──
+    // ── 发布频率控制：两档间隔检查 + 提交前记账 ──
+    // 记账必须在提交之前：平台侧限流窗口按「请求已发生」计时，若只在成功路径记账，
+    // 「内容已发到平台但应用判超时/报错」就不占窗口，重试会重复发布且下一次不受限。
+    // accountId 缺席时守卫仍生效（跳过账号档、保留平台档），故此处不再以 accountId 为前提。
+    // 守卫的读写全部落在下方 await 之前的同一同步段内 —— store 要求 owner 快照不得在
+    // 回调/定时器中重读，挪到 await 之后就违反该约束。
+    // accountId 取任务级归一字段（add() 已按 task.accountId ?? task.article?.accountId ?? null 落一），
+    // 不得回退到只读 article：调用方只在任务级带账号时，账号档会被整体跳过。
     if (this._publishIntervalGuard) {
-      const accountId = task.article && task.article.accountId
-      if (accountId) {
-        const wait = this._publishIntervalGuard.getRemainingWait(task.platform, accountId)
-        if (wait > 0) {
-          task.status = 'pending'
-          task.startedAt = null
-          this._running.delete(task.id)
-          this.emit('publish:blocked', { task, remainingWait: wait })
-          // 达到等待时间后重新加入队列
-          // R28/R37：保存句柄 + unref + 注册到 _pendingTimers 供 shutdown 清理
-          const requeueTimer = setTimeout(() => {
-            this._pendingTimers.delete(requeueTimer)
-            this._delayed.delete(task.id)
-            if (task.cancelRequested || task.status === 'cancelled') return
-            this._queue.unshift(task)
-            this._processNext()
-          }, wait)
-          if (requeueTimer && requeueTimer.unref) requeueTimer.unref()
-          this._pendingTimers.add(requeueTimer)
-          this._delayed.set(task.id, { task, timer: requeueTimer })
-          this._saveState()
-          return
-        }
+      const accountId = task.accountId
+      const verdict = this._publishIntervalGuard.check(task.platform, accountId)
+      if (!verdict.allowed) {
+        task.status = 'pending'
+        task.startedAt = null
+        this._running.delete(task.id)
+        this.emit('publish:blocked', {
+          task, remainingWait: verdict.remainingMs, bucket: verdict.bucket,
+        })
+        // 达到等待时间后重新加入队列
+        // R28/R37：保存句柄 + unref + 注册到 _pendingTimers 供 shutdown 清理
+        const requeueTimer = setTimeout(() => {
+          this._pendingTimers.delete(requeueTimer)
+          this._delayed.delete(task.id)
+          if (task.cancelRequested || task.status === 'cancelled') return
+          this._queue.unshift(task)
+          this._processNext()
+        }, verdict.remainingMs)
+        if (requeueTimer && requeueTimer.unref) requeueTimer.unref()
+        this._pendingTimers.add(requeueTimer)
+        this._delayed.set(task.id, { task, timer: requeueTimer })
+        this._saveState()
+        return
       }
+      this._publishIntervalGuard.recordPublish(task.platform, accountId)
     }
 
     // 创建超时 Promise
@@ -521,13 +529,6 @@ class TaskQueue extends EventEmitter {
       task.completedAt = new Date().toISOString()
       this.emit('task:success', task)
       this._saveState()
-      // 记录发布到频率控制器
-      if (this._publishIntervalGuard) {
-        const accountId = task.article && task.article.accountId
-        if (accountId) {
-          this._publishIntervalGuard.recordPublish(task.platform, accountId)
-        }
-      }
     } catch (e) {
       if (task.cancelRequested || task.status === 'cancelled') return
       task.error = e.message

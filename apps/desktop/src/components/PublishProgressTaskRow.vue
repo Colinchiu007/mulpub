@@ -37,6 +37,11 @@
     </span>
     <span v-else-if="task.phase === 'blocked' && task.remainingWait" class="ppp__task-wait">
       {{ t('publishPage.publishProgressPanel.blockedWaitMinutes', { minutes: Math.max(1, Math.ceil(task.remainingWait / 60000)) }) }}
+      <span
+        v-if="blockedBucketLabel"
+        class="ppp__task-wait-bucket"
+        data-testid="publish-progress-task-bucket"
+      >{{ blockedBucketLabel }}</span>
     </span>
     <span v-else-if="task.stageKey === 'detail' && task.stage" class="ppp__task-detail">
       {{ task.stage }}
@@ -152,6 +157,14 @@ const showStepChain = computed(() =>
 const showPercent = computed(() =>
   props.task.percent !== null && props.task.percent !== undefined
   && (props.task.phase === 'start' || props.task.phase === 'progress'))
+
+/** 阻塞归因只认守卫产出的两档取值（account/platform）；其他取值不渲染标签，避免把未知口径猜成一种归因 */
+const blockedBucketLabel = computed(() => {
+  const bucket = props.task.bucket
+  if (bucket === 'account') return t('publishPage.publishProgressPanel.blockedBucketAccount')
+  if (bucket === 'platform') return t('publishPage.publishProgressPanel.blockedBucketPlatform')
+  return ''
+})
 
 function isPastStep(current, step) {
   const currentIdx = STEP_CHAIN.indexOf(current)
@@ -282,6 +295,11 @@ function truncateStage(stage) {
   flex: 1 1 auto;
   min-width: 0;
   color: var(--color-warning);
+}
+
+.ppp__task-wait-bucket {
+  margin-left: 4px;
+  color: var(--color-text-muted);
 }
 
 .ppp__task-actions {

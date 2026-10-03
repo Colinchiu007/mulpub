@@ -18,6 +18,8 @@ const AnalyticsService = require('./analytics-service')
 const DataSyncService = require('./data-sync')
 const ContentQualityGate = require('./content-quality-gate')
 const PublishIntervalGuard = require('./publish-interval-guard')
+// 发布最小间隔策略单一真源（两档：账号档 + 同平台跨账号平台档）
+const publishFrequencyPolicy = require('./publish-frequency-policy')
 const { createScheduler } = require('./scheduler')
 const publishHistory = require('./publish-history')
 // 发布能力注册表（openspec/changes/publish-capability-registry）：15 平台发布
@@ -38,6 +40,7 @@ module.exports = {
   DataSyncService,
   ContentQualityGate,
   PublishIntervalGuard,
+  publishFrequencyPolicy,
   createScheduler,
   // P1-10: 发布历史此前未从入口导出，导致调用方各自 require 内部路径、依赖治理无从下手
   publishHistory,

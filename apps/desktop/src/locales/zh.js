@@ -1281,6 +1281,8 @@ export default {
       clearFinished: '清除已完成',
       emptyRunning: '暂无进行中的发布',
       blockedWaitMinutes: (ctx) => '等待 ' + ctx.named('minutes') + ' 分钟后重试',
+      blockedBucketAccount: '（本账号间隔）',
+      blockedBucketPlatform: '（同平台其他账号间隔）',
     },
     close: '✕ 关闭',
     aiWriter: '🤖 AI',

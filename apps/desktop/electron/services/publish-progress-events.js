@@ -152,6 +152,7 @@ function createPublishProgressEmitter({ getMainWin }) {
     if (extra.error !== undefined) payload.error = extra.error
     if (extra.remainingWait !== undefined) payload.remainingWait = extra.remainingWait
     if (extra.retriesLeft !== undefined) payload.retriesLeft = extra.retriesLeft
+    if (extra.bucket !== undefined) payload.bucket = extra.bucket
     try {
       win.webContents.send('publish:progress', payload)
     } catch (e) {

@@ -3,7 +3,7 @@
  * Phase 3: 服务初始化（app.whenReady 后）
  *
  * 从 bootstrap.js runWhenReady 拆出：
- * - usageTracker / store.init / publishIntervalGuard
+ * - usageTracker / store.init
  * - taskQueue.setStateSaver / callbackServer.start
  * - scheduler.restore / taskQueue.deserialize
  * - keywordMonitor.onAlert + 持久化定时器
@@ -46,7 +46,7 @@ async function runCleanups(cleanups) {
 /**
  * 初始化所有异步服务（app.whenReady 后调用）
  * @param {object} deps
- * @param {object} deps.container - DI 容器（获取 publishIntervalGuard）
+ * @param {object} deps.container - DI 容器（经 getOptionalService 按需取可选服务）
  * @param {object} deps.usageTracker - 使用量统计服务
  * @param {object} deps.store - Store 实例
  * @param {{init?: () => unknown}} deps.modelProviderManager - 模型服务商管理器
@@ -92,8 +92,6 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
     if (modelProviderManager && typeof modelProviderManager.init === 'function') {
       modelProviderManager.init()
     }
-    const _publishIntervalGuard = container.get('publishIntervalGuard')
-
     cleanups.push(() => { if (taskQueue.setStateSaver) taskQueue.setStateSaver(null) })
     taskQueue.setStateSaver((jsonStr) => {
       if (typeof store.setUserSetting === 'function') {

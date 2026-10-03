@@ -1,3 +1,51 @@
+# [未发布] feat(publish): 作品发布频率控制机制接线——发布间隔从「从未生效」变为运行时强制（2026-10-02，publish-frequency-control）
+
+### 根因：机制存在但三条断链使其在生产中从未运行（PRD-PUBLISH-FREQUENCY-CONTROL-2026-10-02）
+
+- `PublishIntervalGuard` 与 `TaskQueue` 的频控逻辑早已实现、60+ 条单测全绿，但 `container.setup.js` 注册 `taskQueue` 时未注入守卫、`bootstrap.js:77` 调 `createContainer()` 不带参数（逃生口也死）、`phase3-services.js` 把守卫读进 `_publishIntervalGuard` 后全文件再无引用。实测取证：`recordPublish`/`canPublish`/`getRemainingWait` 生产调用点 0，`shared-user-data` 与 debug profile 两个库的 `publish_timeline` **均 0 行**。
+- 三条发布入口全部直达队列且无节流（`ipc-handlers/publish.js` 的 `publish:wechat`/`publish:batch`、`batch-manager`、`offline-manager`），叠加 `maxConcurrent: 3` ⇒ 一键发布多平台时最多 3 条**并发提交、间隔 0**。CDP 测出的 1–2 分钟间隔不是特殊路径，用户点「一键发布」同样复现。
+- 点名三个「看着像但不是」的防线，避免后来者误判已受保护：`api-usage-governor`/`rate-limit-self-check` 管 LLM 供应商额度；`publish-contract.js` 的 `DEFAULT_MIN_ACCOUNT_INTERVAL_MS` 只是渲染层定时发布表单的输入校验；`riskSuspender` 是风控命中后的事后即停。
+
+### 实现
+
+- 新增发布最小间隔策略单一真源 `packages/shared-utils/src/publish-frequency-policy.js`：两档（账号档 `platform:accountId` + 同平台跨账号平台档 `platform:*`），15 平台分组 + 未登记平台回落**最严基线**（不得回落 0）；`MP_PUBLISH_MIN_INTERVAL_MS` / `MP_PUBLISH_PLATFORM_MIN_INTERVAL_MS` 可覆盖，`0` = 显式关闭该档，非法值回落默认并**出声告警**。数值是工程保守估计（宁慢不险），**不是平台官方规则**，PRD 与代码注释均已如实标注。
+- 刻意不放进 `publish-capabilities.json`：该注册表承载内容能力（titleMode/字数限制/字段矩阵），与调度节奏是两类关注点；且实测有 3 个在飞分支（`toutiao-timed-publish`/`fix-article-publish-image-platforms`/`platform-char-limits`）正在改它及其 58 例测试。
+- `PublishIntervalGuard` 扩展为双档 `check()`（返回 `{allowed, remainingMs, bucket}`，取更严一档）；`recordPublish` 一次占两档。**`accountId` 缺席时跳过账号档、平台档仍生效**，关闭「`publish:wechat` 固定传 null ⇒ 完全不受限」的绕过口。
+- `TaskQueue` 记账时机从 `task:success` **前移到提交之前**。理由不是时序偏好：平台按「请求已发生」计窗口，只在成功路径记账会让「内容已发到平台但应用判超时/报错」（视频上传 30 分钟预算下不罕见）既不占窗口又被重试 ⇒ 重复发布。副作用是失败后需等满窗口才能重发，已在 PRD §5.2 明示为知情代价。顺带消除一处宿主契约违反——`base-store.js` 明文禁止在回调/定时器中重读登录态，而原记账落在 `await Promise.race(...)` 之后。
+- 等待语义：回退 `pending`、不消耗 `retriesLeft`、`unref` + `_pendingTimers` 登记供 `shutdown()` 清理、重排回调再查取消。决策 D1 = 全部排队等待（不拒绝）。
+- **不新增相位**：`blocked` 相位、`stageKey:'waiting'`（`⏳` 前缀规则）、进度面板剩余等待渲染**早已存在且被测**，缺的只有生产者。
+  ⚠️ 本行初版结论「因此无 locale 成对修改、无渲染层改动」已被 QM-6 外部评审推翻：生产者发出的 `bucket` 归因在 `phase4-events` 边界被丢弃，
+  界面只有「等待 N 分钟」而无法区分「本账号间隔」与「同平台其他账号间隔」。处置见下方「QM-6 外部评审处置」，现含 locales zh/en 成对两键与渲染层后缀。
+- 清理 `phase3-services.js` 死变量及其 JSDoc/测试夹具——它的全部作用是让下一次审计误以为「已经接线了」。
+
+### 回归锁与反证
+
+- 装配锁 3 条（`container.setup.test.js`）：真实 `createContainer()` 里 `taskQueue` 拿到的守卫必须与 `publishIntervalGuard` 同一实例；`options.taskQueue` 不得把守卫覆盖成 `undefined`（注入排在展开之后）；守卫间隔必须按平台策略解析、不得回退硬编码。断言前自行钉住环境变量档位，避免开发机残留覆盖值造成假红。
+- 行为锁：失败/超时仍占窗口、重试必须等满窗口、缺席账号仍受平台档约束、两档取更严、`0` 关闭档、非法值回落并告警、未登记平台回落最严基线。
+- 四条变异**已实跑**且各自只让预期的那条锁变红（摘注入 / 记账挪回成功路径 / 缺席跳过全部检查 / 守卫改 no-op），还原后逐字节相同。cause-match 用 `-t "<用例名>"` 先证明筛选器命中且基线绿，再证明变异红；锚点按文件真实行尾归一（本仓 CRLF，用 `'\n'` 手抄锚点会 0 命中而静默跳过）。
+- 变异共 **九条**（首轮四条 + QM-6 处置新增五条），逐条「先跑基线全绿 → 应用变异 → 跑同一文件」，各让指定文件恰好红 1 条，还原后与备份逐字节相同。
+  新增五条：摘 `phase4-events` 的 `bucket` 转发（23→1/22）、摘投影白名单该行（20→1/19）、摘 store 写入（35→1/34）、
+  守卫取值源退回 `task.article.accountId`（10→1/9）、摘掉进度面板平台档分支（26→1/25）。
+  驱动侧踩到两条：锚点含 `\n` 在本仓 CRLF 文件上恒 0 命中（须按文件真实 EOL 拼接）；顺序错置（先变异再跑「基线」）会让两次读同一份变异态。
+- 既有用例纠偏 2 条：`不同账号同一平台互不影响`、`无 accountId 的任务不被拦截（向后兼容）` 把旧单档模型钉成了产品规则，按决策 D2 与「缺席不等于放行」改写。**不放宽、不 skip、不记欠账**。
+- `index.d.ts` 中 `PublishIntervalGuard` 的声明与实现签名**完全脱节**（`markPublished`/`getNextAvailableTime` 全仓不存在），本次一并纠正为真实 API。
+
+### QM-6 外部评审处置（配置 harness 不可达，改用 opencode 两套不同底模，偏差已在执行记录声明）
+
+- 后端轴与前端/集成轴各报 **2 / 1 条 Warning + 5 条 Info，Critical 0**，三条 Warning 全部是本地四层测试**没测到**的：
+- **W1 `bucket` 跨层断链**：`phase4-events.js` 只解构 `{task, remainingWait}`、`publish-progress-events.js` 投影白名单、`publishProgress` store、
+  `PublishProgressTaskRow` 四层都没有该字段 ⇒ PRD 承诺的归因到不了界面；而既有转引用例的**夹具本身不含 `bucket`**，对这一丢失结构性免疫（四层全绿）。
+  这是 AGENTS.md「新增字段必须同时改所有投影白名单并配穿透断言」的又一次复发，已按该条把四层逐个接上并补断言（归因缺席＝`null` 且不渲染，不得猜档）。
+- **W2 守卫读错 accountId 源**：`task-queue.js` 沿用 main 上的 `task.article.accountId`，而 `add()` 早已归一到 `task.accountId`；
+  调用方只在任务级带账号时**账号档被整条跳过**（平台档远宽，拦不住）。改读归一字段并补一条两侧可区分的行为锁。
+- **W3 类型声明漏项**：`TaskQueue` 构造参数缺 `publishIntervalGuard`；顺带补 `static InMemoryStore`（实现早已导出，声明一直漏着）。
+- 一条口径纠偏记在这里：跑评审者 CLI 时**退出码不构成证据**——首跑的模型上游端点不可用却返回 rc=0，
+  判据一律改为「findings 文件是否真落盘且可解析」。
+
+### 不做
+
+- 不做设备/IP 级全局串行（会废掉「一键发多平台」核心用途）；不做每日条数 quota；不在设置页暴露间隔。
+
 # [未发布] test(story2video): 测试引擎必须自己钉住并发预算，一条"CI 绿、开发机红"的用例就此确定化（2026-10-03，fix-s2v-auto-start-preflight）
 
 ### 根因（并否证 #2796 正文自己的描述）

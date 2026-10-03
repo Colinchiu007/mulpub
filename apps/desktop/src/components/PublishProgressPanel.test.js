@@ -69,6 +69,7 @@ function makeTask(overrides = {}) {
     error: null,
     remainingWait: null,
     retriesLeft: null,
+    bucket: null,
     startedAt: Date.now(),
     endedAt: null,
     lastEventAt: Date.now(),
@@ -198,6 +199,28 @@ describe('PublishProgressPanel.vue — 全局进度面板（publish-progress-ux�
     const row = body().querySelector('[data-testid="publish-progress-task"]')
     expect(row.textContent).toContain('已取消')
     expect(row.classList.contains('ppp__task--cancelled')).toBe(true)
+  })
+
+  it('blocked 任务：等待分钟数 + 归因两档可区分，归因缺席时不猜档', async () => {
+    storeStateRaw.panelVisible = true
+    storeStateRaw.hasRunning = true
+    storeStateRaw.sessions = [makeSession({
+      tasks: {
+        't-1': makeTask({ phase: 'blocked', stageKey: 'waiting', percent: null, remainingWait: 1800000, bucket: 'platform' }),
+        't-2': makeTask({ taskId: 't-2', phase: 'blocked', stageKey: 'waiting', percent: null, remainingWait: 600000, bucket: 'account' }),
+        't-3': makeTask({ taskId: 't-3', phase: 'blocked', stageKey: 'waiting', percent: null, remainingWait: 60000 }),
+      },
+      taskOrder: ['t-1', 't-2', 't-3'],
+    })]
+    wrapper = mountPanel()
+    await nextTick()
+    const rows = body().querySelectorAll('[data-testid="publish-progress-task"]')
+    expect(rows).toHaveLength(3)
+    expect(rows[0].textContent).toContain('等待 30 分钟后重试')
+    expect(rows[0].textContent).toContain('（同平台其他账号间隔）')
+    expect(rows[1].textContent).toContain('（本账号间隔）')
+    expect(rows[1].textContent).not.toContain('同平台')
+    expect(rows[2].querySelector('[data-testid="publish-progress-task-bucket"]')).toBe(null)
   })
 
   it('汇总口径：成功数直给 + 失败/取消单列（failed 不计入「已完成」）', async () => {

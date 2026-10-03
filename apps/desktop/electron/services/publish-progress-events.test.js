@@ -71,6 +71,19 @@ describe('createPublishProgressEmitter — payload 契约', () => {
     expect(pR).toEqual(expect.objectContaining({ phase: 'retry', stageKey: 'waiting', retriesLeft: 1 }))
   })
 
+  it('blocked 的 bucket 归因字段进白名单：给出即透传，缺席则不产出该键', () => {
+    const win = makeWin()
+    const emitter = createPublishProgressEmitter({ getMainWin: () => win })
+    emitter.emit('t-b1', 'douyin', 'blocked', { stage: '⏳ 发布间隔限制，等待 5 分钟后重试', remainingWait: 300000, bucket: 'platform' })
+    emitter.emit('t-b2', 'douyin', 'blocked', { stage: '⏳ 发布间隔限制，等待 5 分钟后重试', remainingWait: 300000, bucket: 'account' })
+    emitter.emit('t-b3', 'douyin', 'blocked', { stage: '⏳ 发布间隔限制，等待 5 分钟后重试', remainingWait: 300000 })
+    const [p1, p2, p3] = win.webContents.send.mock.calls.map((c) => c[1])
+    expect(p1.bucket).toBe('platform')
+    expect(p2.bucket).toBe('account')
+    // 生产者未给归因时不得凭空造值（"没证据"不等于"是账号档"）
+    expect(Object.prototype.hasOwnProperty.call(p3, 'bucket')).toBe(false)
+  })
+
   it('batchId 缺省为 null；percent 非法（NaN/越界）归 null', () => {
     const win = makeWin()
     const emitter = createPublishProgressEmitter({ getMainWin: () => win })

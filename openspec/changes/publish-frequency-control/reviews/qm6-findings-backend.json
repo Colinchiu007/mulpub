@@ -1,0 +1,35 @@
+{
+  "axis": "backend",
+  "model": "Nemotron 3 Ultra Free",
+  "verdict": "CHANGES_REQUESTED",
+  "findings": [
+    {
+      "severity": "Warning",
+      "file": "packages/shared-utils/src/task-queue.js",
+      "line": "_executeTask (line 470)",
+      "title": "Latent bug: frequency guard reads accountId from task.article instead of task.accountId",
+      "detail": "In _executeTask, the frequency guard check uses `const accountId = task.article && task.article.accountId` (line 470). However, the task constructor correctly populates `task.accountId` from both `task.accountId ?? task.article?.accountId ?? null` (line 140). If a future caller passes accountId only at the task level (not in article), the guard will see undefined for accountId, skipping the account bucket check while the platform bucket still applies. Current callers (publish:batch, batch-manager) put accountId in both places, so not currently exploitable, but a latent bug.",
+      "fix": "Change line 470 to `const accountId = task.accountId` to use the already-normalized task-level accountId.",
+      "evidence": "const accountId = task.article && task.article.accountId\nconst verdict = this._publishIntervalGuard.check(task.platform, accountId)"
+    },
+    {
+      "severity": "Warning",
+      "file": "packages/shared-utils/index.d.ts",
+      "line": "TaskQueue constructor (line 7)",
+      "title": "Type declaration missing publishIntervalGuard constructor option",
+      "detail": "The TaskQueue constructor in task-queue.js accepts `options.publishIntervalGuard` (line 25), but the TypeScript declaration in index.d.ts only declares `maxConcurrent`, `defaultRetry`, `defaultTimeout` in the constructor options. This creates a type safety gap for TypeScript consumers.",
+      "fix": "Add `publishIntervalGuard?: PublishIntervalGuard` to the TaskQueue constructor options in index.d.ts.",
+      "evidence": "export class TaskQueue {\n  constructor(opts?: { maxConcurrent?: number; defaultRetry?: number; defaultTimeout?: number });"
+    }
+  ],
+  "checked_but_clean": [
+    "A",
+    "C",
+    "D",
+    "E",
+    "F",
+    "G",
+    "H",
+    "I"
+  ]
+}

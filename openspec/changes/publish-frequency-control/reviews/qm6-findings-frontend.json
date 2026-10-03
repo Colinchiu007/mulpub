@@ -1,0 +1,70 @@
+{
+  "axis": "frontend",
+  "model": "LongCat 2.5 Preview Free (opencode/longcat-2.5-preview-free)",
+  "verdict": "CHANGES_REQUESTED",
+  "findings": [
+    {
+      "severity": "Warning",
+      "file": "apps/desktop/electron/bootstrap/phase4-events.js",
+      "line": "186 (publish:blocked 处理器)；关联 publish-progress-events.js:151-154、src/stores/publishProgress.js:167、src/components/PublishProgressTaskRow.vue:38",
+      "title": "bucket 字段在 phase4-events 边界被静默丢弃，PRD §5.1/§7 明确要求转发的 publish:progress 携带 bucket，tasks.md 3.3 却已勾选完成",
+      "detail": "生产者在 task-queue.js:476-478 发出 { task, remainingWait, bucket }，但第一站消费者 phase4-events.js:186 只解构 { task, remainingWait }，bucket 未解构、未转发；publish-progress-events.js 的 emit() 白名单只复制 result/error/remainingWait/retriesLeft，没有 bucket；publishProgress.js store 的 _ensureTask/handleProgressEvent 没有 bucket 字段；PublishProgressTaskRow.vue 只渲染 remainingWait 分钟数。结果：运营在界面上只能看到『等待 N 分钟』，无法区分『被自己账号档卡住』还是『被同平台跨账号档卡住』——PRD §7 的归因目标未达成。更隐蔽的是 phase4-events.test.js:265-273 的转发用例夹具本身不含 bucket，断言也不含 bucket，该测试对 bucket 丢失结构性免疫，所以全绿。这是典型的『主进程发了但渲染层不认』跨层断链，且 tasks.md 3.3『publish:blocked 载荷补 bucket（account/platform）以便现场归因』标记 [x] 与代码现状矛盾。",
+      "fix": "四选一收口（推荐前两者都做）：① phase4-events.js:186 解构并转发 bucket，publish-progress-events.js emit() 白名单增加 bucket，store _ensureTask/handleProgressEvent 增加 bucket 字段，TaskRow 在 blocked 行渲染归因（如『同平台其他账号』vs『本账号』）；② 若产品决定本期不做界面归因，则回写 tasks.md 3.3 为未勾选、PRD §5.1/§7 删除 bucket 要求，并删除 task-queue.js 里无人消费的 bucket 字段（避免死字段误导下一个维护者）。无论选哪条，都应补一条 phase4-events 转发用例：夹具带 bucket、断言 payload.bucket 精确等于入参。",
+      "evidence": "task-queue.js: `this.emit('publish:blocked', { task, remainingWait: verdict.remainingMs, bucket: verdict.bucket })` ｜ phase4-events.js: `taskQueue.on('publish:blocked', ({ task, remainingWait }) => { emitter.emit(task.id, task.platform, 'blocked', { stage: '⏳ 发布间隔限制，等待 ' + ... , remainingWait, batchId: ... }) })` ｜ PRD §5.1: 『携带 remainingWait（ms）与 bucket（account / platform）』｜ tasks.md 3.3: 『[x] publish:blocked 载荷补 bucket（account/platform）以便现场归因』"
+    },
+    {
+      "severity": "Info",
+      "file": "openspec/changes/publish-frequency-control/tasks.md",
+      "line": "5.1",
+      "title": "tasks.md 5.1 声称新建 apps/desktop/electron/core/taskQueue-frequency-guard.test.js，该文件在仓库中不存在",
+      "detail": "5.1 勾选 [x] 并写明『新建 apps/desktop/electron/core/taskQueue-frequency-guard.test.js，以生产方式 createContainer() 构建』。实际装配锁落在了既有文件 apps/desktop/electron/core/container.setup.test.js:103-143（3 条，已核实存在且打在真实 createContainer 路径上）。实质交付达成，但 tasks.md 记录的文件名与实际落点不符，下一个按文档找测试的人会扑空。",
+      "fix": "把 tasks.md 5.1 的描述改为实际落点（container.setup.test.js 新增 3 条装配锁），或按原计划把 3 条锁迁入独立文件 taskQueue-frequency-guard.test.js 并接线进 CI。",
+      "evidence": "tasks.md: 『[x] 5.1 **装配锁**：新建 `apps/desktop/electron/core/taskQueue-frequency-guard.test.js`』｜ glob 实测：该路径无此文件；container.setup.test.js:103 `test('装配锁：publishIntervalGuard 必须注入 taskQueue', ...)`"
+    },
+    {
+      "severity": "Info",
+      "file": "packages/shared-utils/index.d.ts",
+      "line": "88-102 (PublishIntervalGuard 类声明)",
+      "title": "d.ts 缺少 static InMemoryStore 声明，与实现 parity 不完整",
+      "detail": "publish-interval-guard.js:156 有 `PublishIntervalGuard.InMemoryStore = InMemoryStore`，d.ts 的类声明里有 `static PLATFORM_BUCKET_ACCOUNT_ID: string` 却没有 `static InMemoryStore`。当前没有测试消费它，但 TS 消费者无法发现这个导出，下一个维护者按 d.ts 写代码会以为 InMemoryStore 不可用。",
+      "fix": "在 index.d.ts 的 PublishIntervalGuard 类声明中补 `static InMemoryStore: ...`（或至少 `static InMemoryStore: unknown` 并补一行注释说明其形态）。",
+      "evidence": "publish-interval-guard.js: `PublishIntervalGuard.InMemoryStore = InMemoryStore` ｜ index.d.ts: `static PLATFORM_BUCKET_ACCOUNT_ID: string;`（无 InMemoryStore 行）"
+    },
+    {
+      "severity": "Info",
+      "file": "packages/shared-utils/src/publish-interval-guard.js",
+      "line": "121 (canPublish) / 131 (getRemainingWait)",
+      "title": "canPublish/getRemainingWait 生产调用点为 0，仅测试引用——属 PRD 明示保留的兼容 shim，但应知晓其现状",
+      "detail": "全仓 grep：canPublish/getRemainingWait 只出现在 shared-utils 测试与 d.ts，生产代码（含 task-queue.js）只用 check() 与 recordPublish()。PRD 明确决定『保留 canPublish/recordPublish/getRemainingWait 既有签名与语义（60+ 现存测试不破坏）』，二者是 check() 的薄封装，不是死代码（测试在调用），但生产路径已无人使用。",
+      "fix": "无需改动。若未来 guard 测试整体迁移到 check()，可随迁移一并删除这两个 shim 并同步 d.ts；当前保留有 PRD 决策背书。",
+      "evidence": "task-queue.js: `const verdict = this._publishIntervalGuard.check(task.platform, accountId)` / `this._publishIntervalGuard.recordPublish(task.platform, accountId)` ｜ grep apps/desktop/electron 下 canPublish/getRemainingWait 命中 0"
+    },
+    {
+      "severity": "Info",
+      "file": "apps/desktop/src/features/publish/publish-contract.js",
+      "line": "18 (DEFAULT_MIN_ACCOUNT_INTERVAL_MS = 5 * 60 * 1000)",
+      "title": "渲染层定时表单校验常量与运行期策略表口径不同（5min 扁平 vs 分平台 10/30/60min），PRD §4 规则 4 已显式接受，但用户可感知『表单放行、运行期排队』",
+      "detail": "DEFAULT_MIN_ACCOUNT_INTERVAL_MS 是定时发布表单的输入期校验（validateScheduleEntries / PUBLISH_CONTRACT_LIMITS），不拦即时发布、不进主进程。运行期新策略表账号档为 weibo/twitter 10min、短视频 30min、长文 60min。具体分歧场景：用户排两条 weibo 定时任务相隔 10 分钟，表单校验按 5min 阈值放行，但运行期账号档 10min 会让第二条进入 blocked 等待。PRD §4 规则 4 已点名此常量『属另一件事，不得被当作运行期门禁』，属显式接受的取舍，非缺陷；但这是用户可感知的『两套规则』面，值得记录。",
+      "fix": "无需改动（PRD 已决策）。若要消除用户困惑，可在表单校验处按平台取策略表值（需渲染层引入 policy 的 ESM 孪生），或在表单提示文案里说明『实际间隔以运行期策略为准』。",
+      "evidence": "publish-contract.js: `const DEFAULT_MIN_ACCOUNT_INTERVAL_MS = 5 * 60 * 1000` ｜ PRD §4 规则 4: 『渲染层 publish-contract.js 的 DEFAULT_MIN_ACCOUNT_INTERVAL_MS 是定时发布表单的输入期校验，属另一件事，不得被当作运行期门禁』"
+    },
+    {
+      "severity": "Info",
+      "file": ".quality-gates.md",
+      "line": "N/A（无本 change 记录）",
+      "title": "tasks.md 6.6 未勾选与现状一致（.quality-gates.md 无 publish-frequency-control 执行记录），但 AGENTS.md 要求提交前完成该记录",
+      "detail": "grep .quality-gates.md 无 publish-frequency-control/发布频率 任何条目；tasks.md 6.6『.quality-gates.md 执行记录 + 账本登记』未勾选——二者一致，未勾选项与代码现状不矛盾。但 AGENTS.md 强制『提交前必须完成 .quality-gates.md 自检清单』，PR #2773 尚未合并，仍有机会补。另注意 openspec/records/publish-frequency-control.md 的 sync_status=PENDING 是远程同步欠账，与 6.6 是两回事。",
+      "fix": "合并前补 .quality-gates.md 执行记录（含 docs-only 判定证据、行尾对账、反证记录、远程同步 PENDING），或按 docs-only 快速通道口径登记精简模板。",
+      "evidence": "tasks.md: 『[ ] 6.6 `.quality-gates.md` 执行记录 + 账本登记（docs-only 判定不适用，本 PR 是混合 PR）』｜ grep .quality-gates.md → 0 命中"
+    }
+  ],
+  "checked_but_clean": [
+    "A 单一真源：运行期间隔数值只有 publish-frequency-policy.js 一份；container.setup.js:343-354 经 policy: resolvePublishIntervals 消费策略，无硬编码 minInterval；装配锁第 3 条（container.setup.test.js:121-143）经真实 createContainer 验证 weibo=10min/60s、wechat_mp=60min/5min、未知平台回落最严基线，证明策略解析而非硬编码。publish-contract.js 常量属输入期校验，PRD §4 规则 4 显式划出范围。",
+    "B 跨层一致性（remainingWait 主链）：task-queue 发 publish:blocked → phase4-events.js:186 转发 phase:'blocked' → publish-progress-events.js 富化 stageKey:'waiting'（⏳ 前缀规则）→ publishProgress.js store 保留 remainingWait → PublishProgressTaskRow.vue:38-40 渲染时钟图标 + 剩余分钟文案，链路完整。blocked 不在 TERMINAL_PHASES（success/failed/cancelled），到点重排回调再查 cancelRequested 后才入队，等待必对应真实门禁拦截（重排经 _processNext→_executeTask 再次过 guard），无『显示等待但实际没拦』错位。唯一断链是 bucket（已单列 Warning）。",
+    "C CJS/ESM/类型声明 parity：index.js 导出 publishFrequencyPolicy ✓；index.d.ts 的 PublishFrequencyIntervals/PublishIntervalVerdict 接口、check/canPublish/getRemainingWait/recordPublish 签名、publishFrequencyPolicy 全部 6 个导出符号、static PLATFORM_BUCKET_ACCOUNT_ID 与实现逐符号一致；旧 d.ts 的 markPublished/getNextAvailableTime 已删除且全仓确认不存在。shared-utils package.json 无 exports/browser 字段、渲染层不消费该模块，无需 ESM 孪生。仅 static InMemoryStore 缺声明（已列 Info）。",
+    "D 命名与语义：check() 是两档评估器（取更严一档、报告 bucket），canPublish/getRemainingWait 是 check() 的布尔/数值投影（兼容 shim，测试在调用），recordPublish 一次写两档——职责清晰；normalizeAccountId 名实相符（非字符串/空白→null，缺席语义由调用方分支表达）。PLATFORM_BUCKET_ACCOUNT_ID 哨兵导出供装配与测试引用，禁止手抄 '*' 的纪律有注释与测试（recordPublish 一次写两档用例断言键 'douyin:*'）落实。",
+    "E 测试质量：策略 11 例（15 平台全覆盖精确数组、未知平台回落、0 关闭、非法值逐条 warn、env 注入）测真实函数；装配锁 3 条打在真实 createContainer 且自行钉住环境变量档位（防开发机残留覆盖值假红）；守卫双档 10 例用注入 policy/store/now 的精确 toEqual；队列行为锁用真实 queue+guard+真实计时器，重试用例约 900ms 可接受、无微任务自旋；被改写的 2 条旧用例断言的是新正确行为（跨账号受控、缺席仍受平台档），非把错误行为钉成契约；装配锁断言私有字段用 toBe，字段搬家会大声变红而非静默跳过。phase4-events 转发用例夹具不含 bucket 的结构性免疫已并入 Warning 1。",
+    "F 文档与代码一致：PRD/spec/CHANGELOG 提到的符号（PublishIntervalGuard/check/recordPublish/canPublish/getRemainingWait/publishFrequencyPolicy/resolveIntervals/publish-frequency-policy.js/container.setup.js/phase3-services.js/PublishProgressTaskRow.vue/phase4-events.js/publish-progress-events.js）全部真实存在；CHANGELOG『装配锁 3 条（container.setup.test.js）』与实际落点一致；A10 四条变异反证在 openspec/records/publish-frequency-control.md 有逐条记录（红条数、cause-match 手法、行尾归一坑），对应测试在 diff 中可找到。tasks.md 5.1 文件名与 3.3 完成度两处漂移已列 Info/Warning。",
+    "G 可维护性：无『为将来』开关——minInterval/now/policy 注入均被测试或生产实际使用；无重复判据（guard 是唯一检查点，phase4-events 只做转发）；bucket 死字段问题已列 Warning；tasks.md 未勾选项（6.3 QM-6 工具不可达未执行、6.6 质量记录未写）与代码现状一致，无矛盾。"
+  ]
+}

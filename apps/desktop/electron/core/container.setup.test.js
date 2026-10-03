@@ -94,6 +94,54 @@ describe('Container setup', () => {
     expect(track).toBeDefined();
   });
 
+  // ── 发布频率控制装配锁（openspec/changes/publish-frequency-control）──────────
+  // 事故形态：PublishIntervalGuard 注册在容器里、TaskQueue 支持注入、两侧 60+ 条单测全绿，
+  // 但生产装配漏了注入 ⇒ _publishIntervalGuard 恒 null ⇒ 发布频率控制在运行时完全不存在
+  // （实测 publish_timeline 表 0 行）。以下三条锁必须打在**真实装配路径**上，
+  // 在测试里手工 new guard 再注入不构成回归保护。
+
+  test('装配锁：publishIntervalGuard 必须注入 taskQueue', () => {
+    var c = createContainer();
+    var queue = c.get('taskQueue');
+    var guard = c.get('publishIntervalGuard');
+
+    expect(guard).toBeTruthy();
+    expect(queue._publishIntervalGuard).toBe(guard);
+  });
+
+  test('装配锁：options.taskQueue 不得把守卫覆盖成 undefined（静默关掉门禁）', () => {
+    var c = createContainer({
+      taskQueue: { maxConcurrent: 1, publishIntervalGuard: null },
+    });
+
+    expect(c.get('taskQueue')._publishIntervalGuard).toBe(c.get('publishIntervalGuard'));
+    expect(c.get('taskQueue').maxConcurrent).toBe(1);
+  });
+
+  test('装配锁：守卫的间隔按平台策略解析，不得回退成硬编码单一值', () => {
+    // 策略模块读 process.env，开发机若恰好设了覆盖值会让精确断言假红 —— 测试自己钉住档位。
+    const ENV_KEYS = ['MP_PUBLISH_MIN_INTERVAL_MS', 'MP_PUBLISH_PLATFORM_MIN_INTERVAL_MS'];
+    const saved = ENV_KEYS.map(function (k) { return process.env[k]; });
+    ENV_KEYS.forEach(function (k) { delete process.env[k]; });
+    try {
+      var guard = createContainer().get('publishIntervalGuard');
+
+      // weibo 属短内容高频容忍档；未登记平台回落最严基线
+      expect(guard._intervals('weibo')).toEqual({
+        accountMinMs: 10 * 60 * 1000, platformMinMs: 60 * 1000,
+      });
+      expect(guard._intervals('wechat_mp')).toEqual({
+        accountMinMs: 60 * 60 * 1000, platformMinMs: 5 * 60 * 1000,
+      });
+      expect(guard._intervals('not_a_registered_platform').accountMinMs)
+        .toBeGreaterThanOrEqual(guard._intervals('weibo').accountMinMs);
+    } finally {
+      ENV_KEYS.forEach(function (k, i) {
+        if (saved[i] !== undefined) process.env[k] = saved[i];
+      });
+    }
+  });
+
   test('assertRequired passes', () => {
     expect(() => createContainer()).not.toThrow();
   });

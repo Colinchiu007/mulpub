@@ -28,7 +28,6 @@ function makeMockDeps(overrides) {
   }
   const mockContainer = {
     get: vi.fn((key) => {
-      if (key === 'publishIntervalGuard') return {}
       if (key === 'commentManager') return mockCommentManager
       if (key === 'batchManager') return mockBatchManager
       return {}

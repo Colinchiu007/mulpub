@@ -90,6 +90,7 @@ export const usePublishProgressStore = defineStore('publishProgress', () => {
         error: null,
         remainingWait: null,
         retriesLeft: null,
+        bucket: null,
         startedAt: null,
         endedAt: null,
         lastEventAt: null,
@@ -166,6 +167,7 @@ export const usePublishProgressStore = defineStore('publishProgress', () => {
     if (data.error !== undefined) task.error = data.error || null
     if (data.remainingWait !== undefined) task.remainingWait = data.remainingWait || null
     if (data.retriesLeft !== undefined) task.retriesLeft = data.retriesLeft
+    if (data.bucket !== undefined) task.bucket = data.bucket || null
     if (phase === 'start' && !task.startedAt) task.startedAt = Date.now()
     if (isTerminalNow && !task.endedAt) task.endedAt = Date.now()
     _appendLog(session, platform + ' · ' + (task.stage || phase), isTerminalNow ? (phase === 'success' ? 'success' : 'danger') : 'primary')

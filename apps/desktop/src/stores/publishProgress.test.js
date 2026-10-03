@@ -89,6 +89,27 @@ describe('publishProgress store — 全局承载（publish-progress-ux）', () =
     expect(task.startedAt).toBeGreaterThan(0)
   })
 
+  it('blocked 事件的 remainingWait 与 bucket 归因落到被渲染的那份状态（字段缺席不得猜档）', async () => {
+    const store = await makeStore()
+    store.registerSession({ taskIds: ['t-1'], title: 'x' })
+    store.handleProgressEvent(progressEvent({
+      taskId: 't-1', phase: 'blocked', stageKey: 'waiting', stage: '⏳ 发布间隔限制', percent: null, remainingWait: 180000, bucket: 'platform',
+    }))
+    const task = store.sessions[0].tasks['t-1']
+    expect(task.phase).toBe('blocked')
+    expect(task.remainingWait).toBe(180000)
+    expect(task.bucket).toBe('platform')
+
+    // 账号档与平台档必须在界面上可区分；归因缺席时如实为 null
+    store.handleProgressEvent(progressEvent({ taskId: 't-1', phase: 'blocked', stageKey: 'waiting', remainingWait: 60000, bucket: 'account' }))
+    expect(task.bucket).toBe('account')
+    // 归因缺席 → null（未知 taskId 会自成孤儿会话，故按 taskId 跨会话定位）
+    store.handleProgressEvent(progressEvent({ taskId: 't-2', phase: 'blocked', stageKey: 'waiting', remainingWait: 60000 }))
+    const t2 = store.sessions.flatMap((s) => Object.values(s.tasks)).find((x) => x.taskId === 't-2')
+    expect(t2).toBeTruthy()
+    expect(t2.bucket).toBe(null)
+  })
+
   it('终态吸收：success 后迟到的 progress 不回退状态', async () => {
     const store = await makeStore()
     store.registerSession({ taskIds: ['t-1'], title: 'x' })

@@ -58,7 +58,8 @@ const UrlCollector = require('../services/url-collector');
 const ViralEngine = require('../services/viral-engine');
 const CommentManager = require('../services/comment-manager');
 const ProviderManager = require('../services/provider-manager');
-const { TaskQueue, AggregatorBridge, ChunkedUploader, ProxyPool, AnalyticsService } = require("@multi-publish/shared-utils");
+const { TaskQueue, AggregatorBridge, ChunkedUploader, ProxyPool, AnalyticsService, publishFrequencyPolicy } = require("@multi-publish/shared-utils");
+const resolvePublishIntervals = publishFrequencyPolicy.resolveIntervals;
 const PublishIntervalGuard = require("@multi-publish/shared-utils/src/publish-interval-guard");
 const TemplateManager = require('../services/template-manager');
 const RewriteStrategyManager = require('../services/rewrite-strategy-manager');
@@ -321,7 +322,17 @@ function createContainer(options) {
   container.register("oauthManager", function(c) { return new OAuthManager(c.get("store")); });
   container.register("batchManager", function(c) { return new BatchManager(c.get("store")); });
   container.register("dataSync", function(c) { return new DataSyncService(c.get("store")); });
-  container.register("taskQueue", function() { return new TaskQueue(options.taskQueue || { maxConcurrent: 3 }); });
+  // 频率守卫必须在此装配路径上注入 TaskQueue。2026-10-02 之前这里漏注入
+  // （只有 `options.taskQueue || { maxConcurrent: 3 }`），使 PublishIntervalGuard
+  // 全链路注册齐全、60+ 条单测全绿，但生产调用点为 0、publish_timeline 恒 0 行。
+  // guard 排在展开之后：不允许被 options 覆盖成 undefined 而静默关掉门禁。
+  container.register("taskQueue", function(c) {
+    return new TaskQueue(Object.assign(
+      { maxConcurrent: 3 },
+      options.taskQueue,
+      { publishIntervalGuard: c.get("publishIntervalGuard") }
+    ));
+  });
   container.register("aggregatorBridge", function(c) { return new AggregatorBridge(c.get("taskQueue")); });
   container.register("publisherRouter", function() { return new PublisherRouter(); });
   // §5 风控挂起守卫（W1 enforcement）：桌面唯一真源 DI 单例，持久化复用 store.getSetting/setSetting
@@ -332,6 +343,9 @@ function createContainer(options) {
   container.register("publishIntervalGuard", function(c) {
     const s = c.get("store");
     return new PublishIntervalGuard({
+      // 间隔值由 publish-frequency-policy 单一持有（含环境变量覆盖）；
+      // 禁止在此硬编码 minInterval，那会让策略表变成摆设。
+      policy: resolvePublishIntervals,
       store: {
         get: (key) => s.getPublishTimeline(key),
         set: (key, value) => s.setPublishTimeline(key, value),

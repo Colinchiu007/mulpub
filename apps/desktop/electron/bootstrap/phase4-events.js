@@ -183,10 +183,10 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
     }
   })
 
-  taskQueue.on('publish:blocked', ({ task, remainingWait }) => {
+  taskQueue.on('publish:blocked', ({ task, remainingWait, bucket }) => {
     emitter.emit(task.id, task.platform, 'blocked', {
       stage: '⏳ 发布间隔限制，等待 ' + Math.ceil(remainingWait / 60000) + ' 分钟后重试',
-      remainingWait, batchId: task.batchId || null,
+      remainingWait, bucket: bucket || null, batchId: task.batchId || null,
     })
   })
 

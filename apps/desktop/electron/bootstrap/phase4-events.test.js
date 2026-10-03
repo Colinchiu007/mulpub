@@ -262,14 +262,22 @@ describe('phase4-events — 进度事件富化契约（publish-progress-ux）', 
     )
   })
 
-  it('publish:blocked → 富化 phase=blocked、stageKey=waiting、remainingWait 透传', () => {
+  it('publish:blocked → 富化 phase=blocked、stageKey=waiting、remainingWait 与 bucket 归因均须跨边界转发', () => {
     const send = vi.fn()
     const { taskQueue } = wire(send)
-    taskQueue.emit('publish:blocked', { task: { id: 't-b1', platform: 'douyin' }, remainingWait: 240000 })
+    taskQueue.emit('publish:blocked', {
+      task: { id: 't-b1', platform: 'douyin' }, remainingWait: 240000, bucket: 'platform',
+    })
     const payload = progressPayloads(send).at(-1)
     expect(payload).toEqual(expect.objectContaining({
       platform: 'douyin', taskId: 't-b1', phase: 'blocked', stageKey: 'waiting', remainingWait: 240000,
     }))
+    // 归因是运营判「被自己账号卡住」还是「被同平台别的号卡住」的唯一现场证据，不得在这一站被吃掉
+    expect(payload.bucket).toBe('platform')
+
+    // 生产者未给归因时如实为 null，不得猜成某一档
+    taskQueue.emit('publish:blocked', { task: { id: 't-b2', platform: 'weibo' }, remainingWait: 60000 })
+    expect(progressPayloads(send).at(-1).bucket).toBe(null)
   })
 
   it('task:retry → 富化 phase=retry、retriesLeft 结构化透传', () => {
