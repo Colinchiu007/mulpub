@@ -148,24 +148,86 @@ test('账本 JSON 进白名单不得顺带放过 scripts/ 下的代码', () => {
 
 // ---------------------------------------------------------------------------
 // 白名单的前提锁：进名单的路径，它自己的门禁必须在**无条件执行**的 changes job 里跑
+//
+// 原先这条锁是"账本 JSON 专用"的（PR #2718）。#2745 指出同一形态又出现一次 ——
+// `openspec/records/**` 命中 `openspec/**` 白名单，而校验它的 check-pr-exec-record 住在被
+// docs-only 门控的 static-gates。这里泛化成一张 (白名单路径 → 门禁去向) 对账表。
+//
+// 它不是提示，是双向对账：deepEqual 钉住表的键集合 == CI_IGNORED_PATHS，于是
+// 「新增一条白名单却没往表里登记」当场红（外部评审点名的静默收窄），反向残留也红。
+// 每行去向二选一：commands ⇒ 该门禁必须在 changes job 正文且整份 workflow 只出现一次；
+// noGate ⇒ 显式承认"没有门禁消费这项内容"，原因必须非空（空原因等于静默绕过）。
 // ---------------------------------------------------------------------------
 
-test('账本 JSON 在名单内 => 它的门禁必须接线进 changes job，且在非 PR 早退之前', () => {
-  assert.ok(
-    classifier.CI_IGNORED_PATHS.includes('scripts/gate-record-debt-ledger.json'),
-    '前提变了：账本不在白名单时这条锁不适用，应连同白名单一起重新评估',
-  )
-  const wfPath = path.join(__dirname, '..', '.github', 'workflows', 'quality-gate.yml')
-  const wf = fs.readFileSync(wfPath, 'utf8')
-  const job = wf.slice(wf.indexOf('\n  changes:'), wf.indexOf('\n  static-gates:'))
-  assert.ok(job.length > 0, '未取到 changes job 正文')
-  const earlyExit = job.indexOf('exit 0')
-  assert.ok(earlyExit > 0, 'changes job 的非 PR 早退语句不见了 —— 锁的位置判据失效')
-  for (const cmd of ['node scripts/check-gate-record-debt.js', 'node --test scripts/check-gate-record-debt.test.js']) {
-    const at = job.indexOf(cmd)
-    assert.ok(at >= 0, `账本门禁未接线进 changes job：缺 ${cmd} ⇒ 纯文档 PR 会短路 static-gates，从此没人校验账本`)
-    assert.ok(at < earlyExit, `${cmd} 必须在非 PR 早退之前，否则 main push 那一档不再校验账本`)
+const BRAND_CMDS = [
+  'node --test scripts/check-no-brand-residue.test.js',
+  'node scripts/check-no-brand-residue.js',
+]
+const DEBT_CMDS = [
+  'node --test scripts/check-gate-record-debt.test.js',
+  'node scripts/check-gate-record-debt.js',
+]
+const EXEC_RECORD_CMDS = [
+  'node --test scripts/check-pr-exec-record.test.js',
+  'node scripts/check-pr-exec-record.js',
+]
+
+const GATE_COVERAGE_FOR_WHITELIST = [
+  { pattern: 'openspec/**', commands: EXEC_RECORD_CMDS,
+    why: '执行记录与豁免文件都在 openspec/records 下，其存在性判据必须由 changes job 无条件覆盖（#2745）' },
+  { pattern: 'scripts/gate-record-debt-ledger.json', commands: DEBT_CMDS,
+    why: '账本 JSON 是 check-gate-record-debt 的数据源（#2718 先例）' },
+  { pattern: '*.md', commands: BRAND_CMDS,
+    why: 'AGENTS.md 把品牌残留列为文档 PR 的保留门禁，而 *.md 全在白名单 ⇒ 门禁必须住在不被短路的 job' },
+  { pattern: '01-docs/**', commands: BRAND_CMDS, why: '同上：PRD / learnings 这些散文文档正是品牌词的风险面' },
+  { pattern: 'docs/**', commands: BRAND_CMDS, why: '同上：本仓新增机制说明落在这里' },
+  { pattern: 'LICENSE', noGate: '许可证全文由发版流程与 GPL 媒体约束条目人工核对，无脚本门禁消费其内容' },
+  { pattern: '.gitignore', noGate: '忽略规则由 check-unwired-tests 与 git check-ignore 现场判据兜底，没有读这份文件的门禁' },
+  { pattern: '.editorconfig', noGate: '无门禁消费；行尾风险由 PR 流程层的两口径 numstat 对账拦' },
+  { pattern: '.ccg/**', noGate: '评审工具产物，无仓内门禁消费' },
+  { pattern: '.claude/**', noGate: '工具配置副本，无仓内门禁消费' },
+  { pattern: '.hermes/**', noGate: '计划存档目录，内容不做机器判定' },
+  { pattern: '.agents/**', noGate: '上游技能制品副本目录，无仓内门禁消费' },
+]
+
+test('白名单对账表必须与 CI_IGNORED_PATHS 双向相等（新增白名单不登记即红，不允许静默收窄）', () => {
+  const tableKeys = GATE_COVERAGE_FOR_WHITELIST.map((g) => g.pattern).sort()
+  const whitelist = classifier.CI_IGNORED_PATHS.slice().sort()
+  assert.deepStrictEqual(tableKeys, whitelist,
+    '(白名单路径 → 门禁去向) 对账表与 CI_IGNORED_PATHS 不再一一对应 —— 表只能与名单同时增删')
+  for (const g of GATE_COVERAGE_FOR_WHITELIST) {
+    const hasCommands = Array.isArray(g.commands) && g.commands.length > 0
+    const hasNoGate = typeof g.noGate === 'string' && g.noGate.trim().length > 0
+    assert.ok(hasCommands !== hasNoGate,
+      `${g.pattern} 的去向必须恰好二选一（commands 或带非空原因的 noGate），当前两者同为 ${hasCommands}`)
   }
+})
+
+test('对账表里每一条 commands 去向：门禁必须接线进 changes job，且整份 workflow 只出现一次', () => {
+  const wfPath = path.join(__dirname, '..', '.github', 'workflows', 'quality-gate.yml')
+  // 本机工作区是 CRLF：带尾随换行的锚点会被 \r\n 打穿，所以解析前先归一到 blob（LF）域；
+  // 再剥离注释行 —— 否则"把真实步骤注释掉"仍会被算作接线，那就是本仓点名的装饰性门禁。
+  const wf = fs.readFileSync(wfPath, 'utf8').replace(/\r\n/g, '\n')
+    .split('\n').filter((l) => !/^\s*#/.test(l)).join('\n')
+  const changesAt = wf.indexOf('\n  changes:')
+  const staticAt = wf.indexOf('\n  static-gates:')
+  assert.ok(changesAt >= 0 && staticAt > changesAt, '未定位到 changes / static-gates 的 job 边界 —— 锁的锚点失效')
+  const job = wf.slice(changesAt, staticAt)
+  assert.ok(job.length > 0, '未取到 changes job 正文')
+  // changes 是产出 docs-only 的那一步，它自己不能再被什么门控；否则"搬到 changes"这句承诺是空的
+  assert.ok(!/^ {4}if:/m.test(job), 'changes job 出现 job 级 if ⇒ 它不再是无条件执行，本锁前提消失')
+  let checked = 0
+  for (const g of GATE_COVERAGE_FOR_WHITELIST) {
+    if (!g.commands) continue
+    for (const cmd of g.commands) {
+      const hits = wf.split(cmd).length - 1
+      assert.strictEqual(hits, 1, `${cmd} 在 workflow 正文出现 ${hits} 次：接线位置必须只有一处真源（${g.why}）`)
+      assert.ok(job.includes(cmd),
+        `${g.pattern} 的门禁未接线进 changes job：缺 ${cmd} ⇒ 纯文档 PR 会短路 static-gates，从此没人校验它（${g.why}）`)
+      checked++
+    }
+  }
+  assert.ok(checked >= 8, `本次实测校验的命令条数只有 ${checked} —— 对账表的 commands 侧被掏空了`)
 })
 
 // ---------------------------------------------------------------------------

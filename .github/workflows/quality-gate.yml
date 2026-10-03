@@ -62,6 +62,38 @@ jobs:
           BASE="${{ github.event.pull_request.base.sha }}"
           node scripts/classify-docs-only.js --base="$BASE" --repo="$PWD"
 
+      # --- Gate 2c2（#2745 从 static-gates 搬入本 job）: 执行记录存在性判据 ---
+      # 它校验的输入 openspec/records/** 命中 docs-only 白名单（`openspec/**`），而 static-gates
+      # 整个 job 被 `if: needs.changes.outputs.docs-only != 'true'` 门控 ⇒ 「整篇没写执行记录」
+      # 最高发的纯文档 PR，恰好是这条判据一次都不会执行的那一类（短路真实发生过：PR #2732
+      # 判 docs-only=true，rollup 里 QG Static = SKIPPED 且照样合并）。
+      # 与 #2718 同形修法：吃白名单输入的门禁必须住在无条件执行的 changes job。
+      # **必须在 classify 之后**：step 内的 `exit 0` 只结束该 step 的 shell，后续 step 照跑，
+      # 所以"早于早退"不换来 push 覆盖差异；而把它摆在 classify 之前，这一步一红就会让本 job
+      # 在写出 docs-only 输出之前中止 —— docs-only 判定整条消失、下游重型 job 全部跑满。
+      # head 分支名必须由 env 注入：PR 事件下 checkout 是 detached HEAD，脚本自读只能得到字面量
+      # "HEAD"，"修订自己那篇记录"这条出路会在 CI 上静默失效（外部评审两路独立命中）。
+      # advisory 标记必须留在下面那行上：转阻断 = 删掉它，且必须另 PR 并带实测影响面
+      # （origin/main first-parent 120 个提交里 59 个纯文档 PR，其中 14 个在任何记录源里都没有记录）。
+      - name: "Gate 2c2 - Execution-record presence (changes job, #2745)"
+        shell: bash
+        env:
+          EXEC_BASE: ${{ github.event.pull_request.base.sha }}
+          EXEC_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          node --test scripts/check-pr-exec-record.test.js
+          node scripts/check-pr-exec-record.js --base="${EXEC_BASE:-}" --head-branch="${EXEC_HEAD_REF:-}" --head=HEAD --mode=advisory
+
+      # --- Gate 12（同族第三处，本次一并搬入）: 品牌残留门禁 ---
+      # AGENTS.md 的 docs-only 快速通道把「品牌残留」列为文档 PR 的**保留门禁**（一条不省），
+      # 但它原先住在被 docs-only 短路的 static-gates，而 *.md / 01-docs/** / docs/** 全在白名单里
+      # ⇒ 那句承诺在 CI 上不成立。本条由 (白名单路径 → 门禁命令) 对账表逼出，不是顺手重构。
+      - name: "Gate 12 - Brand residue (changes job, #2745 同族)"
+        shell: bash
+        run: |
+          node --test scripts/check-no-brand-residue.test.js
+          node scripts/check-no-brand-residue.js
+
   static-gates:
     name: QG Static
     runs-on: windows-latest
@@ -168,24 +200,12 @@ jobs:
           node --test scripts/classify-docs-only.test.js
           node scripts/check-unwired-tests.js
 
-      # --- Gate 2c2: 执行记录存在性判据（change: enforce-gate-record-presence）---
-      # 拦的是「PR 合并时整篇没写执行记录」：既有 check-gate-record-debt 两条判据都以"记录存在"
-      # 为前提（一条看已存在的行是否收口、一条看最顶部那篇是否带行），对整篇缺席免疫 ——
-      # #2570 自己在「遗留」里写明了这点。实测窗口内 111/210 个 PR 没把记录落在可检查位置。
-      #
-      # 第一步 = advisory：判据打印 `MODE=advisory` 并恒退出 0。**转阻断的动作是删掉下面那行的
-      # `--mode=advisory`** —— 该标记行被 check-pr-exec-record.test.js 钉住（design D8），
-      # 所以这一步不会像 release-gate 的视觉项那样长期停在"人工核查"而无人察觉。
-      #
-      # env 显式声明 EXEC_BASE（run 正文里不写内联 ${{ }}）：push 事件它为空，脚本自己走
-      # "非 PR 事件不适用"分支，避免每个 push run 被一条不适用自己的判据判红。
-      - name: "Gate 2c2 - Execution-record presence (node --test / bash)"
-        shell: bash
-        env:
-          EXEC_BASE: ${{ github.event.pull_request.base.sha }}
-        run: |
-          node --test scripts/check-pr-exec-record.test.js
-          node scripts/check-pr-exec-record.js --base="${EXEC_BASE:-}" --head=HEAD --mode=advisory
+      # --- Gate 2c2 已搬出本 job（#2745）---
+      # 本 job 整个被 `if: needs.changes.outputs.docs-only != 'true'` 门控，而 Gate 2c2 校验的输入
+      # openspec/records/** 命中 docs-only 白名单 —— 留在这里等于「纯文档 PR 的整篇没写记录」
+      # 这一形态永远不被校验，而这正是该判据的主战场。它现在在无条件执行的 changes job 里，
+      # 位置早于非 PR 早退。回归锁两处：scripts/classify-docs-only.test.js 的
+      # 「(白名单路径 → 门禁命令) 清单」，与 scripts/check-pr-exec-record.test.js 的 #2745 结构锁。
 
       # --- Gate 2d: PowerShell 侧此前从未被 CI 收集的锁 ---
       # 分档依据：本机 pwsh 7.6 与 Windows PowerShell 5.1 各跑一遍 + **本步在 runner 上的首跑结果**。
@@ -298,17 +318,10 @@ jobs:
           pnpm exec eslint electron/ src/ --quiet
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      # --- Gate 12: 品牌残留门禁（naming-normalization：防止参考产品品牌词再次进入仓库）---
-      # 2026-09-15 接入：字节级（latin1 保真）扫描全部 tracked 文本文件，兼容含 NUL 字节与非 UTF-8 文件；
-      # 跳过锁文件与二进制扩展名；品牌词按码点构造进正则（门禁脚本自身零字面品牌词）；
-      # 唯一豁免第三方远程签名服务域名（signer.js 默认端点，发布链路硬依赖）。
-      # 本地同口径：node scripts/check-no-brand-residue.js
-      - name: "Gate 12 - Brand residue (naming normalization)"
-        run: |
-          node --test scripts/check-no-brand-residue.test.js
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node scripts/check-no-brand-residue.js
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      # --- Gate 12 已搬出本 job（#2745 同族第三处）---
+      # 本 job 整个被 docs-only 门控，而 *.md / 01-docs/** / docs/** 全在 docs-only 白名单里，
+      # 于是 AGENTS.md 承诺的「文档 PR 的保留门禁：品牌残留」实际一次都不执行。
+      # 它现在在无条件执行的 changes job 里（接线保持只有一处真源，本注释故不复写命令原文）。
 
       # --- Gate 13: 路由入口登记（desktop-ui-consistency T0-5：拦住新增暗路由）---
       # 2026-09-17 接入：src/router/index.js 新增非 redirect 路由却未在

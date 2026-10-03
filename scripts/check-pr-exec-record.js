@@ -43,6 +43,7 @@ const DEFAULT_THRESHOLD = 3
 function evaluate({
   statuses = [],
   headBranch = '',
+  branchSource = 'unknown',
   exemptOnDisk = [],
   remoteBranches = new Set(),
   threshold = DEFAULT_THRESHOLD,
@@ -53,6 +54,19 @@ function evaluate({
     .map((e) => e.file)
   const addedExempts = statuses
     .filter((e) => e.status === 'A' && EXEMPT_RE.test(e.file))
+    .map((e) => e.file)
+
+  // 记录按分支名一一对应，所以"M 自己那篇"仍可作为本 PR 携带记录（回填/修订是同一条记录的
+  // 正常演进）；M 别人的记录仍不算 —— 放宽只按文件名 == <分支名>.md 这一维发生，不是按状态放宽。
+  // 两条收紧都是外部评审实测逼出来的：
+  // ① 必须同时满足 RECORDS_RE —— 否则分支名撞上 _TEMPLATE 这类保留名时"改模板"就满足判据
+  //    （实测 headBranch='_TEMPLATE' + M openspec/records/_TEMPLATE.md 曾判 ok=true）；
+  // ② headBranch 必须是**真分支名**：detached HEAD 解析出的字面量 "HEAD" 由 resolveHeadBranch 置空，
+  //    否则 ownRecordPath 退化成 openspec/records/HEAD.md，放宽在 CI 上永不触发（CI 恰是唯一生效处）。
+  const candidateOwnPath = headBranch ? `openspec/records/${headBranch}.md` : ''
+  const ownRecordPath = candidateOwnPath && RECORDS_RE.test(candidateOwnPath) ? candidateOwnPath : null
+  const revisedRecords = statuses
+    .filter((e) => e.status === 'M' && ownRecordPath && e.file === ownRecordPath)
     .map((e) => e.file)
 
   // 变更集为空 = 取不到证据，不等于"这个 PR 没改文件"。判红，不接受空清单当通过。
@@ -67,21 +81,23 @@ function evaluate({
   }
 
   // 同一分支既交记录又交豁免是矛盾：豁免的语义是"这次没有可记录的行为变更"。
-  const bothForBranch = addedExempts.length > 0 && addedRecords.length > 0
+  const hasRecord = addedRecords.length > 0 || revisedRecords.length > 0
+  const bothForBranch = addedExempts.length > 0 && hasRecord
   if (bothForBranch) {
-    reasons.push(`矛盾：本 PR 同时新增了记录文件与豁免文件（${addedRecords[0]} 与 ${addedExempts[0]}）。`
+    reasons.push(`矛盾：本 PR 同时新增了记录文件与豁免文件（${addedRecords[0] || revisedRecords[0]} 与 ${addedExempts[0]}）。`
       + '二者语义互斥，请删除豁免那一侧')
   }
 
   // 提交性判定与结论判定必须分开：先算"有没有交东西"，把全部违规理由收集完，
   // 最后 ok = 无理由。先前写成 ok = 交了记录就算通过，于是"同时交记录与豁免"和
   // "待清理豁免超阈值"两条都出了理由却仍判通过 —— 那是装饰性门禁。
-  const submitted = addedRecords.length > 0 || addedExempts.length > 0
+  const submitted = hasRecord || addedExempts.length > 0
   if (!submitted && statuses.length > 0) {
-    reasons.push('本 PR 未携带执行记录。两条合法出路任选其一：'
+    reasons.push('本 PR 未携带执行记录。三条合法出路任选其一：'
       + `①新增 openspec/records/<分支名>.md（按 _TEMPLATE.md，含门禁表与「远程同步」行；`
       + '尚无法收口时在该文件 frontmatter 里写 sync_reason 与 sync_backfill_owner）；'
-      + '②确属无需记录 ⇒ 新增 openspec/records/_exempt/<分支名>.md 并写明非空原因。')
+      + '②修订本分支自己那篇 openspec/records/<分支名>.md（回填证据走这条）；'
+      + '③确属无需记录 ⇒ 新增 openspec/records/_exempt/<分支名>.md 并写明非空原因。')
   }
 
   // 已消费的豁免：分支已不在远端（合并即删分支）。要求"同 PR 内自删"在 squash 流程下不可实现，
@@ -102,13 +118,16 @@ function evaluate({
       `本 PR 变更文件 ${statuses.length} 个（A=${statuses.filter((e) => e.status === 'A').length} `
       + `M=${statuses.filter((e) => e.status === 'M').length} `
       + `D=${statuses.filter((e) => e.status === 'D').length}）`,
-      `新增记录 ${addedRecords.length} 篇 / 新增豁免 ${addedExempts.length} 篇`,
+      `新增记录 ${addedRecords.length} 篇 / 修订本分支记录 ${revisedRecords.length} 篇 / 新增豁免 ${addedExempts.length} 篇`,
+      // 分支名与它的来源必须每次打印：detached 与注入的差异不在这里出声，就又会变成
+      // "CI 上恒判没带记录、本机永远复现不了"的那类静默失效。
+      `head分支=${headBranch || '(空)'} 来源=${ownRecordPath ? branchSource : branchSource + '(未启用修订判据)'}`,
       consumedKnown ? `待清理豁免 ${consumedExempts.length} 条` : '待清理豁免 consumed=unknown（远端分支清单取不到）',
     ]
     return bits.join(' ｜ ')
   }
 
-  return { ok, reasons, addedRecords, addedExempts, consumedExempts, consumedKnown, summary }
+  return { ok, reasons, addedRecords, addedExempts, revisedRecords, ownRecordPath, consumedExempts, consumedKnown, summary }
 }
 
 function readExemptsOnDisk(repo) {
@@ -153,6 +172,25 @@ function parseArgs(argv) {
   return out
 }
 
+/**
+ * 分支名解析：显式参数 > GITHUB_HEAD_REF（PR 事件的 head 分支）> git rev-parse。
+ * `actions/checkout` 在 pull_request 事件检出的是 detached merge ref，
+ * `git rev-parse --abbrev-ref HEAD` 必返回字面量 "HEAD" —— 那不是分支名，拿它拼
+ * `openspec/records/HEAD.md` 会让"修订自己那篇记录"这条出路在 CI 上恒不成立，
+ * 而 CI 恰是这条判据唯一真正执行的地方（本机永远有真分支名）。
+ * 所以 detached 且没有上游注入时返回空串：宁可判"没带记录"，也不猜一个不存在的分支。
+ * @returns {{branch: string, source: 'arg'|'env'|'git'|'detached'}}
+ */
+function resolveHeadBranch({ argBranch = '', envHeadRef = '', gitBranch = '' } = {}) {
+  const arg = String(argBranch || '').trim()
+  if (arg) return { branch: arg, source: 'arg' }
+  const env = String(envHeadRef || '').trim()
+  if (env) return { branch: env, source: 'env' }
+  const git = String(gitBranch || '').trim()
+  if (!git || git === 'HEAD') return { branch: '', source: 'detached' }
+  return { branch: git, source: 'git' }
+}
+
 function main(argv) {
   const args = parseArgs(argv)
   const repo = args.repo || process.cwd()
@@ -187,20 +225,27 @@ function main(argv) {
       process.exit(1)
     }
   }
-  let headBranch = ''
-  try { headBranch = execFileSync('git', ['-C', repo, 'rev-parse', '--abbrev-ref', 'HEAD'], { encoding: 'utf8' }).trim() } catch { /* 取不到就按空串走判据 */ }
+  let gitBranch = ''
+  try { gitBranch = execFileSync('git', ['-C', repo, 'rev-parse', '--abbrev-ref', 'HEAD'], { encoding: 'utf8' }).trim() } catch { /* 取不到就按空串走判据 */ }
+  const resolved = resolveHeadBranch({
+    argBranch: typeof args['head-branch'] === 'string' ? args['head-branch'] : '',
+    envHeadRef: process.env.GITHUB_HEAD_REF || '',
+    gitBranch,
+  })
+  const headBranch = resolved.branch
   const remoteBranches = args['no-remote'] || args.statuses !== undefined ? (args['no-remote'] ? null : new Set([headBranch])) : remoteBranchSet(repo)
 
   const r = evaluate({
     statuses,
     headBranch,
+    branchSource: resolved.source,
     exemptOnDisk: readExemptsOnDisk(repo),
     remoteBranches: remoteBranches || new Set(),
     threshold,
   })
   // 取不到远端清单时不能悄悄按"0 条待清理"过 —— 显式传 null 让 evaluate 自己标 unknown
   if (!remoteBranches) {
-    const r2 = evaluate({ statuses, headBranch, exemptOnDisk: readExemptsOnDisk(repo), remoteBranches: null, threshold })
+    const r2 = evaluate({ statuses, headBranch, branchSource: resolved.source, exemptOnDisk: readExemptsOnDisk(repo), remoteBranches: null, threshold })
     return report(r2, mode)
   }
   return report(r, mode)
@@ -221,6 +266,6 @@ function report(r, mode) {
   process.exit(r.ok ? 0 : 1)
 }
 
-module.exports = { evaluate, readExemptsOnDisk, remoteBranchSet, RECORDS_RE, EXEMPT_RE, DEFAULT_THRESHOLD }
+module.exports = { evaluate, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, RECORDS_RE, EXEMPT_RE, DEFAULT_THRESHOLD }
 
 if (require.main === module) main(process.argv.slice(2))

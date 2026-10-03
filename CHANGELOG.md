@@ -1,3 +1,24 @@
+# [未发布] docs(CI门禁): Gate 2c2 搬出被 docs-only 短路的 job，记录判据按分支名放宽一维（fix-gate-2c2-docs-only-hole，2026-10-03）
+
+### 根因
+- `Gate 2c2`（`scripts/check-pr-exec-record.js`，拦「PR 整篇没写执行记录」）住在 `static-gates`，而该 job 被 `if: needs.changes.outputs.docs-only != 'true'` 门控；它校验的输入 `openspec/records/**` 命中 docs-only 白名单里的 `openspec/**`。于是判为纯文档的 PR **一次都不会跑这条判据**——恰是「顺手改完不写记录」最高发的一类。短路实测：PR #2732 判 docs-only=true，`QG Static` SKIPPED 且照样合并。
+- 这是 docs-only 通道前提锁（「进白名单的路径，它自己的校验门禁必须先待在不会被短路的 job」）的第二个落点。第一个是账本 JSON（PR #2718），当时那条锁写成了「账本专用」，因此泛化不到新进来的数据文件。
+
+### 修复
+- 接线搬到 `changes` job，位置在含非 PR 早退（`exit 0`）的 classify 步骤**之前**，使 main push 那一档同样覆盖；`static-gates` 原处只留指针注释，接线保持**只有一处真源**。
+- 前提锁泛化为 `(白名单路径 → 门禁命令)` 清单，新增 `openspec/**` 一项；清单只能扩大，任何一项退化为空白即红。
+- 记录判据按**分支名**这一维放宽：`M` 掉自己那篇 `openspec/records/<本分支名>.md` 视为携带记录（回填/修订是同一条记录的正常演进）；`M` 别人的记录仍不算；同分支「记录与豁免并存」的矛盾判定同步跟上，出路文案从两条改为三条。放宽必须同时过 `RECORDS_RE` 的保留名守卫（否则分支名撞上 `_TEMPLATE` 时"改模板"即满足判据），且分支名在 CI 上由 step 级 env 注入 `github.event.pull_request.head.ref` —— runner 是 detached HEAD，脚本自读只能得到字面量 `"HEAD"`，不注入则这条放宽在 CI 上静默失效（外部评审两路独立命中）。
+- 同一前提锁泛化为与 `CI_IGNORED_PATHS` **双向对账**的表（12 项逐个给去向：门禁命令清单，或带非空原因的 `noGate`）。它当场逼出**第三处同型漏洞**：`Gate 12 品牌残留`也住在被短路的 `static-gates`，而 `*.md`/`01-docs/**`/`docs/**` 全在白名单里，AGENTS.md 却把它列为文档 PR 的「保留门禁」⇒ 那句承诺此前在 CI 上不成立。Gate 12 一并搬进 `changes`，其消费方契约 `workflow-contract.test.js` 的「Gate 12 必须在 Gate 11 之后」随迁移改写为位置契约。
+
+### 明确未做（不是遗漏）
+- 未把 `--mode=advisory` 转成阻断。实测 origin/main first-parent 120 个提交里 59 个纯文档 PR：31 个写的是历史载体 `.quality-gates.md`、5 个修订自己那篇记录、9 个交了 `_exempt`，真正**任何记录源都没有**的是 14 个。直接转阻断会当场拦红这一类（含并发会话的在途形态），且旧载体的去留尚无结论。前置条件见 `docs/gate-2c2-docs-only-wiring-hole.md` §5。
+
+### 验证
+- 红→绿：新增的锁先实测全红（42 tests / 5 failed），改完连同消费者一起 82 tests / 0 failed（`check-pr-exec-record` + `classify-docs-only` + `workflow-contract` + `check-no-brand-residue` 四个文件一起跑）。
+- 反证 14 条逐个实跑，要求 rc≠0 且红因文本逐条对上：M1 命令名改错 / M2 用结构 apply 函数把步骤真搬回 classify 之前 / M3 摘 `--mode=advisory` / M4 `EXEC_BASE` 不取 PR base / M5 摘 `--head-branch` 注入 / M6 放宽退回只认 A / M7 放宽过头 / M8 摘保留名守卫 / M9 detached 又当分支名 / M10 结构锁改 no-op / M11 给 changes 加 job 级 if / M12 品牌残留从 changes 摘掉 / M13 把接线行改成注释（封死"注释掉仍算接线"的假绿）/ M14 对账表少登记一项。驱动收尾断言四个被变异文件与备份逐字节相同。
+- QM-6 规定通道（`codeagent-wrapper` → codex/claude，经 CC Switch `:15721`）实测不可用（`Test-NetConnection -Port 15721 -Quiet = False`、`Get-NetTCPConnection -State Listen` 0 条、`app_paths.json = {}`），未擅自启动或改动用户的路由与凭证配置；改走替代双模型 `opencode/big-pickle` + `opencode/fledge-alpha-free`，两路共 8 条发现（1 Critical + 6 Warning + 1 Info），除 1 条按理由留残余外全部在本 PR 内落地。
+- 行尾对账：`git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat` 逐文件相等 ⇒ 无行尾污染（本次替换按行保留 CRLF）。
+
 # [未发布] fix(automation): 补齐 IPC 装配断链 + 收窄 01-docs 忽略规则（2026-10-03，fix-automation-ipc-wiring）
 
 ### 根因（用户实测报错）

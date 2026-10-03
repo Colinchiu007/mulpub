@@ -534,10 +534,20 @@ test('Quality Gate Gate 12 品牌残留门禁接线（naming-normalization）', 
     gate.indexOf('check-no-brand-residue.test.js') < gate.indexOf('node scripts/check-no-brand-residue.js'),
     '自测必须先于扫描运行（先证明检出能力，再扫当前仓库）',
   );
-  // Gate 12 必须位于 Gate 11 之后（静态门禁序列）
-  const gate11 = workflow.indexOf('Gate 11 - ESLint');
-  const gate12 = workflow.indexOf('Gate 12 - Brand residue');
-  assert.ok(gate11 >= 0 && gate12 > gate11, 'Gate 12 必须在 Gate 11 之后');
+  // Gate 12 的落点契约（#2745 同族第三处，随实现迁移同步改写，不是删断言）：
+  // 旧断言是「Gate 12 必须在 Gate 11 之后」——那是 static-gates 内部的静态序列次序，
+  // 而 *.md / 01-docs/** / docs/** 全在 docs-only 白名单里，整个 static-gates 对纯文档 PR 被短路，
+  // 于是 AGENTS.md 承诺的「文档 PR 的保留门禁：品牌残留」实际一次都不执行。
+  // 现在它住在无条件执行的 changes job，"在 Gate 11 之后"这条次序判据不再适用，
+  // 换成承重得多的位置判据：必须在 changes job 正文里，且不在被门控的 static-gates 里。
+  const changesAt = workflow.indexOf('\n  changes:');
+  const staticAt = workflow.indexOf('\n  static-gates:');
+  assert.ok(changesAt >= 0 && staticAt > changesAt, '未定位到 changes / static-gates 边界 —— 本锁锚点失效');
+  const changesJob = workflow.slice(changesAt, staticAt);
+  assert.ok(changesJob.includes('Gate 12 - Brand residue'),
+    'Gate 12 不在 changes job 里 ⇒ 纯文档 PR 被 docs-only 短路后无人校验品牌残留');
+  assert.ok(!workflow.slice(staticAt).includes('Gate 12 - Brand residue'),
+    'Gate 12 仍留在被 docs-only 门控的 static-gates（接线未搬走）');
   // 契约：门禁脚本与自测必须真实存在
   assert.ok(
     fs.existsSync(path.join(__dirname, '..', '..', 'scripts', 'check-no-brand-residue.js')),
