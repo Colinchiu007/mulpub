@@ -112,6 +112,39 @@ function redactText(value) {
   return redact(value)
 }
 
+/**
+ * 日志注入消毒：剥离外部文本中的换行与不可见控制符，防止伪造新的日志行或控制序列。
+ * - 水平制表符 \t（0x09）保留（便于对齐）；其余 < 0x20 控制符（含 \x00、\x1b 等）一律剔除
+ * - \n / \r 折叠为单个空格（避免注入新行）
+ * - 递归处理 object / array（params 可能为嵌套结构），键名同步消毒，其余类型原样返回
+ * 注意：本函数只做"换行/控制符消毒"，凭证脱敏仍由 redact() 在写盘前统一处理。
+ */
+function sanitizeLogMetaValue(value) {
+  if (typeof value === 'string') {
+    let out = ''
+    for (let i = 0; i < value.length; i++) {
+      const code = value.charCodeAt(i)
+      if (code === 0x0a || code === 0x0d) {
+        out += ' '
+      } else if (code < 0x20 && code !== 0x09) {
+        continue
+      } else {
+        out += value[i]
+      }
+    }
+    return out
+  }
+  if (Array.isArray(value)) return value.map((item) => sanitizeLogMetaValue(item))
+  if (value && typeof value === 'object') {
+    const result = {}
+    for (const [k, v] of Object.entries(value)) {
+      result[sanitizeLogMetaValue(k)] = sanitizeLogMetaValue(v)
+    }
+    return result
+  }
+  return value
+}
+
 function safeMeta(meta) {
   if (meta === undefined || meta === null) return ''
   // Error 对象：记录堆栈/消息，便于排查
@@ -204,15 +237,16 @@ const logger = {
     const safeKey = redact(String(messageKey ?? ''))
     // meta 统一 JSON.stringify 进 meta 段（换行/控制符转义，杜绝 log injection）
     const metaObj = {}
-    if (meta.errorCategory) metaObj.errorCategory = String(meta.errorCategory)
+    if (meta.errorCategory) metaObj.errorCategory = sanitizeLogMetaValue(String(meta.errorCategory))
     if (meta.params && typeof meta.params === 'object') {
-      for (const [k, v] of Object.entries(meta.params)) {
+      const safeParams = sanitizeLogMetaValue(meta.params)
+      for (const [k, v] of Object.entries(safeParams)) {
         if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
           metaObj[k] = v
         }
       }
     }
-    if (meta.error) metaObj.error = String(meta.error)
+    if (meta.error) metaObj.error = sanitizeLogMetaValue(String(meta.error))
     let metaJson // 初值在 try/catch 两条路径都会被赋值，无需初始化（no-useless-assignment）
     try {
       metaJson = ' ' + JSON.stringify(metaObj)
@@ -294,3 +328,4 @@ const logger = {
 
 module.exports = logger
 module.exports.redactText = redactText
+module.exports.sanitizeLogMetaValue = sanitizeLogMetaValue

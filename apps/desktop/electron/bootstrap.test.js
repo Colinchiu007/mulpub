@@ -139,7 +139,7 @@ const services = {
 }
 
 // ─── 注册所有深层依赖 mock（替代 vi.mock） ───
-__registerMock('./services/logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() })
+__registerMock('./services/logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), notify: vi.fn() })
 __registerMock('./services/python-bridge', mockPythonBridge)
 __registerMock('./publishers/account-manager', mockAccountManager)
 // 固定身份工厂结果，避免 bootstrap 测试依赖工作树的公开身份配置。

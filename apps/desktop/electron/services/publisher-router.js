@@ -13,6 +13,7 @@
  */
 const path = require('path')
 const { execFile } = require('child_process')
+const logger = require('./logger')
 const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
 const { isPlatformCookieDomain } = require('@multi-publish/shared-utils/src/platform-definitions')
 const { RichTextProcessor } = require('@multi-publish/api-publish-engine/src/rich-text-processor')
@@ -452,6 +453,7 @@ class RpaVmPublisher {
   async publish (task, options = {}) {
     const platform = this.route.platform
     const ownerSubject = task && task.owner_subject
+    const startedAt = Date.now()
 
     // 鍔犺浇璐﹀彿 Cookie
     const article = buildPublishArticle(task, platform)
@@ -461,7 +463,10 @@ class RpaVmPublisher {
     )
 
     const signal = options && options.signal
-    if (signal?.aborted) throw new Error('任务已取消')
+    if (signal?.aborted) {
+      logger.notify('PublisherRouter', 'publish-cancelled', { level: 'WARN', params: { platform, accountId } })
+      throw new Error('任务已取消')
+    }
     const onAbort = () => {
       if (this.rpaViewManager && typeof this.rpaViewManager.cancel === 'function') {
         try {
@@ -473,7 +478,10 @@ class RpaVmPublisher {
     try {
       const result = await this.rpaViewManager.publish(platform, article, authData, resolveRpaTimeout(this.route, article))
       // 发布器可能在 await 期间收到取消信号，成功响应不能覆盖取消语义。
-      if (signal?.aborted) throw new Error('任务已取消')
+      if (signal?.aborted) {
+        logger.notify('PublisherRouter', 'publish-cancelled', { level: 'WARN', params: { platform, accountId } })
+        throw new Error('任务已取消')
+      }
       if (result.success) {
         const postId = typeof result.postId === 'string' && result.postId.trim()
           ? result.postId.trim()
@@ -482,6 +490,16 @@ class RpaVmPublisher {
           throw new Error(result.error || '发布结果缺少平台作品 ID')
         }
         const diagnostics = sanitizePublishDiagnostics(result.diagnostics)
+        logger.notify('PublisherRouter', 'rpa-publish-ok', {
+          level: 'INFO',
+          params: {
+            platform,
+            accountId,
+            mode: 'dom',
+            url: sanitizePublishResultUrl(result.url),
+            durationMs: Date.now() - startedAt,
+          },
+        })
         return { success: true, url: sanitizePublishResultUrl(result.url), ...(postId ? { postId } : {}), platform, mode: 'dom', ...(diagnostics ? { diagnostics } : {}) }
       }
       throw new Error(result.error || 'RPA 鍙戝竷澶辫触')
@@ -514,10 +532,21 @@ class ApiPublisher {
       platform, article, ownerSubject,
     )
     const cookies = Array.isArray(authData.cookies) ? authData.cookies : []
-    if (cookies.length === 0) throw new Error('平台 Cookie 缺失（账号 ' + (accountId || '未指定') + ' 未登录或凭证不可用）')
+    if (cookies.length === 0) {
+      logger.notify('PublisherRouter', 'api-publish-error', {
+        level: 'ERROR',
+        errorCategory: 'auth_missing',
+        error: '平台 Cookie 缺失（账号 ' + (accountId || '未指定') + ' 未登录或凭证不可用）',
+        params: { platform, accountId, mode: 'api' },
+      })
+      throw new Error('平台 Cookie 缺失（账号 ' + (accountId || '未指定') + ' 未登录或凭证不可用）')
+    }
     const cookie = cookies.map((c) => c.name + '=' + c.value).join('; ')
     const signal = options && options.signal
-    if (signal && signal.aborted) throw new Error('任务已取消')
+    if (signal && signal.aborted) {
+      logger.notify('PublisherRouter', 'publish-cancelled', { level: 'WARN', params: { platform, accountId } })
+      throw new Error('任务已取消')
+    }
     // publish-progress-ux：API 直连轨此前完全静默——executor 传入的 onProgress
     // 透传给引擎（base-adapter execute 模板按 (percent, message) 回调）。
     const onProgress = options && typeof options.onProgress === 'function' ? options.onProgress : null
@@ -544,7 +573,10 @@ class ApiPublisher {
       signal,
       ...(onProgress ? { onProgress } : {}),
     })
-    if (signal && signal.aborted) throw new Error('任务已取消')
+    if (signal && signal.aborted) {
+      logger.notify('PublisherRouter', 'publish-cancelled', { level: 'WARN', params: { platform, accountId } })
+      throw new Error('任务已取消')
+    }
     if (!result || !result.success) throw new Error((result && result.error) || 'API 发布失败')
     const postId = typeof result.publishId === 'string' && result.publishId.trim() ? result.publishId.trim() : ''
     if (!postId) throw new Error('发布结果缺少平台作品 ID')
@@ -582,7 +614,14 @@ class BackendPublisher {
     if (result.code === 0 && result.data?.success) {
       return { success: true, url: result.data.url || '', postId: result.data.task_id || task.id, platform }
     }
-    throw new Error(result.message || (result.data?.error || '鍙戝竷澶辫触'))
+    const backendError = result.message || (result.data?.error || '鍙戝竷澶辫触')
+    logger.notify('PublisherRouter', 'backend-publish-error', {
+      level: 'ERROR',
+      errorCategory: 'backend_error',
+      error: String(backendError),
+      params: { platform },
+    })
+    throw new Error(backendError)
   }
 }
 
@@ -642,6 +681,7 @@ class PublisherRouter {
    */
   createPublisher (platform, deps) {
     const route = this.getRoute(platform)
+    logger.notify('PublisherRouter', 'route-selected', { params: { platform, mode: route.mode } })
 
     switch (route.mode) {
       case 'rpa_vm':

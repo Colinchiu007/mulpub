@@ -33,7 +33,7 @@ function registerHandlers(ipcMain, deps) {
     : createPlaceholderImageGenerator({ outputDir: path.join(tmp, 'story2video', 'video-clone-assets') })
   const publisher = createVideoClonePublisher({ publisherRouter: deps.publisherRouter })
 
-  const pipelineOptions = { assetGenerator, publisher, outputDir: outputRoot, fps: 24 }
+  const pipelineOptions = { assetGenerator, publisher, outputDir: outputRoot, fps: 24, logger: log }
 
   const service = engine.createVideoCloneService({
     createPipeline: (opts) => engine.createSlice3Pipeline(Object.assign({}, opts, pipelineOptions)),
@@ -43,7 +43,7 @@ function registerHandlers(ipcMain, deps) {
     return engine.createVideoClonePipeline({
       generate: engine.createGenerateAssets({ assetGenerator }),
       compose: engine.createFfmpegCompose({ outputDir: outputRoot, fps: 24 }),
-      publish: engine.createPublish({ publisher }),
+      publish: engine.createPublish({ publisher, logger: log }),
     }, { stageIds: ['generate', 'compose', 'publish'], eventSink: opts.eventSink, abortSignal: opts.abortSignal })
   }
 

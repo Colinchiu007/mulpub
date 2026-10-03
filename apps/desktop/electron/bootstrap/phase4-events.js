@@ -60,7 +60,7 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
       })
     } catch (e) {
       // 凭证解析属旁路：失败按「拿不到」处理，绝不冒泡（发布主流程不受影响）
-      log.warn('PublishMonitor', 'audit requery cookie resolution failed: ' + (e && e.message))
+      log.notify('PublishMonitor', 'audit-requery-cookie-resolution-failed', { level: 'WARN', error: String(e && e.message) })
       return
     }
     const cookies = (resolved && typeof resolved.cookies === 'string') ? resolved.cookies : ''
@@ -68,29 +68,29 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
     const decision = requery.decide({ platform: task.platform, cookies })
     if (!decision.start) {
       // 凭证缺失/端点未验证/探索开关关闭 —— 一律不建任务，避免「必然失败的重试风暴」
-      log.info('PublishMonitor', '审核回查跳过 [' + task.platform + ']: ' + decision.reason + '（cookie 来源=' + source + '）')
+      log.notify('PublishMonitor', 'audit-requery-skipped', { level: 'INFO', params: { platform: task.platform, reason: decision.reason, source } })
       return
     }
     publishMonitor.createMonitorTask({
       postId, platform: task.platform, cookies,
       callback: (monitorResult) => {
-        log.info('PublishMonitor', 'Monitor result for ' + task.platform + ':' + postId + ': ' + monitorResult.status)
+        log.notify('PublishMonitor', 'monitor-result', { level: 'INFO', params: { platform: task.platform, postId, status: monitorResult.status } })
         // P0-1 第一切片：审核结论**回写原记录**，不再 addRecord 追加第二条
         // （旧形态让同一次发布在历史里出现两行，且原 success 行与审核结论无法关联）。
         // buildAuditPatch 只在平台给出**明确结论**时产出补丁（无定论/error/timeout/
         // skipped 返回 null）——「没拿到新证据」不是反证，不得抹掉既有审核结论。
         const patch = buildAuditPatch(monitorResult)
         if (!patch) {
-          log.info('PublishMonitor', 'Inconclusive audit status for ' + task.platform + ':' + postId + ' (' + monitorResult.status + ')，保持原记录不变')
+          log.notify('PublishMonitor', 'audit-status-inconclusive', { level: 'INFO', params: { platform: task.platform, postId, status: monitorResult.status } })
           return
         }
         try {
           const { updated } = history.updateRecordAudit(task.id, patch, ownerSubject)
           if (!updated) {
-            log.warn('PublishMonitor', 'Audit update skipped (record not found): ' + task.id)
+            log.notify('PublishMonitor', 'audit-update-skipped', { level: 'WARN', params: { taskId: task.id } })
           }
         } catch (e) {
-          log.warn('PublishMonitor', 'Failed to update audit status: ' + e.message)
+          log.notify('PublishMonitor', 'audit-update-failed', { level: 'WARN', error: String(e.message) })
         }
       },
     })
@@ -115,10 +115,10 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
         // 每次发布都发 12 次必然失败的请求后再 timeout。异步门不阻塞发布主流程；
         // `.catch` 必须挂（策略层抛错不得变成 unhandledRejection）。
         void startAuditRequery(task, postId, ownerSubject).catch((e) => {
-          log.warn('PublishMonitor', 'audit requery gating failed: ' + (e && e.message))
+          log.notify('PublishMonitor', 'audit-requery-gating-failed', { level: 'WARN', error: String(e && e.message) })
         })
       }
-    } catch (e) { log.warn('PublishMonitor', 'Failed to start monitor: ' + e.message) }
+    } catch (e) { log.notify('PublishMonitor', 'monitor-start-failed', { level: 'WARN', error: String(e.message) }) }
     try {
       const title = task.article?.title
       const content = task.article?.content || title
@@ -130,9 +130,9 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
           articleId: task.id, title, keywords: task.article?.keywords || [title],
           platform: task.platform,
         })
-        log.info('ImpactTracker', 'Started tracking "' + title + '"')
+        log.notify('ImpactTracker', 'impact-tracking-started', { level: 'INFO', params: { title } })
       }
-    } catch (e) { log.warn('ImpactTracker', 'Failed to start impact tracking: ' + e.message) }
+    } catch (e) { log.notify('ImpactTracker', 'impact-tracking-start-failed', { level: 'WARN', error: String(e.message) }) }
 
     // P2 效果闭环：发布成功登记 tracked_content（有 postId 或内容 URL → pending 排期回采；都没有 → untrackable 仅手动）
     try {
@@ -151,7 +151,7 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
           ownerSubject,
         })
       }
-    } catch (e) { log.warn('PerformanceLoop', 'Failed to register tracked content: ' + e.message) }
+    } catch (e) { log.notify('PerformanceLoop', 'register-tracked-content-failed', { level: 'WARN', error: String(e.message) }) }
   })
 
   taskQueue.on('task:failed', (task) => {
@@ -173,10 +173,10 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
       try {
         const saved = failureDraftSaver.saveFailureDraft(task)
         if (saved && typeof saved.catch === 'function') {
-          saved.catch((e) => log.warn('FailureDraftSaver', 'auto draft save rejected: ' + (e && e.message)))
+          saved.catch((e) => log.notify('FailureDraftSaver', 'auto-draft-save-rejected', { level: 'WARN', error: String(e && e.message) }))
         }
       } catch (e) {
-        log.warn('FailureDraftSaver', 'auto draft save failed: ' + (e && e.message))
+        log.notify('FailureDraftSaver', 'auto-draft-save-failed', { level: 'WARN', error: String(e && e.message) })
       }
     }
     const win = getMainWin()
@@ -188,7 +188,7 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
           try {
             riskSuspender.suspend(task.platform, accountId, { reason: 'risk_blocked', error: task.error })
             win.webContents.send('publish:risk-suspended', { suspended: riskSuspender.listSuspended() })
-          } catch (e) { log.warn('RiskSuspender', 'suspend failed: ' + e.message) }
+          } catch (e) { log.notify('RiskSuspender', 'suspend-failed', { level: 'WARN', error: String(e.message) }) }
         }
         win.webContents.send('publish:risk-hold', {
           platform: task.platform, accountId, taskId: task.id, error: task.error,

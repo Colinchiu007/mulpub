@@ -384,9 +384,11 @@ function registerHandlers(ipcMain, deps) {
       const expiredCount = data.filter(a => a.status === 'expired').length
       const activeCount = data.filter(a => a.status === 'active' || a.status === 'online').length
       ipcLog('info', 'accounts:list', 'ok', `count=${data.length} active=${activeCount} expired=${expiredCount} platforms=[${data.map((a) => a.platform).filter((v, i, arr) => arr.indexOf(v) === i).join(',')}] 耗时=${Date.now() - startedAt}ms`)
+      log.notify('AccountIPC', 'accounts-list-ok', { params: { count: data.length, platforms: data.map((a) => a.platform) }, level: 'INFO' })
       return { code: 0, data }
     } catch (e) {
       ipcLog('error', 'accounts:list', 'error', `message=${e instanceof Error ? e.message : String(e)} 耗时=${Date.now() - startedAt}ms`)
+      log.notify('AccountIPC', 'accounts-list-error', { errorCategory: 'account_list', level: 'ERROR', error: String(e instanceof Error ? e.message : String(e)) })
       return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e), data: [], ...ipcFailureDetail(e) }
     }
   }))
@@ -439,6 +441,7 @@ function registerHandlers(ipcMain, deps) {
         win.webContents.send('auth:completed', { platform, accountId: savedAccountId })
       }
       ipcLog('info', 'auth:open-login', 'ok', `platform=${platform} accountId=${savedAccountId} 耗时=${Date.now() - startedAt}ms`)
+      log.notify('AccountIPC', 'auth-open-login-ok', { params: { platform, accountId: savedAccountId }, level: 'INFO' })
       return {
         code: 0,
         data: toPublicAccount({
@@ -568,6 +571,7 @@ function registerHandlers(ipcMain, deps) {
       }
       await AccountManager.deleteAccount(accountId)
       ipcLog('info', 'account:delete', 'ok', `accountId=${accountId} 耗时=${Date.now() - startedAt}ms`)
+      log.notify('AccountIPC', 'account-delete-ok', { params: { accountId }, level: 'INFO' })
       return { code: 0, data: true, message: '账号已删除' }
     }
     catch (e) { ipcLog('error', 'account:delete', 'error', `accountId=${accountId} message=${e instanceof Error ? e.message : String(e)}`); return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e) } }
