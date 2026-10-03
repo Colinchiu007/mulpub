@@ -2,9 +2,6 @@
 record: result-view-back-btn-style
 task: 视频历史记录-任务详情页「← 返回」视觉优化（箭头与文字对齐 + 收归同流程 .back-btn 胶囊语言 + 修落位错位）
 date: 2026-10-03
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（回填时把「远程同步」改成 PASS 并整段删除 sync_status / sync_reason / sync_backfill_owner）
 ---
 
 ## 本次执行记录：视频任务详情页返回按钮视觉优化（result-view-back-btn-style，2026-10-03）
@@ -26,7 +23,7 @@ sync_backfill_owner: 下一个会话（回填时把「远程同步」改成 PASS
 | 本地门禁 | PASS（六条逐条 rc=0） | `check-gate-record-debt.js` rc=0（远程同步行 188 条 / 执行记录 387 篇 / 已登记欠账 16 条 / 记录文件 16 篇，两源分列；本记录以 frontmatter `sync_*` 三字段登记，**无需**再动 `gate-record-debt-ledger.json`，checker 的「记录文件登记字段无残留」即为此而设）；`check-unwired-tests.js` rc=0（检查域内 53 个测试文件，新断言加在已收编的 `ResultView.test.js`，未新增测试文件）；`check-step-failfast.js` rc=0；`check-no-brand-residue.js` PASS（6636 个 tracked 文件）；`.github/scripts/check-max-lines.js` rc=0（limit=500 / 超限 98 / 挂账 98 / 墓碑 1，无新增超大文件）；`check-debt-budget.js` rc=0（`maxFileLines 5657/5657`、`filesOver1000 32/32`、`filesOver500 98`（基线 101，未升）、`circularDeps 0`） |
 | QM-1 打包 | ➖ N/A | 未触 `apps/desktop/electron/**`、`packages/rpa-engine/**`、preload 或 IPC，纯渲染端 scoped 样式 |
 | QM-6 CCG 双模型外部评审 | ➖ N/A（按触发条件判定，非跳过） | AGENTS.md QM-6 触发条件三条逐条核对：非 M+/中高风险（净 +20/−3、单组件、无逻辑分支）、不触主进程服务/IPC handler/核心引擎包、不涉及安全/数据校验/状态机/持久化 ⇒ 不强制。风险面上本次唯一的行为改动是 a11y 语义（`aria-hidden`），已由行为锁守住 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填，`git ls-remote --heads origin result-view-back-btn-style` 返回 0 行证远端分支已删；回填后删除上方三个 `sync_*` 字段 |
+| 远程同步 | PASS | 合并经 `git log origin/main --grep='(#2810)$' --format=%H\|%cI\|%s` 取真：squash 提交 `61d28ce93b4ba339d75bcfbc6f99b3138d433ffd`、`2026-10-03T05:25:53Z`、主题 `style(desktop): 视频任务详情页「← 返回」改成描边胶囊并修对齐与落位 (#2810)`（主题带 `(#2810)` ⇒ 合并方式为 squash，按 main 上合并提交主题判、不按 PR title）。远端分支已删：`git ls-remote --heads origin result-view-back-btn-style` 返回 **0 行**。**落地判据取行级包含而非 blob 相等**（squash 后两者会误报）：`git show origin/main:apps/desktop/src/views/ResultView.vue \| grep -c back-to-list__arrow` = **2**、`git show origin/main:apps/desktop/src/views/ResultView.test.js \| grep -c '返回按钮的箭头是独立装饰字形'` = **1**。CI 侧：`state=MERGED`、22 项检查 `pend=0 bad=0`，唯一非 SUCCESS 是 `release=SKIPPED`（只在 tag/main 跑，正常）。合并前本分支共经 **5 次 re-sync**，每次唯一冲突都是 `CHANGELOG.md` 的置顶前插（`insert@0` 块=18 行，算术逐次自洽：63778→63796、63793→63811、63814→63832、63834→63852、63868→63886）；其中一次 `mergeable=UNKNOWN` 被只读 `git merge-tree --write-tree` 复核实为**真冲突**而非排队。上方三个 `sync_*` 登记字段已按销账口径整段删除 |
 
 ### 遗留（不假装已闭合）
 
