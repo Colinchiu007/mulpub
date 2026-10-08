@@ -38,7 +38,6 @@
 - [x] 2.3a 回填端点模式常量 DRAFT_SAVE_RESPONSE_PATTERNS=["/web_api/sns/v2/note"]（证据源：本仓 api-publish-engine/src/publish/platforms/xiaohongshu-draft.js 三步草稿链终步 + 其测试断言真实端点；XHR 主确认通道由此武装，仍属源证据非活体，需 2.4 活体复核）
 - [ ] 2.3b 回填 selector 链与 RISK_OVERLAY_SELECTOR / DRAFT_BOX_ITEM_SELECTOR（需 2.1/2.2 活体取证）
 - [ ] 2.4 真实草稿箱活体验收（**双路覆盖**）：(a) 探针跑 python 轨存草稿 → 草稿箱出现本次条目；(b) 桌面真实队列发一条图文（`rpa-view-platforms.js` 的 `draftOnly:true` 用户路径）→ 草稿箱出现本次条目。均记录证据（截图/响应）。2026-10-09 调用链取证见 design.md「调用链取证」：`ROUTE_TABLE.xiaohongshu=rpa_vm`，桌面当前不经 python 发布器
-<<<<<<< HEAD
 - [x] 2.5 补 PR、更新 design 取证结论、openspec validate、回写 PRD/techdoc 相关小节（PR #2885 / #3183 / #3192；design.md「调用链取证」；`openspec validate --strict` 2026-10-09 再次通过；PRD §4a–§4k 与 §5 表格已回写，含两轮 CCG 深评结论与推翻关系）
 - [x] 2.6 运行态取证（tab CDP，免扫码）——**取到 API 轨契约断裂证据**：对正在运行的桌面实例用零依赖 raw CDP（`/json/list` → Node 原生 `WebSocket` → `Runtime.evaluate`）调 `xiaohongshu:probe-draft-chain`（preload 为**位置参数** `(accountId, opts)`，传对象被判"accountId 非法"）。带媒体即回 `XHS_PERMIT_NO_FILE_ID`「permit: 响应缺 file_id」，`chainDetail.dataKeys=[result, uploadTempPermits]`；全仓 grep `uploadTempPermits` 零命中 ⇒ **API 轨**草稿链断在第 1 步取 permit。影响面核对后收窄：`publisher-router.js` 的 `ROUTE_TABLE.xiaohongshu={mode:'rpa_vm'}`，桌面队列走 WebContents DOM 轨、不经 api-publish-engine，故**不阻塞 2.4(b)**（我一度写成"2.4 被阻塞"，据代码撤回——PRD §4h 留了这条误判与纠证）。不直接修的原因：探针只回白名单**键名**不回值，按键名猜 `uploadTempPermits` 的形状写出的解析器就是下一个"从不触发"的能力（PRD §4h）
 - [ ] 2.7 API 轨 permit 契约修正（**范围外，需用户确认是否纳入**）：先在本地（gitignored，不入库）扩一处完整 permit 回包 dump 取到数组/对象形状与项内字段 → 按实测结构修 `xiaohongshu-draft.js` permit 解析（独立 change + TDD + 自己的 PR）
@@ -53,10 +52,12 @@
 
 - [x] 2.11 CCG 深评第三轮（`44799e73` 批次）两项对抗裁决 + 落地（2026-10-09，PRD §4l、`.adversarial/ccg-deep-44799e73/adjudication.json`）：**两条均 upheld，且均落在守卫侧、本批零生产代码改动**——① 风控文本轨的**外层宿主循环零覆盖**：改动前 6 条风控用例全把文案塞进 `RISK_TEXT_HOSTS[0]`，连名字声称"第二个宿主"的那条实测的是同宿主第二个元素，把 `for host in hosts:` 缩成 `hosts[:1]` 仍全绿；失效方向是漏判风控（红线），不是误判 ⇒ 原用例如实改名为 `..._second_element_of_one_host_...`（它测内层顺序，有效），新增 `test_risk_wording_in_a_later_host_is_caught` 先断言 `len(RISK_TEXT_HOSTS) >= 2` 再把文案放进第二宿主；破坏-恢复：缩成 `hosts[:1]` ⇒ 恰好 1 条红（:438 `assert False is True`），恢复 ⇒ 46 passed。② 盲 sleep 守卫的作用域**没跟着代码搬家**：为守 500 行门禁把实现搬进 `xiaohongshu_dom.py` 后，禁止断言仍只对发布器做字面串匹配，往 dom 加 `asyncio.sleep(30)` 会静默绿 ⇒ 改为跨两文件正则抽数值字面量、逐个断言 `< 3.0`（`set_cover` 的 `sleep(2)` 是合法收尾等待，串判既会假红又挡不住 `3.5`）；破坏-恢复：插入 `sleep(30)` ⇒ 新守卫红于 `30.0 = float('30')` 且**同一改动在旧守卫下全绿**（即指控本身的证据），删回 ⇒ 66 passed。第三类失效模式：**重构搬动代码时守卫作用域必须跟着搬**，与前两类（存在性压在文案真值、留痕锚点选显示措辞）并列
 =======
-- [ ] 2.5 补 PR、更新 design 取证结论、openspec validate、回写 PRD/techdoc 相关小节
-- [x] 2.6 运行态取证（tab CDP，免扫码）——**取到 API 轨契约断裂证据**：对正在运行的桌面实例用零依赖 raw CDP（`/json/list` → Node 原生 `WebSocket` → `Runtime.evaluate`）调 `xiaohongshu:probe-draft-chain`（preload 为**位置参数** `(accountId, opts)`，传对象被判"accountId 非法"）。带媒体即回 `XHS_PERMIT_NO_FILE_ID`「permit: 响应缺 file_id」，`chainDetail.dataKeys=[result, uploadTempPermits]`；全仓 grep `uploadTempPermits` 零命中 ⇒ **API 轨**草稿链断在第 1 步取 permit。影响面核对后收窄：`publisher-router.js` 的 `ROUTE_TABLE.xiaohongshu={mode:'rpa_vm'}`，桌面队列走 WebContents DOM 轨、不经 api-publish-engine，故**不阻塞 2.4(b)**（我一度写成"2.4 被阻塞"，据代码撤回——PRD §4h 留了这条误判与纠证）。不直接修的原因：探针只回白名单**键名**不回值，按键名猜 `uploadTempPermits` 的形状写出的解析器就是下一个"从不触发"的能力（PRD §4h）
-- [ ] 2.7 API 轨 permit 契约修正（**范围外，需用户确认是否纳入**）：先在本地（gitignored，不入库）扩一处完整 permit 回包 dump 取到数组/对象形状与项内字段 → 按实测结构修 `xiaohongshu-draft.js` permit 解析（独立 change + TDD + 自己的 PR）
->>>>>>> 1476985bd (docs(xhs-dom): 撤回「API permit 断裂阻塞验收」的误判，收窄影响面)
+- [x] 2.8 第二轮运行态取证（桌面实例 + tab CDP，走**真实草稿路径**）——取证驱动已就绪，**活体结论未取到**，原因不是登录态而是实例生命周期（PRD §4i）：
+  - 正面证据（免扫码）：真实实例日志三轮一致 `checkLocalCredentials: OK encrypted cookies=20 lsKeys=12` → `persistLoginState 固化登录态 status=active code=CHECK_LOGIN_SUCCESS` ⇒ **2.4 无需用户重新扫码**，本 change 的前置条件由"等登录"改为"等一个稳定的运行窗口"
+  - 阻塞实测：5 次启动（18:56:47 / 19:00:38 / 19:08:53 / 19:12:32 / 19:18:58）实例存活 7s～3.5min，日志一律在 `accounts:batch-check-login` 之后截断且**无崩溃栈**；CDP 间歇 `ECONNREFUSED`（端口看似 LISTENING 亦拒连）。驱动连 `listAccounts()` 都未取到，本地证据仅 `fatal: connect ECONNREFUSED`
+  - 已就绪的采集面（`.agent_context/tier2/tier2_live_verify.js`，gitignored）：`publish:batch` 图文模式（引擎内 `draftOnly=true`；逐行核对该分支**早于**发布按钮点击即 return ⇒ 结构上不可能公开发布）+ `queue:status/history` 轮询 + 任务期间抓创作者中心 tab 的存草稿钮/发布钮/toast/保存态/风控层/草稿箱入口/输入控件计数 ⇒ 用户在场时一条命令同时产出 2.2 与 2.4
+  - 顺带漂移证据：登录态选择器 `[class*="avatar"],[class*="userInfo"],.user-avatar` 在该页超时未命中，靠 dashboard-host 兜底判活——与 2.3b 属同一类"候选过期"缺陷，活体取证时一并采集
+>>>>>>> 7784a9925 (docs(xhs-dom): 记录第二轮 tab-CDP 取证——账号态实测免扫码，阻塞改为实例生命周期)
 
 ## 3. 收口
 
