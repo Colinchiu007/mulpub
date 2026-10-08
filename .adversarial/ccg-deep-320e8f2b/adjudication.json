@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "adjudicatedBy": "self-play",
+  "confidenceWeight": 0.6,
+  "reason": "stall/maxRounds 后自扮演裁决（引擎第三档出口）",
+  "highRiskNote": "高危域争议项不允许自扮演豁免，必须外部复核",
+  "requiresExternalReview": [],
+  "critiqueFingerprint": "f43c71a0005b482a",
+  "instructions": [
+    "对 items 里每一条争议，依次生成：",
+    "  1) 最强指控 —— 论证这条确实是真问题（含具体失败场景）",
+    "  2) 最强辩护 —— 论证这不是问题 / 已被别处覆盖",
+    "  3) 裁决 —— 哪一边论证更强，verdict 取 upheld（指控成立）/ dismissed（指控不成立）",
+    "裁决理由必须可验证，不得只写「看起来没问题」。"
+  ],
+  "adjudicatedAt": "2026-10-09T02:05:00+08:00",
+  "remediationCommit": "本轮修复随 origin/main 并入提交一并落地（见 items[].fix）",
+  "items": [
+    {
+      "id": "i1",
+      "severity": "Critical",
+      "finding": "文本轨用 `count()>0`+`inner_text()` 但全程不查可见性：SPA 常驻的隐藏 modal/captcha/verify 模板容器只要含「请完成验证」「滑块」等默认文案，每次发布都误判 XHS_RISK_BLOCKED，正中方案自述最有害的误判；词表裸「滑块」也会命中封面裁剪等良性弹窗文案。",
+      "highRiskDomains": [],
+      "prosecution": "创作者中心是 SPA，页面模板里常驻着未打开的 modal/verify 容器（Vue 组件 v-show 而非移除 DOM），其默认文案就是「请完成验证」。旧实现只判 `count()>0` 后读 `.first.inner_text()`，这类容器一进页面就被判为风控，`_execute_flow` 第 217 行直接 return，用户每次草稿保存都拿到 XHS_RISK_BLOCKED——本功能的验收口径恰恰是「内容进真实草稿箱」，误判等于功能整体不可用。裸「滑块」进一步把封面裁剪弹窗（「拖动滑块调整比例」）也判成风控。",
+      "defense": "占位选择器 `RISK_OVERLAY_SELECTOR` 为空时文本轨是唯一防线，收紧词表/加可见性会缩小漏判面；且词表口径直接取自本仓桌面轨实战使用的 publish-risk.js RISK_RE，改动等于偏离源证据。",
+      "verdict": "upheld",
+      "rationale": "可见性一侧无争议：误判代价（草稿保存 100% 中止）大于漏判代价，且辩护方未举出「隐藏容器必须算风控」的任何场景。词表一侧采用可验证的等价替换：真实滑块验证必然同容器共现「安全验证/验证码」，故去掉裸「滑块」「拖动滑块」不损失召回，只消除误判——已由 test_bare_slider_crop_wording_is_not_risk（裁剪文案不判风控）与 test_real_slider_verify_still_caught（真验证仍判风控）两面钉死。源证据偏离在 xiaohongshu_selectors.py 注释中留痕说明。",
+      "fix": "_risk_present/_visible_texts 改为只读可见元素；RISK_TEXT_PATTERN 去掉裸「滑块」与「拖动滑块」；新增 hidden 模板/真验证两个用例（原为红，修复后转绿）。"
+    },
+    {
+      "id": "i2",
+      "severity": "Warning",
+      "finding": "每 host 只读 `.first` 元素文本：`[class*=\"modal\"]` 同时命中多个容器时，风控弹层不在 DOM 首位即漏判，照常发布进风控会话；`[class*=\"verify\"]`/`[class*=\"captcha\"]` 类名启发也可能命中常驻侧栏部件。",
+      "highRiskDomains": [],
+      "prosecution": "`[class*=\"modal\"]` 在真实站点上通常命中多个节点（封面弹窗、裁剪弹窗、活动弹窗……），风控层若不是 DOM 首位，旧实现读 `.first` 就必然漏判，随后带着风控会话继续点草稿按钮，正好丢内容。",
+      "defense": "多容器扫描会放大 inner_text 成本，且侧栏类名启发误判风险随之上升。",
+      "verdict": "upheld",
+      "rationale": "漏判成立且代价直接（丢草稿）。修复取两者折中：逐元素扫描但设上限 `RISK_HOST_SCAN_LIMIT=8`，并保留「必须可见 + 必须命中强指认短语」双条件——侧栏常驻部件即便被类名命中，也不含「安全验证/账号存在风险」这类文案，因而不会误判。可验证性：test_risk_wording_in_second_visible_host_is_caught（第 2 位命中，修复前为红）+ test_visible_hosts_beyond_scan_limit_are_not_read（扫描确实被截断到上限）。"
+    },
+    {
+      "id": "i3",
+      "severity": "Warning",
+      "finding": "上传控件等待由 30s 收紧至 `NAVIGATE_READY_TIMEOUT_S=10s` 且 fail-closed：慢网 SPA 下控件未挂载即整体失败，媒体草稿连文本都不入库；旧路径至少保文本，10s 对已知慢站点偏紧，易常态化误伤。",
+      "highRiskDomains": [],
+      "prosecution": "改造前是 `sleep(30)` 后解析一次，等效容忍度 30s；改造后上传路径上限变成 10s，慢网首屏 10~30s 之间挂载的站点会从「成功（虽慢）」变成「XHS_UPLOAD_FAILED」，且 fail-closed 使整条草稿（含标题正文）都不入库。同批 test_p4 守卫自己的注释写着「上限沿用原时长，只收紧快路径，不放宽容忍度」——本次改动违反了自家声明的准则。",
+      "defense": "轮询是条件等待，控件 2s 挂载就 2s 返回，快路径已大幅优于原实现；fail-closed 是刻意的：静默跳过媒体会产出「无媒体草稿」，属缺陷交付。",
+      "verdict": "upheld",
+      "rationale": "辩护只证成「用轮询替代硬 sleep」和「fail-closed」，未证成把上限从 30s 降到 10s——这两点是正交的，且常量命名（UPLOAD_FALLBACK_WAIT_TIMEOUT_S=上传兜底）证明 30s 本属上传路径，现被错配给编辑器就绪。修复为把两个等待的常量对调：上传控件用 UPLOAD_FALLBACK_WAIT_TIMEOUT_S(30s)+其轮询间隔，编辑器就绪用 NAVIGATE_READY_TIMEOUT_S(10s)；fail-closed 与快路径收益全部保留。可验证性：test_upload_ceiling_keeps_the_original_tolerance 钉住 30s；test_upload_path_uses_the_upload_fallback_ceiling 用两个哨兵常量（0.05 vs 9.99）证明失败留痕取的是上传那条，而非源码字面量。 补强：test_upload_wait_poll_count_matches_its_own_ceiling 断轮询次数区间，因为只断错误文案里的数字会假绿（`timeout_s=` 与消息可各用各的常量）；把 timeout_s 改回 NAVIGATE_READY_* 后该用例变红（已实测）。"
+    },
+    {
+      "id": "i4",
+      "severity": "Warning",
+      "finding": "守卫混入格式化耦合的子串断言（`'label=\"编辑器\"'`、`\"未就绪\"`、`\"wait_until(\" in src`）：引号/措辞调整即假红，与 PR-1 旧守卫假红属同一失效类；`==30.0`/`==10.0` 又与 selectors 常量重复定义。",
+      "highRiskDomains": [],
+      "prosecution": "本 PR 的上一轮已经因守卫抠字面量假红过一次（常量搬文件、日志换措辞各中一次）。同一条理由在 test_p4 里仍留着 `'label=\"编辑器\"' in src` 与 `\"未就绪\" in src`——把日志文案改成「尚未就绪」就红，而产品行为没有任何变化，正是同一失效类。",
+      "defense": "「超时须留原因」确是需求的一部分，源码断言是最便宜的守门方式；而 `==30.0`/`==10.0` 是对抗「有人把上限悄悄改掉」的棘轮，值重复定义不等于耦合格式化。",
+      "verdict": "upheld",
+      "rationale": "半成立半不成立，按两半分别裁：(a) `'label=\"编辑器\"'`/`\"未就绪\"` 的字面量断言确实格式化耦合，指控成立——已从 test_p4 移除，改由行为用例承担：test_editor_ready_timeout_leaves_a_reason_in_logs 挂 loguru sink 断言警告文案里点名等待对象（措辞改为「尚未就绪」仍绿，删掉留痕才红）。(b) 值棘轮 `==30.0/==10.0` 指控不成立：它断的是生效值而非源码位置，重构搬文件不会假红，删掉反而失去「上限被悄悄改掉」的防线；保留，并补 i3 的哨兵值行为用例来覆盖「常量与等待路径的映射」这一字面量断言原本想守的语义。",
+      "fix": "test_p4_wait_until 移除 label/措辞字面量断言；新增 loguru sink 行为用例（本仓非 stdlib logging，caplog 无效）；保留值棘轮并补哨兵值 + 轮询次数两道映射用例。"
+    },
+    {
+      "id": "i5",
+      "severity": "Warning",
+      "finding": "§4e③ 指出的系统洞未修：python-backend pytest 仍不在任何 CI workflow，新守卫同样不参与合并阻断；「本地实跑」正是上次漏检的人工环节，守卫变红依旧无声。",
+      "highRiskDomains": [],
+      "prosecution": "gui-test.yml 只在 CI 跑 test_video_provider_imports.py 一个文件；本轮新增的 13 个发布器用例与改造后的静态守卫全部只在本地执行。PR-1 那次上传轮询回退正是因为「CI 不跑 → 本地没人重跑 → 无声合入」，本 PR 声明修了这个系统洞却没有落到 workflow 上。",
+      "defense": "全量 python-backend 套件在本环境有既有失败（ASR 下载、story2video manifest 等，且已在 origin/main 基线复现），直接纳入 CI 会让流水线长期红，反而降低门禁可信度。",
+      "verdict": "upheld",
+      "rationale": "辩护只反对「全量纳入」，不反对「把本次改动所在域纳入」。折中且可验证：gui-test.yml 新增「Verify publisher RPA/DOM regressions」步骤，显式列出 5 个发布器测试文件（xiaohongshu DOM 加固、p4 等待守卫、new_publishers、douyin publisher、douyin rpa_fields），并补装 pytest-asyncio（本地依赖树里有、workflow 里从未声明——不加则 CI 静默跳过全部 async 用例，等于门禁恒真）。该 5 文件集在本地实测 89 passed；既有无关失败留在各自域内后续处理，不阻断本域门禁。"
+    }
+  ]
+}

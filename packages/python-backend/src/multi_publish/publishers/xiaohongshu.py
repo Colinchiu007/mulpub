@@ -41,6 +41,7 @@ from multi_publish.publishers.xiaohongshu_selectors import (
     DRAFT_SAVE_RESPONSE_PATTERNS,
     NAVIGATE_READY_POLL_INTERVAL_S,
     NAVIGATE_READY_TIMEOUT_S,
+    RISK_HOST_PROBE_LIMIT,
     RISK_HOST_SCAN_LIMIT,
     RISK_OVERLAY_SELECTOR,
     RISK_TEXT_HOSTS,
@@ -412,7 +413,7 @@ class XiaoHongShuPublisher(BasePublisher, XiaohongshuAuthMixin):
         )
 
     async def _risk_present(self, page) -> bool:
-        """风控双轨逻辑见 xiaohongshu_dom.risk_present；四个常量必须在此处读取后传参，
+        """风控双轨逻辑见 xiaohongshu_dom.risk_present；常量必须在此处读取后传参，
         否则 monkeypatch 本模块同名常量会静默失效（见该模块 docstring）。"""
         return await dom.risk_present(
             page,
@@ -420,11 +421,15 @@ class XiaoHongShuPublisher(BasePublisher, XiaohongshuAuthMixin):
             hosts=RISK_TEXT_HOSTS,
             pattern=RISK_TEXT_PATTERN,
             limit=RISK_HOST_SCAN_LIMIT,
+            probe_cap=RISK_HOST_PROBE_LIMIT,
         )
 
     async def _visible_texts(self, page, sel: str) -> list[str]:
-        """该选择器命中的可见元素文案（上限 RISK_HOST_SCAN_LIMIT，防整页扫描）。"""
-        return await dom.visible_texts(page, sel, limit=RISK_HOST_SCAN_LIMIT)
+        """该选择器命中的可见元素文案（收集满 RISK_HOST_SCAN_LIMIT 条可见即停，
+        探测不超过 RISK_HOST_PROBE_LIMIT，防整页扫描）。"""
+        return await dom.visible_texts(
+            page, sel, limit=RISK_HOST_SCAN_LIMIT, probe_cap=RISK_HOST_PROBE_LIMIT
+        )
 
     @staticmethod
     def _is_login_redirect(url: str) -> bool:

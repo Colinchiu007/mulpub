@@ -16,6 +16,7 @@ from loguru import logger
 
 from multi_publish.models import PlatformType
 from multi_publish.publishers import xiaohongshu as xhs
+from multi_publish.publishers import xiaohongshu_dom as dom
 from multi_publish.publishers.base import PublisherConfig
 from multi_publish.publishers.xiaohongshu import XiaoHongShuPublisher
 
@@ -35,6 +36,8 @@ class FakeLocator:
         calls[self._sel] = calls.get(self._sel, 0) + 1
         if self._sel in self._page.visible_after:
             return calls[self._sel] > self._page.visible_after[self._sel]
+        if self._index is not None and self._index in self._page.hidden_items.get(self._sel, set()):
+            return False
         return self._sel in self._page.visible
 
     async def count(self):
@@ -77,6 +80,9 @@ class FakePage:
         self.visible_after: dict[str, int] = {}
         self.visibility_calls: dict[str, int] = {}  # 每个 selector 被查询可见性的次数
         self.counts: dict[str, int] = {}
+        # 逐元素可见性：selector -> 该 selector 命中集合里**不可见**的下标
+        # （模拟 SPA 常驻隐藏模板占满 DOM 前部、portal 把真实弹层挂到尾部）
+        self.hidden_items: dict[str, set[int]] = {}
         self.not_fillable: set[str] = set()
         self.item_texts: dict[str, list[str]] = {}
         self.url = "https://creator.xiaohongshu.com/publish/publish"
@@ -438,6 +444,22 @@ class TestRiskTextTrack:
         assert await publisher._risk_present(page) is True
 
     @pytest.mark.asyncio
+    async def test_visible_risk_layer_after_hidden_templates_is_caught(self, publisher):
+        """截断口径必须是「可见元素数」，不是「DOM 序前 N 个节点」。
+
+        portal 把风控弹层 append 到 body 尾部，前面全是 SPA 常驻的隐藏模板；旧实现
+        `total = min(count(), limit)` 先截断再过滤可见性，于是风控层下标 ≥ limit 就
+        永不被扫 —— 文案轨与占位轨同时漏判后流程继续走向发布，违反风控绝不降级的红线。
+        """
+        host = xhs.RISK_TEXT_HOSTS[0]
+        page = _base_page()
+        hidden = list(range(xhs.RISK_HOST_SCAN_LIMIT))  # 隐藏模板刚好占满旧口径的额度
+        page.item_texts[host] = [f"隐藏模板{i}" for i in hidden] + ["请完成安全验证"]
+        page.hidden_items[host] = set(hidden)
+        page.visible.add(host)
+        assert await publisher._risk_present(page) is True
+
+    @pytest.mark.asyncio
     async def test_bare_slider_crop_wording_is_not_risk(self, publisher):
         """CCG i1 另一半：可见裁剪弹窗里的「拖动滑块」是控件说明，不是风控。
 
@@ -588,7 +610,42 @@ class TestUploadReadinessPoll:
         await _flow(publisher, page, FakeMonitor(), media_paths=["a.jpg"])
         sel = publisher._candidates_for("upload_input")[0]
         calls = page.visibility_calls.get(sel, 0)
-        assert 1 <= calls < 50, f"上传轮询 {calls} 次与 0.05s 上限不符（疑似用错等待常量）"
+        # 上限从"魔数 50"改成由被 patch 的常量推导：误用 9.99s 上限会得到 ~1000 次，
+        # 落在带外即红。下界刻意保持为 1：Windows 的 sleep 粒度约 15ms，实测次数会在
+        # 3~7 之间漂，卡下界就是把用例挂在机器时序上（跨宿主归属由下一条 spy 用例精确钉死）。
+        assert 1 <= calls <= xhs.UPLOAD_FALLBACK_WAIT_TIMEOUT_S / xhs.UPLOAD_FALLBACK_POLL_INTERVAL_S + 3, (
+            f"上传轮询 {calls} 次与 0.05s/0.01s 不符（疑似用错等待常量）"
+        )
+
+    @pytest.mark.asyncio
+    async def test_upload_wait_is_fed_the_upload_constants(self, publisher, monkeypatch):
+        """常量归属用实参哨兵值钉死，而不是靠轮询次数反推。
+
+        次数是时序量：Windows sleep 粒度 ~15ms 让 0.01s 间隔实际变成 ~15ms，
+        区间只能判出"上限级"错误，判不出 interval 用错哪一条（本仓两条等待的
+        interval 默认同为 0.5，混用不改变次数）。这里把四个常量各取唯一值，
+        直接断言 `wait_until` 收到的实参，两种混用方向都无处可藏。
+        """
+        seen: list[tuple[float, float]] = []
+        real_wait = dom.wait_until
+
+        async def spy(predicate, *, timeout_s, interval_s):
+            seen.append((timeout_s, interval_s))
+            return await real_wait(predicate, timeout_s=timeout_s, interval_s=interval_s)
+
+        monkeypatch.setattr(dom, "wait_until", spy)
+        monkeypatch.setattr(xhs, "UPLOAD_FALLBACK_WAIT_TIMEOUT_S", 0.05, raising=False)
+        monkeypatch.setattr(xhs, "UPLOAD_FALLBACK_POLL_INTERVAL_S", 0.017, raising=False)
+        monkeypatch.setattr(xhs, "NAVIGATE_READY_TIMEOUT_S", 9.99, raising=False)
+        monkeypatch.setattr(xhs, "NAVIGATE_READY_POLL_INTERVAL_S", 0.023, raising=False)
+        page = _base_page()
+        page.visible.add(DRAFT_SEL)
+        await _flow(publisher, page, FakeMonitor(), media_paths=["a.jpg"])
+
+        upload_waits = [(t, i) for t, i in seen if t == 0.05]
+        assert upload_waits, f"上传等待没有出现 0.05s 上限: {seen}"
+        assert all(i == 0.017 for _, i in upload_waits), f"上传等待误用了别的 interval: {seen}"
+        assert (9.99, 0.017) not in seen and (0.05, 0.023) not in seen, f"常量配对被拆开: {seen}"
 
     @pytest.mark.asyncio
     async def test_editor_ready_timeout_leaves_a_reason_in_logs(self, publisher, monkeypatch):

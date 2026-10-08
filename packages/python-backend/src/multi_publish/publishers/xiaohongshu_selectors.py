@@ -91,9 +91,12 @@ RISK_TEXT_HOSTS: list[str] = [
 RISK_TEXT_PATTERN = (
     r"安全验证|请完成验证|验证码|操作频繁|账号存在风险|风控|risk control"
 )
-# 单个宿主容器内最多扫描的可见元素数，防止 `[class*="modal"]` 命中整页模板时逐元素
-# inner_text 拖垮发布链路。真实风控层是页面上最靠前的可见容器之一。
+# 单个宿主容器内最多收集的**可见**元素文案数，防止整页模板逐元素 inner_text 拖垮发布链路。
 RISK_HOST_SCAN_LIMIT = 8
+# 单宿主最多探测多少个命中节点的可见性。这是成本闸，不是判据闸：`limit` 数的是可见项，
+# 所以隐藏模板再多了也只是多几次 is_visible round-trip。风控层由 portal 挂到 body 尾部时
+# DOM 序天然靠后，按 limit 截断 DOM 序就会永久扫不到它——成本与判据必须分成两个常量。
+RISK_HOST_PROBE_LIMIT = 32
 
 CREATOR_URL = "https://creator.xiaohongshu.com/"
 

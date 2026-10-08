@@ -20,11 +20,16 @@ from loguru import logger
 from multi_publish.publishers.base import wait_until
 
 
-async def visible_texts(page, sel: str, *, limit: int) -> list[str]:
-    """该选择器命中的**可见**元素文案（空文案不保留），最多读取 limit 个元素。
+async def visible_texts(page, sel: str, *, limit: int, probe_cap: int) -> list[str]:
+    """该选择器命中的**可见**元素文案（空文案不保留），最多收集 `limit` 条可见文案。
 
     上限是硬需要：`[class*="modal"]` 这类宿主选择器在 SPA 模板页可命中整页元素，
-    逐元素 inner_text 会把发布链路拖死。真实风控层是页面上最靠前的可见容器之一。
+    逐元素 inner_text 会把发布链路拖死。但**截断口径必须是"可见元素数"而不是
+    "DOM 序前 N 个节点"**：portal 把真实弹层 append 到 body 尾部，而常驻的隐藏
+    modal 模板会先占满前几个节点——按 DOM 序截断等于"风控层排在第 N+1 个就永不被扫"，
+    两轨同时漏判后流程会继续走向发布，违反风控绝不降级的红线。
+    因此文案读取按 `limit` 条**可见**元素收，探测次数另由 `probe_cap` 设硬上限
+    （调用方传常量，防整页节点数放大 round-trip 成本）。
 
     本函数只服务**文案轨**；"有可见容器"这种存在性判定请用 `visible_count`——
     把空串留在返回列表里靠列表真值判风控，是过滤空串就会静默漏判的偶然耦合。
@@ -40,7 +45,7 @@ async def visible_texts(page, sel: str, *, limit: int) -> list[str]:
     """
     try:
         loc = page.locator(sel)
-        total = min(await loc.count(), limit)
+        total = min(await loc.count(), probe_cap)
     except Exception:
         return []
     out: list[str] = []
@@ -53,17 +58,24 @@ async def visible_texts(page, sel: str, *, limit: int) -> list[str]:
             if text:
                 out.append(text)
 =======
->>>>>>> 2d4d94b72 (fix(xhs-dom): CCG 深评 i3/i4 落地——日志锚点改机器可读键、风控占位轨改存在性判定)
+>>>>>>> 9237e6ce5 (fix(xhs-rpa): 采纳第四轮 CCG 深评裁决，拆开判据口径与成本闸)
         except Exception:
             continue
+        if text:
+            out.append(text)
+            if len(out) >= limit:
+                break
     return out
 
 
-async def visible_count(page, sel: str, *, limit: int) -> int:
-    """该选择器命中的**可见**元素个数（最多探测 limit 个，读文案不需要）。"""
+async def visible_count(page, sel: str, *, limit: int, probe_cap: int) -> int:
+    """该选择器命中的**可见**元素个数（数到 `limit` 个即停，探测不超过 `probe_cap`）。
+
+    同 `visible_texts`：按可见数计满额、按 probe_cap 限成本，不按 DOM 序截断。
+    """
     try:
         loc = page.locator(sel)
-        total = min(await loc.count(), limit)
+        total = min(await loc.count(), probe_cap)
     except Exception:
         return 0
     n = 0
@@ -71,14 +83,19 @@ async def visible_count(page, sel: str, *, limit: int) -> int:
         try:
             if await loc.nth(i).is_visible():
                 n += 1
+                if n >= limit:
+                    break
         except Exception:
             continue
     return n
 
 
-=======
->>>>>>> 2d4d94b72 (fix(xhs-dom): CCG 深评 i3/i4 落地——日志锚点改机器可读键、风控占位轨改存在性判定)
 async def risk_present(page, *, overlay_selector: str, hosts: list[str], pattern: str, limit: int) -> bool:
+=======
+async def risk_present(
+    page, *, overlay_selector: str, hosts: list[str], pattern: str, limit: int, probe_cap: int
+) -> bool:
+>>>>>>> 9237e6ce5 (fix(xhs-rpa): 采纳第四轮 CCG 深评裁决，拆开判据口径与成本闸)
     """风控判定双轨：占位选择器（Tier2 待回填）+ 浮层内可见文案（本仓已实战口径）。
 
     两轨都要求元素**可见**：SPA 常驻的隐藏 modal 模板自带默认风控文案，
@@ -89,15 +106,11 @@ async def risk_present(page, *, overlay_selector: str, hosts: list[str], pattern
     """
     if overlay_selector and await visible_count(page, overlay_selector, limit=limit) > 0:
 =======
-
-    占位轨只看存在性，不看文案：回填后的目标是纯图形/拼图验证层，本来就无可匹配文案。
-    代价是这条轨的准确性完全押在选择器精度上，回填必须由活体取证把关。
-    """
-    if overlay_selector and await visible_count(page, overlay_selector, limit=limit) > 0:
->>>>>>> 2d4d94b72 (fix(xhs-dom): CCG 深评 i3/i4 落地——日志锚点改机器可读键、风控占位轨改存在性判定)
+    if overlay_selector and await visible_count(page, overlay_selector, limit=limit, probe_cap=probe_cap) > 0:
+>>>>>>> 9237e6ce5 (fix(xhs-rpa): 采纳第四轮 CCG 深评裁决，拆开判据口径与成本闸)
         return True
     for host in hosts:
-        for text in await visible_texts(page, host, limit=limit):
+        for text in await visible_texts(page, host, limit=limit, probe_cap=probe_cap):
             if re.search(pattern, text, re.I):
                 logger.warning(f"[小红书] 可见浮层文案命中风控口径: {text[:60]!r}")
                 return True

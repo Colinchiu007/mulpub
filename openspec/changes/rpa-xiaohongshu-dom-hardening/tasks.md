@@ -57,6 +57,8 @@
 =======
 >>>>>>> e21703291 (test(xhs-rpa): 采纳第三轮 CCG 深评两项裁决，把守卫作用域跟着代码搬家)
 
+- [x] 2.12 CCG 深评第四轮（`e2170329` 批次）三项对抗裁决 + 落地（2026-10-09，PRD §4m、`.adversarial/ccg-deep-e2170329/adjudication.json`）：**i1/i3 upheld、i2 dismissed**；i1 是本批唯一生产代码改动。① `visible_texts`/`visible_count` 的 `total = min(count(), limit)` 在 **DOM 序**上截断且**先于可见性过滤**——portal 渲染把真实风控弹层 append 到 body 尾部，前 8 个命中节点若多为常驻隐藏模板，可见风控层下标 ≥8 永不被扫，文案轨与占位轨同时漏判后流程继续走向发布（漏判方向＝红线）；原注释「真实风控层是页面上最靠前的可见容器之一」是零活体证据的假设 ⇒ `limit` 改为「收集满 limit 条**可见**项即停」，探测次数另由新常量 `RISK_HOST_PROBE_LIMIT = 32` 设成本闸，发布器两处适配器传 `probe_cap=`（dom 模块仍不得 import 选择器常量），最坏成本从「整页 `count()` 次 `inner_text`」变为「至多 32 次 `is_visible` + 至多 8 次 `inner_text`」，并删除该假设注释。测试夹具原只能表达"整个 selector 可见/不可见"、**结构上无法表达**这条场景，故为 `FakePage/FakeLocator` 增加逐元素 `hidden_items`；破坏-恢复：`total` 退回 `min(count(), limit)` ⇒ 恰好 1 条红（`test_visible_risk_layer_after_hidden_templates_is_caught`，:460 `assert False is True`），恢复 ⇒ 39 passed、相关全量 68 passed。② i3：`1<=calls<50` 是魔数区间，同一用例把两条 interval 都 patch 成 0.01 使**归属结构上不可分辨** ⇒ 上界改由被 patch 常量推导（`timeout/interval + 3`，下界保持 1 并写明 Windows sleep 粒度 ~15ms 的抖动理由），新增 `test_upload_wait_is_fed_the_upload_constants` 桩 `dom.wait_until` 捕获实参 `(timeout_s, interval_s)`、四条常量各取唯一值，直接断言配对不被拆开（确定性判据，不受时序影响）；双向变异：仅换 interval ⇒ 旧区间绿、新 spy 红（零判别力的直接证据），仅换 timeout ⇒ 两条同时红；恢复 ⇒ 68 passed。③ i2 dismissed：静态守卫按源码字面量断结构被指为 §4f-i4 已除的格式耦合复发——区分口径可核对，§4f-i4 移除的是**给用户看的显示措辞**锚点，第三轮 i3 的修复方向恰是**把锚点换成机器可读 key**，本守卫钉的正是机器可读标识符与调用图，改名/收敛调用形式时红一次是设计目标；行为面另有不依赖字面量的用例（哨兵值归属、超时留痕、本轮实参 spy）。处置为在锚点补按语、不改断言。第四类失效模式：**一个参数/常量同时兼任判据口径与成本上限**（语义相反，兼任必牺牲一侧，且被牺牲一侧常以未验证注释自我合理化）——与前三类并列
+
 ## 3. 收口
 
 - [x] 3.1 `openspec validate rpa-xiaohongshu-dom-hardening --strict`（2026-10-09 通过；Gate 12 本地 PASS。2.3b/2.4 完成后需复跑一次再归档）
