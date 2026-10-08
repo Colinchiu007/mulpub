@@ -24,8 +24,8 @@
 
 | 能力 | 行为 |
 |------|------|
-| 草稿 fail-closed | `draft=true` 找不到草稿入口 → 一律报 `XHS_DRAFT_ENTRY_MISSING` 并**阻止任何公开发布点击**（修旧代码"草稿误公开发布"） |
-| 确认才成功 | 三级回退：XHR 响应 `code==0` → 显式 success URL 跳转 → 草稿箱回查命中；均无 → `XHS_UNCONFIRMED` 失败，**不伪造 success、不伪造 url** |
+| 草稿 fail-closed | `draft=true` 时没有任何正面确认 → `XHS_UNCONFIRMED` 并**阻止任何公开发布点击**（修旧代码"草稿误公开发布"）。原口径"找不到草稿入口即报 `XHS_DRAFT_ENTRY_MISSING`"已被 §4o 活体取证推翻：图文编辑器根本没有该按钮 |
+| 确认才成功 | 三级回退：XHR 响应 `code==0` → 显式 success URL 跳转 → 草稿箱回查（计数增长优先，标题匹配兜底）；均无 → `XHS_UNCONFIRMED` 失败，**不伪造 success、不伪造 url** |
 | 选择器回退链 | 标题/正文/草稿按钮/发布按钮/上传完成/标签 均配多候选，命中即停，抗小改版 |
 | 富文本写入 | `contenteditable` 上 `fill()` 抛错时回退 `dispatchEvent(input/change)` |
 | 标签处理 | 逐个 `type` + 选下拉/回车，替换覆盖式 `fill`（旧行为只留最后一个标签） |
@@ -566,17 +566,70 @@ N 是成本闸还是判据？若是成本闸，判据侧的截断口径按什么
 承认代价并留痕（截断即记录选择器 + 命中数 + 探测数），让下一次静默失效可查、并让取证数据
 自己说话。同时注释不许夸大实现口径：注释与代码不一致时，注释会变成误导后续审查的产物。
 
->>>>>>> c9922aaf4 (fix(xhs-rpa): 采纳第五轮 CCG 深评三项裁决，让不可消除的漏判面变成可观测面)
+=======
+## 4o. 第三轮运行态取证（tab CDP · 账号分区）：图文草稿是自动保存 + 浏览器本地态（2026-10-08 定案）
+
+### 取证方式
+用**运行中的桌面实例**（已带 `--remote-debugging-port`）经零依赖 CDP 驱动渲染端：免扫码、免新实例。
+标签页必须经 `window.electronAPI.pageManager.createNewTabPage({url, accountId, platform})` 打开，
+才会落到 `persist:account-<id>` 已登录分区（`tab-lifecycle.js:24-38`）；不带 `accountId` 时走临时
+`persist:browse-<tabId>`，进发布页即 401 弹回登录页。探针只做只读枚举、`location.reload()` 和
+点「草稿箱(N)」这个**导航**入口；绝不点发布、绝不点删除。账号 id/名称等活体产物只落 gitignored
+的 `.agent_context/tier2/live/`，不入库、不入 PR 描述。
+
+### 四条结论（推翻本仓此前四条假设）
+1. **图文编辑器没有「存草稿/保存草稿/暂存离开」按钮。** 按钮与叶子文本全量枚举（关键词含
+   「草稿」「暂存」，探测放宽到 12 次）无一命中；页面右下角显示「编辑于 刚刚」，即草稿由平台
+   **自动保存**。⇒ PR-1 把一条页面上根本不存在的控件当成了成功前置条件，`XHS_DRAFT_ENTRY_MISSING`
+   在真实页面上永不成立；该常量与它的归一已删除。
+2. **草稿箱入口就是发布页自身**（左侧 `header-draft` 面板），取证地址为
+   `.../publish/publish?from=menu&target=image`；此前的 `?draft=true` 是从未在活体出现过的猜测值。
+   ⇒ `DRAFT_BOX_URL` 已按证据改为真正会重载到图文面板的地址。
+3. **计数节点实测 `SPAN.draft-title`，文本形如「草稿箱(1)」**；条目标题选择器
+   （`[class*="draft"] [class*="title"]`）仍未取证，只保留为次级兜底。
+4. **图文草稿是浏览器本地态，跨分区不可见。** RPA 窗口用 `persist:rpa-<platform>-<accountId>`
+   （`rpa-view-session.js:130-143`），与账号标签页的 `persist:account-<id>` **不是同一分区**。
+   ⇒ 账号标签页里读到「草稿箱(0)」并不证明 RPA 没写进去，只证明**证据介质口径错配**。本段最重要
+   的自我纠错就在这里：先前把「队列 success + 草稿箱 0」判成假成功，实质是拿 A 分区的可见性去判
+   B 分区的写入，判据本身无效。
+
+### 2.4 活体验收（通过）
+账号分区内人工复现存草稿：进发布页读到「草稿箱(0)」→ 填标题/正文并上传图片（`ros-upload` 实测
+5242880 bytes）→ `location.reload()` → **「草稿箱(1)」**，点开草稿箱可见本次标记标题条目与
+「编辑于 …」。证据：`live/after-20261008T213745.json`。
+⇒ 验收口径固化为：**以重载后「草稿箱(N)」计数增长作为图文草稿的正面确认信号**。
+
+### 代码落地（同批）
+- `xiaohongshu_selectors.py`：`DRAFT_BOX_URL` 改为取证地址；新增 `DRAFT_BOX_COUNTER_SELECTOR`
+  与 `DRAFT_BOX_COUNTER_PROBE_CAP = 8`（成本闸，不是判据口径，沿 §4m 的分离原则）；删除
+  `CODE_DRAFT_ENTRY_MISSING`。
+- `xiaohongshu_dom.py`：新增 `draft_box_count()`，读不到节点或节点文本不含计数一律返回 `None`
+  ——「看着像 0」不得被当成基线。
+- `xiaohongshu.py`：`_execute_flow` 在**写入任何内容之前**读基线（平台自动保存，读晚了基线就被
+  本次草稿污染，增量判据永不成立）；`_save_as_draft` 无按钮时不再报错，改为转入以计数为判据的
+  确认；`_recheck_draft_box(page, title, baseline)` 主判据改为重载后计数增长，标题匹配退为兜底。
+- fail-closed 红线一条没松：无 XHR 成功码、无 success URL、无计数增长、无标题命中 ⇒
+  `XHS_UNCONFIRMED`，且绝不点击任何公开发布按钮。
+
+### 测试保护（破坏-恢复变异取证全部 CAUGHT）
+7 条变异各自把一处保护改成失效形态、确认对应新用例变红后即时还原：① 计数持平即视为确认；
+② 删掉增量判据；③ 基线挪到写入之后；④ `probe_cap` 硬编码不走常量；⑤ 读不到计数当 0；
+⑥ 恢复「无按钮即失败」的旧口径；⑦ 夹具拿掉计数节点的可见性闸门（证明夹具真的经过可见性判）。
+还原后本文件 52 条全绿。
+
+>>>>>>> 9df5bf3a7 (fix(xhs-rpa): 按活体取证固化「草稿箱计数增长」为草稿确认判据)
 ## 5. 剩余工作（必须完成才算验收）
 
 | 项 | 状态 | 阻塞 |
 |----|------|------|
 | 2.3a 端点模式常量回填 | 已完成（源证据） | — |
 | PR-3 行数门禁拆分 + CI fail-fast 修正 | 已完成（4g） | — |
-| 2.1 活体取证 runbook 脚本 | 已就绪（脚本+自检通过，未执行） | (a) python 探针仍需**用户扫码**（无可复用 profile）；(b) 桌面路线登录态实测有效，只缺**稳定运行窗口**（4i） |
-| 2.2 真实选择器取证 | 待办 | 同上（`tier2_live_verify.js` 已内建采集，一条命令即出） |
-| 2.3b `RISK_OVERLAY_SELECTOR` / `DRAFT_BOX_ITEM_SELECTOR` 回填 | 待办 | 依赖 2.1/2.2 |
-| 2.4 真实草稿箱活体验收 | 待办 | 依赖 2.1/2.2/2.3b（(b) 路走 `rpa_vm`，与 4h 的 API permit 断裂无关；无需重新扫码） |
+| 2.1 活体取证 runbook 脚本 | 已完成（改走 tab CDP，免扫码，见 4o） | python 探针路线（扫码）已弃用：运行中桌面实例即可提供账号分区 |
+| 2.2 真实选择器取证 | 已完成（4o） | 取到 `header-draft`/`draft-title`/`SPAN.draft-title` 计数文本、无草稿按钮、自动保存「编辑于」 |
+| 2.3b `DRAFT_BOX_URL` / 计数选择器回填 | 已完成（4o） | `RISK_OVERLAY_SELECTOR` 仍为占位（风控轨继续走文本判据），`DRAFT_BOX_ITEM_SELECTOR` 仍未取证，仅作次级兜底 |
+| 2.4 真实草稿箱活体验收 | 已完成（4o，`草稿箱(0)` → 重载 → `草稿箱(1)`） | 验收口径已固化进确认链 |
+| 桌面 Node 轨 `draftOnly` 无正面确认即报 success | 待办（新发现，另开任务） | `rpa-view-platforms.js::_publish_generic` 实测 14s 返回、`url` 恒为发布页 URL，无确认信号；且 RPA 分区与账号分区不同，判据需按 4o 结论重设 |
+| `rpa-rpa-*` 双前缀分区漂移与孤儿分区目录 | 待办（新发现，另开任务） | 需先定位拼接点，改动不在本分支范围 |
 | 2.6 运行态取证（tab CDP，免扫码） | 已完成 | 取到 API 轨 permit 契约断裂证据（4h） |
 | CCG 深评（`1476985bd`）四项裁决 + i3/i4 落地 | 已完成（4j） | 深评第 1 轮即达 stall 出口，改走 self-play 裁决（`confidenceWeight 0.6`），无高危域项 |
 | CCG 深评第二轮（`0436f91c8`）两项裁决 + 落地 | 已完成（4k） | 上一轮修复自身被重审推翻：编辑器就绪上限恢复 30s、去掉命中后的二次解析 |
@@ -586,11 +639,21 @@ N 是成本闸还是判据？若是成本闸，判据侧的截断口径按什么
 | 2.7 API 轨 permit 契约修正 | 待办（范围外，待用户确认） | 需先取 permit 完整回包结构，禁止按键名猜 |
 | 3.2 change 归档 | 待办 | 两 PR 合并 + 活体验收通过 |
 
-当前端点属**源证据而非活体证据**：`/web_api/sns/v2/note` 是否确为创作者中心
-存草稿时的实际 XHR，仍需 2.4 活体复核。在那之前本能力视为「已具备确认通道，
-未活体验收」。
+2.4 的活体验收已通过，但验收信号是**「草稿箱(N)」计数增长**（4o），不是 `/web_api/sns/v2/note`
+响应：自动保存链路上未捕获到该端点的活体 XHR，所以 `DRAFT_SAVE_RESPONSE_PATTERNS` 仍是
+**源证据**而非活体证据。它作为 XHR 主确认通道继续保留（命中即确认，且已在 §4 里排除了
+permit/ros-upload 的假阳性），但"本能力已活体验收"这句话只对计数判据成立，不对端点成立。
 
-## 6. 取证 runbook（2.1 已就绪，2.2 待执行）
+## 6. 取证 runbook（2.1/2.2/2.4 已按此执行完毕）
+
+**实际执行路线（免扫码，本节下方 python 探针路线已弃用）**：驱动**运行中的桌面实例**
+（`--remote-debugging-port`）→ `http://127.0.0.1:<port>/json/list` 找 target → Node 自带的全局
+`WebSocket` 直连（该环境**无 `ws` 模块**）→ `Runtime.evaluate{awaitPromise:true,returnByValue:true}`
+执行页内表达式；文件上传用 `DOM.getDocument`→`DOM.querySelector`→`DOM.setFileInputFiles`。
+开页只走 `pageManager.createNewTabPage({url, accountId, platform})` 以落到账号分区。
+一次性脚本与产物全部落在 gitignored 的 `.agent_context/tier2/`（含账号信息，绝不入库）。
+
+<details><summary>备用的 python 探针路线（需要扫码，未采用）</summary>
 
 探针脚本落在 gitignored 的 `.agent_context/tier2/`（不入库，产物含账号信息）：
 `xhs_tier2_probe.py` + `RUNBOOK.md` + `_smoke.py`（零浏览器自检，已 PASS）。
@@ -606,5 +669,8 @@ N 是成本闸还是判据？若是成本闸，判据侧的截断口径按什么
 不公开发布"的验收红线。若 `--mode drive` 命中，则说明现有回退链可用，但该模式会
 真实存一条草稿，用完需人工删除。
 
-用实测值替换 2.3b 的选择器占位，并把 `DRAFT_SAVE_RESPONSE_PATTERNS` 从源证据升级
-为活体证据；随后 2.4 以"草稿箱人工可见本次条目"为通过口径。
+该路线原计划用实测值替换 2.3b 的选择器占位并把 `DRAFT_SAVE_RESPONSE_PATTERNS` 升级为活体证据；
+实际由上面的 tab CDP 路线拿到了同样的取证与验收（4o），扫码路线因此未执行。若日后需要复核
+自动保存链路是否真的打 `note` 端点，再走这条路线补 `network.json`。
+
+</details>

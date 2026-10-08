@@ -1,8 +1,8 @@
 """小红书 DOM/RPA 轨加固单测（rpa-xiaohongshu-dom-hardening PR-1）。
 
 用注入的假 page + 假 monitor 覆盖发布编排的核心分支，零真实浏览器：
-- 草稿 fail-closed：找不到草稿入口绝不 fallthrough 点发布。
-- 确认才成功：XHR 响应命中才成功且带真实 url；无正面确认绝不报成功。
+- 草稿 fail-closed：没有任何正面确认绝不报成功，且绝不 fallthrough 点公开发布。
+- 确认才成功：XHR 响应命中、URL 显式跳转，或重载后「草稿箱(N)」计数增长，三者之一。
 - 选择器多候选回退；contenteditable 走 dispatch；标签逐个 type 不覆盖。
 - 登录过期 / 风控弹层归一到对应错误码。
 """
@@ -130,6 +130,22 @@ class FakeMonitor:
 TITLE_SEL = '[placeholder*="标题"]'  # title_input 回退链首个候选
 DRAFT_SEL = 'button:has-text("存草稿")'  # draft_button 回退链首个候选
 PUBLISH_SEL = 'button:has-text("发布")'
+COUNTER_SEL = xhs.DRAFT_BOX_COUNTER_SELECTOR  # 活体取证 2026-10-08：草稿箱计数节点 class=draft-title
+
+
+def _page_with_draft_box(before: int, after):
+    """上传页读到 before 个草稿；回查重载后变成 after（None 表示回查后仍读不到计数）。"""
+    p = _base_page()
+    p.visible.add(COUNTER_SEL)  # 计数节点必须可见，否则探测恒为 None
+    p.item_texts[COUNTER_SEL] = [f"草稿箱({before})"]
+
+    async def goto(url, **k):
+        p.navigations.append(url)
+        if url == xhs.DRAFT_BOX_URL:
+            p.item_texts[COUNTER_SEL] = [] if after is None else [f"草稿箱({after})"]
+
+    p.goto = goto
+    return p
 
 
 @pytest.fixture
@@ -154,12 +170,19 @@ async def _flow(pub, page, monitor, **kw):
 class TestDraftFailClosed:
     @pytest.mark.asyncio
     async def test_missing_draft_entry_blocks_public_publish(self, publisher, monkeypatch):
+        """图文编辑器无显式存草稿按钮（活体取证），确认信号缺席时仍须失败且不点发布。
+
+        旧口径把"找不到草稿入口"单独归错为 DRAFT_ENTRY_MISSING；真实页面根本没有这个
+        按钮（平台自动保存），所以入口缺席不是失败理由，**没有任何正面确认**才是。
+        红线不变：不确认 ⇒ 失败，且绝不 fallthrough 点公开发布。
+        """
         monkeypatch.setattr(xhs, "DRAFT_SAVE_RESPONSE_PATTERNS", [], raising=False)
         page = _base_page()
-        page.visible.add(PUBLISH_SEL)  # 发布按钮存在，但草稿入口缺失
+        page.visible.add(PUBLISH_SEL)  # 发布按钮存在，但草稿入口缺失、计数也读不到
+        page.item_texts[COUNTER_SEL] = []
         result = await _flow(publisher, page, FakeMonitor(), draft=True)
         assert result.success is False
-        assert xhs.CODE_DRAFT_ENTRY_MISSING in (result.error or "")
+        assert xhs.CODE_UNCONFIRMED in (result.error or "")
         # 关键红线：绝不能点击公开发布按钮
         assert PUBLISH_SEL not in page.clicked
 
@@ -185,6 +208,123 @@ class TestConfirmBeforeSuccess:
         result = await _flow(publisher, page, FakeMonitor(), draft=True)
         assert result.success is False
         assert xhs.CODE_UNCONFIRMED in (result.error or "")
+
+
+class TestAutosaveDraftConfirmation:
+    """活体取证 2026-10-08（账号分区图文编辑器）：页面没有「存草稿」按钮，草稿由平台自动保存，
+    唯一可见的正结果是重载后「草稿箱(N)」计数 +1。本类把这条口径钉成确认逻辑。"""
+
+    @pytest.mark.asyncio
+    async def test_counter_increment_confirms_draft_without_any_button(self, publisher, monkeypatch):
+        monkeypatch.setattr(xhs, "DRAFT_SAVE_RESPONSE_PATTERNS", [], raising=False)
+        page = _page_with_draft_box(0, 1)
+        page.visible.add(PUBLISH_SEL)
+        result = await _flow(publisher, page, FakeMonitor(), draft=True)
+        assert result.success is True, result.error
+        assert xhs.DRAFT_BOX_URL in (result.url or "")
+        # 没有草稿按钮可点时不该乱点，尤其不点发布
+        assert DRAFT_SEL not in page.clicked
+        assert PUBLISH_SEL not in page.clicked
+        assert page.navigations[-1] == xhs.DRAFT_BOX_URL  # 回查确实重载了发布页
+
+    @pytest.mark.asyncio
+    async def test_counter_unchanged_is_not_a_confirmation(self, publisher, monkeypatch):
+        """计数没涨 ⇒ 没有正证据，按失败上报（不误报成功），且不点发布。"""
+        monkeypatch.setattr(xhs, "DRAFT_SAVE_RESPONSE_PATTERNS", [], raising=False)
+        page = _page_with_draft_box(1, 1)
+        page.visible.add(PUBLISH_SEL)
+        result = await _flow(publisher, page, FakeMonitor(), draft=True)
+        assert result.success is False
+        assert xhs.CODE_UNCONFIRMED in (result.error or "")
+        assert PUBLISH_SEL not in page.clicked
+
+    @pytest.mark.asyncio
+    async def test_counter_vanishing_on_recheck_is_not_a_confirmation(self, publisher, monkeypatch):
+        """回查后计数节点读不到（SPA 没渲染出来）同样不算确认——宁可失败不可假成功。"""
+        monkeypatch.setattr(xhs, "DRAFT_SAVE_RESPONSE_PATTERNS", [], raising=False)
+        page = _page_with_draft_box(2, None)
+        result = await _flow(publisher, page, FakeMonitor(), draft=True)
+        assert result.success is False
+        assert xhs.CODE_UNCONFIRMED in (result.error or "")
+
+    @pytest.mark.asyncio
+    async def test_baseline_is_read_before_any_content_is_written(self, publisher, monkeypatch):
+        """基线必须在写入任何内容**之前**读。
+
+        平台是自动保存：一旦开始填表，本次草稿就可能已进草稿箱。基线读晚了就被污染，
+        "计数比基线大"这条判据从此永不成立（或把上一次失败写成的一切当成基线）。
+        所以断言的是事件顺序，不是计数值——只验值的话把读取挪到填表之后也不会红。
+        """
+        events = []
+        monkeypatch.setattr(xhs, "DRAFT_SAVE_RESPONSE_PATTERNS", [], raising=False)
+        page = _page_with_draft_box(3, 4)
+        orig_count = dom.draft_box_count
+
+        async def spy_count(p, sel, *, probe_cap):
+            n = await orig_count(p, sel, probe_cap=probe_cap)
+            events.append(("baseline", n))
+            return n
+
+        orig_set_field = publisher._set_field
+
+        async def spy_field(p, key, text):
+            events.append(("write", key))
+            return await orig_set_field(p, key, text)
+
+        monkeypatch.setattr(dom, "draft_box_count", spy_count)
+        monkeypatch.setattr(publisher, "_set_field", spy_field)
+        result = await _flow(publisher, page, FakeMonitor(), draft=True)
+        assert events[0] == ("baseline", 3)
+        assert events[1][0] == "write"
+        assert result.success is True, result.error
+
+    @pytest.mark.asyncio
+    async def test_title_match_still_confirms_when_counter_unreadable(self, publisher, monkeypatch):
+        """计数节点读不到时保留原有的标题回查通道（未取证选择器仍可命中则确认）。"""
+        monkeypatch.setattr(xhs, "DRAFT_SAVE_RESPONSE_PATTERNS", [], raising=False)
+        page = _base_page()
+        page.item_texts[COUNTER_SEL] = []  # 基线与回查都读不到计数
+        page.item_texts[xhs.DRAFT_BOX_ITEM_SELECTOR] = ["测试标题 编辑于 刚刚"]
+        result = await _flow(publisher, page, FakeMonitor(), draft=True)
+        assert result.success is True, result.error
+
+    @pytest.mark.asyncio
+    async def test_draft_box_count_parses_the_visible_counter(self):
+        page = FakePage()
+        page.visible.add(COUNTER_SEL)
+        page.item_texts[COUNTER_SEL] = ["草稿箱(7)"]
+        assert await dom.draft_box_count(
+            page, COUNTER_SEL, probe_cap=xhs.DRAFT_BOX_COUNTER_PROBE_CAP
+        ) == 7
+
+    @pytest.mark.asyncio
+    async def test_draft_box_count_is_none_when_nothing_parses(self):
+        page = FakePage()
+        page.visible.add(COUNTER_SEL)
+        page.item_texts[COUNTER_SEL] = ["草稿箱"]  # 常驻标题文案，不带计数
+        assert await dom.draft_box_count(
+            page, COUNTER_SEL, probe_cap=xhs.DRAFT_BOX_COUNTER_PROBE_CAP
+        ) is None
+        empty = FakePage()
+        assert await dom.draft_box_count(
+            empty, COUNTER_SEL, probe_cap=xhs.DRAFT_BOX_COUNTER_PROBE_CAP
+        ) is None
+
+    @pytest.mark.asyncio
+    async def test_draft_box_probe_cap_is_wired_from_publisher(self, publisher, monkeypatch):
+        """新常量必须真的被发布器传给探测函数，否则把接线改回硬编码也不会红。"""
+        seen = {}
+        monkeypatch.setattr(xhs, "DRAFT_SAVE_RESPONSE_PATTERNS", [], raising=False)
+        page = _page_with_draft_box(0, 1)
+        orig = dom.draft_box_count
+
+        async def spy_count(p, sel, *, probe_cap):
+            seen.setdefault("call", (sel, probe_cap))
+            return await orig(p, sel, probe_cap=probe_cap)
+
+        monkeypatch.setattr(dom, "draft_box_count", spy_count)
+        await _flow(publisher, page, FakeMonitor(), draft=True)
+        assert seen.get("call") == (COUNTER_SEL, xhs.DRAFT_BOX_COUNTER_PROBE_CAP)
 
 
 class TestSelectorFallbackAndRichFill:

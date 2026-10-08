@@ -2,7 +2,7 @@
 
 ### Requirement: 小红书 DOM 轨以"存入草稿箱"为验收目标
 
-小红书 RPA 发布器 SHALL 以"内容成功保存进创作者中心草稿箱"为可验收的成功终态，MUST NOT 执行真实公开发布作为默认验收路径。成功判定 SHALL 基于正面确认信号（草稿保存 API 响应经 `ResponseMonitor` 捕获，或草稿箱列表回查命中本次条目），MUST NOT 依赖固定 `sleep` 后无条件报成功，MUST NOT 伪造 `url`。
+小红书 RPA 发布器 SHALL 以"内容成功保存进创作者中心草稿箱"为可验收的成功终态，MUST NOT 执行真实公开发布作为默认验收路径。成功判定 SHALL 基于正面确认信号（草稿保存 API 响应经 `ResponseMonitor` 捕获、显式 success URL 跳转，或重载草稿箱后「草稿箱(N)」计数相对**写入前基线**增长），MUST NOT 依赖固定 `sleep` 后无条件报成功，MUST NOT 伪造 `url`。采用计数判据时，基线 SHALL 在向页面写入任何内容之前读取——平台自动保存会把已开始编辑的内容计入晚读的基线，使"相对基线增长"永不成立。
 
 #### Scenario: 草稿保存确认后才报成功
 - **WHEN** 发布器填写标题/正文/图片并触发草稿保存
@@ -10,16 +10,20 @@
 - **THEN** 返回 `success=True`，且 `url` 为真实草稿箱/条目地址而非硬编码占位
 
 #### Scenario: 无正面确认绝不报成功
-- **WHEN** 触发草稿保存后在超时窗口内既无成功响应也无草稿箱回查命中
+- **WHEN** 触发草稿保存后在超时窗口内既无成功响应、也无显式 success URL 跳转、且重载草稿箱后「草稿箱(N)」计数未增长、条目标题也未命中
 - **THEN** 返回 `success=False` 且带可诊断 error，MUST NOT 报 `success=True`
 
 ### Requirement: 草稿意图 fail-closed，禁止误公开发布
 
-当调用方传入 `draft=True`（草稿意图）时，发布器 SHALL 仅在找到草稿保存入口时执行保存；若找不到草稿入口，SHALL fail-closed 返回错误，MUST NOT fallthrough 点击"发布/发布笔记"造成公开发布。
+当调用方传入 `draft=True`（草稿意图）时，发布器 MUST NOT 点击"发布/发布笔记"等任何会造成公开发布的按钮；保存成功的判定 SHALL 依赖正面确认信号（成功响应、显式 success URL 跳转，或重载后「草稿箱(N)」计数增长），MUST NOT 因"找不到某个按钮"就报成功。活体取证（2026-10-08）表明图文编辑器**不存在**显式存草稿按钮、草稿由平台自动保存，因此"按钮存在"既不是保存的前置条件，也不是失败的判据——fail-closed 的锚点是**确认信号缺席**，不是控件缺席。
 
-#### Scenario: 找不到草稿入口时拒绝公开发布
-- **WHEN** `draft=True` 且草稿保存按钮选择器在重试后仍不命中
-- **THEN** 返回 `success=False`，error 指明"草稿入口缺失"，且未点击任何公开发布按钮
+#### Scenario: 无草稿按钮但计数增长即确认
+- **WHEN** `draft=True` 且页面不存在存草稿按钮（平台自动保存），重载草稿箱后计数由基线增长
+- **THEN** 返回 `success=True`，且未点击任何公开发布按钮
+
+#### Scenario: 既无按钮也无确认信号时拒绝公开发布
+- **WHEN** `draft=True`、草稿保存按钮不命中，且重载后计数未增长、条目标题也未命中
+- **THEN** 返回 `success=False` 且 error 指明未获正面确认，且未点击任何公开发布按钮
 
 ### Requirement: 选择器多候选回退与富文本可靠填写
 
@@ -50,5 +54,5 @@
 发布器 SHALL 将发布步骤逻辑与真实 playwright 启动解耦（可注入 `page` 与 `ResponseMonitor` 工厂），使核心分支（草稿 fail-closed、确认才成功、选择器回退、错误归一）可在无真实浏览器的假对象下单元测试。
 
 #### Scenario: 假页面驱动草稿 fail-closed 单测
-- **WHEN** 单测注入一个"无草稿入口"的假 page 调用发布流程
+- **WHEN** 单测注入一个"无草稿按钮且草稿箱计数不增长"的假 page 调用发布流程
 - **THEN** 断言未点击公开发布按钮且返回 failure 类结果

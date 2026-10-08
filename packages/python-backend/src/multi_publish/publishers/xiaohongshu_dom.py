@@ -102,7 +102,6 @@ async def visible_count(page, sel: str, *, limit: int, probe_cap: int) -> int:
 
 
 async def risk_present(page, *, overlay_selector: str, hosts: list[str], pattern: str, limit: int) -> bool:
-=======
 async def risk_present(
     page, *, overlay_selector: str, hosts: list[str], pattern: str, limit: int, probe_cap: int
 ) -> bool:
