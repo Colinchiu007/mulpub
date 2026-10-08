@@ -55,7 +55,7 @@
   - 已就绪的采集面（`.agent_context/tier2/tier2_live_verify.js`，gitignored）：`publish:batch` 图文模式（引擎内 `draftOnly=true`；逐行核对该分支**早于**发布按钮点击即 return ⇒ 结构上不可能公开发布）+ `queue:status/history` 轮询 + 任务期间抓创作者中心 tab 的存草稿钮/发布钮/toast/保存态/风控层/草稿箱入口/输入控件计数 ⇒ 用户在场时一条命令同时产出 2.2 与 2.4
   - 顺带漂移证据：登录态选择器 `[class*="avatar"],[class*="userInfo"],.user-avatar` 在该页超时未命中，靠 dashboard-host 兜底判活——与 2.3b 属同一类"候选过期"缺陷，活体取证时一并采集
 =======
->>>>>>> 44799e73f (fix(xhs-rpa): 采纳第二轮 CCG 深评两项裁决，修正等待容忍度与控件抖动误判)
+>>>>>>> e21703291 (test(xhs-rpa): 采纳第三轮 CCG 深评两项裁决，把守卫作用域跟着代码搬家)
 
 ## 3. 收口
 
