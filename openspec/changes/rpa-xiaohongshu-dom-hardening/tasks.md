@@ -54,7 +54,8 @@
   - 阻塞实测：5 次启动（18:56:47 / 19:00:38 / 19:08:53 / 19:12:32 / 19:18:58）实例存活 7s～3.5min，日志一律在 `accounts:batch-check-login` 之后截断且**无崩溃栈**；CDP 间歇 `ECONNREFUSED`（端口看似 LISTENING 亦拒连）。驱动连 `listAccounts()` 都未取到，本地证据仅 `fatal: connect ECONNREFUSED`
   - 已就绪的采集面（`.agent_context/tier2/tier2_live_verify.js`，gitignored）：`publish:batch` 图文模式（引擎内 `draftOnly=true`；逐行核对该分支**早于**发布按钮点击即 return ⇒ 结构上不可能公开发布）+ `queue:status/history` 轮询 + 任务期间抓创作者中心 tab 的存草稿钮/发布钮/toast/保存态/风控层/草稿箱入口/输入控件计数 ⇒ 用户在场时一条命令同时产出 2.2 与 2.4
   - 顺带漂移证据：登录态选择器 `[class*="avatar"],[class*="userInfo"],.user-avatar` 在该页超时未命中，靠 dashboard-host 兜底判活——与 2.3b 属同一类"候选过期"缺陷，活体取证时一并采集
->>>>>>> 7784a9925 (docs(xhs-dom): 记录第二轮 tab-CDP 取证——账号态实测免扫码，阻塞改为实例生命周期)
+=======
+>>>>>>> 2d4d94b72 (fix(xhs-dom): CCG 深评 i3/i4 落地——日志锚点改机器可读键、风控占位轨改存在性判定)
 
 ## 3. 收口
 
