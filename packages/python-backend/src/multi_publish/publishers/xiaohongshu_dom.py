@@ -34,22 +34,21 @@ async def visible_texts(page, sel: str, *, limit: int, probe_cap: int) -> list[s
     本函数只服务**文案轨**；"有可见容器"这种存在性判定请用 `visible_count`——
     把空串留在返回列表里靠列表真值判风控，是过滤空串就会静默漏判的偶然耦合。
 =======
-    """该选择器命中的**可见**元素文案（空文案不保留），最多读取 limit 个元素。
 
-    上限是硬需要：`[class*="modal"]` 这类宿主选择器在 SPA 模板页可命中整页元素，
-    逐元素 inner_text 会把发布链路拖死。真实风控层是页面上最靠前的可见容器之一。
-
-    本函数只服务**文案轨**；"有可见容器"这种存在性判定请用 `visible_count`——
-    把空串留在返回列表里靠列表真值判风控，是过滤空串就会静默漏判的偶然耦合。
->>>>>>> 2d4d94b72 (fix(xhs-dom): CCG 深评 i3/i4 落地——日志锚点改机器可读键、风控占位轨改存在性判定)
+    `probe_cap` 仍是一道按 DOM 序的悬崖（只是从 8 抬到 32），本仓没有活体证据说明
+    风控层在 DOM 里的实际位置，因此不引入"从尾部反向扫"这类同样未验证的假设来替换它。
+    能确定的是：**截断必须留痕**。命中节点数超过探测上限、又没集满可见文案时打一条
+    含选择器与两个计数的告警，让"可能漏判"从静默失效变成发布链路里可查的线索
+    （也是 2.2 活体取证能拿到的第一个量化观测量）。
+>>>>>>> c9922aaf4 (fix(xhs-rpa): 采纳第五轮 CCG 深评三项裁决，让不可消除的漏判面变成可观测面)
     """
     try:
         loc = page.locator(sel)
-        total = min(await loc.count(), probe_cap)
+        hit_count = await loc.count()
     except Exception:
         return []
     out: list[str] = []
-    for i in range(total):
+    for i in range(min(hit_count, probe_cap)):
         item = loc.nth(i)
         try:
             if not await item.is_visible():
@@ -65,21 +64,28 @@ async def visible_texts(page, sel: str, *, limit: int, probe_cap: int) -> list[s
             out.append(text)
             if len(out) >= limit:
                 break
+    if hit_count > probe_cap and len(out) < limit:
+        logger.warning(
+            f"[小红书] 风控文本轨探测被截断: {sel} 命中 {hit_count} 个节点，"
+            f"仅探测前 {probe_cap} 个且只收到 {len(out)} 条可见文案（上限 {limit}）"
+            f"——不排除可见风控层落在未探测的节点里"
+        )
     return out
 
 
 async def visible_count(page, sel: str, *, limit: int, probe_cap: int) -> int:
     """该选择器命中的**可见**元素个数（数到 `limit` 个即停，探测不超过 `probe_cap`）。
 
-    同 `visible_texts`：按可见数计满额、按 probe_cap 限成本，不按 DOM 序截断。
+    同 `visible_texts`：按可见数计满额、按 probe_cap 限成本，不按 DOM 序截断；
+    探测被截断且一个可见都没数到（即占位轨将判为"无风控"）时同样留痕。
     """
     try:
         loc = page.locator(sel)
-        total = min(await loc.count(), probe_cap)
+        hit_count = await loc.count()
     except Exception:
         return 0
     n = 0
-    for i in range(total):
+    for i in range(min(hit_count, probe_cap)):
         try:
             if await loc.nth(i).is_visible():
                 n += 1
@@ -87,6 +93,11 @@ async def visible_count(page, sel: str, *, limit: int, probe_cap: int) -> int:
                     break
         except Exception:
             continue
+    if hit_count > probe_cap and n == 0:
+        logger.warning(
+            f"[小红书] 风控占位轨探测被截断: {sel} 命中 {hit_count} 个节点，"
+            f"前 {probe_cap} 个均不可见——不排除可见风控层落在未探测的节点里"
+        )
     return n
 
 

@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "adjudicatedBy": "self-play",
+  "confidenceWeight": 0.6,
+  "reason": "stall/maxRounds 后自扮演裁决（引擎第三档出口）",
+  "highRiskNote": "高危域争议项不允许自扮演豁免，必须外部复核",
+  "requiresExternalReview": [],
+  "critiqueFingerprint": "16e67efef5a548aa",
+  "instructions": [
+    "对 items 里每一条争议，依次生成：",
+    "  1) 最强指控 —— 论证这条确实是真问题（含具体失败场景）",
+    "  2) 最强辩护 —— 论证这不是问题 / 已被别处覆盖",
+    "  3) 裁决 —— 哪一边论证更强，verdict 取 upheld（指控成立）/ dismissed（指控不成立）",
+    "裁决理由必须可验证，不得只写「看起来没问题」。"
+  ],
+  "items": [
+    {
+      "id": "i1",
+      "severity": "Warning",
+      "finding": "编辑器等待的常量接线零行为保护：spy 用例只在媒体流里跑，上传先 fail-closed 中止、编辑器等待从未执行，seen 只含上传配对；日志用例也只断 title_input 不断哨兵值 0.05——编辑器等待若错配到 UPLOAD 常量(30s)，全绿只是变慢。",
+      "highRiskDomains": [],
+      "prosecution": "实参 spy 用例在 media_paths=[a.jpg] 且上传控件始终不可见的夹具下运行：上传等待超时即 fail-closed 返回 XHS_UPLOAD_FAILED，_await_editor_ready 从未被调用，因此 seen 里只可能出现 (0.05, 0.017)。断言全部围绕上传配对与两种交叉错配，编辑器配对 (9.99, 0.023) 一次也没被要求出现。把 _await_editor_ready 的 timeout_s/interval_s 改成 UPLOAD_* 后，唯一受影响的日志用例只断 title_input 是否留痕（措辞与键名，不含哨兵值），行为上只是把 30s 变成 30s——全绿。失败场景：日后为快首屏把 NAVIGATE_READY_* 调小，上传路径却跟着变短，慢网下上传控件被误判为缺失而中止草稿保存；反向亦然，这类错配没有任何一条用例会红。",
+      "defense": "两条等待最终都汇聚到同一个 dom.wait_until，参数由各自函数体显式写出，肉眼可读；且 §4k 恢复 30s 容忍度时已专门加过哨兵值归属用例，覆盖的是「上限出现在错误文案里」这一可观测面，不必每条常量都配 spy。",
+      "verdict": "upheld",
+      "rationale": "辩护只说明了代码易读，没有说明「错配会变红」。可验证性以变异取证定夺：把 _await_editor_ready 改喂 UPLOAD_* 常量后实跑，改动前 0 条红（指控成立），补 test_editor_ready_is_fed_the_navigate_constants 后恰好 1 条红且红在该用例（TestUploadReadinessPoll::test_editor_ready_is_fed_the_navigate_constants），恢复后 44 passed。新用例走无媒体路径（不为上传白等），故编辑器配对必然出现在 seen 里；四个常量各取唯一值，(0.05, 0.017) 不得出现、(0.03, 0.023) 必须出现，两个错配方向都无处可藏。"
+    },
+    {
+      "id": "i2",
+      "severity": "Warning",
+      "finding": "RISK_HOST_PROBE_LIMIT=32 仍是按 DOM 序截断：>32 个常驻隐藏模板先占位时第 33 位的真实风控层永不被扫，两轨同漏（本轮只是把悬崖从 8 移到 32）；且新常量无被引用/生效值断言，删接线不红。",
+      "highRiskDomains": [],
+      "prosecution": "cost 闸与判据闸分开只解决了「可见性过滤前截断」这一半，另一半仍在：探测本身按 DOM 序取前 32 个。SPA 常驻隐藏模板数量由前端模板决定，不由我们决定；宿主选择器 [class*=\"modal\"] 在整页模板命中 40+ 个节点完全可能，此时 portal 挂在尾部的风控层落在第 33+ 位，文案轨与占位轨同时静默返回「无风控」，流程继续走向发布——与第四轮 i1 同一失效方向，只是门槛更高。第二半指控：该常量没有任何生效值断言，若接线被写成 probe_cap=RISK_HOST_SCAN_LIMIT（8），成本闸与判据闸重新合一，测试不会红。",
+      "defense": "两点：其一，成本必须有界，任何有限上限都存在同样的悬崖，把 32 换成 64 或换成「从尾部反向扫」都只是在未验证的分布假设上再猜一层；其二，删接线不红不成立——visible_texts/visible_count/risk_present 的 probe_cap 是必填关键字参数，删掉接线直接 TypeError，相关用例集体红。",
+      "verdict": "upheld",
+      "rationale": "第二半子指控经变异取证判为不成立，但第一半成立且成立的部分不是「数字太小」而是「截断不可观测」：漏判风险无法在无活体证据下消除，却可以让它可查。落地方式为可验证而非猜测——(1) visible_texts 在 hit_count > probe_cap 且未集满可见文案、visible_count 在 hit_count > probe_cap 且一个可见都没数到时各打一条含选择器与两个计数的告警，把「可能漏判」写进发布链路留痕，同时成为 2.2 活体取证的第一个量化观测量；(2) 不引入反向扫尾部这类同样零证据的假设，并在常量注释里如实写明它仍是 DOM 序悬崖；(3) 生效值断言经变异取证：probe_cap 接成 8 ⇒ 3 条红（含 test_visible_risk_layer_after_hidden_templates_is_caught 与两条截断留痕用例），删接线为必填参数 ⇒ TypeError。占位轨留痕最初无人看守（删掉该段后 43 passed 全绿），据此补 test_placeholder_track_truncation_leaves_a_trace，删除该段即恰好 1 条红。"
+    },
+    {
+      "id": "i3",
+      "severity": "Warning",
+      "finding": "RISK_TEXT_PATTERN 仍含裸「验证码」「风控」，与注释自称只收强指认短语、不收裸词直接矛盾；可见良性弹窗（账号绑定输入验证码）命中即判 XHS_RISK_BLOCKED 中止草稿保存。",
+      "highRiskDomains": [],
+      "prosecution": "注释与代码互相打脸是可核对的事实：词表明列 验证码 与 风控 两个单词级词条，注释却宣称只收强指认短语、不收裸词，并以此论证「不会因收紧词表而漏判」。若按注释的口径审查代码，读者会以为词表已排除全部单词级命中，从而不再补良性用例；实际上一条要求输入验证码的可见层（手机绑定、登录二次校验）会让 _risk_present 返回 True，发布链路中止，用户的草稿不会落进草稿箱——正是注释自己写明的「误判比漏判更有害」那一侧。",
+      "defense": "发布链路里弹出要求输入验证码的层，语义上就是平台在要求人工核验（重登录/绑定/二次验证），此刻停下自动发布正是想要的行为，把它叫误判是给结论改名；真按指控收窄词表，扩大的是「带着验证层继续发布」的漏判面，方向上更违反红线。已有 test_bare_slider_crop_wording_is_not_risk 与「标题含验证二字不误判」两条用例钉住良性侧，注释那句只是措辞比实现宽。",
+      "verdict": "upheld",
+      "rationale": "裁决范围收窄到可核对的那半：注释对词表的自我描述与实现不一致（含单词级词条却自称不收裸词），这是会误导后续审查的真实缺陷，必须改。行为面不接受指控：不改词表，理由如上，且把它固化为设计而不是偶然——新增 test_verification_code_dialog_is_risk_by_design，断言「绑定手机号：请输入短信验证码」这类可见层判为风控，并在注释写明改动前提是 2.2 活体取证拿到不含核验语义的该文案。落地：注释重写为两条明确口径（不收裸 滑块/验证 的理由；收单词级 验证码/风控 是有意接受的误判面及其改判条件）。变异取证：从词表去掉「验证码」⇒ 恰好 1 条红且红在该用例（TestRiskTextTrack::test_verification_code_dialog_is_risk_by_design），恢复后 44 passed——这条代价现在是设计而非偶然。"
+    }
+  ]
+}

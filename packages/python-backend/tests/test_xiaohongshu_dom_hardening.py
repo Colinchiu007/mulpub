@@ -460,6 +460,54 @@ class TestRiskTextTrack:
         assert await publisher._risk_present(page) is True
 
     @pytest.mark.asyncio
+    async def test_probe_cap_truncation_leaves_an_observable_trace(self, publisher, monkeypatch):
+        """漏判可能无法完全避免，但必须可查：探测被成本闸截断且一无所获时要留痕。
+
+        把上限从 8 抬到 32 只是把 DOM 序悬崖推深，并没有消除它。本仓没有活体证据说明
+        风控层落在 DOM 的哪个位置，所以不拿"反向扫尾部"这类同样未验证的假设去替换成本闸；
+        换成可观测性：截断发生时发布链路日志里必须查得到「哪条选择器、命中多少、只探测了多少」，
+        这同时是 2.2 活体取证能拿到的第一个量化观测量。
+        """
+        monkeypatch.setattr(xhs, "RISK_HOST_PROBE_LIMIT", 4, raising=False)
+        host = xhs.RISK_TEXT_HOSTS[0]
+        page = _base_page()
+        hidden = list(range(4))
+        page.item_texts[host] = [f"隐藏模板{i}" for i in hidden] + ["请完成安全验证"]
+        page.hidden_items[host] = set(hidden)
+        page.visible.add(host)  # 若被探测到就会判风控——但它落在上限之外
+        messages: list[str] = []
+        sink_id = logger.add(lambda m: messages.append(str(m)), level="WARNING")
+        try:
+            assert await publisher._risk_present(page) is False  # 已知代价，不是遗漏
+        finally:
+            logger.remove(sink_id)
+        trace = [m for m in messages if host in m]
+        assert trace, f"探测被截断却未留痕: {messages}"
+        assert "5" in trace[0] and "4" in trace[0], f"留痕未给出命中数与探测上限: {trace[0]}"
+
+    @pytest.mark.asyncio
+    async def test_placeholder_track_truncation_leaves_a_trace(self, publisher, monkeypatch):
+        """占位轨的截断同样必须留痕——两条轨都可能被成本闸截断，只给一条留痕等于另一半静默。
+
+        文案轨的用例抓不到这里：`visible_count` 是另一个函数。变异取证见 §4n（删掉这段
+        留痕时其余用例全绿），所以这条用例是这段告警唯一的看守。
+        """
+        monkeypatch.setattr(xhs, "RISK_HOST_PROBE_LIMIT", 4, raising=False)
+        overlay = '[class*="xhs-verify-layer"]'
+        monkeypatch.setattr(xhs, "RISK_OVERLAY_SELECTOR", overlay, raising=False)
+        page = _base_page()
+        page.counts[overlay] = 5  # 命中 5 个，前 4 个都不可见 ⇒ 判为无风控，但可能被截断
+        messages: list[str] = []
+        sink_id = logger.add(lambda m: messages.append(str(m)), level="WARNING")
+        try:
+            assert await publisher._risk_present(page) is False
+        finally:
+            logger.remove(sink_id)
+        trace = [m for m in messages if overlay in m]
+        assert trace, f"占位轨探测被截断却未留痕: {messages}"
+        assert "5" in trace[0] and "4" in trace[0], f"留痕未给出命中数与探测上限: {trace[0]}"
+
+    @pytest.mark.asyncio
     async def test_bare_slider_crop_wording_is_not_risk(self, publisher):
         """CCG i1 另一半：可见裁剪弹窗里的「拖动滑块」是控件说明，不是风控。
 
@@ -471,6 +519,21 @@ class TestRiskTextTrack:
         page.visible.add(host)
         page.item_texts[host] = ["裁剪封面：拖动滑块调整比例"]
         assert await publisher._risk_present(page) is False
+
+    @pytest.mark.asyncio
+    async def test_verification_code_dialog_is_risk_by_design(self, publisher):
+        """词表含单词级「验证码」是**有意接受的误判面**，不是疏漏——本用例把这个代价钉住。
+
+        发布链路里弹出要求输入验证码的层，等价于平台在要求人工核验（重登录/绑定/二次验证），
+        此时中止自动发布正是想要的行为。收窄词表会扩大"带着验证层继续发布"的漏判面，方向
+        上更违反红线。若将来活体取证（tasks 2.2）证明创作者中心发布页存在不含核验语义的
+        「验证码」文案，再凭证据改判这条，而不是先猜。
+        """
+        page = _base_page()
+        host = xhs.RISK_TEXT_HOSTS[0]
+        page.visible.add(host)
+        page.item_texts[host] = ["绑定手机号：请输入短信验证码"]
+        assert await publisher._risk_present(page) is True
 
     @pytest.mark.asyncio
     async def test_real_slider_verify_still_caught(self, publisher):
@@ -646,6 +709,33 @@ class TestUploadReadinessPoll:
         assert upload_waits, f"上传等待没有出现 0.05s 上限: {seen}"
         assert all(i == 0.017 for _, i in upload_waits), f"上传等待误用了别的 interval: {seen}"
         assert (9.99, 0.017) not in seen and (0.05, 0.023) not in seen, f"常量配对被拆开: {seen}"
+
+    @pytest.mark.asyncio
+    async def test_editor_ready_is_fed_the_navigate_constants(self, publisher, monkeypatch):
+        """编辑器等待的常量归属同样要有行为保护——上传路径先 fail-closed，上一条 spy 用例根本走不到这里。
+
+        无媒体路径不为上传控件白等，所以 `seen` 里只应出现编辑器那一对。四个常量各取
+        唯一值：编辑器若错配到 UPLOAD_*（只是变慢、不留错误），这里必须红。
+        """
+        seen: list[tuple[float, float]] = []
+        real_wait = dom.wait_until
+
+        async def spy(predicate, *, timeout_s, interval_s):
+            seen.append((timeout_s, interval_s))
+            return await real_wait(predicate, timeout_s=timeout_s, interval_s=interval_s)
+
+        monkeypatch.setattr(dom, "wait_until", spy)
+        monkeypatch.setattr(xhs, "UPLOAD_FALLBACK_WAIT_TIMEOUT_S", 0.05, raising=False)
+        monkeypatch.setattr(xhs, "UPLOAD_FALLBACK_POLL_INTERVAL_S", 0.017, raising=False)
+        monkeypatch.setattr(xhs, "NAVIGATE_READY_TIMEOUT_S", 0.03, raising=False)
+        monkeypatch.setattr(xhs, "NAVIGATE_READY_POLL_INTERVAL_S", 0.023, raising=False)
+        page = _base_page()
+        page.visible.add(DRAFT_SEL)
+        await _flow(publisher, page, FakeMonitor(), media_paths=[])
+
+        assert seen, "编辑器等待没把常量交给 wait_until（改走别的路径即失去保护）"
+        assert (0.05, 0.017) not in seen, f"编辑器等待误用了上传常量: {seen}"
+        assert any(t == 0.03 and i == 0.023 for t, i in seen), f"编辑器等待未使用 NAVIGATE_READY_*: {seen}"
 
     @pytest.mark.asyncio
     async def test_editor_ready_timeout_leaves_a_reason_in_logs(self, publisher, monkeypatch):
