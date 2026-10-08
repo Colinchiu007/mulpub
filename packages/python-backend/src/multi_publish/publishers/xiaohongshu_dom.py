@@ -149,16 +149,24 @@ async def await_control(page, candidates: list[str], *, key: str, label: str,
     留痕同时带 `key`（机器可读的控件名，改名/换文案不会变）和 `label`（给用户看的措辞）：
     回归测试钉 `key` 而不是 `label`，否则措辞一改就假红。
     """
+    hit = None
+
     async def visible() -> bool:
+        nonlocal hit
         loc, _ = await resolve_visible(page, candidates)
-        return loc is not None
+        if loc is None:
+            return False
+        hit = loc
+        return True
 
     if not await wait_until(visible, timeout_s=timeout_s, interval_s=interval_s):
         logger.warning(f"[{key}] {label}在 {timeout_s}s 内未就绪（站点结构变化或首屏未完成）")
         return None
     loc, _ = await resolve_visible(page, candidates)
     return loc
->>>>>>> 50244cf1d (fix(xhs-dom): 过逐文件行数闸拆出 DOM 模块，并按门禁口径修 CI 步骤)
+=======
+    return hit
+>>>>>>> 44799e73f (fix(xhs-rpa): 采纳第二轮 CCG 深评两项裁决，修正等待容忍度与控件抖动误判)
 
 
 async def set_field(page, candidates: list[str], text: str, *, label: str) -> bool:
