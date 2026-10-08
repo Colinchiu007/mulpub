@@ -10,6 +10,7 @@
 - [x] 1.8 确认才成功骨架：ResponseMonitor.watch_patterns(<草稿端点占位>) + 草稿箱回查兜底；无确认→failure，删除盲 sleep success + 假 url（红→绿）
 - [x] 1.9 全量回归 `cd packages/python-backend && pytest`（含既有 test_new_publishers/test_douyin 不破）— **此项原判定不成立**：`test_p4_wait_until.py` 的静态守卫在 PR-1 合并后即为红，而 python-backend pytest 不在任何 CI workflow（`gui-test.yml` 只跑 `test_video_provider_imports.py`），故未阻断；1.12 修复后重跑全量 = 2762 passed / 3 failed，3 项（`test_frame_html`、`test_llm_service`、`test_pipeline_loader`）与 `test_aggregation_video` 均属本分支未触碰的既有/环境依赖失败（`git diff origin/main --name-only` 验证），发布轨 0 失败
 - [x] 1.10 代码审查（对照 AGENTS.md 阶段 6：require 路径/错误处理/无外部端点）+ commit + PR + CI + autoMerge（已完成：PR #2885 squash 合并 e413cbc7，CI 全绿含 Gate 12/债务熔断/lint）
+<<<<<<< HEAD
 - [x] 1.11 补 1.7 的静默失效：`RISK_OVERLAY_SELECTOR` 空占位使 risk 归一从不触发 ⇒ `_risk_present` 加"浮层容器 + 容器内风控文案"双条件文本轨（口径取本仓 `publish-risk.js` RISK_RE，源证据），默认常量非空由测试钉死；新增 4 项用例（红→绿）。**判定口径由 1.13 修正为三条件**（容器 + 可见 + 强指认文案）
 - [x] 1.12 修 PR-1 引入的回归（静态守卫抓出）：上传控件的一次性 `_resolve_visible` 在 SPA 晚挂载下**静默跳过媒体**并照样存草稿 ⇒ 产出无媒体草稿。`_await_upload_input()` 恢复条件轮询并把"有媒体却等不到控件"改为 `CODE_UPLOAD_FAILED` fail-closed；两处轮询收敛到共用 `_await_control()`（`xiaohongshu.py` 保持 499 行，不触 ≥500 行债务熔断基线）；新增 4 项用例（延迟挂载必须等到并上传、等不到必须 fail-closed 且不点草稿、无媒体不白等、常量必须被发布器引用）；守卫 `test_p4_wait_until` 由"字面量/次数"改为调用图 + 生效常量值断言（旧断言在 PR-1 把常量移入 selectors 模块后产生两处假红）；两种破坏（删轮询 / 拆掉共用 helper）均验证变红，恢复后发布轨 51 项全绿
 - [x] 1.13 CCG 深评（`320e8f2b`）五项全部裁决并落地（判定记录 `.adversarial/ccg-deep-320e8f2b/adjudication.json`，含 prosecution/defense/verdict/rationale）：
@@ -28,6 +29,10 @@
   - **② CI 步骤 fail-fast 闸**：`scripts/check-step-failfast.js` 判 1.13-i5 新增步骤为"会吞失败的多命令步骤"——它只看步骤级 `shell:`，读不到 workflow 级 `defaults.run.shell: bash`；且 `pip install pytest-asyncio` 里的字面量命中其测试命令正则被算作第 2 条。修法按仓内惯例：步骤显式 `shell: bash`，依赖声明收进 `pyproject.toml` 新 `[test]` extra（`pytest>=8.0` + `pytest-asyncio>=0.24`），run 块只留一条 pytest。i5 的"显式 pip install"口径据此作废（依赖只活在 workflow 文本里，本地缺它时 async 用例 0 收集＝绿但恒真）。
   - **破坏-恢复验证（6 种，逐条实跑变红后恢复）**：① DOM 模块自带常量 import → 守卫红；② 删 `wait_until` 轮询 → 守卫红；③ 发布器不再经由 DOM 轮询 → 守卫红；④ 抹掉编辑器等待 label → loguru sink 行为用例红；⑤ overlay 常量写死空占位 / ⑥ overlay 轨整条删除 → **新增**用例 `test_overlay_selector_alone_blocks_without_risk_wording` 红。⑤⑥ 是补出来的：原 risk 用例同时给了「安全验证」文案，文本轨会顺手兜住，删掉整条占位轨照样绿——占位轨（Tier2 回填后承担无文案的纯图形验证码层）此前无独立保护。
   - 回归：发布轨 5 文件 91 passed（+1 为新用例）；全量 2822 passed / 4 failed，4 项仍是 1.13 已归因的既有/环境失败；`check-max-lines.js` ✅、`check-step-failfast.js` 与其 `.test.js` 6/6 ✅
+=======
+- [x] 1.11 补 1.7 的静默失效：`RISK_OVERLAY_SELECTOR` 空占位使 risk 归一从不触发 ⇒ `_risk_present` 加"浮层容器 + 容器内风控文案"双条件文本轨（口径取本仓 `publish-risk.js` RISK_RE，源证据），默认常量非空由测试钉死；新增 4 项用例（红→绿）
+- [x] 1.12 修 PR-1 引入的回归（静态守卫抓出）：上传控件的一次性 `_resolve_visible` 在 SPA 晚挂载下**静默跳过媒体**并照样存草稿 ⇒ 产出无媒体草稿。`_await_upload_input()` 恢复条件轮询并把"有媒体却等不到控件"改为 `CODE_UPLOAD_FAILED` fail-closed；两处轮询收敛到共用 `_await_control()`（`xiaohongshu.py` 保持 499 行，不触 ≥500 行债务熔断基线）；新增 4 项用例（延迟挂载必须等到并上传、等不到必须 fail-closed 且不点草稿、无媒体不白等、常量必须被发布器引用）；守卫 `test_p4_wait_until` 由"字面量/次数"改为调用图 + 生效常量值断言（旧断言在 PR-1 把常量移入 selectors 模块后产生两处假红）；两种破坏（删轮询 / 拆掉共用 helper）均验证变红，恢复后发布轨 51 项全绿
+>>>>>>> 320e8f2b1 (fix(xhs-dom): 修复 PR-1 删除上传控件轮询导致的无媒体草稿 + 风控文本轨归一)
 
 ## 2. PR-2 · Tier2 活体取证回填（需用户登录小红书）
 

@@ -104,6 +104,7 @@ DRAFT_SAVE_RESPONSE_PATTERNS: list[str] = ["/web_api/sns/v2/note"]
 - 新增 4 项用例：风控文案 → `XHS_RISK_BLOCKED` 且不点发布；无常驻浮层不判风控；
   浮层内良性文案不判风控；常量默认值非空。
 
+<<<<<<< HEAD
 ## 4c-b. 文本轨的可见性前提（CCG 双审 i1/i2，2026-10-09 修正）
 
 上面 4c 的初版实现有一个 Critical 缺陷，被 CCG 深评抓出（`.adversarial/ccg-deep-320e8f2b/`）：
@@ -130,6 +131,8 @@ DRAFT_SAVE_RESPONSE_PATTERNS: list[str] = ["/web_api/sns/v2/note"]
   `test_visible_hosts_beyond_scan_limit_are_not_read`。
 - 判定记录：i1、i2 均 `upheld`（含 prosecution/defense/rationale 三列，可复核）。
 
+=======
+>>>>>>> 320e8f2b1 (fix(xhs-dom): 修复 PR-1 删除上传控件轮询导致的无媒体草稿 + 风控文本轨归一)
 ## 4d. Python 轨认证已被策略硬阻（2026-10-09 用户实跑暴露）
 
 用户按 §6 运行探针，崩溃于 `legacy_auth_policy.require_legacy_plaintext_auth()`：
@@ -198,6 +201,7 @@ SPA 首屏未挂载时返回 `(None, None)`，而调用处是
 必须显式给出失败码。本条同时说明：验收前必须在本地实跑
 `cd packages/python-backend && pytest`，不能依赖 CI 兜底。
 
+<<<<<<< HEAD
 ## 4f. CCG 双审其余三项（i3/i4/i5，2026-10-09）
 
 i1/i2 见 §4c-b。另外三条同样全部 `upheld`，且各自有可验证的落点：
@@ -483,6 +487,8 @@ critic 出 7 条问题、维度最低分 6，收敛判定 `self_play`，待裁�
 那一刻静默降级为只看一半。后续凡按 500 行门禁做拆分，落笔时必须逐条回答：哪些守卫读的是
 旧文件的路径？它们的新语义是否仍然成立？
 
+=======
+>>>>>>> 320e8f2b1 (fix(xhs-dom): 修复 PR-1 删除上传控件轮询导致的无媒体草稿 + 风控文本轨归一)
 ## 5. 剩余工作（必须完成才算验收）
 
 | 项 | 状态 | 阻塞 |
