@@ -79,6 +79,12 @@ DRAFT_BOX_ITEM_SELECTOR = '[class*="draft"] [class*="title"]'  # 条目标题：
 # 计数节点探测上限：成本闸（不是判据口径）。实测该节点在页面顶部，个位数命中；
 # 触顶且读不到计数时由 visible_texts 留痕，漏判可查。
 DRAFT_BOX_COUNTER_PROBE_CAP = 8
+# 计数节点的挂载等待与增量等待：SPA 的草稿面板在 domcontentloaded 之后才出现，且自动保存
+# 落库有延迟，两次都用单次读会把"还没挂上/还在写"读成"没写"（CCG 六轮 i1/i2，Critical）。
+# 上限沿用本轨既有的 30s 容忍度口径（§4k：轮询的收益是命中即返回，砍上限只会把慢首屏
+# 推向下游误诊），间隔沿用编辑器就绪的同族取值；两个等待喂同一对常量由哨兵值用例钉住。
+DRAFT_BOX_WAIT_TIMEOUT_S = 30.0
+DRAFT_BOX_POLL_INTERVAL_S = 0.5
 # 风控/验证弹层选择器（Tier2 取证回填），命中即判 risk_blocked 并停止。
 RISK_OVERLAY_SELECTOR = ""
 

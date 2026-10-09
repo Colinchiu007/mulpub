@@ -112,11 +112,13 @@ class FakeMonitor:
     def __init__(self, responses=None):
         self.responses = responses or []
         self.watched: list[str] = []
+        self.waited = 0  # 被调用方等过多少次 XHR（用于验证确认顺序没把 20s 白等烧掉）
 
     def watch_patterns(self, patterns):
         self.watched = list(patterns)
 
     async def wait_for_response(self, timeout=30.0, predicate=None):
+        self.waited += 1
         for r in self.responses:
             data = r.get("data")
             if predicate is None or predicate(data):
@@ -153,6 +155,21 @@ def publisher(tmp_path) -> XiaoHongShuPublisher:
     return XiaoHongShuPublisher(
         PublisherConfig(platform=PlatformType.XIAOHONGSHU, data_dir=str(tmp_path), headless=True)
     )
+
+
+@pytest.fixture(autouse=True)
+def _fast_draft_box_wait(monkeypatch):
+    """草稿箱等待在本文件里一律收紧。
+
+    30s 上限是给真实 SPA 的慢面板用的；单测里"读不到/不增长"的正是要测的分支，
+    不该真的等满。常量的**配对关系**由 test_draft_box_wait_is_fed_the_draft_box_constants
+    用哨兵值钉住，不靠这里的取值。
+
+    取值必须与上传/导航那两对哨兵值**互不相同**：配对断言是按 timeout 数值筛的，两个
+    机制共用同一个数值就会互相串味（一个机制误喂另一个的 interval 反而看不出来）。
+    """
+    monkeypatch.setattr(xhs, "DRAFT_BOX_WAIT_TIMEOUT_S", 0.041)
+    monkeypatch.setattr(xhs, "DRAFT_BOX_POLL_INTERVAL_S", 0.011)
 
 
 def _base_page():
@@ -237,6 +254,8 @@ class TestAutosaveDraftConfirmation:
         assert result.success is False
         assert xhs.CODE_UNCONFIRMED in (result.error or "")
         assert PUBLISH_SEL not in page.clicked
+        # 回查含整页重载：未确认时也只能做一次，不能被"再试一遍"的兜底分支重复
+        assert page.navigations.count(xhs.DRAFT_BOX_URL) == 1
 
     @pytest.mark.asyncio
     async def test_counter_vanishing_on_recheck_is_not_a_confirmation(self, publisher, monkeypatch):
@@ -325,6 +344,124 @@ class TestAutosaveDraftConfirmation:
         monkeypatch.setattr(dom, "draft_box_count", spy_count)
         await _flow(publisher, page, FakeMonitor(), draft=True)
         assert seen.get("call") == (COUNTER_SEL, xhs.DRAFT_BOX_COUNTER_PROBE_CAP)
+
+    @pytest.mark.asyncio
+    async def test_late_mounted_counter_still_yields_a_baseline(self, publisher, monkeypatch):
+        """基线读取必须**等**计数节点挂载（CCG 六轮 i1，Critical）。
+
+        单次读在 SPA 上是本轨已知复发缺陷：`domcontentloaded` 时草稿面板常常还没挂上，
+        一次拿到 None 就把唯一可用的确认判据静默关掉，慢网下每次真实保存都报
+        XHS_UNCONFIRMED。这里让节点前两次可见性查询为假，判据必须靠轮询恢复。
+        """
+        monkeypatch.setattr(xhs, "DRAFT_SAVE_RESPONSE_PATTERNS", [], raising=False)
+        monkeypatch.setattr(xhs, "DRAFT_BOX_WAIT_TIMEOUT_S", 2.0)
+        monkeypatch.setattr(xhs, "DRAFT_BOX_POLL_INTERVAL_S", 0.02)
+        page = _page_with_draft_box(0, 1)
+        page.visible_after[COUNTER_SEL] = 2  # 模拟晚挂载：前 2 次探测不可见
+        page.visible.add(PUBLISH_SEL)
+        result = await _flow(publisher, page, FakeMonitor(), draft=True)
+        assert result.success is True, result.error
+        assert page.visibility_calls[COUNTER_SEL] > 2  # 确实轮询过，不是一次读
+
+    @pytest.mark.asyncio
+    async def test_increment_wait_polls_until_the_counter_rises(self, monkeypatch):
+        """回查的等待条件必须是**增量本身**（CCG 六轮 i2）。
+
+        自动保存落库有延迟：节点一直在、值还没涨上去时，单次读会把"正在写"读成"没写"，
+        把成功的草稿报成失败。第二个分支钉住"值不变就一直轮询到超时才判未确认"。
+        """
+        reads = iter([None, 3, 4])
+        probes = []
+
+        async def fake_count(page, sel, *, probe_cap):
+            probes.append(sel)
+            return next(reads)
+
+        monkeypatch.setattr(dom, "draft_box_count", fake_count)
+        hit, now = await dom.await_draft_box_increment(
+            FakePage(), COUNTER_SEL, baseline=3, timeout_s=2.0,
+            interval_s=0.02, probe_cap=xhs.DRAFT_BOX_COUNTER_PROBE_CAP,
+        )
+        assert hit is True
+        assert now == 4
+        assert len(probes) == 3
+
+        stuck = iter([3, 3, 3])
+
+        async def fake_stuck(page, sel, *, probe_cap):
+            probes.append(sel)
+            return next(stuck)
+
+        monkeypatch.setattr(dom, "draft_box_count", fake_stuck)
+        before = len(probes)
+        hit, now = await dom.await_draft_box_increment(
+            FakePage(), COUNTER_SEL, baseline=3, timeout_s=0.1,
+            interval_s=0.02, probe_cap=xhs.DRAFT_BOX_COUNTER_PROBE_CAP,
+        )
+        assert hit is False
+        assert now == 3
+        assert len(probes) - before >= 2  # 值没变也要轮询满时限，不能首读就收
+
+    @pytest.mark.asyncio
+    async def test_draft_box_wait_is_fed_the_draft_box_constants(self, publisher, monkeypatch):
+        """两处草稿箱等待必须各取自己那对常量（哨兵值配对，CCG 六轮同 §4m 那类缺口）。
+
+        误接编辑器就绪/上传那对常量时，行为在快网下看不出来，慢网下才会退化成"基本不等"，
+        所以用互不相同的哨兵值把配对关系钉死，而不是断 `> 0`。
+        """
+        monkeypatch.setattr(xhs, "DRAFT_BOX_WAIT_TIMEOUT_S", 0.033)
+        monkeypatch.setattr(xhs, "DRAFT_BOX_POLL_INTERVAL_S", 0.022)
+        pairs = []
+
+        async def spy_baseline(page, sel, *, timeout_s, interval_s, probe_cap):
+            pairs.append((timeout_s, interval_s))
+            return 0
+
+        async def spy_increment(page, sel, *, baseline, timeout_s, interval_s, probe_cap):
+            pairs.append((timeout_s, interval_s))
+            return True, baseline + 1
+
+        monkeypatch.setattr(dom, "await_draft_box_count", spy_baseline)
+        monkeypatch.setattr(dom, "await_draft_box_increment", spy_increment)
+        page = _page_with_draft_box(0, 1)
+        result = await _flow(publisher, page, FakeMonitor(), draft=True)
+        assert result.success is True, result.error
+        assert pairs == [(0.033, 0.022), (0.033, 0.022)]
+
+    @pytest.mark.asyncio
+    async def test_counter_text_shape_is_tolerated(self):
+        """括号与空格是**显示格式**不是协议（CCG 六轮 i3 的加固面）。
+
+        取证只见到半角 `草稿箱(1)`；平台换成全角或多打一个空格时，代价应当只是"少一条
+        证据"，不该把唯一确认通道的可用性押在字符形状上。
+        """
+        for text, expected in [
+            ("草稿箱(1)", 1),
+            ("草稿箱（2）", 2),
+            ("草稿箱 ( 3 ) ", 3),
+            ("草稿箱（4） 已发布", 4),
+        ]:
+            page = FakePage()
+            page.visible.add(COUNTER_SEL)
+            page.item_texts[COUNTER_SEL] = [text]
+            assert await dom.draft_box_count(
+                page, COUNTER_SEL, probe_cap=xhs.DRAFT_BOX_COUNTER_PROBE_CAP
+            ) == expected
+
+    @pytest.mark.asyncio
+    async def test_autosave_path_checks_the_box_before_burning_the_xhr_wait(self, publisher, monkeypatch):
+        """无按钮（自动保存）路径先回查草稿箱，命中就不必再等 XHR，也不重载第二次（CCG 六轮 i4）。
+
+        §4o 已证自动保存不打 `/note` 类端点，端点模式在这里基本必然空等满
+        CONFIRM_TIMEOUT_S；而整页 goto 很贵，同一判据做两遍等于把延迟翻倍。
+        """
+        monkeypatch.setattr(xhs, "DRAFT_SAVE_RESPONSE_PATTERNS", ["/note/publish"], raising=False)
+        page = _page_with_draft_box(0, 1)
+        monitor = FakeMonitor()  # 无任何响应可命中：若走 XHR 分支就是白等
+        result = await _flow(publisher, page, monitor, draft=True)
+        assert result.success is True, result.error
+        assert monitor.waited == 0
+        assert page.navigations.count(xhs.DRAFT_BOX_URL) == 1
 
 
 class TestSelectorFallbackAndRichFill:
