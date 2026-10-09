@@ -85,6 +85,10 @@ DRAFT_BOX_COUNTER_PROBE_CAP = 8
 # 推向下游误诊），间隔沿用编辑器就绪的同族取值；两个等待喂同一对常量由哨兵值用例钉住。
 DRAFT_BOX_WAIT_TIMEOUT_S = 30.0
 DRAFT_BOX_POLL_INTERVAL_S = 0.5
+# 兜底标题扫描的节点上限：同样是成本闸而非判据口径。DRAFT_BOX_ITEM_SELECTOR 是跨层级通配
+# 形态且**未经活体取证**，SPA 模板页命中数十上百个节点完全正常，不设上限就是把一次整页
+# goto 之后的往返成本交给未取证选择器的命中数（CCG 七轮 i1）。触顶且未命中时留痕。
+DRAFT_BOX_ITEM_SCAN_CAP = 12
 # 风控/验证弹层选择器（Tier2 取证回填），命中即判 risk_blocked 并停止。
 RISK_OVERLAY_SELECTOR = ""
 

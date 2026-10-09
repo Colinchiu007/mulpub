@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "adjudicatedBy": "self-play",
+  "confidenceWeight": 0.6,
+  "reason": "外部评审后端不可用（claude CLI 未登录，实测 `Not logged in`），无法派生独立模型 critic；按引擎第三档出口由工作代理自扮演裁决",
+  "highRiskNote": "高危域争议项不允许自扮演豁免，必须外部复核",
+  "requiresExternalReview": [],
+  "critiqueFingerprint": "770040d7a-unverified-backend-selfplay",
+  "instructions": [
+    "对 items 里每一条争议，依次生成：最强指控 / 最强辩护 / 裁决（upheld 或 dismissed）",
+    "裁决理由必须可验证，不得只写「看起来没问题」。",
+    "本批全部条目 highRiskDomains 为空，故自扮演可接受；外部后端恢复后应复跑一次独立评审。"
+  ],
+  "items": [
+    {
+      "id": "i1",
+      "severity": "Warning",
+      "finding": "draft_title_present 对未经活体取证的 DRAFT_BOX_ITEM_SELECTOR 做无上限逐元素 inner_text 扫描，命中数没有成本闸，违反 §4n 已确立的『探测必须设硬上限且截断必须留痕』原则。",
+      "highRiskDomains": [],
+      "prosecution": "该选择器是 `[class*=\"draft\"] [class*=\"title\"]` 这类跨层级通配形态，SPA 模板页里命中几十上百个节点完全正常；每条都判可见再取 inner_text，就是把一次往返成本放大到未取证选择器的命中数上——正是 §4n 里 `[class*=\"modal\"]` 那条被专门修掉的形态。而且它跑在回查路径上，页面刚整页 goto 完，成本最容易失控。",
+      "defense": "它是兜底通道，只在计数判据不可用时才走；且外层 recheck 在 try 里，异常会终止。",
+      "verdict": "upheld",
+      "rationale": "辩护只说明'很少被走到'，没有改变'一旦走到成本无界'——本仓对无界成本的口径是确定的：必须设上限，且被上限截断且没集到证据时必须留痕（§4n 原文：成本闸消灭的是无界，不是悬崖）。落地：新增 `DRAFT_BOX_ITEM_SCAN_CAP` 常量（由发布器接线传入，保持 dom 纯函数的 monkeypatch 约定），`draft_title_present` 只扫前 N 个节点，超上限且未命中时打 warning 写明'不排除命中在未扫描节点'。用例 test_item_fallback_scan_is_cost_capped_and_traced；变异 M15（把扫描上限摘掉）红于该用例。"
+    },
+    {
+      "id": "i2",
+      "severity": "Warning",
+      "finding": "recheck_draft_box 的 except 把'整页 goto 失败/评估失败'整条确认通道的失效压到 logger.debug，回查静默返回 False，与 §4n『不可消除的漏判面必须变成可观测面』直接冲突。",
+      "highRiskDomains": [],
+      "prosecution": "回查是自动保存路径唯一被活体证实的判据。若 goto 因网络/权限/弹窗被拦而抛异常，当前实现只在 debug 级留一行，正常运行日志里看不到；用户侧表现为'莫名 XHS_UNCONFIRMED'，而取证时看不到任何失败痕迹——这正是本仓反复修的那类静默失效：结论正确（确实没确认），但**为什么**没确认被丢了。",
+      "defense": "结论方向是 fail-closed，不会假成功；debug 级也有记录；且 §4n 的留痕要求针对的是'漏判'（该报成功却报失败之外的误判面），这里是显式失败。",
+      "verdict": "upheld",
+      "rationale": "'不会假成功'不足以否证可观测性缺口：本批确认链的可诊断性正是这轮的主题（i1 的告警、基线增量都为此加了留痕），同一批里把唯一判据的异常路径留在 debug 级是自相矛盾的口径。落地：except 改为 `logger.warning`，带选择器与异常文本。用例 test_recheck_failure_leaves_a_warning_trace（挂临时 loguru sink 断 warning 出现，沿用本文件既有 sink 写法）；变异 M16（warning 退回 debug）红于该用例。"
+    },
+    {
+      "id": "i3",
+      "severity": "Warning",
+      "finding": "test_increment_wait_polls_until_the_counter_rises 的'值不变也要轮询满时限'分支用 timeout_s=0.1 / interval_s=0.02 断言探针次数 >= 2，是把断言压在墙钟节奏上：Windows CI 上一次调度抖动就可能只跑到第 1 个探针，产生与代码无关的红。",
+      "highRiskDomains": [],
+      "prosecution": "本仓已有前例：负路径用例真等 30s 把 Bash 超时打成后台任务，说明这条链路上的时间敏感度不低。0.1s 上限里要求至少两次探针，等于要求进程在 100ms 内完成两次调度；抖动时用例随机红，而随机红的用例最终会被人为放宽阈值，保护就没了。",
+      "defense": "这是纯函数级用例，探针是桩、没有 DOM 成本，实际抖动远小于 100ms；而且收紧时限是为了不让套件变慢。",
+      "verdict": "dismissed",
+      "rationale": "否证方式是把阈值挪到安全侧而不放松断言语义：桩函数下探针成本接近 0，把上限放宽到 0.5s/间隔 0.05s（名义约 10 次探针）后，断言提高到 >= 3 仍然只依赖'跑到第 3 个探针'这一件事，需要 500ms 级调度停顿才会失败；用例总耗时从 0.1s 涨到 0.5s，相对套件 4s 量级可忽略。既消掉墙钟依赖又不削弱'必须轮询满时限'的语义，属于可直接落地的加固，因此不构成需要改动生产代码的问题。"
+    },
+    {
+      "id": "i4",
+      "severity": "Info",
+      "finding": "基线读取改为轮询后，草稿路径每次运行在最坏情况下多花 30s（计数节点始终不存在，例如平台改版或账号无草稿面板），旧的一次性读几乎没有这段开销。",
+      "highRiskDomains": [],
+      "prosecution": "30s 是用户可感知的卡顿，且'节点永久不存在'与'节点晚挂载'在当前实现里走的是同一条等待，代价相同；如果 DRAFT_BOX_COUNTER_SELECTOR 因改版失效，每次运行都会固定吃满 30s 再退到未取证的兜底。",
+      "defense": "30s 是本轨既有的容忍度口径（导航/上传就绪同值），且等不到时有 warning 留痕，运维能直接看到'判据本身可能不可用'——这条告警恰好就是改版信号；相比之下，把它调短会让慢网误判成失败，代价更高。",
+      "verdict": "dismissed",
+      "rationale": "辩护成立：等待上限的选择与本轨既有的 30s 口径一致（不是这里新造的数），而'选择器改版'这一失败形态已被 i1 那批留痕覆盖（等不到计数 ⇒ warning 指明判据不可用）。当前证据不足以支持把它调短——调短的代价（慢网真成功被判失败）比 30s 卡顿更接近本仓红线所禁止的方向。登记为已知代价，若后续真实运行显示常吃到上限，再单独调。"
+    },
+    {
+      "id": "i5",
+      "severity": "Info",
+      "finding": "计数判据的证据强度仍是 n=1，且'已有草稿再存一条''并发写入'两种形态没有观测面（承继第六轮 i2 前半/i5）。",
+      "highRiskDomains": [],
+      "prosecution": "判据来自单次人工观测，任何未观测形态都是外推；测试面用假对象复现的是'我们认为平台会怎样'，不是平台真的会怎样。",
+      "defense": "已在 PRD §4o 写明证据强度按语、§5 登记为需活体取证的开放项，代码 docstring 也标明兜底选择器未经取证；本仓没有第二种可得的证据来源（不允许为取证做公开发布）。",
+      "verdict": "dismissed",
+      "rationale": "指控为真但已被处置覆盖，且处置方式正确：不加码断言、把边界写进文档与 §5 待取证项、保留 fail-closed。再判 upheld 只会产出一个无法用本地手段满足的阻塞项。补一条可验证的收口条件：活体取到'已有草稿状态下再存一条'的计数行为后，才允许把该判据写成无条件要求。"
+    }
+  ]
+}

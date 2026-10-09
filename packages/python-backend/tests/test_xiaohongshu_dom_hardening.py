@@ -395,12 +395,14 @@ class TestAutosaveDraftConfirmation:
         monkeypatch.setattr(dom, "draft_box_count", fake_stuck)
         before = len(probes)
         hit, now = await dom.await_draft_box_increment(
-            FakePage(), COUNTER_SEL, baseline=3, timeout_s=0.1,
-            interval_s=0.02, probe_cap=xhs.DRAFT_BOX_COUNTER_PROBE_CAP,
+            FakePage(), COUNTER_SEL, baseline=3, timeout_s=0.5,
+            interval_s=0.05, probe_cap=xhs.DRAFT_BOX_COUNTER_PROBE_CAP,
         )
         assert hit is False
         assert now == 3
-        assert len(probes) - before >= 2  # 值没变也要轮询满时限，不能首读就收
+        # 阈值刻意放宽（名义 ~10 次探针）并要求 >=3：断"必须轮询满时限"的语义不变，
+        # 但不把结论压在 100ms 级的调度抖动上（CCG 七轮 i3）。
+        assert len(probes) - before >= 3
 
     @pytest.mark.asyncio
     async def test_draft_box_wait_is_fed_the_draft_box_constants(self, publisher, monkeypatch):
@@ -462,6 +464,57 @@ class TestAutosaveDraftConfirmation:
         assert result.success is True, result.error
         assert monitor.waited == 0
         assert page.navigations.count(xhs.DRAFT_BOX_URL) == 1
+
+    @pytest.mark.asyncio
+    async def test_item_fallback_scan_is_cost_capped_and_traced(self, publisher, monkeypatch):
+        """兜底标题扫描必须受成本闸约束，且被截断时留痕（CCG 七轮 i1）。
+
+        `DRAFT_BOX_ITEM_SELECTOR` 是跨层级通配形态且**未经活体取证**，命中数由平台模板决定；
+        不设上限等于把一次整页 goto 之后的往返成本交给它。截断后的"没匹配上"必须与
+        "根本没扫到"区分开——否则这条兜底通道的失效又是静默的。
+        """
+        monkeypatch.setattr(xhs, "DRAFT_SAVE_RESPONSE_PATTERNS", [], raising=False)
+        page = _base_page()
+        page.item_texts[COUNTER_SEL] = []  # 计数不可用 ⇒ 只能走兜底标题回查
+        cap = xhs.DRAFT_BOX_ITEM_SCAN_CAP
+        page.item_texts[xhs.DRAFT_BOX_ITEM_SELECTOR] = (
+            ["无关模板"] * (cap + 13) + ["测试标题 编辑于 刚刚"]
+        )
+        messages: list[str] = []
+        sink_id = logger.add(lambda m: messages.append(str(m)), level="WARNING")
+        try:
+            result = await _flow(publisher, page, FakeMonitor(), draft=True)
+        finally:
+            logger.remove(sink_id)
+        assert result.success is False
+        assert xhs.CODE_UNCONFIRMED in (result.error or "")
+        assert any("兜底扫描被截断" in m for m in messages), messages
+
+    @pytest.mark.asyncio
+    async def test_recheck_failure_leaves_a_warning_trace(self, publisher, monkeypatch):
+        """回查整条判据通道抛错时必须是 warning 级留痕，不能只落在 debug（CCG 七轮 i2）。
+
+        回查是自动保存路径唯一被活体证实的判据；它因导航被拦截等原因整体失败时，结论仍然
+        fail-closed 是对的，但"为什么没确认"必须能在正常运行日志里查到。
+        """
+        monkeypatch.setattr(xhs, "DRAFT_SAVE_RESPONSE_PATTERNS", [], raising=False)
+        page = _page_with_draft_box(0, 1)
+
+        async def blocked_goto(url, **k):
+            page.navigations.append(url)
+            if url == xhs.DRAFT_BOX_URL:
+                raise RuntimeError("navigation intercepted")
+
+        page.goto = blocked_goto
+        messages: list[str] = []
+        sink_id = logger.add(lambda m: messages.append(str(m)), level="WARNING")
+        try:
+            result = await _flow(publisher, page, FakeMonitor(), draft=True)
+        finally:
+            logger.remove(sink_id)
+        assert result.success is False
+        assert xhs.CODE_UNCONFIRMED in (result.error or "")
+        assert any("草稿箱回查异常" in m for m in messages), messages
 
 
 class TestSelectorFallbackAndRichFill:
