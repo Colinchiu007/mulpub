@@ -147,7 +147,8 @@ export default {
       checkNoStatus: '无状态码',
       publishSuccess: '已发布：本次共 {count} 期已写入公网 feed，聚合端下次抓取后生效。',
       publishFailed: '公网 feed 未更新（{status}），本地 Feed 与已发布内容不受影响，可重试。',
-      backupMissing: '注意：本次未建立回滚点，无法一键退回上一版 feed。',
+      backupMissing: '注意：本次未能把上一版存档到对象存储，本地回滚点仍在，但云端没有可指回的副本。',
+      noPrevious: '这是该频道首次发布，暂时还没有可退回的上一版。',
     },
     errors: {
       PODCAST_IPC_UNAVAILABLE: '播客服务暂不可用（未登录、许可证未激活，或主进程通道未挂载）',

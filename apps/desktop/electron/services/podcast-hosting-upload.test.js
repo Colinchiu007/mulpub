@@ -69,14 +69,16 @@ describe('podcast-hosting-upload · 托管配置资格判定（fail closed）', 
     expect(onlyId[0].field).toBe('hosting.accessKeyId')
   })
 
-  it('路径前缀含 . / .. / 前导斜杠 ⇒ 出声拒绝，不得静默清洗成另一个前缀', () => {
+  it('清洗会改变它 ⇒ 出声拒绝（不只 `..`：空格、尾斜杠、中文同样会换掉发布路径）', () => {
     const base = { provider: 'oss', endpoint: 'e', bucket: 'b', accessKeyId: AK, accessKeySecret: SECRET }
-    for (const bad of ['feeds/../secret', '/feeds', 'feeds/./x']) {
+    for (const bad of ['feeds/../secret', '/feeds', 'feeds/./x', 'feeds/', 'a/b c', 'feeds/播客']) {
       const codes = validateHosting({ ...base, pathPrefix: bad }).map((i) => i.code)
       expect(codes, bad).toContain('PODCAST_HOSTING_PREFIX_UNSAFE')
     }
     // 合法值与留空（走默认前缀）都不得被这条判据误伤
-    expect(validateHosting({ ...base, pathPrefix: 'feeds' })).toEqual([])
+    for (const okPrefix of ['feeds', 'a-b/c.d', 'podcast/v1']) {
+      expect(validateHosting({ ...base, pathPrefix: okPrefix }), okPrefix).toEqual([])
+    }
     expect(validateHosting({ ...base, pathPrefix: '' })).toEqual([])
     expect(validateHosting(base)).toEqual([])
   })

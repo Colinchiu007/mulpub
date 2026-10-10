@@ -147,7 +147,8 @@ export default {
       checkNoStatus: 'no status',
       publishSuccess: 'Published: {count} episode(s) are now in the public feed; aggregators pick them up on the next crawl.',
       publishFailed: 'Public feed not updated ({status}); the local feed and what is already published are unchanged. You can retry.',
-      backupMissing: 'Note: no rollback point was created, so the previous feed cannot be restored in one click.',
+      backupMissing: 'Note: the previous version could not be archived to object storage. The local rollback copy is still there, but there is no cloud copy to point back to.',
+      noPrevious: 'This is the first publish for this channel, so there is no previous version to roll back to yet.',
     },
     errors: {
       PODCAST_IPC_UNAVAILABLE: 'Podcast service is unavailable (not signed in, license not activated, or main-process channel not mounted)',

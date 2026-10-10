@@ -59,7 +59,11 @@ function unwrapObject (payload, key) {
 /** 领域错误 → IPC envelope。不同排查方向的错误不得合并成一句话。 */
 function toIpcError (err) {
   const code = err && err.code
-  const issues = err && Array.isArray(err.issues) ? err.issues : null
+  // 空数组是 truthy —— 原判据把「按设计不带 issues」的错误（如 SECRET_MISSING 以 {issues:[]} 抛，
+  // 意图就是与「字段不合格」区分开）也塞进 VALIDATION_ERROR 分支，envelope.code 于是成了错值。
+  // 渲染层现按 subCode 取文案所以用户无感，但错误分类本身说谎，会让下一次按 code 分流的逻辑走错。
+  const rawIssues = err && Array.isArray(err.issues) ? err.issues : null
+  const issues = rawIssues && rawIssues.length ? rawIssues : null
   if (issues) {
     return { code: EC.VALIDATION_ERROR, subCode: code || '', message: (err && err.message) || '校验未通过', issues }
   }
@@ -253,7 +257,8 @@ function registerHandlers (ipcMain, deps) {
     // 只回可公开的形状：url 是公网地址，但不含签名头与凭证
     return {
       state: r.state, url: r.url || '', bytes: r.bytes || 0, itemCount: r.itemCount || 0,
-      backupCreated: Boolean(r.backupCreated), code: r.code || '', status: r.status == null ? null : r.status,
+      backupCreated: Boolean(r.backupCreated), prevExists: Boolean(r.prevExists),
+      code: r.code || '', status: r.status == null ? null : r.status,
     }
   })))
 }

@@ -132,7 +132,7 @@
 
 ### Requirement: 发布 Feed 必须先建回滚点再覆盖主键，且失败形状必须可见
 
-系统 SHALL 在覆盖公网 `feed.xml` **之前**建立回滚点（本地 `feed.prev.xml` + OSS 时间戳副本）。回滚点建不出来 SHALL NOT 阻断主上传（否则用户被锁死在原地），但必须在结果里如实标 `backupCreated:false` 并在界面追加「本次未建立回滚点」。上传失败 SHALL 仍写入 `feedSync` 的失败态，使「公网未更新」在重启后依然可见。本期 SHALL NOT 提供一键退回（上一版对象 key 未持久化），该边界须在文档里明写而不是留成隐含承诺。
+系统 SHALL 在覆盖公网 `feed.xml` **之前**建立回滚点（本地 `feed.prev.xml` + OSS 时间戳副本），且回滚点的内容 SHALL 是**本次 `buildFeed` 之前**磁盘上那份 `feed.xml`——`buildFeed` 就地覆写真源产物，在其后复制得到的只是同一份内容的第二份拷贝，`backupCreated:true` 因此会说谎。回滚点建不出来 SHALL NOT 阻断主上传（否则用户被锁死在原地），但必须在结果里如实标 `backupCreated:false`，并按「上一版本来就不存在」与「有上一版但没存档成功」两种成因分别标注（`prevExists` 与 `backupCreated` 一起进信封）。上传失败 SHALL 仍写入 `feedSync` 的失败态，使「公网未更新」在重启后依然可见；而**失败态写盘自身抛错**（真源损坏/锁超时）SHALL NOT 顶掉该失败形状。本期 SHALL NOT 提供一键退回（上一版对象 key 未持久化），该边界须在文档里明写而不是留成隐含承诺。
 
 #### Scenario: PUT 返回非 2xx
 - **WHEN** 对象存储返回 403 或无状态码
@@ -141,6 +141,18 @@
 #### Scenario: 成功但无回滚点
 - **WHEN** 主键覆盖成功而回滚点建立失败
 - **THEN** 结果仍为 `success` 且 `backupCreated:false`，界面在成功文案之外**额外**显示回滚点缺失标注
+
+#### Scenario: 回滚点内容必须是上一版而不是本次产物
+- **WHEN** 同一频道第二次发布（第一次发布的内容记为 v1，第二次为 v2）
+- **THEN** `feed.prev.xml` 与 OSS 时间戳副本逐字等于 **v1**，主键等于 v2；快照动作发生在 `buildFeed` 之前
+
+#### Scenario: 首次发布没有上一版
+- **WHEN** 该频道磁盘上还不存在 `feed.xml`
+- **THEN** 不建本地 prev、不发时间戳副本，结果带 `prevExists:false`，界面显示「这是该频道首次发布，暂时还没有可退回的上一版」而不是「回滚点没建上」
+
+#### Scenario: 失败态写盘自身抛错不得顶掉失败形状
+- **WHEN** 主键 `PUT` 失败且随后的 `writeFeedSync` 抛出真源类错误
+- **THEN** 调用方仍拿到 `{state:'failed', code, status}` 且 `feedSync:null`，写失败另落 warn 留痕
 
 ### Requirement: 对象上传的读流错误不得逃出主进程，也不得被 2xx 掩盖
 

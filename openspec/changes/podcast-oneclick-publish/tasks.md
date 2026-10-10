@@ -22,6 +22,7 @@
 - [x] 2.2 `podcast:hosting:get|save|check`（check 注入 `httpClient`，缺省零出站并如实回 `checked:false`+理由；通道名为源码字面量，ipc-contract 对账通过）
 - [x] 2.3 `podcast:feed:publish`：先建回滚点（本地 `feed.prev.xml` + OSS 时间戳副本）→ 覆盖主键 → `writeFeedSync`；`backupCreated` 进结果态与界面标注；一键退回本期不做，已明写为边界（§13 第 6 条）
 - [x] 2.4 行为锁⑦（重启后 partial 仍在）+ 结构锁⑫：刀 2 另落 ⑱–㉓ 七条（读流 error 监听 / 2xx 不掩盖读体失败 / clearSecret 在 payload 内 / 未接入 provider 不可选 / 文案接线取真实 locale 值 / `@published` 父绑定 / 发布形状按 handler 返回体断言），每条做过独立变异反证
+- [x] 2.5 QM-6 后端（claude）结构化 JSON 6 条逐条处置（1 Warning + 5 Info，**6 upheld / 0 拒绝**）：凭证成对守卫 b2-1、`toIpcError` 空数组归类 b2-2、**回滚点快照挪到 `buildFeed` 之前** b2-3（本刀影响最大：`backupCreated:true` 曾说的是假话）、失败态写盘抛错顶掉返回形状 b2-4、`pathPrefix` 双层边界对齐 b2-5、探测键唯一化 b2-6（采纳判据、否掉 HEAD 建议并给理由）。7 条变异各自把守卫改回「修复前形态」，用 json reporter 核对红的正是指名那条；产物 `.adversarial/ccg-deep-84c3413a/`（adjudication b2-1..b2-6 + critique-backend-v1.md + family-snapshot 的 secondRound）
 
 ## 3. 刀 3 成片一键出期 + 共用手柄（后续 PR）
 

@@ -128,11 +128,21 @@ describe('PodcastHostingCard 发布结果三态', () => {
 
   it('成功但没有回滚点：必须额外出声，不得把「无法回退」藏进成功文案', async () => {
     api.hostingGet.mockResolvedValue(ok({ hosting: CONFIGURED }))
-    api.feedPublish.mockResolvedValue(ok({ state: 'success', itemCount: 3, backupCreated: false }))
+    api.feedPublish.mockResolvedValue(ok({ state: 'success', itemCount: 3, backupCreated: false, prevExists: true }))
     const w = await mountCard()
     await w.find('[data-testid="podcast-hosting-publish"]').trigger('click')
     await vi.waitFor(() => expect(w.find('[data-testid="podcast-hosting-no-backup"]').exists()).toBe(true))
     expect(w.find('[data-testid="podcast-hosting-no-backup"]').text()).toBe(zh.podcast.hosting.backupMissing)
+  })
+
+  it('首次发布要说"还没有上一版"，不得谎称"回滚点没建上"（两件事的处置方向不同）', async () => {
+    api.hostingGet.mockResolvedValue(ok({ hosting: CONFIGURED }))
+    api.feedPublish.mockResolvedValue(ok({ state: 'success', itemCount: 1, backupCreated: false, prevExists: false }))
+    const w = await mountCard()
+    await w.find('[data-testid="podcast-hosting-publish"]').trigger('click')
+    await vi.waitFor(() => expect(w.find('[data-testid="podcast-hosting-no-previous"]').exists()).toBe(true))
+    expect(w.find('[data-testid="podcast-hosting-no-backup"]').exists()).toBe(false)
+    expect(w.find('[data-testid="podcast-hosting-no-previous"]').text()).toBe(zh.podcast.hosting.noPrevious)
   })
 
   it('发布结果原样透传给父组件（父模板确有 @published 绑定）', async () => {

@@ -176,6 +176,24 @@ describe('podcast-hosting-service · 凭证合并', () => {
     expect(registry.readHosting() || null).toBe(null)
   })
 
+  it('只换 AccessKeyId 不重填 Secret ⇒ 拒绝（新 AK 配旧 Secret 签名必然 403）', async () => {
+    await mk().saveHosting(fullPatch())
+    await expect(mk().saveHosting({ accessKeyId: AK + 'x' }))
+      .rejects.toThrow(new RegExp(HOSTING_ERRORS.SECRET_MISSING))
+    const kept = store.map.get(keyOf(REF, 'sub-1'))
+    expect(kept.accessKeyId).toBe(AK)
+    expect(kept.accessKeySecret).toBe(SK)
+  })
+
+  it('成对重填 AK 与 Secret ⇒ 允许，且落盘是新的那一双', async () => {
+    await mk().saveHosting(fullPatch())
+    const res = await mk().saveHosting({ accessKeyId: AK + 'x', accessKeySecret: SK + 'y' })
+    expect(res.hosting.configured).toBe(true)
+    const saved = store.map.get(keyOf(REF, 'sub-1'))
+    expect(saved.accessKeyId).toBe(AK + 'x')
+    expect(saved.accessKeySecret).toBe(SK + 'y')
+  })
+
   it('clearSecret 才删除凭证；删除后 configured 必须转 false（不得仍显示「已配置」）', async () => {
     await mk().saveHosting(fullPatch())
     const res = await mk().saveHosting({ clearSecret: true })
@@ -231,29 +249,84 @@ describe('podcast-hosting-service · 探测', () => {
     const r = await mk().checkHosting()
     expect(r).toMatchObject({ checked: true, ok: true, status: 200 })
     expect(puts).toHaveLength(1)
-    expect(puts[0].url).toContain('/probe.txt')
+    expect(puts[0].url).toContain('/_podcast-probe/probe-')
+    expect(puts[0].url).not.toMatch(/\/probe\.txt$/)
+  })
+
+  it('探测键必须唯一：不得覆写用户 bucket 里的同名对象', async () => {
+    await mk().saveHosting(fullPatch())
+    client = makeClient([200, 200])
+    await mk().checkHosting()
+    await mk().checkHosting()
+    expect(puts).toHaveLength(2)
+    expect(puts[0].url).not.toBe(puts[1].url)
   })
 })
 
 describe('podcast-hosting-service · 发布 feed', () => {
-  it('成功：先建回滚点再覆盖主键，feedSync 落 success，发布结束后忙标记释放', async () => {
+  it('首次发布：没有上一版可退 ⇒ 只传主键一次，且如实标 backupCreated/prevExists 均为 false', async () => {
     await mk().saveHosting(fullPatch())
-    client = makeClient([200, 200])
+    client = makeClient([200])
     const res = await mk().publishFeed(CHANNEL_ID)
     expect(res.state).toBe('success')
-    expect(puts).toHaveLength(2)
-    expect(puts[0].url).toMatch(/\/feed\.[0-9T:.Z+-]+\.xml$/)
-    expect(puts[1].url).toBe('https://pod.oss-cn-hangzhou.aliyuncs.com/feeds/' + CHANNEL_ID + '/feed.xml')
-    expect(String(puts[1].headers.Authorization)).toMatch(/^OSS /)
-    expect(res.itemCount).toBe(1)
-    expect(res.backupCreated).toBe(true)
+    expect(puts).toHaveLength(1)
+    expect(puts[0].url).toBe('https://pod.oss-cn-hangzhou.aliyuncs.com/feeds/' + CHANNEL_ID + '/feed.xml')
+    expect(res.backupCreated).toBe(false)
+    expect(res.prevExists).toBe(false)
     expect(channelBusyGate.isBusy(CHANNEL_ID)).toBe(false)
     expect(channelService.readFeedSync()).toMatchObject({ status: 'success', itemCount: 1 })
   })
 
+  it('第二次发布：回滚点装的必须是**上一版**内容，不是本次产物（QM-6 后端评审命中）', async () => {
+    await mk().saveHosting(fullPatch())
+    client = makeClient([200])
+    await mk().publishFeed(CHANNEL_ID)
+    const feedPath = path.join(registry.channelDir(CHANNEL_ID), 'feed.xml')
+    const prevPath = path.join(registry.channelDir(CHANNEL_ID), 'feed.prev.xml')
+    const v1 = fs.readFileSync(feedPath, 'utf8')
+    expect(v1).not.toContain('第二期')
+
+    channelService.saveEpisode({
+      id: 'ep-2', title: '第二期：新增', audioUrl: 'https://cdn.example.com/e2.mp3',
+      durationSec: 120, sizeBytes: 2000, pubDate: '2026-10-11T08:00:00.000Z', episodeType: 'full',
+    })
+    client = makeClient([200, 200])
+    const res = await mk().publishFeed(CHANNEL_ID)
+    expect(puts).toHaveLength(3)
+    expect(puts[1].url).toMatch(/\/feed\.[0-9T:.Z+-]+\.xml$/)
+    expect(puts[2].url).toMatch(/\/feed\.xml$/)
+    expect(res.itemCount).toBe(2)
+    expect(res.prevExists).toBe(true)
+    // 决定性断言：本地回滚点与云端存档都是上一版（旧实现在 buildFeed 之后才复制，这里会含"第二期"）
+    expect(fs.readFileSync(prevPath, 'utf8')).toBe(v1)
+    expect(fs.readFileSync(prevPath, 'utf8')).not.toContain('第二期')
+    expect(fs.readFileSync(feedPath, 'utf8')).toContain('第二期')
+  })
+
+  it('成功：先建回滚点再覆盖主键，feedSync 落 success，发布结束后忙标记释放', async () => {
+    await mk().saveHosting(fullPatch())
+    client = makeClient([200])
+    await mk().publishFeed(CHANNEL_ID)
+    channelService.saveEpisode({
+      id: 'ep-2', title: '第二期', audioUrl: 'https://cdn.example.com/e2.mp3',
+      durationSec: 120, sizeBytes: 2000, pubDate: '2026-10-11T08:00:00.000Z', episodeType: 'full',
+    })
+    client = makeClient([200, 200])
+    const res = await mk().publishFeed(CHANNEL_ID)
+    expect(res.state).toBe('success')
+    expect(puts).toHaveLength(3)
+    expect(puts[1].url).toMatch(/\/feed\.[0-9T:.Z+-]+\.xml$/)
+    expect(puts[2].url).toBe('https://pod.oss-cn-hangzhou.aliyuncs.com/feeds/' + CHANNEL_ID + '/feed.xml')
+    expect(String(puts[2].headers.Authorization)).toMatch(/^OSS /)
+    expect(res.itemCount).toBe(2)
+    expect(res.backupCreated).toBe(true)
+    expect(channelBusyGate.isBusy(CHANNEL_ID)).toBe(false)
+    expect(channelService.readFeedSync()).toMatchObject({ status: 'success', itemCount: 2 })
+  })
+
   it('主键 PUT 403 → failed，feedSync 记下错误码，任何输出都不出现 secret', async () => {
     await mk().saveHosting(fullPatch())
-    client = makeClient([200, 403])
+    client = makeClient([403])
     const res = await mk().publishFeed(CHANNEL_ID)
     expect(res).toMatchObject({ state: 'failed', code: 'PODCAST_HOSTING_UPLOAD_FAILED', status: 403 })
     expect(channelService.readFeedSync().status).toBe('failed')
@@ -261,12 +334,35 @@ describe('podcast-hosting-service · 发布 feed', () => {
     expect(channelBusyGate.isBusy(CHANNEL_ID)).toBe(false)
   })
 
-  it('回滚点建不出来不阻断发布，但必须可见（backupCreated:false）', async () => {
+  it('写失败态 feedSync 自己也抛 ⇒ 仍回 failed 形状，不被不相干的码顶掉', async () => {
     await mk().saveHosting(fullPatch())
+    client = makeClient([403])
+    const broken = {
+      buildFeed: () => channelService.buildFeed(),
+      writeFeedSync: () => { const e = new Error('PODCAST_STORE_CORRUPT: channel.json 坏了'); e.code = 'PODCAST_STORE_CORRUPT'; throw e },
+      readFeedSync: () => channelService.readFeedSync(),
+    }
+    const saved = channelService.writeFeedSync
+    channelService.writeFeedSync = broken.writeFeedSync
+    let res
+    try {
+      res = await mk().publishFeed(CHANNEL_ID)
+    } finally {
+      channelService.writeFeedSync = saved
+    }
+    expect(res).toMatchObject({ state: 'failed', code: 'PODCAST_HOSTING_UPLOAD_FAILED', status: 403 })
+    expect(res.feedSync).toBe(null)
+  })
+
+  it('回滚点（上一版存档）传不出去不阻断发布，但必须可见（backupCreated:false）', async () => {
+    await mk().saveHosting(fullPatch())
+    client = makeClient([200])
+    await mk().publishFeed(CHANNEL_ID)
     client = makeClient([500, 200])
     const res = await mk().publishFeed(CHANNEL_ID)
     expect(res.state).toBe('success')
     expect(res.backupCreated).toBe(false)
+    expect(res.prevExists).toBe(true)
   })
 
   it('同频道已有发布在飞 → 立即拒绝，一次请求都不发出', async () => {

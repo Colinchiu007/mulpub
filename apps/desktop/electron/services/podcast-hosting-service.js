@@ -187,11 +187,20 @@ class PodcastHostingService {
       return { hosting: this.getHosting() }
     }
 
-    const keyId = patch.accessKeyId != null ? String(patch.accessKeyId).trim() : (prevSecret ? prevSecret.accessKeyId : '')
+    const prevAk = prevSecret ? String(prevSecret.accessKeyId || '') : ''
+    const inputKeyId = patch.accessKeyId != null ? String(patch.accessKeyId).trim() : ''
+    const keyId = inputKeyId || prevAk
     // secret 也必须先 trim 再判缺席：`'   '` 若当真值用，会**静默销毁**已存的真实凭证**，
     // 而 `configured` 仍是 true（validateHosting 的 CREDENTIAL_REQUIRED 恰好在下一行被过滤掉，
-    // 判据 195 行又只挡空串）。语义口径只有一条：**空白 = 缺席 = 沿用已存凭证**，与渲染层一致。
+    // 判据又只挡空串）。语义口径只有一条：**空白 = 缺席 = 沿用已存凭证**，与渲染层一致。
     const inputSecret = patch.accessKeySecret != null ? String(patch.accessKeySecret).trim() : ''
+    // 「半新半旧」的另一半（QM-6 后端评审命中）：只换 AccessKeyId、不重填 Secret，
+    // 会把**新 AK 配旧 Secret** 存下去——两值都非空所以过校验，`configured` 仍为 true，
+    // 但从此每次上传都 403，而界面只显示「上传失败」，用户完全看不到真正的原因是键配错。
+    // 成对重填是唯一不自相矛盾的口径：Secret 不回显，所以也无法"带着旧 Secret 换个 AK"。
+    if (inputKeyId && prevAk && inputKeyId !== prevAk && !inputSecret) {
+      throw err(HOSTING_ERRORS.SECRET_MISSING, '更换 AccessKeyId 必须同时重填 AccessKeySecret（新 AK 配旧 Secret 签名必然 403）', { issues: [] })
+    }
     const secret = inputSecret || (prevSecret ? prevSecret.accessKeySecret : '')
     const issues = validateHosting(Object.assign({}, next, { accessKeyId: keyId, accessKeySecret: secret }))
       .filter((i) => i && i.code !== 'PODCAST_HOSTING_CREDENTIAL_REQUIRED')
@@ -217,7 +226,13 @@ class PodcastHostingService {
     if (!view.configured) return { checked: false, reason: 'PODCAST_HOSTING_NOT_CONFIGURED', hosting: view }
     if (!this._httpClient) return { checked: false, reason: 'PODCAST_HOSTING_CHECK_SKIPPED', hosting: view }
     const secret = this._readSecret(view.credentialRef)
-    const objectKey = normalizePathPrefix(view.pathPrefix) + '/probe.txt'
+    // 探测键必须**唯一且自带命名空间**。原来写死 `<prefix>/probe.txt`：用户 bucket 里若已有
+    // 同名对象（这名字太容易被占用），点一次「测试连通」就把人家的文件覆写了——
+    // 一个只该验证凭证与可达性的动作产生了真实写入副作用。
+    // 不用 HEAD：HEAD 要求对象已存在，而未发布过的频道必然 404，那会被读成"凭证不通"。
+    // 留给运维的口径：这些探针对象写在 `_podcast-probe/` 前缀下，bucket 生命周期规则可直接清掉。
+    const probeStamp = new Date().toISOString().replace(/[:.]/g, '-') + '-' + Math.random().toString(36).slice(2, 8)
+    const objectKey = normalizePathPrefix(view.pathPrefix) + '/_podcast-probe/probe-' + probeStamp + '.txt'
     const url = objectPublicUrl({ endpoint: view.endpoint, bucket: view.bucket, objectKey })
     if (!url) throw err(HOSTING_ERRORS.HOSTING_INVALID, '无法由 endpoint/bucket 拼出可探测地址')
     const headers = buildOssPutHeaders({
@@ -255,6 +270,21 @@ class PodcastHostingService {
     }
     try {
       const svc = this._channelOf(id)
+      const dir = this._registry.channelDir(id)
+      const feedPath = path.join(dir, 'feed.xml')
+      const prevPath = path.join(dir, 'feed.prev.xml')
+      // 回滚点必须**先于 buildFeed** 落快照。buildFeed 就地覆写 feed.xml，在那之后复制出来的
+      // "prev" 其实是本次产物——它不是回滚点，只是同一份内容的第二份拷贝（QM-6 后端评审命中）。
+      const hadPrevious = this._fs.existsSync(feedPath)
+      let snapshotted = false
+      if (hadPrevious) {
+        try {
+          this._fs.copyFileSync(feedPath, prevPath)
+          snapshotted = true
+        } catch (e) {
+          this.logger.warn('PodcastHosting', 'feed snapshot failed: ' + ((e && e.message) || String(e)))
+        }
+      }
       // buildFeed 与 writeFeedSync 都要落盘到 episodes/feed 的真源，而忙标记此刻正被本次发布持有；
       // 通行证按同键、同步作用域放行「发布自己写自己的状态」，跨 await 不持有。
       const built = channelPublishPass.run(id, () => svc.buildFeed())
@@ -271,14 +301,16 @@ class PodcastHostingService {
       const stampKey = prefix + '/' + id + '/feed.' + new Date().toISOString().replace(/[:.]/g, '-') + '.xml'
       const attemptedAt = new Date().toISOString()
 
+      // 云端存档传的是**上一版**（与本地 prev 同一份内容），不是本次产物：
+      // 目的是"本地 prev 被清掉后仍能指回上一版"，而不是给本次内容多留一份拷贝。
       let backupCreated = false
-      const prevPath = path.join(path.dirname(built.path), 'feed.prev.xml')
-      try {
-        this._fs.copyFileSync(built.path, prevPath)
-        await this._put(snapshot, stampKey, prevPath)
-        backupCreated = true
-      } catch (e) {
-        this.logger.warn('PodcastHosting', 'feed rollback point failed: ' + ((e && e.status) || (e && e.message) || String(e)))
+      if (snapshotted) {
+        try {
+          await this._put(snapshot, stampKey, prevPath)
+          backupCreated = true
+        } catch (e) {
+          this.logger.warn('PodcastHosting', 'feed archive failed: ' + ((e && e.status) || (e && e.message) || String(e)))
+        }
       }
 
       let uploaded
@@ -286,21 +318,34 @@ class PodcastHostingService {
         uploaded = await this._put(snapshot, key, built.path)
       } catch (e) {
         const code = (e && e.code) || 'PODCAST_HOSTING_UPLOAD_FAILED'
-        const failed = channelPublishPass.run(id, () => svc.writeFeedSync({
-          status: 'failed', attemptedAt, publishedAt: '', objectKey: key,
-          error: { code, status: (e && e.status) || null, itemCount: built.itemCount },
-        }))
+        // 失败态写盘本身也可能抛（channel.json 损坏、锁超时）。它绝不能顶掉这一格的
+        // 「公网未更新、可重试」形状——否则调用方只拿到一个不相干的 STORE_* 码，
+        // 用户会以为本地数据坏了，而真实情况只是 OSS 拒了这次上传。
+        let failed = null
+        try {
+          failed = channelPublishPass.run(id, () => svc.writeFeedSync({
+            status: 'failed', attemptedAt, publishedAt: '', objectKey: key,
+            error: { code, status: (e && e.status) || null, itemCount: built.itemCount },
+          }))
+        } catch (e2) {
+          this.logger.warn('PodcastHosting', 'feedSync 失败态未落盘：' + ((e2 && e2.code) || (e2 && e2.message) || String(e2)))
+        }
         this.logger.warn('PodcastHosting', 'feed publish failed (items=' + built.itemCount + ' status=' + ((e && e.status) || 'none') + ')')
-        return { state: 'failed', code, status: (e && e.status) || null, backupCreated, itemCount: built.itemCount, feedSync: failed }
+        return { state: 'failed', code, status: (e && e.status) || null, backupCreated, prevExists: snapshotted, itemCount: built.itemCount, feedSync: failed }
       }
 
       const url = objectPublicUrl({ endpoint: view.endpoint, bucket: view.bucket, objectKey: key })
-      const synced = channelPublishPass.run(id, () => svc.writeFeedSync({
-        status: 'success', attemptedAt, publishedAt: new Date().toISOString(), objectKey: key, url,
-        bytes: uploaded.size, itemCount: built.itemCount, backupCreated,
-      }))
-      this.logger.info('PodcastHosting', 'feed published (items=' + built.itemCount + ' bytes=' + uploaded.size + ' backup=' + (backupCreated ? 'yes' : 'no') + ')')
-      return { state: 'success', url, bytes: uploaded.size, itemCount: built.itemCount, backupCreated, feedSync: synced }
+      let synced = null
+      try {
+        synced = channelPublishPass.run(id, () => svc.writeFeedSync({
+          status: 'success', attemptedAt, publishedAt: new Date().toISOString(), objectKey: key, url,
+          bytes: uploaded.size, itemCount: built.itemCount, backupCreated,
+        }))
+      } catch (e2) {
+        this.logger.warn('PodcastHosting', 'feedSync 成功态未落盘：' + ((e2 && e2.code) || (e2 && e2.message) || String(e2)))
+      }
+      this.logger.info('PodcastHosting', 'feed published (items=' + built.itemCount + ' bytes=' + uploaded.size + ' archive=' + (backupCreated ? 'yes' : 'no') + ' prev=' + (snapshotted ? 'yes' : 'no') + ')')
+      return { state: 'success', url, bytes: uploaded.size, itemCount: built.itemCount, backupCreated, prevExists: snapshotted, feedSync: synced }
     } finally {
       this._registry.endPublish(id)
     }

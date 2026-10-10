@@ -173,6 +173,19 @@ describe('podcast handler · 失败映射', () => {
       expect(toIpcError(err).code).toBe(expected)
     }
   })
+
+  it('按设计不带 issues 的领域错误（空数组）不得被归入 VALIDATION_ERROR（QM-6 后端 b2-2）', () => {
+    // 空数组是 truthy，原判据 Array.isArray([]) 为真 ⇒ SECRET_MISSING 这类「意图上与字段不合格区分开」
+    // 的错误被标成校验类。渲染层按 subCode 取文案所以用户无感，但分类本身在说谎：
+    // 任何后续按 code 分流的逻辑（如「校验错就展开表单」）会走错方向。
+    const err = new Error('PODCAST_HOSTING_SECRET_MISSING')
+    err.code = 'PODCAST_HOSTING_SECRET_MISSING'
+    err.issues = []
+    const res = toIpcError(err)
+    expect(res.code).toBe(EC.REQUEST_ERROR)
+    expect(res.subCode).toBe('PODCAST_HOSTING_SECRET_MISSING')
+    expect(res.issues).toBeUndefined()
+  })
 })
 
 describe('podcast handler · unwrapObject 形状判据', () => {
@@ -287,16 +300,20 @@ describe('podcast IPC · 刀2 托管与发布（真服务 + 假凭证/假网络�
   })
 
   it('feed:publish 成功：信封键逐字对齐渲染层合同，且不含签名头', async () => {
-    const ctx = makeHostingDeps([200, 200])
+    const ctx = makeHostingDeps([200, 200, 200])
     await seed(ctx)
     await ctx.ipcMain.handlers.get('podcast:hosting:save')({}, {
       hosting: { provider: 'oss', endpoint: 'oss-cn-hangzhou.aliyuncs.com', bucket: 'pod', pathPrefix: 'feeds', accessKeyId: 'AKIDabcdefghij', accessKeySecret: 'SECRETxyz0123456789' },
     })
+    // 第一次发布没有"上一版"可存档（只传主键）；第二次才有存档 + 主键两次 PUT。
+    const first = await ctx.ipcMain.handlers.get('podcast:feed:publish')({}, { channelId: 'ch_ipc0001' })
+    expect(first.code).toBe(0)
+    expect(Object.keys(first.data).sort()).toEqual(['backupCreated', 'bytes', 'code', 'itemCount', 'prevExists', 'state', 'status', 'url'].sort())
+    expect(first.data).toMatchObject({ state: 'success', prevExists: false })
+    expect(ctx.puts).toHaveLength(1)
     const res = await ctx.ipcMain.handlers.get('podcast:feed:publish')({}, { channelId: 'ch_ipc0001' })
-    expect(res.code).toBe(0)
-    expect(Object.keys(res.data).sort()).toEqual(['backupCreated', 'bytes', 'code', 'itemCount', 'state', 'status', 'url'].sort())
-    expect(res.data.state).toBe('success')
-    expect(ctx.puts).toHaveLength(2)
+    expect(res.data).toMatchObject({ state: 'success', prevExists: true })
+    expect(ctx.puts).toHaveLength(3)
     expect(JSON.stringify(res)).not.toContain('SECRETxyz0123456789')
     expect(JSON.stringify(res)).not.toContain('OSS ')
     nodeFs.rmSync(ctx.root, { recursive: true, force: true })

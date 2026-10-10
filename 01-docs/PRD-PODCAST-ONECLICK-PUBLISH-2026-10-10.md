@@ -128,7 +128,7 @@ registry（index.json + 两段 channel.json）、迁移三态（首访即可读�
 ### 刀 2 托管直传接线
 凭证加密落盘（`credential-store`，`index.json` 只存 `credentialRef`）→ `podcast:hosting:*` → `putObject`（`podcast-hosting-upload.js:201-226`，返回 `{status,size}`）→ `podcast:feed:publish` 覆盖上传 **feed.xml**（含本地 `feed.prev.xml` + OSS 时间戳副本）→ 页面入口与【回滚上一版 feed】。独立价值：手工加的单集也能一键托管出去。
 
-**刀 2 实际落地形态（2026-10-11）**：`podcast:hosting:get` / `podcast:hosting:save` / `podcast:hosting:check` / `podcast:feed:publish` 四条通道已接（通道名一律写成源码字面量，`ipc-contract` 按字面量双向对账，间接注册会让整条通道从对账里消失）；渲染层是独立子组件 `PodcastHostingCard.vue` + `usePodcastHosting.js`（凭证全局一份、发布按频道触发，两者状态生命周期不同，且播客页已贴着逐文件行数门禁上限）。发布顺序按本刀次承诺实现为**先建回滚点、再覆盖主键**：本地 `feed.prev.xml` + OSS 时间戳副本 → 主键 `PUT` → `writeFeedSync`；`PUT` 失败也如实落 `status:'failed'` 的 `feedSync`，让「公网未更新」在重启后仍然可见。本地回滚点 `feed.prev.xml` 已落盘、可人工核对；OSS 侧时间戳副本的 key **当前不落 `feedSync`**，因此**不提供一键退回**——那属刀 3 与成片链路一起收口的范围，见 §13。
+**刀 2 实际落地形态（2026-10-11）**：`podcast:hosting:get` / `podcast:hosting:save` / `podcast:hosting:check` / `podcast:feed:publish` 四条通道已接（通道名一律写成源码字面量，`ipc-contract` 按字面量双向对账，间接注册会让整条通道从对账里消失）；渲染层是独立子组件 `PodcastHostingCard.vue` + `usePodcastHosting.js`（凭证全局一份、发布按频道触发，两者状态生命周期不同，且播客页已贴着逐文件行数门禁上限）。发布顺序按本刀次承诺实现为**先建回滚点、再覆盖主键**，而「先」的判据是**相对 `buildFeed()` 之前**：快照取的是磁盘上当前的 `feed.xml`（= 上一次发布成功的版本），拷完才生成新版本并覆盖主键。若把顺序写成「先 `buildFeed` 再拷 `feed.prev.xml`」，拷到的就是本次刚生成的那份，回滚点与主键内容相同——表单上看 `backupCreated:true`，实际把「上一版」静默换成了「当前版」，属于不可见的失真。首次发布磁盘上没有 `feed.xml`，此时 `prevExists:false`，既不建本地 `feed.prev.xml` 也不发 OSS 时间戳副本（发一份"上一版"上去就是发布本次内容两次，且会把上一轮的真实副本覆盖掉）；`prevExists` 与 `backupCreated` 一起进 IPC 信封，渲染层据此二选一显示 `noPrevious` / `backupMissing`。`writeFeedSync` 失败**不得**改变返回形状：它抛错会让整次发布以异常退出，用户拿不到 `{state:'failed'}` 也就拿不到「公网未更新」这句结论，因此两处调用各包一层 try/catch，失败时返回 `feedSync:null`（状态仍如实）。连通性探测的对象 key 取 `_podcast-probe/probe-<ISO 时刻>.txt`，**不可用固定名**：固定名会让第二次探测覆盖第一次的对象，「探测成功后对象被人为删除」这类负向用例在 OSS 侧根本不可表示。凭证侧新增一条配对守卫：表单带了**新的** AccessKeyId 但未带 Secret 时直接 `PODCAST_HOSTING_SECRET_MISSING` 拒绝，不做「新 AK 配旧 Secret」的静默组合——那种组合签名必然 403，而 403 的报错方向会把用户引向「Bucket 权限」而非「刚才那半个表单」。本地回滚点 `feed.prev.xml` 已落盘、可人工核对；OSS 侧时间戳副本的 key **当前不落 `feedSync`**，因此**不提供一键退回**——那属刀 3 与成片链路一起收口的范围，见 §13。
 
 ### 刀 3 成片一键出期（含共用手柄）
 1. `readDegradedFlags`：从项目持久化数据读 `segments[].audioMeta.degraded`（与 `ResultView.vue:648-657` **同真源同判据**，判据只认 `degraded === true`，**不得**拿 `source` 字符串当第二判据）；命中即 `PODCAST_AUDIO_DEGRADED_SOURCE`，**不上传**。
@@ -162,12 +162,12 @@ registry（index.json + 两段 channel.json）、迁移三态（首访即可读�
 - 手工写与发布在飞冲突时**立即拒绝不排队**（`podcast.errors.PODCAST_CHANNEL_BUSY`）：一键发布跨 await 可达分钟级，把同步的「保存单集」拖进等待队列只会让一次点击变成转圈超时。
 - **按钮可用性就是交互契约**（`PodcastHostingCard` 逐条锁）：未配置托管时【测试连通】【清除已存凭证】禁用——两者的前置条件都是「已有一份可用凭证」，允许点击只会得到一个必然失败的请求；无活动频道时【发布本频道 Feed】禁用——发布是**频道动作**，全局凭证不足以确定目标对象 key；保存进行中三个动作全部禁用（`savingHosting`），防止把两份不同的表单态叠成一次覆盖写。
 - **本期未接入的托管类型 `option disabled`**：`cos` 在输入层合法（保存时不丢用户已填的值），但落盘会被 `PODCAST_HOSTING_PROVIDER_UNSUPPORTED` 拒。做成「可选但点了必失败」等于给用户一个假出口；不可选 + `title` 说明理由，才能既保留已存值回显又不诱导误操作。
-- **发布结果三态不压平**：`success` / `failed` / 其他（带码可见）三句话各不相同——`failed` 明示「公网 feed 未更新，本地 Feed 与已发布内容不受影响，可重试」，把「本地坏了」与「公网没跟上」两种排查方向混成一句会让用户反复点发布。`success` 且 `backupCreated:false` 时**额外**追加一条「本次未建立回滚点」，不得被成功文案吃掉。
+- **发布结果三态不压平**：`success` / `failed` / 其他（带码可见）三句话各不相同——`failed` 明示「公网 feed 未更新，本地 Feed 与已发布内容不受影响，可重试」，把「本地坏了」与「公网没跟上」两种排查方向混成一句会让用户反复点发布。`success` 时**额外**追加一条回滚点标注，且这条标注按**两种成因分两句**，不得合成一句：`prevExists && !backupCreated` → `backupMissing`（本地 `feed.xml` 存在过 ⇒ 上一版是有的，只是没存档到对象存储，云端没有可指回的副本）；`!prevExists` → `noPrevious`（该频道首次发布，本来就没有上一版，「无法退回」是错误归因）。把首次发布写成「未建立回滚点」，用户会去找一份不存在的旧 feed；把存档失败写成「首次发布」，用户会以为一切正常。两条都必须出现在 `success` 之后，不得被成功文案吃掉。
 - **留空 = 沿用已存凭证**在渲染层的落法是**该字段根本不进 payload**（缺席与空串是两件事：空串会被落盘层判成覆写请求）。保存动作结束后无论成败都立刻清空表单里的 AK/SK——渲染层状态会进 DevTools 与错误上报，失败路径尤其不能把凭证留在里面。
 
 **显示项**：频道切换器（名称 + `ch_` 短 id）、重命名入口（作用于当前频道，名称为空即前置拒绝并给 `podcast.picker.nameRequired`）、频道目录读取失败横幅（`data-testid="podcast-picker-list-error"`，走 `errorText(channelListError)`——该错误位此前无人渲染，等于「读目录失败时界面静默」）、迁移冲突横幅附**冲突文件名清单**（`data-testid="podcast-migration-files"`，取 `index.json` 的 `migrationConflicts`，用户要靠它判断该保留哪一份）、迁移状态横幅（conflict/error 各一句 + 处置按钮）、每期 `compliance` 徽标（手工路径保存后即时校验，只出声不阻断）、`feedSync` 横幅（partial = 「公网 feed 未同步」+【只重试上传 feed】）、`backupCreated:false` 时标注「本次未建立回滚点」、hosted feed 公网地址标注「已提交地址，改路径会使订阅失效」、`cap` 计数与事前禁用。
 
-**显示项（刀 2 托管卡片新增）**：托管区标题与说明、配置态一行（已配置显示**掩码后的** AccessKeyId `***`+末 4 位；未配置显示「本地音频需先配置对象存储托管」这句带出口的提示）、六个输入项（托管类型 / Endpoint / Bucket / 路径前缀 / AccessKeyId / AccessKeySecret，其中 SK 是 `type=password` 且 `autocomplete=new-password`，AK 是 `autocomplete=off`——两者都绝不被浏览器代填，也不回显）、留空即沿用的占位提示、逐条校验问题清单（`data-testid="podcast-hosting-issues"`，来自 `issues[]`，不是只给一个错误码）、连通测试结果三态（`checked:false` 的「本轮未做真实探测」/ 成功 / 失败带 HTTP 状态码或「无状态码」）、发布结果三态与回滚点缺失标注（`data-state` 供视觉与自动化用例取语义，文案不承载状态）。
+**显示项（刀 2 托管卡片新增）**：托管区标题与说明、配置态一行（已配置显示**掩码后的** AccessKeyId `***`+末 4 位；未配置显示「本地音频需先配置对象存储托管」这句带出口的提示）、六个输入项（托管类型 / Endpoint / Bucket / 路径前缀 / AccessKeyId / AccessKeySecret，其中 SK 是 `type=password` 且 `autocomplete=new-password`，AK 是 `autocomplete=off`——两者都绝不被浏览器代填，也不回显）、留空即沿用的占位提示、逐条校验问题清单（`data-testid="podcast-hosting-issues"`，来自 `issues[]`，不是只给一个错误码）、连通测试结果三态（`checked:false` 的「本轮未做真实探测」/ 成功 / 失败带 HTTP 状态码或「无状态码」）、发布结果三态与回滚点标注（`success` 下按成因二选一：`prevExists && !backupCreated` → `backupMissing`，`!prevExists` → `noPrevious`；`data-state` 供视觉与自动化用例取语义，文案不承载状态）。`data-state` 供视觉与自动化用例取语义，文案不承载状态）。
 
 ---
 
@@ -200,7 +200,7 @@ registry（index.json + 两段 channel.json）、迁移三态（首访即可读�
 | `keepLegacy` | 保留原有数据 | Keep original data |
 | `migrationResolved` | 迁移冲突已处理 | Migration conflict resolved |
 
-键路径 `podcast.hosting.*`（28 键，zh/en 双向差集为空）。托管卡片 `PodcastHostingCard.vue` 的全部可见文案都在此命名空间；`configured` 带 `{key}` 参数，值是**掩码后的** AccessKeyId（`***` + 末 4 位），明文凭证从不出主进程：
+键路径 `podcast.hosting.*`（29 键，zh/en 双向差集为空）。托管卡片 `PodcastHostingCard.vue` 的全部可见文案都在此命名空间；`configured` 带 `{key}` 参数，值是**掩码后的** AccessKeyId（`***` + 末 4 位），明文凭证从不出主进程：
 
 | 键 | zh（界面逐字） | en |
 | --- | --- | --- |
@@ -231,7 +231,8 @@ registry（index.json + 两段 channel.json）、迁移三态（首访即可读�
 | `checkNoStatus` | 无状态码 | no status |
 | `publishSuccess` | 已发布：本次共 {count} 期已写入公网 feed，聚合端下次抓取后生效。 | Published: {count} episode(s) are now in the public feed; aggregators pick them up on the next crawl. |
 | `publishFailed` | 公网 feed 未更新（{status}），本地 Feed 与已发布内容不受影响，可重试。 | Public feed not updated ({status}); the local feed and what is already published are unchanged. You can retry. |
-| `backupMissing` | 注意：本次未建立回滚点，无法一键退回上一版 feed。 | Note: no rollback point was created, so the previous feed cannot be restored in one click. |
+| `backupMissing` | 注意：本次未能把上一版存档到对象存储，本地回滚点仍在，但云端没有可指回的副本。 | Note: the previous version could not be archived to object storage. The local rollback copy is still there, but there is no cloud copy to point back to. |
+| `noPrevious` | 这是该频道首次发布，暂时还没有可退回的上一版。 | This is the first publish for this channel, so there is no previous version to roll back to yet. |
 
 键路径 `podcast.errors.*`（88 键）。渲染层按**领域码**取键：`toIpcError` 在失败信封里带 `subCode`，preload 原样透出，`usePodcastChannel.call()` 单点把 `code` 归一为领域码；未知码落 `fallback` 且**带码可见**（不得空白吞掉）。刀 2 新增的 8 个托管码必须成对入表，不得长期靠 `fallback` 兜着：
 
@@ -380,7 +381,7 @@ registry（index.json + 两段 channel.json）、迁移三态（首访即可读�
 | 路径前缀不安全（`..` / 前导 `/`） | `blocked` | `PODCAST_HOSTING_PREFIX_UNSAFE` 逐条列出，不静默清洗（§9） |
 | PUT 非 2xx / 无状态码 | `partial` | 「公网 feed 未更新（HTTP <code> 或 无状态码），本地 Feed 与已发布内容不受影响，可重试」+【只重试上传 feed】；日志与错误消息只允许出现状态码与长度，**禁记 AK/secret/带签名的 URL** |
 | 读体失败（文件被占用/移动/删除） | `partial` | `PODCAST_HOSTING_BODY_READ_FAILED`，不得因对端 2xx 报成功（⑲） |
-| 回滚点建不出来（本地拷贝或时间戳副本 PUT 失败） | `success` + 标注 | 仍完成主键覆盖（「因建不出回滚点就拒绝发布」会把用户锁死在原地），但界面必须显示 `backupMissing` |
+| 回滚点建不出来（本地拷贝或时间戳副本 PUT 失败，且 `prevExists:true`） | `success` + 标注 | 仍完成主键覆盖（「因建不出回滚点就拒绝发布」会把用户锁死在原地），但界面必须显示 `backupMissing`——文案必须说清「本地回滚点仍在、云端没有可指回的副本」，不得写成「未建立回滚点」（本地那份确实在，写成没有是假陈述） |
 | 发布进行中用户手工编辑同频道 | `rejected` | `PODCAST_CHANNEL_BUSY` 立即拒绝不排队（§8）；跨频道不受影响 |
 | `validateFeed` 不过 | `blocked` | 逐条列出「第 N 期 · 字段 · 码」并给跳转 |
 | 与本内容无关的历史坏集 | `blocked` | 「该频道有 N 期不符合规范，导致本期无法发布」并列出是哪些期 |
@@ -393,7 +394,11 @@ registry（index.json + 两段 channel.json）、迁移三态（首访即可读�
 | 已达 `ITEMS_MAX` | `blocked` | 「已达上限 {cap} 期，请先删除」（不挤出） |
 | 一键发布期间同频道再次点击 | `busy` | `PODCAST_CHANNEL_BUSY`「该频道有一次发布正在进行，请等它结束」——立即拒绝不排队 |
 | 发布在飞时提交手工增删单集 / 改频道 / 重建 feed | `busy` | 同一码同一句话（`PODCAST_CHANNEL_BUSY`），并明确「等本次发布结束后再修改」；拒绝必须留痕——库里纹丝不动，不得显示「已保存」 |
-| 备份失败 | `success` + 标注 | `backupCreated:false` → 「本次未建立回滚点」（不阻断但必须可见） |
+| 备份失败 | `success` + 标注 | `backupCreated:false` 时按 `prevExists` 二选一：`true` → `backupMissing`，`false` → `noPrevious`（不阻断但必须可见） |
+| 首次发布该频道（磁盘上还没有 `feed.xml`） | `success` + 标注 | `prevExists:false` + `backupCreated:false` → 显示 `noPrevious`「这是该频道首次发布，暂时还没有可退回的上一版」；此时**不发**时间戳副本 PUT——发上去的就是本次内容，等于把主键传两遍并覆盖掉真正该留的上一位 |
+| 表单换新 AccessKeyId 但未重填 Secret | `blocked` | `PODCAST_HOSTING_SECRET_MISSING`，文案点名「更换 AccessKeyId 必须同时重填 AccessKeySecret」；不得静默组「新 AK + 旧 Secret」——该组合签名必然 403，而 403 会把排障方向带向 Bucket 权限而不是「表单只填了半边」 |
+| 连通性探测重复执行 | `success` | 每次探测写入 `_podcast-probe/probe-<ISO 时刻>.txt` 独立对象；固定名会把上一次的对象覆盖掉，令「探测成功后对象被人为删除」这类判据在 OSS 侧不可表示 |
+| `writeFeedSync` 自身抛错（真源写失败） | `success` / `failed` + `feedSync:null` | 返回形状**不得**被异常替换：用户必须拿到 `state`，否则「公网未更新」这句结论连同重试入口一起消失；写失败另落 warn 留痕 |
 
 **并发与锁（刀 1 实况口径；v5 设计的「按 channelId 异步锁收口全部写者」已按实测修正）**
 

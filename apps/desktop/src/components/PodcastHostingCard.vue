@@ -56,7 +56,8 @@
     <p v-if="checkResult" class="podcast-hosting-check" :data-state="checkState" data-testid="podcast-hosting-check-result">{{ checkText }}</p>
     <p v-if="publishResult" class="podcast-hosting-publish" :data-state="publishResult.state" data-testid="podcast-hosting-publish-result">
       {{ publishText }}
-      <span v-if="publishResult.state === 'success' && !publishResult.backupCreated" data-testid="podcast-hosting-no-backup">{{ t('podcast.hosting.backupMissing') }}</span>
+      <span v-if="publishResult.state === 'success' && publishResult.prevExists && !publishResult.backupCreated" data-testid="podcast-hosting-no-backup">{{ t('podcast.hosting.backupMissing') }}</span>
+      <span v-else-if="publishResult.state === 'success' && !publishResult.prevExists" data-testid="podcast-hosting-no-previous">{{ t('podcast.hosting.noPrevious') }}</span>
     </p>
   </section>
 </template>
