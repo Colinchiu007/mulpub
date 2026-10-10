@@ -38,11 +38,11 @@
 
 ### Requirement: 发布同步状态必须持久化且不被改名抹除
 
-系统 SHALL 把每频道的 feed 同步结果（`result` / `attemptedAt` / `errorCodes` / `hostingSnapshot`）保存在 `channel.json` 的 `feedSync` 段，与 `validateChannel` 白名单所属的 `meta` 段分离。`podcast:channel:save` SHALL NOT 修改 `feedSync`；应用重启后 SHALL 仍能从持久化状态恢复"公网 feed 未同步"提示。
+系统 SHALL 把每频道的 feed 同步结果（`result` / `attemptedAt` / `errorCodes` / `hostingSnapshot`）保存在 `channel.json` 的 `feedSync` 段，与 `validateChannel` 白名单所属的 `meta` 段分离。`podcast:channel:save` SHALL NOT 修改 `feedSync`；应用重启后 SHALL 仍能从持久化状态**读出**「公网 feed 未同步」（写侧与真源侧已闭合）。**读侧横幅不在本刀的承诺范围内**：`getChannel` 只回 `meta` 段、渲染层当前没有 `feedSync` 消费点，把这条写成"界面重启后仍可见"就是拿写侧证据冒充读侧行为；横幅与崩溃对账（tasks 3.6）一并在刀 3 接线。
 
 #### Scenario: 改名保留发布状态
 - **WHEN** feed 上传失败使 `feedSync.result = "partial"`，随后用户保存一次频道名
-- **THEN** `feedSync` 逐字仍在，播客页仍显示"公网 feed 尚未更新"
+- **THEN** `feedSync` 逐字仍在（本 Scenario 判的是**真源不被改名抹掉**，写侧事实）；界面横幅要等刀 3 的读侧接线，不得在这里声称"播客页仍显示"
 
 #### Scenario: 服务实例重建后状态仍在
 - **WHEN** 主进程服务实例被重建（等价于应用重启）
@@ -132,7 +132,7 @@
 
 ### Requirement: 发布 Feed 必须先建回滚点再覆盖主键，且失败形状必须可见
 
-系统 SHALL 在覆盖公网 `feed.xml` **之前**建立回滚点（本地 `feed.prev.xml` + OSS 时间戳副本），且回滚点的内容 SHALL 是**本次 `buildFeed` 之前**磁盘上那份 `feed.xml`——`buildFeed` 就地覆写真源产物，在其后复制得到的只是同一份内容的第二份拷贝，`backupCreated:true` 因此会说谎。回滚点建不出来 SHALL NOT 阻断主上传（否则用户被锁死在原地），但必须在结果里如实标 `backupCreated:false`，并按「上一版本来就不存在」与「有上一版但没存档成功」两种成因分别标注（`prevExists` 与 `backupCreated` 一起进信封）。上传失败 SHALL 仍写入 `feedSync` 的失败态，使「公网未更新」在重启后依然可见；而**失败态写盘自身抛错**（真源损坏/锁超时）SHALL NOT 顶掉该失败形状。本期 SHALL NOT 提供一键退回（上一版对象 key 未持久化），该边界须在文档里明写而不是留成隐含承诺。
+系统 SHALL 在覆盖公网 `feed.xml` **之前**建立回滚点（本地 `feed.prev.xml` + OSS 时间戳副本），且回滚点的内容 SHALL 是**本次 `buildFeed` 之前**磁盘上那份 `feed.xml`——`buildFeed` 就地覆写真源产物，在其后复制得到的只是同一份内容的第二份拷贝，`backupCreated:true` 因此会说谎。回滚点建不出来 SHALL NOT 阻断主上传（否则用户被锁死在原地），但必须在结果里如实标 `backupCreated:false`，并按「上一版本来就不存在」与「有上一版但没存档成功」两种成因分别标注（`prevExists` 与 `backupCreated` 一起进信封）。上传失败 SHALL 仍写入 `feedSync` 的失败态（真源侧可复原；读侧横幅属刀 3，本刀不声称界面重启后仍显示）；而**失败态写盘自身抛错**（真源损坏/锁超时）SHALL NOT 顶掉该失败形状。本期 SHALL NOT 提供一键退回（上一版对象 key 未持久化），该边界须在文档里明写而不是留成隐含承诺。
 
 #### Scenario: PUT 返回非 2xx
 - **WHEN** 对象存储返回 403 或无状态码
@@ -153,6 +153,14 @@
 #### Scenario: 失败态写盘自身抛错不得顶掉失败形状
 - **WHEN** 主键 `PUT` 失败且随后的 `writeFeedSync` 抛出真源类错误
 - **THEN** 调用方仍拿到 `{state:'failed', code, status}` 且 `feedSync:null`，写失败另落 warn 留痕
+
+#### Scenario: prevExists 表示「有得退」而不是「快照成功」
+- **WHEN** 频道磁盘上确有上一版 `feed.xml`，但本地快照拷贝失败
+- **THEN** 结果仍为 `success` 且 `prevExists:true`、`backupCreated:false`，界面显示 `backupMissing`；不得显示 `noPrevious`（对着真有历史的频道说「首次发布」是假陈述）
+
+#### Scenario: 备份文件自身必须原子替换
+- **WHEN** 写入 `feed.prev.xml`
+- **THEN** 先落临时文件再经唯一实现 `atomicRenameSync` 替换到位，失败时清掉临时文件并只落 warn；仓库内不得出现第二份 rename 退避实现
 
 ### Requirement: 对象上传的读流错误不得逃出主进程，也不得被 2xx 掩盖
 

@@ -98,7 +98,6 @@ function registerHandlers (ipcMain, deps) {
       podcastRoot: root,
       app: deps && deps.podcastApp,
       logger: log,
-      credentialStore: deps && deps.podcastCredentialStore,
       idFactory: deps && deps.podcastIdFactory,
     })
     return registry
@@ -238,7 +237,11 @@ function registerHandlers (ipcMain, deps) {
       logger: log,
       // httpClient 缺省不注入 = 生产路径零真实出站；探测与上传必须由测试显式注入假 client
       httpClient: deps && deps.podcastHttpClient,
-      // 凭证存储可注入：测试必须能断言「secret 只进加密存储、不进 index.json」这条线
+      // 凭证存储可注入：测试必须能断言「secret 只进加密存储、不进 index.json」这条线。
+      // ⛔ 这一行不能省：省略时服务会退回**真实** credential-store，本机因为有系统凭据保护而全绿，
+      // CI runner 上 DPAPI 不可用 ⇒ saveCredential 返回 false ⇒ CRYPTO_UNAVAILABLE，
+      // 表现为两条用例报 `expected -1 to be +0`（2026-10-10 shard 2 实测）。
+      credentialStore: deps && deps.podcastCredentialStore,
     })
     return hostingService
   }

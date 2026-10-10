@@ -32,6 +32,7 @@ const {
   DEFAULT_PATH_PREFIX,
 } = require('./podcast-hosting-upload')
 const { channelPublishPass } = require('./podcast-channel-locks')
+const { atomicRenameSync, ATOMIC_RENAME_RETRY_DELAYS_MS } = require('./podcast-channel-service')
 
 const HOSTING_ERRORS = {
   IDENTITY_REQUIRED: 'PODCAST_HOSTING_IDENTITY_REQUIRED',
@@ -278,10 +279,15 @@ class PodcastHostingService {
       const hadPrevious = this._fs.existsSync(feedPath)
       let snapshotted = false
       if (hadPrevious) {
+        // 备份自身也必须原子替换：prev 存在的唯一理由是「出事时有一份能退回的」，
+        // 直接覆写若在拷贝中途被杀就留下一份撕裂的 prev —— 比没有备份更坏（看着能退，退回去是坏的）。
+        const tmpPrev = prevPath + '.tmp-' + Date.now()
         try {
-          this._fs.copyFileSync(feedPath, prevPath)
+          this._fs.copyFileSync(feedPath, tmpPrev)
+          atomicRenameSync(this._fs, tmpPrev, prevPath, ATOMIC_RENAME_RETRY_DELAYS_MS)
           snapshotted = true
         } catch (e) {
+          try { if (this._fs.existsSync(tmpPrev)) this._fs.unlinkSync(tmpPrev) } catch (_) { /* 清不掉不阻断发布 */ }
           this.logger.warn('PodcastHosting', 'feed snapshot failed: ' + ((e && e.message) || String(e)))
         }
       }
@@ -331,7 +337,7 @@ class PodcastHostingService {
           this.logger.warn('PodcastHosting', 'feedSync 失败态未落盘：' + ((e2 && e2.code) || (e2 && e2.message) || String(e2)))
         }
         this.logger.warn('PodcastHosting', 'feed publish failed (items=' + built.itemCount + ' status=' + ((e && e.status) || 'none') + ')')
-        return { state: 'failed', code, status: (e && e.status) || null, backupCreated, prevExists: snapshotted, itemCount: built.itemCount, feedSync: failed }
+        return { state: 'failed', code, status: (e && e.status) || null, backupCreated, prevExists: hadPrevious, itemCount: built.itemCount, feedSync: failed }
       }
 
       const url = objectPublicUrl({ endpoint: view.endpoint, bucket: view.bucket, objectKey: key })
@@ -344,8 +350,8 @@ class PodcastHostingService {
       } catch (e2) {
         this.logger.warn('PodcastHosting', 'feedSync 成功态未落盘：' + ((e2 && e2.code) || (e2 && e2.message) || String(e2)))
       }
-      this.logger.info('PodcastHosting', 'feed published (items=' + built.itemCount + ' bytes=' + uploaded.size + ' archive=' + (backupCreated ? 'yes' : 'no') + ' prev=' + (snapshotted ? 'yes' : 'no') + ')')
-      return { state: 'success', url, bytes: uploaded.size, itemCount: built.itemCount, backupCreated, prevExists: snapshotted, feedSync: synced }
+      this.logger.info('PodcastHosting', 'feed published (items=' + built.itemCount + ' bytes=' + uploaded.size + ' archive=' + (backupCreated ? 'yes' : 'no') + ' prev=' + (hadPrevious ? 'yes' : 'no') + ' snap=' + (snapshotted ? 'ok' : 'failed') + ')')
+      return { state: 'success', url, bytes: uploaded.size, itemCount: built.itemCount, backupCreated, prevExists: hadPrevious, feedSync: synced }
     } finally {
       this._registry.endPublish(id)
     }

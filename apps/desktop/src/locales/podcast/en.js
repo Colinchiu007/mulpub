@@ -174,7 +174,7 @@ export default {
       PODCAST_HOSTING_UPLOAD_FAILED: 'Upload to object storage failed. This publish did not take effect. Retry later or check the publish status.',
       PODCAST_HOSTING_BODY_READ_FAILED: 'Reading the local feed file failed, so nothing was uploaded. Check whether the file is locked or has been moved.',
       PODCAST_HOSTING_PROVIDER_INVALID: 'Hosting provider must be Aliyun OSS',
-      PODCAST_HOSTING_PROVIDER_UNSUPPORTED: 'This hosting provider is not integrated yet. Switch to Aliyun OSS, or give the episode an external audio URL instead.',
+      PODCAST_HOSTING_PROVIDER_UNSUPPORTED: 'This hosting provider is not integrated yet. Switch to Aliyun OSS, or give the episode an audio direct link instead.',
       PODCAST_HOSTING_ENDPOINT_REQUIRED: 'Endpoint is required (e.g. oss-cn-hangzhou.aliyuncs.com)',
       PODCAST_HOSTING_BUCKET_REQUIRED: 'Bucket name is required',
       PODCAST_HOSTING_CREDENTIAL_REQUIRED: 'AccessKeyId / AccessKeySecret is required',

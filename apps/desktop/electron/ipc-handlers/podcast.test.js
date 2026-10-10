@@ -284,6 +284,30 @@ describe('podcast IPC · 刀2 托管与发布（真服务 + 假凭证/假网络�
     expect(raw).not.toContain('AKIDabcdefghij')
     const got = await ctx.ipcMain.handlers.get('podcast:hosting:get')({}, {})
     expect(got.data.hosting.configured).toBe(true)
+    // 决定性一条：secret 必须落在**注入的那份**存储里。少了这条，credentialStore 没接线时
+    // 测试会退回真实 credential-store —— 本机有系统凭据保护所以照绿，CI runner 上 DPAPI
+    // 不可用直接 CRYPTO_UNAVAILABLE（`expected -1 to be +0`），两种环境差都会被误读成产品坏了。
+    expect(ctx.store.map.get('podcast-hosting')).toBeTruthy()
+    expect(ctx.store.map.get('podcast-hosting').accessKeySecret).toBe('SECRETxyz0123456789')
+  })
+
+  it('hosting:save 必须打到注入的凭证存储上（决定性接缝锁：真实存储不可达时如实失败）', async () => {
+    // 上一段的正例断言在「接线被摘掉」时仍可能通过（本机有系统凭据保护，真实存储自己就成功了），
+    // 所以它不构成接缝锁。这条把注入件设成「保存失败」，只有真的用到了注入件才会红：
+    // CI runner 上 DPAPI 不可用 ⇒ 没有接线就是 CRYPTO_UNAVAILABLE（本轮实测的 -1），
+    // 本机有 DPAPI ⇒ 没有接线会假成功。两种环境都必须被这条抓住。
+    const ctx = makeHostingDeps([])
+    await seed(ctx)
+    ctx.store.saveCredential = () => false
+    const saved = await ctx.ipcMain.handlers.get('podcast:hosting:save')({}, {
+      hosting: { provider: 'oss', endpoint: 'oss-cn-hangzhou.aliyuncs.com', bucket: 'pod', pathPrefix: 'feeds', accessKeyId: 'AKIDabcdefghij', accessKeySecret: 'SECRETxyz0123456789' },
+    })
+    expect(saved.code).not.toBe(0)
+    expect(saved.subCode).toBe('PODCAST_HOSTING_CRYPTO_UNAVAILABLE')
+    const idxPath = nodePath.join(ctx.root, 'podcast', 'index.json')
+    const raw = nodeFs.existsSync(idxPath) ? nodeFs.readFileSync(idxPath, 'utf8') : ''
+    expect(raw).not.toContain('credentialRef')
+    nodeFs.rmSync(ctx.root, { recursive: true, force: true })
     nodeFs.rmSync(ctx.root, { recursive: true, force: true })
   })
 

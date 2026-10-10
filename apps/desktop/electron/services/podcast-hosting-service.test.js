@@ -303,6 +303,64 @@ describe('podcast-hosting-service · 发布 feed', () => {
     expect(fs.readFileSync(feedPath, 'utf8')).toContain('第二期')
   })
 
+  it('有上一版但本地快照拷贝失败 ⇒ prevExists 仍为 true（不得谎称「首次发布」）', async () => {
+    await mk().saveHosting(fullPatch())
+    client = makeClient([200])
+    await mk().publishFeed(CHANNEL_ID)
+    const prevPath = path.join(registry.channelDir(CHANNEL_ID), 'feed.prev.xml')
+    fs.rmSync(prevPath, { force: true })
+
+    channelService.saveEpisode({
+      id: 'ep-2', title: '第二期：新增', audioUrl: 'https://cdn.example.com/e2.mp3',
+      durationSec: 120, sizeBytes: 2000, pubDate: '2026-10-11T08:00:00.000Z', episodeType: 'full',
+    })
+    client = makeClient([200])
+    const base = puts.length
+    // 只让「上一版存档」这一步失败：feed 目录里的旧版确实存在，但拷贝不出东西
+    const brokenFs = Object.assign({}, fs, {
+      copyFileSync () { const e = new Error('EBUSY: snapshot copy failed'); e.code = 'EBUSY'; throw e },
+    })
+    const res = await mk({ fsImpl: brokenFs }).publishFeed(CHANNEL_ID)
+    // prevExists 的语义是「这一版之前有没有得退」，不是「快照有没有成功」；
+    // 把两者混成一个值会让界面在真有旧版时说出「首次发布，还没有上一版」这种假陈述。
+    expect(res.prevExists).toBe(true)
+    expect(res.backupCreated).toBe(false)
+    expect(puts.slice(base)).toHaveLength(1)
+    expect(puts[base].url).toMatch(/\/feed\.xml$/)
+    expect(res.state).toBe('success')
+  })
+
+  it('上一版存档必须走「临时文件 + 原子替换」，不得直接覆写 feed.prev.xml', async () => {
+    await mk().saveHosting(fullPatch())
+    client = makeClient([200])
+    await mk().publishFeed(CHANNEL_ID)
+    const dir = registry.channelDir(CHANNEL_ID)
+    const prevPath = path.join(dir, 'feed.prev.xml')
+
+    channelService.saveEpisode({
+      id: 'ep-2', title: '第二期：新增', audioUrl: 'https://cdn.example.com/e2.mp3',
+      durationSec: 120, sizeBytes: 2000, pubDate: '2026-10-11T08:00:00.000Z', episodeType: 'full',
+    })
+    const calls = []
+    const spyFs = Object.assign({}, fs, {
+      copyFileSync (from, to) { calls.push(['copy', path.basename(to)]); return fs.copyFileSync(from, to) },
+      renameSync (from, to) { calls.push(['rename', path.basename(from), path.basename(to)]); return fs.renameSync(from, to) },
+    })
+    client = makeClient([200, 200])
+    const res = await mk({ fsImpl: spyFs }).publishFeed(CHANNEL_ID)
+    expect(res.prevExists).toBe(true)
+    // 直接 copyFileSync(feedPath, prevPath) 在进程中途死掉时会留下半份 prev，
+    // 而 prev 存在的唯一理由就是「出事时有一份能退回的」——撕裂的备份等于没有备份。
+    const copy = calls.find((c) => c[0] === 'copy')
+    const rename = calls.find((c) => c[0] === 'rename' && c[2] === 'feed.prev.xml')
+    expect(copy).toBeTruthy()
+    expect(copy[1]).not.toBe('feed.prev.xml')
+    expect(rename).toBeTruthy()
+    expect(fs.readFileSync(prevPath, 'utf8')).toContain('第一期')
+    expect(fs.readFileSync(prevPath, 'utf8')).not.toContain('第二期')
+    expect(fs.existsSync(copy[1] ? path.join(dir, copy[1]) : prevPath)).toBe(false)
+  })
+
   it('成功：先建回滚点再覆盖主键，feedSync 落 success，发布结束后忙标记释放', async () => {
     await mk().saveHosting(fullPatch())
     client = makeClient([200])
