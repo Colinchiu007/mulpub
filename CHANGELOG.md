@@ -1,3 +1,29 @@
+# [未发布] feat(podcast): 播客 feedSync 读侧接线（2026-10-11，podcast-feed-sync-ui）
+
+## 背景
+
+刀 2 的第三轮外部评审留下一条落差：`feedSync` 有写侧（`writeFeedSync` 已落 `channel.json`）却**没有读侧**——`readFeedSync` 零生产调用者、`getChannel` 只回 `meta`、渲染层无任何消费点，于是 PRD 与 spec 里「重启后仍能看到『公网 feed 未同步』」从刀 1 起就没成立过。当时选择把措辞降级为「真源可复原」并挂上刀 3。本片把它兑现掉，让那条承诺回到界面。
+
+## 改动
+
+- **主进程**：`podcast:channel:get` 的 data 从 `{channel}` 扩为 `{channel, feedSync}`；`feedSync` 直接取 `readFeedSync()`，真源没有时回 `null`——**不得造一个 `success`**，那会把「读侧又断了」演成「一切正常」。无新通道（`check-ipc-bridge` 451/469/0 不变）。
+- **渲染层**：`usePodcastChannel` 新增 `feedSync` 状态（`channel:get` 的唯一出口）；`PodcastHostingCard` 收到 prop 后按 `status ∈ {failed, partial}` 显示横幅，`partial` 说「部分同步」、`failed` 说 HTTP 状态码、无码时说「无状态码」；【只重试上传 feed】**复用卡片里那一份 `publishFeed` 调用**，不新写第二套发布路径，`publishing` 或无频道时禁用。形状破坏（非对象 / 未知 status / 字符串）一律不显示——一条假的「未同步」会让用户反复重试并真的反复覆盖公网对象。
+- **频道页**：把真源传给卡片；发布动作**成功与失败两条出口都重读一次 `channel:get`**（`writeFeedSync` 两支都写了盘，只刷配额与列表会让横幅停在旧状态，用户会以为重试没生效再点一次）。
+- **文案**：`podcast.hosting.feedNotSynced`（带 `{status}`）/ `feedPartial` / `retryFeed` zh/en 成对新增；PRD §8.1 逐字表重生成（hosting 段 29→32 键）。
+- **文档**：PRD §8 显示项改判据、§13 第 9 条标注闭合方式（保留原始记录不改写）、spec 的 Requirement 与 Scenario 改回界面可断言的措辞、tasks 3.6 拆为 3.6a（本片，已完成）+ 3.6b（崩溃对账，仍属刀 3）。
+
+## 验证
+
+- 改动面 119 passed / 10 文件（ipc 20 / 卡片 18 / 频道页视图 / locales / i18n 术语锁），其中本片新增 7 条用例。
+- 变异反证 3 条，判据为「失败用例全名命中指名那条」：N1 从 handler 摘掉 `feedSync` ⇒ 3 红（含既有那条信封逐字对账，它本来就是这条链的守门人）；N2 判据放宽为「有 feedSync 就喊」⇒ 仅「不显示横幅」那条红；N3 去掉重试按钮的 `:disabled` ⇒ 仅「无频道或进行中不得再发第二次」红。
+- QM-1 打包与 asar 产物核对、`check-ipc-bridge` / `check-locale-sync --pair-base` / `check-max-lines` / `check-gate-record-debt` / 品牌残留见 `.quality-gates.md` 顶部记录。
+
+## 边界（不冒充已闭合）
+
+- 崩溃/退出中断时「上次发布疑似中断」的对账提示仍属刀 3（3.6b）；本片只接「上一次发布的结果」这一层，不推断进程被杀的情形。
+- 横幅不显示 `attemptedAt`（时间戳怎么呈现要和 3.6b 的文案一起定）。
+
+
 # [未发布] feat(podcast): 播客 RSS 频道一键发布 · 刀 2 —— 托管直传接线（2026-10-11，podcast-hosting）
 
 ## 背景

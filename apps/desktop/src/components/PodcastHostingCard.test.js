@@ -202,3 +202,64 @@ describe('PodcastHostingCard 失败可见性', () => {
     }
   })
 })
+
+
+describe('PodcastHostingCard 公网 feed 未同步横幅（feedSync 读侧接线）', () => {
+  const FAILED = { status: 'failed', attemptedAt: '2026-10-11T00:00:00.000Z', error: { status: 403 } }
+  const PARTIAL = { status: 'partial', attemptedAt: '2026-10-11T00:00:00.000Z' }
+  const OK = { status: 'success', attemptedAt: '2026-10-11T01:00:00.000Z' }
+
+  it('failed：显示横幅并带 HTTP 状态码，文案取真实 locale 值而不是键名', async () => {
+    api.hostingGet.mockResolvedValue(ok({ hosting: CONFIGURED }))
+    const w = await mountCard({ channelId: 'ch_test0001', feedSync: FAILED })
+    const banner = w.find('[data-testid="podcast-hosting-feed-stale"]')
+    expect(banner.exists()).toBe(true)
+    expect(banner.attributes('data-state')).toBe('failed')
+    expect(banner.find('[data-testid="podcast-hosting-feed-stale-text"]').text()).toBe(zh.podcast.hosting.feedNotSynced.replace('{status}', '403'))
+    expect(banner.find('[data-testid="podcast-hosting-feed-retry"]').text()).toBe(zh.podcast.hosting.retryFeed)
+  })
+
+  it('partial：说「部分同步」而不是状态码（两种成因的处置动作不同）', async () => {
+    api.hostingGet.mockResolvedValue(ok({ hosting: CONFIGURED }))
+    const w = await mountCard({ channelId: 'ch_test0001', feedSync: PARTIAL })
+    expect(w.find('[data-testid="podcast-hosting-feed-stale"]').attributes('data-state')).toBe('partial')
+    expect(w.find('[data-testid="podcast-hosting-feed-stale"]').text()).toContain(zh.podcast.hosting.feedPartial)
+  })
+
+  it('success / 缺席 / 结构破坏一律不显示横幅（没坏就不要喊）', async () => {
+    api.hostingGet.mockResolvedValue(ok({ hosting: CONFIGURED }))
+    for (const feedSync of [OK, null, undefined, 'failed', { status: 'unknown' }]) {
+      const w = await mountCard({ channelId: 'ch_test0001', feedSync })
+      expect(w.find('[data-testid="podcast-hosting-feed-stale"]').exists(), JSON.stringify(feedSync)).toBe(false)
+    }
+  })
+
+  it('重试走的就是那一份发布实现；无频道或进行中不得再发第二次', async () => {
+    api.hostingGet.mockResolvedValue(ok({ hosting: CONFIGURED }))
+    let resolvePublish
+    api.feedPublish.mockImplementation(() => new Promise((r) => { resolvePublish = r }))
+    const idle = await mountCard({ channelId: '', feedSync: FAILED })
+    expect(idle.find('[data-testid="podcast-hosting-feed-retry"]').attributes('disabled')).toBeDefined()
+
+    const w = await mountCard({ channelId: 'ch_test0001', feedSync: FAILED })
+    await w.find('[data-testid="podcast-hosting-feed-retry"]').trigger('click')
+    await nextTick()
+    expect(api.feedPublish).toHaveBeenCalledTimes(1)
+    expect(api.feedPublish).toHaveBeenCalledWith({ channelId: 'ch_test0001' })
+    // 进行中：按钮必须禁用，否则一次点击会变成两次覆盖写
+    expect(w.find('[data-testid="podcast-hosting-feed-retry"]').attributes('disabled')).toBeDefined()
+    resolvePublish({ available: true, result: { ok: true, state: 'success', itemCount: 2, prevExists: true, backupCreated: true } })
+    await vi.waitFor(() => expect(w.find('[data-testid="podcast-hosting-publish-result"]').attributes('data-state')).toBe('success'))
+  })
+})
+
+describe('PodcastChannelView 对 feedSync 的接线（R92 同族：数据到了但没人渲染）', () => {
+  const viewSrc = fs.readFileSync(path.join(here, '../views/PodcastChannelView.vue'), 'utf8')
+
+  it('真源必须传给卡片，且发布成功/失败两条出口都要重读 channel', () => {
+    expect(viewSrc).toContain(':feed-sync="feedSync"')
+    expect(viewSrc).toContain('loadChannel()')
+    // 失败出口也必须重读：writeFeedSync 已把 failed 落进真源，不重读就是「界面停在旧状态」
+    expect(viewSrc.split('loadChannel()').length - 1).toBeGreaterThanOrEqual(3)
+  })
+})

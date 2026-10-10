@@ -165,7 +165,7 @@ registry（index.json + 两段 channel.json）、迁移三态（首访即可读�
 - **发布结果三态不压平**：`success` / `failed` / 其他（带码可见）三句话各不相同——`failed` 明示「公网 feed 未更新，本地 Feed 与已发布内容不受影响，可重试」，把「本地坏了」与「公网没跟上」两种排查方向混成一句会让用户反复点发布。`success` 时**额外**追加一条回滚点标注，且这条标注按**两种成因分两句**，不得合成一句：`prevExists && !backupCreated` → `backupMissing`（本地 `feed.xml` 存在过 ⇒ 上一版是有的，只是没存档到对象存储，云端没有可指回的副本）；`!prevExists` → `noPrevious`（该频道首次发布，本来就没有上一版，「无法退回」是错误归因）。把首次发布写成「未建立回滚点」，用户会去找一份不存在的旧 feed；把存档失败写成「首次发布」，用户会以为一切正常。两条都必须出现在 `success` 之后，不得被成功文案吃掉。
 - **留空 = 沿用已存凭证**在渲染层的落法是**该字段根本不进 payload**（缺席与空串是两件事：空串会被落盘层判成覆写请求）。保存动作结束后无论成败都立刻清空表单里的 AK/SK——渲染层状态会进 DevTools 与错误上报，失败路径尤其不能把凭证留在里面。
 
-**显示项**：频道切换器（名称 + `ch_` 短 id）、重命名入口（作用于当前频道，名称为空即前置拒绝并给 `podcast.picker.nameRequired`）、频道目录读取失败横幅（`data-testid="podcast-picker-list-error"`，走 `errorText(channelListError)`——该错误位此前无人渲染，等于「读目录失败时界面静默」）、迁移冲突横幅附**冲突文件名清单**（`data-testid="podcast-migration-files"`，取 `index.json` 的 `migrationConflicts`，用户要靠它判断该保留哪一份）、迁移状态横幅（conflict/error 各一句 + 处置按钮）、每期 `compliance` 徽标（手工路径保存后即时校验，只出声不阻断）、`feedSync` 横幅（partial = 「公网 feed 未同步」+【只重试上传 feed】）**—— 写侧已落盘、读侧尚未接线**：`getChannel` 只回 `meta` 段，渲染层没有任何 `feedSync` 消费点，所以这条横幅目前不会出现在界面上；它与「崩溃/退出中断对账」同属刀 3（tasks 3.6）。本节把它列在这里是为了说明**该显示哪一版**，不是声明它已存在（§13 第 9 条）。、`backupCreated:false` 时标注「本次未建立回滚点」、hosted feed 公网地址标注「已提交地址，改路径会使订阅失效」、`cap` 计数与事前禁用。
+**显示项**：频道切换器（名称 + `ch_` 短 id）、重命名入口（作用于当前频道，名称为空即前置拒绝并给 `podcast.picker.nameRequired`）、频道目录读取失败横幅（`data-testid="podcast-picker-list-error"`，走 `errorText(channelListError)`——该错误位此前无人渲染，等于「读目录失败时界面静默」）、迁移冲突横幅附**冲突文件名清单**（`data-testid="podcast-migration-files"`，取 `index.json` 的 `migrationConflicts`，用户要靠它判断该保留哪一份）、迁移状态横幅（conflict/error 各一句 + 处置按钮）、每期 `compliance` 徽标（手工路径保存后即时校验，只出声不阻断）、`feedSync` 横幅（partial = 「公网 feed 未同步」+【只重试上传 feed】）**判据**：横幅只认 `podcast:channel:get` 带回的 `feedSync.status ∈ {failed, partial}`，其余一律不显示——`success`、字段缺席、形状破坏（不是对象 / 未知 status）都不喊。写这条的原因见 §13 第 9 条：本条曾经只有写侧、没有读侧，是「写了盘就说用户看得见」的实例。状态码取值口径：`partial` 显示「部分同步」，`failed` 显示 `error.status`（HTTP 码），没有码时显示「无状态码」而不是留空。、`backupCreated:false` 时标注「本次未建立回滚点」、hosted feed 公网地址标注「已提交地址，改路径会使订阅失效」、`cap` 计数与事前禁用。
 
 **显示项（刀 2 托管卡片新增）**：托管区标题与说明、配置态一行（已配置显示**掩码后的** AccessKeyId `***`+末 4 位；未配置显示「本地音频需先配置对象存储托管」这句带出口的提示）、六个输入项（托管类型 / Endpoint / Bucket / 路径前缀 / AccessKeyId / AccessKeySecret，其中 SK 是 `type=password` 且 `autocomplete=new-password`，AK 是 `autocomplete=off`——两者都绝不被浏览器代填，也不回显）、留空即沿用的占位提示、逐条校验问题清单（`data-testid="podcast-hosting-issues"`，来自 `issues[]`，不是只给一个错误码）、连通测试结果三态（`checked:false` 的「本轮未做真实探测」/ 成功 / 失败带 HTTP 状态码或「无状态码」）、发布结果三态与回滚点标注（`success` 下按成因二选一：`prevExists && !backupCreated` → `backupMissing`，`!prevExists` → `noPrevious`；`data-state` 供视觉与自动化用例取语义，文案不承载状态）。`data-state` 供视觉与自动化用例取语义，文案不承载状态）。
 
@@ -200,7 +200,7 @@ registry（index.json + 两段 channel.json）、迁移三态（首访即可读�
 | `keepLegacy` | 保留原有数据 | Keep original data |
 | `migrationResolved` | 迁移冲突已处理 | Migration conflict resolved |
 
-键路径 `podcast.hosting.*`（29 键，zh/en 双向差集为空）。托管卡片 `PodcastHostingCard.vue` 的全部可见文案都在此命名空间；`configured` 带 `{key}` 参数，值是**掩码后的** AccessKeyId（`***` + 末 4 位），明文凭证从不出主进程：
+键路径 `podcast.hosting.*`（32 键，zh/en 双向差集为空）。托管卡片 `PodcastHostingCard.vue` 的全部可见文案都在此命名空间；`configured` 带 `{key}` 参数，值是**掩码后的** AccessKeyId（`***` + 末 4 位），明文凭证从不出主进程：
 
 | 键 | zh（界面逐字） | en |
 | --- | --- | --- |
@@ -233,6 +233,9 @@ registry（index.json + 两段 channel.json）、迁移三态（首访即可读�
 | `publishFailed` | 公网 feed 未更新（{status}），本地 Feed 与已发布内容不受影响，可重试。 | Public feed not updated ({status}); the local feed and what is already published are unchanged. You can retry. |
 | `backupMissing` | 注意：本次未能把上一版存档到对象存储，本地回滚点仍在，但云端没有可指回的副本。 | Note: the previous version could not be archived to object storage. The local rollback copy is still there, but there is no cloud copy to point back to. |
 | `noPrevious` | 这是该频道首次发布，暂时还没有可退回的上一版。 | This is the first publish for this channel, so there is no previous version to roll back to yet. |
+| `feedNotSynced` | 公网 feed 尚未更新（{status}），本地单集与已发布内容都不受影响。 | The public feed is not up to date ({status}). Your local episodes and what is already published are unaffected. |
+| `feedPartial` | 部分同步 | partially synced |
+| `retryFeed` | 只重试上传 feed | Re-upload feed only |
 
 键路径 `podcast.errors.*`（88 键）。渲染层按**领域码**取键：`toIpcError` 在失败信封里带 `subCode`，preload 原样透出，`usePodcastChannel.call()` 单点把 `code` 归一为领域码；未知码落 `fallback` 且**带码可见**（不得空白吞掉）。刀 2 新增的 8 个托管码必须成对入表，不得长期靠 `fallback` 兜着：
 
@@ -435,4 +438,4 @@ registry（index.json + 两段 channel.json）、迁移三态（首访即可读�
 6. **刀 2 的「回滚」只到可追溯，不到一键**：OSS 时间戳副本的 key 未持久化（只有本地 `feed.prev.xml` 在），也没有 `restoreFeed` 通道与按钮——要退回只能靠本地那份重传——退回动作要与刀 3 的「成片重出」共用同一套状态机，先做会变成第三份发布路径。
 7. **`checkHosting` 默认不探测**：未注入 `httpClient` 时如实返回 `checked:false` + 理由，界面文案是「本轮未做真实探测（默认不发出网络请求）」。这不是"检查通过"，UI 与记录都不得把它读成通过；真探测的验收要等对象存储侧有可用测试桶后在同一 PR 里补（§12 的零出站前提）。
 8. **失败态没写进真源时，频道页横幅可能显示上一轮状态**：`publishFeed` 的失败结果与 `feedSync` 的真源记录是**两级事实**——前者来自本次动作，后者来自 `writeFeedSync` 落盘。当 `writeFeedSync` 自身抛错（channel.json 损坏、锁超时）时，本轮 `state:'failed'` 如实返回（发布卡片显示失败、可重试），但真源仍留着上一轮的 `status:'success'`，频道页那条基于 `feedSync` 的横幅因此会显示旧状态，直到下一次写入成功才被纠正。刻意**不**做「伪造一条 failed 记录」的补偿：那会把「没写进去」演成「写进去了」，比旧状态更危险。判据看两处：结果态以本次动作为准、真源态以重启后读到的为准。
-9. **`feedSync` 只有写侧，没有读侧**：跨家族增量复核（opencode 续会话 residual-1）指出 `readFeedSync` 在 `electron/` 内**零生产调用者**、`getChannel` 只回 `meta`、`src/` 内没有任何 `feedSync` 消费点 —— 于是 §8 里那条「partial = 公网 feed 未同步 +【只重试上传 feed】」的横幅**不会出现在界面上**，本刀写进真源的失败态目前只服务「人工核对」与「下一刀的对账输入」。处置：§8 与 spec 的两处 Requirement 已改为「真源可复原」而不是「界面可见」，读侧横幅与崩溃对账（tasks 3.6）一并在刀 3 接线；不在本刀补横幅的理由是它会与刀 3 的发布状态机（partial 重试入口就在其中）共用同一份判据，先做等于把同一件事写两遍。**这条是刻意留的未闭合，不是遗漏**：如果刀 3 顺延，本条必须跟着顺延，不得让它长期读起来像已完成。
+9. **`feedSync` 只有写侧，没有读侧**（**已闭合，2026-10-11 刀 3 前置片**：`podcast:channel:get` 现在带 `feedSync`，`usePodcastChannel` 存为状态，托管卡片按 `failed`/`partial` 渲染横幅 + 【只重试上传 feed】；下面是当时的原始记录，保留不改写）：跨家族增量复核（opencode 续会话 residual-1）指出 `readFeedSync` 在 `electron/` 内**零生产调用者**、`getChannel` 只回 `meta`、`src/` 内没有任何 `feedSync` 消费点 —— 于是 §8 里那条「partial = 公网 feed 未同步 +【只重试上传 feed】」的横幅**不会出现在界面上**，本刀写进真源的失败态目前只服务「人工核对」与「下一刀的对账输入」。处置：§8 与 spec 的两处 Requirement 已改为「真源可复原」而不是「界面可见」，读侧横幅与崩溃对账（tasks 3.6）一并在刀 3 接线；不在本刀补横幅的理由是它会与刀 3 的发布状态机（partial 重试入口就在其中）共用同一份判据，先做等于把同一件事写两遍。**这条是刻意留的未闭合，不是遗漏**：如果刀 3 顺延，本条必须跟着顺延，不得让它长期读起来像已完成。

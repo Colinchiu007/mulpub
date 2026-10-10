@@ -42,6 +42,11 @@
     </div>
     <p class="podcast-hosting-note">{{ t('podcast.hosting.secretKeepHint') }}</p>
 
+    <p v-if="staleFeedSync" class="podcast-hosting-feed-stale" :data-state="staleFeedSync.status" data-testid="podcast-hosting-feed-stale">
+      <span data-testid="podcast-hosting-feed-stale-text">{{ t('podcast.hosting.feedNotSynced', { status: staleStatusText }) }}</span>
+      <button type="button" data-testid="podcast-hosting-feed-retry" :disabled="publishing || !channelId" @click="onPublish">{{ t('podcast.hosting.retryFeed') }}</button>
+    </p>
+
     <div class="podcast-hosting-actions">
       <button type="button" data-testid="podcast-hosting-save" :disabled="savingHosting" @click="onSave">{{ t('podcast.hosting.save') }}</button>
       <button type="button" data-testid="podcast-hosting-check" :disabled="checking || !configured" @click="onCheck">{{ t('podcast.hosting.check') }}</button>
@@ -78,10 +83,28 @@ import { makeHostingForm, usePodcastHosting } from '@/composables/usePodcastHost
 
 const props = defineProps({
   channelId: { type: String, default: '' },
+  // 只读真源，不在卡片里另取一份：读侧接线由频道 composable 负责
+  feedSync: { type: Object, default: null },
 })
 const emit = defineEmits(['published'])
 
 const { t } = useI18n()
+
+// 「这一版发上去了没」是 durable 状态，与本次动作的结果分开：
+// publishResult 只说这一次，feedSync 说「公网现在是什么状态（重启后仍然成立）」。
+const staleFeedSync = computed(() => {
+  const s = props.feedSync
+  if (!s || typeof s !== 'object') return null
+  const st = String(s.status || '')
+  return st === 'failed' || st === 'partial' ? s : null
+})
+const staleStatusText = computed(() => {
+  const s = staleFeedSync.value
+  if (!s) return ''
+  if (s.status === 'partial') return t('podcast.hosting.feedPartial')
+  const code = s.error && s.error.status
+  return code == null ? t('podcast.hosting.checkNoStatus') : String(code)
+})
 const {
   hosting,
   hostingError,

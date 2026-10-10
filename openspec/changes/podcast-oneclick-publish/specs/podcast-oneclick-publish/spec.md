@@ -38,11 +38,11 @@
 
 ### Requirement: 发布同步状态必须持久化且不被改名抹除
 
-系统 SHALL 把每频道的 feed 同步结果（`result` / `attemptedAt` / `errorCodes` / `hostingSnapshot`）保存在 `channel.json` 的 `feedSync` 段，与 `validateChannel` 白名单所属的 `meta` 段分离。`podcast:channel:save` SHALL NOT 修改 `feedSync`；应用重启后 SHALL 仍能从持久化状态**读出**「公网 feed 未同步」（写侧与真源侧已闭合）。**读侧横幅不在本刀的承诺范围内**：`getChannel` 只回 `meta` 段、渲染层当前没有 `feedSync` 消费点，把这条写成"界面重启后仍可见"就是拿写侧证据冒充读侧行为；横幅与崩溃对账（tasks 3.6）一并在刀 3 接线。
+系统 SHALL 把每频道的 feed 同步结果（`result` / `attemptedAt` / `errorCodes` / `hostingSnapshot`）保存在 `channel.json` 的 `feedSync` 段，与 `validateChannel` 白名单所属的 `meta` 段分离。`podcast:channel:save` SHALL NOT 修改 `feedSync`；应用重启后 SHALL 仍能从持久化状态**读出**「公网 feed 未同步」（写侧与真源侧已闭合）。**读侧必须同源**：`podcast:channel:get` SHALL 同时回 `meta`（`channel`）与 `feedSync` 两段，`feedSync` 缺席时回 `null` 而不是缺键、更不得凭空造 `success`；渲染层在 `status` 为 `failed`/`partial` 时显示「公网 feed 未同步」横幅并提供【只重试上传 feed】，该按钮 SHALL 复用同一条 `podcast:feed:publish` 路径（不得为横幅另开第二份发布实现）。崩溃/退出中断的对账提示仍在 tasks 3.6。
 
 #### Scenario: 改名保留发布状态
 - **WHEN** feed 上传失败使 `feedSync.result = "partial"`，随后用户保存一次频道名
-- **THEN** `feedSync` 逐字仍在（本 Scenario 判的是**真源不被改名抹掉**，写侧事实）；界面横幅要等刀 3 的读侧接线，不得在这里声称"播客页仍显示"
+- **THEN** `feedSync` 逐字仍在（本 Scenario 判的是**真源不被改名抹掉**），且随后一次 `podcast:channel:get` 仍带回同一份 `feedSync`，横幅不因改名而消失
 
 #### Scenario: 服务实例重建后状态仍在
 - **WHEN** 主进程服务实例被重建（等价于应用重启）
