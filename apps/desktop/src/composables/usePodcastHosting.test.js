@@ -8,6 +8,11 @@
  * - 发布结果保留 state 分层（success / failed / busy），不得在中间层变成 true/false。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import fs from 'fs'
+import path from 'path'
+import { fileURLToPath } from 'node:url'
+
+const __dir = path.dirname(fileURLToPath(import.meta.url))
 
 let api = null
 
@@ -136,5 +141,26 @@ describe('usePodcastHosting', () => {
     const r = await s.checkHosting()
     expect(r.checked).toBe(false)
     expect(s.checkResult.value.reason).toBe('PODCAST_HOSTING_CHECK_SKIPPED')
+  })
+
+  it('信封归一不得有第二份：本文件必须引用 normalizeIpcEnvelope 且不再自带 subCode 规则', async () => {
+    // 「领域码优先」这条规则被抄成两份时，只更新一份的症状是新增码只显示成通用失败，
+    // 而两边的单测都会绿——因为各自只测自己那份。锁在源码形态上才拦得住。
+    const src = fs.readFileSync(path.join(__dir, 'usePodcastHosting.js'), 'utf8')
+    expect(src).toContain('normalizeIpcEnvelope(')
+    // 结构锁必须**先剥注释再判**：本文件里有解释「为什么不重写归一」的注释，
+    // 不剥注释的判据会把说明文字当成违规代码打红（本仓踩过同一型坑），
+    // 反过来只判"注释里出现过"也不等于归一规则没被抄——所以按代码形态断言。
+    const codeOnly = src.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
+    expect(codeOnly).not.toContain('subCode')
+    expect(codeOnly).not.toMatch(/const res = envelope\.result/)
+    const channelSrc = fs.readFileSync(path.join(__dir, 'usePodcastChannel.js'), 'utf8')
+    const channelCode = channelSrc.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
+    // 「归一只在这一处」的可执行形态：剥注释后**只允许一行**提到 subCode，且那一行属于
+    // normalizeIpcEnvelope。按行数而不是按出现次数——同一条规则里 `res.subCode` 出现两次是正常的。
+    const lines = channelCode.split('\n').filter((l) => l.includes('subCode'))
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toContain('res.subCode')
+    expect(channelCode).toContain('export function normalizeIpcEnvelope')
   })
 })

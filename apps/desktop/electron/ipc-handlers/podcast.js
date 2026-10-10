@@ -34,7 +34,7 @@
  */
 
 const EC = require('../core/error-codes').ERROR
-  const { withSenderCheck, resolveIpcOwnerSubject } = require('./helpers')
+const { withSenderCheck, resolveIpcOwnerSubject } = require('./helpers')
 
 /**
  * 入参解包：同时接受「对象本体」与 `{ <key>: 对象 }` 两种载荷形状。

@@ -206,7 +206,13 @@ function audioContentTypeFromPath (filePath) {
  * 非 2xx 一律抛错并带上状态码，错误消息只允许出现状态码与长度，不得回显凭证或 URL 查询串。
  */
 async function putObject ({ httpClient, fsImpl, filePath, url, headers, timeoutMs = PUT_TIMEOUT_MS } = {}) {
-  if (!url) throw new Error('PODCAST_HOSTING_URL_UNRESOLVED')
+  if (!url) {
+    // 带 code 抛：调用方 `e.code || UPLOAD_FAILED` 的兜底会把"URL 拼不出来"报成"上传失败"，
+    // 两者的排查方向完全不同（一个查配置，一个查网络/签名）。
+    const e = new Error('PODCAST_HOSTING_URL_UNRESOLVED')
+    e.code = 'PODCAST_HOSTING_URL_UNRESOLVED'
+    throw e
+  }
   const client = httpClient || require('axios')
   const fs = fsImpl || require('fs')
   const size = fs.statSync(filePath).size

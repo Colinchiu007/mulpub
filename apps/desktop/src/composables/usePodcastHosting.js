@@ -15,7 +15,7 @@ import {
   hostingGet, hostingSave, hostingCheck, feedPublish,
 } from '@/api/podcast-channel'
 
-import { IPC_EXCEPTION, IPC_UNAVAILABLE, issueText, toPlain } from './usePodcastChannel'
+import { IPC_EXCEPTION, issueText, normalizeIpcEnvelope, toPlain } from './usePodcastChannel'
 
 const SECRET_FIELDS = ['accessKeyId', 'accessKeySecret']
 
@@ -57,11 +57,9 @@ export function usePodcastHosting () {
     } catch (err) {
       return { ok: false, code: IPC_EXCEPTION, message: (err && err.message) || String(err) }
     }
-    if (!envelope || !envelope.available) return { ok: false, code: IPC_UNAVAILABLE }
-    const res = envelope.result
-    if (res == null || typeof res !== 'object') return { ok: false, code: IPC_EXCEPTION }
-    if (res.ok === false && res.subCode) return Object.assign({}, res, { code: res.subCode })
-    return res
+    // available / result 形状 / subCode 三条归一规则都在 `normalizeIpcEnvelope` 一处
+    // （本文件此前抄了第二份，QM-6 前端评审命中）
+    return normalizeIpcEnvelope(envelope)
   }
 
   async function loadHosting () {

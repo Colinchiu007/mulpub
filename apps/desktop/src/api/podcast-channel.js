@@ -11,11 +11,11 @@
  * electron/tests/ipc-exposure-contract.test.js 的静态判据是**从调用点抽首参字面量**
  * 与 preload 暴露面对账；method 经辅助函数参数转发就变成「生产侧动态取名」，
  * 那条路径会从账上消失（同文件 C-1 与 src/api/tts-voice-catalog.js 头部注释记录的
- * 是同一个形态）。所以这里 8 个导出各自把字面量写在自己那一行，让每条路径都在账上。
+ * 是同一个形态）。所以这里每个导出各自把通道名字面量写在自己那一行，让每条路径都在账上。
  *
- * 合同（与 apps/desktop/electron/ipc-handlers/podcast.js 的 8 个 handle 一一对应）：
- *   channelGet / channelSave / episodeList / episodeSave / episodeRemove
- *   / feedBuild / feedVerify / endpointList
+ * 合同（逐通道的返回形状清单在 `apps/desktop/electron/ipc-handlers/podcast.js` 文件头，
+ * 那一份是唯一出处，本文件**刻意不复制条数与清单**——复制过两次，每次都随新增通道过期）：
+ * 本文件的每个导出都对应主进程一个同名 handle。
  * 返回值形状由主进程持有，本层不剥壳、不改写、不补默认值——
  * 错误码到文案的映射只在 usePodcastChannel.js 一份，禁止在此另写。
  *
