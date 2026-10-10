@@ -68,6 +68,18 @@ describe('podcast-hosting-upload · 托管配置资格判定（fail closed）', 
     expect(onlyId.map((i) => i.code)).toEqual(['PODCAST_HOSTING_CREDENTIAL_REQUIRED'])
     expect(onlyId[0].field).toBe('hosting.accessKeyId')
   })
+
+  it('路径前缀含 . / .. / 前导斜杠 ⇒ 出声拒绝，不得静默清洗成另一个前缀', () => {
+    const base = { provider: 'oss', endpoint: 'e', bucket: 'b', accessKeyId: AK, accessKeySecret: SECRET }
+    for (const bad of ['feeds/../secret', '/feeds', 'feeds/./x']) {
+      const codes = validateHosting({ ...base, pathPrefix: bad }).map((i) => i.code)
+      expect(codes, bad).toContain('PODCAST_HOSTING_PREFIX_UNSAFE')
+    }
+    // 合法值与留空（走默认前缀）都不得被这条判据误伤
+    expect(validateHosting({ ...base, pathPrefix: 'feeds' })).toEqual([])
+    expect(validateHosting({ ...base, pathPrefix: '' })).toEqual([])
+    expect(validateHosting(base)).toEqual([])
+  })
 })
 
 describe('podcast-hosting-upload · object_key 派生（禁止标题与路径穿越进公网 URL）', () => {

@@ -65,6 +65,13 @@ function validateHosting (hosting) {
   if (!String(hosting.accessKeyId || '').trim() || !String(hosting.accessKeySecret || '').trim()) {
     issues.push(issue('PODCAST_HOSTING_CREDENTIAL_REQUIRED', 'hosting.accessKeyId', 'AccessKeyId / AccessKeySecret 不能为空'))
   }
+  // 落盘层的 normalizePathPrefix 会把 `..` 段与前后斜杠**清洗掉**（那是防逃逸的第二道闸）。
+  // 但输入层若跟着一起静默清洗，用户填的发布路径与真正生效的路径就不是同一个东西了——
+  // 公网地址会变、已提交给聚合端的 Feed 会指错层。所以这里出声拒绝，不做第二份"善意的改写"。
+  const prefix = String(hosting.pathPrefix == null ? '' : hosting.pathPrefix).trim()
+  if (prefix && (prefix.startsWith('/') || prefix.split('/').some((seg) => seg === '.' || seg === '..'))) {
+    issues.push(issue('PODCAST_HOSTING_PREFIX_UNSAFE', 'hosting.pathPrefix', '路径前缀不得以 / 开头，也不得含 `.` 或 `..` 段（这类段会被判为非法，否则等于悄悄改掉你的发布路径）'))
+  }
   return issues
 }
 

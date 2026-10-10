@@ -165,6 +165,7 @@ export default {
       PODCAST_EPISODE_NOT_FOUND: '单集不存在，可能已被删除，请刷新列表',
       PODCAST_HOSTING_REQUIRED: '本地音频需先配置对象存储托管（当前支持阿里云 OSS）',
       PODCAST_HOSTING_INVALID: '托管配置不合格，请按下方逐条修正',
+      PODCAST_HOSTING_PREFIX_UNSAFE: '路径前缀不得以 / 开头，也不得含 . 或 .. 段（否则发布路径会被改成另一个值）',
       PODCAST_HOSTING_SECRET_MISSING: '缺少 AccessKeyId / AccessKeySecret，且没有可复用的已存凭证，请重新填写一次',
       PODCAST_HOSTING_CRYPTO_UNAVAILABLE: '系统凭据保护不可用或被拒绝，凭证未能加密保存，已停止写入',
       PODCAST_HOSTING_IDENTITY_REQUIRED: '当前登录态无法确定凭证归属，已阻止保存托管配置',

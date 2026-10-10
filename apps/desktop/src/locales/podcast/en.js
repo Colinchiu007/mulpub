@@ -165,6 +165,7 @@ export default {
       PODCAST_EPISODE_NOT_FOUND: 'Episode not found, it may have been deleted. Refresh the list.',
       PODCAST_HOSTING_REQUIRED: 'Local audio files need object-storage hosting first (Aliyun OSS is supported today).',
       PODCAST_HOSTING_INVALID: 'Hosting configuration is invalid. Fix the items listed below.',
+      PODCAST_HOSTING_PREFIX_UNSAFE: 'The path prefix cannot start with / and cannot contain . or .. segments (they would silently rewrite the publish path).',
       PODCAST_HOSTING_SECRET_MISSING: 'AccessKeyId / AccessKeySecret is missing and there is no stored credential to reuse. Fill them in once more.',
       PODCAST_HOSTING_CRYPTO_UNAVAILABLE: 'OS credential protection is unavailable or denied, so the secret was not encrypted. Saving stopped.',
       PODCAST_HOSTING_IDENTITY_REQUIRED: 'The current sign-in cannot be resolved as the owner, so hosting credentials were not saved.',
