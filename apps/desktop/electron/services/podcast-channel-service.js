@@ -101,7 +101,7 @@ function resolveDefaultLogger () {
   return noopLogger()
 }
 
-const { channelBusyGate, CHANNEL_BUSY_ERROR } = require('./podcast-channel-locks')
+const { channelBusyGate, channelPublishPass, CHANNEL_BUSY_ERROR } = require('./podcast-channel-locks')
 
 class PodcastChannelService {
   /**
@@ -271,6 +271,8 @@ class PodcastChannelService {
    */
   _assertNoPublishInFlight (section) {
     const key = this._channelId || this._root || ''
+    // 发布通行证：发布编排自己写 feedSync / 重建 feed 时必须放行（同键、同步作用域，见 locks 模块注释）
+    if (key && channelPublishPass.isPassed(key)) return
     if (!key || !channelBusyGate.isBusy(key)) return
     const e = new Error(CHANNEL_BUSY_ERROR + ': ' + section + ' 频道正在发布，请稍候')
     e.code = CHANNEL_BUSY_ERROR
