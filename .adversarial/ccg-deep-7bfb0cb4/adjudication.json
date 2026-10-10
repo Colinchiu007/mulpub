@@ -1,0 +1,121 @@
+{
+  "schemaVersion": 1,
+  "objectType": "implementation-diff",
+  "target": {
+    "branch": "podcast-hosting",
+    "base": "origin/main@ffc6fdff71cdadae097059876b1911e22102cf56",
+    "commits": ["fbee0e969", "aa5420c39", "3d9b50ab1", "7bfb0cb47", "cbd5f6dcb"],
+    "scope": "播客一键发布 刀 2：托管凭证合并、feed 覆盖上传与回滚点、上传读流错误收口、渲染层托管卡片、locales 拆层"
+  },
+  "reviewers": {
+    "backend": { "backend": "claude", "family": "anthropic", "sessionId": "85dc8181-6796-48c2-86a3-9e24dd9f3be9", "finalJsonProduced": false, "note": "跑满 35 分钟无 result 事件（28 MB 事件流）；其 thinking 事件暴露一条真实缺陷，已单独核实并修复，但不把 prose 当结构化结论落账" },
+    "frontend": { "backend": "opencode", "family": "deepseek/hy3", "sessionId": "ses_ed8b7dec1ffeibi5ggHmhUFkGk", "finalJsonProduced": true, "note": "候选 A–D 逐条给 verdict 与证据" }
+  },
+  "issues": [
+    {
+      "id": "k2-1",
+      "severity": "Critical",
+      "dimension": "correctness",
+      "source": "backend(thinking) → 作者独立核实",
+      "finding": "saveHosting 的 accessKeySecret 是唯一未 trim 的字段：'   ' 被当真值一路走到 saveCredential，静默把已存真实 secret 覆盖成空白，而 configured 仍为 true（validateHosting 的 CREDENTIAL_REQUIRED 被单独 filter 出去交「缺席即拒绝」判据处理，过滤后无人再管空白）。",
+      "file": "apps/desktop/electron/services/podcast-hosting-service.js:190-197",
+      "suggestion": "secret 与 AK 同口径：先 trim 再判缺席；空白即缺席 ⇒ 沿用已存凭证。",
+      "disposition": "upheld",
+      "fixedIn": "7bfb0cb47",
+      "regressionLocks": [
+        "podcast-hosting-service.test.js: secret 传空白串 = 缺席（变异「去掉 trim」仅此条红）",
+        "podcast-hosting-service.test.js: AK 只有空白且无旧凭证 → 仍判缺席并拒绝"
+      ]
+    },
+    {
+      "id": "k2-2",
+      "severity": "Warning",
+      "dimension": "correctness",
+      "source": "frontend",
+      "finding": "反方向缺文案：主进程以字符串字面量产出的码（PODCAST_HOSTING_PROVIDER_INVALID / PROVIDER_UNSUPPORTED / ENDPOINT_REQUIRED / BUCKET_REQUIRED / CREDENTIAL_REQUIRED / URL_UNRESOLVED、PODCAST_CHANNEL_INVALID / CHANNEL_NAME_REQUIRED / EPISODE_INVALID / EPISODES_FULL / INDEX_BUSY / STORE_CORRUPT / STORE_UNAVAILABLE）在 podcast.errors.* 无键 ⇒ issueText() 落 fallback，用户看到裸码。作者第一版自检方向做反（逐键查生产者），对该失效结构性失明。",
+      "file": "apps/desktop/src/locales/podcast/zh.js errors 块",
+      "suggestion": "补成对文案 + 建立反方向接线守卫（判据集合来自「生产者字面量」，例外表必须带理由且只能缩小）。",
+      "disposition": "upheld",
+      "fixedIn": "cbd5f6dcb",
+      "regressionLocks": ["src/locales/podcast-error-codes.test.js（4 例：扫描域非空、逐码有文案、例外表不得陈旧、反向死键）"]
+    },
+    {
+      "id": "k2-3",
+      "severity": "Warning",
+      "dimension": "maintainability",
+      "source": "frontend",
+      "finding": "usePodcastHosting.call() 重写了 usePodcastChannel.call() 的 available/result/subCode 三条归一判据 ⇒ 两份必然漂移，漂移症状是「新增领域码只显示成通用失败」，而两边单测各自都绿。",
+      "file": "apps/desktop/src/composables/usePodcastHosting.js:53-66",
+      "suggestion": "抽出唯一实现 normalizeIpcEnvelope()，两处共用；再加一条结构锁防第四份。",
+      "disposition": "upheld",
+      "fixedIn": "cbd5f6dcb",
+      "regressionLocks": ["usePodcastHosting.test.js：引用 normalizeIpcEnvelope 且剥注释后 subCode 只允许出现在该函数那一行"]
+    },
+    {
+      "id": "k2-4",
+      "severity": "Warning",
+      "dimension": "correctness",
+      "source": "frontend(候选 A) + 作者核实",
+      "finding": "ipc-handlers/podcast.js 文件头「通道合同」注释停在刀 1 之前的 8 条，未列频道目录 5 条与托管/发布 4 条；api/podcast-channel.js 头注释同样复制了「8 个 handle」和一份通道清单。合同注释与实现脱节比没有注释更危险（渲染层照旧注释并行开发）。",
+      "file": "apps/desktop/electron/ipc-handlers/podcast.js:10-19 / apps/desktop/src/api/podcast-channel.js:10-18",
+      "suggestion": "主进程文件头补齐 17 条与 subCode 语义；api 侧不再复制条数与清单，改为指向唯一出处。注释只写通道名字面量，不写注册调用形态（防 check-ipc-bridge RE1 造幽灵通道）。",
+      "disposition": "upheld",
+      "fixedIn": "7bfb0cb47 / cbd5f6dcb",
+      "regressionLocks": ["check-ipc-bridge.js 451 handlers / 469 preload / 0 已知缺口（补注释前后同值，证明确未新增幽灵通道）"]
+    },
+    {
+      "id": "k2-5",
+      "severity": "Info",
+      "dimension": "correctness",
+      "source": "frontend",
+      "finding": "putObject 抛 PODCAST_HOSTING_URL_UNRESOLVED 时不带 e.code，被 publishFeed 的 `e.code || UPLOAD_FAILED` 兜底成「上传失败」——一个查配置、一个查网络/签名，排查方向完全不同。",
+      "file": "apps/desktop/electron/services/podcast-hosting-upload.js:202",
+      "suggestion": "补 e.code 并配成对文案。",
+      "disposition": "upheld",
+      "fixedIn": "cbd5f6dcb"
+    },
+    {
+      "id": "k2-6",
+      "severity": "Info",
+      "dimension": "correctness",
+      "source": "frontend(候选 B)",
+      "finding": "怀疑 check-locale-sync.js 的 --keys 只读根 locales/zh.js|en.js ⇒ 拆出 locales/podcast/ 后子目录键不被检查。",
+      "disposition": "dismissed",
+      "rationale": "loadLocaleKeys 经 evalLocaleModule **执行**模块图，父文件的 `podcast: { ...podcastZh }` 已被物化；反证实跑：把只存在于子目录文件的一个键改名，--keys 立刻 FAIL 并报该键缺失；恢复后 1741 键 PASS。判据可验证，不是「看起来没问题」。"
+    },
+    {
+      "id": "k2-7",
+      "severity": "Info",
+      "dimension": "correctness",
+      "source": "frontend(候选 C)",
+      "finding": "怀疑父组件未定义 onFeedPublished（emit 有、父方法没有 = 运行时静默失效）。",
+      "disposition": "dismissed",
+      "rationale": "PodcastChannelView.vue 中 @published=\"onFeedPublished\" 与函数定义均在；另有组件测试直接读父源码断言该绑定存在（R92）。"
+    },
+    {
+      "id": "k2-8",
+      "severity": "Info",
+      "dimension": "maintainability",
+      "source": "frontend(候选 D 正向)",
+      "finding": "怀疑 hosting 域存在无人消费的死键。",
+      "disposition": "dismissed",
+      "rationale": "28 个 hosting 键逐个反查 t('podcast.hosting.X') 字面量消费点，死键集合为空；且新守卫第 4 例把该方向也钉住（扫描域含 shared-utils，缺一层会把有生产者的文案误判成死键）。"
+    },
+    {
+      "id": "k2-9",
+      "severity": "Info",
+      "dimension": "test-quality",
+      "source": "frontend",
+      "finding": "usePodcastHosting.test.js 的 busy 态疑无对应用例。",
+      "disposition": "dismissed",
+      "rationale": "publishFeed 用例已断言 PODCAST_CHANNEL_BUSY 原样透传 code 且 publishResult 保持 null（不被吞成失败态或成功态）。"
+    }
+  ],
+  "dimensionScores": {
+    "correctness": 7,
+    "security": 8,
+    "maintainability": 7,
+    "test-quality": 8
+  },
+  "convergence": "第 1 轮 9 条：5 upheld（含 1 Critical）+ 4 dismissed 带证据。作者不对任何一条做无证据拒绝。"
+}

@@ -242,3 +242,10 @@ pickChannel → extractMix(ffmpeg 抽全混音) → probe(ffprobe 实测 duratio
 3. **迁移冲突必须在发现它的那一次调用就可读。** 设计说「报 `PODCAST_MIGRATION_CONFLICT` 交用户处置」，实现若让首访 `channel:list` 直接 reject，界面就渲染不出横幅与处置按钮，用户只剩反复重启排障。现 `ensureMigratedOnce` 捕获冲突/硬失败后返回错误上挂的 `index`；读写分档判据只在 registry 一处（`assertChannelExists` / `assertChannelWritable`）。
 4. **领域码必须能到达文案层。** `toIpcError` 的 `code` 是 EC 数字（决定往哪查），新增校验码若只带它，用户永远看到「调用失败，请重试」。现失败信封统一带 `subCode`，preload 原样透出，`usePodcastChannel.call()` 单点归一为领域码后取文案。
 5. **落盘层不得只信输入层。** `writeHosting` 在写盘这一站清洗 `pathPrefix`（复用 `normalizePathPrefix` 唯一实现）与 `endpoint`，因为刀 2 会用它派生 OSS 对象 key；防跨前缀逃逸的判据放在输入层等于给下一个入口留洞。
+
+**刀 2 追加（2026-10-11，托管直传接线落地实测）**
+
+- **设计稿承诺的「回滚入口」在刀 2 只兑现一半**：先建回滚点、再覆盖主键的顺序已实现且锁死（顺序反了主键写坏就没有任何一份上次成功的 feed 可退），但**一键退回没做**——上一版本对象的时间戳 key 未持久化到 `feedSync`。这不是遗漏而是边界：退回动作要与刀 3 的成片重出共用同一套状态机，先做会变成第三份发布路径。PRD §13 第 6 条按此明写。
+- **新增一条设计稿没预见的失效模式**：`createReadStream` 把 open 排进下一个 tick，`destroy()` 取消不掉它。请求已返回、文件随后被删时那次迟到的 open 会以 `error` 事件落到无人监听的流上——在 Electron 主进程里就是 uncaughtException。刀 2 的实现把它变成两条可锁的行为：⑱ 读流必须带 error 监听；⑲ 请求期内读体失败即便对端回 2xx 也不得报成功。后者是「降级/占位产物不得冒充成功产物」在传输层的落点，设计稿原来只在音频抽取层讨论过同一形状。
+- **locales 结构随逐文件行数门禁被迫拆层**：播客命名空间从 `locales/zh.js`/`en.js` 抽到 `locales/podcast/{zh,en}.js`（该路径有「曾还清债务」的墓碑，新代码超限不得重新挂账）。连带要求：`gen-picker-copy-table.js` 的取源路径必须同步迁移，否则 §8.1 的逐字表会解析不到键而抛错——**结构锁的取源站点必须同步迁移** 的又一例（改结构必须同时改所有读结构的工具）。
+- **未接入的托管类型做成 `option disabled` 而不是可选**：输入层仍接受 `cos`（保存时不丢用户已填的值），但界面不得诱导一次必然失败的点击。「可选但点了必失败」在设计稿里没被列成需要处置的形态。

@@ -12,16 +12,16 @@
 - [x] 1.8 视图：频道目录区块（切换器、新建、设为默认、迁移冲突两个处置按钮、配额提示、空态）+ zh/en 成对 `podcast.picker.*` 20 键
 - [x] 1.9 测试：registry 13 例、locks 9 例、service 22 例、ipc 10 例、preload 通道名 13、view 行为、单轨制结构锁；播客全域 158 例绿
 - [x] 1.10 静态门禁：`check-ipc-bridge`（447 handlers / 465 preload / 0 缺口）、`check-locale-sync --pair-base/--cjk`（无新增硬编码）、`glossary.test.js`
-- [ ] 1.11 QM-1 打包 + 启动 8 秒 + asar 清单 + `verify-worktree-deps`（进行中，结果写入执行记录）
-- [ ] 1.12 QM-6 双模型外部评审（实现 diff）+ 逐条处置
-- [ ] 1.13 QM-4 视觉：`podcast-channel` 浅/暗基线按同一次 CI run 重取并逐项归因（页面新增频道区块必然漂移）
+- [x] 1.11 QM-1 打包 + 启动 8 秒 + asar 清单 + `verify-worktree-deps`（刀 1 已随 PR #3279 交付：build:dir rc=0、asar 清单含新模块、asar 内 require 通过；启动存活由 CI `gui-test`=pass 闭合）
+- [x] 1.12 QM-6 双模型外部评审（实现 diff）+ 逐条处置（后端 claude 8 条：i1–i4、i6–i8 upheld 已修，i5 partially_accepted；前端 opencode 未产出 JSON 产物，如实记为部分完成。裁决 `.adversarial/ccg-deep-9ce8fdbf/adjudication.json`，i3 高危域走外部复核未自扮演豁免）
+- [x] 1.13 QM-4 视觉：`podcast-channel` 浅/暗基线按同一次 CI run 重取并逐项归因（run `38073491010` Gate 7b：43 张中违规恰好 2 张且均属本 PR，其余 41 张 0 px；逐字节自证 sha256 `f41cc163…`/`7ca6f9d0…`）
 
 ## 2. 刀 2 托管直传接线（后续 PR）
 
-- [ ] 2.1 凭证加密落盘（`credential-store`）+ `:save` 的 secret 缺席=保持、拒空覆写
-- [ ] 2.2 `podcast:hosting:get|save|check`（check 注入 `clientImpl`，缺省零出站）
-- [ ] 2.3 `podcast:feed:publish`：备份 → 覆盖上传 → 回滚入口；`backupCreated` 进结果态与横幅
-- [ ] 2.4 行为锁⑦（重启后 partial 仍在）+ 结构锁⑫
+- [x] 2.1 凭证加密落盘（`credential-store`）+ `:save` 的 secret 缺席=保持、拒空覆写（`podcast-hosting-service.saveHosting` 单点判定；`index.json` 只存 `credentialRef`；行为锁 + 18 例服务层用例）
+- [x] 2.2 `podcast:hosting:get|save|check`（check 注入 `httpClient`，缺省零出站并如实回 `checked:false`+理由；通道名为源码字面量，ipc-contract 对账通过）
+- [x] 2.3 `podcast:feed:publish`：先建回滚点（本地 `feed.prev.xml` + OSS 时间戳副本）→ 覆盖主键 → `writeFeedSync`；`backupCreated` 进结果态与界面标注；一键退回本期不做，已明写为边界（§13 第 6 条）
+- [x] 2.4 行为锁⑦（重启后 partial 仍在）+ 结构锁⑫：刀 2 另落 ⑱–㉓ 七条（读流 error 监听 / 2xx 不掩盖读体失败 / clearSecret 在 payload 内 / 未接入 provider 不可选 / 文案接线取真实 locale 值 / `@published` 父绑定 / 发布形状按 handler 返回体断言），每条做过独立变异反证
 
 ## 3. 刀 3 成片一键出期 + 共用手柄（后续 PR）
 

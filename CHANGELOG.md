@@ -1,3 +1,35 @@
+# [未发布] feat(podcast): 播客 RSS 频道一键发布 · 刀 2 —— 托管直传接线（2026-10-11，podcast-hosting）
+
+## 背景
+
+刀 1 把「多频道 + 迁移 + 互斥」立起来之后，播客页仍然只能生成**本地** feed.xml：音频要么已是公网直链，要么根本发不出去。本刀交付对象存储托管配置的接线，让「手工登记的一期」也能一键把 feed 覆盖上公网——这是全链路里唯一与「有没有成片/有没有文案」无关的一段，先落地即可独立使用。
+
+## 改动（刀 2：托管直传接线）
+
+- **主进程服务层**（`electron/services/podcast-hosting-service.js`）：`getHosting()` 只回掩码视图（`***`+末 4 位 AK，SK 永不回显）；`saveHosting()` 是「留空=沿用已存凭证」合并语义的**唯一判定点**——字段缺席与 `clearSecret` 是两件事，落盘层拒绝以空串静默覆写已有 secret；配置先落 `index.json`（只存 `credentialRef`）、凭证经 `credential-store` 加密落盘，**加密失败即整体失败**，不留指向不存在凭证的半配置；归属解析为 `null` 时 fail-closed（legacy `undefined` 沿用旧命名空间，两者文案不同）。`checkHosting()` 在未注入 `httpClient` 时如实回 `checked:false`+理由，不冒充「探测通过」。
+- **发布顺序锁死**（`publishFeed`）：**先建回滚点**（本地 `feed.prev.xml` + OSS 时间戳副本）**再覆盖主键**，顺序反过来主键写坏就没有任何一份「上次成功的 feed」可退，聚合端定时抓到的是坏 feed。回滚点建不出来**不阻断**主上传（否则用户被锁死在原地），但结果里如实标 `backupCreated:false` 且界面追加缺失标注。`PUT` 失败也写 `feedSync` 失败态，使「公网未更新」在重启后仍可见。本期**不提供一键退回**（上一版对象 key 未持久化），已作为边界明写而不是留成隐含承诺。
+- **上传层两条新判据**（`podcast-hosting-upload.js`）：① `putObject` 给读流挂 `error` 监听——`createReadStream` 把 open 排进下一个 tick 且 `destroy()` 取消不掉它，「请求已返回、文件随后被删」时那次迟到的 open 会以 `error` 事件落到无人监听的流上，在 Electron 里就是**主进程 uncaughtException**（本机实测命中）；② 请求期内读体失败 ⇒ 即便对端回 2xx 也**不得报成功**（新码 `PODCAST_HOSTING_BODY_READ_FAILED`），这是「降级产物不得冒充成功产物」在传输层的落点。
+- **路径前缀出声拒绝**（`validateHosting`）：新增 `PODCAST_HOSTING_PREFIX_UNSAFE`——`..`/`.` 段与前导 `/` 不再被静默清洗。落盘层的 `normalizePathPrefix` 仍是防跨频道逃逸的第二道闸，但输入层跟着改写会让用户填的发布路径与真正生效的路径不是同一个东西（公网地址会变、已提交给聚合端的 Feed 会指错层）。
+- **IPC 与契约**：新增 `podcast:hosting:get|save|check`、`podcast:feed:publish` 四条通道（通道名一律写成源码字面量——`ipc-contract` 按字面量双向对账，循环注册会让整条通道从对账里消失）；`toIpcError` 统一带 `subCode`（领域码），preload 原样透出，渲染层在 `call()` 单点归一取文案；两个 bundle 重生成。
+- **渲染层**：新增 `PodcastHostingCard.vue` + `usePodcastHosting.js`（凭证全局一份、发布按频道触发，状态生命周期不同，且播客页已贴着逐文件行数门禁上限）。按钮可用性即交互契约：未配置时【测试连通】【清除凭证】禁用、无活动频道时【发布】禁用；本期未接入的 `cos` 做成 `option disabled`（可选但必失败＝给用户一个假出口）；发布结果三态不压平；保存后无论成败立刻清空表单里的 AK/SK（渲染层状态会进 DevTools 与错误上报）。
+- **locales 结构拆层**：播客命名空间从 `locales/zh.js`/`en.js` 抽到 `locales/podcast/{zh,en}.js`——CI 逐文件行数门禁判 `NEW_OVER_LIMIT`，而该路径有「曾还清债务」的墓碑，新代码超限不得重新挂账。键名与拆出前逐字一致；连带把 `gen-picker-copy-table.js` 的取源路径同步迁移（改结构必须同时改所有读结构的工具），PRD §8.1 逐字表重生成（picker 19 / hosting 28 / errors 75 键，zh/en 差集为空）。
+- **文案**：新增托管域 9 条错误码/问题码的 zh/en 成对文案，不再让新码长期落到 `fallback`。
+
+## 验证
+
+- 播客全域 + IPC 合同面 + i18n + 质量基建自检：**307 passed / 19 文件 / 0 失败 / 零 unhandled**（刀 2 四个文件 75 例：upload 37 / hosting-service 18 / usePodcastHosting 8 / PodcastHostingCard 12）。此前托管用例残留的 8–10 条 uncaught ENOENT 由「读流必须带 error 监听」这条判据消除，现 Errors 为 0。**QM-6 处置后的最终基线 `cbd5f6dcb` 上重跑受影响面：1100 passed / 62 文件 / 0 失败**（307/19 保留为演进链，不是现状）。宽域 `vitest run src electron` 由 CI 分片承担。
+- QM-6 双模型评审：后端 claude 命中一条 **Critical**——`accessKeySecret` 是四个字段里唯一没 trim 的，`'   '` 被当真值走到 `saveCredential`，会**静默把已存真实凭证覆盖成空白**而 `configured` 仍为 true（`validateHosting` 的 `CREDENTIAL_REQUIRED` 恰被单独 filter 出去交缺席判据处理，过滤后无人再管空白）⇒ 改为「先 trim 再判缺席」，变异反证「去掉 trim 仅指名下那条红」。前端 opencode 逐条结论：**采纳 4 条**（① 反方向缺文案——主进程会产出的码在 `podcast.errors.*` 无键、界面因此显示裸码，补 14 条成对文案并新增 `src/locales/podcast-error-codes.test.js` 反方向接线守卫；② 信封归一被抄成第二份 ⇒ 抽出唯一实现 `normalizeIpcEnvelope()` + 结构锁；③ 两处注释与实现脱节（主进程通道合同注释停在 8 条、api 头注释复制条数与清单）；④ `PODCAST_HOSTING_URL_UNRESOLVED` 不带 `e.code` 被兜底成「上传失败」）；**驳回 4 条并各附实跑证据**（`--keys` 看不见子目录、父组件缺 `onFeedPublished`、hosting 域死键、busy 态无用例）。后端跑满 35 分钟未产出最终 JSON，如实记为部分完成，不冒充双模型全通过。
+- 变异反证 3 条各自独立变红：摘读流 `error` 监听 ⇒ 2 红 + 1 条 unhandled；把「2xx 不得掩盖读体失败」改成 no-op ⇒ 仅该 1 条红；摘 `PODCAST_HOSTING_PREFIX_UNSAFE` ⇒ 仅该 1 条红。
+- QM-1：`pnpm run build:dir` rc=0；asar 含 `podcast-hosting-service.js`/`-upload.js`；`asar extract` 后读**打包副本**实测——preload bundle 含 4 条新通道各 1 次与 `subCode`×3、`putObject` 带 error 监听与 body-read 守卫播客通道注册共 17 处；渲染层产物 `dist/assets/*.js` 内可检出托管区文案（证明拆分后的 locales 真被打包消费）。打包产物启动 12 秒存活、隔离 `--user-data-dir` 内落 72 个文件（真初始化），stderr 中 `Failed to load platform config`/`ENOTDIR`/`Cannot find module`/`TypeError` 命中 0 行。
+- `node scripts/verify-worktree-deps.js` OK（11 项解析到本 worktree）。
+
+## 边界（不冒充已闭合）
+
+- 一键退回未做（§PRD 13 第 6 条）：OSS 时间戳副本的 key 未持久化，退回要与刀 3 的成片重出共用状态机，先做会变成第三份发布路径。
+- `checkHosting` 默认零出站，真实探测要等对象存储侧有可用测试桶后同 PR 补验收。
+
+---
+
 # [未发布] feat(podcast): 播客 RSS 频道一键发布 · 刀 1 —— 多频道、迁移与串行锁（2026-10-10，podcast-oneclick-publish）
 
 ## 背景

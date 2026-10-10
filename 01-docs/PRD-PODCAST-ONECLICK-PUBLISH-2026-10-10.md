@@ -233,7 +233,7 @@ registry（index.json + 两段 channel.json）、迁移三态（首访即可读�
 | `publishFailed` | 公网 feed 未更新（{status}），本地 Feed 与已发布内容不受影响，可重试。 | Public feed not updated ({status}); the local feed and what is already published are unchanged. You can retry. |
 | `backupMissing` | 注意：本次未建立回滚点，无法一键退回上一版 feed。 | Note: no rollback point was created, so the previous feed cannot be restored in one click. |
 
-键路径 `podcast.errors.*`（75 键）。渲染层按**领域码**取键：`toIpcError` 在失败信封里带 `subCode`，preload 原样透出，`usePodcastChannel.call()` 单点把 `code` 归一为领域码；未知码落 `fallback` 且**带码可见**（不得空白吞掉）。刀 2 新增的 8 个托管码必须成对入表，不得长期靠 `fallback` 兜着：
+键路径 `podcast.errors.*`（88 键）。渲染层按**领域码**取键：`toIpcError` 在失败信封里带 `subCode`，preload 原样透出，`usePodcastChannel.call()` 单点把 `code` 归一为领域码；未知码落 `fallback` 且**带码可见**（不得空白吞掉）。刀 2 新增的 8 个托管码必须成对入表，不得长期靠 `fallback` 兜着：
 
 | 键 | zh（界面逐字） | en |
 | --- | --- | --- |
@@ -259,6 +259,19 @@ registry（index.json + 两段 channel.json）、迁移三态（首访即可读�
 | `PODCAST_FEED_NOT_BUILT` | 该频道还没有可用的 Feed 产物，请先生成 Feed 再发布 | This channel has no usable feed file yet. Build the feed before publishing. |
 | `PODCAST_HOSTING_UPLOAD_FAILED` | 上传到对象存储失败，本次发布未生效，请稍后重试或查看发布状态 | Upload to object storage failed. This publish did not take effect. Retry later or check the publish status. |
 | `PODCAST_HOSTING_BODY_READ_FAILED` | 读取本地 Feed 文件失败，本次上传并未发出，请检查文件是否被占用或已被移动 | Reading the local feed file failed, so nothing was uploaded. Check whether the file is locked or has been moved. |
+| `PODCAST_HOSTING_PROVIDER_INVALID` | 托管类型只能选阿里云 OSS | Hosting provider must be Aliyun OSS |
+| `PODCAST_HOSTING_PROVIDER_UNSUPPORTED` | 该托管类型本期未接入，请改用阿里云 OSS，或为单集直接填写音频外链 | This hosting provider is not integrated yet. Switch to Aliyun OSS, or give the episode an external audio URL instead. |
+| `PODCAST_HOSTING_ENDPOINT_REQUIRED` | Endpoint 不能为空（形如 oss-cn-hangzhou.aliyuncs.com） | Endpoint is required (e.g. oss-cn-hangzhou.aliyuncs.com) |
+| `PODCAST_HOSTING_BUCKET_REQUIRED` | Bucket 名称不能为空 | Bucket name is required |
+| `PODCAST_HOSTING_CREDENTIAL_REQUIRED` | AccessKeyId / AccessKeySecret 不能为空 | AccessKeyId / AccessKeySecret is required |
+| `PODCAST_HOSTING_URL_UNRESOLVED` | 无法由 Endpoint 与 Bucket 拼出上传地址，请检查这两项是否写全 | The upload URL cannot be built from Endpoint and Bucket. Check that both are filled in. |
+| `PODCAST_CHANNEL_INVALID` | 频道信息不完整，请按下方逐条修正 | Channel information is incomplete. Fix the items listed below. |
+| `PODCAST_CHANNEL_NAME_REQUIRED` | 频道名称不能为空 | Channel name is required |
+| `PODCAST_EPISODE_INVALID` | 单集信息不合法，请按下方逐条修正 | Episode data is invalid. Fix the items listed below. |
+| `PODCAST_EPISODES_FULL` | 该频道单集数已达上限，请先删除不再需要的旧期再登记新的 | This channel reached its episode limit. Remove an old episode before adding a new one. |
+| `PODCAST_INDEX_BUSY` | 频道目录正被其他操作占用，请稍后重试 | The channel catalog is busy with another operation. Try again shortly. |
+| `PODCAST_STORE_CORRUPT` | 播客数据文件读不出来（可能已损坏），已停止写入以免扩大损坏 | The podcast data file cannot be read (it may be corrupted). Writing stopped to avoid making it worse. |
+| `PODCAST_STORE_UNAVAILABLE` | 播客数据目录当前不可用（权限或磁盘问题），请稍后重试 | The podcast data directory is unavailable right now (permissions or disk). Try again later. |
 | `CHANNEL_MISSING` | 缺少频道配置 | Channel configuration is missing |
 | `CHANNEL_TITLE_REQUIRED` | 频道标题不能为空 | Channel title is required |
 | `CHANNEL_TITLE_TOO_LONG` | 频道标题超出长度上限 | Channel title exceeds the length limit |
@@ -326,7 +339,7 @@ registry（index.json + 两段 channel.json）、迁移三态（首访即可读�
 
 新增错误码（zh/en 成对 + 术语进 `i18n-glossary.md`；刀 1 已落 9 条：`PODCAST_CHANNEL_ID_REQUIRED`、`PODCAST_CHANNEL_ID_INVALID`、`PODCAST_CHANNEL_NOT_FOUND`、`PODCAST_MIGRATION_CONFLICT`、`PODCAST_MIGRATION_IO_FAILED`、`PODCAST_MIGRATION_DIRECTION_INVALID`、`PODCAST_LOCK_WAIT_TIMEOUT`、`PODCAST_CHANNEL_BUSY`、`PODCAST_EPISODE_NOT_FOUND`，其余随对应刀次落地时补齐）：`PODCAST_MIGRATION_IO_FAILED`、`EPISODE_MIME_UNDETERMINED`（`audioMimeFromUrl` 未命中改返回 `null`，默认回退仅留给存量一次性固化）、`PODCAST_AUDIO_DEGRADED_SOURCE`、`PODCAST_AUDIO_MEASURE_FAILED`、`PODCAST_CHANNEL_BUSY`、`PODCAST_INDEX_BUSY`、`PODCAST_CHANNEL_ID_INVALID`、`PODCAST_HOSTING_PREFIX_UNSAFE`（`pathPrefix` 不得空/不得以 `/` 开头/不得含 `..`）。
 
-**刀 2 已落地的托管域码表（zh/en 成对，`podcast.errors.*` 单点解析）**：错误码 `PODCAST_HOSTING_REQUIRED`、`PODCAST_HOSTING_INVALID`、`PODCAST_HOSTING_SECRET_MISSING`、`PODCAST_HOSTING_CRYPTO_UNAVAILABLE`、`PODCAST_HOSTING_IDENTITY_REQUIRED`、`PODCAST_FEED_NOT_BUILT`、`PODCAST_HOSTING_UPLOAD_FAILED`、`PODCAST_HOSTING_BODY_READ_FAILED` 共 8 条；校验问题码（`issues[].code`，经 `issueText` 走同一张表）`PODCAST_HOSTING_PROVIDER_INVALID`、`PODCAST_HOSTING_PROVIDER_UNSUPPORTED`、`PODCAST_HOSTING_ENDPOINT_REQUIRED`、`PODCAST_HOSTING_BUCKET_REQUIRED`、`PODCAST_HOSTING_CREDENTIAL_REQUIRED`、`PODCAST_HOSTING_PREFIX_UNSAFE` 共 6 条。`PODCAST_HOSTING_PREFIX_UNSAFE` 的判据是**出声拒绝**而非静默清洗：落盘层的 `normalizePathPrefix` 仍是防逃逸的第二道闸（会把 `..` 段与前后斜杠去掉），但输入层跟着一起改写会让用户填的发布路径与真正生效的路径不是同一个东西——公网地址会变、已提交给聚合端的 Feed 会指错层。**不得有第二份 `validateHosting`**（§12 与结构锁⑫同口径）。
+**刀 2 已落地的托管域码表（zh/en 成对，`podcast.errors.*` 单点解析）**：错误码 `PODCAST_HOSTING_REQUIRED`、`PODCAST_HOSTING_INVALID`、`PODCAST_HOSTING_SECRET_MISSING`、`PODCAST_HOSTING_CRYPTO_UNAVAILABLE`、`PODCAST_HOSTING_IDENTITY_REQUIRED`、`PODCAST_FEED_NOT_BUILT`、`PODCAST_HOSTING_UPLOAD_FAILED`、`PODCAST_HOSTING_BODY_READ_FAILED` 共 8 条；校验问题码（`issues[].code`，经 `issueText` 走同一张表）`PODCAST_HOSTING_PROVIDER_INVALID`、`PODCAST_HOSTING_PROVIDER_UNSUPPORTED`、`PODCAST_HOSTING_ENDPOINT_REQUIRED`、`PODCAST_HOSTING_BUCKET_REQUIRED`、`PODCAST_HOSTING_CREDENTIAL_REQUIRED`、`PODCAST_HOSTING_PREFIX_UNSAFE` 共 6 条。`PODCAST_HOSTING_PREFIX_UNSAFE` 的判据是**出声拒绝**而非静默清洗：落盘层的 `normalizePathPrefix` 仍是防逃逸的第二道闸（会把 `..` 段与前后斜杠去掉），但输入层跟着一起改写会让用户填的发布路径与真正生效的路径不是同一个东西——公网地址会变、已提交给聚合端的 Feed 会指错层。**不得有第二份 `validateHosting`**（§12 与结构锁⑫同口径）。**QM-6 前端评审把方向补全**：上面只写了「新码要有文案」，但真正的失效形态是反方向——主进程产出了码而 locale 里没有键，`issueText()` 落 `fallback` 把**裸码**显示给用户。因此除补 14 条成对文案（新增 `PODCAST_CHANNEL_INVALID`、`PODCAST_CHANNEL_NAME_REQUIRED`、`PODCAST_EPISODE_INVALID`、`PODCAST_EPISODES_FULL`、`PODCAST_INDEX_BUSY`、`PODCAST_STORE_CORRUPT`、`PODCAST_STORE_UNAVAILABLE` 等）之外，必须同时存在一道**反方向接线守卫** `apps/desktop/src/locales/podcast-error-codes.test.js`：以「主进程字符串字面量产出的码」为集合逐个查文案，例外表逐条写理由且只能缩小，并自带两条反滥用断言（例外表里的码必须仍在被产出；已配文案却仍挂例外即红）。同一轮还收掉一条同源风险：信封归一（`available` / `result` 形状 / `subCode` 优先）曾被抄成第二份实现在 `usePodcastHosting.call()` 里，现唯一实现是 `normalizeIpcEnvelope()`，并有结构锁断言「剥注释后 `subCode` 只允许出现在该函数那一行」——两份判据只更新其一时，症状正是「新增码显示成通用失败」，而两边单测都会绿。
 
 ---
 
