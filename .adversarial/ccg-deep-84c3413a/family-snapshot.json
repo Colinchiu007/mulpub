@@ -63,7 +63,8 @@
     "highRiskDomainsPresent": [
       "credentials",
       "datamigration(仅引用刀 1 已收口的迁移判据，本刀未改迁移)"
-    ]
+    ],
+    "backendVsCritic": "proposer=本会话（anthropic 家族内作者）；critic 第 1 轮=opencode(deepseek/hy3)、第 2 轮=claude(anthropic) ⇒ 两轮各自与作者非同族的要求由第 1 轮满足；第 2 轮 claude 与作者同族，因此**不替代**第 1 轮结论，只作为第二把尺子叠加（双模型仍各算一路，不合并成一条 PASS）"
   },
   "interimOutcome": {
     "recordedAt": "2026-10-10T19:38:48.000Z",
@@ -108,6 +109,31 @@
         "verdict": "not_a_problem",
         "evidence": "28 个 hosting 键逐个反查 t('podcast.hosting.X') 字面量消费点，死键集合为空；75 个 errors 键逐个回查主进程确有产出该码，不存在只挂文案的死码"
       }
-    ]
+    ],
+    "supersededBy": "结构化 JSON 6 条（见 adjudication.json issues b2-1..b2-6）",
+    "supersededAt": "2026-10-10T20:30:00Z"
+  },
+  "secondRound": {
+    "at": "2026-10-10T20:30:00Z",
+    "backend": "claude",
+    "family": "anthropic",
+    "sessionId": "85dc8181-6796-48c2-86a3-9e24dd9f3be9",
+    "produced": "structuredJson",
+    "counts": {
+      "critical": 0,
+      "warning": 1,
+      "info": 5
+    },
+    "upheld": 6,
+    "dismissed": 0,
+    "artifact": ".adversarial/ccg-deep-84c3413a/critique-backend-v1.md",
+    "reviewPointVerdicts": {
+      "凭证合并": "五条均正确且测试齐全，唯一缺口是新 AK + 旧 secret 错配（b2-1）",
+      "回滚点顺序": "顺序正确、失败不阻断，唯一语义缺陷是回滚点装的是本次产物（b2-3）",
+      "读流错误": "实现正确且与 spec 场景逐条吻合（第 1 轮 k2-1 已闭合）",
+      "IPC四通道": "一致无漏，唯一瑕疵是 SECRET_MISSING 的 issues:[] 归错分支（b2-2）",
+      "双层前缀": "不重复职责，但拒绝边界未对齐（b2-5）"
+    },
+    "noCriticalStatement": "未发现 Critical 级 fail-open / secret 泄漏 / 主键覆盖失控：上传异常消息只含状态码、index.json 只存 ref 与掩码、渲染层 secret 只在表单 ref 且返回即清空、owner=null 全链路 fail-closed。"
   }
 }

@@ -19,7 +19,7 @@ sync_backfill_owner: podcast-hosting 分支作者（本会话）
 | `e26b88432` | 渲染层接线：4 条 IPC 通道与两个 bundle、`PodcastHostingCard.vue`、`usePodcastHosting.js`、locales 拆到 `locales/podcast/{zh,en}.js`、读流 error 监听与 2xx 不掩盖读体失败 |
 | `6ef66d8f3` | `PODCAST_HOSTING_PREFIX_UNSAFE` 出声拒绝 + 9 条托管域码 zh/en 成对文案 + 对应测试 |
 | `64f38c7ca` | CI 首轮红处置：`QG Static` 判显式守卫占比 64.9% < 65.0%，根因是 4 条新通道走 `guarded()` 别名注册（分子按**注册点字面**统计）⇒ 抽出 `handlerFor` 并把守卫写回注册点，65.8% 转绿；**未**提阈值、**未**加豁免 |
-| （本次 QM-6 后端 6 条处置提交） | 凭证成对守卫、回滚点快照挪到 `buildFeed` 之前 + `prevExists` 进信封、两处 `writeFeedSync` 包 try/catch、探测键唯一化、`pathPrefix` 判据改与清洗输出逐字比对、`toIpcError` 空数组不再归入校验类；新增 1 条 IPC 回归锁 + 卡片两分支标注；PRD §7/§8/§11、CHANGELOG 同步 |
+| `d9ba07a0e` | QM-6 后端 6 条处置：凭证成对守卫、回滚点快照挪到 `buildFeed` 之前 + `prevExists` 进信封、两处 `writeFeedSync` 包 try/catch、探测键唯一化、`pathPrefix` 判据改与清洗输出逐字比对、`toIpcError` 空数组不再归入校验类；新增 1 条 IPC 回归锁 + 卡片两分支标注；PRD §7/§8/§11、spec 3 条 Scenario、tasks 2.5、CHANGELOG 同步 |
 | （收尾记录提交） | `.adversarial/ccg-deep-84c3413a/{adjudication.json,family-snapshot.json,critique-backend-v1.md}` 入库 + `.quality-gates.md` QM-6 行改写 | 文档回写：PRD §7/§8/§9/§10/§11/§12/§13 与 §8.1 逐字表重生成、DESIGN §10 刀 2 追加、openspec 3 条 Requirement 与 tasks 1.11–1.13/2.1–2.4 对账、CHANGELOG 顶部条目、本记录与 `.quality-gates.md` 顶部记录及 ledger 登记 |
 
 ## 关键判断（为什么这么修，不是改了什么）
