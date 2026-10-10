@@ -18,12 +18,12 @@
 
 ## 1. 组 1：批次 runId 携带分镜集指纹（TDD）
 
-- [ ] 1.1 RED：`production-driver.test.js` 新增用例——同 taskId 换分镜集（每批数量相同）⇒ 两次 `runId` 不同、产物目录不同、第二次真实调用 `runBatch`
-- [ ] 1.2 RED：新增用例——同分镜集重复调用 ⇒ `runId` 相同（幂等续跑不被破坏）
-- [ ] 1.3 RED：新增用例——注入两参 `runIdFor(taskId, batchIndex)` ⇒ 行为与指纹无关、落点由注入方决定
-- [ ] 1.4 RED：新增用例——存量旧格式台账（`b.runId` 无指纹）且分镜集一致 ⇒ 沿用旧 runId、**不重建台账**、既有产物仍判为已完成
-- [ ] 1.5 GREEN：`production-driver.js` 新增 `fingerprintBatch(shotIds)`（`sha1(join('\n')).slice(0,10)`）与默认 `runIdFor(taskId, batchIndex, shotIds)`；`createLedger` 透传 `shotIds[b]` 至派生
-- [ ] 1.6 GREEN：`runIdFor` JSDoc 签名扩为三参；注明「两参调用方（auto 模式）行为不变」
+- [x] 1.1 RED：`production-driver.test.js` 新增用例——同 taskId 换分镜集（每批数量相同）⇒ 两次 `runId` 不同、产物目录不同、第二次真实调用 `runBatch`
+- [x] 1.2 RED：新增用例——同分镜集重复调用 ⇒ `runId` 相同（幂等续跑不被破坏）
+- [x] 1.3 RED：新增用例——注入两参 `runIdFor(taskId, batchIndex)` ⇒ 行为与指纹无关、落点由注入方决定
+- [x] 1.4 RED：新增用例——存量旧格式台账（`b.runId` 无指纹）且分镜集一致 ⇒ 沿用旧 runId、**不重建台账**、既有产物仍判为已完成
+- [x] 1.5 GREEN：`production-driver.js` 新增 `fingerprintBatch(shotIds)`（`sha1(join('\n')).slice(0,10)`）与默认 `runIdFor(taskId, batchIndex, shotIds)`；`createLedger` 透传 `shotIds[b]` 至派生
+- [x] 1.6 GREEN：`runIdFor` JSDoc 签名扩为三参；注明「两参调用方（auto 模式）行为不变」
 
 ## 2. 组 2：`production-retry-shot` 通道（TDD）
 
@@ -43,10 +43,10 @@
 
 ## 4. 组 4：变异反证与收尾
 
-- [ ] 4.1 变异①：`runIdFor` 退回两参（指纹丢失）⇒ 1.x 用例必须红
+- [x] 4.1 变异①：`runIdFor` 退回两参（指纹丢失）⇒ 1.x 用例必须红
 - [ ] 4.2 变异②：`production-retry-shot` 改回用 `getRunSnapshot` 定位 ⇒ 2.2 用例必须红
 - [ ] 4.3 变异③：`buildRenderManifest` 改为按新规则重算 path（而非读台账 `b.runId`）⇒ spec「清单 path 不依赖派生规则」用例必须红
-- [ ] 4.4 回归：`electron/services/film-engineering/` 全量 + `src/composables/useFilm*` + `src/views/Film*` + `src/i18n`
+- [x] 4.4 回归：`electron/services/film-engineering/` 全量 + `src/composables/useFilm*` + `src/views/Film*` + `src/i18n`
 - [ ] 4.5 既有失败复核：`film-engineering.test.js` 的 `download-recycled` 用例仍失败 ⇒ 确认与本 change 无关（`git archive origin/main` 原版测试文件复跑同红）
 - [ ] 4.6 QM-5 五步执行记录 + `openspec/records/<分支>.md`
 - [ ] 4.7 `openspec sync`（spec delta 并入主 spec）+ archive 三同步
