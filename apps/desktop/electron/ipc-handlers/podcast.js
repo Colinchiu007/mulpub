@@ -15,9 +15,19 @@
  *   podcast:episode:remove  → { code, data: { removed } }
  *   podcast:feed:build      → { code, data: { path, itemCount, bytes } }
  *   podcast:feed:verify     → { code, data: { issues, checks, itemCount } }
- *   podcast:endpoints:list  → { code, data: { endpoints } }
+ *   podcast:endpoints:list  → { code, data: { endpoints } }   // 频道无关，无入参
+ * 频道目录（刀 1，均经 registry 而非按频道构造的 service）：
+ *   podcast:channel:list           → { code, data: { channels, defaultChannelId, empty, migrationStatus, migrationConflicts } }
+ *   podcast:channel:create|rename|setDefault → { code, data: { channel, channels, ... } }（同 list 的目录形状）
+ *   podcast:channel:migrate:resolve → { code, data: { ...目录形状 } }
+ * 托管与发布（刀 2；凭证全局一份，发布按频道）：
+ *   podcast:hosting:get|save  → { code, data: { hosting } }   // hosting 是**掩码视图**，永不含 secret
+ *   podcast:hosting:check     → { code, data: { checked, ok, status, hosting } }
+ *   podcast:feed:publish      → { code, data: { state, url, bytes, itemCount, backupCreated, code, status } }
  * 校验失败：{ code: EC.VALIDATION_ERROR, message, issues }——issues 是引擎的结构化码数组，
  * 文案由渲染层按 code 出（本层不回传用户未发布的标题/音频地址，也不回传 xml 正文）。
+ * 失败信封另带 `subCode`（领域码，如 PODCAST_HOSTING_UPLOAD_FAILED）：`code` 是 EC 数字、决定往哪查，
+ * 只有它能区分「传输失败」与「校验不过」；渲染层在 call() 单点优先用 subCode 取文案。
  *
  * ⛔ 这里没有「发布到播客平台」的通道：小宇宙等是 RSS 聚合端，feed 地址由用户一次性提交。
  * 本模块不参与 publish-capabilities / platform-definitions / publishMode 的任何判定。

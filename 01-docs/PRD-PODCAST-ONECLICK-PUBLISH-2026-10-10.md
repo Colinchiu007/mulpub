@@ -116,7 +116,7 @@
 
 ### 6.3 托管 `:save` 的分区合并
 
-`secret` **缺席 = 保持不变**（先从 `credential-store` 取旧值回填再 `validateHosting`）；仅显式 clear 动作才覆写；落盘层**拒绝以空 secret 静默覆写已有 secret**（`validateHosting:65-67` 要求 AK/SK 非空，`:get` 永不回显 secret）。
+`secret` **缺席 = 保持不变**（先从 `credential-store` 取旧值回填再 `validateHosting`）；仅显式 clear 动作才覆写；落盘层**拒绝以空 secret 静默覆写已有 secret**（`validateHosting` 要求 AK/SK 非空，`:get` 永不回显 secret）。**「只有空白的串」也算缺席**（刀 2 由 QM-6 后端评审命中并修正）：`accessKeySecret` 必须先 trim 再判缺席。漏掉 trim 的后果不是报错而是**静默销毁已存凭证**——`validateHosting` 里那条 `PODCAST_HOSTING_CREDENTIAL_REQUIRED` 正是被单独过滤出去、交给「缺席即拒绝」那道判据处理的，所以过滤之后已无人在管空白；结果是 `configured` 仍为 true、签名 403、用户看不出凭证被换过。回归锁两条（`podcast-hosting-service.test.js`「secret 传空白串 = 缺席：不得把已存凭证静默换成空白」「AK 只有空白且无旧凭证 → 仍判缺席并拒绝」），变异「去掉 trim」实测只有第一条变红。
 
 ---
 
@@ -127,6 +127,8 @@ registry（index.json + 两段 channel.json）、迁移三态（首访即可读�
 
 ### 刀 2 托管直传接线
 凭证加密落盘（`credential-store`，`index.json` 只存 `credentialRef`）→ `podcast:hosting:*` → `putObject`（`podcast-hosting-upload.js:201-226`，返回 `{status,size}`）→ `podcast:feed:publish` 覆盖上传 **feed.xml**（含本地 `feed.prev.xml` + OSS 时间戳副本）→ 页面入口与【回滚上一版 feed】。独立价值：手工加的单集也能一键托管出去。
+
+**刀 2 实际落地形态（2026-10-11）**：`podcast:hosting:get` / `podcast:hosting:save` / `podcast:hosting:check` / `podcast:feed:publish` 四条通道已接（通道名一律写成源码字面量，`ipc-contract` 按字面量双向对账，间接注册会让整条通道从对账里消失）；渲染层是独立子组件 `PodcastHostingCard.vue` + `usePodcastHosting.js`（凭证全局一份、发布按频道触发，两者状态生命周期不同，且播客页已贴着逐文件行数门禁上限）。发布顺序按本刀次承诺实现为**先建回滚点、再覆盖主键**：本地 `feed.prev.xml` + OSS 时间戳副本 → 主键 `PUT` → `writeFeedSync`；`PUT` 失败也如实落 `status:'failed'` 的 `feedSync`，让「公网未更新」在重启后仍然可见。本地回滚点 `feed.prev.xml` 已落盘、可人工核对；OSS 侧时间戳副本的 key **当前不落 `feedSync`**，因此**不提供一键退回**——那属刀 3 与成片链路一起收口的范围，见 §13。
 
 ### 刀 3 成片一键出期（含共用手柄）
 1. `readDegradedFlags`：从项目持久化数据读 `segments[].audioMeta.degraded`（与 `ResultView.vue:648-657` **同真源同判据**，判据只认 `degraded === true`，**不得**拿 `source` 字符串当第二判据）；命中即 `PODCAST_AUDIO_DEGRADED_SOURCE`，**不上传**。
@@ -158,14 +160,21 @@ registry（index.json + 两段 channel.json）、迁移三态（首访即可读�
 - 崩溃/退出中断：启动时以 `feedSync.attemptedAt` 与 episodes 现状对账，**只提示不自动修复**。
 - 处置迁移冲突是**不可逆**动作（一份留、一份丢），成功必须出声：`podcast.picker.migrationResolved` 走 `notifySuccess`。静默收口等于让用户以为没生效并重复点击。
 - 手工写与发布在飞冲突时**立即拒绝不排队**（`podcast.errors.PODCAST_CHANNEL_BUSY`）：一键发布跨 await 可达分钟级，把同步的「保存单集」拖进等待队列只会让一次点击变成转圈超时。
+- **按钮可用性就是交互契约**（`PodcastHostingCard` 逐条锁）：未配置托管时【测试连通】【清除已存凭证】禁用——两者的前置条件都是「已有一份可用凭证」，允许点击只会得到一个必然失败的请求；无活动频道时【发布本频道 Feed】禁用——发布是**频道动作**，全局凭证不足以确定目标对象 key；保存进行中三个动作全部禁用（`savingHosting`），防止把两份不同的表单态叠成一次覆盖写。
+- **本期未接入的托管类型 `option disabled`**：`cos` 在输入层合法（保存时不丢用户已填的值），但落盘会被 `PODCAST_HOSTING_PROVIDER_UNSUPPORTED` 拒。做成「可选但点了必失败」等于给用户一个假出口；不可选 + `title` 说明理由，才能既保留已存值回显又不诱导误操作。
+- **发布结果三态不压平**：`success` / `failed` / 其他（带码可见）三句话各不相同——`failed` 明示「公网 feed 未更新，本地 Feed 与已发布内容不受影响，可重试」，把「本地坏了」与「公网没跟上」两种排查方向混成一句会让用户反复点发布。`success` 且 `backupCreated:false` 时**额外**追加一条「本次未建立回滚点」，不得被成功文案吃掉。
+- **留空 = 沿用已存凭证**在渲染层的落法是**该字段根本不进 payload**（缺席与空串是两件事：空串会被落盘层判成覆写请求）。保存动作结束后无论成败都立刻清空表单里的 AK/SK——渲染层状态会进 DevTools 与错误上报，失败路径尤其不能把凭证留在里面。
 
 **显示项**：频道切换器（名称 + `ch_` 短 id）、重命名入口（作用于当前频道，名称为空即前置拒绝并给 `podcast.picker.nameRequired`）、频道目录读取失败横幅（`data-testid="podcast-picker-list-error"`，走 `errorText(channelListError)`——该错误位此前无人渲染，等于「读目录失败时界面静默」）、迁移冲突横幅附**冲突文件名清单**（`data-testid="podcast-migration-files"`，取 `index.json` 的 `migrationConflicts`，用户要靠它判断该保留哪一份）、迁移状态横幅（conflict/error 各一句 + 处置按钮）、每期 `compliance` 徽标（手工路径保存后即时校验，只出声不阻断）、`feedSync` 横幅（partial = 「公网 feed 未同步」+【只重试上传 feed】）、`backupCreated:false` 时标注「本次未建立回滚点」、hosted feed 公网地址标注「已提交地址，改路径会使订阅失效」、`cap` 计数与事前禁用。
 
+**显示项（刀 2 托管卡片新增）**：托管区标题与说明、配置态一行（已配置显示**掩码后的** AccessKeyId `***`+末 4 位；未配置显示「本地音频需先配置对象存储托管」这句带出口的提示）、六个输入项（托管类型 / Endpoint / Bucket / 路径前缀 / AccessKeyId / AccessKeySecret，其中 SK 是 `type=password` 且 `autocomplete=new-password`，AK 是 `autocomplete=off`——两者都绝不被浏览器代填，也不回显）、留空即沿用的占位提示、逐条校验问题清单（`data-testid="podcast-hosting-issues"`，来自 `issues[]`，不是只给一个错误码）、连通测试结果三态（`checked:false` 的「本轮未做真实探测」/ 成功 / 失败带 HTTP 状态码或「无状态码」）、发布结果三态与回滚点缺失标注（`data-state` 供视觉与自动化用例取语义，文案不承载状态）。
+
 ---
 
-### 8.1 频道目录域与错误码的提示文字（逐字表，脚本生成）
+### 8.1 频道目录域、托管域与错误码的提示文字（逐字表，脚本生成）
 
-> ⛔ 本节由 `node openspec/changes/podcast-oneclick-publish/tools/gen-picker-copy-table.js` 从 `apps/desktop/src/locales/{zh,en}.js` 解析生成，**改文案必须重新生成，不得手工维护**（手工抄录会被后续文案/术语改动打旧；判据同 `01-docs/PRD-PODCAST-RSS-CHANNEL-2026-10-09.md` §11.5）。脚本可重复执行：已有本节则整节替换。
+> ⛔ 本节由 `node openspec/changes/podcast-oneclick-publish/tools/gen-picker-copy-table.js` 从 `apps/desktop/src/locales/podcast/{zh,en}.js` 解析生成，**改文案必须重新生成，不得手工维护**（手工抄录会被后续文案/术语改动打旧；判据同 `01-docs/PRD-PODCAST-RSS-CHANNEL-2026-10-09.md` §11.5）。脚本可重复执行：已有本节则整节替换。
+> 取源路径随刀 2 的 locales 结构拆分一起迁移：播客命名空间现在住在 `locales/podcast/`，父文件 `locales/zh.js` 只剩一行 spread。**改这两处任一时先确认本脚本仍能解析出非空表**（解析不到即抛错，不产出空表）。
 
 键路径 `podcast.picker.*`（19 键，zh/en 双向差集为空）：
 
@@ -191,7 +200,40 @@ registry（index.json + 两段 channel.json）、迁移三态（首访即可读�
 | `keepLegacy` | 保留原有数据 | Keep original data |
 | `migrationResolved` | 迁移冲突已处理 | Migration conflict resolved |
 
-键路径 `podcast.errors.*`（66 键）。渲染层按**领域码**取键：`toIpcError` 在失败信封里带 `subCode`，preload 原样透出，`usePodcastChannel.call()` 单点把 `code` 归一为领域码；未知码落 `fallback` 且**带码可见**（不得空白吞掉）：
+键路径 `podcast.hosting.*`（28 键，zh/en 双向差集为空）。托管卡片 `PodcastHostingCard.vue` 的全部可见文案都在此命名空间；`configured` 带 `{key}` 参数，值是**掩码后的** AccessKeyId（`***` + 末 4 位），明文凭证从不出主进程：
+
+| 键 | zh（界面逐字） | en |
+| --- | --- | --- |
+| `sectionTitle` | 对象存储托管 | Object storage hosting |
+| `sectionHint` | 凭证全局一份，跨频道共用；发布时按频道写各自的 feed 路径。 | Credentials are stored once and shared across channels; publishing writes a feed path per channel. |
+| `configured` | 已配置（AccessKeyId {key}） | Configured (AccessKeyId {key}) |
+| `notConfigured` | 尚未配置托管：单集可以先生成 Feed，但公网 feed 还发不出去。 | Hosting not configured: you can still build the Feed, but it cannot be published yet. |
+| `provider` | 托管类型 | Provider |
+| `providerOss` | 阿里云 OSS | Aliyun OSS |
+| `providerCos` | 腾讯云 COS（本期未接入） | Tencent COS (not supported this release) |
+| `providerCosDisabled` | 本期只接了阿里云 OSS，COS 尚未实现，不可选 | Only Aliyun OSS is implemented this release, so COS cannot be selected |
+| `endpoint` | Endpoint | Endpoint |
+| `endpointPlaceholder` | 如 oss-cn-hangzhou.aliyuncs.com | e.g. oss-cn-hangzhou.aliyuncs.com |
+| `bucket` | Bucket | Bucket |
+| `pathPrefix` | 路径前缀 | Path prefix |
+| `accessKeyId` | AccessKeyId | AccessKeyId |
+| `accessKeySecret` | AccessKeySecret | AccessKeySecret |
+| `secretKeepPlaceholder` | 留空 = 沿用已存的凭证 | Leave blank to keep the stored credential |
+| `secretKeepHint` | 两项凭证留空即保持不变；只有重新填写才会覆写。Secret 不会回显，也不会出现在浏览器里。 | Blank credential fields keep what is already stored; only a re-entered value overwrites. The secret is never echoed back and never reaches the browser. |
+| `save` | 保存托管配置 | Save hosting config |
+| `check` | 测试连通 | Test connection |
+| `publish` | 发布本频道 Feed | Publish this feed |
+| `clearSecret` | 清除已存凭证 | Clear stored credential |
+| `checkNotConfigured` | 尚未配置凭证，无法测试连通。 | No credential stored, cannot test connectivity. |
+| `checkSkipped` | 本轮未做真实探测（默认不发出网络请求）；配置已保存，可在发布时验证。 | No live probe was made (no network by default); the config is saved and can be verified when publishing. |
+| `checkOk` | 连通正常。 | Connectivity OK. |
+| `checkFailed` | 连通失败（HTTP {status}）。 | Connectivity failed (HTTP {status}). |
+| `checkNoStatus` | 无状态码 | no status |
+| `publishSuccess` | 已发布：本次共 {count} 期已写入公网 feed，聚合端下次抓取后生效。 | Published: {count} episode(s) are now in the public feed; aggregators pick them up on the next crawl. |
+| `publishFailed` | 公网 feed 未更新（{status}），本地 Feed 与已发布内容不受影响，可重试。 | Public feed not updated ({status}); the local feed and what is already published are unchanged. You can retry. |
+| `backupMissing` | 注意：本次未建立回滚点，无法一键退回上一版 feed。 | Note: no rollback point was created, so the previous feed cannot be restored in one click. |
+
+键路径 `podcast.errors.*`（75 键）。渲染层按**领域码**取键：`toIpcError` 在失败信封里带 `subCode`，preload 原样透出，`usePodcastChannel.call()` 单点把 `code` 归一为领域码；未知码落 `fallback` 且**带码可见**（不得空白吞掉）。刀 2 新增的 8 个托管码必须成对入表，不得长期靠 `fallback` 兜着：
 
 | 键 | zh（界面逐字） | en |
 | --- | --- | --- |
@@ -208,6 +250,15 @@ registry（index.json + 两段 channel.json）、迁移三态（首访即可读�
 | `PODCAST_LOCK_WAIT_TIMEOUT` | 播客数据正在被其他操作占用，请稍后重试 | Podcast data is busy with another operation. Please retry shortly. |
 | `PODCAST_CHANNEL_BUSY` | 该频道正在一键发布，请等本次发布结束后再修改单集 | This channel is publishing right now. Wait for it to finish before editing episodes. |
 | `PODCAST_EPISODE_NOT_FOUND` | 单集不存在，可能已被删除，请刷新列表 | Episode not found, it may have been deleted. Refresh the list. |
+| `PODCAST_HOSTING_REQUIRED` | 本地音频需先配置对象存储托管（当前支持阿里云 OSS） | Local audio files need object-storage hosting first (Aliyun OSS is supported today). |
+| `PODCAST_HOSTING_INVALID` | 托管配置不合格，请按下方逐条修正 | Hosting configuration is invalid. Fix the items listed below. |
+| `PODCAST_HOSTING_PREFIX_UNSAFE` | 路径前缀不得以 / 开头，也不得含 . 或 .. 段（否则发布路径会被改成另一个值） | The path prefix cannot start with / and cannot contain . or .. segments (they would silently rewrite the publish path). |
+| `PODCAST_HOSTING_SECRET_MISSING` | 缺少 AccessKeyId / AccessKeySecret，且没有可复用的已存凭证，请重新填写一次 | AccessKeyId / AccessKeySecret is missing and there is no stored credential to reuse. Fill them in once more. |
+| `PODCAST_HOSTING_CRYPTO_UNAVAILABLE` | 系统凭据保护不可用或被拒绝，凭证未能加密保存，已停止写入 | OS credential protection is unavailable or denied, so the secret was not encrypted. Saving stopped. |
+| `PODCAST_HOSTING_IDENTITY_REQUIRED` | 当前登录态无法确定凭证归属，已阻止保存托管配置 | The current sign-in cannot be resolved as the owner, so hosting credentials were not saved. |
+| `PODCAST_FEED_NOT_BUILT` | 该频道还没有可用的 Feed 产物，请先生成 Feed 再发布 | This channel has no usable feed file yet. Build the feed before publishing. |
+| `PODCAST_HOSTING_UPLOAD_FAILED` | 上传到对象存储失败，本次发布未生效，请稍后重试或查看发布状态 | Upload to object storage failed. This publish did not take effect. Retry later or check the publish status. |
+| `PODCAST_HOSTING_BODY_READ_FAILED` | 读取本地 Feed 文件失败，本次上传并未发出，请检查文件是否被占用或已被移动 | Reading the local feed file failed, so nothing was uploaded. Check whether the file is locked or has been moved. |
 | `CHANNEL_MISSING` | 缺少频道配置 | Channel configuration is missing |
 | `CHANNEL_TITLE_REQUIRED` | 频道标题不能为空 | Channel title is required |
 | `CHANNEL_TITLE_TOO_LONG` | 频道标题超出长度上限 | Channel title exceeds the length limit |
@@ -275,6 +326,8 @@ registry（index.json + 两段 channel.json）、迁移三态（首访即可读�
 
 新增错误码（zh/en 成对 + 术语进 `i18n-glossary.md`；刀 1 已落 9 条：`PODCAST_CHANNEL_ID_REQUIRED`、`PODCAST_CHANNEL_ID_INVALID`、`PODCAST_CHANNEL_NOT_FOUND`、`PODCAST_MIGRATION_CONFLICT`、`PODCAST_MIGRATION_IO_FAILED`、`PODCAST_MIGRATION_DIRECTION_INVALID`、`PODCAST_LOCK_WAIT_TIMEOUT`、`PODCAST_CHANNEL_BUSY`、`PODCAST_EPISODE_NOT_FOUND`，其余随对应刀次落地时补齐）：`PODCAST_MIGRATION_IO_FAILED`、`EPISODE_MIME_UNDETERMINED`（`audioMimeFromUrl` 未命中改返回 `null`，默认回退仅留给存量一次性固化）、`PODCAST_AUDIO_DEGRADED_SOURCE`、`PODCAST_AUDIO_MEASURE_FAILED`、`PODCAST_CHANNEL_BUSY`、`PODCAST_INDEX_BUSY`、`PODCAST_CHANNEL_ID_INVALID`、`PODCAST_HOSTING_PREFIX_UNSAFE`（`pathPrefix` 不得空/不得以 `/` 开头/不得含 `..`）。
 
+**刀 2 已落地的托管域码表（zh/en 成对，`podcast.errors.*` 单点解析）**：错误码 `PODCAST_HOSTING_REQUIRED`、`PODCAST_HOSTING_INVALID`、`PODCAST_HOSTING_SECRET_MISSING`、`PODCAST_HOSTING_CRYPTO_UNAVAILABLE`、`PODCAST_HOSTING_IDENTITY_REQUIRED`、`PODCAST_FEED_NOT_BUILT`、`PODCAST_HOSTING_UPLOAD_FAILED`、`PODCAST_HOSTING_BODY_READ_FAILED` 共 8 条；校验问题码（`issues[].code`，经 `issueText` 走同一张表）`PODCAST_HOSTING_PROVIDER_INVALID`、`PODCAST_HOSTING_PROVIDER_UNSUPPORTED`、`PODCAST_HOSTING_ENDPOINT_REQUIRED`、`PODCAST_HOSTING_BUCKET_REQUIRED`、`PODCAST_HOSTING_CREDENTIAL_REQUIRED`、`PODCAST_HOSTING_PREFIX_UNSAFE` 共 6 条。`PODCAST_HOSTING_PREFIX_UNSAFE` 的判据是**出声拒绝**而非静默清洗：落盘层的 `normalizePathPrefix` 仍是防逃逸的第二道闸（会把 `..` 段与前后斜杠去掉），但输入层跟着一起改写会让用户填的发布路径与真正生效的路径不是同一个东西——公网地址会变、已提交给聚合端的 Feed 会指错层。**不得有第二份 `validateHosting`**（§12 与结构锁⑫同口径）。
+
 ---
 
 ## 10. 测试策略（含反证）
@@ -282,6 +335,14 @@ registry（index.json + 两段 channel.json）、迁移三态（首访即可读�
 - **行为锁**：① partial 不报成功；② 摘 degraded 判定必红；③ 锁超时排队者不得补写；④ `validateFeed` 不过则 `uploadFeed` 一次都不被调用；⑤ `durationSec` 不得来自常量或 LLM 估计；⑥ **改名不得抹掉 `feedSync`**；⑦ **重启后 partial 横幅仍在** + 删除一期不刷新列表不得解除禁用；⑧ **旧脏字段 + 新合法对象 → 合并产物非法时不落盘**；⑨ **`issues[]` 逐条到达渲染层**（非仅错误码出现过）。每条配"把锁本身改成 no-op 必须立刻变红"的变异反证。
 - **结构锁**：字面量注册、`envelope` thunk 负向、浮层 owner 登记、`channelId` 传递链单一实现、`validateHosting` 单一实现、⑩ 发布期内不二次读 hosting、⑪ 相位枚举与矩阵测试同 PR、⑫ `toIpcError` 白名单含 `PODCAST_FEED_INVALID` 且透传、⑬ 迁移判据唯一。
 - **行为锁（QM-6 处置新增；每条都做过「把守卫改成 no-op 必须立刻变红」的变异）**：⑭ `endpoints:list` 在**不注入任何替身**的注册路径下也必须返回非空目录；⑮ 写入口只走 `assertChannelWritable`、读入口只走 `assertChannelExists`（按调用序列逐字断言，不是「源码里出现过某个方法名」）；⑯ 发布在飞时四个手工写入口一律 `PODCAST_CHANNEL_BUSY` 且**库里纹丝不动**，`end` 后立即恢复，别的频道不受影响；⑰ 冲突/硬失败在**首次** `listChannels()` 就返回 `migrationStatus`（不得第一次 reject、第二次才可读）。⑯⑰ 的夹具纪律：忙标记必须用 `require` 取——主进程全链 CJS，测试用 ESM `import` 会拿到另一份模块实例，该判据在这类夹具下结构性不可表示（本仓「双模块实例」同源事故）。
+
+**刀 2 新增锁（⑱–㉓，每条都做了「把守卫改成 no-op 必须立刻变红」的变异，且各锁各自独立变红不互相掩盖）**：
+- ⑱ **读流必须带 `error` 监听**：`createReadStream` 把 open 排进下一个 tick，`destroy()` 取消不掉它。于是「请求已返回、文件随后被删/被移动」时那次迟到的 open 会发出 `error` 事件，落到无人监听的流上 ⇒ **主进程 uncaughtException**（实测在托管用例的临时目录回收现场命中，症状是「测试全过、vitest 仍报 Errors」）。锁法是拿到注入的流后断言 listener 数 > 0，并直接对该流 emit error 断言不抛出。
+- ⑲ **请求期内读体失败 ⇒ 即便对端回 2xx 也不得报成功**（新增码 `PODCAST_HOSTING_BODY_READ_FAILED`）。这是对「降级/占位产物不得冒充成功产物」在传输层的落点：2xx 只证明对端收了请求，不证明体真的读出来过。
+- ⑳ **`clearSecret` 是 payload 里的标志位**，不是 IPC 的第二个参数（IPC 只传一个纯 JSON 对象），并且清除动作**不得**顺手把空串当新值提交。
+- ㉑ **未接入的 provider 不可选**（`option` 带 `disabled`），合法前缀与留空不得被 ⑱ 之外的判据误伤——`validateHosting` 的正控与负控同批写。
+- ㉒ **文案接线**：卡片断言取**真实 locale 值**（`zh.podcast.hosting.*`）而不是子串包含，因此 locales 拆成 `locales/podcast/` 后少写一行 spread 就会变红；`PodcastChannelView.vue` 模板确有 `@published` 绑定由组件测试直接读源码断言（R92：子组件 emit 存在、父方法存在、但缺绑定是编译期不可见的运行时静默失效）。
+- ㉓ **发布结果形状**以 `feed:publish` handler 的返回体为准做契约断言（`state`/`backupCreated`/`itemCount`/`code`/`status` 平铺一层），夹具**不得替对方剥壳**——本仓同类事故（跨包信封、恢复收尾形状）的第三种形态是「夹具改形」，已按行为锁而非记录性断言写。
 - **单元**：registry 真实 fs（`os.tmpdir()` 隔离）；assembler 注入假 tts/ffmpeg/ffprobe；hosting 注入假 client；guid 派生表含跨频道不撞车负例；迁移含**从非空 legacy 出发** + 幂等重跑 + 三态 + 硬失败。
 - **视觉 QM-4**：新浮层用例浅 + 暗各一张，**必须同时登记 `views/all-views.visual.test.js` 的 `viewTests` 与 `scripts/run-pixel-tests.js` 的 `pixelTests`（:10-55）**，通过证据 = CI 日志该用例名出现次数 > 0；首跑必红 → 同一次 run 的 `quality-gate-visual-reports` artifact 回填并逐张 SHA-256 自证；未触碰视图 0 px；不动 `PIXEL_THRESHOLD`、不加 mask、`KNOWN_DYNAMIC` 保持空。
 - **QM-1**：改 `electron/` ⇒ 完整打包 + 启动 8 秒 + asar 清单 + `verify-worktree-deps.js`；`Access is denied` 先按命令行定位本 worktree 遗留进程逐个 kill（前后 `Get-Process electron` 计数必须相等）。
@@ -299,6 +360,15 @@ registry（index.json + 两段 channel.json）、迁移三态（首访即可读�
 | degraded 旁白 | `failed` | 「检测到静音占位旁白，已阻止上传」 |
 | TTS 超时/超预算 | `retryable` | 「本轮合成未完成，这一期仍是草稿，不会出现在 feed 中」 |
 | OSS 403/签名失败 | `retryable` | 只给错误码与计数，**日志禁记 AK/secret** |
+| 未配置托管（`:get` 回 `configured:false`） | `blocked` | 「本地音频需先配置对象存储托管」+ 指向本页托管区；**不得**让【发布】按钮可点（见 §8） |
+| 已存配置但凭证读不出（`credential-store` 解密失败/无归属） | `blocked` | `PODCAST_HOSTING_SECRET_MISSING` 「请重新填写一次」；不得凭旧 `index.json` 认为已配置就发一次空签名 |
+| 系统凭据保护不可用（加密落盘返回 false） | `blocked` | `PODCAST_HOSTING_CRYPTO_UNAVAILABLE`，并明示「已停止保存」——配置半落盘比不落盘更难排障 |
+| 登录归属无法确定（owner=`null`） | `blocked` | `PODCAST_HOSTING_IDENTITY_REQUIRED`；legacy（`undefined`）沿用旧命名空间不 fail closed，两种情形文案不同 |
+| 路径前缀不安全（`..` / 前导 `/`） | `blocked` | `PODCAST_HOSTING_PREFIX_UNSAFE` 逐条列出，不静默清洗（§9） |
+| PUT 非 2xx / 无状态码 | `partial` | 「公网 feed 未更新（HTTP <code> 或 无状态码），本地 Feed 与已发布内容不受影响，可重试」+【只重试上传 feed】；日志与错误消息只允许出现状态码与长度，**禁记 AK/secret/带签名的 URL** |
+| 读体失败（文件被占用/移动/删除） | `partial` | `PODCAST_HOSTING_BODY_READ_FAILED`，不得因对端 2xx 报成功（⑲） |
+| 回滚点建不出来（本地拷贝或时间戳副本 PUT 失败） | `success` + 标注 | 仍完成主键覆盖（「因建不出回滚点就拒绝发布」会把用户锁死在原地），但界面必须显示 `backupMissing` |
+| 发布进行中用户手工编辑同频道 | `rejected` | `PODCAST_CHANNEL_BUSY` 立即拒绝不排队（§8）；跨频道不受影响 |
 | `validateFeed` 不过 | `blocked` | 逐条列出「第 N 期 · 字段 · 码」并给跳转 |
 | 与本内容无关的历史坏集 | `blocked` | 「该频道有 N 期不符合规范，导致本期无法发布」并列出是哪些期 |
 | feed 上传失败 | `partial` | 「已挂到本地频道，公网 feed 尚未更新」+【只重试上传 feed】；永不进成功分桶 |
@@ -330,6 +400,9 @@ registry（index.json + 两段 channel.json）、迁移三态（首访即可读�
 - `credential-store` 存 secret，`index.json` 只存 `credentialRef`；`:get` 永不回显；日志禁记 AK/secret/Cookie 值，只记计数与码。
 - 路径：`pathPrefix` 判据防跨频道逃逸（§9）；对象 key 由 `deriveObjectKey:104` 单点派生。
 - feed 覆盖：备份 + 回滚入口 + `backupCreated` 可见。
+- secret 的驻留边界（刀 2 实测口径）：明文只在主进程的 `saveHosting` 内出现，用于 `credential-store.saveCredential`（AES-256-GCM，按 owner 分区）与一次签名计算；`:get` 与 `:check`/`feed:publish` 的返回体一律是掩码视图（`***`+末 4 位 AK，SK 永不回显）。渲染层表单在每次保存后（成功或失败）清空 AK/SK，Vue 响应式状态与 DevTools 里不留残留；IPC 参数 `toPlain` 脱壳后才发送，避免把 reactive proxy 传进宿主。
+- 上传路径不发出真实网络请求的两个前提：`httpClient` 由调用方注入（缺省即「本轮未做真实探测」`checked:false`，测试与默认配置都零出站），且读流失败/非 2xx 都 fail closed。签名只在 `buildOssPutHeaders` 一处算，配置与凭证在发布开始时锁一份，全程不二次读（中途改配置会得到「半新半旧」的签名）。
+- 托管配置写进 `index.json` 的只有 `provider/endpoint/bucket/pathPrefix/credentialRef`；`credentialRef` 是指向加密库的键名，不是凭证本身。
 
 ---
 
@@ -340,3 +413,5 @@ registry（index.json + 两段 channel.json）、迁移三态（首访即可读�
 3. 口语化分段的改写边界、TTS 计费二次确认、`podcast:transcript` 是否本期做 —— 属刀 4 前的开放项。
 4. 外链单集的 `sizeBytes` 是**用户申报值**，界面措辞不得与一键路径共用"实测"二字。
 5. P2 代托管、逆向聚合端接口：永久排除。
+6. **刀 2 的「回滚」只到可追溯，不到一键**：OSS 时间戳副本的 key 未持久化（只有本地 `feed.prev.xml` 在），也没有 `restoreFeed` 通道与按钮——要退回只能靠本地那份重传——退回动作要与刀 3 的「成片重出」共用同一套状态机，先做会变成第三份发布路径。
+7. **`checkHosting` 默认不探测**：未注入 `httpClient` 时如实返回 `checked:false` + 理由，界面文案是「本轮未做真实探测（默认不发出网络请求）」。这不是"检查通过"，UI 与记录都不得把它读成通过；真探测的验收要等对象存储侧有可用测试桶后在同一 PR 里补（§12 的零出站前提）。

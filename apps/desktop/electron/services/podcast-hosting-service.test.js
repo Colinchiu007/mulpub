@@ -161,6 +161,21 @@ describe('podcast-hosting-service · 凭证合并', () => {
     expect(store.size()).toBe(0)
   })
 
+  it('secret 传空白串 = 缺席：不得把已存凭证静默换成空白（QM-6 后端评审命中）', async () => {
+    await mk().saveHosting(fullPatch())
+    const res = await mk().saveHosting({ bucket: 'pod2', accessKeySecret: '   ' })
+    expect(res.hosting.bucket).toBe('pod2')
+    expect(res.hosting.configured).toBe(true)
+    expect(store.map.get(keyOf(REF, 'sub-1')).accessKeySecret).toBe(SK)
+  })
+
+  it('AK 只有空白且无旧凭证 → 仍判缺席并拒绝，不得落一次「已配置」的假成功', async () => {
+    await expect(mk().saveHosting(fullPatch({ accessKeyId: '  ', accessKeySecret: '  ' })))
+      .rejects.toThrow(new RegExp(HOSTING_ERRORS.SECRET_MISSING))
+    expect(store.size()).toBe(0)
+    expect(registry.readHosting() || null).toBe(null)
+  })
+
   it('clearSecret 才删除凭证；删除后 configured 必须转 false（不得仍显示「已配置」）', async () => {
     await mk().saveHosting(fullPatch())
     const res = await mk().saveHosting({ clearSecret: true })

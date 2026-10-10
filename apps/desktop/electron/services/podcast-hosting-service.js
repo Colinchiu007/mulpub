@@ -188,7 +188,11 @@ class PodcastHostingService {
     }
 
     const keyId = patch.accessKeyId != null ? String(patch.accessKeyId).trim() : (prevSecret ? prevSecret.accessKeyId : '')
-    const secret = patch.accessKeySecret != null ? String(patch.accessKeySecret) : (prevSecret ? prevSecret.accessKeySecret : '')
+    // secret 也必须先 trim 再判缺席：`'   '` 若当真值用，会**静默销毁**已存的真实凭证**，
+    // 而 `configured` 仍是 true（validateHosting 的 CREDENTIAL_REQUIRED 恰好在下一行被过滤掉，
+    // 判据 195 行又只挡空串）。语义口径只有一条：**空白 = 缺席 = 沿用已存凭证**，与渲染层一致。
+    const inputSecret = patch.accessKeySecret != null ? String(patch.accessKeySecret).trim() : ''
+    const secret = inputSecret || (prevSecret ? prevSecret.accessKeySecret : '')
     const issues = validateHosting(Object.assign({}, next, { accessKeyId: keyId, accessKeySecret: secret }))
       .filter((i) => i && i.code !== 'PODCAST_HOSTING_CREDENTIAL_REQUIRED')
     if (issues.length) throw err(HOSTING_ERRORS.HOSTING_INVALID, '托管配置不合格', { issues })
