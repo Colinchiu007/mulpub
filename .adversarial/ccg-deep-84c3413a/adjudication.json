@@ -220,6 +220,48 @@
       "regressionLocks": [
         "podcast-hosting-service.test.js：两次 checkHosting 写入两个不同 objectKey（变异「退回固定名 probe.txt」仅此条红）"
       ]
+    },
+    {
+      "id": "d-1",
+      "severity": "Warning",
+      "dimension": "correctness",
+      "source": "frontend(opencode, 处置增量复核)",
+      "finding": "prevExists 取的是 snapshotted（快照拷贝是否成功），而不是「磁盘上本来有没有上一版」。于是「本地确有旧版但拷贝失败」会走 noPrevious 文案，对着一个真有历史的频道说「这是该频道首次发布，暂时还没有可退回的上一版」。",
+      "file": "apps/desktop/electron/services/podcast-hosting-service.js:279-300,340,354",
+      "disposition": "upheld",
+      "rationale": "成立。prevExists 与 backupCreated 是两个正交事实（有没有得退 / 这次存档上去了没），合成一个值就把 A 的失败说成 B 不存在。改为 prevExists = hadPrevious，日志同时记 prev= 与 snap=，否则排障时两种情形一字不差。",
+      "fixedIn": "891d07379",
+      "regressionLocks": [
+        "podcast-hosting-service.test.js：有上一版但拷贝失败 ⇒ prevExists:true 且只传主键一次（变异 M8「退回 snapshotted」仅此条红）"
+      ]
+    },
+    {
+      "id": "d-2",
+      "severity": "Info",
+      "dimension": "durability",
+      "source": "frontend(opencode, 处置增量复核)",
+      "finding": "feed.prev.xml 用 copyFileSync 直接覆写，而频道服务写 feed.xml 走 tmp + atomicRenameSync；备份自身被中途杀掉会留下撕裂的一份。",
+      "file": "apps/desktop/electron/services/podcast-hosting-service.js:281-291",
+      "disposition": "upheld",
+      "rationale": "成立。备份存在的唯一理由是「出事时有一份能退回的」，撕裂的备份比没有备份更坏（看着能退，退回去是坏的）。改为临时文件 + 复用 podcast-channel-service 导出的唯一实现（把它显式导出，不在托管层写第二份 rename 退避），失败时清临时文件、只落 warn、不阻断发布。",
+      "fixedIn": "891d07379",
+      "regressionLocks": [
+        "podcast-hosting-service.test.js：copy 目标不得是 feed.prev.xml 且必须有一次 rename 到 feed.prev.xml、内容等于上一版（变异 M9「退回直接覆写」仅此条红）"
+      ]
+    },
+    {
+      "id": "residual-1",
+      "severity": "Info",
+      "dimension": "spec-vs-implementation",
+      "source": "frontend(opencode, 处置增量复核)",
+      "finding": "readFeedSync 在 electron/ 内零生产调用者、getChannel 只回 meta 段、src/ 内没有任何 feedSync 消费点 ⇒ spec 与 PRD 里「重启后仍能看到『公网 feed 未同步』」从未成立；§8 显示项清单把它列为条目，等于拿写侧证据冒充读侧行为。",
+      "file": "apps/desktop/electron/services/podcast-channel-service.js:236-246 / openspec/.../spec.md:41",
+      "disposition": "upheld",
+      "rationale": "成立，但**不在本刀补 UI**：partial 的重试入口与刀 3 的发布状态机共用同一份判据，先做等于把同一件事写两遍，还会让像素基线第三次漂移。正解是把措辞降级为可验证的事实（「真源可复原」≠「界面可见」），并把读侧接线显式挂到 tasks 3.6 与 PRD §13 第 9 条——欠账要可见，不能靠措辞藏起来。",
+      "fixedIn": "891d07379（文档口径）/ 刀 3（读侧接线）",
+      "regressionLocks": [
+        "spec.md 两处 Requirement 与 Scenario 改写；PRD §8 显示项标注「写侧已落盘、读侧尚未接线」；PRD §13 新增第 9 条；tasks 3.6 挂上该项"
+      ]
     }
   ],
   "dimensionScores": {
@@ -229,5 +271,5 @@
     "test-quality": 8
   },
   "convergence": "第 1 轮 9 条：5 upheld（含 1 Critical）+ 4 dismissed 带证据。作者不对任何一条做无证据拒绝。",
-  "totalIssues": 15
+  "totalIssues": 18
 }

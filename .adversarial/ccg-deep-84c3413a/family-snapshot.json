@@ -135,5 +135,31 @@
       "双层前缀": "不重复职责，但拒绝边界未对齐（b2-5）"
     },
     "noCriticalStatement": "未发现 Critical 级 fail-open / secret 泄漏 / 主键覆盖失控：上传异常消息只含状态码、index.json 只存 ref 与掩码、渲染层 secret 只在表单 ref 且返回即清空、owner=null 全链路 fail-closed。"
+  },
+  "thirdRound": {
+    "at": "2026-10-10T22:06:00Z",
+    "backend": "opencode",
+    "family": "deepseek/hy3",
+    "sessionId": "ses_ed83ebcd1ffeokq3CXgREQqyTy",
+    "produced": "structuredJson",
+    "scope": "git diff 64f38c7ca..HEAD（只审处置增量）",
+    "verdict": "PASS_WITH_INFO",
+    "resolved": [
+      "d-1",
+      "d-2",
+      "d-3",
+      "b2-2",
+      "b2-4",
+      "b2-6"
+    ],
+    "newFindings": [
+      "d-1 prevExists 语义",
+      "d-2 备份原子性"
+    ],
+    "residual": [
+      "residual-1 feedSync 只有写侧没有读侧"
+    ],
+    "artifact": ".adversarial/ccg-deep-84c3413a/critique-delta-opencode.md",
+    "note": "第 1 段会话在核验到第 2 项时以「Continue if you have next steps」暂停（非失败）；续跑时把已核实的事实与待答项一并送回，取得最终 JSON。"
   }
 }
