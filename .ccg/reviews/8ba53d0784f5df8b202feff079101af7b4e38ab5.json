@@ -1,0 +1,35 @@
+{
+  "sha": "8ba53d0784f5df8b202feff079101af7b4e38ab5",
+  "layer": "plan",
+  "mode": "dual",
+  "reason": "变更 55 行（≤ 200）但命中 auth/数据库/加密：敏感内容 1 处",
+  "stats": {
+    "changedLines": 55,
+    "fileCount": 1,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1
+  },
+  "plannedFiles": [
+    "production-driver.js",
+    "ipc-handlers/film-engineering.js",
+    "useFilmProduction.js",
+    "taskId.value",
+    "pipeline-engine.js",
+    "shotIds.join",
+    "auto-runner.js",
+    "services/film-engineering/production-driver.js",
+    "src/composables/useFilmProduction.js",
+    "openspec/specs/film-engineering/spec.md",
+    "film-engineering.test.js"
+  ],
+  "decidedAt": "2026-10-10T08:59:03.129Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
