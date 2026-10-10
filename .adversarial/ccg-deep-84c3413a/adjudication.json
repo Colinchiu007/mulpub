@@ -1,0 +1,275 @@
+{
+  "schemaVersion": 1,
+  "objectType": "implementation-diff",
+  "target": {
+    "branch": "podcast-hosting",
+    "base": "origin/main@ffc6fdff71cdadae097059876b1911e22102cf56",
+    "commits": [
+      "8496f7684",
+      "e26b88432",
+      "6ef66d8f3",
+      "a72a8d0bd",
+      "84c3413a6"
+    ],
+    "scope": "播客一键发布 刀 2：托管凭证合并、feed 覆盖上传与回滚点、上传读流错误收口、渲染层托管卡片、locales 拆层"
+  },
+  "reviewers": {
+    "backend": {
+      "backend": "claude",
+      "family": "anthropic",
+      "sessionId": "85dc8181-6796-48c2-86a3-9e24dd9f3be9",
+      "finalJsonProduced": true,
+      "note": "第 1 次会话（35 分钟无 result 事件）确实未产出最终 JSON，当时如实记为缺失；随后以同一会话续跑取得**结构化 JSON 6 条**（1 Warning + 5 Info，逐条 verdict=CONFIRMED），原「仅 thinking 暴露一条」的口径已被这份产物取代。评审原文随产物入库 critique-backend-v1.md（含对 5 个审查点的逐条结论）。"
+    },
+    "frontend": {
+      "backend": "opencode",
+      "family": "deepseek/hy3",
+      "sessionId": "ses_ed8b7dec1ffeibi5ggHmhUFkGk",
+      "finalJsonProduced": true,
+      "note": "候选 A–D 逐条给 verdict 与证据"
+    }
+  },
+  "issues": [
+    {
+      "id": "k2-1",
+      "severity": "Critical",
+      "dimension": "correctness",
+      "source": "backend(thinking) → 作者独立核实",
+      "finding": "saveHosting 的 accessKeySecret 是唯一未 trim 的字段：'   ' 被当真值一路走到 saveCredential，静默把已存真实 secret 覆盖成空白，而 configured 仍为 true（validateHosting 的 CREDENTIAL_REQUIRED 被单独 filter 出去交「缺席即拒绝」判据处理，过滤后无人再管空白）。",
+      "file": "apps/desktop/electron/services/podcast-hosting-service.js:190-197",
+      "suggestion": "secret 与 AK 同口径：先 trim 再判缺席；空白即缺席 ⇒ 沿用已存凭证。",
+      "disposition": "upheld",
+      "fixedIn": "a72a8d0bd",
+      "regressionLocks": [
+        "podcast-hosting-service.test.js: secret 传空白串 = 缺席（变异「去掉 trim」仅此条红）",
+        "podcast-hosting-service.test.js: AK 只有空白且无旧凭证 → 仍判缺席并拒绝"
+      ]
+    },
+    {
+      "id": "k2-2",
+      "severity": "Warning",
+      "dimension": "correctness",
+      "source": "frontend",
+      "finding": "反方向缺文案：主进程以字符串字面量产出的码（PODCAST_HOSTING_PROVIDER_INVALID / PROVIDER_UNSUPPORTED / ENDPOINT_REQUIRED / BUCKET_REQUIRED / CREDENTIAL_REQUIRED / URL_UNRESOLVED、PODCAST_CHANNEL_INVALID / CHANNEL_NAME_REQUIRED / EPISODE_INVALID / EPISODES_FULL / INDEX_BUSY / STORE_CORRUPT / STORE_UNAVAILABLE）在 podcast.errors.* 无键 ⇒ issueText() 落 fallback，用户看到裸码。作者第一版自检方向做反（逐键查生产者），对该失效结构性失明。",
+      "file": "apps/desktop/src/locales/podcast/zh.js errors 块",
+      "suggestion": "补成对文案 + 建立反方向接线守卫（判据集合来自「生产者字面量」，例外表必须带理由且只能缩小）。",
+      "disposition": "upheld",
+      "fixedIn": "84c3413a6",
+      "regressionLocks": [
+        "src/locales/podcast-error-codes.test.js（4 例：扫描域非空、逐码有文案、例外表不得陈旧、反向死键）"
+      ]
+    },
+    {
+      "id": "k2-3",
+      "severity": "Warning",
+      "dimension": "maintainability",
+      "source": "frontend",
+      "finding": "usePodcastHosting.call() 重写了 usePodcastChannel.call() 的 available/result/subCode 三条归一判据 ⇒ 两份必然漂移，漂移症状是「新增领域码只显示成通用失败」，而两边单测各自都绿。",
+      "file": "apps/desktop/src/composables/usePodcastHosting.js:53-66",
+      "suggestion": "抽出唯一实现 normalizeIpcEnvelope()，两处共用；再加一条结构锁防第四份。",
+      "disposition": "upheld",
+      "fixedIn": "84c3413a6",
+      "regressionLocks": [
+        "usePodcastHosting.test.js：引用 normalizeIpcEnvelope 且剥注释后 subCode 只允许出现在该函数那一行"
+      ]
+    },
+    {
+      "id": "k2-4",
+      "severity": "Warning",
+      "dimension": "correctness",
+      "source": "frontend(候选 A) + 作者核实",
+      "finding": "ipc-handlers/podcast.js 文件头「通道合同」注释停在刀 1 之前的 8 条，未列频道目录 5 条与托管/发布 4 条；api/podcast-channel.js 头注释同样复制了「8 个 handle」和一份通道清单。合同注释与实现脱节比没有注释更危险（渲染层照旧注释并行开发）。",
+      "file": "apps/desktop/electron/ipc-handlers/podcast.js:10-19 / apps/desktop/src/api/podcast-channel.js:10-18",
+      "suggestion": "主进程文件头补齐 17 条与 subCode 语义；api 侧不再复制条数与清单，改为指向唯一出处。注释只写通道名字面量，不写注册调用形态（防 check-ipc-bridge RE1 造幽灵通道）。",
+      "disposition": "upheld",
+      "fixedIn": "a72a8d0bd / 84c3413a6",
+      "regressionLocks": [
+        "check-ipc-bridge.js 451 handlers / 469 preload / 0 已知缺口（补注释前后同值，证明确未新增幽灵通道）"
+      ]
+    },
+    {
+      "id": "k2-5",
+      "severity": "Info",
+      "dimension": "correctness",
+      "source": "frontend",
+      "finding": "putObject 抛 PODCAST_HOSTING_URL_UNRESOLVED 时不带 e.code，被 publishFeed 的 `e.code || UPLOAD_FAILED` 兜底成「上传失败」——一个查配置、一个查网络/签名，排查方向完全不同。",
+      "file": "apps/desktop/electron/services/podcast-hosting-upload.js:202",
+      "suggestion": "补 e.code 并配成对文案。",
+      "disposition": "upheld",
+      "fixedIn": "84c3413a6"
+    },
+    {
+      "id": "k2-6",
+      "severity": "Info",
+      "dimension": "correctness",
+      "source": "frontend(候选 B)",
+      "finding": "怀疑 check-locale-sync.js 的 --keys 只读根 locales/zh.js|en.js ⇒ 拆出 locales/podcast/ 后子目录键不被检查。",
+      "disposition": "dismissed",
+      "rationale": "loadLocaleKeys 经 evalLocaleModule **执行**模块图，父文件的 `podcast: { ...podcastZh }` 已被物化；反证实跑：把只存在于子目录文件的一个键改名，--keys 立刻 FAIL 并报该键缺失；恢复后 1741 键 PASS。判据可验证，不是「看起来没问题」。"
+    },
+    {
+      "id": "k2-7",
+      "severity": "Info",
+      "dimension": "correctness",
+      "source": "frontend(候选 C)",
+      "finding": "怀疑父组件未定义 onFeedPublished（emit 有、父方法没有 = 运行时静默失效）。",
+      "disposition": "dismissed",
+      "rationale": "PodcastChannelView.vue 中 @published=\"onFeedPublished\" 与函数定义均在；另有组件测试直接读父源码断言该绑定存在（R92）。"
+    },
+    {
+      "id": "k2-8",
+      "severity": "Info",
+      "dimension": "maintainability",
+      "source": "frontend(候选 D 正向)",
+      "finding": "怀疑 hosting 域存在无人消费的死键。",
+      "disposition": "dismissed",
+      "rationale": "28 个 hosting 键逐个反查 t('podcast.hosting.X') 字面量消费点，死键集合为空；且新守卫第 4 例把该方向也钉住（扫描域含 shared-utils，缺一层会把有生产者的文案误判成死键）。"
+    },
+    {
+      "id": "k2-9",
+      "severity": "Info",
+      "dimension": "test-quality",
+      "source": "frontend",
+      "finding": "usePodcastHosting.test.js 的 busy 态疑无对应用例。",
+      "disposition": "dismissed",
+      "rationale": "publishFeed 用例已断言 PODCAST_CHANNEL_BUSY 原样透传 code 且 publishResult 保持 null（不被吞成失败态或成功态）。"
+    },
+    {
+      "id": "b2-1",
+      "severity": "Warning",
+      "dimension": "correctness",
+      "source": "backend(claude, 结构化 JSON 第 1 条)",
+      "finding": "只改 accessKeyId 不重输 secret 且已有旧凭证时，新 AK 会与旧 secret 配对保存并通过全部校验，留下 configured=true 但每次上传 403 的静默坏态。渲染层对空白 secret 不提交（usePodcastHosting.js），于是 saveHosting 走 keyId=B、inputSecret=''、secret=''||prevSecret=S ⇒ 落盘 {B,S} 错配键。模块头注释与 publishFeed 注释三段强调要防的「半新半旧」只防了「空 secret 覆写」，未防「新 AK + 旧 secret」。",
+      "file": "apps/desktop/electron/services/podcast-hosting-service.js:190-204",
+      "disposition": "upheld",
+      "rationale": "成立。按评审给的方案取「成对重填」而非静默组合：换新 AK 而未带 Secret 一律 SECRET_MISSING 拒绝，文案点名「更换 AccessKeyId 必须同时重填 AccessKeySecret」——403 的报错方向会把用户引向 Bucket 权限而不是「表单只填了半边」。",
+      "fixedIn": "d9ba07a0e",
+      "regressionLocks": [
+        "podcast-hosting-service.test.js：只改 AK 不带 Secret → 拒绝且不落盘（变异「配对守卫改 if(false)」仅此条红）",
+        "podcast-hosting-service.test.js：AK 与已存相同 + Secret 缺席 → 仍沿用旧凭证（负例，防守卫过宽把「只改 bucket」也拒了）"
+      ]
+    },
+    {
+      "id": "b2-2",
+      "severity": "Info",
+      "dimension": "correctness",
+      "source": "backend(claude, 结构化 JSON 第 2 条)",
+      "finding": "SECRET_MISSING 以 {issues: []} 抛出，被 toIpcError 的 Array.isArray([]) 真值判据送进 VALIDATION_ERROR 分支，envelope.code 语义与注释意图不符（渲染层只用 subCode 取文案，用户无感知，但 code 是错值）。",
+      "file": "apps/desktop/electron/ipc-handlers/podcast.js:65-66",
+      "disposition": "upheld",
+      "rationale": "成立。取评审给的第二个方案（改判据 `rawIssues && rawIssues.length`）而不是改抛出点：判据在唯一实现处收紧，对**所有**「带空数组的领域错误」一并生效，逐个去掉 issues 会留第四份口径。",
+      "fixedIn": "d9ba07a0e",
+      "regressionLocks": [
+        "ipc-handlers/podcast.test.js：SECRET_MISSING 的 envelope.code 不得为 VALIDATION_ERROR，subCode 保留原码"
+      ]
+    },
+    {
+      "id": "b2-3",
+      "severity": "Info",
+      "dimension": "correctness",
+      "source": "backend(claude, 结构化 JSON 第 3 条)",
+      "finding": "回滚点内容是「本次新建 feed」而非「上次成功 feed」：buildFeed 先就地覆写本地 feed.xml，之后的 copyFileSync 复制的是当前产物 ⇒ 本地 feed.prev.xml 恒等于本次内容，上一版从本地 prev 丢失，真正的上一版只以首次发布留下的 OSS 孤儿副本残存。与发布函数头部注释「主键写坏就没有任何一份『上次成功的 feed』可退」不符。",
+      "file": "apps/desktop/electron/services/podcast-hosting-service.js:274-282",
+      "disposition": "upheld",
+      "rationale": "成立且是本刀最严重的一条——表单上 backupCreated:true，实际把「上一版」静默换成「当前版」，属不可见失真。修法取评审建议的第二种（buildFeed **之前**复制旧文件），并顺带把「首次发布磁盘上没有 feed.xml」显式化为 prevExists：不发时间戳副本（发上去就是本次内容，等于覆盖掉真正该留的上一位）。",
+      "fixedIn": "d9ba07a0e",
+      "regressionLocks": [
+        "podcast-hosting-service.test.js：二次发布后 feed.prev.xml 逐字等于**上一轮**内容（变异「快照挪到 buildFeed 之后」仅此条红）",
+        "podcast-hosting-service.test.js：首次发布 prevExists=false 且零时间戳 PUT",
+        "ipc-handlers/podcast.test.js：feed:publish 信封透出 prevExists（渲染层二选一标注的判据来源）"
+      ]
+    },
+    {
+      "id": "b2-4",
+      "severity": "Info",
+      "dimension": "error-handling",
+      "source": "backend(claude, 结构化 JSON 第 4 条)",
+      "finding": "主键 PUT 失败后 writeFeedSync 若抛错（channel.json 损坏/锁超时），{state:'failed'} 结果对象被吞，调用方只得到 REQUEST_ERROR + subCode=PODCAST_STORE_CORRUPT，上传 code/status 不可见。",
+      "file": "apps/desktop/electron/services/podcast-hosting-service.js:319-335",
+      "disposition": "upheld",
+      "rationale": "成立。失败态写盘本身可能抛，这是「错误处理里的错误处理」漏项。两处 writeFeedSync 各包 try/catch，写失败只 warn 并返回 feedSync:null，state/code/status 原样保留——否则「公网未更新、可重试」这句结论连同重试入口一起消失，而用户看到的是「本地数据坏了」这个错方向。",
+      "fixedIn": "d9ba07a0e",
+      "regressionLocks": [
+        "podcast-hosting-service.test.js：writeFeedSync 抛 PODCAST_STORE_CORRUPT 时结果仍为 {state:'failed', code, status} 且 feedSync:null（变异「catch 里改 throw e2」仅此条红）"
+      ]
+    },
+    {
+      "id": "b2-5",
+      "severity": "Info",
+      "dimension": "consistency",
+      "source": "backend(claude, 结构化 JSON 第 5 条)",
+      "finding": "pathPrefix 校验仅对 .. / . / 前导斜杠出声拒绝，空格等字符仍被 persist 层 normalizePathPrefix 静默改写为 '-'，与注释「不得静默改路径」的立场边界不一致（评审点 5 结论：双层职责不算重复，但边界未对齐）。",
+      "file": "apps/desktop/electron/services/podcast-hosting-upload.js:71-75",
+      "disposition": "upheld",
+      "rationale": "成立。取评审建议的第一种（特殊字符也出声拒绝），实现口径改为「与 normalizePathPrefix 的输出逐字比对」——判据直接以清洗函数为参照，不再维护一份「哪些字符危险」的子串清单（那种清单与清洗规则天然会漂移）。",
+      "fixedIn": "d9ba07a0e",
+      "regressionLocks": [
+        "podcast-hosting-upload.test.js：含空格的 prefix 出声 PREFIX_UNSAFE 且文案回显清洗后的值（变异「判据退回 includes('..')」仅此条红）"
+      ]
+    },
+    {
+      "id": "b2-6",
+      "severity": "Info",
+      "dimension": "side-effects",
+      "source": "backend(claude, 结构化 JSON 第 6 条)",
+      "finding": "checkHosting 用 PUT 写固定对象 <prefix>/probe.txt，若 bucket 已有该路径对象会被覆写；探测本意只验证凭证/可达，却产生真实写入副作用。",
+      "file": "apps/desktop/electron/services/podcast-hosting-service.js:216-239",
+      "disposition": "upheld",
+      "rationale": "成立，但**不能**改 HEAD：OSS 签名 PUT 与 HEAD 的授权口径不同，用 HEAD 探测会把「凭证只有写权限」这种真实可用配置判成不可用。取带时刻+随机的唯一键，并把探针统一收在 `_podcast-probe/` 前缀下（bucket 生命周期规则可整片清掉）。固定名还有第二重代价：第二次探测覆盖第一次的对象，令「探测成功后对象被人为删除」这类负向判据在 OSS 侧根本不可表示。",
+      "fixedIn": "d9ba07a0e",
+      "regressionLocks": [
+        "podcast-hosting-service.test.js：两次 checkHosting 写入两个不同 objectKey（变异「退回固定名 probe.txt」仅此条红）"
+      ]
+    },
+    {
+      "id": "d-1",
+      "severity": "Warning",
+      "dimension": "correctness",
+      "source": "frontend(opencode, 处置增量复核)",
+      "finding": "prevExists 取的是 snapshotted（快照拷贝是否成功），而不是「磁盘上本来有没有上一版」。于是「本地确有旧版但拷贝失败」会走 noPrevious 文案，对着一个真有历史的频道说「这是该频道首次发布，暂时还没有可退回的上一版」。",
+      "file": "apps/desktop/electron/services/podcast-hosting-service.js:279-300,340,354",
+      "disposition": "upheld",
+      "rationale": "成立。prevExists 与 backupCreated 是两个正交事实（有没有得退 / 这次存档上去了没），合成一个值就把 A 的失败说成 B 不存在。改为 prevExists = hadPrevious，日志同时记 prev= 与 snap=，否则排障时两种情形一字不差。",
+      "fixedIn": "891d07379",
+      "regressionLocks": [
+        "podcast-hosting-service.test.js：有上一版但拷贝失败 ⇒ prevExists:true 且只传主键一次（变异 M8「退回 snapshotted」仅此条红）"
+      ]
+    },
+    {
+      "id": "d-2",
+      "severity": "Info",
+      "dimension": "durability",
+      "source": "frontend(opencode, 处置增量复核)",
+      "finding": "feed.prev.xml 用 copyFileSync 直接覆写，而频道服务写 feed.xml 走 tmp + atomicRenameSync；备份自身被中途杀掉会留下撕裂的一份。",
+      "file": "apps/desktop/electron/services/podcast-hosting-service.js:281-291",
+      "disposition": "upheld",
+      "rationale": "成立。备份存在的唯一理由是「出事时有一份能退回的」，撕裂的备份比没有备份更坏（看着能退，退回去是坏的）。改为临时文件 + 复用 podcast-channel-service 导出的唯一实现（把它显式导出，不在托管层写第二份 rename 退避），失败时清临时文件、只落 warn、不阻断发布。",
+      "fixedIn": "891d07379",
+      "regressionLocks": [
+        "podcast-hosting-service.test.js：copy 目标不得是 feed.prev.xml 且必须有一次 rename 到 feed.prev.xml、内容等于上一版（变异 M9「退回直接覆写」仅此条红）"
+      ]
+    },
+    {
+      "id": "residual-1",
+      "severity": "Info",
+      "dimension": "spec-vs-implementation",
+      "source": "frontend(opencode, 处置增量复核)",
+      "finding": "readFeedSync 在 electron/ 内零生产调用者、getChannel 只回 meta 段、src/ 内没有任何 feedSync 消费点 ⇒ spec 与 PRD 里「重启后仍能看到『公网 feed 未同步』」从未成立；§8 显示项清单把它列为条目，等于拿写侧证据冒充读侧行为。",
+      "file": "apps/desktop/electron/services/podcast-channel-service.js:236-246 / openspec/.../spec.md:41",
+      "disposition": "upheld",
+      "rationale": "成立，但**不在本刀补 UI**：partial 的重试入口与刀 3 的发布状态机共用同一份判据，先做等于把同一件事写两遍，还会让像素基线第三次漂移。正解是把措辞降级为可验证的事实（「真源可复原」≠「界面可见」），并把读侧接线显式挂到 tasks 3.6 与 PRD §13 第 9 条——欠账要可见，不能靠措辞藏起来。",
+      "fixedIn": "891d07379（文档口径）/ 刀 3（读侧接线）",
+      "regressionLocks": [
+        "spec.md 两处 Requirement 与 Scenario 改写；PRD §8 显示项标注「写侧已落盘、读侧尚未接线」；PRD §13 新增第 9 条；tasks 3.6 挂上该项"
+      ]
+    }
+  ],
+  "dimensionScores": {
+    "correctness": 7,
+    "security": 8,
+    "maintainability": 7,
+    "test-quality": 8
+  },
+  "convergence": "第 1 轮 9 条：5 upheld（含 1 Critical）+ 4 dismissed 带证据。作者不对任何一条做无证据拒绝。",
+  "totalIssues": 18
+}

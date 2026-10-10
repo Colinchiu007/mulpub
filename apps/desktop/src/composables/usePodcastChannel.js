@@ -91,6 +91,20 @@ function genId () {
 }
 
 /**
+ * IPC 信封 → 渲染层结论的**唯一**归一点（QM-6 前端评审指出托管 composable 抄了第二份）。
+ * 两份判据必然漂移：`subCode` 优先这条规则一旦只在一处更新，另一处就会拿 EC 数字去查文案，
+ * 症状是「新增的领域码只显示成一句通用失败」——正是 §6 每码成对要防的形态。
+ * 调用方各自保留自己的 try/catch（异常→IPC_EXCEPTION 的措辞属于调用现场，不该上收）。
+ */
+export function normalizeIpcEnvelope (envelope) {
+  if (!envelope || envelope.available !== true) return { ok: false, code: IPC_UNAVAILABLE }
+  const res = envelope.result
+  if (res == null || typeof res !== 'object') return { ok: false, code: IPC_EXCEPTION }
+  if (res.ok === false && res.subCode) return Object.assign({}, res, { code: res.subCode })
+  return res
+}
+
+/**
  * 校验码 → 用户可见文案。未知码走带 code 的兜底文案（禁止把裸码直接甩给用户，
  * 也不允许静默吞掉——未知码必须可见，否则新增校验码会以"空白提示"的形态逃逸）。
  */
@@ -160,6 +174,17 @@ const CHANNEL_SCOPED = new Set([
 /**
  * @returns 频道状态 / 单集列表 / feed 生成与自检 / 分发端目录 的全部状态与动作
  */
+/**
+ * 校验码 → 用户可见文案（模块级唯一实现）。
+ * 视图侧一律经这一个函数取文案：卡片与页面各自写一份 `te(key) ? t(key) : fallback` 时，
+ * 「未知码不得静默」这条判据就会在两处漂移，最后只剩界面上一句空白提示。
+ */
+export function errorCodeText (code) {
+  const key = `podcast.errors.${String(code || '')}`
+  const { t, te } = i18n.global
+  return code && te(key) ? t(key) : t('podcast.errors.fallback', { code: String(code || 'UNKNOWN') })
+}
+
 export function usePodcastChannel () {
   const channel = ref(null) // null = 未配置
   const channelLoaded = ref(false)
@@ -213,17 +238,8 @@ export function usePodcastChannel () {
     } catch (err) {
       return { ok: false, code: IPC_EXCEPTION, message: (err && err.message) || String(err) }
     }
-    if (!envelope.available) {
-      return { ok: false, code: IPC_UNAVAILABLE }
-    }
-    const res = envelope.result
-    if (res == null || typeof res !== 'object') {
-      return { ok: false, code: IPC_EXCEPTION }
-    }
-    // 领域码优先：EC 数字只区分「往哪查」，用户可见文案必须按领域码取（PRD §6 每码成对）。
-    // 只在这一处归一，视图与 composable 的其余分支继续看 EC，避免把两种码混成第三种。
-    if (res && res.ok === false && res.subCode) return Object.assign({}, res, { code: res.subCode })
-    return res
+    // 归一规则只在 `normalizeIpcEnvelope` 一处（含「领域码优先」这条，见该函数注释）
+    return normalizeIpcEnvelope(envelope)
   }
 
   async function loadChannel () {
@@ -391,12 +407,6 @@ export function usePodcastChannel () {
     return formatDuration(n)
   }
 
-  /** 校验码文案（视图统一入口） */
-  function errorText (code) {
-    const key = `podcast.errors.${String(code || '')}`
-    const { t, te } = i18n.global
-    return code && te(key) ? t(key) : t('podcast.errors.fallback', { code: String(code || 'UNKNOWN') })
-  }
 
   // 频道目录域拆到 usePodcastChannelPicker.js（逐文件行数门禁 + 「目录态与页面态各有各的不变量」）；
   // 本文件只留页面态与它的清理责任，切换频道时要清什么由这里说，不由目录模块猜。
@@ -474,7 +484,7 @@ export function usePodcastChannel () {
     makeEpisodeDraft,
     makeChannelDraft,
     durationText,
-    errorText,
+    errorText: errorCodeText,
     channelListError,
     issueText,
   }

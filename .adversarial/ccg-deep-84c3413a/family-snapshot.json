@@ -1,0 +1,165 @@
+{
+  "schemaVersion": 1,
+  "snapshotCreatedAt": "2026-10-10T19:40:00.000Z",
+  "reviewTarget": {
+    "kind": "implementation-diff",
+    "branch": "podcast-hosting",
+    "base": "origin/main@ffc6fdff71cdadae097059876b1911e22102cf56",
+    "commits": [
+      "8496f7684",
+      "e26b88432",
+      "6ef66d8f3",
+      "a72a8d0bd"
+    ],
+    "scope": "播客一键发布 刀 2：托管凭证合并、feed 覆盖上传与回滚点、上传读流错误收口、渲染层托管卡片、locales 拆层"
+  },
+  "mechanism": "QM-6 CCG 双模型外部评审（AGENTS.md 强制卡点：后端必等、前端失败最多 2 次）",
+  "invocation": {
+    "backend": {
+      "backend": "claude",
+      "family": [
+        "anthropic"
+      ],
+      "sessionId": "85dc8181-6796-48c2-86a3-9e24dd9f3be9",
+      "role": "逻辑/安全/规格合规审查",
+      "status": "no-final-json（跑满 35 分钟无 result 事件；thinking 中暴露的缺陷已单独核实修复，见 interimOutcome.adopted[0]）"
+    },
+    "frontend": {
+      "backend": "opencode",
+      "family": [
+        "deepseek",
+        "hy3"
+      ],
+      "sessionId": "ses_ed8b7dec1ffeibi5ggHmhUFkGk",
+      "role": "命名/模式一致性/可维护性/跨层集成风险审查",
+      "status": "resumed-for-final-json"
+    }
+  },
+  "routingSource": "~/.claude/.ccg/config.toml [routing.backend].primary=claude / [routing.frontend].primary=opencode（本文档不复制模型名，唯一真源是配置文件）",
+  "familyMap": {
+    "claude": [
+      "anthropic"
+    ],
+    "codex": [
+      "openai"
+    ],
+    "gemini": [
+      "google"
+    ],
+    "grok": [
+      "xai"
+    ],
+    "kimi": [
+      "moonshot"
+    ],
+    "opencode": [
+      "deepseek",
+      "hy3"
+    ]
+  },
+  "familyCheck": {
+    "rule": "评审方与出方案方家族必须不同；高危域（datamigration 等）争议项不得自扮演豁免",
+    "note": "决策层的跨家族对抗评审已随刀 1 完成（proposer=anthropic，critic 依次 opencode/codex，5 轮）。本目录是**验证层**：由 claude（anthropic）与 opencode（deepseek/hy3）两路并行审查实现 diff，两路彼此跨家族，且均非「作者自评」。",
+    "highRiskDomainsPresent": [
+      "credentials",
+      "datamigration(仅引用刀 1 已收口的迁移判据，本刀未改迁移)"
+    ],
+    "backendVsCritic": "proposer=本会话（anthropic 家族内作者）；critic 第 1 轮=opencode(deepseek/hy3)、第 2 轮=claude(anthropic) ⇒ 两轮各自与作者非同族的要求由第 1 轮满足；第 2 轮 claude 与作者同族，因此**不替代**第 1 轮结论，只作为第二把尺子叠加（双模型仍各算一路，不合并成一条 PASS）"
+  },
+  "interimOutcome": {
+    "recordedAt": "2026-10-10T19:38:48.000Z",
+    "reason": "后端会话在最终 JSON 之前以 thinking 事件暴露出一条真实缺陷；本目录如实记时间线，不把「先按文字论点修的项」冒充成结构化产物结论",
+    "adopted": [
+      {
+        "id": "k2-qm6-a",
+        "claim": "saveHosting 的 accessKeySecret 未 trim ⇒ 空白串会静默覆盖已存真实凭证，configured 仍为 true",
+        "verification": "读源码逐行确认：validateHosting 产出的 PODCAST_HOSTING_CREDENTIAL_REQUIRED 被 filter 摘掉后，缺席判据只挡空串不挡空白，故成立",
+        "disposition": "fixed",
+        "fixCommit": "a72a8d0bd",
+        "regressionLocks": [
+          "podcast-hosting-service.test.js：secret 传空白串 = 缺席（变异「去掉 trim」实测仅此条红）",
+          "podcast-hosting-service.test.js：AK 只有空白且无旧凭证 → 仍判缺席并拒绝"
+        ]
+      },
+      {
+        "id": "k2-qm6-b",
+        "claim": "ipc-handlers/podcast.js 文件头「通道合同」注释未列刀 1 频道目录 5 条与刀 2 托管/发布 4 条",
+        "verification": "读注释原文确认停在 8 条；合同注释与实现脱节会误导并行开发",
+        "disposition": "fixed",
+        "fixCommit": "a72a8d0bd",
+        "evidence": "补注释后 check-ipc-bridge.js 仍 451 handlers / 469 preload / 0 已知缺口（注释不含注册调用形态，未造出幽灵通道）"
+      }
+    ],
+    "rejectedWithEvidence": [
+      {
+        "id": "k2-qm6-c",
+        "claim": "check-locale-sync.js 的 --keys 只读根 locales/zh.js|en.js ⇒ 拆出 locales/podcast/ 后子目录键不被检查",
+        "verdict": "not_a_problem",
+        "evidence": "loadLocaleKeys 走 evalLocaleModule（执行模块图，spread 已物化）。反证实跑：改名一个只存在于子目录文件的键 ⇒ --keys 立刻 FAIL 并报 podcast.picker.sectionTitle 缺失；恢复后 1741 键 PASS"
+      },
+      {
+        "id": "k2-qm6-d",
+        "claim": "父组件可能未定义 onFeedPublished（emit 无绑定 = 运行时静默失效）",
+        "verdict": "not_a_problem",
+        "evidence": "PodcastChannelView.vue 中 @published=\"onFeedPublished\" 与函数定义均在（标识出现 2 次）；另有组件测试读源码断言该绑定"
+      },
+      {
+        "id": "k2-qm6-e",
+        "claim": "hosting 域存在无人消费的死键",
+        "verdict": "not_a_problem",
+        "evidence": "28 个 hosting 键逐个反查 t('podcast.hosting.X') 字面量消费点，死键集合为空；75 个 errors 键逐个回查主进程确有产出该码，不存在只挂文案的死码"
+      }
+    ],
+    "supersededBy": "结构化 JSON 6 条（见 adjudication.json issues b2-1..b2-6）",
+    "supersededAt": "2026-10-10T20:30:00Z"
+  },
+  "secondRound": {
+    "at": "2026-10-10T20:30:00Z",
+    "backend": "claude",
+    "family": "anthropic",
+    "sessionId": "85dc8181-6796-48c2-86a3-9e24dd9f3be9",
+    "produced": "structuredJson",
+    "counts": {
+      "critical": 0,
+      "warning": 1,
+      "info": 5
+    },
+    "upheld": 6,
+    "dismissed": 0,
+    "artifact": ".adversarial/ccg-deep-84c3413a/critique-backend-v1.md",
+    "reviewPointVerdicts": {
+      "凭证合并": "五条均正确且测试齐全，唯一缺口是新 AK + 旧 secret 错配（b2-1）",
+      "回滚点顺序": "顺序正确、失败不阻断，唯一语义缺陷是回滚点装的是本次产物（b2-3）",
+      "读流错误": "实现正确且与 spec 场景逐条吻合（第 1 轮 k2-1 已闭合）",
+      "IPC四通道": "一致无漏，唯一瑕疵是 SECRET_MISSING 的 issues:[] 归错分支（b2-2）",
+      "双层前缀": "不重复职责，但拒绝边界未对齐（b2-5）"
+    },
+    "noCriticalStatement": "未发现 Critical 级 fail-open / secret 泄漏 / 主键覆盖失控：上传异常消息只含状态码、index.json 只存 ref 与掩码、渲染层 secret 只在表单 ref 且返回即清空、owner=null 全链路 fail-closed。"
+  },
+  "thirdRound": {
+    "at": "2026-10-10T22:06:00Z",
+    "backend": "opencode",
+    "family": "deepseek/hy3",
+    "sessionId": "ses_ed83ebcd1ffeokq3CXgREQqyTy",
+    "produced": "structuredJson",
+    "scope": "git diff 64f38c7ca..HEAD（只审处置增量）",
+    "verdict": "PASS_WITH_INFO",
+    "resolved": [
+      "d-1",
+      "d-2",
+      "d-3",
+      "b2-2",
+      "b2-4",
+      "b2-6"
+    ],
+    "newFindings": [
+      "d-1 prevExists 语义",
+      "d-2 备份原子性"
+    ],
+    "residual": [
+      "residual-1 feedSync 只有写侧没有读侧"
+    ],
+    "artifact": ".adversarial/ccg-deep-84c3413a/critique-delta-opencode.md",
+    "note": "第 1 段会话在核验到第 2 项时以「Continue if you have next steps」暂停（非失败）；续跑时把已核实的事实与待答项一并送回，取得最终 JSON。"
+  }
+}

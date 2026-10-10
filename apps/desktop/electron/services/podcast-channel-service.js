@@ -101,7 +101,7 @@ function resolveDefaultLogger () {
   return noopLogger()
 }
 
-const { channelBusyGate, CHANNEL_BUSY_ERROR } = require('./podcast-channel-locks')
+const { channelBusyGate, channelPublishPass, CHANNEL_BUSY_ERROR } = require('./podcast-channel-locks')
 
 class PodcastChannelService {
   /**
@@ -271,6 +271,8 @@ class PodcastChannelService {
    */
   _assertNoPublishInFlight (section) {
     const key = this._channelId || this._root || ''
+    // 发布通行证：发布编排自己写 feedSync / 重建 feed 时必须放行（同键、同步作用域，见 locks 模块注释）
+    if (key && channelPublishPass.isPassed(key)) return
     if (!key || !channelBusyGate.isBusy(key)) return
     const e = new Error(CHANNEL_BUSY_ERROR + ': ' + section + ' 频道正在发布，请稍候')
     e.code = CHANNEL_BUSY_ERROR
@@ -489,3 +491,6 @@ module.exports = PodcastChannelService
 module.exports.SERVICE_ERRORS = SERVICE_ERRORS
 module.exports.ATOMIC_RENAME_RETRY_DELAYS_MS = ATOMIC_RENAME_RETRY_DELAYS_MS
 module.exports.PODCAST_FILES = { PODCAST_DIR_NAME, CHANNEL_FILE, EPISODES_FILE, FEED_FILE }
+// 原子替换的唯一实现（Windows 上只对 EPERM/EACCES/EBUSY 有界退避）。凡「临时文件 + rename」
+// 落盘到用户态的地方一律复用，不得第二份实现——两份退避口径必然漂移。
+module.exports.atomicRenameSync = atomicRenameSync

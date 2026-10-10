@@ -38,11 +38,11 @@
 
 ### Requirement: 发布同步状态必须持久化且不被改名抹除
 
-系统 SHALL 把每频道的 feed 同步结果（`result` / `attemptedAt` / `errorCodes` / `hostingSnapshot`）保存在 `channel.json` 的 `feedSync` 段，与 `validateChannel` 白名单所属的 `meta` 段分离。`podcast:channel:save` SHALL NOT 修改 `feedSync`；应用重启后 SHALL 仍能从持久化状态恢复"公网 feed 未同步"提示。
+系统 SHALL 把每频道的 feed 同步结果（`result` / `attemptedAt` / `errorCodes` / `hostingSnapshot`）保存在 `channel.json` 的 `feedSync` 段，与 `validateChannel` 白名单所属的 `meta` 段分离。`podcast:channel:save` SHALL NOT 修改 `feedSync`；应用重启后 SHALL 仍能从持久化状态**读出**「公网 feed 未同步」（写侧与真源侧已闭合）。**读侧横幅不在本刀的承诺范围内**：`getChannel` 只回 `meta` 段、渲染层当前没有 `feedSync` 消费点，把这条写成"界面重启后仍可见"就是拿写侧证据冒充读侧行为；横幅与崩溃对账（tasks 3.6）一并在刀 3 接线。
 
 #### Scenario: 改名保留发布状态
 - **WHEN** feed 上传失败使 `feedSync.result = "partial"`，随后用户保存一次频道名
-- **THEN** `feedSync` 逐字仍在，播客页仍显示"公网 feed 尚未更新"
+- **THEN** `feedSync` 逐字仍在（本 Scenario 判的是**真源不被改名抹掉**，写侧事实）；界面横幅要等刀 3 的读侧接线，不得在这里声称"播客页仍显示"
 
 #### Scenario: 服务实例重建后状态仍在
 - **WHEN** 主进程服务实例被重建（等价于应用重启）
@@ -112,3 +112,64 @@
 #### Scenario: 发布结束后立即恢复
 - **WHEN** 上一次发布结束（成功、失败或取消均含）
 - **THEN** 同一频道的手工写入口立即恢复可用；该拒绝不是粘滞态，且不依赖应用重启
+
+
+### Requirement: 托管凭证的合并语义必须在唯一一处判定
+
+系统 SHALL 把「留空即沿用已存凭证」的合并判定放在 `podcast-hosting-service.saveHosting` 一处：字段**缺席**表示保持不变，`clearSecret` 表示删除，二者不得由 IPC 层或渲染层各自再解释一遍。落盘层 SHALL NOT 以空字符串静默覆写已有 secret；凭证 SHALL 只经 `credential-store` 加密落盘（按登录归属分区），`index.json` 只存 `credentialRef`，任何读接口 SHALL NOT 回显 secret（只回掩码）。
+
+#### Scenario: 只改 endpoint 而留空凭证
+- **WHEN** 用户改了 Endpoint 但两个凭证字段都留空，保存后再次 `:get`
+- **THEN** Endpoint 已更新，已存凭证仍可用（payload 里根本没有这两个键，落盘层不会收到空覆写）
+
+#### Scenario: 系统凭据保护不可用
+- **WHEN** 加密落盘返回失败
+- **THEN** 保存整体失败并回 `PODCAST_HOSTING_CRYPTO_UNAVAILABLE`，`index.json` 不得出现指向不存在凭证的 `credentialRef`（半配置比没配置更难排障）
+
+#### Scenario: 归属无法确定
+- **WHEN** 登录归属解析为 `null`
+- **THEN** 拒绝写入并回 `PODCAST_HOSTING_IDENTITY_REQUIRED`；legacy 形态（`undefined`）沿用旧命名空间，不 fail-closed——两种情形的文案与处置方向不同，不得合并
+
+### Requirement: 发布 Feed 必须先建回滚点再覆盖主键，且失败形状必须可见
+
+系统 SHALL 在覆盖公网 `feed.xml` **之前**建立回滚点（本地 `feed.prev.xml` + OSS 时间戳副本），且回滚点的内容 SHALL 是**本次 `buildFeed` 之前**磁盘上那份 `feed.xml`——`buildFeed` 就地覆写真源产物，在其后复制得到的只是同一份内容的第二份拷贝，`backupCreated:true` 因此会说谎。回滚点建不出来 SHALL NOT 阻断主上传（否则用户被锁死在原地），但必须在结果里如实标 `backupCreated:false`，并按「上一版本来就不存在」与「有上一版但没存档成功」两种成因分别标注（`prevExists` 与 `backupCreated` 一起进信封）。上传失败 SHALL 仍写入 `feedSync` 的失败态（真源侧可复原；读侧横幅属刀 3，本刀不声称界面重启后仍显示）；而**失败态写盘自身抛错**（真源损坏/锁超时）SHALL NOT 顶掉该失败形状。本期 SHALL NOT 提供一键退回（上一版对象 key 未持久化），该边界须在文档里明写而不是留成隐含承诺。
+
+#### Scenario: PUT 返回非 2xx
+- **WHEN** 对象存储返回 403 或无状态码
+- **THEN** 结果为 `failed` 并带领域码与状态码，`feedSync.status` 落 `failed`，界面文案是「公网 feed 未更新，本地 Feed 与已发布内容不受影响，可重试」，绝不进入成功分桶
+
+#### Scenario: 成功但无回滚点
+- **WHEN** 主键覆盖成功而回滚点建立失败
+- **THEN** 结果仍为 `success` 且 `backupCreated:false`，界面在成功文案之外**额外**显示回滚点缺失标注
+
+#### Scenario: 回滚点内容必须是上一版而不是本次产物
+- **WHEN** 同一频道第二次发布（第一次发布的内容记为 v1，第二次为 v2）
+- **THEN** `feed.prev.xml` 与 OSS 时间戳副本逐字等于 **v1**，主键等于 v2；快照动作发生在 `buildFeed` 之前
+
+#### Scenario: 首次发布没有上一版
+- **WHEN** 该频道磁盘上还不存在 `feed.xml`
+- **THEN** 不建本地 prev、不发时间戳副本，结果带 `prevExists:false`，界面显示「这是该频道首次发布，暂时还没有可退回的上一版」而不是「回滚点没建上」
+
+#### Scenario: 失败态写盘自身抛错不得顶掉失败形状
+- **WHEN** 主键 `PUT` 失败且随后的 `writeFeedSync` 抛出真源类错误
+- **THEN** 调用方仍拿到 `{state:'failed', code, status}` 且 `feedSync:null`，写失败另落 warn 留痕
+
+#### Scenario: prevExists 表示「有得退」而不是「快照成功」
+- **WHEN** 频道磁盘上确有上一版 `feed.xml`，但本地快照拷贝失败
+- **THEN** 结果仍为 `success` 且 `prevExists:true`、`backupCreated:false`，界面显示 `backupMissing`；不得显示 `noPrevious`（对着真有历史的频道说「首次发布」是假陈述）
+
+#### Scenario: 备份文件自身必须原子替换
+- **WHEN** 写入 `feed.prev.xml`
+- **THEN** 先落临时文件再经唯一实现 `atomicRenameSync` 替换到位，失败时清掉临时文件并只落 warn；仓库内不得出现第二份 rename 退避实现
+
+### Requirement: 对象上传的读流错误不得逃出主进程，也不得被 2xx 掩盖
+
+`putObject` SHALL 给注入的读流挂 `error` 监听（`createReadStream` 的 open 排在下一个 tick，`destroy()` 取消不掉它；迟到的 open 失败若无人监听会以 uncaughtException 崩掉 Electron 主进程）。请求期内发生读流错误时，即便对端返回 2xx 也 SHALL NOT 报告成功。
+
+#### Scenario: 请求返回后文件才被移除
+- **WHEN** `PUT` 已返回，读流那次迟到的 open 因文件被删/被移而失败
+- **THEN** 错误被流的监听吸收，主进程不出现 uncaughtException，已返回的结果不被追溯改写
+
+#### Scenario: 请求进行中读体失败
+- **WHEN** 读流在 `PUT` 尚未结算时发出 error，而对端仍回 200
+- **THEN** `putObject` 抛 `PODCAST_HOSTING_BODY_READ_FAILED`，调用方按失败处理（2xx 只证明对端收了请求，不证明体真被读出来过）

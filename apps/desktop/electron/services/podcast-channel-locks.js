@@ -91,6 +91,33 @@ function createKeyedLocks (options = {}) {
  * 发布防重入标记：try-acquire、已被占立即 false；finally 必清；崩溃随进程消失，
  * 残留由启动对账接管（只提示不自动修复）。它不是锁的替代品。
  */
+/**
+ * 发布「通行证」：与忙标记同键、同步作用域。
+ *
+ * 为什么需要它：忙标记把「手工写者」挡在发布窗口外，但发布编排自己也要写 `feedSync` 与
+ * 重建 feed —— 没有这个通行证，发布会在自己的临界区里把自己挡住（实测过一次自锁）。
+ * ⛔ 通行证只在**同步作用域**内有效（fn 返回即收回），不得做成异步持有的布尔开关：
+ *    布尔会跨 await 泄漏，把「发布自己写自己的状态」扩大成「发布期间任何人都能写」。
+ */
+function createPublishPassSet () {
+  const passes = new Set()
+  return {
+    run (channelId, fn) {
+      const id = String(channelId == null ? '' : channelId).trim()
+      if (!id) throw new Error('PODCAST_GATE_KEY_REQUIRED')
+      passes.add(id)
+      try { return fn() } finally { passes.delete(id) }
+    },
+    isPassed (channelId) {
+      const id = String(channelId == null ? '' : channelId).trim()
+      return Boolean(id) && passes.has(id)
+    },
+    size: () => passes.size,
+  }
+}
+
+const channelPublishPass = createPublishPassSet()
+
 function createPublishGate () {
   const inFlight = new Map()
   return {
@@ -127,6 +154,8 @@ module.exports = {
   createKeyedLocks,
   createPublishGate,
   channelBusyGate,
+  channelPublishPass,
+  createPublishPassSet,
   LOCK_WAIT_ERROR,
   CHANNEL_BUSY_ERROR,
   INDEX_BUSY_ERROR,

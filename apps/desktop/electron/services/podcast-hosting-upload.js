@@ -65,6 +65,15 @@ function validateHosting (hosting) {
   if (!String(hosting.accessKeyId || '').trim() || !String(hosting.accessKeySecret || '').trim()) {
     issues.push(issue('PODCAST_HOSTING_CREDENTIAL_REQUIRED', 'hosting.accessKeyId', 'AccessKeyId / AccessKeySecret 不能为空'))
   }
+  // 落盘层的 normalizePathPrefix 会把非法字符换成 `-`、把 `.`/`..` 段与前后斜杠去掉
+  // （那是防跨频道逃逸的第二道闸）。但输入层若只挑其中几类出声、其余静默改写，
+  // 用户填的发布路径与真正生效的路径仍会不是同一个东西——公网地址会变、已提交给聚合端的
+  // Feed 会指错层。所以判据写成**"清洗会改变它 ⇒ 出声拒绝"**，两层边界由此对齐，
+  // 不再靠列举坏字符（空格、`#`、中文等此前就被静默换成 `-`）。
+  const prefix = String(hosting.pathPrefix == null ? '' : hosting.pathPrefix).trim()
+  if (prefix && normalizePathPrefix(prefix) !== prefix) {
+    issues.push(issue('PODCAST_HOSTING_PREFIX_UNSAFE', 'hosting.pathPrefix', '路径前缀只可用字母、数字与 . _ - /，不得以 / 开头、不得含 `.` 或 `..` 段或空格（否则发布路径会被清洗成另一个值：' + normalizePathPrefix(prefix) + '）'))
+  }
   return issues
 }
 
@@ -199,12 +208,26 @@ function audioContentTypeFromPath (filePath) {
  * 非 2xx 一律抛错并带上状态码，错误消息只允许出现状态码与长度，不得回显凭证或 URL 查询串。
  */
 async function putObject ({ httpClient, fsImpl, filePath, url, headers, timeoutMs = PUT_TIMEOUT_MS } = {}) {
-  if (!url) throw new Error('PODCAST_HOSTING_URL_UNRESOLVED')
+  if (!url) {
+    // 带 code 抛：调用方 `e.code || UPLOAD_FAILED` 的兜底会把"URL 拼不出来"报成"上传失败"，
+    // 两者的排查方向完全不同（一个查配置，一个查网络/签名）。
+    const e = new Error('PODCAST_HOSTING_URL_UNRESOLVED')
+    e.code = 'PODCAST_HOSTING_URL_UNRESOLVED'
+    throw e
+  }
   const client = httpClient || require('axios')
   const fs = fsImpl || require('fs')
   const size = fs.statSync(filePath).size
   const stream = fs.createReadStream(filePath)
   const finalHeaders = { ...headers, 'Content-Length': String(size) }
+  // 必须挂 error 监听：createReadStream 会把 open 排进下一个 tick，destroy() 取消不掉它。
+  // 于是「请求早已返回、文件随后被删」时这次迟到的 open 会以 'error' 事件落到**无人监听**的流上，
+  // 直接变成主进程的 uncaughtException（实测在播客托管用例的临时目录回收时命中）。
+  // 记账而不是吞掉：请求进行中读体失败 ⇒ 这份 2xx 不可信，不得当成功返回。
+  let streamError = null
+  if (stream && typeof stream.on === 'function') {
+    stream.on('error', (e) => { if (!streamError) streamError = e })
+  }
   try {
     const res = await client.put(url, stream, {
       headers: finalHeaders,
@@ -219,9 +242,20 @@ async function putObject ({ httpClient, fsImpl, filePath, url, headers, timeoutM
       const err = new Error(`PODCAST_HOSTING_UPLOAD_FAILED(${labelled})`)
       err.code = 'PODCAST_HOSTING_UPLOAD_FAILED'
       err.status = Number.isInteger(status) ? status : null
+      if (streamError) err.streamError = streamError
+      throw err
+    }
+    if (streamError) {
+      const err = new Error('PODCAST_HOSTING_BODY_READ_FAILED')
+      err.code = 'PODCAST_HOSTING_BODY_READ_FAILED'
+      err.status = status
+      err.streamError = streamError
       throw err
     }
     return { status, size }
+  } catch (e) {
+    if (e && !e.streamError && streamError) e.streamError = streamError
+    throw e
   } finally {
     if (stream && typeof stream.destroy === 'function' && !stream.destroyed) stream.destroy()
   }

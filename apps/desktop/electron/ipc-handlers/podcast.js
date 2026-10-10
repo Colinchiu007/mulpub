@@ -15,16 +15,26 @@
  *   podcast:episode:remove  → { code, data: { removed } }
  *   podcast:feed:build      → { code, data: { path, itemCount, bytes } }
  *   podcast:feed:verify     → { code, data: { issues, checks, itemCount } }
- *   podcast:endpoints:list  → { code, data: { endpoints } }
+ *   podcast:endpoints:list  → { code, data: { endpoints } }   // 频道无关，无入参
+ * 频道目录（刀 1，均经 registry 而非按频道构造的 service）：
+ *   podcast:channel:list           → { code, data: { channels, defaultChannelId, empty, migrationStatus, migrationConflicts } }
+ *   podcast:channel:create|rename|setDefault → { code, data: { channel, channels, ... } }（同 list 的目录形状）
+ *   podcast:channel:migrate:resolve → { code, data: { ...目录形状 } }
+ * 托管与发布（刀 2；凭证全局一份，发布按频道）：
+ *   podcast:hosting:get|save  → { code, data: { hosting } }   // hosting 是**掩码视图**，永不含 secret
+ *   podcast:hosting:check     → { code, data: { checked, ok, status, hosting } }
+ *   podcast:feed:publish      → { code, data: { state, url, bytes, itemCount, backupCreated, code, status } }
  * 校验失败：{ code: EC.VALIDATION_ERROR, message, issues }——issues 是引擎的结构化码数组，
  * 文案由渲染层按 code 出（本层不回传用户未发布的标题/音频地址，也不回传 xml 正文）。
+ * 失败信封另带 `subCode`（领域码，如 PODCAST_HOSTING_UPLOAD_FAILED）：`code` 是 EC 数字、决定往哪查，
+ * 只有它能区分「传输失败」与「校验不过」；渲染层在 call() 单点优先用 subCode 取文案。
  *
  * ⛔ 这里没有「发布到播客平台」的通道：小宇宙等是 RSS 聚合端，feed 地址由用户一次性提交。
  * 本模块不参与 publish-capabilities / platform-definitions / publishMode 的任何判定。
  */
 
 const EC = require('../core/error-codes').ERROR
-const { withSenderCheck } = require('./helpers')
+const { withSenderCheck, resolveIpcOwnerSubject } = require('./helpers')
 
 /**
  * 入参解包：同时接受「对象本体」与 `{ <key>: 对象 }` 两种载荷形状。
@@ -49,7 +59,11 @@ function unwrapObject (payload, key) {
 /** 领域错误 → IPC envelope。不同排查方向的错误不得合并成一句话。 */
 function toIpcError (err) {
   const code = err && err.code
-  const issues = err && Array.isArray(err.issues) ? err.issues : null
+  // 空数组是 truthy —— 原判据把「按设计不带 issues」的错误（如 SECRET_MISSING 以 {issues:[]} 抛，
+  // 意图就是与「字段不合格」区分开）也塞进 VALIDATION_ERROR 分支，envelope.code 于是成了错值。
+  // 渲染层现按 subCode 取文案所以用户无感，但错误分类本身说谎，会让下一次按 code 分流的逻辑走错。
+  const rawIssues = err && Array.isArray(err.issues) ? err.issues : null
+  const issues = rawIssues && rawIssues.length ? rawIssues : null
   if (issues) {
     return { code: EC.VALIDATION_ERROR, subCode: code || '', message: (err && err.message) || '校验未通过', issues }
   }
@@ -64,6 +78,9 @@ function toIpcError (err) {
 
 function registerHandlers (ipcMain, deps) {
   const log = (deps && deps.log) || require('../services/logger')
+  // 托管服务按频道取：hosting 是全局一份（PRD D-4），但发布动作必须有频道上下文。
+  // 身份三态唯一实现在 helpers.resolveIpcOwnerSubject，本处只转发（不得写第四份取 sub 的实现）。
+  let hostingService = null
 
   // 服务实例惰性解析：注册动作本身不得触碰 userData 目录（测试环境同样走这条注册路径）。
   /** @type {any} */
@@ -120,7 +137,11 @@ function registerHandlers (ipcMain, deps) {
   // 另注：本文件注释内**禁止**出现 `ipcMain.handle(` 紧跟引号的写法——
   // .github/scripts/check-ipc-bridge.js 的 RE1 不区分注释与代码，会把注释里的示例
   // 当成真实注册过的通道，导致「Handler 已注册但 preload.js 未暴露」的假缺口。
-  const guarded = (label, fn) => withSenderCheck(async (_event, payload) => {
+  // 信封映射（唯一实现）。⚠️ 不要把它当成"守卫"：`check-ipc-sender-guard.js` 的显式守卫
+  // 占比是按**注册点字面**统计的，经别名包装的注册只算咽喉点覆盖、不计入分子——
+  // 新增通道若全走别名，就会把整体占比稀释到阈值以下（刀 2 加 4 条时实测 65.5% → 64.9% 判红）。
+  // 因此新增注册一律写成 `withSenderCheck(handlerFor(...))`：守卫在注册点可见，映射仍只一份。
+  const handlerFor = (label, fn) => async (_event, payload) => {
     try {
       const data = await fn(payload)
       return { code: 0, data }
@@ -129,7 +150,8 @@ function registerHandlers (ipcMain, deps) {
       log.warn('[ipc:podcast] ' + label + ': ' + ((e && e.message) || String(e)))
       return toIpcError(e)
     }
-  })
+  }
+  const guarded = (label, fn) => withSenderCheck(handlerFor(label, fn))
 
   ipcMain.handle('podcast:channel:get', guarded('channel:get', (payload) => ({ channel: getService(channelOf(payload)).getChannel() })))
 
@@ -203,6 +225,45 @@ function registerHandlers (ipcMain, deps) {
     const direction = payload && typeof payload.direction === 'string' ? payload.direction : ''
     return getRegistry().resolveMigration(direction)
   }))
+
+  function getHostingService () {
+    if (hostingService) return hostingService
+    const PodcastHostingService = require('../services/podcast-hosting-service')
+    hostingService = new PodcastHostingService({
+      registry: getRegistry(),
+      // 频道服务由本层按 channelId 提供：路径解析与 feedSync 的落盘唯一实现都在它那里
+      channelOf: (channelId) => getService(channelId, { writable: true }),
+      ownerSubject: () => resolveIpcOwnerSubject(deps && deps.identityService),
+      logger: log,
+      // httpClient 缺省不注入 = 生产路径零真实出站；探测与上传必须由测试显式注入假 client
+      httpClient: deps && deps.podcastHttpClient,
+      // 凭证存储可注入：测试必须能断言「secret 只进加密存储、不进 index.json」这条线。
+      // ⛔ 这一行不能省：省略时服务会退回**真实** credential-store，本机因为有系统凭据保护而全绿，
+      // CI runner 上 DPAPI 不可用 ⇒ saveCredential 返回 false ⇒ CRYPTO_UNAVAILABLE，
+      // 表现为两条用例报 `expected -1 to be +0`（2026-10-10 shard 2 实测）。
+      credentialStore: deps && deps.podcastCredentialStore,
+    })
+    return hostingService
+  }
+
+  ipcMain.handle('podcast:hosting:get', withSenderCheck(handlerFor('hosting:get', async () => ({ hosting: getHostingService().getHosting() }))))
+
+  ipcMain.handle('podcast:hosting:save', withSenderCheck(handlerFor('hosting:save', async (payload) => {
+    // secret 缺席 = 保持不变，合并规则只在 hosting-service 一处；本层不判字段、不补默认值
+    return { hosting: (await getHostingService().saveHosting(unwrapObject(payload, 'hosting'))).hosting }
+  })))
+
+  ipcMain.handle('podcast:hosting:check', withSenderCheck(handlerFor('hosting:check', async () => getHostingService().checkHosting())))
+
+  ipcMain.handle('podcast:feed:publish', withSenderCheck(handlerFor('feed:publish', async (payload) => {
+    const r = await getHostingService().publishFeed(channelOf(payload))
+    // 只回可公开的形状：url 是公网地址，但不含签名头与凭证
+    return {
+      state: r.state, url: r.url || '', bytes: r.bytes || 0, itemCount: r.itemCount || 0,
+      backupCreated: Boolean(r.backupCreated), prevExists: Boolean(r.prevExists),
+      code: r.code || '', status: r.status == null ? null : r.status,
+    }
+  })))
 }
 
 module.exports = registerHandlers

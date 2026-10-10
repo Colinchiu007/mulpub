@@ -32,6 +32,7 @@
       <p v-if="pickerError" class="podcast-error" data-testid="podcast-picker-error">{{ pickerError }}</p>
       <p class="podcast-hint" data-testid="podcast-picker-quota-hint">{{ t('podcast.picker.quotaHint', { cap: channelCap, count: channelCount }) }}</p>
     </section>
+    <PodcastHostingCard :channel-id="activeChannelId" data-testid="podcast-hosting-mount" @published="onFeedPublished" />
 
     <section class="podcast-section" data-testid="podcast-channel-section" aria-labelledby="podcast-channel-heading">
       <h2 id="podcast-channel-heading">{{ t('podcast.channel.sectionTitle') }}</h2>
@@ -309,6 +310,7 @@ import {
   subCategoriesOf,
 } from '@/composables/usePodcastChannel'
 import { createPodcastChannelActions } from '@/composables/usePodcastChannelActions'
+import PodcastHostingCard from '@/components/PodcastHostingCard.vue'
 
 const api = usePodcastChannel()
 const { t } = useI18n()
@@ -344,6 +346,7 @@ const {
   channelIssues,
   loadChannel,
   loadEpisodes,
+  refreshQuota,
   loadEndpoints,
   saveChannel,
   saveEpisode,
@@ -390,6 +393,18 @@ const {
   onCopyFeedPath,
 } = actions
 
+
+// 发布成功必须立刻把配额与单集列表刷成现值：这两处的真源在主进程，跨动作缓存就是说谎（评审 #17）
+async function onFeedPublished (res) {
+  if (!res || !res.ok) { notifyError(errorText((res && res.code) || 'PODCAST_IPC_EXCEPTION')); return }
+  if (res.state === 'success') {
+    notifySuccess(t('podcast.hosting.publishSuccess', { count: res.itemCount || 0 }))
+    if (!res.backupCreated) notifyError(t('podcast.hosting.backupMissing'))
+    await Promise.allSettled([refreshQuota(), loadEpisodes()])
+    return
+  }
+  notifyError(t('podcast.hosting.publishFailed', { status: res.status == null ? t('podcast.hosting.checkNoStatus') : res.status }))
+}
 
 onMounted(async () => {
   const [chRes] = await Promise.allSettled([loadChannel()])
