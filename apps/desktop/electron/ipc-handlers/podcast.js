@@ -134,7 +134,11 @@ function registerHandlers (ipcMain, deps) {
   // 另注：本文件注释内**禁止**出现 `ipcMain.handle(` 紧跟引号的写法——
   // .github/scripts/check-ipc-bridge.js 的 RE1 不区分注释与代码，会把注释里的示例
   // 当成真实注册过的通道，导致「Handler 已注册但 preload.js 未暴露」的假缺口。
-  const guarded = (label, fn) => withSenderCheck(async (_event, payload) => {
+  // 信封映射（唯一实现）。⚠️ 不要把它当成"守卫"：`check-ipc-sender-guard.js` 的显式守卫
+  // 占比是按**注册点字面**统计的，经别名包装的注册只算咽喉点覆盖、不计入分子——
+  // 新增通道若全走别名，就会把整体占比稀释到阈值以下（刀 2 加 4 条时实测 65.5% → 64.9% 判红）。
+  // 因此新增注册一律写成 `withSenderCheck(handlerFor(...))`：守卫在注册点可见，映射仍只一份。
+  const handlerFor = (label, fn) => async (_event, payload) => {
     try {
       const data = await fn(payload)
       return { code: 0, data }
@@ -143,7 +147,8 @@ function registerHandlers (ipcMain, deps) {
       log.warn('[ipc:podcast] ' + label + ': ' + ((e && e.message) || String(e)))
       return toIpcError(e)
     }
-  })
+  }
+  const guarded = (label, fn) => withSenderCheck(handlerFor(label, fn))
 
   ipcMain.handle('podcast:channel:get', guarded('channel:get', (payload) => ({ channel: getService(channelOf(payload)).getChannel() })))
 
@@ -234,23 +239,23 @@ function registerHandlers (ipcMain, deps) {
     return hostingService
   }
 
-  ipcMain.handle('podcast:hosting:get', guarded('hosting:get', async () => ({ hosting: getHostingService().getHosting() })))
+  ipcMain.handle('podcast:hosting:get', withSenderCheck(handlerFor('hosting:get', async () => ({ hosting: getHostingService().getHosting() }))))
 
-  ipcMain.handle('podcast:hosting:save', guarded('hosting:save', async (payload) => {
+  ipcMain.handle('podcast:hosting:save', withSenderCheck(handlerFor('hosting:save', async (payload) => {
     // secret 缺席 = 保持不变，合并规则只在 hosting-service 一处；本层不判字段、不补默认值
     return { hosting: (await getHostingService().saveHosting(unwrapObject(payload, 'hosting'))).hosting }
-  }))
+  })))
 
-  ipcMain.handle('podcast:hosting:check', guarded('hosting:check', async () => getHostingService().checkHosting()))
+  ipcMain.handle('podcast:hosting:check', withSenderCheck(handlerFor('hosting:check', async () => getHostingService().checkHosting())))
 
-  ipcMain.handle('podcast:feed:publish', guarded('feed:publish', async (payload) => {
+  ipcMain.handle('podcast:feed:publish', withSenderCheck(handlerFor('feed:publish', async (payload) => {
     const r = await getHostingService().publishFeed(channelOf(payload))
     // 只回可公开的形状：url 是公网地址，但不含签名头与凭证
     return {
       state: r.state, url: r.url || '', bytes: r.bytes || 0, itemCount: r.itemCount || 0,
       backupCreated: Boolean(r.backupCreated), code: r.code || '', status: r.status == null ? null : r.status,
     }
-  }))
+  })))
 }
 
 module.exports = registerHandlers
