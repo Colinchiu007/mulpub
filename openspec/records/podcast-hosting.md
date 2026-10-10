@@ -2,8 +2,6 @@
 record: podcast-hosting
 task: 按 PRD §7 刀 2 落地播客托管直传接线（凭证合并、发布顺序、上传错误收口、渲染层卡片与 locales 拆层）
 date: 2026-10-11
-sync_reason: 待 PR 合并后按产物取证（state=MERGED + mergeCommit.oid、远端分支 0 行、git log 恰好 1 行、比树为空）并就地回填
-sync_backfill_owner: podcast-hosting 分支作者（本会话）
 ---
 
 # 本次执行记录：播客一键发布 刀2（托管直传接线）（podcast-hosting，2026-10-11）
@@ -39,5 +37,5 @@ sync_backfill_owner: podcast-hosting 分支作者（本会话）
 
 ## 远程同步
 
-| 远程同步 | PENDING | 待 PR 合并后回填 `PASS` + merge SHA（取证：`gh pr view <n> --json state,mergeCommit`、`git log origin/main --grep="(#<n>)$" --format=%H|%cI`、`git ls-remote --heads origin podcast-hosting` 0 行、squash 后比树为空），并在同一次提交删除 frontmatter 两个 sync_* 字段与 ledger 登记项 |
+| 远程同步 | PASS（2026-10-11T07:05:38+08:00 合并为 `93cc1c5b7638bb49347100e031f9632517145ad8`；四条产物取证：gh state=MERGED 且 mergeCommit.oid=93cc1c5b7638bb49347100e031f9632517145ad8、远端分支 已删除（ls-remote 0 行）、`git log origin/main --grep='(#3283)$'` 恰好 1 行、比树 `git diff --stat <branch-tip> 93cc1c5b7638bb49347100e031f9632517145ad8` 为空） |
 

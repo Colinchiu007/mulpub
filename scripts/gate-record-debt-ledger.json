@@ -1,9 +1,4 @@
 {
-  "本次执行记录：播客一键发布 刀2（托管直传接线）（podcast-hosting，2026-10-11）": {
-    "reason": "刀 2 混合 PR：本行远程同步待 PR 合并后按四条产物取证回填（state=MERGED + mergeCommit.oid、远端分支 0 行、git log 恰好 1 行、squash 后比树为空）。回填与销账必须同一次提交；同一标题在 openspec/records/podcast-hosting.md 与 .quality-gates.md 中的同名行一并回填。",
-    "status": "PENDING",
-    "line": 1
-  },
   "本次执行记录：Story2Video 历史失败提示脱敏与模型账号细化（error-message-fix，2026-08-19）": {
     "reason": "error-message-fix 分支的 L4479 远程同步行状态写的是「执行中」而非闭合词表——属于该记录作者的登记欠账；本人无法代为取证其 PR 合并 SHA，按「不代其他会话改写其执行记录」惯例在此登记并说明",
     "status": "PENDING",
