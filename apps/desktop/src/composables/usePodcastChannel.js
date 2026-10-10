@@ -160,6 +160,17 @@ const CHANNEL_SCOPED = new Set([
 /**
  * @returns 频道状态 / 单集列表 / feed 生成与自检 / 分发端目录 的全部状态与动作
  */
+/**
+ * 校验码 → 用户可见文案（模块级唯一实现）。
+ * 视图侧一律经这一个函数取文案：卡片与页面各自写一份 `te(key) ? t(key) : fallback` 时，
+ * 「未知码不得静默」这条判据就会在两处漂移，最后只剩界面上一句空白提示。
+ */
+export function errorCodeText (code) {
+  const key = `podcast.errors.${String(code || '')}`
+  const { t, te } = i18n.global
+  return code && te(key) ? t(key) : t('podcast.errors.fallback', { code: String(code || 'UNKNOWN') })
+}
+
 export function usePodcastChannel () {
   const channel = ref(null) // null = 未配置
   const channelLoaded = ref(false)
@@ -391,12 +402,6 @@ export function usePodcastChannel () {
     return formatDuration(n)
   }
 
-  /** 校验码文案（视图统一入口） */
-  function errorText (code) {
-    const key = `podcast.errors.${String(code || '')}`
-    const { t, te } = i18n.global
-    return code && te(key) ? t(key) : t('podcast.errors.fallback', { code: String(code || 'UNKNOWN') })
-  }
 
   // 频道目录域拆到 usePodcastChannelPicker.js（逐文件行数门禁 + 「目录态与页面态各有各的不变量」）；
   // 本文件只留页面态与它的清理责任，切换频道时要清什么由这里说，不由目录模块猜。
@@ -474,7 +479,7 @@ export function usePodcastChannel () {
     makeEpisodeDraft,
     makeChannelDraft,
     durationText,
-    errorText,
+    errorText: errorCodeText,
     channelListError,
     issueText,
   }

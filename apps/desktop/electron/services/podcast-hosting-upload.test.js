@@ -358,6 +358,44 @@ describe('podcast-hosting-upload · putObject（注入 fs/httpClient，禁止真
     expect(fs.streams[0].destroyed).toBe(true)
   })
 
+  it('读流必须带 error 监听：迟到的 open 失败不得逃成 uncaughtException', async () => {
+    // 现场：createReadStream 把 open 排进下一个 tick，destroy() 取消不掉它。
+    // 生产里表现为「请求已返回、文件随后被删/被移动」——那次 open 会以 'error'
+    // 事件落到无人监听的流上，直接崩掉 Electron 主进程。
+    const fs = fakeFs(8)
+    await putObject({
+      filePath: 'a.mp3',
+      url: 'https://b.e.com/k',
+      headers: {},
+      fsImpl: fs,
+      httpClient: { put: async () => ({ status: 200 }) }
+    })
+    const stream = fs.streams[0]
+    expect(stream.listenerCount('error')).toBeGreaterThan(0)
+    expect(() => stream.emit('error', new Error('ENOENT: open'))).not.toThrow()
+  })
+
+  it('请求期内读体失败 ⇒ 即便对端回 2xx 也不得报成功', async () => {
+    const fsImpl = {
+      statSync: () => ({ size: 99 }),
+      createReadStream: () => {
+        const s = new Readable({ read () {} })
+        setImmediate(() => s.destroy(new Error('EACCES')))
+        return s
+      }
+    }
+    await expect(putObject({
+      filePath: 'a.mp3',
+      url: `https://b.e.com/k.mp3?Signature=${SECRET}`,
+      headers: { Authorization: `OSS ${AK}:${SECRET}` },
+      fsImpl,
+      httpClient: { put: async () => { await new Promise((r) => setTimeout(r, 20)); return { status: 200 } } }
+    })).rejects.toMatchObject({
+      code: 'PODCAST_HOSTING_BODY_READ_FAILED',
+      message: 'PODCAST_HOSTING_BODY_READ_FAILED',
+    })
+  })
+
   it('validateStatus 恒真：错误判定只由本模块做，不靠 axios 抛栈', () => {
     let opts = null
     const fs = fakeFs(2)

@@ -205,6 +205,14 @@ async function putObject ({ httpClient, fsImpl, filePath, url, headers, timeoutM
   const size = fs.statSync(filePath).size
   const stream = fs.createReadStream(filePath)
   const finalHeaders = { ...headers, 'Content-Length': String(size) }
+  // 必须挂 error 监听：createReadStream 会把 open 排进下一个 tick，destroy() 取消不掉它。
+  // 于是「请求早已返回、文件随后被删」时这次迟到的 open 会以 'error' 事件落到**无人监听**的流上，
+  // 直接变成主进程的 uncaughtException（实测在播客托管用例的临时目录回收时命中）。
+  // 记账而不是吞掉：请求进行中读体失败 ⇒ 这份 2xx 不可信，不得当成功返回。
+  let streamError = null
+  if (stream && typeof stream.on === 'function') {
+    stream.on('error', (e) => { if (!streamError) streamError = e })
+  }
   try {
     const res = await client.put(url, stream, {
       headers: finalHeaders,
@@ -219,9 +227,20 @@ async function putObject ({ httpClient, fsImpl, filePath, url, headers, timeoutM
       const err = new Error(`PODCAST_HOSTING_UPLOAD_FAILED(${labelled})`)
       err.code = 'PODCAST_HOSTING_UPLOAD_FAILED'
       err.status = Number.isInteger(status) ? status : null
+      if (streamError) err.streamError = streamError
+      throw err
+    }
+    if (streamError) {
+      const err = new Error('PODCAST_HOSTING_BODY_READ_FAILED')
+      err.code = 'PODCAST_HOSTING_BODY_READ_FAILED'
+      err.status = status
+      err.streamError = streamError
       throw err
     }
     return { status, size }
+  } catch (e) {
+    if (e && !e.streamError && streamError) e.streamError = streamError
+    throw e
   } finally {
     if (stream && typeof stream.destroy === 'function' && !stream.destroyed) stream.destroy()
   }

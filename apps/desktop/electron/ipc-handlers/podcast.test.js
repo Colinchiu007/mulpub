@@ -77,7 +77,7 @@ function setup (overrides) {
 }
 
 describe('podcast handler · 通道注册', () => {
-  it('十三条通道全部注册（缺一条即渲染层拿到 "No handler registered"）', () => {
+  it('十七条通道全部注册（缺一条即渲染层拿到 "No handler registered"）', () => {
     const { ipcMain, service } = setup()
     expect([...ipcMain.handlers.keys()].sort()).toEqual([
       'podcast:channel:create', 'podcast:channel:get', 'podcast:channel:list',
@@ -85,14 +85,15 @@ describe('podcast handler · 通道注册', () => {
       'podcast:channel:save', 'podcast:channel:setDefault',
       'podcast:endpoints:list', 'podcast:episode:list',
       'podcast:episode:remove', 'podcast:episode:save',
-      'podcast:feed:build', 'podcast:feed:verify',
+      'podcast:feed:build', 'podcast:feed:verify', 'podcast:feed:publish',
+      'podcast:hosting:get', 'podcast:hosting:save', 'podcast:hosting:check',
     ].sort())
   })
 
   it('注册阶段不得触碰 userData：未注入服务时也能完成注册，第一次调用才惰性建服务', () => {
     const ipcMain = makeIpcMain()
     expect(() => registerHandlers(ipcMain, { log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })).not.toThrow()
-    expect(ipcMain.handlers.size).toBe(13)
+    expect(ipcMain.handlers.size).toBe(17)
   })
 })
 
@@ -215,3 +216,96 @@ describe("podcast IPC · 评审 i2/i4 处置", () => {
   })
 })
 
+
+
+describe('podcast IPC · 刀2 托管与发布（真服务 + 假凭证/假网络，端到端打通道）', () => {
+  const nodeFs = require('fs')
+  const nodeOs = require('os')
+  const nodePath = require('path')
+  const nodeCrypto = require('crypto')
+
+  function makeHostingDeps (script) {
+    const root = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), 'mp-pod-ipch-'))
+    const puts = []
+    const client = { put: async (url, body, opts) => { puts.push({ url, headers: (opts && opts.headers) || {} }); const n = script.shift(); return { status: n } } }
+    const store = {
+      map: new Map(),
+      saveCredential: (ref, data) => { store.map.set(ref, data); return true },
+      loadCredential: (ref) => store.map.get(ref) || null,
+      deleteCredential: (ref) => store.map.delete(ref),
+    }
+    const ipcMain = makeIpcMain()
+    registerHandlers(ipcMain, {
+      podcastUserDataDir: root,
+      podcastIdFactory: () => 'ch_ipc0001',
+      podcastHttpClient: client,
+      podcastCredentialStore: store,
+      identityService: { getState: () => ({ user: { sub: 'sub-ipc' } }) },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })
+    return { root, ipcMain, puts, store }
+  }
+
+  const CH = { title: '午间电台', description: '每天十分钟', language: 'zh-CN', author: '老王', ownerEmail: 'a@b.com', explicit: 'no', feedType: 'episodic', coverUrl: 'https://example.com/c.png', coverSize: '3000x3000', categoryId: 'Technology/Podcasting' }
+  const EP = { title: '第一期', audioUrl: 'https://cdn.example.com/e1.mp3', durationSec: 600, sizeBytes: 1000, guid: 'g-ipc-1', pubDate: '2026-10-01T08:00:00.000Z' }
+
+  async function seed (ctx) {
+    await ctx.ipcMain.handlers.get('podcast:channel:create')({}, { name: '午间电台' })
+    await ctx.ipcMain.handlers.get('podcast:channel:save')({}, { channelId: 'ch_ipc0001', channel: CH })
+    await ctx.ipcMain.handlers.get('podcast:episode:save')({}, { channelId: 'ch_ipc0001', episode: EP })
+  }
+
+  it('hosting:save 成功信封只回掩码；index.json 逐字不含 AK/SK', async () => {
+    const ctx = makeHostingDeps([])
+    await seed(ctx)
+    const saved = await ctx.ipcMain.handlers.get('podcast:hosting:save')({}, {
+      hosting: { provider: 'oss', endpoint: 'oss-cn-hangzhou.aliyuncs.com', bucket: 'pod', pathPrefix: 'feeds', accessKeyId: 'AKIDabcdefghij', accessKeySecret: 'SECRETxyz0123456789' },
+    })
+    expect(saved.code).toBe(0)
+    expect(Object.keys(saved.data)).toEqual(['hosting'])
+    expect(Object.keys(saved.data.hosting).sort()).toEqual(['configured', 'credentialRef', 'endpoint', 'maskedAccessKeyId', 'pathPrefix', 'provider', 'bucket', 'updatedAt'].sort())
+    expect(saved.data.hosting.maskedAccessKeyId).toBe('*'.repeat(10) + 'ghij')
+    expect(JSON.stringify(saved)).not.toContain('SECRETxyz0123456789')
+    const raw = nodeFs.readFileSync(nodePath.join(ctx.root, 'podcast', 'index.json'), 'utf8')
+    expect(raw).not.toContain('SECRETxyz0123456789')
+    expect(raw).not.toContain('AKIDabcdefghij')
+    const got = await ctx.ipcMain.handlers.get('podcast:hosting:get')({}, {})
+    expect(got.data.hosting.configured).toBe(true)
+    nodeFs.rmSync(ctx.root, { recursive: true, force: true })
+  })
+
+  it('缺 channelId 的 feed:publish 不得打到 OSS；hosting 未配置时发布指名缺托管', async () => {
+    const ctx = makeHostingDeps([200, 200])
+    await seed(ctx)
+    const noChan = await ctx.ipcMain.handlers.get('podcast:feed:publish')({}, {})
+    expect(noChan.code).not.toBe(0)
+    expect(noChan.subCode).toBe('PODCAST_CHANNEL_ID_REQUIRED')
+    const noHost = await ctx.ipcMain.handlers.get('podcast:feed:publish')({}, { channelId: 'ch_ipc0001' })
+    expect(noHost.subCode).toBe('PODCAST_HOSTING_REQUIRED')
+    expect(ctx.puts).toHaveLength(0)
+    nodeFs.rmSync(ctx.root, { recursive: true, force: true })
+  })
+
+  it('feed:publish 成功：信封键逐字对齐渲染层合同，且不含签名头', async () => {
+    const ctx = makeHostingDeps([200, 200])
+    await seed(ctx)
+    await ctx.ipcMain.handlers.get('podcast:hosting:save')({}, {
+      hosting: { provider: 'oss', endpoint: 'oss-cn-hangzhou.aliyuncs.com', bucket: 'pod', pathPrefix: 'feeds', accessKeyId: 'AKIDabcdefghij', accessKeySecret: 'SECRETxyz0123456789' },
+    })
+    const res = await ctx.ipcMain.handlers.get('podcast:feed:publish')({}, { channelId: 'ch_ipc0001' })
+    expect(res.code).toBe(0)
+    expect(Object.keys(res.data).sort()).toEqual(['backupCreated', 'bytes', 'code', 'itemCount', 'state', 'status', 'url'].sort())
+    expect(res.data.state).toBe('success')
+    expect(ctx.puts).toHaveLength(2)
+    expect(JSON.stringify(res)).not.toContain('SECRETxyz0123456789')
+    expect(JSON.stringify(res)).not.toContain('OSS ')
+    nodeFs.rmSync(ctx.root, { recursive: true, force: true })
+  })
+
+  it('注册阶段不得建托管服务（惰性）：注册本身不触盘、不起服务', () => {
+    const ipcMain = makeIpcMain()
+    expect(() => registerHandlers(ipcMain, { log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })).not.toThrow()
+    expect(ipcMain.handlers.size).toBe(17)
+  })
+})
+

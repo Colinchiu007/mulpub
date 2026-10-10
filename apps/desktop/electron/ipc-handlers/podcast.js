@@ -24,7 +24,7 @@
  */
 
 const EC = require('../core/error-codes').ERROR
-const { withSenderCheck } = require('./helpers')
+  const { withSenderCheck, resolveIpcOwnerSubject } = require('./helpers')
 
 /**
  * 入参解包：同时接受「对象本体」与 `{ <key>: 对象 }` 两种载荷形状。
@@ -64,6 +64,9 @@ function toIpcError (err) {
 
 function registerHandlers (ipcMain, deps) {
   const log = (deps && deps.log) || require('../services/logger')
+  // 托管服务按频道取：hosting 是全局一份（PRD D-4），但发布动作必须有频道上下文。
+  // 身份三态唯一实现在 helpers.resolveIpcOwnerSubject，本处只转发（不得写第四份取 sub 的实现）。
+  let hostingService = null
 
   // 服务实例惰性解析：注册动作本身不得触碰 userData 目录（测试环境同样走这条注册路径）。
   /** @type {any} */
@@ -81,6 +84,7 @@ function registerHandlers (ipcMain, deps) {
       podcastRoot: root,
       app: deps && deps.podcastApp,
       logger: log,
+      credentialStore: deps && deps.podcastCredentialStore,
       idFactory: deps && deps.podcastIdFactory,
     })
     return registry
@@ -202,6 +206,40 @@ function registerHandlers (ipcMain, deps) {
   ipcMain.handle('podcast:channel:migrate:resolve', guarded('channel:migrate:resolve', (payload) => {
     const direction = payload && typeof payload.direction === 'string' ? payload.direction : ''
     return getRegistry().resolveMigration(direction)
+  }))
+
+  function getHostingService () {
+    if (hostingService) return hostingService
+    const PodcastHostingService = require('../services/podcast-hosting-service')
+    hostingService = new PodcastHostingService({
+      registry: getRegistry(),
+      // 频道服务由本层按 channelId 提供：路径解析与 feedSync 的落盘唯一实现都在它那里
+      channelOf: (channelId) => getService(channelId, { writable: true }),
+      ownerSubject: () => resolveIpcOwnerSubject(deps && deps.identityService),
+      logger: log,
+      // httpClient 缺省不注入 = 生产路径零真实出站；探测与上传必须由测试显式注入假 client
+      httpClient: deps && deps.podcastHttpClient,
+      // 凭证存储可注入：测试必须能断言「secret 只进加密存储、不进 index.json」这条线
+    })
+    return hostingService
+  }
+
+  ipcMain.handle('podcast:hosting:get', guarded('hosting:get', async () => ({ hosting: getHostingService().getHosting() })))
+
+  ipcMain.handle('podcast:hosting:save', guarded('hosting:save', async (payload) => {
+    // secret 缺席 = 保持不变，合并规则只在 hosting-service 一处；本层不判字段、不补默认值
+    return { hosting: (await getHostingService().saveHosting(unwrapObject(payload, 'hosting'))).hosting }
+  }))
+
+  ipcMain.handle('podcast:hosting:check', guarded('hosting:check', async () => getHostingService().checkHosting()))
+
+  ipcMain.handle('podcast:feed:publish', guarded('feed:publish', async (payload) => {
+    const r = await getHostingService().publishFeed(channelOf(payload))
+    // 只回可公开的形状：url 是公网地址，但不含签名头与凭证
+    return {
+      state: r.state, url: r.url || '', bytes: r.bytes || 0, itemCount: r.itemCount || 0,
+      backupCreated: Boolean(r.backupCreated), code: r.code || '', status: r.status == null ? null : r.status,
+    }
   }))
 }
 

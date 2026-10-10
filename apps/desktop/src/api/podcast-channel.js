@@ -117,3 +117,21 @@ export async function feedVerify (payload) {
 export async function endpointList () {
   return envelope(() => invokeNamespace(NS, 'endpointList'))
 }
+
+// 刀 2：托管配置与 feed 覆盖上传。每个导出仍各自写死方法名字面量 —— 见本文件头部说明。
+export async function hostingGet () {
+  return envelope(() => invokeNamespace(NS, 'hostingGet'))
+}
+
+export async function hostingSave (payload) {
+  return envelope(() => invokeNamespace(NS, 'hostingSave', payload))
+}
+
+export async function hostingCheck () {
+  return envelope(() => invokeNamespace(NS, 'hostingCheck'))
+}
+
+export async function feedPublish (payload) {
+  return envelope(() => invokeNamespace(NS, 'feedPublish', payload))
+}
+

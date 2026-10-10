@@ -222,7 +222,7 @@ describe('IPC 单轨制结构锁', () => {
     expect(bridge).not.toMatch(/envelope\(\s*invokeNamespace\(/)
   })
 
-  it('桥接层导出的 8 个名字与 preload 暴露面逐字一致（防改名漂移）', async () => {
+  it('桥接层导出面与 preload 暴露面逐字一致（防改名漂移）', async () => {
     const api = await import('@/api/podcast-channel')
     // 必须拿**真 preload 面**比对，不能拿本文件的 METHODS 常量：后者与桥接层是同一只手写的，
     // 两边一起改名时该断言照绿（QM-6 前端模型实测命中这条）。preload 是 CJS 且导出工厂，
@@ -231,6 +231,6 @@ describe('IPC 单轨制结构锁', () => {
     const createPodcastApi = mod.createPodcastApi ?? mod.default.createPodcastApi
     const surface = createPodcastApi({ invoke: async () => ({ code: 0, data: null }) }).podcast
     expect(Object.keys(api).sort()).toEqual(Object.keys(surface).sort())
-    expect(Object.keys(surface)).toHaveLength(13)
+    expect(Object.keys(surface)).toHaveLength(17)
   })
 })
