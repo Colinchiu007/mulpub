@@ -29,6 +29,7 @@
 
 - [ ] 2.1 RED：`ipc-handlers/film-engineering.test.js` 新增——台账批次重试成功，覆盖 `shot_NNN.mp4`，**不依赖流水线 run**
 - [ ] 2.2 RED：新增——批次 runId 从未注册为流水线 run 时仍能重试成功（对缺陷 B 的直接回归锁）
+- [ ] 2.3b RED：**并发幂等**——同一镜连点两次重试，两次调用不得并发写同一 shot_NNN.mp4 产生半成品；第二次须按既定覆盖语义处理或显式拒绝（SELF-REVIEW B7 补充）
 - [ ] 2.3 RED：新增六条 fail-closed 校验——taskId 路径遍历 / 台账不存在 / batchIndex 未命中 / shotIndex 越界 / shotId 不存在 / prompt 为空，逐条断言**零 provider 调用**
 - [ ] 2.4 RED：新增——prompt 取自 `service.getShot(shotId)` 原文（断言提交给 provider 的 prompt 与 kit 原文逐字符相等，含 `<<<uuid>>>` 令牌）
 - [ ] 2.5 GREEN：`ipc-handlers/film-engineering.js` 新增通道，复用既有 `validateProductionArgs` 的 taskId 路径安全校验，逐项 fail-closed
