@@ -15,9 +15,9 @@ sync_backfill_owner: podcast-hosting 分支作者（本会话）
 
 | SHA | 内容 |
 | --- | --- |
-| `fbee0e969` | 托管服务层：`podcast-hosting-service.js`（掩码视图、凭证合并唯一判定点、回滚点先行、发布通行证 `channelPublishPass`）+ 18 例行为锁（真 registry/真 fs/假 credential-store/假 httpClient，零出站） |
-| `aa5420c39` | 渲染层接线：4 条 IPC 通道与两个 bundle、`PodcastHostingCard.vue`、`usePodcastHosting.js`、locales 拆到 `locales/podcast/{zh,en}.js`、读流 error 监听与 2xx 不掩盖读体失败 |
-| `3d9b50ab1` | `PODCAST_HOSTING_PREFIX_UNSAFE` 出声拒绝 + 9 条托管域码 zh/en 成对文案 + 对应测试 |
+| `8496f7684` | 托管服务层：`podcast-hosting-service.js`（掩码视图、凭证合并唯一判定点、回滚点先行、发布通行证 `channelPublishPass`）+ 18 例行为锁（真 registry/真 fs/假 credential-store/假 httpClient，零出站） |
+| `e26b88432` | 渲染层接线：4 条 IPC 通道与两个 bundle、`PodcastHostingCard.vue`、`usePodcastHosting.js`、locales 拆到 `locales/podcast/{zh,en}.js`、读流 error 监听与 2xx 不掩盖读体失败 |
+| `6ef66d8f3` | `PODCAST_HOSTING_PREFIX_UNSAFE` 出声拒绝 + 9 条托管域码 zh/en 成对文案 + 对应测试 |
 | （本表及收尾提交）| 文档回写：PRD §7/§8/§9/§10/§11/§12/§13 与 §8.1 逐字表重生成、DESIGN §10 刀 2 追加、openspec 3 条 Requirement 与 tasks 1.11–1.13/2.1–2.4 对账、CHANGELOG 顶部条目、本记录与 `.quality-gates.md` 顶部记录及 ledger 登记 |
 
 ## 关键判断（为什么这么修，不是改了什么）

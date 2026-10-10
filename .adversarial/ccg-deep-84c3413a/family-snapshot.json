@@ -6,10 +6,10 @@
     "branch": "podcast-hosting",
     "base": "origin/main@ffc6fdff71cdadae097059876b1911e22102cf56",
     "commits": [
-      "fbee0e969",
-      "aa5420c39",
-      "3d9b50ab1",
-      "7bfb0cb47"
+      "8496f7684",
+      "e26b88432",
+      "6ef66d8f3",
+      "a72a8d0bd"
     ],
     "scope": "播客一键发布 刀 2：托管凭证合并、feed 覆盖上传与回滚点、上传读流错误收口、渲染层托管卡片、locales 拆层"
   },
@@ -74,7 +74,7 @@
         "claim": "saveHosting 的 accessKeySecret 未 trim ⇒ 空白串会静默覆盖已存真实凭证，configured 仍为 true",
         "verification": "读源码逐行确认：validateHosting 产出的 PODCAST_HOSTING_CREDENTIAL_REQUIRED 被 filter 摘掉后，缺席判据只挡空串不挡空白，故成立",
         "disposition": "fixed",
-        "fixCommit": "7bfb0cb47",
+        "fixCommit": "a72a8d0bd",
         "regressionLocks": [
           "podcast-hosting-service.test.js：secret 传空白串 = 缺席（变异「去掉 trim」实测仅此条红）",
           "podcast-hosting-service.test.js：AK 只有空白且无旧凭证 → 仍判缺席并拒绝"
@@ -85,7 +85,7 @@
         "claim": "ipc-handlers/podcast.js 文件头「通道合同」注释未列刀 1 频道目录 5 条与刀 2 托管/发布 4 条",
         "verification": "读注释原文确认停在 8 条；合同注释与实现脱节会误导并行开发",
         "disposition": "fixed",
-        "fixCommit": "7bfb0cb47",
+        "fixCommit": "a72a8d0bd",
         "evidence": "补注释后 check-ipc-bridge.js 仍 451 handlers / 469 preload / 0 已知缺口（注释不含注册调用形态，未造出幽灵通道）"
       }
     ],
