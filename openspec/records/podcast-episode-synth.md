@@ -2,9 +2,6 @@
 record: podcast-episode-synth
 task: 刀 4 第 2 块——逐块云端 TTS 合成 + 块间显式静音 + 拼接后实测（extractMix 的等价替身）
 date: 2026-10-11
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填 PR 改写为 PASS + merge SHA，并整段删除本三个 sync_ 字段
-sync_backfill_owner: 下一个会话（同一 agent 收尾链：合并 → 回填 → 销账 → worktree 清理）
 ---
 
 # 本次执行记录：播客刀 4 第 2 块：逐块 TTS 合成与块间静音（podcast-episode-synth，2026-10-11）
@@ -37,4 +34,4 @@ sync_backfill_owner: 下一个会话（同一 agent 收尾链：合并 → 回�
 
 ## 远程同步
 
-| 远程同步 | PENDING | 待本 PR 合并后回填 PASS + merge SHA，并在同一次提交删除 ledger 登记项与本文件 frontmatter 的三个 sync_ 字段 |
+| 远程同步 | PASS | 已合并：PR #3359，merge 0e408f5d62d75534e623299ab415702a6e56d5ba（2026-10-12，squash）。取证：`git log origin/main --grep "(#3359)$" --format=%H|%cI`；本次回填同一次提交删除 ledger 登记项，并在带 frontmatter 的记录文件里删 sync_ 字段 |
