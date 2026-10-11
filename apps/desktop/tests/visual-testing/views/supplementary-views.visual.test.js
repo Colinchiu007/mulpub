@@ -5,6 +5,9 @@
 
 const path = require('path');
 const { VisualTestRunner } = require('../test-runner');
+// 与 all-views 共用同一份就绪故障分类：两套 runViewSuite 是两份实现，
+// 但「什么叫这一页根本没渲染出来」必须只有一个口径（见 ready-classification.js）。
+const { isReadyFailure, exitCodeForError, classifyFailures } = require('../ready-classification');
 
 function check(name, selector, prompt) {
   return { name, selector, prompt };
@@ -274,10 +277,26 @@ async function runViewSuite(tests, options = {}) {
   }
 
   if (failures.length > 0) {
-    const error = new Error(
-      `补充视图失败: ${failures.map(item => `${item.test}: ${item.error.message}`).join(' | ')}`,
-    );
+    const { neverReady, otherFailures, line } = classifyFailures(failures);
+    let error;
+    if (neverReady.length > 0) {
+      console.error(line);
+      error = new Error('补充视图失败: ' + neverReady.length
+        + ' 个视图从未渲染出来（就绪超时 ⇒ 路由/选择器故障，不是像素抖动）: '
+        + neverReady.map(item => item.test).join(', ')
+        + (otherFailures.length
+          ? '；另有 ' + otherFailures.length + ' 个视图失败（像素/校验类，交 Gate 7b 判定）: '
+            + otherFailures.map(item => item.test).join(', ')
+          : ''));
+      error.code = 'ERR_VISUAL_NOT_READY';
+    } else {
+      error = new Error('补充视图失败: '
+        + failures.map(item => item.test + ': ' + item.error.message).join(' | '));
+      error.code = 'ERR_VISUAL_SUITE_FAILED';
+    }
     error.failures = failures;
+    error.neverReady = neverReady;
+    error.otherFailures = otherFailures;
     throw error;
   }
 
@@ -304,7 +323,8 @@ if (require.main === module) {
       : runSupplementaryTests;
     run().catch(error => {
       console.error(error.message);
-      process.exitCode = 1;
+      // 3 = 有视图从未渲染出来；1 = 像素/校验类。与 all-views 同一映射。
+      process.exitCode = exitCodeForError(error);
     });
   }
 }
@@ -314,6 +334,8 @@ module.exports = {
   viewUrl,
   runViewTest,
   runViewSuite,
+  isReadyFailure,
+  exitCodeForError,
   runSupplementaryTests,
   runSingle,
 };

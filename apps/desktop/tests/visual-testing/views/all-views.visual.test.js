@@ -66,7 +66,11 @@ const viewTests = [
   routeView('providers-redirect', '/providers', '.cohere-main .page-title:has-text("模型服务商设置")', '页面主标题', '/model-providers'),
   routeView('model-providers', '/model-providers', '.cohere-main .page-title:has-text("模型服务商设置")'),
   routeView('video-clone', '/video-clone', '.video-clone-view'),
-  routeView('film-engineering', '/film-engineering', '.film-canvas-view'),
+  // 就绪锚点必须是**该路由组件一定渲染的节点**：/film-engineering 渲染 Hub（.film-hub-view），
+  // 而 .film-canvas-view 属于 Hub 里 `v-if="isMounted('canvas')"` 的懒挂载标签（默认标签是 auto）。
+  // 上一版按直觉填了 canvas 类名 ⇒ 每次 run 都抛「就绪超时」，却被 Gate 7 的 `|| views_exit=$?` 吞掉。
+  // 不用 `:has-text("…")` 钉文案：那会把测试与 zh locale 字面量锁死，是既有假红来源。
+  routeView('film-engineering', '/film-engineering', '.film-hub-view .fh-title'),
   routeView('film-engineering-classic', '/film-engineering/classic', '.film-engineering-view'),
   routeView('create-editor', '/create', '.cohere-main h1:has-text("视频创作")'),
   routeView('create-pipeline-redirect', '/create/pipeline', '.cohere-main h1:has-text("视频创作")', '页面主标题', '/create'),
@@ -96,6 +100,10 @@ function createRunner(options = {}) {
     headless: options.headless ?? (process.env.HEADLESS !== 'false'),
   });
 }
+
+// 就绪故障的分类判据是 views 两套共用的，唯一实现在同目录 ready-classification.js，
+// 这里只 re-export 给既有单测与 run-all-visual.js 使用。
+const { isReadyFailure, exitCodeForError, classifyFailures } = require('../ready-classification')
 
 async function runViewSuite(tests = viewTests, options = {}) {
   const runner = options.runner || createRunner(options);
@@ -139,13 +147,28 @@ async function runViewSuite(tests = viewTests, options = {}) {
 
   if (fatalError) throw fatalError;
   if (failures.length > 0) {
-    const error = new Error(
-      '单视图视觉门禁失败: '
-      + failures.map(failure => failure.test + ': ' + failure.error.message).join(' | '),
-    );
-    error.code = 'ERR_VISUAL_SUITE_FAILED';
-    error.failures = failures;
-    throw error;
+    // 分类按码，不按消息文本 —— 唯一实现见 ready-classification.js
+    const { neverReady, otherFailures, line } = classifyFailures(failures)
+    let error
+    if (neverReady.length > 0) {
+      console.error(line)
+      error = new Error('单视图视觉门禁失败: ' + neverReady.length
+        + ' 个视图从未渲染出来（就绪超时 ⇒ 路由/选择器故障，不是像素抖动）: '
+        + neverReady.map(f => f.test).join(', ')
+        + (otherFailures.length
+          ? '；另有 ' + otherFailures.length + ' 个视图失败（像素/校验类，交 Gate 7b 判定）: '
+            + otherFailures.map(f => f.test).join(', ')
+          : ''))
+      error.code = 'ERR_VISUAL_NOT_READY'
+    } else {
+      error = new Error('单视图视觉门禁失败: '
+        + failures.map(failure => failure.test + ': ' + failure.error.message).join(' | '))
+      error.code = 'ERR_VISUAL_SUITE_FAILED'
+    }
+    error.failures = failures
+    error.neverReady = neverReady
+    error.otherFailures = otherFailures
+    throw error
   }
 
   return {
@@ -185,12 +208,14 @@ async function main(args = process.argv.slice(2)) {
 if (require.main === module) {
   main().catch(error => {
     console.error(error.message);
-    process.exitCode = 1;
+    process.exitCode = exitCodeForError(error);
   });
 }
 
 module.exports = {
   viewTests,
+  isReadyFailure,
+  exitCodeForError,
   runViewSuite,
   runAllViewTests,
   runSingleView,

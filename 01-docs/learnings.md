@@ -1,3 +1,20 @@
+## 「在 CI 里捕获退出码却不判定」是装饰性门禁的第五种落点；就绪类与像素类必须分档（visual-readiness-gate，2026-10-11）
+
+- **现象**：`quality-gate.yml` Gate 7 写 `pnpm.cmd run test:visual || views_exit=$?`，`$viewsExit` 只进了一行 `[GATE-7] suite exits:` 打印，阻断条件只看 `$pixelExit`/`$judgeExit`。main push run `38104148726` 现场：`views=1` 与同一步结尾的 `[GATE-7] All visual tests passed` **共存**，红了约一周。
+- **根因（两层，互相掩盖）**：① 选择器 `.film-canvas-view` 不在它所在的路由上（详见下一条）；② 退出码被捕获但不参与判定。**只要 ② 成立，① 就可以无限期存在** —— 这是"门禁看着在跑、其实恒绿"的又一形态（前四种：断言恒真、`run:` 块不 fail-fast、夹具替对方剥壳、注册≠接线）。
+- **为什么不能"非 0 即拦"**：views 套件的 1 里既有确定性故障也有**采集抖动**（#2914 同 sha 两次 attempt 一档红一档绿，Gate 7b 的两轮交集甄别正是为此建的）。把 1 也接成阻断 = 把所有 PR 变成常量红。正解是**分档**：就绪类（页面根本没渲染出来）单独编 `exit 3` 并阻断，像素/校验类维持 1 且交 Gate 7b。
+- **判据按码不按文本**：`test-runner.js` 的两个就绪阶段分别抛 `ERR_VISUAL_APP_READY_TIMEOUT` / `ERR_VISUAL_READY_SELECTOR_TIMEOUT`。原方案草案写的是匹配消息里的「视觉测试就绪超时」——那等于把分类挂在一条随时可改的文案上，实现时改为按 `error.code`。
+- **两份同名实现必须同时改**：`all-views` 与 `supplementary-views` 各有一份 `runViewSuite`。只改前者，Gate 7 里 `views-supplement` 那条 `= 3` 判定就**永远点不到火** —— 新加的锁本身变成装饰性门禁。收敛为共享模块 `ready-classification.js`，并由 R11 逐套件锁"只 require、不得自带定义"。
+- **存在性锁必须同时证明"合规形态能绿"**：把 workflow 那几行抽出来喂 `pwsh` 跑六格，其中一格是**删掉 `$suitesNotReady = ''` 初始化** ⇒ rc=3 且名单为空（PowerShell 里 `$null -ne ''` 为真）。不跑这一格，就会写出一道把每条合规 PR 都判红的锁（PR #3225 同族教训）。
+
+## 视觉就绪选择器指向"该路由上不存在的节点"：懒挂载标签页 ≠ 页面根节点（visual-readiness-gate，2026-10-11）
+
+- **现象**：`routeView('film-engineering', '/film-engineering', '.film-canvas-view')` 每次 run 都 `waitForSelector` 超时 15s。
+- **根因**：`/film-engineering` 渲染的是 **Hub**（`FilmEngineeringHubView.vue`，根节点 `.film-hub-view`），而 `.film-canvas-view` 是 Hub 里 `v-if="isMounted('canvas')"` 的**标签页内容**；Hub 的 `TABS = ['auto','canvas','classic']` 配 `DEFAULT_TAB = 'auto'`、`mountedTabs` 初始只含默认标签 ⇒ 不显式带 `?tab=canvas` 时该节点**在 DOM 里根本不存在**。按"这一页的核心功能节点"直觉填选择器，正好填到一个永远不挂载的分支上。
+- **口径**：就绪锚点必须取**该路由组件在任何入口状态下都会渲染的最小出口**（本例 `.film-hub-view .fh-title`，Hub 的 `<h1>`），而不是"我认为用户会看到的那块"。这与 `waitForAppReady` 必须指向 `[data-testid="mp-workspace"]` 而非外壳节点是同一条纪律（AGENTS.md「等待/就绪判据必须锚定只随目标状态出现的最小出口」）——**同一族错误的第二个落点：常量是"节点存在"，不是"节点好看"**。
+- **不要用文案钉锚点**：`:has-text("…")` 会把测试与 zh locale 字面量锁死，是既有假红来源（AGENTS.md「渲染端测试断言 i18n 键而不是 locale 字面量」同族）。
+- **回归锁写法**：不要写 `expect(t.waitFor).toBe('.film-hub-view .fh-title')`（把实现细节钉成契约）。正解是让测试**自己从路由与组件源码推出根类名**再断言前缀：读 `router/index.js` 找 `path: '/film-engineering'` 的 `import('@/views/Xxx.vue')`，取该 `.vue` 的 `<template>` 首个 class，断言 `waitFor.startsWith('.' + rootClass)`；并补一条负断言 `not.toContain('film-canvas-view')` + 一条源码事实断言（Hub 里确实有 `v-if="isMounted('canvas')"`），否则锁会在"组件结构变了"时静默失去意义。
+
 ## CI 的 job 内步骤是串行的——「只报一个错」不等于「只有一个错」（film-auto-mode，2026-10-10）
 
 - **现象**：同一份代码连续三轮被 CI 挡下，每轮只报一个 Gate（Gate 10 → Gate 11 → Gate 14），修完一个又冒一个。
