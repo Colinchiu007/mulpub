@@ -2,9 +2,6 @@
 record: repopath-case-apps
 task: 机械重命名 apps/ 下仓库目录大小写 Mulpub→mulpub（与 PR #3000 2026-10-11 翻转口径一致）
 date: 2026-10-11
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（合并后原地回填）
 ---
 
 ## 本次执行记录：仓库目录改名大小写 apps/ 机械重命名（repopath-case-apps，2026-10-11）
@@ -23,7 +20,7 @@ sync_backfill_owner: 下一个会话（合并后原地回填）
 | 接线棘轮 | N/A | 本次未新增任何 `*.test.js`，仅修改既有测试文件内的路径字符串 |
 | QM-1 打包 / QM-4 视觉 | N/A | 9 文件中唯一落在 `apps/desktop/electron/` 的是 `python-bridge.integration.test.js`（测试文件），改动仅为 `D:/Data/projects/Mulpub`→`D:/Data/projects/mulpub` 路径字符串大小写翻转，未改动任何 electron 主进程逻辑 / require 链 / 打包入口；且本 worktree 未安装 electron 二进制（`node_modules/electron/dist/electron.exe` 不存在），依据 AGENTS.md QM-1「未触运行面」记 N/A |
 | QM-6 CCG 双模型外部评审 | ⚠️ | CCG `verify-security` 在 `electron-gui-v7.js` 报 1 高危 + 19 低危，但均属该 e2e 测试脚手架**既有代码**（L146 `ed.innerHTML="<p>测试正文。</p>"` 写死测试文本、其余为 `console.log` 调试输出），与本 PR 的路径字符串大小写翻转无关。据 AGENTS.md「门禁本身写错/越界」自查第 5 条，未改动这些既有测试代码（越界且可能破坏 e2e），以 `SKIP_CCG_GATE=1` 提交并在 PR 正文说明；本机无 `codeagent-wrapper`，双模型外部评审未执行，如实记此 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin <branch>` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | PR #3326 squash 合并，merge SHA `a644b36b02c4a35bbdc231afc2ce8778b2cbf799`（2026-10-11T18:43:36+08:00），取证 `git log origin/main --grep='(#3326)$' --format=%H|%cI`；`git ls-remote --heads origin repopath-case-apps` 返回 0 行，证远端分支已删 |
 
 ### 遗留（不假装已闭合）
 - `electron-gui-v7.js` 的 CCG 高危（innerHTML XSS 规则）为预存 e2e 脚手架问题，本次未处理；如需消除需单独 PR 清理该测试文件，不在本机械重命名任务范围内。
