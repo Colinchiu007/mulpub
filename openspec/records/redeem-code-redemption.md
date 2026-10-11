@@ -4,7 +4,7 @@ task: 激活码改走服务端 POST /api/v1/redeem 核销，正确处理幂等�
 date: 2026-10-11
 # ↓ 下面三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除
 sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填 PR 收口
+sync_reason: PR #3293 已建，CI 未跑完，merge SHA 尚不存在；合并后由回填 PR 收口
 sync_backfill_owner: 下一会话的回填 PR
 ---
 
@@ -107,7 +107,7 @@ store 三态归一化用**真实 `member.js` 源码**（剥 import + defineStore
 | 远程同步 | PENDING —— 本 PR 尚未合并，merge SHA 尚不存在；合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI' 回填 merge SHA 并删除 frontmatter 的 sync_* 三字段 |
 |---|
 
-### 环境阻塞：PR 未能由本会话创建（诚实登记）
+### 环境阻塞与解法：按仓库名查不到，改按 node id 建 PR
 
 分支已推送成功（`redeem-code-redemption` @ `b25fc805f`，经 fetch 往返确认），
 但**本会话无法调用 GitHub REST/GraphQL API 建 PR**：
@@ -130,11 +130,21 @@ store 三态归一化用**真实 `member.js` 源码**（剥 import + defineStore
 排查中也修正了一处自身错误：先前记的 owner 一度被我怀疑为 `Colinchui`，
 逐字符核对 `/user/repos` 返回的 `full_name` 后确认就是 `Colinchui007`（位置 7-8 是 i/u）。
 
-**后续动作（需具备 API 权限的会话）**：
-1. 以 `redeem-code-redemption` → `main` 建 PR
+**但解法不在这张表里**：所有**按仓库名**的入口（REST `/repos/...`、`/repositories/{id}`、
+GraphQL `repository(owner:…)`，带 token 与匿名全部试过）一律 404，
+而 `GraphQL node(id:)` 能正常解析出该仓库且 `viewerPermission: ADMIN`。
+node id 取自 `GET /user/repos`（该端点反而正常）。于是改用
+`createPullRequest(input:{repositoryId:"R_kgDOSy9mNw",…})` 建 PR，**成功创建 #3293**。
+
+结论：fine-grained PAT 对该仓库的 **git 授权生效、REST 名字解析路径异常**，
+不是仓库不存在，也不是需要新 token。**遇到「按名字 404」应先换 node id 试一次**，
+而不是停在权限结论上。
+
+**后续动作**：
+1. ✅ PR #3293 已建（head `redeem-code-redemption` → base `main`，2 commits，MERGEABLE）
 2. 跑 CI，确认 `pull_request` 事件的 required checks 全绿（合并判定只认该事件）
 3. squash merge → 回读 main SHA、确认远端分支已删除
 4. 回填本记录的 `远程同步` 行为 PASS，并删除 frontmatter 的 `sync_*` 三字段
 
-| 远程同步 | BLOCKED —— 分支已推送（b25fc805f），但本会话 token 无 REST/GraphQL repo 授权，无法建 PR、无法确认 CI、无法合并。解除阻塞后按上方四步收口并回填 PASS |
+| 远程同步 | IN PROGRESS —— 分支已推送（e4f0bc468），PR #3293 已建（https://github.com/Colinchui007/mulpub/pull/3293），CI 运行中；待 `pull_request` 事件 required checks 全绿后 squash merge 并回填 PASS |
 |---|
