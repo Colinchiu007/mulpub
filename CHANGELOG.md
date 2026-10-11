@@ -1,3 +1,22 @@
+# [未发布] feat(podcast): 播客刀 3 下半片第一块——出期适配层（2026-10-11，podcast-episode-ipc-impl）
+
+## 改动
+
+- 新增 `apps/desktop/electron/services/podcast-episode-adapters.js`：把出期编排的四个注入实现（`uploadImpl` / `episodeSink` / `feedSink` / `channelGate`）与托管前置条件落到真服务上。此前这些形状只有测试夹具在满足，真接线最容易在这里漂（外部评审 F8 点名的就是这条）。四条口径：
+  1. `kind` 必须显式——(x) => B + x + B='audio' 走 publishAudio、feed 走 publishFeed；缺 kind 或未知 kind 一律拒绝，**不得**「没有 kind 就当音频」（那会把两种语义不同的外发压成一条分支，feed 被静默跳过而用户看到 success）。
+  2. `publishFeed` 按刀 2 的设计**不抛错**、回 `{state:'failed'}`；而编排层的 partial 靠 `.catch` 触发。所以本层必须把非 success 转成带领域码与状态码的 throw——否则「feed 没传上去」会被读成成功，本层是这个压平风险的唯一堵点。
+  3. `episodeSink` 一律 `strict`：一键发布的那一期马上要进公网 feed，不合格字段落盘就是对外可见的坏数据（手工页才允许「先登记后补直链」）。
+  4. `channelGate.assertWritable` 每次现算服务实例，不跨动作缓存（配额与忙态会漂）。
+
+## 验证
+
+- 183 passed / 0 failed（本块新增 7 条行为锁）；QM-1 `verify-worktree-deps` OK → `build:dir` rc=0。
+- 一处**主动承认的弱断言**：`feedSink` 的「在发布通行证内跑 buildFeed」断言在探针不可用时回落 true，因此这条口径目前没有硬锁；要钉死需 `podcast-channel-locks` 暴露可观测探针，与 IPC 那片一起做。
+
+## 边界（不冒充已闭合）
+
+- 本块**没有调用者**：IPC 通道 `podcast:episode:publishFromVideo`、preload、渲染层桥接、状态机与入口浮层仍未落，「成片 → 一期 → 分发」对用户仍不可用（PRD §13 第 10/11 条继续生效）。适配层落地 ≠ 功能交付。
+
 # [未发布] docs(podcast): 刀 3 下半片接口契约入规格（2026-10-11，podcast-episode-ipc）
 
 ## 改动
