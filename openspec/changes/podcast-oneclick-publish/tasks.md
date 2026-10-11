@@ -27,12 +27,13 @@
 
 ## 3. 刀 3 成片一键出期 + 共用手柄（后续 PR）
 
-- [ ] 3.1 `readDegradedFlags`（与 `ResultView.vue:648-657` 同真源同判据，判据只认 `degraded === true`）
-- [ ] 3.2 `extractMix`（ffmpeg 抽全混音，失败/无音轨 fail closed，不回退旁白）+ `probe`（ffprobe 实测 duration/size/mime）
-- [ ] 3.3 三处一致校验（stat == ffprobe == putObject 返回 size）+ 阻断 uploadFeed；存储侧损坏如实记为不覆盖
+- [x] 3.1 `readDegradedFlags`（与 `ResultView.vue` 的降级徽标**同真源同判据**，判据只认 `degraded === true`）——落 `podcast-episode-source.js`，命中即 `PODCAST_AUDIO_DEGRADED_SOURCE` 且在**任何出站与写盘之前**拒绝
+- [x] 3.2 `extractMix`（ffmpeg 抽**完整混音**，无音轨/抽取失败/编码器缺失三种成因分别给码并 fail closed，不回退旁白）+ `probe`（ffprobe 实测 `durationSec`/`sizeBytes`，容器→显式 `mime`，不靠 URL 猜）——落 `podcast-episode-extract.js`，宿主调用经 `spawnImpl` 注入（**真实进程接线在第 3 片**）
+- [x] 3.3 三处一致校验（`fs.stat` == ffprobe == `putObject` 返回 size）在 `podcast-episode-publish.js` 挂期之前收口，不等即 `PODCAST_AUDIO_SIZE_MISMATCH` 并阻断后续相位；**存储侧损坏在默认零出站路径不覆盖**仍是欠账（见 PRD §13 与 records）
 - [ ] 3.4 `usePodcastEpisodePublish` 状态机（相位闭集 + 逐格驱动全部结果态）+ `PodcastPublishAction.vue` 浮层 + 挂起合同登记
 - [ ] 3.5 入口两枚：`ResultView.vue:726`、`CreateView.vue:4519`
 - [x] 3.6a feedSync 读侧接线（`channel:get` 带 `feedSync` + 横幅 + 重试复用同一条 `podcast:feed:publish`）；评审后追加：切频道与 `feedSync` 同进同退、`FEED_SYNC_STATUSES` 闭集与三向对账锁、`retryFeed` 文案名实相符
+- [ ] 3.6a2 刀 3 第 3 片：真实宿主接线（ffmpeg/ffprobe spawn + OSS `putObject` + `episodeSink`/`feedSink` 复用 `channelPublishPass` 与 `writeFeedSync` 忙锁口径）+ `podcast:episode:publishFromVideo` 通道 + preload 暴露；第 4 片：`usePodcastEpisodePublish` 状态机 + 浮层 + 两枚入口（3.4/3.5 不变）
 - [x] 3.6a1 修刀 1 遗留 Critical：`usePodcastChannelPicker.switchChannel` 引用页面域标识符必抛 `ReferenceError`（切频道整条路径不可用）→ 改走 `onChannelActivated` 回调；回归锁 `src/composables/usePodcastChannel-switch.test.js`，根因与逃逸链见 `01-docs/BUGFIX-PODCAST-CHANNEL-SWITCH-2026-10-11.md`
 - [ ] 3.6b 按相位取消 + 崩溃对账提示（**原 3.6 的剩余部分**：`getChannel` 目前只回 `meta`、渲染层零消费点，刀 2 只落了写侧——见 PRD §13 第 9 条与 spec「feedSync 只有写侧没有读侧」的口径纠正；不接就是让那条横幅永远是文档里的）
 
