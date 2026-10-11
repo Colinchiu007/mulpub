@@ -60,3 +60,13 @@ S1 交付后 registry 里只有 8 个主榜 ⇒ `sina_finance`（新浪财经滚
 | 项目 | 状态 | 取证与回填要求 |
 | ---- | ---- | ---- |
 | 远程同步 | PENDING | 本 PR 尚未合并；合并后同一次回填本行、`.quality-gates.md` 同名记录的表格行与 bullet、本文件 frontmatter 的 `sync_*` 三字段，并删除 `scripts/gate-record-debt-ledger.json` 的本标题登记项 |
+
+### 五、记忆沉淀
+
+| 载体 | 状态 | 取证 |
+| ---- | ---- | ---- |
+| 仓库文档 | PASS | 本记录 + `.quality-gates.md` 同名记录 + PRD §4.1 + change `tasks.md` + `CHANGELOG.md` 新条目 |
+| `01-docs/learnings.md` | PASS | 新增「复用既有聚合服务时，源清单要以**信道**为单位核对」小节（把「5 个垂类」的真实结构与本条可复用判据写清） |
+| 外机 gstack learnings.jsonl | PASS | 追加 1 条：`aggregated-service-source-list-must-be-counted-by-channel-not-by-doc` |
+| EverOS | PASS | 同一 session `mp-quick-collect-s1s2-20261011` 再 add 1 条并 flush（判据取 flush=extracted + 落盘 episode grep 哨兵词 `sina_finance`） |
+
