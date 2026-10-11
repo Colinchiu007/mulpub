@@ -199,7 +199,7 @@ describe('S1/引擎：search 与 trend 分流', () => {
 })
 
 describe('S1/内置词条：源必须是闭集子集', () => {
-  it('所有内置词的 sources 都属闭集，且热点/舆情词条吃到中文榜单源', async () => {
+  it('所有内置词的 sources 都属闭集，且热点词条吃到中文榜单源', async () => {
     const { PRESET_COMMANDS } = await presetsMod()
     const { ALL_SOURCE_IDS } = await sourcesMod()
     for (const c of PRESET_COMMANDS) {
@@ -208,8 +208,8 @@ describe('S1/内置词条：源必须是闭集子集', () => {
     const hot = PRESET_COMMANDS.find((c) => c.id === 'builtin-hot-topics')
     expect(hot.sources).toContain('weibo')
     expect(hot.sources).toContain('douyin')
-    const risk = PRESET_COMMANDS.find((c) => c.id === 'builtin-risk-alert')
-    expect(risk.sources).toContain('weibo')
+    const howto = PRESET_COMMANDS.find((c) => c.id === 'builtin-ai-howto')
+    expect(howto.sources).toContain('github')
     // AI 领域动向的提示词仍然逐字不动（用户需求原文）
     const ai = PRESET_COMMANDS.find((c) => c.id === 'builtin-ai-trends')
     expect(ai.prompt).toContain("请检索过去48小时内AI与新技术领域的真实动态")
