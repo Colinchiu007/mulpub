@@ -1,0 +1,10 @@
+{
+  "subject": "PR #3291 刀 3 第 3 片上半（publishAudio + 编排/抽取守卫）",
+  "reviewer": "claude（后端），session ca5e1f13-f98c-4715-b7e6-0c8722a41d18",
+  "critical": 0,
+  "warning": 3,
+  "info": 3,
+  "timing": "评审在 #3291 合并之后才返回——第一轮 wrapper 输出未捕获即退出，重跑耗时约 28 分钟。这笔流程债已在 .quality-gates.md 的 #3291 记录与项目记忆里如实标注，不追认成「合并前已过 QM-6」。",
+  "disposition": "三条 Warning 与三条 Info 全部登记为 tasks 3.8 ①–⑤，由第 3 片下半的同一 PR 承接（W1 与实现注释的矛盾必须在该 PR 内消掉：要么实现取锁，要么把注释改口，不许留假注释）",
+  "evidence": "grep severity 计数 Critical=0 Warning=3 Info=3；原文见 critique-backend-v2.md"
+}
