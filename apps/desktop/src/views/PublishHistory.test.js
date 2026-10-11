@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { nextTick, ref } from 'vue'
 import fs from 'node:fs'
@@ -1109,5 +1109,91 @@ describe('PublishHistory 作品链接必须落到平台公开内容页', () => {
     await flushHistory()
     expect(tabCreateTabMock).toHaveBeenCalledTimes(1)
     expect(tabCreateTabMock.mock.calls[0][0].url).toBe(shared)
+  })
+})
+
+// 2026-10-12 用户报障「发布的历史记录页，发布任务的缩略图好像不是发布的真实封面图片」：
+// 写侧从来不落封面键（已在 phase4-events 补齐），读侧 `thumbnailUrl` 恒空 → 回退平台图标。
+// 本组锁读侧的渲染契约：本地 cover_path 经 cover:read-data 转 dataURL、远程 cover_url
+// 过协议判据、都拿不到时回退平台图标（不渲染破图）。
+describe('PublishHistory — 真实封面缩略图（2026-10-12）', () => {
+  const originalElectronAPI = globalThis.window ? window.electronAPI : undefined
+
+  afterEach(() => {
+    if (globalThis.window) window.electronAPI = originalElectronAPI
+  })
+
+  function recordWithCover (extra) {
+    return {
+      id: 'cover-1',
+      title: '带封面的发布',
+      platform: 'zhihu',
+      status: 'success',
+      timestamp: '2026-10-12T00:00:00.000Z',
+      ...extra,
+    }
+  }
+
+  async function mountWithRecord (record) {
+    historyListMock.mockReset().mockResolvedValue({
+      code: 0,
+      data: { total: 1, records: [record] },
+    })
+    const wrapper = mountView()
+    await flushHistory()
+    return wrapper
+  }
+
+  it('本地 cover_path 经 cover:read-data 转 dataURL 渲染真实封面（不直接拿路径当 src）', async () => {
+    const readCoverData = vi.fn(async () => ({ code: 0, data: { dataUrl: 'data:image/png;base64,REALCOVER' } }))
+    window.electronAPI = { readCoverData }
+
+    const wrapper = await mountWithRecord(recordWithCover({ cover_path: 'D:/covers/real.png' }))
+    await flushHistory()
+
+    expect(readCoverData).toHaveBeenCalledWith('D:/covers/real.png')
+    const img = wrapper.find('.record-preview img')
+    expect(img.exists()).toBe(true)
+    expect(img.attributes('src')).toBe('data:image/png;base64,REALCOVER')
+  })
+
+  it('远程 cover_url 直接渲染', async () => {
+    window.electronAPI = { readCoverData: vi.fn() }
+
+    const wrapper = await mountWithRecord(recordWithCover({ cover_url: 'https://cdn.example.com/remote.png' }))
+
+    const img = wrapper.find('.record-preview img')
+    expect(img.exists()).toBe(true)
+    expect(img.attributes('src')).toBe('https://cdn.example.com/remote.png')
+    expect(window.electronAPI.readCoverData).not.toHaveBeenCalled()
+  })
+
+  it('本地封面读取失败时回退（不渲染破图）', async () => {
+    window.electronAPI = { readCoverData: vi.fn(async () => ({ code: -1, message: '读取失败' })) }
+
+    const wrapper = await mountWithRecord(recordWithCover({ cover_path: 'D:/covers/broken.png' }))
+    await flushHistory()
+
+    // 回退到平台图标/占位，而不是渲染一个 src 是本地路径的破图
+    const preview = wrapper.find('.record-preview')
+    expect(preview.exists()).toBe(true)
+    expect(preview.find('img[src^="D:"]').exists()).toBe(false)
+  })
+
+  it('非 http(s) 的封面 URL 不产出锚点式破图（回退平台图标）', async () => {
+    window.electronAPI = { readCoverData: vi.fn() }
+
+    const wrapper = await mountWithRecord(recordWithCover({ cover_url: 'javascript:alert(1)' }))
+
+    expect(wrapper.find('.record-preview img[src^="javascript"]').exists()).toBe(false)
+  })
+
+  it('存量记录（无任何封面键）行为不变：回退平台图标', async () => {
+    window.electronAPI = { readCoverData: vi.fn() }
+
+    const wrapper = await mountWithRecord(recordWithCover({}))
+
+    expect(wrapper.find('.record-preview').exists()).toBe(true)
+    expect(window.electronAPI.readCoverData).not.toHaveBeenCalled()
   })
 })

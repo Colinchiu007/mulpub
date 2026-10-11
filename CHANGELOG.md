@@ -46,6 +46,38 @@
 
 CDP 超时（2500ms）时仍会走既有 fail-open 降级路径（补注入 + 整页重载），极端负载下仍可能看到一次登录页闪烁
 （一次全量测试并发占满 CPU 的 E2E 运行中复现过）；未上调超时上限，理由与后续方案见 PRD §13。
+# [未发布] fix(publish): 微信公众号图文草稿只有标题——补齐正文可信注入与封面上传，并让历史缩略图显示真实封面（2026-10-12，wxmp-article-content-cover）
+
+## 背景
+
+用户用**同一条文案**分别发图文到快手与微信公众号：快手侧有正文、有封面；微信公众号草稿箱里**只有标题**。用户据此提出三问，逐条查证后的答案都是「否」：
+
+1. **「发布动作时没把合适的内容传过去？」→ 是，而且分两处缺。**
+   - **封面**：`_publish_wechat_mp` 从头到尾**没有封面上传这一步**（对照 `_publish_generic` 有完整的 `article.cover_path` → `input[type=file]` 段）。公众号封面是**必填项**，所以现象不是「封面丢了」而是「草稿本身不完整」。
+   - **正文**：用 `_setElementContentSafe` 的 `el.innerHTML = ...` 直写 DOM。新版后台正文是 **ProseMirror** —— 本仓 2026-09-29 已为知乎 Draft.js 确立「受控组件的『内容在 DOM 里』不等于『进了框架 state』」，直写不进模型；而该 Helper **无论是否生效都返回成功**，于是「界面一度有字 → 保存后正文为空」被记成 success。
+2. **「没封面时自动生成一个再用它发布？」→ 只对一半，且恰好漏掉公众号。**
+   自动封面兜底的触发集合是 `IMAGE_TEXT_PLATFORMS = ['xiaohongshu','kuaishou','douyin','toutiao']`（**不含 `wechat_mp`**），且成功后只写 `images` / `image_files`（图片通道），**从不写 `cover_path`** —— 而封面上传链路消费的正是 `cover_path`。
+3. **「历史记录页缩略图不是真实封面？」→ 不是「取错图」，是「数据从来不存在」。**
+   两个落库点（`phase4-events.js` 的 `task:success` / `task:failed`）的 `history.addRecord()` **一个封面键都没写**，读侧 `thumbnailUrl(record)` 表达式恒空 ⇒ 模板回退**平台图标**。
+
+三个问题同源：**「本次发布实际用了哪张封面」从来没被当作一等数据**。
+
+## 改动
+
+- **新增 `apps/desktop/electron/services/wechat-mp-article.js`**：正文按保真度降级注入并**每步回读校验** —— 平台自带 `__MP_Editor_JSAPI__.mp_editor_set_content`（HTML 全保真）→ 合成 `paste`（`text/html` DataTransfer）→ CDP `Input.insertText`（纯文本）→ `innerHTML` 兜底 → 旧版 `iframe#ueditor_0`。注入前清空（`selectAll`+`delete`）、注入后静置 800ms 再回读，**回读为 0 即 fail-closed**。标题补第二个写入口 `.title-editor__input .ProseMirror`。
+- **新增 `apps/desktop/electron/services/wechat-mp-cover.js`**：封面入口 → 菜单（`#js_cover_null .js_imagedialog`）→ 弹层文件框（`DataTransfer`，失败回退 CDP `DOM.setFileInputFiles`）→ 「下一步 / 确认」。**生效判据按证据强度**：封面 CDN（`mmbiz.qpic.cn`）> `.js_cover_preview_new` 有可用背景图 > 容器 `img` 数递增。上传前校验本地路径 / 存在性 / 2MB 上限（与 Python API 轨同口径）。
+  - ⛔ **不以 `img` 数为主判据**（新版封面预览是 `background-image` 的 div，用它会**恒失败**、直接把公众号发布打死）；⛔ **不以「占位文案消失」为判据**。
+- **`usePublishFlow.js`**：新增 `AUTO_COVER_PLATFORMS = IMAGE_TEXT_PLATFORMS ∪ ['wechat_mp']`（单一真源）；触发条件补 **V4「无任何封面」**（此前会覆盖用户已选封面并白跑一次生图）；生成成功后**双通道落值**（`images` + `cover_path`）；生成失败**出声**而非静默 catch。新增两条 locale 文案（zh/en 成对）。
+- **`rpa-view-platforms.js`**：公众号分支接入上述两模块（正文/封面各自 fail-closed）；快手**图文模式**显式 `cover_input: []`（避免同一张图被图片通道与封面通道重复注入）。
+- **新增 `publish-record-cover.js`** + `phase4-events.js`：成功与失败记录**同源**落库 `cover_path` / `cover_url`（本地优先且与 URL 互斥；无值写空串而非 `undefined`，避免 `JSON.stringify` 丢键）。
+- **新增 `useHistoryCoverThumbnails.js`** + `PublishHistory.vue` 单点接线：本地封面经既有 `cover:read-data` 转 dataURL（渲染层 CSP 的 `img-src` 不含 `file:`）、远程封面过 `safeHttpUrl`、按路径缓存去重、**迟到响应丢弃**；取不到即回退平台图标（不渲染破图）。
+
+## 验证
+
+- 新增/扩写 6 个测试文件、**59 条新用例**；相关域 **256 passed / 0 failed**。
+- **变异反证 6/6 全部变红**：摘封面 fail-closed / 摘正文回读判据 / 自动封面退回只落 `images` / 封面判据退回只看 `img` 数 / `resolveRecordCover` 恒空 / 历史缩略图不解析本地封面。
+- 静态门禁全 PASS：max-lines（首版单文件 585 行被 `NEW_OVER_LIMIT` 拦红 ⇒ 拆两模块后通过）、ESLint 0 error、brand residue、locale-sync（`--cjk/--keys/--py-cjk`）、spec-purpose、renderer-cjs-boundary、unwired-tests、frontend-consistency、vue-style-parse、color-literals、css-var-defined、font-size-scale、scoped-root、ipc-sender-guard、coverage-include-sfc、route-registry、ipc-bridge、hardcoded-secrets、test-microtask-spin。
+- **真机验证 PENDING**：本机无可用公众号账号会话，「导出 `appmsg_edit_v2` 真实 DOM 核对选择器 + 真机发一条图文核对草稿三项齐全 + 历史页核对缩略图」未完成，选择器为候选表（详见 `01-docs/PRD-WECHAT-MP-ARTICLE-PUBLISH-2026-10-12.md` §9.1）。
 
 # [未发布] feat(collection): 快捷采集内置词条按用户真实需求重排（quick-collect-preset-refresh）
 

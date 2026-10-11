@@ -62,6 +62,12 @@ import { usePublishProgressStore } from '@/stores/publishProgress'
 // （症状：publish verification timeout，日志无 uploadCover entry 行即表示 coverPath 为 null）。
 const IMAGE_TEXT_PLATFORMS = ['xiaohongshu', 'kuaishou', 'douyin', 'toutiao']
 
+// 2026-10-12 公众号补齐：**封面是公众号必填项**（`01-docs/platform-publish-options-audit/REPORT.md`：
+// 「封面图｜公众号必填」），而 RPA 链此前既没上传封面、自动封面兜底也没把它写进 `cover_path`
+// （只写 `images`）⇒ 同一条文案发快手有正文有封面、发公众号草稿箱只有标题。
+// 自动封面集合 = 图文要求图片的平台 ∪ 封面必填的平台；**单一真源**，禁止在别处再列一份。
+const AUTO_COVER_PLATFORMS = [...IMAGE_TEXT_PLATFORMS, 'wechat_mp']
+
 function nowTimeString() {
   return new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
@@ -450,26 +456,48 @@ export function usePublishFlow(options) {
         }
       }
 
-      // 2026-09-29 图文发布兜底：小红书/快手/抖音图文要求至少 1 张图片；无图时自动生成封面
+      // 2026-09-29 图文发布兜底 + 2026-10-12 公众号补齐：图文发布缺图/缺封面时自动生成封面
       // （AI 生图优先，本地标题卡兜底——cover:generate-ai 已内建回退）。生成失败不阻断发布
       // （无图平台照常发，图片平台会在引擎层如实报错）；成功则附加进表单（用户可见，透明）。
-      if (!isVideoMode && selectedPlatforms.value.some(p => IMAGE_TEXT_PLATFORMS.includes(p))) {
-        const hasImages = (Array.isArray(article.image_files) && article.image_files.length > 0)
-          || (Array.isArray(article.images) && article.images.length > 0)
-        if (!hasImages && article.title.trim()) {
+      //
+      // 触发条件必须**完备**——四项同时成立才生成：
+      //   ① 非视频发布；② 选中平台命中 AUTO_COVER_PLATFORMS；
+      //   ③ 无图片（image_files / images 都空）；
+      //   ④ **无任何封面**（cover_path / cover_file / cover_url 都空）。
+      // ④ 是本次补的：此前漏了它，导致「用户已选封面但没选图片」时仍会多生成一张，
+      // 既浪费一次生图调用，又让「用户选的封面」与「系统生成的封面」在同一次发布里并存。
+      const isTextImagePublish = !isVideoMode && selectedPlatforms.value.some(p => AUTO_COVER_PLATFORMS.includes(p))
+      const hasImages = (Array.isArray(article.image_files) && article.image_files.length > 0)
+        || (Array.isArray(article.images) && article.images.length > 0)
+      const hasCover = Boolean(
+        String(article.cover_path || '').trim()
+        || article.cover_file
+        || String(article.cover_url || '').trim(),
+      )
+      if (isTextImagePublish && article.title.trim()) {
+        if (hasCover) {
+          if (!hasImages) addProgress(progressText('publishPage.publishFlow.coverAlreadySet'), 'info')
+        } else if (!hasImages) {
           try {
             addProgress(progressText('publishPage.publishFlow.generatingCover'), 'info')
             const coverRes = await generateAiCover({ prompt: article.title, ratio: '3:4' })
             if (coverRes && coverRes.code === 0 && coverRes.data && coverRes.data.coverPath) {
               const coverFile = normalizePublishFile({ path: coverRes.data.coverPath })
               if (coverFile) {
+                // 双通道落值（2026-10-12）：图片通道给「要求至少一张图」的平台（小红书/快手/抖音/头条），
+                // 封面通道给「封面必填」的平台（公众号）。只落一侧就会出现「快手有封面、公众号没有」。
                 article.image_files = [coverFile]
                 article.images = [coverFile.path]
+                article.cover_file = coverFile
+                article.cover_path = coverFile.path
                 addProgress(progressText('publishPage.publishFlow.coverGenerated'), 'success')
               }
+            } else {
+              // 生成失败不阻断：无图平台照常发布，但必须出声（此前是静默 catch，用户看不到原因）
+              addProgress(progressText('publishPage.publishFlow.coverGeneratedFailed'), 'warning')
             }
           } catch (_) {
-            // 封面生成失败不阻断：无图平台照常发布
+            addProgress(progressText('publishPage.publishFlow.coverGeneratedFailed'), 'warning')
           }
         }
       }

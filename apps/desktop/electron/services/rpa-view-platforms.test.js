@@ -40,7 +40,37 @@ function createWechatContext() {
     _sleep: vi.fn().mockResolvedValue(undefined),
     _waitForResponse: vi.fn().mockResolvedValue(null),
     _waitForCondition: vi.fn().mockResolvedValue(true),
+    // 2026-10-12 正文注入契约：可信通道 + 回退通道（`wechat-mp-article` 依赖）
+    _insertTextTrusted: vi.fn().mockResolvedValue(true),
+    _setElementContentSafe: vi.fn().mockResolvedValue(true),
+    _setFileInput: vi.fn().mockResolvedValue(true),
   }
+}
+
+/**
+ * 按 `wechat-mp-article.js` 的脚本标记分派返回值。
+ * 不传 plan 时保持「什么都没找到」的中性默认，使不关心这两段的旧用例行为不变。
+ */
+function scriptedWechatJavaScript (plan = {}) {
+  const coverStates = Array.isArray(plan.coverState) ? plan.coverState.slice() : null
+  return vi.fn(async (script) => {
+    const s = String(script)
+    if (s.includes('/*mpwc-clear*/')) return plan.clear === undefined ? null : plan.clear
+    if (s.includes('/*mpwc-read*/')) return plan.read === undefined ? 0 : plan.read
+    if (s.includes('/*mpwc-jsapi*/')) return plan.jsapi === undefined ? { ok: false, detail: 'no-jsapi' } : plan.jsapi
+    if (s.includes('/*mpwc-paste*/')) return plan.paste === undefined ? { ok: false, detail: 'no-editor' } : plan.paste
+    if (s.includes('/*mpwc-cover-state*/')) {
+      if (coverStates && coverStates.length) return coverStates.shift()
+      return plan.state === undefined ? { preview: false, hasCdn: false, bgUsable: false, imgCount: 0 } : plan.state
+    }
+    if (s.includes('/*mpwc-cover-inject*/')) return plan.inject === undefined ? true : plan.inject
+    if (s.includes('/*mpwc-cover-entry*/')) return { ok: false, detail: 'no-entry' }
+    if (s.includes('/*mpwc-cover-menu*/')) return { ok: false, detail: 'no-menu-item' }
+    if (s.includes('/*mpwc-cover-inputs*/')) return plan.inputs === undefined ? 1 : plan.inputs
+    if (s.includes('/*mpwc-cover-next*/')) return plan.next === undefined ? { ok: false } : plan.next
+    if (s.includes('.title-editor__input')) return plan.titleEditor === undefined ? false : plan.titleEditor
+    return true
+  })
 }
 
 describe('rpa-view-platforms — 结构约束', () => {
@@ -218,6 +248,121 @@ describe('rpa-view-platforms — 微信公众号发布', () => {
     expect(result.error).toContain('token')
     // 只导航了首页一次，没有第二次导航
     expect(context._navigateAndWait).toHaveBeenCalledTimes(1)
+  })
+
+  // ── 2026-10-12：正文可信注入 + 封面必传（用户报障「同文案发公众号只有标题」） ──
+
+  const SAVE_BTN_HINT = 'js_sync_save'
+
+  it('正文注入未生效时 fail-closed，且不点保存草稿', async () => {
+    const { win } = createWindow('https://mp.weixin.qq.com/cgi-bin/appmsg?appmsgid=12345&token=123456')
+    win.webContents.executeJavaScript = scriptedWechatJavaScript({ clear: { found: true, before: 0, cleared: 0 }, read: 0 })
+    const context = createWechatContext()
+
+    const result = await platformsMixin._publish_wechat_mp.call(context, win, { title: 'T', content: '正文内容' })
+
+    expect(result).toEqual(expect.objectContaining({ success: false, platform: 'wechat_mp' }))
+    expect(result.error).toContain('正文未写入编辑器')
+    const saveClicks = context._click.mock.calls.filter(([, sel]) => String(sel).includes(SAVE_BTN_HINT))
+    expect(saveClicks).toHaveLength(0)
+  })
+
+  it('正文注入生效时走可信通道（_insertTextTrusted），不退回 innerHTML 直写', async () => {
+    const { win } = createWindow('https://mp.weixin.qq.com/cgi-bin/appmsg?appmsgid=12345&token=123456')
+    win.webContents.executeJavaScript = scriptedWechatJavaScript({ clear: { found: true, before: 0, cleared: 0 }, read: 9 })
+    const context = createWechatContext()
+
+    const result = await platformsMixin._publish_wechat_mp.call(context, win, { title: 'T', content: '正文内容' })
+
+    expect(result.success).toBe(true)
+    expect(context._insertTextTrusted).toHaveBeenCalledTimes(1)
+    expect(context._setElementContentSafe).not.toHaveBeenCalled()
+  })
+
+  it('有本地封面时：先上传封面、再点保存草稿（顺序锁）；生效判据是封面 CDN 证据', async () => {
+    const fs = require('fs')
+    const os = require('os')
+    const path = require('path')
+    const coverPath = path.join(os.tmpdir(), 'mp-wechat-mixin-cover.png')
+    fs.mkdirSync(path.dirname(coverPath), { recursive: true })
+    fs.writeFileSync(coverPath, Buffer.from([0x89, 0x50, 0x4e, 0x47]))
+
+    const { win } = createWindow('https://mp.weixin.qq.com/cgi-bin/appmsg?appmsgid=12345&token=123456')
+    win.webContents.executeJavaScript = scriptedWechatJavaScript({
+      coverState: [
+        { preview: false, hasCdn: false, bgUsable: false, imgCount: 0 },
+        { preview: true, hasCdn: true, bgUsable: true, imgCount: 0 },
+      ],
+      next: { ok: true, label: '确认' },
+    })
+    const clicked = []
+    const context = createWechatContext()
+    context._click.mockImplementation(async (_w, sel) => { clicked.push(String(sel)); return true })
+
+    const result = await platformsMixin._publish_wechat_mp.call(context, win, { cover_path: coverPath })
+
+    expect(result.success).toBe(true)
+    const coverIdx = clicked.findIndex(sel => sel.includes('cover'))
+    const saveIdx = clicked.findIndex(sel => sel.includes(SAVE_BTN_HINT))
+    expect(coverIdx).toBeGreaterThanOrEqual(0)
+    expect(saveIdx).toBeGreaterThan(coverIdx)
+  })
+
+  it('有本地封面但拿不到生效证据时 fail-closed，且不点保存草稿', async () => {
+    const fs = require('fs')
+    const os = require('os')
+    const path = require('path')
+    const coverPath = path.join(os.tmpdir(), 'mp-wechat-mixin-cover-fail.png')
+    fs.mkdirSync(path.dirname(coverPath), { recursive: true })
+    fs.writeFileSync(coverPath, Buffer.from([0x89, 0x50, 0x4e, 0x47]))
+
+    const { win } = createWindow('https://mp.weixin.qq.com/cgi-bin/appmsg?appmsgid=12345&token=123456')
+    // 恒无证据：封面 CDN / 预览背景图 / img 数三条判据全不成立
+    win.webContents.executeJavaScript = scriptedWechatJavaScript({
+      state: { preview: false, hasCdn: false, bgUsable: false, imgCount: 0 },
+    })
+    const context = createWechatContext()
+
+    const result = await platformsMixin._publish_wechat_mp.call(context, win, { cover_path: coverPath })
+
+    expect(result).toEqual(expect.objectContaining({ success: false, platform: 'wechat_mp' }))
+    expect(result.error).toContain('封面图上传未取得生效证据')
+    const saveClicks = context._click.mock.calls.filter(([, sel]) => String(sel).includes(SAVE_BTN_HINT))
+    expect(saveClicks).toHaveLength(0)
+  })
+
+  it('封面是网络地址时给出可操作原因（DOM 轨只能注入本地文件）', async () => {
+    const { win } = createWindow('https://mp.weixin.qq.com/cgi-bin/appmsg?appmsgid=12345&token=123456')
+    win.webContents.executeJavaScript = scriptedWechatJavaScript()
+    const context = createWechatContext()
+
+    const result = await platformsMixin._publish_wechat_mp.call(context, win, { cover_path: 'https://example.com/c.png' })
+
+    expect(result).toEqual(expect.objectContaining({ success: false, platform: 'wechat_mp' }))
+    expect(result.error).toContain('本地图片文件')
+  })
+
+  it('无封面时行为与改造前一致：不点封面入口、不额外调用 JS（既有断言不得破）', async () => {
+    const { win } = createWindow('https://mp.weixin.qq.com/cgi-bin/appmsg?appmsgid=12345&token=123456')
+    const context = createWechatContext()
+
+    const result = await platformsMixin._publish_wechat_mp.call(context, win, {})
+
+    expect(result.success).toBe(true)
+    // 只有一次点击（保存草稿），没有封面入口点击
+    expect(context._click).toHaveBeenCalledTimes(1)
+    const coverClicks = context._click.mock.calls.filter(([, sel]) => String(sel).includes('cover'))
+    expect(coverClicks).toHaveLength(0)
+  })
+
+  it('快手图文模式显式关闭封面通道（自动封面同时落 cover_path 后不得重复插图）', () => {
+    const source = fs.readFileSync(require.resolve('./rpa-view-platforms'), 'utf-8')
+    const start = source.indexOf('async _publish_kuaishou')
+    expect(start).toBeGreaterThan(-1)
+    const body = source.slice(start, source.indexOf('async _publish_toutiao', start))
+    expect(body).toContain('cover_input: []')
+    // 必须是图文模式那支；视频模式不得被顺手关掉
+    expect(body).toMatch(/isImageMode[\s\S]*cover_input: \[\]/)
   })
 })
 
