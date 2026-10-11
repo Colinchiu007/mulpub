@@ -74,6 +74,10 @@ main 连续两次 push 红在 `QG Unit Tests → Gate 4`，而断言层是 `# fa
 
 ---
 
+# 2026-10-11
+
+- 播客一键发布规格补写：新增 §6.4.2 定义第三条通道 `podcast:episode:publish:progress`（实时七相位 + 主进程计算的 `cancellable` + 显式降级出口），并把刀 4 摘要里的「回退全局默认音色」纠正为「capability 级 `defaultVoiceId` → provider+model 用户偏好」两层口径；tasks 新增 3.13 记录该通道的唯一插入点与三侧同 PR 要求。
+
 # [未发布] fix(ci): Gate 4 的 desktop 排除一直没生效——required check 的成败原来取决于 runner 快慢（2026-10-11，gate4-desktop-exclusion）
 
 ### 用户感知
@@ -123,6 +127,57 @@ main 连续两次 push 红在 `QG Unit Tests → Gate 4`，而断言层是 `# fa
 - **两处合同纠正**（都属于"照原话实现会静默失效或产出错东西"的那类）：① 仓内不存在跨 provider 的"全局默认音色"，原 §7 刀 4 那句"回退全局默认音色"无处可退，改为「频道 voiceRef 三段 → 用户偏好 → capability 默认 → 三者皆无即拒绝」并强制标注来源；② 打包 ffmpeg 的已验证滤镜清单不含 `loudnorm`（也不含 `adelay`），故本刀**不做响度归一**，块间静音改用已验证的 `anullsrc` 预物化片段。
 - **一条静默失真风险写进判据**：provider 侧存在 `slice(0, 4000)` 的静默截断，所以分块上限取 2000 **码点**且必须在调用方这一侧成立，不能指望下游报错。
 - tasks 4.1–4.4 升级为带判据条目，新增 4.5（音色两层事实与回退顺序）与 4.6（不碰未验证滤镜）。
+# [未发布] feat(collection): 快捷采集接入中文热榜，并为「榜单素材没有发布时间」建立诚实时间语义（2026-10-11，quick-collect-cn-sources）
+
+## 背景
+
+快捷采集（PR #3303）此前只能检索 Reddit / Hacker News / GitHub 三个英文源，中文平台正在热什么、中文圈子在聊什么，
+一条都进不来。而仓库里其实**已经有一批中文榜单源在跑**（热门选题页的 `hot-topics-service`：微博热搜、知乎热榜、
+抖音热点、B站热门、百度热搜、今日头条、腾讯新闻、tophub 镜像共 8 个主榜，自带节流、熔断、缓存与解析器），
+只是没被快捷采集用上。
+
+## 改动
+
+### S1：中文热榜接入 + 统一素材模型（本条目）
+
+- **新增源注册表** `apps/desktop/electron/services/quick-collect-sources.js`：声明式唯一真源，每条源声明
+  `kind: search|trend`、`sourceType: hottest|realtime`、`timeKind: published|observed`、`expectedDomains`、
+  `intervalMinutes`、`riskLevel`、`group`。指令源闭集**从它派生**（此前散在校验层、内置词条、渲染端三处，
+  加一个源要改三处且没有判据能发现漏改）。
+- **诚实的时间语义**：榜单类源**没有发布时间**，只有"什么时候看到它在榜上"。新增 `timeKind='observed'` +
+  `observedAt`：窗口过滤按有效时间判定，素材与提示词同时标注「抓取时刻」，system 提示词第 6 条明令
+  **不得把抓取时刻写成发布时间**（「榜单类素材不得写成最近 N 小时发布」）。这是本次最核心的一条：
+  接了中文榜单却假称"48 小时内发布"，比不接更糟。
+- **域名判据**（借鉴 TrendRadar `expected_domain` 的降级语义）：trend 源的条目 host 必须属于该源声明的域名，
+  否则整条丢弃并计 `dropped.domain_mismatch`；**只对 trend 源生效** —— search 源的条目本来就外链第三方站点
+  （HN/Reddit 帖子就是链接出去的），拿源域名去判会把真实结果全部丢掉。
+- **两分支分流**：`search` 源走既有关键词检索（行为逐字不变，`trendFn` 一次都不会被调用），`trend` 源走新增的
+  `trendFn`（一次调用，无关键词）。检索三态口径扩为 `attempted = 关键词数 + 趋势源数`，纯榜单指令不再被判成
+  `skipped`；单源失败只归因到 `sourceStats[src]='failed'`（整源丢弃，不逐条污染），不中断执行。
+- **IPC 接线复用热榜服务**：`hotTopicsService.fetchTopics()` → 统一素材（`douyin` 等不给条目链接的源用源主页
+  兜底并标 `urlKind:'board'`，提示词与界面一律称「来源页面」，**不伪造条目链接**）；单源取前 20 名。
+- **内置词条**：「热点选题雷达」吃到 7 个中文热榜 + 英文社区；「舆情风险与避雷」加微博；「同行内容与形式趋势」
+  加 B站/抖音/微博。`AI 领域动向` 的提示词**逐字不动**（用户需求原文），其素材源留待 S2 增补中文科技时间线。
+- **渲染端**：源清单镜像（跨平面 parity 测试逐项锁）+ 自定义指令表单「素材来源」提示文案（zh/en 成对）。
+
+## 验证
+
+- 特性域 **257 passed / 0 failed**（13 个测试文件），其中 S1 新增 `quick-collect-sources.test.js`（8 例：闭集不重叠、
+  字段完整、合规无登录态源、分流与未知 id、域名判据）与 `quick-collect-cn-sources.test.js`（15 例：observed 窗口语义、
+  域名判据只对 trend 生效、提示词时间标签与来源可归因、两分支分流、trendFn 缺席/抛错降级归因、内置词条闭集、IPC 映射）。
+- **被既有测试拦下的一处真实回归**：改造素材层时把时间字段读成了 `createdUtc`，而 content-intelligence 的检索结果
+  用的是 `created_utc`（snake_case）—— 既有 9 例素材测试当场变红（英文素材会全被静默丢弃）。已改为两种拼写都认，
+  并在新用例里加了防回归断言。
+- 静态门禁：`check-max-lines`（无新增超大文件）、`check-font-size-scale`、`check-locale-sync --pair-base/--cjk/--keys`、
+  `check-ipc-bridge`、`check-frontend-consistency`、`check-no-brand-residue` 全绿；QM-1 打包证据见 `.quality-gates.md`。
+- 开源调研（RSSHub / DailyHotApi / NewsNow / TrendRadar / wechat2rss）结论与许可证边界见
+  `01-docs/PRD-QUICK-COLLECT-CN-SOURCES-2026-10-11.md` §12：AGPL/GPL 项目**零代码复用**，只借鉴设计结论并注明出处。
+
+## 边界
+
+- 中文榜单源稳定性天然弱于 RSS：单源失败/不可达是常态，已按「整源丢弃 + `sourceStats` 归因」降级。
+- 跨会话的「名次跃迁/在榜时长」需要落盘名次历史（TrendRadar 用 `rank_history`），本期不做（PRD §15 第 3 条）。
+- **不做登录态抓取**：公众号/小红书/快手/视频号不进本扩展（合规风险最高）；公众号 RSS 方案调研结论见 PRD §12。
 
 # [未发布] fix(changelog-gate): 让退休授权放行在输出里可区分，并清掉三处"自述与实际不一致"（2026-10-11，changelog-gate-selfreport）
 

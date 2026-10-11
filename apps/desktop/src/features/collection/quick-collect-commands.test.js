@@ -135,7 +135,7 @@ describe('buildCommandFromForm', () => {
     expect(cmd.id).toMatch(/^qc-/)
     expect(cmd.title).toBe('我的指令')
     expect(cmd.keywords).toEqual(['AI', 'LLM'])
-    expect(cmd.sources).toEqual(['reddit', 'hackernews', 'github'])
+    expect(cmd.sources).toEqual([...ALLOWED_SOURCES])
     expect(cmd.builtin).toBe(false)
     expect(cmd.windowHours).toBe(24)
     expect(cmd.updatedAt).toBe('2026-10-11T04:00:00.000Z')

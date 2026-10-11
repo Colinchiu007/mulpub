@@ -296,3 +296,30 @@ X-s / X-t / X-S-Common: 页内签名产物（bridge 注入，参考产品A由签
 **情报总结**：XYS_（mns0301 档）是现役网页端签名；XYW_（AES-128-CBC）是数据接口绕 406 的替代档；
 两者常量与我们 signer-local 一致。**发布类接口额外需要 x-rap-param**（基于 URI+body 的 MurmurHash），
 note 全链闭环后的候选增强项。
+
+## 15. 登录载体改造：二段式补跳主站（#3309）
+
+**决策**：登录 URL 不改（保持 creator 域，用户体验一致），登录成功后**自动补跳主站**二段式——比直接换主站登录少改 UX。
+
+- **机制**：登录窗检测到登录成功（CDP/URL 判定）后、抓凭据快照之前，若平台配置了
+  `PLATFORM_POST_LOGIN_REDIRECT`（packages/shared-utils/src/platform-definitions.js），
+  登录窗自动 loadURL 该地址（xiaohongshu = `https://www.xiaohongshu.com/`）。
+  creator 父域 Cookie 随请求带上，主站识别已登录态后种下 web_session，随后抓快照——
+  凭据从此含完整主站会话，note 提交能过会话鉴权层（-100 根因闭合）。
+- **就绪判据**：凭证轮询命中（每 500ms 复查一次会话 Cookie）——「主站已种下
+  web_session」本身即就绪信号，不依赖页面加载完成（主站常在整页加载后才由 JS/XHR
+  异步种会话，did-finish-load ≠ 会话已种下；r2-i1/r4-i3 实现与文档同口径）。
+- **15s 兜底**：主站因网络/风控迟迟未就绪时按当前快照继续 settle，不阻断登录流程
+  （platform-definitions `POST_LOGIN_REDIRECT_WAIT_MS = 15000`，超时先 stop 在途导航
+  再做一次 2.5s 短重试）。兜底路径抓到的快照仍缺 web_session，属可接受的降级，
+  留 snapshotWillMissMainSiteSession 失败标记日志可观测；降级发生率由真机验证圈定
+  （典型登录凭证 1-3s 内即命中，实际等待远小于预算）。
+- **零回归**：未配置 redirect 的平台（其余 14 个）保持原行为（登录完成直接抓快照），
+  行为锁 C3c 把关。
+- **回归保护**：`apps/desktop/electron/tests/xhs-mainsite-login.test.js` 六条契约——
+  C1 登录 URL 不变 / C2 redirect 表导出 / C3a 结构锁（manager 接线表与常量，刻意不锁
+  www 字面量防反向耦合）/ C3b 补跳时机（主站就绪前不 settle）/ C3c 零回归 / C4 兜底。
+  TDD 红灯先行，实现后 6/6 绿；相关既有测试 120/120 绿。
+- **真机验证**：PENDING——重新登录抓全量 cookie（应含 web_session）→ probe 重测 note
+  → 草稿落箱。结论随下一轮补录本节。
+
