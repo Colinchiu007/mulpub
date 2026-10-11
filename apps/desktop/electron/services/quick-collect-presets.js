@@ -8,11 +8,20 @@
  *      因此内置指令**不落盘**（渲染端写入设置键时过滤掉 `builtin === true`）。
  *
  * 词条设计口径：
- *   - `keywords` 只放**英文**检索词：检索源是 Reddit / HN / GitHub 三个英文社区，
+ *   - `keywords` 只放**英文**检索词：`search` 类检索源是 Reddit / HN / GitHub 三个英文社区，
  *     中文关键词在这三个源上命中率极低（实测口径见 PRD §6.2 与本 change 的记录）；
+ *   - `sources` 是**闭集子集**（唯一真源 = `quick-collect-sources.js`）：可以是 `kind:'search'`
+ *     的英文社区，也可以是 `kind:'trend'` 的中文榜单/时间线（后者无需关键词，按榜单取）；
  *   - 每个词条最多 3 个关键词（引擎只取前 3 个，避免一次点击打出十几条外呼）；
- *   - `windowHours` 取 48（时效类）或 168（周级盘点类），取闭集值。
+ *   - `windowHours` 取 48（时效类）或 168（周级盘点类），取闭集值；
+ *   - 「榜单素材没有发布时间」这条约束写在 **system 提示词**里（`quick-collect-prompt.js`
+ *     硬约束第 6 条），**不在每个内置词条里重复一遍** —— 单实现才守得住。
  */
+
+/** 中文热榜源（`kind:'trend'`，无发布时间，按抓取时刻计入窗口） */
+const CN_HOT_SOURCES = Object.freeze(['weibo', 'zhihu', 'douyin', 'bilibili', 'baidu', 'toutiao', 'tencent'])
+/** 英文社区检索源（`kind:'search'`） */
+const EN_SEARCH_SOURCES = Object.freeze(['reddit', 'hackernews', 'github'])
 
 /** @type {ReadonlyArray<object>} */
 const PRESET_COMMANDS = Object.freeze([
@@ -46,7 +55,7 @@ const PRESET_COMMANDS = Object.freeze([
     prompt: '请检索最近 48 小时内技术、互联网与创作者圈层里讨论量明显上升的话题，输出 5 条可写选题，每条包含：1) 话题一句话；2) 为什么现在热（给出素材里的依据，例如讨论量、来源）；3) 来源链接；4) 建议的切入角度（面向哪个读者、从什么争议点切入）；5) 预估写作难度（低/中/高）。另外用一句话列出 2 条「看着热但其实没有新信息」的伪热点。用中文，不要编造事件和链接，素材不足以判断"热"就如实说。',
     keywords: ['trending topic', 'viral content', 'tech trend'],
     windowHours: 48,
-    sources: ['reddit', 'hackernews', 'github'],
+    sources: [...CN_HOT_SOURCES, ...EN_SEARCH_SOURCES],
     builtin: true,
   }),
   Object.freeze({
@@ -68,7 +77,7 @@ const PRESET_COMMANDS = Object.freeze([
     prompt: '请检索最近一周内与创作者内容趋势有关的真实讨论，覆盖：1) 什么内容形式正在起量（长文 / 短视频 / 图文 / 播客等）与其原因；2) 哪些平台的分发机制或流量结构发生了变化；3) 创作者普遍在抱怨或验证有效的做法。输出 3 条「趋势判断」（每条含：观察到的现象、来源链接、支持它的证据、对我可以怎么用），并说明这些观察在多大程度上能推广（哪些是社区共识、哪些只是个别案例）。用中文，不要编造数据；如果素材只够支撑 1-2 条判断，就只输出 1-2 条。',
     keywords: ['content creator growth', 'short video trend', 'newsletter growth'],
     windowHours: 168,
-    sources: ['reddit', 'hackernews', 'github'],
+    sources: ['bilibili', 'douyin', 'weibo', ...EN_SEARCH_SOURCES],
     builtin: true,
   }),
   Object.freeze({
@@ -79,7 +88,7 @@ const PRESET_COMMANDS = Object.freeze([
     prompt: '请检索最近一周内与内容创作者风险有关的真实事件与讨论，覆盖：1) 因内容引发的争议、舆情与删帖/下架案例；2) 版权、字体、音乐、素材授权相关的纠纷或平台判罚；3) 账号被限流、封禁、禁言的公开案例与官方说明。输出 4 条「避雷清单」（每条含：发生了什么、来源链接、触发条件、我怎么避免），并标注每条的可信度（官方公告 / 多方报道 / 只有单方说法）。用中文，不要编造案例；没有任何可靠信息就明确说"本周未发现可靠的风险事件"，不要为了凑条数编。',
     keywords: ['content controversy', 'copyright claim', 'account suspended'],
     windowHours: 168,
-    sources: ['reddit', 'hackernews', 'github'],
+    sources: ['weibo', ...EN_SEARCH_SOURCES],
     builtin: true,
   }),
 ])

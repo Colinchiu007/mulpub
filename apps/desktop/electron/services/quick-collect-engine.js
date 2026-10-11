@@ -18,6 +18,7 @@ const {
   LIMITS,
 } = require('./quick-collect-command')
 const { mergeMaterials, summarizeRetrieval } = require('./quick-collect-materials')
+const { splitSources } = require('./quick-collect-sources')
 const { buildMessages, buildDisclaimerLine, shouldPrependDisclaimer, formatUtc8 } = require('./quick-collect-prompt')
 
 const ENGINE_ERRORS = Object.freeze({
@@ -52,10 +53,11 @@ function classifyLlmFailure (err) {
 }
 
 /**
- * @param {{ searchFn?: Function, llmFn?: Function, log?: object, now?: () => number }} deps
+ * @param {{ searchFn?: Function, trendFn?: Function, llmFn?: Function, log?: object, now?: () => number }} deps
  */
 function createQuickCollectEngine (deps = {}) {
   const searchFn = typeof deps.searchFn === 'function' ? deps.searchFn : null
+  const trendFn = typeof deps.trendFn === 'function' ? deps.trendFn : null
   const llmFn = typeof deps.llmFn === 'function' ? deps.llmFn : null
   const log = deps.log && typeof deps.log.warn === 'function' ? deps.log : null
   const now = typeof deps.now === 'function' ? deps.now : () => Date.now()
@@ -68,36 +70,86 @@ function createQuickCollectEngine (deps = {}) {
   }
 
   /**
-   * 检索素材。
+   * 检索素材：按 `kind` 分流（PRD §3.1）。
+   *   - search 源：逐关键词调 `searchFn`（行为与既有实现逐字一致）；
+   *   - trend 源：一次调 `trendFn(sourceIds, { windowHours, now })`（榜单/时间线，无关键词）。
+   * `trendFn` 未注入时**降级**（该分支不产出素材、状态记 `skipped`），不抛错中断执行 ——
+   * phase5 装配期服务可能尚未就绪，抛错会把「暂时没有」变成「永久失败」。
    * @param {object} command 归一后的指令
-   * @returns {Promise<{ items: object[], failedQueries: number, queryCount: number }>}
+   * @returns {Promise<{ items: object[], failedQueries: number, queryCount: number,
+   *   searchQueryCount: number, trendSourceCount: number, trendSources: string[],
+   *   trendSkipped: boolean, sourceStats: Record<string, string> }>}
    */
   async function retrieve (command) {
+    const split = splitSources(command.sources)
     const keywords = command.keywords.slice(0, LIMITS.QUERY_KEYWORDS_MAX)
-    const sources = command.sources
-    if (!searchFn || keywords.length === 0 || sources.length === 0) {
-      return { items: [], failedQueries: 0, queryCount: 0 }
-    }
     const items = []
     let failedQueries = 0
-    for (let i = 0; i < keywords.length; i++) {
-      const keyword = keywords[i]
-      try {
-        const res = await searchFn(keyword, {
-          sources,
-          limit: PER_QUERY_LIMIT,
-          noCache: true,
-          relevanceOn: [...RELEVANCE_ON],
-        })
-        const results = res && Array.isArray(res.results) ? res.results : []
-        for (const item of results) items.push(item)
-      } catch (e) {
-        failedQueries += 1
-        // 只记位置与源数，不记关键词原文（指令可能带私密业务方向）
-        if (log) log.warn('[quick-collect] retrieval failed: query#' + (i + 1) + '/' + keywords.length + ' sources=' + sources.length + ' err=' + ((e && e.message) || String(e)))
+    let searchQueryCount = 0
+
+    if (searchFn && keywords.length > 0 && split.search.length > 0) {
+      searchQueryCount = keywords.length
+      for (let i = 0; i < keywords.length; i++) {
+        const keyword = keywords[i]
+        try {
+          const res = await searchFn(keyword, {
+            sources: split.search,
+            limit: PER_QUERY_LIMIT,
+            noCache: true,
+            relevanceOn: [...RELEVANCE_ON],
+          })
+          const results = res && Array.isArray(res.results) ? res.results : []
+          for (const item of results) items.push(item)
+        } catch (e) {
+          failedQueries += 1
+          // 只记位置与源数，不记关键词原文（指令可能带私密业务方向）
+          if (log) log.warn('[quick-collect] retrieval failed: query#' + (i + 1) + '/' + keywords.length + ' sources=' + split.search.length + ' err=' + ((e && e.message) || String(e)))
+        }
       }
     }
-    return { items, failedQueries, queryCount: keywords.length }
+
+    /** @type {Record<string, string>} */
+    const sourceStats = {}
+    let trendSourceCount = 0
+    let trendSkipped = false
+    if (split.trend.length > 0) {
+      if (!trendFn) {
+        // 指令**要求**了趋势源，只是本进程暂时没有这个能力（装配期未就绪）。
+        // 这属于「跑了但一无所获」（empty），不属于「指令没配检索」（skipped）——
+        // 把 attempted 记上，用户才会看到"本次未检索到素材"而不是"你没配关键词"。
+        trendSkipped = true
+        trendSourceCount = split.trend.length
+        for (const id of split.trend) sourceStats[id] = 'skipped'
+      } else {
+        trendSourceCount = split.trend.length
+        try {
+          const res = await trendFn([...split.trend], { windowHours: command.windowHours, now: now() })
+          const got = res && Array.isArray(res.items) ? res.items : []
+          for (const item of got) items.push(item)
+          const stats = res && res.sourceStats && typeof res.sourceStats === 'object' ? res.sourceStats : {}
+          for (const id of split.trend) {
+            const state = stats[id] === 'failed' || stats[id] === 'skipped' ? stats[id] : 'ok'
+            sourceStats[id] = state
+            if (state === 'failed') failedQueries += 1
+          }
+        } catch (e) {
+          for (const id of split.trend) sourceStats[id] = 'failed'
+          failedQueries += split.trend.length
+          if (log) log.warn('[quick-collect] trend retrieval failed: sources=' + split.trend.length + ' err=' + ((e && e.message) || String(e)))
+        }
+      }
+    }
+
+    return {
+      items,
+      failedQueries,
+      queryCount: searchQueryCount + trendSourceCount,
+      searchQueryCount,
+      trendSourceCount,
+      trendSources: split.trend,
+      trendSkipped,
+      sourceStats,
+    }
   }
 
   /**
@@ -118,15 +170,18 @@ function createQuickCollectEngine (deps = {}) {
     }
 
     emit(onProgress, { stage: 'retrieving', percent: 10 })
-    const { items, failedQueries, queryCount } = await retrieve(command)
-    const merged = mergeMaterials(items, { windowHours: command.windowHours, now: now() })
+    const r = await retrieve(command)
+    const merged = mergeMaterials(r.items, { windowHours: command.windowHours, now: now() })
     const retrieval = summarizeRetrieval({
-      queryCount,
+      queryCount: r.queryCount,
       materialCount: merged.materials.length,
-      failedQueries,
+      failedQueries: r.failedQueries,
     })
+    // 素材实际用到的时间语义（UI 与结果卡据此分两类标签：发布 / 抓取时刻）
+    const timeKinds = [...new Set(merged.materials.map((m) => m.timeKind))].sort()
     if (log) {
-      log.warn('[quick-collect] retrieval done: retrieval=' + retrieval + ' materials=' + merged.materials.length + ' dropped=' + merged.droppedTotal)
+      log.warn('[quick-collect] retrieval done: retrieval=' + retrieval + ' materials=' + merged.materials.length +
+        ' dropped=' + merged.droppedTotal + ' search=' + r.searchQueryCount + ' trend=' + r.trendSourceCount)
     }
 
     if (!llmFn) {
@@ -172,6 +227,12 @@ function createQuickCollectEngine (deps = {}) {
         builtin: command.builtin,
         windowHours: command.windowHours,
         sources: [...command.sources],
+        searchQueryCount: r.searchQueryCount,
+        trendSourceCount: r.trendSourceCount,
+        trendSources: [...r.trendSources],
+        trendSkipped: r.trendSkipped,
+        sourceStats: { ...r.sourceStats },
+        timeKinds,
         materialCount: merged.materials.length,
         droppedMaterials: merged.droppedTotal,
         retrieval,

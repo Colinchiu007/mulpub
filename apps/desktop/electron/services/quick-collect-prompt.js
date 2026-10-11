@@ -10,6 +10,7 @@
  *      不重复插入（避免正文出现两遍声明）。
  */
 const { MATERIAL_LIMIT } = require('./quick-collect-materials')
+const { getSource } = require('./quick-collect-sources')
 
 /** 模型侧硬约束（system） */
 const SYSTEM_PROMPT = [
@@ -22,6 +23,8 @@ const SYSTEM_PROMPT = [
   '3. 素材不足以支撑结论时，必须明确说明缺什么（例如"清单中缺少官方公告，无法确认发布时间"），而不是给出看似确定的结论。',
   '4. 严格按用户指令要求的格式输出；用户未指定格式时，用小标题 + 短段落 + 列表，不要长篇铺陈。',
   '5. 用简体中文输出。不要写"作为 AI""以下是""希望对你有所帮助"这类套话，不要输出免责声明，不要重复用户指令。',
+  '6. 时间语义必须按清单标注来写：标「发布」的是来源自报的发布时间；标「抓取时刻」的只表示我们什么时候看到它排在榜上——榜单类素材（热搜/热榜/热门）**没有发布时间**，不得把它写成"最近 N 小时发布""刚刚发生""今天上线"。',
+  '7. 来源标签必须原样引用（如「来源=微博热搜#3」），标「来源页面」的链接只能当作该榜单的入口页引用，不得说成"原文链接"；未知来源如实回显其标识，不得替它编一个来源名。',
 ].join('\n')
 
 /**
@@ -62,15 +65,26 @@ function buildMessages (command, materials) {
 
 /**
  * 素材清单里的一行。时间按 UTC+8 渲染（用户在国内，UTC 时间会读成"昨天"）。
+ * 时间语义必须显式标注（PRD §3.2）：
+ *   - `published` → `发布=…`（来源自报的发布时间）
+ *   - `observed`  → `抓取时刻=…`（榜单类源没有发布时间，只有"什么时候看到它在榜上"）
  * @param {object} m
  * @param {number} index 0-based
  */
 function formatMaterialLine (m, index) {
   const parts = [`${index + 1}. ${m.title}`]
-  if (m.source) parts.push(`来源=${m.source}`)
-  if (m.createdUtc) parts.push(`时间=${formatUtc8(m.createdUtc)}`)
-  parts.push(`链接=${m.url}`)
-  if (m.engagement) parts.push(`热度=${m.engagement}`)
+  if (m.source) {
+    const label = (getSource(m.source) || {}).label || m.source
+    parts.push(`来源=${label}${m.rank ? '#' + m.rank : ''}`)
+  }
+  if (m.timeKind === 'observed') {
+    if (m.observedAt) parts.push(`抓取时刻=${formatUtc8(m.observedAt)}`)
+  } else if (m.createdUtc) {
+    parts.push(`发布=${formatUtc8(m.createdUtc)}`)
+  }
+  parts.push(m.urlKind === 'board' ? `来源页面=${m.url}` : `链接=${m.url}`)
+  if (m.hotValue) parts.push(`热度=${m.hotValue}`)
+  else if (m.engagement) parts.push(`热度=${m.engagement}`)
   if (m.snippet) parts.push(`摘要=${m.snippet}`)
   return parts.join(' | ')
 }
