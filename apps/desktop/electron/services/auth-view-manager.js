@@ -14,6 +14,7 @@ const log = require('./logger')
 const {
   PLATFORM_LOGIN_URLS,
   PLATFORM_POST_LOGIN_REDIRECT,
+  PLATFORM_POST_LOGIN_PROOF_COOKIES,
   hasPlatformSessionCookie,
   hasPlatformSessionCookieMarkers,
   sessionCookieNames,
@@ -107,6 +108,26 @@ function hasCapturedCredentials(authData, platform) {
 // 「就绪」= loadURL 的 Promise resolve（did-finish-load 等价）：主站响应已在
 // .xiaohongshu.com 父域种下会话 Cookie（web_session 等），无需依赖页面 DOM 特征。
 const POST_LOGIN_REDIRECT_WAIT_MS = 15000
+
+/**
+ * 凭据快照里是否已有指定平台二段式补跳的凭证 Cookie（如 xiaohongshu 的 web_session）。
+ * CCG 评审 i2：快照已含凭证时不必再补跳一次主站（省一次整页往返）；短路径
+ * cookies.get 失败按「没有凭证」处理，走补跳（fail-open 到主流程，不阻断登录）。
+ * @param {import('electron').WebContentsView} view
+ * @param {string} platform
+ * @returns {Promise<boolean>}
+ */
+async function hasPostLoginProofCookie (view, platform) {
+  const proofNames = PLATFORM_POST_LOGIN_PROOF_COOKIES[platform]
+  if (!Array.isArray(proofNames) || proofNames.length === 0) return false
+  try {
+    const cookies = await view.webContents.session.cookies.get({})
+    return cookies.some(cookie => cookie && proofNames.includes(cookie.name) &&
+      typeof cookie.value === 'string' && cookie.value.trim().length > 0)
+  } catch (_e) {
+    return false
+  }
+}
 
 class AuthViewManager {
   constructor() {
@@ -308,17 +329,39 @@ class AuthViewManager {
         // 先补跳主站，creator 父域 Cookie 随请求带上、主站种下会话，再抓快照。
         // 未配置 redirect 的平台保持原行为：直接抓取，零回归。
         const redirectUrl = /** @type {Record<string, string>} */ (PLATFORM_POST_LOGIN_REDIRECT)[attempt.platform]
-        if (redirectUrl) {
+        if (redirectUrl && !(await hasPostLoginProofCookie(attempt.view, attempt.platform))) {
           log.info('AuthView', `post-login redirect to main site: ${attempt.platform} ${redirectUrl}`)
           // 就绪 = loadURL resolve（did-finish-load 等价，主站响应已种下会话 Cookie）；
           // 15s 兜底：主站迟迟未就绪时按当前快照继续，不阻断登录。
-          await Promise.race([
-            attempt.view.webContents.loadURL(redirectUrl).catch(e => {
-              log.warn('AuthView', `post-login redirect load failed: ${e instanceof Error ? e.message : String(e)}`)
-            }),
-            new Promise(resolve => setTimeout(resolve, POST_LOGIN_REDIRECT_WAIT_MS)),
-          ])
+          // 兜底命中时 stop 掉在途导航（CCG 评审 i6）：否则主站导航可能在快照抓取
+          // 期间才落地，页面导航状态与抓取时序竞争，影响快照确定性。
+          let redirectTimedOut = false
+          const redirectTimeout = setTimeout(() => {
+            redirectTimedOut = true
+            try { attempt.view.webContents.stop() } catch (_e) { /* 视图可能已销毁 */ }
+            // 触发 race 的超时分支 resolve（回调此刻 redirectTimeout 已赋值）
+            if (typeof redirectTimeout.callback === 'function') redirectTimeout.callback()
+          }, POST_LOGIN_REDIRECT_WAIT_MS)
+          if (redirectTimeout && redirectTimeout.unref) redirectTimeout.unref()
+          try {
+            await Promise.race([
+              attempt.view.webContents.loadURL(redirectUrl).catch(e => {
+                log.warn('AuthView', `post-login redirect load failed: ${e instanceof Error ? e.message : String(e)}`)
+              }),
+              new Promise(resolve => { redirectTimeout.callback = () => resolve() }),
+            ])
+          } finally {
+            clearTimeout(redirectTimeout)
+          }
           if (!this._isCurrentLoginAttempt(attempt)) return
+          // 凭证校验（CCG 评审 i1）：loadURL resolve / 超时都不保证主站真种下了
+          // web_session（可能整页加载后才由 JS/XHR 种，或未识别登录态跳去登录页）。
+          // 缺失时留独立失败标记日志（不阻断），让「二段式是否真生效」可观测。
+          if (!(await hasPostLoginProofCookie(attempt.view, attempt.platform))) {
+            log.warn('AuthView', `post-login redirect proof cookie missing: ${attempt.platform} ` +
+              `proof=${(PLATFORM_POST_LOGIN_PROOF_COOKIES[attempt.platform] || []).join(',')} ` +
+              `timedOut=${redirectTimedOut} snapshotWillMissMainSiteSession=true`)
+          }
         }
         const authData = await this._extractAuthData(attempt.view, attempt.platform)
         if (!hasCapturedCredentials(authData, attempt.platform)) {

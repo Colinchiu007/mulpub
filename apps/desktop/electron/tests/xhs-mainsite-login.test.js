@@ -39,20 +39,32 @@ const ZHIHU = 'zhihu' // 未配置 redirect 的对照平台
 
 /**
  * 构造一个只桩掉二段式会碰到的成员的 manager 实例。
- * _extractAuthData / close 全桩：前者返回可断言的快照，后者避免真拆 Electron 视图。
- * cookie 用平台声明的真实会话标记名（PLATFORM_SESSION_COOKIE_MARKERS.xiaohongshu
- * 的 creator 键）——用 web_session 之类会被 hasCapturedCredentials 判 false、
- * 走 skipped 分支，测试就测不到 settle 路径了。
- * @param {{ redirect?: boolean, loadURL?: (url: string) => Promise<void> }} opts
+ *
+ * CCG 评审 i5：改走真实构造函数（constructor 只置空字段，无副作用），
+ * 不再 Object.create(prototype) 手工补 20 个实例字段——字段更名/构造逻辑变更
+ * 时测试静默漂移的风险消掉，桩面收敛到「二段式真正碰到的成员」。
+ *
+ * CCG 评审 i4：_extractAuthData 不再无条件返回含 web_session 的快照——它按
+ * session.cookies.get 桩的返回实时投影，二段式是否真把主站会话补进快照，
+ * 由用例对快照 cookies 断言（锁结果而非锁调用）。
+ *
+ * @param {{ redirect?: boolean, loadURL?: (url: string) => Promise<void>,
+ *           sessionCookies?: Array<{name: string, value?: string, domain?: string}> }} opts
  */
 function makeManager (opts = {}) {
-  const inst = Object.create(AuthViewManager.prototype)
-  // 直接桩掉实例字段与方法（绕过 constructor：避免触碰真实窗口）
+  const inst = new AuthViewManager()
+  // 会话 cookie 桩：补跳前后可变（用例里往里 push web_session 模拟主站种 cookie）
+  const sessionCookies = opts.sessionCookies || [
+    // creator 会话标记（登录页本身产出，标记名取自 PLATFORM_SESSION_COOKIE_MARKERS）
+    { name: 'access-token-creator.xiaohongshu.com', value: 'x', domain: '.xiaohongshu.com' },
+  ]
   inst.mainWindow = null
   inst.currentView = {
     webContents: {
       loadURL: opts.loadURL || vi.fn(async () => {}),
-      session: { cookies: { get: async () => [] } },
+      // CCG 评审 i6 的 stop() 落点：真实 WebContents 恒有该方法
+      stop: vi.fn(),
+      session: { cookies: { get: async () => sessionCookies.slice() } },
     },
   }
   inst.currentPlatform = opts.redirect === false ? ZHIHU : XHS
@@ -60,20 +72,13 @@ function makeManager (opts = {}) {
   // _createLoginAttempt 要求三者齐备（view/platform/resolveLogin），resolveLogin 缺席会返回 null
   inst._resolveLogin = vi.fn()
   inst._rejectLogin = vi.fn()
-  inst._activeLoginAttempt = null
-  inst._autoCompletionAttemptId = null
-  inst._loginAttemptSequence = 0
-  inst._sidebarWidth = 200
-  inst._extractAuthData = vi.fn(async () => ({
-    cookies: [
-      // creator 会话标记（登录页本身产出）
-      { name: 'access-token-creator.xiaohongshu.com', value: 'x', domain: '.xiaohongshu.com' },
-      // 主站会话（二段式补跳后才有的增量）
-      { name: 'web_session', value: 'y', domain: '.xiaohongshu.com' },
-    ],
+  inst._extractAuthData = vi.fn(async (view) => ({
+    // 实时投影会话 cookie 桩：快照内容 = 会话状态，用例可断言 web_session 是否补进快照
+    cookies: sessionCookies.slice(),
     name: 't', localStorage: {}, indexedDB: {}, accountInfo: {},
   }))
   inst.close = vi.fn()
+  inst.__sessionCookies = sessionCookies
   return inst
 }
 
@@ -106,11 +111,12 @@ describe('小红书二段式登录（主站会话补抓）', () => {
     expect(managerSrc).toMatch(/POST_LOGIN_REDIRECT_WAIT_MS/)
   })
 
-  it('C3b 行为锁：配置了 redirect 的平台登录完成前会 loadURL 主站', async () => {
-    // loadURL 返回永不 resolve 的 deferred：模拟主站迟迟未跳——
-    // 此刻 settle 必须被 15s 兜底挡住（等主站，而不是立刻抓 creator 快照）
-    let neverResolve
-    const loadURL = vi.fn(() => new Promise(resolve => { neverResolve = resolve }))
+  it('C3b 行为锁：配置了 redirect 的平台登录完成前会 loadURL 主站，快照在主站会话落地后才产出', async () => {
+    // loadURL 返回可控 deferred：resolve 即模拟主站就绪（did-finish-load 等价）。
+    // resolve 的同时往会话桩 push web_session——模拟「主站响应种下会话 Cookie」，
+    // CCG 评审 i4：断言快照**包含 web_session**（锁结果），而非只锁调用了 loadURL。
+    let mainSiteReady
+    const loadURL = vi.fn(() => new Promise(resolve => { mainSiteReady = () => resolve() }))
     vi.useFakeTimers()
     try {
       const inst = makeManager({ redirect: true, loadURL })
@@ -121,12 +127,18 @@ describe('小红书二段式登录（主站会话补抓）', () => {
       expect(loadURL).toHaveBeenCalledWith(defs.PLATFORM_POST_LOGIN_REDIRECT[XHS])
       // 主站未就绪时不能先 settle（否则抓到的还是缺 web_session 的 creator 快照）
       expect(inst._activeLoginAttempt).not.toBeNull()
-      // 主站 loadURL resolve（did-finish-load 等价）→ 主站已种下会话 → 立即 settle
-      neverResolve()
+      expect(inst._extractAuthData).not.toHaveBeenCalled()
+      // 主站就绪：种下 web_session（会话桩增量）→ loadURL resolve → settle
+      mainSiteReady()
+      inst.__sessionCookies.push({ name: 'web_session', value: 'y', domain: '.xiaohongshu.com' })
       await vi.advanceTimersByTimeAsync(0)
       expect(inst._activeLoginAttempt).toBeNull()
       expect(inst._extractAuthData).toHaveBeenCalledTimes(1)
       expect(inst.close).toHaveBeenCalled()
+      // 快照结果锁：主站会话必须真的进了凭据快照（否则 -100 根因没闭合）
+      const snapshot = inst._extractAuthData.mock.results[0].value
+      const names = (await snapshot).cookies.map(c => c.name)
+      expect(names).toContain('web_session')
     } finally {
       vi.useRealTimers()
     }
@@ -150,18 +162,45 @@ describe('小红书二段式登录（主站会话补抓）', () => {
     }
   })
 
-  it('C4 行为锁：主站 15s 兜底——超时后按现有快照继续 settle，不阻断登录', async () => {
+  it('C3d 行为锁：会话已含 web_session 时短路补跳（省一次主站整页往返）', async () => {
+    // CCG 评审 i2：早前登录已种下主站会话 → 不再补跳，直接抓快照 settle
+    vi.useFakeTimers()
+    try {
+      const inst = makeManager({
+        redirect: true,
+        sessionCookies: [
+          { name: 'access-token-creator.xiaohongshu.com', value: 'x', domain: '.xiaohongshu.com' },
+          { name: 'web_session', value: 'already-here', domain: '.xiaohongshu.com' },
+        ],
+      })
+      const loadURL = vi.fn(async () => {})
+      inst.currentView.webContents.loadURL = loadURL
+      const attempt = makeAttempt(inst)
+      inst._scheduleAutoCompletion('cdp', attempt)
+      await vi.advanceTimersByTimeAsync(3100)
+      expect(loadURL).not.toHaveBeenCalled()
+      expect(inst._activeLoginAttempt).toBeNull()
+      expect(inst._extractAuthData).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('C4 行为锁：主站 15s 兜底——超时后 stop 在途导航、按现有快照继续 settle，不阻断登录', async () => {
     // loadURL 永不 resolve：主站挂死/风控迟滞，兜底必须生效
     const loadURL = vi.fn(() => new Promise(() => {}))
     vi.useFakeTimers()
     try {
       const inst = makeManager({ redirect: true, loadURL })
+      const stop = inst.currentView.webContents.stop
       const attempt = makeAttempt(inst)
       inst._scheduleAutoCompletion('cdp', attempt)
       await vi.advanceTimersByTimeAsync(3100)
       expect(inst._activeLoginAttempt).not.toBeNull()
       // 兜底窗口（15s）耗尽：即使主站没「就绪」也要 settle（按现有快照继续）
       await vi.advanceTimersByTimeAsync(16000)
+      // CCG 评审 i6：超时先 stop 在途导航再抓快照（导航/抓取时序竞争防护）
+      expect(stop).toHaveBeenCalled()
       expect(inst._activeLoginAttempt).toBeNull()
       expect(inst._extractAuthData).toHaveBeenCalledTimes(1)
       expect(inst.close).toHaveBeenCalled()
