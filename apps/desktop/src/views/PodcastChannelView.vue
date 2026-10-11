@@ -32,7 +32,7 @@
       <p v-if="pickerError" class="podcast-error" data-testid="podcast-picker-error">{{ pickerError }}</p>
       <p class="podcast-hint" data-testid="podcast-picker-quota-hint">{{ t('podcast.picker.quotaHint', { cap: channelCap, count: channelCount }) }}</p>
     </section>
-    <PodcastHostingCard :channel-id="activeChannelId" data-testid="podcast-hosting-mount" @published="onFeedPublished" />
+    <PodcastHostingCard :channel-id="activeChannelId" :feed-sync="feedSync" data-testid="podcast-hosting-mount" @published="onFeedPublished" />
 
     <section class="podcast-section" data-testid="podcast-channel-section" aria-labelledby="podcast-channel-heading">
       <h2 id="podcast-channel-heading">{{ t('podcast.channel.sectionTitle') }}</h2>
@@ -332,6 +332,7 @@ const {
   switchChannel,
   loadChannels,
   channel,
+  feedSync,
   savingChannel,
   channelError,
   episodes,
@@ -400,9 +401,13 @@ async function onFeedPublished (res) {
   if (res.state === 'success') {
     notifySuccess(t('podcast.hosting.publishSuccess', { count: res.itemCount || 0 }))
     if (!res.backupCreated) notifyError(t('podcast.hosting.backupMissing'))
-    await Promise.allSettled([refreshQuota(), loadEpisodes()])
+    // 发布动过真源（writeFeedSync 已落 success/failed），横幅必须跟着重读；
+    // 只刷配额与列表会让「公网已更新」这件事要等用户手动刷新页面才消失。
+    await Promise.allSettled([refreshQuota(), loadEpisodes(), loadChannel()])
     return
   }
+  // 失败同样要重读：writeFeedSync 已把 failed 落进真源，横幅该亮
+  await loadChannel().catch(() => {})
   notifyError(t('podcast.hosting.publishFailed', { status: res.status == null ? t('podcast.hosting.checkNoStatus') : res.status }))
 }
 

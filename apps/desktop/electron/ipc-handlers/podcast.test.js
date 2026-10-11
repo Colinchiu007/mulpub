@@ -100,7 +100,8 @@ describe('podcast handler · 通道注册', () => {
 describe('podcast handler · 成功信封', () => {
   it('每条通道都回 { code:0, data:{…} }，键名与合同逐字一致', async () => {
     const { ipcMain, service } = setup()
-    expect(await invoke(ipcMain, 'podcast:channel:get')).toEqual({ code: 0, data: { channel: { title: '午间电台' } } })
+    // 合同多一个键就必须在这条逐字对账上现形：feedSync 是「公网 feed 未同步」横幅的唯一数据源
+    expect(await invoke(ipcMain, 'podcast:channel:get')).toEqual({ code: 0, data: { channel: { title: '午间电台' }, feedSync: null } })
     expect(await invoke(ipcMain, 'podcast:episode:list')).toEqual({ code: 0, data: { episodes: [{ id: 'ep-1' }], cap: 1000, count: 1 } })
     // 评审 i2：分发端目录不再经「按频道构造」的 service，所以注入的假 service 一次都不该被调用
     const epRes = await invoke(ipcMain, 'podcast:endpoints:list')
@@ -349,4 +350,25 @@ describe('podcast IPC · 刀2 托管与发布（真服务 + 假凭证/假网络�
     expect(ipcMain.handlers.size).toBe(17)
   })
 })
-
+
+
+
+describe('podcast handler · channel:get 的 feedSync 读侧（刀 3 前置片）', () => {
+  it('channel:get 必须同时回 meta 与 feedSync；键集合逐字对齐', async () => {
+    const { ipcMain } = setup({
+      readFeedSync: vi.fn(() => ({ status: 'failed', attemptedAt: '2026-10-11T00:00:00.000Z', error: { status: 403 } })),
+    })
+    const res = await invoke(ipcMain, 'podcast:channel:get', { channelId: 'ch_x' })
+    expect(res.code).toBe(0)
+    // 键序逐字：横幅只认 feedSync 这一处；主进程少带一个键，渲染层就是恒 null 的静默失灵
+    expect(Object.keys(res.data).sort()).toEqual(['channel', 'feedSync'])
+    expect(res.data.feedSync).toMatchObject({ status: 'failed', error: { status: 403 } })
+    expect(res.data.channel).toMatchObject({ title: '午间电台' })
+  })
+
+  it('真源里没有 feedSync ⇒ 回 null 而不是造一个「已同步」', async () => {
+    const { ipcMain } = setup({ readFeedSync: vi.fn(() => null) })
+    const res = await invoke(ipcMain, 'podcast:channel:get', { channelId: 'ch_x' })
+    expect(res.data.feedSync).toBe(null)
+  })
+})

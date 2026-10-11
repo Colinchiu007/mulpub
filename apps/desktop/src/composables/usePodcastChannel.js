@@ -8,7 +8,7 @@
  *
  * IPC 合同（与主进程代理共享，键名以合同为准；取用一律经
  *   src/api/podcast-channel.js 的 8 个具名导出，导出名即下列键名）：
- *   channelGet()    → { ok, channel }
+ *   channelGet()    → { ok, channel, feedSync }
  *   channelSave(c)  → { ok, channel }
  *   episodeList()   → { ok, episodes }
  *   episodeSave(e)  → { ok, episode }（新增/原地更新，按 id）
@@ -190,6 +190,8 @@ export function usePodcastChannel () {
   const channelLoaded = ref(false)
   const savingChannel = ref(false)
   const channelError = ref('')
+  // 公网 feed 的同步真源（channel.json 的 feedSync 段）。null = 从未发布或从未写入。
+  const feedSync = ref(null)
 
   const episodes = ref([])
   const episodesLoaded = ref(false)
@@ -248,6 +250,9 @@ export function usePodcastChannel () {
     const res = await call(channelGet)
     if (res.ok) {
       channel.value = res.channel == null ? null : res.channel
+      // 横幅的唯一数据来源就是这里；主进程不带 feedSync 时保持 null，
+      // 不得凭空造一个「已同步」——那会把「读侧没接线」演成「一切正常」。
+      feedSync.value = res.feedSync == null ? null : res.feedSync
     } else {
       channelError.value = res.code || IPC_EXCEPTION
     }
@@ -418,6 +423,7 @@ export function usePodcastChannel () {
       episodes.value = []
       feedResult.value = null
       verifyResult.value = null
+      feedSync.value = null // 随频道归属一起失效：留着 A 的 failed 去按 B 的 channelId 出站＝面向错误目标的不可逆外发写（QM-6 #1）
       await loadChannel()
       await loadEpisodes()
     },
@@ -458,6 +464,7 @@ export function usePodcastChannel () {
     switchChannel,
     refreshQuota,
     channel,
+    feedSync,
     channelLoaded,
     savingChannel,
     channelError,

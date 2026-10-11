@@ -8,7 +8,7 @@
  *   3. 返回 envelope 的键名严格对齐渲染层合同（见下「通道合同」）
  *
  * 通道合同（渲染层按同一份合同并行开发，**键名逐字不得改**）：
- *   podcast:channel:get     → { code, data: { channel } }
+ *   podcast:channel:get     → { code, data: { channel, feedSync } }
  *   podcast:channel:save    → { code, data: { channel } }
  *   podcast:episode:list    → { code, data: { episodes } }
  *   podcast:episode:save    → { code, data: { episode } }
@@ -153,7 +153,13 @@ function registerHandlers (ipcMain, deps) {
   }
   const guarded = (label, fn) => withSenderCheck(handlerFor(label, fn))
 
-  ipcMain.handle('podcast:channel:get', guarded('channel:get', (payload) => ({ channel: getService(channelOf(payload)).getChannel() })))
+  ipcMain.handle('podcast:channel:get', guarded('channel:get', (payload) => {
+    // feedSync 与 meta 是同一份 channel.json 的两段（刀 1 的两段结构）。这里必须一起回：
+    // 渲染层的「公网 feed 未同步」横幅只能读这一处，而 getChannel() 按既有合同只回 meta，
+    // 少带这一段就等于「写侧落了盘、读侧没人看」——那条承诺就只存在于文档里。
+    const svc = getService(channelOf(payload))
+    return { channel: svc.getChannel(), feedSync: svc.readFeedSync() || null }
+  }))
 
   ipcMain.handle('podcast:channel:save', guarded('channel:save', (payload) => {
     // 缺参同样交给服务判：saveChannel(null) 走引擎的 CHANNEL_MISSING，

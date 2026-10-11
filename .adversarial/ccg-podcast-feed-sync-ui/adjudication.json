@@ -1,0 +1,16 @@
+{
+  "total": 11,
+  "upheld": 9,
+  "dismissed": 0,
+  "deferred": 2,
+  "deferredItems": [
+    "F2 的 toast/内联合并（归刀 3）",
+    "B4 的定向重读（归刀 3）"
+  ],
+  "convergence": "第 3 轮前端给出的最终 JSON 中，已处置项全部带回归锁；两家独立命中的 Critical 已闭合；无待人工裁决争议。",
+  "gates": {
+    "mutationProofs": 9,
+    "newTests": 19,
+    "suiteAfter": "983 passed / 0 failed / 52 files"
+  }
+}

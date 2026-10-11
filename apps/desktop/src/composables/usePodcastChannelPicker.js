@@ -81,13 +81,13 @@ export function createPodcastChannelPicker (deps) {
     if (!id || id === activeChannelId.value) return { ok: true, skipped: true }
     switchingChannel.value = true
     activeChannelId.value = id
-    channel.value = null
-    episodes.value = []
-    feedResult.value = null
-    verifyResult.value = null
     try {
-      await loadChannel()
-      await loadEpisodes()
+      // 清理与重取的形状只有页面域知道（见 deps.onChannelActivated 的理由），目录域不得猜。
+      // 刀 1 拆分时这里直接写了 channel/episodes/feedResult/verifyResult 与 loadChannel()——
+      // 那些标识符在本模块词法作用域里不存在，切频道整条路径必抛 ReferenceError（用户侧＝点了别的
+      // 频道什么都没发生）。全仓当时没有一条用例引用 switchChannel，四层门禁因此全绿；QM-5 逃逸链
+      // 与回归锁见 usePodcastChannel-switch.test.js 及 01-docs/BUGFIX-PODCAST-CHANNEL-SWITCH-2026-10-11.md。
+      await onChannelActivated()
       await refreshQuota()
     } finally {
       switchingChannel.value = false

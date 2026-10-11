@@ -489,6 +489,8 @@ class PodcastChannelService {
 
 module.exports = PodcastChannelService
 module.exports.SERVICE_ERRORS = SERVICE_ERRORS
+const FEED_SYNC_STATUSES = Object.freeze(['success', 'failed', 'partial']) // 闭集唯一声明：spec 与 podcast-feed-sync-status.test.js 三向对账；partial 是刀 3 声明过的预留，当前暂无生产写入者
+module.exports.FEED_SYNC_STATUSES = FEED_SYNC_STATUSES
 module.exports.ATOMIC_RENAME_RETRY_DELAYS_MS = ATOMIC_RENAME_RETRY_DELAYS_MS
 module.exports.PODCAST_FILES = { PODCAST_DIR_NAME, CHANNEL_FILE, EPISODES_FILE, FEED_FILE }
 // 原子替换的唯一实现（Windows 上只对 EPERM/EACCES/EBUSY 有界退避）。凡「临时文件 + rename」

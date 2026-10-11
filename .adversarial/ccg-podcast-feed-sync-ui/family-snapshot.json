@@ -1,0 +1,18 @@
+{
+  "proposer": "qoder-agent（本会话，实现方）",
+  "critics": [
+    {
+      "role": "backend",
+      "family": "claude",
+      "session": "154c9028-7030-45e0-aecc-68371f61b11c"
+    },
+    {
+      "role": "frontend",
+      "family": "opencode",
+      "session": "ses_ed7c407adffeEzmyBmY7yVs3KY",
+      "rounds": 3
+    }
+  ],
+  "configSource": "~/.claude/.ccg/config.toml [routing]",
+  "note": "前端为同一 session 的三轮续会话（v1 全量 → delta → 只要最终 JSON），后端单轮。家族集合无交集。"
+}
