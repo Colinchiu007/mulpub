@@ -2,9 +2,6 @@
 record: quick-collect-preset-refresh
 task: 快捷采集内置词条按用户真实需求重排（替换 2 条 agent 推演词条 + 新增 provenance 来源标注）
 date: 2026-10-11
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个动这些文档的会话（回填时**同一次**改：本文件表格行 + `.quality-gates.md` 同名记录的表格行与 bullet，并整段删除本 frontmatter 的三个 sync_* 字段，同时删 `scripts/gate-record-debt-ledger.json` 的本标题登记项）
 ---
 
 ## 本次执行记录：快捷采集内置词条按用户真实需求重排（quick-collect-preset-refresh，2026-10-11）
@@ -53,4 +50,4 @@ sync_backfill_owner: 下一个动这些文档的会话（回填时**同一次**�
 
 | 项目 | 状态 | 取证与回填要求 |
 | ---- | ---- | ---- |
-| 远程同步 | PENDING | 本 PR 尚未合并；合并后同一次回填本行、`.quality-gates.md` 同名记录的表格行与 bullet、本文件 frontmatter 的 `sync_*` 三字段，并删除 `scripts/gate-record-debt-ledger.json` 的本标题登记项 |
+| 远程同步 | PASS | PR #3352 已 squash 合并为 `78447a75d83915dc91f069af9ce57cfc98ee0940`（2026-10-11T23:15:40+08:00）；取证：`git log origin/main --grep="(#3352)$" --format=%H|%cI` 恰好 1 行且 SHA 相同、`git ls-remote --heads origin quick-collect-preset-refresh` = 0 行。本行、`.quality-gates.md` 同名记录两处、frontmatter 三字段与 ledger 登记项在同一次提交收口 |
