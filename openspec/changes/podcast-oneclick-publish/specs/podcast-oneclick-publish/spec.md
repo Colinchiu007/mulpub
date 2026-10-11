@@ -38,15 +38,20 @@
 
 ### Requirement: 发布同步状态必须持久化且不被改名抹除
 
-系统 SHALL 把每频道的 feed 同步结果（`result` / `attemptedAt` / `errorCodes` / `hostingSnapshot`）保存在 `channel.json` 的 `feedSync` 段，与 `validateChannel` 白名单所属的 `meta` 段分离。`podcast:channel:save` SHALL NOT 修改 `feedSync`；应用重启后 SHALL 仍能从持久化状态**读出**「公网 feed 未同步」（写侧与真源侧已闭合）。**读侧必须同源**：`podcast:channel:get` SHALL 同时回 `meta`（`channel`）与 `feedSync` 两段，`feedSync` 缺席时回 `null` 而不是缺键、更不得凭空造 `success`；渲染层在 `status` 为 `failed`/`partial` 时显示「公网 feed 未同步」横幅并提供【只重试上传 feed】，该按钮 SHALL 复用同一条 `podcast:feed:publish` 路径（不得为横幅另开第二份发布实现）。崩溃/退出中断的对账提示仍在 tasks 3.6。
+系统 SHALL 把每频道的 feed 同步结果（`status` / `attemptedAt` / `publishedAt` / `objectKey` / `error` / `updatedAt`）保存在 `channel.json` 的 `feedSync` 段，与 `validateChannel` 白名单所属的 `meta` 段分离。`status` 的取值是**闭集** `{success, failed, partial}`，唯一声明是 `apps/desktop/electron/services/podcast-channel-service.js` 的 `FEED_SYNC_STATUSES`；写侧字面量、读侧判据与本 Requirement 三向对账由 `podcast-feed-sync-status.test.js` 强制，越界即红。`partial` 目前**暂无生产写入者**（它是刀 3 出期链的 durable 形态，刀 2 的写侧只落 `failed`/`success`），读侧提前支持是为了让刀 3 不再二次触碰同一组文件与 zh/en 成对键；这一预留状态由下一行的 reserved 标记逐字声明，**刀 3 真正写入 `partial` 时必须同 PR 把该值从标记里删掉**（否则对账锁变红）。`podcast:channel:save` SHALL NOT 修改 `feedSync`；应用重启后 SHALL 仍能从持久化状态**读出**「公网 feed 未同步」（写侧与真源侧已闭合）。**读侧必须同源**：`podcast:channel:get` SHALL 同时回 `meta`（`channel`）与 `feedSync` 两段，`feedSync` 缺席时回 `null` 而不是缺键、更不得凭空造 `success`。**同进同退**：`feedSync` 必须与 `activeChannelId` 一起失效——切换频道即置 `null`（宁可往返窗口内短暂不显示，也不得把 A 频道的 `failed` 挂到 B 频道的重试入口上：那按钮拿的是当前 `channelId`，点下去就是面向错误目标的一次不可逆外发覆盖）。渲染层在 `status` 为 `failed`/`partial` 时显示「公网 feed 未同步」横幅并提供【按当前单集重新生成并上传 feed】，该按钮 SHALL 复用同一条 `podcast:feed:publish` 路径（不得为横幅另开第二份发布实现），其语义是**按当前真源重建后上传**，不是重放上一次失败的字节——文案里不得再出现暗示重放的「只重试」。崩溃/退出中断的对账提示仍在 tasks 3.6。
+<!-- feedSync-status-reserved: partial -->
 
 #### Scenario: 改名保留发布状态
-- **WHEN** feed 上传失败使 `feedSync.result = "partial"`，随后用户保存一次频道名
+- **WHEN** feed 上传失败使 `feedSync.status = "failed"`，随后用户保存一次频道名
 - **THEN** `feedSync` 逐字仍在（本 Scenario 判的是**真源不被改名抹掉**），且随后一次 `podcast:channel:get` 仍带回同一份 `feedSync`，横幅不因改名而消失
 
 #### Scenario: 服务实例重建后状态仍在
 - **WHEN** 主进程服务实例被重建（等价于应用重启）
-- **THEN** 同一频道的 `partial` 状态与错误码仍可读回，无需依赖当次会话内存
+- **THEN** 同一频道的 `failed` 状态与 `error.code` 仍可读回，无需依赖当次会话内存
+
+#### Scenario: 切换频道不得把上一频道的同步状态带过去
+- **WHEN** 频道 A 的 `feedSync.status = "failed"`，用户切到从未发布过的频道 B
+- **THEN** 在 `podcast:channel:get` 往返期间与返回之后横幅都不显示；重试入口随横幅一起不可达，因此不存在「按 A 的判据对 B 出站」；若 B 的读取失败，同样保持 `null`（「本轮没读到」不是「还是上次那样」）
 
 ### Requirement: 单集写入必须按内容校验且区分严格模式
 

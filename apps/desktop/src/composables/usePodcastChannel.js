@@ -423,6 +423,7 @@ export function usePodcastChannel () {
       episodes.value = []
       feedResult.value = null
       verifyResult.value = null
+      feedSync.value = null // 随频道归属一起失效：留着 A 的 failed 去按 B 的 channelId 出站＝面向错误目标的不可逆外发写（QM-6 #1）
       await loadChannel()
       await loadEpisodes()
     },

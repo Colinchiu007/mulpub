@@ -151,7 +151,7 @@ export default {
       noPrevious: 'This is the first publish for this channel, so there is no previous version to roll back to yet.',
     feedNotSynced: 'The public feed is not up to date ({status}). Your local episodes and what is already published are unaffected.',
     feedPartial: 'partially synced',
-    retryFeed: 'Re-upload feed only',
+    retryFeed: 'Rebuild and upload the feed from current episodes',
     },
     errors: {
       PODCAST_IPC_UNAVAILABLE: 'Podcast service is unavailable (not signed in, license not activated, or main-process channel not mounted)',

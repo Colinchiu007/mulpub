@@ -151,7 +151,7 @@ export default {
       noPrevious: '这是该频道首次发布，暂时还没有可退回的上一版。',
     feedNotSynced: '公网 feed 尚未更新（{status}），本地单集与已发布内容都不受影响。',
     feedPartial: '部分同步',
-    retryFeed: '只重试上传 feed',
+    retryFeed: '按当前单集重新生成并上传 feed',
     },
     errors: {
       PODCAST_IPC_UNAVAILABLE: '播客服务暂不可用（未登录、许可证未激活，或主进程通道未挂载）',
