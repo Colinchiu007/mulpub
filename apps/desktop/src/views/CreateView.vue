@@ -2650,7 +2650,10 @@ export default {
       if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return
       const applied = await this._applyS2VSnapshotObject(snapshot)
       if (applied) {
-        this.showS2VOptionsToast(this.$t('story2video.optionsRestored'))
+        // await 续体可能在 vm 卸载后执行（自动保存测试用 fake timers 推进、unmount 后续体才跑），
+        // 此时实例代理上的 $t 已失效——保留 translateWithLocaleFallback 同款存在性防御（见 learnings）
+        const message = typeof this.$t === 'function' ? this.$t('story2video.optionsRestored') : 'story2video.optionsRestored'
+        this.showS2VOptionsToast(message)
       }
     },
     // 2026-08-10 Bug 反哺：恢复「上次使用的选项」时，把不在当前选项列表中的陈旧枚举值
