@@ -1,3 +1,16 @@
+# [未发布] docs(podcast): 刀 3 下半片接口契约入规格（2026-10-11，podcast-episode-ipc）
+
+## 改动
+
+- PRD 新增 §6.4：`podcast:episode:publishFromVideo` 的入参必填判据表、返回逐字形状（state 三闭集 + phases + errorCode/errorMessage）、14 个领域码到 locale 键的映射表（含**新增** `PODCAST_VIDEO_NOT_FOUND`，「找不到成片」与「ffmpeg 失败」不共用一条文案）、显示项与取消按钮的可用性判据（`cancellableAt(phase)` 来自编排层，界面不得自己猜相位）、数据校验三层、以及 preload/桥接层的注册形态要求。
+- spec 新增 Requirement「成片一键出期必须有单一 IPC 入口且三态结果不压平」+ 两条 Scenario（partial 不被压平成失败；关闭浮层不等于取消）。
+- tasks 新增 3.3a：下半片合同已落规格，实现偏离必须先改合同再改代码。
+
+## 边界
+
+- 纯规格。上半片（#3291）与本笔合同都还没有调用者，「成片 → 一期 → 分发」对用户仍未交付（PRD §13 第 10/11 条继续生效）。
+
+
 # [未发布] feat(podcast): 播客刀 3 第 3 片上半——真实音频上传面与出期中间态收口（2026-10-11，podcast-episode-publish）
 
 ## 背景

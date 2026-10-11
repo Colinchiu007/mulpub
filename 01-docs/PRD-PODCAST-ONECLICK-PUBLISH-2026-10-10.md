@@ -120,6 +120,64 @@
 
 ---
 
+### 6.4 下半片合同：`podcast:episode:publishFromVideo`（2026-10-11 定，先于代码写死）
+
+上半片（#3291）落了 `publishAudio` 与编排层的收口，但它**没有调用者**。下半片要接的是「一次点击 → 一条完整出期链」，
+所以这里先把合同钉死：形状、错误码到文案的映射、显示项、禁用条件、校验层次。**代码必须服从本节，不是反过来**。
+
+**入参**（渲染层传出的必须是纯 JSON——Vue ref 包出来的 reactive proxy 直接进 `ipcRenderer.invoke` 会抛 `An object could not be cloned`，取用时先 `JSON.parse(JSON.stringify(...))` 脱壳）：
+
+| 字段 | 必填 | 判据 | 不满足时 |
+|---|---|---|---|
+| `channelId` | 是 | 非空且存在于 registry | `PODCAST_CHANNEL_ID_REQUIRED` → `podcast.errors.PODCAST_CHANNEL_ID_REQUIRED` |
+| `project` | 是 | 含 `segments[]`；降级判定读 `segments[].audioMeta.degraded` | `PODCAST_EPISODE_INVALID`（缺项目等于没有音轨来源，不许猜） |
+| `videoPath` | 是 | 成片绝对路径且 `existsSync` | `PODCAST_VIDEO_NOT_FOUND`（**新增码**，不得复用 EXTRACT_FAILED——「找不到成片」与「ffmpeg 失败」是两个排查方向） |
+| `outBase` | 是 | 临时目录基名（主进程算，不接受渲染层给路径） | `PODCAST_EPISODE_INVALID`（路径由主进程持有是防越界的唯一办法） |
+| `title` | 是 | 非空、≤200 码点 | `PODCAST_EPISODE_INVALID` 并带 issues |
+| `meta` | 否 | 只允许引擎白名单键 | 非白名单键**丢弃并出声**，不得静默落盘 |
+| `cancelToken` | 否 | `{ cancelled: boolean }`，由渲染层持有引用 | 缺席视为不取消 |
+
+**返回**（成功信封 `{ code: 0, data }`，`data` 逐字为）：
+`{ state, phases, audioUrl, episodeId, itemCount, feedUrl, message, errorCode, errorMessage }`——
+`state ∈ {success, partial, cancelled}` 三态**不得压平**：`partial` 表示这一期已在本地频道、公网 feed 未更新，
+压成失败会诱导用户删掉重来（而本地是对的）；`cancelled` 只在 `uploadAudio` 之前可达。
+`phases` 是逐相位轨迹（含每相位的 `durationSec`/`sizeBytes`/`mime` 标记），排查时它是唯一能说「卡在哪一站」的东西。
+
+**失败信封**：`{ code: <EC 数字>, subCode: <领域码>, message, issues? }`。领域码到文案的映射表（渲染层按 `subCode` 取，缺键回落 `podcast.errors.fallback`）：
+
+| 领域码 | 触发站 | 用户文案要点（zh/en 成对，键名如下） |
+|---|---|---|
+| `PODCAST_AUDIO_DEGRADED_SOURCE` | 降级判定 | 检测到静音占位旁白，已阻止上传——不是生成失败，是**素材本身不可用**（`episode.audioDegraded`） |
+| `PODCAST_VIDEO_NOT_FOUND` | 抽取前 | 找不到成片文件，请回结果页重新生成或重选路径（`episode.videoMissing`） |
+| `PODCAST_AUDIO_EXTRACT_FAILED` | 抽混音 | 抽取失败（附退出码；`stage=encoders` 时文案改口为「打包的 ffmpeg 无法执行」，见 §13 第 11 条 F2）（`episode.extractFailed` / `episode.encoderBroken`） |
+| `PODCAST_AUDIO_ENCODER_UNAVAILABLE` | 编码器探测 | 打包的 ffmpeg 不含 mp3/aac 编码器（`episode.encoderMissing`） |
+| `PODCAST_AUDIO_MEASURE_FAILED` | ffprobe 实测 | 无法实测时长或字节，已停止（**不得**用申报值或分段求和代替）（`episode.measureFailed`） |
+| `PODCAST_AUDIO_SIZE_MISMATCH` | 三处一致校验 | 上传回来的字节与本地实测不符，这一期没有挂上（`episode.sizeMismatch`） |
+| `PODCAST_HOSTING_REQUIRED` / `..._UPLOAD_FAILED` / `..._SECRET_MISSING` / `..._CRYPTO_UNAVAILABLE` | 上传 | 沿用 §6.3 已有四条文案，不在本通道重复造键 |
+| `PODCAST_EPISODES_FULL` / `PODCAST_EPISODE_INVALID` | 挂期 / 校验 | 已达上限或字段不合格，逐条列出 issues（`episode.capFull` / `episode.invalid`） |
+| `PODCAST_FEED_BUILD_FAILED` | 重建 feed | 这一期已登记到本地频道，公网 feed 尚未更新（**永不**说成本地坏了）（`episode.feedBuildFailed`） |
+| `PODCAST_CHANNEL_BUSY` | 全程 | 该频道有一次发布正在进行，请等它结束（立即拒绝不排队）（沿用 §8 既有键） |
+| `PODCAST_PUBLISH_CANCELLED` / `PODCAST_CANCEL_TOO_LATE` | 取消 | 前者为已取消且临时文件已回滚；后者必须明说**为什么不能取消**（`episode.cancelled` / `episode.cancelTooLate`） |
+
+**显示项**（浮层 `PodcastPublishAction`）：相位进度条（七相位 + `cancelled`，逐相位文案走 `episode.phase.*`）、
+当前相位的实测值（时长 / 字节 / mime——用户要能看见「量到了什么」而不是只看见转圈）、
+结果三态各自一句话（success 含 `feedUrl` 与「聚合端下次抓取后生效（通常数小时至数天）」，**不得写"已即时生效"**；
+partial 含「这一期已登记到本地频道」+ 一个只重试 feed 的出口；cancelled 含回滚说明）、
+取消按钮仅在 `cancellableAt(phase)` 为真时可点（判据来自编排层，界面不得自己猜相位）。
+
+**交互与挂起合同**：浮层是应用级模态，必须经 `src/composables/useEmbeddedViewSuspension.js` 挂起内嵌视图并在
+`overlay-view-suspension.test.js` 登记 owner（释放穷尽：`finally` 或 `watch(visible)` false 分支 + `onBeforeUnmount` 兜底）。
+关闭浮层**不取消**本次发布（链在主进程，跨 await 的中间态由主进程负责收尾）——这句必须写在界面上，否则用户会用关窗口来「停止」。
+
+**数据校验三层**：① 入参形状（本节表，主进程入口，缺任一必填即拒且在任何出站之前）；
+② 素材与实测（降级判定 → ffmpeg → ffprobe → stat，全在 `uploadAudio` 之前）；
+③ 落盘前预校验打在**合并结果**上（读 `list[index]` → 按同一合并语义 merge → `validateEpisode(merged)`），不合规整次拒绝不落盘。
+
+**preload 与桥接层**：通道名 `podcast:episode:publishFromVideo` 必须以**字面量**出现在 `ipcMain.handle(...)` 注册点
+（`check-ipc-bridge` 的 harvest 只认字面量，变量派发会造出「451 handlers / 0 缺口」的假账），且注册形态沿用
+`withSenderCheck(handlerFor(...))` 以保证 sender-guard 比例不被稀释；preload 侧新增同名方法，桥接层 `src/api/podcast-channel.js`
+加一个 `episodePublishFromVideo` 导出并走既有 `envelope()` 单点剥壳。**少任何一侧 = CI 红，不允许「先合主进程后补 preload」。**
+
 ## 7. 功能逻辑（按刀次）
 
 ### 刀 1 多频道 + 迁移 + 锁 + 契约
