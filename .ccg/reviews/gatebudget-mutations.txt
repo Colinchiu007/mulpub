@@ -1,15 +1,32 @@
-M1 两处等待退回写死 1800000 => fail=1 pass=10 namedRed=true :: ✖ workflow 两处等待都走单一真源，且任何语言的"30 分钟"自述都归零
-M2 预算调成 10 分钟 => fail=4 pass=7 namedRed=true :: ✖ 定数规则本身在测东西（抬高观测最大值 / 改小倍数都必须翻脸） (1.016 | ✖ 健康态不得自判红：没贴脸时"零截尾样本"是正确结果（QM-6 双轴同指一处） | ✖ 两个
-M3 job 上限退回 40 => fail=1 pass=10 namedRed=true :: ✖ job 上限与单一真源严格对齐，且不许动无关 job (0.8583ms)
-M4 守卫摘掉失败语义（弱化成打日志） => fail=1 pass=10 namedRed=true :: ✖ 取预算失败必须当场让 job 失败，而不只是"有个 if" (0.7547m
-M5 守卫去掉类型校验 => fail=1 pass=10 namedRed=true :: ✖ 取预算失败必须当场让 job 失败，而不只是"有个 if" (0.7731m
-M6 探针删一个出处字段 => fail=1 pass=10 namedRed=true :: ✖ 复测入口的字段与出处逐字段对齐，单位换算锁到函数体 (0.8264ms)
-M7 安全倍数改小（用改判据消化矛盾） => fail=1 pass=10 namedRed=true :: ✖ 判据的不可协商项：安全倍数、样本下限、截尾证据下限都不得被调小来消化矛盾（M
-M8 contract 钉回旧字面量 => fail=1 pass=10 namedRed=true :: ✖ 旧形态不得被别的锁钉回来（workflow-contract 与本锁同口径）
-M9 重新引入中文「30 分钟」自述 => fail=1 pass=10 namedRed=true :: ✖ workflow 两处等待都走单一真源，且任何语言的"30 分钟"自述都归零
-M10 两 job 共用较大前置（抹掉 per-job 口径） => fail=1 pass=10 namedRed=true :: ✖ 两个 job 各用各的实测前置，不得共用一个较大值糊过去 (1.0415ms
-M11 摘掉带内贴脸告警 => fail=1 pass=10 namedRed=true :: ✖ 每次 CI 跑都自带"离墙还有多远"的带内信号 (0.904ms)
-M13 告警只留文本、删掉一处赋值（M11 之后补的更细一档） => fail=1 pass=10 namedRed=true :: ✖ 每次 CI 跑都自带"离墙还有多远"的带内信号 (0.9258ms)
-M12 截尾比较改成分钟乘 60000 去比 ms => fail=1 pass=10 namedRed=true :: ✖ 复测入口的字段与出处逐字段对齐，单位换算锁到函数体 (0.9923ms)
-FINAL 未变异 => fail=0 pass=11 namedRed=- :: 
+变异反证汇总（第 2 轮，re-sync 后）— 2026-10-11，PR #3313，head 分支 gate-budget-reprobe
+坐标：runner = D:/tmp/mw-g4-mutate3.js（每条先 --dry 校验锚点命中数：DRY_BAD=0），
+被测锁 = node --test scripts/gate-budget.test.js（11 条），驱动退出码 battery_rc=0，判据 MUTATION_BAD=0。
+每条"want=red"都必须让**点名的那一条**变红；N2 是唯一一条 want=green —— 它守的是"禁令不得挡掉自己推荐的修法"
+（收窄前，#3315 合法写入的历史归因注释会被全文禁令判红，实测红在 :390/:393/:746）。
+本文件取代第 1 轮（13 条）的输出；第 2 轮多出的三处变化：
+  · M9 重定向为 M9n —— 原锚点在**注释行**上，收窄后注释放行，故改判"非注释行把时长写成字面量"必须红；
+  · N1 —— 把超时文案里的插值换成硬编码 45-minute，必须由同一锁点名（收窄锁的第二落点）；
+  · 判据本身补了连字符：`\\d+\\s*minute` 匹配不到 `45-minute`（数字与词之间隔着 `-`，而旧文案用的正是这个形态），
+    第一版收窄锁因此放过了 M9n（实测 fail=0、ok=false、MUTATION_BAD=1），改成 `\\d+\\s*-?\\s*(分钟|minute)` 后才红。
+    这条是变异电池自己抓到的，不是事后补的说明。
+另记一条驱动脚本自伤：日志模板把 `${r.pass}` 写成 `${r.test}`，落盘一度显示 `pass=undefined/11`；
+判据本身读的是 `r.pass`（'11'）所以结论未受影响，但产物字段必须是真实测得值，已修并重跑整批。
+
+--- 逐条输出 ---
+M1 两处等待退回写死 1800000 => want=red fail=1 pass=10/11 ok=true :: ✖ workflow 两处等待都走单一真源，且时长不得在非注释行写成字面量 (1
+M2 预算调成 10 分钟 => want=red fail=4 pass=7/11 ok=true :: ✖ 定数规则本身在测东西（抬高观测最大值 / 改小倍数都必须翻脸） (0.956 | ✖ 健康态不得自判红：没贴脸时"零截尾样本"是正确结果（QM-6 双轴同指
+M3 job 上限退回 40 => want=red fail=1 pass=10/11 ok=true :: ✖ job 上限与单一真源严格对齐，且不许动无关 job (0.8979ms)
+M4 守卫摘掉失败语义（弱化成打日志） => want=red fail=1 pass=10/11 ok=true :: ✖ 取预算失败必须当场让 job 失败，而不只是"有个 if" (0.7591m
+M5 守卫去掉类型校验 => want=red fail=1 pass=10/11 ok=true :: ✖ 取预算失败必须当场让 job 失败，而不只是"有个 if" (0.7945m
+M6 探针删一个出处字段 => want=red fail=1 pass=10/11 ok=true :: ✖ 复测入口的字段与出处逐字段对齐，单位换算锁到函数体 (1.0624ms)
+M7 安全倍数改小（用改判据消化矛盾） => want=red fail=1 pass=10/11 ok=true :: ✖ 判据的不可协商项：安全倍数、样本下限、截尾证据下限都不得被调小来消化矛盾（M
+M8 contract 钉回旧字面量 => want=red fail=1 pass=10/11 ok=true :: ✖ 旧形态不得被别的锁钉回来（workflow-contract 与本锁同口径）
+M9n 非注释行把预算写成字面量（中文+英文两档） => want=red fail=1 pass=10/11 ok=true :: ✖ workflow 两处等待都走单一真源，且时长不得在非注释行写成字面量 (2
+M10 两 job 共用较大前置（抹掉 per-job 口径） => want=red fail=1 pass=10/11 ok=true :: ✖ 两个 job 各用各的实测前置，不得共用一个较大值糊过去 (1.0565ms
+M11 摘掉带内贴脸告警 => want=red fail=1 pass=10/11 ok=true :: ✖ 每次 CI 跑都自带"离墙还有多远"的带内信号 (0.9334ms)
+M13 告警只留文本、删掉一处赋值 => want=red fail=1 pass=10/11 ok=true :: ✖ 每次 CI 跑都自带"离墙还有多远"的带内信号 (0.9186ms)
+M12 截尾比较改成分钟乘 60000 去比 ms => want=red fail=1 pass=10/11 ok=true :: ✖ 复测入口的字段与出处逐字段对齐，单位换算锁到函数体 (0.948ms)
+N1 超时文案把插值换成硬编码 45-minute（收窄锁的第二落点） => want=red fail=1 pass=10/11 ok=true :: ✖ workflow 两处等待都走单一真源，且时长不得在非注释行写成字面量 (3
+N2 合规形态：注释里新增历史归因「30 分钟」必须仍为绿 => want=green fail=0 pass=11/11 ok=true ::
+FINAL 未变异 => want=green fail=0 pass=11/11 ok=- ::
 MUTATION_BAD=0

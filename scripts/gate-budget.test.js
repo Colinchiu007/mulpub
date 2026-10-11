@@ -102,14 +102,27 @@ test('记录下来的出处自己不许贴脸（否则这次改动就是在制�
   assert.ok(gate.PROVENANCE.priorBudgetMin > 0, '必须记录"采样窗口内生效的预算"，否则截尾判据会随抬价漂移')
 })
 
-test('workflow 两处等待都走单一真源，且任何语言的"30 分钟"自述都归零', () => {
+test('workflow 两处等待都走单一真源，且时长不得在非注释行写成字面量', () => {
   const jobs = jobBlocks(wf)
-  const injected = [...wf.matchAll(/WaitForExit\(\[int\]\$gateBudgetMs\)/g)].length
+  const injected = [...wf.match(/WaitForExit\(\[int\]\$gateBudgetMs\)/g)].length
   assert.ok(injected >= 2, `WaitForExit([int]$gateBudgetMs) 出现 ${injected} 次，Gate 4 与 shard 两处都必须在`)
   assert.equal((wf.match(/WaitForExit\(1800000\)/g) || []).length, 0, '仍有一处写死 1800000')
-  // 中文形态实测存在过（:633 与 :739），只锁英文等于没锁 —— QM-6 maint 轴命中
-  const stale = wf.split(/\r?\n/).map((l, i) => (/30\s*(?:分钟|minute)/.test(l) ? i + 1 : 0)).filter(Boolean)
-  assert.deepEqual(stale, [], `workflow 里仍有"30 分钟"式自述（行 ${stale.join(',')}），安全网已是 ${gate.GATE_TEST_BUDGET_MS / 60000} 分`)
+  // 口径（2026-10-11 被 #3315 撞出来后收窄）：要禁的是"把时长钉成一个会漂移的字面量"，不是"提到 30 分钟"这句话。
+  // 原判据对全文禁 `30\s*(分钟|minute)`，而 #3315 在注释里写「desktop 混进 Gate 4 的 30 分钟预算」是**历史归因**、
+  // 是事实 —— 一条把被批准的修法自己判红的锁，就是 AGENTS.md 里 PR #3225 记过的那种失守。
+  // 收窄后仍守住原意图：中文形态实测存在过（:633 与 :739），只锁英文等于没锁（QM-6 maint 轴命中），
+  // 所以按"任何语言的数字 + 分钟/minute"扫**非注释行**，并把超时文案单独要求它插值真实预算。
+  // 判据必须容得下连字符形态：`45-minute` / `30-minute` 这类写法在 `\d+\s*minute` 下**不匹配**
+  // （数字与词之间隔着 `-`），而旧文案用的正是 `30-minute`，漏了它就是把要禁的形态留在盲区（M9n 实测命中）。
+  const hardCoded = wf.split(/\r?\n/)
+    .map((l, i) => (/^\s*#/.test(l) ? 0 : (/\d+\s*-?\s*(?:分钟|minute)/.test(l) ? i + 1 : 0)))
+    .filter(Boolean)
+  assert.deepEqual(hardCoded, [], `非注释行把测试时长写成了字面量（行 ${hardCoded.join(',')}）——数字只能来自 scripts/gate-budget.js`)
+  const msgs = [...wf.matchAll(/Write-Host "([^"]*exceeded its[^"]*budget[^"]*)"/g)]
+  assert.equal(msgs.length, 2, `超时文案应有 2 处，实得 ${msgs.length} —— 判据要跟着改`)
+  for (const m of msgs) {
+    assert.ok(m[1].includes('$gateBudgetMs'), `失败文案没插值真实预算，读日志的人会按字面数理解安全网：${m[1].slice(0, 70)}`)
+  }
   for (const name of ['unit-tests', 'desktop-shards']) {
     const j = jobs.find((x) => x.name === name)
     assert.ok(j, `job ${name} 解析不到`)
