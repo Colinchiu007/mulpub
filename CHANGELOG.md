@@ -1,3 +1,35 @@
+# [未发布] fix(changelog-gate): 让退休授权放行在输出里可区分，并清掉三处"自述与实际不一致"（2026-10-11，changelog-gate-selfreport）
+
+### 用户感知
+
+无。默认判据、授权通路的放行条件与额度校核**一字未动**；本 PR 只让门禁"说出来的话"与"实际做的事"一致，
+并修掉一条让退休分支在单元层根本无法被测的写死路径。
+
+### 变更明细
+
+- **退休放行必须可区分**（主规格 `changelog-ledger-integrity` R2 场景「祖先」的实现补齐）：`collect` 此前从不读 `ev.retired`，
+  于是「坐标系已消费的退休放行」与「新鲜授权」在 stdout 上逐字相同，真发生时无人能从日志归因。现在结果对象带
+  `retired` / `retiredReason`（`--json` 机读可分），并**单独成行**打「授权坐标系已消费退休：…」——不拼在上一行尾巴，
+  CI 日志按行 grep，混在一行等于没出声。
+- **修掉一条测试性缺陷**：祖先探测 `execFileSync_ForAncestor` 的 `cwd` 写死成 `path.resolve(__dirname, '..')`，
+  而 `collect` 其余取数一律走注入的 `root`/`git`。后果不是 CI 出错（CI 恰好同仓，侥幸对上），而是**夹具永远到不了退休分支**
+  ——临时仓的 sha 在真仓不存在 ⇒ `merge-base --is-ancestor` 必失败 ⇒ 恒判「坐标系错位」。现在 root 由调用方传入，
+  回归锁改用夹具仓库（真 git 祖先关系）并逐个断言两个坐标系 sha。
+- **归档后的失效指针**：`changelog-dedup-regen.js` 写进授权件 `reason` 的规格出处仍指 `openspec/changes/dedup-changelog-history/`，
+  该目录已随 #3277 归档 ⇒ 下一次清理生成的授权件会让 reviewer 去追一个不存在的目录。改为指向归档后真实路径，
+  并加一条「reason 里点名的 openspec 路径必须真实存在」的结构锁（空集合有规模下界兜底，不会恒真）。
+- **对账器自述少报一项**：`changelog-dedup-reconcile.js` 实跑 A1–A6（A6 = preamble 逐字节不变，QM-6 后端 MAJOR-3 补的），
+  成功那行却只列 A1–A5 并自称「五项全过」⇒ 读日志的人会以为 preamble 没人看。改成列全并写「六项全过」，
+  锁的判据是**从源码里真正 `failures.push(`A…` 的位置取集合**，不是手写清单（手写清单会跟着漂移）；把取值正则改坏 ⇒ 规模下界当场红。
+- 主规格同步：上面两处「已知缺口」的措辞从"登记为欠账"改为"已被夹具锁钉住"（规格规模仍 4 Requirement / 20 Scenario）。
+- 变异反证 5 条全部实测：M1 摘掉打印与 `retired` 字段、M2 把 `cwd` 写死回去、M3 把路径改回归档前、M4 把 OK 自述退回"五项"、
+  M5 把取集合的正则改成恒空 —— 各自让**预期的那一条**变红，`MUTATION_BAD=0`，还原后四个文件与备份**逐字节相同**、终态全绿。
+- 消费者并集全跑（不是只跑 diff 里的测试文件）：`check-changelog-growth.test.js` / `...-retire.test.js` / `check-changelog-duplicate-entries.test.js`
+  合计 **59 pass / 0 fail**；门禁本体对真仓 `base=merge-base` 复跑 PASS。
+- 详见 `openspec/records/changelog-gate-selfreport.md`。
+
+---
+
 # [未发布] docs(podcast): 刀 3 下半片接口契约入规格（2026-10-11，podcast-episode-ipc）
 
 ## 改动

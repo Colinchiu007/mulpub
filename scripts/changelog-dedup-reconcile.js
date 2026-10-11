@@ -149,7 +149,7 @@ function main (argv) {
     console.error(`[changelog-dedup-reconcile] FAIL：${r.failures.length} 项独立核对不成立`);
     return 1;
   }
-  console.log('[changelog-dedup-reconcile] OK：A1 标题守恒 / A2 逐字节同源(raw，非 CR 归一) / A3 留的是 pickKeeper 那份 / A4 幂等 / A5 每标题恰好一块且标题集闭合 —— 五项全过（行级 +/- 为重排所致，仅列作信息）');
+  console.log('[changelog-dedup-reconcile] OK：A1 标题守恒 / A2 逐字节同源(raw，非 CR 归一) / A3 留的是 pickKeeper 那份 / A4 幂等 / A5 每标题恰好一块且标题集闭合 / A6 preamble 逐字节不变 —— 六项全过（行级 +/- 为重排所致，仅列作信息）');
   return 0;
 }
 
