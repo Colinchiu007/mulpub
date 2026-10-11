@@ -101,9 +101,9 @@ function createRunner(options = {}) {
   });
 }
 
-// 就绪故障的分类判据是 views 两套共用的，唯一实现在同目录 ready-classification.js，
-// 这里只 re-export 给既有单测与 run-all-visual.js 使用。
-const { isReadyFailure, exitCodeForError, classifyFailures } = require('../ready-classification')
+// 就绪故障的分类判据**与失败对象的合成**都只有一份实现，在同目录 ready-classification.js。
+// 不往本文件的 module.exports 里 re-export：分类单测直连共享模块，re-export 是零消费者的死导出面。
+const { exitCodeForError, buildSuiteError } = require('../ready-classification')
 
 async function runViewSuite(tests = viewTests, options = {}) {
   const runner = options.runner || createRunner(options);
@@ -145,31 +145,15 @@ async function runViewSuite(tests = viewTests, options = {}) {
     }
   }
 
-  if (fatalError) throw fatalError;
+  // 已收集的视图失败**优先于 close 的清理失败**：close 抛错不得把「视图从未渲染出来」
+  // 压成普通错误 —— 那会退回 exit 1，Gate 7 的 `= 3` 判定就点不到火（QM-6 前端轴 Minor）。
+  // launch 失败时 failures 必为空（还没跑循环），所以下面第二行仍是原语义。
   if (failures.length > 0) {
-    // 分类按码，不按消息文本 —— 唯一实现见 ready-classification.js
-    const { neverReady, otherFailures, line } = classifyFailures(failures)
-    let error
-    if (neverReady.length > 0) {
-      console.error(line)
-      error = new Error('单视图视觉门禁失败: ' + neverReady.length
-        + ' 个视图从未渲染出来（就绪超时 ⇒ 路由/选择器故障，不是像素抖动）: '
-        + neverReady.map(f => f.test).join(', ')
-        + (otherFailures.length
-          ? '；另有 ' + otherFailures.length + ' 个视图失败（像素/校验类，交 Gate 7b 判定）: '
-            + otherFailures.map(f => f.test).join(', ')
-          : ''))
-      error.code = 'ERR_VISUAL_NOT_READY'
-    } else {
-      error = new Error('单视图视觉门禁失败: '
-        + failures.map(failure => failure.test + ': ' + failure.error.message).join(' | '))
-      error.code = 'ERR_VISUAL_SUITE_FAILED'
-    }
-    error.failures = failures
-    error.neverReady = neverReady
-    error.otherFailures = otherFailures
+    const error = buildSuiteError('单视图视觉门禁失败', failures)
+    if (fatalError) error.cause = fatalError
     throw error
   }
+  if (fatalError) throw fatalError;
 
   return {
     total: tests.length,
@@ -214,8 +198,6 @@ if (require.main === module) {
 
 module.exports = {
   viewTests,
-  isReadyFailure,
-  exitCodeForError,
   runViewSuite,
   runAllViewTests,
   runSingleView,

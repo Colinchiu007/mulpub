@@ -111,6 +111,18 @@ describe('视图套件的就绪故障分类', () => {
     expect(err.code).toBeUndefined()
   })
 
+  it('close 抛错不得吞掉已收集的就绪失败（视图失败优先，close 失败挂 cause）', async () => {
+    const runner = makeRunner({ 'film-engineering': timeoutErr('film-engineering') }, { closeThrows: true })
+    let err = null
+    try {
+      await suite.runViewSuite([view('film-engineering')], { runner })
+    } catch (e) { err = e }
+    expect(err.code, '视图失败必须优先于清理失败，否则就绪故障被压回 exit 1').toBe('ERR_VISUAL_NOT_READY')
+    expect(err.neverReady.map(x => x.test)).toEqual(['film-engineering'])
+    expect(err.cause, 'close 的失败挂在 cause 上，不得丢失').toBeTruthy()
+    expect(err.cause.message).toBe('close 炸了')
+  })
+
   it('假 runner 已有 FAILED 记录时不重复追加（保持既有 alreadyRecorded 语义）', async () => {
     const runner = makeRunner({ a: timeoutErr('a') })
     runner.results = [{ test: 'a', route: '/a', status: 'FAILED', error: 'x' }]
@@ -121,7 +133,7 @@ describe('视图套件的就绪故障分类', () => {
 })
 
 describe('退出码映射与注册表真值', () => {
-  function exitCodeOf(err) { return suite.exitCodeForError(err) }
+  function exitCodeOf(err) { return rc.exitCodeForError(err) }
 
   it('ERR_VISUAL_NOT_READY ⇒ 3；其余 ⇒ 1（3 是 Gate 7 唯一阻断的那一档）', () => {
     expect(exitCodeOf({ code: 'ERR_VISUAL_NOT_READY' })).toBe(3)
@@ -173,7 +185,9 @@ describe('两套 runViewSuite 共用同一份就绪分类', () => {
         locator: () => ({ first: () => ({ isVisible: async () => (opt.visible ?? true) }) }),
       },
       async launch() {},
-      async close() {},
+      async close() {
+        if (opt.closeThrows) throw new Error('补充 close 炸了')
+      },
       async _navigateToRoute() {
         if (throwErr) throw throwErr
       },
@@ -194,7 +208,7 @@ describe('两套 runViewSuite 共用同一份就绪分类', () => {
     expect(err, '必须抛错').toBeTruthy()
     expect(err.code).toBe('ERR_VISUAL_NOT_READY')
     expect(err.neverReady.map(x => x.test)).toEqual(['a'])
-    expect(supp.exitCodeForError(err)).toBe(3)
+    expect(rc.exitCodeForError(err)).toBe(3)
   })
 
   it('补充套件：断言失败（校验类）保持 ERR_VISUAL_SUITE_FAILED ⇒ 退出码 1', async () => {
@@ -204,7 +218,7 @@ describe('两套 runViewSuite 共用同一份就绪分类', () => {
     } catch (e) { err = e }
     expect(err.code).toBe('ERR_VISUAL_SUITE_FAILED')
     expect(err.neverReady).toEqual([])
-    expect(supp.exitCodeForError(err)).toBe(1)
+    expect(rc.exitCodeForError(err)).toBe(1)
   })
 
   // R12：QM-6 后端评审命中的 Critical（2026-10-11，替代通道 opencode/nemotron-3-ultra-free）。
@@ -226,7 +240,17 @@ describe('两套 runViewSuite 共用同一份就绪分类', () => {
     expect(err, '校验类失败仍必须抛错').toBeTruthy()
     expect(err.code).toBe('ERR_VISUAL_SUITE_FAILED')
     expect(err.neverReady).toEqual([])
-    expect(supp.exitCodeForError(err)).toBe(1, '不得编成 3，否则 Gate 7 会拦掉一次可被两轮甄别放行的抖动')
+    expect(rc.exitCodeForError(err)).toBe(1, '不得编成 3，否则 Gate 7 会拦掉一次可被两轮甄别放行的抖动')
+  })
+
+  it('补充套件：close 抛错同样不得吞掉就绪失败（两套同口径）', async () => {
+    let err = null
+    try {
+      await supp.runViewSuite([sv('a')], { runner: suppRunner(timeoutErr('a'), { closeThrows: true }) })
+    } catch (e) { err = e }
+    expect(err.code).toBe('ERR_VISUAL_NOT_READY')
+    expect(err.cause.message).toBe('补充 close 炸了')
+    expect(rc.exitCodeForError(err)).toBe(3)
   })
 
   // R13：判据本身也要锁 —— 否则下一个调用点把兜底重抄回去，只有真浏览器 run 才会发现。
@@ -234,7 +258,7 @@ describe('两套 runViewSuite 共用同一份就绪分类', () => {
     const gotoTimeout = new Error('Timeout 15000ms exceeded.')
     gotoTimeout.name = 'TimeoutError'
     expect(rc.isReadyFailure(gotoTimeout), 'goto/click 超时不算就绪').toBe(false)
-    expect(rc.classifyFailures([{ test: 'a', error: gotoTimeout }]).neverReady).toEqual([])
+    expect(rc.classifyVisualFailures([{ test: 'a', error: gotoTimeout }]).neverReady).toEqual([])
     expect(rc.isReadyFailure(timeoutErr('a', READY_CODE))).toBe(true)
     expect(rc.isReadyFailure(timeoutErr('a', APP_READY_CODE))).toBe(true)
     expect(rc.isReadyFailure({ code: 'ERR_VISUAL_NOT_READY' })).toBe(true)
@@ -250,13 +274,21 @@ describe('两套 runViewSuite 共用同一份就绪分类', () => {
     for (const [name, src] of Object.entries(bodies)) {
       expect(src.includes("require('../ready-classification')"), name + ' 必须引用共享实现').toBe(true)
       // 定义性写法出现即口径分裂（两份必然漂移）
-      expect(/function\s+(isReadyFailure|exitCodeForError|classifyFailures)\s*\(/.test(src), name + ' 不得自带分类实现').toBe(false)
+      expect(/function\s+(isReadyFailure|exitCodeForError|classifyVisualFailures|buildSuiteError)\s*\(/.test(src), name + ' 不得自带分类或失败合成实现').toBe(false)
       expect(src.includes('const READY_TIMEOUT_CODES'), name + ' 不得自带就绪码表').toBe(false)
+      // 失败对象的**消息模板与 code 赋值**也只许有一份：两套各抄一遍，改一处漏一处不会有人变红
+      expect(src.includes('个视图从未渲染出来'), name + ' 不得自带就绪失败消息模板').toBe(false)
+      // 只锁**这一对**码：all-views 的 --single 路径另有合法的 `error.code = 'ERR_VISUAL_VIEW_NOT_FOUND'`
+      // （未知视图名，与就绪分类无关）。判据写成「任何 code 赋值都不许」会红在无关代码上，
+      // 那种锁会把自己提示语推荐的修复路径一起打红。
+      for (const code of ['ERR_VISUAL_NOT_READY', 'ERR_VISUAL_SUITE_FAILED']) {
+        expect(src.includes("error.code = '" + code + "'"), name + ' 不得自行赋 ' + code).toBe(false)
+      }
     }
     // 共享实现必须真的持有码表与两个判据（否则上面的锁在扫两个空文件）
     expect(shared.includes('const READY_TIMEOUT_CODES')).toBe(true)
-    expect(['isReadyFailure', 'exitCodeForError', 'classifyFailures']
+    expect(['isReadyFailure', 'exitCodeForError', 'classifyVisualFailures', 'buildSuiteError']
       .map(fn => (shared.match(new RegExp('function ' + fn + '\\(')) || []).length))
-      .toEqual([1, 1, 1])
+      .toEqual([1, 1, 1, 1])
   })
 })

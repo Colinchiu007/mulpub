@@ -93,7 +93,9 @@ const mountedTabs = ref(new Set([activeTab.value]))   // 初始只挂 'auto'
 | R10 | 补充套件的断言失败（选择器不可见） | 保持 `ERR_VISUAL_SUITE_FAILED` + 退出码 1 |
 | R11 | 结构锁：两个套件都 `require('../ready-classification')` 且**不得自带** `isReadyFailure`/`exitCodeForError`/`classifyFailures`/`READY_TIMEOUT_CODES` 定义；共享实现必须真的持有三个函数（各恰好 1 处定义） | 反向也锁：共享文件里少一个函数即红，防"锁在扫两个空文件" |
 | R12 | 补充套件的视图带 `trigger`，`page.click` 抛**裸** `TimeoutError`（Playwright 原生形状，无我们的 code） | 仍 `ERR_VISUAL_SUITE_FAILED` ⇒ 退出码 **1**（不得绕过 Gate 7b 的两轮甄别）—— §8 的 Critical 回归锁 |
-| R13 | 共享分类逐判例：裸 `TimeoutError` / 两个就绪码 / `ERR_VISUAL_NOT_READY` / `null` | 依次 `false / true / true / false`；`classifyFailures` 对裸 TimeoutError 的 `neverReady` 为空 |
+| R13 | 共享分类逐判例：裸 `TimeoutError` / 两个就绪码 / `ERR_VISUAL_NOT_READY` / `null` | 依次 `false / true / true / false`；`classifyVisualFailures` 对裸 TimeoutError 的 `neverReady` 为空 |
+| R14 | all-views：一个视图就绪超时 **且** `runner.close()` 抛错 | 抛出的仍是 `ERR_VISUAL_NOT_READY`（`neverReady` 点名），close 的失败挂在 `cause` 上——清理失败不得把就绪故障压回 1 |
+| R15 | supplement：同上组合 | 同一结论（`ERR_VISUAL_NOT_READY` + `cause` + `exitCodeForError ⇒ 3`），证明两套同口径 |
 
 ## 5. 反证（变异与行为表均**当场实测**，2026-10-11）
 
@@ -108,8 +110,9 @@ const mountedTabs = ref(new Set([activeTab.value]))   // 初始只挂 'auto'
 | N5 | 选择器改回 `.film-canvas-view` | **RED** rc=1，`Failed Tests 1`（R7 根因回归锁） |
 | N6 | 退出码映射退化成恒 1 | **RED** rc=1，`Failed Tests 2`（R8 + R9 的映射断言） |
 | N7 | 把 `error.name === 'TimeoutError'` 兜底加回来（§8 的 Critical 回归反证） | **RED** rc=1，`Failed Tests 2`（R12 + R13） |
+| N8 | 把就绪失败消息模板抄回套件（`个视图从未渲染出来` 出现在 `all-views` 里） | **RED** rc=1，`Failed Tests 1`（R11 的新断言：模板与 `code` 赋值只许一份） |
 
-（表内数字取 **§8 修复之后**那一批同驱复跑：`BASELINE[vitest] rc=0 :: Tests 13 passed (13)`，收尾 `red=7/7 notRed=0`，每个变异还原后 `Buffer.compare` 逐字节相同。）
+（表内数字取 **§8 两次修复之后**那一批同驱复跑：`BASELINE[vitest] rc=0 :: Tests 15 passed (15)`，收尾 `red=8/8 notRed=0`（N1–N8），每个变异还原后 `Buffer.compare` 断言与备份逐字节相同。）
 
 **Gate 7 判定逻辑的行为表**（把 workflow 里那几行原文抽出来喂给 `pwsh` 真跑，不是读代码猜）：
 
@@ -131,19 +134,20 @@ const mountedTabs = ref(new Set([activeTab.value]))   // 初始只挂 'auto'
 - `run-pixel-tests.js`（`test:visual:pixel` / `:pixel:dark` 的实现）没有接入 `ready-classification`：它的就绪失败目前仍以 1 退出，Gate 7 的 `$pixelExit -ne 0` 本来就阻断，所以**不构成盲区**，只是 3 档语义在那一侧未使用。
 - Gate 7b round2 暗档重采至今无运行时现场（只在 round1 报违规时可达）。
 - 影视工程 Hub 是否需要把 canvas 也纳入像素基线覆盖（那是**新增视觉用例**，要两份清单都登记）。
+- `test:all:visual` 的发版前路径上，聚合器 `run-all-visual.js:152` 把任何失败归一成退出码 1（它只按 `summary.failed/aborted` 记账，不消费套件的 3）⇒ **3 档在那条人工核查路径上被稀释**。不改的理由见 §8 前端轴 E：聚合器的角色是汇总而非门禁；这里登记是因为"它跑过且绿"不等于"就绪故障在那条路上被拦住"。
 
 ## 7. 验收标准
 
-1. `pnpm exec vitest run tests/visual-testing/visual-readiness-classification.test.js` 全绿，R1–R13 逐条存在（实测 `Tests 13 passed (13)`，含 §8 补的 R12/R13）。
-2. 消费者并集全跑（`git grep` 反查引用被改模块的测试文件）：`tests/visual-ci.test.js` + `tests/visual-testing/condition-waiting.test.js` + `electron/tests/visual-view-runner.test.js` + 本条新测试 ⇒ 实测 `4 passed / Tests 70 passed (70)`（§8 修复后复跑）。
+1. `pnpm exec vitest run tests/visual-testing/visual-readiness-classification.test.js` 全绿，R1–R15 逐条存在（实测 `Tests 15 passed (15)`，含 §8 两次评审补的 R12–R15）。
+2. 消费者并集全跑（`git grep` 反查引用被改模块的测试文件）：`tests/visual-ci.test.js` + `tests/visual-testing/condition-waiting.test.js` + `electron/tests/visual-view-runner.test.js` + 本条新测试 ⇒ 实测 `4 passed / Tests 72 passed (72)`（§8 两次修复后复跑）。
 3. `node --test .github/scripts/workflow-contract.test.js` 全绿，含新结构锁（实测 `35 pass / 0 fail`，改前基线 34）。
 4. 本 PR 自己的 `QG Visual` 现场：`[GATE-7] suite exits: pixel=0 views=0 views-supplement=0 dark=0`（`views` 必须由 1 变 0）且 `[GATE-7] All visual tests passed` 与之一致 —— 这一条是"根因真的被修掉"的唯一现场证据。
-5. 变异 N1–N7 逐个实测变红并逐字节还原（见 §5 表 + §8，`red=7/7 notRed=0`）。
+5. 变异 N1–N8 逐个实测变红并逐字节还原（见 §5 表 + §8，`red=8/8 notRed=0`）。
 6. 混合 PR（含 `apps/`、`.github/`）⇒ `classify-docs-only` 必 `docs-only=false`。
 
 ## 8. QM-6 外部评审处置（替代通道，2026-10-11）
 
-标准通道本机不可用（`ccg-deep-review.js` 缺失；CC Switch `:15721` 探针 DOWN ⇒ `routing.backend=codex` / `routing.frontend=claude` 两个 primary 都连不上），按既有替代通道跑 `opencode run --agent plan`，任务书落在 `.qm6/task-backend.md`，逐条要求"给结论 + 证据行号"。
+标准通道本机不可用（`ccg-deep-review.js` 缺失；CC Switch `:15721` 探针 DOWN ⇒ `routing.backend=codex` / `routing.frontend=claude` 两个 primary 都连不上），按既有替代通道跑 `opencode run --agent plan --auto`，任务书逐条要求"给结论 + 证据行号"。评审的 stdout/err 是会话内 scratch（`.qm6/`，不入库、随会话清理），所以**本节的每条结论都以我自己的复核为准**，不引用那份产物当依据——入库文档把判据指向一个别人取不到的临时路径，等于没有依据。
 
 **后端轴（`opencode/nemotron-3-ultra-free`）结论**：A 不漏拦 / **B Critical：会误拦** / C 聚合语义符合 / D PowerShell 判定安全 / E 第 4 条验收只有 CI 现场能证伪、本地替代可接受。
 
@@ -157,3 +161,26 @@ const mountedTabs = ref(new Set([activeTab.value]))   // 初始只挂 'auto'
 
 **未采纳**：评审建议的"在 `runViewTest` 里给 click/waitForSelector 超时新增 `ERR_VISUAL_TRIGGER_TIMEOUT` / `ERR_VISUAL_DIALOG_TIMEOUT` 两个码"。理由：那要改动既有异常形状、属**新增契约**，而这些失败的目标语义就是"不阻断、交 Gate 7b"，1 档已足够；为不需要区分的失败发明码，是在给下一个会话留第二份要维护的枚举表。
 
+
+### 前端/工程轴（`opencode/ling-3.1-flash-free`）
+
+**Critical=1（读取时刻成立，现已闭合）+ Minor=7。** 它报的唯一 Critical 是"已提交 tip 仍带 `name === 'TimeoutError'` 兜底，修复只在未提交的工作副本里"—— 那是它读取时的事实（当时 tip = `7d37f1e2b`），我随后提交了 `1ce35fc2b`。复核口径不是"它说了就改"而是自己取证：`git show HEAD` 版本的 `ready-classification.js` 里该字样**只出现在禁止性注释中**，`return error.name` 那一行不存在。
+
+已采纳并落地的 5 条 Minor（每条都我自己 grep 过才动）：
+
+| 评审条目 | 我的独立取证 | 处置 |
+| --- | --- | --- |
+| A：消息模板 + `code` 赋值 + 三属性挂载在两套循环里各抄一遍，而 R11 只锁"不自带定义" | 逐行对照 `all-views:151-172` 与 `supplementary-views:280-301`，除前缀外**逐字相同** ⇒ 两份模板会在下次改文案时漂移，而 `code` 一漂移 Gate 7 的 `= 3` 就点不到火 | 收进共享模块 `buildSuiteError(prefix, failures)`；R11 加两条锁（套件里不得出现 `个视图从未渲染出来` 模板；不得自行赋那两个 `error.code`）；反证 **N8＝把模板抄回套件 ⇒ 实测 RED（`Failed Tests 1`）** |
+| A/E：`close()` 抛错会吞掉已收集的就绪失败（就绪被压回 1，`= 3` 点不到火） | `supplementary-views` 是裸 `finally { await runner.close() }`；`all-views` 虽有 `fatalError`，但 `if (fatalError) throw` 排在分类块**之前** | 两套统一改为「视图失败优先、close 失败挂 `cause`」；launch 失败时 `failures` 必为空，故 R5 原语义不变；新增 **R14/R15** |
+| B：两套 re-export 的 `isReadyFailure`/`exitCodeForError` 是零消费者死导出，且注释声称"给 run-all-visual.js 使用" | 全仓 grep：`run-all-visual.js:19-33` 与 `visual-ci.test.js:18/46-49` 只取注册表与运行函数；分类单测已直连共享模块 ⇒ **那句注释与事实不符** | 删掉两处 re-export，注释改成"不 re-export"的说明；测试改走 `rc.exitCodeForError` |
+| C：`classifyFailures` 与 `autonomous-enforce-loop.js:197` 同名不同义 | `grep "function classifyFailures"` 命中 2 处，另一份签名是 `(pixelResults, functionalResults)` | 改名 `classifyVisualFailures`，并在模块头注释点名碰撞来源 |
+| C/E：Gate 7 对 pixel/dark 的 `-eq 3` 当前不可达 | `run-pixel-tests.js` 实测只有一处 `process.exitCode`，值为 1（含 `ERR_VISUAL_ENV_MISSING`） | 保留判据（下一个开始发 3 的套件不必再改判定面），在 workflow 里**如实注明**当前不可达 + "不得把它当成环境故障已被拦住"（环境类的既有出口是 `$pixelExit -ne 0`） |
+
+未采纳的 2 条（带理由，不是"顺手不改"）：
+
+- **D**：假 runner 未覆盖 `page.waitForSelector` 的超时面 —— 评审自身已判定"无缺陷不可表示"（该面与 click 面同落 `other ⇒ exit 1` 桶，R13 又直接钉死判据），再加一个 `waitForSelectorErr` 选项属低价值重复。
+- **E**：`run-all-visual.js:152` 把任何失败都归一成 1（发版前 `test:all:visual` 路径上 3 档被稀释）—— 聚合器的角色是**汇总而非门禁**，改它等于给人工核查路径新增一道判定。登记进 §6，不动代码。
+
+**关于评审过程自身的一条记录（我的操作错误）**：两路评审运行期间，我在同一 worktree 跑了变异电池。前端轴在输出里点名观察到工作副本出现 `// MUT N6` 瞬时态，并自称改用"当前稳定快照 + `git show HEAD`"对照取证。干扰的后果不是我改坏了什么（每个变异都 `Buffer.compare` 还原过），而是**它当时读到的是哪一版无法由我事后重建** —— 所以我没有照抄它的任何一条结论，上表第三列全部重新独立取证。已写入跨会话记忆：外部评审读目录期间禁止写型反证。
+
+本轮同批实测数字：`Tests 15 passed (15)`、消费者并集 `72 passed (72)`、`workflow-contract` `35 pass / 0 fail`、变异 **N1–N8 `red=8/8 notRed=0`**。

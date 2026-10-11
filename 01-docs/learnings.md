@@ -1,3 +1,13 @@
+## 「判据只有一份」还不够：模板、code 赋值、finally 里的清理动作都会把判定信号吃掉（visual-readiness-gate，2026-10-11）
+
+- **现场**：把就绪故障的分类判据收进 `ready-classification.js` 之后，QM-6 前端轴仍然命中三处同类问题，都不是"判据"层面的：
+  - **失败对象的合成是第二份重复面**：`all-views:151-172` 与 `supplementary-views:280-301` 各自抄了一遍消息模板 + `error.code = ...` + 三个属性挂载，除前缀外逐字相同。R11 当时只锁"不得自带 `isReadyFailure`/`exitCodeForError` 定义"，所以**把模板抄两份不会有任何东西变红** —— 而 `code` 一漂移，Gate 7 的 `= 3` 判定就点不到火。
+  - **清理动作吞掉判定信号**：两套都在 `runner.close()` 抛错时丢掉分类结果。`supplementary-views` 是裸 `finally { await runner.close() }`（close 的错误直接替换整段后续）；`all-views` 有 `fatalError ||= error`，但 `if (fatalError) throw fatalError` 排在分类块**之前**。净效果是同一次 run 里"页面根本没渲染出来"被压成普通错误 ⇒ 退出码回到 1 ⇒ 那道为拦它而新建的判定不触发。
+  - **零消费者 re-export 配一句不实注释**：两套把 `isReadyFailure`/`exitCodeForError` 透出，注释写着"给既有单测与 run-all-visual.js 使用"。实测 `run-all-visual.js:19-33` 与 `visual-ci.test.js:18/46-49` 只取注册表和运行函数，单测也已直连共享模块 —— 那句注释是我写的时候**按想象写的**，不是按 grep 写的。
+- **口径**：① 收敛的边界不是"循环只留一份"（那要重构两套真实差异），而是**判据与失败对象的合成都只留一份**（`buildSuiteError(prefix, failures)`）；锁要按"套件里不得出现该模板 / 不得自行赋那两个码"来写，而不是只锁函数定义。② 给"有清理动作的失败聚合"定顺序时，判据是**谁承载判定信号**：视图失败优先，close 失败挂 `cause`，两者都不丢。③ 注释里出现的消费者名字，落盘前必须 grep —— 这条与本仓既有纪律同源（"文档里的符号名落盘前必须 grep"）。
+- **还有一条关于流程自身的**：我在两路外部评审运行期间，于**同一个 worktree** 跑了变异电池。前端轴在它的输出里点名观察到 `exitCodeForError` 出现 `// MUT N6` 标记、工作副本"正被并发变异测试改写"，并自称改用稳定快照 + `git show HEAD` 对照。变异确实每个都 `Buffer.compare` 还原了，但**它读到的是哪一版已无法事后重建** ⇒ 它的每条结论我都重新独立取证才动手。纪律：外部评审读目录期间禁止任何写型反证；要并行就换目录或等评审结束。
+- **回归锁**：`apps/desktop/tests/visual-testing/visual-readiness-classification.test.js` R11（模板/code 两条新断言）、R14/R15（close 与就绪失败的优先级）；反证 N8（模板抄回套件）实测 `Failed Tests 1`，与 N1–N7 同批 `red=8/8`。
+
 ## 「在 CI 里捕获退出码却不判定」是装饰性门禁的第五种落点；就绪类与像素类必须分档（visual-readiness-gate，2026-10-11）
 
 - **现象**：`quality-gate.yml` Gate 7 写 `pnpm.cmd run test:visual || views_exit=$?`，`$viewsExit` 只进了一行 `[GATE-7] suite exits:` 打印，阻断条件只看 `$pixelExit`/`$judgeExit`。main push run `38104148726` 现场：`views=1` 与同一步结尾的 `[GATE-7] All visual tests passed` **共存**，红了约一周。

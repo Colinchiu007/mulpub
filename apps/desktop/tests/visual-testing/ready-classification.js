@@ -42,7 +42,10 @@ function exitCodeForError(error) {
 
 // 把 failures 分成「从未渲染出来」与「其它」，并产出统一的出声行。
 // 返回 { neverReady, otherFailures, line }；neverReady 为空时 line 为 null。
-function classifyFailures(failures) {
+//
+// 函数名带 Visual：同目录 `autonomous-enforce-loop.js:197` 已有 `classifyFailures(
+// pixelResults, functionalResults)`，语义完全不同 —— 两个同名不同义放在一处会被读错。
+function classifyVisualFailures(failures) {
   const neverReady = failures.filter(item => isReadyFailure(item.error))
   const otherFailures = failures.filter(item => !isReadyFailure(item.error))
   if (neverReady.length === 0) return { neverReady, otherFailures, line: null }
@@ -54,9 +57,45 @@ function classifyFailures(failures) {
   }
 }
 
+// 套件失败对象的**唯一合成处**：消息模板、`code` 赋值、`failures`/`neverReady`/
+// `otherFailures` 三个属性挂载。
+//
+// 存在的理由：views 两套各有自己的 `runViewSuite` 聚合循环（两份实现是既有事实），
+// 但如果"失败对象怎么长出来"也抄两份，那两份会在下一次改消息时静默漂移 ——
+// 而 `code` 一漂移，Gate 7 的 `= 3` 判定就点不到火。收敛的边界因此不是"循环只留一份"
+// （那要重构两套真实差异），而是**判据与合成只留一份**。
+//
+// `prefix` 是两套各自的历史措辞（`单视图视觉门禁失败` / `补充视图失败`），
+// 保留它是为了不让本 PR 顺带改掉日志文案。
+function buildSuiteError(prefix, failures) {
+  const { neverReady, otherFailures, line } = classifyVisualFailures(failures)
+  const names = items => items.map(item => item.test).join(', ')
+  let error
+  if (neverReady.length > 0) {
+    console.error(line)
+    error = new Error(`${prefix}: ${neverReady.length} 个视图从未渲染出来`
+      + '（就绪超时 ⇒ 路由/选择器故障，不是像素抖动）: ' + names(neverReady)
+      + (otherFailures.length
+        ? `；另有 ${otherFailures.length} 个视图失败（像素/校验类，交 Gate 7b 判定）: `
+          + names(otherFailures)
+        : ''))
+    error.code = 'ERR_VISUAL_NOT_READY'
+  } else {
+    error = new Error(`${prefix}: `
+      + failures.map(item => `${item.test}: ${item.error.message}`).join(' | '))
+    error.code = 'ERR_VISUAL_SUITE_FAILED'
+  }
+  error.failures = failures
+  error.neverReady = neverReady
+  error.otherFailures = otherFailures
+  return error
+}
+
 module.exports = {
   READY_TIMEOUT_CODES,
   isReadyFailure,
   exitCodeForError,
-  classifyFailures,
+  classifyVisualFailures,
+  buildSuiteError,
 }
+

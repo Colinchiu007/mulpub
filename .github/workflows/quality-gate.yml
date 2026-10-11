@@ -1091,6 +1091,11 @@ jobs:
               if ($viewsSuppExit -eq 3) { $notReadySuites += 'views-supplement' }
               if ($darkExit -eq 3) { $notReadySuites += 'dark' }
               if ($notReadySuites.Count -gt 0) { $suitesNotReady = $notReadySuites -join ',' }
+              # 如实记录当前可达性：pixel 与 dark 两套由 run-pixel-tests.js 直接
+              # `process.exitCode = 1`（实测该文件仅此一处退出码赋值，含 ERR_VISUAL_ENV_MISSING 也走 1），
+              # 所以它们那两条 `-eq 3` 今天**不可达**。保留而不是删掉，是因为下一个开始发 3 的套件
+              # 不必再改判定面；但不得把它当成"环境缺失已经被这道门禁拦住" —— 环境类故障的既有
+              # 出口是 ERR_VISUAL_ENV_MISSING（由脚本自身非零退出、经 $pixelExit -ne 0 拦住），语义是 1 不是 3。
 
               Write-Host "Generating Agent judge report..."
               node tests/visual-testing/scripts/agent-visual-judge.js
