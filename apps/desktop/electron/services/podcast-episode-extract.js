@@ -84,7 +84,7 @@ async function extractEpisodeAudio (options = {}) {
   const {
     project, videoPath, outBase,
     ffmpegPath, ffprobePath,
-    spawnImpl, fsImpl, killImpl,
+    spawnImpl, fsImpl, killImpl, cancelToken,
     extractTimeoutMs = EXTRACT_TIMEOUT_MS,
     probeTimeoutMs = PROBE_TIMEOUT_MS,
   } = options
@@ -101,7 +101,7 @@ async function extractEpisodeAudio (options = {}) {
   if (typeof spawnImpl !== 'function') throw err(PODCAST_EPISODE_ERRORS.EXTRACT_FAILED, '抽取必须注入 spawnImpl（测试与默认路径都不得起真进程）')
   const fs = fsImpl || require('fs')
   if (!ffmpegPath || !ffprobePath) throw err(PODCAST_EPISODE_ERRORS.EXTRACT_FAILED, '必须先由 media-tool-paths 解析出打包的 ffmpeg/ffprobe')
-  if (!videoPath || !fs.existsSync(videoPath)) throw err(PODCAST_EPISODE_ERRORS.NO_COMPOSE_OUTPUT, '成片文件不存在，无法出期（请确认该项目已合成完成）')
+  if (!videoPath || !fs.existsSync(videoPath)) throw err(PODCAST_EPISODE_ERRORS.VIDEO_NOT_FOUND, '成片文件不存在，无法出期（请确认该项目已合成完成）')
   if (!outBase) throw err(PODCAST_EPISODE_ERRORS.EXTRACT_FAILED, '缺少输出基名（目录与名字由调用方决定，扩展名由编码方案补）')
 
   // 2) 编码器实测 → 方案
@@ -109,6 +109,13 @@ async function extractEpisodeAudio (options = {}) {
     () => spawnImpl({ command: ffmpegPath, args: ['-hide_banner', '-codecs'], probe: 'encoders' }),
     { timeoutMs: probeTimeoutMs, label: 'ffmpeg 编码器探测' },
   )
+    // QM-6 后端 Warning：宿主对**每一次** spawn 都挂了 kill，所以取消可能落在 encoders / 混音 / ffprobe
+    // 任一站。只给混音站做「被杀 ⇒ 取消」映射，另两站就会把用户按下的按钮报成
+    // 「打包的 ffmpeg 崩坏」或「实测失败」——那两条文案各自指向完全不同的排查方向。
+    // 判据必须带「这一站确实没成功」：取消与成功同帧时不该谎称子进程被终止。
+    if (cancelToken && cancelToken.cancelled === true && (!encoders || encoders.code !== 0)) {
+      throw err(PODCAST_EPISODE_ERRORS.CANCELLED, '取消已接受，编码器探测阶段子进程已被终止（未产生任何外发）', { killed: true, stage: 'encoders' })
+    }
   if (!encoders || encoders.code !== 0) {
     // 评审 F2：丢弃 exit code 会把「打包的 ffmpeg 崩坏」（Windows 缺 DLL／架构不符：启动即退出、stdout 为空）
     // 错报成「没有 mp3/aac 编码器」，用户去重装编解码器而真因在交付产物。崩溃与缺编码器是两条排查方向。
@@ -128,6 +135,11 @@ async function extractEpisodeAudio (options = {}) {
     // 那正是本模块要用三处一致校验去防的那类损坏。缺 killImpl 时如实传 null 让它可见。
     { timeoutMs: extractTimeoutMs, label: 'ffmpeg 抽混音', kill: typeof killImpl === 'function' ? killImpl : undefined },
   )
+  if (mix && mix.code !== 0 && cancelToken && cancelToken.cancelled === true) {
+    // 取消已接受且 kill 已发出：ffmpeg 被杀后的非 0 退出**不是**「抽取失败」。
+    // 把它报成 EXTRACT_FAILED 会让用户去看磁盘或编码器，而真因是他自己按下的那个按钮。
+    throw err(PODCAST_EPISODE_ERRORS.CANCELLED, '取消已接受，在途抽取已终止（临时产物已停止）', { killed: true })
+  }
   if (!mix || mix.code !== 0) {
     throw err(PODCAST_EPISODE_ERRORS.EXTRACT_FAILED,
       '抽取失败（退出码 ' + (mix && mix.code != null ? mix.code : 'none') + '）',
@@ -140,6 +152,13 @@ async function extractEpisodeAudio (options = {}) {
     () => spawnImpl({ command: ffprobePath, args: buildProbeArgs(ffprobePath, outPath) }),
     { timeoutMs: probeTimeoutMs, label: 'ffprobe 实测' },
   )
+    // QM-6 后端 Warning：宿主对**每一次** spawn 都挂了 kill，所以取消可能落在 encoders / 混音 / ffprobe
+    // 任一站。只给混音站做「被杀 ⇒ 取消」映射，另两站就会把用户按下的按钮报成
+    // 「打包的 ffmpeg 崩坏」或「实测失败」——那两条文案各自指向完全不同的排查方向。
+    // 判据必须带「这一站确实没成功」：取消与成功同帧时不该谎称子进程被终止。
+    if (cancelToken && cancelToken.cancelled === true && (!probe || probe.code !== 0)) {
+      throw err(PODCAST_EPISODE_ERRORS.CANCELLED, '取消已接受，实测阶段子进程已被终止（未产生任何外发）', { killed: true, stage: 'probe' })
+    }
   if (!probe || probe.code !== 0) {
     // 同理：ffprobe 非 0 退出但 stdout 里恰好残留可读数字时，原先会被当实测成功用下去。
     throw err(PODCAST_EPISODE_ERRORS.MEASURE_FAILED, 'ffprobe 非 0 退出（不把 stdout 里恰好有数字当实测成功）',

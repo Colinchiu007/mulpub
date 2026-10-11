@@ -135,3 +135,13 @@ export async function feedPublish (payload) {
   return envelope(() => invokeNamespace(NS, 'feedPublish', payload))
 }
 
+// 刀 3 第 3 片：成片一键出期。每个导出仍各自写死方法名字面量（见本文件头部说明——
+// 转发式写法会让这条路径从 ipc-exposure-contract 的账上消失）。
+export async function episodePublishFromVideo (payload) {
+  return envelope(() => invokeNamespace(NS, 'episodePublishFromVideo', payload))
+}
+
+export async function episodePublishCancel (payload) {
+  return envelope(() => invokeNamespace(NS, 'episodePublishCancel', payload))
+}
+
