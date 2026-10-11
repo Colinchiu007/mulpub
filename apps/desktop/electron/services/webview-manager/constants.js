@@ -21,6 +21,13 @@ const AUTO_SAVE_DEBOUNCE_MS = 1500
 // did-finish-load 补注入路径（fail-open）：导航不得被 CDP 无限期阻塞。
 const LS_INJECTION_TIMEOUT_MS = 2500
 
+// CDP Page 目标的引导文档地址（2026-10-11）。全新 WebContentsView 从未导航时，渲染进程
+// 与 Page 目标尚未建立 → `Page.enable` / `Page.addScriptToEvaluateOnNewDocument` 会永久
+// 挂起（真机探针 6s 无响应）；先加载本地址把目标带起来，命令即回到 150–300ms 量级。
+// 该文档不是用户可见导航：调用方须屏蔽它的 did-navigate 状态改写，并在首个真实导航提交后
+// 移除其历史项（`_removeBootstrapBlankHistoryEntry`）。
+const PAGE_TARGET_BOOTSTRAP_URL = 'about:blank'
+
 // 「读分区 → 补缺注入」这条链被门控在首个导航之前，因此必须与 LS 注入同享超时护栏
 // （同一 2026-09-24 事故族：账号分区的会话命令可永久挂起且从不返回）。区别在降级
 // 方向：超时后**放行导航**（绝不改走全量注入），注入本身不在超时点被取消、由挂起的链在后台
@@ -46,6 +53,7 @@ module.exports = {
   SAFE_IDENTIFIER,
   AUTO_SAVE_DEBOUNCE_MS,
   LS_INJECTION_TIMEOUT_MS,
+  PAGE_TARGET_BOOTSTRAP_URL,
   PARTITION_COOKIE_RESTORE_TIMEOUT_MS,
   HOME_TAB_ID,
   AUTH_TAB_ID,
