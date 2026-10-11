@@ -36,6 +36,7 @@ const EPISODE_PUBLISH_ERRORS = {
   ATTACH_REJECTED: 'PODCAST_EPISODE_INVALID',
   CANCELLED: 'PODCAST_PUBLISH_CANCELLED',
   LATE_CANCEL: 'PODCAST_CANCEL_TOO_LATE',
+  FEED_BUILD_FAILED: 'PODCAST_FEED_BUILD_FAILED',
 }
 
 function pubErr (code, message, extra) {
@@ -52,7 +53,8 @@ function createEpisodePublisher (deps = {}) {
   } = deps
   const log = logger || { info () {}, warn () {}, error () {} }
   if (typeof extractEpisodeAudio !== 'function' || typeof uploadImpl !== 'function'
-    || typeof episodeSink !== 'function' || typeof feedSink !== 'function') {
+    || typeof episodeSink !== 'function' || typeof feedSink !== 'function'
+    || typeof assertUploadSizeMatches !== 'function') {
     throw pubErr('PODCAST_EPISODE_INVALID', '编排必须注入 extract/upload/episode/feed 四个实现（缺一个都不许默认发真实出站）')
   }
 
@@ -87,7 +89,7 @@ function createEpisodePublisher (deps = {}) {
     mark('uploadAudio')
     let uploaded
     try {
-      uploaded = await uploadImpl({ channelId, filePath: mixed.outPath, mime: mixed.mime })
+      uploaded = await uploadImpl({ channelId, filePath: mixed.outPath, mime: mixed.mime, kind: 'audio' })
     } catch (e) {
       cleanup(input, mixed)
       e.publishPhases = phases
@@ -117,10 +119,31 @@ function createEpisodePublisher (deps = {}) {
       sizeBytes: mixed.sizeBytes,
       mime: mixed.mime,
     })
-    const attached = await episodeSink(channelId, episode)
+    let attached
+    try {
+      attached = await episodeSink(channelId, episode)
+    } catch (e) {
+      // 评审 F1：音频已 PUT 成功而挂期失败（磁盘满 / 锁超时）时，原先既不清临时文件也不带相位与领域码，
+      // 直接违背本模块头「中间态由主进程负责收尾」。这里收口：清临时文件 + 补领域码 + 挂相位。
+      // 远端对象**不删**：删它要第二次不可逆出站，而重试同一条链会按同一 key 覆盖——留一个未引用的对象
+      // 比再打一次 PUT 便宜得多（PRD §13 第 11 条记为有意取舍而非遗漏）。
+      throw bail(e, EPISODE_PUBLISH_ERRORS.ATTACH_REJECTED, phases, input, mixed)
+    }
 
     mark('buildFeed')
-    const built = await feedSink(channelId)
+    let built
+    try {
+      built = await feedSink(channelId)
+    } catch (e) {
+      throw bail(e, EPISODE_PUBLISH_ERRORS.FEED_BUILD_FAILED, phases, input, mixed)
+    }
+    if (!built || typeof built.path !== 'string' || !built.path) {
+      // feedSink 形状不合规原先在 built.path 上同步 TypeError：裸崩不是一句可读的失败，且发生在 .catch 之前，
+      // partial 分层根本不会被触发（评审 F4）。
+      throw pubErr(EPISODE_PUBLISH_ERRORS.FEED_BUILD_FAILED, '重建 feed 未回传产物路径，公网 feed 不更新（这一期已登记到本地频道）', {
+        phases, episodeId: attached && attached.id,
+      })
+    }
 
     mark('uploadFeed')
     const feedRes = await uploadImpl({ channelId, filePath: built.path, kind: 'feed' }).catch((e) => {
@@ -130,7 +153,14 @@ function createEpisodePublisher (deps = {}) {
       return { partial: true, error: e }
     })
 
-    const partial = !feedRes || feedRes.partial === true
+    let partial = !feedRes || feedRes.partial === true
+    let partialError = (feedRes && feedRes.error) || null
+    if (!partial && !(typeof feedRes.url === 'string' && /^https:\/\//i.test(feedRes.url))) {
+      // feed 直链不 https 不得算 success：聚合端把非加密直链判成混合内容或干脆不抓，而「上传成功」与
+      // 「订阅端能抓」是两件事（与音频侧同一判据，评审 F7 指出的不对称落点）。
+      partial = true
+      partialError = { code: EPISODE_PUBLISH_ERRORS.UPLOAD_FAILED, message: 'feed 上传未返回可公网访问的 https 地址' }
+    }
     if (!partial) cleanup(input, mixed)
     return {
       state: partial ? 'partial' : 'success',
@@ -140,7 +170,19 @@ function createEpisodePublisher (deps = {}) {
       itemCount: built && built.itemCount,
       feedUrl: partial ? '' : feedRes.url,
       message: partial ? '这一期已登记到本地频道，公网 feed 尚未更新' : '',
+      errorCode: partial && partialError ? String(partialError.code || '') : '',
+      errorMessage: partial && partialError ? String(partialError.message || partialError.status || '') : '',
     }
+  }
+
+  /** 中间态收口：补领域码 → 挂相位 → 清临时文件 → 原样抛上去（不吞、不改写成 success）。 */
+  function bail (e, code, phases, input, mixed) {
+    if (e && typeof e === 'object') {
+      if (!e.code) e.code = code
+      e.publishPhases = phases
+    }
+    cleanup(input, mixed)
+    throw e
   }
 
   function cleanup (input, mixed) {

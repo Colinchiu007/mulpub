@@ -109,6 +109,14 @@ async function extractEpisodeAudio (options = {}) {
     () => spawnImpl({ command: ffmpegPath, args: ['-hide_banner', '-codecs'], probe: 'encoders' }),
     { timeoutMs: probeTimeoutMs, label: 'ffmpeg 编码器探测' },
   )
+  if (!encoders || encoders.code !== 0) {
+    // 评审 F2：丢弃 exit code 会把「打包的 ffmpeg 崩坏」（Windows 缺 DLL／架构不符：启动即退出、stdout 为空）
+    // 错报成「没有 mp3/aac 编码器」，用户去重装编解码器而真因在交付产物。崩溃与缺编码器是两条排查方向。
+    throw err(PODCAST_EPISODE_ERRORS.EXTRACT_FAILED,
+      'ffmpeg 无法执行（探测编码器就非 0 退出，疑似打包产物崩坏或缺依赖）（退出码 '
+      + (encoders && encoders.code != null ? encoders.code : 'none') + '）',
+      { stderr: tailOf(encoders && encoders.stderr), stage: 'encoders' })
+  }
   const plan = planAudioCodec(encoders && encoders.stdout)
   if (!plan) throw err(PODCAST_EPISODE_ERRORS.ENCODER_UNAVAILABLE, '打包的 ffmpeg 不含 mp3/aac 编码器，已停止抽取（不退 WAV）')
 
@@ -132,6 +140,11 @@ async function extractEpisodeAudio (options = {}) {
     () => spawnImpl({ command: ffprobePath, args: buildProbeArgs(ffprobePath, outPath) }),
     { timeoutMs: probeTimeoutMs, label: 'ffprobe 实测' },
   )
+  if (!probe || probe.code !== 0) {
+    // 同理：ffprobe 非 0 退出但 stdout 里恰好残留可读数字时，原先会被当实测成功用下去。
+    throw err(PODCAST_EPISODE_ERRORS.MEASURE_FAILED, 'ffprobe 非 0 退出（不把 stdout 里恰好有数字当实测成功）',
+      { exitCode: probe && probe.code, stderr: tailOf(probe && probe.stderr) })
+  }
   const measured = parseProbeOutput(probe && probe.stdout)
   if (!measured.hasAudio || !measured.durationSec || !measured.sizeBytes) {
     throw err(PODCAST_EPISODE_ERRORS.MEASURE_FAILED,

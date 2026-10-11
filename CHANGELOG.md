@@ -1,3 +1,26 @@
+# [未发布] feat(podcast): 播客刀 3 第 3 片上半——真实音频上传面与出期中间态收口（2026-10-11，podcast-episode-publish）
+
+## 背景
+
+#3288 把「成片 → 一期」的判定与收口立起来后，后端评审留下 3 条 Warning + 6 条 Info（`tasks.md` 3.7 ①–⑧）。本增量清掉其中落在**第一次真实外发**上的那几条，并给出公开上传面；真实子进程与界面入口仍在下半片。
+
+## 改动
+
+- **`PodcastHostingService.publishAudio(channelId, {filePath, mime, stem})`**：一期音频 PUT 的唯一实现，回 `{url, size, objectKey, status}`。四条拒绝各有名字，因为排查方向不同：缺 `channelId`（两期会写进同一层）、`contentType` 不是 ffprobe 实测出的音视频类型（沿用 feed 的 xml 会让 OSS 把音频按 xml 回给订阅端——本地一切看起来都成功，聚合端永远下不下来）、未配置托管 / 凭证读不出（两条不合并）、`putObject` 不回传字节数（三处一致校验缺第三处就等于放过一个尺寸错的对象）。对象 key 分层 `/<prefix>/audio>/<channelId>/<stem><ext>`；`stem` 先清洗非白名单字符，再消掉连续点与前导点（`../../etc/passwd` 这种调用方给的东西不得留在 key 里）。与 `publishFeed` 共用同一份托管快照与同一个 `_put`（`_put` 新增可选 `contentType`，默认仍是 rss+xml），但**不持频道忙标记**：锁归整条出期链，否则一次发布被拆成两段互斥、段间还能插进手工写。
+- **中间态收口（评审 F1）**：`episodeSink` / `feedSink` 抛错时补上「清临时文件 + 保留底层领域码 + 挂 `publishPhases`」。此前只有上传失败分支收尾，挂期失败会留下无人负责的临时音频与一个没有领域码的裸错误，直接违背模块头的承诺。远端对象**不删**——删它要第二次不可逆出站，而重试同一条链会按同一 key 覆盖，留一个未引用对象比再打一次 PUT 便宜。
+- **形状判据与分层原因（评审 F4）**：`feedSink` 返回缺 `path` 原先是在 `built.path` 上同步 TypeError（裸崩，且发生在 `.catch` 之前，partial 分层根本不会被触发），现改为 `PODCAST_FEED_BUILD_FAILED` 并带上 `episodeId`；partial 结果新增 `errorCode` / `errorMessage`，上层从此能区分「被拒绝」与「暂时失败」，决定重试还是引导用户删期。
+- **https 判据对称（评审 F7）**：feed 直链不 https 不再算 success（与音频侧同一判据）；两次上传显式标 `kind: 'audio' / 'feed'`，不再靠「没有 kind 就当音频」的隐性契约。
+- **退出码不再被丢（评审 F2）**：编码器探测与 ffprobe 实测都先看 `exit code`——打包的 ffmpeg 崩坏（Windows 缺 DLL／架构不符：启动即退出、stdout 为空）现在报 `EXTRACT_FAILED` 且带 `stage: encoders`，不再错报成「缺编码器」把用户引去重装编解码器。
+
+## 验证
+
+- 143 passed / 0 failed（含本片新增 15 条）；7 条变异反证各自指名变红，其中 G6/G7 首轮**红=0** 暴露「守卫写完没有锁」，补锁后重跑才成立。
+- QM-1 重打包 rc=0 + asar 五项核对（`publishAudio` / `PODCAST_FEED_BUILD_FAILED` / `bail` / 两处退出码判据 / `_put` 的 contentType）。
+
+## 边界（不冒充已闭合）
+
+- F3（取消贯穿到在途子进程）、F9（测试 fixture 常量耦合）与 F8 的 `episodeSink`/`feedSink` 真实实现半边随下半片；本增量仍**没有生产调用者**。
+
 # [未发布] feat(podcast): 播客刀 3 前两片——成片降级判定、混音抽取实测与出期编排收口（2026-10-11，podcast-episode-publish）
 
 ## 背景
