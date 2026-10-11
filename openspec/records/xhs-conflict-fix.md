@@ -2,9 +2,6 @@
 record: xhs-conflict-fix
 task: 清除 xiaohongshu_dom.py 中 5 处 git 冲突标记（上游合并残留缺陷），保留已落地的 probe_cap 实现
 date: 2026-10-11
-sync_status: PENDING
-sync_reason: PR #3348 尚未合并，merge SHA 还不存在；待 CI 全绿后按 agent-automerge-rule 自动合并，再由本会话同一次提交回填并销账
-sync_backfill_owner: 本会话（自动合并后同一次提交回填 delete sync_* + 删 ledger 登记）
 ---
 
 ## 本次执行记录：清除 xiaohongshu_dom.py 冲突标记（xhs-conflict-fix，2026-10-11）
@@ -19,7 +16,7 @@ sync_backfill_owner: 本会话（自动合并后同一次提交回填 delete syn
 | 行尾与 diff 对账 | PASS | 仅删除标记行与旧代码块、无功能性改动；删除 34 行 = 5 段标记 + 旧 `if text: out.append` 块 + 旧 `await_control` docstring/实现块；`git diff --numstat` 两口径一致 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触碰 apps/desktop/electron 主进程与任何 UI，无打包/视觉面 |
 | QM-6 CCG 双模型外部评审 | PASS | pre-commit 判定器覆盖：变更 35 行 ≤200 且无敏感命中，review 落盘 `.ccg/reviews/6dceb20b7cc6ccbac83edff0403777d17063299f.json` |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#3348)$' --format=%H\|%cI` 回填 merge SHA 与时间；`git ls-remote --heads origin xhs-conflict-fix` 返回 0 行证远端分支已删；回填后删除上方三个 `sync_*` 字段与 ledger 登记项 |
+| 远程同步 | PASS | 已合并：`git log origin/main --grep='(#3348)$' --format=%H\|%cI` → `8fdcec508114ae604a6b109da3cbbffa9e293632|2026-10-11T22:37:53+08:00`；`git ls-remote --heads origin xhs-conflict-fix` 返回 0 行证远端分支已删；本会话同一次提交已删除 `sync_*` 三字段（无 ledger 登记项需删） |
 
 ### 遗留（不假装已闭合）
 
