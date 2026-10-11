@@ -201,7 +201,7 @@ test('质量门禁的全量 Vitest 有可终止的 Windows watchdog', () => {
   assert.match(unitTestStep, /Start-Process -FilePath "pnpm\.cmd"/);
   assert.match(unitTestStep, /"run",\s*"test:affected",\s*"--",\s*"--exclude=@multi-publish\/desktop"/);
   assert.match(unitTestStep, /"run",\s*"test:all",\s*"--",\s*"--exclude=@multi-publish\/desktop"/);
-  assert.match(unitTestStep, /WaitForExit\(1800000\)/);
+  assert.match(unitTestStep, /WaitForExit\(\[int\]\$gateBudgetMs\)/);
   assert.match(unitTestStep, /taskkill \/PID \$testProcess\.Id \/T \/F/);
   assert.doesNotMatch(unitTestStep, /--maxWorkers=1|--reporter=verbose|--testTimeout=10000/);
   // 进程树遍历已收敛到 scripts/get-test-process-tree.ps1（带 PID 复用防护 + 可注入进程表的锁）。
@@ -549,7 +549,7 @@ test('桌面测试分片契约：desktop-shards 矩阵与 unit-tests 排除桌�
   assert.match(shardStep, /\$launchMark = Get-Date/);
   assert.match(shardStep, /-NotBefore \$launchMark/);
   assert.doesNotMatch(src, /function Get-TestProcessTree/);
-  assert.match(src, /WaitForExit\(1800000\)/);
+  assert.match(src, /WaitForExit\(\[int\]\$gateBudgetMs\)/);
   assert.match(src, /taskkill \/PID \$testProcess\.Id \/T \/F/);
   const rootPkg = JSON.parse(fs.readFileSync(rootPackagePath, 'utf8'));
   // 死脚本清理（W1）：根 package.json 不应再有 test:desktop:shard

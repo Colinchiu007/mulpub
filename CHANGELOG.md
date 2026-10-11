@@ -1,3 +1,46 @@
+# [未发布] fix(ci): Gate 测试预算按实测抬高，数字收进单一真源并留可重跑复测入口（2026-10-11，gate-budget-reprobe）
+
+### 用户感知
+
+无。不改任何测试的判据与用例集合，只改"跑测试被允许跑多久"，以及这个数字今后由谁持有。
+
+### 现场与实测
+
+main 连续两次 push 红在 `QG Unit Tests → Gate 4`，而断言层是 `# fail 0`、正文写
+`Gate 4 exceeded its 30-minute execution budget` —— 是预算到点被强杀，不是有用例坏（父提交同样红、同一处，
+所以不是本仓某一次改动引入的回归，而是套件已长过 30 分钟）。
+
+采集坐标 workflow `306371582`，`push(branch=main) n=40 / pull_request n=60`，时刻 2026-10-11T06:52Z：
+
+- Gate 4 成功 33 次：最短 17.6 / 中位 27.9 / p90 29.4 / **最长 29.9 分钟**（离 30 分上限只差 7 秒 —— 贴脸）
+- 另有 **7 次被预算杀**：这类样本时长是**截尾观测**，只证明「≥30 分钟」，绝不进 max
+- Desktop shard 步级最长 **30.0 分钟**（同一堵墙，matrix 两步共用一处代码）
+- Gate 4 之前只花 ≤1.3 分钟，之后只剩 Gate 4b 的 2 秒 + post-checkout 的 2 秒 —— 这个 job 几乎就等于 Gate 4
+
+### 定数规则（不是拍出来的）
+
+`预算 ≥ 观测成功最大值 × 1.5` ⇒ 30 → **45 分钟**；`job 上限 ≥ 预算 + 实测最大前置 + 5 分钟余量` ⇒ 40 → **55 分钟**。
+只抬内部预算而不动 `timeout-minutes: 40`，会变成 GitHub 在 40 分钟处掐掉整个 job —— **比原来更糟**：
+丢超时诊断表、丢进程树清理、丢末尾那道运行时出站台账判定。
+
+### 变更明细
+
+- **单一真源** `scripts/gate-budget.js`：预算、job 上限、安全倍数、样本下限、出处（含截尾计数）与 `checkSizing()` 都在一处。
+  workflow 两处 `WaitForExit(1800000)` 改读注入值，**取不到即当场 throw**（静默回落写死值等于把"装配失败"读成"没超时"）。
+- **同 PR 改掉钉住旧字面量的锁**：`.github/scripts/workflow-contract.test.js` 两条 `WaitForExit(1800000)` 断言改钉注入形态。
+  不改它们，门禁会挡住本次被自己批准的修法（PR #3225 就为这件事返过工）。
+- **复测入口** `scripts/gate-budget-probe.js`（要 gh + 网络，故不进 CI）：`--check` 在"预算不再满足规则"退 1、
+  在"成功最大值贴到预算 80%"退 2 —— 后者是**要重测**的信号，不是放宽判据的信号。
+  被杀的 7 次是截尾的，所以 45 分钟本身仍是待证实假设，合并后必须复测一轮。
+- 回归锁 `scripts/gate-budget.test.js` 7 条（已接进 `QG Static` 的 Gate 3 那串 `node --test`）；
+  变异反证 7 条全部**点名**让预期那条变红（含"摘掉 fail-closed"与"把安全倍数改小"两支针对锁自身的变异），
+  `MUTATION_BAD=0`、还原后与备份逐字节相同、终态 7/7；`workflow-contract` 35/35、spin 检查器 7/7 且其本体 PASS（1254 文件）。
+- `.gitignore` 补两条反向放行：`scripts/*.js` 第 106 行会把新建脚本静默吞掉（`git check-ignore` 实测命中）。
+- 未改动：`coverage` job 的 `timeout-minutes: 40` 保持原值（它没有 `WaitForExit` 站点），CI 判据与用例集合一字未动。
+- 详见 `openspec/records/gate-budget-reprobe.md`。
+
+---
+
 # [未发布] fix(changelog-gate): 让退休授权放行在输出里可区分，并清掉三处"自述与实际不一致"（2026-10-11，changelog-gate-selfreport）
 
 ### 用户感知

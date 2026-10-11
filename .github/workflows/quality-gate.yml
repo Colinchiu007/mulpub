@@ -461,7 +461,7 @@ jobs:
       # --- Gate 3: 硬编码密钥扫描（同时执行 CI workflow 契约测试）---
       - name: "Gate 3 - Hardcoded secrets scan"
         run: |
-          node --test .github/scripts/check-hardcoded-secrets.test.js .github/scripts/workflow-contract.test.js .github/scripts/autonomous-loop-workflow.test.js .github/scripts/agent-review-gate.test.js .github/scripts/classify-ci-failure.test.js .github/scripts/ci-failure-handler-contract.test.js
+          node --test .github/scripts/check-hardcoded-secrets.test.js .github/scripts/workflow-contract.test.js .github/scripts/autonomous-loop-workflow.test.js .github/scripts/agent-review-gate.test.js .github/scripts/classify-ci-failure.test.js .github/scripts/ci-failure-handler-contract.test.js scripts/gate-budget.test.js
           node .github/scripts/check-hardcoded-secrets.js
 
       # --- Gate 6: IPC bridge completeness ---
@@ -663,7 +663,7 @@ jobs:
     runs-on: windows-latest
     needs: [changes]
     if: needs.changes.outputs.docs-only != 'true'
-    timeout-minutes: 40
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
         with:
@@ -772,13 +772,17 @@ jobs:
           } else {
             $testArgs = @("run", "test:all", "--", "--exclude=@multi-publish/desktop")
           }
+          # 预算来自 scripts/gate-budget.js（单一真源）。取不到必须当场红 —— 静默回落到写死值就是把
+          # "装配失败"读成"没超时"，正是本仓反复出事的形态（见 gate-budget.test.js 的同名锁）。
+          $gateBudgetMs = & node -e "process.stdout.write(String(require('./scripts/gate-budget.js').GATE_TEST_BUDGET_MS))"
+          if ($LASTEXITCODE -ne 0 -or -not $gateBudgetMs) { throw "取不到 Gate 测试预算（scripts/gate-budget.js）—— 不得回落到写死值" }
           $launchMark = Get-Date
           $testProcess = Start-Process -FilePath "pnpm.cmd" `
             -ArgumentList $testArgs `
             -NoNewWindow -PassThru
 
-          if (-not $testProcess.WaitForExit(1800000)) {
-            Write-Host "Gate 4 exceeded its 30-minute execution budget."
+          if (-not $testProcess.WaitForExit([int]$gateBudgetMs)) {
+            Write-Host "Gate 4 exceeded its $([int]($gateBudgetMs / 60000))-minute execution budget (elapsed budget exhausted; see scripts/gate-budget.js)."
             Get-TestProcessTree -RootProcessId $testProcess.Id -NotBefore $launchMark | Format-Table -AutoSize
             taskkill /PID $testProcess.Id /T /F 2>$null | Out-Null
             throw "Gate 4 timed out; terminated the pnpm process tree."
@@ -815,7 +819,7 @@ jobs:
     runs-on: windows-latest
     needs: [changes]
     if: needs.changes.outputs.docs-only != 'true'
-    timeout-minutes: 40
+    timeout-minutes: 55
     strategy:
       fail-fast: false
       matrix:
@@ -869,6 +873,10 @@ jobs:
           if (-not (Test-Path -LiteralPath $treeLib)) { throw "缺少进程树防护脚本: $treeLib" }
           . $treeLib
 
+          # 预算来自 scripts/gate-budget.js（单一真源）。取不到必须当场红 —— 静默回落到写死值就是把
+          # "装配失败"读成"没超时"，正是本仓反复出事的形态（见 gate-budget.test.js 的同名锁）。
+          $gateBudgetMs = & node -e "process.stdout.write(String(require('./scripts/gate-budget.js').GATE_TEST_BUDGET_MS))"
+          if ($LASTEXITCODE -ne 0 -or -not $gateBudgetMs) { throw "取不到 Gate 测试预算（scripts/gate-budget.js）—— 不得回落到写死值" }
           $launchMark = Get-Date
           $testProcess = Start-Process -FilePath "pnpm.cmd" `
             -ArgumentList @(
@@ -886,8 +894,8 @@ jobs:
             ) `
             -NoNewWindow -PassThru
 
-          if (-not $testProcess.WaitForExit(1800000)) {
-            Write-Host "Desktop shard exceeded its 30-minute execution budget."
+          if (-not $testProcess.WaitForExit([int]$gateBudgetMs)) {
+            Write-Host "Desktop shard exceeded its $([int]($gateBudgetMs / 60000))-minute execution budget (see scripts/gate-budget.js)."
             Get-TestProcessTree -RootProcessId $testProcess.Id -NotBefore $launchMark | Format-Table -AutoSize
             taskkill /PID $testProcess.Id /T /F 2>$null | Out-Null
             throw "Desktop shard timed out; terminated the pnpm process tree."
