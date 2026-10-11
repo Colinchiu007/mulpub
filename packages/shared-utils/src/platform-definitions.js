@@ -156,6 +156,12 @@ const PLATFORM_POST_LOGIN_PROOF_COOKIES = {
   xiaohongshu: ['web_session'],
 }
 
+// 二段式补跳的等待预算（毫秒）：凭证轮询在此窗口内反复复查（主站可能整页加载
+// 后才由 JS/XHR 种会话 cookie，就绪判据是「凭证真出现」而非页面加载完成），
+// 耗尽则 stop 在途导航、按当前快照继续，不阻断登录。与 redirect/proof 表同源
+// 导出，消费者与测试都从这里取值，避免两处魔数失同步。
+const POST_LOGIN_REDIRECT_WAIT_MS = 15000
+
 // 平台 localStorage 会话标记：部分平台（如视频号）登录态依赖 localStorage 而非仅 Cookie。
 // 供 checkLocalCredentials 判定 cookies=0 的快照是否仍能构成有效凭证；值为非空即视为会话证据。
 // 未列入的平台视为不依赖 localStorage 登录态。新增标记键必须以 CDP 实测取证为准，
@@ -418,6 +424,7 @@ module.exports = {
   PLATFORM_COOKIE_DOMAINS,
   PLATFORM_POST_LOGIN_REDIRECT,
   PLATFORM_POST_LOGIN_PROOF_COOKIES,
+  POST_LOGIN_REDIRECT_WAIT_MS,
   PLATFORM_LS_SESSION_MARKERS,
   PLATFORM_SESSION_COOKIE_MARKERS,
   isPlatformAuthHost,

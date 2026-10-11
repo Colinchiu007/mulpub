@@ -13,14 +13,16 @@ const path = require('path')
 const log = require('./logger')
 const {
   PLATFORM_LOGIN_URLS,
-  PLATFORM_POST_LOGIN_REDIRECT,
-  PLATFORM_POST_LOGIN_PROOF_COOKIES,
   hasPlatformSessionCookie,
   hasPlatformSessionCookieMarkers,
   sessionCookieNames,
   isPlatformCookieDomain,
   isPlatformLoginSuccessUrl,
 } = require('@multi-publish/shared-utils/src/platform-definitions')
+// 二段式登录（主站会话补抓）：小红书登录窗在 creator 域，主站 web_session 从未被
+// 设置（note code -100 根因）。逻辑自包含于此模块（auth-view-manager 在逐文件
+// 行数门禁挂账，膨胀超容差必须拆分）。
+const { waitForPostLoginSession } = require('./auth-post-login-redirect')
 // 账号资料（昵称/头像/平台ID）采集器：登录成功那一刻随凭证一起产出（PRD-ACCOUNT-PROFILE-INFO-2026-09-23）
 const accountProfile = require('@multi-publish/shared-utils/src/account-profile')
 const { attachCdpDetection } = require('./auth-view-cdp')
@@ -101,32 +103,6 @@ function hasCapturedCredentials(authData, platform) {
   const hasCredentials = hasCookies || hasLocalStorage || hasIndexedDB
   if (hasCredentials) logPendingSessionEvidence(platform, authData.cookies)
   return hasCredentials
-}
-
-// 二段式登录（主站会话补抓）：补跳主站后等待其就绪的兜底窗口。
-// 主站可能因网络/风控迟迟不跳转，超时后按当前快照继续，不阻断登录流程。
-// 「就绪」= loadURL 的 Promise resolve（did-finish-load 等价）：主站响应已在
-// .xiaohongshu.com 父域种下会话 Cookie（web_session 等），无需依赖页面 DOM 特征。
-const POST_LOGIN_REDIRECT_WAIT_MS = 15000
-
-/**
- * 凭据快照里是否已有指定平台二段式补跳的凭证 Cookie（如 xiaohongshu 的 web_session）。
- * CCG 评审 i2：快照已含凭证时不必再补跳一次主站（省一次整页往返）；短路径
- * cookies.get 失败按「没有凭证」处理，走补跳（fail-open 到主流程，不阻断登录）。
- * @param {import('electron').WebContentsView} view
- * @param {string} platform
- * @returns {Promise<boolean>}
- */
-async function hasPostLoginProofCookie (view, platform) {
-  const proofNames = PLATFORM_POST_LOGIN_PROOF_COOKIES[platform]
-  if (!Array.isArray(proofNames) || proofNames.length === 0) return false
-  try {
-    const cookies = await view.webContents.session.cookies.get({})
-    return cookies.some(cookie => cookie && proofNames.includes(cookie.name) &&
-      typeof cookie.value === 'string' && cookie.value.trim().length > 0)
-  } catch (_e) {
-    return false
-  }
 }
 
 class AuthViewManager {
@@ -326,43 +302,10 @@ class AuthViewManager {
         if (!this._isCurrentLoginAttempt(attempt)) return
         // 二段式（主站会话补抓）：登录页域与发布 API 会话域不同（小红书 creator vs
         // www 主站）时，凭据快照此刻还缺主站 web_session（edith note code -100 根因）。
-        // 先补跳主站，creator 父域 Cookie 随请求带上、主站种下会话，再抓快照。
-        // 未配置 redirect 的平台保持原行为：直接抓取，零回归。
-        const redirectUrl = /** @type {Record<string, string>} */ (PLATFORM_POST_LOGIN_REDIRECT)[attempt.platform]
-        if (redirectUrl && !(await hasPostLoginProofCookie(attempt.view, attempt.platform))) {
-          log.info('AuthView', `post-login redirect to main site: ${attempt.platform} ${redirectUrl}`)
-          // 就绪 = loadURL resolve（did-finish-load 等价，主站响应已种下会话 Cookie）；
-          // 15s 兜底：主站迟迟未就绪时按当前快照继续，不阻断登录。
-          // 兜底命中时 stop 掉在途导航（CCG 评审 i6）：否则主站导航可能在快照抓取
-          // 期间才落地，页面导航状态与抓取时序竞争，影响快照确定性。
-          let redirectTimedOut = false
-          const redirectTimeout = setTimeout(() => {
-            redirectTimedOut = true
-            try { attempt.view.webContents.stop() } catch (_e) { /* 视图可能已销毁 */ }
-            // 触发 race 的超时分支 resolve（回调此刻 redirectTimeout 已赋值）
-            if (typeof redirectTimeout.callback === 'function') redirectTimeout.callback()
-          }, POST_LOGIN_REDIRECT_WAIT_MS)
-          if (redirectTimeout && redirectTimeout.unref) redirectTimeout.unref()
-          try {
-            await Promise.race([
-              attempt.view.webContents.loadURL(redirectUrl).catch(e => {
-                log.warn('AuthView', `post-login redirect load failed: ${e instanceof Error ? e.message : String(e)}`)
-              }),
-              new Promise(resolve => { redirectTimeout.callback = () => resolve() }),
-            ])
-          } finally {
-            clearTimeout(redirectTimeout)
-          }
-          if (!this._isCurrentLoginAttempt(attempt)) return
-          // 凭证校验（CCG 评审 i1）：loadURL resolve / 超时都不保证主站真种下了
-          // web_session（可能整页加载后才由 JS/XHR 种，或未识别登录态跳去登录页）。
-          // 缺失时留独立失败标记日志（不阻断），让「二段式是否真生效」可观测。
-          if (!(await hasPostLoginProofCookie(attempt.view, attempt.platform))) {
-            log.warn('AuthView', `post-login redirect proof cookie missing: ${attempt.platform} ` +
-              `proof=${(PLATFORM_POST_LOGIN_PROOF_COOKIES[attempt.platform] || []).join(',')} ` +
-              `timedOut=${redirectTimedOut} snapshotWillMissMainSiteSession=true`)
-          }
-        }
+        // 先补跳主站、等主站会话落地（或 15s 兜底），再抓快照；未配置平台 no-op 零回归。
+        // 所有失败路径只留日志不阻断，见 auth-post-login-redirect.js 头注释。
+        await waitForPostLoginSession(attempt.view, attempt.platform, { log })
+        if (!this._isCurrentLoginAttempt(attempt)) return
         const authData = await this._extractAuthData(attempt.view, attempt.platform)
         if (!hasCapturedCredentials(authData, attempt.platform)) {
           // 静默跳过会让「为什么没自动完成」无从排查，这里必须留下判定依据。

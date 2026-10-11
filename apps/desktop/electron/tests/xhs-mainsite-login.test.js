@@ -27,6 +27,10 @@ const defs = require('@multi-publish/shared-utils/src/platform-definitions')
 // 用 __dirname 解析：readFileSync 相对路径是相对 cwd（apps/desktop）的，直接写仓库根相对路径会拼出双重路径
 const managerSrc = readFileSync(
   path.resolve(__dirname, '../services/auth-view-manager.js'), 'utf8')
+// 二段式逻辑自包含于独立模块（auth-view-manager 在逐文件行数门禁挂账，膨胀超容差必须拆分）
+const redirectMod = require('../services/auth-post-login-redirect')
+const redirectModSrc = readFileSync(
+  path.resolve(__dirname, '../services/auth-post-login-redirect.js'), 'utf8')
 
 // ─── 行为锁公共设施 ───────────────────────────────
 // AuthViewManager 构造函数无副作用（只置空字段），但 require 本体时会连带 require
@@ -103,42 +107,40 @@ describe('小红书二段式登录（主站会话补抓）', () => {
     expect(defs.PLATFORM_LOGIN_URLS.xiaohongshu).toBe('https://creator.xiaohongshu.com/')
   })
 
-  it('C3a 结构锁：auth-view-manager 引用 redirect 表与 15s 兜底常量', () => {
-    // 结构锁：manager 源码里接线了 POST_LOGIN_REDIRECT 与超时兜底。
+  it('C3a 结构锁：二段式模块接线 redirect 表与 15s 兜底常量，manager 接入该模块', () => {
+    // 结构锁：逻辑在 auth-post-login-redirect.js，manager 里接进了登录完成路径。
     // 不锁 www.xiaohongshu.com 字面量——URL 该来自查表（PLATFORM_POST_LOGIN_REDIRECT），
-    // 字面量耦合会逼「改表值必须同步改 manager」的反向维护。
-    expect(managerSrc).toContain('PLATFORM_POST_LOGIN_REDIRECT')
-    expect(managerSrc).toMatch(/POST_LOGIN_REDIRECT_WAIT_MS/)
+    // 字面量耦合会逼「改表值必须同步改实现」的反向维护。
+    expect(redirectModSrc).toContain('PLATFORM_POST_LOGIN_REDIRECT')
+    expect(redirectModSrc).toMatch(/POST_LOGIN_REDIRECT_WAIT_MS/)
+    expect(managerSrc).toContain('waitForPostLoginSession')
   })
 
-  it('C3b 行为锁：配置了 redirect 的平台登录完成前会 loadURL 主站，快照在主站会话落地后才产出', async () => {
-    // loadURL 返回可控 deferred：resolve 即模拟主站就绪（did-finish-load 等价）。
-    // resolve 的同时往会话桩 push web_session——模拟「主站响应种下会话 Cookie」，
+  it('C3b 行为锁：配置了 redirect 的平台会 loadURL 主站，快照在主站会话落地后才产出', async () => {
+    // 就绪判据 = 凭证轮询命中（r2-i1），不再依赖 loadURL resolve。
+    // 会话桩在第 2s 种下 web_session（模拟主站 JS/XHR 异步种 cookie）——
     // CCG 评审 i4：断言快照**包含 web_session**（锁结果），而非只锁调用了 loadURL。
-    let mainSiteReady
-    const loadURL = vi.fn(() => new Promise(resolve => { mainSiteReady = () => resolve() }))
+    const loadURL = vi.fn(async () => {})
     vi.useFakeTimers()
     try {
       const inst = makeManager({ redirect: true, loadURL })
       const attempt = makeAttempt(inst)
       inst._scheduleAutoCompletion('cdp', attempt)
-      // 3s 自动完成定时器触发：应立即补跳主站
+      // 3s 自动完成定时器触发：应立即补跳主站（loadURL 只发起不等待）
       await vi.advanceTimersByTimeAsync(3100)
       expect(loadURL).toHaveBeenCalledWith(defs.PLATFORM_POST_LOGIN_REDIRECT[XHS])
-      // 主站未就绪时不能先 settle（否则抓到的还是缺 web_session 的 creator 快照）
+      // 主站会话未落地时不能先 settle（否则抓到的还是缺 web_session 的 creator 快照）
       expect(inst._activeLoginAttempt).not.toBeNull()
       expect(inst._extractAuthData).not.toHaveBeenCalled()
-      // 主站就绪：种下 web_session（会话桩增量）→ loadURL resolve → settle
-      mainSiteReady()
+      // 2s 时主站种下 web_session → 下一轮 500ms 轮询命中 → settle
       inst.__sessionCookies.push({ name: 'web_session', value: 'y', domain: '.xiaohongshu.com' })
-      await vi.advanceTimersByTimeAsync(0)
+      await vi.advanceTimersByTimeAsync(1000)
       expect(inst._activeLoginAttempt).toBeNull()
       expect(inst._extractAuthData).toHaveBeenCalledTimes(1)
       expect(inst.close).toHaveBeenCalled()
       // 快照结果锁：主站会话必须真的进了凭据快照（否则 -100 根因没闭合）
-      const snapshot = inst._extractAuthData.mock.results[0].value
-      const names = (await snapshot).cookies.map(c => c.name)
-      expect(names).toContain('web_session')
+      const snapshot = await inst._extractAuthData.mock.results[0].value
+      expect(snapshot.cookies.map(c => c.name)).toContain('web_session')
     } finally {
       vi.useRealTimers()
     }
@@ -186,8 +188,12 @@ describe('小红书二段式登录（主站会话补抓）', () => {
     }
   })
 
-  it('C4 行为锁：主站 15s 兜底——超时后 stop 在途导航、按现有快照继续 settle，不阻断登录', async () => {
-    // loadURL 永不 resolve：主站挂死/风控迟滞，兜底必须生效
+  it('C4 行为锁：主站 15s 兜底——超时后 stop 在途导航、短重试后按现有快照继续 settle，不阻断登录', async () => {
+    // loadURL 永不 resolve 且凭证始终不出现：主站挂死/风控迟滞，兜底必须生效。
+    // 计时（r2-i4）：等待预算从平台定义取（POST_LOGIN_REDIRECT_WAIT_MS=15s），
+    // 预算耗尽后还有一次 2.5s 短重试（r2-i5），共 17.5s + 轮询余量。
+    const WAIT_MS = defs.POST_LOGIN_REDIRECT_WAIT_MS
+    const RETRY_MS = redirectMod.PROOF_RETRY_DELAY_MS
     const loadURL = vi.fn(() => new Promise(() => {}))
     vi.useFakeTimers()
     try {
@@ -197,12 +203,39 @@ describe('小红书二段式登录（主站会话补抓）', () => {
       inst._scheduleAutoCompletion('cdp', attempt)
       await vi.advanceTimersByTimeAsync(3100)
       expect(inst._activeLoginAttempt).not.toBeNull()
-      // 兜底窗口（15s）耗尽：即使主站没「就绪」也要 settle（按现有快照继续）
-      await vi.advanceTimersByTimeAsync(16000)
-      // CCG 评审 i6：超时先 stop 在途导航再抓快照（导航/抓取时序竞争防护）
+      // 兜底窗口耗尽：stop 在途导航（r1-i6 时序竞争防护），race 返回
+      await vi.advanceTimersByTimeAsync(WAIT_MS + 100)
       expect(stop).toHaveBeenCalled()
+      // 一次性短重试（r2-i5）：凭证仍不出现 → 最终校验留失败标记、按当前快照 settle
+      await vi.advanceTimersByTimeAsync(RETRY_MS + 100)
       expect(inst._activeLoginAttempt).toBeNull()
       expect(inst._extractAuthData).toHaveBeenCalledTimes(1)
+      expect(inst.close).toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('C4b 行为锁：兜底窗口内凭证出现（轮询命中）→ 立即 settle，不等满预算', async () => {
+    // r2-i1 就绪判据 = 凭证真出现：轮询 500ms 一次，会话桩在第 6s 种下 web_session，
+    // settle 应发生在 ≈6s（远早于 15s 预算耗尽）。
+    const WAIT_MS = defs.POST_LOGIN_REDIRECT_WAIT_MS
+    const loadURL = vi.fn(async () => {})
+    vi.useFakeTimers()
+    try {
+      const inst = makeManager({ redirect: true, loadURL })
+      const attempt = makeAttempt(inst)
+      inst._scheduleAutoCompletion('cdp', attempt)
+      await vi.advanceTimersByTimeAsync(3100)
+      // 6s 时主站种下会话（模拟 JS/XHR 异步种 cookie，晚于 did-finish-load）
+      await vi.advanceTimersByTimeAsync(3000)
+      inst.__sessionCookies.push({ name: 'web_session', value: 'late-but-arrived', domain: '.xiaohongshu.com' })
+      await vi.advanceTimersByTimeAsync(3100)
+      expect(inst._activeLoginAttempt).toBeNull()
+      expect(inst._extractAuthData).toHaveBeenCalledTimes(1)
+      // 快照锁：晚到的主站会话必须进了凭据快照
+      const snapshot = await inst._extractAuthData.mock.results[0].value
+      expect(snapshot.cookies.map(c => c.name)).toContain('web_session')
       expect(inst.close).toHaveBeenCalled()
     } finally {
       vi.useRealTimers()
