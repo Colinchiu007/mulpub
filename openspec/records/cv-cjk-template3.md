@@ -2,9 +2,6 @@
 record: cv-cjk-template3
 task: CreateView 模板区 21 组硬编码文案迁 locales（遗留②第三子批，CJK 净还债 315）
 date: 2026-10-12
-sync_status: PENDING
-sync_reason: PR 未合并，merge SHA 还不存在
-sync_backfill_owner: 本会话下一轮或下一会话
 ---
 
 ## 本次执行记录：模板区 21 组文案迁 locales（cv-cjk-template3，2026-10-12）【混合 PR】
@@ -22,7 +19,7 @@ sync_backfill_owner: 本会话下一轮或下一会话
 | QM-1 打包 | N/A | 未触 electron 主进程 |
 | QM-4 视觉 | PASS | zh 文案逐字不变，CI QG Visual 为准 |
 | QM-6 CCG 双模型评审 | PASS | i18n 迁移模式第 6 次复用，无方案外新决策 |
-| 远程同步 | PENDING | 新载体：登记随本文件 frontmatter；合并后回填 PASS + merge SHA 并删 sync_* 字段 |
+| 远程同步 | PASS | PR #3365 已 squash 合并，merge SHA `cb3038ec31571832c60656aa7d69a40300253d06`（2026-10-12T01:58:43+08:00），取证 `git log origin/main --grep='(#3365)$' --format=%H|%cI` 唯一命中；`git ls-remote --heads origin cv-cjk-template3` 返回 0 行，证远端分支已删；frontmatter `sync_*` 三字段已在本次回填提交删除（登记随本文件 frontmatter，未占 ledger）。补充：本批键层级两次返工（tpl 块误入 ui 内差一层，`--keys` 拦截后经门禁调试探针定位）与 ipcFailed 前缀的 NEW CJK 拦截，均已修复并记录 |
 
 ### 改动
 
