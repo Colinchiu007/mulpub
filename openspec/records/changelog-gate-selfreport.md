@@ -2,9 +2,6 @@
 record: changelog-gate-selfreport
 task: 让退休授权放行在 CI 输出里可区分，并清掉 changelog 门禁工具链的三处「自述与实际不一致」（含一条让退休分支在单元层无法被测的写死路径）
 date: 2026-10-11
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后按 `git log origin/main --grep='(#NNNN)$'` 取证回填
-sync_backfill_owner: 本会话（若被压缩则由下一个会话接手本 slug）
 ---
 
 ## 本次执行记录：changelog 门禁自述与实际一致（changelog-gate-selfreport，2026-10-11）
@@ -26,7 +23,7 @@ sync_backfill_owner: 本会话（若被压缩则由下一个会话接手本 slug
 | 行尾与 diff 对账 | PASS（含一次自纠） | 动手前逐文件实测均匀性（两个测试文件 572/572 与 294/294、三个脚本与 CHANGELOG 均 `lf_only=0 / loneCR=0`）。**实现脚本第一次把 `check-changelog-growth.js` 写成了混行尾**：JS 里 `.replace(/\n/g,'\r\n')` 绑定在拼接的**最后一个字面量**上（`.` 优先级高于 `+`），只有末段转了 CRLF ⇒ 引入 5 行 LF-only，`git diff --numstat` 两口径当场不一致。按"改前实测均匀"这一前提做归一，并断言 `content_unchanged=true`（剥 CR 后逐字相同）与 `lf_only=0` 才继续。**教训**：`--numstat` 两口径对账不是仪式，它是这次唯一抓到混行尾的东西 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/**`、`packages/rpa-engine/**` 与任何前端文件 |
 | QM-6 CCG 双模型外部评审 | PASS（两轴均已执行并处置） | 本 PR 改了门禁的**输出与可测性**（未改判据），按 AGENTS.md 属建议执行项且我判定要做——已实际执行两轴并落结论。逻辑/后端轴 `.ccg/reviews/selfreport-logic.json`：1 Warning + 3 Info；可维护性/前端轴 `.ccg/reviews/selfreport-maint.json`：3 Warning + 1 Info，**0 Critical**。**逐条自己取证后的处置**：① 逻辑轴 Warning 的事实部分经逐字回读**否证**（规格第 69 行当场已同时点名两个测试文件并写明「非硬编码真仓 sha」，它读的是我上一版措辞），但其结构信号成立——「该文件共 5 条锁」指代不明，已拆为**函数层 5 条 / collect 层 1 条**并写清各自钉住什么；② 该轴三条 Info 全部落地（root 兜底的注释不再与代码互相打脸、M5 锚点的排版敏感性与「规模下界才是主守」写进现场、collect 侧 `root \|\| process.cwd()` 无测试覆盖登记为遗留）；③ maint 轴两条 Warning 经本机变异**实测成立**并已修（见上一行 M6/M7），第三条是记录里的 `条目=388`（见 B1 那条），第四条是「QM-6 判定要做却未做」——即本行，按补跑并落结论的方式收口；④ 评审与写型变异**串行**：所有变异跑完才派两轴，处置在两份产物都落盘后才动盘 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin changelog-gate-selfreport` 返回 0 行证远端分支已删；回填与删除上面三个 `sync_*` 字段必须同一次提交 |
+| 远程同步 | PASS | 当场取证：`git log origin/main --grep='(#3304)$' --format=%H\|%cI` ⇒ `9b49b1e6b877f1354addfadd65ff2bad4dcfb0ee` @ `2026-10-11T14:12:38+08:00`；`git ls-remote --heads origin changelog-gate-selfreport` 返回 0 行；本回填提交同时删除 frontmatter 的三个 `sync_*` 字段，且**未**往 `scripts/gate-record-debt-ledger.json` 加键 |
 
 ### 取代 #3277 记录里的两条遗留（历史快照不改写，本行是最新锚点）
 
