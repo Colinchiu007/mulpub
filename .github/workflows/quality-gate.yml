@@ -449,6 +449,7 @@ jobs:
         shell: bash
         run: |
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/applive-foreign-audit.test.ps1
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/mp-applive-launcher.test.ps1
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/mp-worktree-health.test.ps1
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/session-guard.test.ps1
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/session-write-guard.test.ps1
