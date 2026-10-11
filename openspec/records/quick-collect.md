@@ -2,9 +2,6 @@
 record: quick-collect
 task: 采集页「快捷采集」——内置 6 条官方指令 + 自定义指令增删改 + 检索/汇总执行链
 date: 2026-10-11
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个动这些文档的会话（回填时必须**同一次**改三处：本文件表格行 + 正文「保留门禁」bullet + `.quality-gates.md` 同名记录的表格行与 bullet，并整段删除本 frontmatter 的三个 sync_* 字段，同时删 `scripts/gate-record-debt-ledger.json` 的本标题登记项 —— 缺任一处会被 Gate 2c / 欠账门禁当场判红）
 ---
 
 ## 本次执行记录：采集页「快捷采集」（quick-collect，2026-10-11）
@@ -30,7 +27,7 @@ sync_backfill_owner: 下一个动这些文档的会话（回填时必须**同一
 | QM-2 代码审查必检项 | PASS | require 路径逐个可解析（`ipc-contract.test.js` 的第二条用例强制入口文件的本地 require 全部 `require.resolve` 通过）；preload 改了源 ⇒ `pnpm run build:preload` 已重生成两 bundle，且 `ipc-contract.test.js` 的 bundle 通道断言通过；IPC 参数在渲染端 `JSON.parse(JSON.stringify(command))` 脱壳后才发（Vue reactive proxy 直传会报 "An object could not be cloned"）；素材 URL 走共享 `safeHttpUrl`；日志**不记**指令原文（只记 `sources`/`count`/`stage`），因为指令可能含私密业务方向 |
 | 未闭合（诚实记录） | — | ① 执行不可取消（P1）；② 素材源仅英文三源，中文平台覆盖有限（PRD §13 第 2 条）；③ 真机点击端到端未在本机实测（依赖用户已配置默认大模型 + 三源可达），引擎层以注入式假源覆盖，网络路径不假装已验证（PRD §13 第 3 条）；④ 本机全量套件（`vitest run` 全量）本轮跑到约 40 分钟时陷在低 CPU 空转并被我中止，**未取得全量结论** ⇒ 全量证据改由 CI 的 `QG Desktop Shards (1/2)(2/2)` / `QG Unit Tests` / `QG Coverage` 承担，本机只留下 70 文件 / 1069 例的受影响域子集与 234 例特性域 |
 | 记忆沉淀 | PASS | ① **外部记忆（仓库文档）**：本 PRD + 本 change 五件套 + 本记录 + `CHANGELOG.md`；并追加 `01-docs/learnings.md` 新章节「快捷采集交付中的三条可复用教训」（append-only，`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径一致 = 29/0，无行尾改写）。② **外部记忆（本机 gstack learnings.jsonl）**：3 条（置顶型台账插入吞掉标题、跨平面常量对账锁、mock 身份必须稳定），JSONL 逐行 `JSON.parse` 校验通过（143 行 / 0 坏行）。③ **EverOS**：两个主题各一个 session（`mp-quick-collect-20261011-a/b`）走 `POST /api/v1/memory/add`（`messages[{sender_id,role,content,timestamp(整数毫秒)}]`）→ `flush` 两次均回 `status=extracted`，并在 `~/.everos/default_app/default_project/users/agent/{episodes,atomic_facts}/*.md` 用哨兵短语「快捷采集」「changelog-growth」grep 到产物。④ **内置记忆**：本会话的 DSH 会话档本身（`~/.dsh/sessions` 由 harness 自动落盘，无对外写 API）—— 未手工伪造文件 |
-| 远程同步 | PENDING | 本 PR 尚未合并；合并后同一次回填：本文件表格行 + 正文 bullet + `.quality-gates.md` 同名记录两处 + 删 frontmatter 三字段 + 删 ledger 登记项 |
+| 远程同步 | PASS | PR #3303 已 squash 合并为 `73892e06ec6b7307088be1690ab92d2badccd00c`（2026-10-11T14:15:10+08:00）；取证：`git log origin/main --grep="(#3303)$" --format=%H|%cI` 恰好 1 行且 SHA 相同、`git ls-remote --heads origin quick-collect` = 0 行。本行、`.quality-gates.md` 同名记录的两处、frontmatter 的 `sync_*` 三字段与 `scripts/gate-record-debt-ledger.json` 的登记项在**同一次提交**收口 |
 
 ### QM-1 明细（asar 核对）
 
