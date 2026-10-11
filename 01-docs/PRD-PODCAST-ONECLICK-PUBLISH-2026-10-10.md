@@ -199,7 +199,7 @@ partial 含「这一期已登记到本地频道」+ 一个只重试 feed 的出�
 
 | 口径 | 内容 | 少了它会怎样 |
 |---|---|---|
-| ① 事件形状 | 通道名 `podcast:episode:publish:progress`，载荷 `{ runId, phase, state, cancellable, durationSec?, sizeBytes?, mime?, message?, errorCode?, subCode? }`；`phase` 取值**只能**是编排层导出的 `PHASES` 闭集，`state ∈ {start, done, skipped, failed, cancelled}` | 载荷里给自由字符串，界面就会自造第二份相位表 |
+| ① 事件形状 | 通道名 `podcast:episode:publish:progress`，载荷 `{ runId, phase, state, cancellable, durationSec?, sizeBytes?, mime?, message?, errorCode?, subCode? }`；`phase` 取值**只能**是编排层导出的 `PHASES` 闭集**再并上取消终态那一站 `cancelled`**（§6.4「显示项」的相位条本来就画「七相位 + cancelled」，本节早期只写闭集与 §6.4 自相矛盾；2026-10-11 按后端评审 Info 纠正，并同 PR 给一条能变红的闭集锁），`state ∈ {start, done, skipped, failed, cancelled}`
 | ② `cancellable` 由主进程算 | 发送前用编排层那份**唯一实现** `cancellableAt(phase)` 求出布尔并随事件下发；渲染层**只读**该位。**禁止**在前端抄相位表、也**禁止**按"已用时长"猜相位 | §6.4.1 第 4 条禁止的事在前端重演一次；且取消按钮会在 `uploadAudio` 之后仍可点，用户以为停了其实没停 |
 | ③ 双边界与单点发射 | 每个相位必须有 `start`（执行**前**）与 `done` 两个边界；发射点唯一在 `podcast-episode-host.js`，宿主外的任何一层（适配层、编排层）**不得**再发；链结束时最后一条必须是终态边界 | 只在完成时发会让遮罩静止在视觉上等同卡死（本仓既有纪律「批量 IPC 进度双边界」）；多点发射会造出两份互相矛盾的进度真相 |
 
@@ -208,6 +208,25 @@ partial 含「这一期已登记到本地频道」+ 一个只重试 feed 的出�
 **三侧同 PR**：`ipcMain.handle`/发送侧字面量 + preload 订阅方法 + `src/api/podcast-channel.js` 的 `onEpisodePublishProgress`，`check-ipc-bridge` 少一侧当场红。订阅必须按 `subscriberId` 精确注销（既有跨实例订阅纪律，禁止无 id 时 `clear()` 全清）。
 
 **显示项与降级路径**：主进程若在 `progress` 之外只给到链末信封（例如事件订阅失败），界面必须**显式**显示「进度不可用，仅在本次结束后回看轨迹」，**不得**画一条停在首相位的假进度条。取消按钮在拿不到 `cancellable` 时的默认态是**禁用并说明原因**，不是「点了试试」。
+
+##### 6.4.2.1 实做落点（第 4 片，2026-10-11 已接线——改任何一条必须同 PR 改本节）
+
+- **发射点**：`ipc-handlers/podcast.js` 的出期 handler 里，`event.sender.send('podcast:episode:publish:progress', evt)` 是全仓唯一发送调用；
+  闭包按**每次调用**注入宿主（`publishFromVideo(payload, { emitProgress })`），不缓存在宿主上——缓存等于把「谁订阅」变成进程级状态，多窗口下会串台。
+- **边界来源**：编排层 `podcast-episode-publish.js` 的既有 `mark()` 就是相位边界点，观察者 `onPhase` 在这里回调（上一站补 `done` 并带出
+  `durationSec/sizeBytes/mime`，本站发 `start`）；编排层自身**不发事件**，所以口径③的「唯一发射点」与「双边界」同时成立，且没有新增第二套相位游标。
+- **终态边界由宿主补**：`success → done`、`partial → skipped`（公网 feed 未更新，既不得画成 done 也不得说成失败）、取消 `→ cancelled`、
+  其余异常 `→ failed` 并带 `subCode`。缺了这条界面会停在最后一个 `start` 上，视觉上等同卡死。
+- **`cancellable` 只在宿主算**：`publisher.cancellableAt(phase)`，随每条事件下发；渲染层 `usePodcastEpisodePublish` 只读这个位，
+  通道不可用时退回链末信封的 `cancellable`，两者都没给即 `false`（禁用并说明原因，不是「点了试试」）。
+- **订阅与注销**：preload `onEpisodePublishProgress` 返回**只删自己那一个 handler** 的注销函数（`removeAllListeners` 一律禁止）；
+  渲染层在 `start()` 内**先订阅后调用**（晚一步就丢第一个 `start`），并在 `finally` 注销。事件按 `runId` 过滤——别的窗口/别的链的边界不得动本遮罩。
+- **降级面**：`progressAvailable=false` 时浮层显式显示 `podcast.episode.progressUnavailable`，轨迹改从链末信封 `phases` 回看；不得画假进度条。
+- **浮层按需挂载（实施中新发现的硬约束）**：入口与浮层成对装配在 `components/PodcastEpisodeEntry.vue`，浮层 `v-if="openedOnce"`——
+  首次打开后常驻（关闭只隐藏，因为**关闭浮层不取消发布**，销毁会带走进行中的进度）；而**未打开前不得构造**，否则宿主视图（结果页/创作页）
+  在没有播客 preload 面的测试环境里会被浮层 setup 的抛错整片拖红。这条是本节没写、实施才暴露的约束，落点写在这里而不是留在记忆里。
+- **宿主侧行数**：结果页只留 1 行装配 + 1 行 import（原本抄两份状态会 +8），`max-lines-baseline.json` 的点名目标随之内调 1888 → 1890，
+  理由与本次接线一并在此记录，属「接受漂移」而非「清理」。
 
 #### 6.4.3 第 4 片提示文字逐字对照（**由脚本从 locales/podcast/{zh,en}.js 生成，改文案必须重新生成，禁止手工维护本节**）
 

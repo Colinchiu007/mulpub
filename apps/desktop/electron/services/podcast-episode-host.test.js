@@ -558,3 +558,69 @@ describe('podcast-episode-host · 结果三态不压平', () => {
     expect(h.spawn.calls.length).toBe(0)
   })
 })
+
+describe('§6.4.2 出期进度通道（宿主是唯一发射点）', () => {
+  it('每个相位都有 start 与 done 两个边界，且 cancellable 是主进程算出的布尔', async () => {
+    const h = makeHost()
+    const events = []
+    await h.host.publishFromVideo(h.payload, { emitProgress: (e) => events.push(e) })
+    const starts = events.filter((e) => e.state === 'start').map((e) => e.phase)
+    const dones = events.filter((e) => e.state === 'done').map((e) => e.phase)
+    expect(starts.length).toBeGreaterThanOrEqual(5)
+    expect(starts).toContain('extractMix')
+    expect(dones.length).toBe(starts.length)
+    for (const p of starts) expect(dones).toContain(p)
+    for (const e of events) {
+      expect(typeof e.cancellable).toBe('boolean')
+      expect(typeof e.phase).toBe('string')
+      expect(e.phase.length).toBeGreaterThan(0)
+      expect(e.runId).toBe(h.payload.runId)
+    }
+    // 链结束时最后一条必须是终态边界：界面靠它把遮罩从 running 收口
+    expect(['done', 'skipped', 'failed', 'cancelled']).toContain(events[events.length - 1].state)
+  })
+
+  it('probe 的 done 边界带出实测三项——链中界面就要看到量到了什么，不是只看到转圈', async () => {
+    const h = makeHost()
+    const events = []
+    await h.host.publishFromVideo(h.payload, { emitProgress: (e) => events.push(e) })
+    const probeDone = events.find((e) => e.phase === 'probe' && e.state === 'done')
+    expect(probeDone).toBeTruthy()
+    expect(typeof probeDone.durationSec).toBe('number')
+    expect(typeof probeDone.sizeBytes).toBe('number')
+    expect(typeof probeDone.mime).toBe('string')
+  })
+
+  it('发送失败不得冒泡到出期链本身（进度是旁路，不是前置条件）', async () => {
+    const h = makeHost()
+    await expect(h.host.publishFromVideo(h.payload, {
+      emitProgress: () => { throw new Error('sender destroyed') },
+    })).resolves.toMatchObject({ state: 'success' })
+  })
+
+  it('phase 取值必须落在 PHASES 闭集并上 cancelled（§6.4.2 口径①与 §6.4 显示项合一后的闭集锁）', async () => {
+    const h = makeHost()
+    const events = []
+    await h.host.publishFromVideo(h.payload, { emitProgress: (e) => events.push(e) })
+    await h.host.publishFromVideo({ ...h.payload, videoPath: 'D:/v/不存在.mp4' }, { emitProgress: (e) => events.push(e) }).catch(() => {})
+    const { PHASES } = require('./podcast-episode-publish')
+    const allowed = PHASES.concat(['cancelled'])
+    expect(events.length).toBeGreaterThan(0)
+    for (const e of events) expect(allowed).toContain(e.phase)
+  })
+
+  it('不传 emitProgress 时整条链照旧成功（可选注入，旧调用形状不受影响）', async () => {
+    const h = makeHost()
+    await expect(h.host.publishFromVideo(h.payload)).resolves.toMatchObject({ state: 'success' })
+  })
+
+  it('失败链留下 failed 终态边界并带 subCode（否则界面停在最后一个 start，读起来像卡死）', async () => {
+    const h = makeHost({ payload: { videoPath: 'D:/v/不存在.mp4' } })
+    const events = []
+    await h.host.publishFromVideo(h.payload, { emitProgress: (e) => events.push(e) }).catch(() => {})
+    const last = events[events.length - 1]
+    expect(last.state).toBe('failed')
+    expect(typeof last.subCode).toBe('string')
+    expect(last.subCode.length).toBeGreaterThan(0)
+  })
+})

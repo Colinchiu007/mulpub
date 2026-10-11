@@ -25,6 +25,17 @@ const PRODUCERS = [
   'electron/services/podcast-channel-registry.js',
   'electron/services/podcast-channel-locks.js',
   'electron/ipc-handlers/podcast.js',
+  'electron/services/podcast-episode-publish.js',
+  'electron/services/podcast-episode-host.js',
+  'electron/services/podcast-episode-extract.js',
+  'electron/services/podcast-episode-cancel.js',
+  'electron/services/podcast-episode-source.js',
+  // 刻意**不**把 podcast-tts-compose.js 列入扫描域：它产出的 4 个码（PODCAST_TTS_COPY_TOO_SHORT /
+  // TITLE_INVALID / CHUNK_UNSAFE / VOICE_UNRESOLVED）目前没有任何用户可达路径——刀 4 第 2 片只是纯函数层，
+  // 入参校验失败要到第 3 片接进出期浮层才会显示。此刻加进来只能逼出 4 条无人消费的文案（AGENTS：
+  // 不得为不存在的反馈路径新增 locale 键）。**第 3 片接线时 MUST 把它加回本清单并同 PR 补 zh/en 成对文案**，
+  // 否则那条链在这里没有留痕。也不得改用 EXEMPT_WITH_REASON 绕过——例外表要求码真的没有文案，
+  // 而那 4 个码是**会**面向用户的，写进例外表就是把待办伪装成豁免。
 ]
 
 /**
@@ -95,6 +106,9 @@ describe('播客领域码必须都能取到文案（反方向接线守卫）', (
       'src/composables/usePodcastChannelActions.js',
       'src/composables/usePodcastChannelPicker.js',
       'src/composables/usePodcastHosting.js',
+      'src/composables/usePodcastEpisodePublish.js',
+      'src/components/PodcastPublishAction.vue',
+      'src/components/PodcastEpisodeEntry.vue',
       'src/views/PodcastChannelView.vue',
     ].map((rel) => {
       const p = path.resolve(ROOT, rel)

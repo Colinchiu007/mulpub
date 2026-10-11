@@ -34,14 +34,16 @@ function makeIpc (responsesByChannel) {
 }
 
 describe('podcast preload · 通道与命名空间', () => {
-  it('暴露 podcast.* 十九个方法，通道名逐字对齐主进程合同', () => {
+  it('暴露 podcast.* 二十个方法，通道名逐字对齐主进程合同', () => {
+    // 其中 19 个是 invoke 型，第 20 个 onEpisodePublishProgress 是**推送订阅**型（§6.4.2 第三条通道），
+    // 它不 invoke 任何通道，返回的是注销函数——所以它不进 CHANNELS 那份双向对账。
     const api = createPodcastApi(makeIpc({}))
     expect(Object.keys(api.podcast).sort()).toEqual([
       'channelCreate', 'channelGet', 'channelList', 'channelMigrateResolve',
       'channelRename', 'channelSave', 'channelSetDefault',
       'endpointList', 'episodeList',
       'episodePublishCancel', 'episodePublishFromVideo', 'episodeRemove', 'episodeSave', 'feedBuild', 'feedPublish', 'feedVerify',
-      'hostingCheck', 'hostingGet', 'hostingSave',
+      'hostingCheck', 'hostingGet', 'hostingSave', 'onEpisodePublishProgress',
     ])
     for (const channel of CHANNELS) {
       expect(channel).toMatch(/^podcast:/)
@@ -123,5 +125,53 @@ describe('podcast preload · envelope 剥壳', () => {
     const { podcast } = createPodcastApi(ipc)
     await podcast.channelSave(payload)
     expect(ipc.calls[0].args).toEqual([payload])
+  })
+})
+
+describe('podcast preload · §6.4.2 出期进度订阅（推送型）', () => {
+  const makeRenderer = () => {
+    const handlers = []
+    return {
+      handlers,
+      invoke: () => Promise.resolve({ code: 0, data: {} }),
+      on: (channel, h) => handlers.push({ channel, h }),
+      removeListener: (channel, h) => {
+        const i = handlers.findIndex((x) => x.channel === channel && x.h === h)
+        if (i >= 0) handlers.splice(i, 1)
+      },
+      removeAllListeners: (channel) => {
+        throw new Error('禁止全清：同一通道可能有多个实例各自订阅（AGENTS 跨实例订阅纪律）— ' + channel)
+      },
+    }
+  }
+
+  it('返回的注销函数只删自己那一个 handler', () => {
+    const r = makeRenderer()
+    const api = createPodcastApi(r)
+    const offFirst = api.podcast.onEpisodePublishProgress(() => {})
+    api.podcast.onEpisodePublishProgress(() => {})
+    expect(r.handlers.length).toBe(2)
+    expect(r.handlers[0].channel).toBe('podcast:episode:publish:progress')
+    offFirst()
+    expect(r.handlers.length).toBe(1)
+  })
+
+  it('非函数入参不得挂监听，且返回可调用的空注销（不得让调用方判空）', () => {
+    const r = makeRenderer()
+    const api = createPodcastApi(r)
+    const off = api.podcast.onEpisodePublishProgress(undefined)
+    expect(r.handlers.length).toBe(0)
+    expect(typeof off).toBe('function')
+    expect(() => off()).not.toThrow()
+  })
+
+  it('事件载荷原样交给回调（preload 层不得剥壳、不得改写 cancellable）', () => {
+    const r = makeRenderer()
+    const api = createPodcastApi(r)
+    const seen = []
+    api.podcast.onEpisodePublishProgress((p) => seen.push(p))
+    const evt = { runId: 'r1', phase: 'probe', state: 'done', cancellable: true, sizeBytes: 7 }
+    r.handlers[0].h({}, evt)
+    expect(seen).toEqual([evt])
   })
 })
