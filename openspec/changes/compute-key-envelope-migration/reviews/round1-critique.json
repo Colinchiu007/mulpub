@@ -1,0 +1,77 @@
+{
+  "_provenance": {
+    "round": 1,
+    "channel": "plan-review.sh（决策层对抗评审）",
+    "mode": "DUAL（139 行，命中 auth/数据库/加密敏感内容 22 处）",
+    "critic": "claude（按 ~/.claude/.ccg/config.toml 的 [routing.backend].primary）",
+    "proposer": "opencode（[routing.frontend].primary）——**修订腿失败**：输入 13499 字符 > 该后端实测上限 7800（实测边界 (8125, 8145]，非文档承诺），静默拒绝（~120ms、exit 1、无错误信息）",
+    "artifacts": ".adversarial/ccg-plan-design-claude/{proposal-v1.md,critique-v1.md}、.ccg/reviews/d72cd2bd8bc9f789f73cc4aaccf5edcbadf03481.json",
+    "note": "本文件为该轮批评原文的固化副本（评审目录每轮被覆盖，故另存于此以便二次复核）。逐条处置见 ../review-responses.md。"
+  },
+  "schemaVersion": 1,
+  "issues": [
+    {
+      "id": "i1",
+      "severity": "Critical",
+      "dimension": "feasibility",
+      "finding": "Open Question 3 是硬前置却未定：AAD 是否承载套餐/池会改变密文格式，D6-4 变异反证与续跑判据均依赖最终 AAD；设计却把它推给后续 change。代价自述越晚改越高，但无任何决策闭环。",
+      "suggestion": "在步骤 3 前用本 change 内补一节给默认 AAD 定型（纯 provider|keyRowId）并声明套餐扩展不影响既有密文的解包路径，或明确把它设为阻塞步骤 1 的前置决策。"
+    },
+    {
+      "id": "i2",
+      "severity": "Critical",
+      "dimension": "feasibility",
+      "finding": "Open Question 2（步骤 8 后 Python 能否读信封）直接决定步骤 8 能否执行；步骤 8 却放在迁移序列的末端，且写明'影响步骤 8 能否执行'。整条收尾路径建立在未定前提上。",
+      "suggestion": "在步骤 3 双写前先定 Python 侧职责：要么实现同一 KMS 客户端，要么把读职责收敛到 Node 并给出步骤 8 的 Python 读替代方案。"
+    },
+    {
+      "id": "i3",
+      "severity": "Critical",
+      "dimension": "security",
+      "finding": "D5 迁移 CLI 的 fail-closed 语义：KMS 不可用即整批拒绝启动。但迁移失败行'计入清单不写半成品'意味着部分行已 commit、部分未写，回滚需删新表记录，若此时无主密钥则已加密行无法解开，状态不可恢复。",
+      "suggestion": "明确迁移失败后新表残留的处置：单批全部原子（二阶段+失败整批回滚），或失败即停机并要求先恢复密钥再续跑，写明残留行如何无害化。"
+    },
+    {
+      "id": "i4",
+      "severity": "Warning",
+      "dimension": "consistency",
+      "finding": "D1 声称两文件共用 IV_BYTES/AUTH_TAG_BYTES/DATA_KEY_BYTES/alg 常量，但 D2 又让官方 Key 用独立 v='official-key/1'、alg='AES-256-GCM'。alg 到底是共用字面量还是独立标识，两处互相矛盾。",
+      "suggestion": "统一：算法原语共用（同一 IV/标签长度常量），但 alg 标识符独立（'AES-256-GCM' 之外的格式族标识），表里把'算法常量'与'格式标识'明确分开。"
+    },
+    {
+      "id": "i5",
+      "severity": "Warning",
+      "dimension": "completeness",
+      "finding": "D6 巡检判据 2 '用生产同一模块解'：Node 侧解密模块按 D7 是步骤 7 才交付，巡检却是步骤 5。步骤 5 执行时 Node 解密模块尚不存在，判据 2 无法满足。",
+      "suggestion": "把 Node 侧解密模块交付提前到步骤 4 前，或步骤 5 临时用同源模块（仅可读验）并注明步骤 7 后重跑；避免巡检被判据 2 卡死。"
+    },
+    {
+      "id": "i6",
+      "severity": "Warning",
+      "dimension": "feasibility",
+      "finding": "Open Question 4：R3 结构锁要求'不得有第二处直写 api_key'，但设计未清点第二写路径，结构锁的前提未取证，锁可能锁不住或误锁。",
+      "suggestion": "在步骤 3 前用一次实际 grep/审计把 api_key 全部写入口列出，确认唯一收敛点后再加锁，而非假设。"
+    },
+    {
+      "id": "i7",
+      "severity": "Info",
+      "dimension": "completeness",
+      "finding": "步骤 6 生产禁用本地 KMS 的启动期断言放在步骤 4 迁移 CLI 之后；但迁移 CLI（D5）在开发/测试环境若无本地 KMS 则不可运行，CI 与预发环境如何跑迁移无定义。",
+      "suggestion": "补充测试/CI 环境的 KMS 注入路径，说明迁移 CLI 与禁用断言在非生产环境的取值与例外。"
+    },
+    {
+      "id": "i8",
+      "severity": "Info",
+      "dimension": "feasibility",
+      "finding": "K4 依赖 checksum 台账且 migration 从 006 起；本 change 若与 DESIGNS 其他 change（005_cloud_accounts 之后）并行，006 编号可能与同仓叠加冲突，仅口头'先核台账'不足以排他。",
+      "suggestion": "在变更提交前锁定 006 编号并写入设计，注明冲突时如何向商务仓储申请，而非运行时才核对。"
+    }
+  ],
+  "dimensionScores": {
+    "completeness": 5,
+    "consistency": 5,
+    "clarity": 7,
+    "feasibility": 4,
+    "security": 7
+  }
+}
