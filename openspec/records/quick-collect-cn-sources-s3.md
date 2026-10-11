@@ -2,9 +2,6 @@
 record: quick-collect-cn-sources-s3
 task: 快捷采集·中文素材源扩展 S3——政策/合规类源实测收口（7 个候选全实测，无可用源 ⇒ 以证据收口，不硬做）
 date: 2026-10-11
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个动这些文档的会话（回填时**同一次**改：本文件表格行 + `.quality-gates.md` 同名记录的表格行与 bullet，并整段删除本 frontmatter 的三个 sync_* 字段，同时删 `scripts/gate-record-debt-ledger.json` 的本标题登记项）
 ---
 
 ## 本次执行记录：快捷采集·中文素材源扩展 S3——政策/合规源实测收口（quick-collect-cn-sources-s3，2026-10-11）【docs-only】
@@ -54,4 +51,17 @@ S3 的目标是「政策/合规类源（平台规则中心公告、网信办/工
 
 | 项目 | 状态 | 取证与回填要求 |
 | ---- | ---- | ---- |
-| 远程同步 | PENDING | 本 PR 尚未合并；合并后同一次回填本行、`.quality-gates.md` 同名记录的表格行与 bullet、本文件 frontmatter 的 `sync_*` 三字段，并删除 `scripts/gate-record-debt-ledger.json` 的本标题登记项 |
+| 远程同步 | PASS | PR #3334 已 squash 合并为 `4004df02dd019ae9cce9a2408f25ac4dcaed4f51`（2026-10-11T19:20:56+08:00）；取证：`git log origin/main --grep="(#3334)$" --format=%H|%cI` 恰好 1 行且 SHA 相同、`git ls-remote --heads origin docs-s3-closure` = 0 行。本行、`.quality-gates.md` 同名记录两处、frontmatter 三字段与 ledger 登记项在同一次提交收口 |
+
+### 五、记忆沉淀（四处，判据一律取产物）
+
+| 载体 | 状态 | 取证 |
+| ---- | ---- | ---- |
+| 仓库文档（外部记忆） | PASS | 本记录 + `.quality-gates.md` 同名记录 + `01-docs/PRD-QUICK-COLLECT-CN-SOURCES-2026-10-11.md`（§4.2 实现状态、§4.3 S3 证据表、§4.4 S4 口径更正）+ `openspec/changes/quick-collect-cn-sources/tasks.md` + `CHANGELOG.md`（S1/S2 两条条目） |
+| `01-docs/learnings.md` | PASS | 新增章节「快捷采集中文源扩展 S1/S2 的三条可复用教训」（时间语义必须显式两态 / 域名判据作用域要与数据来源对齐 / 跨模块字段拼写要有对侧契约测试）+ 一条流程观察（QG Autonomous 是 LLM 抖动的全局 PRD 审计） |
+| 外机记忆 `~/.gstack/projects/Colinchiu007-Multi-Publish/learnings.jsonl` | PASS | 追加 **4 条**（143 → **147 行**，逐行 `JSON.parse` 合法）：`external-source-time-semantics-must-be-explicit-two-states`、`domain-guard-scope-must-match-data-producer-not-field-name`、`cross-plane-field-spelling-needs-contract-test-on-both-sides`、`llm-judged-global-prd-coverage-gate-is-flaky-not-a-verdict-on-your-pr` |
+| EverOS | PASS | `POST /api/v1/memory/add` ×2（session `mp-quick-collect-s1s2-20261011`，两条分别覆盖 S1/S2 与 S3/S4）→ `status:"accumulated"`；随后 `POST /api/v1/memory/flush` 回 **`status:"extracted"`**；落盘产物 `~/.everos/default_app/default_project/users/agent/episodes/episode-2026-10-11.md`（**8476 B**，19:25:37）中 grep 到哨兵词 `quick-collect-trend-sources`、`MAX_BYTES`、`emptyBySchedule`、`b8af126a5`、`4004df02d` 各命中 ⇒ 判据取产物，不取接口应答 |
+| 内置记忆 | 如实说明 | 本会话的 DSH 会话档由 harness 自动落盘（无对外写 API），**未**手工伪造文件；故"内置记忆"这一档的产物即本会话本身 |
+
+> 附一条现场教训（已同步进 learnings）：EverOS 的 `add` 回 `accumulated` **不等于已落盘可检索**，必须 `flush` 且以 `extracted` + 落盘文件 grep 为准 —— 本轮按此取证，未据"接口回显成功"宣告。
+
