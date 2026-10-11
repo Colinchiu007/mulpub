@@ -2,16 +2,13 @@
 record: gate4-desktop-exclusion
 task: 修 Gate 4 的 desktop 排除断链（独立 `--` 让 nx 把 --exclude 当成任务转发参数），并补"nx 到底收到什么"的判据与超时点名能力
 date: 2026-10-11
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个动这些文档的会话（PR 号必须回读：`gh pr list --repo Colinchiu007/Multi-Publish --head gate4-desktop-exclusion --json number,state,headRefOid`，不得凭印象；合并后按 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 取 merge SHA，把下表「远程同步」行**与下面「保留门禁」那句 bullet 一起**改写为 PASS + SHA + 时间，并同一次整段删除 frontmatter 的三个 sync_* 字段 —— 本仓有 Gate 2c 的同篇对账判据，两处不一致会当场判红）
 ---
 
 ## 本次执行记录：Gate 4 的 desktop 排除断链（gate4-desktop-exclusion，2026-10-11）
 
 - 变更类型与隔离声明：**混合 PR**（`.github/workflows` + `package.json` + `scripts/` 门禁本体 + 文档）⇒ 走隔离 worktree `mp-gate4-desktop-exclusion`（分支 `gate4-desktop-exclusion`），`classify-docs-only` 判 `docs-only=false`，重型门禁不得短路。
 - 规格与方案：`01-docs/PRD-GATE4-DESKTOP-EXCLUSION-2026-10-11.md`（§1 症状五 run 对照表、§2 第一性原因 + 四种形态实测表、§4 逃逸链、§5 系统性漏洞与修法、§7 不在范围登记）。
-- 保留门禁：品牌残留 ✅ | 编码完整性 ✅ | 行尾两口径对账 ✅ | 文档同步 PENDING（随 CI） | 接线/fail-fast ✅ | 远程同步 PENDING（本条自己的欠账）
+- 保留门禁：品牌残留 ✅ | 编码完整性 ✅ | 行尾两口径对账 ✅ | 文档同步 PASS（#3315 的 `文档同步检查` 在 CI 上是 pass） | 接线/fail-fast ✅ | 远程同步 PASS（PR #3315 → main 932b2384f @ 2026-10-11T17:04:40+08:00）
 
 ### QM-5 五步
 
@@ -65,10 +62,19 @@ sync_backfill_owner: 下一个动这些文档的会话（PR 号必须回读：`g
   （保留 `PATH`/`NX_SKIP_NX_CACHE`，返回副本不改父对象），T24 锁住；并核实
   `check-test-egress-ledger.js` 对 `staleKeys` 只提示不判红 ⇒ 风险面只剩「新键」这一条。
 
-### CI 现场证据（合并后由回填轮补）
+### CI 现场证据（run 38124854720 / job 114427094214 —— 本 PR 自己那次，回填时当场取）
 
-本 PR 合并后，main push 的 `QG Unit Tests` 里 Gate 4 必须出现 `[gate4-selection] full A 臂：nx 自己声明 12 个包，不含 @multi-publish/desktop` 与 `B 臂（负控）… 含 @multi-publish/desktop` 两行，且该步骤耗时应从 1173–1801s 档跌到「12 个非桌面包」的量级（失败前三条红的 run 恰好 1801s = 预算到点）。
+| 项 | 合并前（main 上的样本） | 合并后（本 PR 的 run 实测） |
+| --- | --- | --- |
+| Gate 4 步骤耗时 | 1173s / 1322s（success）与 **1801s**（三条 failure = `WaitForExit(1800000)` 到点） | **11s** success |
+| nx 的选择声明 | `NX   Running target test for 13 projects:`（第 13 个正是 desktop） | 自检 A 臂 12 个不含 desktop；B 臂 13 个含它 |
+| 自检现场行 | 该判据不存在 | `[gate4-selection] full A 臂：nx 自己声明 12 个包，不含 @multi-publish/desktop` / `full B 臂（负控）：不传 exclude 时 nx 声明 13 个包，含 @multi-publish/desktop` / `full B 臂来源 twin:test:all：pnpm.cmd run test:all` |
+| affected 侧 | — | `确证无受影响任务（nx 原文 "No tasks were run"）`，A/B 由 full 侧守；步骤末尾出站台账判定未被自检污染（子进程摘掉 `MP_TEST_EGRESS_LEDGER`） |
+| QM-1 打包 | 不适用 | 判据：`git diff --name-only origin/main...HEAD` 命中 `apps/desktop/electron/**` 与 `packages/rpa-engine/**` **0 行**（13 个变更文件全在 `.github/` + `scripts/` + 文档 + `package.json`） |
+| required contexts | — | 9 条（ruleset 6 ∪ classic 4）全部 pass；唯一 skipping 是非必需的 `release`；job 日志 `证据行数=11` |
+
+**顺带登记一条只在对侧看得见的数字**：同一次 run 的 `Desktop tests shard 1/2` = **1743s**、`2/2` = **1764s**，两片都贴着各自的 1800s 预算跑完。⇒ 在飞 PR #3313 抬预算里针对 **desktop-shards** 的那一半仍有实测支撑；本 PR 只消掉了 **Gate 4** 那一半的超额（12 个包实测 100 秒内跑完，却给了 30 分钟，再抬到 45 分是给错地方）。这句话由 #3313 的作者按它那侧的口径复核，本 PR 不替它决定，也不改它的任何数字。
 
 | 门禁 | 结果 |
 | --- | --- |
-| 远程同步 | PENDING（本条自己的欠账） |
+| 远程同步 | PASS（PR #3315 → main 932b2384f @ 2026-10-11T17:04:40+08:00） |
