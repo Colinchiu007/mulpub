@@ -323,7 +323,7 @@ pickChannel → colloquialize → chunk → ttsBlock(逐块，串行) → concat
 ```
 
 1. `colloquialize`：**新建独立 prompt**，不复用 `rewrite-engine` 的去 AI 味链路（语义不同：那是"读起来像人写的"，这是"听起来像人说的"）。输出必须保持输入的分段结构（AGENTS.md「后处理结构不变量」：不得改换行/分段、终止标点原样、段尾无标点不得追加）。
-2. `chunk`：块上限取 **2000 码点**（不是 provider 的 4000 字符——`asset-generator.js:1031` 是 `slice(0, 4000)` 的**静默截断**，整篇喂进去超 4000 就直接丢内容且**不报错**，这是本刀最大的静默失真风险）。块边界只允许落在段落（`\n`）或句末终止标点（。！？；…），不得在句中断开；单段本身超上限时按句号再切，仍无句号则**拒绝出期**（`PODCAST_TTS_CHUNK_UNSAFE`）而不是硬切——硬切会把一句话读成两截。
+2. `chunk`：块上限取 **2000 码点**（不是 provider 的 4000 字符——`asset-generator.js:1031` 是 `slice(0, 4000)` 的**静默截断**，整篇喂进去超 4000 就直接丢内容且**不报错**，这是本刀最大的静默失真风险）。块边界只允许落在段落（`\n`）或句末终止标点（。！？；…），不得在句中断开；单段本身超上限时按句号再切，仍无句号则**拒绝出期**（`PODCAST_TTS_CHUNK_UNSAFE`）而不是硬切——硬切会把一句话读成两截。（**该上限只可下调不可上调**：调用方传入更大的值会被钳回 2000——抬高它等于把本条要防的 provider 静默截断重新打开，2026-10-11 按 QM-6 前端评审补上）
 3. `ttsBlock`：唯一出口是 `AssetGenerator.generateTTS(text, opts)`（`asset-generator.js:1009`），**禁止**直接调 adapter 的 `synthesize`（各家入参键名不同：minimax `text/voice/speed`、openai `input/voice/response_format`、google `text/speakingRate`，见 `adapters/*-tts.js`；这正是 AGENTS.md「适配器入参键必须与调用方契约键一致」那条事故的同族）。返回取 `data.path`（本地文件路径，:1095-1107）。
    - 逐块**串行**，每块 `withAssetTransientRetry` 语义沿用 Story2Video 的 `maxAttempts=3` / 限流 `4` 次（`story2video-stages.js:1402-1424`）；并发留空是刻意的（多数 TTS provider 按并发计费/限流，且并发会把"哪一块坏了"变成竞态）。
    - 每块产出的 `degraded` 标记必须逐块记账：`generateTTS` 的三级降级最终会返回 `anullsrc` 生成的 **3 秒静音并带 `degraded:true`**（:1224,1320-1332,1346）。
