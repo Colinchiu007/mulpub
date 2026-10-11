@@ -2,15 +2,12 @@
 record: visual-readiness-gate
 task: 让「视图从未渲染出来」成为硬失败——修 film-engineering 就绪选择器 + Gate 7 按退出码 3 阻断（就绪类与像素类分档）
 date: 2026-10-11
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个动这些文档的会话（PR 号必须回读：`gh pr list --repo Colinchiu007/Multi-Publish --head visual-readiness-gate --json number,state,headRefOid`，不得凭印象；合并后按 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 取 merge SHA，把下表「远程同步」行改写为 PASS + SHA + 时间，并**同一次**整段删除 frontmatter 的三个 sync_* 字段）
 ---
 
 ## 本次执行记录：视觉就绪门禁（visual-readiness-gate，2026-10-11）
 
 - 变更类型与隔离声明：**混合 PR**（`apps/desktop/tests/**` + `.github/workflows` + `.github/scripts` + 文档）⇒ 必须走隔离 worktree `mp-visual-readiness-gate`（分支 `visual-readiness-gate`），且 `classify-docs-only` 判 `docs-only=false`，重型门禁不得短路。
-- 规格与方案：`01-docs/PRD-VISUAL-READINESS-GATE-2026-10-11.md`（QM-5 五步 + R1–R11 场景矩阵 + §5 实测反证与六格行为表 + §6 不在范围登记）。
+- 规格与方案：`01-docs/PRD-VISUAL-READINESS-GATE-2026-10-11.md`（QM-5 五步 + R1–R15 场景矩阵 + §2b 归属与净差量 + §5 实测反证与六格行为表 + §6 不在范围登记 + §8 两轮 QM-6 处置）。
 
 ### 做了什么
 
@@ -41,10 +38,20 @@ sync_backfill_owner: 下一个动这些文档的会话（PR 号必须回读：`g
 - **未采纳**：评审建议为 click/waitForSelector 新增 `ERR_VISUAL_TRIGGER_TIMEOUT`/`ERR_VISUAL_DIALOG_TIMEOUT` 两个码——那属新增契约，而这些失败的目标语义就是"不阻断"，1 档已足够。
 - **前端/工程轴 `opencode/ling-3.1-flash-free`**：Critical=1（它读到的 tip `7d37f1e2b` 仍带兜底，已由上一条闭合；我按 `git show HEAD` 复核确认 HEAD 里 `return error.name` 那行不存在）+ Minor=7，**采纳 5 条**：消息模板与 `code` 赋值收进共享模块 `buildSuiteError`（R11 加两条锁 + 反证 N8 实测 RED）；`close()` 抛错不得吞掉已收集的就绪失败（两套改「视图失败优先、close 挂 cause」，新增 R14/R15）；删掉零消费者的 re-export 并纠正那句不实注释；`classifyFailures` 改名 `classifyVisualFailures`（与 `autonomous-enforce-loop.js:197` 同名不同义）；workflow 里如实注明 pixel/dark 的 `-eq 3` 当前不可达。**未采纳 2 条**并写明理由（`waitForSelector` 超时面已被 R13 钉住、聚合器 3→1 稀释属汇总非门禁）。逐条处置见 PRD §8 前端轴小节。
 
-### 待回填的现场证据（合并后由后续 docs PR 补）
+### 合并前 head 上的 CI 现场（回填时当场从 Actions 日志取，行号为真）
 
-本 PR 自己的 `QG Visual` 必须出现 `[GATE-7] suite exits: pixel=0 views=0 views-supplement=0 dark=0`（`views` 由 1 变 0）且同一步结尾 `[GATE-7] All visual tests passed` 与之一致 —— 这是「根因真的被修掉」的唯一现场证据，回填时一并写入。
+head `399477f1c` / run `38112354996` / job `114390819091`：
+
+```
+:856  [GATE-7] suite exits: pixel=0 views=0 views-supplement=0 dark=0
+:865  [GATE-7] All visual tests passed
+:1353 [GATE-7B] round 1 clean
+```
+
+三个步骤的 `step.conclusion` 逐个为 `success`（Gate 7 / Gate 7c / Gate 7b —— 只看步骤名会把被 `if:` 跳过的步骤误读成跑过）；整份日志里**没有**运行时的 `[VISUAL-READY]` 行。
+
+口径修正（不沿用本篇早先那句过度声明）：这行现场证明的是**「Gate 7 在这个 head 上真的判了，且没有就绪故障被吞」**。"根因被修掉"不能单独记在本 PR 头上 —— 见 PRD §2b，main 已由另一会话独立把同一选择器改掉；本 PR 的净差量是那道判定与分档机制（实测 main 上两者都没有）。
 
 | 门禁 | 结果 |
 | --- | --- |
-| 远程同步 | PENDING（本条自己的欠账） |
+| 远程同步 | PASS（PR #3297 → main `942506fe9` @ 2026-10-11T13:28:12+08:00；`git ls-remote --heads origin visual-readiness-gate` = 0 行） |

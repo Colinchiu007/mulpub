@@ -2,16 +2,13 @@
 record: gate-record-backfill-14
 task: 回填 gate-record-backfill-13（#3229）与 gate-record-status-consistency（#3274）的远程同步行并销账
 date: 2026-10-11
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个动这些文档的会话（PR 号待 `gh pr list --repo Colinchiu007/Multi-Publish --head gate-record-backfill-14 --json number,state,headRefOid` 回读取入，不得凭印象；合并后按 git log origin/main --grep='(#NNNN)$' --format=%H|%cI 取 merge SHA，回填远程同步行并整段删除 frontmatter 的三个 sync_* 字段；**同一次还要把正文「保留门禁」那句 bullet 一起改写** —— 本仓 #3274 起有 Gate 2c 的同篇对账判据，两处不一致会当场判红）
 ---
 
 ## 本次执行记录：回填 #3229 / #3274 的远程同步欠账（gate-record-backfill-14，2026-10-11）【docs-only】
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD`（**提交后**复跑）→ 结果见「本地门禁」表
 - 变更类型与隔离声明：纯文档/流程变更，按分层规则可就地编辑；仍走隔离 worktree `mp-gate-record-backfill-14`（分支 `gate-record-backfill-14`）经 PR 落地，因回填要跑取证脚本且共享根有他人在飞文件
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 编码完整性 ✅ | 文档同步 PENDING（随 CI） | Gate 2c ✅ | 远程同步 PENDING（本条自己的欠账）
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 编码完整性 ✅ | 文档同步 PASS（`文档同步检查` 在 PR #3292 的 CI 上是 pass） | Gate 2c ✅ | 远程同步 PASS（PR #3292 → main `b08681f17` @ 2026-10-11T10:58:17+08:00）
 
 ### 这一轮是本仓新判据的第一次实战
 
@@ -50,4 +47,4 @@ sync_backfill_owner: 下一个动这些文档的会话（PR 号待 `gh pr list -
 
 | 门禁 | 状态 | 取证与后续动作 |
 |------|------|-----------|
-| 远程同步 | PENDING | 本 PR 尚未合并，merge SHA 还不存在。合并后由后续回填轮把**本行与上面「保留门禁」那句 bullet 一起**改写为 PASS 并同次删除 frontmatter 三字段；取证一律用 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` + `git ls-remote --heads origin gate-record-backfill-14`（须 0 行），不得凭记忆抄写 |
+| 远程同步 | PASS | PR #3292 → main squash `b08681f178531cfabe2427563e9845b5bed0f3ce` @ 2026-10-11T10:58:17+08:00。三源当场重取：① `git log origin/main --grep='(#3292)$' --format=%H|%cI` 恰好 1 行；② `gh pr view 3292 --json state,mergeCommit,headRefName` = MERGED / 同一个 oid / headRefName 与本记录文件名一致；③ `git ls-remote --heads origin gate-record-backfill-14` = 0 行。frontmatter 三字段与本行、上面 bullet **同一次**改写 |
