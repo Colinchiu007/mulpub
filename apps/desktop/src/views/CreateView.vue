@@ -1152,13 +1152,16 @@ export default {
       viewHistory: [], viewHistoryIndex: -1,
       // 清理
       cleanups: [],
-      quickModes: [
-        { value: 'text', label: '文案生成' },
-        { value: 'gallery', label: '图片轮播' },
-      ],
     }
   },
   computed: {
+    // 快速渲染的模式标签（data 阶段 this.$t 不可用 → 移到 computed，locale 切换也能响应）
+    quickModes() {
+      return [
+        { value: 'text', label: this.$t('create.story2video.ui.quickModeText') },
+        { value: 'gallery', label: this.$t('create.story2video.ui.quickModeGallery') },
+      ]
+    },
     // ── 批量创作域（useBatchCreate，拆分方案 v3 §2.2 第 3 步）────────────────
     // 状态桥接：整体赋值经 setter 替换 ref.value；原地变异要求 getter 返回 ref 内对象本身。
     s2vBatchDialogOpen: { get() { return batchCreateRefs.s2vBatchDialogOpen.value }, set(v) { batchCreateRefs.s2vBatchDialogOpen.value = v } },
@@ -1208,7 +1211,7 @@ export default {
         ? this.s2vTemplateLibrary
         : this.s2vTemplateLibrary.filter(template => template.category === this.s2vTemplateCategory)
       return [
-        { value: '', label: '自定义参数' },
+        { value: '', label: this.$t('create.story2video.ui.profileCustomParams') },
         ...templates.map(template => ({ value: template.id, label: template.name })),
       ]
     },
@@ -1263,9 +1266,9 @@ export default {
       if (warnings.length === 0) return ''
       const names = warnings.map((w) => {
         const secs = Number.isFinite(Number(w.latencyMs)) ? Math.round(Number(w.latencyMs) / 1000) : 0
-        return w.providerId + (secs > 0 ? '（' + secs + ' 秒）' : '')
+        return w.providerId + (secs > 0 ? this.$t('create.story2video.ui.providerCapSeconds', { seconds: secs }) : '')
       }).join('、')
-      return '检测到模型服务响应异常：' + names + '。流水线已自动重试；若反复出现，建议到【模型设置】切换模型或检查该服务商。'
+      return this.$t('create.story2video.ui.providerCapabilityRetry', { names })
     },
     // 由 run.context.compose（compose 阶段输出，已含 bgmSkipped/bgmSkippedReason）驱动；
     // 用户关闭后本次运行不再显示，下次运行重新评估。
@@ -1353,40 +1356,40 @@ export default {
     mediaRequirementsImageText() {
       return this.translateWithLocaleFallback(
         'create.story2video.mediaRequirementsImage',
-        '支持 jpg / jpeg / png / webp 格式，单个文件最大 10MB。',
+        this.$t('create.story2video.ui.mediaRequirementsImage'),
         'Supports jpg / jpeg / png / webp. Max 10MB per file.'
       )
     },
     mediaRequirementsAudioText() {
       return this.translateWithLocaleFallback(
         'create.story2video.mediaRequirementsAudio',
-        '支持 wav / m4a / mp3 格式，单个文件最大 50MB。',
+        this.$t('create.story2video.ui.mediaRequirementsAudio'),
         'Supports wav / m4a / mp3. Max 50MB per file.'
       )
     },
     mediaRequirementsBgmText() {
       return this.translateWithLocaleFallback(
         'create.story2video.mediaRequirementsBgm',
-        '支持 wav / m4a / mp3 格式，单个文件最大 15MB。',
+        this.$t('create.story2video.ui.mediaRequirementsBgm'),
         'Supports wav / m4a / mp3. Max 15MB per file.'
       )
     },
     mediaRequirementsVideoText() {
       return this.translateWithLocaleFallback(
         'create.story2video.mediaRequirementsVideo',
-        '支持 mp4 / mov / webm / mkv / avi 格式，单个文件最大 512MB。',
+        this.$t('create.story2video.ui.mediaRequirementsVideo'),
         'Supports mp4 / mov / webm / mkv / avi. Max 512MB per file.'
       )
     },
     s2vPlatforms() { return S2V_PLATFORMS },
     profileOptions() {
       return [
-        { value: 'youtube-landscape', label: 'YouTube 横屏 (1920x1080)' },
+        { value: 'youtube-landscape', label: this.$t('create.story2video.ui.quickProfileYouTube') },
         { value: 'youtube-shorts', label: 'YouTube Shorts (1080x1920)' },
-        { value: 'tiktok', label: '抖音/TikTok (1080x1920)' },
+        { value: 'tiktok', label: this.$t('create.story2video.ui.quickProfileTikTok') },
         { value: 'bilibili', label: 'Bilibili (1920x1080)' },
-        { value: 'wechat', label: '微信视频号 (1080x1920)' },
-        { value: 'xiaohongshu', label: '小红书 (1080x1440)' },
+        { value: 'wechat', label: this.$t('create.story2video.ui.quickProfileWechat') },
+        { value: 'xiaohongshu', label: this.$t('create.story2video.ui.quickProfileXiaohongshu') },
       ]
     },
     themeOptions() {
@@ -1562,7 +1565,7 @@ export default {
     pipelineProgressLoadingText() {
       return this.translateWithLocaleFallback(
         'create.story2video.progressLoading',
-        '正在加载流水线进度…',
+        this.$t('create.story2video.ui.loadingPipelineProgress'),
         'Loading pipeline progress…',
       )
     },
@@ -1920,28 +1923,28 @@ export default {
     humanName(name) { if (!name) return ''; return name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) },
     s2vSectionLabel(section) {
       const key = `create.story2video.sections.${section}`
-      const fallback = { basic: '基础', appearance: '画面', videoEnhance: '视频增强', voice: '声音', advanced: '高级', publish: '发布' }[section] || section
+      const fallback = { basic: this.$t('create.story2video.ui.sectionBasic'), appearance: this.$t('create.story2video.ui.sectionAppearance'), videoEnhance: this.$t('create.story2video.ui.sectionVideoEnhance'), voice: this.$t('create.story2video.ui.sectionVoice'), advanced: this.$t('create.story2video.ui.sectionAdvanced'), publish: '发布' }[section] || section
       const english = { basic: 'Basics', appearance: 'Appearance', videoEnhance: 'Video Boost', voice: 'Voice', advanced: 'Advanced', publish: 'Publish' }[section] || section
       return this.translateWithLocaleFallback(key, fallback, english)
     },
     s2vSubgroupLabel(subgroup) {
       const key = `create.story2video.subgroups.${subgroup}`
-      const fallback = { splitTiming: '分句与时长', templateOutput: '模板与输出' }[subgroup] || subgroup
+      const fallback = { splitTiming: this.$t('create.story2video.ui.subgroupSplitTiming'), templateOutput: this.$t('create.story2video.ui.subgroupTemplateOutput') }[subgroup] || subgroup
       const english = { splitTiming: 'Split & Timing', templateOutput: 'Template & Output' }[subgroup] || subgroup
       return this.translateWithLocaleFallback(key, fallback, english)
     },
     s2vSectionSummary(section) {
       const summaries = {
         basic: `${this.activeOutputConfig.resolution || '720x1280'} · 语速 ${Number(this.s2vConfig.voiceSpeed).toFixed(1)}x · 音量 ${Number(this.s2vConfig.voiceVolume).toFixed(2)}`,
-        appearance: `${this.s2vConfig.imageStyle || '电影感'} · ${this.s2vConfig.imageEffect || '无效果'}`,
+        appearance: `${this.s2vConfig.imageStyle || this.$t('create.story2video.ui.imageStyleDefault')} · ${this.s2vConfig.imageEffect || this.$t('create.story2video.ui.imageEffectNone')}`,
         videoEnhance: this.s2vConfig.videoMode === 'off' || !this.s2vConfig.videoMode
-          ? '纯图片轮播'
+          ? this.$t('create.story2video.ui.summaryPureImages')
           : (this.s2vConfig.videoMode === 'fixed'
             ? `固定 ${this.s2vConfig.videoFixedRatio}%` + (this.s2vConfig.shortVideoHandling === 'stop-at-end' ? ' · 播完停止' : '')
             : `AI 判断 ${this.s2vConfig.videoMinRatio}%-${this.s2vConfig.videoMaxRatio}%` + (this.s2vConfig.shortVideoHandling === 'stop-at-end' ? ' · 播完停止' : '')),
         voice: `${this.s2vConfig.voiceProvider || this.$t('create.story2video.voice.autoEdgeProvider')}${this.s2vConfig.voiceModel ? ` · ${this.s2vConfig.voiceModel}` : ''}${this.s2vConfig.voiceId ? ' · 已选音色' : ''}`,
-        advanced: `${this.s2vConfig.splitLanguage === 'auto' ? '自动识别' : this.s2vConfig.splitLanguage} · ${this.s2vConfig.splitMode || '均衡'}`,
-        publish: this.s2vConfig.platforms?.length ? `已选 ${this.s2vConfig.platforms.length} 个平台` : '不发布',
+        advanced: `${this.s2vConfig.splitLanguage === 'auto' ? this.$t('create.story2video.ui.splitLanguageAuto') : this.s2vConfig.splitLanguage} · ${this.s2vConfig.splitMode || this.$t('create.story2video.ui.splitModeBalanced')}`,
+        publish: this.s2vConfig.platforms?.length ? this.$t('create.story2video.ui.summaryPlatforms', { count: this.s2vConfig.platforms.length }) : this.$t('create.story2video.ui.summaryNoPlatform'),
       }
       return summaries[section] || ''
     },
@@ -1972,7 +1975,7 @@ export default {
     getStability(name) { return STABILITY_MAP[name] || 'experimental' },
     formatTime(iso) { if (!iso) return ''; return new Date(iso).toLocaleString('zh-CN') },
     historyStatusLabel(status) {
-      return { completed: '已完成', failed: '执行失败', cancelled: '已取消', running: '进行中', paused: '已暂停', pending: '等待中' }[status] || status || '未知'
+      return { completed: this.$t('create.story2video.ui.historyCompleted'), failed: this.$t('create.story2video.ui.historyFailed'), cancelled: this.$t('create.story2video.ui.historyCancelled'), running: this.$t('create.story2video.ui.historyRunning'), paused: this.$t('create.story2video.ui.historyPaused'), pending: this.$t('create.story2video.ui.historyPending') }[status] || status || this.$t('create.story2video.ui.historyUnknown')
     },
 
     // 流水线操作
@@ -1981,8 +1984,8 @@ export default {
       try {
         const res = await pipelineList()
         if (res?.code === 0) this.pipelines = withVideoCloneEntry(res.data)
-        else this.pipelineError = formatUserError(res, { fallback: '加载失败' }).message
-      } catch (e) { this.pipelineError = formatUserError(e, { fallback: '加载失败' }).message }
+        else this.pipelineError = formatUserError(res, { fallback: this.$t('create.story2video.ui.loadFailed') }).message
+      } catch (e) { this.pipelineError = formatUserError(e, { fallback: this.$t('create.story2video.ui.loadFailed') }).message }
       finally { this.pipelineLoading = false }
     },
     selectPipeline(p) {
@@ -2038,7 +2041,7 @@ export default {
           // 草稿不存在/已删除：用户已跳转过来，必须给出可见提示而不是静默失败
           this.showS2VOptionsToast(this.translateWithLocaleFallback(
             'story2video.draftLoadFailed',
-            '未找到要带入的草稿，请返回上一页重新发起',
+            this.$t('create.story2video.ui.draftLoadFailed'),
             'Draft not found. Please go back and try again'
           ), 3200)
           return
@@ -2071,7 +2074,7 @@ export default {
         // draftList IPC 调用失败（网络/进程通信异常）：与「草稿不存在」不同语义，需可见提示
         this.showS2VOptionsToast(this.translateWithLocaleFallback(
           'story2video.draftLoadFailed',
-          '未找到要带入的草稿，请返回上一页重新发起',
+          this.$t('create.story2video.ui.draftLoadFailed'),
           'Draft not found. Please go back and try again'
         ), 3200)
       }
@@ -2089,14 +2092,14 @@ export default {
     availabilityLabel(available) {
       return this.translateWithLocaleFallback(
         available ? 'pipelines.availability.ready' : 'pipelines.availability.dev',
-        available ? '可用' : '开发中',
+        available ? this.$t('create.story2video.ui.providerAvailable') : this.$t('create.story2video.ui.providerInDev'),
         available ? 'Available' : 'In Development'
       )
     },
     availabilityHint(available) {
       return this.translateWithLocaleFallback(
         available ? 'pipelines.availability.readyHint' : 'pipelines.availability.notImplementedHint',
-        available ? '该流水线可生成视频' : '该流水线尚未实现执行引擎，暂不能生成视频',
+        available ? this.$t('create.story2video.ui.pipelineAvailable') : this.$t('create.story2video.ui.pipelineNoEngine'),
         available ? 'This pipeline can generate videos' : 'This pipeline has no execution engine yet.'
       )
     },
@@ -2116,7 +2119,7 @@ export default {
       // 主动操作登录门（UI 层）：未登录弹登录窗口，登录成功后继续启动流水线。
       // 放在 UI 点击层而非 startPipeline 方法内，避免改变 startPipeline 的同步时序语义。
       const { ensureLogin } = useLoginGate()
-      return ensureLogin({ message: message || '启动流水线需要登录后使用，是否立即登录？' })
+      return ensureLogin({ message: message || this.$t('create.story2video.ui.loginGateMessage') })
     },
     // UI「启动流水线」入口：登录门 + 启动
     async handleStartPipeline () {
@@ -2175,7 +2178,7 @@ export default {
           // 名称查询可能命中另一个任务；主进程已启动的任务仍继续执行，交给历史记录观察。
           await this.resetPipelineToNewTaskState({
             toastKey: 'create.story2video.backgroundStartedWithoutTracking',
-            fallbackZh: '任务已启动并在后台运行，但当前无法实时跟踪进度，请在历史记录中查看。',
+            fallbackZh: this.$t('create.story2video.ui.backgroundRunNotice'),
             fallbackEn: 'The task started and is running in the background, but live progress is unavailable. View it in History.',
             durationMs: 5000,
           })

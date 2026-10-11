@@ -122,11 +122,13 @@ describe("PublishView (deep)", () => {
 
 // CreateView.vue
 describe("CreateView (deep)", () => {
-  beforeEach(() => { vi.clearAllMocks(); });
+  // quickModes 标签改走 $t（批量域 CJK 迁移），mount 需补 i18n 插件
+  beforeEach(() => { vi.clearAllMocks(); setActivePinia(createPinia()); });
 
   function mountCreate() {
     return mount(CreateView, {
       global: {
+        plugins: [createPinia(), i18n],
         components: {
           UiButton: { template: "<button><slot/></button>" },
           UiSelect: { props: ["modelValue", "options"], template: "<div><slot/></div>" },
