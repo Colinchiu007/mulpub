@@ -2,15 +2,12 @@
 record: compute-key-envelope-plan
 task: 官方 Key 信封迁移的 OpenSpec change 规划（proposal/design/specs/tasks）+ CCG 决策层对抗评审 3 轮
 date: 2026-10-11
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后回填 PASS + merge SHA，并在同一次提交删除三个 sync_* 字段与 ledger 登记项。
-sync_backfill_owner: 本 PR 作者（compute-key-envelope-plan 会话）
 ---
 
 ## 本次执行记录：官方 Key 信封迁移 OpenSpec change 规划 + CCG 对抗评审（compute-key-envelope-plan，2026-10-11）【docs-only】
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → docs-only=true（**files=14**：`openspec/changes/compute-key-envelope-migration/{.openspec.yaml,proposal.md,design.md,tasks.md,review-responses.md,reviews/round1-critique.json,reviews/round2-critique.json,reviews/round3-critique.json,specs/official-key-envelope/spec.md,specs/ops-center/keypool-license/spec.md}`、`openspec/records/compute-key-envelope-plan.md`、`.ccg/reviews/d72cd2bd8bc9f789f73cc4aaccf5edcbadf03481.json`、`.quality-gates.md`、`scripts/gate-record-debt-ledger.json`）
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PENDING
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PASS
 - **本 PR 只交付规划工件，不含任何运行时代码**；实现须另开分支/worktree（M+ 任务）
 
 | 门禁 | 状态 | Fresh 证据 |
@@ -25,7 +22,7 @@ sync_backfill_owner: 本 PR 作者（compute-key-envelope-plan 会话）
 | 品牌残留 | ✅ | `node scripts/check-no-brand-residue.js` PASS |
 | 记录欠账门禁 | ✅ | `node scripts/check-gate-record-debt.js` OK（两形态一致、无陈旧登记项） |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触运行面（无代码/样式变更） |
-| 远程同步 | PENDING | 本 PR 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填，`git ls-remote --heads origin compute-key-envelope-plan` 返回 0 行；回填后删除三个 `sync_*` 字段与 ledger 登记项 |
+| 远程同步 | PASS | 已合并 #3356 = `86d57e18dd9ef24065500f2ae416588db3016b0b`，committer 2026-10-11T23:43:52+08:00。取证：`git log origin/main --grep="(#3356)" --format="%H %cI"` 唯一命中，`git ls-remote --heads origin compute-key-envelope-plan` 返回 **0 行**（远端分支已删）；本行与记录文件远程同步行、frontmatter 三 `sync_*` 字段删除、`scripts/gate-record-debt-ledger.json` 登记项删除已在**同一次提交**完成 |
 
 ### 轮 3 结果（**收敛**）
 
