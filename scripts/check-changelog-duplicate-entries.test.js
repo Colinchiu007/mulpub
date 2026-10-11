@@ -301,7 +301,9 @@ test('对账器 fail closed：head 零条目 ⇒ 抛并判红，不得读成"零
  */
 test('对账器 OK 自述必须覆盖它实际跑的性质，且声明的条数与列出的条数相等', () => {
   const src = fs.readFileSync(path.join(__dirname, 'changelog-dedup-reconcile.js'), 'utf8')
-  const implemented = [...new Set([...src.matchAll(/failures\.push\(\s*`A(\d)/g)].map((m) => 'A' + m[1]))].sort()
+  // 注：下面这条锚点对源码排版敏感（整句换成别的写法就漏取），真正兜住「锚点退化成空集合」的是紧随其后的
+// 规模下界断言，不是这条正则本身 —— 改 reconcile 判据排版时必须先看那条还成不成立。
+const implemented = [...new Set([...src.matchAll(/failures\.push\(\s*`A(\d)/g)].map((m) => 'A' + m[1]))].sort()
   assert.ok(implemented.length >= 5, '判据本身退化（只取到 ' + implemented.length + ' 条 A 性质）—— 空集合会让本锁恒真')
   const repo = makeGitRepo()
   commit(repo, `---\n${E('A', 'a1')}${E('B', 'b1')}${E('B', 'b2 更长那份')}${E('C', 'c1')}`, 'base with duplicates')

@@ -599,11 +599,15 @@ test('退休放行必须与新鲜授权可区分：retired 进返回值、stdout
   console.error = (...a) => { lines.push(a.join(' ')); };
   let rc;
   try { rc = main(['--root=' + repo.dir, '--base=HEAD^', '--head=HEAD']); } finally { console.log = origLog; console.error = origErr; }
-  const out = lines.join('\n');
   assert.equal(rc, 0, '这一档本应过');
-  assert.match(out, /授权坐标系已消费退休/, 'stdout 必须单独成行点名退休，否则与新鲜授权长得一模一样');
-  assert.ok(out.includes(applied.slice(0, 12)), '必须打印授权声明的坐标系 sha');
-  assert.ok(out.includes(curBase.slice(0, 12)), '必须打印本次 base 的 sha（缺一就无法归因是哪个坐标系被越过）');
+  // 必须**按行**断言，不能对整体输出做子串匹配：QM-6 maint 轴实测（本 PR 首版就是这个写法），
+  // 把退休文案拼回「例外由授权触发」那一行的尾巴并摘掉独立成行，三条整体断言仍 34/34 全绿 ——
+  // 也就是「混在一行等于没出声」这条 MUST 在锁层面根本不可表示，而它正是本 PR 的核心动机。
+  const retiredLine = lines.find((l) => l.includes('授权坐标系已消费退休'));
+  assert.ok(retiredLine, 'stdout 必须有一行专门打「授权坐标系已消费退休」');
+  assert.ok(!retiredLine.includes('例外由授权触发'), '退休必须单独成行：拼在例外行尾巴上，CI 按行 grep 等于没出声');
+  assert.ok(retiredLine.includes(applied.slice(0, 12)) && retiredLine.includes(curBase.slice(0, 12)),
+    '退休行自身必须逐个携带两个坐标系 sha —— 只断言整体输出会被例外行的 applies_to_base= 顺带满足（maint 轴变异实测）');
   fs.rmSync(repo.dir, { recursive: true, force: true });
 });
 

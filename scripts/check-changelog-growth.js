@@ -153,8 +153,12 @@ const AUTH_REQUIRED = ['applies_to_base', 'reason', 'owner_pr', 'expected_titles
  * 文本与 baseSha，无法自己做对象库查询。
  */
 const RETIRE_REPO_ROOT = path.resolve(__dirname, '..');
-// root 必须由调用方传入：本仓 collect 的一切取数都走注入的 root/git，只有这条探测曾写死脚本所在仓，
-// 结果是夹具永远跑不到退休分支（临时仓的 sha 在真仓不存在 ⇒ 恒判「坐标系错位」），CI 侧侥幸同仓才对得上。
+// root 由调用方注入是 CI/collect 路径的硬要求：本仓 collect 的一切取数都走注入的 root/git，只有这条探测曾写死
+// 脚本所在仓，结果是夹具永远跑不到退休分支（临时仓的 sha 在真仓不存在 ⇒ 恒判「坐标系错位」），CI 侧侥幸同仓才对得上。
+// 下面 `|| RETIRE_REPO_ROOT` 只兜住「不带 root 直调 evaluateAuthorization」的函数层用例（`...-retire.test.js` 五条
+// 都不传 root、直接喂真仓 sha，删掉兜底它们就改绑 ambient cwd）；新调用点必须显式传 root，否则又回到「夹具跑不到」
+// 那一档。collect 侧的 `root || process.cwd()` 兜底目前**无测试覆盖**，已作为遗留登记在
+// openspec/records/changelog-gate-selfreport.md。
 function execFileSync_ForAncestor (appliedBase, curBase, root) {
   return execFileSync('git',
     ['merge-base', '--is-ancestor', appliedBase, curBase],

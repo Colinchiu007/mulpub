@@ -1,0 +1,30 @@
+[
+  {
+    "severity": "Warning",
+    "file": "openspec/specs/changelog-ledger-integrity/spec.md",
+    "line": 66,
+    "issue": "Spec references old test file `scripts/check-changelog-growth-retire.test.js` with hardcoded shas (23822b73 / f210f191), but the actual new retirement test is in `scripts/check-changelog-growth.test.js` lines 578-608 using a fixture repo with real git ancestry. The spec should be updated to reference the new test location and approach.",
+    "fix": "Update spec lines 66-69 to reference `scripts/check-changelog-growth.test.js` retirement test (the '退休放行必须与新鲜授权可区分' test) which uses fixture repo with true git ancestry instead of hardcoded shas."
+  },
+  {
+    "severity": "Info",
+    "file": "scripts/check-changelog-growth.js",
+    "line": 155,
+    "issue": "Constant `RETIRE_REPO_ROOT` is defined as fallback but comment at line 156-157 states 'root 必须由调用方传入' (root must be passed by caller). The fallback at line 161 (`cwd: root || RETIRE_REPO_ROOT`) contradicts this statement and could mask missing root injection in new call sites.",
+    "fix": "Either remove the fallback and make root truly mandatory (throw if not provided), or update the comment to clarify fallback is only for legacy/unit test compatibility."
+  },
+  {
+    "severity": "Info",
+    "file": "scripts/check-changelog-growth.test.js",
+    "line": 549,
+    "issue": "M5 test (implemented extraction from source) uses regex `/failures\\.push\\(\\s*\`A(\\d)/` to extract A-properties. This anchor is fragile — if the source code formatting changes (e.g., template literal on multiple lines, extra spaces), the regex may fail to match. The scale lower bound (`>=5`) mitigates but doesn't eliminate this.",
+    "fix": "Consider a more robust extraction (e.g., parse the AST or use a more permissive regex with multiline flag), or add a comment acknowledging the fragility and that the scale lower bound is the primary guard."
+  },
+  {
+    "severity": "Info",
+    "file": "scripts/check-changelog-growth.js",
+    "line": 337,
+    "issue": "In `collect`, `root` is passed as `root || process.cwd()` to `evaluateAuthorization`. While CI explicitly passes root, the fallback to `process.cwd()` means a future caller forgetting to pass root would silently use the wrong directory in non-CI contexts. The test M2 catches this for the retirement path but not for the initial `collect` call.",
+    "fix": "Add a test that verifies `collect` fails or behaves correctly when `root` is not provided and `process.cwd()` points to a directory without the expected git history (similar to M2 pattern)."
+  }
+]

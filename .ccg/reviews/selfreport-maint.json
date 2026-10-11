@@ -1,0 +1,30 @@
+[
+  {
+    "severity": "Warning",
+    "file": "scripts/check-changelog-growth.test.js",
+    "line": 604,
+    "issue": "新退休锁没有钉住规格新立的「单独成行」MUST。断言是 assert.match(out, /授权坐标系已消费退休/)，而 out 是各行 join('\\n') 的整体——把退休文案拼回「例外由授权触发」那一行的尾巴（正是主规格 openspec/specs/changelog-ledger-integrity/spec.md:69 明令禁止的形态「不得拼在……那一行的尾巴上」）时本锁仍然全绿。已实测变异验证：把实现改成「例外由授权触发：…；授权坐标系已消费退休：…」单行输出、删掉独立 console.log，本锁 PASS（绕过成立），还原后逐字节一致。即「混在一行等于没出声」这条本 PR 的核心动机，在锁层面仍然不可表示。",
+    "fix": "按行断言而不是按整体输出断言：const retiredLine = lines.find(l => l.includes('授权坐标系已消费退休')); assert.ok(retiredLine, '必须有一行退休放行'); assert.ok(!retiredLine.includes('例外由授权触发'), '退休必须单独成行，不得拼在例外行尾巴'); 并对该行做反证（把实现改回拼接形态时本锁必须红）。"
+  },
+  {
+    "severity": "Warning",
+    "file": "scripts/check-changelog-growth.test.js",
+    "line": 605,
+    "issue": "「必须打印授权声明的坐标系 sha」断言可被上一行满足，退休行本身携带两个 sha 的性质未被钉住。out.includes(applied.slice(0,12)) 恒被「例外由授权触发」行里的 applies_to_base=<applied.slice(0,12)> 满足——把 retiredReason 里的授权坐标系 sha 整个删掉（只留本次 base sha），本锁仍然全绿（已实测变异验证：改 retiredReason 不带 appliedBase.slice(0,12)，锁 PASS）。只有 curBase 的 sha（第 606 行）是真被钉住的——它只出现在退休行里。而主规格 spec.md:69 现在写的是「两个坐标系 sha 也 MUST 出现在该行输出里，并由……退休用例……逐个断言」，规格对锁强度的自述高于锁实际强度，与本 PR「自述与实际一致」的主题相悖。",
+    "fix": "断言对象从整体输出收窄到退休行本身：const retiredLine = lines.find(l => l.includes('授权坐标系已消费退休')); assert.ok(retiredLine.includes(applied.slice(0, 12)) && retiredLine.includes(curBase.slice(0, 12)), '退休行必须逐个携带两个坐标系 sha'); 并对「退休行丢掉 applied sha」做变异反证（该变异下本锁必须红）。"
+  },
+  {
+    "severity": "Warning",
+    "file": "openspec/records/changelog-gate-selfreport.md",
+    "line": 23,
+    "issue": "执行记录里的证据数字不可复现，且违反记录自立的同数不变量。记录称「提交后再跑一次 CLI 取权威行，两句必须同数，check-changelog-duplicate-entries.js ⇒ 条目=388」，但本仓实跑该门禁输出「条目=387 去重后应为=387 冗余份数=0」；同一行记录里 growth 口径的标题数是 386→387（该数字可复现）。即记录自己要求「两句同数」，却写成 387 vs 388——388 是错的（实际 387，与 growth 的 387 一致）。在一个以「清掉自述与实际不一致」为唯一动机的 PR 里，执行记录自身的证据数字对不上，正是本 PR 要消灭的那类缺陷的复发。",
+    "fix": "把第 23 行的「条目=388」改为「条目=387」（与 check-changelog-duplicate-entries.js 对真仓实跑输出及本行 growth 口径的 387 一致），使「两句必须同数」真正成立。"
+  },
+  {
+    "severity": "Info",
+    "file": "openspec/records/changelog-gate-selfreport.md",
+    "line": 28,
+    "issue": "QM-6 双模型外部评审一行自相矛盾：「按 AGENTS.md 属建议执行项且我判定要做；通道与结论待补，不预填」——判定要做却未做、也未记录结论。本 PR 修改的是质量门禁（changelog 门禁）的输出契约与可测性，按 AGENTS.md QM-6 的触发条件（修改核心引擎/涉及数据校验逻辑）处于建议与强制的边界；记录如实披露了未做，但留了一个「判定要做」的悬空结论。合并前需要二选一：补跑双模型评审并落结论，或把「我判定要做」改写为明确的「不执行及理由」，否则下一个会话读到该行会重复开工。",
+    "fix": "合并前二选一并改写该行：(a) 按 QM-6 通道实际执行双模型评审，把 findings 与处置写进该行；(b) 把「我判定要做」改为「判定不执行」并给出理由（如未改判据、纯输出/可测性变更），消除悬空结论。"
+  }
+]
