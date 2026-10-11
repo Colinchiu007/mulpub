@@ -1075,7 +1075,10 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
       log.warn('RpaView','[wechat_mp] session token not found in home url='+homeUrl)
       return { success:false, error:'微信公众号会话 token 获取失败，请重新登录', platform:'wechat_mp' }
     }
-    const editUrl = 'https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_edit_v2&action=edit&isNew=1&type=77&createType=0&token=' + tokenMatch[1] + '&lang=zh_CN'
+    const domGuard = require('./wechat-mp-dom-guard') // PRD §F5：群发保护预检（只在群发时请求，预检失败放行）
+    const guard = await domGuard.checkMassSendProtection(win, article)
+    if (!guard.ok) return { success:false, error:guard.error, platform:'wechat_mp' }
+    const editUrl = `https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_edit_v2&action=edit&isNew=1&type=77&createType=0&token=${tokenMatch[1]}&lang=zh_CN`
     // 加长稳定等待：新版后台为 SPA，编辑器与保存按钮延迟挂载
     await this._navigateAndWait(win, editUrl, 5000)
 
@@ -1140,6 +1143,9 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
     const cover = await require('./wechat-mp-cover').applyWechatMpCover(this, win, article.cover_path)
     if (!cover.ok) return { success:false, error:cover.error, platform:'wechat_mp' }
 
+    // 原文链接尽力透传（PRD §F6）：非关键字段，找不到候选不得阻断发布
+    await domGuard.fillSourceUrl(win, article.content_source_url)
+
     // Check agreement
     this._emitProgress('wechat_mp','checking agreement...',60)
     try {
@@ -1182,7 +1188,7 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
     }
 
     if (!mediaId) {
-      { log.warn('RpaView', '[wechat_mp] save draft result unverifiable: missing mediaId url=' + win.webContents.getURL()); return { success:false, error:'微信公众号草稿保存结果无法验证：缺少媒体 ID', platform:'wechat_mp' } }
+      { log.warn('RpaView', '[wechat_mp] save draft result unverifiable: missing mediaId url=' + win.webContents.getURL()); return { success:false, error: domGuard.mapSaveFailureMessage(await domGuard.readEditorToast(win), '微信公众号草稿保存结果无法验证：缺少媒体 ID'), platform:'wechat_mp' } }
     }
 
     // Mass send (群发)
