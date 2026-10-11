@@ -49,6 +49,7 @@ AGENTS.md 的禁止清单原文只点名"分支保护规则本身"与 `CI_IGNORE
   39 个非成功步（27 cancelled / 12 failure）最高正好 30.02 分 = 撞墙被杀。也就是说 45 分钟这档**不是**被那批
   污染数字撑起来的，它由 shard 侧独立成立（29.77 × 1.5 = 44.66 ⇒ 45；`checkSizing()` 现在把这条 ×1.5 规则本身实现成判据 `RULE_VIOLATED`，不再只是注释）。终局修法是把桌面包再切细或按项目并行分片，
   那是另一件事，本 PR 不叠。
-- 带内告警已落在 CI（每跑打印 `[gate-budget] … elapsed = N% of budget`，过 80% 升 `::warning::`），
+- 带内告警已落在 CI，**且已在真机观测到**：本 PR run `38130948218` 的 `QG Desktop Shards (2/2)` 日志原文 `[gate-budget] Desktop shard elapsed 28.2 min = 63% of 45 min budget`（同时证明注入值 45 真的到了运行时）。**口径要说准——它打在"真的跑了测试"那条路径上**：Gate 4 在 `nx affected` 为空时早退（本次 PR 就早退，原文 `No non-desktop projects with a test target affected by this PR; skipping workspace unit tests (Gate 4)`），那条路径不打印；docs-only PR 整个 job 被短路也不打印。**warning 档仍未观测到**（63% < 80%），要等一次真贴脸的跑——main 目前还是 30 分档，那片 shard 上一轮就是 30.02 分被杀。同一次 run 还顺手证了融合没吃掉 #3315 的自检：`[gate4-selection] A/B 采集完成 A=declared=12 B=declared=13` ＋`OK —— @multi-publish/desktop 确实不在 nx 的选择集里`，都在 Gate 4 早退之前跑完。
+  这条的旧写法是"每跑打印"，那句话对早退路径不成立，属于我自己那一类"自述比实际说得多"。
   但**warning 档尚未在真机观测到**：修复后 Gate 4 只有 94 秒，离 80% 阈值远；shard 侧下次贴脸才会第一次真打出 warning。
   届时应当用本 PR 留下的 `node scripts/gate-budget-probe.js --check` 复核，而不是回来放宽判据。
