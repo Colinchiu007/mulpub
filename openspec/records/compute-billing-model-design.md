@@ -2,15 +2,12 @@
 record: compute-billing-model-design
 task: 算力计费模型分层设计（Design Note）——三层分离、三类采购形状、C 类窗口配额、fail-closed 未知值纪律
 date: 2026-10-11
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后回填 PASS + merge SHA，并在同一次提交删除三个 sync_* 字段与 ledger 登记项。
-sync_backfill_owner: 本 PR 作者（compute-billing-model-design 会话）
 ---
 
 ## 本次执行记录：算力计费模型分层设计（compute-billing-model-design，2026-10-11）【docs-only】
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → docs-only=true（files=6：`01-docs/DESIGN-COMPUTE-BILLING-MODEL-2026-10-11.md`、`01-docs/PRD-OFFICIAL-COMPUTE-STOPGAP-2026-10-09.md`、`01-docs/HANDOFF-UPSTREAM-BILLING-INTAKE-2026-10-11.md`、`openspec/records/compute-billing-model-design.md`、`.quality-gates.md`、`scripts/gate-record-debt-ledger.json`）
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PENDING
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PASS
 - **质量节拍门禁（触发方式 D）**：变更类型＝📝 纯文档 + 🏗️ 架构设计文档（**不触运行面**）⇒ docs-only 通道；规模＝🌿 中等（3 内容文件 + 载体）；路由＝**Phase 1.1 架构设计**，产出按 Skill §10.2 **Design Note 格式**；隔离＝就地编辑 + PR 落地（不进 worktree）
 
 | 门禁 | 状态 | Fresh 证据 |
@@ -31,7 +28,7 @@ sync_backfill_owner: 本 PR 作者（compute-billing-model-design 会话）
 | 记录欠账门禁 | ✅ | `node scripts/check-gate-record-debt.js` OK（顶部记录带行、两形态一致、无陈旧登记项） |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触运行面（无代码/样式变更） |
 | QM-6 CCG 双模型外部评审 | N/A（docs-only 通道豁免） | 本文档为设计提案，已获运营方对三项原则的明确确认；DN 内含方案对比、影响范围、风险与测试策略，属设计审查材料本身 |
-| 远程同步 | PENDING | 本 PR 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin compute-billing-model-design` 返回 0 行证远端分支已删；回填后删除上方三个 `sync_*` 字段与 ledger 登记项 |
+| 远程同步 | PASS | 已合并 #3350 = `ea85b6e029ba44e1a8881c019f49281fe27be2b1`，committer 2026-10-11T22:26:23+08:00。取证：`git log origin/main --grep="(#3350)" --format="%H %cI"` 唯一命中，`git ls-remote --heads origin compute-billing-model-design` 返回 **0 行**（远端分支已删）；本行与记录文件远程同步行、frontmatter 三 `sync_*` 字段删除、`scripts/gate-record-debt-ledger.json` 登记项删除已在**同一次提交**完成 |
 
 ### 遗留（不假装已闭合）
 
