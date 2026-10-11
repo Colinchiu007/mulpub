@@ -1,0 +1,22 @@
+{
+  "total": 9,
+  "critical": 0,
+  "warning": 3,
+  "info": 6,
+  "fixedNow": [
+    "F3 头注释过度承诺（代码注释层）"
+  ],
+  "carriedForward": [
+    "F1",
+    "F2",
+    "F3 实现层 kill 贯穿",
+    "F4",
+    "F5",
+    "F6",
+    "F7",
+    "F8",
+    "F9"
+  ],
+  "carrier": "openspec/changes/podcast-oneclick-publish/tasks.md 3.7 ①–⑧ + PRD §13 第 11 条",
+  "reason": "三处 Warning 全部落在没有生产实现钉死的注入接缝上（本分支零调用者），当场改会在第 3 片同一处再改一遍；改为带编号、有承接片的欠账"
+}

@@ -11,6 +11,10 @@
  * 相位是**闭集**（PRD §8 结构锁⑪：改枚举必须与逐格结果态测试同 PR）：
  *   pickChannel → extractMix → probe → uploadAudio → attach → buildFeed → uploadFeed
  * 外加 `cancelled`。**取消只在 `uploadAudio` 之前允许**：那之前零出站零计费，回滚只是删临时文件；
+ * 窗口关闭点的语义是「不再接受取消请求」，**不等于**「已经发出的抽取会被打断」：cancelToken 目前在
+ * `extractMix` resolve 之后才被采样，所以在途 ffmpeg 会跑满并写完这一份文件，然后才由 cleanup 删掉
+ * （外部评审 F3，Warning）。把 kill 信号贯穿到 `spawnImpl` 属第 3 片真实宿主接线时一起做（tasks 3.7①），
+ * 因为那时才存在真实子进程；在此之前不得把本段读成「取消即时生效」。
  * 之后取消会留下「对象存储有、feed 没有」的半态，那比不取消更糟，所以界面必须给出理由而不是静默接受。
  *
  * 依赖全注入（uploadImpl / episodeSink / feedSink / extractImpl），因此：

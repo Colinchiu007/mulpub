@@ -1,0 +1,19 @@
+{
+  "proposer": "qoder-agent（本会话）",
+  "critics": [
+    {
+      "role": "backend",
+      "family": "claude",
+      "session": "0e293bb9-3fc0-45e0-aecc-68371f61b11c",
+      "status": "completed"
+    },
+    {
+      "role": "frontend",
+      "family": "opencode",
+      "attempts": 3,
+      "status": "failed: external_directory auto-rejected"
+    }
+  ],
+  "configSource": "~/.claude/.ccg/config.toml [routing]",
+  "familyDisjoint": true
+}
