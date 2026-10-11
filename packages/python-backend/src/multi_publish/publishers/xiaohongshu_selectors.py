@@ -67,9 +67,28 @@ SELECTOR_FALLBACKS: dict[str, list[str]] = {
 # 若纳入会在笔记真正提交前误判草稿已保存（假阳性）。
 DRAFT_SAVE_RESPONSE_PATTERNS: list[str] = ["/web_api/sns/v2/note"]
 CONFIRM_TIMEOUT_S = 20.0
-# 草稿箱回查兜底：导航地址 + 条目匹配选择器（Tier2 取证回填）。
-DRAFT_BOX_URL = "https://creator.xiaohongshu.com/publish/publish?draft=true"
-DRAFT_BOX_ITEM_SELECTOR = '[class*="draft"] [class*="title"]'
+# 草稿箱回查兜底（活体取证 2026-10-08，账号分区图文编辑器，见 PRD §5 第六轮）：
+# 1) 图文编辑器**没有**「存草稿/保存草稿/暂存离开」按钮——草稿由平台自动保存，页面右下角
+#    只显示「编辑于 …」。所以"找到草稿按钮"不是成功条件，"重载后「草稿箱(N)」计数 +1"才是。
+# 2) 草稿箱入口就是发布页自身（左侧 header-draft 面板），取证过的地址带 from=menu&target=image；
+#    原先的 ?draft=true 从未在活体中出现，按证据改为你真正会重载到图文面板的地址。
+# 3) 计数节点实测 class=draft-title，文本形如「草稿箱(1)」。
+DRAFT_BOX_URL = "https://creator.xiaohongshu.com/publish/publish?from=menu&target=image"
+DRAFT_BOX_COUNTER_SELECTOR = ".draft-title"
+DRAFT_BOX_ITEM_SELECTOR = '[class*="draft"] [class*="title"]'  # 条目标题：仍未取证，仅作次级兜底
+# 计数节点探测上限：成本闸（不是判据口径）。实测该节点在页面顶部，个位数命中；
+# 触顶且读不到计数时由 visible_texts 留痕，漏判可查。
+DRAFT_BOX_COUNTER_PROBE_CAP = 8
+# 计数节点的挂载等待与增量等待：SPA 的草稿面板在 domcontentloaded 之后才出现，且自动保存
+# 落库有延迟，两次都用单次读会把"还没挂上/还在写"读成"没写"（CCG 六轮 i1/i2，Critical）。
+# 上限沿用本轨既有的 30s 容忍度口径（§4k：轮询的收益是命中即返回，砍上限只会把慢首屏
+# 推向下游误诊），间隔沿用编辑器就绪的同族取值；两个等待喂同一对常量由哨兵值用例钉住。
+DRAFT_BOX_WAIT_TIMEOUT_S = 30.0
+DRAFT_BOX_POLL_INTERVAL_S = 0.5
+# 兜底标题扫描的节点上限：同样是成本闸而非判据口径。DRAFT_BOX_ITEM_SELECTOR 是跨层级通配
+# 形态且**未经活体取证**，SPA 模板页命中数十上百个节点完全正常，不设上限就是把一次整页
+# goto 之后的往返成本交给未取证选择器的命中数（CCG 七轮 i1）。触顶且未命中时留痕。
+DRAFT_BOX_ITEM_SCAN_CAP = 12
 # 风控/验证弹层选择器（Tier2 取证回填），命中即判 risk_blocked 并停止。
 RISK_OVERLAY_SELECTOR = ""
 
@@ -85,22 +104,31 @@ RISK_TEXT_HOSTS: list[str] = [
     '[class*="verify"]',
     '[class*="captcha"]',
 ]
-# 词表只收"风控语境的强指认短语"，不收裸「滑块」「验证」这类单词：封面裁剪、图片旋转
-# 等良性可见弹窗同样含「拖动滑块调整比例」，裸词会误判风控并中止用户的草稿保存（误判
-# 比漏判更有害）。真实滑块验证必然同时出现「安全验证/验证码」，不会因收紧词表而漏判。
+# 词表口径（如实描述，不夸大成"只收强指认短语"）：
+# 1) 不收裸「滑块」「验证」——封面裁剪、图片旋转等良性可见弹窗同样含「拖动滑块调整比例」，
+#    裸词会误判风控并中止用户的草稿保存（误判比漏判更有害）；已有两条行为用例钉住这个边界。
+# 2) 收单词级的「验证码」「风控」，这是**有意接受的误判面**：发布链路里弹出要求输入验证码
+#    的层，本身就是平台在要求人工核验（重登录/绑定/二次验证），此时中止自动发布正是想要的
+#    行为，不算假阳性。若将来活体取证（tasks 2.2）证明创作者中心发布页存在不含核验语义的
+#    「验证码」文案，再按证据收窄，而不是先猜。
 RISK_TEXT_PATTERN = (
     r"安全验证|请完成验证|验证码|操作频繁|账号存在风险|风控|risk control"
 )
-# 单个宿主容器内最多扫描的可见元素数，防止 `[class*="modal"]` 命中整页模板时逐元素
-# inner_text 拖垮发布链路。真实风控层是页面上最靠前的可见容器之一。
+# 单个宿主容器内最多收集的**可见**元素文案数，防止整页模板逐元素 inner_text 拖垮发布链路。
 RISK_HOST_SCAN_LIMIT = 8
+# 单宿主最多探测多少个命中节点的可见性。这是成本闸，不是判据闸：`limit` 数的是可见项，
+# 所以隐藏模板再多了也只是多几次 is_visible round-trip。风控层由 portal 挂到 body 尾部时
+# DOM 序天然靠后，按 limit 截断 DOM 序就会永久扫不到它——成本与判据必须分成两个常量。
+# 注意它仍是一道按 DOM 序的悬崖（只是比 8 深）：本仓没有活体证据说明风控层的实际位置，
+# 所以不用"反向扫尾部"这类同样未验证的假设去替换它，改由 visible_texts/visible_count 在
+# 探测被截断且一无所获时打告警留痕——漏判可能无法避免，但必须可查。
+RISK_HOST_PROBE_LIMIT = 32
 
 CREATOR_URL = "https://creator.xiaohongshu.com/"
 
 # 机器可读错误码前缀，便于上层 outcomeOfResult 归一（risk/login 绝不降级换号）。
 CODE_LOGIN_EXPIRED = "XHS_LOGIN_EXPIRED"
 CODE_RISK_BLOCKED = "XHS_RISK_BLOCKED"
-CODE_DRAFT_ENTRY_MISSING = "XHS_DRAFT_ENTRY_MISSING"
 CODE_UPLOAD_FAILED = "XHS_UPLOAD_FAILED"
 CODE_TITLE_FAILED = "XHS_TITLE_FAILED"
 CODE_UNCONFIRMED = "XHS_UNCONFIRMED"

@@ -66,8 +66,8 @@ const viewTests = [
   routeView('providers-redirect', '/providers', '.cohere-main .page-title:has-text("模型服务商设置")', '页面主标题', '/model-providers'),
   routeView('model-providers', '/model-providers', '.cohere-main .page-title:has-text("模型服务商设置")'),
   routeView('video-clone', '/video-clone', '.video-clone-view'),
-  // 就绪锚点必须是**该路由组件一定渲染的节点**：/film-engineering 渲染 Hub（.film-hub-view），
-  // 而 .film-canvas-view 属于 Hub 里 `v-if="isMounted('canvas')"` 的懒挂载标签（默认标签是 auto）。
+  // #3234 三标签重组后 /film-engineering 是 Hub 页（默认「自动」标签，画布懒挂载）——
+  // 就绪探针必须等 Hub 一定渲染的节点；等 .film-canvas-view 会 15s 超时（batch-teleport-fix 实测）。
   // 上一版按直觉填了 canvas 类名 ⇒ 每次 run 都抛「就绪超时」，却被 Gate 7 的 `|| views_exit=$?` 吞掉。
   // 不用 `:has-text("…")` 钉文案：那会把测试与 zh locale 字面量锁死，是既有假红来源。
   routeView('film-engineering', '/film-engineering', '.film-hub-view .fh-title'),

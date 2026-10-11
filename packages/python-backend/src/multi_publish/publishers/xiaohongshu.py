@@ -4,8 +4,10 @@
 
 设计要点（rpa-xiaohongshu-dom-hardening）：
 - 验收目标为「存入真实草稿箱」，成功判定来自正面确认信号（ResponseMonitor 捕获
-  草稿保存端点响应，或草稿箱回查命中），绝不盲 sleep 后无条件报成功、绝不伪造 url。
-- 草稿意图 fail-closed：找不到草稿入口一律报错并阻止任何公开发布点击。
+  草稿保存端点响应、URL 显式跳转，或重载后「草稿箱(N)」计数增长），绝不盲 sleep 后
+  无条件报成功、绝不伪造 url。
+- 草稿意图 fail-closed：图文编辑器实测无显式存草稿按钮（平台自动保存），因此「找不到
+  按钮」不再是失败理由，但「没有任何正面确认」一律报错，且绝不点击任何公开发布按钮。
 - 发布步骤逻辑与真实浏览器启动解耦（_execute_flow 接收注入的 page + monitor），
   可在假对象下单测核心分支。
 - 合规红线：运行时不请求任何外部远程求签服务（禁引入外包签名农场域名）。
@@ -27,7 +29,6 @@ from multi_publish.publishers import xiaohongshu_dom as dom
 from multi_publish.publishers.base import BasePublisher, PublisherConfig, ResponseMonitor
 from multi_publish.publishers.xiaohongshu_auth import XiaohongshuAuthMixin
 from multi_publish.publishers.xiaohongshu_selectors import (
-    CODE_DRAFT_ENTRY_MISSING,
     CODE_LOGIN_EXPIRED,
     CODE_RISK_BLOCKED,
     CODE_TITLE_FAILED,
@@ -36,11 +37,17 @@ from multi_publish.publishers.xiaohongshu_selectors import (
     CONFIRM_TIMEOUT_S,
     CREATOR_URL,
     DEFAULT_SELECTORS,
+    DRAFT_BOX_COUNTER_PROBE_CAP,
+    DRAFT_BOX_COUNTER_SELECTOR,
+    DRAFT_BOX_ITEM_SCAN_CAP,
     DRAFT_BOX_ITEM_SELECTOR,
+    DRAFT_BOX_POLL_INTERVAL_S,
     DRAFT_BOX_URL,
+    DRAFT_BOX_WAIT_TIMEOUT_S,
     DRAFT_SAVE_RESPONSE_PATTERNS,
     NAVIGATE_READY_POLL_INTERVAL_S,
     NAVIGATE_READY_TIMEOUT_S,
+    RISK_HOST_PROBE_LIMIT,
     RISK_HOST_SCAN_LIMIT,
     RISK_OVERLAY_SELECTOR,
     RISK_TEXT_HOSTS,
@@ -221,6 +228,18 @@ class XiaoHongShuPublisher(BasePublisher, XiaohongshuAuthMixin):
                 error=_coded(CODE_RISK_BLOCKED, "检测到风控/验证弹层，已停止"),
             )
 
+        # 草稿箱基线必须在写入任何内容**之前**读：图文草稿由平台自动保存，确认判据是
+        # "回查重载后计数比基线大"，没有基线就只能退到标题回查（活体取证 2026-10-08）。
+        # 公开发布不以此判据确认，不必为它白花一轮 DOM 探测。
+        baseline = None
+        if draft:
+            baseline = await dom.await_draft_box_count(
+                page, DRAFT_BOX_COUNTER_SELECTOR,
+                timeout_s=DRAFT_BOX_WAIT_TIMEOUT_S,
+                interval_s=DRAFT_BOX_POLL_INTERVAL_S,
+                probe_cap=DRAFT_BOX_COUNTER_PROBE_CAP,
+            )
+
         await self._report_progress(PublishPhase.UPLOADING, "上传媒体文件...", 30)
         if media_paths:
             file_input = await self._await_upload_input(page)
@@ -257,19 +276,28 @@ class XiaoHongShuPublisher(BasePublisher, XiaohongshuAuthMixin):
 
         await self._report_progress(PublishPhase.PUBLISHING, "保存草稿...", 90)
         if draft:
-            return await self._save_as_draft(page, monitor, title)
+            return await self._save_as_draft(page, monitor, title, baseline=baseline)
         return await self._publish_public(page, monitor, title)
 
-    async def _save_as_draft(self, page, monitor, title: str) -> PublishResult:
-        """草稿 fail-closed：找不到草稿入口绝不 fallthrough 到公开发布。"""
+    async def _save_as_draft(self, page, monitor, title: str, *, baseline) -> PublishResult:
+        """草稿：有显式入口就点，没有就依赖平台自动保存——两种情形都必须拿到正面确认。
+
+        活体取证（2026-10-08，账号分区图文编辑器）显示页面**根本没有**「存草稿/暂存离开」
+        按钮，只有右下角「编辑于 …」自动保存提示，正证据是重载后「草稿箱(N)」+1。因此
+        "找不到按钮"不再是失败理由；但 fail-closed 的红线一条没松：拿不到确认一律报失败，
+        且草稿路径永不点击公开发布按钮。
+        """
         draft_btn, _ = await self._resolve_visible(page, "draft_button")
-        if draft_btn is None:
-            return PublishResult(
-                success=False, platform="xiaohongshu",
-                error=_coded(CODE_DRAFT_ENTRY_MISSING, "未找到草稿保存入口，已阻止公开发布"),
-            )
-        await draft_btn.click()
-        return await self._confirm_saved(page, monitor, title, kind="草稿")
+        if draft_btn is not None:
+            await draft_btn.click()
+        else:
+            logger.info("[小红书] 图文编辑器无显式存草稿按钮，按平台自动保存处理，以草稿箱计数为确认判据")
+        # 自动保存路径不打 /note（4o），先等 20s XHR 纯属白等（CCG 六轮 i4）：
+        # 没有按钮可点时先做草稿箱回查，确认拿到就返回，XHR 只作未确认时的补充信号。
+        return await self._confirm_saved(
+            page, monitor, title, kind="草稿", baseline=baseline,
+            box_first=draft_btn is None,
+        )
 
     async def _publish_public(self, page, monitor, title: str) -> PublishResult:
         """真实公开发布（非默认验收路径），同样确认才报成功。"""
@@ -280,13 +308,26 @@ class XiaoHongShuPublisher(BasePublisher, XiaohongshuAuthMixin):
                 error=_coded(CODE_UNCONFIRMED, "未找到发布按钮，未执行公开发布"),
             )
         await publish_btn.click()
-        return await self._confirm_saved(page, monitor, title, kind="发布")
+        return await self._confirm_saved(page, monitor, title, kind="发布", baseline=None)
 
-    async def _confirm_saved(self, page, monitor, title: str, *, kind: str) -> PublishResult:
-        """确认才成功：优先 XHR 响应，回退 URL 显式跳转，再回退草稿箱回查；均无 → 未确认失败。"""
+    async def _confirm_saved(
+        self, page, monitor, title: str, *, kind: str, baseline, box_first: bool = False
+    ) -> PublishResult:
+        """确认才成功：草稿箱回查（自动保存路径置前）／XHR 成功响应／URL 显式跳转，三者皆无 → 未确认失败。
+
+        `box_first=True` 用于自动保存路径：此时草稿箱计数是唯一被活体证实的信号，先查它
+        可以避免为一条永不到来的 XHR 白等 `CONFIRM_TIMEOUT_S`（CCG 六轮 i4）。
+        """
         confirmed, url = False, None
+        box_checked = False
 
-        if DRAFT_SAVE_RESPONSE_PATTERNS:
+        if box_first:
+            confirmed = await self._recheck_draft_box(page, title, baseline)
+            box_checked = True
+            if confirmed:
+                url = DRAFT_BOX_URL
+
+        if not confirmed and DRAFT_SAVE_RESPONSE_PATTERNS:
             data = await monitor.wait_for_response(timeout=CONFIRM_TIMEOUT_S, predicate=self._resp_success)
             if data is not None and self._resp_success(data):
                 confirmed = True
@@ -300,8 +341,10 @@ class XiaoHongShuPublisher(BasePublisher, XiaohongshuAuthMixin):
                 confirmed = True
                 url = url or cur
 
-        if not confirmed:
-            confirmed = await self._recheck_draft_box(page, title)
+        if not confirmed and not box_checked:
+            # 回查含整页重载，box_first 已经查过一次就不能再来一遍（CCG 六轮 i4 的代价是省掉
+            # 白等，不是把同一轮往返做两次）。
+            confirmed = await self._recheck_draft_box(page, title, baseline)
             if confirmed:
                 url = url or DRAFT_BOX_URL
 
@@ -311,7 +354,7 @@ class XiaoHongShuPublisher(BasePublisher, XiaohongshuAuthMixin):
             logger.warning(f"[小红书] {kind} 无正面确认，按失败上报（不伪造成功）: {title}")
             return PublishResult(
                 success=False, platform="xiaohongshu",
-                error=_coded(CODE_UNCONFIRMED, f"{kind} 未获正面确认（无成功响应/URL 跳转/草稿箱回查命中）"),
+                error=_coded(CODE_UNCONFIRMED, f"{kind} 未获正面确认（无成功响应/URL 跳转/草稿箱计数增长）"),
             )
         logger.success(f"[小红书] {kind} 确认成功: {url}")
         return PublishResult(success=True, platform="xiaohongshu", url=url or DRAFT_BOX_URL)
@@ -339,22 +382,21 @@ class XiaoHongShuPublisher(BasePublisher, XiaohongshuAuthMixin):
                 return str(val)
         return None
 
-    async def _recheck_draft_box(self, page, title: str) -> bool:
-        """导航草稿箱，匹配本次标题。Tier2 取证前 DRAFT_BOX_ITEM_SELECTOR 可能不命中 → False。"""
-        if not title:
-            return False
-        try:
-            await page.goto(DRAFT_BOX_URL, wait_until="domcontentloaded")
-            items = page.locator(DRAFT_BOX_ITEM_SELECTOR)
-            count = await items.count()
-            for i in range(count):
-                txt = await items.nth(i).inner_text()
-                if title[:12] and title[:12] in (txt or ""):
-                    return True
-            return False
-        except Exception as e:
-            logger.debug(f"草稿箱回查失败: {e}")
-            return False
+    async def _recheck_draft_box(self, page, title: str, baseline) -> bool:
+        """重载草稿箱页复核。本方法只做**常量接线**：本轨的判据常量必须由发布器模块命名空间
+        读出来再传进纯函数，这样 monkeypatch 这些常量才真正改变行为（详见 xiaohongshu_dom
+        模块 docstring）。判据本身（计数增量为主、未取证的标题匹配只兜底、绝不伪造成功）
+        在 `dom.recheck_draft_box` 里。"""
+        return await dom.recheck_draft_box(
+            page, title, baseline,
+            box_url=DRAFT_BOX_URL,
+            counter_sel=DRAFT_BOX_COUNTER_SELECTOR,
+            item_sel=DRAFT_BOX_ITEM_SELECTOR,
+            item_scan_cap=DRAFT_BOX_ITEM_SCAN_CAP,
+            timeout_s=DRAFT_BOX_WAIT_TIMEOUT_S,
+            interval_s=DRAFT_BOX_POLL_INTERVAL_S,
+            probe_cap=DRAFT_BOX_COUNTER_PROBE_CAP,
+        )
 
     def _candidates_for(self, key: str) -> list[str]:
         chain = self.selector_fallbacks.get(key)
@@ -412,7 +454,7 @@ class XiaoHongShuPublisher(BasePublisher, XiaohongshuAuthMixin):
         )
 
     async def _risk_present(self, page) -> bool:
-        """风控双轨逻辑见 xiaohongshu_dom.risk_present；四个常量必须在此处读取后传参，
+        """风控双轨逻辑见 xiaohongshu_dom.risk_present；常量必须在此处读取后传参，
         否则 monkeypatch 本模块同名常量会静默失效（见该模块 docstring）。"""
         return await dom.risk_present(
             page,
@@ -420,11 +462,15 @@ class XiaoHongShuPublisher(BasePublisher, XiaohongshuAuthMixin):
             hosts=RISK_TEXT_HOSTS,
             pattern=RISK_TEXT_PATTERN,
             limit=RISK_HOST_SCAN_LIMIT,
+            probe_cap=RISK_HOST_PROBE_LIMIT,
         )
 
     async def _visible_texts(self, page, sel: str) -> list[str]:
-        """该选择器命中的可见元素文案（上限 RISK_HOST_SCAN_LIMIT，防整页扫描）。"""
-        return await dom.visible_texts(page, sel, limit=RISK_HOST_SCAN_LIMIT)
+        """该选择器命中的可见元素文案（收集满 RISK_HOST_SCAN_LIMIT 条可见即停，
+        探测不超过 RISK_HOST_PROBE_LIMIT，防整页扫描）。"""
+        return await dom.visible_texts(
+            page, sel, limit=RISK_HOST_SCAN_LIMIT, probe_cap=RISK_HOST_PROBE_LIMIT
+        )
 
     @staticmethod
     def _is_login_redirect(url: str) -> bool:

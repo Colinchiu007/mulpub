@@ -30,7 +30,6 @@ jobs:
     timeout-minutes: 30
     defaults:
       run:
-        shell: bash
 
     steps:
       - uses: actions/checkout@v4
@@ -69,8 +68,6 @@ jobs:
       - name: Verify publisher RPA/DOM regressions
         # 此前的系统洞：python-backend 只有 provider import 参与阻断，发布器回归测试
         # （含静态守卫）只在本地实跑，守卫变红依旧无声合入。发布器套件全部纳入本步骤。
-        # pytest-asyncio 现由 [test] extra 声明安装，不再在此临时 pip install：
-        # 缺它时 @pytest.mark.asyncio 用例会静默不收集，门禁绿而用例是空的。
         working-directory: packages/python-backend
         shell: bash
         run: |
