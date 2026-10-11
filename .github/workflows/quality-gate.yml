@@ -630,7 +630,7 @@ jobs:
       # 事故背景：本会话连续四颗随机红同属一类病 —— 等待没有边界。其中
       # `identity-auth-window.test.js` 写作 `while (...) await Promise.resolve()`：
       # 微任务让出不走宏任务阶段，vitest 的 testTimeout 打不断它，条件永不满足时就是
-      # worker 死循环，只能靠 job 级 30 分钟预算硬杀（表现为"CI 无故卡死"，无堆栈无主机）。
+      # worker 死循环，只能靠 job 级测试预算硬杀（预算值与出处由 scripts/gate-budget.js 单一持有，改它要过 gate-budget.test.js）（表现为"CI 无故卡死"，无堆栈无主机）。
       # 同族另三例已各自修掉（#2423 路由 chunk 就绪判据、#2438 对拍挂钟容差、#2442 文件锁握手）。
       # 本卡点把"自旋必须让出宏任务"固化成静态不变量（含门禁自身的夹具自证 + 真实仓库 0 命中棘轮）。
       # 本地同口径：node .github/scripts/check-test-microtask-spin.js
@@ -736,7 +736,7 @@ jobs:
           . $treeLib
 
           if ($env:TEST_MODE -eq "affected") {
-            # 探测受影响项目（排除 desktop）；为空则跳过，避免 nx 空集挂起 30 分钟超时
+            # 探测受影响项目（排除 desktop）；为空则跳过，避免 nx 空集挂起、把整档测试预算白白烧光
             # 关键：必须区分「nx 执行失败」与「确实无受影响项目」——失败不能静默跳过，否则测试被假绿关闭
             $affectedRaw = & pnpm exec nx show projects --affected --with-target=test --base=origin/main --exclude=@multi-publish/desktop --json 2>$null
             $nxExit = $LASTEXITCODE
@@ -775,7 +775,7 @@ jobs:
           # 预算来自 scripts/gate-budget.js（单一真源）。取不到必须当场红 —— 静默回落到写死值就是把
           # "装配失败"读成"没超时"，正是本仓反复出事的形态（见 gate-budget.test.js 的同名锁）。
           $gateBudgetMs = & node -e "process.stdout.write(String(require('./scripts/gate-budget.js').GATE_TEST_BUDGET_MS))"
-          if ($LASTEXITCODE -ne 0 -or -not $gateBudgetMs) { throw "取不到 Gate 测试预算（scripts/gate-budget.js）—— 不得回落到写死值" }
+          if ($LASTEXITCODE -ne 0 -or -not $gateBudgetMs -or $gateBudgetMs -notmatch '^\d+$') { throw "取不到 Gate 测试预算（scripts/gate-budget.js）—— 不得回落到写死值" }
           $launchMark = Get-Date
           $testProcess = Start-Process -FilePath "pnpm.cmd" `
             -ArgumentList $testArgs `
@@ -786,6 +786,16 @@ jobs:
             Get-TestProcessTree -RootProcessId $testProcess.Id -NotBefore $launchMark | Format-Table -AutoSize
             taskkill /PID $testProcess.Id /T /F 2>$null | Out-Null
             throw "Gate 4 timed out; terminated the pnpm process tree."
+          }
+          # 带内贴脸告警：核心指标（实际耗时 vs 预算）每次跑都出声，不依赖有人想起去跑手动探针。
+          # 阈值与 scripts/gate-budget.js 的 WARN_RATIO 同档；贴脸＝要重测重定数，不是要放宽判据。
+          $gateElapsedMin = [math]::Round(((Get-Date) - $launchMark).TotalMinutes, 1)
+          $gateBudgetMin = [math]::Round(([int]$gateBudgetMs) / 60000, 1)
+          $gateUsePct = [math]::Round(100 * $gateElapsedMin / $gateBudgetMin)
+          if ($gateElapsedMin -ge ($gateBudgetMin * 0.8)) {
+            Write-Host "::warning::Gate 4 elapsed $gateElapsedMin min = $gateUsePct% of $gateBudgetMin min budget —— 贴脸：跑 node scripts/gate-budget-probe.js --check 重测并重定数（不得改判据消化它）"
+          } else {
+            Write-Host "[gate-budget] Gate 4 elapsed $gateElapsedMin min = $gateUsePct% of $gateBudgetMin min budget"
           }
 
           if ($testProcess.ExitCode -ne 0) {
@@ -876,7 +886,7 @@ jobs:
           # 预算来自 scripts/gate-budget.js（单一真源）。取不到必须当场红 —— 静默回落到写死值就是把
           # "装配失败"读成"没超时"，正是本仓反复出事的形态（见 gate-budget.test.js 的同名锁）。
           $gateBudgetMs = & node -e "process.stdout.write(String(require('./scripts/gate-budget.js').GATE_TEST_BUDGET_MS))"
-          if ($LASTEXITCODE -ne 0 -or -not $gateBudgetMs) { throw "取不到 Gate 测试预算（scripts/gate-budget.js）—— 不得回落到写死值" }
+          if ($LASTEXITCODE -ne 0 -or -not $gateBudgetMs -or $gateBudgetMs -notmatch '^\d+$') { throw "取不到 Gate 测试预算（scripts/gate-budget.js）—— 不得回落到写死值" }
           $launchMark = Get-Date
           $testProcess = Start-Process -FilePath "pnpm.cmd" `
             -ArgumentList @(
@@ -899,6 +909,16 @@ jobs:
             Get-TestProcessTree -RootProcessId $testProcess.Id -NotBefore $launchMark | Format-Table -AutoSize
             taskkill /PID $testProcess.Id /T /F 2>$null | Out-Null
             throw "Desktop shard timed out; terminated the pnpm process tree."
+          }
+          # 带内贴脸告警：核心指标（实际耗时 vs 预算）每次跑都出声，不依赖有人想起去跑手动探针。
+          # 阈值与 scripts/gate-budget.js 的 WARN_RATIO 同档；贴脸＝要重测重定数，不是要放宽判据。
+          $gateElapsedMin = [math]::Round(((Get-Date) - $launchMark).TotalMinutes, 1)
+          $gateBudgetMin = [math]::Round(([int]$gateBudgetMs) / 60000, 1)
+          $gateUsePct = [math]::Round(100 * $gateElapsedMin / $gateBudgetMin)
+          if ($gateElapsedMin -ge ($gateBudgetMin * 0.8)) {
+            Write-Host "::warning::Desktop shard elapsed $gateElapsedMin min = $gateUsePct% of $gateBudgetMin min budget —— 贴脸：跑 node scripts/gate-budget-probe.js --check 重测并重定数（不得改判据消化它）"
+          } else {
+            Write-Host "[gate-budget] Desktop shard elapsed $gateElapsedMin min = $gateUsePct% of $gateBudgetMin min budget"
           }
 
           if ($testProcess.ExitCode -ne 0) {

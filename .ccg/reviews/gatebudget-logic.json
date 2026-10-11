@@ -1,0 +1,58 @@
+[
+  {
+    "severity": "Warning",
+    "file": "scripts/gate-budget.js",
+    "line": 58,
+    "issue": "checkSizing() 使用 provenance.shardOverheadMaxMin (2.8 分) 计算 job 上限需求，但 Gate 4 的实际开销是 gate4OverheadMaxMin (1.3 分)。虽保守但字段名易混淆，且未显式区分两 job 的前置差异。",
+    "fix": "在 checkSizing 接受参数中显式区分 gate4Overhead 与 shardOverhead，或在 PROVENANCE 增加字段注释说明取最大值作通用余量。"
+  },
+  {
+    "severity": "Warning",
+    "file": "scripts/gate-budget-probe.js",
+    "line": 75,
+    "issue": "被预算杀样本的判据用 95% 阈值 (r.min * 60000 >= BUDGET_MS_HINT * 0.95)，42.75 分钟即算 censored。成功但接近上限的跑可能被误判为 censored，导致 gate4CensoredN 虚高。",
+    "fix": "改为更精确的判定：conclusion 为 failure/timed_out/cancelled 且时长 ≥ 预算 × 0.98，或显式检查 GitHub 的 timeout 原因字段。"
+  },
+  {
+    "severity": "Info",
+    "file": "scripts/gate-budget.js",
+    "line": 24,
+    "issue": "GATE_TEST_BUDGET_MS = 2700000 (45 分钟) 由 29.9 × 1.5 = 44.85 向上取整得来，但 shard 观测最大值为 30.0 分，30.0 × 1.5 = 45.0 恰好踩线。若后续 shard 再涨到 30.1 分，预算即不满足 ×1.5 规则。",
+    "fix": "在 PROVENANCE 增加 shardMaxSuccessMin 的采集日期，并在 gate-budget.test.js 增加 '贴脸预警' 断言（已有 probe.js 121-125 逻辑，建议同步进单测锁）。"
+  },
+  {
+    "severity": "Info",
+    "file": "scripts/gate-budget-probe.js",
+    "line": 102,
+    "issue": "fresh.gate4OverheadMaxMin 初始赋 0，随后用前 8 个成功样本计算，但 shardOverheadMaxMin 先被设为同值 (line 102)，后又用 shard 样本重新计算 (line 113)。逻辑正确但顺序易读错，且 gate4Overhead 样本仅取前 8 个、shard 取前 6 个，样本量差异无注释说明。",
+    "fix": "调整顺序：先算 gate4Overhead、再算 shardOverhead，并加注释说明取样数量依据。"
+  },
+  {
+    "severity": "Info",
+    "file": ".github/workflows/quality-gate.yml",
+    "line": 777,
+    "issue": "取预算的 node 命令用 process.stdout.write(String(...))，不带换行。若 gate-budget.js 导出非数字或抛错，$gateBudgetMs 会是空串或错误文本，-not $gateBudgetMs 能拦住空串，但非数字字符串 (如 'NaN') 经 [int] 转换为 0，WaitForExit(0) 会立即超时并抛出 'exceeded its 0-minute execution budget'，虽会红但报错信息误导。",
+    "fix": "在 PowerShell 端加一道正则校验：if ($gateBudgetMs -notmatch '^\\d+$') { throw '预算非正整数: ' + $gateBudgetMs }。"
+  },
+  {
+    "severity": "Info",
+    "file": "scripts/gate-budget.test.js",
+    "line": 102,
+    "issue": "测试用 \\/ 60000 断言 probe 里的时长换算，但 probe.js 实际有两处换算：minutes() 函数用 / 60000 (line 36) 正确；censored 判定用 * 60000 (line 75) 也正确。断言只搜字面串 '/ 60000'，若有人把 minutes() 改成 / 6000 但 censored 仍用 * 60000，测试会通过但分钟数放大 10 倍。",
+    "fix": "改为断言 minutes() 函数内含 '/ 60000' 且 censored 判定内含 '* 60000'，或直接引用 gate.MIN_SAMPLE_* 常量做正则。"
+  },
+  {
+    "severity": "Critical",
+    "file": ".github/workflows/quality-gate.yml",
+    "line": 666,
+    "issue": "unit-tests job 的 timeout-minutes: 55 与 gate-budget.js 的 GATE_JOB_TIMEOUT_MIN (55) 一致，但 workflow-contract.test.js line 78-85 断言两处 job 的 timeoutMin 必须等于 GATE_JOB_TIMEOUT_MIN。若未来只改 gate-budget.js 抬预算到 50 分 (job 55→60)，workflow 的 unit-tests 仍是 55，GitHub 会在 55 分处掐 job，比内部 50 分预算更早死，且丢失末尾出站台账判定。",
+    "fix": "workflow 中 unit-tests 与 desktop-shards 的 timeout-minutes 必须也改为引用单一真源，或由 gate-budget.test.js 读取 workflow YAML 解析 timeout-minutes 与 GATE_JOB_TIMEOUT_MIN 严格对齐（现有 test line 78-85 已做，需确保 CI 跑到该测试）。"
+  },
+  {
+    "severity": "Critical",
+    "file": "scripts/gate-budget.test.js",
+    "line": 78,
+    "issue": "test 'job 上限必须容得下预算 + 实测前置 + 余量' 使用 gate.PROVENANCE.shardOverheadMaxMin (2.8) 计算 need，但 unit-tests job 的实际前置是 gate4OverheadMaxMin (1.3)。虽然用较大值保守，但若 gate4Overhead 涨到 3.0 而 shardOverhead 仍 2.8，unit-tests 会在 55 分被 GitHub 掐死 (55 < 45+3+5=53)，测试却因用 shardOverhead 仍判 ok。",
+    "fix": "按 job 名分别取对应 overhead：unit-tests 用 gate4OverheadMaxMin，desktop-shards 用 shardOverheadMaxMin。"
+  }
+]

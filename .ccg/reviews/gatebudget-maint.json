@@ -1,0 +1,51 @@
+[
+  {
+    "severity": "Warning",
+    "file": "scripts/gate-budget-probe.js",
+    "line": 75,
+    "issue": "复测入口在健康态必然误报。censored 的阈值是「当前预算 × 0.95」，预算从 30 抬到 45 分钟后阈值变为 42.75 分，历史上 7 次 30 分钟被杀的样本全部掉出计数；新鲜采集的 gate4CensoredN=0 < MIN_SAMPLE_GATE4_CENSORED(1)（scripts/gate-budget.js:31、65-67），checkSizing 判不成立，--check 退 1 报「BUDGET_NO_LONGER_SIZED…必须重新定数」。已实测：checkSizing({provenance:{...PROVENANCE, gate4CensoredN:0}}) ⇒ ok=false，reason 即「未记录被预算杀的样本数（下限 1）」。而 CHANGELOG.md:34 明确要求「合并后必须复测一轮」——即 mandated 的复测在一切正常时报失败，会误导下一个会话去重定一个没问题的数。附带缺陷：任何在 ≥95% 预算处因真实用例失败而 conclusion≠success 的 run 也会被当成「被预算杀」，污染截尾计数。",
+    "fix": "把截尾计数要求改成条件式——仅当 gate4MaxSuccessMin×60000 ≥ BUDGET_MS_HINT×0.8（贴脸时）才要求 censored≥1，否则 0 是健康态的正确计数；或将 MIN_SAMPLE_GATE4_CENSORED 降为 0、完全交给 80% 贴脸预警（probe:121）把关。误分类可加指纹：仅当 run 的 conclusion 为 cancelled 且该 run 无测试失败记录时才计为截尾。"
+  },
+  {
+    "severity": "Warning",
+    "file": ".github/workflows/quality-gate.yml",
+    "line": 633,
+    "issue": "本 PR 修改的同一文件里残留两处「30 分钟」旧叙述：:633（Gate 19 事故背景「只能靠 job 级 30 分钟预算硬杀」）与 :739（desktop-shards「避免 nx 空集挂起 30 分钟超时」），而安全网已是 45 分钟。新锁 scripts/gate-budget.test.js:61 只匹配英文 /30-minute/，中文「30 分钟」从盲区穿过——正是本 PR 自己立下的「自述要对得上」原则（该锁断言文案不得自称 30 分钟）的漏网形态。",
+    "fix": "两处注释改为「job 级测试预算（由 scripts/gate-budget.js 持有）硬杀」/「挂起即撞 job 级预算」，并把 gate-budget.test.js:61 的断言扩成 /30[ -]?分钟|30-minute/（中文形态同样归零）。"
+  },
+  {
+    "severity": "Warning",
+    "file": "scripts/gate-budget-probe.js",
+    "line": 3,
+    "issue": "轴 3 成立：本次的核心指标（预算 vs 实际时长）在 CI 里没有看守。唯一自动信号是超时本身（build 已经红了才可见），贴脸预警只在手动探针里（probe:3-4「不进 CI——它要 gh + 网络」；openspec/records/gate-budget-reprobe.md:44 自承「贴脸预警目前只落在复测入口脚本里（手动）」）。且预算恰好压在派生边界上（gate-budget.js:24 的 45 分 = PROVENANCE shardMaxSuccessMin 30.0 × 1.5，零余量），下次探针只要观测到 max ≥ 30.01 分判据即翻车，而 80% 贴脸信号只在手动探针里——CI 每次跑完都不知道自己离墙多远。",
+    "fix": "最小方案（每 job 约 4 行，复用已存在的 $launchMark/$gateBudgetMs）：在 Gate 4 成功路径之后（unit-tests job :789 之后、desktop-shards job :902 之后）加一步——$elapsedMin = [math]::Round((New-TimeSpan -Start $launchMark -End (Get-Date)).TotalMinutes, 1)；Write-Host 打出 elapsed/预算比值；当 $elapsedMin×60000 ≥ $gateBudgetMs×0.8 时 Write-Host '::warning::Gate 4 elapsed Xmin = N% of budget'（要更硬就 exit 1）。这样每次 CI 跑都有带内预警，无需 gh。"
+  },
+  {
+    "severity": "Warning",
+    "file": "scripts/gate-budget.test.js",
+    "line": 74,
+    "issue": "fail-closed 结构锁只断言取数点（quality-gate.yml:777/:878）后 2 行内出现字面量 'if ($LASTEXITCODE -ne 0'，不验证该守卫真的会让 job 失败（throw/exit）。弱化形态（if ($LASTEXITCODE -ne 0) { Write-Host 'warn' }）能过锁。后果不是静默绿而是误诊红：node 失败 ⇒ $gateBudgetMs 为空串 ⇒ [int]'' = 0 ⇒ WaitForExit(0) 对刚启动的 pnpm 立即返回 false ⇒ 走超时分支 taskkill 整棵测试进程树，报「Gate 4 timed out」而非设计意图的「取不到 Gate 测试预算」。窗口大小（2 行）本身没问题——插行会 fail-closed 变红；缺口在判据只看「if 存在」不看「失败语义」。",
+    "fix": "同一窗口内把判据收紧为 /if \\(\\$LASTEXITCODE -ne 0[\\s\\S]{0,200}throw/（或 exit），要求守卫带失败动词；M4 变异（摘除判定）仍红，弱化形态也红。"
+  },
+  {
+    "severity": "Info",
+    "file": "scripts/gate-budget.js",
+    "line": 25,
+    "issue": "派生算术对不上：注释写「45 + 3（实测最大前置，shard 侧 2.8）+ 5 余量，向上取整」= 53，而 GATE_JOB_TIMEOUT_MIN=55——2 分钟无出处（推测是「向上取整到 5 的倍数」但没写明）；且 OVERHEAD_ALLOWANCE_MIN=3（:27）被导出但 checkSizing（:58）实际用的是 provenance.shardOverheadMaxMin（2.8），导出常量与注释描述的公式都不是代码真正跑的公式，三口径分裂。",
+    "fix": "在注释写明取整规则（「45 + 2.8 + 5 = 52.8，向上取整到 5 的倍数 ⇒ 55」），或删掉 OVERHEAD_ALLOWANCE_MIN，或让 checkSizing 真正消费它，消除注释/常量/代码三口径。"
+  },
+  {
+    "severity": "Info",
+    "file": "openspec/records/gate-budget-reprobe.md",
+    "line": 20,
+    "issue": "轴 4 可信度核对（从仓库现场复核，不复跑）：可复算的均已闭合——gate-budget.test.js 7/7（实跑 pass 7 / fail 0）、workflow-contract.test.js 35 个 test 块（35/35 ✓）、check-test-microtask-spin.test.js 7 个 test 块（7/7 ✓）、yaml 实跑 jobs=10 且 unit-tests/desktop-shards timeout=55、coverage=40、check-unwired-tests 实跑「检查域 72 个 / OK」、PROVENANCE 数字与记录逐字一致。不可从仓库复算的：MUTATION_BAD=0（变异运行产物未落盘）与 gh 采集分布（n=33 / max 29.9 / 7 次截尾，依赖 2026-10-11T06:52Z 的 API 快照）。另：「spin 检查器本体 PASS（1254 文件）」已被本 PR 自己新增的 gate-budget.test.js 推到 1255（实跑「扫描 1255 个测试文件」）——是采集时点早于新文件入列，非错误，但说明该计数是时点值。记录自曝汇总脚本的元组取值 bug 是加分项。",
+    "fix": "把变异汇总（MUTATION_BAD=0 的输出或 CI run URL）作为产物落盘，让「7 条变异全部点名变红」可被独立复核；「1254 文件」类计数在叙述中标注采集时点。"
+  },
+  {
+    "severity": "Info",
+    "file": ".quality-rhythm/skills/other/ci-hardening/assets/templates/quality-gate.yml.tpl",
+    "line": 76,
+    "issue": "轴 5——两处既有机制仍带旧字面量：① 本 PR 把两个 Windows job 的 timeout-minutes 40→55（quality-gate.yml:666/:822），单次 run 最坏计费分钟数 +30（2 job × 15 分），记录在「为什么建议人工过目」里承认了占用变长，但仓库内没有 CI 分钟额度估算表可同步更新；② vendored 技能模板（VENDORED_MIRROR，CI 不校验）quality-gate.yml.tpl:76-77 与 shard-matrix.yml.tpl:45-46 仍是 WaitForExit(1800000) +「30-minute execution budget」，是下一个采用者继承的旧形态。",
+    "fix": "① 无需改代码，人工过目时确认 Windows runner 额度可承受 55 分上限；② 模板属上游技能制品，如要在本仓对齐可另开 change 更新（或在模板加注「预算由使用方自持」）。"
+  }
+]

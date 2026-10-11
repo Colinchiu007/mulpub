@@ -32,11 +32,20 @@ main 连续两次 push 红在 `QG Unit Tests → Gate 4`，而断言层是 `# fa
 - **复测入口** `scripts/gate-budget-probe.js`（要 gh + 网络，故不进 CI）：`--check` 在"预算不再满足规则"退 1、
   在"成功最大值贴到预算 80%"退 2 —— 后者是**要重测**的信号，不是放宽判据的信号。
   被杀的 7 次是截尾的，所以 45 分钟本身仍是待证实假设，合并后必须复测一轮。
-- 回归锁 `scripts/gate-budget.test.js` 7 条（已接进 `QG Static` 的 Gate 3 那串 `node --test`）；
-  变异反证 7 条全部**点名**让预期那条变红（含"摘掉 fail-closed"与"把安全倍数改小"两支针对锁自身的变异），
-  `MUTATION_BAD=0`、还原后与备份逐字节相同、终态 7/7；`workflow-contract` 35/35、spin 检查器 7/7 且其本体 PASS（1254 文件）。
+- 回归锁 `scripts/gate-budget.test.js` 11 条，接进 `QG Static` 的 Gate 3 那串 `node --test`；判据全部读真实 workflow / 探针文本，不读我写的注释
+  变异反证 **13 条**全部点名让预期的那一条变红（M4/M5 测 fail-closed 的"弱化成只打日志"与"去掉类型校验"、M9 测中文「30 分钟」形态、
+  M11/M13 测带内告警"整块摘掉"与"只留文本删赋值"、M10 因两个前置实测相等而补成**按名字**的结构性锁、
+  M7 测"把安全倍数改小来消化矛盾"）
+  `MUTATION_BAD=0`，汇总落盘 `.ccg/reviews/gatebudget-mutations.txt` 供独立复核；还原后与备份逐字节相同、终态 `11/11`；
+  `workflow-contract` 35/35、spin 检查器 7/7 且其本体 PASS（时点值 1255 个测试文件）。另有两条"一度误报"是我自己的驱动脚本坏了：
+  M5/M12 的"预期锁名"被我写成断言消息，且一次全局 `sed` 顺手改掉 M2 的预期（非唯一锚点做全局替换）——都不是锁缺失，但结论错过
 - `.gitignore` 补两条反向放行：`scripts/*.js` 第 106 行会把新建脚本静默吞掉（`git check-ignore` 实测命中）。
 - 未改动：`coverage` job 的 `timeout-minutes: 40` 保持原值（它没有 `WaitForExit` 站点），CI 判据与用例集合一字未动。
+- QM-6 双轴（替代通道 nemotron / ling，共 15 条发现）的处置：截尾阈值改绑**采样窗口内生效的预算**（否则 mandated 的复测在健康态必红）、
+  锁的判据从英文 `30-minute` 扩到含中文「30 分钟」、fail-closed 必须带失败语义、CI 内新增 elapsed/预算 带内告警、删死常量并让注释算式等于代码算式；
+  一条 Critical 经变异否证（"只改常量不改 YAML"其实已被上限锁拦住）、一条 Info 的机制被实测否证（`[int]"NaN"` 在 PowerShell 是抛错不是变 0）
+- 探针自身的静默失效已修：matrix job 真名带 ` (2/2)` 后缀，用精确相等匹配会**取到空集**却照样报 `sizing_ok=true` ⇒ 改 `test()` 并加"零行即抛"
+- 订正一个定义错误：我原先当"前置开销"用的 2.8 分其实是「job 总时长 − 步时长」，含的是步骤**之后**的清理；实测前置 ≤1.38 分，结论 55 不变
 - 详见 `openspec/records/gate-budget-reprobe.md`。
 
 ---

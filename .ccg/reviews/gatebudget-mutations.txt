@@ -1,0 +1,15 @@
+M1 两处等待退回写死 1800000 => fail=1 pass=10 namedRed=true :: ✖ workflow 两处等待都走单一真源，且任何语言的"30 分钟"自述都归零
+M2 预算调成 10 分钟 => fail=4 pass=7 namedRed=true :: ✖ 定数规则本身在测东西（抬高观测最大值 / 改小倍数都必须翻脸） (1.016 | ✖ 健康态不得自判红：没贴脸时"零截尾样本"是正确结果（QM-6 双轴同指一处） | ✖ 两个
+M3 job 上限退回 40 => fail=1 pass=10 namedRed=true :: ✖ job 上限与单一真源严格对齐，且不许动无关 job (0.8583ms)
+M4 守卫摘掉失败语义（弱化成打日志） => fail=1 pass=10 namedRed=true :: ✖ 取预算失败必须当场让 job 失败，而不只是"有个 if" (0.7547m
+M5 守卫去掉类型校验 => fail=1 pass=10 namedRed=true :: ✖ 取预算失败必须当场让 job 失败，而不只是"有个 if" (0.7731m
+M6 探针删一个出处字段 => fail=1 pass=10 namedRed=true :: ✖ 复测入口的字段与出处逐字段对齐，单位换算锁到函数体 (0.8264ms)
+M7 安全倍数改小（用改判据消化矛盾） => fail=1 pass=10 namedRed=true :: ✖ 判据的不可协商项：安全倍数、样本下限、截尾证据下限都不得被调小来消化矛盾（M
+M8 contract 钉回旧字面量 => fail=1 pass=10 namedRed=true :: ✖ 旧形态不得被别的锁钉回来（workflow-contract 与本锁同口径）
+M9 重新引入中文「30 分钟」自述 => fail=1 pass=10 namedRed=true :: ✖ workflow 两处等待都走单一真源，且任何语言的"30 分钟"自述都归零
+M10 两 job 共用较大前置（抹掉 per-job 口径） => fail=1 pass=10 namedRed=true :: ✖ 两个 job 各用各的实测前置，不得共用一个较大值糊过去 (1.0415ms
+M11 摘掉带内贴脸告警 => fail=1 pass=10 namedRed=true :: ✖ 每次 CI 跑都自带"离墙还有多远"的带内信号 (0.904ms)
+M13 告警只留文本、删掉一处赋值（M11 之后补的更细一档） => fail=1 pass=10 namedRed=true :: ✖ 每次 CI 跑都自带"离墙还有多远"的带内信号 (0.9258ms)
+M12 截尾比较改成分钟乘 60000 去比 ms => fail=1 pass=10 namedRed=true :: ✖ 复测入口的字段与出处逐字段对齐，单位换算锁到函数体 (0.9923ms)
+FINAL 未变异 => fail=0 pass=11 namedRed=- :: 
+MUTATION_BAD=0
