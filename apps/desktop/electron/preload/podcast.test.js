@@ -34,13 +34,13 @@ function makeIpc (responsesByChannel) {
 }
 
 describe('podcast preload · 通道与命名空间', () => {
-  it('暴露 podcast.* 十七个方法，通道名逐字对齐主进程合同', () => {
+  it('暴露 podcast.* 十九个方法，通道名逐字对齐主进程合同', () => {
     const api = createPodcastApi(makeIpc({}))
     expect(Object.keys(api.podcast).sort()).toEqual([
       'channelCreate', 'channelGet', 'channelList', 'channelMigrateResolve',
       'channelRename', 'channelSave', 'channelSetDefault',
       'endpointList', 'episodeList',
-      'episodeRemove', 'episodeSave', 'feedBuild', 'feedPublish', 'feedVerify',
+      'episodePublishCancel', 'episodePublishFromVideo', 'episodeRemove', 'episodeSave', 'feedBuild', 'feedPublish', 'feedVerify',
       'hostingCheck', 'hostingGet', 'hostingSave',
     ])
     for (const channel of CHANNELS) {

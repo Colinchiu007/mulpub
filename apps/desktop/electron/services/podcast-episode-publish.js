@@ -24,6 +24,8 @@
  *   订阅端会长期表现为「下载卡在 99%」，而本地一切看起来都成功。
  */
 
+const { isPublicHttpsUrl } = require('./podcast-public-url')
+
 const PHASES = Object.freeze([
   'pickChannel', 'extractMix', 'probe', 'uploadAudio', 'attach', 'buildFeed', 'uploadFeed',
 ])
@@ -44,6 +46,24 @@ function pubErr (code, message, extra) {
   e.code = code
   if (extra) Object.assign(e, extra)
   return e
+}
+
+/** 取消窗口判据的唯一实现：`uploadAudio` 及其之后一律不再接受取消（理由见文件头）。 */
+function isCancellableAt (phase) {
+  const idx = PHASES.indexOf(phase)
+  return idx >= 0 && idx < PHASES.indexOf(CANCELABLE_UNTIL)
+}
+
+/**
+ * 失败成因的如实投影：message 与 status 是**两个正交事实**（「服务端说了什么」与「HTTP 几号」）。
+ * 只取其一会让 403 与 500 在结果契约里长得一样，而它们的排查方向完全不同。
+ */
+function describeFailure (e) {
+  if (!e) return ''
+  const msg = String(e.message || '')
+  const status = e.status == null ? '' : String(e.status)
+  if (msg && status && !msg.includes(status)) return msg + '（status=' + status + '）'
+  return msg || (status ? 'status=' + status : '') || String(e.code || '')
 }
 
 function createEpisodePublisher (deps = {}) {
@@ -67,7 +87,12 @@ function createEpisodePublisher (deps = {}) {
     const channelId = String(input.channelId || '').trim()
     if (!channelId) throw pubErr(EPISODE_PUBLISH_ERRORS.NO_CHANNEL, '出期必须指定频道（对象 key 含 channelId，缺它等于把两期写进同一层）')
     const phases = []
-    const mark = (phase, extra) => { phases.push(Object.assign({ phase }, extra || {})); return phase }
+    // 相位同步到取消 token：取消窗口判据读的就是这个值（宿主按 runId 登记的是同一个对象本体）。
+    const mark = (phase, extra) => {
+      phases.push(Object.assign({ phase }, extra || {}))
+      if (input.cancelToken) input.cancelToken.phase = phase
+      return phase
+    }
     const cancelled = () => Boolean(input.cancelToken && input.cancelToken.cancelled === true)
 
     mark('pickChannel')
@@ -76,14 +101,22 @@ function createEpisodePublisher (deps = {}) {
 
     // 1) 抽混音（内含降级判定与编码器实测；一切拒绝都在任何出站之前）
     mark('extractMix')
-    const mixed = await extractEpisodeAudio(input)
+    let mixed
+    try {
+      mixed = await extractEpisodeAudio(input)
+    } catch (e) {
+      // 抽取失败的相位与实测值此刻还不存在，但「链走到哪一站停了」这个信息不能因此丢掉：
+      // 现场只有这一份相位序列，缺了它就只能靠复现来定位。
+      if (e && typeof e === 'object') e.publishPhases = phases
+      throw e
+    }
     mark('probe', { durationSec: mixed.durationSec, sizeBytes: mixed.sizeBytes, mime: mixed.mime })
 
     // 2) 取消窗口关闭点：uploadAudio 一旦开始就不许再取消（见文件头理由）
     if (cancelled()) {
       cleanup(input, mixed)
       mark('cancelled')
-      throw pubErr(EPISODE_PUBLISH_ERRORS.CANCELLED, '已在上传前取消，临时文件已回滚', { phases })
+      throw pubErr(EPISODE_PUBLISH_ERRORS.CANCELLED, '已在上传前取消，临时文件已回滚', { publishPhases: phases })
     }
 
     mark('uploadAudio')
@@ -106,9 +139,9 @@ function createEpisodePublisher (deps = {}) {
     }
     // 只认 https：RSS 与各家聚合端都把非加密直链判为混合内容或干脆不抓，
     // 而"能点开"不等于"能订阅"，这里放宽一次就会在几周后变成"某期永远播不出来"。
-    if (!uploaded || typeof uploaded.url !== 'string' || !/^https:\/\//i.test(uploaded.url)) {
+    if (!isPublicHttpsUrl(uploaded && uploaded.url)) {
       cleanup(input, mixed)
-      throw pubErr(EPISODE_PUBLISH_ERRORS.UPLOAD_FAILED, '上传未返回可公网访问的 https 地址，不挂这一期', { phases })
+      throw pubErr(EPISODE_PUBLISH_ERRORS.UPLOAD_FAILED, '上传未返回可公网访问的 https 地址，不挂这一期', { publishPhases: phases })
     }
 
     mark('attach')
@@ -141,7 +174,7 @@ function createEpisodePublisher (deps = {}) {
       // feedSink 形状不合规原先在 built.path 上同步 TypeError：裸崩不是一句可读的失败，且发生在 .catch 之前，
       // partial 分层根本不会被触发（评审 F4）。
       throw pubErr(EPISODE_PUBLISH_ERRORS.FEED_BUILD_FAILED, '重建 feed 未回传产物路径，公网 feed 不更新（这一期已登记到本地频道）', {
-        phases, episodeId: attached && attached.id,
+        publishPhases: phases, episodeId: attached && attached.id,
       })
     }
 
@@ -155,7 +188,7 @@ function createEpisodePublisher (deps = {}) {
 
     let partial = !feedRes || feedRes.partial === true
     let partialError = (feedRes && feedRes.error) || null
-    if (!partial && !(typeof feedRes.url === 'string' && /^https:\/\//i.test(feedRes.url))) {
+    if (!partial && !isPublicHttpsUrl(feedRes.url)) {
       // feed 直链不 https 不得算 success：聚合端把非加密直链判成混合内容或干脆不抓，而「上传成功」与
       // 「订阅端能抓」是两件事（与音频侧同一判据，评审 F7 指出的不对称落点）。
       partial = true
@@ -171,7 +204,7 @@ function createEpisodePublisher (deps = {}) {
       feedUrl: partial ? '' : feedRes.url,
       message: partial ? '这一期已登记到本地频道，公网 feed 尚未更新' : '',
       errorCode: partial && partialError ? String(partialError.code || '') : '',
-      errorMessage: partial && partialError ? String(partialError.message || partialError.status || '') : '',
+      errorMessage: partial ? describeFailure(partialError) : '',
     }
   }
 
@@ -202,7 +235,7 @@ function createEpisodePublisher (deps = {}) {
     return idx >= 0 && idx < stop
   }
 
-  return { publish, cancellableAt, PHASES, EPISODE_PUBLISH_ERRORS }
+  return { publish, cancellableAt: isCancellableAt, PHASES, EPISODE_PUBLISH_ERRORS }
 }
 
-module.exports = { createEpisodePublisher, PHASES, CANCELABLE_UNTIL, EPISODE_PUBLISH_ERRORS }
+module.exports = { createEpisodePublisher, PHASES, CANCELABLE_UNTIL, EPISODE_PUBLISH_ERRORS, isCancellableAt, describeFailure }

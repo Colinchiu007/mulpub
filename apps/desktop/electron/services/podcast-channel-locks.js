@@ -136,6 +136,16 @@ function createPublishGate () {
       const id = String(channelId == null ? '' : channelId).trim()
       return Boolean(id) && inFlight.has(id)
     },
+    /**
+     * 当前持锁的 meta（含 token），无则 null。
+     * 这是「同一条链内部的再入」唯一的判定材料：出期宿主整条链持锁，而链内的 feed 步
+     * 会再次经过 `publishFeed` 自带的取锁。判据只能取**持锁凭证**，不能接受调用方口头声明
+     * 「我已经持锁」——那等于任何人都能绕过忙标记。
+     */
+    holder (channelId) {
+      const id = String(channelId == null ? '' : channelId).trim()
+      return id ? (inFlight.get(id) || null) : null
+    },
     snapshot () {
       return Array.from(inFlight.entries()).map(([channelId, info]) => ({ channelId, ...info }))
     },

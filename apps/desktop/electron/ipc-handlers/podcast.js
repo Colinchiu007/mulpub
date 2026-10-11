@@ -24,6 +24,9 @@
  *   podcast:hosting:get|save  → { code, data: { hosting } }   // hosting 是**掩码视图**，永不含 secret
  *   podcast:hosting:check     → { code, data: { checked, ok, status, hosting } }
  *   podcast:feed:publish      → { code, data: { state, url, bytes, itemCount, backupCreated, code, status } }
+ * 成片一键出期（刀 3 第 3 片；完整合同见 PRD §6.4）：
+ *   podcast:episode:publishFromVideo → { code, data: { state, phases, audioUrl, episodeId, itemCount, feedUrl, message, errorCode, errorMessage } }
+ *   podcast:episode:publish:cancel   → { code, data: { outcome, phase } }   // outcome ∈ accepted|too_late|unknown
  * 校验失败：{ code: EC.VALIDATION_ERROR, message, issues }——issues 是引擎的结构化码数组，
  * 文案由渲染层按 code 出（本层不回传用户未发布的标题/音频地址，也不回传 xml 正文）。
  * 失败信封另带 `subCode`（领域码，如 PODCAST_HOSTING_UPLOAD_FAILED）：`code` 是 EC 数字、决定往哪查，
@@ -252,6 +255,24 @@ function registerHandlers (ipcMain, deps) {
     return hostingService
   }
 
+  // 出期宿主同样惰性构造：注册动作本身不得解析 media tool 路径（打包前它们可能不存在）。
+  let episodeHost = deps && deps.podcastEpisodeHost ? deps.podcastEpisodeHost : null
+  function getEpisodeHost () {
+    if (episodeHost) return episodeHost
+    const { createEpisodeHost } = require('../services/podcast-episode-host')
+    const mediaToolPaths = require('../services/media-tool-paths')
+    episodeHost = createEpisodeHost({
+      registry: getRegistry(),
+      channelServiceOf: (id, options) => getService(id, options),
+      hostingService: getHostingService(),
+      logger: log,
+      // 打包产物优先；解析不到时宿主会把这一站判成抽取前置条件不成立，不回退宿主 PATH
+      findFfmpeg: () => mediaToolPaths.findFfmpeg(),
+      findFfprobe: () => mediaToolPaths.findFfprobe(),
+    })
+    return episodeHost
+  }
+
   ipcMain.handle('podcast:hosting:get', withSenderCheck(handlerFor('hosting:get', async () => ({ hosting: getHostingService().getHosting() }))))
 
   ipcMain.handle('podcast:hosting:save', withSenderCheck(handlerFor('hosting:save', async (payload) => {
@@ -269,6 +290,21 @@ function registerHandlers (ipcMain, deps) {
       backupCreated: Boolean(r.backupCreated), prevExists: Boolean(r.prevExists),
       code: r.code || '', status: r.status == null ? null : r.status,
     }
+  })))
+
+  // ⛔ 通道名必须写成这里的**字面量**，不许收回变量或循环注册（见上方注释：对账按字面量抓取）。
+  // 入参不含 outBase —— 临时目录基名由宿主按 runId 算，渲染层没有「写到哪」的决定权。
+  ipcMain.handle('podcast:episode:publishFromVideo', withSenderCheck(handlerFor('episode:publishFromVideo', async (payload) => {
+    // 三态（success/partial/cancelled）原样透出，不在本层压平：partial 的本地已登记、
+    // 公网未更新是两种行动方向的唯一区分点。
+    return await getEpisodeHost().publishFromVideo(payload || {})
+  })))
+
+  ipcMain.handle('podcast:episode:publish:cancel', withSenderCheck(handlerFor('episode:publish:cancel', async (payload) => {
+    const runId = payload && typeof payload.runId === 'string' ? payload.runId : ''
+    // outcome 三态如实回：unknown 是「已结束或从未登记」，不得读成「已取消」，
+    // 否则界面会对一次已经发布成功的出期说「已取消，临时文件已回滚」。
+    return getEpisodeHost().cancelPublish(runId)
   })))
 }
 

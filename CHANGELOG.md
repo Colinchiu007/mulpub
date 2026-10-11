@@ -1,3 +1,38 @@
+## [未发布] 2026-10-11 — 播客刀 3 第 3 片：成片一键出期的真实宿主接线与 publishFromVideo 通道
+
+- **新增** `electron/services/podcast-episode-host.js`：入参形状层（缺任一必填在任何出站与任何磁盘写之前拒绝）、整条出期链自持频道忙标记（命中即 `PODCAST_CHANNEL_BUSY` 立即拒不排队）、`outBase` 由主进程按 `runId` 算、取消可真的 kill 在途 ffmpeg、临时目录收尾按文件名逐个删除。
+- **新增** `electron/services/podcast-episode-cancel.js`：按 `runId` 键控的取消登记处（accepted / too_late / unknown 三态如实），`killRunning` 与用户取消分开——超时只杀进程不置位。
+- **新增** `electron/services/podcast-public-url.js`：「能不能进公网 feed」的 https 单一谓词，并明确它**不是** `safe-http-url`（那条允许 http，本条不允许；合并等于互相污染）。
+- **新增** 两条 IPC 通道 `podcast:episode:publishFromVideo` / `podcast:episode:publish:cancel`，preload `episodePublishFromVideo` / `episodePublishCancel`，桥接层两个导出（字面量注册，同 PR 三侧齐落）。
+- **修复** `publishAudio` 不做 `channelId` 形态判据即拼进对象 key（可逃逸出 `audio/<channelId>/`，A 频道覆盖 B 频道的期）；判据复用 `CHANNEL_ID_RE` 唯一实现，非法形态回 `PODCAST_CHANNEL_ID_INVALID` 且零出站。
+- **修复** 出期链此前**完全不持**频道忙标记，而注释写着「锁归整条出期链」；`publishFeed` 现凭持锁凭证再入，不匹配凭证一律照常取锁（不接受口头声明）。
+- **修复** `feedSink` 把「取可写服务」写在通行证外面——整链持锁后每次出期都会停在 buildFeed。
+- **修复** 抛出的错误相位字段名统一为 `publishPhases`（原取消/https 两支挂 `.phases`，抽取段完全不带轨迹）。
+- **修复** partial 的底层成因在有 message 时丢掉 HTTP status（真 adapter 的 403 永远进不了结果契约）。
+- **改名** `PODCAST_AUDIO_NO_COMPOSE_OUTPUT` → `PODCAST_VIDEO_NOT_FOUND`（PRD §6.4 定名优先）。
+- **修复（QM-6 后端 Warning）** 「被取消 kill ⇒ `PODCAST_PUBLISH_CANCELLED`」的映射此前只覆盖抽混音一步，而宿主给每次 spawn 都挂 kill，于是取消落在 `-codecs` 探测或 ffprobe 实测时报成「打包 ffmpeg 崩坏」/「实测失败」。现三站各自映射、每处都带「这一站确实没成功」的合取并加括号；extract 层 4 条（2 正 2 反）+ 宿主层 3 条锁，变异 M16–M19 各自指名变红（M17 钉的正是"不得把任何失败都读成取消"）。
+- **纠正合同** PRD §6.4 的 `cancelToken`「由渲染层持有引用」在 IPC 上不成立（结构化克隆），改为 `runId` + 第二条通道；照原话实现会得到一个静默失效的取消按钮。
+- **回归锁** 新增 5 份测试文件共 63 例（宿主 33 / 适配层通行证 5 / 真 `_put` 与 key 边界 11 / IPC 信封 6 / https 谓词 8），最终基线 podcast 全域 78 个测试文件 **1201 passed / 0 failed**；13 条变异反证各自指名变红（含 `channelId` 形态判据摘除后 7 条），1 条如实记为防御重叠不可分辨。
+
+# [未发布] feat(podcast): 播客刀 3 下半片第一块——出期适配层（2026-10-11，podcast-episode-ipc-impl）
+
+## 改动
+
+- 新增 `apps/desktop/electron/services/podcast-episode-adapters.js`：把出期编排的四个注入实现（`uploadImpl` / `episodeSink` / `feedSink` / `channelGate`）与托管前置条件落到真服务上。此前这些形状只有测试夹具在满足，真接线最容易在这里漂（外部评审 F8 点名的就是这条）。四条口径：
+  1. `kind` 必须显式——(x) => B + x + B='audio' 走 publishAudio、feed 走 publishFeed；缺 kind 或未知 kind 一律拒绝，**不得**「没有 kind 就当音频」（那会把两种语义不同的外发压成一条分支，feed 被静默跳过而用户看到 success）。
+  2. `publishFeed` 按刀 2 的设计**不抛错**、回 `{state:'failed'}`；而编排层的 partial 靠 `.catch` 触发。所以本层必须把非 success 转成带领域码与状态码的 throw——否则「feed 没传上去」会被读成成功，本层是这个压平风险的唯一堵点。
+  3. `episodeSink` 一律 `strict`：一键发布的那一期马上要进公网 feed，不合格字段落盘就是对外可见的坏数据（手工页才允许「先登记后补直链」）。
+  4. `channelGate.assertWritable` 每次现算服务实例，不跨动作缓存（配额与忙态会漂）。
+
+## 验证
+
+- 183 passed / 0 failed（本块新增 7 条行为锁）；QM-1 `verify-worktree-deps` OK → `build:dir` rc=0。
+- 一处**主动承认的弱断言**：`feedSink` 的「在发布通行证内跑 buildFeed」断言在探针不可用时回落 true，因此这条口径目前没有硬锁；要钉死需 `podcast-channel-locks` 暴露可观测探针，与 IPC 那片一起做。
+
+## 边界（不冒充已闭合）
+
+- 本块**没有调用者**：IPC 通道 `podcast:episode:publishFromVideo`、preload、渲染层桥接、状态机与入口浮层仍未落，「成片 → 一期 → 分发」对用户仍不可用（PRD §13 第 10/11 条继续生效）。适配层落地 ≠ 功能交付。
+
 # 2026-10-11
 
 - 播客一键发布规格补写：新增 §6.4.2 定义第三条通道 `podcast:episode:publish:progress`（实时七相位 + 主进程计算的 `cancellable` + 显式降级出口），并把刀 4 摘要里的「回退全局默认音色」纠正为「capability 级 `defaultVoiceId` → provider+model 用户偏好」两层口径；tasks 新增 3.13 记录该通道的唯一插入点与三侧同 PR 要求。

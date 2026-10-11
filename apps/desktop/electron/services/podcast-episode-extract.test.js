@@ -86,10 +86,10 @@ describe('extractEpisodeAudio 拒绝顺序', () => {
     expect(spawn.calls).toEqual([])
   })
 
-  it('成片文件不存在 ⇒ NO_COMPOSE_OUTPUT，一次 spawn 都不发出', async () => {
+  it('成片文件不存在 ⇒ PODCAST_VIDEO_NOT_FOUND，一次 spawn 都不发出', async () => {
     const spawn = okSpawn()
     await expect(extractEpisodeAudio(base({ videoPath: path.join(dir, 'nope.mp4'), spawnImpl: spawn.impl })))
-      .rejects.toMatchObject({ code: PODCAST_EPISODE_ERRORS.NO_COMPOSE_OUTPUT })
+      .rejects.toMatchObject({ code: PODCAST_EPISODE_ERRORS.VIDEO_NOT_FOUND })
     expect(spawn.calls).toHaveLength(0)
   })
 
@@ -210,5 +210,64 @@ describe('assertUploadSizeMatches 与超时预算', () => {
     expect(Number.isFinite(PROBE_TIMEOUT_MS) && PROBE_TIMEOUT_MS > 0).toBe(true)
     const r = await extractEpisodeAudio(base({ extractTimeoutMs: 5000, probeTimeoutMs: 5000 }))
     expect(r.durationSec).toBe(37.5)
+  })
+})
+
+/**
+ * 取消映射的两个方向（QM-6 后端 Warning 的回归锁，2026-10-11）
+ *
+ * 方向一：取消落在 encoders / ffprobe 这两步时，被杀后的非 0 退出必须报成 CANCELLED，
+ *   而不是「打包的 ffmpeg 崩坏」/「实测失败」——那两条文案会把人引向重装编解码器或查磁盘，
+ *   而真因是用户按下的取消按钮。
+ * 方向二（同样是锁）：**无人取消**时同样的非 0 退出必须仍是 EXTRACT_FAILED。
+ *   少了这一方向，上面的映射就是一个绕过口：任何一次 ffmpeg 崩坏都可能被读成"用户取消了"，
+ *   而崩坏是必须被修的真实故障。
+ * 两条都在 extract 单元层做：那里没有宿主、没有锁、没有取消登记处，唯一变量就是
+ * `cancelToken.cancelled` 这一个布尔。
+ */
+describe('extractEpisodeAudio · 取消映射不得变成绕过口', () => {
+  const base = () => ({
+    project: { segments: [{ id: 's1', audioMeta: { degraded: false } }] },
+    videoPath: '/v/final.mp4',
+    outBase: '/t/ep',
+    ffmpegPath: '/bin/ffmpeg',
+    ffprobePath: '/bin/ffprobe',
+    fsImpl: {
+      existsSync: (p) => p === '/v/final.mp4' || p === '/t/ep.mp3',
+      statSync: () => ({ size: 2048 }),
+    },
+  })
+  const okEncoders = { code: 0, stdout: ' A -- libmp3lame\n', stderr: '' }
+  const okProbe = { code: 0, stdout: 'duration=12.5\nsize=2048\ncodec_type=audio\n', stderr: '' }
+  const killed = { code: 1, stdout: '', stderr: 'terminated' }
+
+  const spawnThat = (map) => async (opts) => map(opts.args.includes('-codecs') ? 'encoders'
+    : (String(opts.command).includes('ffprobe') ? 'probe' : 'mix'))
+
+  it('无人取消 + encoders 非 0 ⇒ 仍是 EXTRACT_FAILED（这一条防的是"映射变成绕过口"）', async () => {
+    await expect(extractEpisodeAudio(Object.assign(base(), {
+      spawnImpl: spawnThat(() => killed),
+    }))).rejects.toMatchObject({ code: PODCAST_EPISODE_ERRORS.EXTRACT_FAILED })
+  })
+
+  it('取消落在 encoders ⇒ CANCELLED，且 stage 如实标 encoders', async () => {
+    await expect(extractEpisodeAudio(Object.assign(base(), {
+      cancelToken: { cancelled: true },
+      spawnImpl: spawnThat(() => killed),
+    }))).rejects.toMatchObject({ code: PODCAST_EPISODE_ERRORS.CANCELLED, stage: 'encoders' })
+  })
+
+  it('取消落在 ffprobe 实测 ⇒ CANCELLED（前两步都成功，只有实测这一步被杀）', async () => {
+    await expect(extractEpisodeAudio(Object.assign(base(), {
+      cancelToken: { cancelled: true },
+      spawnImpl: spawnThat((k) => (k === 'probe' ? killed : (k === 'encoders' ? okEncoders : Object.assign({ stdout: '' }, okProbe)))),
+    }))).rejects.toMatchObject({ code: PODCAST_EPISODE_ERRORS.CANCELLED, stage: 'probe' })
+  })
+
+  it('取消为 false 时实测非 0 ⇒ 仍是 MEASURE_FAILED（不把任何失败都读成取消）', async () => {
+    await expect(extractEpisodeAudio(Object.assign(base(), {
+      cancelToken: { cancelled: false },
+      spawnImpl: spawnThat((k) => (k === 'probe' ? killed : (k === 'encoders' ? okEncoders : Object.assign({ stdout: '' }, okProbe)))),
+    }))).rejects.toMatchObject({ code: PODCAST_EPISODE_ERRORS.MEASURE_FAILED })
   })
 })
