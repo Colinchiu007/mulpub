@@ -34,9 +34,5 @@
     "status": "待 PR 合并后核验",
     "line": 4489
   },
-  "本次执行记录：登录页直接关闭页签误报「未捕获到有效登录凭证」修复（fix-login-credential-capture-error）（2026-08-14）": "该记录本体已合并并回填（PR #816/#812 见正文）；账本在此是为覆盖 .quality-gates.md:6952 那条【孤儿 PENDING 行】——它所属的 s2v-scene-multi-materials 记录块丢了 ## 标题，门禁按最近标题把欠账记到本条名下。不代其他会话改写归属，待该记录作者补标题或回填。",
-  "本次执行记录：播客 feedSync 读侧接线（podcast-feed-sync-ui，2026-10-11）": {
-    "reason": "刀 3 前置片：feedSync 读侧接线。PR 合并后由后续提交回填 PASS + merge SHA 并删除本条（回填与销账必须同一次发生）",
-    "status": "PENDING"
-  }
+  "本次执行记录：登录页直接关闭页签误报「未捕获到有效登录凭证」修复（fix-login-credential-capture-error）（2026-08-14）": "该记录本体已合并并回填（PR #816/#812 见正文）；账本在此是为覆盖 .quality-gates.md:6952 那条【孤儿 PENDING 行】——它所属的 s2v-scene-multi-materials 记录块丢了 ## 标题，门禁按最近标题把欠账记到本条名下。不代其他会话改写归属，待该记录作者补标题或回填。"
 }

@@ -2,8 +2,6 @@
 record: podcast-feed-sync-ui
 task: 关闭刀 2 复核留下的 over-claim——把 feedSync 的读侧接到界面（channel:get 带段 + 横幅 + 只重试上传 feed）
 date: 2026-10-11
-sync_reason: 待 PR 合并后按产物取证（state=MERGED + mergeCommit.oid、远端分支 0 行、git log 恰好 1 行、比树为空）并就地回填
-sync_backfill_owner: podcast-feed-sync-ui 分支作者（本会话）
 ---
 
 # 本次执行记录：播客 feedSync 读侧接线（podcast-feed-sync-ui，2026-10-11）
@@ -35,5 +33,5 @@ sync_backfill_owner: podcast-feed-sync-ui 分支作者（本会话）
 
 ## 远程同步
 
-| 远程同步 | PENDING | 待 PR 合并后回填 `PASS` + merge SHA（取证：`gh pr view <n> --json state,mergeCommit`、`git log origin/main --grep="(#<n>)$" --format=%H|%cI`、`git ls-remote --heads origin podcast-feed-sync-ui` 0 行、squash 后比树为空），并在同一次提交删除 frontmatter 两个 sync_* 字段与 ledger 登记项 |
+| 远程同步 | PASS | PR #3286 squash 合并为 `cd7bc476e70c4ee9c26207a1f7dc726940ab0e2c`（2026-10-11T09:10:58+08:00），远端分支已删（ls-remote 0 行） |
 
