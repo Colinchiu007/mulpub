@@ -2,9 +2,6 @@
 record: batch-teleport-fix
 task: Teleport 清场测试基建 + 批量域抽取闭环（FRONTEND-FILE-SPLIT-PLAN v3 §2.10，§2.8/§2.9 暂缓项的落地）
 date: 2026-10-10
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：Teleport 清场基建 + 批量域抽取闭环（batch-teleport-fix，2026-10-10）【混合 PR】
@@ -23,7 +20,7 @@ sync_backfill_owner: 下一个会话
 | QM-6 CCG 双模型评审 | PASS | 方案 §2.8/§2.9 既定步骤的落地，无方案外新决策 |
 | 债务熔断 | PASS | `check-debt-budget.js` 全绿（circularDeps: 0） |
 | Gate 7 | PASS | `--keys` 1655 key 全存在 |
-| 远程同步 | PENDING | 开 PR 时登记 ledger；合并后回填 PASS + merge SHA 并同一次提交销账 |
+| 远程同步 | PASS | PR #3276 已 squash 合并，merge SHA `c576b2dea8c89326a25d7fac835349850d6496d7`（2026-10-11T12:27:05+08:00），取证 `git log origin/main --grep='(#3276)$' --format=%H|%cI` 唯一命中；`git ls-remote --heads origin batch-teleport-fix` 返回 0 行，证远端分支已删；frontmatter `sync_*` 三字段与台账登记项已在本次回填提交删除。补充：合并前 CI 曾三红两波（①QG Static 19 处 CJK 兜底遗留→全部改走既有 locale 键+新键 createFailedUnknown；②QG Visual/E2E 两处错误 import 来源→playwright 探针本地复现后修正；③QG Visual 的 create-story2video-detail 亚像素漂移 125/140px→按 QM-4 第 7 条用 CI artifact 渲染重建基线并人工审核 diff 图），三波修复均有独立提交与验证记录 |
 
 ### 改动
 
