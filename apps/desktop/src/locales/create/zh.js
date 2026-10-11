@@ -190,6 +190,7 @@ export default {
         noTextError: '请至少输入 1 条文案。',
         noFileError: '请至少选择 1 个文件。',
         createFailed: (ctx) => '启动失败：' + ctx.named('message'),
+        createFailedUnknown: '未知错误',
       },
       mediaRequirementsVideo: '支持 mp4 / mov / webm / mkv / avi 格式，单个文件最大 512MB。',
       voice: {

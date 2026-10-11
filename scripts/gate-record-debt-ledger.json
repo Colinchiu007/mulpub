@@ -34,5 +34,10 @@
     "status": "待 PR 合并后核验",
     "line": 4489
   },
-  "本次执行记录：登录页直接关闭页签误报「未捕获到有效登录凭证」修复（fix-login-credential-capture-error）（2026-08-14）": "该记录本体已合并并回填（PR #816/#812 见正文）；账本在此是为覆盖 .quality-gates.md:6952 那条【孤儿 PENDING 行】——它所属的 s2v-scene-multi-materials 记录块丢了 ## 标题，门禁按最近标题把欠账记到本条名下。不代其他会话改写归属，待该记录作者补标题或回填。"
+  "本次执行记录：登录页直接关闭页签误报「未捕获到有效登录凭证」修复（fix-login-credential-capture-error）（2026-08-14）": "该记录本体已合并并回填（PR #816/#812 见正文）；账本在此是为覆盖 .quality-gates.md:6952 那条【孤儿 PENDING 行】——它所属的 s2v-scene-multi-materials 记录块丢了 ## 标题，门禁按最近标题把欠账记到本条名下。不代其他会话改写归属，待该记录作者补标题或回填。",
+  "本次执行记录：Teleport 清场基建 + 批量域抽取闭环（batch-teleport-fix，2026-10-10）【混合 PR】": {
+    "reason": "PR 合并后销账（同一次提交改写远程同步行 + 删本登记项）",
+    "status": "PENDING",
+    "line": 0
+  }
 }

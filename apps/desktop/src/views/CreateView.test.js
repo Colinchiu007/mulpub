@@ -113,6 +113,8 @@ import { settingsDialogRevision } from "@/stores/settings-dialog";
 import { PipelineSelector, StageProgress } from './video-creation'
 import { resetBgmLibraryForTest } from './video-creation/composables/useBgmLibrary'
 import { resetTtsVoicesForTest } from './video-creation/composables/useTtsVoices'
+import { resetBatchCreateForTest, batchCreateRefs } from './video-creation/composables/useBatchCreate'
+import { afterTeleportCleanup } from './teleport-cleanup'
 import i18n from "@/i18n";
 
 // Production renders the progress modal through Teleport. Page tests keep the
@@ -131,6 +133,8 @@ describe("CreateView", () => {
     resetBgmLibraryForTest();
     // TTS 音色域 composable 亦为模块级单例：复位并清空注入的 deps（§2.2 第 2 步）
     resetTtsVoicesForTest();
+    // 批量创作域 composable 同为模块级单例：复位防跨用例状态泄漏（§2.2 第 3 步）
+    resetBatchCreateForTest();
   });
 
   it("renders page header", async () => {
@@ -5675,7 +5679,18 @@ describe("pipeline:update 实时推送（openspec pipeline-progress-real-time-pu
 });
 
 describe("批量创作（story2video-batch-create）", () => {
+  // ⚠️ Teleport 弹窗清场模式（batch-teleport-fix，方案 §2.9 前置基建）：
+  // UiModal 经 <Teleport to="body"> 渲染，弹窗内交互的事件闭包委托到**模块级单例**
+  // （桥接 setter 写 batchCreateRefs）。卸载后残留 DOM 的迟到交互会把状态写进单例、
+  // 污染下一用例（实测 s2vBatchTab 残留 'files' 走错分支）。
+  // 标准顺序：unmount → 冲刷挂起微任务 → 清 body 残留 → 再冲刷（teleport-cleanup.js）。
+  afterEach(async () => {
+    await afterTeleportCleanup();
+  });
   const mountS2V = async () => {
+    // mount 前再复位一次（beforeEach 的 reset 与 mount 之间若有上一用例的迟到写入，
+    // 此处强制回到初值——teleport 污染的兜底防线，batch-teleport-fix）
+    resetBatchCreateForTest();
     // UiModal 内容经 Teleport 到 body：stub teleport 使弹窗内容留在组件树内可查询
     const w = mount(CreateView, {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress }, stubs: { teleport: true } }
@@ -5905,6 +5920,8 @@ describe("CreateView 流水线「保存配置」（s2v-pipeline-config-profiles�
     resetBgmLibraryForTest();
     // TTS 音色域 composable 亦为模块级单例：同因复位（§2.2 第 2 步）
     resetTtsVoicesForTest();
+    // 批量创作域 composable 同因复位（§2.2 第 3 步）
+    resetBatchCreateForTest();
   });
 
   function makeProfile(overrides = {}) {
