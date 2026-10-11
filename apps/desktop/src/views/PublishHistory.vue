@@ -437,6 +437,8 @@ import { useDebouncedWatchSources } from '@/composables/useDebouncedRef'
 import { useFilterScan } from '@/composables/useFilterScan'
 import { usePlatformStore } from '@/stores/platforms'
 import { usePublishHistoryContentLink, CARD_INTERACTIVE_SELECTOR } from '@/composables/usePublishHistoryContentLink'
+// 2026-10-12 发布记录真实封面缩略图（本地 cover_path → cover:read-data；远程 → safeHttpUrl）
+import { useHistoryCoverThumbnails } from '@/composables/useHistoryCoverThumbnails'
 import { useIdentity } from '@/composables/useIdentity'
 import { isAuthGateResult } from '@/utils/auth-gate'
 import { formatUserError } from '@/utils/user-facing-error'
@@ -509,6 +511,8 @@ const filteredRecords = computed(() => {
     return true
   })
 })
+// 2026-10-12：缩略图 = 本次实际使用的封面；拿不到即回退平台图标
+const { coverUrlFor: thumbnailUrl } = useHistoryCoverThumbnails(filteredRecords)
 const allSelected = computed(() => (
   filteredRecords.value.length > 0
   && filteredRecords.value.every(record => selectedIds.value.includes(record.id))
@@ -1007,10 +1011,6 @@ function deliveryModeHint (record) {
 function resultValue (record, key) {
   const v = record && record.result && record.result[key]
   return typeof v === 'string' || typeof v === 'number' ? String(v) : ''
-}
-
-function thumbnailUrl (record) {
-  return record?.thumbnail || record?.thumbnailUrl || record?.cover || record?.coverUrl || ''
 }
 
 function failedCount (record) {

@@ -1098,33 +1098,15 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
       if (await this._waitForElement(win,'#title, input.weui-desktop-input',10000)) {
         try { await this._fillInput(win,'#title',article.title) } catch (e) { log.warn('RpaView','[wechat_mp] title fill: '+e.message) }
       }
+      // 2026-10-12：新版标题也是 ProseMirror，隐藏 `#title` textarea 可能写不进去；
+      // 补一次可信注入（编辑器不存在时内部跳过，不新增阻断）。
+      await require('./wechat-mp-article').fillWechatMpTitleEditor(this, win, article.title)
     }
 
-    // Fill content — 新版后台编辑器位于主 frame（contenteditable/ProseMirror/Quill），旧版才在 iframe 内
-    if (article.content) {
-      this._emitProgress('wechat_mp','filling content...',40)
-      const contentSel = '#js_editor_content, #js_editor, [contenteditable="true"], .ProseMirror, .ql-editor, .rich_media_area_primary_inner, .rich_media_area_primary, .editor-area, [data-lexical-editor="true"]'
-      try {
-        if (await this._waitForElement(win,contentSel,15000)) {
-          await this._setElementContentSafe(win,contentSel,article.content)
-        } else {
-          // 兼容旧版后台：编辑器位于 iframe（ueditor）
-          const iframeSel = 'iframe#ueditor_0, iframe[src*="ueditor"]'
-          if (await this._waitForElement(win,iframeSel,5000)) {
-            await this._fillInFrame(win,iframeSel,'#js_editor_content, [contenteditable="true"]',article.content)
-          } else {
-            // 诊断：dump 页面关键 DOM 结构，帮助区分登录失效/编辑器改版/iframe 跨域
-            try {
-              const domDiag = await win.webContents.executeJavaScript('(function(){var t=(document.body&&document.body.innerText)||"";var ceds=[...document.querySelectorAll("[contenteditable=true]")].map(function(e){return {cls:String(e.className||"").slice(0,120),tag:e.tagName}});var editors=[...document.querySelectorAll("[class*=editor],[class*=Editor],[class*=rich_media],[class*=content],[id*=editor],[id*=content]")].map(function(e){return {tag:e.tagName,id:e.id||"",cls:String(e.className||"").slice(0,120)}}).slice(0,20);var iframes=[...document.querySelectorAll("iframe")].map(function(f){return {src:String(f.src||"").slice(0,160),id:f.id||""}}).slice(0,10);var textareas=document.querySelectorAll("textarea").length;return {text:t.replace(/\\s+/g," ").slice(0,300),contenteditable:ceds.slice(0,10),editorLike:editors,iframes:iframes,textareas:textareas}})()')
-              log.warn('RpaView','wechat_mp content editor not found, DOM diag: '+JSON.stringify(domDiag).slice(0,1500))
-            } catch (diagError) { log.warn('RpaView','wechat_mp DOM diag failed: '+diagError.message) }
-            log.warn('RpaView','wechat_mp content editor not found, aborting save url='+win.webContents.getURL()+' title='+win.webContents.getTitle()); return { success:false, error:'微信公众号内容编辑器未找到，已中止保存', platform:'wechat_mp' }
-          }
-        }
-      } catch(e) {
-        log.warn('RpaView','wechat_mp content fill failed: '+e.message+' url='+win.webContents.getURL()+' title='+win.webContents.getTitle())
-      }
-    }
+    // Fill content — 2026-10-12 修复：改走 wechat-mp-article 的多通道注入 + 回读校验
+    // （此前 `_setElementContentSafe` 直写 innerHTML 不进 ProseMirror 模型，且恒返回成功 ⇒ 假成功）。
+    const fill = await require('./wechat-mp-article').applyWechatMpContent(this, win, article)
+    if (!fill.ok) return { success:false, error:fill.error, platform:'wechat_mp' }
 
     // Fill author
     if (article.author) {
@@ -1151,6 +1133,12 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
         await win.webContents.executeJavaScript("(function(){var cb=document.querySelector('#js_comment_open, input[name=\"need_open_comment\"]');if(cb&&cb.checked){cb.click()}})()").catch(function(){/* ignore */})
       } catch (e) { log.warn('RpaView','wechat_mp comment toggle: '+e.message) }
     }
+
+    // Cover（2026-10-12 修复）：此前**完全没有这一步** —— 公众号封面是必填项，缺了它不是
+    // 「封面丢了」而是「草稿本身不完整」，而保存草稿只看 appmsgid，缺封面的草稿仍会记 success。
+    // 生效判据（CDN 链接 / 预览背景图 / img 递增）与失败文案都在 wechat-mp-cover.js 内。
+    const cover = await require('./wechat-mp-cover').applyWechatMpCover(this, win, article.cover_path)
+    if (!cover.ok) return { success:false, error:cover.error, platform:'wechat_mp' }
 
     // Check agreement
     this._emitProgress('wechat_mp','checking agreement...',60)
@@ -1349,6 +1337,12 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
         selectors: {
           ...config.selectors,
           file_input: ['input[type="file"][accept*="image"]', 'input[type="file"]'],
+          // 2026-10-12：图文模式必须**关掉封面通道**。渲染层新增「自动封面同时落 cover_path」
+          // 后（`usePublishFlow` 的 AUTO_COVER_PLATFORMS），`_publish_generic` 的
+          // `article.cover_path && sel.cover_input` 分支会在图片已由 file_input/drag_area 上传之后
+          // **再注入同一张图**，产出重复图片。快手图文的语义本就是「首图即封面」，
+          // 封面通道在此为空是正确表达，不是省略。
+          cover_input: [],
           drag_area: '#rc-tabs-0-panel-2 div[class^="_dragger-content_"], div[class*="dragger-content"]',
         },
       }

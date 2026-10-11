@@ -289,6 +289,9 @@ export default {
       sensitiveModify: '修改',
       generatingCover: '🖼️ 图文平台需要图片，正在自动生成封面...',
       coverGenerated: '✓ 封面已生成并附加到内容',
+      // 2026-10-12：自动封面兜底的两条分支文案（公众号封面必填 → 生成结果必须对用户可见）
+      coverGeneratedFailed: '封面图生成失败，本次按无封面继续发布',
+      coverAlreadySet: '已使用你选择的封面图，不再自动生成',
       offlineCached: '网络已断开，任务已缓存',
       offlineProgress: '📡 网络已断开，发布任务已缓存，网络恢复后自动重试',
       scheduleCreated: (ctx) => '⏰ 已创建 ' + ctx.named('count') + ' 个定时任务',

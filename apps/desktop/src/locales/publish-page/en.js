@@ -280,6 +280,10 @@ export default {
       sensitiveModify: 'Edit',
       generatingCover: '🖼️ Image required for image-text platforms, generating cover...',
       coverGenerated: '✓ Cover generated and attached',
+      // 2026-10-12: branches of the automatic cover fallback (WeChat cover is mandatory, so the
+      // outcome must be visible to the user)
+      coverGeneratedFailed: 'Cover generation failed; publishing without a cover',
+      coverAlreadySet: 'Using your selected cover; auto-generation skipped',
       offlineCached: 'Network disconnected, task cached',
       offlineProgress: '📡 Network disconnected, publish task cached, will auto-retry when network recovers',
       scheduleCreated: (ctx) => '⏰ Created ' + ctx.named('count') + ' scheduled task(s)',

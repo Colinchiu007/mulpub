@@ -21,6 +21,9 @@ const { buildAuditPatch } = require('@multi-publish/shared-utils/src/publish-aud
 // P0-1 第二切片：审核回查的凭证解析与能力分级（凭证恒空缺陷修复 + 端点未验证的诚实分级）。
 const { resolveAuditRequeryCookies, decideAuditRequery } = require('../services/publish-audit-requery')
 const { linkExistingTrackedContent, TRACKED_LINK_HISTORY_SCAN_LIMIT } = require('../services/tracked-content-link')
+// 2026-10-12：发布记录封面字段的单一真源（历史页缩略图此前恒空 → 回退平台图标，
+// 用户报障「历史记录页的缩略图不是发布的真实封面」）。
+const { resolveRecordCover } = require('../services/publish-record-cover')
 
 const defaultAuditRequery = {
   resolveCookies: (params) => resolveAuditRequeryCookies(params),
@@ -106,6 +109,9 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
     history.addRecord({
       platform: task.platform, title: task.article?.title || '', taskId: task.id,
       status: 'success', result: task.result,
+      // 2026-10-12：本次发布**实际使用**的封面（无封面时写空串，不写 undefined——JSON 会丢键）。
+      // 消费端 `PublishHistory.vue` 的 thumbnailUrl 正是读这两个键，缺了就是平台图标。
+      ...resolveRecordCover(task.article),
       // 定时派发任务带 publishMode='scheduled'（scheduler/batch-manager 排期入队时标记），
       // 历史页「定时发布」过滤器与详情「发布模式」据此区分定时/立即发布。
       ...(task.publishMode ? { publishMode: task.publishMode } : {}),
@@ -207,6 +213,9 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
     history.addRecord({
       platform: task.platform, title: task.article?.title || '', taskId: task.id,
       status: 'failed', result: null, error: task.error,
+      // 失败记录与成功记录**同源**取封面：用户恰恰要在失败记录里确认「当时用的是哪张封面」，
+      // 两个落库点各写一份优先级，漂移的方向必然是失败记录没有封面。
+      ...resolveRecordCover(task.article),
       ...(task.publishMode ? { publishMode: task.publishMode } : {}),
     }, task.owner_subject)
     // publish-fail-draft-guard：媒体内容（视频/图文）发布失败 → 自动回存草稿防丢失。

@@ -625,4 +625,95 @@ describe('P0-1 审核回写链 × 真 publish-history（跨模块契约锁）', 
   })
 })
 
+// 2026-10-12 用户报障「发布的历史记录页，发布任务的缩略图好像不是发布的真实的封面图片」：
+// 根因不在渲染端——`PublishHistory.vue` 的 `thumbnailUrl(record)` 读
+// `thumbnail|thumbnailUrl|cover|coverUrl`，而两个 addRecord 落库点**一个封面键都没写**，
+// 于是恒为空、模板回退平台图标。下面锁「写侧确实写了，且成功/失败同源」。
+describe('phase4-events — 发布记录封面字段', () => {
+  function wire (history) {
+    const taskQueue = new EventEmitter()
+    wireTaskQueueEvents({
+      taskQueue,
+      history,
+      publishMonitor: { createMonitorTask: vi.fn() },
+      publishImpactTracker: { scheduleImpactTracking: vi.fn() },
+      getMainWin: () => null,
+    })
+    return taskQueue
+  }
+
+  it('成功记录落库本次实际使用的本地封面（cover_path），cover_url 为空串而非 undefined', () => {
+    const history = { addRecord: vi.fn() }
+    wire(history).emit('task:success', {
+      id: 'task-cover-1',
+      platform: 'wechat_mp',
+      article: { title: '带封面', cover_path: 'D:/covers/a.png' },
+      result: {},
+    })
+
+    const record = history.addRecord.mock.calls[0][0]
+    expect(record.cover_path).toBe('D:/covers/a.png')
+    expect(record.cover_url).toBe('')
+    // 空串必须真的落键：JSON.stringify 会丢掉 undefined 键，消费端就分不清
+    // 「这次没有封面」与「这个字段从来没被写过」
+    expect(Object.keys(JSON.parse(JSON.stringify(record)))).toContain('cover_url')
+  })
+
+  it('失败记录与成功记录同源取封面（用户要在失败记录里确认当时用的是哪张）', () => {
+    const history = { addRecord: vi.fn() }
+    wire(history).emit('task:failed', {
+      id: 'task-cover-2',
+      platform: 'wechat_mp',
+      article: { title: '失败但选了封面', cover_file: { path: 'D:/covers/b.png' } },
+      error: '平台拒绝',
+    })
+
+    const record = history.addRecord.mock.calls[0][0]
+    expect(record.status).toBe('failed')
+    expect(record.cover_path).toBe('D:/covers/b.png')
+    expect(record.cover_url).toBe('')
+  })
+
+  it('只有首图时以首图为封面（快手/小红书：首图即封面）', () => {
+    const history = { addRecord: vi.fn() }
+    wire(history).emit('task:success', {
+      id: 'task-cover-3',
+      platform: 'kuaishou',
+      article: { title: '图文', images: ['D:/img/first.png', 'D:/img/second.png'] },
+      result: {},
+    })
+
+    expect(history.addRecord.mock.calls[0][0].cover_path).toBe('D:/img/first.png')
+  })
+
+  it('URL 形态的封面只落 cover_url，且非 http(s) 被丢弃', () => {
+    const history = { addRecord: vi.fn() }
+    const tq = wire(history)
+    tq.emit('task:success', {
+      id: 'task-cover-4', platform: 'zhihu',
+      article: { title: '远程封面', cover_url: 'https://cdn.example.com/a.png' }, result: {},
+    })
+    expect(history.addRecord.mock.calls[0][0].cover_url).toBe('https://cdn.example.com/a.png')
+
+    tq.emit('task:success', {
+      id: 'task-cover-5', platform: 'zhihu',
+      article: { title: '坏封面', cover_url: 'javascript:alert(1)' }, result: {},
+    })
+    const bad = history.addRecord.mock.calls[1][0]
+    expect(bad.cover_url).toBe('')
+    expect(bad.cover_path).toBe('')
+  })
+
+  it('无封面时两个键都写空串（不得缺键）', () => {
+    const history = { addRecord: vi.fn() }
+    wire(history).emit('task:success', {
+      id: 'task-cover-6', platform: 'weibo',
+      article: { title: '无封面' }, result: {},
+    })
+
+    const record = history.addRecord.mock.calls[0][0]
+    expect(record).toEqual(expect.objectContaining({ cover_path: '', cover_url: '' }))
+  })
+})
+
 
