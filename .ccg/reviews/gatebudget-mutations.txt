@@ -1,0 +1,93 @@
+变异反证汇总 · PR #3313 第 2 轮 · 16 条（14 want=red + 1 want=green + 1 FINAL）
+head_sha=6885d85cbb9f656f0a8133d42e0debbe48f81844 subject=Merge remote-tracking branch 'origin/main' into gate-budget-reprobe
+node=v24.19.0  采集时刻(UTC)=2026-10-11T10:08:41Z
+被测锁=scripts/gate-budget.test.js（11 条）  驱动=本文件同目录 .ccg/reviews/gatebudget-mutate.driver.js
+重跑方式：node .ccg/reviews/gatebudget-mutate.driver.js --dry   # 只校验 16 个锚点命中数
+          node .ccg/reviews/gatebudget-mutate.driver.js         # 逐条打补丁→跑锁→逐字节还原→复验
+字段口径：file=被改文件；hits>=N=锚点命中下界（不唯一的锚点不做全局替换）；
+  want=red 必须让 named 点名的那条锁红（named=期望锁名是否出现在失败清单里）；
+  want=green 必须 0 红；restored=bytes_equal 是被改文件与打补丁前缓冲区的 Buffer.compare 现场结果；
+  red: 行给**完整**失败测试名（不截断），便于独立复核"红的确实是被点名的那一条"。
+
+本轮三处自伤，都由电池自己暴露、非事后补写：
+  ① 收窄第一版判据写成 \d+\s*minute，匹配不到 45-minute（数字与词隔着连字符，而旧文案正是这个写法）
+     ⇒ M9n 报 want=red 却 fail=0；补成 \d+\s*-?\s*(分钟|minute) 后才红。
+  ② 驱动日志模板把 ${r.pass} 误写成 ${r.test}，上一版产物一度显示 pass=undefined/11（判据本身读 r.pass，
+     结论未受影响，但产物字段必须是真实测得值）⇒ 修字段后整批重跑，本文件即重跑后的原始输出。
+  ③ 上一版把"每条变异各自的坐标"写成仓库外临时脚本（D:/tmp/mw-g4-mutate3.js），"供独立复核"这句话不成立
+     ⇒ 驱动入库（本目录 gatebudget-mutate.driver.js），产物逐字搬运原始输出。
+
+两条如实补充：
+  · N3（预算 44 分）除点名的「定数规则本身在测东西」外，还连带让「健康态不得自判红」变红——后者断言
+    "默认取值必须自洽"，隐含假设预算满足 ×1.5，属合理连带，不是判据串味。
+  · N2 是本表唯一 want=green：往注释里新增一句「曾按 30 分钟档定数」，锁必须照绿。它守的是
+    "禁令不得挡掉被批准的修法"——收窄前，#3315 合法写入的三处历史归因注释会被全文禁令判红。
+
+--- 原始输出（逐字） ---
+COORD head_sha=6885d85cbb9f656f0a8133d42e0debbe48f81844 node=v24.19.0 cases=16 lock=scripts/gate-budget.test.js
+M1 两处等待退回写死 1800000
+   file=quality-gate.yml hits>=2 patch: "WaitForExit([int]$gateBudgetMs)" -> "WaitForExit(1800000)"
+   want=red fail=1 pass=10/11 restored=bytes_equal named=true
+   red: ✖ workflow 两处等待都走单一真源：时长不得写成字面量、超时文案必须插值预算
+M2 预算调成 10 分钟
+   file=gate-budget.js hits>=1 patch: "const GATE_TEST_BUDGET_MS = 2700000" -> "const GATE_TEST_BUDGET_MS = 600000"
+   want=red fail=4 pass=7/11 restored=bytes_equal named=true
+   red: ✖ 定数规则本身在测东西（抬高观测最大值 / 改小倍数都必须翻脸） | ✖ 健康态不得自判红：没贴脸时"零截尾样本"是正确结果（QM-6 双轴同指一处） | ✖ 两个 job 各用各的实测前置，不得共用一个较大值糊过去 | ✖ 记录下来的出处自己不许贴脸（否则这次改动就是在制造下一次的红）
+M3 job 上限退回 40
+   file=quality-gate.yml hits>=2 patch: "    timeout-minutes: 55" -> "    timeout-minutes: 40"
+   want=red fail=1 pass=10/11 restored=bytes_equal named=true
+   red: ✖ job 上限与单一真源严格对齐，且不许动无关 job
+M4 守卫摘掉失败语义（弱化成打日志）
+   file=quality-gate.yml hits>=2 patch: "-notmatch '^\\d+$') { throw \"取不到 Gate 测试预算（scripts/gate-budget.js）—— 不得" -> "-notmatch '^\\d+$') { Write-Host \"取不到预算，先记一笔\" }"
+   want=red fail=1 pass=10/11 restored=bytes_equal named=true
+   red: ✖ 取预算失败必须当场让 job 失败，而不只是"有个 if"
+M5 守卫去掉类型校验
+   file=quality-gate.yml hits>=2 patch: "-or $gateBudgetMs -notmatch '^\\d+$'" -> ""
+   want=red fail=1 pass=10/11 restored=bytes_equal named=true
+   red: ✖ 取预算失败必须当场让 job 失败，而不只是"有个 if"
+M6 探针删一个出处字段
+   file=gate-budget-probe.js hits>=1 patch: "    gate4CensoredNote: " -> "    // MUT-6 removed\n    gate4CensoredNoteX: "
+   want=red fail=1 pass=10/11 restored=bytes_equal named=true
+   red: ✖ 复测入口的字段与出处逐字段对齐，单位换算锁到函数体
+M7 安全倍数改小（用改判据消化矛盾）
+   file=gate-budget.js hits>=1 patch: "const SAFETY_MULTIPLIER = 1.5" -> "const SAFETY_MULTIPLIER = 1.0"
+   want=red fail=1 pass=10/11 restored=bytes_equal named=true
+   red: ✖ 判据的不可协商项：安全倍数、样本下限、截尾证据下限都不得被调小来消化矛盾（M7 实测过这条锁缺失）
+M8 contract 钉回旧字面量
+   file=workflow-contract.test.js hits>=2 patch: "/WaitForExit\\(\\[int\\]\\$gateBudgetMs\\)/" -> "/WaitForExit\\(1800000\\)/"
+   want=red fail=1 pass=10/11 restored=bytes_equal named=true
+   red: ✖ 旧形态不得被别的锁钉回来（workflow-contract 与本锁同口径）
+M9n 非注释行把预算写成字面量（英文连字符形态）
+   file=quality-gate.yml hits>=2 patch: "= $gateUsePct% of $gateBudgetMin min budget\"" -> "= 45-minute budget\""
+   want=red fail=1 pass=10/11 restored=bytes_equal named=true
+   red: ✖ workflow 两处等待都走单一真源：时长不得写成字面量、超时文案必须插值预算
+M10 两 job 共用较大前置（抹掉 per-job 口径）
+   file=gate-budget.js hits>=1 patch: "  'unit-tests': 'gate4OverheadMaxMin'," -> "  'unit-tests': 'shardOverheadMaxMin',"
+   want=red fail=1 pass=10/11 restored=bytes_equal named=true
+   red: ✖ 两个 job 各用各的实测前置，不得共用一个较大值糊过去
+M11 摘掉带内贴脸告警
+   file=quality-gate.yml hits>=2 patch: "          $gateElapsedMin = [math]::Round(((Get-Date) - $launchMark).T" -> "          # MUT-11 告警被摘"
+   want=red fail=1 pass=10/11 restored=bytes_equal named=true
+   red: ✖ 每次 CI 跑都自带"离墙还有多远"的带内信号
+M13 告警只留文本、删掉一处赋值
+   file=quality-gate.yml hits>=2 patch: "          $gateUsePct = [math]::Round(100 * $gateElapsedMin / $gateBud" -> "          # MUT-13 赋值被删"
+   want=red fail=1 pass=10/11 restored=bytes_equal named=true
+   red: ✖ 每次 CI 跑都自带"离墙还有多远"的带内信号
+M12 截尾比较改成分钟乘 60000 去比 ms
+   file=gate-budget-probe.js hits>=1 patch: "!okRun(r) && r.min >= budgetMin * 0.98" -> "!okRun(r) && r.min * 60000 >= budgetMin"
+   want=red fail=1 pass=10/11 restored=bytes_equal named=true
+   red: ✖ 复测入口的字段与出处逐字段对齐，单位换算锁到函数体
+N1 超时文案把插值换成硬编码 45-minute（收窄锁的第二落点）
+   file=quality-gate.yml hits>=1 patch: "Gate 4 exceeded its $([int]($gateBudgetMs / 60000))-minute execution b" -> "Gate 4 exceeded its 45-minute execution budget"
+   want=red fail=1 pass=10/11 restored=bytes_equal named=true
+   red: ✖ workflow 两处等待都走单一真源：时长不得写成字面量、超时文案必须插值预算
+N2 合规形态：注释里新增历史归因「30 分钟」必须仍为绿
+   file=quality-gate.yml hits>=1 patch: "# desktop 全量因此混进 Gate 4 的 30 分钟预算" -> "# desktop 全量因此混进 Gate 4 的 30 分钟预算\r\n          # 复测注：曾按 30 分钟档定数，见 #3315"
+   want=green fail=0 pass=11/11 restored=bytes_equal named=true
+   red: (none)
+N3 预算降到 44 分（< 1.5×观测最大值）——RULE_VIOLATED 的唯一反证
+   file=gate-budget.js hits>=1 patch: "const GATE_TEST_BUDGET_MS = 2700000 // 45 分钟" -> "const GATE_TEST_BUDGET_MS = 2640000 // 44 分钟"
+   want=red fail=2 pass=9/11 restored=bytes_equal named=true
+   red: ✖ 定数规则本身在测东西（抬高观测最大值 / 改小倍数都必须翻脸） | ✖ 健康态不得自判红：没贴脸时"零截尾样本"是正确结果（QM-6 双轴同指一处）
+FINAL 未变异 fail=0 pass=11/11 restored_ok=true
+CASES_RAN=16/16 MUTATION_BAD=0

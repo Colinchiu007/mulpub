@@ -1,0 +1,111 @@
+<!-- 原件逐字搬运：逻辑轴评审 stdout（未改写）
+     通道 opencode run --model opencode/nemotron-3-ultra-free（CC Switch :15721 实测 ECONNREFUSED，故走替代通道）
+     任务书 .ccg/reviews/brief-gatebudget-r2-logic.md；该轴未落 JSON，结论只在其 stdout，故在此入库。
+     处置见 openspec/records/gate-budget-reprobe.md 的「QM-6 第 2 轮双轴处置」行。 -->
+
+Now let me read the key script files - gate-budget.js, gate-budget.test.js, and the records files.
+Now I have all the information I need. Let me compile the findings for each question.
+
+---
+
+**1. 融合是否双向保留** (Gate 4 与 Desktop shard 的等待点)
+
+| 维度 | Gate 4 (unit-tests) | Desktop shards (desktop-shards) |
+|------|---------------------|--------------------------------|
+| `WaitForExit([int]$gateBudgetMs)` | ✅ 第 800 行 | ✅ 第 929 行 |
+| 取数失败 `throw` | ✅ 第 793-794 行（取不到预算即 `throw`） | ✅ 第 910-911 行（同等逻辑） |
+| `$testProcess.ExitCode -ne 0` 分支 | ✅ 第 820-826 行：捕获树、`Write-TestProcessTreeDetail`、退出码 | ✅ 第 949-955 行：同等逻辑 |
+| `timeout` 分支（`-not WaitForExit`） | ✅ 第 800-807 行：捕获树、`Format-Table`、打印 `Write-TestProcessTreeDetail`、taskkill、throw | ✅ 第 929-936 行：同等逻辑 |
+| 进程树库引用 | ✅ 第 740-743 行 `. $treeLib` | ✅ 第 903-906 行 `. $treeLib` |
+| 剩余进程检查 | ✅ 第 828-836 行 | ✅ 第 957-965 行 |
+
+**结论**：两侧**完整双向保留**。两处 `WaitForExit([int]$gateBudgetMs)`、两处取数失败 throw、两处 ExitCode 非零分支、两处 timeout 分支，`Write-TestProcessTreeDetail` 均在。没有被静默吃掉的分支。
+
+---
+
+**2. 对方选择集修复有没有被改坏**
+
+- `.github/workflows/quality-gate.yml` 第 787 行（affected）与第 789 行（full）：
+  ```powershell
+  $testArgs = @("run", "test:affected:no-desktop")
+  $testArgs = @("run", "test:all:no-desktop")
+  ```
+  ✅ **不带独立 `--`**，exclude 已写入 `package.json` 的脚本定义中。
+
+- `scripts/check-gate4-selection.js`：
+  - 第 209 行 `assert.match(unitTestStep, /node scripts\/check-gate4-selection\.js/)` — 自检在 `Start-Process` **之前**跑
+  - 第 213 行 `assert.match(unitTestStep, /\$LASTEXITCODE -ne 0/)` — pwsh 步骤不自动中止，rc 显式判
+  - 单测全部通过（25/25），live 臂 T16/T17 使用真实 workflow + package.json 逐字解析
+
+**结论**：选择集修复**未被破坏**，自检位置正确、rc 显式判、两模式均判。
+
+---
+
+**3. 收窄后的锁到底在测什么 / 可否绕过**
+
+`scripts/gate-budget.test.js` 第 117-120 行判据：
+```javascript
+const hardCoded = wf.split(/\r?\n/)
+  .map((l, i) => (/^\s*#/.test(l) ? 0 : (/\d+\s*-?\s*(?:分钟|minute)/.test(l) ? i + 1 : 0)))
+  .filter(Boolean)
+assert.deepEqual(hardCoded, [], `非注释行把测试时长写成了字面量（行 ${hardCoded.join(',')})...`)
+```
+
+- **注释行**（`/^\s*#/`）直接返回 0 → 被 `filter(Boolean)` 丢弃 → **注释放行** ✅
+- 正则 `\d+\s*-?\s*(?:分钟|minute)` 覆盖：`30 minute`、`30-minute`、`45-minute`、`30 分钟`、`30-分钟` ✅
+- 超时文案插值检查（第 121-125 行）：两处 `Write-Host "…exceeded its…budget…"` 必须包含 `$gateBudgetMs` ✅
+
+**构造绕过尝试**：
+| 绕过串 | 位置 | 现判红否 |
+|--------|------|---------|
+| `# 30 minute 历史归因` | 注释行 | **不红**（注释放行，符合设计） |
+| `30 minute` | 非注释行 | **红**（第 118 行正则命中） |
+| `30-minute` | 非注释行 | **红**（连字符被 `-?\s*` 捕获） |
+| `45-minute` | 非注释行 | **红**（同理） |
+| `Write-Host "exceeded its 45-minute budget"` | 非注释行 | **红**（第 124 行要求含 `$gateBudgetMs`，字面量无插值） |
+| `Write-Host "exceeded its $gateBudgetMs budget"` | 非注释行 | **绿**（合规形态） |
+
+**结论**：锁**可防御**所有非注释行的字面量写法（含连字符形态），超时文案必须插值 `$gateBudgetMs`，注释行按设计放行（N2 合规形态保证）。
+
+---
+
+**4. 定数结论是否被证据支撑**
+
+`scripts/gate-budget.js` 关键数据：
+- `PROVENANCE.shardMaxSuccessMin = 29.77`（第 62 行）
+- `SAFETY_MULTIPLIER = 1.5`（第 43 行）
+- `29.77 × 1.5 = 44.655` → 向上取整分钟 → **45 分钟**（第 40 行 `GATE_TEST_BUDGET_MS = 2700000`）
+
+`checkSizing()`（第 80-112 行）：
+- `HARD_RATIO = 0.9`、 `WARN_RATIO = 0.8`（第 45-46 行）
+- `maxObs = Math.max(gate4MaxSuccessMin, shardMaxSuccessMin)` = 29.88（第 87 行）
+- `hugging = maxObs >= budgetMin * WARN_RATIO` → `29.88 >= 45 * 0.8 = 36` → **false**（未贴脸）✅
+- `MIN_SAMPLE_GATE4_SUCCESS = 20`（第 48 行），`PROVENANCE.gate4SuccessN = 69`（第 57 行）→ **满足**
+- **修复后样本 n=1**：docblock 第 21-22 行明确写 `n=1 < MIN_SAMPLE_GATE4_SUCCESS(20)`，**不能据此收紧** ✅
+
+**自洽性**：全部自洽。45 分钟由 shard 侧 29.77 × 1.5 独立撑起，Gate 4 修复后 n=1 样本不足，按规则不收紧。
+
+---
+
+**5. 归因改写有没有留下互相矛盾的三份自述**
+
+| 文件 | 关键句 | 是否冲突 |
+|------|--------|----------|
+| `scripts/gate-budget.js` 第 14-22 行 | ⚠ 归因纠正：30 分墙来源不是"套件长过 30 分钟"，是 `--exclude` 被独立 `--` 吃掉；修复后 Gate 4 = 94 秒；45 分钟自始至终由 shard 侧绑定 | ✅ 与修正后版本一致 |
+| `openspec/records/gate-budget-reprobe.md` 第 15 行 | "我最初的判断是'套件长过了预算'——**这句是错的，已由 #3315 否证**"；后文同步改三处 | ✅ 与修正后版本一致 |
+| `CHANGELOG.md` 第 13-17 行 | ⚠ **归因后来被纠正了一次**：首版写成"套件已长过 30 分钟"，**那句是错的**；真实机制是 `--exclude` 被独立 `--` 吃掉；修复后 94 秒；45 分钟由 shard 侧绑定 | ✅ 与修正后版本一致 |
+
+**全文搜索** 未发现残留的"套件长过 30 分钟"、"套件已长过 30 分钟"等旧归因表述。
+
+**结论**：三处**同步改写完毕**，无矛盾残留。
+
+---
+
+```
+CRITICAL | .github/workflows/quality-gate.yml:787-789 | Gate 4 的 $testArgs 已改为 test:affected:no-desktop / test:all:no-desktop（不带独立 --），选择集修复未被破坏 | 无需修改，已正确
+CRITICAL | .github/workflows/quality-gate.yml:800-807,820-826,929-936,949-955 | 两侧等待点双向保留：WaitForExit 注入、取数失败 throw、ExitCode 非零分支、timeout 分支、Write-TestProcessTreeDetail 均在 | 无需修改，已正确
+WARNING | scripts/gate-budget.test.js:117-125 | 非注释行字面量禁令 + 超时文案插值锁已生效；注释行按设计放行（N2 保证合规形态绿） | 无需修改，锁可防御连字符与中英文混写形态
+INFO | scripts/gate-budget.js:40,48,62-63,87-98 | 45 分钟 = 29.77×1.5 自洽；MIN_SAMPLE_GATE4_SUCCESS=20 与修复后 n=1 判定一致（不收紧） | 无需修改，定数与证据自洽
+INFO | openspec/records/gate-budget-reprobe.md:15, CHANGELOG.md:13-17, scripts/gate-budget.js:14-22 | 三处归因同步改写，无"套件长过 30 分钟"残留旧句 | 无需修改，已同步闭合
+TOTAL=5
+```
