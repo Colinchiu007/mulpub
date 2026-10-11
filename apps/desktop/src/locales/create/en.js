@@ -190,6 +190,7 @@ export default {
         noTextError: 'Enter at least 1 text.',
         noFileError: 'Choose at least 1 file.',
         createFailed: (ctx) => 'Start failed: ' + ctx.named('message'),
+        createFailedUnknown: 'Unknown error',
       },
       mediaRequirementsVideo: 'Supports mp4 / mov / webm / mkv / avi. Max 512MB per file.',
       voice: {

@@ -66,7 +66,11 @@ const viewTests = [
   routeView('providers-redirect', '/providers', '.cohere-main .page-title:has-text("模型服务商设置")', '页面主标题', '/model-providers'),
   routeView('model-providers', '/model-providers', '.cohere-main .page-title:has-text("模型服务商设置")'),
   routeView('video-clone', '/video-clone', '.video-clone-view'),
-  routeView('film-engineering', '/film-engineering', '.film-canvas-view'),
+  // #3234 三标签重组后 /film-engineering 是 Hub 页（默认「自动」标签，画布懒挂载）——
+  // 就绪探针必须等 Hub 一定渲染的节点；等 .film-canvas-view 会 15s 超时（batch-teleport-fix 实测）。
+  // 上一版按直觉填了 canvas 类名 ⇒ 每次 run 都抛「就绪超时」，却被 Gate 7 的 `|| views_exit=$?` 吞掉。
+  // 不用 `:has-text("…")` 钉文案：那会把测试与 zh locale 字面量锁死，是既有假红来源。
+  routeView('film-engineering', '/film-engineering', '.film-hub-view .fh-title'),
   routeView('film-engineering-classic', '/film-engineering/classic', '.film-engineering-view'),
   routeView('create-editor', '/create', '.cohere-main h1:has-text("视频创作")'),
   routeView('create-pipeline-redirect', '/create/pipeline', '.cohere-main h1:has-text("视频创作")', '页面主标题', '/create'),
@@ -96,6 +100,10 @@ function createRunner(options = {}) {
     headless: options.headless ?? (process.env.HEADLESS !== 'false'),
   });
 }
+
+// 就绪故障的分类判据**与失败对象的合成**都只有一份实现，在同目录 ready-classification.js。
+// 不往本文件的 module.exports 里 re-export：分类单测直连共享模块，re-export 是零消费者的死导出面。
+const { exitCodeForError, buildSuiteError } = require('../ready-classification')
 
 async function runViewSuite(tests = viewTests, options = {}) {
   const runner = options.runner || createRunner(options);
@@ -137,16 +145,15 @@ async function runViewSuite(tests = viewTests, options = {}) {
     }
   }
 
-  if (fatalError) throw fatalError;
+  // 已收集的视图失败**优先于 close 的清理失败**：close 抛错不得把「视图从未渲染出来」
+  // 压成普通错误 —— 那会退回 exit 1，Gate 7 的 `= 3` 判定就点不到火（QM-6 前端轴 Minor）。
+  // launch 失败时 failures 必为空（还没跑循环），所以下面第二行仍是原语义。
   if (failures.length > 0) {
-    const error = new Error(
-      '单视图视觉门禁失败: '
-      + failures.map(failure => failure.test + ': ' + failure.error.message).join(' | '),
-    );
-    error.code = 'ERR_VISUAL_SUITE_FAILED';
-    error.failures = failures;
-    throw error;
+    const error = buildSuiteError('单视图视觉门禁失败', failures)
+    if (fatalError) error.cause = fatalError
+    throw error
   }
+  if (fatalError) throw fatalError;
 
   return {
     total: tests.length,
@@ -185,7 +192,7 @@ async function main(args = process.argv.slice(2)) {
 if (require.main === module) {
   main().catch(error => {
     console.error(error.message);
-    process.exitCode = 1;
+    process.exitCode = exitCodeForError(error);
   });
 }
 

@@ -51,7 +51,9 @@
 
 ## 测试策略（TDD，先红后绿）
 `tests/test_xiaohongshu_dom_hardening.py`（或并入 test_new_publishers.py）用 FakePage/FakeMonitor 覆盖：
-- 草稿 fail-closed：无草稿入口→failure 且未点发布。
+- 草稿 fail-closed：无正面确认（无成功响应、无 success URL、重载后计数未增长）→failure 且未点发布。
+  （2026-10-08 活体取证修正口径：原写法"无草稿入口→failure"把一条页面上不存在的控件当成了
+  前置条件，见 tasks 2.14；"按钮缺席"不是失败判据，"确认信号缺席"才是。）
 - 确认才成功：monitor 命中→success+真 url；未命中且回查失败→failure。
 - 选择器回退：首选缺失→候选命中。
 - contenteditable：断言调用 dispatch 路径。

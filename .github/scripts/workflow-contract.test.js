@@ -946,3 +946,39 @@ test('QG Visual 必须在 PR 侧产暗档渲染，且 Gate 7 与 Gate 7b round2 
   const partialCount = (body7b.match(/--partial/g) || []).length
   assert.ok(partialCount >= 2, 'Gate 7b 两轮判定都必须带 --partial（当前 ' + partialCount + ' 处）')
 })
+
+// Gate 7 的就绪故障必须参与判定（change: visual-readiness-gate，2026-10-11）。
+// 动因：同一步骤历史上是「捕获而不判定」——`pnpm.cmd run test:visual` 的退出码存进
+// $viewsExit 之后只被写进 `[GATE-7] suite exits:` 一行，阻断只看 $pixelExit。后果有现场：
+// film-engineering 因就绪选择器指向 Hub 懒挂载标签里的节点（`.film-canvas-view` 藏在
+// `v-if="isMounted('canvas')"` 后面）而每次 run 都抛就绪超时（main push run 38104148726 /
+// job 114366028731 现场 `views=1`），同一步骤结尾照打 `[GATE-7] All visual tests passed`
+// —— 一个从未渲染出来的视图因此长期不可判。
+// 四条锁：① 四个套件各有 `-eq 3` 判定；② 名单必须显式初始化为空串 —— PowerShell 里
+// `$null -ne ''` 为**真**，删掉初始化会把每条合规 PR 都判红，所以本锁同时要求
+// 「合规形态能绿」（否则存在性锁会锁死自己的修复路径）；③ 就绪拦截排在像素判定之前
+// （更高信息量的原因先出声）；④ 退出码仍逐个取 $LASTEXITCODE，不许退回 `|| x=$?`。
+test('Gate 7 必须按退出码 3 阻断就绪故障（捕获而不判定的回退锁）', () => {
+  const wf = yaml.load(fs.readFileSync(qualityGatePath, 'utf8'))
+  const g7 = wf.jobs.visual.steps.find((s) => /Gate 7 - Visual regression/.test(String(s.name || '')))
+  assert.ok(g7, 'Gate 7 步骤必须存在（改名会静默废掉本条锁）')
+  const body = String(g7.run || '')
+
+  for (const v of ['pixelExit', 'viewsExit', 'viewsSuppExit', 'darkExit']) {
+    const re = new RegExp('if \\(\\$' + v + ' -eq 3\\)')
+    assert.ok(re.test(body), '套件退出码 $' + v + ' 必须参与 =3 判定（只捕获不判定 = 装饰性门禁）')
+  }
+  assert.match(body, /\$suitesNotReady = ''/, '名单必须显式初始化为空串：$null -ne 空串在 PowerShell 里为真')
+  assert.match(body, /if \(\$suitesNotReady -ne ''\)/, '就绪名单非空必须触发拦截')
+  assert.match(body, /\[GATE-7\] FATAL.*就绪/, '拦截必须点名这是就绪类故障')
+  assert.match(body, /exit 3/, '拦截退出码必须是 3（与套件侧 ERR_VISUAL_NOT_READY 同档）')
+
+  const idxReady = body.indexOf("if ($suitesNotReady -ne '')")
+  const idxPixel = body.indexOf('if ($pixelExit -ne 0)')
+  assert.ok(idxReady >= 0, '未找到就绪拦截块 —— 上面的正则与这里的 indexOf 口径不一致')
+  assert.ok(idxPixel >= 0, '未找到像素判定块 —— Gate 7 既有阻断被改名，本条顺序锁失效')
+  assert.ok(idxReady < idxPixel, '就绪拦截必须排在像素判定之前')
+
+  const assigns = (body.match(/\$LASTEXITCODE/g) || []).length
+  assert.ok(assigns >= 7, 'Gate 7 每个套件都必须显式取 $LASTEXITCODE（当前 ' + assigns + ' 处，不得退回 || x=$?）')
+})

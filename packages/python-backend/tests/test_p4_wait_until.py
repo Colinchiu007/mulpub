@@ -100,6 +100,10 @@ def test_xiaohongshu_publisher_no_longer_blind_sleeps():
     assert src.count("await self._await_control(") >= 2, "上传控件与编辑器就绪各自须有一处轮询调用"
     for helper in ("_await_upload_input", "_await_editor_ready", "_await_control"):
         assert f"async def {helper}(" in src, f"就绪轮询 {helper} 被删除"
+    # 这里钉的是**机器可读标识符**，与 §4f-i4 移除的耦合不同类：i4 移除的是"给用户看的
+    # 显示措辞"（改文案就假红、且措辞本身不承载结构）。标识符改名是有意行为，改到就必须
+    # 让守卫红一次，逼作者确认"轮询是否仍在这两处各存在一份"——静默改名才是本仓反复清理的
+    # 失效类。（CCG 第四轮 i2 裁决：dismissed，理由即此区分。）
     # 常量必须由发布器读取后传参：DOM 模块若自己 import 选择器常量，
     # monkeypatch 发布器模块的同名常量就会静默失效——能力声称存在但配置不再起作用，
     # 正是本轨反复清理的"静默失效"类，所以在此钉死结构而不是只靠注释。

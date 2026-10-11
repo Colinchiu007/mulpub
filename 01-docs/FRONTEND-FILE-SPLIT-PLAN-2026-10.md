@@ -74,12 +74,12 @@ src/views/
 |---|---|
 | 1 | ✅ 部分完成：BGM 域 owner 登记已落（#3236）；**弹窗组件化未做**（先用 composable 验证 §2.3 机制，见 §2.5 偏离记录） |
 | 2 | ✅ 完成：`useBgmLibrary`（#3236）+ `useTtsVoices` 4 模块（#3259，前置 i18n 迁移 #3252，§2.6/§2.7） |
-| 3 | ⏸ **缓做**：`useBatchCreate` 已实现（330 行，自检全过），前置是 Teleport 测试基建（§2.8 实测污染）；归属修正已记录（删除三方法留壳） |
+| 3 | ✅ 完成：`useBatchCreate`（#3271 前置 #3272 Teleport 清场基建；§2.10）；删除三方法留壳（归属修正） |
 | 4 | ❌ **不做**（§2.9：49 触点、冲突频率 2/50 全域最低，投入产出比不成立） |
 | 5 | ❌ **不做**（§2.9：s2vConfig 108 + Profile 174 触点为全案最重，冲突频率与已完成 TTS 域相当——TTS 拆出后压力已分摊） |
 | 6–7 | ❌ 连带放弃（依赖第 5 步壳层化） |
 
-**里程碑 2 正式收尾**：CreateView.vue 5654 → **4999 行**（净 −655），方案承诺的「locales + 第 1-2 步 ≈ 80% 收益」已兑现；第 3 步缓做待测试基建，第 4/5/6/7 步以实测数据做出「不做」的明确结论（详见 §2.9）。
+**里程碑 2 正式收尾**：CreateView.vue 5654 → **4896 行**（净 −758），方案承诺的「locales + 第 1-2 步 ≈ 80% 收益」已兑现；第 3 步已完成（#3271/§2.10），第 4/5/6/7 步以实测数据做出「不做」的明确结论（详见 §2.9）。
 
 **分阶段止损策略（v2 采纳审查 B-7 反方路线）**：
 - **里程碑 1**：locales 拆分（§三，机械低风险，解决全仓最高频冲突点，收益最确定）
@@ -258,6 +258,33 @@ node .github/scripts/check-locale-sync.js --cjk
    - 已试并放弃的修法：包装 `w.unmount`（破坏 this 绑定与时序）、`afterEach` 清 `document.body`（残留不在 DOM）。**未找到不改旧测试语义的最小修复**。
 4. **决定（止损纪律）**：批量域抽取**暂缓**，回退本批代码改动；下一步先做**测试基建修复**——给批量弹窗测试建立「卸载后清扫 Teleport 残留 + flush 挂起微任务」的标准模式（候选：`afterEach` 内 `await new Promise(setTimeout 0)` 冲刷后再清 body；或让桥接 setter 带代际标记拒收过期 vm 的写入），修复后重跑本批。**在此期间第 3 步不计入已完成里程碑。**
 5. **教训入档**：§2.3 的「模块级单例 composable」模式对**有 Teleport 弹窗交互的域**有一个此前未识别的前提——测试必须在卸载后冲刷并清场。抽取前应先审「该域的测试是否依赖 Teleport 交互」，把这类测试基建成本计入 §2.3-5 的工期估算。
+
+**§2.8 暂缓的后续（batch-teleport-fix，同日）：测试基建已落地、批量域抽取已闭环**——见 §2.10。
+
+### 2.10 批量域抽取闭环 + Teleport 清场基建（batch-teleport-fix，2026-10-10）
+
+**上轮（§2.8）遗留的两个问题本轮均已解决**：
+
+1. **上轮误删 two 行 data 声明的根因与根治**：接线脚本「先摘常量行再 splice 块」的两次 splice 使行号失效，误删了块外的 `MAX_STORY2VIDEO_TEXT_CHARACTERS` 与 `s2vImageProviders/VideoProviders` 声明。本轮改为**「批量块 + 容量常量行」作为一个连续区间一次 splice**，并加**幸存自检**（两个声明必须还在，否则报错）——同类错误不可能再静默通过。
+2. **跨用例污染的真因与修复**（比 §2.8 的 Teleport 假设更准确）：经逐点实证（`DBG-sync` 双路读取证明 vm 与模块单例同源、非双实例），污染是**上一用例的迟到状态写入在下一用例的 mount 过程中落地**（`mountS2V` 的 `setTimeout(50)` 窗口恰好给挂起微任务让路）。**修复是双保险**：
+   - `afterEach` 调 `afterTeleportCleanup()`（`teleport-cleanup.js`：冲刷挂起微任务 → 清 body → 再冲刷）；
+   - `mountS2V` **mount 前强制 `resetBatchCreateForTest()`**（兜底防线：无论前序如何泄漏，mount 时状态必为初值）。
+   `teleport-cleanup.test.js`（3 例）以最小复现组件固化该模式（含「清场顺序必须 unmount 在前」的实证）。
+
+**抽取结果**：
+
+| 项 | 结果 |
+|---|---|
+| `useBatchCreate.js` | 330 行（12 状态 + 15 方法 + 1 计算…0 计算——删除确认文案留壳）；deps 注入 8 项；每函数 `const d = requireDeps()` fail-closed |
+| `CreateView.vue` | 5057 → 4896 行（净 −161） |
+| `CreateView.test.js` | **288/288 零改动全绿**（新增 2 处复位钩子 + 批量 describe 的 afterEach 清场 + mount 前强制复位） |
+| 新增 `teleport-cleanup.js/.test.js` | 清场基建 + 3 例机制锁 |
+| 全量（views+locales+overlay） | 见本 PR CI |
+| Gate 7 / 债务熔断 | PASS / PASS |
+
+**留壳清单**（跨域过深）：批量删除三方法 + `story2videoBatchDeleteDialogMessage`（依赖 `deleting`/`history`/`story2videoBatchDeleteDialog`）。
+
+**里程碑 2 收口状态更新**：§2.9 的「第 3 步缓做」前置已满足，**第 3 步至此完成**——`CreateView.vue` 4999 → 4896 行。第 4/5/6/7 步维持「不做」结论不变。
 
 ### 2.9 第 3–5 步复评收口（2026-10-10，数据驱动；里程碑 2 落地完成）
 

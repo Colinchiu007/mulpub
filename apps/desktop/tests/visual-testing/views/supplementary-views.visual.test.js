@@ -5,6 +5,10 @@
 
 const path = require('path');
 const { VisualTestRunner } = require('../test-runner');
+// 与 all-views 共用同一份就绪判据**与失败对象合成**：两套 runViewSuite 是两份实现，
+// 但「什么叫这一页根本没渲染出来」和「失败对象长什么样」必须只有一个口径
+//（见 ready-classification.js）。不 re-export —— 分类单测直连共享模块。
+const { exitCodeForError, buildSuiteError } = require('../ready-classification');
 
 function check(name, selector, prompt) {
   return { name, selector, prompt };
@@ -259,6 +263,7 @@ async function runViewSuite(tests, options = {}) {
     headless: options.headless ?? (process.env.HEADLESS !== 'false'),
   });
   const failures = [];
+  let fatalError = null;
 
   try {
     await runner.launch();
@@ -270,16 +275,20 @@ async function runViewSuite(tests, options = {}) {
       }
     }
   } finally {
-    await runner.close();
+    try {
+      await runner.close();
+    } catch (closeError) {
+      // 清理失败先记下来，由下面按「视图失败优先」取舍，不得吞掉已收集的就绪失败
+      fatalError = closeError;
+    }
   }
 
   if (failures.length > 0) {
-    const error = new Error(
-      `补充视图失败: ${failures.map(item => `${item.test}: ${item.error.message}`).join(' | ')}`,
-    );
-    error.failures = failures;
+    const error = buildSuiteError('补充视图失败', failures);
+    if (fatalError) error.cause = fatalError;
     throw error;
   }
+  if (fatalError) throw fatalError;
 
   return { total: tests.length, passed: tests.length };
 }
@@ -304,7 +313,8 @@ if (require.main === module) {
       : runSupplementaryTests;
     run().catch(error => {
       console.error(error.message);
-      process.exitCode = 1;
+      // 3 = 有视图从未渲染出来；1 = 像素/校验类。与 all-views 同一映射。
+      process.exitCode = exitCodeForError(error);
     });
   }
 }

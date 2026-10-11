@@ -32,6 +32,28 @@
 
 ---
 
+# [未发布] fix(visual): 让「视图从未渲染出来」成为硬失败——修就绪选择器与 Gate 7 的「捕获而不判定」（2026-10-11，visual-readiness-gate）
+
+## 背景
+
+`QG Visual` 的 Gate 7 把三套视图/暗档命令写成 `pnpm.cmd run test:visual || views_exit=$?`，退出码只被打印进 `[GATE-7] suite exits:` 一行，该步的阻断条件却只看 `$pixelExit` 与 `$judgeExit`。于是 `film-engineering` 这个视图**自登记起每次 run 都失败**却从不拦下任何东西：main push run `38104148726`（head `337f17257`）现场是 `单视图视觉门禁失败: film-engineering: 视觉测试就绪超时（15000ms）：stage=业务选择器(.film-canvas-view)` + `[GATE-7] suite exits: pixel=0 views=1 …`，而同一步结尾照打 `[GATE-7] All visual tests passed`。
+
+## 改动
+
+- **根因**：`routeView('film-engineering', '/film-engineering', '.film-canvas-view')` 里的 `.film-canvas-view` **不在该路由上**。`/film-engineering` 渲染的是 `FilmEngineeringHubView.vue`（根节点 `.film-hub-view`），canvas 是 Hub 里 `v-if="isMounted('canvas')"` 的**懒挂载标签页**，默认标签是 `auto` ⇒ 不带 `?tab=canvas` 时该选择器永不存在，每次都烧满 15s 就绪预算。锚点改为 `.film-hub-view .fh-title`（Hub 在任何标签下都渲染的 `<h1>`，是"这一页确实挂载了"的最小出口）；不写 `:has-text("…")`，那会把测试与 zh locale 字面量钉死。**归属与本 PR 的净差量**：re-sync 时该行与 origin/main 冲突 —— 另一会话已独立把同一选择器改成 `.film-hub-view`（注释出处 #3234 三标签重组 / batch-teleport-fix 实测），两侧结论语义相同。本 PR 的差量按 `git show origin/main` 当场对照：main 上 Gate 7 **没有** `= 3` 判定、没有 `suitesNotReady`、`|| views_exit=$?` 仍在吞退出码、也没有 `ready-classification` 模块 ⇒ 就绪类故障在 main 上依然不可判，本 PR 交付的是那道判定。
+- **新增唯一实现** `apps/desktop/tests/visual-testing/ready-classification.js`：`READY_TIMEOUT_CODES` / `isReadyFailure` / `exitCodeForError` / `classifyFailures`。分类按 **`error.code`**（`ERR_VISUAL_APP_READY_TIMEOUT` = Vue 从未挂载、`ERR_VISUAL_READY_SELECTOR_TIMEOUT` = 业务选择器始终没出现），**不按消息文本** —— 码是合同，文案随时可重写。
+- **两套 `runViewSuite` 共用同一份分类**：`all-views.visual.test.js` 与 `supplementary-views.visual.test.js` 各有一份聚合循环，过去后者连 `error.code` 都不设。只改一侧会让 Gate 7 里 `views-supplement` 那条判定永远点不到火，于是两处都改为 require 共享实现，退出码同一映射（就绪 ⇒ **3**，像素/校验 ⇒ 1）。
+- **Gate 7 参与判定**：四个套件退出码任一 `= 3` ⇒ 在 `$pixelExit` 判定**之前** `exit 3` 并点名套件。`1` 仍交给 Gate 7b 的两轮甄别 —— 不是保守：把"非 0 即拦"当收敛，会把真实存在的采集抖动（#2914 同 sha 两次 attempt 一档红一档绿）变成所有 PR 的常量红。名单 `$suitesNotReady` 显式初始化为空串，因为 PowerShell 里 `$null -ne ''` 为**真**。- **QM-6 后端评审命中的 Critical（分类初版带 `error.name === 'TimeoutError'` 兜底）**：复核后确认成立，且是**本 PR 把 supplement 接进分类时才打通的自引入回归**。`_waitForApplicationReady` 已把该阶段所有超时改写成两个码（`test-runner.js:231-250`），兜底捞不到任何就绪路径；它真正捞到的是补充套件 4 个带 `trigger`/`afterTrigger` 视图的 `page.click`/`page.waitForSelector` 超时，以及 `page.goto` 的 15s 超时（裸 `TimeoutError`，`test-runner.js:292-295`，冷 Vite 首次依赖优化就能超）—— 这些会被编成 `exit 3`，**绕过 Gate 7b 的两轮甄别**，正是本分档要防止的「把抖动变成所有 PR 的常量红」。处置：删掉兜底（`isReadyFailure` 只认三个码），新增 R12/R13 两条回归锁，并加变异 N7＝「把兜底加回来」实测变红（`Failed Tests 2`）。未采纳评审建议的「为 click 超时新增 `ERR_VISUAL_TRIGGER_TIMEOUT`/`ERR_VISUAL_DIALOG_TIMEOUT` 两个码」—— 那属新增契约，而这些失败的目标语义就是不阻断，1 档已足够。
+- **QM-6 前端/工程轴（`opencode/ling-3.1-flash-free`）：Critical=1（读取时刻成立，已由上一条闭合）+ Minor=7，采纳 5 条**：① 失败对象的**消息模板与 `code` 赋值**在两套循环里各抄一遍（逐行对照除前缀外逐字相同）→ 收进共享模块 `buildSuiteError(prefix, failures)`，R11 加"套件里不得出现该模板、不得自行赋那两个码"两条锁，反证 N8 实测变红；② `close()` 抛错会**吞掉已收集的就绪失败**（`supplementary-views` 是裸 `finally`，`all-views` 的 `if (fatalError) throw` 排在分类块之前）→ 两套统一改为「视图失败优先、close 失败挂 `cause`」，新增 R14/R15；③ 两套 re-export 的 `isReadyFailure`/`exitCodeForError` 是零消费者死导出，且注释声称"给 run-all-visual.js 使用"与事实不符（实测该文件只取注册表与运行函数）→ 删导出、改注释；④ `classifyFailures` 与 `autonomous-enforce-loop.js:197` 同名不同义 → 改名 `classifyVisualFailures`；⑤ Gate 7 对 pixel/dark 的 `-eq 3` 当前不可达（`run-pixel-tests.js` 实测只有一处 `process.exitCode = 1`）→ 保留判据并在 workflow 里如实注明不可达，禁止把它读成"环境故障已被拦住"。未采纳 2 条并给理由：`waitForSelector` 超时面（评审自判"无缺陷不可表示"）、`run-all-visual.js` 把 3 稀释成 1（聚合器角色是汇总非门禁，登记进 PRD §6）。同批实测：`Tests 15 passed (15)`、消费者并集 `72 passed (72)`、`workflow-contract` `35 pass / 0 fail`、变异 N1–N8 `red=8/8`。
+
+## 验证
+
+- 新增 `apps/desktop/tests/visual-testing/visual-readiness-classification.test.js`：13 例（R1–R13），注入假 runner，**不需要浏览器与 dev server**；R7 是真注册表自证（读 `router/index.js` + Hub 源码推根类名，不是写死字符串相等），R11 是"两个套件只 require、不得自带定义"的单一实现锁。实测 `Tests 11 passed (11)`。
+- 消费者并集（按 `git grep` 反查引用被改模块的测试，而不是只跑 diff 里的文件）：`tests/visual-ci.test.js` + `tests/visual-testing/condition-waiting.test.js` + `electron/tests/visual-view-runner.test.js` + 新测试 ⇒ `4 passed / Tests 70 passed (70)`。
+- `.github/scripts/workflow-contract.test.js` 新增结构锁 ⇒ 实跑 `35 pass / 0 fail`（改前基线 34）。
+- 变异 N1–N7 逐个实测变红（`red=7/7`），收尾按 `Buffer.compare` 断言与备份逐字节相同。另把 Gate 7 那几行原文抽出来喂 `pwsh` 跑六格行为表：全 0 ⇒ rc=0；`views=3` ⇒ rc=3 点名 views；`views=1` ⇒ rc=0；`pixel=3` ⇒ rc=3；**删掉初始化 ⇒ rc=3 且名单为空**（证明"合规形态能绿"不是声明）。
+- 最终现场仍以本 PR 自己的 `QG Visual` 为准：`[GATE-7] suite exits: pixel=0 views=0 views-supplement=0 dark=0`（`views` 必须由 1 变 0）。
+
 # [未发布] docs(podcast): 刀 3 下半片接口契约入规格（2026-10-11，podcast-episode-ipc）
 
 ## 改动
@@ -67,6 +89,7 @@
 ## 边界（不冒充已闭合）
 
 - F3（取消贯穿到在途子进程）、F9（测试 fixture 常量耦合）与 F8 的 `episodeSink`/`feedSink` 真实实现半边随下半片；本增量仍**没有生产调用者**。
+
 
 # [未发布] feat(podcast): 播客刀 3 前两片——成片降级判定、混音抽取实测与出期编排收口（2026-10-11，podcast-episode-publish）
 

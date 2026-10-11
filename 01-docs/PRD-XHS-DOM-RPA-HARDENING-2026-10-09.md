@@ -24,8 +24,8 @@
 
 | 能力 | 行为 |
 |------|------|
-| 草稿 fail-closed | `draft=true` 找不到草稿入口 → 一律报 `XHS_DRAFT_ENTRY_MISSING` 并**阻止任何公开发布点击**（修旧代码"草稿误公开发布"） |
-| 确认才成功 | 三级回退：XHR 响应 `code==0` → 显式 success URL 跳转 → 草稿箱回查命中；均无 → `XHS_UNCONFIRMED` 失败，**不伪造 success、不伪造 url** |
+| 草稿 fail-closed | `draft=true` 时没有任何正面确认 → `XHS_UNCONFIRMED` 并**阻止任何公开发布点击**（修旧代码"草稿误公开发布"）。原口径"找不到草稿入口即报 `XHS_DRAFT_ENTRY_MISSING`"已被 §4o 活体取证推翻：图文编辑器根本没有该按钮 |
+| 确认才成功 | 三级回退：XHR 响应 `code==0` → 显式 success URL 跳转 → 草稿箱回查（计数增长优先，标题匹配兜底）；均无 → `XHS_UNCONFIRMED` 失败，**不伪造 success、不伪造 url** |
 | 选择器回退链 | 标题/正文/草稿按钮/发布按钮/上传完成/标签 均配多候选，命中即停，抗小改版 |
 | 富文本写入 | `contenteditable` 上 `fill()` 抛错时回退 `dispatchEvent(input/change)` |
 | 标签处理 | 逐个 `type` + 选下拉/回车，替换覆盖式 `fill`（旧行为只留最后一个标签） |
@@ -130,6 +130,8 @@ DRAFT_SAVE_RESPONSE_PATTERNS: list[str] = ["/web_api/sns/v2/note"]
   `test_visible_hosts_beyond_scan_limit_are_not_read`。
 - 判定记录：i1、i2 均 `upheld`（含 prosecution/defense/rationale 三列，可复核）。
 
+=======
+>>>>>>> fef47eb7e (fix(xhs-dom): 落地 CCG 深评五项（风控可见性硬前提 / 等待上限回归 / 守卫解耦 / CI 纳管）)
 ## 4d. Python 轨认证已被策略硬阻（2026-10-09 用户实跑暴露）
 
 用户按 §6 运行探针，崩溃于 `legacy_auth_policy.require_legacy_plaintext_auth()`：
@@ -483,28 +485,294 @@ critic 出 7 条问题、维度最低分 6，收敛判定 `self_play`，待裁�
 那一刻静默降级为只看一半。后续凡按 500 行门禁做拆分，落笔时必须逐条回答：哪些守卫读的是
 旧文件的路径？它们的新语义是否仍然成立？
 
+根本走不到存草稿。代码读的是 `info.file_id`
+（`packages/api-publish-engine/src/publish/platforms/xiaohongshu-draft.js`），平台回的是
+`uploadTempPermits`；全仓 grep `uploadTempPermits` **零命中**，说明这是刚取到的新契约
+证据，不是既有已知项。
+
+**这条断裂不影响 2.4 的验收路径（差点写错）**：我一度把它写成"桌面队列存草稿被阻塞"，
+据代码核对后撤回——`apps/desktop/electron/services/publisher-router.js` 的
+`ROUTE_TABLE.xiaohongshu = {mode:'rpa_vm'}`，桌面发布队列走 `RpaViewManager`
+（WebContents `executeJavaScript` DOM 轨，上传/点草稿都在页面里做），
+**不经过** `api-publish-engine` 的草稿链；后者今天只被诊断探针 IPC
+（`ipc-handlers/xiaohongshu-draft-probe.js`）和引擎适配器注册表
+（`src/adapters/xiaohongshu.js` ← `src/index.js`）触达。所以 permit 断裂的实际影响面是
+"将来把路由切成 API 轨"这一选项，而不是本 change 的验收路径。把它当成验收阻塞，
+就会得出"必须先把草稿箱验收改成修 permit"这个错误结论。
+
+**为什么不在本轮直接修**：探针为安全只回传白名单字段（键名，不含值），我据此只知道
+`uploadTempPermits` 这个键存在，不知道它是数组还是对象、项内有无 `file_id`。
+按键名猜形状写出来的解析器，就是本轨一直在清的"能力声称存在、实际从不触发"的第二种
+形态。2.7 的正确顺序：先在本地（gitignored，不入库）扩一处完整回包 dump 取到结构，
+再按结构 TDD 解析器与它自己的 PR——且该修复属 API 轨范围，需用户确认是否纳入。
+
+红线复核：探针未点击任何公开发布入口；回包只落本地；账号与 cookie 名称不入库、不入 PR。
+
+=======
+## 4m. CCG 深评第四轮（`e2170329` 批次）：一个常量不许兼任判据与成本闸（2026-10-09）
+
+第四轮 critic 出 7 条、最低分 6，收敛仍走 `self_play`，待裁决 3 条、高危域 0 条。
+**i1 upheld（生产代码）、i3 upheld（测试加固）、i2 dismissed（仅补按语）**。
+
+| 项 | 争议 | 裁决 | 可验证依据 |
+|----|------|------|-----------|
+| i1 | `visible_texts`/`visible_count` 用 `total = min(count(), limit)` **在 DOM 序上截断、且先于可见性过滤**；portal 把真实风控弹层 append 到 body 尾部，前 8 个节点若多为常驻隐藏模板，可见风控层下标 ≥8 就永不被扫 ⇒ 文案轨与占位轨同时漏判、流程继续走向发布。原注释还写着「真实风控层是页面上最靠前的可见容器之一」——**零活体证据的假设** | **upheld** | 破坏-恢复：把 `total` 改回 `min(count(), limit)` ⇒ 恰好 1 条红（`test_visible_risk_layer_after_hidden_templates_is_caught`，:460 `assert False is True`）；恢复 ⇒ 39 passed，相关全量 68 passed |
+| i2 | 静态守卫仍按源码字面量断结构（helper 名、调用形式、`count(...)>=2`），指控为 §4f-i4 声称已除的格式耦合类复发 | **dismissed** | 区分口径可核对：§4f-i4 移除的是**给用户看的显示措辞**锚点，第三轮 i3 的修复方向恰是**把锚点换成机器可读 key**；本守卫钉的正是机器可读标识符与调用图，改名/收敛调用形式属有意重构，此时红一次是设计目标。行为面另有不依赖字面量的用例（哨兵值归属、超时留痕、本轮新增实参 spy）。处置为在锚点补按语，不改断言 |
+| i3 | `test_upload_wait_poll_count_matches_its_own_ceiling` 的 `1<=calls<50` 是魔数区间：interval 归属**结构上不可分辨**（同一用例把两条 interval 都 patch 成 0.01），超时误用只能靠时序越界抓 | **upheld** | 双向变异：仅换 interval ⇒ 旧区间绿、新 spy 用例红（即零判别力的直接证据）；仅换 timeout ⇒ spy 与区间两条同时红；恢复 ⇒ 68 passed |
+
+**落地**：
+- i1：`limit` 的语义改为「收集满 limit 条**可见**项即停」，探测次数另由新常量
+  `RISK_HOST_PROBE_LIMIT = 32` 设硬闸，并由发布器传参（dom 模块仍不得 import 选择器常量，
+  守卫已有该断言）。最坏成本从「整页 `count()` 次 `inner_text`」变成「至多 32 次
+  `is_visible` + 至多 8 次 `inner_text`」。同时删除那句未验证假设。
+  测试侧为此给 `FakePage/FakeLocator` 增加逐元素可见性 `hidden_items`——原假 page 只能表达
+  「整个 selector 可见/不可见」，**结构上无法表达**这条场景，这本身就是覆盖面被夹具能力限制的证据。
+- i3：区间上界改由被 patch 的常量推导（`timeout/interval + 3`，下界保持 1 并写明 Windows
+  sleep 粒度 ~15ms 的抖动理由）；新增 `test_upload_wait_is_fed_the_upload_constants`，
+  桩住 `dom.wait_until` 捕获实参 `(timeout_s, interval_s)`，四条常量各取唯一值，
+  直接断言配对不被拆开——确定性的归属判据，不受时序影响。
+
+**第四类失效模式（与前三种并列）**：一个参数/常量同时兼任**判据口径**与**成本上限**。
+这两者的语义相反（判据要"扫全"、成本要"截断"），兼任时必然有一侧被牺牲，且被牺牲的一侧
+通常写在注释里用一句未验证假设自我合理化。凡遇到 `min(x, N)` 型截断，落笔时必须回答：
+N 是成本闸还是判据？若是成本闸，判据侧的截断口径按什么计数？
+
+=======
+## 4n. CCG 深评第五轮（`9237e6ce` 批次）：成本闸消灭的是无界，不是悬崖（2026-10-09）
+
+第五轮 critic 出 7 条、最低分 6，收敛仍走 `self_play`，待裁决 3 条、高危域 0 条。
+**三条全部 upheld**（`.adversarial/ccg-deep-9237e6ce/adjudication.json`），且都是上一轮
+修复自身留下的缺口——这轮的价值在于证明"修好一条失效模式"不等于"修好这条模式的所有实例"。
+
+| 项 | 争议 | 裁决 | 可验证依据 |
+|----|------|------|-----------|
+| i1 | 实参 spy 只在**媒体路径**上跑，而该路径上传先 fail-closed 中止，`_await_editor_ready` 从未执行 ⇒ 编辑器等待的常量配对零保护；日志用例只断 `title_input` 不断哨兵值 | **upheld** | 变异：编辑器改喂 `UPLOAD_*` ⇒ 改动前 0 条红（指控成立）；补 `test_editor_ready_is_fed_the_navigate_constants`（走无媒体路径，四个常量各取唯一值）⇒ 同一改动恰好 1 条红且红在新用例 |
+| i2 | `RISK_HOST_PROBE_LIMIT=32` 仍是按 DOM 序的截断，只是把悬崖从 8 移到 32；新常量无生效值断言 | **upheld**（子指控"删接线不红"不成立：`probe_cap` 是必填关键字参数，删之即 TypeError） | 变异：`probe_cap` 接成 `RISK_HOST_SCAN_LIMIT`(8) ⇒ 3 条红；落地为**截断留痕**而非换更大的数——`visible_texts`（命中数超上限且未集满可见文案）与 `visible_count`（超上限且一个可见都没数到）各打一条含选择器与两个计数的告警 |
+| i3 | `RISK_TEXT_PATTERN` 含单词级「验证码」「风控」，与注释自称"只收强指认短语、不收裸词"直接矛盾 | **upheld**（只认"注释与实现互相打脸"这半；行为面不改词表） | 不改词表的理由固化为设计而非偶然：新增 `test_verification_code_dialog_is_risk_by_design`，变异（去掉「验证码」）⇒ 恰好 1 条红；注释改写为两条明确口径，并写明改判前提是 2.2 活体取证取到不含核验语义的该文案 |
+
+**留痕之外还补了一道对照实验**：占位轨的截断留痕最初无人看守——删掉那段告警后
+`43 passed` 全绿（这正是 i2 指控的同型实例）。据此补
+`test_placeholder_track_truncation_leaves_a_trace`，删除该段即恰好 1 条红。
+五道变异（A 编辑器错配 / B 去文案轨留痕 / C probe_cap 接成 8 / D 去占位轨留痕 / E 收窄词表）
+逐条红于且只红于对应新用例，恢复后 `44 passed`。
+
+**第五类失效模式**：**同一机制的多个调用点，保护只做了一半**。上传与编辑器两条等待共用
+`dom.wait_until`，spy 只钉了其一；文案轨与占位轨共用同一道成本闸，留痕只写了一处。
+补保护时必须先问"这个机制还有几个入口"，并让每个入口都能独立被变异抓出来——
+上游 fail-closed 会把下游路径整条屏蔽，只测上游等于没测。
+
+**第六类失效模式**：**不可消除的漏判面必须变成可观测面**。任何有限上限都留悬崖，在没有
+活体证据说明风控层 DOM 位置之前，把它换成"反向扫尾部"只是再猜一层未验证假设。正确处置是
+承认代价并留痕（截断即记录选择器 + 命中数 + 探测数），让下一次静默失效可查、并让取证数据
+自己说话。同时注释不许夸大实现口径：注释与代码不一致时，注释会变成误导后续审查的产物。
+
+=======
+## 4o. 第三轮运行态取证（tab CDP · 账号分区）：图文草稿是自动保存 + 浏览器本地态（2026-10-08 定案）
+
+### 取证方式
+用**运行中的桌面实例**（已带 `--remote-debugging-port`）经零依赖 CDP 驱动渲染端：免扫码、免新实例。
+标签页必须经 `window.electronAPI.pageManager.createNewTabPage({url, accountId, platform})` 打开，
+才会落到 `persist:account-<id>` 已登录分区（`tab-lifecycle.js:24-38`）；不带 `accountId` 时走临时
+`persist:browse-<tabId>`，进发布页即 401 弹回登录页。探针只做只读枚举、`location.reload()` 和
+点「草稿箱(N)」这个**导航**入口；绝不点发布、绝不点删除。账号 id/名称等活体产物只落 gitignored
+的 `.agent_context/tier2/live/`，不入库、不入 PR 描述。
+
+### 四条结论（推翻本仓此前四条假设）
+1. **图文编辑器没有「存草稿/保存草稿/暂存离开」按钮。** 按钮与叶子文本全量枚举（关键词含
+   「草稿」「暂存」，探测放宽到 12 次）无一命中；页面右下角显示「编辑于 刚刚」，即草稿由平台
+   **自动保存**。⇒ PR-1 把一条页面上根本不存在的控件当成了成功前置条件，`XHS_DRAFT_ENTRY_MISSING`
+   在真实页面上永不成立；该常量与它的归一已删除。
+2. **草稿箱入口就是发布页自身**（左侧 `header-draft` 面板），取证地址为
+   `.../publish/publish?from=menu&target=image`；此前的 `?draft=true` 是从未在活体出现过的猜测值。
+   ⇒ `DRAFT_BOX_URL` 已按证据改为真正会重载到图文面板的地址。
+3. **计数节点实测 `SPAN.draft-title`，文本形如「草稿箱(1)」**；条目标题选择器
+   （`[class*="draft"] [class*="title"]`）仍未取证，只保留为次级兜底。
+4. **图文草稿是浏览器本地态，跨分区不可见。** RPA 窗口用 `persist:rpa-<platform>-<accountId>`
+   （`rpa-view-session.js:130-143`），与账号标签页的 `persist:account-<id>` **不是同一分区**。
+   ⇒ 账号标签页里读到「草稿箱(0)」并不证明 RPA 没写进去，只证明**证据介质口径错配**。本段最重要
+   的自我纠错就在这里：先前把「队列 success + 草稿箱 0」判成假成功，实质是拿 A 分区的可见性去判
+   B 分区的写入，判据本身无效。
+
+### 2.4 活体验收（通过）
+账号分区内人工复现存草稿：进发布页读到「草稿箱(0)」→ 填标题/正文并上传图片（`ros-upload` 实测
+5242880 bytes）→ `location.reload()` → **「草稿箱(1)」**，点开草稿箱可见本次标记标题条目与
+「编辑于 …」。证据：`live/after-20261008T213745.json`。
+⇒ 验收口径固化为：**以重载后「草稿箱(N)」计数增长作为图文草稿的正面确认信号**。
+
+**证据强度按语（CCG 六轮 i5，如实登记不加码）**：这条判据只由**一次**人工观测（0→1）支撑，
+且「同一次编辑复用既有草稿槽」「多标签并发写入」两种形态**没有观测面**。因此本节固化的是
+"在该形态下计数 +1 是正证据"，不是"计数不涨就一定没写"。代码侧对应的处置是：不涨时仍保留
+标题回查这一条**未取证**的兜底通道（可命中确认，不因不命中判失败），并把 `baseline → now`
+的实际转移值打进日志，让"看着没涨"成为可核对的线索而非结论。
+
+### 代码落地（同批）
+- `xiaohongshu_selectors.py`：`DRAFT_BOX_URL` 改为取证地址；新增 `DRAFT_BOX_COUNTER_SELECTOR`
+  与 `DRAFT_BOX_COUNTER_PROBE_CAP = 8`（成本闸，不是判据口径，沿 §4m 的分离原则）；删除
+  `CODE_DRAFT_ENTRY_MISSING`。
+- `xiaohongshu_dom.py`：新增 `draft_box_count()`，读不到节点或节点文本不含计数一律返回 `None`
+  ——「看着像 0」不得被当成基线。
+- `xiaohongshu.py`：`_execute_flow` 在**写入任何内容之前**读基线（平台自动保存，读晚了基线就被
+  本次草稿污染，增量判据永不成立）；`_save_as_draft` 无按钮时不再报错，改为转入以计数为判据的
+  确认；`_recheck_draft_box(page, title, baseline)` 主判据改为重载后计数增长，标题匹配退为兜底。
+- fail-closed 红线一条没松：无 XHR 成功码、无 success URL、无计数增长、无标题命中 ⇒
+  `XHS_UNCONFIRMED`，且绝不点击任何公开发布按钮。
+
+### 测试保护（破坏-恢复变异取证全部 CAUGHT）
+7 条变异各自把一处保护改成失效形态、确认对应新用例变红后即时还原：① 计数持平即视为确认；
+② 删掉增量判据；③ 基线挪到写入之后；④ `probe_cap` 硬编码不走常量；⑤ 读不到计数当 0；
+⑥ 恢复「无按钮即失败」的旧口径；⑦ 夹具拿掉计数节点的可见性闸门（证明夹具真的经过可见性判）。
+还原后本文件 52 条全绿。
+
+=======
+> 本节记录 `9df5bf3a` 提交时的状态。其中"单次读计数"这个判据实现本身被 CCG 第六轮判为
+> 同类复发缺陷（§4e/§4k 的第三次），修正与新增保护见 §4p。
+
+## 4p. CCG 深评第六轮（`9df5bf3a` 批次）：单次读取压在晚挂载节点上，第三次复发（2026-10-09）
+
+五项争议全部裁决完毕（`.adversarial/ccg-deep-9df5bf3a/adjudication.json`，
+fingerprint `39998342e0d286a6`）：**i1 Critical upheld、i2 upheld、i4 upheld、i3 dismissed
+（仍自愿加固）、i5 dismissed（附证据强度按语）**。
+
+### i1（Critical）：确认链的两处一次性读，等于把唯一判据挂在运气上
+本轨已经两次承认创作者中心是 SPA（§4e 上传控件晚挂载、§4k 编辑器就绪），却在同一前提下
+把**基线读取**和**回查增量读取**都写成一次性。失败场景具体：慢网下面板还没挂上 ⇒ 基线读成
+`None` ⇒ `recheck` 因无基线直接放弃增量判据，退到那条**从未被活体证实**的
+`DRAFT_BOX_ITEM_SELECTOR` ⇒ 真实保存成功的草稿被报成 `XHS_UNCONFIRMED`，而且降级过程只在
+日志里留一句"退到标题回查"，看不出"判据本身不可用"。
+
+辩护只守住了"不会假成功"，没否证"真成功被判失败"——后者正是本次验收口径的失败面，故指控
+成立。
+
+### 落地
+- `xiaohongshu_dom.py` 新增 `await_draft_box_count()`（等节点挂载，命中即返回，**无固定
+  sleep**；等不到时 `logger.warning` 留痕）与 `await_draft_box_increment()`（等待条件写成
+  **增量本身**而不是"节点出现了"——节点常驻而值没变时仍须轮询到超时才判未确认）。
+- `xiaohongshu_selectors.py` 新增 `DRAFT_BOX_WAIT_TIMEOUT_S = 30.0` / `DRAFT_BOX_POLL_INTERVAL_S
+  = 0.5`：上限沿用本轨既有的 30s 容忍度口径，间隔沿用编辑器就绪的同族取值。
+- `xiaohongshu.py` 基线读取改走 `await_draft_box_count`；`_confirm_saved` 新增 `box_first`
+  与 `box_checked`（见 i4）；`_recheck_draft_box` 下沉为**纯函数** `dom.recheck_draft_box`
+  （发布器只保留常量接线的薄包装）。下沉的直接动因是 500 行门禁，但它同时修好了一件本来就
+  不对的事：判据逻辑留在发布器里时，`xiaohongshu_dom.py` 的纯函数约定（常量一律由调用方
+  传入，以保证 `monkeypatch` 生效）对确认链不适用。
+- `draft_box_count` 的解析放宽为兼容全角/半角括号与空格（i3 的自愿加固），docstring 写明
+  **括号是显示格式不是协议**：平台改版一个括号的代价应当只是"少一条证据"。
+
+### i4：已知的死信号不该排在活信号前面
+自动保存不打 `/note`（§4o），所以草稿路径先等 20s XHR 是**必然空等**，而真正能确认的计数
+回查被排在它后面；未确认时末尾的兜底分支还会把整页 `goto` 重载做第二遍。改为：无显式草稿
+按钮 ⇒ `box_first=True`，回查置前、命中即返回；`box_checked` 守卫保证单次确认里整页重载
+最多一次。公开发布路径顺序不变（`baseline=None`、`box_first` 默认 False）。
+
+### i2 的未修部分（登记为开放边界，不留成隐式假设）
+"自动保存复用既有草稿槽 ⇒ 计数不增量 ⇒ 重试恒假失败"这半条指控成立，但它是"唯一可见证据"
+这一取证前提的固有边界，不是实现缺陷。处置：保留 fail-closed（错向是失败而非假成功），把
+`baseline → now` 实际值打进日志，并记入 §5 的待取证项——**要拿到"已有草稿再存一条"的真实
+形态**才能判断该判据要不要换成"条目级证据"。
+
+### 测试保护（14 道变异全部 CAUGHT，还原后 57 passed）
+本轮新增 6 条用例：晚挂载仍须拿到基线、增量必须轮询、两处等待各取自己那对常量（哨兵值）、
+括号形状容忍、`box_first` 不烧 XHR 且不重载两次、以及给既有用例补"回查只做一次"的断言。
+变异 M1–M14 逐条红于对应保护（M4/M5/M6/M10/M11/M12 各恰好红一条；M8 同时红晚挂载与配对
+用例；M13/M14 属覆盖面红多条）。RESTORE_CHECK CLEAN。
+
+**顺带暴露的测试基建缺口**：`_fast_draft_box_wait` 夹具原先把草稿箱等待收紧为
+`(0.05, 0.01)`，而 `test_upload_wait_is_fed_the_upload_constants` 是按 **timeout 数值**筛
+`wait_until` 调用的（筛 `t == 0.05`）——草稿箱等待一旦也走 `wait_until`，两个机制就串进同
+一个筛子，误喂的 interval 反而被对方的正确值掩护。夹具取值改为与上传/导航哨兵对**互不相交**
+的 `(0.041, 0.011)` 并写明原因。教训：**按数值筛的配对断言，要求所有哨兵值全局唯一**，否则
+新增一个走同一 `wait_until` 的机制就会静默改变既有断言的判别力。
+
+=======
+## 4q. CCG 深评第七轮（`770040d7a` 批次）：外部评审后端未登录，本轮是自扮演（2026-10-09）
+
+**必须先记的一条**：pre-commit 判定器对本批给出 DUAL（418 行 > 200 行阈值），要求双模型深度
+审查。实际调用在轮 1 就失败，最小复现给出的真实原因是 `claude` CLI **未登录**
+（`Not logged in · Please run /login`），不是 diff 规模、不是代码问题。因此本轮是**工作代理
+自扮演对抗**，不是独立模型评审——`.adversarial/ccg-deep-770040d7/` 里的 `adjudicatedBy:
+self-play` 与 `reason` 字段如实写了这一点。后端登录态恢复后应复跑一次独立评审，不接受把自扮演
+结论标榜成双模型结论。
+
+排除了一个错误归因：中途一度怀疑"本批把 34715 行的评审输入 `proposal-v1.md` 也入了库，导致
+分支 diff 膨胀到 69960 行、把 critic 挤爆"。实测证明失败与输入规模无关，据此**没有**对已入库
+的评审产物做任何删除动作。不过这个规模问题本身是真的：`.adversarial/*/proposal-v1.md` 占本分支
+`origin/main...HEAD` 的 **65640 / 69960 行**，也就是说评审门禁用自己的输入把下一轮的输入越喂越
+大。本轮不改（缺少"它已造成失败"的证据），但登记为独立待办见 §5。
+
+**膨胀已实测证实（本轮提交时）**：`9df5bf3a` 那批的 `proposal-v1.md` 是 2.56 MB，本轮
+`770040d7` 的是 **5.20 MB**——一轮翻倍。机制可直接复核：`grep` 本轮 dump 命中 586 处
+`.adversarial/ccg-deep-*/proposal-v1.md` 路径，也就是**上一轮的 dump 被当作本轮评审输入
+再次全量入 dump**。这不是猜测，是字节数与引用计数都在那里的自增强环。
+
+本轮处置（只做了不删东西的一半）：`ccg-deep-770040d7/proposal-v1.md` **不入本提交**，只入
+`adjudication.json` / `critique-v1.md` / `family-snapshot.json` 三份裁决记录——它们才是
+后续要追溯的证据，dump 是可再生的中间产物。历史已入库的 44 个 `ccg-deep-*` 产物**未动**：
+`git rm --cached` 会改写已推送分支的历史语义并影响 PR #3200 的 diff 判定，属于用户口径的
+决策（§5 待办保留），不由本代理单方面执行。
+
+### 三条 upheld 与落地
+- **i1 兜底标题扫描无成本上限**：`draft_title_present` 对 `[class*="draft"] [class*="title"]`
+  这种跨层级通配、且**未经活体取证**的选择器逐元素取 `inner_text`，命中数完全由平台模板决定。
+  这正是 §4n 已经为 `[class*="modal"]` 修掉的形态，却在兜底通道上重新出现。落地：新增
+  `DRAFT_BOX_ITEM_SCAN_CAP = 12`（成本闸，非判据口径；由发布器接线传入以保持 monkeypatch 生效），
+  扫描受上限约束，且**被截断又一条没命中时打 warning**——"没匹配上"与"根本没扫到"必须可区分。
+- **i2 回查失败只落 debug**：回查是自动保存路径唯一被活体证实的判据，`except` 却把它的整体
+  失败压到 `logger.debug`。结论方向仍然 fail-closed 是对的，但"为什么没确认"在正常运行日志里
+  查不到，与本批正在补的可观测性口径自相矛盾。落地：改为 `logger.warning`，带 URL 与选择器。
+- **i3 轮询用例把断言压在墙钟上**：`timeout_s=0.1 / interval_s=0.02` 要求"至少两次探针"，等于
+  要求进程在 100ms 内完成两次调度；慢 CI 上会随机红，而随机红的用例最终会被人为放宽阈值，
+  保护就没了。落地：放宽到 `0.5 / 0.05`（名义 ~10 次探针）并把断言提高到 `>= 3`，语义不变、
+  不再依赖调度抖动。
+
+i4（基线轮询最坏多花 30s）与 i5（判据证据强度仍是 n=1）判为 **dismissed**：前者的 30s 沿用本轨
+既有容忍度口径、且"选择器改版"这一失败形态已有 warning 留痕覆盖，调短反而把慢网推向真失败；
+后者已在 §4o 按语与 §5 开放项处置，再判 upheld 只会产出一个本地无法满足的阻塞项。
+
+### 测试保护
+新增 2 条用例（兜底扫描上限+截断留痕、回查异常留痕），变异集从 14 道扩到 **18 道**：M15（摘掉
+扫描上限）、M16（删掉截断留痕）、M17（上限不走常量）、M18（回查告警退回 debug）各**恰好红于**
+对应用例。全部 CAUGHT，还原后 `59 passed`、RESTORE_CHECK CLEAN。
+
+>>>>>>> f961a8015 (fix(xhs-rpa): 兜底标题扫描补成本闸与截断留痕，回查失败升到 warning)
 ## 5. 剩余工作（必须完成才算验收）
 
 | 项 | 状态 | 阻塞 |
 |----|------|------|
 | 2.3a 端点模式常量回填 | 已完成（源证据） | — |
 | PR-3 行数门禁拆分 + CI fail-fast 修正 | 已完成（4g） | — |
-| 2.1 活体取证 runbook 脚本 | 已就绪（脚本+自检通过，未执行） | (a) python 探针仍需**用户扫码**（无可复用 profile）；(b) 桌面路线登录态实测有效，只缺**稳定运行窗口**（4i） |
-| 2.2 真实选择器取证 | 待办 | 同上（`tier2_live_verify.js` 已内建采集，一条命令即出） |
-| 2.3b `RISK_OVERLAY_SELECTOR` / `DRAFT_BOX_ITEM_SELECTOR` 回填 | 待办 | 依赖 2.1/2.2 |
-| 2.4 真实草稿箱活体验收 | 待办 | 依赖 2.1/2.2/2.3b（(b) 路走 `rpa_vm`，与 4h 的 API permit 断裂无关；无需重新扫码） |
+| 2.1 活体取证 runbook 脚本 | 已完成（改走 tab CDP，免扫码，见 4o） | python 探针路线（扫码）已弃用：运行中桌面实例即可提供账号分区 |
+| 2.2 真实选择器取证 | 已完成（4o） | 取到 `header-draft`/`draft-title`/`SPAN.draft-title` 计数文本、无草稿按钮、自动保存「编辑于」 |
+| 2.3b `DRAFT_BOX_URL` / 计数选择器回填 | 已完成（4o） | `RISK_OVERLAY_SELECTOR` 仍为占位（风控轨继续走文本判据），`DRAFT_BOX_ITEM_SELECTOR` 仍未取证，仅作次级兜底 |
+| 2.4 真实草稿箱活体验收 | 已完成（4o，`草稿箱(0)` → 重载 → `草稿箱(1)`） | 验收口径已固化进确认链 |
+| 桌面 Node 轨 `draftOnly` 无正面确认即报 success | 待办（新发现，另开任务） | `rpa-view-platforms.js::_publish_generic` 实测 14s 返回、`url` 恒为发布页 URL，无确认信号；且 RPA 分区与账号分区不同，判据需按 4o 结论重设 |
+| `rpa-rpa-*` 双前缀分区漂移与孤儿分区目录 | 待办（新发现，另开任务） | 需先定位拼接点，改动不在本分支范围 |
 | 2.6 运行态取证（tab CDP，免扫码） | 已完成 | 取到 API 轨 permit 契约断裂证据（4h） |
 | CCG 深评（`1476985bd`）四项裁决 + i3/i4 落地 | 已完成（4j） | 深评第 1 轮即达 stall 出口，改走 self-play 裁决（`confidenceWeight 0.6`），无高危域项 |
 | CCG 深评第二轮（`0436f91c8`）两项裁决 + 落地 | 已完成（4k） | 上一轮修复自身被重审推翻：编辑器就绪上限恢复 30s、去掉命中后的二次解析 |
 | CCG 深评第三轮（`44799e73`）两项裁决 + 落地 | 已完成（4l） | 两条均落在守卫侧、无生产代码改动：跨宿主轮询补用例、盲等禁令改跨文件按数值判 |
+| CCG 深评第四轮（`e2170329`）三项裁决 + 落地 | 已完成（4m） | i1 为本批唯一生产代码改动（`limit`/`probe_cap` 口径分离）；i2 dismissed 仅补按语；i3 测试加固 |
+| CCG 深评第五轮（`9237e6ce`）三项裁决 + 落地 | 已完成（4n） | 三项全 upheld；生产改动为截断留痕（可观测性），其余为测试保护补全与注释如实化 |
+| CCG 深评第六轮（`9df5bf3a`）五项裁决 + 落地 | 已完成（4p） | i1 Critical upheld（两处一次性读改条件轮询）；i2 前半（草稿槽复用不增量）**登记为开放边界**见下行；i4 upheld（回查置前且不重载两次）；i3/i5 dismissed |
+| 计数判据的"已有草稿/复用槽"形态取证 | 待办（需活体，本地无法判定） | i2 前半：需在**已有草稿**的账号上再存一条，观测计数是否 +1；若不增量则判据要换成条目级证据（需先取证 `DRAFT_BOX_ITEM_SELECTOR` 的真实节点） |
+| 第七轮独立评审复跑 | 待办（阻塞在外部登录态，非代码问题） | `claude` CLI 未登录 ⇒ DUAL 要求的 critic 无法派生，本轮降级为自扮演（`confidenceWeight 0.6`）。后端恢复后对 `770040d7a` 复跑一次双模型深评，自扮演结论不替代它 |
+| `.adversarial/*/proposal-v1.md` 让评审门禁自增强 | 部分处置（新 dump 已停止入库；历史 44 个产物未动） | 实测一轮翻倍：2.56 MB → 5.20 MB，且新 dump 引用旧 dump 586 处。本轮起 `proposal-v1.md` 不再提交，只提交裁决三件。历史产物要否 `git rm --cached` 需先定口径（会改写已推送分支语义、影响 PR #3200 diff 判定），归用户决策 |
 | 2.7 API 轨 permit 契约修正 | 待办（范围外，待用户确认） | 需先取 permit 完整回包结构，禁止按键名猜 |
 | 3.2 change 归档 | 待办 | 两 PR 合并 + 活体验收通过 |
 
-当前端点属**源证据而非活体证据**：`/web_api/sns/v2/note` 是否确为创作者中心
-存草稿时的实际 XHR，仍需 2.4 活体复核。在那之前本能力视为「已具备确认通道，
-未活体验收」。
+2.4 的活体验收已通过，但验收信号是**「草稿箱(N)」计数增长**（4o），不是 `/web_api/sns/v2/note`
+响应：自动保存链路上未捕获到该端点的活体 XHR，所以 `DRAFT_SAVE_RESPONSE_PATTERNS` 仍是
+**源证据**而非活体证据。它作为 XHR 主确认通道继续保留（命中即确认，且已在 §4 里排除了
+permit/ros-upload 的假阳性），但"本能力已活体验收"这句话只对计数判据成立，不对端点成立。
 
-## 6. 取证 runbook（2.1 已就绪，2.2 待执行）
+## 6. 取证 runbook（2.1/2.2/2.4 已按此执行完毕）
+
+**实际执行路线（免扫码，本节下方 python 探针路线已弃用）**：驱动**运行中的桌面实例**
+（`--remote-debugging-port`）→ `http://127.0.0.1:<port>/json/list` 找 target → Node 自带的全局
+`WebSocket` 直连（该环境**无 `ws` 模块**）→ `Runtime.evaluate{awaitPromise:true,returnByValue:true}`
+执行页内表达式；文件上传用 `DOM.getDocument`→`DOM.querySelector`→`DOM.setFileInputFiles`。
+开页只走 `pageManager.createNewTabPage({url, accountId, platform})` 以落到账号分区。
+一次性脚本与产物全部落在 gitignored 的 `.agent_context/tier2/`（含账号信息，绝不入库）。
+
+<details><summary>备用的 python 探针路线（需要扫码，未采用）</summary>
 
 探针脚本落在 gitignored 的 `.agent_context/tier2/`（不入库，产物含账号信息）：
 `xhs_tier2_probe.py` + `RUNBOOK.md` + `_smoke.py`（零浏览器自检，已 PASS）。
@@ -520,5 +788,8 @@ critic 出 7 条问题、维度最低分 6，收敛判定 `self_play`，待裁�
 不公开发布"的验收红线。若 `--mode drive` 命中，则说明现有回退链可用，但该模式会
 真实存一条草稿，用完需人工删除。
 
-用实测值替换 2.3b 的选择器占位，并把 `DRAFT_SAVE_RESPONSE_PATTERNS` 从源证据升级
-为活体证据；随后 2.4 以"草稿箱人工可见本次条目"为通过口径。
+该路线原计划用实测值替换 2.3b 的选择器占位并把 `DRAFT_SAVE_RESPONSE_PATTERNS` 升级为活体证据；
+实际由上面的 tab CDP 路线拿到了同样的取证与验收（4o），扫码路线因此未执行。若日后需要复核
+自动保存链路是否真的打 `note` 端点，再走这条路线补 `network.json`。
+
+</details>

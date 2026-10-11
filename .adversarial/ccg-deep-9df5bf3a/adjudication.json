@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "adjudicatedBy": "self-play",
+  "confidenceWeight": 0.6,
+  "reason": "stall/maxRounds 后自扮演裁决（引擎第三档出口）",
+  "highRiskNote": "高危域争议项不允许自扮演豁免，必须外部复核",
+  "requiresExternalReview": [],
+  "critiqueFingerprint": "39998342e0d286a6",
+  "instructions": [
+    "对 items 里每一条争议，依次生成：",
+    "  1) 最强指控 —— 论证这条确实是真问题（含具体失败场景）",
+    "  2) 最强辩护 —— 论证这不是问题 / 已被别处覆盖",
+    "  3) 裁决 —— 哪一边论证更强，verdict 取 upheld（指控成立）/ dismissed（指控不成立）",
+    "裁决理由必须可验证，不得只写「看起来没问题」。"
+  ],
+  "items": [
+    {
+      "id": "i1",
+      "severity": "Critical",
+      "finding": "确认链新增的两处一次性计数读取（流程开头读 baseline、recheck 的 goto 后读）都不等节点就绪；SPA 晚挂载是本轨自认前提，读不到即 None，baseline=None 会静默禁用唯一确认判据，慢网下每次真实保存都报 XHS_UNCONFIRMED——与 4e 刚修的一次性解析同类复发。",
+      "highRiskDomains": [],
+      "prosecution": "本轨在 §4e（上传控件晚挂载）和 §4k（编辑器就绪）已经两次承认创作者中心是 SPA：domcontentloaded 时面板常常还没挂上。确认链却在这条前提下写了两处一次性读——流程开头读 baseline、goto 之后读增量。失败场景具体且可复现：慢网下基线读成 None，recheck 因 baseline is None 直接放弃增量判据退到未取证选择器 DRAFT_BOX_ITEM_SELECTOR；该选择器在活体取证里从未被证实命中过，于是真实保存成功的草稿被报成 XHS_UNCONFIRMED。更糟的是这条降级是静默的：日志里只有'退到标题回查'，没有任何一处说明'判据本身不可用'。",
+      "defense": "降级不是假成功——baseline=None 时仍然要求标题匹配命中才报 success，拿不到就失败，fail-closed 的方向没有破；而 30s 上限本来配在别处（导航/上传），这里读不到也可视为平台真的没草稿。",
+      "verdict": "upheld",
+      "rationale": "辩护只守住了'不会假成功'，没否证'真成功被判失败'这条实际损害，而后者正是本次验收口径（内容必须进真实草稿箱）的失败面；且本仓已把'一次性读压在晚挂载节点上'认定为同类复发（§4e/§4k），第三条不该靠辩护放过。可验证的落地：新增 dom.await_draft_box_count / await_draft_box_increment 用条件轮询（wait_until，命中即返回、无固定 sleep），等不到时打 logger.warning 说明'判据本身可能不可用'，把静默降级变成可查线索。保护用例 test_late_mounted_counter_still_yields_a_baseline（节点前两次可见性探测为假仍须拿到基线并成功确认）、test_increment_wait_polls_until_the_counter_rises、test_draft_box_wait_is_fed_the_draft_box_constants（哨兵值钉住两处等待各取 DRAFT_BOX 那对常量）。变异取证 M5（基线等待退化为单次探测）与 M6（增量等待退化为单次探测）均恰好红于对应用例，M8（发布器改喂一次性读）红于晚挂载用例与配对用例；恢复后 57 passed、RESTORE_CHECK CLEAN。"
+    },
+    {
+      "id": "i2",
+      "severity": "Warning",
+      "finding": "判据「now>baseline」假定每次运行都新建草稿槽；自动保存复用既有槽（含上次失败残留草稿）时计数不增量，重试永远假失败；recheck 单次读取且无保存完成等待，大媒体刚传完也易读不到增量。",
+      "highRiskDomains": [],
+      "prosecution": "后半句可直接构造：自动保存落库有延迟，recheck 在 goto 后立即单次读，大图的'编辑于 刚刚'还没写成时就计数仍等于基线，判据读到的是'没写'而不是'正在写'，成功的草稿被判失败。前半句同样成立：平台把同一次编辑复用进既有草稿槽时，草稿箱总数不变，增量判据在这种形态下恒假，重试再多次也只是重复假失败。",
+      "defense": "后半句是普通的不等就绪问题，可以修；前半句是判据口径的固有边界，但它的错向是'失败'而非'成功'，最坏结果是用户去草稿箱手工看一眼，不会污染数据或伪造成功。",
+      "verdict": "upheld",
+      "rationale": "按可修性拆开裁决：后半句（单次读不等保存完成）成立且已修——等待条件写成增量本身而不是'节点出现了'（节点常驻时值不变仍继续轮询到超时），用例 test_increment_wait_polls_until_the_counter_rises 断言探针次数为 3 且值不变时轮询满时限（>=2 次）才返回未确认，变异 M6 红于该用例。前半句（草稿槽复用不增量）指控成立但**不在本批修复范围**：它是'唯一可见证据'这一取证前提的边界，处置是保留 fail-closed 并在日志里打出 baseline→now 的实际转移值（dom.recheck_draft_box 两条 logger.info 均已打印），把'看着没涨'变成可核对的线索；该边界连同 n=1 证据强度一起写入 PRD §4p，不得留成隐式假设。"
+    },
+    {
+      "id": "i3",
+      "severity": "Warning",
+      "finding": "draft_box_count 用硬编码正则 `草稿箱\\((\\d+)\\)`，节点文本格式/全角括号/locale 变化即 parse None，唯一确认通道静默失效且无用例钉住格式。",
+      "highRiskDomains": [],
+      "prosecution": "取证只见过一次文本形状（半角 '草稿箱(1)'），把唯一确认通道挂在字符形状上是把偶然观测当协议；平台一次文案改版即可让判据整体失效。",
+      "defense": "解析失败走的是 None → 退到标题回查 → 仍无证据则报 XHS_UNCONFIRMED，全程不产生假成功，且 §4e/§4k 修的是'不等就绪'，这里是'等来了但形状不认识'，代价只是少一条证据而不是错一条结论；指控所称'无用例钉住格式'也已被 test_draft_box_count_parses_the_visible_counter 部分覆盖。",
+      "verdict": "dismissed",
+      "rationale": "指控的核心是'静默失效'，但这条路径的失效方向是**报失败**且带 warning 留痕（等不到计数时 await_draft_box_count 打告警），既不伪造成功也不可观测性缺席，因此不构成它宣称的静默失效类；把它判为 upheld 会与本仓'宁可失败也不假成功'的既定裁决自相矛盾。不过辩护没有否证'挂在字符形状上'这个脆弱点，故**自愿加固并落用例**：正则改为兼容全角/半角括号与空格（草稿箱\\s*[（(]\\s*(\\d+)\\s*[）)]），并在 docstring 写明括号是显示格式而非协议。用例 test_counter_text_shape_is_tolerated 覆盖四种形状（半角/全角/带空格/带后缀文案），变异 M4（退回严格半角正则）恰好红且只红于该用例。"
+    },
+    {
+      "id": "i4",
+      "severity": "Warning",
+      "finding": "草稿路径先等 CONFIRM_TIMEOUT_S=20s 的 XHR（4o 已证自动保存不打 /note），再全页 goto 重载读计数；每次成功保存固定 ≥20s 延迟加一次整页往返。",
+      "highRiskDomains": [],
+      "prosecution": "取证已确认自动保存不打 /note 类端点，因此 DRAFT_SAVE_RESPONSE_PATTERNS 在这条路径上必然空等满 20s 才继续；而真正能确认的判据（重载后计数）被排在它后面，等于把已知的死信号排在活信号前面，每次成功都固定付 20s。若再因未确认走到末尾的回查分支，同一整页重载还会做第二次。",
+      "defense": "顺序只是性能问题，不影响正确性；且公开路径仍需 XHR 优先，改动会波及两条路径。",
+      "verdict": "upheld",
+      "rationale": "'只影响性能'的辩护在本轨不成立：20s 空等直接顶到队列超时与用户可感知的卡顿，而重复整页重载还会让第二次读取覆盖第一次的结论面——都属于会改变可验收结果的代价。可验证的落地：_save_as_draft 在无显式草稿按钮（自动保存）时以 box_first=True 调 _confirm_saved，草稿箱回查置前，命中即返回不再等 XHR；同时引入 box_checked 守卫，使含整页重载的回查在单次确认里最多执行一次。公开发布路径未受影响（baseline=None、box_first 默认 False，顺序不变）。用例 test_autosave_path_checks_the_box_before_burning_the_xhr_wait 断言 monitor.wait_for_response 调用次数为 0 且 DRAFT_BOX_URL 只导航一次；test_counter_unchanged_is_not_a_confirmation 追加 count(DRAFT_BOX_URL)==1 钉住不重复重载。变异 M11（box_first 置为恒假）恰红于前者、M12（去掉 box_checked 守卫）恰红于后者。"
+    },
+    {
+      "id": "i5",
+      "severity": "Warning",
+      "finding": "计数判据仅由一次人工观测（0→1）支撑，缺「已有草稿/重试/并发写入」用例；失败尝试因自动保存仍留下草稿，下次 baseline 被污染使判据恒假，且没有任何用例变红。",
+      "highRiskDomains": [],
+      "prosecution": "判据的正确性目前只由 n=1 的人工观测支撑，任何未在观测面上出现的形态（重试、并发写、已有草稿）都是外推；一旦平台形态不同，判据会朝'假失败'或'假成功'任一侧偏，而测试面无法发现。",
+      "defense": "所述具体机制站不住：基线是在**每次运行开头**、写入任何内容之前重读的，上一次失败留下的草稿因此属于基线的一部分而不是污染源——本次真写一条就是 N→N+1，判据照常成立。'缺用例'也不成立：已有 (0→1) 成功用例与 (1→1) 不增长负用例，覆盖'已有草稿'与'重试不涨'两种形态。",
+      "verdict": "dismissed",
+      "rationale": "指控的因果方向反了：污染基线的唯一路径是把读取挪到写入之后，而这正是 test_baseline_is_read_before_any_content_is_written 以**事件顺序**（events[0]==('baseline',3)、events[1][0]=='write'）钉死的行为，变异 M7（基线挪到写入之后）恰红且只红于该用例；'已有草稿/重试不增量'两形态也分别由 test_counter_increment_confirms_draft_without_any_button 与 test_counter_unchanged_is_not_a_confirmation 覆盖，故'没有任何用例变红'被直接否证。剩余成立的部分不是缺陷而是**证据强度**：n=1、且'并发写入'形态无观测面，处置为如实登记而非加码断言——PRD §4o 补证据强度按语，§4p 记入开放边界（草稿槽复用、并发写入未取证），DRAFT_BOX_ITEM_SELECTOR 也在 docstring 中标明'未经活体取证，仅可命中确认、不可因不命中判失败'。"
+    }
+  ]
+}

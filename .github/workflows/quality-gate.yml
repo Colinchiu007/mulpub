@@ -1013,6 +1013,9 @@ jobs:
           $viteProcess = $null
           $pixelExit = 1
           $judgeExit = 1
+          # 就绪类故障的套件名单（空串 = 没有）。必须在 try 之前初始化：
+          # $null -ne '' 在 PowerShell 里是**真**，未赋值的变量会把下面的拦截变成恒真。
+          $suitesNotReady = ''
           try {
             Write-Host "Starting Vite dev server..."
             # 取证：视觉门禁要拍 flag 开启态，而通道由构建期常量决定。把进程侧到底有没有拿到变量
@@ -1077,6 +1080,23 @@ jobs:
               $darkExit = $LASTEXITCODE
               Write-Host "[GATE-7] suite exits: pixel=$pixelExit views=$viewsExit views-supplement=$viewsSuppExit dark=$darkExit"
 
+              # 退出码 3 = 有视图**从未渲染出来**（就绪超时）：确定性的路由/选择器故障，
+              # Gate 7b 的两轮 flake 甄别对它不适用，必须在本步骤当场拦。
+              # 退出码 1 = 像素/校验类失败，照旧只留痕、交给 Gate 7b —— 把它也接成阻断，
+              # 会把历史上确实存在的采集抖动变成所有 PR 的常量红（#2914 同 sha 两次 attempt
+              # 一档红一档绿即现场；Gate 7b 的两轮机制正是为此而生）。
+              $notReadySuites = @()
+              if ($pixelExit -eq 3) { $notReadySuites += 'pixel' }
+              if ($viewsExit -eq 3) { $notReadySuites += 'views' }
+              if ($viewsSuppExit -eq 3) { $notReadySuites += 'views-supplement' }
+              if ($darkExit -eq 3) { $notReadySuites += 'dark' }
+              if ($notReadySuites.Count -gt 0) { $suitesNotReady = $notReadySuites -join ',' }
+              # 如实记录当前可达性：pixel 与 dark 两套由 run-pixel-tests.js 直接
+              # `process.exitCode = 1`（实测该文件仅此一处退出码赋值，含 ERR_VISUAL_ENV_MISSING 也走 1），
+              # 所以它们那两条 `-eq 3` 今天**不可达**。保留而不是删掉，是因为下一个开始发 3 的套件
+              # 不必再改判定面；但不得把它当成"环境缺失已经被这道门禁拦住" —— 环境类故障的既有
+              # 出口是 ERR_VISUAL_ENV_MISSING（由脚本自身非零退出、经 $pixelExit -ne 0 拦住），语义是 1 不是 3。
+
               Write-Host "Generating Agent judge report..."
               node tests/visual-testing/scripts/agent-visual-judge.js
               $judgeExit = $LASTEXITCODE
@@ -1089,6 +1109,12 @@ jobs:
             }
           }
 
+          if ($suitesNotReady -ne '') {
+            Write-Host "[GATE-7] FATAL: 视图从未渲染出来（就绪超时）— 套件: $suitesNotReady"
+            Write-Host "[GATE-7] 这不是像素抖动：路由或就绪选择器指错了节点，两轮采集甄别救不了它。"
+            Write-Host "[GATE-7] 排障入口：套件日志的 [VISUAL-READY] 行点名了具体视图。"
+            exit 3
+          }
           if ($pixelExit -ne 0) {
             Write-Host "[GATE-7] Pixel diff failed - see artifacts for details"
             exit $pixelExit
