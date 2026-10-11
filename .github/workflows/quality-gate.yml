@@ -385,6 +385,13 @@ jobs:
           # workflow 文本：#2902 与 #2596 两次同族假红都出自"空集"被误读，而两版的错误
           # （$null 摊平 / stdout 被 nx 提示污染）只有真正跑判据才测得出来。
           node --test scripts/nx-affected-probe.test.js
+          # Gate 4「nx 到底收到了什么旗标」的锁（2026-10-11 根因：`pnpm run test:all -- --exclude=X`
+          # 里那个独立 `--` 让 nx 把 exclude 当成"转发给每个任务命令"的参数，自己的选择集不受影响，
+          # desktop 全量因此混进 Gate 4 的 30 分钟预算；成功 run 1173s/1322s、失败 run 恰好 1801s）。
+          # 这里跑**单测层**（注入证据、不真起 nx）；真起 nx 的 A/B 臂由 Gate 4 在 Start-Process
+          # 之前自己调 `node scripts/check-gate4-selection.js`（见该步骤），位置选在那儿是因为
+          # 那条判据要防的代价就是"整个 30 分钟预算"，必须早于它。
+          node --test scripts/check-gate4-selection.test.js
           node scripts/check-unwired-tests.js
 
       # --- Gate 2c2 已搬出本 job（#2745）---
@@ -735,6 +742,15 @@ jobs:
           if (-not (Test-Path -LiteralPath $treeLib)) { throw "缺少进程树防护脚本: $treeLib" }
           . $treeLib
 
+          # 自检：nx 是否**真的**收到了 --exclude。放在这里而不是只放 Gate 2b，因为这条判据
+          # 的代价是"整个 30 分钟预算"——必须先于 Start-Process 完成。它自己会真跑两次
+          # `nx run-many`（A/B），读完 nx 打印的选择声明就把**自己 spawn 的那棵树**杀掉，
+          # 所以只花十几秒；而 2026-10-11 之前它不存在，desktop 全量就混在 Gate 4 里跑，
+          # 成功 run 实测 1173s / 1322s、失败 run 恰好 1801s = 预算到点（详见 PRD §2）。
+          # pwsh 步骤不会因中间命令非零自动中止（check-step-failfast 同族），必须显式判 rc。
+          node scripts/check-gate4-selection.js
+          if ($LASTEXITCODE -ne 0) { throw "Gate 4 自检失败：@multi-publish/desktop 没有被挡在 nx 选择集之外（exit $LASTEXITCODE）" }
+
           if ($env:TEST_MODE -eq "affected") {
             # 探测受影响项目（排除 desktop）；为空则跳过，避免 nx 空集挂起、把整档测试预算白白烧光
             # 关键：必须区分「nx 执行失败」与「确实无受影响项目」——失败不能静默跳过，否则测试被假绿关闭
@@ -768,9 +784,9 @@ jobs:
             } else {
               Write-Host "::warning::nx affected detection unusable (kind=$($probe.kind), nx exit $nxExit, reason=$($probe.reason)); running tests:affected normally rather than skipping."
             }
-            $testArgs = @("run", "test:affected", "--", "--exclude=@multi-publish/desktop")
+            $testArgs = @("run", "test:affected:no-desktop")
           } else {
-            $testArgs = @("run", "test:all", "--", "--exclude=@multi-publish/desktop")
+            $testArgs = @("run", "test:all:no-desktop")
           }
           # 预算来自 scripts/gate-budget.js（单一真源）。取不到必须当场红 —— 静默回落到写死值就是把
           # "装配失败"读成"没超时"，正是本仓反复出事的形态（见 gate-budget.test.js 的同名锁）。
@@ -783,7 +799,10 @@ jobs:
 
           if (-not $testProcess.WaitForExit([int]$gateBudgetMs)) {
             Write-Host "Gate 4 exceeded its $([int]($gateBudgetMs / 60000))-minute execution budget (elapsed budget exhausted; see scripts/gate-budget.js)."
-            Get-TestProcessTree -RootProcessId $testProcess.Id -NotBefore $launchMark | Format-Table -AutoSize
+            $treeRows = @(Get-TestProcessTree -RootProcessId $testProcess.Id -NotBefore $launchMark)
+            $treeRows | Format-Table -AutoSize
+            # 为什么需要命令行：见 scripts/get-test-process-tree.ps1 的 Format-TestProcessTreeLine docblock
+            Write-TestProcessTreeDetail -Processes $treeRows
             taskkill /PID $testProcess.Id /T /F 2>$null | Out-Null
             throw "Gate 4 timed out; terminated the pnpm process tree."
           }
@@ -799,7 +818,10 @@ jobs:
           }
 
           if ($testProcess.ExitCode -ne 0) {
-            Get-TestProcessTree -RootProcessId $testProcess.Id -NotBefore $launchMark | Format-Table -AutoSize
+            $treeRows = @(Get-TestProcessTree -RootProcessId $testProcess.Id -NotBefore $launchMark)
+            $treeRows | Format-Table -AutoSize
+            # 为什么需要命令行：见 scripts/get-test-process-tree.ps1 的 Format-TestProcessTreeLine docblock
+            Write-TestProcessTreeDetail -Processes $treeRows
             exit $testProcess.ExitCode
           }
 
@@ -906,7 +928,10 @@ jobs:
 
           if (-not $testProcess.WaitForExit([int]$gateBudgetMs)) {
             Write-Host "Desktop shard exceeded its $([int]($gateBudgetMs / 60000))-minute execution budget (see scripts/gate-budget.js)."
-            Get-TestProcessTree -RootProcessId $testProcess.Id -NotBefore $launchMark | Format-Table -AutoSize
+            $treeRows = @(Get-TestProcessTree -RootProcessId $testProcess.Id -NotBefore $launchMark)
+            $treeRows | Format-Table -AutoSize
+            # 为什么需要命令行：见 scripts/get-test-process-tree.ps1 的 Format-TestProcessTreeLine docblock
+            Write-TestProcessTreeDetail -Processes $treeRows
             taskkill /PID $testProcess.Id /T /F 2>$null | Out-Null
             throw "Desktop shard timed out; terminated the pnpm process tree."
           }
@@ -922,7 +947,10 @@ jobs:
           }
 
           if ($testProcess.ExitCode -ne 0) {
-            Get-TestProcessTree -RootProcessId $testProcess.Id -NotBefore $launchMark | Format-Table -AutoSize
+            $treeRows = @(Get-TestProcessTree -RootProcessId $testProcess.Id -NotBefore $launchMark)
+            $treeRows | Format-Table -AutoSize
+            # 为什么需要命令行：见 scripts/get-test-process-tree.ps1 的 Format-TestProcessTreeLine docblock
+            Write-TestProcessTreeDetail -Processes $treeRows
             exit $testProcess.ExitCode
           }
 

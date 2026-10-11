@@ -50,6 +50,49 @@ main 连续两次 push 红在 `QG Unit Tests → Gate 4`，而断言层是 `# fa
 
 ---
 
+# [未发布] fix(ci): Gate 4 的 desktop 排除一直没生效——required check 的成败原来取决于 runner 快慢（2026-10-11，gate4-desktop-exclusion）
+
+### 用户感知
+
+无界面变化。变化在 CI：main push 上间歇性变红的 **QG Unit Tests**（required context）应当停止，
+其 Gate 4 步骤耗时从 1173s–1801s 档跌到"只跑 12 个非桌面包"的量级；桌面测试覆盖**不降级**，
+仍由 QG Desktop Shards 两个分片跑全量。
+
+### 变更明细
+
+- **根因**：`$testArgs = @("run", "test:all", "--", "--exclude=@multi-publish/desktop")` 里那个独立的 `"--"`
+  会被 pnpm **原样**附加到脚本命令上，而 nx 把独立 `--` **之后**的一切当成「转发给每个任务命令的参数」——
+  于是它自己的选择集纹丝不动。CI 原文两行即全部证据：`NX   Running target test for 13 projects:`（第 13 个正是
+  `@multi-publish/desktop`）与叶子命令收到的 `$ vitest run "--exclude=@multi-publish/desktop"`。
+  后果是 Gate 4 在 30 分钟预算内**串行跑桌面全量**：成功 run 实测 1173s / 1322s，三条失败 run 恰好 1801s
+  = `WaitForExit(1800000)` 到点。引入于 `bb6aab5b8`（2026-08-09），存续 63 天。
+- **为什么没被拦（比 bug 本身更值得记）**：`.github/scripts/workflow-contract.test.js:202-203` 用正则
+  **逐字钉住了这个错误 argv**，且锁与缺陷由同一次提交引入；同一次提交还给相邻的 `desktop-shards` 写了**正确**的
+  `"--"`（那里的消费者是 vitest）。同形异义 + 锁只匹配文本形状 ⇒ 缺陷被声明成"受保护形态"。
+  #1897（2026-09-17）在同一步骤内 14 行之外（现 30 行）写了正确的 `nx show projects --affected --exclude=...`（旗标直给 nx），两份用法并存仍无人对照。
+- **修法（消除可写错的位置，而不是教人写对）**：`package.json` 新增 `test:all:no-desktop` /
+  `test:affected:no-desktop`，把排除作为 **nx 旗标写进脚本本身**；Gate 4 调用它们且不再转发任何实参。
+  `test:all` / `test:affected` 原样保留（它们是诚实的"全部包"脚本）。
+- **新判据** `scripts/check-gate4-selection.js`（单一实现）：结构层组装最终命令行并判 exclude 落在独立 `--`
+  之前/之后/缺失；live 层真跑 **A/B**，读 nx 自己打印的选择声明——A 臂必须无 desktop 且 ≥11 个包，
+  B 臂（负控）**必须有** desktop，否则判「探针失明」而不是判绿。缺证据、声明头计数与清单条数不一致、
+  输出形态变更一律 fail-closed；刻意**不提供** `--offline` 之类跳过开关。接线两处：Gate 2b 跑单测层，
+  Gate 4 在 `Start-Process` **之前**跑完整判据（这条判据要防的代价就是整个 30 分钟预算，位置必须早于它）。
+- **观测补齐** `scripts/get-test-process-tree.ps1`：新增 `Format-TestProcessTreeLine` / `Write-TestProcessTreeDetail`，
+  在超时/非零/残留三个分支逐行打命令行原文（取不到打 `<unreadable>`、空表打 `rows=0`——沉默不等于证据）。
+  `Get-TestProcessTree` 的输出形状**没动**：它的结果同时被 `.Count` 计数与 `taskkill /PID` 消费。
+- 反向固化的锁已纠正：`workflow-contract` 改钉新形态，并加 `doesNotMatch /"run",\s*"test:(affected|all)",\s*"--"/`
+  反向锁 + 自检接线锁 + 点名接线锁。
+- 验证：新判据单测 21 例（修复前 T16/T17 对**真实仓文件**判红 `actual:'task'`，修复后全绿）；
+  live A/B 本机 8.8s 出 `A=12 不含 desktop / B=13 含 desktop`；`get-test-process-tree.test.ps1` 在 pwsh 7 与
+  Windows PowerShell 5.1 各 18 条 PASS（改前 8 条）；`workflow-contract` 35 pass；`check-unwired-tests` /
+  `check-step-failfast` 均 OK。变异 9 条全部实测变红、还原后逐字节相同（M1 workflow 退回历史形态、
+  M2 摘掉脚本里的 exclude、M3 把 exclude 写进脚本自身的 `--` 之后、M4 `liveRequired` 恒 false、
+  M5 live 臂改回裸 spawn 脚本正文、M6/M7 摘掉两处接线、M8 空命令行留空、M9 空表不打印），`red=9/9 notRed=0`。
+- 详见 `01-docs/PRD-GATE4-DESKTOP-EXCLUSION-2026-10-11.md`（§1 五 run 对照表、§2 四种转发形态实测表、§4 逃逸链、
+  §7 不在范围登记）与 `openspec/records/gate4-desktop-exclusion.md`；AGENTS.md 新增 MUST
+  「`--` 之后的参数归被调用的那一条命令，不归调用它的那一层」，learnings 记「锁与缺陷同源同次提交」这一形态。
+
 ## [未发布] 2026-10-11 — 播客刀 4 规格：文案 → 一期播客音频的合同先于代码写死
 
 - **新增 PRD §7.4**（数据源真源表 / 流程与相位复用 / 校验三层 / 交互 / 显示项 / 提示文字逐字键清单）。

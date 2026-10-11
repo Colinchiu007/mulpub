@@ -111,4 +111,49 @@ try {
     try { Stop-Process -Id $child.Id -Force -ErrorAction SilentlyContinue } catch { }
 }
 
+# --- 9: the attribution column - command line must reach the log ---------------------------
+# Why these three cases exist: on 2026-10-11 Gate 4 burned its full 30-minute budget and the
+# printed table was 13 rows of `node.exe` with near-identical working sets. Format-Table picks
+# the Win3_Process default column set, and CommandLine is NOT in it, so the log could not say
+# which package was still running. These cases pin the projection that fixes that.
+function PC([int]$Id, [int]$Parent, [string]$Name, $Created, [string]$Cmd) {
+    [pscustomobject]@{ ProcessId = $Id; ParentProcessId = $Parent; Name = $Name; CreationDate = $Created; CommandLine = $Cmd }
+}
+
+$noisy = "node  apps/desktop/vitest.mjs`r`n run --dir ."
+$line9 = Format-TestProcessTreeLine -Process (PC 9100 $rootPid 'node.exe' $launch $noisy)
+Check ($line9.Contains('pid=9100') -and $line9.Contains('parent=6556') -and $line9.Contains('node.exe :: node apps/desktop/vitest.mjs run --dir .')) `
+    'detail line carries the command line with whitespace folded' $line9
+Check (-not $line9.Contains("`r") -and -not $line9.Contains("`n")) 'detail line is single-line (grep-able in CI logs)' $line9
+
+# --- 10: unreadable command line must be said out loud, never left blank -------------------
+$line10a = Format-TestProcessTreeLine -Process (PC 9101 $rootPid 'node.exe' $launch '   ')
+Check ($line10a.Contains(':: <unreadable>')) 'blank CommandLine projects as <unreadable>, not empty' $line10a
+# The OLD fixture shape (no CommandLine property at all) must not throw and must say the same.
+$line10b = Format-TestProcessTreeLine -Process (P 9102 $rootPid 'node.exe' $launch)
+Check ($line10b.Contains(':: <unreadable>')) 'missing CommandLine property projects as <unreadable>' $line10b
+$line10c = Format-TestProcessTreeLine -Process (P 9103 0 'cmd.exe' $launch)
+Check ($line10c.Contains('parent=0')) 'parent pid is reported when present' $line10c
+$orphan = [pscustomobject]@{ ProcessId = 9104; Name = 'node.exe' }
+$line10d = Format-TestProcessTreeLine -Process $orphan
+Check ($line10d.Contains('parent=<unknown>')) 'absent ParentProcessId says <unknown> instead of 0' $line10d
+
+# --- 11: truncation keeps one row per process ----------------------------------------------
+# MaxCmdLen bounds the command FIELD (the 'node ' prefix counts toward it), so the expected
+# tail must be derived from the same string rather than hand-counted. A first version of this
+# case asserted x*50 and failed on len=108: the implementation was right, the arithmetic was not.
+$long = 'node ' + ('x' * 400)
+$line11 = Format-TestProcessTreeLine -Process (PC 9105 $rootPid 'node.exe' $launch $long) -MaxCmdLen 50
+Check ($line11.EndsWith($long.Substring(0, 50) + '...')) 'long command line is truncated to MaxCmdLen' ("tail=" + $line11.Substring($line11.Length - 12))
+Check (-not $line11.Contains($long.Substring(0, 60))) 'nothing beyond MaxCmdLen leaks into the log' $line11
+
+# --- 12: an empty tree must still print (silence is not evidence) ---------------------------
+# Write-Host goes to the information stream (6); 6>&1 is how both 5.1 and 7 let a test read it.
+$printed = @((Write-TestProcessTreeDetail -Processes @()) 6>&1 | ForEach-Object { [string] $_ })
+Check ($printed.Count -eq 1 -and $printed[0].Contains('rows=0')) 'empty tree prints rows=0 instead of nothing' ($printed -join '|')
+$two = @(Get-TestProcessTree -RootProcessId $rootPid -NotBefore $launch -Processes $leakedTree)
+$printed2 = @((Write-TestProcessTreeDetail -Processes $two) 6>&1 | ForEach-Object { [string] $_ })
+Check ($printed2.Count -eq 3 -and $printed2[0].Contains('rows=2') -and $printed2[1].Contains('pid=9001') -and $printed2[2].Contains('pid=9002')) `
+    'detail prints one line per row after the count line' ($printed2 -join '|')
+
 Write-Host "OK: $passed checks passed"

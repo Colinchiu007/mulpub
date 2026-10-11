@@ -199,8 +199,19 @@ test('质量门禁的全量 Vitest 有可终止的 Windows watchdog', () => {
   assert.equal(rootPackage.scripts.test, 'pnpm -r --if-present run test');
   assert.match(unitTestStep, /shell:\s*pwsh/);
   assert.match(unitTestStep, /Start-Process -FilePath "pnpm\.cmd"/);
-  assert.match(unitTestStep, /"run",\s*"test:affected",\s*"--",\s*"--exclude=@multi-publish\/desktop"/);
-  assert.match(unitTestStep, /"run",\s*"test:all",\s*"--",\s*"--exclude=@multi-publish\/desktop"/);
+  // 2026-10-11 修复。这两条断言以前逐字钉着 `"run","test:all","--","--exclude=@multi-publish/desktop"`，
+  // 而那个独立的 `--` 恰恰**就是**缺陷：pnpm 把它原样附加到脚本命令上，nx 于是把 `--` 之后的一切
+  // 当成「转发给每个任务命令的参数」，自己的选择集纹丝不动 —— 实测 nx 声明 `Running target test
+  // for 13 projects`（含 desktop），desktop 全量被塞进 Gate 4 的 30 分钟预算，成功 run 1173s/1322s、
+  // 失败 run 恰好 1801s 到点。锁只匹配文本形状、从不问 nx 收到什么，就把缺陷钉成了"受保护形态"。
+  // 判据本体已搬到 scripts/check-gate4-selection.js（读 nx **自己打印的选择声明** + A/B 负控），
+  // 这里守的是接线与形状，两边不得再退回转发式写法。
+  assert.match(unitTestStep, /"run",\s*"test:affected:no-desktop"/);
+  assert.match(unitTestStep, /"run",\s*"test:all:no-desktop"/);
+  assert.doesNotMatch(unitTestStep, /"run",\s*"test:(affected|all)",\s*"--"/, 'exclude 又落回 nx 的转发区（独立 "--" 之后的参数不参与选择）');
+  assert.match(unitTestStep, /node scripts\/check-gate4-selection\.js/, '自检必须真跑在 Start-Process 之前');
+  assert.match(unitTestStep, /\$LASTEXITCODE -ne 0/, 'pwsh 步骤不自动中止，自检的 rc 必须显式判');
+  assert.match(unitTestStep, /Write-TestProcessTreeDetail/, '超时必须能点名是哪个包的测试还挂着');
   assert.match(unitTestStep, /WaitForExit\(\[int\]\$gateBudgetMs\)/);
   assert.match(unitTestStep, /taskkill \/PID \$testProcess\.Id \/T \/F/);
   assert.doesNotMatch(unitTestStep, /--maxWorkers=1|--reporter=verbose|--testTimeout=10000/);
@@ -507,6 +518,20 @@ test('Nx affected 引入契约：nx 配置与 quality-gate 双模式', () => {
   assert.ok(rootPkg.devDependencies && rootPkg.devDependencies.nx, '根 package.json 必须声明 nx devDependency');
   assert.match(rootPkg.scripts['test:affected'], /nx affected -t test --base=origin\/main --parallel=1/);
   assert.match(rootPkg.scripts['test:all'], /nx run-many -t test --all --parallel=1/);
+  // 两个 :no-desktop 变体是 CI 侧真正执行的那两条。它们存在而不是让 workflow 去转发旗标的理由：
+  // `pnpm run <script> -- --exclude=X` 里的 `--` 会被原样附加，nx 把之后的一切当成任务转发参数，
+  // 排除因此**静默失效**（2026-10-11 实测）。把排除写进脚本，命令行就没有可写错的那个位置了。
+  // 语义由 scripts/check-gate4-selection.js 的 A/B 臂守（读 nx 自己打印的选择声明），本条只守形状。
+  assert.match(
+    rootPkg.scripts['test:all:no-desktop'],
+    /^nx run-many -t test --all --parallel=1 --exclude=@multi-publish\/desktop$/,
+    'test:all:no-desktop 必须把 exclude 作为 nx 旗标，且不得出现独立 "--"',
+  );
+  assert.match(
+    rootPkg.scripts['test:affected:no-desktop'],
+    /^nx affected -t test --base=origin\/main --parallel=1 --exclude=@multi-publish\/desktop$/,
+    'test:affected:no-desktop 同上',
+  );
 
   const nxJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'nx.json'), 'utf8'));
   assert.equal(nxJson.targetDefaults.test.cache, true);
