@@ -35,7 +35,5 @@
     "line": 4489
   },
   "本次执行记录：登录页直接关闭页签误报「未捕获到有效登录凭证」修复（fix-login-credential-capture-error）（2026-08-14）": "该记录本体已合并并回填（PR #816/#812 见正文）；账本在此是为覆盖 .quality-gates.md:6952 那条【孤儿 PENDING 行】——它所属的 s2v-scene-multi-materials 记录块丢了 ## 标题，门禁按最近标题把欠账记到本条名下。不代其他会话改写归属，待该记录作者补标题或回填。",
-  "本次执行记录：播客 §6.4.2 出期进度通道合同入规格 + 刀 4 音色前提纠正（podcast-spec-642，2026-10-11）【docs-only】": "本 docs PR（podcast-spec-642：§6.4.2 进度通道合同 + 刀 4 音色纠正 + tasks 3.13）尚未合并：远程同步行停在 PENDING，合并后由回填 PR 改写 PASS + merge SHA 并在同一次提交删除本条、删记录文件 sync_ 三字段。",
-  "本次执行记录：播客刀 4 规格入档（podcast-tts-spec-dao4，2026-10-11）【docs-only】": "docs-only PR（podcast-tts-spec-dao4）尚未合并：远程同步行停在 PENDING，合并后由回填 PR 改写 PASS + merge SHA 并删除本条。",
-  "本次执行记录：仓库目录改名大小写不一致项回填（repo-path-case-reversal，2026-10-11）【docs-only】": "docs-only PR（repo-path-case-reversal）尚未合并：远程同步行停在 PENDING，合并后由回填 PR 改写 PASS + merge SHA 并删除本条。"
+  "本次执行记录：播客 §6.4.2 出期进度通道合同入规格 + 刀 4 音色前提纠正（podcast-spec-642，2026-10-11）【docs-only】": "本 docs PR（podcast-spec-642：§6.4.2 进度通道合同 + 刀 4 音色纠正 + tasks 3.13）尚未合并：远程同步行停在 PENDING，合并后由回填 PR 改写 PASS + merge SHA 并在同一次提交删除本条、删记录文件 sync_ 三字段。"
 }
