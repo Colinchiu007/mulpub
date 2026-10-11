@@ -49,11 +49,11 @@ async function bilibiliSMSLogin(browser) {
   if (captchaImg) {
     await captchaImg.screenshot({ path: "/tmp/bili-captcha.png" });
     console.log("  Captcha screenshot saved to /tmp/bili-captcha.png");
-    console.log("  Run: scp ali:/tmp/bili-captcha.png " + SS.replace("/opt/multipublish", "D:\\Data\\projects\\Mulpub") + "\\captcha.png");
+    console.log("  Run: scp ali:/tmp/bili-captcha.png " + SS.replace("/opt/multipublish", "D:\\Data\\projects\\mulpub") + "\\captcha.png");
   } else {
     await page.screenshot({ path: "/tmp/bili-captcha-page.png", clip: { x: 0, y: 400, width: 400, height: 200 } });
     console.log("  Page screenshot saved for captcha reference");
-    console.log("  Run: scp ali:/tmp/bili-captcha-page.png " + SS.replace("/opt/multipublish", "D:\\Data\\projects\\Mulpub") + "\\captcha.png");
+    console.log("  Run: scp ali:/tmp/bili-captcha-page.png " + SS.replace("/opt/multipublish", "D:\\Data\\projects\\mulpub") + "\\captcha.png");
   }
 
   // Ask for captcha text
@@ -153,7 +153,7 @@ async function bilibiliQRLogin(browser) {
   await page.screenshot({ path: "/tmp/bilibili-qr-interactive.png" });
 
   console.log("  QR image at: /tmp/bilibili-qr-interactive.png");
-  console.log("  Run: scp ali:/tmp/bilibili-qr-interactive.png " + SS.replace("/opt/multipublish", "D:\\Data\\projects\\Mulpub") + "\\bilibili-qr.png");
+  console.log("  Run: scp ali:/tmp/bilibili-qr-interactive.png " + SS.replace("/opt/multipublish", "D:\\Data\\projects\\mulpub") + "\\bilibili-qr.png");
   console.log("  Scan with Bilibili app. Waiting up to 180s...");
 
   const pollUrl = "https://passport.bilibili.com/x/passport-login/web/qrcode/poll?qrcode_key=" + qrKey;

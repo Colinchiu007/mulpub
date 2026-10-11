@@ -13,7 +13,7 @@ const { resolveDevPorts, parsePort, DEFAULT_VITE_PORT, DEFAULT_CDP_PORT } = requ
 const WT = 'D:/Data/projects/mp-worktrees'
 
 test('非 worktree 路径（主仓库/CI）使用默认 5174/9222', () => {
-  const r = resolveDevPorts('D:/Data/projects/Mulpub', {})
+  const r = resolveDevPorts('D:/Data/projects/mulpub', {})
   assert.equal(r.vite, DEFAULT_VITE_PORT)
   assert.equal(r.cdp, DEFAULT_CDP_PORT)
   assert.equal(r.derived, false)
@@ -85,7 +85,7 @@ test('只覆盖一个端口时，另一个仍按路径派生（不回落共享�
 })
 
 test('非 worktree 路径 + 显式覆盖也生效', () => {
-  const r = resolveDevPorts('D:/Data/projects/Mulpub', { MP_VITE_PORT: '7777' })
+  const r = resolveDevPorts('D:/Data/projects/mulpub', { MP_VITE_PORT: '7777' })
   assert.equal(r.vite, 7777)
   assert.equal(r.cdp, DEFAULT_CDP_PORT)
   assert.equal(r.derived, true)
@@ -113,7 +113,7 @@ test('MP_WORKTREES_ROOT 可配置（目录迁移后派生仍生效）', () => {
 // 于是启动器打印 MAIN_BACKEND_LISTENING / START_CONTRACT_OK 假报就绪。
 
 test('#2459 非 worktree 路径保持既有 bridge 默认端口（行为不变）', () => {
-  const r = resolveDevPorts('D:/Data/projects/Mulpub', {})
+  const r = resolveDevPorts('D:/Data/projects/mulpub', {})
   assert.equal(r.backend, 8299)
   assert.equal(r.prompt, 8013)
   assert.equal(r.splitter, 8002)
