@@ -102,7 +102,7 @@ test('记录下来的出处自己不许贴脸（否则这次改动就是在制�
   assert.ok(gate.PROVENANCE.priorBudgetMin > 0, '必须记录"采样窗口内生效的预算"，否则截尾判据会随抬价漂移')
 })
 
-test('workflow 两处等待都走单一真源，且时长不得在非注释行写成字面量', () => {
+test('workflow 两处等待都走单一真源：时长不得写成字面量、超时文案必须插值预算', () => {
   const jobs = jobBlocks(wf)
   const injected = [...wf.match(/WaitForExit\(\[int\]\$gateBudgetMs\)/g)].length
   assert.ok(injected >= 2, `WaitForExit([int]$gateBudgetMs) 出现 ${injected} 次，Gate 4 与 shard 两处都必须在`)

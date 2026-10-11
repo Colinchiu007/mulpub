@@ -391,6 +391,7 @@ jobs:
           # 这里跑**单测层**（注入证据、不真起 nx）；真起 nx 的 A/B 臂由 Gate 4 在 Start-Process
           # 之前自己调 `node scripts/check-gate4-selection.js`（见该步骤），位置选在那儿是因为
           # 那条判据要防的代价就是"整个 30 分钟预算"，必须早于它。
+          # 口径指针：上面说的"30 分钟"是 #3315 之前的历史形态；现行测试预算只有一个真源 scripts/gate-budget.js，改数改那里。
           node --test scripts/check-gate4-selection.test.js
           node scripts/check-unwired-tests.js
 
@@ -748,6 +749,7 @@ jobs:
           # 所以只花十几秒；而 2026-10-11 之前它不存在，desktop 全量就混在 Gate 4 里跑，
           # 成功 run 实测 1173s / 1322s、失败 run 恰好 1801s = 预算到点（详见 PRD §2）。
           # pwsh 步骤不会因中间命令非零自动中止（check-step-failfast 同族），必须显式判 rc。
+          # 口径指针：上面说的"30 分钟"是 #3315 之前的历史形态；现行测试预算只有一个真源 scripts/gate-budget.js，改数改那里。
           node scripts/check-gate4-selection.js
           if ($LASTEXITCODE -ne 0) { throw "Gate 4 自检失败：@multi-publish/desktop 没有被挡在 nx 选择集之外（exit $LASTEXITCODE）" }
 

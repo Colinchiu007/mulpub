@@ -16,15 +16,20 @@
  * 被命令行里那个独立的 `--` 原样转进 nx 的**任务参数区** ⇒ nx 选择集纹丝不动，桌面全量被串行
  * 塞进 Gate 4（同一批活干了两遍——桌面套件另有 shard 跑）。#3315 把排除写进 `test:all:no-desktop`
  * 之后，main push 的 Gate 4 实测 **94 秒**（run 38127081785，步 09:06:20Z→09:07:54Z，本机按
- * jobs API 的 step 起止自取，不是转述）。**但定数结果不变**：约束本来就一直由 shard 侧的
- * 29.77 分绑定（29.88 与 29.77 在 ×1.5 后同档），所以下面的 45 分钟既不靠那组污染数字成立，
- * 也不因纠正而失效。修复后的 Gate 4 样本目前 n=1，**按本文件自己的规则不足以据此收紧**，
- * 要动数请等样本过 MIN_SAMPLE_GATE4_SUCCESS 再跑探针。
+ * jobs API 的 step 起止自取，不是转述）。**定数结果不变，但绑定关系要说准**：`checkSizing()` 取的是
+ * `max(29.88, 29.77)`，而 29.88 正是那个被污染的值 —— 把它剔掉，剩下的 shard 侧 29.77 × 1.5 = 44.66，
+ * 仍然向上取整到 **45**，所以 45 分钟既不靠污染数字成立，也不因纠正而失效。
+ * 同一次 run 的 shard 侧是活体证据：`2/2` 于 09:06:32Z→09:36:33Z = **30.02 分** 被预算杀
+ * （日志正文 `Desktop shard exceeded its 30-minute execution budget`，被杀前最后几行仍是 `✓`，
+ * 整场没有 `Test Files` 汇总），`1/2` = 29.45 分侥幸过线。**这就是 main 现在还在红的那一侧。**
+ * 修复后的 Gate 4 样本目前 n=1，**按本文件自己的规则不足以据此收紧**，要动数请等样本过
+ * MIN_SAMPLE_GATE4_SUCCESS 再跑探针。
  *
- * 定数规则（写死、可测、不许用改判据消化矛盾）：
- *   预算 ≥ 观测成功最大值 × SAFETY_MULTIPLIER(1.5) ⇒ max(29.88, 29.77) × 1.5 = 44.82 ⇒ **45 分钟**
- *   job 上限 ≥ 预算 + 该 job 自己的实测最大前置 + TIMEOUT_MARGIN_MIN(5)，再向上取整到 5 的倍数
- *     45 + 1.38 + 5 = 51.38，向上取整到 5 的倍数 ⇒ 55（见下方 GATE_JOB_TIMEOUT_MIN 注释）
+ * 定数规则（写死、可测、不许用改判据消化矛盾；`checkSizing()` 里逐条有对应判据，不是只有注释）：
+ *   ① 预算 ≥ 观测成功最大值 × SAFETY_MULTIPLIER(1.5) ⇒ max(29.88, 29.77) × 1.5 = 44.82 ⇒ **45 分钟**
+ *      （这一条由 RULE_VIOLATED 直查；下面的 0.9 档是"更早的警报"，两者阈值不同、用途不同）
+ *   ② job 上限 ≥ 预算 + 该 job 自己的实测最大前置 + TIMEOUT_MARGIN_MIN(5)，再向上取整到 5 的倍数
+ *      45 + 1.38 + 5 = 51.38，向上取整到 5 的倍数 ⇒ 55（见下方 GATE_JOB_TIMEOUT_MIN 注释）
  *   只抬内层预算而不动 timeout-minutes 会更糟：GitHub 在 40 分掐掉整个 job，
  *   丢掉超时诊断表、进程树清理与末尾的运行时出站台账判定。
  *
@@ -87,6 +92,11 @@ function checkSizing ({
   const maxObs = Math.max(provenance.gate4MaxSuccessMin, provenance.shardMaxSuccessMin)
   const hugging = maxObs >= budgetMin * WARN_RATIO
 
+  // 定数规则①本身必须是判据，不能只活在注释里（QM-6 第 2 轮可维护性轴命中：
+  // 原来只有 0.9 档，于是"预算=1.2×观测最大值"这种违反 ×1.5 的形态会被读成"一切正常"）。
+  if (!(budgetMin >= maxObs * SAFETY_MULTIPLIER - 1e-9)) {
+    reasons.push(`RULE_VIOLATED：预算 ${budgetMin} 分 < 观测成功最大 ${maxObs} 分 × ${SAFETY_MULTIPLIER} = ${(maxObs * SAFETY_MULTIPLIER).toFixed(2)} 分——按规则重定数，不得改倍数`)
+  }
   if (maxObs >= budgetMin * HARD_RATIO) {
     reasons.push(`NO_LONGER_SIZED：观测成功最大 ${maxObs} 分已达预算 ${budgetMin} 分的 ${HARD_RATIO * 100}%，必须重新采集并重定数（不是放宽判据）`)
   }
