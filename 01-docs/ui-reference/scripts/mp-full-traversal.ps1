@@ -1,6 +1,6 @@
 ﻿# 参考产品全面截图脚本 - 第一遍：登录流程 + 菜单遍历
 $script:MP_PID = 19492
-$script:OUTPUT_DIR = "D:\Data\projects\Mulpub\01-docs\ui-reference\screenshots\full-traversal"
+$script:OUTPUT_DIR = "D:\Data\projects\mulpub\01-docs\ui-reference\screenshots\full-traversal"
 $script:COUNTER = 0
 
 # 确保输出目录存在

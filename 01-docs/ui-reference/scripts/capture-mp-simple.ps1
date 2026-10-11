@@ -117,7 +117,7 @@ $rect = New-Object MpCapture+RECT
 Write-Host "[INFO] Window size: $($rect.Right) x $($rect.Bottom)" -ForegroundColor DarkGray
 
 # Output dir
-$outDir = "D:\Data\projects\Mulpub\01-docs\ui-reference\screenshots\full-app"
+$outDir = "D:\Data\projects\mulpub\01-docs\ui-reference\screenshots\full-app"
 if (-not (Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir -Force | Out-Null }
 
 # Take current screenshot

@@ -37,6 +37,6 @@ Write-Host "窗口: $($rect.Left),$($rect.Top) $($w)x$h"
 $bmp = New-Object System.Drawing.Bitmap($w, $h)
 $gfx = [System.Drawing.Graphics]::FromImage($bmp)
 $gfx.CopyFromScreen($rect.Left, $rect.Top, 0, 0, (New-Object System.Drawing.Size($w, $h)))
-$bmp.Save("D:\Data\projects\Mulpub\01-docs\ui-reference\screenshots\current\00-initial.png", [System.Drawing.Imaging.ImageFormat]::Png)
+$bmp.Save("D:\Data\projects\mulpub\01-docs\ui-reference\screenshots\current\00-initial.png", [System.Drawing.Imaging.ImageFormat]::Png)
 $gfx.Dispose(); $bmp.Dispose()
 Write-Host "截图已保存"

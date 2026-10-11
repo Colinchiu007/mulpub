@@ -15,6 +15,7 @@ const { wrapIpcHandlerRaw, withSenderCheck } = require('./helpers')
 const { createQuickCollectEngine } = require('../services/quick-collect-engine')
 const { listPresetCommands } = require('../services/quick-collect-presets')
 const { getSource } = require('../services/quick-collect-sources')
+const { createFeedTrendFetcher } = require('../services/quick-collect-trend-sources')
 
 /** 进度事件名（渲染端 preload 逐字订阅同一个字面量） */
 const PROGRESS_CHANNEL = 'quick-collect:progress'
@@ -47,21 +48,24 @@ function registerHandlers (ipcMain, deps = {}) {
   }
 
   /**
-   * 趋势源取素材（榜单类，无关键词）。
-   *
-   * 复用热门选题页已经在跑的 `hotTopicsService`（8 主榜 + 5 垂类）：它自带按渠道节流、
-   * 熔断与 10 分钟缓存，我们不重复实现抓取。这里只做两件事：
-   *   ① 把它的主题条目**映射成统一素材**，把「没有发布时间」如实表达为
-   *      `timeKind:'observed' + observedAt`（榜单类源没有发布时间，见 PRD §3.2）；
-   *   ② 按请求的源 id 过滤（channel 名与源注册表 id 逐字一致），并把渠道状态归成
-   *      `ok/skipped/failed` 三段，供引擎判 `retrieval='partial'` 与结果卡归因。
-   * 未注入服务时返回 null ⇒ 引擎走「降级不报错」路径（phase5 装配期可能尚未就绪）。
+   * 趋势源取素材（无关键词），两个 provider 合成：
+   *   - `hot-topics`：复用热门选题页已经在跑的 `hotTopicsService`（8 中文主榜 + 5 垂类），
+   *     它自带按渠道节流、熔断与 10 分钟缓存；条目**没有发布时间** ⇒ 如实映射为
+   *     `timeKind:'observed' + observedAt`（PRD §3.2）；
+   *   - `feed`：`quick-collect-trend-sources` 抓 RSS/Atom/JSON 时间线（Solidot / 少数派 /
+   *     OSCHINA / IT之家 / 量子位 / InfoQ 中文 / V2EX / arXiv / HuggingFace），这些源**有发布时间** ⇒ `published`。
+   * 两个 provider 都按请求的源 id 过滤，各自返回 `ok/skipped/failed` 三段归因；
+   * `emptyBySchedule`（如 arXiv 周末空榜）如实上传，供界面区分「计划性不更新」与「源故障」。
+   * 两个 provider 都缺席时返回 null ⇒ 引擎走「降级不报错」路径（phase5 装配期可能尚未就绪）。
    */
   function trendFnFor () {
     const service = deps.hotTopicsService
-    if (!service || typeof service.fetchTopics !== 'function') return null
-    return async (sourceIds, opts = {}) => {
-      const wanted = Array.isArray(sourceIds) ? sourceIds.filter((id) => typeof id === 'string' && id) : []
+    const hasHotTopics = !!service && typeof service.fetchTopics === 'function'
+    const feedFn = createFeedTrendFetcher({ fetchFn: deps.fetchFn, log, now: deps.now })
+    if (!hasHotTopics && typeof feedFn !== 'function') return null
+
+    /** 中文热榜 provider（hot-topics） */
+    async function hotTopicsProvider (wanted) {
       const res = await service.fetchTopics({})
       const topics = res && Array.isArray(res.topics) ? res.topics : []
       const fetchedAt = Number(res && res.fetchedAt) || Date.now()
@@ -105,6 +109,31 @@ function registerHandlers (ipcMain, deps = {}) {
         })
       }
       return { items, sourceStats }
+    }
+
+    return async (sourceIds, opts = {}) => {
+      const wanted = Array.isArray(sourceIds) ? sourceIds.filter((id) => typeof id === 'string' && id) : []
+      const hot = wanted.filter((id) => { const s = getSource(id); return s && s.provider === 'hot-topics' })
+      const feeds = wanted.filter((id) => { const s = getSource(id); return s && s.provider === 'feed' })
+      const items = []
+      /** @type {Record<string, string>} */
+      const sourceStats = {}
+      /** @type {string[]} */
+      const emptyBySchedule = []
+      if (hot.length && hasHotTopics) {
+        const r = await hotTopicsProvider(hot)
+        for (const it of r.items) items.push(it)
+        Object.assign(sourceStats, r.sourceStats)
+      } else {
+        for (const id of hot) sourceStats[id] = 'skipped'
+      }
+      if (feeds.length) {
+        const r = await feedFn(feeds, opts)
+        for (const it of r.items) items.push(it)
+        Object.assign(sourceStats, r.sourceStats)
+        for (const id of r.emptyBySchedule || []) emptyBySchedule.push(id)
+      }
+      return { items, sourceStats, emptyBySchedule }
     }
   }
 

@@ -54,4 +54,4 @@ date: 2026-10-07
 
 2. **文档绝对路径无自动校验。** 本轮根因（逃逸分析②）未被根治：改名/搬移目录后，文档里的绝对路径仍会静默失效。可行的低成本棘轮是给 `check-docs-sync.sh` 增加一条「命中文档的绝对路径必须能在本机 `Test-Path`」的抽样检查。**本 PR 不做**——改 `scripts/` 工具脚本自身属混合 PR。
 
-3. **大小写不一致（已核实无害，未改）**：仓库脚本里写 `D:\Data\projects\Mulpub`（大写 M 小写 u），实际目录为全小写 `mulpub`。`guard-shared-root-writes.ps1:21` 走 `Resolve-Path -LiteralPath` 后做相对路径比较，不受影响；`install-session-isolation-task.ps1:46` 的 `$TaskPath -eq '\Mulpub\'` 是 PowerShell 字符串比较，**默认大小写不敏感**。故不构成缺陷，仅作记录。
+3. **大小写不一致（2026-10-07 记为无害未改；2026-10-11 已执行翻转）**：2026-10-07 当时仓库脚本里写 `D:\Data\projects\Mulpub`（大写 M 小写 u），实际目录为全小写 `mulpub`；`guard-shared-root-writes.ps1:21` 走 `Resolve-Path -LiteralPath` 后做相对路径比较，`install-session-isolation-task.ps1:46` 的 `$TaskPath -eq '\Mulpub\'` 为 PowerShell 大小写不敏感字符串比较，故当时判定无害、仅作记录、**未改**。2026-10-11 全仓路径大小写重命名（repopath-case-* 双 PR）已将脚本引用一并列改为全小写 `mulpub`，与原目录一致，原「未改」结论被该次重命名执行/翻转；归档说明见 `openspec/records/repopath-case-docs.md` 记录。

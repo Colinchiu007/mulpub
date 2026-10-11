@@ -106,7 +106,7 @@ if ($hwnd -eq [IntPtr]::Zero) {
 [MpCap]::Maximize($hwnd)
 Start-Sleep -Milliseconds 500
 
-$baseDir = "D:\Data\projects\Mulpub\01-docs\ui-reference\screenshots\modals"
+$baseDir = "D:\Data\projects\mulpub\01-docs\ui-reference\screenshots\modals"
 if (-not (Test-Path $baseDir)) { New-Item -ItemType Directory -Path $baseDir -Force | Out-Null }
 
 Write-Host "=== Capturing Modals & Interactions ===" -ForegroundColor Magenta

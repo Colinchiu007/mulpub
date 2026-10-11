@@ -110,6 +110,8 @@ function createQuickCollectEngine (deps = {}) {
 
     /** @type {Record<string, string>} */
     const sourceStats = {}
+    /** @type {string[]} 计划性不更新的源（如 arXiv RSS 周末空榜）：与「源故障」必须可区分 */
+    const emptyBySchedule = []
     let trendSourceCount = 0
     let trendSkipped = false
     if (split.trend.length > 0) {
@@ -126,6 +128,7 @@ function createQuickCollectEngine (deps = {}) {
           const res = await trendFn([...split.trend], { windowHours: command.windowHours, now: now() })
           const got = res && Array.isArray(res.items) ? res.items : []
           for (const item of got) items.push(item)
+          for (const id of Array.isArray(res && res.emptyBySchedule) ? res.emptyBySchedule : []) emptyBySchedule.push(id)
           const stats = res && res.sourceStats && typeof res.sourceStats === 'object' ? res.sourceStats : {}
           for (const id of split.trend) {
             const state = stats[id] === 'failed' || stats[id] === 'skipped' ? stats[id] : 'ok'
@@ -148,6 +151,7 @@ function createQuickCollectEngine (deps = {}) {
       trendSourceCount,
       trendSources: split.trend,
       trendSkipped,
+      emptyBySchedule,
       sourceStats,
     }
   }
@@ -232,6 +236,7 @@ function createQuickCollectEngine (deps = {}) {
         trendSources: [...r.trendSources],
         trendSkipped: r.trendSkipped,
         sourceStats: { ...r.sourceStats },
+        emptyBySchedule: [...r.emptyBySchedule],
         timeKinds,
         materialCount: merged.materials.length,
         droppedMaterials: merged.droppedTotal,

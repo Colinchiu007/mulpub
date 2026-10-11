@@ -64,7 +64,7 @@ function Click-Relative($win, $pctX, $pctY) {
 }
 
 function Take-Screenshot($win, $name) {
-    $outDir = "D:\Data\projects\Mulpub\01-docs\ui-reference\screenshots\current"
+    $outDir = "D:\Data\projects\mulpub\01-docs\ui-reference\screenshots\current"
     if (-not (Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir -Force | Out-Null }
     $outPath = Join-Path $outDir "$name.png"
     

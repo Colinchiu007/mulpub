@@ -94,7 +94,7 @@ if ($script:hwnd -eq [IntPtr]::Zero) {
 [MpCap]::Maximize($script:hwnd)
 Start-Sleep -Milliseconds 500
 
-$baseDir = "D:\Data\projects\Mulpub\01-docs\ui-reference\screenshots"
+$baseDir = "D:\Data\projects\mulpub\01-docs\ui-reference\screenshots"
 
 # ========== PUBLISH Section Sub-pages ==========
 Write-Host "`n=== PUBLISH Sub-pages ===" -ForegroundColor Magenta

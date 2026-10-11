@@ -97,6 +97,65 @@ const SOURCES = Object.freeze([
     group: 'cn-hot', provider: 'hot-topics',
     homeUrl: 'https://tophub.today/n/KqndgxeLl9', expectedDomains: ['tophub.today', 'weibo.com', 's.weibo.com'], intervalMinutes: 30, riskLevel: 'medium',
   }),
+
+  // ─────────── trend：带发布时间的免费中文/技术时间线（S2；本机实测 200 且有 pubDate） ───────────
+  // 这些源**有原生发布时间** ⇒ `timeKind: 'published'`，窗口按发布时间过滤（与榜单源的 observed 语义分开）。
+  Object.freeze({
+    id: 'solidot', label: 'Solidot', kind: 'trend', sourceType: 'realtime', timeKind: 'published',
+    group: 'tech', provider: 'feed',
+    homeUrl: 'https://www.solidot.org', feedUrl: 'https://www.solidot.org/index.rss',
+    expectedDomains: ['solidot.org'], intervalMinutes: 30, riskLevel: 'low',
+  }),
+  Object.freeze({
+    id: 'sspai', label: '少数派', kind: 'trend', sourceType: 'realtime', timeKind: 'published',
+    group: 'tech', provider: 'feed',
+    homeUrl: 'https://sspai.com', feedUrl: 'https://sspai.com/feed',
+    expectedDomains: ['sspai.com'], intervalMinutes: 30, riskLevel: 'low',
+  }),
+  Object.freeze({
+    id: 'oschina', label: 'OSCHINA 资讯', kind: 'trend', sourceType: 'realtime', timeKind: 'published',
+    group: 'tech', provider: 'feed',
+    homeUrl: 'https://www.oschina.net', feedUrl: 'https://www.oschina.net/news/rss',
+    expectedDomains: ['oschina.net'], intervalMinutes: 30, riskLevel: 'low',
+  }),
+  Object.freeze({
+    id: 'ithome', label: 'IT之家', kind: 'trend', sourceType: 'realtime', timeKind: 'published',
+    group: 'tech', provider: 'feed',
+    homeUrl: 'https://www.ithome.com', feedUrl: 'https://www.ithome.com/rss/',
+    expectedDomains: ['ithome.com'], intervalMinutes: 30, riskLevel: 'low',
+  }),
+  Object.freeze({
+    id: 'qbitai', label: '量子位', kind: 'trend', sourceType: 'realtime', timeKind: 'published',
+    group: 'tech', provider: 'feed',
+    homeUrl: 'https://www.qbitai.com', feedUrl: 'https://www.qbitai.com/feed',
+    expectedDomains: ['qbitai.com'], intervalMinutes: 60, riskLevel: 'low',
+  }),
+  Object.freeze({
+    id: 'infoq_cn', label: 'InfoQ 中文', kind: 'trend', sourceType: 'realtime', timeKind: 'published',
+    group: 'tech', provider: 'feed',
+    homeUrl: 'https://www.infoq.cn', feedUrl: 'https://www.infoq.cn/feed',
+    expectedDomains: ['infoq.cn'], intervalMinutes: 60, riskLevel: 'low',
+  }),
+  Object.freeze({
+    // V2EX hot.json 是榜单形态，但**每条自带 created（unix 秒）** ⇒ 标 published（有原生时间就用原生时间，
+    // 只有拿不到时间的榜单才降级 observed；该不变量由测试锁死）
+    id: 'v2ex_hot', label: 'V2EX 热榜', kind: 'trend', sourceType: 'hottest', timeKind: 'published',
+    group: 'tech', provider: 'feed',
+    homeUrl: 'https://www.v2ex.com/?tab=hot', feedUrl: 'https://www.v2ex.com/api/topics/hot.json',
+    expectedDomains: ['v2ex.com'], intervalMinutes: 15, riskLevel: 'low',
+  }),
+  Object.freeze({
+    id: 'arxiv_cs_ai', label: 'arXiv cs.AI', kind: 'trend', sourceType: 'realtime', timeKind: 'published',
+    group: 'tech', provider: 'feed',
+    homeUrl: 'https://arxiv.org/list/cs.AI/recent', feedUrl: 'https://export.arxiv.org/rss/cs.AI',
+    expectedDomains: ['arxiv.org'], intervalMinutes: 120, riskLevel: 'low',
+  }),
+  Object.freeze({
+    id: 'hf_papers', label: 'HuggingFace 每日论文', kind: 'trend', sourceType: 'realtime', timeKind: 'published',
+    group: 'tech', provider: 'feed',
+    homeUrl: 'https://huggingface.co/papers', feedUrl: 'https://huggingface.co/api/daily_papers',
+    expectedDomains: ['huggingface.co'], intervalMinutes: 120, riskLevel: 'low',
+  }),
 ])
 
 /** 源 id 闭集（顺序稳定：search 在前，trend 在后） */

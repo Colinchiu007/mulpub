@@ -3,7 +3,7 @@
 # 用法: .\capture-mp.ps1 [-OutputDir <path>] [-Maximize] [-ClickNav <navIndex>]
 
 param(
-    [string]$OutputDir = "D:\Data\projects\Mulpub\01-docs\ui-reference\screenshots\full-app",
+    [string]$OutputDir = "D:\Data\projects\mulpub\01-docs\ui-reference\screenshots\full-app",
     [switch]$Maximize,
     [int]$ClickNav = -1,
     [string]$FileName = "",
