@@ -53,6 +53,22 @@
 - **WHEN** 频道 A 的 `feedSync.status = "failed"`，用户切到从未发布过的频道 B
 - **THEN** 在 `podcast:channel:get` 往返期间与返回之后横幅都不显示；重试入口随横幅一起不可达，因此不存在「按 A 的判据对 B 出站」；若 B 的读取失败，同样保持 `null`（「本轮没读到」不是「还是上次那样」）
 
+### Requirement: 成片一键出期必须有单一 IPC 入口且三态结果不压平
+
+系统 SHALL 通过唯一通道 `podcast:episode:publishFromVideo` 承接「成片 → 一期 → 分发」，其入参形状、必填判据与错误码到文案的映射
+以 PRD §6.4 为唯一真源；渲染层不得另写一份相位映射或错误文案表（`publish-progress` 同族纪律）。结果 `state` 的取值闭集为
+`{success, partial, cancelled}`：`partial`（这一期已登记到本地频道、公网 feed 未更新）SHALL NOT 被压平成 failed——压平会诱导用户删掉
+本来正确的一期重来。取消 SHALL 仅在 `uploadAudio` 之前被接受，且界面必须能给出「为什么现在不能取消」；通道注册 SHALL 以字面量形式
+出现在 `ipcMain.handle` 且带 sender 守卫，preload 与渲染层桥接 SHALL 同 PR 落地（缺任一侧视为未完成，不得「先合主进程后补」）。
+
+#### Scenario: partial 不被压平成失败
+- **WHEN** 音频已 PUT、这一期已挂上本地频道，而 feed 上传被拒
+- **THEN** 结果为 `state=partial` 且带 `errorCode`，界面文案说明「本地已登记、公网未更新」，并提供只重试 feed 的出口；这一期不得被标记为需要删除重来
+
+#### Scenario: 关闭浮层不等于取消
+- **WHEN** 用户在 `uploadAudio` 之后关闭发布浮层
+- **THEN** 主进程的链继续跑完并如实落 `feedSync`，界面在下次进入时按 durable 状态显示横幅；系统不得因为浮层关闭而声称已取消
+
 ### Requirement: 单集写入必须按内容校验且区分严格模式
 
 系统 SHALL 在写入单集前对**将要落盘的完整对象（合并结果）**执行引擎 `validateEpisode` 判据，SHALL NOT 只校验传入的部分字段。一键发布路径 SHALL 以严格模式调用（不合规即整次拒绝、不落盘）；播客页手工路径 SHALL 保留"先登记、后补直链"的中间态，落盘后即时校验但仅出声不阻断。字段判据的唯一实现 SHALL 位于共享引擎，各调用点不得复制第二份。

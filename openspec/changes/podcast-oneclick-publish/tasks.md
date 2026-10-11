@@ -30,6 +30,7 @@
 - [x] 3.1 `readDegradedFlags`（与 `ResultView.vue` 的降级徽标**同真源同判据**，判据只认 `degraded === true`）——落 `podcast-episode-source.js`，命中即 `PODCAST_AUDIO_DEGRADED_SOURCE` 且在**任何出站与写盘之前**拒绝
 - [x] 3.2 `extractMix`（ffmpeg 抽**完整混音**，无音轨/抽取失败/编码器缺失三种成因分别给码并 fail closed，不回退旁白）+ `probe`（ffprobe 实测 `durationSec`/`sizeBytes`，容器→显式 `mime`，不靠 URL 猜）——落 `podcast-episode-extract.js`，宿主调用经 `spawnImpl` 注入（**真实进程接线在第 3 片**）
 - [x] 3.3 三处一致校验（`fs.stat` == ffprobe == `putObject` 返回 size）在 `podcast-episode-publish.js` 挂期之前收口，不等即 `PODCAST_AUDIO_SIZE_MISMATCH` 并阻断后续相位；**存储侧损坏在默认零出站路径不覆盖**仍是欠账（见 PRD §13 与 records）
+- [ ] 3.3a 下半片合同已落规格（PRD §6.4 入参/返回/错误码映射表/显示项/取消交互/校验三层 + spec 新增 Requirement）：代码实现按该节做，任何偏离必须先改本节再改代码，不得在实现里另立口径
 - [ ] 3.4 `usePodcastEpisodePublish` 状态机（相位闭集 + 逐格驱动全部结果态）+ `PodcastPublishAction.vue` 浮层 + 挂起合同登记
 - [ ] 3.5 入口两枚：`ResultView.vue:726`、`CreateView.vue:4519`
 - [x] 3.6a feedSync 读侧接线（`channel:get` 带 `feedSync` + 横幅 + 重试复用同一条 `podcast:feed:publish`）；评审后追加：切频道与 `feedSync` 同进同退、`FEED_SYNC_STATUSES` 闭集与三向对账锁、`retryFeed` 文案名实相符
