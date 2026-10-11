@@ -106,3 +106,35 @@ store 三态归一化用**真实 `member.js` 源码**（剥 import + defineStore
 
 | 远程同步 | PENDING —— 本 PR 尚未合并，merge SHA 尚不存在；合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI' 回填 merge SHA 并删除 frontmatter 的 sync_* 三字段 |
 |---|
+
+### 环境阻塞：PR 未能由本会话创建（诚实登记）
+
+分支已推送成功（`redeem-code-redemption` @ `b25fc805f`，经 fetch 往返确认），
+但**本会话无法调用 GitHub REST/GraphQL API 建 PR**：
+
+| 通路 | 结果 |
+|---|---|
+| `git push` / `ls-remote`（HTTPS） | ✅ 成功，2288 refs 可读 |
+| `GET /user` | ✅ 200（login=`Colinchui007`） |
+| `GET /user/repos` | ✅ 200（65 repos，含 mulpub，permissions 含 admin/push） |
+| `GET /rate_limit` | ✅ 200（core remaining=5000 ⇒ **非限流**） |
+| `GET /repos/{owner}/{repo}` | ❌ 404（所有名称变体均如此） |
+| `GET /repositories/{id}` | ❌ 404 |
+| GraphQL `repository(owner:…)` | ❌ NOT_FOUND |
+| `gh` CLI | 不可用 |
+
+判读：token 为 **fine-grained PAT**，持有该仓库的 git 读写权限，
+但**未获 REST/GraphQL 的 repository 读取授权**——GitHub 对无授权的 repo 端点
+一律返回 404（而非 403），因此「404 = 不存在」这个直觉在这里是错的。
+
+排查中也修正了一处自身错误：先前记的 owner 一度被我怀疑为 `Colinchui`，
+逐字符核对 `/user/repos` 返回的 `full_name` 后确认就是 `Colinchui007`（位置 7-8 是 i/u）。
+
+**后续动作（需具备 API 权限的会话）**：
+1. 以 `redeem-code-redemption` → `main` 建 PR
+2. 跑 CI，确认 `pull_request` 事件的 required checks 全绿（合并判定只认该事件）
+3. squash merge → 回读 main SHA、确认远端分支已删除
+4. 回填本记录的 `远程同步` 行为 PASS，并删除 frontmatter 的 `sync_*` 三字段
+
+| 远程同步 | BLOCKED —— 分支已推送（b25fc805f），但本会话 token 无 REST/GraphQL repo 授权，无法建 PR、无法确认 CI、无法合并。解除阻塞后按上方四步收口并回填 PASS |
+|---|
