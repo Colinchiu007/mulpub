@@ -2,9 +2,6 @@
 record: quick-collect-cn-sources
 task: 快捷采集·中文素材源扩展（S1：中文热榜接入 + 榜单时间语义 + 域名判据 + 检索分流）
 date: 2026-10-11
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个动这些文档的会话（回填时**同一次**改：本文件表格行 + `.quality-gates.md` 同名记录的表格行与 bullet，并整段删除本 frontmatter 的三个 sync_* 字段，同时删 `scripts/gate-record-debt-ledger.json` 的本标题登记项）
 ---
 
 ## 本次执行记录：快捷采集·中文素材源扩展 S1（quick-collect-cn-sources，2026-10-11）
@@ -52,4 +49,4 @@ sync_backfill_owner: 下一个动这些文档的会话（回填时**同一次**�
 
 | 项目 | 状态 | 取证与回填要求 |
 | ---- | ---- | ---- |
-| 远程同步 | PENDING | 本 PR 尚未合并；合并后同一次回填本行、`.quality-gates.md` 同名记录的表格行与 bullet、本文件 frontmatter 的 `sync_*` 三字段，并删除 `scripts/gate-record-debt-ledger.json` 的本标题登记项 |
+| 远程同步 | PASS | PR #3318 已 squash 合并为 `0aac19868e427602450ef9c67c8f4c07314c32ed`（2026-10-11T17:28:00+08:00）；取证：`git log origin/main --grep="(#3318)$" --format=%H|%cI` 恰好 1 行且 SHA 相同、`git ls-remote --heads origin quick-collect-cn-sources` = 0 行。本行、`.quality-gates.md` 同名记录两处、frontmatter 三字段与 ledger 登记项在同一次提交收口 |
