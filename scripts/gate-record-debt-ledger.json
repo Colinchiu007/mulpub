@@ -1,9 +1,4 @@
 {
-  "本次执行记录：快捷采集·中文素材源扩展 S1（quick-collect-cn-sources，2026-10-11）": {
-    "reason": "本 PR 尚未合并，merge SHA 还不存在。合并后由后续会话（或本会话下一轮）按 git log origin/main --grep='(#NNNN)$' --format=%H|%cI 取证，回填 .quality-gates.md 与 openspec/records/quick-collect-cn-sources.md 的远程同步行（bullet 与表格行两形态同改），删除该记录 frontmatter 的三个 sync_* 字段，并在**同一次提交**删除本条登记项。",
-    "status": "PENDING",
-    "line": 1
-  },
   "本次执行记录：Story2Video 历史失败提示脱敏与模型账号细化（error-message-fix，2026-08-19）": {
     "reason": "error-message-fix 分支的 L4479 远程同步行状态写的是「执行中」而非闭合词表——属于该记录作者的登记欠账；本人无法代为取证其 PR 合并 SHA，按「不代其他会话改写其执行记录」惯例在此登记并说明",
     "status": "PENDING",
