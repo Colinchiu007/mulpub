@@ -29,15 +29,15 @@
 
 ## S2. 时间线源：带发布时间的免费中文/技术源
 
-- [ ] S2.1 新增 `quick-collect-trend-sources.js`：RSS/Atom 轻量解析（`<item>/<entry>`、`<title>`、`<link>`、`<pubDate>`/`<published>`）
+- [x] S2.1 新增 `quick-collect-trend-sources.js`：RSS/Atom 轻量解析（`<item>/<entry>`、`<title>`、`<link>`、`<pubDate>`/`<published>`）
   + JSON 解析（V2EX hot、HF daily_papers）；`MAX_BYTES=512KB`、`MAX_PER_SOURCE=20`；测试：5 个真实响应片段夹具（含 CDATA、
   实体、缺 link、缺时间）+ 超长响应截断 + HF `MM/DD/YYYY` 解析
-- [ ] S2.2 源清单落 registry：`solidot` / `sspai` / `oschina` / `ithome` / `v2ex`（时间线）/ `arxiv_cs_ai` / `hf_papers` / `qbitai` / `infoq_cn`；
+- [x] S2.2 源清单落 registry：`solidot` / `sspai` / `oschina` / `ithome` / `v2ex`（时间线）/ `arxiv_cs_ai` / `hf_papers` / `qbitai` / `infoq_cn`；
   每条带 `expectedDomains` / `intervalMinutes`；测试：每条源都有时间字段解析器、都有域名清单
-- [ ] S2.3 抓取层接入引擎：`trendFn` 由 `hot-topics` + `feed` 两个 provider 合成；测试：provider 部分失败 ⇒ `partial` 且失败源在 `sourceStats`
-- [ ] S2.4 计划性空榜：arXiv 周末空 ⇒ `emptyBySchedule`；测试：周六夹具 → 标记而非 failed；UI 文案区分（locale 成对）
-- [ ] S2.5 内置词条增补 S2 源（`builtin-ai-trends` 提示词仍逐字不动）
-- [ ] S2.6 变异反证：① 时间解析退化为 `Date.now()` ⇒ published 窗口用例红；② HF 时间格式改成 ISO ⇒ 该源用例红；
+- [x] S2.3 抓取层接入引擎：`trendFn` 由 `hot-topics` + `feed` 两个 provider 合成；测试：provider 部分失败 ⇒ `partial` 且失败源在 `sourceStats`
+- [x] S2.4 计划性空榜：arXiv 周末空 ⇒ `emptyBySchedule`；测试：周六夹具 → 标记而非 failed；UI 文案区分（locale 成对）
+- [x] S2.5 内置词条增补 S2 源（`builtin-ai-trends` 提示词仍逐字不动）
+- [x] S2.6 变异反证：① 时间解析退化为 `Date.now()` ⇒ published 窗口用例红；② HF 时间格式改成 ISO ⇒ 该源用例红；
   ③ 去掉字节上限 ⇒ 超限夹具用例红；④ 去掉 per-source 截断 ⇒ 条数用例红
 
 ## S3. 政策/合规源（HTML/RSS 化，逐一实测后入册）

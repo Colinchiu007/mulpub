@@ -20,10 +20,14 @@ export const WINDOW_HOURS = Object.freeze([0, 24, 48, 168])
 export const ALLOWED_SOURCES = Object.freeze([
   'reddit', 'hackernews', 'github',
   'weibo', 'zhihu', 'douyin', 'bilibili', 'baidu', 'toutiao', 'tencent', 'tophub',
+  'solidot', 'sspai', 'oschina', 'ithome', 'qbitai', 'infoq_cn', 'v2ex_hot', 'arxiv_cs_ai', 'hf_papers',
 ])
 
 /** 中文榜单源子集（渲染端只用于文案分组提示，判据仍在主进程注册表） */
 export const CN_TREND_SOURCES = Object.freeze(['weibo', 'zhihu', 'douyin', 'bilibili', 'baidu', 'toutiao', 'tencent', 'tophub'])
+
+/** 中文/技术时间线源子集（有发布时间，S2 接入） */
+export const TECH_SOURCES = Object.freeze(['solidot', 'sspai', 'oschina', 'ithome', 'qbitai', 'infoq_cn', 'v2ex_hot', 'arxiv_cs_ai', 'hf_papers'])
 
 /** 字段边界（与主进程 LIMITS 逐项一致） */
 export const LIMITS = Object.freeze({
