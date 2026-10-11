@@ -203,6 +203,88 @@ registry（index.json + 两段 channel.json）、迁移三态（首访即可读�
 ### 刀 4 文案一键出期
 口语化分段（**新建 prompt，不复用 `rewrite-engine` 的去 AI 味链路**——语义不同）→ 分块云端 TTS（每块 ≤ 引擎上限，块间显式静音 0.3–0.6s，禁止整篇喂）→ 拼接 → 归一 → `probe`/`uploadAudio`/`attach`/`buildFeed`/`uploadFeed` 同刀 3。**只换数据源与触发条件，不得改手柄状态机**（结构锁⑪）。音色默认值属**频道级**（未配置时回退全局默认音色并提示）。
 
+### 7.4 刀 4 详细规格：文案 → 一期播客音频（2026-10-11 定，先于代码写死）
+
+> 与 §6.4 同一条规矩：**代码服从本节，不是反过来**；任何偏离先改本节再改代码，并在 PR 里点名这条偏离。
+> 本节的事实底稿是 2026-10-11 对现有 TTS / 拼接 / 打包媒体工具链的只读调研（每条判据都带路径:行号出处，见本节末「取证出处」）。
+
+#### 7.4.0 两处合同纠正（写在实现之前，因为它们会改变可实现形态）
+
+1. **「音色默认值属频道级（未配置时回退全局默认音色并提示）」这句里，"全局默认音色"在本仓不存在**（取证：默认音色只有两层——capability 级 `defaultVoiceId`（`services/tts-voice-catalog.js:64,93,99`）与用户偏好 `tts-voice-preference:v1:${providerId}:${model}`（`tts-voice-service.js:117,301-306`），跨 provider 的全局默认无处可查；`model-provider-manager.js:1089-1098` 的 `getDefault('tts')` 选的是 **provider** 不是音色）。
+   纠正后的形态：**频道只存 `voiceRef = { providerId, model, voiceId }` 三段，任一缺失即整段视为未配置**；未配置时的回退顺序固定为 ① 频道 voiceRef → ② 用户偏好（当前默认 provider 的那条）→ ③ capability 的 `defaultVoiceId` → ④ 三者都拿不到就**拒绝出期**（`PODCAST_TTS_VOICE_UNRESOLVED`），不得静默用「某个 provider 的第一个音色」猜——猜错的用户听感是「我的播客怎么换了个人说话」，且一旦发进 feed 就是对外可见的错。
+   ② 与 ③ 命中时界面上必须写明**用的是哪一层回退**（显示项见 7.4.6），否则用户无法区分「我配过」与「系统替我选了」。
+2. **本刀不得依赖 `loudnorm` 做响度归一**（取证：打包媒体工具的已验证滤镜清单 `REQUIRED_FILTERS` 不含 `loudnorm`，`scripts/stage-media-tools.js:10-21`；`anullsrc`/`amix`/`acrossfade` 在列）。AGENTS.md「Story2Video 媒体工具资源闭包」要求"打包前按锁校验编码器/滤镜、打包后真实检查"，所以引入 `loudnorm` 必须同时改锁 + 改 `before-pack` 校验 + 重打包实测，那是另一条混合 PR 的体量。
+   替代方案（写死，不许临场发挥）：**同一期内所有块使用逐字相同的 `voiceId / rate / pitch / audio_format` 参数**，块间衔接用 `concat=n=N:v=0:a=1`（已验证的 `aac` 编码路径），不做归一、也不做跨块音量补偿。
+   后果必须如实写进 §13：**跨 provider 降级时各块响度可能不一致**，本期接受这个不一致，不接受「为了归一而去碰未验证的滤镜」。
+
+#### 7.4.1 数据源与真源（刀 4 只换数据来源，不换手柄）
+
+| 项 | 值 | 判据与后果 |
+|---|---|---|
+| 文案真源 | 渲染层 settings 键 `copy_library_rewrites`（`src/composables/useCopyLibrary.js:23`，上限 200 条 :29） | 主进程**没有** copy service（已搜 `copy_library_rewrites` 于 `apps/desktop/electron` = 0 命中）。因此刀 4 的入参必须把**正文本体**传进主进程，不能只传 id——只传 id 等于要求主进程去读渲染层 settings，那是第二个真源 |
+| 记录字段 | `{id, fromKey, fromTitle, title, content, wordCount, platform, sourceUrl, createdAt}`（:159-170） | 只有 `content` 与 `title` 参与出期；`platform` **不得**影响口语化 prompt（同一份文案出期与发布到哪个平台无关） |
+| 分段结构 | `content` 只 `trim()` 首尾，内部换行原样保留（:151），显示端 `white-space: pre-line`（`CopyLibraryView.vue:312`） | ⛔ 分块逻辑**禁止**压缩空白：`\s+ → ' '` 会把语义换行一起压掉（AGENTS.md「文本空白归一化 MUST NOT」+ `readable-text.js:139-143` 的 `[^\S\n]+` 唯一口径）。段落边界就是 `\n` |
+| 改写链 | `rewrite-handoff.js:23` 的 `{content 必填, title, platform, sourceUrl, fromKey, fromTitle}` | RewriteView 入口沿用该形状，不在刀 4 另造第二种 handoff |
+
+#### 7.4.2 流程（相位与手柄）
+
+手柄仍是 `podcast-episode-publish.js` 的闭集 `PHASES`（:29-32）与 `CANCELABLE_UNTIL='uploadAudio'`。刀 4 **只在 `extractMix` 这一站换一个实现**（`synthesizeEpisodeAudio` 取代 `extractEpisodeAudio`），`probe` 及其之后逐字复用。结构锁（PRD §8 ⑪）的口径是：**改相位枚举必须与逐格结果态测试同 PR**；刀 4 不改枚举，改的是注入实现。
+
+```
+pickChannel → colloquialize → chunk → ttsBlock(逐块，串行) → concatBlocks → probe → uploadAudio → attach → buildFeed → uploadFeed
+              └──────────── 这一段是 extractMix 的等价替身 ────────────┘
+```
+
+1. `colloquialize`：**新建独立 prompt**，不复用 `rewrite-engine` 的去 AI 味链路（语义不同：那是"读起来像人写的"，这是"听起来像人说的"）。输出必须保持输入的分段结构（AGENTS.md「后处理结构不变量」：不得改换行/分段、终止标点原样、段尾无标点不得追加）。
+2. `chunk`：块上限取 **2000 码点**（不是 provider 的 4000 字符——`asset-generator.js:1031` 是 `slice(0, 4000)` 的**静默截断**，整篇喂进去超 4000 就直接丢内容且**不报错**，这是本刀最大的静默失真风险）。块边界只允许落在段落（`\n`）或句末终止标点（。！？；…），不得在句中断开；单段本身超上限时按句号再切，仍无句号则**拒绝出期**（`PODCAST_TTS_CHUNK_UNSAFE`）而不是硬切——硬切会把一句话读成两截。
+3. `ttsBlock`：唯一出口是 `AssetGenerator.generateTTS(text, opts)`（`asset-generator.js:1009`），**禁止**直接调 adapter 的 `synthesize`（各家入参键名不同：minimax `text/voice/speed`、openai `input/voice/response_format`、google `text/speakingRate`，见 `adapters/*-tts.js`；这正是 AGENTS.md「适配器入参键必须与调用方契约键一致」那条事故的同族）。返回取 `data.path`（本地文件路径，:1095-1107）。
+   - 逐块**串行**，每块 `withAssetTransientRetry` 语义沿用 Story2Video 的 `maxAttempts=3` / 限流 `4` 次（`story2video-stages.js:1402-1424`）；并发留空是刻意的（多数 TTS provider 按并发计费/限流，且并发会把"哪一块坏了"变成竞态）。
+   - 每块产出的 `degraded` 标记必须逐块记账：`generateTTS` 的三级降级最终会返回 `anullsrc` 生成的 **3 秒静音并带 `degraded:true`**（:1224,1320-1332,1346）。
+4. `concatBlocks`：`concat=n=N:v=0:a=1` 的既有路径（`story2video-compose-engine.js:1514,1524-1530`），块间显式插入 **0.3–0.6 s** 静音——仓内**现成做法是"块间不加静音"**（§7.4.0 取证），所以这里的静音必须由**预先物化的静音片段**参与 concat（用已验证的 `anullsrc` 生成一份基准静音，再按块数复制），**不得**用 `adelay`（不在 `REQUIRED_FILTERS`）。
+5. `probe` 及之后逐字复用刀 3：ffprobe 实测 `durationSec`/`sizeBytes` → 显式 `mime` → 三处一致校验 → attach（strict）→ buildFeed → uploadFeed。**`degraded:true` 的素材永远进不到 probe**：降级门禁在 `podcast-episode-source.js:53` 已经只认 `audioMeta.degraded === true`，刀 4 必须把逐块 degraded 汇成同一条判据（展示端同源 `ResultView.vue:652`），命中即整次拒绝、不上传。
+
+#### 7.4.3 数据校验三层（与 §6.4 同构，逐层给出「少了它会怎样」）
+
+| 层 | 判据 | 少掉的后果 |
+|---|---|---|
+| ① 入参形状（主进程入口，任何出站之前） | `channelId` 非空且过 `CHANNEL_ID_RE`；`copy.content` 非空且 ≥ 80 码点（短于这个数不可能是一期）；`title` 非空且 ≤ 200 码点（与刀 3 同一 `TITLE_MAX_CODEPOINTS`）；`runId` 形态 8–64 `[A-Za-z0-9_-]`；`voiceRef` 三段同存或同缺 | 空正文会产出一期「纯静音 + 标题」的对外可见单集；缺 `runId` 形态判据等于让渲染层决定主进程往哪写文件 |
+| ② 素材与实测 | 逐块 `degraded` 汇总门禁 → 拼接后文件 `existsSync` → ffprobe 实测 `durationSec > 0` 且 `sizeBytes` 与 `stat` 一致 → **总时长 ≥ 块数 × 单块最短时长下限**（防「每块都被替换成 3 秒静音」这种全降级形态） | 只看 `code === 0` 会把静音当成功；只比 stat 会放过 concat 中途截断 |
+| ③ 落盘前预校验 | 打在**合并结果**上（读 `list[index]` → 按同一合并语义 merge → `validateEpisode(merged)`），与刀 3 §6.4 第 3 层逐字同实现，不得第二份 | 不合格字段一旦进 feed 就是对外可见的坏数据，且 guid 幂等合并会把它留在原地 |
+
+#### 7.4.4 交互逻辑
+
+- 入口两枚（与刀 3 同一浮层、同一状态机）：`CopyLibraryView.vue` 的单条记录操作区、`RewriteView.vue` 的改写结果区；`Publish.vue` 的文本类分支同样复用（§7 刀 5 的入口判据不变）。
+- 浮层仍是应用级模态 ⇒ 必须经 `useEmbeddedViewSuspension` 挂起内嵌视图并在 `overlay-view-suspension.test.js` 登记 owner（AGENTS.md 浮层互斥合同）。
+- **关闭浮层不取消本次合成**：链在主进程，跨 await 的中间态由主进程收尾——这句必须显示在界面上。
+- 取消窗口：**`uploadAudio` 之前**全程可取消（比刀 3 更宽——TTS 逐块串行，块与块之间天然是安全取消点；已产出的块文件留在 run 目录里由宿主统一删除，无远端对象，所以回滚是纯本地的）。取消判据仍只有一份（`cancellableAt`），界面不得自己猜相位。
+- 块级失败的用户侧出口只有两个：**重试整期** 或 **放弃**。不提供"跳过坏块继续"——那会产出一期内容缺失且听感突兀的节目对外发布（与 §7.4.2 第 3 条的 fail-closed 同源，也不同于 `localization-stages.js:305` 那种"跳过缺失段"的既有做法：那是给视频配音、不改变对外契约的东西；播客 feed 是对外长期可见的）。
+
+#### 7.4.5 显示项（浮层内，逐项给出处）
+
+1. 进度：`已完成块数 / 总块数`（总块数在 `chunk` 结束时才确定，之前显示"正在分段…"，**不得**先猜一个总数再改口——数字会变的东西被用户当作进度谎言）。
+2. 逐块累计时长（来自每块 ffprobe 实测，不来自 provider 申报值；申报值与本仓「不得用申报值代替实测」纪律冲突）。
+3. 音色来源标注：`频道配置` / `沿用上次选择` / `provider 内置默认` 三态之一（对应 §7.4.0 的 ①②③，未配置直接拒绝时不显示本项）。
+4. 结果三态各一句话（success / partial / cancelled，语义与 §6.4 逐字一致；success 必须含「聚合端下次抓取后生效（通常数小时至数天）」，**禁止**写"已即时生效"）。
+5. 拒绝态必须点名成因类别：素材太短 / 分段不安全 / 某块降级为静音（列出块号）/ 音色无法解析 / provider 全部失败——五类不得合并成"合成失败"。
+
+#### 7.4.6 提示文字（逐字键清单；文案本体在第 4 片与 locales 同 PR 落地）
+
+⛔ 与刀 3 同一条纪律：**唯一消费点存在之前不得把键写进 locales**（AGENTS.md 禁止死键）。本片先落键名与语义，值在实现片成对补齐并跑 Gate 7（`check-locale-sync --pair-base`）与术语锁（`src/i18n/glossary.test.js`）。
+
+| 键 | 触发 | 语义要点（zh） |
+|---|---|---|
+| `podcast.tts.blocksProgress` | 合成中 | 「已合成 {done} / {total} 段」 |
+| `podcast.tts.blocking` | 总块数未定 | 「正在分段…」 |
+| `podcast.tts.durationSoFar` | 合成中 | 「累计时长 {duration}」 |
+| `podcast.tts.voice.channel` / `.preference` / `.providerDefault` | 显示项 3 | 三态来源标注，措辞必须让用户能区分"我配的"与"系统替我选的" |
+| `podcast.errors.PODCAST_TTS_VOICE_UNRESOLVED` | ①层 | 无法确定音色，已停止（不猜音色） |
+| `podcast.errors.PODCAST_TTS_COPY_TOO_SHORT` | ①层 | 正文过短，不足以成为一期 |
+| `podcast.errors.PODCAST_TTS_CHUNK_UNSAFE` | chunk | 分段边界不安全（无句号可切），已停止而非硬切 |
+| `podcast.errors.PODCAST_TTS_CHUNK_DEGRADED` | ②层 | 第 {blocks} 段被替换为静音，已阻止上传（是素材不可用，不是生成失败） |
+| `podcast.errors.PODCAST_TTS_ALL_FAILED` | ②层 | 所有段都未取回可用音频 |
+| `podcast.tts.cancelHint` | 浮层 | 关闭本窗口不会停止合成；停止请点击"取消出期" |
+| `podcast.tts.cancelTooLate` | 取消 | 说明**为什么**不能取消（已进入上传，会留下半态） |
+
 ### 刀 5 入口收敛
 刀 3 已建好的 `<PodcastPublishAction>` 挂到 `CopyLibraryView.vue:174`、`RewriteView.vue:812`、`Publish.vue:358`（采集页仅文本类分支）。**不放**：`HotTopics`、`KeywordMonitor`、`PublishHistory:764`（重发会带同 guid 原地覆盖正在播那期）、`Home`/`FirstRun`（裸跳转无内容）、`FilmEngineering`（本页无发布挂载点）。
 
