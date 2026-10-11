@@ -193,7 +193,7 @@ const mountedTabs = ref(new Set([activeTab.value]))   // 初始只挂 'auto'
 
 | 评审条目 | 我的独立取证 | 处置 |
 | --- | --- | --- |
-| A：消息模板 + `code` 赋值 + 三属性挂载在两套循环里各抄一遍，而 R11 只锁"不自带定义" | 逐行对照 `all-views:151-172` 与 `supplementary-views:280-301`，除前缀外**逐字相同** ⇒ 两份模板会在下次改文案时漂移，而 `code` 一漂移 Gate 7 的 `= 3` 就点不到火 | 收进共享模块 `buildSuiteError(prefix, failures)`；R11 加两条锁（套件里不得出现 `个视图从未渲染出来` 模板；不得自行赋那两个 `error.code`）；反证 **N8＝把模板抄回套件 ⇒ 实测 RED（`Failed Tests 1`）** |
+| A：消息模板 + `code` 赋值 + 三属性挂载在两套循环里各抄一遍，而 R11 只锁"不自带定义" | 逐行对照（**处置前的行号，现两处模板已删、只留 `buildSuiteError` 调用点**）`all-views:151-172` 与 `supplementary-views:280-301`，除前缀外**逐字相同** ⇒ 两份模板会在下次改文案时漂移，而 `code` 一漂移 Gate 7 的 `= 3` 就点不到火 | 收进共享模块 `buildSuiteError(prefix, failures)`；R11 加两条锁（套件里不得出现 `个视图从未渲染出来` 模板；不得自行赋那两个 `error.code`）；反证 **N8＝把模板抄回套件 ⇒ 实测 RED（`Failed Tests 1`）** |
 | A/E：`close()` 抛错会吞掉已收集的就绪失败（就绪被压回 1，`= 3` 点不到火） | `supplementary-views` 是裸 `finally { await runner.close() }`；`all-views` 虽有 `fatalError`，但 `if (fatalError) throw` 排在分类块**之前** | 两套统一改为「视图失败优先、close 失败挂 `cause`」；launch 失败时 `failures` 必为空，故 R5 原语义不变；新增 **R14/R15** |
 | B：两套 re-export 的 `isReadyFailure`/`exitCodeForError` 是零消费者死导出，且注释声称"给 run-all-visual.js 使用" | 全仓 grep：`run-all-visual.js:19-33` 与 `visual-ci.test.js:18/46-49` 只取注册表与运行函数；分类单测已直连共享模块 ⇒ **那句注释与事实不符** | 删掉两处 re-export，注释改成"不 re-export"的说明；测试改走 `rc.exitCodeForError` |
 | C：`classifyFailures` 与 `autonomous-enforce-loop.js:197` 同名不同义 | `grep "function classifyFailures"` 命中 2 处，另一份签名是 `(pixelResults, functionalResults)` | 改名 `classifyVisualFailures`，并在模块头注释点名碰撞来源 |
