@@ -8,7 +8,7 @@ async function main() {
 
   const browser = await chromium.launch({
     headless: true,
-    executablePath: "D:/Data/projects/Mulpub/apps/desktop/.playwright-browsers/chromium-1228/chrome-win64/chrome.exe"
+    executablePath: "D:/Data/projects/mulpub/apps/desktop/.playwright-browsers/chromium-1228/chrome-win64/chrome.exe"
   });
   const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
 

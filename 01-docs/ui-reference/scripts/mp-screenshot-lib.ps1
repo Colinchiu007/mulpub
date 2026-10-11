@@ -30,7 +30,7 @@ public class MpHelper {
 }
 "@
 
-$script:SCREENSHOT_DIR = "D:\Data\projects\Mulpub\01-docs\ui-reference\screenshots"
+$script:SCREENSHOT_DIR = "D:\Data\projects\mulpub\01-docs\ui-reference\screenshots"
 
 function Get-MpWindow {
     $proc = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -match "参考产品" } | Select-Object -First 1

@@ -39,7 +39,7 @@ main 上曾同时挂着 **6 篇** `sync_status: PENDING` 的新载体记录，�
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | PASS | 纯记录/流程变更 ⇒ docs-only 通道；仍在隔离 worktree `D:/Data/projects/mp-worktrees/mp-gate-record-backfill-09`（裸分支 `gate-record-backfill-09`，base `f844f1751`）做，共享根 `D:/Data/projects/Mulpub` 保持 main clean。建区以产物实证（`rev-parse --abbrev-ref HEAD` = `gate-record-backfill-09`、`log -1` = base），未采信入口 rc |
+| 变更类型与隔离 | PASS | 纯记录/流程变更 ⇒ docs-only 通道；仍在隔离 worktree `D:/Data/projects/mp-worktrees/mp-gate-record-backfill-09`（裸分支 `gate-record-backfill-09`，base `f844f1751`）做，共享根 `D:/Data/projects/mulpub` 保持 main clean。建区以产物实证（`rev-parse --abbrev-ref HEAD` = `gate-record-backfill-09`、`log -1` = base），未采信入口 rc |
 | 回填与销账同一次 | PASS | 每条记录：`远程同步` 行 PENDING→PASS（含 merge SHA + committer + PR mergedAt + 三源取证写法）**且**删除 frontmatter 的 `sync_status`/`sync_reason`/`sync_backfill_owner` 三行。脚本对每个文件先断言「PENDING 行恰好 1 条」「sync_* 字段恰好 3 个」，任一不符整批抛错停手；收尾逐文件回读 `pending_left=0`、`fm_left=false`、keys=`["record","task","date"]` |
 | 行尾 | PASS | 逐行 `split('\n')`，替换行按原行尾补回 `\r`；六个文件写回后实测 `crlf=true` 保持。**这里有一条要记的自纠**：我第一版收尾断言写成 `b[4] === '---'`，而 frontmatter 闭合行带着 `\r` ⇒ 六个文件全报 `frontmatter_intact=false`。这不是文件坏了，是**我的判据没考虑行尾**；改用 `/^---\r?\n([\s\S]*?)\r?\n---/` 重测，keys 全为 `record/task/date`。同族坑见 [[project-mulpub-eol-and-topdoc-merge]] |
 | `--grep` 的 `#` 漏写（**本仓已记第四次，我又踩了一次**） | 已纠正 | 枚举脚本第一版写 `--grep=(' + pr.number + ')$`，**漏了 `#`** ⇒ 六条全部 `GREP_MISS`，脚本据此判「未合并」。这次行为是 fail-closed（判不成而不回填），但结论是错的。`01-docs` 记忆里这条已经写过（"漏掉 `#` 会静默返回空"），仍复发 ⇒ 落笔时不能凭手感，`--grep` 的模式必须与被匹配标题**逐字对照一次**；修好以后六条全部取到 SHA。见 [[project-mulpub-merge-gates]] |

@@ -29,29 +29,28 @@
 
 ## S2. 时间线源：带发布时间的免费中文/技术源
 
-- [ ] S2.1 新增 `quick-collect-trend-sources.js`：RSS/Atom 轻量解析（`<item>/<entry>`、`<title>`、`<link>`、`<pubDate>`/`<published>`）
+- [x] S2.1 新增 `quick-collect-trend-sources.js`：RSS/Atom 轻量解析（`<item>/<entry>`、`<title>`、`<link>`、`<pubDate>`/`<published>`）
   + JSON 解析（V2EX hot、HF daily_papers）；`MAX_BYTES=512KB`、`MAX_PER_SOURCE=20`；测试：5 个真实响应片段夹具（含 CDATA、
   实体、缺 link、缺时间）+ 超长响应截断 + HF `MM/DD/YYYY` 解析
-- [ ] S2.2 源清单落 registry：`solidot` / `sspai` / `oschina` / `ithome` / `v2ex`（时间线）/ `arxiv_cs_ai` / `hf_papers` / `qbitai` / `infoq_cn`；
+- [x] S2.2 源清单落 registry：`solidot` / `sspai` / `oschina` / `ithome` / `v2ex`（时间线）/ `arxiv_cs_ai` / `hf_papers` / `qbitai` / `infoq_cn`；
   每条带 `expectedDomains` / `intervalMinutes`；测试：每条源都有时间字段解析器、都有域名清单
-- [ ] S2.3 抓取层接入引擎：`trendFn` 由 `hot-topics` + `feed` 两个 provider 合成；测试：provider 部分失败 ⇒ `partial` 且失败源在 `sourceStats`
-- [ ] S2.4 计划性空榜：arXiv 周末空 ⇒ `emptyBySchedule`；测试：周六夹具 → 标记而非 failed；UI 文案区分（locale 成对）
-- [ ] S2.5 内置词条增补 S2 源（`builtin-ai-trends` 提示词仍逐字不动）
-- [ ] S2.6 变异反证：① 时间解析退化为 `Date.now()` ⇒ published 窗口用例红；② HF 时间格式改成 ISO ⇒ 该源用例红；
+- [x] S2.3 抓取层接入引擎：`trendFn` 由 `hot-topics` + `feed` 两个 provider 合成；测试：provider 部分失败 ⇒ `partial` 且失败源在 `sourceStats`
+- [x] S2.4 计划性空榜：arXiv 周末空 ⇒ `emptyBySchedule`；测试：周六夹具 → 标记而非 failed；UI 文案区分（locale 成对）
+- [x] S2.5 内置词条增补 S2 源（`builtin-ai-trends` 提示词仍逐字不动）
+- [x] S2.6 变异反证：① 时间解析退化为 `Date.now()` ⇒ published 窗口用例红；② HF 时间格式改成 ISO ⇒ 该源用例红；
   ③ 去掉字节上限 ⇒ 超限夹具用例红；④ 去掉 per-source 截断 ⇒ 条数用例红
 
 ## S3. 政策/合规源（HTML/RSS 化，逐一实测后入册）
 
-- [ ] S3.1 端点实测（每个：HTTP 状态、条目数、是否有条目级时间、robots/条款初步判断），实测通过者才写入 registry；
-  记录进 PRD 附录与 change design
-- [ ] S3.2 解析器 + 测试（HTML 解析必须带夹具与「结构变更 ⇒ 明确失败而非静默空」判据）
-- [ ] S3.3 `builtin-platform-policy` 增补 S3 源；空态文案「该来源本期无更新」与「源不可用」必须可区分
-- [ ] S3.4 变异反证：HTML 结构变更夹具 ⇒ 明确 fail 而非空列表；时间缺失 → `observed` 而非编造发布时间
+- [x] S3.1 端点实测（2026-10-11，7 个候选）：**平台官方页全部 JS/登录态渲染（0 条目）**；监管站点列表页可解析标题但**缺条目级时间**；网信办子栏目路径 404 ⇒ 按纪律**无源入册**。证据表见 PRD §4.3
+- [x] S3.2 不实现解析器（无实测通过的源可接）——**以 PRD §4.3 的证据表收口**，避免用必然半坏的 HTML 解析冒充能力
+- [x] S3.3 不做增补；`builtin-platform-policy` 维持英文社区源，缺口在 PRD §4.3 与 §15 如实登记（含三条后续路径 A/B/C，待用户拍板）
+- [x] S3.4 无需变异反证（无实现）；**决策本身已被证据锁住**：没有"能拿到条目级时间"的源，任何解析器都只能靠猜
 
 ## S4. 付费中文检索（阻塞：待用户提供 Key 与预算）
 
-- [ ] S4.1 在 registry 留开关位并如实登记 `disabled: 'needs-key'`；不实现任何调用；文档写明「无 Key 不做」
-- [ ] S4.2 若用户提供 Key：新增 provider + 密钥只从设置读、绝不落日志（沿用既有凭证脱敏纪律）
+- [x] S4.1 不实现任何调用；**不在 registry 留占位开关位**（registry 只允许实测通过的源，占位会让"支持付费源"与"只登记名字"无法区分）；已在 PRD §4.4 与本节如实登记为「待用户提供凭证/预算」
+- [ ] S4.2（**阻塞：待用户提供 Key 与预算**）若提供：新增 provider + 密钥只从设置读、绝不落日志（沿用既有凭证脱敏纪律）
 
 ## 收尾（每个切片各自一套）
 

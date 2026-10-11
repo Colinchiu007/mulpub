@@ -64,6 +64,8 @@ function createPodcastApi(ipcRenderer) {
       hostingSave: unwrap((payload) => ipcRenderer.invoke('podcast:hosting:save', payload)),
       hostingCheck: unwrap(() => ipcRenderer.invoke('podcast:hosting:check')),
       feedPublish: unwrap((payload) => ipcRenderer.invoke('podcast:feed:publish', payload)),
+      episodePublishFromVideo: unwrap((payload) => ipcRenderer.invoke('podcast:episode:publishFromVideo', payload)),
+      episodePublishCancel: unwrap((payload) => ipcRenderer.invoke('podcast:episode:publish:cancel', payload)),
       channelGet: unwrap((...a) => ipcRenderer.invoke('podcast:channel:get', ...a)),
       channelSave: unwrap((payload) => ipcRenderer.invoke('podcast:channel:save', payload)),
       episodeList: unwrap(() => ipcRenderer.invoke('podcast:episode:list')),

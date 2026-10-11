@@ -194,3 +194,32 @@
 #### Scenario: 请求进行中读体失败
 - **WHEN** 读流在 `PUT` 尚未结算时发出 error，而对端仍回 200
 - **THEN** `putObject` 抛 `PODCAST_HOSTING_BODY_READ_FAILED`，调用方按失败处理（2xx 只证明对端收了请求，不证明体真被读出来过）
+
+### Requirement: 成片出期必须整链持频道忙标记，且取消经第二条通道
+
+一次「成片 → 一期」跨四次 await 的写（音频 PUT、`episodes.json` 读改写、`feed.xml` 重建、feed PUT）。系统 SHALL 在链进入时取该频道的发布忙标记、在 `finally` 释放，命中即 `PODCAST_CHANNEL_BUSY` 立即拒绝且不排队；链内的 `publishFeed` SHALL 仅凭**持锁凭证**（`publishHolder(id).token`）再入，MUST NOT 接受调用方自述「已持锁」，再入分支 MUST NOT 放锁。链内每一次获取「可写频道服务」MUST 发生在 `channelPublishPass` 的同步作用域内。取消 MUST 由独立通道 `podcast:episode:publish:cancel` 按 `runId` 送达主进程持有的同一个 token——`ipcRenderer.invoke` 的结构化克隆使「渲染层持有引用」不可能生效，把它当可实现形态会让取消静默失效。`uploadAudio` 之后的取消请求 MUST 返回 `too_late` 且 MUST NOT 置位；未登记或已结束的 `runId` MUST 返回 `unknown`，二者都 MUST NOT 被消费方读成「已取消」。
+
+#### Scenario: 发布窗口内手工写者被挡在窗外
+
+- **WHEN** 一键出期正在飞，同一时间用户对同频道做一次手工 `podcast:episode:save`
+- **THEN** 手工写被 `PODCAST_CHANNEL_BUSY` 拒绝，`episodes.json` 不被交错覆盖
+
+#### Scenario: 链内的 feed 步不被自己的忙标记挡住
+
+- **WHEN** 出期链走到 `uploadFeed`，调用 `publishFeed`
+- **THEN** 它经持锁凭证再入并成功；链结束后忙标记被释放，第二次同频道发起才会被拒
+
+#### Scenario: 凭证不匹配不构成放行
+
+- **WHEN** 调用方传入的 `heldBy` 与当前持锁凭证不同（或干脆不传）
+- **THEN** `publishFeed` 照常自行取锁，忙则 `PODCAST_CHANNEL_BUSY`，且不释放他人的锁
+
+#### Scenario: 抽取在途取消要真的杀进程
+
+- **WHEN** 用户在 `extractMix` 期间点取消
+- **THEN** 在途 ffmpeg 子进程收到 kill，结果态为 `cancelled`（不是 `failed`），临时产物被删除
+
+#### Scenario: 超时不得被读成用户取消
+
+- **WHEN** 抽取或探测因宿主超时而 kill
+- **THEN** 只杀进程、不置 `cancelled`，结果如实为 `EXTRACT_FAILED`（两种成因排查方向相反）
