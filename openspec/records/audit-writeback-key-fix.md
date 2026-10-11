@@ -8,7 +8,7 @@ date: 2026-10-07
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | PASS | 运行时代码（`apps/desktop/electron/services/`）⇒ 隔离 worktree `D:/Data/projects/mp-worktrees/mp-audit-writeback-key-fix`，裸分支 `audit-writeback-key-fix`，base `8a959ef68`（origin/main tip），被审 commit `5930bc6fb1ad419d80dc0887462fe05aadb35945`。共享根 `D:/Data/projects/Mulpub` 保持 main clean（仅两条本会话未跟踪的 docs 草稿）。 |
+| 变更类型与隔离 | PASS | 运行时代码（`apps/desktop/electron/services/`）⇒ 隔离 worktree `D:/Data/projects/mp-worktrees/mp-audit-writeback-key-fix`，裸分支 `audit-writeback-key-fix`，base `8a959ef68`（origin/main tip），被审 commit `5930bc6fb1ad419d80dc0887462fe05aadb35945`。共享根 `D:/Data/projects/mulpub` 保持 main clean（仅两条本会话未跟踪的 docs 草稿）。 |
 | 第一性原因（QM-5 ①） | PASS | `phase4-events.js:91` 传 `task.id`（队列 id `task_<n>_<ms>`），`publish-history.js` 的 `updateRecordAudit` 只按 `record.id`（`Date.now().toString(36)+4rand`，`:86` 生成）匹配 ⇒ 两键永不相等 ⇒ 每次回写恒 `updated:false`。真机现场对（本仓运行日志）：`monitor-result {"platform":"bilibili","postId":"BV1HyHC6mExS","status":"published"}` 之后 **3 ms** 是 `audit-update-skipped {"taskId":"task_1_1791361909906"}`。 |
 | 规范键的出处（不靠猜） | PASS | 仓库自己已回答两处：`PublishHistory.vue:633` 按 `record.taskId \|\| record.id` join；`phase4-events.js:107` 把队列 id 写进记录的 **`taskId`** 字段，`:151-153` 明写「关联键的语义＝发布任务 id」。只有被调方没跟上。 |
 | 逃逸分析（QM-5 ②） | PASS | 单元层：`publish-history.test.js` 既有用例全部走 `updateRecordAudit(rec.id, …)` —— **生产从不使用的那条键**，所以 taskId 路径 0 覆盖。集成层：`phase4-events.test.js` 的 P0-1 夹具把被调方写成 `vi.fn(()=>({updated:true}))`，「有没有改到那条记录」在夹具下**结构性不可表示**，且 `expect(id).toBe('task-audit-1')` 把「传队列 id」钉成契约 ⇒ 两侧合谋。真机层：徽标从未出现过，被读成「B 站还没审核通过」而非「链路断了」。审查层：无。分类＝**测试质量不足（恒真夹具）+ 断言反向固化错误行为**，属 AGENTS.md「装饰性链路」第四次复发。 |

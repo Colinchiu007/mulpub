@@ -11,7 +11,7 @@ date: 2026-10-07
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型 | PASS | 纯流程/记录变更（`.quality-gates.md`、`openspec/records/**`、`scripts/gate-record-debt-ledger.json`），零运行时代码 ⇒ docs-only 通道。仍按并发纪律在隔离 worktree `D:/Data/projects/mp-worktrees/mp-gate-record-backfill-08`（裸分支 `gate-record-backfill-08`，base `e24660047`）做，共享根 `D:/Data/projects/Mulpub` 保持 main clean |
+| 变更类型 | PASS | 纯流程/记录变更（`.quality-gates.md`、`openspec/records/**`、`scripts/gate-record-debt-ledger.json`），零运行时代码 ⇒ docs-only 通道。仍按并发纪律在隔离 worktree `D:/Data/projects/mp-worktrees/mp-gate-record-backfill-08`（裸分支 `gate-record-backfill-08`，base `e24660047`）做，共享根 `D:/Data/projects/mulpub` 保持 main clean |
 | 回填对象与双源取证 | PASS | 三条各按「`git log origin/main --grep='(#N)$'` 取 merge SHA + `git ls-remote --heads origin <branch>` 返回 0 行证远端分支已删」双源闭合，**不凭记忆写 SHA**：① #3039 = `e0f788501f92e8513057dd137e352e0caed89e44`（2026-10-07T04:11:23Z）；② #3078 = `8a959ef68279d7cf2eed37d7a5fae0a0b8a9c942`（2026-10-07T18:47:55+08:00）；③ #3083 = `e24660047a87e9f8a2ceca8e59c5664739e87b93`（2026-10-07T20:28:25+08:00）。三个分支名 `sync-backfill-batch-07` / `bilibili-buckets-backfill` / `audit-writeback-key-fix` 的 `ls-remote` 计数当场各为 **0** |
 | 合并方式判定（squash 还是 merge） | PASS | 按 main 上**合并提交自己的主题**判，不读 PR 标题：三条 `git log` 主题分别以 `(#3039)`/`(#3078)`/`(#3083)` 结尾且各只有一条命中 ⇒ squash 落地，符合仓库惯例 |
 | 回填与销账同一次 | PASS | ① `openspec/records/audit-writeback-key-fix.md`：`远程同步` 行 PENDING→PASS **且** 删除 frontmatter 第 5–7 行的 `sync_status`/`sync_reason`/`sync_backfill_owner`；② `openspec/records/bilibili-buckets-backfill.md`：同样两个半动作在同一提交；③ `.quality-gates.md` 的 batch-07 记录：行改 PASS **且** 删除 `scripts/gate-record-debt-ledger.json` 里对应的登记键（旧载体的登记在 ledger，不在 frontmatter，两套载体的销账介质不同，不得混用） |

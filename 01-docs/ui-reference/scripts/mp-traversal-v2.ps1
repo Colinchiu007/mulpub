@@ -1,6 +1,6 @@
 ﻿# 参考产品全面截图 - 简化版
 $script:MP_PID = 19492
-$script:OUTPUT_DIR = "D:\Data\projects\Mulpub\01-docs\ui-reference\screenshots\full-traversal"
+$script:OUTPUT_DIR = "D:\Data\projects\mulpub\01-docs\ui-reference\screenshots\full-traversal"
 $script:COUNTER = 0
 
 New-Item -ItemType Directory -Path $script:OUTPUT_DIR -Force | Out-Null

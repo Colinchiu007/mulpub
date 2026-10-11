@@ -2,7 +2,7 @@
 
 ## 目标
 
-共享仓库根（例如 `D:/Data/projects/Mulpub`）是只读协调根，长期保持 main 且干净。运行时代码任务必须创建在隔离 worktree（默认 `<仓库父目录>/mp-worktrees/mp-<task>`，可用 `-WorktreeRoot` 或 `MP_WORKTREES` 覆盖），避免多个 Codex 会话共享同一个 Git HEAD、index 和 stash。
+共享仓库根（例如 `D:/Data/projects/mulpub`）是只读协调根，长期保持 main 且干净。运行时代码任务必须创建在隔离 worktree（默认 `<仓库父目录>/mp-worktrees/mp-<task>`，可用 `-WorktreeRoot` 或 `MP_WORKTREES` 覆盖），避免多个 Codex 会话共享同一个 Git HEAD、index 和 stash。
 
 ## 自动入口
 

@@ -12,7 +12,7 @@ date: 2026-10-11
 
 13 个文件、35 增 35 删，**没有任何语义性改动**，只有两类：
 
-1. **路径引用大小写收口**：`D:\Data\projects\Mulpub` / `Multi-Publish` → `D:\Data\projects\mulpub`，落在 12 个 `scripts/*` 与 `.agents/skills/start-app/SKILL.md`。与历史提交 `bfaeb053e`「共享根目录引用从 Multi-Publish 收口到 Mulpub」同族的未完成尾巴（仓库目录实际是小写 `mulpub`）。
+1. **路径引用大小写收口**：`D:\Data\projects\mulpub` / `Multi-Publish` → `D:\Data\projects\mulpub`，落在 12 个 `scripts/*` 与 `.agents/skills/start-app/SKILL.md`。与历史提交 `bfaeb053e`「共享根目录引用从 Multi-Publish 收口到 Mulpub」同族的未完成尾巴（仓库目录实际是小写 `mulpub`）。
 2. **3 处只差一个 UTF-8 BOM**（`git diff` 里表现为 `-﻿#` → `+#`）：`scripts/start-desktop.ps1`、`scripts/deploy-skill-to-github.ps1`、`scripts/mp-capture.ps1`。
 
 **归属与处置（诚实记录）**：这批改动**不是本会话的原始工作**，是另一会话在共享根的就地编辑（文件 mtime 13:20–13:34），**没有任何分支/提交包含它**（`git log --all` 对 13 个文件均无命中）。两个官方隔离入口都因此拒绝建 worktree。经用户明确授权，本会话按**最小动作代为收口**：内容逐字保留，只补回被吞掉的 3 个 BOM。写入特征（只吞 BOM、正文逐字节不变）符合「pwsh7 `Set-Content` / UTF-8-no-BOM 写入」或编辑器默认编码所致。

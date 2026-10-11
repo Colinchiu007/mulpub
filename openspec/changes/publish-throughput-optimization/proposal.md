@@ -2,7 +2,7 @@
 
 ## Why
 
-用户实测「发布 1 个图文到抖音，进度面板排队中」，排查确认三层慢因（代码取证 2026-10-04，工作目录 D:/Data/projects/Mulpub）：
+用户实测「发布 1 个图文到抖音，进度面板排队中」，排查确认三层慢因（代码取证 2026-10-04，工作目录 D:/Data/projects/mulpub）：
 
 1. **RPA 抖音图文链固定 sleep 叠加**（`apps/desktop/electron/services/rpa-view-platforms.js` `_publish_douyin`）：
    图片注入后 `_sleep(4000)`（:930）+ 每个 tag `_sleep(1000)`（:980）+ 封面 `_sleep(1000+2000)`（:972）+ 提交兜底 `_sleep(5000)`（:992）。

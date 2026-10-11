@@ -6,7 +6,7 @@
       "severity": "Warning",
       "file": "apps/desktop/electron/services/tracked-content-link.js:72",
       "claim": "回填索引没有过滤 status=success，非成功历史记录带 result.postId 时也可能成为唯一命中并写关联。",
-      "evidence": "实际只读 D:/Data/projects/Mulpub/shared-user-data/publish-history.jsonl：98 条记录里 29 条有 postId，其中 success=28、timeout=1（timeout 记录 task_1_1790592130294 带 result.postId=3xvsedz34m82ppi）；用生产 planPublishHistoryLinks 对 73 行 tracked_content 实测输出 linked=27、ambiguous=1，说明 timeout 历史已被纳入索引。若成功记录缺失，这类非成功记录可成为唯一命中，最终在 PublishHistory 非成功卡片上显示表现数据。",
+      "evidence": "实际只读 D:/Data/projects/mulpub/shared-user-data/publish-history.jsonl：98 条记录里 29 条有 postId，其中 success=28、timeout=1（timeout 记录 task_1_1790592130294 带 result.postId=3xvsedz34m82ppi）；用生产 planPublishHistoryLinks 对 73 行 tracked_content 实测输出 linked=27、ambiguous=1，说明 timeout 历史已被纳入索引。若成功记录缺失，这类非成功记录可成为唯一命中，最终在 PublishHistory 非成功卡片上显示表现数据。",
       "suggested_fix": "建索引前过滤 record.status === 'success'，并对同一 taskId 的重复历史行去重；增加 timeout/skipped 带 postId 时不得作为唯一命中的测试。"
     },
     {

@@ -7,7 +7,7 @@ const { execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
-const OUTPUT_DIR = 'D:\\Data\\projects\\Mulpub\\01-docs\\ui-reference\\screenshots\\full-app';
+const OUTPUT_DIR = 'D:\\Data\\projects\\mulpub\\01-docs\\ui-reference\\screenshots\\full-app';
 
 // Ensure output directory exists
 if (!fs.existsSync(OUTPUT_DIR)) {
