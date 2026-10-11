@@ -2,15 +2,12 @@
 record: billing-sample-intake-hardening
 task: 依首条真实上游样本加固账单交接口径（额度vs已用量校验、计量口径、供给资格三判据）
 date: 2026-10-11
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后回填 PASS + merge SHA，并在同一次提交删除三个 sync_* 字段与 ledger 登记项。
-sync_backfill_owner: 本 PR 作者（billing-sample-intake-hardening 会话）
 ---
 
 ## 本次执行记录：上游账单口径与供给资格判据加固（billing-sample-intake-hardening，2026-10-11）【docs-only】
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → docs-only=true（files=5：`01-docs/HANDOFF-UPSTREAM-BILLING-INTAKE-2026-10-11.md`、`01-docs/PRD-OFFICIAL-COMPUTE-STOPGAP-2026-10-09.md`、`openspec/records/billing-sample-intake-hardening.md`、`.quality-gates.md`、`scripts/gate-record-debt-ledger.json`）
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PENDING
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PASS
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
@@ -26,7 +23,7 @@ sync_backfill_owner: 本 PR 作者（billing-sample-intake-hardening 会话）
 | 记录欠账门禁 | ✅ | `node scripts/check-gate-record-debt.js` OK（顶部记录带行、两形态一致、无陈旧登记项） |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触运行面（无代码/样式变更） |
 | QM-6 CCG 双模型外部评审 | N/A（docs-only 通道豁免） | 本文档为数据校验规则与资格判据，非设计裁决；结论均附可复核算式 |
-| 远程同步 | PENDING | 本 PR 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin billing-sample-intake-hardening` 返回 0 行证远端分支已删；回填后删除上方三个 `sync_*` 字段与 ledger 登记项 |
+| 远程同步 | PASS | 已合并 #3347 = `5fc2cecdf34b389fa23f50d71f58ef7c603d3270`，committer 2026-10-11T21:54:08+08:00。取证：`git log origin/main --grep="(#3347)" --format="%H %cI"` 唯一命中，`git ls-remote --heads origin billing-sample-intake-hardening` 返回 **0 行**（远端分支已删）；本行与记录文件远程同步行、frontmatter 三 `sync_*` 字段删除、`scripts/gate-record-debt-ledger.json` 登记项删除已在**同一次提交**完成 |
 
 ### 遗留（不假装已闭合）
 
