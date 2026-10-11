@@ -6,6 +6,7 @@
  * 形式呈现在 TabBar 中（而非弹窗），关闭后回退到之前的标签。
  */
 const { getPlatformName } = require('@multi-publish/shared-utils/src/platform-definitions')
+const { createMainWindow, patchViewAndSessionMocks } = require('./webview-manager-test-harness')
 
 __enableElectronMock()
 
@@ -32,17 +33,6 @@ beforeEach(async () => {
 afterEach(() => {
   vi.restoreAllMocks()
 })
-
-function createMainWindow () {
-  return {
-    isDestroyed: () => false,
-    getBounds: () => ({ x: 0, y: 0, width: 1440, height: 900 }),
-    // 客户区尺寸（真实 BrowserWindow 会扣除标题栏/菜单栏/边框）
-    getContentBounds: () => ({ x: 8, y: 39, width: 1424, height: 861 }),
-    webContents: { send: vi.fn() },
-    contentView: { addChildView: vi.fn(), removeChildView: vi.fn() }
-  }
-}
 
 function createBrowserView () {
   return {
@@ -382,57 +372,6 @@ describe('WebviewManager 虚拟登录标签', () => {
   })
 })
 
-function patchViewAndSessionMocks () {
-  __electronMock.WebContentsView = function (opts) {
-    this._opts = opts || {}
-    const handlers = {}
-    this.webContents = {
-      _handlers: handlers,
-      _windowOpenHandler: null,
-      // 真实 Electron 中 webContents.session 即构造时 webPreferences.session 传入的分区，mock 必须同物挂接；
-      // 否则 Cookie 提取路径在测试中永远是 undefined，吞错路径会被误放行（2026-09-22 getAll 回归教训）。
-      session: (opts && opts.webPreferences && opts.webPreferences.session) || null,
-      on: function (evt, fn) { handlers[evt] = fn },
-      once: function () {},
-      canGoBack: function () { return false },
-      canGoForward: function () { return false },
-      loadURL: vi.fn(function () { return Promise.resolve() }),
-      executeJavaScript: vi.fn(function () { return Promise.resolve() }),
-      isDestroyed: function () { return false },
-      setWindowOpenHandler: function (fn) { this._windowOpenHandler = fn },
-      // debugger mock：测试预设 __webContentsDebuggerFactory 返回 CDP stub；
-      // 未预设时保持 undefined，等价真实环境 debugger 不可用（降级路径回归锚点）。
-      debugger: (__electronMock.__webContentsDebuggerFactory ? __electronMock.__webContentsDebuggerFactory() : undefined),
-    }
-    this.setBounds = vi.fn()
-    this.setVisible = vi.fn()
-  }
-  const partitions = []
-  __electronMock.session._partitions = partitions
-  // 测试可预设「分区残留 Cookie」：cleanSession 用例据此断言清除行为
-  __electronMock.session._staleCookies = null
-  __electronMock.session.fromPartition = function (partition) {
-    const created = {
-      partition,
-      cookies: {
-        // 契约：忠实镜像真实 Electron session.cookies API——只有 get/set/remove/flushStore，不存在 getAll。
-        // 测试可通过 _store 预设 get() 返回值。
-        setCalls: [],
-        removeCalls: [],
-        _store: undefined,
-        set: function (cookie) { created.cookies.setCalls.push(cookie); return Promise.resolve() },
-        get: function () { return Promise.resolve(created.cookies._store !== undefined ? created.cookies._store : (__electronMock.session._staleCookies || [])) },
-        remove: function (url, name) { created.cookies.removeCalls.push({ url, name }); return Promise.resolve() },
-        flushStore: function () { return Promise.resolve() },
-      },
-      on: function () {},
-    }
-    partitions.push(created)
-    return created
-  }
-  return partitions
-}
-
 describe('WebviewManager.createNewTabPage 账号登录态恢复', () => {
   beforeEach(() => {
     credentialLoadMock.mockReset()
@@ -521,181 +460,6 @@ describe('WebviewManager.createNewTabPage 账号登录态恢复', () => {
     await new Promise(resolve => setTimeout(resolve, 0))
     const created = partitions[partitions.length - 1]
     expect(created.cookies.setCalls).toEqual([{ url: 'https://creator.douyin.com', name: 'sid', value: 'v1' }])
-  })
-
-  it('页面加载完成后恢复凭证中的 localStorage', async () => {
-    patchViewAndSessionMocks()
-    credentialLoadMock.mockReturnValue({ localStorage: { token: 'xyz' } })
-    const mod = await import('./webview-manager.js')
-    const WM = mod.default || mod
-    const wm = new WM()
-    wm.mainWindow = createMainWindow()
-
-    wm.createNewTabPage({ url: 'https://creator.zhihu.com', accountId: 'account-1' })
-
-    const activeView = wm._tabViews.get(wm._activeTabId)
-    activeView.webContents._handlers['did-finish-load']()
-    expect(activeView.webContents.executeJavaScript).toHaveBeenCalled()
-    const script = activeView.webContents.executeJavaScript.mock.calls[0][0]
-    expect(script).toContain('"token":"xyz"')
-    await Promise.resolve()
-    expect(activeView.webContents.loadURL).toHaveBeenCalledWith('https://creator.zhihu.com')
-  })
-
-  it('debugger 可用时凭证 localStorage 经 CDP document-start 注入且先于首个导航（无二段导航）', async () => {
-    patchViewAndSessionMocks()
-    const order = []
-    const dbg = {
-      attach: vi.fn(function () {}),
-      sendCommand: vi.fn(function (method) {
-        if (method === 'Page.addScriptToEvaluateOnNewDocument') order.push('addScript')
-        return Promise.resolve()
-      }),
-      detach: vi.fn(),
-    }
-    __electronMock.__webContentsDebuggerFactory = function () { return dbg }
-    credentialLoadMock.mockReturnValue({ localStorage: { finder_username: 'v2_ctx' } })
-    const mod = await import('./webview-manager.js')
-    const WM = mod.default || mod
-    const wm = new WM()
-    wm.mainWindow = createMainWindow()
-
-    wm.createNewTabPage({ url: 'https://channels.weixin.qq.com/', platform: 'tencent_video', accountId: 'tv-1' })
-
-    const view = wm._tabViews.get(wm._activeTabId)
-    // 导航必然经 promise 链延后（微任务），同步包装可完整记录时序
-    const origLoadURL = view.webContents.loadURL
-    view.webContents.loadURL = vi.fn(function (u) { order.push('loadURL:' + u); return origLoadURL.call(this, u) })
-    await new Promise(resolve => setTimeout(resolve, 0))
-
-    expect(dbg.attach).toHaveBeenCalled()
-    expect(dbg.sendCommand).toHaveBeenCalledWith('Page.addScriptToEvaluateOnNewDocument',
-      expect.objectContaining({ source: expect.stringContaining('"finder_username"') }))
-    const navIdx = order.indexOf('loadURL:https://channels.weixin.qq.com/')
-    expect(navIdx).toBeGreaterThanOrEqual(0)
-    expect(order.indexOf('addScript')).toBeGreaterThanOrEqual(0)
-    expect(order.indexOf('addScript')).toBeLessThan(navIdx)
-
-    // 早期注入成功 → 不得再有 did-finish-load 补注入与二段导航（消除登录页闪烁）
-    if (view.webContents._handlers['did-finish-load']) view.webContents._handlers['did-finish-load']()
-    await new Promise(resolve => setTimeout(resolve, 0))
-    expect(view.webContents.executeJavaScript).not.toHaveBeenCalled()
-    expect(view.webContents.loadURL).toHaveBeenCalledTimes(1)
-    __electronMock.__webContentsDebuggerFactory = null
-  })
-
-  it('debugger attach 失败时降级回旧行为：did-finish-load 后注入并二段导航（fail-open）', async () => {
-    patchViewAndSessionMocks()
-    __electronMock.__webContentsDebuggerFactory = function () {
-      return {
-        attach: vi.fn(function () { throw new Error('debugger may already be attached') }),
-        sendCommand: vi.fn(function () { return Promise.resolve() }),
-        detach: vi.fn(),
-      }
-    }
-    credentialLoadMock.mockReturnValue({ localStorage: { finder_username: 'v2_ctx' } })
-    const mod = await import('./webview-manager.js')
-    const WM = mod.default || mod
-    const wm = new WM()
-    wm.mainWindow = createMainWindow()
-
-    wm.createNewTabPage({ url: 'https://channels.weixin.qq.com/', platform: 'tencent_video', accountId: 'tv-2' })
-
-    const view = wm._tabViews.get(wm._activeTabId)
-    await new Promise(resolve => setTimeout(resolve, 0))
-    expect(view.webContents.loadURL).toHaveBeenCalledTimes(1)
-    expect(view.webContents._handlers['did-finish-load']).toBeTruthy()
-
-    view.webContents._handlers['did-finish-load']()
-    expect(view.webContents.executeJavaScript).toHaveBeenCalled()
-    const script = view.webContents.executeJavaScript.mock.calls[0][0]
-    expect(script).toContain('"finder_username":"v2_ctx"')
-    await new Promise(resolve => setTimeout(resolve, 0))
-    expect(view.webContents.loadURL).toHaveBeenCalledTimes(2)
-    expect(view.webContents.loadURL).toHaveBeenLastCalledWith('https://channels.weixin.qq.com/')
-    __electronMock.__webContentsDebuggerFactory = null
-  })
-
-  // ─── 2026-09-24 头条账号标签「一直加载不出来」事故回归对（两条不变量）───
-  // 根因（PR #2327 引入）：首个导航被门控在 CDP addScriptToEvaluateOnNewDocument 的
-  // promise 上，而该命令在头条账号分区可永久挂起（事故日志：标签存活近 2 分钟命令
-  // 从未返回，关闭瞬间才以 target closed 失败）→ 页面永不导航；关闭后回调又对已销毁
-  // webContents 调 loadURL → 未处理 TypeError。
-  it('CDP 命令永久挂起时超时降级，首个导航照常发生（头条加载挂死回归）', async () => {
-    patchViewAndSessionMocks()
-    __electronMock.__webContentsDebuggerFactory = function () {
-      return {
-        attach: vi.fn(function () {}),
-        // 永不 resolve/reject：忠实镜像事故现场的 CDP 挂起
-        sendCommand: vi.fn(function () { return new Promise(function () {}) }),
-        detach: vi.fn(),
-      }
-    }
-    credentialLoadMock.mockReturnValue({ localStorage: { session_token: 'hang' } })
-    vi.useFakeTimers()
-    try {
-      const mod = await import('./webview-manager.js')
-      const WM = mod.default || mod
-      const wm = new WM()
-      wm.mainWindow = createMainWindow()
-
-      wm.createNewTabPage({ url: 'https://mp.toutiao.com/', platform: 'toutiao', accountId: 'tt-hang-1' })
-      const view = wm._tabViews.get(wm._activeTabId)
-
-      await vi.advanceTimersByTimeAsync(0)
-      expect(view.webContents.loadURL).not.toHaveBeenCalled() // 导航仍被早期注入门控（契约：先于首个导航）
-
-      await vi.advanceTimersByTimeAsync(10000) // 超过 LS_INJECTION_TIMEOUT_MS
-      expect(view.webContents.loadURL).toHaveBeenCalledWith('https://mp.toutiao.com/')
-      // 超时后走旧补注入路径（fail-open），LS 仍会在 did-finish-load 后恢复
-      expect(view.webContents._handlers['did-finish-load']).toBeTruthy()
-    } finally {
-      vi.useRealTimers()
-      __electronMock.__webContentsDebuggerFactory = null
-    }
-  })
-
-  it('标签关闭后 CDP 命令才失败时，导航回调静默跳过且不产生未处理拒绝（loadURL undefined 回归）', async () => {
-    patchViewAndSessionMocks()
-    const unhandled = []
-    const onUnhandled = (err) => { unhandled.push(err) }
-    process.on('unhandledRejection', onUnhandled)
-    let rejectCmd = null
-    __electronMock.__webContentsDebuggerFactory = function () {
-      return {
-        attach: vi.fn(function () {}),
-        sendCommand: vi.fn(function () {
-          return new Promise(function (_resolve, reject) { rejectCmd = reject })
-        }),
-        detach: vi.fn(),
-      }
-    }
-    credentialLoadMock.mockReturnValue({ localStorage: { session_token: 'hang' } })
-    try {
-      const mod = await import('./webview-manager.js')
-      const WM = mod.default || mod
-      const wm = new WM()
-      wm.mainWindow = createMainWindow()
-      wm.createNewTabPage({ url: 'https://mp.toutiao.com/', platform: 'toutiao', accountId: 'tt-close-1' })
-      const tabId = wm._activeTabId
-      const view = wm._tabViews.get(tabId)
-      // 真实 Electron：close 之后 view.webContents 不复存在
-      view.webContents.close = vi.fn(function () { view.webContents = undefined })
-      // 微任务冲刷：让早期注入链完成 sendCommand 调用并登记 reject 句柄
-      await new Promise(resolve => setTimeout(resolve, 0))
-
-      wm.closeTab(tabId)
-      // 忠实镜像事故时序：关闭瞬间 CDP 命令才以 target closed 失败
-      expect(typeof rejectCmd).toBe('function')
-      rejectCmd(new Error('target closed while handling command'))
-      await new Promise(resolve => setTimeout(resolve, 0))
-      await new Promise(resolve => setTimeout(resolve, 0))
-
-      expect(unhandled).toEqual([])
-    } finally {
-      process.off('unhandledRejection', onUnhandled)
-      __electronMock.__webContentsDebuggerFactory = null
-    }
   })
 
   it('将 Playwright Cookie 的 expires/sameSite 转为 Electron 字段', async () => {

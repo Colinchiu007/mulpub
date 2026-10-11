@@ -1,3 +1,52 @@
+# [未发布] fix(account-tab): 开卡首屏即登录态——凭证 localStorage 的 document-start 注入从未生效（xhs-tab-first-paint-login）
+
+### 用户感知
+
+账号管理页点开一个**确实已登录**的账号（例：小红书）时，不再出现「先看到平台登录页 → 页面刷新一次 →
+过几秒才进创作者中心」。修复后首个真实导航到达时凭证已在位，**首屏直接是创作者中心**，
+返回键也不再能退到登录页。修复前该现象会让用户误判「登录态过期了，需要重新登录」，
+并可能真的在登录页重新登录、覆盖重写刚保存的凭证。
+
+### 现场与实测（真实 Electron 43.7.7 探针，仓库外一次性夹具）
+
+- **旧实现必然失败**：全新 `WebContentsView`（从未导航）上，`webContents.debugger.attach()` 会成功，
+  但 `Page.enable` 与 `Page.addScriptToEvaluateOnNewDocument` **永久挂起**（探针 6s 无响应）。
+  真机日志 3/3 命中同一条：`addScriptToEvaluateOnNewDocument timed out after 2500ms (hung CDP command)`。
+- **第二个独立缺陷更隐蔽**：即使 Page 目标已就绪，缺少 `Page.enable` 时 `addScriptToEvaluateOnNewDocument`
+  会正常返回 `{ identifier }`，但脚本**永不执行**（静默 no-op）——旧实现会把这种失败上报成「早期注入成功」，
+  从而不再走补注入，凭证在首个文档上永久缺失。
+- **端到端 A/B（同夹具，旧侧 = main 逐字节版本）**：旧侧 `['/', '/login', '/']`、渲染过登录页 2 帧、
+  真实导航 2 次、`canGoBack=true`；新侧 `['/']`、登录页 0 帧、真实导航 1 次、`canGoBack=false`。
+  用户报告的三个细节（登录页 / 刷新一次 / 过几秒进创作者中心）逐条对应旧侧行为。
+
+### 改动
+
+- `webview-manager/utils.js`：`_injectLocalStorageAtDocumentStart` 增加两个**前置动作**——
+  ① `_primePageTargetWithBlankDocument`：view 尚无文档时先发一个 `about:blank` 把 CDP Page 目标带起来
+  （命令随即回到 150–300ms 量级，且刻意不等待文档事件，就绪判定交给命令超时护栏）；
+  ② 注入前必须 `Page.enable`。返回值由 `boolean` 改为 `{ injected, blankBootstrapped }`。
+  另新增 `_removeBootstrapBlankHistoryEntry` / `_isBootstrapBlankDocument`。
+- `webview-manager/tab-lifecycle.js`：引导期状态屏蔽（`about:blank` 的 `did-navigate` 不改写标签 URL、
+  不广播导航；其 `did-finish-load` 不结束 `initialRedirectPhase`）；首个真实导航提交后**先摘除引导历史项**
+  再读 `canGoBack`，避免返回键多一格空白页。
+- `webview-manager/constants.js`：新增 `PAGE_TARGET_BOOTSTRAP_URL` 单一真源。
+- 不改任何用户可见文案、不改 Cookie 恢复语义（分区优先）、不动 `LS_INJECTION_TIMEOUT_MS`。
+
+### 验证
+
+- `webview-manager.test.js`（88）+ `home-shell-title.test.js`（12）= **100 passed**；
+  其中 4 条新契约（时序 / 状态屏蔽 / 历史项摘除 / 复用路径不引导）与 2 条既有契约按新时序改写。
+- **4 条变异反证**逐条实测变红后回滚（去掉 `Page.enable` / 不做 about:blank 引导 / 引导期照常改写标签状态 /
+  不摘历史项），每次只红对应用例，其余 87 例保持绿。
+- 真实 Electron A/B 端到端（旧 main vs 本分支）实测表见
+  `01-docs/PRD-ACCOUNT-TAB-FIRST-PAINT-LOGIN-2026-10-11.md` §1.2；QM-1 打包与静态门禁证据见
+  `.quality-gates.md` 与 `openspec/records/xhs-tab-first-paint-login.md`。
+
+### 残留（如实记录）
+
+CDP 超时（2500ms）时仍会走既有 fail-open 降级路径（补注入 + 整页重载），极端负载下仍可能看到一次登录页闪烁
+（一次全量测试并发占满 CPU 的 E2E 运行中复现过）；未上调超时上限，理由与后续方案见 PRD §13。
+
 # [未发布] feat(collection): 快捷采集内置词条按用户真实需求重排（quick-collect-preset-refresh）
 
 ## 背景

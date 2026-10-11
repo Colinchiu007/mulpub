@@ -134,7 +134,6 @@
     "apps/desktop/electron/services/story2video-project-service.test.js": 3274,
     "apps/desktop/electron/services/story2video-stages.test.js": 4152,
     "apps/desktop/electron/services/tts-voice-clone-service.test.js": 1756,
-    "apps/desktop/electron/services/webview-manager.test.js": 1649,
     "apps/desktop/electron/tests/stage-executor.test.js": 1516,
     "apps/desktop/src/views/Accounts.test.js": 2029,
     "apps/desktop/src/views/Collection.test.js": 1687,
@@ -143,5 +142,7 @@
     "apps/desktop/src/views/ResultView.test.js": 2175,
     "apps/desktop/src/views/RewriteView.test.js": 1649
   },
-  "testPruned": {}
+  "testPruned": {
+    "apps/desktop/electron/services/webview-manager.test.js": 1471
+  }
 }

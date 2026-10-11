@@ -70,10 +70,14 @@ describe('C3/C4：主进程 home-shell 标题上报与地址栏置空（行为�
     // 全部 mock 成无害形态，聚焦被测行为。
     __registerMock('../login-network-diagnostics', { attachLoginNetworkDiagnostics: vi.fn() })
     __registerMock('../../core/js-eval-payload', { buildEvalScript: vi.fn(() => '') })
-    __registerMock('./constants', { SAFE_IDENTIFIER: /^[a-zA-Z0-9_-]+$/, AUTH_TAB_ID: 'auth-tab', HOME_TAB_ID: 'home' })
+    __registerMock('./constants', { SAFE_IDENTIFIER: /^[a-zA-Z0-9_-]+$/, AUTH_TAB_ID: 'auth-tab', HOME_TAB_ID: 'home', PAGE_TARGET_BOOTSTRAP_URL: 'about:blank' })
     __registerMock('./utils', {
       _getUserDataDir: () => '',
-      _injectLocalStorageAtDocumentStart: () => Promise.resolve(false),
+      // 2026-10-11：返回值改为 { injected, blankBootstrapped }；home-shell 标签不走该路径，
+      // 这里只需保持形状正确（缺项会让 tab-lifecycle 的 result.* 读取抛错）。
+      _injectLocalStorageAtDocumentStart: () => Promise.resolve({ injected: false, blankBootstrapped: false }),
+      _removeBootstrapBlankHistoryEntry: () => false,
+      _isBootstrapBlankDocument: () => false,
       normalizeElectronCookie: () => null,
       _homeShellUrl: () => 'http://127.0.0.1:5174/?mp-home-shell=1',
       _homeShellPreloadPath: () => '/fake/home-shell-preload.js',

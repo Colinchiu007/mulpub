@@ -9,8 +9,8 @@ const log = require('../logger')
 const credentialStore = require('../credential-store')
 const { attachLoginNetworkDiagnostics } = require('../login-network-diagnostics')
 const { buildEvalScript } = require('../../core/js-eval-payload')
-const { SAFE_IDENTIFIER, AUTH_TAB_ID } = require('./constants')
-const { _getUserDataDir, _injectLocalStorageAtDocumentStart, normalizeElectronCookie, _homeShellUrl, _homeShellPreloadPath, _urlHasHomeShellParam, _parseHashRoute, _gateRestoreWithTimeout } = require('./utils')
+const { SAFE_IDENTIFIER, AUTH_TAB_ID, PAGE_TARGET_BOOTSTRAP_URL } = require('./constants')
+const { _getUserDataDir, _injectLocalStorageAtDocumentStart, _removeBootstrapBlankHistoryEntry, _isBootstrapBlankDocument, normalizeElectronCookie, _homeShellUrl, _homeShellPreloadPath, _urlHasHomeShellParam, _parseHashRoute, _gateRestoreWithTimeout } = require('./utils')
 
 module.exports = {
   /**
@@ -170,6 +170,22 @@ module.exports = {
     var initialTitle = (opts && typeof opts.title === 'string' && opts.title.trim())
       ? opts.title.trim()
       : (homeShell ? '新标签页' : 'New Tab')
+    // 凭证 localStorage 与 CDP 能力判定必须早于标签状态建立：`blankBootstrapPending`
+    // 要在任何导航事件（含引导 about:blank）到达之前就位（2026-10-11）。
+    var credLocalStorage = (!cleanSession && accountCredential && accountCredential.localStorage && typeof accountCredential.localStorage === 'object')
+      ? accountCredential.localStorage
+      : null
+    var lsRestoreNeeded = Boolean(credLocalStorage && Object.keys(credLocalStorage).length > 0)
+    var dbgApiForLs = view.webContents.debugger
+    var lsCdpUsable = Boolean(dbgApiForLs)
+      && typeof dbgApiForLs.attach === 'function'
+      && typeof dbgApiForLs.sendCommand === 'function'
+    // 引导 about:blank 的记号：为把 CDP Page 目标带起来而插入的文档，既不是用户可见导航
+    // （did-navigate 不得改写标签 URL），也不是凭证采集对象（did-finish-load 不得结束
+    // initialRedirectPhase）；其历史项在首个真实导航提交后由 _removeBootstrapBlankHistoryEntry 摘除。
+    // 取值是「可能发生」的上界：attach 失败/复用已有文档时无引导项，摘除逻辑按实际历史项自查，
+    // 不会误删真实条目。三个出口见下方 clearBlankBootstrapFlag 处的注释（QM-6 评审 i4）。
+    var blankBootstrapExpected = lsRestoreNeeded && lsCdpUsable
     self._tabStates.set(tabId, {
         url: homeShell ? '' : initialUrl,
         title: initialTitle,
@@ -184,17 +200,15 @@ module.exports = {
         platform: platform || null,
         credentialSaveState: (useAccountSession && cleanSession) ? 'unsaved' : null,
         initialRedirectPhase: useAccountSession === true,
+        blankBootstrapPending: blankBootstrapExpected,
         _autoSaveTimer: null
       })
     self._activeTabId = tabId
 
     self._setupNav(tabId, view)
 
-    var credLocalStorage = (!cleanSession && accountCredential && accountCredential.localStorage && typeof accountCredential.localStorage === 'object')
-      ? accountCredential.localStorage
-      : null
     var lsInjection = null
-    if (credLocalStorage && Object.keys(credLocalStorage).length > 0) {
+    if (lsRestoreNeeded) {
       var credLsScript = buildEvalScript(
         'data',
         [credLocalStorage],
@@ -216,15 +230,27 @@ module.exports = {
           }, function () {})
         })
       }
-      var dbgApi = view.webContents.debugger
-      var dbgUsable = Boolean(dbgApi)
-        && typeof dbgApi.attach === 'function'
-        && typeof dbgApi.sendCommand === 'function'
-      if (dbgUsable) {
-        lsInjection = _injectLocalStorageAtDocumentStart(view, credLsScript).then(function (injected) {
-          if (!injected) registerLsFallback()
-        }, function () { registerLsFallback() })
+      // `blankBootstrapPending` 有三个**出口**，条件各不相同（QM-6 评审 i4 要求逐处写明）：
+      //   ① 这里（CDP 回报「本次没插引导文档」/ CDP 链路整体失败）——收敛创建期的上界估计；
+      //   ② `did-navigate` 收到首个**真实** URL —— 引导期正常结束，并摘掉引导历史项；
+      //   ③ （不变式）任何时刻它都只影响「about:blank 事件是否被屏蔽 / 历史项是否要摘」，
+      //      绝不影响凭证注入与真实导航；因此版本内不拆成两个字段（拆分会把一个瞬时窗口
+      //      变成两个可分别漂移的状态，收益小于风险）。
+      var clearBlankBootstrapFlag = function () {
+        var stateForLs = self._tabStates.get(tabId)
+        if (stateForLs) stateForLs.blankBootstrapPending = false
+      }
+      if (lsCdpUsable) {
+        lsInjection = _injectLocalStorageAtDocumentStart(view, credLsScript).then(function (result) {
+          // ①-收敛：该实现实际是否插入了引导文档（复用已有文档时不会）
+          if (!result || result.blankBootstrapped !== true) clearBlankBootstrapFlag()
+          if (!result || result.injected !== true) registerLsFallback()
+        }, function () {
+          clearBlankBootstrapFlag()
+          registerLsFallback()
+        })
       } else {
+        clearBlankBootstrapFlag()
         registerLsFallback()
       }
     }
@@ -376,6 +402,9 @@ module.exports = {
     view.webContents.on('did-finish-load', function () {
       if (!self._tabStates.has(tabId)) return
       var state = self._tabStates.get(tabId)
+      // 引导 about:blank 的完成事件不是「首个真实文档已就绪」：不得提前结束初始重定向阶段
+      // （自动保存据此防把登录页误判为登录成功），也不得触发该阶段的凭证采集。
+      if (state.blankBootstrapPending === true && _isBootstrapBlankDocument(view)) return
       if (state.initialRedirectPhase) state.initialRedirectPhase = false
       self._maybeScheduleAutoSave(tabId, state)
     })
@@ -403,6 +432,14 @@ module.exports = {
     view.webContents.on('did-navigate', function (event, url) {
       if (!self._tabStates.has(tabId)) return
       var state = self._tabStates.get(tabId)
+      // ① 引导文档自身的提交：不改写标签 URL/历史态、不广播导航（它从未对用户可见）
+      if (state.blankBootstrapPending === true && url === PAGE_TARGET_BOOTSTRAP_URL) return
+      // ② 首个真实文档提交：引导期结束，先摘掉 about:blank 历史项再读 canGoBack，
+      //    否则返回键会多出一格空白页（真机实测 histLen 2 → canGoBack=true）
+      if (state.blankBootstrapPending === true) {
+        state.blankBootstrapPending = false
+        _removeBootstrapBlankHistoryEntry(view)
+      }
       if (state.homeShell && !_urlHasHomeShellParam(url)) {
         state.homeShell = false
         state.titleLocked = false
