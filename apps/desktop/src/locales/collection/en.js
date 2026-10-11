@@ -353,7 +353,7 @@ export default {
       keywordsHint: 'Comma separated, up to 5 (only the first 3 are used for retrieval). Leave empty to skip retrieval and answer from the model’s own knowledge — which may not include the latest news.',
       keywordsPlaceholder: 'e.g. AI, LLM, open source',
       windowFieldLabel: 'Material window',
-      sourcesLabel: 'Sources: Reddit · Hacker News · GitHub (free public APIs)',
+      sourcesLabel: 'Sources: English communities (Reddit · Hacker News · GitHub, keyword search) + Chinese hot lists (Weibo · Zhihu · Douyin · Bilibili · Baidu · Toutiao · Tencent; hot lists have no publish time and count by fetch time)',
       save: 'Save',
       cancel: 'Cancel',
       saved: 'Command saved',

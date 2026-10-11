@@ -12,8 +12,9 @@
  * 由 `quick-collect-command.test.js` 的「前后端闭集对账」用例强制两侧一致。
  */
 
-/** 领域码闭集（IPC 的 `message` 字段就是这些字符串，渲染端负责映射成文案） */
-const QUICK_COLLECT_CODES = Object.freeze({
+const { ALL_SOURCE_IDS } = require('./quick-collect-sources')
+
+/** 领域码闭集（IPC 的 `message` 字段就是这些字符串，渲染端负责映射成文案） */const QUICK_COLLECT_CODES = Object.freeze({
   COMMAND_REQUIRED: 'QC_COMMAND_REQUIRED',
   TITLE_REQUIRED: 'QC_TITLE_REQUIRED',
   TITLE_TOO_LONG: 'QC_TITLE_TOO_LONG',
@@ -29,8 +30,13 @@ const QUICK_COLLECT_CODES = Object.freeze({
 /** 时间窗口闭集（小时）；0 = 不限时间 */
 const WINDOW_HOURS = Object.freeze([0, 24, 48, 168])
 
-/** 检索源闭集（与 content-intelligence 的源名逐字一致） */
-const ALLOWED_SOURCES = Object.freeze(['reddit', 'hackernews', 'github'])
+/**
+ * 素材源闭集：**从源注册表派生**（`quick-collect-sources.js` 是唯一真源）。
+ * 之所以不再手写：源清单同时被校验层、引擎分流、内置词条、渲染端提示消费，
+ * 手写四份必然漂移；派生后「加一个源」只需改注册表一处（跨平面 parity 测试兜底）。
+ * 保持 `ALLOWED_SOURCES` 这个导出名不变，既有消费者零改动。
+ */
+const ALLOWED_SOURCES = ALL_SOURCE_IDS
 
 /** 字段边界（渲染端表单与文档都引用这一组数字） */
 const LIMITS = Object.freeze({

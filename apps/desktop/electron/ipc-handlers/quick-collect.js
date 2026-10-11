@@ -14,9 +14,12 @@
 const { wrapIpcHandlerRaw, withSenderCheck } = require('./helpers')
 const { createQuickCollectEngine } = require('../services/quick-collect-engine')
 const { listPresetCommands } = require('../services/quick-collect-presets')
+const { getSource } = require('../services/quick-collect-sources')
 
 /** 进度事件名（渲染端 preload 逐字订阅同一个字面量） */
 const PROGRESS_CHANNEL = 'quick-collect:progress'
+/** 单源进素材池的条数上限（与抓取层同口径：榜单前 20 名足够支撑选题判断） */
+const MAX_PER_TREND_SOURCE = 20
 
 function registerHandlers (ipcMain, deps = {}) {
   // ⚠️ 不在这里解构：phase5 装配期 `aiGenerator` / `contentIntelligence` 可能后到
@@ -43,11 +46,74 @@ function registerHandlers (ipcMain, deps = {}) {
       aiGenerator.generateWithDefault('llm', { messages, temperature, max_tokens })
   }
 
+  /**
+   * 趋势源取素材（榜单类，无关键词）。
+   *
+   * 复用热门选题页已经在跑的 `hotTopicsService`（8 主榜 + 5 垂类）：它自带按渠道节流、
+   * 熔断与 10 分钟缓存，我们不重复实现抓取。这里只做两件事：
+   *   ① 把它的主题条目**映射成统一素材**，把「没有发布时间」如实表达为
+   *      `timeKind:'observed' + observedAt`（榜单类源没有发布时间，见 PRD §3.2）；
+   *   ② 按请求的源 id 过滤（channel 名与源注册表 id 逐字一致），并把渠道状态归成
+   *      `ok/skipped/failed` 三段，供引擎判 `retrieval='partial'` 与结果卡归因。
+   * 未注入服务时返回 null ⇒ 引擎走「降级不报错」路径（phase5 装配期可能尚未就绪）。
+   */
+  function trendFnFor () {
+    const service = deps.hotTopicsService
+    if (!service || typeof service.fetchTopics !== 'function') return null
+    return async (sourceIds, opts = {}) => {
+      const wanted = Array.isArray(sourceIds) ? sourceIds.filter((id) => typeof id === 'string' && id) : []
+      const res = await service.fetchTopics({})
+      const topics = res && Array.isArray(res.topics) ? res.topics : []
+      const fetchedAt = Number(res && res.fetchedAt) || Date.now()
+      /** @type {Record<string, string>} */
+      const sourceStats = {}
+      for (const id of wanted) sourceStats[id] = 'skipped'
+      const channelStats = res && res.channelStats && typeof res.channelStats === 'object' ? res.channelStats : {}
+      for (const id of wanted) {
+        const stat = channelStats[id]
+        if (!stat) continue
+        if (stat.error || stat.breakerOpen) sourceStats[id] = 'failed'
+        else if (stat.skipped && !Array.isArray(stat.items)) sourceStats[id] = 'skipped'
+        else sourceStats[id] = 'ok'
+      }
+      const items = []
+      /** @type {Record<string, number>} */
+      const taken = {}
+      for (const t of topics) {
+        const channel = String((t && t.channel) || '')
+        if (!wanted.includes(channel)) continue
+        taken[channel] = (taken[channel] || 0)
+        if (taken[channel] >= MAX_PER_TREND_SOURCE) continue
+        const descriptor = getSource(channel)
+        const title = String((t && t.topic) || '').trim()
+        if (!title) continue
+        taken[channel] += 1
+        // 抖音等源不给条目链接（parseDouyin url=null）：用源主页兜底并标 urlKind='board'，
+        // 提示词与 UI 一律称「来源页面」，绝不伪造条目链接（见 PRD §4.1）。
+        const itemUrl = t && t.url ? t.url : (descriptor ? descriptor.homeUrl : '')
+        items.push({
+          url: itemUrl,
+          urlKind: t && t.url ? 'item' : 'board',
+          title,
+          snippet: '',
+          source: channel,
+          sourceType: descriptor ? descriptor.sourceType : 'hottest',
+          timeKind: 'observed',
+          observedAt: Math.round((Number(t && t.fetchedAt) || fetchedAt) / 1000),
+          rank: Number(t && t.rank) || null,
+          hotValue: Number(t && t.hotValue) || null,
+        })
+      }
+      return { items, sourceStats }
+    }
+  }
+
   function getEngine () {
-    const keys = [deps.aiGenerator, deps.contentIntelligence]
-    if (cached && cachedKeys && cachedKeys[0] === keys[0] && cachedKeys[1] === keys[1]) return cached
+    const keys = [deps.aiGenerator, deps.contentIntelligence, deps.hotTopicsService]
+    if (cached && cachedKeys && cachedKeys.length === keys.length && keys.every((k, i) => cachedKeys[i] === k)) return cached
     cached = createQuickCollectEngine({
       searchFn: searchFnFor(),
+      trendFn: trendFnFor(),
       llmFn: llmFnFor(),
       log,
     })

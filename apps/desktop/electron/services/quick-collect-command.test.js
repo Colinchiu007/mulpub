@@ -80,10 +80,17 @@ describe('quick-collect-command/validateQuickCollectCommand', () => {
 
   it('sources：缺省=全选；未知源/非数组被拒；空数组合法', async () => {
     const { validateQuickCollectCommand, ALLOWED_SOURCES } = await mod()
-    expect(ALLOWED_SOURCES).toEqual(['reddit', 'hackernews', 'github'])
+    const { ALL_SOURCE_IDS } = await import('../services/quick-collect-sources')
+    // 闭集从源注册表派生（唯一真源）：这里断的是**派生关系**，不是某一份手写清单
+    expect(ALLOWED_SOURCES).toEqual([...ALL_SOURCE_IDS])
+    expect(ALLOWED_SOURCES).toContain('reddit')
+    expect(ALLOWED_SOURCES).toContain('weibo')
     expect(validateQuickCollectCommand({ ...base, sources: undefined }).ok).toBe(true)
     expect(validateQuickCollectCommand({ ...base, sources: [] }).ok).toBe(true)
-    expect(validateQuickCollectCommand({ ...base, sources: ['weibo'] }).code).toBe('QC_SOURCES_INVALID')
+    // 中文榜单源是合法源（S1 新增）
+    expect(validateQuickCollectCommand({ ...base, sources: ['weibo', 'zhihu'] }).ok).toBe(true)
+    // 未入册的源（公众号直采=合规禁止）必须被拒，不得静默过滤后放行
+    expect(validateQuickCollectCommand({ ...base, sources: ['weixin-mp'] }).code).toBe('QC_SOURCES_INVALID')
     expect(validateQuickCollectCommand({ ...base, sources: 'reddit' }).code).toBe('QC_SOURCES_INVALID')
     expect(validateQuickCollectCommand({ ...base, sources: [1] }).code).toBe('QC_SOURCES_INVALID')
   })
@@ -100,8 +107,11 @@ describe('quick-collect-command/normalizeQuickCollectCommand', () => {
 
   it('sources 缺省补全为全选并按闭集顺序排序', async () => {
     const { normalizeQuickCollectCommand } = await mod()
+    const { ALL_SOURCE_IDS } = await import('../services/quick-collect-sources')
     expect(normalizeQuickCollectCommand({ ...base, sources: ['github', 'reddit'] }).sources).toEqual(['reddit', 'github'])
-    expect(normalizeQuickCollectCommand({ ...base, sources: undefined }).sources).toEqual(['reddit', 'hackernews', 'github'])
+    // 缺省 = 全选（含中文榜单源）：闭集大小由注册表派生，不写死数量
+    expect(normalizeQuickCollectCommand({ ...base, sources: undefined }).sources).toEqual([...ALL_SOURCE_IDS])
+    expect(normalizeQuickCollectCommand({ ...base, sources: ['tophub', 'weibo'] }).sources).toEqual(['weibo', 'tophub'])
     expect(normalizeQuickCollectCommand({ ...base, sources: [] }).sources).toEqual([])
   })
 

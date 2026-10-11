@@ -47,7 +47,7 @@ describe('quick-collect-prompt/buildMessages', () => {
     const { buildMessages } = await mod()
     const withMaterial = buildMessages(command, [material]).messages[1].content
     expect(withMaterial).toContain('链接=https://example.com/news')
-    expect(withMaterial).toContain('时间=2026-10-11 10:30')
+    expect(withMaterial).toContain('发布=2026-10-11 10:30')
     expect(withMaterial).toContain('素材时间范围：最近 48 小时')
     const empty = buildMessages(command, []).messages[1].content
     expect(empty).toContain('（本次未获得素材）')

@@ -11,8 +11,19 @@
 /** 时间窗口闭集（小时）；0 = 不限时间 */
 export const WINDOW_HOURS = Object.freeze([0, 24, 48, 168])
 
-/** 检索源闭集（与 content-intelligence 的源名逐字一致） */
-export const ALLOWED_SOURCES = Object.freeze(['reddit', 'hackernews', 'github'])
+/**
+ * 素材源闭集（**镜像**：唯一真源是主进程 `electron/services/quick-collect-sources.js`）。
+ * 两侧一致性由 `quick-collect-commands.test.js` 的「前后端闭集对账」用例逐项强制。
+ * 两类语义不同（PRD §3.1）：`reddit/hackernews/github` 按关键词检索；
+ * 中文热榜（`weibo` 起 8 个）是榜单源，**没有发布时间**，按抓取时刻计入时间窗口。
+ */
+export const ALLOWED_SOURCES = Object.freeze([
+  'reddit', 'hackernews', 'github',
+  'weibo', 'zhihu', 'douyin', 'bilibili', 'baidu', 'toutiao', 'tencent', 'tophub',
+])
+
+/** 中文榜单源子集（渲染端只用于文案分组提示，判据仍在主进程注册表） */
+export const CN_TREND_SOURCES = Object.freeze(['weibo', 'zhihu', 'douyin', 'bilibili', 'baidu', 'toutiao', 'tencent', 'tophub'])
 
 /** 字段边界（与主进程 LIMITS 逐项一致） */
 export const LIMITS = Object.freeze({
