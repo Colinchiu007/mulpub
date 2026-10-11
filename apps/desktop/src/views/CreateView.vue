@@ -2,8 +2,8 @@
   <div class="create-page" :class="{ 'create-page--pipeline-list': view === 'pipelines' && !selectedPipeline, 'create-page--pipeline-detail': view === 'pipelines' && selectedPipeline }">
     <div class="page-header">
       <div class="page-header-nav">
-        <button class="nav-arrow-btn" @click="goBack" :disabled="!canGoBack" :title="$t('create.story2video.tpl.navBack')">←</button>
-        <button class="nav-arrow-btn" @click="goForward" :disabled="!canGoForward" :title="$t('create.story2video.tpl.navForward')">→</button>
+        <button class="nav-arrow-btn" @click="goBack" :disabled="!canGoBack" title="上一页">←</button>
+        <button class="nav-arrow-btn" @click="goForward" :disabled="!canGoForward" title="下一页">→</button>
       </div>
       <h1>视频创作</h1>
       <p class="text-muted">基于 OpenMontage 流水线引擎，AI 驱动从脚本到成片的全流程</p>
@@ -12,7 +12,7 @@
     <!-- Remotion 状态提示 -->
     <div v-if="renderStatus && !renderStatus.ready" class="status-banner warn">
       <span>⚠️ Remotion 渲染引擎未就绪</span>
-      <span class="detail" v-if="renderStatus.ipcError">{{ $t('create.story2video.tpl.ipcFailed') }}{{ renderStatus.message || $t('create.story2video.tpl.preloadHint') }}</span>
+      <span class="detail" v-if="renderStatus.ipcError">IPC 调用失败：{{ renderStatus.message || '检查 preload 是否暴露该方法' }}</span>
       <span class="detail" v-else-if="!renderStatus.composerExists">缺少 remotion-composer</span>
       <span class="detail" v-else-if="!renderStatus.nodeModulesExist">依赖未安装</span>
       <button v-if="!renderStatus.ipcError && renderStatus.composerExists && !renderStatus.nodeModulesExist" class="btn-install" @click="installDeps" :disabled="installing">{{ installing ? '安装中...' : '安装依赖' }}</button>
@@ -64,18 +64,18 @@
           </div>
 
           <div v-if="inputMode === 'text'" class="input-area">
-            <textarea v-model="pipelineText" :placeholder="$t('create.story2video.tpl.scriptPlaceholder')" rows="8" class="form-textarea" @input="enforceStory2VideoTextLimit"></textarea>
+            <textarea v-model="pipelineText" placeholder="输入视频文案、主题描述或脚本..." rows="8" class="form-textarea" @input="enforceStory2VideoTextLimit"></textarea>
             <p
               v-if="isOrchestratedPipeline(selectedPipeline.name)"
               class="story2video-text-count"
               :class="story2videoTextCountLevel"
               :aria-live="story2videoTextCountLevel ? 'polite' : undefined"
               :title="story2videoTextCountLevel === 'is-warning' ? translateWithLocaleFallback('create.story2video.ui.charLimitWarning', '接近字数上限', 'Close to the character limit') : undefined"
-            >{{ story2videoTextCharacterCount }}/{{ MAX_STORY2VIDEO_TEXT_CHARACTERS }} {{ $t('create.story2video.tpl.charUnit') }}<span v-if="story2videoTextCountLevel === 'is-danger'">{{ translateWithLocaleFallback('create.story2video.ui.charLimitReached', '（已达字数上限）', ' (character limit reached)') }}</span></p>
+            >{{ story2videoTextCharacterCount }}/{{ MAX_STORY2VIDEO_TEXT_CHARACTERS }} 字符<span v-if="story2videoTextCountLevel === 'is-danger'">{{ translateWithLocaleFallback('create.story2video.ui.charLimitReached', '（已达字数上限）', ' (character limit reached)') }}</span></p>
             <div v-if="isOrchestratedPipeline(selectedPipeline.name)" class="s2v-estimate-slot">
               <p v-if="s2vEstimateSummary" class="story2video-estimate" data-testid="s2v-estimate-row">
                 预估 {{ s2vEstimateSummary.sceneCount }} 个分镜 · 旁白约 {{ s2vEstimateSummary.durationMin }}~{{ s2vEstimateSummary.durationMax }} 秒 · 成本约 ¥{{ s2vEstimateSummary.totalCost.toFixed(2) }}
-                <span class="s2v-estimate-note">{{ s2vEstimateSummary.calibrated ? $t('create.story2video.tpl.estimateCalibrated') : $t('create.story2video.tpl.estimateStatic') }}</span>
+                <span class="s2v-estimate-note">{{ s2vEstimateSummary.calibrated ? '（按本地 TTS 样本校准）' : '（静态估算，样本积累后自动校准）' }}</span>
               </p>
               <!-- 无估算时保留容器高度，避免输入过程中布局跳变 -->
               <p v-else class="story2video-estimate is-placeholder">{{ translateWithLocaleFallback('create.story2video.ui.estimatePlaceholder', '填写文案后自动预估分镜数、旁白时长与成本', 'Scene count, narration duration and cost are estimated once you enter the text') }}</p>
@@ -107,7 +107,7 @@
                     v-model="audio.transcript"
                     class="form-textarea audio-transcript"
                     rows="2"
-                    :placeholder="$t('create.story2video.tpl.narrationPlaceholder', { n: i + 1 })"
+                    :placeholder="'输入或识别第 ' + (i + 1) + ' 段旁白文字'"
                   ></textarea>
                   <div class="audio-row-actions">
                     <button
@@ -115,7 +115,7 @@
                       class="s2v-btn-secondary s2v-btn-sm"
                       :disabled="audio.transcribing"
                       @click.stop="transcribePipelineAudio(i)"
-                    >{{ audio.transcribing ? $t('create.story2video.tpl.recognizing') : $t('create.story2video.tpl.recognizeNarration') }}</button>
+                    >{{ audio.transcribing ? '识别中...' : '识别旁白' }}</button>
                     <span v-if="audio.transcriptionError" class="inline-error">{{ audio.transcriptionError }}</span>
                   </div>
                 </div>
@@ -134,7 +134,7 @@
             <textarea
               v-if="isMediaAutoPipeline(selectedPipeline.name)"
               v-model="pipelineText"
-              :placeholder="$t('create.story2video.tpl.lipSyncPlaceholder')"
+              placeholder="口播文案（口播视频流水线必填，逐行或分段）..."
               rows="6"
               class="form-textarea media-script-input"
             ></textarea>
@@ -310,8 +310,8 @@
       </div>
       <div class="form-group" v-if="quickMode === 'text'">
         <label>输入文案</label>
-        <textarea v-model="quickText" :placeholder="$t('create.story2video.tpl.quickPlaceholder')" rows="8" class="form-input textarea"></textarea>
-        <button class="btn-secondary" @click="aiWrite" :disabled="aiLoading">{{ aiLoading ? $t('create.story2video.tpl.generating') : $t('create.story2video.tpl.aiWrite') }}</button>
+        <textarea v-model="quickText" placeholder="输入视频文案，每行一个场景..." rows="8" class="form-input textarea"></textarea>
+        <button class="btn-secondary" @click="aiWrite" :disabled="aiLoading">{{ aiLoading ? '生成中...' : 'AI 写稿' }}</button>
       </div>
       <div class="form-group" v-if="quickMode === 'gallery'">
         <label>上传图片</label>
@@ -336,7 +336,7 @@
         <UiSelect v-model="quickTheme" :options="themeOptions" />
       </div>
       <div class="actions">
-        <UiButton @click="startQuickRender" :disabled="!canQuickRender || quickRendering">{{ quickRendering ? $t('create.story2video.tpl.rendering') : $t('create.story2video.tpl.startRender') }}</UiButton>
+        <UiButton @click="startQuickRender" :disabled="!canQuickRender || quickRendering">{{ quickRendering ? '渲染中...' : '开始渲染' }}</UiButton>
         <button v-if="quickRendering" class="btn-secondary" @click="cancelQuickRender">取消</button>
       </div>
       <div v-if="quickRendering" class="progress-section">
@@ -350,6 +350,15 @@
 
     <!-- ==================== 历史记录视图 ==================== -->
     <div v-if="view === 'history'">
+      <PodcastPublishAction
+        v-if="podcastEpisode.openedOnce"
+        :visible="podcastEpisode.visible"
+        :project="podcastEpisode.project"
+        :segments="podcastEpisode.segments"
+        :video-path="podcastEpisode.videoPath"
+        :title="podcastEpisode.title"
+        @close="podcastEpisode.visible = false"
+      />
       <CreateViewHistory
         :history="history"
         :history-loading="historyLoading"
@@ -361,6 +370,7 @@
         @resume-history="resumeHistoryItem"
         @open-result="openHistoryResult"
         @publish-history="publishHistoryItem"
+        @publish-podcast-episode="openPodcastEpisodePublish"
         @delete-history="requestHistoryDeletion"
         @download-history="downloadHistoryVideo"
         @create-content="switchView('pipelines')"
@@ -587,8 +597,8 @@
                   @keyup.esc="cancelBgmRename"
                 />
                 <div class="bgm-library-actions" style="opacity:1">
-                  <button type="button" class="btn-icon" :disabled="s2vBgmLibraryLoading || !String(s2vBgmLibraryRenameDraft || '').trim()" @click="saveBgmRename" title="$t('create.story2video.tpl.save')"><span class="material-symbols-outlined">check</span></button>
-                  <button type="button" class="btn-icon" :disabled="s2vBgmLibraryLoading" @click="cancelBgmRename" title="$t('create.story2video.tpl.cancel')"><span class="material-symbols-outlined">close</span></button>
+                  <button type="button" class="btn-icon" :disabled="s2vBgmLibraryLoading || !String(s2vBgmLibraryRenameDraft || '').trim()" @click="saveBgmRename" title="保存"><span class="material-symbols-outlined">check</span></button>
+                  <button type="button" class="btn-icon" :disabled="s2vBgmLibraryLoading" @click="cancelBgmRename" title="取消"><span class="material-symbols-outlined">close</span></button>
                 </div>
               </div>
             </template>
@@ -598,8 +608,8 @@
                 <span class="bgm-library-name" :title="item.path">{{ item.name }}</span>
               </div>
               <div class="bgm-library-actions">
-                <button type="button" class="btn-icon" :disabled="s2vBgmLibraryLoading" @click="startBgmRename(item)" title="$t('create.story2video.tpl.rename')"><span class="material-symbols-outlined">edit</span></button>
-                <button type="button" class="btn-icon danger" :disabled="s2vBgmLibraryLoading" @click="requestBgmDelete(item)" title="$t('create.story2video.tpl.remove')"><span class="material-symbols-outlined">delete</span></button>
+                <button type="button" class="btn-icon" :disabled="s2vBgmLibraryLoading" @click="startBgmRename(item)" title="重命名"><span class="material-symbols-outlined">edit</span></button>
+                <button type="button" class="btn-icon danger" :disabled="s2vBgmLibraryLoading" @click="requestBgmDelete(item)" title="删除"><span class="material-symbols-outlined">delete</span></button>
               </div>
             </template>
           </li>
@@ -672,7 +682,7 @@
                 <input v-model.trim="s2vConfigProfileRenameDraft" class="form-input" maxlength="60" data-testid="s2v-config-profile-rename-input" @keyup.enter="saveS2VConfigProfileRename" @keyup.esc="cancelS2VConfigProfileRename" />
                 <div class="bgm-library-actions" style="opacity:1">
                   <button type="button" class="btn-icon" :disabled="s2vConfigProfilesLoading || !String(s2vConfigProfileRenameDraft || '').trim()" @click="saveS2VConfigProfileRename" title="保存"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>
-                  <button type="button" class="btn-icon" :disabled="s2vConfigProfilesLoading" @click="cancelS2VConfigProfileRename" title="$t('create.story2video.tpl.cancel')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+                  <button type="button" class="btn-icon" :disabled="s2vConfigProfilesLoading" @click="cancelS2VConfigProfileRename" title="取消"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
                 </div>
               </div>
             </template>
@@ -684,8 +694,8 @@
               </div>
               <div class="bgm-library-actions">
                 <button type="button" class="btn-icon" :disabled="s2vConfigProfilesLoading || !s2vConfigProfileCanApply(profile)" :title="s2vConfigProfileCanApply(profile) ? '应用到当前流水线' : '该配置属于其他流水线'" data-testid="s2v-config-profile-apply" @click="requestApplyS2VConfigProfile(profile)"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></button>
-                <button type="button" class="btn-icon" :disabled="s2vConfigProfilesLoading" @click="startS2VConfigProfileRename(profile)" title="$t('create.story2video.tpl.rename')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button>
-                <button type="button" class="btn-icon danger" :disabled="s2vConfigProfilesLoading" @click="requestS2VConfigProfileDelete(profile)" title="$t('create.story2video.tpl.remove')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></svg></button>
+                <button type="button" class="btn-icon" :disabled="s2vConfigProfilesLoading" @click="startS2VConfigProfileRename(profile)" title="重命名"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button>
+                <button type="button" class="btn-icon danger" :disabled="s2vConfigProfilesLoading" @click="requestS2VConfigProfileDelete(profile)" title="删除"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></svg></button>
               </div>
             </template>
           </li>
@@ -885,7 +895,8 @@ import UiModal from '@/components/UiModal.vue'
 import UiSelect from '@/components/UiSelect.vue'
 import CreateViewHistory from './CreateViewHistory.vue'
 import { buildPublishFromProject, publishDataToQuery } from '@/features/publish/publish-from-project'
-import { story2videoSaveAs, draftList } from '@/api/publisher'
+import PodcastPublishAction from '@/components/PodcastPublishAction.vue'
+import { story2videoSaveAs, story2videoGetProject, draftList } from '@/api/publisher'
 import { PipelineSelector, StageProgress, SceneAssetSelection, S2vConfigPanels } from './video-creation'
 import { S2V_PANEL_KEY, createS2VPanel } from './video-creation/s2v-panel-contract'
 import { useLoginGate } from '@/composables/useLoginGate'
@@ -1010,7 +1021,7 @@ export default {
   name: 'CreateView',
   // 模板使用但此前漏注册的子组件：PipelineSelector/StageProgress/CreateViewHistory
   // （缺失会导致 Vue 'Failed to resolve component'，流水线卡片不渲染）
-  components: { UiButton, UiModal, UiSelect, CreateViewHistory, PipelineSelector, StageProgress, SceneAssetSelection, S2vConfigPanels },
+  components: { UiButton, UiModal, UiSelect, CreateViewHistory, PipelineSelector, StageProgress, SceneAssetSelection, S2vConfigPanels, PodcastPublishAction },
   // 配置面板子树的受控访问入口：白名单由 s2v-panel-contract 单一来源定义，
   // 这里只转发，不复制任何 optionKey 语义（见该文件头注释）。
   provide() {
@@ -1147,6 +1158,9 @@ export default {
       s2vPipelineOptions: null,
       s2vPipelineOptionsLoading: false,
       // 历史
+      // 播客出期浮层（刀 3 第 4 片，PRD §6.4）：入口在历史卡片上，浮层挂在历史视图根部。
+      // openedOnce 决定浮层是否已构造（按需挂载，理由见 PodcastEpisodeEntry 同名注释）。
+      podcastEpisode: { visible: false, openedOnce: false, project: null, segments: [], videoPath: '', title: '', loadError: '' },
       history: [], historyLoading: false, historyLocalMode: false, historyFilter: 'all', historyRequestId: 0, historyPollTimer: null,
       // 页面导航历史
       viewHistory: [], viewHistoryIndex: -1,
@@ -1254,7 +1268,11 @@ export default {
       return strings
     },
     story2videoConfigurationTitle() {
-      return this.$t('create.story2video.configurationTitle')
+      return this.translateWithLocaleFallback(
+        'create.story2video.configurationTitle',
+        '故事讲述配置',
+        'Story Telling Configuration'
+      )
     },
     providerWarningText() {
       if (this.dismissedProviderWarnings) return ''
@@ -1279,10 +1297,18 @@ export default {
       return formatBgmSkippedNotification(compose.bgmSkippedReason).message
     },
     story2videoImageStyleHint() {
-      return this.$t('create.story2video.imageStyleHint')
+      return this.translateWithLocaleFallback(
+        'create.story2video.imageStyleHint',
+        '控制每张生成图片的视觉外观。',
+        'Controls the visual appearance of generated images.'
+      )
     },
     story2videoPromptStyleHint() {
-      return this.$t('create.story2video.promptStyleHint')
+      return this.translateWithLocaleFallback(
+        'create.story2video.promptStyleHint',
+        '仅控制分镜图片提示词的写法与组织方式，不替代图片风格。',
+        'Controls how image prompts are written and organized; it does not replace image style.'
+      )
     },
     s2vMaxPromptLengthOptions: () => [200, 300, 400, 500, 700, 1000, 1500, 2000],
     s2vMaxPromptLengthLabel() {
@@ -1431,13 +1457,13 @@ export default {
     // 顺序与 canStartPipeline 的短路顺序保持一致，避免提示与真实门禁因不一致。
     pipelineBlockedReason() {
       if (this.canStartPipeline) return ''
-      if (!this.selectedPipeline) return this.$t('create.story2video.ui.blockedReason.noPipeline')
-      if (!this.pipelineAvailable(this.selectedPipeline.name)) return this.$t('create.story2video.ui.blockedReason.unavailable')
-      if (this.startingPipeline) return this.$t('create.story2video.ui.blockedReason.starting')
-      if (this.isOrchestratedPipeline(this.selectedPipeline.name) && this.orchestrationRunId) return this.$t('create.story2video.ui.blockedReason.running')
-      if (this.s2vConfigRangeInvalid) return this.$t('create.story2video.ui.blockedReason.invalidRange')
-      if (this.inputMode !== 'text') return this.$t('create.story2video.ui.blockedReason.noAsset')
-      return this.$t('create.story2video.ui.blockedReason.noText')
+      if (!this.selectedPipeline) return this.translateWithLocaleFallback('create.story2video.ui.blockedReason.noPipeline', '请先选择一条流水线', 'Select a pipeline first')
+      if (!this.pipelineAvailable(this.selectedPipeline.name)) return this.translateWithLocaleFallback('create.story2video.ui.blockedReason.unavailable', '该流水线尚未实现执行引擎，暂不能启动', 'This pipeline has no execution engine yet')
+      if (this.startingPipeline) return this.translateWithLocaleFallback('create.story2video.ui.blockedReason.starting', '启动请求处理中，请稍候', 'Start request is in flight, please wait')
+      if (this.isOrchestratedPipeline(this.selectedPipeline.name) && this.orchestrationRunId) return this.translateWithLocaleFallback('create.story2video.ui.blockedReason.running', '已有流水线任务在运行中', 'A pipeline run is already active')
+      if (this.s2vConfigRangeInvalid) return this.translateWithLocaleFallback('create.story2video.ui.blockedReason.invalidRange', '部分数值参数超出允许范围，请检查语速、音量与分镜长度', 'Some numeric options are out of range; check speed, volume and scene length')
+      if (this.inputMode !== 'text') return this.translateWithLocaleFallback('create.story2video.ui.blockedReason.noAsset', '请先添加素材文件', 'Add the required material first')
+      return this.translateWithLocaleFallback('create.story2video.ui.blockedReason.noText', '请先输入视频文案', 'Enter the script text first')
     },
     // ---- 运营后台实时预估（Batch 5b）：分镜数 / 时长区间 / 成本 ----
     s2vEstimateFactors() {
@@ -1710,10 +1736,10 @@ export default {
       }
       if (durationMs === null) return ''
       const durationText = this.formatDuration(durationMs)
-      const durationLabel = this.$t('story2video.summaryDuration', { text: durationText })
+      const durationLabel = this.translateWithLocaleFallback('story2video.summaryDuration', '完成时间共 ' + durationText, 'Finished in ' + durationText, { text: durationText })
       if (Number.isFinite(Number(meta.outputSizeBytes)) && Number(meta.outputSizeBytes) > 0) {
         const mb = (Number(meta.outputSizeBytes) / (1024 * 1024)).toFixed(1)
-        const sizeLabel = this.$t('story2video.summaryFileSize', { size: mb })
+        const sizeLabel = this.translateWithLocaleFallback('story2video.summaryFileSize', '文件大小 ' + mb + ' M', 'Size ' + mb + ' MB', { size: mb })
         return durationLabel + ' · ' + sizeLabel
       }
       return durationLabel
@@ -2296,7 +2322,7 @@ export default {
       if (!this.isOrchestratedPipeline(this.selectedPipeline?.name) || this.s2vRestoring || this.s2vConfigProfileApplying) return
       try {
         await storeSetSetting('story2video.lastOptions.v1', this.buildS2VLastOptions())
-        this.showS2VOptionsToast(this.$t('story2video.optionsSaved'))
+        this.showS2VOptionsToast(this.translateWithLocaleFallback('story2video.optionsSaved', '选项已保存 ✓', 'Options saved ✓'))
       } catch (_) { /* 持久化失败不影响使用 */ }
     },
     scheduleS2VLastOptionsSave() {
@@ -2422,7 +2448,7 @@ export default {
     async saveS2VConfigProfile() {
       const name = String(this.s2vConfigProfileNameDraft || '').trim()
       if (!name) {
-        this.showS2VOptionsToast(this.$t('create.story2video.configProfile.nameRequired'), 2200)
+        this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.configProfile.nameRequired', '请输入配置名称', 'Enter a configuration name'), 2200)
         return
       }
       const pipelineId = this.selectedPipeline?.name
@@ -2431,7 +2457,7 @@ export default {
         const duplicate = this.s2vConfigProfiles.find(p => p.pipelineId === pipelineId && p.name === name)
         if (duplicate) {
           this.s2vConfigProfileOverwriteNeeded = true
-          this.showS2VOptionsToast(this.$t('create.story2video.configProfile.duplicateName'), 2200)
+          this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.configProfile.duplicateName', '已存在同名配置，再次点击保存将覆盖它', 'A configuration with this name already exists. Click save again to overwrite it.'), 2200)
           return
         }
       }
@@ -2447,16 +2473,16 @@ export default {
           const duplicate = result?.code === -2 && /同名|已经存在|already exists|duplicate/i.test(String(result?.message || ''))
           if (duplicate) {
             this.s2vConfigProfileOverwriteNeeded = true
-            this.showS2VOptionsToast(this.$t('create.story2video.configProfile.duplicateName'), 2200)
+            this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.configProfile.duplicateName', '已存在同名配置，再次点击保存将覆盖它', 'A configuration with this name already exists. Click save again to overwrite it.'), 2200)
             return
           }
-          this.showS2VOptionsToast(this.$t('create.story2video.configProfile.saveFailed'), 2600)
+          this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.configProfile.saveFailed', '配置保存失败，请稍后重试', 'Could not save the configuration. Please try again.'), 2600)
           return
         }
         this.s2vConfigProfiles = this.s2vConfigProfiles.filter(p => !(p.pipelineId === pipelineId && p.name === name))
         this.s2vConfigProfiles.push(result.data)
         this.closeS2VConfigProfileSave()
-        this.showS2VOptionsToast(this.$t('create.story2video.configProfile.saved'))
+        this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.configProfile.saved', '配置已保存', 'Configuration saved'))
       } catch (error) {
         this.showS2VOptionsToast(error?.message || '配置保存失败', 2600)
       }
@@ -2477,7 +2503,7 @@ export default {
     },
     async requestApplyS2VConfigProfile(profile) {
       if (!this.s2vConfigProfileCanApply(profile)) {
-        this.showS2VOptionsToast(this.$t('create.story2video.configProfile.wrongPipeline'), 2600)
+        this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.configProfile.wrongPipeline', '该配置属于其他流水线，无法在当前流水线应用', 'This configuration belongs to another pipeline and cannot be applied here.'), 2600)
         return
       }
       if (!this.s2vConfigProfileFormDirty()) {
@@ -2502,13 +2528,13 @@ export default {
       if (!target) return
       const currentPipelineId = this.selectedPipeline?.name || ''
       if (target.pipelineId !== currentPipelineId || (openedPipelineId && openedPipelineId !== currentPipelineId)) {
-        this.showS2VOptionsToast(this.$t('create.story2video.configProfile.wrongPipeline'), 2600)
+        this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.configProfile.wrongPipeline', '该配置属于其他流水线，无法在当前流水线应用', 'This configuration belongs to another pipeline and cannot be applied here.'), 2600)
         return
       }
       const applied = await this.applyS2VConfigProfileSnapshot(target)
       if (applied) {
         this.s2vActiveConfigProfile = target.name || ''
-        this.showS2VOptionsToast(this.$t('create.story2video.configProfile.applied'))
+        this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.configProfile.applied', '已应用配置', 'Configuration applied'))
       }
     },
     async applyS2VConfigProfileSnapshot(profile) {
@@ -2551,7 +2577,7 @@ export default {
         const index = this.s2vConfigProfiles.findIndex(p => p.id === id)
         if (index >= 0) this.s2vConfigProfiles.splice(index, 1, result.data)
         this.s2vConfigProfileRenamingId = ''
-        this.showS2VOptionsToast(this.$t('create.story2video.configProfile.renamed'))
+        this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.configProfile.renamed', '配置已重命名', 'Configuration renamed'))
       } catch (error) { this.showS2VOptionsToast(error?.message || '重命名失败', 2600) }
     },
     requestS2VConfigProfileDelete(profile) {
@@ -2571,7 +2597,7 @@ export default {
         const result = await story2videoConfigProfileDelete(target.id)
         if (!result || result.code !== 0) { this.showS2VOptionsToast((result && result.message) || '删除失败', 2600); return }
         this.s2vConfigProfiles = this.s2vConfigProfiles.filter(p => p.id !== target.id)
-        this.showS2VOptionsToast(this.$t('create.story2video.configProfile.deleted'))
+        this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.configProfile.deleted', '配置已删除', 'Configuration deleted'))
       } catch (error) { this.showS2VOptionsToast(error?.message || '删除失败', 2600) }
     },
     formatS2VConfigProfileTime(ts) {
@@ -2650,10 +2676,7 @@ export default {
       if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return
       const applied = await this._applyS2VSnapshotObject(snapshot)
       if (applied) {
-        // await 续体可能在 vm 卸载后执行（自动保存测试用 fake timers 推进、unmount 后续体才跑），
-        // 此时实例代理上的 $t 已失效——保留 translateWithLocaleFallback 同款存在性防御（见 learnings）
-        const message = typeof this.$t === 'function' ? this.$t('story2video.optionsRestored') : 'story2video.optionsRestored'
-        this.showS2VOptionsToast(message)
+        this.showS2VOptionsToast(this.translateWithLocaleFallback('story2video.optionsRestored', '已恢复上次的选项设置', 'Restored your last-used options'))
       }
     },
     // 2026-08-10 Bug 反哺：恢复「上次使用的选项」时，把不在当前选项列表中的陈旧枚举值
@@ -3230,7 +3253,7 @@ export default {
           this.closeStory2VideoErrorDialog()
           this.story2videoRunMeta = createPipelineRunMetaFromSnapshot(res.data)
           this.pipelineRunStatus = { status: 'running', progress: 0, stages: this.orchestrationStages }
-          this.showS2VOptionsToast(this.$t('create.story2video.resumeUsesCurrentModels'), 3200)
+          this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.resumeUsesCurrentModels', '已从断点继续，将使用当前默认的图片 / 语音 / 视频模型生成缺失素材。', 'Resumed from breakpoint. Missing assets will be generated with your current default image / voice / video models.'), 3200)
           await this.updateOrchestrationStatus()
           if (this.orchestrationRunId && !this.pollTimer) {
             this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
@@ -3426,7 +3449,11 @@ export default {
       return this.needsCheckpoint
     },
     setPipelineProgressStatusError() {
-      this.pipelineProgressStatusError = this.$t('create.story2video.progressStatusUnavailable')
+      this.pipelineProgressStatusError = this.translateWithLocaleFallback(
+        'create.story2video.progressStatusUnavailable',
+        '进度暂时不可用，任务仍在运行，系统将继续重试。',
+        'Progress is temporarily unavailable. The task is still running and will be retried.',
+      )
       if (this.pipelineRunStatus && this.selectedPipeline && !PIPELINE_TERMINAL_STATUSES.includes(this.pipelineRunStatus.status)) {
         this.openPipelineProgressModal()
       }
@@ -3581,11 +3608,11 @@ export default {
           if (!this.applyOrchestrationOutcome(res.data || {}, runId, actionRequestId) && this.isCurrentOrchestrationAction(runId, actionRequestId)) await this.updateOrchestrationStatus()
         } else {
           this.sceneAssetSelectionError = res?.data?.error || res?.message ||
-            this.$t('story2video.sceneAssetSelection.confirmError')
+            this.translateWithLocaleFallback('story2video.sceneAssetSelection.confirmError', '素材选择提交失败，请重试。', 'Failed to submit asset selection. Please try again.')
         }
       } catch (_) {
         if (this.isCurrentOrchestrationAction(runId, actionRequestId)) {
-          this.sceneAssetSelectionError = this.$t('story2video.sceneAssetSelection.confirmError')
+          this.sceneAssetSelectionError = this.translateWithLocaleFallback('story2video.sceneAssetSelection.confirmError', '素材选择提交失败，请重试。', 'Failed to submit asset selection. Please try again.')
         }
       } finally {
         if (this.isCurrentOrchestrationAction(runId, actionRequestId)) this.sceneAssetConfirming = false
@@ -4044,7 +4071,11 @@ export default {
         this.resetPipelineUiState()
         if (!projectId) {
           // 缺少可编辑项目（run-only 记录或项目尚未落盘）：无法跳转编辑页，仅提示用户到历史记录处理。
-          this.s2vOptionsToast = this.$t('create.story2video.contentPolicyNoProjectToast')
+          this.s2vOptionsToast = this.translateWithLocaleFallback(
+            'create.story2video.contentPolicyNoProjectToast',
+            '当前任务缺少可编辑项目，请在历史记录中查看并处理。',
+            'This task has no editable project. Please handle it from History.',
+          )
           return
         }
         const query = { project: projectId }
@@ -4092,7 +4123,7 @@ export default {
           3000
         )
         this.showS2VOptionsToast(
-          this.$t('create.story2video.resumeUsesCurrentModels'),
+          this.translateWithLocaleFallback('create.story2video.resumeUsesCurrentModels', '已从断点继续，将使用当前默认的图片 / 语音 / 视频模型生成缺失素材。', 'Resumed from breakpoint. Missing assets will be generated with your current default image / voice / video models.'),
           3200
         )
       }
@@ -4137,7 +4168,7 @@ export default {
       this.selectedPipeline = (this.pipelines || []).find(p => p.name === pipelineName) || { name: pipelineName, available: true }
       this.view = 'pipelines'
       this.showS2VOptionsToast(
-        this.$t('create.story2video.startForegroundToast'),
+        this.translateWithLocaleFallback('create.story2video.startForegroundToast', '流水线已启动，正在实时展示进度；离开本页后任务继续后台运行，可在「历史记录」中查看（仍占用并发名额）。', 'Pipeline started. Progress is shown live here; it keeps running in the background after you leave this page, remains visible in History (still occupies a run slot).'),
         4000
       )
       await this.updateOrchestrationStatus()
@@ -4308,6 +4339,36 @@ export default {
         }
       }
       await Promise.all(Array.from({ length: Math.min(4, records.length) }, () => worker()))
+    },
+    async openPodcastEpisodePublish(item) {
+      // 入口在历史卡片上，而卡片只有 run/project 的索引信息：出期要的是**完整项目**
+      // （降级判定读 segments[].audioMeta.degraded，判据与结果页同真源），所以先按 projectId 取回项目再开浮层。
+      const projectId = item && item.projectId ? String(item.projectId) : ''
+      if (!projectId) return
+      // 先置空数据、取回项目之后再挂载浮层：project=null 时就构造浮层会让它立刻带着空素材走 visible 分支
+      //（评审命中的 Critical 候选：按下按钮与素材读回来之间存在的空态不该被渲染）。
+      this.podcastEpisode.project = null
+      this.podcastEpisode.segments = []
+      this.podcastEpisode.videoPath = String((item && (item.videoPath || item.outputPath)) || '')
+      this.podcastEpisode.title = String((item && item.title) || '')
+      try {
+        const res = await story2videoGetProject(projectId)
+        const project = res && res.data !== undefined ? res.data : res
+        if (project && typeof project === 'object') {
+          // 深拷贝脱 reactive：浮层要把项目原样送进 IPC，proxy 过不了结构化克隆
+          const plain = JSON.parse(JSON.stringify(project))
+          this.podcastEpisode.project = plain
+          this.podcastEpisode.segments = Array.isArray(plain.segments) ? plain.segments : []
+          if (!this.podcastEpisode.videoPath) this.podcastEpisode.videoPath = String(plain.videoPath || plain.outputPath || '')
+          // 标题与结果页同源：buildPublishFromProject 是「项目 → 发布标题」的唯一提取点；
+          // 原先直接取历史卡片的 item.title，等于给同一件事留了第二份真源。
+          this.podcastEpisode.title = String(buildPublishFromProject(plain).title || plain.title || this.podcastEpisode.title || '')
+        }
+      } catch (e) {
+        // 项目取不到时浮层照样打开，由主进程的入参层判 PODCAST_EPISODE_INVALID 并如实报错；
+        // 不在这里静默返回——那会让用户以为按钮没生效。
+        this.podcastEpisode.loadError = String((e && e.message) || e || '')
+      }
     },
     openHistoryResult(item) {
       // 仅真实 story2video 项目可进入编辑页；run-only 记录（historyType=pipeline-run）的 projectId
@@ -4720,31 +4781,31 @@ export default {
       if (stage.name === 'split') {
         const scenes = Array.isArray(ctx.split) ? ctx.split : (ctx.split?.scenes || null)
         if (Array.isArray(scenes) && scenes.length > 0) {
-          return this.$t('story2video.splitSceneCount', { count: scenes.length })
+          return this.translateWithLocaleFallback('story2video.splitSceneCount', '拆分为了 ' + scenes.length + ' 个场景', 'Split into ' + scenes.length + ' scenes', { count: scenes.length })
         }
       }
       if (stage.name === 'optimize') {
         const p = ctx.optimize_progress
         if (p && Number.isInteger(p.total) && Number.isInteger(p.done)) {
-          return this.$t('story2video.optimizeProgress', { total: p.total, done: p.done })
+          return this.translateWithLocaleFallback('story2video.optimizeProgress', '共 ' + p.total + ' 个场景，已完成 ' + p.done + ' 个', p.done + '/' + p.total + ' scenes optimized', { total: p.total, done: p.done })
         }
       }
       if (stage.name === 'select_video_scenes') {
         const plan = ctx.video_plan
         if (plan && plan.mode !== 'off' && Number.isInteger(plan.selectedCount) && plan.selectedCount > 0) {
-          return this.$t('story2video.selectVideoScenes', { count: plan.selectedCount, ratio: plan.ratio })
+          return this.translateWithLocaleFallback('story2video.selectVideoScenes', '已选 ' + plan.selectedCount + ' 个 AI 视频场景（约 ' + plan.ratio + '%）', plan.selectedCount + ' AI video scenes selected (~' + plan.ratio + '%)', { count: plan.selectedCount, ratio: plan.ratio })
         }
         if (plan && plan.mode === 'off') {
-          return this.$t('story2video.selectVideoScenesOff')
+          return this.translateWithLocaleFallback('story2video.selectVideoScenesOff', '纯图片轮播模式', 'Image carousel mode')
         }
       }
       if (stage.name === 'generate_assets') {
         const p = ctx.assets_progress
         if (p && Number.isInteger(p.imagesTotal) && Number.isInteger(p.ttsTotal)) {
           if (Number.isInteger(p.videosTotal) && p.videosTotal > 0) {
-            return this.$t('story2video.assetsProgressVideo', { imagesDone: p.imagesDone, imagesTotal: p.imagesTotal, videosDone: p.videosDone, videosTotal: p.videosTotal, ttsDone: p.ttsDone, ttsTotal: p.ttsTotal })
+            return this.translateWithLocaleFallback('story2video.assetsProgressVideo', '图片 ' + p.imagesDone + '/' + p.imagesTotal + ' · 视频 ' + p.videosDone + '/' + p.videosTotal + ' · 旁白 ' + p.ttsDone + '/' + p.ttsTotal, 'Images ' + p.imagesDone + '/' + p.imagesTotal + ' · Videos ' + p.videosDone + '/' + p.videosTotal + ' · Narration ' + p.ttsDone + '/' + p.ttsTotal, { imagesDone: p.imagesDone, imagesTotal: p.imagesTotal, videosDone: p.videosDone, videosTotal: p.videosTotal, ttsDone: p.ttsDone, ttsTotal: p.ttsTotal })
           }
-          return this.$t('story2video.assetsProgress', { imagesDone: p.imagesDone, imagesTotal: p.imagesTotal, ttsDone: p.ttsDone, ttsTotal: p.ttsTotal })
+          return this.translateWithLocaleFallback('story2video.assetsProgress', '图片 ' + p.imagesDone + '/' + p.imagesTotal + ' · 旁白 ' + p.ttsDone + '/' + p.ttsTotal, 'Images ' + p.imagesDone + '/' + p.imagesTotal + ' · Narration ' + p.ttsDone + '/' + p.ttsTotal, { imagesDone: p.imagesDone, imagesTotal: p.imagesTotal, ttsDone: p.ttsDone, ttsTotal: p.ttsTotal })
         }
       }
       if (stage.name === 'compose') {
@@ -4755,9 +4816,9 @@ export default {
             return this.$t('stageProgress.composeConcat', { percent: Math.round(p.percent) })
           }
           if (p.phase === 'segments' && Number.isInteger(p.segmentsTotal) && p.segmentsTotal > 0 && Number.isInteger(p.segmentsDone)) {
-            return this.$t('story2video.composeSegments', { done: p.segmentsDone, total: p.segmentsTotal, percent: Math.round(p.percent) })
+            return this.translateWithLocaleFallback('story2video.composeSegments', '正在合成片段 ' + p.segmentsDone + '/' + p.segmentsTotal + ' · ' + Math.round(p.percent) + '%', 'Composing segment ' + p.segmentsDone + '/' + p.segmentsTotal + ' · ' + Math.round(p.percent) + '%', { done: p.segmentsDone, total: p.segmentsTotal, percent: Math.round(p.percent) })
           }
-          return this.$t('story2video.composeProgress', { percent: Math.round(p.percent) })
+          return this.translateWithLocaleFallback('story2video.composeProgress', '视频合成 ' + Math.round(p.percent) + '%', 'Composing ' + Math.round(p.percent) + '%')
         }
       }
       return ''
@@ -4785,9 +4846,9 @@ export default {
       const minutes = Math.floor(totalSeconds / 60)
       const seconds = totalSeconds % 60
       if (minutes > 0) {
-        return this.$t('story2video.durationMinSec', { minutes, seconds })
+        return this.translateWithLocaleFallback('story2video.durationMinSec', minutes + ' 分 ' + seconds + ' 秒', minutes + 'm ' + seconds + 's', { minutes, seconds })
       }
-      return this.$t('story2video.durationSec', { seconds })
+      return this.translateWithLocaleFallback('story2video.durationSec', seconds + ' 秒', seconds + 's', { seconds })
     },
     startStageClock() {
       if (this._stageClockTimer) return
@@ -4828,7 +4889,7 @@ export default {
       buildStory2VideoTextConfig: (config) => this.buildStory2VideoTextConfig(config),
       modelsRequiredShownItemIds: this._s2vModelsRequiredShownItemIds,
     })
-    this._s2vAlive = true; this._s2vVoicePreview = useS2VVoicePreview(() => ({ unsupportedText: this.$t('story2video.voicePreviewUnsupported'), previewText: this.$t('story2video.voicePreviewText'), }))
+    this._s2vAlive = true; this._s2vVoicePreview = useS2VVoicePreview(() => ({ unsupportedText: this.translateWithLocaleFallback('story2video.voicePreviewUnsupported', '当前环境不支持语音合成', 'No speech synthesis'), previewText: this.translateWithLocaleFallback('story2video.voicePreviewText', '欢迎使用视频创作流水线。这是一段旁白试听音频，用于预览当前语速和音量效果。', 'Voice preview clip'), }))
     this.refreshS2VTemplates()
     this.startStageClock()
     // 「设置 → 模型设置」弹窗关闭后重新加载模型服务商列表（2026-08-12 Bug 修复）：

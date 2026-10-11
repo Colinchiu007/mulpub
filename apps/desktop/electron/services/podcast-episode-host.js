@@ -85,7 +85,10 @@ function createEpisodeHost (deps = {}) {
   }
   const spawnImpl = deps.spawnImpl || defaultSpawn
 
-  async function publishFromVideo (payload = {}) {
+  async function publishFromVideo (payload = {}, opts = {}) {
+    // 进度发射器由 IPC 注册点按**每次调用**注入（发送目标是这一次调用的 sender）。
+    // 不在宿主里缓存它：缓存等于把「谁订阅」变成进程级状态，多窗口下会互相串台。
+    const emitProgress = opts && typeof opts.emitProgress === 'function' ? opts.emitProgress : null
     const p = payload && typeof payload === 'object' ? payload : {}
     // ① 入参形状层：缺任一必填即拒，且发生在任何出站与任何磁盘写之前。
     const channelId = String(p.channelId || '').trim()
@@ -125,14 +128,38 @@ function createEpisodeHost (deps = {}) {
       heldBy: lockToken,
       logger: log,
     })
+    let emitPhase = () => {}
     const publisher = createEpisodePublisher({
       extractEpisodeAudio, assertUploadSizeMatches,
+      // §6.4.2 口径③：每个相位必须有 start（执行前）与 done 两个边界。观察者由编排层在
+      // mark() 这个**既有**边界点上回调，真正的发送点仍然只有本宿主一处。
+      onPhase: (e) => emitPhase(e.phase, e.state, e),
       uploadImpl: adapters.uploadImpl,
       episodeSink: adapters.episodeSink,
       feedSink: adapters.feedSink,
       channelGate: adapters.channelGate,
       logger: log,
     })
+    /* §6.4.2 口径②：`cancellable` 只在这里算，用的就是编排层那份唯一实现 `cancellableAt`，
+       渲染层只读这个位（禁止前端抄相位表或按时长猜）。
+       口径③：发送点唯一在本宿主——编排层只在既有 mark() 边界上回调观察者，不发事件。
+       发送失败不得冒泡：进度是旁路，绝不能让一次遮罩上的动画问题毁掉真实出期。 */
+    emitPhase = (phase, state, extra) => {
+      if (!emitProgress || !phase) return
+      const evt = { runId, phase, state, cancellable: publisher.cancellableAt(phase) === true }
+      if (extra) {
+        if (extra.durationSec != null) evt.durationSec = extra.durationSec
+        if (extra.sizeBytes != null) evt.sizeBytes = extra.sizeBytes
+        if (extra.mime) evt.mime = extra.mime
+        if (extra.message) evt.message = extra.message
+        if (extra.errorCode) evt.errorCode = extra.errorCode
+        if (extra.subCode) evt.subCode = extra.subCode
+      }
+      try { emitProgress(evt) } catch (e) {
+        log.warn('[podcast-host] 进度事件发送失败，不阻断出期: ' + ((e && e.message) || String(e)))
+      }
+    }
+
     // ③ 取消登记先于取锁：token 是主进程侧的活引用，编排层改的就是它（见 cancel 模块头）。
     const cancel = episodeCancelRegistry.begin(runId, { cancellableAt: publisher.cancellableAt, initialPhase: PHASES[0] })
 
@@ -162,10 +189,20 @@ function createEpisodeHost (deps = {}) {
         // 超时只杀进程、不置 cancelled：置了就会把「等太久」在下一次采样读成「用户不要了」
         killImpl: () => { episodeCancelRegistry.killRunning(cancel) },
       }
-      return await publisher.publish(input)
+      const r = await publisher.publish(input)
+      // 链结束时最后一条必须是终态边界（§6.4.2 口径③）。partial 的最后一站是
+      // 「公网 feed 未更新」——如实标 skipped，既不得画成 done（谎称已上线），
+      // 也不得因为没画完就说成失败（那会诱导用户删掉本地已登记的一期重来）。
+      const trail = Array.isArray(r && r.phases) ? r.phases : []
+      const last = trail.length ? String(trail[trail.length - 1].phase || '') : ''
+      emitPhase(last, r && r.state === 'partial' ? 'skipped' : 'done', { message: (r && r.message) || '' })
+      return r
     } catch (e) {
       // 取消不是失败：用户主动停止且已回滚，压成 failed 会诱导他删掉这一期重来
+      const fTrail = Array.isArray((e && (e.publishPhases || e.phases))) ? (e.publishPhases || e.phases) : []
+      const fLast = fTrail.length ? String(fTrail[fTrail.length - 1].phase || '') : PHASES[0]
       if (e && e.code === EPISODE_PUBLISH_ERRORS.CANCELLED) {
+        emitPhase(fLast, 'cancelled')
         return {
           state: 'cancelled',
           phases: (e && (e.publishPhases || e.phases)) || [],
@@ -173,6 +210,13 @@ function createEpisodeHost (deps = {}) {
           message: '已在上传前取消，临时文件已回滚', errorCode: '', errorMessage: '',
         }
       }
+      // 失败也要留终态边界：否则界面会停在最后一个 start 上（视觉上等同卡死），
+      // 而用户唯一能看到的诊断信息（卡在哪一站、什么码）此刻还只在信封里。
+      emitPhase(fLast, 'failed', {
+        subCode: (e && typeof e.code === 'string') ? e.code : ((e && e.subCode) || ''),
+        errorCode: (e && typeof e.code === 'number') ? String(e.code) : '',
+        message: (e && e.message) || '',
+      })
       throw e
     } finally {
       // 抽取中途被 kill 会留下截断文件，而此刻编排层并不持有它——由本层统一收尾

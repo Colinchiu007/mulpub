@@ -146,7 +146,9 @@ function registerHandlers (ipcMain, deps) {
   // 因此新增注册一律写成 `withSenderCheck(handlerFor(...))`：守卫在注册点可见，映射仍只一份。
   const handlerFor = (label, fn) => async (_event, payload) => {
     try {
-      const data = await fn(payload)
+      // 第二个实参是本次调用的 sender 事件：只有出期进度这类「按调用方回发」的通道会读它，
+      // 其余处理函数按既有形状只取 payload，多传一个实参不改变它们的行为。
+      const data = await fn(payload, _event)
       return { code: 0, data }
     } catch (e) {
       // 只记通道名与错误消息：引擎消息仅含校验码，不含用户文本
@@ -294,10 +296,18 @@ function registerHandlers (ipcMain, deps) {
 
   // ⛔ 通道名必须写成这里的**字面量**，不许收回变量或循环注册（见上方注释：对账按字面量抓取）。
   // 入参不含 outBase —— 临时目录基名由宿主按 runId 算，渲染层没有「写到哪」的决定权。
-  ipcMain.handle('podcast:episode:publishFromVideo', withSenderCheck(handlerFor('episode:publishFromVideo', async (payload) => {
+  ipcMain.handle('podcast:episode:publishFromVideo', withSenderCheck(handlerFor('episode:publishFromVideo', async (payload, event) => {
     // 三态（success/partial/cancelled）原样透出，不在本层压平：partial 的本地已登记、
     // 公网未更新是两种行动方向的唯一区分点。
-    return await getEpisodeHost().publishFromVideo(payload || {})
+    // §6.4.2 第三条通道：进度只回给**发起这一次调用的那个 sender**（不做全窗口广播，
+    // 否则多窗口下 A 的遮罩会跟着 B 的出期走），宿主拿到的就是下面这个闭包，
+    // 全仓发送点唯一在此。通道名写成字面量——对账脚本按字面量抓取，变量派发会造出假缺口。
+    const sender = event && event.sender
+    const emitProgress = (evt) => {
+      if (!sender || typeof sender.isDestroyed === 'function' && sender.isDestroyed()) return
+      sender.send('podcast:episode:publish:progress', evt)
+    }
+    return await getEpisodeHost().publishFromVideo(payload || {}, { emitProgress })
   })))
 
   ipcMain.handle('podcast:episode:publish:cancel', withSenderCheck(handlerFor('episode:publish:cancel', async (payload) => {

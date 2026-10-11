@@ -66,6 +66,14 @@ function createPodcastApi(ipcRenderer) {
       feedPublish: unwrap((payload) => ipcRenderer.invoke('podcast:feed:publish', payload)),
       episodePublishFromVideo: unwrap((payload) => ipcRenderer.invoke('podcast:episode:publishFromVideo', payload)),
       episodePublishCancel: unwrap((payload) => ipcRenderer.invoke('podcast:episode:publish:cancel', payload)),
+      // §6.4.2 第三条通道（推送型，不是 invoke）：订阅方拿到的是**原样注销函数**。
+      // 只删自己那个 handler——同一通道可能有多窗口/多实例订阅，removeAllListeners 会误删他人的进度流。
+      onEpisodePublishProgress: (callback) => {
+        if (typeof callback !== 'function') return () => {};
+        const handler = (_, data) => callback(data);
+        ipcRenderer.on('podcast:episode:publish:progress', handler);
+        return () => ipcRenderer.removeListener('podcast:episode:publish:progress', handler);
+      },
       channelGet: unwrap((...a) => ipcRenderer.invoke('podcast:channel:get', ...a)),
       channelSave: unwrap((payload) => ipcRenderer.invoke('podcast:channel:save', payload)),
       episodeList: unwrap(() => ipcRenderer.invoke('podcast:episode:list')),

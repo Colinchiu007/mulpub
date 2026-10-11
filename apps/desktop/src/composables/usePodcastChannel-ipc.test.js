@@ -231,6 +231,6 @@ describe('IPC 单轨制结构锁', () => {
     const createPodcastApi = mod.createPodcastApi ?? mod.default.createPodcastApi
     const surface = createPodcastApi({ invoke: async () => ({ code: 0, data: null }) }).podcast
     expect(Object.keys(api).sort()).toEqual(Object.keys(surface).sort())
-    expect(Object.keys(surface)).toHaveLength(19)
+    expect(Object.keys(surface)).toHaveLength(20)
   })
 })

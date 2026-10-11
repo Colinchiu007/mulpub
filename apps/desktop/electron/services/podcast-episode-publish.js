@@ -69,7 +69,7 @@ function describeFailure (e) {
 function createEpisodePublisher (deps = {}) {
   const {
     extractEpisodeAudio, assertUploadSizeMatches,
-    uploadImpl, episodeSink, feedSink, channelGate, logger,
+    uploadImpl, episodeSink, feedSink, channelGate, logger, onPhase,
   } = deps
   const log = logger || { info () {}, warn () {}, error () {} }
   if (typeof extractEpisodeAudio !== 'function' || typeof uploadImpl !== 'function'
@@ -88,7 +88,18 @@ function createEpisodePublisher (deps = {}) {
     if (!channelId) throw pubErr(EPISODE_PUBLISH_ERRORS.NO_CHANNEL, '出期必须指定频道（对象 key 含 channelId，缺它等于把两期写进同一层）')
     const phases = []
     // 相位同步到取消 token：取消窗口判据读的就是这个值（宿主按 runId 登记的是同一个对象本体）。
+    let lastMarked = null
+    let lastMarkedExtra = null
     const mark = (phase, extra) => {
+      // §6.4.2 口径③的双边界就落在**既有**的 mark() 上：mark 的语义是「上一站的实测值已到、
+      // 本站即将开始」，所以此刻先给上一站补 done（带它的 durationSec/sizeBytes/mime），
+      // 再给本站发 start。观察者由宿主注入，编排层自身一律不发事件。
+      if (typeof onPhase === 'function') {
+        if (lastMarked) onPhase(Object.assign({ phase: lastMarked, state: 'done' }, lastMarkedExtra || {}))
+        onPhase({ phase, state: 'start' })
+      }
+      lastMarked = phase
+      lastMarkedExtra = extra || null
       phases.push(Object.assign({ phase }, extra || {}))
       if (input.cancelToken) input.cancelToken.phase = phase
       return phase

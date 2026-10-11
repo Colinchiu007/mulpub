@@ -62,6 +62,7 @@
         <UiButton variant="secondary" @click="copyLocalPath">复制路径</UiButton>
         <UiButton variant="secondary" @click="showInFolder">打开文件夹</UiButton>
         <UiButton variant="secondary" @click="goPublish">去发布</UiButton>
+        <PodcastEpisodeEntry :project="project" :segments="segments" :video-path="videoPath || ''" />
         <UiButton variant="ghost" @click="$router.push('/create')">重新创作</UiButton>
       </div>
     </div>
@@ -444,6 +445,7 @@
 <script>
 import UiButton from '../components/UiButton.vue'
 import UiModal from '../components/UiModal.vue'
+import PodcastEpisodeEntry from '../components/PodcastEpisodeEntry.vue'
 import { buildPublishFromProject, publishDataToQuery } from '@/features/publish/publish-from-project'
 import { getAppLocale } from '@/i18n'
 import { STORY2VIDEO_NOTIFICATION_KEYS, formatBgmSkippedNotification, formatStory2VideoNotification, getStory2VideoNotificationUiText, resolveStory2VideoNotification } from '@/story2video/story2video-notifications'
@@ -474,7 +476,7 @@ import {
 
 export default {
   name: 'ResultView',
-  components: { UiButton, UiModal },
+  components: { UiButton, UiModal, PodcastEpisodeEntry },
   data() {
     return {
       videoPath: null,

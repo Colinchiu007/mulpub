@@ -331,3 +331,39 @@ describe('弹窗互斥：WebviewManager 行为（mock）', () => {
     expect(wm.isEmbeddedViewsSuspended()).toBe(false)
   })
 })
+
+describe('浮层 owner 接入登记：podcast-episode-publish-overlay（刀 3 第 4 片）', () => {
+  const src = fs.readFileSync(path.resolve(__dirname, 'components/PodcastPublishAction.vue'), 'utf8')
+
+  it('owner 常量成对传给挂起与释放两侧', () => {
+    expect(src).toContain('suspendEmbeddedViewsForOverlay(OVERLAY_OWNER)')
+    expect(src).toContain('releaseEmbeddedViewsForOverlay(OVERLAY_OWNER)')
+    expect(src).toContain("const OVERLAY_OWNER = 'podcast-episode-publish-overlay'")
+  })
+
+  it('释放穷尽：watch(props.visible) 的 false 分支 + onBeforeUnmount 兜底', () => {
+    // 判据必须只看代码：本文件所在组件的**块注释里就有 `watch(visible)` 与 `onBeforeUnmount` 的散文**，
+    // 不剥注释会让「注释写了解放、代码没写」的假绿通过（同仓「结构锁不剥注释 = 幽灵通道」坑）。
+    // 剥法刻意不用正则——反斜杠在本仓的脚本化补丁里已被吃掉过两次，这里按行首两字符判 `//`。
+    const code = src.split(String.fromCharCode(10)).map((l) => (l.trimStart().slice(0, 2) === String.fromCharCode(47, 47) ? '' : l)).join(String.fromCharCode(10))
+    const EOL = String.fromCharCode(10)
+    const w = code.indexOf('watch(() => props.visible')
+    expect(w).toBeGreaterThan(-1)
+    const els = code.indexOf('} else {', w)
+    expect(els).toBeGreaterThan(w)
+    const elseEnd = code.indexOf(EOL + '  }', els)
+    expect(elseEnd).toBeGreaterThan(els)
+    expect(code.slice(els, elseEnd)).toContain('releaseOverlay()')
+    const un = code.indexOf('onBeforeUnmount(')
+    expect(un).toBeGreaterThan(els)
+    const unEnd = code.indexOf(EOL + '})', un)
+    expect(unEnd).toBeGreaterThan(un)
+    expect(code.slice(un, unEnd)).toContain('releaseOverlay()')
+  })
+
+  it('浮层按需挂载且关闭不销毁（openedOnce 而非 visible）', () => {
+    const entry = fs.readFileSync(path.resolve(__dirname, 'components/PodcastEpisodeEntry.vue'), 'utf8')
+    expect(entry).toContain('v-if="openedOnce"')
+    expect(entry).not.toContain('v-if="visible"')
+  })
+})

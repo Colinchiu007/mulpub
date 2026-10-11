@@ -282,6 +282,15 @@
                   :disabled="story2videoResuming"
                   @click.stop="$emit('download-history', item)"
                 >{{ tr('downloadVideo') }}</button>
+              <!-- 播客出期入口（刀 3 第 4 片）：可用性与「发布历史视频」逐字同判据（publishable），
+                   两者都要有成片；缺 segments 的情况由父级现取项目后再决定，不在这里放宽。 -->
+              <button
+                v-if="publishable(item)"
+                type="button"
+                class="s2v-btn-secondary s2v-btn-sm"
+                data-testid="history-podcast-episode-button"
+                @click.stop="$emit('publish-podcast-episode', item)"
+              >{{ $t('podcast.episode.entry') }}</button>
 
               <button
                 type="button"
@@ -318,7 +327,7 @@ export default {
     story2videoResuming: { type: Boolean, default: false },
     deleting: { type: Boolean, default: false },
   },
-  emits: ['update:historyFilter', 'resume-history', 'open-result', 'delete-history', 'delete-history-batch', 'publish-history', 'download-history', 'create-content', 'reset-history-filter'],
+  emits: ['update:historyFilter', 'resume-history', 'open-result', 'delete-history', 'delete-history-batch', 'publish-history', 'publish-podcast-episode', 'download-history', 'create-content', 'reset-history-filter'],
   data () {
     return {
       activeFilter: HISTORY_STATUSES.includes(this.historyFilter) ? this.historyFilter : 'all',

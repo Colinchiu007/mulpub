@@ -117,7 +117,7 @@
     "apps/desktop/src/views/ModelProviders.vue": 1496,
     "apps/desktop/src/views/Publish.vue": 1773,
     "apps/desktop/src/views/PublishHistory.vue": 1394,
-    "apps/desktop/src/views/ResultView.vue": 1888,
+    "apps/desktop/src/views/ResultView.vue": 1890,
     "ops-center/backend/services/model_preset_service.py": 1221,
     "packages/api-publish-engine/src/publish-api-server.js": 1574,
     "packages/python-backend/src/multi_publish/video_creation/providers/video/video_compose.py": 2638,
