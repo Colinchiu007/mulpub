@@ -66,7 +66,9 @@ const viewTests = [
   routeView('providers-redirect', '/providers', '.cohere-main .page-title:has-text("模型服务商设置")', '页面主标题', '/model-providers'),
   routeView('model-providers', '/model-providers', '.cohere-main .page-title:has-text("模型服务商设置")'),
   routeView('video-clone', '/video-clone', '.video-clone-view'),
-  routeView('film-engineering', '/film-engineering', '.film-canvas-view'),
+  // #3234 三标签重组后 /film-engineering 是 Hub 页（默认「自动」标签，画布懒挂载）——
+  // 就绪探针等 Hub 稳定根；等 .film-canvas-view 会 15s 超时（batch-teleport-fix 实测）
+  routeView('film-engineering', '/film-engineering', '.film-hub-view'),
   routeView('film-engineering-classic', '/film-engineering/classic', '.film-engineering-view'),
   routeView('create-editor', '/create', '.cohere-main h1:has-text("视频创作")'),
   routeView('create-pipeline-redirect', '/create/pipeline', '.cohere-main h1:has-text("视频创作")', '页面主标题', '/create'),
