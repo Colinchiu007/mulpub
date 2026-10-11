@@ -138,6 +138,16 @@ const PLATFORM_COOKIE_DOMAINS = {
   facebook: ['facebook.com'],
 }
 
+// ─── 登录成功后补跳 URL（二段式会话补抓）──────
+// 部分平台登录页域与发布 API 所需会话域不同：小红书登录窗是 creator.xiaohongshu.com，
+// 登录成功只种 creator 会话，主站 web_session 从未被设置，edith note API 因此判
+// 「无登录信息」（code -100）。配置了该表的平台，登录完成抓凭据快照前，登录窗会自动
+// loadURL 到此地址——creator 父域 Cookie 随请求带上，主站识别登录态后种下 web_session，
+// 快照里才有完整会话。未配置的平台保持原行为（登录完成直接抓取，零回归）。
+const PLATFORM_POST_LOGIN_REDIRECT = {
+  xiaohongshu: 'https://www.xiaohongshu.com/',
+}
+
 // 平台 localStorage 会话标记：部分平台（如视频号）登录态依赖 localStorage 而非仅 Cookie。
 // 供 checkLocalCredentials 判定 cookies=0 的快照是否仍能构成有效凭证；值为非空即视为会话证据。
 // 未列入的平台视为不依赖 localStorage 登录态。新增标记键必须以 CDP 实测取证为准，
@@ -398,6 +408,7 @@ module.exports = {
   PLATFORM_LOGIN_SUCCESS_PATTERNS,
   PLATFORM_AUTH_HOSTS,
   PLATFORM_COOKIE_DOMAINS,
+  PLATFORM_POST_LOGIN_REDIRECT,
   PLATFORM_LS_SESSION_MARKERS,
   PLATFORM_SESSION_COOKIE_MARKERS,
   isPlatformAuthHost,

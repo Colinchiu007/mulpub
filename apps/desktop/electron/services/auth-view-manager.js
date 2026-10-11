@@ -13,6 +13,7 @@ const path = require('path')
 const log = require('./logger')
 const {
   PLATFORM_LOGIN_URLS,
+  PLATFORM_POST_LOGIN_REDIRECT,
   hasPlatformSessionCookie,
   hasPlatformSessionCookieMarkers,
   sessionCookieNames,
@@ -100,6 +101,12 @@ function hasCapturedCredentials(authData, platform) {
   if (hasCredentials) logPendingSessionEvidence(platform, authData.cookies)
   return hasCredentials
 }
+
+// 二段式登录（主站会话补抓）：补跳主站后等待其就绪的兜底窗口。
+// 主站可能因网络/风控迟迟不跳转，超时后按当前快照继续，不阻断登录流程。
+// 「就绪」= loadURL 的 Promise resolve（did-finish-load 等价）：主站响应已在
+// .xiaohongshu.com 父域种下会话 Cookie（web_session 等），无需依赖页面 DOM 特征。
+const POST_LOGIN_REDIRECT_WAIT_MS = 15000
 
 class AuthViewManager {
   constructor() {
@@ -296,6 +303,23 @@ class AuthViewManager {
     const timer = setTimeout(async () => {
       try {
         if (!this._isCurrentLoginAttempt(attempt)) return
+        // 二段式（主站会话补抓）：登录页域与发布 API 会话域不同（小红书 creator vs
+        // www 主站）时，凭据快照此刻还缺主站 web_session（edith note code -100 根因）。
+        // 先补跳主站，creator 父域 Cookie 随请求带上、主站种下会话，再抓快照。
+        // 未配置 redirect 的平台保持原行为：直接抓取，零回归。
+        const redirectUrl = /** @type {Record<string, string>} */ (PLATFORM_POST_LOGIN_REDIRECT)[attempt.platform]
+        if (redirectUrl) {
+          log.info('AuthView', `post-login redirect to main site: ${attempt.platform} ${redirectUrl}`)
+          // 就绪 = loadURL resolve（did-finish-load 等价，主站响应已种下会话 Cookie）；
+          // 15s 兜底：主站迟迟未就绪时按当前快照继续，不阻断登录。
+          await Promise.race([
+            attempt.view.webContents.loadURL(redirectUrl).catch(e => {
+              log.warn('AuthView', `post-login redirect load failed: ${e instanceof Error ? e.message : String(e)}`)
+            }),
+            new Promise(resolve => setTimeout(resolve, POST_LOGIN_REDIRECT_WAIT_MS)),
+          ])
+          if (!this._isCurrentLoginAttempt(attempt)) return
+        }
         const authData = await this._extractAuthData(attempt.view, attempt.platform)
         if (!hasCapturedCredentials(authData, attempt.platform)) {
           // 静默跳过会让「为什么没自动完成」无从排查，这里必须留下判定依据。
