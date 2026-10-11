@@ -13,6 +13,7 @@ const path = require('path')
 const log = require('./logger')
 const {
   PLATFORM_LOGIN_URLS,
+  PLATFORM_POST_LOGIN_REDIRECT,
   hasPlatformSessionCookie,
   hasPlatformSessionCookieMarkers,
   sessionCookieNames,
@@ -304,8 +305,13 @@ class AuthViewManager {
         // www 主站）时，凭据快照此刻还缺主站 web_session（edith note code -100 根因）。
         // 先补跳主站、等主站会话落地（或 15s 兜底），再抓快照；未配置平台 no-op 零回归。
         // 所有失败路径只留日志不阻断，见 auth-post-login-redirect.js 头注释。
-        await waitForPostLoginSession(attempt.view, attempt.platform, { log })
-        if (!this._isCurrentLoginAttempt(attempt)) return
+        // 未配置平台必须零微任务开销（同步直取）：既有测试用同步 advanceTimersByTime
+        // 驱动，无条件的 await 会把 _extractAuthData 推进微任务使其断言空转
+        //（CI Gate 4 实测），故先查表、只在配置了 redirect 的平台 await。
+        if (/** @type {Record<string, string>} */ (PLATFORM_POST_LOGIN_REDIRECT)[attempt.platform]) {
+          await waitForPostLoginSession(attempt.view, attempt.platform, { log })
+          if (!this._isCurrentLoginAttempt(attempt)) return
+        }
         const authData = await this._extractAuthData(attempt.view, attempt.platform)
         if (!hasCapturedCredentials(authData, attempt.platform)) {
           // 静默跳过会让「为什么没自动完成」无从排查，这里必须留下判定依据。
