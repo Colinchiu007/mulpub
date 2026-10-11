@@ -46,8 +46,11 @@ const viewTests = [
   routeView('accounts-list', '/accounts', '.mp-workspace .accounts-page'),
   // 账号云镜像入口的**开启态**（ADR-0006 默认关闭 + CI 无运营中心 ⇒ 上一行的绿只证明"未开启态无回归"）。
   // waitFor 直接指向按钮本身：渲染不出来就是这条用例失败，而不是"截了一张没有按钮的图当基线"。
-  // 基线只能取自 CI 产物（AGENTS.md QM-4 第 7 条），故首次运行必然报 ERR_VISUAL_BASELINE_MISSING，
-  // 由那次 run 的 quality-gate-visual-reports 产物回填 —— 不得用本机截图代替。
+  // ⚠ 本套件只**采集**不比对（走 aiVisionTest；`ERR_VISUAL_BASELINE_MISSING` 只在
+  //   test-runner.js 的 pixelRegressionTest 里抛，本文件永远不会抛它），所以"没有基线"在这里
+  //   是静默的。它仍必须出图：Gate 7b 的新鲜度门禁以"本 run 的渲染"为对照基线，这张图缺席
+  //   就等于该视图没被守。基线只能取自 CI 产物（AGENTS.md QM-4 第 7 条），不得用本机截图代替；
+  //   "注册了却没基线"由 scripts/check-visual-coverage.js 对账并挡住。
   routeView(
     'accounts-list-flag-on',
     '/accounts?mpFlag=account_cloud_sync=1',
@@ -89,8 +92,9 @@ const viewTests = [
   routeView('member-center', '/member-center', '.member-center-view .page-title:has-text("会员中心")'),
   // 播客频道（2026-10-09，ADR-0008 协议通道）：等待条件指向页面主标题本身，
   // 页面渲染不出来即这条用例失败，而不是"截了一张空白页当基线"。
-  // 基线只能取自 CI 产物（AGENTS.md QM-4 第 7 条），首次运行必然报 ERR_VISUAL_BASELINE_MISSING，
-  // 由那次 run 的 quality-gate-visual-reports 产物回填，不得用本机截图代替。
+  // 与上面 accounts-list-flag-on 同一口径：本套件只采集不比对，缺基线不会报
+  // ERR_VISUAL_BASELINE_MISSING（那条只在 pixelRegressionTest 里抛），由
+  // scripts/check-visual-coverage.js 对账挡住；基线仍只能取自 CI 产物，不得用本机截图代替。
   routeView('podcast-channel', '/podcast', '.podcast-channel-page [data-testid="podcast-page-title"]'),
 ];
 

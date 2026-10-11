@@ -392,6 +392,18 @@ jobs:
           # 之前自己调 `node scripts/check-gate4-selection.js`（见该步骤），位置选在那儿是因为
           # 那条判据要防的代价就是"整个 30 分钟预算"，必须早于它。
           node --test scripts/check-gate4-selection.test.js
+          # 视觉判定域对账（2026-10-11）：all-views 注册 37 个 + supplementary 注册 19 个视图，
+          # 但两套**只采集不比对**（走 aiVisionTest；`ERR_VISUAL_BASELINE_MISSING` 只在
+          # pixelRegressionTest 里抛），真比对的只有 pixelTests 那 20 个；而
+          # check-baseline-freshness.js 的迭代域是 `readdirSync(基线目录)` —— 只看**存在的**基线，
+          # 于是"注册一个视图却不配基线"永久免费，且没有任何门禁能看见。
+          # 本锁把判定域钉成"三张注册表的并集 × 浅暗两档"，缺失必须带 reason 登记且清单只能缩小。
+          # 放在本 job 而不是 changes job 的资格判据：它的**输入**只有 apps/**、scripts/run-pixel-tests.js
+          # 与 scripts/visual-coverage-debt.json，三者都不在 CI_IGNORED_PATHS 里（该名单只有一条
+          # `scripts/gate-record-debt-ledger.json` 字面量），因此改到任何一个输入都不可能走 docs-only
+          # 短路绕过这里 —— 与 gate-record-debt-ledger 必须搬去 changes job 是同一判据的反向应用。
+          node --test scripts/check-visual-coverage.test.js
+          node scripts/check-visual-coverage.js
           node scripts/check-unwired-tests.js
 
       # --- Gate 2c2 已搬出本 job（#2745）---

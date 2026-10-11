@@ -130,6 +130,13 @@ scripts/*.js
 # 文件缺席会把整条 QG Unit Tests 判红，不是"少跑一个可选检查"。
 !scripts/check-gate4-selection.js
 !scripts/check-gate4-selection.test.js
+# 视觉判定域对账（2026-10-11：注册 37+19 个视图却只比对 20 个，且没有任何门禁能看见）。
+# 同上一条理由：第 106 行 scripts/*.js 会静默忽略门禁本体，而 Gate 2b 是点名执行它的，
+# 文件缺席 ⇒ CI 上 Cannot find module。登记表是 JSON，不在 *.js 忽略域内，但一并显式反选，
+# 免得下一次有人往 scripts/ 里加 .js 时把它连带影响。
+!scripts/check-visual-coverage.js
+!scripts/check-visual-coverage.test.js
+!scripts/visual-coverage-debt.json
 # 删除守卫（AGENTS.md R0）。同上一条理由：scripts/*.js 会把守卫本体静默忽略，
 # 本地在盘上、CI 上 Cannot find module —— 而守卫一旦缺席，删除就退回裸 mavis-trash，
 # 2026-10-07 单日误删 .ccg/ 1161 个受管文件 5 次正是这么发生的。

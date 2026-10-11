@@ -1,3 +1,48 @@
+# [未发布] fix(visual): 注册 50 个视图只守 20 个——"该有基线却没有"在四层门禁里结构性不可见（2026-10-11，visual-baseline-domain）
+
+### 用户感知
+
+无界面变化。变化在 CI：新增 `QG Changes` 内一条静态门禁（Gate 2c），
+把"视觉注册表声明的视图"与"实际被像素门禁守住的视图"钉成同一个域。
+今后任何人 `routeView('x', …)` 注册一个视图而不配浅/暗基线，PR 当场红，
+而不是像过去那样"注册了、采集了、谁也没比对、门禁照绿"。
+
+### 变更明细
+
+- **实测（origin/main `b96276b1f`）**：`all-views` 注册 **37** 个视图、`supplementary-views` 注册 **19** 个、
+  `pixelTests` 注册 **20** 个；三表并集 **50** 个视图 × 浅/暗两档 = 判定域 **100** 条，
+  而 `base-screenshots/` 只有 **43** 张 PNG ⇒ **60** 条缺口、**30** 个视图**一档基线都没有**。
+  一条更要命的等集：有基线的那 20 个视图**逐字等于** `pixelTests` 集合（两个方向差集均为空数组，实测）。
+- **为什么四层门禁全绿（逃逸链）**：① 像素门禁的迭代域**就是** `pixelTests`，域外不是"漏跑"是"不在定义里"；
+  ② `check-baseline-freshness.js` 的迭代域是 `readdirSync(基线目录)`——只看**存在**的基线，
+  一张不存在的 PNG 永远不会被返回，于是"该有却没有"在这道门禁里**结构性不可见**；
+  ③ 全量四套各出各的 `[VISUAL-SUMMARY]`，没有一件事在做"声明域 ⊆ 判定域"的对账；
+  ④ `visual-ci.test.js` 锁的是清单自己别变小，不是清单与基线目录的交集。
+- **两处主动误导（本 PR 纠正）**：`views/all-views.visual.test.js` 原写着"首次运行必然报
+  `ERR_VISUAL_BASELINE_MISSING`，由那次 run 的产物回填"——而该错误码只在 `test-runner.js` 的
+  `pixelRegressionTest` 里抛，这两处所在的套件走 `aiVisionTest`，**永远不会抛它**。
+  按这条注释办事的人会等一个不会来的红。
+- **修法**：新增 `scripts/check-visual-coverage.js`（判定域 = 三表并集 × 闭合两档主题）+
+  `scripts/check-visual-coverage.test.js`（12 例）+ `scripts/visual-coverage-debt.json`
+  （**从实测生成**的 60 条缺口与 3 条无主基线，逐项带 reason；清单**只能缩小**，补了图不删登记 ⇒ 红）。
+  接进 `quality-gate.yml` Gate 2c。资格判据（AGENTS.md「接进的 job 会不会被 docs-only 整片跳过」）：
+  本锁的输入只有 `apps/**`、`scripts/run-pixel-tests.js` 与本 JSON，三者都不在 `CI_IGNORED_PATHS`，
+  故改到任何输入都不可能走 docs-only 短路——与 `gate-record-debt-ledger.json` 必须搬去 changes job 是同一条判据的反向应用。
+- **四条防止门禁自己变成装饰品的判据**：① 数组边界 = **跳过字符串字面量的括号配对**，
+  不是 `indexOf(']')` 也不是"行首 `]`"——两种退化本会话**都真实发生过**并被规模下界逮住
+  （`waitFor: '[data-testid^="platform-"]'` 把 19 读成 3；`routeView(…, [ {...} ])` 的内层 `],` 把 37 读成 6、19 读成 1）；
+  ② **顶层元素数必须等于取到的 id 数**——两种取 id 写法按表选一种、不取并集（取并会把 `all` 表里
+  4 个中文断言标签 `name: '页面主标题'` 当成视图混进判定域，凭空造 8 条假缺口），混用写法会静默少算；
+  ③ 真实仓臂三条规模下界（`all ≥ 30 / supp ≥ 15 / pixel ≥ 15`）；④ 空域一律抛错，"缺口=0"与"什么都没扫"必须可区分。
+- **变异反证 6/6 实测变红**（驱动收尾断言文件逐字节还原）：M1 元素计数恒等 / M2 退回 `indexOf(']')` /
+  M3 空注册表不出声 / M4 陈旧登记不报 / M5 不要求 reason / M6 空域当通过。
+  一次返工如实记：M6 首跑 `rc=undefined / caught=NO` **不是锁没逮住**，是我的锚点在源码里不存在
+  （变异从未发生）⇒ 驱动现把 `SKIPPED_ANCHOR_hits=0` 与 `caught=NO` 分开印，否则"我没改到"会被读成"改坏了也没红"。
+- **不在范围（登记，不静默修）**：PR B 把 CI artifact 同源渲染提升为仓库基线、逐批把 60 项清零；
+  3 张无主基线（`analytics-overview` / `login-form` / `settings-general`）去留涉及删除他人文件，只登记不裁决；
+  采集套件是否升级为比对套件（一次引入 60 个漂移源，正解是先做 PR B）。
+- 详见 `01-docs/PRD-VISUAL-BASELINE-DOMAIN-2026-10-11.md`（§2 十二行实测表、§3 逃逸链、§5.1 防自坏判据、§5.2 变异表）。
+
 # 2026-10-11
 
 - 播客一键发布规格补写：新增 §6.4.2 定义第三条通道 `podcast:episode:publish:progress`（实时七相位 + 主进程计算的 `cancellable` + 显式降级出口），并把刀 4 摘要里的「回退全局默认音色」纠正为「capability 级 `defaultVoiceId` → provider+model 用户偏好」两层口径；tasks 新增 3.13 记录该通道的唯一插入点与三侧同 PR 要求。
