@@ -1,0 +1,35 @@
+# shardflag 三态对照（PowerShell 解析器 + Start-Process extent）
+# head=d72cd2bd8bc9f789f73cc4aaccf5edcbadf03481
+# node=v24.19.0 collectedAt=2026-10-11T15:28:33.857Z
+# 说明：${{ ... }} 已按 GitHub 行为替换成实值 1/2；未替换时三态都会额外报一条模板伪影错。
+
+== A 基线（HEAD：带裸 "--"，无本轮新增注释）
+   PARSE_ERRORS=0
+   SP_HAS_ARGUMENTLIST=True
+   SP_HAS_SHARD=True
+   SP_HAS_BARE_DASHDASH_ELEMENT=True
+   SP_EXTENT_LEN=334
+   PSVERSION=7.6.6
+
+== C 当前工作副本（注释已移到 Start-Process 之前，裸 "--" 已删）
+   PARSE_ERRORS=0
+   SP_HAS_ARGUMENTLIST=True
+   SP_HAS_SHARD=True
+   SP_HAS_BARE_DASHDASH_ELEMENT=False
+   SP_EXTENT_LEN=324
+   PSVERSION=7.6.6
+
+== B 把注释插在反引号续行之后（本轮真实踩到的形态）
+   PARSE_ERRORS=0
+   SP_HAS_ARGUMENTLIST=False
+   SP_HAS_SHARD=False
+   SP_HAS_BARE_DASHDASH_ELEMENT=False
+   SP_EXTENT_LEN=34
+   PSVERSION=7.6.6
+
+== 结论对账（三条都必须成立，否则这条原件在说谎）
+   OK   A/B/C 三态 PARSE_ERRORS 全为 0（所以"语法没报错"不是判据）
+   OK   B 的 extent 丢掉了 -ArgumentList（False）而 A/C 保住（True）
+   OK   A 的 extent 里确有裸 "--"（缺陷当时真的生效）
+   OK   C 的 extent 里没有裸 "--"（本 PR 的修复真的落到了那条命令上）
+   facts={"A":{"errors":0,"arglist":"True","len":334,"bare":"True"},"B":{"errors":0,"arglist":"False","len":34,"bare":"False"},"C":{"errors":0,"arglist":"True","len":324,"bare":"False"}}

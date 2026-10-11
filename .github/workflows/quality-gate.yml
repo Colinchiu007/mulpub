@@ -488,7 +488,7 @@ jobs:
       # --- Gate 3: 硬编码密钥扫描（同时执行 CI workflow 契约测试）---
       - name: "Gate 3 - Hardcoded secrets scan"
         run: |
-          node --test .github/scripts/check-hardcoded-secrets.test.js .github/scripts/workflow-contract.test.js .github/scripts/autonomous-loop-workflow.test.js .github/scripts/agent-review-gate.test.js .github/scripts/classify-ci-failure.test.js .github/scripts/ci-failure-handler-contract.test.js scripts/gate-budget.test.js
+          node --test .github/scripts/check-hardcoded-secrets.test.js .github/scripts/workflow-contract.test.js .github/scripts/autonomous-loop-workflow.test.js .github/scripts/agent-review-gate.test.js .github/scripts/classify-ci-failure.test.js .github/scripts/ci-failure-handler-contract.test.js scripts/gate-budget.test.js scripts/check-desktop-shard-forwarding.test.js
           node .github/scripts/check-hardcoded-secrets.js
 
       # --- Gate 6: IPC bridge completeness ---
@@ -931,12 +931,17 @@ jobs:
           $gateBudgetMs = & node -e "process.stdout.write(String(require('./scripts/gate-budget.js').GATE_TEST_BUDGET_MS))"
           if ($LASTEXITCODE -ne 0 -or -not $gateBudgetMs -or $gateBudgetMs -notmatch '^\d+$') { throw "取不到 Gate 测试预算（scripts/gate-budget.js）—— 不得回落到写死值" }
           $launchMark = Get-Date
+          # 注意：-ArgumentList 里**不放**裸 "--"。pnpm 会把 "--" 原样交给脚本（实测 argv[0]=脚本、其后
+          # 依次为 "--","--shard=1/2",…），而 vitest 在 "--" 处停止解析选项 ⇒ 下面七个旗标全部静默失效，
+          # 两个 matrix 腿各跑全量 873 个文件（run 38143550282 两片都自报 Test Files 872 passed | 1 skipped (873)）。
+          # 判据：scripts/check-desktop-shard-forwarding.js（结构 + 真跑一次读被调用方自己收到的 argv）。
+          # 位置纪律：这段必须整块放在 Start-Process 之前——它一旦插进反引号续行的中间，PowerShell 会把
+          # 续行当注释吃掉，`-ArgumentList @(...)` 立刻变成一条独立语句并在 `${{ matrix.shard }}` 处解析失败。
           $testProcess = Start-Process -FilePath "pnpm.cmd" `
             -ArgumentList @(
               "--filter",
               "@multi-publish/desktop",
               "test",
-              "--",
               "--shard=${{ matrix.shard }}",
               "--maxWorkers=1",
               "--no-file-parallelism",
