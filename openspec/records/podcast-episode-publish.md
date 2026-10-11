@@ -2,8 +2,6 @@
 record: podcast-episode-publish
 task: 刀 3 前两片——成片降级判定 + 混音抽取实测 + 出期编排收口（依赖全注入，零真实出站）
 date: 2026-10-11
-sync_reason: 待 PR 合并后按产物取证（state=MERGED + mergeCommit.oid、远端分支 0 行、git log 恰好 1 行、squash 后比树为空）并就地回填
-sync_backfill_owner: podcast-episode-publish 分支作者（本会话）
 ---
 
 # 刀 3 前两片（成片 → 一期：判定与收口）
@@ -22,4 +20,4 @@ sync_backfill_owner: podcast-episode-publish 分支作者（本会话）
 
 ## 远程同步
 
-| 远程同步 | PENDING | 待 PR 合并后回填 `PASS` + merge SHA（取证：`gh pr view <n> --json state,mergeCommit`、`git log origin/main --grep="(#<n>)$" --format=%H|%cI`、`git ls-remote --heads origin podcast-episode-publish` 0 行、squash 后比树为空），并在同一次提交删除 frontmatter 两个 sync_* 字段与 ledger 登记项 |
+| 远程同步 | PASS | PR #3288 squash 合并为 `337f172579b593e1443bddcdc41c495a67d233dc`（2026-10-11T10:07:56+08:00），远端分支已删（ls-remote 0 行） |
