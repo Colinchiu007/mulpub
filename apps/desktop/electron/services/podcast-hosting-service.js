@@ -358,17 +358,57 @@ class PodcastHostingService {
   }
 
   /**
+   * 上传一期音频，回 { url, size, objectKey, status }。size 就是编排层三处一致校验的第三处。
+   *
+   * 与 publishFeed 共用同一份托管快照、同一套凭证读法和同一个 _put，但**不持频道忙标记**：
+   * 忙标记归出期编排在整条链上持有（音频 PUT → 挂期 → 重建 feed → feed PUT 中间要写 episodes.json，
+   * 把锁下放到这里会把一次发布拆成两段互斥，段间还能插进手工写）。
+   *
+   * 三条不收口后果都不可逆：① contentType 必须由 ffprobe 实测的 mime 给出，沿用 feed 的
+   *   application/rss+xml 会让 OSS 把音频按 xml 回给订阅端（聚合端表现为「有直链但下不下来」，本地一切
+   *   看起来都成功）；② key 必须带 channelId，两期写进同一层＝后一次发布静默覆盖前一期；
+   *   ③ putObject 不回传字节数时绝不回 success——缺第三处一致校验就等于放过一个尺寸错的对象。
+   */
+  async publishAudio (channelId, options = {}) {
+    const id = String(channelId || '').trim()
+    if (!id) throw err('PODCAST_CHANNEL_ID_REQUIRED', '上传音频必须指定频道（对象 key 含 channelId，缺它等于把两期写进同一层）')
+    const filePath = String((options && options.filePath) || '')
+    if (!filePath) throw err(HOSTING_ERRORS.HOSTING_INVALID, '缺少音频文件路径')
+    const mime = String((options && options.mime) || '')
+    if (!/^(audio|video)\//i.test(mime)) {
+      throw err(HOSTING_ERRORS.HOSTING_INVALID, '音频 contentType 必须由 ffprobe 实测得出（当前为空或不是音视频类型），不得沿用 feed 的 xml 类型')
+    }
+    const view = this.getHosting()
+    if (!view.configured) throw err('PODCAST_HOSTING_REQUIRED', '使用本地音频需先配置对象存储托管（当前支持阿里云 OSS）')
+    const secret = this._readSecret(view.credentialRef)
+    if (!secret) throw err(HOSTING_ERRORS.SECRET_MISSING, '已存的托管凭证读不出来，请重新填写一次')
+    const snapshot = { view, secret }
+    const prefix = normalizePathPrefix(view.pathPrefix)
+    const ext = path.extname(filePath)
+    const stem = String((options && options.stem) || path.basename(filePath, ext)).replace(/[^A-Za-z0-9._-]/g, '_').replace(/\.{2,}/g, '_').replace(/^\.+/, '').slice(0, 120) || 'episode'
+    const objectKey = prefix + '/audio/' + id + '/' + stem + (ext || '.bin')
+    const put = await this._put(snapshot, objectKey, filePath, mime)
+    if (!put || typeof put.size !== 'number') {
+      throw err('PODCAST_HOSTING_UPLOAD_FAILED', '上传未回传可校验的字节数，不挂这一期（三处一致校验缺第三处）')
+    }
+    const url = objectPublicUrl({ endpoint: view.endpoint, bucket: view.bucket, objectKey })
+    if (!/^https:\/\//i.test(String(url || ''))) {
+      throw err('PODCAST_HOSTING_UPLOAD_FAILED', '未能拼出 https 公网地址，不挂这一期')
+    }
+    return { url, size: put.size, objectKey, status: put.status }
+  }
+  /**
    * 单个对象的 PUT。签名与 URL 都在这一处算，`putObject` 只负责发。
    * ⛔ 不得把 secret 拼进任何日志/错误消息：`putObject` 的异常消息只允许出现状态码。
    */
-  async _put (snapshot, objectKey, filePath) {
+  async _put (snapshot, objectKey, filePath, contentType) {
     const url = objectPublicUrl({ endpoint: snapshot.view.endpoint, bucket: snapshot.view.bucket, objectKey })
     if (!url) throw err(HOSTING_ERRORS.HOSTING_INVALID, '无法由 endpoint/bucket 拼出上传地址')
     const headers = buildOssPutHeaders({
       endpoint: snapshot.view.endpoint,
       bucket: snapshot.view.bucket,
       objectKey,
-      contentType: 'application/rss+xml',
+      contentType: contentType || 'application/rss+xml',
       accessKeyId: snapshot.secret.accessKeyId,
       accessKeySecret: snapshot.secret.accessKeySecret,
       date: this._dateImpl ? this._dateImpl(new Date()) : undefined,
