@@ -131,7 +131,7 @@ async function testBilibiliQR() {
     console.log("  QR image: " + qrInfo.qrImgPath);
     console.log("");
     console.log("  1. Run this in local PowerShell to get the QR image:");
-    console.log("     scp ali:" + qrInfo.qrImgPath + " " + SS_DIR.replace("/opt/multipublish", "D:\\Data\\projects\\Mulpub") + "\\bilibili-qr.png");
+    console.log("     scp ali:" + qrInfo.qrImgPath + " " + SS_DIR.replace("/opt/multipublish", "D:\\Data\\projects\\mulpub") + "\\bilibili-qr.png");
     console.log("");
     console.log("  2. Open the image on your phone and scan with Bilibili app");
     console.log("  3. Test will auto-detect login (waiting up to 120s)...");

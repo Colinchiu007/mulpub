@@ -1,8 +1,8 @@
 ﻿# 参考产品应用系统截图脚本
 # HWND=19663524, PID=19492, 屏幕 1920x1080
 
-$scriptPath = "D:\Data\projects\Mulpub\_screenshot_helper.ps1"
-$outputDir = "D:\Data\projects\Mulpub\screenshots\mp\v4\r2"
+$scriptPath = "D:\Data\projects\mulpub\_screenshot_helper.ps1"
+$outputDir = "D:\Data\projects\mulpub\screenshots\mp\v4\r2"
 
 # 辅助函数：点击并截图
 function ClickAndScreenshot {
