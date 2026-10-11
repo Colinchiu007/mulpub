@@ -19,12 +19,12 @@ export const WINDOW_HOURS = Object.freeze([0, 24, 48, 168])
  */
 export const ALLOWED_SOURCES = Object.freeze([
   'reddit', 'hackernews', 'github',
-  'weibo', 'zhihu', 'douyin', 'bilibili', 'baidu', 'toutiao', 'tencent', 'tophub',
+  'weibo', 'zhihu', 'douyin', 'bilibili', 'baidu', 'toutiao', 'tencent', 'tophub', 'sina_finance', 'ithome_tech',
   'solidot', 'sspai', 'oschina', 'ithome', 'qbitai', 'infoq_cn', 'v2ex_hot', 'arxiv_cs_ai', 'hf_papers',
 ])
 
 /** 中文榜单源子集（渲染端只用于文案分组提示，判据仍在主进程注册表） */
-export const CN_TREND_SOURCES = Object.freeze(['weibo', 'zhihu', 'douyin', 'bilibili', 'baidu', 'toutiao', 'tencent', 'tophub'])
+export const CN_TREND_SOURCES = Object.freeze(['weibo', 'zhihu', 'douyin', 'bilibili', 'baidu', 'toutiao', 'tencent', 'tophub', 'sina_finance', 'ithome_tech'])
 
 /** 中文/技术时间线源子集（有发布时间，S2 接入） */
 export const TECH_SOURCES = Object.freeze(['solidot', 'sspai', 'oschina', 'ithome', 'qbitai', 'infoq_cn', 'v2ex_hot', 'arxiv_cs_ai', 'hf_papers'])

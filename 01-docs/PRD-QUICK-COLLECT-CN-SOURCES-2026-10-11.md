@@ -66,6 +66,17 @@
 | `toutiao` | 今日头条热榜 | `toutiao.com/hot-event/hot-board/` | hottest | observed | medium | 5m |
 | `tencent` | 腾讯新闻热榜 | `r.inews.qq.com/gw/event/hot_ranking_list` | hottest | observed | medium | 10m |
 | `tophub` | 微博(tophub 镜像) | `tophub.today/n/KqndgxeLl9`（HTML） | hottest | observed | medium | 30m |
+| `sina_finance` | 新浪财经滚动（垂类） | `feed.mix.sina.com.cn/api/roll/get`（JSON） | hottest | observed | low | 30m |
+| `ithome_tech` | IT之家热榜（垂类科技） | `ithome.com/rss/`（RSS） | hottest | observed | low | 30m |
+
+> **5 个垂类的口径（S1 补遗，2026-10-11 实测）**：仓库 `hot-topics-service.js` 的 `CATEGORY_BOOSTS` 定义的是
+> **5 个垂类补拉**（百度财经榜 / 新浪财经滚动 / IT之家 RSS / 微博情感 / 微博健康），但它们的信道归属不同：
+> - **2 个有独立信道**（`sina_finance`、`ithome_tech`）⇒ 已作为独立源入册，UI 可单独选；
+> - **3 个与主榜共用信道**（`baidu-finance`→`baidu`、`weibo-emotion`/`weibo-health`→`weibo`），
+>   靠 **条目 id 的 board 段**（`weibo:emotion:3`）与主榜区分、并带 `category` 直挂目标分类
+>   ⇒ 它们的条目**随主榜一起到达**（请求 `baidu`/`weibo` 即含），**无需也不应**再立一个同名源
+>   （那会让同一份条目在两个源下出现两次）。
+> 结论：8 主榜 + 5 垂类**在数据可达性上已全覆盖**；registry 里落成 10 个 `hot-topics` 源。
 
 抖音 `parseDouyin` 的 `url` 为 `null` ⇒ 该源条目用**源主页**（`homeUrl`）作链接，并标 `urlKind: 'board'`，提示词与 UI 文案写成「来源页面」而非「原文链接」（不伪造条目链接）。
 

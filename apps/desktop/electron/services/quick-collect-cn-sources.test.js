@@ -271,6 +271,27 @@ describe('S1/IPC：hotTopicsService → 统一素材的映射', () => {
     expect(res.data.sourceUrl).toContain('weibo.com')
   })
 
+  it('S1 补遗：垂类信道（sina_finance）能进素材，时间语义与主榜一致（observed）', async () => {
+    const hotTopicsService = {
+      fetchTopics: vi.fn(async () => ({
+        fetchedAt: NOW,
+        channelStats: { sina_finance: { items: [] } },
+        topics: [
+          { channel: 'sina_finance', topic: '财经垂类条目', rank: 7, hotValue: null, url: 'https://finance.sina.com.cn/x', fetchedAt: NOW },
+        ],
+      })),
+    }
+    const deps = baseDeps({ hotTopicsService })
+    const res = await runOnce(deps, { ...COMMAND, sources: ['sina_finance'] })
+    expect(res.code).toBe(0)
+    expect(res.data.quickCollect.sourceStats).toEqual({ sina_finance: 'ok' })
+    expect(res.data.quickCollect.timeKinds).toEqual(['observed'])
+    const user = deps.aiGenerator.generateWithDefault.mock.calls[0][1].messages[1].content
+    expect(user).toContain('新浪财经滚动#7')
+    expect(user).toContain('抓取时刻=')
+    expect(user).not.toContain('发布=')
+  })
+
   it('未注入热榜服务 → 不报错（该源归因 skipped，模型仍被调用）', async () => {
     const res = await runOnce(baseDeps())
     expect(res.code).toBe(0)
