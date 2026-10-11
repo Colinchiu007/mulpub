@@ -2,9 +2,6 @@
 record: changelog-gate-selfreport
 task: 让退休授权放行在 CI 输出里可区分，并清掉 changelog 门禁工具链的三处「自述与实际不一致」（含一条让退休分支在单元层无法被测的写死路径）
 date: 2026-10-11
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后按 `git log origin/main --grep='(#NNNN)$'` 取证回填
-sync_backfill_owner: 本会话（若被压缩则由下一个会话接手本 slug）
 ---
 
 ## 本次执行记录：changelog 门禁自述与实际一致（changelog-gate-selfreport，2026-10-11）
@@ -26,7 +23,7 @@ sync_backfill_owner: 本会话（若被压缩则由下一个会话接手本 slug
 | 行尾与 diff 对账 | PASS（含一次自纠） | 动手前逐文件实测均匀性（两个测试文件 572/572 与 294/294、三个脚本与 CHANGELOG 均 `lf_only=0 / loneCR=0`）。**实现脚本第一次把 `check-changelog-growth.js` 写成了混行尾**：JS 里 `.replace(/\n/g,'\r\n')` 绑定在拼接的**最后一个字面量**上（`.` 优先级高于 `+`），只有末段转了 CRLF ⇒ 引入 5 行 LF-only，`git diff --numstat` 两口径当场不一致。按"改前实测均匀"这一前提做归一，并断言 `content_unchanged=true`（剥 CR 后逐字相同）与 `lf_only=0` 才继续。**教训**：`--numstat` 两口径对账不是仪式，它是这次唯一抓到混行尾的东西 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/**`、`packages/rpa-engine/**` 与任何前端文件 |
 | QM-6 CCG 双模型外部评审 | PASS（两轴均已执行并处置） | 本 PR 改了门禁的**输出与可测性**（未改判据），按 AGENTS.md 属建议执行项且我判定要做——已实际执行两轴并落结论。逻辑/后端轴 `.ccg/reviews/selfreport-logic.json`：1 Warning + 3 Info；可维护性/前端轴 `.ccg/reviews/selfreport-maint.json`：3 Warning + 1 Info，**0 Critical**。**逐条自己取证后的处置**：① 逻辑轴 Warning 的事实部分经逐字回读**否证**（规格第 69 行当场已同时点名两个测试文件并写明「非硬编码真仓 sha」，它读的是我上一版措辞），但其结构信号成立——「该文件共 5 条锁」指代不明，已拆为**函数层 5 条 / collect 层 1 条**并写清各自钉住什么；② 该轴三条 Info 全部落地（root 兜底的注释不再与代码互相打脸、M5 锚点的排版敏感性与「规模下界才是主守」写进现场、collect 侧 `root \|\| process.cwd()` 无测试覆盖登记为遗留）；③ maint 轴两条 Warning 经本机变异**实测成立**并已修（见上一行 M6/M7），第三条是记录里的 `条目=388`（见 B1 那条），第四条是「QM-6 判定要做却未做」——即本行，按补跑并落结论的方式收口；④ 评审与写型变异**串行**：所有变异跑完才派两轴，处置在两份产物都落盘后才动盘 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin changelog-gate-selfreport` 返回 0 行证远端分支已删；回填与删除上面三个 `sync_*` 字段必须同一次提交 |
+| 远程同步 | PASS | 当场取证：`git log origin/main --grep='(#3304)$' --format=%H\|%cI` ⇒ `9b49b1e6b877f1354addfadd65ff2bad4dcfb0ee` @ `2026-10-11T14:12:38+08:00`；`git ls-remote --heads origin changelog-gate-selfreport` 返回 0 行；本回填提交同时删除 frontmatter 的三个 `sync_*` 字段，且**未**往 `scripts/gate-record-debt-ledger.json` 加键 |
 
 ### 取代 #3277 记录里的两条遗留（历史快照不改写，本行是最新锚点）
 
@@ -37,3 +34,15 @@ sync_backfill_owner: 本会话（若被压缩则由下一个会话接手本 slug
 - `check-changelog-growth-retire.test.js` 里那两个硬编码真仓 sha（`23822b73` / `f210f191`）仍在。本 PR 让**新的**退休锁不再依赖它们（改夹具仓真祖先关系），但没有把旧的五条也迁过来 —— 旧锁依赖仓库历史里的具体提交，理论上会被未来的 gc/重写影响，属已知脆弱性，未在本次范围内。
 - `collect` 侧 `evaluateAuthorization({…, root: root || process.cwd() })` 的兜底**没有测试覆盖**（M2 只证退休路径的注入是活的）：若将来新增一个不传 root 的调用点，退休分支会退回「按 ambient cwd 判祖先」，与旧缺陷同形。正解是把 root 变成必填并在缺失时当场抛，但那会让函数层那 5 条不传 root 的锁一起改夹具，本次未做。
 - 门禁输出的「可区分」目前只有测试与日志两个出口，CI 侧没有东西去**断言一次退休真的发生过**（它是一次都不会自然发生的分支）。我没有为它造假现场，也没有把「CI 里出现过退休放行」当验收条件——那需要一个真的晚于清理的 base。
+- **Gate 12d 要抓的那句占位，此刻就躺在仓库里，只是在两把锁的域外**（本轮登记；它把 `archive-dedup-changelog-history.md:45`
+  那句「活体 TBD 在真实仓库里仍未出现过一次」收窄成"在 12d 的域内未出现过"——历史快照不改写，本行为最新锚点）。
+  当场取证两份文件逐字对照：`.quality-rhythm/integrations/openspec/spec-contract.md:4` 是
+  `TBD - created by archiving change openspec-integration. Update Purpose after archive.`，而它镜像的真源
+  `openspec/specs/openspec-integration/spec.md:4` 的 Purpose 早已填好（#3084 那批 43 份去 TBD 漏了这一份，
+  因为它不在扫描域内，不是漏改）。两把锁都看不见它，各有各的理由：`check-spec-purpose.js:32` 把域写死成
+  `SPEC_DIR = 'openspec/specs'`（并显式排除 `openspec/changes/` 与 `openspec/specs/archive/`）；
+  `quality-rhythm-spec-mirror.test.js` 只比 `### Requirement:` 与 `#### Scenario:` 两份清单，Purpose 段不在比对项里。
+  **正解不在本 PR**（本 PR 是纯载体回填，动门禁属另一个 PR）：把 Purpose 纳入镜像锁的比对域——镜像的 Purpose
+  按定义应当**等于**真源的 Purpose，这本来就是镜像锁该守的不变量；反过来把 `.quality-rhythm/**` 塞进 12d 的扫描域是
+  错的修法，那会让"主规格完整性"门禁去管 vendored 制品，并把 #3084 那批的判据口径改掉。
+  登记前已核对：本条不是重复登记——#3277 那条讲的是"归档器会不会造出占位"，本条讲的是"已有一份占位正躺在域外没人看"。
