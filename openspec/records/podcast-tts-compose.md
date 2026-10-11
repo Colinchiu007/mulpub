@@ -2,9 +2,6 @@
 record: podcast-tts-compose
 task: 刀 4 第一层——TTS 分块上限与入参形状（纯函数，零出站）
 date: 2026-10-11
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填 PR 改写 PASS + merge SHA 并整段删除本三个 sync_ 字段
-sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账 → worktree 清理）
 ---
 
 # 播客刀 4 第一层——TTS 分块与入参形状层（podcast-tts-compose，2026-10-11）
@@ -22,7 +19,7 @@ sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账 
 
 ## 远程同步
 
-| 远程同步 | PENDING | 待本 PR 合并后就地改写成 PASS + merge SHA（`git log origin/main --grep="(#NNNN)" --format=%H^|^cI` 取证），并在同一次提交删除 ledger 本条登记项与记录文件的 sync_ 三字段 |
+| 远程同步 | PASS | 已合并：PR #3329，merge d00174622229d83ae2670608f3f5efecc73e0b32（2026-10-11，squash）。取证：`git log origin/main --grep "(#3329)$" --format=%H|%cI`；本次回填同一次提交删除 ledger 登记项，并在带 frontmatter 的记录文件里删 sync_ 字段 |
 
 ## QM-6 双模型评审处置（2026-10-11）
 
