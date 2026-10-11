@@ -34,6 +34,5 @@
     "status": "待 PR 合并后核验",
     "line": 4489
   },
-  "本次执行记录：登录页直接关闭页签误报「未捕获到有效登录凭证」修复（fix-login-credential-capture-error）（2026-08-14）": "该记录本体已合并并回填（PR #816/#812 见正文）；账本在此是为覆盖 .quality-gates.md:6952 那条【孤儿 PENDING 行】——它所属的 s2v-scene-multi-materials 记录块丢了 ## 标题，门禁按最近标题把欠账记到本条名下。不代其他会话改写归属，待该记录作者补标题或回填。",
-  "本次执行记录：播客刀 3 前两片（成片降级判定 + 混音抽取实测 + 出期编排收口）（podcast-episode-publish，2026-10-11）": "本 PR（podcast-episode-publish）尚未合并：远程同步行停在 PENDING，待合并后由后续 docs PR 回填 PASS + merge SHA，并在同一次提交删除本条登记项与 openspec/records/podcast-episode-publish.md 的 frontmatter sync_* 字段。"
+  "本次执行记录：登录页直接关闭页签误报「未捕获到有效登录凭证」修复（fix-login-credential-capture-error）（2026-08-14）": "该记录本体已合并并回填（PR #816/#812 见正文）；账本在此是为覆盖 .quality-gates.md:6952 那条【孤儿 PENDING 行】——它所属的 s2v-scene-multi-materials 记录块丢了 ## 标题，门禁按最近标题把欠账记到本条名下。不代其他会话改写归属，待该记录作者补标题或回填。"
 }
