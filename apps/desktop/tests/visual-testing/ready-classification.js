@@ -20,9 +20,16 @@ function isReadyFailure(error) {
   if (!error) return false
   if (READY_TIMEOUT_CODES.has(error.code)) return true
   // ERR_VISUAL_NOT_READY：套件自己归类后置上的码，用于「已分类过」的二次进入（--single 复用）
-  if (error.code === 'ERR_VISUAL_NOT_READY') return true
-  // Playwright locator.waitFor 超时的原生码：兜住未走 runner 就绪阶段的旧调用点
-  return error.name === 'TimeoutError'
+  return error.code === 'ERR_VISUAL_NOT_READY'
+  // **不得**再加 `error.name === 'TimeoutError'` 这类按名字兜底：
+  // `_waitForApplicationReady` 已经把它那两个阶段的所有超时（含自己造的 exhaustedBudgetError）
+  // 统一改写成上面两个码（test-runner.js:231-250），所以"就绪"永远带码，兜底捞不到新东西；
+  // 它真正捞到的是**别处**的超时 —— 补充套件的 4 个视图有 `trigger`/`afterTrigger`，
+  // 走的是 `page.click(..., {timeout:5000})` 与 `page.waitForSelector(..., {timeout:10000})`
+  // （supplementary-views.visual.test.js:231-234），其中 `button:has-text("添加服务商")`
+  // 这类文案锚点本就可能在校验层失败；`page.goto` 的 15s 超时同样是裸 TimeoutError
+  // （test-runner.js:292-295，冷 Vite 首次依赖优化就能超）。把它们升成 exit 3
+  // 等于绕过 Gate 7b 的两轮甄别 —— 正是本分档要防止的「把抖动变成常量红」。
 }
 
 // 退出码口径：3 = 有视图从未渲染出来（阻断信号）；1 = 像素/校验类失败，

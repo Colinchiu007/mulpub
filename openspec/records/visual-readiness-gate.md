@@ -23,12 +23,22 @@ sync_backfill_owner: 下一个动这些文档的会话（PR 号必须回读：`g
 
 | 项 | 命令 | 结果 |
 | --- | --- | --- |
-| 分类回归锁（R1–R11） | `pnpm exec vitest run tests/visual-testing/visual-readiness-classification.test.js` | `Tests 11 passed (11)` |
-| 消费者并集 | 上述 + `tests/visual-ci.test.js` + `tests/visual-testing/condition-waiting.test.js` + `electron/tests/visual-view-runner.test.js` | `4 passed / Tests 68 passed (68)` |
+| 分类回归锁（R1–R13） | `pnpm exec vitest run tests/visual-testing/visual-readiness-classification.test.js` | `Tests 13 passed (13)` |
+| 消费者并集 | 上述 + `tests/visual-ci.test.js` + `tests/visual-testing/condition-waiting.test.js` + `electron/tests/visual-view-runner.test.js` | `4 passed / Tests 70 passed (70)` |
 | workflow 结构锁（含新锁） | `node --test .github/scripts/workflow-contract.test.js` | `35 pass / 0 fail`（改前基线 34） |
 | Gate 7 判定行为表 | 抽出 workflow 原文喂 `pwsh` 跑六格 | 全 0 ⇒ rc=0；`views=3`/`pixel=3` ⇒ rc=3 点名套件；`views=1` ⇒ rc=0；**删掉 `$suitesNotReady = ''` 初始化 ⇒ rc=3 且名单为空** |
-| 变异 N1–N6 | `mutate_vrg2.cjs`（rc 为准，还原后 `Buffer.compare` 逐字节相同） | `red=6/6 notRed=0` |
+| 变异 N1–N7 | `mutate_vrg2.cjs`（rc 为准，还原后 `Buffer.compare` 逐字节相同） | `red=7/7 notRed=0` |
 | 打包（QM-1） | 本 PR 不改 `apps/desktop/electron/**` 与 `packages/rpa-engine/**` | 不适用（判据：`git diff --name-only` 命中 0） |
+
+### QM-6 双模型外部评审（替代通道，标准通道本机不可用）
+
+`ccg-deep-review.js` 缺失且 CC Switch `:15721` 探针 DOWN（`routing.backend=codex` / `routing.frontend=claude` 两个 primary 都经该端口），故走既有替代通道 `opencode run --agent plan --auto`。
+
+- **后端轴 `opencode/nemotron-3-ultra-free`**：1 Critical（B 误拦）+ 4 项明确结论（A 不漏拦 / C 聚合语义符合 / D PowerShell 安全 / E 第 4 条验收只能 CI 现场证伪）。
+- **Critical 内容**：初版 `isReadyFailure` 带 `error.name === 'TimeoutError'` 兜底。我复核后确认成立且**是本 PR 自引入的回归**：`_waitForApplicationReady` 已把该阶段所有超时改写成两个码（`test-runner.js:231-250`），兜底捞不到任何就绪路径；它捞到的是补充套件 4 个带 `trigger`/`afterTrigger` 视图的 `page.click`/`page.waitForSelector` 超时，以及 `page.goto` 的 15s 超时（裸 `TimeoutError`，`test-runner.js:292-295`）—— 这些会被编成 `exit 3`，绕过 Gate 7b 的两轮甄别，正是本分档要防的"把抖动变成常量红"。
+- **处置**：删掉兜底，新增 R12（trigger 点击超时仍 1）+ R13（共享分类逐判例），并加变异 **N7＝把兜底加回来 ⇒ 实测 RED（`Failed Tests 2`）**；同批复跑 `red=7/7 notRed=0`、`Tests 13 passed (13)`、并集 `70 passed (70)`。
+- **未采纳**：评审建议为 click/waitForSelector 新增 `ERR_VISUAL_TRIGGER_TIMEOUT`/`ERR_VISUAL_DIALOG_TIMEOUT` 两个码——那属新增契约，而这些失败的目标语义就是"不阻断"，1 档已足够。
+- **前端轴**：结论与处置见 PRD `01-docs/PRD-VISUAL-READINESS-GATE-2026-10-11.md` §8（后端轴全文），前端轴结果落同一节；若前端轴因 `-free` 模型超时未产出结论，按既有纪律如实记为"该轴未完成"，不得以"跑了"冒充"有结论"。
 
 ### 待回填的现场证据（合并后由后续 docs PR 补）
 

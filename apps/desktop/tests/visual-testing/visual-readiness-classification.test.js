@@ -22,6 +22,7 @@ import { createRequire } from 'node:module'
 const here = path.dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)
 const suite = require(path.join(here, 'views/all-views.visual.test.js'))
+const rc = require(path.join(here, 'ready-classification.js'))
 
 const READY_CODE = 'ERR_VISUAL_READY_SELECTOR_TIMEOUT'
 const APP_READY_CODE = 'ERR_VISUAL_APP_READY_TIMEOUT'
@@ -164,7 +165,9 @@ describe('两套 runViewSuite 共用同一份就绪分类', () => {
       pageErrors: [],
       results: [],
       page: {
-        click: async () => {},
+        click: async () => {
+          if (opt.clickErr) throw opt.clickErr
+        },
         waitForSelector: async () => {},
         screenshot: async () => {},
         locator: () => ({ first: () => ({ isVisible: async () => (opt.visible ?? true) }) }),
@@ -178,6 +181,10 @@ describe('两套 runViewSuite 共用同一份就绪分类', () => {
     }
   }
   const sv = name => ({ name, route: '/' + name, checks: [{ name: '标题', selector: '.x' }] })
+  const svTrigger = name => ({
+    name, route: '/' + name, trigger: '[data-testid="x"]', afterTrigger: '.dialog',
+    checks: [{ name: '弹窗', selector: '.dialog' }],
+  })
 
   it('补充套件：就绪超时 ⇒ ERR_VISUAL_NOT_READY ⇒ 退出码 3', async () => {
     let err = null
@@ -198,6 +205,40 @@ describe('两套 runViewSuite 共用同一份就绪分类', () => {
     expect(err.code).toBe('ERR_VISUAL_SUITE_FAILED')
     expect(err.neverReady).toEqual([])
     expect(supp.exitCodeForError(err)).toBe(1)
+  })
+
+  // R12：QM-6 后端评审命中的 Critical（2026-10-11，替代通道 opencode/nemotron-3-ultra-free）。
+  // 分类一度按 `error.name === 'TimeoutError'` 兜底。补充套件 19 个视图里**有 4 个带
+  // trigger/afterTrigger**（`user-menu-upgrade-entry` 与三个 model-provider 弹窗），
+  // 走 `page.click(..., {timeout:5000})` 与 `page.waitForSelector(..., {timeout:10000})`，
+  // 其中 `button:has-text("添加服务商")` 这类文案锚点本就可能在校验层失败；
+  // `page.goto` 的 15s 超时同样是裸 TimeoutError（冷 Vite 首次依赖优化就能超）。
+  // 把它们升成就绪故障 = 绕过 Gate 7b 的两轮甄别，正是本分档要防止的「把抖动变成常量红」。
+  it('裸 TimeoutError（trigger 点击超时）不得升级成就绪故障', async () => {
+    const clickTimeout = new Error('Timeout 5000ms exceeded.')
+    clickTimeout.name = 'TimeoutError' // Playwright 原生形状：有 name、没有我们的 code
+    let err = null
+    try {
+      await supp.runViewSuite([svTrigger('model-provider-add-dialog')], {
+        runner: suppRunner(null, { clickErr: clickTimeout }),
+      })
+    } catch (e) { err = e }
+    expect(err, '校验类失败仍必须抛错').toBeTruthy()
+    expect(err.code).toBe('ERR_VISUAL_SUITE_FAILED')
+    expect(err.neverReady).toEqual([])
+    expect(supp.exitCodeForError(err)).toBe(1, '不得编成 3，否则 Gate 7 会拦掉一次可被两轮甄别放行的抖动')
+  })
+
+  // R13：判据本身也要锁 —— 否则下一个调用点把兜底重抄回去，只有真浏览器 run 才会发现。
+  it('共享分类对裸 TimeoutError 判否、对 runner 的两个就绪码判是', () => {
+    const gotoTimeout = new Error('Timeout 15000ms exceeded.')
+    gotoTimeout.name = 'TimeoutError'
+    expect(rc.isReadyFailure(gotoTimeout), 'goto/click 超时不算就绪').toBe(false)
+    expect(rc.classifyFailures([{ test: 'a', error: gotoTimeout }]).neverReady).toEqual([])
+    expect(rc.isReadyFailure(timeoutErr('a', READY_CODE))).toBe(true)
+    expect(rc.isReadyFailure(timeoutErr('a', APP_READY_CODE))).toBe(true)
+    expect(rc.isReadyFailure({ code: 'ERR_VISUAL_NOT_READY' })).toBe(true)
+    expect(rc.isReadyFailure(null)).toBe(false)
   })
 
   it('分类判据只有一份实现：两个套件都只 require，不得各自定义', () => {
