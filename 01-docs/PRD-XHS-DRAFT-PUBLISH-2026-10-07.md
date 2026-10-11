@@ -306,11 +306,14 @@ note 全链闭环后的候选增强项。
   登录窗自动 loadURL 该地址（xiaohongshu = `https://www.xiaohongshu.com/`）。
   creator 父域 Cookie 随请求带上，主站识别已登录态后种下 web_session，随后抓快照——
   凭据从此含完整主站会话，note 提交能过会话鉴权层（-100 根因闭合）。
-- **就绪判据**：loadURL 的 Promise resolve（did-finish-load 等价）——主站响应已在
-  .xiaohongshu.com 父域种下会话 Cookie，不依赖页面 DOM 特征（主站首页结构多变）。
+- **就绪判据**：凭证轮询命中（每 500ms 复查一次会话 Cookie）——「主站已种下
+  web_session」本身即就绪信号，不依赖页面加载完成（主站常在整页加载后才由 JS/XHR
+  异步种会话，did-finish-load ≠ 会话已种下；r2-i1/r4-i3 实现与文档同口径）。
 - **15s 兜底**：主站因网络/风控迟迟未就绪时按当前快照继续 settle，不阻断登录流程
-  （auth-view-manager `POST_LOGIN_REDIRECT_WAIT_MS = 15000`）。兜底路径抓到的快照仍缺
-  web_session，属可接受的降级；下次登录或本轮真机验证可再取证。
+  （platform-definitions `POST_LOGIN_REDIRECT_WAIT_MS = 15000`，超时先 stop 在途导航
+  再做一次 2.5s 短重试）。兜底路径抓到的快照仍缺 web_session，属可接受的降级，
+  留 snapshotWillMissMainSiteSession 失败标记日志可观测；降级发生率由真机验证圈定
+  （典型登录凭证 1-3s 内即命中，实际等待远小于预算）。
 - **零回归**：未配置 redirect 的平台（其余 14 个）保持原行为（登录完成直接抓快照），
   行为锁 C3c 把关。
 - **回归保护**：`apps/desktop/electron/tests/xhs-mainsite-login.test.js` 六条契约——

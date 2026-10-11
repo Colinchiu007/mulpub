@@ -50,6 +50,8 @@ async function hasPostLoginProofCookie (view, platform) {
   if (!Array.isArray(proofNames) || proofNames.length === 0) return false
   let cookies
   try {
+    // view 本身也可能已被销毁（r4-i1：view.webContents 求值同样同步 throw）——
+    // 整个访问路径包进同一个 try，销毁/故障一律按「没有凭证」返回，绝不阻断登录
     cookies = await view.webContents.session.cookies.get({})
   } catch (_e) {
     return false
@@ -58,6 +60,20 @@ async function hasPostLoginProofCookie (view, platform) {
     proofNames.includes(cookie.name) &&
     typeof cookie.value === 'string' && cookie.value.trim().length > 0 &&
     isPlatformCookieDomain(platform, cookie.domain))
+}
+
+/**
+ * 视图是否已不可用（销毁/缺关键成员）：诊断用，不参与登录判定。
+ * r4-i1：轮询途中视图被关闭时立即结束等待，绝不卡预算窗口。
+ * @param {import('electron').WebContentsView} view
+ * @returns {boolean}
+ */
+function isViewGone (view) {
+  try {
+    return !view || !view.webContents || !view.webContents.session
+  } catch (_e) {
+    return true
+  }
 }
 
 /**
@@ -111,7 +127,14 @@ async function waitForPostLoginSessionAsync (view, platform, redirectUrl, { log 
   let proofFound = false
   while (!proofFound && Date.now() < deadline) {
     await new Promise(resolve => setTimeout(resolve, PROOF_POLL_INTERVAL_MS))
-    proofFound = await hasPostLoginProofCookie(view, platform)
+    // 轮询途中视图可能被销毁（cookies.get 抛错按「没有凭证」返回）——继续空转到
+    // 预算耗尽没有意义，视图没了就直接结束，让 manager 侧的 _isCurrentLoginAttempt
+    // 判定接手（r4-i1：绝不因诊断路径故障阻断/卡死登录）
+    if (!(await hasPostLoginProofCookie(view, platform))) {
+      if (isViewGone(view)) return
+    } else {
+      proofFound = true
+    }
   }
   if (!proofFound) {
     // 预算耗尽：stop 在途导航（时序竞争防护）后短重试（r2-i5：会话可能刚好
