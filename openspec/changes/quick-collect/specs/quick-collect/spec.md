@@ -25,9 +25,11 @@ SHALL NOT 静默截断成合法值。
 
 ### Requirement: 内置指令是不可编辑不可删除的只读目录
 
-系统 SHALL 在主进程内置 6 条官方指令（`builtin-ai-trends` / `builtin-platform-policy` / `builtin-hot-topics` /
-`builtin-dev-tools` / `builtin-peer-content` / `builtin-risk-alert`），其中 `builtin-ai-trends` 的 `prompt`
-SHALL 与用户给定文本**逐字一致**。内置指令 SHALL NOT 落盘（用户存储键中只保留自定义指令），
+系统 SHALL 在主进程内置 6 条官方指令（`builtin-ai-trends` / `builtin-ai-papers` / `builtin-hot-topics` /
+`builtin-dev-tools` / `builtin-peer-content` / `builtin-ai-howto`；2026-10-11 用「AI 前沿论文速览」「AI 实操技巧与工作流」
+替换了原 `builtin-platform-policy`「平台规则与合规动向」与 `builtin-risk-alert`「舆情风险与避雷」—— 后两条是
+agent 推演内容、并非用户要求，用户明确不需要），其中 `builtin-ai-trends` 的 `prompt`
+SHALL 与用户给定文本**逐字一致**，且每条词条 SHALL 声明 `provenance ∈ {'user','agent'}`（恰有一条为 `'user'`）。内置指令 SHALL NOT 落盘（用户存储键中只保留自定义指令），
 其编辑/删除入口 SHALL NOT 渲染；`listPresets()` SHALL 返回深拷贝，调用方修改返回值 SHALL NOT 影响主进程单例。
 
 #### Scenario: 内置指令不落盘

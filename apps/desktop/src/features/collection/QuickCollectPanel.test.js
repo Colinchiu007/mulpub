@@ -118,7 +118,7 @@ const messages = {
 
 const PRESETS = [
   { id: 'builtin-ai-trends', icon: '🤖', title: 'AI 领域动向', summary: '过去 48 小时 AI 动态', prompt: '请检索过去48小时…', keywords: ['LLM release'], windowHours: 48, sources: ['hackernews'], builtin: true },
-  { id: 'builtin-risk-alert', icon: '⚠️', title: '舆情风险与避雷', summary: '风险信号', prompt: '请检索风险事件…', keywords: [], windowHours: 168, sources: ['hackernews'], builtin: true },
+  { id: 'builtin-ai-howto', icon: '🛠️', title: 'AI 实操技巧与工作流', summary: '照着做就能用的用法', prompt: '请检索实操技巧…', keywords: [], windowHours: 168, sources: ['hackernews'], builtin: true },
 ]
 
 const CUSTOM = {
@@ -212,14 +212,14 @@ describe('QuickCollectPanel', () => {
     await w.find('[data-testid="quick-collect-run-builtin-ai-trends"]').trigger('click')
     await flushPromises()
 
-    expect(w.find('[data-testid="quick-collect-run-builtin-risk-alert"]').attributes('disabled')).toBeDefined()
+    expect(w.find('[data-testid="quick-collect-run-builtin-ai-howto"]').attributes('disabled')).toBeDefined()
     expect(w.find('[data-testid="quick-collect-edit-qc-1"]').attributes('disabled')).toBeDefined()
     expect(w.find('[data-testid="quick-collect-delete-qc-1"]').attributes('disabled')).toBeDefined()
     expect(w.find('[data-testid="quick-collect-add"]').attributes('disabled')).toBeDefined()
 
     resolveRun({ code: 0, data: { id: 'x', content: 'c', quickCollect: { materialCount: 0 } } })
     await flushPromises()
-    expect(w.find('[data-testid="quick-collect-run-builtin-risk-alert"]').attributes('disabled')).toBeUndefined()
+    expect(w.find('[data-testid="quick-collect-run-builtin-ai-howto"]').attributes('disabled')).toBeUndefined()
   })
 
   it('新增自定义指令：弹窗保存后入列并落盘', async () => {
@@ -267,7 +267,7 @@ describe('QuickCollectPanel', () => {
     quickCollectRun.mockResolvedValue({ code: 0, data: { id: 'y', content: 'c', quickCollect: { materialCount: 0, retrieval: 'skipped' } } })
     const w = await mountPanel()
     const notify = notifySpies
-    await w.find('[data-testid="quick-collect-run-builtin-risk-alert"]').trigger('click')
+    await w.find('[data-testid="quick-collect-run-builtin-ai-howto"]').trigger('click')
     await flushPromises()
     expect(w.emitted('collected')).toHaveLength(1)
     expect(notify.notifyInfo).toHaveBeenCalledWith('collection.quickCollect.runSuccessNoMaterial')
