@@ -349,6 +349,25 @@ pickChannel → colloquialize → chunk → ttsBlock(逐块，串行) → concat
 4. `concatBlocks`：`concat=n=N:v=0:a=1` 的既有路径（`story2video-compose-engine.js:1514,1524-1530`），块间显式插入 **0.3–0.6 s** 静音——仓内**现成做法是"块间不加静音"**（§7.4.0 取证），所以这里的静音必须由**预先物化的静音片段**参与 concat（用已验证的 `anullsrc` 生成一份基准静音，再按块数复制），**不得**用 `adelay`（不在 `REQUIRED_FILTERS`）。
 5. `probe` 及之后逐字复用刀 3：ffprobe 实测 `durationSec`/`sizeBytes` → 显式 `mime` → 三处一致校验 → attach（strict）→ buildFeed → uploadFeed。**`degraded:true` 的素材永远进不到 probe**：降级门禁在 `podcast-episode-source.js:53` 已经只认 `audioMeta.degraded === true`，刀 4 必须把逐块 degraded 汇成同一条判据（展示端同源 `ResultView.vue:652`），命中即整次拒绝、不上传。
 
+##### 7.4.2.1 口语化层已落地（2026-10-11，刀 4 第 3 片·下半 上）
+
+**唯一实现**：`apps/desktop/electron/services/podcast-tts-colloquialize.js`（零依赖纯函数，`require` 列表为空）。
+
+| 项 | 落地口径 | 少了它会怎样 |
+|---|---|---|
+| 与去 AI 味的边界 | **独立 prompt**（`SYSTEM_PROMPT` 单点常量），不复用 `rewrite-engine` 链路 | 那是「读起来像人写的」，本层要「听起来像人说的」；复用会把改写边界与分段约束一起带错 |
+| 分段结构不变量 | **段的定义全链只有一个：单个换行**（与下游分块层的切分逐字同口径；prompt 第 1 条也照这个说「不得增加、删除、合并任何换行」，不再写「空行分段」——2026-10-11 QM-6 后端 F1 命中：判据引用的口径与自己实现不是同一件事，会把模型忠实守约的合法重排整份白拒）。采用前逐条判：段数相等、空段位置保持、**每段最后一个非空白字符逐字相同** | 结构一变，下游 `planChunks` 的段落边界（`\n`）就是错的——块会在句中断开、段尾被追加标点，而听感问题不会在任何日志里留下痕迹 |
+| 单条判据取代两份标点表 | 用「末字符逐字相同」一条同时覆盖补标点 / 换标点 / 删标点三种失真，**不**再抄一份终止标点集合 | 两份集合只更新其一时，一次口径改动牵动两层（同仓「同一决策的两端写在两个文件」事故族） |
+| 失败方向 = 旁路 | 无 provider、调用异常、空返回、结构不合格 ⇒ **采用原文**并出声（warn 一次，不含用户正文） | 把可选增强做成出期的硬前提，等于让一个不影响正确性的环节决定用户能否发布；原文本身是合法口播 |
+| 计费前置 | `enabled=false` 时**一个 LLM 调用都不发起**（锁断言 invoke 未被调用） | 「调了再丢结果」会在用户没要求改写时照样产生 provider 计费 |
+| 围栏剥壳 | 只处理「整份输出被 ``` 包住」这一形态，剥壳后仍按原行数比对 | 局部清洗会把正文里合法的三反引号代码引用吃掉；不剥壳则围栏会被当成一个段落念出来 |
+| 非字符串返回 | 对象 / undefined / 数字 一律按空处理 | 把 `[object Object]` 喂进分块层会静默产出一期只念占位符的节目 |
+| 字段边界 | `buildColloquializePrompt` **只接受 title 与 content**；源码扫描断言 prompt 构造函数不含 `platform` | §7.4.1 明写「同一份文案出期与发布到哪个平台无关」；把 platform 混进 prompt 会让同内容在不同平台出不同期 |
+| 出站 | 本层不 require 任何网络/provider 代码，调用通道由宿主注入（宿主绑定 `ai-generator` 的 `chatCompletion`） | 每层各自出站就无法统一超时与计费口径；测试里也会出现真实出站 |
+
+**超时归属**（写明以免下一位重复实现）：口语化的硬超时由**注入侧**（宿主绑定 `chatCompletion` 时）负责，本层不再套第二层超时——两层预算相乘会让一次抖动耗尽整条链的窗口。
+
+**尚未接线**：本层目前只有实现与锁，`podcast-episode-host.js` 仍走「正文直接进 `planChunks`」。host 注入替换（`colloquialize → synthesizeEpisodeAudio`）、三态来源标注的 locale 键（`podcast.tts.voice.*`）、以及把 `podcast-tts-compose.js` 回接 `src/locales/podcast-error-codes.test.js` 的 PRODUCERS，均在同一片的下一节（宿主接线）一并交付。**这是刻意的切片边界，不是遗漏。**
 #### 7.4.3 数据校验三层（与 §6.4 同构，逐层给出「少了它会怎样」）
 
 | 层 | 判据 | 少掉的后果 |
