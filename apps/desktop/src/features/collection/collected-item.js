@@ -89,6 +89,9 @@ export function normalizeCollectedItem (raw, ctx = {}) {
     imageFallbacks: Array.isArray(src.imageFallbacks) ? src.imageFallbacks : [],
     rewrittenContent: typeof src.rewrittenContent === 'string' && src.rewrittenContent ? src.rewrittenContent : undefined,
     rewriteFailed: src.rewriteFailed === true,
+    // 快捷采集溯源（quick-collect，2026-10-11）：只读；落盘后仍可读用于展示"来自哪条指令"。
+    // 非对象归一为 undefined —— 宁可少一个徽章，也不要把脏对象写进采集库。
+    quickCollect: (src.quickCollect && typeof src.quickCollect === 'object') ? src.quickCollect : undefined,
   }
 }
 

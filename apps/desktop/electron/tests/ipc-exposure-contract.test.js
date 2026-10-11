@@ -53,6 +53,7 @@ const SCAN_DOMAIN = [
   'podcast-channel.js',
   'providers.js',
   'publisher.js',
+  'quick-collect.js',
   'rate-limit.js',
   'services.js',
   'tts-voice-catalog.js',

@@ -1295,6 +1295,34 @@ var require_podcast = __commonJS({
   }
 });
 
+// electron/preload/quick-collect.js
+var require_quick_collect = __commonJS({
+  "electron/preload/quick-collect.js"(exports2, module2) {
+    function createQuickCollectApi(ipcRenderer2) {
+      return {
+        quickCollectListPresets: () => ipcRenderer2.invoke("quick-collect:list-presets"),
+        quickCollectRun: (payload) => ipcRenderer2.invoke("quick-collect:run", payload),
+        onQuickCollectProgress: (callback) => {
+          const listener = (_event, payload) => {
+            try {
+              callback(payload);
+            } catch (_) {
+            }
+          };
+          ipcRenderer2.on("quick-collect:progress", listener);
+          return () => {
+            try {
+              ipcRenderer2.removeListener("quick-collect:progress", listener);
+            } catch (_) {
+            }
+          };
+        }
+      };
+    }
+    module2.exports = { createQuickCollectApi };
+  }
+});
+
 // electron/preload/signer.js
 var require_signer = __commonJS({
   "electron/preload/signer.js"(exports2, module2) {
@@ -1580,6 +1608,7 @@ var require_preload = __commonJS({
     var { createAutomationApi } = require_automation();
     var { createKnowledgeLibraryApi } = require_knowledge_library();
     var { createPodcastApi } = require_podcast();
+    var { createQuickCollectApi } = require_quick_collect();
     var { createSignerApi } = require_signer();
     var {
       ADMIN_ONLY_METHODS,
@@ -1632,6 +1661,8 @@ var require_preload = __commonJS({
       ...createKnowledgeLibraryApi(ipcRenderer2),
       // 播客 RSS 频道（小宇宙收录链路）：独立实体，不是发布平台，不经 publishMode
       ...createPodcastApi(ipcRenderer2),
+      // 采集页「快捷采集」：内置指令目录 + 执行 + 进度事件
+      ...createQuickCollectApi(ipcRenderer2),
       // 签名页桥（W3 task 2.4，authenticated）：仅白名单 command，无任何任意 JS 求值通道
       ...createSignerApi(ipcRenderer2),
       // P2 限流自检（authenticated，默认受限）

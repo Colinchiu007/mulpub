@@ -37,7 +37,7 @@ describe("CollectionView", () => {
   it("renders page title and buttons", async () => {
     const w = mountCollection();
     await nextTick();
-    expect(w.text()).toContain("内容采集文案库");
+    expect(w.text()).toContain("内容采集快捷采集文案库");
     expect(w.text()).toContain("新建草稿");
   });
 
@@ -1612,18 +1612,53 @@ describe("CollectionView 文案库合并标签", () => {
     return mount(CollectionView, { global: { plugins: [i18n, createPinia()] } });
   }
 
-  it("renders three tabs and the copy library tab switches to records", async () => {
+  it("renders tabs and the copy library tab switches to records", async () => {
     const w = mountWithI18n();
     await nextTick();
     expect(w.find('[data-testid="collection-tab-library"]').exists()).toBe(true);
     expect(w.text()).toContain("文案库");
     // 原独立「文案库」第三个标签已移除（tabLibrary 不再出现在标签栏）
-    // 采集页原有采集/文案库两个 tab，加入博主监控后共三个。
+    // 采集页原有采集/文案库两个 tab，加入博主监控后三个；2026-10-11 加入「快捷采集」后共四个。
     // 断言数量是为了让「多加/少加 tab」必须显式改测试，不能悄悄发生。
-    expect(w.findAll(".collection-tab-btn").length).toBe(3);
+    expect(w.findAll(".collection-tab-btn").length).toBe(4);
     await w.find('[data-testid="collection-tab-library"]').trigger("click");
     await nextTick();
     expect(w.vm.activeTab).toBe("records");
+  });
+
+  it("switches to the quick collect tab", async () => {
+    const w = mountWithI18n();
+    await nextTick();
+    expect(w.find('[data-testid="collection-tab-quick-collect"]').exists()).toBe(true);
+    await w.find('[data-testid="collection-tab-quick-collect"]').trigger("click");
+    await nextTick();
+    expect(w.vm.activeTab).toBe("quick");
+    expect(w.find('[data-testid="quick-collect-panel"]').exists()).toBe(true);
+  });
+
+  it("onQuickCollected 入库并切回采集页签（与手动采集同一链路）", async () => {
+    window.electronAPI = { storeSetSetting: vi.fn().mockResolvedValue(undefined) };
+    const w = mountWithI18n();
+    await nextTick();
+    await w.vm.switchTab("quick");
+    await nextTick();
+
+    const item = {
+      id: "qc-item-1",
+      title: "AI 领域动向 · 2026-10-11",
+      content: "本次检索到三条值得关注的消息。",
+      source: "AI 领域动向",
+      sourceUrl: "https://example.com/a",
+      quickCollect: { commandId: "builtin-ai-trends", commandTitle: "AI 领域动向", materialCount: 3, retrieval: "ok" },
+    };
+    await w.findComponent({ name: "QuickCollectPanel" }).vm.$emit("collected", item);
+    await nextTick();
+
+    expect(w.vm.activeTab).toBe("collect");
+    expect(w.vm.collectedItems.length).toBe(1);
+    expect(w.vm.collectedItems[0].quickCollect.commandTitle).toBe("AI 领域动向");
+    expect(w.vm.collectedResult.id).toBe("qc-item-1");
+    expect(window.electronAPI.storeSetSetting).toHaveBeenCalledWith("collected_items", expect.any(String));
   });
 
   it("switches to the creator monitor tab", async () => {

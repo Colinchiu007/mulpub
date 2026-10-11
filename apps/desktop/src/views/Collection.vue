@@ -4,6 +4,7 @@
       <div>
         <div class="collection-tabs" role="tablist">
           <button role="tab" :aria-selected="activeTab === 'collect'" class="collection-tab-btn" :class="{ active: activeTab === 'collect' }" @click="switchTab('collect')">{{ $t('collection.tabCollect') }}</button>
+          <QuickCollectTab :active="activeTab === 'quick'" @select="switchTab('quick')" />
           <button role="tab" :aria-selected="activeTab === 'records'" class="collection-tab-btn" :class="{ active: activeTab === 'records' }" data-testid="collection-tab-library" @click="switchTab('records')">{{ $t('collection.tabRecords') }}</button>
           <CollectionCreatorTab :active="activeTab === 'creator'" @select="switchTab('creator')" />
         </div>
@@ -448,6 +449,8 @@
     <!-- 文案库标签页（2026-09-16 合并：原「采集记录」+「文案库」两标签合一，以采集记录卡片为准） -->
     <!-- 博主监控：独立组件，避免把 2700+ 行的采集页继续堆胖 -->
     <CreatorMonitor v-else-if="activeTab === 'creator'" />
+    <!-- 快捷采集：启动器 + 指令管理；执行结果通过 onQuickCollected 走既有采集结果链路 -->
+    <QuickCollectPanel v-else-if="activeTab === 'quick'" active @collected="onQuickCollected" />
     <div v-else-if="activeTab === 'records'" class="cohere-content" role="tabpanel" :aria-label="$t('collection.recordsTitle')">
       <div class="cohere-section-title col-section-title col-section-title--flex">
         <span>{{ $t('collection.recordsTitle') }} · {{ $t('collection.libraryCount', { count: libraryItems.length }) }}</span>
@@ -688,6 +691,7 @@ import { useCopyLibrary, collectFromKey, ORIGIN_COLLECT, ORIGIN_REWRITE, compare
 import { setRewriteHandoff } from '@/utils/rewrite-handoff'
 import { safeHttpUrl } from '@multi-publish/shared-utils/src/safe-http-url'
 import { normalizeCollectedItem, normalizeItemTags, itemTags, CollectionCreatorTab } from '@/features/collection/collected-item'
+import { QuickCollectTab, QuickCollectPanel } from '@/features/collection/quick-collect-ui'
 import { mapFavBatchResultsToItems, countOriginalFallback } from '@/features/collection/collection-batch'
 import CreatorMonitor from '@/features/collection/CreatorMonitor.vue'
 import { usePlatformStore } from '@/stores/platforms'
@@ -2252,12 +2256,28 @@ async function saveCollectedItems () {
   await storeSetSetting(COLLECTED_ITEMS_KEY, JSON.stringify(collectedItems.value))
 }
 
-/** 合法标签页：采集 / 文案库（2026-09-16 原三个标签合并为两个） */
-const TAB_KEYS = ['collect', 'records', 'creator']
+/** 合法标签页：采集 / 快捷采集 / 文案库 / 博主监控（2026-09-16 原三个标签合并为两个） */
+const TAB_KEYS = ['collect', 'quick', 'records', 'creator']
 
 function switchTab (tab) {
   if (!TAB_KEYS.includes(tab)) return
   activeTab.value = tab
+}
+
+/**
+ * 快捷采集结果落地：与手动采集**同一条链路**（归一化 → 入列表 → 落盘 → 展示）。
+ * 结果卡复用采集页既有那张（改写策略 / 字数区间 / 爆款库 / 草稿 / 发布），
+ * 因此这里只做"入库 + 切页签"，不另建第二套结果 UI。
+ * @param {object} item 主进程返回的采集条目（含 quickCollect 溯源）
+ */
+function onQuickCollected (item) {
+  if (!item || typeof item !== 'object') return
+  const normalized = normalizeCollectedItem(item, categoryTagCtx.value)
+  collectedResult.value = normalized
+  addedToViral.value = false
+  collectedItems.value.unshift(normalized)
+  saveCollectedItems()
+  switchTab('collect')
 }
 
 // 点击采集记录，创建草稿并进入内容编辑页

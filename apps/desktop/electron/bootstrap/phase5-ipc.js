@@ -198,6 +198,8 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     callbackServer,
     splitterBridge, promptBridge,
     riskSuspender,
+    // 快捷采集：检索复用 content-intelligence（同一份相关性门禁与缓存策略）
+    contentIntelligence,
   } = context
 
   // publish-frequency-policy-v2：发布频率守卫单例（容器注册项）。优先取 context 上的引用，
@@ -241,6 +243,9 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     callbackServer,
     splitterBridge, promptBridge,
     riskSuspender,
+    // 快捷采集（quick-collect）：检索面复用 content-intelligence 单例；
+    // aiGenerator 已在上面同一份依赖里，handler 侧按需读取（不缺一档就整个功能不可用）
+    contentIntelligence,
   }
 
   // ─── 博主监控依赖（PRD-CREATOR-WIRING-2026-10-07 §1）────────
