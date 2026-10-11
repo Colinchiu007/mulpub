@@ -2,9 +2,6 @@
 record: cv-cjk-error-copy
 task: CreateView script 区 43 组错误/状态文案迁 locales（遗留②第一子批，CJK 净还债 65）
 date: 2026-10-11
-sync_status: PENDING
-sync_reason: PR 未合并，merge SHA 还不存在
-sync_backfill_owner: 本会话下一轮或下一会话
 ---
 
 ## 本次执行记录：CreateView script 区 43 组文案迁 locales（cv-cjk-error-copy，2026-10-11）【混合 PR】
@@ -23,7 +20,7 @@ sync_backfill_owner: 本会话下一轮或下一会话
 | QM-1 打包 | N/A | 未触 electron 主进程 |
 | QM-4 视觉 | PASS | zh 文案逐字不变（仅挪位置），CI QG Visual 为准 |
 | QM-6 CCG 双模型评审 | PASS | 既有 i18n 迁移模式第 4 次复用（BGM/TTS/批量先例），无方案外新决策 |
-| 远程同步 | PENDING | 开 PR 时登记 ledger；合并后回填 PASS + merge SHA 并同一次提交销账 |
+| 远程同步 | PASS | PR #3317 已 squash 合并，merge SHA `41c8711602edf0db9a8332a316e472885216962b`（2026-10-11T17:34:23+08:00），取证 `git log origin/main --grep='(#3317)$' --format=%H|%cI` 唯一命中；`git ls-remote --heads origin cv-cjk-error-copy` 返回 0 行，证远端分支已删；frontmatter `sync_*` 三字段已在本次回填提交删除（新载体登记随文件 frontmatter 走，ledger 不登记——开 PR 时误登记 ledger 已在合并前撤销）。CI 两轮：①QG Changes 红（ledger 误登记成陈旧项）→ 撤销登记修复；②QG Autonomous 红（LLM 需求覆盖审计 score 0.23）→ 重跑后绿（评分抖动），两次均非代码问题 |
 
 ### 改动
 
