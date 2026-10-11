@@ -80,3 +80,5 @@
 - 接入 `publish:batch` / `taskQueue` / `task-queue-frequency` 日配额 / `publish:progress` 相位枚举 / 发布历史
 - 自动挤出已发布单集（D-8 撤销）；跨频道音频对象去重；打包 AGPL/未明许可的本地 TTS 模型
 - 逆向小宇宙私有写接口
+
+- [x] 4.2 刀 4 第 2 块：`podcast-episode-synth` 逐块串行 TTS + 块间显式静音 + 拼接后实测与降级逐块门禁（含 §7.4.7 的时长下限偏离）

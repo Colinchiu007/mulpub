@@ -372,6 +372,21 @@ pickChannel → colloquialize → chunk → ttsBlock(逐块，串行) → concat
 | `podcast.tts.cancelHint` | 浮层 | 关闭本窗口不会停止合成；停止请点击"取消出期" |
 | `podcast.tts.cancelTooLate` | 取消 | 说明**为什么**不能取消（已进入上传，会留下半态） |
 
+#### 7.4.7 第 2 块实做落点与一处合同偏离（2026-10-11）
+
+落点：`apps/desktop/electron/services/podcast-episode-synth.js` 的 `synthesizeEpisodeAudio`，它是 §7.4.2 里
+`extractMix` 的等价替身，返回形状与 `extractEpisodeAudio` 逐字同构（`{outPath, durationSec, sizeBytes, mime}`，三个量都是实测）。
+五条实现口径：① 逐块**串行**且**不再套第二层重试**（重试归 `generateTTS` 的 `withAssetTransientRetry`，两层相乘会把一次抖动放大成数十次真实调用）；
+② 每块只认 `degraded === true` 这一个事实源，命中即**拦在 probe 之前**并逐块列出块号（`PODCAST_TTS_CHUNK_DEGRADED`）；
+③ 块级失败没有「跳过坏块继续」出口（`PODCAST_TTS_BLOCK_FAILED` 与 `PODCAST_TTS_ALL_FAILED` 是两个码，排查方向不同）；
+④ 块间静音 `gapSec` 闭集 `[0.3,0.6]`，越界**出声钳制**，`0` 也按"仓内既有不加静音"的形态出声纠正——它不是用户可表达的意图；
+⑤ 取消点落在块与块之间（`cancelToken` 在每个块前采样），取消不拼接、已产出的块文件由宿主统一清理。
+
+**一处偏离（按本节规矩点名，先改规格再改代码）**：§7.4.3 第 ② 层原句「总时长 ≥ 块数 × 单块最短时长下限」若按字面取
+`块数 × 3s`（3s 正是降级静音的长度），会把「10 块、每块合法 1 秒」的正常口播整期误拒——那是把**防降级**的下限写成了**内容长度**的下限。
+现改为按码点推导：`durationSec >= 总码点数 × MIN_SEC_PER_CODEPOINT(0.1)`，即约 10 码点/秒——常态口播（4-5 码点/秒）的两倍宽余量，只有"整段被静音替换 / 严重截断"这种连 10 字/秒都达不到的形状才会命中（2026-10-11 QM-6 后端评审以 Warning 命中后由 0.2 下调；0.2 恰等于常态语速上界，念得快的合法整期会被误杀），
+只能抓到「整段被静音替换」而不误杀短块；防"每块都是 3 秒静音"这一原始目的由第 ② 条的 `degraded` 逐块门禁承担。
+两条各管一件事，合成一条固定 `×3s` 反而两头都不准。回归锁见 `podcast-episode-synth.test.js`「时长按码点下限拦…但不得误杀合法的短块」。
 ### 刀 5 入口收敛
 刀 3 已建好的 `<PodcastPublishAction>` 挂到 `CopyLibraryView.vue:174`、`RewriteView.vue:812`、`Publish.vue:358`（采集页仅文本类分支）。**不放**：`HotTopics`、`KeywordMonitor`、`PublishHistory:764`（重发会带同 guid 原地覆盖正在播那期）、`Home`/`FirstRun`（裸跳转无内容）、`FilmEngineering`（本页无发布挂载点）。
 
