@@ -78,3 +78,61 @@ function Get-TestProcessTree {
 
     return $result
 }
+
+<#
+.SYNOPSIS
+    把进程树的一行投影成可 grep 的单行文本（含命令行原文）。
+
+.DESCRIPTION
+    `Get-TestProcessTree` 的结果直接喂给 `Format-Table` 时，显示列由 Win32_Process 的
+    默认格式集决定 —— ProcessId / Name / HandleCount / WorkingSetSize / VirtualSize。
+    **命令行不在其中**，而调用方真正要回答的问题是"是哪个包的测试还挂着"：
+    2026-10-11 那次 Gate 4 跑到 30 分钟预算到点，日志里 13 个存活进程全是
+    `node.exe`（working set 相近），从表格读不出任何归属，排查只能靠猜。
+
+    这里刻意**不改** `Get-TestProcessTree` 的输出形状：它的结果同时被
+    `$remainingTestProcesses.Count` 计数、被 `taskkill /PID` 消费，改形状会把那些
+    既有判据一起牵动。投影单独成函数，只在"要给人看"的分支调用。
+
+    命令行取不到时（权限不足、或注入的夹具没有这个属性）如实写 `<unreadable>`，
+    不得留空 —— 空串读起来像"这进程没命令行"，而真实含义是"我没读到"。
+    空白折叠成单个空格并截断，保证一条记录一行，便于 CI 日志按行 grep。
+#>
+function Format-TestProcessTreeLine {
+    param(
+        [Parameter(Mandatory = $true)] $Process,
+        [int] $MaxCmdLen = 300
+    )
+
+    $cmd = ''
+    if ($null -ne $Process.PSObject.Properties['CommandLine']) {
+        $cmd = [string] $Process.CommandLine
+    }
+    if ([string]::IsNullOrWhiteSpace($cmd)) { $cmd = '<unreadable>' }
+    $cmd = ($cmd -replace '\s+', ' ').Trim()
+    if ($MaxCmdLen -gt 0 -and $cmd.Length -gt $MaxCmdLen) { $cmd = $cmd.Substring(0, $MaxCmdLen) + '...' }
+
+    $parent = '<unknown>'
+    if ($null -ne $Process.PSObject.Properties['ParentProcessId']) { $parent = [string] ([int] $Process.ParentProcessId) }
+
+    return ('[process-tree-detail] pid={0} parent={1} {2} :: {3}' -f [string] ([int] $Process.ProcessId), $parent, [string] $Process.Name, $cmd)
+}
+
+<#
+.SYNOPSIS
+    逐行打印进程树的命令行原文；空集合也必须出声。
+#>
+function Write-TestProcessTreeDetail {
+    param(
+        [array] $Processes,
+        [int] $MaxCmdLen = 300
+    )
+
+    $rows = @($Processes)
+    # rows=0 必须打出来：调用方拿不到后代时，"什么都没打印"与"打印了 0 条"是两种证据，
+    # 前者读起来像脚本没跑（本仓的装饰性门禁反复出在这种形态上）。
+    Write-Host ('[process-tree-detail] rows=' + $rows.Count)
+    foreach ($row in $rows) {
+        Write-Host (Format-TestProcessTreeLine -Process $row -MaxCmdLen $MaxCmdLen)
+    }
+}

@@ -17242,3 +17242,27 @@ CI `check-locale-sync.js --cjk` 会判为「渲染端新增硬编码中文」而
 于是「notifySuccess 被调用过」类断言恒 0 次（组件里真正该拦的行为也没被拦住）。
 正解是 `vi.hoisted` 建一次共享 spy 集合，工厂只返回它。与本文件 2026-09-28 那条
 「日志断言在 `-t` 单跑抓到 1 条、全量跑 0 条」同源：**mock 对象身份不稳定 = 假绿与假红同源**。
+## 「排除 X」的旗标落在了被转发的那一层，而钉住它的锁与缺陷同源同次提交（gate4-desktop-exclusion，2026-10-11）
+
+- **现场**：`pnpm run test:all -- --exclude=@multi-publish/desktop` 看起来在排除桌面包，实际 **一行效果都没有**。
+  pnpm 把 `--` 原样附加到脚本命令上，nx 于是把独立 `--` 之后的一切当成「转发给每个任务命令的参数」，自己的选择集不受影响。
+  CI 原文两行就是全部证据：`NX   Running target test for 13 projects:`（第 13 个正是 desktop）与叶子命令收到的
+  `$ vitest run "--exclude=@multi-publish/desktop"`。后果是 Gate 4 在 30 分钟预算里跑桌面全量：成功 run 1173s / 1322s，
+  失败 run **恰好 1801s**（= `WaitForExit(1800000)` 到点），一条 required check 的成败取决于 runner 快慢。
+- **最要命的一条不是 bug 本身，是锁**：`.github/scripts/workflow-contract.test.js:202-203` 用正则**逐字钉住了这个错误 argv**
+  （`assert.match(..., /"run",\s*"test:all",\s*"--",\s*"--exclude=..."/)`），而且锁与缺陷由**同一次提交 `bb6aab5b8`** 引入 ——
+  同一次提交还给相邻的 `desktop-shards` 写了**正确**的 `"--"`（那里的消费者是 vitest）。同形异义 + 锁只匹配文本形状 =
+  缺陷被说成"受保护形态"，一藏 63 天。判据「匹配被改动对象的文本」和「测量被改动对象的语义」是两件事，前者永远测不到后者。
+- **第二个信号被观测盲区吃掉**：超时时打印的进程表是 `Format-Table` 的默认列（PID/Name/内存），**CommandLine 不在其中**，
+  13 个存活 `node.exe` 点不出是哪个包的测试还在跑；nx 的 static 输出风格又把未完成任务的输出整块缓冲，连 `> nx run desktop` 都没有。
+  「静默 28 分钟」被读成"卡死"，实际是"还在跑、只是没人看得见"。
+- **口径**：① 排除/包含类旗标**写进被调用的那条命令本身**（新增 `test:all:no-desktop`），别依赖转发层 —— 没有可写错的位置才是修复；
+  ② 判据必须读**被调用方自己打印的东西**（nx 的选择声明），并把"改回去"做成变异（M1 把 workflow 退回历史形态必须红）；
+  ③ 任何「X 不在结果里」的结论必须配 **A/B 负控**：不传该旗标时 X **必须出现**，否则"没找到 X"是探针失明不是排除生效；
+  ④ live 臂要按**调用方真实使用的入口**跑：把脚本正文直接 spawn 时 `nx` 不在 PATH 上（只有 pnpm 注入 `node_modules/.bin`），
+  本脚本第一次实跑就三条臂全 rc=1 —— 判据本身没错（缺证据不判绿），但执行形态不一致就是一枚新的假红来源；
+  ⑤ 超时/残留的进程报告必须带命令行，且"读不到"要写 `<unreadable>` 而不是留空、空表要写 `rows=0` 而不是不打印。
+- **回归锁**：`scripts/check-gate4-selection.test.js`（21 例：T1/T8 合规形态必须绿、T9 两个模式都得判、T12 负控不成立即失明、
+  T15 A/B 少一条即红、T20 runLine 必须是 pnpm 调用形态、T16/T17 读**真实仓那两份文件**）；
+  `scripts/get-test-process-tree.test.ps1` 新增 10 例（pwsh 7 与 Windows PowerShell 5.1 各 18 条 PASS）。
+  变异 9 条全部实测变红、还原后逐字节相同（`red=9/9 notRed=0`）。
