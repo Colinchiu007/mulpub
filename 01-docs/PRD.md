@@ -19530,6 +19530,107 @@ apps/desktop/src/views/
 | U6 | 行为零变更（测试零改动） | ✅ |
 | U7 | 债务熔断（新建文件 < 500 行 + 无环） | ✅ 182/268/229/229 行；`circularDeps: 0` |
 
+---
+
+## 附录：批量创作域结构拆分（2026-10-11，FRONTEND-FILE-SPLIT-PLAN-2026-10 v3 里程碑 2 第 3 步 · useBatchCreate）
+
+> 背景：CreateView.vue 的批量创作域（批量弹窗、文案/文件双输入源、容量校验、队列轮询刷新/取消、批量启动）原为 15 个方法 + 12 个状态，内联在壳文件中。本批抽为 `useBatchCreate` composable，壳以「方法代理 + computed get/set 状态桥接」接入，**CreateView.test.js 288/288 断言零改动全绿**。
+>
+> **本批的前置是两段测试基建**（§2.8 实测的 Teleport 弹窗污染 + §2.9 暂缓决定）：`teleport-cleanup.js`（卸载后冲刷挂起微任务 → 清 body → 再冲刷）+ mount 前强制复位的双保险防线。
+
+### 结构
+
+```
+apps/desktop/src/views/
+├── CreateView.vue                                    # 壳：桥接 + 代理（5057→4896 行，净 -161）
+├── teleport-cleanup.js                               # Teleport 清场基建（afterTeleportCleanup / flushPending）
+├── teleport-cleanup.test.js                          # 清场机制锁（3 例）
+└── video-creation/composables/
+    ├── useBatchCreate.js                             # 批量创作域（329 行）
+    └── （useBatchCreate 的独立测试挂在 CreateView.test.js 的批量 describe，见「测试策略」）
+```
+
+| 导出（门面） | 类型 | 说明 |
+|---|---|---|
+| `batchCreateRefs` | `toRefs(reactive)` | 12 个状态（10 个 `s2vBatch*` + 2 个容量常量 `S2V_BATCH_MAX_TEXTS/FILES`，后两者被模板引用故桥接） |
+| `batchCreateMethods` | object | 15 个方法（弹窗开合/输入增删/文件选择/容量校验/队列刷新取消/批量启动/状态与摘要文案/格式化） |
+| `setupBatchCreateDeps(deps)` | function | 壳注入 8 项跨域依赖 |
+| `resetBatchCreateForTest()` | function | 测试复位（模块级单例状态隔离 + 清空 deps） |
+
+**注入的 8 项依赖**：`getS2vConfig`（读写信箱）、`t`（locale 取值）、`translate`（带兜底 locale）、`cloneForIpc`（IPC 脱壳）、`showOptionsToast`、`showStory2VideoErrorDialog`、`buildStory2VideoTextConfig`（壳方法，依赖 s2vOutputConfig/s2vConfig）、`modelsRequiredShownItemIds`（模型要求去重集，按引用捕获）。
+
+### 归属修正（写入方案的边界决定）
+
+以下成员**留在壳**（依赖历史域 `deleting`/`history`/`story2videoBatchDeleteDialog`，跨域过深）：`requestHistoryBatchDeletion` / `closeBatchDeletionDialog` / `confirmBatchDeletion` / 计算属性 `story2videoBatchDeleteDialogMessage`。
+
+### 数据校验
+
+| 项 | 规则 | 失败处理 |
+|---|---|---|
+| 文案输入上限 | `s2vBatchTexts.length >= S2V_BATCH_MAX_TEXTS(10)` 时新增按钮禁用 + 提示 | 直接 return，不发请求 |
+| 文件数上限 | 合并去重后 `>= S2V_BATCH_MAX_FILES(20)` 截断到 20 | `s2vBatchError` 提示「最多选择 20 个文件，超出部分已忽略」 |
+| 文件去重 | 按 `path` 精确匹配去重（`pickS2VBatchFiles` 与 `handleS2VBatchFileInput` 双路径共用同一段合并逻辑） | 重复文件静默忽略 |
+| 启动前置 | 文案模式：trim 后至少 1 条非空文案；文件模式：至少 1 个文件；`s2vBatchStarting` 加载中拒绝重入 | `s2vBatchError` 本地拦截，**不调用 API** |
+| 文件路径 | `typeof file.path === 'string' && file.path` 非空才纳入；name 缺省从 path 尾段取 | 跳过该文件 |
+| 响应码 | 全部以 `result?.code === 0` 为成功判据；`failedItems` 数组透传（含 label/index/errorCode） | 失败明细进 `s2vBatchError` |
+| 请求时序 | 轮询与取消共用批次 id；模型要求错误按 `itemId` 去重（`modelsRequiredShownItemIds`，只弹一次） | 静默降级 |
+| 取消目标 | `batchId` 与 `itemId` 均非空才调 IPC | 直接 return |
+
+### 流程（功能逻辑）
+
+1. **打开弹窗** `openS2VBatchDialog()`：置开标志 → 清错误 → `refreshS2VBatches()` → 启动 3s 轮询（`s2vBatchPollTimer`，仅弹窗打开期间刷新；关闭即停；壳 `beforeUnmount` 兜底清理）。
+2. **输入**：文案模式加/删行（最多 10）；文件模式走 `story2videoPickBatchFiles` IPC（Electron 路径）或隐藏 file input（浏览器降级路径 `handleS2VBatchFileInput`），两路径共用合并去重与上限截断。
+3. **启动** `startS2VBatch()`：`buildStory2VideoTextConfig('')`（deps 注入壳方法）→ 删 `prompt` → 固定「全自动」创作模式 + 弹窗独立视频增强模式 → 组装 payload（`uiLocale: getAppLocale()`）→ `story2videoBatchCreate(cloneForIpc(payload))` → 成功清空输入并刷新队列；失败透传 `message` + `failedItems` 标签。
+4. **队列刷新** `refreshS2VBatches()`：`story2videoBatchStatus` → 落 `s2vBatches` → 模型要求缺失项经 `surfaceS2VBatchModelRequirementErrors` 弹「去模型设置」提示（每 itemId 只一次）。
+5. **取消** `cancelS2VBatchItem(batchId, itemId)`：调 `story2videoBatchCancel` 后刷新队列。
+6. **卸载兜底**：壳 `beforeUnmount` 清轮询定时器（经桥接，定时器句柄存于单例）。
+
+### 交互逻辑
+
+| 交互 | 行为 |
+|---|---|
+| 弹窗打开 | 3s 轮询队列；关闭即停（不残留定时器） |
+| 文案/文件双 tab | 独立输入源与校验口径（tab 由模板 @click 切换） |
+| 启动中 | 启动按钮禁用（`s2vBatchStarting`）；占位与状态徽标由 `s2vBatchItemStatusText` 提供 |
+| 队列状态徽标 | 排队中/运行中/已完成/失败/已取消（locale 键 `statusPending`…`statusCancelled`） |
+| 队列摘要 | `batchSummaryText`：各状态计数（locale `summaryRunning` 等函数键带 `{count}`）+ 总数（`summaryTotal` 带 `{total}`） |
+| 模型要求缺失 | 每 itemId 只弹一次「去模型设置」提示（去重集防轮询重复打扰） |
+| 危险操作 | 批量删除走历史域的二次确认（留壳实现） |
+
+### 显示项与提示文字（键位全部在 `create.story2video.batch.*`，zh/en 成对）
+
+- **弹窗**：`dialogTitle`、`videoModeLabel`、规则提示（`rule-hint`）。
+- **输入**：`addText`、`textPlaceholder`、`textLimitHint`（10 条上限）、`fileLimitHint`、`pickFiles`。
+- **校验/错误**：`noTextError`（至少 1 条文案）、`noFileError`（至少 1 个文件）、`fileLimitError`（20 个上限）、`pickFailed`（选择窗口失败）。
+- **启动**：`createFailed`（`(ctx)=>'启动失败：'+named('message')`）、`createFailedUnknown`（主进程无 message 时的兜底，本批新增）。
+- **队列**：`statusPending/Running/Completed/Failed/Cancelled`、`summaryRunning/Pending/Completed/Failed/Cancelled`（函数键带 `{count}`）、`summaryTotal`（`{total}`）。
+- **删除确认**：`BATCH_DELETE_CONFIRM` 通知模板（经壳的 `story2videoBatchDeleteDialogMessage`，留壳实现）。
+
+**i18n 纪律**：composable 内不得出现 CJK 字面量（Gate 7 `--cjk`）；本批实际把 19 处搬运遗留的中文兜底全部改走 locale 键（CJK 基线 1270 → 1252），`'未知错误'` 兜底新增为 `createFailedUnknown` 键。
+
+### 测试策略与防污染基建（本批的核心交付）
+
+| # | 内容 | 锁定位置 |
+|---|---|---|
+| B1 | 旧测试断言零改动（代理 + 桥接等价） | `CreateView.test.js` 288/288 |
+| B2 | Teleport 清场模式：`afterEach` → `afterTeleportCleanup()`（冲刷→清 body→再冲刷） | 批量 describe + `teleport-cleanup.test.js` 3 例机制锁 |
+| B3 | mount 前强制复位（兜底防线：无论前序如何泄漏，mount 时状态必为初值） | `mountS2V` 首行 |
+| B4 | 2 处 `beforeEach` 加 `resetBatchCreateForTest` | `CreateView.test.js` |
+| B5 | `beforeUnmount` 轮询清理存在性 | wire 脚本断言 |
+
+**为什么需要 B2/B3**：弹窗经 UiModal 的 Teleport 渲染，卸载后残留交互闭包写**模块级单例**会污染下一用例（§2.8 实测 3 例连跑失败、单跑全绿）。单文件时代状态挂 vm 实例、unmount 即销毁，无此风险。
+
+### 验收
+
+| # | 判据 | 结果 |
+|---|------|------|
+| C1 | CreateView.test.js 断言零改动全绿 | ✅ 288/288 |
+| C2 | 全量 views+locales+overlay | ✅ 1794 passed / 1 skipped（78 文件） |
+| C3 | Gate 7 `--cjk` / `--keys` | ✅ PASS（基线 1489 → 1252）/ PASS（1667 key） |
+| C4 | 债务熔断 | ✅ 全绿（circularDeps: 0） |
+| C5 | E2E 场景（playwright 探针） | ✅ /create 卡片数 0→4、console 错误 1→0（import 修正后） |
+| C6 | 壳文件净减 | ✅ 5057 → 4896（-161 行） |
+
 
 ## 附录：快手图文封面 tofu 乱码修复（2026-10-09，fix-kuaishou-tuwen-tofu）
 
