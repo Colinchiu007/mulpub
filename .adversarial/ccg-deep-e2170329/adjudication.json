@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "adjudicatedBy": "self-play",
+  "confidenceWeight": 0.6,
+  "reason": "stall/maxRounds 后自扮演裁决（引擎第三档出口）",
+  "highRiskNote": "高危域争议项不允许自扮演豁免，必须外部复核",
+  "requiresExternalReview": [],
+  "critiqueFingerprint": "a57cfa1faf3613df",
+  "instructions": [
+    "对 items 里每一条争议，依次生成：",
+    "  1) 最强指控 —— 论证这条确实是真问题（含具体失败场景）",
+    "  2) 最强辩护 —— 论证这不是问题 / 已被别处覆盖",
+    "  3) 裁决 —— 哪一边论证更强，verdict 取 upheld（指控成立）/ dismissed（指控不成立）",
+    "裁决理由必须可验证，不得只写「看起来没问题」。"
+  ],
+  "items": [
+    {
+      "id": "i1",
+      "severity": "Warning",
+      "finding": "visible_texts/visible_count 用 total=min(count(),limit) 在 DOM 序上截断且先于可见性过滤：portal 渲染常把弹层 append 到 body 尾部，若前 8 个命中节点多为隐藏模板，真实可见风控层(index≥8)永不被扫，两轨同时漏判并放行发布；docstring『风控层靠前』是未验证假设。",
+      "highRiskDomains": [],
+      "prosecution": "取证：改动前 dom.visible_texts 与 visible_count 都写 total = min(await loc.count(), limit)，随后才逐项 is_visible 过滤；selectors 的注释与两处 docstring 都断言「真实风控层是页面上最靠前的可见容器之一」。这条断言没有任何活体证据（2.2 尚未取证），而创作者中心弹层走 portal、真实验证层通常被 append 到 body 尾部，DOM 序恰恰靠后；常驻隐藏 modal 模板会先占满前 8 个节点。失效场景具体且落在红线：宿主 [class*=modal] 命中 9 个节点、前 8 个是隐藏模板、第 9 个是可见风控层 ⇒ 文案轨读到空列表、占位轨（回填后）同样数到 0 ⇒ risk_present 返回 False ⇒ 流程继续走向存草稿/发布。风控绝不降级是本 change 的硬红线，漏判方向不可接受。",
+      "defense": "limit 的存在理由是成本：宿主选择器在模板页可命中整页元素，逐元素 inner_text 会拖垮发布链路；把口径改成「先过滤可见再数满 limit」只是把成本从 limit 次移到 count() 次，而 count() 无上界。此外 Tier2 活体取证（2.3b）本来就要回填真实结构，届时整条文本轨可能整体重写，现在按未验证的 portal 假设改判据口径属本末倒置。",
+      "verdict": "upheld",
+      "rationale": "辩护的成本论点成立，但它给出的是解法而不是不修的理由：判据口径与成本上限是两个维度，必须拆成两个常量，而不是让一个参数兼任两职（一个常量兼任两职正是本轨反复清理的静默失效来源）。落地：limit 改为数「可见项」（收满即停），新增 RISK_HOST_PROBE_LIMIT=32 作为探测次数硬闸并由发布器传参（dom 模块仍不得 import 选择器常量，守卫已有此断言）。最坏成本从「整页 count() 次 inner_text」变成「至多 32 次 is_visible + 至多 8 次 inner_text」，而判据不再依赖「风控层靠前」这一未验证假设；同一假设已从注释删除——把未验证假设写进注释等于给下一轮评审发放通行证。回归保护 test_visible_risk_layer_after_hidden_templates_is_caught，并为此给 FakePage/FakeLocator 增加逐元素可见性 hidden_items（原假 page 只能表达「整个 selector 可见或不可见」，结构上无法表达这条场景）。破坏-恢复实测：把 total 改回 min(count(), limit) ⇒ 恰好 1 条红（新用例 :460 assert False is True），恢复 ⇒ 39 passed；相关全量 68 passed。",
+      "fixApplied": "xiaohongshu_dom.py（visible_texts/visible_count/risk_present 的 limit 与 probe_cap 分职）+ xiaohongshu_selectors.py（新增 RISK_HOST_PROBE_LIMIT=32）+ xiaohongshu.py（两处适配器传参）+ 测试假 page 逐元素可见性与新用例"
+    },
+    {
+      "id": "i2",
+      "severity": "Warning",
+      "finding": "静态守卫仍按源码字面量断结构：'async def _await_upload_input('、'await dom.await_control('、count('await self._await_control(')≥2——helper 改名或调用形式调整即假红，正是 4f-i4 声称已除的格式耦合类，两轮评审点到仍未处理。",
+      "highRiskDomains": [],
+      "prosecution": "守卫确实以标识符字面量为锚点。若有人把 _await_editor_ready 改名，或把两处轮询收敛成一个循环，async def {helper} 与 count(...)≥2 都会红，而行为可能完全正确——这是维护成本，也是同一失效类（锚点与实现细节耦合）的复发。",
+      "defense": "§4f-i4 移除的是「给用户看的显示措辞」类锚点：label 与日志文案不承载结构，措辞一改就假红且没有任何收益。本守卫钉的是机器可读标识符与调用图，改名的作者必然同时看到守卫红，并被逼确认「轮询是否仍在这两处各存在一份」——这是有意的、需要被看见的耦合，是收益不是缺陷。行为面另有不依赖这些字面量的用例（哨兵值归属用例，本轮 i3 又补了实参 spy 用例与超时留痕用例）。第三轮 i3 的修复方向恰恰是把日志锚点从显示措辞改成机器可读 key；若按本指控连标识符耦合也拆掉，守卫就退化成只剩行为用例，而「实现在哪个模块、是否仍分两头」这类结构性质行为用例覆盖不到。",
+      "verdict": "dismissed",
+      "rationale": "裁决依据是可验证的区分而非印象：同一条 i4 结论在 §4j 的落地形态就是「锚点应选机器可读键、不选显示措辞」，本守卫选的正是机器可读键，指控把两类归为一类是对该结论的误读。改名与收敛调用形式属有意重构，此时守卫红一次是设计目标（防止静默把两处轮询并成一处、从而失去可验证性）。处置：不放宽守卫，只在锚点处补按语写明与 §4f-i4 的区分及理由，避免后续 critique 反复点到同一处；按语是注释、不改任何行为，故本条无代码风险。",
+      "fixApplied": "test_p4_wait_until.py 仅加按语（区分显示措辞耦合与机器可读标识符耦合），守卫断言不变"
+    },
+    {
+      "id": "i3",
+      "severity": "Warning",
+      "finding": "test_upload_wait_poll_count_matches_its_own_ceiling 断言 1<=calls<50 过宽：interval 误用 0.5（约2次查询）或超时误用 9.99 均落入区间，『误用等待常量』回归可假绿；候选链多元素还会放大查询次数。",
+      "highRiskDomains": [],
+      "prosecution": "被断言的区间是魔数：上界 50 既不由被 patch 的常量推出，也覆盖不了 interval 用错的情形。两条变异取证：(B) 只把上传等待的 interval 换成另一条等待的常量 ⇒ 旧区间全绿，即该用例对 interval 归属零判别力（同一用例里两条 interval 被 patch 成同一个值 0.01，结构上不可能分辨）；(C) 只把 timeout 换成 9.99 ⇒ 靠次数越界才红，而这依赖时序。候选链每轮对其他候选元素也会查可见性，虽然放大的是别的 selector 计数，但整体说明「用次数反推常量」本质上受时序与实现细节双重干扰。",
+      "defense": "次数带不是设计用来分辨 interval 归属的，它只是「消息对、等待错」的第二道保险；Windows sleep 粒度约 15ms 使 0.01s 间隔实际变成约 15ms，实测次数在 3~7 之间漂，收紧区间会把用例挂在机器时序上，产生随负载变化的假红。",
+      "verdict": "upheld",
+      "rationale": "辩护正确否证了「把区间收紧」这条路，但恰恰证明指控成立：如果时序量无法可靠分辨归属，那么把时序量当唯一归属守卫就是缺陷，需要补一个不依赖时序的判据。落地两件事：(1) 魔数 50 换成由被 patch 常量推出的上界（timeout/interval + 3，只卡上限级错误，下界保持 1 并在注释写明 jitter 理由）；(2) 新增 test_upload_wait_is_fed_the_upload_constants，monkeypatch 桩住 dom.wait_until 捕获实参 (timeout_s, interval_s)，四条常量各取唯一值（0.05/0.017 与 9.99/0.023），直接断言配对不被拆开——确定性实参归属，不受 sleep 粒度影响。破坏-恢复实测：变异 B（仅换 interval）⇒ spy 红、区间用例绿（正是旧用例零判别力的直接证据）；变异 C（仅换 timeout）⇒ spy 与区间两条同时红；恢复 ⇒ 68 passed。",
+      "fixApplied": "test_xiaohongshu_dom_hardening.py（区间改为常量推导 + 新增 dom.wait_until 实参 spy 用例）"
+    }
+  ],
+  "adjudicatedAt": "2026-10-09T04:39:30+08:00",
+  "summary": "3 条争议：i1 upheld（判据口径与成本上限必须分成两个常量，未验证假设不许写进注释）、i3 upheld（时序量判不出常量归属，改用实参 spy 钉死配对）、i2 dismissed（机器可读标识符耦合是设计目标，与 §4f-i4 移除的显示措辞耦合不同类，仅补按语）。i1 属生产代码修改（风控双轨扫描口径），i3 属测试加固，i2 仅注释。"
+}
