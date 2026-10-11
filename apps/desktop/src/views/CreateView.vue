@@ -1254,11 +1254,7 @@ export default {
       return strings
     },
     story2videoConfigurationTitle() {
-      return this.translateWithLocaleFallback(
-        'create.story2video.configurationTitle',
-        '故事讲述配置',
-        'Story Telling Configuration'
-      )
+      return this.$t('create.story2video.configurationTitle')
     },
     providerWarningText() {
       if (this.dismissedProviderWarnings) return ''
@@ -1283,18 +1279,10 @@ export default {
       return formatBgmSkippedNotification(compose.bgmSkippedReason).message
     },
     story2videoImageStyleHint() {
-      return this.translateWithLocaleFallback(
-        'create.story2video.imageStyleHint',
-        '控制每张生成图片的视觉外观。',
-        'Controls the visual appearance of generated images.'
-      )
+      return this.$t('create.story2video.imageStyleHint')
     },
     story2videoPromptStyleHint() {
-      return this.translateWithLocaleFallback(
-        'create.story2video.promptStyleHint',
-        '仅控制分镜图片提示词的写法与组织方式，不替代图片风格。',
-        'Controls how image prompts are written and organized; it does not replace image style.'
-      )
+      return this.$t('create.story2video.promptStyleHint')
     },
     s2vMaxPromptLengthOptions: () => [200, 300, 400, 500, 700, 1000, 1500, 2000],
     s2vMaxPromptLengthLabel() {
@@ -1443,13 +1431,13 @@ export default {
     // 顺序与 canStartPipeline 的短路顺序保持一致，避免提示与真实门禁因不一致。
     pipelineBlockedReason() {
       if (this.canStartPipeline) return ''
-      if (!this.selectedPipeline) return this.translateWithLocaleFallback('create.story2video.ui.blockedReason.noPipeline', '请先选择一条流水线', 'Select a pipeline first')
-      if (!this.pipelineAvailable(this.selectedPipeline.name)) return this.translateWithLocaleFallback('create.story2video.ui.blockedReason.unavailable', '该流水线尚未实现执行引擎，暂不能启动', 'This pipeline has no execution engine yet')
-      if (this.startingPipeline) return this.translateWithLocaleFallback('create.story2video.ui.blockedReason.starting', '启动请求处理中，请稍候', 'Start request is in flight, please wait')
-      if (this.isOrchestratedPipeline(this.selectedPipeline.name) && this.orchestrationRunId) return this.translateWithLocaleFallback('create.story2video.ui.blockedReason.running', '已有流水线任务在运行中', 'A pipeline run is already active')
-      if (this.s2vConfigRangeInvalid) return this.translateWithLocaleFallback('create.story2video.ui.blockedReason.invalidRange', '部分数值参数超出允许范围，请检查语速、音量与分镜长度', 'Some numeric options are out of range; check speed, volume and scene length')
-      if (this.inputMode !== 'text') return this.translateWithLocaleFallback('create.story2video.ui.blockedReason.noAsset', '请先添加素材文件', 'Add the required material first')
-      return this.translateWithLocaleFallback('create.story2video.ui.blockedReason.noText', '请先输入视频文案', 'Enter the script text first')
+      if (!this.selectedPipeline) return this.$t('create.story2video.ui.blockedReason.noPipeline')
+      if (!this.pipelineAvailable(this.selectedPipeline.name)) return this.$t('create.story2video.ui.blockedReason.unavailable')
+      if (this.startingPipeline) return this.$t('create.story2video.ui.blockedReason.starting')
+      if (this.isOrchestratedPipeline(this.selectedPipeline.name) && this.orchestrationRunId) return this.$t('create.story2video.ui.blockedReason.running')
+      if (this.s2vConfigRangeInvalid) return this.$t('create.story2video.ui.blockedReason.invalidRange')
+      if (this.inputMode !== 'text') return this.$t('create.story2video.ui.blockedReason.noAsset')
+      return this.$t('create.story2video.ui.blockedReason.noText')
     },
     // ---- 运营后台实时预估（Batch 5b）：分镜数 / 时长区间 / 成本 ----
     s2vEstimateFactors() {
@@ -1722,10 +1710,10 @@ export default {
       }
       if (durationMs === null) return ''
       const durationText = this.formatDuration(durationMs)
-      const durationLabel = this.translateWithLocaleFallback('story2video.summaryDuration', '完成时间共 ' + durationText, 'Finished in ' + durationText, { text: durationText })
+      const durationLabel = this.$t('story2video.summaryDuration', { text: durationText })
       if (Number.isFinite(Number(meta.outputSizeBytes)) && Number(meta.outputSizeBytes) > 0) {
         const mb = (Number(meta.outputSizeBytes) / (1024 * 1024)).toFixed(1)
-        const sizeLabel = this.translateWithLocaleFallback('story2video.summaryFileSize', '文件大小 ' + mb + ' M', 'Size ' + mb + ' MB', { size: mb })
+        const sizeLabel = this.$t('story2video.summaryFileSize', { size: mb })
         return durationLabel + ' · ' + sizeLabel
       }
       return durationLabel
@@ -2308,7 +2296,7 @@ export default {
       if (!this.isOrchestratedPipeline(this.selectedPipeline?.name) || this.s2vRestoring || this.s2vConfigProfileApplying) return
       try {
         await storeSetSetting('story2video.lastOptions.v1', this.buildS2VLastOptions())
-        this.showS2VOptionsToast(this.translateWithLocaleFallback('story2video.optionsSaved', '选项已保存 ✓', 'Options saved ✓'))
+        this.showS2VOptionsToast(this.$t('story2video.optionsSaved'))
       } catch (_) { /* 持久化失败不影响使用 */ }
     },
     scheduleS2VLastOptionsSave() {
@@ -2434,7 +2422,7 @@ export default {
     async saveS2VConfigProfile() {
       const name = String(this.s2vConfigProfileNameDraft || '').trim()
       if (!name) {
-        this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.configProfile.nameRequired', '请输入配置名称', 'Enter a configuration name'), 2200)
+        this.showS2VOptionsToast(this.$t('create.story2video.configProfile.nameRequired'), 2200)
         return
       }
       const pipelineId = this.selectedPipeline?.name
@@ -2443,7 +2431,7 @@ export default {
         const duplicate = this.s2vConfigProfiles.find(p => p.pipelineId === pipelineId && p.name === name)
         if (duplicate) {
           this.s2vConfigProfileOverwriteNeeded = true
-          this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.configProfile.duplicateName', '已存在同名配置，再次点击保存将覆盖它', 'A configuration with this name already exists. Click save again to overwrite it.'), 2200)
+          this.showS2VOptionsToast(this.$t('create.story2video.configProfile.duplicateName'), 2200)
           return
         }
       }
@@ -2459,16 +2447,16 @@ export default {
           const duplicate = result?.code === -2 && /同名|已经存在|already exists|duplicate/i.test(String(result?.message || ''))
           if (duplicate) {
             this.s2vConfigProfileOverwriteNeeded = true
-            this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.configProfile.duplicateName', '已存在同名配置，再次点击保存将覆盖它', 'A configuration with this name already exists. Click save again to overwrite it.'), 2200)
+            this.showS2VOptionsToast(this.$t('create.story2video.configProfile.duplicateName'), 2200)
             return
           }
-          this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.configProfile.saveFailed', '配置保存失败，请稍后重试', 'Could not save the configuration. Please try again.'), 2600)
+          this.showS2VOptionsToast(this.$t('create.story2video.configProfile.saveFailed'), 2600)
           return
         }
         this.s2vConfigProfiles = this.s2vConfigProfiles.filter(p => !(p.pipelineId === pipelineId && p.name === name))
         this.s2vConfigProfiles.push(result.data)
         this.closeS2VConfigProfileSave()
-        this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.configProfile.saved', '配置已保存', 'Configuration saved'))
+        this.showS2VOptionsToast(this.$t('create.story2video.configProfile.saved'))
       } catch (error) {
         this.showS2VOptionsToast(error?.message || '配置保存失败', 2600)
       }
@@ -2489,7 +2477,7 @@ export default {
     },
     async requestApplyS2VConfigProfile(profile) {
       if (!this.s2vConfigProfileCanApply(profile)) {
-        this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.configProfile.wrongPipeline', '该配置属于其他流水线，无法在当前流水线应用', 'This configuration belongs to another pipeline and cannot be applied here.'), 2600)
+        this.showS2VOptionsToast(this.$t('create.story2video.configProfile.wrongPipeline'), 2600)
         return
       }
       if (!this.s2vConfigProfileFormDirty()) {
@@ -2514,13 +2502,13 @@ export default {
       if (!target) return
       const currentPipelineId = this.selectedPipeline?.name || ''
       if (target.pipelineId !== currentPipelineId || (openedPipelineId && openedPipelineId !== currentPipelineId)) {
-        this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.configProfile.wrongPipeline', '该配置属于其他流水线，无法在当前流水线应用', 'This configuration belongs to another pipeline and cannot be applied here.'), 2600)
+        this.showS2VOptionsToast(this.$t('create.story2video.configProfile.wrongPipeline'), 2600)
         return
       }
       const applied = await this.applyS2VConfigProfileSnapshot(target)
       if (applied) {
         this.s2vActiveConfigProfile = target.name || ''
-        this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.configProfile.applied', '已应用配置', 'Configuration applied'))
+        this.showS2VOptionsToast(this.$t('create.story2video.configProfile.applied'))
       }
     },
     async applyS2VConfigProfileSnapshot(profile) {
@@ -2563,7 +2551,7 @@ export default {
         const index = this.s2vConfigProfiles.findIndex(p => p.id === id)
         if (index >= 0) this.s2vConfigProfiles.splice(index, 1, result.data)
         this.s2vConfigProfileRenamingId = ''
-        this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.configProfile.renamed', '配置已重命名', 'Configuration renamed'))
+        this.showS2VOptionsToast(this.$t('create.story2video.configProfile.renamed'))
       } catch (error) { this.showS2VOptionsToast(error?.message || '重命名失败', 2600) }
     },
     requestS2VConfigProfileDelete(profile) {
@@ -2583,7 +2571,7 @@ export default {
         const result = await story2videoConfigProfileDelete(target.id)
         if (!result || result.code !== 0) { this.showS2VOptionsToast((result && result.message) || '删除失败', 2600); return }
         this.s2vConfigProfiles = this.s2vConfigProfiles.filter(p => p.id !== target.id)
-        this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.configProfile.deleted', '配置已删除', 'Configuration deleted'))
+        this.showS2VOptionsToast(this.$t('create.story2video.configProfile.deleted'))
       } catch (error) { this.showS2VOptionsToast(error?.message || '删除失败', 2600) }
     },
     formatS2VConfigProfileTime(ts) {
@@ -2662,7 +2650,10 @@ export default {
       if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return
       const applied = await this._applyS2VSnapshotObject(snapshot)
       if (applied) {
-        this.showS2VOptionsToast(this.translateWithLocaleFallback('story2video.optionsRestored', '已恢复上次的选项设置', 'Restored your last-used options'))
+        // await 续体可能在 vm 卸载后执行（自动保存测试用 fake timers 推进、unmount 后续体才跑），
+        // 此时实例代理上的 $t 已失效——保留 translateWithLocaleFallback 同款存在性防御（见 learnings）
+        const message = typeof this.$t === 'function' ? this.$t('story2video.optionsRestored') : 'story2video.optionsRestored'
+        this.showS2VOptionsToast(message)
       }
     },
     // 2026-08-10 Bug 反哺：恢复「上次使用的选项」时，把不在当前选项列表中的陈旧枚举值
@@ -3239,7 +3230,7 @@ export default {
           this.closeStory2VideoErrorDialog()
           this.story2videoRunMeta = createPipelineRunMetaFromSnapshot(res.data)
           this.pipelineRunStatus = { status: 'running', progress: 0, stages: this.orchestrationStages }
-          this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.resumeUsesCurrentModels', '已从断点继续，将使用当前默认的图片 / 语音 / 视频模型生成缺失素材。', 'Resumed from breakpoint. Missing assets will be generated with your current default image / voice / video models.'), 3200)
+          this.showS2VOptionsToast(this.$t('create.story2video.resumeUsesCurrentModels'), 3200)
           await this.updateOrchestrationStatus()
           if (this.orchestrationRunId && !this.pollTimer) {
             this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
@@ -3435,11 +3426,7 @@ export default {
       return this.needsCheckpoint
     },
     setPipelineProgressStatusError() {
-      this.pipelineProgressStatusError = this.translateWithLocaleFallback(
-        'create.story2video.progressStatusUnavailable',
-        '进度暂时不可用，任务仍在运行，系统将继续重试。',
-        'Progress is temporarily unavailable. The task is still running and will be retried.',
-      )
+      this.pipelineProgressStatusError = this.$t('create.story2video.progressStatusUnavailable')
       if (this.pipelineRunStatus && this.selectedPipeline && !PIPELINE_TERMINAL_STATUSES.includes(this.pipelineRunStatus.status)) {
         this.openPipelineProgressModal()
       }
@@ -3594,11 +3581,11 @@ export default {
           if (!this.applyOrchestrationOutcome(res.data || {}, runId, actionRequestId) && this.isCurrentOrchestrationAction(runId, actionRequestId)) await this.updateOrchestrationStatus()
         } else {
           this.sceneAssetSelectionError = res?.data?.error || res?.message ||
-            this.translateWithLocaleFallback('story2video.sceneAssetSelection.confirmError', '素材选择提交失败，请重试。', 'Failed to submit asset selection. Please try again.')
+            this.$t('story2video.sceneAssetSelection.confirmError')
         }
       } catch (_) {
         if (this.isCurrentOrchestrationAction(runId, actionRequestId)) {
-          this.sceneAssetSelectionError = this.translateWithLocaleFallback('story2video.sceneAssetSelection.confirmError', '素材选择提交失败，请重试。', 'Failed to submit asset selection. Please try again.')
+          this.sceneAssetSelectionError = this.$t('story2video.sceneAssetSelection.confirmError')
         }
       } finally {
         if (this.isCurrentOrchestrationAction(runId, actionRequestId)) this.sceneAssetConfirming = false
@@ -4057,11 +4044,7 @@ export default {
         this.resetPipelineUiState()
         if (!projectId) {
           // 缺少可编辑项目（run-only 记录或项目尚未落盘）：无法跳转编辑页，仅提示用户到历史记录处理。
-          this.s2vOptionsToast = this.translateWithLocaleFallback(
-            'create.story2video.contentPolicyNoProjectToast',
-            '当前任务缺少可编辑项目，请在历史记录中查看并处理。',
-            'This task has no editable project. Please handle it from History.',
-          )
+          this.s2vOptionsToast = this.$t('create.story2video.contentPolicyNoProjectToast')
           return
         }
         const query = { project: projectId }
@@ -4109,7 +4092,7 @@ export default {
           3000
         )
         this.showS2VOptionsToast(
-          this.translateWithLocaleFallback('create.story2video.resumeUsesCurrentModels', '已从断点继续，将使用当前默认的图片 / 语音 / 视频模型生成缺失素材。', 'Resumed from breakpoint. Missing assets will be generated with your current default image / voice / video models.'),
+          this.$t('create.story2video.resumeUsesCurrentModels'),
           3200
         )
       }
@@ -4154,7 +4137,7 @@ export default {
       this.selectedPipeline = (this.pipelines || []).find(p => p.name === pipelineName) || { name: pipelineName, available: true }
       this.view = 'pipelines'
       this.showS2VOptionsToast(
-        this.translateWithLocaleFallback('create.story2video.startForegroundToast', '流水线已启动，正在实时展示进度；离开本页后任务继续后台运行，可在「历史记录」中查看（仍占用并发名额）。', 'Pipeline started. Progress is shown live here; it keeps running in the background after you leave this page, remains visible in History (still occupies a run slot).'),
+        this.$t('create.story2video.startForegroundToast'),
         4000
       )
       await this.updateOrchestrationStatus()
@@ -4737,31 +4720,31 @@ export default {
       if (stage.name === 'split') {
         const scenes = Array.isArray(ctx.split) ? ctx.split : (ctx.split?.scenes || null)
         if (Array.isArray(scenes) && scenes.length > 0) {
-          return this.translateWithLocaleFallback('story2video.splitSceneCount', '拆分为了 ' + scenes.length + ' 个场景', 'Split into ' + scenes.length + ' scenes', { count: scenes.length })
+          return this.$t('story2video.splitSceneCount', { count: scenes.length })
         }
       }
       if (stage.name === 'optimize') {
         const p = ctx.optimize_progress
         if (p && Number.isInteger(p.total) && Number.isInteger(p.done)) {
-          return this.translateWithLocaleFallback('story2video.optimizeProgress', '共 ' + p.total + ' 个场景，已完成 ' + p.done + ' 个', p.done + '/' + p.total + ' scenes optimized', { total: p.total, done: p.done })
+          return this.$t('story2video.optimizeProgress', { total: p.total, done: p.done })
         }
       }
       if (stage.name === 'select_video_scenes') {
         const plan = ctx.video_plan
         if (plan && plan.mode !== 'off' && Number.isInteger(plan.selectedCount) && plan.selectedCount > 0) {
-          return this.translateWithLocaleFallback('story2video.selectVideoScenes', '已选 ' + plan.selectedCount + ' 个 AI 视频场景（约 ' + plan.ratio + '%）', plan.selectedCount + ' AI video scenes selected (~' + plan.ratio + '%)', { count: plan.selectedCount, ratio: plan.ratio })
+          return this.$t('story2video.selectVideoScenes', { count: plan.selectedCount, ratio: plan.ratio })
         }
         if (plan && plan.mode === 'off') {
-          return this.translateWithLocaleFallback('story2video.selectVideoScenesOff', '纯图片轮播模式', 'Image carousel mode')
+          return this.$t('story2video.selectVideoScenesOff')
         }
       }
       if (stage.name === 'generate_assets') {
         const p = ctx.assets_progress
         if (p && Number.isInteger(p.imagesTotal) && Number.isInteger(p.ttsTotal)) {
           if (Number.isInteger(p.videosTotal) && p.videosTotal > 0) {
-            return this.translateWithLocaleFallback('story2video.assetsProgressVideo', '图片 ' + p.imagesDone + '/' + p.imagesTotal + ' · 视频 ' + p.videosDone + '/' + p.videosTotal + ' · 旁白 ' + p.ttsDone + '/' + p.ttsTotal, 'Images ' + p.imagesDone + '/' + p.imagesTotal + ' · Videos ' + p.videosDone + '/' + p.videosTotal + ' · Narration ' + p.ttsDone + '/' + p.ttsTotal, { imagesDone: p.imagesDone, imagesTotal: p.imagesTotal, videosDone: p.videosDone, videosTotal: p.videosTotal, ttsDone: p.ttsDone, ttsTotal: p.ttsTotal })
+            return this.$t('story2video.assetsProgressVideo', { imagesDone: p.imagesDone, imagesTotal: p.imagesTotal, videosDone: p.videosDone, videosTotal: p.videosTotal, ttsDone: p.ttsDone, ttsTotal: p.ttsTotal })
           }
-          return this.translateWithLocaleFallback('story2video.assetsProgress', '图片 ' + p.imagesDone + '/' + p.imagesTotal + ' · 旁白 ' + p.ttsDone + '/' + p.ttsTotal, 'Images ' + p.imagesDone + '/' + p.imagesTotal + ' · Narration ' + p.ttsDone + '/' + p.ttsTotal, { imagesDone: p.imagesDone, imagesTotal: p.imagesTotal, ttsDone: p.ttsDone, ttsTotal: p.ttsTotal })
+          return this.$t('story2video.assetsProgress', { imagesDone: p.imagesDone, imagesTotal: p.imagesTotal, ttsDone: p.ttsDone, ttsTotal: p.ttsTotal })
         }
       }
       if (stage.name === 'compose') {
@@ -4772,9 +4755,9 @@ export default {
             return this.$t('stageProgress.composeConcat', { percent: Math.round(p.percent) })
           }
           if (p.phase === 'segments' && Number.isInteger(p.segmentsTotal) && p.segmentsTotal > 0 && Number.isInteger(p.segmentsDone)) {
-            return this.translateWithLocaleFallback('story2video.composeSegments', '正在合成片段 ' + p.segmentsDone + '/' + p.segmentsTotal + ' · ' + Math.round(p.percent) + '%', 'Composing segment ' + p.segmentsDone + '/' + p.segmentsTotal + ' · ' + Math.round(p.percent) + '%', { done: p.segmentsDone, total: p.segmentsTotal, percent: Math.round(p.percent) })
+            return this.$t('story2video.composeSegments', { done: p.segmentsDone, total: p.segmentsTotal, percent: Math.round(p.percent) })
           }
-          return this.translateWithLocaleFallback('story2video.composeProgress', '视频合成 ' + Math.round(p.percent) + '%', 'Composing ' + Math.round(p.percent) + '%')
+          return this.$t('story2video.composeProgress', { percent: Math.round(p.percent) })
         }
       }
       return ''
@@ -4802,9 +4785,9 @@ export default {
       const minutes = Math.floor(totalSeconds / 60)
       const seconds = totalSeconds % 60
       if (minutes > 0) {
-        return this.translateWithLocaleFallback('story2video.durationMinSec', minutes + ' 分 ' + seconds + ' 秒', minutes + 'm ' + seconds + 's', { minutes, seconds })
+        return this.$t('story2video.durationMinSec', { minutes, seconds })
       }
-      return this.translateWithLocaleFallback('story2video.durationSec', seconds + ' 秒', seconds + 's', { seconds })
+      return this.$t('story2video.durationSec', { seconds })
     },
     startStageClock() {
       if (this._stageClockTimer) return
@@ -4845,7 +4828,7 @@ export default {
       buildStory2VideoTextConfig: (config) => this.buildStory2VideoTextConfig(config),
       modelsRequiredShownItemIds: this._s2vModelsRequiredShownItemIds,
     })
-    this._s2vAlive = true; this._s2vVoicePreview = useS2VVoicePreview(() => ({ unsupportedText: this.translateWithLocaleFallback('story2video.voicePreviewUnsupported', '当前环境不支持语音合成', 'No speech synthesis'), previewText: this.translateWithLocaleFallback('story2video.voicePreviewText', '欢迎使用视频创作流水线。这是一段旁白试听音频，用于预览当前语速和音量效果。', 'Voice preview clip'), }))
+    this._s2vAlive = true; this._s2vVoicePreview = useS2VVoicePreview(() => ({ unsupportedText: this.$t('story2video.voicePreviewUnsupported'), previewText: this.$t('story2video.voicePreviewText'), }))
     this.refreshS2VTemplates()
     this.startStageClock()
     // 「设置 → 模型设置」弹窗关闭后重新加载模型服务商列表（2026-08-12 Bug 修复）：
