@@ -180,11 +180,26 @@ function planCommands (workflowText, pkgScripts) {
     // `nx` 只有经 pnpm 才在 PATH 上（pnpm 会把 node_modules/.bin 注入子进程），
     // 裸 spawn 脚本正文会立刻 rc=1、什么都测不到（本脚本第一次实跑就撞在这条上）。
     //   A 臂 = `pnpm run <script> [转发实参...]`，与 Start-Process 用的 argv 逐字同形。
-    //   B 臂 = 同一条**内部命令**去掉 exclude 那个 token，经 `pnpm exec` 跑 —— 它是负控，
-    //          唯一用途是证明"探针能看见 desktop"，不需要复现 workflow 的外壳。
+    //   B 臂（负控）= 优先走**同一条入口的孪生脚本**（去掉 `:no-desktop` 后缀那条，它自身不带
+    //          exclude，本机实测 nx 声明 13 个包含 desktop）⇒ A/B 唯一的差别是"脚本自身带不带
+    //          那个旗标"，两条臂共用完全相同的调用路径。QM-6 后端轴 Info C1 命中的原先写法
+    //          （B 走 `pnpm exec nx ...`）与 A 的 `pnpm run <script>` 不是同一条解析路径，
+    //          理论上可见到不同包集。只有孪生脚本不存在时才退回 `pnpm exec` 去旗标的形式。
     const runLine = [PM, 'run', scriptName].concat(argv.slice(2)).join(' ')
-    const baseRunLine = hasFlag ? [PM, 'exec'].concat(tokens.filter((t) => t !== EXCLUDE_FLAG)).join(' ') : null
-    entries.push({ mode, scriptName, commandLine, baseCommandLine: hasFlag ? tokens.filter((t) => t !== EXCLUDE_FLAG).join(' ') : null, runLine, baseRunLine, liveRequired: mode === 'full' })
+    const stripped = tokens.filter((t) => t !== EXCLUDE_FLAG)
+    const twinName = scriptName.replace(/:no-desktop$/, '')
+    const hasTwin = twinName !== scriptName && Boolean((pkgScripts || {})[twinName])
+    const baseRunLine = hasFlag ? (hasTwin ? [PM, 'run', twinName].join(' ') : [PM, 'exec'].concat(stripped).join(' ')) : null
+    entries.push({
+      mode,
+      scriptName,
+      commandLine,
+      baseCommandLine: hasFlag ? stripped.join(' ') : null,
+      runLine,
+      baseRunLine,
+      baseKind: hasFlag ? (hasTwin ? 'twin:' + twinName : 'exec-fallback') : null,
+      liveRequired: mode === 'full',
+    })
   }
   return { entries, problems: args.problems.slice() }
 }
@@ -229,6 +244,7 @@ function judge (input) {
     }
     judgeLiveArm(e, e.runLine, 'A（带 ' + EXCLUDE_FLAG + '）', live, problems, evidence)
     judgeLiveArm(e, e.baseRunLine, 'B（去掉 exclude 的负控）', live, problems, evidence)
+    evidence.push(e.mode + ' B 臂来源 ' + e.baseKind + '：' + e.baseRunLine)
 
     const a = parseDeclaredProjects(live[e.runLine])
     if (!a.unparsable && !a.countMismatch && !a.projects.includes(DESKTOP_PROJECT) && a.projects.length < MIN_OTHERS) {
@@ -279,12 +295,34 @@ function judgeLiveArm (entry, commandLine, label, live, problems, evidence, { em
 
 // --- CLI：真跑 A/B -------------------------------------------------------------
 
-function collectDeclaration (shellCommand, { cwd, maxMs = 45000 } = {}) {
+/**
+ * live 臂子进程的环境变量：**必须摘掉运行时出站台账的两个键**。
+ *
+ * 为什么：Gate 4 这一步自己就带 `MP_TEST_EGRESS_LEDGER=<runner.temp>\egress-ledger-unit-tests.jsonl`，
+ * 并在步骤末尾用 `check-test-egress-ledger.js` 按"出现基线之外的新键即红"判定。
+ * 本脚本的 A/B 两臂会**真起测试进程再中途杀掉**（只为读到 nx 的选择声明），
+ * 若让它们继承同一个台账路径，那两次半成品运行就会往被判定的那份台账里写记录 ——
+ * 一次自检把自己判红（同源教训：判据必须落在"取得到证据的位置"，也别落在"会污染证据的位置"）。
+ * 摘掉这两个键即让守卫不写盘；被测的真实运行（Start-Process 那一趟）不受影响。
+ */
+function childEnv (env) {
+  const out = Object.assign({}, env || {})
+  delete out.MP_TEST_EGRESS_LEDGER
+  delete out.MP_TEST_EGRESS_SUITE
+  return out
+}
+
+function collectDeclaration (shellCommand, { cwd, maxMs = 45000, env } = {}) {
   return new Promise((resolve) => {
     let buf = ''
     let settled = false
     const argv = process.platform === 'win32' ? ['/c', shellCommand] : ['-c', shellCommand]
-    const child = spawn(process.platform === 'win32' ? 'cmd.exe' : 'sh', argv, { cwd, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+    const child = spawn(process.platform === 'win32' ? 'cmd.exe' : 'sh', argv, {
+      cwd,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+      env: env || childEnv(process.env),
+    })
     const kill = () => {
       // 只杀**自己 spawn 的**这一棵树（PID 归属明确），不碰任何无法归属的进程。
       try { execFileSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' }) } catch (e) { /* 已退出 */ }
@@ -375,6 +413,7 @@ module.exports = {
   parseDeclaredProjects,
   planCommands,
   judge,
+  childEnv,
   collectDeclaration,
   main,
 }

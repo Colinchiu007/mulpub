@@ -17,7 +17,7 @@
 - **为什么没被拦（比 bug 本身更值得记）**：`.github/scripts/workflow-contract.test.js:202-203` 用正则
   **逐字钉住了这个错误 argv**，且锁与缺陷由同一次提交引入；同一次提交还给相邻的 `desktop-shards` 写了**正确**的
   `"--"`（那里的消费者是 vitest）。同形异义 + 锁只匹配文本形状 ⇒ 缺陷被声明成"受保护形态"。
-  #1897（2026-09-17）在同一段上方 8 行处写了正确的 `nx show projects --affected --exclude=...`，两份用法并存仍无人对照。
+  #1897（2026-09-17）在同一步骤内 14 行之外（现 30 行）写了正确的 `nx show projects --affected --exclude=...`（旗标直给 nx），两份用法并存仍无人对照。
 - **修法（消除可写错的位置，而不是教人写对）**：`package.json` 新增 `test:all:no-desktop` /
   `test:affected:no-desktop`，把排除作为 **nx 旗标写进脚本本身**；Gate 4 调用它们且不再转发任何实参。
   `test:all` / `test:affected` 原样保留（它们是诚实的"全部包"脚本）。

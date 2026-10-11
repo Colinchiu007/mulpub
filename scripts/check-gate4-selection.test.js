@@ -35,6 +35,7 @@ const {
   parseDeclaredProjects,
   planCommands,
   judge,
+  childEnv,
 } = require('./check-gate4-selection.js')
 
 const ROOT = path.resolve(__dirname, '..')
@@ -301,6 +302,58 @@ test('T21 baseRunLine 与 runLine 只相差 exclude 旗标（负控不得偷换�
   assert.equal(full.baseCommandLine, full.commandLine.replace(' ' + EXCLUDE_FLAG, ''))
 })
 
+// --- 评审采纳项：负控同源（C1）、台账隔离、下界与夹具同源（B2） -----------------------
+
+const PKG_WITH_TWIN = Object.assign({}, PKG_FIXED, PKG_LEGACY)
+
+test('T22 负控臂必须走同一条入口的孪生脚本（QM-6 后端轴 Info C1）', () => {
+  // A 臂 `pnpm run test:all:no-desktop` / B 臂 `pnpm run test:all` —— 两条臂共用完全相同的
+  // 调用路径，唯一差别就是脚本自身带不带那个旗标。原写法让 B 走 `pnpm exec nx ...`，
+  // 与 A 不是同一条解析路径，理论上可见到不同包集，负控就不在测同一个变量了。
+  const entries = plan(WF_FIXED, PKG_WITH_TWIN).entries
+  const full = entries.find((e) => e.mode === 'full')
+  const affected = entries.find((e) => e.mode === 'affected')
+  assert.equal(full.baseKind, 'twin:test:all')
+  assert.equal(full.baseRunLine.replace(/\.cmd/, ''), 'pnpm run test:all')
+  assert.equal(affected.baseKind, 'twin:test:affected')
+})
+
+test('T23 孪生脚本不存在时必须退回 exec 形式，且退回必须出声（不得静默变 null）', () => {
+  const entries = plan(WF_FIXED, PKG_FIXED).entries   // PKG_FIXED 里没有无后缀的孪生
+  const full = entries.find((e) => e.mode === 'full')
+  assert.equal(full.baseKind, 'exec-fallback')
+  assert.match(full.baseRunLine, /^pnpm(?:\.cmd)? exec nx run-many /)
+  assert.equal(full.baseRunLine.includes(EXCLUDE_FLAG), false)
+})
+
+test('T24 live 臂子进程不得继承出站台账环境变量（否则自检把自己判红）', () => {
+  // Gate 4 这一步带 MP_TEST_EGRESS_LEDGER 指向"步骤末尾要被判定的那份台账"，
+  // 而 A/B 两臂会真起测试进程再杀掉 —— 继承即污染被判定对象，一次自检变一条红。
+  const child = childEnv({
+    MP_TEST_EGRESS_LEDGER: 'D:\\tmp\\egress-ledger-unit-tests.jsonl',
+    MP_TEST_EGRESS_SUITE: 'unit-tests',
+    PATH: 'keep-me',
+    NX_SKIP_NX_CACHE: 'true',
+  })
+  assert.equal(child.MP_TEST_EGRESS_LEDGER, undefined, '台账路径必须被摘掉：写进去的就是被判定的那份')
+  assert.equal(child.MP_TEST_EGRESS_SUITE, undefined)
+  assert.equal(child.PATH, 'keep-me', '其余变量必须原样保留（nx 依赖 PATH 解析）')
+  assert.equal(child.NX_SKIP_NX_CACHE, 'true')
+  // 不得改动调用方自己的环境对象（判定用的父进程还要写台账）
+  const src = { MP_TEST_EGRESS_LEDGER: 'x' }
+  childEnv(src)
+  assert.equal(src.MP_TEST_EGRESS_LEDGER, 'x', 'childEnv 必须返回副本，不得原地删父进程字段')
+})
+
+test('T25 MIN_OTHERS 与夹具 OTHERS 不得各自漂移（QM-6 后端轴 Warning B2）', () => {
+  // 这条锁挡的是"加了个包/删了个包之后只改一处"：下界若高于夹具规模，判据自己先红；
+  // 下界若被顺手改到 0，"选择集为空"就会被读成排除生效（#2902/#2596 的同源误读）。
+  assert.equal(OTHERS.length, 12, '夹具 OTHERS 的规模变了，请同步 MIN_OTHERS 与本条断言')
+  assert.ok(MIN_OTHERS <= OTHERS.length, '下界 ' + MIN_OTHERS + ' 高于夹具规模 ' + OTHERS.length + '，A/B 永远不可能判绿')
+  assert.ok(MIN_OTHERS >= 1, '下界不得为 0：0 会让「整个选择集为空」被当成排除生效')
+  assert.ok(!OTHERS.includes(DESKTOP_PROJECT), '夹具本身不能含 desktop，否则 B 臂的"含 desktop"永不可能成立')
+})
+
 // --- 真实文件臂：证明测量域是 CI 会执行的那两份 --------------------------------
 test('T16 真实 workflow + package.json：两个模式的 exclude 都必须落在 nx 一侧', () => {
   const workflowText = fs.readFileSync(WORKFLOW, 'utf8')
@@ -310,6 +363,8 @@ test('T16 真实 workflow + package.json：两个模式的 exclude 都必须落�
   assert.equal(p.entries.length, 2, '必须同时覆盖 affected 与 full 两个模式')
   for (const e of p.entries) {
     assert.equal(classifyExcludePlacement(e.commandLine).placement, 'nx', e.mode + ' 侧 exclude 未落到 nx：' + e.commandLine)
+    // 真实仓里两条脚本都有无后缀的孪生 ⇒ 负控必须走同入口那条，而不是 exec 退回形式
+    assert.equal(e.baseKind, 'twin:' + e.scriptName.replace(/:no-desktop$/, ''), e.mode + ' 侧负控没走孪生脚本：' + e.baseRunLine)
   }
 })
 
