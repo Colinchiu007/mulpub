@@ -54,7 +54,7 @@ Write-Host "Window: L=$L T=$T R=$R B=$T size=${w}x${hgt}"
 [WC]::SetForegroundWindow($h) | Out-Null
 Start-Sleep -Milliseconds 500
 
-$OUT = "D:\Data\projects\Mulpub\screenshots\mp"
+$OUT = "D:\Data\projects\mulpub\screenshots\mp"
 if (!(Test-Path $OUT)) { New-Item -ItemType Directory -Path $OUT -Force | Out-Null }
 
 function Click-At($rx, $ry) {

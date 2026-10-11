@@ -1,6 +1,6 @@
 Add-Type -AssemblyName System.Drawing
 
-$OUT = "D:\Data\projects\Mulpub\screenshots\mp"
+$OUT = "D:\Data\projects\mulpub\screenshots\mp"
 if (!(Test-Path $OUT)) { New-Item -ItemType Directory -Path $OUT -Force | Out-Null }
 
 Add-Type -TypeDefinition @'

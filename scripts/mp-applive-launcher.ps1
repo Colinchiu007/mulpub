@@ -4,7 +4,7 @@
 [CmdletBinding()]
 param(
   [string]$Worktree = 'D:/Data/projects/mp-worktrees/mp-app-live2',
-  [string]$Profile  = 'D:/Data/projects/Mulpub/shared-user-data'
+  [string]$Profile  = 'D:/Data/projects/mulpub/shared-user-data'
 )
 $ErrorActionPreference = 'Stop'
 function Write-Info($m){ Write-Host $m }
@@ -31,7 +31,7 @@ if (Test-Path -LiteralPath $pyExe) {
 }
 
 # repo root via git common-dir (parent of shared .git)
-$repoRoot = 'D:/Data/projects/Mulpub'
+$repoRoot = 'D:/Data/projects/mulpub'
 try {
   $common = (git -C $Worktree rev-parse --git-common-dir 2>$null)
   if ($common) { $repoRoot = Split-Path (Resolve-Path $common).Path }

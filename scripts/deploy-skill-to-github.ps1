@@ -1,7 +1,7 @@
 ﻿# 部署更新后的 SKILL.md 到 GitHub 仓库
 # 一键执行：powershell -File scripts/deploy-skill-to-github.ps1
 
-$source = "d:\Data\projects\Mulpub\SKILL.md"
+$source = "d:\Data\projects\mulpub\SKILL.md"
 $targetDir = "D:\Data\projects\github-project-analysis-skill"
 $target = "$targetDir\SKILL.md"
 $originDir = "C:\Users\邱领\profiles\coo\skills\software-development\competitor-tech-analysis"
