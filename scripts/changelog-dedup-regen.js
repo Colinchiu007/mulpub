@@ -72,7 +72,7 @@ function regenerate ({ root, base }) {
 
   const auth = {
     applies_to_base: baseSha,
-    reason: '清理 re-sync 型解冲突造成的历史副本（canonical 口径实测冗余 ' + (a.entries ? (entries.analyze(baseBlob).redundant) : 0) + ' 份），见 issue #3037 与 openspec/changes/dedup-changelog-history/',
+    reason: '清理 re-sync 型解冲突造成的历史副本（canonical 口径实测冗余 ' + (a.entries ? (entries.analyze(baseBlob).redundant) : 0) + ' 份），见 issue #3037 与 openspec/changes/archive/2026-10-10-dedup-changelog-history/',
     owner_pr: 'branch:changelog-history-dedup (issue #3037)',
     expected_titles_reduced: entries.dedupe(myEntry + baseBlob).titlesReduced,
     expected_entries_after: a.entries,

@@ -292,3 +292,39 @@ test('对账器 fail closed：head 零条目 ⇒ 抛并判红，不得读成"零
   assert.equal(reconcileMain(['--root=' + repo.dir, '--base=HEAD^', '--head=HEAD']), 1)
   fs.rmSync(repo.dir, { recursive: true, force: true })
 })
+
+/*
+ * 对账器的 OK 自述必须与它实际判定的性质集合一致（同 PR 的"自述失真"锁）。
+ * 动因：reconcile 实跑 A1–A6（A6 是 QM-6 后端 MAJOR-3 补的 preamble 逐字节不变），
+ * 但成功那行只列 A1–A5 并自称「五项全过」—— 被检项少报一项，读日志的人会以为 preamble 没人看。
+ * 判据取自**源码里真正 push 进 failures 的 A 前缀集合**，不是手写清单（手写清单会跟着漂移）。
+ */
+test('对账器 OK 自述必须覆盖它实际跑的性质，且声明的条数与列出的条数相等', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'changelog-dedup-reconcile.js'), 'utf8')
+  // 注：下面这条锚点对源码排版敏感（整句换成别的写法就漏取），真正兜住「锚点退化成空集合」的是紧随其后的
+// 规模下界断言，不是这条正则本身 —— 改 reconcile 判据排版时必须先看那条还成不成立。
+const implemented = [...new Set([...src.matchAll(/failures\.push\(\s*`A(\d)/g)].map((m) => 'A' + m[1]))].sort()
+  assert.ok(implemented.length >= 5, '判据本身退化（只取到 ' + implemented.length + ' 条 A 性质）—— 空集合会让本锁恒真')
+  const repo = makeGitRepo()
+  commit(repo, `---\n${E('A', 'a1')}${E('B', 'b1')}${E('B', 'b2 更长那份')}${E('C', 'c1')}`, 'base with duplicates')
+  commit(repo, `---\n${E('A', 'a1')}${E('B', 'b2 更长那份')}${E('C', 'c1')}${E('D', '本 PR 自己那条')}`, 'legal dedup + own entry')
+  const lines = []
+  const origLog = console.log, origErr = console.error
+  console.log = (...a) => { lines.push(a.join(' ')); }
+  console.error = (...a) => { lines.push(a.join(' ')); }
+  let rc
+  try { rc = reconcileMain(['--root=' + repo.dir, '--base=HEAD^', '--head=HEAD']) } finally { console.log = origLog; console.error = origErr; }
+  assert.equal(rc, 0, '合法清理必须过，实跑红说明夹具失效而不是锁生效')
+  const okLine = lines.find((l) => /\[changelog-dedup-reconcile\] OK/.test(l))
+  assert.ok(okLine, '必须有一行 OK 自述（没有就没人能从日志知道跑了哪些判据）')
+  for (const a of implemented) {
+    assert.ok(okLine.includes(a), `OK 自述漏报了实际在跑的 ${a}（implemented=${implemented.join(
+)}）`)
+  }
+  const CN = { '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10 }
+  const declared = okLine.match(/([一二三四五六七八九十\d]+)\s*项/)
+  assert.ok(declared, 'OK 自述必须声明判据条数（如「六项全过」）')
+  const n = /^\d+$/.test(declared[1]) ? Number(declared[1]) : CN[declared[1]]
+  assert.equal(n, implemented.length, `声明 ${n} 项，实际跑 ${implemented.length} 项 —— 自述失真`)
+  fs.rmSync(repo.dir, { recursive: true, force: true })
+})

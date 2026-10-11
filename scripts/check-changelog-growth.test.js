@@ -570,3 +570,53 @@ test('退的是授权件不是通路：常量/生成器/校验函数三样都必
   assert.equal(typeof growth.evaluateAuthorization, 'function', '授权通路本体不得被顺手删掉');
   assert.equal(typeof growth.checkDedupShape, 'function', '形状四条判据不得被顺手删掉');
 });
+
+// ══ 自述与实际一致（openspec change 归档后补的锁，见 changelog-ledger-integrity 主规格 R2 场景「祖先」）══
+// 动因：实测 RETIRE_REPO_ROOT 写死成 path.resolve(__dirname,'..')，祖先探测**不走** collect 注入的 root/git，
+// 于是退休分支在单元层无法用夹具跑到（临时仓 sha 在真仓不存在 ⇒ isAncestor=false）。这条锁同时钉住两件事：
+// ①退休必须机读可辨（authorization.retired）并在 stdout 单独成行、点名两个坐标系 sha；②探测必须认注入的 root。
+test('退休放行必须与新鲜授权可区分：retired 进返回值、stdout 单独成行且带两个 sha', () => {
+  const repo = makeRepo();
+  // c1：授权声明的坐标系（之后成为 base 的祖先）
+  commitFiles(repo, { 'CHANGELOG.md': '# [未发布] seed\n\ns\n' }, 'coordinate commit (ancestor of base)');
+  const applied = repo.g(['rev-parse', 'HEAD']).trim();
+  // c2 = base：B 有两份 —— 待清理形状
+  commitFiles(repo, { 'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb\n# [未发布] B\n\nb2\n' }, 'base with duplicate');
+  const curBase = repo.g(['rev-parse', 'HEAD']).trim();
+  // c3 = head：B 削到 1 份（留 pickKeeper 那份 b2）+ 带一份坐标系指向 c1 的授权
+  commitFiles(repo, {
+    'CHANGELOG.md': '# [未发布] A\n\na\n# [未发布] B\n\nb2\n',
+    [AUTH_PATH]: authJson({ applies_to_base: applied, expected_titles_reduced: 1, expected_entries_after: 2 }),
+  }, 'dedup on an already-consumed coordinate');
+  const r = collect({ base: 'HEAD^', head: 'HEAD', root: repo.dir });
+  assert.equal(r.authorizationError, undefined, '退休通路不得报错：' + (r.authorizationError || ''));
+  assert.deepEqual(r.lost, [], '祖先坐标系 + 形状与额度都对 ⇒ 放行（注意它**没有**放宽任何校核）');
+  assert.ok(r.authorization, '结果必须带授权凭据');
+  assert.equal(r.authorization.retired, true, '退休形态必须机读可辨（--json 模式下要能分）');
+  const lines = [];
+  const origLog = console.log, origErr = console.error;
+  console.log = (...a) => { lines.push(a.join(' ')); };
+  console.error = (...a) => { lines.push(a.join(' ')); };
+  let rc;
+  try { rc = main(['--root=' + repo.dir, '--base=HEAD^', '--head=HEAD']); } finally { console.log = origLog; console.error = origErr; }
+  assert.equal(rc, 0, '这一档本应过');
+  // 必须**按行**断言，不能对整体输出做子串匹配：QM-6 maint 轴实测（本 PR 首版就是这个写法），
+  // 把退休文案拼回「例外由授权触发」那一行的尾巴并摘掉独立成行，三条整体断言仍 34/34 全绿 ——
+  // 也就是「混在一行等于没出声」这条 MUST 在锁层面根本不可表示，而它正是本 PR 的核心动机。
+  const retiredLine = lines.find((l) => l.includes('授权坐标系已消费退休'));
+  assert.ok(retiredLine, 'stdout 必须有一行专门打「授权坐标系已消费退休」');
+  assert.ok(!retiredLine.includes('例外由授权触发'), '退休必须单独成行：拼在例外行尾巴上，CI 按行 grep 等于没出声');
+  assert.ok(retiredLine.includes(applied.slice(0, 12)) && retiredLine.includes(curBase.slice(0, 12)),
+    '退休行自身必须逐个携带两个坐标系 sha —— 只断言整体输出会被例外行的 applies_to_base= 顺带满足（maint 轴变异实测）');
+  fs.rmSync(repo.dir, { recursive: true, force: true });
+});
+
+test('regen 写进授权件的规格出处必须真实存在（归档后留旧路径 = 让下一次清理去追一个不存在的目录）', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'changelog-dedup-regen.js'), 'utf8');
+  const root = path.resolve(__dirname, '..');
+  const refs = [...src.matchAll(/openspec\/changes\/[A-Za-z0-9._\/-]+/g)].map((m) => m[0].replace(/\/+$/, ''));
+  assert.ok(refs.length >= 1, 'reason 字段本来就该带规格出处；一条都没有说明自述被删了');
+  for (const rel of refs) {
+    assert.ok(fs.existsSync(path.join(root, rel)), `regen 的 reason 指向不存在的路径 ${rel}（change 归档后要同步改成 archive/<date>-<name>/）`);
+  }
+});

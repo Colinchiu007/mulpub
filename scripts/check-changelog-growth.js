@@ -153,16 +153,22 @@ const AUTH_REQUIRED = ['applies_to_base', 'reason', 'owner_pr', 'expected_titles
  * 文本与 baseSha，无法自己做对象库查询。
  */
 const RETIRE_REPO_ROOT = path.resolve(__dirname, '..');
-function execFileSync_ForAncestor (appliedBase, curBase) {
+// root 由调用方注入是 CI/collect 路径的硬要求：本仓 collect 的一切取数都走注入的 root/git，只有这条探测曾写死
+// 脚本所在仓，结果是夹具永远跑不到退休分支（临时仓的 sha 在真仓不存在 ⇒ 恒判「坐标系错位」），CI 侧侥幸同仓才对得上。
+// 下面 `|| RETIRE_REPO_ROOT` 只兜住「不带 root 直调 evaluateAuthorization」的函数层用例（`...-retire.test.js` 五条
+// 都不传 root、直接喂真仓 sha，删掉兜底它们就改绑 ambient cwd）；新调用点必须显式传 root，否则又回到「夹具跑不到」
+// 那一档。collect 侧的 `root || process.cwd()` 兜底目前**无测试覆盖**，已作为遗留登记在
+// openspec/records/changelog-gate-selfreport.md。
+function execFileSync_ForAncestor (appliedBase, curBase, root) {
   return execFileSync('git',
     ['merge-base', '--is-ancestor', appliedBase, curBase],
-    { cwd: RETIRE_REPO_ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    { cwd: root || RETIRE_REPO_ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
 }
 /**
  * 判授权是否成立。**默认路径必须返回 granted:false 且 fatal:null** ——
  * 也就是"没有授权 = 一切照旧"，任何异常都只能是 fatal，不许悄悄当成没授权。
  */
-function evaluateAuthorization({ authHeadText, authBaseText, baseSha }) {
+function evaluateAuthorization({ authHeadText, authBaseText, baseSha, root }) {
   if (authHeadText === null) return { granted: false, fatal: null };
   if (authBaseText !== null) {
     return { granted: false, fatal: `授权文件不是本次新增（base 里已存在 ${AUTH_PATH}）—— 例外只服务一次性清理，不得被后续 PR 白蹭` };
@@ -196,7 +202,7 @@ function evaluateAuthorization({ authHeadText, authBaseText, baseSha }) {
     try {
       // git merge-base --is-ancestor 的退出码 0 = 祖先成立；
       // 这里的 git 参数形态由调用方（runCheck 的 runGit）注入，与上层一致
-      execFileSync_ForAncestor(appliedBase, curBase)
+      execFileSync_ForAncestor(appliedBase, curBase, root)
       isAncestor = true
     } catch (_) { isAncestor = false }
     if (isAncestor) {
@@ -335,7 +341,7 @@ function collect({ base, head, root, git } = {}) {
     const authHeadText = readBlobOrNullText(runGit, head, AUTH_PATH);
     if (authHeadText === null) return out;
     const authBaseText = readBlobOrNullText(runGit, base, AUTH_PATH);
-    ev = evaluateAuthorization({ authHeadText, authBaseText, baseSha: resolveSha(runGit, base) });
+    ev = evaluateAuthorization({ authHeadText, authBaseText, baseSha: resolveSha(runGit, base), root: root || process.cwd() });
   } catch (e) {
     out.authorizationError = e.message;
     return out;
@@ -374,6 +380,9 @@ function collect({ base, head, root, git } = {}) {
       path: AUTH_PATH,
       ownerPr: ev.auth.owner_pr,
       appliesToBase: ev.auth.applies_to_base,
+      // 两种 granted 形态必须可区分：退休放行不是"白蹭旧授权"，但它在日志里长得和新鲜授权一样就无从归因。
+      retired: ev.retired === true,
+      retiredReason: ev.retiredReason || null,
       titlesReduced: shape.titlesReduced,
       copiesRemoved: shape.copiesRemoved,
       heterogeneousTitles: shape.heterogeneousTitles,
@@ -416,6 +425,10 @@ function main(argv) {
     // 例外生效必须出声：静默放行等于"判据被人改宽了但没人知道"，那正是本仓反复出事的形态。
     console.log(`[changelog-growth] 例外由授权触发：${a.titlesReduced} 种标题各削到 1 份、共减少 ${a.copiesRemoved} 份副本，`
       + `条目 ${a.baseEntries} -> ${a.headEntries}（${a.path}，owner_pr=${a.ownerPr}，applies_to_base=${String(a.appliesToBase).slice(0, 12)}）`);
+    if (a.retired) {
+      // 单独成行而不是拼在上一句尾巴：CI 日志按行 grep，混在一行里等于没出声。
+      console.log(`[changelog-growth] 授权坐标系已消费退休：${a.retiredReason}`);
+    }
     if (a.heterogeneousTitles > 0) {
       // 这条不是装饰：它把"哪一份活下来"从隐性策略变成必须被人看见的数字（QM-6 Q5）。
       console.log(`[changelog-growth] ⚠ 其中 ${a.heterogeneousTitles} 种标题的副本内容**互不相同**，`
