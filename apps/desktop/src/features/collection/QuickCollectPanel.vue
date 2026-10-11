@@ -348,7 +348,7 @@ defineExpose({ run, load, openAdd, openEdit, onSave, remove, errorTextOf })
   gap: 6px;
 }
 .qc-icon {
-  font-size: 16px;
+  font-size: var(--font-size-lg);
 }
 .qc-title {
   font-weight: 600;
