@@ -107,10 +107,10 @@ export LD_LIBRARY_PATH="$LIBS_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export DISPLAY="${DISPLAY:-:0}"
 
 # ── 4b. 共享 userData（WSL/Windows 数据一致）────────────────────────
-# 锚点位于共享主仓库 /mnt/d/Data/projects/Mulpub/shared-user-data。
+# 锚点位于共享主仓库 /mnt/d/Data/projects/mulpub/shared-user-data。
 # Linux worktree（~/mp-wsl-deps/mp-wsl）不含该目录，startup-compat 上溯找不到锚点，
 # 因此这里显式传 --user-data-dir 指向共享目录，确保两端共用同一数据。
-SHARED_DATA_DIR="/mnt/d/Data/projects/Mulpub/shared-user-data"
+SHARED_DATA_DIR="/mnt/d/Data/projects/mulpub/shared-user-data"
 if [[ ! -f "$SHARED_DATA_DIR/.shared-data-anchor" ]]; then
   echo "❌ 共享数据锚点缺失: $SHARED_DATA_DIR/.shared-data-anchor" >&2
   echo "   请先在 Windows PowerShell 或 WSL 创建：" >&2

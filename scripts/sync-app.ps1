@@ -16,7 +16,7 @@
 [CmdletBinding()]
 param(
   [string]$Worktree = 'D:/Data/projects/mp-worktrees/mp-app-live2',
-  [string]$Profile  = 'D:/Data/projects/Mulpub/shared-user-data',
+  [string]$Profile  = 'D:/Data/projects/mulpub/shared-user-data',
   [switch]$PrepareOnly,
   [switch]$Safe
 )
@@ -36,7 +36,7 @@ if ($nodeExe) { $env:Path = (Split-Path $nodeExe -Parent) + ';' + $env:Path }
 else { Write-Info 'WARN: node not found on PATH; pnpm/node calls may fail' }
 
 # 1. resolve main repo root: parent of the shared .git (works for worktree and main)
-$repoRoot = 'D:/Data/projects/Mulpub'
+$repoRoot = 'D:/Data/projects/mulpub'
 try {
   $common = (git -C $Worktree rev-parse --git-common-dir 2>$null)
   if ($common) { $repoRoot = Split-Path (Resolve-Path $common).Path }

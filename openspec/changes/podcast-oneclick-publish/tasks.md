@@ -44,10 +44,12 @@
 
 ## 4. 刀 4 文案一键出期（后续 PR）
 
-- [ ] 4.1 口语化分段 prompt（独立于 `rewrite-engine` 的去 AI 味链路）
-- [ ] 4.2 分块 TTS 装配（块间显式静音、单任务硬超时、非法 env 回落并出声）
-- [ ] 4.3 复用刀 3 手柄接入 `CopyLibraryView.vue:174`、`RewriteView.vue:812`、`Publish.vue:358`
+- [ ] 4.1 口语化分段 prompt（**独立于** `rewrite-engine` 的去 AI 味链路：那是"读起来像人写的"，这是"听起来像人说的"）；输出必须保持输入的换行/分段结构、终止标点原样、段尾无标点不得追加（AGENTS.md「后处理结构不变量」）
+- [ ] 4.2 分块 TTS 装配：块上限 **2000 码点**（⛔ 不是 provider 的 4000——`asset-generator.js:1031` 是 `slice(0,4000)` 的**静默截断**，超上限整篇喂进去会丢内容且不报错）；块边界只落在段落或句末终止标点，切不开即 `PODCAST_TTS_CHUNK_UNSAFE` 拒绝而非硬切；唯一合成出口 `AssetGenerator.generateTTS(text, opts)`（禁止直调各家 `synthesize`，入参键名三家不同）；逐块**串行** + 沿用 `withAssetTransientRetry` 3/4 次退避；块间 0.3–0.6s 静音由**预物化的 `anullsrc` 片段**参与 concat（`adelay`/`loudnorm` 都不在 `REQUIRED_FILTERS`，不得用）；逐块 `degraded` 汇总门禁：任一块退化为静音即整次拒绝（`PODCAST_TTS_CHUNK_DEGRADED`，块号进 issues），全失败给 `PODCAST_TTS_ALL_FAILED`
+- [ ] 4.3 复用刀 3 手柄（**只换 `extractMix` 这一站的实现**，`probe` 及之后逐字复用；不得改 `PHASES` 闭集，改枚举必须与逐格结果态测试同 PR）接入 `CopyLibraryView.vue:174`、`RewriteView.vue:812`、`Publish.vue:358`；入口判据与刀 5 同表（HotTopics/KeywordMonitor/PublishHistory/Home/FirstRun/FilmEngineering 不放）
 - [ ] 4.4 存量 `mime` 一次性固化（`stockStamp` 标记），不得把存量整体打成 blocked
+- [ ] 4.5 **音色默认值的两层事实**（PRD §7.4.0 第 1 条）：仓内**不存在**跨 provider 的"全局默认音色"，只有 capability 级 `defaultVoiceId` 与用户偏好 `tts-voice-preference:v1:<providerId>:<model>` 两层；频道 `voiceRef` 三段（providerId/model/voiceId）同存或同缺，回退顺序 ①频道 ②用户偏好 ③capability 默认 ④都无则 `PODCAST_TTS_VOICE_UNRESOLVED` 拒绝，**禁止**用"某个 provider 的第一个音色"猜。②③ 命中时界面必须标注来源三态
+- [ ] 4.6 **不做响度归一**（PRD §7.4.0 第 2 条）：`loudnorm` 不在打包媒体工具的已验证滤镜清单，引入它需同 PR 改 `media-tools-lock.json` + `before-pack` 校验 + 重打包实测，是另一条混合 PR 的体量。本期以"全期同一组 voice/rate/pitch/format 参数"换取块间一致，并在 PRD §13 明写跨 provider 降级时各块响度可能不一致这一接受项
 
 ## 5. 刀 5 收口
 
