@@ -2,9 +2,6 @@
 record: podcast-episode-ipc-impl-s2
 task: 刀 3 第 3 片——成片一键出期的真实宿主接线层 + publishFromVideo/取消两条 IPC 通道（含 3.8 W1–W3 与两条 Info 处置）
 date: 2026-10-11
-sync_status: PENDING
-sync_reason: 本 PR（#3302）尚未合并，merge SHA 还不存在；合并后由回填 PR 改写为 PASS + merge SHA，并整段删除本三个 sync_ 字段
-sync_backfill_owner: 下一个会话（同一 agent 收尾链：合并 → 回填 → 销账 → worktree 清理）
 ---
 
 # 本次执行记录：播客刀 3 第 3 片——出期真实宿主接线 + publishFromVideo 双通道（podcast-episode-ipc-impl-s2，2026-10-11）
@@ -71,5 +68,5 @@ PRD §6.4 原文把取消写成「`cancelToken`：`{ cancelled: boolean }`，由
 
 ## 远程同步
 
-| 远程同步 | PENDING |
+| 远程同步 | PASS | 已合并：PR #3302，merge 46736edf5ae1ea50d1e67f78226fee036eab4d71（2026-10-11，squash）。取证：`git log origin/main --grep "(#3302)" --format=%H^|%cI`；本次回填同一次提交删除 ledger 登记项与记录文件 frontmatter 的 sync_ 字段 |
 | --- | --- |
