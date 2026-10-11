@@ -2,7 +2,7 @@
 
 ## 1. 一句话需求
 
-`QG Visual` 的 Gate 7 用 `|| views_exit=$?` 把三套视图/暗档套件的退出码**捕获后从不判定**，于是一个自 2026-10 起每次 main push 都发生的失败被静默吞了一个多星期。本 change 做两件事：① 修掉这个具体失败的根因（选择器指向了该路由上不存在的节点）；② 把「就绪超时」这一类**确定性**故障与「像素差异」这一类**交给基线门禁判定**的故障分开，前者变成阻断，后者维持由 Gate 7b 负责。
+`QG Visual` 的 Gate 7 用 `|| views_exit=$?` 把三套视图/暗档套件的退出码**捕获后从不判定**，于是一个自 2026-10 起每次 main push 都发生的失败被静默吞了一个多星期。**归属先看 §2b**：选择器那一半在 re-sync 时遇到 main 已由另一会话独立改掉，本 PR 的净差量是「捕获而不判定」那一道判定与分档机制。本 change 做两件事：① 修掉这个具体失败的根因（选择器指向了该路由上不存在的节点）；② 把「就绪超时」这一类**确定性**故障与「像素差异」这一类**交给基线门禁判定**的故障分开，前者变成阻断，后者维持由 Gate 7b 负责。
 
 ## 2. 现场（全部当场取证，不是推测）
 
@@ -16,6 +16,29 @@ main push run `38104148726`（head `337f17257`）/ job `QG Visual` id `114366028
 ```
 
 同一份日志里暗档套是 `像素结果[dark]: 20/20 通过`。⇒ **`views=1` 与 "All visual tests passed" 在同一步内共存**。
+
+## 2b. 与 main 的相遇（归属与本 PR 的净差量）
+
+re-sync 时 `all-views.visual.test.js` 的 `film-engineering` 登记行与 origin/main 冲突 —— **另一会话已经独立把同一个选择器改掉了**。origin/main 当时是：
+
+```js
+routeView('film-engineering', '/film-engineering', '.film-hub-view'),
+// #3234 三标签重组后 /film-engineering 是 Hub 页（默认「自动」标签，画布懒挂载）——
+// 就绪探针等 Hub 稳定根；等 .film-canvas-view 会 15s 超时（batch-teleport-fix 实测）
+```
+
+两侧结论语义相同、出处不同，所以归属必须写清：**选择器那一半不是本 PR 独占的发现**。解法取**更深的锚点** `.film-hub-view .fh-title`（Hub 在任何标签下都渲染的 `<h1>`），并把两侧注释合并、保留对方出处；判据仍由 R7 从 `router/index.js` + Hub 源码自行推导根类名前缀，不写死字符串相等。
+
+本 PR 的**净差量**当场用 `git show origin/main` 对照过（不是推断）：
+
+| 项 | origin/main 实测 | 本 PR |
+| --- | --- | --- |
+| Gate 7 是否有 `= 3` 判定 | **无** | 有（四个套件逐个判） |
+| 是否有 `$suitesNotReady` | **无** | 有 |
+| `|| views_exit=$?` 是否仍在吞退出码 | **仍在** | 改为逐个取 `$LASTEXITCODE` 并参与判定 |
+| 是否有 `ready-classification` 模块 | **无** | 有（两套共用判据**与失败对象合成**） |
+
+⇒ **main 上"视图从未渲染出来"依然不可判**：选择器修好之后它暂时不再发生，但一旦再发生（新视图登记错、Hub 结构调整、路由改名），没有任何东西会拦 —— 本 PR 交付的是那一道判定，而不是那条别人也能走到的选区修复。
 
 ## 3. QM-5 五步
 
@@ -141,7 +164,7 @@ const mountedTabs = ref(new Set([activeTab.value]))   // 初始只挂 'auto'
 1. `pnpm exec vitest run tests/visual-testing/visual-readiness-classification.test.js` 全绿，R1–R15 逐条存在（实测 `Tests 15 passed (15)`，含 §8 两次评审补的 R12–R15）。
 2. 消费者并集全跑（`git grep` 反查引用被改模块的测试文件）：`tests/visual-ci.test.js` + `tests/visual-testing/condition-waiting.test.js` + `electron/tests/visual-view-runner.test.js` + 本条新测试 ⇒ 实测 `4 passed / Tests 72 passed (72)`（§8 两次修复后复跑）。
 3. `node --test .github/scripts/workflow-contract.test.js` 全绿，含新结构锁（实测 `35 pass / 0 fail`，改前基线 34）。
-4. 本 PR 自己的 `QG Visual` 现场：`[GATE-7] suite exits: pixel=0 views=0 views-supplement=0 dark=0`（`views` 必须由 1 变 0）且 `[GATE-7] All visual tests passed` 与之一致 —— 这一条是"根因真的被修掉"的唯一现场证据。
+4. 本 PR 自己的 `QG Visual` 现场：`[GATE-7] suite exits: pixel=0 views=0 views-supplement=0 dark=0`（`views` 必须由 1 变 0）且 `[GATE-7] All visual tests passed` 与之一致。这条现场证明的是**「Gate 7 在这个 head 上真的判了，且没有就绪故障被吞」**；"根因被修掉"不能单独记在本 PR 头上 —— 见 §2b，main 已独立修掉同一选择器。
 5. 变异 N1–N8 逐个实测变红并逐字节还原（见 §5 表 + §8，`red=8/8 notRed=0`）。
 6. 混合 PR（含 `apps/`、`.github/`）⇒ `classify-docs-only` 必 `docs-only=false`。
 

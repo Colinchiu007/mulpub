@@ -14,7 +14,7 @@ sync_backfill_owner: 下一个动这些文档的会话（PR 号必须回读：`g
 
 ### 做了什么
 
-1. **根因**：`routeView('film-engineering', '/film-engineering', '.film-canvas-view')` 指向的节点**不在该路由上** —— `/film-engineering` 渲染 Hub（`.film-hub-view`），canvas 是 `v-if="isMounted('canvas')"` 的懒挂载标签页（默认 `auto`），所以每次 run 都烧满 15s 就绪预算后抛超时。锚点改为 `.film-hub-view .fh-title`。
+1. **根因**：`routeView('film-engineering', '/film-engineering', '.film-canvas-view')` 指向的节点**不在该路由上** —— `/film-engineering` 渲染 Hub（`.film-hub-view`），canvas 是 `v-if="isMounted('canvas')"` 的懒挂载标签页（默认 `auto`），所以每次 run 都烧满 15s 就绪预算后抛超时。锚点改为 `.film-hub-view .fh-title`。**归属**：re-sync 时该行与 origin/main 冲突，另一会话已独立把同一选择器改成 `.film-hub-view`（出处 #3234 / batch-teleport-fix），本 PR 取更深的锚点并合并两侧注释；本 PR 的净差量是 Gate 7 的 `= 3` 判定与 `ready-classification` 分档（实测 main 两者都没有），详见 PRD §2b。
 2. **分档**：新增唯一实现 `apps/desktop/tests/visual-testing/ready-classification.js`，按 `error.code`（`ERR_VISUAL_APP_READY_TIMEOUT` / `ERR_VISUAL_READY_SELECTOR_TIMEOUT`）把「视图从未渲染出来」与「像素/校验失败」分开；就绪 ⇒ `ERR_VISUAL_NOT_READY` ⇒ **exit 3**。
 3. **两套 `runViewSuite` 共用同一份分类**（`all-views` 与 `supplementary-views` 各有一份聚合循环，只改一侧会让 Gate 7 的另一条判定永远点不到火）。
 4. **Gate 7 参与判定**：四个套件退出码任一 `= 3` ⇒ 在 `$pixelExit` 判定之前 `exit 3` 并点名套件；`1` 仍交 Gate 7b 的两轮甄别（把「非 0 即拦」当收敛会把真实存在的采集抖动变成所有 PR 的常量红）。
