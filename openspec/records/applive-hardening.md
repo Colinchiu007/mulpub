@@ -2,10 +2,6 @@
 record: applive-hardening
 task: 应用启动白屏防护：Vite 存活探针 + 可选自愈（env 门控，默认关闭）+ 白屏根因 runbook
 date: 2026-10-12
-# ↓ 远程同步尚无法收口：本 PR 未合并、merge SHA 不存在。合并后回填时删除 sync_* 三字段并销 ledger 登记项。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 尚不存在，远程同步状态无法收口为 PASS
-sync_backfill_owner: 下一个会话（合并后回填 PASS + merge SHA，并同一次提交删除 sync_* 三字段与 scripts/gate-record-debt-ledger.json 的本条登记项）
 ---
 
 ## 本次执行记录：应用启动白屏防护——Vite 存活探针 + 可选自愈（applive-hardening，2026-10-12）
@@ -21,7 +17,7 @@ sync_backfill_owner: 下一个会话（合并后回填 PASS + merge SHA，并同
 | 接线棘轮 | PASS | 新增 `scripts/mp-applive-launcher.test.ps1` 由 `quality-gate.yml` Gate 2d 显式 `pwsh ... -File scripts/mp-applive-launcher.test.ps1` 点名，避免"写了测试却未被 CI 收集" |
 | QM-1 打包 / QM-4 视觉 | N/A | 本次仅改动 `scripts/*.ps1` launcher 与 `.github/workflows/`；QM-1 触发条件（修改 `apps/desktop/electron/` 或 `packages/rpa-engine/`）不命中，无打包/视觉面 |
 | QM-6 CCG 双模型外部评审 | 未执行 | 本机无 `codeagent-wrapper` 双模型评审器，按 `_TEMPLATE.md` 如实写「未执行」，不冒充通过；变更以纯 ASCII launcher 脚本 + 测试 + CI 接线为主，门禁由 Gate 2d 测试与 QM-1 豁免覆盖 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin applive-hardening` 返回 0 行证远端分支已删；回填后删除上方三个 `sync_*` 字段与 ledger 登记项 |
+| 远程同步 | PASS | 11782ecb60ffd3a446022d09263f2e93713dda2b (2026-10-12T01:26:19+08:00) |
 
 ### 遗留（不假装已闭合）
 
