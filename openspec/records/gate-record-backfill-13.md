@@ -2,16 +2,13 @@
 record: gate-record-backfill-13
 task: 回填 ci-quality-rhythm-whitelist（#3188）与 pr-dark-baseline-gate（#3221）的远程同步行并销账，并对齐 gate-record-backfill-12（#3145）正文里与既有 PASS 行矛盾的 PENDING 措辞
 date: 2026-10-09
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个动这些文档的会话（PR 号待 `gh pr list --repo Colinchiu007/Multi-Publish --head gate-record-backfill-13 --json number,state,headRefOid` 回读取入，不得凭印象；合并后按 git log origin/main --grep='(#NNNN)$' --format=%H|%cI 取 merge SHA，回填本行并整段删除 frontmatter 的三个 sync_* 字段）
 ---
 
 ## 本次执行记录：回填 #3188 / #3221 远程同步并纠正 #3145 的 PENDING 措辞（gate-record-backfill-13，2026-10-09）【docs-only】
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD`（**提交后**复跑）→ 结果见下表
 - 变更类型与隔离声明：纯文档/流程变更（只动 `openspec/records/*.md`），按分层规则本可就地编辑；因并发会话多、且回填要跑取证脚本，仍走隔离 worktree `mp-gate-record-backfill-13`（分支 `gate-record-backfill-13`），经 PR 落地
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 编码完整性 ✅ | 文档同步 ✅ | Gate 2c ✅ | 远程同步 PENDING（本条自己的欠账）
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 编码完整性 ✅ | 文档同步 ✅ | Gate 2c ✅ | 远程同步 PASS（PR #3229 已 squash 合并，main `a3e632c3cba0646715a79c34f4aad262ae1083fe` @ 2026-10-10T00:07:00+08:00；取证 `git log origin/main --grep='(#3229)$' --format=%H|%cI` 恰 1 行、`git ls-remote --heads origin gate-record-backfill-13` 返回 0 行；本记录未登记 ledger，无登记项可删）
 
 ### 这批实际收了几笔：2 真收 + 1 措辞对齐，不是 3 真收
 
@@ -55,7 +52,7 @@ sync_backfill_owner: 下一个动这些文档的会话（PR 号待 `gh pr list -
 
 | 门禁 | 状态 | 取证与后续动作 |
 | --- | --- | --- |
-| 远程同步 | PENDING | 本 PR 尚未合并，merge SHA 还不存在。合并后由后续回填轮把本行改写为 `PASS（PR #NNNN → main <sha> @ <committer ISO8601>）`，并在**同一次提交**删除 frontmatter 的 `sync_status`/`sync_reason`/`sync_backfill_owner` 三字段与本行以外的 PENDING 措辞；取证一律用 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` + `git ls-remote --heads origin gate-record-backfill-13`（须 0 行），不得凭记忆抄写。 |
+| 远程同步 | PASS（PR #3229 已 squash 合并，main `a3e632c3cba0646715a79c34f4aad262ae1083fe` @ 2026-10-10T00:07:00+08:00；取证 `git log origin/main --grep='(#3229)$' --format=%H|%cI` 恰 1 行、`git ls-remote --heads origin gate-record-backfill-13` 返回 0 行；本记录未登记 ledger，无登记项可删） | 本 PR 尚未合并，merge SHA 还不存在。合并后由后续回填轮把本行改写为 `PASS（PR #NNNN → main <sha> @ <committer ISO8601>）`，并在**同一次提交**删除 frontmatter 的 `sync_status`/`sync_reason`/`sync_backfill_owner` 三字段与本行以外的 PENDING 措辞；取证一律用 `git log origin/main --grep='(#NNNN)$' --format=%H |
 
 ### 本地门禁
 

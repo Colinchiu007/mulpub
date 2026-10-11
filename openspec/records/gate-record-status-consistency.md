@@ -2,15 +2,12 @@
 record: gate-record-status-consistency
 task: 给执行记录「远程同步」的两种书写形态加同篇对账判据，并对齐存量 8 篇说谎的 bullet
 date: 2026-10-10
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个动这些文档的会话（PR 号待 `gh pr list --repo Colinchiu007/Multi-Publish --head gate-record-status-consistency --json number,state,headRefOid` 回读取入，不得凭印象；合并后按 git log origin/main --grep='(#NNNN)$' --format=%H|%cI 取 merge SHA，回填本行并整段删除 frontmatter 的三个 sync_* 字段，同时把正文「保留门禁」那句一起改成 PASS —— 本 PR 新增的判据正是用来抓这两处不一致的）
 ---
 
 ## 本次执行记录：执行记录两种形态的对账判据（gate-record-status-consistency，2026-10-10）
 
 - 变更类型与分层：改 `scripts/check-gate-record-debt.js`（门禁判据自身）+ `scripts/*.test.js` + 8 篇存量记录 + `AGENTS.md` + `CHANGELOG.md` + 新增 PRD ⇒ **混合 PR**，`classify-docs-only` 必然 `docs-only=false`，走完整质量节拍；在隔离 worktree `mp-gate-record-status-consistency`（分支 `gate-record-status-consistency`）完成，经 PR 落地。
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 编码完整性 ✅ | 文档同步 PENDING（随 CI） | 远程同步 PENDING（本条自己的欠账）
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 编码完整性 ✅ | 文档同步 PASS（CI `文档同步检查` = pass） | 远程同步 PASS（PR #3274 已 squash 合并，main `d515fbc608855bedbcf160776d55a675bca0ca18` @ 2026-10-11T00:19:08+08:00；取证 `git log origin/main --grep='(#3274)$' --format=%H|%cI` 恰 1 行、`git ls-remote --heads origin gate-record-status-consistency` 返回 0 行；CI 上 `QG Changes`（含 Gate 2c 新判据）、`QG Visual`、`文档同步检查` 均 pass）
 
 ### QM-5 五步（本 PR 修的是「门禁看不见的那半句谎话」，不是改表面）
 
@@ -77,4 +74,4 @@ M1 摘掉矛盾 push（3 红）｜M2 只放宽邻接（**没红——证明这�
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 远程同步 | PENDING | 本 PR 尚未合并；合并后由后续回填轮改写为 PASS 并同次删除 frontmatter 三字段与本条 bullet 的 PENDING 措辞 |
+| 远程同步 | PASS（PR #3274 已 squash 合并，main `d515fbc608855bedbcf160776d55a675bca0ca18` @ 2026-10-11T00:19:08+08:00；取证 `git log origin/main --grep='(#3274)$' --format=%H|%cI` 恰 1 行、`git ls-remote --heads origin gate-record-status-consistency` 返回 0 行；CI 上 `QG Changes`（含 Gate 2c 新判据）、`QG Visual`、`文档同步检查` 均 pass） | 本 PR 尚未合并；合并后由后续回填轮改写为 PASS 并同次删除 frontmatter 三字段与本条 bullet 的 PENDING 措辞 |
