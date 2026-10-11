@@ -1,3 +1,26 @@
+# [未发布] feat(podcast): 播客刀 3 前两片——成片降级判定、混音抽取实测与出期编排收口（2026-10-11，podcast-episode-publish）
+
+## 背景
+
+刀 2 之后，「一键发布」只能把**已经是公网直链**的单集推上 feed：用户手工登记的本地文件仍然发不出去，而成片（本项目最主要的产出）根本进不了播客链。刀 3 要补的是「成片 → 一期」这一段。这一片先立**判定与收口**，不接真实宿主。
+
+## 改动
+
+- **降级判定 `podcast-episode-source.js`**：从项目持久化数据读 `segments[].audioMeta.degraded`，与结果页 `ResultView.vue` 的降级徽标**同真源同判据**；判据只认 `degraded === true`，**不得**拿 `source` 字符串当第二判据（静音占位旁白的 `source` 也可能写着模型名，用它判会把真旁白误杀、也会把占位当成可用音轨放行）。命中即 `PODCAST_AUDIO_DEGRADED_SOURCE`，在任何出站与写盘之前拒绝。
+- **抽取与实测 `podcast-episode-extract.js`**：ffmpeg 抽**完整混音**（不是旁白轨），ffprobe 实测 `durationSec` / `sizeBytes` 并由容器显式推导 `mime`——不依赖 feed 构建层那套「按 URL 猜 mime」的兜底。无音轨、抽取失败、编码器缺失三种成因**分别给码**，一律 fail closed 且不回退旁白；降级判定与拒绝全部发生在任何出站之前。宿主进程调用经注入（`spawnImpl`），本层零真实进程。
+- **出期编排 `podcast-episode-publish.js`**：主进程持有整条跨 await 的链（抽混音 → 实测 → 上传音频 → 挂期 → 重建 feed → 上传 feed）。三条承重设计：① **相位是闭集**且「取消只在 `uploadAudio` 之前允许」——之前零出站零计费、回滚只是删临时文件，之后取消会留下「对象存储有、feed 没有」的半态，界面必须给理由而不是静默接受；② **三处一致校验收口在这里**：`fs.stat` == ffprobe == `putObject` 返回的字节，任一处不符就**不挂这一期**（公网 feed 引用一个尺寸错的文件，订阅端会长期表现为「下载卡在 99%」，而本地一切看起来都成功）；③ **partial 与 failed 不压平**：feed 上传失败时本地这一期已登记成功，结果如实回 `state:'partial'` 并说明「这一期已登记到本地频道，公网 feed 尚未更新」——压成 failed 会诱导用户删掉这一期重来，而这一期本地是对的。
+- **依赖全注入**（`extractEpisodeAudio` / `assertUploadSizeMatches` / `uploadImpl` / `episodeSink` / `feedSink` / `channelGate`）：缺任一实现即抛，**不允许默认发真实出站**；因此测试不起进程、不碰网络（本仓零真实出站纪律）。
+
+## 验证
+
+- 5 个播客服务文件全域 89 passed / 0 failed（新增 3 个测试文件、89 例中含本两片逐相位结果态矩阵）。
+- 静态门禁：`check-max-lines` 无新增超大文件、`check-unwired-tests` 全部接线。
+
+## 边界（不冒充已闭合）
+
+- **这两片没有生产调用者**：IPC 通道、preload 暴露、真实 ffmpeg/ffprobe 宿主与 OSS `putObject` 接线在第 3 片，状态机与浮层入口在第 4 片。PRD §13 已按编号记下这条刻意中间态，判据是「不要把『写了编排』读成『用户能出一期』」。
+- PRD 刀 3 第 5 条里「存储侧损坏在默认零出站路径不覆盖」仍是欠账（如实记，不声称已闭合）。
+
 # [未发布] feat(podcast): 播客 feedSync 读侧接线（2026-10-11，podcast-feed-sync-ui）
 
 ## 背景
