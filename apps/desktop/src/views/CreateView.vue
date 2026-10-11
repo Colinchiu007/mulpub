@@ -2,8 +2,8 @@
   <div class="create-page" :class="{ 'create-page--pipeline-list': view === 'pipelines' && !selectedPipeline, 'create-page--pipeline-detail': view === 'pipelines' && selectedPipeline }">
     <div class="page-header">
       <div class="page-header-nav">
-        <button class="nav-arrow-btn" @click="goBack" :disabled="!canGoBack" title="上一页">←</button>
-        <button class="nav-arrow-btn" @click="goForward" :disabled="!canGoForward" title="下一页">→</button>
+        <button class="nav-arrow-btn" @click="goBack" :disabled="!canGoBack" :title="$t('create.story2video.tpl.navBack')">←</button>
+        <button class="nav-arrow-btn" @click="goForward" :disabled="!canGoForward" :title="$t('create.story2video.tpl.navForward')">→</button>
       </div>
       <h1>视频创作</h1>
       <p class="text-muted">基于 OpenMontage 流水线引擎，AI 驱动从脚本到成片的全流程</p>
@@ -12,7 +12,7 @@
     <!-- Remotion 状态提示 -->
     <div v-if="renderStatus && !renderStatus.ready" class="status-banner warn">
       <span>⚠️ Remotion 渲染引擎未就绪</span>
-      <span class="detail" v-if="renderStatus.ipcError">IPC 调用失败：{{ renderStatus.message || '检查 preload 是否暴露该方法' }}</span>
+      <span class="detail" v-if="renderStatus.ipcError">{{ $t('create.story2video.tpl.ipcFailed') }}{{ renderStatus.message || $t('create.story2video.tpl.preloadHint') }}</span>
       <span class="detail" v-else-if="!renderStatus.composerExists">缺少 remotion-composer</span>
       <span class="detail" v-else-if="!renderStatus.nodeModulesExist">依赖未安装</span>
       <button v-if="!renderStatus.ipcError && renderStatus.composerExists && !renderStatus.nodeModulesExist" class="btn-install" @click="installDeps" :disabled="installing">{{ installing ? '安装中...' : '安装依赖' }}</button>
@@ -64,18 +64,18 @@
           </div>
 
           <div v-if="inputMode === 'text'" class="input-area">
-            <textarea v-model="pipelineText" placeholder="输入视频文案、主题描述或脚本..." rows="8" class="form-textarea" @input="enforceStory2VideoTextLimit"></textarea>
+            <textarea v-model="pipelineText" :placeholder="$t('create.story2video.tpl.scriptPlaceholder')" rows="8" class="form-textarea" @input="enforceStory2VideoTextLimit"></textarea>
             <p
               v-if="isOrchestratedPipeline(selectedPipeline.name)"
               class="story2video-text-count"
               :class="story2videoTextCountLevel"
               :aria-live="story2videoTextCountLevel ? 'polite' : undefined"
               :title="story2videoTextCountLevel === 'is-warning' ? translateWithLocaleFallback('create.story2video.ui.charLimitWarning', '接近字数上限', 'Close to the character limit') : undefined"
-            >{{ story2videoTextCharacterCount }}/{{ MAX_STORY2VIDEO_TEXT_CHARACTERS }} 字符<span v-if="story2videoTextCountLevel === 'is-danger'">{{ translateWithLocaleFallback('create.story2video.ui.charLimitReached', '（已达字数上限）', ' (character limit reached)') }}</span></p>
+            >{{ story2videoTextCharacterCount }}/{{ MAX_STORY2VIDEO_TEXT_CHARACTERS }} {{ $t('create.story2video.tpl.charUnit') }}<span v-if="story2videoTextCountLevel === 'is-danger'">{{ translateWithLocaleFallback('create.story2video.ui.charLimitReached', '（已达字数上限）', ' (character limit reached)') }}</span></p>
             <div v-if="isOrchestratedPipeline(selectedPipeline.name)" class="s2v-estimate-slot">
               <p v-if="s2vEstimateSummary" class="story2video-estimate" data-testid="s2v-estimate-row">
                 预估 {{ s2vEstimateSummary.sceneCount }} 个分镜 · 旁白约 {{ s2vEstimateSummary.durationMin }}~{{ s2vEstimateSummary.durationMax }} 秒 · 成本约 ¥{{ s2vEstimateSummary.totalCost.toFixed(2) }}
-                <span class="s2v-estimate-note">{{ s2vEstimateSummary.calibrated ? '（按本地 TTS 样本校准）' : '（静态估算，样本积累后自动校准）' }}</span>
+                <span class="s2v-estimate-note">{{ s2vEstimateSummary.calibrated ? $t('create.story2video.tpl.estimateCalibrated') : $t('create.story2video.tpl.estimateStatic') }}</span>
               </p>
               <!-- 无估算时保留容器高度，避免输入过程中布局跳变 -->
               <p v-else class="story2video-estimate is-placeholder">{{ translateWithLocaleFallback('create.story2video.ui.estimatePlaceholder', '填写文案后自动预估分镜数、旁白时长与成本', 'Scene count, narration duration and cost are estimated once you enter the text') }}</p>
@@ -107,7 +107,7 @@
                     v-model="audio.transcript"
                     class="form-textarea audio-transcript"
                     rows="2"
-                    :placeholder="'输入或识别第 ' + (i + 1) + ' 段旁白文字'"
+                    :placeholder="$t('create.story2video.tpl.narrationPlaceholder', { n: i + 1 })"
                   ></textarea>
                   <div class="audio-row-actions">
                     <button
@@ -115,7 +115,7 @@
                       class="s2v-btn-secondary s2v-btn-sm"
                       :disabled="audio.transcribing"
                       @click.stop="transcribePipelineAudio(i)"
-                    >{{ audio.transcribing ? '识别中...' : '识别旁白' }}</button>
+                    >{{ audio.transcribing ? $t('create.story2video.tpl.recognizing') : $t('create.story2video.tpl.recognizeNarration') }}</button>
                     <span v-if="audio.transcriptionError" class="inline-error">{{ audio.transcriptionError }}</span>
                   </div>
                 </div>
@@ -134,7 +134,7 @@
             <textarea
               v-if="isMediaAutoPipeline(selectedPipeline.name)"
               v-model="pipelineText"
-              placeholder="口播文案（口播视频流水线必填，逐行或分段）..."
+              :placeholder="$t('create.story2video.tpl.lipSyncPlaceholder')"
               rows="6"
               class="form-textarea media-script-input"
             ></textarea>
@@ -310,8 +310,8 @@
       </div>
       <div class="form-group" v-if="quickMode === 'text'">
         <label>输入文案</label>
-        <textarea v-model="quickText" placeholder="输入视频文案，每行一个场景..." rows="8" class="form-input textarea"></textarea>
-        <button class="btn-secondary" @click="aiWrite" :disabled="aiLoading">{{ aiLoading ? '生成中...' : 'AI 写稿' }}</button>
+        <textarea v-model="quickText" :placeholder="$t('create.story2video.tpl.quickPlaceholder')" rows="8" class="form-input textarea"></textarea>
+        <button class="btn-secondary" @click="aiWrite" :disabled="aiLoading">{{ aiLoading ? $t('create.story2video.tpl.generating') : $t('create.story2video.tpl.aiWrite') }}</button>
       </div>
       <div class="form-group" v-if="quickMode === 'gallery'">
         <label>上传图片</label>
@@ -336,7 +336,7 @@
         <UiSelect v-model="quickTheme" :options="themeOptions" />
       </div>
       <div class="actions">
-        <UiButton @click="startQuickRender" :disabled="!canQuickRender || quickRendering">{{ quickRendering ? '渲染中...' : '开始渲染' }}</UiButton>
+        <UiButton @click="startQuickRender" :disabled="!canQuickRender || quickRendering">{{ quickRendering ? $t('create.story2video.tpl.rendering') : $t('create.story2video.tpl.startRender') }}</UiButton>
         <button v-if="quickRendering" class="btn-secondary" @click="cancelQuickRender">取消</button>
       </div>
       <div v-if="quickRendering" class="progress-section">
@@ -587,8 +587,8 @@
                   @keyup.esc="cancelBgmRename"
                 />
                 <div class="bgm-library-actions" style="opacity:1">
-                  <button type="button" class="btn-icon" :disabled="s2vBgmLibraryLoading || !String(s2vBgmLibraryRenameDraft || '').trim()" @click="saveBgmRename" title="保存"><span class="material-symbols-outlined">check</span></button>
-                  <button type="button" class="btn-icon" :disabled="s2vBgmLibraryLoading" @click="cancelBgmRename" title="取消"><span class="material-symbols-outlined">close</span></button>
+                  <button type="button" class="btn-icon" :disabled="s2vBgmLibraryLoading || !String(s2vBgmLibraryRenameDraft || '').trim()" @click="saveBgmRename" title="$t('create.story2video.tpl.save')"><span class="material-symbols-outlined">check</span></button>
+                  <button type="button" class="btn-icon" :disabled="s2vBgmLibraryLoading" @click="cancelBgmRename" title="$t('create.story2video.tpl.cancel')"><span class="material-symbols-outlined">close</span></button>
                 </div>
               </div>
             </template>
@@ -598,8 +598,8 @@
                 <span class="bgm-library-name" :title="item.path">{{ item.name }}</span>
               </div>
               <div class="bgm-library-actions">
-                <button type="button" class="btn-icon" :disabled="s2vBgmLibraryLoading" @click="startBgmRename(item)" title="重命名"><span class="material-symbols-outlined">edit</span></button>
-                <button type="button" class="btn-icon danger" :disabled="s2vBgmLibraryLoading" @click="requestBgmDelete(item)" title="删除"><span class="material-symbols-outlined">delete</span></button>
+                <button type="button" class="btn-icon" :disabled="s2vBgmLibraryLoading" @click="startBgmRename(item)" title="$t('create.story2video.tpl.rename')"><span class="material-symbols-outlined">edit</span></button>
+                <button type="button" class="btn-icon danger" :disabled="s2vBgmLibraryLoading" @click="requestBgmDelete(item)" title="$t('create.story2video.tpl.remove')"><span class="material-symbols-outlined">delete</span></button>
               </div>
             </template>
           </li>
@@ -672,7 +672,7 @@
                 <input v-model.trim="s2vConfigProfileRenameDraft" class="form-input" maxlength="60" data-testid="s2v-config-profile-rename-input" @keyup.enter="saveS2VConfigProfileRename" @keyup.esc="cancelS2VConfigProfileRename" />
                 <div class="bgm-library-actions" style="opacity:1">
                   <button type="button" class="btn-icon" :disabled="s2vConfigProfilesLoading || !String(s2vConfigProfileRenameDraft || '').trim()" @click="saveS2VConfigProfileRename" title="保存"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>
-                  <button type="button" class="btn-icon" :disabled="s2vConfigProfilesLoading" @click="cancelS2VConfigProfileRename" title="取消"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+                  <button type="button" class="btn-icon" :disabled="s2vConfigProfilesLoading" @click="cancelS2VConfigProfileRename" title="$t('create.story2video.tpl.cancel')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
                 </div>
               </div>
             </template>
@@ -684,8 +684,8 @@
               </div>
               <div class="bgm-library-actions">
                 <button type="button" class="btn-icon" :disabled="s2vConfigProfilesLoading || !s2vConfigProfileCanApply(profile)" :title="s2vConfigProfileCanApply(profile) ? '应用到当前流水线' : '该配置属于其他流水线'" data-testid="s2v-config-profile-apply" @click="requestApplyS2VConfigProfile(profile)"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></button>
-                <button type="button" class="btn-icon" :disabled="s2vConfigProfilesLoading" @click="startS2VConfigProfileRename(profile)" title="重命名"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button>
-                <button type="button" class="btn-icon danger" :disabled="s2vConfigProfilesLoading" @click="requestS2VConfigProfileDelete(profile)" title="删除"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></svg></button>
+                <button type="button" class="btn-icon" :disabled="s2vConfigProfilesLoading" @click="startS2VConfigProfileRename(profile)" title="$t('create.story2video.tpl.rename')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button>
+                <button type="button" class="btn-icon danger" :disabled="s2vConfigProfilesLoading" @click="requestS2VConfigProfileDelete(profile)" title="$t('create.story2video.tpl.remove')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></svg></button>
               </div>
             </template>
           </li>
