@@ -33,14 +33,12 @@ async def visible_texts(page, sel: str, *, limit: int, probe_cap: int) -> list[s
 
     本函数只服务**文案轨**；"有可见容器"这种存在性判定请用 `visible_count`——
     把空串留在返回列表里靠列表真值判风控，是过滤空串就会静默漏判的偶然耦合。
-=======
 
     `probe_cap` 仍是一道按 DOM 序的悬崖（只是从 8 抬到 32），本仓没有活体证据说明
     风控层在 DOM 里的实际位置，因此不引入"从尾部反向扫"这类同样未验证的假设来替换它。
     能确定的是：**截断必须留痕**。命中节点数超过探测上限、又没集满可见文案时打一条
     含选择器与两个计数的告警，让"可能漏判"从静默失效变成发布链路里可查的线索
     （也是 2.2 活体取证能拿到的第一个量化观测量）。
->>>>>>> c9922aaf4 (fix(xhs-rpa): 采纳第五轮 CCG 深评三项裁决，让不可消除的漏判面变成可观测面)
     """
     try:
         loc = page.locator(sel)
@@ -54,10 +52,7 @@ async def visible_texts(page, sel: str, *, limit: int, probe_cap: int) -> list[s
             if not await item.is_visible():
                 continue
             text = (await item.inner_text()) or ""
-            if text:
-                out.append(text)
-=======
->>>>>>> 9237e6ce5 (fix(xhs-rpa): 采纳第四轮 CCG 深评裁决，拆开判据口径与成本闸)
+
         except Exception:
             continue
         if text:
@@ -101,11 +96,9 @@ async def visible_count(page, sel: str, *, limit: int, probe_cap: int) -> int:
     return n
 
 
-async def risk_present(page, *, overlay_selector: str, hosts: list[str], pattern: str, limit: int) -> bool:
 async def risk_present(
     page, *, overlay_selector: str, hosts: list[str], pattern: str, limit: int, probe_cap: int
 ) -> bool:
->>>>>>> 9237e6ce5 (fix(xhs-rpa): 采纳第四轮 CCG 深评裁决，拆开判据口径与成本闸)
     """风控判定双轨：占位选择器（Tier2 待回填）+ 浮层内可见文案（本仓已实战口径）。
 
     两轨都要求元素**可见**：SPA 常驻的隐藏 modal 模板自带默认风控文案，
@@ -114,10 +107,7 @@ async def risk_present(
     占位轨只看存在性，不看文案：回填后的目标是纯图形/拼图验证层，本来就无可匹配文案。
     代价是这条轨的准确性完全押在选择器精度上，回填必须由活体取证把关。
     """
-    if overlay_selector and await visible_count(page, overlay_selector, limit=limit) > 0:
-=======
     if overlay_selector and await visible_count(page, overlay_selector, limit=limit, probe_cap=probe_cap) > 0:
->>>>>>> 9237e6ce5 (fix(xhs-rpa): 采纳第四轮 CCG 深评裁决，拆开判据口径与成本闸)
         return True
     for host in hosts:
         for text in await visible_texts(page, host, limit=limit, probe_cap=probe_cap):
@@ -166,30 +156,7 @@ async def await_control(page, candidates: list[str], *, key: str, label: str,
         logger.warning(f"[{key}] {label}在 {timeout_s}s 内未就绪（站点结构变化或首屏未完成）")
         return None
     return hit
-    """轮询候选链中首个可见控件，返回 locator 或 None；超时留痕但不臆断失败。
 
-    返回 None 只表示"没等到"，是否中止由调用方决定（媒体上传必须中止，编辑器就绪可降级）。
-    留痕同时带 `key`（机器可读的控件名，改名/换文案不会变）和 `label`（给用户看的措辞）：
-    回归测试钉 `key` 而不是 `label`，否则措辞一改就假红。
-    """
-    hit = None
-
-    async def visible() -> bool:
-        nonlocal hit
-        loc, _ = await resolve_visible(page, candidates)
-        if loc is None:
-            return False
-        hit = loc
-        return True
-
-    if not await wait_until(visible, timeout_s=timeout_s, interval_s=interval_s):
-        logger.warning(f"[{key}] {label}在 {timeout_s}s 内未就绪（站点结构变化或首屏未完成）")
-        return None
-    loc, _ = await resolve_visible(page, candidates)
-    return loc
-=======
-    return hit
->>>>>>> 44799e73f (fix(xhs-rpa): 采纳第二轮 CCG 深评两项裁决，修正等待容忍度与控件抖动误判)
 
 
 async def set_field(page, candidates: list[str], text: str, *, label: str) -> bool:
