@@ -1,10 +1,8 @@
 ---
+
 record: podcast-episode-ui
 task: 刀 3 第 4 片——成片一键出期第一次对用户可用（渲染层）
 date: 2026-10-11
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填 PR 改写为 PASS + merge SHA，并整段删除本三个 sync_ 字段
-sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账 → worktree 清理）
 ---
 
 # 播客刀 3 第 4 片——成片一键出期的渲染层（状态机 + 应用级浮层 + 两枚入口 + 成对文案键）（podcast-episode-ui，2026-10-11）
@@ -44,7 +42,7 @@ sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账 
 
 ## 远程同步
 
-| 远程同步 | PENDING | 待本 PR 合并后就地改写成 PASS + merge SHA（`git log origin/main --grep="(#NNNN)" --format=%H^|^cI` 取证），并在同一次提交删除 ledger 本条登记项 |
+| 远程同步 | PASS | 已合并：PR #3332，merge b83ba0672d2ce6a0f51f6e9bb21b2b2bb712193f（2026-10-12，squash）。取证：`git log origin/main --grep "(#3332)$" --format=%H|%cI`；本条为记录文件侧欠账的收口——它没有 .quality-gates.md 置顶记录，收口判据取本文件的表格行与 frontmatter |
 
 ## 增量 2（2026-10-11）：§6.4.2 第三条通道落地 + 两处宿主回归修复
 
