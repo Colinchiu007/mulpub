@@ -9,10 +9,13 @@
 
 ### 变更明细
 
-- **实测（origin/main `b96276b1f`）**：`all-views` 注册 **37** 个视图、`supplementary-views` 注册 **19** 个、
+- **实测（origin/main `b96276b1f`，⚠「三张表」口径，已被本条目末尾的扩域实测取代；留下是如实记录当时量到了什么）**：
+  `all-views` 注册 **37** 个视图、`supplementary-views` 注册 **19** 个、
   `pixelTests` 注册 **20** 个；三表并集 **50** 个视图 × 浅/暗两档 = 判定域 **100** 条，
   而 `base-screenshots/` 只有 **43** 张 PNG ⇒ **60** 条缺口、**30** 个视图**一档基线都没有**。
-  一条更要命的等集：有基线的那 20 个视图**逐字等于** `pixelTests` 集合（两个方向差集均为空数组，实测）。
+  当时据此报的「有基线的那 20 个视图逐字等于 `pixelTests` 集合」与「无主基线 3 张」**两条都随扩域作废**——
+  前者把测量域写成了三表，后者是误判（见下方 QM-6 前端轴条）。不随扩域作废的是真正的形状：
+  **被声明的视图集合与实际被守住的视图集合之间，从来没有任何关系。**
 - **为什么四层门禁全绿（逃逸链）**：① 像素门禁的迭代域**就是** `pixelTests`，域外不是"漏跑"是"不在定义里"；
   ② `check-baseline-freshness.js` 的迭代域是 `readdirSync(基线目录)`——只看**存在**的基线，
   一张不存在的 PNG 永远不会被返回，于是"该有却没有"在这道门禁里**结构性不可见**；
@@ -22,22 +25,41 @@
   `ERR_VISUAL_BASELINE_MISSING`，由那次 run 的产物回填"——而该错误码只在 `test-runner.js` 的
   `pixelRegressionTest` 里抛，这两处所在的套件走 `aiVisionTest`，**永远不会抛它**。
   按这条注释办事的人会等一个不会来的红。
-- **修法**：新增 `scripts/check-visual-coverage.js`（判定域 = 三表并集 × 闭合两档主题）+
-  `scripts/check-visual-coverage.test.js`（12 例）+ `scripts/visual-coverage-debt.json`
-  （**从实测生成**的 60 条缺口与 3 条无主基线，逐项带 reason；清单**只能缩小**，补了图不删登记 ⇒ 红）。
+- **修法**：新增 `scripts/check-visual-coverage.js`（判定域 = **进域注册表**的视图并集 × 闭合两档主题）+
+  `scripts/check-visual-coverage.test.js`（15 例）+ `scripts/visual-coverage-debt.json`
+  （**从实测生成**的缺口与豁免，逐项带 reason；清单**只能缩小**，补了图不删登记 ⇒ 红）。
   接进 `quality-gate.yml` Gate 2c。资格判据（AGENTS.md「接进的 job 会不会被 docs-only 整片跳过」）：
-  本锁的输入只有 `apps/**`、`scripts/run-pixel-tests.js` 与本 JSON，三者都不在 `CI_IGNORED_PATHS`，
+  本锁的输入只有 `apps/**`（五张进域注册表 + 基线目录）与 `scripts/visual-coverage-debt.json`，
+  两者都不在 `CI_IGNORED_PATHS`（该名单里 `scripts/` 只有一条 `gate-record-debt-ledger.json` 字面量），
   故改到任何输入都不可能走 docs-only 短路——与 `gate-record-debt-ledger.json` 必须搬去 changes job 是同一条判据的反向应用。
-- **四条防止门禁自己变成装饰品的判据**：① 数组边界 = **跳过字符串字面量的括号配对**，
+- **QM-6 后端轴 CRITICAL（成立并已修）**：「同一 PR 里新增视图 + 当场登记 gap」会让 `unregistered` 与 `stale`
+  两条判据**全程无声**。补**登记面上界棘轮** `MAX_GAPS`/`MAX_ORPHANS`/`MAX_OUT_OF_DOMAIN`：
+  新增登记必须同时抬起常量，把一次静默确认变成两处可见编辑。
+- **QM-6 前端轴 MAJOR（成立，且改变了结论数字）**：判定域当时写成"三张表"是**测量域写窄了** ——
+  `apps/desktop/tests/visual-testing/**` 实测 **8** 张 `const *Tests = [`，其中 `autonomous-loop.js` 的
+  `pixelTests`(20) 与 `screenshotViewTests`(14) 同样按视图名消费 `base-screenshots/*.png`。
+  补**发现式清扫**：发现的每张注册表要么进域、要么在 `outOfDomain` 里带 reason 豁免，新命中且未豁免即红。
+  **由此撤回我自己发布过的一条结论**：先前报的「无主基线 3 张（`analytics-overview`/`login-form`/`settings-general`）」
+  是误判 —— 三个名字全在 `autonomous-loop.js#pixelTests` 里，基线有主，只是主人在我没读的那张表中；
+  `orphans` 现为空、`MAX_ORPHANS=0`，那条"待人工裁决去留"的遗留项一并撤销。
+- **扩域后实测（取代上一条里的旧数字）**：进域 5 张（37/19/20/20/14）→ 视图并集 **56** → 判定域 **112** 条；
+  基线 43 张 ⇒ **缺 69**、**36 个视图一档都没有**、无主基线 **0**。
+- **六条防止门禁自己变成装饰品的判据**：① 数组边界 = **跳过字符串字面量的括号配对**，
   不是 `indexOf(']')` 也不是"行首 `]`"——两种退化本会话**都真实发生过**并被规模下界逮住
   （`waitFor: '[data-testid^="platform-"]'` 把 19 读成 3；`routeView(…, [ {...} ])` 的内层 `],` 把 37 读成 6、19 读成 1）；
   ② **顶层元素数必须等于取到的 id 数**——两种取 id 写法按表选一种、不取并集（取并会把 `all` 表里
-  4 个中文断言标签 `name: '页面主标题'` 当成视图混进判定域，凭空造 8 条假缺口），混用写法会静默少算；
-  ③ 真实仓臂三条规模下界（`all ≥ 30 / supp ≥ 15 / pixel ≥ 15`）；④ 空域一律抛错，"缺口=0"与"什么都没扫"必须可区分。
-- **变异反证 6/6 实测变红**（驱动收尾断言文件逐字节还原）：M1 元素计数恒等 / M2 退回 `indexOf(']')` /
-  M3 空注册表不出声 / M4 陈旧登记不报 / M5 不要求 reason / M6 空域当通过。
-  一次返工如实记：M6 首跑 `rc=undefined / caught=NO` **不是锁没逮住**，是我的锚点在源码里不存在
-  （变异从未发生）⇒ 驱动现把 `SKIPPED_ANCHOR_hits=0` 与 `caught=NO` 分开印，否则"我没改到"会被读成"改坏了也没红"。
+  4 个中文断言标签 `name: '页面主标题'` 当成视图混进判定域，凭空造假缺口），混用写法会静默少算；
+  ③ **单引号与双引号都要认**——`autonomous-loop.js` 整份用双引号，第一版只认单引号时它取到 0 个 id
+  而数组里有 20 个元素，正是 ② 把"这张表没视图"演成了抛错；
+  ④ 真实仓**规模下界 + 成员钉**（只钉计数的话"换写法而计数不退化、成员被整体替换"仍会绿 —— QM-6 前端轴 MINOR）；
+  ⑤ 发现式清扫读不动的目录一律抛错（不完整的遍历判成"没有新注册表"就是假绿）；
+  ⑥ 空域一律抛错，"缺口=0"与"什么都没扫"必须可区分。
+- **变异反证 10/10 实测变红**（驱动收尾断言文件逐字节还原）：M1 元素计数恒等 / M2 退回 `indexOf(']')` /
+  M3 空注册表不出声 / M4 陈旧登记不报 / M5 不要求 reason / M6 空域当通过 /
+  M7 发现式清扫不判 / M8 规模上界不判 / M9 退回只认单引号 / M10 域外豁免的陈旧不判。
+  两次返工如实记：M6 首跑 `rc=undefined / caught=NO` 是**锚点文本在源码里不存在**（实际写作 `… === 0) {`）；
+  M2 与 M7 首跑报 `SKIPPED_ANCHOR_hits=0` 是**多行锚点按 `\n` 拼而工作副本是 CRLF**（`i/lf w/crlf`），注入从未发生。
+  两者都不是"锁没逮住"⇒ 驱动现把 `SKIPPED_ANCHOR` 与 `caught=NO` 分开印，并打印 `ANCHOR_EOL`。
 - **不在范围（登记，不静默修）**：PR B 把 CI artifact 同源渲染提升为仓库基线、逐批把 60 项清零；
   3 张无主基线（`analytics-overview` / `login-form` / `settings-general`）去留涉及删除他人文件，只登记不裁决；
   采集套件是否升级为比对套件（一次引入 60 个漂移源，正解是先做 PR B）。

@@ -12,6 +12,11 @@ change slug：`visual-baseline-domain`
 
 ## 2. 实测（全部数字当场采集，采集脚本见 §7）
 
+> ⚠ **本节是「三张注册表」口径下的实测，已被 §9 的扩域结论取代。**
+> 当时把判定域写成"三表并集"，本身漏了仓里另外 5 张 `const *Tests = [` 声明中的 3 张，
+> 因此 §2 里那条「无主基线 3」是一条**误判**（见 §9.2）。数字保留是为了如实记录"我当时量到了什么"，
+> 不是为了当作现状。现状一律看 §9.1。
+
 | 项 | 实测值 | 采集方式 |
 | --- | --- | --- |
 | `viewTests`（all-views）注册视图 | **37** | `scripts/check-visual-coverage.js` 解析 |
@@ -123,6 +128,75 @@ node D:/Data/projects/.tools/tmp/vb66/proof.cjs  # §2 第 9、11 行的等集�
 node D:/Data/projects/.tools/tmp/vb66/mutate.cjs # §5.2 六条变异
 ```
 
-## 8. QM-6 处置
+## 8. QM-6 双模型外部评审（走替代通道，标准通道本机不可用）
 
-（评审后回填：两轴通道、findings 路径、逐条成立/否证与采纳理由。）
+`Test-NetConnection 127.0.0.1:15721 -Quiet` 实测 **False** ⇒ `codeagent-wrapper --backend codex|claude`
+两路都依赖的 CC Switch 代理没起，按 `project-mulpub-qm6-fallback-channel` 走 opencode 双轴 `-free` 通道。
+**这是偏差，不是"双模型 PASS"**：两轴同经 opencode 一个 harness，跨家族独立性打折。
+
+- 后端轴 `opencode/nemotron-3-ultra-free` → `findings-backend.json`：1 CRITICAL / 1 MAJOR / 2 INFO，12 分钟内落盘。
+- 前端轴 `opencode/ling-3.1-flash-free` → `findings-frontend.json`：0 CRITICAL / 1 MAJOR / 1 MINOR / 2 INFO。
+- 两轴 canary 均逐字引到新代码符号（`countTopLevelElements(body)` / `aiVisionTest` / `SOURCES.pixel.file` 全路径），
+  证明读的是本 worktree 而不是共享根旧副本。
+- 原件已随本 change 入库留证（路径见执行记录），不留在临时目录。
+
+| 评审条目 | severity | 核实 | 处置 |
+| --- | --- | --- | --- |
+| 后端 Q3「同一 PR 新增视图 + 当场登记 gap ⇒ 门禁全程无声」 | CRITICAL | **成立**（`unregistered` 只看"有没有登记"，`stale` 只看"登记项是否还有缺口"，两条都看不见"新缺口被新登记吃掉"） | 采纳：加 `MAX_GAPS`/`MAX_ORPHANS`/`MAX_OUT_OF_DOMAIN` 上界棘轮（纪律 6)），新增登记必须同时抬起常量 ⇒ 一次静默确认变两处可见编辑；锁 C13 |
+| 后端 Q2「模板字面量 `${...}` 含括号会静默少算」 | MAJOR | **不成立（方向说反）**：它给的攻击输入 `` `sel${'['}` `` 实测 `ids=["a","b"]` 解析正确 —— 反引号进入字符串态后内部字符根本不参与配对，它把代码追错了。真实存在的限制是**嵌套反引号**（`` `${p ? `q[` : ''}` ``），而其失败形态是**抛错 exit 2**，不是它声称的静默少算 | 部分采纳：加夹具把"不静默"钉成契约（未知形状必须抛，见 C3），并在 §5.1 记录这条实测否证 |
+| 后端 Q1「evaluate 无恒真/恒假分支」 | INFO | 成立，它逐集合复算了一遍 | 无需改动 |
+| 后端 Q4「三个输入都不在 CI_IGNORED_PATHS」 | INFO | **独立确认**了接线资格判据（它自己读了那张表） | 无需改动 |
+| 前端 Q1「仓里还有别的注册表，判定域静默缩小」 | MAJOR | **成立且被低估**：实测 8 张，我只覆盖 3 张；其中 `autonomous-loop.js` 两张确实按视图名消费基线 | 采纳（这是本轮最重要的一条）：SOURCES 扩到 5 张 + 发现式清扫 + `outOfDomain` 带 reason 豁免；锁 C12 |
+| 前端 Q2「改后注释与代码一致」 | INFO | 成立（它逐行核对 `aiVisionTest` 与 `pixelRegressionTest` 的抛出点） | 无需改动 |
+| 前端 Q3「C11 只钉规模下界、不钉成员」 | MINOR | **成立**：换写法而计数不退化、成员被整体替换时 C11 照绿 | 采纳：成员钉 5 条 + `all ∩ pixel` 非空 |
+| 前端 Q4「四份文档与 debt JSON 无品牌残留、视图名不属用户可见文案」 | INFO | 成立（它按码点构造品牌词逐文件扫，并用 `check-no-brand-residue.js` 自跑佐证） | 无需改动 |
+
+**评审带来的数字变更见 §9。**
+
+## 9. 扩域纠正（2026-10-11，由 QM-6 前端轴触发）
+
+### 9.1 现状口径（取代 §2）
+
+`apps/desktop/tests/visual-testing/**` 里实测 **8** 张 `const *Tests = [`：
+
+| 注册表 | 条目 | 是否进判定域 | 依据（实测） |
+| --- | --- | --- | --- |
+| `views/all-views…#viewTests` | 37 | 进域 | 视图级截图 |
+| `views/supplementary-views…#supplementaryViewTests` | 19 | 进域 | 视图级截图 |
+| `scripts/run-pixel-tests.js#pixelTests` | 20 | 进域 | 真做像素比对 |
+| `autonomous-loop.js#pixelTests` | 20 | **新加进域** | 调 `runner.pixelRegressionTest`，按视图名消费 `base-screenshots` |
+| `autonomous-loop.js#screenshotViewTests` | 14 | **新加进域** | 同上 |
+| `workflows/all-workflows…#workflowTests` | 31 | 带 reason 豁免 | 基线名由 `resolveBaselineName` 派生（可带 `--step-N`），不是"视图名 × 浅/暗"模型；实测 31 个条目名在基线目录精确命中 **0** |
+| `workflows/supplementary-workflows…#supplementaryWorkflowTests` | 18 | 带 reason 豁免 | 同上，命中 **0** |
+| `functional-test.js#functionalTests` | 25 | 带 reason 豁免 | 只调 `runner.launch/close`，**不做比对**；25 个名字里 1 个与基线同名属命名巧合 |
+
+**扩域后实测**：视图并集 **56** ⇒ 判定域 **112** 条；基线 43 张 ⇒ **缺 69**、**36 个视图一档都没有**、**无主基线 0**。
+三条上界常量按此钉死：`MAX_GAPS=69` / `MAX_ORPHANS=0` / `MAX_OUT_OF_DOMAIN=3`。
+
+### 9.2 我先前发布的一条结论是错的，在此撤回
+
+§2 曾报「无主基线 3 张（`analytics-overview` / `login-form` / `settings-general`）」并写进 PRD、CHANGELOG、
+执行记录与对用户的汇报。**该判断错在测量域写窄了**：这三个名字全都在 `autonomous-loop.js#pixelTests` 里，
+基线有主，只是主人在我当下没读的那张表中。因此本轮把它们登记为 debt 的动作也一并撤销
+（`orphans` 现为空，`MAX_ORPHANS=0`）。同一条误判还连带写错过 §6 —— 「3 张无主基线的去留需人工裁决」这个
+遗留项根本不存在了。教训按 `feedback-inventory-before-contract` 记：**"扫到 0 命中"先证明的是我的坐标不对，
+不是仓里没有。**
+
+### 9.3 变异反证增补到 10 条
+
+M1–M6 见 §5.2；扩域后新增：M7 发现式清扫不判（⇒ C12 红）、M8 规模上界不判（⇒ C13 红）、
+M9 取 id 退回只认单引号（⇒ C3/C3b 红，11 条）、M10 域外豁免的陈旧不判（⇒ C12 红）。
+实测 `MUTATION_ALL_CAUGHT (10)`，收尾 `RESTORE_BYTE_IDENTICAL=yes`。
+
+一次同形返工（值得单独记）：M2 与 M7 首跑都报 `SKIPPED_ANCHOR_hits=0` —— 不是锁没逮住，
+是我的**多行锚点按 `\n` 拼，而工作副本是 CRLF**（`i/lf w/crlf`），注入从未发生。
+驱动现按文件实际行尾重拼锚点并打印 `ANCHOR_EOL`。这与 §5.2 的 M6 是同一类错误的两个面：
+一个是锚点文本不存在，一个是锚点行尾不匹配 —— 两者都会被误读成"这条锁形同虚设"。
+
+### 9.4 一处流程自我纠偏
+
+评审前端轴仍在读目录期间，我为了跑探针给 `module.exports` 加过一个导出（约 30 秒后按 `git checkout HEAD -- <单文件>` 还原，
+`git status` 复验为干净）。按本仓纪律「评审读目录期间禁止任何写型动作」，这次写盘使该轴结论的
+**可归属 SHA 变模糊**：它引用的 `aiVisionTest` 与 `SOURCES.pixel.file` 不在我改动的那一行，
+且我对它每条主张都重新实测过，但正确做法仍是**先等落盘再动仓库**。已记入 learnings。
+

@@ -1,0 +1,51 @@
+{
+  "axis": "frontend",
+  "canary": {
+    "method_line": "await runner.aiVisionTest(test.name, test.route, test.checks, {  （all-views.visual.test.js:122，runViewSuite 内调用 runner 的方法是 aiVisionTest）",
+    "pixel_file": "apps/desktop/tests/visual-testing/scripts/run-pixel-tests.js  （check-visual-coverage.js:46，SOURCES.pixel.file 的完整路径字符串值）"
+  },
+  "findings": [
+    {
+      "severity": "MAJOR",
+      "q": "Q1",
+      "file": "scripts/check-visual-coverage.js",
+      "line": 43,
+      "claim": "SOURCES 写死三份注册表：改名/搬家会当场红（rc=2），但新增第四张注册表会静默逃逸——判定域静默缩小、无任何红。且这不是假设：仓里已有两张 workflow 注册表在判定域之外。",
+      "evidence": "实测行为分两类：① viewTests 改名 → sliceArray 抛「注册表数组 viewTests 找不到」（check-visual-coverage.js:62）→ loadRepo 抛 → main catch 返回 rc=2「判定域失联」（:235-237），当场红；② 注册表搬家 → read 抛「判定域文件缺失」（:209）→ rc=2，当场红；③ 新增第四张注册表 → 该文件根本不在 loadRepo 的三个 read 里（:212-216），其视图对门禁不可见，判定域静默缩小，零红，下界（all≥30/supp≥15/pixel≥15，test:201-203）只管已知三表。实测仓库现状：workflows/all-workflows.visual.test.js:48 的 workflowTests 与 workflows/supplementary-workflows.visual.test.js:8 的 supplementaryWorkflowTests 已存在且不在 SOURCES（:43-47）中——逃逸面当下就是活的。",
+      "disposition_suggestion": "在 check-visual-coverage.js 加发现式清扫：扫 apps/desktop/tests/visual-testing/** 里所有 `const \\w+Tests = [` 声明，断言发现文件集合 ⊆ SOURCES 白名单（白名单只能缩小；新命中即红，要求要么登记进 SOURCES、要么带 reason 登记豁免）。约 15 行，复用现有 evaluate 红出口即可，无需新框架。"
+    },
+    {
+      "severity": "INFO",
+      "q": "Q2",
+      "file": "apps/desktop/tests/visual-testing/views/all-views.visual.test.js",
+      "line": 122,
+      "claim": "改后两处注释与代码事实一致，无需报 CRITICAL/MAJOR：runViewSuite 走 aiVisionTest，ERR_VISUAL_BASELINE_MISSING 在本套件确实永远不可达。",
+      "evidence": "逐行核对：runViewSuite 调 runner.aiVisionTest（all-views.visual.test.js:122）；ERR_VISUAL_BASELINE_MISSING 仅在 test-runner.js:563 抛出，其封闭函数是 pixelRegressionTest（test-runner.js:534）；aiVisionTest（test-runner.js:619-671）函数体内不调用 pixelRegressionTest、只抛 ERR_VISUAL_CHECK_INVALID（:622）与 ERR_VISUAL_CHECK_FAILED（:666）。新注释（:49-53 与 :95-97）声称的「只采集不比对、该码永不抛」与代码逐字相符；旧注释（承诺「首次运行必然报 ERR_VISUAL_BASELINE_MISSING」）才是错的，本 PR 纠正方向正确。",
+      "disposition_suggestion": "无需修改；本条仅记录已验证注释与代码一致（Q2 要求核实是否有不符，结论为无）。"
+    },
+    {
+      "severity": "MINOR",
+      "q": "Q3",
+      "file": "scripts/check-visual-coverage.test.js",
+      "line": 30,
+      "claim": "C1–C10 夹具是手搓最小文本，与真实注册表写法脱钩（真实文件换写法这些用例照旧全绿，因它们不读盘）；但无严格意义的记录性断言——每条断言都真跑 parseRegistry/evaluate。真实耦合只靠 C11 一条臂，其缺口是「只钉规模下界、不钉成员」。",
+      "evidence": "夹具 ALL_TEXT/SUPP_TEXT/PIXEL_TEXT（test:30-77）是独立字符串，改真实文件不影响它们；C11（test:196-209）经 loadRepo 读真仓三表 + 基线目录 + 账本并真跑 evaluate，下界 all≥30/supp≥15/pixel≥15（test:201-203）与 domain==并集×2（:204）能逮住解析退化，但若真实注册表被改写后计数仍 ≥ 下界而成员已换（如视图被静默替换），C11 仍绿。最接近记录性的是 C9 的 THEMES deepEqual（:181）与三条下界常量——它们钉的是实测值，但都挂在真跑流程上，不是「只断言源码出现某词」。",
+      "disposition_suggestion": "最小改法：在 C11 增补成员钉——断言 all 必含 'home-default'、pixel 必含 'home-baseline'、supp 必含一个固定 id，且 all∩pixel 非空（约 3 行）。这样「换写法/换成员但计数不退化」的逃逸也会红。"
+    },
+    {
+      "severity": "INFO",
+      "q": "Q4",
+      "file": "scripts/visual-coverage-debt.json",
+      "line": 1,
+      "claim": "四份新文档与 debt JSON 均未踩品牌红线；60 条视图名全部来自既有注册表的 kebab-case 内部标识符，不是本 PR 新增，也不含用户可见文案或竞品名。",
+      "evidence": "用 check-no-brand-residue.js:47-48 按码点构造的品牌词（全拼/中文/缩写变体）对 01-docs/PRD-VISUAL-BASELINE-DOMAIN-2026-10-11.md、AGENTS.md 新条目、01-docs/learnings.md 新段、openspec/records/visual-baseline-domain.md、scripts/visual-coverage-debt.json、CHANGELOG.md 逐文件 grep：全部 0 命中。debt JSON 实测 60 个 gap 键 + 3 个 orphan 键（analytics-overview/login-form/settings-general），全部匹配 ^[a-z0-9-]+:(light|dark)$；CJK 只出现在 $comment/reason 样板文案。用户可见标题在 locales 与 :has-text() 选择器里，未被抄进 debt JSON，故无「本应隐藏的文案/竞品名入库」风险。门禁自跑佐证：node scripts/check-visual-coverage.js → RC=0（注册视图 50/判定域 100/基线 43/缺 60 已登记 60/无主基线 3）。",
+      "disposition_suggestion": "无需修改；本条记录已核实无品牌残留、无视图名泄漏。"
+    }
+  ],
+  "summary": {
+    "critical": 0,
+    "major": 1,
+    "minor": 1,
+    "info": 2
+  }
+}
