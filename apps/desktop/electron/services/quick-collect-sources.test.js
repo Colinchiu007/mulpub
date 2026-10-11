@@ -47,9 +47,19 @@ describe('quick-collect-sources/注册表', () => {
       expect(typeof s.homeUrl, s.id).toBe('string')
       expect(s.homeUrl.startsWith('https://'), s.id).toBe(true)
     }
-    // 榜单类源一律 observed（把抓取时刻当发布时间是本 PRD 明确禁止的）
-    for (const s of m.SOURCES.filter((x) => x.sourceType === 'hottest')) {
-      expect(s.timeKind, s.id).toBe('observed')
+    // 不变量（S2 起按 provider 判，而不是按 sourceType）：
+    //   - **只有拿不到原生发布时间的源**才允许标 observed；
+    //   - hot-topics provider 的中文榜单全部没有发布时间 ⇒ 必须 observed；
+    //   - feed provider 的时间线/JSON 源一律有原生发布时间 ⇒ 必须 published。
+    // （v2ex_hot 是榜单形态但每条自带 created，故它是 hottest + published：有原生时间就用原生时间。）
+    for (const s of m.SOURCES) {
+      if (s.timeKind === 'observed') expect(s.provider, s.id).toBe('hot-topics')
+      if (s.provider === 'hot-topics') expect(s.timeKind, s.id).toBe('observed')
+      if (s.provider === 'feed') {
+        expect(s.timeKind, s.id).toBe('published')
+        expect(typeof s.feedUrl, s.id).toBe('string')
+        expect(s.feedUrl.startsWith('https://'), s.id).toBe(true)
+      }
     }
   })
 

@@ -271,10 +271,59 @@ describe('S1/IPC：hotTopicsService → 统一素材的映射', () => {
     expect(res.data.sourceUrl).toContain('weibo.com')
   })
 
-  it('未注入热榜服务 → 不报错（降级为 skipped，模型仍被调用）', async () => {
+  it('未注入热榜服务 → 不报错（该源归因 skipped，模型仍被调用）', async () => {
     const res = await runOnce(baseDeps())
     expect(res.code).toBe(0)
-    expect(res.data.quickCollect.trendSkipped).toBe(true)
+    // S2 起 trendFn 恒存在（feed provider 可在无热榜服务时工作），因此不再是"整体跳过"，
+    // 而是**逐源归因**：未接线的那两个源 skipped、attempted 仍然记上 ⇒ retrieval=empty。
+    expect(res.data.quickCollect.sourceStats).toEqual({ weibo: 'skipped', zhihu: 'skipped' })
+    expect(res.data.quickCollect.retrieval).toBe('empty')
     expect(res.data.content).toBeTruthy()
+  })
+
+  it('S2：注入 fetchFn 后 feed 源（solidot）能进素材，时间语义为 published', async () => {
+    const rss = '<?xml version="1.0"?><rss><channel>'
+      + '<item><title>Solidot 条目</title><link>https://www.solidot.org/story?sid=9</link><pubDate>Sun, 11 Oct 2026 02:00:00 +0000</pubDate></item>'
+      + '</channel></rss>'
+    const fetchFn = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => new TextEncoder().encode(rss).buffer,
+    }))
+    const deps = baseDeps({ fetchFn })
+    const res = await runOnce(deps, { ...COMMAND, sources: ['solidot'] })
+    expect(res.code).toBe(0)
+    expect(fetchFn).toHaveBeenCalledTimes(1)
+    expect(res.data.quickCollect.trendSourceCount).toBe(1)
+    expect(res.data.quickCollect.timeKinds).toEqual(['published'])
+    expect(res.data.quickCollect.sourceStats).toEqual({ solidot: 'ok' })
+    const user = deps.aiGenerator.generateWithDefault.mock.calls[0][1].messages[1].content
+    expect(user).toContain('来源=Solidot')
+    expect(user).toContain('发布=')
+    expect(user).not.toContain('抓取时刻=')
+  })
+})
+
+describe('S2/引擎与内置词条', () => {
+  it('计划性空榜（arXiv 周末）随元数据回传，与失败源分开', async () => {
+    const { createQuickCollectEngine } = await engineMod()
+    const trendFn = vi.fn(async () => ({ items: [], sourceStats: { arxiv_cs_ai: 'ok' }, emptyBySchedule: ['arxiv_cs_ai'] }))
+    const engine = createQuickCollectEngine({ trendFn, llmFn: async () => ({ content: '正文' }), log: { warn: () => {} }, now: () => NOW })
+    const res = await engine.run({ ...COMMAND, sources: ['arxiv_cs_ai'] })
+    expect(res.code).toBe(0)
+    expect(res.data.quickCollect.emptyBySchedule).toEqual(['arxiv_cs_ai'])
+    expect(res.data.quickCollect.sourceStats.arxiv_cs_ai).toBe('ok')
+    expect(res.data.quickCollect.retrieval).toBe('empty')
+  })
+
+  it('builtin-ai-trends 增补了 AI/技术时间线源，但提示词仍逐字不动', async () => {
+    const { PRESET_COMMANDS } = await presetsMod()
+    const ai = PRESET_COMMANDS.find((c) => c.id === 'builtin-ai-trends')
+    expect(ai.sources).toContain('arxiv_cs_ai')
+    expect(ai.sources).toContain('hf_papers')
+    expect(ai.sources).toContain('qbitai')
+    expect(ai.sources).toContain('github')
+    expect(ai.prompt).toContain('请检索过去48小时内AI与新技术领域的真实动态')
+    expect(ai.prompt).toContain('不要编造，找不到可靠信息就如实说')
   })
 })

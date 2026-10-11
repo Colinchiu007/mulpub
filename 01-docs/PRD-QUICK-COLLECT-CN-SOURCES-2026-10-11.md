@@ -82,6 +82,14 @@
 | `hf_papers` | HuggingFace 每日论文 | `huggingface.co/api/daily_papers` | `publishedAt` | **格式为 `MM/DD/YYYY HH:mm:ss`（非 ISO）**，必须按美国格式解析 |
 | `qbitai` | 量子位 | `qbitai.com/feed` | `<pubDate>`（10） | 中文 AI 垂直 |
 | `infoq_cn` | InfoQ 中文 | `infoq.cn/feed` | `<pubDate>`（21） | 中文技术 |
+
+> **实现状态（S2 已完成）**：上述 9 个源已入册（`quick-collect-sources.js`，`provider: 'feed'`，
+> `timeKind: 'published'`），抓取与解析在 `quick-collect-trend-sources.js`。
+> 两处与本节初稿的差异已按实测更正：① `v2ex` 采用 `hot.json`（榜单形态）而非 `index.xml`，
+> 且因为它**每条自带 `created`**，按「有原生时间就用原生时间」标 `published`（不是 `observed`）；
+> ② 由此把不变量从「hottest ⇒ observed」改为**按 provider 判**：`provider==='hot-topics'` ⇒ `observed`，
+> `provider==='feed'` ⇒ `published`（测试逐条锁死）。
+| `infoq_cn` | InfoQ 中文 | `infoq.cn/feed` | `<pubDate>`（21） | 中文技术 |
 | `hnrss_front` | Hacker News(frontpage) | `hnrss.org/frontpage` | `<pubDate>` | 英文但补 HN 时间线（与既有 search 源区分） |
 
 补充约束：**超大响应必须限条数或流式截断**（雷锋网 1.3MB / OpenAI News 1.2MB / HF blog 258KB 已实测），本 PRD 取「先 `res.text()` 但设 `MAX_BYTES`（默认 512KB）上限 + 解析后只取前 `MAX_PER_SOURCE`（20）条」。

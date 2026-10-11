@@ -33,7 +33,8 @@ const PRESET_COMMANDS = Object.freeze([
     prompt: "请检索过去48小时内AI与新技术领域的真实动态，覆盖三类：1) 主流大模型/AI框架（如OpenAI、Anthropic、Deepseek、GLM、Kimi、SeeDance、Llama、PyTorch、vLLM等）的新版本发布或安全公告；2) GitHub上热度上升、值得工程师试用的新AI项目；3) 其他对你判断'值不值得关注'有重大影响的事件。输出一份简短摘要：3-5条'建议关注'（每条含事件、来源链接、为什么重要、建议动作），2-3条'可忽略'一句话带过。用中文，不要编造，找不到可靠信息就如实说。",
     keywords: ['LLM release', 'AI model', 'GitHub AI project'],
     windowHours: 48,
-    sources: ['reddit', 'hackernews', 'github'],
+    // 提示词逐字不动（用户需求原文），只把素材源换成"英文社区 + 有发布时间的 AI/技术时间线"
+    sources: ['arxiv_cs_ai', 'hf_papers', 'qbitai', 'solidot', ...EN_SEARCH_SOURCES],
     builtin: true,
   }),
   Object.freeze({
@@ -66,7 +67,7 @@ const PRESET_COMMANDS = Object.freeze([
     prompt: '请检索最近一周内与内容创作效率工具有关的真实更新，覆盖：1) 视频剪辑与字幕类；2) 语音合成 / 配音 / 克隆类；3) 图像与视频生成类；4) 写作与排版类。输出 4 条「值得试用」（每条含：工具名、更新了什么、来源链接、适合什么场景、上手成本），再用一句话列出 2 条「只是营销话术、暂无实际可用更新」。用中文，工具名与版本号必须来自素材，找不到就如实说。',
     keywords: ['video editing AI', 'image generation tool', 'text to speech tool'],
     windowHours: 168,
-    sources: ['reddit', 'hackernews', 'github'],
+    sources: ['qbitai', 'infoq_cn', 'sspai', 'oschina', ...EN_SEARCH_SOURCES],
     builtin: true,
   }),
   Object.freeze({
@@ -77,7 +78,7 @@ const PRESET_COMMANDS = Object.freeze([
     prompt: '请检索最近一周内与创作者内容趋势有关的真实讨论，覆盖：1) 什么内容形式正在起量（长文 / 短视频 / 图文 / 播客等）与其原因；2) 哪些平台的分发机制或流量结构发生了变化；3) 创作者普遍在抱怨或验证有效的做法。输出 3 条「趋势判断」（每条含：观察到的现象、来源链接、支持它的证据、对我可以怎么用），并说明这些观察在多大程度上能推广（哪些是社区共识、哪些只是个别案例）。用中文，不要编造数据；如果素材只够支撑 1-2 条判断，就只输出 1-2 条。',
     keywords: ['content creator growth', 'short video trend', 'newsletter growth'],
     windowHours: 168,
-    sources: ['bilibili', 'douyin', 'weibo', ...EN_SEARCH_SOURCES],
+    sources: ['bilibili', 'douyin', 'weibo', 'sspai', 'oschina', ...EN_SEARCH_SOURCES],
     builtin: true,
   }),
   Object.freeze({
@@ -88,7 +89,7 @@ const PRESET_COMMANDS = Object.freeze([
     prompt: '请检索最近一周内与内容创作者风险有关的真实事件与讨论，覆盖：1) 因内容引发的争议、舆情与删帖/下架案例；2) 版权、字体、音乐、素材授权相关的纠纷或平台判罚；3) 账号被限流、封禁、禁言的公开案例与官方说明。输出 4 条「避雷清单」（每条含：发生了什么、来源链接、触发条件、我怎么避免），并标注每条的可信度（官方公告 / 多方报道 / 只有单方说法）。用中文，不要编造案例；没有任何可靠信息就明确说"本周未发现可靠的风险事件"，不要为了凑条数编。',
     keywords: ['content controversy', 'copyright claim', 'account suspended'],
     windowHours: 168,
-    sources: ['weibo', ...EN_SEARCH_SOURCES],
+    sources: ['weibo', 'ithome', ...EN_SEARCH_SOURCES],
     builtin: true,
   }),
 ])
