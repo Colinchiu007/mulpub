@@ -16,7 +16,7 @@
   目标 worktree 绝对路径；默认 = 本脚本所在仓库根。
 
 .PARAMETER Profile
-  ELECTRON_USER_DATA_DIR（默认共享锚点 D:\Data\projects\Mulpub\shared-user-data）。
+  ELECTRON_USER_DATA_DIR（默认共享锚点 D:\Data\projects\mulpub\shared-user-data）。
 
 .PARAMETER NoSync
   跳过 git fetch + ff-only 同步。
@@ -46,7 +46,7 @@
 [CmdletBinding()]
 param(
   [string]$Worktree = '',
-  [string]$Profile = 'D:\Data\projects\Mulpub\shared-user-data',
+  [string]$Profile = 'D:\Data\projects\mulpub\shared-user-data',
   [switch]$NoSync,
   [switch]$NoDepsCheck,
   [switch]$InvalidateViteCache,

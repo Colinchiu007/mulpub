@@ -21,7 +21,7 @@
 #   powershell -ExecutionPolicy Bypass -File scripts\start-ops-center.ps1
 #   powershell -ExecutionPolicy Bypass -File scripts\start-ops-center.ps1 -PrepareOnly
 param(
-  [string]$RepoRoot = 'D:\Data\projects\Mulpub',
+  [string]$RepoRoot = 'D:\Data\projects\mulpub',
   [string]$LiveWt   = 'D:\Data\projects\mp-worktrees\mp-app-live2',
   [string]$Anchor   = 'D:\Data\projects\mp-ops-data',
   [string]$Python   = (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\python.exe'),

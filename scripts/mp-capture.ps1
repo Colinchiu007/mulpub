@@ -80,7 +80,7 @@ public class WinCapture {
 }
 "@ -ReferencedAssemblies System.Drawing
 
-$OUT = "D:\Data\projects\Mulpub\screenshots\mp"
+$OUT = "D:\Data\projects\mulpub\screenshots\mp"
 New-Item -ItemType Directory -Force -Path $OUT | Out-Null
 
 $hwnd = [WinCapture]::FindByTitle("参考产品")

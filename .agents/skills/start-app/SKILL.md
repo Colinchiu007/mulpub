@@ -94,13 +94,13 @@ Get-NetTCPConnection -LocalPort <cdpPort> -State Listen -ErrorAction SilentlyCon
 
 ```powershell
 # 完整：同步 origin/main + 条件装依赖 + 启动（在普通终端跑，勿在 agent 沙箱内）
-powershell -ExecutionPolicy Bypass -File D:/Data/projects/Multi-Publish/scripts/sync-app.ps1
+powershell -ExecutionPolicy Bypass -File D:/Data/projects/mulpub/scripts/sync-app.ps1
 
 # 只同步不启动（预同步）
-powershell -ExecutionPolicy Bypass -File D:/Data/projects/Multi-Publish/scripts/sync-app.ps1 -PrepareOnly
+powershell -ExecutionPolicy Bypass -File D:/Data/projects/mulpub/scripts/sync-app.ps1 -PrepareOnly
 
 # 安全模式：fetch + 自愈 + 依赖门禁（供无人值守自动化；不重写工作树）
-powershell -ExecutionPolicy Bypass -File D:/Data/projects/Multi-Publish/scripts/sync-app.ps1 -Safe
+powershell -ExecutionPolicy Bypass -File D:/Data/projects/mulpub/scripts/sync-app.ps1 -Safe
 ```
 
 ### 机制要点
@@ -117,7 +117,7 @@ powershell -ExecutionPolicy Bypass -File D:/Data/projects/Multi-Publish/scripts/
 
 - **agent 沙箱会杀整树重写类 git 写**（`checkout -f origin/main`、`reset --hard`、大 merge）→ 撕裂 worktree（留 `index.lock` + 大量假 ` D `）。**完整同步必须在普通终端跑**。
 - agent 会话内只允许：fetch、`-Safe` 自愈（`checkout HEAD -- .`）、状态查询。
-- 撕裂恢复三步：删 `D:/Data/projects/Multi-Publish/.git/worktrees/<name>/index.lock` → `cd` 进 worktree → `git checkout HEAD -- .` → 复验 dirty==0。
+- 撕裂恢复三步：删 `D:/Data/projects/mulpub/.git/worktrees/<name>/index.lock` → `cd` 进 worktree → `git checkout HEAD -- .` → 复验 dirty==0。
 - 无人值守自动化一律用 `-Safe`，绝不跑整树重写。
 
 ### 验证（启动后）
@@ -151,20 +151,20 @@ uname -s   # Linux → WSL；MINGW/CYGWIN/MSYS → Windows
 
 ```bash
 # 在 WSL Ubuntu-E 内执行
-bash /mnt/d/Data/projects/Multi-Publish/scripts/start-desktop-wsl.sh
+bash /mnt/d/Data/projects/mulpub/scripts/start-desktop-wsl.sh
 ```
 
 > 该脚本自动：同步 origin/main → 用 Linux 依赖树（`~/mp-wsl-deps/mp-wsl`）→ 注入 `LD_LIBRARY_PATH` → 启动 vite + electron（共享 userData 由锚点决定）。
 
 ### 0. 确认目标工作区
 
-- 默认目标 = 当前仓库根（`D:\Data\projects\Multi-Publish`）。
+- 默认目标 = 当前仓库根（`D:\Data\projects\mulpub`）。
 - 若用户指定 worktree（如 `D:\Data\projects\mp-worktrees\mp-<task>`），用该 worktree。
 - ⚠️ `start-desktop.ps1` 默认 **fail-closed 拒绝共享主工作区**（`git-dir == common-dir`），因为脚本会 fetch/merge 并强停进程。若确实要在共享主目录启动，需 `-ForceShared`（高风险，先向用户说明）。
 
 #### 0a. 共享主工作区可用性检测（关键，曾多次踩坑）
 
-**若目标是共享主工作区（`D:\Data\projects\Multi-Publish`），必须同时检查两项：**
+**若目标是共享主工作区（`D:\Data\projects\mulpub`），必须同时检查两项：**
 
 ```powershell
 # 1. 脏文件数
@@ -380,7 +380,7 @@ const page = targets.find((t) => t.type === 'page' && t.url.startsWith('http://1
 - **位置**：`E:\BaiduSyncdisk\100-Agent-data\skill-repo\start-app\`（Baidu 网盘同步目录，非 git 仓库）。
 - **结构**：`SKILL.md`（完整定义，v1.3.0）+ `agents/openai.yaml`（OpenAI Agents UI 元数据，可选）。
 - **同步步骤**：
-  1. 复制项目内单一事实源：`cp D:/Data/projects/Multi-Publish/.agents/skills/start-app/SKILL.md E:/BaiduSyncdisk/100-Agent-data/skill-repo/start-app/SKILL.md`
+  1. 复制项目内单一事实源：`cp D:/Data/projects/mulpub/.agents/skills/start-app/SKILL.md E:/BaiduSyncdisk/100-Agent-data/skill-repo/start-app/SKILL.md`
   2. 创建/更新 `agents/openai.yaml`（格式参考 skill-repo 内 `git-cleanup-analysis/agents/openai.yaml`）。
   3. 验证：`diff <项目内 SKILL.md> <skill-repo SKILL.md>` 应输出 IDENTICAL；`file openai.yaml` 应为 UTF-8 无 BOM。
 
@@ -400,7 +400,7 @@ const page = targets.find((t) => t.type === 'page' && t.url.startsWith('http://1
 | 504 空白页 | 加 `-InvalidateViteCache` 重试 |
 | WSL electron 缺库 | `LD_LIBRARY_PATH=~/mp-wsl-deps/electron-libs` 注入；缺失则从 `/tmp/electron-libs/extracted/usr/lib/x86_64-linux-gnu/` 复制 |
 | WSL GPU 崩溃（GPU process isn't usable）| 加 `--in-process-gpu`（start-desktop-wsl.sh 已内置）|
-| WSL 数据分裂 | 确认 electron 用共享目录：`--user-data-dir=/mnt/d/Data/projects/Multi-Publish/shared-user-data`；不要设 `ELECTRON_USER_DATA_DIR` |
+| WSL 数据分裂 | 确认 electron 用共享目录：`--user-data-dir=/mnt/d/Data/projects/mulpub/shared-user-data`；不要设 `ELECTRON_USER_DATA_DIR` |
 | 启动后窗口还是旧版界面（代码已同步但 UI 未更新，2026-09-20 复盘） | **单实例锁跨目录接管**：从别的目录/入口启动的旧 Electron 共享同一 userData（如 `shared-user-data`）持有单实例锁，新实例 `app.quit()` 静默退出，老进程 `second-instance` 只重新聚焦**旧 renderer 窗口**（老窗口连的 Vite HMR 已断，永远不会自行换新代码）。v1.7.0 起 launcher 自动审计停止此类 foreign 主进程；手工排查：看 launcher 输出 `PROFILE_OWNER`/`LOCK_HOLDER_CANDIDATES` 行点名 pid+exe，手动 `Stop-Process` 后重启。**任何情况下都不要假定"看到窗口=新代码"，须核对窗口所属进程启动时间** |
 | 启动后窗口出现几十秒就消失（无崩溃日志、退出码 0） | **单实例锁冲突**：另一 worktree 用同一 profile 启动，后启动实例被 `app.quit()` 顶掉。改用独立 profile 启动（见 Pitfalls「profile 单实例锁」） |
 | 后台 job 里跑 start-desktop.ps1，job 结束应用就没了 | **父会话连带杀进程**：`Start-Process` 启动的 electron 进程树挂在启动它的 PowerShell 会话下，会话退出即被终止。改用 WMI `Win32_Process.Create` 拉起独立启动器（见 Pitfalls「独立启动器」） |
