@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $here 'applive-foreign-audit.ps1')
 
-$profile  = 'D:/Data/projects/Mulpub/shared-user-data'
+$profile  = 'D:/Data/projects/mulpub/shared-user-data'
 $worktree = 'D:/Data/projects/mp-worktrees/mp-app-live2'
 
 function FakeProc {
@@ -19,17 +19,17 @@ $exeSame = 'D:\Data\projects\mp-worktrees\mp-app-live2\node_modules\electron\dis
 $exeOut  = 'D:\Data\projects\mp-worktrees\mp-other\node_modules\electron\dist\electron.exe'
 $procs = @(
   # 101: same worktree, backslash profile path in cmdline -> hit
-  (FakeProc 101 $exeSame '--user-data-dir=D:\Data\projects\Mulpub\shared-user-data --disk-cache-dir=x'),
+  (FakeProc 101 $exeSame '--user-data-dir=D:\Data\projects\mulpub\shared-user-data --disk-cache-dir=x'),
   # 102: same worktree, forward-slash profile path -> hit (variant match)
-  (FakeProc 102 $exeSame '--user-data-dir=D:/Data/projects/Mulpub/shared-user-data --x'),
+  (FakeProc 102 $exeSame '--user-data-dir=D:/Data/projects/mulpub/shared-user-data --x'),
   # 103: foreign worktree renderer (has --type=) with quoted path -> hit but not main
-  (FakeProc 103 $exeOut '--user-data-dir="D:\Data\projects\Mulpub\shared-user-data" --type=renderer'),
+  (FakeProc 103 $exeOut '--user-data-dir="D:\Data\projects\mulpub\shared-user-data" --type=renderer'),
   # 104: foreign main -> hit, main
-  (FakeProc 104 $exeOut '--user-data-dir=D:\Data\projects\Mulpub\shared-user-data --x'),
+  (FakeProc 104 $exeOut '--user-data-dir=D:\Data\projects\mulpub\shared-user-data --x'),
   # 105: suffix lookalike -> must NOT match
-  (FakeProc 105 $exeOut '--user-data-dir=D:\Data\projects\Mulpub\shared-user-data-2 --x'),
+  (FakeProc 105 $exeOut '--user-data-dir=D:\Data\projects\mulpub\shared-user-data-2 --x'),
   # 106: truncated prefix -> must NOT match
-  (FakeProc 106 $exeOut '--user-data-dir=D:\Data\projects\Mulpub\shared-user-da --x'),
+  (FakeProc 106 $exeOut '--user-data-dir=D:\Data\projects\mulpub\shared-user-da --x'),
   # 107: unrelated electron without the profile flag -> must NOT match
   (FakeProc 107 $exeOut '--other-flag=1 --x')
 )
