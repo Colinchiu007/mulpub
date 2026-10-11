@@ -16,6 +16,8 @@
     "test:ai-autonomous-tester": "pnpm --filter @multi-publish/ai-autonomous-tester test",
     "test:affected": "nx affected -t test --base=origin/main --parallel=1",
     "test:all": "nx run-many -t test --all --parallel=1",
+    "test:affected:no-desktop": "nx affected -t test --base=origin/main --parallel=1 --exclude=@multi-publish/desktop",
+    "test:all:no-desktop": "nx run-many -t test --all --parallel=1 --exclude=@multi-publish/desktop",
     "version:sync": "node scripts/sync-version.mjs",
     "version:bump": "node scripts/bump-version.mjs",
     "version:check": "node scripts/release-gate.mjs",
