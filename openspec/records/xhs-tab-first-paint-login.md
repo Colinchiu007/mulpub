@@ -2,9 +2,6 @@
 record: xhs-tab-first-paint-login
 task: 账号标签首屏登录态——凭证 localStorage 的 document-start 注入从未生效（小红书开卡「先登录页 → 刷新 → 进创作者中心」）
 date: 2026-10-11
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并；合并后由后续回填 PR 将 .quality-gates.md 的远程同步行改写为 PASS + merge SHA，并在同一次提交删除 scripts/gate-record-debt-ledger.json 的本条登记
-sync_backfill_owner: xhs-tab-first-paint-login 记录作者
 ---
 
 ## 本次执行记录：账号标签首屏登录态（xhs-tab-first-paint-login，2026-10-11）【混合 PR】
@@ -26,7 +23,7 @@ sync_backfill_owner: xhs-tab-first-paint-login 记录作者
 | QM-4 视觉 | N/A | 无任何渲染端文件/样式/文案变更（仅主进程时序与状态机） |
 | QM-6 CCG 双模型深度审查 | ✅ 6 条全部处置 | 变更 841 行 > 200 行阈值 ⇒ 提交钩子判定 **DUAL**；`sh scripts/deep-review.sh`（critic=claude / proposer=opencode，跨家族）轮 1 产出 6 条：i1（auth 域 Warning）**upheld** → 带跳场景契约 + 守卫本体契约 + AC 措辞适用范围 + §13 第 5 条，M7 反证变红；i2（Warning）**upheld** → setItem try/catch 结构锁 + §7.2 两层保证改写，M6 反证变红；i3（Warning）**dismissed（附量化）** → §7.2 开销行（新增 150–300ms < 修复前 2500ms 门控 + 整页重载）；i4（Warning）**upheld** → 三出口注释 + 命名收敛 + §6.3；i5/i6（Info）→ **issue #3363** 跟踪，i6 另以探针 7 取证 detach 边界（detach 后新文档不再注入）。裁决逐条落盘 `.adversarial/ccg-deep-a2e90cb7/adjudication.json`（i1 为高危域：结论只依据可重跑测试与变异结果） |
 | OpenSpec change | 判定不建（如实记录） | 单点根因修复、无方案级取舍、无新增 IPC 通道/存储/接口/依赖；同域先例（2026-10-09 账号标签 Cookie 恢复、2026-10-11 小红书登录二段式补跳）同样只产出 PRD + 执行记录 |
-| 远程同步 | PENDING | 待本 PR 合并后就地改写 PASS + merge SHA（`git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 取证），并在**同一次提交**删除 `scripts/gate-record-debt-ledger.json` 的本条登记与本文档 frontmatter 的 `sync_*` 三字段 |
+| 远程同步 | PASS | PR #3362 已 squash 合并：merge SHA `a22e424a7adb4ec9f9e9d32571d8b28a8cef12f2`（committer 2026-10-12T03:15:27+08:00）。取证三件套：① `git log origin/main --grep='(#3362)$' --format='%H\|%cI'` 唯一命中 1 行；② `git ls-remote --heads origin xhs-tab-first-paint-login` 返回 **0 行**（远端分支已删）；③ `gh pr view 3362 --json state,mergeCommit` → `MERGED` + 同一 SHA。本行、`.quality-gates.md` 同名行回填、frontmatter `sync_*` 三字段删除与 `scripts/gate-record-debt-ledger.json` 登记项删除在**同一次提交**完成 |
 
 ### 相关域全量（`electron/**`）
 
