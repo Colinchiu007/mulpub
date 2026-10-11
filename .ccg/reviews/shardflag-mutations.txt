@@ -1,6 +1,6 @@
 # shardflag 变异反证原件
-# head=b680f413044f85b03cd03c6b317324004b025fa5 branch=desktop-shard-flag
-# node=v24.19.0 collectedAt=2026-10-11T16:02:52.712Z
+# head=273fbe6d59c0331e4529eeb1dc516787dade9739 branch=desktop-shard-flag
+# node=v24.19.0 collectedAt=2026-10-11T16:10:43.766Z
 # 注：本原件运行时 worktree 尚有未提交改动，head 只标识仓库基线；逐字节现场见 git status 与 PR diff。
 
 == A 把裸 "--" 塞回 -ArgumentList（历史缺陷形态本身，不是"摘掉守卫"）
@@ -109,4 +109,4 @@
 
 == FINAL（未变异）fail=0 pass=14/14
 MUTATION_BAD=0（0 = 12 条必须红的都点名红了、1 条必须绿的没被误伤、且还原后基线照绿）
-DRIVER_RC=0
+BATT_RC=0

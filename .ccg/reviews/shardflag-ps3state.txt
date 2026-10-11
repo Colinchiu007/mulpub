@@ -1,6 +1,6 @@
 # shardflag 三态对照（PowerShell 解析器 + Start-Process extent）
-# head=b680f413044f85b03cd03c6b317324004b025fa5 A_base=d72cd2bd8（A 态钉死在修复前的 main tip，不随 HEAD 移动）
-# node=v24.19.0 collectedAt=2026-10-11T16:07:52.849Z
+# head=273fbe6d59c0331e4529eeb1dc516787dade9739 A_base=d72cd2bd8（A 态钉死在修复前的 main tip，不随 HEAD 移动）
+# node=v24.19.0 collectedAt=2026-10-11T16:15:29.605Z
 # 说明：${{ ... }} 已按 GitHub 行为替换成实值 1/2；未替换时三态都会额外报一条模板伪影错。
 
 == A 基线（d72cd2bd8：带裸 "--"，无本轮新增注释）
@@ -33,3 +33,4 @@
    OK   A 的 extent 里确有裸 "--"（缺陷当时真的生效）
    OK   C 的 extent 里没有裸 "--"（本 PR 的修复真的落到了那条命令上）
    facts={"A":{"errors":0,"arglist":"True","len":334,"bare":"True"},"B":{"errors":0,"arglist":"False","len":34,"bare":"False"},"C":{"errors":0,"arglist":"True","len":324,"bare":"False"}}
+PS3_RC=0
