@@ -1,3 +1,54 @@
+# [未发布] fix(ci): 桌面分片从来没分过文件——裸 "--" 吃掉了七个 vitest 旗标（desktop-shard-flag）
+
+## 背景
+
+`.github/workflows/quality-gate.yml` 的 `Desktop tests shard` 步骤把七个 vitest 选项写在一个裸 `"--"` 之后。
+pnpm 会把 `--` **原样**交给脚本，而 vitest 在 `--` 处停止解析选项 ⇒ 七个旗标全部退化成位置参数。
+其余六个在 `apps/desktop/vitest.config.js` 里有第二份等价配置（掉了也看不出来），**只有 `--shard` 没有兜底**，
+而它恰好是"没生效也不报错"的那种。
+
+CI 活体证据（run `38143550282`，两个 job 的日志尾部汇总**逐字相同**）：
+`Test Files  872 passed | 1 skipped (873)`、`Tests  15555 passed | 3 skipped (15558)`
+⇒ 两个 matrix 腿各跑全量 873 个文件，桌面套件每次 CI 被完整跑两遍，"分片"是装饰性的。
+
+## 改动
+
+- 从 `-ArgumentList` 里删掉那个裸 `"--"`（七个旗标按原顺序保留）。
+- 新增单一判据 `scripts/check-desktop-shard-forwarding.js`，三层：① 结构层从 workflow 正文解析真实 argv
+  （注释行先整行抹空再起锚）；② 行为层照 argv **真的跑一次** pnpm，读被调用方自己打印收到的 argv，并配负控
+  （把坏形态喂进去必须真的送达 `--`，探针可注入）；③ 续行完整性扫描（见下）。
+- 同 PR 接进 `.github/workflows/quality-gate.yml` 的 Gate 3：`node --test … scripts/check-desktop-shard-forwarding.test.js`
+  ＋ `node scripts/check-desktop-shard-forwarding.js` 本体。
+
+## 顺带查出的第二条静默失效（本轮我自己踩的）
+
+给 workflow 加"位置纪律"注释时，把注释插在了反引号续行的**后面**：PowerShell **一个语法错都不报**
+（三态实测 A/B/C 全部 PARSE_ERRORS=0），但那条 `Start-Process` 命令的 extent 从 334 字符塌成 34，
+`-ArgumentList @(...)` 被静默重新分组 ⇒ pnpm 会带着 0 个实参被拉起来。所以"语法没报错"不是证据，
+判据只能是文本级的"续行与下一行不得是注释"（全仓 13 个 workflow 实测 0 命中，不设例外清单）。
+
+同轮第三条：注释里**原样写了** `-ArgumentList @(...)` 这种代码字样，结构锁的惰性正则当场从注释起锚，
+把 `-FilePath "pnpm.cmd"` 也当成分片旗标收进 argv —— 锁不报错，只是开始测错的东西。
+正解是解析前把注释行整行抹空。两条各有一条变异反证（G/H）。
+
+## 验证
+
+- `node --test scripts/check-desktop-shard-forwarding.test.js` ⇒ `tests 10 / pass 10 / fail 0`（re-sync 后复跑）。
+- 变异反证 9 条（8 条必须红全部点名红 + 1 条必须绿照绿）⇒ `MUTATION_BAD=0`，逐条按字节还原。
+  驱动与产物入库：`.ccg/reviews/shardflag-mutate.driver.js` / `shardflag-mutations.txt`；
+  三态对照原件与产物：`.ccg/reviews/shardflag-ps3state.driver.js` / `shardflag-ps-parse.ps1` / `shardflag-ps3state.txt`。
+- `check-unwired-tests` OK（检查域 74 个测试文件全部接线）| `check-step-failfast` OK | `check-gate-record-debt` OK |
+  `check-no-brand-residue` PASS（8041 个 tracked 文件）| `classify-docs-only` ⇒ docs-only=false（混合 PR，走全量门禁）。
+
+## 影响与遗留
+
+- 两个 matrix 腿从"各跑全量"变为真正各跑一半，`QG Desktop Shards` 的耗时分布随之改变 ⇒
+  **#3313 那组 `PROVENANCE.shardMaxSuccessMin`（29.77 分）按新口径立即过期**。本 PR 不据此收紧预算
+  （一次低值不构成收紧理由），合并后须跑 `node scripts/gate-budget-probe.js --check` 复核。
+- 加速幅度是**预测不是实测**：两腿仍各自承担同量级的环境/安装前置，那一截本 PR 未触。
+- 矩阵仍是 2 片且单腿内部串行（`--maxWorkers=1` + `--no-file-parallelism`）；要不要切更多片属容量调优，不叠。
+- 执行记录：`openspec/records/desktop-shard-flag.md`（含 QM-6 待办与人工过目理由）。
+
 # [未发布] feat(creator): 博主监控多平台扩展——抖音 / 小红书接入（creator-multi-platform）
 
 ### 用户感知
