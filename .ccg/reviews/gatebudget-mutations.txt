@@ -1,6 +1,6 @@
 变异反证汇总 · PR #3313 第 2 轮 · 16 条（14 want=red + 1 want=green + 1 FINAL）
-head_sha=9705c40d3ab07a6f61f3cf2a6205553a897d7533 subject=fix(ci): 纠正 30 分钟墙的归因（被 #3315 否证）并收窄我那条过宽的全文禁令
-node=v24.19.0  采集时刻(UTC)=2026-10-11T10:01:58Z
+head_sha=6885d85cbb9f656f0a8133d42e0debbe48f81844 subject=Merge remote-tracking branch 'origin/main' into gate-budget-reprobe
+node=v24.19.0  采集时刻(UTC)=2026-10-11T10:08:41Z
 被测锁=scripts/gate-budget.test.js（11 条）  驱动=本文件同目录 .ccg/reviews/gatebudget-mutate.driver.js
 重跑方式：node .ccg/reviews/gatebudget-mutate.driver.js --dry   # 只校验 16 个锚点命中数
           node .ccg/reviews/gatebudget-mutate.driver.js         # 逐条打补丁→跑锁→逐字节还原→复验
@@ -24,7 +24,7 @@ node=v24.19.0  采集时刻(UTC)=2026-10-11T10:01:58Z
     "禁令不得挡掉被批准的修法"——收窄前，#3315 合法写入的三处历史归因注释会被全文禁令判红。
 
 --- 原始输出（逐字） ---
-COORD head_sha=9705c40d3ab07a6f61f3cf2a6205553a897d7533 node=v24.19.0 cases=16 lock=scripts/gate-budget.test.js
+COORD head_sha=6885d85cbb9f656f0a8133d42e0debbe48f81844 node=v24.19.0 cases=16 lock=scripts/gate-budget.test.js
 M1 两处等待退回写死 1800000
    file=quality-gate.yml hits>=2 patch: "WaitForExit([int]$gateBudgetMs)" -> "WaitForExit(1800000)"
    want=red fail=1 pass=10/11 restored=bytes_equal named=true
