@@ -76,6 +76,9 @@ function registerAllHandlers(ipcMain, deps) {
   // 播客 RSS 频道（小宇宙收录链路）。必须注册：缺了它渲染端「播客频道」页
   // 拿到的是 Electron 原生 "No handler registered"，对用户毫无意义。
   require('./podcast')(ipcMain, deps)
+  // 采集页「快捷采集」：内置指令目录 + 执行（检索复用 content-intelligence + 默认大模型）。
+  // 依赖缺失时 handler 内部降级（返回 -101），不会把整条 IPC 注册链带崩。
+  require('./quick-collect')(ipcMain, deps)
   // 全自动管道
   require('./auto-pipeline')(ipcMain, deps)
   // 自动化任务（定时 / 应用启动触发，后台执行）

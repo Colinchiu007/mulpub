@@ -45,6 +45,7 @@ const { createAutoPipelineApi } = require('./auto-pipeline')
 const { createAutomationApi } = require('./automation')
 const { createKnowledgeLibraryApi } = require('./knowledge-library')
 const { createPodcastApi } = require('./podcast')
+const { createQuickCollectApi } = require('./quick-collect')
 const { createSignerApi } = require('./signer')
 const {
   ADMIN_ONLY_METHODS,
@@ -113,6 +114,8 @@ const fullApi = {
   ...createKnowledgeLibraryApi(ipcRenderer),
   // 播客 RSS 频道（小宇宙收录链路）：独立实体，不是发布平台，不经 publishMode
   ...createPodcastApi(ipcRenderer),
+  // 采集页「快捷采集」：内置指令目录 + 执行 + 进度事件
+  ...createQuickCollectApi(ipcRenderer),
   // 签名页桥（W3 task 2.4，authenticated）：仅白名单 command，无任何任意 JS 求值通道
   ...createSignerApi(ipcRenderer),
   // P2 限流自检（authenticated，默认受限）

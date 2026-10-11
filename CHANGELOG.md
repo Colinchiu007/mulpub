@@ -19,6 +19,58 @@
 - `.github/scripts/workflow-contract.test.js` 新增结构锁 ⇒ 实跑 `35 pass / 0 fail`（改前基线 34）。
 - 变异 N1–N7 逐个实测变红（`red=7/7`），收尾按 `Buffer.compare` 断言与备份逐字节相同。另把 Gate 7 那几行原文抽出来喂 `pwsh` 跑六格行为表：全 0 ⇒ rc=0；`views=3` ⇒ rc=3 点名 views；`views=1` ⇒ rc=0；`pixel=3` ⇒ rc=3；**删掉初始化 ⇒ rc=3 且名单为空**（证明"合规形态能绿"不是声明）。
 - 最终现场仍以本 PR 自己的 `QG Visual` 为准：`[GATE-7] suite exits: pixel=0 views=0 views-supplement=0 dark=0`（`views` 必须由 1 变 0）。
+# [未发布] feat(collection): 采集页「快捷采集」——内置 6 条官方指令 + 自定义指令增删改（2026-10-11，quick-collect）
+
+## 背景
+
+采集页此前只有「给我一个 URL，我去抓正文」（`Collection.collectUrl`）。而创作者的高频问题是
+**"最近发生了什么、值不值得写"** —— 这类问题没有 URL，需要的是"用固定的检索指令去查最近一段
+时间的真实动态"。两侧能力其实都已存在（检索：`content-intelligence` 的 Reddit / Hacker News /
+GitHub 三源，条目带 `created_utc`；生成：`aiGenerator.generateWithDefault('llm')`），缺的是把两者
+固定成**一条可复用的指令**的产品形态。
+
+## 改动
+
+- **新页签「快捷采集」**：位置 `采集 | 快捷采集 | 文案库 | 博主监控`。页签按钮与面板各自独立组件
+  （`QuickCollectTab.vue` / `QuickCollectPanel.vue`），`Collection.vue` 净增 ~21 行 —— 它是
+  `check-max-lines` 的 targets 零容差文件（2920），净增必须 ≤30 行，因此所有新代码落在目录内。
+- **内置 6 条官方指令**（主进程 `quick-collect-presets.js`，只读、不落盘）：`AI 领域动向`（提示词**逐字**
+  采用用户给定文本，有单测逐字断言）、`平台规则与合规动向`、`热点选题雷达`、`创作工具与效率新品`、
+  `同行内容与形式趋势`、`舆情风险与避雷`。内置指令不落盘是硬约束：落盘副本会盖住版本升级后的新词条。
+- **自定义指令 CRUD**：标题（1–40 字）+ 指令正文（10–4000 字）+ 可选检索关键词（≤5 个，每次只用前 3 个检索）
+  + 素材时间范围（24h / 48h / 7d / 不限）；标题与指令均给出默认示例文案与提示。落盘设置键
+  `quick_collect_commands`（`{version:1,commands:[...]}`），读时容错 v0 裸数组 + 逐条校验丢弃并计数（一条脏数据
+  不让整表消失），标题查重（大小写/空白不敏感）。
+- **执行链（主进程）**：`quick-collect:run` → 校验 → 检索（`content-intelligence.search`，`noCache: true`，
+  `relevanceOn: ['title','snippet']`）→ 合并/去重/时间窗口/safeHttpUrl 协议判据/engagement 排序截断 12 条 →
+  组装提示词（system 三条硬约束 + 指令逐字透传 + 素材清单 + 输出要求）→ 默认大模型 → 归一为采集条目。
+  模块拆分为 `-command`（校验归一，唯一口径）/`-materials`/`-prompt`/`-engine`，全部依赖注入、零直连 IO。
+- **不编造**：`retrieval ∈ {ok, partial, empty, skipped}` 随结果回传；`empty`/`skipped` 时由**引擎**在正文首行
+  插入声明行（模型已自述同类声明则不重复），单测覆盖。
+- **结果同形**：结果经 `normalizeCollectedItem` 唯一出口入 `collectedItems` 并落盘，新增只读溯源字段
+  `quickCollect`，随后自动切到「采集」页签复用**同一张结果卡**（改写策略 / 字数区间 / 爆款库 / 草稿 / 发布），
+  不新写第二套结果 UI。
+- **IPC / preload**：`quick-collect:list-presets`、`quick-collect:run`（`withSenderCheck`）、
+  `quick-collect:progress` 事件；preload 三个扁平方法并重生成 `index.bundle.js`；新增领域码到文案的唯一映射在
+  渲染端 locale（校验类错误复用同一批表单文案，不另起一份措辞）。
+- **i18n**：`locales/collection/{zh,en}.js` 成对新增 74 键（含全部提示文字、错误文案、计数器模板）。
+
+## 验证
+
+- 本增量 234 passed / 0 failed（11 个文件）：引擎 18、指令校验 15、素材 9、提示词 7、内置目录 5、IPC handler 9、
+  前端纯逻辑 25（含**前后端闭集对账**：常量/拆词/窗口解析/查重/关键词去重逐项与主进程比对）、composable 7、
+  面板 10、弹窗 9、Collection 集成 3（含页签数量与 `onQuickCollected` 入库链路）。
+- 6 条变异反证各自**指名**变红后回滚：窗口过滤（缺时间戳 / 窗口外）×2、素材 URL 协议判据、声明行（skipped / empty）×2、
+  内置指令不可编辑删除守卫。
+- 静态门禁：`check-ipc-bridge`（453 handlers / 471 preload / 0 缺口）、`check-ipc-sender-guard`（显式守卫占比 65.7% ≥ 65%）、
+  `check-locale-sync --pair-base/--cjk/--keys`、`check-max-lines`（Collection.vue 2909 ≤ 2920 零容差目标）、
+  `check-frontend-consistency`、`check-no-brand-residue`、ESLint（error 级）。
+- QM-1 打包：`pnpm run build:dir` rc=0 + asar 内容核对（详见 `.quality-gates.md` 同记录行）。
+
+## 边界
+
+- 素材源为 Reddit / Hacker News / GitHub 三个免费英文源，中文平台动态覆盖有限（PRD §13 第 2 条如实登记）。
+- 执行不可取消（P1）；未做真机点击端到端（依赖用户已配置默认大模型与可访问三源的网络），PRD §13 第 3 条如实记录。
 
 # [未发布] docs(podcast): 刀 3 下半片接口契约入规格（2026-10-11，podcast-episode-ipc）
 
