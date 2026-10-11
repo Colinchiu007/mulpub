@@ -9,7 +9,6 @@
     "status": "记录",
     "line": 2885
   },
-  "本次执行记录：微信公众号图文正文/封面完整性 + 历史记录真实封面缩略图（wxmp-article-content-cover，2026-10-12）【混合 PR】": "本 PR（wxmp-article-content-cover：公众号图文正文+封面完整性、历史记录真实封面缩略图）尚未合并：远程同步行停在 PENDING，合并后由回填 PR 改写 PASS + merge SHA，并在同一次提交删除本条与 openspec/records/wxmp-article-content-cover.md 的 sync_* 三字段。",
   "本次执行记录：限流与调度验证 用法文档补充（2026-08-13）": {
     "reason": "历史记录的收口证据未由本会话取证；不代其他会话改写其执行记录（只登记、不臆造 merge SHA）。回填者＝该记录作者，或其后续 docs PR。",
     "status": "待 PR 合并后核验",

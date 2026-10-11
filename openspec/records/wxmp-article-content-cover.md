@@ -2,9 +2,6 @@
 record: wxmp-article-content-cover
 task: 微信公众号图文发布的正文与封面完整性（多通道注入 + 回读 fail-closed、封面上传与生效判据）+ 发布历史真实封面缩略图
 date: 2026-10-12
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填 PR 改写为 PASS + merge SHA 并删除三个 sync_* 字段
-sync_backfill_owner: 下一个会话（或本会话的合并后回填步骤）
 ---
 
 ## 本次执行记录：微信公众号图文正文/封面完整性 + 历史记录真实封面缩略图（wxmp-article-content-cover，2026-10-12）【混合 PR】
@@ -30,7 +27,7 @@ sync_backfill_owner: 下一个会话（或本会话的合并后回填步骤）
 | QM-1 打包 | N/A | 未改 `package.json` 的 `files` / 未新增被 require 的顶层依赖；改动集中在已被 asar 覆盖的 `electron/services`、`electron/bootstrap` 与 `src`。CI 打包 job 为准 |
 | QM-4 视觉 | PASS（预期） | `PublishHistory.vue` 模板断言未改，仅缩略图 `<img src>` 的取值来源变化；无 CSS 改动（`vue-style-parse` / `scoped-root` / `color-literals` / `font-size-scale` 全 PASS）。CI QG Visual 为准 |
 | QM-6 CCG 双模型外部评审 | 部分 | 已用一次**外部只读取证**（第三方公众号自动化项目一致用法）替代「凭记忆编选择器」，并据其纠正首版封面上传判据的**真实性缺陷**；正式 CCG 双模型评审未在本轮执行，如实记录 |
-| 远程同步 | PENDING | 本 PR 尚未合并。合并后：`git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 取 merge SHA；`git ls-remote --heads origin wxmp-article-content-cover` 返回 0 行证远端分支已删；回填本文与 `.quality-gates.md` 的远程同步行，并删除上方三个 `sync_*` 字段与 `scripts/gate-record-debt-ledger.json` 的登记项（同一次提交） |
+| 远程同步 | PASS | PR #3364 已 squash 合并，merge SHA `404978089db7150deb33348b73a7e6dbd394e659`（committer 2026-10-12T04:02:30+08:00）；取证 `git log origin/main --grep='(#3364)$' --format=%H|%cI` **唯一 1 行**命中；`git ls-remote --heads origin wxmp-article-content-cover` 返回 **0 行**，证远端分支已删；`sync_*` 三字段与 `scripts/gate-record-debt-ledger.json` 的本条登记已在同一次回填提交中删除 |
 
 ### 行尾对账
 
