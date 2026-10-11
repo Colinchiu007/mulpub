@@ -19631,6 +19631,16 @@ apps/desktop/src/views/
 | C5 | E2E 场景（playwright 探针） | ✅ /create 卡片数 0→4、console 错误 1→0（import 修正后） |
 | C6 | 壳文件净减 | ✅ 5057 → 4896（-161 行） |
 
+### 第一子批：script 区 43 组文案迁 locales（2026-10-11，cv-cjk-error-copy）
+
+批量附录的 CJK 遗留分三子批清偿，第一子批覆盖 **script 区 43 处纯错误/状态文案**（`create.story2video.ui.*`，zh/en 成对 43 键）：
+
+- **覆盖面**：quickModes 标签、mediaRequirements 四类格式提示、快速渲染四平台预设标签、流水线加载/错误兜底、历史状态映射（7 态）、配置 Profile 错误提示、可用性徽标、登录门提示、后台运行通知、providerCapability 重试建议
+- **结构性修正**：`quickModes` 从 data 移到 computed（data 阶段 `this.$t` 不可用——Vue 3 Options API 限制；移 computed 还能响应 locale 切换）；`configurationTitle` 指回既有键（勿重复建键）
+- **测试基建**：`views-deep2.test.js` 的 mountCreate 补 i18n 插件（quickModes 改 `$t` 后首次需要）
+- **验证**：288/288 + deep2 7/7 + 全量 1798 passed/1 skipped；Gate 7 `--cjk` PASS（基线 1489 → **1224**，净还债 65）/ `--keys` PASS（1800）
+- **后续子批**：第二子批 translateWithLocaleFallback 中文兜底参数（约 60 行）；第三子批模板区 77 行（需模板改动，独立专项）
+
 
 ## 附录：快手图文封面 tofu 乱码修复（2026-10-09，fix-kuaishou-tuwen-tofu）
 
