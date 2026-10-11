@@ -34,3 +34,15 @@ date: 2026-10-11
 - `check-changelog-growth-retire.test.js` 里那两个硬编码真仓 sha（`23822b73` / `f210f191`）仍在。本 PR 让**新的**退休锁不再依赖它们（改夹具仓真祖先关系），但没有把旧的五条也迁过来 —— 旧锁依赖仓库历史里的具体提交，理论上会被未来的 gc/重写影响，属已知脆弱性，未在本次范围内。
 - `collect` 侧 `evaluateAuthorization({…, root: root || process.cwd() })` 的兜底**没有测试覆盖**（M2 只证退休路径的注入是活的）：若将来新增一个不传 root 的调用点，退休分支会退回「按 ambient cwd 判祖先」，与旧缺陷同形。正解是把 root 变成必填并在缺失时当场抛，但那会让函数层那 5 条不传 root 的锁一起改夹具，本次未做。
 - 门禁输出的「可区分」目前只有测试与日志两个出口，CI 侧没有东西去**断言一次退休真的发生过**（它是一次都不会自然发生的分支）。我没有为它造假现场，也没有把「CI 里出现过退休放行」当验收条件——那需要一个真的晚于清理的 base。
+- **Gate 12d 要抓的那句占位，此刻就躺在仓库里，只是在两把锁的域外**（本轮登记；它把 `archive-dedup-changelog-history.md:45`
+  那句「活体 TBD 在真实仓库里仍未出现过一次」收窄成"在 12d 的域内未出现过"——历史快照不改写，本行为最新锚点）。
+  当场取证两份文件逐字对照：`.quality-rhythm/integrations/openspec/spec-contract.md:4` 是
+  `TBD - created by archiving change openspec-integration. Update Purpose after archive.`，而它镜像的真源
+  `openspec/specs/openspec-integration/spec.md:4` 的 Purpose 早已填好（#3084 那批 43 份去 TBD 漏了这一份，
+  因为它不在扫描域内，不是漏改）。两把锁都看不见它，各有各的理由：`check-spec-purpose.js:32` 把域写死成
+  `SPEC_DIR = 'openspec/specs'`（并显式排除 `openspec/changes/` 与 `openspec/specs/archive/`）；
+  `quality-rhythm-spec-mirror.test.js` 只比 `### Requirement:` 与 `#### Scenario:` 两份清单，Purpose 段不在比对项里。
+  **正解不在本 PR**（本 PR 是纯载体回填，动门禁属另一个 PR）：把 Purpose 纳入镜像锁的比对域——镜像的 Purpose
+  按定义应当**等于**真源的 Purpose，这本来就是镜像锁该守的不变量；反过来把 `.quality-rhythm/**` 塞进 12d 的扫描域是
+  错的修法，那会让"主规格完整性"门禁去管 vendored 制品，并把 #3084 那批的判据口径改掉。
+  登记前已核对：本条不是重复登记——#3277 那条讲的是"归档器会不会造出占位"，本条讲的是"已有一份占位正躺在域外没人看"。
