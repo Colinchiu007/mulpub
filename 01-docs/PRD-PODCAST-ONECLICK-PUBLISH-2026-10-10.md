@@ -135,7 +135,8 @@
 | `outBase` | 是 | 临时目录基名（主进程算，不接受渲染层给路径） | `PODCAST_EPISODE_INVALID`（路径由主进程持有是防越界的唯一办法） |
 | `title` | 是 | 非空、≤200 码点 | `PODCAST_EPISODE_INVALID` 并带 issues |
 | `meta` | 否 | 只允许引擎白名单键 | 非白名单键**丢弃并出声**，不得静默落盘 |
-| `cancelToken` | 否 | `{ cancelled: boolean }`，由渲染层持有引用 | 缺席视为不取消 |
+| `runId` | 是 | 形态 `/^[A-Za-z0-9_-]{8,64}$/`，**由渲染层生成** | `PODCAST_EPISODE_INVALID`（它同时是主进程临时目录名的一部分，所以形态判据就是目录穿越边界本身，不是装饰） |
+| ~~`cancelToken`~~ | — | ⛔ **合同纠正（2026-10-11 第 3 片实做时命中）**：`ipcRenderer.invoke` 走结构化克隆，「渲染层持有引用」这句话在 IPC 上不成立——`{ cancelled: false }` 到主进程就已经是**快照**，渲染层随后改的是另一个内存对象。照原话实现的后果是「取消」按钮点下去永不起作用、不报错、进度条照走。取消因此改由**第二条通道** `podcast:episode:publish:cancel` 承载，主进程按 `runId` 持有活引用并交给编排层 | 缺席视为不取消 |
 
 **返回**（成功信封 `{ code: 0, data }`，`data` 逐字为）：
 `{ state, phases, audioUrl, episodeId, itemCount, feedUrl, message, errorCode, errorMessage }`——
@@ -169,7 +170,7 @@ partial 含「这一期已登记到本地频道」+ 一个只重试 feed 的出�
 `overlay-view-suspension.test.js` 登记 owner（释放穷尽：`finally` 或 `watch(visible)` false 分支 + `onBeforeUnmount` 兜底）。
 关闭浮层**不取消**本次发布（链在主进程，跨 await 的中间态由主进程负责收尾）——这句必须写在界面上，否则用户会用关窗口来「停止」。
 
-**数据校验三层**：① 入参形状（本节表，主进程入口，缺任一必填即拒且在任何出站之前）；
+**数据校验三层**：① 入参形状（本节表，主进程入口，缺任一必填即拒且在任何出站与任何磁盘写之前）；
 ② 素材与实测（降级判定 → ffmpeg → ffprobe → stat，全在 `uploadAudio` 之前）；
 ③ 落盘前预校验打在**合并结果**上（读 `list[index]` → 按同一合并语义 merge → `validateEpisode(merged)`），不合规整次拒绝不落盘。
 
@@ -177,6 +178,18 @@ partial 含「这一期已登记到本地频道」+ 一个只重试 feed 的出�
 （`check-ipc-bridge` 的 harvest 只认字面量，变量派发会造出「451 handlers / 0 缺口」的假账），且注册形态沿用
 `withSenderCheck(handlerFor(...))` 以保证 sender-guard 比例不被稀释；preload 侧新增同名方法，桥接层 `src/api/podcast-channel.js`
 加一个 `episodePublishFromVideo` 导出并走既有 `envelope()` 单点剥壳。**少任何一侧 = CI 红，不允许「先合主进程后补 preload」。**
+渲染层两个导出为 `episodePublishFromVideo` 与 `episodePublishCancel`，都走 `envelope()` 单点，不自建第二处剥壳。
+
+#### 6.4.1 第 3 片实做时新增的四条硬约束（实现已落，改任何一条必须同 PR 改本节）
+
+1. **整条出期链自持一个频道忙标记**。临界区横跨「音频 PUT → 挂期 → 重建 feed → feed PUT」四次跨 await 的写，取锁点在宿主 `publishFromVideo` 进入时、放锁在 `finally`。命中即 `PODCAST_CHANNEL_BUSY` **立即拒绝不排队**（排队等于用户以为按钮没生效）。这条同时是那句曾经过期的注释的兑现：前两片 `publishAudio` 的头写着「锁归整条出期链」，而当时实现一次都没取锁（QM-6 后端 ① W1）。把锁下放到 `publishAudio` 是错的：那会把一次发布切成两段互斥，段间仍能插进手工单集写。
+2. **链内的 `publishFeed` 凭持锁凭证再入**。它自带取锁，整链已持有时必须认得「锁在手上」，否则一次出期死于自己的忙标记。判据**只认 `registry.publishHolder(id).token === heldBy`**，不接受调用方口头声明「我已持锁」——那等于任何人都能绕过忙标记；凭证不匹配或未传一律照常取锁（忙则拒）。再入时**不放锁**：放掉会把「音频已传、feed 未更」的中间态暴露给手工写者。
+3. **适配层每一次取「可写服务」都必须在 `channelPublishPass` 的同步作用域内**。`assertChannelWritable` 就是在 `channelServiceOf(id, { writable: true })` 这一站发生的，把它留在通行证外面（`feedSink` 原先正是这么写的）等于每次出期都停在 buildFeed。三个取用点（assertWritable / episodeSink / feedSink）一条都不能漏。
+4. **取消窗口与 kill**。`cancellableAt(phase)` 的唯一实现在编排层，宿主登记取消时注入的是同一个函数（不在宿主另写相位表）。`too_late` **不置位**（置位等于把既成事实说成「用户不要了」，而它已无法回滚）；`unknown` 不得被界面读成「已取消」（那会对一次已经发布成功的出期说「已取消，临时文件已回滚」）。用户取消在抽取在途时必须真的 `child.kill()`；**宿主超时只杀进程、不置位**——否则同一个 token 的下一个采样点会把「等太久」读成「用户取消了」，两件事排查方向相反。被 kill 后的非 0 退出在抽取层转成 `PODCAST_PUBLISH_CANCELLED` 而不是 `EXTRACT_FAILED`（真因是用户按下的按钮）。**映射必须覆盖抽取链上的每一次 spawn**（`-codecs` 编码器探测 / 抽混音 / ffprobe 实测三站）——宿主是给每次 spawn 都挂了 kill，只挂一站等于把另两站的取消误报成「打包产物崩坏」或「实测失败」。每处判据还必须带「这一站确实没成功」的合取，**且合取要加括号**：`cancelled === true && !x || x.code !== 0` 因 `&&` 先于 `||`，会把映射变成「任何失败都算取消」的绕过口（本片实测踩过，反面对照用例抓红，见 M17）。
+5. **`channelId` 进对象 key 前必须过形态判据**（QM-6 ② W2）。判据复用 `podcast-channel-registry` 的 `CHANNEL_ID_RE` 唯一实现，失败即 `PODCAST_CHANNEL_ID_INVALID`（该码的 zh/en 文案刀 1 已存在）。`stem` 早就在洗，id 反而没洗是不对称漏项；不洗的后果是「A 频道的某期覆盖 B 频道的某期」，而两侧本地看起来都正确。
+6. **抛出的错误只挂一个相位字段：`publishPhases`**（QM-6 ③ W3）。成功/部分结果里的 `phases` 是逐相位轨迹；抽取段的失败此前完全不带轨迹，现在由宿主在 `extractMix` 的 catch 里补上——「卡在哪一站」在现场只有这一份证据。
+7. **错误码改名**：`PODCAST_AUDIO_NO_COMPOSE_OUTPUT` → `PODCAST_VIDEO_NOT_FOUND`（本节表原本就定名后者，代码服从本节）。
+8. **临时目录**：`outBase = <userData 外暂存根>/episode-<runId>/episode<ext>`，由主进程算；链结束时按目录内**列出的文件名**逐个删除再删目录本身，绝不递归到父级。抽取中途被 kill 会留下截断文件，而编排层此刻并不持有它，所以收尾归宿主。
 
 #### 6.4.2 第 4 片必须补的第三条通道：`podcast:episode:publish:progress`（2026-10-11 定，先于代码写死）
 
@@ -272,7 +285,7 @@ registry（index.json + 两段 channel.json）、迁移三态（首访即可读�
 7. `buildFeed` + `uploadFeed`（feed 本身已在 `engineBuildFeed:269` 前置 `validateFeed`，不过即抛码列表并透传 issues）。
 
 
-**分片交付状态（2026-10-11）**：上面 1–5 的**判据与收口**已由刀 3 前两片落地（`podcast-episode-source.js` 降级判定 / `podcast-episode-extract.js` 抽取与实测 / `podcast-episode-publish.js` 相位闭集 + 取消窗口 + 三处一致校验 + partial 分层），全部依赖注入、零真实出站、零真实进程。**6–7 与真实宿主（ffmpeg/ffprobe spawn、OSS `putObject`、`episodeSink`/`feedSink` 复用 `channelPublishPass` 通行证）在第 3 片接线；`usePodcastEpisodePublish` 状态机、浮层与两枚入口在第 4 片。** 前两片**没有生产调用者**——这是刻意的中间态，判据见 §13 末尾新增条目。
+**分片交付状态（2026-10-11）**：上面 1–5 的**判据与收口**已由刀 3 前两片落地（`podcast-episode-source.js` 降级判定 / `podcast-episode-extract.js` 抽取与实测 / `podcast-episode-publish.js` 相位闭集 + 取消窗口 + 三处一致校验 + partial 分层），全部依赖注入、零真实出站、零真实进程。**6–7 与真实宿主已在第 3 片接线（2026-10-11，见 §6.4.1 与 §14）；`usePodcastEpisodePublish` 状态机、浮层与两枚入口仍在第 4 片。** 前两片当时**没有生产调用者**——那是刻意的中间态，第 3 片之后这条已闭合：`podcast:episode:publishFromVideo` 有了唯一调用者 `podcast-episode-host.js`。
 
 ### 刀 4 文案一键出期
 口语化分段（**新建 prompt，不复用 `rewrite-engine` 的去 AI 味链路**——语义不同）→ 分块云端 TTS（每块 ≤ 引擎上限，块间显式静音 0.3–0.6s，禁止整篇喂）→ 拼接 → 归一 → `probe`/`uploadAudio`/`attach`/`buildFeed`/`uploadFeed` 同刀 3。**只换数据源与触发条件，不得改手柄状态机**（结构锁⑪）。音色默认值取**两层**（capability 级 `defaultVoiceId` → 按 provider+model 的用户偏好）——⚠️ 本节原先写「未配置时回退全局默认音色」，而仓内**不存在**跨 provider 的全局默认音色，照原话实现等于由代码替用户猜一个音色；权威口径见 §7.4.0 第 1 条，两层都落空时必须**出声提示并停止**，不得静默选音色。
@@ -665,3 +678,12 @@ pickChannel → colloquialize → chunk → ttsBlock(逐块，串行) → concat
 9. **`feedSync` 只有写侧，没有读侧**（**已闭合，2026-10-11 刀 3 前置片**：`podcast:channel:get` 现在带 `feedSync`，`usePodcastChannel` 存为状态，托管卡片按 `failed`/`partial` 渲染横幅 + 【只重试上传 feed】；下面是当时的原始记录，保留不改写）：跨家族增量复核（opencode 续会话 residual-1）指出 `readFeedSync` 在 `electron/` 内**零生产调用者**、`getChannel` 只回 `meta`、`src/` 内没有任何 `feedSync` 消费点 —— 于是 §8 里那条「partial = 公网 feed 未同步 +【只重试上传 feed】」的横幅**不会出现在界面上**，本刀写进真源的失败态目前只服务「人工核对」与「下一刀的对账输入」。处置：§8 与 spec 的两处 Requirement 已改为「真源可复原」而不是「界面可见」，读侧横幅与崩溃对账（tasks 3.6）一并在刀 3 接线；不在本刀补横幅的理由是它会与刀 3 的发布状态机（partial 重试入口就在其中）共用同一份判据，先做等于把同一件事写两遍。**这条是刻意留的未闭合，不是遗漏**：如果刀 3 顺延，本条必须跟着顺延，不得让它长期读起来像已完成。
 10. **刀 3 前两片只有编排，没有入口（刻意中间态，不是遗漏）**（2026-10-11）：`podcast-episode-source/extract/publish` 三个模块已落并通过 89 例测试，但 `electron/ipc-handlers` 与 `preload` 里**没有任何调用者**——也就是「成片一键出一期」这个用户动作此刻**还做不到**。写这条是为了堵住 §13 第 9 条那一类错误的复发面：上一发生的是「写了真源就宣称界面可见」，这一次如果没人记账，就会变成「写了编排就宣称功能可用」。判据统一为一条：**任何一层落地，都必须明写它的消费方在哪一片、是否已存在**；`tasks.md` 3.3 之后紧接的 3.4/3.5（状态机、浮层、入口）就是这一条的读者。第 3 片接真物时，注入边界（`uploadImpl` / `episodeSink` / `feedSink` / `channelGate`）的形状就是合同——若届时必须改形状，必须同 PR 改掉对应测试与 PRD 本节，不得留下「测试说 OK、真物接不上」。
 11. **刀 3 前两片带着 3 条 Warning 级收尾缺陷进入主干，已编号登记而不是当场改**（2026-10-11，QM-6 后端 claude 评审 0 Critical / 3 Warning / 6 Info）：`episodeSink`/`feedSink`/`buildFeed` 抛错时无 cleanup 无领域码（F1）、编码器探测丢弃 exit code 与 stderr 会把「打包 ffmpeg 崩坏」错报成「缺编码器」（F2）、取消不打断在途 ffmpeg（F3），其余 6 条 Info 见 `tasks.md` 3.7 的 ①–⑧。三条 Warning 都属于「资源/排查方向」类，按 QM-6 本应修完再合；选择先合的理由是**这三处的形状全部落在没有生产实现钉死的注入接缝上**（本分支 `grep` 除模块自身与测试外零调用者），当场改会在第 3 片写真 adapter 时于同一处再改一遍。风险由两条机制兜住：① `tasks.md` 3.7 是带编号的必修清单，第 3 片的 PR 不过它就不算完成；② 编排层头注释已按 F3 如实改写，不许再把「取消窗口关闭」读成「取消即时生效」。**这条是刻意留的未闭合**：如果第 3 片顺延，本条与 §13 第 10 条一起顺延，不得让它长期读起来像已完成。 **同日处置进展（第 3 片上半，2026-10-11）**：F1 / F2 / F4 / F5 / F7 已闭合并各配行为锁（`podcast-episode-guards.test.js` 8 条 + 新增 `podcast-hosting-audio.test.js` 7 条）；G6/G7 首轮「红=0」暴露出 `publishAudio` 的守卫当时没有锁，补锁后重跑才指名变红——这条判据从此写成：**新增一条拒绝，必须在同 PR 给它一条能变红的锁**，否则等于没写。仍留 F3（取消贯穿）、F9（fixture 耦合）与 F8 的 sink 半边，随第 3 片下半闭合。
+
+## 14. 第 3 片落地增量与欠账更新（2026-10-11）
+
+**本节取代 §13 第 10 条与第 11 条中「编排层没有调用者」「三条 Warning 尚未处置」两笔**（历史记录不改写，以本节为当下状态）：
+
+- **已闭合**：真实宿主接线层 `podcast-episode-host.js`（入参形状层 + 整链持忙标记 + 主进程算 outBase + kill 贯穿 + 临时目录收尾）；两条 IPC 通道（`publishFromVideo` / `publish:cancel`）+ preload 两个方法 + 桥接层两个导出同 PR 落地；取消改走第二条通道（§6.4 的 cancelToken 合同纠正）；3.8 的 W1/W2/W3 与两条 Info（https 单一谓词 `podcast-public-url.js`、partial 成因同时带 message 与 status）与 ⑤（真 `_put` 路径的 URL 守卫锁）逐条处置；适配层 `feedSink` 取服务的通行证漏项（新锁当场抓出的真实缺陷，非评审提出）。
+- **回归锁新增五份文件共 63 例**：`podcast-episode-host.test.js`（33 例：形状层、整链持锁、再入凭证、outBase、取消三态、三态不压平）、`podcast-episode-adapters-pass.test.js`（5 例：通行证三处、strict、heldBy 透传）、`podcast-hosting-audio-key.test.js`（11 例：id 形态六项 + 合规放行与 key 分层 + 判据唯一性结构锁 + 真 `_put` 的 URL 守卫/contentType/非 2xx）、`podcast-episode-ipc.test.js`（6 例：九键信封、subCode、取消三态、字面量注册形态）、`podcast-public-url.test.js`（8 例：判定表 + 出期链内不得出现第二份协议判据，扫描前剥注释）。最终基线：podcast 全域 78 个测试文件 **1201 passed / 0 failed**；变异反证 13 条指名变红 + 1 条如实记为防御重叠不可分辨。
+- **仍在的欠账（带承接片，不是遗漏）**：① 本节 §6.4 表里的 11 个 `episode.*` 文案键**尚未写入 locales**——它们的第一消费点是第 4 片的浮层与状态机，现在就写会造出 AGENTS.md 明令禁止的死键；第 4 片必须把 `podcast.errors.*`（新码 `PODCAST_VIDEO_NOT_FOUND`、`PODCAST_PUBLISH_CANCELLED`、`PODCAST_CANCEL_TOO_LATE`、`PODCAST_FEED_BUILD_FAILED`、`PODCAST_AUDIO_*` 四码）与 `episode.*` 一并成对补齐。当下这些码走 `podcast.errors.fallback`，不会崩，但文案不具区分度。② F9（`publish` 测试 fixture 三处常量手写耦合）仍留。③ 入口两枚（`ResultView.vue:726`、`CreateView.vue:4519`）与浮层挂起登记仍留第 4 片。
+- **一条方法论**（写进 learnings 更合适，这里先记账）：跨「模块级可变单例」做断言时必须用 `require` 而不是 `import`。本仓生产代码是 CJS `require`，vitest 下测试侧的 ESM `import` 会拿到**另一份**实例，于是 `isPassed`/`isBusy` 恒 false，红出来的是「适配层没包通行证」——指错方向的红会把人引去改生产代码。同理，既有 `podcast-hosting-service.test.js` 里直接 import `channelBusyGate` 做断言的那几条，其证据强度**低于看起来的样子**，第 4 片或后续单列 PR 应改为经被测对象的公开出口观察。

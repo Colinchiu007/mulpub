@@ -22,6 +22,8 @@
 
 const path = require('path')
 const fs = require('fs')
+const { isPublicHttpsUrl } = require('./podcast-public-url')
+const { CHANNEL_ID_RE } = require('./podcast-channel-registry')
 
 const {
   validateHosting,
@@ -261,10 +263,17 @@ class PodcastHostingService {
    * 那比不发布严重。回滚点建不出来**不阻断**主上传（`backupCreated:false` + 界面标注），
    * 因为「因为建不出回滚点就拒绝发布」会把用户锁死在原地。
    */
-  async publishFeed (channelId) {
+  async publishFeed (channelId, options = {}) {
     const id = String(channelId || '').trim()
     if (!id) throw err('PODCAST_CHANNEL_ID_REQUIRED', '发布 feed 必须指定频道')
-    if (!this._registry.tryBeginPublish(id, { reason: 'feed:publish' })) {
+    // 再入判定只认**持锁凭证**：出期宿主整条链持一把锁，链内的这一步必须认得「锁已在手上」，
+    // 否则一次出期会死于自己的忙标记。凭证不匹配（含没传）一律照常取锁 = 忙则拒，fail closed。
+    const held = this._registry.publishHolder ? this._registry.publishHolder(id) : null
+    const reentrant = Boolean(options && options.heldBy) && Boolean(held) && held.token === options.heldBy
+    if (reentrant) {
+      // 空分支是刻意的：放锁由整条链负责。这里若 endPublish，会把「音频已传、feed 未更」
+      // 的中间态暴露给手工写者（那正是忙标记要挡的窗口）。
+    } else if (!this._registry.tryBeginPublish(id, { reason: 'feed:publish' })) {
       const busy = err('PODCAST_CHANNEL_BUSY', '该频道有一次发布正在进行，请等它结束')
       busy.channelId = id
       throw busy
@@ -353,14 +362,16 @@ class PodcastHostingService {
       this.logger.info('PodcastHosting', 'feed published (items=' + built.itemCount + ' bytes=' + uploaded.size + ' archive=' + (backupCreated ? 'yes' : 'no') + ' prev=' + (hadPrevious ? 'yes' : 'no') + ' snap=' + (snapshotted ? 'ok' : 'failed') + ')')
       return { state: 'success', url, bytes: uploaded.size, itemCount: built.itemCount, backupCreated, prevExists: hadPrevious, feedSync: synced }
     } finally {
-      this._registry.endPublish(id)
+      if (!reentrant) this._registry.endPublish(id)
     }
   }
 
   /**
    * 上传一期音频，回 { url, size, objectKey, status }。size 就是编排层三处一致校验的第三处。
    *
-   * 与 publishFeed 共用同一份托管快照、同一套凭证读法和同一个 _put，但**不持频道忙标记**：
+   * 与 publishFeed 共用同一份托管快照、同一套凭证读法和同一个 _put，但**不持频道忙标记**
+   * （第 3 片实测更正：前两片的这句话指向的是一个当时并不存在的持锁者——现在由
+   * `podcast-episode-host.js` 在整条链上取放，链内的 publishFeed 经持锁凭证再入）：
    * 忙标记归出期编排在整条链上持有（音频 PUT → 挂期 → 重建 feed → feed PUT 中间要写 episodes.json，
    * 把锁下放到这里会把一次发布拆成两段互斥，段间还能插进手工写）。
    *
@@ -372,6 +383,9 @@ class PodcastHostingService {
   async publishAudio (channelId, options = {}) {
     const id = String(channelId || '').trim()
     if (!id) throw err('PODCAST_CHANNEL_ID_REQUIRED', '上传音频必须指定频道（对象 key 含 channelId，缺它等于把两期写进同一层）')
+    // id 直接进 objectKey，所以它的形态判据必须在拼 key **之前**成立（不是之后）。
+    // 判据复用 registry 的 CHANNEL_ID_RE 唯一实现，不在本文件另写一份字符集。
+    if (!CHANNEL_ID_RE.test(id)) throw err('PODCAST_CHANNEL_ID_INVALID', '频道标识形态非法，不能用于对象 key（否则可逃逸出 audio/<channelId>/ 这一层）')
     const filePath = String((options && options.filePath) || '')
     if (!filePath) throw err(HOSTING_ERRORS.HOSTING_INVALID, '缺少音频文件路径')
     const mime = String((options && options.mime) || '')
@@ -392,7 +406,7 @@ class PodcastHostingService {
       throw err('PODCAST_HOSTING_UPLOAD_FAILED', '上传未回传可校验的字节数，不挂这一期（三处一致校验缺第三处）')
     }
     const url = objectPublicUrl({ endpoint: view.endpoint, bucket: view.bucket, objectKey })
-    if (!/^https:\/\//i.test(String(url || ''))) {
+    if (!isPublicHttpsUrl(url)) {
       throw err('PODCAST_HOSTING_UPLOAD_FAILED', '未能拼出 https 公网地址，不挂这一期')
     }
     return { url, size: put.size, objectKey, status: put.status }

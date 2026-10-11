@@ -452,6 +452,8 @@ class PodcastChannelRegistry {
   tryBeginPublish (channelId, meta) { return this._gate.tryBegin(channelId, meta) }
   endPublish (channelId) { return this._gate.end(channelId) }
   isPublishing (channelId) { return this._gate.isBusy(channelId) }
+  /** 持锁凭证（供整链发布内部的再入判定）；无发布在飞时回 null。 */
+  publishHolder (channelId) { return this._gate.holder(channelId) }
   publishSnapshot () { return this._gate.snapshot() }
 
   countEpisodes (channelId) {
