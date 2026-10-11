@@ -8,6 +8,7 @@ function createIdentityApi(ipcRenderer) {
     identitySessionsRevokeOthers: () => ipcRenderer.invoke('identity:sessions-revoke-others'),
     identityNotifications: () => ipcRenderer.invoke('identity:notifications'),
     identityNotificationsMarkRead: () => ipcRenderer.invoke('identity:notifications-mark-read'),
+    identityRedeemCode: (payload) => ipcRenderer.invoke('identity:redeem-code', payload),
     identityDiagnosticReport: () => ipcRenderer.invoke('identity:diagnostic-report'),
     onIdentityStateChanged: (callback) => {
       const handler = (_event, state) => callback(state)

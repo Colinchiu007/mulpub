@@ -22,6 +22,9 @@ const ME_API_PATHS = new Map([
   ['/api/v1/me/accounts/tombstones', { methods: ['POST'] }],
   // 清除该身份在云端的全部账号镜像与墓碑；confirm 由服务端二次校验
   ['/api/v1/me/accounts/disconnect', { methods: ['POST'] }],
+  // 会员激活码核销：只放 POST。GET 拿不到兑换码语义，且放开 GET 等于
+  // 允许用查询参数传码（会进 access log 与浏览器历史）。
+  ['/api/v1/redeem', { methods: ['POST'] }],
 ])
 
 const QUERY_ALLOWLIST = new Set(['view'])
