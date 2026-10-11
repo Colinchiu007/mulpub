@@ -2,15 +2,12 @@
 record: handoff-q1-investigation
 task: 官方 Key 池 Q1 定案（那批 official_keys 实际被谁消费）+ 回填交接文档 §6.1
 date: 2026-10-11
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后回填 PASS + merge SHA，并在同一次提交删除三个 sync_* 字段与 ledger 登记项。
-sync_backfill_owner: 本 PR 作者（handoff-q1-investigation 会话）
 ---
 
 ## 本次执行记录：官方 Key 池 Q1 定案与交接文档回填（handoff-q1-investigation，2026-10-11）【docs-only】
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → docs-only=true（files=4：`01-docs/HANDOFF-OFFICIAL-COMPUTE-2026-10-09.md`、`openspec/records/handoff-q1-investigation.md`、`.quality-gates.md`、`scripts/gate-record-debt-ledger.json`，均命中文档白名单）
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PENDING
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PASS
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
@@ -24,7 +21,7 @@ sync_backfill_owner: 本 PR 作者（handoff-q1-investigation 会话）
 | 文档同步（doc-gate） | ✅ | 本次为既有文档的事实性增补（交接文档新增 §6.1），不新建 PRD 索引项；`Doc Sync Gate` 在 CI 复核 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触运行面（无代码/样式变更） |
 | QM-6 CCG 双模型外部评审 | N/A（docs-only 通道豁免） | 结论为可复核的取证陈述（每条带 file:line），非设计裁决；残留不确定已在 §6.1 G 段如实记录 |
-| 远程同步 | PENDING | 本 PR 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin handoff-q1-investigation` 返回 0 行证远端分支已删；回填后删除上方三个 `sync_*` 字段与 ledger 登记项 |
+| 远程同步 | PASS | 已合并 #3339 = `41ea7ca8ed7eaae88ddd34fde86972a5796a2443`，committer 2026-10-11T19:57:15+08:00。取证：`git log origin/main --grep="(#3339)" --format="%H %cI"` 唯一命中，`git ls-remote --heads origin handoff-q1-investigation` 返回 **0 行**（远端分支已删）；本行与记录文件远程同步行、frontmatter 三 `sync_*` 字段删除、`scripts/gate-record-debt-ledger.json` 登记项删除已在**同一次提交**完成 |
 
 ### 遗留（不假装已闭合）
 
