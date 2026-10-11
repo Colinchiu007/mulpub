@@ -20,6 +20,8 @@
 
 /** 中文热榜源（`kind:'trend'`，无发布时间，按抓取时刻计入窗口） */
 const CN_HOT_SOURCES = Object.freeze(['weibo', 'zhihu', 'douyin', 'bilibili', 'baidu', 'toutiao', 'tencent'])
+/** 中文榜单垂类（hot-topics 实际提供的两个垂类信道；榜单类同样没有发布时间） */
+const CN_HOT_VERTICALS = Object.freeze(['sina_finance', 'ithome_tech'])
 /** 英文社区检索源（`kind:'search'`） */
 const EN_SEARCH_SOURCES = Object.freeze(['reddit', 'hackernews', 'github'])
 
@@ -56,7 +58,7 @@ const PRESET_COMMANDS = Object.freeze([
     prompt: '请检索最近 48 小时内技术、互联网与创作者圈层里讨论量明显上升的话题，输出 5 条可写选题，每条包含：1) 话题一句话；2) 为什么现在热（给出素材里的依据，例如讨论量、来源）；3) 来源链接；4) 建议的切入角度（面向哪个读者、从什么争议点切入）；5) 预估写作难度（低/中/高）。另外用一句话列出 2 条「看着热但其实没有新信息」的伪热点。用中文，不要编造事件和链接，素材不足以判断"热"就如实说。',
     keywords: ['trending topic', 'viral content', 'tech trend'],
     windowHours: 48,
-    sources: [...CN_HOT_SOURCES, ...EN_SEARCH_SOURCES],
+    sources: [...CN_HOT_SOURCES, ...CN_HOT_VERTICALS, ...EN_SEARCH_SOURCES],
     builtin: true,
   }),
   Object.freeze({
@@ -67,7 +69,7 @@ const PRESET_COMMANDS = Object.freeze([
     prompt: '请检索最近一周内与内容创作效率工具有关的真实更新，覆盖：1) 视频剪辑与字幕类；2) 语音合成 / 配音 / 克隆类；3) 图像与视频生成类；4) 写作与排版类。输出 4 条「值得试用」（每条含：工具名、更新了什么、来源链接、适合什么场景、上手成本），再用一句话列出 2 条「只是营销话术、暂无实际可用更新」。用中文，工具名与版本号必须来自素材，找不到就如实说。',
     keywords: ['video editing AI', 'image generation tool', 'text to speech tool'],
     windowHours: 168,
-    sources: ['qbitai', 'infoq_cn', 'sspai', 'oschina', ...EN_SEARCH_SOURCES],
+    sources: ['qbitai', 'infoq_cn', 'sspai', 'oschina', 'ithome_tech', ...EN_SEARCH_SOURCES],
     builtin: true,
   }),
   Object.freeze({

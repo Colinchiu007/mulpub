@@ -354,7 +354,7 @@ export default {
       keywordsHint: '逗号分隔，最多 5 个（每次只用前 3 个去检索）；留空则不做联网检索，仅用大模型已有知识回答，可能不含最新动态。',
       keywordsPlaceholder: '例如：AI, 大模型, 开源项目',
       windowFieldLabel: '素材时间范围',
-      sourcesLabel: '素材来源：英文社区（Reddit · Hacker News · GitHub，按关键词检索）+ 中文热榜（微博 · 知乎 · 抖音 · B站 · 百度 · 头条 · 腾讯，榜单类没有发布时间，按抓取时刻计入时间窗口）+ 中文科技时间线（Solidot · 少数派 · OSCHINA · IT之家 · 量子位 · InfoQ 中文 · V2EX · arXiv · HuggingFace 论文，带发布时间）',
+      sourcesLabel: '素材来源：英文社区（Reddit · Hacker News · GitHub，按关键词检索）+ 中文热榜（微博 · 知乎 · 抖音 · B站 · 百度 · 头条 · 腾讯 · 新浪财经 · IT之家，榜单类没有发布时间，按抓取时刻计入时间窗口）+ 中文科技时间线（Solidot · 少数派 · OSCHINA · IT之家 · 量子位 · InfoQ 中文 · V2EX · arXiv · HuggingFace 论文，带发布时间）',
       save: '保存',
       cancel: '取消',
       saved: '指令已保存',

@@ -27,6 +27,14 @@
   ③ 把 trend 源当 search 源 ⇒ 分流用例红；④ 提示词删硬约束行 ⇒ 断言红；⑤ registry 加一个源但渲染端镜像不加 ⇒ parity 红；
   ⑥ trendFn 未注入时抛错而非降级 ⇒ 降级用例红。逐条实测指名变红后回滚
 
+- [x] S1.10 补遗（change：quick-collect-cn-verticals）：把 `hot-topics` 的两个**独立信道**垂类
+  （`sina_finance` 新浪财经滚动、`ithome_tech` IT之家热榜）入册（`group:'cn-hot'`、`provider:'hot-topics'`、
+  `hottest`+`observed`），`builtin-hot-topics` 吃到 8 主榜 + 2 垂类，`builtin-dev-tools` 加垂类科技；
+  测试：注册表**闭集断言**锁死 `hot-topics` 恰好这 10 个 id、IPC 映射断言垂类素材同样是 `observed`+「抓取时刻」、
+  词条覆盖断言；文档：PRD §4.1 补两行 + 5 垂类口径说明（另 3 个 board 级垂类随主榜到达，不另立源）。
+- [x] S1.11 变异反证（补遗）：① 从注册表摘掉 `sina_finance` ⇒ 闭集断言红；② 把垂类 `timeKind` 改成 `published` ⇒
+  provider/时间语义不变量红。两条实测变红后回滚。
+
 ## S2. 时间线源：带发布时间的免费中文/技术源
 
 - [x] S2.1 新增 `quick-collect-trend-sources.js`：RSS/Atom 轻量解析（`<item>/<entry>`、`<title>`、`<link>`、`<pubDate>`/`<published>`）

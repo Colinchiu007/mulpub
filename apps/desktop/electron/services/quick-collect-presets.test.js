@@ -29,6 +29,18 @@ describe('quick-collect-presets', () => {
     ])
   })
 
+  it('S1 补遗：中文热榜词条吃到全部垂类信道，创作工具词条吃到垂类科技', async () => {
+    const { PRESET_COMMANDS } = await mod()
+    const hot = PRESET_COMMANDS.find((c) => c.id === 'builtin-hot-topics')
+    expect(hot.sources).toContain('sina_finance')
+    expect(hot.sources).toContain('ithome_tech')
+    const dev = PRESET_COMMANDS.find((c) => c.id === 'builtin-dev-tools')
+    expect(dev.sources).toContain('ithome_tech')
+    // 垂类不得混进只讲英文社区的词条（如舆情风险维持 weibo + ithome + 英文检索）
+    const risk = PRESET_COMMANDS.find((c) => c.id === 'builtin-risk-alert')
+    expect(risk.sources).not.toContain('sina_finance')
+  })
+
   it('AI 领域动向提示词与用户给定文本逐字一致（AC-10）', async () => {
     const { getPresetCommand } = await mod()
     expect(getPresetCommand('builtin-ai-trends').prompt).toBe(AI_TRENDS_PROMPT)

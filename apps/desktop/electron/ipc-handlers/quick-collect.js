@@ -49,7 +49,9 @@ function registerHandlers (ipcMain, deps = {}) {
 
   /**
    * 趋势源取素材（无关键词），两个 provider 合成：
-   *   - `hot-topics`：复用热门选题页已经在跑的 `hotTopicsService`（8 中文主榜 + 5 垂类），
+   *   - `hot-topics`：复用热门选题页已经在跑的 `hotTopicsService`（8 中文主榜 + 5 个垂类补拉，
+     其中 2 个垂类有独立信道 `sina_finance`/`ithome_tech` 可单独选；另 3 个（百度财经/微博情感/微博健康）
+     与主榜共用 `baidu`/`weibo` 信道、以 board 段区分条目 id ⇒ 其内容随主榜一起到达，不另立源），
    *     它自带按渠道节流、熔断与 10 分钟缓存；条目**没有发布时间** ⇒ 如实映射为
    *     `timeKind:'observed' + observedAt`（PRD §3.2）；
    *   - `feed`：`quick-collect-trend-sources` 抓 RSS/Atom/JSON 时间线（Solidot / 少数派 /

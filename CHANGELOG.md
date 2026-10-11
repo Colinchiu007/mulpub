@@ -73,6 +73,32 @@ main 连续两次 push 红在 `QG Unit Tests → Gate 4`，而断言层是 `# fa
 - 详见 `openspec/records/gate-budget-reprobe.md`。
 
 ---
+# [未发布] feat(collection): 快捷采集补齐 hot-topics 垂类信道（quick-collect-cn-verticals）
+
+## 背景
+
+用户要求的「中文素材源扩展 S1」是「复用仓库既有 hot-topics 中文榜单（**8 主榜 + 5 垂类**）」。
+S1 首轮只把 8 个主榜接进来了，垂类没有入册 —— 于是「财经」「科技」两个独立信道在 UI 上**根本选不到**。
+
+## 改动
+
+- **注册表 +2 源**（`quick-collect-sources.js`）：`sina_finance`（新浪财经滚动，JSON）、
+  `ithome_tech`（IT之家热榜，RSS）；`kind:'trend'`、`provider:'hot-topics'`、`sourceType:'hottest'`、
+  `timeKind:'observed'`（榜单类没有发布时间 ⇒ 与 8 主榜同一时间语义，不假装有发布时刻）。
+- **内置词条**：`builtin-hot-topics` 吃到 8 主榜 + 2 垂类（中文榜单全量）；`builtin-dev-tools` 增补垂类科技。
+- **渲染端镜像 + 文案**：`ALLOWED_SOURCES`/`CN_TREND_SOURCES` 同步；对话框「素材来源」提示补上两个垂类（zh/en 成对）。
+- **5 个垂类的口径写清（PRD §4.1）**：`CATEGORY_BOOSTS` 里的 5 个垂类里，只有 2 个有独立信道
+  （`sina_finance`/`ithome_tech`）；另 3 个（百度财经 / 微博情感 / 微博健康）与主榜**共用** `baidu`/`weibo`
+  信道、靠条目 id 的 board 段（`weibo:emotion:3`）与主榜区分 ⇒ 随主榜一起到达，**不另立源**
+  （立了会让同一份条目在两个源下出现两次）。结论：8 主榜 + 5 垂类在**数据可达性**上已全覆盖，registry 落成 10 个 hot-topics 源。
+
+## 验证
+
+- 特性域 **14 文件 274 passed / 0 failed**（其中改动影响面 9 文件 116 例，含新增/加强的三处断言：注册表**闭集**锁死 hot-topics 恰好这 10 个 id、
+  IPC 映射断言垂类素材同为 `observed` 且渲染「抓取时刻」而非「发布」、词条覆盖断言）。
+- **2 条变异反证**逐条实测指名变红后回滚：① 摘掉 `sina_finance` ⇒ 闭集断言红（1 例）；
+  ② 把 `ithome_tech` 的 `timeKind` 改成 `published` ⇒ provider 时间语义不变量红（1 例）；回滚后 8 绿。
+- 静态门禁 + QM-1 打包证据见 `.quality-gates.md` 与 `openspec/records/quick-collect-cn-verticals.md`。
 
 ## [未发布] 2026-10-11 — 播客刀 3 第 3 片：成片一键出期的真实宿主接线与 publishFromVideo 通道
 

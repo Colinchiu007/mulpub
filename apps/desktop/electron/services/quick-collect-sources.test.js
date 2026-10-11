@@ -47,6 +47,13 @@ describe('quick-collect-sources/注册表', () => {
       expect(typeof s.homeUrl, s.id).toBe('string')
       expect(s.homeUrl.startsWith('https://'), s.id).toBe(true)
     }
+    // S1 补遗：hot-topics 实际提供的**全部**中文信道都必须入册（8 主榜 + 2 垂类），
+    // 少一个就等于用户在 UI 上永远看不到该来源；多一个不存在 = 界面给了假选项。
+    const hotTopicsIds = m.SOURCES.filter((x) => x.provider === 'hot-topics').map((x) => x.id).sort()
+    expect(hotTopicsIds).toEqual([
+      'baidu', 'bilibili', 'douyin', 'ithome_tech', 'sina_finance', 'tencent', 'tophub', 'toutiao', 'weibo', 'zhihu',
+    ])
+
     // 不变量（S2 起按 provider 判，而不是按 sourceType）：
     //   - **只有拿不到原生发布时间的源**才允许标 observed；
     //   - hot-topics provider 的中文榜单全部没有发布时间 ⇒ 必须 observed；

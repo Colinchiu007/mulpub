@@ -353,7 +353,7 @@ export default {
       keywordsHint: 'Comma separated, up to 5 (only the first 3 are used for retrieval). Leave empty to skip retrieval and answer from the model’s own knowledge — which may not include the latest news.',
       keywordsPlaceholder: 'e.g. AI, LLM, open source',
       windowFieldLabel: 'Material window',
-      sourcesLabel: 'Sources: English communities (Reddit · Hacker News · GitHub, keyword search) + Chinese hot lists (no publish time, counted by fetch time) + Chinese tech timelines (Solidot · SSPAI · OSCHINA · ITHome · QbitAI · InfoQ CN · V2EX · arXiv · HuggingFace papers, with publish time)',
+      sourcesLabel: 'Sources: English communities (Reddit · Hacker News · GitHub, keyword search) + Chinese hot lists incl. finance/tech verticals (no publish time, counted by fetch time) + Chinese tech timelines (Solidot · SSPAI · OSCHINA · ITHome · QbitAI · InfoQ CN · V2EX · arXiv · HuggingFace papers, with publish time)',
       save: 'Save',
       cancel: 'Cancel',
       saved: 'Command saved',
