@@ -3,9 +3,9 @@
  * 变异反证原件（change: desktop-shard-flag，2026-10-11）。
  *
  * 用途：证明 `scripts/check-desktop-shard-forwarding.js` / `.test.js` 的每条锁都在测它声称的东西，
- * 而不是把缺陷钉成契约。八条"必须红"逐个把**规则明文禁止的那个形态**写进实现（不是只摘守卫），
- * 一条"必须绿"证明合规形态没被过度收紧（见记忆 [[feedback-counterproof-must-take-the-forbidden-form]]、
- * [[feedback-guard-must-not-block-sanctioned-fix]]）。
+ * 而不是把缺陷钉成契约。所有 want=red 逐条把**规则明文禁止的那个形态**写进实现（A/B/G）或把出口逐个摘掉
+ * （C/D/E/H/I/J/K/L/M），一条 want=green 证明合规形态没被过度收紧
+ * （见记忆 [[feedback-counterproof-must-take-the-forbidden-form]]、[[feedback-guard-must-not-block-sanctioned-fix]]）。
  *
  * 每条变异跑完后按字节还原，并断言还原后的字节与备份逐字节相同（`restored=bytes_equal`）——
  * 变异驱动收尾若不验证还原，就会把上一轮的坏形态留给下一轮。
@@ -79,7 +79,7 @@ const cases = [
   },
   {
     name: 'E 把 check() 的默认探针换成原样回吐（注入缝开成的后门）',
-    file: CHK, from: 'probe = runArgv } = {}) {', to: 'probe = (a) => a } = {}) { // MUT-E', expect: 1,
+    file: CHK, from: 'probe = runArgv, semantics = runShardSemantics } = {}) {', to: "probe = (a) => a, semantics = () => ({ total: 4, legA: ['a', 'b'], legB: ['c', 'd'] }) } = {}) { // MUT-E", expect: 1,
     want: 'red', lock: '行为层：真的跑一次 pnpm',
     why: 'C 需要 probe 注入缝才可离线构造；缝本身必须是可锁的，否则"默认真链路"这件事没有东西在看',
   },
@@ -105,6 +105,30 @@ const cases = [
     file: CHK, from: '  return hits', to: '  return [] // MUT-I 判据恒假', expect: 1,
     want: 'red', lock: '第二落点的判据本身',
     why: 'G 只能证明"真实 workflow 上"能红；这一条证明判据函数本身不是恒假（坏样本必须命中）',
+  },
+  {
+    name: 'J 摘掉语义层的"重叠"判据（两腿跑同一批文件也必须出声）',
+    file: CHK, from: '    if (inter.length) {', to: '    if (false && inter.length) { // MUT-J', expect: 1,
+    want: 'red', lock: '语义层负控',
+    why: '语义层是本轮答复"探针只证送到、不证切分"的那一层；它的核心出口是重叠检测，摘掉必须红',
+  },
+  {
+    name: 'K 摘掉语义层的"合计"判据（分片丢文件这一档）',
+    file: CHK, from: '    if (legA.length + legB.length !== total) {', to: '    if (false && legA.length + legB.length !== total) { // MUT-K', expect: 1,
+    want: 'red', lock: '语义层负控',
+    why: '与 J 是两个独立出口：只判重叠会漏掉"两腿各跑一半但合起来不足全量"',
+  },
+  {
+    name: 'L 摘掉语义层的"空腿=失明"判据',
+    file: CHK, from: '    if (legA.length === 0 || legB.length === 0) {', to: '    if (false && (legA.length === 0 || legB.length === 0)) { // MUT-L', expect: 1,
+    want: 'red', lock: '语义层负控',
+    why: '两腿都空时"重叠 0"会伪装成"完美互斥"——解析退化成空集合必须被单独判为失明',
+  },
+  {
+    name: 'M 把捕获区从惰性改成贪心（跨步骤串台）',
+    file: CHK, from: '@\\(([\\s\\S]*?)\\)', to: '@\\(([\\s\\S]*)\\)', expect: 1,
+    want: 'red', lock: '锚点不串台',
+    why: '证明"后面再来一个 -ArgumentList @(...) 不得改变解析结果"这条对照真的在测惰性边界',
   },
   {
     name: 'F 合规形态必须照绿：往实参里再加一个无关旗标',

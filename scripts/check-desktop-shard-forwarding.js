@@ -111,7 +111,58 @@ function checkContinuations ({ root = path.resolve(__dirname, '..') } = {}) {
   return { files: names.length, problems }
 }
 
-function check ({ root = path.resolve(__dirname, '..'), probe = runArgv } = {}) {
+/**
+ * 语义层（QM-6 逻辑轴 MAJOR#1 的答复）：行为层只证明"旗标送到了脚本"，**不证明 vitest 真按 --shard 切文件**。
+ * 这里用仓库里**已安装的** vitest 在临时目录跑 4 个平凡测试文件，比两腿实际枚举到的文件名集合：
+ * 互斥且合计等于总数，才是"分片语义生效"。本机实测（vitest 随仓库安装，pwsh/node 同版本）：
+ *   --shard=1/2 → [t3,t4]、--shard=2/2 → [t2,t1]、--shard=1/4 → [t3]，单次约 0.7 秒。
+ * ⛔ 不要用 `vitest list --filesOnly` 做这件事——实测它对 --shard **完全无反应**
+ *   （全量/1÷2/2/2 都是 873），拿它当探针会把正确实现判成缺陷。
+ */
+const ANSI_RE = new RegExp(String.fromCharCode(27) + '\\[[0-9;]*m', 'g')
+const SHARD_FIXTURE_TOTAL = 4
+
+/** 逐级上溯找 vitest 入口；找不到一律抛错——"找不到就 skip"等于给这条判据关灯。 */
+function resolveVitestEntry (fromDir) {
+  let d = fromDir
+  for (let i = 0; i < 8; i++) {
+    const p = path.join(d, 'node_modules', 'vitest', 'vitest.mjs')
+    if (fs.existsSync(p)) return p
+    const up = path.dirname(d)
+    if (up === d) break
+    d = up
+  }
+  throw new Error('VITEST_ENTRY_NOT_FOUND：从 ' + fromDir + ' 上溯 8 层没找到 node_modules/vitest/vitest.mjs（不得静默跳过）')
+}
+
+function runVitestShard (entry, dir, shard) {
+  const out = cp.execFileSync(process.execPath, [entry, 'run', '--root', dir, '--shard=' + shard],
+    { cwd: dir, encoding: 'utf8', maxBuffer: 1 << 26, timeout: 240000, env: Object.assign({}, process.env, { CI: 'true' }) })
+  const clean = out.replace(ANSI_RE, '')
+  const files = [...new Set([...clean.matchAll(/[✓✗×]\s+([\w.\-/\\]+\.test\.js)/g)].map((m) => m[1].split('\\').join('/')))]
+  if (files.length === 0) throw new Error('SHARD_PROBE_NO_FILES：vitest 跑完了但探针没枚举到任何测试文件名，判据失明：' +
+    clean.split(/\r?\n/).filter((l) => /Test Files/.test(l))[0])
+  return files
+}
+
+function runShardSemantics ({ root = path.resolve(__dirname, '..') } = {}) {
+  const entry = resolveVitestEntry(root)
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mp-shard-sem-'))
+  try {
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'mp-shard-sem', private: true, type: 'module' }) + '\n')
+    for (let i = 1; i <= SHARD_FIXTURE_TOTAL; i++) {
+      fs.writeFileSync(path.join(dir, 't' + i + '.test.js'),
+        "import { test, expect } from 'vitest'\ntest('p" + i + "', () => { expect(" + i + ').toBe(' + i + ') })\n')
+    }
+    const legA = runVitestShard(entry, dir, '1/2')
+    const legB = runVitestShard(entry, dir, '2/2')
+    return { entry, total: SHARD_FIXTURE_TOTAL, legA, legB }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+}
+
+function check ({ root = path.resolve(__dirname, '..'), probe = runArgv, semantics = runShardSemantics } = {}) {
   const problems = []
   const text = fs.readFileSync(path.join(root, WORKFLOW), 'utf8')
   const argv = parseShardArgv(text)
@@ -123,6 +174,28 @@ function check ({ root = path.resolve(__dirname, '..'), probe = runArgv } = {}) 
   // 第二落点：续行被注释吃掉（见 findContinuationSevers 的三态实测）
   const cont = checkContinuations({ root })
   problems.push(...cont.problems)
+
+  // 语义层：vitest 自己承认两腿互斥（行为层只证明"送到了"，这一层证明"按它切了"）
+  let semanticsResult = null
+  try {
+    semanticsResult = semantics({ root })
+  } catch (e) {
+    problems.push('语义层探针跑不起来（不得静默跳过）：' + String(e.message).slice(0, 200))
+  }
+  if (semanticsResult) {
+    const { legA, legB, total } = semanticsResult
+    const inter = legA.filter((f) => legB.includes(f))
+    if (legA.length === 0 || legB.length === 0) {
+      problems.push(`语义层探针某腿枚举到 0 个文件 ⇒ 判据失明，不得当通过：A=${JSON.stringify(legA)} B=${JSON.stringify(legB)}`)
+    }
+    if (inter.length) {
+      problems.push(`--shard=1/2 与 2/2 有 ${inter.length} 个文件重叠（${inter.slice(0, 3).join(', ')}）` +
+        ` ⇒ vitest 没有按旗标切文件。A=${JSON.stringify(legA)} B=${JSON.stringify(legB)}`)
+    }
+    if (legA.length + legB.length !== total) {
+      problems.push(`两腿合计 ${legA.length + legB.length} 个文件 ≠ 夹具总数 ${total} ⇒ 分片在丢文件或没切`)
+    }
+  }
 
   // 行为层 + 负控：坏形态必须真的把 "--" 送进去，探针才有眼睛
   let received = null
@@ -144,7 +217,7 @@ function check ({ root = path.resolve(__dirname, '..'), probe = runArgv } = {}) 
   if (control && !control.includes('--')) {
     problems.push('负控失效：手工插入的裸 "--" 没被送到被调用方 ⇒ 上面两条断言是恒真的，探针没有眼睛')
   }
-  return { ok: problems.length === 0, problems, argv, received, control, continuation: cont }
+  return { ok: problems.length === 0, problems, argv, received, control, continuation: cont, semantics: semanticsResult }
 }
 
 function main () {
@@ -152,10 +225,15 @@ function main () {
   console.log('[shard-forwarding] argv=' + JSON.stringify(r.argv))
   console.log('[shard-forwarding] 被调用方实收=' + JSON.stringify(r.received))
   console.log('[shard-forwarding] 续行完整性扫描：workflow ' + r.continuation.files + ' 个文件，命中 ' + r.continuation.problems.length + ' 处')
+  if (r.semantics) {
+    const inter = r.semantics.legA.filter((f) => r.semantics.legB.includes(f))
+    console.log('[shard-forwarding] 语义层（真 vitest）：夹具 ' + r.semantics.total + ' 个文件，' +
+      '1/2 → ' + JSON.stringify(r.semantics.legA) + '，2/2 → ' + JSON.stringify(r.semantics.legB) + '，重叠 ' + inter.length)
+  }
   for (const p of r.problems) console.log('  PROBLEM: ' + p)
   console.log(r.ok ? 'OK —— 分片旗标确实送到了 vitest' : 'FAIL：桌面分片没有在分文件，两个 matrix 腿各跑全量')
   process.exitCode = r.ok ? 0 : 1
 }
 
-module.exports = { check, parseShardArgv, runArgv, findContinuationSevers, checkContinuations, WORKFLOW }
+module.exports = { check, parseShardArgv, runArgv, findContinuationSevers, checkContinuations, runShardSemantics, resolveVitestEntry, WORKFLOW }
 if (require.main === module) main(process.argv.slice(2))

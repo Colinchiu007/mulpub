@@ -90,6 +90,48 @@ test('锚点不得被说明文字劫持：注释里原样写出 -ArgumentList @(
   assert.deepEqual(checker.parseShardArgv(withExtraHint), argv, '多加一行含同样字样的注释后解析结果漂移 ⇒ 注释没有被抹空')
 })
 
+test('语义层：用仓库里真装的 vitest 证明 --shard 会把文件切开（不是只证明送到了）', () => {
+  const sem = checker.runShardSemantics({ root: ROOT })
+  assert.equal(sem.legA.length + sem.legB.length, sem.total, '两腿合计不等于夹具总数 ⇒ 分片在丢文件：' + JSON.stringify(sem))
+  const inter = sem.legA.filter((f) => sem.legB.includes(f))
+  assert.deepEqual(inter, [], '两腿枚举到同一批文件 ⇒ vitest 没按 --shard 切：A=' + JSON.stringify(sem.legA) + ' B=' + JSON.stringify(sem.legB))
+  assert.ok(sem.legA.length > 0 && sem.legB.length > 0, '某一腿为空 = 探针失明，不得当成"互斥"通过')
+  const r = checker.check({ root: ROOT })
+  assert.ok(r.semantics, 'check() 必须带回报语义层结果（不得静默不跑）')
+})
+
+test('语义层负控：两腿枚举同一批文件时 check() 必须判红（重叠与合计两条都要出声）', () => {
+  const same = () => ({ total: 4, legA: ['t1.test.js', 't2.test.js', 't3.test.js', 't4.test.js'], legB: ['t1.test.js', 't2.test.js', 't3.test.js', 't4.test.js'] })
+  const r = checker.check({ root: ROOT, semantics: same })
+  assert.ok(r.problems.some((p) => /重叠/.test(p)), '两腿完全相同却没报重叠：' + JSON.stringify(r.problems))
+  assert.ok(r.problems.some((p) => /合计/.test(p)), '两腿合计 8 ≠ 夹具 4 却没报合计：' + JSON.stringify(r.problems))
+  assert.equal(r.ok, false)
+  // 另一条独立出口：某一腿枚举为空 = 探针失明，不得被读成"两腿互斥"
+  const blind = () => ({ total: 4, legA: [], legB: [] })
+  const rb = checker.check({ root: ROOT, semantics: blind })
+  assert.ok(rb.problems.some((p) => /失明/.test(p)), '两腿都为空却没出声：' + JSON.stringify(rb.problems))
+})
+
+test('锚点不串台：真实块之后再来一个 -ArgumentList @(...) 时，仍取分片步骤自己那一组', () => {
+  // 评审提出：抹掉注释行后，惰性正则会跨过注释去撞下一个 job 的同名数组。
+  // 锚点取**数组收尾**而不是最后一个元素——收尾行不会被"再加一个旗标"这类合规编辑改动。
+  const wf = fs.readFileSync(WF, 'utf8')
+  const CODE = '            ) `\r\n            -NoNewWindow -PassThru'
+  assert.equal(wf.split(CODE).length - 1, 1, '锚点串出现次数不是 1，这条对照失效（改锚，别改判据）')
+  const argv = checker.parseShardArgv(wf)
+  const decoy = '            ) `\r\n          $other = Start-Process -FilePath "x" `\r\n            -ArgumentList @("--decoy-flag") `\r\n            -NoNewWindow -PassThru'
+  assert.deepEqual(checker.parseShardArgv(wf.split(CODE).join(decoy)), argv,
+    '后面多出一个 -ArgumentList @(...) 就改变了结果 ⇒ 捕获区跨步骤串台（惰性边界没守住）')
+})
+
+test('字符串内行尾反引号也算命中（实测它是硬语法错，不是假阳）', () => {
+  // 评审提出这属"假阳"，本机用 pwsh 7.6.6 解析器实测：该形态 PARSE_ERRORS=1、CommandAst 数 0，
+  // 即字符串从未闭合 —— 它是真错，不是被误伤。这里把这个事实钉住，防止后来人把它"顺手放宽"。
+  const bt = String.fromCharCode(96)
+  const s = '$x = "abc' + bt + '\r\n# a comment\r\nWrite-Output $x\r\n'
+  assert.equal(checker.findContinuationSevers(s).length, 1, '字符串内反引号 + 注释行的形态必须被点名（它是硬错）')
+})
+
 test('反失明：解析不到步骤 / 数组 / 空数组时一律抛错，不得返回空当"没问题"', () => {
   assert.throws(() => checker.parseShardArgv('jobs:\n  other:\n    steps: []\n'), /SHARD_STEP_NOT_FOUND/)
   assert.throws(() => checker.parseShardArgv('- name: "Desktop tests shard x"\n  run: |\n    nothing here\n'), /ARGUMENT_LIST_NOT_FOUND/)

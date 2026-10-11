@@ -25,6 +25,10 @@ const yaml = require('js-yaml')
 const ROOT = path.resolve(__dirname, '..', '..')
 const WF = '.github/workflows/quality-gate.yml'
 const HELPER = path.join(__dirname, 'shardflag-ps-parse.ps1')
+// A 态钉死在**修复前的 main tip**，绝不能用 HEAD：合并后 HEAD 就是修复形态，
+// A 会变成 C 的副本，"A 的 extent 里确有裸 --"那条对账必然假红——
+// 那看起来像"当前代码坏了"，实际只是基线移动了（QM-6 可维护性轴 MINOR-1，2026-10-11 实测指出）。
+const PRE_FIX_BASE = 'd72cd2bd8'
 
 function shardRun (text) {
   const doc = yaml.load(text)
@@ -51,18 +55,19 @@ function parse (label, runText, tmpDir) {
 const tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'mp-dsf-ps-'))
 let rc = 0
 try {
-  const head = cp.execFileSync('git', ['-C', ROOT, 'show', 'HEAD:' + WF], { encoding: 'utf8', maxBuffer: 1 << 26 })
+  const head = cp.execFileSync('git', ['-C', ROOT, 'show', PRE_FIX_BASE + ':' + WF], { encoding: 'utf8', maxBuffer: 1 << 26 })
   const work = fs.readFileSync(path.join(ROOT, WF), 'utf8')
   const subst = (s) => s.replace(/\$\{\{[^}]*\}\}/g, '1/2')
 
   console.log('# shardflag 三态对照（PowerShell 解析器 + Start-Process extent）')
-  console.log('# head=' + cp.execFileSync('git', ['-C', ROOT, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim())
+  console.log('# head=' + cp.execFileSync('git', ['-C', ROOT, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() +
+    ' A_base=' + PRE_FIX_BASE + '（A 态钉死在修复前的 main tip，不随 HEAD 移动）')
   console.log('# node=' + process.version + ' collectedAt=' + new Date().toISOString())
   console.log('# 说明：${{ ... }} 已按 GitHub 行为替换成实值 1/2；未替换时三态都会额外报一条模板伪影错。')
 
   const aText = subst(shardRun(head).run)
   const cText = subst(shardRun(work).run)
-  console.log('\n== A 基线（HEAD：带裸 "--"，无本轮新增注释）')
+  console.log('\n== A 基线（' + PRE_FIX_BASE + '：带裸 "--"，无本轮新增注释）')
   for (const l of parse('A', aText, tmpDir)) console.log('   ' + l)
   console.log('\n== C 当前工作副本（注释已移到 Start-Process 之前，裸 "--" 已删）')
   for (const l of parse('C', cText, tmpDir)) console.log('   ' + l)

@@ -9,14 +9,16 @@ pnpm 会把 `--` **原样**交给脚本，而 vitest 在 `--` 处停止解析选
 
 CI 活体证据（run `38143550282`，两个 job 的日志尾部汇总**逐字相同**）：
 `Test Files  872 passed | 1 skipped (873)`、`Tests  15555 passed | 3 skipped (15558)`
-⇒ 两个 matrix 腿各跑全量 873 个文件，桌面套件每次 CI 被完整跑两遍，"分片"是装饰性的。
+⇒ 两个 matrix 腿各跑全量。判据不是计数而是**集合**：剥 ANSI 后两腿各枚举 873 个测试文件名，交集 873、两侧独有项各 0 ⇒ "分片"是装饰性的。
 
 ## 改动
 
 - 从 `-ArgumentList` 里删掉那个裸 `"--"`（七个旗标按原顺序保留）。
-- 新增单一判据 `scripts/check-desktop-shard-forwarding.js`，三层：① 结构层从 workflow 正文解析真实 argv
-  （注释行先整行抹空再起锚）；② 行为层照 argv **真的跑一次** pnpm，读被调用方自己打印收到的 argv，并配负控
-  （把坏形态喂进去必须真的送达 `--`，探针可注入）；③ 续行完整性扫描（见下）。
+- 新增单一判据 `scripts/check-desktop-shard-forwarding.js`，四层：① 结构层从 workflow 正文解析真实 argv
+  （注释行先整行抹空再起锚，防锚点被自己的说明文字劫持）；② 行为层照 argv **真的跑一次** pnpm，读被调用方自己打印收到的 argv，并配负控
+  （把坏形态喂进去必须真的送达 `--`，探针可注入）；③ **语义层**用仓库里真装的 vitest 跑一个 4 文件临时夹具，
+  证明 `--shard=1/2` 与 `2/2` 真的把文件切开（`1/2→[t3,t4]`、`2/2→[t2,t1]`；⛔ `vitest list` 对该旗标无反应，不能当探针）；
+  ④ 续行完整性扫描（见下）。
 - 同 PR 接进 `.github/workflows/quality-gate.yml` 的 Gate 3：`node --test … scripts/check-desktop-shard-forwarding.test.js`
   ＋ `node scripts/check-desktop-shard-forwarding.js` 本体。
 

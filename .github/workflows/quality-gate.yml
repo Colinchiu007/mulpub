@@ -490,6 +490,11 @@ jobs:
         run: |
           node --test .github/scripts/check-hardcoded-secrets.test.js .github/scripts/workflow-contract.test.js .github/scripts/autonomous-loop-workflow.test.js .github/scripts/agent-review-gate.test.js .github/scripts/classify-ci-failure.test.js .github/scripts/ci-failure-handler-contract.test.js scripts/gate-budget.test.js scripts/check-desktop-shard-forwarding.test.js
           node .github/scripts/check-hardcoded-secrets.js
+          # 判据本体也跑一次：它把"消费者实收 argv""续行扫描命中数""真 vitest 两腿枚举的文件名"
+          # 打进 CI 日志（带内现场），而不只在测试名里露一下。显式转存退出码——本步骤默认 shell 是 pwsh，
+          # 中间命令非零不会自动中止该步骤（AGENTS.md「一个 run 块里塞多条命令」那条）。
+          node scripts/check-desktop-shard-forwarding.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # --- Gate 6: IPC bridge completeness ---
       - name: "Gate 6 - IPC bridge completeness"
