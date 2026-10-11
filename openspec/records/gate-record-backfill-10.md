@@ -42,7 +42,7 @@ date: 2026-10-08
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | PASS | 纯记录变更 ⇒ docs-only 通道；在隔离 worktree `D:/Data/projects/mp-worktrees/mp-sync-spec-mirror-purpose-gate` 内以裸分支 `gate-record-backfill-10`（base `8ac22d0d9` = 当时 origin/main）做，共享根 `D:/Data/projects/Mulpub` 保持 main clean。复用同一目录是因为该 worktree 属本会话且其原分支已合并删除；切分支后以 `rev-parse --abbrev-ref HEAD` + `rev-parse --short HEAD` 实证 |
+| 变更类型与隔离 | PASS | 纯记录变更 ⇒ docs-only 通道；在隔离 worktree `D:/Data/projects/mp-worktrees/mp-sync-spec-mirror-purpose-gate` 内以裸分支 `gate-record-backfill-10`（base `8ac22d0d9` = 当时 origin/main）做，共享根 `D:/Data/projects/mulpub` 保持 main clean。复用同一目录是因为该 worktree 属本会话且其原分支已合并删除；切分支后以 `rev-parse --abbrev-ref HEAD` + `rev-parse --short HEAD` 实证 |
 | 回填与销账同一次 | PASS | 两条记录各自：`远程同步` 行 PENDING→PASS（含 merge SHA + committer + 三源取证写法）**且**同一次提交内删除 frontmatter 的 `sync_status`/`sync_reason`/`sync_backfill_owner` 三行；回读 `sync_fields_left=0` |
 | 未新增 ledger 键 | PASS | 两条都是**新载体**（登记随文件的 `sync_*` 走），按既有口径**不得**在 `scripts/gate-record-debt-ledger.json` 建键 —— 建了会当场报「陈旧登记」（#3089 那批实测踩过）。本 PR 未触碰该文件 |
 | 行尾 | PASS | 两条记录工作副本均为 LF（`attr=text=auto`，索引与 worktree 都是 `i/lf w/lf`），脚本按 `split('\n')/join('\n')` 逐行处理、不碰任何一行的行尾；提交后 `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径逐文件对账 |

@@ -1,5 +1,5 @@
 ﻿$MP_PID = 19492
-$OUT = "D:\Data\projects\Mulpub\01-docs\ui-reference\screenshots\full-traversal"
+$OUT = "D:\Data\projects\mulpub\01-docs\ui-reference\screenshots\full-traversal"
 New-Item -ItemType Directory -Path $OUT -Force | Out-Null
 
 Add-Type @"

@@ -12,7 +12,7 @@
 你正在执行 OpenMontage → Multi-Publish 的视频创作模块迁移项目。
 
 ## 项目背景
-Multi-Publish（D:\Data\projects\Mulpub）是一个多平台一键发布桌面应用（Electron + Vue 3）。
+Multi-Publish（D:\Data\projects\mulpub）是一个多平台一键发布桌面应用（Electron + Vue 3）。
 OpenMontage（D:\Projects\OpenMontage）是一个 AI 视频制作平台，当前已将 Remotion 前端（~5%）移植过来，
 但 Python 后端工具链（70+ 模块）和 Pipeline 编排系统（13 条管线）完全缺失。
 

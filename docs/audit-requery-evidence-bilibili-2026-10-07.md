@@ -134,7 +134,7 @@ function updateRecordAudit (id, patch, ownerSubject) { ...
 
 #3083 合并后补的这一次复验。**同一账号、同一条链路、同一份 profile**，只有一处不同：这次的运行代码含键对齐修复。于是上一次那篇稿子自然成了对照组。
 
-- 运行态：worktree `mp-audit-writeback-key-fix`（分支 `audit-writeback-key-fix` @ `aa196aba0`，同时含 #3065 分桶查询与 #3083 键修复），userData 用共享锚点 `D:\Data\projects\Mulpub\shared-user-data`，vite 6511 / CDP 10559（`MP_CDP_ALLOW_ALL_ORIGINS=1`）
+- 运行态：worktree `mp-audit-writeback-key-fix`（分支 `audit-writeback-key-fix` @ `aa196aba0`，同时含 #3065 分桶查询与 #3083 键修复），userData 用共享锚点 `D:\Data\projects\mulpub\shared-user-data`，vite 6511 / CDP 10559（`MP_CDP_ALLOW_ALL_ORIGINS=1`）
 - **跑的虽不是 main tip，但等价于 main 的这条链路**（这条判据比"落后几个提交"硬）：`git rev-parse <tree>:<path>` 逐个比 blob，`publish-history.js` / `publish-monitor.js` / `bilibili-audit-check.js` / `phase4-events.js` **四个文件在 `aa196aba0` 与 `origin/main` 上逐字节相同**。中间那 14 个提交含一处 `fix(desktop)` 权限修复，但它不碰这四个文件 —— 所以本轮结论对 main 成立，不需要另跑一次。（当时的错误写法是"逐条查过均为无关功能/文档"，那没量 blob；已按实测改成 blob 同一性。）
 - 触发：经 CDP 在渲染层调 `publishBatch([{platform:'bilibili',accountId:'ca681b37'}], {title, content, video_path, category:21, copyright:1, aiGenerated:false})`
 - 载荷素材沿用上轮那份仓库内 E2E 产物（640×360 / h264+aac / 6.0s / 76,657 B），**`aiGenerated` 仍显式传 `false`**（素材是否 AI 生成未经核实，不主动声明）

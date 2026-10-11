@@ -57,7 +57,7 @@ worktree 被撕裂（`git status` 大量 ` D `、HEAD 未动）时：
 
 ```bash
 # 1. 删除 worktree gitdir 的锁（注意不是 worktree 内 .git/index.lock）
-rm -f /d/Data/projects/Mulpub/.git/worktrees/<name>/index.lock
+rm -f /d/Data/projects/mulpub/.git/worktrees/<name>/index.lock
 # 2. 进入 worktree 用相对路径恢复
 cd /d/Data/projects/mp-worktrees/<name>
 git checkout HEAD -- .
