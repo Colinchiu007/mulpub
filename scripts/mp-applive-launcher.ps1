@@ -174,6 +174,33 @@ function Wait-AppliveWindow {
   return $win
 }
 
+# #2459: named, reusable listener-ownership resolver. A listener on the derived
+# backend port is only "ours" if the process that owns the TCP listener has a
+# command line naming THIS worktree. Another worktree may hold the same derived
+# port (collision) or a stale process may hold it; in both cases we must not
+# report START_CONTRACT_OK for someone else's backend. Extracted as a named
+# function so the structural lock in dev-ports.test.js can assert the check is
+# not inlined and silently dropped on refactor.
+function Get-BackendListenerOwnership {
+  param(
+    [object]$Connection,
+    [string]$WorktreePath,
+    [scriptblock]$GetProc = $null
+  )
+  if (-not $Connection) { return $null }
+  $procId = [int]$Connection.OwningProcess
+  if ($GetProc) {
+    $proc = & $GetProc -ProcessId $procId
+  } else {
+    $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$procId" -ErrorAction SilentlyContinue
+  }
+  if (-not $proc) { return $null }
+  # ordinal Contains, not -like: [ ] * ? inside a path would be read as wildcards
+  $cmd = [string]$proc.CommandLine
+  $mine = $cmd.Contains($WorktreePath) -or $cmd.Contains($WorktreePath.Replace('/', '\'))
+  return [PSCustomObject]@{ Pid = $procId; Name = [string]$proc.Name; Mine = [bool]$mine }
+}
+
 # Wait for the main backend (python) to listen AND be owned by this worktree.
 # A listener alone is not enough (#2459): another worktree may hold the port.
 # Inject -GetNetTcp / -GetProc in tests to avoid real TCP / WMI enumeration.
@@ -190,13 +217,7 @@ function Wait-AppliveBackend {
     if ($GetNetTcp) { $conns = & $GetNetTcp -Port $BackendPort } else { $conns = @(Get-NetTCPConnection -LocalPort $BackendPort -State Listen -ErrorAction SilentlyContinue) }
     $owner = $null
     foreach ($conn in $conns) {
-      $procId = [int]$conn.OwningProcess
-      if ($GetProc) { $proc = & $GetProc -ProcessId $procId } else { $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$procId" -ErrorAction SilentlyContinue }
-      if (-not $proc) { continue }
-      # ordinal Contains, not -like: [ ] * ? inside a path would be read as wildcards
-      $cmd = [string]$proc.CommandLine
-      $mine = $cmd.Contains($WorktreePath) -or $cmd.Contains($WorktreePath.Replace('/', '\'))
-      $owner = [PSCustomObject]@{ Pid = $procId; Name = [string]$proc.Name; Mine = [bool]$mine }
+      $owner = Get-BackendListenerOwnership -Connection $conn -WorktreePath $WorktreePath -GetProc $GetProc
       break
     }
     if ($owner -and $owner.Mine) { $ok = $true; break }
