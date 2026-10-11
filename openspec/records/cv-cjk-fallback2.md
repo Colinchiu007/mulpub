@@ -2,9 +2,6 @@
 record: cv-cjk-fallback2
 task: CreateView script 区 43 处 translateWithLocaleFallback 兜底参数清偿（遗留②第二子批，CJK 净还债 107）
 date: 2026-10-11
-sync_status: PENDING
-sync_reason: PR 未合并，merge SHA 还不存在
-sync_backfill_owner: 本会话下一轮或下一会话
 ---
 
 ## 本次执行记录：translateWithLocaleFallback 兜底清偿（cv-cjk-fallback2，2026-10-11）【混合 PR】
@@ -22,7 +19,7 @@ sync_backfill_owner: 本会话下一轮或下一会话
 | QM-1 打包 | N/A | 未触 electron 主进程 |
 | QM-4 视觉 | PASS | zh 文案逐字不变（除 composeProgress 按原兜底串入键），CI QG Visual 为准 |
 | QM-6 CCG 双模型评审 | PASS | i18n 迁移模式第 5 次复用，无方案外新决策 |
-| 远程同步 | PENDING | 新载体：登记随本文件 frontmatter（不登记 ledger）；合并后回填 PASS + merge SHA 并删 sync_* 字段 |
+| 远程同步 | PASS | PR #3330 已 squash 合并，merge SHA `44690c8267f31c40073b5ef292f357abdb10ac88`（2026-10-12T00:17:34+08:00），取证 `git log origin/main --grep='(#3330)$' --format=%H|%cI` 唯一命中；`git ls-remote --heads origin cv-cjk-fallback2` 返回 0 行，证远端分支已删；frontmatter `sync_*` 三字段已在本次回填提交删除（登记随本文件 frontmatter，未占 ledger）。补充：合并前 quality-gate 四轮红——前三轮根因是 `restoreS2VLastOptions` 的裸 `$t` 在 vm 卸载后的异步续体里抛 unhandled rejection（15555 tests 全过但 vitest exit 1），修复为 `translateWithLocaleFallback` 同款存在性防御后第四轮 success（20 pass/1 skip）；期间还发现 `story2video.composeProgress` 键从未存在（原调用一直靠中文兜底），已补键。 |
 
 ### 改动
 
