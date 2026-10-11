@@ -1,3 +1,7 @@
+# 2026-10-11
+
+- 播客一键发布规格补写：新增 §6.4.2 定义第三条通道 `podcast:episode:publish:progress`（实时七相位 + 主进程计算的 `cancellable` + 显式降级出口），并把刀 4 摘要里的「回退全局默认音色」纠正为「capability 级 `defaultVoiceId` → provider+model 用户偏好」两层口径；tasks 新增 3.13 记录该通道的唯一插入点与三侧同 PR 要求。
+
 # [未发布] fix(ci): Gate 4 的 desktop 排除一直没生效——required check 的成败原来取决于 runner 快慢（2026-10-11，gate4-desktop-exclusion）
 
 ### 用户感知

@@ -178,6 +178,80 @@ partial 含「这一期已登记到本地频道」+ 一个只重试 feed 的出�
 `withSenderCheck(handlerFor(...))` 以保证 sender-guard 比例不被稀释；preload 侧新增同名方法，桥接层 `src/api/podcast-channel.js`
 加一个 `episodePublishFromVideo` 导出并走既有 `envelope()` 单点剥壳。**少任何一侧 = CI 红，不允许「先合主进程后补 preload」。**
 
+#### 6.4.2 第 4 片必须补的第三条通道：`podcast:episode:publish:progress`（2026-10-11 定，先于代码写死）
+
+**为什么这是规格自己的洞，不是实现漏项**：§6.4「显示项」要求实时七相位进度条 + 当前相位的实测值（时长/字节/mime）+「取消按钮仅在 `cancellableAt(phase)` 为真时可点」，而 §6.4 的 preload 段只承诺两条导出。实测第 3 片交付的 `podcast:episode:publishFromVideo` 是**一次性 resolve**——`phases` 只在链结束时随信封返回，链内主进程**不发任何**进度事件（`ipc-handlers/podcast.js:28` 的信封注释、`podcast-episode-host.js:171` 的返回路径）；`cancellableAt` 只作为宿主内部参数传给 `episodeCancelRegistry.begin()`（`podcast-episode-host.js:137`），渲染层无从取得。**照 §6.4 字面写界面的产物是一条永远停在第一个相位的进度条，而且不报错**——这是本仓「装饰性链路」的反向形态（不是代码没接，是显示项从未被任何通道喂过数据，且既有测试全绿，因为它们断的是链结束后的信封形状）。
+
+**裁决：补第三条通道，不降级显示项。** 三条硬口径：
+
+| 口径 | 内容 | 少了它会怎样 |
+|---|---|---|
+| ① 事件形状 | 通道名 `podcast:episode:publish:progress`，载荷 `{ runId, phase, state, cancellable, durationSec?, sizeBytes?, mime?, message?, errorCode?, subCode? }`；`phase` 取值**只能**是编排层导出的 `PHASES` 闭集，`state ∈ {start, done, skipped, failed, cancelled}` | 载荷里给自由字符串，界面就会自造第二份相位表 |
+| ② `cancellable` 由主进程算 | 发送前用编排层那份**唯一实现** `cancellableAt(phase)` 求出布尔并随事件下发；渲染层**只读**该位。**禁止**在前端抄相位表、也**禁止**按"已用时长"猜相位 | §6.4.1 第 4 条禁止的事在前端重演一次；且取消按钮会在 `uploadAudio` 之后仍可点，用户以为停了其实没停 |
+| ③ 双边界与单点发射 | 每个相位必须有 `start`（执行**前**）与 `done` 两个边界；发射点唯一在 `podcast-episode-host.js`，宿主外的任何一层（适配层、编排层）**不得**再发；链结束时最后一条必须是终态边界 | 只在完成时发会让遮罩静止在视觉上等同卡死（本仓既有纪律「批量 IPC 进度双边界」）；多点发射会造出两份互相矛盾的进度真相 |
+
+**刻意不复用 `publish:progress`**：`electron/services/publish-progress-events.js` 的 `emit(taskId, platform, phase, extra)` 是 **TaskQueue 形状**，其 `PHASE_ENUM` 与 `KNOWN_STAGE_MAP` 封闭清单服务于「平台发布任务」，而 `task:failed` 还承担「落发布历史」的副作用。出期链不是 TaskQueue 任务，塞进去要么污染历史、要么逼 `KNOWN_STAGE_MAP` 登记与平台无关的播客相位串。因此播客进度是**另一条独立通道**，相位→文案映射走 `episode.phase.*` 的 locales 键（这属播客专属映射，不违反「渲染层不得维护第二份**平台**阶段映射」——那条禁的是平台发布链的 `KNOWN_STAGE_MAP` 口径）。
+
+**三侧同 PR**：`ipcMain.handle`/发送侧字面量 + preload 订阅方法 + `src/api/podcast-channel.js` 的 `onEpisodePublishProgress`，`check-ipc-bridge` 少一侧当场红。订阅必须按 `subscriberId` 精确注销（既有跨实例订阅纪律，禁止无 id 时 `clear()` 全清）。
+
+**显示项与降级路径**：主进程若在 `progress` 之外只给到链末信封（例如事件订阅失败），界面必须**显式**显示「进度不可用，仅在本次结束后回看轨迹」，**不得**画一条停在首相位的假进度条。取消按钮在拿不到 `cancellable` 时的默认态是**禁用并说明原因**，不是「点了试试」。
+
+#### 6.4.3 第 4 片提示文字逐字对照（**由脚本从 locales/podcast/{zh,en}.js 生成，改文案必须重新生成，禁止手工维护本节**）
+
+- 生成口径：解析两个 locale 文件的 `export default` 对象后按 `podcast.` 前缀扁平化，只收录 `episode.*` 与本片新增的 `podcast.errors.*`；本节列出的每一条都是**渲染层实际取用的键**，与 `check-locale-sync.js --pair-base` 的成对判据同源。
+- 「没这条文案会怎样」写在 §6.4 的映射表里；本节只回答**逐字长什么样**，两处不一致时以本节（即代码）为准并回改 §6.4。
+
+| 键 | zh（逐字） | en（逐字） |
+| --- | --- | --- |
+| `podcast.episode.entry` | 发布为播客单集 | Publish as podcast episode |
+| `podcast.episode.title` | 一键发布播客单集 | One-click podcast episode |
+| `podcast.episode.running` | 发布进行中… | Publishing… |
+| `podcast.episode.progressUnavailable` | 本次发布未提供逐相位实时进度，进度条只在本次结束后按轨迹回看；这不表示卡住。 | No per-phase live progress is provided for this publish; the bar is only a trail you can read after it finishes. That does not mean it is stuck. |
+| `podcast.episode.closeNotCancel` | 关闭本浮层不会取消本次发布；要停止请点「取消出期」。 | Closing this dialog does not cancel the publish; press "Cancel this episode" to stop it. |
+| `podcast.episode.cancel` | 取消出期 | Cancel this episode |
+| `podcast.episode.cancelDisabled` | 本次发布未回传「是否还可取消」，取消按钮暂不可用（关闭本浮层同样不会停止发布）。 | This publish did not report whether it can still be cancelled, so the cancel button is unavailable (closing this dialog does not stop the publish either). |
+| `podcast.episode.cancelAccepted` | 取消请求已登记，链会在下一个采样点停下；最终状态以下方结果为准。 | Cancel request recorded. The chain stops at the next sampling point; the result below is the authoritative state. |
+| `podcast.episode.cancelUnknown` | 取消未生效：这次发布已结束或未曾登记，不要读成「已取消」。 | The cancel did not take effect: this publish already finished or was never registered. Do not read it as cancelled. |
+| `podcast.episode.success` | 已出期：公网 RSS 订阅源已更新（{feedUrl}），聚合端下次抓取后生效（通常数小时至数天）。 | Episode published: the public RSS feed is updated ({feedUrl}). Aggregators pick it up on the next crawl (usually hours to days). |
+| `podcast.episode.partial` | 这一期已登记到本地播客频道，公网 feed 尚未更新。 | This episode is registered on the local podcast channel; the public feed is not updated yet. |
+| `podcast.episode.cancelled` | 已在上传前取消，临时文件已回滚。 | Cancelled before upload; the temporary file has been rolled back. |
+| `podcast.episode.measured` | 实测：时长 {duration} 秒 · 字节 {bytes} · 类型 {mime} | Measured: {duration}s duration · {bytes} bytes · {mime} |
+| `podcast.episode.detail` | 详情：{detail} | Details: {detail} |
+| `podcast.episode.audioDegraded` | 检测到静音占位旁白，已阻止上传——这不是生成失败，是素材本身不可用。 | Silent placeholder narration detected, so the upload was blocked. This is unusable source material, not a generation failure. |
+| `podcast.episode.videoMissing` | 找不到成片文件，请回结果页重新生成或重选路径。 | The final video file cannot be found. Regenerate it on the result page or pick the file again. |
+| `podcast.episode.extractFailed` | 从成片抽取音轨失败，已停止出期。 | Extracting the audio track from the final video failed, so the episode publish stopped. |
+| `podcast.episode.encoderBroken` | 打包的 ffmpeg 无法执行（疑似交付产物缺依赖或架构不符），已停止出期。 | The bundled ffmpeg could not be executed (missing dependency or wrong architecture), so the episode publish stopped. |
+| `podcast.episode.encoderMissing` | 打包的 ffmpeg 不含 mp3/aac 编码器，已停止出期。 | The bundled ffmpeg has no mp3/aac encoder, so the episode publish stopped. |
+| `podcast.episode.measureFailed` | 无法实测音频的时长或字节，已停止出期（不得用申报值代替）。 | The audio duration or size could not be measured, so the episode publish stopped (declared values are not accepted instead). |
+| `podcast.episode.sizeMismatch` | 上传回来的字节与本地实测不一致，这一期没有挂上。 | The bytes returned by the upload do not match the local measurement, so this episode was not attached. |
+| `podcast.episode.capFull` | 该播客频道单集数已达上限，请先删除不再需要的旧期再出这一期。 | This podcast channel already reached its episode limit. Remove an older episode before publishing this one. |
+| `podcast.episode.invalid` | 单集字段不合格，已停止出期，请按下方逐条修正。 | The episode fields are not valid, so the publish stopped. Fix each issue listed below. |
+| `podcast.episode.feedBuildFailed` | 这一期已登记到本地播客频道，公网 feed 尚未更新（本地数据没有坏）。 | This episode is registered on the local podcast channel, but the public feed was not rebuilt (the local data is not broken). |
+| `podcast.episode.cancelTooLate` | 已进入上传阶段，现在取消会留下「音频已传、feed 未更新」的半态，因此不能取消；请等本次发布跑完。 | The upload has started, so cancelling now would leave the half state "audio uploaded, feed not updated". This publish cannot be cancelled; let it finish. |
+| `podcast.episode.phase.pickChannel` | 选择频道 | Pick channel |
+| `podcast.episode.phase.extractMix` | 抽取完整音轨 | Extract full audio track |
+| `podcast.episode.phase.probe` | 实测时长与字节 | Measure duration and size |
+| `podcast.episode.phase.uploadAudio` | 上传音频 | Upload audio |
+| `podcast.episode.phase.attach` | 登记单集 | Attach episode |
+| `podcast.episode.phase.buildFeed` | 重建 feed | Rebuild feed |
+| `podcast.episode.phase.uploadFeed` | 上传 feed | Upload feed |
+| `podcast.episode.phase.cancelled` | 已取消 | Cancelled |
+| `podcast.errors.PODCAST_VIDEO_NOT_FOUND` | 找不到成片文件，请回结果页重新生成或重选路径 | The final video file cannot be found; regenerate it on the result page or pick the file again |
+| `podcast.errors.PODCAST_PUBLISH_CANCELLED` | 本次播客出期已在上传前取消，临时文件已回滚 | This podcast episode publish was cancelled before upload and the temporary file was rolled back |
+| `podcast.errors.PODCAST_CANCEL_TOO_LATE` | 已进入上传阶段，现在取消会留下半态，因此不能取消；请等本次发布跑完 | The upload has started, so cancelling now would leave a half-published state; please let this publish finish |
+| `podcast.errors.PODCAST_FEED_BUILD_FAILED` | 这一期已登记到本地频道，公网 feed 尚未更新 | This episode is registered on the local channel, but the public feed is not updated yet |
+| `podcast.errors.PODCAST_AUDIO_EXTRACT_FAILED` | 从成片抽取音轨失败，已停止出期 | Failed to extract the audio track from the final video; the episode publish stopped |
+| `podcast.errors.PODCAST_AUDIO_ENCODER_UNAVAILABLE` | 打包的 ffmpeg 不含 mp3/aac 编码器，已停止出期 | The bundled ffmpeg has no mp3/aac encoder; the episode publish stopped |
+| `podcast.errors.PODCAST_AUDIO_MEASURE_FAILED` | 无法实测音频时长或字节，已停止出期 | The audio duration or size could not be measured; the episode publish stopped |
+| `podcast.errors.PODCAST_AUDIO_SIZE_MISMATCH` | 上传回来的字节与本地实测不一致，这一期没有挂上 | The bytes returned by the upload do not match the local measurement, so this episode was not attached |
+| `podcast.errors.PODCAST_FEED_INVALID` | Feed 校验未通过，请先按下列问题解决 | Feed validation failed. Fix the issues below first |
+| `podcast.errors.PODCAST_FEED_NOT_BUILT` | 该频道还没有可用的 Feed 产物，请先生成 Feed 再发布 | This channel has no usable feed file yet. Build the feed before publishing. |
+| `podcast.errors.PODCAST_EPISODE_INVALID` | 单集信息不合法，请按下方逐条修正 | Episode data is invalid. Fix the items listed below. |
+| `podcast.errors.PODCAST_EPISODES_FULL` | 该频道单集数已达上限，请先删除不再需要的旧期再登记新的 | This channel reached its episode limit. Remove an old episode before adding a new one. |
+
+共 45 键；zh/en 逐键成对且均为非空串（另有同文件内的既有键不在本表范围）。
+
+
 ## 7. 功能逻辑（按刀次）
 
 ### 刀 1 多频道 + 迁移 + 锁 + 契约
@@ -201,7 +275,7 @@ registry（index.json + 两段 channel.json）、迁移三态（首访即可读�
 **分片交付状态（2026-10-11）**：上面 1–5 的**判据与收口**已由刀 3 前两片落地（`podcast-episode-source.js` 降级判定 / `podcast-episode-extract.js` 抽取与实测 / `podcast-episode-publish.js` 相位闭集 + 取消窗口 + 三处一致校验 + partial 分层），全部依赖注入、零真实出站、零真实进程。**6–7 与真实宿主（ffmpeg/ffprobe spawn、OSS `putObject`、`episodeSink`/`feedSink` 复用 `channelPublishPass` 通行证）在第 3 片接线；`usePodcastEpisodePublish` 状态机、浮层与两枚入口在第 4 片。** 前两片**没有生产调用者**——这是刻意的中间态，判据见 §13 末尾新增条目。
 
 ### 刀 4 文案一键出期
-口语化分段（**新建 prompt，不复用 `rewrite-engine` 的去 AI 味链路**——语义不同）→ 分块云端 TTS（每块 ≤ 引擎上限，块间显式静音 0.3–0.6s，禁止整篇喂）→ 拼接 → 归一 → `probe`/`uploadAudio`/`attach`/`buildFeed`/`uploadFeed` 同刀 3。**只换数据源与触发条件，不得改手柄状态机**（结构锁⑪）。音色默认值属**频道级**（未配置时回退全局默认音色并提示）。
+口语化分段（**新建 prompt，不复用 `rewrite-engine` 的去 AI 味链路**——语义不同）→ 分块云端 TTS（每块 ≤ 引擎上限，块间显式静音 0.3–0.6s，禁止整篇喂）→ 拼接 → 归一 → `probe`/`uploadAudio`/`attach`/`buildFeed`/`uploadFeed` 同刀 3。**只换数据源与触发条件，不得改手柄状态机**（结构锁⑪）。音色默认值取**两层**（capability 级 `defaultVoiceId` → 按 provider+model 的用户偏好）——⚠️ 本节原先写「未配置时回退全局默认音色」，而仓内**不存在**跨 provider 的全局默认音色，照原话实现等于由代码替用户猜一个音色；权威口径见 §7.4.0 第 1 条，两层都落空时必须**出声提示并停止**，不得静默选音色。
 
 ### 7.4 刀 4 详细规格：文案 → 一期播客音频（2026-10-11 定，先于代码写死）
 
