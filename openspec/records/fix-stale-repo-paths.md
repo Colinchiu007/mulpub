@@ -54,18 +54,4 @@ date: 2026-10-07
 
 2. **文档绝对路径无自动校验。** 本轮根因（逃逸分析②）未被根治：改名/搬移目录后，文档里的绝对路径仍会静默失效。可行的低成本棘轮是给 `check-docs-sync.sh` 增加一条「命中文档的绝对路径必须能在本机 `Test-Path`」的抽样检查。**本 PR 不做**——改 `scripts/` 工具脚本自身属混合 PR。
 
-3. **大小写不一致（2026-10-07 记为无害未改；2026-10-11 已执行翻转）**：2026-10-07 当时仓库脚本里写 `D:\Data\projects\Mulpub`（大写 M 小写 u），实际目录为全小写 `mulpub`；`guard-shared-root-writes.ps1:21` 走 `Resolve-Path -LiteralPath` 后做相对路径比较，`install-session-isolation-task.ps1:46` 的 `$TaskPath -eq '\Mulpub\'` 为 PowerShell 大小写不敏感字符串比较，故当时判定无害、仅作记录、**未改**。2026-10-11 全仓路径大小写重命名（repopath-case-* 双 PR）已将脚本引用一并列改为全小写 `mulpub`，与原目录一致，原「未改」结论被该次重命名执行/翻转；归档说明见同文件「repo-path-case-reversal」记录。
-
-## 本次执行记录：仓库目录改名大小写不一致项回填（repo-path-case-reversal，2026-10-11）【docs-only】
-
-- 判定：node scripts/classify-docs-only.js --base=origin/main → docs-only=true（files=1：openspec/records/fix-stale-repo-paths.md）
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PENDING
-- 备注：2026-10-07 的 fix-stale-repo-paths 记录 item-3 将 `D:\Data\projects\Mulpub` 大小写不一致记为「已核实无害，未改」；2026-10-11 全仓路径大小写重命名（repopath-case-* 双 PR）已将该脚本引用一并列改，原「未改」结论已被执行/翻转。本记录仅作归档翻转说明，并补登门禁账目；待本 PR 合并后回填 PASS + merge SHA、删除 ledger 登记项。
-
-| 门禁 | 状态 | 证据 |
-|------|------|------|
-| 变更类型与隔离 | ✅ | 纯文档：仅改 openspec/records/fix-stale-repo-paths.md，未进 worktree，经 PR 落地不直推 main |
-| 行尾/编码对账 | ✅ | `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径一致；文件为 CRLF、无 BOM |
-| 品牌残留 | ✅ | `node scripts/check-no-brand-residue.js` → PASS |
-| docs-only 判定 | ✅ | `node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → docs-only=true |
-| 远程同步 | PENDING | PR 待开；合并后由回填 PR 改写 PASS + merge SHA 并删除 ledger 登记项 |
+3. **大小写不一致（2026-10-07 记为无害未改；2026-10-11 已执行翻转）**：2026-10-07 当时仓库脚本里写 `D:\Data\projects\Mulpub`（大写 M 小写 u），实际目录为全小写 `mulpub`；`guard-shared-root-writes.ps1:21` 走 `Resolve-Path -LiteralPath` 后做相对路径比较，`install-session-isolation-task.ps1:46` 的 `$TaskPath -eq '\Mulpub\'` 为 PowerShell 大小写不敏感字符串比较，故当时判定无害、仅作记录、**未改**。2026-10-11 全仓路径大小写重命名（repopath-case-* 双 PR）已将脚本引用一并列改为全小写 `mulpub`，与原目录一致，原「未改」结论被该次重命名执行/翻转；归档说明见 `openspec/records/repopath-case-docs.md` 记录。
