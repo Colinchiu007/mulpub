@@ -60,14 +60,15 @@
 - [x] S4.1 不实现任何调用；**不在 registry 留占位开关位**（registry 只允许实测通过的源，占位会让"支持付费源"与"只登记名字"无法区分）；已在 PRD §4.4 与本节如实登记为「待用户提供凭证/预算」
 - [ ] S4.2（**阻塞：待用户提供 Key 与预算**）若提供：新增 provider + 密钥只从设置读、绝不落日志（沿用既有凭证脱敏纪律）
 
-## 收尾（每个切片各自一套）
 
-- [ ] PRD 增补（本节切片对应章节）+ CHANGELOG 顶部条目
-- [ ] `.quality-gates.md` 记录（含 `| 远程同步 | PENDING |`）+ `scripts/gate-record-debt-ledger.json` 登记
-- [ ] `openspec/records/quick-collect-cn-sources.md` 执行记录（TDD 数字、变异反证、门禁、QM-1/QM-4、未闭合）
-- [ ] 静态门禁：`check-max-lines`（Collection 域） / `check-locale-sync` 三档 / `check-ipc-bridge` / `check-ipc-sender-guard` /
+> **收尾清单收口（2026-10-11）**：下列各项由 S1 / S2 / S3 / 垂类补遗四片各自走完，证据是 openspec/records/ 下四篇执行记录（quick-collect-cn-sources、-s2、-s3、quick-collect-cn-verticals）与本 change 的 PR 链（#3318 / #3322 / #3334 / #3338 及对应回填 PR）；四篇记录的「远程同步」均已 PASS。
+
+- [x] PRD 增补（本节切片对应章节）+ CHANGELOG 顶部条目
+- [x] `.quality-gates.md` 记录（含 `| 远程同步 | PENDING |`）+ `scripts/gate-record-debt-ledger.json` 登记
+- [x] `openspec/records/quick-collect-cn-sources.md` 执行记录（TDD 数字、变异反证、门禁、QM-1/QM-4、未闭合）
+- [x] 静态门禁：`check-max-lines`（Collection 域） / `check-locale-sync` 三档 / `check-ipc-bridge` / `check-ipc-sender-guard` /
   `check-frontend-consistency` / `check-no-brand-residue` / `check-ps1-bom`（不涉及）/ ESLint error 级
-- [ ] QM-1：`verify-worktree-deps` + `pnpm run build:dir` rc=0 + asar 内容核对
-- [ ] QM-4：若结果卡/对话框文案变化 ⇒ 按**同一次 CI run** 的 artifact 重取基线并逐字节自证 sha256
-- [ ] 记忆沉淀：`01-docs/learnings.md` 新章节 + 本机 gstack `learnings.jsonl` + EverOS session flush
-- [ ] PR：推送 → `gh pr create` → CI 全绿 → `--squash --delete-branch`（判据取产物）→ 回填 PR 合并 → worktree 按 R1-R5 清理
+- [x] QM-1：`verify-worktree-deps` + `pnpm run build:dir` rc=0 + asar 内容核对
+- [x] QM-4：若结果卡/对话框文案变化 ⇒ 按**同一次 CI run** 的 artifact 重取基线并逐字节自证 sha256
+- [x] 记忆沉淀：`01-docs/learnings.md` 新章节 + 本机 gstack `learnings.jsonl` + EverOS session flush
+- [x] PR：推送 → `gh pr create` → CI 全绿 → `--squash --delete-branch`（判据取产物）→ 回填 PR 合并 → worktree 按 R1-R5 清理
