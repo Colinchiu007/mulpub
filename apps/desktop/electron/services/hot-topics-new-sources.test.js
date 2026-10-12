@@ -239,7 +239,10 @@ describe('_collectChannel 新合同：空列表视为失败 + fallback 顺序降
     const res = await svc._collectChannel(cfg, Date.now())
     expect(res.items).toBeNull()
     expect(res.error).toContain('empty list')
-    expect(svc.breaker.failures.get('synthetic')).toBe(1)
+    // 配额治理后熔断键 = 配额键（quotaKeyOf），不再是来源 id ——
+    // 这里顺便锁住「失败确实落到了该端点的配额上」。
+    const { quotaKeyOf } = await import('./hot-topics/throttle.js')
+    expect(svc.breaker.failures.get(quotaKeyOf(cfg))).toBe(1)
     expect(logs.some(m => m.includes('empty list'))).toBe(true)
   })
 

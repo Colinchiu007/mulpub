@@ -24,11 +24,23 @@
 const { classifyTopicMulti, CATEGORY_KEYS } = require('./hot-topics/classifier')
 const { CHANNEL_PARSERS } = require('./hot-topics/channels')
 const { scoreTopics, markTrend } = require('./hot-topics/scorer')
+const { ChannelThrottle, ChannelBreaker, quotaKeyOf } = require('./hot-topics/throttle')
 
 const CACHE_KEY = 'hot_topics_cache'
 const LLM_LABELS_KEY = 'hot_topics_llm_labels'
 const CACHE_TTL_MS = 10 * 60 * 1000
 const FETCH_TIMEOUT_MS = 10 * 1000
+/**
+ * 手动 force 刷新的最小间隔（P1）。
+ *
+ * 为什么必须有：UI 的 `refresh(true)` 会把 `force=true` 一路传到这里，而 v2 的 force
+ * 直接跳过缓存 TTL —— 也就是说**决定第三方压力的是用户点刷新的频率，而它没有上限**。
+ * 缓存 TTL（10 分钟）约束的是自动刷新，约束不了手点。
+ * 取 60s：足够拦截「连点刷新」与「无脑轮询」，又不会让用户觉得刷新坏了（60s 后仍可真实刷新）。
+ * 带 `boostCategories` 的定向补拉**不受此限制**（那是用户明确指名的补拉意图，不能被吞）。
+ */
+const MANUAL_REFRESH_MIN_INTERVAL_MS = 60 * 1000
+const THROTTLE_STATE_KEY = 'hot_topics_throttle_state' // P3：限流/熔断状态落盘（跨进程重启）
 const MAX_PER_CHANNEL = 50
 const MAX_TOPICS = 400 // 10 渠道 × 50 条候选（去重后实际更少；含垂类补拉）；上限兼顾 IPC 载荷，按统一热度截断尾部
 const LLM_BATCH_LIMIT = 40   // 单次抓取最多送 LLM 分类的 general 条目数（成本控制）
@@ -120,7 +132,8 @@ const CATEGORY_BOOSTS = {
     { id: 'sina-finance', name: '新浪财经滚动', url: 'https://feed.mix.sina.com.cn/api/roll/get?pageid=153&lid=2516&num=50', parser: 'sina_finance', channel: 'sina_finance', board: 'finance', boostCategory: 'finance', headers: { Referer: 'https://finance.sina.com.cn/' }, intervalMinutes: 15, riskLevel: 'medium' },
   ] },
   tech: { threshold: 6, sources: [
-    { id: 'ithome-tech', name: 'IT之家热榜', url: 'https://www.ithome.com/rss/', parser: 'ithome_rss', channel: 'ithome_tech', board: 'tech', boostCategory: 'tech', headers: {}, intervalMinutes: 15, riskLevel: 'low' },
+    // `throttleKey`（P2）：与 ai 补拉源共享同一 RSS 端点的配额（同一端点一个配额）。
+    { id: 'ithome-tech', name: 'IT之家热榜', url: 'https://www.ithome.com/rss/', parser: 'ithome_rss', channel: 'ithome_tech', board: 'tech', boostCategory: 'tech', headers: {}, intervalMinutes: 15, riskLevel: 'low', throttleKey: 'ithome-rss' },
   ] },
   emotion: { threshold: 4, sources: [
     { id: 'weibo-emotion', name: '微博情感垂类', url: 'https://weibo.com/ajax/statuses/hot_band', parser: 'weibo', channel: 'weibo', board: 'emotion', boostCategory: 'emotion', filterCategory: '情感', headers: { Referer: 'https://weibo.com/' }, intervalMinutes: 10, riskLevel: 'medium' },
@@ -131,7 +144,9 @@ const CATEGORY_BOOSTS = {
   ai: { threshold: 4, sources: [
     // AI 一级分类没有公开的「AI 榜」垂类端点，复用 IT之家 RSS 并由分类器筛选 AI 条目
     // （`onlyCategory` 用分类器本身做过滤，不新增第二份关键词表——避免判据漂移）。
-    { id: 'ithome-ai', name: 'IT之家(AI 专题筛)', url: 'https://www.ithome.com/rss/', parser: 'ithome_rss', channel: 'ithome_tech', board: 'ai', boostCategory: 'ai', onlyCategory: 'ai', headers: {}, intervalMinutes: 15, riskLevel: 'low' },
+    // `throttleKey`（P2）与 tech 补拉源共享同一配额：两个身份打的是**同一个 RSS 端点**，
+    // 若各自配额就是 2 次/15min；共享后 1 次/15min，且一方的失败也保护另一方。
+    { id: 'ithome-ai', name: 'IT之家(AI 专题筛)', url: 'https://www.ithome.com/rss/', parser: 'ithome_rss', channel: 'ithome_tech', board: 'ai', boostCategory: 'ai', onlyCategory: 'ai', headers: {}, intervalMinutes: 15, riskLevel: 'low', throttleKey: 'ithome-rss' },
   ] },
   // 教育/国际暂无稳定可用垂类端点（探测记录：百度 education tab、头条分类参数、v2ex 均不可用），
   // 依赖 方案A 关键词/映射修复 + 方案C LLM 兜底补充
@@ -139,47 +154,15 @@ const CATEGORY_BOOSTS = {
   international: { threshold: 4, sources: [] },
 }
 
-/** 简单内存限流器（单渠道最小间隔节流；正式限流组件见 collection-engine rate-limiter） */
-class ChannelThrottle {
-  constructor() { this.lastFetch = new Map() }
-  /** @returns {boolean} 允许则记录时间戳并返回 true */
-  tryAcquire(channelId, intervalMinutes) {
-    const now = Date.now()
-    const last = this.lastFetch.get(channelId) || 0
-    if (now - last < intervalMinutes * 60 * 1000) return false
-    this.lastFetch.set(channelId, now)
-    return true
-  }
-}
-
-/** 简单内存熔断器（连续 N 次失败 → OPEN 冷却 M 分钟 → HALF_OPEN 放行一次） */
-class ChannelBreaker {
-  constructor() {
-    this.failures = new Map()
-    this.openedAt = new Map()
-  }
-  isOpen(channelId, { cooldownMs = 30 * 60 * 1000 } = {}) {
-    const opened = this.openedAt.get(channelId) || 0
-    if (!opened) return false
-    if (Date.now() - opened >= cooldownMs) {
-      // 冷却结束 → HALF_OPEN：清零失败计数，放行一次
-      this.openedAt.delete(channelId)
-      this.failures.set(channelId, 0)
-      return false
-    }
-    return true
-  }
-  recordSuccess(channelId) {
-    this.failures.set(channelId, 0)
-    this.openedAt.delete(channelId)
-  }
-  recordFailure(channelId, { threshold = 3, cooldownMs = 30 * 60 * 1000 } = {}) {
-    const n = (this.failures.get(channelId) || 0) + 1
-    this.failures.set(channelId, n)
-    if (n >= threshold) this.openedAt.set(channelId, Date.now())
-    return { failures: n, opened: this.openedAt.has(channelId), cooldownMs }
-  }
-}
+/**
+ * 限流/熔断原语已抽到 `./hot-topics/throttle.js`（配额治理 2026-10-13）。
+ *
+ * ⚠️ **键语义已变更**：v2 用「来源身份 id」作键，但同一 URL 常挂多个 id
+ * （weibo 主渠道 + weibo-emotion + weibo-health 共用同一端点；ithome-tech + ithome-ai 共用 RSS），
+ * 按 id 计数等于没有配额——换个 id 就能再来一次。现在键统一取 `quotaKeyOf(config)`
+ * （显式 `throttleKey` > URL 归一化），**同一端点只有一个配额**。
+ * 原 `ChannelThrottle` / `ChannelBreaker` 的唯一真源在 throttle.js，本文件不再保留副本。
+ */
 
 class HotTopicsService {
   /**
@@ -200,6 +183,50 @@ class HotTopicsService {
     /** @type {{ topics: Array, fetchedAt: number, channelStats: Object } | null} */
     this.memCache = null
     this.inFlight = null
+    /** @type {number} 上一次**真实** force 抓取的时间（P1 手动刷新最小间隔的判据） */
+    this._lastManualRefreshAt = 0
+    this._restoreQuotaState()
+  }
+
+  /**
+   * P3：从 settings 恢复限流/熔断状态。
+   *
+   * 为什么：v2 的限流/熔断是纯进程内存态，应用重启后清零 —— 「重启后的第一轮」等于
+   * 全渠道并发外呼，且完全不记得 5 分钟前刚打过同一批端点。
+   * 恢复失败**只清空**（退化成无记忆），绝不退化成「放行一切」。
+   */
+  _restoreQuotaState() {
+    if (!this.settingsStore || typeof this.settingsStore.getSetting !== 'function') return
+    try {
+      const raw = this.settingsStore.getSetting(THROTTLE_STATE_KEY)
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+      if (!parsed || typeof parsed !== 'object') return
+      this.throttle.restore(parsed.throttle)
+      this.breaker.restore(parsed.breaker)
+      if (Number.isFinite(parsed.lastManualRefreshAt)) this._lastManualRefreshAt = parsed.lastManualRefreshAt
+      this.log.info && this.log.info('[hot-topics] quota state restored (throttle entries=' +
+        (parsed.throttle && Array.isArray(parsed.throttle.lastFetch) ? parsed.throttle.lastFetch.length : 0) + ')')
+    } catch (e) {
+      this.log.warn && this.log.warn('[hot-topics] quota state restore failed (start with empty state): ' +
+        (e && e.message ? e.message : String(e)))
+    }
+  }
+
+  /** P3：把限流/熔断状态写回 settings（吞错，不影响抓取主流程）。 */
+  _persistQuotaState() {
+    if (!this.settingsStore || typeof this.settingsStore.setSetting !== 'function') return
+    try {
+      this.settingsStore.setSetting(THROTTLE_STATE_KEY, JSON.stringify({
+        version: 1,
+        savedAt: Date.now(),
+        throttle: this.throttle.serialize(),
+        breaker: this.breaker.serialize(),
+        lastManualRefreshAt: this._lastManualRefreshAt,
+      }))
+    } catch (e) {
+      this.log.warn && this.log.warn('[hot-topics] quota state persist failed (ignored): ' +
+        (e && e.message ? e.message : String(e)))
+    }
   }
 
   /** 运行期注入 LLM 分类兜底（phase1-context 在 ModelProviderManager 就绪后接线） */
@@ -296,12 +323,15 @@ class HotTopicsService {
    */
   async _collectChannel(config, fetchedAt) {
     // 限流：未到最小间隔 → 跳过（用缓存数据，不报错）
-    if (!this.throttle.tryAcquire(config.id, config.intervalMinutes)) {
-      return { channel: config.id, items: null, skipped: true }
+    // 键 = 配额键（quotaKeyOf）：同一 URL 的多个身份共享同一份配额（P0）。
+    const quotaKey = quotaKeyOf(config)
+    if (!this.throttle.tryAcquire(quotaKey, config.intervalMinutes)) {
+      // 与主身份区分：让调用方/排查日志能看出这是「同 URL 配额被别的身份占用」
+      return { channel: config.id, items: null, skipped: true, reason: 'throttled-by-url', quotaKey }
     }
-    // 熔断：OPEN 状态 → 跳过
-    if (this.breaker.isOpen(config.id)) {
-      return { channel: config.id, items: null, skipped: true, breakerOpen: true }
+    // 熔断：OPEN 状态 → 跳过（同样按配额键，一个身份失败保护整个端点）
+    if (this.breaker.isOpen(quotaKey)) {
+      return { channel: config.id, items: null, skipped: true, breakerOpen: true, quotaKey }
     }
     const attempts = [
       { url: config.url, headers: config.headers, parser: config.parser || config.id },
@@ -331,7 +361,7 @@ class HotTopicsService {
         })
         // 合同①：空列表不是成功
         if (!items.length) throw new Error('empty list (endpoint returned 0 items; treated as failure)')
-        this.breaker.recordSuccess(config.id)
+        this.breaker.recordSuccess(quotaKey)
         if (i > 0) {
           this.log.info && this.log.info('[hot-topics] channel ' + config.id + ' recovered via fallback #' + i)
         }
@@ -350,7 +380,7 @@ class HotTopicsService {
         }
       }
     }
-    const state = this.breaker.recordFailure(config.id)
+    const state = this.breaker.recordFailure(quotaKey)
     return {
       channel: config.id,
       items: null,
@@ -373,11 +403,14 @@ class HotTopicsService {
    * 时才用 boostCategory 兜底 —— 垂类榜本身即该分类的定向供给，兜底仍保供。
    */
   async _collectBoostChannel(source, fetchedAt) {
-    if (!this.throttle.tryAcquire(source.id, source.intervalMinutes)) {
-      return { channel: source.id, items: null, skipped: true, boost: true }
+    // 补拉同样按配额键（P0）：微博垂类与微博主渠道、IT之家两路补拉共用端点，
+    // 必须共享配额，否则「换个 board 身份」就能绕过节流。
+    const quotaKey = quotaKeyOf(source)
+    if (!this.throttle.tryAcquire(quotaKey, source.intervalMinutes)) {
+      return { channel: source.id, items: null, skipped: true, boost: true, reason: 'throttled-by-url', quotaKey }
     }
-    if (this.breaker.isOpen(source.id)) {
-      return { channel: source.id, items: null, skipped: true, breakerOpen: true, boost: true }
+    if (this.breaker.isOpen(quotaKey)) {
+      return { channel: source.id, items: null, skipped: true, breakerOpen: true, boost: true, quotaKey }
     }
     try {
       const text = await this._fetchChannel(source)
@@ -408,10 +441,10 @@ class HotTopicsService {
           fetchedAt,
         }
       })
-      this.breaker.recordSuccess(source.id)
+      this.breaker.recordSuccess(quotaKey)
       return { channel: source.id, items, skipped: false, boost: true }
     } catch (e) {
-      const state = this.breaker.recordFailure(source.id)
+      const state = this.breaker.recordFailure(quotaKey)
       this.log.warn && this.log.warn('[hot-topics] boost channel ' + source.id + ' failed:', e && e.message ? e.message : String(e), state)
       return { channel: source.id, items: null, skipped: false, error: e && e.message ? e.message : String(e), boost: true }
     }
@@ -528,6 +561,12 @@ class HotTopicsService {
    * @param {{ force?: boolean, boostCategories?: string[] }} options
    *   force=true 跳过缓存 TTL 检查；boostCategories=UI 显式要求补拉的分类
    *   （空分类「补拉该分类」按钮），即使当前计数不低于阈值也触发该分类 sources。
+   *
+   * P1（手动刷新最小间隔）：`force` 不再等于「无上限全量外呼」。UI 的刷新按钮会把
+   * force 一路传到这里，v2 里它直接绕过缓存 TTL —— 真正决定第三方压力的是用户点击频率。
+   * 现在 force 受 `MANUAL_REFRESH_MIN_INTERVAL_MS` 约束：间隔内返回缓存并带 `throttled` 标记。
+   * **例外**：带 `boostCategories` 的定向补拉不受此限制（用户指名的补拉意图不能被吞，
+   * 与评审 MINOR-3 的取向一致）。
    */
   async fetchTopics(options = {}) {
     const cache = this.getCache()
@@ -541,6 +580,16 @@ class HotTopicsService {
     // 但带显式 boostCategories 的用户动作不复用旧请求（其补拉意图会被丢弃，评审 MINOR-3）
     const hasExplicitBoost = Array.isArray(options.boostCategories) && options.boostCategories.length > 0
     if (this.inFlight && !hasExplicitBoost) return this.inFlight
+
+    // P1：手动 force 的最小间隔。显式补拉豁免（hasExplicitBoost）。
+    if (options.force && !hasExplicitBoost) {
+      const since = Date.now() - this._lastManualRefreshAt
+      if (this._lastManualRefreshAt > 0 && since < MANUAL_REFRESH_MIN_INTERVAL_MS) {
+        // 返回现有缓存（可能为空结构），并明确标记「被节流」让 UI 可提示而非无反馈
+        return { ...cache, fromCache: true, throttled: true }
+      }
+      this._lastManualRefreshAt = Date.now()
+    }
 
     this.inFlight = (async () => {
       const fetchedAt = Date.now()
@@ -625,6 +674,8 @@ class HotTopicsService {
 
       const newCache = { topics, fetchedAt, channelStats }
       this._writeCache(newCache)
+      // P3：本轮已经真实触碰过各端点，把限流/熔断状态落盘（失败吞掉，不影响主流程）
+      this._persistQuotaState()
       this.log.info && this.log.info('[hot-topics] fetched ' + topics.length + ' topics from ' +
         Object.values(channelStats).filter(s => s.ok).length + '/' + Object.keys(channelStats).length + ' channels')
       return newCache
@@ -643,6 +694,8 @@ module.exports = {
   CACHE_KEY,
   LLM_LABELS_KEY,
   CACHE_TTL_MS,
+  MANUAL_REFRESH_MIN_INTERVAL_MS,
+  THROTTLE_STATE_KEY,
   MAX_PER_CHANNEL,
   MAX_TOPICS,
   CHANNEL_CONFIGS,
