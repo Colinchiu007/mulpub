@@ -2,9 +2,6 @@
 record: learnings-wxmp-api-track
 task: 沉淀微信公众号 API 轨一役的七条教训（含一条仓库级门禁缺陷）
 date: 2026-10-12
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填 PR 改写为 PASS + merge SHA 并删除三个 sync_* 字段
-sync_backfill_owner: 下一个会话（或本会话的合并后回填步骤）
 ---
 
 ## 本次执行记录：沉淀微信公众号 API 轨七条教训（learnings-wxmp-api-track，2026-10-12）【docs-only】
@@ -43,7 +40,7 @@ learnings + 本记录 + 台账登记，合并后由回填 PR 收口。
 | 品牌残留 | PASS | `check-no-brand-residue.js`（文档只写「参考产品」） |
 | 文档同步 | PASS | 新增本记录；learnings 属文档，doc-gate 由 `01-docs/` 命中 |
 | CHANGELOG | N/A | 纯经验沉淀，无用户可见行为变化 |
-| 远程同步 | PENDING | 本 PR 尚未合并。合并后：`git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 取 merge SHA；`git ls-remote --heads origin learnings-wxmp-api-track` 返回 0 行证远端分支已删；回填本行并删除 `sync_*` 三字段与 `scripts/gate-record-debt-ledger.json` 登记项（同一次提交） |
+| 远程同步 | PASS | PR #3386 已 squash 合并，merge SHA `6daf48bd26ed2114ffd317064d6bd6ed8ca011a6`（committer 2026-10-12T09:37:11+08:00）；取证 `git log origin/main --grep='(#3386)$' --format=%H|%cI` **唯一 1 行**命中；`git ls-remote --heads origin learnings-wxmp-api-track` 返回 **0 行**，证远端分支已删；`sync_*` 三字段已在同一次回填提交中删除（本条无台账登记项：记录文件的 `sync_*` 字段本身即该源的登记机制，本轮实测额外加台账键会被判陈旧项） |
 
 ### 遗留
 
