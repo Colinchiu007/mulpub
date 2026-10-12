@@ -56,6 +56,19 @@ describe("LoginExpiredBanner", () => {
     await w.find(".banner-close").trigger("click");
     expect(w.emitted("dismiss")).toBeTruthy();
   });
+
+  it("renders alert icon block, count badge and outlined action (alert-bar pattern)", async () => {
+    const w = mountBanner({ expiredCount: 2 });
+    await nextTick();
+    expect(w.find(".banner-icon-block").exists()).toBe(true);
+    const badge = w.find(".banner-count-badge");
+    expect(badge.exists()).toBe(true);
+    expect(badge.text()).toContain("2");
+    // 描边式告警按钮（非实心红），对齐告警条视觉规范
+    const action = w.find(".banner-btn");
+    expect(action.classes().some(c => c.includes("outline") || c === "banner-btn")).toBe(true);
+    expect(w.find(".banner-btn--solid").exists()).toBe(false);
+  });
 });
 
 describe("LoginExpiredBanner 全部保存（方案三）", () => {

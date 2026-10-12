@@ -2,12 +2,17 @@
   <div class="mp-home" data-testid="mp-home">
     <!-- 欢迎区 -->
     <section class="mp-home-welcome">
-      <HomeGreeting />
+      <div class="mp-home-greeting-col">
+        <HomeGreeting />
+        <p class="mp-home-overview" data-testid="home-overview">
+          <span>{{ t('home.overview.accounts') }}</span>
+          <strong class="overview-num">{{ accountCount }}</strong>
+          <span class="overview-divider">·</span>
+          <span>{{ t('home.overview.tasks') }}</span>
+          <strong class="overview-num">{{ stats.total }}</strong>
+        </p>
+      </div>
       <div class="mp-home-quick-actions">
-        <button class="mp-home-action-btn mp-home-action-btn--primary" data-testid="home-new-publish" @click="go('/publish')">
-          <el-icon class="action-icon" :size="15"><Edit /></el-icon>
-          <span>{{ t('home.newPublish') }}</span>
-        </button>
         <button class="mp-home-action-btn" data-testid="home-add-account" @click="go('/accounts')">
           <el-icon class="action-icon" :size="15"><User /></el-icon>
           <span>{{ t('home.addAccount') }}</span>
@@ -16,6 +21,29 @@
           <el-icon class="action-icon" :size="15"><Tickets /></el-icon>
           <span>{{ t('home.publishHistory') }}</span>
         </button>
+      </div>
+    </section>
+
+    <!-- 主任务卡：开始发布 + 连续发布天数（streak 由 dashboard:stats.daily 前端推导，零新增 IPC） -->
+    <section
+      class="mp-home-hero"
+      data-testid="home-publish-hero"
+      role="button"
+      tabindex="0"
+      @click="go('/publish')"
+      @keydown.enter="go('/publish')"
+    >
+      <div class="hero-icon" aria-hidden="true">
+        <el-icon :size="24"><Promotion /></el-icon>
+      </div>
+      <div class="hero-info">
+        <h3 class="hero-title">{{ t('home.hero.title') }}</h3>
+        <p class="hero-desc">{{ t('home.hero.desc') }}</p>
+      </div>
+      <div class="hero-streak">
+        <span class="streak-num">{{ streakText }}</span>
+        <span v-if="streakDays !== null" class="streak-label">{{ t('home.hero.streakUnit') }}<br>{{ t('home.hero.streakLabel') }}</span>
+        <span v-else class="streak-label">{{ t('home.hero.streakLabel') }}</span>
       </div>
     </section>
 
@@ -159,7 +187,7 @@ import { getApi } from '@/api/electron-bridge'
 import { accountBatchOpenLogin } from '@/api/publisher'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ChatDotRound, Clock, Collection, DataAnalysis, Edit, Lock, Promotion, Tickets, TrendCharts, User } from '@element-plus/icons-vue'
+import { ChatDotRound, Clock, Collection, DataAnalysis, Lock, Promotion, Tickets, TrendCharts, User } from '@element-plus/icons-vue'
 import { usePlatformStore } from '@/stores/platforms'
 import { useAccountStore } from '@/stores/accounts'
 import { useTabStore } from '@/stores/tab'
@@ -179,7 +207,7 @@ const accountStore = useAccountStore()
 const tabStore = useTabStore()
 const { notifySuccess, notifyError, notifyWarning } = useNotify()
 
-const stats = ref({ total: 0, success: 0, failed: 0 })
+const stats = ref({ total: 0, success: 0, failed: 0, daily: [] })
 // 绑定账号数与账号页同源（accountStore → accounts:list → AccountManager 凭证体系）。
 // SQLite accounts 表只镜像 OAuth 账号（双库分裂），读它会导致首页计数与账号页不一致。
 const accountCount = computed(() => accountStore.accounts.length)
@@ -199,6 +227,38 @@ const todoItems = computed(() => {
 })
 
 const isAllZero = computed(() => stats.value.total === 0 && accountCount.value === 0)
+
+/**
+ * 连续发布天数（hero 指标）：从 dashboard:stats.daily（近 30 天逐日聚合）推导。
+ * 判据：从今天（或昨天，容许今日未发布）往前数连续 total > 0 的天数；
+ * 30 天窗口内无任何发布 → null（显示占位「—」，不假报 0 天）。
+ * 数据源单一：不新增 IPC、不读 SQLite（与 PRD §3.2 与单源纪律一致）。
+ */
+const streakDays = computed(() => {
+  const daily = Array.isArray(stats.value.daily) ? stats.value.daily : []
+  if (daily.length === 0) return null
+  const byDate = new Map(daily.map(d => [d.date, d.total || 0]))
+  const dayKey = (d) => {
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
+  }
+  const cursor = new Date()
+  if (!(byDate.get(dayKey(cursor)) > 0)) {
+    cursor.setDate(cursor.getDate() - 1)
+    // 今天没发且昨天也没发 → 无 streak（但 30 天内有历史则仍算有数据，不假报）
+    if (!(byDate.get(dayKey(cursor)) > 0)) return null
+  }
+  let streak = 0
+  while (byDate.get(dayKey(cursor)) > 0) {
+    streak += 1
+    cursor.setDate(cursor.getDate() - 1)
+  }
+  return streak
+})
+
+const streakText = computed(() => (streakDays.value === null ? t('home.hero.streakEmpty') : String(streakDays.value)))
 const {
   expiredAccounts, expiredAccountCount, showExpiredBanner,
   refresh: refreshExpiredAccounts, subscribeAutoRefresh, dispose: disposeExpiredBanner,
@@ -337,7 +397,7 @@ onMounted(async () => {
       if (api.dashboardStats) {
         const res = await api.dashboardStats()
         if (res && res.code === 0 && res.data) {
-          stats.value = { total: res.data.total || 0, success: res.data.success || 0, failed: res.data.failed || 0 }
+          stats.value = { total: res.data.total || 0, success: res.data.success || 0, failed: res.data.failed || 0, daily: Array.isArray(res.data.daily) ? res.data.daily : [] }
         }
       }
       statsLoaded.value = true
@@ -369,10 +429,34 @@ onUnmounted(() => {
 
 .mp-home-welcome {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 24px;
-  margin-bottom: 32px;
+  margin-bottom: 20px;
+}
+
+.mp-home-greeting-col {
+  min-width: 0;
+}
+
+/* 概览行：账号数 + 本月发布（tabular-nums 保证数字对齐） */
+.mp-home-overview {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 4px 0 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.overview-num {
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.overview-divider {
+  color: var(--color-text-muted);
 }
 
 .mp-home-quick-actions {
@@ -419,7 +503,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin: -20px 0 24px;
+  margin: 0 0 24px;
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
 }
@@ -442,6 +526,94 @@ onUnmounted(() => {
 .mp-home-todo-item--danger {
   background: var(--coral-soft, #fef0f0);
   color: var(--color-danger);
+}
+
+/* 主任务卡：开始发布 + 连续天数（hover 抬升 + 右上角品牌淡紫弧形渐变装饰） */
+.mp-home-hero {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding: 22px 24px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-card);
+  cursor: pointer;
+  overflow: hidden;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.mp-home-hero::before {
+  content: '';
+  position: absolute;
+  top: -48px;
+  right: -48px;
+  width: 168px;
+  height: 168px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--color-primary-light) 0%, transparent 72%);
+  pointer-events: none;
+}
+
+.mp-home-hero:hover,
+.mp-home-hero:focus-visible {
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-card-hover);
+  outline: none;
+}
+
+.hero-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-sm);
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+  flex: 0 0 auto;
+}
+
+.hero-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.hero-title {
+  margin: 0 0 4px;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+}
+
+.hero-desc {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.hero-streak {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  text-align: right;
+  flex: 0 0 auto;
+  position: relative;
+}
+
+.streak-num {
+  color: var(--color-primary);
+  font-size: var(--font-size-xxl);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.streak-label {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1.4;
 }
 
 /* 数据概览：紧凑 KPI 条（PRD §5.1，卡片高度 ≤96px） */
@@ -538,6 +710,13 @@ onUnmounted(() => {
 }
 
 .shortcut-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-sm);
+  background: var(--color-primary-light);
   color: var(--color-primary);
 }
 
