@@ -2,9 +2,6 @@
 record: wxmp-draft-mediaid-fix
 task: 微信公众号草稿保存 mediaId 采集补「响应体 appMsgId」第三条通道 + 平台提示可见性判据（innerText 隐藏节点实测取证）
 date: 2026-10-12
-sync_status: PENDING
-sync_reason: 远程同步待 PR 合并后回填 PASS + merge SHA，并在同一次提交删除本 frontmatter 三字段与 scripts/gate-record-debt-ledger.json 的本条登记项
-sync_backfill_owner: agent
 ---
 
 ## 本次执行记录：公众号草稿保存「缺少媒体 ID」报错修复（wxmp-draft-mediaid-fix，2026-10-12）【混合 PR】
@@ -28,7 +25,46 @@ sync_backfill_owner: agent
 | QM-1 打包 | PASS（部分项） | `electron-builder --win --dir --publish never` **rc=0**；asar 清单含 `electron\services\wechat-mp-draft-mediaid.js`；解包产物 require 链 **5/5 PASS**；从真实产物断言判据 **11/11 PASS**（`appMsgId` 提取、拒 0、不抛、可见性守卫形态、可操作文案、原创/群发保护不回归）。**启动 8 秒项 PENDING**：本机有用户活跃 electron 实例持有单实例命名管道（`requestSingleInstanceLock` 失败即 `app.quit()`，exit 0 无输出 —— `electron/main.js:73-75`），无法在不误杀用户实例的前提下验证启动；已核对该退出路径在 `main.js` 顶部、早于任何 services 加载，与本 PR 无关 |
 | QM-4 视觉 | N/A | 无渲染层 / CSS / 模板改动 |
 | QM-6 CCG 双模型外部评审 | 部分 | 已用一次**真实浏览器实测**（Playwright fixture 取证 `innerText` 对隐藏节点仍返回文本）替代「凭记忆猜 DOM 行为」；正式 CCG 双模型评审未在本轮执行，如实记录 |
-| 远程同步 | PENDING | 见 `scripts/gate-record-debt-ledger.json` 本条登记；合并后回填 |
+| 远程同步 | PASS | PR #3445 已 squash 合并，merge SHA `c2b4ea01a0bbce4ca83794cd754b2ebca2a33588`（committer 2026-10-13T03:03:46+08:00）；取证 `git log origin/main --grep='(#3445)
+
+### 变异反证明细
+
+| 变异 | 施加后 | 恢复后 |
+|------|--------|--------|
+| `drop-body-channel`（摘掉响应体通道 = 真根因修复本身） | `Tests 2 failed \| 12 passed (14)` | `Tests 14 passed (14)` |
+| `accept-zero-appmsgid`（不拒 `appMsgId=0`） | `Tests 1 failed \| 13 passed (14)` | `Tests 14 passed (14)` |
+| `drop-visibility-guard`（toast 去可见性守卫） | `Tests 3 failed \| 11 passed (14)` | `Tests 14 passed (14)` |
+| `drop-actionable-hint`（失败文案去可操作提示） | `Tests 2 failed \| 12 passed (14)` | `Tests 14 passed (14)` |
+
+### 行尾对账（本轮实测踩坑，可复用教训）
+
+- `apps/desktop/electron/services/rpa-view-platforms.js` 的 index 行尾是 **LF**（`git ls-files --eol` → `i/lf`），工作区被编辑工具写成 CRLF 后，`check-max-lines.js` 按 `split('\n')` 计数**虚涨** —— 一度误判「超点名目标 5 行」。
+- 修正：用 Node 把本 PR 触及文件统一规范为 LF 后 `git add`，`i/lf w/lf` 与基线一致。
+- **教训**：改 `text=auto` 仓库里的既有文件后，**不要用 `Measure-Object -Line` 估行数**（它对 CRLF/LF 给出不同值），一律以 `check-max-lines.js` 或 `split('\n').length` 为准。
+
+### 遗留（不假装已闭合）
+
+1. **真机未验证字段名**：本机无可用公众号账号会话（`accounts` 表 0 行、`publish_history` 表 0 行、`app.log` 无任何 `wechat_mp` 记录），因此「保存响应体字段确实是 `appMsgId`」「保存后 URL 确实不跳转」两条**未实测**。依据是三条旁证（`isNew=1` 新建态、`js_sync_save` 原地保存语义、API 轨需单独发 `appmsg_edit&appmsgid=` 回读），非一手证据。`tasks.md` §7 保留该门槛。
+2. **`_waitForResponse` 不返回 body**：当前只回 `{url, statusCode, matchedUrls}`。通道 ③ 读 `saveResp.body`，真机上若该字段不存在则**静默跳过**（不抛错，退回两条老通道）。若真机确认需要 body，下一刀给 `_waitForResponseExclusive` 补 CDP `Network.getResponseBody` —— 那会碰到响应体读取的隐私面，需单独评审。
+3. **「弹幕提示」的页面归属是推断**：该文案是公众号视频弹幕开关的说明（弹幕只对公众平台上传的非转载视频开放），本仓无一手 DOM 抓取条件；本修复的正确性**不依赖**这个归属判断 —— 无论它属于哪个模块，只要它是「与本次失败无关的常驻说明」，可见性判据就该排除它。
+4. **启动验证 PENDING**：见 QM-1 行。CI 的 smoke/启动 job 为准。
+5. **共享根 stash**：本任务开始时保护的前序修改在 `stash@{0}`（`session-preserve: learnings.md gate9 复盘追加`），属前序会话产物，**本 PR 不代为提交**；如需落地应另开 docs PR。
+
+### CCG verify-security 的存量误报与文档化豁免（未用 `--no-verify`）
+
+pre-commit 的 CCG `verify-security` 拦下本次提交，报告 `rpa-view-platforms.js` 1 条高危：
+「L1028 直接操作 innerHTML 可能导致 XSS」。三点取证后判定为**存量、非本次引入**：
+
+| 取证 | 方法 | 结果 |
+| --- | --- | --- |
+| 同一扫描器跑基线 | `node run_skill.js verify-security <origin/main 的同一文件>` | `严重 0 \| 高危 1` —— **与本次完全相同的 1 条** |
+| 该行是否在本 PR diff 内 | `git diff --cached -U0` 的 hunk 范围 | hunk 为 L49-50 / L1155-1217，**不含 L1028** |
+| 该行归属 | 读码 | L1028 属**抖音 desc 填充段**（`_publish_douyin` 内，注释标明「安全修复（2026-07-16）：contenteditable 元素 innerHTML 净化」），且语句内已移除 `script/iframe/object/embed` 与全部 `on*=` 属性 |
+
+⇒ 按仓库先例（`openspec/records/converge-article-body-helpers.md` 对 `wechat-mp-article.js:120` 同族同位置告警的处理）用
+`SKIP_CCG_GATE=1 git commit` **文档化豁免**，未使用 `--no-verify`（分支守卫与质量节拍 wrapper 仍实跑通过）。
+本 PR 新增的 `wechat-mp-draft-mediaid.js` 在该扫描器下 **0 命中**（其 `innerHTML` 用法在 `jsapiSetContentScript` 内的净化临时容器，与既有 `wechat-mp-article.js` 同款，本次未新增新的 innerHTML 写入面）。
+ --format=%H|%cI` **唯一 1 行**命中；`git ls-remote --heads origin wxmp-draft-mediaid-fix` 返回 **0 行**，证远端分支已删 |
 
 ### 变异反证明细
 
