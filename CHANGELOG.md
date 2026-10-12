@@ -1,3 +1,12 @@
+# [未发布] feat(collection): 采集页 UI/UE 精致化（collection-ui-refinement）
+
+- **信息架构收敛**：批量采集区（RSS / URL 列表 / 知乎收藏夹）改为互斥手风琴折叠分组（默认展开 RSS、一次仅一组、aria-expanded/aria-controls 键盘可达）；URL 单条采集工具条保持常驻。行为契约不变：zhihu-fav-* 全部 testid 原样保留，IPC 入参逐字段一致。
+- **进度统一**：RSS/URL 批量进度与知乎「采集并改写」进度收敛为同一 ColProgressBlock 组件（标题→轨道→文本→summary→明细→取消同构），语义槽上色。
+- **结果卡层级重排**：标题/来源/时间为一级、徽标为二级、操作按使用频率分主次（创建草稿/发布 primary，查看/视频创作 secondary）；采集结果列表补统一空态（EmptyState，动作聚焦 URL 输入框）。
+- **视觉 token 收编**：Collection.vue style 块亮色硬编码（rgba/渐变/hex 共 30+ 处）全部替换为语义槽；知乎区块 20+ 处内联样式类化（zb-* 前缀）；新增语义槽 --color-bg-page / --shadow-card-hover / --color-ribbon / --color-ribbon-soft，亮暗两档齐备且暗色真覆盖（契约测试锁定）。
+- **文件拆分（行数债务偿还）**：新增 features/collection/BatchCollectPanel.vue / CollectedResultsList.vue / ColProgressBlock.vue 三个子组件 + batch-collect-panel-behavior.test.js（11 条 P0/QM-6 系列行为锁自 Collection.test.js 迁入，断言等价）；Collection.vue 2920 → 2195 行（-725），BatchCollectPanel 按 M-7 范式挂账 728。
+- **回归**：collection 域 + styles 305/305 全绿（含上游 #3395 合入后重验）；视觉基线 light/dark 双重建+复核（归因在档）。QM-1 打包 + stderr 干净。
+- 文档：01-docs/PRD-COLLECTION-UI-REFINEMENT-2026-10-12.md + OpenSpec change collection-ui-refinement 五件套 + learnings 置顶六条纪律。
 # [未发布] fix(visual): 8 张视觉注册表只把 5 张当判定域——"该有基线却没有"在四层门禁里结构性不可见（2026-10-11，visual-baseline-domain）
 
 ### 用户感知

@@ -171,6 +171,12 @@
   --color-source-hn: #ff6600;
   --color-intel-score-high: #2e7d32;
   --color-intel-score-mid: #f57c00;
+  /* 采集页精致化槽（collection-ui-refinement 2026-10-12 收编 Collection.vue 亮色硬编码；
+   * 暗色覆盖见下方主题块同名槽。--color-warning 已在语义色区定义，此处不重复） */
+  --color-bg-page: #f7f8fa;
+  --shadow-card-hover: 0 12px 28px rgba(0, 0, 0, 0.08), 0 4px 8px rgba(0, 0, 0, 0.04);
+  --color-ribbon: linear-gradient(90deg, #ea580c 0%, #fb923c 50%, #fdba74 100%);
+  --color-ribbon-soft: #fdeee2;
 
   /* ---- 暗色模式：主色保持品牌可辨识度（修复旧覆盖为浅灰 #e8e8ed 的缺陷）---- */
 
@@ -309,6 +315,14 @@
    * .page-title（cohere-page-header 的 color: var(--primary)）。
    * 提亮到 #8b85ff（同色相）：暗底上 6.2:1。 */
   --color-primary: #8b85ff;
+
+  /* 采集页精致化槽暗色覆盖（collection-ui-refinement 2026-10-12）：
+   * 页面底/悬停影/顶部饰带按暗色族重取值；ribbon-soft 供 hover 边框与改写徽标底
+   * （暗色降饱和暖棕，避免亮橙刺眼）。警告文字 #fbbf24 在暗卡底 9.6:1（沿用语义色区）。 */
+  --color-bg-page: #16161d;
+  --shadow-card-hover: 0 12px 28px rgba(0, 0, 0, 0.5), 0 4px 8px rgba(0, 0, 0, 0.35);
+  --color-ribbon: linear-gradient(90deg, #9a3412 0%, #c2410c 50%, #ea580c 100%);
+  --color-ribbon-soft: #3b2a1e;
 }
 
 /* ---- P4 深色可读性系列 · 视图级 dark 覆盖（P4D 2026-10-09）----
