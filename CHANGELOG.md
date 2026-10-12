@@ -1,3 +1,8 @@
+# [未发布] 播客刀 4 第 3 片·下半：出期编排层（podcast-episode-tts-run）
+
+- 新增 apps/desktop/electron/services/podcast-episode-tts-run.js：prepareEpisodeTtsRun（零出站的音色+分块+展示量估算）与 runEpisodeTts（确认后口语化 → 逐块合成），把 §7.4.1.1 / §7.4.2.1 / §7.4.7 三层串成一次出期。
+- PRD 新增 §7.4.8：顺序即计费顺序、错误码逐字透传不新立、estimate 只作文案不参与判据（显示项与校验表齐备）。
+- 回归锁 12 条 + 变异反证 M1（口语化结果不被消费 ⇒ 恰好 1 条指名红）；测试零真实出站。
 # [未发布] feat(podcast): 刀 4 第 3 片·上半 音色解析层（podcast-tts-voice）
 
 - 新增 `apps/desktop/electron/services/podcast-tts-voice.js`：一期播客的音色解析层——频道 `voiceRef` → 用户偏好 → capability 级 `defaultVoiceId` 的固定四步回退链，三层全空一律**拒绝出期**（`PODCAST_TTS_VOICE_UNRESOLVED`），不得由代码替用户猜一个音色。
