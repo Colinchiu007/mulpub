@@ -1,0 +1,119 @@
+{
+  "sha": "840ccd3708f9436431bce400c1794495c0abe7e3",
+  "layer": "diff",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "layer": "decision",
+    "status": "blocked",
+    "performedBy": "claude",
+    "objectType": "plan",
+    "minScore": 6,
+    "dimensionScores": {
+      "completeness": 5,
+      "consistency": 4,
+      "clarity": 6,
+      "feasibility": 6,
+      "security": 5
+    },
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "dimension": "security",
+        "finding": "D6 白名单由执行器自标 e.notSubmitted，执行器同时是免等重试的获益方；装配锁仅断言'有标记'、不验证正确性，误标/恶意标即可绕过全部门禁，且未提交回滚→立即重试可形成重试风暴。",
+        "suggestion": "加独立约束：回滚后最小退避+每账号每日重试上限；或平台侧幂等键二次确认未提交，而非仅靠自标。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "dimension": "consistency",
+        "finding": "D1 定为'平台档默认 2 分钟（开）'，但自认弱点 #5 却写'平台档默认关削弱同平台保护，应改默认开'，决策与自述矛盾，交付形态无法判断。",
+        "suggestion": "统一口径：确认默认开 2 分钟，删改弱点 #5 中'默认关'表述，避免评审与实现错位。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "dimension": "completeness",
+        "finding": "日配额分长文3/短视频5/短内容20 三档，数据校验却只列单个 ACCOUNT_DAILY_MAX，单 env 无法承载三档；长文/短视频/短内容的分类判定规则也未定义。",
+        "suggestion": "改为 ACCOUNT_DAILY_MAX_{LONG,CLIP,SHORT} 三 env 或配置表，并明确定义三类的判定规则。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "dimension": "consistency",
+        "finding": "D4 日配额'纯增量'永不减，notSubmitted 回滚释放间隔窗口却不回补配额，重试被双重计费；与 P0-1'未提交不惩罚'精神不一致，且非目标已排除'成功才记账'，口径矛盾。",
+        "suggestion": "明确口径：未实际提交的回滚按幂等键回补配额，或文档声明有意按'提交即记账'并说明理由。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "dimension": "security",
+        "finding": "D8 审计'环形 200 条、仅本地'与'写入诊断导出通道、可跨环境溯源'矛盾；本地日志可改，二次确认+每日1次在脚本驱动下仍可绕过，绕过口缺乏防篡改。",
+        "suggestion": "审计做防篡改（hash chain 或追加式日志），紧急放行加离线签名或停机冷却间隔，并统一'本地/跨环境'表述。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "dimension": "consistency",
+        "finding": "D6 白名单成员'风控挂起/登录失效'可能发生在请求已提交、受理之后，纳入'未提交'白名单即与 I1'已提交后失败仍占窗口'冲突，错误阶段未细分。",
+        "suggestion": "按错误阶段细分：仅提交前错误可回滚；提交后状态一律占窗口，并补对应单测。"
+      },
+      {
+        "id": "i7",
+        "severity": "Warning",
+        "dimension": "feasibility",
+        "finding": "D3 以本地自然日注入 today()，但目标平台可能按 UTC/服务端时区计日，跨时区账号的日配额判定会错位；today() 时区口径未声明。",
+        "suggestion": "today() 支持按账号/平台配置时区，并在文档标注与平台侧日界的差异及换算规则。"
+      },
+      {
+        "id": "i8",
+        "severity": "Info",
+        "dimension": "clarity",
+        "finding": "数据校验 ACCOUNT_DAILY_MAX≥0，但 0 的语义未定义（=禁发还是=关闭配额），与平台档'0=显式关闭'约定不一致，回落/关闭行为易混。",
+        "suggestion": "为 daily max 定义 0 语义（建议 0=关闭配额，与平台档对齐），并写入文档与设置页文案。"
+      }
+    ],
+    "unresolvedBySeverity": {
+      "Critical": 1,
+      "High": 0,
+      "Warning": 6,
+      "Info": 1
+    },
+    "scoreThreshold": 8,
+    "rounds": [
+      {
+        "round": 1,
+        "issues": 8,
+        "critical": 2,
+        "minScore": 6,
+        "dimensionScores": {
+          "completeness": 6,
+          "consistency": 6,
+          "clarity": 7,
+          "feasibility": 6,
+          "security": 6
+        }
+      },
+      {
+        "round": 2,
+        "issues": 8,
+        "critical": 1,
+        "minScore": 4,
+        "dimensionScores": {
+          "completeness": 5,
+          "consistency": 4,
+          "clarity": 6,
+          "feasibility": 6,
+          "security": 5
+        }
+      }
+    ],
+    "roundsRun": 2,
+    "roundsMax": 3,
+    "stoppedBy": "regressed",
+    "note": "跑满 3 轮仍有 1 条 Critical 未解决，必须由出方案方逐条回应（可拒绝但须给证据）后才能动手",
+    "artifacts": ".adversarial\\ccg-plan-plan-publish-frequency-policy-v2-review-brief",
+    "at": "2026-10-10T04:04:41.984Z"
+  }
+}
