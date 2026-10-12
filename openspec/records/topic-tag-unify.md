@@ -2,9 +2,6 @@
 record: topic-tag-unify
 task: 发布页话题标签统一 + #添加话题 + 常用话题标签管理弹窗
 date: 2026-10-12
-sync_status: PENDING
-sync_reason: PR #3424 尚未合并，merge SHA 不存在；合并后同次提交回填 PASS 并删除本三字段
-sync_backfill_owner: 本会话（PR 合并后自动回填）
 ---
 
 # topic-tag-unify 执行记录
@@ -25,4 +22,4 @@ sync_backfill_owner: 本会话（PR 合并后自动回填）
 
 ## 远程同步
 
-| 远程同步 | PENDING | PR #3424 合并后同次提交回填 PASS + merge SHA |
+| 远程同步 | PASS | PR #3424 = `a702c1196d9c4e8a96a4512ea23ad3e878112990`（2026-10-12T19:16:19+08:00，squash）；远端分支已删（ls-remote 0 行） |
