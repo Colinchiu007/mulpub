@@ -118,6 +118,26 @@ export default {
     detailLink: 'Post link',
     cardOpenHint: 'Click to open the post on the platform',
     cardNoLinkHint: 'No public post link',
+    // Draft semantics (PRD-PUBLISH-HISTORY-ENGAGEMENT-2026-10-12 §5.3): content that only reached the
+    // platform draft box has no public post, so the card is intentionally not clickable.
+    cardDraftHint: 'Draft (not published, no link)',
+    // Post engagement metrics: see the account-metrics service header for the data source.
+    metricsRefresh: 'Refresh data',
+    metricsRefreshing: 'Collecting…',
+    metricsRefreshHint: 'Low-frequency per-account collection (daily cap per account)',
+    metricsDailyCapReached: 'Daily collection limit reached, try again tomorrow',
+    metricsNotRealTime: 'Collected at low frequency, not real-time',
+    metricsJustNow: 'just now',
+    metricsAgoMinutes: (ctx) => ctx.named('n') + ' min ago',
+    metricsAgoHours: (ctx) => ctx.named('n') + ' h ago',
+    metricsAgoDays: (ctx) => ctx.named('n') + ' d ago',
+    metricsAsOf: (ctx) => 'Data as of ' + ctx.named('time'),
+    // Per-card freshness: only shown past 24h, so one fresh record cannot whitewash the page
+    metricsStale: (ctx) => 'Data as of ' + ctx.named('time'),
+    metricsNeverCollected: 'Post metrics not collected yet',
+    metricsUnsupported: 'Automatic collection is not supported for this platform',
+    metricsNeedsLogin: 'Account session expired, please sign in again on the Accounts page',
+    metricsFailed: 'Last collection failed, please retry later',
     cardTabTitle: (ctx) => 'Post · ' + ctx.named('title'),
     cardLinkOpened: 'Post link opened in a new tab',
     cardLinkOpenFailed: 'Failed to open the post link, please retry',

@@ -1226,6 +1226,13 @@ var require_knowledge_library = __commonJS({
         listPatternPerformance: (params) => ipcRenderer2.invoke("performance:list-pattern-performance", params),
         performanceOverview: (params) => ipcRenderer2.invoke("performance:overview", params),
         triggerPerformanceRecrawl: (opts) => ipcRenderer2.invoke("performance:trigger-recrawl", opts),
+        // 发布记录页指标读口 + 账号级采集（PRD-PUBLISH-HISTORY-ENGAGEMENT-2026-10-12）：
+        // 前者是发布记录页唯一的指标来源（主进程内完成 taskId→tracked→最新快照 的 join），
+        // 后者是低频采集的手动触发入口。两者都默认 authenticated 档，无需登记 license 白名单，
+        // 但都必须带 withSenderCheck（Gate 17 的显式守卫比例棘轮）。
+        historyMetrics: (params) => ipcRenderer2.invoke("performance:history-metrics", params),
+        metricsSync: (opts) => ipcRenderer2.invoke("metrics:sync", opts),
+        metricsSyncStatus: () => ipcRenderer2.invoke("metrics:sync-status"),
         // 个人知识库
         addPersonalToLibrary: (item) => ipcRenderer2.invoke("knowledge-library:add-personal", item),
         addPersonalBatchToLibrary: (items) => ipcRenderer2.invoke("knowledge-library:add-personal-batch", items),

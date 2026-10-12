@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 /**
  * performance-loop IPC：performance:trigger-recrawl 立即回采调试入口回归。
  *
@@ -193,5 +193,119 @@ describe('performance:overview 看板聚合入口', () => {
     expect(typeof handlers['performance:overview']).toBe('function')
     const r = await handlers['performance:overview'](TRUSTED_EVENT, {})
     expect(r.code).toBe(0)
+  })
+})
+
+/**
+ * 发布记录页作品互动数据（PRD-PUBLISH-HISTORY-ENGAGEMENT-2026-10-12 §7.1 T19–T21/T21b）
+ *
+ * 本组的重点是**门禁与信封**，不是聚合本身（聚合在 store / composable 各有专测）：
+ *   ① 认不出身份必须是 AUTH_ERROR，**不得**回一个空 metrics 的成功信封 ——
+ *      那会让「没登录」渲染成「没有作品数据」，用户以为功能坏了；
+ *   ② 查询失败必须翻成 REQUEST_ERROR，不得吞成空对象（同族：看板 FB7）；
+ *   ③ 采集服务缺席必须明说，不得静默成功。
+ */
+describe('performance:history-metrics / metrics:sync 账号级回流通道', () => {
+  const metricsStore = (overrides) => Object.assign({
+    getHistoryMetricsByTaskIds: () => ({
+      metrics: { 'task-1': { trackedId: 't1', platform: 'xiaohongshu', postId: 'n1', views: 120, likes: 3, comments: 1, favorites: 0, shares: 2, capturedAt: '2026-10-12T00:00:00.000Z', source: 'account_sync' } },
+      missing: ['task-2'],
+    }),
+    getAccountSyncState: () => ({ lastRunAt: '2026-10-12T00:00:00.000Z', counts: { synced: 1 } }),
+  }, overrides || {})
+
+  it('T19 返回 metrics + missing + 采集状态；入参 taskIds 原样透传', async () => {
+    const { handlers, ipcMain } = makeIpc()
+    const seen = []
+    registerHandlers(ipcMain, {
+      store: metricsStore({ getHistoryMetricsByTaskIds: (ids, owner) => { seen.push([ids, owner]); return { metrics: { 'task-1': { views: 120 } }, missing: [] } } }),
+      identityService: identityWith('user-A'),
+    })
+    const r = await handlers['performance:history-metrics'](TRUSTED_EVENT, { taskIds: ['task-1'] })
+    expect(r.code).toBe(0)
+    expect(r.data.metrics['task-1'].views).toBe(120)
+    expect(r.data.status).toMatchObject({ counts: { synced: 1 } })
+    // owner 必须是主进程自己解析出来的，不能由渲染端传（否则等于没有归属过滤）
+    expect(seen[0][1]).toBe('user-A')
+  })
+
+  it('T20 未登录 ⇒ AUTH_ERROR，**不得**返回全零成功信封（否则「没登录」看起来像「没有数据」）', async () => {
+    const { handlers, ipcMain } = makeIpc()
+    registerHandlers(ipcMain, { store: metricsStore(), identityService: identityWith(null) })
+    const r = await handlers['performance:history-metrics'](TRUSTED_EVENT, { taskIds: ['task-1'] })
+    expect(r.code).toBe(-3)
+    expect(r.data).toBeUndefined()
+  })
+
+  it('T20b 存储查询失败 ⇒ REQUEST_ERROR 且带原因，不吞成空 metrics', async () => {
+    const { handlers, ipcMain } = makeIpc()
+    registerHandlers(ipcMain, {
+      store: metricsStore({ getHistoryMetricsByTaskIds: () => ({ metrics: {}, missing: [], error: 'no such table: performance_snapshot' }) }),
+      identityService: identityWith('user-A'),
+    })
+    const r = await handlers['performance:history-metrics'](TRUSTED_EVENT, { taskIds: ['task-1'] })
+    expect(r.code).not.toBe(0)
+    expect(r.message).toContain('no such table')
+  })
+
+  it('T20c store 缺方法时明确报错（而不是静默给空对象）', async () => {
+    const { handlers, ipcMain } = makeIpc()
+    registerHandlers(ipcMain, { store: { getAccountSyncState: () => null }, identityService: identityWith('user-A') })
+    const r = await handlers['performance:history-metrics'](TRUSTED_EVENT, { taskIds: ['t'] })
+    expect(r.code).not.toBe(0)
+    expect(r.message).toContain('getHistoryMetricsByTaskIds')
+  })
+
+  it('T21 metrics:sync 用主进程解析的归属调 runRound，reason 固定 manual', async () => {
+    const { handlers, ipcMain } = makeIpc()
+    const accountMetricsService = { runRound: vi.fn(async (opts) => ({ ran: true, reason: opts.reason, counts: { synced: 1 } })) }
+    registerHandlers(ipcMain, { store: metricsStore(), identityService: identityWith('user-A'), accountMetricsService })
+    const r = await handlers['metrics:sync'](TRUSTED_EVENT, { force: true })
+    expect(r.code).toBe(0)
+    expect(r.data.ran).toBe(true)
+    expect(accountMetricsService.runRound).toHaveBeenCalledWith({ reason: 'manual', ownerSubject: 'user-A', force: true })
+  })
+
+  it('T21b 未登录时 metrics:sync 不得触发采集（不给匿名态打平台接口）', async () => {
+    const { handlers, ipcMain } = makeIpc()
+    const accountMetricsService = { runRound: vi.fn() }
+    registerHandlers(ipcMain, { store: metricsStore(), identityService: identityWith(null), accountMetricsService })
+    const r = await handlers['metrics:sync'](TRUSTED_EVENT, {})
+    expect(r.code).toBe(-3)
+    expect(accountMetricsService.runRound).not.toHaveBeenCalled()
+  })
+
+  it('T21c 采集服务未就绪 ⇒ 明确错误（不是静默成功）', async () => {
+    const { handlers, ipcMain } = makeIpc()
+    registerHandlers(ipcMain, { store: metricsStore(), identityService: identityWith('user-A'), accountMetricsService: null })
+    const r = await handlers['metrics:sync'](TRUSTED_EVENT, {})
+    expect(r.code).not.toBe(0)
+    expect(r.message).toContain('未就绪')
+  })
+
+  it('T21d metrics:sync-status 返回状态；未登录同样 AUTH_ERROR', async () => {
+    const { handlers, ipcMain } = makeIpc()
+    registerHandlers(ipcMain, { store: metricsStore(), identityService: identityWith('user-A') })
+    const ok = await handlers['metrics:sync-status'](TRUSTED_EVENT)
+    expect(ok.code).toBe(0)
+    expect(ok.data.status).toMatchObject({ counts: { synced: 1 } })
+
+    const { handlers: h2, ipcMain: i2 } = makeIpc()
+    registerHandlers(i2, { store: metricsStore(), identityService: identityWith(null) })
+    const denied = await h2['metrics:sync-status'](TRUSTED_EVENT)
+    expect(denied.code).toBe(-3)
+  })
+
+  it('T21e 装配锁：真实 ipc-handlers/index 注册面必须挂上三个新通道（守「写了没人挂」）', async () => {
+    const { handlers, ipcMain } = makeIpc()
+    require('./index')(ipcMain, {
+      store: metricsStore(),
+      identityService: identityWith('user-A'),
+      promptEvalService: { listEvaluations: async () => ({ code: 0, data: [] }) },
+      accountMetricsService: { runRound: async () => ({ ran: true }) },
+    })
+    expect(typeof handlers['performance:history-metrics']).toBe('function')
+    expect(typeof handlers['metrics:sync']).toBe('function')
+    expect(typeof handlers['metrics:sync-status']).toBe('function')
   })
 })

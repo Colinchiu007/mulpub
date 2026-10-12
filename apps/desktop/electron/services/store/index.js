@@ -33,6 +33,10 @@ const modelLogMethods = require('./model-log-store')
 const knowledgeLibraryMethods = require('./knowledge-library-store')
 const viralPatternMethods = require('./viral-pattern-store')
 const performanceLoopMethods = require('./performance-loop-store')
+// 账号级作品数据回流（PRD-PUBLISH-HISTORY-ENGAGEMENT-2026-10-12）：
+// 与 performance-loop-store 分开成两个 mixin，因为两条链的语义不同
+// （一个按作品抓公开页、一个按账号调创作者后台），共用一张表但不共用状态字段。
+const accountMetricsMethods = require('./account-metrics-store')
 
 class Store extends BaseStore {}
 
@@ -51,6 +55,7 @@ Object.assign(
   knowledgeLibraryMethods,
   viralPatternMethods,
   performanceLoopMethods,
+  accountMetricsMethods,
 )
 
 module.exports = Store

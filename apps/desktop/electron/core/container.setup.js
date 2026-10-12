@@ -7,6 +7,8 @@
 
 // Container DI 容器（JS 版本，与 container.test.ts 测试一致）
 const Container = require("./container");
+// 效果闭环三服务装配（回采 / 归因 / 账号级互动采集）——抽出以守住本文件 500 行门禁
+const { registerEngagementServices } = require("./register-engagement-services");
 
 // 输出分辨率能力开关（运营后台）：环境变量 → 运营功能开关（phase1 注入）→ store 设置 → 默认 1080p（禁止 4K）。
 // 运营配置键 videoCreation.maxOutputResolution：'1080p' | '4k'；未知值一律按 1080p（fail-closed）。
@@ -279,14 +281,7 @@ function createContainer(options) {
       aiGenerator: c.get("aiGenerator"),
     });
   });
-  container.register("performanceRecrawlService", function(c) {
-    const { PerformanceRecrawlService } = require('../services/performance-recrawl-service');
-    return new PerformanceRecrawlService({ store: c.get("store") });
-  });
-  container.register("patternAttributionService", function(c) {
-    const { PatternAttributionService } = require('../services/pattern-attribution-service');
-    return new PatternAttributionService({ store: c.get("store") });
-  });
+  registerEngagementServices(container);
   container.register("knowledgeEvolutionScheduler", function(c) {
     var { KnowledgeEvolutionScheduler } = require('@multi-publish/rewrite-engine');
     var scheduler = new KnowledgeEvolutionScheduler(c.get("store"), c.get("logger"));
@@ -489,7 +484,7 @@ function createContainer(options) {
     "contentIntelligence", "publishImpactTracker", "keywordMonitor",
     "oauthManager", "batchManager", "taskQueue", "publisherRouter",
     "story2videoBatchQueue", "fullAutoPipeline", "automationScheduler", "knowledgeLibraryService", "patternExtractionService",
-    "performanceRecrawlService", "patternAttributionService"
+    "performanceRecrawlService", "patternAttributionService", "accountMetricsService"
   ]);
 
   return container;

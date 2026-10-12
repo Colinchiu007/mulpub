@@ -7,26 +7,42 @@ function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
   const log = require('../services/logger')
   const { buildPerformanceOverview } = require('../services/performance-overview')
-  const { store, patternAttributionService, performanceRecrawlService, identityService } = deps
+  const { store, patternAttributionService, performanceRecrawlService, accountMetricsService, identityService } = deps
 
   if (!store) return
 
-  ipcMain.handle('performance:list-tracked', async (_event, params) => {
+  /**
+   * 表现数据页的追踪清单。
+   *
+   * ⛔ 本通道原为**无归属过滤的全表读**（`SELECT * FROM tracked_content` + 每行取最新快照），
+   * 且不带 `withSenderCheck`；它经 `createKnowledgeLibraryApi` 的 `...spread` 暴露在渲染端顶层，
+   * 于是任意渲染脚本都能拿到**所有归属**的 tracked_content（post_id / url / publish_history_id）
+   * 与互动快照。本次交付新增的 `performance:history-metrics` 已经按归属过滤，
+   * 但旧通道没跟着修 —— 只修新口不修旧口等于没修（QM-6 后端轴 MAJOR）。
+   * 现在补上归属过滤（与 performance:overview 同口径）与显式 sender 守卫。
+   */
+  ipcMain.handle('performance:list-tracked', withSenderCheck(async (_event, params) => {
     try {
+      const owner = resolveIpcOwnerSubject(identityService)
+      if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
       const page = Math.max(1, Number(params && params.page) || 1)
       const pageSize = Math.min(100, Math.max(1, Number(params && params.pageSize) || 20))
-      const countRow = store.db.prepare('SELECT COUNT(*) AS n FROM tracked_content').get()
-      const total = countRow ? Number(countRow.n) || 0 : 0
-      const rows = store.db.prepare('SELECT * FROM tracked_content ORDER BY created_at DESC LIMIT ? OFFSET ?')
-        .all(pageSize, (page - 1) * pageSize)
-      // 附带最新快照
-      const items = rows.map(r => {
-        const snap = store.getLatestSnapshot(r.id)
-        return { ...r, latest_snapshot: snap || null }
-      })
-      return { code: EC.SUCCESS, data: { items, total } }
+      const read = typeof store.listTrackedForAccountSync === 'function'
+        ? store.listTrackedForAccountSync(owner)
+        : { rows: [], total: 0 }
+      if (read && read.error) return { code: EC.REQUEST_ERROR, message: read.error }
+      const all = Array.isArray(read.rows) ? read.rows : []
+      const start = (page - 1) * pageSize
+      const rows = all.slice(start, start + pageSize)
+      // 附带最新快照（快照读同样按归属收口，避免用别人的 tracked id 反查）
+      const batch = typeof store.getLatestSnapshotsForTrackedIds === 'function'
+        ? store.getLatestSnapshotsForTrackedIds(rows.map(r => String(r.id)), owner)
+        : { rows: [] }
+      const byId = new Map((batch.rows || []).map(s => [String(s.trackedContentId), s]))
+      const items = rows.map(r => ({ ...r, latest_snapshot: byId.get(String(r.id)) || null }))
+      return { code: EC.SUCCESS, data: { items, total: Number(read.total) || all.length } }
     } catch (e) { log.warn('[ipc:performance]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
-  })
+  }))
 
   ipcMain.handle('performance:add-manual-snapshot', withSenderCheck(async (_event, trackedContentId, metrics) => {
     try {
@@ -118,6 +134,64 @@ function registerHandlers(ipcMain, deps) {
         ran = true
       }
       return { code: EC.SUCCESS, data: { supported, ran, force } }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+  }))
+
+  /**
+   * 发布记录页的**唯一**指标读口（PRD-PUBLISH-HISTORY-ENGAGEMENT-2026-10-12 §1.2 D1/D2）。
+   *
+   * 为什么把 join 收回主进程：原实现是「渲染端拉前 100 条 tracked 自己在内存里配对」，
+   * ① `performance:list-tracked` 不按归属过滤且只取第一页 ⇒ 历史早于第 100 条的作品永远恒空；
+   * ② 归属过滤写在渲染端等于没有。现在一次 SQL 完成
+   * 「发布任务 id → tracked 行 → 每行最新一份快照」，渲染端只消费结果。
+   *
+   * 信封里带 `status`（采集状态），让界面能区分四类空态：尚未采集 / 平台不支持 / 需重新登录 / 采集失败。
+   * 认不出身份 = AUTH_ERROR，**不是**「0 条数据」——把「没登录」渲染成空数据，用户会以为功能坏了
+   * （与 performance:overview / dashboard:stats 同口径）。
+   */
+  ipcMain.handle('performance:history-metrics', withSenderCheck(async (_event, params) => {
+    try {
+      const owner = resolveIpcOwnerSubject(identityService)
+      if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
+      const taskIds = (params && Array.isArray(params.taskIds)) ? params.taskIds : []
+      const read = typeof store.getHistoryMetricsByTaskIds === 'function'
+        ? store.getHistoryMetricsByTaskIds(taskIds, owner)
+        : { metrics: {}, missing: taskIds, error: 'store method missing: getHistoryMetricsByTaskIds' }
+      // 查询失败不得吞成空结果：那会把「没拿到数据」渲染成「从未采集」的空态（与看板 FB7 同因）
+      if (read && read.error) return { code: EC.REQUEST_ERROR, message: read.error }
+      const status = typeof store.getAccountSyncState === 'function' ? store.getAccountSyncState(owner) : null
+      return { code: EC.SUCCESS, data: { metrics: read.metrics || {}, missing: read.missing || [], status } }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+  }))
+
+  /**
+   * 手动触发一轮账号级采集。低频是产品契约（用户已明确接受非实时）：
+   * 服务侧仍守「每账号每天最多 N 轮」与「页间随机抖动」，按钮只是把**时机**交给用户，
+   * 不改变请求密度上限。force 仅为接口对称保留——采集本来就按需跑，没有 24h 轮次门。
+   */
+  ipcMain.handle('metrics:sync', withSenderCheck(async (_event, opts) => {
+    try {
+      const owner = resolveIpcOwnerSubject(identityService)
+      if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
+      if (!accountMetricsService || typeof accountMetricsService.runRound !== 'function') {
+        return { code: EC.REQUEST_ERROR, message: '账号级采集服务未就绪' }
+      }
+      const result = await accountMetricsService.runRound({
+        reason: 'manual',
+        ownerSubject: owner,
+        force: Boolean(opts && opts.force),
+      })
+      return { code: EC.SUCCESS, data: result }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+  }))
+
+  /** 读采集状态（未登录 = AUTH_ERROR，与 performance:history-metrics 同门禁）。 */
+  ipcMain.handle('metrics:sync-status', withSenderCheck(async () => {
+    try {
+      const owner = resolveIpcOwnerSubject(identityService)
+      if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
+      const status = typeof store.getAccountSyncState === 'function' ? store.getAccountSyncState(owner) : null
+      return { code: EC.SUCCESS, data: { status } }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
 }
