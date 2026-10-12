@@ -66,6 +66,10 @@ class WechatMpAdapter extends BasePlatformAdapter {
   buildPostData (taskData, uploadResult) {
     const td = taskData || {}
     // 话题内联描述：描述里已知话题剥离（公众号话题走标签字段，正文不重复携带）
+    // 正文承载形态（publish-article-body-format）：本适配器**不**在此处包 `<p>` ——
+    // 形态适配落在真正的平台字段边界 `adapters/wechat-mp/draft.js` 的 `buildArticleFields`
+    // （`content0`），全链只此一处调用 `formatArticleBody('wechat_mp', …)`，避免两处口径。
+    // 话题剥离保持在本层先做（正则 `(^|\s)#话题` 需要纯文本边界；包 `<p>` 后边界失效）。
     const stripped = stripTopicsFromContent(td.content || '', td.tags || [])
     const uploaded = uploadResult && uploadResult.cover
     const commentRaw = td.comment_setting !== undefined

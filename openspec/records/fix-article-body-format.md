@@ -22,7 +22,7 @@ sync_backfill_owner: 下一个会话（agent 自动回填）
 | 精确断言 | ✅ | 本层用例一律 `assert.deepStrictEqual` / `toBe` 精确串；含"代码尖括号不误伤"正反两向、空输入不产出空 `<p>`、幂等三项结构不变量 |
 | QM-1 打包 | N/A | 未改 `apps/desktop/electron/**`、未改 `packages/rpa-engine/**` ⇒ 触发条件不满足（如实记账，不伪造打包证据） |
 | QM-4 视觉 | N/A | 无 UI / locale / 样式改动 |
-| QM-6 双模型外部评审 | 见 `.quality-gates.md` 同名记录 | 后端 `claude -p` 独立评审已实跑，findings 与逐条处置见 `.quality-gates.md`；前端是否产出结构化 findings 亦如实记账 |
+| QM-6 外部评审 | ✅（后端单模型，如实记账） | `claude -p` 独立评审 **verdict=no_critical**（Critical 0 / Warning 4 / Info 2）：3 条采纳并修（`stripKnownHtmlTags` 死导出、块级闭合缺 `html/body/head`、代码尖括号边界写明），2 条经 `publishMode` 证据核实为「legacy 适配器不在运行路由上」⇒ 不接线并写进 PRD §5.4。逐条见 `openspec/changes/article-body-format/review-response.md`；前端 `opencode` 未产出结构化 findings，**不冒充双模型通过** |
 | 预防措施（QM-5 ⑤） | ✅ | `AGENTS.md` QM-2 新增「图文正文承载形态合同」；`PRD-API-PUBLISH-ENGINE.md` §12.1 字段口径更新；新 PRD §14 遗留清单登记三份同族实现收敛与 DOM 轨复核 |
 | 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#<PR>)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin fix-article-body-format` 返回 0 行证远端分支已删；回填后删除上方三个 `sync_*` 字段，并由回填 PR 在同一次提交改写 `.quality-gates.md` 记录行与删除 `scripts/gate-record-debt-ledger.json` 登记项 |
 

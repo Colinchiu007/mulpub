@@ -68,6 +68,12 @@
 - 反向缺陷同样会让用户可见内容出错（描述里出现字面量 `<p>`），且修复是**纯函数一行接线**，因此本期一并修 6 条纯文本链。
 - 但**收敛既有三份同族实现**要改 `apps/desktop/electron/**`（触发 QM-1 本地打包验证）与 `packages/rpa-engine/**`，与「最小爆炸半径」冲突 ⇒ 拆后续 PR，登记在 PRD §14 遗留清单。
 
+### 决策 6：接线边界以「在不在运行路由上」判定，不以「文件里有没有这个字段」判定（QM-6 W1/W3 后补写）
+
+- `publishMode` 为 `api-then-dom` 的平台（`tencent_video`/`bilibili`/`baijiahao`/`douyin`/`kuaishou`）**全部已接线**；公众号 API 草稿轨的字段边界（`adapters/wechat-mp/draft.js` 的 `content0`）也已接线。
+- `publishMode` 为 `dom-only` 的平台（含 `toutiao`/`weibo`/`zhihu`/`youtube`/`tiktok`/`twitter`/`instagram`/`facebook`/`xiaohongshu`）其 `src/adapters/*.js` 是 **legacy 轨、不在运行路由上** ⇒ 不接线（改死代码只扩大 QM-1 与回归面，无用户可见收益）；其运行时路径分别由 DOM 轨与 `xiaohongshu-draft` 承担，后者已接线。
+- 平台属性表（`HTML_BODY_PLATFORMS`/`PLAIN_BODY_PLATFORMS`）保留为**新链必须按表接线**的登记依据（AGENTS.md QM-2）。
+
 ## 3. 契约
 
 | 函数 | 输入 | 输出 | 关键不变量 |

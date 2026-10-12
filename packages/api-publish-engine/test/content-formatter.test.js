@@ -310,6 +310,11 @@ test("formatArticleBody: 代码片段里的尖括号不被当标签（防吃掉�
   assertEqual(formatArticleBody("baijiahao", code), "<p>代码 #include &lt;stdio.h&gt; 结尾</p>");
 });
 
+test("htmlToPlainText: 完整 HTML 文档反转后不残留包裹标签（QM-6 Info-2 回归锁）", () => {
+  assertEqual(htmlToPlainText("<html><body><p>甲</p><p>乙</p></body></html>"), "甲\n乙");
+  assertEqual(formatArticleBody("douyin", "<html><head><title>标题</title></head><body><p>甲</p></body></html>"), "标题\n\n甲");
+});
+
 test("textToParagraphHtml: 空行分段 → 每段一个 <p>（精确串断言）", () => {
   assertEqual(textToParagraphHtml("第一段\n\n第二段"), "<p>第一段</p><p>第二段</p>");
 });

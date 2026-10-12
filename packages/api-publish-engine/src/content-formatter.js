@@ -280,13 +280,18 @@ var PLAIN_BODY_PLATFORMS = {
 };
 
 /**
- * 已知 HTML 标签名白名单（Quill 富文本产物 + 常见块级/行内标签）。
+ * 已知 HTML 标签名白名单（Quill 富文本产物 + 常见块级/行内标签 + 完整文档包裹标签）。
  * ⛔ 判据**不能**用「`<` 后跟字母」这种宽写法：技术类正文里的代码片段
  * `#include <stdio.h>`、`vector<int>` 会被当成标签并整段剥掉/包进 `<p>` 判定，
  * 用户可见的代码示例被吃掉（本仓 2026-10-12 实测，既有 desktop `stripHtmlToPlainText`
  * 的宽判据同样会误伤 —— 收敛待办见 PRD §遗留）。白名单收窄后才能安全用于发布链。
+ *
+ * 已知边界（QM-6 后端评审 W4 后写明，属接受权衡）：白名单只能区分「尖括号里是不是合法标签名」，
+ * 区分不了「代码字符串里的字面量标签」—— `print("<p>x</p>")` 仍会被判成 HTML。
+ * 要做对需要真正的 HTML 解析 + 上下文判定，代价与收益不成比例；而 HTML 进纯文本字段的
+ * 真实来源是富文本编辑器产物（真标签），不是代码示例。故保持白名单口径并在 PRD §14 登记。
  */
-var HTML_TAG_PATTERN = '<\\/?(?:p|div|br|span|a|img|h[1-6]|ul|ol|li|blockquote|pre|code|strong|em|b|i|u|s|del|ins|hr|table|thead|tbody|tfoot|tr|td|th|caption|figure|figcaption|section|article|header|footer|nav|aside|main|video|audio|source|iframe|sub|sup|dl|dt|dd|mark|small|time|center|font)\\b[^>]*>'
+var HTML_TAG_PATTERN = '<\\/?(?:html|body|head|title|meta|p|div|br|span|a|img|h[1-6]|ul|ol|li|blockquote|pre|code|strong|em|b|i|u|s|del|ins|hr|table|thead|tbody|tfoot|tr|td|th|caption|figure|figcaption|section|article|header|footer|nav|aside|main|video|audio|source|iframe|sub|sup|dl|dt|dd|mark|small|time|center|font)\\b[^>]*>'
 
 /**
  * 真标签判据：`<` 后必须是**白名单内的标签名**（含属性/自闭合）。
@@ -335,10 +340,13 @@ function textToParagraphHtml(text) {
  * @returns {string}
  */
 function htmlToPlainText(html) {
-  return String(html == null ? "" : html)
+  // 标签剥离复用 `stripKnownHtmlTags`（同一份白名单正则，避免两处独立维护；QM-6 Info-1）
+  const withBreaks = String(html == null ? "" : html)
     .replace(/<\s*br\s*\/?\s*>/gi, "\n")
-    .replace(/<\s*\/\s*(?:p|div|li|h[1-6]|blockquote|section|article|tr)\s*>/gi, "\n")
-    .replace(new RegExp(HTML_TAG_PATTERN, 'gi'), "")
+    // 块级闭合 → 换行；含完整文档包裹标签（html/body/head/title），否则整份 HTML 反转后
+    // 会在纯文本里残留 `<html><body>` 字面（QM-6 后端评审 Info-2）
+    .replace(/<\s*\/\s*(?:html|body|head|title|p|div|li|h[1-6]|blockquote|section|article|tr)\s*>/gi, "\n")
+  return stripKnownHtmlTags(withBreaks)
     .replace(/&nbsp;/gi, " ")
     .replace(/&lt;/gi, "<")
     .replace(/&gt;/gi, ">")

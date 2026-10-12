@@ -171,6 +171,18 @@ PY
 
 反序会因 `<p>` 紧邻 `#`（`>` 不是空白）使内联话题**停在内联形态不被转换**（`#话题` 而非 `#话题#`）。该顺序由 `baijiahao-article-chain.test.js` 的精确断言锁定。
 
+### 5.4 接线覆盖边界（QM-6 评审 W1/W3 后写明）
+
+「平台属性表」（`HTML_BODY_PLATFORMS` / `PLAIN_BODY_PLATFORMS`）与「已接线清单」是两个概念：前者描述**平台字段的承载形态**，后者只覆盖**在运行路由上的链路**。
+
+| 路由态（`config/platforms.yaml` 的 `publishMode`） | 平台 | 是否已接线 |
+|---|---|---|
+| `api-then-dom` | `tencent_video` / `bilibili` / `baijiahao` / `douyin` / `kuaishou` | **全部已接线**（`baijiahao-article`、`shipinhao-video`、`bilibili-video`、`douyin-image`、`douyin-video`、`kuaishou-video`） |
+| 公众号 API 草稿轨（2026-10-12 #3375 新落地） | `wechat_mp` | 已接线（`adapters/wechat-mp/draft.js` 的 `content0`，字段边界单点） |
+| `dom-only` | `toutiao` / `weibo` / `zhihu` / `youtube` / `tiktok` / `twitter` / `instagram` / `facebook` / `xiaohongshu` | **不接线**（其 `src/adapters/*.js` 为 legacy 轨，不在运行路由上；运行时分别走 DOM 轨与 `xiaohongshu-draft` 草稿链） |
+
+证据：`packages/api-publish-engine/test/publish-mode-config.test.js`（W1 五平台 = `api-then-dom`，其余 `dom-only`）与 `apps/desktop/electron/services/rpa-view-manager-publish-mode-gate.test.js`（API-first 闸门以 `publishMode` 为唯一权威）。**判断"要不要接线"的第一性问题是「这条链在不在运行路由上」，不是「文件里有没有这个字段」**；改死代码只会扩大 QM-1/回归面而没有用户可见收益。
+
 ---
 
 ## 6. 数据校验
@@ -387,6 +399,9 @@ PY
 3. **Markdown → HTML 未做**：`# 标题` / `**粗体**` 等 Markdown 语法进 HTML 承载平台仍是字面量（与改造前一致，非本次回归）。若要支持，应新增显式 md→html 步骤并同步各平台白名单。
 4. **正文内联图片**：百家号 `content` 的内联图片（`<img>`）与 `project_cover` 的关系未在本次改动；图片链沿用既有 `uploadproxy` 语义。
 5. **平台侧再规范化**：无法排除平台对超长/特殊字符正文的二次处理；若真机复核发现段落仍被合并，需按产物 HTML 反推平台期望形态（可能需 `<p style=…>` 或编辑器专用字段）。
+6. **代码里的字面量标签无法与真标签区分**（QM-6 评审 W4，接受权衡）：`hasHtmlTags` 用标签名白名单，因此 `print("<p>x</p>")` 这类**代码字符串中的字面 `<p>`** 仍会被判成 HTML，在纯文本承载平台会被剥掉。要做对需要真正的 HTML 解析 + 上下文语义判定，代价与收益不成比例：HTML 进纯文本字段的真实来源是富文本编辑器产物（真标签），而宽判据（`<` 后跟字母）会吃掉 `#include <stdio.h>` 这类**真实高发**场景。边界已写在 `content-formatter.js` 的注释里（不新增「锁定该缺陷」的测试）。
+7. **`dom-only` 平台的 legacy 适配器未接线**（QM-6 评审 W1/W3）：见 §5.4；属**有意边界**而非遗漏，`PLAIN_BODY_PLATFORMS` 表保留为「新链必须按表接线」的登记依据（AGENTS.md QM-2）。
+8. **全量套件存在一次性 flake**：`packages/api-publish-engine/test/backup-restore.test.js` 在本轮首跑失败、单跑 rc=0、复跑全量 rc=0（该文件不 import 任何被改模块）；如实记录，不做「已修复」宣称，若 CI 复现再单独排查。
 
 ---
 
