@@ -5,7 +5,10 @@ set -euo pipefail
 
 SERVICE_NAME="ops-center"
 ENV_FILE="/etc/${SERVICE_NAME}/env"
-INSTALL_DIR="/opt/${SERVICE_NAME}"
+# 安装目录唯一事实源：必须与 deploy.sh 的 INSTALL_DIR、ops-center.service 的 WorkingDirectory
+# 三者一致。曾因 deploy.sh 用 /root/ops-center 而此处用 /opt/ops-center，导致后部署者把代码
+# 装到 systemd 不认的位置、服务起不来。可用 OPS_INSTALL_DIR 覆盖（三处须同时生效）。
+INSTALL_DIR="${OPS_INSTALL_DIR:-/opt/${SERVICE_NAME}}"
 DATA_DIR="/data/${SERVICE_NAME}"
 CONFIG_OUTPUT="/data/configs"
 
@@ -31,7 +34,13 @@ OPS_ADMIN_PASSWORD=CHANGE_ME_BEFORE_START
 EOF
   chown ${SERVICE_NAME}:${SERVICE_NAME} "${ENV_FILE}"
   chmod 600 "${ENV_FILE}"
-  echo "[setup] Written ${ENV_FILE} — EDIT OPS_CORS_ORIGINS and OPS_ADMIN_PASSWORD before starting!"
+  # 显式点名 fail-closed 后果：CHANGE_ME_BEFORE_START 会在启动时被 OPS_ENCRYPTION_KEY 缺失
+  # 与弱口令校验挡下（config.run_startup_security_checks），表现为「服务起不来」而非「登录失败」。
+  # 另注：方案里 OPS_ENCRYPTION_KEY 已生成，若未配置且未设 OPS_ALLOW_EPHEMERAL_KEY 同样拒绝启动。
+  echo "[setup] Written ${ENV_FILE}"
+  echo "[setup] ⚠️  MUST EDIT before start, otherwise startup fails closed (P0-4/P0-2):"
+  echo "[setup]      - OPS_CORS_ORIGINS  : 设为真实前端域名（禁止 '*'，带 credentials 会被判红）"
+  echo "[setup]      - OPS_ADMIN_PASSWORD: 替换占位符（≥8 位且不在弱口令表内）"
 else
   echo "[setup] ${ENV_FILE} exists, skipping key generation"
 fi
