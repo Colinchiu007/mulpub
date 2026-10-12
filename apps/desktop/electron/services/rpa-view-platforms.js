@@ -1191,29 +1191,37 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
       { log.warn('RpaView', '[wechat_mp] save draft result unverifiable: missing mediaId url=' + win.webContents.getURL()); return { success:false, error: domGuard.mapSaveFailureMessage(await domGuard.readEditorToast(win), '微信公众号草稿保存结果无法验证：缺少媒体 ID'), platform:'wechat_mp' } }
     }
 
-    // Mass send (群发)
-    if (article.massSend) {
-      this._emitProgress('wechat_mp','mass sending...',85)
+    // Mass send / Free publish（群发/发布；wechat-mp-publish-track）。正判据（消灭「点了就算成功」）：
+    // 确认前挂 masssend XHR 监听 + 点击后轮询页面成功提示，至少一条成立才算成功，双缺失 fail-closed。
+    if (article.massSend || article.freePublish) {
+      const isMass = article.massSend
+      const actionLabel = isMass ? '群发' : '发布'
+      const fail = (msg) => { log.warn('RpaView', '[wechat_mp] ' + actionLabel + ' failed: ' + msg); return { success:false, error:'微信公众号' + actionLabel + '失败：' + msg, platform:'wechat_mp' } }
+      this._emitProgress('wechat_mp', actionLabel + '...', 85)
       try {
+        const xhrPromise = this._waitForResponse(win, ['masssend'], 30000)
         await this._navigateAndWait(win,'https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_list&type=10&action=list',2000)
         const draftSelected = await win.webContents.executeJavaScript('(function(){var s='+JSON.stringify('[appmsgid="'+mediaId+'"]')+';let row=document.querySelector(s);if(!row)return false;row.click();return true;})()')
-        if (!draftSelected) {
-          { log.warn('RpaView', '[wechat_mp] mass send failed: draft not found mediaId=' + mediaId); return { success:false, error:'微信公众号群发失败：未找到已保存草稿', platform:'wechat_mp' } }
+        if (!draftSelected) return fail('未找到已保存草稿 mediaId=' + mediaId)
+        await this._sleep(1000)
+        const sendStarted = await this._click(win, isMass
+          ? 'a.btn_masssend, a[data-action="masssend"]'
+          : 'a.btn_freepublish, a[data-action="freepublish"], .weui-desktop-btn:has-text("发表")')
+        if (!sendStarted) return fail(actionLabel + '按钮不可用 url=' + win.webContents.getURL())
+        await this._sleep(2000)
+        if (!await this._click(win,'.dialog_bd_btn a:has-text("确定"), .weui-desktop-btn:has-text("确定")')) return fail('确认失败：确认按钮不可用 url=' + win.webContents.getURL())
+        const donePattern = isMass ? /群发成功|已发送|发送成功|发表成功|已发表|发布成功/ : /发表成功|已发表|发布成功/
+        const xhrHit = await xhrPromise
+        const pageHit = await this._waitForCondition(win, 'function(){var t=(document.body&&document.body.innerText)||"";return ' + donePattern.toString() + '.test(t);}', 20000, 800)
+        if (!xhrHit && !pageHit) {
+          const toast = domGuard.readEditorToast ? await domGuard.readEditorToast(win) : ''
+          log.warn('RpaView', '[wechat_mp] ' + actionLabel + ' no success evidence: xhr=' + JSON.stringify(xhrHit) + ' page=' + pageHit + ' toast=' + String(toast).slice(0,120))
+          return { success:false, error:'微信公众号' + actionLabel + '结果无法确认（未收到平台成功信号），请到公众号后台核实后重试；' + String(toast || '').slice(0, 80), platform:'wechat_mp' }
         }
         await this._sleep(1000)
-        const massSendStarted = await this._click(win,'a.btn_masssend, a[data-action="masssend"]')
-        if (!massSendStarted) {
-          { log.warn('RpaView', '[wechat_mp] mass send failed: button unavailable url=' + win.webContents.getURL()); return { success:false, error:'微信公众号群发失败：群发按钮不可用', platform:'wechat_mp' } }
-        }
-        await this._sleep(2000)
-        const massSendConfirmed = await this._click(win,'.dialog_bd_btn a:has-text("确定"), .weui-desktop-btn:has-text("确定")')
-        if (!massSendConfirmed) {
-          { log.warn('RpaView', '[wechat_mp] mass send confirm failed: button unavailable url=' + win.webContents.getURL()); return { success:false, error:'微信公众号群发确认失败：确认按钮不可用', platform:'wechat_mp' } }
-        }
-        await this._sleep(3000)
       } catch(e) {
-        log.warn('RpaView','wechat_mp mass send: '+e.message)
-        return { success:false, error:'微信公众号群发失败：'+e.message, platform:'wechat_mp' }
+        log.warn('RpaView','wechat_mp '+actionLabel+': '+e.message)
+        return { success:false, error:'微信公众号'+actionLabel+'失败：'+e.message, platform:'wechat_mp' }
       }
     }
 

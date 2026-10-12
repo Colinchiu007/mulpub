@@ -53,6 +53,15 @@
 - 静态门禁本地实跑：`check-ipc-bridge`（459 handlers / 477 preload / 0 缺口）、`check-ipc-sender-guard`（显式守卫 66.1% ≥ 65%、0 绕过）、`check-locale-sync`（`--pair-base` / `--cjk` / `--keys` 三档 PASS）、`check-frontend-consistency`、`check-font-size-scale`、`check-no-brand-residue`、`check-unwired-tests`、`check-text-encoding-integrity` 全部 PASS。
 - QM-1 打包验证与 QM-6 双模型评审记录见 `openspec/records/creator-monitor-depfix.md`。
 # [未发布] 播客刀 4 第 3 片·接线：TTS 生产适配层（podcast-tts-adapters）
+# [未发布] feat(publish): 公众号「发布/群发」两条发送链（API 轨）+ DOM 轨群发正判据（2026-10-12，wxmp-publish-masssend）
+
+- 新增 `packages/api-publish-engine/src/adapters/wechat-mp/publish.js`：发布（不推送粉丝）与群发（推送粉丝）两条发送链，契约逐函数对齐参考产品取证——发布路径 5 道前置检查（for_check/check_same_material/copyright/check_ad/check_music，原创以 `err_msg==='default'` 判通过，冲突文案带对方文章链接）；群发路径 masssendpage 取 `operation_seq`（引号/数组两形态）+ 未签群发协议自动 `setprotocolsign` + 正文不足 300 字（64715）可操作文案；`buildPushBody` 21 字段全量对齐（发布态 `isFreePublish` 双写、`country==='全部'` 置空、定时 `direct_send=1`）；发送判据 `base_resp.ret===0`，失败 5s 重试一次，两次失败 fail-closed（重试间隔可注入）。
+- 适配器接线：`buildPostData` 归一 `publishMode`（draft 默认 / publish / masssend，`massSend > freePublish > draft` 互斥优先级）；`publish()` 草稿回读通过后按模式走发送链，masssend 前置群发保护预检。**消除切轨静默错位**：`api-then-dom` 下勾了群发不再「只存草稿却报成功」。
+- DOM 轨群发正判据（消灭「点了就算成功」）：确认点击前挂 `masssend` XHR 监听 + 点击后轮询页面成功提示，两者至少一条成立才算成功，双缺失 fail-closed 并提示到后台核实；支持 `freePublish`（发布按钮候选选择器，真机待验证）。
+- 能力声明：`publish-capabilities.json` wechat_mp 新增 `freePublish`（与群发互斥、hint 说明配额与不可撤回）；`publisher-router` 解析并透传；`task-data.js` PASSTHROUGH 扩充（mass_send/free_publish/publish_time/定向群发参数）。
+- 测试：engine 直跑组 +11（`wechat-mp-publish.test.js`）+ 适配器 +5；desktop DOM 判据 +3；capabilities 快照更新。**变异反证 6/6 全红**（摘原创判据/摘重试判定/摘双写/退回原正则/DOM 摘 fail-closed/摘 64715 特判）。
+- 遗留：API 发送链与 DOM「发布」按钮待真机验证；`platforms.yaml` 仍 `dom-only`，切换前置已备齐（见 openspec change `wechat-mp-publish-track`）。
+
 
 - 新增 apps/desktop/electron/services/podcast-episode-tts-adapters.js：createGenerateTTS / createVoiceReaders / createConcatBlocks / createProbeImpl 四个生产工厂，把 §7.4.8 编排层的注入参数接成真实现；未接宿主，不改既有行为。
 - PRD 新增 §7.4.9：四工厂的入参契约、fail-closed 校验表、三条不可让（降级不当成功、键名双给、零隐式出站），以及本片不新增 locale 键的理由。

@@ -18,9 +18,10 @@
 const { BasePlatformAdapter } = require('../base-adapter')
 const { stripTopicsFromContent } = require('../content-formatter')
 const logger = require('../logger')
-const { BASE, fetchSession } = require('./wechat-mp/session')
+const { BASE, fetchSession, checkMassSendProtection } = require('./wechat-mp/session')
 const { uploadImage, isPlatformCdn } = require('./wechat-mp/assets')
 const { buildDraftBody, createDraft, readbackDraft } = require('./wechat-mp/draft')
+const { publishArticle } = require('./wechat-mp/publish')
 const { WechatMpError } = require('./wechat-mp/errors')
 
 const DRAFT_EDIT_URL = BASE + '/cgi-bin/appmsg?t=media/appmsg_edit_v2&action=edit&type=77&lang=zh_CN'
@@ -87,6 +88,12 @@ class WechatMpAdapter extends BasePlatformAdapter {
       allowFastReprint: td.allow_fast_reprint === true,
       openFansMsg: td.open_fans_msg === true,
       disableRecommend: td.disable_recommend === true,
+      // 发布方式（wechat-mp-publish-track）：draft（默认，只进草稿箱）/ publish（发布，不推送粉丝）/ masssend（群发，推送粉丝）
+      publishMode: td.publish_mode || (td.mass_send === true ? 'masssend' : (td.free_publish === true ? 'publish' : 'draft')),
+      publishTime: Number(td.publish_time) || 0,
+      // 定向群发参数（参考产品 buildPushData 消费；缺省即全量）
+      sex: td.sex, groupId: td.group_id, country: td.country, province: td.province, city: td.city,
+      isMulti: Array.isArray(td.contentList) && td.contentList.length > 1,
     }
   }
 
@@ -153,6 +160,39 @@ class WechatMpAdapter extends BasePlatformAdapter {
       }
 
       logger.info('wechat-mp-api:draft-created', 'draft created', { appMsgId: String(appMsgId) })
+
+      // 发布方式分支（wechat-mp-publish-track）：draft ⇒ 到此为止；publish/masssend ⇒ 走完整发布链
+      const publishMode = pd.publishMode || 'draft'
+      if (publishMode !== 'draft') {
+        // 群发前置：群发保护预检（只在要群发时请求；失败 fail-open，真正失败由发送链报告）
+        const protection = await checkMassSendProtection(this.http, { cookie, session, massSend: publishMode === 'masssend' })
+        if (protection && protection.ok === false) {
+          throw new WechatMpError('mass-send-protected', protection.error, protection)
+        }
+        const sent = await publishArticle(this.http, {
+          cookie,
+          token: session.token,
+          appMsgId: String(appMsgId),
+          publishMode,
+          // 测试注入口：sendPush 重试等待（默认 5s 真实等待）
+          delayFn: this.pushDelayFn || undefined,
+          task: { publishTime: pd.publishTime, sex: pd.sex, groupId: pd.groupId, country: pd.country, province: pd.province, city: pd.city, isMulti: pd.isMulti },
+        })
+        if (!sent.ok) {
+          throw new WechatMpError(sent.code || 'masssend-push-failed', sent.error || '发布失败', sent.response)
+        }
+        logger.info('wechat-mp-api:published', 'article published', { appMsgId: String(appMsgId), publishMode, retried: sent.retried })
+        return {
+          success: true,
+          platform: 'wechat_mp',
+          publishId: String(appMsgId),
+          url: DRAFT_EDIT_URL + '&appmsgid=' + encodeURIComponent(String(appMsgId)) + '&token=' + encodeURIComponent(session.token),
+          draft: false,
+          publishMode,
+          retried: sent.retried,
+        }
+      }
+
       return {
         success: true,
         platform: 'wechat_mp',

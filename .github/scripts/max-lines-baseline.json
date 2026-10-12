@@ -105,7 +105,7 @@
     "apps/desktop/electron/services/asset-generator.js": 1369,
     "apps/desktop/electron/services/model-provider-manager.js": 1284,
     "apps/desktop/electron/services/pipeline-engine.js": 2724,
-    "apps/desktop/electron/services/rpa-view-platforms.js": 1476,
+    "apps/desktop/electron/services/rpa-view-platforms.js": 1484,
     "apps/desktop/electron/services/story2video-compose-engine.js": 2486,
     "apps/desktop/electron/services/story2video-project-service.js": 2373,
     "apps/desktop/electron/services/story2video-stages.js": 4006,

@@ -90,7 +90,8 @@
   "overrideFields": {
     "wechat_mp": [
       { "key": "digest", "semantic": "digest", "status": "implemented", "type": "textarea", "label": "摘要", "maxLen": 120, "default": "", "uiExposed": true, "placeholder": "公众号图文摘要（选填）", "hint": "最多 120 字，留空自动取正文开头" },
-      { "key": "massSend", "semantic": "mass-send", "status": "implemented", "type": "checkbox", "label": "保存草稿后群发", "default": false, "uiExposed": true },
+      { "key": "massSend", "semantic": "mass-send", "status": "implemented", "type": "checkbox", "label": "保存草稿后群发", "default": false, "uiExposed": true, "hint": "推送全部粉丝（不可撤回；订阅号每日 1 次），与「发布」互斥，勾选优先" },
+      { "key": "freePublish", "semantic": "free-publish", "status": "implemented", "type": "checkbox", "label": "保存草稿后发布", "default": false, "uiExposed": true, "hint": "文章公开可访问但不推送粉丝（无群发配额限制）；与「群发」互斥，群发优先" },
       { "key": "openComment", "semantic": "comment-control", "status": "implemented", "type": "checkbox", "label": "开启留言（评论）", "default": true, "uiExposed": true },
       { "key": "draft", "semantic": "draft", "status": "implemented", "type": "checkbox", "label": "保存为草稿", "default": false, "uiExposed": false, "note": "公众号经保存草稿→群发两步链路实现草稿语义" }
     ],

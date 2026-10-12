@@ -303,7 +303,8 @@ describe('publish-capabilities — 差异化字段定义', () => {
 
   it('既有 8 平台差异化字段零丢失（重构快照，按 uiExposed 过滤）', () => {
     const keysOf = platform => getPlatformOverrideFields(platform).filter(f => f.uiExposed).map(f => f.key)
-    expect(keysOf('wechat_mp').sort()).toEqual(['digest', 'massSend', 'openComment'])
+    // wechat-mp-publish-track：新增 freePublish（发布，不推送粉丝），与 massSend 互斥、群发优先
+    expect(keysOf('wechat_mp').sort()).toEqual(['digest', 'freePublish', 'massSend', 'openComment'])
     expect(keysOf('zhihu').sort()).toEqual(['commentPermission', 'declare', 'draft', 'topics'])
     // P1-5：抖音/快手/微博的 visibility 打通后进 UI 渲染集（此前为空）
     expect(keysOf('douyin').sort()).toEqual(['draft', 'visibilityType'])
