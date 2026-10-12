@@ -62,16 +62,16 @@ def _normal_headers():
 
 @pytest.mark.asyncio
 async def test_catalog_seeded_and_list():
-    """目录供给：内置 10 类自动补齐，键名与顺序与桌面端 classifier 一致。"""
+    """目录供给：内置 11 类自动补齐，键名与顺序与桌面端 classifier 一致。"""
     async with _client() as client:
         lst = (await client.get("/api/v1/content-categories", headers=_admin_headers())).json()
         keys = [i["category_key"] for i in lst["items"]]
-        assert keys[:10] == [
-            "general", "society", "finance", "tech", "entertainment",
+        assert keys[:11] == [
+            "general", "society", "finance", "tech", "ai", "entertainment",
             "sports", "emotion", "education", "health", "international",
         ]
-        assert all(i["is_preset"] for i in lst["items"][:10])
-        assert len(lst["preset_keys"]) == 10
+        assert all(i["is_preset"] for i in lst["items"][:11])
+        assert len(lst["preset_keys"]) == 11
 
 
 @pytest.mark.asyncio

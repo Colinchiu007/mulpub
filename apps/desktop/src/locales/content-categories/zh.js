@@ -7,6 +7,7 @@ export default {
     society: '社会',
     finance: '财经',
     tech: '科技',
+    ai: 'AI',
     entertainment: '娱乐',
     sports: '体育',
     emotion: '情感',

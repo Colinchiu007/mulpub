@@ -341,10 +341,10 @@ const {
 defineExpose({ genVideoPhase, genVideoRunId, genVideoTopic, mergeGenStages })
 
 // ── 常量 ──
-const CATEGORY_KEYS = ['general', 'society', 'finance', 'tech', 'entertainment', 'sports', 'emotion', 'education', 'health', 'international']
+const CATEGORY_KEYS = ['general', 'society', 'finance', 'tech', 'ai', 'entertainment', 'sports', 'emotion', 'education', 'health', 'international']
 // weibo 官方渠道成功时，tophub（同源微博榜）条目会被跨渠道去重合并到 weibo 名下——
 // 下拉不再暴露 tophub 筛选，避免「显示有数据、切进去空列表」；服务层保留该渠道作微博数据兜底
-const CHANNEL_KEYS = ['zhihu', 'toutiao', 'tencent', 'bilibili', 'douyin', 'baidu', 'weibo', 'sina_finance', 'ithome_tech']
+const CHANNEL_KEYS = ['zhihu', 'toutiao', 'tencent', 'bilibili', 'douyin', 'xiaohongshu', 'ifeng', 'baidu', 'weibo', 'sina_finance', 'ithome_tech']
 const BATCH_LIMIT = 20
 const TOPIC_PREFIX_KEY = 'hotTopics.topicPrefix'
 const REFRESH_INTERVAL_MS = 30 * 60 * 1000
@@ -352,7 +352,7 @@ const REFRESH_INTERVAL_MS = 30 * 60 * 1000
 // ── 计算 ──
 const categoryOptions = computed(() => [
   { value: 'all', label: t('hotTopics.categoryAll') },
-  // 运营下发为准；读不到时 contentCategories 已是内置 10 类，界面不会变零分类
+  // 运营下发为准；读不到时 contentCategories 已是内置 11 类，界面不会变零分类
   ...contentCategories.value.map(c => ({ value: c.category_key, label: categoryLabel(c.category_key, t) })),
 ])
 const channelOptions = computed(() => CHANNEL_KEYS.map(k => ({ value: k, label: t('hotTopics.channels.' + k) })))

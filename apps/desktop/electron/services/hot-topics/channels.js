@@ -41,7 +41,10 @@ function parseZhihu(json) {
   })).filter(x => x.topic)
 }
 
-/** 今日头条热榜 JSON：data[].Title */
+/** 今日头条热榜 JSON：data[].Title（实测 2026-10-12 复核）
+ * 字段修正：响应里**没有** `Category` 字段（0/50）；语义相近的是 `InterestCategory[]`（42/50 存在），
+ * 故原生分类优先取 `InterestCategory[0]`，再回退历史字段 `Category`（兼容旧缓存/旧响应）。
+ * `HotValue` 是字符串（Number() 转换）；`ClusterIdStr` 可自拼 trending 详情页。 */
 function parseToutiao(json) {
   const list = (json && json.data) || []
   return list.slice(0, 50).map((item, i) => ({
@@ -49,8 +52,9 @@ function parseToutiao(json) {
     rank: i + 1,
     topic: String(item.Title || '').trim(),
     hotValue: Number(item.HotValue) || null,
-    url: sanitizeUrl(item.Url || item.url),
-    rawCategory: item.Category || null,
+    url: sanitizeUrl(item.Url || item.url ||
+      (item.ClusterIdStr ? 'https://www.toutiao.com/trending/' + item.ClusterIdStr + '/' : null)),
+    rawCategory: (Array.isArray(item.InterestCategory) && item.InterestCategory[0]) || item.Category || null,
   })).filter(x => x.topic)
 }
 
@@ -88,15 +92,129 @@ function parseBilibili(json) {
   })).filter(x => x.topic)
 }
 
-/** 抖音热点 JSON：data.word_list[].word */
+/** 中文数量字符串 → 数值：'947.5w' / '1.2万' / '8850' → 9475000 / 12000 / 8850 */
+function parseCnNumber(input) {
+  const t = String(input == null ? '' : input).trim()
+  if (!t) return null
+  const n = parseFloat(t)
+  if (!Number.isFinite(n)) return null
+  return /[wW万]$/.test(t) ? Math.round(n * 10000) : Math.round(n)
+}
+
+/**
+ * 抖音热搜 JSON —— 三个公开端点同构，共用一个解析器（调研 2026-10-12 实测）：
+ *   - web 端  `www.douyin.com/aweme/v1/web/hot/search/list/`：data.word_list[] + data.trending_list[]
+ *   - 移动端  `aweme-lq.snssdk.com/aweme/v1/hot/search/list/`：同上（零头部可用）
+ *   - 旧端点  `www.iesdouyin.com/web/api/v2/hotsearch/billboard/word/`：**顶层** word_list[]（无 data 包裹）
+ * rank 优先用 position（无则回退数组序）；url 用 sentence_id 拼热点详情页；
+ * trending_list 是「上升热点」，与主榜去重后并入并标 rawCategory='上升热点'。
+ */
 function parseDouyin(json) {
-  const list = (json && json.data && Array.isArray(json.data.word_list)) ? json.data.word_list : []
+  const root = (json && json.data) ? json.data : json
+  const words = Array.isArray(root && root.word_list) ? root.word_list : []
+  const rising = Array.isArray(root && root.trending_list) ? root.trending_list : []
+  const items = []
+  for (const [list, isRising] of [[words, false], [rising, true]]) {
+    for (const w of list) {
+      const topic = String((w && w.word) || '').trim()
+      if (!topic || items.some(x => x.topic === topic)) continue
+      items.push({
+        channel: 'douyin',
+        rank: Number(w.position) || items.length + 1,
+        topic,
+        hotValue: Number(w.hot_value) || null,
+        url: w.sentence_id ? sanitizeUrl('https://www.douyin.com/hot/' + w.sentence_id) : null,
+        rawCategory: isRising ? '上升热点' : null,
+      })
+    }
+  }
+  return items.slice(0, 50)
+}
+
+/**
+ * 小红书 App 端热搜 JSON（`edith.xiaohongshu.com/api/sns/v1/search/hot_list`，实测 2026-10-12 免登录 200 / 20 条）：
+ * data.items[].title / .score（'947.5w' 形态的字符串）/ .word_type（'热' / '无'）。
+ * 接口**不返回 rank**，只能按数组序；url 用搜索页拼装（该端点是热搜词而非内容条目）。
+ */
+function parseXiaohongshu(json) {
+  const list = (json && json.data && Array.isArray(json.data.items)) ? json.data.items : []
   return list.slice(0, 50).map((item, i) => ({
-    channel: 'douyin',
+    channel: 'xiaohongshu',
     rank: i + 1,
-    topic: String(item.word || '').trim(),
-    hotValue: Number(item.hot_value) || null,
-    url: null,
+    topic: String(item.title || '').trim(),
+    hotValue: parseCnNumber(item.score),
+    url: sanitizeUrl('https://www.xiaohongshu.com/search_result?keyword=' + encodeURIComponent(item.title || '') + '&type=51'),
+    rawCategory: item.word_type || null,
+  })).filter(x => x.topic)
+}
+
+/**
+ * 凤凰热榜 JSON（`ne883dbn.ifeng.com/hotspotlist?page=N&gv=7.9.1&av=7.9.1`，实测 2026-10-12 免登录；
+ * page1=30 + page2=5 共 35 条）：data.list[] → title / link.url / commentsCount / type。
+ * ⚠️ 顶层**没有** url 字段，链接在 `link.url`；`data.totalPage` 实测恒为 1 不可信。
+ * hotValue 取 commentsCount（该榜单唯一可比的数值信号，口径为「评论数」，由 scorer 在渠道内归一）。
+ */
+function parseIfeng(json) {
+  const list = (json && json.data && Array.isArray(json.data.list)) ? json.data.list : []
+  return list.slice(0, 50).map((item, i) => ({
+    channel: 'ifeng',
+    rank: i + 1,
+    topic: decodeHtmlEntities(item.title || ''),
+    hotValue: Number(item.commentsCount) || null,
+    url: sanitizeUrl((item.link && item.link.url) || item.url),
+    rawCategory: item.type || null,
+  })).filter(x => x.topic)
+}
+
+/**
+ * 从 HTML 中提取 `allData = {...}` 并 JSON 解析。
+ * 必须做花括号配对，**不能**用 `\{[\s\S]*?\}` 惰性正则：i.ifeng.com 的 allData 是内嵌多行 JSON，
+ * 惰性匹配会在第一个 `}` 处截断（www.ifeng.com 是单行，惰性匹配恰好可用，因此这是隐蔽陷阱）。
+ * 配对扫描需跳过字符串字面量与转义字符。
+ */
+function extractIfengAllData(html) {
+  const text = String(html || '')
+  const at = text.search(/allData\s*=\s*/)
+  if (at === -1) return null
+  const braceAt = text.indexOf('{', at)
+  if (braceAt === -1) return null
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let i = braceAt; i < text.length; i++) {
+    const ch = text[i]
+    if (inString) {
+      if (escaped) { escaped = false; continue }
+      if (ch === '\\') { escaped = true; continue }
+      if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') { inString = true; continue }
+    if (ch === '{') depth++
+    else if (ch === '}') {
+      depth--
+      if (depth === 0) {
+        try { return JSON.parse(text.slice(braceAt, i + 1)) } catch { return null }
+      }
+    }
+  }
+  return null
+}
+
+/**
+ * 凤凰热榜内联兜底（`https://i.ifeng.com/` 的 `allData.hotRankData.data[]`，实测 51 条）。
+ * 与 parseIfeng 是**同一份榜单的不同出口**，但字段名不同（这里是顶层 `url`，不是 `link.url`），
+ * 故解析器不能共用。仅在 ifeng_hot 换域/失败时按顺序降级使用。
+ */
+function parseIfengInline(html) {
+  const all = extractIfengAllData(html)
+  const list = (all && all.hotRankData && Array.isArray(all.hotRankData.data)) ? all.hotRankData.data : []
+  return list.slice(0, 50).map((item, i) => ({
+    channel: 'ifeng',
+    rank: i + 1,
+    topic: decodeHtmlEntities(item.title || ''),
+    hotValue: null,
+    url: sanitizeUrl(item.url),
     rawCategory: null,
   })).filter(x => x.topic)
 }
@@ -213,7 +331,7 @@ function parseIthomeRSS(xml) {
   return items
 }
 
-/** 渠道解析器注册表（补拉渠道经 source.parser 键复用） */
+/** 渠道解析器注册表（补拉渠道经 source.parser 键复用；fallback 亦可各自声明 parser） */
 const CHANNEL_PARSERS = {
   zhihu: parseZhihu,
   toutiao: parseToutiao,
@@ -225,12 +343,17 @@ const CHANNEL_PARSERS = {
   weibo: parseWeibo,
   sina_finance: parseSinaFinance,
   ithome_rss: parseIthomeRSS,
+  xiaohongshu: parseXiaohongshu,
+  ifeng: parseIfeng,
+  ifeng_inline: parseIfengInline,
 }
 
 module.exports = {
   decodeHtmlEntities,
   sanitizeUrl,
+  parseCnNumber,
   CHANNEL_PARSERS,
   parseZhihu, parseToutiao, parseTencent, parseBilibili, parseDouyin, parseBaidu, parseTophub, parseWeibo,
   parseSinaFinance, parseIthomeRSS,
+  parseXiaohongshu, parseIfeng, parseIfengInline, extractIfengAllData,
 }

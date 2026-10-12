@@ -13,22 +13,22 @@ const {
 
 // 抓取侧分类器的 CATEGORY_KEYS（electron/services/hot-topics/classifier.js）
 const CLASSIFIER_KEYS = [
-  'general', 'society', 'finance', 'tech', 'entertainment',
+  'general', 'society', 'finance', 'tech', 'ai', 'entertainment',
   'sports', 'emotion', 'education', 'health', 'international',
 ]
 
 describe('统一内容类别（主进程）· 内置目录', () => {
-  it('内置 10 类与 classifier.js CATEGORY_KEYS 一致', () => {
+  it('内置 11 类与 classifier.js CATEGORY_KEYS 一致', () => {
     expect([...DEFAULT_CATEGORY_KEYS]).toEqual(CLASSIFIER_KEYS)
   })
 
   it('defaultItems 带 0..n-1 sort_order', () => {
-    expect(defaultItems().map((i) => i.sort_order)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+    expect(defaultItems().map((i) => i.sort_order)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
   })
 })
 
 describe('统一内容类别（主进程）· fail-open 回退', () => {
-  it('未下发 / 空 / 结构非法 → 内置 10 类', () => {
+  it('未下发 / 空 / 结构非法 → 内置 11 类', () => {
     expect(normalizeContentCategories(null).usingDefault).toBe(true)
     expect(normalizeContentCategories(undefined).usingDefault).toBe(true)
     expect(normalizeContentCategories({ items: [] }).usingDefault).toBe(true)

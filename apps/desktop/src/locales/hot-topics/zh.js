@@ -15,7 +15,7 @@ export default {
     lastRefresh: (ctx) => '上次刷新 ' + ctx.named('time'),
     categoryAll: '全部',
     categories: {
-      general: '综合', society: '社会', finance: '财经', tech: '科技',
+      general: '综合', society: '社会', finance: '财经', tech: '科技', ai: 'AI',
       entertainment: '娱乐', sports: '体育', emotion: '情感',
       education: '教育', health: '健康', international: '国际',
     },
@@ -23,6 +23,7 @@ export default {
     channels: {
       zhihu: '知乎', toutiao: '头条', tencent: '腾讯新闻', bilibili: 'B站',
       douyin: '抖音', baidu: '百度', weibo: '微博热搜', tophub: '微博(tophub)',
+      xiaohongshu: '小红书', ifeng: '凤凰网',
       sina_finance: '新浪财经', ithome_tech: 'IT之家',
       'baidu-finance': '百度财经榜', 'sina-finance': '新浪财经滚动', 'ithome-tech': 'IT之家热榜',
       'weibo-emotion': '微博情感垂类', 'weibo-health': '微博健康垂类',

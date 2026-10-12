@@ -6,28 +6,31 @@ import { parseZhihu, parseToutiao, parseTencent, parseBilibili, parseDouyin, par
 
 // ── 分类器 ──
 describe('hot-topics classifier', () => {
-  it('maps toutiao raw category to 10-category system', () => {
+  it('maps toutiao raw category to 11-category system', () => {
     expect(classifyTopic('财经', 'toutiao', '任意文本')).toBe('finance')
-    expect(classifyTopic('科技', 'toutiao', '任意文本')).toBe('tech')
+    // v3：「科技」是域级泛称（栏目名），不再无条件定性单条选题；零信号落 general
+    expect(classifyTopic('科技', 'toutiao', '任意文本')).toBe('general')
+    expect(classifyTopic('科技', 'toutiao', '芯片产业新突破')).toBe('tech')
   })
   it('falls back to keyword rules when raw category unmapped', () => {
     expect(classifyTopic('未知分类', 'toutiao', 'A股大涨沪指重返3000点')).toBe('finance')
-    expect(classifyTopic(null, 'zhihu', 'AI大模型最新突破')).toBe('tech')
+    expect(classifyTopic(null, 'zhihu', 'AI大模型最新突破')).toBe('ai')
     expect(classifyTopic(null, 'bilibili', '国足世界杯预选赛')).toBe('sports')
   })
   it('falls back to general when nothing matches', () => {
     expect(classifyTopic(null, 'zhihu', '完全无关文本')).toBe('general')
   })
-  it('maps weibo native category to 10-category system', () => {
+  it('maps weibo native category to 11-category system', () => {
     expect(classifyTopic('数码', 'weibo', '任意文本')).toBe('tech')
     expect(classifyTopic('民生新闻', 'weibo', '任意文本')).toBe('society')
     expect(classifyTopic('健康医疗', 'weibo', '任意文本')).toBe('health')
     // 未命中微博分类 → 关键词兜底
     expect(classifyTopic('未知微博分类', 'weibo', 'A股大涨')).toBe('finance')
   })
-  it('maps bilibili tname to 10-category system', () => {
+  it('maps bilibili tname to 11-category system', () => {
     expect(classifyTopic('手机游戏', 'bilibili', '任意文本')).toBe('entertainment')
-    expect(classifyTopic('科学科普', 'bilibili', '任意文本')).toBe('tech')
+    // v3 行为变更：B站「科学科普」是跨学科泛科普桶，不再整批挂 tech（详见 classifier.test.js 根因②）
+    expect(classifyTopic('科学科普', 'bilibili', '任意文本')).toBe('general')
     expect(classifyTopic('校园学习', 'bilibili', '任意文本')).toBe('education')
     // 未命中 B站分区 → 关键词兜底
     expect(classifyTopic('未知分区', 'bilibili', 'A股大涨')).toBe('finance')
@@ -320,11 +323,15 @@ describe('HotTopicsService', () => {
     expect(calls.some(c => c[0] === 'set')).toBe(true)
   })
 
-  it('has 8 channel configs with interval >= 5 minutes', () => {
-    expect(CHANNEL_CONFIGS).toHaveLength(8)
+  it('has 10 channel configs with interval >= 5 minutes', () => {
+    // 2026-10-12 新增小红书与凤凰网（调研实测免登录端点），8 → 10；
+    // 抖音的移动端/旧域名兜底走 config.fallbacks 顺序降级链，不计入渠道数（避免同源灌水）
+    expect(CHANNEL_CONFIGS).toHaveLength(10)
     const ids = CHANNEL_CONFIGS.map(c => c.id)
     expect(ids).toContain('weibo')
     expect(ids).toContain('baidu')
+    expect(ids).toContain('xiaohongshu')
+    expect(ids).toContain('ifeng')
     for (const cfg of CHANNEL_CONFIGS) {
       expect(cfg.intervalMinutes).toBeGreaterThanOrEqual(5)
       expect(cfg.url.startsWith('https://')).toBe(true)
@@ -359,11 +366,12 @@ describe('Plan A: fetch limit & classifier fixes', () => {
     expect(classifyTopic(null, 'baidu', '卫健委通报最新疫情数据')).toBe('health')
   })
 
-  it('weibo 原生分类扩容：情感/艺人/汽车 映射生效', async () => {
+  it('weibo 原生分类扩容：情感/艺人 映射生效，汽车 不再错挂 tech', async () => {
     const { classifyTopic } = await import('./hot-topics/classifier.js')
     expect(classifyTopic('情感', 'weibo', '任意文本')).toBe('emotion')
     expect(classifyTopic('艺人', 'weibo', '任意文本')).toBe('entertainment')
-    expect(classifyTopic('汽车', 'weibo', '任意文本')).toBe('tech')
+    // v3 行为变更：汽车 ≠ 科技（无 auto 分类时归综合），详见 classifier.test.js 根因③
+    expect(classifyTopic('汽车', 'weibo', '任意文本')).toBe('general')
   })
 
   it('classifyTopicMulti：多标签输出 {category, categories[]}', async () => {
@@ -376,10 +384,10 @@ describe('Plan A: fetch limit & classifier fixes', () => {
     const g = classifyTopicMulti(null, 'zhihu', '完全无关文本')
     expect(g.category).toBe('general')
     expect(Array.isArray(g.categories)).toBe(true)
-    // 原生分类优先为主标签，关键词补充次标签
+    // 原生分类优先为主标签，关键词补充次标签（v3：AI 已独立成类，次标签是 ai 而非 tech）
     const n = classifyTopicMulti('健康医疗', 'weibo', 'AI辅助诊断新药获批')
     expect(n.category).toBe('health')
-    expect(n.categories).toContain('tech')
+    expect(n.categories).toContain('ai')
   })
 
   it('解析器放宽到 50 条（parseBaidu / parseTophub / parseToutiao）', async () => {

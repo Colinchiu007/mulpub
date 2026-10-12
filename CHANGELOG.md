@@ -9,6 +9,86 @@
 
 - PRD 新增 §7.9：把 tasks 4.4 写成可实现合同——事实前提（存量脏值分「缺席」与「非法」两类，处置不同）、固化动作（恰好一次、幂等、只补不改、按扩展名派生、派生不出就不猜）、数据校验与失败语义表、交互与显示项（`compliance` 增设 `stock` 档、频道页摘要）与 zh/en 提示文字三条、七条必须带的回归锁、以及故意不做的三项。
 - 明确声明本节是合同不是实现：固化代码与 locale 键均未落地，tasks 4.4 保持未勾。
+# [未发布] feat(hot-topics): 热门选题新增小红书/凤凰网数据源、新增 AI 分类、修复「科技类混入不沾边内容」（hot-topics-multi-source）
+
+### 用户感知
+
+- **热门选题多了两个平台**：渠道下拉新增「小红书」「凤凰网」，热门选题页能看到这两个平台的热榜条目
+  （小红书 App 端热搜约 20 条 / 凤凰网热榜约 35 条，均免登录）。
+- **多了一个 AI 分类**：分类 chip 新增「AI」，与「科技」相邻；大模型 / AIGC / 智能体 / 算力 / AI 应用
+  这类选题不再被压进「科技」。
+- **「科技」分类终于像科技了**：修复前 B站「知识」区（历史/法律/职场混装）、「科学科普」（恐龙/地质混装）、
+  微博/头条「汽车」这些**整批**被映射成科技；补拉来的条目更是被**无条件硬挂**成科技。修复后这些泛称桶
+  不再定性单条选题，补拉条目也要先过分类器。
+- **渠道 0 条不再被当成「正常」**：抖音缺 UA/Referer 时是「HTTP 200 + 空列表」，旧实现记成成功，
+  于是熔断器永不打开、界面上只看到「该渠道 0 条」而没有任何可排查信号；现在空列表按失败处理并触发降级。
+
+### 调研与实测（2026-10-12，全部免登录端点）
+
+- 三份调研落盘：`01-docs/research/hot-topics-sources-douyin-xhs.md`、
+  `...-toutiao-ifeng.md`、`...-classification-accuracy.md`。
+- **抖音**：`www.douyin.com/aweme/v1/web/hot/search/list/` 实测 200 / 46 条，**门槛不是签名而是
+  「浏览器 UA + Referer」，缺一即 200 + `word_list` 空数组**（这正是「空列表必须判失败」的来源）；
+  兜底 `aweme-lq.snssdk.com`（零头部可用）与 `www.iesdouyin.com`（顶层 `word_list`）。
+- **小红书**：**没有**免登录的 Web 热榜（`/explore` 未登录已 302 → `/login`，`__INITIAL_STATE__` 不存在；
+  `/api/sns/web/v1/*` 需 `X-S`/`X-T`/`x-S-Common` 签名 + 登录 Cookie 且不含热榜）。
+  可用的是 App 端 `edith.xiaohongshu.com/api/sns/v1/search/hot_list`：免登录、免 Cookie，
+  但**必须六项固定头齐全**（`User-Agent`/`referer`/`xy-direction`/`shield`/`xy-platform-info`/`xy-common-params`），
+  缺任一即 **406**（逐项隔离实验证实）。`shield` 是静态 token，轮换即失效。
+- **凤凰网**：主端点 `ne883dbn.ifeng.com/hotspotlist`（JSON，约 35 条，**链接在 `link.url`，顶层没有 `url`**）；
+  兜底 `i.ifeng.com` 内联 `allData.hotRankData.data`（约 51 条，顶层 `url`）。
+  `api.inews.ifeng.com` 域名在本机 DNS **完全不解析**，相关实现不应再用。
+- **今日头条字段修正**：响应里**没有** `Category` 字段（0/50），语义相近的是 `InterestCategory[]`（42/50）；
+  `HotValue` 是字符串。
+- **头条号本轮不接入**：`mp.toutiao.com` 热点入口无 cookie 下均 502，`/activity/hot-selection` 另有
+  `tag_info.hotboard_invitation` 权限门槛；抓取 16 个主包 250 条 `/mp/agw/*` 路径未见热榜数据接口；
+  GitHub 代码搜索 0 命中无参考实现；且**无法证实它与今日头条热榜是否同源**。
+- **开源项目**：`imsyy/DailyHotApi`(MIT, 抖音✅ 小红书❌ 凤凰❌)、`ourongxing/newsnow`(MIT, 抖音✅ 凤凰✅)、
+  `vikiboss/60s`(MIT, 抖音✅ 小红书✅)、`NanmiCoder/MediaCrawler`(非商用学习许可) 等；实测
+  `ccbikai/hot-search`、`tophub/tophub`、`ruanyf/hot-news` **不存在**（勿再引用）。
+  结论：**没有**可直接复用的完整方案，本项目按端点自行实现，只参考其请求头与字段路径。
+
+### 改动
+
+- `hot-topics-service.js`：`CHANNEL_CONFIGS` 8 → 10（新增 `xiaohongshu` / `ifeng`）；
+  抖音新增 `fallbacks` **顺序降级链**（刻意不并发：同源并发会放大风控面，且同源条目跨渠道去重后会被
+  误算成「多榜同现」，污染 scorer 的 `sourceBonus` 全民热点信号）；
+  `_collectChannel` 新增两条合同——**空列表视为失败**、**406 单独告警**（小红书 shield 失效的唯一特征）；
+  新增 `CATEGORY_BOOSTS.ai` 与 `onlyCategory`（用分类器本身筛 AI 条目，不新增第二份关键词表）；
+  `_collectBoostChannel` 改为「先过分类器，只有 general 才用 `boostCategory` 兜底」；
+  显式请求补拉但该分类无源时出声告警（原先静默无反应）。
+- `hot-topics/channels.js`：新增 `parseCnNumber` / `parseXiaohongshu` / `parseIfeng` / `parseIfengInline` /
+  `extractIfengAllData`（**花括号配对**解析内联 JSON，惰性正则会截断）；增强 `parseDouyin`
+  （三端点同构、`position` 优先、`trending_list` 去重并入）；`parseToutiao` 字段修正。
+- `hot-topics/classifier.js` v3：
+  - 新增 `ai` 分类（11 类，紧随 `tech`），AI 词表覆盖大模型/AIGC/智能体/算力/AI 芯片等；
+  - 原生映射分三档：可信原生 / **宽泛桶**（`RAW_CATEGORY_WEAK_MAP`：B站「知识」、`科学科普`、`汽车`）/
+    **域级泛称**（`DOMAIN_LEVEL_RAW`：科技/互联网/科学科普/知识/资讯/热点 —— 栏目名不是单条定性，**不参与裁决**）；
+  - 关键词分 **strong（词长×2）/ weak（词长）** + `MIN_SCORE=3`（单个双字弱词不足以成类）；
+  - 拉丁词走**词边界**（修 `text.includes('AI')` 命中 `Air`/`said`）+ 全角 ASCII 归一（`ＡＩ`→`AI`）；
+  - `general` 语义收窄：有真实分类则剔除 `general`；
+  - 词表修补：`上市` 降级为弱词（「新款车型上市」不再判财经）、新增 `新股`/`上市公司`/`CPI`/`物价`/`折叠屏`/`谈恋爱`。
+- `hot-topics/scorer.js`：新增渠道权重 `xiaohongshu=1.0` / `ifeng=0.95`。
+- 跨端 11 类契约同步 5 处：`electron/services/content-categories.js`、
+  `src/features/content/content-categories.js`、`HotTopics.vue`、locales（zh/en 成对）、
+  `ops-center/.../content_category_service.py` 的 `CATALOG`（并修正 tech 描述不再含 AI）。
+- 文档：研究报告 + PRD/实施方案 + openspec change 五件套。
+
+### 验证
+
+- 新增测试 3 个文件：`hot-topics/classifier.test.js`（32 例，含 6 条机制级根因反例）、
+  `hot-topics-new-sources.test.js`（18 例：解析器 + 渠道配置 + 三条抓取合同）、
+  `hot-topics-boost-classify.test.js`（6 例：补拉不硬挂 + AI 补拉 + onlyCategory 筛选）。
+- 既有契约测试同步更新并写明变更理由（`科技` 域级泛称、`汽车` 归综合、`科学科普` 归综合、AI 独立成类）。
+- `ops-center/backend` pytest `tests/test_content_categories_api.py` 7 passed。
+
+### 已知未完成（如实登记，不当作已完成）
+
+- LLM 兜底仍是「只处理 general」，**已错判为具体分类的条目永不进 LLM**（第一性修法登记为 P1）。
+- LLM 无置信度 / 无二次裁决 / 缓存键未归一化 / 换模型不可归因（P1）。
+- 分类评测集与混淆矩阵**尚未建立、基线未跑**，调研报告里的门槛是建议值。
+- UI 标签只渲染前 2 个而过滤按全部标签（`HotTopics.vue`），改它会动视觉回归基线，本轮未动。
+- 快速采集（quick-collect）源注册表未同步新增平台（属另一模块）。
 # [未发布] fix(account-tab): 开卡首屏即登录态——凭证 localStorage 的 document-start 注入从未生效（xhs-tab-first-paint-login）
 
 ### 用户感知

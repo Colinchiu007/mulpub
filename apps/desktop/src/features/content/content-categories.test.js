@@ -14,36 +14,36 @@ import {
 } from '@/features/content/content-categories'
 
 describe('统一内容类别 · 内置目录', () => {
-  it('内置 10 类与抓取分类器 CATEGORY_KEYS 键名顺序一致', () => {
+  it('内置 11 类与抓取分类器 CATEGORY_KEYS 键名顺序一致', () => {
     // electron/services/hot-topics/classifier.js 的 CATEGORY_KEYS
     const classifierKeys = [
-      'general', 'society', 'finance', 'tech', 'entertainment',
+      'general', 'society', 'finance', 'tech', 'ai', 'entertainment',
       'sports', 'emotion', 'education', 'health', 'international',
     ]
     expect([...DEFAULT_CATEGORY_KEYS]).toEqual(classifierKeys)
   })
 
   it('defaultItems 带 0..n-1 的 sort_order', () => {
-    expect(defaultItems().map((i) => i.sort_order)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+    expect(defaultItems().map((i) => i.sort_order)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
   })
 })
 
 describe('统一内容类别 · fail-open 回退', () => {
-  it('未下发（null）→ 内置 10 类 + invalidShape', () => {
+  it('未下发（null）→ 内置 11 类 + invalidShape', () => {
     const r = normalizeContentCategories(null)
-    expect(r.items).toHaveLength(10)
+    expect(r.items).toHaveLength(11)
     expect(r.usingDefault).toBe(true)
     expect(r.invalidShape).toBe(true)
   })
 
-  it('下发空数组 → 内置 10 类（不让界面变零分类）', () => {
+  it('下发空数组 → 内置 11 类（不让界面变零分类）', () => {
     const r = normalizeContentCategories({ items: [] })
-    expect(r.items).toHaveLength(10)
+    expect(r.items).toHaveLength(11)
     expect(r.usingDefault).toBe(true)
     expect(r.invalidShape).toBe(false)
   })
 
-  it('结构非法（字符串 / items 非数组）→ 内置 10 类', () => {
+  it('结构非法（字符串 / items 非数组）→ 内置 11 类', () => {
     expect(normalizeContentCategories('oops').usingDefault).toBe(true)
     expect(normalizeContentCategories({ items: 'oops' }).usingDefault).toBe(true)
     expect(normalizeContentCategories(42).usingDefault).toBe(true)
