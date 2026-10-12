@@ -20,7 +20,7 @@
   - `htmlToPlainText(html)`：`<br>`→`\n`；块级闭合→`\n`；实体解码；`\n{3,}`→`\n\n`。
   - `getArticleBodyKind(platform)` / `formatArticleBody(platform, content)`：按形态适配；未知平台保守按纯文本。
 - **接线（写字段前最后一跳）**：
-  - HTML 承载：`baijiahao-article.js` 的 `content`；**顺序不变量** = 先 `convertInlineTopics`（纯文本上 `(^|\s)#话题` 边界成立）再整体包 `<p>`。
+  - HTML 承载：`baijiahao-article.js` 的 `content`；**顺序不变量** = 先 `convertInlineTopics`（纯文本上 `(^|\s)#话题` 边界成立）再整体包 `<p>`。另含 `adapters/wechat-mp/draft.js` 的 `content0`（公众号草稿 API 轨，2026-10-12 #3375 新落地，测试原用 HTML 输入故幂等透传）。
   - 纯文本承载：`douyin-image.js` / `douyin-video.js` / `kuaishou-video.js` / `bilibili-video.js` / `shipinhao-video.js` / `xiaohongshu-draft.js` 的描述字段。
 - **测试（精确断言，先红后绿）**：`content-formatter.test.js` +12 例（`toBe`/`deepStrictEqual` 精确串）；`baijiahao-article-chain.test.js` +4 例（表单 `content` 解码后精确断言）；`topic-inline-contract.test.js` B-5 契约更新为 `<p>…</p>`；`douyin-image-chain.test.js`、`xiaohongshu-draft-chain.test.js` 各 +1 例反向锁。
 - **文档**：新增 `01-docs/PRD-ARTICLE-BODY-FORMAT-2026-10-12.md`（含全平台审计矩阵与真机复核 runbook）；`PRD-API-PUBLISH-ENGINE.md` §12.1 表单字段口径更新；`AGENTS.md` QM-2 新增「图文正文承载形态合同」；`CHANGELOG.md` / `01-docs/learnings.md` / `.quality-gates.md` / `openspec/records/fix-article-body-format.md`。

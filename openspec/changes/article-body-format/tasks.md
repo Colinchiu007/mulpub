@@ -31,7 +31,8 @@
 - [x] `test/baijiahao-article-chain.test.js`：+4 例精确断言（多段/单段/幂等/顺序不变量）
 - [x] `test/topic-inline-contract.test.js` B-5：契约更新为 `<p>今日探店 #话题# 太好吃了</p>`
 - [x] 纯文本链接线：`douyin-image.js` / `douyin-video.js` / `kuaishou-video.js` / `bilibili-video.js` / `shipinhao-video.js` / `xiaohongshu-draft.js`
-- [x] 反向用例：`douyin-image-chain.test.js` +1、`tests/xiaohongshu-draft-chain.test.js` +1
+- [x] HTML 链接线补：`adapters/wechat-mp/draft.js` 的 `content0`（公众号草稿 API 轨，2026-10-12 #3375 新落地；其测试用 HTML 输入故幂等透传，纯文本输入新增 1 例精确断言）
+- [x] 反向用例：`douyin-image-chain.test.js` +1、`tests/xiaohongshu-draft-chain.test.js` +1、`test/wechat-mp-draft.test.js` +1
 
 ## 5. 回归（QM-5 ④）
 

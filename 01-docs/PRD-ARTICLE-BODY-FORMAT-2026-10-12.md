@@ -112,7 +112,7 @@ PY
 | 平台 | 内容形态 | 发布通道 | 正文字段 | 承载形态 | 判定 | 证据 |
 |------|---------|---------|---------|---------|------|------|
 | 百家号 | 图文 | api | `content`（`buildArticleFormData`） | HTML | 🔴 **已确认缺陷（本次修）** | 公开页 11/11 篇 0 个 `<p>`；源文 vs 产物逐字节对账 |
-| 公众号 | 图文 | dom（专用 `wechat-mp-article.js`） | ProseMirror 编辑器 | HTML | 🟢 已修复（2026-10-12 同日 PR） | 该模块 `hasHtmlTags ? raw : toParagraphHtml(plain)` + paste/JSAPI 通道 |
+| 公众号 | 图文 | dom（专用 `wechat-mp-article.js`）+ **api 草稿轨（`wechat-mp/*`，2026-10-12 #3375 新落地）** | ProseMirror 编辑器 / `content0` | HTML | 🟢 已修复（DOM 轨同日 PR；**API 轨本次接入 `formatArticleBody`**） | DOM：`hasHtmlTags ? raw : toParagraphHtml(plain)` + paste/JSAPI；API：`wechat-mp/draft.js` 的 `content0` 经本层（HTML 幂等、纯文本成段） |
 | 头条 | 图文 | dom 优先 + Node 直连兜底 | `content`（内部名 `htmlContent`） | HTML | 🟠 同类先例已修（直连轨）；DOM 轨待复核 | `packages/rpa-engine/src/toutiao-direct-bridge.js:33` 已 `<p>` 包装（**第二份实现**，待收敛） |
 | 头条/百家号/公众号 | 图文 | — | 「正文进编辑器」 | HTML | 🟡 DOM 轨待复核 | `_fillInput` 的 contenteditable 分支走 `execCommand('insertText')`；离屏无法判定编辑器模型是否成段 |
 | 知乎 | 图文 | dom（专用分支） | Draft.js（纯文本模型） | 纯文本 | 🟢 按平台语义处理 | `rpa-view-platforms.js` 先把 HTML 转 `\n\n` 纯文本，再走 CDP `Input.insertText` |
@@ -151,6 +151,7 @@ PY
 | 文件 | 字段 | 形态 |
 |------|------|------|
 | `publish/platforms/baijiahao-article.js` | `content` | html |
+| `adapters/wechat-mp/draft.js` | `content0`（公众号草稿 API 轨） | html |
 | `publish/platforms/douyin-image.js` | `content_desc` | plain |
 | `publish/platforms/douyin-video.js` | `content_desc` | plain |
 | `publish/platforms/kuaishou-video.js` | `caption` | plain |

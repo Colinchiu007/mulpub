@@ -75,6 +75,15 @@ test('基础字段映射（title/content/digest/author/sourceurl）', () => {
   assert.equal(body.fileid0, '0')
 })
 
+test('正文承载形态：纯文本多段 → content0 为 HTML 段落；已是 HTML 幂等透传', () => {
+  // 公众号草稿 `content0` 是 HTML 字段：纯文本会被平台按 HTML 解析，换行当可忽略空白
+  // ⇒ 整篇正文塌成一个文本节点（百家号同族事故 11/11 篇实证，见 PRD-ARTICLE-BODY-FORMAT）
+  const plain = parseBody(buildDraftBody({ ...ARTICLE, content: '第一段\n\n第二段' }, 0))
+  assert.equal(plain.content0, '<p>第一段</p><p>第二段</p>')
+  const html = parseBody(buildDraftBody({ ...ARTICLE, content: '<p>甲</p><p>乙</p>' }, 0))
+  assert.equal(html.content0, '<p>甲</p><p>乙</p>')
+})
+
 test('原文链接仅接受 http(s)（D4）', () => {
   const bad = parseBody(buildDraftBody({ ...ARTICLE, contentSourceUrl: 'javascript:alert(1)' }, 0))
   assert.equal(bad.sourceurl0, '')

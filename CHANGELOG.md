@@ -108,7 +108,7 @@
 ### 改动
 
 - **单一实现**：`packages/api-publish-engine/src/content-formatter.js` 新增正文承载形态层 —— `hasHtmlTags`（**标签名白名单**判据）、`textToParagraphHtml`（纯文本 → `<p>`，转义先行、CRLF 归一、空行不产出空 `<p>`）、`htmlToPlainText`（`<br>`→换行、块级收口、实体解码）、`getArticleBodyKind`、`formatArticleBody`（未知平台保守按纯文本）。
-- **接线（写平台字段前最后一跳）**：`baijiahao-article.js`（`content`，HTML）；`douyin-image.js` / `douyin-video.js` / `kuaishou-video.js` / `bilibili-video.js` / `shipinhao-video.js` / `xiaohongshu-draft.js`（描述类字段，纯文本）。
+- **接线（写平台字段前最后一跳）**：`baijiahao-article.js`（`content`，HTML）；`adapters/wechat-mp/draft.js`（`content0`，公众号草稿 API 轨——该轨 2026-10-12 #3375 新落地，`content0` 同属 HTML 字段，纯文本同样会塌成一段）；`douyin-image.js` / `douyin-video.js` / `kuaishou-video.js` / `bilibili-video.js` / `shipinhao-video.js` / `xiaohongshu-draft.js`（描述类字段，纯文本）。
 - **顺序不变量**：话题转换必须**先于** `<p>` 包装（`(^|\s)#话题` 的前置边界依赖井号前是空白/开头），反序会让内联话题停在单井号形态；由精确断言锁定。
 - **判据收窄**：形态判定用白名单而非「`<` 后跟字母」—— 后者会把技术正文里的 `#include <stdio.h>`、`vector<int>` 当标签（纯文本平台会**整段吃掉**），本次以正/反两向用例锁死。
 
