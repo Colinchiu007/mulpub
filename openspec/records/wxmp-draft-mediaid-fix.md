@@ -2,6 +2,8 @@
 record: wxmp-draft-mediaid-fix
 task: 微信公众号草稿保存 mediaId 采集补「响应体 appMsgId」第三条通道 + 平台提示可见性判据（innerText 隐藏节点实测取证）
 date: 2026-10-12
+sync_reason: 该 record 属 wxmp-draft-mediaid-fix 运行时任务，PR 尚未合并；随迁移 PR 落档时远程同步行按 PENDING 登记，由该任务会话合并后回填
+sync_backfill_owner: wxmp-draft-mediaid-fix 任务会话
 ---
 
 ## 本次执行记录：公众号草稿保存「缺少媒体 ID」报错修复（wxmp-draft-mediaid-fix，2026-10-12）【混合 PR】
