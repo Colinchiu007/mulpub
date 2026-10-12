@@ -115,6 +115,38 @@
             </li>
           </ul>
         </section>
+        <section class="member-center-redeem" data-testid="member-center-redeem">
+          <h3 class="member-center-plans-title">{{ t('memberCenter.redeemTitle') }}</h3>
+          <p class="member-center-redeem-hint">{{ t('memberCenter.redeemHint') }}</p>
+          <div class="member-center-redeem-row">
+            <input
+              v-model="redeemCode"
+              class="member-center-redeem-input"
+              data-testid="redeem-code-input"
+              :placeholder="t('memberCenter.redeemPlaceholder')"
+              :disabled="redeeming"
+              autocomplete="off"
+              spellcheck="false"
+              @keyup.enter="submitRedeem"
+            >
+            <button
+              class="member-center-redeem-submit"
+              data-testid="redeem-code-submit"
+              :disabled="!canSubmitRedeem"
+              @click="submitRedeem"
+            >
+              {{ redeeming ? t('memberCenter.redeeming') : t('memberCenter.redeemAction') }}
+            </button>
+          </div>
+          <p
+            v-if="redeemResult"
+            class="member-center-redeem-result"
+            :class="'is-' + redeemResult.tone"
+            :data-testid="'redeem-result-' + redeemResult.tone"
+          >
+            {{ redeemResult.text }}
+          </p>
+        </section>
         <div v-if="errorMessage" class="member-center-error-box">
           <p class="member-center-error" role="alert">{{ errorMessage }}</p>
           <IdentityDiagnostics />
@@ -175,6 +207,88 @@ function formatPrice(cents, currency) {
   if (!Number.isInteger(cents)) return '—'
   const symbol = currency === 'CNY' ? '¥' : currency + ' '
   return symbol + (cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)
+}
+
+// --- 激活码核销 -----------------------------------------------------------
+// 本地 license:activate 已在正式构建禁用（任意非空串都能换永久 Pro），兑换码
+// 改由服务端 POST /api/v1/redeem 核销，按 durationDays 授予会员。
+const redeemCode = ref('')
+const redeeming = ref(false)
+// tone: success / info / error。info 专门给「同码重放」——它不是失败，
+// 但也不是新开通，文案必须说清楚，避免用户以为又赚了一次时长。
+const redeemResult = ref(null)
+
+const canSubmitRedeem = computed(
+  () => redeemCode.value.trim().length > 0 && !redeeming.value,
+)
+
+// 服务端错误码 → i18n key。message 放的是 error.code（见 ipc-handlers/identity.js 的 safeError）
+const REDEEM_ERROR_KEYS = {
+  REDEEM_CODE_FORMAT: 'redeemErrFormat',
+  REDEEM_CODE_NOT_FOUND: 'redeemErrNotFound',
+  REDEEM_CODE_USED: 'redeemErrUsed',
+  REDEEM_CODE_DISABLED: 'redeemErrDisabled',
+  REDEEM_CODE_EXPIRED: 'redeemErrExpired',
+  BUSINESS_USER_REQUIRED: 'redeemErrSignedOut',
+  ENTITLEMENT_SESSION_MISMATCH: 'redeemErrSignedOut',
+}
+
+function formatPeriodEnd(iso) {
+  if (typeof iso !== 'string' || !iso) return ''
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString()
+}
+
+// 成功文案不能留空洞占位：plan/end 缺失时退成一句不含变量的兜底，
+// 否则会出现「已开通 ，有效期至 」这种明显坏掉的用户可见文案。
+function redeemDetail(plan, end) {
+  const parts = []
+  if (plan) parts.push(plan)
+  if (end) parts.push(end)
+  return parts.join(' · ')
+}
+
+async function submitRedeem() {
+  if (!canSubmitRedeem.value) return
+  redeeming.value = true
+  redeemResult.value = null
+  try {
+    const res = await memberStore.redeemCode(redeemCode.value.trim())
+    if (!res) {
+      // store 走 setError 分支：错误码已被规范化进 memberStore.error
+      // （见 stores/member.js 的 setError），这里据此选文案。
+      const key = REDEEM_ERROR_KEYS[memberStore.error] || 'redeemErrNetwork'
+      redeemResult.value = { tone: 'error', text: t('memberCenter.' + key) }
+      return
+    }
+    const end = formatPeriodEnd(res.periodEnd)
+    const detail = redeemDetail(res.plan, end)
+    if (!res.idempotent) {
+      redeemResult.value = {
+        tone: 'success',
+        text: detail
+          ? t('memberCenter.redeemSuccess', { plan: res.plan, end: detail })
+          : t('memberCenter.redeemSuccessGeneric'),
+      }
+    } else if (res.hasActiveSubscription) {
+      redeemResult.value = {
+        tone: 'info',
+        text: end
+          ? t('memberCenter.redeemAlreadyUsed', { plan: res.plan, end })
+          : t('memberCenter.redeemReplayExpired', { plan: res.plan || '' }),
+      }
+    } else {
+      // 服务端返回 200 但 subscription 为 null：这个码此前已兑换过，且那份
+      // 订阅已经到期。重放不会再加时长——这里必须明说，不能报「兑换成功」。
+      redeemResult.value = { tone: 'info', text: t('memberCenter.redeemReplayExpired', { plan: res.plan || '' }) }
+    }
+    redeemCode.value = ''
+    await identityStore.load()
+  } catch (error) {
+    redeemResult.value = { tone: 'error', text: t('memberCenter.redeemErrNetwork') }
+  } finally {
+    redeeming.value = false
+  }
 }
 // A2 单一真源：登录且有服务端权益快照时，升级 CTA 以 entitlement.plan 为准，不再读本地 licenseStore。
 const showUpgradeCta = computed(() => {

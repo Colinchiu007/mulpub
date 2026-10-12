@@ -110,9 +110,31 @@ export const useMemberStore = defineStore('member', () => {
     loading.value = false
   }
 
+  /**
+   * 激活码核销。返回归一化视图，渲染层不再直接碰服务端原始响应。
+   *
+   * `idempotent` + `hasActiveSubscription` 必须分开传：服务端在「同码重放且
+   * 订阅已过期」时返回 HTTP 200 + `subscription: null`，那既不是失败也不是
+   * 「兑换成功」。合成一个 success 布尔会让 UI 对用户发假承诺。
+   */
+  async function redeemCode(code) {
+    return runExclusive(async () => {
+      const response = await invoke('identityRedeemCode', { code })
+      if (!responseOk(response)) return setError(response)
+      error.value = null
+      const data = response.data || {}
+      return {
+        idempotent: data.idempotent === true,
+        plan: typeof data.plan === 'string' ? data.plan : null,
+        periodEnd: typeof data.periodEnd === 'string' ? data.periodEnd : null,
+        hasActiveSubscription: !!data.subscription,
+      }
+    })
+  }
+
   return {
     notifications, unreadCount, sessions, error, loading,
     loadNotifications, markNotificationsRead,
-    loadSessions, revokeOtherSessions, $reset,
+    loadSessions, revokeOtherSessions, redeemCode, $reset,
   }
 })

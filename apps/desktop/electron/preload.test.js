@@ -227,8 +227,10 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(149)
   })
 
-  it('合并后 api 总键数应为 343（2026-10-10：338 + 5 个发布频率策略 v2 键 getPublishFrequencyPolicy/setPublishFrequencyPolicy/emergencyReleasePublishWait/getPublishEmergencyStatus/onPublishEmergencyReleased；上一基线 338 = 337 + probeXiaohongshuDraftChain）', () => {
-    expect(Object.keys(api).length).toBe(343)
+  it('合并后 api 总键数应为 344（2026-10-11：343 + 1 个激活码核销键 identityRedeemCode → identity:redeem-code；上一基线 343 = 338 + 5 个发布频率策略 v2 键 getPublishFrequencyPolicy/setPublishFrequencyPolicy/emergencyReleasePublishWait/getPublishEmergencyStatus/onPublishEmergencyReleased）', () => {
+    expect(Object.keys(api).length).toBe(344)
+    // 新键必须真实存在于聚合入口，防止「改了数字但方法没接上」
+    expect(Object.keys(api)).toContain('identityRedeemCode')
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {

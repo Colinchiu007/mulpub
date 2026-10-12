@@ -850,6 +850,7 @@ var require_identity = __commonJS({
         identitySessionsRevokeOthers: () => ipcRenderer2.invoke("identity:sessions-revoke-others"),
         identityNotifications: () => ipcRenderer2.invoke("identity:notifications"),
         identityNotificationsMarkRead: () => ipcRenderer2.invoke("identity:notifications-mark-read"),
+        identityRedeemCode: (payload) => ipcRenderer2.invoke("identity:redeem-code", payload),
         identityDiagnosticReport: () => ipcRenderer2.invoke("identity:diagnostic-report"),
         onIdentityStateChanged: (callback) => {
           const handler = (_event, state) => callback(state);
