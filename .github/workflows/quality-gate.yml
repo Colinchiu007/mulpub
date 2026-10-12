@@ -466,6 +466,9 @@ jobs:
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/applive-foreign-audit.test.ps1
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/mp-applive-launcher.test.ps1
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/mp-worktree-health.test.ps1
+          # 安装器自身的锁：没有它，「钩子从仓库真源装到共享 .git/hooks」这条链路只有运行期兜底、
+          # 没有任何 CI 在看（三条变异 no-op 循环 / 去 -Force / 相对 dst 均已实测指名变红）。
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/install-git-hooks.test.ps1
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/session-guard.test.ps1
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/session-write-guard.test.ps1
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/install-session-isolation-task.test.ps1

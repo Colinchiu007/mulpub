@@ -64,6 +64,12 @@
   3 张无主基线（`analytics-overview` / `login-form` / `settings-general`）去留涉及删除他人文件，只登记不裁决；
   采集套件是否升级为比对套件（一次引入 60 个漂移源，正解是先做 PR B）。
 - 详见 `01-docs/PRD-VISUAL-BASELINE-DOMAIN-2026-10-11.md`（§2 十二行实测表、§3 逃逸链、§5.1 防自坏判据、§5.2 变异表）。
+# [未发布] test(scripts): 钩子安装器补回归锁并接进 Gate 2d（hook-installer-test）
+
+- 新增 `scripts/install-git-hooks.test.ps1`（16 条断言，pwsh 7 与 Windows PowerShell 5.1 两档全绿），锁住「钩子唯一真源 `scripts/hooks/*` → 绝对公共目录 `.git/hooks`」这条链路：逐名逐字节安装、`*.test.*` 跳过、只读陈旧钩子必须被覆盖（`-Force` 承重）、源目录缺失必须非零退出且不装任何东西、第三方尾部追加经重装必须消失、从子目录运行仍不得在 cwd 造 `.git/hooks`。
+- 接线 `.github/workflows/quality-gate.yml` Gate 2d（`shell: bash`，fail-fast 成立）。此前 `install-git-hooks.ps1` 没有任何回归测试、CI 也从不运行它：glob 改坏 / `-Force` 丢失 / 相对路径解析退化这三类失效都不会让任何检查变红，分支守卫与 `.ccg/reviews` 判定记录自动入库会静默消失。
+- 三条变异反证均实测**指名变红**（no-op 循环、去掉 `-Force`、dst 改相对），还原后复跑全绿；过程中纠正两条自造判据缺陷——case6 断言路径与源目录同路径导致**恒假**，case3 夹具用普通可写文件导致 `-Force` 变异**假绿**。
+- 记录 `.quality-gates.md` 与 `openspec/records/hook-installer-test.md` 写明 QM-1 / QM-6 取 N/A 的具体范围理由，并注明故意不设 `core.hooksPath`（会令守门版本随分支漂移，且使 `mp-worktree-health.ps1` 的钩子比对变成装饰性判据）。
 # [未发布] feat(publish): 话题标签统一 + #添加话题 + 常用话题标签管理（topic-tag-unify）
 
 ### 用户感知
