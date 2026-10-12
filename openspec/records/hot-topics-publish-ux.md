@@ -2,9 +2,6 @@
 record: hot-topics-publish-ux
 task: 热门选题一键发布 UX 优化：按钮改名「改写并发布」+ 单条行内发布按钮（单篇一键改写）+ 改写稿内联预览/编辑与回写 + 发布页确认横幅 key + 专项 PRD
 date: 2026-10-12
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由本会话回填
-sync_backfill_owner: 本会话（hot-topics-publish-ux）
 ---
 
 ## 本次执行记录：热门选题一键发布 UX 优化（hot-topics-publish-ux，2026-10-12）
@@ -20,7 +17,7 @@ sync_backfill_owner: 本会话（hot-topics-publish-ux）
 | 接线棘轮 | ✅ | hot-topics-publish-ux.test.js 位于 apps/desktop/src/views/，由既有 unit workflow glob 覆盖（与 HotTopics.test.js 同目录同模式），单元测试 + Lint job PASS |
 | QM-1 打包 / QM-4 视觉 | ✅/N/A | 未触 electron/ 主进程与 rpa-engine → QM-1 N/A（CI build job PASS 兜底）；UI 变更为既有列表行内加按钮 + 进度区加编辑块，沿用既有组件类（cohere-btn-primary/secondary）与局部样式，无视觉基线破坏，CI Visual job 按白名单跳过 |
 | QM-6 CCG 双模型外部评审 | ⚠️ | pre-commit CCG 门禁执行：审查模式 SINGLE（变更 ≤200 行常规专家分派），3 项通过，判定落盘 .ccg/reviews/*.json 随提交入库；deep-review 跨家族对抗未执行（本机 wrapper 就绪但按 SINGLE 模式判定不强制） |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin hot-topics-publish-ux` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | PR #3404 squash 合并：merge SHA 6cce888d5d26acc1d29cb05add2acf05fff8c2a9（2026-10-12T14:06:12+08:00）；`git ls-remote --heads origin hot-topics-publish-ux` 返回 0 行，远端分支已删 |
 
 ### 遗留（不假装已闭合）
 - 发布页确认横幅（publishPage.handoff.banner）本轮只落 key 与契约测试，Publish.vue 宿主接线为后续小 PR（宿主在零增长容差清单）。
