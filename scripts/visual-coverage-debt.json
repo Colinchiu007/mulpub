@@ -1,0 +1,436 @@
+{
+  "$comment": "视觉判定域欠账清单（scripts/check-visual-coverage.js 的登记表）。gaps 键 = 视图:主题（浅用视图名，暗用视图名-dark）；orphans 键 = 基线文件名去掉 .png；outOfDomain 键 = <相对路径>#<数组名>。三张表**只能缩小**：对应事实消失却不删登记项 ⇒ 报陈旧红；新增登记必须同时抬起 check-visual-coverage.js 里对应的 MAX_ 常量并写明理由。",
+  "$measuredAt": "2026-10-11T10:48:58.258Z",
+  "$domain": "apps/desktop/tests/visual-testing/**/const <X>Tests = [ 的全部声明（发现式清扫），其中进域的 5 张见 check-visual-coverage.js 的 SOURCES",
+  "$baselineDir": "apps/desktop/tests/visual-testing/base-screenshots",
+  "gaps": {
+    "hot-topics:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "hot-topics:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "prompt-eval:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "prompt-eval:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "home-default:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "home-default:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "comments-list:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "comments-list:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "automation:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "automation:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "copy-library:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "copy-library:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "rewrite:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "rewrite:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "providers-redirect:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "providers-redirect:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "video-clone:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "video-clone:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "film-engineering:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "film-engineering:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "film-engineering-classic:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "film-engineering-classic:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "create-pipeline-redirect:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "create-pipeline-redirect:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "project-library:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "project-library:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "production-board:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "production-board:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "contact-sheet:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "contact-sheet:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "replay-timeline:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "replay-timeline:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "auto-pipeline:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "auto-pipeline:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "knowledge-base:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "knowledge-base:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "performance-insights:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "performance-insights:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "member-center:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "member-center:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "all"
+      ]
+    },
+    "create-view-default:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "supp"
+      ]
+    },
+    "create-view-default:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "supp"
+      ]
+    },
+    "intelligence-main:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "supp"
+      ]
+    },
+    "intelligence-main:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "supp"
+      ]
+    },
+    "user-menu-upgrade-entry:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "supp"
+      ]
+    },
+    "user-menu-upgrade-entry:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "supp"
+      ]
+    },
+    "model-provider-add-dialog:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "supp"
+      ]
+    },
+    "model-provider-add-dialog:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "supp"
+      ]
+    },
+    "model-provider-edit-dialog:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "supp"
+      ]
+    },
+    "model-provider-edit-dialog:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "supp"
+      ]
+    },
+    "model-provider-delete-dialog:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "supp"
+      ]
+    },
+    "model-provider-delete-dialog:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "supp"
+      ]
+    },
+    "collection-confirm-dialog:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "supp"
+      ]
+    },
+    "collection-confirm-dialog:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "supp"
+      ]
+    },
+    "sidebar-platform-list:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "supp"
+      ]
+    },
+    "sidebar-platform-list:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "supp"
+      ]
+    },
+    "nav-active-state:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "supp"
+      ]
+    },
+    "nav-active-state:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "supp"
+      ]
+    },
+    "app-header-status:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "supp"
+      ]
+    },
+    "app-header-status:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "supp"
+      ]
+    },
+    "analytics-overview:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "loopPixel"
+      ]
+    },
+    "settings-general:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "loopPixel"
+      ]
+    },
+    "login-form:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "loopPixel"
+      ]
+    },
+    "comments:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "loopPixel",
+        "loopViews"
+      ]
+    },
+    "comments:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "loopPixel",
+        "loopViews"
+      ]
+    },
+    "accounts-with-dialog:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "loopViews"
+      ]
+    },
+    "accounts-with-dialog:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "loopViews"
+      ]
+    },
+    "model-providers-with-add:light": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "loopViews"
+      ]
+    },
+    "model-providers-with-add:dark": {
+      "reason": "基线尚未由 CI artifact 提升（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物）。本项由 PRD-VISUAL-BASELINE-DOMAIN 的 PR B 逐批补图后删除；这张清单只能缩小，不得新增无理由项。",
+      "suites": [
+        "loopViews"
+      ]
+    }
+  },
+  "orphans": {},
+  "outOfDomain": {
+    "apps/desktop/tests/visual-testing/functional-test.js#functionalTests": {
+      "reason": "功能断言用例名，不做像素比对（实测该文件只调 runner.launch/close，无 pixelRegressionTest）。实测 25 个条目名里 1 个（publish-form）与基线同名属**命名巧合**，不是消费关系，故不属视图级基线域。"
+    },
+    "apps/desktop/tests/visual-testing/workflows/all-workflows.visual.test.js#workflowTests": {
+      "reason": "多步流程条目，基线名由 resolveBaselineName 派生（一步一截图时带 --step-N 后缀），不是本门禁「视图名 × 浅/暗两档」模型能表达的形态。实测：本表 31 个条目名在 base-screenshots 里精确命中 0 个；该套件由 run-all-visual.js 在 Visual Tests workflow 的**非阻断采集步**里跑。其 step 级基线是另一本账，登记为后续项（见 PRD §6），不得因为本条豁免就当已覆盖。"
+    },
+    "apps/desktop/tests/visual-testing/workflows/supplementary-workflows.visual.test.js#supplementaryWorkflowTests": {
+      "reason": "同 workflowTests：多步流程条目 + resolveBaselineName 派生命名。实测 18 个条目名在 base-screenshots 精确命中 0 个；同一非阻断采集步。"
+    }
+  }
+}
