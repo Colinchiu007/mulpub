@@ -1,3 +1,7 @@
+# [未发布] 存量播客单集 `mime` 一次性固化的合同（mime-stock-freeze）
+
+- PRD 新增 §7.9：把 tasks 4.4 写成可实现合同——事实前提（存量脏值分「缺席」与「非法」两类，处置不同）、固化动作（恰好一次、幂等、只补不改、按扩展名派生、派生不出就不猜）、数据校验与失败语义表、交互与显示项（`compliance` 增设 `stock` 档、频道页摘要）与 zh/en 提示文字三条、七条必须带的回归锁、以及故意不做的三项。
+- 明确声明本节是合同不是实现：固化代码与 locale 键均未落地，tasks 4.4 保持未勾。
 # [未发布] fix(account-tab): 开卡首屏即登录态——凭证 localStorage 的 document-start 注入从未生效（xhs-tab-first-paint-login）
 
 ### 用户感知
