@@ -2,9 +2,6 @@
 record: wxmp-publish-masssend
 task: 公众号「发布/群发」两条发送链（API 轨）+ DOM 轨群发正判据 + 发布方式三态能力
 date: 2026-10-12
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填 PR 改写为 PASS + merge SHA 并删除三个 sync_* 字段
-sync_backfill_owner: 下一个会话（或本会话的合并后回填步骤）
 ---
 
 ## 本次执行记录：公众号发布/群发链 + DOM 群发正判据（wxmp-publish-masssend，2026-10-12）
@@ -37,7 +34,7 @@ sync_backfill_owner: 下一个会话（或本会话的合并后回填步骤）
 | OpenSpec | PASS | `openspec/changes/wechat-mp-publish-track/`（proposal/design/tasks/specs 四件） |
 | CHANGELOG | PASS | 收口见 `CHANGELOG.md` 条目 |
 | 品牌残留 | PASS | 仓库文档只写「参考产品」，未写逆向目录绝对路径 |
-| 远程同步 | PENDING | 本 PR 尚未合并。合并后：`git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 取 merge SHA；`git ls-remote --heads origin wxmp-publish-masssend` 返回 0 行证远端分支已删；回填本行与 `.quality-gates.md` 并删除 `sync_*` 三字段（同一次提交，本条不加台账键——记录文件 sync_* 即该源登记机制） |
+| 远程同步 | PASS | PR #3406 已 squash 合并，merge SHA `aff80d36899a701dd054fbbd5a252d6f7d52c645`（committer 2026-10-12T15:14:49+08:00）；取证 `git log origin/main --grep='(#3406)$' --format=%H|%cI` **唯一 1 行**命中；`git ls-remote --heads origin wxmp-publish-masssend` 返回 **0 行**，证远端分支已删；`sync_*` 三字段已在同一次回填提交中删除（本条不加台账键：记录文件 sync_* 即该源登记机制） |
 
 ### 变异反证 6/6（摘掉判据必须变红）
 
