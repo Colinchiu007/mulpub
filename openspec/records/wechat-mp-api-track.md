@@ -2,9 +2,6 @@
 record: wechat-mp-api-track
 task: 微信公众号 API 发布轨（会话/图片上传/建草稿/回读）+ 消灭「假成功」+ DOM 轨群发保护预检
 date: 2026-10-12
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填 PR 改写为 PASS + merge SHA 并删除三个 sync_* 字段
-sync_backfill_owner: 下一个会话（或本会话的合并后回填步骤）
 ---
 
 ## 本次执行记录：微信公众号 API 发布轨 + 消灭假成功 + DOM 轨群发保护预检（wechat-mp-api-track，2026-10-12）【混合 PR】
@@ -41,7 +38,7 @@ sync_backfill_owner: 下一个会话（或本会话的合并后回填步骤）
 | 文档同步 | PASS | 新增 `01-docs/PRD-WECHAT-MP-API-TRACK-2026-10-12.md` + `openspec/changes/wechat-mp-api-publish-track/**` |
 | 接线棘轮 | PASS | `check-unwired-tests.js`（4 个包内测试文件被 `run-tests.js` 的 `*.test.js` glob 自动发现；desktop 侧走 vitest glob） |
 | QM-1 打包 | N/A | 未改 `package.json` 的 `files`、未新增被 require 的顶层依赖；改动集中在已被 asar 覆盖的 `electron/services` 与 `packages/api-publish-engine`。CI 打包 job 为准 |
-| 远程同步 | PENDING | 本 PR 尚未合并。合并后：`git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 取 merge SHA；`git ls-remote --heads origin wechat-mp-api-track` 返回 0 行证远端分支已删；回填本文与 `.quality-gates.md` 的远程同步行、删除上方三个 `sync_*` 字段与 `scripts/gate-record-debt-ledger.json` 的登记项（同一次提交） |
+| 远程同步 | PASS | PR #3375 已 squash 合并，merge SHA `305f3851c782882ec589dbd886df3f4388e53127`（committer 2026-10-12T09:06:17+08:00）；取证 `git log origin/main --grep='(#3375)$' --format=%H|%cI` **唯一 1 行**命中；`git ls-remote --heads origin wechat-mp-api-track` 返回 **0 行**，证远端分支已删；`sync_*` 三字段与 `scripts/gate-record-debt-ledger.json` 的本条登记已在同一次回填提交中删除 |
 
 ### 设计取舍（不假装只有一条路）
 
