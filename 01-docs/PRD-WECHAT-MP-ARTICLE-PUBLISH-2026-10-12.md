@@ -405,3 +405,263 @@ IMAGE_TEXT_PLATFORMS = ['xiaohongshu', 'kuaishou', 'douyin', 'toutiao']   // 要
 | 历史缩略图 | `apps/desktop/src/composables/useHistoryCoverThumbnails.js`、`apps/desktop/src/views/PublishHistory.vue` |
 | 文案 | `apps/desktop/src/locales/publish-page/{zh,en}.js` |
 | 规格 | `openspec/changes/wechat-mp-article-content-cover/` |
+
+---
+
+# 第二部分：草稿保存结果判据补强（wxmp-draft-mediaid-fix，2026-10-12）
+
+> 本章是 2026-10-12 当晚的用户报障修复，与上半部分同一域（公众号图文 DOM 轨）但**判据不同**：
+> 上半部分修「草稿里没内容」，本章修「草稿存进去了却判它没存进去」。
+> 关联记录：`openspec/records/wxmp-draft-mediaid-fix.md`。
+
+## 11. 背景与问题陈述
+
+### 11.1 用户报障原文
+
+发布图文到微信公众号时报错：
+
+```
+微信公众号草稿保存结果无法验证：缺少媒体 ID（平台提示：从公众平台上传的非转载视频才能设置弹幕功能）
+```
+
+### 11.2 两层原因
+
+| # | 层级 | 结论 | 性质 |
+| --- | --- | --- | --- |
+| ① | **真因** | mediaId 采集只认「URL 的 appmsgid」与「保存 XHR 响应 URL 的 appmsgid」两条；公众号新版后台保存草稿后 **URL 不跳转**，响应 URL 也不带该参数，它只在**响应体 JSON**（`appMsgId`）里 ⇒ `mediaId` 恒为空 | 判据漏了一条真实可达的采集通道 |
+| ② | **放大镜** | `readEditorToast` 用 `innerText` 读 `.js_tips` / `[class*="tips"]` 等候选，而 `innerText` 对 `display:none` / 离屏节点**照样返回文本** ⇒ 编辑器里与本次失败无关的常驻说明（如视频弹幕规则）被当成「平台提示」拼进 error | 把可自愈的重试类问题伪装成平台业务错误 |
+
+**为什么 ② 比 ① 更值得修**：① 的后果是「明明存进去了却说没存进去」，用户重试一次往往就能成功；
+② 的后果是「用户看到一段与故障毫无关系的平台规则，完全无法自救」——它让一个**信息性问题**
+退化成了**玄学问题**。两类都必须修，但 ② 决定用户能不能自己走下去。
+
+### 11.3 「弹幕提示」为什么必然出现在图文编辑页
+
+「从公众平台上传的非转载视频才能设置弹幕功能」是公众号编辑器里**视频弹幕开关**的说明文案
+（弹幕只对从公众平台上传、且非转载的视频开放）。它与图文草稿保存毫无关系，但它在 DOM 里
+常驻（含隐藏态节点）。`readEditorToast` 的选择器表里 `.js_tips` / `[class*="tips"]`
+正好命中它 —— 这不是偶发，是**必然**：只要页面存在这类常驻说明，失败文案就会带上它。
+
+## 12. 目标与非目标
+
+### 12.1 目标
+
+- **G1** 新版后台（URL 不跳转）保存草稿成功后，mediaId 必须被采集到 —— 补第三条通道。
+- **G2** 「平台提示」只允许来自**可见**提示节点；隐藏 / 离屏节点的文本不得进入用户可见文案。
+- **G3** 保存失败文案必须**可操作**：告诉用户下一步做什么（重试 / 去哪核对），而不是只贴平台原文。
+- **G4** 三条通道全空时**仍然 fail-closed** —— 补通道不是放宽判据，「点了就算成功」不允许回来。
+
+### 12.2 非目标
+
+- 不改保存按钮选择器、不改保存成功轮询条件（既有两条通道的行为保持原样）。
+- 不改群发 / 发布（`masssend` / `freepublish`）链的成功判据。
+- 不新增 IPC、不改渲染层、不动 locales（文案在主进程 error 串里，非 locales 键）。
+- 不把公众号切到 API 轨（`platforms.yaml` 仍是 `dom-only`，切换前置见 API 轨 PRD）。
+
+## 13. 功能逻辑
+
+### 13.1 F7 mediaId 三条采集通道（主进程）
+
+**位置**：`apps/desktop/electron/services/wechat-mp-draft-mediaid.js` → `saveWechatMpDraft(host, win)`
+
+```
+点「保存草稿」（SAVE_BUTTON_SELECTOR）
+   │
+   ├─ 点击不可用 ⇒ fail（保存按钮不可用），不再往下走
+   │
+   ├─ 轮询保存成功标识（URL 出现 appmsgid，或页面出现「保存成功 / 已保存」）30s
+   │
+   └─ 采集 mediaId，三条通道按证据强度降序：
+        ① 保存后页面 URL 的 appmsgid          ── 最强（页面已确认跳转）
+        ② 保存 XHR 响应 URL 的 appmsgid       ── 强（请求已确认 200）
+        ③ 保存 XHR 响应体的 appMsgId          ── 本次新增（新版后台 URL 不跳转时的唯一通道）
+             ├─ 先按显式键名取：appMsgId / app_msg_id / appmsgid / appmsg_id
+             └─ 取不到再走通用 publish-id 提取（rpa-publish-id-extract.js，同一份形态校验）
+   │
+   └─ 三条全空 ⇒ fail-closed，error 走 F8 文案
+```
+
+**为什么 ③ 必须是独立通道而不是 ② 的正则放宽**：② 判的是「响应 URL 里带 `appmsgid=`」，
+③ 判的是「响应体 JSON 里有 `appMsgId` 字段」——两者是**不同的数据位置**。
+把 ② 的正则放宽到能匹配响应体，会让「响应 URL 匹配失败」与「响应体也没取到」混为一谈，
+日志与测试都无法区分是哪条通道给的 ID。
+
+**响应体字段口径与 API 轨对齐**：`appMsgId` 这个键名来自
+`packages/api-publish-engine/src/adapters/wechat-mp/draft.js` 的 `createDraft`
+（`data.appMsgId || data.app_msg_id || base.appMsgId`）—— 同一条链的 DOM 轨与 API 轨
+必须认同一个字段名，否则会出现「API 轨能建、DOM 轨不认」的分裂。
+
+### 13.2 F8 「平台提示」可见性判据（主进程）
+
+**位置**：`wechat-mp-draft-mediaid.js` → `buildVisibleToastScript(selectors)`
+
+```
+遍历 TOAST_SELECTORS 候选（.weui-desktop-toast / .weui-desktop-msgbox / .js_tips /
+[class*="toast"] / [class*="Toast"] / [class*="tips"]）
+   │
+   └─ 每个候选倒序取节点，先判**可见**：
+        visible = !!el.offsetParent || el.getClientRects().length > 0
+        ├─ offsetParent 为 null 的常见情形：display:none、position:fixed（Toast 常是 fixed）
+        └─ 因此两者必须取「或」，不能只用其一
+   │
+   ├─ 不可见 ⇒ 跳过（不读它的 innerText）
+   └─ 可见且 innerText 非空 ⇒ 取前 200 字符返回
+```
+
+**为什么必须判可见（实测取证）**：`innerText` 的规范行为是「按渲染样式计算文本」，
+但 Chromium 实测（2026-10-12，Playwright + 自建 fixture）：
+
+| 节点形态 | `innerText` | `textContent` |
+| --- | --- | --- |
+| `display:none` | **返回文本** | 返回文本 |
+| `position:absolute; left:-9999px`（离屏） | **返回文本** | 返回文本 |
+| 可见 | 返回文本 | 返回文本 |
+
+即：**隐藏与可见在 `innerText` 上无法区分**。旧实现因此把编辑器常驻说明当成平台提示。
+
+**选择器表不缩**：判据收紧只加「可见性守卫」，不删候选。删表会把「真 toast 也读不到」
+这个更糟的问题引进来（用户连平台真实错误都看不到）。
+
+### 13.3 F9 保存失败文案（主进程）
+
+**位置**：`wechat-mp-draft-mediaid.js` → `describeSaveFailure(raw, fallback)`
+
+| 输入 | 输出 | 说明 |
+| --- | --- | --- |
+| 含 `64714` 或「原创」 | `文章保存失败：请检查文章原创性（该内容可能已被其他账号声明原创）` | 已知业务错误，直接换成可操作文案（既有行为，不回归） |
+| 含 `protect_status` /「群发保护」/「风险操作」 | `发布失败：账号开启了群发保护。请前往「微信公众平台 → 设置与开发 → 安全中心 → 风险操作保护」，关闭「群发消息」保护后重试` | 同上 |
+| 其它非空提示 | `<fallback>（平台提示：<原文前 120 字>），请稍后重试；若反复失败请到公众号后台草稿箱核对` | 原文照带，但**必须同时给下一步** |
+| 空提示 | `<fallback>，请稍后重试；若反复失败请到公众号后台草稿箱核对` | 不编造平台提示 |
+
+**文案硬约束**：关键信息在前 40 字内 —— 历史页「失败原因」行是**单行渲染**（`recordErrorText(record)`
+单行截断 + `title` 悬停全文），超过 40 字才出现的内容在列表页不可见。
+
+## 14. 数据校验规则表
+
+### 14.1 mediaId 响应体通道（主进程）
+
+| # | 校验项 | 判据 | 不通过时 |
+| --- | --- | --- | --- |
+| D1 | 响应体非空 | `String(body).trim()` 非空 | 跳过本通道，回落「三条全空」 |
+| D2 | JSON 可解析 | `JSON.parse` 不抛 | 走通用 publish-id 提取兜底 |
+| D3 | 显式键名命中 | `appMsgId` / `app_msg_id` / `appmsgid` / `appmsg_id` 任一存在 | 走通用提取兜底 |
+| D4 | 值非空且非 `"0"` | `String(v).trim() !== '' && !== '0'` | 视为未创建（公众号 `ret:0` 但 `appMsgId:0` 是明确的失败形态） |
+| D5 | 通用提取的 ID 形态 | `normalizePublishId` + `/^\d{4,}$/` | 不用（公众号 ID 是纯数字，4 位以上） |
+| D6 | 异常不抛 | 全链路 `try/catch` | 静默降级，由其它通道兜底 |
+
+> D4 的依据：API 轨 `createDraft` 同样把 `appMsgId === '0'` 判为 `draft-not-created`
+> （`packages/api-publish-engine/src/adapters/wechat-mp/draft.js` L149）。
+> **两个轨必须同一个口径**，否则「API 轨说失败、DOM 轨说成功」会变成新的分裂。
+
+### 14.2 平台提示可见性（主进程）
+
+| # | 校验项 | 判据 | 不通过时 |
+| --- | --- | --- | --- |
+| V1 | 节点可见 | `!!el.offsetParent \|\| el.getClientRects().length > 0` | 跳过该节点 |
+| V2 | 文本非空 | `innerText.trim()` 非空 | 继续找上一个候选 |
+| V3 | 长度上限 | 取前 200 字符 | 截断（防把整页文本塞进 error） |
+| V4 | 脚本抛错 | `executeJavaScript` reject | 返回空串，**绝不抛**（诊断旁路不得阻断发布） |
+
+## 15. 流程
+
+### 15.1 保存草稿段（修订后）
+
+```
+[上半部分 §5.1 步骤 ⑥ 展开]
+
+勾选同意
+   │
+   ▼
+点「保存草稿」──────────────┐
+   │                        └─ 按钮不可用 ⇒ 失败「保存按钮不可用」
+   ▼
+轮询保存成功标识（30s）
+   │
+   ▼
+采集 mediaId
+   ├─ ① URL appmsgid          ─┐
+   ├─ ② 响应 URL appmsgid      ├─ 任一命中 ⇒ mediaId
+   └─ ③ 响应体 appMsgId       ─┘
+   │
+   ├─ 命中 ⇒ 进入群发/发布段（若 article.massSend || article.freePublish）
+   │          或直接返回 success
+   │
+   └─ 全空 ⇒ fail-closed
+              ├─ 读**可见**平台提示（F8）
+              └─ 组文案（F9）：fallback + （平台提示：…）+ 可操作下一步
+```
+
+### 15.2 与群发/发布段的衔接（不变）
+
+mediaId 仍是群发段 `[appmsgid="<mediaId>"]` 行选择器的唯一依据。补通道后：
+真机上「未找到已保存草稿 mediaId=…」这条失败的触发率应显著下降
+（此前是 mediaId 压根没拿到，根本走不到这一步）。
+
+## 16. 交互逻辑与显示项
+
+### 16.1 用户可见的变化
+
+| 场景 | 修复前 | 修复后 |
+| --- | --- | --- |
+| 新版后台保存成功 | 报「草稿保存结果无法验证：缺少媒体 ID（平台提示：从公众平台上传的非转载视频才能设置弹幕功能）」 | **成功**，草稿箱可查 |
+| 真保存失败（如平台繁忙） | 同上（文案与成功场景无法区分） | 「…缺少媒体 ID（平台提示：<真实提示>），请稍后重试；若反复失败请到公众号后台草稿箱核对」 |
+| 保存失败但页面只有隐藏常驻说明 | 把常驻说明当平台提示 | 只用 fallback + 可操作下一步，**不编造平台提示** |
+| 原创被声明 / 群发保护 | 既有可操作文案 | **不变**（不回归） |
+
+### 16.2 历史页「失败原因」行
+
+`record.error` 单行渲染，因此新文案按「关键信息在前 40 字」设计：
+前 40 字 = 「微信公众号草稿保存结果无法验证：缺少媒体 ID」，
+其后才是平台提示与下一步。用户在列表页扫一眼即可判断「是我们的判据没通过」还是「平台报了错」。
+
+### 16.3 日志（新增一条 info）
+
+```
+[wechat_mp] mediaId from save response body appMsgId=<id> (url 未跳转，走响应体通道)
+```
+
+这条日志的真机价值：一旦用户再报「缺少媒体 ID」，看日志里**有没有**这行即可二分定位 ——
+有这行 ⇒ 响应体通道也没拿到 ID（平台真没返回），没这行 ⇒ 响应压根没匹配上保存请求特征
+（`operate_appmsg` / `appmsg/save` / `oper=save` 三个 pattern 需要按实况扩）。
+
+## 17. 验收标准
+
+| # | 验收项 | 判据 | 验证方式 |
+| --- | --- | --- | --- |
+| AC-14 | URL 不跳转但响应体有 `appMsgId` ⇒ 保存成功 | `_waitForResponse` 返回 `{statusCode:200, body:'{"appMsgId":"2651883412"}'}` 时 `success:true` | `wechat-mp-draft-mediaid.test.js` |
+| AC-15 | 响应体 `appMsgId` 为 `0` / 空串 ⇒ 不算成功 | `extractAppMsgIdFromBody('{"appMsgId":0}') === ''` | 同上 |
+| AC-16 | 三条通道全空 ⇒ 仍 fail-closed | `success:false` 且 `error` 含「媒体 ID」 | 同上 |
+| AC-17 | toast 脚本带可见性守卫且覆盖 fixed 定位 | 脚本含 `offsetParent \|\|` 与 `getClientRects` | 同上 |
+| AC-18 | 失败文案含可操作下一步 | `describeSaveFailure('任意提示', fallback)` 匹配 `/草稿箱\|重试\|后台/` | 同上 |
+| AC-19 | 原创性 / 群发保护文案不回归 | 两条映射仍命中 | 同上 |
+| AC-20 | 变异反证 4/4 | 摘响应体通道 / 不拒 0 / 去可见性守卫 / 去可操作提示 ⇒ 各自变红 | 执行记录表 |
+
+## 18. 风险与真机边界
+
+| 风险 | 影响 | 缓解 |
+| --- | --- | --- |
+| 响应体字段名在真机上不是 `appMsgId` | 通道 ③ 取不到，退回两条老通道（仍可能失败） | 日志明确区分「响应没匹配」与「响应体没 ID」；D3 四个键名 + 通用提取双兜底；真机一次即可定位 |
+| 可见性判据过严，把真 toast 判成不可见 | 用户看不到平台真实错误 | 判据取 `offsetParent \|\| getClientRects` 的**或**（覆盖 fixed）；选择器表不缩；AC-17 锁住 |
+| 补通道被误读成「放宽判据」 | 「点了就算成功」回归 | AC-16 显式锁「三条全空仍 fail-closed」；变异 M1 反证 |
+| `saveResp.body` 在真机上不存在 | 通道 ③ 静默失效 | `_waitForResponse` 目前只回 `{url, statusCode, matchedUrls}`；body 字段缺失时通道 ③ 自动跳过（`extractAppMsgIdFromBody('')` 返回空串），不抛错。**若真机确认需要 body，需给 `_waitForResponseExclusive` 补响应体采集（CDP `Network.getResponseBody`），属下一刀并需评估隐私面** |
+
+### 18.1 本轮的实测取证（不假装已闭合）
+
+| 项 | 状态 | 证据 |
+| --- | --- | --- |
+| `innerText` 对 `display:none` / 离屏节点返回文本 | ✅ 已实测 | Playwright + 自建 fixture（隐藏 `.js_tips` 文案被 `innerText` 读出） |
+| 新版后台保存后 URL 是否真的不跳转 | ⚠️ **未实测** | 本机无可用公众号账号会话（`accounts` 表 0 行、`publish_history` 表 0 行、今日 app.log 无任何 `wechat_mp` 记录）。依据是：① 编辑器 URL 带 `isNew=1`（新建态，保存后理应在原页完成）；② 保存按钮选择器含 `a#js_sync_save`（`js_sync_save` 是公众号「同步保存」入口，语义即不跳转）；③ API 轨 `readbackDraft` 用 `t=media/appmsg_edit&action=edit&appmsgid=` 回读，说明 ID 只在响应体/回读请求里流转 |
+| 真机发一条图文核对草稿三项齐全 | ❌ 未做 | 同上，无会话 |
+
+## 19. 相关文件（本章）
+
+| 类型 | 路径 |
+| --- | --- |
+| mediaId 采集 + 可见 toast + 失败文案 | `apps/desktop/electron/services/wechat-mp-draft-mediaid.js` |
+| 回归锁（14 例） | `apps/desktop/electron/services/wechat-mp-draft-mediaid.test.js` |
+| 平台分支接线 | `apps/desktop/electron/services/rpa-view-platforms.js`（`_publish_wechat_mp` 保存段 + `readVisibleEditorToast`） |
+| toast 候选表（不缩） | `apps/desktop/electron/services/wechat-mp-dom-guard.js`（`TOAST_SELECTORS`） |
+| 通用 publish-id 提取（通道 ③ 兜底） | `apps/desktop/electron/services/rpa-publish-id-extract.js` |
+| API 轨同名字段口径 | `packages/api-publish-engine/src/adapters/wechat-mp/draft.js` |
+| 变异反证脚本 | `scripts/mut-check-wxmp-mediaid.cjs` |
+| 执行记录 | `openspec/records/wxmp-draft-mediaid-fix.md` |
