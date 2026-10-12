@@ -164,6 +164,13 @@
           t('historyPage.filterScanTruncatedHint')
         }}</span>
         <span v-if="actionMessage" class="action-message" role="status">{{ actionMessage }}</span>
+        <!-- 指标刷新入口（PRD-PUBLISH-HISTORY-ENGAGEMENT-2026-10-12 §六）：低频采集的手动触发。
+             达当日上限时禁用并说明原因——让用户反复点一个必然被拒的按钮是更差的交互。 -->
+        <button class="secondary-action" type="button" data-testid="refresh-metrics" :disabled="syncing || dailyCapReached" :title="dailyCapReached ? t('historyPage.metricsDailyCapReached') : t('historyPage.metricsRefreshHint')" @click="onRefreshMetrics">{{ syncing ? t('historyPage.metricsRefreshing') : t('historyPage.metricsRefresh') }}</button>
+        <!-- 非实时是明确的产品取舍，必须写在界面上，不能让用户以为是实时数据 -->
+        <span class="filter-result" data-testid="metrics-not-realtime">{{ t('historyPage.metricsNotRealTime') }}<template v-if="metricsCaption">{{ ' · ' + metricsCaption }}</template></span>
+        <!-- 采集/刷新失败必须出声（否则按钮点一下毫无反应，用户以为功能坏了） -->
+        <span v-if="metricsError" class="filter-truncated" role="alert" data-testid="metrics-error">{{ metricsError }}</span>
       </div>
 
       <div v-if="loading" class="state-panel state-panel--skeleton" data-testid="history-records-loading">
@@ -260,7 +267,7 @@
               :title="recordErrorText(record)"
             >{{ recordErrorText(record) }}</p>
           </div>
-          <div class="record-stats" :aria-label="t('historyPage.statsAria')">
+          <div class="record-stats" :aria-label="t('historyPage.statsAria')" :title="metricHint(record)" :data-testid="`record-stats-${record.id}`">
             <div><span>{{ t('historyPage.metricAccounts') }}</span><strong>{{ metricValue(record.accountCount, 1) }}</strong></div>
             <div><span>{{ t('historyPage.metricTasks') }}</span><strong>{{ metricValue(record.taskCount, 1) }}</strong></div>
             <div><span>{{ t('historyPage.metricFailed') }}</span><strong class="failure-value">{{ failedCount(record) }}</strong></div>
@@ -400,6 +407,9 @@
           <div><dt>{{ t('historyPage.detailShares') }}</dt><dd>{{ metricValue(selectedRecord.shares) }}</dd></div>
           <div class="record-detail-content"><dt>{{ t('historyPage.detailContent') }}</dt><dd>{{ selectedRecord.content || selectedRecord.description || t('historyPage.noContentSummary') }}</dd></div>
         </dl>
+        <!-- 手动录入的触发点：自动采集覆盖不到的平台（unsupported / needs_login）需要它兜底。
+             此前该入口在 main 上就没有任何调用点（弹窗永远打不开），本切片补上并只在无指标时出现。 -->
+        <button v-if="!metricFor(selectedRecord)" class="secondary-action" type="button" data-testid="detail-manual-entry" @click="openManualEntry(selectedRecord)">{{ t('historyPage.manualEntryTitle') }}</button>
       </section>
     </div>
 
@@ -414,7 +424,7 @@
       </el-form>
       <template #footer>
         <el-button @click="manualDialogVisible = false">{{ t('historyPage.manualEntryCancel') }}</el-button>
-        <el-button type="primary" @click="submitManualSnapshot">{{ t('historyPage.manualEntrySave') }}</el-button>
+        <el-button type="primary" :disabled="manualSaving" @click="submitManualSnapshot">{{ t('historyPage.manualEntrySave') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -429,7 +439,7 @@ import { useI18n } from 'vue-i18n'
 import { getAppLocale } from '@/i18n'
 import { useRouter } from 'vue-router'
 import { draftList, historyDelete, historyGet, historyList, retryTask } from '@/api/publisher'
-import { listTrackedContent, addManualSnapshot } from '@/api/knowledge-library'
+import { usePublishHistoryMetrics } from '@/composables/usePublishHistoryMetrics'
 import { formatDateTime } from '@/utils/datetime'
 import { PLATFORM_ICONS, PLATFORM_NAMES } from '@multi-publish/shared-utils/src/platform-definitions'
 import { getPlatformIconUrl, isPlatformIconUrl } from '@/composables/usePlatformIconUrl'
@@ -596,8 +606,8 @@ async function loadRecords (options = {}) {
       || (append && addedCount === 0)
       || records.value.length >= page.total
     selectedIds.value = selectedIds.value.filter(id => records.value.some(record => record.id === id))
-    // P2 效果闭环：拉取表现快照，合并到记录（tracked_content 以 task_id 关联）
-    void attachPerformanceSnapshots()
+    // 作品互动数据：主进程按 taskId 批量 join（见 usePublishHistoryMetrics 头注释）
+    void loadMetrics()
     if (!append && hasActiveFilters.value) void loadRemainingRecordsForFilters()
     return page.records.length > 0 && (!append || addedCount > 0)
   } catch (e) {
@@ -630,57 +640,35 @@ watch(identityAuthenticated, (authed) => {
   if (authed && loginRequired.value) void loadRecords()
 })
 
-// ── P2 效果闭环：表现数据合并 ──
-const manualDialogVisible = ref(false)
-const manualTarget = ref(null)
-const manualMetrics = ref({ views: null, likes: null, comments: null, favorites: null, shares: null })
+// ── 作品互动数据（PRD-PUBLISH-HISTORY-ENGAGEMENT-2026-10-12）──
+// 取数、空态归因、手动刷新与「数据截至」全部收在 composable 里：本视图被行数门禁
+// （.github/scripts/check-max-lines.js 的 targets，零增长容差）点名，新逻辑不得落在视图内。
+// 旧实现是「渲染端拉前 100 条 tracked 自己按 publish_history_id 配对」——两个结构性缺陷
+// （只取第一页 ⇒ 早于第 100 条的作品永远恒空；归属过滤写在渲染端等于没有）已由主进程
+// `performance:history-metrics` 一次 SQL join 修掉。
+const {
+  syncing,
+  metricsError,
+  dailyCapReached,
+  latestCapturedAt,
+  captionFor,
+  metricHint,
+  metricFor,
+  loadMetrics,
+  refreshMetrics,
+  manualDialogVisible,
+  manualMetrics,
+  manualSaving,
+  openManualEntry,
+  submitManualSnapshot,
+} = usePublishHistoryMetrics({ t, records })
 
-async function attachPerformanceSnapshots () {
-  try {
-    const res = await listTrackedContent({ page: 1, pageSize: 100 })
-    if (!res || res.code !== 0 || !res.data) return
-    // publish_history 记录的 taskId 对应 tracked_content 的 publish_history_id 语义（发布任务 id）
-    const byTask = new Map()
-    for (const t of (res.data.items || [])) {
-      if (t.publish_history_id) byTask.set(String(t.publish_history_id), t)
-    }
-    for (const record of records.value) {
-      const tracked = byTask.get(String(record.taskId || record.id))
-      if (tracked && tracked.latest_snapshot) {
-        const snap = tracked.latest_snapshot
-        record.views = snap.views
-        record.likes = snap.likes
-        record.comments = snap.comments
-        record.favorites = snap.favorites
-        record.shares = snap.shares
-        record.recrawlStatus = tracked.recrawl_status
-        record.trackedContentId = tracked.id
-      }
-    }
-  } catch { /* 表现数据合并失败不影响历史列表主流程 */ }
-}
+/** 「数据截至 X 前」：只在真有指标时显示；时间不可解析则不显示（不伪造成「刚刚」）。
+ *  文案实现与卡片级新鲜度提示共用 composable 的 `captionFor`（两处各写一份必然漂移）。 */
+const metricsCaption = computed(() => captionFor(latestCapturedAt.value))
 
-function openManualEntry (record) {
-  manualTarget.value = record
-  manualMetrics.value = { views: null, likes: null, comments: null, favorites: null, shares: null }
-  manualDialogVisible.value = true
-}
-
-async function submitManualSnapshot () {
-  if (!manualTarget.value || !manualTarget.value.trackedContentId) return
-  try {
-    const res = await addManualSnapshot(manualTarget.value.trackedContentId, {
-      views: Number(manualMetrics.value.views) || 0,
-      likes: Number(manualMetrics.value.likes) || 0,
-      comments: Number(manualMetrics.value.comments) || 0,
-      favorites: Number(manualMetrics.value.favorites) || 0,
-      shares: Number(manualMetrics.value.shares) || 0,
-    })
-    if (res && res.code === 0) {
-      manualDialogVisible.value = false
-      void attachPerformanceSnapshots()
-    }
-  } catch { /* 手动录入失败静默 */ }
+function onRefreshMetrics () {
+  return refreshMetrics()
 }
 
 function loadMoreRecords () {

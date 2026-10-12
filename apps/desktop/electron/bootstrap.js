@@ -292,6 +292,29 @@ servicesResult = await startServices({
           log.info('App', 'performance-recrawl scheduler started')
         }
       } catch (e) { /* 容器无此服务时静默跳过 */ }
+
+      // 启动账号级作品数据回流（PRD-PUBLISH-HISTORY-ENGAGEMENT-2026-10-12）：
+      // 启动后 60s 首轮 + 每 24h 一轮。低频是产品契约（用户接受非实时），
+      // 目的是让发布记录页的五项互动列有真数据，同时把请求密度压到风控安全区。
+      // 归属解析器必须在这里注入：identityService 挂在 servicesResult 上而不在容器里，
+      // 容器装配期拿不到。返回 null（有身份服务但认不出主体）⇒ 服务整轮跳过，不回落到 legacy 桶。
+      try {
+        var accountMetrics = container.get('accountMetricsService')
+        if (accountMetrics && typeof accountMetrics.start === 'function') {
+          if (typeof accountMetrics.setResolveOwner === 'function' && servicesResult.identityService) {
+            accountMetrics.setResolveOwner(function () {
+              try {
+                var st = servicesResult.identityService.getState && servicesResult.identityService.getState()
+                var sub = st && st.user && st.user.sub
+                if (typeof sub === 'string' && sub.trim()) return sub.trim()
+                return null
+              } catch (_) { return null }
+            })
+          }
+          accountMetrics.start()
+          log.info('App', 'account-metrics scheduler started')
+        }
+      } catch (e) { /* 容器无此服务时静默跳过 */ }
       context.keywordPersistTimer = servicesResult.keywordPersistTimer
       context.loginStatusMonitor = servicesResult.loginStatusMonitor
       context.cloudPublisher = servicesResult.cloudPublisher
