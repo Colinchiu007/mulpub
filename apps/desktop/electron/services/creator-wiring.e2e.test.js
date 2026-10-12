@@ -64,7 +64,10 @@ function trustedEvent () {
 
 const UC = 'UC' + 'a'.repeat(22)
 
-/** 采集器替身：只挡网络，store 与 handler 全是真实的 */
+/** 采集器替身：只挡网络，store 与 handler 全是真实的。
+ *  ⚠ 方法集**必须**与真实采集器一致 —— 见文件末尾的「替身形状对账」用例。
+ *  历史教训：这里的 `resolveChannelId` 是手搓的，而真实 `createCreatorCollector`
+ *  当时根本没返回它 ⇒ 夹具把「添加博主」伪装成可用，真实装配下必抛 TypeError。 */
 function stubCollector (posts = [], body = { content: '正文', contentQuality: 'full' }) {
   return {
     resolveChannelId: async () => UC,
@@ -241,5 +244,30 @@ describe('creator 接线 · 端到端（真实 sql.js + 真实 handler）', () =
     require('./../ipc-handlers/creator').registerHandlers(ipc, { log: { warn () {}, error () {} } })
     const r = await call(ipc, 'creator:list', {})
     expect(r.reason).toBe('service-unavailable')
+  })
+
+  // ── 替身形状对账（2026-10-12 事故的反向锁）─────────────────────────
+  // 事故里最关键的一环是**夹具自造方法**：stubCollector 有 resolveChannelId，
+  // 而真实 createCreatorCollector 当时没有 ⇒ e2e 全绿、真机添加博主必然 TypeError。
+  // 这条锁把「替身的每个方法，真实对象都必须也有」变成机械判据：以后谁再往
+  // 替身里加一个真实装配不提供的方法，这条会立刻红，而不是等用户点下去。
+  it('采集器替身的方法集必须是真实采集器的子集（防夹具自造方法）', () => {
+    const { createCreatorCollector } = require('./creator-collector-runtime')
+    const real = createCreatorCollector({
+      credentialProvider: () => ({ apiKey: 'AIza-fake-key-for-shape-check' }),
+      log: { warn () {} },
+    })
+    for (const method of Object.keys(stubCollector())) {
+      expect(typeof real[method], `真实采集器缺少替身提供的方法：${method}`).toBe('function')
+    }
+  })
+
+  it('真实采集器必须暴露 resolveChannelId（creator:follow 的唯一解析入口）', () => {
+    const { createCreatorCollector } = require('./creator-collector-runtime')
+    const real = createCreatorCollector({
+      credentialProvider: () => ({ apiKey: 'AIza-fake-key-for-shape-check' }),
+      log: { warn () {} },
+    })
+    expect(typeof real.resolveChannelId).toBe('function')
   })
 })

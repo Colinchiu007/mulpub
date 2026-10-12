@@ -1135,7 +1135,13 @@ var require_creator = __commonJS({
         creatorCollectOne: (payload) => ipcRenderer3.invoke("creator:collect-one", payload),
         creatorSkipOne: (payload) => ipcRenderer3.invoke("creator:skip-one", payload),
         creatorSendToWriter: (payload) => ipcRenderer3.invoke("creator:send-to-writer", payload),
-        creatorPendingTotal: () => ipcRenderer3.invoke("creator:pending-total")
+        creatorPendingTotal: () => ipcRenderer3.invoke("creator:pending-total"),
+        // 凭证（读方向永不回传明文；写方向是全仓唯一接受明文的入口）
+        creatorCredentialStatus: () => ipcRenderer3.invoke("creator:credential-status"),
+        creatorCredentialSet: (payload) => ipcRenderer3.invoke("creator:credential-set", payload),
+        creatorCredentialClear: () => ipcRenderer3.invoke("creator:credential-clear"),
+        // 依赖状态：发现腿（是否接线）与正文腿（字幕可选依赖）分开报，UI 据此只对阻塞项禁功能
+        creatorDependencyStatus: () => ipcRenderer3.invoke("creator:dependency-status")
       };
     }
     module2.exports = { createCreatorApi };

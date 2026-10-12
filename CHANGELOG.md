@@ -1,3 +1,38 @@
+# [未发布] fix(creator): 博主监控页整页不可用——三处接线缺陷 + 文案分因，并补上「添加博主 / 配置 API Key」两条入口（creator-monitor-depfix）
+
+### 用户感知
+
+采集页「博主监控」页签此前只有一行**「缺少采集依赖。请执行：」**（冒号后为空），列表恒空，点「关注」**没有任何反应**，且全应用**没有任何地方**能填 YouTube API Key。修复后：页面正常加载博主与待采集角标；「关注」打开应用内弹窗（支持频道链接 / `@handle` / `UC…` 频道 ID），成功后**立即检查一次新作品**；未配置凭证时页面横幅引导至新增的「配置 API Key」弹窗（密钥经系统密钥库加密、只存本机、保存后立即清空输入框）。
+
+### 三个独立根因（都让功能完全不可用，且互相掩盖）
+
+- **C1 取值路径写错**：`apps/desktop/electron/bootstrap/phase5-ipc.js` 按 `typeof context.get === 'function'` 取依赖，而 `context` 是 `bootstrap/phase1-context.js` 的分组 Proxy（`{infra,services,windows,pipelines}`），**自身没有 `get`**，只暴露 `context.container` ⇒ 三元恒假 ⇒ 三个 creator 服务全为 `undefined` ⇒ `ipc-handlers/creator.js` 判定依赖缺失 ⇒ **11 个通道全部注册为降级**。改为只经 `context.container.get(name)`（顶层直取仅作测试兜底），容器未注册名 catch 后按缺失处理，缺失只降级该通道。
+- **C2 凭证提供者从未注册**：`electron/core/container.setup.creator.js` 写 `c.get('creatorCredentialProvider') || (() => null)`，而容器 `get` 对未注册名**抛错**（`core/container.js:78`）而不是返回 `undefined` ⇒ 解析 `creatorCollector` 即抛 ⇒ `creatorRuntime` 一并失败。这是**与 C1 并列的第二个降级成因**——只修 C1 仍然降级。现补注册（新增 `electron/services/creator-credential.js`）并加 `try/catch` 兜底，把「将来又被删掉」退化成「没配 Key」而非「整页不可用」。
+- **C3 采集器缺 `resolveChannelId`**：`creator:follow` 一直调 `creatorCollector.resolveChannelId(input)`，而 `createCreatorCollector` 只返回 `listPosts` / `collectBody` ⇒ 真实装配下必抛 `undefined is not a function`。**e2e 之所以全绿**：`creator-wiring.e2e.test.js` 的替身手搓了该方法——夹具替对方**造方法**（`learnings.md` 同型教训的第四种落点）。现补齐实现，并加「替身方法集 ⊆ 真实对象方法集」的对账锁。
+- **C4 文案分因（用户可见面）**：渲染层把 `reason:'service-unavailable'` 渲染成「缺少采集依赖。请执行：」并传 `command: ''`。该文案把用户引向「装 Python 包」，而真因是「主进程没接线 ⇒ 重启应用」。现按 `reason` 分因：服务未就绪走 `creatorErrServiceUnavailable`（不含占位符），真正的可选依赖走新增只读通道 `creator:dependency-status` 的非阻塞提示（带确切 pip 命令与国内镜像源）。
+
+### 顺带修掉的两个「死路」
+
+- `window.prompt` **在 Electron 渲染进程不可用**（调用即抛 `prompt() is and will not be supported`），旧「关注」入口因此**整条不存在**。改为 `CreatorAddDialog.vue`（与同页 `QuickCollectCommandDialog.vue` 同构）。
+- 旧文案「未配置 YouTube API Key…请在设置中填写」指向**并不存在**的设置字段；`creatorErrCredentialMissing` / `creatorFatalPaused` / `creatorEmptyDesc` 三条文案已改正，并新增 `CreatorCredentialDialog.vue` 承载 PRD §7.4 的四态（未配置 / 密钥库不可用 / 已解密失败 / 已配置，含末四位指纹）。
+- 旧 `probeDependency()` 用 Node `require` 去探测 **Python** 包 ⇒ **恒返回 `ready:false`**（当时无生产调用点，接上就是「依赖永远缺失」的假告警）。改为 `probeTranscriptDependency({ pythonBridge })`，只回答 Node 侧真能回答的事，并如实声明「桥不在跑」与「没装包」不可区分。
+
+### 规格与文档
+
+- PRD 新增 §17（现象 / 四个根因 / 修复设计 / 三层数据校验 / 端到端流程 / 显示项与 zh-en 提示文字对照表 / `reason` 全表 / 交互细则 / 13 条回归锁 / 未闭合清单 / 变更文件清单）+ 两处既有文案指引修正。
+- `openspec/specs/creator-monitor/spec.md` 新增 4 条 Requirement（面板接线可解析性、服务未就绪与依赖缺失分因、添加博主入口与交互、凭证配置可见入口）共 9 个 Scenario，并把「凭证安全」的状态区分按 QM-6 评审 W1 扩为**四坏态**（未配置 / 密钥库不可用 / 已解密失败 / 本地存储读取失败——读失败重填无效，MUST 引导重启而非反复重填）。
+- 修正 `ipc-handlers/creator.js` 头注中「通道已登记为 public」与实现不符的表述（许可策略变更需人工裁决，本次不动）。
+
+### QM-6 双模型评审与处置
+
+- **后端 claude：Critical 0 / Warning 1 / Info 3，全部处置**：W1 读失败并入 decrypt_failed ⇒ 新增 `read_failed` 态 + zh/en 专门文案 + 三态互斥测试（读失败重填无效，与「解密失败重填有效」必须分开）；I2 `getCredential()` 死代码且形状差半截 ⇒ 删除 + `toBeUndefined` 反向锁；I3 「缺包命令」在桥未运行时可能误导 ⇒ 文案改为「**若确认缺少该包**，可在终端执行」；I4 观测项不改。
+- **前端 opencode 三次未产出结构化 findings ⇒ critic-only**（如实记账，不冒充双模型通过）；其 3 个疑点由主代理用机械门禁逐条核验（e2e 替身方法集对账 / `check-ipc-bridge` 459/477/0 / `check-locale-sync` 三档）。
+
+### 测试与门禁
+
+- 8 个测试文件（3 新 / 5 改）共 **199 例**；受影响域子集 71 files / **1457 例**全绿；ESLint 0 error。
+- 静态门禁本地实跑：`check-ipc-bridge`（459 handlers / 477 preload / 0 缺口）、`check-ipc-sender-guard`（显式守卫 66.1% ≥ 65%、0 绕过）、`check-locale-sync`（`--pair-base` / `--cjk` / `--keys` 三档 PASS）、`check-frontend-consistency`、`check-font-size-scale`、`check-no-brand-residue`、`check-unwired-tests`、`check-text-encoding-integrity` 全部 PASS。
+- QM-1 打包验证与 QM-6 双模型评审记录见 `openspec/records/creator-monitor-depfix.md`。
 # [未发布] 播客刀 4 第 3 片·接线：TTS 生产适配层（podcast-tts-adapters）
 
 - 新增 apps/desktop/electron/services/podcast-episode-tts-adapters.js：createGenerateTTS / createVoiceReaders / createConcatBlocks / createProbeImpl 四个生产工厂，把 §7.4.8 编排层的注入参数接成真实现；未接宿主，不改既有行为。

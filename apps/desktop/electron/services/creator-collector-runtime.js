@@ -10,7 +10,7 @@
 
 'use strict'
 
-const { CREATOR_INPUT_ERRORS, YOUTUBE_API_BASE } = require('./creator-collector')
+const { CREATOR_INPUT_ERRORS, YOUTUBE_API_BASE, resolveChannelId: resolveChannelIdImpl } = require('./creator-collector')
 const { DEFAULT_COLLECT_PAGE_SIZE, classifyContentQuality } = require('./creator-content-quality')
 
 /** 默认注入实现：仅用 Node 内置 https，避免为一次 GET 引入依赖 */
@@ -55,6 +55,22 @@ function createCreatorCollector (deps = {}) {
       throw e
     }
     return c
+  }
+
+  /**
+   * 用户输入 → canonical channelId。
+   *
+   * ⛔ 2026-10-12 补齐：`ipc-handlers/creator.js` 的 `creator:follow` 调的是
+   *   `creatorCollector.resolveChannelId(input)`，而本工厂**从来没返回过这个方法**
+   *   （只返回 listPosts / collectBody）⇒ 真实装配下那是 `undefined is not a function`，
+   *   也就是「添加博主」在第三个点上同样不可用（前两个是 phase5 的取值路径与
+   *   未注册的凭证提供者）。e2e 测试之所以没抓到：它的 `stubCollector` 手搓了一个
+   *   `resolveChannelId` —— **夹具按调用方想象的形状收参数**，真实装配里并不存在。
+   *   现在把真实现暴露出来，并让 e2e 的替身与真实采集器做方法集对账。
+   */
+  async function resolveChannelId (raw) {
+    const { apiKey } = credentials()
+    return resolveChannelIdImpl(raw, { apiKey, httpGet })
   }
 
   /** 取频道 uploads 播放列表里的最新作品（探测阶段不取正文） */
@@ -122,7 +138,7 @@ function createCreatorCollector (deps = {}) {
     }
   }
 
-  return { listPosts, collectBody }
+  return { resolveChannelId, listPosts, collectBody }
 }
 
 module.exports = { createCreatorCollector, defaultHttpGet }
