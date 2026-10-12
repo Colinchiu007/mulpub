@@ -17654,3 +17654,9 @@ CCG 的 `HARDCODED_SECRET` 规则是「关键词 + `[:=]` + 引号内 8 字符�
 本轮把 `.ccg/reviews/<sha>.json`（会话本地审查产物）一并提交了，amend 才摘掉。
 该目录**历史上确有被托管的文件**（origin/main 里 195 个），所以「它一定被 ignore」的直觉不成立——
 **提交前逐项过 `git status`，不要用 `-A` 一把梭**。
+
+## 热门选题一键发布 UX 优化的三条可复用教训（hot-topics-publish-ux，2026-10-12）
+
+1. **写 UX 方案前先探「能力是否已存在」**：本任务共识里「自动兜底封面」是核心项，动手前调查发现发布链路（usePublishFlow）早已实现（PRD-ARTICLE-PUBLISH-IMAGE-2026-09-29），该项零代码。教训：对着痛点设计方案前，先用代码取证该断点的真实现状——「用户感觉没有」≠「产品没做」，可能是「做了但用户不知道」（提示透明度问题，不是能力问题）。
+2. **跳转函数 async 化是静默破坏既有测试的典型面**：goToDestination 从同步改为「先回写编辑再跳转」后，既有测试 trigger('click') 同步断言 pushSpy 会在 promise resolve 前跑，表现为「被调用 0 次」而非明确报错。凡把同步跳转改 async，同 PR 必须排查全部 trigger('click')+断言跳转的既有用例补 flushPromises。
+3. **i18n mock 下的文案契约断言要打 locales 源文件**：vi.mock('vue-i18n') 让组件渲染 key 而非文案，模板断言 t('xxx') 永远成立/不成立都与文案无关；正确锚点是 readFileSync 读 locales/{zh,en}.js 源码断言 key 与文案值（必须传 'utf8'，否则返回 Buffer 使 toContain 恒假且报错信息难读——本次实踩）。
