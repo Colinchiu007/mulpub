@@ -1,6 +1,4 @@
 ---
-sync_reason: 本 PR（podcast-tts-colloquialize）的远程同步待合并后由后续 docs PR 回填并删除本条登记
-sync_backfill_owner: 后续 docs PR（回填链）
 sync_pr: 0
 ---
 
@@ -22,4 +20,4 @@ sync_pr: 0
 - 前端 opencode 未产出结构化 findings ⇒ critic-only（后端单模型）+ 主代理逐条处置，不冒充双模型通过。
 ## 远程同步
 
-| 远程同步 | PENDING | 待本 PR 合并后回填 PASS + merge SHA，并在同一次提交删除 ledger 登记项与本文件 frontmatter 的三个 sync_ 字段 |
+| 远程同步 | PASS | 已合并：PR #3368，merge db0b0fc2258fb163733b22a71c956d55f4f19e17（2026-10-12，squash）。取证：`git log origin/main --grep "(#3368)$" --format=%H|%cI`；本次回填同一次提交删除 ledger 登记项，并在带 frontmatter 的记录文件里删 sync_ 字段 |
