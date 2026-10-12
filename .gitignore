@@ -113,6 +113,12 @@ scripts/*.js
 !scripts/plan-review.sh
 !scripts/deep-review.sh
 !scripts/openspec-sync-check.js
+# Gate 9 覆盖审计的 PR 画像判据（2026-10-12，change: gate9-scope-fix）。
+# ⚠ 同 #3011 同族：`scripts/*.js` 会把门禁本体静默忽略掉 —— 实测三个 commit 反复 CI 红，
+# 根因是判据模块没入库（.test.js 后缀不同逃过忽略，被测模块没有），CI 上
+# MODULE_NOT_FOUND 而本机全绿。新增 scripts/ 下的门禁模块必须在此放行。
+!scripts/gate9-classify.js
+!scripts/gate9-prd-status.js
 # 渲染层跨包导入边界门禁（PR #3011 事故预防措施）。
 # ⚠ 本条反选是必需的：`scripts/*.js` 会把门禁本体静默忽略掉，而 `*.test.js` 有通用例外，
 # 于是「测试进了仓库、被测门禁没进」——CI 上表现为 `Cannot find module`，
