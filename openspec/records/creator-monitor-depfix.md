@@ -2,9 +2,6 @@
 record: creator-monitor-depfix
 task: 博主监控页整页不可用修复（依赖接线 / 添加博主 / 凭证入口 / 文案分因）
 date: 2026-10-12
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填 PR 改写 PASS + merge SHA 并整段删除本三个 sync_ 字段
-sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账）
 ---
 
 # 博主监控页整页不可用修复（creator-monitor-depfix，2026-10-12）
@@ -31,7 +28,7 @@ sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账�
 | QM-6 双模型评审 | PASS | 后端 claude：Critical 0 / Warning 1 / Info 3（**W1 已修**：新增 read_failed 态 + 专门文案 + 三态互斥测试；I2 已修：删死代码 getCredential + 反向锁；I3 改文案；I4 观测项）。前端 opencode 3 次未产出结构化 findings ⇒ **critic-only**，其 3 个疑点由主代理用机械门禁逐条核验（详见 QM-6 明细），不冒充双模型通过 |
 | 未闭合（诚实记录） | — | ① 未做真机端到端（本机无可用 YouTube Data API Key）；② Python `content-aggregator` 是否已装，Node 侧无法区分（只到「桥在不在跑」）；③ creator 通道的许可级别仍为 authenticated，与旧头注「已登记 public」不符——本次只改注释，许可策略变更需人工裁决；④ 字幕腿的自动安装引导（复用 asr-installer）未做 |
 | 记忆沉淀 | PASS | ① **外部记忆（仓库文档）**：PRD §17 + `openspec/specs/creator-monitor/spec.md`（+4 Requirement / 9 Scenario）+ 本记录 + `CHANGELOG.md` 置顶条目 + `01-docs/learnings.md` 新章节（append-only，两口径 `--numstat` 对账见下注）。② **外部记忆（本机 gstack learnings.jsonl）**：追加 4 条（`container-get-throws-on-unregistered-name-so-fallback-must-catch` / `defensive-ternary-on-a-nonexistent-method-hides-a-total-outage` / `test-double-must-not-invent-methods-the-real-collaborator-lacks` / `bare-at-sign-in-i18n-string-messages-throws-invalid-linked-format`），文件 157 → **161 行**、逐行 `JSON.parse` 校验 **0 坏行**。③ **EverOS**（本机 v1.4.1 @127.0.0.1:8000，健康检查 200）：`POST /api/v1/memory/add`（session `mp-creator-monitor-depfix-20261012`）回 `accumulated`、`/api/v1/memory/flush` 回 **`extracted`**；**读回产物为判据**——`~/.everos/default_app/default_project/users/agent/episodes/episode-2026-10-12.md`（**11483 B**）中 grep 到哨兵串 `creator-monitor-depfix` / `resolveChannelId` / `service-unavailable` 各命中（另两条哨兵被抽取层改写，属已知形态，不以自造标签为准）。④ **内置记忆**：本会话 DSH 会话档由 harness 自动落盘（无对外写 API），未手工伪造。 |
-| 远程同步 | PENDING | 待本 PR 合并后回填 PASS + merge SHA，并在**同一次提交**删除 `scripts/gate-record-debt-ledger.json` 的登记项 |
+| 远程同步 | PASS | PR #3398 已 squash 合并为 `a59665ce30f69b6474ca554249b07fb6b1238061`（2026-10-12T13:17:51+08:00）；取证：`git log origin/main --grep="(#3398)$" --format="%H|%cI"` 恰好 1 行且 SHA 相同、`git ls-remote --heads origin creator-monitor-depfix` = 0 行。本行、`.quality-gates.md` 同名记录的两处（bullet + 表格行）、frontmatter 的 `sync_*` 三字段与 `scripts/gate-record-debt-ledger.json` 的登记项在**同一次提交**收口 |
 
 > 行尾两口径注：本增量 5 个文件在 `git diff --cached --numstat` 与 `--ignore-cr-at-eol --numstat` 之间差 **1 行**（`PRD-CREATOR-MONITOR-COLLECT`、`creator-dependency-probe.test.js`、`CreatorMonitor.test.js`、`CreatorMonitor.vue`、`creator-monitor/spec.md`）。已用 **blob 级取证**排除「行尾改写」：`git cat-file blob HEAD:<f>` 与索引 blob 的 CR 计数**均为 0**，且被替换的锚点行两侧**逐字节相等**（PRD 实测：HEAD 与 index 的第 1593 行同为 199 字符、`equal=true`）；差异来自 `w/crlf` 检出与 `text=auto` 在 diff 渲染层的口径差，不代表提交内容变化（本增量对文档均为纯追加）。
 
