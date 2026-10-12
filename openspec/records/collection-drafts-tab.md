@@ -2,6 +2,9 @@
 record: collection-drafts-tab
 task: 采集页草稿箱标签页 + 素材来源入口修正
 date: 2026-10-12
+sync_status: PENDING
+sync_reason: PR #3395 尚未合并，merge SHA 无从取证，故远程同步行写 PENDING 而非闭合词；合并后由回填提交改为 PASS + merge SHA，并同时删除 sync_reason / sync_backfill_owner / sync_status 三字段（回填与销账必须同一次提交）。
+sync_backfill_owner: collection-drafts-tab 分支作者（本会话）
 ---
 
 ## 本次执行记录：采集页草稿箱标签页（collection-drafts-tab，2026-10-12）
