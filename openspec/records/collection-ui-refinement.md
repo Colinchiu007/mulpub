@@ -1,5 +1,7 @@
 # 执行记录：采集页 UI/UE 精致化（collection-ui-refinement，2026-10-12）
 
+| 远程同步 | PENDING |
+
 ## 变更类型与隔离声明
 - 运行时代码变更（apps/desktop/**），已在隔离 worktree `D:\Data\projects\mp-worktrees\mp-collection-ui-refinement`（分支 `collection-ui-refinement`，基于 origin/main `c9b569268`）完成；共享根保持 main clean。
 - 入口：`scripts/start-mp-task.ps1 -TaskName collection-ui-refinement`（rc=0）；`node scripts/verify-worktree-deps.js` OK（11 消费方解析到本 worktree）。
