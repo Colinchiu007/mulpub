@@ -97,6 +97,17 @@ const SOURCES = Object.freeze([
     group: 'cn-hot', provider: 'hot-topics',
     homeUrl: 'https://tophub.today/n/KqndgxeLl9', expectedDomains: ['tophub.today', 'weibo.com', 's.weibo.com'], intervalMinutes: 30, riskLevel: 'medium',
   }),
+  // ── 垂类（hot-topics 的两个垂类信道；与主榜同为 observed：榜单条目没有发布时间） ──
+  Object.freeze({
+    id: 'sina_finance', label: '新浪财经滚动', kind: 'trend', sourceType: 'hottest', timeKind: 'observed',
+    group: 'cn-hot', provider: 'hot-topics',
+    homeUrl: 'https://finance.sina.com.cn/roll/', expectedDomains: ['sina.com.cn', 'finance.sina.com.cn'], intervalMinutes: 30, riskLevel: 'low',
+  }),
+  Object.freeze({
+    id: 'ithome_tech', label: 'IT之家热榜（垂类科技）', kind: 'trend', sourceType: 'hottest', timeKind: 'observed',
+    group: 'cn-hot', provider: 'hot-topics',
+    homeUrl: 'https://www.ithome.com/', expectedDomains: ['ithome.com'], intervalMinutes: 30, riskLevel: 'low',
+  }),
 
   // ─────────── trend：带发布时间的免费中文/技术时间线（S2；本机实测 200 且有 pubDate） ───────────
   // 这些源**有原生发布时间** ⇒ `timeKind: 'published'`，窗口按发布时间过滤（与榜单源的 observed 语义分开）。

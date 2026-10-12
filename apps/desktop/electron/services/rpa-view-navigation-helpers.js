@@ -17,27 +17,19 @@ const {
 } = require('./rpa-publish-id-extract')
 
 /**
- * HTML → 纯文本（模块级工具，2026-09-30）。
+ * HTML → 纯文本（模块级工具，2026-09-30；2026-10-12 收敛为引擎单一实现的委托）。
  * 用于无标题平台的描述合并：发布页 Quill 编辑器把草稿正文规范化为 HTML
  * （`<p>…</p>`），而平台描述是纯文本语义（计数器按可见字符算），
  * 不剥标签会让 `<p>` 以字面量出现在作品描述里（快手截图取证）。
  * 块级标签收口为换行，避免段落被粘连；三个以上连续换行压成两行。
+ *
+ * 实现委托 `api-publish-engine/src/content-formatter.js` 的 `htmlToPlainText`
+ * （单一真源；**标签名白名单**判据 —— 修复宽判据把代码片段 `#include <stdio.h>`
+ * 当标签整段吃掉的真实缺陷）。语义与本函数历史口径一致：`<br>`→换行、块级闭合→换行、
+ * 实体解码、`\n{3,}`→`\n\n`、trim。
  */
 function stripHtmlToPlainText (html) {
-  return String(html == null ? '' : html)
-    .replace(/<\s*br\s*\/?\s*>/gi, '\n')
-    .replace(/<\s*\/\s*(?:p|div|li|h[1-6]|blockquote|section|article)\s*>/gi, '\n')
-    // 2026-09-30：原 `/<[^>]*>/g` 把数学比较当标签吞掉（`<100 元` → 丢失）。真标签必以字母//!/? 开头。
-    .replace(/<(?=[a-zA-Z/!?])[^>]*>/g, '')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#0*39;/g, "'")
-    .replace(/&amp;/gi, '&')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
+  return require('@multi-publish/api-publish-engine/src/content-formatter').htmlToPlainText(html)
 }
 
 

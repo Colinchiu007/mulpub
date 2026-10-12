@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { draftDelete, draftList, draftSave } from '@/api/publisher'
 import { formatUserError } from '@/utils/user-facing-error'
 import { normalizeRewriteLineage } from '@/utils/rewrite-lineage'
+import { normalizePublishStringList } from '@/features/publish/publish-contract'
 import i18n from '@/i18n'
 import { useNotify } from './useNotify'
 
@@ -132,6 +133,17 @@ export function usePublishDrafts ({
         ? (Array.isArray(draft[field]) ? toPlainJson(draft[field]) : [])
         : (draft[field] || '')
     }
+    // 话题标签统一（topic-tag-unify）：UI 只剩「话题标签」一个入口（tags），
+    // 历史草稿的 topics 一次性并入 tags，topics 字段清空防双份——引擎侧
+    // mergeUniqueStrings 本就合并两者，这里提前合并让 UI 显示不缺话题。
+    // 归一口径与引擎侧一致（normalizePublishStringList：拆分逗号/顿号、
+    // 剥 # 前缀由发布链处理、Set 去重），禁止第二份归一实现。
+    const mergedTags = normalizePublishStringList([
+      ...(Array.isArray(article.tags) ? article.tags : []),
+      ...(Array.isArray(draft.topics) ? draft.topics : []),
+    ])
+    article.tags = mergedTags
+    article.topics = []
     // 定时×草稿互斥（P1-4）：恢复后清除已过期的定时时间（见 clearStaleDraftSchedule）
     clearStaleDraftSchedule(draft)
     selectedPlatforms.value = Array.isArray(draft.platforms)

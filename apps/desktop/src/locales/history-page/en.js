@@ -118,6 +118,33 @@ export default {
     detailLink: 'Post link',
     cardOpenHint: 'Click to open the post on the platform',
     cardNoLinkHint: 'No public post link',
+    // Draft semantics (PRD-PUBLISH-HISTORY-ENGAGEMENT-2026-10-12 §5.3): content that only reached the
+    // platform draft box has no public post, so the card is intentionally not clickable.
+    cardDraftHint: 'Draft (not published, no link)',
+    // Post engagement metrics: see the account-metrics service header for the data source.
+    metricsRefresh: 'Refresh data',
+    metricsRefreshing: 'Collecting…',
+    metricsRefreshHint: 'Low-frequency per-account collection (daily cap per account)',
+    metricsDailyCapReached: 'Daily collection limit reached, try again tomorrow',
+    metricsNotRealTime: 'Collected at low frequency, not real-time',
+    metricsJustNow: 'just now',
+    metricsAgoMinutes: (ctx) => ctx.named('n') + ' min ago',
+    metricsAgoHours: (ctx) => ctx.named('n') + ' h ago',
+    metricsAgoDays: (ctx) => ctx.named('n') + ' d ago',
+    metricsAsOf: (ctx) => 'Data as of ' + ctx.named('time'),
+    // Per-card freshness: only shown past 24h, so one fresh record cannot whitewash the page
+    metricsStale: (ctx) => 'Data as of ' + ctx.named('time'),
+    metricsNeverCollected: 'Post metrics not collected yet',
+    // unsupported split by reason (from main-process accounts[].error): "not implemented" and
+    // "signature unavailable" need different next steps, one generic line makes users guess.
+    metricsUnsupported: 'Automatic collection is not supported for this platform. You can enter data manually in the detail dialog',
+    metricsSignerUnavailable: 'This platform needs a signing service that is currently unavailable. Retry later, or enter data manually in the detail dialog',
+    metricsSignFailed: 'Collection signature failed (often a temporary platform issue). Retry later, or enter data manually in the detail dialog',
+    metricsCookieIncomplete: 'This account session is incomplete (missing device token). Please sign in again on the Accounts page to complete it',
+    metricsNeedsLogin: 'Account session expired, please sign in again on the Accounts page',
+    metricsFailed: 'Last collection failed, please retry later',
+    metricsCollectFormatChanged: 'The platform data format has changed, so this platform cannot be collected right now. Retry later, or enter data manually in the detail dialog',
+    metricsSaveFailed: 'Save failed, please retry later',
     cardTabTitle: (ctx) => 'Post · ' + ctx.named('title'),
     cardLinkOpened: 'Post link opened in a new tab',
     cardLinkOpenFailed: 'Failed to open the post link, please retry',

@@ -105,3 +105,48 @@ describe('creator-collector-runtime · 非 UC 输入 fail-closed', () => {
     expect(calls).toHaveLength(0)
   })
 })
+
+// 2026-10-12 新增：`resolveChannelId` 是 creator:follow 的唯一解析入口。
+// 真实装配里本工厂**从未返回过它**（handler 却一直在调），
+// 也就是「添加博主」必抛 TypeError —— 见 creator-wiring.e2e.test.js 的形状对账锁。
+describe('creator-collector-runtime · resolveChannelId（follow 的唯一入口）', () => {
+  it('暴露为工厂方法（缺了就等于添加博主整条不可用）', () => {
+    const { collector } = makeCollector()
+    expect(typeof collector.resolveChannelId).toBe('function')
+  })
+
+  it('@handle 走 channels.list 的 forHandle，绝不把 handle 当 channelId 或搜索词', async () => {
+    const { collector, calls } = makeCollector({ response: { items: [{ id: CHANNEL_ID }] } })
+    const id = await collector.resolveChannelId('@GoogleDevelopers')
+    expect(id).toBe(CHANNEL_ID)
+    expect(calls).toHaveLength(1)
+    expect(calls[0].url).toContain('/channels')
+    expect(calls[0].params.forHandle).toBe('GoogleDevelopers')
+    // 依赖包曾把 handle 降级成 search_query 并回传"别人的频道"（静默数据事故），
+    // 因此这两项**必须**是 undefined：
+    expect(calls[0].params.channelId).toBeUndefined()
+    expect(calls[0].params.q).toBeUndefined()
+  })
+
+  it('UC 形式零请求直接返回（已在 canonical 形态）', async () => {
+    const { collector, calls } = makeCollector()
+    await expect(collector.resolveChannelId(CHANNEL_ID)).resolves.toBe(CHANNEL_ID)
+    expect(calls).toHaveLength(0)
+  })
+
+  it('未配置 Key 时抛 credential_missing，不发请求', async () => {
+    const { httpGet, calls } = fakeHttp({ items: [] })
+    const collector = createCreatorCollector({ credentialProvider: () => null, httpGet })
+    await expect(collector.resolveChannelId('@someone')).rejects.toMatchObject({
+      code: 'creator:credential_missing',
+    })
+    expect(calls).toHaveLength(0)
+  })
+
+  it('解析不出频道时 fail-closed（不退回把输入当 ID）', async () => {
+    const { collector } = makeCollector({ response: { items: [] } })
+    await expect(collector.resolveChannelId('@ghost')).rejects.toMatchObject({
+      code: 'creator:channel_not_found',
+    })
+  })
+})

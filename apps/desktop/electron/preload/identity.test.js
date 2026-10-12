@@ -8,7 +8,7 @@ describe('createIdentityApi', () => {
       removeListener: vi.fn(),
     }
     const api = createIdentityApi(ipcRenderer)
-    expect(Object.keys(api)).toEqual(['identityGetState', 'identitySignIn', 'identitySwitchAccount', 'identitySignOut', 'identitySessions', 'identitySessionsRevokeOthers', 'identityNotifications', 'identityNotificationsMarkRead', 'identityDiagnosticReport', 'onIdentityStateChanged'])
+    expect(Object.keys(api)).toEqual(['identityGetState', 'identitySignIn', 'identitySwitchAccount', 'identitySignOut', 'identitySessions', 'identitySessionsRevokeOthers', 'identityNotifications', 'identityNotificationsMarkRead', 'identityRedeemCode', 'identityDiagnosticReport', 'onIdentityStateChanged'])
     expect(api).not.toHaveProperty('identityGetAccessToken')
     api.identityGetState()
     api.identitySignIn()
@@ -18,11 +18,12 @@ describe('createIdentityApi', () => {
     api.identitySessionsRevokeOthers()
     api.identityNotifications()
     api.identityNotificationsMarkRead()
+    api.identityRedeemCode({ code: 'ABCD-EFGH-JKMN' })
     api.identityDiagnosticReport()
     expect(ipcRenderer.invoke.mock.calls.map(([channel]) => channel)).toEqual([
       'identity:get-state', 'identity:sign-in', 'identity:switch-account', 'identity:sign-out',
       'identity:sessions', 'identity:sessions-revoke-others', 'identity:notifications', 'identity:notifications-mark-read',
-      'identity:diagnostic-report',
+      'identity:redeem-code', 'identity:diagnostic-report',
     ])
     const callback = vi.fn()
     const dispose = api.onIdentityStateChanged(callback)

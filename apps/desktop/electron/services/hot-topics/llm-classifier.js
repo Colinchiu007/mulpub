@@ -3,7 +3,7 @@
  * 热门选题 LLM 分类兜底（方案C）— 主进程 ModelProviderManager 适配器
  *
  * 契约：createLlmTopicClassifier({ modelProviderManager, log })
- *   → async (topics: string[]) => { [选题文本]: 10分类枚举 }
+ *   → async (topics: string[]) => { [选题文本]: 11 分类枚举 }
  *
  * fail-open 语义：未配置默认 llm provider / 调用异常 / 输出不可解析 → 返回 {}，
  * 由 HotTopicsService._applyLlmLabels 保持关键词分类结果（静默降级，不抛出）。

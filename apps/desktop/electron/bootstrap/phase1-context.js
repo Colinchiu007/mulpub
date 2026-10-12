@@ -152,6 +152,7 @@ function extractContext(container) {
   const patternExtractionService = container.get('patternExtractionService')
   const performanceRecrawlService = container.get('performanceRecrawlService')
   const patternAttributionService = container.get('patternAttributionService')
+  const accountMetricsService = container.get('accountMetricsService')
   const licenseManager = LicenseManager.getInstance()
   const aiWriter = container.get('aiWriter')
   const offlineManager = require('../services/offline-manager')
@@ -482,7 +483,7 @@ function extractContext(container) {
       templateManager, licenseManager, aiWriter,
       rewriteStrategyManager, rewriteHardConstraintManager, rewriteAiTasteMapManager, rewriteEngineService,
       knowledgeLibraryService, patternExtractionService,
-      performanceRecrawlService, patternAttributionService,
+      performanceRecrawlService, patternAttributionService, accountMetricsService,
       renderEngine, compositionManager, aiGenerator, assetGenerator, videoEngine, pipelineEngine,
       story2videoBatchQueue, runStateStore,
       modelProviderManager, providerRouter, providerManager, opsCenterSync, usageReporter,

@@ -1,0 +1,62 @@
+{
+  "_provenance": {
+    "round": 2,
+    "channel": "plan-review.sh（决策层对抗评审）——对 round 1 修订后方案的复评",
+    "mode": "DUAL（203 行 > 200 阈值，敏感命中 40 处）",
+    "critic": "claude",
+    "proposer": "opencode——**修订腿再次失败**：输入 19484 字符 > 实测上限 7800（角色提示 147 + 任务提示 19330），静默拒绝",
+    "note": "本文件为该轮批评原文的固化副本。逐条处置见 ../review-responses.md。**本轮 3 条 Critical 中有 2 条是修订后新引入的矛盾（D10/D11 定案却留着对应开放问题）**。"
+  },
+  "schemaVersion": 1,
+  "issues": [
+    {
+      "id": "i1",
+      "severity": "Critical",
+      "dimension": "consistency",
+      "finding": "OQ3与D11直接矛盾：D11已定案「Python必须实现同一信封读取」，步骤8前提本change内闭合；但OQ3仍列为开放，且提出「是否收敛到Node」这一已被否定的选项。同一问题一为决定、一为开放，口径分裂。",
+      "suggestion": "删除OQ3，或改写为D11已决的结论摘要；OQ3若保留则须标「已由D11定案」并移除反设。"
+    },
+    {
+      "id": "i2",
+      "severity": "Critical",
+      "dimension": "consistency",
+      "finding": "OQ4与D10矛盾：D10已在本change定型AAD为`provider|keyRowId`，套餐维度走v2且明确非阻塞、不影响步骤1-8；OQ4却仍问「是否需承载套餐维度」并称「建议步骤3前定」。定案与开放并存。",
+      "suggestion": "删除OQ4；若保留「provider_plans早于步骤3定型则用v2起步」仅为提示，不再以开放问题形式出现。"
+    },
+    {
+      "id": "i3",
+      "severity": "Critical",
+      "dimension": "security",
+      "finding": "D7声明「明文不出模块、调用方不得拿到明文」，但D11列出`get_key(reveal=True)`管理面明文明文返回、update_key比对需明文。两处冲突未调和：明文确实会出模块，D7保证被自身需求推翻。",
+      "suggestion": "改写D7为「模块内解密、明文仅宿于短时作用域并fill(0)，reveal=True为显式授权例外」；把get_key返回路径纳入明文处置条款，而非笼统一句不出模块。"
+    },
+    {
+      "id": "i4",
+      "severity": "Warning",
+      "dimension": "feasibility",
+      "finding": "Python侧需按keyring-kms.js同构重实现AES-256-GCM封印与密钥环解析（含id前缀）。同一条密码学在跨语言重写两份=漂移源，且无一致性测试断言两实现等价。D1只锁了两信封模块常量，未覆盖Python副本。",
+      "suggestion": "新增跨语言对拍测试：同一DK/IV/密文在Node与Python两侧解出逐字节一致，并纳入D6巡检或CI硬断言。"
+    },
+    {
+      "id": "i5",
+      "severity": "Warning",
+      "dimension": "completeness",
+      "finding": "Migration Plan步骤7（生产/非生产KMS取值断言）依赖OQ2「如何判定生产」，而OQ2未决，步骤7成为未决前置压入序列；D12也注明两种取值后果需在spec写清。计划含一手被开放式前提卡住的步骤。",
+      "suggestion": "把步骤7标注「依赖OQ2，暂以运行手册形式落地」，或将其从必走顺序移入OQ2决议后的追加步骤，避免计划含未决门。"
+    },
+    {
+      "id": "i6",
+      "severity": "Info",
+      "dimension": "security",
+      "finding": "R1只防主密钥丢失，未涉及密钥环文件（`MP_CLOUD_KMS_KEYRING`）被越权读取：环文件即全部官方Key的主密钥，丢失=不可恢复，但读取侧访问控制、持有者、权限位未约束。",
+      "suggestion": "在R1/运维步骤补充：环文件权限最小化、仅迁移与KMS进程可读，登记至部署文档访问控制清单。"
+    }
+  ],
+  "dimensionScores": {
+    "completeness": 7,
+    "consistency": 5,
+    "clarity": 8,
+    "feasibility": 7,
+    "security": 7
+  }
+}

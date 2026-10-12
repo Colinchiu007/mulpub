@@ -113,7 +113,8 @@ export default {
     selectVideoScenesOff: 'Story telling mode',
     assetsProgressVideo: 'Images {imagesDone}/{imagesTotal} · Videos {videosDone}/{videosTotal} · Narration {ttsDone}/{ttsTotal}',
     assetsProgress: 'Images {imagesDone}/{imagesTotal} · Narration {ttsDone}/{ttsTotal}',
-    composeSegments: 'Composing segment {done}/{total} · {percent}%',
+    composeProgress: 'Composing {percent}%',
+        composeSegments: 'Composing segment {done}/{total} · {percent}%',
     // Stage in-progress feedback unification contract (openspec pipeline-progress-feedback-unification)
     stageProgressPublishing: 'Publishing to {platform} ({done}/{total})',
     stageProgressFinalizeTts: 'Generating narration {done}/{total}…',

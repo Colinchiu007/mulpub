@@ -31,6 +31,12 @@ function createCreatorApi (ipcRenderer) {
     creatorSkipOne: (payload) => ipcRenderer.invoke('creator:skip-one', payload),
     creatorSendToWriter: (payload) => ipcRenderer.invoke('creator:send-to-writer', payload),
     creatorPendingTotal: () => ipcRenderer.invoke('creator:pending-total'),
+    // 凭证（读方向永不回传明文；写方向是全仓唯一接受明文的入口）
+    creatorCredentialStatus: () => ipcRenderer.invoke('creator:credential-status'),
+    creatorCredentialSet: (payload) => ipcRenderer.invoke('creator:credential-set', payload),
+    creatorCredentialClear: () => ipcRenderer.invoke('creator:credential-clear'),
+    // 依赖状态：发现腿（是否接线）与正文腿（字幕可选依赖）分开报，UI 据此只对阻塞项禁功能
+    creatorDependencyStatus: () => ipcRenderer.invoke('creator:dependency-status'),
   }
 }
 

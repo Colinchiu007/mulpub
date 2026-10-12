@@ -15,11 +15,17 @@
  *   - 每个词条最多 3 个关键词（引擎只取前 3 个，避免一次点击打出十几条外呼）；
  *   - `windowHours` 取 48（时效类）或 168（周级盘点类），取闭集值；
  *   - 「榜单素材没有发布时间」这条约束写在 **system 提示词**里（`quick-collect-prompt.js`
- *     硬约束第 6 条），**不在每个内置词条里重复一遍** —— 单实现才守得住。
+ *     硬约束第 6 条），**不在每个内置词条里重复一遍** —— 单实现才守得住；
+ *   - `provenance` 标注这段话的**来源**：`'user'` = 用户给定原文（必须逐字，改动即改需求，有对照串锁着），
+ *     `'agent'` = 依 PRD 场景推演的产品内容（可以随需求调整）。**不得把 agent 推演当成用户要求**：
+ *     2026-10-11 曾出现"平台规则与合规动向"这条 agent 设计的词条被当成用户需求、并据此排了一整片
+ *     素材源扩展（S3）的情况 —— 加了这个字段 + 一条"只有 AI 领域动向是 user"的断言，下次先红在这里。
  */
 
 /** 中文热榜源（`kind:'trend'`，无发布时间，按抓取时刻计入窗口） */
 const CN_HOT_SOURCES = Object.freeze(['weibo', 'zhihu', 'douyin', 'bilibili', 'baidu', 'toutiao', 'tencent'])
+/** 中文榜单垂类（hot-topics 实际提供的两个垂类信道；榜单类同样没有发布时间） */
+const CN_HOT_VERTICALS = Object.freeze(['sina_finance', 'ithome_tech'])
 /** 英文社区检索源（`kind:'search'`） */
 const EN_SEARCH_SOURCES = Object.freeze(['reddit', 'hackernews', 'github'])
 
@@ -35,17 +41,19 @@ const PRESET_COMMANDS = Object.freeze([
     windowHours: 48,
     // 提示词逐字不动（用户需求原文），只把素材源换成"英文社区 + 有发布时间的 AI/技术时间线"
     sources: ['arxiv_cs_ai', 'hf_papers', 'qbitai', 'solidot', ...EN_SEARCH_SOURCES],
+    provenance: 'user',
     builtin: true,
   }),
   Object.freeze({
-    id: 'builtin-platform-policy',
-    icon: '📜',
-    title: '平台规则与合规动向',
-    summary: '内容平台规则、审核口径、AIGC 标识与限流封禁相关的真实变化',
-    prompt: '请检索最近一周内与内容平台规则、内容审核口径、AIGC（AI 生成内容）标识要求、限流与封禁治理相关的真实变化，覆盖：1) 主流内容/社交平台（短视频、图文、社区）的官方公告或政策更新；2) 各国监管对大模型与生成式内容的合规要求变化；3) 已被证实的大规模限流、下架或处罚事件。输出 3-5 条「需要留意」（每条含：变化内容、来源链接、会影响谁、创作者现在应该做什么），并单列 1-2 条「与我无关」的噪音。用中文，只写能核对的来源，找不到可靠信息就如实说，不要编造条款编号。',
-    keywords: ['content moderation', 'platform policy', 'AI content labeling'],
+    id: 'builtin-ai-papers',
+    icon: '📄',
+    title: 'AI 前沿论文速览',
+    summary: '最近一周值得看的 AI/机器学习论文与新方法，含一句话结论与能不能用上',
+    prompt: '请检索最近一周内 AI 与机器学习领域值得关注的新论文与新方法，输出 3-5 条「值得一看」，每条包含：1) 一句话结论（解决了什么问题、核心思路是什么）；2) 来源链接（论文页或官方博客）；3) 为什么值得关注（对哪类人有价值：模型训练 / 推理优化 / 多模态 / Agent / 内容生产等）；4) 是否已有开源实现或可直接试用的工具。再单列 2-3 条「可以先不看」（纯增量调参、评测刷分、尚无复现的宣称）。用中文，只写能核对的来源，找不到可靠信息就如实说，不要编造论文标题、作者或数字。',
+    keywords: ['new AI paper', 'machine learning method', 'AI research release'],
     windowHours: 168,
-    sources: ['reddit', 'hackernews', 'github'],
+    sources: ['arxiv_cs_ai', 'hf_papers', 'qbitai', ...EN_SEARCH_SOURCES],
+    provenance: 'agent',
     builtin: true,
   }),
   Object.freeze({
@@ -56,7 +64,8 @@ const PRESET_COMMANDS = Object.freeze([
     prompt: '请检索最近 48 小时内技术、互联网与创作者圈层里讨论量明显上升的话题，输出 5 条可写选题，每条包含：1) 话题一句话；2) 为什么现在热（给出素材里的依据，例如讨论量、来源）；3) 来源链接；4) 建议的切入角度（面向哪个读者、从什么争议点切入）；5) 预估写作难度（低/中/高）。另外用一句话列出 2 条「看着热但其实没有新信息」的伪热点。用中文，不要编造事件和链接，素材不足以判断"热"就如实说。',
     keywords: ['trending topic', 'viral content', 'tech trend'],
     windowHours: 48,
-    sources: [...CN_HOT_SOURCES, ...EN_SEARCH_SOURCES],
+    sources: [...CN_HOT_SOURCES, ...CN_HOT_VERTICALS, ...EN_SEARCH_SOURCES],
+    provenance: 'agent',
     builtin: true,
   }),
   Object.freeze({
@@ -67,7 +76,8 @@ const PRESET_COMMANDS = Object.freeze([
     prompt: '请检索最近一周内与内容创作效率工具有关的真实更新，覆盖：1) 视频剪辑与字幕类；2) 语音合成 / 配音 / 克隆类；3) 图像与视频生成类；4) 写作与排版类。输出 4 条「值得试用」（每条含：工具名、更新了什么、来源链接、适合什么场景、上手成本），再用一句话列出 2 条「只是营销话术、暂无实际可用更新」。用中文，工具名与版本号必须来自素材，找不到就如实说。',
     keywords: ['video editing AI', 'image generation tool', 'text to speech tool'],
     windowHours: 168,
-    sources: ['qbitai', 'infoq_cn', 'sspai', 'oschina', ...EN_SEARCH_SOURCES],
+    sources: ['qbitai', 'infoq_cn', 'sspai', 'oschina', 'ithome_tech', ...EN_SEARCH_SOURCES],
+    provenance: 'agent',
     builtin: true,
   }),
   Object.freeze({
@@ -79,17 +89,19 @@ const PRESET_COMMANDS = Object.freeze([
     keywords: ['content creator growth', 'short video trend', 'newsletter growth'],
     windowHours: 168,
     sources: ['bilibili', 'douyin', 'weibo', 'sspai', 'oschina', ...EN_SEARCH_SOURCES],
+    provenance: 'agent',
     builtin: true,
   }),
   Object.freeze({
-    id: 'builtin-risk-alert',
-    icon: '⚠️',
-    title: '舆情风险与避雷',
-    summary: '近期与创作/发布相关的争议、版权与账号风险信号',
-    prompt: '请检索最近一周内与内容创作者风险有关的真实事件与讨论，覆盖：1) 因内容引发的争议、舆情与删帖/下架案例；2) 版权、字体、音乐、素材授权相关的纠纷或平台判罚；3) 账号被限流、封禁、禁言的公开案例与官方说明。输出 4 条「避雷清单」（每条含：发生了什么、来源链接、触发条件、我怎么避免），并标注每条的可信度（官方公告 / 多方报道 / 只有单方说法）。用中文，不要编造案例；没有任何可靠信息就明确说"本周未发现可靠的风险事件"，不要为了凑条数编。',
-    keywords: ['content controversy', 'copyright claim', 'account suspended'],
+    id: 'builtin-ai-howto',
+    icon: '🛠️',
+    title: 'AI 实操技巧与工作流',
+    summary: '被真实使用者验证有效的 AI 用法、提示词与自动化流程，照着做就能用',
+    prompt: '请检索最近一周内被真实使用者验证有效的 AI 实操技巧与工作流，输出 3-5 条「可以直接照做」的做法，每条包含：1) 做法一句话；2) 适用场景与前置条件（用什么模型或工具、需要什么账号或权限）；3) 关键步骤或提示词要点（给出可复制的最小骨架，不要只讲概念）；4) 来源链接与是否有他人复现反馈；5) 预期收益（省下什么时间、解决哪个具体问题）。再单列 1-2 条「听着好但实际不好用」的做法及原因。用中文，只写能核对的来源，找不到可靠信息就如实说，不要编造工具名或功能。',
+    keywords: ['AI workflow', 'prompt engineering tips', 'AI automation'],
     windowHours: 168,
-    sources: ['weibo', 'ithome', ...EN_SEARCH_SOURCES],
+    sources: ['sspai', 'oschina', 'infoq_cn', ...EN_SEARCH_SOURCES],
+    provenance: 'agent',
     builtin: true,
   }),
 ])

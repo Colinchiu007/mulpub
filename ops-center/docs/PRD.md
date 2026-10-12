@@ -374,6 +374,136 @@ CREATE TABLE config_group_items (
 > 说明（2026-09-29 按实现纠正）：自持登录后**当前唯一**的签发路径是（截至 2026-09；若将来新增其它签发方，本条与下表口径需同步重评） `auth_service.create_access_token`，其 payload 恒带 `role: "admin"`；
 > 因此下表「已登录（任意 role）」一列在当前实现下**与 admin 列等价**（不存在非 admin 的签发方）。该分级表保留为鉴权合同（`require_admin` 仍实际拦截写面），不是对现状的角色描述。
 
+### 6.5 更改密码（2026-10-12 新增）
+
+> **本节存在的原因**：§6.4 最后一条写明「改 `.env` 口令不会同步进库，要么用『修改密码』流程，要么清空 `admins` 后重启重新 seed」——但**该流程此前并不存在**，文档指向的是一条断掉的链路。`auth_service.ensure_admin_seeded` 在 `existing is not None` 时直接 return（`auth_service.py:74-76`），从不更新已有行，因此管理员改密的唯一正解就是本节所述端点。
+
+#### 6.5.1 入口与可见性
+
+| 项 | 值 |
+|---|---|
+| 路由 | `/change-password`（name: `ChangePassword`） |
+| 菜单项 | 「更改密码」，icon `Lock`，**`adminOnly: true`** |
+| 可见性口径 | 由 `menuStore.visibleForRole(role)` 单一事实源决定；非 admin 在侧边栏与菜单设置页均不可见 |
+| 路由守卫 | `meta: { requiresAuth: true, adminOnly: true }` —— 非 admin 地址栏直达会被重定向到 `/` |
+| 页头说明 | `pageGuides.ChangePassword`（三元组：标题/说明/用途） |
+
+菜单项与路由的 `adminOnly` 必须成对出现。已知例外：`/rollout` 菜单标了 adminOnly 但路由 meta 未标（既有缺口，非本次引入，已在 `src/config/changePasswordWiring.test.js` 登记为「例外只允许减少」，待确认该看板是否应有只读放行）。
+
+#### 6.5.2 接口
+
+`POST /api/auth/change-password`
+
+请求体（三字段均必填）：
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| `old_password` | string | 必填，≤128 | 当前密码，用于确认操作人 |
+| `new_password` | string | 必填，≤128 | 新密码 |
+| `confirm_password` | string | 必填，≤128 | 再次输入新密码，防输错 |
+
+长度上限取 `auth_service.PASSWORD_MAX_LEN`（128）。放宽会放大未认证 PBKDF2 的 CPU 成本；超过上限由 Pydantic 直接 422，不进入业务逻辑。
+
+成功响应 `200`：`{"ok": true, "detail": "密码已更新，请使用新密码重新登录"}`，并下发**过期 Cookie**（`Max-Age=0`）使浏览器丢弃会话。响应体不含任何哈希材料。
+
+#### 6.5.3 数据校验规则（判据单一来源）
+
+校验分两层，**前端只做能在本机判定的部分，强度判据以后端为准**：
+
+| 校验项 | 前端 | 后端 | 错误码 | 提示文字 |
+|--------|------|------|--------|----------|
+| 三字段非空 | ✅ | ✅（Pydantic） | 400 / 422 | 「请输入当前密码」「请输入新密码」「请再次输入新密码」 |
+| 长度上限 128 | — | ✅ | 422 | Pydantic 默认 |
+| 新密码 ≥ 8 位 | ✅（即时） | ✅ | 400 | 「新密码强度不足：至少 8 位，且不得使用 admin123、password、123456 等常见弱口令」 |
+| 弱口令表 | ❌ 不实现 | ✅ | 400 | 同上 |
+| 两次新密码一致 | ✅（即时） | ✅ | 400 | 「两次输入的新密码不一致」 |
+| 新密码 ≠ 当前密码 | ✅（即时） | ✅ | 400 | 「新密码不能与当前密码相同」 |
+| 原密码正确 | — | ✅ | 401 | 「原密码错误」 |
+| 写操作 CSRF 头 | ✅（拦截器注入） | ✅ | 403 | 「跨站请求伪造防护：基于 Cookie 会话的写操作必须携带自定义头 X-Ops-Session」 |
+| 已登录 | — | ✅ | 401 | 「未提供认证令牌」 |
+
+**判据复用的硬要求**：后端 `validate_new_password()` 直接调用 `config._validate_admin_password`（启动期校验 `OPS_ADMIN_PASSWORD` 的同一套：弱口令表 + 长度 ≥8），**不写第二份规则**。历史教训：`platform_def_service` 曾因种子与渲染端护栏值各自维护而漂移（douyin/xiaohongshu 5000 vs 1000）；口令判据重复实现会重蹈覆辙。前端同理——若在前端再写一份弱口令表，两表必然漂移。
+
+#### 6.5.4 功能逻辑（后端流程）
+
+```
+POST /api/auth/change-password
+  ① 鉴权（get_current_user）：无凭据 401；CSRF 缺头 403
+  ② 改密限流检查（键 username|ip）：锁定中 → 429「尝试次数过多，请稍后再试」
+  ③ 查 admins 行：不存在 → dummy 校验抹平时序 + 计一次失败 → 401「原密码错误」
+  ④ verify_password(old_password)：不匹配 → 计一次失败 → 401
+  ⑤ 以下为新密码合规校验，**失败不计入爆破限流**（只错格式，非凭据攻击）：
+     a. new != confirm           → 400「两次输入的新密码不一致」
+     b. new != old               → 400「新密码不能与当前密码相同」
+     c. validate_new_password()  → 400（弱口令/过短/空）
+  ⑥ 换盐重哈希写入 password_hash，更新 updated_at，commit
+  ⑦ 清零改密失败计数；下发过期 Cookie
+  ⑧ 返回 200
+```
+
+**事务一致性**：⑤ 的任何一项失败都在写入之前 return，库中哈希不变（有回归测试 `test_failed_change_password_leaves_hash_untouched` 锁死）。
+
+**改密后旧会话失效（关键设计）**：JWT 无状态，改密无法直接「删除」已签发 token。实现采用**口令凭据指纹**：
+
+- `password_fingerprint(hash)` = `sha256(库中口令哈希)[:16]`
+- 登录时把该指纹写入 JWT payload 的 `pwd_fp`
+- 每次鉴权（`middleware/auth._reject_revoked`）比对 token 里的 `pwd_fp` 与库中当前指纹，不一致 → 401「凭据已失效，请重新登录」
+- 改密后哈希变化 ⇒ 指纹变化 ⇒ 改密前签发的所有 token 全部失效
+
+两个刻意的语义边界：
+1. **取二次摘要而非哈希片段**：JWT payload 只签名不加密，任何人都能解出。直接放哈希片段等于向持票人泄露哈希材料（可离线爆破）。
+2. **有 `pwd_fp` 才校验**：桌面端脚本、历史 token、单测直接签发的 token 不带该字段，一律保持既有行为放行。指纹校验是「有则校验」不是「没有就拒绝」，避免一刀切打死 Bearer 通道。
+
+**改密限流独立于登录**：`MAX_CHANGE_PWD_FAILURES=5` / `CHANGE_PWD_LOCK_SECONDS=60`，单独的 `_change_pwd_attempts` 计数表。原因：改密前必须验原密码，若共用登录计数，等于给「在线爆破原密码」开一条绕过登录限速的旁路；同时也避免改密失败把正常登录锁死。
+
+#### 6.5.5 交互逻辑（前端）
+
+页面状态机：
+
+| 状态 | 触发 | 表现 |
+|------|------|------|
+| 空闲（默认） | 进入页面 | 三输入框 + 顶部黄色警示条 |
+| 提交中 | 点「确认修改」 | 按钮 loading，三输入框 disabled |
+| 校验失败（本地） | 失焦/提交前 | 字段下方红字（Element Plus 表单校验） |
+| 提交失败（服务端） | 收到 4xx | 表单底部红色 alert，展示后端 `detail` |
+| 成功 | 200 | **整块替换为成功结果页**，不再显示表单 |
+
+**成功态刻意替换表单而非弹提示**：改密后会话已被服务端作废，此时留在表单里继续操作只会误导（任何后续请求都是 401）。成功页给出「密码已更新，请使用新密码重新登录」+「前往登录页」按钮；点击时先 `authStore.logout()` 清内存态再跳转，避免路由守卫用旧内存态误判已登录。
+
+顶部警示条（进入即显示，不可关闭）：
+> 改密成功后，当前登录状态会立即失效，需要使用新密码重新登录。
+
+新密码字段下方常驻灰色提示：
+> 至少 8 位；不得使用 admin123、password、123456 等常见弱口令；不能与当前密码相同。
+
+#### 6.5.6 显示项清单
+
+| 元素 | 内容 | 备注 |
+|------|------|------|
+| 页头 | 「更改密码」+ 右侧 tag「当前账号：{username}」 | username 取自 authStore |
+| 警示条 | 见上 | `type="warning"`，`:closable="false"` |
+| 字段 1 | 标签「当前密码」，`type=password`，`show-password`，`autocomplete="current-password"` | placeholder「请输入当前使用的密码」 |
+| 字段 2 | 标签「新密码」，同上，`autocomplete="new-password"` | placeholder「至少 8 位，勿用常见弱口令」；下方灰色提示 |
+| 字段 3 | 标签「确认新密码」，同上 | placeholder「请再次输入新密码」；回车即提交 |
+| 按钮 | 「确认修改」（primary）+「重置」 | 提交中均禁用 |
+| 错误区 | 红色 alert，展示后端 detail | 仅失败时渲染 |
+| 成功页 | `el-result` icon=success，标题「密码已更新」，副标题「请使用新密码重新登录。」，按钮「前往登录页」 | — |
+
+#### 6.5.7 与 .env 的关系（重要）
+
+本端点**只改数据库，不同步 `.env` 的 `OPS_ADMIN_PASSWORD`**。这是安全的：`ensure_admin_seeded` 仅在 `admins` 表为空时写入，正常运行下 `.env` 不会覆盖本次改动。但需注意：
+
+- 若有人清空 `admins` 表后重启，服务会按 `.env` 重新 seed，页面上改过的密码会被 `.env` 的值取代；
+- 因此**改密后建议同步更新 `.env`**（运维动作，不在本功能范围内），避免两边长期脱钩后误判。
+
+#### 6.5.8 回归保护
+
+| 文件 | 覆盖 |
+|------|------|
+| `backend/tests/test_change_password_api.py`（17 例） | 正常路径、换盐重哈希、旧会话失效、原密码错、未登录、CSRF 缺头、Bearer 免 CSRF、弱口令表、过短、两次不一致、与原密码相同、超长、空值、失败不改哈希、改密限流、响应不泄露哈希、成功清 Cookie |
+| `frontend/src/config/changePasswordWiring.test.js`（7 例） | 菜单项登记与 adminOnly、路由登记与 meta、pageGuide 存在、菜单↔路由一一对应、adminOnly 口径一致、例外不扩大、adminOnly 数量从单一事实源推导 |
+| 端到端（临时实例，11/11） | 真实 HTTP：登录→改密→旧会话 401→旧密码 401→新密码 200，含 403/401/400 各分支 |
+
 **环境一致性检查语义（2026-08-09 修订）**：
 - 检查对象是 ops-center 进程内可观察的环境变量（`PO_SECRET_KEY`/`TS_SECRET_KEY` 等）。
 - 变量未配置 → `status=unknown`（不计为缺陷；这些密钥属于 orchestrator/trendscope 各自进程）。

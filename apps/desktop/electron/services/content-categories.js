@@ -6,13 +6,13 @@
  * 同一套类别。若各写一份 normalize，运营中心改名后必然出现「一处变了另一处没变」。
  *
  * 三条硬语义（对应 content-categories.test.js）：
- * ① **fail-open 回退内置 10 类**：运营中心没下发 / 下发为空 / 结构非法时，
+ * ① **fail-open 回退内置 11 类**：运营中心没下发 / 下发为空 / 结构非法时，
  *    一律返回内置目录，不得让界面变成空分类（离线与旧版运营中心都要可用）。
  * ② **逐条归类出声，不静默丢**：非法项进 `dropped`（带 reason），调用方决定
  *    要不要出声；整包结构非法才走 `invalidShape`。
- * ③ **内置 10 类的 key 不得变动**：与 electron/services/hot-topics/classifier.js
+ * ③ **内置 11 类的 key 不得变动**：与 electron/services/hot-topics/classifier.js
  *    的 CATEGORY_KEYS 严格一致（顺序即默认排序）。运营可改 name / 停用 / 排序，
- *    但分类器的关键词规则只认这 10 个 key —— 自定义类只能作为「可打标签」出现，
+ *    但分类器的关键词规则只认这 11 个 key —— 自定义类只能作为「可打标签」出现，
  *    不会自动出现在抓取分类结果里。
  */
 
@@ -22,6 +22,7 @@ const DEFAULT_CONTENT_CATEGORIES = Object.freeze([
   { category_key: 'society', name: '社会' },
   { category_key: 'finance', name: '财经' },
   { category_key: 'tech', name: '科技' },
+  { category_key: 'ai', name: 'AI' },
   { category_key: 'entertainment', name: '娱乐' },
   { category_key: 'sports', name: '体育' },
   { category_key: 'emotion', name: '情感' },

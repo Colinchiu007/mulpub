@@ -114,6 +114,17 @@ describe('xiaohongshu draft chain', () => {
     expect(body.image_info.images[0].stickers).toEqual({ floating: [], version: 2 })
   })
 
+  it('正文承载形态：HTML 正文（Quill 富文本）→ note desc 纯文本，不含标签字面量', async () => {
+    await chain.publishToDraft({
+      title: 't', content: '<p>一段</p><p>二段</p>', images: [{ path: 'C:/tmp/a.png' }],
+      draft: true, cookie: 'a1=AAAA', authorization: 'AT tk',
+      readFile: async () => Buffer.from('x'),
+    })
+    const body = JSON.parse(calls[2].data)
+    // 小红书笔记描述是纯文本语义：HTML 进描述会以字面量 `<p>` 出现在笔记正文里
+    expect(body.common.desc).toBe('一段\n二段')
+  })
+
   it('无图片时 fail-closed：小红书不支持纯文字笔记', async () => {
     // 本链路的入参校验是同步抛出（不返回 rejected Promise）
     await expect(Promise.resolve().then(() => chain.publishToDraft({

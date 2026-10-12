@@ -8,7 +8,7 @@
  *   `await Promise.resolve()` 只把控制权交给**微任务队列**，事件循环不会走到宏任务阶段，
  *   于是 vitest / node:test 基于 `setTimeout` 的超时机制**根本打不断它**。
  *   一旦退出条件永不满足，就是整个 worker 死循环 —— 轻则用例挂到 testTimeout，重则
- *   只能靠 job 级 30 分钟预算硬杀（`quality-gate.yml` 的 `WaitForExit(1800000)`），
+ *   只能靠 job 级测试预算硬杀（`quality-gate.yml` 的 `WaitForExit([int]$gateBudgetMs)`，取值单一真源在
  *   表现为"CI 无故卡死"，排障成本远高于一条普通红。
  *
  * 校验规则（零容忍，不设基线）：

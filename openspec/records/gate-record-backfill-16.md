@@ -1,17 +1,15 @@
 ---
+
 record: gate-record-backfill-16
 task: 回填 gate-record-backfill-15（#3307）、gate4-desktop-exclusion（#3315）与播客刀 4 规格入档（#3314）的远程同步行并销账
 date: 2026-10-11
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个动这些文档的会话（PR 号必须回读：`gh pr list --repo Colinchiu007/Multi-Publish --head gate-record-backfill-16 --json number,state,headRefOid`，不得凭印象；合并后按 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 取 merge SHA，把本条的「远程同步」表格行**与上面「保留门禁」那句 bullet 一起**改写成 PASS + SHA + 时间，并**同一次**整段删除 frontmatter 的三个 sync_* 字段 —— #3274 起 Gate 2c 有同篇对账判据，两处不一致会当场判红）
 ---
 
 ## 本次执行记录：回填 #3307 / #3315 / #3314 的远程同步欠账（gate-record-backfill-16，2026-10-11）【docs-only】
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD`（**提交后**复跑）→ 结果见「本地门禁」表
 - 变更类型与隔离声明：纯文档/流程变更，按分层规则可就地编辑；仍走隔离 worktree `mp-gate-record-backfill-16`（分支 `gate-record-backfill-16`）经 PR 落地——回填要跑取证脚本，且共享根有他人在飞文件
-- 保留门禁：行尾两口径对账 ✅ | 品牌残留 ✅ | 编码完整性 ✅ | 文档同步 PENDING（随 CI） | Gate 2c ✅ | 远程同步 PENDING（本条自己的欠账）
+- 保留门禁：行尾两口径对账 ✅ | 品牌残留 ✅ | 编码完整性 ✅ | 文档同步 ✅ | Gate 2c ✅ | 远程同步 PASS
 
 ### 这一轮收了三笔，其中一笔不是我自己开的
 
@@ -62,4 +60,4 @@ sync_backfill_owner: 下一个动这些文档的会话（PR 号必须回读：`g
 
 | 门禁 | 结果 |
 |------|------|
-| 远程同步 | PENDING（本条自己的欠账） |
+| 远程同步 | PASS | 已合并：PR #3320，merge d4270f99094f9bf64c0e8072e144f89ba4215777（2026-10-11，squash）。取证：`git log origin/main --grep "(#3320)$" --format=%H|%cI`；本条为记录文件侧欠账的收口——它没有 .quality-gates.md 置顶记录，收口判据取本文件的表格行与 frontmatter |

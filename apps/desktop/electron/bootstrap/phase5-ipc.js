@@ -191,7 +191,7 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     story2videoProjectService, story2videoMediaServer,
     promptEvalService, signalCollector, promptMemory, governance,
     knowledgeLibraryService, patternExtractionService,
-    performanceRecrawlService, patternAttributionService,
+    performanceRecrawlService, patternAttributionService, accountMetricsService,
     urlCollector,
     zhihuImageLocalizer,
     hotTopicsService,
@@ -236,7 +236,7 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     story2videoProjectService, story2videoMediaServer,
     promptEvalService, signalCollector, promptMemory, governance,
     knowledgeLibraryService, patternExtractionService,
-    performanceRecrawlService, patternAttributionService,
+    performanceRecrawlService, patternAttributionService, accountMetricsService,
     urlCollector,
     zhihuImageLocalizer,
     hotTopicsService,
@@ -252,23 +252,48 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
   // 为什么在这里组、而不是容器装配期：
   //   ① 门面依赖 store.db，而容器装配期 sql.js 尚未就绪（db 为 null）；
   //   ② 本注册点的时机保证 store 已 ready，与门面同源取值。
-  // 容器只注册 creatorStore / creatorCollector / creatorRuntime 三个；
+  // 容器只注册 creatorStore / creatorCollector / creatorRuntime / creatorCredentialProvider；
   // creatorMonitor 是**门面**（恰 4 个方法），creatorQuota 包 store 的账本方法。
   // 任何一项缺失都只记警告并留 undefined —— handler 侧对依赖缺失有降级路径，
   // 在这里抛错会让整个 IPC 注册连带失败，波及所有其他通道。
+  //
+  // ⛔ **`context` 没有 `get` 方法**（2026-10-12 修复的真实事故）：
+  //   `context` 是 `bootstrap/phase1-context.js` 的分组 Proxy（{infra,services,windows,pipelines}），
+  //   它把 DI 容器作为 `context.container` 暴露，**自身从未提供 `get`**。
+  //   旧实现按「`typeof context.get === 'function'` 才取，否则 undefined」写 ⇒ 该判空恒为 false
+  //   ⇒ 三个 creator 服务全是 undefined ⇒ `ipc-handlers/creator.js` 判定依赖缺失
+  //   ⇒ 11 个 creator 通道**全部注册为降级** ⇒ 渲染层收到 `reason:'service-unavailable'`，
+  //   页面上只剩一句「缺少采集依赖。请执行：」（`{command}` 为空）——整页不可用，
+  //   而日志里只有一行 warn，排查成本极高。
+  //   正式取值口是 `context.container.get(name)`（同文件 publishIntervalGuardForIpc 用的就是这个）；
+  //   顶层直取 `context[name]` 仅作测试/显式注入路径的兜底（既有单测就是这么传的）。
+  //   回归锁：`phase5-ipc.test.js` 既断言真实取值路径，也禁止源码里再出现那段旧写法。
+  const resolveContextDep = (name) => {
+    if (!context) return undefined
+    if (context[name] !== undefined) return context[name]
+    const container = context.container
+    if (container && typeof container.get === 'function') {
+      // 容器 `get` 对未注册名会抛（见 container.setup.creator.js 注释），
+      // 缺失按缺失处理，不把异常冒泡成整个 IPC 注册失败。
+      try { return container.get(name) } catch (_) { return undefined }
+    }
+    return undefined
+  }
   const creatorDeps = (() => {
     try {
       const { createCreatorMonitorFacade, createCreatorQuota } = require('../services/creator-wiring')
-      const get = (n) => (context && typeof context.get === 'function' ? context.get(n) : undefined)
-      const creatorStore = get('creatorStore')
-      const creatorRuntime = get('creatorRuntime')
-      const creatorCollector = get('creatorCollector')
+      const creatorStore = resolveContextDep('creatorStore')
+      const creatorRuntime = resolveContextDep('creatorRuntime')
+      const creatorCollector = resolveContextDep('creatorCollector')
+      const creatorCredential = resolveContextDep('creatorCredentialProvider')
       const facade = creatorRuntime ? createCreatorMonitorFacade({ creatorRuntime }) : undefined
       const quota = creatorStore ? createCreatorQuota(creatorStore) : undefined
       if (!facade || !quota) {
         log && log.warn && log.warn('[IPC] 博主监控依赖不完整，creator 通道将走降级')
       }
-      return { creatorStore, creatorCollector, creatorMonitor: facade, creatorQuota: quota }
+      // creatorCredential 与 pythonBridge 只服务「凭证状态 / 依赖状态」两个读通道，
+      // 缺失不参与上面的降级判定（缺凭证是可配置状态，不是接线故障）。
+      return { creatorStore, creatorCollector, creatorMonitor: facade, creatorQuota: quota, creatorCredential }
     } catch (e) {
       log && log.warn && log.warn('[IPC] 博主监控依赖组装失败，creator 通道将走降级', e && e.message)
       return {}

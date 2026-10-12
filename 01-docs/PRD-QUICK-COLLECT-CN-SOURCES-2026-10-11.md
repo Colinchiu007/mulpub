@@ -66,6 +66,17 @@
 | `toutiao` | 今日头条热榜 | `toutiao.com/hot-event/hot-board/` | hottest | observed | medium | 5m |
 | `tencent` | 腾讯新闻热榜 | `r.inews.qq.com/gw/event/hot_ranking_list` | hottest | observed | medium | 10m |
 | `tophub` | 微博(tophub 镜像) | `tophub.today/n/KqndgxeLl9`（HTML） | hottest | observed | medium | 30m |
+| `sina_finance` | 新浪财经滚动（垂类） | `feed.mix.sina.com.cn/api/roll/get`（JSON） | hottest | observed | low | 30m |
+| `ithome_tech` | IT之家热榜（垂类科技） | `ithome.com/rss/`（RSS） | hottest | observed | low | 30m |
+
+> **5 个垂类的口径（S1 补遗，2026-10-11 实测）**：仓库 `hot-topics-service.js` 的 `CATEGORY_BOOSTS` 定义的是
+> **5 个垂类补拉**（百度财经榜 / 新浪财经滚动 / IT之家 RSS / 微博情感 / 微博健康），但它们的信道归属不同：
+> - **2 个有独立信道**（`sina_finance`、`ithome_tech`）⇒ 已作为独立源入册，UI 可单独选；
+> - **3 个与主榜共用信道**（`baidu-finance`→`baidu`、`weibo-emotion`/`weibo-health`→`weibo`），
+>   靠 **条目 id 的 board 段**（`weibo:emotion:3`）与主榜区分、并带 `category` 直挂目标分类
+>   ⇒ 它们的条目**随主榜一起到达**（请求 `baidu`/`weibo` 即含），**无需也不应**再立一个同名源
+>   （那会让同一份条目在两个源下出现两次）。
+> 结论：8 主榜 + 5 垂类**在数据可达性上已全覆盖**；registry 里落成 10 个 `hot-topics` 源。
 
 抖音 `parseDouyin` 的 `url` 为 `null` ⇒ 该源条目用**源主页**（`homeUrl`）作链接，并标 `urlKind: 'board'`，提示词与 UI 文案写成「来源页面」而非「原文链接」（不伪造条目链接）。
 
@@ -94,7 +105,13 @@
 
 补充约束：**超大响应必须限条数或流式截断**（雷锋网 1.3MB / OpenAI News 1.2MB / HF blog 258KB 已实测），本 PRD 取「先 `res.text()` 但设 `MAX_BYTES`（默认 512KB）上限 + 解析后只取前 `MAX_PER_SOURCE`（20）条」。
 
-### 4.3 S3：政策/合规类（**已实测：本机无可用的机器可读源** —— 以证据收口，不硬做）
+### 4.3 S3：政策/合规类（**目标已作废**；实测证据保留）【2026-10-11 更正】
+
+> **为什么作废**：本切片唯一的服务对象是内置词条「平台规则与合规动向」（`builtin-platform-policy`）。
+> 后续复核确认该词条是**会话依 PRD 场景推演设计、并非用户要求**（`proposal.md` 里只有「AI 领域动向」标了"用户给定文本"），
+> 用户已明确表示不需要"平台规则/审核口径/AIGC 标识/限流封禁"这类内容 ⇒ 该词条已被替换为「AI 前沿论文速览」（见 change
+> `quick-collect-preset-refresh`），**S3 的需求随之消失**。
+> 下面的实测证据保留，因为它有独立价值：它证明了"未实测通过不得入册"这条纪律真的在拦人。
 
 > 2026-10-11 本机逐一实测（`Invoke-WebRequest`，UA 伪装 Chrome，12s 超时；判据：**能否稳定拿到条目级标题+链接+发布时间**）。
 > 结论先行：**平台官方页全部是 JS 或登录态渲染，监管站点列表页缺条目级时间** ⇒ 按既有纪律（未实测通过不得入册）**本期不写入 registry**，避免用一个必然半坏、且会把"抓不到"伪装成"没有新规"的数据源。
@@ -209,8 +226,9 @@
 | --- | --- | --- |
 | `builtin-ai-trends` | `sources` 增补 `arxiv_cs_ai` / `hf_papers` / `solidot` / `qbitai`；**提示词逐字不动** | 用户原话提示词按需求逐字保留；新增源给它真实 AI 素材 |
 | `builtin-hot-topics` | `sources` 增补 8 个中文榜单 + `v2ex`；提示词**不改** | 中文热点是它的主场；「榜单素材没有发布时间」的约束写在 system 提示词（单实现），不在词条里重复 |
-| `builtin-platform-policy` | `sources` 增补 S3 政策源（S3 落地后） | 规则类需要中文官方来源 |
-| `builtin-peer-content` / `builtin-dev-tools` / `builtin-risk-alert` | 增补 `solidot`/`sspai`/`oschina`/`ithome`/`qbitai` 等中文科技时间线 | 中文创作者语境 |
+| ~~`builtin-platform-policy`~~ → **`builtin-ai-papers`** | 词条替换（2026-10-11）：吃 `arxiv_cs_ai` + `hf_papers` + `qbitai` + 英文社区，`windowHours:168` | 用户明确不需要平台规则类内容；论文源一直缺专属词条（见 change `quick-collect-preset-refresh`） |
+| ~~`builtin-risk-alert`~~ → **`builtin-ai-howto`** | 词条替换（2026-10-11）：吃 `sspai`/`oschina`/`infoq_cn` + 英文社区，`windowHours:168` | 用户要求换成"其他实用的"；实操技巧类需要中文科技时间线而非热榜 |
+| `builtin-peer-content` / `builtin-dev-tools` | 增补 `solidot`/`sspai`/`oschina`/`ithome`/`qbitai` 等中文科技时间线 | 中文创作者语境 |
 
 **内置词条的 `sources` 必须是闭集子集**，且**新增源 id 一律进 registry**（禁止在词条里写裸字符串）。
 
@@ -248,7 +266,7 @@
 
 ## 15. 未闭合与风险（诚实记录）
 
-1. S3 政策类源**尚未逐一实测**，未实测前不得进 registry（本 PRD 只登记候选）。
+1. ~~S3 政策类源尚未逐一实测~~ → **已实测（2026-10-11，7 个候选全部不可用），且该切片目标已随词条替换作废**（见 §4.3 更正段）；证据表保留。
 2. S4 需要付费 Key，**未提供则不实现**。
 3. 榜单类源「名次跃迁/在榜时长」需要**跨次抓取的历史**（TrendRadar 用 `rank_history`）：本期不落盘，故只能给出「当前名次 + 抓取时刻」；`firstSeenAt`/`seenCount` 只做**内存内单次会话**统计，跨会话趋势留待后续切片。
 4. 中文榜单源的稳定性天然弱于 RSS：单源失败/不可达是常态，产品必须能容忍（§9 已定义降级）。

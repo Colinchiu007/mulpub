@@ -15,7 +15,7 @@ export default {
     lastRefresh: (ctx) => 'Last refresh ' + ctx.named('time'),
     categoryAll: 'All',
     categories: {
-      general: 'General', society: 'Society', finance: 'Finance', tech: 'Tech',
+      general: 'General', society: 'Society', finance: 'Finance', tech: 'Tech', ai: 'AI',
       entertainment: 'Entertainment', sports: 'Sports', emotion: 'Emotion',
       education: 'Education', health: 'Health', international: 'International',
     },
@@ -23,8 +23,10 @@ export default {
     channels: {
       zhihu: 'Zhihu', toutiao: 'Toutiao', tencent: 'Tencent News', bilibili: 'Bilibili',
       douyin: 'Douyin', baidu: 'Baidu', weibo: 'Weibo Hot Search', tophub: 'Weibo (tophub)',
+      xiaohongshu: 'Xiaohongshu', ifeng: 'iFeng',
       sina_finance: 'Sina Finance', ithome_tech: 'IT Home',
       'baidu-finance': 'Baidu Finance Board', 'sina-finance': 'Sina Finance Roll', 'ithome-tech': 'IT Home Hot',
+      'ithome-ai': 'IT Home (AI)',
       'weibo-emotion': 'Weibo Emotion', 'weibo-health': 'Weibo Health',
     },
     selectAll: 'Select all',
@@ -32,7 +34,15 @@ export default {
     selectedCount: (ctx) => ctx.named('count') + ' selected',
     createCopy: 'Create copy',
     analyzeAction: 'Analyze',
-    publishBtn: 'Publish',
+    publishBtn: 'Rewrite & Publish',
+    // hot-topics-publish-ux (2026-10-12): single-row publish = one-click rewrite for one topic
+    singlePublishBtn: 'Publish',
+    publishStageRewrite: (ctx) => 'AI rewriting ' + ctx.named('done') + '/' + ctx.named('total'),
+    publishStagePrepare: 'Preparing publish form for you…',
+    // Inline preview / edit (hot-topics-publish-ux 2026-10-12)
+    editPreview: 'Preview / edit rewrite',
+    editCollapse: 'Collapse',
+    editSaveFailed: 'Failed to save your edits. Retry before publishing.',
     useViralLibrary: 'Use Viral Library',
     toPublish: 'Go publish',
     tenThousand: '0k+', // 万缩写（英文按 10k+ 语义展示）

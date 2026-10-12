@@ -1,0 +1,23 @@
+{
+  "sha": "68838e9ab78e9d02242e16beed686818249bd188",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 3 行（≤ 200）但命中 auth/数据库/加密：敏感内容 9 处",
+  "stats": {
+    "changedLines": 3,
+    "fileCount": 4,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 9
+  },
+  "stagedDiffHash": "51c7f8bda9228e444cc322f9bc331d58bacfc6d20e9c99955826c2d4c189df80",
+  "decidedAt": "2026-10-11T11:53:33.979Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

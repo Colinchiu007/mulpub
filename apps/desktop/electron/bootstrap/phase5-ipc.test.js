@@ -127,6 +127,99 @@ describe('usageTracker context 注入', () => {
   })
 })
 
+// ─── 博主监控依赖接线（2026-10-12 事故回归）─────────────────────────────
+// 事故：creator 服务在**每一次**启动里都解析成 undefined，11 个 creator 通道
+// 全部降级，用户看到的只有「缺少采集依赖。请执行：」（命令位为空）。
+// 两个独立成因都要有锁：
+//   ① 取值路径写错（`context` 是分组 Proxy，**没有** `get` 方法）；
+//   ② `creatorCredentialProvider` 从未注册 —— 容器 `get` 对未注册名**抛错**，
+//      于是 `creatorCollector`（以及依赖它的 `creatorRuntime`）解析失败。
+describe('博主监控依赖接线（creator-monitor-depfix 回归锁）', () => {
+  const app = { isPackaged: true }
+  const fs = require('fs')
+  const path = require('path')
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    __resetElectronMock()
+    mockRegisterAllHandlers.mockReset()
+    mockRegisterAllHandlers.mockImplementation(() => {})
+  })
+
+  function fakeCreatorServices () {
+    return {
+      creatorStore: {
+        listCreators: async () => [],
+        countPending: () => 0,
+        canSpend: () => true,
+        spend: () => {},
+      },
+      creatorCollector: { resolveChannelId: async () => 'UC_x' },
+      creatorRuntime: {
+        probeCreator: async () => ({}),
+        collectOne: async () => ({}),
+        collectBatch: async () => ({ collected: 0, failed: 0 }),
+      },
+      creatorCredentialProvider: {
+        status: () => ({ status: 'not_configured' }),
+        getApiKey: () => null,
+        setApiKey: () => ({ ok: true }),
+        clear: () => ({ ok: true }),
+      },
+    }
+  }
+
+  it('从 context.container.get 解析 creator 依赖（分组 Proxy 自身没有 get）', () => {
+    const services = fakeCreatorServices()
+    const container = { get: (name) => services[name] }
+
+    registerAllIpcHandlers({ app, BrowserWindow, context: { container } })
+
+    const deps = mockRegisterAllHandlers.mock.calls[0][1]
+    expect(deps.creatorStore).toBe(services.creatorStore)
+    expect(deps.creatorCollector).toBe(services.creatorCollector)
+    expect(deps.creatorCredential).toBe(services.creatorCredentialProvider)
+    // 门面恰含 4 个方法，且必须是经 runtime 转发（不是把 runtime 原样塞进去）
+    expect(typeof deps.creatorMonitor.probeCreator).toBe('function')
+    expect(typeof deps.creatorMonitor.collectBatch).toBe('function')
+    // 配额包是 store 的账本方法适配层
+    expect(typeof deps.creatorQuota.canSpend).toBe('function')
+  })
+
+  it('context 顶层直取仍可用（测试/显式注入路径不被破坏）', () => {
+    const services = fakeCreatorServices()
+
+    registerAllIpcHandlers({
+      app,
+      BrowserWindow,
+      context: {
+        creatorStore: services.creatorStore,
+        creatorCollector: services.creatorCollector,
+        creatorRuntime: services.creatorRuntime,
+        creatorCredentialProvider: services.creatorCredentialProvider,
+      },
+    })
+
+    const deps = mockRegisterAllHandlers.mock.calls[0][1]
+    expect(deps.creatorStore).toBe(services.creatorStore)
+    expect(typeof deps.creatorMonitor.collectOne).toBe('function')
+  })
+
+  it('容器缺项时只降级、不抛（报错会把整条 IPC 注册连带带崩）', () => {
+    const container = { get: () => { throw new Error('Service not registered: creatorStore') } }
+    expect(() => registerAllIpcHandlers({ app, BrowserWindow, context: { container } })).not.toThrow()
+    const deps = mockRegisterAllHandlers.mock.calls[0][1]
+    expect(deps.creatorStore).toBeUndefined()
+  })
+
+  it('⛔ 源码里不得再出现 `context.get(` —— 那个方法不存在，写了就是静默全降级', () => {
+    const src = fs.readFileSync(path.join(__dirname, 'phase5-ipc.js'), 'utf8')
+    expect(src).not.toContain('context.get(')
+    // 反向断言：真实的取值口必须在位（否则上面那条"不出现"会以删除功能的方式变绿）
+    expect(src).toContain("typeof container.get === 'function'")
+  })
+})
+
 describe('IPC 注册生命周期', () => {
   const app = { isPackaged: true }
 

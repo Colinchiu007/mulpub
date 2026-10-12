@@ -105,7 +105,7 @@
     "apps/desktop/electron/services/asset-generator.js": 1369,
     "apps/desktop/electron/services/model-provider-manager.js": 1284,
     "apps/desktop/electron/services/pipeline-engine.js": 2724,
-    "apps/desktop/electron/services/rpa-view-platforms.js": 1476,
+    "apps/desktop/electron/services/rpa-view-platforms.js": 1484,
     "apps/desktop/electron/services/story2video-compose-engine.js": 2486,
     "apps/desktop/electron/services/story2video-project-service.js": 2373,
     "apps/desktop/electron/services/story2video-stages.js": 4006,
@@ -117,7 +117,7 @@
     "apps/desktop/src/views/ModelProviders.vue": 1496,
     "apps/desktop/src/views/Publish.vue": 1773,
     "apps/desktop/src/views/PublishHistory.vue": 1394,
-    "apps/desktop/src/views/ResultView.vue": 1888,
+    "apps/desktop/src/views/ResultView.vue": 1890,
     "ops-center/backend/services/model_preset_service.py": 1221,
     "packages/api-publish-engine/src/publish-api-server.js": 1574,
     "packages/python-backend/src/multi_publish/video_creation/providers/video/video_compose.py": 2638,
@@ -134,7 +134,6 @@
     "apps/desktop/electron/services/story2video-project-service.test.js": 3274,
     "apps/desktop/electron/services/story2video-stages.test.js": 4152,
     "apps/desktop/electron/services/tts-voice-clone-service.test.js": 1756,
-    "apps/desktop/electron/services/webview-manager.test.js": 1649,
     "apps/desktop/electron/tests/stage-executor.test.js": 1516,
     "apps/desktop/src/views/Accounts.test.js": 2029,
     "apps/desktop/src/views/Collection.test.js": 1687,
@@ -143,5 +142,7 @@
     "apps/desktop/src/views/ResultView.test.js": 2175,
     "apps/desktop/src/views/RewriteView.test.js": 1649
   },
-  "testPruned": {}
+  "testPruned": {
+    "apps/desktop/electron/services/webview-manager.test.js": 1471
+  }
 }

@@ -5233,12 +5233,25 @@ CI 门禁（Gate 7 扩展，`--py-cjk`）：扫描 `packages/python-backend/src`
 ### 8.4 草稿箱管理
 
 ```
-草稿箱（内容采集页面内）
-    ├─ 查看所有草稿（标题预览、采集来源）
+草稿箱（采集页独立标签页，2026-10-12 起）
+    ├─ 查看所有草稿（标题预览、更新时间、字数、平台数、采集来源、正文摘要）
     ├─ 编辑草稿 → 跳转到发布页
-    ├─ 删除草稿
+    ├─ 发布草稿 → 跳转到发布页
+    ├─ 删除草稿（二次确认）
     └─ 新建空白草稿
 ```
+
+> 完整规格见 [PRD-COLLECTION-DRAFTS-TAB-2026-10-12.md](./PRD-COLLECTION-DRAFTS-TAB-2026-10-12.md)
+> （含数据校验 V1~V15、流程、功能逻辑、交互逻辑、显示项、中英提示文字、验收 A1~A15）。
+
+**统一真源（2026-10-12）**：草稿写入一律走 `draftSave`、读取一律走 `draftList`，
+与发布页同源。此前采集页用 `storeGetSetting('drafts')` 自写一份，而它与 `draftSave`
+落在**同一行存储**（`scopedSettingKey('drafts', owner)`），导致发布页草稿在采集页
+时间显示空白、采集页草稿在发布页显示 0 平台、同内容被指纹去重互相覆盖。
+
+**采集页素材来源入口**：微博/知乎/今日头条三个快捷按钮走 `PLATFORM_SOURCE_URLS`
+（热榜/热搜，语义「去哪找素材」），**不再**复用 `PLATFORM_DASHBOARD_URLS`
+（创作者后台/发布目的地，且被登录态校验复用）。实测依据与遗留风险见专项 PRD §1.3 / §6。
 
 
 ### 8.5 博主监控与采集（Creator Monitor & Collect）
@@ -14167,12 +14180,25 @@ CI 门禁（Gate 7 扩展，`--py-cjk`）：扫描 `packages/python-backend/src`
 ### 8.4 草稿箱管理
 
 ```
-草稿箱（内容采集页面内）
-    ├─ 查看所有草稿（标题预览、采集来源）
+草稿箱（采集页独立标签页，2026-10-12 起）
+    ├─ 查看所有草稿（标题预览、更新时间、字数、平台数、采集来源、正文摘要）
     ├─ 编辑草稿 → 跳转到发布页
-    ├─ 删除草稿
+    ├─ 发布草稿 → 跳转到发布页
+    ├─ 删除草稿（二次确认）
     └─ 新建空白草稿
 ```
+
+> 完整规格见 [PRD-COLLECTION-DRAFTS-TAB-2026-10-12.md](./PRD-COLLECTION-DRAFTS-TAB-2026-10-12.md)
+> （含数据校验 V1~V15、流程、功能逻辑、交互逻辑、显示项、中英提示文字、验收 A1~A15）。
+
+**统一真源（2026-10-12）**：草稿写入一律走 `draftSave`、读取一律走 `draftList`，
+与发布页同源。此前采集页用 `storeGetSetting('drafts')` 自写一份，而它与 `draftSave`
+落在**同一行存储**（`scopedSettingKey('drafts', owner)`），导致发布页草稿在采集页
+时间显示空白、采集页草稿在发布页显示 0 平台、同内容被指纹去重互相覆盖。
+
+**采集页素材来源入口**：微博/知乎/今日头条三个快捷按钮走 `PLATFORM_SOURCE_URLS`
+（热榜/热搜，语义「去哪找素材」），**不再**复用 `PLATFORM_DASHBOARD_URLS`
+（创作者后台/发布目的地，且被登录态校验复用）。实测依据与遗留风险见专项 PRD §1.3 / §6。
 
 ---
 
@@ -19649,3 +19675,35 @@ apps/desktop/src/views/
 - **契约新增**：`cover:generate-ai` 的出参校验补一条——`assetGenerator` 返回 `data.degraded === true`（ffmpeg drawtext 占位图）时**不得**以 `source:'ai'` 成功返回；必须判定为 AI 失败并走本地标题卡兜底（`source:'local-fallback'`）。占位图在 Windows 打包环境无 CJK 字形（中文全 tofu），历史上曾被当 AI 封面上传快手图集（实锤 `img_9400.png`）。
 - **流程不变式**：封面来源优先级 = 真实 AI 生图（非 degraded）> 本地标题卡兜底 > 如实报错；任何「降级/占位」产物不得跨模块冒充成功产物消费。
 - **验收**：`publish.test.js`「degraded 占位图不得当成功返回，必须回退本地封面」（修复前红灯精确复现 tofu 路径）。
+
+## 附录：热门选题多源扩展 + AI 分类 + 归类准确性（2026-10-12，hot-topics-multi-source）
+
+> 完整规格见 `01-docs/PRD-HOT-TOPICS-MULTI-SOURCE-AI-CATEGORY-2026-10-12.md`（788 行，含数据校验 V1–V45 / 交互逻辑 / 显示项 / 提示文字 / 验收 A1–A30），调研与实测记录见
+> `01-docs/RESEARCH-HOT-TOPICS-MULTI-SOURCE-2026-10-12.md`、`01-docs/research/hot-topics-sources-douyin-xhs.md`、
+> `01-docs/research/hot-topics-sources-toutiao-ifeng.md`、`01-docs/research/hot-topics-classification-accuracy.md`。
+> 本节只登记主文档必须常驻的口径。
+
+- **数据源扩容（全部免登录）**：`CHANNEL_CONFIGS` 8 → 10，新增 `xiaohongshu`（App 端热搜，需固定头六项，
+  缺任一 `xy-*` 或 `shield` 即 406；`shield` 为静态 token，轮换即失效）与 `ifeng`（`ne883dbn.ifeng.com/hotspotlist`
+  JSON，链接在 `link.url`；兜底 `i.ifeng.com` 内联 `allData.hotRankData.data`，需花括号配对解析）。
+  抖音三个同源端点改为 `config.fallbacks` **顺序降级链**（挂在同一个 `channel id` 下），
+  **不得**做成并列渠道——同源条目跨渠道去重后会污染 scorer 的 `sourceBonus`（「多榜同现＝全民热点」）信号。
+- **抓取失败语义（两条新合同）**：① **解析出 0 条一律视为失败**（抖音缺 UA/Referer 时是「HTTP 200 + 空 `word_list`」，
+  记成功会让熔断器永不打开、UI 只显示「该渠道 0 条」而无任何可排查信号）；② **406 单独告警**并点明固定头失效，
+  不得与普通网络失败混排。
+- **分类枚举 10 → 11 类，新增 `ai`（紧随 `tech`）**：跨端五处必须键名与顺序一致——
+  `electron/services/hot-topics/classifier.js` `CATEGORY_KEYS`、`electron/services/content-categories.js`、
+  `src/features/content/content-categories.js`、`src/views/HotTopics.vue`、
+  `ops-center/backend/services/content_category_service.py` 的 `CATALOG`。任一处漏改即静默漂移，故以断言锁死。
+- **归类准确性（v3）四条判据**：① 原生分类分三档——**可信原生** / **宽泛桶**（只在关键词零命中时兜底）/
+  **域级泛称**（科技/互联网/科学科普/知识/资讯/热点，**不参与裁决**）；② 关键词分 strong（词长×2）/ weak（词长）
+  并设 `MIN_SCORE=3`，中文词表禁裸单字；③ 拉丁词走**词边界**（`includes('AI')` 会命中 `Air`/`said`）+ 全角归一；
+  ④ `general` 收窄为「无判别力信号」专属，有真实分类即剔除。
+- **补拉条目的分类归属**：`_collectBoostChannel` 先过分类器，**只有 `general` 才用 `boostCategory` 兜底**；
+  新增 `CATEGORY_BOOSTS.ai`，`onlyCategory` 用分类器本身筛 AI 条目（不引入第二份关键词表）；
+  显式请求补拉但该分类无源时必须出声告警，不得静默无反应。
+- **明确不接入**：头条号创作者平台（无 cookie 下 502 + `tag_info.hotboard_invitation` 权限门槛 +
+  GitHub 0 命中无参考实现 + 无法证实与今日头条热榜同源）；小红书 Web/创作者平台登录态方案（`/explore` 未登录已 302）。
+- **验收**：`hot-topics/classifier.test.js`（32 例，含 6 条机制级根因反例）、`hot-topics-new-sources.test.js`（18 例）、
+  `hot-topics-boost-classify.test.js`（6 例）；定向 8 文件 197 例、全量 380 文件 7276 例（1 skipped）全绿；
+  `ops-center` pytest 7 passed。

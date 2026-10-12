@@ -145,3 +145,13 @@ export async function episodePublishCancel (payload) {
   return envelope(() => invokeNamespace(NS, 'episodePublishCancel', payload))
 }
 
+/**
+ * §6.4.2 第三条通道的订阅入口。返回信封而非直接函数：
+ * `{available:false}` 表示 preload 面没有这个方法（未登录 / 旧 preload / 非 Electron 环境），
+ * 调用方据此必须显式显示「进度不可用」，**不得**画一条停在首相位的假进度条。
+ * `{available:true, result}` 的 result 是注销函数，调用方必须在收尾与卸载两处各调一次。
+ */
+export async function onEpisodePublishProgress (callback) {
+  return envelope(() => invokeNamespace(NS, 'onEpisodePublishProgress', callback))
+}
+

@@ -1075,7 +1075,10 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
       log.warn('RpaView','[wechat_mp] session token not found in home url='+homeUrl)
       return { success:false, error:'微信公众号会话 token 获取失败，请重新登录', platform:'wechat_mp' }
     }
-    const editUrl = 'https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_edit_v2&action=edit&isNew=1&type=77&createType=0&token=' + tokenMatch[1] + '&lang=zh_CN'
+    const domGuard = require('./wechat-mp-dom-guard') // PRD §F5：群发保护预检（只在群发时请求，预检失败放行）
+    const guard = await domGuard.checkMassSendProtection(win, article)
+    if (!guard.ok) return { success:false, error:guard.error, platform:'wechat_mp' }
+    const editUrl = `https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_edit_v2&action=edit&isNew=1&type=77&createType=0&token=${tokenMatch[1]}&lang=zh_CN`
     // 加长稳定等待：新版后台为 SPA，编辑器与保存按钮延迟挂载
     await this._navigateAndWait(win, editUrl, 5000)
 
@@ -1098,33 +1101,15 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
       if (await this._waitForElement(win,'#title, input.weui-desktop-input',10000)) {
         try { await this._fillInput(win,'#title',article.title) } catch (e) { log.warn('RpaView','[wechat_mp] title fill: '+e.message) }
       }
+      // 2026-10-12：新版标题也是 ProseMirror，隐藏 `#title` textarea 可能写不进去；
+      // 补一次可信注入（编辑器不存在时内部跳过，不新增阻断）。
+      await require('./wechat-mp-article').fillWechatMpTitleEditor(this, win, article.title)
     }
 
-    // Fill content — 新版后台编辑器位于主 frame（contenteditable/ProseMirror/Quill），旧版才在 iframe 内
-    if (article.content) {
-      this._emitProgress('wechat_mp','filling content...',40)
-      const contentSel = '#js_editor_content, #js_editor, [contenteditable="true"], .ProseMirror, .ql-editor, .rich_media_area_primary_inner, .rich_media_area_primary, .editor-area, [data-lexical-editor="true"]'
-      try {
-        if (await this._waitForElement(win,contentSel,15000)) {
-          await this._setElementContentSafe(win,contentSel,article.content)
-        } else {
-          // 兼容旧版后台：编辑器位于 iframe（ueditor）
-          const iframeSel = 'iframe#ueditor_0, iframe[src*="ueditor"]'
-          if (await this._waitForElement(win,iframeSel,5000)) {
-            await this._fillInFrame(win,iframeSel,'#js_editor_content, [contenteditable="true"]',article.content)
-          } else {
-            // 诊断：dump 页面关键 DOM 结构，帮助区分登录失效/编辑器改版/iframe 跨域
-            try {
-              const domDiag = await win.webContents.executeJavaScript('(function(){var t=(document.body&&document.body.innerText)||"";var ceds=[...document.querySelectorAll("[contenteditable=true]")].map(function(e){return {cls:String(e.className||"").slice(0,120),tag:e.tagName}});var editors=[...document.querySelectorAll("[class*=editor],[class*=Editor],[class*=rich_media],[class*=content],[id*=editor],[id*=content]")].map(function(e){return {tag:e.tagName,id:e.id||"",cls:String(e.className||"").slice(0,120)}}).slice(0,20);var iframes=[...document.querySelectorAll("iframe")].map(function(f){return {src:String(f.src||"").slice(0,160),id:f.id||""}}).slice(0,10);var textareas=document.querySelectorAll("textarea").length;return {text:t.replace(/\\s+/g," ").slice(0,300),contenteditable:ceds.slice(0,10),editorLike:editors,iframes:iframes,textareas:textareas}})()')
-              log.warn('RpaView','wechat_mp content editor not found, DOM diag: '+JSON.stringify(domDiag).slice(0,1500))
-            } catch (diagError) { log.warn('RpaView','wechat_mp DOM diag failed: '+diagError.message) }
-            log.warn('RpaView','wechat_mp content editor not found, aborting save url='+win.webContents.getURL()+' title='+win.webContents.getTitle()); return { success:false, error:'微信公众号内容编辑器未找到，已中止保存', platform:'wechat_mp' }
-          }
-        }
-      } catch(e) {
-        log.warn('RpaView','wechat_mp content fill failed: '+e.message+' url='+win.webContents.getURL()+' title='+win.webContents.getTitle())
-      }
-    }
+    // Fill content — 2026-10-12 修复：改走 wechat-mp-article 的多通道注入 + 回读校验
+    // （此前 `_setElementContentSafe` 直写 innerHTML 不进 ProseMirror 模型，且恒返回成功 ⇒ 假成功）。
+    const fill = await require('./wechat-mp-article').applyWechatMpContent(this, win, article)
+    if (!fill.ok) return { success:false, error:fill.error, platform:'wechat_mp' }
 
     // Fill author
     if (article.author) {
@@ -1151,6 +1136,15 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
         await win.webContents.executeJavaScript("(function(){var cb=document.querySelector('#js_comment_open, input[name=\"need_open_comment\"]');if(cb&&cb.checked){cb.click()}})()").catch(function(){/* ignore */})
       } catch (e) { log.warn('RpaView','wechat_mp comment toggle: '+e.message) }
     }
+
+    // Cover（2026-10-12 修复）：此前**完全没有这一步** —— 公众号封面是必填项，缺了它不是
+    // 「封面丢了」而是「草稿本身不完整」，而保存草稿只看 appmsgid，缺封面的草稿仍会记 success。
+    // 生效判据（CDN 链接 / 预览背景图 / img 递增）与失败文案都在 wechat-mp-cover.js 内。
+    const cover = await require('./wechat-mp-cover').applyWechatMpCover(this, win, article.cover_path)
+    if (!cover.ok) return { success:false, error:cover.error, platform:'wechat_mp' }
+
+    // 原文链接尽力透传（PRD §F6）：非关键字段，找不到候选不得阻断发布
+    await domGuard.fillSourceUrl(win, article.content_source_url)
 
     // Check agreement
     this._emitProgress('wechat_mp','checking agreement...',60)
@@ -1194,32 +1188,40 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
     }
 
     if (!mediaId) {
-      { log.warn('RpaView', '[wechat_mp] save draft result unverifiable: missing mediaId url=' + win.webContents.getURL()); return { success:false, error:'微信公众号草稿保存结果无法验证：缺少媒体 ID', platform:'wechat_mp' } }
+      { log.warn('RpaView', '[wechat_mp] save draft result unverifiable: missing mediaId url=' + win.webContents.getURL()); return { success:false, error: domGuard.mapSaveFailureMessage(await domGuard.readEditorToast(win), '微信公众号草稿保存结果无法验证：缺少媒体 ID'), platform:'wechat_mp' } }
     }
 
-    // Mass send (群发)
-    if (article.massSend) {
-      this._emitProgress('wechat_mp','mass sending...',85)
+    // Mass send / Free publish（群发/发布；wechat-mp-publish-track）。正判据（消灭「点了就算成功」）：
+    // 确认前挂 masssend XHR 监听 + 点击后轮询页面成功提示，至少一条成立才算成功，双缺失 fail-closed。
+    if (article.massSend || article.freePublish) {
+      const isMass = article.massSend
+      const actionLabel = isMass ? '群发' : '发布'
+      const fail = (msg) => { log.warn('RpaView', '[wechat_mp] ' + actionLabel + ' failed: ' + msg); return { success:false, error:'微信公众号' + actionLabel + '失败：' + msg, platform:'wechat_mp' } }
+      this._emitProgress('wechat_mp', actionLabel + '...', 85)
       try {
+        const xhrPromise = this._waitForResponse(win, ['masssend'], 30000)
         await this._navigateAndWait(win,'https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_list&type=10&action=list',2000)
         const draftSelected = await win.webContents.executeJavaScript('(function(){var s='+JSON.stringify('[appmsgid="'+mediaId+'"]')+';let row=document.querySelector(s);if(!row)return false;row.click();return true;})()')
-        if (!draftSelected) {
-          { log.warn('RpaView', '[wechat_mp] mass send failed: draft not found mediaId=' + mediaId); return { success:false, error:'微信公众号群发失败：未找到已保存草稿', platform:'wechat_mp' } }
+        if (!draftSelected) return fail('未找到已保存草稿 mediaId=' + mediaId)
+        await this._sleep(1000)
+        const sendStarted = await this._click(win, isMass
+          ? 'a.btn_masssend, a[data-action="masssend"]'
+          : 'a.btn_freepublish, a[data-action="freepublish"], .weui-desktop-btn:has-text("发表")')
+        if (!sendStarted) return fail(actionLabel + '按钮不可用 url=' + win.webContents.getURL())
+        await this._sleep(2000)
+        if (!await this._click(win,'.dialog_bd_btn a:has-text("确定"), .weui-desktop-btn:has-text("确定")')) return fail('确认失败：确认按钮不可用 url=' + win.webContents.getURL())
+        const donePattern = isMass ? /群发成功|已发送|发送成功|发表成功|已发表|发布成功/ : /发表成功|已发表|发布成功/
+        const xhrHit = await xhrPromise
+        const pageHit = await this._waitForCondition(win, 'function(){var t=(document.body&&document.body.innerText)||"";return ' + donePattern.toString() + '.test(t);}', 20000, 800)
+        if (!xhrHit && !pageHit) {
+          const toast = domGuard.readEditorToast ? await domGuard.readEditorToast(win) : ''
+          log.warn('RpaView', '[wechat_mp] ' + actionLabel + ' no success evidence: xhr=' + JSON.stringify(xhrHit) + ' page=' + pageHit + ' toast=' + String(toast).slice(0,120))
+          return { success:false, error:'微信公众号' + actionLabel + '结果无法确认（未收到平台成功信号），请到公众号后台核实后重试；' + String(toast || '').slice(0, 80), platform:'wechat_mp' }
         }
         await this._sleep(1000)
-        const massSendStarted = await this._click(win,'a.btn_masssend, a[data-action="masssend"]')
-        if (!massSendStarted) {
-          { log.warn('RpaView', '[wechat_mp] mass send failed: button unavailable url=' + win.webContents.getURL()); return { success:false, error:'微信公众号群发失败：群发按钮不可用', platform:'wechat_mp' } }
-        }
-        await this._sleep(2000)
-        const massSendConfirmed = await this._click(win,'.dialog_bd_btn a:has-text("确定"), .weui-desktop-btn:has-text("确定")')
-        if (!massSendConfirmed) {
-          { log.warn('RpaView', '[wechat_mp] mass send confirm failed: button unavailable url=' + win.webContents.getURL()); return { success:false, error:'微信公众号群发确认失败：确认按钮不可用', platform:'wechat_mp' } }
-        }
-        await this._sleep(3000)
       } catch(e) {
-        log.warn('RpaView','wechat_mp mass send: '+e.message)
-        return { success:false, error:'微信公众号群发失败：'+e.message, platform:'wechat_mp' }
+        log.warn('RpaView','wechat_mp '+actionLabel+': '+e.message)
+        return { success:false, error:'微信公众号'+actionLabel+'失败：'+e.message, platform:'wechat_mp' }
       }
     }
 
@@ -1349,6 +1351,12 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
         selectors: {
           ...config.selectors,
           file_input: ['input[type="file"][accept*="image"]', 'input[type="file"]'],
+          // 2026-10-12：图文模式必须**关掉封面通道**。渲染层新增「自动封面同时落 cover_path」
+          // 后（`usePublishFlow` 的 AUTO_COVER_PLATFORMS），`_publish_generic` 的
+          // `article.cover_path && sel.cover_input` 分支会在图片已由 file_input/drag_area 上传之后
+          // **再注入同一张图**，产出重复图片。快手图文的语义本就是「首图即封面」，
+          // 封面通道在此为空是正确表达，不是省略。
+          cover_input: [],
           drag_area: '#rc-tabs-0-panel-2 div[class^="_dragger-content_"], div[class*="dragger-content"]',
         },
       }

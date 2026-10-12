@@ -16,7 +16,7 @@ const { createHttpClient, requestWithRetry } = require('../core/http-base')
 const { errorCode } = require('../../error-codes')
 // 话题内联描述（publish-topic-inline-description）：百家号是内联转换型平台——
 // 描述里的 `#话题` 发布时隐性转换成 `#话题#` 拼正文（参考产品取证口径），转换用单一实现
-const { convertInlineTopics } = require('../../content-formatter')
+const { convertInlineTopics, formatArticleBody } = require('../../content-formatter')
 
 const DEFAULT_BASE_URL = 'https://baijiahao.baidu.com'
 const HOST = 'baijiahao.baidu.com'
@@ -137,8 +137,17 @@ class BaijiahaoArticleChain {
   buildArticleFormData (taskData) {
     const params = new URLSearchParams()
     params.set('title', truncateTitle(taskData.title))
-    // 话题内联描述：已知话题（tags 含描述解析值）单井号 → 百家号双井号形态拼正文
-    params.set('content', convertInlineTopics('baijiahao', String(taskData.content == null ? '' : taskData.content), taskData.tags || []))
+    // 正文承载形态（publish-article-body-format，2026-10-12）：百家号 `content` 是富文本
+    // 编辑器的 **HTML** 字段。传纯文本时换行被当作可忽略空白，整篇正文会被平台存成一个
+    // 文本节点 —— 真机复核 11/11 篇公开文章正文 `<p>` 数为 0 且字节等于源文去掉全部换行。
+    // 顺序不可颠倒：话题转换先在**纯文本**上完成（`(^|\s)#话题` 前置边界成立），再整体包 `<p>`；
+    // 反过来会因 `>` 紧邻 `#` 使话题停在内联形态不转换。
+    const withTopics = convertInlineTopics(
+      'baijiahao',
+      String(taskData.content == null ? '' : taskData.content),
+      taskData.tags || [],
+    )
+    params.set('content', formatArticleBody('baijiahao', withTopics))
     params.set('category', String(taskData.category == null ? '未分类' : taskData.category))
     params.set('reward_money', '0')
     params.set('is_pay_column', '0')

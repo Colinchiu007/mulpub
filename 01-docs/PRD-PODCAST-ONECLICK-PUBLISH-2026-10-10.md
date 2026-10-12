@@ -199,7 +199,7 @@ partial 含「这一期已登记到本地频道」+ 一个只重试 feed 的出�
 
 | 口径 | 内容 | 少了它会怎样 |
 |---|---|---|
-| ① 事件形状 | 通道名 `podcast:episode:publish:progress`，载荷 `{ runId, phase, state, cancellable, durationSec?, sizeBytes?, mime?, message?, errorCode?, subCode? }`；`phase` 取值**只能**是编排层导出的 `PHASES` 闭集，`state ∈ {start, done, skipped, failed, cancelled}` | 载荷里给自由字符串，界面就会自造第二份相位表 |
+| ① 事件形状 | 通道名 `podcast:episode:publish:progress`，载荷 `{ runId, phase, state, cancellable, durationSec?, sizeBytes?, mime?, message?, errorCode?, subCode? }`；`phase` 取值**只能**是编排层导出的 `PHASES` 闭集**再并上取消终态那一站 `cancelled`**（§6.4「显示项」的相位条本来就画「七相位 + cancelled」，本节早期只写闭集与 §6.4 自相矛盾；2026-10-11 按后端评审 Info 纠正，并同 PR 给一条能变红的闭集锁），`state ∈ {start, done, skipped, failed, cancelled}`
 | ② `cancellable` 由主进程算 | 发送前用编排层那份**唯一实现** `cancellableAt(phase)` 求出布尔并随事件下发；渲染层**只读**该位。**禁止**在前端抄相位表、也**禁止**按"已用时长"猜相位 | §6.4.1 第 4 条禁止的事在前端重演一次；且取消按钮会在 `uploadAudio` 之后仍可点，用户以为停了其实没停 |
 | ③ 双边界与单点发射 | 每个相位必须有 `start`（执行**前**）与 `done` 两个边界；发射点唯一在 `podcast-episode-host.js`，宿主外的任何一层（适配层、编排层）**不得**再发；链结束时最后一条必须是终态边界 | 只在完成时发会让遮罩静止在视觉上等同卡死（本仓既有纪律「批量 IPC 进度双边界」）；多点发射会造出两份互相矛盾的进度真相 |
 
@@ -208,6 +208,25 @@ partial 含「这一期已登记到本地频道」+ 一个只重试 feed 的出�
 **三侧同 PR**：`ipcMain.handle`/发送侧字面量 + preload 订阅方法 + `src/api/podcast-channel.js` 的 `onEpisodePublishProgress`，`check-ipc-bridge` 少一侧当场红。订阅必须按 `subscriberId` 精确注销（既有跨实例订阅纪律，禁止无 id 时 `clear()` 全清）。
 
 **显示项与降级路径**：主进程若在 `progress` 之外只给到链末信封（例如事件订阅失败），界面必须**显式**显示「进度不可用，仅在本次结束后回看轨迹」，**不得**画一条停在首相位的假进度条。取消按钮在拿不到 `cancellable` 时的默认态是**禁用并说明原因**，不是「点了试试」。
+
+##### 6.4.2.1 实做落点（第 4 片，2026-10-11 已接线——改任何一条必须同 PR 改本节）
+
+- **发射点**：`ipc-handlers/podcast.js` 的出期 handler 里，`event.sender.send('podcast:episode:publish:progress', evt)` 是全仓唯一发送调用；
+  闭包按**每次调用**注入宿主（`publishFromVideo(payload, { emitProgress })`），不缓存在宿主上——缓存等于把「谁订阅」变成进程级状态，多窗口下会串台。
+- **边界来源**：编排层 `podcast-episode-publish.js` 的既有 `mark()` 就是相位边界点，观察者 `onPhase` 在这里回调（上一站补 `done` 并带出
+  `durationSec/sizeBytes/mime`，本站发 `start`）；编排层自身**不发事件**，所以口径③的「唯一发射点」与「双边界」同时成立，且没有新增第二套相位游标。
+- **终态边界由宿主补**：`success → done`、`partial → skipped`（公网 feed 未更新，既不得画成 done 也不得说成失败）、取消 `→ cancelled`、
+  其余异常 `→ failed` 并带 `subCode`。缺了这条界面会停在最后一个 `start` 上，视觉上等同卡死。
+- **`cancellable` 只在宿主算**：`publisher.cancellableAt(phase)`，随每条事件下发；渲染层 `usePodcastEpisodePublish` 只读这个位，
+  通道不可用时退回链末信封的 `cancellable`，两者都没给即 `false`（禁用并说明原因，不是「点了试试」）。
+- **订阅与注销**：preload `onEpisodePublishProgress` 返回**只删自己那一个 handler** 的注销函数（`removeAllListeners` 一律禁止）；
+  渲染层在 `start()` 内**先订阅后调用**（晚一步就丢第一个 `start`），并在 `finally` 注销。事件按 `runId` 过滤——别的窗口/别的链的边界不得动本遮罩。
+- **降级面**：`progressAvailable=false` 时浮层显式显示 `podcast.episode.progressUnavailable`，轨迹改从链末信封 `phases` 回看；不得画假进度条。
+- **浮层按需挂载（实施中新发现的硬约束）**：入口与浮层成对装配在 `components/PodcastEpisodeEntry.vue`，浮层 `v-if="openedOnce"`——
+  首次打开后常驻（关闭只隐藏，因为**关闭浮层不取消发布**，销毁会带走进行中的进度）；而**未打开前不得构造**，否则宿主视图（结果页/创作页）
+  在没有播客 preload 面的测试环境里会被浮层 setup 的抛错整片拖红。这条是本节没写、实施才暴露的约束，落点写在这里而不是留在记忆里。
+- **宿主侧行数**：结果页只留 1 行装配 + 1 行 import（原本抄两份状态会 +8），`max-lines-baseline.json` 的点名目标随之内调 1888 → 1890，
+  理由与本次接线一并在此记录，属「接受漂移」而非「清理」。
 
 #### 6.4.3 第 4 片提示文字逐字对照（**由脚本从 locales/podcast/{zh,en}.js 生成，改文案必须重新生成，禁止手工维护本节**）
 
@@ -313,6 +332,23 @@ registry（index.json + 两段 channel.json）、迁移三态（首访即可读�
 | 分段结构 | `content` 只 `trim()` 首尾，内部换行原样保留（:151），显示端 `white-space: pre-line`（`CopyLibraryView.vue:312`） | ⛔ 分块逻辑**禁止**压缩空白：`\s+ → ' '` 会把语义换行一起压掉（AGENTS.md「文本空白归一化 MUST NOT」+ `readable-text.js:139-143` 的 `[^\S\n]+` 唯一口径）。段落边界就是 `\n` |
 | 改写链 | `rewrite-handoff.js:23` 的 `{content 必填, title, platform, sourceUrl, fromKey, fromTitle}` | RewriteView 入口沿用该形状，不在刀 4 另造第二种 handoff |
 
+##### 7.4.1.1 音色解析层已落地（2026-10-11，刀 4 第 3 片·上半）
+
+**唯一实现**：`apps/desktop/electron/services/podcast-tts-voice.js` 的 `resolveEpisodeVoice(input)`（纯函数，不 require 任何网络/provider 代码，读偏好与 capability 由调用方注入）。
+
+| 项 | 落地口径 | 少了它会怎样 |
+|---|---|---|
+| 回退顺序 | ① 频道 `voiceRef` → ② 用户偏好 → ③ capability 的 `defaultVoiceId` → ④ 全空即**拒绝出期** | 猜「provider 的第一个音色」会让同一频道在不同机器解析出不同音色，而 feed 一旦挂上就是对外可见的错 |
+| 键名归一 | 频道真源存 `providerId`，本层归一后交 `voiceRefIssues` 判三段；同时接受历史别名 `provider` | 不归一会把「三段齐备但键名叫 providerId」的合法配置判成半配置，**每个正常配置过音色的频道都出不了期** |
+| 码表单点 | 半配置与三层全空**共用** `TTS_COMPOSE_ERRORS.VOICE_REF_INCOMPLETE`（其值即用户可见的 `PODCAST_TTS_VOICE_UNRESOLVED`），层间区分靠 `issues[].path`：`voiceRef` / `voice` / `voice.preference` / `voice.capability` | 每层各造一个码会在 locale 里堆无人维护的文案键，而两层的处置对用户是同一句话 |
+| 「读异常」≠「没配」 | 偏好或 capability **抛异常**时直接拒绝并出声（`warn`），不得静默降级到下一层；对照组：返回 `null` 才继续回退 | 把一次存储异常变成「系统替你换了个人说话」，且用户在界面上看不出来 |
+| 空值不算命中 | 偏好记录存在但 `voiceId` 为空串/纯空白 ⇒ 按没配处理，继续回退（对象形状 `{voiceId}` 与裸字符串形状都支持，覆盖 store 的两种历史形状） | 把空值当命中会让下一层永远点不到，表现为「配过偏好的人反而解析失败」 |
+| 无默认 provider | 拿不到 `defaultProvider` 的 providerId+model 时**②③ 无定位键**，直接拒绝且两个读取实现一次都不被调用 | 「随便挑一个 provider」等于把解析结果绑到 provider 列表的顺序上 |
+| 注入缺失 | `readPreference` / `getCapability` 任一缺失 ⇒ `PODCAST_EPISODE_INVALID`，且发生在任何读取之前 | 缺依赖时降级成"少一层回退"会让半成品在生产路径上静默生效 |
+
+**显示项 3 的数据来源（§7.4.6 的三态来源标注）**：本层返回 `origin ∈ {channel, preference, providerDefault}` 与 `resolvedBy`（形如 `preference:openai-tts/tts-1`）。渲染层必须按 `origin` 选文案键 `podcast.tts.voice.channel` / `.preference` / `.providerDefault`，措辞要让用户区分「我配的」与「系统替我选的」。**这三条 locale 键与浮层接线属第 3 片下半**（同下半还须把 `podcast-tts-compose.js` 加回 `src/locales/podcast-error-codes.test.js` 的 PRODUCERS 并补 4 组 zh/en 成对文案，见 tasks.md 的 MUST 行）。
+
+**锁**：`podcast-tts-voice.test.js` 16 条——含「①命中时两个读取实现调用数必须为 0」（顺序判据用调用计数而非返回形状）、「半配置不得往下走」、「异常与没配结果必须不同（成对用例）」、三条**注入真 `tts-voice-catalog.getVoiceCapability`** 的跨模块契约锁（`openai-tts/tts-1 → alloy`；`elevenlabs → defaultVoiceId 为 null` 必须拒绝；未知 provider 不算命中），以及一条「本层源码不得出现第二个 `PODCAST_*` 字面量码」的码表单点结构锁。
 #### 7.4.2 流程（相位与手柄）
 
 手柄仍是 `podcast-episode-publish.js` 的闭集 `PHASES`（:29-32）与 `CANCELABLE_UNTIL='uploadAudio'`。刀 4 **只在 `extractMix` 这一站换一个实现**（`synthesizeEpisodeAudio` 取代 `extractEpisodeAudio`），`probe` 及其之后逐字复用。结构锁（PRD §8 ⑪）的口径是：**改相位枚举必须与逐格结果态测试同 PR**；刀 4 不改枚举，改的是注入实现。
@@ -323,13 +359,32 @@ pickChannel → colloquialize → chunk → ttsBlock(逐块，串行) → concat
 ```
 
 1. `colloquialize`：**新建独立 prompt**，不复用 `rewrite-engine` 的去 AI 味链路（语义不同：那是"读起来像人写的"，这是"听起来像人说的"）。输出必须保持输入的分段结构（AGENTS.md「后处理结构不变量」：不得改换行/分段、终止标点原样、段尾无标点不得追加）。
-2. `chunk`：块上限取 **2000 码点**（不是 provider 的 4000 字符——`asset-generator.js:1031` 是 `slice(0, 4000)` 的**静默截断**，整篇喂进去超 4000 就直接丢内容且**不报错**，这是本刀最大的静默失真风险）。块边界只允许落在段落（`\n`）或句末终止标点（。！？；…），不得在句中断开；单段本身超上限时按句号再切，仍无句号则**拒绝出期**（`PODCAST_TTS_CHUNK_UNSAFE`）而不是硬切——硬切会把一句话读成两截。
+2. `chunk`：块上限取 **2000 码点**（不是 provider 的 4000 字符——`asset-generator.js:1031` 是 `slice(0, 4000)` 的**静默截断**，整篇喂进去超 4000 就直接丢内容且**不报错**，这是本刀最大的静默失真风险）。块边界只允许落在段落（`\n`）或句末终止标点（。！？；…），不得在句中断开；单段本身超上限时按句号再切，仍无句号则**拒绝出期**（`PODCAST_TTS_CHUNK_UNSAFE`）而不是硬切——硬切会把一句话读成两截。（**该上限只可下调不可上调**：调用方传入更大的值会被钳回 2000——抬高它等于把本条要防的 provider 静默截断重新打开，2026-10-11 按 QM-6 前端评审补上）
 3. `ttsBlock`：唯一出口是 `AssetGenerator.generateTTS(text, opts)`（`asset-generator.js:1009`），**禁止**直接调 adapter 的 `synthesize`（各家入参键名不同：minimax `text/voice/speed`、openai `input/voice/response_format`、google `text/speakingRate`，见 `adapters/*-tts.js`；这正是 AGENTS.md「适配器入参键必须与调用方契约键一致」那条事故的同族）。返回取 `data.path`（本地文件路径，:1095-1107）。
    - 逐块**串行**，每块 `withAssetTransientRetry` 语义沿用 Story2Video 的 `maxAttempts=3` / 限流 `4` 次（`story2video-stages.js:1402-1424`）；并发留空是刻意的（多数 TTS provider 按并发计费/限流，且并发会把"哪一块坏了"变成竞态）。
    - 每块产出的 `degraded` 标记必须逐块记账：`generateTTS` 的三级降级最终会返回 `anullsrc` 生成的 **3 秒静音并带 `degraded:true`**（:1224,1320-1332,1346）。
 4. `concatBlocks`：`concat=n=N:v=0:a=1` 的既有路径（`story2video-compose-engine.js:1514,1524-1530`），块间显式插入 **0.3–0.6 s** 静音——仓内**现成做法是"块间不加静音"**（§7.4.0 取证），所以这里的静音必须由**预先物化的静音片段**参与 concat（用已验证的 `anullsrc` 生成一份基准静音，再按块数复制），**不得**用 `adelay`（不在 `REQUIRED_FILTERS`）。
 5. `probe` 及之后逐字复用刀 3：ffprobe 实测 `durationSec`/`sizeBytes` → 显式 `mime` → 三处一致校验 → attach（strict）→ buildFeed → uploadFeed。**`degraded:true` 的素材永远进不到 probe**：降级门禁在 `podcast-episode-source.js:53` 已经只认 `audioMeta.degraded === true`，刀 4 必须把逐块 degraded 汇成同一条判据（展示端同源 `ResultView.vue:652`），命中即整次拒绝、不上传。
 
+##### 7.4.2.1 口语化层已落地（2026-10-11，刀 4 第 3 片·下半 上）
+
+**唯一实现**：`apps/desktop/electron/services/podcast-tts-colloquialize.js`（零依赖纯函数，`require` 列表为空）。
+
+| 项 | 落地口径 | 少了它会怎样 |
+|---|---|---|
+| 与去 AI 味的边界 | **独立 prompt**（`SYSTEM_PROMPT` 单点常量），不复用 `rewrite-engine` 链路 | 那是「读起来像人写的」，本层要「听起来像人说的」；复用会把改写边界与分段约束一起带错 |
+| 分段结构不变量 | **段的定义全链只有一个：单个换行**（与下游分块层的切分逐字同口径；prompt 第 1 条也照这个说「不得增加、删除、合并任何换行」，不再写「空行分段」——2026-10-11 QM-6 后端 F1 命中：判据引用的口径与自己实现不是同一件事，会把模型忠实守约的合法重排整份白拒）。采用前逐条判：段数相等、空段位置保持、**每段最后一个非空白字符逐字相同** | 结构一变，下游 `planChunks` 的段落边界（`\n`）就是错的——块会在句中断开、段尾被追加标点，而听感问题不会在任何日志里留下痕迹 |
+| 单条判据取代两份标点表 | 用「末字符逐字相同」一条同时覆盖补标点 / 换标点 / 删标点三种失真，**不**再抄一份终止标点集合 | 两份集合只更新其一时，一次口径改动牵动两层（同仓「同一决策的两端写在两个文件」事故族） |
+| 失败方向 = 旁路 | 无 provider、调用异常、空返回、结构不合格 ⇒ **采用原文**并出声（warn 一次，不含用户正文） | 把可选增强做成出期的硬前提，等于让一个不影响正确性的环节决定用户能否发布；原文本身是合法口播 |
+| 计费前置 | `enabled=false` 时**一个 LLM 调用都不发起**（锁断言 invoke 未被调用） | 「调了再丢结果」会在用户没要求改写时照样产生 provider 计费 |
+| 围栏剥壳 | 只处理「整份输出被 ``` 包住」这一形态，剥壳后仍按原行数比对 | 局部清洗会把正文里合法的三反引号代码引用吃掉；不剥壳则围栏会被当成一个段落念出来 |
+| 非字符串返回 | 对象 / undefined / 数字 一律按空处理 | 把 `[object Object]` 喂进分块层会静默产出一期只念占位符的节目 |
+| 字段边界 | `buildColloquializePrompt` **只接受 title 与 content**；源码扫描断言 prompt 构造函数不含 `platform` | §7.4.1 明写「同一份文案出期与发布到哪个平台无关」；把 platform 混进 prompt 会让同内容在不同平台出不同期 |
+| 出站 | 本层不 require 任何网络/provider 代码，调用通道由宿主注入（宿主绑定 `ai-generator` 的 `chatCompletion`） | 每层各自出站就无法统一超时与计费口径；测试里也会出现真实出站 |
+
+**超时归属**（写明以免下一位重复实现）：口语化的硬超时由**注入侧**（宿主绑定 `chatCompletion` 时）负责，本层不再套第二层超时——两层预算相乘会让一次抖动耗尽整条链的窗口。
+
+**尚未接线**：本层目前只有实现与锁，`podcast-episode-host.js` 仍走「正文直接进 `planChunks`」。host 注入替换（`colloquialize → synthesizeEpisodeAudio`）、三态来源标注的 locale 键（`podcast.tts.voice.*`）、以及把 `podcast-tts-compose.js` 回接 `src/locales/podcast-error-codes.test.js` 的 PRODUCERS，均在同一片的下一节（宿主接线）一并交付。**这是刻意的切片边界，不是遗漏。**
 #### 7.4.3 数据校验三层（与 §6.4 同构，逐层给出「少了它会怎样」）
 
 | 层 | 判据 | 少掉的后果 |
@@ -372,10 +427,149 @@ pickChannel → colloquialize → chunk → ttsBlock(逐块，串行) → concat
 | `podcast.tts.cancelHint` | 浮层 | 关闭本窗口不会停止合成；停止请点击"取消出期" |
 | `podcast.tts.cancelTooLate` | 取消 | 说明**为什么**不能取消（已进入上传，会留下半态） |
 
+#### 7.4.7 第 2 块实做落点与一处合同偏离（2026-10-11）
+
+落点：`apps/desktop/electron/services/podcast-episode-synth.js` 的 `synthesizeEpisodeAudio`，它是 §7.4.2 里
+`extractMix` 的等价替身，返回形状与 `extractEpisodeAudio` 逐字同构（`{outPath, durationSec, sizeBytes, mime}`，三个量都是实测）。
+五条实现口径：① 逐块**串行**且**不再套第二层重试**（重试归 `generateTTS` 的 `withAssetTransientRetry`，两层相乘会把一次抖动放大成数十次真实调用）；
+② 每块只认 `degraded === true` 这一个事实源，命中即**拦在 probe 之前**并逐块列出块号（`PODCAST_TTS_CHUNK_DEGRADED`）；
+③ 块级失败没有「跳过坏块继续」出口（`PODCAST_TTS_BLOCK_FAILED` 与 `PODCAST_TTS_ALL_FAILED` 是两个码，排查方向不同）；
+④ 块间静音 `gapSec` 闭集 `[0.3,0.6]`，越界**出声钳制**，`0` 也按"仓内既有不加静音"的形态出声纠正——它不是用户可表达的意图；
+⑤ 取消点落在块与块之间（`cancelToken` 在每个块前采样），取消不拼接、已产出的块文件由宿主统一清理。
+
+**一处偏离（按本节规矩点名，先改规格再改代码）**：§7.4.3 第 ② 层原句「总时长 ≥ 块数 × 单块最短时长下限」若按字面取
+`块数 × 3s`（3s 正是降级静音的长度），会把「10 块、每块合法 1 秒」的正常口播整期误拒——那是把**防降级**的下限写成了**内容长度**的下限。
+现改为按码点推导：`durationSec >= 总码点数 × MIN_SEC_PER_CODEPOINT(0.1)`，即约 10 码点/秒——常态口播（4-5 码点/秒）的两倍宽余量，只有"整段被静音替换 / 严重截断"这种连 10 字/秒都达不到的形状才会命中（2026-10-11 QM-6 后端评审以 Warning 命中后由 0.2 下调；0.2 恰等于常态语速上界，念得快的合法整期会被误杀），
+只能抓到「整段被静音替换」而不误杀短块；防"每块都是 3 秒静音"这一原始目的由第 ② 条的 `degraded` 逐块门禁承担。
+两条各管一件事，合成一条固定 `×3s` 反而两头都不准。回归锁见 `podcast-episode-synth.test.js`「时长按码点下限拦…但不得误杀合法的短块」。
+#### 7.4.9 生产适配层 `podcast-episode-tts-adapters.js`（刀 4 第 3 片·接线，2026-10-12）
+
+§7.4.8 的四个注入实现的**生产侧**（tasks 3.7 第⑦条：注入实现的返回契约必须与真 adapter 同 PR 钉死）。
+四个工厂各自只映射形状，**不新增判据**：音色判据在 §7.4.1.1、分块在 §7.4.2、块级 degraded 汇总在 §7.4.7。
+
+| 工厂 | 入参（宿主注入） | 出口形状 | 数据校验（全部 fail-closed） |
+| --- | --- | --- | --- |
+| `createGenerateTTS` | `assetGenerator.generateTTS` | `( {text,index,voiceRef} ) => {path, degraded, reason?, mime?}` | `code!==0` / `data` 缺席 / `path` 空 ⇒ `degraded:true` + `reason:provider_failed`；调用抛错 ⇒ `reason:invoke_failed`；**`degraded` 字段缺席也判降级**（未知形状不当成功） |
+| `createVoiceReaders` | `readSetting` / `getVoiceCapability` | `{readPreference, getCapability}` | 缺任一即抛 `PODCAST_EPISODE_INVALID`；偏好键逐字 `tts-voice-preference:v1:<providerId>:<model>` |
+| `createConcatBlocks` | `ffmpegPath` / `spawnImpl` / `fsImpl` | `( {paths,gapSec,outPath} ) => {path,mime}` | 空块列表即 `PODCAST_TTS_CONCAT_FAILED`；`spawn.code!==0` 或产物不存在即同码；**返回 path 逐字等于 outPath**（合成层按该等值判据拒绝）；列表临时文件在 `finally` 删除 |
+| `createProbeImpl` | `ffprobePath` / `spawnImpl` | `(p) => {durationSec, sizeBytes?, mime}` | `duration` 缺失或 ≤0 ⇒ `PODCAST_TTS_AUDIO_TOO_SHORT`；`size` 缺席**不填**（磁盘 `stat` 是字节唯一权威，见 §7.4.7） |
+
+三条不可让（写在这里而不是只写在注释里）：
+
+1. **降级不得被消费成成功**。`AssetGenerator.generateTTS` 的第三级回退是 ffmpeg `anullsrc` 静音并带
+   `degraded:true`；适配层对「没标 degraded」同样判降级——把未知形状读成成功，就会让一期全静音的节目
+   通过块级门禁进入发布（§7.4.3 第②层要防的正是这个）。
+2. **入参键名按调用方契约，不按 provider 请求体**。合成层给 `voiceRef.voiceId`（camelCase），而
+   `asset-generator.js` 读 `opts.voice_id` / `opts.voiceId` 两键（`firstNonEmptyString`）。适配层
+   2b. **路由键同一条纪律（2026-10-12 QM-6 后端评审 High 追加）**：真正决定"哪个引擎跑"的不是音色键，
+   而是 `voice_provider` / `voiceProvider`（`asset-generator.js:1027` 的 `getConfiguredProvider`）与
+   `voice_model` / `voiceModel`（`:1072`）。只给 `providerId` / `model` 时 provider 恒为 `null` ⇒
+   `_tryProviderTTS` 直接返回、落到 `_tryEdgeTTS` 兜底，**配置的 provider 静默不生效且没有任何日志**——
+   这类"看起来跑通了"的错路由比抛错更难发现。所以适配层六个键一起给：`voiceId`/`voice_id`/
+   `voice_provider`/`voiceProvider`/`voice_model`/`voiceModel`，回归锁逐个断言在位。
+   **两键同时给**——只给一个键名会静默丢音色并恒用 provider 默认（AGENTS 同名条文的第二个落点）。
+   另有 **`gapSec` 必须真的参与拼接**（QM-6 后端 Critical）：concat 列表必须是
+   `块 / 静音 / 块 / 静音 …`，静音片段由 `anullsrc` 预物化、与块同容器，生成失败即整次拒绝
+   （`PODCAST_TTS_CONCAT_FAILED`），**不得静默退化成无间隔拼接**——念成连读是听感事故且不留日志。
+   列表路径**必须先归一 Windows 反斜杠**再单引号转义（与仓内 `_plainConcat` 同口径，Medium）。
+3. **零隐式出站**：本文件不 require `node:child_process`、不 require 任何 provider 包，进程与文件
+   系统全部经 `spawnImpl` / `fsImpl` 注入；因此测试不起真进程，真实 ffmpeg 路径必须由
+   `media-tool-paths` 解析出打包件后传入（缺席即抛，不允许回落到宿主 `PATH`）。
+
+**显示项与提示文字的落点**：本层不产出用户可见文案。`degraded`/`reason` 是**机器位**，
+渲染文案由下一片（4.3 的浮层确认步）按 `podcast.tts.*` 逐字生成并成对进 zh/en locales；
+因此本片**不新增 locale 键**（AGENTS 禁止无人消费的死键），提示文字清单随那片一并写进 §11.5。
+
+**未闭合**：真机 ffmpeg/ffprobe 拼接与解码实测（QM-1 媒体工具闭包要求：捆绑 ffprobe 解码短视频）
+属本片合并前的必做证据，落 `openspec/records/podcast-tts-adapters.md` 的 QM-1 段；未跑完不得合并。
+
 ### 刀 5 入口收敛
 刀 3 已建好的 `<PodcastPublishAction>` 挂到 `CopyLibraryView.vue:174`、`RewriteView.vue:812`、`Publish.vue:358`（采集页仅文本类分支）。**不放**：`HotTopics`、`KeywordMonitor`、`PublishHistory:764`（重发会带同 guid 原地覆盖正在播那期）、`Home`/`FirstRun`（裸跳转无内容）、`FilmEngineering`（本页无发布挂载点）。
 
 ---
+
+### 7.9 存量 `mime` 一次性固化（tasks 4.4 合同，2026-10-12）
+
+> **这一节是合同，不是实现**。落代码的那一片必须按本节做，任何偏离先改本节再改代码，
+> 不得在实现里另立口径。写本合同的原因：§7.6 的严格校验与 `compliance` 标记上线后，
+> **存量单集**（早于严格校验写入 `episodes.json` 的记录）会被整批读成「不合规」，
+> 用户看到的是自己的老节目一夜之间全部 blocked——那是把校验的代价转嫁给历史数据。
+
+#### 7.9.1 事实前提（先量再写）
+
+- 真源是 `<userData>/podcast/channels/<channelId>/episodes.json`（按频道一份），
+  `index.json` 只存频道目录与托管配置，**不存单集**。
+- 一条单集的 `mime` 合法集只有两个值：`audio/mpeg`、`audio/mp4`（与 §7.4 抽取层的
+  编码器→容器映射逐字同源，唯一实现是 `podcast-episode-source.js` 的编码计划表；
+  本节**不得**新增第三种容器，也不得另写一份判据）。
+- 存量脏值的**成因有两类且处置不同**，必须先分清：
+  ① **缺席**（字段从未写过，历史版本没有这个键）；② **非法**（写过的值不在合法集里，
+  例如空串、`audio/mp3`、大小写漂移、带参数 `audio/mpeg;codecs=mpeg3`）。
+
+#### 7.9.2 固化动作（一次性、幂等、只补不改）
+
+- **触发与次数**：与 `index.json` 的 legacy 迁移同一范式——首个需要频道单集数据的调用触发，
+  恰好一次（进程内内存位 + 落盘标记 `stockStamp` 双保险）。重复启动不得二次改写。
+- **派生规则（唯一判据，按优先级）**：
+  1. `mime` 已在合法集内 ⇒ **原样保留，一个字节都不改**；
+  2. 缺席或非法 ⇒ 由该期 `enclosureUrl`（无则 `localPath`）的**扩展名**派生：
+     `.mp3` ⇒ `audio/mpeg`；`.m4a`/`.aac` ⇒ `audio/mp4`；
+  3. 扩展名不在表内 / URL 与本地路径都拿不到 ⇒ **不猜、不填**，保持原状并计入 `unresolved`。
+- **标记**：凡本次被派生填上的记录写 `mimeSource: "stock"`；原本合法不动的写 `mimeSource: "measured"`（或保持缺席，
+  二者择一并在锁里钉死，禁止同一份库里两种写法并存）。
+- **`index.json` 侧**：写 `stockStamp = { at, channels, scanned, filled, unresolved }`（计数必须是本次实测）。
+- **不得整体判死**：固化后，`compliance` 对**存量**记录只报「存量沿用，未再校验」这一档，
+  **不得**输出 `blocked`；新增/重写路径仍走 §7.6 严格校验（严格性不因存量而放宽）。
+- **只补不改的硬界**：固化**不得**触碰 `title`/`guid`/`pubDate`/`url` 等业务字段，也不得重排数组顺序、
+  不得改动键序（键序变化会把一次补字段伪装成整文件重写，并让并发写者读到错位快照）。
+
+#### 7.9.3 数据校验与失败语义
+
+| 情形 | 处置 | 出声 |
+| --- | --- | --- |
+| 某频道 `episodes.json` 读不出/解析失败 | 跳过该频道，其余照常；该频道计入 `unresolvedChannels` | `warn`（不冒泡） |
+| 写盘失败（含 Windows 短暂 delete-share） | 走既有 rename 有界退避；超预算 ⇒ **放弃本次固化并保留原文件**，`stockStamp` 不写（下次启动可重试） | `warn` |
+| 扩展名派生出合法值但与该期 `durationSec` 明显矛盾 | 仍按派生填（本节不引入跨字段推断），仅在 `compliance` 里如实标「存量」 | 不额外出声 |
+| 同一频道被两个写者同时打开 | 固化必须走**按 `channelId` 的串行锁**（§7.7 同一把锁），不得为它新造第二把 | — |
+| 已完成固化（`stockStamp` 在位）后又改动代码重跑 | 幂等：不重复填、不重复计数、不追加第二个 `stockStamp` | — |
+
+#### 7.9.4 交互逻辑与显示项
+
+- 固化对用户**透明**：不弹窗、不请求确认（它不改任何用户可见语义，只把「未填」变「按事实派生」）。
+- `episode:list` 每期的 `compliance` 新增一档取值 `stock`（存量沿用），与既有 `ok` / 具体不合规原因并列；
+  **禁止**用一个笼统的 `blocked` 涵盖存量。
+- 频道页显示固化摘要（仅当 `stockStamp` 存在）：`扫描 N 期 · 补齐 M 期 · 待人工 K 期`。
+  `K`（unresolved）为 0 时不显示「待人工」这一段，避免制造不存在的待办。
+
+**提示文字（zh / en 成对，落 `locales/podcast/{zh,en}.js`，由实现片一次性写全）**：
+
+| 键 | zh | en |
+| --- | --- | --- |
+| `podcast.stock.freezeSummary` | `存量音频信息已补齐：扫描 {scanned} 期，补齐 {filled} 期` | `Legacy audio metadata frozen: scanned {scanned}, filled {filled}` |
+| `podcast.stock.unresolved` | `{count} 期无法判定音频类型，需重新生成` | `{count} episodes could not be typed; regenerate to resolve` |
+| `podcast.compliance.stock` | `存量沿用（未重新校验）` | `Legacy value kept (not re-validated)` |
+
+术语与 `01-docs/i18n-glossary.md` 对齐：「存量」不得写成「历史数据/旧数据」混用；
+改词典必须同 PR 跑 `apps/desktop/src/i18n/glossary.test.js`（键级成对锁覆盖不到术语成对）。
+
+#### 7.9.5 实现片必须带的回归锁（缺一条即不算落地）
+
+1. **真库往返**：`os.tmpdir()` 建真实 `episodes.json`，先写入含脏值的存量，跑固化，
+   **关闭再重开同一文件**读回断言（不接受「夹具按类型原样回吐」——见 AGENTS 落盘读回条）。
+2. **幂等**：连跑两次，第二次的 `filled` 必须为 0 且文件字节不变。
+3. **只补不改**：合法 `mime` 那一期在两次快照中逐字段相同（含键序）；变异「对合法值也重写」必须变红。
+4. **不得整体判死**：固化后 `compliance` 中 `blocked` 计数为 0，而 `stock` 计数 = 派生成功数。
+5. **不猜**：扩展名派生不出的那期保持原状且计入 `unresolved`；变异「缺失即填 audio/mpeg」必须变红。
+6. **跨层同结论**：固化用的容器判据必须 `require` 抽取层那一份编码计划表（结构锁：本文件内
+   不得出现第二份 `audio/mpeg` 字面量集合），否则两层会在新增容器时漂移。
+7. **单例接缝**：若固化经模块级内存位判「恰好一次」，测试必须经被测对象的公开出口观察，
+   不得 `import` 该单例（vitest 下与生产 `require` 是两份实例，会恒假绿）。
+
+#### 7.9.6 本节故意不做的
+
+- 不做「重新下载/重探测」来回填 `durationSec`/`sizeBytes`（那是另一刀，且会引入真实出站）。
+- 不删除、不合并存量重复期（判据不足，删除不可恢复）。
+- 不把固化结果同步到云端账号镜像（§账号云同步只镜像凭证与账号元信息，与单集无关）。
 
 ## 8. 状态机、交互逻辑、显示项
 
@@ -569,6 +763,87 @@ pickChannel → colloquialize → chunk → ttsBlock(逐块，串行) → concat
 
 成对校验：`node .github/scripts/check-locale-sync.js --pair-base origin/main` PASS；`apps/desktop/src/i18n/glossary.test.js` 绿（口径是 **UI 采用词典 canonical 术语**，不是把词典削到已有裸词）。
 
+
+### 8.2 单集 `compliance` 标记（合同，2026-10-12；§7.9.5 第 4 条与 tasks 4.4b② 的前置）
+
+> **本节是合同，不是实现。** 写它的原因：§7.9 的存量固化要在 `compliance` 里加一档 `stock`，
+> 而 `compliance` 本体**至今不存在**（实测 `git grep -l compliance` 在播客域 0 命中，只落在
+> `prompt-evolution` 与 `tag-suggest`）。直接加 `stock` 档等于造一个只有一档的半成品。
+> 顺序因此是：先落本节（`ok | invalid | stock` 三态一起），再回填 §7.9.5 第 4 条。
+
+#### 8.2.1 判据的唯一来源与承载位置
+
+- 判据**不在展示层重写**：唯一实现是 §9「数据校验（三层）」第二层的引擎 `validateEpisode`，
+  其契约见 openspec 的 Requirement「单集写入必须按内容校验且区分严格模式」。本标记只做一次
+  **只读重跑**，输入是**合并后的完整对象**（不是传入的部分字段——那是该 Requirement 明禁的形态）。
+- 承载位置：`podcast:episode:list` 的返回由 `{ code, data: { episodes } }` 变为
+  `{ code, data: { episodes: [{ ...episode, compliance }] } }`（现网注册点在
+  `apps/desktop/electron/ipc-handlers/podcast.js`）。**新增键是追加式**：旧消费者不读它即行为不变，
+  不得改数组顺序、不得改既有键名。
+
+#### 8.2.2 `compliance` 的闭集形状（第四态即红）
+
+| 字段 | 类型 | 闭集/约束 | 语义 |
+| --- | --- | --- | --- |
+| `compliance.state` | string | 恰好 `ok / invalid / stock` 三值，枚举外即抛 | ok 通过；invalid 本次校验不通过；stock 存量沿用未再校验 |
+| `compliance.reasons` | string[] | `ok` 与 `stock` 时**必须为空数组**；`invalid` 时 ≥1 | 每项是领域码（`PODCAST_*` 一族），**不是句子** |
+| `compliance.checkedAt` | string | ISO8601；`stock` 档必须为空串 | 本次重跑的时刻；`stock` 没有"重跑"这件事，填时刻等于谎称校验过 |
+
+- `stock` 只看两件事：该期 `mimeSource === "stock"` 且 `index.json` 的 `stockStamp` 在位。
+  **不得**用"时间戳看起来很旧"猜来源（形态猜来源是本仓反复记过的错法）。
+- **禁止**用 `invalid` 概括存量：存量被整批判成不合规，用户看到的就是"我的老节目全坏了"，
+  这正是 §7.9 存在的理由。
+
+#### 8.2.3 流程与失败语义
+
+| 步骤 | 失败时 | 出声 |
+| --- | --- | --- |
+| 读 episodes（真源） | 读不出 ⇒ 列表按既有语义报错，不得因为标记失败而吞掉列表 | — |
+| 逐期只读重跑 `validateEpisode` | 单期抛错 ⇒ 该期 `state=invalid` + `reasons=[PODCAST_EPISODE_INVALID]`，其余照常 | `warn` 一条含 `channelId` 与计数，不记条目内容 |
+| 判 `stock` | 两个条件读不到 ⇒ 按 `invalid/ok` 正常判，不猜 `stock` | 不额外出声 |
+| 组装返回 | 组装异常 ⇒ 回落**不带 `compliance` 键**的原返回 | `warn`（旁路：标记是增强信息，不能毁掉列表） |
+
+关键不对称：`compliance` 是**旁路**、`episodes` 是**主路**。旁路失败降级为"这个键缺席"，
+而**不得**降级为"整期消失"或"列表报错"。
+
+#### 8.2.4 交互逻辑与显示项
+
+- 每期右侧一枚状态徽标：`ok` **不显示**任何徽标（沉默是正解，不给正常数据加噪音）；
+  `stock` 显示灰色「存量沿用」；`invalid` 显示橙色徽标，点开是 `reasons` 逐条翻译后的列表。
+- 与出期浮层的关系：浮层确认步**只读 `state !== "ok"` 决定是否二次提示**，不得自己重算判据
+  （两层判据必漂移）；`stock` **不阻断**出期——其音频直链若真坏了，会在 `probe` / `uploadAudio`
+  站按既有错误码如实失败，那里才是权威。
+- 不得把 `reasons` 的领域码直接当文案渲染给用户（那是给用户看堆栈）。
+
+#### 8.2.5 提示文字（zh / en 成对；落地片一次性写全并进 §11.5 生成表）
+
+| 键 | zh | en |
+| --- | --- | --- |
+| `podcast.compliance.stock` | 存量沿用（未重新校验） | Legacy value kept (not re-validated) |
+| `podcast.compliance.invalid` | 本条有 N 项不符合发布要求 | N items do not meet publishing requirements |
+| `podcast.compliance.reasonsTitle` | 具体原因 | Details |
+| `podcast.compliance.degradeNotice` | 本期信息不完整，仍可播出，但建议先修复 | This episode looks incomplete. It can still publish; fixing it first is recommended |
+
+术语与 `01-docs/i18n-glossary.md` 对齐：「存量」不得与「历史数据/旧数据」混用；
+改词典必须同 PR 跑 `apps/desktop/src/i18n/glossary.test.js`（键级成对锁覆盖不到术语成对）。
+
+#### 8.2.6 实现片必须带的七条回归锁（缺一条即不算落地）
+
+1. **闭集**：`state` 取枚举外值时组装必须抛；出现第四态即红（新增一档要同 PR 改本节）。
+2. **三态正例 + 负控**：`ok` 的 `reasons` 必须是空数组；`stock` 的 `checkedAt` 必须是空串；
+   `invalid` 的 `reasons` 必须非空且全是已知领域码（码表取 `podcast-error-codes.test.js` 那份清单，不新写一份）。
+3. **旁路降级**：注入组装期抛错 ⇒ 返回不含 `compliance` 键且 `episodes` 数量不变（不得整期消失）。
+4. **不猜存量**：`mimeSource` 缺席但时间戳很旧 ⇒ 判 `invalid/ok` 不得判 `stock`；配"填了时刻就谎称校验过"的反例变异。
+5. **判据同源**：`reasons` 必须来自 `validateEpisode` 的 `issues[].code`；"在展示层重写一份判据"必须被结构锁拦红。
+6. **追加式契约**：`episode:list` 既有键与顺序不变；对 `ipc-handlers/podcast.test.js` 既有断言零修改即为证据，改了任何一条都要在 PR 里点名理由。
+7. **locale 成对 + 清点式守卫同 PR 喂**：四个 `compliance.*` 键必须 zh/en 成对；领域码若首次面向用户，
+   `podcast-error-codes.test.js` 的 PRODUCERS 与渲染层清单必须同步扩域（否则本机全绿、CI 的清点式死锁变红）。
+
+#### 8.2.7 本节故意不做
+
+- 不做批量重校验的后台任务（会把只读标记变成写路径）。
+- 不引入 `compliance` 的持久化字段——它是每次读取算出来的视图量，落盘即过期。
+- 不在本节合并 §7.9 的 `stockStamp` 摘要 UI（那是 4.4b③）。
 
 ## 9. 数据校验（三层）
 

@@ -23,6 +23,9 @@ export default {
       loaded: '已装载 {count} 条热门选题草稿',
       partial: '已装载 {loaded}/{total} 条草稿（其余草稿已被删除）',
       none: '所选草稿已不存在，请回到「热门选题」重新生成',
+      // hot-topics-publish-ux（2026-10-12）：交接装载成功后在页面顶部展示常驻横幅（可关闭），
+      // 替代一闪而过的 toast——AI 改写结果的确认点明确落在发布页
+      banner: '已根据热门选题自动改写并预填 {count} 条内容与发布目标，请确认后发布',
     },
     batchTargets: {
       title: '批量设置发布目标',
@@ -42,10 +45,31 @@ export default {
     contentPlaceholder: '请输入正文',
     // 编辑器字数计数后缀（ArticleEditor，PRD-PLATFORM-CHAR-LIMITS-2026-10-02 §F1）
     articleCharCount: ' 字',
-    tags: '标签',
-    tagsPlaceholder: '添加后自动带入描述，多个用逗号分隔',
+    tags: '话题标签',
+    tagsPlaceholder: '输入或点击下方按钮添加，自动带入描述，多个用逗号分隔',
     topics: '话题',
     topicsPlaceholder: '添加后自动带入描述，多个用逗号分隔',
+    // 话题标签统一 + #添加话题 + 常用话题标签管理（topic-tag-unify，2026-10-12）
+    topicTag: {
+      label: '话题标签',
+      placeholder: '输入或点击下方按钮添加，自动带入描述，多个用逗号分隔',
+      addHash: '#添加话题',
+      manage: '常用话题标签',
+      managerTitle: '话题标签管理',
+      managerSubtitle: '选择常用话题标签，并按分组快速应用。',
+      searchPlaceholder: '搜索分组或话题关键词...',
+      selectAllGroup: '全选本组',
+      newGroup: '新建分组',
+      newGroupPlaceholder: '输入分组名称',
+      newGroupConfirm: '确定',
+      selectedCount: (ctx) => '已选 ' + ctx.named('count') + ' 个',
+      apply: '确定应用',
+      applied: (ctx) => '已应用 ' + ctx.named('count') + ' 个话题标签',
+      emptyGroups: '还没有分组，点击「新建分组」开始维护常用话题',
+      emptySearch: '没有匹配的话题标签',
+      groupNameEmpty: '分组名称不能为空',
+      groupNameDuplicate: '已存在同名分组',
+    },
     mentions: '@好友',
     mentionsPlaceholder: '输入昵称或 @昵称',
     publishTarget: '发布目标',
@@ -289,6 +313,9 @@ export default {
       sensitiveModify: '修改',
       generatingCover: '🖼️ 图文平台需要图片，正在自动生成封面...',
       coverGenerated: '✓ 封面已生成并附加到内容',
+      // 2026-10-12：自动封面兜底的两条分支文案（公众号封面必填 → 生成结果必须对用户可见）
+      coverGeneratedFailed: '封面图生成失败，本次按无封面继续发布',
+      coverAlreadySet: '已使用你选择的封面图，不再自动生成',
       offlineCached: '网络已断开，任务已缓存',
       offlineProgress: '📡 网络已断开，发布任务已缓存，网络恢复后自动重试',
       scheduleCreated: (ctx) => '⏰ 已创建 ' + ctx.named('count') + ' 个定时任务',

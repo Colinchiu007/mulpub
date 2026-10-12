@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  appendHashToContent,
   appendTopicsToContent,
   extractInlineTopics,
   removeTopicFromContent,
@@ -105,6 +106,34 @@ describe('extractInlineTopics（解析描述内联话题）', () => {
   it('URL 片段里的 #tag 不产生话题（前置边界：井号前须为开头或空白）', () => {
     expect(extractInlineTopics('See https://x.com#tag #tag')).toEqual(['tag'])
     expect(extractInlineTopics('https://x.com#section')).toEqual([])
+  })
+})
+
+// #添加话题按钮（topic-tag-unify，PRD §4.2）：点击只在描述末尾追加一个 '#'，
+// 话题名由用户自己输入；末尾已是孤立 '#' 时不重复追加。
+describe('appendHashToContent（#添加话题按钮）', () => {
+  it('空描述点击后内容恰为一个 #', () => {
+    expect(appendHashToContent('')).toBe('#')
+    expect(appendHashToContent(null)).toBe('#')
+  })
+
+  it('普通描述末尾追加分隔空格 + #', () => {
+    expect(appendHashToContent('今天探店')).toBe('今天探店 #')
+    // 尾部已有空白时不补第二个空格
+    expect(appendHashToContent('今天探店 ')).toBe('今天探店 #')
+  })
+
+  it('末尾已是孤立 # 时不重复追加（防 ##）', () => {
+    expect(appendHashToContent('今天探店 #')).toBe('今天探店 #')
+    expect(appendHashToContent('#')).toBe('#')
+  })
+
+  it('末尾是完整话题（#话题名）时仍可追加新的 #（连续添加多个话题）', () => {
+    expect(appendHashToContent('今天探店 #美食探店')).toBe('今天探店 #美食探店 #')
+  })
+
+  it('多行描述追加在末尾', () => {
+    expect(appendHashToContent('第一行\n第二行')).toBe('第一行\n第二行 #')
   })
 })
 

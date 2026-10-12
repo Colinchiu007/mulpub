@@ -23,6 +23,8 @@ export default {
       loaded: 'Loaded {count} hot-topic drafts',
       partial: 'Loaded {loaded}/{total} drafts (the rest were deleted)',
       none: 'The selected drafts no longer exist. Generate again from Hot Topics.',
+      // hot-topics-publish-ux (2026-10-12): persistent dismissible banner after handoff load
+      banner: 'Auto-rewritten from hot topics and pre-filled {count} entries with publish targets. Review and publish.',
     },
     batchTargets: {
       title: 'Batch publish targets',
@@ -42,10 +44,31 @@ export default {
     contentPlaceholder: 'Enter content',
     // Editor character counter suffix (ArticleEditor, PRD-PLATFORM-CHAR-LIMITS-2026-10-02 §F1)
     articleCharCount: ' chars',
-    tags: 'Tags',
-    tagsPlaceholder: 'Auto-appended to description; separate with commas',
+    tags: 'Tags & topics',
+    tagsPlaceholder: 'Type or add via buttons below; auto-appended to description, comma separated',
     topics: 'Topics',
     topicsPlaceholder: 'Auto-appended to description; separate with commas',
+    // Topic tag unification + #add-topic + common topic tag manager (topic-tag-unify, 2026-10-12)
+    topicTag: {
+      label: 'Tags & topics',
+      placeholder: 'Type or add via buttons below; auto-appended to description, comma separated',
+      addHash: '# Add topic',
+      manage: 'Common topic tags',
+      managerTitle: 'Topic Tag Manager',
+      managerSubtitle: 'Pick common topic tags and apply them by group.',
+      searchPlaceholder: 'Search groups or topics...',
+      selectAllGroup: 'Select all in group',
+      newGroup: 'New group',
+      newGroupPlaceholder: 'Group name',
+      newGroupConfirm: 'OK',
+      selectedCount: (ctx) => ctx.named('count') + ' selected',
+      apply: 'Apply',
+      applied: (ctx) => 'Applied ' + ctx.named('count') + ' topic tags',
+      emptyGroups: 'No groups yet. Create one to keep your common topics.',
+      emptySearch: 'No matching topic tags',
+      groupNameEmpty: 'Group name cannot be empty',
+      groupNameDuplicate: 'A group with this name already exists',
+    },
     mentions: '@Mentions',
     mentionsPlaceholder: 'Enter a nickname or @nickname',
     publishTarget: 'Publish Targets',
@@ -280,6 +303,10 @@ export default {
       sensitiveModify: 'Edit',
       generatingCover: '🖼️ Image required for image-text platforms, generating cover...',
       coverGenerated: '✓ Cover generated and attached',
+      // 2026-10-12: branches of the automatic cover fallback (WeChat cover is mandatory, so the
+      // outcome must be visible to the user)
+      coverGeneratedFailed: 'Cover generation failed; publishing without a cover',
+      coverAlreadySet: 'Using your selected cover; auto-generation skipped',
       offlineCached: 'Network disconnected, task cached',
       offlineProgress: '📡 Network disconnected, publish task cached, will auto-retry when network recovers',
       scheduleCreated: (ctx) => '⏰ Created ' + ctx.named('count') + ' scheduled task(s)',

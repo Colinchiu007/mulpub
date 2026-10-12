@@ -50,3 +50,5 @@ date: 2026-10-11
 | 项目 | 状态 | 取证与回填要求 |
 | ---- | ---- | ---- |
 | 远程同步 | PASS | PR #3318 已 squash 合并为 `0aac19868e427602450ef9c67c8f4c07314c32ed`（2026-10-11T17:28:00+08:00）；取证：`git log origin/main --grep="(#3318)$" --format=%H|%cI` 恰好 1 行且 SHA 相同、`git ls-remote --heads origin quick-collect-cn-sources` = 0 行。本行、`.quality-gates.md` 同名记录两处、frontmatter 三字段与 ledger 登记项在同一次提交收口 |
+
+- **交付清单收口（2026-10-11）**：本 change 的「收尾（每个切片各自一套）」清单已按证据勾选——PRD/CHANGELOG、.quality-gates.md + ledger、执行记录、静态门禁、QM-1、QM-4、记忆沉淀（learnings + gstack + EverOS）、PR 与回填、worktree 清理，四片（S1/S2/S3/垂类补遗）各自走完并各有记录；本条仅补记勾选依据，不改变本记录此前已收口的远程同步结论。

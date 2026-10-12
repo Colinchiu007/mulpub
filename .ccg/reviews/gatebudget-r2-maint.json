@@ -1,0 +1,103 @@
+{
+  "review": "gatebudget-r2-maint",
+  "axis": "可维护性/一致性（第 2 轮）",
+  "pr": "#3313",
+  "head": "9705c40d3",
+  "increments": ["003e3cdde (merge main, 含 #3315)", "9705c40d3 (纠因 + 收窄禁令)"],
+  "base": "c5e606a06",
+  "readOnly": true,
+  "filesRead": [
+    "scripts/gate-budget.js（全文 127 行）",
+    "scripts/gate-budget.test.js（全文 200 行）",
+    "openspec/records/gate-budget-reprobe.md（全文 53 行）",
+    ".ccg/reviews/gatebudget-mutations.txt（全文 32 行）",
+    "CHANGELOG.md（git diff c5e606a06..HEAD + grep 回读）",
+    ".github/workflows/quality-gate.yml（:385-398 全文 + 全文 minute/分钟 命中行 :390/:393/:746/:801/:930）",
+    ".ccg/reviews/brief-gatebudget-r2-maint.md 与 brief-gatebudget-r2-logic.md（grep 命中行）",
+    "git show 003e3cdde --stat；git show 9705c40d3（完整 diff）；git diff --stat c5e606a06..HEAD"
+  ],
+  "testsRun": ["node --test scripts/gate-budget.test.js => 11 pass / 0 fail（现成只读测试，验证收窄后判据对当前 workflow 为绿）"],
+  "findings": [
+    {
+      "severity": "MAJOR",
+      "file": "openspec/records/gate-budget-reprobe.md",
+      "lines": "42",
+      "issue": "「遗留」区仍写「7 次被杀的样本是截尾的」，与同记录行 21「截尾 prior 9 次」、PROVENANCE.censoredUnderPriorBudgetN=9、CHANGELOG「另有 9 次被预算杀」矛盾——正是本轮明说要改到终版的过期数值（7→9），漏改一处",
+      "suggestion": "改为「9 次（prior 档 30 分钟）被杀的样本是截尾的」"
+    },
+    {
+      "severity": "MAJOR",
+      "file": "openspec/records/gate-budget-reprobe.md",
+      "lines": "27,47,49",
+      "issue": "同一记录内 shard 最大值口径分裂：行 21（定数依据行）与真源 PROVENANCE.shardMaxSuccessMin=29.77、docblock、CHANGELOG 均写 29.77；行 27/47/49 写 29.73 且定数算式写成「29.73×1.5=44.6」。行 27 与 9705c40d3 commit message 描述的是同一批 cohort（n=73、中位 28.37、39 个非成功步 max 30.02），commit message 却写「max 29.77」——同一批数据两个 max，必有一处抄错；真源口径是 29.77（哪个是探针原始值未验证）",
+      "suggestion": "统一到真源 29.77（若探针原始输出实为 29.73 则改 PROVENANCE 并重跑核实）；定数算式与 docblock 对齐为「max(29.88, 29.77) × 1.5 = 44.82 ⇒ 45」。commit message 已成历史，纠错落盘到记录/CHANGELOG 即可"
+    },
+    {
+      "severity": "MAJOR",
+      "file": "CHANGELOG.md",
+      "lines": "17",
+      "issue": "算式错误：「下表 shard 29.77 × 1.5 = 44.6」——29.77×1.5=44.655（≈44.66），44.6 是 29.73×1.5 的积；把真源的输入与过期口径的积拼在同一句里",
+      "suggestion": "改为「shard 29.77 × 1.5 = 44.66 ⇒ 45」，或直接引用 docblock 口径「max(29.88, 29.77) × 1.5 = 44.82 ⇒ 45」"
+    },
+    {
+      "severity": "MAJOR",
+      "file": ".ccg/reviews/gatebudget-mutations.txt",
+      "lines": "1-31",
+      "issue": "产物自称「供独立复核」（CHANGELOG 与记录行 20 同语），但字段不足以独立复核：①每条变异缺坐标（改了哪个文件哪一行/锚点或 patch），无法重放；②驱动脚本在 D:/tmp/mw-g4-mutate3.js（仓库外临时路径，未入库），电池不可从仓库重跑；③文件内无还原声明（「被改文件与备份 Buffer.compare===0」只在记录行 20/CHANGELOG），无 commit SHA（只写分支名，tip 会移）；④逐条断言消息被截断（:16 止于「(1」、:17 止于「（QM-6 双轴同指」），「哪条锁必须红」只点到测试名片段",
+      "suggestion": "驱动脚本入库或把 15 条变异的 patch 逐条落盘；每行补「文件:锚点 + 还原后 Buffer.compare===0」；头部补 commit SHA 与 node 版本；断言消息不截断"
+    },
+    {
+      "severity": "MINOR",
+      "file": "scripts/gate-budget.js",
+      "lines": "24-26",
+      "issue": "docblock 头条「定数规则：预算 ≥ 观测成功最大值 × SAFETY_MULTIPLIER(1.5)」在 checkSizing() 中无对应判据——代码实现的是比例档（maxObs ≥ HARD_RATIO(0.9)×预算 ⇒ NO_LONGER_SIZED）；×1.5 只作为常量存在，测试仅锁 SAFETY_MULTIPLIER≥1.5（gate-budget.test.js:89-95），没有任何测试断言「45 ≥ 29.88×1.5=44.82」。「写死、可测」对这条规则名不副实，属「注释在解释一个代码里不存在的判据」（注：docblock 的 44.82 算式本身算术正确，与记录/CHANGELOG 的 44.6 口径分裂）",
+      "suggestion": "二选一：checkSizing 加 budgetMin ≥ maxObs×multiplier 直查（当前 45 ≥ 44.82 成立，可直接补一条测试）；或 docblock 注明「×1.5 是定数推导式，运行期判据是下方比例档（0.9 档先于违反 1.5 倍触发，属早警）」"
+    },
+    {
+      "severity": "MINOR",
+      "file": "scripts/gate-budget.test.js",
+      "lines": "105",
+      "issue": "测试名「workflow 两处等待都走单一真源，且时长不得在非注释行写成字面量」未覆盖本测试现在断言的第二落点：超时文案恰好 2 处且必须插值 $gateBudgetMs（N1 变异的靶点，mutations 文件自述为「收窄锁的第二落点」）。名实不符，下一个人改超时文案时易误以为这条锁只管字面量",
+      "suggestion": "测试名补上插值落点，如「…且时长不得在非注释行写成字面量、超时文案必须插值预算」"
+    },
+    {
+      "severity": "MINOR",
+      "file": ".github/workflows/quality-gate.yml",
+      "lines": "390,393,746",
+      "issue": "收窄后放行的三条历史归因注释写「30 分钟预算」但无一条指向真源——运行时 Write-Host 文案有「see scripts/gate-budget.js」（:801/:930），注释没有。读者扫注释会以为预算仍是 30 分钟；「把预算只写进注释」虽会被 M1 注入锁结构性拦下，但注释缺指引仍是误读温床（即任务书问的「会不会让下一个人以为预算写注释就行」）",
+      "suggestion": "三条注释末尾补「（现行预算与口径见 scripts/gate-budget.js）」"
+    },
+    {
+      "severity": "MINOR",
+      "file": "openspec/records/gate-budget-reprobe.md:20 ↔ .ccg/reviews/gatebudget-mutations.txt:6-13",
+      "lines": "record:20 / mutations:6-13",
+      "issue": "电池叙事两处维护：记录行 20 逐条复述 15 条变异名 + 电池自抓的两处缺陷（连字符形态、${r.test} 日志字段），mutations 文件头部又复述同样内容——两处各写一份必然漂移，本轮已显现双重维护（同步需两处手改）。JOB_OVERHEAD_FIELD/PROVENANCE 本身未被 mutations 文件复制（M10 行只叙述变异语义、不复制字段映射），无直接漂移",
+      "suggestion": "唯一真源定为 mutations 文件（可复核产物）；记录行 20 只留结论与指针（「汇总落盘」句已存在，删去逐条复述）"
+    },
+    {
+      "severity": "INFO",
+      "file": "scripts/gate-budget.test.js:73-74 + openspec/records/gate-budget-reprobe.md:41 + scripts/gate-budget.js:63-64",
+      "lines": "三处",
+      "issue": "「两前置实测相等（1.38 == 1.38）」这一事实在测试注释与记录遗留两处散文中各写一份，PROVENANCE 两字段是第三处；未来探针若把其中一个前置量成 1.42，两处散文静默过期（结构性锁 JOB_OVERHEAD_FIELD 按名字钉口径，不受影响，故仅 INFO）",
+      "suggestion": "散文改为「两前置实测相等时（见 PROVENANCE 两字段）」，或接受其为历史 rationale"
+    },
+    {
+      "severity": "INFO",
+      "file": ".ccg/reviews/brief-gatebudget-r2-logic.md",
+      "lines": "26",
+      "issue": "评审任务书自身也带着错误算式「PROVENANCE（shard 29.77 / ×1.5=44.6）」——错误积 44.6 的传播路径之一就在评审 briefs 里；不改则下一轮评审还会拿 44.6 当对照",
+      "suggestion": "brief 改用 44.66 / 44.82 口径"
+    }
+  ],
+  "verifiedClean": [
+    "三处「墙为什么到」的故事已统一（docblock gate-budget.js:14-22 / 记录行 15 / CHANGELOG 纠因块）：Gate 4 侧 = --exclude 被独立 -- 转发吃掉导致重复劳动，#3315 修复后实测 94 秒（run 38127081785，09:06:20Z→09:07:54Z = 94 秒，算术核对一致）；shard 侧 29.77 是约束",
+    "过期数值回读：「13 条」仅出现在标明「第 1 轮」的历史引用（记录:20、mutations:6），非过期；「≤1.3 分」「max 30.0 分」仅存在于 CHANGELOG:20 明确标注为「首版早期窗口」的历史引述；「30.02」是非成功步 max（正确口径，非旧错误值）；「29.9 分钟」已无残留",
+    "docblock 算式「max(29.88, 29.77) × 1.5 = 44.82 ⇒ 45」与 GATE_TEST_BUDGET_MS=2700000 一致；「45 + 1.38 + 5 = 51.38 ⇒ 55」与 GATE_JOB_TIMEOUT_MIN=55、checkSizing() 的 need=budgetMin+usesOverhead+TIMEOUT_MARGIN_MIN 逐项相等，且被 gate-budget.test.js:81-85 的取整锁验证",
+    "收窄后判据对当前 workflow 为绿：node --test scripts/gate-budget.test.js = 11 pass / 0 fail；非注释行无数字+分钟字面量（Write-Host 的 $([int]($gateBudgetMs / 60000))-minute 形态不被 \\d+\\s*-?\\s*minute 误命中），两处超时文案均插值 $gateBudgetMs",
+    "变异电池计数自洽：M1-M8/M9n/M10-M13（13 条）+ N1 + N2 = 15 条 + FINAL，与记录行 20、CHANGELOG「15 条」一致；want=red 各点名一条变红、N2 want=green 守合规形态"
+  ],
+  "unverified": [
+    "29.73 与 29.77 哪个是探针原始值（未对 CI 原始数据取证；按真源 PROVENANCE 与任务书终版口径以 29.77 为准）",
+    "变异电池结果本身（按硬约束未重跑，按产物 recorded 值采信）"
+  ]
+}

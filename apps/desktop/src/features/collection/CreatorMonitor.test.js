@@ -20,7 +20,12 @@ const messages = {
       creatorTab: '博主监控',
       creatorListTitle: '关注的博主',
       creatorAddSubmit: '关注',
-      creatorAddPlaceholder: '粘贴 YouTube 频道链接、@handle 或频道 ID',
+      // ⚠ 含裸 `@` 的词条必须写成 Message Function：vue-i18n 的**字符串**消息会把
+      // `@xxx` 当链接消息语法，编译期抛 `Invalid linked format`。生产侧
+      // `src/i18n/index.js` 的 toMessageFunctions 会把所有字符串叶子转成函数
+      // （为绕开 Electron CSP 的 new Function 限制），所以真实文案没问题；
+      // 本桩直接喂字符串，必须自己保持同形状。
+      creatorAddPlaceholder: () => '粘贴 YouTube 频道链接、@handle 或频道 ID',
       creatorPendingBadge: '{count} 条新作品',
       creatorCollectNew: '一键采集新作品',
       creatorCollectOne: '采集',
@@ -45,6 +50,44 @@ const messages = {
       creatorResume: '恢复监控',
       creatorCheckNow: '立即检查',
       creatorUnfollow: '取消关注',
+      // ── creator-monitor-depfix 新增（2026-10-12）──
+      creatorErrServiceUnavailable: '博主监控服务未就绪（主进程 creator 服务未装配）。请重启应用后重试。',
+      creatorRetry: '重试',
+      creatorAddTitle: '添加博主',
+      creatorAddDialogIntro: () => '支持频道链接、@handle、旧式 /c/ 或 /user/ 链接，或 UC 开头的频道 ID。',
+      creatorAddLabel: '频道地址或 ID',
+      creatorAddHint: () => '例如 https://www.youtube.com/@GoogleDevelopers',
+      creatorAddCancel: '取消',
+      creatorAddSubmitting: '正在解析频道…',
+      creatorAddSuccess: '已关注 {name}，正在检查新作品…',
+      creatorErrInputTooLong: '输入过长，请只粘贴一条频道链接或频道 ID。',
+      creatorErrInvalidInput: '无法识别该频道。',
+      creatorErrNotAChannel: '这是作品链接，请粘贴博主主页链接。',
+      creatorErrChannelNotFound: '找不到该频道。',
+      creatorErrCredentialMissing: '未配置 YouTube API Key。',
+      creatorCredentialOpen: '配置 API Key',
+      creatorCredentialTitle: 'YouTube Data API v3 密钥',
+      creatorCredentialIntro: '密钥只保存在本机。',
+      creatorCredentialLabel: 'API Key',
+      creatorCredentialPlaceholder: '粘贴以 AIza 开头的 API Key',
+      creatorCredentialHint: '获取方式：Google Cloud Console。',
+      creatorCredentialSave: '保存',
+      creatorCredentialSaving: '保存中…',
+      creatorCredentialSaved: '已保存（末四位 {fingerprint}）。',
+      creatorCredentialWarnShape: '已保存，但该值不像 Google API Key。',
+      creatorCredentialClear: '清除',
+      creatorCredentialCleared: '已清除密钥。',
+      creatorCredentialClose: '关闭',
+      creatorCredentialInvalid: 'API Key 格式不正确。',
+      creatorCredentialUnavailable: '系统密钥库不可用。',
+      creatorCredentialPersistFailed: '保存失败，请重试。',
+      creatorCredentialStatusUnknown: '正在读取密钥状态…',
+      creatorCredentialStatusOk: '已配置（末四位 {fingerprint}）',
+      creatorCredentialStatusNotConfigured: '未配置 YouTube API Key —— 添加博主前请先配置。',
+      creatorCredentialStatusUnavailable: '系统密钥库不可用。',
+      creatorCredentialStatusDecryptFailed: '已保存的 API Key 无法解密。请重新填写。',
+      creatorCredentialStatusReadFailed: '本地存储读取失败，无法确认密钥状态。',
+      creatorDependencyOptionalHint: '字幕增强依赖未就绪：仍可发现与采集，正文质量会降级。可执行：{command}',
     },
   },
   en: { collection: {} },
@@ -86,6 +129,17 @@ beforeEach(() => {
     creatorCollect: vi.fn().mockResolvedValue({ code: 0, collected: 5, remain: 0, truncated: false }),
     creatorCollectOne: vi.fn().mockResolvedValue({ code: 0, collected: 1 }),
     creatorSkipOne: vi.fn().mockResolvedValue({ code: 0 }),
+    // 2026-10-12 新增：凭证与依赖状态。**不补这两个桩会让每个用例都假红**——
+    // 组件在 onMounted 里会调它们，而 call() 对"桥上有名但方法缺失"的处理是
+    // 置降级态（这是刻意的），于是所有用例都会多出一条「服务未就绪」横幅。
+    creatorCredentialStatus: vi.fn().mockResolvedValue({ code: 0, status: 'ok', fingerprint: 'ab12' }),
+    creatorCredentialSet: vi.fn().mockResolvedValue({ code: 0, status: 'ok', fingerprint: 'ab12', looksLikeGoogleKey: true }),
+    creatorCredentialClear: vi.fn().mockResolvedValue({ code: 0, status: 'not_configured' }),
+    creatorDependencyStatus: vi.fn().mockResolvedValue({
+      code: 0,
+      discovery: { ready: true, reason: '' },
+      transcript: { ready: true, optional: true, reason: '', installHint: '' },
+    }),
   }
 })
 
@@ -262,6 +316,21 @@ describe('CreatorMonitor · 降级与错误', () => {
     expect(w.find('[data-testid="creator-degraded"]').exists()).toBe(true)
   })
 
+  it('service-unavailable 显示「服务未就绪」，**不得**复述成「缺少采集依赖。请执行：」', async () => {
+    // 2026-10-12 事故的用户可见面就是这个：11 个 creator 通道全降级后，
+    // 整页只剩一句「缺少采集依赖。请执行：」且命令位恒空——把用户引向装 Python 包，
+    // 而真因是主进程没接线（重启才对）。这条锁住文案分因，防止回归。
+    globalThis.electronAPI.creatorList.mockResolvedValue({
+      code: -1, reason: 'service-unavailable', message: 'x',
+    })
+    const w = mountMonitor()
+    await flushPromises()
+    const text = w.find('[data-testid="creator-degraded"]').text()
+    expect(text).toContain('博主监控服务未就绪')
+    expect(text).not.toContain('缺少采集依赖')
+    expect(text).not.toContain('请执行：')
+  })
+
   it('IPC 返回非 0 时弹错误（降级返回长得像成功，最容易漏）', async () => {
     globalThis.electronAPI.creatorCollectOne.mockResolvedValue({
       code: -11, reason: 'creator:invalid_input', message: 'bad',
@@ -280,5 +349,160 @@ describe('CreatorMonitor · 降级与错误', () => {
     delete globalThis.electronAPI
     expect(() => mountMonitor()).not.toThrow()
     globalThis.electronAPI = saved
+  })
+})
+
+describe('CreatorMonitor · 凭证四态横幅', () => {
+  it('未配置时显示横幅并给「配置 API Key」入口', async () => {
+    globalThis.electronAPI.creatorCredentialStatus.mockResolvedValue({ code: 0, status: 'not_configured' })
+    const w = mountMonitor()
+    await flushPromises()
+    expect(w.find('[data-testid="creator-credential-banner"]').exists()).toBe(true)
+    expect(w.find('[data-testid="creator-credential-open"]').exists()).toBe(true)
+  })
+
+  it.each([
+    ['unavailable', '系统密钥库不可用'],
+    ['decrypt_failed', '无法解密'],
+    ['read_failed', '读取失败'],
+  ])('%s 状态各有专门文案（多种"没配好"不能合成一句）', async (status, expectText) => {
+    globalThis.electronAPI.creatorCredentialStatus.mockResolvedValue({ code: 0, status })
+    const w = mountMonitor()
+    await flushPromises()
+    expect(w.find('[data-testid="creator-credential-status-text"]').text()).toContain(expectText)
+  })
+
+  it('已配置时不显示横幅（不打扰已就绪的用户）', async () => {
+    const w = mountMonitor()
+    await flushPromises()
+    expect(w.find('[data-testid="creator-credential-banner"]').exists()).toBe(false)
+  })
+
+  it('凭证服务自身未接线时不冒充「系统密钥库不可用」', async () => {
+    // 主进程降级时 credential-status 会回 credential-service-unavailable：
+    // 那是"服务没起来"，与"系统密钥库不可用"是两件事，不能顶替 degraded 横幅。
+    globalThis.electronAPI.creatorCredentialStatus.mockResolvedValue({
+      code: 0, status: 'unavailable', reason: 'credential-service-unavailable',
+    })
+    const w = mountMonitor()
+    await flushPromises()
+    expect(w.find('[data-testid="creator-credential-banner"]').exists()).toBe(false)
+  })
+
+  it('点击入口打开凭证弹窗', async () => {
+    globalThis.electronAPI.creatorCredentialStatus.mockResolvedValue({ code: 0, status: 'not_configured' })
+    const w = mountMonitor()
+    await flushPromises()
+    await w.find('[data-testid="creator-credential-open"]').trigger('click')
+    await nextTick()
+    expect(w.find('[data-testid="creator-credential-dialog"]').exists()).toBe(true)
+  })
+})
+
+describe('CreatorMonitor · 可选依赖提示（非阻塞）', () => {
+  it('字幕腿未就绪时显示提示并带确切命令，但**不**显示阻塞横幅', async () => {
+    globalThis.electronAPI.creatorDependencyStatus.mockResolvedValue({
+      code: 0,
+      discovery: { ready: true, reason: '' },
+      transcript: { ready: false, optional: true, reason: 'python-backend-not-running', installHint: 'pip install content-aggregator -i https://pypi.tuna.tsinghua.edu.cn/simple' },
+    })
+    const w = mountMonitor()
+    await flushPromises()
+    const hint = w.find('[data-testid="creator-dependency-hint"]')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toContain('pip install content-aggregator')
+    expect(w.find('[data-testid="creator-degraded"]').exists()).toBe(false)
+  })
+
+  it('字幕腿就绪时不显示提示', async () => {
+    const w = mountMonitor()
+    await flushPromises()
+    expect(w.find('[data-testid="creator-dependency-hint"]').exists()).toBe(false)
+  })
+})
+
+describe('CreatorMonitor · 添加博主（替换 window.prompt）', () => {
+  it('点「关注」打开应用内弹窗，不再调用 window.prompt', async () => {
+    // 旧实现是 window.prompt(...)。Electron 渲染进程**不支持** prompt（调用即抛），
+    // 所以「添加博主」这条路当时根本不存在。这条锁住"必须走应用内弹窗"。
+    const promptSpy = vi.fn()
+    const originalPrompt = globalThis.window.prompt
+    globalThis.window.prompt = promptSpy
+    try {
+      const w = mountMonitor()
+      await flushPromises()
+      await w.find('[data-testid="creator-add"]').trigger('click')
+      await nextTick()
+      expect(w.find('[data-testid="creator-add-dialog"]').exists()).toBe(true)
+      expect(promptSpy).not.toHaveBeenCalled()
+    } finally {
+      globalThis.window.prompt = originalPrompt
+    }
+  })
+
+  it('提交后按 canonical 解析结果落库，并立即触发首次检查（PRD §8.1）', async () => {
+    globalThis.electronAPI.creatorFollow.mockResolvedValue({
+      code: 0, creator: creator({ id: 'c9', display_name: '新频道' }), follow: { id: 'f9' },
+    })
+    const w = mountMonitor()
+    await flushPromises()
+    await w.find('[data-testid="creator-add"]').trigger('click')
+    await nextTick()
+    await w.find('[data-testid="creator-add-input"]').setValue('@NewChannel')
+    await w.find('[data-testid="creator-add-confirm"]').trigger('click')
+    await flushPromises()
+    expect(globalThis.electronAPI.creatorFollow).toHaveBeenCalledWith({ input: '@NewChannel' })
+    // 关注后不探测会表现为「加了没用」——必须立刻检查一次
+    expect(globalThis.electronAPI.creatorCheckNow).toHaveBeenCalledWith({ followId: 'f9' })
+    expect(w.find('[data-testid="creator-add-dialog"]').exists()).toBe(false)
+  })
+
+  it('输入为空时提交按钮禁用（不发无意义请求）', async () => {
+    const w = mountMonitor()
+    await flushPromises()
+    await w.find('[data-testid="creator-add"]').trigger('click')
+    await nextTick()
+    expect(w.find('[data-testid="creator-add-confirm"]').attributes('disabled')).toBeDefined()
+  })
+
+  it('频道解析失败按 reason 显示对应文案，弹窗保持打开（输入不丢）', async () => {
+    globalThis.electronAPI.creatorFollow.mockResolvedValue({
+      code: -12, reason: 'creator:not_a_channel', message: '这是作品链接',
+    })
+    const w = mountMonitor()
+    await flushPromises()
+    await w.find('[data-testid="creator-add"]').trigger('click')
+    await nextTick()
+    await w.find('[data-testid="creator-add-input"]').setValue('https://www.youtube.com/watch?v=abc')
+    await w.find('[data-testid="creator-add-confirm"]').trigger('click')
+    await flushPromises()
+    expect(w.find('[data-testid="creator-add-error"]').text()).toContain('作品链接')
+    expect(w.find('[data-testid="creator-add-dialog"]').exists()).toBe(true)
+  })
+
+  it('未配置 API Key 时直接打开凭证弹窗（不让用户自己去找入口）', async () => {
+    globalThis.electronAPI.creatorFollow.mockResolvedValue({
+      code: -12, reason: 'creator:credential_missing', message: '未配置',
+    })
+    const w = mountMonitor()
+    await flushPromises()
+    await w.find('[data-testid="creator-add"]').trigger('click')
+    await nextTick()
+    await w.find('[data-testid="creator-add-input"]').setValue('@SomeChannel')
+    await w.find('[data-testid="creator-add-confirm"]').trigger('click')
+    await flushPromises()
+    expect(w.find('[data-testid="creator-credential-dialog"]').exists()).toBe(true)
+  })
+
+  it('超过 512 字符本地拦下（不发请求）', async () => {
+    const w = mountMonitor()
+    await flushPromises()
+    await w.find('[data-testid="creator-add"]').trigger('click')
+    await nextTick()
+    await w.find('[data-testid="creator-add-input"]').setValue('x'.repeat(600))
+    await w.find('[data-testid="creator-add-confirm"]').trigger('click')
+    await flushPromises()
+    expect(globalThis.electronAPI.creatorFollow).not.toHaveBeenCalled()
+    expect(w.find('[data-testid="creator-add-error"]').text()).toContain('输入过长')
   })
 })

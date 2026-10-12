@@ -850,6 +850,7 @@ var require_identity = __commonJS({
         identitySessionsRevokeOthers: () => ipcRenderer2.invoke("identity:sessions-revoke-others"),
         identityNotifications: () => ipcRenderer2.invoke("identity:notifications"),
         identityNotificationsMarkRead: () => ipcRenderer2.invoke("identity:notifications-mark-read"),
+        identityRedeemCode: (payload) => ipcRenderer2.invoke("identity:redeem-code", payload),
         identityDiagnosticReport: () => ipcRenderer2.invoke("identity:diagnostic-report"),
         onIdentityStateChanged: (callback) => {
           const handler = (_event, state) => callback(state);
@@ -1135,7 +1136,13 @@ var require_creator = __commonJS({
         creatorCollectOne: (payload) => ipcRenderer3.invoke("creator:collect-one", payload),
         creatorSkipOne: (payload) => ipcRenderer3.invoke("creator:skip-one", payload),
         creatorSendToWriter: (payload) => ipcRenderer3.invoke("creator:send-to-writer", payload),
-        creatorPendingTotal: () => ipcRenderer3.invoke("creator:pending-total")
+        creatorPendingTotal: () => ipcRenderer3.invoke("creator:pending-total"),
+        // 凭证（读方向永不回传明文；写方向是全仓唯一接受明文的入口）
+        creatorCredentialStatus: () => ipcRenderer3.invoke("creator:credential-status"),
+        creatorCredentialSet: (payload) => ipcRenderer3.invoke("creator:credential-set", payload),
+        creatorCredentialClear: () => ipcRenderer3.invoke("creator:credential-clear"),
+        // 依赖状态：发现腿（是否接线）与正文腿（字幕可选依赖）分开报，UI 据此只对阻塞项禁功能
+        creatorDependencyStatus: () => ipcRenderer3.invoke("creator:dependency-status")
       };
     }
     module2.exports = { createCreatorApi };
@@ -1220,6 +1227,13 @@ var require_knowledge_library = __commonJS({
         listPatternPerformance: (params) => ipcRenderer2.invoke("performance:list-pattern-performance", params),
         performanceOverview: (params) => ipcRenderer2.invoke("performance:overview", params),
         triggerPerformanceRecrawl: (opts) => ipcRenderer2.invoke("performance:trigger-recrawl", opts),
+        // 发布记录页指标读口 + 账号级采集（PRD-PUBLISH-HISTORY-ENGAGEMENT-2026-10-12）：
+        // 前者是发布记录页唯一的指标来源（主进程内完成 taskId→tracked→最新快照 的 join），
+        // 后者是低频采集的手动触发入口。两者都默认 authenticated 档，无需登记 license 白名单，
+        // 但都必须带 withSenderCheck（Gate 17 的显式守卫比例棘轮）。
+        historyMetrics: (params) => ipcRenderer2.invoke("performance:history-metrics", params),
+        metricsSync: (opts) => ipcRenderer2.invoke("metrics:sync", opts),
+        metricsSyncStatus: () => ipcRenderer2.invoke("metrics:sync-status"),
         // 个人知识库
         addPersonalToLibrary: (item) => ipcRenderer2.invoke("knowledge-library:add-personal", item),
         addPersonalBatchToLibrary: (items) => ipcRenderer2.invoke("knowledge-library:add-personal-batch", items),
@@ -1282,6 +1296,15 @@ var require_podcast = __commonJS({
           feedPublish: unwrap((payload) => ipcRenderer2.invoke("podcast:feed:publish", payload)),
           episodePublishFromVideo: unwrap((payload) => ipcRenderer2.invoke("podcast:episode:publishFromVideo", payload)),
           episodePublishCancel: unwrap((payload) => ipcRenderer2.invoke("podcast:episode:publish:cancel", payload)),
+          // §6.4.2 第三条通道（推送型，不是 invoke）：订阅方拿到的是**原样注销函数**。
+          // 只删自己那个 handler——同一通道可能有多窗口/多实例订阅，removeAllListeners 会误删他人的进度流。
+          onEpisodePublishProgress: (callback) => {
+            if (typeof callback !== "function") return () => {
+            };
+            const handler = (_, data) => callback(data);
+            ipcRenderer2.on("podcast:episode:publish:progress", handler);
+            return () => ipcRenderer2.removeListener("podcast:episode:publish:progress", handler);
+          },
           channelGet: unwrap((...a) => ipcRenderer2.invoke("podcast:channel:get", ...a)),
           channelSave: unwrap((payload) => ipcRenderer2.invoke("podcast:channel:save", payload)),
           episodeList: unwrap(() => ipcRenderer2.invoke("podcast:episode:list")),

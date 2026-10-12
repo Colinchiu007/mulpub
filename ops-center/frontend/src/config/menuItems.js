@@ -44,6 +44,8 @@ export const MENU_ITEMS = [
   { path: '/prompt-eval-workbench', label: '提示词评测', icon: MagicStick },
   { path: '/content-quality-eval', label: '内容质量评估', icon: TrendCharts },
   { path: '/model-keys', label: '模型密钥', icon: Key, adminOnly: true },
+  // 改密属凭据变更（成功后强制作废当前会话），仅管理员可见
+  { path: '/change-password', label: '更改密码', icon: Lock, adminOnly: true },
   { path: '/settings', label: '菜单设置', icon: Setting },
 ]
 

@@ -112,6 +112,25 @@
           <!-- 无成功草稿时隐藏去发布按钮，避免点击无反馈（审查 Warning：取消且零成功场景） -->
           <button v-if="hasSuccessfulDrafts" class="cohere-btn-primary" @click="goToDestination">{{ t('hotTopics.toPublish') }}</button>
         </div>
+        <!-- hot-topics-publish-ux（2026-10-12）：改写完成条目可展开内联预览/编辑改写正文，
+             确认点前移到选题页——用户不必跳到发布页才发现改写不满意 -->
+        <div
+          v-for="item in editableSuccessItems"
+          :key="'edit-' + item.id"
+          class="publish-item-edit"
+          :data-testid="'hot-topic-edit-' + item.id"
+        >
+          <button class="cohere-btn-secondary edit-toggle" @click="toggleEditItem(item)">
+            {{ editingItemId === item.id ? t('hotTopics.editCollapse') : t('hotTopics.editPreview') }}
+          </button>
+          <textarea
+            v-if="editingItemId === item.id"
+            v-model="editingDraftContent"
+            class="edit-textarea"
+            rows="8"
+            :data-testid="'hot-topic-edit-textarea-' + item.id"
+          ></textarea>
+        </div>
       </div>
 
       <!-- 选题列表（加载态由中央提示覆盖，此处仅空态/列表） -->
@@ -174,6 +193,15 @@
             @click="startGenerateVideo(topic)"
           >
             {{ t('hotTopics.generateVideo') }}
+          </button>
+          <!-- hot-topics-publish-ux（2026-10-12）：单条「发布」= 单篇一键改写（队列长度 1，不弹目标弹窗） -->
+          <button
+            class="cohere-btn-primary item-publish-btn"
+            :data-testid="'hot-topic-publish-' + topic.id"
+            :disabled="publishing"
+            @click="startSinglePublish(topic)"
+          >
+            {{ t('hotTopics.singlePublishBtn') }}
           </button>
         </div>
       </div>
@@ -291,7 +319,7 @@ const router = useRouter()
 const { t } = useI18n()
 const { notifyError, notifyInfo } = useNotify()
 
-// 统一内容类别（2026-10-03）：运营中心「内容类别管理」下发；读不到时回退内置 10 类。
+// 统一内容类别（2026-10-03）：运营中心「内容类别管理」下发；读不到时回退内置 11 类。
 // categoryLabel 需显式落到本地绑定才进得了模板（script setup 只自动暴露本文件声明）。
 const contentCategories = contentCategoriesRef()
 const resolveCatLabel = (key) => categoryLabel(key, t)
@@ -323,6 +351,10 @@ const publishQueue = ref([])
 const publishMode = ref('article') // article | video
 const publishDone = ref(false)
 const publishCancelled = ref(false)
+// hot-topics-publish-ux（2026-10-12）：改写结果内联预览/编辑状态
+const editingItemId = ref(null) // 当前展开编辑的选题 id（null = 全部收起）
+const editingDraftContent = ref('') // 正在编辑的草稿正文（textarea v-model）
+const itemDraftContents = ref({}) // topicId → 改写/编辑后的正文快照（goToDestination 回写草稿用）
 let refreshTimer = null
 let requestSeq = 0
 let disposed = false // 组件卸载标记：in-flight 改写/草稿保存不再写回状态
@@ -341,10 +373,10 @@ const {
 defineExpose({ genVideoPhase, genVideoRunId, genVideoTopic, mergeGenStages })
 
 // ── 常量 ──
-const CATEGORY_KEYS = ['general', 'society', 'finance', 'tech', 'entertainment', 'sports', 'emotion', 'education', 'health', 'international']
+const CATEGORY_KEYS = ['general', 'society', 'finance', 'tech', 'ai', 'entertainment', 'sports', 'emotion', 'education', 'health', 'international']
 // weibo 官方渠道成功时，tophub（同源微博榜）条目会被跨渠道去重合并到 weibo 名下——
 // 下拉不再暴露 tophub 筛选，避免「显示有数据、切进去空列表」；服务层保留该渠道作微博数据兜底
-const CHANNEL_KEYS = ['zhihu', 'toutiao', 'tencent', 'bilibili', 'douyin', 'baidu', 'weibo', 'sina_finance', 'ithome_tech']
+const CHANNEL_KEYS = ['zhihu', 'toutiao', 'tencent', 'bilibili', 'douyin', 'xiaohongshu', 'ifeng', 'baidu', 'weibo', 'sina_finance', 'ithome_tech']
 const BATCH_LIMIT = 20
 const TOPIC_PREFIX_KEY = 'hotTopics.topicPrefix'
 const REFRESH_INTERVAL_MS = 30 * 60 * 1000
@@ -352,7 +384,7 @@ const REFRESH_INTERVAL_MS = 30 * 60 * 1000
 // ── 计算 ──
 const categoryOptions = computed(() => [
   { value: 'all', label: t('hotTopics.categoryAll') },
-  // 运营下发为准；读不到时 contentCategories 已是内置 10 类，界面不会变零分类
+  // 运营下发为准；读不到时 contentCategories 已是内置 11 类，界面不会变零分类
   ...contentCategories.value.map(c => ({ value: c.category_key, label: categoryLabel(c.category_key, t) })),
 ])
 const channelOptions = computed(() => CHANNEL_KEYS.map(k => ({ value: k, label: t('hotTopics.channels.' + k) })))
@@ -573,6 +605,21 @@ function startPublish() {
   showPublishModal.value = true
 }
 
+// hot-topics-publish-ux（2026-10-12）：单条「发布」= 单篇一键改写。
+// 复用批量队列（队列长度 1、publishMode 固定 article），跳过 PublishDestinationModal：
+// 用户意图明确（改写这一条并去发布），多一步弹窗选择是纯摩擦。
+function startSinglePublish(topic) {
+  if (publishing.value) return
+  publishQueue.value = [{
+    id: topic.id, topic: topic.topic, status: 'pending', draftId: null, pipelineId: null,
+  }]
+  publishMode.value = 'article'
+  publishing.value = true
+  publishDone.value = false
+  publishCancelled.value = false
+  runQueue()
+}
+
 function onPublishArticle() {
   showPublishModal.value = false
   publishMode.value = 'article'
@@ -625,6 +672,8 @@ async function rewriteOne(item) {
       if (saved && saved.code === 0) {
         item.status = 'success'
         item.draftId = draft.id
+        // hot-topics-publish-ux：记录改写正文快照，内联编辑以此为初值，goToDestination 回写
+        itemDraftContents.value[item.id] = content
         return
       }
       throw new Error('draft save failed')
@@ -654,29 +703,86 @@ function backToBatch() {
   publishCancelled.value = false
   publishQueue.value = []
   selectedIds.value = new Set()
+  // hot-topics-publish-ux：重置内联编辑状态
+  editingItemId.value = null
+  editingDraftContent.value = ''
+  itemDraftContents.value = {}
+}
+
+// ── hot-topics-publish-ux：内联预览/编辑 ──
+
+/** 改写成功的条目（预览/编辑区按这些条目渲染，与进度列表同序） */
+const editableSuccessItems = computed(() => publishQueue.value.filter(x => x.status === 'success'))
+
+/** 展开/收起某条目的内联编辑器；展开时以正文快照为初值 */
+function toggleEditItem(item) {
+  if (editingItemId.value === item.id) {
+    // 收起：把当前编辑内容存回快照
+    itemDraftContents.value[item.id] = editingDraftContent.value
+    editingItemId.value = null
+    editingDraftContent.value = ''
+    return
+  }
+  editingItemId.value = item.id
+  editingDraftContent.value = itemDraftContents.value[item.id] || ''
+}
+
+/**
+ * 发布前把用户编辑过的正文回写草稿库（仅 edited 条目，未编辑的跳过）。
+ * @returns {Promise<boolean>} 全部回写成功（或无需回写）= true；任一失败 = false（阻止跳转）
+ */
+async function persistEditedDrafts() {
+  // 编辑器仍展开时先冲刷：用户可能不点「收起」直接点「去发布」
+  if (editingItemId.value !== null) {
+    itemDraftContents.value[editingItemId.value] = editingDraftContent.value
+    editingItemId.value = null
+    editingDraftContent.value = ''
+  }
+  const edited = publishQueue.value.filter(x => x.status === 'success' && x.draftId &&
+    typeof itemDraftContents.value[x.id] === 'string')
+  for (const item of edited) {
+    const content = itemDraftContents.value[item.id]
+    if (typeof content !== 'string' || content.trim() === '') continue // 空内容不回写（保留原稿）
+    const res = await draftSave({
+      id: item.draftId,
+      title: item.topic.slice(0, 64),
+      content,
+      source: 'hot-topics',
+      updatedAt: new Date().toISOString(),
+    })
+    if (!res || res.code !== 0) {
+      notifyError('hotTopics.editSaveFailed')
+      return false
+    }
+  }
+  return true
 }
 
 function goToDestination() {
-  const okItems = publishQueue.value.filter(x => x.status === 'success' && x.draftId)
-  if (okItems.length === 0) return
-  if (publishMode.value === 'video') {
-    const last = okItems[okItems.length - 1]
-    router.push({ path: '/create', query: { draft: last.draftId } })
-  } else {
-    // 图文去向必须把**全部**成功草稿交给发布页：
-    // 单条 → ?draft=<id>（单篇编辑器，保持既有语义）；
-    // 多条 → ?drafts=<id,id,...>（发布页批量装载）。
-    // 修复前这里 push('/publish') 不带任何草稿参数，而 Publish.vue 只在
-    // route.query.draft 存在时才 loadDraft —— 结果是「改写完成 → 去发布」后
-    // 表单恒为空，用户必须自己进草稿箱逐条加载（5 条选题 = 5 次手工装载），
-    // 与弹窗承诺的「改写内容将自动填入文案输入框」不符。
-    const draftIds = okItems.map(x => x.draftId)
-    if (draftIds.length === 1) {
-      router.push({ path: '/publish', query: { draft: draftIds[0] } })
+  // hot-topics-publish-ux：先回写用户内联编辑（失败则阻止跳转，进度区保持可见供重试）
+  return persistEditedDrafts().then((ok) => {
+    if (!ok) return
+    const okItems = publishQueue.value.filter(x => x.status === 'success' && x.draftId)
+    if (okItems.length === 0) return
+    if (publishMode.value === 'video') {
+      const last = okItems[okItems.length - 1]
+      router.push({ path: '/create', query: { draft: last.draftId } })
     } else {
-      router.push({ path: '/publish', query: { drafts: draftIds.join(',') } })
+      // 图文去向必须把**全部**成功草稿交给发布页：
+      // 单条 → ?draft=<id>（单篇编辑器，保持既有语义）；
+      // 多条 → ?drafts=<id,id,...>（发布页批量装载）。
+      // 修复前这里 push('/publish') 不带任何草稿参数，而 Publish.vue 只在
+      // route.query.draft 存在时才 loadDraft —— 结果是「改写完成 → 去发布」后
+      // 表单恒为空，用户必须自己进草稿箱逐条加载（5 条选题 = 5 次手工装载），
+      // 与弹窗承诺的「改写内容将自动填入文案输入框」不符。
+      const draftIds = okItems.map(x => x.draftId)
+      if (draftIds.length === 1) {
+        router.push({ path: '/publish', query: { draft: draftIds[0] } })
+      } else {
+        router.push({ path: '/publish', query: { drafts: draftIds.join(',') } })
+      }
     }
-  }
+  })
 }
 
 // ── 生命周期 ──

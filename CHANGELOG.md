@@ -64,6 +64,749 @@
   3 张无主基线（`analytics-overview` / `login-form` / `settings-general`）去留涉及删除他人文件，只登记不裁决；
   采集套件是否升级为比对套件（一次引入 60 个漂移源，正解是先做 PR B）。
 - 详见 `01-docs/PRD-VISUAL-BASELINE-DOMAIN-2026-10-11.md`（§2 十二行实测表、§3 逃逸链、§5.1 防自坏判据、§5.2 变异表）。
+# [未发布] feat(publish): 话题标签统一 + #添加话题 + 常用话题标签管理（topic-tag-unify）
+
+### 用户感知
+
+- 发布页（单篇图文 / 单篇视频 / 批量卡片）的「标签」「话题」两个输入框**合并为一个「话题标签」入口**——它们在发布引擎里本就是同一个字段（`mergeUniqueStrings` 四源合并），UI 保留两个框只会让人猜测「哪个给算法、哪个给平台」。
+- 新增 **#添加话题** 按钮（对齐参考产品参考产品）：点击只在描述末尾追加一个 `#` 并聚焦描述框（光标置尾），话题名由用户自己输入；末尾已是孤立 `#` 时不重复追加（防 `##`）。
+- 新增 **常用话题标签** 弹窗（话题标签管理）：分组维护常用话题、搜索（按分组名或话题关键词）、每组「全选本组」、勾选计数、确定应用——应用经既有追加管道写入话题标签输入并同步到描述（`#话题1 #话题2`，词边界去重），单篇/批量各自命中正确目标。数据存 localStorage（`mp_topic_tag_presets` v1），跨会话保留；损坏数据容错过滤不抛错。
+
+### 改动
+
+- `src/features/publish/topic-inline.js`：+`appendHashToContent`（追加 `#` 的纯函数，与追加管道同文件单一实现）。
+- `src/features/publish/topic-tag-presets.js`（新）：预设存储单一真源——结构 v1、组名/话题归一（剥 `#` 空白、去重、30 字上限）、读取容错（坏组逐个丢弃、version 非法视为空）、写失败静默 warn。
+- `src/components/TopicTagManagerDialog.vue`（新）：UiModal 弹窗，浮层互斥 owner `topic-tag-manager-dialog`（watch immediate 双出口 + onBeforeUnmount 兜底 + generation 守卫防 suspend IPC 在途卸载泄漏计数）。
+- `src/views/Publish.vue`：三个分支的话题标签格合并；`#添加话题`/`常用话题标签` 按钮接线（批量目标=该篇）；`applyTopicTagPreset` 复用 `syncTopicsToContent`/`setBatchTagsText` 管道。
+- `src/features/publish/components/BatchArticleCard.vue`：同一合并 + 两按钮 emit；`update:topics-text` 死合同移除。
+- `src/composables/usePublishDrafts.js`：草稿加载时历史 `topics` 并入 `tags`（复用 `normalizePublishStringList` 归一，`topics` 清空防双份；引擎侧 `mergeUniqueStrings` 兜底不变）。
+- locales zh/en 成对新增 `publishPage.topicTag.*` 18 键；`tags` 文案改为「话题标签 / Tags & topics」。
+
+### 测试
+
+- 新增：`topic-tag-presets.test.js`（11）、`TopicTagManagerDialog.test.js`（10）、`topic-inline.test.js` +5（appendHashToContent）、`Publish.test.js` +6（#追加 / 弹窗应用单篇+批量 / 去重 / 单入口模板断言）、`overlay-view-suspension.test.js` +1（owner 登记锁）。
+- 回归：`src/composables src/features` 全量 91 文件 1514 例通过；`Publish.test.js` 117 通过。
+
+### 兼容性
+
+- payload 键集不变（`tags`/`topics` 照旧条件挂载），P2-7 批量键集 parity 锁不受影响。
+- 历史草稿 / 历史视频跳转 / 智能标签建议 / 热门选题交接等入口经追加管道自然收口到单一入口。
+
+---
+
+# [未发布] refactor(publish): 正文形态 helpers 收敛到引擎单一实现（converge-article-body-helpers）
+
+- `apps/desktop/electron/services` 两份正文形态 helpers 委托 `api-publish-engine/src/content-formatter.js`（#3389 建立的单一实现）：`stripHtmlToPlainText` → `htmlToPlainText`、`wechat-mp-article` 的 `hasHtmlTags`/`toParagraphHtml` → `hasHtmlTags`/`textToParagraphHtml`。导出名/签名不变，调用点零改动。
+- 顺带修复真实缺陷：宽判据（`<` 后跟字母）把技术正文里的 `#include <stdio.h>`、`vector<int>` 当标签 —— `stripHtmlToPlainText` 会整段吃掉（影响快手等无标题平台的描述）、`hasHtmlTags` 会误判成 HTML 使代码尖括号被编辑器吞（影响公众号注入）。白名单判据双向用例锁定。
+- `packages/rpa-engine` 零依赖约束不动：`toutiao-direct-bridge.js` 的内联 `<p>` 拼接登记为已知第三份实现（遗留）。
+- QM-1 打包 rc=0；从打包产物 require 验证（`ELECTRON_RUN_AS_NODE`）：委托语义与白名单判据在 asar 内生效。启动 8 秒验证因用户实例持单实例锁不可判（先例同因），以 require 链作替代证据，如实登记。
+
+---
+
+# [未发布] fix(publish): 图文正文承载形态适配——百家号「整篇一整段」根因修复（fix-article-body-format）
+
+### 用户感知
+
+- 百家号图文**正文分段恢复正常**。此前用 Markdown/纯文本写正文、或走 AI 创作与采集改写（正文含 `\n\n` 空行分段）发布的文章，在百家号看是**一整段文字**；修复后按段落显示。
+- 反向同族缺陷一并修复：用富文本编辑器写的内容发到抖音（图文/视频）、小红书、快手、B站、视频号时，作品描述里**不再出现字面量 `<p>`**。
+- 无新增按钮、无新增弹窗、无新增文案（零 locale 改动）。
+
+### 根因（判据取平台产物，不取推测）
+
+- 百家号 `content` 是**富文本编辑器的 HTML 字段**，而链路把纯文本原样 `params.set('content', …)` 传进去 —— HTML 把换行当**可忽略空白**，整篇正文被平台存成单个文本节点。
+- **平台产物取证**：用户账号已发布的 **11/11 篇**图文公开页（`data-testid="article"` 容器内）正文 `<p>` 数 = 0、`<br>` 数 = 0、原始换行 = 0，正文是一个裸文本节点。
+- **源内容取证**：发布前真源（`rewrite_history.rewritten_content`）含 `\n\n`（例：863 字符 / 8 换行 / 5 自然段）。
+- **逐字节对账**：`源文去掉全部 \n == 平台正文字符串` 为 **True**（855==855、1235==1235）⇒ 唯一差异就是换行/段落被吞，排除截断与改写。
+- 交叉证据：参考产品用 `HtmlDocument`/`RichTextParser` 生成百家号/头条文章体（`<p>`）；头条同族字段内部名即 `htmlContent`；本仓头条 Node 直连兜底与公众号链路**早已各有**一份同款「纯文本 → `<p>`」包装 —— **百家号是唯一漏掉的链**。
+
+### 改动
+
+- **单一实现**：`packages/api-publish-engine/src/content-formatter.js` 新增正文承载形态层 —— `hasHtmlTags`（**标签名白名单**判据）、`textToParagraphHtml`（纯文本 → `<p>`，转义先行、CRLF 归一、空行不产出空 `<p>`）、`htmlToPlainText`（`<br>`→换行、块级收口、实体解码）、`getArticleBodyKind`、`formatArticleBody`（未知平台保守按纯文本）。
+- **接线（写平台字段前最后一跳）**：`baijiahao-article.js`（`content`，HTML）；`adapters/wechat-mp/draft.js`（`content0`，公众号草稿 API 轨——该轨 2026-10-12 #3375 新落地，`content0` 同属 HTML 字段，纯文本同样会塌成一段）；`douyin-image.js` / `douyin-video.js` / `kuaishou-video.js` / `bilibili-video.js` / `shipinhao-video.js` / `xiaohongshu-draft.js`（描述类字段，纯文本）。
+- **顺序不变量**：话题转换必须**先于** `<p>` 包装（`(^|\s)#话题` 的前置边界依赖井号前是空白/开头），反序会让内联话题停在单井号形态；由精确断言锁定。
+- **判据收窄**：形态判定用白名单而非「`<` 后跟字母」—— 后者会把技术正文里的 `#include <stdio.h>`、`vector<int>` 当标签（纯文本平台会**整段吃掉**），本次以正/反两向用例锁死。
+
+### 逃逸链（QM-5 ②）
+
+- 单测层：`content-formatter.test.js` 只覆盖标签风格/长度/话题，**无正文形态用例**；
+- 链级层：`baijiahao-article-chain.test.js` 只断言 `toContain("content=")` —— **整篇压成一行时子串依然命中**，对此类回归完全免疫；
+- E2E 层：只断言 success 与回填 `postId`，**没有产物内容结构断言**；
+- 审查层：`PRD-API-PUBLISH-ENGINE.md` §12.1 只写字段名，未写承载形态 ⇒ 契约缺口无人在评审时能对照。
+
+### 回归保护
+
+- `content-formatter.test.js` +12 例（全部 `assert.deepStrictEqual` 精确串），**修复前实跑红**（`hasHtmlTags is not a function` 等）；
+- `baijiahao-article-chain.test.js` +4 例（表单 `content` 解码后 `toBe` 精确断言：多段 / 单段 / 已是 HTML 幂等 / 话题转换先于包装）；
+- `topic-inline-contract.test.js` B-5 契约更新为 `<p>…</p>`（先红后绿）；
+- `douyin-image-chain.test.js`、`tests/xiaohongshu-draft-chain.test.js` 各 +1 例 HTML→纯文本反向锁；
+- 验证：引擎全量 `node scripts/run-tests.js` **rc=0**（39 个 vitest 文件 / **333 用例** + direct 组）；`content-formatter.test.js` **62/62**；定向 vitest 8 文件 **94/94**。
+
+### 预防措施
+
+- `AGENTS.md` QM-2 新增「图文正文承载形态合同」（含判据口径与必跑测试）；
+- 新增 `01-docs/PRD-ARTICLE-BODY-FORMAT-2026-10-12.md`：形态合同 + **全平台审计矩阵**（同类已确认 1 / 先例已修 2 / 反向同类已修 6 / DOM 轨待真机复核）+ 真机复核 runbook（公开页 `<p>` 计数判据）；
+- `PRD-API-PUBLISH-ENGINE.md` §12.1 表单字段口径更新；`01-docs/learnings.md` 沉淀根因模式与取证方法。
+
+### 已登记遗留（不假装已闭合）
+
+- DOM 轨 `_fillInput` 的 contenteditable 注入是否在平台编辑器模型里成段，**离屏不可判定** ⇒ 真机复核 runbook 见 PRD §12.3，未复核前不写「端到端已通」；
+- 同族逻辑仍有三份实现（desktop `stripHtmlToPlainText`、`wechat-mp-article.toParagraphHtml`、rpa-engine 头条直连内联拼接），收敛需改 `apps/desktop/electron/**`（触发 QM-1 打包）⇒ 拆后续 PR；
+- Markdown → HTML 未做（`# 标题` / `**粗体**` 仍是字面量，与改造前一致）。
+
+# [未发布] fix(hot-topics): 采集配额治理——限流键从来源身份改为端点配额、手动刷新节流、状态跨重启（hot-topics-throttle-url）
+
+### 用户感知
+
+- **被平台风控的概率显著下降**：此前微博一个端点会被「主渠道 + 情感垂类 + 健康垂类」三个身份各打一次
+  （理论 3 次/10 分钟），IT之家 RSS 被「科技垂类 + AI 垂类」打两次（2 次/15 分钟）。现在**一个端点一个配额**，
+  同一端点的所有身份共享，且任何一个身份连续失败会让整条端点进入熔断保护。
+- **连点刷新不再放大第三方压力**：手动「刷新」此前没有任何上限（直接跳过缓存 TTL），
+  现在两次真实刷新之间至少间隔 60 秒，间隔内返回既有缓存。
+- **应用重启后不再「无记忆」**：限流/熔断状态落盘，重启后仍记得「哪些端点 5 分钟前刚打过」，
+  不会一启动就全渠道并发外呼。
+
+### 根因（逐行取证，非推测）
+
+| # | 风险 | 机制级根因 |
+|---|---|---|
+| P0 | 限流/熔断键 = 来源身份 `id`，同一 URL 挂多个 id | `tryAcquire(config.id)` / `breaker.*(config.id)`；`weibo`+`weibo-emotion`+`weibo-health` 共用一端点（3 次/10min），`ithome-tech`+`ithome-ai` 共用 RSS（2 次/15min）。emotion/health 补拉阈值仅 4（多标签口径极易触发），IT之家因 AI 补拉源几乎每轮双打 |
+| P1 | 手动 `force:true` 无上限 | UI `refresh(true)` 直达 service，v2 的 force 跳过缓存 TTL —— 决定第三方压力的是用户点击频率，而它没有上限 |
+| P2 | 跨模块同端点两份配额 | 快捷采集 feed 类 `ithome` 源与热门选题 `ithome-tech/ai` 补拉打同一 RSS，两套限流互不知晓 |
+| P3 | 限流/熔断纯内存态 | 重启即清零，「重启后的第一轮」= 全渠道并发外呼 |
+
+**同时更正上一轮分析的一条误判**：快捷采集的中文热榜源全部标注 `provider: 'hot-topics'`
+（注释明写「复用 hot-topics-service，零新抓取」），因此**不存在**「两个模块对同一批平台各打一份」；
+真实重叠只有 feed 类 `ithome` 源共用同一 RSS。
+
+### 改动
+
+- **新增** `electron/services/hot-topics/throttle.js`：
+  - `throttleKey(url)`：host+path 归一化（小写、去查询串与尾斜杠）；
+  - `quotaKeyOf(config)`：**唯一键推导真源**（显式 `throttleKey` > URL 归一化，**不用 id**）；
+  - `ChannelThrottle` / `ChannelBreaker` 可 `serialize()`/`restore()`，restore 对非法载荷 **fail-closed**（清空而非放行）。
+- **service**：`_collectChannel` / `_collectBoostChannel` 的限流与熔断键改为 `quotaKeyOf`；
+  跳过带 `reason: 'throttled-by-url'` 便于排查。
+- **P1**：`MANUAL_REFRESH_MIN_INTERVAL_MS = 60_000`；force 间隔内返回缓存 + `throttled: true`；
+  带 `boostCategories` 的定向补拉**豁免**（用户指名的补拉意图不能被吞）；`_lastManualRefreshAt` 仅在真实放行时更新。
+- **P2**：`ithome-tech` / `ithome-ai` 显式 `throttleKey: 'ithome-rss'` 共享配额（2 次/15min → 1 次/15min，且一方失败保护另一方）。
+- **P3**：新 settings 键 `hot_topics_throttle_state`；每轮真实抓取后落盘、构造器恢复；恢复失败只清空。
+
+### 验证
+
+- 新增 `hot-topics-quota.test.js` **14 例**（P0×5 / P1×4 / 单元×3 / 配置一致性×2）；
+- 既有 `hot-topics-new-sources.test.js` 1 例同步更新（熔断键从 id 改为配额键，属预期行为变更）；
+- 全量回归 **385 文件 / 7408 例（1 skipped）**，0 失败；
+- **变异反证**：把 `quotaKeyOf` 变异回「id 作键」→ **5 例当场红**（共享配额 / 熔断按端点 / 补拉路径 / 配置一致性 / 微博三身份），变异后还原复跑全绿。
+
+### 已知未完成（如实登记）
+
+- 快捷采集 feed 源与热门选题补拉的同端点共享：`throttleKey` 已预留接口，但快捷采集的 fetch
+  未接到 `quotaKeyOf`（需动其依赖注入，超出本轮目标）；真实增量有限（两边各自已有 30/15min 节流）。
+- UI 对 `throttled` 的可感知提示未加（服务层已带标记；本轮不动 locales）。
+# [未发布] chore(ccg): 入库 5 个 ccg-deep-* 深度审查运行目录（xhs-login-mainsite 评审产物）（2026-10-12，deep-review-archive）
+
+### 这是什么
+
+`.adversarial/ccg-deep-{41638d81,4d24094f,cfb77961,da589be3,dcfc3558}/`
+共 18 个文件（proposal/critique/adjudication/family-snapshot，170KB）：
+#3309（小红书登录二段式补跳主站）已合并进 main（e5d5bf03e），
+这些是该任务线深度审查的逐轮产物，摘要已在判定记录中。
+按评审资产入库（与 main 里受管 `.adversarial` 文件同性质），而非丢弃。
+
+### 不做什么
+
+- 不含 `.ccg/reviews` 记录（已由 #3401/#3402/#3403 分别入库清零）
+- 新增记录由 #3396 钩子自动 stage，不再手动
+
+### 回滚
+
+`git revert` 单提交即复原（18 个纯新增文件，零删除）。
+
+---
+# [未发布] chore(ccg): 入库 ccg-plan-design-claude 评审资产（官方 Key 迁移 AES-256-GCM 封存系统设计评审）（2026-10-12，adv-design-archive）
+
+### 这是什么
+
+`.adversarial/ccg-plan-design-claude/`（proposal 31KB / critique 4KB / family-snapshot）
+是「官方 Key 迁移 AES-256-GCM 封存系统」方案的对抗评审产物：评审已完成、
+有判定记录 `d72cd2bd` 锚点（已受管入库），内容不再有独立落点。
+按评审资产入库（与 main 里 231 个受管 `.adversarial` 文件同性质），而非丢弃。
+
+### 不做什么
+
+- 不含 `.ccg/reviews` 未跟踪记录——其中「仅本地」类引用的分支尚未合并，
+  按分档纪律等分支合并后消化；新增记录由 #3396 钩子自动 stage
+
+### 回滚
+
+`git revert` 单提交即复原（4 个纯新增文件，零删除）。
+
+---
+# [未发布] fix(creator): 博主监控页整页不可用——三处接线缺陷 + 文案分因，并补上「添加博主 / 配置 API Key」两条入口（creator-monitor-depfix）
+
+### 用户感知
+
+采集页「博主监控」页签此前只有一行**「缺少采集依赖。请执行：」**（冒号后为空），列表恒空，点「关注」**没有任何反应**，且全应用**没有任何地方**能填 YouTube API Key。修复后：页面正常加载博主与待采集角标；「关注」打开应用内弹窗（支持频道链接 / `@handle` / `UC…` 频道 ID），成功后**立即检查一次新作品**；未配置凭证时页面横幅引导至新增的「配置 API Key」弹窗（密钥经系统密钥库加密、只存本机、保存后立即清空输入框）。
+
+### 三个独立根因（都让功能完全不可用，且互相掩盖）
+
+- **C1 取值路径写错**：`apps/desktop/electron/bootstrap/phase5-ipc.js` 按 `typeof context.get === 'function'` 取依赖，而 `context` 是 `bootstrap/phase1-context.js` 的分组 Proxy（`{infra,services,windows,pipelines}`），**自身没有 `get`**，只暴露 `context.container` ⇒ 三元恒假 ⇒ 三个 creator 服务全为 `undefined` ⇒ `ipc-handlers/creator.js` 判定依赖缺失 ⇒ **11 个通道全部注册为降级**。改为只经 `context.container.get(name)`（顶层直取仅作测试兜底），容器未注册名 catch 后按缺失处理，缺失只降级该通道。
+- **C2 凭证提供者从未注册**：`electron/core/container.setup.creator.js` 写 `c.get('creatorCredentialProvider') || (() => null)`，而容器 `get` 对未注册名**抛错**（`core/container.js:78`）而不是返回 `undefined` ⇒ 解析 `creatorCollector` 即抛 ⇒ `creatorRuntime` 一并失败。这是**与 C1 并列的第二个降级成因**——只修 C1 仍然降级。现补注册（新增 `electron/services/creator-credential.js`）并加 `try/catch` 兜底，把「将来又被删掉」退化成「没配 Key」而非「整页不可用」。
+- **C3 采集器缺 `resolveChannelId`**：`creator:follow` 一直调 `creatorCollector.resolveChannelId(input)`，而 `createCreatorCollector` 只返回 `listPosts` / `collectBody` ⇒ 真实装配下必抛 `undefined is not a function`。**e2e 之所以全绿**：`creator-wiring.e2e.test.js` 的替身手搓了该方法——夹具替对方**造方法**（`learnings.md` 同型教训的第四种落点）。现补齐实现，并加「替身方法集 ⊆ 真实对象方法集」的对账锁。
+- **C4 文案分因（用户可见面）**：渲染层把 `reason:'service-unavailable'` 渲染成「缺少采集依赖。请执行：」并传 `command: ''`。该文案把用户引向「装 Python 包」，而真因是「主进程没接线 ⇒ 重启应用」。现按 `reason` 分因：服务未就绪走 `creatorErrServiceUnavailable`（不含占位符），真正的可选依赖走新增只读通道 `creator:dependency-status` 的非阻塞提示（带确切 pip 命令与国内镜像源）。
+
+### 顺带修掉的两个「死路」
+
+- `window.prompt` **在 Electron 渲染进程不可用**（调用即抛 `prompt() is and will not be supported`），旧「关注」入口因此**整条不存在**。改为 `CreatorAddDialog.vue`（与同页 `QuickCollectCommandDialog.vue` 同构）。
+- 旧文案「未配置 YouTube API Key…请在设置中填写」指向**并不存在**的设置字段；`creatorErrCredentialMissing` / `creatorFatalPaused` / `creatorEmptyDesc` 三条文案已改正，并新增 `CreatorCredentialDialog.vue` 承载 PRD §7.4 的四态（未配置 / 密钥库不可用 / 已解密失败 / 已配置，含末四位指纹）。
+- 旧 `probeDependency()` 用 Node `require` 去探测 **Python** 包 ⇒ **恒返回 `ready:false`**（当时无生产调用点，接上就是「依赖永远缺失」的假告警）。改为 `probeTranscriptDependency({ pythonBridge })`，只回答 Node 侧真能回答的事，并如实声明「桥不在跑」与「没装包」不可区分。
+
+### 规格与文档
+
+- PRD 新增 §17（现象 / 四个根因 / 修复设计 / 三层数据校验 / 端到端流程 / 显示项与 zh-en 提示文字对照表 / `reason` 全表 / 交互细则 / 13 条回归锁 / 未闭合清单 / 变更文件清单）+ 两处既有文案指引修正。
+- `openspec/specs/creator-monitor/spec.md` 新增 4 条 Requirement（面板接线可解析性、服务未就绪与依赖缺失分因、添加博主入口与交互、凭证配置可见入口）共 9 个 Scenario，并把「凭证安全」的状态区分按 QM-6 评审 W1 扩为**四坏态**（未配置 / 密钥库不可用 / 已解密失败 / 本地存储读取失败——读失败重填无效，MUST 引导重启而非反复重填）。
+- 修正 `ipc-handlers/creator.js` 头注中「通道已登记为 public」与实现不符的表述（许可策略变更需人工裁决，本次不动）。
+
+### QM-6 双模型评审与处置
+
+- **后端 claude：Critical 0 / Warning 1 / Info 3，全部处置**：W1 读失败并入 decrypt_failed ⇒ 新增 `read_failed` 态 + zh/en 专门文案 + 三态互斥测试（读失败重填无效，与「解密失败重填有效」必须分开）；I2 `getCredential()` 死代码且形状差半截 ⇒ 删除 + `toBeUndefined` 反向锁；I3 「缺包命令」在桥未运行时可能误导 ⇒ 文案改为「**若确认缺少该包**，可在终端执行」；I4 观测项不改。
+- **前端 opencode 三次未产出结构化 findings ⇒ critic-only**（如实记账，不冒充双模型通过）；其 3 个疑点由主代理用机械门禁逐条核验（e2e 替身方法集对账 / `check-ipc-bridge` 459/477/0 / `check-locale-sync` 三档）。
+
+### 测试与门禁
+
+- 8 个测试文件（3 新 / 5 改）共 **199 例**；受影响域子集 71 files / **1457 例**全绿；ESLint 0 error。
+- 静态门禁本地实跑：`check-ipc-bridge`（459 handlers / 477 preload / 0 缺口）、`check-ipc-sender-guard`（显式守卫 66.1% ≥ 65%、0 绕过）、`check-locale-sync`（`--pair-base` / `--cjk` / `--keys` 三档 PASS）、`check-frontend-consistency`、`check-font-size-scale`、`check-no-brand-residue`、`check-unwired-tests`、`check-text-encoding-integrity` 全部 PASS。
+- QM-1 打包验证与 QM-6 双模型评审记录见 `openspec/records/creator-monitor-depfix.md`。
+# [未发布] feat(hot-topics): 一键发布 UX 优化——改名「改写并发布」+ 单条发布按钮 + 改写稿内联编辑（hot-topics-publish-ux，2026-10-12）
+
+- 批量按钮「一键发布」改名「改写并发布」（en: Rewrite & Publish），与实际两步动作（AI 改写 → 草稿 → 发布页确认）对齐，消除名不副实。
+- 每条选题行操作区最右新增「发布」按钮：单篇一键改写（复用批量队列、队列长度 1、跳过目标弹窗），完成后「去发布」走既有 `?draft=` 单篇语义。
+- 改写结果确认点前移：进度区内条目可展开内联预览/编辑改写稿；「去发布」前自动回写编辑到草稿库（未收起直接点也冲刷），回写失败阻止跳转并可重试。
+- 新增分阶段提示 key（publishStageRewrite / publishStagePrepare）与发布页确认横幅 key（publishPage.handoff.banner）。
+- 专项 PRD：01-docs/PRD-HOT-TOPICS-PUBLISH-UX-2026-10-12.md（数据校验/流程/交互/显示项/提示文字全量）。
+- 回归锁 src/views/hot-topics-publish-ux.test.js 8 例；既有 HotTopics/Publish/useBatchPublish 全量回归通过；locale-sync --keys/--cjk PASS。
+
+# [未发布] 播客刀 4 第 3 片·接线：TTS 生产适配层（podcast-tts-adapters）
+# [未发布] feat(publish): 公众号「发布/群发」两条发送链（API 轨）+ DOM 轨群发正判据（2026-10-12，wxmp-publish-masssend）
+
+- 新增 `packages/api-publish-engine/src/adapters/wechat-mp/publish.js`：发布（不推送粉丝）与群发（推送粉丝）两条发送链，契约逐函数对齐参考产品取证——发布路径 5 道前置检查（for_check/check_same_material/copyright/check_ad/check_music，原创以 `err_msg==='default'` 判通过，冲突文案带对方文章链接）；群发路径 masssendpage 取 `operation_seq`（引号/数组两形态）+ 未签群发协议自动 `setprotocolsign` + 正文不足 300 字（64715）可操作文案；`buildPushBody` 21 字段全量对齐（发布态 `isFreePublish` 双写、`country==='全部'` 置空、定时 `direct_send=1`）；发送判据 `base_resp.ret===0`，失败 5s 重试一次，两次失败 fail-closed（重试间隔可注入）。
+- 适配器接线：`buildPostData` 归一 `publishMode`（draft 默认 / publish / masssend，`massSend > freePublish > draft` 互斥优先级）；`publish()` 草稿回读通过后按模式走发送链，masssend 前置群发保护预检。**消除切轨静默错位**：`api-then-dom` 下勾了群发不再「只存草稿却报成功」。
+- DOM 轨群发正判据（消灭「点了就算成功」）：确认点击前挂 `masssend` XHR 监听 + 点击后轮询页面成功提示，两者至少一条成立才算成功，双缺失 fail-closed 并提示到后台核实；支持 `freePublish`（发布按钮候选选择器，真机待验证）。
+- 能力声明：`publish-capabilities.json` wechat_mp 新增 `freePublish`（与群发互斥、hint 说明配额与不可撤回）；`publisher-router` 解析并透传；`task-data.js` PASSTHROUGH 扩充（mass_send/free_publish/publish_time/定向群发参数）。
+- 测试：engine 直跑组 +11（`wechat-mp-publish.test.js`）+ 适配器 +5；desktop DOM 判据 +3；capabilities 快照更新。**变异反证 6/6 全红**（摘原创判据/摘重试判定/摘双写/退回原正则/DOM 摘 fail-closed/摘 64715 特判）。
+- 遗留：API 发送链与 DOM「发布」按钮待真机验证；`platforms.yaml` 仍 `dom-only`，切换前置已备齐（见 openspec change `wechat-mp-publish-track`）。
+
+
+- 新增 apps/desktop/electron/services/podcast-episode-tts-adapters.js：createGenerateTTS / createVoiceReaders / createConcatBlocks / createProbeImpl 四个生产工厂，把 §7.4.8 编排层的注入参数接成真实现；未接宿主，不改既有行为。
+- PRD 新增 §7.4.9：四工厂的入参契约、fail-closed 校验表、三条不可让（降级不当成功、键名双给、零隐式出站），以及本片不新增 locale 键的理由。
+- 回归锁 16 条 + 变异反证 M1（未知形状当成功 ⇒ 恰好 1 条指名红）。
+# [未发布] feat(collection): 草稿箱独立标签页 + 素材来源入口修正（collection-drafts-tab）
+
+### 用户感知
+
+采集页新增「草稿箱」标签页（位于「快捷采集」与「文案库」之间），底部快捷区在「剪贴板导入」后
+新增「草稿箱」按钮。此前草稿只以小标题挂在采集页底部，要翻过 URL 采集、批量采集、知乎收藏夹
+三大块才能看到。
+
+**更重要的修复**：此前应用里有两套草稿写入方言，而它们**物理落在同一行存储**
+（均为 `scopedSettingKey('drafts', owner)`，即 `user:<ns>:drafts`），互相污染：
+
+| 现象 | 根因 |
+|---|---|
+| 发布页存的草稿出现在采集页，**时间显示空白** | 发布页写 ISO `createdAt`，采集页读 `created_at` |
+| 采集页存的草稿在发布页显示 **0 个平台** | 采集页草稿不写 `platforms` |
+| 同内容草稿**互相合并覆盖** | `computeDraftFingerprint` 只算标题+正文，两侧同内容即命中幂等 |
+
+现已统一：写入一律走 `draftSave`、读取一律走 `draftList`，读取侧兼容历史 `created_at`。
+
+### 素材来源入口修正
+
+微博/知乎/今日头条三个快捷按钮此前取 `PLATFORM_DASHBOARD_URLS`（创作者后台），
+与按钮「素材从哪来」的语义相反。新增语义独立的 `PLATFORM_SOURCE_URLS`：
+
+| 平台 | 旧值（实测） | 新值 |
+|---|---|---|
+| 微博 | `weibo.com/` 消费端信息流 | `s.weibo.com/top/summary`（热搜榜） |
+| 知乎 | `zhihu.com/` 消费端推荐流 | `zhihu.com/hot`（热榜） |
+| 今日头条 | `mp.toutiao.com/` **头条号创作后台**（分类错误） | `toutiao.com/hot-event/hot-board/?origin=toutiao_pc` |
+
+**为什么不改 `PLATFORM_DASHBOARD_URLS` 本身**：它被 `Accounts.vue`（开创作者中心）、
+`http-login-checker.js`（登录态 DOM 校验目标页）、`account-manager.js` 复用，
+改它会连带破坏登录态判定。
+
+**两条如实记录的取证边界**：微博 `s.weibo.com/**` 全系 302 到登录（服务端强制登录墙），
+换 URL 只改语义、不改登录要求；知乎 `/hot` 对抓取器 403 是反爬而非失效，
+真人浏览器是否免登录**未证实**，需上线前人工确认。
+
+### 实现要点
+
+- `Collection.vue` 是 `check-max-lines` 零容差点名文件（2920 行），所有新逻辑收入
+  `features/collection/CollectionDraftsTab.vue` / `CollectionDraftsPanel.vue` /
+  `useSourceEntry.js` / `composables/useCollectionDrafts.js`，主文件净增 0 行。
+- 前端不再自造草稿 id（旧写法会让 `draftSave` 指纹幂等失效），id 由主进程决定。
+- 读取失败**不得**伪装成「暂无草稿」——把「读不到」显示成「你没有草稿」会让用户以为数据丢了。
+- `allowEmpty` 是仅供「新建空白草稿」的窄口子：全空内容在主进程算同一个
+  `EMPTY_FINGERPRINT`，不开口子则永远只能有一份空白草稿。
+- `createFromItem` 改 async（原同步调用 async 会造成「已保存但没跳转」竞态）。
+
+### 验证
+
+- 新增 25 条回归锁（`useCollectionDrafts.test.js` 17 条、`useSourceEntry.test.js` 8 条），
+  含「素材来源不得退化回创作者后台」「数组字段回落 []」「两种时间字段混排排序」等防再犯锁。
+- `Collection.test.js` 119 条按新契约更新并全绿；`check-max-lines` 通过（2920 行）；
+  `check-locale-sync --keys` 通过（1890 key）。
+- 文档：新增 `01-docs/PRD-COLLECTION-DRAFTS-TAB-2026-10-12.md`（V1~V15 / A1~A15）。
+# [未发布] feat(podcast): 刀 4 第 3 片·上半 音色解析层（podcast-tts-voice）
+
+- 新增 `apps/desktop/electron/services/podcast-tts-voice.js`：一期播客的音色解析层——频道 `voiceRef` → 用户偏好 → capability 级 `defaultVoiceId` 的固定四步回退链，三层全空一律**拒绝出期**（`PODCAST_TTS_VOICE_UNRESOLVED`），不得由代码替用户猜一个音色。
+- 命中时如实返回 `origin`（channel / preference / providerDefault）与 `resolvedBy`，作为浮层「用的是哪一层回退」三态来源标注的唯一数据来源；用户必须能区分「我配的」与「系统替我选的」。
+- 边界判据：半配置不顺着回退链往下走；「读取异常」与「没配」分别处置；空串 voiceId 按没配；无默认 provider 时 ②③ 无定位键即拒绝且两个读取实现调用数为 0；注入缺失 fail closed；非对象 voiceRef 当场拒绝。
+- 码表单点：复用分块层那一个用户可见码，层间靠 `issues[].path` 区分，并配「不得出现第二个 `PODCAST_*` 字面量码」的结构锁。
+- 16 条行为锁（含 3 条注入真 `tts-voice-catalog.getVoiceCapability` 的跨模块契约锁）；本机 2 files / 42 tests 全绿。本片刻意不接线宿主（不改 host、不加 IPC、不动浮层、不加 locale 键）。
+# [未发布] 单集 compliance 标记的合同（podcast-episode-compliance）
+
+- PRD 新增 §8.2：compliance 的闭集三态（ok/invalid/stock）、承载在 podcast:episode:list 的追加式 compliance 键、逐期校验失败与旁路降级语义、显示项与 zh/en 提示文字四条、实现片必须带的七条回归锁、以及故意不做三项。
+- 前置事实如实记录：播客域 compliance 本体当前不存在（grep 实测），因此 §7.9.5 第 4 条与 tasks 4.4b② 必须以本节为前置；本节明写"不是实现"，两处保持未勾。
+# [未发布] feat(publish-history): 作品互动数据回流 + 整卡打开内容页（publish-history-engagement）
+
+### 用户感知
+
+发布记录页每张卡片的「播放 / 评论 / 点赞 / 收藏 / 分享」五列此前**恒为 `-`**。修复后，
+只要该账号的作品数据被采集过，列表与详情弹窗就会显示**真实数字**，并常驻一行
+「数据为低频采集，非实时 · 数据截至 X 小时前」；工具栏新增「刷新数据」按钮可手动触发一轮采集
+（受每账号每日次数上限约束，达上限时按钮禁用并说明原因）。没有数据时不再统一显示 `-`，
+而是按原因分别提示：**尚未采集 / 该平台暂不支持自动采集 / 账号登录已过期 / 上次采集失败**。
+另：发布记录卡片的**整块区域可点击**打开对应的自媒体内容页（应用内新标签并置于前台）；
+只进了平台草稿箱的记录显示「草稿（未公开，无链接）」——它点不动是正确语义，不是缺陷。
+
+### 为什么五列会恒空（三层断链，实测取证）
+
+1. **落库侧从不写互动字段**：发布历史真源是 JSONL（`services/publish-history.js:80-100`），
+   两个写入点（`phase4-events.js` 的 task:success / task:failed）的 payload 里根本没有互动数据，
+   发布瞬间平台也不回传。
+2. **渲染端唯一灌数处是旁路 join**：`PublishHistory.vue` 从 `tracked_content.latest_snapshot` 合并，
+   匹配不上即回落 `'-'`。
+3. **旁路 join 自身有四处缺陷**：读侧 `performance:list-tracked` 不按归属过滤且只取第一页 100 条；
+   渲染端也只拉 100 条；关联键 `publish_history_id` 缺 id 时留 NULL；
+   回采只覆盖 4 个平台**且抓的是公开作品页 HTML**。
+
+第 3 条最后一项是结构性的：国内主流平台的作品页要么需登录、要么把指标放在打包脚本里不可正则命中。
+对 68 条真实发布记录跑生产判据实测 **可点 10 / 68**，其中抖音/小红书/头条/快手/公众号 **0/26**。
+
+### 改了什么
+
+- **新增账号级作品数据回流通道**（`electron/services/account-metrics/`）：带账号已保存的会话凭证调用
+  平台**创作者后台列表接口**，**一次请求拿回该账号全部作品的五项指标**（100 条作品 = 1 次请求，
+  而非 100 次页面抓取），并按三级判据归因回发布记录。首版覆盖小红书 / 抖音 / 快手 / 头条。
+- **同一次响应里的真实作品 ID 用于回填** `tracked_content.post_id`（**只补空值，不覆盖既有值**），
+  这同时是「整卡可点」缺的那份证据——一个数据源解掉两个需求。
+- **低频是产品契约**（用户明确接受非实时，原话「不能太频繁查询以防被封」），三层上限：
+  24h 一轮 / 单账号每 UTC 日 ≤4 轮 / 页间 1–1.5s 随机抖动 + 账号间串行。
+- **失败与零值严格区分**：非 2xx、非 JSON、结构不符一律判失败并**不写零值快照**；
+  平台没有该字段时落 `null`（渲染 `-`），**不补 0、不用其他语义字段顶替**
+  （快手列表给的是涨粉量不是分享数、抖音/头条不返回收藏数）。
+- **新增 `performance:history-metrics`**：把「发布任务 id → tracked 行 → 每行最新快照」的 join
+  收回主进程一次 SQL 完成，归属过滤在 SQL 层；未登录回 `AUTH_ERROR` 而非空数据。
+- **界面**：新增刷新入口、非实时说明、「数据截至」、四类空态互斥提示；草稿语义如实化。
+- 顺手修掉一个门禁冲突：`core/container.setup.js` 因新增装配逼近 500 行阈值，
+  按「同域装配整体外移」抽出 `core/register-engagement-services.js`（回采 / 归因 / 账号级采集三服务）。
+
+### 兼容性与数据面
+
+- **无 schema 变更、无数据迁移**。沿用 `tracked_content` / `performance_snapshot`，
+  新增快照以 `source='account_sync'` 区分（既有 `auto` = 公开页回采、`manual` = 手工录入）。
+- 幂等键 `acct:<trackedId>:<UTC 日>`：同日同源重复采集折叠为一份，不会把「日增」算成多天。
+- Cookie 只在主进程内存解引用：不落日志、不进 IPC 返回值、不写快照 `raw` 字段。
+
+### 已知边界（如实登记）
+
+- 四平台接口形态来自竞品逆向与公开资料，**未经真机逐个取证**；接口变更会让对应平台退化为
+  `failed`，不影响其他平台。
+- 小红书签名依赖隐藏创作者页；快手只取 Cookie 里的 `kuaishou.web.cp.api_ph`。
+  两者取不到时如实记 `unsupported`，**不伪造签名硬发**。
+- 旧实现里「小红书仅存草稿」的记录本就无公开作品，卡片点不动是正确语义。
+
+---
+
+# [未发布] 存量播客单集 `mime` 一次性固化的合同（mime-stock-freeze）
+
+- PRD 新增 §7.9：把 tasks 4.4 写成可实现合同——事实前提（存量脏值分「缺席」与「非法」两类，处置不同）、固化动作（恰好一次、幂等、只补不改、按扩展名派生、派生不出就不猜）、数据校验与失败语义表、交互与显示项（`compliance` 增设 `stock` 档、频道页摘要）与 zh/en 提示文字三条、七条必须带的回归锁、以及故意不做的三项。
+- 明确声明本节是合同不是实现：固化代码与 locale 键均未落地，tasks 4.4 保持未勾。
+# [未发布] feat(hot-topics): 热门选题新增小红书/凤凰网数据源、新增 AI 分类、修复「科技类混入不沾边内容」（hot-topics-multi-source）
+
+### 用户感知
+
+- **热门选题多了两个平台**：渠道下拉新增「小红书」「凤凰网」，热门选题页能看到这两个平台的热榜条目
+  （小红书 App 端热搜约 20 条 / 凤凰网热榜约 35 条，均免登录）。
+- **多了一个 AI 分类**：分类 chip 新增「AI」，与「科技」相邻；大模型 / AIGC / 智能体 / 算力 / AI 应用
+  这类选题不再被压进「科技」。
+- **「科技」分类终于像科技了**：修复前 B站「知识」区（历史/法律/职场混装）、「科学科普」（恐龙/地质混装）、
+  微博/头条「汽车」这些**整批**被映射成科技；补拉来的条目更是被**无条件硬挂**成科技。修复后这些泛称桶
+  不再定性单条选题，补拉条目也要先过分类器。
+- **渠道 0 条不再被当成「正常」**：抖音缺 UA/Referer 时是「HTTP 200 + 空列表」，旧实现记成成功，
+  于是熔断器永不打开、界面上只看到「该渠道 0 条」而没有任何可排查信号；现在空列表按失败处理并触发降级。
+
+### 调研与实测（2026-10-12，全部免登录端点）
+
+- 三份调研落盘：`01-docs/research/hot-topics-sources-douyin-xhs.md`、
+  `...-toutiao-ifeng.md`、`...-classification-accuracy.md`。
+- **抖音**：`www.douyin.com/aweme/v1/web/hot/search/list/` 实测 200 / 46 条，**门槛不是签名而是
+  「浏览器 UA + Referer」，缺一即 200 + `word_list` 空数组**（这正是「空列表必须判失败」的来源）；
+  兜底 `aweme-lq.snssdk.com`（零头部可用）与 `www.iesdouyin.com`（顶层 `word_list`）。
+- **小红书**：**没有**免登录的 Web 热榜（`/explore` 未登录已 302 → `/login`，`__INITIAL_STATE__` 不存在；
+  `/api/sns/web/v1/*` 需 `X-S`/`X-T`/`x-S-Common` 签名 + 登录 Cookie 且不含热榜）。
+  可用的是 App 端 `edith.xiaohongshu.com/api/sns/v1/search/hot_list`：免登录、免 Cookie，
+  但**必须六项固定头齐全**（`User-Agent`/`referer`/`xy-direction`/`shield`/`xy-platform-info`/`xy-common-params`），
+  缺任一即 **406**（逐项隔离实验证实）。`shield` 是静态 token，轮换即失效。
+- **凤凰网**：主端点 `ne883dbn.ifeng.com/hotspotlist`（JSON，约 35 条，**链接在 `link.url`，顶层没有 `url`**）；
+  兜底 `i.ifeng.com` 内联 `allData.hotRankData.data`（约 51 条，顶层 `url`）。
+  `api.inews.ifeng.com` 域名在本机 DNS **完全不解析**，相关实现不应再用。
+- **今日头条字段修正**：响应里**没有** `Category` 字段（0/50），语义相近的是 `InterestCategory[]`（42/50）；
+  `HotValue` 是字符串。
+- **头条号本轮不接入**：`mp.toutiao.com` 热点入口无 cookie 下均 502，`/activity/hot-selection` 另有
+  `tag_info.hotboard_invitation` 权限门槛；抓取 16 个主包 250 条 `/mp/agw/*` 路径未见热榜数据接口；
+  GitHub 代码搜索 0 命中无参考实现；且**无法证实它与今日头条热榜是否同源**。
+- **开源项目**：`imsyy/DailyHotApi`(MIT, 抖音✅ 小红书❌ 凤凰❌)、`ourongxing/newsnow`(MIT, 抖音✅ 凤凰✅)、
+  `vikiboss/60s`(MIT, 抖音✅ 小红书✅)、`NanmiCoder/MediaCrawler`(非商用学习许可) 等；实测
+  `ccbikai/hot-search`、`tophub/tophub`、`ruanyf/hot-news` **不存在**（勿再引用）。
+  结论：**没有**可直接复用的完整方案，本项目按端点自行实现，只参考其请求头与字段路径。
+
+### 改动
+
+- `hot-topics-service.js`：`CHANNEL_CONFIGS` 8 → 10（新增 `xiaohongshu` / `ifeng`）；
+  抖音新增 `fallbacks` **顺序降级链**（刻意不并发：同源并发会放大风控面，且同源条目跨渠道去重后会被
+  误算成「多榜同现」，污染 scorer 的 `sourceBonus` 全民热点信号）；
+  `_collectChannel` 新增两条合同——**空列表视为失败**、**406 单独告警**（小红书 shield 失效的唯一特征）；
+  新增 `CATEGORY_BOOSTS.ai` 与 `onlyCategory`（用分类器本身筛 AI 条目，不新增第二份关键词表）；
+  `_collectBoostChannel` 改为「先过分类器，只有 general 才用 `boostCategory` 兜底」；
+  显式请求补拉但该分类无源时出声告警（原先静默无反应）。
+- `hot-topics/channels.js`：新增 `parseCnNumber` / `parseXiaohongshu` / `parseIfeng` / `parseIfengInline` /
+  `extractIfengAllData`（**花括号配对**解析内联 JSON，惰性正则会截断）；增强 `parseDouyin`
+  （三端点同构、`position` 优先、`trending_list` 去重并入）；`parseToutiao` 字段修正。
+- `hot-topics/classifier.js` v3：
+  - 新增 `ai` 分类（11 类，紧随 `tech`），AI 词表覆盖大模型/AIGC/智能体/算力/AI 芯片等；
+  - 原生映射分三档：可信原生 / **宽泛桶**（`RAW_CATEGORY_WEAK_MAP`：B站「知识」、`科学科普`、`汽车`）/
+    **域级泛称**（`DOMAIN_LEVEL_RAW`：科技/互联网/科学科普/知识/资讯/热点 —— 栏目名不是单条定性，**不参与裁决**）；
+  - 关键词分 **strong（词长×2）/ weak（词长）** + `MIN_SCORE=3`（单个双字弱词不足以成类）；
+  - 拉丁词走**词边界**（修 `text.includes('AI')` 命中 `Air`/`said`）+ 全角 ASCII 归一（`ＡＩ`→`AI`）；
+  - `general` 语义收窄：有真实分类则剔除 `general`；
+  - 词表修补：`上市` 降级为弱词（「新款车型上市」不再判财经）、新增 `新股`/`上市公司`/`CPI`/`物价`/`折叠屏`/`谈恋爱`。
+- `hot-topics/scorer.js`：新增渠道权重 `xiaohongshu=1.0` / `ifeng=0.95`。
+- 跨端 11 类契约同步 5 处：`electron/services/content-categories.js`、
+  `src/features/content/content-categories.js`、`HotTopics.vue`、locales（zh/en 成对）、
+  `ops-center/.../content_category_service.py` 的 `CATALOG`（并修正 tech 描述不再含 AI）。
+- 文档：研究报告 + PRD/实施方案 + openspec change 五件套。
+
+### 验证
+
+- 新增测试 3 个文件：`hot-topics/classifier.test.js`（32 例，含 6 条机制级根因反例）、
+  `hot-topics-new-sources.test.js`（18 例：解析器 + 渠道配置 + 三条抓取合同）、
+  `hot-topics-boost-classify.test.js`（6 例：补拉不硬挂 + AI 补拉 + onlyCategory 筛选）。
+- 既有契约测试同步更新并写明变更理由（`科技` 域级泛称、`汽车` 归综合、`科学科普` 归综合、AI 独立成类）。
+- `ops-center/backend` pytest `tests/test_content_categories_api.py` 7 passed。
+
+### 已知未完成（如实登记，不当作已完成）
+
+- LLM 兜底仍是「只处理 general」，**已错判为具体分类的条目永不进 LLM**（第一性修法登记为 P1）。
+- LLM 无置信度 / 无二次裁决 / 缓存键未归一化 / 换模型不可归因（P1）。
+- 分类评测集与混淆矩阵**尚未建立、基线未跑**，调研报告里的门槛是建议值。
+- UI 标签只渲染前 2 个而过滤按全部标签（`HotTopics.vue`），改它会动视觉回归基线，本轮未动。
+- 快速采集（quick-collect）源注册表未同步新增平台（属另一模块）。
+
+# [未发布] fix(account-tab): 开卡首屏即登录态——凭证 localStorage 的 document-start 注入从未生效（xhs-tab-first-paint-login）
+
+### 用户感知
+
+账号管理页点开一个**确实已登录**的账号（例：小红书）时，不再出现「先看到平台登录页 → 页面刷新一次 →
+过几秒才进创作者中心」。修复后首个真实导航到达时凭证已在位，**首屏直接是创作者中心**，
+返回键也不再能退到登录页。修复前该现象会让用户误判「登录态过期了，需要重新登录」，
+并可能真的在登录页重新登录、覆盖重写刚保存的凭证。
+
+### 现场与实测（真实 Electron 43.7.7 探针，仓库外一次性夹具）
+
+- **旧实现必然失败**：全新 `WebContentsView`（从未导航）上，`webContents.debugger.attach()` 会成功，
+  但 `Page.enable` 与 `Page.addScriptToEvaluateOnNewDocument` **永久挂起**（探针 6s 无响应）。
+  真机日志 3/3 命中同一条：`addScriptToEvaluateOnNewDocument timed out after 2500ms (hung CDP command)`。
+- **第二个独立缺陷更隐蔽**：即使 Page 目标已就绪，缺少 `Page.enable` 时 `addScriptToEvaluateOnNewDocument`
+  会正常返回 `{ identifier }`，但脚本**永不执行**（静默 no-op）——旧实现会把这种失败上报成「早期注入成功」，
+  从而不再走补注入，凭证在首个文档上永久缺失。
+- **端到端 A/B（同夹具，旧侧 = main 逐字节版本）**：旧侧 `['/', '/login', '/']`、渲染过登录页 2 帧、
+  真实导航 2 次、`canGoBack=true`；新侧 `['/']`、登录页 0 帧、真实导航 1 次、`canGoBack=false`。
+  用户报告的三个细节（登录页 / 刷新一次 / 过几秒进创作者中心）逐条对应旧侧行为。
+
+### 改动
+
+- `webview-manager/utils.js`：`_injectLocalStorageAtDocumentStart` 增加两个**前置动作**——
+  ① `_primePageTargetWithBlankDocument`：view 尚无文档时先发一个 `about:blank` 把 CDP Page 目标带起来
+  （命令随即回到 150–300ms 量级，且刻意不等待文档事件，就绪判定交给命令超时护栏）；
+  ② 注入前必须 `Page.enable`。返回值由 `boolean` 改为 `{ injected, blankBootstrapped }`。
+  另新增 `_removeBootstrapBlankHistoryEntry` / `_isBootstrapBlankDocument`。
+- `webview-manager/tab-lifecycle.js`：引导期状态屏蔽（`about:blank` 的 `did-navigate` 不改写标签 URL、
+  不广播导航；其 `did-finish-load` 不结束 `initialRedirectPhase`）；首个真实导航提交后**先摘除引导历史项**
+  再读 `canGoBack`，避免返回键多一格空白页。
+- `webview-manager/constants.js`：新增 `PAGE_TARGET_BOOTSTRAP_URL` 单一真源。
+- 不改任何用户可见文案、不改 Cookie 恢复语义（分区优先）、不动 `LS_INJECTION_TIMEOUT_MS`。
+
+### 验证
+
+- `webview-manager.test.js`（88）+ `home-shell-title.test.js`（12）= **100 passed**；
+  其中 4 条新契约（时序 / 状态屏蔽 / 历史项摘除 / 复用路径不引导）与 2 条既有契约按新时序改写。
+- **4 条变异反证**逐条实测变红后回滚（去掉 `Page.enable` / 不做 about:blank 引导 / 引导期照常改写标签状态 /
+  不摘历史项），每次只红对应用例，其余 87 例保持绿。
+- 真实 Electron A/B 端到端（旧 main vs 本分支）实测表见
+  `01-docs/PRD-ACCOUNT-TAB-FIRST-PAINT-LOGIN-2026-10-11.md` §1.2；QM-1 打包与静态门禁证据见
+  `.quality-gates.md` 与 `openspec/records/xhs-tab-first-paint-login.md`。
+
+### 残留（如实记录）
+
+CDP 超时（2500ms）时仍会走既有 fail-open 降级路径（补注入 + 整页重载），极端负载下仍可能看到一次登录页闪烁
+（一次全量测试并发占满 CPU 的 E2E 运行中复现过）；未上调超时上限，理由与后续方案见 PRD §13。
+# [未发布] feat(publish): 微信公众号 API 发布轨落地（按参考产品逆向契约）+ 消灭「假成功」+ DOM 轨群发保护预检（2026-10-12，wechat-mp-api-track）
+
+### 背景：一个「可被调用但从不发布」的适配器
+
+`packages/api-publish-engine/src/adapters/wechat_mp.js` 的 `publish()` 只做了一件事：
+`GET /cgi-bin/appmsgpublish?sub=list`（**已发布内容列表**），拿到 `base_resp.ret === 0` 就
+`return { success: true, note: "Auth OK. Publish via appmsgpublish API needs token/params extraction" }`。
+它**忽略入参 `postData`**（含 title/content/cover/摘要/作者），一个字节都没发出去。
+`publishViaApi()` 因此正常 resolve，上层（HTTP 发布 API）拿到的是**假成功**——
+平台没建任何草稿，我们却报成功。这与上一轮修复的公众号「保存成功但草稿没内容」是同一类缺陷。
+
+可达性（本 PR 只记录判定口径，不改路由）：桌面发布流**不可达**（`platforms.yaml` 的 `wechat_mp` 是
+`has_api: false` + `publishMode: dom-only`）；但 `publish-api-server.js:1112` 用 `supportsApi()` 判定，
+**`POST /api/v1/publish {platform:"wechat_mp"}` 会拿到假成功**。
+
+### 修复：按参考产品的实测契约把 API 轨做成真的
+
+新增 `packages/api-publish-engine/src/adapters/wechat-mp/`：
+
+- `session.js` —— 会话 bootstrap：`GET /cgi-bin/loginpage?url=%2Fcgi-bin%2Fhome`，
+  正则提取 `token` / `nick_name` / `uin`(author_id) / **`user_name`(→ticketId)** / **`ticket`** / `can_app_msg`；
+  缺 token 或 author_id ⇒ `needRelogin`（fail-closed）。
+- `assets.js` —— 两条**不可互换**的图片轨：远程 URL → `uploadimg2cdn&t=ajax-editor-upload-img&imgUrl=`；
+  本地文件 → `filetransfer?action=upload_material&scene=8` multipart（`ticket_id`/`ticket` 来自会话）。
+  **最终 URL 只能来自平台回包**（`cdn_url`/`url`），绝不回退用输入路径。
+- `draft.js` —— 草稿请求体：字段名 + 文章序号扁平化；**封面写 5 个槽位**
+  （`cdn_url0`/`cdn_235_1_url0`/`cdn_16_9_url0`/`cdn_1_1_url0`/`cdn_url_back0`）；
+  `createDraft` 以 **`appMsgId` 为唯一成功依据**，`ret === "64714"` 单独映射为原创性校验失败；
+  新增**回读校验**（标题/正文/封面三项齐全才算成功——参考产品没有这一步，本仓补上）。
+- `draft-defaults.js` —— 中性默认字段表（契约快照，说明为什么照抄而不是省略）。
+- `wechat_mp.js` —— 改写为接线；`task-data.js` 的 `PASSTHROUGH_KEYS` 增
+  `cover_path`/`digest`/`content_source_url`/`comment_setting`/`is_original`（对其他适配器惰性）。
+
+### DOM 轨补强
+
+- 新增 `apps/desktop/electron/services/wechat-mp-dom-guard.js`：
+  **群发保护预检**（`safecenterstatus`，只在本次要群发时请求，`"protect_status":1` 即拦下并给出
+  「设置与开发 → 安全中心 → 风险操作保护 → 关闭群发消息保护」的可操作指引；预检自身失败 **fail-open** 放行）；
+  **原文链接（sourceurl）尽力透传**（候选选择器全未命中就静默跳过，绝不阻断发布）；
+  **失败文案映射**（64714 原创性 / 群发保护 / 保留平台原文）。
+- `rpa-view-platforms.js` 只做接线（该文件被行数门禁**点名还账**：targets=1476，改动后 1475）。
+
+### 验证
+
+| 项 | 结果 |
+| --- | --- |
+| 新增 API 轨测试 | 4 个文件 **57 例全绿**（注入假 HTTP，**零真实网络**） |
+| DOM 轨补强测试 | `wechat-mp-dom-guard.test.js` **19 例全绿** |
+| 集成测试 | `rpa-view-platforms.test.js` **83 例全绿**（+3 例：拦在编辑器之前 / 不开群发不发预检 / 原文链接尽力填） |
+| 包全量 | api-publish-engine **39 文件 / 327 例全绿** |
+| 变异反证 | **6/6 全部变红**：摘「无 appMsgId 即失败」/ 端点换回列表接口 / 封面只写 cdn_url0 / 会话不 fail-closed / 预检不判 massSend / 回读去掉正文判据 |
+| 静态门禁 | max-lines ✅（新文件均 <500）· ESLint 0 error · CCG verify-security：**本 PR 新增 5 个源文件 高危 0** |
+| 行尾对账 | `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径一致 |
+
+### 附带修复：GitHub Gate 4 自检在「恰好 1 个非 desktop 包受影响」时恒红
+
+本 PR 的 `QG Unit Tests` 首次判红即由此而来（日志原文：
+`affected 侧 A 的 nx 输出里取不到「Running target ... for N projects」声明 —— nx 报错或换了输出形态，判据失联`）。
+
+- **根因**：`scripts/check-gate4-selection.js` 的 `parseDeclaredProjects` 只认带数字的声明头
+  `Running target test for 12 projects:`；而 nx 在**只有一个**受影响项目时打印
+  `Running target test for project @multi-publish/api-publish-engine:`（**点名、无数字**）
+  ⇒ `headerCount === null` ⇒ 判 `unparsable` ⇒ 红。
+- **影响面**：其他开放 PR 的 diff 只落在 `apps/desktop`（被 `--exclude` 排除）⇒ affected 集为空 ⇒
+  走「`No tasks were run` 属合法空集」分支，因此都不红；**任何「恰好影响 1 个非 desktop 包」的 PR 必红**。
+- **修法**：单数形态纳入解析（`headerCount=1`）并加自洽检查（头部点名项目必须在 `- 清单` 内且清单只 1 项，
+  否则仍 `unparsable`）；**未放宽** A 臂不得含 desktop 的判据；affected 臂本来就不受 `MIN_OTHERS=11` 约束。
+- **证据**：门禁单测 `node --test scripts/check-gate4-selection.test.js` → **29/29**（新增 T21–T24）；
+  门禁实跑 `node scripts/check-gate4-selection.js` → `affected A 臂：nx 自己声明 1 个包，不含 desktop` → **OK**（修复前 FAIL）。
+
+### 未闭合（不假装已通）
+
+1. **真机验证 PENDING**：本机无可用公众号账号会话 ⇒「真实 `loginpage` HTML 核对六个正则」「真机建草稿核对
+   标题+正文+封面三项齐全」「回读页正文容器选择器」三项未做。
+2. **未切默认轨**：`platforms.yaml` 的 `wechat_mp` 保持 `has_api:false` + `dom-only`。
+   切换前置两条：① 真机证据；② 「API 已建草稿但回读不齐 ⇒ 外层 `api-then-dom` 降级 ⇒ 可能产生第二份草稿」
+   这一取舍需要产品决策。
+3. **既有缺陷（只记录）**：`publish-api-server.js` 用 `supportsApi()`（只看 REGISTRY 是否登记）而不是
+   `shouldUseApi()`，使 HTTP 发布 API 能调用任何「登记了但配置为不可用」的适配器。
+
+---
+
+# [未发布] fix(publish): 微信公众号图文草稿只有标题——补齐正文可信注入与封面上传，并让历史缩略图显示真实封面（2026-10-12，wxmp-article-content-cover）
+
+## 背景
+
+用户用**同一条文案**分别发图文到快手与微信公众号：快手侧有正文、有封面；微信公众号草稿箱里**只有标题**。用户据此提出三问，逐条查证后的答案都是「否」：
+
+1. **「发布动作时没把合适的内容传过去？」→ 是，而且分两处缺。**
+   - **封面**：`_publish_wechat_mp` 从头到尾**没有封面上传这一步**（对照 `_publish_generic` 有完整的 `article.cover_path` → `input[type=file]` 段）。公众号封面是**必填项**，所以现象不是「封面丢了」而是「草稿本身不完整」。
+   - **正文**：用 `_setElementContentSafe` 的 `el.innerHTML = ...` 直写 DOM。新版后台正文是 **ProseMirror** —— 本仓 2026-09-29 已为知乎 Draft.js 确立「受控组件的『内容在 DOM 里』不等于『进了框架 state』」，直写不进模型；而该 Helper **无论是否生效都返回成功**，于是「界面一度有字 → 保存后正文为空」被记成 success。
+2. **「没封面时自动生成一个再用它发布？」→ 只对一半，且恰好漏掉公众号。**
+   自动封面兜底的触发集合是 `IMAGE_TEXT_PLATFORMS = ['xiaohongshu','kuaishou','douyin','toutiao']`（**不含 `wechat_mp`**），且成功后只写 `images` / `image_files`（图片通道），**从不写 `cover_path`** —— 而封面上传链路消费的正是 `cover_path`。
+3. **「历史记录页缩略图不是真实封面？」→ 不是「取错图」，是「数据从来不存在」。**
+   两个落库点（`phase4-events.js` 的 `task:success` / `task:failed`）的 `history.addRecord()` **一个封面键都没写**，读侧 `thumbnailUrl(record)` 表达式恒空 ⇒ 模板回退**平台图标**。
+
+三个问题同源：**「本次发布实际用了哪张封面」从来没被当作一等数据**。
+
+## 改动
+
+- **新增 `apps/desktop/electron/services/wechat-mp-article.js`**：正文按保真度降级注入并**每步回读校验** —— 平台自带 `__MP_Editor_JSAPI__.mp_editor_set_content`（HTML 全保真）→ 合成 `paste`（`text/html` DataTransfer）→ CDP `Input.insertText`（纯文本）→ `innerHTML` 兜底 → 旧版 `iframe#ueditor_0`。注入前清空（`selectAll`+`delete`）、注入后静置 800ms 再回读，**回读为 0 即 fail-closed**。标题补第二个写入口 `.title-editor__input .ProseMirror`。
+- **新增 `apps/desktop/electron/services/wechat-mp-cover.js`**：封面入口 → 菜单（`#js_cover_null .js_imagedialog`）→ 弹层文件框（`DataTransfer`，失败回退 CDP `DOM.setFileInputFiles`）→ 「下一步 / 确认」。**生效判据按证据强度**：封面 CDN（`mmbiz.qpic.cn`）> `.js_cover_preview_new` 有可用背景图 > 容器 `img` 数递增。上传前校验本地路径 / 存在性 / 2MB 上限（与 Python API 轨同口径）。
+  - ⛔ **不以 `img` 数为主判据**（新版封面预览是 `background-image` 的 div，用它会**恒失败**、直接把公众号发布打死）；⛔ **不以「占位文案消失」为判据**。
+- **`usePublishFlow.js`**：新增 `AUTO_COVER_PLATFORMS = IMAGE_TEXT_PLATFORMS ∪ ['wechat_mp']`（单一真源）；触发条件补 **V4「无任何封面」**（此前会覆盖用户已选封面并白跑一次生图）；生成成功后**双通道落值**（`images` + `cover_path`）；生成失败**出声**而非静默 catch。新增两条 locale 文案（zh/en 成对）。
+- **`rpa-view-platforms.js`**：公众号分支接入上述两模块（正文/封面各自 fail-closed）；快手**图文模式**显式 `cover_input: []`（避免同一张图被图片通道与封面通道重复注入）。
+- **新增 `publish-record-cover.js`** + `phase4-events.js`：成功与失败记录**同源**落库 `cover_path` / `cover_url`（本地优先且与 URL 互斥；无值写空串而非 `undefined`，避免 `JSON.stringify` 丢键）。
+- **新增 `useHistoryCoverThumbnails.js`** + `PublishHistory.vue` 单点接线：本地封面经既有 `cover:read-data` 转 dataURL（渲染层 CSP 的 `img-src` 不含 `file:`）、远程封面过 `safeHttpUrl`、按路径缓存去重、**迟到响应丢弃**；取不到即回退平台图标（不渲染破图）。
+
+## 验证
+
+- 新增/扩写 6 个测试文件、**59 条新用例**；相关域 **256 passed / 0 failed**。
+- **变异反证 6/6 全部变红**：摘封面 fail-closed / 摘正文回读判据 / 自动封面退回只落 `images` / 封面判据退回只看 `img` 数 / `resolveRecordCover` 恒空 / 历史缩略图不解析本地封面。
+- 静态门禁全 PASS：max-lines（首版单文件 585 行被 `NEW_OVER_LIMIT` 拦红 ⇒ 拆两模块后通过）、ESLint 0 error、brand residue、locale-sync（`--cjk/--keys/--py-cjk`）、spec-purpose、renderer-cjs-boundary、unwired-tests、frontend-consistency、vue-style-parse、color-literals、css-var-defined、font-size-scale、scoped-root、ipc-sender-guard、coverage-include-sfc、route-registry、ipc-bridge、hardcoded-secrets、test-microtask-spin。
+- **真机验证 PENDING**：本机无可用公众号账号会话，「导出 `appmsg_edit_v2` 真实 DOM 核对选择器 + 真机发一条图文核对草稿三项齐全 + 历史页核对缩略图」未完成，选择器为候选表（详见 `01-docs/PRD-WECHAT-MP-ARTICLE-PUBLISH-2026-10-12.md` §9.1）。
+
+# [未发布] feat(collection): 快捷采集内置词条按用户真实需求重排（quick-collect-preset-refresh）
+
+## 背景
+
+用户指出：他给的提示词原话是「AI 与新技术领域的真实动态」，**不是**「内容平台规则、内容审核口径、AIGC 标识要求、限流与封禁治理」。
+复核证据确认用户没记错：6 条内置词条里**只有 `AI 领域动向` 标注了"用户给定文本"**（且其对照串全文不含平台规则字样）；
+「平台规则与合规动向」与「舆情风险与避雷」是会话依 PRD 场景推演出来的 agent 设计内容。
+
+代价是真实的：这条错认给「S3 政策/合规类源」整片扩展提供了理由，而 S3 实测 7 个候选全部不可用、只能以证据收口。
+
+## 改动
+
+- **替换 2 条内置词条**（总数仍 6 条，渲染端/校验/存储口径不变）：
+  `builtin-platform-policy`（📜 平台规则与合规动向）→ **`builtin-ai-papers`（📄 AI 前沿论文速览）**；
+  `builtin-risk-alert`（⚠️ 舆情风险与避雷）→ **`builtin-ai-howto`（🛠️ AI 实操技巧与工作流）**。
+  前者吃 `arxiv_cs_ai` + `hf_papers` + `qbitai` + 英文社区（S2 接进来的论文源此前**没有专属词条**）；
+  后者吃 `sspai`/`oschina`/`infoq_cn` + 英文社区，产出"可以直接照做的做法"。
+- **新增 `provenance` 字段（机械可查的来源标注）**：`'user'` = 用户给定原文（逐字，改即改需求），
+  `'agent'` = 依 PRD 场景推演的产品内容（可随需求调整）。6 条中**恰好一条**是 `'user'`，有断言锁死。
+  这条字段就是本次事故的根因修补：让"agent 推演"不可能再被当成"用户要求"。
+- **不改 `builtin-ai-trends` 的提示词**：它是用户原话，逐字保留（AC-10 对照串继续锁着）。
+
+## 验证
+
+- 特性域 **14 文件 276 passed / 0 failed**（新增/加强 3 处断言：旧 id 不再存在、来源锁"恰好一条 user"、新词条源闭集与专属源）。
+- **3 条变异反证**逐条实测指名变红后回滚：① 把用户给定词条标成 `agent` ⇒ 来源锁 1 红；
+  ② 新词条吃到闭集外的源 ⇒ 2 红；③ 用户给定提示词改一个字 ⇒ AC-10 逐字断言 1 红；回滚后 8 绿。
+- 静态门禁 + QM-1 打包证据见 `.quality-gates.md` 与 `openspec/records/quick-collect-preset-refresh.md`。
+
+# [未发布] fix(ci): Gate 测试预算按实测抬高，数字收进单一真源并留可重跑复测入口（2026-10-11，gate-budget-reprobe）
+
+### 用户感知
+
+无。不改任何测试的判据与用例集合，只改"跑测试被允许跑多久"，以及这个数字今后由谁持有。
+
+### 现场与实测
+
+main 连续两次 push 红在 `QG Unit Tests → Gate 4`，而断言层是 `# fail 0`、正文写
+`Gate 4 exceeded its 30-minute execution budget` —— 是预算到点被强杀，不是有用例坏（父提交同样红、同一处，
+所以不是本仓某一次改动引入的回归）。
+
+⚠ **归因后来被纠正了一次**：本条目首版把它写成"套件已长过 30 分钟"，那句**是错的**。真实机制是 Gate 4 的
+`--exclude=@multi-publish/desktop` 被命令行里那个独立的 `--` 原样转进 nx 的任务参数区，选择集纹丝不动
+⇒ 桌面全量被串行塞进 Gate 4，同一批活干了两遍。#3315（merge `932b2384f`）把排除写进 `test:all:no-desktop` 后，
+我按 jobs API 自取 main push 的 Gate 4 步耗时 = **94 秒**（run 38127081785，09:06:20Z→09:07:54Z）。
+**定数结果不变，但绑定关系要说准**：`checkSizing()` 取的是 `max(29.88, 29.77)`，而 29.88 恰是那个被污染的值；把它剔掉，剩下的 shard 侧 29.77 × 1.5 = **44.66** ⇒ 仍然 **45**——45 既不靠污染数字成立，也不因纠正而失效。
+
+采集坐标 workflow `306371582`，`push(branch=main) n=40 / pull_request n=60`，终版时刻 2026-10-11T08:22Z、
+`probe_errors=0`（首版 06:52Z 的 33/7/30.0/≤1.3 是同一探针的早期窗口，样本随窗口漂移，此处只留终版并标注所属池）：
+
+- Gate 4：**main push 池**成功 33 次，最短 17.6 / 中位 27.9 / p90 29.4 / **最长 29.88 分钟**（离上限只差 7 秒 = 贴脸）；
+  两池合并成功 69 次。修复前合并池实测是**双峰**（PR 面 `test:affected` 秒级、push 面 22–29 分），所以 min/median/p90
+  必须标注所属池，否则"中位 27.9 分"会被读成全体用例的中位数
+- 另有 **9 次被预算杀**（prior 档 30 分钟；抬到 45 分钟档后 current 档为 0 属预期）：这类样本时长是**截尾观测**，
+  只证明「≥30 分钟」，绝不进 max
+- Desktop shard 步级最长 **29.77 分钟**，成功样本中位 28.37 分，另有 39 个非成功步（27 cancelled + 12 failure）
+  最高正好 30.02 分 —— **这一侧不受上面那个缺陷影响，是真正还在约束预算的那一处**
+- 前置开销：两个 job 各自 ≤**1.38 分钟**（按 job 逐个判定，不共用较大值；曾把「job 总时长 − 步时长」的 2.8 分当前置，
+  那含的是步骤**之后**的清理，量错了）
+
+### 定数规则（不是拍出来的）
+
+`预算 ≥ 观测成功最大值 × 1.5` ⇒ 30 → **45 分钟**；`job 上限 ≥ 预算 + 实测最大前置 + 5 分钟余量` ⇒ 40 → **55 分钟**。
+只抬内部预算而不动 `timeout-minutes: 40`，会变成 GitHub 在 40 分钟处掐掉整个 job —— **比原来更糟**：
+丢超时诊断表、丢进程树清理、丢末尾那道运行时出站台账判定。
+
+### 变更明细
+
+- **单一真源** `scripts/gate-budget.js`：预算、job 上限、安全倍数、样本下限、出处（含截尾计数）与 `checkSizing()` 都在一处。
+  workflow 两处 `WaitForExit(1800000)` 改读注入值，**取不到即当场 throw**（静默回落写死值等于把"装配失败"读成"没超时"）。
+- **同 PR 改掉钉住旧字面量的锁**：`.github/scripts/workflow-contract.test.js` 两条 `WaitForExit(1800000)` 断言改钉注入形态。
+  不改它们，门禁会挡住本次被自己批准的修法（PR #3225 就为这件事返过工）。
+- **`×1.5` 规则从注释落成真判据**：`checkSizing()` 原来只有 0.9 档（贴脸警报），于是"预算 = 1.2×观测最大值"这种违反定数规则的形态会被读成"一切正常"。现补 `RULE_VIOLATED` 直查（`预算 ≥ max × SAFETY_MULTIPLIER`），并加唯一反证 **N3**：把预算降到 44 分——0.9 档在 44 分处**不触发**（29.88 < 0.9×44），只有 ×1.5 直查会红。
+- **第 2 轮 QM-6 双轴**（只看 re-sync 后的两笔增量）：逻辑轴 5 条正文全为"已正确"（标签用在确认项上，读正文才处置）；可维护性轴 10 条采纳 7 否 3，否掉的三条分别是"记录与产物各留一份缺陷叙事"（产物里没有电池自抓那三处）、"两处散文写同一事实"（INFO，保留为 rationale）、以及"改掉第 1 轮任务书里的错误算式"（任务书是"我当时问了什么"的原件，改它等于伪造输入；纠正落在记录与 CHANGELOG）。
+- **复测入口** `scripts/gate-budget-probe.js`（要 gh + 网络，故不进 CI）：`--check` 在"预算不再满足规则"退 1、
+  在"成功最大值贴到预算 80%"退 2 —— 后者是**要重测**的信号，不是放宽判据的信号。
+  被杀的 9 次（prior 档）是截尾的，所以 45 分钟本身仍是待证实假设，合并后必须复测一轮。
+- 回归锁 `scripts/gate-budget.test.js` 11 条，接进 `QG Static` 的 Gate 3 那串 `node --test`；判据全部读真实 workflow / 探针文本，不读我写的注释
+  变异反证 **16 条**全部点名让预期的那一条变红（M4/M5 测 fail-closed 的"弱化成只打日志"与"去掉类型校验"、
+  M9n/N1 测"非注释行把时长写成字面量"与"超时文案丢掉插值"、**N2 是唯一一条要求"必须为绿"**、
+  M11/M13 测带内告警"整块摘掉"与"只留文本删赋值"、M10 因两个前置实测相等而补成**按名字**的结构性锁、
+  M7 测"把安全倍数改小来消化矛盾"）
+  `MUTATION_BAD=0`、14 red + 1 green + 1 final；**驱动脚本本身入库** `.ccg/reviews/gatebudget-mutate.driver.js`，产物 `.ccg/reviews/gatebudget-mutations.txt` 逐字搬运原始输出并带 head SHA / node 版本 / 每条 `from → to` 坐标 / `restored=bytes_equal` 现场 / 完整失败测试名——否则"供独立复核"这句话不成立（第 2 轮可维护性轴 MAJOR 命中）。终态 `11/11`；
+  `workflow-contract` 35/35、spin 检查器 7/7 且其本体 PASS（时点值 1255 个测试文件）。另有两条"一度误报"是我自己的驱动脚本坏了：
+  M5/M12 的"预期锁名"被我写成断言消息，且一次全局 `sed` 顺手改掉 M2 的预期（非唯一锚点做全局替换）——都不是锁缺失，但结论错过
+- **归因被并发会话否证，改了三个地方**：本条目首版把 30 分钟墙写成"套件已长过 30 分钟"，#3315 查明真实机制是
+  Gate 4 的 `--exclude` 被命令行里独立的 `--` 转进 nx 任务参数区、桌面全量混跑（修后我按 jobs API 自取 Gate 4 = 94 秒）。
+  同一句错因散落在 docblock、执行记录与本条目三处，**三处一起改**——只改其一，剩下那处会被下一个会话当事实引用。
+  定数结果不变：45 分钟一直由 shard 侧的 29.77 分绑定，与被污染的那组 Gate 4 数字无关。
+- **我自己那条"任何语言的『30 分钟』必须归零"的锁写宽了**：它把 #3315 合法的**历史归因注释**（workflow 里三处 `# … 30 分钟预算` 的注释行）判红，
+  而 #3315 正是本仓推荐的那种修法 —— 禁令挡掉了被批准的修复路径，与 PR #3225 被 QM-6 抓到的那条同族。收窄为
+  "非注释行不得把时长写成字面量 + 两处超时文案必须插值真实预算"，注释里的历史事实放行，并由 **N2**（合规形态必须绿）钉住；
+  收窄的第一版还漏了一个形态：`\d+\s*minute` 匹配不到 `45-minute`（数字与词之间隔着 `-`，而旧文案用的正是这个写法），
+  是 M9n 实测"没红"才暴露的，补成 `\d+\s*-?\s*(分钟|minute)`。
+- `.gitignore` 补两条反向放行：`scripts/*.js` 第 106 行会把新建脚本静默吞掉（`git check-ignore` 实测命中）。
+- 未改动：`coverage` job 的 `timeout-minutes: 40` 保持原值（它没有 `WaitForExit` 站点），CI 判据与用例集合一字未动。
+- QM-6 双轴（替代通道 nemotron / ling，共 15 条发现）的处置：截尾阈值改绑**采样窗口内生效的预算**（否则 mandated 的复测在健康态必红）、
+  锁的判据从英文 `30-minute` 扩到含中文「30 分钟」、fail-closed 必须带失败语义、CI 内新增 elapsed/预算 带内告警、删死常量并让注释算式等于代码算式；
+  一条 Critical 经变异否证（"只改常量不改 YAML"其实已被上限锁拦住）、一条 Info 的机制被实测否证（`[int]"NaN"` 在 PowerShell 是抛错不是变 0）
+- 探针自身的静默失效已修：matrix job 真名带 ` (2/2)` 后缀，用精确相等匹配会**取到空集**却照样报 `sizing_ok=true` ⇒ 改 `test()` 并加"零行即抛"
+- 订正一个定义错误：我原先当"前置开销"用的 2.8 分其实是「job 总时长 − 步时长」，含的是步骤**之后**的清理；实测前置 ≤1.38 分，结论 55 不变
+- 详见 `openspec/records/gate-budget-reprobe.md`。
+
+---
+# [未发布] feat(collection): 快捷采集补齐 hot-topics 垂类信道（quick-collect-cn-verticals）
+
+## 背景
+
+用户要求的「中文素材源扩展 S1」是「复用仓库既有 hot-topics 中文榜单（**8 主榜 + 5 垂类**）」。
+S1 首轮只把 8 个主榜接进来了，垂类没有入册 —— 于是「财经」「科技」两个独立信道在 UI 上**根本选不到**。
+
+## 改动
+
+- **注册表 +2 源**（`quick-collect-sources.js`）：`sina_finance`（新浪财经滚动，JSON）、
+  `ithome_tech`（IT之家热榜，RSS）；`kind:'trend'`、`provider:'hot-topics'`、`sourceType:'hottest'`、
+  `timeKind:'observed'`（榜单类没有发布时间 ⇒ 与 8 主榜同一时间语义，不假装有发布时刻）。
+- **内置词条**：`builtin-hot-topics` 吃到 8 主榜 + 2 垂类（中文榜单全量）；`builtin-dev-tools` 增补垂类科技。
+- **渲染端镜像 + 文案**：`ALLOWED_SOURCES`/`CN_TREND_SOURCES` 同步；对话框「素材来源」提示补上两个垂类（zh/en 成对）。
+- **5 个垂类的口径写清（PRD §4.1）**：`CATEGORY_BOOSTS` 里的 5 个垂类里，只有 2 个有独立信道
+  （`sina_finance`/`ithome_tech`）；另 3 个（百度财经 / 微博情感 / 微博健康）与主榜**共用** `baidu`/`weibo`
+  信道、靠条目 id 的 board 段（`weibo:emotion:3`）与主榜区分 ⇒ 随主榜一起到达，**不另立源**
+  （立了会让同一份条目在两个源下出现两次）。结论：8 主榜 + 5 垂类在**数据可达性**上已全覆盖，registry 落成 10 个 hot-topics 源。
+
+## 验证
+
+- 特性域 **14 文件 274 passed / 0 failed**（其中改动影响面 9 文件 116 例，含新增/加强的三处断言：注册表**闭集**锁死 hot-topics 恰好这 10 个 id、
+  IPC 映射断言垂类素材同为 `observed` 且渲染「抓取时刻」而非「发布」、词条覆盖断言）。
+- **2 条变异反证**逐条实测指名变红后回滚：① 摘掉 `sina_finance` ⇒ 闭集断言红（1 例）；
+  ② 把 `ithome_tech` 的 `timeKind` 改成 `published` ⇒ provider 时间语义不变量红（1 例）；回滚后 8 绿。
+- 静态门禁 + QM-1 打包证据见 `.quality-gates.md` 与 `openspec/records/quick-collect-cn-verticals.md`。
+
 ## [未发布] 2026-10-11 — 播客刀 3 第 3 片：成片一键出期的真实宿主接线与 publishFromVideo 通道
 
 - **新增** `electron/services/podcast-episode-host.js`：入参形状层（缺任一必填在任何出站与任何磁盘写之前拒绝）、整条出期链自持频道忙标记（命中即 `PODCAST_CHANNEL_BUSY` 立即拒不排队）、`outBase` 由主进程按 `runId` 算、取消可真的 kill 在途 ffmpeg、临时目录收尾按文件名逐个删除。

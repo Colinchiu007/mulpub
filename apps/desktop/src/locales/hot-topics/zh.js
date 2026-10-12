@@ -15,7 +15,7 @@ export default {
     lastRefresh: (ctx) => '上次刷新 ' + ctx.named('time'),
     categoryAll: '全部',
     categories: {
-      general: '综合', society: '社会', finance: '财经', tech: '科技',
+      general: '综合', society: '社会', finance: '财经', tech: '科技', ai: 'AI',
       entertainment: '娱乐', sports: '体育', emotion: '情感',
       education: '教育', health: '健康', international: '国际',
     },
@@ -23,8 +23,10 @@ export default {
     channels: {
       zhihu: '知乎', toutiao: '头条', tencent: '腾讯新闻', bilibili: 'B站',
       douyin: '抖音', baidu: '百度', weibo: '微博热搜', tophub: '微博(tophub)',
+      xiaohongshu: '小红书', ifeng: '凤凰网',
       sina_finance: '新浪财经', ithome_tech: 'IT之家',
       'baidu-finance': '百度财经榜', 'sina-finance': '新浪财经滚动', 'ithome-tech': 'IT之家热榜',
+      'ithome-ai': 'IT之家(AI 专题筛)',
       'weibo-emotion': '微博情感垂类', 'weibo-health': '微博健康垂类',
     },
     selectAll: '全选',
@@ -32,7 +34,16 @@ export default {
     selectedCount: (ctx) => '已选 ' + ctx.named('count') + ' 条',
     createCopy: '创作文案',
     analyzeAction: '爆款分析',
-    publishBtn: '一键发布',
+    publishBtn: '改写并发布',
+    // hot-topics-publish-ux（2026-10-12）：单条「发布」按钮 = 单篇一键改写（复用批量队列，队列长度 1）
+    singlePublishBtn: '发布',
+    // 分阶段进度提示（原名 publishProgress 保留兜底，阶段文案更透明：①改写 ②预填）
+    publishStageRewrite: (ctx) => 'AI 改写中 ' + ctx.named('done') + '/' + ctx.named('total'),
+    publishStagePrepare: '正在为你预填发布信息…',
+    // 内联预览/编辑（hot-topics-publish-ux 2026-10-12）
+    editPreview: '预览 / 编辑改写稿',
+    editCollapse: '收起',
+    editSaveFailed: '编辑内容保存失败，请重试后再去发布',
     useViralLibrary: '结合爆款库',
     toPublish: '去发布',
     tenThousand: '万',

@@ -99,7 +99,8 @@
           @update:mentions-text="value => { a.mentionsText = value }"
           @update:publish-time="value => { a.publishTime = value }"
           @update:tags-text="value => setBatchTagsText(a, value)"
-          @update:topics-text="value => setBatchTopicsText(a, value)"
+          @add-topic-hash="appendBatchHash(a)"
+          @open-topic-tag-manager="openTopicTagManager('batch', idx)"
           @update:cover="descriptor => setBatchArticleCover(a, descriptor)"
           @update:cover-url="value => setBatchArticleCoverUrl(a, value)"
           @update:visibility="value => setBatchArticleVisibility(a, value)"
@@ -272,13 +273,11 @@
                       <span v-if="fieldSupportText('tags')" class="field-support-badge" data-testid="field-support-tags">{{ fieldSupportText('tags') }}</span>
                     </label>
                     <UiInput v-model="tagsText" :placeholder="t('publishPage.tagsPlaceholder')" />
-                  </div>
-                  <div>
-                    <label class="cohere-form-label">
-                      {{ t('publishPage.topics') }}
-                      <span v-if="fieldSupportText('topics')" class="field-support-badge">{{ fieldSupportText('topics') }}</span>
-                    </label>
-                    <UiInput v-model="topicsText" :placeholder="t('publishPage.topicsPlaceholder')" />
+                    <!-- 话题标签统一（topic-tag-unify）：#添加话题 追加 #；常用话题标签开管理弹窗（目标=单篇）。 -->
+                    <div class="topic-tag-actions">
+                      <UiButton variant="ghost" size="sm" data-testid="add-topic-hash" @click="appendHashToDescription">{{ t('publishPage.topicTag.addHash') }}</UiButton>
+                      <UiButton variant="ghost" size="sm" data-testid="open-topic-tag-manager" @click="openTopicTagManager('single')">{{ t('publishPage.topicTag.manage') }}</UiButton>
+                    </div>
                   </div>
                   <div>
                     <label class="cohere-form-label">
@@ -448,13 +447,11 @@
                     <span v-if="fieldSupportText('tags')" class="field-support-badge" data-testid="field-support-tags">{{ fieldSupportText('tags') }}</span>
                   </label>
                   <UiInput id="publish-tags" v-model="tagsText" :placeholder="t('publishPage.tagsPlaceholder')" />
-                </div>
-                <div>
-                  <label class="cohere-form-label" for="publish-topics">
-                    {{ t('publishPage.topics') }}
-                    <span v-if="fieldSupportText('topics')" class="field-support-badge">{{ fieldSupportText('topics') }}</span>
-                  </label>
-                  <UiInput id="publish-topics" v-model="topicsText" :placeholder="t('publishPage.topicsPlaceholder')" />
+                  <!-- 话题标签统一（topic-tag-unify）：#添加话题 追加 #；常用话题标签开管理弹窗（目标=单篇）。 -->
+                  <div class="topic-tag-actions">
+                    <UiButton variant="ghost" size="sm" data-testid="add-topic-hash" @click="appendHashToDescription">{{ t('publishPage.topicTag.addHash') }}</UiButton>
+                    <UiButton variant="ghost" size="sm" data-testid="open-topic-tag-manager" @click="openTopicTagManager('single')">{{ t('publishPage.topicTag.manage') }}</UiButton>
+                  </div>
                 </div>
                 <div>
                   <label class="cohere-form-label" for="publish-mentions">
@@ -641,6 +638,13 @@
     @success="onCoverCropSuccess"
     @error="onCoverCropError"
   />
+  <!-- 常用话题标签管理（topic-tag-unify）：单篇与批量卡片共用同一弹窗实例，
+       应用目标由 openTopicTagManager 记录的 target 区分。挂起/释放都在组件内部。 -->
+  <TopicTagManagerDialog
+    :visible="showTopicTagManager"
+    @close="showTopicTagManager = false"
+    @apply="applyTopicTagPreset"
+  />
   <!-- 封面放大预览（PRD-PUBLISH-COVER-PREVIEW §5.3）：与缩略图、裁剪弹窗共用同一封面真源。
        挂起/释放、文件名与原始尺寸都在组件内部，本视图只持有「开合」这一个状态。 -->
   <CoverPreviewDialog
@@ -722,6 +726,7 @@ import AiWriterPanel from '@/components/AiWriterPanel.vue'
 import CoverCropDialog from '@/components/CoverCropDialog.vue'
 import CoverThumbnail from '@/components/CoverThumbnail.vue'
 import CoverPreviewDialog from '@/components/CoverPreviewDialog.vue'
+import TopicTagManagerDialog from '@/components/TopicTagManagerDialog.vue'
 import { useCoverPreview } from '@/composables/useCoverPreview'
 import { releaseEmbeddedViewsForOverlay, suspendEmbeddedViewsForOverlay } from '@/composables/useEmbeddedViewSuspension'
 import { usePlatformSelection } from '@/composables/usePlatformSelection'
@@ -741,6 +746,7 @@ import {
 import { normalizeUploadFile, resolveUploadFilePath } from '@/features/publish/publish-upload-file'
 import { usePublishFieldSurface } from '@/features/publish/usePublishFieldSurface'
 import { appendTopicsToContent, removeTopicFromContent } from '@/features/publish/topic-inline'
+import { useTopicTagBridge } from '@/features/publish/use-topic-tag-bridge'
 import PlatformOverridePanel from '@/features/publish/components/PlatformOverridePanel.vue'
 import PublishVisibilitySelect from '@/features/publish/components/PublishVisibilitySelect.vue'
 import PublishTargetSelector from '@/features/publish/components/PublishTargetSelector.vue'
@@ -768,8 +774,7 @@ const { notifySuccess, notifyWarning, notifyInfo } = useNotify()
 // limit=1 的「重选替换」需要经它 clearFiles + handleStart，否则 el-upload 静默丢弃新文件。
 const videoUploadRef = ref(null)
 const publishTab = computed(() => String(route.query?.tab || 'publish'))
-// 2026-09 合并发布类型：image/wechat 为历史类型值，归一化为 article（向后兼容旧链接）。
-// 白名单只保留 video/article 两个真实入口。
+// image/wechat 归一化为 article；白名单只留 video/article 两个真实入口。
 const LEGACY_PUBLISH_TYPES = { image: 'article', wechat: 'article' }
 const rawPublishType = () => String(route.query?.type || '').toLowerCase()
 const publishType = computed(() => {
@@ -843,10 +848,8 @@ const coverFileList = ref([])
 // 草稿恢复等路径只有 video_path 没有 File 对象时 videoFileMeta 为 null，卡片退化为路径推导展示。
 const videoUploadFileList = ref([])
 const videoFileMeta = ref(null)
-// 话题内联描述（publish-topic-inline-description）：标签/话题输入框是「快速添加入口」，
-// 添加后以 `#话题` 追加进描述尾部（所见即所得）；删除时从描述移除对应片段。
-// 同步方向单向（框 → 描述）：用户在描述框手动编辑话题不回写输入框，发布时以描述解析为准
-// （主进程 mergeUniqueStrings 三合一去重天然防双份）。PRD §3.5。
+// 话题内联描述（publish-topic-inline-description，PRD §3.5）：话题输入是「快速添加入口」，
+// 以 #话题 形态同步进描述（所见即所得、单向框→描述；发布时以描述解析为准）。
 function syncTopicsToContent (prev, next) {
   if (prev.length === next.length && prev.every((name, index) => name === next[index])) return
   const added = next.filter(name => !prev.includes(name))
@@ -855,8 +858,7 @@ function syncTopicsToContent (prev, next) {
   for (const name of removed) content = removeTopicFromContent(content, name)
   article.content = appendTopicsToContent(content, added)
 }
-// 批量模式同口径（publish-topic-inline-description）：每篇文章的标签/话题输入
-// 同样经追加管道同步各自 content（手写双向绑定，v-model 无法挂同步钩子）。
+// 批量模式同口径：每篇的「话题标签」输入经追加管道同步各自 content（手写双向绑定）。
 function syncBatchTopicsToContent (batchArticle, prevText, nextText) {
   const prev = normalizePublishStringList(prevText)
   const next = normalizePublishStringList(nextText)
@@ -870,11 +872,6 @@ function syncBatchTopicsToContent (batchArticle, prevText, nextText) {
 function setBatchTagsText (batchArticle, value) {
   const prev = batchArticle.tagsText
   batchArticle.tagsText = value
-  syncBatchTopicsToContent(batchArticle, prev, value)
-}
-function setBatchTopicsText (batchArticle, value) {
-  const prev = batchArticle.topicsText
-  batchArticle.topicsText = value
   syncBatchTopicsToContent(batchArticle, prev, value)
 }
 const tagsText = computed({
@@ -1145,8 +1142,7 @@ async function handleGenerateAiCover () {
   }
 }
 
-// 面板显隐记忆（openspec optimize-publish-right-rail）：初始值读 localStorage，变更即持久化；
-// localStorage 不可用时 composable 内部降级默认值（标签建议展开、标题助手收起）。
+// 面板显隐记忆：初始值读 localStorage 变更即持久化；不可用时降级默认值。
 const initialPanelPrefs = readPanelVisibilityPrefs()
 const showTagPanel = ref(initialPanelPrefs.tagSuggester)
 const showTitlePanel = ref(initialPanelPrefs.titleAssistant)
@@ -1157,8 +1153,7 @@ const showAiWriter = ref(false)
 const showUpgradeModal = ref(false)
 const combinedContent = computed(() => article.title + ' ' + article.content)
 
-// 标签建议点击填入：追加进标签输入并去重（normalizePublishStringList 内部 Set 去重）；
-// 同步经追加管道带入描述（三入口统一：话题框 / 标签建议 / 历史视频跳转）。
+// 标签建议点击填入：追加进标签输入去重，经追加管道带入描述（多入口统一）。
 function applySuggestedTag (tag) {
   if (typeof tag !== 'string' || !tag.trim()) return
   const prev = normalizePublishStringList(article.tags)
@@ -1297,6 +1292,21 @@ const {
   applyTargetsToAll,
 } = useBatchPublish({ article, licenseStore, isAccountAvailable })
 
+// 话题标签统一（topic-tag-unify）：接线收在 use-topic-tag-bridge（行数门禁拆出）；必须在 useBatchPublish 后（articles 由其产出）。
+const {
+  showTopicTagManager,
+  openTopicTagManager,
+  appendHashToDescription,
+  appendBatchHash,
+  applyTopicTagPreset,
+} = useTopicTagBridge({
+  article,
+  articles,
+  syncTopicsToContent,
+  setBatchTagsText,
+  notifySuccess,
+})
+
 watch(publishTab, async value => {
   if (value === 'drafts') {
     showDraftList.value = true
@@ -1327,10 +1337,8 @@ function editDraft (draft) {
   return router.replace({ path: '/publish', query: publishEditorQuery({ draft: String(draft.id) }) })
 }
 
-// 历史视频/结果页跳转预填充：从 query 解码 video_path/title/content/tags 填充发布表单。
-// 跳转方（CreateViewHistory「发布」/ResultView「去发布」）已用 encodeURIComponent 编码，
-// 而 vue-router 序列化 query 时会再编码一次，URL 中实际是双重编码（如 %253A）。
-// 因此这里循环解码直到值不再变化，确保单次/双重编码都能还原为真实路径与文案。
+// 历史视频跳转预填充：query 双重编码（跳转方 encode + vue-router 再 encode），
+// 循环解码直到稳定，还原真实路径与文案后写入 article；tags 为逗号分隔字符串。
 // 解码后写入 article；tags 为逗号分隔字符串。
 function applyHistoryVideoQuery () {
   const query = route.query || {}
@@ -1363,8 +1371,7 @@ function applyHistoryVideoQuery () {
   if (tags) {
     const prev = normalizePublishStringList(article.tags)
     article.tags = normalizePublishStringList(tags)
-    // 历史视频跳转携带的标签同样经追加管道带入描述（三入口统一）
-    syncTopicsToContent(prev, normalizePublishStringList(article.tags))
+    // 历史视频跳转携带的标签同样经追加管道带入描述\n    syncTopicsToContent(prev, normalizePublishStringList(article.tags))
   }
   // 历史视频发布走视频首帧封面，不携带自定义封面（百家号 API 不支持）
   article.cover_url = ''
@@ -1464,7 +1471,11 @@ defineExpose({
   mentionsText,
   applySuggestedTag,
   setBatchTagsText,
-  setBatchTopicsText,
+  openTopicTagManager,
+  applyTopicTagPreset,
+  appendHashToDescription,
+  appendBatchHash,
+  showTopicTagManager,
   handleImageFileChange,
   handleImageFileRemove,
   handleVideoFileChange,
@@ -1555,6 +1566,8 @@ defineExpose({
 .stack-gap { margin-bottom: var(--space-md); }
 .stack-gap-top { margin-top: 12px; }
 .stack-center { text-align: center; }
+/* 话题标签统一（topic-tag-unify）：#添加话题 / 常用话题标签按钮行，贴邻话题标签输入框 */
+.topic-tag-actions { display: flex; gap: var(--space-sm); margin-top: var(--spacing-2); flex-wrap: wrap; }
 .row-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm); }
 .row-actions-compact { display: flex; gap: 4px; }
 .progress-title { font-weight: 600; font-size: var(--font-size-sm); margin-bottom: var(--space-sm); }

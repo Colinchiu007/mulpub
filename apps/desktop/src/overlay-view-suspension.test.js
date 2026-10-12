@@ -151,6 +151,27 @@ describe('弹窗互斥：静态链路完整性', () => {
     expect(publishSrc).not.toMatch(/EmbeddedViewsForOverlay\(['"]/)
   })
 
+  // owner 登记表：常用话题标签管理弹窗（topic-tag-unify，2026-10-12）。
+  // 发布页单篇与批量卡片共用同一弹窗实例；owner 唯一、suspend/release 成对、
+  // 卸载兜底（visible=false 与 onBeforeUnmount 双出口）。
+  it('TopicTagManagerDialog：话题标签管理弹窗接入挂起，owner 为 topic-tag-manager-dialog', () => {
+    const src = fs.readFileSync(path.join(ROOT, 'src/components/TopicTagManagerDialog.vue'), 'utf8')
+    expect(src).toMatch(/const OVERLAY_OWNER = ['"]topic-tag-manager-dialog['"]/)
+
+    const suspendBlock = src.match(/async function suspendOverlay \(\) \{[\s\S]*?\n\}/)
+    const releaseBlock = src.match(/async function releaseOverlay \(\) \{[\s\S]*?\n\}/)
+    expect(suspendBlock && suspendBlock[0]).toContain('await suspendEmbeddedViewsForOverlay(OVERLAY_OWNER)')
+    expect(releaseBlock && releaseBlock[0]).toContain('await releaseEmbeddedViewsForOverlay(OVERLAY_OWNER)')
+    // 开合两条路径必须由同一个 watch 收口，且 immediate 覆盖「以 visible=true 首次挂载」
+    expect(src).toMatch(
+      /watch\(\(\) => props\.visible,[\s\S]*?if \(open\) \{[\s\S]*?suspendOverlay\(\)[\s\S]*?\} else \{[\s\S]*?releaseOverlay\(\)[\s\S]*?\}, \{ immediate: true \}\)/,
+    )
+    // 卸载兜底
+    expect(src).toMatch(/onBeforeUnmount\(\(\) => \{ releaseOverlay\(\) \}\)/)
+    // owner 一律经命名常量传递
+    expect(src).not.toMatch(/EmbeddedViewsForOverlay\(['"]/)
+  })
+
   // owner 登记表：CreateView BGM 素材库两个模态浮层（拆分方案 v3 §2.4，CreateView 拆分第 1 步）。
   // 素材库弹窗是一级浮层（openBgmLibraryDialog 挂起），删除确认是其内二级浮层（requestBgmDelete 挂起），
   // 各自持唯一 owner；释放成对且 beforeUnmount 兜底（父组件直接销毁时不经过 visible=false）。
@@ -329,5 +350,41 @@ describe('弹窗互斥：WebviewManager 行为（mock）', () => {
     expect(wm.suspendEmbeddedViewsForOverlay('')).toBe(false)
     expect(wm.suspendEmbeddedViewsForOverlay(null)).toBe(false)
     expect(wm.isEmbeddedViewsSuspended()).toBe(false)
+  })
+})
+
+describe('浮层 owner 接入登记：podcast-episode-publish-overlay（刀 3 第 4 片）', () => {
+  const src = fs.readFileSync(path.resolve(__dirname, 'components/PodcastPublishAction.vue'), 'utf8')
+
+  it('owner 常量成对传给挂起与释放两侧', () => {
+    expect(src).toContain('suspendEmbeddedViewsForOverlay(OVERLAY_OWNER)')
+    expect(src).toContain('releaseEmbeddedViewsForOverlay(OVERLAY_OWNER)')
+    expect(src).toContain("const OVERLAY_OWNER = 'podcast-episode-publish-overlay'")
+  })
+
+  it('释放穷尽：watch(props.visible) 的 false 分支 + onBeforeUnmount 兜底', () => {
+    // 判据必须只看代码：本文件所在组件的**块注释里就有 `watch(visible)` 与 `onBeforeUnmount` 的散文**，
+    // 不剥注释会让「注释写了解放、代码没写」的假绿通过（同仓「结构锁不剥注释 = 幽灵通道」坑）。
+    // 剥法刻意不用正则——反斜杠在本仓的脚本化补丁里已被吃掉过两次，这里按行首两字符判 `//`。
+    const code = src.split(String.fromCharCode(10)).map((l) => (l.trimStart().slice(0, 2) === String.fromCharCode(47, 47) ? '' : l)).join(String.fromCharCode(10))
+    const EOL = String.fromCharCode(10)
+    const w = code.indexOf('watch(() => props.visible')
+    expect(w).toBeGreaterThan(-1)
+    const els = code.indexOf('} else {', w)
+    expect(els).toBeGreaterThan(w)
+    const elseEnd = code.indexOf(EOL + '  }', els)
+    expect(elseEnd).toBeGreaterThan(els)
+    expect(code.slice(els, elseEnd)).toContain('releaseOverlay()')
+    const un = code.indexOf('onBeforeUnmount(')
+    expect(un).toBeGreaterThan(els)
+    const unEnd = code.indexOf(EOL + '})', un)
+    expect(unEnd).toBeGreaterThan(un)
+    expect(code.slice(un, unEnd)).toContain('releaseOverlay()')
+  })
+
+  it('浮层按需挂载且关闭不销毁（openedOnce 而非 visible）', () => {
+    const entry = fs.readFileSync(path.resolve(__dirname, 'components/PodcastEpisodeEntry.vue'), 'utf8')
+    expect(entry).toContain('v-if="openedOnce"')
+    expect(entry).not.toContain('v-if="visible"')
   })
 })

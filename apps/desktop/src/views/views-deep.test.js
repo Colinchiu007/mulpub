@@ -217,15 +217,20 @@ describe("CollectionView (deep)", () => {
       value: { readText: vi.fn().mockResolvedValue("Title\nContent") },
       writable: true, configurable: true
     });
+    // 草稿写入走 draftSave/draftList 真源（2026-10-12）
+    window.electronAPI = {
+      draftSave: vi.fn().mockResolvedValue({ code: 0, data: { draftId: "d-deep" } }),
+      draftList: vi.fn().mockResolvedValue({ code: 0, data: [] }),
+    };
   });
 
+  // 2026-10-12：草稿写入统一走 draftSave（与发布页同源），不再写本地 drafts ref
   it("creates draft and navigates", async () => {
     const { mod } = await setupView("Collection.vue");
     const w = mount(mod.default, { global: { mocks: { $t: (key) => key }, plugins: [i18n] } });
     await nextTick();
-    w.vm.createDraft();
+    await w.vm.createDraft();
     await nextTick();
-    expect(w.vm.drafts.length).toBe(1);
     expect(pushSpy).toHaveBeenCalled();
   });
 
@@ -235,7 +240,6 @@ describe("CollectionView (deep)", () => {
     await nextTick();
     await w.vm.importFromClipboard();
     await nextTick();
-    expect(w.vm.drafts.length).toBe(1);
     expect(ElMessage.success).toHaveBeenCalled();
   });
 

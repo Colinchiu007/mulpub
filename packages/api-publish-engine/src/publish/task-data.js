@@ -34,6 +34,13 @@ const PASSTHROUGH_KEYS = [
   'original', 'location',
   'collectionId', 'playlistId', 'collection',
   'goods', 'taskId',
+  // 公众号 API 轨（wechat-mp-api-publish-track）消费：图文封面/摘要/原文链接/评论开关/原创声明。
+  // 形状为扁平 snake_case，适配器按需读取；对其他适配器惰性（它们读的是 taskData.cover，
+  // 不是 cover_path），因此不改变任何既有平台的行为。
+  'cover_path', 'digest', 'content_source_url', 'comment_setting', 'is_original',
+  // 公众号发布方式（wechat-mp-publish-track）：mass_send（群发，推送粉丝）/ free_publish（发布，不推送）/ publish_time（定时）。
+  // 兼容 camelCase 入参（article.massSend/freePublish 由 router 归一成 snake_case 后也接受原样）。
+  'mass_send', 'free_publish', 'publish_time', 'sex', 'group_id', 'country', 'province', 'city',
 ]
 
 /**
@@ -74,6 +81,11 @@ function buildApiTaskData (article, videoInfo) {
   for (const key of PASSTHROUGH_KEYS) {
     if (article[key] !== undefined) taskData[key] = article[key]
   }
+
+  // wechat-mp-publish-track：camelCase 入参（router 的 massSend/freePublish）归一为
+  // 适配器消费的 snake_case（mass_send/free_publish）。只做别名映射，不改变未传字段的形状。
+  if (article.massSend !== undefined && taskData.mass_send === undefined) taskData.mass_send = article.massSend
+  if (article.freePublish !== undefined && taskData.free_publish === undefined) taskData.free_publish = article.freePublish
 
   return taskData
 }

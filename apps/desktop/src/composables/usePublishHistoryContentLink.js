@@ -72,12 +72,31 @@ export function usePublishHistoryContentLink ({ t, recordTitle, resultValue, act
     return safeHttpUrl(publicContentLink(record).url)
   }
 
-  /** 仅控制光标与 title 提示的可点性判断；真正打开前会再走同一判据（单一真源，双口径同函数） */
+  /**
+   * 仅控制光标与 title 提示的可点性判断。
+   * 草稿记录**一律不可点**（见 isDraftRecord）：只进了平台草稿箱的内容没有公开作品，
+   * 若同时满足「有链接」会得到「title 说草稿、卡片仍可点」的自相矛盾状态。
+   */
   function isCardClickable (record) {
+    if (isDraftRecord(record)) return false
     return Boolean(publicLinkHref(record))
   }
 
+  /**
+   * 该记录是否是「只进了平台草稿箱」的发布结果。
+   * 小红书 `draftOnly`（rpa-view-platforms.js）等路径只把内容存进草稿，**没有公开作品**，
+   * 因此它点不动不是缺陷而是正确语义 —— 若照旧显示「暂无平台公开链接」，
+   * 用户会去查一个并不存在的问题（PRD-PUBLISH-HISTORY-ENGAGEMENT-2026-10-12 §5.3）。
+   */
+  function isDraftRecord (record) {
+    // 直接读 result.draft，**不经 resultValue**：后者的契约是「只返回 string/number」，
+    // 布尔 true 会被它归一成空串 ⇒ 判据恒假（本切片首跑实测：草稿记录的 title 仍是
+    // 「暂无平台公开链接」，用例当场变红才发现）。
+    return Boolean(record && record.result && record.result.draft === true)
+  }
+
   function cardClickHint (record) {
+    if (isDraftRecord(record)) return t('historyPage.cardDraftHint')
     return isCardClickable(record) ? t('historyPage.cardOpenHint') : t('historyPage.cardNoLinkHint')
   }
 
@@ -140,6 +159,7 @@ export function usePublishHistoryContentLink ({ t, recordTitle, resultValue, act
     publicContentLink,
     publicLinkHref,
     isCardClickable,
+    isDraftRecord,
     cardClickHint,
     linkRenderState,
     linkSourceHint,

@@ -36,6 +36,12 @@ export const PLATFORM_ICONS = {
   facebook: '👍',
 }
 
+export const PLATFORM_SOURCE_URLS = {
+  weibo: 'https://s.weibo.com/top/summary',
+  zhihu: 'https://www.zhihu.com/hot',
+  toutiao: 'https://www.toutiao.com/hot-event/hot-board/?origin=toutiao_pc',
+}
+
 export const PLATFORM_LOGIN_URLS = {
   wechat_mp: 'https://mp.weixin.qq.com/',
   zhihu: 'https://www.zhihu.com/signin',

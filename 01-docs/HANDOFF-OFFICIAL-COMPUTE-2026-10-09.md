@@ -273,6 +273,70 @@ model-provider-manager.js:356-370   _writeLog() 不传 tokens_in / tokens_out / 
 
 **答不上 Q1，就不要启动任何开发。**
 
+### 6.1 Q1 定案：那批官方 Key 的实际用途（2026-10-11 调查结论）
+
+> 行号取证基线 `origin/main@68838e9ab`。本节回答 Q1，**取代**「我推断它们只躺在后台页面里没人用」这句推断——推断方向对，但「没人用」不准确：**有一个生产读取点**。
+
+**结论：那批 Key 不是为「平台用户使用内置模型消耗积分」录入的**（录入时积分引擎尚不存在），其真实定位是**运营后台的供应商凭据登记 + 模型预设连通性验证**，同时按 PRD 规划预留了「按档位回退给用户」的路径但**从未接线**。
+
+**A. 运营中心确实有需要 LLM 的功能，但用的是另一套密钥表**
+
+| 功能 | 真实 LLM 调用点 | 密钥来源 |
+|---|---|---|
+| 提示词评估工作台（生成） | `services/prompt_eval_generation_service.py:147-151` | `prompt_eval_provider_keys` 表 |
+| 提示词评估（评估） | `services/prompt_eval_evaluation_service.py:150-152` | 同上 |
+| 提示词翻译 | `services/prompt_eval_translation_service.py:33-35,76-78` | 同上 |
+| 视频评估 | `services/prompt_eval_video_service.py:112-113,155-156` | 同上 |
+| 引擎连通性探测 | `services/prompt_eval_service.py:395+` | 同上 + 环境变量 `OPS_PROMPT_EVAL_LLM_API_KEY` |
+
+`PromptEvalProviderKey`（`models.py:562-565`）与 `OfficialKey`（`models.py:116-136`）是**两张互不相干的表**；`routers/prompt_eval.py:33-66` 的取键路径从不读 `official_keys`。前端操作该表的是 `views/ModelKeys.vue:27,49` 的「测试连通」按钮。
+
+**B. `official_keys` 的生产读取点只有 1 个**
+
+```
+services/model_preset_service.py:1112-1127   # 表单未带 api_key 时，按 provider 回退读 official_keys（Fernet 解密）
+routers/model_presets.py:156                 # POST /api/v1/model-presets/{preset_id}/test 暴露
+```
+
+其余全部是管理面：`routers/secrets.py` 的 CRUD 与池概览（`services/key_service.py:300-375`）。
+
+**C. 那条「给用户用」的路径从未接线（三重取证）**
+
+1. `services/key_service.py:360-373` `get_active_keys_for_tier()`——唯一符合「按用户档位取 Key 供给」语义的函数，**生产零调用**，仅 `tests/test_key_service.py:150-171` 引用；
+2. 桌面端 `apps/desktop/electron/` 对 `official_keys` / `officialKey` **零命中**；
+3. ops-center 的 PRD 把「Key → Tier 访问映射」列为 V0.2 功能点，**勾选框全为 `[ ]`**（`ops-center/docs/PRD.md:245-265`）。
+
+**D. 该端点当前也没有活跃入口**（解释了为什么「录了却没人用」）
+
+- ops-center 前端 `api/modelPresets.js` **没有 test 接口**，`views/ModelPresets.vue` 无测试按钮 ⇒ 运营后台 UI 点不到；
+- 桌面端唯一调用者 `electron/services/provider-manager.js:25,80` 属旧的 platform-orchestrator 桥接（`ORCHESTRATOR_BASE = process.env.ORCHESTRATOR_URL || ''`，未配置即整体降级）；桌面真正的「测试连接」按钮走本地 BYOK 的 `model-provider:test`（`ipc-handlers/model-provider.js:104`）。
+
+**E. 历史动机构成**
+
+- 表随 ops-center 集成进 monorepo 的提交 `f6086ada4` 带入，**不是为某个具体功能新建**；
+- 2026-08-10 批次只增强管理面（配额/日限/成本告警/备注/池概览），并**书面写明**：「桌面端消费（官方 Key 回退路由、许可证服务端验签）**需商业模式确认后另行接入**，本 change 不触碰桌面端 entitlement 现有合同」（`ops-center/docs/PRD.md:897-906`、`openspec/specs/ops-center/keypool-license/spec.md:7`）；
+- `01-docs/PRD-MODEL-PROVIDER-TEST-REAL-CALL.md:59` 把「读 `official_keys` 做真实连通测试」写成数据来源优先级第 3 项 ⇒ **这是最可能的录入动机**。
+
+**F. 对第二阶段的影响（比 Q1 本身更重要）**
+
+1. **无存量流量**：零生产调用 ⇒ 第二阶段**不需要处理「新旧流量混跑/迁移」**，可直接按 §4 从零建供给池；
+2. **但额度基线为 0**：无历史用量可反推采购折扣系数与摊销单价 ⇒ **Q3（上游账单）从「重要」升为「必须」**；
+3. **表结构不对齐**：`official_keys` 有 `tier_access`/`priority`/`cost_per_1k_tokens`/`rate_per_minute`/`daily_limit`/`alert_threshold_cost`，但**缺**套餐总额度、已用量、有效期、采购折扣系数 ⇒ 第二阶段须扩表或新建 `provider_plans`（建议：`official_keys` 退化为「密钥槽位」，套餐台账独立建表）；
+4. **`get_active_keys_for_tier` 是现成接缝**：签名与「按档位供给」语义吻合，接线即可，不必重写。
+
+**G. 残留不确定（不假装已闭合）**
+
+代码只能回答「这批 Key **能被**什么消费」，回答不了「录入时的主观意图」。最可能是「验证某供应商 Key 能否连通 / 集中登记凭据」；若运营侧记忆能对上该场景，Q1 才算彻底闭合。
+
+### 6.2 Q2 / Q3 定案（2026-10-11）
+
+| # | 问题 | 定案 | 后续动作 |
+|---|---|---|---|
+| **Q2** | Node 侧加密走哪条路（§4 S3 三选一） | ✅ **选项 2**：迁库时重加密进已有的 AES-256-GCM 信封体系（复用 `cloud-accounts/envelope-crypto.js`） | §3 F3 死结解除。待办：`OPS_ENCRYPTION_KEY` → 信封主密钥的迁移脚本 + 存量 Key 重加密 + **两端互操作测试**（Node 必须能解开 Python 写的密文）。不引入新依赖 |
+| **Q3** | 上游账单能给吗 | ✅ **能导出**。上游为**多供应商**，且**混合计费**：既有订阅套餐，也有按量付费的中转站。运营方将提供全量数据，或提供只读接口由接手方自行拉取 | 交接口径（字段清单 + 安全交付方式 + 常见坑）见 `01-docs/HANDOFF-UPSTREAM-BILLING-INTAKE-2026-10-11.md`。**设计影响**：`provider_plans` 必须同时容纳「套餐额度」与「按量单价表」两种形状（详见该文档 §3） |
+
+**三问现状**：Q1 已定案（§6.1）、Q2 已定案、Q3 数据待到位（口径已定）。**第二阶段（官方算力供给）至此具备开工条件**——剩余前置是 Q3 数据到位（用于单价与赠送量测算）与 §7 八个坑的逐条规避，以及 §6.1 F 段所列的表结构收敛决策。
+
 ---
 
 ## 7. 交接：接手前必读的 8 个坑

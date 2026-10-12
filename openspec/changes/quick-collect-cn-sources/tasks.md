@@ -27,6 +27,14 @@
   ③ 把 trend 源当 search 源 ⇒ 分流用例红；④ 提示词删硬约束行 ⇒ 断言红；⑤ registry 加一个源但渲染端镜像不加 ⇒ parity 红；
   ⑥ trendFn 未注入时抛错而非降级 ⇒ 降级用例红。逐条实测指名变红后回滚
 
+- [x] S1.10 补遗（change：quick-collect-cn-verticals）：把 `hot-topics` 的两个**独立信道**垂类
+  （`sina_finance` 新浪财经滚动、`ithome_tech` IT之家热榜）入册（`group:'cn-hot'`、`provider:'hot-topics'`、
+  `hottest`+`observed`），`builtin-hot-topics` 吃到 8 主榜 + 2 垂类，`builtin-dev-tools` 加垂类科技；
+  测试：注册表**闭集断言**锁死 `hot-topics` 恰好这 10 个 id、IPC 映射断言垂类素材同样是 `observed`+「抓取时刻」、
+  词条覆盖断言；文档：PRD §4.1 补两行 + 5 垂类口径说明（另 3 个 board 级垂类随主榜到达，不另立源）。
+- [x] S1.11 变异反证（补遗）：① 从注册表摘掉 `sina_finance` ⇒ 闭集断言红；② 把垂类 `timeKind` 改成 `published` ⇒
+  provider/时间语义不变量红。两条实测变红后回滚。
+
 ## S2. 时间线源：带发布时间的免费中文/技术源
 
 - [x] S2.1 新增 `quick-collect-trend-sources.js`：RSS/Atom 轻量解析（`<item>/<entry>`、`<title>`、`<link>`、`<pubDate>`/`<published>`）
@@ -40,11 +48,15 @@
 - [x] S2.6 变异反证：① 时间解析退化为 `Date.now()` ⇒ published 窗口用例红；② HF 时间格式改成 ISO ⇒ 该源用例红；
   ③ 去掉字节上限 ⇒ 超限夹具用例红；④ 去掉 per-source 截断 ⇒ 条数用例红
 
-## S3. 政策/合规源（HTML/RSS 化，逐一实测后入册）
+## S3. 政策/合规源（HTML/RSS 化，逐一实测后入册）——**【2026-10-11 更正：本切片目标已作废】**
+
+> 作废理由：本切片唯一服务的内置词条「平台规则与合规动向」（`builtin-platform-policy`）是 agent 依 PRD 场景推演设计、
+> **并非用户要求**；用户明确不需要该类内容，该词条已被替换为「AI 前沿论文速览」。证据表保留（它证明了"未实测不入册"在拦人）。
+> 详见 change `quick-collect-preset-refresh` 与 PRD §4.3。
 
 - [x] S3.1 端点实测（2026-10-11，7 个候选）：**平台官方页全部 JS/登录态渲染（0 条目）**；监管站点列表页可解析标题但**缺条目级时间**；网信办子栏目路径 404 ⇒ 按纪律**无源入册**。证据表见 PRD §4.3
 - [x] S3.2 不实现解析器（无实测通过的源可接）——**以 PRD §4.3 的证据表收口**，避免用必然半坏的 HTML 解析冒充能力
-- [x] S3.3 不做增补；`builtin-platform-policy` 维持英文社区源，缺口在 PRD §4.3 与 §15 如实登记（含三条后续路径 A/B/C，待用户拍板）
+- [x] S3.3 ~~不做增补~~ → **该词条已被移除并替换**（`builtin-ai-papers`），后续路径 A/B/C 随之作废；PRD §4.3 与 §15 已更正
 - [x] S3.4 无需变异反证（无实现）；**决策本身已被证据锁住**：没有"能拿到条目级时间"的源，任何解析器都只能靠猜
 
 ## S4. 付费中文检索（阻塞：待用户提供 Key 与预算）
@@ -52,14 +64,15 @@
 - [x] S4.1 不实现任何调用；**不在 registry 留占位开关位**（registry 只允许实测通过的源，占位会让"支持付费源"与"只登记名字"无法区分）；已在 PRD §4.4 与本节如实登记为「待用户提供凭证/预算」
 - [ ] S4.2（**阻塞：待用户提供 Key 与预算**）若提供：新增 provider + 密钥只从设置读、绝不落日志（沿用既有凭证脱敏纪律）
 
-## 收尾（每个切片各自一套）
 
-- [ ] PRD 增补（本节切片对应章节）+ CHANGELOG 顶部条目
-- [ ] `.quality-gates.md` 记录（含 `| 远程同步 | PENDING |`）+ `scripts/gate-record-debt-ledger.json` 登记
-- [ ] `openspec/records/quick-collect-cn-sources.md` 执行记录（TDD 数字、变异反证、门禁、QM-1/QM-4、未闭合）
-- [ ] 静态门禁：`check-max-lines`（Collection 域） / `check-locale-sync` 三档 / `check-ipc-bridge` / `check-ipc-sender-guard` /
+> **收尾清单收口（2026-10-11）**：下列各项由 S1 / S2 / S3 / 垂类补遗四片各自走完，证据是 openspec/records/ 下四篇执行记录（quick-collect-cn-sources、-s2、-s3、quick-collect-cn-verticals）与本 change 的 PR 链（#3318 / #3322 / #3334 / #3338 及对应回填 PR）；四篇记录的「远程同步」均已 PASS。
+
+- [x] PRD 增补（本节切片对应章节）+ CHANGELOG 顶部条目
+- [x] `.quality-gates.md` 记录（含 `| 远程同步 | PENDING |`）+ `scripts/gate-record-debt-ledger.json` 登记
+- [x] `openspec/records/quick-collect-cn-sources.md` 执行记录（TDD 数字、变异反证、门禁、QM-1/QM-4、未闭合）
+- [x] 静态门禁：`check-max-lines`（Collection 域） / `check-locale-sync` 三档 / `check-ipc-bridge` / `check-ipc-sender-guard` /
   `check-frontend-consistency` / `check-no-brand-residue` / `check-ps1-bom`（不涉及）/ ESLint error 级
-- [ ] QM-1：`verify-worktree-deps` + `pnpm run build:dir` rc=0 + asar 内容核对
-- [ ] QM-4：若结果卡/对话框文案变化 ⇒ 按**同一次 CI run** 的 artifact 重取基线并逐字节自证 sha256
-- [ ] 记忆沉淀：`01-docs/learnings.md` 新章节 + 本机 gstack `learnings.jsonl` + EverOS session flush
-- [ ] PR：推送 → `gh pr create` → CI 全绿 → `--squash --delete-branch`（判据取产物）→ 回填 PR 合并 → worktree 按 R1-R5 清理
+- [x] QM-1：`verify-worktree-deps` + `pnpm run build:dir` rc=0 + asar 内容核对
+- [x] QM-4：若结果卡/对话框文案变化 ⇒ 按**同一次 CI run** 的 artifact 重取基线并逐字节自证 sha256
+- [x] 记忆沉淀：`01-docs/learnings.md` 新章节 + 本机 gstack `learnings.jsonl` + EverOS session flush
+- [x] PR：推送 → `gh pr create` → CI 全绿 → `--squash --delete-branch`（判据取产物）→ 回填 PR 合并 → worktree 按 R1-R5 清理

@@ -350,6 +350,15 @@
 
     <!-- ==================== 历史记录视图 ==================== -->
     <div v-if="view === 'history'">
+      <PodcastPublishAction
+        v-if="podcastEpisode.openedOnce"
+        :visible="podcastEpisode.visible"
+        :project="podcastEpisode.project"
+        :segments="podcastEpisode.segments"
+        :video-path="podcastEpisode.videoPath"
+        :title="podcastEpisode.title"
+        @close="podcastEpisode.visible = false"
+      />
       <CreateViewHistory
         :history="history"
         :history-loading="historyLoading"
@@ -361,6 +370,7 @@
         @resume-history="resumeHistoryItem"
         @open-result="openHistoryResult"
         @publish-history="publishHistoryItem"
+        @publish-podcast-episode="openPodcastEpisodePublish"
         @delete-history="requestHistoryDeletion"
         @download-history="downloadHistoryVideo"
         @create-content="switchView('pipelines')"
@@ -885,7 +895,8 @@ import UiModal from '@/components/UiModal.vue'
 import UiSelect from '@/components/UiSelect.vue'
 import CreateViewHistory from './CreateViewHistory.vue'
 import { buildPublishFromProject, publishDataToQuery } from '@/features/publish/publish-from-project'
-import { story2videoSaveAs, draftList } from '@/api/publisher'
+import PodcastPublishAction from '@/components/PodcastPublishAction.vue'
+import { story2videoSaveAs, story2videoGetProject, draftList } from '@/api/publisher'
 import { PipelineSelector, StageProgress, SceneAssetSelection, S2vConfigPanels } from './video-creation'
 import { S2V_PANEL_KEY, createS2VPanel } from './video-creation/s2v-panel-contract'
 import { useLoginGate } from '@/composables/useLoginGate'
@@ -1010,7 +1021,7 @@ export default {
   name: 'CreateView',
   // 模板使用但此前漏注册的子组件：PipelineSelector/StageProgress/CreateViewHistory
   // （缺失会导致 Vue 'Failed to resolve component'，流水线卡片不渲染）
-  components: { UiButton, UiModal, UiSelect, CreateViewHistory, PipelineSelector, StageProgress, SceneAssetSelection, S2vConfigPanels },
+  components: { UiButton, UiModal, UiSelect, CreateViewHistory, PipelineSelector, StageProgress, SceneAssetSelection, S2vConfigPanels, PodcastPublishAction },
   // 配置面板子树的受控访问入口：白名单由 s2v-panel-contract 单一来源定义，
   // 这里只转发，不复制任何 optionKey 语义（见该文件头注释）。
   provide() {
@@ -1147,6 +1158,9 @@ export default {
       s2vPipelineOptions: null,
       s2vPipelineOptionsLoading: false,
       // 历史
+      // 播客出期浮层（刀 3 第 4 片，PRD §6.4）：入口在历史卡片上，浮层挂在历史视图根部。
+      // openedOnce 决定浮层是否已构造（按需挂载，理由见 PodcastEpisodeEntry 同名注释）。
+      podcastEpisode: { visible: false, openedOnce: false, project: null, segments: [], videoPath: '', title: '', loadError: '' },
       history: [], historyLoading: false, historyLocalMode: false, historyFilter: 'all', historyRequestId: 0, historyPollTimer: null,
       // 页面导航历史
       viewHistory: [], viewHistoryIndex: -1,
@@ -4325,6 +4339,36 @@ export default {
         }
       }
       await Promise.all(Array.from({ length: Math.min(4, records.length) }, () => worker()))
+    },
+    async openPodcastEpisodePublish(item) {
+      // 入口在历史卡片上，而卡片只有 run/project 的索引信息：出期要的是**完整项目**
+      // （降级判定读 segments[].audioMeta.degraded，判据与结果页同真源），所以先按 projectId 取回项目再开浮层。
+      const projectId = item && item.projectId ? String(item.projectId) : ''
+      if (!projectId) return
+      // 先置空数据、取回项目之后再挂载浮层：project=null 时就构造浮层会让它立刻带着空素材走 visible 分支
+      //（评审命中的 Critical 候选：按下按钮与素材读回来之间存在的空态不该被渲染）。
+      this.podcastEpisode.project = null
+      this.podcastEpisode.segments = []
+      this.podcastEpisode.videoPath = String((item && (item.videoPath || item.outputPath)) || '')
+      this.podcastEpisode.title = String((item && item.title) || '')
+      try {
+        const res = await story2videoGetProject(projectId)
+        const project = res && res.data !== undefined ? res.data : res
+        if (project && typeof project === 'object') {
+          // 深拷贝脱 reactive：浮层要把项目原样送进 IPC，proxy 过不了结构化克隆
+          const plain = JSON.parse(JSON.stringify(project))
+          this.podcastEpisode.project = plain
+          this.podcastEpisode.segments = Array.isArray(plain.segments) ? plain.segments : []
+          if (!this.podcastEpisode.videoPath) this.podcastEpisode.videoPath = String(plain.videoPath || plain.outputPath || '')
+          // 标题与结果页同源：buildPublishFromProject 是「项目 → 发布标题」的唯一提取点；
+          // 原先直接取历史卡片的 item.title，等于给同一件事留了第二份真源。
+          this.podcastEpisode.title = String(buildPublishFromProject(plain).title || plain.title || this.podcastEpisode.title || '')
+        }
+      } catch (e) {
+        // 项目取不到时浮层照样打开，由主进程的入参层判 PODCAST_EPISODE_INVALID 并如实报错；
+        // 不在这里静默返回——那会让用户以为按钮没生效。
+        this.podcastEpisode.loadError = String((e && e.message) || e || '')
+      }
     },
     openHistoryResult(item) {
       // 仅真实 story2video 项目可进入编辑页；run-only 记录（historyType=pipeline-run）的 projectId

@@ -190,6 +190,8 @@ function resolvePlatformArticle (task, platform) {
     if (vt === 1 || vt === 2) resolved.visibilityType = vt
   } else if (platform === 'wechat_mp') {
     resolved.massSend = resolveBooleanOption(override, base, 'massSend')
+    // wechat-mp-publish-track：发布（不推送粉丝）；与群发互斥时群发优先（capability hint 同口径）
+    resolved.freePublish = !resolved.massSend && resolveBooleanOption(override, base, 'freePublish')
   }
   // P0-3：平台特有字段透传（参考同类产品统一 publishData 超集 + 每平台按需消费的架构）。
   // 字段从 platformOverrides[platform] 或文章基础字段解析，adapter 侧按平台消费。
@@ -316,7 +318,10 @@ function buildPublishArticle (task, platform) {
     article.commentPermission = resolved.commentPermission
     article.declare = resolved.declare
   }
-  if (platform === 'wechat_mp') article.massSend = resolved.massSend
+  if (platform === 'wechat_mp') {
+    article.massSend = resolved.massSend
+    article.freePublish = resolved.freePublish
+  }
   // P1-4 + P3-3：公众号摘要 + 评论开关（参考产品 digest/need_open_comment 映射）
   if (platform === 'wechat_mp') {
     const digest = String(override_digest(resolved) || '').trim()
@@ -703,7 +708,7 @@ class BackendPublisher {
         commentPermission: article.commentPermission,
         declare: article.declare,
       } : {}),
-      ...(platform === 'wechat_mp' ? { massSend: article.massSend } : {}),
+      ...(platform === 'wechat_mp' ? { massSend: article.massSend, freePublish: article.freePublish } : {}),
     }
 
     const result = await this.pythonBridge.requestBackend('POST', '/api/publish', body)

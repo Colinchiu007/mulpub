@@ -114,6 +114,7 @@ export default {
     assetsProgressVideo: '图片 {imagesDone}/{imagesTotal} · 视频 {videosDone}/{videosTotal} · 旁白 {ttsDone}/{ttsTotal}',
     assetsProgress: '图片 {imagesDone}/{imagesTotal} · 旁白 {ttsDone}/{ttsTotal}',
     composeSegments: '正在合成片段 {done}/{total} · {percent}%',
+        composeProgress: '视频合成 {percent}%',
     // 阶段进行中信息统一契约（openspec pipeline-progress-feedback-unification）：主进程生成 message 直接渲染，
     // 以下为 zh/en 成对文案基线（供测试断言同步与后续前端 i18n 化；渲染端 src 不新增中文字面量）
     stageProgressPublishing: '正在发布到 {platform} ({done}/{total})',

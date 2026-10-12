@@ -187,6 +187,8 @@ scripts/*.js
 # warn). Test files must always be tracked, so un-ignore them by pattern instead.
 !scripts/*.test.js
 !scripts/compare-scheduler-models.js
+!scripts/gate-budget.js
+!scripts/gate-budget-probe.js
 screenshot_script*.js
 temp_debug.txt
 coverage/

@@ -145,6 +145,20 @@ fi
 # 临时豁免：SKIP_CCG_GATE=1 git commit
 if [ -f "scripts/ccg-gate.js" ]; then
     node scripts/ccg-gate.js || exit 1
+    # 判定记录自动入库（防 .ccg/reviews 未跟踪堆积的根治）：
+    # ccg-review-decider.js 把 layer=diff 记录写到 <cwd>/.ccg/reviews/<sha>.json，
+    # 但它以【提交前的 HEAD sha】命名，而本仓 squash 合并会换掉 sha ——
+    # 记录永远不会因"引用它"而被提交，只能靠有人手动 git add。
+    # 不 stage 的实测后果（2026-10-12 排查）：22 小时内 10+ 个任务在共享根与
+    # 36 个 worktree 堆积 300+ 个未跟踪判定记录，其中按文件名反查
+    # 「已在 origin/main = 0」——结构性无法随 PR 入主，只能本地堆积。
+    # 所以在门禁跑完后立刻把本次生成的记录 stage 进同一个提交。
+    for rec in .ccg/reviews/*.json; do
+        [ -e "$rec" ] || continue
+        if [ -z "$(git ls-files -- "$rec")" ] || ! git diff --quiet -- "$rec" 2>/dev/null; then
+            git add -- "$rec" || true
+        fi
+    done
 fi
 echo "=== Pre-commit 检查完成 ==="
 exit 0

@@ -4,11 +4,11 @@
     <p style="color:var(--color-text-placeholder);margin-bottom:16px;font-size: var(--font-size-sm)">
       本列表是 <strong>热门选题分类、采集库类别标签、账号分组预设标签</strong> 的唯一真源，
       三处共用同一套类别，改名/停用会同时影响这三处显示。
-      内置 10 类与桌面端抓取分类器（<code>classifier.js</code>）严格对齐，
+      内置 11 类与桌面端抓取分类器（<code>classifier.js</code>）严格对齐，
       <strong>可改名、可停用、可排序，但不可删除</strong>（删除会让桌面端历史引用失效）。
       <br />
       生效时机：配置随运行时 bootstrap 下发，桌面端<strong>下次启动时</strong>生效；
-      桌面端读不到下发值时回退内置 10 类，离线可用。
+      桌面端读不到下发值时回退内置 11 类，离线可用。
     </p>
 
     <el-card shadow="never">
@@ -211,7 +211,7 @@ async function remove(row) {
 async function resetAll() {
   try {
     await ElMessageBox.confirm(
-      '将把内置 10 类的名称、备注、排序、启用状态恢复为目录默认值，自定义类别保留。继续吗？',
+      '将把内置 11 类的名称、备注、排序、启用状态恢复为目录默认值，自定义类别保留。继续吗？',
       '恢复默认',
       { type: 'warning' },
     )

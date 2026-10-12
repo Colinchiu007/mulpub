@@ -21,12 +21,59 @@ describe('quick-collect-presets', () => {
     expect(list.every((c) => c.builtin === true)).toBe(true)
     expect(list.map((c) => c.id)).toEqual([
       'builtin-ai-trends',
-      'builtin-platform-policy',
+      'builtin-ai-papers',
       'builtin-hot-topics',
       'builtin-dev-tools',
       'builtin-peer-content',
-      'builtin-risk-alert',
+      'builtin-ai-howto',
     ])
+  })
+
+  it('S1 补遗：中文热榜词条吃到全部垂类信道，创作工具词条吃到垂类科技', async () => {
+    const { PRESET_COMMANDS } = await mod()
+    const hot = PRESET_COMMANDS.find((c) => c.id === 'builtin-hot-topics')
+    expect(hot.sources).toContain('sina_finance')
+    expect(hot.sources).toContain('ithome_tech')
+    const dev = PRESET_COMMANDS.find((c) => c.id === 'builtin-dev-tools')
+    expect(dev.sources).toContain('ithome_tech')
+    // 垂类不得混进只讲社区/时间线的词条（实操技巧词条只吃社区 + 中文科技时间线）
+    const howto = PRESET_COMMANDS.find((c) => c.id === 'builtin-ai-howto')
+    expect(howto.sources).not.toContain('sina_finance')
+    expect(howto.sources).not.toContain('ithome_tech')
+  })
+
+  it('词条来源必须可追溯：只有 AI 领域动向是用户给定，其余一律标 agent（防"agent 推演冒充用户需求"）', async () => {
+    const { PRESET_COMMANDS } = await mod()
+    for (const c of PRESET_COMMANDS) {
+      expect(['user', 'agent'], c.id).toContain(c.provenance)
+    }
+    const userGiven = PRESET_COMMANDS.filter((c) => c.provenance === 'user')
+    // 本次需求里**只有一条**是用户给定原文（AC-10 锁的就是它）；其余都是依 PRD 场景推演的产品内容。
+    // 这条断言的用途：下次若有人把 agent 设计的词条当成"用户要求"写进 PRD/记录，先在这里红。
+    expect(userGiven.map((c) => c.id)).toEqual(['builtin-ai-trends'])
+  })
+
+  it('被移除的两个词条不再存在；两个新词条都在闭集内并吃到各自的专属源', async () => {
+    const { PRESET_COMMANDS, getPresetCommand } = await mod()
+    const { ALL_SOURCE_IDS } = await import('../services/quick-collect-sources')
+    // 用户明确不需要「平台规则/审核口径/AIGC 标识/限流封禁」与「舆情风险与避雷」两类内容
+    expect(getPresetCommand('builtin-platform-policy')).toBeNull()
+    expect(getPresetCommand('builtin-risk-alert')).toBeNull()
+
+    const papers = PRESET_COMMANDS.find((c) => c.id === 'builtin-ai-papers')
+    expect(papers.sources).toContain('arxiv_cs_ai')
+    expect(papers.sources).toContain('hf_papers')
+    expect(papers.windowHours).toBe(168)
+
+    const howto = PRESET_COMMANDS.find((c) => c.id === 'builtin-ai-howto')
+    expect(howto.sources).toContain('github')
+    expect(howto.sources).toContain('sspai')
+
+    for (const c of [papers, howto]) {
+      for (const s of c.sources) expect(ALL_SOURCE_IDS, c.id + ':' + s).toContain(s)
+      expect(c.prompt.length).toBeLessThanOrEqual(4000)
+      expect(c.keywords.length).toBeLessThanOrEqual(3)
+    }
   })
 
   it('AI 领域动向提示词与用户给定文本逐字一致（AC-10）', async () => {

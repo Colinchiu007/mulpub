@@ -31,6 +31,17 @@ export async function identityDiagnosticReport() {
   return invokeWithFallback('identityDiagnosticReport', UNAVAILABLE)
 }
 
+/**
+ * 激活码核销（服务端 POST /api/v1/redeem）。
+ *
+ * 注意错误码语义：主进程把服务端错误原样放进 `message`
+ * （REDEEM_CODE_FORMAT / NOT_FOUND / USED / DISABLED / EXPIRED），
+ * 调用方要按 code 判成功、按 message 选文案，两者不能混用。
+ */
+export async function identityRedeemCode(payload) {
+  return invokeWithFallback('identityRedeemCode', UNAVAILABLE, payload)
+}
+
 export function onIdentityStateChanged(callback) {
   return on('IdentityStateChanged', callback)
 }

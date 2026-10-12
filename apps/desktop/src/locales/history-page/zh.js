@@ -118,6 +118,34 @@ export default {
     detailLink: '作品链接',
     cardOpenHint: '点击打开平台作品链接',
     cardNoLinkHint: '暂无平台公开链接',
+    // 草稿语义（PRD-PUBLISH-HISTORY-ENGAGEMENT-2026-10-12 §5.3）：只进平台草稿箱的内容没有公开作品，
+    // 卡片点不动是正确行为，必须与「拿不到链接」区分，否则用户会去查一个不存在的问题。
+    cardDraftHint: '草稿（未公开，无链接）',
+    // 作品互动数据（播放/评论/点赞/收藏/分享）：数据源见 account-metrics 服务头注释。
+    // 「非实时」是产品取舍，必须写在界面上。
+    metricsRefresh: '刷新数据',
+    metricsRefreshing: '正在采集…',
+    metricsRefreshHint: '按账号低频采集作品数据（每个账号每天有次数上限）',
+    metricsDailyCapReached: '今日采集次数已用完，请明天再试',
+    metricsNotRealTime: '数据为低频采集，非实时',
+    metricsJustNow: '刚刚',
+    metricsAgoMinutes: (ctx) => ctx.named('n') + ' 分钟前',
+    metricsAgoHours: (ctx) => ctx.named('n') + ' 小时前',
+    metricsAgoDays: (ctx) => ctx.named('n') + ' 天前',
+    metricsAsOf: (ctx) => '数据截至 ' + ctx.named('time'),
+    // 卡片级新鲜度：超过 24h 才提示（不啰嗦）；一条新鲜记录不得把整页陈旧记录漂白
+    metricsStale: (ctx) => '数据截至 ' + ctx.named('time'),
+    metricsNeverCollected: '尚未采集作品数据',
+    // unsupported 按 reason 细分（reason 来自主进程 accounts[].error）：「没实现」与「签名没拿到」
+    // 的下一步动作不同，一句话糊过去等于让用户猜。
+    metricsUnsupported: '该平台暂不支持自动采集，此条数据可在详情弹窗手动录入',
+    metricsSignerUnavailable: '该平台需要签名服务，当前不可用。可稍后重试，或在详情弹窗手动录入',
+    metricsSignFailed: '该平台采集签名未成功（多为平台页面临时异常）。可稍后重试，或在详情弹窗手动录入',
+    metricsCookieIncomplete: '该账号登录信息不完整（缺少设备标识），请在账号页重新登录以补全',
+    metricsNeedsLogin: '账号登录已过期，请在账号页重新登录',
+    metricsFailed: '上次采集失败，可稍后重试',
+    metricsCollectFormatChanged: '平台数据格式有变化，暂无法采集该平台。可稍后重试，或在详情弹窗手动录入',
+    metricsSaveFailed: '保存失败，请稍后重试',
     cardTabTitle: (ctx) => '作品 · ' + ctx.named('title'),
     cardLinkOpened: '已在新标签页打开作品链接',
     cardLinkOpenFailed: '打开作品链接失败，请重试',

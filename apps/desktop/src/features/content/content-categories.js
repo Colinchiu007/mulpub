@@ -7,9 +7,9 @@
  * 任何一侧改判据，必须同步改另一侧并跑两侧测试。
  *
  * 三条硬语义：
- * ① fail-open 回退内置 10 类：没下发 / 空 / 结构非法 → 内置目录（离线可用）。
+ * ① fail-open 回退内置 11 类：没下发 / 空 / 结构非法 → 内置目录（离线可用）。
  * ② 逐条归类出声：非法项进 dropped（带 reason），不静默丢。
- * ③ 内置 10 类 key 与 classifier.js CATEGORY_KEYS 严格一致。
+ * ③ 内置 11 类 key 与 classifier.js CATEGORY_KEYS 严格一致。
  */
 
 /**
@@ -21,7 +21,7 @@
  * 归一化函数内部仍保留 name 字段（纯数据比对用），界面展示请用解析后的值。
  */
 const DEFAULT_CATEGORY_KEYS_INTERNAL = [
-  'general', 'society', 'finance', 'tech', 'entertainment',
+  'general', 'society', 'finance', 'tech', 'ai', 'entertainment',
   'sports', 'emotion', 'education', 'health', 'international',
 ]
 

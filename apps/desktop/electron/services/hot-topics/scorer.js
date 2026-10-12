@@ -27,6 +27,8 @@ const CHANNEL_WEIGHTS = {
   douyin: 1.0,
   toutiao: 1.0,
   zhihu: 1.0,
+  xiaohongshu: 1.0, // 国民级内容平台，量级与抖音/微博同级
+  ifeng: 0.95, // 门户热榜，覆盖面略窄于综合热搜
   tencent: 0.95,
   tophub: 0.9, // 微博镜像，降权防重复计权
   bilibili: 0.85,

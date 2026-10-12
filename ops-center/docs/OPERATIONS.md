@@ -225,6 +225,21 @@
 | POST | /api/v1/usage/ingest | X-Catalog-Key | 桌面端用量上报（含排队/冷却聚合字段） |
 | GET | /api/v1/usage/summary | admin | 用量汇总（含 429率/排队/冷却/预算利用率） |
 | GET | /api/v1/model-presets | admin | 预设列表（模拟验证页预设下拉数据源） |
+| POST | /api/auth/login | 无 | 登录，签发 HttpOnly 会话 Cookie |
+| POST | /api/auth/logout | 无（无副作用，过期会话也须可用） | 清除会话 Cookie |
+| GET | /api/auth/me 或 /api/auth/session | 会话/Bearer | 当前登录用户（前端水合登录态） |
+| POST | /api/auth/change-password | 会话（须 X-Ops-Session 头）或 Bearer | 改密；成功即作废当前会话 |
+
+**改密错误码速查**（前端/联调按此提示用户）：
+
+| 状态码 | 含义 | detail 文案 |
+|--------|------|-------------|
+| 200 | 成功 | 「密码已更新，请使用新密码重新登录」 |
+| 400 | 新密码不合规 | 「两次输入的新密码不一致」/「新密码不能与当前密码相同」/「新密码强度不足：至少 8 位，且不得使用 admin123、password、123456 等常见弱口令」 |
+| 401 | 原密码错误 / 未登录 / 旧凭据已失效 | 「原密码错误」/「未提供认证令牌」/「凭据已失效，请重新登录」 |
+| 403 | 缺 CSRF 头 | 「跨站请求伪造防护：基于 Cookie 会话的写操作必须携带自定义头 X-Ops-Session」 |
+| 422 | 字段超 128 或缺失 | Pydantic 默认 |
+| 429 | 改密尝试过多 | 「尝试次数过多，请稍后再试」 |
 
 
 
@@ -259,6 +274,18 @@
 
 ### 11.3 凭据核对（只读、不打印口令）
 
+**改密码请走页面，不要改 `.env`（2026-10-12 起）**
+
+侧边栏「更改密码」（仅管理员可见）是改密的唯一正解。要点：
+
+- 必须输入**当前密码**才能改（防离开工位被改密接管）；
+- 新密码：≥8 位、不得命中弱口令表（admin123 / password / 123456 等）、不能与当前密码相同；
+- **改密成功后当前会话立即失效**，需用新密码重新登录 —— 不是 bug，是刻意设计（旧凭据在 TTL 内不再可用）；
+- 端点只改库中哈希，**不同步 `.env`**。正常情况下安全（`ensure_admin_seeded` 只在 `admins` 表为空时写入），但**改密后建议同步更新 `.env` 的 `OPS_ADMIN_PASSWORD`**：若哪天有人清空 `admins` 表后重启，服务会按 `.env` 重新 seed，页面上改过的密码会被 `.env` 的值悄悄取代；
+- 忘了密码且无法登录时，唯一恢复手段是清空 `admins` 表后重启（按 `.env` 重新 seed）或直接改库中哈希 ——**没有「找回密码」流程**。
+
+接口：`POST /api/auth/change-password`，body `{"old_password","new_password","confirm_password"}`。改密有独立限流（5 次失败锁 60s，与登录限速分开计数）。完整规格见 PRD §6.5。
+
 存储格式为 `pbkdf2_sha256$iterations$salt_hex$hash_hex`。用只读连接取出哈希，再按同样参数复算比对，**只输出布尔值**：
 
 ```
@@ -275,3 +302,44 @@ hashlib.pbkdf2_hmac("sha256", <.env 口令>.encode(), bytes.fromhex(salt), int(i
 - 运行库是 `data/config.db` + `config.db-wal`（WAL 模式）。WAL 未落盘时，主文件可以只有 4KB 而**全部数据都在 `-wal` 里**（实测 37 张表的数据压在 0.8MB WAL 内属正常状态）。
 - 因此**删除或移动 `-wal` 等于删库**。做「清理临时文件」这类操作时，`*-wal`/`*-shm` 一律不在可删清单内；要备份就**整组一起拷**（`config.db` + `config.db-wal` + `config.db-shm`）。或者先执行 `PRAGMA wal_checkpoint(TRUNCATE)` 把 WAL 收拢进主文件、确认 `-wal` 归零后只拷主文件——注意 checkpoint 本身**只是把日志写回主库并截断，不产生任何副本**，做完仍必须拷贝，不能把「已 checkpoint」当成「已备份」。
 - 该路径是**相对当前工作目录**解析的：在不同目录/ worktree 里启动服务，用的是各自独立的 `data/config.db`——排障时先确认进程的实际 cwd。
+
+## 12. 服务器部署（2026-10-12 修订）
+
+### 12.1 代码来源：只从 mulpub 取，不从 ops-center 取
+
+`Colinchiu007/ops-center` 是**已归档仓库**（2026-08-10 并入 mulpub，最后一条提交即「标注本仓库已并入 Multi-Publish（归档）」），其 `deploy/` 缺 `setup-service.sh`，内容是 2026-08 的快照。**从它 clone 会把归档版部署上线**。
+
+`deploy.sh` 现从 `Colinchiu007/mulpub` 稀疏检出 `ops-center/` 子目录，并在覆盖安装目录前校验 4 个必需文件（`backend/main.py`、`backend/requirements.txt`、`frontend/package.json`、`deploy/ops-center.service`），缺失即 `exit 1`——避免稀疏检出失败时拿半成品覆盖了线上代码。
+
+### 12.2 安装目录三处必须一致
+
+| 位置 | 值 |
+|------|-----|
+| `ops-center.service` 的 `WorkingDirectory` | `/opt/ops-center/backend`（唯一基准） |
+| `setup-service.sh` 的 `INSTALL_DIR` | `/opt/ops-center` |
+| `deploy.sh` 的 `INSTALL_DIR` | `/opt/ops-center` |
+
+曾因 `deploy.sh` 用 `/root/ops-center` 而另两处用 `/opt/ops-center`，后部署者把代码装到 systemd 不认的位置、服务起不来。三者均可用 `OPS_INSTALL_DIR` 覆盖，但**必须三处同时生效**。
+
+### 12.3 feature_gates 导入源必须显式配置
+
+`scripts/seed.py` 在 `source_path=None` 时只探测 `D:/Data/projects/platform-orchestrator/feature_gates.yaml` 与 `~/feature_gates.yaml`——**服务器上这两个都不存在**，功能开关会静默为空（功能开关页空列表/404）。
+
+`deploy.sh` 默认取 `/data/platform-orchestrator/feature_gates.yaml`，可用 `OPS_FEATURE_GATES_SOURCE` 覆盖；文件不存在时**显式告警**（不再静默跳过）。部署后请确认日志里 `Feature gates seeded: N added`，`N=0` 即为漏配。
+
+### 12.4 反馈图片目录必须可写
+
+`feedback_media_dir` 默认 `data/feedback-media` 相对 `WorkingDirectory` 解析，而 unit 开了 `ProtectSystem=strict`、`ReadWritePaths` 只放行 `/data/ops-center` 与 `/data/configs`，该路径不可写 → 反馈图片上传失败。
+
+unit 内已显式设 `OPS_FEEDBACK_MEDIA_DIR=/data/ops-center/feedback-media`。
+
+### 12.5 部署前必改项（否则启动 fail-closed）
+
+`setup-service.sh` 生成的 `/etc/ops-center/env` 含占位符，**不替换服务起不来**（不是「登录失败」，是 `config.run_startup_security_checks` 在启动期拒绝）：
+
+- `OPS_CORS_ORIGINS`：改为真实前端域名，禁止 `*`（带 credentials 会被 P0-6 判红）
+- `OPS_ADMIN_PASSWORD`：替换 `CHANGE_ME_BEFORE_START`（≥8 位且不在弱口令表内）
+
+### 12.6 部署脚本冒烟
+
+`deploy/smoke-deploy.sh` 离线验证三件事（不联网、不碰 systemd/nginx）：来源缺失时 fail-closed、`feature_gates` 缺失时告警并置空、`scripts.seed` 与 `database.init_db` 可导入。改动 `deploy/` 后应重跑。

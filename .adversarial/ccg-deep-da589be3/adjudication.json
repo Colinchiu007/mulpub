@@ -1,0 +1,105 @@
+{
+  "schemaVersion": 1,
+  "adjudicatedBy": "self-play",
+  "confidenceWeight": 0.6,
+  "reason": "stall/maxRounds 后自扮演裁决（引擎第三档出口）",
+  "highRiskNote": "高危域争议项不允许自扮演豁免，必须外部复核",
+  "requiresExternalReview": [
+    {
+      "id": "i1",
+      "severity": "Warning",
+      "domains": [
+        "auth"
+      ]
+    },
+    {
+      "id": "i2",
+      "severity": "Warning",
+      "domains": [
+        "auth"
+      ]
+    },
+    {
+      "id": "i4",
+      "severity": "Warning",
+      "domains": [
+        "auth"
+      ]
+    },
+    {
+      "id": "i5",
+      "severity": "Warning",
+      "domains": [
+        "auth"
+      ]
+    }
+  ],
+  "critiqueFingerprint": "1991d272ae8627ee",
+  "instructions": [
+    "对 items 里每一条争议，依次生成：",
+    "  1) 最强指控 —— 论证这条确实是真问题（含具体失败场景）",
+    "  2) 最强辩护 —— 论证这不是问题 / 已被别处覆盖",
+    "  3) 裁决 —— 哪一边论证更强，verdict 取 upheld（指控成立）/ dismissed（指控不成立）",
+    "裁决理由必须可验证，不得只写「看起来没问题」。"
+  ],
+  "items": [
+    {
+      "id": "i1",
+      "severity": "Warning",
+      "finding": "hasPostLoginProofCookie 内 view.webContents 访问无防护：短路/轮询/重试三处都可能同步 throw（r3-i4 只护了 loadURL），视图销毁竞态下 waitForPostLoginSession 拒绝、登录卡死，违反『绝不阻断登录』不变式。",
+      "highRiskDomains": [
+        "auth"
+      ],
+      "prosecution": null,
+      "defense": null,
+      "verdict": null,
+      "rationale": null
+    },
+    {
+      "id": "i2",
+      "severity": "Warning",
+      "finding": "功能有效性全系『主站会种 web_session』这一未验证行为；主站不种（风控/未识别登录态）时每次登录固定多等 17.5s、窗口跳 www，结果仍 -100，不比现状好，降级面未量化。",
+      "highRiskDomains": [
+        "auth"
+      ],
+      "prosecution": null,
+      "defense": null,
+      "verdict": null,
+      "rationale": null
+    },
+    {
+      "id": "i3",
+      "severity": "Warning",
+      "finding": "PRD §15『就绪判据=loadURL resolve』与实现（凭证轮询，注释明言不以 loadURL resolve 为准）同 PR 内互相矛盾，文档失同步。",
+      "highRiskDomains": [],
+      "prosecution": null,
+      "defense": null,
+      "verdict": null,
+      "rationale": null
+    },
+    {
+      "id": "i4",
+      "severity": "Warning",
+      "finding": "真实 web_session 的 domain 形状未取证，测试只定版 .xiaohongshu.com；若主站种 host-only www.xiaohongshu.com 而 isPlatformCookieDomain 严格匹配，proof 永不命中，每次登录白等满预算。",
+      "highRiskDomains": [
+        "auth"
+      ],
+      "prosecution": null,
+      "defense": null,
+      "verdict": null,
+      "rationale": null
+    },
+    {
+      "id": "i5",
+      "severity": "Warning",
+      "finding": "只配 redirect 忘配 PLATFORM_POST_LOGIN_PROOF_COOKIES 时每次登录静默等满 17.5s，无配置一致性校验，后续新增平台必踩坑。",
+      "highRiskDomains": [
+        "auth"
+      ],
+      "prosecution": null,
+      "defense": null,
+      "verdict": null,
+      "rationale": null
+    }
+  ]
+}
