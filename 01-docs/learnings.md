@@ -17815,3 +17815,11 @@ CCG 的 `HARDCODED_SECRET` 规则是「关键词 + `[:=]` + 引号内 8 字符�
 1. **写 UX 方案前先探「能力是否已存在」**：本任务共识里「自动兜底封面」是核心项，动手前调查发现发布链路（usePublishFlow）早已实现（PRD-ARTICLE-PUBLISH-IMAGE-2026-09-29），该项零代码。教训：对着痛点设计方案前，先用代码取证该断点的真实现状——「用户感觉没有」≠「产品没做」，可能是「做了但用户不知道」（提示透明度问题，不是能力问题）。
 2. **跳转函数 async 化是静默破坏既有测试的典型面**：goToDestination 从同步改为「先回写编辑再跳转」后，既有测试 trigger('click') 同步断言 pushSpy 会在 promise resolve 前跑，表现为「被调用 0 次」而非明确报错。凡把同步跳转改 async，同 PR 必须排查全部 trigger('click')+断言跳转的既有用例补 flushPromises。
 3. **i18n mock 下的文案契约断言要打 locales 源文件**：vi.mock('vue-i18n') 让组件渲染 key 而非文案，模板断言 t('xxx') 永远成立/不成立都与文案无关；正确锚点是 readFileSync 读 locales/{zh,en}.js 源码断言 key 与文案值（必须传 'utf8'，否则返回 Buffer 使 toContain 恒假且报错信息难读——本次实踩）。
+
+## 2026-10-12 topic-tag-unify（PR #3424）—— 门禁踩坑与解法
+
+- **品牌残留门禁（Gate 12）是字节级扫描**：写 PRD/CHANGELOG/注释时，参考产品名（中文名/全拼小写/大小写变体/三字母缩写共 7 种字面形式）一律写「参考产品」。CI 红的表象只有「QG Changes fail」，须点开日志看到「发现 N 处品牌残留」才能归因；本地先跑 `node scripts/check-no-brand-residue.js` 可一次过。**写 learnings 自身也会踩中**（本次第二条 learnings 引用产品名被门禁拦下），引用门禁时用「参考产品」指代。
+- **逐文件行数门禁（check-max-lines）点名还账文件零增长容差**：被 targets 点名的文件一行都不能涨。新增功能硬写必红。正确姿势：接线逻辑抽独立 composable、测试用例块拆独立 .test.js；纯删注释是脆解，结构性拆分才是正解。
+- **gate-record-debt 三源登记形态互不相同**：① `.quality-gates.md` 每篇记录 bullet 行 + 表格行同写同改；② `openspec/records/<slug>.md` 的 PENDING 用 frontmatter `sync_status/sync_reason/sync_backfill_owner` 三字段（登记随文件走）；③ `gate-record-debt-ledger.json` 的键必须与标题精确一致（含【混合 PR】后缀）且必须带 reason 字段。回填时四处同一次提交。
+- **`git rebase --continue` 卡 vim**：pre-commit 链会拉编辑器，非交互用 `GIT_EDITOR=true git rebase --continue`。
+- **worktree 里跑 vitest 必须 cd apps/desktop**：从 worktree 根跑，测试内 `process.cwd()` 相对路径解析 ENOENT 假红。
