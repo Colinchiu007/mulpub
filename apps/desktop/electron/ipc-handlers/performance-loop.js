@@ -160,7 +160,7 @@ function registerHandlers(ipcMain, deps) {
       // 查询失败不得吞成空结果：那会把「没拿到数据」渲染成「从未采集」的空态（与看板 FB7 同因）
       if (read && read.error) return { code: EC.REQUEST_ERROR, message: read.error }
       const status = typeof store.getAccountSyncState === 'function' ? store.getAccountSyncState(owner) : null
-      return { code: EC.SUCCESS, data: { metrics: read.metrics || {}, missing: read.missing || [], status } }
+      return { code: EC.SUCCESS, data: { metrics: read.metrics || {}, missing: read.missing || [], truncated: read.truncated === true, status } }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
 

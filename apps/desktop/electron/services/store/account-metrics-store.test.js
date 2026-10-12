@@ -266,8 +266,15 @@ describe('getHistoryMetricsByTaskIds（发布记录页的唯一指标读口）',
 
   it('T19d 空入参直接返回，不产生 IN () 语法错误', () => {
     const store = makeStore()
-    expect(store.getHistoryMetricsByTaskIds([], 'user-H')).toEqual({ metrics: {}, missing: [] })
-    expect(store.getHistoryMetricsByTaskIds(null, 'user-H')).toEqual({ metrics: {}, missing: [] })
+    expect(store.getHistoryMetricsByTaskIds([], 'user-H')).toEqual({ metrics: {}, missing: [], truncated: false })
+    expect(store.getHistoryMetricsByTaskIds(null, 'user-H')).toEqual({ metrics: {}, missing: [], truncated: false })
+  })
+
+  it('T19e 超出单次上限 ⇒ truncated 为真（不得静默丢弃：调用方要能区分「没采过」与「被上限丢掉」）', () => {
+    const store = makeStore()
+    const out = store.getHistoryMetricsByTaskIds(['a', 'b', 'c'], 'user-H', 2)
+    expect(out.truncated).toBe(true)
+    expect(out.missing).toEqual(['a', 'b'])
   })
 })
 

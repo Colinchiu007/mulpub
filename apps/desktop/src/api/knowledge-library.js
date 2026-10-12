@@ -28,7 +28,7 @@ export async function triggerPerformanceRecrawl() { return invokeWithFallback("t
 // 发布记录页指标读口 + 账号级低频采集（PRD-PUBLISH-HISTORY-ENGAGEMENT-2026-10-12）。
 // 兜底信封必须结构完整：无 electronAPI 时（浏览器/测试环境）返回空 metrics 而不是 null，
 // 否则渲染端读 data.metrics 会抛错，把「桥不可用」变成整页白屏。
-export async function historyMetrics(params) { return invokeWithFallback("historyMetrics", { code: -1, data: { metrics: {}, missing: [], status: null } }, params) }
+export async function historyMetrics(params) { return invokeWithFallback("historyMetrics", { code: -1, data: { metrics: {}, missing: [], truncated: false, status: null } }, params) }
 export async function metricsSync(opts) { return invokeWithFallback("metricsSync", { code: -1, data: null }, opts) }
 export async function metricsSyncStatus() { return invokeWithFallback("metricsSyncStatus", { code: -1, data: { status: null } }) }
 

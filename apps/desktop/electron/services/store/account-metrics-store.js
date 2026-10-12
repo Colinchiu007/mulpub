@@ -229,7 +229,11 @@ module.exports = {
       .filter(Boolean)
     const cap = Number(maxIds) > 0 ? Number(maxIds) : 500
     const unique = Array.from(new Set(ids)).slice(0, cap)
-    if (!this._ready || unique.length === 0) return { metrics: {}, missing: unique }
+    // ⛔ 截断必须**说出来**（QM-6 后端轴 MAJOR）：此前超出 cap 的 taskId 连 `missing` 都不含，
+    // 调用方无法区分「这条记录没采过」与「这条被上限丢掉了」——那正是本 PR 要修的 D2
+    // （「只拉 100 条」）换个数字重演。渲染端已按同一上限分批调用，本字段是给其他调用方的兜底。
+    const truncated = ids.length > cap
+    if (!this._ready || unique.length === 0) return { metrics: {}, missing: unique, truncated: false }
     const pred = ownerPredicate(ownerSubject, '')
     const placeholders = unique.map(() => '?').join(', ')
     try {
@@ -265,10 +269,10 @@ module.exports = {
           source: snap.source,
         }
       }
-      return { metrics, missing: unique.filter(id => !metrics[id]) }
+      return { metrics, missing: unique.filter(id => !metrics[id]), truncated }
     } catch (e) {
       log.warn('Store', 'getHistoryMetricsByTaskIds failed: ' + e.message)
-      return { metrics: {}, missing: unique, error: e.message }
+      return { metrics: {}, missing: unique, truncated, error: e.message }
     }
   },
 
