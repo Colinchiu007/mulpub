@@ -432,7 +432,7 @@ IMAGE_TEXT_PLATFORMS = ['xiaohongshu', 'kuaishou', 'douyin', 'toutiao']   // 要
 | ② | **放大镜** | `readEditorToast` 用 `innerText` 读 `.js_tips` / `[class*="tips"]` 等候选，而 `innerText` 对 `display:none` / 离屏节点**照样返回文本** ⇒ 编辑器里与本次失败无关的常驻说明（如视频弹幕规则）被当成「平台提示」拼进 error | 把可自愈的重试类问题伪装成平台业务错误 |
 
 **为什么 ② 比 ① 更值得修**：① 的后果是「明明存进去了却说没存进去」，用户重试一次往往就能成功；
-② 的后果是「用户看到一段与故障毫无关系的平台规则，完全无法自救」——它让一个**信息性问题**
+② 的后果是「用户看到一段与故障毫无关系的平台规则，完全无法自救」—— 它让一个**信息性问题**
 退化成了**玄学问题**。两类都必须修，但 ② 决定用户能不能自己走下去。
 
 ### 11.3 「弹幕提示」为什么必然出现在图文编辑页
@@ -478,18 +478,30 @@ IMAGE_TEXT_PLATFORMS = ['xiaohongshu', 'kuaishou', 'douyin', 'toutiao']   // 要
              ├─ 先按显式键名取：appMsgId / app_msg_id / appmsgid / appmsg_id
              └─ 取不到再走通用 publish-id 提取（rpa-publish-id-extract.js，同一份形态校验）
    │
-   └─ 三条全空 ⇒ fail-closed，error 走 F8 文案
+   └─ 三条全空 ⇒ fail-closed，error 走 F9 文案
 ```
 
 **为什么 ③ 必须是独立通道而不是 ② 的正则放宽**：② 判的是「响应 URL 里带 `appmsgid=`」，
-③ 判的是「响应体 JSON 里有 `appMsgId` 字段」——两者是**不同的数据位置**。
+③ 判的是「响应体 JSON 里有 `appMsgId` 字段」—— 两者是**不同的数据位置**。
 把 ② 的正则放宽到能匹配响应体，会让「响应 URL 匹配失败」与「响应体也没取到」混为一谈，
 日志与测试都无法区分是哪条通道给的 ID。
 
-**响应体字段口径与 API 轨对齐**：`appMsgId` 这个键名来自
-`packages/api-publish-engine/src/adapters/wechat-mp/draft.js` 的 `createDraft`
-（`data.appMsgId || data.app_msg_id || base.appMsgId`）—— 同一条链的 DOM 轨与 API 轨
-必须认同一个字段名，否则会出现「API 轨能建、DOM 轨不认」的分裂。
+**响应体字段口径与 API 轨对齐（依据是参考产品取证，不是推断）**：
+`appMsgId` 这个键名来自参考产品（4.0）逆向工程的六段实测取证之一 ——
+`01-docs/PRD-WECHAT-MP-API-TRACK-2026-10-12.md` §3 的「建草稿」行明确记载：
+
+> 建草稿 ｜ `POST /cgi-bin/operate_appmsg?t=ajax-response&sub=create&type=77&token=<T>&lang=zh_CN` ｜ 回包 `{appMsgId, base_resp}`
+
+即：**同一个 `operate_appmsg` 端点，参考产品回放编辑器 XHR 时拿到的就是 `appMsgId`**。
+本仓 API 轨 `packages/api-publish-engine/src/adapters/wechat-mp/draft.js` 的 `createDraft`
+（`data.appMsgId || data.app_msg_id || base.appMsgId`，`'0'` 视为未创建）就是照这份取证实现的。
+DOM 轨的保存请求打的是同一个端点家族，因此字段名口径与「0 不算创建」判据**直接继承**，
+不是新猜的。
+
+**这也解释了参考产品为什么「完全不碰 DOM」**（`01-docs/learnings.md` 的
+`wechat-mp-api-track` 复盘）：它不回放点击，而是直接重放编辑器自己会发的
+`operate_appmsg` XHR —— 那么 ID 当然只存在于响应体里。本 PR 修的正是
+「DOM 轨只认 URL」与「平台实际把 ID 放响应体」之间的这道缝。
 
 ### 13.2 F8 「平台提示」可见性判据（主进程）
 
@@ -508,8 +520,7 @@ IMAGE_TEXT_PLATFORMS = ['xiaohongshu', 'kuaishou', 'douyin', 'toutiao']   // 要
    └─ 可见且 innerText 非空 ⇒ 取前 200 字符返回
 ```
 
-**为什么必须判可见（实测取证）**：`innerText` 的规范行为是「按渲染样式计算文本」，
-但 Chromium 实测（2026-10-12，Playwright + 自建 fixture）：
+**为什么必须判可见（实测取证）**：Chromium 实测（2026-10-12，Playwright + 自建 fixture）：
 
 | 节点形态 | `innerText` | `textContent` |
 | --- | --- | --- |
@@ -650,8 +661,15 @@ mediaId 仍是群发段 `[appmsgid="<mediaId>"]` 行选择器的唯一依据。�
 | 项 | 状态 | 证据 |
 | --- | --- | --- |
 | `innerText` 对 `display:none` / 离屏节点返回文本 | ✅ 已实测 | Playwright + 自建 fixture（隐藏 `.js_tips` 文案被 `innerText` 读出） |
-| 新版后台保存后 URL 是否真的不跳转 | ⚠️ **未实测** | 本机无可用公众号账号会话（`accounts` 表 0 行、`publish_history` 表 0 行、今日 app.log 无任何 `wechat_mp` 记录）。依据是：① 编辑器 URL 带 `isNew=1`（新建态，保存后理应在原页完成）；② 保存按钮选择器含 `a#js_sync_save`（`js_sync_save` 是公众号「同步保存」入口，语义即不跳转）；③ API 轨 `readbackDraft` 用 `t=media/appmsg_edit&action=edit&appmsgid=` 回读，说明 ID 只在响应体/回读请求里流转 |
-| 真机发一条图文核对草稿三项齐全 | ❌ 未做 | 同上，无会话 |
+| 保存响应体字段名是 `appMsgId` | ✅ **有参考产品取证** | 参考产品（4.0）逆向工程实测契约（`PRD-WECHAT-MP-API-TRACK-2026-10-12.md` §3「建草稿」行）：同一 `operate_appmsg` 端点回包 `{appMsgId, base_resp}`；本仓 API 轨 `wechat-mp/draft.js` 照此实现并有 11 例 fake-http 测试锁定。**DOM 轨与 API 轨共用该口径** |
+| 新版后台保存后 URL 是否真的不跳转 | ⚠️ **本机未实测**（但有结构性依据） | 本机无可用公众号账号会话（`accounts` 表 0 行、`publish_history` 表 0 行、`app.log` 无 `wechat_mp` 记录）。依据：① 编辑器 URL 带 `isNew=1`（新建态，保存后理应在原页完成）；② 保存按钮是 `a#js_sync_save`（公众号「同步保存」入口，语义即不跳转）；③ **参考产品对公众号完全不碰 DOM、直接回放编辑器自己的 `operate_appmsg` XHR**（`learnings.md` 的 `wechat-mp-api-track` 复盘）—— 若保存会跳转，它这条路反而要多做一次跳转处理，与「回放即完成」的形态不符 |
+| 真机发一条图文核对草稿三项齐全 | ❌ 未做 | 无会话 |
+
+> **本条与「参考产品方法」的关系（用户提示后补充）**：参考产品对公众号的做法是**不碰 DOM、回放编辑器 XHR**，
+> 因此它的「保存成功判据」天然就是响应体 `appMsgId`，不存在「URL 里找 ID」这一步。
+> 本仓 DOM 轨受限于 `platforms.yaml` 仍是 `dom-only`（切换需真机验证 + 产品决策，见 API 轨 PRD §8），
+> 所以本轮做的是**把 DOM 轨的判据向参考产品已证实的响应体口径靠齐**，而不是改架构。
+> 真正的架构对齐（API 轨默认化）是 API 轨 PRD 已登记的非目标，需另案。
 
 ## 19. 相关文件（本章）
 

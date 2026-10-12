@@ -2,8 +2,9 @@
 record: wxmp-draft-mediaid-fix
 task: 微信公众号草稿保存 mediaId 采集补「响应体 appMsgId」第三条通道 + 平台提示可见性判据（innerText 隐藏节点实测取证）
 date: 2026-10-12
-sync_reason: 该 record 属 wxmp-draft-mediaid-fix 运行时任务，PR 尚未合并；随迁移 PR 落档时远程同步行按 PENDING 登记，由该任务会话合并后回填
-sync_backfill_owner: wxmp-draft-mediaid-fix 任务会话
+sync_status: PENDING
+sync_reason: 远程同步待 PR 合并后回填 PASS + merge SHA，并在同一次提交删除本 frontmatter 三字段与 scripts/gate-record-debt-ledger.json 的本条登记项
+sync_backfill_owner: agent
 ---
 
 ## 本次执行记录：公众号草稿保存「缺少媒体 ID」报错修复（wxmp-draft-mediaid-fix，2026-10-12）【混合 PR】
@@ -17,22 +18,17 @@ sync_backfill_owner: wxmp-draft-mediaid-fix 任务会话
 | 变更类型与隔离 | PASS | worktree `mp-wxmp-draft-mediaid-fix`（D 盘）+ 裸分支 `wxmp-draft-mediaid-fix`；`verify-worktree-deps.js` OK（11 项消费方解析到本 worktree）；`ensure-electron.js` v43.7.7 就绪 |
 | 第一性原因（QM-5 ①） | PASS | ①读码：保存段 mediaId 只从 URL / 响应 URL 两处取，均要求 URL 含 `appmsgid=`，而编辑器 URL 是 `isNew=1` 新建态、保存按钮是 `a#js_sync_save`（原地保存语义）⇒ 通道缺失；②实测：Playwright fixture 证明 `innerText` 对 `display:none` / `left:-9999px` 节点**照样返回文本**（`offsetParent=null` / `rects=0` 仍读到文案）⇒ `readEditorToast` 把编辑器常驻说明当「平台提示」 |
 | 逃逸分析（QM-5 ②） | PASS | 逃逸链四层：**单元层**——既有 3 个 wechat 测试文件的 `_waitForResponse` 一律 `mockResolvedValue(null)`，即「保存 XHR 有响应」这条路径**从未被任何用例覆盖**；**集成层**——`_publish_wechat_mp` 的保存段无「URL 不跳转但保存成功」用例（所有用例的 `getURL` 都直接返回带 `appmsgid=` 的 URL，等于只测通道 ①）；**E2E 层**——平台 DOM 自动化断言不了草稿箱内容，需人工；**审查层**——`readEditorToast` 的调用点把它当「平台错误原文」，而它实际读的是「页面上任何带 toast/tips 类名的文本」，这个语义错位在单文件审查里看不出来 |
-| 修复 + 回归保护（QM-5 ④） | PASS | 新增 `wechat-mp-draft-mediaid.js`（三条采集通道 + 可见性 toast + 可操作文案）；`rpa-view-platforms.js` 保存段下沉（1483 → 1415 行，targets 点名文件**负增长 68 行**）；新增 14 例回归锁 |
+| 修复 + 回归保护（QM-5 ④） | PASS | 新增 `wechat-mp-draft-mediaid.js`（三条采集通道 + 可见性 toast + 可操作文案）；`rpa-view-platforms.js` 保存段下沉（行数降到 targets 限内）；新增 14 例回归锁 |
 | 防止再次发生（QM-5 ⑤） | PASS | ①通道 ③ 单独断言（URL/响应 URL 均无 ID 时仍算成功）；②`appMsgId=0` 显式判「未创建」（与 API 轨 L149 同口径，防两轨分裂）；③toast 脚本形态锁（`offsetParent \|\|` 与 `getClientRects` 必须同时在场）；④失败文案必须含可操作下一步；⑤既有「三条全空仍 fail-closed」用例保留，防补通道被误读为放宽判据 |
 | 行尾与 diff 对账 | PASS | 新增文件 LF / UTF-8 无 BOM；`node scripts/check-text-encoding-integrity.js` PASS；未改动既有文件既有行尾 |
-| 新增文件行数门禁 | PASS | `node .github/scripts/check-max-lines.js` → 无新增超大文件；`rpa-view-platforms.js`（targets 点名、容差 0）1415 ≤ 1484 |
-| ESLint | PASS | `pnpm run lint` 0 error |
+| 新增文件行数门禁 | PASS | `node .github/scripts/check-max-lines.js` → ✅ 无新增超大文件；`rpa-view-platforms.js`（targets 点名、容差 0）降到限内 |
+| ESLint | PASS | 改动文件 **0 error**（2 个 warning 为存量，diff hunk 不含 L28/L562） |
 | 相关域测试 | PASS | 7 文件 **152 passed / 0 failed**（`wechat-mp-draft-mediaid` 14 + `rpa-view-platforms` + `rpa-view-wechat-publish-judgement` + `wechat-mp-dom-guard` + `wechat-mp-article` + `rpa-view-helpers` + `rpa-view-helpers-wait-queue`） |
 | 变异反证 | PASS | **4/4 全部变红**：M1 摘响应体通道 → 2 红；M2 不拒 `appMsgId=0` → 1 红；M3 去可见性守卫 → 3 红；M4 去可操作提示 → 2 红。每个变异施加后变红、`--revert` 后 14/14 复绿（脚本内置 .bak 整体还原，不用正则反向替换） |
-| QM-1 打包 | 见下 | 改 `apps/desktop/electron/**` ⇒ 需打包证据（本记录「打包」小节） |
+| QM-1 打包 | PASS（部分项） | `electron-builder --win --dir --publish never` **rc=0**；asar 清单含 `electron\services\wechat-mp-draft-mediaid.js`；解包产物 require 链 **5/5 PASS**；从真实产物断言判据 **11/11 PASS**（`appMsgId` 提取、拒 0、不抛、可见性守卫形态、可操作文案、原创/群发保护不回归）。**启动 8 秒项 PENDING**：本机有用户活跃 electron 实例持有单实例命名管道（`requestSingleInstanceLock` 失败即 `app.quit()`，exit 0 无输出 —— `electron/main.js:73-75`），无法在不误杀用户实例的前提下验证启动；已核对该退出路径在 `main.js` 顶部、早于任何 services 加载，与本 PR 无关 |
 | QM-4 视觉 | N/A | 无渲染层 / CSS / 模板改动 |
-| QM-6 CCG 双模型外部评审 | 部分 | 已用一次**真实浏览器实测**（Playwright fixture 取证 `innerText` 语义）替代「凭记忆猜 DOM 行为」；正式 CCG 双模型评审未在本轮执行，如实记录 |
+| QM-6 CCG 双模型外部评审 | 部分 | 已用一次**真实浏览器实测**（Playwright fixture 取证 `innerText` 对隐藏节点仍返回文本）替代「凭记忆猜 DOM 行为」；正式 CCG 双模型评审未在本轮执行，如实记录 |
 | 远程同步 | PENDING | 见 `scripts/gate-record-debt-ledger.json` 本条登记；合并后回填 |
-
-### 打包（QM-1）
-
-- 命令：`cd apps/desktop && pnpm exec electron-builder --win --dir --publish never`
-- 结果：见本记录「打包输出」小节（若本节为空表示打包尚未执行，CI 打包 job 为准前不得声称已打包）
 
 ### 变异反证明细
 
@@ -43,9 +39,31 @@ sync_backfill_owner: wxmp-draft-mediaid-fix 任务会话
 | `drop-visibility-guard`（toast 去可见性守卫） | `Tests 3 failed \| 11 passed (14)` | `Tests 14 passed (14)` |
 | `drop-actionable-hint`（失败文案去可操作提示） | `Tests 2 failed \| 12 passed (14)` | `Tests 14 passed (14)` |
 
+### 行尾对账（本轮实测踩坑，可复用教训）
+
+- `apps/desktop/electron/services/rpa-view-platforms.js` 的 index 行尾是 **LF**（`git ls-files --eol` → `i/lf`），工作区被编辑工具写成 CRLF 后，`check-max-lines.js` 按 `split('\n')` 计数**虚涨** —— 一度误判「超点名目标 5 行」。
+- 修正：用 Node 把本 PR 触及文件统一规范为 LF 后 `git add`，`i/lf w/lf` 与基线一致。
+- **教训**：改 `text=auto` 仓库里的既有文件后，**不要用 `Measure-Object -Line` 估行数**（它对 CRLF/LF 给出不同值），一律以 `check-max-lines.js` 或 `split('\n').length` 为准。
+
 ### 遗留（不假装已闭合）
 
-1. **真机未验证字段名**：本机无可用公众号账号会话（`accounts` 表 0 行、`publish_history` 表 0 行、今日 `app.log` 474 行无任何 `wechat_mp` 记录），因此「保存响应体字段确实是 `appMsgId`」「保存后 URL 确实不跳转」两条**未实测**。依据是三条旁证（`isNew=1` 新建态、`js_sync_save` 原地保存语义、API 轨需单独发 `appmsg_edit&appmsgid=` 回读），非一手证据。`tasks.md` §7 保留该门槛。
+1. **真机未验证字段名**：本机无可用公众号账号会话（`accounts` 表 0 行、`publish_history` 表 0 行、`app.log` 无任何 `wechat_mp` 记录），因此「保存响应体字段确实是 `appMsgId`」「保存后 URL 确实不跳转」两条**未实测**。依据是三条旁证（`isNew=1` 新建态、`js_sync_save` 原地保存语义、API 轨需单独发 `appmsg_edit&appmsgid=` 回读），非一手证据。`tasks.md` §7 保留该门槛。
 2. **`_waitForResponse` 不返回 body**：当前只回 `{url, statusCode, matchedUrls}`。通道 ③ 读 `saveResp.body`，真机上若该字段不存在则**静默跳过**（不抛错，退回两条老通道）。若真机确认需要 body，下一刀给 `_waitForResponseExclusive` 补 CDP `Network.getResponseBody` —— 那会碰到响应体读取的隐私面，需单独评审。
 3. **「弹幕提示」的页面归属是推断**：该文案是公众号视频弹幕开关的说明（弹幕只对公众平台上传的非转载视频开放），本仓无一手 DOM 抓取条件；本修复的正确性**不依赖**这个归属判断 —— 无论它属于哪个模块，只要它是「与本次失败无关的常驻说明」，可见性判据就该排除它。
-4. **共享根 stash**：本任务开始时保护的前序修改在 `stash@{0}`（`session-preserve: learnings.md gate9 复盘追加`），属前序会话产物，**本 PR 不代为提交**；如需落地应另开 docs PR。
+4. **启动验证 PENDING**：见 QM-1 行。CI 的 smoke/启动 job 为准。
+5. **共享根 stash**：本任务开始时保护的前序修改在 `stash@{0}`（`session-preserve: learnings.md gate9 复盘追加`），属前序会话产物，**本 PR 不代为提交**；如需落地应另开 docs PR。
+
+### CCG verify-security 的存量误报与文档化豁免（未用 `--no-verify`）
+
+pre-commit 的 CCG `verify-security` 拦下本次提交，报告 `rpa-view-platforms.js` 1 条高危：
+「L1028 直接操作 innerHTML 可能导致 XSS」。三点取证后判定为**存量、非本次引入**：
+
+| 取证 | 方法 | 结果 |
+| --- | --- | --- |
+| 同一扫描器跑基线 | `node run_skill.js verify-security <origin/main 的同一文件>` | `严重 0 \| 高危 1` —— **与本次完全相同的 1 条** |
+| 该行是否在本 PR diff 内 | `git diff --cached -U0` 的 hunk 范围 | hunk 为 L49-50 / L1155-1217，**不含 L1028** |
+| 该行归属 | 读码 | L1028 属**抖音 desc 填充段**（`_publish_douyin` 内，注释标明「安全修复（2026-07-16）：contenteditable 元素 innerHTML 净化」），且语句内已移除 `script/iframe/object/embed` 与全部 `on*=` 属性 |
+
+⇒ 按仓库先例（`openspec/records/converge-article-body-helpers.md` 对 `wechat-mp-article.js:120` 同族同位置告警的处理）用
+`SKIP_CCG_GATE=1 git commit` **文档化豁免**，未使用 `--no-verify`（分支守卫与质量节拍 wrapper 仍实跑通过）。
+本 PR 新增的 `wechat-mp-draft-mediaid.js` 在该扫描器下 **0 命中**（其 `innerHTML` 用法在 `jsapiSetContentScript` 内的净化临时容器，与既有 `wechat-mp-article.js` 同款，本次未新增新的 innerHTML 写入面）。

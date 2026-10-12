@@ -47,6 +47,24 @@ const PLATFORM_SUCCESS_PATTERNS = {}
 // ArticleAttr.Status（"2"=已发布、"6"=审核中，均视为提交成功）。
 const STRICT_PUBLISH_ID_PLATFORMS = new Set(['baijiahao', 'kuaishou', 'toutiao'])
 
+/**
+ * 读公众号编辑器**可见**的平台提示（wxmp-draft-mediaid-fix，判据见 PRD §13.2/§14.2）。
+ * 不用 `wechat-mp-dom-guard.readEditorToast`：它用 `innerText` 读候选节点，而 `innerText`
+ * 对 `display:none` / 离屏节点照样返回文本（实测）⇒ 编辑器常驻说明会被误当「平台提示」。
+ * @param {object} win BrowserWindow
+ * @returns {Promise<string>} 可见提示文本；无则空串（绝不抛）
+ */
+async function readVisibleEditorToast (win) {
+  const { buildVisibleToastScript } = require('./wechat-mp-draft-mediaid')
+  const { TOAST_SELECTORS } = require('./wechat-mp-dom-guard')
+  try {
+    const t = await win.webContents.executeJavaScript(buildVisibleToastScript(TOAST_SELECTORS))
+    return String(t == null ? '' : t)
+  } catch (_) {
+    return ''
+  }
+}
+
 function summarizePublishDiagnostics (records, artifact) {
   const source = Array.isArray(records) ? records : []
   const responses = source.slice(-20).map(record => ({
@@ -1152,43 +1170,22 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
       await win.webContents.executeJavaScript("(function(){let cb=document.querySelector('.weui-desktop-btn_wrp .weui-desktop-checkbox input, input#js_agree');if(cb&&!cb.checked){cb.click()}})()")
     } catch(e) { log.warn('RpaView','wechat_mp agree: '+e.message) }
 
-    // Save draft — 轮询保存成功标识（URL appmsgid 或页面提示），并捕获保存 XHR 作为兜底
+    // Save draft — mediaId 采集与失败文案整体下沉 wechat-mp-draft-mediaid.js（wxmp-draft-mediaid-fix，判据见 PRD §13/§14）：
+    // 补「XHR 响应体 appMsgId」第三条通道（新版后台 URL 不跳转，旧判据只认 URL/响应 URL ⇒ mediaId 恒空），
+    // 「平台提示」改为只读可见节点（innerText 对 display:none 照样返回文本，实测取证）。
     this._emitProgress('wechat_mp','saving draft...',70)
-    let mediaId = null
-    try {
-      const saveBtnSel = 'a#js_sync_save, a[data-action="save"], .weui-desktop-btn_primary:has-text("保存草稿"), .weui-desktop-btn_primary:has-text("保存"), button:has-text("保存草稿"), button:has-text("保存"), [class*="save_draft"], [class*="saveDraft"]'
-      // 新版后台保存草稿走 XHR，先挂响应监听，URL 不变时作为保存成功依据
-      const saveResponse = this._waitForResponse(win, ['operate_appmsg', 'appmsg/save', 'oper=save'], 30000)
-      const saveClicked = await this._click(win, saveBtnSel)
-      if (!saveClicked) {
-        { log.warn('RpaView', '[wechat_mp] save draft failed: save button unavailable url=' + win.webContents.getURL()); return { success:false, error:'微信公众号草稿保存失败：保存按钮不可用', platform:'wechat_mp' } }
-      }
-      // 轮询保存成功标识：URL 出现 appmsgid，或页面出现"保存成功/已保存"提示
-      const saved = await this._waitForCondition(win, 'function(){' +
-        'var u = location.href || "";' +
-        'if (/appmsgid=\\d+/.test(u)) return true;' +
-        'var t = (document.body && document.body.innerText) || "";' +
-        'return /保存成功|已保存/.test(t);' +
-      '}', 30000, 800)
-      const saveResp = await saveResponse
-      const finalUrl = win.webContents.getURL()
-      const match = finalUrl.match(/appmsgid=(\d+)/)
-      if (match) mediaId = match[1]
-      // 兜底：URL 未变化时尝试从保存 XHR 响应 URL 提取 appmsgid
-      if (!mediaId && saveResp && saveResp.url) {
-        const respMatch = String(saveResp.url).match(/appmsgid=(\d+)/)
-        if (respMatch) mediaId = respMatch[1]
-      }
-      if (!mediaId) {
-        log.warn('RpaView','wechat_mp save done without mediaId (saved=' + saved + ' url=' + finalUrl + ')')
-      }
-    } catch(e) {
+    const draftMediaId = require('./wechat-mp-draft-mediaid')
+    // saveWechatMpDraft 成功路径必返回 mediaId（字符串，可能为空串）；失败路径已在函数内 return
+    const saved = await draftMediaId.saveWechatMpDraft(this, win).catch((e) => {
       log.warn('RpaView','wechat_mp save: '+e.message+' url='+win.webContents.getURL()+' title='+win.webContents.getTitle())
-      return { success:false, error:'微信公众号草稿保存失败：'+e.message, platform:'wechat_mp' }
-    }
+      return { ok: false, error: '微信公众号草稿保存失败：' + e.message }
+    })
+    if (!saved.ok) return { success:false, error:saved.error, platform:'wechat_mp' }
+    const mediaId = saved.mediaId || ''
 
     if (!mediaId) {
-      { log.warn('RpaView', '[wechat_mp] save draft result unverifiable: missing mediaId url=' + win.webContents.getURL()); return { success:false, error: domGuard.mapSaveFailureMessage(await domGuard.readEditorToast(win), '微信公众号草稿保存结果无法验证：缺少媒体 ID'), platform:'wechat_mp' } }
+      log.warn('RpaView', '[wechat_mp] save draft result unverifiable: missing mediaId url=' + win.webContents.getURL())
+      return { success:false, error: draftMediaId.describeSaveFailure(await readVisibleEditorToast(win), '微信公众号草稿保存结果无法验证：缺少媒体 ID'), platform:'wechat_mp' }
     }
 
     // Mass send / Free publish（群发/发布；wechat-mp-publish-track）。正判据（消灭「点了就算成功」）：
@@ -1214,7 +1211,7 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
         const xhrHit = await xhrPromise
         const pageHit = await this._waitForCondition(win, 'function(){var t=(document.body&&document.body.innerText)||"";return ' + donePattern.toString() + '.test(t);}', 20000, 800)
         if (!xhrHit && !pageHit) {
-          const toast = domGuard.readEditorToast ? await domGuard.readEditorToast(win) : ''
+          const toast = await readVisibleEditorToast(win)
           log.warn('RpaView', '[wechat_mp] ' + actionLabel + ' no success evidence: xhr=' + JSON.stringify(xhrHit) + ' page=' + pageHit + ' toast=' + String(toast).slice(0,120))
           return { success:false, error:'微信公众号' + actionLabel + '结果无法确认（未收到平台成功信号），请到公众号后台核实后重试；' + String(toast || '').slice(0, 80), platform:'wechat_mp' }
         }

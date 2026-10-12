@@ -29,7 +29,7 @@
   - `describeSaveFailure(raw, fallback)` —— 失败文案必须带**可操作下一步**。
 - **修改** `apps/desktop/electron/services/rpa-view-platforms.js`：
   - 保存段整段下沉到新模块（该文件被 `max-lines-baseline.json` 的 `targets` 点名，
-    登记 1484 / 容差 0，本次改动后 1415 行，仍在限内）；
+    登记 1484 / 容差 0，本次改动后行数降到限内）；
   - 新增 `readVisibleEditorToast(win)`；群发/发布段的 toast 读取也切到可见性判据（同族缺陷）。
 - **新增** 回归锁 `wechat-mp-draft-mediaid.test.js`（14 例）。
 - **新增** 变异反证脚本 `scripts/mut-check-wxmp-mediaid.cjs`（4 个变异）。

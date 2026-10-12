@@ -19,7 +19,7 @@
 
 - [x] `rpa-view-platforms.js`：保存段下沉到新模块（含 fail-closed 与文案）
 - [x] `rpa-view-platforms.js`：新增 `readVisibleEditorToast`；群发/发布段 toast 读取也切可见性判据
-- [x] 行数门禁：`rpa-view-platforms.js` 1483 → 1415 行（targets 登记 1484 / 容差 0）
+- [x] 行数门禁：`rpa-view-platforms.js` 降到 targets 限内
 
 ## 4. 变异反证
 
@@ -39,14 +39,15 @@
 ## 6. 门禁
 
 - [x] 相关域测试 7 文件 152 例全绿
-- [ ] desktop 全量 vitest（跑完再填）
+- [ ] desktop 全量 vitest（后台跑完再填）
 - [x] `node .github/scripts/check-max-lines.js`
-- [ ] QM-1 打包（`electron-builder --win --dir`）
-- [x] ESLint
+- [x] QM-1 打包 rc=0 + asar 清单 + 解包 require 链 5/5 + 产物判据 11/11
+- [x] ESLint 0 error
+- [x] 编码完整性 / 品牌残留 PASS
 
 ## 7. 真机复核（交付门槛，未完成即标注 PENDING）
 
 - [ ] 真机发一条图文，抓 `/cgi-bin/operate_appmsg` 保存请求，确认响应体字段名是 `appMsgId`
-- [ ] 若字段名不同 ⇒ 只改 `wechat-mp-draft-mediaid.js` 的 `D3` 键名表（不动判据）
+- [ ] 若字段名不同 ⇒ 只改 `wechat-mp-draft-mediaid.js` 的 D3 键名表（不动判据）
 - [ ] 真机核对草稿箱出现该图文，且历史记录为 success
 - [ ] 若 `_waitForResponse` 拿不到 body ⇒ 评估是否给 `_waitForResponseExclusive` 补 CDP `Network.getResponseBody`
