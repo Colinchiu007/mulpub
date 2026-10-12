@@ -697,11 +697,15 @@ describe('子模块 require 链可加载', () => {
 })
 
 describe('影视工程 film-engineering preload API', () => {
-  it('createFilmEngineeringApi 应为函数且返回 25 个方法', () => {
+  // 25 → 26（2026-10-10，新增 productionRetryShot：出片台账批次的单镜重试通道）。
+  // 计数断言的意图是「方法面不得无理由增减」，故同时钉住新增方法名——只改数字会让
+  // 下一次误加方法时，人和 CI 都失去参照。
+  it('createFilmEngineeringApi 应为函数且返回 26 个方法', () => {
     const { createFilmEngineeringApi } = require('./preload/film-engineering')
     expect(typeof createFilmEngineeringApi).toBe('function')
     const api = createFilmEngineeringApi(ipcRenderer)
-    expect(Object.keys(api.filmEngineering).length).toBe(25)
+    expect(Object.keys(api.filmEngineering).length).toBe(26)
+    expect(api.filmEngineering.productionRetryShot).toBeTypeOf('function')
   })
 
   it.each([
@@ -717,6 +721,7 @@ describe('影视工程 film-engineering preload API', () => {
     ['generateSelected', 'film-engineering:generate-selected', [[{ shotId: 's1', prompt: 'p' }], { aspectRatio: '16:9' }]],
     ['uploadReference', 'film-engineering:upload-reference', [{ dataUrl: 'data:image/png;base64,AAAA' }]],
     ['retryShot', 'film-engineering:retry-shot', [{ runId: 'run-1', shotIndex: 0 }]],
+    ['productionRetryShot', 'film-engineering:production-retry-shot', [{ taskId: 't1', batchIndex: 0, shotIndex: 1 }]],
     ['downloadRecycled', 'film-engineering:download-recycled', [{ taskId: 't1', items: [{ shotId: 's1', orderIndex: 0 }] }]],
     ['productionPlan', 'film-engineering:production-plan', [{ shotIds: ['s1'] }]],
     ['productionRunBatch', 'film-engineering:production-run-batch', [{ taskId: 't1', shotIds: ['s1'], batchIndex: 0 }]],
