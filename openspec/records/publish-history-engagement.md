@@ -2,9 +2,6 @@
 record: publish-history-engagement
 task: 发布记录页作品互动数据回流（播放/评论/点赞/收藏/分享）与整卡打开内容页
 date: 2026-10-12
-sync_status: PENDING
-sync_reason: 本 PR（publish-history-engagement）尚未合并：远程同步行停在 PENDING，合并后由回填 PR 改写 PASS + merge SHA，并在同一次提交删除本条 frontmatter 三字段与 scripts/gate-record-debt-ledger.json 的登记项
-sync_backfill_owner: 本 PR 作者（publish-history-engagement 会话）
 ---
 
 ## 本次执行记录：发布记录页作品互动数据回流 + 整卡打开内容页（publish-history-engagement，2026-10-12）【混合 PR】
@@ -22,7 +19,7 @@ sync_backfill_owner: 本 PR 作者（publish-history-engagement 会话）
 | 行数门禁 | ✅ | `check-max-lines.js` 全绿。过程中两次真触发并按要求**外移**而非抬阈值：① `PublishHistory.vue` 被 `targets` 点名（1394 零容差）⇒ 把旁路合并 + 手工录入外移到 composable，**1393 → 1380**；② `core/container.setup.js` 498 行逼近 limit ⇒ 效果闭环三服务装配外移到 `core/register-engagement-services.js`，**498 → 493**；③ 修复评审时 `account-metrics/index.js` 涨到 505 ⇒ 凭证转换外移到 `cookies.js`，**505 → 446** |
 | locale 门禁（Gate 7） | ✅ | `check-locale-sync.js --cjk` PASS（基线 1489，当前 1224，无新增硬编码）、`--keys` PASS（1887 个使用中 key 均在 zh/en）、`--pair-base origin/main` PASS（zh/en 成对）。新增 16 个键成对写入 |
 | 品牌残留（Gate 12） | ✅ | `node scripts/check-no-brand-residue.js` PASS（扫描 8099 个 tracked 文件）。文档与代码里一律写「竞品 / 参考产品 4.13.19」，未抄含品牌词的逆向目录路径字面 |
-| 远程同步 | PENDING | PR 创建后由 CI 判定；合并后在本行与 `.quality-gates.md` 同名行回填 `PASS` + merge SHA，并同一次提交删除 `scripts/gate-record-debt-ledger.json` 登记项与 frontmatter `sync_status` |
+| 远程同步 | PASS | 已合并：PR #3385，merge 870d9f0f601cc4a24c7e0764d7a529363672ef84（2026-10-12T15:08:55+08:00，squash）。取证：`git log origin/main --grep "(#3385)$" --format=%H|%cI` 恰 1 行；`git ls-remote --heads origin publish-history-engagement` 0 行；本回填同一次提交删除 ledger 登记项与本文件 frontmatter `sync_*` 三字段，`.quality-gates.md` 同名行同步改写 |
 
 ### QM-6 处置（逐条）
 
