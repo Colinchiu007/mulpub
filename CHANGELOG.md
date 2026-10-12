@@ -5,6 +5,10 @@
 - 边界判据：半配置不顺着回退链往下走；「读取异常」与「没配」分别处置；空串 voiceId 按没配；无默认 provider 时 ②③ 无定位键即拒绝且两个读取实现调用数为 0；注入缺失 fail closed；非对象 voiceRef 当场拒绝。
 - 码表单点：复用分块层那一个用户可见码，层间靠 `issues[].path` 区分，并配「不得出现第二个 `PODCAST_*` 字面量码」的结构锁。
 - 16 条行为锁（含 3 条注入真 `tts-voice-catalog.getVoiceCapability` 的跨模块契约锁）；本机 2 files / 42 tests 全绿。本片刻意不接线宿主（不改 host、不加 IPC、不动浮层、不加 locale 键）。
+# [未发布] 单集 compliance 标记的合同（podcast-episode-compliance）
+
+- PRD 新增 §8.2：compliance 的闭集三态（ok/invalid/stock）、承载在 podcast:episode:list 的追加式 compliance 键、逐期校验失败与旁路降级语义、显示项与 zh/en 提示文字四条、实现片必须带的七条回归锁、以及故意不做三项。
+- 前置事实如实记录：播客域 compliance 本体当前不存在（grep 实测），因此 §7.9.5 第 4 条与 tasks 4.4b② 必须以本节为前置；本节明写"不是实现"，两处保持未勾。
 # [未发布] 存量播客单集 `mime` 一次性固化的合同（mime-stock-freeze）
 
 - PRD 新增 §7.9：把 tasks 4.4 写成可实现合同——事实前提（存量脏值分「缺席」与「非法」两类，处置不同）、固化动作（恰好一次、幂等、只补不改、按扩展名派生、派生不出就不猜）、数据校验与失败语义表、交互与显示项（`compliance` 增设 `stock` 档、频道页摘要）与 zh/en 提示文字三条、七条必须带的回归锁、以及故意不做的三项。

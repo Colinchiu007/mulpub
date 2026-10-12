@@ -723,6 +723,87 @@ pickChannel → colloquialize → chunk → ttsBlock(逐块，串行) → concat
 成对校验：`node .github/scripts/check-locale-sync.js --pair-base origin/main` PASS；`apps/desktop/src/i18n/glossary.test.js` 绿（口径是 **UI 采用词典 canonical 术语**，不是把词典削到已有裸词）。
 
 
+### 8.2 单集 `compliance` 标记（合同，2026-10-12；§7.9.5 第 4 条与 tasks 4.4b② 的前置）
+
+> **本节是合同，不是实现。** 写它的原因：§7.9 的存量固化要在 `compliance` 里加一档 `stock`，
+> 而 `compliance` 本体**至今不存在**（实测 `git grep -l compliance` 在播客域 0 命中，只落在
+> `prompt-evolution` 与 `tag-suggest`）。直接加 `stock` 档等于造一个只有一档的半成品。
+> 顺序因此是：先落本节（`ok | invalid | stock` 三态一起），再回填 §7.9.5 第 4 条。
+
+#### 8.2.1 判据的唯一来源与承载位置
+
+- 判据**不在展示层重写**：唯一实现是 §9「数据校验（三层）」第二层的引擎 `validateEpisode`，
+  其契约见 openspec 的 Requirement「单集写入必须按内容校验且区分严格模式」。本标记只做一次
+  **只读重跑**，输入是**合并后的完整对象**（不是传入的部分字段——那是该 Requirement 明禁的形态）。
+- 承载位置：`podcast:episode:list` 的返回由 `{ code, data: { episodes } }` 变为
+  `{ code, data: { episodes: [{ ...episode, compliance }] } }`（现网注册点在
+  `apps/desktop/electron/ipc-handlers/podcast.js`）。**新增键是追加式**：旧消费者不读它即行为不变，
+  不得改数组顺序、不得改既有键名。
+
+#### 8.2.2 `compliance` 的闭集形状（第四态即红）
+
+| 字段 | 类型 | 闭集/约束 | 语义 |
+| --- | --- | --- | --- |
+| `compliance.state` | string | 恰好 `ok / invalid / stock` 三值，枚举外即抛 | ok 通过；invalid 本次校验不通过；stock 存量沿用未再校验 |
+| `compliance.reasons` | string[] | `ok` 与 `stock` 时**必须为空数组**；`invalid` 时 ≥1 | 每项是领域码（`PODCAST_*` 一族），**不是句子** |
+| `compliance.checkedAt` | string | ISO8601；`stock` 档必须为空串 | 本次重跑的时刻；`stock` 没有"重跑"这件事，填时刻等于谎称校验过 |
+
+- `stock` 只看两件事：该期 `mimeSource === "stock"` 且 `index.json` 的 `stockStamp` 在位。
+  **不得**用"时间戳看起来很旧"猜来源（形态猜来源是本仓反复记过的错法）。
+- **禁止**用 `invalid` 概括存量：存量被整批判成不合规，用户看到的就是"我的老节目全坏了"，
+  这正是 §7.9 存在的理由。
+
+#### 8.2.3 流程与失败语义
+
+| 步骤 | 失败时 | 出声 |
+| --- | --- | --- |
+| 读 episodes（真源） | 读不出 ⇒ 列表按既有语义报错，不得因为标记失败而吞掉列表 | — |
+| 逐期只读重跑 `validateEpisode` | 单期抛错 ⇒ 该期 `state=invalid` + `reasons=[PODCAST_EPISODE_INVALID]`，其余照常 | `warn` 一条含 `channelId` 与计数，不记条目内容 |
+| 判 `stock` | 两个条件读不到 ⇒ 按 `invalid/ok` 正常判，不猜 `stock` | 不额外出声 |
+| 组装返回 | 组装异常 ⇒ 回落**不带 `compliance` 键**的原返回 | `warn`（旁路：标记是增强信息，不能毁掉列表） |
+
+关键不对称：`compliance` 是**旁路**、`episodes` 是**主路**。旁路失败降级为"这个键缺席"，
+而**不得**降级为"整期消失"或"列表报错"。
+
+#### 8.2.4 交互逻辑与显示项
+
+- 每期右侧一枚状态徽标：`ok` **不显示**任何徽标（沉默是正解，不给正常数据加噪音）；
+  `stock` 显示灰色「存量沿用」；`invalid` 显示橙色徽标，点开是 `reasons` 逐条翻译后的列表。
+- 与出期浮层的关系：浮层确认步**只读 `state !== "ok"` 决定是否二次提示**，不得自己重算判据
+  （两层判据必漂移）；`stock` **不阻断**出期——其音频直链若真坏了，会在 `probe` / `uploadAudio`
+  站按既有错误码如实失败，那里才是权威。
+- 不得把 `reasons` 的领域码直接当文案渲染给用户（那是给用户看堆栈）。
+
+#### 8.2.5 提示文字（zh / en 成对；落地片一次性写全并进 §11.5 生成表）
+
+| 键 | zh | en |
+| --- | --- | --- |
+| `podcast.compliance.stock` | 存量沿用（未重新校验） | Legacy value kept (not re-validated) |
+| `podcast.compliance.invalid` | 本条有 N 项不符合发布要求 | N items do not meet publishing requirements |
+| `podcast.compliance.reasonsTitle` | 具体原因 | Details |
+| `podcast.compliance.degradeNotice` | 本期信息不完整，仍可播出，但建议先修复 | This episode looks incomplete. It can still publish; fixing it first is recommended |
+
+术语与 `01-docs/i18n-glossary.md` 对齐：「存量」不得与「历史数据/旧数据」混用；
+改词典必须同 PR 跑 `apps/desktop/src/i18n/glossary.test.js`（键级成对锁覆盖不到术语成对）。
+
+#### 8.2.6 实现片必须带的七条回归锁（缺一条即不算落地）
+
+1. **闭集**：`state` 取枚举外值时组装必须抛；出现第四态即红（新增一档要同 PR 改本节）。
+2. **三态正例 + 负控**：`ok` 的 `reasons` 必须是空数组；`stock` 的 `checkedAt` 必须是空串；
+   `invalid` 的 `reasons` 必须非空且全是已知领域码（码表取 `podcast-error-codes.test.js` 那份清单，不新写一份）。
+3. **旁路降级**：注入组装期抛错 ⇒ 返回不含 `compliance` 键且 `episodes` 数量不变（不得整期消失）。
+4. **不猜存量**：`mimeSource` 缺席但时间戳很旧 ⇒ 判 `invalid/ok` 不得判 `stock`；配"填了时刻就谎称校验过"的反例变异。
+5. **判据同源**：`reasons` 必须来自 `validateEpisode` 的 `issues[].code`；"在展示层重写一份判据"必须被结构锁拦红。
+6. **追加式契约**：`episode:list` 既有键与顺序不变；对 `ipc-handlers/podcast.test.js` 既有断言零修改即为证据，改了任何一条都要在 PR 里点名理由。
+7. **locale 成对 + 清点式守卫同 PR 喂**：四个 `compliance.*` 键必须 zh/en 成对；领域码若首次面向用户，
+   `podcast-error-codes.test.js` 的 PRODUCERS 与渲染层清单必须同步扩域（否则本机全绿、CI 的清点式死锁变红）。
+
+#### 8.2.7 本节故意不做
+
+- 不做批量重校验的后台任务（会把只读标记变成写路径）。
+- 不引入 `compliance` 的持久化字段——它是每次读取算出来的视图量，落盘即过期。
+- 不在本节合并 §7.9 的 `stockStamp` 摘要 UI（那是 4.4b③）。
+
 ## 9. 数据校验（三层）
 
 | 层 | 判据 | 备注 |
