@@ -136,9 +136,16 @@ export default {
     // 卡片级新鲜度：超过 24h 才提示（不啰嗦）；一条新鲜记录不得把整页陈旧记录漂白
     metricsStale: (ctx) => '数据截至 ' + ctx.named('time'),
     metricsNeverCollected: '尚未采集作品数据',
-    metricsUnsupported: '该平台暂不支持自动采集',
+    // unsupported 按 reason 细分（reason 来自主进程 accounts[].error）：「没实现」与「签名没拿到」
+    // 的下一步动作不同，一句话糊过去等于让用户猜。
+    metricsUnsupported: '该平台暂不支持自动采集，此条数据可在详情弹窗手动录入',
+    metricsSignerUnavailable: '该平台需要签名服务，当前不可用。可稍后重试，或在详情弹窗手动录入',
+    metricsSignFailed: '该平台采集签名未成功（多为平台页面临时异常）。可稍后重试，或在详情弹窗手动录入',
+    metricsCookieIncomplete: '该账号登录信息不完整（缺少设备标识），请在账号页重新登录以补全',
     metricsNeedsLogin: '账号登录已过期，请在账号页重新登录',
     metricsFailed: '上次采集失败，可稍后重试',
+    metricsCollectFormatChanged: '平台数据格式有变化，暂无法采集该平台。可稍后重试，或在详情弹窗手动录入',
+    metricsSaveFailed: '保存失败，请稍后重试',
     cardTabTitle: (ctx) => '作品 · ' + ctx.named('title'),
     cardLinkOpened: '已在新标签页打开作品链接',
     cardLinkOpenFailed: '打开作品链接失败，请重试',

@@ -109,16 +109,73 @@ describe('发布记录页五项互动数据（T22/T24）', () => {
     expect(stats.attributes('title')).toBe('尚未采集作品数据')
   })
 
-  it('T24b 平台不支持 ⇒ 提示点名「该平台暂不支持自动采集」', async () => {
+  it('T24b 平台不支持 ⇒ 提示含原因与下一步（手动录入兜底），不再是一句死路文案', async () => {
     const wrapper = await mountWith([record({ platform: 'wechat_mp' })], {
       code: 0,
       data: {
         metrics: {},
         missing: ['task-1'],
-        status: { counts: {}, accounts: [{ accountId: 'w1', platform: 'wechat_mp', status: 'unsupported' }] },
+        status: { counts: {}, accounts: [{ accountId: 'w1', platform: 'wechat_mp', status: 'unsupported', error: 'no_adapter' }] },
       },
     })
-    expect(wrapper.get('[data-testid="record-stats-m-1"]').attributes('title')).toBe('该平台暂不支持自动采集')
+    const title = wrapper.get('[data-testid="record-stats-m-1"]').attributes('title')
+    expect(title).toContain('该平台暂不支持自动采集')
+    expect(title).toContain('手动录入')
+  })
+
+  it('T24b2 签名服务不可用 ⇒ 与「没实现」区分开（原因不同、动作不同）', async () => {
+    const wrapper = await mountWith([record({ platform: 'xiaohongshu' })], {
+      code: 0,
+      data: {
+        metrics: {},
+        missing: ['task-1'],
+        status: { counts: {}, accounts: [{ accountId: 'x1', platform: 'xiaohongshu', status: 'unsupported', error: 'signer_unavailable' }] },
+      },
+    })
+    const title = wrapper.get('[data-testid="record-stats-m-1"]').attributes('title')
+    expect(title).toContain('签名服务')
+    expect(title).not.toContain('暂不支持自动采集')
+  })
+
+  it('T24b3 签名失败 ⇒ 归因为「平台页面临时异常」，给可重试预期', async () => {
+    const wrapper = await mountWith([record({ platform: 'xiaohongshu' })], {
+      code: 0,
+      data: {
+        metrics: {},
+        missing: ['task-1'],
+        status: { counts: {}, accounts: [{ accountId: 'x1', platform: 'xiaohongshu', status: 'unsupported', error: 'sign_failed' }] },
+      },
+    })
+    expect(wrapper.get('[data-testid="record-stats-m-1"]').attributes('title')).toContain('签名未成功')
+  })
+
+  it('T24b4 快手设备指纹缺失 ⇒ 说「登录信息不完整」而不是「登录过期」（原因不同）', async () => {
+    const wrapper = await mountWith([record({ platform: 'kuaishou' })], {
+      code: 0,
+      data: {
+        metrics: {},
+        missing: ['task-1'],
+        status: { counts: {}, accounts: [{ accountId: 'k1', platform: 'kuaishou', status: 'needs_login', error: 'missing_cookie:kuaishou.web.cp.api_ph' }] },
+      },
+    })
+    const title = wrapper.get('[data-testid="record-stats-m-1"]').attributes('title')
+    expect(title).toContain('登录信息不完整')
+    expect(title).not.toContain('已过期')
+  })
+
+  it('T24b5 采集失败 reason 是技术形态（parse_error:...）⇒ 转成自然语言，技术文本不直出', async () => {
+    const wrapper = await mountWith([record({ platform: 'douyin' })], {
+      code: 0,
+      data: {
+        metrics: {},
+        missing: ['task-1'],
+        status: { counts: {}, accounts: [{ accountId: 'd1', platform: 'douyin', status: 'failed', error: 'parse_error:douyin: 响应缺少 aweme_list' }] },
+      },
+    })
+    const title = wrapper.get('[data-testid="record-stats-m-1"]').attributes('title')
+    expect(title).not.toContain('parse_error:')
+    expect(title).toContain('平台数据格式有变化')
+    expect(title).toContain('手动录入')
   })
 
   it('T24c 登录过期 ⇒ 提示引导去账号页重新登录', async () => {
