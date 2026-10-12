@@ -143,16 +143,29 @@ function classifyExcludePlacement (commandLine) {
 function parseDeclaredProjects (text) {
   const lines = String(text == null ? '' : text).split(/\r?\n/)
   let headerCount = null
+  let singularProject = null
   for (const l of lines) {
     const m = /Running[^\n]*?for\s+(\d+)\s+project/.exec(l)
     if (m) { headerCount = Number(m[1]); break }
+    // nx 在**只有一个**受影响项目时不打印计数，而是点名该项目：
+    //   ` NX   Running target test for project @multi-publish/api-publish-engine:`
+    //   （多项目形态才是 `for 12 projects:`）
+    // 2026-10-12 实测缺陷：此前只认带数字的形态 ⇒ 任何「恰好影响 1 个非 desktop 包」的 PR
+    // 恒被判「判据失联」而红（PR #3375 现场；本机 `node scripts/check-gate4-selection.js` 可复现）。
+    // 判窗不放宽：单数形态仍要求「头部点名的项目」与「- 清单」自洽且只列 1 个。
+    const s = /Running[^\n]*?for\s+project\s+([^\s:]+)\s*:?\s*$/.exec(l)
+    if (s) { headerCount = 1; singularProject = s[1]; break }
   }
   const projects = []
   for (const l of lines) {
     const m = /^- (\S+)\s*$/.exec(l)
     if (m && !projects.includes(m[1])) projects.push(m[1])
   }
-  const unparsable = headerCount === null || projects.length === 0
+  let unparsable = headerCount === null || projects.length === 0
+  // 单数形态的自洽检查：点名项目必须在清单里，且清单必须只有它一个
+  if (!unparsable && singularProject) {
+    if (!projects.includes(singularProject) || projects.length !== 1) unparsable = true
+  }
   return { projects, headerCount, unparsable, countMismatch: headerCount !== null && headerCount !== projects.length }
 }
 

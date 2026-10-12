@@ -158,8 +158,9 @@ describe('rpa-view-platforms — 微信公众号发布', () => {
 
   it('群发列表找不到已保存草稿时返回失败', async () => {
     const { win, executeJavaScript } = createWindow('https://mp.weixin.qq.com/cgi-bin/appmsg?appmsgid=12345&token=123456')
-    // 调用顺序：登录态检测（新）→ 同意勾选 → 群发列表草稿选择
+    // 调用顺序：群发保护预检（2026-10-12 新增，只在 massSend 时发）→ 登录态检测 → 同意勾选 → 群发列表草稿选择
     executeJavaScript
+      .mockResolvedValueOnce('') // 预检：无 wx.cgiData ⇒ 未开启群发保护，放行
       .mockResolvedValueOnce({ hasTimeout: false, hasLoginPrompt: false })
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(false)
@@ -206,6 +207,49 @@ describe('rpa-view-platforms — 微信公众号发布', () => {
       platform: 'wechat_mp',
     }))
     expect(result.error).toContain('群发确认')
+  })
+
+  // ── 2026-10-12 补强（wechat-mp-api-publish-track）：群发保护预检 + 原文链接尽力透传 ──
+
+  it('群发保护开启时拦在进入编辑器之前，并给出安全中心指引', async () => {
+    const { win, executeJavaScript } = createWindow('https://mp.weixin.qq.com/cgi-bin/appmsg?appmsgid=12345&token=123456')
+    executeJavaScript.mockImplementation(async (script) => (
+      String(script).includes('safecenterstatus') ? 'var wx = {}; wx.cgiData = {"protect_status":1};' : true
+    ))
+    const context = createWechatContext()
+
+    const result = await platformsMixin._publish_wechat_mp.call(context, win, { massSend: true })
+
+    expect(result).toEqual(expect.objectContaining({ success: false, platform: 'wechat_mp' }))
+    expect(String(result.error)).toContain('安全中心')
+    expect(String(result.error)).toContain('群发')
+    // 只导航了首页，不得进入编辑器（拦在源头，省一次无意义往返）
+    expect(context._navigateAndWait).toHaveBeenCalledTimes(1)
+    expect(context._click).not.toHaveBeenCalledWith(win, 'a.btn_masssend, a[data-action="masssend"]')
+  })
+
+  it('只存草稿（未开群发）时不发群发保护预检请求', async () => {
+    const { win, executeJavaScript } = createWindow('https://mp.weixin.qq.com/cgi-bin/appmsg?appmsgid=12345&token=123456')
+    const context = createWechatContext()
+
+    await platformsMixin._publish_wechat_mp.call(context, win, {})
+
+    const scripts = executeJavaScript.mock.calls.map(([s]) => String(s))
+    expect(scripts.some((s) => s.includes('safecenterstatus'))).toBe(false)
+  })
+
+  it('带原文链接时尽力填入（内容脚本含该 URL 且派发事件）', async () => {
+    const { win, executeJavaScript } = createWindow('https://mp.weixin.qq.com/cgi-bin/appmsg?appmsgid=12345&token=123456')
+    executeJavaScript.mockImplementation(async (script) => (
+      String(script).includes('sourceurl') ? 'input#js_source_url' : true
+    ))
+    const context = createWechatContext()
+
+    await platformsMixin._publish_wechat_mp.call(context, win, { content_source_url: 'https://example.com/src' })
+
+    const hit = executeJavaScript.mock.calls.map(([s]) => String(s)).find((s) => s.includes('https://example.com/src'))
+    expect(hit).toBeTruthy()
+    expect(hit).toContain('dispatchEvent')
   })
 
   // ── 2026-09-29 图文发布修复：token 提取 + appmsg_edit_v2（实测旧 URL 无 token 被重定向回首页） ──

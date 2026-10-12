@@ -50,6 +50,88 @@
 
 CDP 超时（2500ms）时仍会走既有 fail-open 降级路径（补注入 + 整页重载），极端负载下仍可能看到一次登录页闪烁
 （一次全量测试并发占满 CPU 的 E2E 运行中复现过）；未上调超时上限，理由与后续方案见 PRD §13。
+# [未发布] feat(publish): 微信公众号 API 发布轨落地（按参考产品逆向契约）+ 消灭「假成功」+ DOM 轨群发保护预检（2026-10-12，wechat-mp-api-track）
+
+### 背景：一个「可被调用但从不发布」的适配器
+
+`packages/api-publish-engine/src/adapters/wechat_mp.js` 的 `publish()` 只做了一件事：
+`GET /cgi-bin/appmsgpublish?sub=list`（**已发布内容列表**），拿到 `base_resp.ret === 0` 就
+`return { success: true, note: "Auth OK. Publish via appmsgpublish API needs token/params extraction" }`。
+它**忽略入参 `postData`**（含 title/content/cover/摘要/作者），一个字节都没发出去。
+`publishViaApi()` 因此正常 resolve，上层（HTTP 发布 API）拿到的是**假成功**——
+平台没建任何草稿，我们却报成功。这与上一轮修复的公众号「保存成功但草稿没内容」是同一类缺陷。
+
+可达性（本 PR 只记录判定口径，不改路由）：桌面发布流**不可达**（`platforms.yaml` 的 `wechat_mp` 是
+`has_api: false` + `publishMode: dom-only`）；但 `publish-api-server.js:1112` 用 `supportsApi()` 判定，
+**`POST /api/v1/publish {platform:"wechat_mp"}` 会拿到假成功**。
+
+### 修复：按参考产品的实测契约把 API 轨做成真的
+
+新增 `packages/api-publish-engine/src/adapters/wechat-mp/`：
+
+- `session.js` —— 会话 bootstrap：`GET /cgi-bin/loginpage?url=%2Fcgi-bin%2Fhome`，
+  正则提取 `token` / `nick_name` / `uin`(author_id) / **`user_name`(→ticketId)** / **`ticket`** / `can_app_msg`；
+  缺 token 或 author_id ⇒ `needRelogin`（fail-closed）。
+- `assets.js` —— 两条**不可互换**的图片轨：远程 URL → `uploadimg2cdn&t=ajax-editor-upload-img&imgUrl=`；
+  本地文件 → `filetransfer?action=upload_material&scene=8` multipart（`ticket_id`/`ticket` 来自会话）。
+  **最终 URL 只能来自平台回包**（`cdn_url`/`url`），绝不回退用输入路径。
+- `draft.js` —— 草稿请求体：字段名 + 文章序号扁平化；**封面写 5 个槽位**
+  （`cdn_url0`/`cdn_235_1_url0`/`cdn_16_9_url0`/`cdn_1_1_url0`/`cdn_url_back0`）；
+  `createDraft` 以 **`appMsgId` 为唯一成功依据**，`ret === "64714"` 单独映射为原创性校验失败；
+  新增**回读校验**（标题/正文/封面三项齐全才算成功——参考产品没有这一步，本仓补上）。
+- `draft-defaults.js` —— 中性默认字段表（契约快照，说明为什么照抄而不是省略）。
+- `wechat_mp.js` —— 改写为接线；`task-data.js` 的 `PASSTHROUGH_KEYS` 增
+  `cover_path`/`digest`/`content_source_url`/`comment_setting`/`is_original`（对其他适配器惰性）。
+
+### DOM 轨补强
+
+- 新增 `apps/desktop/electron/services/wechat-mp-dom-guard.js`：
+  **群发保护预检**（`safecenterstatus`，只在本次要群发时请求，`"protect_status":1` 即拦下并给出
+  「设置与开发 → 安全中心 → 风险操作保护 → 关闭群发消息保护」的可操作指引；预检自身失败 **fail-open** 放行）；
+  **原文链接（sourceurl）尽力透传**（候选选择器全未命中就静默跳过，绝不阻断发布）；
+  **失败文案映射**（64714 原创性 / 群发保护 / 保留平台原文）。
+- `rpa-view-platforms.js` 只做接线（该文件被行数门禁**点名还账**：targets=1476，改动后 1475）。
+
+### 验证
+
+| 项 | 结果 |
+| --- | --- |
+| 新增 API 轨测试 | 4 个文件 **57 例全绿**（注入假 HTTP，**零真实网络**） |
+| DOM 轨补强测试 | `wechat-mp-dom-guard.test.js` **19 例全绿** |
+| 集成测试 | `rpa-view-platforms.test.js` **83 例全绿**（+3 例：拦在编辑器之前 / 不开群发不发预检 / 原文链接尽力填） |
+| 包全量 | api-publish-engine **39 文件 / 327 例全绿** |
+| 变异反证 | **6/6 全部变红**：摘「无 appMsgId 即失败」/ 端点换回列表接口 / 封面只写 cdn_url0 / 会话不 fail-closed / 预检不判 massSend / 回读去掉正文判据 |
+| 静态门禁 | max-lines ✅（新文件均 <500）· ESLint 0 error · CCG verify-security：**本 PR 新增 5 个源文件 高危 0** |
+| 行尾对账 | `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径一致 |
+
+### 附带修复：GitHub Gate 4 自检在「恰好 1 个非 desktop 包受影响」时恒红
+
+本 PR 的 `QG Unit Tests` 首次判红即由此而来（日志原文：
+`affected 侧 A 的 nx 输出里取不到「Running target ... for N projects」声明 —— nx 报错或换了输出形态，判据失联`）。
+
+- **根因**：`scripts/check-gate4-selection.js` 的 `parseDeclaredProjects` 只认带数字的声明头
+  `Running target test for 12 projects:`；而 nx 在**只有一个**受影响项目时打印
+  `Running target test for project @multi-publish/api-publish-engine:`（**点名、无数字**）
+  ⇒ `headerCount === null` ⇒ 判 `unparsable` ⇒ 红。
+- **影响面**：其他开放 PR 的 diff 只落在 `apps/desktop`（被 `--exclude` 排除）⇒ affected 集为空 ⇒
+  走「`No tasks were run` 属合法空集」分支，因此都不红；**任何「恰好影响 1 个非 desktop 包」的 PR 必红**。
+- **修法**：单数形态纳入解析（`headerCount=1`）并加自洽检查（头部点名项目必须在 `- 清单` 内且清单只 1 项，
+  否则仍 `unparsable`）；**未放宽** A 臂不得含 desktop 的判据；affected 臂本来就不受 `MIN_OTHERS=11` 约束。
+- **证据**：门禁单测 `node --test scripts/check-gate4-selection.test.js` → **29/29**（新增 T21–T24）；
+  门禁实跑 `node scripts/check-gate4-selection.js` → `affected A 臂：nx 自己声明 1 个包，不含 desktop` → **OK**（修复前 FAIL）。
+
+### 未闭合（不假装已通）
+
+1. **真机验证 PENDING**：本机无可用公众号账号会话 ⇒「真实 `loginpage` HTML 核对六个正则」「真机建草稿核对
+   标题+正文+封面三项齐全」「回读页正文容器选择器」三项未做。
+2. **未切默认轨**：`platforms.yaml` 的 `wechat_mp` 保持 `has_api:false` + `dom-only`。
+   切换前置两条：① 真机证据；② 「API 已建草稿但回读不齐 ⇒ 外层 `api-then-dom` 降级 ⇒ 可能产生第二份草稿」
+   这一取舍需要产品决策。
+3. **既有缺陷（只记录）**：`publish-api-server.js` 用 `supportsApi()`（只看 REGISTRY 是否登记）而不是
+   `shouldUseApi()`，使 HTTP 发布 API 能调用任何「登记了但配置为不可用」的适配器。
+
+---
+
 # [未发布] fix(publish): 微信公众号图文草稿只有标题——补齐正文可信注入与封面上传，并让历史缩略图显示真实封面（2026-10-12，wxmp-article-content-cover）
 
 ## 背景

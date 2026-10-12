@@ -34,6 +34,10 @@ const PASSTHROUGH_KEYS = [
   'original', 'location',
   'collectionId', 'playlistId', 'collection',
   'goods', 'taskId',
+  // 公众号 API 轨（wechat-mp-api-publish-track）消费：图文封面/摘要/原文链接/评论开关/原创声明。
+  // 形状为扁平 snake_case，适配器按需读取；对其他适配器惰性（它们读的是 taskData.cover，
+  // 不是 cover_path），因此不改变任何既有平台的行为。
+  'cover_path', 'digest', 'content_source_url', 'comment_setting', 'is_original',
 ]
 
 /**
