@@ -67,7 +67,10 @@ const routes = [
     path: '/rollout',
     name: 'Rollout',
     component: () => import('../views/RolloutView.vue'),
-    meta: { requiresAuth: true },
+    // 2026-10-12 补：此前菜单项标了 adminOnly 而路由 meta 未标 —— 菜单对非 admin 隐藏，
+    // 但地址栏直达 #/rollout 仍放行（两道锁只上了一道）。现与菜单口径对齐。
+    // 依据：菜单既然隐藏入口，就没有理由保留「知道地址就能进」的旁门。
+    meta: { requiresAuth: true, adminOnly: true },
   },
   {
     path: '/publish-dashboard',

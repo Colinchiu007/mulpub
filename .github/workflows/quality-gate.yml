@@ -1572,6 +1572,11 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # --- Gate 9: PRD/源码自主覆盖审计 ---
+      # 判据单一真源：scripts/gate9-classify.js（可单测，勿再在此处抄 PowerShell 字面量）。
+      # 2026-10-12 三缺陷修复见该文件头注：① 作用域按变更文件落点分流（不再固定审桌面端，
+      #   #3413 只动 ops-center 被判 0.31 分拦合并、#3409 连挂 4 次即此根因）；
+      #   ② 空 LLM 输出不再静默放行（见 autonomous-gate 步的 verdict 探针）；
+      #   ③ 口径统一（CI advisory / 本机 enforce 分裂，见 gate-result 注释）。
       - name: "Gate 9 - PR metadata"
         id: pr-meta
         shell: pwsh
@@ -1579,20 +1584,27 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          PR_CHANGED_FILES: ${{ toJSON(github.event.pull_request.changed_files) }}
         run: |
           $title = "" + "$env:PR_TITLE" + ""
           $body = "" + "$env:PR_BODY" + ""
           $labels = "" + "$env:PR_LABELS" + ""
-          $isMaintenance = ($title -match '^(fix|chore|docs|refactor|test)\b') -or ($labels -match 'bug|fix|docs|refactor|chore|test')
-          if ($isMaintenance) {
-            "PR_MODE=report-only" | Out-File -Append $env:GITHUB_ENV
-          } else {
-            "PR_MODE=full" | Out-File -Append $env:GITHUB_ENV
+          $files = @()
+          if ($env:PR_CHANGED_FILES) {
+            try { $files = ($env:PR_CHANGED_FILES | ConvertFrom-Json) } catch { $files = @() }
           }
-          $ids = [regex]::Matches($body, 'feat_[A-Za-z0-9_]+') | ForEach-Object { $_.Value } | Sort-Object -Unique
-          if ($ids.Count -gt 0) {
-            "REQUIRED_FEATURE_IDS=$($ids -join ',')" | Out-File -Append $env:GITHUB_ENV
-          }
+          $input = @{ title = $title; body = $body; labels = $labels; changedFiles = $files } | ConvertTo-Json -Compress -Depth 4
+          $input | Out-File -FilePath gate9-input.json -Encoding utf8
+          $out = & node -e "const {classifyGate9}=require('./scripts/gate9-classify.js');const fs=require('fs');const r=classifyGate9(JSON.parse(fs.readFileSync('gate9-input.json','utf8')));fs.writeFileSync('gate9-meta.json',JSON.stringify(r));console.log('PR_MODE='+r.mode);console.log('GATE9_SRC='+r.srcDir);console.log('GATE9_DOCS='+r.docPaths.join(','));console.log('GATE9_REASON='+r.reason);if(r.featureIds.length)console.log('REQUIRED_FEATURE_IDS='+r.featureIds.join(','))"
+          $out | ForEach-Object { Write-Host $_ }
+          $mode = ($out | Select-String -Pattern '^PR_MODE=' | Select-Object -First 1).Line -replace '^PR_MODE=',''
+          $src = ($out | Select-String -Pattern '^GATE9_SRC=' | Select-Object -First 1).Line -replace '^GATE9_SRC=',''
+          $docs = ($out | Select-String -Pattern '^GATE9_DOCS=' | Select-Object -First 1).Line -replace '^GATE9_DOCS=',''
+          $ids = ($out | Select-String -Pattern '^REQUIRED_FEATURE_IDS=' | Select-Object -First 1).Line -replace '^REQUIRED_FEATURE_IDS=',''
+          "PR_MODE=$mode" | Out-File -Append $env:GITHUB_ENV
+          if ($src)  { "GATE9_SRC=$src"   | Out-File -Append $env:GITHUB_ENV }
+          if ($docs) { "GATE9_DOCS=$docs" | Out-File -Append $env:GITHUB_ENV }
+          if ($ids)  { "REQUIRED_FEATURE_IDS=$ids" | Out-File -Append $env:GITHUB_ENV }
       - name: "Gate 9 - Autonomous coverage audit"
         id: autonomous-gate
         shell: pwsh
@@ -1603,14 +1615,19 @@ jobs:
         run: |
           $PSNativeCommandUseErrorActionPreference = $false
           Write-Host "=== Gate 9: Autonomous Coverage Audit ==="
+          Write-Host "PR_MODE=$env:PR_MODE  SRC=$env:GATE9_SRC  DOCS=$env:GATE9_DOCS"
           $reportStart = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+          # srcDir/docs 由 gate9-classify.js 按变更落点给出；未给出时（report-only）传空串，
+          # 由审计器自身走 report-only 短路（run-autonomous-e2e.js:148 的 PR_MODE 判据）。
+          $src = if ($env:GATE9_SRC) { $env:GATE9_SRC } else { "apps/desktop/src" }
+          $docs = if ($env:GATE9_DOCS) { $env:GATE9_DOCS } else { "01-docs/PRD.md" }
           $auditArgs = @(
             "packages/ai-autonomous-tester/scripts/run-autonomous-e2e.js",
-            "--prd=01-docs/PRD.md",
-            "--src=apps/desktop/src",
+            "--prd=$docs",
+            "--src=$src",
             "--skip-server",
             "--skip-visual",
-            "--docs=01-docs/PRD.md",
+            "--docs=$docs",
             "--threshold=0.5"
             "--pr-mode=$env:PR_MODE"
           )
@@ -1621,6 +1638,29 @@ jobs:
           $exitCode = $LASTEXITCODE
           $output | ForEach-Object { Write-Host $_ }
           Write-Host "Autonomous audit exit code: $exitCode"
+
+          # 缺陷②（2026-10-12）：LLM 空输出原先走 agent-review-gate.js 的 AUDIT_NO_VERDICT
+          # 静默 exit 0 —— 「没审也算过」。这里做一次显式探针：报告文件存在但 verdict 无效
+          # （decision 缺失或 score=0 且 items 为空）时，往 PR 汇总里留痕，不再静默。
+          $verdictNote = ""
+          $reportFile = Get-ChildItem "apps/desktop/tests/visual-testing/reports/autonomous-e2e-report-*.json" -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if ($reportFile) {
+            try {
+              $rep = Get-Content $reportFile.FullName -Raw | ConvertFrom-Json
+              $v = $rep.coverage._verdict
+              if (-not $v -or -not $v.decision -or ($v.score -eq 0 -and @($v.items).Count -eq 0)) {
+                $verdictNote = "NO_VERDICT"
+                Write-Host "##[warning]Gate 9: 审计报告未产出有效 verdict（LLM 空输出/解析失败）——本 PR 的覆盖审计未实际执行，green 不代表已审计"
+              }
+            } catch {
+              $verdictNote = "NO_VERDICT"
+              Write-Host "##[warning]Gate 9: 审计报告不可解析（$($_.Exception.Message)）——覆盖审计未实际执行"
+            }
+          } else {
+            $verdictNote = "NO_REPORT"
+          }
+          if ($verdictNote) { echo "AUTONOMOUS_VERDICT_NOTE=$verdictNote" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append }
 
           $gateArgs = @(
             ".github/scripts/agent-review-gate.js",
@@ -1726,8 +1766,15 @@ jobs:
       # 本 job 是 main 的必需状态检查，但历史上只 echo 不判定，上游全红它也恒绿。
       # 口径：success/skipped 放行，其余（failure/cancelled/timed_out/action_required/空值）一律拦。
       # skipped 放行的依据：上游失败会把其下游置为 skipped，失败本身已由那个 failed 的上游捕获。
+      #
+      # 缺陷③口径统一（2026-10-12）：`autonomous` 在此列为 blocking，而 CI 侧 exec-record
+      # 跑的是 advisory（恒 0）、agent-review-gate 对 LLM 空输出也放行 —— 三处口径分裂。
+      # 现由 autonomous job 内的 verdict 探针补上「未实际审计」的可见性（AUTONOMOUS_VERDICT_NOTE），
+      # 此处把该 note 一并打印，使 blocking 的语义与可观测性对齐。
       - name: "Gate result"
         shell: pwsh
+        env:
+          AUTONOMOUS_VERDICT_NOTE: ${{ needs.autonomous.outputs.verdict-note }}
         run: |
           $results = [ordered]@{
             'changes'        = '${{ needs.changes.result }}'
@@ -1745,6 +1792,9 @@ jobs:
           Write-Host "=============================="
           foreach ($k in $results.Keys) {
             Write-Host ("  {0,-16}: {1}" -f $k, $results[$k])
+          }
+          if ($env:AUTONOMOUS_VERDICT_NOTE) {
+            Write-Host ("  autonomous-verdict : {0}  <-- 覆盖审计未实际产出有效 verdict（LLM 空输出/报告缺失），绿色不代表已审计" -f $env:AUTONOMOUS_VERDICT_NOTE)
           }
           Write-Host "=============================="
           $allowed = @('success', 'skipped')

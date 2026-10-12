@@ -1,4 +1,4 @@
-﻿const fs = require("fs");
+const fs = require("fs");
 const path = require("path");
 const { PRDParser } = require("./prd-parser");
 
@@ -52,9 +52,14 @@ class MultiDocParser {
       }
     }
 
+    // 状态标注 + 分层（2026-10-12，Gate 9 第 3 层）：标注在去重之后做一次，
+    // 保证每个条目只判一次、统计口径唯一。
+    const statusStats = this._annotateItems(allItems);
+
     return {
       items: allItems,
       sources: results.map(r => ({ type: r.type, label: r.label, path: r.path, itemCount: r.itemCount })),
+      statusStats,
     };
   }
 
@@ -78,6 +83,45 @@ class MultiDocParser {
       case "changelog": return this._parseChangelog(filePath);
       default: return this._parseGeneric(filePath);
     }
+  }
+
+  /**
+   * 给解析出的条目附加状态标注（2026-10-12，Gate 9 第 3 层）。
+   *
+   * 判据单一真源：scripts/gate9-prd-status.js（仓库根，Node 可直接 require）。
+   * 这里只做「标注 + 分层」，不改变条目的其余语义；auditScope 供下游
+   * （requirements-runner）决定是否计入覆盖率分母。
+   *
+   * 未标注条目 status=unknown / auditScope=true —— 保持既有行为，
+   * 不因为本次修复就把「没标注的」一律排除（那会凭空缩小审计面）。
+   */
+  _annotateItems(items) {
+    let annotator = null;
+    try {
+      // 相对仓库根：packages/ai-autonomous-tester/src/parsers → 上溯 4 层
+      const path = require("path");
+      const repoRoot = path.resolve(__dirname, "..", "..", "..", "..");
+      annotator = require(path.join(repoRoot, "scripts", "gate9-prd-status.js"));
+    } catch {
+      // 判据模块缺失时 fail-open：全部按 unknown 处理（既有行为），
+      // 不因基建缺失就把审计面静默改小
+      annotator = null;
+    }
+    const stats = { implemented: 0, planned: 0, "wont-do": 0, historical: 0, unknown: 0 };
+    for (const item of items) {
+      if (annotator) {
+        const parsed = annotator.parseItemStatus(item.name || "");
+        item.status = parsed.status;
+        item.statusTag = parsed.tag;
+        item.auditScope = annotator.shouldAudit(parsed.status);
+      } else {
+        item.status = "unknown";
+        item.statusTag = null;
+        item.auditScope = true;
+      }
+      stats[item.status] = (stats[item.status] || 0) + 1;
+    }
+    return stats;
   }
 
   async _parseReadme(filePath) {

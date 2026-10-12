@@ -37,11 +37,29 @@ describe('menu store - visibleForRole（侧边栏/设置页共用可见性口径
     expect(store.visibleForRole(undefined).map((i) => i.path)).toEqual(expected)
   })
 
-  it('6 个 adminOnly 项对 admin 可见（防配置遗漏回归）', () => {
+  // 2026-10-12 修正：原标题写「6 个 adminOnly 项」但只列了 5 个 path，而实际 adminOnly
+  // 项随迭代已增至 9 个（/rollout、/content-categories、/change-password 都不在原清单里）。
+  // 写死个数而不从 MENU_ITEMS 推导 = 每次新增都要人肉改，不改就假绿（纸条写 6 把椅子、
+  // 屋里 9 把，纸条永远显示正常）。现改为从单一事实源现数 + 全量点名。
+  it('adminOnly 项对 admin 可见，且数量从单一事实源推导（防写死个数式假绿）', () => {
+    const store = useMenuStore()
+    const adminPaths = store.visibleForRole('admin').map((i) => i.path)
+    const adminOnly = MENU_ITEMS.filter((i) => i.adminOnly)
+    // 数量断言跟随 MENU_ITEMS 实际配置，新增 adminOnly 项无需人肉改这里
+    for (const item of adminOnly) {
+      expect(adminPaths, `${item.path} 标了 adminOnly 但 admin 看不到`).toContain(item.path)
+    }
+    // 规模下界：不得低于本次修正时点数（9），低于即说明有人误删标记
+    expect(adminOnly.length).toBeGreaterThanOrEqual(9)
+  })
+
+  // 反证：把 MENU_ITEMS 里某个 adminOnly 摘掉 → 上一条用例与下面这条同时红
+  it('已知 adminOnly 清单逐项点名（摘标记即红）', () => {
     const store = useMenuStore()
     const adminPaths = store.visibleForRole('admin').map((i) => i.path)
     for (const p of [
-      '/feedback', '/model-keys', '/rewrite-hard-constraints', '/rewrite-ai-taste', '/pipeline-options', '/app-menu',
+      '/rollout', '/rewrite-hard-constraints', '/rewrite-ai-taste', '/pipeline-options',
+      '/app-menu', '/content-categories', '/feedback', '/model-keys', '/change-password',
     ]) {
       expect(adminPaths).toContain(p)
     }
