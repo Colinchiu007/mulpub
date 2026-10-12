@@ -2,9 +2,6 @@
 record: creator-multi-platform
 task: 博主监控多平台扩展——抖音/小红书接入（会话 Cookie 复用 + 纯算法签名）+ 视频号评估
 date: 2026-10-12
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填 PR 改写 PASS + merge SHA 并整段删除本三个 sync_ 字段
-sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账）
 ---
 
 # 博主监控多平台扩展（creator-multi-platform，2026-10-12）
@@ -26,9 +23,9 @@ sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账�
 | QM-4 视觉 | N/A | 添加弹窗新增平台 chip（新元素）、列表项新增平台徽标（新元素）；基线漂移交 CI Gate 7b |
 | QM-6 双模型评审 | PASS | 后端 claude：**Critical 0 / Warning 2 / Info 4**（session 23b34b14）。W1 抖音 HTTP 200 + status_code!=0 静默降级 ⇒ 已修（业务码分因 + body 签名判定挪出 >=400 守卫）；W2 query_str 未排序 ⇒ 已修（签名前按 key 排序）；I1 xhs 整串 Cookie 兜底 ⇒ 已修（只传 a1，缺 a1 报 400）；I2 503 回显 ImportError 原文 ⇒ 已修（固定指引、原文进日志）；另两条 CONFIRMED_CLEAN 正面确认（Cookie 复用无泄露 / fail-closed 解析无误配）。前端 opencode 未出标准 JSON 但其工作摘要命中 9 项候选 findings，全部处置：localeKey 透传缺失（真 bug）、platformLabel 中文硬编码、自动识别不选平台（真 bug）、unsupported chip disabled、platform 重置、字符串兼容分支删除、死键删除、hasSession 未登录小标；「detectedPlatform 与主进程判定重复」保留（渲染层仅预选提示，判定在主进程 fail-closed）。Python 全量 35 失败分域核实为 main 既有（32 例集中 test_xiaohongshu_dom_hardening.py，与本增量零交集） |
 | 未闭合（诚实登记） | — | ① 真机端到端需用户已登录抖音/小红书账号（单测以注入式 Cookie/httpGet 覆盖，不假装已验证）；② 签名算法是移动靶（降级路径已建：signature_failed → Tier B → 引导重登）；③ 视频号 unsupported（PRD §0 留证据）；④ 抖音/小红书暂无字幕转写（quality=stub/partial）；⑤ 单账号会话（多账号轮巡为后续切片） |
+| 远程同步 | PASS | PR #3420 已 squash 合并为 `8770e65c98b19357b55b50ef9e0173b501560a70`（2026-10-12T22:51:25+08:00）；取证：`git log origin/main --grep='(#3420)$' --format=%H|%cI` 恰好 1 行且 SHA 相同、`git ls-remote --heads origin creator-multi-platform` = 0 行。本行、`.quality-gates.md` 同名记录的两处（bullet + 表格行）、frontmatter 的 `sync_*` 三字段与 `scripts/gate-record-debt-ledger.json` 的登记项在**同一次提交**收口 |
 | 记忆沉淀 | PASS | PRD + 本记录 + CHANGELOG + learnings 置顶（签名库选型/会话复用/SM3 教训）+ gstack + EverOS（详见收尾链） |
-| 远程同步 | PENDING | 待本 PR 合并后回填 PASS + merge SHA，同一次提交删除 ledger 登记项 |
-
+\n
 ### QM-1 明细（asar 核对）
 
 - 产物 `apps/desktop/dist-electron/win-unpacked/resources/app.asar`；`asar list` 含

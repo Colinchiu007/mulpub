@@ -49,6 +49,5 @@
     "status": "PENDING",
     "line": 5
   },
-  "本次执行记录：钩子安装器回归锁（hook-installer-test，2026-10-12）【混合 PR】": "本 PR（hook-installer-test）的远程同步待合并后由后续 docs PR 回填并删除本条登记项",
-  "本次执行记录：博主监控多平台扩展——抖音/小红书接入（creator-multi-platform，2026-10-12）": "本 PR（creator-multi-platform）的远程同步待合并后由后续 docs PR 回填 PASS + merge SHA 并删除本条登记项"
+  "本次执行记录：钩子安装器回归锁（hook-installer-test，2026-10-12）【混合 PR】": "本 PR（hook-installer-test）的远程同步待合并后由后续 docs PR 回填并删除本条登记项"
 }
