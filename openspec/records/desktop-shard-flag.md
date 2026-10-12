@@ -2,9 +2,6 @@
 record: desktop-shard-flag
 task: 桌面分片从来没有分过文件——删掉 -ArgumentList 里的裸 "--"，并用"真跑一次读被调用方实收"的三层锁守住
 date: 2026-10-11
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填 PR 改写 PASS + merge SHA 并整段删除本三个 sync_ 字段
-sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账 → 按修复后分布重跑 node scripts/gate-budget-probe.js --check）
 ---
 
 ## 本次执行记录：桌面分片旗标送达 vitest（desktop-shard-flag，2026-10-11）
@@ -29,7 +26,7 @@ sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账 
 | 修复后真机验收（行为级，不必等合并） | PASS | 拉 `38154770929` 两个 job 的日志（`114515446046` / `114515446124`）跑 `.ccg/reviews/shardflag-legsets.driver.js`，产物 `.ccg/reviews/shardflag-legsets-postfix.txt`：vitest 自报 `(1/2) Test Files 437 passed (437)`、`(2/2) Test Files 436 passed \| 1 skipped (437)`；**按文件名集合**判：两腿各枚举 437 个、**交集 0、两侧独有各 437** ⇒ 分片真的分开了（修复前同一判据是 873/873、交集 873、两侧独有 0）。合计 874 而非修复前的 873，是因为 main 在这期间又并入了若干新增测试文件（`podcast-tts-compose.test.js` 等）——**总数会变，判据只看交集与两侧独有**，这正是当初把判据从计数换成集合的理由 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/**`、`packages/rpa-engine/**` 与任何前端文件；变更集只有 workflow、`.gitignore`、两个新建 `scripts/` 判据与 `.ccg/reviews/` 原件 |
 | QM-6 CCG 双模型外部评审 | PASS（两轴均已执行并逐条对自己取证） | 通道：CC Switch `:15721` 实测 `ECONNREFUSED`（node TCP 探针），两个 primary（`routing.backend=codex` / `routing.frontend=claude`）都绑它 ⇒ 走替代通道：逻辑轴 `opencode/nemotron-3-ultra-free`、可维护性轴 `opencode/ling-3.1-flash-free`；任务书 `.ccg/reviews/brief-dsf-{logic,maint}.md` 都显式写了"只读 + 结论进 stdout"。**与写型变异严格串行**：电池先跑完并逐字节还原，才发评审；评审期间我又改了一次 workflow（见"自纠"行），当时把改动撤回、等两轴落盘才重新落笔。**逻辑轴 6 条**：① MAJOR「探针只证 argv 送达、不证 vitest 真分片」**采纳，但否证其修法**——它建议用 `vitest list` 比对两腿文件数，本机实测 `list --filesOnly` 对 `--shard` **完全无反应**（全量/1÷2/2÷2 都是 873），照做会把正确实现判成缺陷；改用真 `vitest run` 在临时 4 文件系统实测 `1/2→[t3,t4]`、`2/2→[t2,t1]`、`1/4→[t3]`（单次约 0.7 秒），据此新增**语义层** `runShardSemantics`（两腿互斥 + 合计等于夹具数 + 空腿即失明，三条各有独立反证 J/K/L）。② MINOR「字符串内行尾反引号是假阳」**实测否证**：pwsh 7.6.6 解析该形态 `PARSE_ERRORS=1`、CommandAst 数 0（字符串从未闭合），是真错；全仓 workflow 也零 here-string ⇒ 命中即红是对的，并把这条事实钉成锁。③ MAJOR「抹空注释后可能跨步骤串台」——按建议补了一条对照锁（真实块后面再放一个 `-ArgumentList @(...)`，解析结果必须逐字不变），并加变异 M（惰性改贪心必须红）。④ INFO「合并后 PROVENANCE 的 prior/current 档要跟着换」成立 ⇒ 写进"远程同步"行的复测口径。⑤ MINOR「PR 正文『两腿汇总逐字相同 ⇒ 各跑全量』是过度声明」**成立并已改**：判据从计数换成**集合**（见"CI 活体证据"行）。⑥ CRITICAL「判据本体从未接进 CI 可执行步骤，记录在虚报」**成立**——与我自己的自查同源，已接线并显式转存退出码。**可维护性轴 7 条（2 MINOR / 5 INFO，零 MAJOR/CRITICAL）**：MINOR-1「ps3state 原件的 A 态读 `git show HEAD:WF`，合并后 A 会变成 C，对账第 3 条必然假红，而 rc=1 会被读成『当前代码坏了』」**采纳**——A 态改钉死在修复前的 main tip `d72cd2bd8` 并在产物头打印 `A_base=`。MINOR-2「`check-gate-record-debt` 对 `PENDING→PASS` 这类复合箭头：状态列判未收口，但 `sync_*` 三字段还在就按已登记欠账绿灯，『谎称已 PASS』那一半无人检测」——属**他人会话的既有门禁缺口**，非本 PR 引入，登记进"遗留"不在这里动。INFO-1..5（存在性锁挡不住注释化、抽取触发条件、注入缝双层是有意、驱动无全局 try/finally 但逐案还原断言在、数值散落靠出处锚定）逐条按实测接受现状并记因。两轴结论落盘位置：逻辑轴只进 stdout（本行即其入库形态），可维护性轴同样只进 stdout（它按硬约束拒绝写文件，实测未落 `dsf-maint.json`） |
-| 远程同步 | PENDING | 合并后按 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 取 merge SHA 与时间，`git ls-remote --heads origin desktop-shard-flag` 返回 0 行证远端分支已删，`gh pr view <N> --json state,mergedAt,mergeCommit` 与之两源同 sha 对表；把本行改写成 PASS + SHA（**状态列只写当下状态**，不写历程；尤其**不得**写 `PENDING→PASS` 这类复合箭头），并在**同一次提交**里删除 frontmatter 的三个 `sync_*` 字段（本记录走新载体登记，不存在要另外删的 ledger 条目）。回填时要一并取三笔现场：① 两个新 shard job 的日志跑一次 `.ccg/reviews/shardflag-legsets.driver.js`，两侧独有项必须 > 0（这是"分片真的生效"的闭环证据）；② `node scripts/gate-budget-probe.js --check`（`probe_errors=0` 才算读到）；③ **`PROVENANCE` 的 prior/current 档描述此时已换代**——旧 `shardMaxSuccessMin=29.77` 属"两腿各跑全量"形态，新窗口必须标注采集时刻与该形态的分界，且样本数未达 20 前**不改数**（QM-6 逻辑轴 INFO#4 的处置口径） |
+| 远程同步 | PASS | squash 合并进 main：merge SHA `c4436a23fd99e3802efb26a607ee4cd32de488d1` @ 2026-10-12T16:30:25Z（两源同 sha 对表：`git log origin/main --grep='(#3357)$' --format=%H|%cI` 得 `c4436a23f…|2026-10-13T00:30:24+08:00`，`gh pr view 3357 --json state,mergedAt,mergeCommit` 得 `MERGED` + 同一 oid）。远端分支已删：`git ls-remote --heads origin desktop-shard-flag` 返回 **0 行**。合并前 CI（head `912b34fdb`，run `38268742181`）= 19 pass + 1 skipping（release，docs-only 预期外的非重型短路属预期）+ **0 fail + 0 pending**，11 个 job 全 success。**合并后 mandated 复测已跑，但结论是"这笔账要换形态重采"**：`node scripts/gate-budget-probe.js --check` @ 2026-10-12T16:38:30Z ⇒ `probe_errors=0`、`hugging=false`（max 31.55 / 预算 45）、**`sizing_ok=false`**，理由 `RULE_VIOLATED：预算 45 分 < 观测成功最大 31.55 分 × 1.5 = 47.33 分`。**这个 31.55 不是分片修复后的数**：探针窗口（push n=40 / pr n=60）里 shard 成功样本横跨三个形态——12:40Z 前预算 30 分（撞墙即被杀，成功侧上界≈29.77）、12:40Z~16:30Z 预算 45 但**分片仍失效**（两腿各跑全量，于是出现 31.55 这种"全量能跑完 45 分预算"的成功样本）、16:30Z 起才是真分片。真分片形态的成功样本此刻**为 0**（合并触发的 main push run `38277872325` 在我写这行时仍 in_progress）。所以按本仓自己的口径处理：**既不为让它不红去改判据/改倍数，也不拿一个旧形态的最大值去把预算抬到 50**——那是拿"两腿各跑全量"的时长去给"每腿半量"定预算，方向正好是错的。正解见下方"遗留"新增那条。 |
 | 为什么建议人工过目（而不是自动合并） | 已按规则停在这里 | 本 PR 改的是**CI 的实际行为**：两个 matrix 腿从"各跑全量 873 个文件"变为真正各跑一半，`QG Desktop Shards` 的耗时分布随之改变，进而使 #3313 那组 `PROVENANCE.shardMaxSuccessMin`（29.77 分，来自"分片失效 + 全量两遍"的形态）在合并后**立即过期**。判据第 5 条（agent 自查争议）在这里成立的点是：合并后 main 上的 shard 侧样本口径会换一代，而 45/55 这档预算是按旧口径定的；我不希望这件事在无人过目的情况下自动落地 |
 
 ### 遗留（不假装已闭合）
@@ -50,6 +47,12 @@ sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账 
 - **`shardflag-ps3state.driver.js` 的 A 态已钉死在修复前的 main tip `d72cd2bd8`**（QM-6 MINOR-1）：
   合并后它仍可重跑，但语义是"历史证据的再生成器"而不是"当前代码的检查"——若谁把它改回读 HEAD，
   A 态会变成修复形态，"A 的 extent 里确有裸 `--`"那条对账每次必假红，而 rc=1 会被下一个会话读成"代码坏了"。
+- **探针按"形态"分档这件事没做，是它现在会误报的直接原因（回填时实测）**：`gate-budget-probe.js` 把窗口内所有 `Desktop tests shard`
+  成功样本混成一池，而这一步在 2026-10-12 一天之内换了**两代形态**（12:40Z 预算 30→45；16:30Z 分片从"两腿各跑全量"变为真半量），
+  同一个 `shardMaxSuccessMin=31.55` 属于**中间那一代的坏形态**（全量在 45 分预算下能跑完），拿它 ×1.5 去抬预算等于给"半量"定"全量"的墙。
+  正解是给探针的 provenance 增加**形态键**（至少 `budget_at_run` 与"该 run 的 workflow 是否已含分片修复"两个可判定字段，
+  或直接把采集窗口按 merge SHA 切段），并让 `RULE_VIOLATED` 只在**同形态样本数 ≥ 20** 时才允许判"要重定数"，
+  否则报 `INSUFFICIENT_SAMPLES_FOR_FORM` 而不是让人去改数。这是独立一笔（改判据本身 ⇒ 需人工过目），不在本回填里夹带。
 - **矩阵仍是 2 片**，且 `--maxWorkers=1` + `--no-file-parallelism` 让单腿内部完全串行。要不要切更多片、以及每片是否放开文件级并行，是容量调优，与本 PR 的"旗标到底送没送到"是两件事，不叠。
 - **`.quality-rhythm` vendored 模板仍带旧字面量**（`quality-gate.yml.tpl`、`shard-matrix.yml.tpl` 的 `1800000`），沿 #3313 的登记：属上游技能制品，不在本 PR 动 vendored 镜像。
 - 本 PR 未触 `.github/scripts/workflow-contract.test.js`。若后续有人把 shard 步骤改名，`SHARD_STEP_NOT_FOUND` 会当场抛错而不是静默放行——这是有意设计（改名要连着改判据），但也意味着**改名那一刻必须同 PR 更新本锁**，属 AGENTS.md「门禁断言随实现迁移同步」的同族。
