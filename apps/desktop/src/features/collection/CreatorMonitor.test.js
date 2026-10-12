@@ -88,6 +88,15 @@ const messages = {
       creatorCredentialStatusDecryptFailed: '已保存的 API Key 无法解密。请重新填写。',
       creatorCredentialStatusReadFailed: '本地存储读取失败，无法确认密钥状态。',
       creatorDependencyOptionalHint: '字幕增强依赖未就绪：仍可发现与采集，正文质量会降级。可执行：{command}',
+      creatorPlatformLabel: '平台',
+      creatorPlatformDouyin: '抖音',
+      creatorPlatformXiaohongshu: '小红书',
+      creatorPlatformYoutube: 'YouTube',
+      creatorAddPlatformAuto: '已识别为 {platform}',
+      creatorErrWrongPlatform: '这是其他平台的链接。',
+      creatorErrUnsupportedPlatform: '暂不支持该平台。',
+      creatorErrCredentialMissingForPlatform: '未登录 {platform} 账号。',
+      creatorErrSignatureFailed: '{platform} 接口校验失败，登录态可能已过期。请重新登录。',
     },
   },
   en: { collection: {} },
@@ -135,6 +144,7 @@ beforeEach(() => {
     creatorCredentialStatus: vi.fn().mockResolvedValue({ code: 0, status: 'ok', fingerprint: 'ab12' }),
     creatorCredentialSet: vi.fn().mockResolvedValue({ code: 0, status: 'ok', fingerprint: 'ab12', looksLikeGoogleKey: true }),
     creatorCredentialClear: vi.fn().mockResolvedValue({ code: 0, status: 'not_configured' }),
+    creatorPlatforms: vi.fn().mockResolvedValue({ code: 0, platforms: [ { id: 'youtube', label: 'YouTube', localeKey: 'creatorPlatformYoutube', supported: true, hasSession: true }, { id: 'douyin', label: '抖音', localeKey: 'creatorPlatformDouyin', supported: true, hasSession: false }, { id: 'xiaohongshu', label: '小红书', localeKey: 'creatorPlatformXiaohongshu', supported: true, hasSession: false } ] }),
     creatorDependencyStatus: vi.fn().mockResolvedValue({
       code: 0,
       discovery: { ready: true, reason: '' },
@@ -451,7 +461,7 @@ describe('CreatorMonitor · 添加博主（替换 window.prompt）', () => {
     await w.find('[data-testid="creator-add-input"]').setValue('@NewChannel')
     await w.find('[data-testid="creator-add-confirm"]').trigger('click')
     await flushPromises()
-    expect(globalThis.electronAPI.creatorFollow).toHaveBeenCalledWith({ input: '@NewChannel' })
+    expect(globalThis.electronAPI.creatorFollow).toHaveBeenCalledWith({ input: '@NewChannel', platform: 'youtube' })
     // 关注后不探测会表现为「加了没用」——必须立刻检查一次
     expect(globalThis.electronAPI.creatorCheckNow).toHaveBeenCalledWith({ followId: 'f9' })
     expect(w.find('[data-testid="creator-add-dialog"]').exists()).toBe(false)
@@ -504,5 +514,78 @@ describe('CreatorMonitor · 添加博主（替换 window.prompt）', () => {
     await flushPromises()
     expect(globalThis.electronAPI.creatorFollow).not.toHaveBeenCalled()
     expect(w.find('[data-testid="creator-add-error"]').text()).toContain('输入过长')
+  })
+})
+
+describe('CreatorMonitor · 多平台（PRD-CREATOR-MULTI-PLATFORM）', () => {
+  it('提交时把所选平台一起发给主进程', async () => {
+    globalThis.electronAPI.creatorFollow.mockResolvedValue({
+      code: 0, creator: creator({ id: 'c9', platform: 'douyin', external_id: 'MS4wLjABAAAA' + 'A'.repeat(28) }), follow: { id: 'f9' },
+    })
+    const w = mountMonitor()
+    await flushPromises()
+    await w.find('[data-testid="creator-add"]').trigger('click')
+    await nextTick()
+    // 渲染平台 chip 并选择抖音
+    expect(w.find('[data-testid="creator-add-platform-douyin"]').exists()).toBe(true)
+    await w.find('[data-testid="creator-add-platform-douyin"]').trigger('click')
+    await w.find('[data-testid="creator-add-input"]').setValue('MS4wLjABAAAA' + 'A'.repeat(28))
+    await w.find('[data-testid="creator-add-confirm"]').trigger('click')
+    await flushPromises()
+    const call = globalThis.electronAPI.creatorFollow.mock.calls[0][0]
+    expect(call.platform).toBe('douyin')
+  })
+
+  it('平台 URL 自动识别提示', async () => {
+    const w = mountMonitor()
+    await flushPromises()
+    await w.find('[data-testid="creator-add"]').trigger('click')
+    await nextTick()
+    await w.find('[data-testid="creator-add-input"]').setValue('https://www.xiaohongshu.com/user/profile/' + 'a'.repeat(24))
+    await nextTick()
+    expect(w.find('[data-testid="creator-add-platform-auto"]').exists()).toBe(true)
+    expect(w.find('[data-testid="creator-add-platform-auto"]').text()).toContain('小红书')
+  })
+
+  it('博主列表项渲染平台徽标（data-platform）', async () => {
+    globalThis.electronAPI.creatorList.mockResolvedValue({
+      code: 0, totalPending: 0,
+      items: [creator({ id: 'c1', platform: 'douyin' }), creator({ id: 'c2', platform: 'youtube' })],
+    })
+    const w = mountMonitor()
+    await flushPromises()
+    expect(w.find('[data-testid="creator-item-c1"] [data-platform="douyin"]').exists()).toBe(true)
+    expect(w.find('[data-testid="creator-item-c2"] [data-platform="youtube"]').exists()).toBe(true)
+  })
+
+  it('抖音链接给小红书平台 → wrong_platform 文案', async () => {
+    globalThis.electronAPI.creatorFollow.mockResolvedValue({
+      code: -12, reason: 'creator:wrong_platform', message: 'x',
+    })
+    const w = mountMonitor()
+    await flushPromises()
+    await w.find('[data-testid="creator-add"]').trigger('click')
+    await nextTick()
+    await w.find('[data-testid="creator-add-platform-xiaohongshu"]').trigger('click')
+    await w.find('[data-testid="creator-add-input"]').setValue('https://www.douyin.com/user/' + 'A'.repeat(28).replace(/A/g, 'A'))
+    await w.find('[data-testid="creator-add-confirm"]').trigger('click')
+    await flushPromises()
+    expect(w.find('[data-testid="creator-add-error"]').text()).toContain('其他平台')
+  })
+
+  it('签名失败 → 引导重新登录的文案（带平台名）', async () => {
+    globalThis.electronAPI.creatorFollow.mockResolvedValue({
+      code: -12, reason: 'creator:signature_failed', message: 'x',
+    })
+    const w = mountMonitor()
+    await flushPromises()
+    await w.find('[data-testid="creator-add"]').trigger('click')
+    await nextTick()
+    await w.find('[data-testid="creator-add-platform-douyin"]').trigger('click')
+    await w.find('[data-testid="creator-add-input"]').setValue('MS4wLjABAAAA' + 'A'.repeat(28))
+    await w.find('[data-testid="creator-add-confirm"]').trigger('click')
+    await flushPromises()
+    expect(w.find('[data-testid="creator-add-error"]').text()).toContain('抖音')
+    expect(w.find('[data-testid="creator-add-error"]').text()).toContain('登录')
   })
 })

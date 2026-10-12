@@ -1,3 +1,31 @@
+# [未发布] feat(creator): 博主监控多平台扩展——抖音 / 小红书接入（creator-multi-platform）
+
+### 用户感知
+
+「博主监控」此前只支持 YouTube。本 PR 后：添加博主弹窗新增**平台选择**（YouTube / 抖音 / 小红书，URL 自动识别并在输入时提示「已识别为 …」）；博主列表项带平台徽标；抖音与小红书通过「应用内已登录账号的会话 Cookie + 官方 web 端点 + 纯算法签名」实现添加/监控/采集全链路。签名失败、登录态失效、链接给错平台都有专门的可操作文案（引导去「账号管理」重新登录或切换平台）。视频号经调研为「微信桌面端抓包监听」型方案、无法无人值守，如实保持 `unsupported` 并在 PRD 留证据。
+
+### 架构（复用优先，全部有开源出处）
+
+- **签名进 Python 后端**（PRD §2/§3）：新增 `/api/creator/sign/douyin`（`multi_publish/creator_sign/abogus.py`，Apache-2.0 算法移植自 Evil0ctal/Douyin_TikTok_Download_API）与 `/api/creator/sign/xhs`（pip 依赖 `xhshow`，MIT，Cloxl/xhshow——MediaCrawler 同款签名库）。Node 侧只组 URL/Cookie → 取签名 → 发请求；算法升级不跨语言。
+- **会话复用**：`creator-session-cookie.js` 读 `persist:account-{id}` 账号分区内本平台域 Cookie（与 account-session-restore 同一口径），不新增登录流程、不落 Cookie 副本；无会话 → `credential_missing` 且**零网络请求**。
+- **平台分发**：`creator-platform-dispatch.js` 按 canonical ID 形态分发（`UC…`→YouTube、`MS4wLjABAAAA…`→抖音、24hex→小红书；形态互斥由各平台解析器 fail-closed 保证），零改动 `creator-runtime`；识别不出 → 可见失败 `creator:unsupported_platform`，绝不猜平台。
+- **fail-closed 解析**：`creator-platforms.js` 三平台输入解析单点维护；抖音作品/直播链接、小红书笔记/短链 → `not_a_channel`；跨平台链接 → `creator:wrong_platform`（新错误码，整类经 `creator:` 前缀透传）。
+
+### 纪律（全部有回归锁）
+
+- 签名失败/风控 **MUST NOT 静默降级为空列表**（HTTP 403/461/406、xhs 业务 code、签名头全空 → `creator:signature_failed`；`code=-100` → `credential_missing`）。
+- `external_id` 只取端点真 ID 字段（aweme_id / note_id），取不到的条目丢弃，不造假 ID。
+- 抖音/小红书不走 YouTube 配额池；多平台 follow 的配额校验只在 youtube 平台生效。
+
+### 文档与规格
+
+- 新 PRD：`01-docs/PRD-CREATOR-MULTI-PLATFORM-2026-10-12.md`（调研结论 + 架构 + 数据校验三层 + 流程 + 签名失效模式 + 交互/显示项/提示文字 + 9 条回归锁 + 未闭合登记）。
+- `openspec/records/creator-multi-platform.md` 执行记录；`01-docs/learnings.md` 置顶新增（签名库选型 + 会话复用口径）。
+
+### 测试与门禁
+
+- 桌面 27 文件 **606 例全绿**（新增：platforms 14 / adapters-web 12 / dispatch 9 / IPC 多平台 6 / 渲染层多平台 5）；Python **5 例全绿**（含 SM3 修正与 xhshow 缺包的可操作报错）；ESLint 0 error；locale 三档 PASS（1932 keys）；ipc-bridge 460/478/0 缺口；sender-guard PASS。
+- QM-1 打包与 asar 核对见 `openspec/records/creator-multi-platform.md`。
 # [未发布] feat(collection): 采集页 UI/UE 精致化（collection-ui-refinement）
 
 - **信息架构收敛**：批量采集区（RSS / URL 列表 / 知乎收藏夹）改为互斥手风琴折叠分组（默认展开 RSS、一次仅一组、aria-expanded/aria-controls 键盘可达）；URL 单条采集工具条保持常驻。行为契约不变：zhihu-fav-* 全部 testid 原样保留，IPC 入参逐字段一致。

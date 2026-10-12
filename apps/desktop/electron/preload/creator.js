@@ -22,6 +22,7 @@ function createCreatorApi (ipcRenderer) {
   return {
     creatorList: () => ipcRenderer.invoke('creator:list'),
     creatorFollow: (payload) => ipcRenderer.invoke('creator:follow', payload),
+    creatorPlatforms: () => ipcRenderer.invoke('creator:platforms'),
     creatorUnfollow: (payload) => ipcRenderer.invoke('creator:unfollow', payload),
     creatorToggle: (payload) => ipcRenderer.invoke('creator:toggle', payload),
     creatorCheckNow: (payload) => ipcRenderer.invoke('creator:check-now', payload),

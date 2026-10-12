@@ -4,6 +4,34 @@
       <div id="cm-add-title" class="cm-modal-title">{{ $t('collection.creatorAddTitle') }}</div>
       <p class="cm-modal-intro">{{ $t('collection.creatorAddDialogIntro') }}</p>
 
+      <!-- 平台选择（PRD §7）：URL 可自动识别时高亮；视频号 unsupported → 禁用 chip -->
+      <div class="cm-field" data-testid="creator-add-platform-group">
+        <label class="cm-field-label">{{ $t('collection.creatorPlatformLabel') }}</label>
+        <div class="cm-platform-row">
+          <button
+            v-for="p in platforms"
+            :key="p.id"
+            type="button"
+            class="cm-platform-chip"
+            :class="{ active: platform === p.id, unsupported: !p.supported }"
+            :data-testid="'creator-add-platform-' + p.id"
+            :disabled="submitting || !p.supported"
+            @click="selectPlatform(p)"
+          >
+            {{ $t('collection.' + p.localeKey) }}
+            <span
+              v-if="p.supported && !p.hasSession"
+              class="cm-chip-dot"
+              :data-testid="'creator-add-needlogin-' + p.id"
+              :title="$t('collection.creatorErrCredentialMissingForPlatform', { platform: p.label || $t('collection.' + p.localeKey) })"
+            />
+          </button>
+        </div>
+        <div v-if="detectedPlatform" class="cm-hint" data-testid="creator-add-platform-auto">
+          {{ $t('collection.creatorAddPlatformAuto', { platform: detectedLabel }) }}
+        </div>
+      </div>
+
       <div class="cm-field">
         <label class="cm-field-label" for="creator-add-input">{{ $t('collection.creatorAddLabel') }}</label>
         <input
@@ -71,18 +99,51 @@ const props = defineProps({
   submitting: { type: Boolean, default: false },
   /** 父组件回传的服务端错误文案（已 i18n） */
   error: { type: String, default: '' },
+  /** 平台清单（creator:platforms，含 supported/hasSession）；缺省按三平台静态渲染 */
+  platforms: { type: Array, default: () => ([
+    { id: 'youtube', localeKey: 'creatorPlatformYoutube', supported: true },
+    { id: 'douyin', localeKey: 'creatorPlatformDouyin', supported: true },
+    { id: 'xiaohongshu', localeKey: 'creatorPlatformXiaohongshu', supported: true },
+  ]) },
 })
 const emit = defineEmits(['update:visible', 'submit'])
 
 const input = ref('')
 /** 本地校验只可能有这一种失败（超长），故存布尔而不是 key —— 避免把 key 直接渲染出去 */
 const tooLong = ref(false)
+/** 显式所选平台（缺省 youtube，与主进程的缺省一致） */
+const platform = ref('youtube')
+
+/** 输入 URL 的平台自动识别（本地只做「提示与预选」——最终判定在主进程 fail-closed）。
+ *  自动识别后**自动切换**所选平台：否则默认 YouTube + 抖音链接必然 wrong_platform，
+ *  用户要先理解「要先手动选平台」才能用，违背 PRD §7「识别时高亮并允许改」。 */
+const detectedPlatform = computed(() => {
+  const s = input.value.trim()
+  if (/douyin\.com/i.test(s)) return 'douyin'
+  if (/xiaohongshu\.com|xhslink/i.test(s)) return 'xiaohongshu'
+  if (/youtube\.com|youtu\.be/i.test(s)) return 'youtube'
+  return ''
+})
+const detectedLabel = computed(() => {
+  const p = props.platforms.find((x) => x.id === detectedPlatform.value)
+  if (!p) return ''
+  // label 由主进程下发（已是平台展示名），localeKey 仅在静态缺省 props 里存在
+  return p.label || t('collection.' + p.localeKey)
+})
+// 识别到平台且当前选择与它不同 → 自动切过去（用户仍可手动改）
+watch(detectedPlatform, (p) => { if (p) platform.value = p })
+
+function selectPlatform (p) {
+  if (!p.supported) return
+  platform.value = p.id
+}
 
 /** 每次打开都清空：上次失败留下的输入不该在下次打开时"复活"（用户会以为已提交过） */
 watch(() => props.visible, (open) => {
   if (open) {
     input.value = ''
     tooLong.value = false
+    platform.value = 'youtube'
   }
 })
 
@@ -110,7 +171,7 @@ function submit () {
     return
   }
   tooLong.value = false
-  emit('submit', value)
+  emit('submit', { input: value, platform: platform.value })
 }
 
 defineExpose({ submit })
@@ -150,4 +211,25 @@ defineExpose({ submit })
 .cm-hint { color: var(--el-text-color-secondary, #909399); font-size: var(--font-size-xs); }
 .cm-field-error { color: var(--el-color-danger, #f56c6c); font-size: var(--font-size-xs); }
 .cm-modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.cm-platform-row { display: flex; gap: 8px; }
+.cm-platform-chip {
+  padding: 4px 12px;
+  border: 1px solid var(--border, #dcdfe6);
+  border-radius: 999px;
+  background: transparent;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+.cm-platform-chip.active { border-color: var(--el-color-primary); color: var(--el-color-primary); }
+.cm-platform-chip.unsupported { opacity: 0.5; cursor: not-allowed; }
+/* 未登录小标：提醒「该平台需要先在账号管理登录」（PRD §7 hasSession 消费点） */
+.cm-chip-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 4px;
+  border-radius: 50%;
+  background: var(--el-color-warning);
+  vertical-align: middle;
+}
 </style>

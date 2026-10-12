@@ -21,6 +21,13 @@ aggregation = [
     "content-aggregator>=0.1.0",
     "content-aggregator-shared>=0.1.0",
 ]
+# 博主监控多平台签名（PRD-CREATOR-MULTI-PLATFORM-2026-10-12 §2/§3）：
+# xhshow（MIT，Cloxl/xhshow）= 小红书 x-s / x-s-common 纯算法签名；
+# 抖音 a_bogus 由本仓 self-contained 实现提供（Apache-2.0 算法移植，见
+# multi_publish/creator_sign/abogus.py），不引第三方以免依赖面扩散。
+creator-sign = [
+    "xhshow>=0.2.0",
+]
 web = [
     "jinja2>=3.1",
     "pyyaml>=6.0",
@@ -40,7 +47,7 @@ test = [
     "pytest-asyncio>=0.24",
 ]
 all = [
-    "multi-publish-backend[web,video,asr]",
+    "multi-publish-backend[web,video,asr,creator-sign]",
 ]
 
 [tool.setuptools.packages.find]
