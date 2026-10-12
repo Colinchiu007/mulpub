@@ -70,20 +70,16 @@ function stripTagsLoose (html) {
   return String(html == null ? '' : html).replace(/<(?=[a-zA-Z/!?])[^>]*>/g, '')
 }
 
-function hasHtmlTags (value) {
-  return /<(?=[a-zA-Z/!?])[^>]*>/.test(String(value == null ? '' : value))
-}
+// ---- 正文形态单一实现收敛（converge-article-body-helpers，2026-10-12）----
+// `hasHtmlTags` / `toParagraphHtml` 委托 `api-publish-engine/src/content-formatter.js`
+// 的同名语义（**标签名白名单**判据）。此前本文件的宽判据（`<` 后跟字母）会把技术正文
+// 里的 `#include <stdio.h>`、`vector<int>` 误判成 HTML ⇒ 走「已是 HTML」分支原样注入，
+// 代码尖括号被编辑器当未知标签吞掉。导出名与签名不变，调用点零改动。
 
-/** 纯文本 → 段落 HTML（每行一个 `<p>`；转义 `& < >`，不制造标签注入面） */
-function toParagraphHtml (text) {
-  const escapeHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  const out = []
-  for (const line of String(text == null ? '' : text).split(/\r?\n/)) {
-    const t = line.trim()
-    if (t) out.push('<p>' + escapeHtml(t) + '</p>')
-  }
-  return out.join('')
-}
+const {
+  hasHtmlTags,
+  textToParagraphHtml: toParagraphHtml,
+} = require('@multi-publish/api-publish-engine/src/content-formatter')
 
 /** Node 侧 HTML→纯文本：复用仓库既有单一实现（头条链同款），失败时退化到宽松剥离 */
 function toPlainText (raw) {
