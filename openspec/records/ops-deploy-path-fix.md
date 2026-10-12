@@ -5,9 +5,6 @@
 record: ops-deploy-path-fix
 task: 修复 ops-center/deploy 三处部署缺陷（归档仓库 clone / 安装路径不一致 / feature_gates 硬编码）并补反馈目录可写路径
 date: 2026-10-12
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：ops-center 部署脚本缺陷修复（ops-deploy-path-fix，2026-10-12）
@@ -23,7 +20,7 @@ sync_backfill_owner: 下一个会话
 | 接线棘轮 | PASS | 新增 smoke-deploy.sh 非 *.test.js，不属测试接线；但已被 smoke 自查覆盖（改 deploy/ 后应重跑，已写入 §12.6） |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触桌面端运行面（无 apps/、packages/ 改动） |
 | QM-6 CCG 双模型外部评审 | 未执行 | 本机无 `codeagent-wrapper`，如实记录，不以自审冒充 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#3393)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin ops-deploy-path-fix` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | PR #3393 已 squash 合并：merge SHA `c9b5692`（2026-10-12T12:27:20+08:00）；`git ls-remote --heads origin ops-deploy-path-fix` 返回 0 行，远端分支已删 |
 
 ### 遗留（不假装已闭合）
 - smoke-deploy.sh 未接入 CI：本次仅本机实跑 3/3 通过，CI 无对应 job，后续改 deploy/ 若忘记重跑仍可能漏。接线进 CI 需改 .github/workflows/，属「改守门者」类变更，需人工过目，本次未做。
