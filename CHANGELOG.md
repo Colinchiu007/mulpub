@@ -48,6 +48,56 @@
 - 同族逻辑仍有三份实现（desktop `stripHtmlToPlainText`、`wechat-mp-article.toParagraphHtml`、rpa-engine 头条直连内联拼接），收敛需改 `apps/desktop/electron/**`（触发 QM-1 打包）⇒ 拆后续 PR；
 - Markdown → HTML 未做（`# 标题` / `**粗体**` 仍是字面量，与改造前一致）。
 
+# [未发布] fix(hot-topics): 采集配额治理——限流键从来源身份改为端点配额、手动刷新节流、状态跨重启（hot-topics-throttle-url）
+
+### 用户感知
+
+- **被平台风控的概率显著下降**：此前微博一个端点会被「主渠道 + 情感垂类 + 健康垂类」三个身份各打一次
+  （理论 3 次/10 分钟），IT之家 RSS 被「科技垂类 + AI 垂类」打两次（2 次/15 分钟）。现在**一个端点一个配额**，
+  同一端点的所有身份共享，且任何一个身份连续失败会让整条端点进入熔断保护。
+- **连点刷新不再放大第三方压力**：手动「刷新」此前没有任何上限（直接跳过缓存 TTL），
+  现在两次真实刷新之间至少间隔 60 秒，间隔内返回既有缓存。
+- **应用重启后不再「无记忆」**：限流/熔断状态落盘，重启后仍记得「哪些端点 5 分钟前刚打过」，
+  不会一启动就全渠道并发外呼。
+
+### 根因（逐行取证，非推测）
+
+| # | 风险 | 机制级根因 |
+|---|---|---|
+| P0 | 限流/熔断键 = 来源身份 `id`，同一 URL 挂多个 id | `tryAcquire(config.id)` / `breaker.*(config.id)`；`weibo`+`weibo-emotion`+`weibo-health` 共用一端点（3 次/10min），`ithome-tech`+`ithome-ai` 共用 RSS（2 次/15min）。emotion/health 补拉阈值仅 4（多标签口径极易触发），IT之家因 AI 补拉源几乎每轮双打 |
+| P1 | 手动 `force:true` 无上限 | UI `refresh(true)` 直达 service，v2 的 force 跳过缓存 TTL —— 决定第三方压力的是用户点击频率，而它没有上限 |
+| P2 | 跨模块同端点两份配额 | 快捷采集 feed 类 `ithome` 源与热门选题 `ithome-tech/ai` 补拉打同一 RSS，两套限流互不知晓 |
+| P3 | 限流/熔断纯内存态 | 重启即清零，「重启后的第一轮」= 全渠道并发外呼 |
+
+**同时更正上一轮分析的一条误判**：快捷采集的中文热榜源全部标注 `provider: 'hot-topics'`
+（注释明写「复用 hot-topics-service，零新抓取」），因此**不存在**「两个模块对同一批平台各打一份」；
+真实重叠只有 feed 类 `ithome` 源共用同一 RSS。
+
+### 改动
+
+- **新增** `electron/services/hot-topics/throttle.js`：
+  - `throttleKey(url)`：host+path 归一化（小写、去查询串与尾斜杠）；
+  - `quotaKeyOf(config)`：**唯一键推导真源**（显式 `throttleKey` > URL 归一化，**不用 id**）；
+  - `ChannelThrottle` / `ChannelBreaker` 可 `serialize()`/`restore()`，restore 对非法载荷 **fail-closed**（清空而非放行）。
+- **service**：`_collectChannel` / `_collectBoostChannel` 的限流与熔断键改为 `quotaKeyOf`；
+  跳过带 `reason: 'throttled-by-url'` 便于排查。
+- **P1**：`MANUAL_REFRESH_MIN_INTERVAL_MS = 60_000`；force 间隔内返回缓存 + `throttled: true`；
+  带 `boostCategories` 的定向补拉**豁免**（用户指名的补拉意图不能被吞）；`_lastManualRefreshAt` 仅在真实放行时更新。
+- **P2**：`ithome-tech` / `ithome-ai` 显式 `throttleKey: 'ithome-rss'` 共享配额（2 次/15min → 1 次/15min，且一方失败保护另一方）。
+- **P3**：新 settings 键 `hot_topics_throttle_state`；每轮真实抓取后落盘、构造器恢复；恢复失败只清空。
+
+### 验证
+
+- 新增 `hot-topics-quota.test.js` **14 例**（P0×5 / P1×4 / 单元×3 / 配置一致性×2）；
+- 既有 `hot-topics-new-sources.test.js` 1 例同步更新（熔断键从 id 改为配额键，属预期行为变更）；
+- 全量回归 **385 文件 / 7408 例（1 skipped）**，0 失败；
+- **变异反证**：把 `quotaKeyOf` 变异回「id 作键」→ **5 例当场红**（共享配额 / 熔断按端点 / 补拉路径 / 配置一致性 / 微博三身份），变异后还原复跑全绿。
+
+### 已知未完成（如实登记）
+
+- 快捷采集 feed 源与热门选题补拉的同端点共享：`throttleKey` 已预留接口，但快捷采集的 fetch
+  未接到 `quotaKeyOf`（需动其依赖注入，超出本轮目标）；真实增量有限（两边各自已有 30/15min 节流）。
+- UI 对 `throttled` 的可感知提示未加（服务层已带标记；本轮不动 locales）。
 # [未发布] chore(ccg): 入库 5 个 ccg-deep-* 深度审查运行目录（xhs-login-mainsite 评审产物）（2026-10-12，deep-review-archive）
 
 ### 这是什么
