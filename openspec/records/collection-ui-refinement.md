@@ -1,3 +1,12 @@
+---
+record: collection-ui-refinement
+task: 采集页 UI/UE 精致化——折叠分组/进度统一/卡片层级/token 收编/文件拆分还债
+date: 2026-10-12
+sync_status: PENDING
+sync_reason: 运行时代码 PR #3409 尚未合并，merge SHA 不存在，无法取证回填
+sync_backfill_owner: 本任务会话（PR 合并后同一次提交内改写 PASS + 删三字段 + 删 ledger 登记）
+---
+
 # 执行记录：采集页 UI/UE 精致化（collection-ui-refinement，2026-10-12）
 
 | 远程同步 | PENDING |

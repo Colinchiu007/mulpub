@@ -48,10 +48,5 @@
     "reason": "本回填 PR 合并后由后续 docs PR 回填 PASS + merge SHA 并删除本条登记",
     "status": "PENDING",
     "line": 5
-  },
-  "## 执行记录：采集页 UI/UE 精致化（collection-ui-refinement，2026-10-12）": {
-    "reason": "collection-ui-refinement 运行时代码 PR #3409 开启中，远程同步待合并后回填 PASS + merge SHA 并同次删除本登记项",
-    "line": 2,
-    "status": "PENDING"
   }
 }
