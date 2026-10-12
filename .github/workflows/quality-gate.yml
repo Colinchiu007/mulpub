@@ -373,6 +373,13 @@ jobs:
           # （见下面 Gate 4 与 Desktop tests shard 两处 `check-test-egress-ledger.js` 调用）。
           # 这里只锁"判定器还能跑、口径没被改松"，与 static-gates 里其它锁同形。
           node --test scripts/check-test-egress-ledger.test.js
+          # Gate 9 覆盖审计的 PR 画像判据（2026-10-12，change: gate9-scope-fix）。
+          # 按变更文件落点分流 srcDir/docPaths，修「只改 ops-center 的 feat PR 被桌面端
+          # 存量欠账判红」这一根因（#3413 score 0.31 / #3409 连挂 4 次）。
+          node --test scripts/gate9-classify.test.js
+          # Gate 9 的 PRD 条目状态标注判据（【已实现】【规划中】【不做】【历史】四态 +
+          # 优先级 + shouldAudit）。与 gate9-classify 同批上线，同为 scripts/ 下必须点名。
+          node --test scripts/gate9-prd-status.test.js
           # 渲染层跨包导入边界（PR #3011 事故同族）：渲染进程消费 shared-utils 的 CommonJS
           # 模块时，vite dev server 会在运行时抛「does not provide an export named ...」，
           # 整页渲染失败；而 vite build / vitest / tsc / electron-builder **全是绿的**
@@ -1595,7 +1602,7 @@ jobs:
           }
           $input = @{ title = $title; body = $body; labels = $labels; changedFiles = $files } | ConvertTo-Json -Compress -Depth 4
           $input | Out-File -FilePath gate9-input.json -Encoding utf8
-          $out = & node -e "const {classifyGate9}=require('./scripts/gate9-classify.js');const fs=require('fs');const r=classifyGate9(JSON.parse(fs.readFileSync('gate9-input.json','utf8')));fs.writeFileSync('gate9-meta.json',JSON.stringify(r));console.log('PR_MODE='+r.mode);console.log('GATE9_SRC='+r.srcDir);console.log('GATE9_DOCS='+r.docPaths.join(','));console.log('GATE9_REASON='+r.reason);if(r.featureIds.length)console.log('REQUIRED_FEATURE_IDS='+r.featureIds.join(','))"
+          $out = & node -e "const path=require('path');const {classifyGate9}=require(path.join(process.cwd(),'scripts','gate9-classify.js'));const fs=require('fs');const r=classifyGate9(JSON.parse(fs.readFileSync('gate9-input.json','utf8')));fs.writeFileSync('gate9-meta.json',JSON.stringify(r));console.log('PR_MODE='+r.mode);console.log('GATE9_SRC='+r.srcDir);console.log('GATE9_DOCS='+r.docPaths.join(','));console.log('GATE9_REASON='+r.reason);if(r.featureIds.length)console.log('REQUIRED_FEATURE_IDS='+r.featureIds.join(','))"
           $out | ForEach-Object { Write-Host $_ }
           $mode = ($out | Select-String -Pattern '^PR_MODE=' | Select-Object -First 1).Line -replace '^PR_MODE=',''
           $src = ($out | Select-String -Pattern '^GATE9_SRC=' | Select-Object -First 1).Line -replace '^GATE9_SRC=',''

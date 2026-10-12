@@ -129,6 +129,10 @@ class RequirementsTestRunner extends BaseTestRunner {
       excludedDetails: excluded,
       excludedCount: excluded.length,
       auditedCount: auditedItems.length,
+      // 判据来源（2026-10-12 CI 事故）：inline=true 表示仓库根真源没加载到、
+      // 本次用包内兜底判据（同算法，分层仍生效），但报告必须能看见。
+      statusCriteriaInline: docResult.statusCriteriaInline === true,
+      statusCriteriaResolvedFrom: docResult.statusCriteriaResolvedFrom || null,
       coverageRate: verdict.summary?.coverageRate ?? 0,
       totalPrdFeatures: auditedItems.length,
       totalPrdFeaturesRaw: prdItems.length,
