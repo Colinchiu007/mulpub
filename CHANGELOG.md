@@ -1,3 +1,22 @@
+# [未发布] chore(ccg): 入库 ccg-plan-design-claude 评审资产（官方 Key 迁移 AES-256-GCM 封存系统设计评审）（2026-10-12，adv-design-archive）
+
+### 这是什么
+
+`.adversarial/ccg-plan-design-claude/`（proposal 31KB / critique 4KB / family-snapshot）
+是「官方 Key 迁移 AES-256-GCM 封存系统」方案的对抗评审产物：评审已完成、
+有判定记录 `d72cd2bd` 锚点（已受管入库），内容不再有独立落点。
+按评审资产入库（与 main 里 231 个受管 `.adversarial` 文件同性质），而非丢弃。
+
+### 不做什么
+
+- 不含 `.ccg/reviews` 未跟踪记录——其中「仅本地」类引用的分支尚未合并，
+  按分档纪律等分支合并后消化；新增记录由 #3396 钩子自动 stage
+
+### 回滚
+
+`git revert` 单提交即复原（4 个纯新增文件，零删除）。
+
+---
 # [未发布] fix(creator): 博主监控页整页不可用——三处接线缺陷 + 文案分因，并补上「添加博主 / 配置 API Key」两条入口（creator-monitor-depfix）
 
 ### 用户感知
