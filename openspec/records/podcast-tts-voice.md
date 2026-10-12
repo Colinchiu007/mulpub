@@ -1,6 +1,4 @@
 ---
-sync_reason: 本 PR（podcast-tts-voice）的远程同步待合并后由后续 docs PR 回填并删除本条登记
-sync_backfill_owner: 后续 docs PR（回填链）
 sync_pr: 0
 ---
 
@@ -29,4 +27,4 @@ sync_pr: 0
 - 纪律化（防再犯的判据，不只在注释里说）：新增 `let x = 哨兵值` 时先问「catch 是否必定 return」——若是，初值即死代码，直接省略声明初值。同型问题本片内出现 3 次（synth 测试 2 处、colloquialize 1 处、voice 2 处），已一并进项目记忆。
 ## 远程同步
 
-| 远程同步 | PENDING | 待本 PR 合并后回填 PASS + merge SHA，并在同一次提交删除 ledger 登记项与本文件 frontmatter 的三个 sync_ 字段 |
+| 远程同步 | PASS | 已合并：PR #3372，merge ba97ca9cd268803ec3a9088ba3046efade824d7a（2026-10-12，squash）。取证：`git log origin/main --grep "(#3372)$" --format=%H|%cI`；本次回填同一次提交删除 ledger 登记项，并在带 frontmatter 的记录文件里删 sync_ 字段 |

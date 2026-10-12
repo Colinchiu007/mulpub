@@ -36,8 +36,6 @@
   },
   "本次执行记录：登录页直接关闭页签误报「未捕获到有效登录凭证」修复（fix-login-credential-capture-error）（2026-08-14）": "该记录本体已合并并回填（PR #816/#812 见正文）；账本在此是为覆盖 .quality-gates.md:6952 那条【孤儿 PENDING 行】——它所属的 s2v-scene-multi-materials 记录块丢了 ## 标题，门禁按最近标题把欠账记到本条名下。不代其他会话改写归属，待该记录作者补标题或回填。",
   "本次执行记录：存量 mime 一次性固化的合同落 PRD §7.9（mime-stock-freeze，2026-10-12）【docs-only】": "本 PR（mime-stock-freeze）的远程同步待合并后由后续 docs PR 回填并删除本条登记项",
-
   "本次执行记录：2 笔远程同步回填与销账（gate-backfill-3368-3374，2026-10-12）【docs-only】": "本回填 PR 的远程同步待合并后由后续 docs PR 回填并删除本条",
-  "本次执行记录：播客刀 4 第 3 片·上半——音色解析层（podcast-tts-voice，2026-10-11）": "本 PR（podcast-tts-voice）的远程同步待合并后由后续 docs PR 回填并删除本条登记",
-  "本次执行记录：单集 compliance 标记的合同落 PRD §8.2（podcast-episode-compliance，2026-10-12）【docs-only】": "本 PR（podcast-episode-compliance）的远程同步待合并后由后续 docs PR 回填并删除本条登记项"
+  "本次执行记录：2 笔远程同步回填与销账（gate-backfill-3390-3372，2026-10-12）【docs-only】": "本回填 PR 的远程同步待合并后由后续 docs PR 回填并删除本条"
 }
