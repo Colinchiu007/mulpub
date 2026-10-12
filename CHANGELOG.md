@@ -1,3 +1,53 @@
+# [未发布] fix(publish): 图文正文承载形态适配——百家号「整篇一整段」根因修复（fix-article-body-format）
+
+### 用户感知
+
+- 百家号图文**正文分段恢复正常**。此前用 Markdown/纯文本写正文、或走 AI 创作与采集改写（正文含 `\n\n` 空行分段）发布的文章，在百家号看是**一整段文字**；修复后按段落显示。
+- 反向同族缺陷一并修复：用富文本编辑器写的内容发到抖音（图文/视频）、小红书、快手、B站、视频号时，作品描述里**不再出现字面量 `<p>`**。
+- 无新增按钮、无新增弹窗、无新增文案（零 locale 改动）。
+
+### 根因（判据取平台产物，不取推测）
+
+- 百家号 `content` 是**富文本编辑器的 HTML 字段**，而链路把纯文本原样 `params.set('content', …)` 传进去 —— HTML 把换行当**可忽略空白**，整篇正文被平台存成单个文本节点。
+- **平台产物取证**：用户账号已发布的 **11/11 篇**图文公开页（`data-testid="article"` 容器内）正文 `<p>` 数 = 0、`<br>` 数 = 0、原始换行 = 0，正文是一个裸文本节点。
+- **源内容取证**：发布前真源（`rewrite_history.rewritten_content`）含 `\n\n`（例：863 字符 / 8 换行 / 5 自然段）。
+- **逐字节对账**：`源文去掉全部 \n == 平台正文字符串` 为 **True**（855==855、1235==1235）⇒ 唯一差异就是换行/段落被吞，排除截断与改写。
+- 交叉证据：参考产品用 `HtmlDocument`/`RichTextParser` 生成百家号/头条文章体（`<p>`）；头条同族字段内部名即 `htmlContent`；本仓头条 Node 直连兜底与公众号链路**早已各有**一份同款「纯文本 → `<p>`」包装 —— **百家号是唯一漏掉的链**。
+
+### 改动
+
+- **单一实现**：`packages/api-publish-engine/src/content-formatter.js` 新增正文承载形态层 —— `hasHtmlTags`（**标签名白名单**判据）、`textToParagraphHtml`（纯文本 → `<p>`，转义先行、CRLF 归一、空行不产出空 `<p>`）、`htmlToPlainText`（`<br>`→换行、块级收口、实体解码）、`getArticleBodyKind`、`formatArticleBody`（未知平台保守按纯文本）。
+- **接线（写平台字段前最后一跳）**：`baijiahao-article.js`（`content`，HTML）；`adapters/wechat-mp/draft.js`（`content0`，公众号草稿 API 轨——该轨 2026-10-12 #3375 新落地，`content0` 同属 HTML 字段，纯文本同样会塌成一段）；`douyin-image.js` / `douyin-video.js` / `kuaishou-video.js` / `bilibili-video.js` / `shipinhao-video.js` / `xiaohongshu-draft.js`（描述类字段，纯文本）。
+- **顺序不变量**：话题转换必须**先于** `<p>` 包装（`(^|\s)#话题` 的前置边界依赖井号前是空白/开头），反序会让内联话题停在单井号形态；由精确断言锁定。
+- **判据收窄**：形态判定用白名单而非「`<` 后跟字母」—— 后者会把技术正文里的 `#include <stdio.h>`、`vector<int>` 当标签（纯文本平台会**整段吃掉**），本次以正/反两向用例锁死。
+
+### 逃逸链（QM-5 ②）
+
+- 单测层：`content-formatter.test.js` 只覆盖标签风格/长度/话题，**无正文形态用例**；
+- 链级层：`baijiahao-article-chain.test.js` 只断言 `toContain("content=")` —— **整篇压成一行时子串依然命中**，对此类回归完全免疫；
+- E2E 层：只断言 success 与回填 `postId`，**没有产物内容结构断言**；
+- 审查层：`PRD-API-PUBLISH-ENGINE.md` §12.1 只写字段名，未写承载形态 ⇒ 契约缺口无人在评审时能对照。
+
+### 回归保护
+
+- `content-formatter.test.js` +12 例（全部 `assert.deepStrictEqual` 精确串），**修复前实跑红**（`hasHtmlTags is not a function` 等）；
+- `baijiahao-article-chain.test.js` +4 例（表单 `content` 解码后 `toBe` 精确断言：多段 / 单段 / 已是 HTML 幂等 / 话题转换先于包装）；
+- `topic-inline-contract.test.js` B-5 契约更新为 `<p>…</p>`（先红后绿）；
+- `douyin-image-chain.test.js`、`tests/xiaohongshu-draft-chain.test.js` 各 +1 例 HTML→纯文本反向锁；
+- 验证：引擎全量 `node scripts/run-tests.js` **rc=0**（39 个 vitest 文件 / **333 用例** + direct 组）；`content-formatter.test.js` **62/62**；定向 vitest 8 文件 **94/94**。
+
+### 预防措施
+
+- `AGENTS.md` QM-2 新增「图文正文承载形态合同」（含判据口径与必跑测试）；
+- 新增 `01-docs/PRD-ARTICLE-BODY-FORMAT-2026-10-12.md`：形态合同 + **全平台审计矩阵**（同类已确认 1 / 先例已修 2 / 反向同类已修 6 / DOM 轨待真机复核）+ 真机复核 runbook（公开页 `<p>` 计数判据）；
+- `PRD-API-PUBLISH-ENGINE.md` §12.1 表单字段口径更新；`01-docs/learnings.md` 沉淀根因模式与取证方法。
+
+### 已登记遗留（不假装已闭合）
+
+- DOM 轨 `_fillInput` 的 contenteditable 注入是否在平台编辑器模型里成段，**离屏不可判定** ⇒ 真机复核 runbook 见 PRD §12.3，未复核前不写「端到端已通」；
+- 同族逻辑仍有三份实现（desktop `stripHtmlToPlainText`、`wechat-mp-article.toParagraphHtml`、rpa-engine 头条直连内联拼接），收敛需改 `apps/desktop/electron/**`（触发 QM-1 打包）⇒ 拆后续 PR；
+- Markdown → HTML 未做（`# 标题` / `**粗体**` 仍是字面量，与改造前一致）。
+
 # [未发布] chore(ccg): 入库 5 个 ccg-deep-* 深度审查运行目录（xhs-login-mainsite 评审产物）（2026-10-12，deep-review-archive）
 
 ### 这是什么
@@ -88,57 +138,6 @@
 
 - PRD 新增 §8.2：compliance 的闭集三态（ok/invalid/stock）、承载在 podcast:episode:list 的追加式 compliance 键、逐期校验失败与旁路降级语义、显示项与 zh/en 提示文字四条、实现片必须带的七条回归锁、以及故意不做三项。
 - 前置事实如实记录：播客域 compliance 本体当前不存在（grep 实测），因此 §7.9.5 第 4 条与 tasks 4.4b② 必须以本节为前置；本节明写"不是实现"，两处保持未勾。
-
-# [未发布] fix(publish): 图文正文承载形态适配——百家号「整篇一整段」根因修复（fix-article-body-format）
-
-### 用户感知
-
-- 百家号图文**正文分段恢复正常**。此前用 Markdown/纯文本写正文、或走 AI 创作与采集改写（正文含 `\n\n` 空行分段）发布的文章，在百家号看是**一整段文字**；修复后按段落显示。
-- 反向同族缺陷一并修复：用富文本编辑器写的内容发到抖音（图文/视频）、小红书、快手、B站、视频号时，作品描述里**不再出现字面量 `<p>`**。
-- 无新增按钮、无新增弹窗、无新增文案（零 locale 改动）。
-
-### 根因（判据取平台产物，不取推测）
-
-- 百家号 `content` 是**富文本编辑器的 HTML 字段**，而链路把纯文本原样 `params.set('content', …)` 传进去 —— HTML 把换行当**可忽略空白**，整篇正文被平台存成单个文本节点。
-- **平台产物取证**：用户账号已发布的 **11/11 篇**图文公开页（`data-testid="article"` 容器内）正文 `<p>` 数 = 0、`<br>` 数 = 0、原始换行 = 0，正文是一个裸文本节点。
-- **源内容取证**：发布前真源（`rewrite_history.rewritten_content`）含 `\n\n`（例：863 字符 / 8 换行 / 5 自然段）。
-- **逐字节对账**：`源文去掉全部 \n == 平台正文字符串` 为 **True**（855==855、1235==1235）⇒ 唯一差异就是换行/段落被吞，排除截断与改写。
-- 交叉证据：参考产品用 `HtmlDocument`/`RichTextParser` 生成百家号/头条文章体（`<p>`）；头条同族字段内部名即 `htmlContent`；本仓头条 Node 直连兜底与公众号链路**早已各有**一份同款「纯文本 → `<p>`」包装 —— **百家号是唯一漏掉的链**。
-
-### 改动
-
-- **单一实现**：`packages/api-publish-engine/src/content-formatter.js` 新增正文承载形态层 —— `hasHtmlTags`（**标签名白名单**判据）、`textToParagraphHtml`（纯文本 → `<p>`，转义先行、CRLF 归一、空行不产出空 `<p>`）、`htmlToPlainText`（`<br>`→换行、块级收口、实体解码）、`getArticleBodyKind`、`formatArticleBody`（未知平台保守按纯文本）。
-- **接线（写平台字段前最后一跳）**：`baijiahao-article.js`（`content`，HTML）；`adapters/wechat-mp/draft.js`（`content0`，公众号草稿 API 轨——该轨 2026-10-12 #3375 新落地，`content0` 同属 HTML 字段，纯文本同样会塌成一段）；`douyin-image.js` / `douyin-video.js` / `kuaishou-video.js` / `bilibili-video.js` / `shipinhao-video.js` / `xiaohongshu-draft.js`（描述类字段，纯文本）。
-- **顺序不变量**：话题转换必须**先于** `<p>` 包装（`(^|\s)#话题` 的前置边界依赖井号前是空白/开头），反序会让内联话题停在单井号形态；由精确断言锁定。
-- **判据收窄**：形态判定用白名单而非「`<` 后跟字母」—— 后者会把技术正文里的 `#include <stdio.h>`、`vector<int>` 当标签（纯文本平台会**整段吃掉**），本次以正/反两向用例锁死。
-
-### 逃逸链（QM-5 ②）
-
-- 单测层：`content-formatter.test.js` 只覆盖标签风格/长度/话题，**无正文形态用例**；
-- 链级层：`baijiahao-article-chain.test.js` 只断言 `toContain("content=")` —— **整篇压成一行时子串依然命中**，对此类回归完全免疫；
-- E2E 层：只断言 success 与回填 `postId`，**没有产物内容结构断言**；
-- 审查层：`PRD-API-PUBLISH-ENGINE.md` §12.1 只写字段名，未写承载形态 ⇒ 契约缺口无人在评审时能对照。
-
-### 回归保护
-
-- `content-formatter.test.js` +12 例（全部 `assert.deepStrictEqual` 精确串），**修复前实跑红**（`hasHtmlTags is not a function` 等）；
-- `baijiahao-article-chain.test.js` +4 例（表单 `content` 解码后 `toBe` 精确断言：多段 / 单段 / 已是 HTML 幂等 / 话题转换先于包装）；
-- `topic-inline-contract.test.js` B-5 契约更新为 `<p>…</p>`（先红后绿）；
-- `douyin-image-chain.test.js`、`tests/xiaohongshu-draft-chain.test.js` 各 +1 例 HTML→纯文本反向锁；
-- 验证：引擎全量 `node scripts/run-tests.js` **rc=0**（39 个 vitest 文件 / **333 用例** + direct 组）；`content-formatter.test.js` **62/62**；定向 vitest 8 文件 **94/94**。
-
-### 预防措施
-
-- `AGENTS.md` QM-2 新增「图文正文承载形态合同」（含判据口径与必跑测试）；
-- 新增 `01-docs/PRD-ARTICLE-BODY-FORMAT-2026-10-12.md`：形态合同 + **全平台审计矩阵**（同类已确认 1 / 先例已修 2 / 反向同类已修 6 / DOM 轨待真机复核）+ 真机复核 runbook（公开页 `<p>` 计数判据）；
-- `PRD-API-PUBLISH-ENGINE.md` §12.1 表单字段口径更新；`01-docs/learnings.md` 沉淀根因模式与取证方法。
-
-### 已登记遗留（不假装已闭合）
-
-- DOM 轨 `_fillInput` 的 contenteditable 注入是否在平台编辑器模型里成段，**离屏不可判定** ⇒ 真机复核 runbook 见 PRD §12.3，未复核前不写「端到端已通」；
-- 同族逻辑仍有三份实现（desktop `stripHtmlToPlainText`、`wechat-mp-article.toParagraphHtml`、rpa-engine 头条直连内联拼接），收敛需改 `apps/desktop/electron/**`（触发 QM-1 打包）⇒ 拆后续 PR；
-- Markdown → HTML 未做（`# 标题` / `**粗体**` 仍是字面量，与改造前一致）。
-
 # [未发布] 存量播客单集 `mime` 一次性固化的合同（mime-stock-freeze）
 
 - PRD 新增 §7.9：把 tasks 4.4 写成可实现合同——事实前提（存量脏值分「缺席」与「非法」两类，处置不同）、固化动作（恰好一次、幂等、只补不改、按扩展名派生、派生不出就不猜）、数据校验与失败语义表、交互与显示项（`compliance` 增设 `stock` 档、频道页摘要）与 zh/en 提示文字三条、七条必须带的回归锁、以及故意不做的三项。
