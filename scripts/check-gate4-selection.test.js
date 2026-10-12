@@ -379,3 +379,55 @@ test('T17 真实文件的 $testArgs 字面量必须逐字解析出脚本名（�
   assert.equal(args.full.includes('--'), false, 'full 侧仍带着把 exclude 推进转发区的 "--"')
   assert.equal(args.affected.includes('--'), false, 'affected 侧仍带着 "--"')
 })
+
+/*
+ * T21-T24（2026-10-12，wechat-mp-api-track）：nx 的**单项目**声明形态。
+ *
+ * 实测缺陷：`nx affected -t test` 在受影响集**恰好只有 1 个项目**时打印的是
+ *    NX   Running target test for project @multi-publish/api-publish-engine:
+ * （点名，不带数字），而 parseDeclaredProjects 只认带数字的 `for N projects`
+ * ⇒ headerCount 为 null ⇒ 判 unparsable ⇒ 「判据失联」判红。
+ * 后果：**任何「恰好影响 1 个非 desktop 包」的 PR 恒红**，且它挡的是
+ * `QG Unit Tests` 这个 required check（PR #3375 现场；本机同参复现）。
+ * 注意 affected 臂不受 MIN_OTHERS 约束（那条只作用于 full 臂），因此补齐单数形态即够。
+ */
+function singularDeclaration (project) {
+  return [' NX   Running target test for project ' + project + ':', '', '- ' + project, '', ''].join('\n')
+}
+
+test('T21 单数声明形态（恰好 1 个受影响项目）必须可解析，计数按 1', () => {
+  const d = parseDeclaredProjects(singularDeclaration(OTHERS[0]))
+  assert.equal(d.unparsable, false, '单数形态不得被判成「判据失联」')
+  assert.equal(d.headerCount, 1)
+  assert.deepEqual(d.projects, [OTHERS[0]])
+  assert.equal(d.countMismatch, false)
+})
+
+test('T22 单数形态头部点名与清单不一致时必须判 unparsable（解析退化不得据此判绿）', () => {
+  const d = parseDeclaredProjects(' NX   Running target test for project @x:\n\n- @y\n')
+  assert.equal(d.unparsable, true)
+  const many = parseDeclaredProjects(' NX   Running target test for project @x:\n\n- @x\n- @y\n')
+  assert.equal(many.unparsable, true, '单数头部却列了多个项目 ⇒ 采集不可信')
+})
+
+test('T23 单数形态下 affected 臂必须判绿（CI 现场回归锁）', () => {
+  const p = planCommands(WF_FIXED, PKG_FIXED)
+  const live = {}
+  for (const e of p.entries) {
+    live[e.runLine] = e.mode === 'affected' ? singularDeclaration(OTHERS[0]) : DECL_EXCLUDED
+    if (e.baseRunLine) live[e.baseRunLine] = DECL_WITH_DESKTOP
+  }
+  const r = judge({ workflowText: WF_FIXED, pkgScripts: PKG_FIXED, live })
+  assert.equal(r.ok, true, JSON.stringify(r.problems))
+})
+
+test('T24 单数形态若点名的就是 desktop，仍必须判红（判窗未被放宽）', () => {
+  const p = planCommands(WF_FIXED, PKG_FIXED)
+  const live = {}
+  for (const e of p.entries) {
+    live[e.runLine] = e.mode === 'affected' ? singularDeclaration(DESKTOP_PROJECT) : DECL_EXCLUDED
+    if (e.baseRunLine) live[e.baseRunLine] = DECL_WITH_DESKTOP
+  }
+  const r = judge({ workflowText: WF_FIXED, pkgScripts: PKG_FIXED, live })
+  assert.equal(r.ok, false, 'affected 臂点名为 ' + DESKTOP_PROJECT + ' 时必须红')
+})

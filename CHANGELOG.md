@@ -100,6 +100,22 @@ CDP 超时（2500ms）时仍会走既有 fail-open 降级路径（补注入 + �
 | 静态门禁 | max-lines ✅（新文件均 <500）· ESLint 0 error · CCG verify-security：**本 PR 新增 5 个源文件 高危 0** |
 | 行尾对账 | `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径一致 |
 
+### 附带修复：GitHub Gate 4 自检在「恰好 1 个非 desktop 包受影响」时恒红
+
+本 PR 的 `QG Unit Tests` 首次判红即由此而来（日志原文：
+`affected 侧 A 的 nx 输出里取不到「Running target ... for N projects」声明 —— nx 报错或换了输出形态，判据失联`）。
+
+- **根因**：`scripts/check-gate4-selection.js` 的 `parseDeclaredProjects` 只认带数字的声明头
+  `Running target test for 12 projects:`；而 nx 在**只有一个**受影响项目时打印
+  `Running target test for project @multi-publish/api-publish-engine:`（**点名、无数字**）
+  ⇒ `headerCount === null` ⇒ 判 `unparsable` ⇒ 红。
+- **影响面**：其他开放 PR 的 diff 只落在 `apps/desktop`（被 `--exclude` 排除）⇒ affected 集为空 ⇒
+  走「`No tasks were run` 属合法空集」分支，因此都不红；**任何「恰好影响 1 个非 desktop 包」的 PR 必红**。
+- **修法**：单数形态纳入解析（`headerCount=1`）并加自洽检查（头部点名项目必须在 `- 清单` 内且清单只 1 项，
+  否则仍 `unparsable`）；**未放宽** A 臂不得含 desktop 的判据；affected 臂本来就不受 `MIN_OTHERS=11` 约束。
+- **证据**：门禁单测 `node --test scripts/check-gate4-selection.test.js` → **29/29**（新增 T21–T24）；
+  门禁实跑 `node scripts/check-gate4-selection.js` → `affected A 臂：nx 自己声明 1 个包，不含 desktop` → **OK**（修复前 FAIL）。
+
 ### 未闭合（不假装已通）
 
 1. **真机验证 PENDING**：本机无可用公众号账号会话 ⇒「真实 `loginpage` HTML 核对六个正则」「真机建草稿核对
