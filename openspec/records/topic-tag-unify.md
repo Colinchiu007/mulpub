@@ -13,3 +13,7 @@
 
 - 新增：`topic-tag-presets.test.js`(11)、`TopicTagManagerDialog.test.js`(10)、`publish-topic-tag.test.js`(6)、`topic-inline.test.js` +5、`overlay-view-suspension.test.js` +1。
 - 回归：`src` 全量 312 文件 5233 例（+2 skipped）全绿；`Publish.test.js` 111 例通过。
+
+## 远程同步
+
+| 远程同步 | PENDING | PR #3424 合并后同次提交回填 PASS + merge SHA |
