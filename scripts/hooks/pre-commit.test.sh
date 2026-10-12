@@ -263,6 +263,51 @@ scenario14() {
     commit_expect_block "scenario14 shared-root-marker-blocked" "分支切换事故状态"
 }
 
+# 用例 15（判定记录自动入库，方案 A）：
+#   pre-commit 跑 CCG 门禁后，应把本次生成的 .ccg/reviews/<sha>.json
+#   stage 进同一个提交 —— 不再依赖有人记得 git add。
+#   回归背景：2026-10-12 排查实测，22 小时内 10+ 任务在共享根与 36 个
+#   worktree 堆积 300+ 未跟踪判定记录；因 squash 合并换 sha，
+#   「文件名引用的提交已在 origin/main = 0」，结构性无法随 PR 入库。
+scenario15() {
+    new_repo
+    declare_branch main
+    # fixture 需要 scripts/ccg-gate.js 存在，钩子的 CCG 块（含 stage 循环）才会执行；
+    # SKIP_CCG_GATE=1 让真门禁快速通过，stage 循环在门禁之后无条件跑。
+    cat > "$TMP/repo/scripts/ccg-gate.js" <<'EOF'
+process.exit(0);
+EOF
+    # 门禁通过（wrapper exit 0）后钩子应 stage 未跟踪的 .ccg/reviews 记录
+    mkdir -p "$TMP/repo/.ccg/reviews"
+    echo '{"sha":"placeholder"}' > "$TMP/repo/.ccg/reviews/deadbeef00000000000000000000000000000000.json"
+    echo "hello" > "$TMP/repo/docs.md"
+    git -C "$TMP/repo" add docs.md
+    if SKIP_CCG_GATE=1 git -C "$TMP/repo" commit -q -m "scenario15 record-autostage" 2>"$TMP/err.log"; then
+        ok "scenario15 commit-passed"
+    else
+        bad "scenario15 应通过（记录 stage 不应阻断提交）：$(head -5 "$TMP/err.log" | tr '\n' ' ')"
+        return
+    fi
+    # 记录必须已随提交入库（不是留在未跟踪区）
+    if git -C "$TMP/repo" ls-files --error-unmatch .ccg/reviews/deadbeef00000000000000000000000000000000.json >/dev/null 2>&1; then
+        ok "scenario15 record-staged-into-commit"
+    else
+        bad "scenario15 判定记录未入库（仍在未跟踪区）—— 自动 stage 未生效"
+    fi
+    # 已跟踪且无改动的记录不应被重复 add（幂等性：二次提交不夹带）
+    if SKIP_CCG_GATE=1 git -C "$TMP/repo" commit -q --allow-empty -m "scenario15 second" 2>"$TMP/err.log"; then
+        local staged
+        staged="$(git -C "$TMP/repo" show --name-only --format= HEAD | grep -c '.ccg/reviews' || true)"
+        if [ "$staged" = "0" ]; then
+            ok "scenario15 no-duplicate-staging"
+        else
+            bad "scenario15 二次提交夹带了 .ccg/reviews（$staged 个）—— 幂等失效"
+        fi
+    else
+        bad "scenario15 second-commit-failed：$(head -5 "$TMP/err.log" | tr '\n' ' ')"
+    fi
+}
+
 scenario1
 scenario2
 scenario3
@@ -277,6 +322,7 @@ scenario11
 scenario12
 scenario13
 scenario14
+scenario15
 
 echo "----"
 echo "结果: PASS=$PASS FAIL=$FAIL"
