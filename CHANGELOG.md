@@ -33,6 +33,15 @@
 - 8 个测试文件（3 新 / 5 改）共 **199 例**；受影响域子集 71 files / **1457 例**全绿；ESLint 0 error。
 - 静态门禁本地实跑：`check-ipc-bridge`（459 handlers / 477 preload / 0 缺口）、`check-ipc-sender-guard`（显式守卫 66.1% ≥ 65%、0 绕过）、`check-locale-sync`（`--pair-base` / `--cjk` / `--keys` 三档 PASS）、`check-frontend-consistency`、`check-font-size-scale`、`check-no-brand-residue`、`check-unwired-tests`、`check-text-encoding-integrity` 全部 PASS。
 - QM-1 打包验证与 QM-6 双模型评审记录见 `openspec/records/creator-monitor-depfix.md`。
+# [未发布] feat(hot-topics): 一键发布 UX 优化——改名「改写并发布」+ 单条发布按钮 + 改写稿内联编辑（hot-topics-publish-ux，2026-10-12）
+
+- 批量按钮「一键发布」改名「改写并发布」（en: Rewrite & Publish），与实际两步动作（AI 改写 → 草稿 → 发布页确认）对齐，消除名不副实。
+- 每条选题行操作区最右新增「发布」按钮：单篇一键改写（复用批量队列、队列长度 1、跳过目标弹窗），完成后「去发布」走既有 `?draft=` 单篇语义。
+- 改写结果确认点前移：进度区内条目可展开内联预览/编辑改写稿；「去发布」前自动回写编辑到草稿库（未收起直接点也冲刷），回写失败阻止跳转并可重试。
+- 新增分阶段提示 key（publishStageRewrite / publishStagePrepare）与发布页确认横幅 key（publishPage.handoff.banner）。
+- 专项 PRD：01-docs/PRD-HOT-TOPICS-PUBLISH-UX-2026-10-12.md（数据校验/流程/交互/显示项/提示文字全量）。
+- 回归锁 src/views/hot-topics-publish-ux.test.js 8 例；既有 HotTopics/Publish/useBatchPublish 全量回归通过；locale-sync --keys/--cjk PASS。
+
 # [未发布] 播客刀 4 第 3 片·接线：TTS 生产适配层（podcast-tts-adapters）
 
 - 新增 apps/desktop/electron/services/podcast-episode-tts-adapters.js：createGenerateTTS / createVoiceReaders / createConcatBlocks / createProbeImpl 四个生产工厂，把 §7.4.8 编排层的注入参数接成真实现；未接宿主，不改既有行为。

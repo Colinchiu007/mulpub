@@ -23,6 +23,8 @@ export default {
       loaded: 'Loaded {count} hot-topic drafts',
       partial: 'Loaded {loaded}/{total} drafts (the rest were deleted)',
       none: 'The selected drafts no longer exist. Generate again from Hot Topics.',
+      // hot-topics-publish-ux (2026-10-12): persistent dismissible banner after handoff load
+      banner: 'Auto-rewritten from hot topics and pre-filled {count} entries with publish targets. Review and publish.',
     },
     batchTargets: {
       title: 'Batch publish targets',

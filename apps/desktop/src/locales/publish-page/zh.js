@@ -23,6 +23,9 @@ export default {
       loaded: '已装载 {count} 条热门选题草稿',
       partial: '已装载 {loaded}/{total} 条草稿（其余草稿已被删除）',
       none: '所选草稿已不存在，请回到「热门选题」重新生成',
+      // hot-topics-publish-ux（2026-10-12）：交接装载成功后在页面顶部展示常驻横幅（可关闭），
+      // 替代一闪而过的 toast——AI 改写结果的确认点明确落在发布页
+      banner: '已根据热门选题自动改写并预填 {count} 条内容与发布目标，请确认后发布',
     },
     batchTargets: {
       title: '批量设置发布目标',
