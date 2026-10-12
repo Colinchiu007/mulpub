@@ -22,6 +22,11 @@ describe('P0：限流/熔断按 URL 配额（同一端点多身份共享一个�
   beforeEach(async () => {
     const m = await load()
     svc = new m.HotTopicsService({ log: { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} } })
+    // ⚠️ 必须注入传输层桩：`_collectChannel` 内部走真实 `fetch`，不注入会真实出站
+    // （weibo/baidu/ithome…），被测试网络守卫拦截并记入出站台账 —— CI 的
+    // `check-test-egress-ledger` 会因基线外新条目（blocked::www.ithome.com:443 等）判红。
+    // 这正是上一轮 CI 失败的根因（测试设计缺陷，非产品代码缺陷）。
+    svc._fetchChannel = async (cfg) => JSON.stringify({ data: { word_list: [{ word: '桩热点', hot_value: 1, position: 1 }] } })
   })
 
   it('同一 URL 的两个身份共用一个配额：第二个身份立即被节流跳过', async () => {
