@@ -18,6 +18,7 @@
  */
 import { computed, ref } from 'vue'
 import { addManualSnapshot, historyMetrics, metricsSync, metricsSyncStatus } from '@/api/knowledge-library'
+import { formatUserError } from '@/utils/user-facing-error'
 
 /** 指标为空时的取值：null/undefined 一律显示 '-'（不是 0 —— 0 是「平台说是 0」） */
 export function displayMetric (value) {
@@ -85,10 +86,16 @@ export function usePublishHistoryMetrics ({ t, records }) {
       // 「最不需要处理」，于是 `unsupported` / `failed` 会把 `needs_login` 盖掉，用户看不到该去登录。
       const rank = { needs_login: 0, failed: 1, unsupported: 2, skipped_daily_cap: 3, ok: 4 }
       const prev = map.get(p)
-      if (!prev || (rank[a.status] ?? 9) < (rank[prev] ?? 9)) map.set(p, a.status)
+      if (!prev || (rank[a.status] ?? 9) < (rank[prev.status] ?? 9)) map.set(p, a)
     }
     return map
   })
+
+  /** 便捷读法：只取状态字符串（老调用点用） */
+  function platformStatusOf (platform) {
+    const a = platformStatus.value.get(String(platform || '').toLowerCase())
+    return a ? a.status : undefined
+  }
 
   function capReachedIn (round) {
     if (!round) return false
@@ -134,6 +141,44 @@ export function usePublishHistoryMetrics ({ t, records }) {
   }
 
   /**
+   * 平台 status → 用户可懂的自然语言提示。
+   *
+   * 每条都遵守本仓用户文案三段式：**发生了什么 → 为什么/影响 → 下一步做什么**。
+   * 其中 unsupported 必须再按 reason 细分（signer 与 no_adapter 的下一步动作完全不同）：
+   *   - signer_unavailable / sign_failed：服务端形态问题，可重试；
+   *   - no_adapter：本版本没有该平台的采集实现，只能手动录入兜底。
+   * reason 直接来自主进程 `accounts[].error`（index.js 的四处判定），一律是稳定机器码或
+   * `missing_cookie:<名字>` 形态——映射表必须显式覆盖，未命中的落 fallback 行。
+   */
+  function platformStatusHint (status, reason) {
+    const r = String(reason || '')
+    if (status === 'needs_login') {
+      // missing_cookie:<名字> 是「登录了但凭证不全」（快手设备指纹），与「没登录」不同：
+      // 重新登录能拿到全量 Cookie，所以动作一致，但原因要说清是「信息不全」而不是「过期」。
+      if (r.startsWith('missing_cookie:')) return t('historyPage.metricsCookieIncomplete')
+      return t('historyPage.metricsNeedsLogin')
+    }
+    if (status === 'unsupported') {
+      if (r === 'signer_unavailable') return t('historyPage.metricsSignerUnavailable')
+      if (r === 'sign_failed') return t('historyPage.metricsSignFailed')
+      return t('historyPage.metricsUnsupported')
+    }
+    if (status === 'failed') {
+      // 采集侧的失败 reason 是**稳定机器码或其前缀**（http_500 / parse_error:... / invalid_json /
+      // request_error:...）。不能直接交给 formatUserError：它的通道名正则不含下划线，
+      // `parse_error:douyin` 这类会漏过 looksTechnical 直出（T24b5 当场红）。
+      // 这里按形态识别成「接口形态变化」并给自然语言；识别不出再交给护栏兜底。
+      if (/^(parse_error|invalid_json|request_error|http_\d)/.test(r)) {
+        return t('historyPage.metricsCollectFormatChanged')
+      }
+      if (r) return formatUserError({ code: -1, message: r }, { fallback: t('historyPage.metricsFailed') }).message
+      return t('historyPage.metricsFailed')
+    }
+    if (status === 'skipped_daily_cap') return t('historyPage.metricsDailyCapReached')
+    return t('historyPage.metricsNeverCollected')
+  }
+
+  /**
    * 空态归因提示（互斥）：
    *   有数据且新鲜 → ''（不显示提示）
    *   有数据但超过 STALE_HINT_MS → 「数据截至 X 前」（**按卡片**提示，否则一条新鲜记录会把
@@ -146,11 +191,8 @@ export function usePublishHistoryMetrics ({ t, records }) {
     const m = metricFor(record)
     if (m) return staleHint(m.capturedAt)
     const platform = String(record.platform || '').toLowerCase()
-    const status = platformStatus.value.get(platform)
-    if (status === 'needs_login') return t('historyPage.metricsNeedsLogin')
-    if (status === 'unsupported') return t('historyPage.metricsUnsupported')
-    if (status === 'failed') return t('historyPage.metricsFailed')
-    if (status === 'skipped_daily_cap') return t('historyPage.metricsDailyCapReached')
+    const a = platformStatus.value.get(platform)
+    if (a) return platformStatusHint(a.status, a.error)
     return t('historyPage.metricsNeverCollected')
   }
 
@@ -241,8 +283,9 @@ export function usePublishHistoryMetrics ({ t, records }) {
       if (status) syncStatus.value = status
       metricsError.value = ''
     } else {
-      // 全部失败：保留上一次数据（把「刷新失败」渲染成「没有数据」是更差的结果），但要出声
-      metricsError.value = failed
+      // 全部失败：保留上一次数据（把「刷新失败」渲染成「没有数据」是更差的结果），但要出声。
+      // message 可能是技术形态（通道名/错误码），走本仓统一护栏转成自然语言，不直出。
+      metricsError.value = formatUserError({ code: -1, message: failed }, { fallback: t('historyPage.metricsFailed') }).message
     }
     applyMetrics()
   }
@@ -259,10 +302,10 @@ export function usePublishHistoryMetrics ({ t, records }) {
         await loadMetrics()
         return res.data || null
       }
-      metricsError.value = (res && res.message) || ''
+      metricsError.value = formatUserError(res, { fallback: t('historyPage.metricsFailed') }).message
       return null
     } catch (e) {
-      metricsError.value = (e && e.message) || ''
+      metricsError.value = formatUserError(e, { fallback: t('historyPage.metricsFailed') }).message
       return null
     } finally {
       syncing.value = false
@@ -305,10 +348,10 @@ export function usePublishHistoryMetrics ({ t, records }) {
         manualDialogVisible.value = false
         await loadMetrics()
       } else {
-        metricsError.value = (res && res.message) || ''
+        metricsError.value = formatUserError(res, { fallback: t('historyPage.metricsSaveFailed') }).message
       }
     } catch (e) {
-      metricsError.value = (e && e.message) || ''
+      metricsError.value = formatUserError(e, { fallback: t('historyPage.metricsSaveFailed') }).message
     } finally {
       manualSaving.value = false
     }
@@ -326,6 +369,8 @@ export function usePublishHistoryMetrics ({ t, records }) {
     captionFor,
     metricFor,
     metricHint,
+    platformStatusHint,
+    platformStatusOf,
     loadMetrics,
     refreshMetrics,
     manualDialogVisible,

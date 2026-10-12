@@ -19,6 +19,10 @@ const { usePublishHistoryMetrics, displayMetric, relativeTime } = await import('
 const t = (key, named) => {
   if (key === 'historyPage.metricsAsOf') return '数据截至 ' + (named && named.time)
   if (key === 'historyPage.metricsAgoMinutes') return (named && named.n) + ' 分钟前'
+  // formatUserError 的 fallback 走这条 t：返回真实中文文案（护栏产物是「文案」而不是键名）
+  if (key === 'historyPage.metricsFailed') return '上次采集失败，可稍后重试'
+  if (key === 'historyPage.metricsSaveFailed') return '保存失败，请稍后重试'
+  if (key === 'historyPage.metricsCollectFormatChanged') return '平台数据格式有变化，暂无法采集该平台。可稍后重试，或在详情弹窗手动录入'
   return key
 }
 
@@ -143,10 +147,25 @@ describe('metricHint 四类空态互斥', () => {
     const { api } = await setupWithStatus()
     expect(api.metricHint({ taskId: 'task-ok', platform: 'xiaohongshu' })).toBe('')
     expect(api.metricHint({ taskId: 'task-login', platform: 'douyin' })).toBe('historyPage.metricsNeedsLogin')
+    // no_adapter（无 error 字段）⇒ 通用 unsupported 行（stub 未覆盖该键 ⇒ 返回键名）
     expect(api.metricHint({ taskId: 'task-unsup', platform: 'toutiao' })).toBe('historyPage.metricsUnsupported')
-    expect(api.metricHint({ taskId: 'task-fail', platform: 'zhihu' })).toBe('historyPage.metricsFailed')
+    // failed 且无 reason ⇒ 通用失败行（stub 覆盖了该键 ⇒ 返回真实文案，护栏走的就是这条路）
+    expect(api.metricHint({ taskId: 'task-fail', platform: 'zhihu' })).toBe('上次采集失败，可稍后重试')
     expect(api.metricHint({ taskId: 'task-never', platform: 'weibo' })).toBe('historyPage.metricsNeverCollected')
     expect(api.metricHint(null)).toBe('')
+  })
+
+  it('T23c unsupported/needs_login 按 reason 细分（reason 来自主进程 accounts[].error）', async () => {
+    const { api } = await setupWithStatus()
+    // 签名器不在场 ⇒ 独立文案，不再与「暂不支持」混用（stub 未覆盖 ⇒ 断言键名）
+    expect(api.platformStatusHint('unsupported', 'signer_unavailable')).toBe('historyPage.metricsSignerUnavailable')
+    expect(api.platformStatusHint('unsupported', 'sign_failed')).toBe('historyPage.metricsSignFailed')
+    // 快手设备指纹缺失 ⇒ 「登录信息不完整」而不是「登录过期」
+    expect(api.platformStatusHint('needs_login', 'missing_cookie:kuaishou.web.cp.api_ph')).toBe('historyPage.metricsCookieIncomplete')
+    // 采集接口形态变化 ⇒ 自然语言说明 + 手动录入出路（stub 覆盖 ⇒ 断言真实文案）
+    expect(api.platformStatusHint('failed', 'parse_error:douyin: 响应缺少 aweme_list')).toBe('平台数据格式有变化，暂无法采集该平台。可稍后重试，或在详情弹窗手动录入')
+    expect(api.platformStatusHint('failed', 'http_500')).toBe('平台数据格式有变化，暂无法采集该平台。可稍后重试，或在详情弹窗手动录入')
+    expect(api.platformStatusHint('failed', 'invalid_json')).toBe('平台数据格式有变化，暂无法采集该平台。可稍后重试，或在详情弹窗手动录入')
   })
 
   it('同一平台多账号时取「最需要用户处理」的那个状态（needs_login 优先于 failed）', async () => {
@@ -190,12 +209,22 @@ describe('refreshMetrics', () => {
   })
 
   it('刷新失败时保留错误并解除 loading（不能让按钮永久卡在「正在采集」）', async () => {
+    // 「未登录」命中 formatUserError 的遗留 AUTH_REQUIRED pattern ⇒ 转成自然语言文案而非原样直出；
+    // 这正是接上护栏后的预期行为（技术/半技术文本不再裸奔到 UI）。
     metricsSyncMock.mockResolvedValue({ code: -1, message: '未登录' })
     const { api } = setup([{ id: 'r1', taskId: 'task-1' }])
     const out = await api.refreshMetrics()
     expect(out).toBeNull()
-    expect(api.metricsError.value).toBe('未登录')
+    expect(api.metricsError.value).toContain('登录')
     expect(api.syncing.value).toBe(false)
+  })
+
+  it('刷新失败的技术文本（通道名形态）⇒ 经 formatUserError 兜底，不直出内部文本', async () => {
+    metricsSyncMock.mockResolvedValue({ code: -1, message: 'store:metrics-sync failed at line 3' })
+    const { api } = setup([{ id: 'r1', taskId: 'task-1' }])
+    await api.refreshMetrics()
+    expect(api.metricsError.value).toBe('上次采集失败，可稍后重试')
+    expect(api.metricsError.value).not.toContain('store:')
   })
 })
 

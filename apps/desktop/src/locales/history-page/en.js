@@ -135,9 +135,16 @@ export default {
     // Per-card freshness: only shown past 24h, so one fresh record cannot whitewash the page
     metricsStale: (ctx) => 'Data as of ' + ctx.named('time'),
     metricsNeverCollected: 'Post metrics not collected yet',
-    metricsUnsupported: 'Automatic collection is not supported for this platform',
+    // unsupported split by reason (from main-process accounts[].error): "not implemented" and
+    // "signature unavailable" need different next steps, one generic line makes users guess.
+    metricsUnsupported: 'Automatic collection is not supported for this platform. You can enter data manually in the detail dialog',
+    metricsSignerUnavailable: 'This platform needs a signing service that is currently unavailable. Retry later, or enter data manually in the detail dialog',
+    metricsSignFailed: 'Collection signature failed (often a temporary platform issue). Retry later, or enter data manually in the detail dialog',
+    metricsCookieIncomplete: 'This account session is incomplete (missing device token). Please sign in again on the Accounts page to complete it',
     metricsNeedsLogin: 'Account session expired, please sign in again on the Accounts page',
     metricsFailed: 'Last collection failed, please retry later',
+    metricsCollectFormatChanged: 'The platform data format has changed, so this platform cannot be collected right now. Retry later, or enter data manually in the detail dialog',
+    metricsSaveFailed: 'Save failed, please retry later',
     cardTabTitle: (ctx) => 'Post · ' + ctx.named('title'),
     cardLinkOpened: 'Post link opened in a new tab',
     cardLinkOpenFailed: 'Failed to open the post link, please retry',
