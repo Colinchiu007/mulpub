@@ -47,9 +47,10 @@ CI 活体证据（run `38143550282`，两个 job 的日志尾部汇总**逐字�
 - 两个 matrix 腿从"各跑全量"变为真正各跑一半，`QG Desktop Shards` 的耗时分布随之改变 ⇒
   **#3313 那组 `PROVENANCE.shardMaxSuccessMin`（29.77 分）按新口径立即过期**。本 PR 不据此收紧预算
   （一次低值不构成收紧理由），合并后须跑 `node scripts/gate-budget-probe.js --check` 复核。
-- 加速幅度是**预测不是实测**：两腿仍各自承担同量级的环境/安装前置，那一截本 PR 未触。
+- 加速幅度**已在真机测得**（本 PR head `ba20ddb73` 的 run `38154770929`：两腿各 437 个测试文件、交集 0、两侧独有各 437，
+  墙钟 30 分 58 秒 / 19 分 29 秒 → 17 分 12 秒 / 9 分 56 秒）；仍没动的是两腿各自承担的环境/安装前置那一截。
 - 矩阵仍是 2 片且单腿内部串行（`--maxWorkers=1` + `--no-file-parallelism`）；要不要切更多片属容量调优，不叠。
-- 执行记录：`openspec/records/desktop-shard-flag.md`（含 QM-6 待办与人工过目理由）。
+- 执行记录：`openspec/records/desktop-shard-flag.md`（含 QM-6 双轴处置、三态与集合级原件指针、人工过目理由）。
 
 # [未发布] feat(creator): 博主监控多平台扩展——抖音 / 小红书接入（creator-multi-platform）
 
