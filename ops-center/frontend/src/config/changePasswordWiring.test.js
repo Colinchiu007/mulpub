@@ -55,12 +55,9 @@ describe('更改密码 - 菜单/路由/说明 接线', () => {
   })
 
   it('adminOnly 口径一致：菜单标记与路由 meta.adminOnly 相同', () => {
-    // ⚠️ 已知例外（既有缺口，非本次引入，已挂起待确认）：
-    //   /rollout（生效看板）在 MENU_ITEMS 标了 adminOnly，但 router 的 meta 未标 ——
-    //   即菜单对非 admin 隐藏，地址栏直达却放行。可能是「只读看板有意放开」，
-    //   也可能是漏接。本次只补 /change-password，不擅自改他人页面的权限口径，
-    //   故在此显式列出例外并钉住「例外只允许减少」。
-    const KNOWN_EXCEPTIONS = ['/rollout']
+    // 2026-10-12 修正：原「已知例外」/rollout 的缺口已修复（路由补了 adminOnly），
+    // 例外清单随之清空 —— 例外只允许减少，新增例外即红。
+    const KNOWN_EXCEPTIONS = []
     for (const p of ADMIN_ONLY_PATHS) {
       if (KNOWN_EXCEPTIONS.includes(p)) continue
       const route = routes.find((r) => r.path === p)
@@ -70,10 +67,18 @@ describe('更改密码 - 菜单/路由/说明 接线', () => {
   })
 
   it('例外清单不得扩大（新增 adminOnly 项必须同步路由 meta）', () => {
-    const KNOWN_EXCEPTIONS = ['/rollout']
+    const KNOWN_EXCEPTIONS = []
     const stillMissing = ADMIN_ONLY_PATHS.filter((p) => !KNOWN_EXCEPTIONS.includes(p))
       .filter((p) => !routes.find((r) => r.path === p)?.meta?.adminOnly)
     expect(stillMissing, `新出现的 adminOnly 路由缺口: ${stillMissing.join(', ')}`).toEqual([])
+  })
+
+  it('/rollout 两道锁都已上（历史缺口回归锁）', () => {
+    // 2026-10-12：菜单 adminOnly + 路由 meta.adminOnly 此前只上前者，地址栏可直达。
+    const menuItem = MENU_ITEMS.find((i) => i.path === '/rollout')
+    const route = routes.find((r) => r.path === '/rollout')
+    expect(menuItem.adminOnly, '菜单侧 adminOnly 被摘').toBe(true)
+    expect(route.meta.adminOnly, '路由侧 adminOnly 被摘（历史缺口复发）').toBe(true)
   })
 
   it('adminOnly 项数量从单一事实源推导（抵御「写死个数」式假绿）', () => {

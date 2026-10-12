@@ -1,4 +1,4 @@
-﻿/**
+/**
  * RequirementsTestRunner - 需求验证运行器
  *
  * 默认路径 (v0.5.0+):
@@ -77,6 +77,14 @@ class RequirementsTestRunner extends BaseTestRunner {
     const detector = new FeatureDetector({ srcDir: context.srcDir || "src" });
     const implItems = await detector.detect();
     const prdItems = filterPrdItemsByFeatureIds(docResult.items || [], context.featureIds);
+
+    // 状态分层（2026-10-12，Gate 9 第 3 层）：带 planned/wont-do/historical 标注的
+    // 条目不进覆盖率分母 —— 它们是规划/不做/历史，不是「应实现而未实现」的欠账。
+    // 实测 01-docs/PRD.md 357 项里大量规划项曾把覆盖率稀释成存量欠账（#3413 score 0.31）。
+    // 未标注（unknown）保持进审计，不因本次修复凭空缩小审计面。
+    const auditedItems = prdItems.filter((p) => p.auditScope !== false);
+    const excludedItems = prdItems.filter((p) => p.auditScope === false);
+
     if ((context.featureIds || []).filter(Boolean).length > 0 && prdItems.length === 0) {
       return {
         type: "requirements",
@@ -92,7 +100,9 @@ class RequirementsTestRunner extends BaseTestRunner {
         _facts: { prdItems: [], implItems, docSources: docResult.sources || [] },
       };
     }
-    const facts = { prdItems, implItems, docSources: docResult.sources };
+    // ⚠️ facts.prdItems 必须用分层后的子集：LLM 只评估交给它的条目，
+    // 若仍传全量，excludedItems 会被重新计入分母，分层就白做了。
+    const facts = { prdItems: auditedItems, implItems, docSources: docResult.sources };
     const judgeContext = { facts, task: context.task || "coverage" };
     if (context.llmFn) judgeContext.llmFn = context.llmFn;
     const verdict = await this.judge.judge(judgeContext);
@@ -105,7 +115,34 @@ class RequirementsTestRunner extends BaseTestRunner {
       return { testName: it.prdFeature, status: s, type: it.status.toLowerCase(), matchedImpl: it.matchedImpl || "", evidence: it.evidence || "", reasoning: it.reasoning || "" };
     });
     const summary = this.summarize(details);
-    return { type: "requirements", summary, details, coverageRate: verdict.summary?.coverageRate ?? 0, totalPrdFeatures: facts.prdItems.length, totalImplementedFeatures: facts.implItems.length, docSources: docResult.sources, _verdict: verdict, _facts: facts, _decision: verdict.decision };
+    // 分层可见性：被排除的条目不进分母，但必须在结果里显式列出，
+    // 否则「覆盖率上升」会被误读成「实现变多了」（实际只是分母变小）。
+    const excluded = excludedItems.map(p => ({
+      testName: p.name, status: "SKIPPED", type: "excluded-by-status",
+      itemStatus: p.status, statusTag: p.statusTag,
+      reasoning: `PRD 标注【${p.statusTag || p.status}】：规划/不做/历史类条目，不计入覆盖率分母`,
+    }));
+    return {
+      type: "requirements",
+      summary,
+      details,
+      excludedDetails: excluded,
+      excludedCount: excluded.length,
+      auditedCount: auditedItems.length,
+      // 判据来源（2026-10-12 CI 事故）：inline=true 表示仓库根真源没加载到、
+      // 本次用包内兜底判据（同算法，分层仍生效），但报告必须能看见。
+      statusCriteriaInline: docResult.statusCriteriaInline === true,
+      statusCriteriaResolvedFrom: docResult.statusCriteriaResolvedFrom || null,
+      coverageRate: verdict.summary?.coverageRate ?? 0,
+      totalPrdFeatures: auditedItems.length,
+      totalPrdFeaturesRaw: prdItems.length,
+      totalImplementedFeatures: facts.implItems.length,
+      docSources: docResult.sources,
+      statusStats: docResult.statusStats,
+      _verdict: verdict,
+      _facts: { prdItems: auditedItems, implItems, docSources: docResult.sources, excludedItems },
+      _decision: verdict.decision,
+    };
   }
 
   async _runWithAgentJudge(context) {

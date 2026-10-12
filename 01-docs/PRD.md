@@ -19707,3 +19707,71 @@ apps/desktop/src/views/
 - **验收**：`hot-topics/classifier.test.js`（32 例，含 6 条机制级根因反例）、`hot-topics-new-sources.test.js`（18 例）、
   `hot-topics-boost-classify.test.js`（6 例）；定向 8 文件 197 例、全量 380 文件 7276 例（1 skipped）全绿；
   `ops-center` pytest 7 passed。
+
+---
+
+## 附：PRD 需求条目状态标注约定（2026-10-12，Gate 9 覆盖审计分层）
+
+### 一、为什么要有这个约定
+
+CI 的 **Gate 9（PRD/源码自主覆盖审计）**会把 PRD 里可解析的条目与源码实现做逐条比对，
+覆盖率低于阈值即判红。问题在于：PRD 里的条目并不都是「应实现而未实现」的需求 —— 还有
+**规划中**、**明确不做**、**历史记录**三类。它们被一并计入分母后，覆盖率被稀释成存量欠账，
+与具体 PR 的改动无关，任何 feat PR 都可能被误判。
+
+实测数据（2026-10-12，CI artifact `autonomous-e2e-report-2026-10-12T08-00-49-968Z.json`）：
+PRD 解析出 **357 项**、桌面端识别 **1081** 个实现特征；PR #3413 只改 `ops-center` 却被判
+`COVERAGE_FAIL`（score 0.31），同构的 #3409 连续 4 次失败。
+
+### 二、标注写法
+
+在需求条目文本中追加方括号标注，位置不限（句中亦可）：
+
+| 标注 | 英文同族 | 含义 | 是否计入覆盖率分母 |
+|------|----------|------|--------------------|
+| `【已实现】` | `[implemented]` `[done]` `[shipped]` `[已上线]` | 已交付 | 计入 |
+| `【规划中】` | `[planned]` `[todo]` `[future]` `[待实现]` | 规划项，非欠账 | 不计入 |
+| `【不做】` | `[won't do]` `[wont-do]` `[rejected]` | 明确不做 | 不计入 |
+| `【历史】` | `[historical]` `[legacy]` `[deprecated]` `[已废弃]` | 历史记录 | 不计入 |
+| 无标注 | — | 未标注 | 计入（保持既有行为，不擅自缩小审计面） |
+
+示例：
+
+```markdown
+- 一键发布【已实现】
+- 播客 RSS 多平台分发【已实现】
+- 深色模式【不做】（桌面端定位为轻工具，暂不做主题切换）
+- 移动端适配【规划中】（v3 评估）
+```
+
+### 三、判定与分层规则（单一真源：`scripts/gate9-prd-status.js`）
+
+1. **优先级**：一条同时带多个标注时，按 `implemented -> historical -> planned -> wont-do`
+   顺序取先命中者。`implemented` 优先是为了让「【已实现】…【历史】」这类复合描述
+   不被误判为历史项。
+2. **fail-open**：判据模块缺失时全部按 `unknown` 处理（既有行为），不因基建缺失
+   静默缩小审计面。
+3. **分母口径**：只有 `implemented` / `unknown` 进入覆盖率分母；其余三类进入
+   `excludedDetails` 在报告里**显式列出**（含原标注与理由）。
+   这一步不可省：否则「覆盖率上升」会被误读成「实现变多了」，实际只是分母变小。
+4. **`totalPrdFeatures` 与 `totalPrdFeaturesRaw` 并存**：前者是审计后条数，后者是
+   原始条数，两个数都在报告里，差集即被分层掉的部分。
+
+### 四、审计对象的选择（单一真源：`scripts/gate9-classify.js`）
+
+Gate 9 的 `srcDir` 与 `docPaths` 由 PR **实际变更文件**的落点决定，不再固定为桌面端：
+
+| 变更落点 | 审计对象 | 模式 |
+|----------|----------|------|
+| 仅 `ops-center/**` | `ops-center/frontend/src` + `ops-center/docs/PRD.md` | full |
+| 触及 `apps/desktop/**` | `apps/desktop/src` + `01-docs/PRD.md` | full |
+| 仅文档/流程路径 | — | report-only |
+| 未触及任何前端源码目录（如仅 `packages/`、`scripts/`） | — | report-only |
+| 标题以 `fix/chore/docs/refactor/test` 开头，或 label 命中同类 | — | report-only |
+| 无变更清单（非 PR 上下文） | `apps/desktop/src` + `01-docs/PRD.md` | full（fail-closed） |
+
+### 五、审计未实际执行时的可见性
+
+LLM 空输出/报告缺失时，审计 job 会往 job 汇总写 `AUTONOMOUS_VERDICT_NOTE`
+（`NO_VERDICT` / `NO_REPORT`），`Gate Result` 聚合时一并打印：
+`autonomous-verdict : NO_VERDICT <-- 覆盖审计未实际产出有效 verdict，绿色不代表已审计`。
