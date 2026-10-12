@@ -6,7 +6,7 @@
  *
  * localStorage 结构 v1：
  *   { version: 1, groups: [{ id, name, topics: string[] }] }
- * 话题条目就是字符串（无 id/link——参考产品蚂蚁小二的 {id,name,link} 是平台
+ * 话题条目就是字符串（无 id/link——参考产品蚂参考产品的 {id,name,link} 是平台
  * API 联想结构，本地常用标签无平台绑定，不引入死字段）。
  */
 
