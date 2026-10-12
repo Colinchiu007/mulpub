@@ -1,18 +1,18 @@
 {
   "sha": "a0ba23dc5387e6d5b18041fcd7e173e55384a705",
   "layer": "diff",
-  "mode": "single",
-  "reason": "变更 5 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "mode": "dual",
+  "reason": "变更 0 行（≤ 200）但命中 auth/数据库/加密：敏感内容 2 处",
   "stats": {
-    "changedLines": 5,
-    "fileCount": 3,
-    "codeFileCount": 1,
+    "changedLines": 0,
+    "fileCount": 2,
+    "codeFileCount": 0,
     "sensitivePathHits": [],
     "plannedPathHits": [],
-    "sensitiveContentHits": 0
+    "sensitiveContentHits": 2
   },
-  "stagedDiffHash": "39681529f8b28c0a3ea9308879d299bf898c0856f1e248aab98be6416f77cf96",
-  "decidedAt": "2026-10-12T08:11:47.031Z",
+  "stagedDiffHash": "2021b3e15d5e267a234947b88a196e2a163554c17faa0f8de6b2641e4548f818",
+  "decidedAt": "2026-10-12T08:24:31.177Z",
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,

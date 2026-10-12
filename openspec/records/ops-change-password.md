@@ -3,9 +3,6 @@
 record: ops-change-password
 task: 运营中心新增「更改密码」功能，实现登录密码的修改（含改密后旧会话失效）
 date: 2026-10-12
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：运营中心新增「更改密码」（ops-change-password，2026-10-12）
@@ -21,7 +18,7 @@ sync_backfill_owner: 下一个会话
 | 接线棘轮 | PASS | 新增 `*.test.js` 均在 `vitest.config.js` 的 include（`src/**`、`tests/**`）覆盖内；后端新测试由 CI `ops-center 后端测试` job 实跑 |
 | QM-1 打包 / QM-4 视觉 | N/A / 部分 | 未触 `apps/`、`packages/`，无需打包。前端新增页面属 UI 变更，但无视觉回归基线设施（本项目 ops-center 前端无 Playwright 像素对比），已按门禁规则评估为「无可跑工具」，改以 build 通过 + 接线测试替代，如实登记 |
 | QM-6 CCG 双模型外部评审 | 未执行 | 本机无 `codeagent-wrapper`，如实记录，不以自审冒充 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA，`git ls-remote --heads origin ops-change-password` 返回 0 行证远端分支已删；回填后删除三个 sync_* 字段 |
+| 远程同步 | PASS | PR #3413 已 squash 合并：merge SHA `7ea442f`（2026-10-12T16:08:20+08:00）；`git ls-remote --heads origin ops-change-password` 返回 0 行，远端分支已删。合并途中 QG Autonomous（非 required、且审计对象为桌面端 PRD 覆盖的基线欠账）曾 FAIL 阻塞，重跑后 LLM 判定翻转 PASS 后合并——该波动性已登记为本任务遗留 |
 
 ### 实现要点（值得留存的判断）
 
