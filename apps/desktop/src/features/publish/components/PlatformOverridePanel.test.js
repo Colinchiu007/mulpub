@@ -34,7 +34,7 @@ describe('PlatformOverridePanel', () => {
     await wrapper.get('[data-testid="override-toggle-wechat_mp"]').setValue(true)
 
     expect(wrapper.emitted('update:modelValue')[0][0]).toEqual({
-      wechat_mp: { title: '', content: '', digest: '', massSend: false, openComment: true },
+      wechat_mp: { title: '', content: '', digest: '', massSend: false, freePublish: false, openComment: true },
     })
     expect(modelValue).toEqual({})
   })
@@ -50,7 +50,7 @@ describe('PlatformOverridePanel', () => {
     await wrapper.get('[data-testid="override-title-wechat_mp"]').setValue('专属标题')
 
     expect(wrapper.emitted('update:modelValue').at(-1)[0]).toEqual({
-      wechat_mp: { title: '专属标题', content: '', digest: '', massSend: false, openComment: true },
+      wechat_mp: { title: '专属标题', content: '', digest: '', massSend: false, freePublish: false, openComment: true },
     })
   })
 

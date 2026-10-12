@@ -62,6 +62,8 @@ function loadAdapter () {
 
 async function runPublish ({ adapter, http, postData, cookie = 'sid=1' }) {
   adapter.http = http
+  // sendPush 首败重试间隔 5s；测试注入 0 等待，避免真实定时器挂住事件循环
+  adapter.pushDelayFn = async () => {}
   return adapter.publish(cookie, postData)
 }
 
@@ -198,4 +200,100 @@ test('buildPostData 复用 execute 阶段已上传的封面 URL', () => {
 test('uploadVideo 对图文返回 null（不误判为视频平台）', async () => {
   const adapter = loadAdapter()
   assert.equal(await adapter.uploadVideo({}, 'cookie'), null)
+})
+
+// ── 发布/群发链接线（wechat-mp-publish-track）─────────────────────────────
+
+/** happyHttp + 群发/发布链端点（copyright 回包 err_msg 必须 'default' 才算通过）。 */
+function publishHappyHttp ({ pushRet = 0 } = {}) {
+  return createFakeHttp([
+    { method: 'GET', match: (u) => u.includes('loginpage'), respond: { data: LOGIN_PAGE_HTML } },
+    {
+      method: 'POST',
+      match: (u) => u.includes('filetransfer'),
+      respond: { data: { cdn_url: COVER_CDN, content: 'fid-1', type: 'image/png' } },
+    },
+    {
+      method: 'POST',
+      match: (u) => u.includes('operate_appmsg'),
+      respond: { data: { appMsgId: 100000001, base_resp: { ret: 0 } } },
+    },
+    {
+      method: 'GET',
+      match: (u) => u.includes('appmsg_edit'),
+      respond: { data: readbackHtml() },
+    },
+    // 发布链：5 道检查共用 masssend 端点（for_check / check_same_material / copyright / check_ad / check_music）
+    // 注意：匹配必须窄于发送端点（masssend?t=ajax-response），否则发送回包会被检查规则截胡
+    { method: 'POST', match: (u) => u.includes('/masssend') && u.includes('action='), respond: { data: { base_resp: { ret: 0, err_msg: 'default' } } } },
+    { method: 'POST', match: (u) => u.includes('/masssend') && u.includes('for_check=1'), respond: { data: { base_resp: { ret: 0, err_msg: 'ok' } } } },
+    // 群发页（masssend 路径需要；带协议已签 + operation_seq）
+    { method: 'GET', match: (u) => u.includes('masssendpage'), respond: { data: 'operation_seq: "op77"' } },
+    // 发送
+    { method: 'POST', match: (u) => u.includes('masssend?t=ajax-response') || (u.includes('masssend') && u.includes('token=')), respond: { data: { base_resp: { ret: pushRet, err_msg: pushRet === 0 ? 'ok' : 'freq limit' } } } },
+  ])
+}
+
+test('publishMode=masssend：草稿通过回读后走完整群发链，成功且 draft=false', async () => {
+  const http = publishHappyHttp()
+  const r = await runPublish({
+    adapter: loadAdapter(),
+    http,
+    postData: { ...ARTICLE, cover_path: tmpCover(), publishMode: 'masssend' },
+  })
+  assert.equal(r.success, true, r.error)
+  assert.equal(r.draft, false)
+  assert.equal(r.publishMode, 'masssend')
+  // 群发页被拉取（取 operation_seq），发送端点为 masssend?t=ajax-response
+  assert.ok(http.callsTo('masssendpage').length >= 1)
+  const pushCall = http.calls.find((c) => String(c.url).includes('masssend?t=ajax-response'))
+  assert.ok(pushCall, '应有发送请求')
+  assert.ok(String(decodeURIComponent(pushCall.body)).includes('operation_seq=op77'))
+  assert.ok(!String(pushCall.url).includes('is_release_publish_page'), '群发路径不带发布页旗标')
+})
+
+test('publishMode=publish：走 5 道检查 + 发布发送（is_release_publish_page=1、operation_seq 为空）', async () => {
+  const http = publishHappyHttp()
+  const r = await runPublish({
+    adapter: loadAdapter(),
+    http,
+    postData: { ...ARTICLE, cover_path: tmpCover(), publishMode: 'publish' },
+  })
+  assert.equal(r.success, true, r.error)
+  assert.equal(r.draft, false)
+  assert.equal(r.publishMode, 'publish')
+  // 发送端点与 for_check 前缀相同（masssend?t=ajax-response…），必须排除 for_check 才是真发送
+  const pushCall = http.calls.find((c) => String(c.url).includes('masssend?t=ajax-response') && !String(c.url).includes('for_check=1'))
+  assert.match(String(pushCall.url), /is_release_publish_page=1/, '发布路径应带发布页旗标')
+  assert.ok(String(decodeURIComponent(pushCall.body)).includes('operation_seq=&'), '发布路径 operation_seq 为空')
+})
+
+test('publishMode=masssend：发送端 ret!=0 ⇒ fail-closed（消灭群发假成功）', async () => {
+  const http = publishHappyHttp({ pushRet: 200013 })
+  const r = await runPublish({
+    adapter: loadAdapter(),
+    http,
+    postData: { ...ARTICLE, cover_path: tmpCover(), publishMode: 'masssend' },
+  })
+  assert.equal(r.success, false)
+  assert.equal(r.code, 'masssend-push-failed')
+  assert.match(r.error, /freq limit/)
+})
+
+test('publishMode 默认 draft：只建草稿，不触达 masssend 端点', async () => {
+  const http = publishHappyHttp()
+  const r = await runPublish({ adapter: loadAdapter(), http, postData: { ...ARTICLE, cover_path: tmpCover() } })
+  assert.equal(r.success, true)
+  assert.equal(r.draft, true)
+  const masssendPosts = http.calls.filter((c) => c.method === 'POST' && String(c.url).includes('/masssend'))
+  assert.equal(masssendPosts.length, 0, '只存草稿不应触发任何 masssend 请求')
+})
+
+test('buildPostData：publish_mode / mass_send / free_publish 归一为 publishMode', () => {
+  const adapter = loadAdapter()
+  assert.equal(adapter.buildPostData({ publish_mode: 'publish' }).publishMode, 'publish')
+  assert.equal(adapter.buildPostData({ mass_send: true }).publishMode, 'masssend')
+  assert.equal(adapter.buildPostData({ free_publish: true }).publishMode, 'publish')
+  assert.equal(adapter.buildPostData({}).publishMode, 'draft')
+  assert.equal(adapter.buildPostData({ publish_mode: 'masssend', mass_send: true }).publishMode, 'masssend')
 })

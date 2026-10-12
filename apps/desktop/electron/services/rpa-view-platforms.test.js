@@ -206,7 +206,7 @@ describe('rpa-view-platforms — 微信公众号发布', () => {
       success: false,
       platform: 'wechat_mp',
     }))
-    expect(result.error).toContain('群发确认')
+    expect(result.error).toContain('确认失败')
   })
 
   // ── 2026-10-12 补强（wechat-mp-api-publish-track）：群发保护预检 + 原文链接尽力透传 ──
