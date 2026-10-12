@@ -332,6 +332,23 @@ registry（index.json + 两段 channel.json）、迁移三态（首访即可读�
 | 分段结构 | `content` 只 `trim()` 首尾，内部换行原样保留（:151），显示端 `white-space: pre-line`（`CopyLibraryView.vue:312`） | ⛔ 分块逻辑**禁止**压缩空白：`\s+ → ' '` 会把语义换行一起压掉（AGENTS.md「文本空白归一化 MUST NOT」+ `readable-text.js:139-143` 的 `[^\S\n]+` 唯一口径）。段落边界就是 `\n` |
 | 改写链 | `rewrite-handoff.js:23` 的 `{content 必填, title, platform, sourceUrl, fromKey, fromTitle}` | RewriteView 入口沿用该形状，不在刀 4 另造第二种 handoff |
 
+##### 7.4.1.1 音色解析层已落地（2026-10-11，刀 4 第 3 片·上半）
+
+**唯一实现**：`apps/desktop/electron/services/podcast-tts-voice.js` 的 `resolveEpisodeVoice(input)`（纯函数，不 require 任何网络/provider 代码，读偏好与 capability 由调用方注入）。
+
+| 项 | 落地口径 | 少了它会怎样 |
+|---|---|---|
+| 回退顺序 | ① 频道 `voiceRef` → ② 用户偏好 → ③ capability 的 `defaultVoiceId` → ④ 全空即**拒绝出期** | 猜「provider 的第一个音色」会让同一频道在不同机器解析出不同音色，而 feed 一旦挂上就是对外可见的错 |
+| 键名归一 | 频道真源存 `providerId`，本层归一后交 `voiceRefIssues` 判三段；同时接受历史别名 `provider` | 不归一会把「三段齐备但键名叫 providerId」的合法配置判成半配置，**每个正常配置过音色的频道都出不了期** |
+| 码表单点 | 半配置与三层全空**共用** `TTS_COMPOSE_ERRORS.VOICE_REF_INCOMPLETE`（其值即用户可见的 `PODCAST_TTS_VOICE_UNRESOLVED`），层间区分靠 `issues[].path`：`voiceRef` / `voice` / `voice.preference` / `voice.capability` | 每层各造一个码会在 locale 里堆无人维护的文案键，而两层的处置对用户是同一句话 |
+| 「读异常」≠「没配」 | 偏好或 capability **抛异常**时直接拒绝并出声（`warn`），不得静默降级到下一层；对照组：返回 `null` 才继续回退 | 把一次存储异常变成「系统替你换了个人说话」，且用户在界面上看不出来 |
+| 空值不算命中 | 偏好记录存在但 `voiceId` 为空串/纯空白 ⇒ 按没配处理，继续回退（对象形状 `{voiceId}` 与裸字符串形状都支持，覆盖 store 的两种历史形状） | 把空值当命中会让下一层永远点不到，表现为「配过偏好的人反而解析失败」 |
+| 无默认 provider | 拿不到 `defaultProvider` 的 providerId+model 时**②③ 无定位键**，直接拒绝且两个读取实现一次都不被调用 | 「随便挑一个 provider」等于把解析结果绑到 provider 列表的顺序上 |
+| 注入缺失 | `readPreference` / `getCapability` 任一缺失 ⇒ `PODCAST_EPISODE_INVALID`，且发生在任何读取之前 | 缺依赖时降级成"少一层回退"会让半成品在生产路径上静默生效 |
+
+**显示项 3 的数据来源（§7.4.6 的三态来源标注）**：本层返回 `origin ∈ {channel, preference, providerDefault}` 与 `resolvedBy`（形如 `preference:openai-tts/tts-1`）。渲染层必须按 `origin` 选文案键 `podcast.tts.voice.channel` / `.preference` / `.providerDefault`，措辞要让用户区分「我配的」与「系统替我选的」。**这三条 locale 键与浮层接线属第 3 片下半**（同下半还须把 `podcast-tts-compose.js` 加回 `src/locales/podcast-error-codes.test.js` 的 PRODUCERS 并补 4 组 zh/en 成对文案，见 tasks.md 的 MUST 行）。
+
+**锁**：`podcast-tts-voice.test.js` 16 条——含「①命中时两个读取实现调用数必须为 0」（顺序判据用调用计数而非返回形状）、「半配置不得往下走」、「异常与没配结果必须不同（成对用例）」、三条**注入真 `tts-voice-catalog.getVoiceCapability`** 的跨模块契约锁（`openai-tts/tts-1 → alloy`；`elevenlabs → defaultVoiceId 为 null` 必须拒绝；未知 provider 不算命中），以及一条「本层源码不得出现第二个 `PODCAST_*` 字面量码」的码表单点结构锁。
 #### 7.4.2 流程（相位与手柄）
 
 手柄仍是 `podcast-episode-publish.js` 的闭集 `PHASES`（:29-32）与 `CANCELABLE_UNTIL='uploadAudio'`。刀 4 **只在 `extractMix` 这一站换一个实现**（`synthesizeEpisodeAudio` 取代 `extractEpisodeAudio`），`probe` 及其之后逐字复用。结构锁（PRD §8 ⑪）的口径是：**改相位枚举必须与逐格结果态测试同 PR**；刀 4 不改枚举，改的是注入实现。

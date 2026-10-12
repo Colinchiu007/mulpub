@@ -1,3 +1,10 @@
+# [未发布] feat(podcast): 刀 4 第 3 片·上半 音色解析层（podcast-tts-voice）
+
+- 新增 `apps/desktop/electron/services/podcast-tts-voice.js`：一期播客的音色解析层——频道 `voiceRef` → 用户偏好 → capability 级 `defaultVoiceId` 的固定四步回退链，三层全空一律**拒绝出期**（`PODCAST_TTS_VOICE_UNRESOLVED`），不得由代码替用户猜一个音色。
+- 命中时如实返回 `origin`（channel / preference / providerDefault）与 `resolvedBy`，作为浮层「用的是哪一层回退」三态来源标注的唯一数据来源；用户必须能区分「我配的」与「系统替我选的」。
+- 边界判据：半配置不顺着回退链往下走；「读取异常」与「没配」分别处置；空串 voiceId 按没配；无默认 provider 时 ②③ 无定位键即拒绝且两个读取实现调用数为 0；注入缺失 fail closed；非对象 voiceRef 当场拒绝。
+- 码表单点：复用分块层那一个用户可见码，层间靠 `issues[].path` 区分，并配「不得出现第二个 `PODCAST_*` 字面量码」的结构锁。
+- 16 条行为锁（含 3 条注入真 `tts-voice-catalog.getVoiceCapability` 的跨模块契约锁）；本机 2 files / 42 tests 全绿。本片刻意不接线宿主（不改 host、不加 IPC、不动浮层、不加 locale 键）。
 # [未发布] 存量播客单集 `mime` 一次性固化的合同（mime-stock-freeze）
 
 - PRD 新增 §7.9：把 tasks 4.4 写成可实现合同——事实前提（存量脏值分「缺席」与「非法」两类，处置不同）、固化动作（恰好一次、幂等、只补不改、按扩展名派生、派生不出就不猜）、数据校验与失败语义表、交互与显示项（`compliance` 增设 `stock` 档、频道页摘要）与 zh/en 提示文字三条、七条必须带的回归锁、以及故意不做的三项。
