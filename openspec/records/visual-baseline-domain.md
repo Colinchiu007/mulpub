@@ -1,10 +1,7 @@
 ---
 record: visual-baseline-domain
-task: 视觉判定域对账——把"注册表声明的视图 × 浅暗两档"钉成判定域，60 条缺基线 + 3 条无主基线带理由登记，清单只能缩小
+task: 视觉判定域对账——把"进域注册表声明的视图 × 浅暗两档"钉成判定域，实测 69 条缺基线带理由登记 + 3 张域外注册表带理由豁免，清单只能缩小
 date: 2026-10-11
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填 PR 改写 PASS + merge SHA 并整段删除本三个 sync_ 字段
-sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账）
 ---
 
 # 视觉判定域对账（visual-baseline-domain，2026-10-11）
@@ -26,8 +23,8 @@ sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账�
 | 评审纠正（改变了结论数字） | ✅ 已撤回误判 | 前端轴 MAJOR 成立：**当时把判定域写成"三张表"是测量域写窄了** —— 实测 `apps/desktop/tests/visual-testing/**` 有 8 张 `const *Tests = [`，其中 `autonomous-loop.js` 的 `pixelTests`(20) 与 `screenshotViewTests`(14) 确实按视图名消费基线。据此**撤回我自己发布过的一条结论**：先前报的「无主基线 3 张（`analytics-overview`/`login-form`/`settings-general`）」是误判，三个名字全在 `autonomous-loop.js#pixelTests` 里 ⇒ `orphans` 现为空、`MAX_ORPHANS=0`，PRD §6 那条"待人工裁决去留"的遗留项一并撤销。扩域后实测：进域 5 张（37/19/20/20/14）→ 并集 56 → 判定域 112 → **缺 69**、**36 个视图一档都没有**。后端轴 CRITICAL「同 PR 新增视图 + 当场登记 gap ⇒ `unregistered`/`stale` 全程无声」成立 ⇒ 加 `MAX_GAPS`/`MAX_ORPHANS`/`MAX_OUT_OF_DOMAIN` 上界棘轮；后端轴 MAJOR「模板字面量含括号会静默少算」**经实测否证**（它给的输入解析正确、它把代码追错；真实限制是嵌套反引号且失败形态是抛错 exit 2，不是静默）；前端轴 MINOR「只钉下界不钉成员」成立 ⇒ 加成员钉 5 条与 `all ∩ pixel` 非空 |
 | 流程自我纠偏（不假装已闭合） | ⚠ 已记 | 前端轴仍在读目录期间，我为跑探针给 `module.exports` 加过一个导出（约 30 秒后 `git checkout HEAD -- <单文件>` 还原、`git status` 复验干净）。按「评审读目录期间禁止任何写型动作」，这次写盘使该轴结论的可归属 SHA 变模糊（它引用的符号不在我改的那一行，且我对它每条主张都重新实测），正确做法是先等落盘再动仓库。见 PRD §9.4 与 learnings |
 | 行尾两口径对账 | ✅ | 见下方「收尾」行的 numstat 对照 |
-| 品牌残留 / 文档同步 | PENDING（CI 侧） | 本轮未新增任何竞品品牌字样（入库文本一律「参考产品」口径不适用，本 PR 无相关表述）；`文档同步检查` 以 CI 为准 |
-| 远程同步 | PENDING | PR 尚未开出 |
+| 品牌残留 / 文档同步 | ✅ | `node scripts/check-no-brand-residue.js` 本机 PASS（8408 个 tracked 文件零命中）；CI 侧 `债务熔断检查` / `依赖漏洞审计` / `文档同步检查` 均 pass（run 38242777656 / 38242777724 / 38242777732） |
+| 远程同步 | PASS | PR #3335 → main `c6edf943c0672762b77ac343afa6d6c0462f4cab` @ 2026-10-12T20:02:35+08:00（取证 `git log origin/main --grep='(#3335)$' --format=%H\|%cI`）；远端分支已删 `git ls-remote --heads origin visual-baseline-domain` = 0 行；合并前 required checks **19 pass / 1 skipping**（`release` 非 required），`mergeable=MERGEABLE`、`check-pr-exec-record --mode=enforce` OK、`apps/desktop/electron/` 与 `packages/rpa-engine/` 变更集为空 ⇒ QM-1 打包验证不适用 |
 
 ## QM-5 五步
 
@@ -43,6 +40,16 @@ sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账�
 - **3 张无主基线的去留**：`analytics-overview` / `login-form` / `settings-general`。删除他人文件属破坏性动作，本轮只登记不裁决。
 - **采集套件是否应升级为比对套件**：把 `aiVisionTest` 换成 `pixelRegressionTest` 会一次性引入 30 个视图 × 2 档的判定，等于在没有对账器兜底的那一轮同时制造 60 个潜在漂移源；正解是先做 PR B。
 
-## 收尾（合并后回填用）
+## 合并过程留痕（两次 re-sync，含一次与我无关的 CI 红）
 
-- 待回填：本文件与 `.quality-gates.md` 的远程同步行、删除 frontmatter 三个 `sync_` 字段、删除 `scripts/gate-record-debt-ledger.json` 登记项（必须同一次提交）。
+- **第一次 re-sync**：main 前进 5 个提交，`CHANGELOG.md` 与 `01-docs/learnings.md` 顶部相撞。union 解法（只删三行冲突标记、逐行保留各自行尾），双向多重集对账两侧各 0 行丢失、0 凭空行。
+- **合并曾被一片挡住 40+ 分钟**：`QG Desktop Shards (2/2)` 两次 attempt 均报 `Desktop shard exceeded its 30-minute execution budget`（31.25m / 31.35m，日志零断言失败）。当时我先给出的归因是"分片贴在 30 分钟边线上"，**随后被同期成功样本（30.7m / 31.4m）否证** —— 因为量的是步骤内 `WaitForExit` 子窗口，不是 job 总时长。
+- **真因与本 PR 无关**：本分支 base 早于 #3313 的预算修复。当前 main 的 shard 步骤已改读单一真源 `scripts/gate-budget.js`（`GATE_TEST_BUDGET_MS = 2700000` = 45 分，`quality-gate.yml:912/931`，job 上限 55）。第二次 re-sync 后同一分片直接通过，未做任何配平或抬预算。
+- 顺带量到并登记为优化项（任务 #67，非紧急）：分片仍是 `--shard=N/2` 按**文件数**切，main 实测两片 job 时长 30m58s vs 19m29s（差 11.5 分）；且 CI 是 `--maxWorkers=1 --no-file-parallelism` 全串行 ⇒ **本地并行跑出的每文件耗时不可当配平权重**（本地 873 文件合计仅 5.0m）。
+- 另记一条**与本 PR 无关但已确认的 main 级故障**：`.github/workflows/gui-test.yml` 在 main push 上连续 ≥8 次 `failure` 且**零 job**（原因未查明，API 取不到 annotation/jobs），且它对 PR **完全不产 check** —— 一条既不设防又长期红的 workflow。不在本 PR 处置范围内，留给后续单独一刀。
+
+## 收尾
+
+- 已销账：本文件 `远程同步` 改写 PASS + merge SHA，frontmatter 三个 `sync_` 字段已删除（本次提交内完成）。
+  本篇走**新载体**（`openspec/records/<分支>.md`）登记，故 `scripts/gate-record-debt-ledger.json` 本就无对应登记项 —— 无账可删，非漏删。
+
