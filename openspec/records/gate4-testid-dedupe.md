@@ -2,9 +2,6 @@
 record: gate4-testid-dedupe
 task: 修复 gate4 测试编号重名（我新加的 T21-T24 与既有编号冲突）
 date: 2026-10-12
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填 PR 改写为 PASS + merge SHA 并删除三个 sync_* 字段
-sync_backfill_owner: 下一个会话（或本会话的合并后回填步骤）
 ---
 
 ## 本次执行记录：修复 gate4 测试编号重名（gate4-testid-dedupe，2026-10-12）
@@ -41,7 +38,7 @@ sync_backfill_owner: 下一个会话（或本会话的合并后回填步骤）
 | 行尾 / 编码对账 | PASS | 两口径 `numstat` 一致；`check-text-encoding-integrity.js` 无新增损坏 |
 | 品牌残留 | PASS | `check-no-brand-residue.js` |
 | 判据未变 | PASS | 纯重命名：`git diff` 仅 5 处字符串（4 个用例名 + 1 处注释头） |
-| 远程同步 | PENDING | 本 PR 尚未合并。合并后：`git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 取 merge SHA；`git ls-remote --heads origin gate4-testid-dedupe` 返回 0 行证远端分支已删；回填本行并删除 `sync_*` 三字段（本条**不**加台账登记项：记录文件的 `sync_*` 字段本身就是该源的登记机制，额外加台账键会被判陈旧项——上一轮实测） |
+| 远程同步 | PASS | PR #3391 已 squash 合并，merge SHA `0720192d201f6187fa104ac3a18edfb828b7888b`（committer 2026-10-12T10:47:44+08:00）；取证 `git log origin/main --grep='(#3391)$' --format=%H|%cI` **唯一 1 行**命中；`git ls-remote --heads origin gate4-testid-dedupe` 返回 **0 行**，证远端分支已删；`sync_*` 三字段已在同一次回填提交中删除（本条不加台账登记项：记录文件的 `sync_*` 字段即该源的登记机制） |
 
 ### 遗留
 
