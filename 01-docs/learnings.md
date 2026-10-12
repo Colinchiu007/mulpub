@@ -17841,3 +17841,21 @@ CCG 的 `HARDCODED_SECRET` 规则是「关键词 + `[:=]` + 引号内 8 字符�
 - **gate-record-debt 三源登记形态互不相同**：① `.quality-gates.md` 每篇记录 bullet 行 + 表格行同写同改；② `openspec/records/<slug>.md` 的 PENDING 用 frontmatter `sync_status/sync_reason/sync_backfill_owner` 三字段（登记随文件走）；③ `gate-record-debt-ledger.json` 的键必须与标题精确一致（含【混合 PR】后缀）且必须带 reason 字段。回填时四处同一次提交。
 - **`git rebase --continue` 卡 vim**：pre-commit 链会拉编辑器，非交互用 `GIT_EDITOR=true git rebase --continue`。
 - **worktree 里跑 vitest 必须 cd apps/desktop**：从 worktree 根跑，测试内 `process.cwd()` 相对路径解析 ENOENT 假红。
+
+## Gate 9 覆盖审计三缺陷修复的三条可复用教训（gate9-scope-fix，2026-10-12）
+
+1. **门禁的审计对象必须看 PR 改了什么，否则它审的是存量欠账**：Gate 9 固定审「全量 PRD（357 项）vs 桌面端代码（1081 特征）」，与本 PR 无关。只改 ops-center 的 feat PR 被判 0.31 分拦合并（#3413），同构 #3409 连挂 4 次。修法：按变更文件落点分流 srcDir/docPaths（scripts/gate9-classify.js），并提取为 Node 模块——判据抄在 workflow 的 PowerShell 字面量里**无法单测**，这是它失控的上游原因。
+2. **覆盖率分层不能只改分母，必须让被排除项显式可见**：把 planned/wont-do/historical 从分母剔除后，报告里覆盖率会凭空上升，读者无法区分「实现变多了」与「分母变小」。必须同时输出 excludedDetails（含原标注与理由）+ auditedCount + totalPrdFeatures（审计后）与 totalPrdFeaturesRaw（原始）。另一个易错点：facts.prdItems 必须传分层后子集，否则 LLM 仍评估全量、分层白做（已用「规划项不得进 prompt」的集成测试锁死）。
+3. **「绿色的 check」从未被验证过是「审过了」**：agent-review-gate.js 对 LLM 空输出返回 exit 0 放行（AUDIT_NO_VERDICT），同一 PR 两次跑结论相反（0.31 FAIL → NEED_HUMAN）。修法不是让它变严（会误伤），而是加 verdict 探针把「未实际审计」写进 job 汇总并打印——先让不可见变可见。
+
+## 运营中心「更改密码」的三条可复用教训（ops-change-password，2026-10-12）
+
+1. **文档反复指向的流程，可能根本不存在——先取证再动手**：PRD §6.4 与 OPERATIONS §11.3 都写「改 `.env` 口令不会同步进库，要么用『修改密码』流程…」，但 auth_service.ensure_admin_seeded 在 `existing is not None` 时直接 return（从不更新已有行），「修改密码」无处可做——文档指向的是一条断掉的链路。教训：读到文档描述某流程时，先用代码确认入口是否真的存在，别默认文档与实现同步。
+2. **Python 默认参数会让 monkeypatch 静默失效**：把 MAX_LOGIN_FAILURES 写成 `_record_failure(max_failures=MAX_LOGIN_FAILURES)` 后，既有测试的 `monkeypatch.setattr(module,'MAX_LOGIN_FAILURES',3)` 改不动 def 时已绑定的默认值 → 2 个既有测试变红。凡「可被测试覆盖的阈值」必须在函数体内读取模块级常量。
+3. **无状态 JWT 的「改密即失效」要放指纹而非哈希片段**：JWT 签发后无法删除，改密要作废旧 token 只能靠比对。实现取 `sha256(库中口令哈希)[:16]` 作 pwd_fp 写进 payload——**必须二次摘要**，因为 JWT payload 只签名不加密，直接放哈希片段等于向持票人泄露哈希材料（可离线爆破）。且校验要「有 pwd_fp 才校验」而非「没有就拒绝」，否则一刀切打死桌面端 Bearer 通道与既有测试。
+
+## CI 上三处真红的三条教训（gate9-scope-fix 第 2-4 commits，2026-10-12/13）
+
+1. **`node -e` 的 `require('./x')` 不相对 cwd**：CI 日志 `Cannot find module './scripts/gate9-classify.js'`，require stack 是 `D:\a\mulpub\mulpub\[eval]` —— Node 把 `-e` 的 `./` 相对 **eval 脚本**解析。本机 cwd 恰是仓库根所以没暴露。**凡在 workflow 里用 `node -e` require 仓库文件，必须 `path.join(process.cwd(), ...)`**。
+2. **`github.event.pull_request.changed_files` 是整数计数，不是文件清单**：实测该字段 = 13（与 `git diff --name-only` 的文件数一致），`toJSON()` 后得到 `"13"`，分类器把「13」当成一个假文件名 → 落 fail-closed 桌面端全量，分流等于没生效。正确做法是用 git 自己算：`git diff --name-only $(git merge-base origin/main HEAD) HEAD`。
+3. **`.gitignore` 的 `scripts/*.js` 会静默吞掉门禁本体**：三次 CI 红同一个根因——判据模块没入库（`*.test.js` 后缀不同逃过忽略，被测模块没有），CI 上 MODULE_NOT_FOUND 而本机全绿。修法按仓内先例加 `!scripts/xxx.js` 反选放行。**更深教训：本机全绿/CI 全红时，先查「文件真的入库了吗」，再查逻辑**——我连续误判了两次（先修 node -e 路径、再修 changed_files 语义），都是真实问题但都不是那三次红的根因。
