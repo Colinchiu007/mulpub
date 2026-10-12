@@ -318,8 +318,9 @@ function startBatchPolling () {
           batchProgress.value = Math.round((completed / total) * 100)
         }
       }
-    } catch {
+    } catch (e) {
       // M-3：连续失败达阈值即收口；已收集的条目保留不清空（错误经 guard 统一上抛）
+      void e
       const { failed, count } = batchPollGuard.recordFailure()
       if (failed) {
         failBatchPolling(
