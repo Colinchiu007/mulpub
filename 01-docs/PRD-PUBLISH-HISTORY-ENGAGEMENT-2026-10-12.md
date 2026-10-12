@@ -4,7 +4,7 @@
 > 日期：2026-10-12；类型：运行时代码（主进程采集服务 + IPC/preload + 渲染层 + locale）
 > 前序切片：P2-6b 关联键（#2861）、P2-6c 看板（`PRD-PUBLISH-METRICS-DASHBOARD-2026-10-04.md`）、
 > 作品链接目的地判据（`PRD-PUBLISH-HISTORY-PUBLIC-LINK-2026-10-07`，落地为 `usePublishHistoryContentLink.js`）
-> 竞品调研：`D:\Data\projects\_逆向工程_蚁小二4.0`（4.13.19）
+> 竞品调研：参考产品 4.13.19（本地逆向产物，路径与品牌名不入库）
 
 ---
 
@@ -59,7 +59,7 @@ CLICKABLE: 10 / 68
 
 ### 1.4 为什么必须换数据源（竞品调研结论）
 
-竞品蚁小二走的是**平台创作者后台自己的数据接口 + 账号 Cookie**，不是抓公开页：
+竞品走的是**平台创作者后台自己的数据接口 + 账号 Cookie**，不是抓公开页：
 
 | 平台 | 数据接口 | 返回字段 |
 | --- | --- | --- |
@@ -68,7 +68,7 @@ CLICKABLE: 10 / 68
 | 快手 | `cp.kuaishou.com/rest/cp/creator/analysis/pc/photo/list`（需 `__NS_sig3`） | `playCount` / `likeCount` / `commentCount` / `collectCount` / `followCount` |
 | 头条 | `mp.toutiao.com/mp/agw/creator_center/list`（`need_stat:true`） | `impression_count` / `play_count` / `digg_count` / `comment_count` |
 
-**一次列表请求返回该账号全部作品的指标**，而不是逐个作品抓页面 —— 这是量级差异：100 条作品 = 1 次请求，而非 100 次。蚁小二的节流参数也与本仓现有一致（24h 周期 + 每页 `Task.Delay(1000)` + 游标去重 + 7 天窗口裁剪），说明「24h 一轮」是行业内的安全取值。
+**一次列表请求返回该账号全部作品的指标**，而不是逐个作品抓页面 —— 这是量级差异：100 条作品 = 1 次请求，而非 100 次。该产品的节流参数也与本仓现有一致（24h 周期 + 每页 `Task.Delay(1000)` + 游标去重 + 7 天窗口裁剪），说明「24h 一轮」是行业内的安全取值。
 
 **结论：公开页抓取这条路对国内主流平台结构性不可行，必须换成账号级后台接口。**
 
