@@ -26,3 +26,8 @@
 ## 残留与如实声明
 - 全量像素跑在 collection 视图存在动画相位噪声（scoped 1/1 稳定，全量偶发 1.6%），与 learnings #445 记载同源；本轮按「先归因后重建」处置，未改动画。
 - 知乎批量改写通道的回退源（无自身结果时改写父级有正文条目）已按原语义迁移：`rewriteFallbackItems` prop（父级传 `collectedItems`），原实现在列表内就地改写改为受控副本改写——该分支无既有行为锁，如实登记为待补。
+
+## Rebase 后核对（2026-10-12，PR #3409 冲突解决）
+- origin/main 前进至 e39dc0a03（#3395 草稿箱独立标签页，与本刀同文件）。冲突按「两侧记录都保留」解决：imports 并集（draft-box-ui/useSourceEntry/useCollectionDrafts + BatchCollectPanel/CollectedResultsList）、CHANGELOG union、基线图取本刀重建版。
+- 合并后全量重验：collection 域 + styles 305/305 全绿（新增 CollectionDraftsPanel 相关 23 例随上游进来）；行数/locale-CJK/lint 门禁复跑全过。
+- 视觉基线：light 复核通过；dark 因上游页签行/快捷卡改动重建（归因=上游 #3395 布局变化，差异图 collection-1791785222584.png），复核 1/1 通过。
