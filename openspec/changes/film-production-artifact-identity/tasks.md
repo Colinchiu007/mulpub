@@ -27,29 +27,29 @@
 
 ## 2. 组 2：`production-retry-shot` 通道（TDD）
 
-- [ ] 2.1 RED：`ipc-handlers/film-engineering.test.js` 新增——台账批次重试成功，覆盖 `shot_NNN.mp4`，**不依赖流水线 run**
-- [ ] 2.2 RED：新增——批次 runId 从未注册为流水线 run 时仍能重试成功（对缺陷 B 的直接回归锁）
-- [ ] 2.3b RED：**并发幂等**——同一镜连点两次重试，两次调用不得并发写同一 shot_NNN.mp4 产生半成品；第二次须按既定覆盖语义处理或显式拒绝（SELF-REVIEW B7 补充）
-- [ ] 2.3 RED：新增六条 fail-closed 校验——taskId 路径遍历 / 台账不存在 / batchIndex 未命中 / shotIndex 越界 / shotId 不存在 / prompt 为空，逐条断言**零 provider 调用**
-- [ ] 2.4 RED：新增——prompt 取自 `service.getShot(shotId)` 原文（断言提交给 provider 的 prompt 与 kit 原文逐字符相等，含 `<<<uuid>>>` 令牌）
-- [ ] 2.5 GREEN：`ipc-handlers/film-engineering.js` 新增通道，复用既有 `validateProductionArgs` 的 taskId 路径安全校验，逐项 fail-closed
-- [ ] 2.6 GREEN：纳入 `withSenderCheck`；`PUBLIC_CHANNELS` 决策按既有 15/16 条口径评估后落定
+- [x] 2.1 RED：`ipc-handlers/film-engineering.test.js` 新增——台账批次重试成功，覆盖 `shot_NNN.mp4`，**不依赖流水线 run**
+- [x] 2.2 RED：新增——批次 runId 从未注册为流水线 run 时仍能重试成功（对缺陷 B 的直接回归锁）
+- [x] 2.3 RED：新增六条 fail-closed：**并发幂等**——同一镜连点两次重试，两次调用不得并发写同一 shot_NNN.mp4 产生半成品；第二次须按既定覆盖语义处理或显式拒绝（SELF-REVIEW B7 补充）
+- [x] 2.3b RED 校验——taskId 路径遍历 / 台账不存在 / batchIndex 未命中 / shotIndex 越界 / shotId 不存在 / prompt 为空，逐条断言**零 provider 调用**
+- [x] 2.4 RED：新增——prompt 取自 `service.getShot(shotId)` 原文（断言提交给 provider 的 prompt 与 kit 原文逐字符相等，含 `<<<uuid>>>` 令牌）
+- [x] 2.5 GREEN：`ipc-handlers/film-engineering.js` 新增通道，复用既有 `validateProductionArgs` 的 taskId 路径安全校验，逐项 fail-closed
+- [x] 2.6 GREEN：纳入 `withSenderCheck`；`PUBLIC_CHANNELS` 决策按既有 15/16 条口径评估后落定
 
 ## 3. 组 3：渲染端收敛（P4 DRY）
 
-- [ ] 3.1 RED：`useFilmProduction.test.js` 新增——`retryShotInBatch` 载荷只含 `taskId/batchIndex/shotIndex/aspect/seconds`，**不含 runId**
-- [ ] 3.2 GREEN：`useFilmProduction.js` 删 `'prod-' + taskId + '-b' + batchIndex` 复刻，改调 `productionRetryShot` 通道
-- [ ] 3.3 GREEN：preload 暴露新方法；确认无其他调用点依赖被删的派生规则（全仓 grep 取证）
+- [x] 3.1 RED：`useFilmProduction.test.js` 新增——`retryShotInBatch` 载荷只含 `taskId/batchIndex/shotIndex/aspect/seconds`，**不含 runId**
+- [x] 3.2 GREEN：`useFilmProduction.js` 删 `'prod-' + taskId + '-b' + batchIndex` 复刻，改调 `productionRetryShot` 通道
+- [x] 3.3 GREEN：preload 暴露新方法；确认无其他调用点依赖被删的派生规则（全仓 grep 取证）
 
 ## 4. 组 4：变异反证与收尾
 
 - [x] 4.1 变异①：`runIdFor` 退回两参（指纹丢失）⇒ 1.x 用例必须红
-- [ ] 4.2 变异②：`production-retry-shot` 改回用 `getRunSnapshot` 定位 ⇒ 2.2 用例必须红
-- [ ] 4.3 变异③：`buildRenderManifest` 改为按新规则重算 path（而非读台账 `b.runId`）⇒ spec「清单 path 不依赖派生规则」用例必须红
+- [x] 4.2 变异②：`production-retry-shot` 改回用 `getRunSnapshot` 定位 ⇒ 2.2 用例必须红
+- [x] 4.3 变异③：`buildRenderManifest` 改为按新规则重算 path（而非读台账 `b.runId`）⇒ spec「清单 path 不依赖派生规则」用例必须红
 - [x] 4.4 回归：`electron/services/film-engineering/` 全量 + `src/composables/useFilm*` + `src/views/Film*` + `src/i18n`
-- [ ] 4.5 既有失败复核：`film-engineering.test.js` 的 `download-recycled` 用例仍失败 ⇒ 确认与本 change 无关（`git archive origin/main` 原版测试文件复跑同红）
-- [ ] 4.6 QM-5 五步执行记录 + `openspec/records/<分支>.md`
-- [ ] 4.7 `openspec sync`（spec delta 并入主 spec）+ archive 三同步
+- [x] 4.5 既有失败复核：`film-engineering.test.js` 的 `download-recycled` 用例仍失败 ⇒ 确认与本 change 无关（`git archive origin/main` 原版测试文件复跑同红）
+- [x] 4.6 QM-5 五步执行记录 + `openspec/records/<分支>.md`
+- [x] 4.7 `openspec sync`（spec delta 并入主 spec）+ archive 三同步
 
 ## 5. 明确不做（记入遗留，避免下轮重复讨论）
 
