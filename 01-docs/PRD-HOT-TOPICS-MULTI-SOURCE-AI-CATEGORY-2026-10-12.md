@@ -677,7 +677,7 @@ fetchTopics({ force, boostCategories })
 | 文件 | 性质 | 静态 `it` 声明数 | 运行时用例数 | 覆盖内容 |
 |---|---|---|---|---|
 | `apps/desktop/electron/services/hot-topics/classifier.test.js` | **新增**（206 行） | 25 | **32**（其中 1 处为 8 例参数化循环） | 分类体系 11 类 + `ai` 紧随 `tech`；渲染层与分类器 key/顺序一致；`KEYWORD_RULES` 覆盖完整性；禁裸单字；AI × tech 边界 5 例；**6 条根因回归锁**；8 类正例质量抽查；`classifyTopicMulti` 4 例；词表修补回归 5 例 |
-| `apps/desktop/electron/services/hot-topics-new-sources.test.js` | **新增**（265 行） | 18 | **18** | `parseCnNumber` 1 例；`parseDouyin` 三端点同构 3 例；`parseXiaohongshu` 2 例；`parseIfeng`/`parseIfengInline`/`extractIfengAllData` 3 例；`parseToutiao` 字段修正 1 例；`CHANNEL_CONFIGS` 4 例；`_collectChannel` 三条新合同 4 例 |
+| `apps/desktop/electron/services/hot-topics-new-sources.test.js` | **新增**（283 行） | 19 | **19** | `parseCnNumber` 1 例；`parseDouyin` 三端点同构 3 例；`parseXiaohongshu` 2 例；`parseIfeng`/`parseIfengInline`/`extractIfengAllData` 3 例；`parseToutiao` 字段修正 1 例；`CHANNEL_CONFIGS` 4 例；`_collectChannel` 三条新合同 4 例 |
 | `apps/desktop/electron/services/hot-topics-boost-classify.test.js` | **新增**（120 行） | 6 | **6** | 补拉条目分类归属 4 例（异质条目不硬挂、零信号才兜底、id 带 board 段且唯一、解析器报错 fail-closed）；`ai` 补拉供给 2 例（配置存在且 `boostCategory`/`board` 为 `ai`、`onlyCategory` 用分类器筛） |
 | `apps/desktop/electron/services/hot-topics-service.test.js` | 同步更新（既有） | 56 | 未逐例统计 | 含 `has 10 channel configs…`（断言含 `xiaohongshu`/`ifeng`）、`ai` 独立成类、`汽车` 归综合、`科学科普` 归综合 |
 | `apps/desktop/electron/services/content-categories.test.js` | 同步更新（既有） | 未逐例统计 | — | 「内置 11 类与 classifier.js CATEGORY_KEYS 一致」「未下发 / 空 / 结构非法 → 内置 11 类」 |
@@ -690,15 +690,33 @@ fetchTopics({ force, boostCategories })
 
 | # | 门禁 | 命令 | 状态 |
 |---|---|---|---|
-| G1 | 定向测试 | `apps/desktop` 下跑 hot-topics 相关 + `content-categories` 双端 + `HotTopics.vue` | **待执行** |
-| G2 | ops-center pytest | `cd ops-center/backend && pytest tests/test_content_categories_api.py` | **待执行** |
-| G3 | locale 成对 | `node scripts/check-locale-sync.js` | **待执行** |
-| G4 | 品牌残留 | `node scripts/check-no-brand-residue.js` | **待执行** |
-| G5 | eslint | 改动文件 lint | **待执行** |
-| G6 | **QM-1 打包验证** | `cd apps/desktop && pnpm exec electron-builder --win --x64`（或 `--win --dir`） | **待执行** |
-| G7 | 打包产物校验 | `pnpm exec asar list dist-electron/win-unpacked/resources/app.asar`（含目标文件）+ 启动 8s 无致命 stderr | **待执行** |
-| G8 | worktree 依赖解析 | `node scripts/verify-worktree-deps.js` | **待执行** |
-| G9 | 质量节拍记录 | 更新 `.quality-gates.md` + 登记 `scripts/gate-record-debt-ledger.json` | **待执行** |
+| G1 | 定向测试 | `apps/desktop` 下跑 hot-topics 相关 + `content-categories` 双端 + `HotTopics.vue` | **PASS**：8 文件 / **198 passed**（收口后；含新增 locale 键回归锁） |
+| G2 | ops-center pytest | `cd ops-center/backend && pytest tests/test_content_categories_api.py` | **PASS**：**9 passed**（补 2 条「非空存量库」用例） |
+| G3 | locale 成对 | `node .github/scripts/check-locale-sync.js --pair-base origin/main / --keys / --cjk` | **PASS**：三项全过（keys 1875；cjk 基线 1489 / 当前 1224，无新增硬编码） |
+| G4 | 品牌残留 | `node scripts/check-no-brand-residue.js` | **PASS**（扫描 8142 个 tracked 文件） |
+| G5 | eslint | 改动文件 lint | **PASS**：exit 0 |
+| G6 | **QM-1 打包验证** | `cd apps/desktop && pnpm exec electron-builder --win --x64`（或 `--win --dir`） | **PASS**：`build:vue` rc=0（37.77s）+ `electron-builder --win --dir --publish never` rc=0，asar **151022004 B** |
+| G7 | 打包产物校验 | `pnpm exec asar list dist-electron/win-unpacked/resources/app.asar`（含目标文件）+ 启动存活与致命输出检查 | **PASS（判据通道已修正，见注）**：asar 含全部改动模块；解包后从产物 require 三模块（11 类含 `ai` / 13 解析器含 `xiaohongshu`\`ifeng` / 10 渠道且 `CATEGORY_BOOSTS` 含 `ai`）；经 **interactive 用户会话**（`explorer.exe`）启动打包 exe 存活 12s、日志出现 `main-window-shown`、禁用标记 6 项全 0、进程计数回基线 0 |
+| G8 | worktree 依赖解析 | `node scripts/verify-worktree-deps.js` | **PASS**（11 个 workspace 链接解析到本 worktree） |
+| G9 | 质量节拍记录 | 更新 `.quality-gates.md` + 登记 `scripts/gate-record-debt-ledger.json` | **PASS**：`check-gate-record-debt.js` rc=0、`check-pr-exec-record.js --mode=enforce` OK |
+
+> **G7 判据通道修正（重要，如实登记）**：实测本机 **Windows GUI 子系统下打包 exe 的 stdout/stderr 恒为空**
+> （显式带 `ELECTRON_ENABLE_LOGGING=1` 亦无输出；`--user-data-dir=` 参数还会被 exe 以 `bad option` 拒绝并 rc=9），
+> 且 **harness 直接 spawn 的 GUI 进程会立即 rc=0 静默退出**（userData 零变更、Chromium 未初始化）。
+> 因此「捕获 stderr 判三类禁用标记」在本机**结构性不可区分**，本轮改以「日志文件 + 进程存活 + 进程计数回基线」为判据。
+
+### 11.4 QM-6 双模型外部评审（收口回填）
+
+| 项 | 结论 |
+|---|---|
+| 路由真源 | `~/.claude/.ccg/config.toml` → `[routing.backend].primary=claude`、`[routing.frontend].primary=opencode`（本机无 `codeagent-wrapper`，改为直接调用两个 CLI，并行、只读） |
+| frontend（`opencode`） | **结构化 JSON：Critical 0 / Warning 2 / Info 2**；两条 Warning 与一条 Info 已修，另一条 Info 如实登记为「已知版本错配窗口」，评审自身也建议本次不改 |
+| backend（`claude`） | **本轮未产出结构化 findings**（本机运行 > 60 分钟、日志 0 字节）——按「frontend 单模型结构化 + backend 未产出」记账，**不声称双模型均已通过** |
+| 已修 ①（Warning） | `classifier.js` 的 `DOMAIN_LEVEL_RAW` 前置短路使 9 条映射成为不可达死条目，且 `GENERIC_RAW_MAP` 注释举的唯一理由正是那条死条目 ⇒ 删死条目 + 改注释（**不选**「恢复强表 `科技` 优先级」，那会重现用户报的缺陷） |
+| 已修 ②（Warning） | 两条跨端契约测试标题声称「与 classifier.js 一致」却用手抄字面量 ⇒ 改为**真实 import** 后 `toEqual` |
+| 已修 ③（Info） | ops-center 存量 10 类库补 `ai` 的 `sort_order` 冲突靠字母序 tiebreak ⇒ 补 2 条「非空存量库」pytest 用例 + 把口径写进 `_provision_from_catalog` 文档串 |
+| 登记 ④（Info） | 桌面端 v3 配旧版 ops-center（仍下发 10 类）时 `ai` 条目在分类下拉不可见 ⇒ **已知版本错配窗口，升级顺序：先 ops-center 后桌面端** |
+| 反证（防假绿） | 两条新回归锁各做一次变异：删 `ithome-ai` locale 键 ⇒ **1 failed**；调换 `CATEGORY_KEYS` 中 `ai`/`entertainment` ⇒ **2 failed**；变异后文件按 SHA 还原 |
 
 ### 11.3 QM-1 打包验证的专项要求（本模块适用）
 

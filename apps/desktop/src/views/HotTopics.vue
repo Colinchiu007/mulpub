@@ -291,7 +291,7 @@ const router = useRouter()
 const { t } = useI18n()
 const { notifyError, notifyInfo } = useNotify()
 
-// 统一内容类别（2026-10-03）：运营中心「内容类别管理」下发；读不到时回退内置 10 类。
+// 统一内容类别（2026-10-03）：运营中心「内容类别管理」下发；读不到时回退内置 11 类。
 // categoryLabel 需显式落到本地绑定才进得了模板（script setup 只自动暴露本文件声明）。
 const contentCategories = contentCategoriesRef()
 const resolveCatLabel = (key) => categoryLabel(key, t)

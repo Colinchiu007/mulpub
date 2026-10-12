@@ -447,7 +447,7 @@ class OpsCenterSync {
 
   /**
    * 统一内容类别（2026-10-03）：运营中心「内容类别管理」下发的类别列表。
-   * 返回空数组表示本轮无有效配置，渲染端据此 fail-open 回退内置 10 类。
+   * 返回空数组表示本轮无有效配置，渲染端据此 fail-open 回退内置 11 类。
    */
   getContentCategories() {
     const list = this._runtime.contentCategories

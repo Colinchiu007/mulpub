@@ -26,6 +26,7 @@ export default {
       xiaohongshu: 'Xiaohongshu', ifeng: 'iFeng',
       sina_finance: 'Sina Finance', ithome_tech: 'IT Home',
       'baidu-finance': 'Baidu Finance Board', 'sina-finance': 'Sina Finance Roll', 'ithome-tech': 'IT Home Hot',
+      'ithome-ai': 'IT Home (AI)',
       'weibo-emotion': 'Weibo Emotion', 'weibo-health': 'Weibo Health',
     },
     selectAll: 'Select all',

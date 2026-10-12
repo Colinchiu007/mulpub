@@ -12,15 +12,13 @@ import {
   isValidCategoryKey,
   resolveDefaultCategoryName,
 } from '@/features/content/content-categories'
+// 真实 import 抓取侧分类器（CJS），不再手抄字面量副本——手抄副本会让
+// 「renderer / electron / classifier」三方中的两方漂移时三份测试同时保持绿色。
+import classifier from '../../../electron/services/hot-topics/classifier.js'
 
 describe('统一内容类别 · 内置目录', () => {
-  it('内置 11 类与抓取分类器 CATEGORY_KEYS 键名顺序一致', () => {
-    // electron/services/hot-topics/classifier.js 的 CATEGORY_KEYS
-    const classifierKeys = [
-      'general', 'society', 'finance', 'tech', 'ai', 'entertainment',
-      'sports', 'emotion', 'education', 'health', 'international',
-    ]
-    expect([...DEFAULT_CATEGORY_KEYS]).toEqual(classifierKeys)
+  it('内置 11 类与抓取分类器 CATEGORY_KEYS 键名顺序一致（真实 import 比对）', () => {
+    expect([...DEFAULT_CATEGORY_KEYS]).toEqual([...classifier.CATEGORY_KEYS])
   })
 
   it('defaultItems 带 0..n-1 的 sort_order', () => {

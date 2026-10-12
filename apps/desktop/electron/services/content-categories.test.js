@@ -10,16 +10,13 @@ const {
   normalizeContentCategories,
   resolveCategoryLabel,
 } = require('./content-categories')
-
-// 抓取侧分类器的 CATEGORY_KEYS（electron/services/hot-topics/classifier.js）
-const CLASSIFIER_KEYS = [
-  'general', 'society', 'finance', 'tech', 'ai', 'entertainment',
-  'sports', 'emotion', 'education', 'health', 'international',
-]
+// 真实 import 抓取侧分类器的 CATEGORY_KEYS（不改用手抄字面量：手抄副本改一处漏一处时，
+// 三份测试会同时保持绿色，跨端静默分叉——外部评审 Warning 的落点）
+const { CATEGORY_KEYS: CLASSIFIER_KEYS } = require('./hot-topics/classifier')
 
 describe('统一内容类别（主进程）· 内置目录', () => {
-  it('内置 11 类与 classifier.js CATEGORY_KEYS 一致', () => {
-    expect([...DEFAULT_CATEGORY_KEYS]).toEqual(CLASSIFIER_KEYS)
+  it('内置 11 类与 classifier.js CATEGORY_KEYS 一致（真实 import 比对）', () => {
+    expect([...DEFAULT_CATEGORY_KEYS]).toEqual([...CLASSIFIER_KEYS])
   })
 
   it('defaultItems 带 0..n-1 sort_order', () => {

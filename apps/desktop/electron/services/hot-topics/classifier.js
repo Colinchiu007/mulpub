@@ -39,25 +39,29 @@ const CATEGORY_KEYS = [
 /**
  * 渠道原生分类 → 分类枚举（**可信原生**，优先于关键词）。
  * key 归一化：trim + toLowerCase；未命中先查通用名词表，再走关键词规则。
+ *
+ * ⚠️ **各表不得收录 `DOMAIN_LEVEL_RAW` 里的域级泛称**：它们在 `_mapNative` 查表**之前**
+ * 就被统一短路为 `null`，写进任何表都是不可达的死条目（且会误导后来者以为「可信表优先」
+ * 仍然适用于「科技」这类栏目名）。本注释即外部评审 Warning 的落点。
  */
 const RAW_CATEGORY_MAP = {
   // 今日头条 hot-board 的 Category 字段（实测枚举；2026-09 起该字段偶发缺失，缺失走关键词兜底）
   toutiao: {
     '社会': 'society', '国际': 'international',
-    '财经': 'finance', '科技': 'tech', '娱乐': 'entertainment',
+    '财经': 'finance', '娱乐': 'entertainment',
     '体育': 'sports', '教育': 'education', '健康': 'health',
     '军事': 'international', '游戏': 'entertainment',
   },
   // 腾讯新闻 hot_ranking_list 领域字段（注意：线上 chlid 多为数字 ID，命中的是文本领域名）
   tencent: {
     '社会': 'society', '国际': 'international', '财经': 'finance',
-    '科技': 'tech', '娱乐': 'entertainment', '体育': 'sports',
+    '娱乐': 'entertainment', '体育': 'sports',
     '教育': 'education', '健康': 'health', '军事': 'international',
   },
   // 微博热搜 hot_band 的 category 字段（实测 2026-09 枚举 + v2 扩容）
   weibo: {
     '数码': 'tech', '电竞': 'entertainment', '国内时政': 'society',
-    '演出': 'entertainment', '互联网': 'tech', '剧集': 'entertainment',
+    '演出': 'entertainment', '剧集': 'entertainment',
     '综艺': 'entertainment', '民生新闻': 'society', '体育': 'sports',
     '健康医疗': 'health', '舆论监督': 'society', '游戏': 'entertainment',
     '情感': 'emotion', '艺人': 'entertainment',
@@ -69,7 +73,7 @@ const RAW_CATEGORY_MAP = {
   },
   // B站热门 tname 分区名（实测 2026-09，常见分区 → 分类映射；未命中分区走关键词规则）
   bilibili: {
-    '科技': 'tech', '数码': 'tech', '软件应用': 'tech',
+    '数码': 'tech', '软件应用': 'tech',
     '校园学习': 'education',
     '手机游戏': 'entertainment', '单机游戏': 'entertainment', '电子竞技': 'entertainment',
     '游戏': 'entertainment', '国产动画': 'entertainment', '影视杂谈': 'entertainment',
@@ -86,18 +90,19 @@ const RAW_CATEGORY_MAP = {
  * 这些桶的共同特征：一个分类名下面混装了多个内容域，把它整体映射成某个分类必然产生
  * 「分类下有不沾边内容」。典型：B站「知识」区（历史/法律/职场/财经/科普混装）曾被
  * 整批映射成 tech，是「科技类混入不沾边内容」的头号来源。
+ * 同样不得收录 `DOMAIN_LEVEL_RAW` 的域级泛称（会被前置短路）。
  */
 const RAW_CATEGORY_WEAK_MAP = {
   toutiao: {
-    '热点': 'general', '汽车': 'general', '旅游': 'general',
+    '汽车': 'general', '旅游': 'general',
   },
   weibo: {
-    '汽车': 'general', '科学科普': 'general', '幽默': 'entertainment',
+    '汽车': 'general', '幽默': 'entertainment',
     '美食': 'general', '旅游': 'general', '宠物': 'general',
     '时尚': 'general', '美妆': 'general',
   },
   bilibili: {
-    '知识': 'general', '科学科普': 'general', '人文历史': 'general',
+    '人文历史': 'general',
     '预告·资讯': 'general', '日常': 'general', '生活': 'general',
     '美食制作': 'general', '美食记录': 'general', '美食侦探': 'general',
     '亲子': 'general', '动物二创': 'general', '出行': 'general', '手工': 'general',
@@ -106,10 +111,14 @@ const RAW_CATEGORY_WEAK_MAP = {
 
 /**
  * 通用原生分类名词表：任意渠道的 category 字段直接写分类中文名时全渠道生效。
- * （百度垂类 tab、新浪财经 rawCategory='财经'、IT之家 rawCategory='科技' 等）
+ * （百度垂类 tab 的 rawCategory='财经'、新浪财经滚动 rawCategory='财经' 等）
+ *
+ * ⚠️ 本表**不含** `科技`：它是 `DOMAIN_LEVEL_RAW` 的域级泛称，会在查表前被短路为 null。
+ * 曾把「IT之家 rawCategory='科技'」当作本表存在的理由，而该条恰恰是死条目 —— 同一类
+ * 「注释举的例子已经被闸门杀掉」的漂移已由外部评审指出并在此修正。
  */
 const GENERIC_RAW_MAP = {
-  '综合': 'general', '社会': 'society', '财经': 'finance', '科技': 'tech',
+  '综合': 'general', '社会': 'society', '财经': 'finance',
   '娱乐': 'entertainment', '体育': 'sports', '情感': 'emotion',
   '教育': 'education', '健康': 'health', '国际': 'international',
   'ai': 'ai', '人工智能': 'ai', 'AI': 'ai',

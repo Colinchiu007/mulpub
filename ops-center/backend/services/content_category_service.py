@@ -5,7 +5,7 @@
 CATALOG 的 category_key 与桌面端
 `apps/desktop/electron/services/hot-topics/classifier.js` 的 `CATEGORY_KEYS`
 严格对齐（键名与顺序），是唯一的跨端契约。桌面端读不到下发值时 fail-open
-回退内置 10 类，因此本目录**必须**保持那 10 个 key 不变。
+回退内置 11 类，因此本目录**必须**保持那 11 个 key 不变。
 
 目录供给
 --------
@@ -118,6 +118,15 @@ async def _provision_from_catalog(db: AsyncSession) -> None:
 
     只 flush 不 commit：事务由调用方统一收口，避免「补齐已落盘而后续校验抛错」
     留下部分写入。ON CONFLICT DO NOTHING 防止并发双插打成 IntegrityError。
+
+    ⚠️ **补行时的 sort_order 冲突口径**（外部评审 Info 的落点，行为已被 test_content_categories_api.py
+    的两条「非空存量库」用例钉住）：新补行的 ``sort_order`` 取该 key 在 ``CATALOG`` 里的下标，
+    且**只补不改**运营已调整过的既有行。因此在**存量 10 类库**上补 ``ai``（下标 4）时，它会与
+    既有 ``entertainment`` 的 ``sort_order=4`` 相撞；实际呈现顺序由 ``_ordered_rows`` 的
+    ``order_by(sort_order, category_key)`` **字母序 tiebreak** 决定（``'ai' < 'entertainment'``），
+    恰好落在 CATALOG 期望位置。这个正确性依赖字母序而非目录序，属于已知脆弱点：
+    若运营已手工重排（把 entertainment 提到 2），ai 仍被钉在 4，位置不再等于目录序 —— 这是
+    「只补不改」语义的必然结果，不是缺陷。**改动 enumerate 起点或 tiebreak 字段前必须先跑那两条用例。**
     """
     existing = set(
         (await db.execute(sa.select(ContentCategory.category_key))).scalars().all()
@@ -287,7 +296,7 @@ async def reorder_category(db: AsyncSession, key: str, action: str) -> str:
 
 
 async def reset_categories(db: AsyncSession, updated_by: str) -> list[dict]:
-    """恢复目录默认：只把内置 10 类的名称/说明/排序/启用回退到 CATALOG，自定义类保留。"""
+    """恢复目录默认：只把内置 11 类的名称/说明/排序/启用回退到 CATALOG，自定义类保留。"""
     await _provision_from_catalog(db)
     rows = await _ordered_rows(db)
     now = _now()

@@ -26,6 +26,7 @@ export default {
       xiaohongshu: '小红书', ifeng: '凤凰网',
       sina_finance: '新浪财经', ithome_tech: 'IT之家',
       'baidu-finance': '百度财经榜', 'sina-finance': '新浪财经滚动', 'ithome-tech': 'IT之家热榜',
+      'ithome-ai': 'IT之家(AI 专题筛)',
       'weibo-emotion': '微博情感垂类', 'weibo-health': '微博健康垂类',
     },
     selectAll: '全选',

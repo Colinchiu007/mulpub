@@ -7,7 +7,7 @@
  * 所有端点/字段路径均来自 `01-docs/research/hot-topics-sources-*.md` 的实测记录。
  */
 import { describe, it, expect, vi } from 'vitest'
-import { CHANNEL_CONFIGS } from './hot-topics-service.js'
+import { CHANNEL_CONFIGS, CATEGORY_BOOSTS } from './hot-topics-service.js'
 import { HotTopicsService } from './hot-topics-service.js'
 import {
   parseCnNumber,
@@ -261,5 +261,22 @@ describe('_collectChannel 新合同：空列表视为失败 + fallback 顺序降
     const res = await svc._collectChannel(cfg, Date.now())
     expect(res.items[0].topic).toBe('兜底乙')
     expect(svc.breaker.failures.get('synthetic') || 0).toBe(0)
+  })
+})
+
+describe('渠道/补拉源 id 必须有 zh+en 文案（防「界面显示原始 key」的静默缺口）', () => {
+  it('CHANNEL_CONFIGS 与 CATEGORY_BOOSTS 的全部 source id 在 zh/en 的 hotTopics.channels 里都有键', async () => {
+    const zh = (await import('../../src/locales/hot-topics/zh.js')).default
+    const en = (await import('../../src/locales/hot-topics/en.js')).default
+    const ids = new Set([
+      ...CHANNEL_CONFIGS.map((c) => c.id),
+      ...Object.values(CATEGORY_BOOSTS).flatMap((cfg) => cfg.sources.map((s) => s.id)),
+    ])
+    const missingZh = [...ids].filter((id) => !zh.channels[id])
+    const missingEn = [...ids].filter((id) => !en.channels[id])
+    // 缺失时界面会直接渲染出 `hotTopics.channels.<id>` 原始键（用户可见的静默缺口）。
+    // 本断言即「外部评审发现 ithome-ai 缺键」的回归锁。
+    expect(missingZh).toEqual([])
+    expect(missingEn).toEqual([])
   })
 })
