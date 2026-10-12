@@ -40,5 +40,6 @@
     "status": "PENDING",
     "line": 4479
   },
-  "本次执行记录：播客刀 4 第 3 片·下半（上）——口语化层（podcast-tts-colloquialize，2026-10-11）": "本 PR（podcast-tts-colloquialize）的远程同步待合并后由后续 docs PR 回填并删除本条登记"
+  "本次执行记录：播客刀 4 第 3 片·下半（上）——口语化层（podcast-tts-colloquialize，2026-10-11）": "本 PR（podcast-tts-colloquialize）的远程同步待合并后由后续 docs PR 回填并删除本条登记",
+  "本次执行记录：存量 mime 一次性固化的合同落 PRD §7.9（mime-stock-freeze，2026-10-12）【docs-only】": "本 PR（mime-stock-freeze）的远程同步待合并后由后续 docs PR 回填并删除本条登记项"
 }
