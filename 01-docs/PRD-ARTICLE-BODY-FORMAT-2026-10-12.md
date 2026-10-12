@@ -395,7 +395,7 @@ PY
 ## 14. 遗留与后续（不假装已闭合）
 
 1. **DOM 轨 contenteditable 注入未取证**（🟡）：`_fillInput` 的 contenteditable 分支用 `document.execCommand('insertText')`，多段纯文本最终是否在平台编辑器模型里成段，**离屏不可判定**。复核判据同 §12.3（对抖音/小红书/头条/快手/YouTube 等公开页或草稿箱逐平台数段落）。
-2. **同一族逻辑仍有两份实现**（收敛待办）：`apps/desktop/electron/services/rpa-view-navigation-helpers.js` 的 `stripHtmlToPlainText`、`wechat-mp-article.js` 的 `toParagraphHtml`/`hasHtmlTags`、`packages/rpa-engine/src/toutiao-direct-bridge.js:33` 的内联 `<p>` 拼接。三者语义与本次新增层一致但互不可见；**且前三者的宽判据（`<` 后跟字母）会误伤代码片段**（本次已在引擎侧用白名单收窄）。收敛它们需改 `apps/desktop/electron/**`（触发 QM-1 打包验证），故拆为后续 PR。
+2. **desktop 两份同族实现已收敛**（converge-article-body-helpers，2026-10-12）：`stripHtmlToPlainText` → 引擎 `htmlToPlainText`、`wechat-mp-article` 的 `hasHtmlTags`/`toParagraphHtml` → 引擎 `hasHtmlTags`/`textToParagraphHtml`（导出名不变，调用点零改动）；顺带修复宽判据吃掉代码片段 `#include <stdio.h>` 的真实缺陷（正/反双向用例 + 打包产物级 require 验证）。**仍余一份**：`packages/rpa-engine/src/toutiao-direct-bridge.js:33` 的内联 `<p>` 拼接（rpa-engine 零依赖约束，不能 require api-publish-engine），语义一致但缺 CRLF 归一与代码尖括号保护 —— 收敛需契约镜像测试或把判据下沉 shared-utils，另立 PR。
 3. **Markdown → HTML 未做**：`# 标题` / `**粗体**` 等 Markdown 语法进 HTML 承载平台仍是字面量（与改造前一致，非本次回归）。若要支持，应新增显式 md→html 步骤并同步各平台白名单。
 4. **正文内联图片**：百家号 `content` 的内联图片（`<img>`）与 `project_cover` 的关系未在本次改动；图片链沿用既有 `uploadproxy` 语义。
 5. **平台侧再规范化**：无法排除平台对超长/特殊字符正文的二次处理；若真机复核发现段落仍被合并，需按产物 HTML 反推平台期望形态（可能需 `<p style=…>` 或编辑器专用字段）。

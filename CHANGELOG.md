@@ -1,3 +1,10 @@
+# [未发布] refactor(publish): 正文形态 helpers 收敛到引擎单一实现（converge-article-body-helpers）
+
+- `apps/desktop/electron/services` 两份正文形态 helpers 委托 `api-publish-engine/src/content-formatter.js`（#3389 建立的单一实现）：`stripHtmlToPlainText` → `htmlToPlainText`、`wechat-mp-article` 的 `hasHtmlTags`/`toParagraphHtml` → `hasHtmlTags`/`textToParagraphHtml`。导出名/签名不变，调用点零改动。
+- 顺带修复真实缺陷：宽判据（`<` 后跟字母）把技术正文里的 `#include <stdio.h>`、`vector<int>` 当标签 —— `stripHtmlToPlainText` 会整段吃掉（影响快手等无标题平台的描述）、`hasHtmlTags` 会误判成 HTML 使代码尖括号被编辑器吞（影响公众号注入）。白名单判据双向用例锁定。
+- `packages/rpa-engine` 零依赖约束不动：`toutiao-direct-bridge.js` 的内联 `<p>` 拼接登记为已知第三份实现（遗留）。
+- QM-1 打包 rc=0；从打包产物 require 验证（`ELECTRON_RUN_AS_NODE`）：委托语义与白名单判据在 asar 内生效。启动 8 秒验证因用户实例持单实例锁不可判（先例同因），以 require 链作替代证据，如实登记。
+
 # [未发布] fix(publish): 图文正文承载形态适配——百家号「整篇一整段」根因修复（fix-article-body-format）
 
 ### 用户感知

@@ -211,6 +211,23 @@ describe('wechat-mp-article — HTML 归一', () => {
     expect(toParagraphHtml('第一行\n\n第二行')).toBe('<p>第一行</p><p>第二行</p>')
     expect(toParagraphHtml('a<b & c')).toBe('<p>a&lt;b &amp; c</p>')
   })
+
+  // ---- 收敛到引擎单一实现（converge-article-body-helpers，2026-10-12）----
+  // 宽判据（`<` 后跟字母）会把技术正文里的 `#include <stdio.h>` 当标签：HTML 归一
+  // 误判 ⇒ 走「已是 HTML」分支原样注入，代码尖括号被编辑器当未知标签吞掉。
+  // 白名单判据来自 `api-publish-engine/src/content-formatter.js`（单一真源）。
+  it('hasHtmlTags 代码片段的尖括号不是标签（白名单判据，修复前此用例红）', () => {
+    expect(hasHtmlTags('代码 #include <stdio.h> 结尾')).toBe(false)
+    expect(hasHtmlTags('vector<int> 容器')).toBe(false)
+    expect(hasHtmlTags('<a href="https://x.com">链接</a>')).toBe(true)
+  })
+
+  it('HTML→纯文本委托引擎实现：块级收口为换行、不残留包裹标签（同引擎语义）', () => {
+    // 走 wechat-mp-article 的 toPlainText 路径（模块内 require stripHtmlToPlainText）
+    const { stripHtmlToPlainText } = require('../services/rpa-view-navigation-helpers')
+    expect(stripHtmlToPlainText('<html><body><p>甲</p><p>乙</p></body></html>')).toBe('甲\n乙')
+    expect(stripHtmlToPlainText('代码 #include <stdio.h> 结尾')).toBe('代码 #include <stdio.h> 结尾')
+  })
 })
 
 describe('wechat-mp-article — 标题第二写入口', () => {
