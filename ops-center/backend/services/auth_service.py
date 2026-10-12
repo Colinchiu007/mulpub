@@ -52,10 +52,19 @@ def _sweep_expired_attempts(store: dict | None = None) -> None:
         target.pop(k, None)
 
 
-def hash_password(password: str, salt: bytes | None = None, iterations: int = PBKDF2_ITERATIONS) -> str:
-    """PBKDF2-SHA256 哈希，返回 pbkdf2_sha256$iterations$salt_hex$hash_hex。"""
+def hash_password(password: str, salt: bytes | None = None, iterations: int | None = None) -> str:
+    """PBKDF2-SHA256 哈希，返回 pbkdf2_sha256$iterations$salt_hex$hash_hex。
+
+    `iterations` 留空时取模块常量 PBKDF2_ITERATIONS（生产默认 200000）。
+    ⚠️ 刻意**不**把 PBKDF2_ITERATIONS 写成默认参数值而是放在函数体内读取：
+    默认参数在 def 时求值并绑定，测试想 monkeypatch 降低迭代以缩短耗时就会静默失效
+    （与 _record_failure 的阈值同型坑）。密码学强度由**生产路径的常量**保证，
+    测试显式传入低迭代只影响该次调用，且不改变存储格式。
+    """
     if salt is None:
         salt = secrets.token_bytes(16)
+    if iterations is None:
+        iterations = PBKDF2_ITERATIONS
     digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
     return f"pbkdf2_sha256${iterations}${salt.hex()}${digest.hex()}"
 

@@ -44,6 +44,12 @@ async def setup_db(monkeypatch):
     from services import auth_service as _auth_svc
     from services.auth_service import ensure_admin_seeded
 
+    # 提速：PBKDF2 生产用 200000 迭代（单次 ~86ms），本文件每例要跑多次哈希
+    # （原密码校验 + 新密码哈希 + 登录复验），全量叠加会把 CI 顶过 timeout。
+    # 降迭代**只影响本文件**的调用，不改变存储格式，也不削弱生产路径：
+    # 校验逻辑（换盐、格式、比对）与迭代次数无关，断言按格式而非硬编码次数写。
+    monkeypatch.setattr(_auth_svc, "PBKDF2_ITERATIONS", 1000)
+
     _auth_svc._login_attempts.clear()
     if hasattr(_auth_svc, "_change_pwd_attempts"):
         _auth_svc._change_pwd_attempts.clear()
@@ -132,9 +138,15 @@ async def test_change_password_rotates_hash_with_salt():
 
     after = await _stored_hash()
     assert before != after, "哈希未变化"
-    assert after.startswith("pbkdf2_sha256$200000$")
+    # 断言**格式结构**而非硬编码迭代次数：本文件为提速把 PBKDF2_ITERATIONS 降到 1000，
+    # 迭代次数是部署参数而非本用例的契约；这里要锁的是「换盐 + 算法 + 可校验」。
+    parts = after.split("$")
+    assert parts[0] == "pbkdf2_sha256"
+    assert len(parts) == 4 and parts[1].isdigit() and int(parts[1]) > 0
     assert verify_password(NEW_PWD, after) is True
     assert verify_password(OLD_PWD, after) is False
+    # 换盐：同口令重哈希结果不同（与本用例的 salt 是否复用无关）
+    assert after.split("$")[2] != before.split("$")[2], "新哈希复用了旧盐"
 
 
 # ── 异常路径：凭据与鉴权 ───────────────────────────────────────────────────

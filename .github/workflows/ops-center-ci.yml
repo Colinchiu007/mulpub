@@ -16,7 +16,13 @@ jobs:
   test:
     name: ops-center 后端测试
     runs-on: windows-latest
-    timeout-minutes: 10
+    # 10 分钟早已卡在临界：main 上最近 7 次有 3 次跑满被 cancelled
+    # （02:35 / 02:04 / 06:30，均约 8-10 分钟），成功的那几次也在 8-10 分钟。
+    # 本机 560 例约 4m40s，但 windows runner 慢约 2 倍，余量极小。
+    # 抬到 25 分钟留出安全边际；同时已在 tests/test_change_password_api.py
+    # 把 PBKDF2 迭代降到 1000（只影响该文件）压低增量成本。
+    # ⚠️ 本文件属 CI 配置（改「守门者」），按规范需人工过目。
+    timeout-minutes: 25
     defaults:
       run:
         shell: bash
