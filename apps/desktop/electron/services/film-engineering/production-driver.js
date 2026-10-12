@@ -328,7 +328,6 @@ async function runProduction (opts) {
 module.exports = {
   planBatches,
   fingerprintBatch,
-  defaultRunIdFor,
   createLedger,
   defaultRunIdFor,
   saveLedger,
