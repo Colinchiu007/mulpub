@@ -2,16 +2,13 @@
 record: podcast-episode-compliance
 task: 把单集 compliance 标记（含 §7.9.5 第 4 条要的 stock 档）写成可实现合同 PRD §8.2
 date: 2026-10-12
-sync_status: PENDING
-sync_reason: 本 docs PR 尚未合并，merge SHA 还不存在；合并后由回填 PR 改写 PASS + merge SHA 并整段删除本三个 sync_ 字段
-sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账）
 ---
 
 # 单集 `compliance` 标记的合同（podcast-episode-compliance，2026-10-12）【docs-only】
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD`（提交后取证）→ 见下
 - 变更类型与隔离声明：纯规格/文档；走隔离 worktree `mp-podcast-episode-compliance`（分支同名，非 C 盘）经 PR 落地
-- 保留门禁：行尾两口径对账 ✅ | 品牌残留 ✅ | 文档同步 PENDING（随 CI） | 远程同步 PENDING
+- 保留门禁：行尾两口径对账 ✅ | 品牌残留 ✅ | 文档同步 PENDING（随 CI） | 远程同步 PASS
 
 ## 为什么先写合同
 
@@ -31,5 +28,5 @@ sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账�
 
 ## 远程同步
 
-| 远程同步 | PENDING | 待本 PR 合并后就地改写为 PASS + merge SHA，并在同一次提交删除 ledger 本条登记项 |
+| 远程同步 | PASS | 已合并：PR #3390，merge 15b70cab20a470bf7a4ad329fb0d9ea3cb0c658f（2026-10-12，squash）。取证：`git log origin/main --grep "(#3390)$" --format=%H|%cI`；本次回填同一次提交删除 ledger 登记项，并在带 frontmatter 的记录文件里删 sync_ 字段 |
 
