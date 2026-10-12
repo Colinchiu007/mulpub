@@ -397,6 +397,7 @@ export async function pipelineAdvanceToNextCheckpoint(runId) { return invokeWith
 export async function pipelineConfirmSceneAssets(runId, selections) { return invokeWithFallback("pipelineConfirmSceneAssets", { code: -1, message: 'electronAPI not available' }, runId, selections) }
 export async function pipelineConfirmStageGate(runId, contextPatch) { return invokeWithFallback("pipelineConfirmStageGate", { code: -1, message: 'electronAPI not available' }, runId, contextPatch) }
 export async function filmEngineeringRetryShot(payload) { const res = await invokeNamespace("filmEngineering", "retryShot", payload); return res === undefined ? { code: -1, message: 'electronAPI not available' } : res }
+export async function filmEngineeringProductionRetryShot(payload) { const res = await invokeNamespace("filmEngineering", "productionRetryShot", payload); return res === undefined ? { code: -1, message: 'electronAPI not available' } : res }
 export async function pipelineGetRunContext(runId) { return invokeWithFallback("pipelineGetRunContext", null, runId) }
 
 // ─── Story2Video 本地交付 API ──────────────────────

@@ -59,7 +59,7 @@ const PUBLIC_CHANNELS = new Set([
   'film-engineering:get-shot', 'film-engineering:doctrine',
   'film-engineering:copy-text', 'film-engineering:copy-texts',
   'film-engineering:adapt-script', 'film-engineering:export', 'film-engineering:generate-selected',
-  'film-engineering:retry-shot',
+  'film-engineering:retry-shot', 'film-engineering:production-retry-shot',
   'film-engineering:download-recycled',
   'film-engineering:production-plan', 'film-engineering:production-run-batch', 'film-engineering:production-status',
   // 自动模式（film-auto-mode）：与既有影视工程通道同级（本地规划/执行，provider 由用户自己的模型配置决定）

@@ -88,6 +88,10 @@ const CHANNELS = [
   'film-engineering:production-plan',
   'film-engineering:production-run-batch',
   'film-engineering:production-status',
+  // 长期漏登记的 retry-shot（此前由 film-engineering-retry.test.js 单独覆盖，
+  // 但本数组是「15 条通道逐条断言 -3」的单一真源，漏登记等于该契约无统一护栏）
+  'film-engineering:retry-shot',
+  'film-engineering:production-retry-shot',
 ]
 
 describe('film-engineering IPC sender 校验', () => {
@@ -621,5 +625,192 @@ describe('film-engineering production 批量出片（任务 7.2/8.1-8.3，D6/D9�
     const ipcMain = createMockIpcMain()
     registerHandlers(ipcMain, makeDeps())
     expect((await ipcMain._get('film-engineering:production-status')(TRUSTED_EVENT, { taskId: 'a/b', shotIds: idsOf(1) })).code).toBe(-2)
+  })
+})
+
+/**
+ * 组 2 RED：`film-engineering:production-retry-shot`（openspec change: film-production-artifact-identity）
+ *
+ * 缺陷 B：全量出片面板的「重试该镜」恒失败。原实现把批次 runId 交给 `retry-shot`，
+ * 而该通道用 `pipelineEngine.getRunSnapshot()` 查**流水线 run**；出片批次由
+ * `runBatchViaVideoGen` 直接调 `generateShotVideo`，从不注册为流水线 run
+ * ⇒ 恒 null ⇒ 报「runId 不属于任何运行中的流水线」。
+ *
+ * 新通道按**出片台账**定位批次，渲染端不再拼接任何 runId。
+ *
+ * seam 沿用既有约定（见 film-engineering-retry.test.js）：`deps._testSleep` /
+ * `deps._testDownload` 驱动**真** `generateShotVideo`，provider 走 manager stub，
+ * 从 `callAdapter` 抓取实际提交的 payload。台账**不设 seam**——直接写真实磁盘路径
+ * （`<mediaRoot>/production/<taskId>/ledger.json`），确保测的是真链路。
+ */
+describe('film-engineering:production-retry-shot（出片台账批次单镜重试）', () => {
+  const REAL_PROMPT = '第三镜原文 <<<160c936b-2ca7-4fb6-876b-c3b91b7a87d3>>> 保持逐字符直送'
+
+  function makeManagerStub (overrides = {}) {
+    const callAdapter = vi.fn(async (_pid, method) => {
+      if (method === 'generateVideo') return { code: 0, data: { taskId: 'task-77' } }
+      if (method === 'getVideoStatus') return { code: 0, data: { status: 'succeeded', videoUrl: 'http://example.invalid/v.mp4' } }
+      return { code: 0, data: {} }
+    })
+    return {
+      getDefault: vi.fn(() => ({ id: 'vid-prov', models: ['m'], capability_models: { video: 'm' } })),
+      getProvider: vi.fn(() => ({ id: 'vid-prov' })),
+      callAdapter,
+      ...overrides,
+    }
+  }
+
+  /** 写真实台账到受控媒体根，返回 { ledgerDir, cleanup } */
+  function writeRealLedger (taskId, batches) {
+    const dir = nodePath.join(getFilmMediaRootForTest(), 'production', taskId)
+    nodeFs.mkdirSync(dir, { recursive: true })
+    nodeFs.writeFileSync(nodePath.join(dir, 'ledger.json'), JSON.stringify({
+      schemaVersion: 1, taskId, batchSize: 10, createdAt: '2026-01-01T00:00:00.000Z', batches,
+    }), 'utf8')
+    return dir
+  }
+
+  function getFilmMediaRootForTest () {
+    // 与生产实现同口径：os.tmpdir()/film-engineering
+    return nodePath.join(nodeOs.tmpdir(), 'film-engineering')
+  }
+
+  const LEDGER_BATCHES = () => [{
+    batchIndex: 0,
+    runId: 'prod-tk-abc1234567-b0',
+    shotIds: ['A', 'B', 'C'],
+    shots: [
+      { shotId: 'A', status: 'done', error: null },
+      { shotId: 'B', status: 'failed', error: 'boom' },
+      { shotId: 'C', status: 'pending', error: null },
+    ],
+    status: 'failed',
+    error: null,
+  }]
+
+  function mkDeps (opts = {}) {
+    const manager = opts.manager || makeManagerStub()
+    const taskId = opts.taskId === undefined ? 'tk' : opts.taskId
+    if (taskId !== null) writeRealLedger(taskId, LEDGER_BATCHES())
+    const download = vi.fn(async (url, dest) => { nodeFs.writeFileSync(dest, 'mp4'); return dest })
+    return makeDeps({
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
+      filmEngineeringService: makeServiceMock({
+        getShot: vi.fn((id) => ({ shotId: id, prompt: REAL_PROMPT, resolvedRefs: [] })),
+      }),
+      aiGenerator: { _modelProviderManager: manager },
+      _testSleep: vi.fn(async () => {}),
+      _testDownload: download,
+      _manager: manager,
+      _download: download,
+    })
+  }
+
+  it('台账批次重试成功：按 batchIndex 取 shotId、覆盖该批次 shot_NNN.mp4', async () => {
+    const deps = mkDeps()
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const r = await ipcMain._get('film-engineering:production-retry-shot')(
+      TRUSTED_EVENT, { taskId: 'tk', batchIndex: 0, shotIndex: 1, aspect: '16x9', seconds: 5 })
+    expect(r.code).toBe(0)
+    expect(r.data.success).toBe(true)
+    expect(r.data.shotId).toBe('B')
+    // 落点必须落在台账所载 runId 的目录
+    expect(String(r.data.path || '')).toContain('prod-tk-abc1234567-b0')
+    expect(String(r.data.path || '')).toContain('shot_001.mp4')
+  })
+
+  it('批次 runId 从未注册为流水线 run 时仍能重试（缺陷 B 的直接回归锁）', async () => {
+    const deps = mkDeps()
+    deps.pipelineEngine = undefined          // 连流水线引擎都没有
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const r = await ipcMain._get('film-engineering:production-retry-shot')(
+      TRUSTED_EVENT, { taskId: 'tk', batchIndex: 0, shotIndex: 1 })
+    expect(r.code).toBe(0)
+    expect(String(r.message || '')).not.toMatch(/不属于任何运行中的流水线/)
+  })
+
+  it('prompt 取自 getShot 原文逐字符直送（含引用令牌），且不经任何优化器', async () => {
+    const deps = mkDeps()
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    await ipcMain._get('film-engineering:production-retry-shot')(
+      TRUSTED_EVENT, { taskId: 'tk', batchIndex: 0, shotIndex: 1 })
+    const gen = deps._manager.callAdapter.mock.calls.filter((c) => c[1] === 'generateVideo')
+    expect(gen).toHaveLength(1)
+    expect(gen[0][2].prompt).toBe(REAL_PROMPT)          // 逐字符相等
+    // 提交参数：画幅/时长/帧数按既有合同
+    expect(gen[0][2].width).toBe(1280)
+    expect(gen[0][2].height).toBe(720)
+    expect(deps.filmEngineeringService.getShot).toHaveBeenCalledWith('B')  // 按台账 shotIndex 取原文
+  })
+
+  it('fail-closed：非法入参逐条拒绝且零 provider 调用', async () => {
+    const cases = [
+      [{ taskId: '../evil', batchIndex: 0, shotIndex: 1 }, /taskId/],
+      [{ taskId: '', batchIndex: 0, shotIndex: 1 }, /taskId/],
+      [{ taskId: 'tk', batchIndex: 99, shotIndex: 1 }, /batchIndex|批次/],
+      [{ taskId: 'tk', batchIndex: 0, shotIndex: 99 }, /shotIndex|范围/],
+      [{ taskId: 'tk', batchIndex: 0, shotIndex: -1 }, /shotIndex/],
+      [{ taskId: 'tk', batchIndex: 0, shotIndex: 1.5 }, /shotIndex/],
+    ]
+    for (const [payload, re] of cases) {
+      const deps = mkDeps()
+      const ipcMain = createMockIpcMain()
+      registerHandlers(ipcMain, deps)
+      const r = await ipcMain._get('film-engineering:production-retry-shot')(TRUSTED_EVENT, payload)
+      expect(r.code).toBe(-2)
+      expect(String(r.message)).toMatch(re)
+      expect(deps._manager.callAdapter).not.toHaveBeenCalled()
+    }
+  })
+
+  it('台账不存在 → 明确报错，零 provider 调用', async () => {
+    const deps = mkDeps({ taskId: null })   // 不写台账
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const r = await ipcMain._get('film-engineering:production-retry-shot')(
+      TRUSTED_EVENT, { taskId: 'no-such-task', batchIndex: 0, shotIndex: 1 })
+    expect(r.code).toBe(-2)
+    expect(deps._manager.callAdapter).not.toHaveBeenCalled()
+  })
+
+  it('台账里该镜 shotId 取不到 → fail-closed，零 provider 调用', async () => {
+    const deps = mkDeps()
+    deps.filmEngineeringService.getShot = vi.fn(() => { throw new Error('分镜不存在: GHOST') })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const r = await ipcMain._get('film-engineering:production-retry-shot')(
+      TRUSTED_EVENT, { taskId: 'tk', batchIndex: 0, shotIndex: 1 })
+    expect(r.code).not.toBe(0)
+    expect(deps._manager.callAdapter).not.toHaveBeenCalled()
+  })
+
+  it('并发幂等：同一镜连点两次重试 ⇒ 提交两次但各自完整落盘，不产生半成品交叉', async () => {
+    const deps = mkDeps()
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const h = ipcMain._get('film-engineering:production-retry-shot')
+    const [a, b] = await Promise.all([
+      h(TRUSTED_EVENT, { taskId: 'tk', batchIndex: 0, shotIndex: 1 }),
+      h(TRUSTED_EVENT, { taskId: 'tk', batchIndex: 0, shotIndex: 1 }),
+    ])
+    expect(a.code).toBe(0)
+    expect(b.code).toBe(0)
+    // 两次都写到同一目标，最终文件必须完整可读（非空、非半截）
+    const dest = a.data.path
+    expect(dest).toBe(b.data.path)
+    expect(nodeFs.existsSync(dest)).toBe(true)
+    expect(nodeFs.readFileSync(dest, 'utf8')).toBe('mp4')
+  })
+
+  it('sender 校验：非受信窗口被拒', async () => {
+    const deps = mkDeps()
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const r = await ipcMain._get('film-engineering:production-retry-shot')(
+      UNTRUSTED_EVENT, { taskId: 'tk', batchIndex: 0, shotIndex: 1 })
+    expect(r).toEqual({ code: -3, message: '未授权的调用来源' })
   })
 })

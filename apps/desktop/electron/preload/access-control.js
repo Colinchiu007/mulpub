@@ -75,6 +75,9 @@ const PUBLIC_METHODS = [
   'filmEngineering.copyText', 'filmEngineering.copyTexts',
   'filmEngineering.adaptScript', 'filmEngineering.exportPrompts', 'filmEngineering.generateSelected',
   'filmEngineering.retryShot', 'filmEngineering.downloadRecycled',
+  // 出片台账批次的单镜重试（productionRetryShot），与 retryShot 同族：批次身份由主进程
+  // 从台账解析，渲染端不参与；是否可用仍由主进程自校验（Provider 未配等）。
+  'filmEngineering.productionRetryShot',
   'filmEngineering.productionPlan', 'filmEngineering.productionRunBatch', 'filmEngineering.productionStatus', 'filmEngineering.onProductionUpdate',
 ]
 

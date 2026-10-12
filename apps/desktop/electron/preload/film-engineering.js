@@ -3,6 +3,7 @@
  * 影视工程 preload API
  * window.electronAPI.filmEngineering.{ status, listScenes, listShots, getShot, doctrine,
  *   copyText, copyTexts, adaptScript, exportPrompts, generateSelected, uploadReference, retryShot,
+ *   productionRetryShot,
  *   downloadRecycled, productionPlan, productionRunBatch, productionStatus,
  *   onProductionUpdate }（production-update 事件返回 unsubscribe 函数）
  *
@@ -29,6 +30,7 @@ function createFilmEngineeringApi (ipcRendererRef = ipcRenderer) {
       generateSelected: (selectedShots, opts) => ipcRendererRef.invoke('film-engineering:generate-selected', selectedShots, opts),
       uploadReference: (payload) => ipcRendererRef.invoke('film-engineering:upload-reference', payload),
       retryShot: (payload) => ipcRendererRef.invoke('film-engineering:retry-shot', payload),
+      productionRetryShot: (payload) => ipcRendererRef.invoke('film-engineering:production-retry-shot', payload),
       downloadRecycled: (payload) => ipcRendererRef.invoke('film-engineering:download-recycled', payload),
       productionPlan: (payload) => ipcRendererRef.invoke('film-engineering:production-plan', payload),
       productionRunBatch: (payload) => ipcRendererRef.invoke('film-engineering:production-run-batch', payload),
