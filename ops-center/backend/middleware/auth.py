@@ -38,6 +38,39 @@ def _decode_token(token: str) -> dict:
     )
 
 
+async def _reject_revoked(payload: dict) -> None:
+    """口令凭据指纹校验（改密即失效）。
+
+    JWT 无状态，改密无法直接「删除」已签发的 token。这里在每次鉴权时把 token 中的
+    pwd_fp 与库中当前口令哈希的指纹比对：不一致说明口令在签发之后被改过，该凭据即
+    失效 → 401「凭据已失效，请重新登录」。
+
+    语义边界（重要）：
+    - **有 pwd_fp 才校验**。桌面端脚本、历史 token、单测直接签发的 token 不带该字段，
+      一律保持既有行为（放行），避免一刀切打死 Bearer 通道；
+    - 查不到管理员（如 admins 被清空）时不校验，交由既有 fail-closed 路径处理，
+      不引入新的失败模式。
+    """
+    fp = payload.get("pwd_fp")
+    if not fp:
+        return
+    username = payload.get("username") or payload.get("sub")
+    if not username:
+        return
+
+    from database import async_session
+    from models import AdminUser
+    from services.auth_service import password_fingerprint
+    from sqlalchemy import select
+
+    async with async_session() as db:
+        row = (await db.execute(select(AdminUser).where(AdminUser.username == username))).scalar_one_or_none()
+        if row is None:
+            return
+        if password_fingerprint(row.password_hash) != fp:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="凭据已失效，请重新登录")
+
+
 def _decode_or_http(token: str) -> dict:
     """把解码异常映射成既定 HTTP 语义（必须在依赖图内抛出，否则 FastAPI 会返回 500）。"""
     try:
@@ -51,14 +84,16 @@ def _decode_or_http(token: str) -> dict:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="令牌无效")
 
 
-def _resolve_session(request: Request | None, credentials: HTTPAuthorizationCredentials | None):
+async def _resolve_session(request: Request | None, credentials: HTTPAuthorizationCredentials | None):
     """统一凭据解析。
 
     返回 `(payload, via_cookie)`；完全无凭据时返回 `(None, False)`。
     """
     if credentials is not None and credentials.credentials:
         # 通道 1：Bearer 优先
-        return _decode_or_http(credentials.credentials), False
+        payload = _decode_or_http(credentials.credentials)
+        await _reject_revoked(payload)
+        return payload, False
 
     # 通道 2：HttpOnly 会话 Cookie（浏览器自动携带，脚本读不到）
     cookie_token = request.cookies.get(settings.session_cookie_name) if request is not None else None
@@ -72,7 +107,9 @@ def _resolve_session(request: Request | None, credentials: HTTPAuthorizationCred
                         f"{settings.csrf_header}（前端 axios 拦截器默认注入）"
                     ),
                 )
-        return _decode_or_http(cookie_token), True
+        payload = _decode_or_http(cookie_token)
+        await _reject_revoked(payload)
+        return payload, True
 
     return None, False
 
@@ -86,7 +123,7 @@ async def get_current_user(
     `request` 带默认值仅为兼容既有直接调用（单测以位置参数传 credentials）；
     经 FastAPI 注入时一定会拿到真实 Request，从而启用 Cookie 会话通道。
     """
-    payload, _via_cookie = _resolve_session(request, credentials)
+    payload, _via_cookie = await _resolve_session(request, credentials)
     if payload is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="未提供认证令牌")
     return payload
@@ -97,7 +134,7 @@ async def get_current_user_optional(
     request: Request = None,
 ) -> dict | None:
     """双通道可选版（如 scheduler 上报）：无任何凭据返回 None；带了指纹不对仍 401。"""
-    payload, _via_cookie = _resolve_session(request, credentials)
+    payload, _via_cookie = await _resolve_session(request, credentials)
     if payload is None:
         return None
     return payload

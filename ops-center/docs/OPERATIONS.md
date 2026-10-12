@@ -225,6 +225,21 @@
 | POST | /api/v1/usage/ingest | X-Catalog-Key | 桌面端用量上报（含排队/冷却聚合字段） |
 | GET | /api/v1/usage/summary | admin | 用量汇总（含 429率/排队/冷却/预算利用率） |
 | GET | /api/v1/model-presets | admin | 预设列表（模拟验证页预设下拉数据源） |
+| POST | /api/auth/login | 无 | 登录，签发 HttpOnly 会话 Cookie |
+| POST | /api/auth/logout | 无（无副作用，过期会话也须可用） | 清除会话 Cookie |
+| GET | /api/auth/me 或 /api/auth/session | 会话/Bearer | 当前登录用户（前端水合登录态） |
+| POST | /api/auth/change-password | 会话（须 X-Ops-Session 头）或 Bearer | 改密；成功即作废当前会话 |
+
+**改密错误码速查**（前端/联调按此提示用户）：
+
+| 状态码 | 含义 | detail 文案 |
+|--------|------|-------------|
+| 200 | 成功 | 「密码已更新，请使用新密码重新登录」 |
+| 400 | 新密码不合规 | 「两次输入的新密码不一致」/「新密码不能与当前密码相同」/「新密码强度不足：至少 8 位，且不得使用 admin123、password、123456 等常见弱口令」 |
+| 401 | 原密码错误 / 未登录 / 旧凭据已失效 | 「原密码错误」/「未提供认证令牌」/「凭据已失效，请重新登录」 |
+| 403 | 缺 CSRF 头 | 「跨站请求伪造防护：基于 Cookie 会话的写操作必须携带自定义头 X-Ops-Session」 |
+| 422 | 字段超 128 或缺失 | Pydantic 默认 |
+| 429 | 改密尝试过多 | 「尝试次数过多，请稍后再试」 |
 
 
 
@@ -258,6 +273,18 @@
 就绪判断请用**轮询**而不是单次固定超时：冷启动要先跑 DB 初始化（日志 `Initializing database...`）与一批 `CREATE INDEX IF NOT EXISTS`，耗时随机器负载变化；本会话没有量出可复现的稳定分布，因此**不给具体秒数**，拿不到 200 时先读启动日志定位卡在哪一阶段。另：**隔离 worktree 里起不来是预期行为**——worktree 不含被 gitignore 的 `ops-center/backend/.env`，启动安全门会 fail-closed 抛 `RuntimeError: 未配置安全的 OpsCenter JWT 密钥`（实测调用链 `main.py:37 → config.py:165 → config.py:131`）。要么从主工作区取 `.env`，要么显式注入 `OPS_JWT_SECRET` 等变量；不要为了让服务起来而关掉这道校验。
 
 ### 11.3 凭据核对（只读、不打印口令）
+
+**改密码请走页面，不要改 `.env`（2026-10-12 起）**
+
+侧边栏「更改密码」（仅管理员可见）是改密的唯一正解。要点：
+
+- 必须输入**当前密码**才能改（防离开工位被改密接管）；
+- 新密码：≥8 位、不得命中弱口令表（admin123 / password / 123456 等）、不能与当前密码相同；
+- **改密成功后当前会话立即失效**，需用新密码重新登录 —— 不是 bug，是刻意设计（旧凭据在 TTL 内不再可用）；
+- 端点只改库中哈希，**不同步 `.env`**。正常情况下安全（`ensure_admin_seeded` 只在 `admins` 表为空时写入），但**改密后建议同步更新 `.env` 的 `OPS_ADMIN_PASSWORD`**：若哪天有人清空 `admins` 表后重启，服务会按 `.env` 重新 seed，页面上改过的密码会被 `.env` 的值悄悄取代；
+- 忘了密码且无法登录时，唯一恢复手段是清空 `admins` 表后重启（按 `.env` 重新 seed）或直接改库中哈希 ——**没有「找回密码」流程**。
+
+接口：`POST /api/auth/change-password`，body `{"old_password","new_password","confirm_password"}`。改密有独立限流（5 次失败锁 60s，与登录限速分开计数）。完整规格见 PRD §6.5。
 
 存储格式为 `pbkdf2_sha256$iterations$salt_hex$hash_hex`。用只读连接取出哈希，再按同样参数复算比对，**只输出布尔值**：
 

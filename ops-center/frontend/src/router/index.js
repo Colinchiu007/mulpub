@@ -252,6 +252,13 @@ const routes = [
     component: () => import('../views/ContentQualityEval.vue'),
     meta: { requiresAuth: true },
   },
+  {
+    path: '/change-password',
+    name: 'ChangePassword',
+    component: () => import('../views/ChangePassword.vue'),
+    // 改密会作废当前会话：限定管理员，与菜单项 adminOnly 同口径
+    meta: { requiresAuth: true, adminOnly: true },
+  },
 ]
 
 const router = createRouter({

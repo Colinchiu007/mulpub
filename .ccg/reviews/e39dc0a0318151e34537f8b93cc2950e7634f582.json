@@ -1,0 +1,26 @@
+{
+  "sha": "e39dc0a0318151e34537f8b93cc2950e7634f582",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 925 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 925,
+    "fileCount": 13,
+    "codeFileCount": 10,
+    "sensitivePathHits": [
+      "ops-center/backend/middleware/auth.py",
+      "ops-center/backend/routers/auth.py"
+    ],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 175
+  },
+  "stagedDiffHash": "f54d7fc410c48638076d11c7549f49f50f99caf62db009aaccc0a4fc502e35b9",
+  "decidedAt": "2026-10-12T06:29:06.139Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
