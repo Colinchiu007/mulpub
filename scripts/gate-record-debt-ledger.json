@@ -44,4 +44,6 @@
     "status": "PENDING",
     "line": 5
   }
+,
+  "本次执行记录：发布记录页作品互动数据回流 + 整卡打开内容页（publish-history-engagement，2026-10-12）【混合 PR】": "本 PR（publish-history-engagement）尚未合并：远程同步行停在 PENDING，合并后由回填 PR 改写 PASS + merge SHA，并在同一次提交删除本条登记项与 openspec/records/publish-history-engagement.md 的 sync_status 字段"
 }

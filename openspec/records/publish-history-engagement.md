@@ -3,6 +3,8 @@ record: publish-history-engagement
 task: 发布记录页作品互动数据回流（播放/评论/点赞/收藏/分享）与整卡打开内容页
 date: 2026-10-12
 sync_status: PENDING
+sync_reason: 本 PR（publish-history-engagement）尚未合并：远程同步行停在 PENDING，合并后由回填 PR 改写 PASS + merge SHA，并在同一次提交删除本条 frontmatter 三字段与 scripts/gate-record-debt-ledger.json 的登记项
+sync_backfill_owner: 本 PR 作者（publish-history-engagement 会话）
 ---
 
 ## 本次执行记录：发布记录页作品互动数据回流 + 整卡打开内容页（publish-history-engagement，2026-10-12）【混合 PR】
