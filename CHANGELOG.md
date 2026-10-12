@@ -1,3 +1,23 @@
+# [未发布] chore(ccg): 入库 5 个 ccg-deep-* 深度审查运行目录（xhs-login-mainsite 评审产物）（2026-10-12，deep-review-archive）
+
+### 这是什么
+
+`.adversarial/ccg-deep-{41638d81,4d24094f,cfb77961,da589be3,dcfc3558}/`
+共 18 个文件（proposal/critique/adjudication/family-snapshot，170KB）：
+#3309（小红书登录二段式补跳主站）已合并进 main（e5d5bf03e），
+这些是该任务线深度审查的逐轮产物，摘要已在判定记录中。
+按评审资产入库（与 main 里受管 `.adversarial` 文件同性质），而非丢弃。
+
+### 不做什么
+
+- 不含 `.ccg/reviews` 记录（已由 #3401/#3402/#3403 分别入库清零）
+- 新增记录由 #3396 钩子自动 stage，不再手动
+
+### 回滚
+
+`git revert` 单提交即复原（18 个纯新增文件，零删除）。
+
+---
 # [未发布] chore(ccg): 入库 ccg-plan-design-claude 评审资产（官方 Key 迁移 AES-256-GCM 封存系统设计评审）（2026-10-12，adv-design-archive）
 
 ### 这是什么
