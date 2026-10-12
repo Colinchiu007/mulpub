@@ -2,9 +2,6 @@
 record: hot-topics-multi-source
 task: 热门选题扩展小红书/凤凰网/抖音多端点数据源、新增 AI 一级分类、修复「科技类混入不沾边内容」的分类根因
 date: 2026-10-12
-sync_status: PENDING
-sync_reason: 本 PR 合并后由后续回填 PR 回填 PASS + merge SHA，并在同一次提交删除本记录文件的三 sync_ 字段与 gate-record-debt-ledger.json 的登记项
-sync_backfill_owner: hot-topics-multi-source
 ---
 
 ## 本次执行记录：热门选题多源扩展 + AI 分类 + 归类准确性（hot-topics-multi-source，2026-10-12）
@@ -31,7 +28,7 @@ sync_backfill_owner: hot-topics-multi-source
 | QM-6 评审 | PASS | **双模型外部评审已实跑**（workdir = 本 worktree，diff = `origin/main...HEAD`）：**backend 模型 `claude`** + **frontend 模型 `opencode`**（路由真源 `~/.claude/.ccg/config.toml` → `[routing.backend].primary=claude` / `[routing.frontend].primary=opencode`；本机 `codeagent-wrapper` 不存在，改为直接调用两个 CLI，**并行**启动、只读审查）。**frontend 返回结构化 JSON：Warning 2 / Info 2 / Critical 0**。① 【Warning】`classifier.js` 的 `DOMAIN_LEVEL_RAW` 前置短路使 9 条映射变成不可达死条目，且 `GENERIC_RAW_MAP` 注释举的唯一理由「IT之家 rawCategory='科技'」正好是那条死条目 ⇒ **已按「删死条目 + 改注释」修复**（不选「恢复强表'科技'优先级」方案，那会重现用户报的缺陷），并在 `classifier.test.js` 用 `classifyTopic('科技','toutiao','芯片产业新突破')→tech` 钉住强表仍生效。② 【Warning】`electron/services/content-categories.test.js` 与 `src/features/content/content-categories.test.js` 标题声称「与 classifier.js 一致」却使用**手抄字面量**，三方中两方漂移时三份测试会同时保持绿色 ⇒ **已改为真实 `import`/`require` 分类器 `CATEGORY_KEYS` 后直接 `toEqual`**。③ 【Info】ops-center 存量 10 类库补 `ai` 时 `sort_order=4` 与既有 `entertainment` 相撞、顺序靠字母序 tiebreak 凑对，且既有用例全部从空库重建对该缺陷免疫 ⇒ **已补 2 条「非空存量库」pytest 用例**（`test_provision_backfills_ai_on_legacy_ten_class_db` / `test_provision_never_overwrites_operator_sort_order`）并把该口径写进 `_provision_from_catalog` 文档串；pytest 7 → **9 passed**。④ 【Info】桌面端 v3 配旧版 ops-center（仍下发 10 类）时 `ai` 条目在分类下拉中不可见 ⇒ 评审建议「本次不必改」，**如实登记为已知版本错配窗口**（升级顺序：先 ops-center 后桌面端）。**反证（防假绿）**：两条新回归锁各做一次变异 —— 删掉 `ithome-ai` locale 键 ⇒ 新锁 **1 failed**；调换 `CATEGORY_KEYS` 中 `ai`/`entertainment` ⇒ 两个跨端测试 **2 failed**，变异后文件按 SHA 还原。**未冒充实测的项**：`claude`（backend）本轮在本机运行超过 60 分钟未产出结构化 findings（日志 0 字节），故 QM-6 按「frontend 单模型结构化 + backend 未产出」记账，**不声称双模型均已通过** |
 | 记忆沉淀 | PASS | ① **外部记忆（仓库）**：`01-docs/learnings.md` 置顶新增 4 个章节（CRLF 保真、零裸 LF）；② **外部记忆（本机 gstack）**：`~/.gstack/projects/Colinchiu007-Multi-Publish/learnings.jsonl` **149 → 152 行**，逐行 `JSON.parse` 校验 **0 坏行**；③ **EverOS**：session `mp-hot-topics-multi-source-20261012` 走 `POST /api/v1/memory/add`（`message_count:2, status:accumulated`）→ `POST /api/v1/memory/flush` 回 **`status:"extracted"`**，落盘产物 `~/.everos/default_app/default_project/users/agent/episodes/episode-2026-10-12.md`（2943 B）与 `.../.atomic_facts/atomic_fact-2026-10-12.md`（14431 B）中 grep 哨兵词 **6/7 命中**（`hot-topics-multi-source` / `DOMAIN_LEVEL_RAW` / `aweme-lq.snssdk.com` / `xiaohongshu` / `ifeng` / `MIN_SCORE`）⇒ **判据取产物，不取接口应答**；④ **内置记忆**：DSH 会话档由 harness 自动落盘（无对外写 API），未手工伪造文件 |
 | 删除守卫限制（如实登记） | 环境限制 | 两处临时入口文件（`.tmp-changelog-entry.md`、`.tmp-learnings-entry.md`）先跑 `node scripts/safe-delete.js <file> --dry-run` → 判据全过（`未跟踪、非目录、在工作区内`），**实跑失败**：`mavis-trash` 在本机不存在。处置：核验 `Resolve-Path` 绝对路径逐字相符 + 断言 `Test-Path -PathType Leaf` + 确认 `git status` 为 `??`，再做**单文件** `Remove-Item -LiteralPath`，未使用任何递归删除、未绕过守卫判据 |
-| 远程同步 | PENDING | 待 PR 合并后回填 PASS + merge SHA，并在**同一次提交**删除 `scripts/gate-record-debt-ledger.json` 的登记项 |
+| 远程同步 | PASS | 已合并：PR #3381，merge 66395d23e0d4ddeff0c85b1093f629af95295ade（2026-10-12，squash）。本次回填同一次提交删除本文件的 sync_* 三字段与 ledger 登记项 |
 
 ### 本轮根因与修法（QM-5 口径）
 
