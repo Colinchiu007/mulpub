@@ -78,7 +78,10 @@ describe('B) 平台行为锁（描述为话题真源，按矩阵三态消费）'
     const chain = new BaijiahaoArticleChain({})
     const form = chain.buildArticleFormData({ title: 'T', content: CONTENT, tags: [TOPIC] })
     const params = new URLSearchParams(form)
-    expect(params.get('content')).toBe(`今天探店 #${TOPIC}# 太好吃了`)
+    // 2026-10-12 契约变更（publish-article-body-format）：百家号 `content` 是富文本编辑器的
+    // HTML 承载字段，纯文本会被平台按 HTML 解析（换行=可忽略空白 → 整篇一整段）。
+    // 话题转换仍先在纯文本上完成（`(^|\s)#话题` 边界成立），随后整体包 <p>。
+    expect(params.get('content')).toBe(`<p>今天探店 #${TOPIC}# 太好吃了</p>`)
   })
 
   it('B-6) bilibili：desc 剥离话题 + tag 独立字段含（无双份重复）', () => {

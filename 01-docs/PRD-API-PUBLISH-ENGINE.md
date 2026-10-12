@@ -397,6 +397,16 @@ POST /api/v1/publish 或 /api/v1/batch-publish
 `category`(默认「未分类」)、`reward_money=0`、`is_pay_column=0`、`type=news`、可选
 `project_cover`、原创声明 `original=1`。
 
+**正文承载形态（2026-10-12 契约细化，change `article-body-format`）**：`content` 是富文本编辑器
+的 **HTML 字段**，段落只能由 `<p>` 表达 —— 传纯文本时平台把换行当可忽略空白，整篇正文会塌成
+一个文本节点（真机复核：11/11 篇公开文章正文 `<p>`=0，`源文去掉全部 \n == 平台正文` 为 True）。
+故 `content` MUST 经 `content-formatter.formatArticleBody('baijiahao', …)`：
+纯文本按行成段为 `<p>…</p>`（转义先行、CRLF 归一、空行不产出空 `<p>`），已是 HTML 幂等透传；
+**顺序不变量** = 话题转换（`convertInlineTopics` → `#话题#`）必须先于 `<p>` 包装（否则 `(^|\s)#话题`
+的前置边界因井号前是 `>` 而不成立）。形态判据用**标签名白名单**，禁止「`<` 后跟字母」宽判据
+（会吃掉 `#include <stdio.h>` 类代码片段）。全平台承载形态清单、审计矩阵与真机复核 runbook 见
+`01-docs/PRD-ARTICLE-BODY-FORMAT-2026-10-12.md`。
+
 **私密优先（决策账验收口径）**：`opts.draft !== false` 时默认走 `save?callback=bjhdraft`
 草稿端点；显式 `draft:false` 才走 `publish`。验收首发一律私密草稿、人工确认后再正式。
 

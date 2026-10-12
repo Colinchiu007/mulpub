@@ -20,7 +20,7 @@ const { chunkTotal, DEFAULT_CHUNK_SIZE } = require('../core/chunker')
 const { errorCode } = require('../../error-codes')
 // 话题内联描述（publish-topic-inline-description）：视频号是内联转换型平台——
 // 描述里的 `#话题` 发布时隐性转换成微信系双井号形态 `#话题#`（用户无感知）
-const { convertInlineTopics } = require('../../content-formatter')
+const { convertInlineTopics, formatArticleBody } = require('../../content-formatter')
 
 const DEFAULT_API_BASE = 'https://channels.weixin.qq.com'
 const DEFAULT_CDN_BASE = 'https://finderassistancea.video.qq.com'
@@ -68,7 +68,9 @@ function buildXArguments (o) {
  */
 function composeShipinhaoDescription (td) {
   const title = typeof td.title === 'string' ? td.title.trim() : ''
-  const content = td.content == null ? '' : String(td.content).trim()
+  // 正文承载形态（publish-article-body-format，2026-10-12）：description 是纯文本语义，
+  // HTML 正文须先剥标签（否则 `<p>` 以字面量进作品描述）。
+  const content = String(formatArticleBody('tencent_video', td.content == null ? '' : td.content)).trim()
   const converted = convertInlineTopics('tencent_video', content, td.tags || [])
   return [title, converted].filter(part => part.length > 0).join('\n')
 }

@@ -150,4 +150,38 @@ describe("publish/platforms/baijiahao-article", function () {
     expect(fd).toContain("activity_list%5B0%5D%5Bid%5D=aigc_bjh_status");
     expect(fd).toContain("activity_list%5B0%5D%5Bis_checked%5D=0");
   });
+
+  // ---- 图文正文承载形态（publish-article-body-format，2026-10-12）----
+  // 事故：真机 11/11 篇百家号公开文章正文 0 个 <p>，且正文字节 == 源文去掉全部换行后
+  // 逐字节相等（`content` 是富文本编辑器的 HTML，传纯文本 ⇒ 换行被当可忽略空白，
+  // 整篇塌成一个文本节点）。下列用例把「表单 content 必须是 HTML 段落」钉死。
+  test("正文承载形态：多段纯文本 → 表单 content 为 HTML 段落（修「整篇一整段」）", function () {
+    const chain = new BaijiahaoArticleChain({ userAgent: UA, cookie: "c" });
+    const params = new URLSearchParams(chain.buildArticleFormData({
+      title: "T",
+      content: "凌晨两点，面包出炉。\n\n起初没人发现。\n\n后来评论区炸了。",
+      tags: [],
+    }));
+    expect(params.get("content")).toBe("<p>凌晨两点，面包出炉。</p><p>起初没人发现。</p><p>后来评论区炸了。</p>");
+  });
+
+  test("正文承载形态：单段纯文本同样包 <p>（与平台富文本编辑器同形态）", function () {
+    const chain = new BaijiahaoArticleChain({ userAgent: UA, cookie: "c" });
+    const params = new URLSearchParams(chain.buildArticleFormData({ title: "T", content: "只有一段" }));
+    expect(params.get("content")).toBe("<p>只有一段</p>");
+  });
+
+  test("正文承载形态：已是 HTML 的正文原样透传（幂等，不二次包装）", function () {
+    const chain = new BaijiahaoArticleChain({ userAgent: UA, cookie: "c" });
+    const params = new URLSearchParams(chain.buildArticleFormData({ title: "T", content: "<p>甲</p><p>乙</p>" }));
+    expect(params.get("content")).toBe("<p>甲</p><p>乙</p>");
+  });
+
+  test("正文承载形态：话题转换先于 HTML 包装（#话题# 不被段落标签影响边界判定）", function () {
+    const chain = new BaijiahaoArticleChain({ userAgent: UA, cookie: "c" });
+    const params = new URLSearchParams(chain.buildArticleFormData({
+      title: "T", content: "今天探店 #美食探店 太好吃了", tags: ["美食探店"],
+    }));
+    expect(params.get("content")).toBe("<p>今天探店 #美食探店# 太好吃了</p>");
+  });
 });

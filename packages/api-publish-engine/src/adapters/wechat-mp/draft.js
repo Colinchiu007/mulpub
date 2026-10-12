@@ -15,6 +15,8 @@
 const { BASE } = require('./session')
 const { WechatMpError } = require('./errors')
 const { neutralFields } = require('./draft-defaults')
+// 正文承载形态单一实现（publish-article-body-format）：`content0` 是 HTML 字段
+const { formatArticleBody } = require('../../content-formatter')
 
 /** 封面槽位（AC-7：五者必须同值）。 */
 const COVER_SLOTS = ['cdn_url', 'cdn_235_1_url', 'cdn_16_9_url', 'cdn_1_1_url', 'cdn_url_back']
@@ -56,7 +58,10 @@ function buildArticleFields (article, coverUrl) {
   fields.title = truncate(a.title, MAX_TITLE)
   fields.author = truncate(a.author, MAX_AUTHOR)
   fields.digest = truncate(a.digest, MAX_DIGEST)
-  fields.content = String(a.content == null ? '' : a.content)
+  // 正文承载形态（publish-article-body-format，2026-10-12）：公众号草稿 `content0` 是
+  // **HTML 字段**（图文素材正文），纯文本会被平台按 HTML 解析 ⇒ 换行当可忽略空白、整篇塌成
+  // 一个文本节点（百家号同族事故 11/11 篇实证）。已是 HTML 时幂等透传。
+  fields.content = formatArticleBody('wechat_mp', String(a.content == null ? '' : a.content))
   fields.sourceurl = isHttpUrl(a.contentSourceUrl) ? String(a.contentSourceUrl) : ''
   fields.allow_fast_reprint = a.allowFastReprint ? 1 : 0
   fields.claim_source_type = a.claimSourceType ? 1 : 0
