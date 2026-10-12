@@ -2,9 +2,6 @@
 record: collection-drafts-tab
 task: 采集页草稿箱标签页 + 素材来源入口修正
 date: 2026-10-12
-sync_status: PENDING
-sync_reason: PR #3395 尚未合并，merge SHA 无从取证，故远程同步行写 PENDING 而非闭合词；合并后由回填提交改为 PASS + merge SHA，并同时删除 sync_reason / sync_backfill_owner / sync_status 三字段（回填与销账必须同一次提交）。
-sync_backfill_owner: collection-drafts-tab 分支作者（本会话）
 ---
 
 ## 本次执行记录：采集页草稿箱标签页（collection-drafts-tab，2026-10-12）
@@ -24,7 +21,9 @@ sync_backfill_owner: collection-drafts-tab 分支作者（本会话）
 | 顺带修复的竞态 | PASS | `createFromItem` 原为同步函数调用 async `createFromCollected`，造成「已保存但没跳转」。改 async 并 await，用例锁住 push 必达 |
 | QM-1 打包 | N/A | 未改 `apps/desktop/electron/` 与 `packages/rpa-engine/`，纯渲染层 + shared-utils 数据导出 |
 | QM-4 视觉 | N/A | 复用既有 `cohere-card` / `EmptyState` / `collection-tab-btn` 样式，无新增视觉体系；按「网页生产任务只保编译与冒烟」口径，未做额外视觉校验 |
-| 远程同步 | PENDING | 待 PR 合并后回填 merge SHA 并销账 |
+| 视觉基线（QM-4 第 7 条） | PASS | 新增标签/按钮/改名使采集页 UI 变化，Gate 7b 判红。**禁止本机截图当基线**（#2685 事故：本机重捕把环境差烘进基线，被 views 侧 6% 容差吃掉后 CI 假绿）⇒ 基线取自 PR #3395 的 `quality-gate-visual-reports` artifact（CI 环境真实渲染）。对照组 dashboard/calendar/viral-analysis/intelligence/keyword-monitor 的 dark 差异均为 **0.00%**，证明差异只来自本 PR 而非环境漂移。更新后 QG Visual 转 pass |
+| CI 全绿 | PASS | 21 项全部 pass、0 pending / 0 fail（含 QG Visual / QG Coverage / Desktop Shards 1·2 / Gate Result）。中途两类红已修：①`QG Changes` —— 新记录未登记远程同步欠账，补 `sync_reason/owner/status` 三字段后转绿；②`QG Visual` —— 见上一行 |
+| 远程同步 | PASS | PR #3395 已 squash 合并，merge SHA `e39dc0a0318151e34537f8b93cc2950e7634f582`，2026-10-12T13:51:53+08:00。取证 `git log origin/main --grep='(#3395)$' --format=%H|%cI`；`git ls-remote --heads origin collection-drafts-tab` 返回 0 行，证远端分支已删 |
 
 ### 遗留（不假装已闭合）
 
