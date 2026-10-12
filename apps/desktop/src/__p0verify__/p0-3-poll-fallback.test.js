@@ -120,13 +120,18 @@ describe('M-3 回归锁：批量轮询失败兜底已生效', () => {
   })
 
   it('源码锚点：轮询失败必须有兜底（防止本文件与实现漂移）', () => {
-    const src = readFileSync(
-      resolve(process.cwd(), 'src/views/Collection.vue'),
+    // collection-ui-refinement：批量轮询整体迁入 features/collection/BatchCollectPanel.vue
+    //（Collection.vue 只保留结果落地链路，不再自持轮询）。锚点随代码迁移到新文件，
+    // 并在 Collection.vue 侧断言「不得再出现第二轮轮询实现」（单一实现禁令）。
+    const panelSrc = readFileSync(
+      resolve(process.cwd(), 'src/features/collection/BatchCollectPanel.vue'),
       'utf8',
     )
-    const anchor = src.indexOf('batchPollTimer = setInterval')
+    const anchor = panelSrc.indexOf('batchPollTimer = setInterval')
     expect(anchor).toBeGreaterThan(-1)
-    const pollBody = src.slice(anchor, src.indexOf('function stopBatchPolling'))
+    // 原文件锚到 'function stopBatchPolling'（M-3 修复时声明形态）；迁移版保留同形声明，
+    // 但轮询体在声明之后（startBatchPolling 内），slice 到组件 script 的取消函数声明处即可
+    const pollBody = panelSrc.slice(anchor, panelSrc.indexOf('function cancelBatchCollect'))
 
     // 轮询的 catch 分支不得再是空壳：必须走守卫的 recordFailure
     const catchIdx = pollBody.lastIndexOf('} catch (e) {')
@@ -143,7 +148,13 @@ describe('M-3 回归锁：批量轮询失败兜底已生效', () => {
     expect(guard).toMatch(/BATCH_POLL_MAX_CONSECUTIVE_FAILURES\s*=\s*\d+/)
     expect(guard).toMatch(/BATCH_POLL_MAX_DURATION_MS\s*=\s*\d+/)
     // 组件必须真的用它，而不是自己再实现一套
-    expect(src).toMatch(/useBatchPollGuard\(\{\s*onFail:\s*failBatchPolling\s*\}\)/)
+    expect(panelSrc).toMatch(/useBatchPollGuard\(\{\s*onFail:\s*failBatchPolling\s*\}\)/)
+    // 迁入处必须是唯一实现：Collection.vue 不得再自持 setInterval 轮询
+    const viewSrc = readFileSync(
+      resolve(process.cwd(), 'src/views/Collection.vue'),
+      'utf8',
+    )
+    expect(viewSrc).not.toMatch(/batchPollTimer = setInterval/)
   })
 
   it('基线：任务正常完成 → batchCollecting 复位、轮询停止', async () => {
