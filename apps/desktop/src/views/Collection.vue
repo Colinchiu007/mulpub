@@ -5,6 +5,7 @@
         <div class="collection-tabs" role="tablist">
           <button role="tab" :aria-selected="activeTab === 'collect'" class="collection-tab-btn" :class="{ active: activeTab === 'collect' }" @click="switchTab('collect')">{{ $t('collection.tabCollect') }}</button>
           <QuickCollectTab :active="activeTab === 'quick'" @select="switchTab('quick')" />
+          <CollectionDraftsTab :active="activeTab === 'drafts'" :count="draftCount" @select="switchTab('drafts')" />
           <button role="tab" :aria-selected="activeTab === 'records'" class="collection-tab-btn" :class="{ active: activeTab === 'records' }" data-testid="collection-tab-library" @click="switchTab('records')">{{ $t('collection.tabRecords') }}</button>
           <CollectionCreatorTab :active="activeTab === 'creator'" @select="switchTab('creator')" />
         </div>
@@ -402,49 +403,37 @@
           <div class="stat-value"><el-icon><DocumentCopy /></el-icon></div>
           <div class="stat-label">剪贴板导入</div>
         </div>
+        <div class="cohere-stat-card col-stat-card-click" data-testid="quick-drafts-box" @click="switchTab('drafts')">
+          <div class="stat-value"><el-icon><FolderOpened /></el-icon></div>
+          <div class="stat-label">{{ $t('collection.draftsBoxShort') }}</div>
+        </div>
         <div class="cohere-stat-card col-stat-card-click" @click="openCollection('weibo')">
           <div class="stat-value">✧</div>
-          <div class="stat-label">微博</div>
+          <div class="stat-label">{{ $t('collection.sourceWeibo') }}</div>
         </div>
         <div class="cohere-stat-card col-stat-card-click" @click="openCollection('zhihu')">
           <div class="stat-value">❓</div>
-          <div class="stat-label">知乎</div>
+          <div class="stat-label">{{ $t('collection.sourceZhihu') }}</div>
         </div>
         <div class="cohere-stat-card col-stat-card-click" @click="openCollection('toutiao')">
           <div class="stat-value">📰</div>
-          <div class="stat-label">今日头条</div>
+          <div class="stat-label">{{ $t('collection.sourceToutiao') }}</div>
         </div>
       </div>
 
-      <!-- 草稿列表 -->
-      <div class="cohere-section-title">草稿箱</div>
-      <EmptyState
-        v-if="drafts.length === 0"
-        data-testid="collection-drafts-empty"
-        :title="$t('collection.draftsEmptyTitle')"
-        :description="$t('collection.draftsEmptyDesc')"
-        :action-text="$t('collection.draftsEmptyAction')"
-        @action="createDraft"
-      >
-        <template #icon><el-icon><EditPen /></el-icon></template>
-      </EmptyState>
-      <div v-else class="cohere-card-grid">
-        <div v-for="d in drafts" :key="d.id" class="cohere-card">
-          <div class="card-top">
-            <div class="card-icon"><el-icon><Document /></el-icon></div>
-            <div class="card-info">
-              <div class="card-platform">{{ d.title || '未命名草稿' }}</div>
-              <div class="card-account">{{ d.created_at }} · {{ (d.content || '').length }}字</div>
-            </div>
-          </div>
-          <div class="card-actions">
-            <button @click="editDraft(d)">编辑</button>
-            <button @click="goPublish(d)">发布</button>
-            <button class="danger" @click="deleteDraft(d)">删除</button>
-          </div>
-        </div>
-      </div>
+      <!-- 草稿箱已独立为「草稿箱」页签（2026-10-12）：统一到 draftSave/draftList 真源，
+           不再在采集页底部重复一份只写 store 的轻量草稿列表（两套方言互相污染） -->
     </div>
+
+    <!-- 草稿箱：独立页签，与发布页草稿同源（draftList） -->
+    <CollectionDraftsPanel
+      v-else-if="activeTab === 'drafts'"
+      active
+      :reload-token="draftsReloadToken"
+      @create="createDraft"
+      @edit="editDraft"
+      @publish="goPublish"
+    />
 
     <!-- 文案库标签页（2026-09-16 合并：原「采集记录」+「文案库」两标签合一，以采集记录卡片为准） -->
     <!-- 博主监控：独立组件，避免把 2700+ 行的采集页继续堆胖 -->
@@ -667,18 +656,17 @@ import UiButton from "../components/UiButton.vue";
 import { getApi } from '@/api/electron-bridge'
 import { useI18n } from 'vue-i18n'
 import { useTabStore } from '@/stores/tab'
-import { PLATFORM_DASHBOARD_URLS, PLATFORM_NAMES } from '@multi-publish/shared-utils/src/platform-definitions'
 // eslint-disable-next-line no-unused-vars
 import UiInput from "../components/UiInput.vue";
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { Document, DocumentCopy, EditPen, FolderAdd, Link, MagicStick, Promotion, Search, VideoCamera } from '@element-plus/icons-vue'
+import { Document, DocumentCopy, FolderAdd, FolderOpened, Link, MagicStick, Promotion, Search, VideoCamera } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { useNotify } from '@/composables/useNotify'
 // M-3：批量轮询的失败兜底守卫（连续失败计数 + 总时长上限 + 统一收口）
 import { useBatchPollGuard } from '@/composables/useBatchPollGuard'
 import { useAsrInstall } from '@/composables/useAsrInstall'
 import { resolveNotifyText } from '@/utils/notifyCore'
-import { storeGetSetting, storeSetSetting, aiRewrite, aiListRewriteStrategies, aiGetRecommendedStrategies } from '@/api/publisher'
+import { storeGetSetting, storeSetSetting, draftList, aiRewrite, aiListRewriteStrategies, aiGetRecommendedStrategies } from '@/api/publisher'
 import { extractRewriteHistoryId, attachRewriteLineage } from '@/utils/rewrite-lineage'
 import { formatUserError } from '@/utils/user-facing-error'
 import { classifyCollectError } from '@/utils/collect-error'
@@ -692,6 +680,10 @@ import { setRewriteHandoff } from '@/utils/rewrite-handoff'
 import { safeHttpUrl } from '@multi-publish/shared-utils/src/safe-http-url'
 import { normalizeCollectedItem, normalizeItemTags, itemTags, CollectionCreatorTab } from '@/features/collection/collected-item'
 import { QuickCollectTab, QuickCollectPanel } from '@/features/collection/quick-collect-ui'
+// 草稿箱页签 + 面板（2026-10-12）：独立组件，Collection.vue 只付 1 行 import
+import { CollectionDraftsTab, CollectionDraftsPanel } from '@/features/collection/draft-box-ui'
+import { createOpenSourceHandler } from '@/features/collection/useSourceEntry'
+import { useCollectionDrafts } from '@/composables/useCollectionDrafts'
 import { mapFavBatchResultsToItems, countOriginalFallback } from '@/features/collection/collection-batch'
 import CreatorMonitor from '@/features/collection/CreatorMonitor.vue'
 import { usePlatformStore } from '@/stores/platforms'
@@ -711,7 +703,8 @@ let categoriesUnsubscribe = null
 const categoryTagCtx = computed(() => ({
   knownCategoryKeys: contentCategories.value.map((c) => c.category_key),
 }))
-const drafts = ref([])
+// 草稿列表不再由本组件持有（2026-10-12）：渲染与读取已交给「草稿箱」页签的
+// CollectionDraftsPanel（走 draftList），本组件只保留「写入并拿 id 跳发布页」的能力。
 const linkUrl = ref('')
 const collecting = ref(false)
 const rewriting = ref(false)
@@ -1357,7 +1350,8 @@ const { error: rewriteWordCountError } = useWordCountValidation(
 )
 
 onMounted(async () => {
-  await loadDrafts();
+  // 草稿箱页签自行拉取列表；这里只取条数供页签角标显示（失败静默，不阻塞采集页）
+  void countDrafts().then((n) => { draftCount.value = n })
   await loadCollectedItems()
   void loadCopyRewrites()
   void loadRewriteStrategies()
@@ -1439,28 +1433,46 @@ function closeAsrInstallDialog () {
   asrInstall.close()
 }
 
-async function loadDrafts () {
-  const raw = await storeGetSetting('drafts')
-  // API 不可用（bridge fallback 返回 null）或无数据时，保持当前 drafts 不覆盖
-  if (raw == null) return
-  try { drafts.value = typeof raw === 'string' ? JSON.parse(raw) : raw } catch { drafts.value = [] }
+// ── 草稿：统一到 draftSave/draftList 真源（2026-10-12）──────────────────
+// 此前采集页用 storeGetSetting('drafts') 自写一份轻量草稿，而它与发布页
+// draftSave 落在**同一行存储**（scopedSettingKey('drafts')），两套方言互相污染：
+// 发布页草稿在采集页显示不出时间（createdAt vs created_at）、采集页草稿在发布页
+// 显示 0 平台、同内容还会被指纹去重互相覆盖。现在写入一律走 draftSave，
+// 读取交给草稿箱页签（CollectionDraftsPanel）走 draftList。
+const { saveDraft: saveDraftToStore } = useCollectionDrafts()
+const draftsReloadToken = ref(0)
+const draftCount = ref(0)   // 页签角标条数（drafts ref 在上方声明，列表渲染已交给页签）
+
+/** 取草稿条数（页签角标）；失败静默保留旧值，不阻塞采集页 */
+async function countDrafts () {
+  try {
+    const res = await draftList()
+    return Array.isArray(res && res.data) ? res.data.length : 0
+  } catch { return draftCount.value }
 }
 
-async function saveDrafts () {
-  await storeSetSetting('drafts', JSON.stringify(drafts.value))
-}
-
-function createDraft () {
-  const draft = {
-    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-    title: '',
-    content: '',
-    source: 'manual',
-    created_at: new Date().toLocaleString('zh-CN'),
+/**
+ * 写入草稿并刷新草稿箱页签与角标。
+ * @param {object} payload
+ * @param {boolean} [allowEmpty=false] 只有「新建空白草稿」路径可开（见 composable 注释）
+ * @returns {Promise<string|null>} 落库草稿 id（失败为 null）
+ */
+async function persistDraft (payload, allowEmpty) {
+  const saved = await saveDraftToStore(payload, { allowEmpty: Boolean(allowEmpty) })
+  if (saved && saved.ok) {
+    draftsReloadToken.value++
+    draftCount.value = await countDrafts()
+    return saved.draftId
   }
-  drafts.value.unshift(draft)
-  saveDrafts()
-  router.push('/publish?draft=' + draft.id)
+  return null
+}
+
+async function createDraft () {
+  // allowEmpty：空白草稿是为了跳到发布页继续写，不是"内容为空的草稿"。
+  const draftId = await persistDraft({ title: '', content: '', source: 'manual' }, true)
+  if (draftId) {
+    router.push('/publish?draft=' + draftId)
+  }
 }
 
 async function importFromClipboard () {
@@ -1470,53 +1482,40 @@ async function importFromClipboard () {
     const lines = text.split('\n').filter(Boolean)
     const title = lines[0].slice(0, 64)
     const content = lines.slice(1).join('\n').slice(0, 10000)
-    const draft = {
-      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-      title: title || '从剪贴板导入',
+    const draftId = await persistDraft({
+      title: title || t('collection.draftsClipboardTitle'),
       content: content || text.slice(0, 10000),
       source: 'clipboard',
-      created_at: new Date().toLocaleString('zh-CN'),
+    })
+    if (draftId) {
+      notifySuccess('collection.importedLines', { params: { count: lines.length } })
     }
-    drafts.value.unshift(draft)
-    saveDrafts()
-    notifySuccess('collection.importedLines', { params: { count: lines.length } })
   } catch (e) {
     // formatUserError 的 fallback 已含场景前缀，无需再拼接（避免「读取剪贴板失败: 读取剪贴板失败」双前缀）
     notifyError('collection.clipboardReadFailed', { message: formatUserError(e, { fallback: resolveNotifyText('collection.clipboardReadFailed').text }).message })
   }
 }
 
-async function openCollection (platform) {
-  const url = PLATFORM_DASHBOARD_URLS[platform]
-  if (!url) {
-    notifyWarning('collection.platformUnsupported')
-    return
-  }
-  // 在顶部全局标签栏打开平台页（page-manager 体系承载渲染，替代原分屏监控页内嵌视图）
-  const tabId = await tabStore.createTab({
-    url,
-    platform,
-    title: t('collection.platformTabTitle', { platform: PLATFORM_NAMES[platform] || platform }),
-  })
-  if (tabId) {
-    notifySuccess('collection.openedPlatform', { params: { platform } })
-  }
-}
+// 素材来源快捷入口：语义是「去哪找素材」，走 PLATFORM_SOURCE_URLS，
+// 不用 PLATFORM_DASHBOARD_URLS（那是创作者后台/发布目的地，且被登录态校验复用）。
+// 实现与实测口径见 features/collection/useSourceEntry.js。
+const openCollection = createOpenSourceHandler({
+  createTab: (payload) => tabStore.createTab(payload),
+  notifyWarning,
+  notifySuccess,
+  t,
+})
 
+// 编辑与发布都跳发布页并带上草稿 id；发布页 watch(route.query.draft) 会走
+// draftList + loadDraft 加载（同源于本页写入的草稿）。
 async function editDraft (d) {
+  if (!d || !d.id) return
   router.push('/publish?draft=' + d.id)
 }
 
 function goPublish (d) {
+  if (!d || !d.id) return
   router.push('/publish?draft=' + d.id)
-}
-
-async function deleteDraft (d) {
-  const confirmed = await notifyConfirm('collection.confirmDeleteDraft', { title: resolveNotifyText('collection.confirmTitle').text })
-  if (!confirmed) return
-  drafts.value = drafts.value.filter(x => x.id !== d.id)
-  saveDrafts()
-  notifySuccess('collection.deleted')
 }
 
 // 错误码常量（与 IPC handler 同步）
@@ -2107,15 +2106,16 @@ function clearResult () {
   collectError.value = null
 }
 
+// 采集条目 → 草稿载荷。注意这里**不再生成 id**：id 由主进程 draftSave 的
+// 指纹幂等决定（命中即复用原 id），前端自造 id 会让去重失效。
 function getDraftFromItem (data) {
+  const src = data || {}
   return {
-    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-    title: data.title || '',
-    content: data.content || data.description || '',
-    coverImage: data.coverImage || '',
-    source: data.source || 'url',
-    sourceUrl: data.sourceUrl || linkUrl.value || '',
-    created_at: new Date().toLocaleString('zh-CN'),
+    title: src.title || '',
+    content: src.content || src.description || '',
+    coverImage: src.coverImage || '',
+    source: src.source || 'url',
+    sourceUrl: src.sourceUrl || linkUrl.value || '',
   }
 }
 
@@ -2125,10 +2125,11 @@ async function saveDraftAfterRewrite () {
   // 归因链：草稿是"改写产物"这件事只有在这里能被记下来（getDraftFromItem 本身是通用投影，
   // 非改写路径也在用它，所以判据挂在这一层而不是那一层）
   attachRewriteLineage(draft, collectRewriteLineageId)
-  drafts.value.unshift(draft)
-  await saveDrafts()
-  genreDraftId = draft.id
-  notifySuccess('collection.draftCreated')
+  const draftId = await persistDraft(draft)
+  if (draftId) {
+    genreDraftId = draftId
+    notifySuccess('collection.draftCreated')
+  }
 }
 
 async function goPublishAfterRewrite () {
@@ -2154,15 +2155,15 @@ function onPublishVideo (pipelineId) {
   router.push({ path: '/create', query: { draft: genreDraftId, pipeline: pipelineId || 'story2video-compose' } })
 }
 
-function createFromCollected () {
+async function createFromCollected () {
   if (!collectedResult.value) return
   const draft = getDraftFromItem(collectedResult.value)
-  drafts.value.unshift(draft)
-  saveDrafts()
+  const draftId = await persistDraft(draft)
+  if (!draftId) return
   collectedResult.value = null
   linkUrl.value = ''
   notifySuccess('collection.draftCreated')
-  router.push('/publish?draft=' + draft.id)
+  router.push('/publish?draft=' + draftId)
 }
 
 async function addCollectedToViral () {
@@ -2192,28 +2193,30 @@ async function addCollectedToViral () {
   }
 }
 
-function createFromItem (item) {
+// 必须 async 并 await：createFromCollected 要等 draftSave 返回 id 才跳转，
+// 同步调用会让「已保存但没跳转」成为竞态（列表卡片点击创建草稿时可见）。
+async function createFromItem (item) {
   collectedResult.value = item
-  createFromCollected()
+  await createFromCollected()
 }
 
-function sendItemToPipeline (item) {
+async function sendItemToPipeline (item) {
   // 发送到 Story2Video 流水线：将采集内容作为文案输入
   collectedResult.value = item
   const draft = getDraftFromItem(item)
-  drafts.value.unshift(draft)
-  saveDrafts()
+  const draftId = await persistDraft(draft)
+  if (!draftId) return
   notifySuccess('collection.draftCreated')
-  router.push('/create?draft=' + draft.id)
+  router.push('/create?draft=' + draftId)
 }
 
-function goPublishFromItem (item) {
+async function goPublishFromItem (item) {
   collectedResult.value = item
   const draft = getDraftFromItem(item)
-  drafts.value.unshift(draft)
-  saveDrafts()
+  const draftId = await persistDraft(draft)
+  if (!draftId) return
   notifySuccess('collection.draftCreated')
-  router.push('/publish?draft=' + draft.id)
+  router.push('/publish?draft=' + draftId)
 }
 
 // ─── 采集记录标签页 ──────────────────────────────────────
@@ -2256,8 +2259,8 @@ async function saveCollectedItems () {
   await storeSetSetting(COLLECTED_ITEMS_KEY, JSON.stringify(collectedItems.value))
 }
 
-/** 合法标签页：采集 / 快捷采集 / 文案库 / 博主监控（2026-09-16 原三个标签合并为两个） */
-const TAB_KEYS = ['collect', 'quick', 'records', 'creator']
+/** 合法标签页：采集 / 快捷采集 / 草稿箱 / 文案库 / 博主监控 */
+const TAB_KEYS = ['collect', 'quick', 'drafts', 'records', 'creator']
 
 function switchTab (tab) {
   if (!TAB_KEYS.includes(tab)) return
@@ -2281,13 +2284,13 @@ function onQuickCollected (item) {
 }
 
 // 点击采集记录，创建草稿并进入内容编辑页
-function openRecordForEdit (item) {
+async function openRecordForEdit (item) {
   if (!item || !item.id) return
   const draft = getDraftFromItem(item)
-  drafts.value.unshift(draft)
-  saveDrafts()
+  const draftId = await persistDraft(draft)
+  if (!draftId) return
   notifySuccess('collection.recordsEditCreated')
-  router.push('/publish?draft=' + draft.id)
+  router.push('/publish?draft=' + draftId)
 }
 
 async function deleteRecord (item) {

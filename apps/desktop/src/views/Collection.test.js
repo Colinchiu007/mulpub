@@ -37,7 +37,7 @@ describe("CollectionView", () => {
   it("renders page title and buttons", async () => {
     const w = mountCollection();
     await nextTick();
-    expect(w.text()).toContain("内容采集快捷采集文案库");
+    expect(w.text()).toContain("内容采集快捷采集草稿箱");
     expect(w.text()).toContain("新建草稿");
   });
 
@@ -88,69 +88,36 @@ describe("CollectionView", () => {
     expect(w.find('[data-testid="collection-tab-creator-badge"]').exists()).toBe(false);
   });
 
-  it("loadDrafts reads from electronAPI on mount", async () => {    window.electronAPI = {
-      storeGetSetting: vi.fn().mockResolvedValue(JSON.stringify([
-        { id: "d1", title: "Saved", content: "hello", source: "manual", created_at: "2026-07-05" }
-      ]))
-    };
+  // 2026-10-12：草稿写入统一走 draftSave（与发布页同源，享受指纹幂等），
+  // 不再用 storeGetSetting('drafts') 自己写一份（两套方言落同一行存储，互相污染）。
+  it("drafts are persisted via draftSave, not storeSetSetting", async () => {
+    const draftSave = vi.fn().mockResolvedValue({ code: 0, data: { draftId: "d-new" } });
+    window.electronAPI = { draftSave, draftList: vi.fn().mockResolvedValue({ code: 0, data: [] }) };
     const w = mountCollection();
     await nextTick();
-    await new Promise(r => setTimeout(r, 0));
-    await nextTick();
-    expect(window.electronAPI.storeGetSetting).toHaveBeenCalledWith("drafts");
-    expect(w.vm.drafts.length).toBe(1);
-    expect(w.vm.drafts[0].title).toBe("Saved");
+    await w.vm.createDraft();
+    expect(draftSave).toHaveBeenCalled();
+    expect(pushSpy).toHaveBeenCalledWith("/publish?draft=d-new");
   });
 
-  it("loadDrafts handles missing API gracefully", async () => {
+  it("createDraft tolerates missing draftSave API gracefully", async () => {
     window.electronAPI = {};
     const w = mountCollection();
     await nextTick();
-    await new Promise(r => setTimeout(r, 0));
-    await nextTick();
-    expect(w.vm.drafts).toEqual([]);
-  });
-
-  it("loadDrafts handles JSON parse failure", async () => {
-    window.electronAPI = {
-      storeGetSetting: vi.fn().mockResolvedValue("invalid json{{{")
-    };
-    const w = mountCollection();
-    await nextTick();
-    await new Promise(r => setTimeout(r, 0));
-    await nextTick();
-    expect(w.vm.drafts).toEqual([]);
-  });
-
-  it("saveDrafts calls electronAPI.storeSetSetting", async () => {
-    window.electronAPI = {
-      storeSetSetting: vi.fn().mockResolvedValue(undefined)
-    };
-    const w = mountCollection();
-    await nextTick();
-    w.vm.drafts = [{ id: "d1", title: "Test" }];
-    await w.vm.saveDrafts();
-    expect(window.electronAPI.storeSetSetting).toHaveBeenCalledWith("drafts", JSON.stringify([{ id: "d1", title: "Test" }]));
-  });
-
-  it("saveDrafts handles missing API gracefully", async () => {
-    window.electronAPI = {};
-    const w = mountCollection();
-    await nextTick();
-    w.vm.drafts = [{ id: "d1" }];
-    await w.vm.saveDrafts();
-    expect(w.vm.drafts.length).toBe(1);
+    await w.vm.createDraft();
+    expect(w.exists()).toBe(true);
   });
 
   it("creates a new draft and navigates", async () => {
-    window.electronAPI = { storeSetSetting: vi.fn() };
+    const draftSave = vi.fn().mockResolvedValue({ code: 0, data: { draftId: "d-manual" } });
+    window.electronAPI = { draftSave, draftList: vi.fn().mockResolvedValue({ code: 0, data: [] }) };
     const w = mountCollection();
     await nextTick();
-    w.vm.createDraft();
+    await w.vm.createDraft();
     await nextTick();
-    expect(w.vm.drafts.length).toBe(1);
-    expect(w.vm.drafts[0].source).toBe("manual");
-    expect(pushSpy).toHaveBeenCalledWith("/publish?draft=" + w.vm.drafts[0].id);
+    // 空白草稿也允许保存（allowEmpty），否则「新建草稿」永远跳不出第二份
+    expect(draftSave).toHaveBeenCalledWith(expect.objectContaining({ source: "manual" }));
+    expect(pushSpy).toHaveBeenCalledWith("/publish?draft=d-manual");
   });
 
   it("imports from clipboard", async () => {
@@ -158,13 +125,16 @@ describe("CollectionView", () => {
       value: { readText: vi.fn().mockResolvedValue("Title line\nContent here") },
       writable: true, configurable: true
     });
-    window.electronAPI = { storeSetSetting: vi.fn() };
+    const draftSave = vi.fn().mockResolvedValue({ code: 0, data: { draftId: "d-clip" } });
+    window.electronAPI = { draftSave, draftList: vi.fn().mockResolvedValue({ code: 0, data: [] }) };
     const w = mountCollection();
     await nextTick();
     await w.vm.importFromClipboard();
     await nextTick();
-    expect(w.vm.drafts.length).toBe(1);
-    expect(w.vm.drafts[0].title).toBe("Title line");
+    expect(draftSave).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Title line",
+      source: "clipboard",
+    }));
     const { ElMessage } = await import("element-plus");
     expect(ElMessage.success).toHaveBeenCalled();
   });
@@ -195,8 +165,10 @@ describe("CollectionView", () => {
     expect(ElMessage.warning).toHaveBeenCalled();
   });
 
-  it("openCollection opens a tab via pageManager when dashboard URL is available", async () => {
-    const { PLATFORM_DASHBOARD_URLS } = await import("@multi-publish/shared-utils/src/platform-definitions");
+  // 2026-10-12：素材来源入口改走 PLATFORM_SOURCE_URLS（语义「去哪找素材」），
+  // 不再用 PLATFORM_DASHBOARD_URLS（创作者后台/发布目的地，且被登录态校验复用）。
+  it("openCollection opens a tab via pageManager with the SOURCE url", async () => {
+    const { PLATFORM_SOURCE_URLS, PLATFORM_DASHBOARD_URLS } = await import("@multi-publish/shared-utils/src/platform-definitions");
     window.electronAPI = {
       pageManager: {
         createNewTabPage: vi.fn().mockResolvedValue({ code: 0, data: { tabId: "btab-1" } })
@@ -206,13 +178,15 @@ describe("CollectionView", () => {
     await nextTick();
     await w.vm.openCollection("weibo");
     expect(window.electronAPI.pageManager.createNewTabPage).toHaveBeenCalledWith(
-      expect.objectContaining({ url: PLATFORM_DASHBOARD_URLS.weibo, platform: "weibo" })
+      expect.objectContaining({ url: PLATFORM_SOURCE_URLS.weibo, platform: "weibo" })
     );
     const { ElMessage } = await import("element-plus");
     expect(ElMessage.success).toHaveBeenCalled();
+    // 语义独立锁：素材来源不得再指向创作者后台（头条那条曾是明确的分类错误）
+    expect(PLATFORM_SOURCE_URLS.toutiao).not.toBe(PLATFORM_DASHBOARD_URLS.toutiao);
   });
 
-  it("openCollection warns and skips when platform has no dashboard URL", async () => {
+  it("openCollection warns and skips when platform has no source URL", async () => {
     window.electronAPI = {
       pageManager: {
         createNewTabPage: vi.fn()
@@ -240,28 +214,42 @@ describe("CollectionView", () => {
     expect(pushSpy).toHaveBeenCalledWith("/publish?draft=d2");
   });
 
-  it("deleteDraft confirms and removes draft", async () => {
+  // 删除由草稿箱面板内的 CollectionDraftsPanel 承担（collect tab 不再有独立删除入口），
+  // 行为契约见 composables/useCollectionDrafts.test.js 的删除三例。
+  it("drafts deletion lives in the drafts panel, not in collect tab", async () => {
     const { ElMessageBox } = await import("element-plus");
     ElMessageBox.confirm.mockResolvedValue(undefined);
-    window.electronAPI = { storeSetSetting: vi.fn() };
+    const draftDelete = vi.fn().mockResolvedValue({ code: 0, data: true });
+    window.electronAPI = {
+      draftDelete,
+      draftList: vi.fn().mockResolvedValue({ code: 0, data: [{ id: "d1", title: "待删" }] }),
+    };
     const w = mountCollection();
     await nextTick();
-    w.vm.drafts = [{ id: "d1" }, { id: "d2" }];
-    await w.vm.deleteDraft({ id: "d1" });
-    expect(w.vm.drafts.length).toBe(1);
-    expect(w.vm.drafts[0].id).toBe("d2");
+    await w.find('[data-testid="collection-tab-drafts"]').trigger("click");
+    await flushPromises();
+    await w.find('[data-testid="draft-delete"]').trigger("click");
+    await flushPromises();
+    expect(draftDelete).toHaveBeenCalledWith("d1");
     const { ElMessage } = await import("element-plus");
     expect(ElMessage.success).toHaveBeenCalled();
   });
 
-  it("deleteDraft does nothing on cancel", async () => {
+  it("drafts panel delete does nothing on cancel", async () => {
     const { ElMessageBox } = await import("element-plus");
     ElMessageBox.confirm.mockRejectedValue(new Error("canceled"));
+    const draftDelete = vi.fn();
+    window.electronAPI = {
+      draftDelete,
+      draftList: vi.fn().mockResolvedValue({ code: 0, data: [{ id: "d1", title: "保留" }] }),
+    };
     const w = mountCollection();
     await nextTick();
-    w.vm.drafts = [{ id: "d1" }];
-    await w.vm.deleteDraft({ id: "d1" });
-    expect(w.vm.drafts.length).toBe(1);
+    await w.find('[data-testid="collection-tab-drafts"]').trigger("click");
+    await flushPromises();
+    await w.find('[data-testid="draft-delete"]').trigger("click");
+    await flushPromises();
+    expect(draftDelete).not.toHaveBeenCalled();
   });
 
   it("collectUrl warns if no urlCollectFetch API", async () => {
@@ -923,16 +911,18 @@ describe("CollectionView", () => {
   });
 
   it("creates draft from collected result", async () => {
-    window.electronAPI = { storeSetSetting: vi.fn() };
+    const draftSave = vi.fn().mockResolvedValue({ code: 0, data: { draftId: "d-col" } });
+    window.electronAPI = { draftSave, draftList: vi.fn().mockResolvedValue({ code: 0, data: [] }) };
     const w = mountCollection();
     await nextTick();
     w.vm.collectedResult = { title: "Article", content: "Content", coverImage: "img.jpg", source: "url" };
     w.vm.linkUrl = "https://example.com/article";
     await w.vm.createFromCollected();
-    expect(w.vm.drafts.length).toBe(1);
-    expect(w.vm.drafts[0].title).toBe("Article");
-    expect(w.vm.drafts[0].content).toBe("Content");
-    expect(w.vm.drafts[0].coverImage).toBe("img.jpg");
+    expect(draftSave).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Article",
+      content: "Content",
+      cover_url: "img.jpg",
+    }));
     expect(w.vm.collectedResult).toBeNull();
     expect(w.vm.linkUrl).toBe("");
     const { ElMessage } = await import("element-plus");
@@ -941,31 +931,57 @@ describe("CollectionView", () => {
   });
 
   it("createFromCollected does nothing if no collected result", async () => {
+    const draftSave = vi.fn();
+    window.electronAPI = { draftSave, draftList: vi.fn().mockResolvedValue({ code: 0, data: [] }) };
     const w = mountCollection();
     await nextTick();
     w.vm.collectedResult = null;
-    w.vm.drafts = [];
     await w.vm.createFromCollected();
-    expect(w.vm.drafts.length).toBe(0);
+    expect(draftSave).not.toHaveBeenCalled();
   });
 
-  it("shows empty state when no drafts", async () => {
+  // 草稿列表已移入「草稿箱」页签（CollectionDraftsPanel），采集页 collect tab 不再内嵌一份。
+  it("collect tab no longer renders an inline drafts section", async () => {
     const w = mountCollection();
     await new Promise(r => setTimeout(r, 0));
     await nextTick();
-    // 空态统一走 EmptyState（T0-3）：文案全部来自 i18n key（$t 在测试中返回 key 本身）
-    const empty = w.get('[data-testid="collection-drafts-empty"]');
-    expect(empty.classes()).toContain("mp-empty-state");
-    expect(empty.text()).toContain("暂无草稿");
-    expect(empty.get("button.mp-empty-state__action").text()).toBe("新建草稿");
+    expect(w.find('[data-testid="collection-drafts-empty"]').exists()).toBe(false);
+    expect(w.find('[data-testid="collection-drafts-panel"]').exists()).toBe(false);
   });
 
-  it("shows drafts list", async () => {
+  it("switching to the drafts tab renders the drafts panel", async () => {
+    window.electronAPI = {
+      draftList: vi.fn().mockResolvedValue({ code: 0, data: [
+        { id: "d1", title: "Saved Draft", content: "hello", createdAt: "2026-07-05T10:00:00.000Z" },
+      ] }),
+    };
     const w = mountCollection();
     await nextTick();
-    w.vm.drafts = [{ id: "d1", title: "Saved Draft", content: "hello", source: "manual", created_at: "2026-07-05" }];
-    await nextTick();
+    await w.find('[data-testid="collection-tab-drafts"]').trigger("click");
+    await flushPromises();
+    expect(w.find('[data-testid="collection-drafts-panel"]').exists()).toBe(true);
+    expect(w.find('[data-testid="collection-draft-d1"]').exists()).toBe(true);
     expect(w.text()).toContain("Saved Draft");
+  });
+
+  it("drafts tab shows empty state when there are no drafts", async () => {
+    window.electronAPI = { draftList: vi.fn().mockResolvedValue({ code: 0, data: [] }) };
+    const w = mountCollection();
+    await nextTick();
+    await w.find('[data-testid="collection-tab-drafts"]').trigger("click");
+    await flushPromises();
+    expect(w.find('[data-testid="collection-drafts-empty"]').exists()).toBe(true);
+  });
+
+  it("drafts tab shows load error instead of pretending empty", async () => {
+    window.electronAPI = { draftList: vi.fn().mockResolvedValue({ code: -1, message: "存储不可用" }) };
+    const w = mountCollection();
+    await nextTick();
+    await w.find('[data-testid="collection-tab-drafts"]').trigger("click");
+    await flushPromises();
+    // 读取失败必须可见，不得伪装成「暂无草稿」
+    expect(w.find('[data-testid="drafts-load-error"]').exists()).toBe(true);
+    expect(w.find('[data-testid="collection-drafts-empty"]').exists()).toBe(false);
   });
 
   it("collectedItems accumulates after collectUrl", async () => {
@@ -986,36 +1002,40 @@ describe("CollectionView", () => {
   });
 
   it("createFromItem creates draft from list item", async () => {
-    window.electronAPI = { storeSetSetting: vi.fn() };
+    const draftSave = vi.fn().mockResolvedValue({ code: 0, data: { draftId: "d-list" } });
+    window.electronAPI = { draftSave, draftList: vi.fn().mockResolvedValue({ code: 0, data: [] }) };
     const w = mountCollection();
     await nextTick();
-    w.vm.drafts = [];
     const item = { id: "abc", title: "From List", content: "list content", source: "rss", sourceUrl: "https://ex.com" };
     await w.vm.createFromItem(item);
-    expect(w.vm.drafts.length).toBe(1);
-    expect(w.vm.drafts[0].title).toBe("From List");
-    expect(w.vm.drafts[0].source).toBe("rss");
-    expect(pushSpy).toHaveBeenCalled();
+    expect(draftSave).toHaveBeenCalledWith(expect.objectContaining({
+      title: "From List",
+      source: "rss",
+      sourceUrl: "https://ex.com",
+    }));
+    expect(pushSpy).toHaveBeenCalledWith("/publish?draft=d-list");
   });
 
   it("sendItemToPipeline navigates to create", async () => {
-    window.electronAPI = { storeSetSetting: vi.fn() };
+    const draftSave = vi.fn().mockResolvedValue({ code: 0, data: { draftId: "d-pipe" } });
+    window.electronAPI = { draftSave, draftList: vi.fn().mockResolvedValue({ code: 0, data: [] }) };
     const w = mountCollection();
     await nextTick();
     const item = { id: "abc", title: "Pipeline Item", content: "content", source: "url" };
     await w.vm.sendItemToPipeline(item);
-    expect(w.vm.drafts.length).toBe(1);
-    expect(pushSpy).toHaveBeenCalledWith(expect.stringContaining("/create?draft="));
+    expect(draftSave).toHaveBeenCalled();
+    expect(pushSpy).toHaveBeenCalledWith(expect.stringContaining("/create?draft=d-pipe"));
   });
 
   it("goPublishFromItem navigates to publish", async () => {
-    window.electronAPI = { storeSetSetting: vi.fn() };
+    const draftSave = vi.fn().mockResolvedValue({ code: 0, data: { draftId: "d-pub" } });
+    window.electronAPI = { draftSave, draftList: vi.fn().mockResolvedValue({ code: 0, data: [] }) };
     const w = mountCollection();
     await nextTick();
     const item = { id: "abc", title: "Publish Item", content: "content", source: "url" };
     await w.vm.goPublishFromItem(item);
-    expect(w.vm.drafts.length).toBe(1);
-    expect(pushSpy).toHaveBeenCalledWith(expect.stringContaining("/publish?draft="));
+    expect(draftSave).toHaveBeenCalled();
+    expect(pushSpy).toHaveBeenCalledWith(expect.stringContaining("/publish?draft=d-pub"));
   });
 
   it("collectedItems list renders in template", async () => {
@@ -1305,23 +1325,23 @@ describe("CollectionView", () => {
   });
 
   it("openRecordForEdit creates draft and navigates to publish", async () => {
-    window.electronAPI = { storeSetSetting: vi.fn() };
+    const draftSave = vi.fn().mockResolvedValue({ code: 0, data: { draftId: "d-rec" } });
+    window.electronAPI = { draftSave, draftList: vi.fn().mockResolvedValue({ code: 0, data: [] }) };
     const w = mountCollection();
     await nextTick();
-    w.vm.drafts = [];
     const item = { id: "rec1", title: "Record Title", content: "record content", source: "rss", sourceUrl: "https://ex.com" };
     await w.vm.openRecordForEdit(item);
-    expect(w.vm.drafts.length).toBe(1);
-    expect(w.vm.drafts[0].title).toBe("Record Title");
-    expect(pushSpy).toHaveBeenCalledWith("/publish?draft=" + w.vm.drafts[0].id);
+    expect(draftSave).toHaveBeenCalledWith(expect.objectContaining({ title: "Record Title" }));
+    expect(pushSpy).toHaveBeenCalledWith("/publish?draft=d-rec");
   });
 
   it("openRecordForEdit does nothing for invalid item", async () => {
+    const draftSave = vi.fn();
+    window.electronAPI = { draftSave, draftList: vi.fn().mockResolvedValue({ code: 0, data: [] }) };
     const w = mountCollection();
     await nextTick();
-    w.vm.drafts = [];
     await w.vm.openRecordForEdit(null);
-    expect(w.vm.drafts.length).toBe(0);
+    expect(draftSave).not.toHaveBeenCalled();
   });
 
   it("deleteRecord confirms and removes record", async () => {
@@ -1618,9 +1638,10 @@ describe("CollectionView 文案库合并标签", () => {
     expect(w.find('[data-testid="collection-tab-library"]').exists()).toBe(true);
     expect(w.text()).toContain("文案库");
     // 原独立「文案库」第三个标签已移除（tabLibrary 不再出现在标签栏）
-    // 采集页原有采集/文案库两个 tab，加入博主监控后三个；2026-10-11 加入「快捷采集」后共四个。
-    // 断言数量是为了让「多加/少加 tab」必须显式改测试，不能悄悄发生。
-    expect(w.findAll(".collection-tab-btn").length).toBe(4);
+    // 采集页原有采集/文案库两个 tab，加博主监控三个、「快捷采集」四个；
+    // 2026-10-12 加入「草稿箱」后共五个。断言数量是为了让「多加/少加 tab」
+    // 必须显式改测试，不能悄悄发生。
+    expect(w.findAll(".collection-tab-btn").length).toBe(5);
     await w.find('[data-testid="collection-tab-library"]').trigger("click");
     await nextTick();
     expect(w.vm.activeTab).toBe("records");
