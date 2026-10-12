@@ -1128,6 +1128,7 @@ var require_creator = __commonJS({
       return {
         creatorList: () => ipcRenderer3.invoke("creator:list"),
         creatorFollow: (payload) => ipcRenderer3.invoke("creator:follow", payload),
+        creatorPlatforms: () => ipcRenderer3.invoke("creator:platforms"),
         creatorUnfollow: (payload) => ipcRenderer3.invoke("creator:unfollow", payload),
         creatorToggle: (payload) => ipcRenderer3.invoke("creator:toggle", payload),
         creatorCheckNow: (payload) => ipcRenderer3.invoke("creator:check-now", payload),

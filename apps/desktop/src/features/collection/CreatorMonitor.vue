@@ -2,43 +2,33 @@
 /**
  * CreatorMonitor.vue —「博主监控」tab
  *
- * 两个列表：
- *   · 博主列表：关注状态、能力徽章、待采集角标、暂停/恢复、立即检查
- *   · 发现列表：新作品、内容质量徽章、单条采集、送入 AI 写作
+ * 两个列表：博主列表（关注/能力徽章/待采集角标/暂停恢复/立即检查）+ 发现列表
+ * （新作品/质量徽章/单条采集/送入 AI 写作）。三条硬规则与主进程一致：超限弹提示不静默截断、
+ * 已采集状态持久、单条采集零填参。
  *
- * 交互上的三条硬规则（与主进程一致，此处只做呈现）：
- *   1. 超限时**弹提示**，不静默截断；采集成功后若有剩余 MUST 告知剩余数
- *   2. 已采集项按钮置灰并显示时间 —— 状态持久，刷新不丢
- *   3. 单条采集零填参；批量走默认数量（一键 5 / 手动 50）
+ * 文案映射（凭证横幅 / follow 错误分因 / 平台 label / 依赖提示）全部在
+ * `creator-monitor-copy.js`（纯函数，check-max-lines 拆分产物 + 可独立单测）。
  *
- * ## 2026-10-12 修复：三条「用户看得见的错话」与本文件的关系
+ * 历史（2026-10-12 两轮修复的锚点，详见 PRD §17 与 PRD-CREATOR-MULTI-PLATFORM）：
+ * ① `service-unavailable` 与「可选依赖缺失」按 reason 分因，不得共用一句话；
+ * ② 添加博主 MUST 走应用内弹窗（Electron 渲染进程不支持 window.prompt）；
+ * ③ 凭证四态 + read_failed 有专门文案与配置入口，不指向不存在的设置项。
  *
- * ① **整页只有一句「缺少采集依赖。请执行：」**（命令位恒空）。
- *    真因在主进程（`phase5-ipc.js` 用了一个不存在的 `context.get`，加上
- *    `creatorCredentialProvider` 从未注册 ⇒ 11 个 creator 通道全部降级 ⇒
- *    `reason: 'service-unavailable'`）。但渲染层也有一半责任：它把
- *    「服务没起来」错误地渲染成「缺少采集依赖」。两件事的处置完全不同
- *    （重启应用 vs 装 Python 包），因此现在**按 reason 分因**：
- *    `service-unavailable` → `creatorErrServiceUnavailable`（不谈依赖）；
- *    真正的可选依赖缺失 → `creatorDependencyOptionalHint`（带确切命令、非阻塞）。
- *
- * ② **「关注」按钮点了没反应**。旧实现用 `window.prompt()` —— Electron 渲染进程
- *    不支持 `window.prompt`（调用即抛 `prompt() is and will not be supported`），
- *    于是添加博主这条路**整条不存在**。现改为应用内弹窗
- *    （`CreatorAddDialog.vue`，与同页 `QuickCollectCommandDialog.vue` 同构）。
- *
- * ③ **没有地方填 YouTube API Key**。旧文案让用户「请在设置中填写」，而设置页
- *    从没有这个字段 ⇒ 死路。现补 `CreatorCredentialDialog.vue`（PRD §7.4 的四态：
- *    未配置 / 密钥库不可用 / 解密失败 / 已配置），本文件只负责横幅与开合。
- *
- * 浮层形态与同页 `QuickCollectCommandDialog.vue` 保持一致：手写 mask + `role="dialog"`。
- * 该页不承载 `WebContentsView` 内嵌网页，故不适用「浮层互斥挂起」契约
- * （同页快捷采集弹窗先例一致；契约的判据是「浮层会被原生图层盖住」，此处不存在该前提）。
+ * 浮层形态与同页 `QuickCollectCommandDialog.vue` 一致：手写 mask + `role="dialog"`；
+ * 该页不承载 `WebContentsView`，不适用「浮层互斥挂起」契约（同页先例一致）。
  */
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import CreatorAddDialog from './CreatorAddDialog.vue'
+import {
+  credentialBannerKey as credentialBannerKeyOf,
+  followErrorKey,
+  followErrorKeyWithPlatform,
+  platformLocaleKey,
+  transcriptHintText,
+  platformLabelOf,
+} from './creator-monitor-copy'
 import CreatorCredentialDialog from './CreatorCredentialDialog.vue'
 
 const { t } = useI18n()
@@ -56,6 +46,8 @@ const degraded = ref('')
 const credential = ref(null)
 /** 依赖状态：{ discovery:{ready}, transcript:{ready,optional,reason,installHint} } */
 const dependency = ref(null)
+/** 平台清单（creator:platforms）：{ id,label,supported,hasSession }[] */
+const platforms = ref([])
 /** 添加博主弹窗 */
 const addVisible = ref(false)
 const addSubmitting = ref(false)
@@ -86,15 +78,17 @@ async function call (fnName, payload) {
   }
 }
 
-/** 领域 reason → 可操作文案。查表而非拼接，避免出现「命令位为空」那类半句话。 */
-function followErrorText (reason) {
-  switch (reason) {
-  case 'creator:invalid_input': return t('collection.creatorErrInvalidInput')
-  case 'creator:not_a_channel': return t('collection.creatorErrNotAChannel')
-  case 'creator:channel_not_found': return t('collection.creatorErrChannelNotFound')
-  case 'creator:credential_missing': return t('collection.creatorErrCredentialMissing')
-  default: return ''
-  }
+function platformLabel (id) {
+  const p = (platforms.value || []).find((x) => x.id === id)
+  if (p && p.label) return p.label
+  const key = platformLocaleKey(id)
+  return key ? t(key) : id
+}
+
+/** 领域 reason → 文案（查表逻辑在 creator-monitor-copy.js，本层只做 t() 与平台名注入） */
+function followErrorText (reason, platform) {
+  const key = followErrorKey(reason) || followErrorKeyWithPlatform(reason)
+  return key ? t(key, { platform: platformLabel(platform || 'youtube') }) : ''
 }
 
 /** IPC 统一返回 { code, reason, message }；非 0 一律走错误分支，
@@ -169,13 +163,16 @@ function openAddDialog () {
   addVisible.value = true
 }
 
-async function submitAdd (rawInput) {
-  const input = String(rawInput || '').trim()
+async function submitAdd (form) {
+  // 多平台（PRD §5.1）：弹窗回传 { input, platform }；旧测试直接传字符串则按 youtube
+  const isString = typeof form === 'string'
+  const input = String(isString ? form : (form && form.input) || '').trim()
+  const platform = isString ? 'youtube' : ((form && form.platform) || 'youtube')
   if (!input) return
   addSubmitting.value = true
   addError.value = ''
   try {
-    const r = await call('creatorFollow', { input })
+    const r = await call('creatorFollow', { input, platform })
     if (r === null) { addError.value = degraded.value; return }
     if (!r || r.code !== 0) {
       if (r && r.reason === 'service-unavailable') {
@@ -184,12 +181,14 @@ async function submitAdd (rawInput) {
         return
       }
       if (r && r.reason === 'creator:credential_missing') {
-        // 没配 Key 时解析不了频道：直接把凭证弹窗推到用户面前，而不是让他自己找
-        credentialVisible.value = true
-        addError.value = t('collection.creatorErrCredentialMissing')
+        // 多平台：缺的是「平台登录态」（抖音/小红书去账号管理登录；YouTube 打开凭证弹窗）
+        if (platform === 'youtube') credentialVisible.value = true
+        addError.value = platform === 'youtube'
+          ? t('collection.creatorErrCredentialMissing')
+          : t('collection.creatorErrCredentialMissingForPlatform', { platform: platformLabel(platform) })
         return
       }
-      addError.value = followErrorText(r && r.reason) || (r && r.message) || t('collection.creatorErrCollectFailed', { message: '' })
+      addError.value = followErrorText(r && r.reason, platform) || (r && r.message) || t('collection.creatorErrCollectFailed', { message: '' })
       return
     }
     const name = (r.creator && (r.creator.display_name || r.creator.external_id)) || input
@@ -272,25 +271,11 @@ async function onCredentialSaved () {
 
 const hasDiscoveries = computed(() => discoveries.value.length > 0)
 
-/** 凭证横幅：主进程未就绪时不显示（那条信息由 degraded 横幅承担，避免两条自相矛盾） */
-const credentialBannerKey = computed(() => {
-  const c = credential.value
-  if (!c) return ''
-  if (c.status === 'ok') return ''
-  if (c.status === 'unavailable' && c.reason === 'credential-service-unavailable') return ''
-  if (c.status === 'not_configured') return 'collection.creatorCredentialStatusNotConfigured'
-  if (c.status === 'unavailable') return 'collection.creatorCredentialStatusUnavailable'
-  if (c.status === 'decrypt_failed') return 'collection.creatorCredentialStatusDecryptFailed'
-  if (c.status === 'read_failed') return 'collection.creatorCredentialStatusReadFailed'
-  return ''
-})
+/** 凭证横幅（映射表在 creator-monitor-copy.js） */
+const credentialBannerKey = computed(() => credentialBannerKeyOf(credential.value))
 
-/** 正文腿缺依赖：**非阻塞**提示，带确切命令（PRD §16 禁止静默降级） */
-const transcriptHint = computed(() => {
-  const d = dependency.value
-  if (!d || !d.transcript || d.transcript.ready) return ''
-  return t('collection.creatorDependencyOptionalHint', { command: d.transcript.installHint || '' })
-})
+/** 正文腿缺依赖：非阻塞提示（拼装在 creator-monitor-copy.js） */
+const transcriptHint = computed(() => transcriptHintText(dependency.value, t))
 
 /**
  * 能力徽章与质量徽章的文案映射。
@@ -316,8 +301,16 @@ onMounted(async () => {
   await loadCreators()
   await loadCredential()
   await loadDependency()
+  await loadPlatforms()
 })
-defineExpose({ loadCreators, loadDiscoveries, loadCredential, loadDependency })
+defineExpose({ loadCreators, loadDiscoveries, loadCredential, loadDependency, loadPlatforms })
+
+/** 平台清单 + 各平台登录态（添加弹窗的平台选择与未登录提示的数据源） */
+async function loadPlatforms () {
+  const r = await call('creatorPlatforms')
+  if (r === null) return
+  if (r && r.code === 0 && Array.isArray(r.platforms)) platforms.value = r.platforms
+}
 </script>
 
 <template>
@@ -367,7 +360,13 @@ defineExpose({ loadCreators, loadDiscoveries, loadCredential, loadDependency })
         >
           <img v-if="c.avatar_url" class="creator-avatar" :src="c.avatar_url" alt="" />
           <div class="creator-meta">
-            <span class="creator-name">{{ c.display_name || c.external_id }}</span>
+            <span class="creator-name">
+              <!-- 平台徽标（PRD §7）：多平台列表混排时必须一眼可分 -->
+              <span class="creator-platform-tag" :data-testid="'creator-platform-' + (c.platform || 'youtube')" :data-platform="c.platform || 'youtube'">
+                {{ platformLabel(c.platform || 'youtube') }}
+              </span>
+              {{ c.display_name || c.external_id }}
+            </span>
             <span class="creator-badge" :data-tier="c.capability_tier">
               {{ $t(capKey(c.capability_tier)) }}
             </span>
@@ -441,6 +440,7 @@ defineExpose({ loadCreators, loadDiscoveries, loadCredential, loadDependency })
       v-model:visible="addVisible"
       :submitting="addSubmitting"
       :error="addError"
+      :platforms="platforms"
       @submit="submitAdd"
     />
     <CreatorCredentialDialog
@@ -462,6 +462,16 @@ defineExpose({ loadCreators, loadDiscoveries, loadCredential, loadDependency })
 .creator-avatar, .creator-thumb { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; }
 .creator-meta { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
 .creator-name, .creator-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.creator-platform-tag {
+  display: inline-block;
+  padding: 0 6px;
+  margin-right: 6px;
+  border: 1px solid var(--border, #dcdfe6);
+  border-radius: 4px;
+  font-size: var(--font-size-xs);
+  font-weight: 400;
+  vertical-align: middle;
+}
 .creator-badge, .creator-quality, .creator-badge-num, .creator-collected { font-size: var(--font-size-xs); }
 .creator-paused { color: var(--el-color-danger, #f56c6c); font-size: var(--font-size-xs); }
 .creator-degraded { display: flex; gap: 8px; align-items: center; padding: 8px; border: 1px solid var(--el-color-warning, #e6a23c); border-radius: 4px; }

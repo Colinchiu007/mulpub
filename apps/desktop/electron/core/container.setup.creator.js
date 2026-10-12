@@ -67,7 +67,7 @@ function registerCreatorServices(container) {
     const pythonBridge = (() => {
       try { return c.get('pythonBridge'); } catch (_) { return null; }
     })();
-    return createCreatorCollector({
+    const youtubeCollector = createCreatorCollector({
       credentialProvider: () => {
         if (!provider || typeof provider.getApiKey !== 'function') return null;
         const apiKey = provider.getApiKey();
@@ -75,6 +75,68 @@ function registerCreatorServices(container) {
       },
       log: c.get('logger'),
     });
+
+    // ── 多平台分发（PRD-CREATOR-MULTI-PLATFORM-2026-10-12 §3）────────
+    // 按 canonical ID 形态分发：UC… → youtube；MS4wLjABAAAA… → douyin；
+    // 24hex → xiaohongshu。多平台腿任一依赖缺失都**不**影响 YouTube 主腿
+    // （降级只发生在对应平台的调用上）。
+    const { createPlatformDispatchCollector } = require('../services/creator-platform-dispatch');
+    const { createMultiPlatformCollector } = require('../services/creator-adapters-web');
+    const { createCreatorSessionProvider } = require('../services/creator-session-cookie');
+    let accountManager = null;
+    try { accountManager = c.get('accountManager'); } catch (_) { accountManager = null; }
+
+    const sessionProvider = createCreatorSessionProvider({
+      listAccounts: async () => {
+        if (!accountManager || typeof accountManager.listAccounts !== 'function') return [];
+        try { return await accountManager.listAccounts() || [] } catch (_) { return [] }
+      },
+      getAccountPartitionCookies: async (platform, accountId) => {
+        const restore = require('../publishers/account-session-restore');
+        if (typeof restore.getAccountPartitionCookies !== 'function') return [];
+        try { return await restore.getAccountPartitionCookies(platform, accountId) || [] } catch (_) { return [] }
+      },
+      log: c.get('logger'),
+    });
+
+    // 签名桥：python-backend /api/creator/sign/*（xhshow + abogus，纯算法）
+    const signBridge = async (platform, payload) => {
+      if (!pythonBridge || typeof pythonBridge.requestBackend !== 'function') {
+        const err = new Error('Python 后端未就绪，无法签名');
+        err.code = 'creator:signature_failed';
+        throw err;
+      }
+      if (platform === 'douyin') {
+        const r = await pythonBridge.requestBackend('POST', '/api/creator/sign/douyin', {
+          query_str: payload.query_str, user_agent: payload.user_agent || '',
+        });
+        return { a_bogus: (r && (r.a_bogus || (r.data && r.data.a_bogus))) || '' };
+      }
+      // xhs 签名只需要 a1 摘要要素（QM-6 后端评审 I1）：**不**把完整 Cookie 串发往签名服务——
+      // 无 a1 时宁可签名失败（可见错误），不做「整串兜底」扩大明文流动面。
+      const r = await pythonBridge.requestBackend('POST', '/api/creator/sign/xhs', {
+        uri: payload.uri, a1: payload.a1 || '', method: 'GET',
+      });
+      if (r && (r.a1_missing || (r.data && r.data.a1_missing))) {
+        const err = new Error('小红书会话缺少 a1 Cookie，无法签名');
+        err.code = 'creator:signature_failed';
+        throw err;
+      }
+      const d = (r && r.data) || r || {};
+      return { x_s: d.x_s || d['x-s'] || '', x_t: d.x_t || d['x-t'] || '', x_s_common: d.x_s_common || d['x-s-common'] || '', x_b3_traceid: d.x_b3_traceid || d['x-b3-traceid'] || '' };
+    };
+
+    const multiPlatform = createMultiPlatformCollector({
+      sessionProvider: (platform) => sessionProvider.getSession(platform),
+      signBridge,
+      httpGet: require('../services/creator-http').httpGetWithHeaders,
+      log: c.get('logger'),
+    });
+
+    const dispatch = createPlatformDispatchCollector({ youtube: youtubeCollector, multiPlatform });
+    // 平台状态查询挂到分发器上（creator:dependency-status 消费）
+    dispatch.sessionProvider = sessionProvider;
+    return dispatch;
   });
 
   container.register('creatorRuntime', function(c) {

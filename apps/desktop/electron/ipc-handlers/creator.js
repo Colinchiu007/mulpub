@@ -169,7 +169,7 @@ function registerHandlers (ipcMain, deps) {
     log && log.error && log.error('Creator', 'creator services not provided — handlers in degraded mode')
     for (const ch of [
       'creator:list', 'creator:pending-total', 'creator:follow', 'creator:unfollow', 'creator:toggle',
-      'creator:check-now', 'creator:discoveries', 'creator:collect',
+      'creator:check-now', 'creator:discoveries', 'creator:collect', 'creator:platforms',
       'creator:collect-one', 'creator:skip-one', 'creator:send-to-writer',
     ]) degraded(ch)
     return
@@ -200,27 +200,45 @@ function registerHandlers (ipcMain, deps) {
     return { code: 0, total }
   })))
 
-  // ── 关注博主 ────────────────────────────────────────────────
+  // ── 关注博主（多平台，PRD-CREATOR-MULTI-PLATFORM-2026-10-12 §5.1）──
+  // 平台由渲染层显式传 platform（youtube/douyin/xiaohongshu），缺省 youtube 兼容旧调用。
+  // 解析走 creator-platforms 的统一入口（fail-closed）：URL 与所选平台不一致 → wrong_platform；
+  // canonical ID 落库（youtube=UC…、douyin=sec_uid、xhs=用户 ID）——绝不对用户输入做平台猜测。
   ipcMain.handle('creator:follow', withSenderCheck(wrap(async (payload) => {
     const input = requireString(payload, 'input')
+    const platform = (typeof payload.platform === 'string' && payload.platform.trim()) ? payload.platform.trim() : 'youtube'
 
-    // 配额校验 MUST 在写库之前：超限时拒绝且不产生任何行
-    if (creatorQuota) {
+    // 多平台解析（creator:platforms 提供清单；这里只做解析与 canonical 化）
+    const { parseCreatorInput } = require('../services/creator-platforms')
+    const parsed = parseCreatorInput(input, platform)
+    // 配额校验 MUST 在写库之前：超限时拒绝且不产生任何行（仅 YouTube 有 Data API 配额池；
+    // 抖音/小红书按平台最小间隔与失败分级管控，不走 units 配额）
+    if (platform === 'youtube' && creatorQuota) {
       const pool = typeof creatorQuota.probePool === 'number' ? creatorQuota.probePool : 1500
       const existing = await creatorStore.listFollowsForQuota()
       const interval = payload.checkIntervalMin || 60
       creatorMonitor.assertQuotaFits(existing, pool, { check_interval_min: interval })
     }
 
-    // 先解析成 canonical ID 再落库——绝不把用户输入当 external_id 存
-    const channelId = await creatorCollector.resolveChannelId(input)
+    let canonicalId = parsed.creatorId || parsed.raw
+    let platformUrl = ''
+    if (platform === 'youtube') {
+      // 先解析成 canonical ID 再落库——绝不把用户输入当 external_id 存
+      canonicalId = await creatorCollector.resolveChannelId(input)
+      platformUrl = `https://www.youtube.com/channel/${canonicalId}`
+    } else if (platform === 'douyin') {
+      platformUrl = `https://www.douyin.com/user/${canonicalId}`
+    } else if (platform === 'xiaohongshu') {
+      platformUrl = `https://www.xiaohongshu.com/user/profile/${canonicalId}`
+    }
+
     const creator = await creatorStore.upsertCreator({
-      platform: 'youtube',
-      externalId: channelId,
+      platform,
+      externalId: canonicalId,
       displayName: payload.displayName || '',
       handle: payload.handle || '',
       avatarUrl: '',
-      platformUrl: `https://www.youtube.com/channel/${channelId}`,
+      platformUrl,
     })
     const follow = await creatorStore.upsertFollow({
       creatorId: creator.id,
@@ -228,6 +246,27 @@ function registerHandlers (ipcMain, deps) {
       perCreatorLimit: payload.perCreatorLimit ?? null,
     })
     return { code: 0, creator, follow }
+  })))
+
+  // 平台清单 + 会话状态（添加弹窗的平台选择与「未登录」提示的数据源）
+  ipcMain.handle('creator:platforms', withSenderCheck(wrap(async () => {
+    const { PLATFORM_META } = require('../services/creator-platforms')
+    let status = {}
+    try {
+      status = (creatorCollector && typeof creatorCollector.platformStatus === 'function')
+        ? (await creatorCollector.platformStatus() || {})
+        : {}
+    } catch (_) { status = {} }
+    return {
+      code: 0,
+      platforms: Object.entries(PLATFORM_META).map(([id, meta]) => ({
+        id,
+        label: meta.label,
+        localeKey: meta.localeKey,
+        supported: meta.supported,
+        hasSession: !!(status[id] && status[id].hasSession),
+      })),
+    }
   })))
 
   // ── 取消关注 / 暂停恢复 ─────────────────────────────────────

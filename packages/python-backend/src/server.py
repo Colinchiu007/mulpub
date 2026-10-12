@@ -137,6 +137,11 @@ _require_account_manage = _identity_dependency(["account:manage"])
 
 app.include_router(aggregation_router, dependencies=[Depends(_require_publish_read)])
 
+# 博主监控多平台签名（PRD-CREATOR-MULTI-PLATFORM-2026-10-12 §3/§6）：
+# 只服务本机 Electron 主进程（pythonBridge 调用方），走 publish:read 同级鉴权。
+from multi_publish.creator_sign.router import router as creator_sign_router  # noqa: E402
+app.include_router(creator_sign_router, dependencies=[Depends(_require_publish_read)])
+
 app.add_middleware(
     CORSMiddleware,
     # 安全收紧：仅允许本地 Electron 开发服务器跨域（生产走 IPC 不走 HTTP）

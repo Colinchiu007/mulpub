@@ -79,12 +79,14 @@ const CHANNELS = [
   // 漏一个的后果是渲染层收到 Electron 原生的 "No handler registered"。
   'creator:credential-status', 'creator:credential-set', 'creator:credential-clear',
   'creator:dependency-status',
+  // 多平台（PRD-CREATOR-MULTI-PLATFORM）：平台清单 + 会话状态
+  'creator:platforms',
 ]
 
 /** 依赖缺失时走降级注册的那一批（凭证与依赖状态**不**降级，见 registerHandlers 注释） */
 const DEGRADED_CHANNELS = [
   'creator:list', 'creator:pending-total', 'creator:follow', 'creator:unfollow', 'creator:toggle',
-  'creator:check-now', 'creator:discoveries', 'creator:collect',
+  'creator:check-now', 'creator:discoveries', 'creator:collect', 'creator:platforms',
   'creator:collect-one', 'creator:skip-one', 'creator:send-to-writer',
 ]
 
@@ -205,7 +207,93 @@ describe('creator IPC · 依赖状态（发现腿 vs 可选字幕腿）', () => 
     expect(r.discovery.ready).toBe(true)
     expect(r.transcript).toEqual({ ready: true, optional: true, reason: '', installHint: '' })
   })
+})
 
+describe('creator IPC · 多平台 follow（PRD-CREATOR-MULTI-PLATFORM §5.1）', () => {
+  const DOUYIN_SEC_UID = 'MS4wLjABAAAA' + 'A'.repeat(28)
+  const XHS_ID = 'a'.repeat(24)
+
+  it('抖音：sec_uid 裸串直接 canonical 落库，platformUrl 指向主页', async () => {
+    const ipc = createMockIpcMain()
+    registerHandlers(ipc, stubDeps())
+    const r = await ipc._get('creator:follow')({}, { input: DOUYIN_SEC_UID, platform: 'douyin' })
+    expect(r.code).toBe(0)
+    expect(r.creator.platform).toBe('douyin')
+    expect(r.creator.externalId).toBe(DOUYIN_SEC_UID)
+    expect(r.creator.platformUrl).toContain('douyin.com/user/')
+  })
+
+  it('小红书：主页 URL 解析为 24hex 用户 ID', async () => {
+    const ipc = createMockIpcMain()
+    registerHandlers(ipc, stubDeps())
+    const r = await ipc._get('creator:follow')({}, { input: `https://www.xiaohongshu.com/user/profile/${XHS_ID}`, platform: 'xiaohongshu' })
+    expect(r.code).toBe(0)
+    expect(r.creator.platform).toBe('xiaohongshu')
+    expect(r.creator.externalId).toBe(XHS_ID)
+  })
+
+  it('缺省 platform = youtube（旧调用兼容），仍走 resolveChannelId', async () => {
+    const deps = stubDeps()
+    const ipc = createMockIpcMain()
+    registerHandlers(ipc, deps)
+    const r = await ipc._get('creator:follow')({}, { input: '@GoogleDevelopers' })
+    expect(r.code).toBe(0)
+    expect(r.creator.platform).toBe('youtube')
+    expect(deps.calls.resolve).toEqual(['@GoogleDevelopers'])
+  })
+
+  it.each([
+    ['URL 与所选平台不一致', `https://www.douyin.com/user/${DOUYIN_SEC_UID}`, 'xiaohongshu', 'creator:wrong_platform'],
+    ['不支持的显式平台', 'https://weibo.com/u/1', 'weibo', 'creator:unsupported_platform'],
+    ['作品链接而非主页', 'https://www.douyin.com/video/7123456789012345678', 'douyin', 'creator:not_a_channel'],
+  ])('%s → %s（零副作用：不落库）', async (_l, input, platform, code) => {
+    const store = { upsertCalls: 0 }
+    const ipc = createMockIpcMain()
+    registerHandlers(ipc, stubDeps({
+      creatorStore: {
+        listFollowsForQuota: async () => [],
+        upsertCreator: async (a) => { store.upsertCalls += 1; return { id: 'c1', ...a } },
+        upsertFollow: async (a) => { store.upsertCalls += 10; return { id: 'f1', ...a } },
+        listCreators: async () => [],
+        countPending: () => 0,
+      },
+    }))
+    const r = await ipc._get('creator:follow')({}, { input, platform })
+    expect(r.reason).toBe(code)
+    expect(store.upsertCalls).toBe(0)
+  })
+
+  it('creator:platforms 返回三平台清单与登录态', async () => {
+    const ipc = createMockIpcMain()
+    registerHandlers(ipc, stubDeps({
+      creatorCollector: {
+        resolveChannelId: async () => 'UC_x',
+        platformStatus: async () => ({ youtube: { ready: true }, douyin: { supported: true, hasSession: true }, xiaohongshu: { supported: true, hasSession: false } }),
+      },
+    }))
+    const r = await ipc._get('creator:platforms')({}, undefined)
+    expect(r.code).toBe(0)
+    const byId = Object.fromEntries(r.platforms.map((p) => [p.id, p]))
+    expect(byId.youtube.supported).toBe(true)
+    expect(byId.douyin.hasSession).toBe(true)
+    expect(byId.xiaohongshu.hasSession).toBe(false)
+  })
+
+  it('creator:platforms 在 platformStatus 异常时仍返回静态清单（supported 而已）', async () => {
+    const ipc = createMockIpcMain()
+    registerHandlers(ipc, stubDeps({
+      creatorCollector: {
+        resolveChannelId: async () => 'UC_x',
+        platformStatus: async () => { throw new Error('boom') },
+      },
+    }))
+    const r = await ipc._get('creator:platforms')({}, undefined)
+    expect(r.code).toBe(0)
+    expect(r.platforms.length).toBeGreaterThanOrEqual(3)
+  })
+})
+
+describe('creator IPC · 依赖状态（桥不在跑 / 接线缺失）', () => {
   it('桥不在跑：发现腿仍 ready（字幕缺失**不**阻塞采集），字幕腿给出安装命令', async () => {
     const ipc = createMockIpcMain()
     registerHandlers(ipc, stubDeps({ pythonBridge: { isRunning: () => false } }))
