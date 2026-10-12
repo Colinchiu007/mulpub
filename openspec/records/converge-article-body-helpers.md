@@ -2,10 +2,6 @@
 record: converge-article-body-helpers
 task: 正文形态 helpers 收敛到引擎单一实现（desktop 两份宽判据实现委托 content-formatter，修复代码片段误伤）
 date: 2026-10-12
-# ↓ 下面三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在，回填由后续回填 PR 在同一次提交完成
-sync_backfill_owner: 下一个会话（agent 自动回填）
 ---
 
 ## 本次执行记录：正文形态 helpers 收敛到引擎单一实现（converge-article-body-helpers，2026-10-12）【混合 PR】
@@ -21,7 +17,7 @@ sync_backfill_owner: 下一个会话（agent 自动回填）
 | CCG verify-security | PASS（存量误报，文档化豁免） | 门禁对触及的 `wechat-mp-article.js:120` 报 1 条 XSS 高危（`tmp.innerHTML`，JSAPI 注入通道的净化临时容器，语句内已移除 script/iframe/object/embed 与 on* 属性）。取证：对 `git show origin/main:<file>`（本 PR 未触碰该行）实跑同一扫描器得**同位置同一条**告警 ⇒ 存量、非本次引入。按先例（`.quality-gates.md` L669/L10581 同类登记）`SKIP_CCG_GATE=1` 文档化豁免（未用 `--no-verify`） |
 | 静态门禁 | ✅ | ESLint `pnpm run lint` 0 error；check-max-lines 全绿（无新增超大文件）；locale-sync `--keys` 1927 key 全存在（未动 locales）；text-encoding 无新增损坏；brand residue PASS |
 | QM-6 评审 | N/A | 纯收敛重构，行为差量=两个白名单判据修复（已有正/反双向用例 + 打包产物级验证），且沿用 #3389 同一判据层的评审结论；如实登记，不冒充评审通过 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#<PR>)$' --format=%H|%cI` 回填；`git ls-remote --heads origin converge-article-body-helpers` 返回 0 行证分支已删；同一次提交删除 ledger 登记项与 `sync_*` 三字段 |
+| 远程同步 | PASS | 已合并：PR #3416，merge `a0ba23dc5387e6d5b18041fcd7e173e55384a705`（2026-10-12T08:09:12Z，squash）。取证：`git log origin/main --grep='(#3416)$' --format=%H|%cI` 唯一命中；`git ls-remote --heads origin converge-article-body-helpers` 返回 **0 行**；上方 `sync_*` 三字段与 ledger 登记项已在本回填提交同次删除 |
 
 ### 遗留（不假装已闭合）
 

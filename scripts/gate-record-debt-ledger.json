@@ -43,10 +43,5 @@
     "reason": "本回填 PR 合并后由后续 docs PR 回填 PASS + merge SHA 并删除本条登记",
     "status": "PENDING",
     "line": 5
-  },
-  "本次执行记录：正文形态 helpers 收敛到引擎单一实现（converge-article-body-helpers，2026-10-12）【混合 PR】": {
-    "reason": "本混合 PR（converge-article-body-helpers）合并后由回填提交把 .quality-gates.md 远程同步行 PENDING→PASS+merge SHA、删除 openspec/records/converge-article-body-helpers.md 的三个 sync_* 字段，并在同一次提交删除本条登记项",
-    "status": "PENDING",
-    "line": 1
   }
 }
