@@ -1,9 +1,41 @@
+# [未发布] feat(publish): 话题标签统一 + #添加话题 + 常用话题标签管理（topic-tag-unify）
+
+### 用户感知
+
+- 发布页（单篇图文 / 单篇视频 / 批量卡片）的「标签」「话题」两个输入框**合并为一个「话题标签」入口**——它们在发布引擎里本就是同一个字段（`mergeUniqueStrings` 四源合并），UI 保留两个框只会让人猜测「哪个给算法、哪个给平台」。
+- 新增 **#添加话题** 按钮（对齐参考产品蚁小二）：点击只在描述末尾追加一个 `#` 并聚焦描述框（光标置尾），话题名由用户自己输入；末尾已是孤立 `#` 时不重复追加（防 `##`）。
+- 新增 **常用话题标签** 弹窗（话题标签管理）：分组维护常用话题、搜索（按分组名或话题关键词）、每组「全选本组」、勾选计数、确定应用——应用经既有追加管道写入话题标签输入并同步到描述（`#话题1 #话题2`，词边界去重），单篇/批量各自命中正确目标。数据存 localStorage（`mp_topic_tag_presets` v1），跨会话保留；损坏数据容错过滤不抛错。
+
+### 改动
+
+- `src/features/publish/topic-inline.js`：+`appendHashToContent`（追加 `#` 的纯函数，与追加管道同文件单一实现）。
+- `src/features/publish/topic-tag-presets.js`（新）：预设存储单一真源——结构 v1、组名/话题归一（剥 `#` 空白、去重、30 字上限）、读取容错（坏组逐个丢弃、version 非法视为空）、写失败静默 warn。
+- `src/components/TopicTagManagerDialog.vue`（新）：UiModal 弹窗，浮层互斥 owner `topic-tag-manager-dialog`（watch immediate 双出口 + onBeforeUnmount 兜底 + generation 守卫防 suspend IPC 在途卸载泄漏计数）。
+- `src/views/Publish.vue`：三个分支的话题标签格合并；`#添加话题`/`常用话题标签` 按钮接线（批量目标=该篇）；`applyTopicTagPreset` 复用 `syncTopicsToContent`/`setBatchTagsText` 管道。
+- `src/features/publish/components/BatchArticleCard.vue`：同一合并 + 两按钮 emit；`update:topics-text` 死合同移除。
+- `src/composables/usePublishDrafts.js`：草稿加载时历史 `topics` 并入 `tags`（复用 `normalizePublishStringList` 归一，`topics` 清空防双份；引擎侧 `mergeUniqueStrings` 兜底不变）。
+- locales zh/en 成对新增 `publishPage.topicTag.*` 18 键；`tags` 文案改为「话题标签 / Tags & topics」。
+
+### 测试
+
+- 新增：`topic-tag-presets.test.js`（11）、`TopicTagManagerDialog.test.js`（10）、`topic-inline.test.js` +5（appendHashToContent）、`Publish.test.js` +6（#追加 / 弹窗应用单篇+批量 / 去重 / 单入口模板断言）、`overlay-view-suspension.test.js` +1（owner 登记锁）。
+- 回归：`src/composables src/features` 全量 91 文件 1514 例通过；`Publish.test.js` 117 通过。
+
+### 兼容性
+
+- payload 键集不变（`tags`/`topics` 照旧条件挂载），P2-7 批量键集 parity 锁不受影响。
+- 历史草稿 / 历史视频跳转 / 智能标签建议 / 热门选题交接等入口经追加管道自然收口到单一入口。
+
+---
+
 # [未发布] refactor(publish): 正文形态 helpers 收敛到引擎单一实现（converge-article-body-helpers）
 
 - `apps/desktop/electron/services` 两份正文形态 helpers 委托 `api-publish-engine/src/content-formatter.js`（#3389 建立的单一实现）：`stripHtmlToPlainText` → `htmlToPlainText`、`wechat-mp-article` 的 `hasHtmlTags`/`toParagraphHtml` → `hasHtmlTags`/`textToParagraphHtml`。导出名/签名不变，调用点零改动。
 - 顺带修复真实缺陷：宽判据（`<` 后跟字母）把技术正文里的 `#include <stdio.h>`、`vector<int>` 当标签 —— `stripHtmlToPlainText` 会整段吃掉（影响快手等无标题平台的描述）、`hasHtmlTags` 会误判成 HTML 使代码尖括号被编辑器吞（影响公众号注入）。白名单判据双向用例锁定。
 - `packages/rpa-engine` 零依赖约束不动：`toutiao-direct-bridge.js` 的内联 `<p>` 拼接登记为已知第三份实现（遗留）。
 - QM-1 打包 rc=0；从打包产物 require 验证（`ELECTRON_RUN_AS_NODE`）：委托语义与白名单判据在 asar 内生效。启动 8 秒验证因用户实例持单实例锁不可判（先例同因），以 require 链作替代证据，如实登记。
+
+---
 
 # [未发布] fix(publish): 图文正文承载形态适配——百家号「整篇一整段」根因修复（fix-article-body-format）
 

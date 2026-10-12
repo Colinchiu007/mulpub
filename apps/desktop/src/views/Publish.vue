@@ -99,7 +99,8 @@
           @update:mentions-text="value => { a.mentionsText = value }"
           @update:publish-time="value => { a.publishTime = value }"
           @update:tags-text="value => setBatchTagsText(a, value)"
-          @update:topics-text="value => setBatchTopicsText(a, value)"
+          @add-topic-hash="appendBatchHash(a)"
+          @open-topic-tag-manager="openTopicTagManager('batch', idx)"
           @update:cover="descriptor => setBatchArticleCover(a, descriptor)"
           @update:cover-url="value => setBatchArticleCoverUrl(a, value)"
           @update:visibility="value => setBatchArticleVisibility(a, value)"
@@ -272,13 +273,12 @@
                       <span v-if="fieldSupportText('tags')" class="field-support-badge" data-testid="field-support-tags">{{ fieldSupportText('tags') }}</span>
                     </label>
                     <UiInput v-model="tagsText" :placeholder="t('publishPage.tagsPlaceholder')" />
-                  </div>
-                  <div>
-                    <label class="cohere-form-label">
-                      {{ t('publishPage.topics') }}
-                      <span v-if="fieldSupportText('topics')" class="field-support-badge">{{ fieldSupportText('topics') }}</span>
-                    </label>
-                    <UiInput v-model="topicsText" :placeholder="t('publishPage.topicsPlaceholder')" />
+                    <!-- 话题标签统一（topic-tag-unify）：#添加话题 只在描述末尾追加 '#'，
+                         常用话题标签打开管理弹窗（应用目标=单篇）。 -->
+                    <div class="topic-tag-actions">
+                      <UiButton variant="ghost" size="sm" data-testid="add-topic-hash" @click="appendHashToDescription">{{ t('publishPage.topicTag.addHash') }}</UiButton>
+                      <UiButton variant="ghost" size="sm" data-testid="open-topic-tag-manager" @click="openTopicTagManager('single')">{{ t('publishPage.topicTag.manage') }}</UiButton>
+                    </div>
                   </div>
                   <div>
                     <label class="cohere-form-label">
@@ -448,13 +448,12 @@
                     <span v-if="fieldSupportText('tags')" class="field-support-badge" data-testid="field-support-tags">{{ fieldSupportText('tags') }}</span>
                   </label>
                   <UiInput id="publish-tags" v-model="tagsText" :placeholder="t('publishPage.tagsPlaceholder')" />
-                </div>
-                <div>
-                  <label class="cohere-form-label" for="publish-topics">
-                    {{ t('publishPage.topics') }}
-                    <span v-if="fieldSupportText('topics')" class="field-support-badge">{{ fieldSupportText('topics') }}</span>
-                  </label>
-                  <UiInput id="publish-topics" v-model="topicsText" :placeholder="t('publishPage.topicsPlaceholder')" />
+                  <!-- 话题标签统一（topic-tag-unify）：#添加话题 只在描述末尾追加 '#'，
+                       常用话题标签打开管理弹窗（应用目标=单篇）。 -->
+                  <div class="topic-tag-actions">
+                    <UiButton variant="ghost" size="sm" data-testid="add-topic-hash" @click="appendHashToDescription">{{ t('publishPage.topicTag.addHash') }}</UiButton>
+                    <UiButton variant="ghost" size="sm" data-testid="open-topic-tag-manager" @click="openTopicTagManager('single')">{{ t('publishPage.topicTag.manage') }}</UiButton>
+                  </div>
                 </div>
                 <div>
                   <label class="cohere-form-label" for="publish-mentions">
@@ -641,6 +640,13 @@
     @success="onCoverCropSuccess"
     @error="onCoverCropError"
   />
+  <!-- 常用话题标签管理（topic-tag-unify）：单篇与批量卡片共用同一弹窗实例，
+       应用目标由 openTopicTagManager 记录的 target 区分。挂起/释放都在组件内部。 -->
+  <TopicTagManagerDialog
+    :visible="showTopicTagManager"
+    @close="showTopicTagManager = false"
+    @apply="applyTopicTagPreset"
+  />
   <!-- 封面放大预览（PRD-PUBLISH-COVER-PREVIEW §5.3）：与缩略图、裁剪弹窗共用同一封面真源。
        挂起/释放、文件名与原始尺寸都在组件内部，本视图只持有「开合」这一个状态。 -->
   <CoverPreviewDialog
@@ -697,7 +703,7 @@
 <script setup>
 import UiButton from "../components/UiButton.vue";
 import UiInput from "../components/UiInput.vue";
-import { ref, reactive, computed, onMounted, onActivated, onBeforeUnmount, watch } from 'vue'
+import { ref, reactive, computed, nextTick, onMounted, onActivated, onBeforeUnmount, watch } from 'vue'
 import { safeHttpUrl } from '@multi-publish/shared-utils/src/safe-http-url'
 import { getApi } from '@/api/electron-bridge'
 import { useNotify } from '@/composables/useNotify'
@@ -722,6 +728,7 @@ import AiWriterPanel from '@/components/AiWriterPanel.vue'
 import CoverCropDialog from '@/components/CoverCropDialog.vue'
 import CoverThumbnail from '@/components/CoverThumbnail.vue'
 import CoverPreviewDialog from '@/components/CoverPreviewDialog.vue'
+import TopicTagManagerDialog from '@/components/TopicTagManagerDialog.vue'
 import { useCoverPreview } from '@/composables/useCoverPreview'
 import { releaseEmbeddedViewsForOverlay, suspendEmbeddedViewsForOverlay } from '@/composables/useEmbeddedViewSuspension'
 import { usePlatformSelection } from '@/composables/usePlatformSelection'
@@ -740,7 +747,7 @@ import {
 } from '@/features/publish/publish-contract'
 import { normalizeUploadFile, resolveUploadFilePath } from '@/features/publish/publish-upload-file'
 import { usePublishFieldSurface } from '@/features/publish/usePublishFieldSurface'
-import { appendTopicsToContent, removeTopicFromContent } from '@/features/publish/topic-inline'
+import { appendHashToContent, appendTopicsToContent, removeTopicFromContent } from '@/features/publish/topic-inline'
 import PlatformOverridePanel from '@/features/publish/components/PlatformOverridePanel.vue'
 import PublishVisibilitySelect from '@/features/publish/components/PublishVisibilitySelect.vue'
 import PublishTargetSelector from '@/features/publish/components/PublishTargetSelector.vue'
@@ -855,7 +862,7 @@ function syncTopicsToContent (prev, next) {
   for (const name of removed) content = removeTopicFromContent(content, name)
   article.content = appendTopicsToContent(content, added)
 }
-// 批量模式同口径（publish-topic-inline-description）：每篇文章的标签/话题输入
+// 批量模式同口径（publish-topic-inline-description）：每篇的「话题标签」输入
 // 同样经追加管道同步各自 content（手写双向绑定，v-model 无法挂同步钩子）。
 function syncBatchTopicsToContent (batchArticle, prevText, nextText) {
   const prev = normalizePublishStringList(prevText)
@@ -870,11 +877,6 @@ function syncBatchTopicsToContent (batchArticle, prevText, nextText) {
 function setBatchTagsText (batchArticle, value) {
   const prev = batchArticle.tagsText
   batchArticle.tagsText = value
-  syncBatchTopicsToContent(batchArticle, prev, value)
-}
-function setBatchTopicsText (batchArticle, value) {
-  const prev = batchArticle.topicsText
-  batchArticle.topicsText = value
   syncBatchTopicsToContent(batchArticle, prev, value)
 }
 const tagsText = computed({
@@ -1164,6 +1166,59 @@ function applySuggestedTag (tag) {
   const prev = normalizePublishStringList(article.tags)
   article.tags = normalizePublishStringList([...article.tags, tag.trim()])
   syncTopicsToContent(prev, normalizePublishStringList(article.tags))
+}
+
+// ── 话题标签统一（topic-tag-unify，PRD §4.1-4.3）──────────────
+// UI 只剩「话题标签」一个入口（tagsText）；#添加话题 只在描述末尾追加 '#'
+// （话题名由用户输入，发布时 extractInlineTopics 收口）；常用话题标签弹窗
+// 的应用目标 = 打开时记录的 target（single=article，batch=第 idx 篇）。
+const showTopicTagManager = ref(false)
+const topicTagTarget = ref({ mode: 'single', idx: -1 })
+
+function openTopicTagManager (mode, idx = -1) {
+  topicTagTarget.value = { mode, idx }
+  showTopicTagManager.value = true
+}
+
+// 描述框聚焦 + 光标置尾：#添加话题 的动作反馈就是光标处出现 '#'（蚁小二同款）。
+function focusContentEnd () {
+  nextTick(() => {
+    const el = document.querySelector('[data-testid="publish-editor"] textarea, [data-testid="publish-desc"] textarea, [data-testid="publish-desc"]')
+    const target = el && (el.matches('textarea') ? el : el.querySelector?.('textarea')) || el
+    if (!target || typeof target.focus !== 'function') return
+    target.focus()
+    const end = (target.value || '').length
+    if (typeof target.setSelectionRange === 'function') target.setSelectionRange(end, end)
+  })
+}
+
+function appendHashToDescription () {
+  article.content = appendHashToContent(article.content)
+  focusContentEnd()
+}
+
+function appendBatchHash (batchArticle) {
+  if (!batchArticle) return
+  batchArticle.content = appendHashToContent(batchArticle.content)
+}
+
+function applyTopicTagPreset (names) {
+  const list = Array.isArray(names) ? names.filter(name => typeof name === 'string' && name.trim()) : []
+  showTopicTagManager.value = false
+  if (list.length === 0) return
+  if (topicTagTarget.value.mode === 'batch') {
+    const item = articles.value[topicTagTarget.value.idx]
+    if (item) {
+      const merged = normalizePublishStringList([...normalizePublishStringList(item.tagsText), ...list])
+      setBatchTagsText(item, merged.join(','))
+      notifySuccess('publishPage.topicTag.applied', { params: { count: list.length } })
+    }
+    return
+  }
+  const prev = normalizePublishStringList(article.tags)
+  article.tags = normalizePublishStringList([...prev, ...list])
+  syncTopicsToContent(prev, article.tags)
+  notifySuccess('publishPage.topicTag.applied', { params: { count: list.length } })
 }
 
 // ── composables ──────────────────────────
@@ -1464,7 +1519,11 @@ defineExpose({
   mentionsText,
   applySuggestedTag,
   setBatchTagsText,
-  setBatchTopicsText,
+  openTopicTagManager,
+  applyTopicTagPreset,
+  appendHashToDescription,
+  appendBatchHash,
+  showTopicTagManager,
   handleImageFileChange,
   handleImageFileRemove,
   handleVideoFileChange,
@@ -1555,6 +1614,8 @@ defineExpose({
 .stack-gap { margin-bottom: var(--space-md); }
 .stack-gap-top { margin-top: 12px; }
 .stack-center { text-align: center; }
+/* 话题标签统一（topic-tag-unify）：#添加话题 / 常用话题标签按钮行，贴邻话题标签输入框 */
+.topic-tag-actions { display: flex; gap: var(--space-sm); margin-top: var(--spacing-2); flex-wrap: wrap; }
 .row-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm); }
 .row-actions-compact { display: flex; gap: 4px; }
 .progress-title { font-weight: 600; font-size: var(--font-size-sm); margin-bottom: var(--space-sm); }

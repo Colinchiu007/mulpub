@@ -1624,26 +1624,26 @@ describe("PublishView — 话题内联描述接线（publish-topic-inline-descri
     mockAccountLoad.mockClear();
   });
 
-  it("话题框输入后描述尾部追加 #话题（所见即所得）", async () => {
+  it("话题标签输入后描述尾部追加 #话题（所见即所得，单入口 topic-tag-unify）", async () => {
     const w = await createWrapper();
     w.vm.article.title = '探店标题';
     w.vm.article.content = '今天探店';
     await nextTick();
 
-    w.vm.topicsText = '美食探店, vlog';
+    w.vm.tagsText = '美食探店, vlog';
     await nextTick();
 
-    expect(w.vm.article.topics).toEqual(['美食探店', 'vlog']);
+    expect(w.vm.article.tags).toEqual(['美食探店', 'vlog']);
     expect(w.vm.article.content).toBe('今天探店 #美食探店 #vlog');
   });
 
-  it("话题框删除话题时描述同步移除对应片段", async () => {
+  it("删除话题时描述同步移除对应片段（单入口）", async () => {
     const w = await createWrapper();
     w.vm.article.content = '今天探店 #美食探店 #vlog';
-    w.vm.article.topics = ['美食探店', 'vlog'];
+    w.vm.article.tags = ['美食探店', 'vlog'];
     await nextTick();
 
-    w.vm.topicsText = 'vlog';
+    w.vm.tagsText = 'vlog';
     await nextTick();
 
     expect(w.vm.article.content).toBe('今天探店 #vlog');
@@ -1677,7 +1677,7 @@ describe("PublishView — 话题内联描述接线（publish-topic-inline-descri
     w.vm.article.content = '正文 #美食探店';
     await nextTick();
 
-    w.vm.topicsText = '美食探店';
+    w.vm.tagsText = '美食探店';
     await nextTick();
 
     expect(w.vm.article.content).toBe('正文 #美食探店');
@@ -1694,13 +1694,92 @@ describe("PublishView — 话题内联描述接线（publish-topic-inline-descri
     await nextTick();
 
     w.vm.setBatchTagsText(w.vm.articles[0], '美食');
-    w.vm.setBatchTopicsText(w.vm.articles[1], 'vlog');
     await nextTick();
 
     expect(w.vm.articles[0].content).toBe('第一篇正文 #美食');
     expect(w.vm.articles[0].tagsText).toBe('美食');
-    expect(w.vm.articles[1].content).toBe('第二篇正文 #vlog');
-    expect(w.vm.articles[1].topicsText).toBe('vlog');
+  });
+
+  // ── 话题标签统一（topic-tag-unify，PRD §4.2-4.3）──────────────
+
+  it("#添加话题：只在描述末尾追加 #（话题名由用户输入）", async () => {
+    const w = await createWrapper();
+    w.vm.article.content = '今天探店';
+    await nextTick();
+
+    w.vm.appendHashToDescription();
+    await nextTick();
+
+    expect(w.vm.article.content).toBe('今天探店 #');
+  });
+
+  it("#添加话题：末尾已是孤立 # 时不重复追加（防 ##）", async () => {
+    const w = await createWrapper();
+    w.vm.article.content = '今天探店 #';
+    await nextTick();
+
+    w.vm.appendHashToDescription();
+    await nextTick();
+
+    expect(w.vm.article.content).toBe('今天探店 #');
+  });
+
+  it("常用话题标签：打开弹窗记录单篇目标，应用写入 tags 并同步描述", async () => {
+    const w = await createWrapper();
+    w.vm.article.content = '正文内容';
+    await nextTick();
+
+    w.vm.openTopicTagManager('single');
+    await nextTick();
+    expect(w.vm.showTopicTagManager).toBe(true);
+
+    w.vm.applyTopicTagPreset(['AI', '科技']);
+    await nextTick();
+
+    expect(w.vm.article.tags).toEqual(['AI', '科技']);
+    expect(w.vm.article.content).toBe('正文内容 #AI #科技');
+    expect(w.vm.showTopicTagManager).toBe(false);
+  });
+
+  it("常用话题标签：批量目标只写该篇", async () => {
+    const w = await createWrapper();
+    w.vm.batchMode = true;
+    await nextTick();
+    w.vm.addArticle();
+    w.vm.addArticle();
+    w.vm.articles[0].content = '第一篇';
+    w.vm.articles[1].content = '第二篇';
+    await nextTick();
+
+    w.vm.openTopicTagManager('batch', 1);
+    w.vm.applyTopicTagPreset(['vlog']);
+    await nextTick();
+
+    expect(w.vm.articles[1].content).toBe('第二篇 #vlog');
+    expect(w.vm.articles[1].tagsText).toBe('vlog');
+    expect(w.vm.articles[0].content).toBe('第一篇');
+  });
+
+  it("常用话题标签：应用话题与既有标签去重不产生双份", async () => {
+    const w = await createWrapper();
+    w.vm.article.tags = ['AI'];
+    w.vm.article.content = '正文 #AI';
+    await nextTick();
+
+    w.vm.applyTopicTagPreset(['AI', '科技']);
+    await nextTick();
+
+    expect(w.vm.article.tags).toEqual(['AI', '科技']);
+    expect(w.vm.article.content).toBe('正文 #AI #科技');
+  });
+
+  it("模板渲染：单入口话题标签 + 两个按钮存在，话题独立输入框已移除", async () => {
+    const w = await createWrapper();
+    // 图文分支
+    expect(w.findAll('[data-testid="add-topic-hash"]').length).toBe(1);
+    expect(w.findAll('[data-testid="open-topic-tag-manager"]').length).toBe(1);
+    expect(w.find('#publish-tags').exists()).toBe(true);
+    expect(w.find('#publish-topics').exists()).toBe(false);
   });
 });});
 

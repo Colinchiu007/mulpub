@@ -151,6 +151,27 @@ describe('弹窗互斥：静态链路完整性', () => {
     expect(publishSrc).not.toMatch(/EmbeddedViewsForOverlay\(['"]/)
   })
 
+  // owner 登记表：常用话题标签管理弹窗（topic-tag-unify，2026-10-12）。
+  // 发布页单篇与批量卡片共用同一弹窗实例；owner 唯一、suspend/release 成对、
+  // 卸载兜底（visible=false 与 onBeforeUnmount 双出口）。
+  it('TopicTagManagerDialog：话题标签管理弹窗接入挂起，owner 为 topic-tag-manager-dialog', () => {
+    const src = fs.readFileSync(path.join(ROOT, 'src/components/TopicTagManagerDialog.vue'), 'utf8')
+    expect(src).toMatch(/const OVERLAY_OWNER = ['"]topic-tag-manager-dialog['"]/)
+
+    const suspendBlock = src.match(/async function suspendOverlay \(\) \{[\s\S]*?\n\}/)
+    const releaseBlock = src.match(/async function releaseOverlay \(\) \{[\s\S]*?\n\}/)
+    expect(suspendBlock && suspendBlock[0]).toContain('await suspendEmbeddedViewsForOverlay(OVERLAY_OWNER)')
+    expect(releaseBlock && releaseBlock[0]).toContain('await releaseEmbeddedViewsForOverlay(OVERLAY_OWNER)')
+    // 开合两条路径必须由同一个 watch 收口，且 immediate 覆盖「以 visible=true 首次挂载」
+    expect(src).toMatch(
+      /watch\(\(\) => props\.visible,[\s\S]*?if \(open\) \{[\s\S]*?suspendOverlay\(\)[\s\S]*?\} else \{[\s\S]*?releaseOverlay\(\)[\s\S]*?\}, \{ immediate: true \}\)/,
+    )
+    // 卸载兜底
+    expect(src).toMatch(/onBeforeUnmount\(\(\) => \{ releaseOverlay\(\) \}\)/)
+    // owner 一律经命名常量传递
+    expect(src).not.toMatch(/EmbeddedViewsForOverlay\(['"]/)
+  })
+
   // owner 登记表：CreateView BGM 素材库两个模态浮层（拆分方案 v3 §2.4，CreateView 拆分第 1 步）。
   // 素材库弹窗是一级浮层（openBgmLibraryDialog 挂起），删除确认是其内二级浮层（requestBgmDelete 挂起），
   // 各自持唯一 owner；释放成对且 beforeUnmount 兜底（父组件直接销毁时不经过 visible=false）。

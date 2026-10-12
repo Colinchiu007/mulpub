@@ -29,10 +29,11 @@
         <div>
           <label class="cohere-form-label">{{ t('publishPage.tags') }}</label>
           <UiInput :model-value="article.tagsText" :placeholder="t('publishPage.tagsPlaceholder')" @update:model-value="value => emit('update:tags-text', value)" />
-        </div>
-        <div>
-          <label class="cohere-form-label">{{ t('publishPage.topics') }}</label>
-          <UiInput :model-value="article.topicsText" :placeholder="t('publishPage.topicsPlaceholder')" @update:model-value="value => emit('update:topics-text', value)" />
+          <!-- 话题标签统一（topic-tag-unify）：#添加话题 / 常用话题标签，写入目标=本篇 -->
+          <div class="topic-tag-actions">
+            <UiButton variant="ghost" size="sm" :data-testid="`batch-add-topic-hash-${index}`" @click="emit('add-topic-hash')">{{ t('publishPage.topicTag.addHash') }}</UiButton>
+            <UiButton variant="ghost" size="sm" :data-testid="`batch-open-topic-tag-manager-${index}`" @click="emit('open-topic-tag-manager')">{{ t('publishPage.topicTag.manage') }}</UiButton>
+          </div>
         </div>
         <div>
           <label class="cohere-form-label">{{ t('publishPage.mentions') }}</label>
@@ -98,9 +99,11 @@ defineProps({
 })
 const emit = defineEmits([
   'duplicate', 'remove', 'open-template', 'update:title', 'update:content', 'update:mentions-text',
-  'update:publish-time', 'update:tags-text', 'update:topics-text',
+  'update:publish-time', 'update:tags-text',
   'update:cover', 'update:cover-url', 'update:visibility', 'update:overrides',
   'clear-cover', 'open-preview', 'toggle-account',
+  // 话题标签统一（topic-tag-unify）：#添加话题 与 常用话题标签弹窗（写入目标=本篇）
+  'add-topic-hash', 'open-topic-tag-manager',
 ])
 const { t } = useI18n()
 </script>
