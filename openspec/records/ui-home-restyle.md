@@ -2,8 +2,8 @@
 record: ui-home-restyle
 task: 桌面首页 UI 视觉改版（主任务卡 + 连续发布天数 + 告警条重绘 + 概览行，参考产品风格迁移 PRD 落地）
 date: 2026-10-13
-sync_reason: 本 PR（ui-home-restyle）自身的远程同步收口，合并后由本会话回填
-sync_backfill_owner: ui-home-restyle 任务会话
+
+
 ---
 
 ## 本次执行记录：桌面首页 UI 视觉改版（ui-home-restyle，2026-10-13）【混合 PR】
@@ -46,4 +46,4 @@ sync_backfill_owner: ui-home-restyle 任务会话
 - streak 判据基于 `daily`（近 30 天窗口）——31 天前的连续历史不计入，与「激励近期连续发布」的产品语义一致。
 - LoginExpiredBanner 的「全部保存」按钮沿用警告色描边，未做独立视觉测试断言（既有 save-all 用例全绿覆盖行为）。
 
-| 远程同步 | PENDING | 合并后回填 |
+| 远程同步 | PASS | PR #3446 squash 合并 → 904662ed02fce17038c39a4214562469594ac7f5（2026-10-13T05:41:09+08:00）；远端分支已删，ls-remote 0 行 |
