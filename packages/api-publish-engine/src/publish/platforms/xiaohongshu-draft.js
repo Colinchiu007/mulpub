@@ -23,6 +23,8 @@
 const CREATOR_ORIGIN = 'https://creator.xiaohongshu.com'
 const EDITH_ORIGIN = 'https://edith.xiaohongshu.com'
 const ROS_UPLOAD_ORIGIN = 'https://ros-upload.xiaohongshu.com'
+// 正文承载形态单一实现（publish-article-body-format）：描述字段是纯文本语义
+const { formatArticleBody } = require('../../content-formatter')
 const PERMIT_PATH = '/api/media/v1/upload/web/permit'
 // 参考实现：permit 的四个业务参数全在 query 上，路径裸调会 404（2026-10-07 真机实证）
 const PERMIT_QUERY = {
@@ -304,7 +306,9 @@ class XiaohongshuDraftChain {
         type: 'normal',
         title: String(title).slice(0, 20),   // 平台标题上限 20 字
         note_id: '',
-        desc: String(content == null ? '' : content),
+        // 正文承载形态（publish-article-body-format，2026-10-12）：笔记描述是**纯文本**语义，
+        // Rich 编辑器来的 HTML 若原样透出会以字面量 `<p>` 出现在笔记正文里。
+        desc: String(formatArticleBody('xiaohongshu', content)),
         source: '{"type":"web","ids":"","extraInfo":"{\\"systemId\\":\\"web\\"}"}',
         business_binds: JSON.stringify({
           version: 1,

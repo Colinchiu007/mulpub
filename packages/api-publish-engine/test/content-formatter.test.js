@@ -273,6 +273,108 @@ test("findInlineTopicPositions: URL 片段不产生虚假位置段", () => {
   assertEqual(r, [{ name: "tag", start: 22, end: 26 }]);
 });
 
+// ---- 图文正文承载形态（publish-article-body-format，2026-10-12）----
+// 事故：百家号图文正文「整篇一整段」（真机 11/11 篇公开页 0 个 <p>，正文字节 ==
+// 源文去掉全部换行后逐字节相等）。根因是**承载形态不匹配**：`content` 字段是富文本
+// 编辑器的 HTML，而传进去的是纯文本 —— HTML 里换行是可忽略空白，段落全部塌掉。
+// 本组用例锁：① 纯文本 → `<p>` 段落；② 已是 HTML 幂等透传；③ 纯文本承载平台
+// （抖音/小红书描述）反向剥标签；④ 空输入不产出空 `<p>`。
+console.log("\n--- article body format (publish-article-body-format) ---");
+
+let formatArticleBody, hasHtmlTags, textToParagraphHtml, htmlToPlainText, getArticleBodyKind;
+try {
+  const m3 = require("../src/content-formatter");
+  formatArticleBody = m3.formatArticleBody;
+  hasHtmlTags = m3.hasHtmlTags;
+  textToParagraphHtml = m3.textToParagraphHtml;
+  htmlToPlainText = m3.htmlToPlainText;
+  getArticleBodyKind = m3.getArticleBodyKind;
+} catch (e) { /* 模块缺失时保持 undefined，下列用例变红 */ }
+
+test("hasHtmlTags: 真标签判据（`<100 元`、实体、代码片段都不是标签）", () => {
+  assertEqual(hasHtmlTags("<p>正文</p>"), true);
+  assertEqual(hasHtmlTags("<br/>"), true);
+  assertEqual(hasHtmlTags('<a href="https://x.com">链接</a>'), true);
+  assertEqual(hasHtmlTags("纯文本正文"), false);
+  assertEqual(hasHtmlTags("价格 <100 元 与 >50 元"), false);
+  assertEqual(hasHtmlTags("&lt;p&gt;正文&lt;/p&gt;"), false);
+  // 技术类正文的代码片段：宽判据（`<` 后跟字母即标签）会把它整段吃掉
+  assertEqual(hasHtmlTags("代码 #include <stdio.h> 结尾"), false);
+  assertEqual(hasHtmlTags("vector<int> 容器"), false);
+});
+
+test("formatArticleBody: 代码片段里的尖括号不被当标签（防吃掉代码示例）", () => {
+  const code = "代码 #include <stdio.h> 结尾";
+  assertEqual(formatArticleBody("bilibili", code), code);
+  assertEqual(formatArticleBody("douyin", "<p>代码 #include <stdio.h> 结尾</p>"), code);
+  assertEqual(formatArticleBody("baijiahao", code), "<p>代码 #include &lt;stdio.h&gt; 结尾</p>");
+});
+
+test("textToParagraphHtml: 空行分段 → 每段一个 <p>（精确串断言）", () => {
+  assertEqual(textToParagraphHtml("第一段\n\n第二段"), "<p>第一段</p><p>第二段</p>");
+});
+
+test("textToParagraphHtml: 单换行 / 多换行 / CRLF 同为段界（与头条、公众号既有口径一致）", () => {
+  assertEqual(textToParagraphHtml("行一\n行二"), "<p>行一</p><p>行二</p>");
+  assertEqual(textToParagraphHtml("a\n\n\n b \n\n"), "<p>a</p><p>b</p>");
+  assertEqual(textToParagraphHtml("a\r\nb"), "<p>a</p><p>b</p>");
+});
+
+test("textToParagraphHtml: 转义 & < >（不制造标签注入面）", () => {
+  assertEqual(textToParagraphHtml("a & b <c>"), "<p>a &amp; b &lt;c&gt;</p>");
+});
+
+test("textToParagraphHtml: 空/空白输入不产出空 <p>", () => {
+  assertEqual(textToParagraphHtml(""), "");
+  assertEqual(textToParagraphHtml("   \n  \n"), "");
+  assertEqual(textToParagraphHtml(null), "");
+});
+
+test("htmlToPlainText: 块级标签收口为换行、<br> 为单换行（与 desktop stripHtmlToPlainText 同口径）", () => {
+  assertEqual(htmlToPlainText("<p>a</p><p>b</p>"), "a\nb");
+  assertEqual(htmlToPlainText("<div>a<br>b</div>"), "a\nb");
+  assertEqual(htmlToPlainText("<p>a &amp; b</p>"), "a & b");
+  assertEqual(htmlToPlainText("<p>a</p><p></p><p>b</p>"), "a\n\nb");
+});
+
+test("getArticleBodyKind: HTML 承载平台 vs 纯文本承载平台（未知平台保守按纯文本）", () => {
+  assertEqual(getArticleBodyKind("baijiahao"), "html");
+  assertEqual(getArticleBodyKind("toutiao"), "html");
+  assertEqual(getArticleBodyKind("wechat_mp"), "html");
+  assertEqual(getArticleBodyKind("douyin"), "plain");
+  assertEqual(getArticleBodyKind("xiaohongshu"), "plain");
+  assertEqual(getArticleBodyKind("weibo"), "plain");
+  assertEqual(getArticleBodyKind("unknown-platform"), "plain");
+});
+
+test("formatArticleBody(baijiahao): 多段纯文本 → HTML 段落（本次事故的回归锁）", () => {
+  assertEqual(
+    formatArticleBody("baijiahao", "凌晨两点的烘焙坊。\n\n起初，这被当作普通案例。\n\n后来评论区炸了。"),
+    "<p>凌晨两点的烘焙坊。</p><p>起初，这被当作普通案例。</p><p>后来评论区炸了。</p>",
+  );
+});
+
+test("formatArticleBody(baijiahao): 已是 HTML → 原样透传（幂等，不重复包装）", () => {
+  const html = "<p>第一段</p><p>第二段</p>";
+  assertEqual(formatArticleBody("baijiahao", html), html);
+});
+
+test("formatArticleBody(douyin/xiaohongshu): HTML → 纯文本（防标签字面量进描述）", () => {
+  assertEqual(formatArticleBody("douyin", "<p>第一段</p><p>第二段</p>"), "第一段\n第二段");
+  assertEqual(formatArticleBody("xiaohongshu", "<p>一段</p>"), "一段");
+});
+
+test("formatArticleBody: 纯文本平台的纯文本输入原样（零契约变更）", () => {
+  assertEqual(formatArticleBody("douyin", "第一段\n\n第二段"), "第一段\n\n第二段");
+  assertEqual(formatArticleBody("weibo", "正文"), "正文");
+});
+
+test("formatArticleBody: 空/空白输入返回空串（不产出空 <p>）", () => {
+  assertEqual(formatArticleBody("baijiahao", ""), "");
+  assertEqual(formatArticleBody("baijiahao", null), "");
+  assertEqual(formatArticleBody("douyin", "   "), "");
+});
+
 console.log("\n========== Result ==========");
 console.log("  Passed: " + passed + " / " + (passed + failed));
 console.log("  Failed: " + failed + " / " + (passed + failed));

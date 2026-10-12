@@ -145,6 +145,21 @@ describe('publish/platforms/douyin-image — D 方案图文 API 链', () => {
     }, 2)
   })
 
+  it('正文承载形态：HTML 正文（Quill 富文本）→ content_desc 纯文本，不含标签字面量', async () => {
+    await withTmpImage(async (images) => {
+      const srv = await startSrv()
+      try {
+        const r = await newChain(srv, makeCookie({ msToken: 'MS1' })).run(
+          { title: '图文标题', content: '<p>第一段</p><p>第二段</p>', tags: [], images },
+        )
+        expect(r.success).toBe(true)
+        const createCall = srv.requestsFor(/create_v2/)[0]
+        // 抖音描述是纯文本语义：HTML 进描述会以字面量 `<p>` 出现在作品简介里
+        expect(createCall.body.item.common.content_desc).toBe('第一段\n第二段')
+      } finally { await srv.close() }
+    }, 1)
+  })
+
   it('create 返回风控裁决（x-tt-verify-passport-decision）→ risk_blocked 与视频链同口径', async () => {
     await withTmpImage(async (images) => {
       const srv = await startSrv((routes) => {

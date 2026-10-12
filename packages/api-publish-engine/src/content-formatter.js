@@ -249,7 +249,137 @@ function findInlineTopicPositions(content, knownTopics) {
   return positions;
 }
 
+// ============================================================
+// 图文正文承载形态（publish-article-body-format，2026-10-12）
+//
+// 每个平台的「正文字段」有**固定承载形态**：HTML（富文本编辑器）或纯文本（描述语义）。
+// 形态不匹配就是「整篇一整段」类事故的根因：**纯文本进 HTML 字段**时，HTML 把换行当作
+// 可忽略空白，平台把整篇正文存成一个文本节点 —— 2026-10-12 真机复核百家号 11/11 篇
+// 公开文章正文 `<p>` 数为 0，且正文字节 == 源文去掉全部换行后**逐字节相等**（源文来自
+// rewrite_history，含 `\n\n` 空行分段）；反向（HTML 进纯文本字段）则会把 `<p>` 以字面量
+// 贴进作品描述。
+//
+// 本层是「形态适配」的单一实现（各链只调用，禁止自抄）：本仓既有两处同类逻辑
+// （apps/desktop 的 `stripHtmlToPlainText` 与 `wechat-mp-article.toParagraphHtml`、
+// packages/rpa-engine 头条直连兜底的内联 `<p>` 拼接）语义与之一致，但互不可见；
+// 引擎侧新增链一律经本层，桌面/RPA 侧的收敛见 PRD-ARTICLE-BODY-FORMAT-2026-10-12 §遗留。
+// ============================================================
+
+/** HTML 承载正文的平台（正文字段是富文本编辑器的 HTML，段落必须由 `<p>` 表达） */
+var HTML_BODY_PLATFORMS = {
+  baijiahao: true,   // /pcui/article/save|publish 的 content（富文本编辑器）
+  toutiao: true,     // mp/agw/article/publish 的 content（参考产品字段表 htmlContent）
+  wechat_mp: true,   // 公众号 ProseMirror（HTML 语义）
+};
+
+/** 纯文本承载正文/描述的平台（字数按可见字符算，`\n` 原样保留） */
+var PLAIN_BODY_PLATFORMS = {
+  weibo: true, zhihu: true, xiaohongshu: true, douyin: true, kuaishou: true,
+  tencent_video: true, bilibili: true, youtube: true, tiktok: true,
+  twitter: true, instagram: true, facebook: true,
+};
+
+/**
+ * 已知 HTML 标签名白名单（Quill 富文本产物 + 常见块级/行内标签）。
+ * ⛔ 判据**不能**用「`<` 后跟字母」这种宽写法：技术类正文里的代码片段
+ * `#include <stdio.h>`、`vector<int>` 会被当成标签并整段剥掉/包进 `<p>` 判定，
+ * 用户可见的代码示例被吃掉（本仓 2026-10-12 实测，既有 desktop `stripHtmlToPlainText`
+ * 的宽判据同样会误伤 —— 收敛待办见 PRD §遗留）。白名单收窄后才能安全用于发布链。
+ */
+var HTML_TAG_PATTERN = '<\\/?(?:p|div|br|span|a|img|h[1-6]|ul|ol|li|blockquote|pre|code|strong|em|b|i|u|s|del|ins|hr|table|thead|tbody|tfoot|tr|td|th|caption|figure|figcaption|section|article|header|footer|nav|aside|main|video|audio|source|iframe|sub|sup|dl|dt|dd|mark|small|time|center|font)\\b[^>]*>'
+
+/**
+ * 真标签判据：`<` 后必须是**白名单内的标签名**（含属性/自闭合）。
+ * `价格 <100 元` 这类数学比较、`&lt;p&gt;` 实体、代码片段 `<stdio.h>` 都不是标签。
+ * @param {string} value
+ * @returns {boolean}
+ */
+function hasHtmlTags(value) {
+  return new RegExp(HTML_TAG_PATTERN, 'i').test(String(value == null ? "" : value));
+}
+
+/** 剥掉白名单内的 HTML 标签（代码片段里的尖括号原样保留） */
+function stripKnownHtmlTags(html) {
+  return String(html == null ? "" : html).replace(new RegExp(HTML_TAG_PATTERN, 'gi'), "");
+}
+
+/** HTML 转义 `& < >`（转义先行，纯文本转 HTML 不制造标签注入面） */
+function escapeHtml(value) {
+  return String(value == null ? "" : value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/**
+ * 纯文本 → 段落 HTML：每个非空行一个 `<p>`（转义先行）。
+ * 段界口径与既有实现一致：**单换行与空行都算段界**（头条直连兜底 `split(/\n+/)`、
+ * 公众号 `toParagraphHtml` 同款），CRLF 归一，行首尾空白剔除，空行不产出空 `<p>`。
+ * @param {string} text
+ * @returns {string} `<p>…</p>` 拼接串（空输入返回空串）
+ */
+function textToParagraphHtml(text) {
+  var lines = String(text == null ? "" : text).split(/\r?\n/);
+  var out = [];
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].trim();
+    if (line) out.push("<p>" + escapeHtml(line) + "</p>");
+  }
+  return out.join("");
+}
+
+/**
+ * HTML → 纯文本：块级标签收口为换行、`<br>` 为单换行、实体解码、
+ * 3 个以上连续换行压成 2 个（与 desktop `stripHtmlToPlainText` 同口径）。
+ * @param {string} html
+ * @returns {string}
+ */
+function htmlToPlainText(html) {
+  return String(html == null ? "" : html)
+    .replace(/<\s*br\s*\/?\s*>/gi, "\n")
+    .replace(/<\s*\/\s*(?:p|div|li|h[1-6]|blockquote|section|article|tr)\s*>/gi, "\n")
+    .replace(new RegExp(HTML_TAG_PATTERN, 'gi'), "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0*39;/g, "'")
+    .replace(/&amp;/gi, "&")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/**
+ * 平台正文字段承载形态。未知平台返回 `'plain'`（保守：不改写未知平台的内容）。
+ * @param {string} platform
+ * @returns {'html'|'plain'}
+ */
+function getArticleBodyKind(platform) {
+  return HTML_BODY_PLATFORMS[platform] ? "html" : "plain";
+}
+
+/**
+ * 按平台承载形态适配正文（**发布前必须调用**，各链只调用本函数，禁止自抄转换）：
+ *   - HTML 承载平台：纯文本 → `<p>` 段落；已是 HTML 原样透传（幂等，不二次包装）。
+ *   - 纯文本承载平台：HTML → 纯文本（段落收口为换行）；纯文本原样透传。
+ * 空/空白输入返回空串（不产出空 `<p>`）。
+ * @param {string} platform 平台标识
+ * @param {string} content 正文（富文本 HTML 或纯文本）
+ * @returns {string} 适配后的正文字符串
+ */
+function formatArticleBody(platform, content) {
+  var raw = String(content == null ? "" : content);
+  if (!raw.trim()) return "";
+  if (getArticleBodyKind(platform) === "html") {
+    return hasHtmlTags(raw) ? raw : textToParagraphHtml(raw);
+  }
+  return hasHtmlTags(raw) ? htmlToPlainText(raw) : raw;
+}
+
 module.exports = {
   formatContent, formatTags, truncateContent, truncateTitle, replacePlaceholders,
   extractInlineTopicNames, stripTopicsFromContent, convertInlineTopics, findInlineTopicPositions,
+  hasHtmlTags, htmlToPlainText, textToParagraphHtml, getArticleBodyKind, formatArticleBody,
+  HTML_BODY_PLATFORMS, PLAIN_BODY_PLATFORMS,
 };

@@ -23,7 +23,7 @@ const aws4 = require('aws4')
 const { createHttpClient } = require('../core/http-base')
 const { errorCode } = require('../../error-codes')
 const { clientSign, extractReePublicKey, webVersionFromTicket, CREATE_V2_PATH } = require('../../signer/douyin-ticket-guard')
-const { findInlineTopicPositions } = require('../../content-formatter')
+const { findInlineTopicPositions, formatArticleBody } = require('../../content-formatter')
 
 const CREATOR_BASE = 'https://creator.douyin.com'
 const IMAGEX_BASE = 'https://imagex.bytedanceapi.com'
@@ -188,7 +188,10 @@ class DouyinImageChain {
    *  已验证锚点：item.common.item_title/content_desc/visibility_type/text_extra 形状与视频链一致
    *  （这些字段在视频 create_v2 中被服务端接受，属同一 creator API 面）。 */
   buildImagePostData (taskData, ctx) {
-    const contentDesc = clean(taskData.content || taskData.desc || '')
+    // 正文承载形态（publish-article-body-format，2026-10-12）：抖音描述是**纯文本**语义
+    // （计数器按可见字符算），Rich 编辑器来的 HTML 若原样透出会以字面量 `<p>` 出现在作品简介。
+    // 先适配再 clean、再算 text_extra 偏移（偏移必须基于最终发送的文本）。
+    const contentDesc = clean(formatArticleBody('douyin', taskData.content || taskData.desc || ''))
     const textExtra = findInlineTopicPositions(contentDesc, taskData.tags || []).map(pos => ({
       start: pos.start,
       end: pos.end,
