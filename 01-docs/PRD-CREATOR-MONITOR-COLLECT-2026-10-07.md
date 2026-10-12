@@ -1591,3 +1591,259 @@ const digest = JSON.stringify(body || {}).slice(0, 200).replace(/[A-Za-z0-9_-]{2
 **为什么这一条比我原本设计的更重要**：我在 §16.1 初稿里只写了"给出确切 pip 命令"，**漏掉了国内镜像源**。而 `asr-installer.js` 已经踩过并解决了这个问题——国内用户用默认 PyPI 源装大包经常超时失败。既有实现里有 `pip install faster-whisper -i https://pypi.tuna.tsinghua.edu.cn/simple` 这类写法，说明这不是理论顾虑而是已发生的事实。复用它的收益不只是省代码，更是**继承已验证的踩坑经验**。
 
 **回退方案**：若判定该依赖的分发不可接受（安装门槛过高），则改为**本仓内自实现 YouTube 采集**——官方 Data API 本身不复杂（`channels` + `playlistItems` + 字幕拉取，约 200 行），且能随应用分发。代价是要自己维护字幕获取（`youtube-transcript-api` 仍需 pip）。**此决策需在 P0 冒烟后按实际安装体验定。**
+
+***
+
+# 17. 面板接线与「添加博主 / 凭证」可用性修复（2026-10-12，creator-monitor-depfix）
+
+> 本章是**实现期事故**的完整记录与规格回写，不是规划。它把「博主监控页整页不可用」的
+> 三个独立成因、修复设计、数据校验、流程、交互、显示项、提示文字、回归锁逐条写清，
+> 并对本章之前各节的规格做了**两处修正**（§8.1 添加入口、§7.4 凭证入口）。
+
+## 17.1 用户可见现象
+
+采集页 →「博主监控」页签打开后：
+
+1. 页面顶部只有一行警告：**「缺少采集依赖。请执行：」**（冒号后为空，没有任何命令）；
+2. 博主列表恒为空，发现列表恒为空；
+3. 点右上角「关注」**没有任何反应**（无弹窗、无报错、无 toast）；
+4. 页面上**没有任何地方**可以填写 YouTube API Key。
+
+四条现象中，1 与 3 是**两个互不相关的缺陷**，只是恰好同时出现，容易让人误当成一个问题。
+
+## 17.2 根因（三个独立成因 + 一个文案成因）
+
+| # | 成因 | 位置 | 后果 |
+|---|---|---|---|
+| **C1** | 依赖取值路径写错：`const get = (n) => (context && typeof context.get === 'function' ? context.get(n) : undefined)`。`context` 是 `bootstrap/phase1-context.js` 的分组 Proxy（`{infra,services,windows,pipelines}`），**自身没有 `get`**，只有 `context.container` | `apps/desktop/electron/bootstrap/phase5-ipc.js` | 三元恒为 false ⇒ 三个 creator 服务全为 `undefined` ⇒ `ipc-handlers/creator.js` 判定依赖缺失 ⇒ **11 个通道全部注册为降级** |
+| **C2** | `creatorCollector` 的工厂里写 `credentialProvider: c.get('creatorCredentialProvider') \|\| (() => null)`，而 `creatorCredentialProvider` **从未注册**。容器 `get` 对未注册名**抛错**（`core/container.js:78`），不是返回 `undefined` | `apps/desktop/electron/core/container.setup.creator.js` | 只要解析 `creatorCollector` 就抛 ⇒ `creatorRuntime` 一并失败 ⇒ 成为**与 C1 并列的第二个降级成因**（C1 修好也仍然降级） |
+| **C3** | `creator:follow` 调 `creatorCollector.resolveChannelId(input)`，而 `createCreatorCollector` 返回的对象**只有 `listPosts` / `collectBody`** | `apps/desktop/electron/services/creator-collector-runtime.js` | 「添加博主」必抛 `undefined is not a function`（走 `toIpcError` 变成 `code:-1, reason:'creator:failed'`） |
+| **C4** | 渲染层把 `reason:'service-unavailable'` 渲染成「缺少采集依赖。请执行：」并传 `command: ''` | `apps/desktop/src/features/collection/CreatorMonitor.vue:41,59` | 文案把用户引向「装 Python 包」，而真因是「主进程没接线 ⇒ 重启应用」。两种处置完全不同，且命令位恒空 |
+
+**为什么 C3 逃过了端到端测试**：`creator-wiring.e2e.test.js` 的 `stubCollector()` 手搓了一个 `resolveChannelId`
+——**夹具按调用方想象的形状收参数**（本仓 `learnings.md` 已登记的同型教训的第四种落点：
+不是「替对方剥壳」也不是「替对方改签名」，而是**替对方造方法**）。真实装配里没有这个方法，
+于是「添加博主」在 e2e 全绿的同时在生产必崩。
+
+**为什么 C1/C2 逃过了单元测试**：`phase5-ipc.test.js` 的每个用例都传 `context = {}`，
+并且**只**断言 `usageTracker` / `assetGenerator` / `serviceBus` 等既有字段，
+没有任何用例断言 `creatorStore` / `creatorMonitor` 这类「经容器解析的字段」。
+`creatorCredentialProvider` 更是**没有任何测试引用**（连名字都没出现过）。
+
+**为什么 C4 逃过了文案审查**：`{command}` 的取值来源（`probeDependency().installHint`）
+是**恒不可用**的死代码（见 17.3.4），因此「该命令从哪来」这个问题在实现期没有答案，
+传 `''` 就成了唯一能让 ESLint 与测试都通过的写法。
+
+## 17.3 修复设计
+
+### 17.3.1 依赖取值：只走容器（C1）
+
+`phase5-ipc.js` 新增 `resolveContextDep(name)`：先取顶层 `context[name]`（测试/显式注入路径），
+再取 `context.container.get(name)`（生产路径），容器未注册名**catch 后按缺失处理** ——
+缺失只降级 creator 通道，MUST NOT 让整个 IPC 注册失败。
+
+新增回归锁两条：① 断言 `context = { container: { get } }` 时 `creatorStore/creatorCollector/
+creatorMonitor/creatorQuota/creatorCredential` 全部到位（C1 的**行为锁**）；
+② 源码不得再出现那段不存在的取值写法（C1 的**结构锁**，且带反向断言防止「删掉功能」变绿）。
+
+### 17.3.2 凭证提供者：注册 + 形状适配（C2）
+
+`container.setup.creator.js` 新增 `creatorCredentialProvider` 注册（**在 `creatorCollector` 之前**，
+容器按注册顺序惰性求值），并把采集器的 `credentialProvider` 从「直接塞 provider 对象」改为
+**形状适配函数**：`() => provider.getApiKey() ? { apiKey, pythonBridge } : null`。
+
+原注释写的是「可选注册项：未接入时回落空实现而不是让 get 抛」，但代码里**没有兜底**。
+本次两条都补：注册让它真的可用；`try/catch` 兜底让「将来又被删掉」退化成
+「没配 Key（可配置状态）」而不是「整页不可用（接线故障）」。
+
+### 17.3.3 采集器补齐 `resolveChannelId`（C3）
+
+`creator-collector-runtime.js` 增加 `resolveChannelId(raw)`：从注入的 `credentialProvider` 取
+`apiKey`，用注入的 `httpGet` 调 `channels.list`（`forHandle` / `forUsername`），
+复用 `creator-collector.js` 的**单一实现** `parseChannelInput` + `resolveChannelIdImpl`，
+MUST NOT 在渲染层或第二处重新实现形态解析。
+
+同时在 e2e 文件里加**形状对账锁**：替身的方法集 MUST 是真实采集器返回对象的子集。
+
+### 17.3.4 依赖状态分腿 + 文案分因（C4）
+
+新增只读通道 `creator:dependency-status`：
+
+```jsonc
+{
+  "code": 0,
+  "discovery":  { "ready": true, "reason": "" },                      // Node 内置 https + Data API，无第三方包
+  "transcript": { "ready": false, "optional": true,                    // Python content-aggregator（字幕）
+                  "reason": "python-backend-not-running",
+                  "installHint": "pip install content-aggregator -i https://pypi.tuna.tsinghua.edu.cn/simple" }
+}
+```
+
+**同时修掉一个「假探测」**：旧 `probeDependency()` 用
+`require('content_aggregator.sources.collectors.youtube_collector')` 探测依赖 ——
+`content_aggregator` 是 **Python** 包，Node 的 `require` 永远解析不到，该函数**恒返回 `ready:false`**。
+它当时没有生产调用点（只有测试），一旦接上就会变成「依赖永远缺失」的假告警，比不报更坏。
+现改为 `probeTranscriptDependency({ pythonBridge })`，只回答 Node 侧真能回答的事
+（桥在不在跑），且如实声明「桥不在跑」与「没装包」在 Node 侧**不可区分**，不假装已确诊。
+
+`creator:credential-status` / `creator:dependency-status` 两个只读通道**不参与降级**：
+服务没起来时它们恰恰是用户最需要的排查入口。
+
+### 17.3.5 添加博主：应用内弹窗（替代 `window.prompt`）
+
+**Electron 渲染进程不支持 `window.prompt`**（调用即抛 `prompt() is and will not be supported`），
+旧实现 `const input = window.prompt(...)` 使该入口**整条不存在**。现改为
+`CreatorAddDialog.vue`（与同页 `QuickCollectCommandDialog.vue` 同构：手写 mask + `role="dialog"`）。
+
+关注成功后 MUST **立即执行首次探测**（`creator:check-now`，主进程侧 `fetch_transcript=False`），
+否则用户要等到下一个巡检周期才看到新作品，会得出「加了没用」的结论。
+
+### 17.3.6 凭证配置弹窗
+
+新增 `CreatorCredentialDialog.vue` + 三个通道（`creator:credential-status/-set/-clear`）。
+规格见 §7.4（本次实现即该节），补充三条本次明确的判据：
+
+- **形态提示非阻塞**：值不匹配 `^AIza[0-9A-Za-z_-]{35}$` 时 SHOULD 提示核对，
+  MUST NOT 据此拒绝保存（Google 若改前缀，硬拒会把可用密钥挡在门外）；
+- **无命令可给时不渲染占位符**：`creatorErrDependencyMissing` 保留给真正的
+  `creator:dependency_missing` 错误；可选依赖走不含空占位符的
+  `creatorDependencyOptionalHint`；
+- **状态五分**（QM-6 后端评审 W1 处置，spec 的「凭证安全」Requirement 已同步）：
+  `ok` / `not_configured` / `unavailable`（safeStorage 或 store 不可用）/
+  `decrypt_failed`（重填有效）/ **`read_failed`（settings 读取失败，重填无效 ⇒
+  引导重启或检查磁盘）**。读失败 MUST NOT 并入 decrypt_failed——
+  那会让用户对着不可操作的提示反复重填；三类「坏态 + 未配置」在测试里断言互不相等。
+
+## 17.4 数据校验（三层，各自单一来源）
+
+| 层 | 判据 | 实现位置 | 违反后果 |
+|---|---|---|---|
+| 渲染层（添加博主） | 非空；`trim()` 后长度 ≤ **512** | `CreatorAddDialog.vue` 的 `MAX_INPUT_LENGTH` | 内联报错 + **不发请求**；MUST NOT 用 `maxlength` 截断（静默改内容） |
+| 渲染层（凭证） | 非空即可提交；格式由主进程判 | `CreatorCredentialDialog.vue` | 按钮禁用仅针对空输入 |
+| 主进程（凭证） | 20–200 字符；可打印 ASCII、无空白；`trim()` 后判定 | `creator-credential.js` `validateApiKey` | 返回 `creator:credential_invalid`（`detail` 为机器可读子类） |
+| 主进程（频道输入） | 长度 ≤ 512；站内 JSON 形态判定：`UC…` / `@handle` / `/c/`·`/user/` / 频道 URL；作品与播放列表链接**明确拒绝** | `creator-collector.js` `parseChannelInput`（**唯一实现**） | `creator:invalid_input` / `creator:not_a_channel` / `creator:channel_not_found` |
+
+**SSRF/协议面**：`resolveChannelId` 只对 `youtube.com` 等白名单主机发请求（`YOUTUBE_HOSTS`），
+非白名单主机在**零请求**下被判 `invalid_input`。
+
+## 17.5 流程：添加一个博主（端到端）
+
+```
+用户点「关注」
+  └─ CreatorAddDialog 打开（清空输入与上次错误）
+       │ 输入 @handle / 频道 URL / UC… ID（Enter 或点「关注」）
+       ├─ 空 → 按钮禁用，不发请求
+       ├─ >512 → 内联报错（creatorErrInputTooLong），不发请求
+       └─ 提交 → IPC creator:follow({ input })
+            ├─ 主进程 requireString(input, max 512) → creator:invalid_input
+            ├─ creatorQuota.probePool 预检 assertQuotaFits（超限拒且零副作用）
+            ├─ collector.resolveChannelId(input)
+            │    ├─ 无 apiKey → creator:credential_missing  → 渲染层**直接打开凭证弹窗**
+            │    ├─ 形态不可识别 → creator:invalid_input / creator:not_a_channel
+            │    ├─ channels.list 无结果 → creator:channel_not_found
+            │    └─ 命中 → 返回 canonical UC…
+            ├─ creatorStore.upsertCreator(...) + upsertFollow(...)
+            └─ 回包 { code:0, creator, follow }
+  └─ 渲染层：toast「已关注 {name}，正在检查新作品…」→ 立即 creator:check-now({ followId })
+       └─ 主进程 probeCreator（fetch_transcript=False）→ 写入 discoveries → 角标 +N
+  └─ 渲染层：loadCreators() + loadDiscoveries()（列表与待采集角标刷新）
+```
+
+## 17.6 显示项与提示文字（zh / en 成对，键名即网关）
+
+| 键 | zh | en | 出现位置 |
+|---|---|---|---|
+| `creatorErrServiceUnavailable` | 博主监控服务未就绪（主进程 creator 服务未装配）。请重启应用后重试；若仍失败，请查看日志中的「[IPC] 博主监控」警告。 | The creator monitor service is not ready (main-process creator services were not wired). Restart the app and try again; if it still fails, look for the "[IPC] creator" warning in the logs. | 顶部阻塞横幅 |
+| `creatorRetry` | 重试 | Retry | 阻塞横幅按钮 |
+| `creatorAddTitle` / `creatorAddDialogIntro` / `creatorAddLabel` / `creatorAddHint` / `creatorAddPlaceholder` / `creatorAddCancel` / `creatorAddSubmitting` / `creatorAddSuccess` | 见 locales | 见 locales | 添加弹窗 |
+| `creatorErrInputTooLong` | 输入过长，请只粘贴一条频道链接或频道 ID。 | Input is too long. Paste a single channel URL or ID. | 添加弹窗内联错误 |
+| `creatorCredentialOpen` / `creatorCredentialTitle` / `creatorCredentialIntro` / `creatorCredentialLabel` / `creatorCredentialPlaceholder` / `creatorCredentialHint` / `creatorCredentialSave` / `creatorCredentialSaving` / `creatorCredentialSaved` / `creatorCredentialWarnShape` / `creatorCredentialClear` / `creatorCredentialCleared` / `creatorCredentialClose` | 见 locales | 见 locales | 凭证弹窗 |
+| `creatorCredentialInvalid` / `creatorCredentialUnavailable` / `creatorCredentialPersistFailed` | 输入非法 / 密钥库不可用 / 持久化失败 | 同义 | 凭证弹窗内联错误（**三类分因**） |
+| `creatorCredentialStatusUnknown` / `...Ok` / `...NotConfigured` / `...Unavailable` / `...DecryptFailed` | 正在读取 / 已配置（末四位 {fingerprint}）/ 未配置 / 密钥库不可用 / 无法解密 | 同义 | 凭证弹窗状态行 + 页面横幅 |
+| `creatorDependencyOptionalHint` | 字幕增强依赖未就绪：新作品仍可正常发现与采集，但正文只能取描述、内容质量会降级。若确认缺少该包，可在终端执行：{command} | The transcript add-on is not ready: new posts are still discovered and collected, but bodies fall back to the description and content quality drops. If the package is indeed missing, run: {command} | 列表上方**非阻塞**提示 |
+| `creatorCredentialStatusReadFailed` | 本地存储读取失败，无法确认密钥状态。请重启应用；若持续出现请检查磁盘后重试。 | Reading local storage failed, so the key status is unknown. Restart the app; if it persists, check your disk and retry. | 凭证状态行 + 页面横幅（QM-6 W1 处置） |
+
+**两处既有文案修正**（原指引指向不存在的位置）：
+
+| 键 | 原 | 现 |
+|---|---|---|
+| `creatorErrCredentialMissing` | …请在设置中填写。（设置页**并无**该字段） | …请在「博主监控」页点「配置 API Key」填写。 |
+| `creatorFatalPaused` | …请在设置中检查 API Key。 | …请重新配置 API Key。 |
+| `creatorEmptyDesc` | 添加 YouTube 博主后… | 添加 YouTube 博主后…。使用前需先配置 YouTube API Key。 |
+
+> ⚠ i18n 实现约束（本次实测）：vue-i18n 的**字符串**消息把裸 `@xxx` 当「链接消息」语法，
+> 编译期抛 `Invalid linked format`。生产侧 `src/i18n/index.js` 的 `toMessageFunctions`
+> 会把所有字符串叶子转成 Message Function（为绕开 Electron CSP 的 `new Function` 限制），
+> 故真实文案安全；**测试桩**若直接喂字符串，含 `@` 的词条必须写成函数形式。
+
+## 17.7 `reason` 全表（渲染层按此分因，不解析自然语言）
+
+| reason | 处置 | 文案来源 |
+|---|---|---|
+| `service-unavailable` | 重启应用；看日志 | `creatorErrServiceUnavailable` |
+| `creator:credential_missing` | 打开凭证弹窗 | `creatorErrCredentialMissing` |
+| `creator:credential_invalid` | 改输入 | `creatorCredentialInvalid` |
+| `creator:credential_unavailable` | 检查系统密钥库 | `creatorCredentialUnavailable` |
+| `creator:credential_persist_failed` | 重试 / 看日志 | `creatorCredentialPersistFailed` |
+| `creator:invalid_input` | 改输入 | `creatorErrInvalidInput` |
+| `creator:not_a_channel` | 换主页链接 | `creatorErrNotAChannel` |
+| `creator:channel_not_found` | 核对链接 | `creatorErrChannelNotFound` |
+| `creator:follow_not_found` / `creator:discovery_not_found` | 刷新列表 | `r.message` |
+| `creator:count_exceeds_limit` | 调数量（回传 `max`） | `creatorErrCountExceedsLimit` |
+| `creator:dependency_missing` | 装包（回传命令） | `creatorErrDependencyMissing` |
+| `pipeline-unavailable` | 检查 AI 写作配置 | `r.message` |
+
+## 17.8 交互逻辑细则
+
+| 规则 | 判据 |
+|---|---|
+| 唯一「添加」入口 | 页面**只能**经 `CreatorAddDialog`；`grep window.prompt` MUST 为 0 命中 |
+| 按钮禁用语义 | 只按「输入为空」禁用；**超长不禁用**（禁用 + 无提示 = 用户点不动且不知为何） |
+| 弹窗重开 | 每次打开清空输入与上次错误（上次失败的值不得"复活"） |
+| 失败不关弹窗 | 服务端错误内联显示，弹窗保持打开，**输入不丢** |
+| 凭证保存成功 | 立即清空输入框（PRD §7.4），刷新状态与列表 |
+| 凭证缺失联动 | 关注失败于 `credential_missing` 时**自动打开凭证弹窗**，不让用户自己找入口 |
+| 可选依赖提示 | 只提示、不禁用；发现腿 `ready:false`（真阻塞）才走阻塞横幅 |
+| 浮层形态 | 与同页 `QuickCollectCommandDialog.vue` 一致（手写 mask + `role="dialog"` + `aria-modal`）。该页不承载 `WebContentsView`，故不适用「浮层互斥挂起」契约（同页先例一致） |
+
+## 17.9 回归锁清单
+
+| 锁 | 文件 | 判据 |
+|---|---|---|
+| C1 行为锁 | `electron/bootstrap/phase5-ipc.test.js` | `context.container.get` 路径下五个 creator 依赖全部到位 |
+| C1 结构锁 | 同上 | 源码不含那段不存在的取值写法 + 反向断言真实取值口在位 |
+| C2 注册锁 | `electron/core/container.setup.creator.test.js` | 四项注册齐；缺凭证项时采集器仍可解析 |
+| C2 形状锁 | 同上 | 采集器拿到的是函数而非 provider 对象 |
+| C3 方法锁 | `electron/services/creator-collector-runtime.test.js` | `resolveChannelId` 存在；`forHandle` 语义；UC 零请求；缺 Key 零请求 |
+| C3 夹具锁 | `electron/services/creator-wiring.e2e.test.js` | 替身方法集 ⊆ 真实对象方法集 |
+| C4 分因锁 | `electron/ipc-handlers/creator.test.js` | 11 个降级通道消息含「未就绪」且**不含**「依赖」 |
+| C4 渲染锁 | `src/features/collection/CreatorMonitor.test.js` | `service-unavailable` 时页面**不含**「缺少采集依赖」「请执行：」 |
+| 凭证安全锁 | `electron/services/creator-credential.test.js` | 明文不落盘 / 明文被拒用 / `status()` 序列化无 key / 日志无 key 片段 / 缺 safeStorage 零落盘 |
+| 凭证通道锁 | `electron/ipc-handlers/creator.test.js` | 写通道受 sender 守卫且业务函数未被调用（明文入口） |
+| 添加流程锁 | `src/features/collection/CreatorMonitor.test.js` | 不调 `window.prompt`、提交走 IPC、成功即 `check-now`、失败按 reason 分因、超长不发请求 |
+| 依赖分腿锁 | `electron/ipc-handlers/creator.test.js` | 桥不在跑时发现腿仍 ready、字幕腿给命令且 `optional:true` |
+| 死探测锁 | `electron/services/creator-dependency-probe.test.js` | 探测永不抛；只回答桥状态；命令含国内镜像源 |
+
+## 17.10 未闭合与残留风险（诚实登记）
+
+1. **未做真机端到端**：本机没有可用的 YouTube Data API Key，故「点关注 → 真频道解析 → 真探测」
+   未在打包应用里跑通；网络路径以注入式 `httpGet` 覆盖，**不假装已验证**。
+2. **Python 依赖状态只到「桥在不在跑」**：`content-aggregator` 是否已装，Node 侧无法区分
+   （要精确判定需 Python 侧新增依赖自检端点，属后续切片）。文案已如实写成"如果确实是缺包"。
+3. **`creator:pending-total` 的许可级别**：本页通道当前按 `authenticated`（需登录）处理，
+   与 `apps/desktop/electron/ipc-handlers/creator.js` 头注里「已在 license-access-control 登记为 public」
+   的说法**不一致**——本次修正了头注，未改动许可策略（改策略属于「谁来守门」，需人工裁决）。
+4. **字幕腿的自动安装引导**未做（仅给命令）：`asr-installer` 那套带进度的自动安装可复用，
+   属后续切片（见 §16.1 的复用建议）。
+
+## 17.11 本次变更文件清单
+
+| 层 | 文件 |
+|---|---|
+| 主进程接线 | `electron/bootstrap/phase5-ipc.js`、`electron/core/container.setup.creator.js` |
+| 主进程服务 | `electron/services/creator-credential.js`（新）、`creator-collector.js`、`creator-collector-runtime.js` |
+| IPC / preload | `electron/ipc-handlers/creator.js`、`electron/preload/creator.js`（+ 两个 bundle 重生成） |
+| 渲染层 | `src/features/collection/CreatorMonitor.vue`、`CreatorAddDialog.vue`（新）、`CreatorCredentialDialog.vue`（新） |
+| 文案 | `src/locales/collection/zh.js`、`en.js` |
+| 测试 | 8 个测试文件（3 新 / 5 改），本增量 199 例 |
+| 规格 | `openspec/specs/creator-monitor/spec.md`（+4 Requirement）、本 PRD §17 |

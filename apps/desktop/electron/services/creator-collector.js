@@ -160,21 +160,45 @@ async function resolveChannelId (raw, deps = {}) {
   return id
 }
 
+/** 字幕腿（可选依赖）的国内可直用安装命令，沿用 asr-installer 的镜像源写法。 */
+const TRANSCRIPT_INSTALL_HINT = 'pip install content-aggregator -i https://pypi.tuna.tsinghua.edu.cn/simple'
+
 /**
- * 探测依赖是否可用。缺包时必须显式报出，且提示语要带**确切安装命令**
- * （沿用 asr-installer 的形态：给国内用户可直接用的镜像源写法）。
+ * 探测**正文（字幕）腿**的依赖是否可用。
+ *
+ * ⛔ 2026-10-12 纠正：旧实现叫 `probeDependency`，用
+ *   `require('content_aggregator.sources.collectors.youtube_collector')` 去「探测」——
+ *   `content_aggregator` 是 **Python** 包，Node 的 `require` 永远解析不到它，
+ *   于是该函数**恒返回 `ready:false`**。当时它没接任何生产调用点，所以只烂在测试里；
+ *   一旦接上就会变成「依赖永远缺失」的假告警，比不报还坏。
+ *
+ * 现在的判据只问两件**在 Node 侧真的能回答**的事：
+ *   ① Python 后端桥是否可用（字幕经 `POST /aggregation/collect` 走它）；
+ *   ② 若不可用，给出可复制的安装命令。
+ * 注意「桥不可用」与「没装 content-aggregator」在 Node 侧**不可区分**——
+ * 这正是本函数不假装能区分它们的原因：`reason` 如实写桥的状态，
+ * `installHint` 只作为「如果确实是缺包，可以这样装」的提示，不声称已确诊。
+ *
+ * 语义边界（PRD §7.6 / §16）：字幕缺失**不阻塞采集**，只把内容质量从
+ * `full` 降到 `partial`/`stub`。调用方 MUST 把它当**可选腿**展示，不得据此禁用功能。
+ *
+ * @param {{pythonBridge?: object}} deps
+ * @returns {{ready: boolean, optional: boolean, reason?: string, installHint?: string}}
  */
-function probeDependency (requireFn) {
-  const load = typeof requireFn === 'function' ? requireFn : require
-  try {
-    const mod = load('content_aggregator.sources.collectors.youtube_collector')
-    return { ready: true, YouTubeCollector: mod.YouTubeCollector }
-  } catch (err) {
-    return {
-      ready: false,
-      reason: (err && err.message) || String(err),
-      installHint: 'pip install content-aggregator -i https://pypi.tuna.tsinghua.edu.cn/simple',
-    }
+function probeTranscriptDependency (deps = {}) {
+  const bridge = deps.pythonBridge
+  let running = false
+  if (bridge && typeof bridge.isRunning === 'function') {
+    // 探测本身**永不抛**：它挂在列表加载/状态面板路径上，抛出去会让整页失败，
+    // 而它回答的只是一个"可选腿在不在"的问题。
+    try { running = !!bridge.isRunning() } catch (_) { running = false }
+  }
+  if (running) return { ready: true, optional: true }
+  return {
+    ready: false,
+    optional: true,
+    reason: bridge ? 'python-backend-not-running' : 'python-bridge-unavailable',
+    installHint: TRANSCRIPT_INSTALL_HINT,
   }
 }
 
@@ -182,8 +206,9 @@ module.exports = {
   CREATOR_PLATFORM_YOUTUBE,
   CREATOR_INPUT_ERRORS,
   YOUTUBE_API_BASE,
+  TRANSCRIPT_INSTALL_HINT,
   normalizeInput,
   parseChannelInput,
   resolveChannelId,
-  probeDependency,
+  probeTranscriptDependency,
 }

@@ -239,7 +239,7 @@ API Key SHALL 经 Electron `safeStorage` 加密后存储，MUST NOT 明文落盘
 
 IPC 契约 SHALL 为**单向**：MUST 提供一次性写入通道接收用户输入的明文（用户必须在渲染层输入，此项无法回避），但所有查询通道 MUST NOT 回传明文，只返回状态与末四位指纹。保存后主进程 MUST 立即丢弃明文引用，渲染层 MUST 立即清空输入框且 MUST NOT 写入任何持久化存储。
 
-系统 SHALL 区分「未配置」「系统密钥库不可用」「已保存但无法解密」三种状态并给出各自文案。
+系统 SHALL 区分「未配置」「系统密钥库不可用」「已保存但无法解密」「本地存储读取失败」四种状态并给出各自文案。前三种的处置各不相同（填写 / 检查系统环境 / 重新填写）；读取失败时重填无效，MUST 引导重启或检查磁盘，MUST NOT 并入「无法解密」让用户反复重填。
 
 `safeStorage` 不可用时系统 SHALL fail-closed 禁用该功能，MUST NOT 降级为明文保存。
 
@@ -311,3 +311,82 @@ IPC 契约 SHALL 为**单向**：MUST 提供一次性写入通道接收用户输
 
 - **WHEN** 用户首次开启博主监控
 - **THEN** 明确告知关闭应用期间不会检查新作品，重新打开后仅检查增量
+
+### Requirement: 面板接线的可解析性（2026-10-12 修复）
+
+博主监控的服务 MUST 在 IPC 注册点从 DI 容器取用（`context.container.get(name)`）。MUST NOT 依赖 `context` 自身的 `get` —— 该对象是 `bootstrap/phase1-context.js` 的分组 Proxy（`{infra, services, windows, pipelines}`），只暴露 `container` 字段。任何一项依赖缺失 MUST 只降级对应通道并留 warn 日志，MUST NOT 让整个 IPC 注册失败。
+
+装配期接线的三个形状 MUST 与消费方一致，且 MUST 有回归锁：
+
+1. `creatorCollector` MUST 暴露 `resolveChannelId`（`creator:follow` 的唯一解析入口）；
+2. `creatorCredentialProvider` MUST 注册（容器 `get` 对未注册名**抛错**，不是返回 `undefined`）；
+3. 采集器的 `credentialProvider` MUST 是返回 `{ apiKey, pythonBridge } | null` 的**函数**，MUST NOT 直接传 provider 对象。
+
+#### Scenario: 容器缺项只降级不抛
+
+- **WHEN** 容器未注册任一 creator 依赖
+- **THEN** 其余 IPC 通道照常注册，creator 通道返回 `reason: 'service-unavailable'` 且日志有 warn，MUST NOT 抛出
+
+#### Scenario: 采集器替身不得自造方法
+
+- **WHEN** 端到端测试使用采集器替身
+- **THEN** 替身的方法集 MUST 是真实 `createCreatorCollector` 返回对象的子集，MUST NOT 出现「替身有、真实没有」的方法（否则会把不可用的功能测成可用）
+
+### Requirement: 服务未就绪与依赖缺失必须分因
+
+`reason: 'service-unavailable'`（主进程服务未装配 ⇒ 重启应用）与**可选依赖缺失**（正文/字幕增强腿缺 Python 包 ⇒ 装包）SHALL 是两条互斥的提示路径。渲染层 MUST 按 `reason` 选文案，MUST NOT 用同一句话承载两种处置。
+
+依赖状态 SHALL 由只读通道 `creator:dependency-status` 提供，分两腿回报：发现腿（Node 内置 https + Data API，MUST 无第三方包依赖）与正文腿（Python `content-aggregator`，MUST 标记 `optional: true`）。正文腿缺失 MUST NOT 阻塞发现与采集，MUST 在界面上如实告知质量降级并给出确切安装命令。
+
+`{command}` 类占位符 MUST NOT 以空串渲染 —— 无命令可给时 MUST 换成不含占位符的文案。
+
+#### Scenario: 服务未就绪不得显示为依赖缺失
+
+- **WHEN** creator 通道返回 `service-unavailable`
+- **THEN** 界面显示「服务未就绪 + 重试」，MUST NOT 显示「缺少采集依赖。请执行：」
+
+#### Scenario: 可选依赖缺失只作非阻塞提示
+
+- **WHEN** Python 后端桥不在运行
+- **THEN** 发现与采集仍可用，界面显示字幕增强不可用及安装命令，MUST NOT 因此禁用功能
+
+### Requirement: 添加博主的入口与交互
+
+「添加博主」MUST 走应用内弹窗。MUST NOT 使用 `window.prompt` —— Electron 渲染进程不支持它（调用即抛 `prompt() is and will not be supported`），会使该入口**整条不存在**。
+
+输入校验 SHALL 分层：渲染层只负责「非空」与「≤512 字符」，形态判定（链接 / `@handle` / `UC…` ID）MUST 复用主进程 `parseChannelInput` 的单一实现，MUST NOT 在渲染层再写一份猜测逻辑。
+
+关注成功后 MUST **立即执行首次探测**（`fetch_transcript=False`），MUST NOT 让用户等到下一个巡检周期才看到结果。失败 MUST 按领域 `reason` 分因提示（格式 / 不是频道 / 频道不存在 / 凭证缺失），凭证缺失 MUST 直接打开凭证配置弹窗。
+
+#### Scenario: 弹窗而不是系统 prompt
+
+- **WHEN** 用户点击「关注」
+- **THEN** 打开应用内弹窗并聚焦输入框，MUST NOT 调用 `window.prompt`
+
+#### Scenario: 超长输入不静默截断
+
+- **WHEN** 粘贴内容超过 512 字符
+- **THEN** 提交时给出内联错误且不发请求，MUST NOT 截断后提交、MUST NOT 让按钮无反应
+
+#### Scenario: 添加后立即检查
+
+- **WHEN** 频道解析成功并落库
+- **THEN** 系统立即对该关注项执行一次探测（不取正文），待采集角标随之更新
+
+### Requirement: 凭证配置的可见入口
+
+系统 SHALL 在博主监控页提供凭证明文写入入口，并以 PRD §7.4 的四种状态（未配置 / 密钥库不可用 / 已保存但无法解密 / 已配置）展示当前状态。已配置时展示末四位指纹。
+
+文案 MUST NOT 引导用户去不存在的位置（如「请在设置中填写」而设置页并无该字段）。保存成功后 MUST 清空输入框并立即刷新状态；写入通道 MUST 受 sender 守卫，MUST NOT 被外部页面调用。
+
+形态提示 SHALL 非阻塞：值不匹配 Google API Key 现行前缀时 SHOULD 提示核对，MUST NOT 据此拒绝保存。
+
+#### Scenario: 入口可达
+
+- **WHEN** 用户处于「未配置」状态
+- **THEN** 页面显示横幅与「配置 API Key」按钮，点击后打开写入弹窗
+
+#### Scenario: 写入通道受守卫
+
+- **WHEN** 非可信来源调用凭证写入通道
+- **THEN** 请求在业务逻辑之前被拒绝，明文 MUST NOT 进入任何业务函数

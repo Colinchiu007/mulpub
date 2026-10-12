@@ -72,9 +72,20 @@ function stubDeps (over = {}) {
 }
 
 const CHANNELS = [
-  'creator:list', 'creator:follow', 'creator:unfollow', 'creator:toggle',
+  'creator:list', 'creator:pending-total', 'creator:follow', 'creator:unfollow', 'creator:toggle',
   'creator:check-now', 'creator:discoveries', 'creator:collect',
-  'creator:collect-one', 'creator:skip-one',
+  'creator:collect-one', 'creator:skip-one', 'creator:send-to-writer',
+  // 2026-10-12 新增：凭证（读/写/清）与依赖状态。**必须**列进同一份清单——
+  // 漏一个的后果是渲染层收到 Electron 原生的 "No handler registered"。
+  'creator:credential-status', 'creator:credential-set', 'creator:credential-clear',
+  'creator:dependency-status',
+]
+
+/** 依赖缺失时走降级注册的那一批（凭证与依赖状态**不**降级，见 registerHandlers 注释） */
+const DEGRADED_CHANNELS = [
+  'creator:list', 'creator:pending-total', 'creator:follow', 'creator:unfollow', 'creator:toggle',
+  'creator:check-now', 'creator:discoveries', 'creator:collect',
+  'creator:collect-one', 'creator:skip-one', 'creator:send-to-writer',
 ]
 
 describe('creator IPC · 通道注册', () => {
@@ -96,6 +107,24 @@ describe('creator IPC · 通道注册', () => {
     const r = await ipc._get('creator:collect')({}, {})
     expect(r.reason).toBe('service-unavailable')
   })
+
+  it('creator:pending-total 也必须降级注册（父组件页签角标的读通道，漏了会在采集页报 No handler）', async () => {
+    const ipc = createMockIpcMain()
+    registerHandlers(ipc, { log: { warn: () => {}, error: () => {} } })
+    const r = await ipc._get('creator:pending-total')({}, undefined)
+    expect(r.reason).toBe('service-unavailable')
+    expect(r.channel).toBe('creator:pending-total')
+  })
+
+  it.each(DEGRADED_CHANNELS)('降级消息只谈「服务未就绪」，不谈「缺少采集依赖」（%s）', async (channel) => {
+    const ipc = createMockIpcMain()
+    registerHandlers(ipc, { log: { warn: () => {}, error: () => {} } })
+    const r = await ipc._get(channel)({}, {})
+    // 旧版渲染层把 service-unavailable 显示成「缺少采集依赖。请执行：」（命令位为空），
+    // 把用户引向与真因无关的排查路径（重启应用 vs 装 Python 包）。
+    expect(r.message).not.toContain('依赖')
+    expect(r.message).toContain('未就绪')
+  })
 })
 
 describe('creator IPC · 博主列表', () => {
@@ -106,6 +135,93 @@ describe('creator IPC · 博主列表', () => {
     expect(r.items).toHaveLength(2)
     expect(r.items[0].pendingCount).toBe(3)
     expect(r.totalPending).toBe(3)
+  })
+})
+
+describe('creator IPC · 凭证通道（读方向永不回传明文）', () => {
+  function stubCredential (over = {}) {
+    return {
+      status: () => ({ status: 'not_configured' }),
+      getApiKey: () => null,
+      setApiKey: (key) => ({ ok: true, status: 'ok', fingerprint: 'ab12', looksLikeGoogleKey: true, _key: key }),
+      clear: () => ({ ok: true, status: 'not_configured' }),
+      ...over,
+    }
+  }
+
+  it('status 只透出 status 与 fingerprint，不回传 key', async () => {
+    const ipc = createMockIpcMain()
+    registerHandlers(ipc, stubDeps({ creatorCredential: stubCredential({ status: () => ({ status: 'ok', fingerprint: 'ab12' }) }) }))
+    const r = await ipc._get('creator:credential-status')({}, undefined)
+    expect(r).toEqual({ code: 0, status: 'ok', fingerprint: 'ab12' })
+  })
+
+  it('凭证服务未接线时如实报 unavailable，而不是假装「未配置」', async () => {
+    const ipc = createMockIpcMain()
+    registerHandlers(ipc, stubDeps())
+    const r = await ipc._get('creator:credential-status')({}, undefined)
+    expect(r.status).toBe('unavailable')
+    expect(r.reason).toBe('credential-service-unavailable')
+  })
+
+  it('保存成功透出 fingerprint 与形态提示', async () => {
+    const ipc = createMockIpcMain()
+    const seen = []
+    registerHandlers(ipc, stubDeps({ creatorCredential: stubCredential({ setApiKey: (k) => { seen.push(k); return { ok: true, status: 'ok', fingerprint: 'cd34', looksLikeGoogleKey: false } } }) }))
+    const r = await ipc._get('creator:credential-set')({}, { key: 'AIza-example' })
+    expect(seen).toEqual(['AIza-example'])
+    expect(r.code).toBe(0)
+    expect(r.fingerprint).toBe('cd34')
+    expect(r.looksLikeGoogleKey).toBe(false)
+  })
+
+  it.each([
+    ['empty', 'creator:credential_invalid'],
+    ['too_short', 'creator:credential_invalid'],
+    ['safeStorage-unavailable', 'creator:credential_unavailable'],
+    ['store-unavailable', 'creator:credential_unavailable'],
+    ['persist-failed', 'creator:credential_persist_failed'],
+  ])('保存失败按三类分因（%s → %s），并保留 detail 供日志定位', async (detail, expected) => {
+    const ipc = createMockIpcMain()
+    registerHandlers(ipc, stubDeps({ creatorCredential: stubCredential({ setApiKey: () => ({ ok: false, status: 'not_configured', reason: detail }) }) }))
+    const r = await ipc._get('creator:credential-set')({}, { key: 'x' })
+    expect(r.reason).toBe(expected)
+    expect(r.detail).toBe(detail)
+  })
+
+  it('清除通道返回新状态', async () => {
+    const ipc = createMockIpcMain()
+    registerHandlers(ipc, stubDeps({ creatorCredential: stubCredential() }))
+    const r = await ipc._get('creator:credential-clear')({}, undefined)
+    expect(r).toEqual({ code: 0, status: 'not_configured' })
+  })
+})
+
+describe('creator IPC · 依赖状态（发现腿 vs 可选字幕腿）', () => {
+  it('接线齐全且桥在跑：两腿都 ready，且字幕腿标记为 optional', async () => {
+    const ipc = createMockIpcMain()
+    registerHandlers(ipc, stubDeps({ pythonBridge: { isRunning: () => true } }))
+    const r = await ipc._get('creator:dependency-status')({}, undefined)
+    expect(r.discovery.ready).toBe(true)
+    expect(r.transcript).toEqual({ ready: true, optional: true, reason: '', installHint: '' })
+  })
+
+  it('桥不在跑：发现腿仍 ready（字幕缺失**不**阻塞采集），字幕腿给出安装命令', async () => {
+    const ipc = createMockIpcMain()
+    registerHandlers(ipc, stubDeps({ pythonBridge: { isRunning: () => false } }))
+    const r = await ipc._get('creator:dependency-status')({}, undefined)
+    expect(r.discovery.ready).toBe(true)
+    expect(r.transcript.ready).toBe(false)
+    expect(r.transcript.installHint).toContain('pip install content-aggregator')
+  })
+
+  it('接线缺失：发现腿如实报 false（此时才是真阻塞），字幕腿照旧只作提示', async () => {
+    const ipc = createMockIpcMain()
+    registerHandlers(ipc, { log: { warn: () => {}, error: () => {} } })
+    const r = await ipc._get('creator:dependency-status')({}, undefined)
+    expect(r.discovery.ready).toBe(false)
+    expect(r.discovery.reason).toBe('service-unavailable')
+    expect(r.transcript.optional).toBe(true)
   })
 })
 
@@ -337,11 +453,28 @@ describe('creator IPC · sender 守卫（2026-10-07 CCG 评审 i6/Gate 17）', (
   })
 
   it.each([
-    'creator:list', 'creator:follow', 'creator:unfollow', 'creator:toggle',
+    'creator:list', 'creator:pending-total', 'creator:follow', 'creator:unfollow', 'creator:toggle',
     'creator:check-now', 'creator:discoveries', 'creator:collect',
     'creator:collect-one', 'creator:skip-one', 'creator:send-to-writer',
+    'creator:credential-status', 'creator:credential-set', 'creator:credential-clear',
+    'creator:dependency-status',
   ])('%s 同样受守卫覆盖（逐条防「漏加一个」）', async (channel) => {
     const r = await mount()._get(channel)(HOSTILE, {})
+    expect(r.code).not.toBe(0)
+  })
+
+  it('凭证写入通道尤其不能被外部页面调用（明文入口）', async () => {
+    const ipc = createMockIpcMain()
+    let called = false
+    registerHandlers(ipc, stubDeps({
+      creatorCredential: {
+        setApiKey: () => { called = true; return { ok: true } },
+        status: () => ({ status: 'ok' }),
+        clear: () => ({ ok: true }),
+      },
+    }))
+    const r = await ipc._get('creator:credential-set')(HOSTILE, { key: 'AIza-legit' })
+    expect(called).toBe(false, '守卫必须在把明文交给业务之前拦下')
     expect(r.code).not.toBe(0)
   })
 

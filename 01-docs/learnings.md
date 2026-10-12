@@ -1,3 +1,50 @@
+## 接线三处缺陷同时并存：容器 `get` 抛错兜不住、分组 Proxy 直取恒 undefined、夹具替被依赖方「造方法」（creator-monitor-depfix，2026-10-12）
+
+- **现场**：采集页「博主监控」打开后只有一行**「缺少采集依赖。请执行：」**（冒号后为空），列表恒空；点「关注」**毫无反应**；全应用**无处**填 YouTube API Key。
+  四条现象里 1 与 3 是**两个互不相关的缺陷**，只是同时出现，极易被当成一个问题排查。
+- **根因（三个独立成因，任一个都足以让功能完全不可用，且互相掩盖）**：
+  1. **取值路径写错**：`phase5-ipc.js` 写 `typeof context.get === 'function' ? context.get(n) : undefined`，
+     而 `context` 是 `bootstrap/phase1-context.js` 的分组 Proxy（`{infra,services,windows,pipelines}`）——
+     **它没有 `get`，只有 `context.container`**。于是该三元**恒假**，三个 creator 服务全 `undefined`，
+     `ipc-handlers/creator.js` 判定依赖缺失 ⇒ **11 个通道全部注册为降级** ⇒ 渲染层拿到 `service-unavailable`。
+  2. **「可选注册项」的兜底写在注释里、没写进代码**：`container.setup.creator.js` 写
+     `c.get('creatorCredentialProvider') || (() => null)`，而该服务**从未注册**。容器 `get` 对未注册名是**抛错**
+     （`core/container.js:78`），`||` 兜不住抛错 ⇒ 解析 `creatorCollector` 即抛 ⇒ `creatorRuntime` 一并失败。
+     **这是与 1 并列的第二个降级成因：只修 1 仍然整页不可用。**
+  3. **采集器缺 handler 一直在调的方法**：`creator:follow` 调 `creatorCollector.resolveChannelId`，
+     而 `createCreatorCollector` 只返回 `listPosts`/`collectBody` ⇒ 真机必抛 `undefined is not a function`。
+  4. **文案把用户引向错误的排查路径**：渲染层把 `service-unavailable` 渲染成「缺少采集依赖。请执行：」并传 `command: ''`——
+     「装 Python 包」与「重启应用」是两条完全不同的处置。
+- **逃逸链（逐层，每层原因不同）**：
+  - **单元层**：`phase5-ipc.test.js` 每个用例都传 `context = {}`，且**只**断言既有字段
+    （usageTracker / assetGenerator / serviceBus…），**没有任何用例断言"经容器解析的字段"** ⇒ 成因 1 无覆盖；
+    `creatorCredentialProvider` **零引用**（连名字都没出现过）⇒ 成因 2 无覆盖。
+  - **端到端层**：`creator-wiring.e2e.test.js` 的 `stubCollector()` **手搓了 `resolveChannelId`** ⇒
+    成因 3 被夹具伪装成「可用」而全绿。
+  - **文案层**：`{command}` 的取值来源（`probeDependency().installHint`）本身就是死代码（见下），
+    「命令从哪来」在实现期没有答案，传 `''` 成了唯一能让 lint + 测试都过的写法。
+- **口径（可复用的四条）**：
+  1. **「配置里写了名字」≠「容器里有这个服务」**：容器 `get` 对未注册名**抛错**，`|| fallback` 只能兜 `undefined`。
+     凡是"可选依赖"，兜底必须落在**能捕获抛错**的位置（`try/catch`），并配一条「删掉注册项后仍能构造」的用例。
+  2. **分组 Proxy 上的直取会静默得到 `undefined`**：`typeof x.get === 'function' ? … : undefined` 这类
+     「防御式三元」会把一个**恒假**条件伪装成兼容分支，代价是整页不可用而日志只有一行 warn。
+     正解是**行为锁**：用真实形状的 `context`（`{ container: { get } }`）断言依赖到位，而不是只测既有字段。
+  3. **夹具会「替被依赖方造方法」**（本仓同族教训的第四种落点：不是剥壳、不是改签名、不是按想象收参数，
+     而是**凭空多出一个方法**）：替身的方法集必须是真实对象方法集的**子集**，且这条对账要机械跑
+     （`Object.keys(stub)` 逐个 `expect(typeof real[m])`）。
+  4. **文案是接口的一部分**：带占位符的文案 MUST NOT 用空串渲染；有多个语义不同原因时 MUST 按 `reason` 分因，
+     每个 reason 只对应一条语义明确的文案来源。
+- **顺带修掉的两个「死路」**（都是"看起来有入口、实际不存在"）：
+  - `window.prompt` **在 Electron 渲染进程不可用**（调用即抛 `prompt() is and will not be supported`），
+    旧「关注」入口因此**整条不存在**；同族形态是"抛在 async 里 → 变成未处理 rejection → 界面毫无反应"。
+  - 文案让用户「请在设置中填写 API Key」，而设置页**没有这个字段** ⇒ 指引必须与真实入口同源，
+    本次新增的凭证弹窗同时修掉文案与实现两侧。
+- **更坏的一种探针：恒 false 的依赖探测**。旧 `probeDependency()` 用 Node 的
+  `require('content_aggregator.sources.collectors.youtube_collector')` 去探测依赖——`content_aggregator` 是
+  **Python** 包，Node `require` 永远解析不到，该函数**恒返回 `ready:false`**。它当时没有生产调用点，
+  所以只烂在测试里；**一旦接上就是"依赖永远缺失"的永久假告警，比不报还坏**。
+  口径：探测只能回答**本侧真能回答**的问题；两侧确实不可区分时，如实声明不可区分，不假装已确诊。
+
 ## 闸门前置会把表条目变成「不可达死条目」，而注释往往恰好举了那条死条目当理由（hot-topics-multi-source，2026-10-12）
 
 - **现场**：分类器 v3 新增 `DOMAIN_LEVEL_RAW` 域级泛称集合后，`_mapNative` 在**查表之前**就把这些 key 短路成 `null`。
