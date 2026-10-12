@@ -86,3 +86,19 @@ export function removeTopicFromContent (content, name) {
     return ''
   })
 }
+
+/**
+ * 「#添加话题」按钮（topic-tag-unify，PRD §4.2）：仅在描述末尾追加一个 `#`
+ * 字符并返回新文本，话题名由用户自己接着输入（发布时 extractInlineTopics 收口）。
+ * - 末尾已是孤立 `#`（或只有 `#`）时不重复追加，避免产生 `##`
+ * - 非空且尾部无空白时先补一个分隔空格（`正文 #`）
+ * - 末尾是完整话题（`#话题名`）时正常追加，支持连续添加多个话题
+ * @param {string} content 描述文本
+ * @returns {string} 新描述文本
+ */
+export function appendHashToContent (content) {
+  const text = String(content == null ? '' : content)
+  if (/(^|\s)#$/.test(text)) return text
+  const separator = text && !/\s$/.test(text) ? ' ' : ''
+  return text + separator + '#'
+}

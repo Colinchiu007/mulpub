@@ -48,5 +48,11 @@
     "reason": "本回填 PR 合并后由后续 docs PR 回填 PASS + merge SHA 并删除本条登记",
     "status": "PENDING",
     "line": 5
+  },
+  "本次执行记录：话题标签统一 + #添加话题 + 常用话题标签管理（topic-tag-unify，2026-10-12）【混合 PR】": {
+    "pr": 3424,
+    "branch": "topic-tag-unify",
+    "registeredAt": "2026-10-12T10:27:57.115Z",
+    "reason": "PR #3424 CI 跑行中，合并后同次提交回填 PASS + merge SHA 并删除本登记项"
   }
 }
