@@ -71,6 +71,8 @@ export const PLATFORM_LOGIN_SUCCESS_SELECTORS: Record<string, string>;
 export const PLATFORM_LOGIN_SUCCESS_PATTERNS: Record<string, string>;
 export const QR_CODE_PLATFORMS: string[];
 export const PLATFORM_DASHBOARD_URLS: Record<string, string>;
+/** 素材来源 URL（采集页「去哪找素材」入口），与创作者后台语义独立 */
+export const PLATFORM_SOURCE_URLS: Record<string, string>;
 export function getPlatformName(id: string): string;
 
 export default class PlatformConfig {

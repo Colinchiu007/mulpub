@@ -407,6 +407,37 @@ const { PLATFORM_NAMES, PLATFORM_ICONS } = require('./platform-display-definitio
 // ─── 支持二维码登录的平台列表 ─────────────────
 const QR_CODE_PLATFORMS = ['wechat_mp', 'tencent_video', 'zhihu', 'weibo', 'toutiao', 'kuaishou']
 
+// ─── 素材来源 URL（采集页「去哪找素材」快捷入口专用）─────────────────────
+//
+// ⚠ 语义独立，禁止与 PLATFORM_DASHBOARD_URLS 合并或互相引用。
+// PLATFORM_DASHBOARD_URLS 是「创作者后台/发布目的地」，同时被三处复用：
+//   ① Accounts.vue 卡片点击 → openCreatorCenter（开创作者中心）
+//   ② electron/publishers/http-login-checker.js（用 PLATFORM_DASHBOARD_URLS.zhihu
+//      作登录态 DOM 校验的目标页）
+//   ③ electron/publishers/account-manager.js（goto 目标）
+// 改这张表会连带改变登录态判定与创作者中心入口，因此「找素材」必须是另一张表。
+//
+// 取值口径：这里是「热门选题素材来源」，即用户在浏览器里能浏览别人内容、
+// 挑选题的地方；不是自己发内容的地方。
+//
+// 2026-10-12 实测（web_fetch 纯 HTTP，无 UA/无 Cookie/不执行 JS）：
+//   · 微博：weibo.com/ 与 s.weibo.com/** 一律 302 → passport.weibo.com →
+//     login.sina.com.cn，属**服务端强制登录墙**。s.weibo.com/top/summary 相对
+//     裸首页语义正确（热搜榜 vs 消费端信息流），但**登录墙不变** —— 用户点开
+//     仍会被要求登录。不要以为换 URL 能绕过登录。
+//   · 知乎：www.zhihu.com/hot 返回 403（反爬拦截，裸首页同样 403，故 403 ≠ 失效）；
+//     www.zhihu.com/creator 已确证强制登录（302 → /signin?next=%2Fcreator）。
+//     取 /hot 是因为它是热榜，语义远优于首页推荐流。
+//   · 今日头条：mp.toutiao.com 实测 200 → 重定向 profile_v4，是**头条号创作后台**
+//     （发布目的地），放在「素材来源」里属分类错误，故改为消费端热榜页。
+//     www.toutiao.com/hot/ 实测 404（不可用）；hot-event/hot-board 需带
+//     origin 参数才返回数据，缺参则 {"status":"fail","message":"parameter err"}。
+const PLATFORM_SOURCE_URLS = {
+  weibo: 'https://s.weibo.com/top/summary',
+  zhihu: 'https://www.zhihu.com/hot',
+  toutiao: 'https://www.toutiao.com/hot-event/hot-board/?origin=toutiao_pc',
+}
+
 /**
  * 获取平台显示名称
  * @param {string} platform
@@ -419,6 +450,7 @@ function getPlatformName(platform) {
 module.exports = {
   PLATFORM_LOGIN_URLS,
   PLATFORM_DASHBOARD_URLS,
+  PLATFORM_SOURCE_URLS,
   PLATFORM_LOGIN_SUCCESS_PATTERNS,
   PLATFORM_AUTH_HOSTS,
   PLATFORM_COOKIE_DOMAINS,

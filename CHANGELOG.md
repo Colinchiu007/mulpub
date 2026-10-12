@@ -77,6 +77,62 @@
 - 新增 apps/desktop/electron/services/podcast-episode-tts-adapters.js：createGenerateTTS / createVoiceReaders / createConcatBlocks / createProbeImpl 四个生产工厂，把 §7.4.8 编排层的注入参数接成真实现；未接宿主，不改既有行为。
 - PRD 新增 §7.4.9：四工厂的入参契约、fail-closed 校验表、三条不可让（降级不当成功、键名双给、零隐式出站），以及本片不新增 locale 键的理由。
 - 回归锁 16 条 + 变异反证 M1（未知形状当成功 ⇒ 恰好 1 条指名红）。
+# [未发布] feat(collection): 草稿箱独立标签页 + 素材来源入口修正（collection-drafts-tab）
+
+### 用户感知
+
+采集页新增「草稿箱」标签页（位于「快捷采集」与「文案库」之间），底部快捷区在「剪贴板导入」后
+新增「草稿箱」按钮。此前草稿只以小标题挂在采集页底部，要翻过 URL 采集、批量采集、知乎收藏夹
+三大块才能看到。
+
+**更重要的修复**：此前应用里有两套草稿写入方言，而它们**物理落在同一行存储**
+（均为 `scopedSettingKey('drafts', owner)`，即 `user:<ns>:drafts`），互相污染：
+
+| 现象 | 根因 |
+|---|---|
+| 发布页存的草稿出现在采集页，**时间显示空白** | 发布页写 ISO `createdAt`，采集页读 `created_at` |
+| 采集页存的草稿在发布页显示 **0 个平台** | 采集页草稿不写 `platforms` |
+| 同内容草稿**互相合并覆盖** | `computeDraftFingerprint` 只算标题+正文，两侧同内容即命中幂等 |
+
+现已统一：写入一律走 `draftSave`、读取一律走 `draftList`，读取侧兼容历史 `created_at`。
+
+### 素材来源入口修正
+
+微博/知乎/今日头条三个快捷按钮此前取 `PLATFORM_DASHBOARD_URLS`（创作者后台），
+与按钮「素材从哪来」的语义相反。新增语义独立的 `PLATFORM_SOURCE_URLS`：
+
+| 平台 | 旧值（实测） | 新值 |
+|---|---|---|
+| 微博 | `weibo.com/` 消费端信息流 | `s.weibo.com/top/summary`（热搜榜） |
+| 知乎 | `zhihu.com/` 消费端推荐流 | `zhihu.com/hot`（热榜） |
+| 今日头条 | `mp.toutiao.com/` **头条号创作后台**（分类错误） | `toutiao.com/hot-event/hot-board/?origin=toutiao_pc` |
+
+**为什么不改 `PLATFORM_DASHBOARD_URLS` 本身**：它被 `Accounts.vue`（开创作者中心）、
+`http-login-checker.js`（登录态 DOM 校验目标页）、`account-manager.js` 复用，
+改它会连带破坏登录态判定。
+
+**两条如实记录的取证边界**：微博 `s.weibo.com/**` 全系 302 到登录（服务端强制登录墙），
+换 URL 只改语义、不改登录要求；知乎 `/hot` 对抓取器 403 是反爬而非失效，
+真人浏览器是否免登录**未证实**，需上线前人工确认。
+
+### 实现要点
+
+- `Collection.vue` 是 `check-max-lines` 零容差点名文件（2920 行），所有新逻辑收入
+  `features/collection/CollectionDraftsTab.vue` / `CollectionDraftsPanel.vue` /
+  `useSourceEntry.js` / `composables/useCollectionDrafts.js`，主文件净增 0 行。
+- 前端不再自造草稿 id（旧写法会让 `draftSave` 指纹幂等失效），id 由主进程决定。
+- 读取失败**不得**伪装成「暂无草稿」——把「读不到」显示成「你没有草稿」会让用户以为数据丢了。
+- `allowEmpty` 是仅供「新建空白草稿」的窄口子：全空内容在主进程算同一个
+  `EMPTY_FINGERPRINT`，不开口子则永远只能有一份空白草稿。
+- `createFromItem` 改 async（原同步调用 async 会造成「已保存但没跳转」竞态）。
+
+### 验证
+
+- 新增 25 条回归锁（`useCollectionDrafts.test.js` 17 条、`useSourceEntry.test.js` 8 条），
+  含「素材来源不得退化回创作者后台」「数组字段回落 []」「两种时间字段混排排序」等防再犯锁。
+- `Collection.test.js` 119 条按新契约更新并全绿；`check-max-lines` 通过（2920 行）；
+  `check-locale-sync --keys` 通过（1890 key）。
+- 文档：新增 `01-docs/PRD-COLLECTION-DRAFTS-TAB-2026-10-12.md`（V1~V15 / A1~A15）。
 # [未发布] feat(podcast): 刀 4 第 3 片·上半 音色解析层（podcast-tts-voice）
 
 - 新增 `apps/desktop/electron/services/podcast-tts-voice.js`：一期播客的音色解析层——频道 `voiceRef` → 用户偏好 → capability 级 `defaultVoiceId` 的固定四步回退链，三层全空一律**拒绝出期**（`PODCAST_TTS_VOICE_UNRESOLVED`），不得由代码替用户猜一个音色。
