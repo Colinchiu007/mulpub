@@ -1,0 +1,12 @@
+# shardflag 修复后真机验收产物（head ba20ddb73 / run 38154770929，2026-10-12 采集）
+# jobs: 114515446046 (1/2, 16:16:56Z->16:34:08Z = 17m12s, success)  114515446124 (2/2, 16:16:57Z->16:26:53Z = 9m56s, success)
+# vitest 自报汇总：(1/2) Test Files  437 passed (437)   (2/2) Test Files  436 passed | 1 skipped (437)
+# 对照修复前同一判据：run 38143550282 两腿 873/873、交集 873、两侧独有 0
+# 日志取法：gh api --allow-escape-sequences repos/Colinchiu007/mulpub/actions/jobs/<id>/logs
+LEG=D:/tmp/new-job-114515446046.log reporter_lines=11081 distinct_test_files=437
+LEG=D:/tmp/new-job-114515446124.log reporter_lines=9948 distinct_test_files=437
+INTERSECTION=0
+ONLY_IN_FIRST=437 e.g. src/views/CreateView.test.js , electron/services/story2video-stages.test.js , electron/services/story2video-compose-engine.test.js , src/views/ResultView.test.js , src/views/Publish.test.js
+ONLY_IN_SECOND=437 e.g. electron/services/story2video-project-service.test.js , src/views/Accounts.test.js , src/views/Collection.test.js , src/composables/usePublishFlow.test.js , src/views/PublishHistory.test.js
+VERDICT=两侧存在独有项 ⇒ 分片确有分开（若这是修复后的 run，这就是分片生效的证据）
+NOTE: distinct_test_files 只统计日志里**实际枚举到**的文件名；与 vitest 自报的 Test Files 总数可能相差（汇总行本身不含文件名、被跳过的文件不逐条打印），因此本探针的判据是"两侧独有项是否为 0"，不是"数量等于某值"。

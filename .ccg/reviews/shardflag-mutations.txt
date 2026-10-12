@@ -1,0 +1,112 @@
+# shardflag 变异反证原件
+# head=e944b913ffc069ca64299c376fed78027737a788 branch=desktop-shard-flag
+# node=v24.19.0 collectedAt=2026-10-12T15:07:12.122Z
+# 注：本原件运行时 worktree 尚有未提交改动，head 只标识仓库基线；逐字节现场见 git status 与 PR diff。
+
+== A 把裸 "--" 塞回 -ArgumentList（历史缺陷形态本身，不是"摘掉守卫"）
+   file=.github/workflows/quality-gate.yml
+   from="              \"--shard=${{ matrix.shard }}\","
+   to  ="              \"--\",\r\n              \"--shard=${{ matrix.shard }}\","
+   想证明=规则明文禁止的正是这个形态本身；同时应当红结构层与行为层（两处判据独立成立）
+   want=red fail=2 pass=12/14 预期那条锁红了=true restored=bytes_equal
+   red: ✖ 结构层：workflow 的 shard 实参里没有裸 "--"，且 --shard 还在 | ✖ 行为层：真的跑一次 pnpm，被调用方自己承认收到了 --shard
+
+== B 去掉 --shard 旗标（分片整个不见了也必须红）
+   file=.github/workflows/quality-gate.yml
+   from="              \"--shard=${{ matrix.shard }}\","
+   to  ="              \"--maxWorkers=9\","
+   想证明=A 证"不许有 --"，B 证"必须有 --shard"，只钉一条会留下"旗标被人删掉也照绿"的洞
+   want=red fail=3 pass=11/14 预期那条锁红了=true restored=bytes_equal
+   red: ✖ 结构层：workflow 的 shard 实参里没有裸 "--"，且 --shard 还在 | ✖ 行为层：真的跑一次 pnpm，被调用方自己承认收到了 --shard | ✖ 锚点不得被说明文字劫持：注释里原样写出 -ArgumentList @(...) 时，判据仍取真实代码块
+
+== C 让负控变盲（探针永远"看不见那个 --"）
+   file=scripts/check-desktop-shard-forwarding.js
+   from="  if (control && !control.includes('--')) {"
+   to  ="  if (false && control && !control.includes('--')) {"
+   想证明=行为层两条断言的可信度全靠这条负控；把它改成 no-op 必须有人出声，否则"探针没眼睛"这件事本身不可见
+   want=red fail=1 pass=13/14 预期那条锁红了=true restored=bytes_equal
+   red: ✖ 负控失效必须出声：探针不再把 "--" 送进去时 check() 必须判红（否则行为层两条断言是恒真的）
+
+== D 让行为层探针退化成空 argv（读不到被调用方却继续往下判）
+   file=scripts/check-desktop-shard-forwarding.js
+   from="    return JSON.parse(m[1])"
+   to  ="    return [] // MUT-D 探针失明也不出声"
+   想证明=解析退化成空集合 ⇒ 断言恒真，是"装饰性门禁"的经典形态；必须红
+   want=red fail=3 pass=11/14 预期那条锁红了=true restored=bytes_equal
+   red: ✖ 行为层：真的跑一次 pnpm，被调用方自己承认收到了 --shard | ✖ 负控：把坏形态塞进去，探针必须真的看见那个 "--"（否则上一条断言是恒真的） | ✖ 合规形态必须为绿：七个 vitest 旗标全部原样送达，不得被 pnpm 吃掉任何一个
+
+== E 把 check() 的默认探针换成原样回吐（注入缝开成的后门）
+   file=scripts/check-desktop-shard-forwarding.js
+   from="probe = runArgv, semantics = runShardSemantics } = {}) {"
+   to  ="probe = (a) => a, semantics = () => ({ total: 4, legA: ['a', 'b'], legB: ['c', 'd'] }) } = {}) { // MUT-E"
+   想证明=C 需要 probe 注入缝才可离线构造；缝本身必须是可锁的，否则"默认真链路"这件事没有东西在看
+   want=red fail=1 pass=13/14 预期那条锁红了=true restored=bytes_equal
+   red: ✖ 行为层：真的跑一次 pnpm，被调用方自己承认收到了 --shard
+
+== G 把注释插回反引号续行之后（本 PR 自己踩到的第二落点，原样复现）
+   file=.github/workflows/quality-gate.yml
+   from="          $testProcess = Start-Process -FilePath \"pnpm.cmd\" `\r\n            -ArgumentList @("
+   to  ="          $testProcess = Start-Process -FilePath \"pnpm.cmd\" `\r\n              # 变异 G：说明文字插在了续行中间\r\n            -ArgumentList @("
+   想证明=这不是"摘掉守卫"，而是把真实发生过的缺陷形态写回实现：pwsh 解析器对它一个错都不报（三态实测 PARSE_ERRORS=0），只有 CommandAst 的 extent 从 334 塌成 34 —— 所以必须有这条文本级判据，且它的反证必须用原形态
+   want=red fail=2 pass=12/14 预期那条锁红了=true restored=bytes_equal
+   red: ✖ 行为层：真的跑一次 pnpm，被调用方自己承认收到了 --shard | ✖ 第二落点：全仓 workflow 里"反引号续行的下一行是注释"必须 0 命中
+
+== H 让 parseShardArgv 不再抹空注释行（锚点会被说明文字劫持）
+   file=scripts/check-desktop-shard-forwarding.js
+   from="map((l) => (/^\\s*#/.test(l) ? '' : l))"
+   to  ="map((l) => l)"
+   想证明=本轮真实事故：workflow 里一句原样写了 `-ArgumentList @(...)` 的注释让惰性正则从注释起锚，把 -FilePath "pnpm.cmd" 也收进实参 —— 锁不报错但开始测错的东西
+   want=red fail=2 pass=12/14 预期那条锁红了=true restored=bytes_equal
+   red: ✖ 合规形态必须为绿：七个 vitest 旗标全部原样送达，不得被 pnpm 吃掉任何一个 | ✖ 锚点不得被说明文字劫持：注释里原样写出 -ArgumentList @(...) 时，判据仍取真实代码块
+
+== I 让续行扫描判据恒假（永远返回空命中）
+   file=scripts/check-desktop-shard-forwarding.js
+   from="  return hits"
+   to  ="  return [] // MUT-I 判据恒假"
+   想证明=G 只能证明"真实 workflow 上"能红；这一条证明判据函数本身不是恒假（坏样本必须命中）
+   want=red fail=2 pass=12/14 预期那条锁红了=true restored=bytes_equal
+   red: ✖ 第二落点的判据本身：坏形态必须命中，散文里的行内代码闭合不得命中 | ✖ 字符串内行尾反引号也算命中（实测它是硬语法错，不是假阳）
+
+== J 摘掉语义层的"重叠"判据（两腿跑同一批文件也必须出声）
+   file=scripts/check-desktop-shard-forwarding.js
+   from="    if (inter.length) {"
+   to  ="    if (false && inter.length) { // MUT-J"
+   想证明=语义层是本轮答复"探针只证送到、不证切分"的那一层；它的核心出口是重叠检测，摘掉必须红
+   want=red fail=1 pass=13/14 预期那条锁红了=true restored=bytes_equal
+   red: ✖ 语义层负控：两腿枚举同一批文件时 check() 必须判红（重叠与合计两条都要出声）
+
+== K 摘掉语义层的"合计"判据（分片丢文件这一档）
+   file=scripts/check-desktop-shard-forwarding.js
+   from="    if (legA.length + legB.length !== total) {"
+   to  ="    if (false && legA.length + legB.length !== total) { // MUT-K"
+   想证明=与 J 是两个独立出口：只判重叠会漏掉"两腿各跑一半但合起来不足全量"
+   want=red fail=1 pass=13/14 预期那条锁红了=true restored=bytes_equal
+   red: ✖ 语义层负控：两腿枚举同一批文件时 check() 必须判红（重叠与合计两条都要出声）
+
+== L 摘掉语义层的"空腿=失明"判据
+   file=scripts/check-desktop-shard-forwarding.js
+   from="    if (legA.length === 0 || legB.length === 0) {"
+   to  ="    if (false && (legA.length === 0 || legB.length === 0)) { // MUT-L"
+   想证明=两腿都空时"重叠 0"会伪装成"完美互斥"——解析退化成空集合必须被单独判为失明
+   want=red fail=1 pass=13/14 预期那条锁红了=true restored=bytes_equal
+   red: ✖ 语义层负控：两腿枚举同一批文件时 check() 必须判红（重叠与合计两条都要出声）
+
+== M 把捕获区从惰性改成贪心（跨步骤串台）
+   file=scripts/check-desktop-shard-forwarding.js
+   from="@\\(([\\s\\S]*?)\\)"
+   to  ="@\\(([\\s\\S]*)\\)"
+   想证明=证明"后面再来一个 -ArgumentList @(...) 不得改变解析结果"这条对照真的在测惰性边界
+   want=red fail=1 pass=13/14 预期那条锁红了=true restored=bytes_equal
+   red: ✖ 锚点不串台：真实块之后再来一个 -ArgumentList @(...) 时，仍取分片步骤自己那一组
+
+== F 合规形态必须照绿：往实参里再加一个无关旗标
+   file=.github/workflows/quality-gate.yml
+   from="              \"--teardownTimeout=10000\""
+   to  ="              \"--teardownTimeout=10000\",\r\n              \"--passWithNoTests\""
+   想证明=反向边界：判据禁的是"裸 --"和"缺 --shard"，不是"任何新增实参"。加一个无关旗标必须照绿，否则这条锁会打红下一个合规 PR
+   want=green fail=0 pass=14/14 预期那条锁红了=true restored=bytes_equal
+   red: (none)
+
+== FINAL（未变异）fail=0 pass=14/14
+MUTATION_BAD=0（0 = 12 条必须红的都点名红了、1 条必须绿的没被误伤、且还原后基线照绿）
+BATT_RC=0

@@ -189,6 +189,8 @@ scripts/*.js
 !scripts/compare-scheduler-models.js
 !scripts/gate-budget.js
 !scripts/gate-budget-probe.js
+!scripts/check-desktop-shard-forwarding.js
+!scripts/check-desktop-shard-forwarding.test.js
 screenshot_script*.js
 temp_debug.txt
 coverage/

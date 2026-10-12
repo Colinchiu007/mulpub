@@ -1,0 +1,11 @@
+# shardflag 两腿文件集合对照原件产物
+# run=38143550282 head=1c40cbe4 jobs=114482227951(1/2),114482227997(2/2)
+# 日志取法：gh api --allow-escape-sequences repos/Colinchiu007/mulpub/actions/jobs/<id>/logs
+# collectedAt=2026-10-11T16:03:12Z node=v24.19.0
+LEG=D:/tmp/dsf-job-114482227951.log reporter_lines=21001 distinct_test_files=873
+LEG=D:/tmp/dsf-job-114482227997.log reporter_lines=21002 distinct_test_files=873
+INTERSECTION=873
+ONLY_IN_FIRST=0
+ONLY_IN_SECOND=0
+VERDICT=两侧独有项均为 0 ⇒ 两腿跑的是同一批文件（集合级证据，不是计数巧合）
+NOTE: distinct_test_files 只统计日志里**实际枚举到**的文件名；与 vitest 自报的 Test Files 总数可能相差（汇总行本身不含文件名、被跳过的文件不逐条打印），因此本探针的判据是"两侧独有项是否为 0"，不是"数量等于某值"。
