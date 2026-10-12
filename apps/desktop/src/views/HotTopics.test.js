@@ -298,6 +298,7 @@ describe('HotTopics.vue', () => {
     const goPublish = await runArticleBatchAndGetGoPublish(attached)
     pushSpy.mockClear()
     await goPublish.trigger('click')
+    await flushPromises() // goToDestination 现为 async（回写编辑后跳转）
 
     expect(pushSpy).toHaveBeenCalledTimes(1)
     const target = pushSpy.mock.calls[0][0]

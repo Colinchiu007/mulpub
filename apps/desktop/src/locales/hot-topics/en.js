@@ -34,7 +34,15 @@ export default {
     selectedCount: (ctx) => ctx.named('count') + ' selected',
     createCopy: 'Create copy',
     analyzeAction: 'Analyze',
-    publishBtn: 'Publish',
+    publishBtn: 'Rewrite & Publish',
+    // hot-topics-publish-ux (2026-10-12): single-row publish = one-click rewrite for one topic
+    singlePublishBtn: 'Publish',
+    publishStageRewrite: (ctx) => 'AI rewriting ' + ctx.named('done') + '/' + ctx.named('total'),
+    publishStagePrepare: 'Preparing publish form for you…',
+    // Inline preview / edit (hot-topics-publish-ux 2026-10-12)
+    editPreview: 'Preview / edit rewrite',
+    editCollapse: 'Collapse',
+    editSaveFailed: 'Failed to save your edits. Retry before publishing.',
     useViralLibrary: 'Use Viral Library',
     toPublish: 'Go publish',
     tenThousand: '0k+', // 万缩写（英文按 10k+ 语义展示）

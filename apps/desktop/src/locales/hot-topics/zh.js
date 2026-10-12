@@ -34,7 +34,16 @@ export default {
     selectedCount: (ctx) => '已选 ' + ctx.named('count') + ' 条',
     createCopy: '创作文案',
     analyzeAction: '爆款分析',
-    publishBtn: '一键发布',
+    publishBtn: '改写并发布',
+    // hot-topics-publish-ux（2026-10-12）：单条「发布」按钮 = 单篇一键改写（复用批量队列，队列长度 1）
+    singlePublishBtn: '发布',
+    // 分阶段进度提示（原名 publishProgress 保留兜底，阶段文案更透明：①改写 ②预填）
+    publishStageRewrite: (ctx) => 'AI 改写中 ' + ctx.named('done') + '/' + ctx.named('total'),
+    publishStagePrepare: '正在为你预填发布信息…',
+    // 内联预览/编辑（hot-topics-publish-ux 2026-10-12）
+    editPreview: '预览 / 编辑改写稿',
+    editCollapse: '收起',
+    editSaveFailed: '编辑内容保存失败，请重试后再去发布',
     useViralLibrary: '结合爆款库',
     toPublish: '去发布',
     tenThousand: '万',
