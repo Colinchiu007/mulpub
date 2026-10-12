@@ -2,9 +2,6 @@
 record: hot-topics-throttle-url
 task: 热门选题采集配额治理——限流/熔断键从来源身份改为端点配额、手动刷新节流、状态跨重启落盘
 date: 2026-10-13
-sync_status: PENDING
-sync_reason: 本 PR 合并后由后续回填 PR 回填 PASS + merge SHA，并在同一次提交删除本记录文件的三 sync_ 字段与 gate-record-debt-ledger.json 的登记项
-sync_backfill_owner: hot-topics-throttle-url
 ---
 
 ## 本次执行记录：热门选题采集配额治理（hot-topics-throttle-url，2026-10-13）
@@ -28,4 +25,4 @@ sync_backfill_owner: hot-topics-throttle-url
 | 变异反证 | PASS（附现场教训） | `quotaKeyOf` 变异回「id 作键」→ **5 例当场红**；⚠️ 还原时未先备份 + `-ErrorAction SilentlyContinue` 吞掉路径错误，变异版残留工作区 —— 已沉淀为 learnings（变异前备份到仓库外并核验、还原后哈希比对、覆盖性操作失败必须可见） |
 | QM-6 评审 | 未执行（如实登记） | 行为由 14 例新锁 + 7408 例全量锁定；**不声称跨模型评审通过** |
 | 记忆沉淀 | PASS | `learnings.md` 置顶新增 2 章；gstack `learnings.jsonl` 追加；EverOS add→flush + 读回验证（判据取落盘产物） |
-| 远程同步 | PENDING | 待 PR 合并后回填 PASS + merge SHA，并在**同一次提交**删除本文件三 sync_ 字段与 ledger 登记项 |
+| 远程同步 | PASS | 已合并：PR #3414，merge 9695753166f514bc6dd841ff696b6683ae1e369f（2026-10-12，squash）。本次回填同一次提交删除本文件三 sync_ 字段与 ledger 登记项 |
