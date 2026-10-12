@@ -12,6 +12,17 @@ export default {
     statFailed: '失败',
     boundAccounts: '已绑定账号',
     shortcuts: '快捷入口',
+    hero: {
+      title: '开始发布',
+      desc: '一键发布视频、图文至各媒体平台',
+      streakLabel: '已连续发布',
+      streakUnit: '天',
+      streakEmpty: '—',
+    },
+    overview: {
+      accounts: '已授权账号',
+      tasks: '本月发布',
+    },
     quickPublish: '一键发布',
     accountManage: '账号管理',
     dashboard: '数据看板',

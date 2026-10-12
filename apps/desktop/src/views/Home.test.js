@@ -226,6 +226,49 @@ describe("HomeView", () => {
     expect(window.electronAPI.storeListAccounts).not.toHaveBeenCalled();
   });
 
+  it("renders primary publish hero card with streak days from daily data", async () => {
+    // streak 判据：daily 最近 3 天都有发布 → 连续 3 天；不新增 IPC，复用 dashboard:stats.daily
+    window.electronAPI.dashboardStats = vi.fn().mockResolvedValue({
+      code: 0,
+      data: {
+        total: 10, success: 9, failed: 1, perPlatform: {},
+        daily: [
+          { date: "2026-10-11", total: 2, success: 2, failed: 0, unclassified: 0 },
+          { date: "2026-10-12", total: 1, success: 1, failed: 0, unclassified: 0 },
+          { date: "2026-10-13", total: 3, success: 2, failed: 1, unclassified: 0 },
+        ],
+      },
+    });
+    const w = await flushMounted(mountHome());
+    const hero = w.find('[data-testid="home-publish-hero"]');
+    expect(hero.exists()).toBe(true);
+    expect(hero.text()).toContain("3");
+    expect(w.text()).toContain("已连续发布");
+    // 主任务卡整体可点击进入发布页
+    await hero.trigger("click");
+    expect(pushSpy).toHaveBeenCalledWith("/publish");
+  });
+
+  it("shows streak placeholder dash when daily has no recent activity", async () => {
+    window.electronAPI.dashboardStats = vi.fn().mockResolvedValue({
+      code: 0,
+      data: { total: 5, success: 5, failed: 0, perPlatform: {}, daily: [] },
+    });
+    const w = await flushMounted(mountHome());
+    const hero = w.find('[data-testid="home-publish-hero"]');
+    expect(hero.exists()).toBe(true);
+    expect(hero.text()).toContain("—");
+    expect(w.text()).not.toContain("已连续发布 0 天");
+  });
+
+  it("shows overview line with account and publish counts in greeting bar", async () => {
+    accountStoreMock.accounts = [{ id: "a1" }, { id: "a2" }, { id: "a3" }];
+    const w = await flushMounted(mountHome());
+    const overview = w.find('[data-testid="home-overview"]');
+    expect(overview.exists()).toBe(true);
+    expect(overview.text()).toContain("3");
+  });
+
   it("shows empty recent state when there is no history", async () => {
     const w = await flushMounted(mountHome());
     expect(w.text()).toContain("暂无发布记录，开始你的第一次发布吧！");
@@ -278,7 +321,8 @@ describe("HomeView", () => {
       const w = await flushMounted(mountHome());
       const text = w.text();
       expect(text).toContain("Publish everywhere with one click");
-      expect(text).toContain("New Publish");
+      // 主任务卡替代原「New Publish」按钮（hero.title），原按钮文案已由 hero 承担
+      expect(text).toContain("Start Publishing");
       expect(text).toContain("Add Account");
       expect(text).toContain("Total Published");
       expect(text).toContain("Shortcuts");

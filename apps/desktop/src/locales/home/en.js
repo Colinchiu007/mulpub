@@ -12,6 +12,17 @@ export default {
     statFailed: 'Failed',
     boundAccounts: 'Bound Accounts',
     shortcuts: 'Shortcuts',
+    hero: {
+      title: 'Start Publishing',
+      desc: 'Publish videos and posts to all platforms with one click',
+      streakLabel: 'Publishing streak',
+      streakUnit: ' days',
+      streakEmpty: '—',
+    },
+    overview: {
+      accounts: 'Connected accounts',
+      tasks: 'Published this month',
+    },
     quickPublish: 'Quick Publish',
     accountManage: 'Accounts',
     dashboard: 'Dashboard',
