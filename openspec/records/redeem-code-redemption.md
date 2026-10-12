@@ -2,10 +2,6 @@
 record: redeem-code-redemption
 task: 激活码改走服务端 POST /api/v1/redeem 核销，正确处理幂等重放与过期订阅
 date: 2026-10-11
-# ↓ 下面三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除
-sync_status: PENDING
-sync_reason: PR #3293 已建，CI 未跑完，merge SHA 尚不存在；合并后由回填 PR 收口
-sync_backfill_owner: 下一会话的回填 PR
 ---
 
 ## 本次执行记录：激活码服务端核销（redeem-code-redemption，2026-10-11）
@@ -104,7 +100,7 @@ store 三态归一化用**真实 `member.js` 源码**（剥 import + defineStore
 - **`.vue` SFC 语法未在沙箱真解析**（无 vue compiler），依赖 CI 的 rollup 阶段兜底。
 - **eslint 未执行**（沙箱无依赖），已做 no-undef 静态扫描替代，CI Gate 11 为准。
 
-| 远程同步 | PENDING —— 本 PR 尚未合并，merge SHA 尚不存在；合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI' 回填 merge SHA 并删除 frontmatter 的 sync_* 三字段 |
+| 远程同步 | PASS —— PR #3293 squash 合并，merge SHA `6adab61b8`（2026-10-12T11:02:04Z）；CI 21/21 全绿（含 QG Desktop Shards 1/2、2/2、QG Coverage、单元测试 + Lint、electron-tests）；origin/main 已回读核验，远端分支已删除 |
 |---|
 
 ### 环境阻塞与解法：按仓库名查不到，改按 node id 建 PR
@@ -140,11 +136,38 @@ node id 取自 `GET /user/repos`（该端点反而正常）。于是改用
 不是仓库不存在，也不是需要新 token。**遇到「按名字 404」应先换 node id 试一次**，
 而不是停在权限结论上。
 
-**后续动作**：
-1. ✅ PR #3293 已建（head `redeem-code-redemption` → base `main`，2 commits，MERGEABLE）
-2. 跑 CI，确认 `pull_request` 事件的 required checks 全绿（合并判定只认该事件）
-3. squash merge → 回读 main SHA、确认远端分支已删除
-4. 回填本记录的 `远程同步` 行为 PASS，并删除 frontmatter 的 `sync_*` 三字段
+**收口结果**：
+1. ✅ PR #3293 已建（head `redeem-code-redemption` → base `main`）
+2. ✅ CI 21/21 全绿（合并判定只认 `pull_request` 事件的 required checks，全部 check 均为该事件）
+3. ✅ squash merge → merge SHA `6adab61b8`，已回读 main 核验，远端分支已删除
+4. ✅ 本记录回填 PASS，frontmatter 的 `sync_*` 三字段已按模板要求删除
 
 | 远程同步 | IN PROGRESS —— 分支已推送（e4f0bc468），PR #3293 已建（https://github.com/Colinchui007/mulpub/pull/3293），CI 运行中；待 `pull_request` 事件 required checks 全绿后 squash merge 并回填 PASS |
 |---|
+
+### 第三轮 CI 的两个契约漏改（2026-10-12）
+
+QG Desktop Shards (2/2) 红的两个原因，都是「改了实现忘了配套契约」：
+
+1. **`preload/identity.test.js` 的字面量键数组**：`expect(Object.keys(api)).toEqual([...])`
+   是精确断言，加 `identityRedeemCode` 后必须同步；连带的 channel 数组与调用序列共三处。
+   键的插入位置按源文件实际顺序（`identityNotificationsMarkRead` 与
+   `identityDiagnosticReport` 之间），用 `Object.keys(createIdentityApi(mock))` 打印核对，不靠猜。
+2. **`home-shell-preload.bundle.js` 是第二份提交物**：此前只同步了 `index.bundle.js`。
+   `scripts/build-preload.js` 里有**两个** outfile，两份都要改，校验口径是「与 main 恰好 +1 行」。
+
+**为什么第一次没查出来**：`preload.test.js` 做了三重验证（+1 行、与 main 差异、esbuild 风格），
+但**只验证了我注意到的那一份产物**。教训：提交物有几份就查几份。
+
+**沙箱 REST 日志接口同样 404 时怎么办**：不要反复试 API，而是**从「改了哪些文件」反推该跑哪些测试**——
+`grep -rl <文件名> apps/desktop/src --include=*.test.js` 找到覆盖它的既有测试，
+逐个读它的断言形式。定位比取日志快，且不依赖任何 API 权限。
+
+### 合并前的最后一道保险
+
+合并前 main 已前进到 `bb6a82ff5` 且**同时改了我那两份 bundle**。rebase 后重验：
+两份相对 main 仍恰好 +1 行、podcast 的 `hostingGet` 仍在、语法通过、preload 键数重算仍为 344
+（main 新提交没动那 7 个工厂），才允许合并。
+
+> 教训：`git diff <我的HEAD> origin/main` 这个区间**包含我自己的改动**，拿它判"是否重叠"必然全量命中。
+> 正确基准是 `git merge-base origin/main HEAD`。
