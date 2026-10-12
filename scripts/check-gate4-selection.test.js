@@ -381,7 +381,7 @@ test('T17 真实文件的 $testArgs 字面量必须逐字解析出脚本名（�
 })
 
 /*
- * T21-T24（2026-10-12，wechat-mp-api-track）：nx 的**单项目**声明形态。
+ * T26-T29（2026-10-12，wechat-mp-api-track）：nx 的**单项目**声明形态。
  *
  * 实测缺陷：`nx affected -t test` 在受影响集**恰好只有 1 个项目**时打印的是
  *    NX   Running target test for project @multi-publish/api-publish-engine:
@@ -395,7 +395,7 @@ function singularDeclaration (project) {
   return [' NX   Running target test for project ' + project + ':', '', '- ' + project, '', ''].join('\n')
 }
 
-test('T21 单数声明形态（恰好 1 个受影响项目）必须可解析，计数按 1', () => {
+test('T26 单数声明形态（恰好 1 个受影响项目）必须可解析，计数按 1', () => {
   const d = parseDeclaredProjects(singularDeclaration(OTHERS[0]))
   assert.equal(d.unparsable, false, '单数形态不得被判成「判据失联」')
   assert.equal(d.headerCount, 1)
@@ -403,14 +403,14 @@ test('T21 单数声明形态（恰好 1 个受影响项目）必须可解析，�
   assert.equal(d.countMismatch, false)
 })
 
-test('T22 单数形态头部点名与清单不一致时必须判 unparsable（解析退化不得据此判绿）', () => {
+test('T27 单数形态头部点名与清单不一致时必须判 unparsable（解析退化不得据此判绿）', () => {
   const d = parseDeclaredProjects(' NX   Running target test for project @x:\n\n- @y\n')
   assert.equal(d.unparsable, true)
   const many = parseDeclaredProjects(' NX   Running target test for project @x:\n\n- @x\n- @y\n')
   assert.equal(many.unparsable, true, '单数头部却列了多个项目 ⇒ 采集不可信')
 })
 
-test('T23 单数形态下 affected 臂必须判绿（CI 现场回归锁）', () => {
+test('T28 单数形态下 affected 臂必须判绿（CI 现场回归锁）', () => {
   const p = planCommands(WF_FIXED, PKG_FIXED)
   const live = {}
   for (const e of p.entries) {
@@ -421,7 +421,7 @@ test('T23 单数形态下 affected 臂必须判绿（CI 现场回归锁）', () 
   assert.equal(r.ok, true, JSON.stringify(r.problems))
 })
 
-test('T24 单数形态若点名的就是 desktop，仍必须判红（判窗未被放宽）', () => {
+test('T29 单数形态若点名的就是 desktop，仍必须判红（判窗未被放宽）', () => {
   const p = planCommands(WF_FIXED, PKG_FIXED)
   const live = {}
   for (const e of p.entries) {
