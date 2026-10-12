@@ -30,7 +30,7 @@ const LLM_LABELS_KEY = 'hot_topics_llm_labels'
 const CACHE_TTL_MS = 10 * 60 * 1000
 const FETCH_TIMEOUT_MS = 10 * 1000
 const MAX_PER_CHANNEL = 50
-const MAX_TOPICS = 400 // 8 渠道 × 50 条上限（去重后实际更少；含垂类补拉）
+const MAX_TOPICS = 400 // 10 渠道 × 50 条候选（去重后实际更少；含垂类补拉）；上限兼顾 IPC 载荷，按统一热度截断尾部
 const LLM_BATCH_LIMIT = 40   // 单次抓取最多送 LLM 分类的 general 条目数（成本控制）
 const LLM_LABELS_MAX = 500   // LLM 标签缓存条目上限（超限按插入序裁剪）
 const RANK_CONFIG_KEY = 'hot_topics_rank_config' // P2 评分配置：{ channelWeights?, halfLifeMs? }（可选，缺省用内置默认）
@@ -38,15 +38,69 @@ const RANK_CONFIG_KEY = 'hot_topics_rank_config' // P2 评分配置：{ channelW
 const DESKTOP_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 
 /**
+ * 小红书 App 端固定请求头（`edith.xiaohongshu.com/api/sns/v1/search/hot_list`）。
+ *
+ * 该接口**免登录、免 Cookie**，但门槛是「固定头六项齐全」：`User-Agent` / `referer` /
+ * `xy-direction` / `shield` / `xy-platform-info` / `xy-common-params`，缺少其中任一 `xy-*` 或
+ * `shield` 一律返回 **406**（2026-10-12 逐项隔离实验证实）。取值公开自多个 MIT 开源项目
+ * （60s `src/modules/rednote.module.ts`、hot-topics `src/fetchers/rednote.ts`），
+ * **不是**本项目的私有凭证，也不是用户数据。
+ *
+ * ⚠️ `shield` 是**静态** token：平台轮换后该渠道立即 406 失效，只能人工替换下方常量。
+ * `_collectChannel` 对 406 有**单独告警**（唯一需要人工介入的故障形态），不要与普通网络失败混排。
+ */
+const XHS_APP_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.7(0x18000733) NetType/WIFI Language/zh_CN'
+const XHS_SHIELD = 'XYAAAAAQAAAAEAAABTAAAAUzUWEe4xG1IYD9/c+qCLOlKGmTtFa+lG434Oe+FTRagxxoaz6rUWSZ3+juJYz8RZqct+oNMyZQxLEBaBEL+H3i0RhOBVGrauzVSARchIWFYwbwkV'
+const XHS_PLATFORM_INFO = 'platform=iOS&version=8.7&build=8070515&deviceId=C323D3A5-6A27-4CE6-AA0E-51C9D4C26A24&bundle=com.xingin.discover'
+const XHS_COMMON_PARAMS = 'app_id=ECFAAF02&build=8070515&channel=AppStore&deviceId=C323D3A5-6A27-4CE6-AA0E-51C9D4C26A24&device_fingerprint=20230920120211bd7b71a80778509cf4211099ea911000010d2f20f6050264&device_fingerprint1=20230920120211bd7b71a80778509cf4211099ea911000010d2f20f6050264&device_model=phone&fid=1695182528-0-0-63b29d709954a1bb8c8733eb2fb58f29&gid=7dc4f3d168c355f1a886c54a898c6ef21fe7b9a847359afc77fc24ad&identifier_flag=0&lang=zh-Hans&launch_id=716882697&platform=iOS&project_id=ECFAAF&sid=session.1695189743787849952190&t=1695190591&teenager=0&tz=Asia/Shanghai&uis=light&version=8.7'
+
+/**
  * 主渠道配置：端点、请求头、最小间隔（分钟）、风险级别。
  * intervalMinutes 由内存限流器使用（简单时间戳节流，避免高频抓取触发反爬）。
+ *
+ * `fallbacks`（2026-10-12 新增）：同一平台**同源**端点的顺序降级链，仅在主端点抓取失败
+ * 或解析出**空列表**时按序尝试。刻意不用并发 —— 同源数据并发拉取既放大对平台的风控面，
+ * 又会让同一条选题被跨「渠道」去重后误算成「多榜同现」的全民热点信号（scorer sourceBonus）。
  */
 const CHANNEL_CONFIGS = [
   { id: 'zhihu', name: '知乎', url: 'https://api.zhihu.com/topstory/hot-list?limit=50', headers: {}, intervalMinutes: 5, riskLevel: 'low' },
-  { id: 'toutiao', name: '今日头条', url: 'https://www.toutiao.com/hot-event/hot-board/?origin=toutiao_pc', headers: {}, intervalMinutes: 5, riskLevel: 'medium' },
+  { id: 'toutiao', name: '今日头条', url: 'https://www.toutiao.com/hot-event/hot-board/?origin=toutiao_pc', headers: { Referer: 'https://www.toutiao.com/' }, intervalMinutes: 5, riskLevel: 'medium' },
   { id: 'tencent', name: '腾讯新闻', url: 'https://r.inews.qq.com/gw/event/hot_ranking_list?page_size=50', headers: {}, intervalMinutes: 10, riskLevel: 'medium' },
   { id: 'bilibili', name: '哔哩哔哩', url: 'https://api.bilibili.com/x/web-interface/popular?ps=50&pn=1', headers: {}, intervalMinutes: 10, riskLevel: 'low' },
-  { id: 'douyin', name: '抖音', url: 'https://www.douyin.com/aweme/v1/web/hot/search/list/', headers: { Referer: 'https://www.douyin.com/' }, intervalMinutes: 15, riskLevel: 'high' },
+  {
+    id: 'douyin', name: '抖音',
+    url: 'https://www.douyin.com/aweme/v1/web/hot/search/list/?device_platform=webapp&aid=6383&channel=channel_pc_web&detail_list=1',
+    headers: { Referer: 'https://www.douyin.com/' }, intervalMinutes: 15, riskLevel: 'high',
+    // 缺浏览器 UA（service 统一注入 DESKTOP_UA）或 Referer 时是「200 + word_list 空数组」，
+    // 不是 4xx —— 这正是「空列表必须视为失败」的原因（调研硬约束①）
+    fallbacks: [
+      { url: 'https://aweme-lq.snssdk.com/aweme/v1/hot/search/list/?aid=1128&version_code=880', headers: {} },
+      { url: 'https://www.iesdouyin.com/web/api/v2/hotsearch/billboard/word/', headers: {} },
+    ],
+  },
+  {
+    id: 'xiaohongshu', name: '小红书',
+    url: 'https://edith.xiaohongshu.com/api/sns/v1/search/hot_list',
+    headers: {
+      'User-Agent': XHS_APP_UA,
+      referer: 'https://app.xhs.cn/',
+      'xy-direction': '22',
+      shield: XHS_SHIELD,
+      'xy-platform-info': XHS_PLATFORM_INFO,
+      'xy-common-params': XHS_COMMON_PARAMS,
+    },
+    intervalMinutes: 30, riskLevel: 'high',
+  },
+  {
+    id: 'ifeng', name: '凤凰网',
+    url: 'https://ne883dbn.ifeng.com/hotspotlist?page=1&gv=7.9.1&av=7.9.1',
+    headers: { Referer: 'https://ishare.ifeng.com/hotNewsRank' }, intervalMinutes: 15, riskLevel: 'medium',
+    // 兜底：i.ifeng.com 首页内联 allData.hotRankData.data（同一份榜单的另一个出口，51 条）。
+    // 存在的意义是 ifeng 的 API 主机名由前端 __nd__ 动态下发，随时可能换域。
+    fallbacks: [
+      { url: 'https://i.ifeng.com/', headers: {}, parser: 'ifeng_inline' },
+    ],
+  },
   { id: 'baidu', name: '百度热搜', url: 'https://top.baidu.com/api/board?platform=wise&tab=realtime', headers: {}, intervalMinutes: 10, riskLevel: 'low' },
   { id: 'weibo', name: '微博热搜', url: 'https://weibo.com/ajax/statuses/hot_band', headers: { Referer: 'https://weibo.com/' }, intervalMinutes: 10, riskLevel: 'medium' },
   { id: 'tophub', name: '微博(tophub)', url: 'https://tophub.today/n/KqndgxeLl9', headers: {}, intervalMinutes: 30, riskLevel: 'medium' },
@@ -73,6 +127,11 @@ const CATEGORY_BOOSTS = {
   ] },
   health: { threshold: 4, sources: [
     { id: 'weibo-health', name: '微博健康垂类', url: 'https://weibo.com/ajax/statuses/hot_band', parser: 'weibo', channel: 'weibo', board: 'health', boostCategory: 'health', filterCategory: '健康医疗', headers: { Referer: 'https://weibo.com/' }, intervalMinutes: 10, riskLevel: 'medium' },
+  ] },
+  ai: { threshold: 4, sources: [
+    // AI 一级分类没有公开的「AI 榜」垂类端点，复用 IT之家 RSS 并由分类器筛选 AI 条目
+    // （`onlyCategory` 用分类器本身做过滤，不新增第二份关键词表——避免判据漂移）。
+    { id: 'ithome-ai', name: 'IT之家(AI 专题筛)', url: 'https://www.ithome.com/rss/', parser: 'ithome_rss', channel: 'ithome_tech', board: 'ai', boostCategory: 'ai', onlyCategory: 'ai', headers: {}, intervalMinutes: 15, riskLevel: 'low' },
   ] },
   // 教育/国际暂无稳定可用垂类端点（探测记录：百度 education tab、头条分类参数、v2ex 均不可用），
   // 依赖 方案A 关键词/映射修复 + 方案C LLM 兜底补充
@@ -224,7 +283,17 @@ class HotTopicsService {
     }
   }
 
-  /** 单渠道完整流程：限流 → 熔断 → 抓取 → 解析 → 多标签分类 */
+  /**
+   * 单渠道完整流程：限流 → 熔断 → 抓取（主端点 → 顺序降级 fallback）→ 解析 → 多标签分类
+   *
+   * v3 新增两条合同（依据 2026-10-12 端点实测）：
+   *   ① **空列表视为失败**。抖音缺 UA/Referer 时是「HTTP 200 + `word_list` 空数组」、
+   *      小红书固定头失效时是 406、部分端点异常时返回空 list —— 这些都不是成功。
+   *      记成功会让熔断器永不打开，UI 只显示「该渠道 0 条」而没有任何可排查信号。
+   *   ② **fallback 顺序降级而非并发**：同源端点并发既放大风控面，又会让同一选题
+   *      被跨渠道去重后误算成「多榜同现」（scorer 的 sourceBonus 是全民热点信号，
+   *      被同源端点灌水即失真）。
+   */
   async _collectChannel(config, fetchedAt) {
     // 限流：未到最小间隔 → 跳过（用缓存数据，不报错）
     if (!this.throttle.tryAcquire(config.id, config.intervalMinutes)) {
@@ -234,39 +303,74 @@ class HotTopicsService {
     if (this.breaker.isOpen(config.id)) {
       return { channel: config.id, items: null, skipped: true, breakerOpen: true }
     }
-    try {
-      const text = await this._fetchChannel(config)
-      const parser = CHANNEL_PARSERS[config.parser || config.id]
-      if (!parser) throw new Error('no parser for ' + config.id)
-      const rawItems = parser(text.startsWith('{') || text.startsWith('[') ? JSON.parse(text) : text)
-      const items = rawItems.slice(0, MAX_PER_CHANNEL).map(x => {
-        const multi = classifyTopicMulti(x.rawCategory, x.channel, x.topic)
-        return {
-          id: x.channel + ':' + x.rank,
-          topic: x.topic,
-          channel: x.channel,
-          category: multi.category,
-          categories: multi.categories,
-          rank: x.rank,
-          hotValue: x.hotValue,
-          url: x.url,
-          fetchedAt,
+    const attempts = [
+      { url: config.url, headers: config.headers, parser: config.parser || config.id },
+      ...(Array.isArray(config.fallbacks) ? config.fallbacks : []),
+    ]
+    let lastError = null
+    for (let i = 0; i < attempts.length; i++) {
+      const at = attempts[i]
+      try {
+        const text = await this._fetchChannel({ url: at.url, headers: at.headers || {} })
+        const parser = CHANNEL_PARSERS[at.parser || config.parser || config.id]
+        if (!parser) throw new Error('no parser for ' + (at.parser || config.parser || config.id))
+        const rawItems = parser(text.startsWith('{') || text.startsWith('[') ? JSON.parse(text) : text)
+        const items = rawItems.slice(0, MAX_PER_CHANNEL).map(x => {
+          const multi = classifyTopicMulti(x.rawCategory, x.channel, x.topic)
+          return {
+            id: x.channel + ':' + x.rank,
+            topic: x.topic,
+            channel: x.channel,
+            category: multi.category,
+            categories: multi.categories,
+            rank: x.rank,
+            hotValue: x.hotValue,
+            url: x.url,
+            fetchedAt,
+          }
+        })
+        // 合同①：空列表不是成功
+        if (!items.length) throw new Error('empty list (endpoint returned 0 items; treated as failure)')
+        this.breaker.recordSuccess(config.id)
+        if (i > 0) {
+          this.log.info && this.log.info('[hot-topics] channel ' + config.id + ' recovered via fallback #' + i)
         }
-      })
-      this.breaker.recordSuccess(config.id)
-      return { channel: config.id, items, skipped: false }
-    } catch (e) {
-      const state = this.breaker.recordFailure(config.id)
-      this.log.warn && this.log.warn('[hot-topics] channel ' + config.id + ' failed:', e && e.message ? e.message : String(e), state)
-      return { channel: config.id, items: null, skipped: false, error: e && e.message ? e.message : String(e) }
+        return { channel: config.id, items, skipped: false, viaFallback: i > 0 ? i : undefined }
+      } catch (e) {
+        lastError = e
+        const msg = e && e.message ? e.message : String(e)
+        if (msg.includes('406')) {
+          // 合同②：406 是「小红书 shield 固定头失效」的特征信号，必须能一眼区分出来 ——
+          // 这是本模块唯一需要人工介入（替换静态常量）的故障形态。
+          this.log.warn && this.log.warn('[hot-topics] channel ' + config.id +
+            ' HTTP 406: 固定请求头（shield）已失效，需人工更新静态常量（不是网络故障）')
+        } else {
+          this.log.warn && this.log.warn('[hot-topics] channel ' + config.id + ' attempt ' +
+            (i + 1) + '/' + attempts.length + ' failed: ' + msg)
+        }
+      }
+    }
+    const state = this.breaker.recordFailure(config.id)
+    return {
+      channel: config.id,
+      items: null,
+      skipped: false,
+      error: lastError && lastError.message ? lastError.message : String(lastError),
+      breaker: state,
     }
   }
 
   /**
    * 单垂类补拉（方案B/D）：限流/熔断键用 source.id（与主榜隔离，
-   * 微博情感/健康垂类共用端点但各自独立节流）。条目直挂 boostCategory，
-   * id 含 board 段（如 weibo:emotion:3）避免与主榜 'weibo:3' 撞号。
+   * 微博情感/健康垂类共用端点但各自独立节流）。id 含 board 段
+   * （如 weibo:emotion:3）避免与主榜 'weibo:3' 撞号。
    * filterCategory：解析后仅保留该原生分类条目（微博 band_list 垂类过滤）。
+   *
+   * v3 分类归属（修复「科技类混入不沾边内容」根因之一）：v2 把条目的
+   * `category` 无条件硬写成 `source.boostCategory`，分类器完全不参与 —— 垂类端点里
+   * 夹带的异质条目（跨界榜单条目、垂类 RSS 的非本行内容）会被强行挂到目标分类下。
+   * 现在先走分类器：分类器判出明确分类时以分类器为准；只有它给出 general（确实无信号）
+   * 时才用 boostCategory 兜底 —— 垂类榜本身即该分类的定向供给，兜底仍保供。
    */
   async _collectBoostChannel(source, fetchedAt) {
     if (!this.throttle.tryAcquire(source.id, source.intervalMinutes)) {
@@ -283,17 +387,27 @@ class HotTopicsService {
       if (source.filterCategory) {
         rawItems = rawItems.filter(x => x.rawCategory === source.filterCategory)
       }
-      const items = rawItems.slice(0, MAX_PER_CHANNEL).map(x => ({
-        id: source.channel + ':' + source.board + ':' + x.rank,
-        topic: x.topic,
-        channel: source.channel,
-        category: source.boostCategory,
-        categories: [source.boostCategory],
-        rank: x.rank,
-        hotValue: x.hotValue,
-        url: x.url,
-        fetchedAt,
-      }))
+      // onlyCategory：用分类器本身做筛（如 AI 专题），不引入第二份关键词表
+      if (source.onlyCategory) {
+        rawItems = rawItems.filter(x => classifyTopicMulti(x.rawCategory, x.channel, x.topic).category === source.onlyCategory)
+      }
+      const items = rawItems.slice(0, MAX_PER_CHANNEL).map(x => {
+        const multi = classifyTopicMulti(x.rawCategory, x.channel, x.topic)
+        const categories = multi.category === 'general'
+          ? [source.boostCategory]
+          : multi.categories.slice(0, 3)
+        return {
+          id: source.channel + ':' + source.board + ':' + x.rank,
+          topic: x.topic,
+          channel: source.channel,
+          category: categories[0] || source.boostCategory,
+          categories: categories.length ? categories : [source.boostCategory],
+          rank: x.rank,
+          hotValue: x.hotValue,
+          url: x.url,
+          fetchedAt,
+        }
+      })
       this.breaker.recordSuccess(source.id)
       return { channel: source.id, items, skipped: false, boost: true }
     } catch (e) {
@@ -444,6 +558,10 @@ class HotTopicsService {
       /** @type {Array<object>} */
       const boostSources = []
       for (const [cat, cfg] of Object.entries(CATEGORY_BOOSTS)) {
+        if (wanted.has(cat) && !cfg.sources.length) {
+          // 用户显式点了「补拉该分类」但该分类没有配置垂类源 → 出声，避免静默无反应
+          this.log.warn && this.log.warn('[hot-topics] no boost source configured for category: ' + cat)
+        }
         if (!cfg.sources.length) continue
         if (wanted.has(cat) || (counts[cat] || 0) < cfg.threshold) boostSources.push(...cfg.sources)
       }

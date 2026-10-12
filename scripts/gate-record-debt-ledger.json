@@ -1,4 +1,9 @@
 {
+  "本次执行记录：热门选题多源扩展 + AI 分类 + 归类准确性（hot-topics-multi-source，2026-10-12）": {
+    "reason": "本 PR 合并后由后续回填 PR 回填 PASS + merge SHA 并删除本条登记",
+    "status": "PENDING",
+    "line": 67
+  },
   "本次执行记录：Story2Video 历史失败提示脱敏与模型账号细化（error-message-fix，2026-08-19）": {
     "reason": "error-message-fix 分支的 L4479 远程同步行状态写的是「执行中」而非闭合词表——属于该记录作者的登记欠账；本人无法代为取证其 PR 合并 SHA，按「不代其他会话改写其执行记录」惯例在此登记并说明",
     "status": "PENDING",

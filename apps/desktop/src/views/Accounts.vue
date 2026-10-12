@@ -439,7 +439,7 @@ const batchCheckAllBusy = ref(false)
 // 批次仍在跑，按钮必须保持禁用，并与一键检测互斥（PRD §5.8）。
 const { enabled: cloudSyncFlagEnabled, refresh: refreshCloudSyncFlag } = useFeatureFlag(FEATURE_FLAG_ACCOUNT_CLOUD_SYNC)
 // 统一内容类别（2026-10-03）：账号分组的预设标签与热门选题/采集库共用同一真源；
-// 读不到时 composable 已回退内置 10 类，所以这里不需要再判空。
+// 读不到时 composable 已回退内置 11 类，所以这里不需要再判空。
 const contentCategories = contentCategoriesRef()
 let categoriesUnsubscribe = null
 const cloudSyncDialogVisible = ref(false)

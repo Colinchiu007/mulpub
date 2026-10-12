@@ -7,6 +7,7 @@ export default {
     society: 'Society',
     finance: 'Finance',
     tech: 'Tech',
+    ai: 'AI',
     entertainment: 'Entertainment',
     sports: 'Sports',
     emotion: 'Emotion',

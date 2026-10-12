@@ -62,16 +62,16 @@ def _normal_headers():
 
 @pytest.mark.asyncio
 async def test_catalog_seeded_and_list():
-    """目录供给：内置 10 类自动补齐，键名与顺序与桌面端 classifier 一致。"""
+    """目录供给：内置 11 类自动补齐，键名与顺序与桌面端 classifier 一致。"""
     async with _client() as client:
         lst = (await client.get("/api/v1/content-categories", headers=_admin_headers())).json()
         keys = [i["category_key"] for i in lst["items"]]
-        assert keys[:10] == [
-            "general", "society", "finance", "tech", "entertainment",
+        assert keys[:11] == [
+            "general", "society", "finance", "tech", "ai", "entertainment",
             "sports", "emotion", "education", "health", "international",
         ]
-        assert all(i["is_preset"] for i in lst["items"][:10])
-        assert len(lst["preset_keys"]) == 10
+        assert all(i["is_preset"] for i in lst["items"][:11])
+        assert len(lst["preset_keys"]) == 11
 
 
 @pytest.mark.asyncio
@@ -198,3 +198,66 @@ async def test_bootstrap_only_delivers_enabled():
         keys = [i["category_key"] for i in payload["contentCategories"]["items"]]
         assert "tech" not in keys
         assert "general" in keys
+
+
+@pytest.mark.asyncio
+async def test_provision_backfills_ai_on_legacy_ten_class_db():
+    """存量「10 类」库升级时补出 ai，且补行不覆盖运营已改字段（非空旧状态回归）。
+
+    为什么必须有：本文件其余用例都从空库重建（drop_all/create_all），对
+    「先有旧状态、再补行」这类缺陷完全免疫。补 ai 时其 CATALOG 下标为 4，会与既有
+    entertainment 的 sort_order=4 相撞，实际呈现顺序靠 (sort_order, category_key)
+    的字母序 tiebreak（'ai' < 'entertainment'）落在期望位置 —— 该依赖必须被钉住，
+    否则将来有人改 enumerate 起点就会静默改序。
+    """
+    import sqlalchemy as sa
+
+    from database import async_session
+    from models import ContentCategory
+    from services.content_category_service import CATALOG_KEYS
+
+    # 模拟旧部署：删掉 ai 行，其余 10 行保持 CATALOG 下标（sort_order 0..9）
+    async with async_session() as db:
+        await db.execute(sa.delete(ContentCategory).where(ContentCategory.category_key == "ai"))
+        await db.commit()
+
+    async with _client() as client:
+        lst = (await client.get("/api/v1/content-categories", headers=_admin_headers())).json()
+
+    keys = [i["category_key"] for i in lst["items"]]
+    items = {i["category_key"]: i for i in lst["items"]}
+    # ai 被补回且是内置类
+    assert "ai" in items
+    assert items["ai"]["is_preset"] is True
+    # 未重排的存量库上，呈现顺序应等于 CATALOG 顺序（ai 紧随 tech）
+    assert keys[:11] == list(CATALOG_KEYS)
+    assert keys.index("ai") == keys.index("tech") + 1
+
+
+@pytest.mark.asyncio
+async def test_provision_never_overwrites_operator_sort_order_or_name():
+    """补行「只补不改」：运营改过的 sort_order / name 必须原样保留。"""
+    import sqlalchemy as sa
+
+    from database import async_session
+    from models import ContentCategory
+
+    async with async_session() as db:
+        await db.execute(sa.delete(ContentCategory).where(ContentCategory.category_key == "ai"))
+        await db.execute(
+            sa.update(ContentCategory)
+            .where(ContentCategory.category_key == "entertainment")
+            .values(sort_order=2, name="娱乐（运营改名）")
+        )
+        await db.commit()
+
+    async with _client() as client:
+        lst = (await client.get("/api/v1/content-categories", headers=_admin_headers())).json()
+
+    items = {i["category_key"]: i for i in lst["items"]}
+    assert "ai" in items
+    # 运营已改字段不得被目录默认值覆盖
+    assert items["entertainment"]["sort_order"] == 2
+    assert items["entertainment"]["name"] == "娱乐（运营改名）"
+    # tech 未被牵连，仍是 CATALOG 下标 3
+    assert items["tech"]["sort_order"] == 3

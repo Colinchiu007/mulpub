@@ -11,12 +11,12 @@
  *
  * ⚠️ 口径与 feature flag **相反**，是刻意的：
  *   feature flag 是权限边界 ⇒ 读不到按**关闭**（fail-closed）；
- *   内容类别是**展示资产** ⇒ 读不到按**内置 10 类**（fail-open）。
+ *   内容类别是**展示资产** ⇒ 读不到按**内置 11 类**（fail-open）。
  *   若这里也 fail-closed，运营中心没配过时热门选题会变成零分类、采集库打不了标签，
  *   离线用户直接不可用 —— 分类不是权限，不该被"读不到"惩罚。
  *
  * 三条硬语义（对应 useContentCategories.test.js）：
- * ① 读不到 / 空数组 / 结构非法 → 一律回退内置 10 类，且 `usingDefault=true` 出声。
+ * ① 读不到 / 空数组 / 结构非法 → 一律回退内置 11 类，且 `usingDefault=true` 出声。
  * ② 全应用共享一个 ref（模块级单例）：三处不可能出现两套类别。
  * ③ 运营下发变化时经 `onOpsCenterRuntimeUpdated` 重拉，不必重启应用。
  */

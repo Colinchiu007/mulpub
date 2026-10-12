@@ -15,7 +15,7 @@ export default {
     lastRefresh: (ctx) => 'Last refresh ' + ctx.named('time'),
     categoryAll: 'All',
     categories: {
-      general: 'General', society: 'Society', finance: 'Finance', tech: 'Tech',
+      general: 'General', society: 'Society', finance: 'Finance', tech: 'Tech', ai: 'AI',
       entertainment: 'Entertainment', sports: 'Sports', emotion: 'Emotion',
       education: 'Education', health: 'Health', international: 'International',
     },
@@ -23,8 +23,10 @@ export default {
     channels: {
       zhihu: 'Zhihu', toutiao: 'Toutiao', tencent: 'Tencent News', bilibili: 'Bilibili',
       douyin: 'Douyin', baidu: 'Baidu', weibo: 'Weibo Hot Search', tophub: 'Weibo (tophub)',
+      xiaohongshu: 'Xiaohongshu', ifeng: 'iFeng',
       sina_finance: 'Sina Finance', ithome_tech: 'IT Home',
       'baidu-finance': 'Baidu Finance Board', 'sina-finance': 'Sina Finance Roll', 'ithome-tech': 'IT Home Hot',
+      'ithome-ai': 'IT Home (AI)',
       'weibo-emotion': 'Weibo Emotion', 'weibo-health': 'Weibo Health',
     },
     selectAll: 'Select all',
