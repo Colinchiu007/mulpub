@@ -442,6 +442,64 @@ pickChannel → colloquialize → chunk → ttsBlock(逐块，串行) → concat
 现改为按码点推导：`durationSec >= 总码点数 × MIN_SEC_PER_CODEPOINT(0.1)`，即约 10 码点/秒——常态口播（4-5 码点/秒）的两倍宽余量，只有"整段被静音替换 / 严重截断"这种连 10 字/秒都达不到的形状才会命中（2026-10-11 QM-6 后端评审以 Warning 命中后由 0.2 下调；0.2 恰等于常态语速上界，念得快的合法整期会被误杀），
 只能抓到「整段被静音替换」而不误杀短块；防"每块都是 3 秒静音"这一原始目的由第 ② 条的 `degraded` 逐块门禁承担。
 两条各管一件事，合成一条固定 `×3s` 反而两头都不准。回归锁见 `podcast-episode-synth.test.js`「时长按码点下限拦…但不得误杀合法的短块」。
+#### 7.4.8 出期编排层 `podcast-episode-tts-run.js`（刀 4 第 3 片·下半，2026-10-12 落地）
+
+把 §7.4.1.1（音色）、§7.4.2.1（口语化）、§7.4.7（逐块合成）串成**一次出期**，并实现 §13 第 3 条
+「TTS 计费二次确认」里**不需要 LLM 的那一半**。两个出口：
+
+**`prepareEpisodeTtsRun(input, deps)` — 零出站**
+
+- 顺序固定：依赖校验 → 音色解析 → 分块计划 → 展示量估算。顺序不可颠倒的理由是**计费**：
+  音色没解析成就先调 LLM 口语化，等于为用户根本出不了一期的节目付费。
+- 入参：`input.content`（文案原文，字符串）、`input.channel.voiceRef`（三段或全缺）、
+  `input.maxCodepoints`（透传分块层，缺省用层内 2000 码点上限）、
+  `input.defaultProvider`（当前默认 tts provider，形如 `{providerId, model}`。
+  **它是 ②偏好 / ③capability 两级的定位键**：漏传即 `dp = {}`，两级查询拿不到键 ⇒  无 `voiceRef` 的频道一律被拒，
+  等于把 §7.4.1.1 的回退链写成死代码（2026-10-12 QM-6 前端评审 C3 命中，配三条回归锁）。、`deps.readPreference` /
+  `deps.getCapability`（必须注入，缺席即 `PODCAST_EPISODE_INVALID`，**不猜音色**）。
+- 数据校验（全部沿用既有层的码，本层**不新立任何码**）：
+  | 情形 | 判据归属 | `code` | `issues[].path` |
+  | --- | --- | --- | --- |
+  | 注入缺失 | 本层 | `PODCAST_EPISODE_INVALID` | `tts.deps` |
+  | 音色半配置 / 非对象 / 三层全缺 | §7.4.1.1 | `PODCAST_TTS_VOICE_UNRESOLVED` | `voiceRef` / `voice` / `voice.preference` / `voice.capability` |
+  | 三层全缺（频道/偏好/capability 都拿不到音色） | §7.4.1.1 | `PODCAST_TTS_VOICE_UNRESOLVED` | `voiceRef` / `voice.preference` / `voice.capability`，且两个读取实现各被调用一次（不是没查就拒） |
+| 空白文案 / 无段落可切 | §7.4.2 | `PODCAST_TTS_COPY_TOO_SHORT` | `copy.content` |
+  | 切不开（既非段落也非句末终止标点） | §7.4.2 | `PODCAST_TTS_CHUNK_UNSAFE` | `copy.content` |
+  错误对象一律 `Object.assign` 透传 `code` 与 `issues`，本层重新包一个码就等于把归因擦掉。
+- 返回 `{ok:true, content, voice, chunks, estimate}`。`voice` **逐字沿用**音色层的扁平形状
+  （`providerId/model/voiceId/origin/resolvedBy`），不再包一层 `{voice:{...}}`——包了就有两个真源。
+
+**`estimate`（显示项唯一来源，永不参与判据）**
+
+| 字段 | 含义 | 界面呈现（§11.5 逐字文案由 UI 片落地时生成） |
+| --- | --- | --- |
+| `codepoints` | 文案码点数（按码点，不按 UTF-16 码元） | 「共 N 字」 |
+| `blocks` | 分块数（= 会计入计费的 TTS 调用次数） | 「将合成 N 段」 |
+| `estimatedSecLow` / `estimatedSecHigh` | 预计时长区间（秒，1 位小数） | 「预计 12–19 分钟」 |
+| `colloquial.reason` / `colloquial.usesOriginal`（结果位） | 口语化是否采纳；`usesOriginal = reason !== APPLIED` | 「本期按原文播出（改写不可用）」——**提示文字的唯一依据**，不得由界面再判一次 reason 集合 |
+区间来自 `ESTIMATE_CP_PER_SEC = {low: 3.5, high: 5.5}` 码点/秒（事实出处：`podcast-episode-synth.js`
+注释里 edge-tts 中文常态 4–5 码点/秒，与 `MIN_SEC_PER_CODEPOINT = 0.1`（10 码点/秒，异常下界）
+之间的余量）。**它只是文案**：合成结果的 `durationSec` / `sizeBytes` 仍只认实测（§7.4.5 第 2 条同口径），
+把预估当判据会造出一条拦不到真问题的假门。键集由结构锁钉为恰好这四条（不得漂出判据字段）。
+
+**`runEpisodeTts(input, deps)` — 真实出站**
+
+- 顺序：`prepare` → 取消采样 → 口语化（1 次 LLM 出站）→ 逐块合成（`blocks` 次计费出站）。
+- 取消：`input.cancelToken.cancelled === true` 在**任何出站之前**命中即抛 `PODCAST_PUBLISH_CANCELLED`
+  （口语化也不发），与 §6.4「零出站零计费」同一语义；块间取消沿用合成层。
+- 口语化旁路方向：`no_provider` / `invoke_failed` / `empty_output` / `structure_rejected` 一律
+  用**原文**继续出一期，结果里 `colloquial.applied=false` + `reason` 如实回显（§7.4.2.1）。
+- 返回 = 合成层结果（`outPath/durationSec/sizeBytes/mime/blocks/gapSec/codepoints`）
+  ⊕ `voice`（含 `origin` 三态，界面据此标注「频道 / 偏好 / provider 默认」）⊕ `colloquial`
+  ⊕ `estimate`。注意 `blocks` 有两个来源时**实测优先**：结果里的 `blocks` 是合成层真正调用次数，
+  `estimate.blocks` 是确认时基于原文的预估；口语化改了分段数就可能不等——UI 必须显示前者为事实、
+  后者为「确认时的预估」，不得拿后者冒充前者。
+- 本层不 require 任何 provider / `node:http`，全部实现由宿主注入（测试零真实出站）。
+
+**开放项收口状态**：§13 第 3 条的「计费二次确认」= 显示层（已闭合，本节 `estimate`）+ 交互层
+（`PodcastPublishAction.vue` 的确认步，属刀 4 第 5 片）；「口语化分段改写边界」= §7.4.2.1 已闭合；
+`podcast:transcript` 仍未决。
+
 ### 刀 5 入口收敛
 刀 3 已建好的 `<PodcastPublishAction>` 挂到 `CopyLibraryView.vue:174`、`RewriteView.vue:812`、`Publish.vue:358`（采集页仅文本类分支）。**不放**：`HotTopics`、`KeywordMonitor`、`PublishHistory:764`（重发会带同 guid 原地覆盖正在播那期）、`Home`/`FirstRun`（裸跳转无内容）、`FilmEngineering`（本页无发布挂载点）。
 
