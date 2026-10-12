@@ -1,3 +1,8 @@
+# [未发布] 播客刀 4 第 3 片·接线：TTS 生产适配层（podcast-tts-adapters）
+
+- 新增 apps/desktop/electron/services/podcast-episode-tts-adapters.js：createGenerateTTS / createVoiceReaders / createConcatBlocks / createProbeImpl 四个生产工厂，把 §7.4.8 编排层的注入参数接成真实现；未接宿主，不改既有行为。
+- PRD 新增 §7.4.9：四工厂的入参契约、fail-closed 校验表、三条不可让（降级不当成功、键名双给、零隐式出站），以及本片不新增 locale 键的理由。
+- 回归锁 16 条 + 变异反证 M1（未知形状当成功 ⇒ 恰好 1 条指名红）。
 # [未发布] feat(podcast): 刀 4 第 3 片·上半 音色解析层（podcast-tts-voice）
 
 - 新增 `apps/desktop/electron/services/podcast-tts-voice.js`：一期播客的音色解析层——频道 `voiceRef` → 用户偏好 → capability 级 `defaultVoiceId` 的固定四步回退链，三层全空一律**拒绝出期**（`PODCAST_TTS_VOICE_UNRESOLVED`），不得由代码替用户猜一个音色。

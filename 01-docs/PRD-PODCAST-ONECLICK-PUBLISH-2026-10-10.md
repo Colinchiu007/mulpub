@@ -442,6 +442,47 @@ pickChannel → colloquialize → chunk → ttsBlock(逐块，串行) → concat
 现改为按码点推导：`durationSec >= 总码点数 × MIN_SEC_PER_CODEPOINT(0.1)`，即约 10 码点/秒——常态口播（4-5 码点/秒）的两倍宽余量，只有"整段被静音替换 / 严重截断"这种连 10 字/秒都达不到的形状才会命中（2026-10-11 QM-6 后端评审以 Warning 命中后由 0.2 下调；0.2 恰等于常态语速上界，念得快的合法整期会被误杀），
 只能抓到「整段被静音替换」而不误杀短块；防"每块都是 3 秒静音"这一原始目的由第 ② 条的 `degraded` 逐块门禁承担。
 两条各管一件事，合成一条固定 `×3s` 反而两头都不准。回归锁见 `podcast-episode-synth.test.js`「时长按码点下限拦…但不得误杀合法的短块」。
+#### 7.4.9 生产适配层 `podcast-episode-tts-adapters.js`（刀 4 第 3 片·接线，2026-10-12）
+
+§7.4.8 的四个注入实现的**生产侧**（tasks 3.7 第⑦条：注入实现的返回契约必须与真 adapter 同 PR 钉死）。
+四个工厂各自只映射形状，**不新增判据**：音色判据在 §7.4.1.1、分块在 §7.4.2、块级 degraded 汇总在 §7.4.7。
+
+| 工厂 | 入参（宿主注入） | 出口形状 | 数据校验（全部 fail-closed） |
+| --- | --- | --- | --- |
+| `createGenerateTTS` | `assetGenerator.generateTTS` | `( {text,index,voiceRef} ) => {path, degraded, reason?, mime?}` | `code!==0` / `data` 缺席 / `path` 空 ⇒ `degraded:true` + `reason:provider_failed`；调用抛错 ⇒ `reason:invoke_failed`；**`degraded` 字段缺席也判降级**（未知形状不当成功） |
+| `createVoiceReaders` | `readSetting` / `getVoiceCapability` | `{readPreference, getCapability}` | 缺任一即抛 `PODCAST_EPISODE_INVALID`；偏好键逐字 `tts-voice-preference:v1:<providerId>:<model>` |
+| `createConcatBlocks` | `ffmpegPath` / `spawnImpl` / `fsImpl` | `( {paths,gapSec,outPath} ) => {path,mime}` | 空块列表即 `PODCAST_TTS_CONCAT_FAILED`；`spawn.code!==0` 或产物不存在即同码；**返回 path 逐字等于 outPath**（合成层按该等值判据拒绝）；列表临时文件在 `finally` 删除 |
+| `createProbeImpl` | `ffprobePath` / `spawnImpl` | `(p) => {durationSec, sizeBytes?, mime}` | `duration` 缺失或 ≤0 ⇒ `PODCAST_TTS_AUDIO_TOO_SHORT`；`size` 缺席**不填**（磁盘 `stat` 是字节唯一权威，见 §7.4.7） |
+
+三条不可让（写在这里而不是只写在注释里）：
+
+1. **降级不得被消费成成功**。`AssetGenerator.generateTTS` 的第三级回退是 ffmpeg `anullsrc` 静音并带
+   `degraded:true`；适配层对「没标 degraded」同样判降级——把未知形状读成成功，就会让一期全静音的节目
+   通过块级门禁进入发布（§7.4.3 第②层要防的正是这个）。
+2. **入参键名按调用方契约，不按 provider 请求体**。合成层给 `voiceRef.voiceId`（camelCase），而
+   `asset-generator.js` 读 `opts.voice_id` / `opts.voiceId` 两键（`firstNonEmptyString`）。适配层
+   2b. **路由键同一条纪律（2026-10-12 QM-6 后端评审 High 追加）**：真正决定"哪个引擎跑"的不是音色键，
+   而是 `voice_provider` / `voiceProvider`（`asset-generator.js:1027` 的 `getConfiguredProvider`）与
+   `voice_model` / `voiceModel`（`:1072`）。只给 `providerId` / `model` 时 provider 恒为 `null` ⇒
+   `_tryProviderTTS` 直接返回、落到 `_tryEdgeTTS` 兜底，**配置的 provider 静默不生效且没有任何日志**——
+   这类"看起来跑通了"的错路由比抛错更难发现。所以适配层六个键一起给：`voiceId`/`voice_id`/
+   `voice_provider`/`voiceProvider`/`voice_model`/`voiceModel`，回归锁逐个断言在位。
+   **两键同时给**——只给一个键名会静默丢音色并恒用 provider 默认（AGENTS 同名条文的第二个落点）。
+   另有 **`gapSec` 必须真的参与拼接**（QM-6 后端 Critical）：concat 列表必须是
+   `块 / 静音 / 块 / 静音 …`，静音片段由 `anullsrc` 预物化、与块同容器，生成失败即整次拒绝
+   （`PODCAST_TTS_CONCAT_FAILED`），**不得静默退化成无间隔拼接**——念成连读是听感事故且不留日志。
+   列表路径**必须先归一 Windows 反斜杠**再单引号转义（与仓内 `_plainConcat` 同口径，Medium）。
+3. **零隐式出站**：本文件不 require `node:child_process`、不 require 任何 provider 包，进程与文件
+   系统全部经 `spawnImpl` / `fsImpl` 注入；因此测试不起真进程，真实 ffmpeg 路径必须由
+   `media-tool-paths` 解析出打包件后传入（缺席即抛，不允许回落到宿主 `PATH`）。
+
+**显示项与提示文字的落点**：本层不产出用户可见文案。`degraded`/`reason` 是**机器位**，
+渲染文案由下一片（4.3 的浮层确认步）按 `podcast.tts.*` 逐字生成并成对进 zh/en locales；
+因此本片**不新增 locale 键**（AGENTS 禁止无人消费的死键），提示文字清单随那片一并写进 §11.5。
+
+**未闭合**：真机 ffmpeg/ffprobe 拼接与解码实测（QM-1 媒体工具闭包要求：捆绑 ffprobe 解码短视频）
+属本片合并前的必做证据，落 `openspec/records/podcast-tts-adapters.md` 的 QM-1 段；未跑完不得合并。
+
 ### 刀 5 入口收敛
 刀 3 已建好的 `<PodcastPublishAction>` 挂到 `CopyLibraryView.vue:174`、`RewriteView.vue:812`、`Publish.vue:358`（采集页仅文本类分支）。**不放**：`HotTopics`、`KeywordMonitor`、`PublishHistory:764`（重发会带同 guid 原地覆盖正在播那期）、`Home`/`FirstRun`（裸跳转无内容）、`FilmEngineering`（本页无发布挂载点）。
 
