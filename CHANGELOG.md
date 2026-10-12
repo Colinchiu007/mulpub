@@ -1,3 +1,49 @@
+# [未发布] fix(ci): gui-test.yml 的空值节点让整条流水线从 main 消失——补 workflow 结构门禁（gui-test-workflow-structure）
+
+## 背景
+
+`87e311c45`（PR #3200）收尾时"修 rebase 重复键"顺手删掉了 `jobs.gui-test.defaults.run.shell: bash`，
+留下一个只有键、没有值的节点。它是**完全合法的 YAML**（值为 null），所以本仓所有以 `js-yaml.load`
+为入口的判据全部照过；而 GitHub 的 workflow 编译器在**排队之前**拒绝整份文件：
+`(Line: 32, Col: 11): Unexpected value ''`。
+
+后果不是"跑挂"而是"不存在"：main 每次 push 生成一个**零 job** 的 failure run（无日志、无 check-runs，
+原因只在 Actions UI 的 annotation 里），实测从 `87e311c45` 那次 push 起**连续 530 次红**；
+PR 侧更糟——此后**一条 PR run 都不生成**，最后一次 PR 触发停在断点前 24 分钟。同期 main 合了 124 个 PR，
+没有一个拿到过这条浏览器 E2E 门禁。
+
+## 改动
+
+- `gui-test.yml`：恢复 `defaults.run.shell: bash`（原值，`62edccb62`→`ceb998758` 全程都在），
+  并恢复被同一次提交顺手删掉的两行 pytest-asyncio 注释（"不得改回临时 pip install"的理由）。
+- 新建单一判据 `.github/scripts/check-workflow-structure.js`：抓「GitHub 排队前会拒绝」的形态——
+  空值节点（唯一豁免 `on.<事件名>`）、`jobs` 非空、作业 steps/uses 二选一、带 steps 必须有 runs-on、
+  步骤必须有 uses 或 run 且 run 非空、`with`/`env` 必须是映射、`defaults`/`defaults.run` 不得为空。
+  CLI 三档退出码：0 合规 / 1 发现违规 / 2 扫描器自身读不到目录（不混，否则"门禁瞎了"会被读成"workflow 有问题"）。
+- 锁 `.github/scripts/check-workflow-structure.test.js` 6 条：动因形态逐字复刻 + 六形态逐个红 +
+  三类合规正控（含复用型 workflow 调用）+ 真实仓库扫描域下界与成员点名 + CLI 三档退出码 + CI 接线锁。
+- 接进 `quality-gate.yml` 的 **Gate 3**，并把该步骤整体改 `shell: bash`：它原本默认 pwsh，正文末尾那句
+  `if ($LASTEXITCODE -ne 0)` 只转存**最后一条**命令的码 ⇒ 第一行 `node --test`（含 workflow-contract 等
+  8 个测试文件）红掉时步骤照绿。换 shell 前实测该步骤全部命令 115/115 pass、两个 CLI rc=0，
+  不存在"因换 bash 才暴露的既有红"。
+- 反证 11 条全部 CAUGHT（`.ccg/reviews/workflowstructure-mutate.driver.js` + 产物），其中 M1 是把
+  **规则明文禁止的形态本身**写回 gui-test.yml，M11 是把 runs-on 判据扩到所有作业以证明合规正控不恒真。
+- QM-6 双模型（替代通道，CC Switch :15721 未监听 ⇒ opencode free 模型）独立收敛出两条缺口：
+  缺 runs-on 判据（CRITICAL）与 steps/uses 不互斥（MAJOR），均已采纳并各自配反证。
+
+## 未收口（如实登记）
+
+- `GUI Tests` **不在任何 required 清单**（ruleset 23749994 的 6 条与 classic protection 的 4 条都不含它）
+  ⇒ 本 PR 只让它"能跑"，没让它"拦得住"。加进 required 属改「谁来守门」，须人工过目。
+- `check-step-failfast.js` 认「正文出现过 `$LASTEXITCODE`」即合规，而 pwsh 只有最后一条决定成败；
+  实测仍有 4 处落在"1 条测试 + ≥2 条命令 + 非 bash + 无 $LASTEXITCODE"这一格
+  （`doc-gate.yml::L47`、`ops-center-ci.yml::L44`、`quality-gate.yml::L534`、`quality-gate.yml::L1731`）。
+
+## 验证
+
+锁 6/6 绿；CLI `files=13 violations=0`；`check-unwired-tests` OK（78 个测试文件全接线）；
+`check-step-failfast` OK；`workflow-contract` 35/35 仍绿；变异 11/11 CAUGHT 且还原逐字节相同；
+执行记录 `openspec/records/gui-test-workflow-structure.md`。
 # [未发布] fix(xiaohongshu): 草稿箱计数确认链的 dom 侧实现从未落地——调用方、用例和「已完成」声明都进了 main，只有实现半边没有（xhs-draft-box-restore）
 
 ## 症状

@@ -494,14 +494,21 @@ jobs:
 
       # --- Gate 3: 硬编码密钥扫描（同时执行 CI workflow 契约测试）---
       - name: "Gate 3 - Hardcoded secrets scan"
+        # 本步骤整体 shell: bash 是必需的，不是风格：默认 pwsh 下"中间命令非零不中止"，
+        # 而正文里那句 `if ($LASTEXITCODE -ne 0)` 只转存**最后一条**命令的退出码 ——
+        # 第一行的 node --test 红掉时步骤照样绿（#3357 那句注释以为已经堵住了，实际没有）。
+        # 换 bash 后该显式转存必须删除：它是 PowerShell 语法，在 bash 里是语法错误。
+        shell: bash
         run: |
-          node --test .github/scripts/check-hardcoded-secrets.test.js .github/scripts/workflow-contract.test.js .github/scripts/autonomous-loop-workflow.test.js .github/scripts/agent-review-gate.test.js .github/scripts/classify-ci-failure.test.js .github/scripts/ci-failure-handler-contract.test.js scripts/gate-budget.test.js scripts/check-desktop-shard-forwarding.test.js
+          node --test .github/scripts/check-hardcoded-secrets.test.js .github/scripts/workflow-contract.test.js .github/scripts/autonomous-loop-workflow.test.js .github/scripts/agent-review-gate.test.js .github/scripts/classify-ci-failure.test.js .github/scripts/ci-failure-handler-contract.test.js .github/scripts/check-workflow-structure.test.js scripts/gate-budget.test.js scripts/check-desktop-shard-forwarding.test.js
+          # workflow 结构门禁本体：抓「GitHub 在排队之前就拒绝这份文件」的空值/缺节点形态。
+          # 动因是 87e311c45 (#3200) 把 gui-test.yml 的 defaults.run.shell: bash 删成空值，
+          # 于是该 workflow 从 main 上整体消失（零 job），且此后每个从 main 切出的 PR 都拿不到它。
+          node .github/scripts/check-workflow-structure.js
           node .github/scripts/check-hardcoded-secrets.js
           # 判据本体也跑一次：它把"消费者实收 argv""续行扫描命中数""真 vitest 两腿枚举的文件名"
-          # 打进 CI 日志（带内现场），而不只在测试名里露一下。显式转存退出码——本步骤默认 shell 是 pwsh，
-          # 中间命令非零不会自动中止该步骤（AGENTS.md「一个 run 块里塞多条命令」那条）。
+          # 打进 CI 日志（带内现场），而不只在测试名里露一下。
           node scripts/check-desktop-shard-forwarding.js
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # --- Gate 6: IPC bridge completeness ---
       - name: "Gate 6 - IPC bridge completeness"
