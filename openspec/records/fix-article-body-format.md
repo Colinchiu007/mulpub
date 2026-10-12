@@ -2,10 +2,6 @@
 record: fix-article-body-format
 task: 百家号图文正文「整篇一整段」根因修复——新增图文正文承载形态适配单一实现并接入 8 条链
 date: 2026-10-12
-# ↓ 下面三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在，回填由后续回填 PR 在同一次提交完成
-sync_backfill_owner: 下一个会话（agent 自动回填）
 ---
 
 ## 本次执行记录：图文正文承载形态适配——百家号「整篇一整段」根因修复（fix-article-body-format，2026-10-12）【混合 PR】
@@ -24,11 +20,19 @@ sync_backfill_owner: 下一个会话（agent 自动回填）
 | QM-4 视觉 | N/A | 无 UI / locale / 样式改动 |
 | QM-6 外部评审 | ✅（后端单模型，如实记账） | `claude -p` 独立评审 **verdict=no_critical**（Critical 0 / Warning 4 / Info 2）：3 条采纳并修（`stripKnownHtmlTags` 死导出、块级闭合缺 `html/body/head`、代码尖括号边界写明），2 条经 `publishMode` 证据核实为「legacy 适配器不在运行路由上」⇒ 不接线并写进 PRD §5.4。逐条见 `openspec/changes/article-body-format/review-response.md`；前端 `opencode` 未产出结构化 findings，**不冒充双模型通过** |
 | 预防措施（QM-5 ⑤） | ✅ | `AGENTS.md` QM-2 新增「图文正文承载形态合同」；`PRD-API-PUBLISH-ENGINE.md` §12.1 字段口径更新；新 PRD §14 遗留清单登记三份同族实现收敛与 DOM 轨复核 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#<PR>)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin fix-article-body-format` 返回 0 行证远端分支已删；回填后删除上方三个 `sync_*` 字段，并由回填 PR 在同一次提交改写 `.quality-gates.md` 记录行与删除 `scripts/gate-record-debt-ledger.json` 登记项 |
+| 远程同步 | PASS | 已合并：PR #3389，merge `2bb7c2b9a82cc1ee7de0a2c0d11e5a579f0e3a4e`（2026-10-12T06:20:32Z，squash）。取证：`git log origin/main --grep='(#3389)
 
 ### 遗留（不假装已闭合）
 
 - **DOM 轨 contenteditable 注入未取证**（头条/百家号 DOM 兜底、YouTube/TikTok/微博/小红书/快手编辑器）：`_fillInput` 的 `execCommand('insertText')` 多段文本是否在平台编辑器模型里成段，离屏不可判定 ⇒ 复核 runbook 见 PRD §12.3。
 - **同族逻辑仍有三份实现**（desktop `stripHtmlToPlainText`、`wechat-mp-article.toParagraphHtml`/`hasHtmlTags`、rpa-engine 头条直连内联 `<p>` 拼接）：收敛需改 `apps/desktop/electron/**`（触发 QM-1 打包验证）⇒ 拆后续 PR；且前三者宽判据会误伤代码片段（本次已在引擎侧用白名单收窄）。
 - **Markdown → HTML 未做**：`# 标题` / `**粗体**` 进 HTML 承载平台仍是字面量（与改造前一致，非本次回归）。
-- **远程同步待回填**：回填动作与销账须在同一次提交发生。
+- **远程同步已回填并销账**：PR #3389 = `2bb7c2b9a82cc1ee7de0a2c0d11e5a579f0e3a4e`（2026-10-12T06:20:32Z，squash）；本回填提交与 ledger 登记项删除、`sync_*` 三字段删除在同一次提交发生。
+ --format=%H|%cI` 唯一命中；`git ls-remote --heads origin fix-article-body-format` 返回 **0 行**（远端分支已删）；上方三个 `sync_*` 字段已在本回填提交同次删除，`scripts/gate-record-debt-ledger.json` 登记项亦同次删除 |
+
+### 遗留（不假装已闭合）
+
+- **DOM 轨 contenteditable 注入未取证**（头条/百家号 DOM 兜底、YouTube/TikTok/微博/小红书/快手编辑器）：`_fillInput` 的 `execCommand('insertText')` 多段文本是否在平台编辑器模型里成段，离屏不可判定 ⇒ 复核 runbook 见 PRD §12.3。
+- **同族逻辑仍有三份实现**（desktop `stripHtmlToPlainText`、`wechat-mp-article.toParagraphHtml`/`hasHtmlTags`、rpa-engine 头条直连内联 `<p>` 拼接）：收敛需改 `apps/desktop/electron/**`（触发 QM-1 打包验证）⇒ 拆后续 PR；且前三者宽判据会误伤代码片段（本次已在引擎侧用白名单收窄）。
+- **Markdown → HTML 未做**：`# 标题` / `**粗体**` 进 HTML 承载平台仍是字面量（与改造前一致，非本次回归）。
+- **远程同步已回填并销账**：PR #3389 = `2bb7c2b9a82cc1ee7de0a2c0d11e5a579f0e3a4e`（2026-10-12T06:20:32Z，squash）；本回填提交与 ledger 登记项删除、`sync_*` 三字段删除在同一次提交发生。
