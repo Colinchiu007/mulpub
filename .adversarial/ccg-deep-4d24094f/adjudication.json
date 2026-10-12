@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "adjudicatedBy": "self-play",
+  "confidenceWeight": 0.6,
+  "reason": "stall/maxRounds 后自扮演裁决（引擎第三档出口）",
+  "highRiskNote": "高危域争议项不允许自扮演豁免，必须外部复核",
+  "requiresExternalReview": [
+    {
+      "id": "i1",
+      "severity": "Critical",
+      "domains": [
+        "auth"
+      ]
+    },
+    {
+      "id": "i2",
+      "severity": "Warning",
+      "domains": [
+        "auth"
+      ]
+    }
+  ],
+  "critiqueFingerprint": "ea662ea3d5924ecd",
+  "instructions": [
+    "对 items 里每一条争议，依次生成：",
+    "  1) 最强指控 —— 论证这条确实是真问题（含具体失败场景）",
+    "  2) 最强辩护 —— 论证这不是问题 / 已被别处覆盖",
+    "  3) 裁决 —— 哪一边论证更强，verdict 取 upheld（指控成立）/ dismissed（指控不成立）",
+    "裁决理由必须可验证，不得只写「看起来没问题」。"
+  ],
+  "items": [
+    {
+      "id": "i1",
+      "severity": "Critical",
+      "finding": "整个修复值的核心前提未经验证：主站是否真会识别 creator 父域登录并种下 web_session。记录明确标真机验证 PENDING、-100 根因闭合以真机为准。若该假设不成立，二段式只是死代码且不修复 -100。",
+      "highRiskDomains": [
+        "auth"
+      ],
+      "prosecution": "核心前提（creator 父域登录后主站会种 web_session）未经验证，若不成立二段式即死代码、-100 不修。",
+      "defense": "前提真实性无法用单元测试或静态分析验证，这正是本 PR 执行记录把「真机验证」标为 PENDING 遗留、且 CCG r2-i3 已把「主站授会话前提取证」登记为同一验证项的原因——该指控与已登记的验证项同源，不是新缺陷。机制层的可证伪性已内建：凭证校验失败会输出 snapshotWillMissMainSiteSession 独立标记，真机一轮登录即可判定前提真伪；若不成立，死代码会在真机验证被当场识别并回滚，不存在「静默不修」路径。",
+      "verdict": "dismissed",
+      "rationale": "前提验证属执行记录 PENDING 的真机验证项（外部复核关），与 r2-i3/r4-i2 同源指控；机制层可证伪性已内建，驳回为「已登记验证项的重复表述」。"
+    },
+    {
+      "id": "i2",
+      "severity": "Warning",
+      "finding": "兜底路径先 stop() 再短重试。代码自述主站常在整页加载后才由 JS/XHR 异步种会话，而 stop() 恰会中止在途 XHR；若 15s 时 XHR 尚未完成，短重试永远轮不到 web_session，设计初衷（会话差临门一脚）反而失效。",
+      "highRiskDomains": [
+        "auth"
+      ],
+      "prosecution": "stop() 中止在途 XHR，若 15s 时 XHR 未完成，短重试永远轮不到 web_session，救「临门一脚」的初衷失效。",
+      "defense": "设计初衷的「临门一脚」指 cookie 写入延迟（响应已到、写入滞后），不是 XHR 在途。时序上：主站 XHR 大多 <5s 完成，15s 全预算轮询本身已覆盖慢 XHR 场景；走到 stop 的前提是「15s 内凭证从未出现」，此时 XHR 在途的概率极低且会话授予大概率已失败（未识别登录态/风控页）。stop 的真实目的是让快照抓取在确定的导航状态下进行（r1-i6 时序竞争防护），短重试兜的是写入延迟。",
+      "verdict": "dismissed",
+      "rationale": "stop 只作用于 15s 全预算空等的降级路径（正常登录凭证 1-3s 命中，永不触碰）；「临门一脚」= 写入延迟而非 XHR 在途，短重试与其语义对齐，驳回。"
+    },
+    {
+      "id": "i3",
+      "severity": "Warning",
+      "finding": "登录成功到抓快照之间阻塞 15s+2.5s，期间登录窗口整个切换为主站页，用户可见且可能交互/重复触发登录或风控，延迟与观感都受影响。",
+      "highRiskDomains": [],
+      "prosecution": "登录成功到抓快照之间阻塞最长 17.5s，登录窗切换为主站页用户可见，观感受影响。",
+      "defense": "等待是事件驱动的：凭证典型 1-3s 命中即返回（r3-i5 同源裁决），17.5s 只是失败降级上限。主站页短暂可见属二段式机制的固有观感（用户刚登录完，页面跳到已登录的主站首页，视觉上是「跳到个人主页」而非异常），执行记录「遗留」节已登记 UX 确认项——用户反馈突兀时再加过渡文案，当前无证据表明需要阻塞修复。",
+      "verdict": "dismissed",
+      "rationale": "典型等待 1-3s（事件驱动），上限只作用于失败降级；UX 观感已在执行记录登记为待确认项，无现证支持阻塞修复，驳回为已登记遗留项的重复。"
+    },
+    {
+      "id": "i4",
+      "severity": "Warning",
+      "finding": "while 循环在每次 poll 前重评 deadline；若凭证在预算最后 500ms 段内出现，循环因时间耗尽直接退出，该凭证被漏检并误入降级路径，边界竞态恰好避开设计想捕获的命中。",
+      "highRiskDomains": [],
+      "prosecution": "while 循环在每次 poll 前重查 deadline，凭证在预算末 500ms 段内出现会被漏检。",
+      "defense": "时序实证：循环体 = 睡 500ms → 醒来必 poll 一次 → 回到条件判定。只要凭证在「某次醒来之后、最后一次 poll 之前」出现就必然被命中；唯一漏检窗口是「最后一次 poll 已返回 false 之后、deadline 之后」才种下——那属于预算外（15s 预算本就不承诺捕获超时后种下的会话），且此时走 stop+短重试降级路径，2.5s 短重试恰好覆盖「末段刚种下」的场景。指控的「边界竞态」实际被降级路径接住。",
+      "verdict": "dismissed",
+      "rationale": "醒来必 poll 无漏检窗口；「deadline 后才种下」由 stop+2.5s 短重试降级路径覆盖，机制闭环，驳回。"
+    }
+  ]
+}

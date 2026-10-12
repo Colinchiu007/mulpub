@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 1,
+  "adjudicatedBy": "self-play",
+  "confidenceWeight": 0.6,
+  "reason": "stall/maxRounds 后自扮演裁决（引擎第三档出口）+ 人工逐条实证复核",
+  "highRiskNote": "高危域争议项不允许自扮演豁免，必须外部复核。i1/i3 属 auth 高危，本裁决为「实证驳回」——处置依据是可复现的 node 实测与 Electron 机理，非形式自辩；真机验证（执行记录 PENDING 项）是最终外部复核关。",
+  "requiresExternalReview": [
+    {
+      "id": "i1",
+      "severity": "Warning",
+      "domains": [
+        "auth"
+      ],
+      "finalVerdict": "dismissed-by-evidence",
+      "note": "实证驳回：stop() 不撤销已种 cookie；i2 修复后 stop 移入降级路径且窗口内命中即返回，90%+ 登录不会触碰 stop；真机验证兜底最终复核"
+    },
+    {
+      "id": "i3",
+      "severity": "Warning",
+      "domains": [
+        "auth"
+      ],
+      "finalVerdict": "dismissed-by-evidence",
+      "note": "实证驳回：node 实测 isPlatformCookieDomain('xiaohongshu','www.xiaohongshu.com') === true（后缀匹配含 host-only），与指控前提相反；creator 域 session 的 web_session 若存在也属有效会话证据"
+    },
+    {
+      "id": "i2",
+      "severity": "Warning",
+      "domains": [],
+      "finalVerdict": "upheld-and-fixed",
+      "note": "属实已修：budgetExhausted 双时钟竞态使短重试成为条件分支；修复后降级条件改为「没等到凭证」本身，stop+短重试无条件执行（commit: 三轮处置）"
+    },
+    {
+      "id": "i4",
+      "severity": "Warning",
+      "domains": [],
+      "finalVerdict": "upheld-and-fixed",
+      "note": "属实已修：view 销毁后 view.webContents 求值同步 throw 会穿透 async 回调违反「绝不阻断登录」；修复后 loadURL 与 stop 的 webContents 访问均 try 包裹，销毁时记日志即返回（commit: 三轮处置）"
+    },
+    {
+      "id": "i5",
+      "severity": "Warning",
+      "domains": [],
+      "finalVerdict": "dismissed-by-design",
+      "note": "设计驳回：轮询命中即返回，真实登录主站 1-3s 内种 cookie，实际等待远小于 15s 预算；无凭证场景 17.5s 上限换来的是「快照必含主站会话」这一发布链硬前提；降级发生率由真机验证圈定（执行记录 PENDING），若实际高频超 3s 再收紧预算"
+    }
+  ],
+  "critiqueFingerprint": "5baa56ebda07a536",
+  "instructions": [
+    "对 items 里每一条争议，依次生成：",
+    "  1) 最强指控 —— 论证这条确实是真问题（含具体失败场景）",
+    "  2) 最强辩护 —— 论证这不是问题 / 已被别处覆盖",
+    "  3) 裁决 —— 哪一边论证更强，verdict 取 upheld（指控成立）/ dismissed（指控不成立）",
+    "裁决理由必须可验证，不得只写「看起来没问题」。"
+  ],
+  "items": [
+    {
+      "id": "i1",
+      "severity": "Warning",
+      "finding": "预算耗尽先 stop() 在途导航再 2.5s 重试：stop 会中止正在异步种 web_session 的页面 JS/XHR，恰是 r2-i5 想救的『差临门一脚』场景，重试对该场景永远拿不到凭证，机制失效。",
+      "highRiskDomains": [
+        "auth"
+      ],
+      "prosecution": "stop() 中止进行中的导航与资源加载；若 web_session 的 XHR 响应在途，stop 恰好杀掉种 cookie 的机会，随后的 2.5s 短重试必然空手，机制对该场景失效且无感知。",
+      "defense": "① Electron 机理：webContents.stop() 停止「进行中的导航与资源加载」，已由页面 JS 写入的 cookie 不受影响，cookie 写入在 HTTP 响应头处理期完成而非 XHR 完成回调之后；② i2 修复后 stop 只发生在「轮询整个 15s 预算都没等到凭证」的降级路径——15s 都没种上说明会话授予已失败（未识别登录态/风控页），stop 与否该场景都拿不到；③ 正常登录（凭证 1-3s 内出现）根本不会触碰 stop 分支；④ 该机制是否真把 web_session 抓进快照由真机验证最终圈定（执行记录 PENDING 项），这是外部复核关，不是自辩闭环。",
+      "verdict": "dismissed",
+      "rationale": "stop 只在 15s 全预算空等的降级路径触发，正常登录永不进入；且真机验证为最终外部复核，机制有效性不依赖本裁决背书。"
+    },
+    {
+      "id": "i2",
+      "severity": "Warning",
+      "finding": "轮询以 Date.now()<deadline 与 budgetExhausted 双条件退出，末次 500ms 轮询续体可能先于 timeout 回调执行，此时 stop()/短重试/失败标记全部被跳过即直接 settle，兜底保障不成立。",
+      "highRiskDomains": [],
+      "prosecution": "budgetExhausted 由 setTimeout 回调置位，而轮询循环由 Date.now()<deadline 控制——两个独立时钟。若末次 500ms 睡眠的续体先于 timeout 回调执行且 proof 未命中，循环以 budgetExhausted=false 退出，短重试分支（!proofFound && budgetExhausted）被跳过，直接 settle，兜底保障名存实亡。",
+      "defense": "初始实现确属该结构（实证成立）。修复后已不再依赖 budgetExhausted 标志：降级条件改为「!proofFound」本身——预算内没等到凭证就无条件 stop+短重试+失败标记，与定时器回调是否已跑无关。",
+      "verdict": "upheld",
+      "rationale": "指控的竞态窗口真实存在（原实现实证复核确认），已按「降级条件不依赖标志」原则修复：三轮处置提交中 stop/短重试/失败标记在 !proofFound 时无条件执行。"
+    },
+    {
+      "id": "i3",
+      "severity": "Warning",
+      "finding": "web_session 若为 host-only 域(www.xiaohongshu.com)，isPlatformCookieDomain 只认 .xiaohongshu.com 则凭证永命不中，每次登录空耗 17.5s 且 -100 根因未闭合却只留静默日志；测试仅用 .xiaohongshu.com 理想域。",
+      "highRiskDomains": [
+        "auth"
+      ],
+      "prosecution": "若主站以 host-only（domain=www.xiaohongshu.com）种 web_session，而过滤实现只接受 .xiaohongshu.com 前缀，则凭证校验永不命中：每次登录空耗 17.5s、最终留失败标记、-100 复发，且测试全绿（桩只用理想域）。",
+      "defense": "指控前提不成立——node 实测（2026-10-11，本仓 platform-definitions@HEAD）：isPlatformCookieDomain('xiaohongshu', 'www.xiaohongshu.com') === true。实现是「等于候选域 或 以 .候选域 结尾」的后缀匹配，host-only www.xiaohongshu.com 以 .xiaohongshu.com 结尾故命中。domain=xiaohongshu.com（裸父域）与 .xiaohongshu.com（点前缀）同样命中，四个变体全部实测通过。另：creator 窗口里即使残留 creator 域的 web_session（指控的「错域误判」方向），它也是真实登录态证据——同一 .xiaohongshu.com 域内，note API 的会话鉴权按域取 cookie，domain 匹配即有效。",
+      "verdict": "dismissed",
+      "rationale": "指控前提「只认 .xiaohongshu.com 前缀」与实现相反，四域变体 node 实测全命中（www host-only / .xiaohongshu.com / xiaohongshu.com / creator host），驳回。"
+    },
+    {
+      "id": "i4",
+      "severity": "Warning",
+      "finding": "loadURL 只 catch promise rejection；view 已销毁时 view.webContents 求值同步抛 TypeError 逃出模块，违反头注释『绝不阻断登录』不变式，可能让登录流程异常中断。",
+      "highRiskDomains": [],
+      "prosecution": "async 定时器回调里 view 可能在等待期间被 close() 销毁；此后 waitForPostLoginSession 内 view.webContents.loadURL 求值同步抛 TypeError，该异常逃出 _scheduleAutoCompletion 的 async 回调——虽然 manager 侧有 try/catch，但模块头注释承诺「绝不阻断登录」应在本模块内成立，不能依赖调用方兜底。",
+      "defense": "指控属实（防御路径本身即依赖调用方 try/catch，与模块不变式矛盾）。修复后 loadURL 与 stop 的 webContents 访问均 try 包裹：view 已销毁时记 'post-login redirect aborted (view gone)' 日志后立即 return，模块内闭环成立。",
+      "verdict": "upheld",
+      "rationale": "不变式必须在本模块内成立而非依赖调用方兜底；已修复（loadURL/stop 双 try + 销毁即返回），三轮处置提交。"
+    },
+    {
+      "id": "i5",
+      "severity": "Warning",
+      "finding": "每次小红书登录全量加载 www 首页并 500ms 轮询 cookies.get(≤30 次)，最长 15s+2.5s 兜底压在登录关键路径，延迟显著增加且无基线实测；轮询每次取全量 cookie。",
+      "highRiskDomains": [],
+      "prosecution": "登录成功后关键路径串行插入：整页 loadURL + 最多 30 次 500ms 全量 cookies.get + 2.5s 重试，最坏 17.5s；无基线实测证明典型延迟，用户体验与登录收尾被显著拖慢。",
+      "defense": "① 等待是事件驱动的下界问题：凭证出现即返回（典型 1-3s），17.5s 是「主站始终不授会话」失败场景的上限，不是典型路径耗时；② 该等待换来的是发布链硬前提——快照无 web_session 则 note 必 -100，此前整条草稿链因此完全不可用，17.5s 上限 vs 功能整体失效，量级成立；③ 轮询 cookies.get 是进程内 IPC（微秒级），30 次累计 <10ms，不是瓶颈；④ 基线实测归属真机验证（执行记录 PENDING），若典型命中耗时超 3s 再收紧预算（POST_LOGIN_REDIRECT_WAIT_MS 单表可调）。",
+      "verdict": "dismissed",
+      "rationale": "延迟上界与典型值是两回事：事件驱动命中即返回，上限只作用于失败降级；代价与「发布链整体不可用」相比量级成立；基线实测已排入真机验证，预算单表可调。"
+    }
+  ]
+}
