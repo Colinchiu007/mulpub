@@ -227,15 +227,24 @@ describe("HomeView", () => {
   });
 
   it("renders primary publish hero card with streak days from daily data", async () => {
-    // streak 判据：daily 最近 3 天都有发布 → 连续 3 天；不新增 IPC，复用 dashboard:stats.daily
+    // streak 判据：最近 3 天（今天/昨天/前天，按运行日动态生成）都有发布 → 连续 3 天；
+    // 禁止硬编码日期：CI 与本地时区/日期不同会算出不同 streak（实测 2026-10-13 CI 恒得 2 天）
+    const dayKey = (offset) => {
+      const d = new Date();
+      d.setDate(d.getDate() - offset);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    };
     window.electronAPI.dashboardStats = vi.fn().mockResolvedValue({
       code: 0,
       data: {
         total: 10, success: 9, failed: 1, perPlatform: {},
         daily: [
-          { date: "2026-10-11", total: 2, success: 2, failed: 0, unclassified: 0 },
-          { date: "2026-10-12", total: 1, success: 1, failed: 0, unclassified: 0 },
-          { date: "2026-10-13", total: 3, success: 2, failed: 1, unclassified: 0 },
+          { date: dayKey(2), total: 2, success: 2, failed: 0, unclassified: 0 },
+          { date: dayKey(1), total: 1, success: 1, failed: 0, unclassified: 0 },
+          { date: dayKey(0), total: 3, success: 2, failed: 1, unclassified: 0 },
         ],
       },
     });
