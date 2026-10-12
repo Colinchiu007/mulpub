@@ -1591,23 +1591,31 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
-          PR_CHANGED_FILES: ${{ toJSON(github.event.pull_request.changed_files) }}
         run: |
           $title = "" + "$env:PR_TITLE" + ""
           $body = "" + "$env:PR_BODY" + ""
           $labels = "" + "$env:PR_LABELS" + ""
-          $files = @()
-          if ($env:PR_CHANGED_FILES) {
-            try { $files = ($env:PR_CHANGED_FILES | ConvertFrom-Json) } catch { $files = @() }
-          }
+          # 变更清单**不用** github.event.pull_request.changed_files：那是**整数计数**
+          # （实测 PR #3439 该字段 = 13，不是清单），toJSON 后 ConvertFrom-Json 得到标量，
+          # 分类器会把「13」当成一个假文件名 → 落到 fail-closed 桌面端全量（正是要修的根因）。
+          # 标准 PR payload 也没有 files 数组，故用 git 自己算：merge-base 三点 diff。
+          $base = & git merge-base origin/main HEAD 2>$null
+          if ($LASTEXITCODE -ne 0 -or -not $base) { $base = "origin/main" }
+          $raw = & git diff --name-only "$base" HEAD 2>$null
+          $files = @($raw | Where-Object { $_ -and $_.Trim() } | ForEach-Object { $_.Trim() })
+          Write-Host "Gate 9 changed files ($($files.Count)): $($files -join ', ')"
           $input = @{ title = $title; body = $body; labels = $labels; changedFiles = $files } | ConvertTo-Json -Compress -Depth 4
           $input | Out-File -FilePath gate9-input.json -Encoding utf8
+          # ⚠️ node -e 的 require('./x') 不相对 cwd 而相对 eval 脚本（CI 实测
+          #    Cannot find module './scripts/gate9-classify.js'），必须用绝对路径。
           $out = & node -e "const path=require('path');const {classifyGate9}=require(path.join(process.cwd(),'scripts','gate9-classify.js'));const fs=require('fs');const r=classifyGate9(JSON.parse(fs.readFileSync('gate9-input.json','utf8')));fs.writeFileSync('gate9-meta.json',JSON.stringify(r));console.log('PR_MODE='+r.mode);console.log('GATE9_SRC='+r.srcDir);console.log('GATE9_DOCS='+r.docPaths.join(','));console.log('GATE9_REASON='+r.reason);if(r.featureIds.length)console.log('REQUIRED_FEATURE_IDS='+r.featureIds.join(','))"
           $out | ForEach-Object { Write-Host $_ }
           $mode = ($out | Select-String -Pattern '^PR_MODE=' | Select-Object -First 1).Line -replace '^PR_MODE=',''
           $src = ($out | Select-String -Pattern '^GATE9_SRC=' | Select-Object -First 1).Line -replace '^GATE9_SRC=',''
           $docs = ($out | Select-String -Pattern '^GATE9_DOCS=' | Select-Object -First 1).Line -replace '^GATE9_DOCS=',''
           $ids = ($out | Select-String -Pattern '^REQUIRED_FEATURE_IDS=' | Select-Object -First 1).Line -replace '^REQUIRED_FEATURE_IDS=',''
+          # 判据没跑起来（node 崩溃/无输出）必须当场红：静默回落 full 就是让门禁名存实亡
+          if (-not $mode) { throw "Gate 9 PR 画像判据未产出 PR_MODE（node 执行失败？）—— 不得静默回落" }
           "PR_MODE=$mode" | Out-File -Append $env:GITHUB_ENV
           if ($src)  { "GATE9_SRC=$src"   | Out-File -Append $env:GITHUB_ENV }
           if ($docs) { "GATE9_DOCS=$docs" | Out-File -Append $env:GITHUB_ENV }
