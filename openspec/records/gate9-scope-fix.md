@@ -3,9 +3,6 @@
 record: gate9-scope-fix
 task: Gate 9 覆盖审计三缺陷修复（作用域分流 / 状态分层 / 口径统一）+ /rollout 权限缺口 + 菜单假绿断言
 date: 2026-10-12
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：Gate 9 覆盖审计缺陷修复（gate9-scope-fix，2026-10-12）
@@ -21,7 +18,7 @@ sync_backfill_owner: 下一个会话
 | 接线棘轮 | PASS | 新增 `scripts/gate9-classify.test.js`、`scripts/gate9-prd-status.test.js` 在 `scripts/` 下（node --test 直接覆盖）；`packages/ai-autonomous-tester/test/gate9-status-tiering.test.js` 在该包 `npm test`（`tests/*.test.js`）覆盖内，已实测 183 passed |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron`、`packages/rpa-engine`；前端仅改路由 meta 与测试，无视觉面变更 |
 | QM-6 CCG 双模型外部评审 | 未执行 | 本机无 `codeagent-wrapper`，如实登记 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA，`git ls-remote --heads origin gate9-scope-fix` 返回 0 行证远端分支已删；回填后删除三个 sync_* 字段 |
+| 远程同步 | PASS | PR #3439 已 squash 合并：merge SHA `52aeaf2aef098883e1807baa4673ff4528b6f799`（2026-10-13T02:49:32+08:00）；`git ls-remote --heads origin gate9-scope-fix` 返回 0 行，远端分支已删 |
 
 ### 实现要点（值得留存的判断）
 
