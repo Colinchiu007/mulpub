@@ -2,8 +2,6 @@
 slug: podcast-episode-tts-entry
 branch: podcast-episode-tts-entry
 date: 2026-10-13
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填 PR 改写 PASS + merge SHA 并整段删除本三个 sync_ 字段
-sync_backfill_owner: 后续 docs PR（回填链）
 sync_pr: pending
 ---
 
@@ -29,7 +27,7 @@ sync_pr: pending
 
 ## QM-1 打包证据
 
-| 远程同步 | PENDING | 待本 PR 合并后就地改写为 PASS + merge SHA，并在同一次提交删除 ledger 本条登记项 |
+| 远程同步 | PASS | 已合并：PR #3480，merge c48c778e713341816d2c63dec8b74c1f80d8a014（2026-10-13，squash）。取证：`git log origin/main --grep "(#3480)$" --format=%H|%cI`；本次回填同一次提交删除 ledger 登记项，并在带 frontmatter 的记录文件里删 sync_ 字段 |
 
 - `node scripts/verify-worktree-deps.js` OK（11 项解析到本 worktree）。
 - `pnpm exec electron-builder --win --dir` rc=0；产物 `dist-electron/win-unpacked/resources/app.asar` 内 `index.bundle.js` 命中 1，且 `publishFromScript` 在产物中出现 **4** 次（主进程代码落 bundle，先例同「QM-1 文案落 index chunk」）。
