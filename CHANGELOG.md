@@ -1,3 +1,9 @@
+# [未发布] 播客存量 mime 固化的宿主接线（podcast-stock-host-wiring）
+
+- 新增 apps/desktop/electron/services/podcast-stock-freeze-host.js：createStockFreezeHost 把 §7.9 的固化判据接上真实调用路径——ipc-handlers/podcast.js 的 getService(channelId) 顺手触发一次（旁路：失败只 warn，不 await，跨进程"已做过"只看 stockStamp）。
+- 写盘走 tmp + rename 原子替换；宿主可注入既有 rename 重试策略，本层不复制第二份。
+- 回归锁 7 条 + 消费者回归 20 条 = 27 passed / 0 failed；含「接线不在位即红」的结构锁（它当场抓到我把路径少写一层 ..）。
+- 依赖 #3382 的 podcast-episode-stock-mime.js（同形文件随两条 PR 并存，先合并者落地、后者 rebase 后自动消解）。
 # [未发布] 播客存量单集 `mime` 一次性固化的判据与锁（podcast-mime-stock-freeze）
 
 - 新增 apps/desktop/electron/services/podcast-episode-stock-mime.js：`freezeStockMimeInArray`（合法值原样返回、缺席或非法按扩展名派生、派生不出计入 unresolved 不猜）与 `freezeStockMime`（恰好一次、幂等、按 channelId 走注入锁、单频道抛错跳过并 warn、六个注入实现缺任一即抛）。

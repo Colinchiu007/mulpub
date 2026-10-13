@@ -1,0 +1,23 @@
+{
+  "sha": "d00cb230763823f32358fa6e45b3f29485890914",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 325 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 325,
+    "fileCount": 3,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0
+  },
+  "stagedDiffHash": "63ee4c3bbf2bee00b12b8412b09d2860978c50cfbc9628ac8d25a3e121d19e22",
+  "decidedAt": "2026-10-12T01:33:37.454Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
