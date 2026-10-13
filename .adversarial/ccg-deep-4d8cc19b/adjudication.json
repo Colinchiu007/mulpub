@@ -14,6 +14,9 @@
     }
   ],
   "critiqueFingerprint": "c612aa01847f6edd",
+  "adjudicatedAt": "2026-10-13",
+  "adjudicatedByAgent": "fix-risk-hold-false-positive 会话（逐条填指控/辩护/裁决）",
+  "fixedInCommit": "eb8a157e6",
   "instructions": [
     "对 items 里每一条争议，依次生成：",
     "  1) 最强指控 —— 论证这条确实是真问题（含具体失败场景）",
@@ -21,36 +24,37 @@
     "  3) 裁决 —— 哪一边论证更强，verdict 取 upheld（指控成立）/ dismissed（指控不成立）",
     "裁决理由必须可验证，不得只写「看起来没问题」。"
   ],
+  "summary": "四条争议**全部 upheld**，逐条修复并补回归锁（引擎 +12 例 / shared-utils +2 例 / 桌面 +2 例）。i1 尤为关键：它复发的正是本次要消灭的裸子串误判同类，若不修等于「修了 601/10000015/risk/frequent，漏了 captcha」——同一缺陷形态的最后一个同族成员。",
   "items": [
     {
       "id": "i1",
       "severity": "Warning",
       "finding": "强档英文词 captcha/canvas illegal/risk control 未加标识符边界：recaptcha、HTML5 canvas illegal state 等自动化/浏览器常见报错会判 strong 并挂起冻结账号，复发本次要消灭的裸子串误判类（误判比漏判更有害）。",
       "highRiskDomains": [],
-      "prosecution": null,
-      "defense": null,
-      "verdict": null,
-      "rationale": null
+      "prosecution": "`RISK_STRONG_RE` 里的 `captcha` 是裸子串（未加边界），而 `recaptcha` / `hcaptcha` 都以 `captcha` 结尾。这两个词是**浏览器自动化与网页错误日志里的高频词**（「recaptcha failed to load」「hcaptcha widget not found」），与本应用的发布行为零关系。失败场景：某平台发布页第三方脚本加载失败，RPA 轨把页面报错原文回传为 `recaptcha failed to load` → `classifyRisk` 判 `strong` → `suspends: true` → 冻结该账号，横幅弹「检测到风控，请前往创作者中心手动发布一篇内容完成验证」——而那里不会弹验证。这与本次 PR 声称消灭的误判（`status code 601` / `id 6019` / `infrequent`）**是同一缺陷形态**，只是换了一个词条。本次 PR 的立论就是「裸子串匹配是误判来源」，留下 `captcha` 等于立论与实现不一致。",
+      "defense": "最强辩护有两条：①`canvas illegal` 是参考产品逆向取证得到的**特征串原文**，加边界可能改变其命中面，存在损伤既有能力的风险；②强档词的误判概率低于弱档（`风控`/`滑块` 这类中文专属词确实不会误命中），且 `captcha` 带 `-a` 结尾的独立词在平台风控文案里是常见形态（「captcha required」），加边界后仍然命中，故影响面看似可控。此外可主张：`recaptcha` 报错通常伴随登录态失效（`login_expired`）而非风控，实际链路里可能先被其他判据接管。",
+      "verdict": "upheld",
+      "rationale": "辩护不成立，判据可验证：①加边界**不损伤** `canvas illegal` 既有能力 —— 实测参考产品的原串 `Canvas Illegal: 请先到创作者中心发布一篇内容` 在加边界后仍命中（`Illegal` 后是冒号，非字母数字）；`canvas illegal` 单独成串亦命中。②「captcha 带 a 结尾仍命中」恰恰说明加边界无害：`captcha required` / `please solve the captcha` / 大写 `CAPTCHA` 全部仍为 strong，只有 `recaptcha`/`hcaptcha` 被正确排除。③「recaptcha 报错会先被 login_expired 接管」不可依赖：`classifyRisk` 是结构化优先 + 文本兜底，`recaptcha` 与登录态无必然关系（reCAPTCHA 也用于反爬/风控前置），不存在保证。④ 最关键：`RISK_CODES`/强档词表是**政策真源**，留下一个已知同族误判词条，等于给下一次「加词照抄」留下坏先例，而本 PR 的价值正是把该形态钉死。修复：`captcha` / `canvas illegal` / `risk control` 三者均加标识符边界 `(?<![A-Za-z0-9])…(?![A-Za-z0-9])`；回归锁 4 例（recaptcha/hcaptcha/reCAPTCHA 不挂起 + 裸 captcha/canvas illegal/risk control 仍 strong + `mycanvas illegal` 不命中）。"
     },
     {
       "id": "i2",
       "severity": "Warning",
       "finding": "classifyRisk 对字符串 code 直查 Set：RISK_CODES 数字码只有 number 形态，code:'601'/'10000015'（平台字符串回传）判不中，与 PRD§4.1『string|number 均合法』及注释『两形态都收』矛盾，真风控漏判。",
       "highRiskDomains": [],
-      "prosecution": null,
-      "defense": null,
-      "verdict": null,
-      "rationale": null
+      "prosecution": "`RISK_CODES` 含 `601` / `10000015` / `-1e7` 三个 **number** 形态，以及 `'BILI_RISK_601'` / `'RISK_BLOCKED'` 两个 string 形态。而 `classifyRisk` 的实现是 `RISK_CODES.has(typeof code === 'string' ? code : Number(code))` —— 当 `code` 是字符串 `'601'` 时走 `RISK_CODES.has('601')`，Set 里没有字符串 `'601'`（只有 number `601`）⇒ **判不中**。失败场景：B站链把 `code` 以 JSON 字符串形式回传（`{"code":"601"}`，后端/Python 侧与网关转发都极易产生该形态），文本又是普通措辞（如 `平台拒绝了本次请求`）⇒ `classifyRisk` 返回 `hit:false` ⇒ 不挂起、不进入风控处理 ⇒ **真风控漏判**，账号继续以相同节奏撞风控。更严重的是：本 PR 的 PRD §4.1 明确把 `input.code` 的合法域写成「string 或 number」，`risk-signals.js` 的注释也写「数字码与字符串枚举两形态都收」——**文档与注释都在宣称两形态支持，实现只支持一半**，属自述比判据宽。",
+      "defense": "最强辩护：①真实链路上 `code` 多为 number（适配器从平台响应 JSON 直接取，`601` 常为 number）；②`RISK_ANY_RE` 文本兜底仍可能在同一条消息里命中（B站的真实文案含「风控」「滑块验证」），所以字符串 `'601'` 判不中**未必**导致漏判；③`'BILI_RISK_601'` 这一最重要、最常回传的 B站码是字符串形态且已在表内，实际漏判暴露面有限。",
+      "verdict": "upheld",
+      "rationale": "辩护不成立，判据可验证：①「文本兜底会命中」正是本次 PR 要消除的依赖 —— 判定顺序明确要求**结构化优先**，若结构化码因形态问题静默失效，就退回文本匹配，而文本匹配是误判来源；把真风控的可靠性押在「文案里恰好有风控二字」上，与本 PR 的立论相反。②「真实链路多为 number」是概率论证，不是保证；且 `publisher-router` 的 backend 轨（Python 后端）与网关转发都经过 JSON 序列化边界，字符串码是现实形态而非假想。③最硬的一条：PRD §4.1 与源码注释**都已在本次 PR 中写成「两形态都收」**，实现不支持即为文档失真 —— 这类「注释比实现宽」的缺陷在仓内已有先例（本次修的 RISK_RE 两份注释都写「保持同义」）。④复现判据明确：`classifyRisk({code:'601', error:'平台拒绝了本次请求'})` 修复前 `hit:false`、修复后 `hit:true, strength:'strong'`（回归锁已加，含 `' 601 '`（带空格 trim）与 `'601abc'`（非数字串不命中）两侧边界）。修复：抽 `isRiskCode()` 同时认 number 与数字字符串，非数字串走字面量查表。"
     },
     {
       "id": "i3",
       "severity": "Warning",
       "finding": "publish-mode-runner 的 outcomeOfResult 仍持私有码表（无 601/RISK_BLOCKED），stop 分支双重闸门（outcome==='risk_blocked' 且 suspends）。引擎轨 code:601+普通文本→transient→降级 DOM 不挂起，桌面轨却挂起，两侧分裂，G6 单一真源未真正落地。",
       "highRiskDomains": [],
-      "prosecution": null,
-      "defense": null,
-      "verdict": null,
-      "rationale": null
+      "prosecution": "本 PR 的 G6 目标是「词表单一真源，杜绝两侧漂移」。但 `outcomeOfResult` 里仍留有一张**私有码表**：`if (code === 'BILI_RISK_601' || code === 10000015 || code === -1e7) return 'risk_blocked'` —— 它缺裸 `601`、缺 `'RISK_BLOCKED'`、缺 `'601'`（字符串）。失败场景：引擎 API 轨收到 `code: 601` + 普通措辞，`outcomeOfResult` 走到 `isRiskText(msg)` 为假 ⇒ 返回 `transient_error` ⇒ `decideRoute` 判**降级** ⇒ 回落 DOM 轨（不仅不挂起，还**换了一条路重发**，是本次「风控即停不换路」红线想要避免的形态）；而同一个失败经 `task.errorCode=601` 到桌面侧，`classifyRisk` 判 `strong` 并挂起。**同一失败、两条轨、两个结论** —— 这正是不收敛真源的典型后果，也与「风控即停、绝不换路」的合规语义冲突。",
+      "defense": "最强辩护：①`code === 'BILI_RISK_601'` 覆盖了 B站最重要的码，实际触发的多半是它；②`decideRoute` 对 `transient_error` 在 `api-only` 模式下并不换路（只有 `api-then-dom` 才降级），风险面取决于平台模式配置；③桌面侧与引擎侧服务的是不同执行轨（桌面 RPA / 引擎内部链），二者结论不同未必造成用户可见矛盾。",
+      "verdict": "upheld",
+      "rationale": "辩护不成立，判据可验证：①「多半是 BILI_RISK_601」不能覆盖 `code:601`（number）这一**本 PR 明确在 `RISK_CODES` 里列为风控码**的形态 —— 既然真源把 601 定义为风控码，路由判据就不该有第二套解释。②「取决于平台模式配置」不构成理由：`config/platforms.yaml` 里多平台是 `api-then-dom`（快手、抖音等），且本 PR 的 PRD 明确「弱信号仍停报不降级」是刻意保留的安全侧；私有码表造成的是**同一失败在两条轨上结论相反**，属实质缺陷而非可接受差异。③可复现：`outcomeOfResult({success:false, code:601, error:'平台拒绝了本次请求'})` 修复前 `'transient_error'`、修复后 `'risk_blocked'`（回归锁 4 例：裸 601 / 字符串 '601' / 'RISK_BLOCKED' 均 → risk_blocked；`code:500` 与 `code:6019 + id 6019 not found` 仍 → transient_error，证明没有借机放宽）。修复：删掉私有码表，路由与挂起共用同一份 `classifyRisk`（路由读 `hit`、挂起读 `suspends`），并把「路由用并集、挂起用强档」两者分工写进注释。"
     },
     {
       "id": "i4",
@@ -59,10 +63,10 @@
       "highRiskDomains": [
         "auth"
       ],
-      "prosecution": null,
-      "defense": null,
-      "verdict": null,
-      "rationale": null
+      "prosecution": "两处独立缺陷，均可在代码里逐字核对：**①双实现内容不同** —— 引擎 `publishViaApi` 内联的搬运只写 `if (result.loginExpired === true) err.loginExpired = true`，不认识下划线形态 `login_expired`；桌面 `publish-risk.js` 的 `attachRiskSignals` 认双形态。这正是本 PR 刚刚修掉的 `RISK_RE` 双份漂移的**同构复发**：同一语义两处各自解释，注释都以为对方一致。后果：引擎轨遇到 `login_expired: true`（Python 后端与部分适配器用下划线风格）时**不搬该字段**，而桌面轨会搬 —— 登录态失效在下游被判据漏掉。**②半程管线** —— `attachRiskSignals` 把 `loginExpired` 挂上了 `Error`，但 `task-queue` 的 catch 只落 `errorCode` 与 `riskBlocked`，`loginExpired` **不落到 task**。于是「结构化信号已贯通」只对两个字段成立：字段挂上了却没有任何下游能读到，属**假完备**（本 PR 立论正是「结构化信号不该丢在半路」）。auth 属高危域，故本条强制外部复核。",
+      "defense": "最强辩护：①`loginExpired` 目前**没有**任何桌面侧消费方（`outcomeOfResult` 读的是 `res.loginExpired` 即结果对象，不是 Error 也不是 task），所以「丢了」暂无用户可见后果，属潜在缺陷而非现实缺陷；②引擎内联那份与桌面那份在 `code`/`riskBlocked` 上逻辑一致，差异只在 `loginExpired` 的形态容忍度，影响面为一处字段；③既然无消费方，收敛实现与补齐字段属「顺手整理」，可以留作后续。",
+      "verdict": "upheld",
+      "rationale": "辩护不成立，判据可验证：①「暂无消费方」不能豁免 —— 本 PR 的核心承诺就是「把结构化信号从丢点救回来」，在 `attachRiskSignals` 上留一个**写了却断在下一跳**的字段，等于在同一 PR 内复制它要消灭的缺陷形态；而且正因无消费方，这类断点不会被任何既有测试发现（无测试会红），是典型的静默不完整。②「差异只在一处字段」恰恰是漂移的判定标准 —— 双份实现的价值判断不该由「目前差多少」决定，而该由「是否只剩一份」决定；本 PR 已为 `RISK_RE` 双份付出代价，不应再留第二对。③auth 域判定为需外部复核项，工具已要求 `requiresExternalReview`，本条**不适用自扮演豁免**：本轮修复仅按「单一真源 + 补齐管线」这两条可机械验证的判据落地，**未**做认证协议的语义级复核 —— 该复核仍留给外部审查，此处如实标注。修复：`attachRiskSignals` 移入 `risk-signals.js`（引擎侧单一实现，认双形态），引擎 `publishViaApi` 与桌面 `publish-risk.js` 均只做调用/转发；`task-queue` 补落 `task.loginExpired`（双形态，缺省 `false`），回归锁 3 例（双形态落 task + 缺省 false + 普通失败归一 false）。"
     }
   ]
 }

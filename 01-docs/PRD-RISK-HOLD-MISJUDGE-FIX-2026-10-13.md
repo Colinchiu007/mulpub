@@ -383,6 +383,17 @@ suspend() → inner.suspend() → persist() → store.setSetting('publish.riskSu
 | `isRiskText(text)` / `isRiskBlocked(text)` | 强弱并集「像不像风控」 | 路由判据（API 轨命中即停报不降级） |
 | `RISK_ANY_RE` / `RISK_STRONG_RE` / `RISK_WEAK_RE` | 裸词表 | 边界断言、诊断 |
 | `RISK_CODES` | 风控码族 `Set` | 码族判定与诊断 |
+| `isRiskCode(code)` | 码族判定（**同时认 number 与数字字符串**，见 §13 审查 i2） | 码族判定入口 |
+| `attachRiskSignals(err, result)` | 结构化信号搬运（唯一实现，见 §13 审查 i4） | 引擎 `publishViaApi` 与桌面三个发布器 |
+
+### 6.5 路由判据与挂起判据的分工（不可混用）
+
+| 判据 | 取值 | 语义 | 用在哪 |
+|---|---|---|---|
+| `classifyRisk(...).hit` | 强弱并集 | 「像不像风控」 | 路由：API 轨命中即**停报不降级**（不换路） |
+| `classifyRisk(...).suspends` | 仅强档 | 「能不能挂起」 | 挂起：`phase4-events` / 引擎 `publish-mode-runner` |
+
+两者是**两个问题**：弱信号命中时仍停报（安全侧：不换路），但不冻结账号、不弹风控提示。两处判据**都必须走同一份 `classifyRisk`**（审查 i3 修掉了引擎侧的第二张私有码表）。
 
 ---
 
@@ -571,3 +582,55 @@ suspend() → inner.suspend() → persist() → store.setSetting('publish.riskSu
 | 小红书 | DOM 检出风控/验证弹层 | 检测到风控/验证弹层，已停止 | `风控` + `验证弹层`（`XHS_RISK_BLOCKED`） |
 | 参考产品取证 | -110 码族 | `canvas illegal` / `Canvas Illegal: …` | 强档词 |
 | 参考产品取证 | 风控提示原文 | 官方检测到您的账号存在风险，请先前往创作者中心发布作品 | `账号存在风险` |
+
+---
+
+## 13. CCG 深度双模型审查结论与修复（2026-10-13 追加）
+
+`sh scripts/deep-review.sh` → 判定 `DUAL`（变更 1047 行 > 200 行阈值），跨家族校验 `proposer=opencode critic=claude` 通过。
+轮 1 claude 评出 **7 条问题 / 4 维度（correctness/security/performance/maintainability）/ 最低分 6**，进入自扮演裁决（置信权重 0.6）；
+4 条争议由本会话**逐条填写指控 / 辩护 / 裁决**（`.adversarial/ccg-deep-4d8cc19b/adjudication.json`），**四条全部 `upheld`**，已在 `eb8a157e6` 修复并补锁。
+
+### 13.1 i1 —— 强档英文词缺标识符边界（upheld）
+
+`captcha` 是裸子串 ⇒ `recaptcha` / `hcaptcha` 命中。这两个词是**浏览器自动化与网页错误日志里的高频词**，与本应用发布行为无关。
+失败场景：发布页第三方脚本加载失败 → RPA 轨回传 `recaptcha failed to load` → 判 `strong` → 冻结账号 + 弹「请前往创作者中心手动发布一篇内容完成验证」（而那里不会弹验证）。
+**这正是本 PR 要消灭的裸子串误判同类**——留下它等于立论与实现不一致。
+**修复**：`captcha` / `canvas illegal` / `risk control` 均加标识符边界 `(?<![A-Za-z0-9])…(?![A-Za-z0-9])`。
+**不损既有能力（实测）**：`Canvas Illegal: 请先到创作者中心发布一篇内容` 仍命中（`Illegal` 后是冒号）；`captcha required` / `please solve the captcha` / 大写 `CAPTCHA` 仍为 strong；`mycanvas illegal` 不再命中。
+**回归锁**：4 例。
+
+### 13.2 i2 —— 数字字符串码漏判（upheld）
+
+`RISK_CODES` 里 `601` / `10000015` / `-1e7` 是 **number** 形态，而 `classifyRisk` 的实现是
+`RISK_CODES.has(typeof code === 'string' ? code : Number(code))` —— `code = '601'` 时走 `has('601')`，Set 里没有字符串 `'601'` ⇒ **判不中**。
+失败场景：B站链把 `code` 以 JSON 字符串回传（`{"code":"601"}`），文本又是普通措辞 ⇒ `hit:false` ⇒ **真风控漏判**，账号继续以相同节奏撞风控。
+更硬的一条：**本 PRD §4.1 与源码注释都已写成「两形态都收」，实现只支持一半**（注释比实现宽）。
+**修复**：抽 `isRiskCode()`，同时认 number 与数字字符串（含 `trim`），非数字串走字面量查表。
+**回归锁**：3 例（`'601'` / `'10000015'` / `'-10000000'` / `' 601 '` 命中；`'601abc'` / `''` / `'   '` / `null` 不命中）。
+
+### 13.3 i3 —— 引擎私有码表致两侧分裂（upheld）
+
+`outcomeOfResult` 另持一张私有码表（只含 `BILI_RISK_601` / `10000015` / `-1e7`，**缺裸 `601` 与 `RISK_BLOCKED`**）。
+失败场景：引擎 API 轨收到 `code: 601` + 普通措辞 ⇒ 判 `transient_error` ⇒ `api-then-dom` 模式下**降级 DOM 换路重发**
+（与「风控即停、绝不换路」红线冲突），且不挂起；而同一失败经 `task.errorCode` 到桌面侧却判 `strong` 并挂起 —— **同一失败、两条轨、两个结论**。
+**修复**：删私有码表，路由与挂起共用同一份 `classifyRisk`（路由读 `hit`、挂起读 `suspends`），分工写进注释（见 §6.5）。
+**回归锁**：4 例（裸 `601` / `'601'` / `'RISK_BLOCKED'` → `risk_blocked`；`code:500` 与 `code:6019 + id 6019 not found` 仍 → `transient_error`，证明未借机放宽）。
+
+### 13.4 i4 —— 双实现 + 半程管线（upheld；**auth 高危域，外部复核待办**）
+
+两处缺陷：①引擎 `publishViaApi` 内联的搬运只认 `loginExpired`、**不认 `login_expired`**，而桌面 `attachRiskSignals` 认双形态
+—— 这是本 PR 刚修掉的 `RISK_RE` 双份漂移的**同构复发**；②`attachRiskSignals` 把 `loginExpired` 挂上了 `Error`，
+但 `task-queue` 只落 `errorCode` / `riskBlocked`，该字段**不落 task** = 写了却断在下一跳的**假完备**。
+**修复**：`attachRiskSignals` 移入 `risk-signals.js`（引擎侧单一实现、认双形态），引擎与桌面均只调用/转发；`task-queue` 补落 `task.loginExpired`（双形态，缺省 `false`）。
+**回归锁**：4 例（双形态搬运 / 不改 message / 双形态落 task / 缺省 false）。
+**⚠️ 边界**：i4 落在 `auth` 域，按工具规则高危域争议项**不允许自扮演豁免**。本轮只落实两条可机械验证的判据（「只剩一份实现」「管线补齐」），
+**认证协议语义级的外部复核仍待办**——本节不因「单测全绿」而宣称该域已闭合。
+
+### 13.5 环境坑（可复用）
+
+- `deep-review.sh` 的驱动搜索第 3 顺位 `$HOME/.claude/skills/.../ccg-deep-review.js` 在 Git Bash 下被 MSYS 拼成 `D:\c\Users\...`，Node 报 `Cannot find module`。
+  **正解**：设 `CCG_ARL_DIR` 为 **Windows 原生路径**（它排在第 2 顺位、优先级更高），**不需要改脚本**。
+- `ccg-review-decider.js` 在 pre-commit 阶段按**父 sha** 落盘（其源码注释自述「提交完深度审查按新 HEAD 找，必然落空」），
+  `deep-review.sh` 却按 `HEAD` 找 ⇒ 需按 decider 自带的 `--sha <sha>`（PR 层用途）补写；且 decider 读**暂存区**，提交后暂存区为空，
+  故补写须复制同一份判定（内容不做任何改动）。

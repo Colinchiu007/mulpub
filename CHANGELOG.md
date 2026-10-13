@@ -155,12 +155,31 @@
 ## 验证
 
 - 新增判定回归锁 **45 例**（含附录 A 的 7 类误判面与附录 B 的 8 条真实风控来源，逐条正反对照）。
-- 引擎全量 **379 passed / 40 files**；`shared-utils` 全量 **844 passed / 10 skipped**；桌面受影响 6 文件 **171 passed**。
+- 引擎全量 **391 passed / 40 files**；`shared-utils` 全量 **849 passed / 10 skipped**；桌面受影响 6 文件 **173 passed**。
 - **变异反证**：把 `task-queue` 的结构化字段赋值改成 no-op ⇒ `Tests 2 failed | 35 passed` 立红；还原后复绿。
   反证的是**锁本身**（实现改 no-op 必须立红），不是只证「业务改动变红」。
 - **QM-1 打包 rc=0**，并从解包产物实跑判定取证：`status code 601` → `suspends=false`；`B站风控(601)` → `strength=strong`。
 - 过程中的一处自我纠错：初版把 `attachRiskSignals` 写在 `publisher-router.js`，顶破该受管文件的台账容差被
   `check-max-lines.js` 判红（`LEDGER_GREW … 膨胀 209 行（容差 200）`）；移回风控模块后该文件改动 33 → 14 行，复跑 PASS。
+
+## CCG 双模型深度审查及其发现（已执行，非「跳过」）
+
+`sh scripts/deep-review.sh` → 判定 `DUAL`（变更 1047 行 > 200 行阈值），跨家族校验 `proposer=opencode critic=claude` 通过；
+轮 1 claude 评出 **7 条问题 / 4 维度（correctness/security/performance/maintainability）/ 最低分 6**；
+4 条争议经**逐条指控 / 辩护 / 裁决**（`.adversarial/ccg-deep-4d8cc19b/adjudication.json`）**全部 upheld** 并已修复：
+
+| # | 审查发现 | 为什么成立 | 修复 |
+|---|---|---|---|
+| i1 | 强档英文词缺标识符边界 | `captcha` 是裸子串 ⇒ `recaptcha`/`hcaptcha`（浏览器自动化**高频**报错）判 strong 并冻结账号 —— **正是本 PR 要消灭的裸子串误判同类**，留下它等于立论与实现不一致 | `captcha`/`canvas illegal`/`risk control` 加标识符边界；裸 `captcha required` 等仍命中 |
+| i2 | 数字字符串码漏判 | `RISK_CODES` 里 `601` 是 number 形态，`has('601')` 判不中 ⇒ 平台以字符串回传码时**真风控漏判**；且与本文档「两形态都收」自相矛盾 | 抽 `isRiskCode()` 同时认 number 与数字字符串（含 trim），非数字串走字面量查表 |
+| i3 | 引擎另持私有码表 | `outcomeOfResult` 缺裸 `601` 与 `RISK_BLOCKED` ⇒ 同一失败在引擎轨判 transient **降级 DOM**、桌面轨却挂起，两侧分裂，「单一真源」未落地 | 删私有码表，路由与挂起共用同一份 `classifyRisk`（路由读 `hit`、挂起读 `suspends`） |
+| i4 | 双实现 + 半程管线 | 引擎内联那份只认 `loginExpired`、不认 `login_expired`（`RISK_RE` 双份同构复发）；`loginExpired` 挂到 Error 却**不落 task** = 假完备 | 收敛到 `risk-signals.js` 单一实现，两处只转发；`task-queue` 补落 `task.loginExpired` |
+
+修复提交 `eb8a157e6`，补回归锁 **+16 例**（引擎 +12 / shared-utils +2 / 桌面 +2）。
+
+**⚠️ i4 落在 `auth` 高危域**：按工具规则高危域争议项**不允许自扮演豁免**。本轮只落实了两条可机械验证的判据（「只剩一份实现」「管线补齐」），**认证协议语义级的外部复核仍待办**，不在此冒充已闭合。
+
+**环境坑（可复用）**：`deep-review.sh` 驱动的第 3 顺位 `$HOME/.claude/...` 在 Git Bash 下被 MSYS 拼成 `D:\c\Users\...`（`Cannot find module`）——正解是设 `CCG_ARL_DIR` 为 **Windows 原生路径**（第 2 顺位优先），不必改脚本。
 
 ## 未闭合（如实记录）
 

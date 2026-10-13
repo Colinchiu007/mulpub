@@ -48,13 +48,32 @@
 - [x] 恢复后 ⇒ `Tests 37 passed (37)`
 - [x] 反证纪律：只证「业务改动变红」不算，必须证「把锁本身改成 no-op 立红」—— M1 即此，已确认
 
+## 6b. CCG 深度双模型审查与争议裁决（`sh scripts/deep-review.sh`）
+
+- [x] 判定 `DUAL`（变更 1047 行 > 200 行阈值）；跨家族校验 `proposer=opencode critic=claude` 通过
+- [x] 轮 1 claude 评审：**7 条问题 / 4 维度（correctness/security/performance/maintainability）/ 最低分 6**
+- [x] 自扮演裁决表逐条填写（`.adversarial/ccg-deep-4d8cc19b/adjudication.json`，`critiqueFingerprint=c612aa01847f6edd`）
+- [x] **i1 upheld** —— 强档英文词缺标识符边界（`captcha` ⊂ `recaptcha`）⇒ 加边界
+- [x] **i2 upheld** —— 数字字符串码漏判（`'601'` 判不中）⇒ 抽 `isRiskCode` 认双形态
+- [x] **i3 upheld** —— 引擎 `outcomeOfResult` 私有码表致两侧分裂 ⇒ 路由与挂起共用一份 `classifyRisk`
+- [x] **i4 upheld** —— `attachRiskSignals` 双实现 + `loginExpired` 半程断点 ⇒ 收敛单一实现并补齐 `task.loginExpired`
+- [x] 修复提交 `eb8a157e6`；回归锁 +16 例（引擎 +12 / shared-utils +2 / 桌面 +2）
+- [ ] **i4（auth 高危域）认证协议语义级外部复核 —— 待办**：按工具规则高危域不允许自扮演豁免，本轮只落实了可机械验证的「单一真源 + 补齐管线」两条
+
+## 6c. 环境坑（可复用）
+
+- [x] `deep-review.sh` 驱动搜索第 3 顺位 `$HOME/.claude/...` 在 Git Bash 下被 MSYS 拼成 `D:\c\Users\...`（`Cannot find module`）⇒ 正解是设 `CCG_ARL_DIR` 为 **Windows 原生路径**（第 2 顺位优先），**不改脚本**
+- [x] `ccg-review-decider.js` 在 pre-commit 阶段按**父 sha** 落盘（源码注释自述「提交完深度审查按新 HEAD 找，必然落空」）⇒ 需以 `--sha <HEAD>`（PR 层用途）补写记录，且 decider 读暂存区、提交后暂存区为空、故须复制同一份判定
+
 ## 7. 测试执行记录（实测数字）
 
 | 范围 | 命令 | 结果 |
 |---|---|---|
-| 引擎全量 | `cd packages/api-publish-engine && node scripts/run-tests.js` | 379 passed / 40 files + direct 组全通过 |
-| shared-utils 全量 | `cd packages/shared-utils && pnpm run test` | 844 passed / 10 skipped / 41 files |
-| 桌面受影响 6 文件 | `cd apps/desktop && pnpm exec vitest run <6 files>` | 171 passed |
+| 引擎全量 | `cd packages/api-publish-engine && node scripts/run-tests.js` | 391 passed / 40 files + direct 组全通过 |
+| shared-utils 全量 | `cd packages/shared-utils && pnpm run test` | 849 passed / 10 skipped / 41 files |
+| 桌面受影响 6 文件 | `cd apps/desktop && pnpm exec vitest run <6 files>` | 173 passed |
+
+> 上表为**审查修复后**的最终数字；首次提交（`4d8cc19be`）为 379 / 844 / 171。
 
 ## 8. 文档与证据
 
