@@ -93,6 +93,13 @@
 
 ---
 
+# [未发布] fix(gates): 出路④允许 pre-commit 自动入库的判定记录，解开与 #3396 的冲突（exec-record-audit-carrier）
+
+- `scripts/check-pr-exec-record.js` 的「纯回填」定义原先要求变更集**全部**是记录/台账载体的 M，夹带任何新增即不符合；而 #3396 让 pre-commit 每次提交自动 stage 仓库内所有未跟踪的 `.ccg/reviews/*.json`。两条已上线机制互斥 ⇒ 在任何跑过门禁的 worktree 里做回填 PR 都会被本地 enforce 判红（实测 PR #3432；CI 的 Gate Result 因 docs-only 通道照过，红只有本地看得见）。
+- 放宽只开一格：状态必须是 `A` 且文件名精确匹配 `.ccg/reviews/<40 位小写十六进制>.json`。12 种邻近写法（短 sha / 大写 / 多一段 / 换后缀 / 子目录 / M 或 D 既有产物 / 别目录同形态 / 功能新增 / 借记录名伪装等）一律仍判不是纯回填；**C2 收紧（至少一篇记录文件 M）保持原样**。enforce 的四条出路说明文本同步改写，避免判据与文档各说各话。
+- 回归：`scripts/check-pr-exec-record.test.js` 新增 4 个 test（实现前先红 2 条、实现后 39/39），四条变异反证各自指名变红（放宽白名单、去掉状态限定、去掉 sha 形态约束、拆掉 C2 收紧），还原后复跑全绿。
+- 真实验收用同一变更集做 A/B：新判据 `OK`（并报出「回填型 PR（载体修订 3 篇）」），主干旧判据同一输入 `不通过`。
+- QM-6 双模型评审本轮未跑成（后端 claude 实测 `exited with status 4294967295` 多次、前端 opencode 零 findings），记录如实停在未跑成，不以自审替代。
 # [未发布] fix(ci): gui-test.yml 的空值节点让整条流水线从 main 消失——补 workflow 结构门禁（gui-test-workflow-structure）
 
 ## 背景

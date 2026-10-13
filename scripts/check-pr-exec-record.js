@@ -41,14 +41,21 @@ const EXEMPT_RE = /^openspec\/records\/_exempt\/[^_][^/]*\.md$/
 // 是同一组实体。注意：载体文件**可以**承载行为变更（翻门槛/收缩账本），所以出路④
 // 额外要求至少一篇记录文件的 M —— 见 isPureBackfillChangeSet（QM-6 前端 C2 收紧）。
 const CARRIER_RE = /^(?:openspec\/records\/[^_][^/]*\.md|\.quality-gates\.md|scripts\/gate-record-debt-ledger\.json)$/
+// 审计产物：#3396 的 pre-commit 会在每次提交后把本次产生的判定记录（.ccg/reviews/<pre-commit HEAD sha>.json）
+// 自动 stage 进同一个提交。它们不承载门禁语义、不是功能改动，却会让「在任何跑过门禁的 worktree 里做
+// 纯回填」被④判成夹带新增（实测 PR #3432：本地 enforce 红，而 CI 的 Gate Result 因 docs-only 通道照过）。
+// 放宽只发生在一个维度上：状态必须是 A，且文件名必须精确匹配 .ccg/reviews/<40 位小写十六进制>.json。
+// M/D、短 sha、大写、多一段目录或后缀、别的目录、任何非载体文件 —— 一律仍不算纯回填；
+// 且 C2 收紧（至少一篇记录 M）不因这些新增而被绕过。
+const AUDIT_ARTIFACT_RE = /^\.ccg\/reviews\/[0-9a-f]{40}\.json$/
 const DEFAULT_THRESHOLD = 3
 
-// 出路④的判据核心（独立成纯函数以便直接单测，QM-6 前端 I1）：变更集非空、每条都是载体的 M、
-// 且至少一篇是记录文件（C2 收紧，理由见 evaluate 内注释）。
+// 出路④的判据核心（独立成纯函数以便直接单测，QM-6 前端 I1）：变更集非空、每条都是载体的 M
+// （或精确形态的审计产物 A）、且至少一篇是记录文件（C2 收紧，理由见 evaluate 内注释）。
 function isPureBackfillChangeSet (statuses) {
   return Array.isArray(statuses) && statuses.length > 0
-    && statuses.every((e) => e.status === 'M' && CARRIER_RE.test(e.file))
-    && statuses.some((e) => RECORDS_RE.test(e.file))
+    && statuses.every((e) => (e.status === 'M' && CARRIER_RE.test(e.file)) || (e.status === 'A' && AUDIT_ARTIFACT_RE.test(e.file)))
+    && statuses.some((e) => e.status === 'M' && RECORDS_RE.test(e.file))
 }
 
 // 记录/豁免的判据核心：输入全是数据，不碰 git、不碰网络 —— 这样每条规则都能单测，
@@ -142,9 +149,10 @@ function evaluate({
       + '②修订本分支自己那篇 openspec/records/<分支名>.md（回填证据走这条）；'
       + '③确属无需记录 ⇒ 新增 openspec/records/_exempt/<分支名>.md 并写明非空原因；'
       + '④纯回填（定义）：变更集全部是既有记录/台账载体（openspec/records/*.md、.quality-gates.md、'
-      + 'scripts/gate-record-debt-ledger.json）的 M，且至少含一篇 openspec/records/*.md 的 M ⇒ '
-      + '满足此定义者直接放行（夹带任何新增/删除/非载体文件、或只改门禁清单/账本而无记录文件，'
-      + '即不符合此定义）。')
+      + 'scripts/gate-record-debt-ledger.json）的 M（允许 .ccg/reviews/<40 位小写十六进制>.json 形态的 A——'
+      + '那是 #3396 的 pre-commit 自动 stage 的判定记录，不承载门禁语义），且至少含一篇 '
+      + 'openspec/records/*.md 的 M ⇒ 满足此定义者直接放行（夹带其它新增、任何删除、任何非载体文件，'
+      + '或只改门禁清单/账本而无记录文件，即不符合此定义）。')
   }
 
   // 已消费的豁免：分支已不在远端（合并即删分支）。要求"同 PR 内自删"在 squash 流程下不可实现，

@@ -656,6 +656,74 @@ test('结构锁的匹配域必须剥离 YAML 注释（把真步骤改成注释�
     '真步骤改成注释后仍被算作接线 —— 这条锁是装饰性的')
 })
 
+// ── 出路④ × #3396 自动 stage：审计产物（.ccg/reviews/<40hex>.json）的新增不算夹带 ──
+// 动因（实测 PR #3432）：#3396 让 pre-commit 把本次提交产生的判定记录一并 stage 进同一个提交，
+// 于是「在任何跑过门禁的 worktree 里做纯回填」必然被④判成夹带新增 ⇒ 本地 enforce 恒红。
+// 放宽只允许发生在**一个维度**上：状态必须是 A、文件名必须是 .ccg/reviews/<40 位小写十六进制>.json。
+// 其余形态（大写、短 sha、别的后缀、M、D、别的目录、非载体文件）一律仍不算纯回填，
+// 且 C2 收紧（至少一篇记录 M）不得被这些新增一起绕过。
+const HEX40 = '0123456789abcdef0123456789abcdef01234567'
+const AUDIT_PATH = '.ccg/reviews/' + HEX40 + '.json'
+
+test('出路④放行审计产物新增，但只在 A + 精确文件名形态这一格', () => {
+  const f = mod.isPureBackfillChangeSet
+  assert.strictEqual(f(st([['M', 'openspec/records/a.md'], ['A', AUDIT_PATH]])), true,
+    '记录 M + 审计产物 A 必须算纯回填（这条就是 PR #3432 被误判的形态）')
+  assert.strictEqual(f(st([['M', 'openspec/records/a.md'], ['M', '.quality-gates.md'], ['A', AUDIT_PATH], ['A', '.ccg/reviews/' + HEX40.replace(/0$/, '1') + '.json']])), true,
+    '多条审计产物 A 同时出现也必须算纯回填（钩子一次可能 stage 多条）')
+})
+
+test('审计产物白名单不得被形态邻近的写法穿过', () => {
+  const f = mod.isPureBackfillChangeSet
+  const near = [
+    ['A', '.ccg/reviews/deadbeef.json'],                       // 短 sha
+    ['A', '.ccg/reviews/x.json'],                              // 非 sha
+    ['A', '.ccg/reviews/' + HEX40 + '.tmp.json'],              // 尾巴多一段
+    ['A', '.ccg/reviews/' + HEX40.toUpperCase() + '.json'],    // 大写十六进制
+    ['A', '.ccg/reviews/' + HEX40 + '.json.bak'],              // 换后缀
+    ['A', '.ccg/reviews/sub/' + HEX40 + '.json'],              // 子目录
+    ['A', '.ccg/' + HEX40 + '.json'],                          // 少一层目录
+    ['M', AUDIT_PATH],                                         // 改既有审计产物（不是新增）
+    ['D', AUDIT_PATH],                                         // 删他人审计产物一律不许借道
+    ['A', 'docs/' + HEX40 + '.json'],                         // 别的目录同样形态
+    ['A', 'scripts/evil.js'],                                  // 真·功能新增
+    ['A', 'openspec/records/' + HEX40 + '.md'],                // 借记录名伪装
+  ]
+  near.forEach((e) => {
+    assert.strictEqual(f(st([['M', 'openspec/records/a.md'], e])), false,
+      `夹带形态必须仍判不是纯回填（${e[0]} ${e[1]}）`)
+  })
+})
+
+test('审计产物不得替代 C2 收紧（只有记录 M 才算回填，光有 A 判定记录不构成）', () => {
+  const f = mod.isPureBackfillChangeSet
+  assert.strictEqual(f(st([['A', AUDIT_PATH]])), false, '只新增审计产物、无记录 M ⇒ 不是纯回填')
+  assert.strictEqual(f(st([['M', '.quality-gates.md'], ['A', AUDIT_PATH]])), false,
+    '只改门禁清单不带任何记录文件 ⇒ 仍不是纯回填（C2 那扇门不得被重新打开）')
+  assert.strictEqual(f(st([['M', 'scripts/gate-record-debt-ledger.json'], ['A', AUDIT_PATH]])), false,
+    '只改账本不带记录文件 ⇒ 同上')
+})
+
+test('evaluate 层：纯回填 + 审计产物新增 ⇒ 放行；纯回填 + 功能新增 ⇒ 仍红', () => {
+  const okWithAudit = mod.evaluate({
+    statuses: st([['M', '.quality-gates.md'], ['M', 'openspec/records/podcast-episode-x.md'],
+      ['M', 'scripts/gate-record-debt-ledger.json'], ['A', AUDIT_PATH]]),
+    headBranch: 'gate-backfill-x',
+    exemptOnDisk: [],
+    remoteBranches: new Set(['main', 'gate-backfill-x']),
+  })
+  assert.strictEqual(okWithAudit.ok, true, '审计产物不得让合规回填判红（PR #3432 的现状）')
+
+  const stillRed = mod.evaluate({
+    statuses: st([['M', '.quality-gates.md'], ['M', 'openspec/records/podcast-episode-x.md'],
+      ['M', 'scripts/gate-record-debt-ledger.json'], ['A', 'apps/desktop/electron/sneaky.js']]),
+    headBranch: 'gate-backfill-x',
+    exemptOnDisk: [],
+    remoteBranches: new Set(['main', 'gate-backfill-x']),
+  })
+  assert.strictEqual(stillRed.ok, false, '夹带功能代码必须仍判红——本次放宽只动审计产物那一格')
+})
+
 // ── QM-6 降级通道第一路命中（W3）：保留名撞上分支名时，"改模板"就满足判据 ──
 test('保留名（_TEMPLATE 这类）即便等于分支名也不得算修订记录', () => {
   const r = mod.evaluate({
