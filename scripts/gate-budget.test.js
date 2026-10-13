@@ -198,3 +198,56 @@ test('旧形态不得被别的锁钉回来（workflow-contract 与本锁同口�
   // 被断言对象本身是"含反斜杠的正则字面量文本"，用正则去找正则等于恒不匹配；按字面串核。
   assert.ok(contract.includes('/WaitForExit\\(\\[int\\]\\$gateBudgetMs\\)/'), 'workflow-contract 应改钉注入形态')
 })
+
+/* ────────── 形态分档（change: budget-probe-form-split）──────────
+ * 动因（#3357 合并后实测）：探针把窗口内所有 shard 成功样本混成一池，而这一步在一天内换了
+ * 两代形态（预算 30→45、分片"两腿各跑全量"→真半量），于是 RULE_VIOLATED 拿一个**旧形态**的
+ * 31.55 分去要求给"半量"定墙。样本换代不是判据失效，但混池是。 */
+const formOf = (over) => ({ gate4SuccessN: 40, shardSuccessN: 40, gate4MaxSuccessMin: 2.05, shardMaxSuccessMin: 12.4, unknownN: 0, ...over })
+
+test('旧形态的观测最大值不得决定当前预算（混池就是这次误报的根因）', () => {
+  const base = gate.checkSizing({ provenance: freshProvenance({ gate4MaxSuccessMin: 29.88, shardMaxSuccessMin: 31.55 }) })
+  assert.equal(base.ok, false, '夹具前提：不传 form 时仍按全局字段判（这条必须红，否则下面的绿是假的）')
+  const split = gate.checkSizing({ provenance: base && freshProvenance({ gate4MaxSuccessMin: 29.88, shardMaxSuccessMin: 31.55 }), form: formOf() })
+  assert.equal(split.ok, true, '按当前形态分档后，旧形态的 31.55 不能再触发重定数：' + split.reasons.join(' ; '))
+  assert.equal(split.maxObs, 12.4, 'checkSizing 的 maxObs 必须换成当前形态的值')
+})
+
+test('当前形态样本不足 ⇒ 报"样本不够"，不得报"要重定数"', () => {
+  const r = gate.checkSizing({ provenance: freshProvenance(), form: formOf({ gate4SuccessN: 1, shardSuccessN: 1 }) })
+  assert.equal(r.ok, false, '真分片形态只有 2 个样本，不足以证明预算站得住')
+  assert.ok(r.reasons.some((x) => /INSUFFICIENT_CURRENT_FORM/.test(x)), '理由必须点名是"同形态样本不够"：' + r.reasons.join(' ; '))
+  assert.equal(r.reasons.some((x) => /RULE_VIOLATED|NO_LONGER_SIZED/.test(x)), false,
+    '样本不足时不得顺带判"要重定数"——那会把人推去改一个没量过的数：' + r.reasons.join(' ; '))
+})
+
+test('当前形态自己贴脸/违约时，RULE_VIOLATED 仍然必须红（分档不是把它整体关掉）', () => {
+  const r = gate.checkSizing({ provenance: freshProvenance(), form: formOf({ shardMaxSuccessMin: 31.55 }) })
+  assert.equal(r.ok, false)
+  assert.ok(r.reasons.some((x) => /RULE_VIOLATED/.test(x)), '当前形态自身已违反 ×1.5 必须红：' + r.reasons.join(' ; '))
+})
+
+test('形态键是纯函数：从 workflow 正文判分片是否已修好，从 gate-budget 正文取预算', () => {
+  const wf = fs.readFileSync(WF_PATH, 'utf8')
+  assert.equal(gate.shardFormOf(wf), 'fixed', '当前 main 的 workflow 应是"分片已修好"形态')
+  const broken = wf.replace('              "test",', '              "test",\r\n              "--",')
+  assert.notEqual(broken, wf, '夹具没改到东西，这条对照失效')
+  assert.equal(gate.shardFormOf(broken), 'broken', '把裸 "--" 塞回去必须判 broken')
+  assert.equal(gate.budgetMinFromGateBudgetText('const GATE_TEST_BUDGET_MS = 2700000 // x'), 45)
+  assert.equal(gate.budgetMinFromGateBudgetText('没有这个常量'), null, '取不到必须返回 null，不得瞎猜一个数')
+})
+
+test('解析不了就是 unknown —— 不得默认成 fixed（默认放行等于给这条判据关灯）', () => {
+  assert.equal(gate.shardFormOf('jobs:\n  other:\n    steps: []\n'), 'unknown',
+    '找不到 shard 步骤时必须报 unknown；返回 fixed 会让"判据读不到"被读成"分片是好的"')
+  assert.equal(gate.shardFormOf('- name: "Desktop tests shard x"\n  run: |\n    nothing\n'), 'unknown')
+})
+
+test('探针接线：必须把 form 交给 checkSizing，且 unknown 不得混进 probe_errors', () => {
+  const src = fs.readFileSync(PROBE_PATH, 'utf8')
+  assert.match(src, /checkSizing\(\{ provenance: fresh, form \}\)/,
+    '探针没把当前形态交给判据 —— 混池旧口径会原样回来（#3357 那次误报的形态）')
+  assert.match(src, /unknowns\.push\(/, 'unknown 样本必须有独立账')
+  assert.equal(/errs\.push\(\s*['"`]FORM_/.test(src), false,
+    'FORM_* 一律不许进 errs —— PR head 提交本地取不到是结构性的，混进 errs 会让探针永久退 3（等于把新判据自己关掉）')
+})

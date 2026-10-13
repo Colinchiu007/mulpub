@@ -1,0 +1,54 @@
+# budget-probe 形态分档 变异反证
+# head=c6b4709cd9e9f4ef6e2d9171e32c00a30327e6d0
+# node=v24.19.0 collectedAt=2026-10-13T02:52:48.446Z
+
+== A 让 checkSizing 无视 form（退回混池旧口径）
+   file=scripts/gate-budget.js
+   from="  const maxObs = form\n    ? Math.max(form.gate4MaxSuccessMin, form.shardMaxSuccessMin)\n    : Math.max(provenance.gate4MaxSuccessMin, provenance.shardMaxSuccessMin)"
+   to  ="  const maxObs = Math.max(provenance.gate4MaxSuccessMin, provenance.shardMaxSuccessMin)"
+   想证明=这条锁的全部意义就是"旧形态的 31.55 不能再决定当前预算"；把它改回混池必须红
+   want=red fail=2 pass=15/17 点名红=true restored=bytes_equal
+   red: ✖ 旧形态的观测最大值不得决定当前预算（混池就是这次误报的根因） | ✖ 当前形态自己贴脸/违约时，RULE_VIOLATED 仍然必须红（分档不是把它整体关掉）
+
+== B 摘掉"同形态样本不足"出口
+   file=scripts/gate-budget.js
+   from="  if (form && !formEnough) {"
+   to  ="  if (false && form && !formEnough) { // MUT-B"
+   想证明=样本不足时必须说"判不了"。摘掉它 = 拿 2 个样本的分布去判"要不要重定数"
+   want=red fail=1 pass=16/17 点名红=true restored=bytes_equal
+   red: ✖ 当前形态样本不足 ⇒ 报"样本不够"，不得报"要重定数"
+
+== C 解析失败时把 unknown 默认成 fixed
+   file=scripts/gate-budget.js
+   from="  } catch (e) {\n    return 'unknown'\n  }"
+   to  ="  } catch (e) {\n    return 'fixed' // MUT-C 读不到就放行\n  }"
+   想证明="判据读不到"不得被读成"分片是好的"——这是本仓反复出事的那一类假绿
+   want=red fail=1 pass=16/17 点名红=true restored=bytes_equal
+   red: ✖ 解析不了就是 unknown —— 不得默认成 fixed（默认放行等于给这条判据关灯）
+
+== D 探针不把 form 交给判据
+   file=scripts/gate-budget-probe.js
+   from="gate.checkSizing({ provenance: fresh, form })"
+   to  ="gate.checkSizing({ provenance: fresh })"
+   想证明=分档逻辑留在判据里但没人传参，等价于这次修复从未发生（注册≠注入）
+   want=red fail=1 pass=16/17 点名红=true restored=bytes_equal
+   red: ✖ 探针接线：必须把 form 交给 checkSizing，且 unknown 不得混进 probe_errors
+
+== E 把 FORM_* 未知样本记进 probe_errors
+   file=scripts/gate-budget-probe.js
+   from="    unknowns.push({ sha, why: 'FORM_BLOB_MISSING：本地没有该提交（PR head 分支已删？先 git fetch）' })"
+   to  ="    errs.push('FORM_BLOB_MISSING ' + sha) // MUT-E 把结构性未知当探针故障"
+   想证明=PR head 提交本地取不到是结构性的；混进 errs 会让探针永久退 3，新判据自己被关闭
+   want=red fail=1 pass=16/17 点名红=true restored=bytes_equal
+   red: ✖ 探针接线：必须把 form 交给 checkSizing，且 unknown 不得混进 probe_errors
+
+== F 合规形态必须照绿：把余量从 5 分抬到 6 分
+   file=scripts/gate-budget.js
+   from="const TIMEOUT_MARGIN_MIN = 5"
+   to  ="const TIMEOUT_MARGIN_MIN = 6"
+   想证明=反向边界：分档判据不该把无关的余量微调也打死（55 仍 ≥ 45+1.38+6）
+   want=green fail=0 pass=17/17 点名红=true restored=bytes_equal
+   red: (none)
+
+== FINAL（未变异）fail=0 pass=17/17
+MUTATION_BAD=0

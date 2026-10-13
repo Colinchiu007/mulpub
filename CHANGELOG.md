@@ -1,3 +1,43 @@
+# [未发布] fix(gate-budget): 复测探针按「形态」分档——混池让 RULE_VIOLATED 拿旧形态的时长给新形态定墙（budget-probe-form-split）
+
+## 背景
+
+PR #3357（桌面分片修复）合并后跑 mandated 复测，`node scripts/gate-budget-probe.js --check` 当场报
+`RULE_VIOLATED：预算 45 分 < 观测成功最大 31.55 分 × 1.5 = 47.33 分`。数字是真的，结论是错的：
+那个 31.55 属「预算已抬到 45、分片仍是两腿各跑全量」那一代形态（当天 12:40Z~16:30Z 之间），
+而当前形态（真分片）的成功样本里最大只有 **17.43 分**。
+
+根因不在"数算错"，在**判据的入参缺一个维度**：`checkSizing` 只收得到一个全局 max，
+没有任何字段能表达"这批样本不是同一种代码跑出来的"。#3313 已经因"Gate 4 混进桌面全量"被同族问题
+咬过一次，但那次靠人工改写归因收口，**没把形态变成数据结构**，于是第二次复发。
+
+## 改动
+
+- `scripts/gate-budget.js` 新增两个纯函数：`shardFormOf(workflowText)`（**复用** `check-desktop-shard-forwarding.js`
+  的 `parseShardArgv`，不另抄一份 argv 解析；解析不到一律 `unknown`，**不得默认 fixed**）与
+  `budgetMinFromGateBudgetText(text)`（旧提交没有该文件时退到 workflow 里的 `WaitForExit(<ms>)` 字面量）。
+- `checkSizing({…, form})`：传了就一律用当前形态的样本数与 max；不传保持旧行为（不破坏既有锁）。
+- 新增 `MIN_SAMPLE_CURRENT_FORM = 20`：同形态样本不足时唯一出口是 `INSUFFICIENT_CURRENT_FORM`，
+  并**跳过** `RULE_VIOLATED` / `NO_LONGER_SIZED` —— 样本不够只能说"判不了"，不能说"要重定数"。
+- 探针按 `budget × shard` 分档逐行打印每一代的样本数与 max；新增退出码 **4 = 当前形态样本不足**。
+- `unknown` 样本（PR head 提交在 squash + 删分支后本地取不到，属结构性）**不进当前形态池、也不计入 `probe_errors`**
+  —— 混进 errs 会让探针永久退 3，等于把这条新判据自己关掉（变异 E 钉住这一点）。
+
+## 验证
+
+- 上线后同一探针实测（`.ccg/reviews/probeform-measured.txt`）：三档现场 = `30|broken g4 4/4 max=0.23`、
+  `45|broken g4 41/42 max=2.05 · shard 72/72 max=31.55`、`45|fixed（当前）g4 6/6 max=1.83 · shard 8/8 max=17.43`；
+  `probe_errors=0`、`sizing_ok=false` 且理由只剩 `INSUFFICIENT_CURRENT_FORM`，**`RULE_VIOLATED` 不再出现**。
+- TDD：4 条新锁先红（含 `TypeError: gate.shardFormOf is not a function`）后绿；`scripts/gate-budget.test.js` 13 → **17 条**，`17 pass / 0 fail`。
+- 变异反证 6 条（`.ccg/reviews/probeform-mutate.driver.js` + `probeform-mutations.txt`）：5 红点名到位、1 绿照绿、`MUTATION_BAD=0`、逐条 `restored=bytes_equal`。
+  电池顺手抓到两处我自己写的驱动缺陷：多行锚点在 CRLF 工作副本上永远 `hits=0`，以及第一版"修法"仍不生效 —— 修完必须复跑验证。
+
+## 影响与遗留
+
+- **45/55 这档仍未被当前形态的数据确认**：等同形态成功样本 ≥ 20 再跑 `--check`；报 `RULE_VIOLATED` 才是要重定数的信号。
+- 形态键只覆盖两个维度；`--maxWorkers` / `--no-file-parallelism`（并行度换代时长直接换代）本次未纳入，因为窗口里它没变过。
+- 执行记录：`openspec/records/budget-probe-form-split.md`（含「为什么需要人工过目」与四条遗留）。
+
 # [未发布] fix(ci): 桌面分片从来没分过文件——裸 "--" 吃掉了七个 vitest 旗标（desktop-shard-flag）
 
 ## 背景

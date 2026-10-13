@@ -52,6 +52,34 @@ const HARD_RATIO = 0.9   // 不再满足规则：必须重测重定数
 // 样本量下限：低于此，下面的数字就不是"分布"而是"一次观测"，不得用来定预算
 const MIN_SAMPLE_GATE4_SUCCESS = 20
 const MIN_SAMPLE_CENSORED_WHEN_HUGGING = 1
+// 同形态样本下限：#3357 合并后实测——窗口里混着"两腿各跑全量"与"真半量"两代形态，
+// 混池算出的 max 会让 RULE_VIOLATED 拿旧形态的时长去给新形态定墙。分档之后，
+// **样本不足只能说"判不了"，不能说"要重定数"**（后者会把人推去改一个没量过的数）。
+const MIN_SAMPLE_CURRENT_FORM = 20
+
+/**
+ * 纯函数：只读 workflow 正文，判"桌面分片这一步到底分不分文件"。
+ * 解析复用 scripts/check-desktop-shard-forwarding.js 的 parseShardArgv（同一份判据，禁止再抄一份），
+ * 它自己会抛错（步骤改名 / 解析不到数组）—— 抛错即形态未知，不得猜成 fixed。
+ */
+function shardFormOf (workflowText) {
+  let argv
+  try {
+    argv = require('./check-desktop-shard-forwarding.js').parseShardArgv(workflowText)
+  } catch (e) {
+    return 'unknown'
+  }
+  if (argv.includes('--')) return 'broken'
+  if (!argv.some((t) => String(t).startsWith('--shard='))) return 'broken'
+  return 'fixed'
+}
+
+/** 纯函数：从某个历史提交里的 gate-budget.js 正文取当时生效的预算（分钟）；取不到返回 null。 */
+function budgetMinFromGateBudgetText (text) {
+  const m = /GATE_TEST_BUDGET_MS\s*=\s*(\d+)/.exec(String(text || ''))
+  if (!m) return null
+  return Math.round((Number(m[1]) / 60000) * 100) / 100
+}
 
 const PROVENANCE = {
   collectedAt: '2026-10-11T08:22:54Z',
@@ -80,33 +108,43 @@ const JOB_OVERHEAD_FIELD = {
 
 /**
  * 纯判据：不碰网络、不读文件，便于离线锁住"数与规则是否自洽"。
+ * `form`（可选）= **当前形态**的同源样本统计 `{ key, gate4SuccessN, shardSuccessN, gate4MaxSuccessMin, shardMaxSuccessMin }`；
+ * 传了它，三条统计判据一律用它的数，不再看 provenance 里的混池旧值（那是 #3357 之后的口径）。
  * 返回 { ok, reasons, budgetMin, maxObs, hugging, perJob: { <job>: { ok, usesOverhead, need, reason } } }
  */
 function checkSizing ({
   budgetMs = GATE_TEST_BUDGET_MS,
   jobTimeouts = { 'unit-tests': GATE_JOB_TIMEOUT_MIN, 'desktop-shards': GATE_JOB_TIMEOUT_MIN },
   provenance = PROVENANCE,
+  form = null,
 } = {}) {
   const reasons = []
   const budgetMin = budgetMs / 60000
-  const maxObs = Math.max(provenance.gate4MaxSuccessMin, provenance.shardMaxSuccessMin)
+  const maxObs = form
+    ? Math.max(form.gate4MaxSuccessMin, form.shardMaxSuccessMin)
+    : Math.max(provenance.gate4MaxSuccessMin, provenance.shardMaxSuccessMin)
+  const formSampleN = form ? (form.gate4SuccessN + form.shardSuccessN) : null
+  const formEnough = form === null || formSampleN >= MIN_SAMPLE_CURRENT_FORM
   const hugging = maxObs >= budgetMin * WARN_RATIO
 
-  // 定数规则①本身必须是判据，不能只活在注释里（QM-6 第 2 轮可维护性轴命中：
-  // 原来只有 0.9 档，于是"预算=1.2×观测最大值"这种违反 ×1.5 的形态会被读成"一切正常"）。
-  if (!(budgetMin >= maxObs * SAFETY_MULTIPLIER - 1e-9)) {
-    reasons.push(`RULE_VIOLATED：预算 ${budgetMin} 分 < 观测成功最大 ${maxObs} 分 × ${SAFETY_MULTIPLIER} = ${(maxObs * SAFETY_MULTIPLIER).toFixed(2)} 分——按规则重定数，不得改倍数`)
+  if (form && !formEnough) {
+    reasons.push(`INSUFFICIENT_CURRENT_FORM：当前形态（${form.key || '未命名'}）同形态成功样本仅 ${formSampleN}，低于下限 ${MIN_SAMPLE_CURRENT_FORM} —— 既不能判"预算站得住"，也不能判"要重定数"；等样本攒够再采`)
+  } else {
+    // 定数规则①本身必须是判据，不能只活在注释里（QM-6 第 2 轮可维护性轴命中：
+    // 原来只有 0.9 档，于是"预算=1.2×观测最大值"这种违反 ×1.5 的形态会被读成"一切正常"）。
+    if (!(budgetMin >= maxObs * SAFETY_MULTIPLIER - 1e-9)) {
+      reasons.push(`RULE_VIOLATED：预算 ${budgetMin} 分 < 观测成功最大 ${maxObs} 分 × ${SAFETY_MULTIPLIER} = ${(maxObs * SAFETY_MULTIPLIER).toFixed(2)} 分——按规则重定数，不得改倍数`)
+    }
+    if (maxObs >= budgetMin * HARD_RATIO) {
+      reasons.push(`NO_LONGER_SIZED：观测成功最大 ${maxObs} 分已达预算 ${budgetMin} 分的 ${HARD_RATIO * 100}%，必须重新采集并重定数（不是放宽判据）`)
+    }
+    if (hugging && !(provenance.censoredUnderPriorBudgetN >= MIN_SAMPLE_CENSORED_WHEN_HUGGING)) {
+      reasons.push(`已贴脸（${maxObs} ≥ ${WARN_RATIO} × ${budgetMin}）却无任何"在生效预算处被杀"的截尾样本：此时 max 是假上界`)
+    }
+    if ((form ? form.gate4SuccessN : provenance.gate4SuccessN) < MIN_SAMPLE_GATE4_SUCCESS) {
+      reasons.push(`Gate 4 成功样本仅 ${form ? form.gate4SuccessN : provenance.gate4SuccessN}，低于下限 ${MIN_SAMPLE_GATE4_SUCCESS}——不能拿来定预算`)
+    }
   }
-  if (maxObs >= budgetMin * HARD_RATIO) {
-    reasons.push(`NO_LONGER_SIZED：观测成功最大 ${maxObs} 分已达预算 ${budgetMin} 分的 ${HARD_RATIO * 100}%，必须重新采集并重定数（不是放宽判据）`)
-  }
-  if (hugging && !(provenance.censoredUnderPriorBudgetN >= MIN_SAMPLE_CENSORED_WHEN_HUGGING)) {
-    reasons.push(`已贴脸（${maxObs} ≥ ${WARN_RATIO} × ${budgetMin}）却无任何"在生效预算处被杀"的截尾样本：此时 max 是假上界`)
-  }
-  if (provenance.gate4SuccessN < MIN_SAMPLE_GATE4_SUCCESS) {
-    reasons.push(`Gate 4 成功样本仅 ${provenance.gate4SuccessN}，低于下限 ${MIN_SAMPLE_GATE4_SUCCESS}——不能拿来定预算`)
-  }
-
   const perJob = {}
   for (const [job, field] of Object.entries(JOB_OVERHEAD_FIELD)) {
     const usesOverhead = provenance[field]
@@ -130,8 +168,11 @@ module.exports = {
   HARD_RATIO,
   MIN_SAMPLE_GATE4_SUCCESS,
   MIN_SAMPLE_CENSORED_WHEN_HUGGING,
+  MIN_SAMPLE_CURRENT_FORM,
   JOB_OVERHEAD_FIELD,
   PROVENANCE,
   PROVENANCE_FIELDS,
   checkSizing,
+  shardFormOf,
+  budgetMinFromGateBudgetText,
 }
