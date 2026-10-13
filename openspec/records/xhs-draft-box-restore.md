@@ -2,9 +2,6 @@
 record: xhs-draft-box-restore
 task: 小红书图文草稿「草稿箱计数」确认链的 dom 侧实现从未落地——调用方、用例与 openspec 的完成声明都进了 main，实现半边没有
 date: 2026-10-13
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填 PR 改写 PASS + merge SHA 并整段删除本三个 sync_ 字段
-sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 清理本 worktree）
 ---
 
 ## 本次执行记录：小红书草稿箱回查实现恢复（xhs-draft-box-restore，2026-10-13）
@@ -29,4 +26,4 @@ sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 清理�
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/` 与 `packages/rpa-engine/`，无前端文件；本刀全部在 python-backend 与其单测 |
 | 未收口（登记，不在本刀擅动） | PENDING | ①`GUI Tests` 不在 required 清单（ruleset ∪ protection 两处都实测不含）⇒ 只要发布器回归继续只挂 gui-test，同类断链仍会「红着合入」。这条是**改「谁来守门」**，按 AGENTS.md 一律人工过目，不在本刀扩。②`openspec/changes/rpa-xiaohongshu-dom-hardening/tasks.md:63` 的 `[x] 2.14` 与其中的「52 passed / 7 道变异 CAUGHT」声明与 main 字节不符；该 change 目录未归档、可能仍是他会话在制品 ⇒ 排除不猜，只登记。③本机 python 环境缺 `respx` ⇒ `tests/test_http_client{,_deep,_extended}.py` 三文件无法收集（CI 用 `.[test]` extra 装齐，属本机环境缺口，非仓库缺陷）。④全量里既有的 17 failed / 25 errors（`test__shared.py`、`test_aggregation*.py`、`test_pipeline_loader.py`、`test_llm_service.py`、`test_frame_html.py`）经控制对照证明与本片面无交集，属既有失败集，未认领。⑤`packages/python-backend/code_snippet.png` 是被跟踪的**运行产物**：跑 `pytest packages/python-backend`（cwd 在该目录）时 `video_creation/providers/image/code_snippet.py` 会重写它。本刀两次把它从工作树还原回 HEAD（精确路径、未用宽目录），但它本质上是「测试副作用污染仓库文件」的既有卫生问题，登记不在此刀修 |
 | QM-6 之后新增的欠账（登记，不在本刀做） | PENDING | ①**`DRAFT_BOX_ITEM_SELECTOR` 仍无活体取证**——它是标题兜底通道的唯一依据，前端轴明确指出「计数通道一旦因显示形态漂移失效，确认就全压在一条未取证的通配选择器上」，届时每次真实保存都会报 `XHS_UNCONFIRMED`。本轮没有真机取证条件，**不得**为凑判据编造选择器结论，故只登记排期。②`draft_box_count` 的容错面（全角/半角括号 + 空格）仍押在「草稿箱(N)」这一类**带括号的文本计数**形态上；平台若把计数改成角标数字或纯 aria 属性，正则整条失明——本刀已把「读到文本但解析不出」变成可查现场（debug 留痕 + 超时文案点名两种成因），但判据本身仍需要一次活体取证才能收紧或扩展 |
-| 远程同步 | PENDING | 合并后按 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 取 merge SHA、`git ls-remote --heads origin xhs-draft-box-restore` 返回 0 行、`gh pr view` 两源同 sha 对表，把本行就地改写成 `PASS` + SHA，并在**同一次提交**删除 frontmatter 三个 `sync_*` 字段。回填时要一并取一笔合并后才存在的现场：**main 的下一次 `gui-test` run 的 "Verify publisher RPA/DOM regressions" 步骤必须转绿**（本机只证同口径复现，CI 口径以 run 现场为准） |
+| 远程同步 | PASS | 已合并：squash merge SHA `3ac108fd16503181bb55eb6b14ef2a859b3504a1`（`git log origin/main --grep='(#3469)$' --format=%H\|%cI` ⇒ `...\|2026-10-13T17:25:20+08:00`；`gh pr view --json state,mergedAt,mergeCommit` 两源同一 sha，`mergedAt=2026-10-13T09:25:21Z`，committer 时间与 GitHub 值差 1 秒，两个都记不择一）；`git ls-remote --heads origin xhs-draft-box-restore` **返回 0 行**证远端分支已随 squash 删除；PR 侧 19 项 pass / 0 fail / 1 skipping（`release`），required 全绿后按 AGENTS.md「PR 自动合并」落地。**一条必须写清的取证边界（我原先在这里给自己留了一个拿不到的期望）**：本行原要求「main 的下一次 `gui-test` run 的步骤转绿」作闭环证据——实测**做不到**：main 上的 `gui-test.yml` 仍是空值节点那一版（修复在 #3443，尚未合并），所以合并后 main 的那次 push run `38376189382` 是**零 job 的 failure**（`GET /actions/runs/38376189382/jobs` 实测 `total_count=0`），它跑的根本不是修好的工作流，不能拿来当「那一步绿了」的证据。可归属的 CI 证据改取 PR 侧：#3443 的 gui-test run `38374030122`（attempt 1）在修复前失败于、且只失败于 `Verify publisher RPA/DOM regressions` 这一步（steps 里唯一的 failure），与本 PR 修的是同一件事；本 PR 合入后对该 run 做 `gh run rerun`（attempt 2 已启动），其结果才是「python 半边真被 CI 收到」的现场。闭环仍差最后一格：**#3443 合并后 main 的第一次 push 的 gui-test 必须整条绿**，由后续会话按同一口径复核，不得凭本行的 PASS 二字当作已完成 |
