@@ -1,0 +1,22 @@
+[
+	{
+		"text":"新手图文教程",
+		"url":"http://doc.mymedia123.com/helpdoc/detail?id=0"
+	},
+	{
+		"text":"如何设置默认分类？",
+		"url":"http://doc.mymedia123.com/helpdoc/detail?id=2"
+	},
+	{
+		"text":"软件支持哪些平台?",
+		"url":"http://doc.mymedia123.com/helpdoc/detail?id=5"
+	},
+	{
+		"text":"能不能设置独立标题、双标题、该如何设置？",
+		"url":"http://doc.mymedia123.com/helpdoc/detail?id=44"
+	},
+	{
+		"text":"团队会员包含哪些功能?",
+		"url":"http://doc.mymedia123.com/helpdoc/detail?id=56"
+	}
+]

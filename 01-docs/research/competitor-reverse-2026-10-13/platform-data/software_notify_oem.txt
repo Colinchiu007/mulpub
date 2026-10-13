@@ -1,0 +1,6 @@
+[
+	{
+		"text":"为什么视频上传速度慢？上传慢的原因是什么？",
+		"url":"http://doc.mymedia123.com/helpdoc/detail?id=1"
+	}
+]

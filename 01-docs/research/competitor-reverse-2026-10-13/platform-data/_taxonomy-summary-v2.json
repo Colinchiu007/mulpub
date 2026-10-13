@@ -1,0 +1,1941 @@
+{
+  "platforms": [
+    {
+      "slug": "sohu",
+      "total": 2038,
+      "uniq": 1939,
+      "maxD": 4,
+      "lv": {
+        "1": 63,
+        "2": 411,
+        "3": 887,
+        "4": 677
+      },
+      "files": 4,
+      "bytes": 380569,
+      "idKey": "id",
+      "childKey": "(值)"
+    },
+    {
+      "slug": "qqkandian",
+      "total": 1084,
+      "uniq": 906,
+      "maxD": 3,
+      "lv": {
+        "1": 94,
+        "2": 278,
+        "3": 712
+      },
+      "files": 3,
+      "bytes": 78926,
+      "idKey": "channel_id",
+      "childKey": "sub"
+    },
+    {
+      "slug": "baijia",
+      "total": 876,
+      "uniq": 778,
+      "maxD": 3,
+      "lv": {
+        "1": 88,
+        "2": 644,
+        "3": 144
+      },
+      "files": 2,
+      "bytes": 59285,
+      "idKey": "id",
+      "childKey": "child"
+    },
+    {
+      "slug": "qutoutiao",
+      "total": 756,
+      "uniq": 668,
+      "maxD": 2,
+      "lv": {
+        "1": 79,
+        "2": 677
+      },
+      "files": 2,
+      "bytes": 15567,
+      "idKey": "id",
+      "childKey": "cates"
+    },
+    {
+      "slug": "wangyi",
+      "total": 650,
+      "uniq": 645,
+      "maxD": 2,
+      "lv": {
+        "1": 129,
+        "2": 521
+      },
+      "files": 3,
+      "bytes": 13908,
+      "idKey": "id",
+      "childKey": "(值)"
+    },
+    {
+      "slug": "yidian",
+      "total": 585,
+      "uniq": 512,
+      "maxD": 2,
+      "lv": {
+        "1": 71,
+        "2": 514
+      },
+      "files": 2,
+      "bytes": 6001,
+      "idKey": null,
+      "childKey": "(值)"
+    },
+    {
+      "slug": "qqkantiao",
+      "total": 555,
+      "uniq": 535,
+      "maxD": 2,
+      "lv": {
+        "1": 52,
+        "2": 503
+      },
+      "files": 1,
+      "bytes": 5304,
+      "idKey": null,
+      "childKey": "(值)"
+    },
+    {
+      "slug": "dafeng",
+      "total": 525,
+      "uniq": 507,
+      "maxD": 2,
+      "lv": {
+        "1": 117,
+        "2": 408
+      },
+      "files": 3,
+      "bytes": 32421,
+      "idKey": "id",
+      "childKey": "(值)"
+    },
+    {
+      "slug": "douyin",
+      "total": 517,
+      "uniq": 517,
+      "maxD": 2,
+      "lv": {
+        "1": 99,
+        "2": 418
+      },
+      "files": 3,
+      "bytes": 27378,
+      "idKey": "code",
+      "childKey": "child"
+    },
+    {
+      "slug": "weixin",
+      "total": 411,
+      "uniq": 370,
+      "maxD": 2,
+      "lv": {
+        "1": 39,
+        "2": 372
+      },
+      "files": 1,
+      "bytes": 3991,
+      "idKey": null,
+      "childKey": "(值)"
+    },
+    {
+      "slug": "weibo",
+      "total": 381,
+      "uniq": 366,
+      "maxD": 2,
+      "lv": {
+        "1": 38,
+        "2": 343
+      },
+      "files": 2,
+      "bytes": 29255,
+      "idKey": "id",
+      "childKey": "children"
+    },
+    {
+      "slug": "bilibili",
+      "total": 358,
+      "uniq": 353,
+      "maxD": 2,
+      "lv": {
+        "1": 60,
+        "2": 298
+      },
+      "files": 4,
+      "bytes": 12171,
+      "idKey": "id",
+      "childKey": "children"
+    },
+    {
+      "slug": "huitoutiao",
+      "total": 320,
+      "uniq": 320,
+      "maxD": 2,
+      "lv": {
+        "1": 90,
+        "2": 230
+      },
+      "files": 4,
+      "bytes": 6260,
+      "idKey": "id",
+      "childKey": "child"
+    },
+    {
+      "slug": "tencent",
+      "total": 310,
+      "uniq": 310,
+      "maxD": 2,
+      "lv": {
+        "1": 40,
+        "2": 270
+      },
+      "files": 2,
+      "bytes": 17233,
+      "idKey": "id",
+      "childKey": "child"
+    },
+    {
+      "slug": "kuaishou",
+      "total": 305,
+      "uniq": 268,
+      "maxD": 2,
+      "lv": {
+        "1": 38,
+        "2": 267
+      },
+      "files": 1,
+      "bytes": 5074,
+      "idKey": null,
+      "childKey": "(值)"
+    },
+    {
+      "slug": "sogou",
+      "total": 231,
+      "uniq": 228,
+      "maxD": 2,
+      "lv": {
+        "1": 34,
+        "2": 197
+      },
+      "files": 1,
+      "bytes": 2154,
+      "idKey": null,
+      "childKey": "(值)"
+    },
+    {
+      "slug": "acfun",
+      "total": 218,
+      "uniq": 218,
+      "maxD": 2,
+      "lv": {
+        "1": 34,
+        "2": 184
+      },
+      "files": 4,
+      "bytes": 4586,
+      "idKey": "id",
+      "childKey": "cates"
+    },
+    {
+      "slug": "qie",
+      "total": 205,
+      "uniq": 205,
+      "maxD": 2,
+      "lv": {
+        "1": 29,
+        "2": 176
+      },
+      "files": 1,
+      "bytes": 2019,
+      "idKey": null,
+      "childKey": "(值)"
+    },
+    {
+      "slug": "sinakandian",
+      "total": 202,
+      "uniq": 196,
+      "maxD": 2,
+      "lv": {
+        "1": 80,
+        "2": 122
+      },
+      "files": 2,
+      "bytes": 4058,
+      "idKey": "id",
+      "childKey": "child"
+    },
+    {
+      "slug": "sohumedia",
+      "total": 192,
+      "uniq": 192,
+      "maxD": 2,
+      "lv": {
+        "1": 50,
+        "2": 142
+      },
+      "files": 2,
+      "bytes": 9327,
+      "idKey": "id",
+      "childKey": "child"
+    },
+    {
+      "slug": "kaidi",
+      "total": 136,
+      "uniq": 134,
+      "maxD": 2,
+      "lv": {
+        "1": 34,
+        "2": 102
+      },
+      "files": 2,
+      "bytes": 6753,
+      "idKey": "id",
+      "childKey": "cates"
+    },
+    {
+      "slug": "zhihu",
+      "total": 135,
+      "uniq": 135,
+      "maxD": 2,
+      "lv": {
+        "1": 51,
+        "2": 84
+      },
+      "files": 2,
+      "bytes": 3188,
+      "idKey": "id",
+      "childKey": "(值)"
+    },
+    {
+      "slug": "meipai",
+      "total": 134,
+      "uniq": 114,
+      "maxD": 2,
+      "lv": {
+        "1": 24,
+        "2": 110
+      },
+      "files": 2,
+      "bytes": 2669,
+      "idKey": "id",
+      "childKey": "(值)"
+    },
+    {
+      "slug": "baihua",
+      "total": 132,
+      "uniq": 132,
+      "maxD": 2,
+      "lv": {
+        "1": 18,
+        "2": 114
+      },
+      "files": 2,
+      "bytes": 4391,
+      "idKey": "id",
+      "childKey": "(值)"
+    },
+    {
+      "slug": "dongfang",
+      "total": 108,
+      "uniq": 101,
+      "maxD": 2,
+      "lv": {
+        "1": 45,
+        "2": 63
+      },
+      "files": 2,
+      "bytes": 1098,
+      "idKey": null,
+      "childKey": "(值)"
+    },
+    {
+      "slug": "miaopaimedia",
+      "total": 77,
+      "uniq": 77,
+      "maxD": 1,
+      "lv": {
+        "1": 77
+      },
+      "files": 2,
+      "bytes": 2009,
+      "idKey": "id",
+      "childKey": "(值)"
+    },
+    {
+      "slug": "kuaichuan",
+      "total": 50,
+      "uniq": 50,
+      "maxD": 1,
+      "lv": {
+        "1": 50
+      },
+      "files": 1,
+      "bytes": 1401,
+      "idKey": "id",
+      "childKey": null
+    },
+    {
+      "slug": "dayu",
+      "total": 42,
+      "uniq": 42,
+      "maxD": 1,
+      "lv": {
+        "1": 42
+      },
+      "files": 1,
+      "bytes": 619,
+      "idKey": null,
+      "childKey": "(值)"
+    },
+    {
+      "slug": "wutiao",
+      "total": 36,
+      "uniq": 36,
+      "maxD": 1,
+      "lv": {
+        "1": 36
+      },
+      "files": 1,
+      "bytes": 549,
+      "idKey": null,
+      "childKey": "(值)"
+    },
+    {
+      "slug": "aiqiyimedia",
+      "total": 29,
+      "uniq": 29,
+      "maxD": 1,
+      "lv": {
+        "1": 29
+      },
+      "files": 1,
+      "bytes": 1972,
+      "idKey": "id",
+      "childKey": null
+    },
+    {
+      "slug": "toutiao",
+      "total": 25,
+      "uniq": 25,
+      "maxD": 1,
+      "lv": {
+        "1": 25
+      },
+      "files": 1,
+      "bytes": 382,
+      "idKey": null,
+      "childKey": "(值)"
+    }
+  ],
+  "unknown": [],
+  "files": [
+    {
+      "f": "acfuncategortmap.txt",
+      "kind": "map",
+      "enc": "gbk",
+      "bytes": 1074,
+      "nodes": 35,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 6,
+        "2": 29
+      },
+      "idKeyHits": {
+        "id": 35
+      },
+      "nameKeyHits": {
+        "name": 35
+      },
+      "childKeyHits": {
+        "cates": 6
+      },
+      "leaves": 0,
+      "uniqueNames": 35,
+      "idKey": "id",
+      "nameKey": "name",
+      "childKey": "cates"
+    },
+    {
+      "f": "acfunsubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 366,
+      "nodes": 35,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 6,
+        "2": 29
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 35,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "acfunvideocategortmap.txt",
+      "kind": "map",
+      "enc": "gbk",
+      "bytes": 2346,
+      "nodes": 74,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 11,
+        "2": 63
+      },
+      "idKeyHits": {
+        "id": 74
+      },
+      "nameKeyHits": {
+        "name": 74
+      },
+      "childKeyHits": {
+        "cates": 11
+      },
+      "leaves": 0,
+      "uniqueNames": 74,
+      "idKey": "id",
+      "nameKey": "name",
+      "childKey": "cates"
+    },
+    {
+      "f": "acfunvideosubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 800,
+      "nodes": 74,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 11,
+        "2": 63
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 74,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "aiqiyimediavideocategortmap.txt",
+      "kind": "map",
+      "enc": "gbk",
+      "bytes": 1972,
+      "nodes": 29,
+      "maxDepth": 1,
+      "levelCounts": {
+        "1": 29
+      },
+      "idKeyHits": {
+        "id": 29
+      },
+      "nameKeyHits": {
+        "name": 29
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 29,
+      "idKey": "id",
+      "nameKey": "name",
+      "childKey": null
+    },
+    {
+      "f": "baihuasubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 641,
+      "nodes": 66,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 9,
+        "2": 57
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 66,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "baihuavideocategortmap.txt",
+      "kind": "map",
+      "enc": "gbk",
+      "bytes": 3750,
+      "nodes": 66,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 9,
+        "2": 57
+      },
+      "idKeyHits": {
+        "id": 66
+      },
+      "nameKeyHits": {
+        "name": 66
+      },
+      "childKeyHits": {
+        "children": 9
+      },
+      "leaves": 0,
+      "uniqueNames": 66,
+      "idKey": "id",
+      "nameKey": "name",
+      "childKey": "children"
+    },
+    {
+      "f": "baijiavideocategortmap.txt",
+      "kind": "map",
+      "enc": "gbk",
+      "bytes": 49486,
+      "nodes": 438,
+      "maxDepth": 3,
+      "levelCounts": {
+        "1": 44,
+        "2": 322,
+        "3": 72
+      },
+      "idKeyHits": {
+        "id": 438
+      },
+      "nameKeyHits": {
+        "name": 438
+      },
+      "childKeyHits": {
+        "child": 366
+      },
+      "leaves": 0,
+      "uniqueNames": 389,
+      "idKey": "id",
+      "nameKey": "name",
+      "childKey": "child"
+    },
+    {
+      "f": "baijiavideosubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 9799,
+      "nodes": 438,
+      "maxDepth": 3,
+      "levelCounts": {
+        "1": 44,
+        "2": 322,
+        "3": 72
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 45
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 389,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "bilibilicategortmap.txt",
+      "kind": "map",
+      "enc": "gbk",
+      "bytes": 2124,
+      "nodes": 38,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 7,
+        "2": 31
+      },
+      "idKeyHits": {
+        "id": 38
+      },
+      "nameKeyHits": {
+        "name": 38
+      },
+      "childKeyHits": {
+        "children": 7
+      },
+      "leaves": 0,
+      "uniqueNames": 38,
+      "idKey": "id",
+      "nameKey": "name",
+      "childKey": "children"
+    },
+    {
+      "f": "bilibilisubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 363,
+      "nodes": 38,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 7,
+        "2": 31
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 38,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "bilibilivideocategortmap.txt",
+      "kind": "map",
+      "enc": "gbk",
+      "bytes": 8233,
+      "nodes": 143,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 23,
+        "2": 120
+      },
+      "idKeyHits": {
+        "id": 143
+      },
+      "nameKeyHits": {
+        "name": 143
+      },
+      "childKeyHits": {
+        "children": 23
+      },
+      "leaves": 0,
+      "uniqueNames": 140,
+      "idKey": "id",
+      "nameKey": "name",
+      "childKey": "children"
+    },
+    {
+      "f": "bilibilivideosubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 1451,
+      "nodes": 139,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 23,
+        "2": 116
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 137,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "dafengcategortmap.txt",
+      "kind": "map",
+      "enc": "utf-8",
+      "bytes": 2706,
+      "nodes": 41,
+      "maxDepth": 1,
+      "levelCounts": {
+        "1": 41
+      },
+      "idKeyHits": {
+        "id": 41
+      },
+      "nameKeyHits": {
+        "name": 41
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 41,
+      "idKey": "id",
+      "nameKey": "name",
+      "childKey": null
+    },
+    {
+      "f": "dafengvideocategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 3676,
+      "nodes": 242,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 38,
+        "2": 204
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 233,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "dafengvideocategortmap.txt",
+      "kind": "map",
+      "enc": "utf-8",
+      "bytes": 26039,
+      "nodes": 242,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 38,
+        "2": 204
+      },
+      "idKeyHits": {
+        "id": 242
+      },
+      "nameKeyHits": {
+        "name": 242
+      },
+      "childKeyHits": {
+        "cates": 38
+      },
+      "leaves": 0,
+      "uniqueNames": 233,
+      "idKey": "id",
+      "nameKey": "name",
+      "childKey": "cates"
+    },
+    {
+      "f": "dayuvideosubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 619,
+      "nodes": 42,
+      "maxDepth": 1,
+      "levelCounts": {
+        "1": 42
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 42,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "dongfangsubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 796,
+      "nodes": 83,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 28,
+        "2": 55
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 78,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "dongfangvideosubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 302,
+      "nodes": 25,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 17,
+        "2": 8
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 23,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "douyincategortmap.txt",
+      "kind": "map",
+      "enc": "gbk",
+      "bytes": 1858,
+      "nodes": 27,
+      "maxDepth": 1,
+      "levelCounts": {
+        "1": 27
+      },
+      "idKeyHits": {
+        "code": 27
+      },
+      "nameKeyHits": {
+        "text": 27
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 27,
+      "idKey": "code",
+      "nameKey": "text",
+      "childKey": null
+    },
+    {
+      "f": "douyinvideocategortmap.txt",
+      "kind": "map",
+      "enc": "gbk",
+      "bytes": 21193,
+      "nodes": 245,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 36,
+        "2": 209
+      },
+      "idKeyHits": {
+        "id": 245
+      },
+      "nameKeyHits": {
+        "name": 245
+      },
+      "childKeyHits": {
+        "child": 36
+      },
+      "leaves": 0,
+      "uniqueNames": 245,
+      "idKey": "id",
+      "nameKey": "name",
+      "childKey": "child"
+    },
+    {
+      "f": "douyinvideosubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 4327,
+      "nodes": 245,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 36,
+        "2": 209
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 245,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "huitoutiaocategortmap.txt",
+      "kind": "map",
+      "enc": "gbk",
+      "bytes": 2479,
+      "nodes": 85,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 23,
+        "2": 62
+      },
+      "idKeyHits": {
+        "id": 85
+      },
+      "nameKeyHits": {
+        "name": 85
+      },
+      "childKeyHits": {
+        "child": 23
+      },
+      "leaves": 0,
+      "uniqueNames": 85,
+      "idKey": "id",
+      "nameKey": "name",
+      "childKey": "child"
+    },
+    {
+      "f": "huitoutiaosubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 798,
+      "nodes": 85,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 23,
+        "2": 62
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 85,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "huitoutiaovideocategortmap.txt",
+      "kind": "map",
+      "enc": "gbk",
+      "bytes": 2291,
+      "nodes": 75,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 22,
+        "2": 53
+      },
+      "idKeyHits": {
+        "id": 75
+      },
+      "nameKeyHits": {
+        "name": 75
+      },
+      "childKeyHits": {
+        "child": 22
+      },
+      "leaves": 0,
+      "uniqueNames": 75,
+      "idKey": "id",
+      "nameKey": "name",
+      "childKey": "child"
+    },
+    {
+      "f": "huitoutiaovideosubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 692,
+      "nodes": 75,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 22,
+        "2": 53
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 75,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "kaidicategortmap.txt",
+      "kind": "map",
+      "enc": "gbk",
+      "bytes": 5760,
+      "nodes": 68,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 17,
+        "2": 51
+      },
+      "idKeyHits": {
+        "id": 68
+      },
+      "nameKeyHits": {
+        "name": 68
+      },
+      "childKeyHits": {
+        "cates": 17
+      },
+      "leaves": 0,
+      "uniqueNames": 67,
+      "idKey": "id",
+      "nameKey": "name",
+      "childKey": "cates"
+    },
+    {
+      "f": "kaidisubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 993,
+      "nodes": 68,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 17,
+        "2": 51
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 67,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "kuaichuancategortmap.txt",
+      "kind": "map",
+      "enc": "gbk",
+      "bytes": 1401,
+      "nodes": 50,
+      "maxDepth": 1,
+      "levelCounts": {
+        "1": 50
+      },
+      "idKeyHits": {
+        "id": 50
+      },
+      "nameKeyHits": {
+        "name": 50
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 50,
+      "idKey": "id",
+      "nameKey": "name",
+      "childKey": null
+    },
+    {
+      "f": "kuaishouvideosubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 5074,
+      "nodes": 305,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 38,
+        "2": 267
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 268,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "meipaisubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 583,
+      "nodes": 67,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 12,
+        "2": 55
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 57,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "meipaisubcategortmap.txt",
+      "kind": "map",
+      "enc": "gbk",
+      "bytes": 2086,
+      "nodes": 67,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 12,
+        "2": 55
+      },
+      "idKeyHits": {
+        "id": 67
+      },
+      "nameKeyHits": {
+        "name": 67
+      },
+      "childKeyHits": {
+        "child": 12
+      },
+      "leaves": 0,
+      "uniqueNames": 57,
+      "idKey": "id",
+      "nameKey": "name",
+      "childKey": "child"
+    },
+    {
+      "f": "miaopaimediavideocategortmap.txt",
+      "kind": "map",
+      "enc": "gbk",
+      "bytes": 1386,
+      "nodes": 39,
+      "maxDepth": 1,
+      "levelCounts": {
+        "1": 39
+      },
+      "idKeyHits": {
+        "id": 39
+      },
+      "nameKeyHits": {
+        "name": 39
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 39,
+      "idKey": "id",
+      "nameKey": "name",
+      "childKey": null
+    },
+    {
+      "f": "miaopaimediavideosubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 623,
+      "nodes": 38,
+      "maxDepth": 1,
+      "levelCounts": {
+        "1": 38
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 38,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "qievideosubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 2019,
+      "nodes": 205,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 29,
+        "2": 176
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 205,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "qqkandiansubcategortmap.txt",
+      "kind": "map",
+      "enc": "gbk",
+      "bytes": 52824,
+      "nodes": 52,
+      "maxDepth": 1,
+      "levelCounts": {
+        "1": 52
+      },
+      "idKeyHits": {
+        "channel_id": 52
+      },
+      "nameKeyHits": {
+        "channel": 52,
+        "channel_chinese": 52
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 52,
+      "idKey": "channel_id",
+      "nameKey": "channel",
+      "childKey": null
+    },
+    {
+      "f": "qqkandianvideocategortmap.txt",
+      "kind": "map",
+      "enc": "gbk",
+      "bytes": 17177,
+      "nodes": 516,
+      "maxDepth": 3,
+      "levelCounts": {
+        "1": 21,
+        "2": 139,
+        "3": 356
+      },
+      "idKeyHits": {
+        "id": 516
+      },
+      "nameKeyHits": {
+        "name": 516
+      },
+      "childKeyHits": {
+        "sub": 160
+      },
+      "leaves": 0,
+      "uniqueNames": 427,
+      "idKey": "id",
+      "nameKey": "name",
+      "childKey": "sub"
+    },
+    {
+      "f": "qqkandianvideosubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 8925,
+      "nodes": 516,
+      "maxDepth": 3,
+      "levelCounts": {
+        "1": 21,
+        "2": 139,
+        "3": 356
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 22
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 427,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "qqkantiaosubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 5304,
+      "nodes": 555,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 52,
+        "2": 503
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 535,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "qutoutiaocategortmap.txt",
+      "kind": "map",
+      "enc": "gbk",
+      "bytes": 12210,
+      "nodes": 380,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 40,
+        "2": 340
+      },
+      "idKeyHits": {
+        "id": 380
+      },
+      "nameKeyHits": {
+        "name": 380
+      },
+      "childKeyHits": {
+        "cates": 40
+      },
+      "leaves": 0,
+      "uniqueNames": 335,
+      "idKey": "id",
+      "nameKey": "name",
+      "childKey": "cates"
+    },
+    {
+      "f": "qutoutiaosubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 3357,
+      "nodes": 376,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 39,
+        "2": 337
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 333,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "sinakandiancategortmap.txt",
+      "kind": "map",
+      "enc": "gbk",
+      "bytes": 2727,
+      "nodes": 101,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 40,
+        "2": 61
+      },
+      "idKeyHits": {
+        "id": 101
+      },
+      "nameKeyHits": {
+        "name": 101
+      },
+      "childKeyHits": {
+        "child": 5
+      },
+      "leaves": 0,
+      "uniqueNames": 98,
+      "idKey": "id",
+      "nameKey": "name",
+      "childKey": "child"
+    },
+    {
+      "f": "sinakandiansubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 1331,
+      "nodes": 101,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 40,
+        "2": 61
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 98,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "sogouvideosubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 2154,
+      "nodes": 231,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 34,
+        "2": 197
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 228,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "sohumediacategortmap.txt",
+      "kind": "map",
+      "enc": "gbk",
+      "bytes": 7927,
+      "nodes": 97,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 26,
+        "2": 71
+      },
+      "idKeyHits": {
+        "id": 97
+      },
+      "nameKeyHits": {
+        "name": 97
+      },
+      "childKeyHits": {
+        "child": 26
+      },
+      "leaves": 0,
+      "uniqueNames": 97,
+      "idKey": "id",
+      "nameKey": "name",
+      "childKey": "child"
+    },
+    {
+      "f": "sohumediasubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 1400,
+      "nodes": 95,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 24,
+        "2": 71
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 95,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "sohusubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 93,
+      "nodes": 5,
+      "maxDepth": 1,
+      "levelCounts": {
+        "1": 5
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 5,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "sohusubcategortmap.txt",
+      "kind": "map",
+      "enc": "gbk",
+      "bytes": 8644,
+      "nodes": 193,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 24,
+        "2": 169
+      },
+      "idKeyHits": {
+        "id": 193
+      },
+      "nameKeyHits": {
+        "name": 193
+      },
+      "childKeyHits": {
+        "cates": 24
+      },
+      "leaves": 0,
+      "uniqueNames": 176,
+      "idKey": "id",
+      "nameKey": "name",
+      "childKey": "cates"
+    },
+    {
+      "f": "sohuvideocategortmap.txt",
+      "kind": "map",
+      "enc": "gbk",
+      "bytes": 355739,
+      "nodes": 921,
+      "maxDepth": 4,
+      "levelCounts": {
+        "1": 2,
+        "2": 32,
+        "3": 210,
+        "4": 677
+      },
+      "idKeyHits": {
+        "id": 921
+      },
+      "nameKeyHits": {
+        "title": 921
+      },
+      "childKeyHits": {
+        "childrenCate": 921
+      },
+      "leaves": 0,
+      "uniqueNames": 880,
+      "idKey": "id",
+      "nameKey": "title",
+      "childKey": "childrenCate"
+    },
+    {
+      "f": "sohuvideosubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 16093,
+      "nodes": 919,
+      "maxDepth": 3,
+      "levelCounts": {
+        "1": 32,
+        "2": 210,
+        "3": 677
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 32
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 878,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "tencentvideocategortmap.txt",
+      "kind": "map",
+      "enc": "utf-8",
+      "bytes": 14331,
+      "nodes": 155,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 20,
+        "2": 135
+      },
+      "idKeyHits": {
+        "id": 155
+      },
+      "nameKeyHits": {
+        "name": 155
+      },
+      "childKeyHits": {
+        "child": 20
+      },
+      "leaves": 0,
+      "uniqueNames": 155,
+      "idKey": "id",
+      "nameKey": "name",
+      "childKey": "child"
+    },
+    {
+      "f": "tencentvideosubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 2902,
+      "nodes": 155,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 20,
+        "2": 135
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 155,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "toutiaovideosubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 382,
+      "nodes": 25,
+      "maxDepth": 1,
+      "levelCounts": {
+        "1": 25
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 25,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "wangyisubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 2069,
+      "nodes": 228,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 45,
+        "2": 183
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 227,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "wangyisubcategortmap.txt",
+      "kind": "map",
+      "enc": "gbk",
+      "bytes": 10082,
+      "nodes": 211,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 42,
+        "2": 169
+      },
+      "idKeyHits": {
+        "id": 211
+      },
+      "nameKeyHits": {
+        "name": 211
+      },
+      "childKeyHits": {
+        "child": 42
+      },
+      "leaves": 0,
+      "uniqueNames": 209,
+      "idKey": "id",
+      "nameKey": "name",
+      "childKey": "child"
+    },
+    {
+      "f": "wangyivideosubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 1757,
+      "nodes": 211,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 42,
+        "2": 169
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 209,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "weibovideocategortmap.txt",
+      "kind": "map",
+      "enc": "gbk",
+      "bytes": 26145,
+      "nodes": 190,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 19,
+        "2": 171
+      },
+      "idKeyHits": {
+        "id": 190
+      },
+      "nameKeyHits": {
+        "name": 190
+      },
+      "childKeyHits": {
+        "children": 19
+      },
+      "leaves": 0,
+      "uniqueNames": 183,
+      "idKey": "id",
+      "nameKey": "name",
+      "childKey": "children"
+    },
+    {
+      "f": "weibovideosubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 3110,
+      "nodes": 191,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 19,
+        "2": 172
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 183,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "weixinvideosubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 3991,
+      "nodes": 411,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 39,
+        "2": 372
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 370,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "wutiaosubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 549,
+      "nodes": 36,
+      "maxDepth": 1,
+      "levelCounts": {
+        "1": 36
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 36,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "yidiansubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 2730,
+      "nodes": 300,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 32,
+        "2": 268
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 270,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "yidianvideosubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 3271,
+      "nodes": 285,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 39,
+        "2": 246
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 242,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    },
+    {
+      "f": "zhihuvideocategortmap.txt",
+      "kind": "map",
+      "enc": "utf-8",
+      "bytes": 1647,
+      "nodes": 33,
+      "maxDepth": 1,
+      "levelCounts": {
+        "1": 33
+      },
+      "idKeyHits": {
+        "id": 33
+      },
+      "nameKeyHits": {
+        "name": 33
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 33,
+      "idKey": "id",
+      "nameKey": "name",
+      "childKey": null
+    },
+    {
+      "f": "zhihuvideosubcategort.txt",
+      "kind": "sub",
+      "enc": "gbk",
+      "bytes": 1541,
+      "nodes": 102,
+      "maxDepth": 2,
+      "levelCounts": {
+        "1": 18,
+        "2": 84
+      },
+      "idKeyHits": {},
+      "nameKeyHits": {
+        "(键即名)": 1
+      },
+      "childKeyHits": {},
+      "leaves": 0,
+      "uniqueNames": 102,
+      "idKey": null,
+      "nameKey": "(键即名)",
+      "childKey": "(值)"
+    }
+  ]
+}

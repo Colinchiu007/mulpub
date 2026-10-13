@@ -214,6 +214,7 @@ export default {
       PODCAST_MIGRATION_DIRECTION_INVALID: 'Unknown migration resolution. Please choose again.',
       PODCAST_LOCK_WAIT_TIMEOUT: 'Podcast data is busy with another operation. Please retry shortly.',
       PODCAST_CHANNEL_BUSY: 'This channel is publishing right now. Wait for it to finish before editing episodes.',
+      PODCAST_TTS_BILLING_UNCONFIRMED: 'Publishing from text calls the speech synthesis service per chunk and incurs cost. Confirm usage and fees first.',
       PODCAST_EPISODE_NOT_FOUND: 'Episode not found, it may have been deleted. Refresh the list.',
       PODCAST_HOSTING_REQUIRED: 'Local audio files need object-storage hosting first (Aliyun OSS is supported today).',
       PODCAST_HOSTING_INVALID: 'Hosting configuration is invalid. Fix the items listed below.',

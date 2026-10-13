@@ -1,0 +1,46 @@
+[
+	{
+		"text":"【入门教程】第一次安装使用的用户请点此处！！",
+		"url":"https://tui.17www.cn/wz1/"
+	},
+	{
+		"text":"作品发布失败常见情况及解决方法",
+		"url":"https://tui.17www.cn/wz2/"
+	},
+	{
+		"text":"自媒体账号掉线了怎么办？",
+		"url":"https://tui.17www.cn/wz3/"
+	},
+	{
+		"text":"如何批量视频混剪、AI一键成片？",
+		"url":"https://tui.17www.cn/wz4/"
+	},
+	{
+		"text":"如何使用AI一键生成文章？",
+		"url":"https://tui.17www.cn/wz5/"
+	},
+	{
+		"text":"如何使用AI一键生成图文？",
+		"url":"https://tui.17www.cn/wz6/"
+	},
+	{
+		"text":"【团队版】如何添加团队子账号？",
+		"url":"https://tui.17www.cn/wz7/"
+	},
+	{
+		"text":" 如何设置私信、评论新消息未读提醒？",
+		"url":"https://tui.17www.cn/wz8/"
+	},
+	{
+		"text":"如何设置抖音自动回复？",
+		"url":"https://tui.17www.cn/wz9/"
+	},
+	{
+		"text":"如何查看系统版本号？",
+		"url":"https://tui.17www.cn/wz10/"
+	},
+	{
+		"text":"字体界面模糊如何处理？",
+		"url":"https://tui.17www.cn/wz11/"
+	}
+]

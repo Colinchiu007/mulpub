@@ -14,6 +14,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createEpisodeHost } from './podcast-episode-host'
+import { TTS_COMPOSE_ERRORS } from './podcast-tts-compose'
 import { isCancellableAt } from './podcast-episode-publish'
 import { episodeCancelRegistry, RUN_ID_RE } from './podcast-episode-cancel'
 import { channelBusyGate } from './podcast-channel-locks'
@@ -622,5 +623,154 @@ describe('§6.4.2 出期进度通道（宿主是唯一发射点）', () => {
     expect(last.state).toBe('failed')
     expect(typeof last.subCode).toBe('string')
     expect(last.subCode.length).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * 刀 4 第 4 片：文本出期（tasks 4.3）。**只有 extractMix 这一站换了实现**——
+ * `probe` 及之后逐字复用同一条编排链，所以这里的锁全部围绕三件事：
+ * ① 计费确认是**同意闸门**，未确认即拒且零出站（TTS 花的是 provider 的钱，不是本地算力）；
+ * ② 分块/音色/标题/正文的判据**只有 `podcast-tts-compose` 一份实现**，宿主不得另写；
+ * ③ 忙标记、临时目录收尾、取消窗口、相位闭集与视频链完全同形。
+ */
+describe('podcast-episode-host · publishFromScript（文本出期：只换 extractMix 这一站）', () => {
+  const CONTENT = '第一段口播正文，长度要足够一期节目使用，这里先补足到 compose 判据的下限之上。'
+    + '第二段继续写：文本出期不依赖成片，音轨来源就是这段稿子逐块合成出来的。'
+    + '第三段收尾，把内容推到一次真实节目该有的长度，避免触发内容过短的拒绝。'
+
+  function scriptDeps (over = {}) {
+    const calls = { tts: [], concat: 0, probe: 0 }
+    const syn = {
+      // 每块返回一个独立文件路径，交给假 concat 拼成 outBase
+      generateTTS: async ({ text, index }) => {
+        calls.tts.push({ text, index })
+        if (over.ttsFail) { const e = new Error('provider down'); e.code = 'PODCAST_TTS_BLOCK_FAILED'; throw e }
+        const p = '/tts/block-' + index + '.mp3'
+        syn.fs.files.set(p, 'x'.repeat(1200))
+        if (over.ttsDegraded) return { path: p, degraded: true }
+        return { path: p, degraded: false }
+      },
+      concatBlocks: async (req) => {
+        calls.concat++
+        syn.fs.files.set(req.outPath, 'y'.repeat(2400))
+        return { path: req.outPath, mime: 'audio/mpeg', gapInserted: false }
+      },
+      probeImpl: async () => {
+        calls.probe++
+        return { durationSec: 12.5, sizeBytes: 2400, mime: 'audio/mpeg' }
+      },
+    }
+    syn.calls = calls
+    return syn
+  }
+
+  function makeScriptHost (over = {}) {
+    const syn = scriptDeps(over)
+    const h = makeHost(Object.assign({}, over.hostOpts, {
+      hostDeps: Object.assign({
+        generateTTS: syn.generateTTS,
+        concatBlocks: syn.concatBlocks,
+        probeImpl: syn.probeImpl,
+      }, over.hostDeps || {}),
+    }))
+    // 合成层要往 runDir 写块文件与成品，夹具的 fs 必须看得见这张表
+    const orig = syn.generateTTS
+    syn.fs = h.fs
+    syn.generateTTS = (a) => orig(a)
+    const payload = Object.assign({
+      channelId: CHANNEL,
+      runId: h.runId,
+      title: '文字稿一期',
+      copy: { content: CONTENT },
+      billingConfirmed: true,
+    }, over.payload || {})
+    return Object.assign(h, { syn, scriptPayload: payload })
+  }
+
+  it('未确认计费 ⇒ PODCAST_TTS_BILLING_UNCONFIRMED，且一次 TTS、一次 spawn、一次 PUT 都不发', async () => {
+    const h = makeScriptHost({ payload: { billingConfirmed: false } })
+    const err = await h.host.publishFromScript(h.scriptPayload).catch((e) => e)
+    expect(err).toBeInstanceOf(Error)
+    expect(err.code).toBe('PODCAST_TTS_BILLING_UNCONFIRMED')
+    expect(h.syn.calls.tts.length).toBe(0)
+    expect(h.spawn.calls.length).toBe(0)
+    expect(h.hosting.calls.length).toBe(0)
+    expect(h.fs.calls.mkdir.length).toBe(0)
+  })
+
+  it('计费闸门先于内容判据：正文为空也不得把「未同意」报成「正文过短」', async () => {
+    const h = makeScriptHost({ payload: { billingConfirmed: false, copy: { content: '' } } })
+    const err = await h.host.publishFromScript(h.scriptPayload).catch((e) => e)
+    expect(err.code).toBe('PODCAST_TTS_BILLING_UNCONFIRMED')
+  })
+
+  it.each([
+    ['正文短于一期下限', TTS_COMPOSE_ERRORS.CONTENT_TOO_SHORT, { copy: { content: '太短' } }],
+    ['标题为空', TTS_COMPOSE_ERRORS.TITLE_INVALID, { title: '   ' }],
+    ['voiceRef 只给两段（三段必须同存或同缺）', TTS_COMPOSE_ERRORS.VOICE_REF_INCOMPLETE, { voiceRef: { providerId: 'p', model: 'm' } }],
+    ['runId 形态非法', TTS_COMPOSE_ERRORS.RUN_ID_INVALID, { runId: '../escape' }],
+  ])('%s ⇒ 拒绝，码逐字取自 podcast-tts-compose（宿主不另写一份也不重新映射）', async (_label, want, patch) => {
+    const h = makeScriptHost({ payload: patch })
+    const err = await h.host.publishFromScript(h.scriptPayload).catch((e) => e)
+    expect(err.code).toBe(want)
+    expect(Array.isArray(err.issues)).toBe(true)
+    expect(err.issues.length).toBeGreaterThan(0)
+    expect(h.syn.calls.tts.length).toBe(0)
+    expect(h.hosting.calls.length).toBe(0)
+  })
+
+  it('缺三个注入实现之一 ⇒ 当场拒，且**发生在取锁与任何磁盘写之前**（不得退化成「换成视频链」或让合成层自己报错）', async () => {
+    const h = makeHost({
+      hostDeps: { generateTTS: (scriptDeps()).generateTTS, concatBlocks: (scriptDeps()).concatBlocks },
+    })
+    const err = await h.host.publishFromScript({
+      channelId: CHANNEL, runId: h.runId, title: 't', copy: { content: CONTENT }, billingConfirmed: true,
+    }).catch((e) => e)
+    expect(err.code).toBe('PODCAST_EPISODE_INVALID')
+    expect(h.spawn.calls.length).toBe(0)
+    // 这两条才是「宿主自己挡」与「放进链里让合成层挡」的分界：后者已经 mkdir 并取了忙标记。
+    expect(h.fs.calls.mkdir.length).toBe(0)
+    expect(channelBusyGate.isBusy(CHANNEL)).toBe(false)
+  })
+
+  it('成功链：走合成而不起 ffmpeg，相位闭集与视频链逐字相同，整条链持忙标记，临时目录收尾', async () => {
+    const h = makeScriptHost()
+    const events = []
+    const r = await h.host.publishFromScript(h.scriptPayload, { emitProgress: (e) => events.push(e) })
+    expect(r.state).toBe('success')
+    expect(h.syn.calls.concat).toBe(1)
+    expect(h.syn.calls.tts.length).toBeGreaterThanOrEqual(1)
+    // 换的只有 extractMix 这一站：文本链一次真子进程都不该起（concat/probe 都是注入实现），
+    // 若实现把抽混音那条链带回来，这条会立刻红
+    expect(h.spawn.calls.length).toBe(0)
+    const starts = events.filter((e) => e.state === 'start').map((e) => e.phase)
+    expect(starts).toEqual(['pickChannel', 'extractMix', 'probe', 'uploadAudio', 'attach', 'buildFeed', 'uploadFeed'])
+    expect(events[events.length - 1].state).toBe('done')
+    for (const s of h.seen) expect(s.busy).toBe(true)
+    expect(h.fs.calls.rmdir.length).toBe(1)
+  })
+
+  it('取消窗口不随素材来源漂移：extractMix 及之前可取消，uploadAudio 起一律不可取消', async () => {
+    const h = makeScriptHost()
+    const events = []
+    await h.host.publishFromScript(h.scriptPayload, { emitProgress: (e) => events.push(e) })
+    const byPhase = {}
+    for (const e of events) if (e.state === 'start' && !(e.phase in byPhase)) byPhase[e.phase] = e.cancellable
+    expect(byPhase).toEqual({
+      pickChannel: true, extractMix: true, probe: true,
+      uploadAudio: false, attach: false, buildFeed: false, uploadFeed: false,
+    })
+  })
+
+  it('块级 degraded 汇总成整期拒绝：一条静音一期比一期失败更伤', async () => {
+    const h = makeScriptHost({ ttsDegraded: true })
+    const events = []
+    const err = await h.host.publishFromScript(h.scriptPayload, { emitProgress: (e) => events.push(e) }).catch((e) => e)
+    expect(String(err.code)).toBe('PODCAST_TTS_CHUNK_DEGRADED')
+    const last = events[events.length - 1]
+    expect(last.state).toBe('failed')
+    expect(last.subCode).toBe('PODCAST_TTS_CHUNK_DEGRADED')
+    expect(h.hosting.calls.length).toBe(0)
+    expect(h.fs.calls.rmdir.length).toBe(1)
   })
 })
