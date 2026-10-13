@@ -1,23 +1,28 @@
-P1_OK     | checker | tests=13 fail=0 | 
-P1_OK     | gate | tests=12 fail=0 | 
-P1_OK     | workflow | tests=36 fail=0 | 
+P1_OK     | checker | tests=19 fail=0 | 
+P1_OK     | gate | tests=13 fail=0 | 
+P1_OK     | workflow | tests=37 fail=0 | 
 PREFLIGHT_BAD=0
-CAUGHT  | M1 | checker | fail=1/13 | 命中期望锁 | ｜退回「整块正文出现过退出码检查就算合规」（原缺陷本体）
-CAUGHT  | M2 | checker | fail=1/13 | 命中期望锁 | ｜守卫窗口从紧邻 1 行放宽到 3 行（给第 N 条写的守卫会顺手盖住第 N-1 条）
-CAUGHT  | M3 | checker | fail=3/13 | 命中期望锁 | ｜受管集合退回「只数测试文件」（门禁脚本不计数）
-CAUGHT  | M4 | checker | fail=2/13 | 命中期望锁 | ｜不解析 job 级 defaults: run: shell（只看步骤自己）
-CAUGHT  | M5 | checker | fail=1/13 | 命中期望锁 | ｜把空值 shell: 读成 bash（方向相反的归因）
-CAUGHT  | M6 | checker | fail=1/13 | 命中期望锁 | ｜把 || echo / || true 也当守卫（吞失败形状得以过棘轮）
-CAUGHT  | M7 | checker | fail=8/13 | 命中期望锁 | ｜collectCheck 退化成恒空集（解析失败被读成全部合规）
-CAUGHT  | N1 | gate | fail=2/12 | 命中期望锁 | ｜令牌判据改成恒空（「审计没发生」再不可见，门禁照绿）
-CAUGHT  | N2 | gate | fail=2/12 | 命中期望锁 | ｜摘掉包装层（调用方拿到不带 verdictNote 的原始结果）
-CAUGHT  | N3 | gate | fail=1/12 | 命中期望锁 | ｜算了令牌但不落盘（workflow 读不到任何东西）
-CAUGHT  | N4 | gate | fail=1/12 | 命中期望锁 | ｜仅成功路径才写令牌文件（最需要留痕的阻塞路径反而没有）
-CAUGHT  | N5 | gate | fail=2/12 | 命中期望锁 | ｜从映射表删掉 MISSING_REPORT（「根本没报告」退化成空令牌）
-CAUGHT  | N6 | workflow | fail=1/36 | 命中期望锁 | ｜workflow 删掉 --note-file 参数（Test-Path 恒走 else 分支）
-CAUGHT  | N7 | workflow | fail=1/36 | 命中期望锁 | ｜把禁令明文禁止的那个形态本身写回 Gate 9（内联枚举报告文件 + 就地解析 JSON）
-CAUGHT  | N8 | workflow | fail=1/36 | 命中期望锁 | ｜把 autonomous 作业的 outputs.verdict-note 声明整块删掉（复现 #3439 留下的断链形态）
-CAUGHT  | N9 | workflow | fail=1/36 | 命中期望锁 | ｜只写 GITHUB_ENV、不写 GITHUB_OUTPUT（作业 output 取不到 env，这正是通路原本断掉的机制）
-CAUGHT  | N10 | workflow | fail=1/36 | 命中期望锁 | ｜把消费点换成另一个名字（声明与消费漂移时，两侧各自的断言都可能仍各自成立）
-MUTATIONS=17 MISSED=0
+CAUGHT  | M1 | checker | fail=1/19 | 命中期望锁 | ｜退回「整块正文出现过退出码检查就算合规」（原缺陷本体）
+CAUGHT  | M2 | checker | fail=1/19 | 命中期望锁 | ｜守卫窗口从紧邻 1 行放宽到 3 行（给第 N 条写的守卫会顺手盖住第 N-1 条）
+CAUGHT  | M3 | checker | fail=3/19 | 命中期望锁 | ｜受管集合退回「只数测试文件」（门禁脚本不计数）
+CAUGHT  | M4 | checker | fail=2/19 | 命中期望锁 | ｜不解析 job 级 defaults: run: shell（只看步骤自己）
+CAUGHT  | M5 | checker | fail=1/19 | 命中期望锁 | ｜把空值 shell: 读成 bash（方向相反的归因）
+CAUGHT  | M6 | checker | fail=1/19 | 命中期望锁 | ｜把 || echo / || true 也当守卫（吞失败形状得以过棘轮）
+CAUGHT  | M7 | checker | fail=13/19 | 命中期望锁 | ｜collectCheck 退化成恒空集（解析失败被读成全部合规）
+CAUGHT  | N1 | gate | fail=2/13 | 命中期望锁 | ｜令牌判据改成恒空（「审计没发生」再不可见，门禁照绿）
+CAUGHT  | N2 | gate | fail=2/13 | 命中期望锁 | ｜摘掉包装层（调用方拿到不带 verdictNote 的原始结果）
+CAUGHT  | N3 | gate | fail=2/13 | 命中期望锁 | ｜算了令牌但不落盘（workflow 读不到任何东西）
+CAUGHT  | N4 | gate | fail=1/13 | 命中期望锁 | ｜仅成功路径才写令牌文件（最需要留痕的阻塞路径反而没有）
+CAUGHT  | N5 | gate | fail=2/13 | 命中期望锁 | ｜从映射表删掉 MISSING_REPORT（「根本没报告」退化成空令牌）
+CAUGHT  | N6 | workflow | fail=1/37 | 命中期望锁 | ｜workflow 删掉 --note-file 参数（Test-Path 恒走 else 分支）
+CAUGHT  | N7 | workflow | fail=1/37 | 命中期望锁 | ｜把禁令明文禁止的那个形态本身写回 Gate 9（内联枚举报告文件 + 就地解析 JSON）
+CAUGHT  | N8 | workflow | fail=1/37 | 命中期望锁 | ｜把 autonomous 作业的 outputs.verdict-note 声明整块删掉（复现 #3439 留下的断链形态）
+CAUGHT  | N9 | workflow | fail=1/37 | 命中期望锁 | ｜只写 GITHUB_ENV、不写 GITHUB_OUTPUT（作业 output 取不到 env，这正是通路原本断掉的机制）
+CAUGHT  | N10 | workflow | fail=1/37 | 命中期望锁 | ｜把消费点换成另一个名字（声明与消费漂移时，两侧各自的断言都可能仍各自成立）
+CAUGHT  | N11 | checker | fail=5/19 | 命中期望锁 | ｜摘掉"未声明 shell 时按 runs-on 推导默认档"那一级（把 bash 当 pwsh = 往真 bash 步骤塞 PowerShell）
+CAUGHT  | N12 | checker | fail=3/19 | 命中期望锁 | ｜让 stepShell 上溯跨过步骤边界（兄弟步骤的 shell 泄漏进来 = 归属错了还在判合规）
+CAUGHT  | N13 | checker | fail=2/19 | 命中期望锁 | ｜runs-on 推导反向出错（windows 判成 bash ⇒ 真吞红被放过）
+CAUGHT  | N14 | workflow | fail=1/37 | 命中期望锁 | ｜把 CI 实测抛错的那个形态写回去：直接对 Get-Content 的结果调 .Trim()（空文件时为 $null）
+CAUGHT  | N15 | workflow | fail=1/37 | 命中期望锁 | ｜把 PowerShell 守卫写回 ubuntu 作业的 bash 步骤（就是首轮 CI 红的原形态）
+MUTATIONS=22 MISSED=0
 RESTORED_BYTES_EQUAL=true

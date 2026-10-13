@@ -1717,7 +1717,10 @@ jobs:
           $gateExit = $LASTEXITCODE
           $verdictNoteOut = ""
           if (Test-Path gate9-verdict-note.txt) {
-            $verdictNote = (Get-Content gate9-verdict-note.txt -Raw).Trim()
+            # 空文件时 Get-Content -Raw 返回 $null（不是空串），直接 .Trim() 会抛
+            # "You cannot call a method on a null-valued expression" —— PASS 路径就是空文件，实测把整步打成 rc=1。
+            # [string] 归一化把 $null 变成空串，语义保持"没有令牌"。
+            $verdictNote = [string](Get-Content gate9-verdict-note.txt -Raw)
             if ($verdictNote) {
               Write-Host "##[warning]Gate 9: 覆盖审计未实际产出有效 verdict（令牌 $verdictNote）——green 不代表已审计"
               $verdictNoteOut = $verdictNote
@@ -1790,11 +1793,13 @@ jobs:
           BUSINESS_DATABASE_URL: postgresql://mulpub_test:mulpub_test_pw@127.0.0.1:5432/mulpub_business_test
         run: |
           cd packages/api-publish-engine
-          # 逐条守卫：dry-run 失败必须中止，否则"预检没通过却在真实库上执行了迁移"仍可能被末尾那条 node -e 判成通过。
+          # ⛔ 本步骤**不要**加 PowerShell 的 if ($LASTEXITCODE...) 守卫：它所在的 business-api-postgres 作业是
+          # runs-on: ubuntu-latest，未声明 shell ⇒ 默认 bash（GitHub 给 bash 带 -e -o pipefail），本来就逐条中止。
+          # 2026-10-13 实测：加了 PowerShell 守卫后 runner 报 `syntax error near unexpected token (quote brace)`、
+          # 整步 exit 2。判据侧由 scripts/check-step-failfast.js 的 defaultShellForRunsOn 守住（把 bash 当 pwsh
+          # 是"误报合规形态"，比漏报更难自查，因为它会把坏语法推给 CI）。
           node scripts/migrate-postgres.js --dry-run
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/migrate-postgres.js | tee /tmp/migrate.json
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node -e "
             const r=JSON.parse(require('fs').readFileSync('/tmp/migrate.json','utf8'));
             const hit=r.applied.concat(r.skipped).includes('005_cloud_accounts.sql');

@@ -16,6 +16,12 @@
 // （Gate 10 两条命令、一条测试一条门禁脚本 ⇒ 旧判据连"多命令步骤"都没识别出来）；
 // ②shell 只看步骤自己，不看 job 级 `defaults: run: shell:`（debt-guard / electron-ci 是 job 级 bash，
 // 只看步骤会把它们误报成违规）。空值 `shell:`（gui-test.yml:31-32 形状）**不得**当成 bash。
+// ③第 3 轮由 CI 实测打穿的第三个落点：未声明 shell 时的默认档**取决于 runner 的 OS**，不是恒定 pwsh。
+// `business-api-postgres` 是 runs-on: ubuntu-latest ⇒ 默认 bash（GitHub 给 bash 带 -e -o pipefail，本来就
+// 逐条中止），我按 pwsh 给它塞了一条 PowerShell 守卫，runner 当场报 syntax error near unexpected token。
+// ④同轮第四个落点：stepShell 原先"往上找 12 行内第一个 shell:"，**会跨过步骤边界**读到兄弟步骤的 shell
+// （Gate 2d 的 shell: bash 与 Gate 3 相距 37 行才恰好没撞上——那是靠距离躲过的，不是靠机制）。
+// 现在上溯遇 `- name:` 或另一个 `run:` 即停：归属只在自己的步骤内成立。
 
 const fs = require("node:fs")
 const path = require("node:path")
@@ -35,6 +41,8 @@ const SAME_LINE_GUARD = /&&|\$LASTEXITCODE|\|\|\s*exit\b/
 const NEXT_GUARD = /\$LASTEXITCODE|\bexit\s+\$LASTEXITCODE|throw\b/
 const JOB_KEY = /^  ([\w.-]+):\s*$/
 const JOB_SHELL = /^\s+shell:\s*(\S*)\s*$/
+// 值取到行尾：runs-on: [self-hosted, linux] 这种数组形态必须整段看见，否则只读到 "[self-hosted," 会推错
+const RUNS_ON_LINE = /^\s+runs-on:\s*(.+?)\s*$/
 const SHELL_LINE = /^\s*shell:\s*(\S+)/
 const RUN_BLOCK = /^(\s*)run:\s*[|>]\s*$/
 const NAME_LINE = /^(\s*)-\s*name:\s*(.+)$/
@@ -52,6 +60,11 @@ function stepName(lines, idx) {
 function stepShell(lines, idx, indent) {
   for (let i = idx; i >= 0; i--) {
     if (lines[i].trim() === "") continue
+    // 边界即停：本步骤之外的 shell 都不属于本步骤的归属链（兄弟泄漏此前只靠距离侥幸没撞上）
+    // 起点那一行就是本步骤自己的 run:，所以两个边界判据都必须先排除 i === idx,
+    // 否则一上来就早退，shell 永远读不到（第 1 版就是这么把 3 条既有用例打红的）。
+    if (i !== idx && /^\s*-\s*name:/.test(lines[i])) return "(默认)"
+    if (i !== idx && /^\s*run:/.test(lines[i])) return "(默认)"
     const own = lines[i].match(/^(\s*)/)
     if (own && own[1].length <= indent.length && !/^\s*#/.test(lines[i])) {
       const s = lines[i].match(SHELL_LINE)
@@ -90,6 +103,34 @@ function enclosingJob(lines, idx) {
   return null
 }
 
+/** 作业级 runs-on（每个作业取第一个出现的值）。 */
+function jobRunsOnMap(lines) {
+  const map = new Map()
+  let job = null
+  for (let i = 0; i < lines.length; i++) {
+    const jm = lines[i].match(JOB_KEY)
+    if (jm) { job = jm[1]; continue }
+    if (!job || map.has(job)) continue
+    const rm = lines[i].match(RUNS_ON_LINE)
+    if (rm) map.set(job, rm[1])
+  }
+  return map
+}
+
+/**
+ * 未声明 shell 时的默认档由 runner OS 决定（GitHub 的默认 shell 不是全局常量）：
+ * windows → pwsh；ubuntu/macos/linux → bash。推不出返回 null ⇒ 调用方保守判「要逐条守卫」。
+ * 两个猜错的后果都实测过：把 bash 当 pwsh = 往真 bash 步骤里塞 PowerShell 语法（runner 语法错误）；
+ * 把 pwsh 当 bash = 漏掉吞红。所以宁可保守也不猜。
+ */
+function defaultShellForRunsOn(runsOn) {
+  const v = String(runsOn == null ? "" : runsOn).toLowerCase().trim()
+  if (v === "" || v.includes("{{")) return null
+  if (v.includes("windows")) return "pwsh"
+  if (v.includes("ubuntu") || v.includes("macos") || v.includes("linux")) return "bash"
+  return null
+}
+
 function collectCheck(root) {
   const dir = path.join(root, ".github", "workflows")
   if (!fs.existsSync(dir)) throw new Error(`未找到 workflows 目录：${dir}（解析退化会让本门禁假绿）`)
@@ -101,6 +142,7 @@ function collectCheck(root) {
   for (const f of files) {
     const lines = fs.readFileSync(path.join(dir, f), "utf8").replace(/\r\n/g, "\n").split("\n")
     const jobShells = jobShellMap(lines)
+    const jobRunsOns = jobRunsOnMap(lines)
     for (let i = 0; i < lines.length; i++) {
       const m = lines[i].match(RUN_BLOCK)
       if (!m) continue
@@ -121,7 +163,10 @@ function collectCheck(root) {
       if (managed.length < 2) continue
       stepsScanned++
       const stepShellValue = stepShell(lines, i, indent)
-      const shell = stepShellValue === '(默认)' ? (jobShells.get(enclosingJob(lines, i)) || '(默认)') : stepShellValue
+      const jobKeyHere = enclosingJob(lines, i)
+      let shell = stepShellValue
+      if (shell === '(默认)') shell = jobShells.get(jobKeyHere) || '(默认)'
+      if (shell === '(默认)') shell = defaultShellForRunsOn(jobRunsOns.get(jobKeyHere)) || '(默认)'
       const name = stepName(lines, i)
       // 逐条配对：每条受管命令必须被"自己"守住 —— 整步 bash，或同行 && / **紧邻的下一行**是退出码检查。
       // 窗口取 1 行而不是若干行：放宽到 3 行时，"给第 N 条写的守卫"会顺手把第 N-1 条也判成已守住，
@@ -166,4 +211,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { collectCheck, run, KNOWN_NON_FAIL_FAST, TEST_INVOCATION, GATE_INVOCATION, jobShellMap, enclosingJob }
+module.exports = { collectCheck, run, KNOWN_NON_FAIL_FAST, TEST_INVOCATION, GATE_INVOCATION, jobShellMap, jobRunsOnMap, defaultShellForRunsOn, enclosingJob }

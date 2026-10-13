@@ -39,6 +39,11 @@
    `if ($env:AUTONOMOUS_VERDICT_NOTE)` 永不成立，"本次审计没发生"在 PR 汇总里根本打不出来。现在作业声明取自
    步骤 output，产出侧同时写 `GITHUB_ENV`（本作业）与 `GITHUB_OUTPUT`（跨作业）——作业 output 取不到 env，
    这正是那条通路原本断掉的机制原因。
+3c. **shell 归属补两级**（第 3 轮，被自己的 CI 红教出来的）：(a) 未声明 `shell:` 时的默认档**由 `runs-on` 推导**
+   （windows→pwsh、ubuntu/macos/linux→bash；matrix 表达式与未知标签返回 null ⇒ 保守判"要逐条守卫"，因为两个
+   猜错方向都实测过：把 bash 当 pwsh 会往真 bash 步骤里塞 PowerShell 语法、把 pwsh 当 bash 会漏吞红）；
+   (b) `stepShell` 上溯**遇步骤边界（`- name:` 或另一个 `run:`）即停** —— 旧实现是"12 行窗口内第一个 shell:"，
+   Gate 2d 的 `shell: bash` 与 Gate 3 相距 37 行才**靠距离**没撞上，那不是机制。
 4. **归属句改写**：Gate 3 上方与 `check-workflow-structure.test.js` 里那两处"Gate 3 是装饰态"的说明
    改成当下事实（落点不改：那条反向锁现在守的是"同一判据别在两个步骤各跑一遍"与"按步骤名取位置"）。
 
@@ -47,22 +52,42 @@
 - TDD 红→绿：棘轮侧先落 12 条锁对未修实现跑 ⇒ `tests 12 / pass 9 / fail 3`（红在"只守最后一条"、
   "门禁脚本计入受管集合"、"真实仓库规模下界"三条），补 `||` 语义用例后 13/13 绿。
   Gate 9 侧先落 2 条锁 ⇒ `agent-review-gate 12/pass 10/fail 2` 与 `workflow-contract 35/34/1`，
-  实现后分别 12/12 与 35/35。Gate 3 全部命令合跑 145 tests / 145 pass / 0 fail。
-- 变异反证 17 条（`M1..M7` 打棘轮判据、`N1..N5` 打令牌与落盘、`N6/N7` 打 workflow 侧锁、`N8/N9/N10` 打
+  实现后分别 12/12 与 35/35。第 3 轮（被自己的 CI 红教回来之后）再落 6 条锁 ⇒ `tests 19 / pass 16 / fail 3`，
+  红名逐字「runs-on: windows-latest 且未声明 shell ⇒ 默认是 pwsh，必须逐条要求守卫」「推不出 OS（matrix 表达式
+  / 未知标签）时保守判需要守卫，不得猜成 bash」「兄弟步骤的 shell 不得泄漏进本步骤（上溯遇步骤边界即停）」——
+  而 `runs-on: ubuntu-latest` 那条**当时就是绿的**，因为兄弟步骤泄漏进来的 `shell: bash` 恰好替它过了判据，
+  即"两条错误机制互相掩盖"的第二次现场；夹具因此刻意在目标步骤紧邻上方放一个带 `shell: bash` 的兄弟步骤。
+  终态：棘轮 19/19、Gate 9 侧 13/13、契约 37/37，Gate 3 全部命令合跑 153 tests / 153 pass / 0 fail。
+- 变异反证 22 条（`M1..M7` 打棘轮判据、`N1..N5` 打令牌与落盘、`N6/N7` 打 workflow 侧锁、`N8/N9/N10` 打
+  跨 job 通路的三处可断点：删 `outputs` 声明 / 只写 `GITHUB_ENV` 不写 `GITHUB_OUTPUT` / 声明与消费改名漂移、
+  `N11..N13` 打 shell 归属的三级回落与步骤边界、`N14/N15` 把**本 PR 自己引入过的那两个坏形态**写回实现）：
   跨 job 通路的三处可断点：删 `outputs` 声明 / 只写 `GITHUB_ENV` 不写 `GITHUB_OUTPUT` / 声明与消费改名漂移）：
-  `MUTATIONS=17 MISSED=0`、`RESTORED_BYTES_EQUAL=true`，驱动与产物入库
+  `PREFLIGHT_BAD=0`、`MUTATIONS=22 MISSED=0`、`RESTORED_BYTES_EQUAL=true`，驱动与产物入库
   `.ccg/reviews/gate3failfast-mutate.driver.js` / `.ccg/reviews/gate3failfast-mutations.txt`。
   其中 M4 第 1 轮打空过：夹具里 `defaults` 与目标步骤距离不够，`stepShell` 的 12 行上溯恰好够到，
   两条机制互相掩盖 ⇒ 把距离拉开到窗口之外才真正测到 `jobShellMap`。N2 第 1 轮把函数改名，
   测试文件在 require 期就崩、node:test 只报 1 条文件级失败，那既不是锁抓住了也不是锁没抓住，
   而是根本没跑到锁 ⇒ 改成"保持可加载、只把包装动作摘掉"。驱动因此加了 P1/P2 前置自检
+  第 3 轮重构 shell 归属后 **M4 的锚点漂移到不存在**，驱动报 `ABORTED | M4 | ANCHOR_NOT_UNIQUE(0)`、`MISSED=1`：
+  锚点漂移本身没有任何失败信号，是驱动里"锚点必须恰好命中 1 次"那条守卫把"静默少跑一条变异"变成了当场 ABORT；
+  修法是让 M4 摘第二级回落（作业级 defaults）、N11 摘第三级（runs-on 推导），两条各测各的。
   （未改动就红 = 变异结果不可信，直接 ABORT）。
+- **本 PR 自己引入过两处运行期红（首轮 CI 抓住的，如实记）**：① 给 `Gate 4p-1` 塞了 PowerShell 守卫，但该步骤
+  所在 `business-api-postgres` 作业是 `runs-on: ubuntu-latest`、未声明 shell ⇒ 默认 **bash**（GitHub 给 bash 带
+  `-e -o pipefail`，本来就逐条中止，**没有洞要补**）；runner 报 `syntax error near unexpected token`、
+  job `115266254353` 红 ⇒ 整段退回上游形态。② `Gate 9` 读令牌写成 `(Get-Content -Raw).Trim()`，而 PASS 路径下
+  令牌文件是 **0 字节**，PowerShell 的 `Get-Content -Raw` 对空文件返回 **`$null`** 而非空串 ⇒
+  `You cannot call a method on a null-valued expression`、job `115266254626` 红 ⇒ 改 `[string](…)` 归一，并补
+  "PASS 时令牌文件仍存在且内容为空串"的形状锁与"ubuntu 作业的可执行行不得出现 `$LASTEXITCODE`"的禁令。
+  两条共同根因：**我只用 pwsh 校验过改动过的步骤，没按"每一步真实使用的解释器"校验。**现在按
+  `step.shell → job.defaults.run.shell → runs-on 推导` 分别验：`Gate 3 / Gate 10 / Gate 9` 走 PS 解析器（`PS_OK`），
+  `Gate 4p-1` 走 `bash -n`（`BASH_SYNTAX_OK`）。
 
 ## 影响与边界
 
 - 不改任何运行时代码，也不改步骤的 `shell`；暴露面收窄到每条命令各自的退出码。
 - `QG Static` 是 required 检查，而本 PR 恰好拆掉了它的掩盖 ⇒ 合并前必须实测 Gate 3 清单全绿
-  （已实测 138/138），否则会把之后每个 PR 判红。
+  （终态已实测 153/153），否则会把之后每个 PR 判红。
 - #3443 那行的第 ③ 项（`xiaohongshu` 两个 dom 函数从未存在于任何源码 blob）**不在本 PR 范围**，
   它是功能级 P0，与本条门禁面无关。
 

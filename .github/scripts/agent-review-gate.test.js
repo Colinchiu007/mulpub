@@ -137,6 +137,34 @@ test("Agent Judge CLI 在缺少本轮时间时 fail closed", () => {
   });
 });
 
+// PASS 时令牌是**空串**，文件仍然会被创建（0 字节）。这不是边角：PowerShell 的
+// Get-Content -Raw 对 0 字节文件返回 $null 而非空串，调用方若直接 .Trim() 会把 PASS 整步打红
+//（PR #3477 首轮 CI 实测）。所以产生侧的形状必须被钉住：文件存在、内容为空。
+test("PASS 时 --note-file 仍被创建且内容为空串（调用方必须按空文件设计）", () => {
+  const scriptPath = path.join(__dirname, "agent-review-gate.js");
+  withReportDir(reportDir => {
+    const noteFile = path.join(reportDir, "..", "gate9-note-pass.txt");
+    writeJson(reportDir, "autonomous-e2e-report-ok.json", { overall: "PASS" });
+    const result = spawnSync(process.execPath, [
+      scriptPath,
+      "autonomous",
+      `--report-dir=${reportDir}`,
+      "--started-after=0",
+      "--audit-exit-code=0",
+      "--has-openai-key=false",
+      `--note-file=${noteFile}`,
+    ], { encoding: "utf8" });
+    try {
+      assert.equal(result.status, 0, result.stderr || result.stdout);
+      assert.ok(fs.existsSync(noteFile), "PASS 也必须落文件：调用方无法区分\"没写\"与\"写了空\"就是缺陷温床");
+      const raw = fs.readFileSync(noteFile, "utf8");
+      assert.equal(raw, "", "PASS 的令牌必须是空串，不是 PASS 这个词");
+    } finally {
+      fs.rmSync(noteFile, { force: true });
+    }
+  });
+});
+
 test("自主审计的零退出码仍要求一份 PASS 报告", () => {
   withReportDir(reportDir => {
     const missingOnSuccess = evaluateAutonomousGate({ reportDir, auditExitCode: 0, hasOpenAiKey: false });

@@ -100,8 +100,8 @@ MUTS.push({
   id: 'M4', axis: 'checker', key: 'checker',
   target: '不解析 job 级 defaults: run: shell（只看步骤自己）',
   expectRed: 'job 级 defaults: run: shell: bash 视为 fail-fast',
-  from: [sq('      const shell = stepShellValue === "(默认)" ? (jobShells.get(enclosingJob(lines, i)) || "(默认)") : stepShellValue')],
-  to: ['      const shell = stepShellValue'],
+  from: ["      if (shell === '(默认)') shell = jobShells.get(jobKeyHere) || '(默认)'"],
+  to: ['      // 第二级回落（作业级 defaults）被摘除 —— 三级回落后 M4 只能摘这一级，N11 摘第三级'],
 })
 MUTS.push({
   id: 'M5', axis: 'checker', key: 'checker',
@@ -200,6 +200,44 @@ MUTS.push({
   expectRed: 'verdict 令牌的跨 job 通路必须真的接上',
   from: ['          AUTONOMOUS_VERDICT_NOTE: ${{ needs.autonomous.outputs.verdict-note }}'],
   to: ['          AUTONOMOUS_VERDICT_NOTE: ${{ needs.autonomous.outputs.verdict-note-typo }}'],
+})
+// ── C. 第 3 轮：CI 实测打穿的两处运行期缺陷（PR #3477 首轮 QG Autonomous / QG Business API Postgres 双红）
+MUTS.push({
+  id: 'N11', axis: 'checker', key: 'checker',
+  target: '摘掉"未声明 shell 时按 runs-on 推导默认档"那一级（把 bash 当 pwsh = 往真 bash 步骤塞 PowerShell）',
+  expectRed: 'runs-on: ubuntu-latest 且未声明 shell',
+  from: ["      if (shell === '(默认)') shell = defaultShellForRunsOn(jobRunsOns.get(jobKeyHere)) || '(默认)'"],
+  to: ['      // 第三级回落被摘除'],
+})
+MUTS.push({
+  id: 'N12', axis: 'checker', key: 'checker',
+  target: '让 stepShell 上溯跨过步骤边界（兄弟步骤的 shell 泄漏进来 = 归属错了还在判合规）',
+  expectRed: '兄弟步骤的 shell 不得泄漏进本步骤',
+  from: ['    if (i !== idx && /^\\s*-\\s*name:/.test(lines[i])) return "(默认)"',
+    '    if (i !== idx && /^\\s*run:/.test(lines[i])) return "(默认)"'],
+  to: ['    // 边界即停的两条判据被摘除（回到"12 行窗口内第一个 shell:"那种靠距离躲过的形态）'],
+})
+MUTS.push({
+  id: 'N13', axis: 'checker', key: 'checker',
+  target: 'runs-on 推导反向出错（windows 判成 bash ⇒ 真吞红被放过）',
+  expectRed: 'runs-on: windows-latest 且未声明 shell',
+  from: ['  if (v.includes("windows")) return "pwsh"'],
+  to: ['  if (v.includes("windows")) return "bash"'],
+})
+MUTS.push({
+  id: 'N14', axis: 'workflow', key: 'workflow',
+  target: '把 CI 实测抛错的那个形态写回去：直接对 Get-Content 的结果调 .Trim()（空文件时为 $null）',
+  expectRed: '自主覆盖审计仅在确认是无模型 NEED_HUMAN 报告时降级为告警',
+  from: ['            $verdictNote = [string](Get-Content gate9-verdict-note.txt -Raw)'],
+  to: ['            $verdictNote = (Get-Content gate9-verdict-note.txt -Raw).Trim()'],
+})
+MUTS.push({
+  id: 'N15', axis: 'workflow', key: 'workflow',
+  target: '把 PowerShell 守卫写回 ubuntu 作业的 bash 步骤（就是首轮 CI 红的原形态）',
+  expectRed: 'ubuntu 作业的 run 块不得被写成 PowerShell 语法',
+  from: ['          node scripts/migrate-postgres.js --dry-run'],
+  to: ['          node scripts/migrate-postgres.js --dry-run',
+    '          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }'],
 })
 
 const onlyArg = (process.argv.find((a) => a.startsWith('--only=')) || '').slice(7)

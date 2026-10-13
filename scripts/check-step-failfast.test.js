@@ -259,6 +259,90 @@ test("同行 || exit 算守住；|| echo / || true 是把失败吃掉，必须�
 })
 
 
+// CI 实测（2026-10-13，PR #3477）：我给 ubuntu-latest 的 Gate 4p-1 塞了 PowerShell 守卫 ⇒ runner 报
+// `syntax error near unexpected token`。默认 shell 取决于 runner OS，所以作业必须有 runs-on 版夹具。
+// 夹具刻意在 multi 步骤紧邻上方放一个带 shell: bash 的兄弟步骤：这样"ubuntu 那条判为合规"只能由
+// runs-on 推导得出，绝不可能是从兄弟步骤泄漏来的 bash 帮它过的（两种错误机制就此分开）。
+function runsOnFixture (runsOn, shellLine) {
+  return [
+    "jobs:",
+    "  t:",
+    "    runs-on: " + runsOn,
+    "    steps:",
+    '      - name: "sibling-with-shell"',
+    "        shell: bash",
+    '        run: "echo 兄弟步骤，本步骤不该继承它"',
+    '      - name: "multi"',
+    ...(shellLine ? [shellLine] : []),
+    "        run: |",
+    "          node --test a.test.js",
+    "          node --test b.test.js",
+    "",
+  ].join("\n")
+}
+
+test("runs-on: ubuntu-latest 且未声明 shell ⇒ 默认是 bash，不得判违规", () => {
+  const root = makeFixture(runsOnFixture("ubuntu-latest"))
+  try {
+    const r = checker.collectCheck(root)
+    assert.equal(r.stepsScanned, 1, "仍应被识别为多命令步骤")
+    assert.deepEqual(r.violations, [], "bash 默认带 -e -o pipefail，本来就逐条中止")
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test("runs-on: windows-latest 且未声明 shell ⇒ 默认是 pwsh，必须逐条要求守卫", () => {
+  const root = makeFixture(runsOnFixture("windows-latest"))
+  try {
+    const r = checker.collectCheck(root)
+    assert.equal(r.violations.length, 1, JSON.stringify(r.violations))
+    assert.equal(r.violations[0].shell, "pwsh", "现场要报出推导出的默认档，不是 (默认)")
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test("推不出 OS（matrix 表达式 / 未知标签）时保守判需要守卫，不得猜成 bash", () => {
+  for (const ro of ["${{ matrix.os }}", "self-hosted-large"]) {
+    const root = makeFixture(runsOnFixture(ro))
+    try {
+      const r = checker.collectCheck(root)
+      assert.equal(r.violations.length, 1, ro + " 必须保守报违规：" + JSON.stringify(r.violations))
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  }
+})
+
+test("显式 shell 压过 runs-on 的推导（步骤声明优先）", () => {
+  const root = makeFixture(runsOnFixture("ubuntu-latest", "        shell: pwsh"))
+  try {
+    assert.equal(checker.collectCheck(root).violations.length, 1, "ubuntu 上显式 pwsh ⇒ 必须逐条守卫")
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test("兄弟步骤的 shell 不得泄漏进本步骤（上溯遇步骤边界即停）", () => {
+  // windows 作业里紧邻兄弟写了 shell: bash，multi 自己没写 ⇒ 必须仍按 pwsh 判违规。
+  // 读到 bash 就意味着归属跨了步骤边界 —— 那是"漏掉真吞红"的方向，比误报更危险。
+  const root = makeFixture(runsOnFixture("windows-latest"))
+  try {
+    const r = checker.collectCheck(root)
+    assert.equal(r.violations.length, 1, JSON.stringify(r.violations))
+    assert.equal(r.violations[0].shell, "pwsh", "报出 bash 就是从兄弟步骤泄漏来的")
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test("真实仓库：ubuntu 作业里的多条命令不被误判（回归 #3477 的 CI 红）", () => {
+  const r = checker.collectCheck(path.join(__dirname, ".."))
+  const pg = r.violations.filter(v => /Gate 4p/.test(v.key))
+  assert.deepEqual(pg.map(v => v.key), [], "business-api-postgres 是 ubuntu-latest，不该要 PowerShell 守卫")
+})
+
 test("真实仓库：已无未登记的非 fail-fast 多测试步骤", () => {
   const root = path.join(__dirname, "..")
   const r = checker.collectCheck(root)
