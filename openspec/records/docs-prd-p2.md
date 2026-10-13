@@ -1,8 +1,26 @@
-# 执行记录：PRD §17 补 P2-1 / P2-7 落地回填（docs-prd-p2，2026-10-14）【docs-only】
+---
+record: docs-prd-p2
+task: 把已落地的 P2-1 / P2-7 两项纯逻辑层写成 PRD §17（数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字）
+date: 2026-10-14
+# ↓ 三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
+sync_status: PENDING
+sync_reason: 本 PR（#3537）尚未合并，merge SHA 还不存在，无法取证收口
+sync_backfill_owner: 下一个会话（按三形态同改纪律：表格行 + bullet + 删除本段三字段，同一次提交）
+---
 
-- 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → **`docs-only=true`（files=2）**
+## 本次执行记录：PRD §17 补 P2-1 / P2-7 落地回填（docs-prd-p2，2026-10-14）【docs-only】
+
+- 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → **`docs-only=true`（files=4）**
 - 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PENDING
 - 备注：变更文件为 `01-docs/PRD-PLATFORM-TAXONOMY-2026-10-13.md`（M）与 `.ccg/reviews/*.json`（A）。
+
+| 门禁 | 状态 | Fresh 证据 |
+| --- | --- | --- |
+| 变更类型与隔离 | ✅ | 纯文档：就地编辑 + 经 PR 落地（`docs-prd-p2`）|
+| 行尾对账 | ✅ | `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径一致（`286 0`）|
+| 品牌残留 | ✅ | `check-no-brand-residue.js` PASS（8900 个 tracked 文件）|
+| 文档同步 | ✅ | PRD 正文更新，§16/§17 连续无断章 |
+| 远程同步 | PENDING | 本 PR 未合并 |
 
 | 项 | 值 |
 | --- | --- |
