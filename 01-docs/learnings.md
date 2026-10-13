@@ -18017,3 +18017,54 @@ gui-test 的 `defaults.run.shell`（盲区），又把带 9 行冲突标记的 `
 断点归属用"连续失败块的最老一条"来钉：`event=push` 过滤下从新往回连续 530 次 failure，
 块内最老一条的 `head_sha` 就是引入缺陷的那次 push（时间戳仅差 3 秒），块下方第一条 success 给出上界。
 这比"我记得是那个 PR 改的"强，因为它同时排除了"另有第二个变量"的可能。
+
+---
+
+## 2026-10-13 — 竞品平台分类接入（P0-1）与三次同型陷阱
+
+### pitfall:gitignore-masks-new-files
+
+【陷阱】仓库里存在「广域 gitignore + 逐个白名单」时，新增文件会被静默忽略，且 git status 连 ?? 都不显示。 在 mulpub 实测两次：① .gitignore:12 裸 `data/` 规则匹配任意层级同名目录，导致 01-docs/research/.../data/ 的 133 个文件全部没入库，而当时看到的「工作区干净」是假干净；② .gitignore:106 `scripts/*.js` 忽略整个 scripts/ 顶层新增 .js，导致 P0-1 的实现文件没进提交（只剩测试和产出），CI 会直接红。 正确做法：本仓对 scripts/*.js 采用「L106 忽略全部 + L107 起逐个 !scripts/xxx.js 白名单」，新增脚本要**加白名单行**，不是 git add -f。 机械防线：任何「导入/新增一批文件」的操作，结束时必须断言「源文件数 == git 跟踪数」，并跑 git check-ignore 抽查；只看 git add 的返回或 git status 不足以发现。 验证 gitignore 白名单是否生效，判据是「文件是否真的进了 git add/commit」，不是 git check-ignore -v 的输出（命中 ! 否定规则时它也会打印该行，容易误读成「仍被忽略」）。
+
+### pattern:shape-agnostic-parsing-with-fail-loud
+
+【模式】解析「形态不固定」的第三方数据时，不要枚举形态，要用形态无关递归遍历 + 未识别即非零退出。 实测教训：融媒宝的平台分类映射是装在 .txt 里的 JSON，有多种形态（{id,name,children} / {code,text} 扁平 / {child:[…]} / {childrenCate,level,…} 任意深度 / 顶层数组 / 「键即分类名→数组」/「键即分类名→null」）。第一版解析器只认一种形态，把 11,623 个节点静默算成 3,838，**少算 67%**，而错误的表现形式是「数字偏小」而不是红灯。 做法：不预设键名，对每个对象尝试判定「有 id 类键 + 有 name 类键 = 一个节点」，子节点取任一 children 类键；遍历不到节点即视为未识别并让进程非零退出。 配套：必须做变异反证——把 fail-loud 改成 no-op，测试必须立刻变红，否则那条防线只是装饰。
+
+### pattern:per-file-encoding-probe
+
+【模式】读取未知来源的文本数据集，编码必须**逐文件**判定（先试严格 UTF-8，抛错再按 GBK），不得按扩展名或目录批量判定。 实测：某数据集 132 个文本文件中 54 个 UTF-8、78 个 GBK，且编码混用发生在**同一个目录内**。 反例代价：曾用 buf.toString('utf8') 读全部文本，把 78 个 GBK 文件静默解成含 U+FFFD 的 UTF-8，文件体积还变大了（7186 B → 7509 B），表面一切「成功」。
+
+### architecture:article-vs-video-taxonomy-are-separate
+
+【架构事实】国内内容平台的「分类 ID」在图文与视频两条链上是**两套独立命名空间**，同一个数字含义不同，绝不可合并成一张表。 实测（B站）：id=21 在图文表是「萌宠」、在视频表是「日常」；id=4 图文是「动漫杂谈」、视频是「游戏」；视频表有一级 id=160「生活」。 推论：bilibili-video.js 里的 `tid || 21` 默认值实际落到「日常」，不是「萌宠」。任何按名查 ID 的接口都必须带 contentType 维度。 另：`*subcategort.txt` 不是「二级分类」，而是同一批分类的**去 ID 镜像**（实测 B站 map 38 节点全部有 id，sub 38 节点全部无 id，一一对应）；做 ID 查表只需 `*categortmap.txt`。
+
+### pattern:self-invented-metrics-as-constraints
+
+【反模式】把**自己设定的数字**当成客观约束，再据此提出行动项。 本会话实例：给子代理下发文档任务时随手写了「500–800 行」的目标，产物写到 1353 行后，我把「超目标」当成一个待用户裁决的问题上报。实测后：两份文档的重复实质行占比仅 1.5% 与 0.2%，且那些「重复」全是表格字段标签（如 |mulpub 现状|❌真缺失| 重复 6 次是因为真有 6 项缺失）。 同一族的其他表现：用粗糙正则测「引用密度」得出 16%（实际 41%）并准备据此「补强」一份没问题的报告；用一个判据重叠、还混入非目标文件的脚本统计「形态有 10 类」，差点把这个数字当规格交给实施者。 判据：报出任何数字前先问「这个数字是我定的还是外部给定的」；自定指标只能用于自查，不能当验收标准，更不能当需要他人决策的事项。
+
+### 本轮验证方式
+
+- TDD 9/9（RED→GREEN 完整走过）
+- 确定性：转换器连跑两次 SHA-256 相同
+- 变异反证：把 fail-loud 改成 no-op ⇒ 测试立刻变红
+
+---
+
+## 2026-10-13/14 — P0-2 落地期：管道截断杀 git 写、写前先证伪、分类默认值共三个
+
+### pitfall:pipe-truncation-kills-git-write
+
+【陷阱】不要把 git 写操作（commit/push/merge）的输出管进 Select-Object -First N 或 head。 实测：`git commit -q -m ... 2>&1 | Select-Object -First 2` 会让 PowerShell 在读到前两行后关闭管道， 给 git 及其 pre-commit 钩子发 SIGPIPE，提交随之流产 —— 而命令的可见输出里看不出失败， 因为被截断的正是后面的钩子输出。表现是「以为提交了，git log 里没有」。 判据：git 写操作一律不接管道截断；成败只看产物（git log -1 / git status），**不看 rc、不看输出**。
+
+### technique:falsify-before-blaming-own-change
+
+【技法】看到测试失败先别认领也先别甩锅，用「还原改动再跑一次」做最小对照，一次定性。 本轮实测：shared-utils 全量跑出 network-egress-guard-child 3 个失败，而我的改动只加了 1 行 require。 做法：把被我改的文件临时 checkout 回 origin/main 跑同一测试 → 3 failed | 18 passed； 恢复我的版本再跑 → 完全相同。⇒ 预先存在，非本改动引入，且给出了可复核的对照证据。 价值：比「我的改动看起来不相关」这句推理强得多，且能在 PR 里直接引用。
+
+### architecture:three-hardcoded-category-defaults
+
+【架构事实】本项目的硬编码「分类默认值」有 **3 个**，不是 2 个： ① bilibili-video.js:77 `tid: Number(taskData.category || taskData.tid) || 21`（视频表 21 = 日常）； ② youtube.js:85 `categoryId: taskData.categoryId || "22"`； ③ baijiahao-article.js:151 `params.set("category", String(taskData.category == null ? "未分类" : taskData.category))` —— 这个最容易被漏，因为默认值是中文字符串不是数字。 要判断「哪些平台真的会用到分类 ID」，唯一可靠判据是全仓 grep `taskData.category|categoryId`： 实测只有 3 处，其中 youtube 无分类数据（出范围），故**真实接线目标只有 bilibili + baijiahao**。 注意 adapters/toutiao.js 完全不读分类字段、getPlatformOverrideFields("toutiao") 也为空 —— 「平台有分类数据」不等于「该平台的发布链会用分类」，两者要分开查。
+
+### lesson:gitignore-whitelist-for-new-scripts
+
+【本仓约定】mulpub 的 .gitignore 对 scripts/*.js 采取「忽略全部 + 逐个白名单」： L106 `scripts/*.js` 忽略整个 scripts/ 顶层新增 .js，从 L107 起是 61 条 `!scripts/xxx.js` 白名单。 ⇒ 新增任何 scripts/*.js 都必须**加白名单行**，不是 `git add -f`。 不这么做的后果：文件不进提交，而 `git status` 也不显示它（被忽略的文件连 ?? 都没有）， 表现是「测试文件和产物提交了、实现文件没提交」，CI 必红。 验证白名单是否生效的判据是「文件是否真的进了 commit」，**不是** `git check-ignore -v` 的输出 —— 命中 `!` 否定规则时它同样会打印该行，极易误读成「仍被忽略」。
+
