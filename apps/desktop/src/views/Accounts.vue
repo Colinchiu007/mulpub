@@ -375,7 +375,7 @@ import { usePlatformStore } from '@/stores/platforms'
 import { useTabStore } from '@/stores/tab'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { PLATFORM_DASHBOARD_URLS, PLATFORM_LOGIN_URLS } from '@multi-publish/shared-utils/src/platform-definitions'
+import { PLATFORM_CREATOR_HOME_URLS, PLATFORM_DASHBOARD_URLS, PLATFORM_LOGIN_URLS } from '@multi-publish/shared-utils/src/platform-definitions'
 import { getPlatformIconUrl, isPlatformIconUrl } from '@/composables/usePlatformIconUrl'
 import { formatUserError } from '@/utils/user-facing-error'
 import { resolveAccountDisplayName } from '@/utils/account-display-name'
@@ -1162,7 +1162,7 @@ async function openCreatorCenter(account) {
     notifyError('accountsPage.accountIncomplete')
     return
   }
-  const url = PLATFORM_DASHBOARD_URLS[account.platform]
+  const url = PLATFORM_CREATOR_HOME_URLS[account.platform] || PLATFORM_DASHBOARD_URLS[account.platform] // 已登录首页优先，理由见 shared-utils
   if (!url) {
     notifyWarning('accountsPage.creatorUnsupported')
     return

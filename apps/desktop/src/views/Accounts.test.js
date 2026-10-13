@@ -1991,6 +1991,50 @@ describe("AccountsView — 失效账号打开平台页必须干净会话", () =>
     expect(createTab.mock.calls[0][0].cleanSession).toBe(true);
   });
 
+  // ── 创作者中心开卡 URL（2026-10-13，xhs-creator-home-url）──────────────
+  // 真机 CDP 取证：小红书账号卡片「创作者中心」用 PLATFORM_DASHBOARD_URLS 开卡时，
+  // 平台 SPA 从 `/` 启动会先渲染登录路由（内部鉴权 401 返回后才跳 /new/home），
+  // 实测 `/` → `/login` → `/new/home` 共约 4.8s，其中 `/login` 中间态即用户看到的
+  // 「登录页闪动」；同一分区同一 Cookie 集合下直接开 `/new/home` 全程无 `/login`。
+  it("小红书点创作者中心：开已登录首页 /new/home，而不是会闪登录页的路由入口 /", async () => {
+    const defs = await import("@multi-publish/shared-utils/src/platform-definitions");
+    const w = await mountView();
+    const createTab = await spyCreateTab();
+
+    await w.vm.openCreatorCenter({ id: "a1eac276", platform: "xiaohongshu", status: "active" });
+
+    expect(createTab).toHaveBeenCalledTimes(1);
+    expect(createTab.mock.calls[0][0].url).toBe("https://creator.xiaohongshu.com/new/home");
+    // 反证：旧取值正是闪登录页的那个 URL，二者必须不同
+    expect(createTab.mock.calls[0][0].url).not.toBe(defs.PLATFORM_DASHBOARD_URLS.xiaohongshu);
+    expect(defs.PLATFORM_DASHBOARD_URLS.xiaohongshu).toBe("https://creator.xiaohongshu.com/");
+  });
+
+  it("未登记平台零回归：创作者中心仍走 PLATFORM_DASHBOARD_URLS", async () => {
+    const defs = await import("@multi-publish/shared-utils/src/platform-definitions");
+    const w = await mountView();
+    const createTab = await spyCreateTab();
+
+    await w.vm.openCreatorCenter({ id: "d1", platform: "douyin", status: "active" });
+
+    expect(createTab).toHaveBeenCalledTimes(1);
+    expect(createTab.mock.calls[0][0].url).toBe(defs.PLATFORM_DASHBOARD_URLS.douyin);
+    expect("douyin" in defs.PLATFORM_CREATOR_HOME_URLS).toBe(false);
+  });
+
+  it("小红书失效账号：仍以干净会话打开，URL 选择与 cleanSession 相互独立", async () => {
+    const w = await mountView();
+    const createTab = await spyCreateTab();
+
+    await w.vm.openCreatorCenter({ id: "a1eac276", platform: "xiaohongshu", status: "expired" });
+
+    expect(createTab).toHaveBeenCalledTimes(1);
+    // 未登录时平台会把 /new/home 重定向到登录页（真机实测干净分区落点为
+    // /login?redirectReason=401），因此失效账号走同一 URL 不产生死路
+    expect(createTab.mock.calls[0][0].url).toBe("https://creator.xiaohongshu.com/new/home");
+    expect(createTab.mock.calls[0][0].cleanSession).toBe(true);
+  });
+
   it("结构锁：src/views 下凡带 accountId 的 createTab 调用点都必须声明 cleanSession", async () => {
     const fs = await import("node:fs");
     const path = await import("node:path");
