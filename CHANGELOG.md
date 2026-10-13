@@ -1,3 +1,13 @@
+# [未发布] 运营中心「应用菜单」改完不生效——应用侧早退静默（ops-menu-diag）
+
+- 新增 apps/desktop/electron/services/ops-center-sync-autosync-guard.js：`resolveAutoSyncGuard(cfg, hasAutoContext, autoUrlRaw, hasAccessToken)` 是纯函数——把「启动自动同步该不该发起/为何不发起」的判据从 `ops-center-sync.js` 移出（该文件登记 570 行 + 容差 200 = 770，改前已 768，任何新增都会判 LEDGER_GREW）。
+- `autoSyncOnStart()` 的三道早退原先全是裸 `return`：应用可以在「运营下发配置（应用菜单/公告/功能开关）永远不会生效」的状态下常年运行而**没有任何信号**。实测现场：共享数据锚点的 settings 表里 `opsCenterSync`/`opsCenterRuntime` 各 0 行，且 `opsCenterSync` 在全部 13 个库（含 2026-09-23 起每份备份）中从未出现过；当日应用日志里 `catalog-synced`/`auto-sync-skipped`/`auto-sync-error` 一条都没有。判据本身没错（没配置不该硬发请求），错的是不发请求也不说为什么。
+- 三种原因现在**可区分**：`auto-sync-not-started-disabled` / `-unconfigured` / `-missing-api-key`，各带 `hint` 下一步。`-unconfigured` 额外带 `autoUrlConfigured` 与 `hasAccessToken`——因为 `getConfig().url` 会把自动发现地址并入（`url = 手动 url || 自动 url`），而 `_getAutoContext()` 在缺令牌回调时为 null，两者叠加会让「自动发现地址已配好、只是缺令牌」**伪装成完全未配置**。
+- 归一化不写第二份：`normalizeUrl` 仍在主文件（单一实现），调用方传入已归一化的 auto url；出声也留在主文件调用点（判据可外移，「谁负责说话」不能）。
+- 回归锁 4 条加在已接线的 `ops-center-sync.test.js`：每条同时钉「不调度」与「出声且原因可区分」，含一对 `not.toContain` 反向断言防止三种原因被合并成一条含糊的 skipped。既有用例只锁了「不调度」——不调度与不出声是两件事。
+- 变异反证：把出声口改回静默 ⇒ 4 条全红（`4 failed | 75 passed (79)`）；还原 ⇒ 79 passed。判据外移后重做，不复用外移前的结论。
+- QM-1：`electron-builder --win --dir` rc=0；asar 清单含新模块；在**打包产物内**（用 Electron 的 `ELECTRON_RUN_AS_NODE`，不抽 asar）require 链通过，新模块可解析且未配置/已配置两态行为正确；启动 stderr 无 `Failed to load platform config` / `ENOTDIR.*app.asar` 等四项禁止标记。
+- 排查中的一次实测否证（如实记录）：据 `.env` 的 `OPS_RUNTIME_SIGNING_PRIVATE_KEY` 仅 27 字符（恰为 PEM 头长度）推断「签名私钥是占位串」——实测 `GET /api/v1/runtime/bootstrap` 返回 200、含 `signature`、且用桌面端自身 `verifyRuntimeSignature(data, '')` 验签 `{"ok":true}`，该假设被否证，未据此改任何代码。
 # [未发布] 播客术语收口与三处记忆同步（podcast-glossary-terms）
 
 - 文档：`01-docs/i18n-glossary.md` 补两条播客术语 `出期 → Publish as podcast episode`（`podcast.episode.entry`）与 `一键发布 → One-click podcast episode`（`podcast.episode.title`），en 列一律取 en locale 里真实出现的逐字（L3 判据是「值包含」而非标准译法），方向按「让 UI 采用 canonical 术语、不把词典削到已有裸词」，未改动任何已上线文案。
