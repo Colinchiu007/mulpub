@@ -90,6 +90,8 @@ function registerHandlers (ipcMain, deps) {
   // 测试注入的单实例直通：不注入时才走 registry（多频道）
   let injected = deps && deps.podcastChannelService ? deps.podcastChannelService : null
   let registry = deps && deps.podcastRegistry ? deps.podcastRegistry : null
+  // tasks 4.4b：存量 mime 固化的宿主实例（进程内一份；跨进程的"已做过"只看 index 的 stockStamp）
+  let stockHost = null
   const servicesByChannel = new Map()
   function getRegistry () {
     if (registry) return registry
@@ -130,6 +132,19 @@ function registerHandlers (ipcMain, deps) {
       headImpl: deps && deps.podcastHeadImpl,
     })
     servicesByChannel.set(id, svc)
+    // tasks 4.4b：首个需要该频道数据的调用顺手固化存量 mime（PRD §7.9 与 §7.9.7）。
+    // 三条口径：① 旁路——装配或固化失败只 warn，绝不把用户的频道列表读请求打挂；
+    // ② 进程内一份实例，跨进程的"已做过"由 stockStamp 自己判，这里不再判一次（两处判据必漂移）；
+    // ③ 不 await——固化是补历史数据，不该出现在本次列表请求的关键路径上。
+    try {
+      if (!stockHost) {
+        const { createStockFreezeHost } = require('../services/podcast-stock-freeze-host')
+        stockHost = createStockFreezeHost({ registry: reg, logger: log })
+      }
+      stockHost.freezeChannel(id)
+    } catch (e) {
+      log.warn('[podcast] 存量固化旁路失败，不影响本次读取：' + ((e && e.message) || String(e)))
+    }
     return svc
   }
 

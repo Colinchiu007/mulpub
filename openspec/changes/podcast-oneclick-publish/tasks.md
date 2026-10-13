@@ -56,6 +56,7 @@
 - [x] 4.4 存量 `mime` 一次性固化（`stockStamp` 标记），不得把存量整体打成 blocked
   - 证据（2026-10-12）：判据与锁落 `apps/desktop/electron/services/podcast-episode-stock-mime.js`（12 条锁实跑；变异 M1 两条指名红）；规格与落地状态见 PRD §7.9.1-§7.9.7
 - [ ] 4.4b **4.4 的剩余落点（拆出来才看得见没做完的部分）**：① 宿主接线——`podcast-channel-service.js` 构造 `listChannels/readEpisodes/writeEpisodes/readIndex/writeIndex` 并在首个需要频道数据的调用处触发一次；② `compliance` 增设 `stock` 档（合同 §7.9.5 第 4 条，本片未做）；③ 频道页摘要「扫描 N · 补齐 M · 待人工 K」与 locale 三对键 `podcast.stock.*` zh/en 成对；④ 给「缺失即填默认值」补一条**真的落进文件**的变异反证
+  - 进度（2026-10-14，#3387）：**① 宿主接线已落**——`podcast-stock-freeze-host.js` 用注入的 registry / listChannels / readEpisodes / writeEpisodes / readIndex / writeIndex 构造，`ipc-handlers/podcast.js` 的 `getService` 在首个需要频道数据的调用处触发一次（进程内恰好一次，抛错走旁路只 warn 不外冒）。父项保持未勾：② `compliance` 的 `stock` 档、③ 频道页摘要与 `podcast.stock.*` 三对键 zh/en 成对、④ 真的落进文件的变异反证 仍未做
 - [ ] 4.5 **音色默认值的两层事实**（PRD §7.4.0 第 1 条）：仓内**不存在**跨 provider 的"全局默认音色"，只有 capability 级 `defaultVoiceId` 与用户偏好 `tts-voice-preference:v1:<providerId>:<model>` 两层；频道 `voiceRef` 三段（providerId/model/voiceId）同存或同缺，回退顺序 ①频道 ②用户偏好 ③capability 默认 ④都无则 `PODCAST_TTS_VOICE_UNRESOLVED` 拒绝，**禁止**用"某个 provider 的第一个音色"猜。②③ 命中时界面必须标注来源三态
 - [ ] 4.6 **不做响度归一**（PRD §7.4.0 第 2 条）：`loudnorm` 不在打包媒体工具的已验证滤镜清单，引入它需同 PR 改 `media-tools-lock.json` + `before-pack` 校验 + 重打包实测，是另一条混合 PR 的体量。本期以"全期同一组 voice/rate/pitch/format 参数"换取块间一致，并在 PRD §13 明写跨 provider 降级时各块响度可能不一致这一接受项
 
