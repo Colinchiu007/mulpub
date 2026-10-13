@@ -1,3 +1,38 @@
+# [未发布] fix(test): quick-collect 夹具时钟时间炸弹——48h 窗口按真实时钟判定而夹具钉死绝对日期（qc-fixture-clock）
+
+## 背景
+
+`QG Desktop Shards (1/2)` 与 `(2/2)` 同时转红，卡住**所有** PR 的必需检查（CI Failure Handler 已为
+另一个 PR #3434 自动开 issue #3456，失败用例相同）。排查证明与在飞的各 PR 无关：把改动文件还原到
+主干版本后本地复跑**同样红**。
+
+真因是**夹具时钟与判据时钟不同源**：两个测试文件钉死
+`const NOW = Date.parse('2026-10-11T04:00:00.000Z')`，而 48h 窗口的判据时钟走真实时间
+（`quick-collect-engine.js` 的 `now` 默认 `() => Date.now()`，而 IPC 处理器 / hotTopicsService
+这两条路径**不注入 `now`**）。夹具年龄随时间单调增长，到「固定时刻 + 48h」准时越窗、素材被判空
+（`retrieval:'empty'`、`timeKinds:[]`）⇒ 测试**按日历过期**。
+
+三条夹具的到期时刻与 CI 日志逐条吻合：`created_utc = NOW-1h` ⇒ 2026-10-13T03:00Z 到期（IPC 2 例）、
+`fetchedAt = NOW` ⇒ 04:00Z（hotTopics 2 例）、RSS `pubDate = 2026-10-11T02:00Z` ⇒ 02:00Z（solidot 1 例）。
+CI 在 03:14–03:25Z 跑 ⇒ 只有 02:00Z/03:00Z 已到期的 3 例红（shard1 `1 failed | 457 passed`、
+shard2 `1 failed | 456 passed`），本地在 04:29Z 后复跑则 5 例全红。
+
+## 改动
+
+- `apps/desktop/electron/ipc-handlers/quick-collect.test.js`、`apps/desktop/electron/services/quick-collect-cn-sources.test.js`：
+  夹具时钟改为 `const NOW = Date.now()`（相对真实时钟；`hoursAgo(49)` 仍越窗、`fetchedAt: NOW` 仍在窗内，
+  **断言语义不变**）；solidot 的 RSS `pubDate` 改为按 `NOW - 2h` 生成并保持 `+0000` 形态。
+- 两个文件各加一条**防时间炸弹回归锁**：`expect(Math.abs(Date.now() - NOW)).toBeLessThan(5 * 60 * 1000)`
+  —— 夹具时钟一旦被重新钉死成绝对日期即刻变红，不必等窗口过期。
+- **不改任何生产代码**（引擎/处理器/IPC 行为零变化）。
+- 文档：`openspec/records/qc-fixture-clock.md` + `.quality-gates.md` + ledger 登记。
+
+## 验证
+
+- 整族：修复前 5 failed / 100 passed（9 文件 105 例）→ 修复后 **9 files / 107 passed / 0 failed**。
+- 变异反证 3/3 变红并逐条还原（M1/M2 夹具时钟改回钉死、M3 `pubDate` 改回绝对字符串）。
+- `check-max-lines` rc=0（两文件 154 / 364 行）；`check-debt-budget` 基线内；ESLint rc=0；行尾两口径一致。
+
 # [未发布] fix(ci): 桌面分片从来没分过文件——裸 "--" 吃掉了七个 vitest 旗标（desktop-shard-flag）
 
 ## 背景

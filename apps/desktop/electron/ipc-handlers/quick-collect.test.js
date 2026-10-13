@@ -11,7 +11,13 @@ import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest'
 // 于是所有用例都会以同一个假失败收场。必须在本文件任何 `require('electron')` 之前开启。
 beforeAll(() => { __enableElectronMock() })
 
-const NOW = Date.parse('2026-10-11T04:00:00.000Z')
+// ⚠ 夹具时钟必须**跟随真实时钟**，不得钉死绝对日期（2026-10-13 时间炸弹事故）：
+// 本文件的用例经 IPC 处理器建引擎，而处理器**不透传** now ⇒ 引擎按 `Date.now()`
+// 判 48h 窗口；夹具若钉在固定的过去时刻，就会在「固定时刻 + 48h」那一刻集体转红。
+// 实测：夹具原为 `Date.parse('2026-10-11T04:00:00.000Z')`，2026-10-13T03:00Z 起
+// 本文件的 2 例 + quick-collect-cn-sources.test.js 的 3 例全红，两个桌面分片同时挂，
+// 全部 PR 的必需检查被阻断。改为相对真实时钟后语义不变（`NOW - 1h` 仍在窗口内）。
+const NOW = Date.now()
 
 function makeIpcMain () {
   const handlers = {}
@@ -74,6 +80,13 @@ describe('quick-collect IPC/注册面', () => {
 
   it('注册两条通道', () => {
     expect(Object.keys(handlers).sort()).toEqual(['quick-collect:list-presets', 'quick-collect:run'])
+  })
+
+  // 防时间炸弹回归锁：夹具时钟一旦被重新钉死成绝对日期，本用例立刻变红。
+  // 变异反证：把 NOW 改回 `Date.parse('2026-10-11T04:00:00.000Z')` ⇒ 本用例红
+  // （且随后 2 个用例也会因窗口判空而红）。判据不依赖任何业务语义，只锁「夹具时钟在跑」。
+  it('夹具时钟必须跟随真实时钟（钉死绝对日期会让 48h 窗口按日历过期）', () => {
+    expect(Math.abs(Date.now() - NOW)).toBeLessThan(5 * 60 * 1000)
   })
 
   it('list-presets 返回 6 条内置指令，且两次调用互不影响（深拷贝出口）', async () => {

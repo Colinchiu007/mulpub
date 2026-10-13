@@ -11,7 +11,13 @@ import { describe, it, expect, vi, beforeAll } from 'vitest'
 
 beforeAll(() => { __enableElectronMock() })
 
-const NOW = Date.parse('2026-10-11T04:00:00.000Z')
+// ⚠ 夹具时钟必须**跟随真实时钟**，不得钉死绝对日期（2026-10-13 时间炸弹事故）：
+// 本文件显式注入 `now: () => NOW` 的用例是确定性的，但走 IPC/热榜服务那条路径
+// （`fetchedAt: NOW` 的 3 例）由被测链路的默认 `now = () => Date.now()` 判窗口 ⇒
+// 夹具钉在固定过去时刻会按日历过期。实测：原值 `Date.parse('2026-10-11T04:00:00.000Z')`
+// 使本文件 3 例在 2026-10-13T03:00Z 起转红（与 quick-collect.test.js 的 2 例一起挂掉
+// 两个桌面分片）。改为相对真实时钟后语义不变：`hoursAgo(49)` 仍越界、`fetchedAt: NOW` 仍在窗内。
+const NOW = Date.now()
 const hoursAgo = (h) => Math.floor((NOW - h * 3600 * 1000) / 1000)
 
 async function materialsMod () { return import('../services/quick-collect-materials') }
@@ -48,6 +54,14 @@ const COMMAND = {
 }
 
 describe('S1/素材：榜单类素材的时间语义', () => {
+  // 防时间炸弹回归锁：本文件有一半用例走「被测链路默认 now = Date.now()」的路径，
+  // 夹具时钟一旦被重新钉死成绝对日期，本用例立刻变红。
+  // 变异反证：把 NOW 改回 `Date.parse('2026-10-11T04:00:00.000Z')` ⇒ 本用例红，
+  // 且 S1/IPC 的 3 个用例因 `fetchedAt` 越窗而红。
+  it('夹具时钟必须跟随真实时钟（钉死绝对日期会让 48h 窗口按日历过期）', () => {
+    expect(Math.abs(Date.now() - NOW)).toBeLessThan(5 * 60 * 1000)
+  })
+
   it('observed 素材按抓取时刻通过窗口，并带 rank/timeKind', async () => {
     const { normalizeMaterial } = await materialsMod()
     const r = normalizeMaterial(trendItem(), { windowHours: 48, now: NOW })
@@ -303,8 +317,11 @@ describe('S1/IPC：hotTopicsService → 统一素材的映射', () => {
   })
 
   it('S2：注入 fetchFn 后 feed 源（solidot）能进素材，时间语义为 published', async () => {
+    // pubDate 必须随真实时钟生成（同文件的夹具时钟事故）：写死绝对时间会按日历越窗，
+    // 让本用例在「写死时刻 + 48h」那一刻无声转红。格式保持 RSS 常见的 `+0000` 形态。
+    const pubDate = new Date(NOW - 2 * 3600 * 1000).toUTCString().replace('GMT', '+0000')
     const rss = '<?xml version="1.0"?><rss><channel>'
-      + '<item><title>Solidot 条目</title><link>https://www.solidot.org/story?sid=9</link><pubDate>Sun, 11 Oct 2026 02:00:00 +0000</pubDate></item>'
+      + '<item><title>Solidot 条目</title><link>https://www.solidot.org/story?sid=9</link><pubDate>' + pubDate + '</pubDate></item>'
       + '</channel></rss>'
     const fetchFn = vi.fn(async () => ({
       ok: true,
