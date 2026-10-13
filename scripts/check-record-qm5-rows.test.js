@@ -192,6 +192,55 @@ test('全仓未登记缺行必须被点名，且不依赖改动集（否则新�
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
+test('CRLF 记录必须与 LF 记录采到同一组步骤（本仓工作副本实测 254/254 含 CRLF）', () => {
+  // 不是"顺手加的健壮性"：真实仓库里**每一份**记录的工作副本都是 CRLF（attr=text=auto 的
+  // checkout 转换），而其余夹具全是 LF —— 不测这一格，就等于判据从未在它能碰到的真实形态上验证过。
+  const crlf = REC_FULL.split('\n').join('\r\n')
+  const missing5crlf = REC_MISSING_5.split('\n').join('\r\n')
+  assert.deepStrictEqual([...stepsPresentInRecord(crlf)].sort(), [...stepsPresentInRecord(REC_FULL)].sort(),
+    'CRLF 与 LF 的采集结果必须逐字相同')
+  assert.ok(!stepsPresentInRecord(missing5crlf).has('⑤'), 'CRLF 下缺 ⑤ 仍必须判为缺')
+  const root = fixtureRoot({ 'crlf.md': missing5crlf, '_TEMPLATE.md': TEMPLATE_WITH_FOUR })
+  try {
+    const r = collect({ root, changed: ['openspec/records/crlf.md'], templateText: TEMPLATE_WITH_FOUR, known: {} })
+    assert.strictEqual(r.violations.length, 1, 'CRLF 记录必须照样进域并被点名')
+    assert.deepStrictEqual(r.violations[0].missing, ['⑤'])
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+test('围栏代码块里的示例表格不得充当真行题（否则"只有示例、没有真行"能骗过判据）', () => {
+  // 现场：记录里常用 ``` 块演示行题写法。不剥围栏时，示例里的 ⑤ 会被算进 present，
+  // 于是"正文缺 ⑤、示例里有 ⑤"的记录被读成合规 —— 判据被它本该抓的东西反向喂饱。
+  const fraud = [
+    '## 本次执行记录：示例伪造（fraud，2026-10-13）',
+    '',
+    '写法示例：',
+    '```md',
+    '| 门禁 | 状态 | 证据 |',
+    '| 防止再次发生（QM-5 ⑤） |  | ← 这是示例，不是本记录的行 |',
+    '```',
+    '',
+    '| 门禁 | 状态 | 证据 |',
+    '|------|------|-----------|',
+    '| 第一性原因（QM-5 ①） | PASS | a |',
+    '| 逃逸分析（QM-5 ②） | PASS | b |',
+    '| 修复 + 回归保护（QM-5 ④） | PASS | c |',
+  ].join('\n')
+  assert.ok(!stepsPresentInRecord(fraud).has('⑤'), '围栏里的 ⑤ 不得被采到')
+  const root = fixtureRoot({ 'fraud.md': fraud, '_TEMPLATE.md': TEMPLATE_WITH_FOUR })
+  try {
+    const r = collect({ root, changed: ['openspec/records/fraud.md'], templateText: TEMPLATE_WITH_FOUR, known: {} })
+    assert.strictEqual(r.violations.length, 1, '示例不能替真行顶缺')
+    assert.deepStrictEqual(r.violations[0].missing, ['⑤'])
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+test('剥围栏不能把真行一起剥掉（正向对偶：块外的行题必须照常计入）', () => {
+  const withDemo = '写点说明：\n```md\n| 示例（QM-5 ⑤） | 不算 |\n```\n' + REC_FULL
+  assert.deepStrictEqual([...stepsPresentInRecord(withDemo)].sort(), ['①', '②', '③', '④', '⑤'],
+    '块外的真实行题必须一个不落地被采到，否则"剥围栏"变成了反向的漏报')
+})
+
 test('CLI 端到端：临时 git 仓库里删掉 ⑤ 行必须 rc=1，补回必须 rc=0（正向对偶）', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qm5cli-'))
   const rec = path.join(dir, 'openspec', 'records')

@@ -73,6 +73,26 @@ const MUTS = [
     expectRed: 'CLI 端到端：临时 git 仓库里删掉 ⑤ 行必须 rc=1，补回必须 rc=0（正向对偶）',
     edits: [['.split(/\\r?\\n/).filter(Boolean)', '.split(/\\r?\\n/).filter(() => false)']],
   },
+  {
+    // 危害的确切表现：记录里用 ``` 块**演示**行题时，示例被当成真行 ⇒ "正文缺 ⑤、示例里有 ⑤"
+    // 被读成合规。这条变异只摘剥围栏这一层，另一层（行题正则）不动，仍能红。
+    id: 'M9', axis: '判据B的第二个落点：围栏代码块',
+    target: '不剥 ``` 块（示例表格被当真行题采集）',
+    expectRed: '围栏代码块里的示例表格不得充当真行题（否则"只有示例、没有真行"能骗过判据）',
+    edits: [["  const normalized = String(text).replace(/\\r\\n/g, '\\n').replace(/^```[\\s\\S]*?^```[ \\t]*$/gm, '')",
+            "  const normalized = String(text).replace(/\\r\\n/g, '\\n')"]],
+  },
+  {
+    // 复合变异（两层同拆）：单摘归一 或 单加 $ 锚 都**不会**红 —— 因为剥了 CRLF 之后
+    // 行尾本来就没有 \\r，$ 照样命中；这是防线冗余，不是覆盖漏洞。要证的危害是
+    // "判据在真实工作副本形态（本仓 254/254 份记录都是 CRLF）上失明"，必须把两层一起造出来。
+    id: 'M10', axis: 'CRLF 归一（复合：拆归一 + 行尾锚）',
+    target: '去掉 CRLF 归一，并把行题正则改成要求行尾闭合（复刻"依赖行尾形状"的写法）',
+    expectRed: 'CRLF 记录必须与 LF 记录采到同一组步骤（本仓工作副本实测 254/254 含 CRLF）',
+    edits: [["  const normalized = String(text).replace(/\\r\\n/g, '\\n').replace(/^```[\\s\\S]*?^```[ \\t]*$/gm, '')",
+            "  const normalized = String(text).replace(/^```[\\s\\S]*?^```[ \\t]*$/gm, '')"],
+           ['[ \\t]*\\|/gm', '[ \\t]*\\|$/gm']],
+  },
 ]
 
 function applyEdits(src, edits) {

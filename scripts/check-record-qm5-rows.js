@@ -41,8 +41,17 @@ const ROW_TITLE_STEP = /^\|[ \t]*([^|\n]*?（QM-5\s*([①②③④⑤])）[^|\n]
 const TITLE_LABEL = { '①': '第一性原因', '②': '逃逸分析', '③': '系统性漏洞', '④': '修复 + 回归保护', '⑤': '防止再次发生' }
 
 function stepsFromText(text) {
+  // 两条预处理，各对应一条实测到的形状：
+  //  ① CRLF 归一：本仓 openspec/records/*.md 的工作副本实测 **254/254 含 CRLF**
+  //    （`attr=text=auto` 的 checkout 转换）。实测本正则对 CRLF 不敏感（`\r` 落在行尾的
+  //    最后一个单元格之外），但归一化把"依赖这个巧合"变成显式保证。
+  //  ② 剥掉围栏代码块：markdown 里的 ``` 块常用来**演示**表格行；不剥就会把示例
+  //    当成真行题采集（实测：围栏里写 `| 第一性原因（QM-5 ①） |` 会被算进 present，
+  //    于是"整份记录只有示例、没有真行"能骗过判据）。当前全仓受影响文件=0，
+  //    所以这条不改变现状计数，只封死未来的绕过路径。
+  const normalized = String(text).replace(/\r\n/g, '\n').replace(/^```[\s\S]*?^```[ \t]*$/gm, '')
   const out = []
-  for (const m of String(text).matchAll(ROW_TITLE_STEP)) {
+  for (const m of normalized.matchAll(ROW_TITLE_STEP)) {
     if (!out.includes(m[2])) out.push(m[2])
   }
   return out

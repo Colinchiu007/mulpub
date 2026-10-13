@@ -18,7 +18,11 @@ PR #3477 的记录在多次改写中把「防止再次发生（QM-5 ⑤）」的
 - 接线落点是 `quality-gate.yml` 的 **changes 作业新增 Gate 2c3**，不是 static-gates：docs-only PR 会把
   static-gates 整个短路，而这条门禁审的正是文档类 PR 改的记录 —— 放那边等于给它自己关掉校验
   （与 `gate-record-debt-ledger.json` 同一先例）。取源复用 classify 的产出，不第二次算 base/head。
-- 回归锁 `scripts/check-record-qm5-rows.test.js` 14 条（TDD：对退化桩先跑出 `12 tests / 9 fail`，  红名逐字见执行记录）；入库变异反证 `.ccg/reviews/qm5row-mutate.driver.js` 8 条，  `MISSED=0 WRONG_CAUSE=0 RESTORED_BYTES_EQUAL=true`，含一条只从进程入口才抓得到的 CLI 层变异。
+- 回归锁 `scripts/check-record-qm5-rows.test.js` 17 条（TDD：对退化桩先跑出 `12 tests / 9 fail`，  红名逐字见执行记录）；入库变异反证 `.ccg/reviews/qm5row-mutate.driver.js` 10 条，  `MISSED=0 WRONG_CAUSE=0 RESTORED_BYTES_EQUAL=true`，含一条只从进程入口才抓得到的 CLI 层变异（M8）与一条必须两层同拆才红的复合变异（M10）。
+- 外部评审（逻辑轴）实测采纳两条：剥掉围栏代码块（示例表格里的 `（QM-5 ①）` 会被当真行题采到，
+  实测确认后 CRLF 归一 + 围栏剥离各配一条锁与一条变异 M9/M10）；它给的"CRLF 导致标记偏移"结论
+  经实测**不成立**（LF 与 CRLF 采集结果逐字相同），但它指出的"从没在 CRLF 上测过"成立 ——
+  本仓 254/254 份记录的工作副本都是 CRLF。
 
 ## 边界（不假装已闭合）
 
