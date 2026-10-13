@@ -21,8 +21,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
+// 注意：本文件**刻意不 import node:child_process** —— 见文末「⑤ 本文件不再起子进程」。
+// 起子进程会让 scripts/check-test-egress-ledger.js 这个 required 门禁多出一个基线之外的台账键。
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)
@@ -218,69 +219,100 @@ describe('platform-metric-matrix — fail-loud', () => {
 })
 
 /**
- * ★★ 变体反证（P1-1 验收判据 ⑥）
+ * ★★ 三态判据的回归保护（P1-1 验收判据 ⑥ 的**结构锁**形态）
  *
- * 把 `unknown-platform` 分支改成返回 `'declared-unavailable'` ⇒ 本文件**必须变红**。
+ * ## 为什么不用「spawn 子进程跑被变异的模块副本」
  *
- * 做法：复制读取层源码 → 字符串替换制造变异 → 复制本测试（**但剔除变体那一节**）指向变异文件 →
- * 子进程跑。之所以不 monkey-patch：`getMetricSupport` 是模块内闭包调用，
- * 从外部替换 `M.getMetricSupport` 不影响内部调用点，等于零覆盖。
+ * 那是更强的反证（直接证「改了就红」），但**本仓有一条 required 门禁**会因此判红：
+ * `scripts/check-test-egress-ledger.js` 把测试期**起过的子进程 / 真试过的出站**逐条落盘，
+ * 与 `scripts/test-egress-ledger-baseline.json` 比对，**出现基线之外的键即红**，
+ * 且明文要求「清单只能缩小，新增必须逐条写清为什么」。
  *
- * ⚠️ 两个已踩过的坑（都由断言兜住，别再犯）：
- *   ① 探针必须落在 vitest 的 include 范围内，否则跑出「No test files found」这种**环境红**，
- *      反证等于没做（第一版写在 os.tmpdir()，踩了）；
- *   ② 探针**必须剔除本节自身**，否则它会在子进程里再 spawn 一层、无限递归
- *      （第二版踩了：单次耗时 163s、留下 8 个残留文件）。剔除方式是按 describe 标题切分。
+ * 实测：子进程版在 CI 的 `QG Unit Tests` 上让该门禁报出 `+ child::net` 而判红。
+ * 我只查到「经守卫的 spawn 会打 `子进程 X 不是 node` 告警」，而日志里**没有 `net` 的告警**，
+ * **无法有把握地把这个键归因到本测试**。按「归因不清就不硬猜」的纪律改为**不 spawn** ——
+ * 既消除新增台账键的可能，也去掉「在 vitest 里 spawn vitest」这个又重又脆的构造。
+ *
+ * 子进程版的历史代价一并记下，以免有人再试：
+ *   · 探针落在 vitest include 之外 ⇒ 跑出「No test files found」这种**环境红**，反证等于没做；
+ *   · 探针包含本节自身 ⇒ **递归 spawn**，实测单次 163s、留下 8 个残留文件。
+ *
+ * ## 这个锁证什么 / 不证什么
+ *
+ * 证：① `unknown-platform` 由 `isKnownPlatform` 的否定分支**直接**返回；
+ *     ② 该分支在 `unknown-metric` 与可用性扫描**之前**（顺序反了，未知平台会先被判成 `unknown-metric`）；
+ *     ③ 白名单恰好四值，且四值都能从公开 API 观察到。
+ *
+ * **不证**：顺序或语义的细微改动。它是结构锁，不是变异反证 ——
+ * 改宽判据（把 unknown-platform 并进 declared-unavailable）会让 ① 直接失败，但仅此而已。
+ * 这条残余风险如实登记在此，不假装已闭合。
  */
-const VARIANT_DESCRIBE_TITLE = 'platform-metric-matrix — 变体反证（防「三态被压成 boolean」）'
+describe('platform-metric-matrix — 三态判据的回归保护（结构锁）', () => {
+  const SRC = path.join(__dirname, '..', 'platform-metric-matrix.js')
 
-describe(VARIANT_DESCRIBE_TITLE, () => {
-  it('把 unknown-platform 改成 declared-unavailable ⇒ 测试必红', () => {
-    const src = path.join(__dirname, '..', 'platform-metric-matrix.js')
-    const code = fs.readFileSync(src, 'utf8')
+  it('① unknown-platform 由 isKnownPlatform 的否定分支直接返回', () => {
+    const code = fs.readFileSync(SRC, 'utf8')
+    expect(code).toMatch(/if \(!isKnownPlatform\(platformId, m\)\) return 'unknown-platform'/)
+    // 反面：不得把未知平台折成 declared-unavailable
+    expect(code).not.toMatch(/!isKnownPlatform[\s\S]{0,40}return 'declared-unavailable'/)
+  })
+
+  it('② 该分支在 unknown-metric 与 declared-unavailable 之前（顺序反了未知平台会被判成 unknown-metric）', () => {
+    const code = fs.readFileSync(SRC, 'utf8')
+    const iUnknownPlatform = code.indexOf("return 'unknown-platform'")
+    const iUnknownMetric = code.indexOf("return 'unknown-metric'")
+    const iDeclaredUnavailable = code.indexOf("return 'declared-unavailable'")
+    expect(iUnknownPlatform).toBeGreaterThan(0)
+    expect(iUnknownMetric).toBeGreaterThan(0)
+    expect(iDeclaredUnavailable).toBeGreaterThan(0)
+    expect(iUnknownPlatform, 'unknown-platform 必须在 unknown-metric 之前').toBeLessThan(iUnknownMetric)
+    expect(iUnknownPlatform, 'unknown-platform 必须在 declared-unavailable 之前').toBeLessThan(iDeclaredUnavailable)
+  })
+
+  it('③ 白名单恰好四个取值，且四种都能从公开 API 观察到', () => {
+    expect([...M.SUPPORT_STATES].sort()).toEqual([
+      'declared-available',
+      'declared-unavailable',
+      'unknown-metric',
+      'unknown-platform',
+    ])
+    const seen = new Set([
+      M.getMetricSupport('baijiahao', 'income'),
+      M.getMetricSupport('kuaishou', 'income'),
+      M.getMetricSupport('not-a-platform', 'income'),
+      M.getMetricSupport('baijiahao', 'not-a-metric'),
+    ])
+    expect(seen.size).toBe(4)
+  })
+
+  it('④ 判据不是重言式：真实做一次变异，断言变异体确实不满足 ①', () => {
+    const code = fs.readFileSync(SRC, 'utf8')
     const mutated = code.replace(
       /if \(!isKnownPlatform\(platformId, m\)\) return 'unknown-platform'/,
       "if (!isKnownPlatform(platformId, m)) return 'declared-unavailable'"
     )
-    expect(mutated).not.toBe(code) // 替换必须真的发生，否则这条反证是空的
+    expect(mutated).not.toBe(code) // 替换必须真的发生
+    expect(mutated).not.toMatch(/if \(!isKnownPlatform\(platformId, m\)\) return 'unknown-platform'/)
+  })
 
-    // 剔除本节：从 `const VARIANT_DESCRIBE_TITLE` 到文件末尾整段不要
-    const mySource = fs.readFileSync(__filename, 'utf8')
-    const cutAt = mySource.indexOf('const VARIANT_DESCRIBE_TITLE =')
-    expect(cutAt, '找不到本节起点，剔除逻辑失效').toBeGreaterThan(0)
-    const withoutVariant = mySource.slice(0, cutAt)
-
-    const stamp = `${process.pid}-${Date.now()}`
-    const file = path.join(__dirname, '..', `__mutant-${stamp}.js`)
-    const probe = path.join(__dirname, `__mutant-probe-${stamp}.test.js`)
-    try {
-      fs.writeFileSync(file, mutated, 'utf8')
-      fs.writeFileSync(
-        probe,
-        withoutVariant
-          .replace(/require\('\.\.\/platform-metric-matrix\.js'\)/g, `require(${JSON.stringify('../__mutant-' + stamp + '.js')})`)
-          .replace(/^const REPO_ROOT = .*$/m, `const REPO_ROOT = ${JSON.stringify(REPO_ROOT)}`)
-          .replace(/^const REAL_PATH = .*$/m, `const REAL_PATH = ${JSON.stringify(REAL_PATH)}`),
-        'utf8'
-      )
-
-      const r = spawnSync(
-        process.execPath,
-        [path.join(REPO_ROOT, 'node_modules', 'vitest', 'vitest.mjs'), 'run', path.relative(REPO_ROOT, probe)],
-        { encoding: 'utf8', cwd: REPO_ROOT, timeout: 120000 }
-      )
-      const out = (r.stdout || '') + (r.stderr || '')
-      // ① 变异体必须失败
-      expect(r.status, '变异体本应失败，实际通过 ⇒ 三态判据没有真正生效\n' + out.slice(-1500)).not.toBe(0)
-      // ② 且必须是**断言**红，不是环境红 —— 否则这条反证又是空的
-      expect(out, '变异体红了，但不是断言失败（可能是环境/加载错误）\n' + out.slice(-1500))
-        .toMatch(/unknown-platform|AssertionError|toBe/)
-      expect(out).not.toMatch(/No test files found|Failed to load|Startup Error/)
-      // ③ 反证本身不得递归：探针里不应再出现变体那一节
-      const probeText = fs.readFileSync(probe, 'utf8')
-      expect(probeText).not.toContain(VARIANT_DESCRIBE_TITLE)
-    } finally {
-      for (const p of [probe, file]) { try { fs.unlinkSync(p) } catch { /* 已删 */ } }
-    }
-  }, 150000)
+  it('⑤ 本文件不再起子进程（egress 台账基线只能缩小）', () => {
+    const self = fs.readFileSync(__filename, 'utf8')
+    // ⚠️ 两个自指假阳性形态，都已踩过：
+    //   ① 文档注释里为了记下历史坑，正文出现过 spawn 字样 ⇒ 对整份文本匹配会命中自己；
+    //   ② 断言里的**正则字面量**本身含 spawnSync( ⇒ 即便跳过注释，代码行仍命中自己。
+    // 解法：只对**代码行**断言，且针用**字符串拼接**构造，使字面量不出现在本文件里。
+    const codeLines = self
+      .split(/\r?\n/)
+      .filter((l) => {
+        const t = l.trim()
+        return t && !t.startsWith('*') && !t.startsWith('//') && !t.startsWith('/*')
+      })
+      .join('\n')
+    const NEEDLE_IMPORT = ['from', "'node:child_process'"].join(' ')
+    const NEEDLE_CALL = 'spawn' + 'Sync('
+    const NEEDLE_CALL2 = 'spawn' + '('
+    expect(codeLines).not.toContain(NEEDLE_IMPORT)
+    expect(codeLines).not.toContain(NEEDLE_CALL)
+    expect(codeLines).not.toContain(NEEDLE_CALL2)
+  })
 })
