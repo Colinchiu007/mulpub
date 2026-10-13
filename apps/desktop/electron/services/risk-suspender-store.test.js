@@ -50,6 +50,26 @@ describe('risk-suspender-store.createDesktopRiskSuspender', () => {
     expect(s2.listSuspended().length).toBe(2)
   })
 
+  it('fix-risk-hold-false-positive：signal/strength 随水合恢复（否则重启后横幅丢失判定依据）', () => {
+    const store = makeStore()
+    const s1 = createDesktopRiskSuspender({ store })
+    s1.suspend('weixin', 'acc1', { reason: 'risk_blocked', signal: 'strong:风控', strength: 'strong' })
+    expect(store.data[SETTING_KEY][0]).toMatchObject({ signal: 'strong:风控', strength: 'strong' })
+
+    const s2 = createDesktopRiskSuspender({ store })
+    expect(s2.listSuspended()[0]).toMatchObject({ signal: 'strong:风控', strength: 'strong' })
+  })
+
+  it('升级前的老记录（无 signal/strength）水合后不伪造判定依据', () => {
+    const store = makeStore()
+    store.data[SETTING_KEY] = [{ platform: 'wechat_mp', accountId: 'old', reason: 'risk_blocked', at: 1 }]
+    const s = createDesktopRiskSuspender({ store })
+    const rec = s.listSuspended()[0]
+    expect(rec.platform).toBe('wechat_mp')
+    expect(rec.signal).toBe(undefined)
+    expect(rec.strength).toBe(undefined)
+  })
+
   it('resume 后持久化同步更新；clear 清空并落盘', () => {
     const store = makeStore()
     const s = createDesktopRiskSuspender({ store })

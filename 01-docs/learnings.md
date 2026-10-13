@@ -17885,3 +17885,17 @@ CCG 的 `HARDCODED_SECRET` 规则是「关键词 + `[:=]` + 引号内 8 字符�
 - **「main 绿而我的 PR 红」不等于「我改坏了」**——但也**不等于**「与我无关」，必须定位到机制。
 - **受控实验优于推理**：把「写死的日期」换成「相对现在」后全绿，比读十遍代码更能证明因果。
 - **失败用例的失败文案常常直接点出根因**：「本次未检索到最近 48 小时内的可核对素材」已经写明了窗口语义。
+
+## 风控挂起误判修复的六条可复用教训（fix-risk-hold-false-positive，2026-10-13）
+
+1. **「判定不准」先查「上层拿到的输入是不是被降维了」，别急着加词表**：本次根因不是词表写得不好，而是各发布链**已经算出**了结构化结论（`risk_blocked` 标志、B 站 `code:601`、百家号 `code:10000015`），却在 `throw new Error(result.error)` 处被压成一段 `message` 丢掉，逼上层用关键词猜。结构是：**结构化信号被丢（真因）→ 只能文本匹配（缺陷形态）→ 裸子串误判（症状）**。只加边界是治症状；把 `code`/`riskBlocked` 搬到 `Error` 上再落到 `task` 才是治因。检查清单：凡「用文本判断一个本该有结构化的东西」，先追它的结构化信号在哪一层丢的。
+2. **词表的误判面在「输入域」上，静态扫描仓内字面量扫不出来**：我扫了 674 个发布链文件确认仓内 0 个纯误判字符串——一度以为词表没问题。但真实误判面来自**平台/网关/HTTP 客户端**的返回文案（`Request failed with status code 601`、`publish id 6019 not found`、`gateway timeout ts=1601846521`、`errno 100000159`）。教训：验证一张「匹配外部文本」的词表，样本必须从输入域构造（把 HTTP 状态码/ID/时间戳/错误码邻居喂进去），扫仓库只能证明「我们自己写的文案不打架」。
+3. **弱信号「不挂起但仍提示」是二次误报**：一度设计了「弱信号发独立文案（疑似风控信号，已跳过暂停）」。想清楚后否决——该提示对用户**不可行动**（既不用去创作者中心，也不需要做任何事），而 `身份验证失败` 这类日常失败每次都命中弱档 ⇒ 等于把「风控」标签贴到普通失败上。**「风控」这个词本身就是结论**，不该拿它标注不确定的东西。弱信号最终只进结构化日志。
+4. **跨包/跨层的单元测试可能对「搬运缺失」完全免疫（假绿形态）**：`phase4-events.test.js` 的风控用例是**直接往 task 对象塞 `errorCode`/`riskBlocked`** 的——如果 `task-queue` 根本没把这两个字段从 `Error` 搬过来，这些用例**照样全绿**，而生产路径的结构化优先从未生效。补锁方式：在 `task-queue` 侧写一条「executor 抛带 `code`/`riskBlocked` 的 Error ⇒ `task:failed` 的 task 上字段正确」，并做变异反证。**元规则：当 A 层测试需要「手工构造 B 层的输出」时，B 层到 A 层的搬运必须有独立锁。**
+5. **`check-max-lines` 的 growthAllowance 是被共享的预算，受管文件里放辅助函数会顶破台账**：本次初版把 `attachRiskSignals`（28 行）写在 `publisher-router.js`，该文件已用到 804/829（登记值 629 + 容差 200）⇒ `LEDGER_GREW … 膨胀 209 行` 判红。正解不是「申请扩容差」而是**把函数放进语义归属的模块**（风控辅助 → `publish-risk.js`），受管文件只剩 1 行 import + 3 个调用点。附带发现：该文件余量此后仅 11 行，任何增量都应先考虑拆分。
+6. **同一「远程同步」欠账在两套载体上是两套登记机制，且必须四处同次改完**：`.quality-gates.md` 的 PENDING 行走 `scripts/gate-record-debt-ledger.json`（键 = 标题原文，含【混合 PR】后缀）；`openspec/records/<slug>.md` 里的 PENDING 行走 **frontmatter 三字段** `sync_status` / `sync_reason` / `sync_backfill_owner`。我第一版把两处都当 ledger 处理，被 `check-gate-record-debt.js` 点名 `L0 [PENDING] …（缺登记字段）`。回填时两处 + ledger 删除必须同一次提交。
+
+### 本次顺带确认的两条工程细节
+
+- **本仓 `text=auto`：编辑工具写出的 CRLF 会让行数虚涨、行尾对账两口径不一致**。处置脚本化：用 Node 把本 PR 触及文件统一 `\r\n → \n`（并剥 BOM），再 `git ls-files --eol` 复核 `w/lf`。**不要用 `Measure-Object -Line` 估行数**，一律以 `check-max-lines.js` 或 `split('\n').length` 为准。
+- **引擎测试分「vitest 组」与「direct 组」，新增测试文件必须登记**：`packages/api-publish-engine/scripts/run-tests.js` 的 `VITEST_FILES` 是白名单，不在其中的文件走 `node <file>` 直跑。新写的 vitest 风格用例（用 `describe`/`it`）不登记就报 `ReferenceError: describe is not defined`——**不是代码错，是登记缺失**。

@@ -16,6 +16,9 @@ const { execFile } = require('child_process')
 const logger = require('./logger')
 // publish-frequency-policy-v2 P0-1：把「可确证未送出」的登录态族失败打标，供队列回滚间隔窗口
 const { markDefinitelyNotSent } = require('./publish-not-submitted')
+// fix-risk-hold-false-positive P0-1：抛错时把适配器已算出的结构化风控信号（code / risk_blocked）
+// 搬到 Error 上，使上层判定可以「结构化优先、文本兜底」而不是靠错误文本猜关键词。
+const { attachRiskSignals } = require('./publish-risk')
 const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
 const { isPlatformCookieDomain } = require('@multi-publish/shared-utils/src/platform-definitions')
 const { RichTextProcessor } = require('@multi-publish/api-publish-engine/src/rich-text-processor')
@@ -594,6 +597,9 @@ class RpaVmPublisher {
       // 词表是封闭的（services/publish-not-submitted.js），未命中一律按已提交处理（保守侧）。
       const rpaErr = new Error(result.error || 'RPA 发布失败')
       markDefinitelyNotSent(rpaErr, result.error)
+      // P0-1：RPA 轨也会回传结构化风控信号（如微信/知乎轨的 code），一并搬运，
+      // 否则上层只能靠文本关键词猜 —— 猜错的代价是冻结账号。
+      attachRiskSignals(rpaErr, result)
       throw rpaErr
     } finally {
       signal?.removeEventListener('abort', onAbort)
@@ -677,7 +683,9 @@ class ApiPublisher {
       // 走到这里说明已经过了一次完整的网络往返（publishViaApi 已返回），请求是**发出去过的**；
       // 平台响应里出现「登录失效」这类文本恰恰证明请求到达了平台。把它判成「未送出」会让
       // 已提交窗口被误回滚 ⇒ 早于窗口的重复发布（危险侧）。凭证缺失在更早处已无条件打标。
-      throw new Error((result && result.error) || 'API 发布失败')
+      // fix-risk-hold-false-positive P0-1：搬运结构化风控信号（引擎 publishViaApi 抛错时
+      // 已带上；此处兜住「返回非 success 但不抛」的形态），供上层「结构化优先」判定。
+      throw attachRiskSignals(new Error((result && result.error) || 'API 发布失败'), result)
     }
     const postId = typeof result.publishId === 'string' && result.publishId.trim() ? result.publishId.trim() : ''
     if (!postId) throw new Error('发布结果缺少平台作品 ID')
@@ -722,7 +730,9 @@ class BackendPublisher {
       error: String(backendError),
       params: { platform },
     })
-    throw new Error(backendError)
+    // P0-1：后端轨同样搬运结构化信号（code 取信封码，风控标志取 data 层），
+    // 使上层判定不必退回文本匹配。
+    throw attachRiskSignals(new Error(backendError), Object.assign({ code: result.code }, result.data || {}))
   }
 }
 

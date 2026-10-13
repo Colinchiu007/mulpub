@@ -37,6 +37,11 @@ function createRiskSuspender (deps = {}) {
       reason: info.reason || 'risk_blocked',
       at: info.at != null ? info.at : clock(),
     }
+    // fix-risk-hold-false-positive：记录判定依据，供横幅展示「为什么被挂起」。
+    // **只收封闭词表的稳定记号，不收原始错误文本** —— rec 会被持久化到 store 并广播到
+    // 渲染层，平台回包原文可能含会话片段，不适合落盘/跨进程传递。
+    if (typeof info.signal === 'string' && info.signal) rec.signal = info.signal.slice(0, 64)
+    if (info.strength === 'strong' || info.strength === 'weak') rec.strength = info.strength
     const already = suspended.has(key)
     suspended.set(key, rec)
     if (!already) emit('suspend', rec)

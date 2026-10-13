@@ -12,10 +12,11 @@
  * 严格遵循三态总闸 + 风控即停语义，是 §5 服务层的事实路由。
  */
 const { decideRoute, normalizeMode, ROUTES, REASON } = require('./publish-mode')
+// 2026-10-13 fix-risk-hold-false-positive：风控词表与判定收敛到单一真源 risk-signals.js。
+// 此前本文件与桌面 publish-risk.js 各持一份 RISK_RE（注释都写「保持同义」但内容已漂移），
+// 现在两处 require 同一模块，杜绝「同一文本两处结论不同」。
+const { classifyRisk, isRiskText } = require('./risk-signals')
 
-// 2026-10-08 P0-2 词表增强（参考产品 4.13.19 逆向取证）：canvas illegal（抖音/西瓜风控特征）
-// 与「账号存在风险」（参考产品风控提示原文）；与桌面侧 publish-risk.js RISK_RE 保持同义。
-const RISK_RE = /风控|risk|滑块|601|10000015|frequent|频繁|verify|验证|canvas illegal|账号存在风险/i
 const LOGIN_RE = /登录|未登录|登陆|cookie.*(expired|失效|过期)|login|session|auth.*(fail|expired)|未授权/i
 const UNSUPPORTED_RE = /unsupported|not.?supported|暂不支持|无.?api|no.?api/i
 
@@ -29,7 +30,9 @@ function outcomeOfResult (res) {
   const code = res.code != null ? res.code : (res.result && res.result.code)
   if (code === 'BILI_RISK_601' || code === 10000015 || code === -1e7) return 'risk_blocked'
   const msg = String(res.error || res.errMsg || res.message || '')
-  if (RISK_RE.test(msg)) return 'risk_blocked'
+  // 路由判据用**并集**（强弱都算「像风控」）：命中即停报不降级，不换路。
+  // 注意这与「是否挂起」是两件事——挂起另由 classifyRisk(...).suspends 决定（仅强信号）。
+  if (isRiskText(msg)) return 'risk_blocked'
   if (LOGIN_RE.test(msg)) return 'login_expired'
   if (UNSUPPORTED_RE.test(msg)) return 'unsupported'
   return 'transient_error'
@@ -129,11 +132,31 @@ function createPublishWithMode (deps = {}) {
     }
 
     if (d.route === ROUTES.stop) { // 风控/登录/api-only 失败：停报，不降级
-      if (outcome === 'risk_blocked' && riskSuspender && typeof riskSuspender.suspend === 'function') {
-        riskSuspender.suspend(platform, accountId, { reason: REASON.riskBlocked, error: apiRes && apiRes.error })
+      // 挂起闸门（fix-risk-hold-false-positive）：**只有强信号才挂起**。
+      // 弱信号（裸 验证/risk/frequent/verify/601）仍按风控停报不降级（安全侧：不换路），
+      // 但不冻结账号——实测这类词会把 `身份验证失败`、`status code 601`、`infrequent`
+      // 误判成风控，而挂起的代价是用户必须人工去平台解封。
+      // 不变量由 risk-signals 单一真源给出，调用方不得自行推导。
+      const riskVerdict = classifyRisk({
+        error: apiRes && apiRes.error,
+        code: apiRes && apiRes.code,
+        riskBlocked: !!(apiRes && (apiRes.riskBlocked || apiRes.risk_blocked)),
+      })
+      if (outcome === 'risk_blocked' && !riskVerdict.suspends) {
+        logger.warn('publish-mode', 'risk signal weak → stop without suspend', {
+          platform, mode, accountId, outcome, signal: riskVerdict.signal, strength: riskVerdict.strength,
+        })
+      }
+      if (outcome === 'risk_blocked' && riskVerdict.suspends && riskSuspender && typeof riskSuspender.suspend === 'function') {
+        riskSuspender.suspend(platform, accountId, {
+          reason: REASON.riskBlocked,
+          error: apiRes && apiRes.error,
+          signal: riskVerdict.signal,
+          strength: riskVerdict.strength,
+        })
       }
       logger.error('publish-mode', 'stopped (no degrade)', { platform, mode, accountId, outcome, reasonCode: d.reasonCode, error: apiRes && apiRes.error })
-      return Object.assign(base, { track: 'api', success: false, reasonCode: d.reasonCode, stopped: true, error: apiRes && apiRes.error, code: apiRes && apiRes.code, apiAttempt })
+      return Object.assign(base, { track: 'api', success: false, reasonCode: d.reasonCode, stopped: true, error: apiRes && apiRes.error, code: apiRes && apiRes.code, apiAttempt, riskVerdict })
     }
 
     // d.degrade → 回落 DOM（api-then-dom + transient/unsupported）

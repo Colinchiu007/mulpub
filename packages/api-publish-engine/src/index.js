@@ -92,7 +92,17 @@ async function publishViaApi(platform, taskData, cookie, opts) {
     throw new Error("API adapter has no publish entrypoint for platform: " + platform);
   }
 
-  if (!result || !result.success) throw new Error((result && result.error) || "API publish failed for " + platform);
+  if (!result || !result.success) {
+    // fix-risk-hold-false-positive（P0-1）：此处原先只 `throw new Error(result.error)`，
+    // 把适配器已经算出来的**结构化风控信号**（`risk_blocked` 标志与风控码族）丢在半路，
+    // 逼得上层的风控判定只能拿错误文本做关键词匹配 —— 而文本匹配正是误判的来源。
+    // 现在把 code / risk_blocked 挂到 Error 上，让结构化信号能一路走到桌面侧判定。
+    var err = new Error((result && result.error) || "API publish failed for " + platform);
+    if (result && result.code !== undefined && result.code !== null) err.code = result.code;
+    if (result && (result.riskBlocked === true || result.risk_blocked === true)) err.riskBlocked = true;
+    if (result && result.loginExpired === true) err.loginExpired = true;
+    throw err;
+  }
   return result;
 }
 

@@ -31,6 +31,7 @@ const VITEST_FILES = new Set([
   'publish-governance.test.js',
   'publish-mode-runner.test.js',
   'publish-mode-config.test.js',
+  'risk-signals.test.js',
   'risk-suspender.test.js',
   'publish-service.test.js',
   'signer.test.js',
