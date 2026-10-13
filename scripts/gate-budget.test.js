@@ -198,3 +198,153 @@ test('旧形态不得被别的锁钉回来（workflow-contract 与本锁同口�
   // 被断言对象本身是"含反斜杠的正则字面量文本"，用正则去找正则等于恒不匹配；按字面串核。
   assert.ok(contract.includes('/WaitForExit\\(\\[int\\]\\$gateBudgetMs\\)/'), 'workflow-contract 应改钉注入形态')
 })
+
+/* ────────── 形态分档（change: budget-probe-form-split）──────────
+ * 动因（#3357 合并后实测）：探针把窗口内所有 shard 成功样本混成一池，而这一步在一天内换了
+ * 两代形态（预算 30→45、分片"两腿各跑全量"→真半量），于是 RULE_VIOLATED 拿一个**旧形态**的
+ * 31.55 分去要求给"半量"定墙。样本换代不是判据失效，但混池是。 */
+const formOf = (over) => ({ gate4SuccessN: 40, shardSuccessN: 40, gate4MaxSuccessMin: 2.05, shardMaxSuccessMin: 12.4, censoredUnderPriorBudgetN: 3, ...over })
+
+test('旧形态的观测最大值不得决定当前预算（混池就是这次误报的根因）', () => {
+  const base = gate.checkSizing({ provenance: freshProvenance({ gate4MaxSuccessMin: 29.88, shardMaxSuccessMin: 31.55 }) })
+  assert.equal(base.ok, false, '夹具前提：不传 form 时仍按全局字段判（这条必须红，否则下面的绿是假的）')
+  const split = gate.checkSizing({ provenance: base && freshProvenance({ gate4MaxSuccessMin: 29.88, shardMaxSuccessMin: 31.55 }), form: formOf() })
+  assert.equal(split.ok, true, '按当前形态分档后，旧形态的 31.55 不能再触发重定数：' + split.reasons.join(' ; '))
+  assert.equal(split.maxObs, 12.4, 'checkSizing 的 maxObs 必须换成当前形态的值')
+})
+
+test('样本不足且观测值本身没违约 ⇒ 只报"样本不够"，不报"要重定数"（对照：违约那条另立）', () => {
+  const r = gate.checkSizing({ provenance: freshProvenance(), form: formOf({ gate4SuccessN: 1, shardSuccessN: 1 }) })
+  assert.equal(r.ok, false, '真分片形态只有 2 个样本，不足以证明预算站得住')
+  assert.ok(r.scarcity.some((x) => /INSUFFICIENT_CURRENT_FORM/.test(x)), '理由必须点名是"同形态样本不够"：' + r.reasons.join(' ; '))
+  assert.equal(r.alarms.length, 0, '这条夹具的观测 max 只有 12.4 分，规则站得住 ⇒ 不该有告警')
+  assert.equal(r.reasons.some((x) => /RULE_VIOLATED|NO_LONGER_SIZED/.test(x)), false,
+    '分装的目的是两者不得互相覆盖：稀缺说"别急着改数"，告警说"该改了"：' + r.reasons.join(' ; '))
+})
+
+test('当前形态自己贴脸/违约时，RULE_VIOLATED 仍然必须红（分档不是把它整体关掉）', () => {
+  const r = gate.checkSizing({ provenance: freshProvenance(), form: formOf({ shardMaxSuccessMin: 31.55 }) })
+  assert.equal(r.ok, false)
+  assert.ok(r.reasons.some((x) => /RULE_VIOLATED/.test(x)), '当前形态自身已违反 ×1.5 必须红：' + r.reasons.join(' ; '))
+})
+
+test('形态键是纯函数：从 workflow 正文判分片是否已修好，从 gate-budget 正文取预算', () => {
+  const wf = fs.readFileSync(WF_PATH, 'utf8')
+  assert.equal(gate.shardFormOf(wf), 'fixed', '当前 main 的 workflow 应是"分片已修好"形态')
+  const broken = wf.replace('              "test",', '              "test",\r\n              "--",')
+  assert.notEqual(broken, wf, '夹具没改到东西，这条对照失效')
+  assert.equal(gate.shardFormOf(broken), 'broken', '把裸 "--" 塞回去必须判 broken')
+  assert.equal(gate.budgetMinFromGateBudgetText('const GATE_TEST_BUDGET_MS = 2700000 // x'), 45)
+  assert.equal(gate.budgetMinFromGateBudgetText('没有这个常量'), null, '取不到必须返回 null，不得瞎猜一个数')
+})
+
+test('解析不了就是 unknown —— 不得默认成 fixed（默认放行等于给这条判据关灯）', () => {
+  assert.equal(gate.shardFormOf('jobs:\n  other:\n    steps: []\n'), 'unknown',
+    '找不到 shard 步骤时必须报 unknown；返回 fixed 会让"判据读不到"被读成"分片是好的"')
+  assert.equal(gate.shardFormOf('- name: "Desktop tests shard x"\n  run: |\n    nothing\n'), 'unknown')
+})
+
+test('探针接线：必须把 form 交给 checkSizing，且 unknown 不得混进 probe_errors', () => {
+  const src = fs.readFileSync(PROBE_PATH, 'utf8')
+  assert.match(src, /checkSizing\(\{\s*provenance:\s*fresh,\s*form,?\s*\}\)/, // 只认语义：参数换行/尾逗号/顺序都不该让这条锁红
+    '探针没把当前形态交给判据 —— 混池旧口径会原样回来（#3357 那次误报的形态）')
+  assert.match(src, /gate\.exitCodeFor\(/, '探针必须用判据侧的出口码表，不得在 main() 里用 if 的书写顺序表达优先级')
+  assert.match(src, /EXIT=4 INSUFFICIENT_CURRENT_FORM/, '出口横幅必须复用判据码本身，否则日志里两个名字互相搜不到')
+  assert.match(src, /gate\.waitExitBudgetMin\(/, 'workflow 兜底取预算必须用判据侧那一份，不得在探针里抄第二份正则')
+  assert.match(src, /censoredUnderPriorBudgetN:\s*censoredUnder\(bucket/, '当前形态的截尾证据必须由形态桶算出并交给判据，否则「贴脸要截尾作证」又回到混池口径')
+  assert.match(src, /form_censored=/, '当前形态的截尾证据必须打进现场，否则「贴脸要截尾作证」读起来还是混池口径')
+  assert.match(src, /unknowns\.push\(/, 'unknown 样本必须有独立账')
+  assert.equal(/errs\.push\(\s*['"`]FORM_/.test(src), false,
+    'FORM_* 一律不许进 errs —— PR head 提交本地取不到是结构性的，混进 errs 会让探针永久退 3（等于把新判据自己关掉）')
+})
+
+/* ────────── 样本稀缺只削弱"确认"，不削弱"告警"（budget-probe-form-split 第 2 轮）──────────
+ * 动因：第 1 轮把 INSUFFICIENT 做成了整条 else 分支的开关 —— 于是"当前形态已经观测到 44 分
+ * （预算 45）但只有 14 个样本"这种组合，只剩一句"判不了"，RULE_VIOLATED / NO_LONGER_SIZED
+ * 被一起关掉。QM-6 后端轴独立命中同一条；我此前也自己复现过一次。
+ * 口径：样本稀缺削弱的是"max 就是真上界"这个**正向结论**（右截尾 ⇒ 观测 max 只会低估），
+ * 它削弱不了"确实跑出过一个 44 分"这个**直接证据**。
+ */
+
+test('样本不足 + 当前形态自己已违约 ⇒ 两条都要报，稀缺不得吃掉告警（红在结构，不红在措辞）', () => {
+  const r = gate.checkSizing({ provenance: freshProvenance(), form: formOf({ gate4SuccessN: 6, shardSuccessN: 8, shardMaxSuccessMin: 44.0 }) })
+  assert.equal(r.ok, false)
+  assert.ok(r.scarcity.some((x) => /INSUFFICIENT_CURRENT_FORM/.test(x)), '稀缺必须仍然出声：' + r.reasons.join(' ; '))
+  assert.ok(r.alarms.some((x) => /RULE_VIOLATED/.test(x)), '观测到 44 分而预算 45 分，"要重定数"不得被样本不足吃掉：' + r.reasons.join(' ; '))
+  assert.ok(r.alarms.some((x) => /NO_LONGER_SIZED/.test(x)), '已达 0.9 档同理必须红：' + r.reasons.join(' ; '))
+})
+
+test('同形态样本下限按池分别判（Gate 4 够不代表 shard 够）', () => {
+  const lopsided = gate.checkSizing({ provenance: freshProvenance(), form: formOf({ gate4SuccessN: 25, shardSuccessN: 3 }) })
+  assert.ok(lopsided.scarcity.some((x) => /INSUFFICIENT_CURRENT_FORM/.test(x)),
+    'shard 侧只有 3 个样本时不得判"当前形态已确认"——两池分布不同，加总 28 是个假数：' + lopsided.reasons.join(' ; '))
+  const both = gate.checkSizing({ provenance: freshProvenance(), form: formOf({ gate4SuccessN: 25, shardSuccessN: 25 }) })
+  assert.equal(both.scarcity.length, 0, '两池都达下限后不得再报稀缺：' + both.reasons.join(' ; '))
+})
+
+test('出口码是一张表，不是 if 的书写顺序：取数失败 > 告警 > 稀缺 > 贴脸 > 干净', () => {
+  const mk = (over) => ({ alarms: [], scarcity: [], hugging: false, ok: true, ...over })
+  assert.equal(gate.exitCodeFor(mk({}), 7), 3, '取数失败必须最优先（数字本身不可用）')
+  assert.equal(gate.exitCodeFor(mk({ alarms: ['RULE_VIOLATED…'], scarcity: ['INSUFFICIENT_CURRENT_FORM…'], ok: false }), 0), 1, '两者并存时 actionable 的那个赢：读 4 会被当成「还没量够、别动”')
+  assert.equal(gate.exitCodeFor(mk({ scarcity: ['INSUFFICIENT_CURRENT_FORM…'], ok: false }), 0), 4)
+  assert.equal(gate.exitCodeFor(mk({ alarms: ['unit-tests: timeout-minutes…'], ok: false }), 0), 1)
+  assert.equal(gate.exitCodeFor(mk({ hugging: true }), 0), 2, '贴脸但规则仍站得住 ⇒ 要重测的信号')
+  assert.equal(gate.exitCodeFor(mk({}), 0), 0)
+})
+
+test('形态判定只有一份实现：续行被注释吃掉的 run 也必须是 broken', () => {
+  // 第 1 轮 shardFormOf 只看裸 "--" 与 --shard=，而 check() 还看"续行被注释吞掉"和语义层 ——
+  // 于是同一次"分片失效"，CI 报红、探针却把它归进 fixed 池，形态分档的前提被自己钻空子。
+  const nl = wf.includes('\r\n') ? '\r\n' : '\n'
+  const anchor = '            -ArgumentList @('
+  const at = wf.indexOf(anchor)
+  assert.ok(at > -1, 'workflow 里找不到 -ArgumentList @(...) 锚点 —— 夹具失效，先改这里再谈判据')
+  const severed = wf.slice(0, at) + '              # 我把续行顶掉了' + nl + wf.slice(at)
+  assert.notEqual(severed, wf, '夹具没改到东西，这条对照失效')
+  assert.equal(gate.shardFormOf(severed), 'broken', '续行断裂同样是"分片没生效"，不得判 fixed')
+})
+
+test('解析模块本身没了要炸出声，不得被洗成 unknown（unknown 是数据缺失，不是装配断裂）', () => {
+  const Module = require('module')
+  const orig = Module._load
+  let hit = 0
+  Module._load = function (request, ...rest) {
+    if (String(request).includes('check-desktop-shard-forwarding')) { hit++; throw new Error('MODULE_GONE') }
+    return orig.call(this, request, ...rest)
+  }
+  let threw = null
+  try { gate.shardFormOf(wf) } catch (e) { threw = String(e.message) } finally { Module._load = orig }
+  assert.equal(hit, 1, '桩没被走到 = 这条用例什么都没测（模块被缓存在别处了）')
+  assert.ok(threw && /MODULE_GONE/.test(threw), '把装配断裂读成"这批样本没形态"就是判据失明的第二种形态；got=' + threw)
+})
+
+test('预算解析两处健壮性：常量必须锚在声明行，兜底取值不一致就当读不到', () => {
+  const prose = '// 历史上 GATE_TEST_BUDGET_MS = 1800000 曾被抄在 workflow 两处' + String.fromCharCode(10) + 'const GATE_TEST_BUDGET_MS = 2700000 // 45 分'
+  assert.equal(gate.budgetMinFromGateBudgetText(prose), 45, '正文里的历史叙述不得被当成现行常量')
+  assert.equal(gate.budgetMinFromGateBudgetText(''), null, '空文本读不到预算必须返回 null')
+  assert.equal(typeof gate.waitExitBudgetMin, 'function', 'workflow 兜底解析要有名字，别散在调用点')
+  const twoValues = 'a WaitForExit(2700000) b' + String.fromCharCode(10) + 'c WaitForExit(1800000) d'
+  assert.equal(gate.waitExitBudgetMin(twoValues), null, '两处字面量不一致时不得取第一个猜一个')
+  const sameTwice = 'a WaitForExit(2700000) b' + String.fromCharCode(10) + 'c WaitForExit(2700000) d'
+  assert.equal(gate.waitExitBudgetMin(sameTwice), 45, '两处一致才取值')
+})
+
+test('贴脸时的截尾证据也按形态取，不得拿混池旧数充当当前形态的证据', () => {
+  const r = gate.checkSizing({ provenance: freshProvenance({ censoredUnderPriorBudgetN: 9 }), form: formOf({ shardMaxSuccessMin: 37.0, censoredUnderPriorBudgetN: 0 }) })
+  assert.ok(r.alarms.some((x) => /假上界/.test(x)),
+    '当前形态自己贴脸且该形态内零截尾样本 ⇒ 必须报"max 是假上界"，provenance 里的 9 条是别的形态的：' + r.reasons.join(' ; '))
+  const ok = gate.checkSizing({ provenance: freshProvenance({ censoredUnderPriorBudgetN: 9 }), form: formOf({ shardMaxSuccessMin: 37.0, censoredUnderPriorBudgetN: 3 }) })
+  assert.equal(ok.alarms.some((x) => /假上界/.test(x)), false, '同形态里有一条截尾样本就够（下限 1）')
+})
+
+test('perJob 不得被"样本不足"出口吞掉（样本不足只该停统计判据，job 上限是算术事实）', () => {
+  const r = gate.checkSizing({
+    provenance: freshProvenance(),
+    jobTimeouts: { 'unit-tests': 30, 'desktop-shards': 30 },
+    form: formOf({ gate4SuccessN: 3, shardSuccessN: 3 }),
+  })
+  assert.ok(r.scarcity.some((x) => /INSUFFICIENT_CURRENT_FORM/.test(x)), '夹具前提：样本确实不足')
+  assert.ok(r.alarms.some((x) => /unit-tests: timeout-minutes 30/.test(x)),
+    '30 分 < 预算 45 + 前置 + 余量 是算术事实，与样本量无关，不得一起被吞：' + r.reasons.join(' ; '))
+  assert.ok(r.alarms.some((x) => /desktop-shards: timeout-minutes 30/.test(x)))
+})

@@ -1,0 +1,13 @@
+# 形态分档上线后的实测复跑（node scripts/gate-budget-probe.js --check，2026-10-12，head 见产物头）
+# 关键结论：#3357 合并后那次 RULE_VIOLATED(45 < 31.55×1.5) 被证明是混池误报——31.55 属 budget=45|shard=broken 那一代；
+# 当前形态 budget=45|shard=fixed 的 max 只有 17.43，同形态样本 14 < 20 ⇒ 探针改报 INSUFFICIENT_SAMPLES_FOR_FORM（退 4）。
+COORDS workflow=306371582 repo=Colinchiu007/mulpub push_n=40 pr_n=60 prior=30min current=45min overhead_sample=8/6
+FORM budget=30min|shard=broken: g4_ok=4/4 max=0.23 shard_ok=0/0 max=0
+FORM budget=45min|shard=broken: g4_ok=41/42 max=2.05 shard_ok=72/72 max=31.55
+FORM budget=45min|shard=fixed: g4_ok=6/6 max=1.83 shard_ok=8/8 max=17.43 ←当前
+form_current=budget=45min|shard=fixed form_samples(g4+shard)=14 form_max=17.43 form_unknown_n=21 unknown_why[1]=FORM_BLOB_MISSING：本地没有该提交（PR head 分支已删？先 git fetch） (sha fe2e9684)
+probe_errors=0
+hugging=false max=17.43 budget=45
+sizing_ok=false reasons=INSUFFICIENT_CURRENT_FORM：当前形态（budget=45min|shard=fixed）同形态成功样本仅 14，低于下限 20 —— 既不能判"预算站得住"，也不能判"要重定数"；等样本攒够再采
+INSUFFICIENT_SAMPLES_FOR_FORM —— 当前形态样本不够：既不抬也不降，等样本攒够再采（不得改判据/改倍数让它不红）
+# 原始 JSON 字段输出见同一次 stdout（fresh 对象），此处只留有判据意义的行

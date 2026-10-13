@@ -52,6 +52,53 @@ const HARD_RATIO = 0.9   // 不再满足规则：必须重测重定数
 // 样本量下限：低于此，下面的数字就不是"分布"而是"一次观测"，不得用来定预算
 const MIN_SAMPLE_GATE4_SUCCESS = 20
 const MIN_SAMPLE_CENSORED_WHEN_HUGGING = 1
+// 同形态样本下限：#3357 合并后实测——窗口里混着"两腿各跑全量"与"真半量"两代形态，
+// 混池算出的 max 会让 RULE_VIOLATED 拿旧形态的时长去给新形态定墙。分档之后只能说"判不了"。
+// ⚠ 分母是**每一池各自**（gate4 与 shard 是两个 job、两种预算语义，加总成 28 是个假数）；
+// 它与 MIN_SAMPLE_GATE4_SUCCESS 同为 20 但**不是同一件事**（那个只数 Gate 4 一池，与本形态无关）。
+// 且它只削弱"预算站得住"这个正向结论，不削弱由观测值直接推出的告警（见 checkSizing 的 alarms/scarcity 分装）。
+const MIN_SAMPLE_CURRENT_FORM = 20
+
+/**
+ * 纯函数：只读 workflow 正文，判"桌面分片这一步到底分不分文件"。
+ * 判据本身住在 scripts/check-desktop-shard-forwarding.js 的 `classifyShardForm`
+ * （裸 "--" / 缺 `--shard=` / 续行被注释吃掉 三种失效形态共用一份事实），本文件只是转接 ——
+ * 抄第二份判据的话，"CI 报红的那批 run"会被探针归进 fixed 池，分档前提自己被骗。
+ * 三态语义：
+ *   fixed   —— 那一步在，且三种失效形态一个都没命中；
+ *   broken  —— 那一步在，但命中任一失效形态（旗标没送到 / 被裸 "--" 截断 / 续行断裂）；
+ *   unknown —— **读不到那一步**（步骤改名、解析不到数组），绝不猜成 fixed。
+ * ⛔ require 故意放在 try 外面：模块没了是装配断裂，不是数据缺失，必须炸出声；
+ * 把它洗成 unknown 会让"判据失明"和"这批样本没形态"在退出码上无法区分。
+ */
+function shardFormOf (workflowText) {
+  const { classifyShardForm } = require('./check-desktop-shard-forwarding.js')
+  try {
+    return classifyShardForm(workflowText)
+  } catch (e) {
+    return 'unknown'
+  }
+}
+
+/** 纯函数：从某个历史提交里的 gate-budget.js 正文取当时生效的预算（分钟）；取不到返回 null。 */
+function budgetMinFromGateBudgetText (text) {
+  // 锚在声明行：正文注释里"历史上 GATE_TEST_BUDGET_MS = 1800000 曾…"这种叙述不是现行常量，
+  // 不锚就会把历史叙述当成那个 run 生效的预算，形态键立刻漂移。
+  const m = /^[ \t]*const GATE_TEST_BUDGET_MS\s*=\s*(\d+)/m.exec(String(text || ''))
+  if (!m) return null
+  return Math.round((Number(m[1]) / 60000) * 100) / 100
+}
+
+/**
+ * 纯函数：旧提交里还没有 gate-budget.js 时，从 workflow 正文的 `WaitForExit(<ms>)` 字面量取预算。
+ * 两处（Gate 4 与 shard）取值**不一致就当读不到** —— 那说明这一步的墙不止一张，
+ * 取第一个猜一个正是本文件反复出事的形态。
+ */
+function waitExitBudgetMin (text) {
+  const vals = [...new Set((String(text || '').match(/WaitForExit\((\d{4,})\)/g) || []).map((s) => Number(/(\d{4,})/.exec(s)[1])))]
+  if (vals.length !== 1) return null
+  return Math.round((vals[0] / 60000) * 100) / 100
+}
 
 const PROVENANCE = {
   collectedAt: '2026-10-11T08:22:54Z',
@@ -80,31 +127,55 @@ const JOB_OVERHEAD_FIELD = {
 
 /**
  * 纯判据：不碰网络、不读文件，便于离线锁住"数与规则是否自洽"。
- * 返回 { ok, reasons, budgetMin, maxObs, hugging, perJob: { <job>: { ok, usesOverhead, need, reason } } }
+ *
+ * `form`（可选）= 当前形态的同源样本统计
+ * `{ key, gate4SuccessN, shardSuccessN, gate4MaxSuccessMin, shardMaxSuccessMin, censoredUnderPriorBudgetN }`。
+ * 传了它，取值来源**按字段分治**（不是"整体取代 provenance"，那样说会过度声称）：
+ *   maxObs、样本数、贴脸时要求的截尾证据 ⇒ 一律取 form；
+ *   perJob 的实测前置（gate4OverheadMaxMin / shardOverheadMaxMin）⇒ 仍取 provenance，form 里没有这两项。
+ *
+ * 两类结论分开装，因为它们的**动作方向相反**：
+ *   alarms   —— 由观测值直接推出，意思是"现在就该动数"；
+ *   scarcity —— 由样本量推出，意思是"还不能确认预算站得住"。
+ * 样本稀缺只让"max 就是真上界"这个正向结论更弱（右截尾 ⇒ 观测 max 只会低估），
+ * 它否定不了"确实跑出过一个 44 分"。第 1 轮把稀缺做成整条 else 的开关，于是
+ * 「14 个样本 + 观测 44 分」只剩一句"判不了"，真违规被自己的判据关掉。
  */
 function checkSizing ({
   budgetMs = GATE_TEST_BUDGET_MS,
   jobTimeouts = { 'unit-tests': GATE_JOB_TIMEOUT_MIN, 'desktop-shards': GATE_JOB_TIMEOUT_MIN },
   provenance = PROVENANCE,
+  form = null,
 } = {}) {
-  const reasons = []
+  const alarms = []
+  const scarcity = []
   const budgetMin = budgetMs / 60000
-  const maxObs = Math.max(provenance.gate4MaxSuccessMin, provenance.shardMaxSuccessMin)
+  const maxObs = form
+    ? Math.max(form.gate4MaxSuccessMin, form.shardMaxSuccessMin)
+    : Math.max(provenance.gate4MaxSuccessMin, provenance.shardMaxSuccessMin)
   const hugging = maxObs >= budgetMin * WARN_RATIO
+  const censoredN = form ? form.censoredUnderPriorBudgetN : provenance.censoredUnderPriorBudgetN
 
   // 定数规则①本身必须是判据，不能只活在注释里（QM-6 第 2 轮可维护性轴命中：
   // 原来只有 0.9 档，于是"预算=1.2×观测最大值"这种违反 ×1.5 的形态会被读成"一切正常"）。
   if (!(budgetMin >= maxObs * SAFETY_MULTIPLIER - 1e-9)) {
-    reasons.push(`RULE_VIOLATED：预算 ${budgetMin} 分 < 观测成功最大 ${maxObs} 分 × ${SAFETY_MULTIPLIER} = ${(maxObs * SAFETY_MULTIPLIER).toFixed(2)} 分——按规则重定数，不得改倍数`)
+    alarms.push(`RULE_VIOLATED：预算 ${budgetMin} 分 < 观测成功最大 ${maxObs} 分 × ${SAFETY_MULTIPLIER} = ${(maxObs * SAFETY_MULTIPLIER).toFixed(2)} 分——按规则重定数，不得改倍数`)
   }
   if (maxObs >= budgetMin * HARD_RATIO) {
-    reasons.push(`NO_LONGER_SIZED：观测成功最大 ${maxObs} 分已达预算 ${budgetMin} 分的 ${HARD_RATIO * 100}%，必须重新采集并重定数（不是放宽判据）`)
+    alarms.push(`NO_LONGER_SIZED：观测成功最大 ${maxObs} 分已达预算 ${budgetMin} 分的 ${HARD_RATIO * 100}%，必须重新采集并重定数（不是放宽判据）`)
   }
-  if (hugging && !(provenance.censoredUnderPriorBudgetN >= MIN_SAMPLE_CENSORED_WHEN_HUGGING)) {
-    reasons.push(`已贴脸（${maxObs} ≥ ${WARN_RATIO} × ${budgetMin}）却无任何"在生效预算处被杀"的截尾样本：此时 max 是假上界`)
+  if (hugging && !(censoredN >= MIN_SAMPLE_CENSORED_WHEN_HUGGING)) {
+    alarms.push(`已贴脸（${maxObs} ≥ ${WARN_RATIO} × ${budgetMin}）却无任何"在生效预算处被杀"的截尾样本：此时 max 是假上界`)
   }
-  if (provenance.gate4SuccessN < MIN_SAMPLE_GATE4_SUCCESS) {
-    reasons.push(`Gate 4 成功样本仅 ${provenance.gate4SuccessN}，低于下限 ${MIN_SAMPLE_GATE4_SUCCESS}——不能拿来定预算`)
+
+  // 样本下限：MIN_SAMPLE_GATE4_SUCCESS 只数 Gate 4 一池；MIN_SAMPLE_CURRENT_FORM 是**每池各自**的下限
+  // —— 同值 20 是分母不同的两件事（把两池加总成 28 是个假数：Gate 4 够不代表 shard 够）。
+  if (form) {
+    if (form.gate4SuccessN < MIN_SAMPLE_CURRENT_FORM || form.shardSuccessN < MIN_SAMPLE_CURRENT_FORM) {
+      scarcity.push(`INSUFFICIENT_CURRENT_FORM：当前形态（${form.key || '未命名'}）两池成功样本 gate4=${form.gate4SuccessN} / shard=${form.shardSuccessN}，各自下限 ${MIN_SAMPLE_CURRENT_FORM} —— 不能确认预算站得住；上面若仍有告警，告警照样算数`)
+    }
+  } else if (provenance.gate4SuccessN < MIN_SAMPLE_GATE4_SUCCESS) {
+    scarcity.push(`Gate 4 成功样本仅 ${provenance.gate4SuccessN}，低于下限 ${MIN_SAMPLE_GATE4_SUCCESS}——不能拿来定预算`)
   }
 
   const perJob = {}
@@ -115,10 +186,29 @@ function checkSizing ({
     const ok = typeof t === 'number' && t >= need
     const reason = ok ? '' : `${job}: timeout-minutes ${t} < 预算 ${budgetMin} + 自身前置 ${usesOverhead} + 余量 ${TIMEOUT_MARGIN_MIN} = ${need.toFixed(1)} 分`
     perJob[job] = { ok, usesOverhead, need, reason }
-    if (!ok) reasons.push(reason)
+    if (!ok) alarms.push(reason)
   }
 
-  return { ok: reasons.length === 0, reasons, budgetMin, maxObs, hugging, perJob }
+  const reasons = [...alarms, ...scarcity]
+  return { ok: reasons.length === 0, reasons, alarms, scarcity, budgetMin, maxObs, hugging, perJob }
+}
+
+/**
+ * 出口码表（纯函数，探针与测试共用；这里的顺序就是优先级，不是 if 的书写顺序）：
+ *   3 取数失败（数字本身不可用，最优先）
+ *   1 有告警（要动数）
+ *   4 同形态样本不足（别动数，等样本攒够）
+ *   2 贴脸但规则仍站得住（要重测的信号）
+ *   0 一切正常
+ * ⛔ 告警必须排在稀缺之前：把"已经观测到 44 分"读成"还没量够、先别动"，正是本文件要消灭的误标签；
+ * 抽成表还让"分支换序"这种回归变成一条可点名的单测，而不是等下一次误报。
+ */
+function exitCodeFor (sized, probeErrorsN = 0) {
+  if (probeErrorsN > 0) return 3
+  if ((sized.alarms || []).length) return 1
+  if ((sized.scarcity || []).length) return 4
+  if (sized.hugging) return 2
+  return 0
 }
 
 module.exports = {
@@ -130,8 +220,14 @@ module.exports = {
   HARD_RATIO,
   MIN_SAMPLE_GATE4_SUCCESS,
   MIN_SAMPLE_CENSORED_WHEN_HUGGING,
+  MIN_SAMPLE_CURRENT_FORM,
   JOB_OVERHEAD_FIELD,
   PROVENANCE,
   PROVENANCE_FIELDS,
   checkSizing,
+  exitCodeFor,
+  budgetMinFromGateBudgetText,
+  waitExitBudgetMin,
+  shardFormOf,
+  budgetMinFromGateBudgetText,
 }
