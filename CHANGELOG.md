@@ -1,3 +1,8 @@
+# [未发布] 播客术语收口与三处记忆同步（podcast-glossary-terms）
+
+- 文档：`01-docs/i18n-glossary.md` 补两条播客术语 `出期 → Publish as podcast episode`（`podcast.episode.entry`）与 `一键发布 → One-click podcast episode`（`podcast.episode.title`），en 列一律取 en locale 里真实出现的逐字（L3 判据是「值包含」而非标准译法），方向按「让 UI 采用 canonical 术语、不把词典削到已有裸词」，未改动任何已上线文案。
+- 流程：tasks 5.3 勾账——三处记忆同步的现场逐条写进执行记录（内置记忆 4 条已进索引、EverOS `pending=0 lag=0 done 162→166`、仓库文档 PRD §7.9.7 更正与两片执行记录）。
+
 # [未发布] 更正 PRD §7.9.7 的过期陈述「宿主接线未做」（prd-stock-status-correction）
 
 - 文档：PRD §7.9.7 的引导句「宿主接线未做」已被 #3387（merge SHA `8bd87f385`）否证。本片**不删原句**，只把它标成 2026-10-12 的现场，并在其前插一条带日期与 merge SHA 的更正行——合并动作不会自动改写规格，留着过期句会让下一个会话照着一份说「宿主没接线」的 PRD 再去接一遍。

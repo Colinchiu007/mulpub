@@ -73,6 +73,8 @@
 | 播客 | Podcast | — |
 | 播客频道 | Podcast channel | podcast.channel |
 | 单集 | Episode | podcast.episode |
+| 出期 | Publish as podcast episode | podcast.episode.entry |
+| 一键发布 | One-click podcast episode | podcast.episode.title |
 | RSS 订阅源 | RSS feed | podcast.feed |
 | 聚合端 | Aggregator | — |
 | 收录 | Inclusion | — |
