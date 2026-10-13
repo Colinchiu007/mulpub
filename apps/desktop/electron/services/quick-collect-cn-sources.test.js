@@ -11,10 +11,7 @@ import { describe, it, expect, vi, beforeAll } from 'vitest'
 
 beforeAll(() => { __enableElectronMock() })
 
-// 与 quick-collect.test.js 同因修复：素材时间必须**相对当前时刻**，不能钉死日历日期。
-// 本文件多数用例注入 `now: () => NOW`（自洽、不受影响），但 S2「feed 源进素材」用例走**真实
-// 时钟**路径，fixture 时间由写死的 NOW 推出 ⇒ 在真实时刻 2026-10-13T03:00:00Z 越出 48h 窗后必然转红。
-const NOW = Date.now()
+const NOW = Date.parse('2026-10-11T04:00:00.000Z')
 const hoursAgo = (h) => Math.floor((NOW - h * 3600 * 1000) / 1000)
 
 async function materialsMod () { return import('../services/quick-collect-materials') }
@@ -307,12 +304,8 @@ describe('S1/IPC：hotTopicsService → 统一素材的映射', () => {
   })
 
   it('S2：注入 fetchFn 后 feed 源（solidot）能进素材，时间语义为 published', async () => {
-    // pubDate 必须动态生成：本用例走**真实时钟**路径，写死 RSS 里的日历时间会随真实时间推移
-    // 越出 `windowHours: 48`（原值 `11 Oct 2026 02:00:00 +0000` 在 2026-10-13T02:00:00Z 越窗）。
-    // 保留意图：一条「2 小时前发布」的条目 ⇒ 仍应进素材且 timeKind='published'。
-    const pubDate = new Date(Date.now() - 2 * 3600 * 1000).toUTCString().replace('GMT', '+0000')
     const rss = '<?xml version="1.0"?><rss><channel>'
-      + `<item><title>Solidot 条目</title><link>https://www.solidot.org/story?sid=9</link><pubDate>${pubDate}</pubDate></item>`
+      + '<item><title>Solidot 条目</title><link>https://www.solidot.org/story?sid=9</link><pubDate>Sun, 11 Oct 2026 02:00:00 +0000</pubDate></item>'
       + '</channel></rss>'
     const fetchFn = vi.fn(async () => ({
       ok: true,

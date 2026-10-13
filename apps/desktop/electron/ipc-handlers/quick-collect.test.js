@@ -11,14 +11,7 @@ import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest'
 // 于是所有用例都会以同一个假失败收场。必须在本文件任何 `require('electron')` 之前开启。
 beforeAll(() => { __enableElectronMock() })
 
-// 素材时间必须是**相对当前时刻**的，不能钉死一个日历日期：
-// 引擎的窗口判据是 `mergeMaterials(items, { windowHours, now: Date.now() })`，即保留
-// `created_utc >= 真实now - windowHours` 的条目。此前这里写死 `Date.parse('2026-10-11T04:00:00.000Z')`，
-// 而本文件命令用 `windowHours: 48` ⇒ 该 fixture 在**真实时刻 2026-10-13T03:00:00Z 越窗**，
-// 于是「run 成功」与「依赖后到也能工作」两例在到期后必然转红（本仓实测：主干最后一次绿
-// 运行 2026-10-12T21:41Z，下一批 CI 起于 2026-10-13T03:13Z 即双双失败）。
-// 这是一个**定时炸弹式测试**：它挡的不是某个功能缺陷，而是所有 PR 的 CI。改为相对时刻后永久稳定。
-const NOW = Date.now()
+const NOW = Date.parse('2026-10-11T04:00:00.000Z')
 
 function makeIpcMain () {
   const handlers = {}
