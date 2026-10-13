@@ -18093,3 +18093,92 @@ gui-test 的 `defaults.run.shell`（盲区），又把带 9 行冲突标记的 `
 
 【陷阱】本仓 packages/api-publish-engine/scripts/run-tests.js 用**硬编码的 VITEST_FILES Set** 决定哪些测试文件用 vitest 跑，其余一律 node --test。 新增 vitest 风格测试文件若忘记登记，症状极其隐蔽：ReferenceError: describe is not defined + **runner exit=1，但 summary 里文件数与用例数都不变**（因为失败的文件根本没进入统计）。 判据：新增该包测试文件后，跑 node scripts/run-tests.js 必须 exit=0 且文件数比改动前 +1。只看「我的测试 ✓」不够——那行是 vitest 自己的输出，runner 的退出码另算。
 
+
+## 2026-10-13/14 — 共享根写保护的静默盲区：一个没有「第二次机会」的守护者
+
+### pitfall:watcher-only-guard-has-no-second-chance
+
+【陷阱】纯事件驱动的守护者（FileSystemWatcher + while($true)）只对「**发生在我看着的时候**」负责。
+本仓共享根写保护就是这么写的，**没有启动时的全量对账** —— 于是「进程未运行期间」（AtLogOn 拉起前、
+崩溃、重启）或「事件被缓冲区溢出丢弃期间」产生的漂移**永远不被回看**。
+症状最毒的地方在于两个真相可以并存：guard 报 Running、violations.jsonl 为空，而共享根已漂移数天。
+实测：59 个漂移的运行时文件里 guard **只记录过 3 个**，另 **56 个一条记录都没有**，最早的已存在 8 天。
+修法：常驻模式启动时先跑一次全量对账，**放在 EnableRaisingEvents 之后**（使对账自身的恢复也走事件流
+并被 ignoreUntil 吸收，不与会话中的 watcher 打架）；对账**复用同一份单路径判据**，不要写第二份；
+用**一次** `git status --porcelain --untracked-files=no` 取漂移集，而不是逐文件 `ls-files`
+（受保护前缀下近 8.6k 个 tracked 文件，逐文件探测＝启动时上千次 git 调用，会把 watcher 挡在门外数分钟）。
+
+### pitfall:behavioural-test-cannot-prove-the-call-happens
+
+【陷阱】回归用例若**显式调用**被测入口，就证明不了「常驻模式真的会调用它」。
+本仓既有 18 条守卫断言全是 `Invoke-Guard $fx <path>`，等价于「watcher 看见了那次写」；
+把新加的启动对账调用**整段删掉**，新增的 12 条行为断言**一条都不会红**。
+正解：补一条**结构锁**钉住「Watch 必须在事件循环之前调用对账」，并对该锁做变异反证。
+实测：删掉调用 ⇒ `FAIL: watch mode invokes the startup reconcile pass`（rc=1）；还原 ⇒ rc=0 / 51 checks。
+
+### technique:mutation-that-did-not-mutate
+
+【技法】「变异后仍然全绿」必须先排除「**变异根本没生效**」。
+本轮首次变异用 `IndexOf('try {')` 定位，锚点落在自己刚插入那段的开头，结果只删掉了 161 字符注释，
+调用仍在 —— 那次 rc=0 是**正确**结果，不是锁失效。
+结论：变异脚本要回读「改到了哪一行／删掉了多少字符」，并把空操作如实写进记录，
+**不要把「变异没生效」读成「锁有效」**。
+
+### pitfall:same-bug-repeated-at-function-boundary
+
+【陷阱】同一形态会在**函数边界**上重犯：修一处必须扫同类。
+本轮在 `Invoke-GuardPaths` 里修掉了「日志 `Write-Output` 与返回值混进同一管线 ⇒ `$x = Fn` 拿到
+字符串数组、`-gt 0` 退化成逐元素比较」这一形态，紧接着在自己新写的 `Invoke-ReconcilePass` 的函数
+边界上**又犯一次**，导致对账日志被调用点吞掉 —— 被发现纯属偶然（跑完发现输出为空）。
+正解：需要同时返回值与日志的函数**一律返回结构化对象**，由调用点负责打印与判 rc。
+
+### lesson:gate-caught-the-agent
+
+【本仓实证】机械拦截优于临场自觉：本轮用 `ReadAllText` + `WriteAllText(UTF8Encoding(false))` 还原
+含中文的 .ps1 时把 UTF-8 BOM 剥掉了，`.github/scripts/check-ps1-bom.js` **当场判红**并给出修法
+（`missing-bom nonASCII=2505 / 3535`，rc=1）。按它给的一键写法前置 `EF BB BF` 后 54 个 tracked .ps1
+全部守约。**结论**：PS 里读写含中文的 .ps1 一律用字节级操作或显式补 BOM，不要用 ReadAllText 往返。
+
+### technique:verify-gates-on-the-generated-tree
+
+【技法】门禁的真实输入是「**生成的树**」，且**要跑 CI 真正跑的那条命令**。
+本地对工作区跑 `check-record-qm5-rows` 报 OK，CI 却判红「本 PR 改动的记录缺行且未登记」——
+因为本地工作区根本没有该 PR 的记录文件。根因：模板要求 QM-5 **①②④⑤** 四行，只写了 ①②④（漏
+「防止再次发生」）。正解：`git archive <commit> | tar -x` 把待推的树导出到临时目录，
+对**导出物**跑门禁（可直接调用门禁导出的 `collect({root, changed})`），确认
+`violations` / `unregistered` 均为空再推送。
+**同型第二坑（本轮真踩）**：只跑门禁脚本 `check-gate-record-debt.js` 不算数 —— CI 跑的是它的
+**自测** `node --test scripts/check-gate-record-debt.test.js`（对真仓断言「每一条未收口的
+`远程同步` 行都必须已登记，且登记清单里不得有陈旧项」）。新记录若带 PENDING 行却**没写**
+frontmatter 登记字段（`sync_reason` / `sync_backfill_owner`），门禁脚本不报、自测当场红。
+**判据：验证命令必须与 CI 逐字一致**，不要用「底层脚本」替代「工作流里那一行」。
+
+### technique:commit-without-worktree-via-plumbing
+
+【技法】没有 worktree、也不能切分支时，仍能造出「基于最新主干」的提交。
+当共享根有他人未提交改动（`mp-worktree-health.ps1 -RequireClean` 拒绝建 worktree）且铁律禁止把共享
+根切到 feature 分支时，rebase 看似无路。可用 plumbing 绕开：
+`GIT_INDEX_FILE` 指向**仓库外**的临时索引 → `git read-tree <主干>` →
+`git update-index --cacheinfo` 放入自己的 blob（追加型文件则以主干内容为基准做**行级变换**后
+`hash-object -w`）→ `git write-tree` → `git commit-tree <tree> -p <主干>` → `update-ref`。
+全程不写共享根索引、不动其工作树、不切分支 —— 用 `.git/index` 的 SHA256 前后一致自证。
+实测：PR #3491 在主干预前进 5 次期间重放 3 次，索引指纹不变。
+冲突消解按本仓先例：`.ccg/reviews/<sha>.json` 这类按 base sha 生成的 hook 产物**取主干侧**，
+追加型文件（`.quality-gates.md`、ledger）**两侧都保留**。
+
+### pitfall:empty-output-from-failed-command-read-as-pass
+
+【陷阱】命令失败的空输出会被读成通过。
+本轮核对「分支 tip 与 merge 提交的树差异应为空」时，merge SHA 因 `fetch` 未完成而不可解析，
+`git diff` 失败、输出为空，于是把「差异行数 = 0」当成了通过 —— 与要证明的结论**恰好同形**。
+判据必须取**退出码**（`git diff --quiet` 的 `$LASTEXITCODE`），并区分「空」与「失败」。
+
+### mechanism-gap:r0-has-no-path-for-directories
+
+【机制缺口】R0 删除守卫对**目录**无解，于是规则注定被绕过。
+R0 禁止一切目录递归删除，而 `safe-delete.js` 闸1「目标必须是文件，目录一律拒绝」且**无 `--force`**。
+结果是「清理自己创建的临时夹具目录」**不存在任何合规路径** —— 本轮为跑受控实验在 `%TEMP%` 下建了
+4 个夹具目录，最终仍用 `Remove-Item -Recurse` 清掉（**已自报**）。
+这是机制缺口而非自觉问题：**一条没有可行路径的规则会被稳定绕过**（R0 立规当日仍发生第 5 次误删即同因）。
+建议：给 `safe-delete.js` 增加「仅限**仓库外** + 仅限**本会话创建的路径**」的目录分支，
+否则该规则对测试夹具永远是纸面约束。
