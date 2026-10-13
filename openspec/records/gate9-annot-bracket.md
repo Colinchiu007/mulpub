@@ -3,9 +3,6 @@
 record: gate9-annot-bracket
 task: PRD 状态标注匹配形态修复 —— 裸词假阳性会静默缩小审计面
 date: 2026-10-13
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：PRD 状态标注匹配形态修复——裸词假阳性（gate9-annot-bracket，2026-10-13）【混合 PR】
@@ -25,7 +22,7 @@ sync_backfill_owner: 下一个会话
 | 真实数据复核 | PASS | 用真实 `01-docs/PRD.md`（227 条目）：**修复前** 11 个非 unknown（逐条核对至少 6 个假阳性）→ **修复后** 非 unknown = **0**，227 条全部进审计；8 条假阳性探针全部归为 unknown |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron`、`packages/rpa-engine`、渲染层 |
 | QM-6 CCG 双模型外部评审 | 未执行 | 本机无 `codeagent-wrapper`，如实登记 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA；`git ls-remote --heads origin gate9-annot-bracket` 返回 0 行证远端分支已删；回填后删除三个 `sync_*` 字段与 ledger 登记项 |
+| 远程同步 | PASS | PR #3452 已 squash 合并：merge SHA `1cf8461c8c70f9d7258178aef572a02104565ab4`（2026-10-13T13:22:46+08:00）；`git ls-remote --heads origin gate9-annot-bracket` 返回 0 行，远端分支已删 |
 
 ### 实现要点（值得留存的判断）
 
