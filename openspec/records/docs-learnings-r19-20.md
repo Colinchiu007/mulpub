@@ -3,17 +3,13 @@ record: docs-learnings-r19-20
 task: 第 19–20 轮 learnings 落盘（P0 收官 + 进入 P1 期间踩到的 6 个坑）
 date: 2026-10-14
 branch: docs-learnings-r19-20
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：第 19–20 轮 learnings 落盘（docs-learnings-r19-20，2026-10-14）【docs-only】
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → `docs-only=true`（files=2：
   `01-docs/learnings.md`、`.ccg/reviews/de6f0a61…json`）
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PENDING
-
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PASS
 ### 本次写入的 6 条（全部来自实跑，不是复述）
 
 | 键 | 类型 | 一句话 |
@@ -33,7 +29,7 @@ sync_backfill_owner: 下一个会话
 | QM-2 代码必检项 | **N/A** | 无代码变更（docs-only 已判） |
 | QM-4 视觉 | **N/A** | 无 UI 变更 |
 | QM-6 双模型评审 | 未执行（如实登记）| 本机无 `codeagent-wrapper` |
-| 远程同步 | PENDING | 待 PR 合并后回填 merge SHA |
+| 远程同步 | PASS | PR #3528 已合并，merge SHA `9b9e8d7251b0d70ae3b7b22a71df636caf345325`（2026-10-14）|
 
 ### 为什么这轮要单独落盘
 
