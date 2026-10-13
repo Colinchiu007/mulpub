@@ -453,6 +453,28 @@ class TestAutosaveDraftConfirmation:
             ) == expected
 
     @pytest.mark.asyncio
+    async def test_unparsable_counter_text_leaves_its_own_trace(self):
+        """「节点在、文本读到了、但解析不出计数」必须与「读不到节点」可区分（QM-6 前端轴）。
+
+        两种 None 的处置方向相同（都退到兜底、都不许报成功），但**排障方向相反**：前者是平台
+        改了显示形态（正则口径要跟着走），后者是时序/选择器问题。若两者在日志里同形，下一次
+        真机故障就只能靠猜。这里刻意收 DEBUG 级——它在轮询里会被重复打，出声的位置由
+        `await_draft_box_count` 在超时处承担。
+        """
+        page = FakePage()
+        page.visible.add(COUNTER_SEL)
+        page.item_texts[COUNTER_SEL] = ["草稿箱"]  # 常驻标题文案：节点在、可读、不含计数
+        messages: list[str] = []
+        sink_id = logger.add(lambda m: messages.append(str(m)), level="DEBUG")
+        try:
+            assert await dom.draft_box_count(
+                page, COUNTER_SEL, probe_cap=xhs.DRAFT_BOX_COUNTER_PROBE_CAP
+            ) is None
+        finally:
+            logger.remove(sink_id)
+        assert any("解析不出计数" in m for m in messages), messages
+
+    @pytest.mark.asyncio
     async def test_autosave_path_checks_the_box_before_burning_the_xhr_wait(self, publisher, monkeypatch):
         """无按钮（自动保存）路径先回查草稿箱，命中就不必再等 XHR，也不重载第二次（CCG 六轮 i4）。
 
@@ -1109,15 +1131,19 @@ class TestUploadReadinessPoll:
 
 
 class TestDomWiringContract:
-    """`dom.*` 引用必有实体——「清理冲突标记时选错侧」的回归锁。
+    """`dom.*` 引用必有实体——「实现半边从未落地」的回归锁。
 
-    本案的断裂形态是：调用方 `xiaohongshu.py` 保留了对草稿箱回查的调用，被调方
-    `xiaohongshu_dom.py` 里那几个函数却被删掉。Python 里这是**运行期 AttributeError**——
-    import 不炸、静态检查不炸，只有真走到那条分支的用例才红；而本仓把那批用例接在
-    `gui-test` 这条**非 required** 的检查上，于是断链可以躺在 main 上不被任何闸门拦住。
-    所以这把锁必须落在**不启动浏览器**的快速单测层，并且要覆盖两个方向：
-    发布器引用的每个 `dom.X` 存在（外部面），以及只被 `dom.py` 自己调用的助手真的被调到
-    （内部面——按调用方扫描看不见它，函数被删时 `recheck_draft_box` 里是 NameError）。
+    本案形态不是"被删了"而是**从没进来**：调用方 `xiaohongshu.py` 带着对草稿箱回查的调用
+    进了 main，被调方 `xiaohongshu_dom.py` 里那几个成员却从未作为提交对象存在
+    （`git log --all -S"async def draft_box_count" -- <该文件>` 零命中）。
+    Python 里这是**运行期 AttributeError**——import 不炸、静态检查不炸，只有真走到那条分支
+    的用例才红；而本仓把那批用例接在 `gui-test` 这条**非 required** 的检查上，于是断链可以
+    躺在 main 上不被任何闸门拦住。所以这把锁必须落在**不启动浏览器**的快速单测层。
+
+    两条锁的分工（不是重复）：外部面按**调用方**扫，看不见只被 `dom.py` 自己调用的助手；
+    内部面直接跑入口函数，钉的是**装配 + 顺序**——既有那批 monkeypatch 型用例也能在成员
+    缺失时红（`setattr` 要求属性存在），但没有一条断言"计数增量先于标题兜底"这条顺序，
+    而那正是"便宜的主判据不得被昂贵的整页兜底抢在前面"这个设计的唯一现场。
     """
 
     def test_publisher_dom_references_all_resolve(self):
@@ -1140,13 +1166,15 @@ class TestDomWiringContract:
 
     @pytest.mark.asyncio
     async def test_recheck_path_reaches_the_draft_box_helpers(self, monkeypatch):
-        """内部面：`await_draft_box_increment` / `draft_title_present` 只被 `dom.py` 自己调，
-        上一条按调用方扫描的锁看不见它们被删。
+        """内部面：直接跑入口函数 `recheck_draft_box`，钉「主判据先于整页兜底」这条顺序。
 
-        用**包住原实现**的 spy 真跑一次 `recheck_draft_box`：取原函数那一步在函数不存在时
-        当场 AttributeError，而调用顺序证明确认路径真的走到了两条通道（计数增量 → 标题兜底）。
-        这比一句 `hasattr` 更难绕——把助手改成恒返 False 的 no-op，`hasattr` 照样绿，
-        而这里 `seen` 仍会记录调用但既有行为用例会红，两者互为补位。
+        `await_draft_box_increment` / `draft_title_present` 只被 `dom.py` 自己调用，上一条按
+        调用方扫描的 AST 锁看不见它们。但本条**不宣称自己是唯一能抓到成员缺失的锁**：既有那批
+        `monkeypatch.setattr(dom, ...)` 型用例在属性不存在时同样会红（setattr 要求属性存在）。
+        本条不可替代处在两点：① 它测的是**入口函数的装配**，不是助手各自的行为；② 它断言
+        `seen == ["increment", "title"]` 这条**顺序**——把顺序互换属行为等价改写，其余用例全绿，
+        只有这里会红。顺序不是实现细节：计数增量是便宜的主判据，标题兜底要在整页 goto 之后
+        按 scan_cap 逐项读文本，贵且未经活体取证，便宜的那条必须先跑。
         """
         seen: list[str] = []
         orig_increment = dom.await_draft_box_increment

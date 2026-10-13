@@ -105,6 +105,11 @@ async def draft_box_count(page, sel: str, *, probe_cap: int) -> int | None:
     读不到节点、或节点文本不含计数，一律返回 None：草稿箱基线未知时调用方不得凭"看着
     像 0"报成功。逐元素判可见同 visible_texts，避开 SPA 常驻隐藏模板。
 
+    两种 None 的成因必须能分开查：**没有可见节点** 与 **节点在、文本读到了、但正则不命中**
+    （后者说明平台改了显示形态）。本函数只返回 None 不带原因，所以后者落一条 debug——
+    它在轮询里会被重复打，级别刻意压到 debug：判据不可用这件事由 `await_draft_box_count`
+    在超时处统一出声，这里只留"为什么不可用"的现场。
+
     括号与空格是**显示格式不是协议**：取证只见过半角 `草稿箱(1)`，但平台换成全角括号或
     多打空格时，代价应当只是"少一条证据"，而不是把唯一确认通道整个押在字符形状上。
     """
@@ -113,6 +118,11 @@ async def draft_box_count(page, sel: str, *, probe_cap: int) -> int | None:
         m = DRAFT_BOX_COUNTER_RE.search(text or "")
         if m:
             return int(m.group(1))
+    if texts:
+        logger.debug(
+            f"[小红书] 草稿箱计数节点可见但文本解析不出计数（sel={sel}，收到 {len(texts)} 条文本）"
+            f"——正则口径可能已随平台显示形态漂移"
+        )
     return None
 
 
@@ -134,15 +144,15 @@ async def await_draft_box_count(page, sel: str, *, timeout_s: float, interval_s:
             return n
         if loop.time() >= deadline:
             logger.warning(
-                f"[小红书] 草稿箱计数节点在 {timeout_s}s 内读不到（sel={sel}）——"
-                f"计数增量判据本轮可能不可用，只能退到标题兜底"
+                f"[小红书] 草稿箱计数在 {timeout_s}s 内既读不到可见节点、或读到了但文本解析不出计数"
+                f"（sel={sel}）——计数增量判据本轮不可用，只能退到标题兜底"
             )
             return None
         await asyncio.sleep(interval_s)
 
 
-async def await_draft_box_increment(page, sel: str, *, baseline, timeout_s: float,
-                                    interval_s: float, probe_cap: int):
+async def await_draft_box_increment(page, sel: str, *, baseline: int | None, timeout_s: float,
+                                    interval_s: float, probe_cap: int) -> tuple[bool, int | None]:
     """等待条件是**增量本身**，不是"节点出现了"。
 
     自动保存落库有延迟：节点一直在、值还没涨上去时，单次读会把"正在写"读成"没写"，
