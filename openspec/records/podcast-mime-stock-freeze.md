@@ -2,9 +2,6 @@
 record: podcast-mime-stock-freeze
 task: 实现 PRD §7.9 的存量 mime 固化判据与回归锁（不接宿主，不建 compliance 档）
 date: 2026-10-12
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填 PR 改写 PASS + merge SHA 并整段删除本三个 sync_ 字段
-sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账 → worktree 清理）
 ---
 
 # 播客存量 `mime` 一次性固化：判据与锁（podcast-mime-stock-freeze，2026-10-12）
@@ -33,5 +30,5 @@ sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账 
 
 ## 远程同步
 
-| 远程同步 | PENDING | 待本 PR 合并后就地改写为 PASS + merge SHA，并在同一次提交删除 ledger 本条登记项 |
+| 远程同步 | PASS | merge SHA 0d12e8e91 · 2026-10-13T17:58:27Z · 远端分支已删（ls-remote 0 行）· 同次提交删除 ledger 登记项 |
 
