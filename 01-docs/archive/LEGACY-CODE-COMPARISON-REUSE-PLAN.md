@@ -1,5 +1,21 @@
 # 代码对比分析与复用计划
 
+> ## 🗄️ LEGACY — 已归档，**不得作为现行依据**（归档于 2026-10-13）
+>
+> 本文件是**旧的复用规划产物**（原日期：2026-07-16），已被本轮逆向研究的成果文档取代：
+> - [RESEARCH-COMPETITOR-REVERSE-2026-10-13.md](../RESEARCH-COMPETITOR-REVERSE-2026-10-13.md) — 本轮逆向研究成果总览
+> - [REUSE-CATALOG-2026-10-13.md](../REUSE-CATALOG-2026-10-13.md) — 可复用资产总目录（含 mulpub 代码现状核实）
+> - [ARCH-REUSE-INTEGRATION-2026-10-13.md](../ARCH-REUSE-INTEGRATION-2026-10-13.md) — 集成设计与详细实现方案
+> - [PLAN-REUSE-ROLLOUT-2026-10-13.md](../PLAN-REUSE-ROLLOUT-2026-10-13.md) — 分阶段实施计划
+>
+> **为什么归档**：基于旧版本（参考产品 4.0 v4.13.19）的模块级对比；**引用的来源 `D:\Data\projects\Multi-Publish\01-docs\MP-REUSABLE-ANALYSIS.md` 已不存在**，无法回溯核对。
+>
+> **使用指引**：可作历史演进参考；**任何「待做项 / 缺口 / 计划」的结论一律以取代文档为准** ——
+> 本项目已有一次教训：旧方案假设 7 项缺失，实测 6 项本就存在（见 `LEGACY-MP-REUSABLE-ACTUAL-PLAN.md`）。
+
+---
+
+
 > **版本**：v1.0
 > **日期**：2026-07-16
 
