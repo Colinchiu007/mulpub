@@ -30,9 +30,15 @@
    （`MISSING_REPORT→NO_REPORT`、`INVALID_REPORT→INVALID_REPORT`、`AUDIT_NO_VERDICT→NO_VERDICT`）
    与 `--note-file=` 落盘（写盘发生在退出之前，所以阻塞路径同样留痕）；Gate 9 步骤删掉内联探针，
    改为读令牌文件，并在文件缺失时打出 `NOTE_FILE_MISSING`——因为"缺文件"只有一种解释：门禁没跑到写盘。
-   `workflow-contract.test.js` 那条禁令**一字未改**，改的是被禁止的那个形态；同时补两条正向锁
-   （`--note-file=` 必须存在、`AUTONOMOUS_VERDICT_NOTE=$verdictNote` 必须存在），否则"把探针整条删掉"
+   `workflow-contract.test.js` 那条禁令**一字未改**，改的是被禁止的那个形态；同时补三条正向锁
+   （`--note-file=` 必须存在、`AUTONOMOUS_VERDICT_NOTE=$verdictNote` 必须存在、跨 job 接线锁按
+   `steps.<id>.outputs.<name>` 形状解析声明后逐个回查生产者与消费者），否则"把探针整条删掉"
    也能满足 doesNotMatch，等于把"未审计不再可见"读成合规。
+3b. **跨 job 通路接线**（可维护性轴评审命中，非本 PR 引入）：`gate-result` 一直读
+   `needs.autonomous.outputs.verdict-note`，而 `autonomous` 作业**从未声明 `outputs:`** ⇒ 该 env 恒为空串、
+   `if ($env:AUTONOMOUS_VERDICT_NOTE)` 永不成立，"本次审计没发生"在 PR 汇总里根本打不出来。现在作业声明取自
+   步骤 output，产出侧同时写 `GITHUB_ENV`（本作业）与 `GITHUB_OUTPUT`（跨作业）——作业 output 取不到 env，
+   这正是那条通路原本断掉的机制原因。
 4. **归属句改写**：Gate 3 上方与 `check-workflow-structure.test.js` 里那两处"Gate 3 是装饰态"的说明
    改成当下事实（落点不改：那条反向锁现在守的是"同一判据别在两个步骤各跑一遍"与"按步骤名取位置"）。
 
@@ -41,9 +47,10 @@
 - TDD 红→绿：棘轮侧先落 12 条锁对未修实现跑 ⇒ `tests 12 / pass 9 / fail 3`（红在"只守最后一条"、
   "门禁脚本计入受管集合"、"真实仓库规模下界"三条），补 `||` 语义用例后 13/13 绿。
   Gate 9 侧先落 2 条锁 ⇒ `agent-review-gate 12/pass 10/fail 2` 与 `workflow-contract 35/34/1`，
-  实现后分别 12/12 与 35/35。Gate 3 全部命令合跑 138 tests / 138 pass / 0 fail。
-- 变异反证 14 条（`M1..M7` 打棘轮判据、`N1..N5` 打令牌与落盘、`N6/N7` 打 workflow 侧锁）：
-  `MUTATIONS=14 MISSED=0`、`RESTORED_BYTES_EQUAL=true`，驱动与产物入库
+  实现后分别 12/12 与 35/35。Gate 3 全部命令合跑 145 tests / 145 pass / 0 fail。
+- 变异反证 17 条（`M1..M7` 打棘轮判据、`N1..N5` 打令牌与落盘、`N6/N7` 打 workflow 侧锁、`N8/N9/N10` 打
+  跨 job 通路的三处可断点：删 `outputs` 声明 / 只写 `GITHUB_ENV` 不写 `GITHUB_OUTPUT` / 声明与消费改名漂移）：
+  `MUTATIONS=17 MISSED=0`、`RESTORED_BYTES_EQUAL=true`，驱动与产物入库
   `.ccg/reviews/gate3failfast-mutate.driver.js` / `.ccg/reviews/gate3failfast-mutations.txt`。
   其中 M4 第 1 轮打空过：夹具里 `defaults` 与目标步骤距离不够，`stepShell` 的 12 行上溯恰好够到，
   两条机制互相掩盖 ⇒ 把距离拉开到窗口之外才真正测到 `jobShellMap`。N2 第 1 轮把函数改名，

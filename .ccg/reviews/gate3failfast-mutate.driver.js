@@ -179,6 +179,28 @@ MUTS.push({
     '          $legacyRep = Get-Content $legacyProbe.FullName -Raw | ConvertFrom-Json',
     '          $gateArgs = @('],
 })
+MUTS.push({
+  id: 'N8', axis: 'workflow', key: 'workflow',
+  target: '把 autonomous 作业的 outputs.verdict-note 声明整块删掉（复现 #3439 留下的断链形态）',
+  expectRed: 'verdict 令牌的跨 job 通路必须真的接上',
+  from: ['    outputs:',
+    '      verdict-note: ${{ steps.autonomous-gate.outputs.verdict_note }}'],
+  to: ['    # outputs 被删'],
+})
+MUTS.push({
+  id: 'N9', axis: 'workflow', key: 'workflow',
+  target: '只写 GITHUB_ENV、不写 GITHUB_OUTPUT（作业 output 取不到 env，这正是通路原本断掉的机制）',
+  expectRed: 'verdict 令牌的跨 job 通路必须真的接上',
+  from: ['            echo "verdict_note=$verdictNoteOut" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append'],
+  to: ['            # GITHUB_OUTPUT 不写'],
+})
+MUTS.push({
+  id: 'N10', axis: 'workflow', key: 'workflow',
+  target: '把消费点换成另一个名字（声明与消费漂移时，两侧各自的断言都可能仍各自成立）',
+  expectRed: 'verdict 令牌的跨 job 通路必须真的接上',
+  from: ['          AUTONOMOUS_VERDICT_NOTE: ${{ needs.autonomous.outputs.verdict-note }}'],
+  to: ['          AUTONOMOUS_VERDICT_NOTE: ${{ needs.autonomous.outputs.verdict-note-typo }}'],
+})
 
 const onlyArg = (process.argv.find((a) => a.startsWith('--only=')) || '').slice(7)
 const chosen = onlyArg ? MUTS.filter((m) => m.id === onlyArg) : MUTS

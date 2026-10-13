@@ -1597,6 +1597,12 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.docs-only != 'true'
     timeout-minutes: 15
+    # verdict 令牌的跨 job 通路。此前**整块声明不存在**，于是 gate-result 里的
+    # ${{ needs.autonomous.outputs.verdict-note }} 恒为空串 ⇒ `if ($env:AUTONOMOUS_VERDICT_NOTE)` 永不成立，
+    # "本次覆盖审计其实没发生"在 PR 汇总里根本打不出来（#3443 登记注释说"探针补上了可见性"，
+    # 那句只在 autonomous 自己的日志里成立）。由 workflow-contract 的同名用例钉住。
+    outputs:
+      verdict-note: ${{ steps.autonomous-gate.outputs.verdict_note }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -1709,16 +1715,23 @@ jobs:
           )
           & node @gateArgs
           $gateExit = $LASTEXITCODE
+          $verdictNoteOut = ""
           if (Test-Path gate9-verdict-note.txt) {
             $verdictNote = (Get-Content gate9-verdict-note.txt -Raw).Trim()
             if ($verdictNote) {
               Write-Host "##[warning]Gate 9: 覆盖审计未实际产出有效 verdict（令牌 $verdictNote）——green 不代表已审计"
-              echo "AUTONOMOUS_VERDICT_NOTE=$verdictNote" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+              $verdictNoteOut = $verdictNote
             }
           } else {
             # 令牌文件总在（写盘发生在退出之前），所以缺文件只有一种解释：门禁进程没跑到写盘。
             Write-Host "##[warning]Gate 9: verdict 令牌文件缺失——覆盖审计可见性未知，不得当作已审计"
-            echo "AUTONOMOUS_VERDICT_NOTE=NOTE_FILE_MISSING" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            $verdictNoteOut = "NOTE_FILE_MISSING"
+          }
+          if ($verdictNoteOut) {
+            # 两条都要写：GITHUB_ENV 给本作业后面的步骤，GITHUB_OUTPUT 给 gate-result 作业
+            # （作业 output 只能取自步骤 output，取不到 env —— 这是此前那条通路整条断掉的机制原因）。
+            echo "AUTONOMOUS_VERDICT_NOTE=$verdictNoteOut" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            echo "verdict_note=$verdictNoteOut" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           }
           if ($gateExit -eq 0) {
             $gateStatus = if ($exitCode -eq 0) { "PASS" } else { "PROMPT_REVIEW_REQUIRED" }

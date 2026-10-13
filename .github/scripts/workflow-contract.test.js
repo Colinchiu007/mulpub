@@ -349,6 +349,36 @@ test('自主覆盖审计仅在确认是无模型 NEED_HUMAN 报告时降级为�
   assert.match(workflow, /agent-review-gate\.test\.js/);
 });
 
+test("verdict 令牌的跨 job 通路必须真的接上（Gate Result 读的 job output 要有声明与写出方）", () => {
+  const workflow = fs.readFileSync(qualityGatePath, "utf8");
+  const parsed = yaml.load(workflow);
+  const autonomous = parsed.jobs.autonomous;
+  assert.ok(autonomous, "必须存在 autonomous 作业");
+  // ① 消费侧：Gate Result 用 needs.autonomous.outputs.verdict-note —— 那必须先有声明。
+  //    本仓实测：声明此前**整块不存在**，于是 ${{ needs.autonomous.outputs.verdict-note }} 恒为空串，
+  //    `if ($env:AUTONOMOUS_VERDICT_NOTE)` 永不成立，"未实际审计"在 PR 汇总里根本打不出来（#3443 的
+  //    登记注释说"现由 verdict 探针补上可见性"，那句只在 autonomous 自己的日志里成立）。
+  const outputs = autonomous.outputs || {};
+  assert.ok(outputs["verdict-note"],
+    "autonomous 作业必须声明 outputs.verdict-note，否则 Gate Result 里那个 env 永远是空串");
+  assert.match(String(outputs["verdict-note"]), /steps\./, "声明必须取自某个步骤的 output，而不是写死的字面量");
+  const ref = String(outputs["verdict-note"]).match(/steps\.([\w-]+)\.outputs\.(\w+)/);
+  assert.ok(ref, "outputs 声明的形态必须是 steps.<id>.outputs.<name>");
+  const producer = (autonomous.steps || []).find(s => String(s.id || "") === ref[1]);
+  assert.ok(producer, `声明引用的步骤 id ${ref[1]} 必须存在（按 id 取步骤，改名即红）`);
+  // ② 产出侧：被引用的那个步骤必须真往 GITHUB_OUTPUT 写同名键。
+  assert.match(String(producer.run), new RegExp("GITHUB_OUTPUT"),
+    "产出步骤必须写 $env:GITHUB_OUTPUT，否则声明指向一个从来没人产出的键");
+  assert.match(String(producer.run), new RegExp("verdict_note=" ),
+    "GITHUB_OUTPUT 里必须有 verdict_note= 这个键（与声明的 output 名同源）");
+  // ③ 消费侧仍在原地（防止"把消费点删掉"被当成修好了）。
+  const gateResultStep = ((parsed.jobs["gate-result"] || {}).steps || []).find(s => /Gate result/.test(String(s.name || "")));
+  assert.ok(gateResultStep, "gate-result 作业必须有 Gate result 步骤");
+  assert.equal(String(gateResultStep.env.AUTONOMOUS_VERDICT_NOTE),
+    "${{ needs.autonomous.outputs.verdict-note }}",
+    "消费点必须按声明的 output 名取，删掉它等于把可见性又关掉一次");
+});
+
 // CI_IGNORED_PATHS 真源已迁移至 scripts/classify-docs-only.js（见文件头部 import）；
 // 此处不再内嵌第二份清单——两份必然漂移，漂移即「push 跳过但 PR 不短路」或反之。
 
