@@ -8404,7 +8404,7 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - 本机无 wrapper 源码（仅有 `backups/codeagent-wrapper-*/` 的 truncated exe），无法改二进制重编。
 
 ### 修复 + 回归保护
-- 方案：PATH 前置净化 shim `C:\Users\邱领\.claude\shims\claude.cmd` → `claude-sanitize.py`，仅剥离"空值/空字符串值的 `--setting-sources`"，其余参数原样透传真实 `claude.exe`。
+- 方案：PATH 前置净化 shim `C:\Users\<user>\.claude\shims\claude.cmd` → `claude-sanitize.py`，仅剥离"空值/空字符串值的 `--setting-sources`"，其余参数原样透传真实 `claude.exe`。
 - shim 用 `%USERPROFILE%` 展开中文路径（batch 文件保持 ASCII，避免 GBK/代码页损坏）；Python 侧把 `--setting-sources ""`（wrapper 实际传空字符串）也视为无值。
 - 验证：`CLAUDE_SHIM_DRYRUN=1` 探针证明 wrapper 实际调用 shim 且净化命令正确（`-p --dangerously-skip-permissions --output-format stream-json --verbose -`）；claude 越过参数解析进入运行。
 
@@ -14523,7 +14523,7 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - 本机无 wrapper 源码（仅有 `backups/codeagent-wrapper-*/` 的 truncated exe），无法改二进制重编。
 
 ### 修复 + 回归保护
-- 方案：PATH 前置净化 shim `C:\Users\邱领\.claude\shims\claude.cmd` → `claude-sanitize.py`，仅剥离"空值/空字符串值的 `--setting-sources`"，其余参数原样透传真实 `claude.exe`。
+- 方案：PATH 前置净化 shim `C:\Users\<user>\.claude\shims\claude.cmd` → `claude-sanitize.py`，仅剥离"空值/空字符串值的 `--setting-sources`"，其余参数原样透传真实 `claude.exe`。
 - shim 用 `%USERPROFILE%` 展开中文路径（batch 文件保持 ASCII，避免 GBK/代码页损坏）；Python 侧把 `--setting-sources ""`（wrapper 实际传空字符串）也视为无值。
 - 验证：`CLAUDE_SHIM_DRYRUN=1` 探针证明 wrapper 实际调用 shim 且净化命令正确（`-p --dangerously-skip-permissions --output-format stream-json --verbose -`）；claude 越过参数解析进入运行。
 
