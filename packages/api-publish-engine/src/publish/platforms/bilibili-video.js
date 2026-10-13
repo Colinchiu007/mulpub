@@ -19,6 +19,8 @@ const fs = require('fs')
 const { createHttpClient, requestWithRetry } = require('../core/http-base')
 const { chunkTotal, DEFAULT_CHUNK_SIZE } = require('../core/chunker')
 const { errorCode } = require('../../error-codes')
+// 分类解析（P0-3，ARCH-REUSE-INTEGRATION R-1）：把中文分类名解析成平台侧 tid。
+const { resolvePublishCategory } = require('../category-resolver')
 // 话题内联描述（publish-topic-inline-description）：B站是独立字段型平台——
 // 话题从描述剥离进 tag 字段（描述与字段无双份重复），剥离用 content-formatter 单一实现
 const { stripTopicsFromContent, formatArticleBody } = require('../../content-formatter')
@@ -69,12 +71,18 @@ function cleanBilibiliText (t) {
 /** 构造 add/v3 投稿体（去「自动发布」水印）；纯函数，供链与薄适配器共用 */
 function buildBilibiliPostData (taskData, upload) {
   const tags = (taskData.tags || []).map((t) => (typeof t === 'string' ? t : t.name)).filter(Boolean)
+  // 分类守卫（P0-3）。改前是 `Number(taskData.category || taskData.tid) || 21`：
+  // 用户传中文名时 `Number('动画')` = NaN ⇒ `NaN || 21` = **21**，即「以为按动画发了、
+  // 实际发到 21 号分类、且全程无报错」。现在：未提供 ⇒ 维持默认 21（行为不变）；
+  // 提供但不是合法平台侧 ID ⇒ **抛错**（中文名须由上游用 platformTaxonomy.resolveCategoryId 解析）。
+  const cat = resolvePublishCategory(taskData.category ?? taskData.tid)
+  const tid = cat.ok ? cat.id : 21
   // 话题内联描述：描述里已知话题剥离（B站话题走 tag 独立字段，描述不重复携带）
   // 正文承载形态（publish-article-body-format，2026-10-12）：简介是纯文本语义，
   // HTML 正文须先剥标签（否则 `<p>` 以字面量进视频简介）；剥离话题基于适配后的纯文本。
   const stripped = stripTopicsFromContent(formatArticleBody('bilibili', taskData.content || taskData.desc || ''), tags)
   return {
-    copyright: 1, source: '', tid: Number(taskData.category || taskData.tid) || 21, title: cleanBilibiliText(taskData.title),
+    copyright: 1, source: '', tid, title: cleanBilibiliText(taskData.title),
     desc: cleanBilibiliText(stripped.content), desc_format_id: 0, tag: tags.join(','), dynamic: '',
     cover: taskData.coverUrl || '', no_reprint: 1, act_reserve_create: 0, lossless_music: 0, no_disturbance: 0,
     recreate: -1, web_os: 1, interactive: 0, open_elec: 0, subtitle: { lan: '', open: 0 },

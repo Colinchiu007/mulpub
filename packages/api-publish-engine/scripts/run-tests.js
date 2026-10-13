@@ -7,6 +7,10 @@ const { spawnSync } = require('child_process')
 const VITEST_FILES = new Set([
   'adapters-interface.test.js',
   'api-router.test.js',
+  // 分类守卫（P0-3）。**必须在册**：本 runner 对不在册的文件改用 `node --test`，
+  // 而本文件依赖 vitest 的 describe/it 全局 ⇒ 漏登记的表现是
+  // `ReferenceError: describe is not defined` + runner exit=1，且文件数不增（极难察觉）。
+  'category-resolver.test.js',
   'baijiahao-api-chain.test.js',
   'baijiahao-article-chain.test.js',
   'shipinhao-video-chain.test.js',
