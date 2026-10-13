@@ -181,6 +181,25 @@
 
 **环境坑（可复用）**：`deep-review.sh` 驱动的第 3 顺位 `$HOME/.claude/...` 在 Git Bash 下被 MSYS 拼成 `D:\c\Users\...`（`Cannot find module`）——正解是设 `CCG_ARL_DIR` 为 **Windows 原生路径**（第 2 顺位优先），不必改脚本。
 
+## CI 抓到的问题与顺带修复（诚实记录）
+
+首轮 CI 让两类问题暴露出来，都已修复（`ddacb783a`）：
+
+- **本 PR 引入的缺陷（我的漏网）**：`QG Desktop Shards (1/2)` 红 —— `observability-messagekey.test.js` 报
+  `不在允许清单: RiskSuspender:weak-signal-not-suspended`。真因：本 PR 在 `phase4-events.js` 新增了
+  `log.notify('RiskSuspender', 'weak-signal-not-suspended', …)`，而 messageKey 允许清单
+  （`observability-messagekey.test.js` 内联 `Set`，且断言「全仓登记键总数 === 四文件 notify 调用总数」）必须同步登记。
+  **教训**：本轮为提速只跑了「受影响文件子集」，而这条锁是**跨文件登记契约**（改 A 文件、锁在 B 文件），
+  子集跑法对它天然免疫 —— 已写入 `01-docs/learnings.md`。
+- **主干既有缺陷（与本 PR 零文件交集，但阻断全部 PR 的 CI）**：`quick-collect.test.js` 与
+  `quick-collect-cn-sources.test.js` 把 fixture 时间钉死为 `Date.parse('2026-10-11T04:00:00.000Z')`
+  与 RSS `pubDate '11 Oct 2026 02:00:00 +0000'`，而引擎窗口判据是
+  `mergeMaterials(items, { windowHours, now: Date.now() })` ⇒ 分别在真实时刻 **2026-10-13T03:00:00Z / 02:00:00Z**
+  越出 48h 窗。主干最后一次绿运行是 `2026-10-12T21:41Z`，本 PR 首轮 CI 起于 `2026-10-13T03:13Z` —— 时间线完全吻合。
+  这是**到期后挡住所有 PR 的定时炸弹**，故随本 PR 一并修复（`NOW` 改 `Date.now()`、RSS `pubDate` 动态生成，
+  均保留原用例意图），并在此显著标注供人工复核。
+- 全仓扫描 47 处「硬编码 2026-10 日期」，逐条核对确认其余均为**时钟注入型**（`now`/`nowMs` 显式传入被测函数、内部自洽），无同族风险。
+
 ## 未闭合（如实记录）
 
 - 本机无真实风控会话，「真实风控命中 → 挂起 → 横幅 → 人工恢复」**端到端真机回归未做**，横幅视觉未在真机截到（仅源级契约锁）。
