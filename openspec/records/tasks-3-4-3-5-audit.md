@@ -2,9 +2,6 @@
 record: tasks-3-4-3-5-audit
 task: tasks 3.4 勾账与 3.5 双向拆分（一处"勾账滞后"与一处"半落"必须分开处理）
 date: 2026-10-14
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填 PR 改写 PASS + merge SHA 并整段删除本三个 sync_ 字段
-sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账）
 ---
 
 # tasks 3.4 / 3.5 对账（tasks-3-4-3-5-audit，2026-10-14）
@@ -35,4 +32,4 @@ sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账�
 
 ## 远程同步
 
-| 远程同步 | PENDING | 本 PR（tasks-3-4-3-5-audit）的远程同步待合并后由后续 docs PR 回填 PASS + merge SHA，并在同一次提交删除 ledger 本条登记项 |
+| 远程同步 | PASS | merge SHA 67a06c09a · 2026-10-13T19:47:03Z · 远端分支已删（ls-remote 0 行）· 同次提交删除 ledger 登记项 |
