@@ -2,9 +2,6 @@
 record: ops-menu-diag
 task: 运营中心「应用菜单」改完不生效——应用侧早退静默，失败无信号
 date: 2026-10-14
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：运营中心「应用菜单」改完不生效——应用侧早退静默（ops-menu-diag，2026-10-14）【混合 PR】
@@ -20,9 +17,9 @@ sync_backfill_owner: 下一个会话
 | 编码与行尾 | PASS | `check-max-lines.js` rc=0（主文件 769 ≤ 770，无 `LEDGER_GREW`）；`ops-center-sync.test.js` 79/79 通过；相邻测试 `settings-roundtrip-contract.test.js` + `ops-center-sync.resilience.test.js` 28/28 通过 |
 | QM-1 本地打包 | PASS | `apps/desktop` 下 `pnpm exec electron-builder --win --dir --publish never` 返回 0；`asar list` 清单含新模块 `ops-center-sync-autosync-guard.js`（require 路径在打包产物中可解析）；`win-unpacked\Multi-Publish.exe` 启动存活 >8s；stderr 无 `Failed to load platform config`、无 `ENOTDIR.*app.asar` |
 | QM-6 双模型外部评审 | 未执行 | 本机无 `codeagent-wrapper`，如实登记 |
-| 远程同步 | PENDING | 待本 PR 合并后回填 merge SHA 并销账（回填与销账同次提交） |
+| 远程同步 | PASS | merge `4d777356d`（2026-10-14 04:31:43 +08:00）；PR 已 MERGED、远端分支已删（`git ls-remote` 0 行）；回填与销账同次提交 |
 
-- 保留门禁：TDD ✅ | 编码/行尾对账 ✅ | 品牌残留 ✅ | 债务账本 ✅ | 远程同步 PENDING
+- 保留门禁：TDD ✅ | 编码/行尾对账 ✅ | 品牌残留 ✅ | 债务账本 ✅ | 远程同步 PASS
 
 ### 现场取证（本笔的动因，如实记录）
 
