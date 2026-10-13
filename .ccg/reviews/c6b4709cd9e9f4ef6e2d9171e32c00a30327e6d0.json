@@ -2,17 +2,17 @@
   "sha": "c6b4709cd9e9f4ef6e2d9171e32c00a30327e6d0",
   "layer": "diff",
   "mode": "dual",
-  "reason": "变更 218 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "reason": "变更 242 行 > 200 行阈值（对齐 §12.6 Red Team）",
   "stats": {
-    "changedLines": 218,
-    "fileCount": 8,
-    "codeFileCount": 5,
+    "changedLines": 242,
+    "fileCount": 11,
+    "codeFileCount": 7,
     "sensitivePathHits": [],
     "plannedPathHits": [],
-    "sensitiveContentHits": 0
+    "sensitiveContentHits": 8
   },
-  "stagedDiffHash": "d3c9d64acb1724d10b13e937d42c046da9bb33757fade8d7cf766a5684fdb392",
-  "decidedAt": "2026-10-13T02:46:24.596Z",
+  "stagedDiffHash": "c20b0f6a735956400f877e669bdaa8100f0b31e563e68ae96ae687adb3f75685",
+  "decidedAt": "2026-10-13T03:03:26.514Z",
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  PLATFORM_CREATOR_HOME_URLS,
+  PLATFORM_DASHBOARD_URLS,
   PLATFORM_LOGIN_URLS,
   PLATFORM_LOGIN_SUCCESS_PATTERNS,
   PLATFORM_SESSION_COOKIE_MARKERS,
@@ -506,5 +508,59 @@ describe('session-evidence gap ratchet (裸域名成功模式必须配会话标�
     } finally {
       delete PLATFORM_SESSION_COOKIE_MARKERS.__probe_empty__
     }
+  })
+})
+
+/**
+ * 创作者中心开卡 URL 契约锁（2026-10-13，xhs-creator-home-url）。
+ *
+ * 事故：小红书账号卡片「创作者中心」用 PLATFORM_DASHBOARD_URLS 开卡，而该值
+ * （`https://creator.xiaohongshu.com/`）是平台的**路由入口**而非**已登录首页**。
+ * 已登录账号从 `/` 启动时，平台 SPA 先渲染登录路由、待内部鉴权（无主站
+ * web_session 时为 401）返回后才跳 `/new/home`——真机 CDP 实测这段登录路由
+ * 持续约 1.2s（`/` → `/login` → `/new/home`），即用户看到的「登录页闪动」。
+ * 对照实验：同一分区、同一 Cookie 集合（登录态 6/7、LS 3 个用户态 key）下，
+ * 直接开 `/new/home` 全程不出现 `/login`；未登录干净分区开 `/new/home` 会
+ * 被平台重定向到 `/login?redirectReason=401`，无死路。
+ *
+ * 本锁的判据是「语义」不是「看着像」：登记值必须①是 https 绝对 URL；
+ * ②与同平台登录 URL **同 host**（防跨域误配把用户开到错误站点）。
+ * 删掉登记项 / 改回 `/` / 改成空串 / 改成跨域 host 都必须变红。
+ */
+describe('PLATFORM_CREATOR_HOME_URLS（已登录创作者首页）契约', () => {
+  it('是独立于 PLATFORM_DASHBOARD_URLS 的第二份真源，不得合并', () => {
+    // 合并会同时改动 http-login-checker（用 DASHBOARD 值抓 HTML 提 uid）与
+    // checkLoginStatus 的 hostname 兜底判定——影响面远超开卡动作。
+    expect(PLATFORM_CREATOR_HOME_URLS).not.toBe(PLATFORM_DASHBOARD_URLS)
+    expect(Array.isArray(PLATFORM_CREATOR_HOME_URLS)).toBe(false)
+    expect(Object.keys(PLATFORM_CREATOR_HOME_URLS).length).toBeGreaterThan(0)
+  })
+
+  it('每个登记值都是 https 绝对 URL，且与同平台登录 URL 同 host', () => {
+    for (const [platform, url] of Object.entries(PLATFORM_CREATOR_HOME_URLS)) {
+      expect(typeof url, `${platform} 的值必须是字符串`).toBe('string')
+      expect(url.length, `${platform} 的值不得为空串`).toBeGreaterThan(0)
+      const parsed = new URL(url)
+      expect(parsed.protocol, `${platform} 必须是 https`).toBe('https:')
+      // 同 host：跨域即等于把用户开到另一个站点，必须当场红
+      const loginHost = new URL(PLATFORM_LOGIN_URLS[platform]).host
+      expect(parsed.host, `${platform} 的 host 必须与 PLATFORM_LOGIN_URLS 同源`).toBe(loginHost)
+    }
+  })
+
+  it('小红书登记为已登录首页 /new/home，而不是会闪登录页的路由入口 /', () => {
+    expect(PLATFORM_CREATOR_HOME_URLS.xiaohongshu).toBe('https://creator.xiaohongshu.com/new/home')
+    // 反证：旧值（= PLATFORM_DASHBOARD_URLS.xiaohongshu）正是闪登录页的那个 URL
+    expect(PLATFORM_DASHBOARD_URLS.xiaohongshu).toBe('https://creator.xiaohongshu.com/')
+    expect(PLATFORM_CREATOR_HOME_URLS.xiaohongshu).not.toBe(PLATFORM_DASHBOARD_URLS.xiaohongshu)
+  })
+
+  it('未登记平台不出现该键，由调用方回退 PLATFORM_DASHBOARD_URLS', () => {
+    // 键存在但值为 undefined/空串会让调用方的 `||` 回退失效，createTab 收到空 URL
+    for (const platform of Object.keys(PLATFORM_LOGIN_URLS)) {
+      if (!(platform in PLATFORM_CREATOR_HOME_URLS)) continue
+      expect(PLATFORM_CREATOR_HOME_URLS[platform], platform).toBeTruthy()
+    }
+    expect('wechat_mp' in PLATFORM_CREATOR_HOME_URLS).toBe(false)
   })
 })

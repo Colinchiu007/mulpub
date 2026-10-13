@@ -438,6 +438,24 @@ const PLATFORM_SOURCE_URLS = {
   toutiao: 'https://www.toutiao.com/hot-event/hot-board/?origin=toutiao_pc',
 }
 
+// ─── 已登录创作者首页（账号标签「创作者中心」开卡入口专用）─────────────────
+//
+// ⚠ 语义 = 「已登录状态下直接打开就是创作者首页」的 URL；**只在取值与
+// PLATFORM_DASHBOARD_URLS 不同时才登记**（相同则不登记，调用方 `||` 回退）。
+// 与 PLATFORM_DASHBOARD_URLS 是两张表、禁止合并：后者另被 http-login-checker.js
+// 抓 HTML 提 uid、被 checkLoginStatus 用 hostname 兜底判定，改动影响面远超开卡。
+// 每个值的 host 必须与同平台 PLATFORM_LOGIN_URLS 同源（跨域＝开到别的站点）。
+//
+// 2026-10-13 真机取证（xhs-creator-home-url，完整证据与 A/B 见
+// 01-docs/PRD-CREATOR-CENTER-LOGIN-FLASH-2026-10-13.md）：小红书 dashboard 值
+// `https://creator.xiaohongshu.com/` 是该 SPA 的**路由入口**——已登录时先渲染登录
+// 路由约 1.2s 再跳 `/new/home`（CDP 逐帧 `/`→`/login`→`/new/home`），即用户看到的
+// 登录页闪动；同分区开 `/new/home` 全程无 `/login`，干净分区开它会重定向到
+// `/login?...redirectReason=401`（无死路）。契约锁见 src/__tests__/ 的同名 describe。
+const PLATFORM_CREATOR_HOME_URLS = {
+  xiaohongshu: 'https://creator.xiaohongshu.com/new/home',
+}
+
 /**
  * 获取平台显示名称
  * @param {string} platform
@@ -450,6 +468,7 @@ function getPlatformName(platform) {
 module.exports = {
   PLATFORM_LOGIN_URLS,
   PLATFORM_DASHBOARD_URLS,
+  PLATFORM_CREATOR_HOME_URLS,
   PLATFORM_SOURCE_URLS,
   PLATFORM_LOGIN_SUCCESS_PATTERNS,
   PLATFORM_AUTH_HOSTS,

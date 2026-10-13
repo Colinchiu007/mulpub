@@ -69,6 +69,47 @@
 - 文件级判据看不见"同一文件里部分调用点漏注入"（本次电池 C 条就是这么暴露的）；现在由按调用点切的
   接缝锁兜住真出事的两处，通用化的每调用点判据需要可靠的括号/字符串配平扫描，未在本次提前建结构。
 - 域内另有 6 个文件含绝对时刻夹具但不驱动真实时钟路径，按本锁语义属合规。
+# [未发布] fix(accounts): 小红书创作者中心开卡首屏闪登录页——开卡 URL 改用「已登录首页」（xhs-creator-home-url）
+
+## 背景
+
+账号管理页点小红书卡片「创作者中心」会先闪一下登录页（约 1.2s），再进入创作者中心。
+排查先否掉了「跑的是旧代码」：运行中实例的 HEAD 含前置修复 `a22e424a7`，且真机日志
+当日有 `blank bootstrap document requested` + `removed bootstrap about:blank history entry`
+（同一开卡内间隔 241ms，无 2500ms 超时、无 fallback），凭证注入链路正常。
+
+真因为**开卡 URL 选错**：`openCreatorCenter` 用 `PLATFORM_DASHBOARD_URLS[platform]`，而
+`PLATFORM_DASHBOARD_URLS.xiaohongshu === 'https://creator.xiaohongshu.com/'` 是该 SPA 的
+**路由入口**、不是**已登录首页**。平台从 `/` 启动时先渲染登录路由，等内部鉴权请求返回
+（该分区缺主站 `web_session`，实测 `redirectReason=401`）后才跳 `/new/home`。
+
+真机 CDP 逐帧（运行中应用）：`/`(t+0) → `/`(t+2.4s) → **`/login`(t+3.6s)** → **`/new/home`(t+4.8s)**；
+全程该分区小红书 Cookie 恒 19 个、登录态 Cookie 恒 **6/7**、localStorage 用户态 key 恒 3 个
+⇒ 凭证从未缺失或变化，唯一变量是入口 URL。同分区同 Cookie 集合 A/B：开 `/new/home` 连续 12s
+无 `/login`；干净分区开 `/new/home` 落 `/login?...redirectReason=401`（未登录也能正常落到登录页，无死路）。
+
+## 改动
+
+- `packages/shared-utils/src/platform-definitions.js`：新增单一真源 `PLATFORM_CREATOR_HOME_URLS`
+  —— 只登记「已登录首页 ≠ dashboard URL」的平台（小红书 → `https://creator.xiaohongshu.com/new/home`），
+  未登记平台由调用方回退；**不改** `PLATFORM_DASHBOARD_URLS`（其取值另被 `http-login-checker.js`
+  抓 HTML 提 uid、被 `checkLoginStatus` 用 hostname 兜底判定）。
+- `packages/shared-utils/src/platform-definitions.browser.js`：渲染端经 `vite.config.js` 的 alias 消费
+  该 ESM 孪生文件，同步补上新导出（漏一处即「单测全绿、真实构建拿到 `undefined`」，2026-09-05 同源事故）。
+- `apps/desktop/src/views/Accounts.vue`：`openCreatorCenter` 改为
+  `PLATFORM_CREATOR_HOME_URLS[platform] || PLATFORM_DASHBOARD_URLS[platform]`；
+  `openLoginPage` / `cleanSession` / `needsCleanLoginSession` 语义不变。
+- 测试与文档：契约锁（https、与登录 URL 同 host、值断言、未登记无键）+ 行为锁（小红书取新 URL、
+  未登记平台回退、失效账号干净会话）+ **消费方推导锁**（扫描 `apps/desktop/src` 真实命名导入逐个断言
+  浏览器版存在同名导出，带反失明下界与 fail-loud 定位）+ `01-docs/PRD-CREATOR-CENTER-LOGIN-FLASH-2026-10-13.md`。
+
+## 验证
+
+- TDD 先红后绿：契约锁首跑 4 红、行为锁首跑 2 红 → 实现后 shared-utils 两文件 64/64、`Accounts.test.js` 119/119。
+- 变异反证 7/7 全部变红并逐条还原（含 M6 删镜像导出、M7 把消费方推导锁正则改 no-op）。
+- 生产构建：`pnpm run build:vue` rc=0，产物 `platform-definitions.browser-B0vhteYv.js` 精确含新 URL。
+- `check-renderer-cjs-boundary.js` PASS（357 渲染层文件 / 9 alias）；`apps/desktop` ESLint rc=0；
+  `packages/shared-utils` 全量 851 passed / 10 skipped。
 
 # [未发布] fix(ci): 桌面分片从来没分过文件——裸 "--" 吃掉了七个 vitest 旗标（desktop-shard-flag）
 

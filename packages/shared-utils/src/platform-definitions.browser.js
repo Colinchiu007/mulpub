@@ -42,6 +42,21 @@ export const PLATFORM_SOURCE_URLS = {
   toutiao: 'https://www.toutiao.com/hot-event/hot-board/?origin=toutiao_pc',
 }
 
+/**
+ * 已登录创作者首页（账号标签「创作者中心」开卡入口专用）
+ *
+ * 与 PLATFORM_DASHBOARD_URLS 是两张表，禁止合并；只登记「已登录首页 ≠ dashboard URL」
+ * 的平台（未登记由调用方回退 dashboard URL）。完整理由、真机取证与契约锁位置见
+ * CJS 孪生文件 platform-definitions.js 的 PLATFORM_CREATOR_HOME_URLS 注释。
+ *
+ * 2026-10-13（xhs-creator-home-url）：小红书 dashboard URL 是
+ * `https://creator.xiaohongshu.com/`（该 SPA 的路由入口，已登录时先渲染登录路由
+ * 约 1.2s 再跳 /new/home，即用户看到的「登录页闪动」），已登录首页是 `/new/home`。
+ */
+export const PLATFORM_CREATOR_HOME_URLS = {
+  xiaohongshu: 'https://creator.xiaohongshu.com/new/home',
+}
+
 export const PLATFORM_LOGIN_URLS = {
   wechat_mp: 'https://mp.weixin.qq.com/',
   zhihu: 'https://www.zhihu.com/signin',
