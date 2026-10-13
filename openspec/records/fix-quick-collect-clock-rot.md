@@ -2,12 +2,9 @@
 record: fix-quick-collect-clock-rot
 task: 快捷采集时钟腐化的防再犯层（结构锁 + 变异电池）——运行时接缝由并发的 #3459 先落地
 date: 2026-10-13
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填 PR 改写 PASS + merge SHA 并整段删除本三个 sync_ 字段
-sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账）
 ---
 
-## 本次执行记录：快捷采集时钟腐化修复（fix-quick-collect-clock-rot，2026-10-13）
+## 本次执行记录：快捷采集时钟腐化的防再犯层（fix-quick-collect-clock-rot，2026-10-13）
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
@@ -24,7 +21,7 @@ sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账�
 | QM-4 视觉 | N/A | 未触任何前端渲染文件与样式；`apps/desktop/src/features/collection` 只跑测试未改代码 |
 | QM-6 CCG 双模型外部评审 | PASS（双轴回信已到，逐条处置见下） | 通道：CC Switch `:15721` 实测 ECONNREFUSED ⇒ 替代通道，逻辑轴 `opencode/nemotron-3-ultra-free`、可维护性轴 `opencode/ling-3.1-flash-free`。**逻辑轴 1 CRITICAL + 2 MAJOR + 4 MINOR、可维护性轴 0 CRITICAL + 3 MAJOR + 8 MINOR**（两轴的统计行我都按正文逐条数过再采信——本仓前科是"引用了评审自己写错的统计"）。逐条处置：**已落地**——可维护性 MAJOR#1「绝对时刻判据形状过窄」：`ABS_FIXTURE` 从只认 `Date.parse('20` 扩成 `Date.parse|Date.UTC|new Date('20|ISO 串|RFC-822 pubDate`，而最后那一种**正是本次事故夹具本身的形状**（新增合成用例 + 变异 H 钉住）。可维护性 MAJOR#2「`import('@/api/quick-collect')` 被误算成驱动者」：加 `(?!@)` 负向预查（实测驱动者从 7 收到 5；渲染端那个模块只是 `invokeWithFallback` 桥接层，不读主进程时钟，对它要求"注入时钟"是不可满足的账）。**且这两条必须一起改**——只拓宽 ABS 而不修驱动者，那两个渲染文件会当场假红。可维护性 MAJOR#3「电池用 `RUN['ABCDEF'[i]]` 与下标隐式对齐」：改成每条 case 自带 `run` + 启动自检（缺 run 即抛、want=red 的 run 集必须覆盖 expectFiles），因为它举的场景正是 F 那条 want=green 会在缩小的文件集上**真空成立**。MINOR 采纳：调用点窗口 400→800（实测偏移 246/53，400 只留 154 余量，一次无害换行就假红）+ 新增变异 I「收到 60 必须红」证明余量在测东西；测试 1 的名字补「并点名两个核心驱动者」（名字与 `toContain` 行为对齐）；锁头注释补三层覆盖关系与"扫描域按文件名定义、异名同族不在看守内"；电池加 `PREFLIGHT_NO_RESIDUE`（查 `MUT-` 残留，不要求工作树干净——被测对象本身就是未提交改动，要求干净等于要求自己先提交）。**否证/不采纳并写明理由**：逻辑轴 CRITICAL「生产不传 `now` ⇒ 修复不生效，建议在 phase5 注入 `now: () => Date.now()`」——事实对（`phase5-ipc.js` 的 handlerDependencies 确无 `now` 键，两处都落 `() => Date.now()`，我逐行复核过），**结论方向反**：本 PR 修的是"夹具与判据不同源"，生产侧读真实时钟是产品语义（用户要的就是"最近 48 小时"），它给的修法是恒等变换；我把这条写成锁头注释防下一个会话"顺手补全"。逻辑轴 MINOR「引擎 `:221` 用 `Date.now()` 生成 ID」——非语义时间、且先于本 PR 存在，不在本笔夹带。逻辑轴 MINOR「engine 把 `now()` 塞进 `opts` 而 fetcher 从不读 `opts.now`」——它自己已核实是**先于本 PR 的死参数**，记遗留不动代码 |
 | 双轴并发的现场污染（如实归因，不算实现缺陷） | PASS | 两个评审并发读**同一个 worktree**，逻辑轴自述跑了我的写型变异电池并 `git restore`（违反只读），可维护性轴同轮报「单独跑全绿，但 16 文件联合跑有 3 个失败」。我随后按消费者并集复跑：`25 个测试文件 / 312 passed / 0 failed`（命令见"修复 + 回归保护"行），**那 3 条红不可复现**；最合理的归因是它撞上了对方并发 mutation 的瞬时态。教训已落成动作：①同一工作树上的 QM-6 双轴必须**串行**派发（与"评审读目录时禁止跑变异"同族，只是这次违规者是评审本身）；②电池加残留检查，让"被杀后留下的变异"当场响。工作树当前 `git diff HEAD` 为空、注入行在位（`quick-collect.test.js:46`、`quick-collect.js:66/152`），已核实无损坏 |
-| 远程同步 | PENDING | 合并后按 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 与 `gh pr view <N> --json state,mergedAt,mergeCommit` 两源同 sha 取 merge SHA，`git ls-remote --heads origin fix-quick-collect-clock-rot` 返回 0 行证远端分支已删；本行改写 PASS + SHA 的**同一次提交**内删除 frontmatter 三个 `sync_*` 字段 |
+| 远程同步 | PASS | 已合并：PR #3458 squash → `8558586e57b06eff6f24669d8a4168f1e2eecd4b`（`gh pr view --json state,mergedAt,mergeCommit` 实测 `MERGED` / `2026-10-13T05:24:18Z` / 同 sha，两源一致：`git log origin/main --grep='(#3458)$' --format=%H` = `8558586e5…`）；远端分支已删（`git ls-remote --heads origin fix-quick-collect-clock-rot` 返回 0 行）。CI 全绿：`pass=19 / pending=0 / fail=0`（head `fb293d0b2`，看守 sha 钉住后 `WATCH_DONE=green`，并以 `gh pr checks` 复核）。同一次提交内删除 frontmatter 的 `sync_status` / `sync_reason` / `sync_backfill_owner` 三字段 |
 
 ### 上游影响面（为什么这一笔不是"顺手"）
 
