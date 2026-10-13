@@ -3,9 +3,6 @@ task: exec-record-audit-carrier
 title: 出路④允许自动入库的判定记录，解开与 #3396 的冲突
 status: completed
 date: 2026-10-12
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填 PR 改写 PASS + merge SHA 并整段删除本三个 sync_ 字段
-sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账）
 ---
 
 # 出路④允许自动入库的判定记录（exec-record-audit-carrier）
@@ -55,4 +52,4 @@ some:  M && RECORDS_RE            // C2 收紧原样保留
 
 ## 远程同步
 
-| 远程同步 | PENDING | 待本 PR 合并后就地改写为 PASS + merge SHA，并在同一次提交删除 ledger 本条登记项 |
+| 远程同步 | PASS | 已合并：PR #3434，merge b3bd56ec928a4fd5e013b90af05365c9e6802d19（2026-10-13，squash）。取证：`git log origin/main --grep "(#3434)$" --format=%H|%cI`；本次回填同一次提交删除 ledger 登记项，并在带 frontmatter 的记录文件里删 sync_ 字段 |
