@@ -2,9 +2,6 @@
 record: prd-stock-status-correction
 task: 更正 PRD §7.9.7 的过期陈述「宿主接线未做」，使主干文档与 #3387 已合并的事实一致
 date: 2026-10-14
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填 PR 改写 PASS + merge SHA 并整段删除本三个 sync_ 字段
-sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账）
 ---
 
 # 更正 PRD §7.9.7 的过期陈述（prd-stock-status-correction，2026-10-14）
@@ -37,4 +34,4 @@ PRD 是「先文档再代码」前置门的读源。合并动作本身已正确�
 
 ## 远程同步
 
-| 远程同步 | PENDING | 本 PR（prd-stock-status-correction）的远程同步待合并后由后续 docs PR 回填 PASS + merge SHA，并在同一次提交删除 ledger 本条登记项 |
+| 远程同步 | PASS | merge SHA 0c41d1c21 · 2026-10-13T19:19:50Z · 远端分支已删（ls-remote 0 行）· 同次提交删除 ledger 登记项 |
