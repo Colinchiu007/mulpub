@@ -1,0 +1,61 @@
+PREFLIGHT_NO_RESIDUE files=4 status=[]
+# qcclock 变异反证原件
+# head=2cc76268a17c31bff05a15c09cfe315ff7c773aa
+# collectedAt=2026-10-13T04:53:01.826Z cases=10
+
+== A 摘掉 IPC handler 透给引擎的时钟（半接线缝隙复发）
+   want=red 点名红=true fail=[FAIL  electron/ipc-handlers/quick-collect.test.js , FAIL  electron/services/quick-collect-cn-sources.test.js]
+   tests=6 failed | 23 passed (29)
+   restored=bytes_equal
+
+== B 摘掉 IPC 测试夹具的**全部**两处时钟注入
+   want=red 点名红=true fail=[FAIL  electron/services/quick-collect-clock-determinism.test.js]
+   tests=1 failed | 4 passed (5)
+   restored=bytes_equal
+   restored=bytes_equal
+
+== C 摘掉引擎测试里唯一那处时钟注入（换第二个驱动者）
+   want=red 点名红=true fail=[FAIL  electron/services/quick-collect-clock-determinism.test.js]
+   tests=1 failed | 4 passed (5)
+   restored=bytes_equal
+
+== D 把驱动者判据改成永不匹配（锁空转）
+   want=red 点名红=true fail=[FAIL  electron/services/quick-collect-clock-determinism.test.js]
+   tests=2 failed | 3 passed (5)
+   restored=bytes_equal
+
+== E 把违规判据改成恒不成立（装饰性门禁）
+   want=red 点名红=true fail=[FAIL  electron/services/quick-collect-clock-determinism.test.js]
+   tests=1 failed | 4 passed (5)
+   restored=bytes_equal
+
+== F 只把夹具的绝对时刻挪一天（合规编辑）
+   want=green 对照绿=true fail=[0]
+   tests=15 passed (15)
+   restored=bytes_equal
+
+== G 把渲染端 import 也算成驱动者（去掉 (?!@) 负向预查）
+   want=red 点名红=true fail=[FAIL  electron/services/quick-collect-clock-determinism.test.js]
+   tests=2 failed | 3 passed (5)
+   restored=bytes_equal
+
+== H 绝对时刻判据退回只认 Date.parse 的窄形状
+   want=red 点名红=true fail=[FAIL  electron/services/quick-collect-clock-determinism.test.js]
+   tests=1 failed | 4 passed (5)
+   restored=bytes_equal
+
+== I 把调用点窗口从 800 收到 60 字符
+   want=red 点名红=true fail=[FAIL  electron/services/quick-collect-clock-determinism.test.js]
+   tests=1 failed | 4 passed (5)
+   restored=bytes_equal
+
+== J 摘掉 feed 抓取器那处 now（第二处调用点）
+   want=red 点名红=true fail=[FAIL  electron/services/quick-collect-clock-determinism.test.js]
+   tests=1 failed | 4 passed (5)
+   restored=bytes_equal
+
+== FINAL（还原后复跑）
+   tests=34 passed (34) fail=[0] ⇒ OK
+
+MUTATION_BAD=0
+RC=0
