@@ -72,13 +72,6 @@ export default defineConfig({
       // 未登记此 alias 时渲染层会拉到 CJS 主进程版而跨边界（由 scripts/check-renderer-cjs-boundary 拦截）。
       '@multi-publish/shared-utils/src/podcast-rss':
         path.resolve(__dirname, '..', '..', 'packages/shared-utils/src/podcast-rss.browser.js'),
-      // 平台分类对照表（P0-3 后半段 / PRD-PLATFORM-TAXONOMY §15）：渲染进程消费 ESM 孪生版。
-      // 数据单一来源 config/platform-taxonomy.json（构建期静态引入 ⇒ 表缺失时**打包当场失败**，
-      // 不是运行期返回空表）；CJS/ESM 双版本 parity 测试锁定。
-      // 未登记此 alias 时渲染层会拉到用 fs/path 的 CJS 主进程版而跨边界
-      //（由 scripts/check-renderer-cjs-boundary 拦截）。
-      '@multi-publish/shared-utils/src/platform-taxonomy':
-        path.resolve(__dirname, '..', '..', 'packages/shared-utils/src/platform-taxonomy.browser.js'),
     }
   },
   // workspace 包不在 node_modules 下，开发服务器不会默认预构建其 CommonJS 入口。
