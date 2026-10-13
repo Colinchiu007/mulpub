@@ -71,7 +71,7 @@ ESM **故意不实现** `validateTaxonomy`（结构性自检）。理由：渲�
 
 | 门禁 | 状态 | 说明 |
 | --- | --- | --- |
-| QM-1 打包验证 | **已执行并通过** | 见下「QM-1 实测」 |
+| QM-1 打包验证 | **N/A** | 适用范围是 `apps/desktop/electron/` 与 `packages/rpa-engine/`；本 PR 变更全在 `packages/shared-utils/`（vite alias 已移入选择器 PR）。曾执行过打包，结论作为**旁证**保留在下 |
 | QM-2 代码必检项 | ✅ | 新文件无 `require` 路径问题；无新第三方依赖；`export` 语法已核；注释 `/* */` 成对 |
 | QM-4 视觉 | N/A | 无 UI 变更（选择器组件在下一 PR）|
 | QM-6 双模型评审 | 未执行（如实登记）| 本机无 `codeagent-wrapper` |
