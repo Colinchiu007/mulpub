@@ -204,6 +204,8 @@ scripts/*.js
 # P0-1 平台分类 ID 转换器（ARCH-REUSE-INTEGRATION R-1）：需入库，非临时脚本
 !scripts/import-platform-taxonomy.js
 !scripts/import-platform-taxonomy.test.js
+# P1-1 平台指标矩阵转换器（ARCH-REUSE-INTEGRATION §4.2/§4.3）：需入库，非临时脚本
+!scripts/import-platform-metric-matrix.js
 screenshot_script*.js
 temp_debug.txt
 coverage/

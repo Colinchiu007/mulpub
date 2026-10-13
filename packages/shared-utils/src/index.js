@@ -30,6 +30,12 @@ const publishCapabilities = require('./publish-capabilities')
 // 回答「这个平台的分类 ID 是什么」，与 publishCapabilities 的「能不能设标题/描述」是不同问题。
 const platformTaxonomy = require('./platform-taxonomy')
 
+// 平台指标矩阵读取层（P1-1，ARCH-REUSE-INTEGRATION §4.2/§4.3）：
+// 回答「这个平台能拿到哪些指标」——**参考数据，不是运行时真源**（真源是 account-metrics/adapters.js）。
+// ⚠️ 只用于 UI 文案与测试交叉校验，**不得用于请求门控**：厂商矩阵是厂商的能力边界，
+// 本仓实测能拿到的即使厂商未声明也应采信实测（见 reconcileObservation 的 undeclared-but-present）。
+const platformMetricMatrix = require('./platform-metric-matrix')
+
 module.exports = {
   TaskQueue,
   AggregatorBridge,
@@ -50,4 +56,5 @@ module.exports = {
   publishHistory,
   publishCapabilities,
   platformTaxonomy,
+  platformMetricMatrix,
 }
