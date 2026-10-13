@@ -202,6 +202,22 @@ jobs:
           echo "[doc-abs-paths] base_ref=$BASE_REF merge_base=${MB:-<unresolved => fallback to base_ref>}"
           node scripts/check-doc-abs-paths.js --base="${MB:-$BASE_REF}" --head=HEAD
 
+      # --- P3-1：扩平台标准动作自检（设计文 §9.3 的 11 步 + 2 条额外判据）---
+      # 动因（2026-10-14）：本仓**不自动收集** `scripts/` 下的测试，未在 workflow 正文里点名的
+      # 测试永远不会跑 —— `scripts/check-unwired-tests.js` 就是为此设的门禁（本次实测抓到）。
+      # 放在 `changes` job（非 docs-only 门控）而非 static-gates：脚本只依赖 node 内置模块，
+      # 满足「changes job 无 Install deps」的约束，且 main push 那一档同样覆盖。
+      - name: "Gate 2x - Platform onboarding self-check (P3-1)"
+        run: |
+          node --test scripts/verify-platform-onboarding.test.js
+          # 判据②同时在此重跑：不存在的 slug 必须非零退出（不静默通过）
+          if node scripts/verify-platform-onboarding.js no_such_platform_xyz; then
+            echo "::error::verify-platform-onboarding 对不存在的 slug 返回了 0 —— 门禁静默通过"
+            exit 1
+          fi
+          # 判据①：已有平台必须全 PASS
+          node scripts/verify-platform-onboarding.js baijiahao
+
       # --- Gate 12d：主规格 Purpose 去 TBD 门禁 ---
       # 动因（2026-10-07 实测）：openspec 归档器会在 specs 文件里留下
       # `TBD - created by archiving change <name>. Update Purpose after archive.`，而全仓
