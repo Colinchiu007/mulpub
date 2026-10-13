@@ -380,16 +380,57 @@ P0 ──┬──> P3-1 ──> P3-2
 
 ### M0 —— P0 完成（分类体系可热更）
 
-| # | 判据（命令 / 断言） | 通过条件 |
-|---|---|---|
-| M0-1 | `node scripts/import-platform-taxonomy.js <src> <out>` 连跑两次 | 退出码 0 且**两次产物 SHA-256 相同** |
-| M0-2 | 读产物 | `source.nodeCount === 11623` 且 `platformCount >= 20` |
-| M0-3 | `validateTaxonomy().length` | `=== 0` |
-| M0-4 | `resolveCategoryId('douyin','动植物').id` | `=== '117'` |
-| M0-5 | `resolveCategoryId('kuaishou','三农/种植业')` | `=== null`（`name-only` 平台恒 null） |
-| M0-6 | `publisher-router.test.js` **既有用例** | 全绿（未破坏 bilibili/youtube 合同） |
-| M0-7 | `validateRegistry().length` | `=== 0` |
-| M0-8 | `getPlatformOverrideFields('<slug>',{uiOnly:true})` | 含 `categoryName` |
+> **本表已于 2026-10-14 按实测修订。** 原表有 4 条判据是照「想象中的 API / 全量数据集」写的，
+> 与交付后的实现不符。修订原则：**先分辨是「实现错」还是「判据错」，再改判据并写明理由 ——
+> 绝不默默改实现去凑一条写错的判据。** 每条判据都给出实测值。
+
+| # | 判据（命令 / 断言） | 通过条件 | 实测（2026-10-14） |
+|---|---|---|---|
+| M0-1 | `node scripts/import-platform-taxonomy.js --source 01-docs/research/competitor-reverse-2026-10-13/platform-data --out <out>` 连跑两次 | 退出码 0 且**两次产物 SHA-256 相同** | ✅ 两次均 `f69deca4f4e4047d…`；且**与已提交产物字节完全相同** |
+| M0-2 | 读产物 `stats` | `platforms === 6` 且 `nodes === 1601` 且 `dedupedIdenticalEntries === 53` | ✅ 与实测一致 |
+| M0-3 | `validateTaxonomy().length` | `=== 0` | ✅ `0` |
+| M0-4 | `resolveCategoryId('douyin','动植物',{contentType:'article'}).id` | `=== '117'` | ✅ `'117'` |
+| M0-5 | `resolveCategoryId('kuaishou','三农/种植业',{contentType:'video'})` | `ok === false` 且 `reason === 'platform-name-only'` | ✅ 同左 |
+| M0-6 | `publisher-router.test.js` **既有用例** | 全绿（未破坏 bilibili/youtube 合同） | ✅ |
+| M0-7 | `validateRegistry().length` | `=== 0` | ✅ `0` |
+| M0-8 | `getPlatformOverrideFields('<slug>',{uiOnly:true})` 中存在 `semantic === 'category'` 的字段 | 6 个有分类数据的平台**各恰好一条** | ✅ 6/6，`key` 均为 `category` |
+
+#### 四处修订的理由（逐条）
+
+**M0-2 —— 数字改为实测值（原：`nodeCount === 11623` 且 `platformCount >= 20`）**
+
+原数字假设「导入竞品全量数据」。但用户明确要求「**P0-1 的 ID 值先只覆盖我的项目目前支持的这些自媒体平台**」，
+故 P0-1 只导入**本项目已支持且确有 ID 数据**的平台 ⇒ 6 平台 / 1601 节点 / 53 条同 id 同名去重。
+
+原判据的**意图是「防解析退化成空集合」**，该意图保留：改为锁住实测三元组（任一退化都会红）。
+
+**M0-4 —— 必须显式传 `contentType`（原：无 contentType）**
+
+图文与视频是**两套独立的分类命名空间**（实测 B站 id=21 图文是「萌宠」、视频是「日常」），
+读取层的 `getCategories` / `resolveCategoryId` 都要求显式传 `contentType`，缺省即抛错 —— 这是**有意的**，
+因为「猜错链会把内容发到错误的分类」。
+
+`douyin` 的「动植物」`id=117` 在 **article** 链上；在 video 链上它不存在（返回 `content-type-mismatch` 并列出可用集）。
+
+**M0-5 —— 返回结构体而非 `null`（原：`=== null`）**
+
+实现恒返回 `{ ok, reason, hint?, available?, candidates? }`。返回 `null` 会让调用方**无法区分**
+「平台没有可提交的分类 ID」与「分类名写错了」—— 前者应隐藏控件、后者应报错。故改为断言
+`ok === false` 且 `reason === 'platform-name-only'`（更精确，且不丢失可操作性）。
+
+**M0-8 —— 字段名是 `category` 而非 `categoryName`（原：含 `categoryName`）**
+
+三条理由：
+1. 适配器读的是 `taskData.category`（`baijiahao-article.js:151`）；
+2. 注册表里 `bilibili` **原本就用** `category`、`youtube` 用 `categoryId`；
+3. `PRD-PLATFORM-TAXONOMY-2026-10-13.md` §15.3 已冻结「`article.category` = 平台侧**数字 ID**」。
+
+再加一个 `categoryName` 会让同一概念有**第三个名字** —— 正是该注册表要修的债。
+「选项来自分类表」改用 `optionsFrom: 'platform-taxonomy'` 表达（与 `semantic` 正交：
+`semantic` 描述**能力**，`optionsFrom` 描述**来源**）。
+
+> ⚠️ `youtube` 有 `semantic:'category'` 但**不**声明 `optionsFrom` —— 本数据集里没有 youtube 分类表
+> （P0-1 刻意只覆盖确有数据的平台）。**没有数据源就不能声明有**，该字段的 10 项静态 options 标注为「遗留且无数据源」。
 
 ### M1 —— P1 完成（指标矩阵 + 两个纯函数）
 
