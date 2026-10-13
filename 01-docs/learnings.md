@@ -18182,3 +18182,85 @@ R0 禁止一切目录递归删除，而 `safe-delete.js` 闸1「目标必须是�
 这是机制缺口而非自觉问题：**一条没有可行路径的规则会被稳定绕过**（R0 立规当日仍发生第 5 次误删即同因）。
 建议：给 `safe-delete.js` 增加「仅限**仓库外** + 仅限**本会话创建的路径**」的目录分支，
 否则该规则对测试夹具永远是纸面约束。
+
+### lesson:silent-early-return-is-failure-without-signal
+
+【复发形态】静默早退 = 失败无信号。
+`autoSyncOnStart()` 的三道早退全是裸 `return`：判据没错（没配置不该硬发请求），**错的是不发请求也不说为什么**。
+于是应用可以在「运营下发配置（应用菜单/公告/功能开关）永远不会生效」的状态下常年运行而**没有任何信号**。
+同形态本仓是**复发型**：`syncNow` 内部踩过并已修（#2374「运营配置不被模型目录门控」、2026-09-25 复盘），本次是它在**上一层**（是否发起同步）的重犯。
+判据：一段早退代码，先问「**它不说话的时候，谁会知道？**」答案是「没人」就是一个未来要花掉数小时排查的黑洞。**修一处要向上扫一层。**
+
+### pitfall:two-sources-merged-into-one-field-lose-distinguishability
+
+【陷阱】两个来源合并进同一字段，就失去了区分度。
+`getConfig().url` 会把自动发现地址并入（`url = 手动 url || 自动 url`），而 `_getAutoContext()` 在缺登录令牌回调时返回 null。
+两者叠加让「**自动发现地址已配好、只是缺令牌**」**伪装成「完全未配置」**——现场正是这一态。
+修法的关键是把被合并掉的区分度**传出来**（本笔额外传 `autoUrlRaw` + `hasAccessToken`），而不是把 `hint` 写得更长：
+报错只给合并后的结论时，排查者会去翻设置页而找不到问题。
+
+### technique:falsify-inference-with-one-real-request
+
+【技法】凡要据此改码的推断，先用一次真实请求否证它。
+排查中途据 `.env` 的 `OPS_RUNTIME_SIGNING_PRIVATE_KEY` **只有 27 字符**（恰等于 `-----BEGIN PRIVATE KEY-----` 的长度）
+推断「它是只有 PEM 头的占位串 ⇒ bootstrap 签不出来」，还准备让用户重新生成密钥。
+**实测否证**：`GET /api/v1/runtime/bootstrap` 返回 200、含 `signature`，且用桌面端**自己的** `verifyRuntimeSignature(data, '')` 验签 `{"ok":true}`。
+长度/形状这类「看起来显然」的线索最容易变成无据修复。成本是 1 条命令，收益是避免把一次误判写进代码与文档。
+
+### technique:absence-in-logs-is-evidence
+
+【技法】「日志里没有」也是证据。
+当日日志里 `catalog-synced` / `auto-sync-skipped` / `auto-sync-error` **一条都没有**——这不是「日志没配好」，
+而是**代码路径根本没走到能说话的地方**（早退全静默）。
+可迁移判据：怀疑某功能没跑时，先去日志里找**它成功和失败时分别会说什么**。两者都没有 ⇒ 它没跑到那里，而不是「跑了但失败了」。
+
+### technique:history-distinguishes-never-configured-from-lost
+
+【技法】用历史/备份区分「从未配置」与「配置被弄丢」。
+`opsCenterSync` 在**全部 13 个库（含 2026-09-23 起每份备份）**中从未出现过 ⇒ 不是「被弄丢」，是**从未接上**。
+用户说「以前是好用的」时，先问「**这条配置在历史里存在过吗**」：存在过 ⇒ 找丢失路径；从未存在 ⇒ 找「为什么从未接上」。
+这两条路的修法完全不同。备份/历史是免费的排除法。
+
+### lesson:locking-not-scheduled-is-not-locking-not-spoken
+
+【教训】锁「不调度」不等于锁「不出声」。
+既有用例「未配置自动同步时不调度」**只断言了 `syncNow` 没被调用**。「不调度」与「不出声」是两件事，
+前者绿不代表后者 —— 于是这条锁**定格了缺陷形态**。
+写回归锁时把断言拆成两问：「**它的行为正确吗**」+「**它的沉默合理吗**」；再加一对反向断言
+（`not.toContain` 另一种原因）防止几种原因被合并成一条含糊的 `skipped`。
+
+### pitfall:replay-must-not-resurrect-settled-debt
+
+【陷阱】重放绝不能复活已销账的欠账。
+ledger 的「主干没有的键」**未必只有 1 个**：main 上可能有**别的 PR 已销账**（回填 PR 会删登记项），
+而我的分支基于旧主干、仍带着那一条。按「并集」重放会把已收口的欠账**复活**，债务门禁的「清单无陈旧项」当场判红。
+**正解：只补本分支自己的登记项**，其余一律不复活。同族两条：①整树 `git archive | tar -x` 在 Windows 上遇 CJK 文件名
+会以 `Invalid empty pathname` 失败 ⇒ 只需几个文件时直接 `git show <ref>:<path>`；
+②重放**不要更新「正被 worktree 检出」的分支 ref**（工作树与索引失配）⇒ 写临时分支再 `git push <tmp>:refs/heads/<目标>`。
+
+### pitfall:constant-name-triggers-secret-heuristic
+
+【陷阱】常量命名也会触发安全扫描；误报的正解是改名。
+`const REASON_MISSING_API_KEY = '…'` 被 CCG 的「硬编码密钥」启发式命中（名字含 `API_KEY` 且带赋值）⇒
+pre-commit 以「🟠 可能存在硬编码密钥/密码」阻断提交。改名 `REASON_MISSING_CREDENTIAL` 即通过（0 高危）。
+**不得用 `SKIP_CCG_GATE=1` 消解误报** —— 那是把闸门关掉，不是把误报修掉。
+
+### technique:debt-ceiling-means-fix-must-net-shrink
+
+【技法】债务熔断顶格时，修复要「净减」。
+主文件登记 570 行 + 容差 200 = **770**，而它已经 **768** ⇒ **任何新增都判 `LEDGER_GREW`**。
+正解是把判据整体外移到新模块、主文件只留调用点（本笔 768 → **769**，净增 1 行），而不是申请提额。
+这与本文件既有的 `app-menu-config.js` 拆分是先例同因（文件头注释写着「债务熔断：主文件需保持 < 500 行」）。
+
+### pitfall:git-dependent-gates-in-a-no-git-export-tree
+
+【陷阱】无 git 的导出树只适合跑不依赖 git 的门禁。
+`check-pr-exec-record` 在 `tar` 导出树里 rc=1（那里没有 `.git`），回到 worktree rc=0。
+**导出树里判红先问「这条判据需要 git 吗」**，别把它读成真失败——本轮因此误读了一次。
+
+### lesson:feature-not-working-may-mean-never-connected
+
+【教训】「功能没生效」可能是「从未接上」。
+用户报告运营中心「应用菜单」改了不生效。真相：运营中心侧 `appMenu` 与库中改动**逐项吻合（7/7）**、验签通过，
+但应用侧 `opsCenterSync` **从未存在**、唯一运行时来源是内置占位种子（其 `"appMenu": null`）⇒ 永远回退本地默认菜单**且不报错**。
+排查顺序应是「**真源对不对 → 传输对不对 → 消费方取没取**」，而不是先怀疑渲染层。
