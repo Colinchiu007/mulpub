@@ -585,7 +585,8 @@ pickChannel → colloquialize → chunk → ttsBlock(逐块，串行) → concat
   均未把变异真正落进文件（锚点少写了 `extOf(`），所以**这条锁目前没有变异证据**，只有行为证据。
   第 3 条的变异 M1（合法值不再原样返回）实测 **2 条指名红**（只补不改 + 键序），已还原并断言。
 
-**宿主接线未做**：`podcast-channel-service.js` / `podcast-channel-registry.js` 尚无调用点，
+- **2026-10-14 更正（#3387 已合并，merge SHA `8bd87f385`）**：下方那句「宿主接线未做」**已过期**，保留只作当时的现场。4.4b 的 ① 现已落地——`apps/desktop/electron/services/podcast-stock-freeze-host.js` 用注入的 `registry` / `listChannels` / `readEpisodes` / `writeEpisodes` / `readIndex` / `writeIndex` 构造，`ipc-handlers/podcast.js` 的 `getService` 在**首个需要频道数据的调用处**触发一次：进程内恰好一次（同一频道第二次调用是 no-op），固化抛错走旁路只 `warn` 不外冒、返回 `null`，**§7.9.5 的数据校验与幂等口径一字未改**（重跑必须 `filled=0` 且字节不变）。仍**未做**的三件：② `compliance` 的 `stock` 档（§7.9.5 第 4 条）、③ 频道页摘要「扫描 N · 补齐 M · 待人工 K」与 `podcast.stock.*` 三对键 zh/en 成对、④ 「缺失即填默认值」那条**真的落进文件**的变异反证；故 `openspec/changes/podcast-oneclick-publish/tasks.md` 的 4.4b 父项保持未勾。
+**（2026-10-12 的现场，其中「宿主接线未做」已被上面那条更正）**：`podcast-channel-service.js` / `podcast-channel-registry.js` 尚无调用点，
 `stockStamp` 目前只由本层的 `writeIndex` 写；`compliance` 的 `stock` 档与频道页摘要、
 locale 三对键均未落地。因此 **tasks 4.4 只勾到「固化判据与锁已在位」**，剩余落点拆成 4.4b 保持未勾。
 
