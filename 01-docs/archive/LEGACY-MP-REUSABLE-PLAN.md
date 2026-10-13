@@ -1,5 +1,21 @@
 # 参考产品可复用技术落地开发计划
 
+> ## 🗄️ LEGACY — 已归档，**不得作为现行依据**（归档于 2026-10-13）
+>
+> 本文件是**旧的复用规划产物**（原日期：2026-09-11），已被本轮逆向研究的成果文档取代：
+> - [RESEARCH-COMPETITOR-REVERSE-2026-10-13.md](../RESEARCH-COMPETITOR-REVERSE-2026-10-13.md) — 本轮逆向研究成果总览
+> - [REUSE-CATALOG-2026-10-13.md](../REUSE-CATALOG-2026-10-13.md) — 可复用资产总目录（含 mulpub 代码现状核实）
+> - [ARCH-REUSE-INTEGRATION-2026-10-13.md](../ARCH-REUSE-INTEGRATION-2026-10-13.md) — 集成设计与详细实现方案
+> - [PLAN-REUSE-ROLLOUT-2026-10-13.md](../PLAN-REUSE-ROLLOUT-2026-10-13.md) — 分阶段实施计划
+>
+> **为什么归档**：其核心假设「本项目缺 7 项」**已被实测推翻** —— 同批的 `LEGACY-MP-REUSABLE-ACTUAL-PLAN.md` 审计发现其中 **6 项本就存在于 `packages/api-publish-engine`**。
+>
+> **使用指引**：可作历史演进参考；**任何「待做项 / 缺口 / 计划」的结论一律以取代文档为准** ——
+> 本项目已有一次教训：旧方案假设 7 项缺失，实测 6 项本就存在（见 `LEGACY-MP-REUSABLE-ACTUAL-PLAN.md`）。
+
+---
+
+
 > 基于 [可复用分析报告](D:/Data/projects/Multi-Publish/01-docs/MP-REUSABLE-ANALYSIS.md)
 > 创建日期: 2026-09-11 | 状态: 待确认
 
