@@ -1,0 +1,38 @@
+# qcclock 变异反证原件
+# head=c6b4709cd9e9f4ef6e2d9171e32c00a30327e6d0
+# collectedAt=2026-10-13T03:45:03.397Z
+
+== A 摘掉 IPC handler 透给引擎的时钟（半接线缝隙复发）
+   want=red fail=FAIL  electron/ipc-handlers/quick-collect.test.js , FAIL  electron/services/quick-collect-cn-sources.test.js ⇒ OK
+   tests=3 failed | 25 passed (28)
+   restored=bytes_equal
+
+== B 摘掉 IPC 测试夹具的时钟注入
+   want=red fail=FAIL  electron/services/quick-collect-clock-determinism.test.js ⇒ OK
+   tests=1 failed | 3 passed (4)
+   restored=bytes_equal
+
+== C 摘掉引擎测试里唯一那处时钟注入（换第二个驱动者验锁不是只盯一个文件）
+   want=red fail=FAIL  electron/services/quick-collect-clock-determinism.test.js ⇒ OK
+   tests=1 failed | 3 passed (4)
+   restored=bytes_equal
+
+== D 把驱动者判据改成永不匹配（锁空转）
+   want=red fail=FAIL  electron/services/quick-collect-clock-determinism.test.js ⇒ OK
+   tests=2 failed | 2 passed (4)
+   restored=bytes_equal
+
+== E 把违规判据改成恒不成立（装饰性门禁）
+   want=red fail=FAIL  electron/services/quick-collect-clock-determinism.test.js ⇒ OK
+   tests=1 failed | 3 passed (4)
+   restored=bytes_equal
+
+== F 只把夹具的绝对时刻挪一天（合规编辑）
+   want=green fail=0 ⇒ OK
+   tests=13 passed (13)
+   restored=bytes_equal
+
+== FINAL（还原后复跑）
+   tests=32 passed (32) fail=0 ⇒ OK
+
+MUTATION_BAD=0
