@@ -182,6 +182,41 @@ test('CLI 必须从进程入口跑（只测导出函数等于没测 CLI 层）',
 })
 
 // ── 承重两条：unregistered 与改动集无关；CLI 端到端真跑 ──────────────────
+test('无行尾闭合竖线的行题必须照常采到（评审声称"会漏采"，实测否证后钉成覆盖锁）', () => {
+  // 外部评审报「无尾竖线 ⇒ 该行被漏采 ⇒ 误判缺行」。实测**不成立**：判据只要求标题后的
+  // 那个列分隔竖线存在，不要求行尾闭合。把它钉下来，是因为这个形状真实存在过
+  // （上一刀 gate3-failfast.md 的「修复 + 回归保护」行就缺尾竖线，且当时是渲染缺陷不是判据缺陷）。
+  const noPipe = [
+    '| 第一性原因（QM-5 ①） | PASS | a',
+    '| 逃逸分析（QM-5 ②） | PASS | b',
+    '| 修复 + 回归保护（QM-5 ④） | PASS | c',
+    '| 防止再次发生（QM-5 ⑤） | PASS | d',
+  ].join('\n')
+  assert.deepStrictEqual([...stepsPresentInRecord(noPipe)].sort(), ['①', '②', '④', '⑤'],
+    '缺行尾竖线不得影响采集；若将来改成要求行尾闭合，这条必须先红')
+})
+
+test('嵌套围栏不得把块外真行一起剥掉（实测未过度剥离，钉为覆盖锁）', () => {
+  // 外层用 4 个反引号、内层 3 个：非贪婪剥离会在第一个"行首 ``` "处收口，
+  // 因此块外的三条真行必须仍在 present 里，而块内示例的 ⑤ 必须不在。
+  const nested = [
+    '写法演示（嵌套）：',
+    '````md',
+    '内层示例：',
+    '```md',
+    '| 防止再次发生（QM-5 ⑤） | 示例 |',
+    '```',
+    '````',
+    '真行：',
+    '| 第一性原因（QM-5 ①） | PASS | a |',
+    '| 逃逸分析（QM-5 ②） | PASS | b |',
+    '| 修复 + 回归保护（QM-5 ④） | PASS | c |',
+  ].join('\n')
+  const got = [...stepsPresentInRecord(nested)].sort()
+  assert.ok(got.includes('①') && got.includes('②') && got.includes('④'),
+    '块外真行不得被过度剥离：实测采集=' + JSON.stringify(got))
+  assert.ok(!got.includes('⑤'), '块内示例仍不得算作真行：实测采集=' + JSON.stringify(got))
+})
 test('全仓未登记缺行必须被点名，且不依赖改动集（否则新缺口能靠"没人改它"隐身）', () => {
   const root = fixtureRoot({ 'silent.md': REC_MISSING_5, '_TEMPLATE.md': TEMPLATE_WITH_FOUR })
   try {
