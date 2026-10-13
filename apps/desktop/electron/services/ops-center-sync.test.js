@@ -370,6 +370,82 @@ describe('OpsCenterSync autoSyncOnStart', () => {
     vi.advanceTimersByTime(3001)
     expect(spy).toHaveBeenCalledTimes(1)
   })
+
+  // ── 回归锁（2026-10-14）：早退必须**出声且原因可区分** ────────────────────────
+  // 这三道早退原先都是静默 `return`：应用可以在「运营下发配置（应用菜单/公告/功能开关）
+  // 永远不会生效」的状态下常年运行而**没有任何信号**。实测现场：共享数据锚点里
+  // `opsCenterSync` 键从未存在过、应用日志里也没有任何 `auto-sync-*` 行，用户只看到
+  // 「运营中心改了不生效」，连断点在应用侧还是服务端都判断不了。
+  // 注意上面的旧用例只锁了「不调度」——**不调度**与**不出声**是两件事，前者绿不代表后者。
+  const eventsOf = (log) => log.notify.mock.calls.map((c) => c[1])
+  const paramsOf = (log, name) => {
+    const call = log.notify.mock.calls.find((c) => c[1] === name)
+    return call ? call[2].params : null
+  }
+
+  it('完全未配置时：不调度，且出声给出「未配置」原因与下一步', () => {
+    vi.useFakeTimers()
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
+    const svc = new OpsCenterSync({ store: makeStore(), modelProviderManager: makeManager(), log })
+    const spy = vi.spyOn(svc, 'syncNow')
+    svc.autoSyncOnStart()
+    vi.advanceTimersByTime(10000)
+    expect(spy).not.toHaveBeenCalled()
+    expect(eventsOf(log)).toContain('auto-sync-not-started-unconfigured')
+    expect(paramsOf(log, 'auto-sync-not-started-unconfigured').hint).toContain('未配置运营中心地址')
+  })
+
+  it('自动发现到地址但缺登录令牌：必须与「完全未配置」区分开（现场就是这一态）', () => {
+    vi.useFakeTimers()
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
+    const svc = new OpsCenterSync({ store: makeStore(), modelProviderManager: makeManager(), log })
+    // 有自动发现地址、但没有 getAccessToken 回调 ⇒ _getAutoContext() 返回 null，
+    // 而 getConfig().url 也会因此为空 —— 于是这一态在旧代码里**伪装成「未配置」**，
+    // 排查者会去翻设置页而找不到问题。
+    svc.setOpsCenterUrl('https://ops.auto.example.com')
+    const spy = vi.spyOn(svc, 'syncNow')
+    svc.autoSyncOnStart()
+    vi.advanceTimersByTime(10000)
+    expect(spy).not.toHaveBeenCalled()
+    expect(eventsOf(log)).toContain('auto-sync-not-started-unconfigured')
+    const p = paramsOf(log, 'auto-sync-not-started-unconfigured')
+    expect(p.autoUrlConfigured).toBe('https://ops.auto.example.com')
+    expect(p.hasAccessToken).toBe(false)
+    // 这一态必须点出自动发现地址 + 手填 X-Catalog-Key 的出路，否则等于没报
+    expect(p.hint).toContain('https://ops.auto.example.com')
+    expect(p.hint).toContain('X-Catalog-Key')
+  })
+
+  it('有地址但缺 API Key 时：报 missing-api-key，不得报成 unconfigured', () => {
+    vi.useFakeTimers()
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
+    const svc = new OpsCenterSync({ store: makeStore(), modelProviderManager: makeManager(), log })
+    svc.saveConfig({ url: 'https://ops.example.com' }) // 不传 apiKey ⇒ apiKeyConfigured 仍为 false
+    const spy = vi.spyOn(svc, 'syncNow')
+    svc.autoSyncOnStart()
+    vi.advanceTimersByTime(10000)
+    expect(spy).not.toHaveBeenCalled()
+    expect(eventsOf(log)).toContain('auto-sync-not-started-missing-api-key')
+    expect(eventsOf(log)).not.toContain('auto-sync-not-started-unconfigured')
+    const p = paramsOf(log, 'auto-sync-not-started-missing-api-key')
+    expect(p.url).toBe('https://ops.example.com')
+    expect(p.hint).toContain('X-Catalog-Key')
+  })
+
+  it('自动同步被关闭时：报 disabled，不得与「未配置」混淆', () => {
+    vi.useFakeTimers()
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
+    const svc = new OpsCenterSync({ store: makeStore(), modelProviderManager: makeManager(), log })
+    // 地址与 Key 都齐备，唯一变量是 autoSync=false —— 证明这条判据不受配置完整性影响
+    svc.saveConfig({ url: 'https://ops.example.com', apiKey: 'k', autoSync: false })
+    const spy = vi.spyOn(svc, 'syncNow')
+    svc.autoSyncOnStart()
+    vi.advanceTimersByTime(10000)
+    expect(spy).not.toHaveBeenCalled()
+    expect(eventsOf(log)).toContain('auto-sync-not-started-disabled')
+    expect(eventsOf(log)).not.toContain('auto-sync-not-started-unconfigured')
+    expect(paramsOf(log, 'auto-sync-not-started-disabled').hint).toContain('自动同步')
+  })
 })
 
 describe('OpsCenterSync 运行时策略（公告/版本/内容安全）', () => {

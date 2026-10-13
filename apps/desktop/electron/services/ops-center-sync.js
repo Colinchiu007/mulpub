@@ -21,6 +21,7 @@ const crypto = require('./crypto')
 const nodeCrypto = require('crypto') // 内建密码学：Ed25519 验签（与上方 safeStorage 封装区分）
 // 应用菜单配置净化（2026-09-15）：拆出独立模块以控制本文件体量（债务熔断 < 500 行）
 const { normalizeAppMenu } = require('./app-menu-config')
+const { resolveAutoSyncGuard } = require('./ops-center-sync-autosync-guard')
 // P0-1 信任锚：内置 DEV 公钥只对未打包态生效（判据拆独立模块，兼控本文件体量）
 const { resolveTrustAnchor } = require('./runtime-trust-anchor')
 // 统一内容类别（2026-10-03）：热门选题 / 采集库 / 账号标签 共用的单一真源
@@ -751,9 +752,9 @@ class OpsCenterSync {
       this.restoreRuntimeFromDisk()
       const cfg = this.getConfig()
       const auto = this._getAutoContext()
-      if (!cfg.autoSync) return
-      if (!cfg.url && !auto) return
-      if (cfg.url && !cfg.apiKeyConfigured && !auto) return
+      // 判据外移（债务熔断），但出声必须在这里：早退原先静默 = 失败无信号
+      const guard = resolveAutoSyncGuard(cfg, !!auto, normalizeUrl(this._autoOpsCenterUrl || process.env.OPS_CENTER_URL || ''), typeof this._getAccessToken === 'function')
+      if (!guard.ok) return this._log && this._log.notify('OpsCenterSync', guard.reason, { level: 'WARN', params: guard.params })
       setTimeout(() => {
         this.syncNow().then((r) => {
           if (r.code !== 0) this._log.notify('OpsCenterSync', 'auto-sync-skipped', { level: 'WARN', error: String(r.message) })
