@@ -42,6 +42,10 @@ function makeDeps (over = {}) {
     },
     aiGenerator: { generateWithDefault: vi.fn(async () => ({ content: '生成的正文' })) },
     log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() },
+    // 时钟必须由夹具钉住：本文件的素材时间戳是**绝对**的（NOW 往前 1 小时），而引擎缺省
+    // 回落真实 Date.now() ⇒ 只要不注入，用例就带着一根 `windowHours` 长的引信
+    // （实测 2026-10-13T04:00Z 起整批红：10-11 04:00 的条目超出 48h 窗口被丢空）。
+    now: () => NOW,
     ...over,
   }
 }
@@ -96,6 +100,19 @@ describe('quick-collect IPC/注册面', () => {
     const stages = send.mock.calls.map((c) => c[1].stage)
     expect(stages).toEqual(['retrieving', 'summarizing', 'done'])
     expect(send.mock.calls.every((c) => c[0] === 'quick-collect:progress' && c[1].requestId === 'req-1')).toBe(true)
+  })
+
+  it('时钟接缝必须从 deps 转发进引擎（否则绝对时间戳夹具会变成引信）', async () => {
+    // 本文件的素材时间戳钉在 NOW（2026-10-11T04:00Z），指令窗口是 48h。handler 若不把
+    // deps.now 传给引擎，引擎就回落真实 Date.now() —— 于是"今天能不能过"取决于跑它的
+    // 那一刻离 NOW 过了多久（实测 2026-10-13T04:00Z 起整批红，条目被 out_of_window 丢空）。
+    // 这条断言量的是**接缝本身**：摘掉 handler 里的 `now: deps.now` 立刻红，
+    // 而不是等两天后被一次无关的 CI 抖动发现。
+    const { handlers: h } = await register(makeDeps())
+    const res = await h['quick-collect:run'](TRUSTED_EVENT, { command: COMMAND })
+    expect(res.code).toBe(0)
+    expect(res.data.quickCollect.generatedAt).toBe(new Date(NOW).toISOString())
+    expect(res.data.quickCollect.timeKinds).toEqual(['published'])
   })
 
   it('参数非对象 → -2 且不触发任何外呼', async () => {

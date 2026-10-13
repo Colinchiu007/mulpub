@@ -1,3 +1,45 @@
+# [未发布] fix(quick-collect): IPC 漏转发时钟 ⇒ 绝对时间戳夹具变 48 小时引信，main 于 10-13 04:00Z 齐红（quick-collect-clock-seam）
+
+## 背景
+
+`electron/ipc-handlers/quick-collect.js` 的 `getEngine()` 构造引擎时漏传 `now`，而引擎缺省回落
+真实 `Date.now()`。四个测试文件共用夹具 `const NOW = Date.parse('2026-10-11T04:00:00.000Z')`，
+指令窗口 `windowHours: 48` ⇒ 这是一根**两天长的引信**，于 2026-10-13T04:00Z 到点：
+`QG Desktop Shards (1/2)`、`(2/2)`、`QG Coverage`、`Gate Result` 同时红，其中后两条是 required
+⇒ main 一红，之后**每个 PR 都合不进去**。main 最后一次 green push 是 2026-10-12T21:41Z，
+第一条红发生在 04:02:36Z（到点后 2 分半），时刻与推算吻合。
+
+同族讽刺：`normalizeMaterial`/`mergeMaterials` 的直接单测**都注入了 `now: NOW`** 并一直绿，
+于是"这条链路时钟可注入"成了错觉；只有走 IPC 的那批注入不了。同一文件里
+`createFeedTrendFetcher({ ..., now: deps.now })` 是转发的——**接缝只做了一半**，
+与「成本闸修了主通道、漏了兜底通道」是同一个形状。
+
+## 改动
+
+- `getEngine()` 补 `now: deps.now`。生产行为不变：顶层 `handlerDependencies` 无 `now` 键
+  （`phase5-ipc.js:337` 那个 `now: Date.now` 属 `publish-emergency-release` 的构造参数，
+  不是同一对象），故 `deps.now === undefined` ⇒ 引擎走原缺省。
+- 两个走 IPC 的夹具补 `now: () => NOW`（`ipc-handlers/quick-collect.test.js` 的 `makeDeps`、
+  `quick-collect-cn-sources.test.js` 的 `baseDeps`）。
+- 新增**接缝装配锁**：断言 `res.data.quickCollect.generatedAt === new Date(NOW).toISOString()`。
+  它量的不是"素材有没有"（那要等两天才红），而是**接缝在不在**。
+
+## 验证
+
+红侧是现场：修复前本机 `vitest run` 那 5 个文件 rc=1、`timeKinds` 实际 `[]`；修复后 rc=0、
+`Test Files 6 passed (6)`。反证：先跑无变异基线（rc=0 / failed=0 / passed=10，证明探针可信），
+再摘掉 `now: deps.now` ⇒ rc=1 / failed=3 且**点名的正是新加那条接缝锁**，还原逐字节相同。
+驱动第一版 `anchor_hits=0`——工作副本是 CRLF 而锚点用 `'\n'` 拼；改成按目标文件自己的行尾
+拼锚点并打印 `eol=`。另 `now: deps.now` 在本文件出现两次（feed fetcher 那处是既有代码），
+故驱动带唯一性守卫：不唯一直接 ABORT，而不是把变异打到别人那行上再报"锁没抓住"。
+
+## 未收口（登记）
+
+- 没有东西在扫"测试里有绝对时间戳却走真实时钟路径"这一类。本刀只补这一处的接缝；
+  类级判据要先量存量再定，不能拍脑袋接进 CI。
+- `quick-collect-engine.js:221` 的 `id` 用真实 `Date.now()` 而相邻各行用注入的 `now()`，
+  同文件内口径不一致（不影响本刀）。
+
 # [未发布] fix(ci): 桌面分片从来没分过文件——裸 "--" 吃掉了七个 vitest 旗标（desktop-shard-flag）
 
 ## 背景

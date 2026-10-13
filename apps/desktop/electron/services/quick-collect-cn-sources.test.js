@@ -231,6 +231,10 @@ describe('S1/IPC：hotTopicsService → 统一素材的映射', () => {
       BrowserWindow: { fromWebContents: () => win },
       aiGenerator: { generateWithDefault: vi.fn(async () => ({ content: '生成的正文' })) },
       log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() },
+      // 走 IPC 的用例必须自己钉时钟：本文件的条目时间戳是绝对的（NOW / 固定 pubDate），
+      // 而引擎缺省回落真实 Date.now() ⇒ 不注入就是一根 windowHours 长的引信
+      // （实测 2026-10-13T04:00Z 起 3 条用例同时红）。
+      now: () => NOW,
       ...over,
     }
   }

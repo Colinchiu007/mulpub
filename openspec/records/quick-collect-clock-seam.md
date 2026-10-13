@@ -1,0 +1,25 @@
+---
+record: quick-collect-clock-seam
+task: 快捷采集 IPC 没转发时钟接缝 ⇒ 绝对时间戳夹具变成 48 小时引信，main 于 2026-10-13T04:00Z 起 5 条用例齐红（含 required 的 Gate Result / QG Coverage）
+date: 2026-10-13
+sync_status: PENDING
+sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填 PR 改写 PASS + merge SHA 并整段删除本三个 sync_ 字段
+sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账 → 清理本 worktree）
+---
+
+## 本次执行记录：快捷采集时钟接缝（quick-collect-clock-seam，2026-10-13）
+
+| 门禁 | 状态 | Fresh 证据 |
+|------|------|-----------|
+| 变更类型与隔离 | PASS | 🐛 Bug 修复（运行时代码：`apps/desktop/electron/ipc-handlers/`）⇒ 必须隔离。worktree `mp-quick-collect-clock-seam`、裸分支 `quick-collect-clock-seam`（`git worktree list` 实证，基线 `c6b4709cd` = 当时 origin/main，`rev-list --left-right --count` = 0/0）。紧急度：`Gate Result` 与 `QG Coverage` 是 required，main 红 ⇒ **之后每个 PR 都合不进去**，本刀排在其余在飞 PR 之前 |
+| 第一性原因（QM-5 ①） | PASS | `electron/ipc-handlers/quick-collect.js` 的 `getEngine()` 构造引擎时**漏传 `now`**：`createQuickCollectEngine({ searchFn, trendFn, llmFn, log })`。引擎本身支持 `now`（`quick-collect-engine.js:63`：`typeof deps.now === 'function' ? deps.now : () => Date.now()`），漏传即回落真实时钟。同一函数里 `createFeedTrendFetcher({ ..., now: deps.now })`（:66）**是转发的** ⇒ 接缝在同一文件里只做了一半，这正是"同一机制多调用点只做一半"的既有形态（先例：`[class*="modal"]` 的成本闸修了主通道、漏了兜底通道） |
+| 现场与到点时刻 | PASS | 夹具 `const NOW = Date.parse('2026-10-11T04:00:00.000Z')`（四个测试文件共用），指令 `windowHours: 48` ⇒ 引信在 **2026-10-13T04:00:00Z** 到点。实测吻合：main 最后一次 green push 是 `2026-10-12T21:41Z`（904662ed0）；本 head 的 shard 1/2 里第一条红发生在 `04:02:36Z`（到点后 2 分半）。CI 失败集：`QG Desktop Shards (1/2)`、`(2/2)`、`QG Coverage`、`Gate Result`；本机复跑 5 条红（`ipc-handlers/quick-collect.test.js` 2 条 + `quick-collect-cn-sources.test.js` 3 条），症状统一是 `timeKinds` 从 `['published']/['observed']` 变成 `[]`（条目被 `out_of_window` 丢空） |
+| 逃逸链（QM-5 ②） | PASS | ①**写的时候**：这批用例 10-11 落地时是绿的——引信不在 diff 里，在"夹具用绝对时间戳 + 被测路径用真实时钟"这个组合里，任何单看 diff 的审查都看不见。②**评审层**：`normalizeMaterial` / `mergeMaterials` 的直接单测**都注入了 `now: NOW`**（所以它们一直绿），给了"这条链路时钟可注入"的错觉；只有走 IPC handler 的那批不能注入。③**CI 层**：desktop 全量每天跑，同一批用例连续两天通过，"通过"被当成"正确"而不是"还没到点"。④**门禁层**：没有任何东西在扫"测试里有没有绝对时间戳配真实时钟"。**结论：测试场景缺失（缺一条接缝装配锁）+ 系统性漏洞（夹具时间口径无判据）** |
+| 系统性漏洞（QM-5 ③） | PASS | 具体落点：`electron/ipc-handlers/quick-collect.js` 的 `getEngine()`。同族漏洞：`apps/desktop` 里四个测试文件共用 `const NOW = Date.parse('2026-10-11T04:00:00.000Z')`，其中走 IPC 的那批**没有可注入时钟**——不是这批用例写错，是它们被写成了"只能靠运气通过"的形状 |
+| 修复 + 回归保护（QM-5 ④） | PASS | ①`getEngine()` 补 `now: deps.now`（+ 一段说明为什么必须转发的注释）；②两个走 IPC 的夹具补 `now: () => NOW`（`ipc-handlers/quick-collect.test.js` 的 `makeDeps`、`quick-collect-cn-sources.test.js` 的 `baseDeps`）；③新增**接缝装配锁** `run 成功…` 之后那条：断言 `res.data.quickCollect.generatedAt === new Date(NOW).toISOString()`——它量的不是"素材有没有"（那要等两天才红），而是**接缝在不在**；④生产行为不变：顶层 `handlerDependencies` 无 `now` 键（实测 `phase5-ipc.js:181/226` 附近 grep 无命中；:337 那个 `now: Date.now` 属于 `publish-emergency-release` 的构造参数，不是同一对象），故 `deps.now === undefined` ⇒ 引擎走原缺省 |
+| TDD 红→绿 | PASS | 红侧是**现场本身**，不靠构造：修复前本机 `pnpm exec vitest run` 那 5 个文件 ⇒ `rc=1`、5 条红、`timeKinds` 实际 `[]`；修复后同一命令 ⇒ `rc=0`、`Test Files 6 passed (6)` |
+| 变异反证 | PASS | `D:/Data/projects/.tools/tmp/guiwf/mut-clock-seam.cjs`（临时件，不入库）：**BASELINE rc=0 / failed=0 / passed=10**（先证明探针可信，否则"红了"和"探针坏了"不可区分）→ 摘掉 `now: deps.now` → `rc=1 / failed=3`，且**点名的就是新加那条接缝锁** → `RESTORE_BYTES_EQUAL=true`、`VERDICT=CAUGHT`。驱动第一版 `anchor_hits=0`：工作副本是 CRLF，锚点用 `'\n'` 拼必然零命中——改成"按目标文件自己的行尾拼锚点"并打印 `eol=` 才有结论；同时 `now: deps.now` 在本文件出现两次（feed fetcher 那处是既有代码），所以驱动带**唯一性守卫**，不唯一直接 ABORT 而不是把变异打到别人那行上 |
+| 未收口（登记，不在本刀做） | PENDING | ①**类级判据缺失**：没有东西在扫"测试文件里有绝对时间戳（`Date.parse('20…')`）却走真实时钟路径"。本刀只补了这一处的接缝，判据要另做（候选：`apps/desktop/**/*.test.js` 含 `const NOW = Date.parse(` 时必须同时含 `now: () =>`，且任何经 `ipc-handlers/*` 的夹具必须注入时钟）——它会不会误伤存量未知，需要先量一遍再定，不能拍脑袋接进 CI。②`quick-collect-engine.js:221` 的 `id: 'qc-item-' + Date.now()...` 用真实 `Date.now()` 而非注入的 `now()`，与相邻各行的 `now()` 口径不一致（不影响本刀，属同族第二落点） |
+| 其余门禁 | PENDING | 提交前实跑并回填本行：`check-no-brand-residue`、`.github/scripts/check-max-lines.js`、`check-debt-budget`、`check-gate-record-debt`、`check-unwired-tests`、`check-step-failfast`、`check-changelog-growth`、`check-changelog-duplicate-entries`、`check-text-encoding-integrity`、`check-pr-exec-record --mode=enforce`、`classify-docs-only`（预期 false：改了 `apps/**`）；行尾两口径对账 + 多重集证明 CHANGELOG 一条 main 的行没丢 |
+| QM-1 打包 / QM-4 视觉 | N/A | 未触 electron 主进程服务的打包面（改的是 IPC handler 的一个构造参数与两个测试夹具），无前端文件；`quick-collect` 不在 `build.files` 变更面上 |
+| 远程同步 | PENDING | 合并后按 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 取 merge SHA、`git ls-remote --heads origin quick-collect-clock-seam` 返回 0 行、`gh pr view` 两源同 sha 对表，把本行就地改写成 `PASS` + SHA，并在**同一次提交**删除 frontmatter 三个 `sync_*` 字段。回填时要一并取一笔合并后才存在的现场：**main 的下一次 push 的 `QG Desktop Shards (1/2)`、`(2/2)`、`QG Coverage`、`Gate Result` 必须全部转绿**——这是"引信已拆"的唯一闭环证据，本机复跑只证形状不证 CI 口径 |

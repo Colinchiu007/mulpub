@@ -147,6 +147,10 @@ function registerHandlers (ipcMain, deps = {}) {
       trendFn: trendFnFor(),
       llmFn: llmFnFor(),
       log,
+      // 时钟接缝必须转发：engine 自己支持 `now`（缺省才回落 Date.now()），这里不传就等于
+      // 把整条链路的可测性关掉——测试里所有"绝对时间戳 + 相对窗口"的夹具都会变成引信
+      // （实测 2026-10-13T04:00Z 起 5 条用例同时红：夹具钉在 10-11 04:00，窗口 48h）。
+      now: deps.now,
     })
     cachedKeys = keys
     return cached
