@@ -4,7 +4,14 @@
 .DESCRIPTION
     监听共享 main worktree，把守卫目录下非 gitignored 的运行时文件写入移入仓库外
     隔离目录；tracked 文件从 HEAD 精确恢复。docs/scripts/openspec 等允许目录放行。
-    支持 -ProcessPaths 单次处理（测试用）与 -Watch 常驻两种模式。
+    支持 -ProcessPaths 单次处理（测试用）、-Reconcile 全量对账（单次，运维/测试用）
+    与 -Watch 常驻三种模式。
+
+    -Watch 启动时会先跑一次 -Reconcile 全量对账再进入事件循环：watcher 只对**实时**
+    事件起作用，本进程未运行期间（AtLogOn 拉起前、崩溃、重启）或事件因缓冲区溢出
+    被丢弃时发生的漂移**永远不会被回看**，于是「guard 是 Running、violations.jsonl
+    是空的」与「共享根已漂移数天」可以同时为真（2026-10-13 实测：59 个漂移的运行时
+    文件里 56 个没有任何记录，最早的已存在 8 天）。
 #>
 [CmdletBinding()]
 param(
@@ -13,6 +20,7 @@ param(
     [string]$GitPath = '',
     [string[]]$ProcessPaths,
     [switch]$Watch,
+    [switch]$Reconcile,
     [switch]$Quiet
 )
 
@@ -215,26 +223,97 @@ function Invoke-GuardPath([string]$Path) {
 }
 
 function Invoke-GuardPaths([string[]]$Paths) {
+    # 返回结构化结果而不是「日志 + int 混在管线里」：后者会让 `$failures = Invoke-GuardPaths ...`
+    # 拿到字符串数组，`-gt 0` 退化成对字符串逐元素比较，rc 判据失真。
     $failures = 0
+    $logs = New-Object 'System.Collections.Generic.List[string]'
     foreach ($path in $Paths) {
         if ([string]::IsNullOrWhiteSpace($path)) { continue }
         try {
             $result = Invoke-GuardPath $path
-            if (-not $Quiet) {
-                Write-Output ("[{0}] {1} {2}" -f $result.action, $result.path, $result.detail)
-            }
+            $logs.Add(("[{0}] {1} {2}" -f $result.action, $result.path, $result.detail))
             if ($result.action -in @('move-failed','restore-failed','quarantined-restore-failed')) { $failures++ }
         } catch {
-            Write-Warning "guard processing failed for $path`: $($_.Exception.Message)"
+            $logs.Add(("[error] {0} : {1}" -f $path, $_.Exception.Message))
             $failures++
         }
     }
-    return $failures
+    [pscustomobject]@{ Failures = $failures; Logs = $logs.ToArray() }
+}
+
+<#
+  Startup reconciliation (2026-10-13, change: guard-startup-reconcile).
+
+  Why it exists: the watcher only reacts to LIVE FileSystemWatcher events. Anything
+  written while this process is not running (AtLogOn restart, crash, reboot) or lost
+  to a buffer overflow is never revisited, so the drift persists indefinitely. The
+  guard then reports Running with an empty violations log while the shared root has
+  been dirty for days — the failure is silent exactly where it matters.
+  Measured 2026-10-13 on this repo: 56 of 59 drifted runtime files had NO record at
+  all, the oldest 8 days old; health.json said `clean: false` the whole time.
+
+  Deliberate scope: tracked drift only (modified + deleted). Untracked non-ignored
+  files stay the live watcher's job — sweeping a whole backlog of them at startup
+  has a much larger blast radius for no extra safety on the tracked invariant.
+
+  Uses ONE `git status` instead of per-file `ls-files`: the protected prefixes hold
+  ~8.6k tracked files and a per-file probe would mean thousands of git invocations
+  at startup, blocking the watcher for minutes. Semantics are equivalent — a file
+  matching the index is judged `skipped` by Invoke-GuardPath anyway.
+#>
+function Get-Driftset {
+    $prefixes = @('apps','packages','ops-center','config','.github')
+    $gitArgs = @('status','--porcelain','--untracked-files=no','--') + @($prefixes | ForEach-Object { "$_/" })
+    $out = @(Git $gitArgs 2>$null)
+    if ($LASTEXITCODE -ne 0) { throw "git status failed while reconciling (exit $LASTEXITCODE)" }
+    $seen = New-Object 'System.Collections.Generic.HashSet[string]'
+    $paths = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($line in $out) {
+        if ($line.Length -lt 4) { continue }
+        $rel = $line.Substring(3).Trim()
+        # 重命名形如 `R  old -> new`，只处理新路径
+        if ($rel -match ' -> ') { $rel = ($rel -split ' -> ')[-1].Trim() }
+        $rel = $rel.Trim('"')
+        if (-not $rel) { continue }
+        # 引号路径含 C 风格转义（非 ASCII 文件名）时不做猜测：出声告警而非静默跳过
+        if ($rel -match '\\') {
+            Write-Warning "reconcile: 跳过无法安全解析的转义路径（请手工核查）: $rel"
+            continue
+        }
+        if (Test-AllowedPath $rel) { continue }
+        if ($seen.Add($rel)) { $paths.Add((Join-Path $root ($rel.Replace('/','\')))) }
+    }
+    return ,$paths
+}
+
+function Invoke-ReconcilePass {
+    # 返回结构化对象、**不**在里面 Write-Output：否则日志行会与返回值一起被调用点
+    # 的 `$x = Invoke-ReconcilePass` 捕获走（日志被吞 + `-gt 0` 退化成逐元素比较）。
+    # 这个形态在同一文件里刚修过一次，函数边界上不得重犯。
+    $paths = Get-Driftset
+    if ($paths.Count -eq 0) {
+        return [pscustomobject]@{ Drifted = 0; Failures = 0; Logs = @() }
+    }
+    $result = Invoke-GuardPaths $paths
+    [pscustomobject]@{ Drifted = $paths.Count; Failures = $result.Failures; Logs = $result.Logs }
 }
 
 if ($ProcessPaths) {
-    $failures = Invoke-GuardPaths $ProcessPaths
-    if ($failures -gt 0) { exit 1 }
+    $result = Invoke-GuardPaths $ProcessPaths
+    foreach ($line in $result.Logs) { if (-not $Quiet) { Write-Output $line } }
+    if ($result.Failures -gt 0) { exit 1 }
+    exit 0
+}
+
+if ($Reconcile) {
+    # 单次全量对账（运维/测试用）。默认非静默：这是「静默盲区」的修复，
+    # 把自己的产出也做成静默的等于换个地方藏同一类问题。
+    $pass = Invoke-ReconcilePass
+    if (-not $Quiet) {
+        Write-Output ("[reconcile] drifted tracked runtime paths: {0}" -f $pass.Drifted)
+        foreach ($line in $pass.Logs) { Write-Output $line }
+    }
+    if ($pass.Failures -gt 0) { exit 1 }
     exit 0
 }
 
@@ -311,6 +390,22 @@ function Invoke-GuardCycle {
             Write-Warning "watch processing failed for $path`: $($_.Exception.Message)"
         }
     }
+}
+
+# 进入事件循环前先跑一次全量对账，补上「进程未运行期间 / 事件被缓冲区丢弃期间」产生的漂移。
+# 放在 EnableRaisingEvents 之后：这样对账自身的恢复动作也会走事件流并被 ignoreUntil 吸收，
+# 而不会与 watcher 互相打架。失败不阻断监听——守卫瞎着比半瞎更糟，但要出声。
+try {
+    $reconcile = Invoke-ReconcilePass
+    if (-not $Quiet) {
+        Write-Output ("[reconcile] drifted tracked runtime paths: {0}" -f $reconcile.Drifted)
+        foreach ($line in $reconcile.Logs) { Write-Output $line }
+    }
+    if ($reconcile.Failures -gt 0) {
+        Write-Warning ("startup reconcile had {0} failed path(s); check violations.jsonl" -f $reconcile.Failures)
+    }
+} catch {
+    Write-Warning ("startup reconcile failed, continuing to watch: " + $_.Exception.Message)
 }
 
 try {
