@@ -111,6 +111,101 @@
 - `check-renderer-cjs-boundary.js` PASS（357 渲染层文件 / 9 alias）；`apps/desktop` ESLint rc=0；
   `packages/shared-utils` 全量 851 passed / 10 skipped。
 
+# [未发布] fix(publish): 风控挂起的误判——判定只看关键词，把 HTTP 601 当成了风控（fix-risk-hold-false-positive）
+
+## 背景
+
+账号管理页弹出「检测到风控，「微信公众号」等 1 个发布目标已自动暂停后续发布……」，但用户在平台侧**并没有**触发任何验证，
+而该平台的后续发布被真的挡住，必须逐条手动恢复。挂起态还会持久化、重启存活、无自动过期。
+
+根因两条，互为放大镜：
+
+1. **结构化风控信号被丢在半路**。各链其实都已算出结构化结论（抖音 `risk_blocked` 标志、B站 `code:601`、
+   百家号 `code:10000015`、快手 `risk_blocked`、小红书 `XHS_RISK_BLOCKED`），但传输层一律
+   `throw new Error(result.error)`（引擎 `publishViaApi` 与桌面 `publisher-router.js` 三个发布器），
+   `Error` 上只剩 `message` ⇒ 上层**只能**用错误文本猜关键词。
+2. **词表无边界且不分强弱**。`/风控|risk|滑块|601|10000015|frequent|频繁|verify|验证|…/i` 是裸子串匹配，
+   实测把 7 类普通失败判成风控：`status code 601`、`publish id 6019`、`ts=1601846521`、`errno 100000159`、
+   `infrequent login`、`low-risk content`、`身份验证失败`。
+
+**放大器**：`accountId` 缺失时自动降级为平台级挂起（覆盖该平台**所有**账号）⇒ 「一次误判 + 没带账号」= 整平台停摆。
+误判的代价不是「少发一篇」，而是把用户引向「去创作者中心手动发一篇完成验证」——**而那里根本不会弹验证**。
+
+## 改动
+
+- **新增判定单一真源** `packages/api-publish-engine/src/publish/core/risk-signals.js`：
+  判定顺序固定为**结构化标志 → 平台风控码族 → 文本兜底**（前两级命中时文本完全不参与）；
+  文本词表**分强弱**——强档（风控/滑块/安全验证/验证弹层/操作频繁/captcha/canvas illegal/账号存在风险/
+  risk control/BILI_RISK/`验证失败(110)`/`10000015`）允许挂起，弱档（裸 验证/频繁/risk/frequent/verify/601）
+  **只记录不挂起也不提示**；数字用 `(?<!\d)…(?!\d)`、英文词用标识符边界（`_` 算边界，故 `BILI_RISK_601` 仍命中、
+  `derisk`/`infrequent`/`verified` 不再命中）；排除自身守卫标记 `risk_suspended`。
+  **`suspends ⇔ (hit && strength==='strong')` 作为不变量由本模块给出**，调用方不得自行推导。
+- **收敛两处已漂移的 `RISK_RE`**：引擎 `publish-mode-runner.js` 与桌面 `publish-risk.js` 改为 require
+  同一模块（桌面保留兼容签名 `isRiskBlocked`）。此前两份注释都写「保持同义」，正文已漂移 3 个词。
+- **打通结构化信号搬运**：引擎 `publishViaApi`、桌面 `attachRiskSignals`（三个发布器）在抛错时保留
+  `code`/`riskBlocked`/`loginExpired`；`task-queue` 失败时落到 `task.errorCode`（缺省 `null`）与
+  `task.riskBlocked`（缺省 `false`，不留 `undefined`）。
+- **挂起决策加三原则**：结构化优先；弱信号不挂起也不弹「检测到风控」（提示本身也是一次误报），仅留结构化日志
+  `weak-signal-not-suspended`；`accountId` 解析加任务级字段兜底，减少误升平台级。强信号 + 无账号仍按平台级（不放松）。
+- **挂起记录携带判定依据**：`signal`（封闭词表记号，≤64 字符）+ `strength`（白名单校验），**不落原始错误文本**；
+  桌面 store 水合与渲染层 `normalize` 一并透传，旧记录不伪造依据。
+- **横幅新增显示项**：粒度标签（全平台账号 / 单账号）、检测时间（`HH:mm`）、判定依据（strong/weak，无值时不渲染）；
+  标题在全部为平台级时分流到新文案。i18n 新增 6 个 key（zh/en 成对）。
+
+## 验证
+
+- 新增判定回归锁 **45 例**（含附录 A 的 7 类误判面与附录 B 的 8 条真实风控来源，逐条正反对照）。
+- 引擎全量 **391 passed / 40 files**；`shared-utils` 全量 **849 passed / 10 skipped**；桌面受影响 6 文件 **173 passed**。
+- **变异反证**：把 `task-queue` 的结构化字段赋值改成 no-op ⇒ `Tests 2 failed | 35 passed` 立红；还原后复绿。
+  反证的是**锁本身**（实现改 no-op 必须立红），不是只证「业务改动变红」。
+- **QM-1 打包 rc=0**，并从解包产物实跑判定取证：`status code 601` → `suspends=false`；`B站风控(601)` → `strength=strong`。
+- 过程中的一处自我纠错：初版把 `attachRiskSignals` 写在 `publisher-router.js`，顶破该受管文件的台账容差被
+  `check-max-lines.js` 判红（`LEDGER_GREW … 膨胀 209 行（容差 200）`）；移回风控模块后该文件改动 33 → 14 行，复跑 PASS。
+
+## CCG 双模型深度审查及其发现（已执行，非「跳过」）
+
+`sh scripts/deep-review.sh` → 判定 `DUAL`（变更 1047 行 > 200 行阈值），跨家族校验 `proposer=opencode critic=claude` 通过；
+轮 1 claude 评出 **7 条问题 / 4 维度（correctness/security/performance/maintainability）/ 最低分 6**；
+4 条争议经**逐条指控 / 辩护 / 裁决**（`.adversarial/ccg-deep-4d8cc19b/adjudication.json`）**全部 upheld** 并已修复：
+
+| # | 审查发现 | 为什么成立 | 修复 |
+|---|---|---|---|
+| i1 | 强档英文词缺标识符边界 | `captcha` 是裸子串 ⇒ `recaptcha`/`hcaptcha`（浏览器自动化**高频**报错）判 strong 并冻结账号 —— **正是本 PR 要消灭的裸子串误判同类**，留下它等于立论与实现不一致 | `captcha`/`canvas illegal`/`risk control` 加标识符边界；裸 `captcha required` 等仍命中 |
+| i2 | 数字字符串码漏判 | `RISK_CODES` 里 `601` 是 number 形态，`has('601')` 判不中 ⇒ 平台以字符串回传码时**真风控漏判**；且与本文档「两形态都收」自相矛盾 | 抽 `isRiskCode()` 同时认 number 与数字字符串（含 trim），非数字串走字面量查表 |
+| i3 | 引擎另持私有码表 | `outcomeOfResult` 缺裸 `601` 与 `RISK_BLOCKED` ⇒ 同一失败在引擎轨判 transient **降级 DOM**、桌面轨却挂起，两侧分裂，「单一真源」未落地 | 删私有码表，路由与挂起共用同一份 `classifyRisk`（路由读 `hit`、挂起读 `suspends`） |
+| i4 | 双实现 + 半程管线 | 引擎内联那份只认 `loginExpired`、不认 `login_expired`（`RISK_RE` 双份同构复发）；`loginExpired` 挂到 Error 却**不落 task** = 假完备 | 收敛到 `risk-signals.js` 单一实现，两处只转发；`task-queue` 补落 `task.loginExpired` |
+
+修复提交 `eb8a157e6`，补回归锁 **+16 例**（引擎 +12 / shared-utils +2 / 桌面 +2）。
+
+**⚠️ i4 落在 `auth` 高危域**：按工具规则高危域争议项**不允许自扮演豁免**。本轮只落实了两条可机械验证的判据（「只剩一份实现」「管线补齐」），**认证协议语义级的外部复核仍待办**，不在此冒充已闭合。
+
+**环境坑（可复用）**：`deep-review.sh` 驱动的第 3 顺位 `$HOME/.claude/...` 在 Git Bash 下被 MSYS 拼成 `D:\c\Users\...`（`Cannot find module`）——正解是设 `CCG_ARL_DIR` 为 **Windows 原生路径**（第 2 顺位优先），不必改脚本。
+
+## CI 抓到的问题与顺带修复（诚实记录）
+
+首轮 CI 让两类问题暴露出来，都已修复（`ddacb783a`）：
+
+- **本 PR 引入的缺陷（我的漏网）**：`QG Desktop Shards (1/2)` 红 —— `observability-messagekey.test.js` 报
+  `不在允许清单: RiskSuspender:weak-signal-not-suspended`。真因：本 PR 在 `phase4-events.js` 新增了
+  `log.notify('RiskSuspender', 'weak-signal-not-suspended', …)`，而 messageKey 允许清单
+  （`observability-messagekey.test.js` 内联 `Set`，且断言「全仓登记键总数 === 四文件 notify 调用总数」）必须同步登记。
+  **教训**：本轮为提速只跑了「受影响文件子集」，而这条锁是**跨文件登记契约**（改 A 文件、锁在 B 文件），
+  子集跑法对它天然免疫 —— 已写入 `01-docs/learnings.md`。
+- **顺带定位到的「定时炸弹」主干缺陷（最终由主干 #3459 修复；本 PR 撤回自己的测试侧改法）**：`quick-collect.test.js` 与
+  `quick-collect-cn-sources.test.js` 把 fixture 时间钉死为 `Date.parse('2026-10-11T04:00:00.000Z')`
+  与 RSS `pubDate '11 Oct 2026 02:00:00 +0000'`，而窗口判据走真实时钟 ⇒ 分别在真实时刻
+  **2026-10-13T03:00:00Z / 02:00:00Z** 越出 48h 窗（主干最后一次绿 `2026-10-12T21:41Z`，本 PR 首轮 CI 起于
+  `2026-10-13T03:13Z`，时间线吻合）。随后发现**主干已合并 `#3459`（`qc-clock-seam`）用更优修法解决同一问题**：
+  真因是 `ipc-handlers/quick-collect.js` 的 IPC 路径**漏转发 `deps.now`**（属**产品缺陷**，不只是测试问题）。
+  因此本 PR **撤回**自己的测试侧改法（原拟 `NOW = Date.now()` 与 RSS `pubDate` 动态化），两个夹具文件与
+  `origin/main` 逐字一致（`git diff origin/main` 为空）——不重复修同一问题，也不削弱主干新增的关键回归锁。
+- 全仓扫描 47 处「硬编码 2026-10 日期」，逐条核对确认其余均为**时钟注入型**（`now`/`nowMs` 显式传入被测函数、内部自洽），无同族风险。
+
+## 未闭合（如实记录）
+
+- 本机无真实风控会话，「真实风控命中 → 挂起 → 横幅 → 人工恢复」**端到端真机回归未做**，横幅视觉未在真机截到（仅源级契约锁）。
+- `publisher-router.js` 的后端轨回退文案是历史编码损坏串（`'鍙戝竷澶辫触'`），本 PR **刻意未顺手修**，应另开一次性编码治理。
+
 # [未发布] fix(ci): 桌面分片从来没分过文件——裸 "--" 吃掉了七个 vitest 旗标（desktop-shard-flag）
 
 ## 背景

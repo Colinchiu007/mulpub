@@ -1,3 +1,8 @@
+// fix-risk-hold-false-positive P0-1 / CCG 深度审查 i4：结构化信号的**唯一**搬运实现。
+// 此前这里内联了一份、桌面 publish-risk.js 另有一份，且内容不同（此处只认 loginExpired、
+// 不认 login_expired）—— 与本次修掉的 RISK_RE 双份同类的漂移形态，故收敛到单一真源。
+const { attachRiskSignals } = require("./publish/core/risk-signals");
+
 const REGISTRY = {
   // Complex adapters (custom publish logic)
   zhihu: require("./adapters/zhihu"),
@@ -92,7 +97,16 @@ async function publishViaApi(platform, taskData, cookie, opts) {
     throw new Error("API adapter has no publish entrypoint for platform: " + platform);
   }
 
-  if (!result || !result.success) throw new Error((result && result.error) || "API publish failed for " + platform);
+  if (!result || !result.success) {
+    // fix-risk-hold-false-positive（P0-1）：此处原先只 `throw new Error(result.error)`，
+    // 把适配器已经算出来的**结构化风控信号**（`risk_blocked` 标志与风控码族）丢在半路，
+    // 逼得上层的风控判定只能拿错误文本做关键词匹配 —— 而文本匹配正是误判的来源。
+    // 现在由单一真源 attachRiskSignals 把 code / risk_blocked / login_expired 挂到 Error 上。
+    throw attachRiskSignals(
+      new Error((result && result.error) || "API publish failed for " + platform),
+      result
+    );
+  }
   return result;
 }
 

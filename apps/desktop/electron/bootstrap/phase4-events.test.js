@@ -716,4 +716,133 @@ describe('phase4-events — 发布记录封面字段', () => {
   })
 })
 
+// ─────────────────────────────────────────────────────────────────────────────
+// fix-risk-hold-false-positive 回归锁：风控挂起判定三原则
+//   ① 结构化信号优先（task.errorCode / task.riskBlocked 胜过文本）
+//   ② 强弱分档：只有强信号才挂起 + 才提示（弱信号零打扰）
+//   ③ accountId 优先账号级，避免误降级成整平台冻结
+// ─────────────────────────────────────────────────────────────────────────────
+describe('phase4-events — 风控挂起判定（fix-risk-hold-false-positive）', () => {
+  function harness (task) {
+    const taskQueue = new EventEmitter()
+    const send = vi.fn()
+    const win = { isDestroyed: () => false, webContents: { send } }
+    const riskSuspender = { suspend: vi.fn(), listSuspended: vi.fn(() => []) }
+    wireTaskQueueEvents({
+      taskQueue,
+      history: { addRecord: vi.fn() },
+      publishMonitor: { createMonitorTask: vi.fn() },
+      publishImpactTracker: { scheduleImpactTracking: vi.fn() },
+      getMainWin: () => win,
+      riskSuspender,
+    })
+    taskQueue.emit('task:failed', task)
+    return { send, riskSuspender }
+  }
+  const callsOf = (send, channel) => send.mock.calls.filter((c) => c[0] === channel)
+
+  it('强信号 + 账号 → 挂起该账号；suspend 携带 signal/strength；hold 携带判定依据', () => {
+    const { send, riskSuspender } = harness({
+      id: 't1', platform: 'douyin', article: { accountId: 'acc-1' },
+      error: '抖音触发安全验证，请手动完成验证后重试',
+    })
+    expect(riskSuspender.suspend).toHaveBeenCalledTimes(1)
+    const [, acc, info] = riskSuspender.suspend.mock.calls[0]
+    expect(acc).toBe('acc-1')
+    expect(info.strength).toBe('strong')
+    expect(typeof info.signal).toBe('string')
+    expect(info.signal.length).toBeGreaterThan(0)
+    const hold = callsOf(send, 'publish:risk-hold')[0][1]
+    expect(hold).toMatchObject({ platform: 'douyin', accountId: 'acc-1', taskId: 't1', strength: 'strong' })
+    expect(callsOf(send, 'publish:risk-suspended')).toHaveLength(1)
+  })
+
+  it('P0-2 误判面：HTTP 601 这类普通失败既不挂起、也不弹风控提示', () => {
+    const { send, riskSuspender } = harness({
+      id: 't2', platform: 'bilibili', article: { accountId: 'a' },
+      error: 'Request failed with status code 601',
+    })
+    expect(riskSuspender.suspend).not.toHaveBeenCalled()
+    expect(callsOf(send, 'publish:risk-suspended')).toHaveLength(0)
+    expect(callsOf(send, 'publish:risk-hold')).toHaveLength(0)
+  })
+
+  it('P0-2 误判面：身份验证失败（弱信号）零打扰', () => {
+    const { send, riskSuspender } = harness({
+      id: 't3', platform: 'wechat_mp', article: { accountId: 'a' },
+      error: '身份验证失败，请重新登录',
+    })
+    expect(riskSuspender.suspend).not.toHaveBeenCalled()
+    expect(callsOf(send, 'publish:risk-hold')).toHaveLength(0)
+    expect(callsOf(send, 'publish:risk-suspended')).toHaveLength(0)
+  })
+
+  it('P0-2 误判面：id 6019 / infrequent 均零打扰', () => {
+    for (const error of ['publish id 6019 not found', 'infrequent login detected']) {
+      const { send, riskSuspender } = harness({ id: 'x', platform: 'zhihu', article: { accountId: 'a' }, error })
+      expect(riskSuspender.suspend, error).not.toHaveBeenCalled()
+      expect(callsOf(send, 'publish:risk-hold'), error).toHaveLength(0)
+    }
+  })
+
+  it('P1-3 弱信号 + 无账号 → 不降级成平台级挂起（避免误伤同平台其他账号）', () => {
+    const { riskSuspender } = harness({
+      id: 't4', platform: 'wechat_mp', article: {}, error: '请先完成实名验证',
+    })
+    expect(riskSuspender.suspend).not.toHaveBeenCalled()
+  })
+
+  it('强信号 + 无账号 → 仍按平台级挂起（真实风控的既有安全语义不放松）', () => {
+    const { riskSuspender } = harness({
+      id: 't5', platform: 'wechat_mp', article: {}, error: '账号存在风险，请前往创作者中心发布作品',
+    })
+    expect(riskSuspender.suspend).toHaveBeenCalledTimes(1)
+    expect(riskSuspender.suspend.mock.calls[0][1]).toBeNull()
+  })
+
+  it('P0-1 结构化优先：文本无害但 task.riskBlocked=true → 仍挂起（signal=flag）', () => {
+    const { riskSuspender } = harness({
+      id: 't6', platform: 'douyin', article: { accountId: 'a' },
+      error: '后端返回未知错误', riskBlocked: true,
+    })
+    expect(riskSuspender.suspend).toHaveBeenCalledTimes(1)
+    expect(riskSuspender.suspend.mock.calls[0][2].signal).toBe('flag')
+  })
+
+  it('P0-1 结构化码族优先：task.errorCode=BILI_RISK_601 → 挂起', () => {
+    const { riskSuspender } = harness({
+      id: 't7', platform: 'bilibili', article: { accountId: 'a' },
+      error: '平台拒绝了本次请求', errorCode: 'BILI_RISK_601',
+    })
+    expect(riskSuspender.suspend).toHaveBeenCalledTimes(1)
+    expect(riskSuspender.suspend.mock.calls[0][2].signal).toBe('code:BILI_RISK_601')
+  })
+
+  it('P0-1 普通错误码不挂起：errorCode=500 + 无害文本 → 零挂起', () => {
+    const { send, riskSuspender } = harness({
+      id: 't8', platform: 'wechat_mp', article: { accountId: 'a' },
+      error: '服务异常请稍后重试', errorCode: 500,
+    })
+    expect(riskSuspender.suspend).not.toHaveBeenCalled()
+    expect(callsOf(send, 'publish:risk-hold')).toHaveLength(0)
+  })
+
+  it('accountId 兜底：article 无账号但任务级归一字段有 → 账号级挂起（不误升平台级）', () => {
+    const { riskSuspender } = harness({
+      id: 't9', platform: 'douyin', article: {}, accountId: 'acc-task', error: '触发风控，请稍后再试',
+    })
+    expect(riskSuspender.suspend.mock.calls[0][1]).toBe('acc-task')
+  })
+
+  it('executor 拦截产生的 risk_suspended 仍不二次挂起、不提示（自触发防线不回归）', () => {
+    const { send, riskSuspender } = harness({
+      id: 't10', platform: 'weixin', article: {},
+      error: new RiskSuspendedError('weixin', 'acc1').message,
+    })
+    expect(riskSuspender.suspend).not.toHaveBeenCalled()
+    expect(callsOf(send, 'publish:risk-hold')).toHaveLength(0)
+    expect(callsOf(send, 'publish:risk-suspended')).toHaveLength(0)
+  })
+})
+
 

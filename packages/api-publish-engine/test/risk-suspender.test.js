@@ -33,6 +33,23 @@ describe('risk-suspender (§5.4)', function () {
     expect(rs.isSuspended('bilibili', 'acc2')).toBe(true)
   })
 
+  test('fix-risk-hold-false-positive：记录携带 signal/strength（横幅「判定依据」来源），且只收封闭词表记号', function () {
+    const rs = createRiskSuspender({ clock: () => 1 })
+    const rec = rs.suspend('bilibili', 'acc1', { reason: 'risk_blocked', signal: 'strong:风控', strength: 'strong' })
+    expect(rec.signal).toBe('strong:风控')
+    expect(rec.strength).toBe('strong')
+    expect(rs.listSuspended()[0].signal).toBe('strong:风控')
+
+    // 非法 strength 不得落库（UI 只认 strong/weak，其它值会让「判定依据」显示成错的那一档）
+    const rec2 = rs.suspend('douyin', 'acc2', { strength: 'bogus', signal: 123 })
+    expect(rec2.strength).toBe(undefined)
+    expect(rec2.signal).toBe(undefined)
+
+    // signal 截断到 64 字符（持久化 + 跨进程广播，不允许无界增长）
+    const long = rs.suspend('zhihu', 'acc3', { signal: 'x'.repeat(200) })
+    expect(long.signal.length).toBe(64)
+  })
+
   test('账号级挂起只命中对应账号', function () {
     const rs = createRiskSuspender()
     rs.suspend('bilibili', 'acc1')

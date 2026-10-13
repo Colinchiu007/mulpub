@@ -12,7 +12,9 @@
  * 验收标准 BUGFIX-PLAN Bug-1: phase 文件 ≤ 80 行
  */
 const log = require('../services/logger')
-const { isRiskBlocked } = require('../services/publish-risk')
+// fix-risk-hold-false-positive：风控判定统一走 classifyRisk（结构化优先 + 强弱分档），
+// 「是否挂起」的判据是 verdict.suspends（仅强信号），不再用裸词表 isRiskBlocked 直接挂起。
+const { classifyRisk } = require('../services/publish-risk')
 const { isRiskSuspendedMessage } = require('../services/risk-suspender-store')
 const { createPublishProgressEmitter } = require('../services/publish-progress-events')
 const { safeHttpUrl } = require('@multi-publish/shared-utils/src/safe-http-url')
@@ -233,17 +235,57 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
     }
     const win = getMainWin()
     if (win && !win.isDestroyed()) {
-      if (isRiskBlocked(task.error) && !isRiskSuspendedMessage(task.error)) {
-        const accountId = (task.article && task.article.accountId) || null
-        // §5 enforcement：风控命中 → 平台/账号即时挂起（resume 仅显式），并广播全量挂起清单供前端刷新
+      // fix-risk-hold-false-positive（P0-1 / P0-2 / P1-3）——风控判定三原则：
+      //   ① 结构化信号优先：传输层已在 task 上落 errorCode / riskBlocked（publisher-router
+      //      与引擎 publishViaApi 把适配器算出的 risk_blocked 标志与风控码族搬了过来），
+      //      文本词表只作兜底。此前只有 task.error 一段文本可判，逼出关键词匹配式的误判。
+      //   ② 强弱分档：**只有 strong 才挂起、才提示**。弱信号（裸 验证/risk/frequent/verify/601）
+      //      在实测中会把 `身份验证失败`、`status code 601`、`infrequent`、`id 6019` 误判成风控；
+      //      挂起的代价是该账号（无账号时是整个平台）被冻结到用户人工解封，而「风控」提示本身
+      //      也是一次误报打扰 —— 弱信号因此只留结构化日志，既不挂起也不弹「检测到风控」。
+      //      失败本身仍照常出现在进度条与发布历史里（本函数上方已 emit / addRecord），
+      //      用户看到的是平台原文，而不是被我们贴错的风控标签。
+      //   ③ 账号优先：accountId 取 article 再兜任务级归一字段（task-queue add() 已归一），
+      //      尽量避免因 article 缺账号而降级成「整平台冻结」。
+      const riskVerdict = classifyRisk({
+        error: task.error,
+        code: task.errorCode,
+        riskBlocked: task.riskBlocked === true,
+      })
+      if (riskVerdict.suspends && !isRiskSuspendedMessage(task.error)) {
+        const accountId = (task.article && task.article.accountId) || task.accountId || null
+        // §5 enforcement：强信号命中 → 平台/账号即时挂起（resume 仅显式），并广播全量清单供前端刷新
         if (riskSuspender) {
           try {
-            riskSuspender.suspend(task.platform, accountId, { reason: 'risk_blocked', error: task.error })
+            riskSuspender.suspend(task.platform, accountId, {
+              reason: 'risk_blocked',
+              error: task.error,
+              signal: riskVerdict.signal,
+              strength: riskVerdict.strength,
+            })
             win.webContents.send('publish:risk-suspended', { suspended: riskSuspender.listSuspended() })
           } catch (e) { log.notify('RiskSuspender', 'suspend-failed', { level: 'WARN', error: String(e.message) }) }
         }
         win.webContents.send('publish:risk-hold', {
-          platform: task.platform, accountId, taskId: task.id, error: task.error,
+          platform: task.platform,
+          accountId,
+          taskId: task.id,
+          error: task.error,
+          signal: riskVerdict.signal,
+          strength: riskVerdict.strength,
+        })
+      } else if (riskVerdict.hit) {
+        // 弱信号（或本守卫自身的拦截消息）：不挂起、不提示，只留可追溯的结构化日志。
+        // 「未挂起」这个决定本身必须可观测，否则事后无法回答「为什么这次没暂停」。
+        log.notify('RiskSuspender', 'weak-signal-not-suspended', {
+          level: 'WARN',
+          params: {
+            platform: task.platform,
+            accountId: ((task.article && task.article.accountId) || task.accountId) || '(none)',
+            signal: riskVerdict.signal,
+            strength: riskVerdict.strength,
+            selfGuarded: isRiskSuspendedMessage(task.error),
+          },
         })
       }
     }

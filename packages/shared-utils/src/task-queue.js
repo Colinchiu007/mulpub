@@ -638,6 +638,15 @@ class TaskQueue extends EventEmitter {
     } catch (e) {
       if (task.cancelRequested || task.status === 'cancelled') return
       task.error = e.message
+      // fix-risk-hold-false-positive（P0-1）：把抛错方携带的**结构化风控信号**落到任务上。
+      // 此前只留 task.error 一段文本，下游风控判定被迫做关键词匹配 —— 而关键词匹配正是
+      // 误判来源（`status code 601` / `id 6019` / `infrequent` 都会被裸词表命中）。
+      // 传输层（publisher-router / 引擎 publishViaApi）已在 Error 上挂好 code 与 riskBlocked。
+      task.errorCode = e && e.code !== undefined ? e.code : null
+      task.riskBlocked = !!(e && (e.riskBlocked === true || e.risk_blocked === true))
+      // loginExpired 也必须落盘（CCG 深度审查 i4）：传输层（attachRiskSignals）已把它挂在 Error 上，
+      // 若此处不搬，「结构化信号已贯通」就是半程假完备——字段在 Error 上、到 task 就断。
+      task.loginExpired = !!(e && (e.loginExpired === true || e.login_expired === true))
 
       // ── P0-1：未提交失败回滚窗口 ──
       // 判据是**提交阶段**而非错误类型：从未发起平台写尝试（submitAttempted=false），

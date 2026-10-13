@@ -85,10 +85,14 @@ function createDesktopRiskSuspender (deps = {}) {
     raw.forEach(function (rec) {
       if (!rec || typeof rec.platform !== 'string' || !rec.platform) return
       try {
-        // 直接回填内层（不经包装方法，避免水合过程反向触发持久化）
+        // 直接回填内层（不经包装方法，避免水合过程反向触发持久化）。
+        // fix-risk-hold-false-positive：signal/strength 必须一起回填，否则重启后横幅
+        // 丢失「判定依据」显示项（记录里存了、水合时丢掉，属静默信息损失）。
         inner.suspend(rec.platform, rec.accountId, {
           reason: typeof rec.reason === 'string' ? rec.reason : 'risk_blocked',
           at: rec.at,
+          signal: typeof rec.signal === 'string' ? rec.signal : undefined,
+          strength: rec.strength === 'strong' || rec.strength === 'weak' ? rec.strength : undefined,
         })
       } catch (_) { /* 单条非法记录跳过 */ }
     })

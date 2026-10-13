@@ -23,9 +23,26 @@ describe('createRiskSuspendedTracker', () => {
     const notify = vi.fn()
     const t = createRiskSuspendedTracker({ onRiskSuspended, notify })
     const out = t.handle({ suspended: [{ platform: 'weixin', accountId: 'a1', reason: 'risk_blocked' }] })
-    expect(out).toEqual([{ platform: 'weixin', accountId: 'a1', reason: 'risk_blocked', at: null }])
+    expect(out).toEqual([{ platform: 'weixin', accountId: 'a1', reason: 'risk_blocked', at: null, signal: '', strength: null }])
     expect(t.list()).toHaveLength(1)
     expect(notify).toHaveBeenCalledWith(expect.objectContaining({ kind: 'suspended', count: 1 }))
+  })
+
+  it('P1-4 规整保留 signal/strength（横幅「判定依据」显示项的数据来源）', () => {
+    const { onRiskSuspended } = fakeSubscribe()
+    const t = createRiskSuspendedTracker({ onRiskSuspended, notify: vi.fn() })
+    const out = t.handle({
+      suspended: [
+        { platform: 'weixin', accountId: 'a1', reason: 'risk_blocked', at: 123, signal: 'strong:风控', strength: 'strong' },
+        // 非法 strength 归一为 null（不得把任意字符串透给 UI 当依据）
+        { platform: 'douyin', accountId: null, strength: 'bogus' },
+        // 升级前的老记录：无 signal/strength → 空值，UI 据此不渲染依据标签
+        { platform: 'zhihu', accountId: 'z1' },
+      ],
+    })
+    expect(out[0]).toMatchObject({ signal: 'strong:风控', strength: 'strong' })
+    expect(out[1]).toMatchObject({ signal: '', strength: null })
+    expect(out[2]).toMatchObject({ signal: '', strength: null })
   })
 
   it('空清单广播替换后不触发 suspended 提示', () => {
@@ -43,7 +60,7 @@ describe('createRiskSuspendedTracker', () => {
     const { onRiskSuspended } = fakeSubscribe()
     const t = createRiskSuspendedTracker({ onRiskSuspended, notify: vi.fn() })
     const out = t.handle({ suspended: [{ platform: 'weixin' }, { accountId: 'x' }, null, 'str'] })
-    expect(out).toEqual([{ platform: 'weixin', accountId: null, reason: '', at: null }])
+    expect(out).toEqual([{ platform: 'weixin', accountId: null, reason: '', at: null, signal: '', strength: null }])
   })
 
   it('isSuspended：平台级覆盖所有账号，细粒度仅命中该账号', () => {

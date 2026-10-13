@@ -611,3 +611,84 @@ describe('TaskQueue 通道调度（publish-throughput-optimization B 方案）',
   })
 })
 
+// ─────────────────────────────────────────────────────────────────────────────
+// fix-risk-hold-false-positive（P0-1）：结构化风控信号必须从抛出的 Error 落到 task 上。
+// 为什么这条锁非有不可：桌面侧 phase4-events 的风控判定读的是 task.errorCode / task.riskBlocked。
+// 如果这里不搬运，判定会静默退回文本关键词匹配 —— 而 phase4 的单元测试是直接往 task 上塞
+// 这两个字段的，**搬运缺失时它照样全绿**（典型的假绿形状）。
+// ─────────────────────────────────────────────────────────────────────────────
+describe('TaskQueue — 结构化风控信号落到 task（fix-risk-hold-false-positive P0-1）', () => {
+  it('executor 抛带 code/riskBlocked 的 Error → task:failed 的 task 携带 errorCode/riskBlocked', async () => {
+    const queue = new TaskQueue({ defaultRetry: 0 })
+    const failed = new Promise(resolve => queue.once('task:failed', resolve))
+    queue.setExecutor(async () => {
+      const err = new Error('抖音触发安全验证，请手动完成验证后重试')
+      err.code = 'BILI_RISK_601'
+      err.riskBlocked = true
+      throw err
+    })
+    queue.add({ platform: 'douyin', article: { title: 'T', accountId: 'acc-1' }, accountId: 'acc-1' })
+
+    const task = await failed
+    expect(task.error).toBe('抖音触发安全验证，请手动完成验证后重试')
+    expect(task.errorCode).toBe('BILI_RISK_601')
+    expect(task.riskBlocked).toBe(true)
+  })
+
+  it('普通失败的 errorCode 归一为 null、riskBlocked 为 false（不得留 undefined 这种「看起来判过」的残迹）', async () => {
+    const queue = new TaskQueue({ defaultRetry: 0 })
+    const failed = new Promise(resolve => queue.once('task:failed', resolve))
+    queue.setExecutor(async () => { throw new Error('网络超时') })
+    queue.add({ platform: 'douyin', article: { title: 'T', accountId: 'acc-1' }, accountId: 'acc-1' })
+
+    const task = await failed
+    expect(task.errorCode).toBeNull()
+    expect(task.riskBlocked).toBe(false)
+  })
+
+  it('risk_blocked 下划线形态同样被识别', async () => {
+    const queue = new TaskQueue({ defaultRetry: 0 })
+    const failed = new Promise(resolve => queue.once('task:failed', resolve))
+    queue.setExecutor(async () => {
+      const err = new Error('风控拦截')
+      err.code = 10000015
+      err.risk_blocked = true
+      throw err
+    })
+    queue.add({ platform: 'baijiahao', article: { title: 'T', accountId: 'acc-9' }, accountId: 'acc-9' })
+
+    const task = await failed
+    expect(task.errorCode).toBe(10000015)
+    expect(task.riskBlocked).toBe(true)
+  })
+
+  // CCG 深度审查 i4：attachRiskSignals 把 loginExpired 挂到了 Error 上，若 task-queue 不搬，
+  // 「结构化信号已贯通」就是半程假完备（字段在 Error 上、到 task 就断）。
+  it('loginExpired 也必须落到 task（双形态）', async () => {
+    for (const key of ['loginExpired', 'login_expired']) {
+      const queue = new TaskQueue({ defaultRetry: 0 })
+      const failed = new Promise(resolve => queue.once('task:failed', resolve))
+      queue.setExecutor(async () => {
+        const err = new Error('登录态已失效')
+        err[key] = true
+        throw err
+      })
+      queue.add({ platform: 'weixin', article: { title: 'T', accountId: 'acc-1' }, accountId: 'acc-1' })
+
+      const task = await failed
+      expect(task.loginExpired, key).toBe(true)
+      expect(task.riskBlocked, key).toBe(false)
+    }
+  })
+
+  it('普通失败的 loginExpired 归一为 false（不留 undefined）', async () => {
+    const queue = new TaskQueue({ defaultRetry: 0 })
+    const failed = new Promise(resolve => queue.once('task:failed', resolve))
+    queue.setExecutor(async () => { throw new Error('网络超时') })
+    queue.add({ platform: 'weixin', article: { title: 'T', accountId: 'acc-1' }, accountId: 'acc-1' })
+
+    const task = await failed
+    expect(task.loginExpired).toBe(false)
+  })
+})
+

@@ -31,7 +31,7 @@ export function createRiskSuspendedTracker(deps) {
   // onChange：清单任何变更（含清空）都回调，供响应式镜像（与仅做 UI 提示的 notify 解耦）。
   const onChange = typeof deps.onChange === 'function' ? deps.onChange : null
 
-  /** @type {Array<{platform: string, accountId: (string|null), reason: string, at: (number|null)}>} */
+  /** @type {Array<{platform: string, accountId: (string|null), reason: string, at: (number|null), signal: string, strength: (string|null)}>} */
   let suspended = []
   let unsubscribe = null
 
@@ -48,6 +48,10 @@ export function createRiskSuspendedTracker(deps) {
         accountId: x.accountId == null ? null : x.accountId,
         reason: typeof x.reason === 'string' ? x.reason : '',
         at: x.at == null ? null : x.at,
+        // fix-risk-hold-false-positive（P1-4）：signal/strength 是横幅「判定依据」显示项的来源。
+        // 若在此丢弃，主进程存了也没用 —— 属静默信息损失（与 risk-suspender-store 的 hydrate 同因）。
+        signal: typeof x.signal === 'string' ? x.signal : '',
+        strength: x.strength === 'strong' || x.strength === 'weak' ? x.strength : null,
       }))
   }
 

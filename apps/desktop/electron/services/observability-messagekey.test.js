@@ -179,6 +179,10 @@ const ALLOWED_KEYS = new Set([
   'FailureDraftSaver:auto-draft-save-rejected',
   'FailureDraftSaver:auto-draft-save-failed',
   'RiskSuspender:suspend-failed',
+  // fix-risk-hold-false-positive：弱信号「不挂起」这个决定本身必须可观测，
+  // 否则事后无法回答「为什么这次没暂停」。新增 notify 必须同步登记本清单（本文件断言
+  // 全仓登记键总数 === 四文件 notify 调用总数，漏登记会以「未在清单登记」直接红）。
+  'RiskSuspender:weak-signal-not-suspended',
   // publish-impact-tracker.js
   'ImpactTracker:schedule-missing-article-id',
   'ImpactTracker:schedule-no-keywords',
