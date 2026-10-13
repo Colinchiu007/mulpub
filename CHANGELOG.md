@@ -1,3 +1,10 @@
+# [未发布] 播客存量单集 `mime` 一次性固化的判据与锁（podcast-mime-stock-freeze）
+
+- 新增 apps/desktop/electron/services/podcast-episode-stock-mime.js：`freezeStockMimeInArray`（合法值原样返回、缺席或非法按扩展名派生、派生不出计入 unresolved 不猜）与 `freezeStockMime`（恰好一次、幂等、按 channelId 走注入锁、单频道抛错跳过并 warn、六个注入实现缺任一即抛）。
+- 容器判据由抽取层 `planAudioCodec` 派生，不留第二份字面量集合；目录布局不在本层假设，由宿主 `listChannels()` 给出。
+- PRD §7.9 新增 §7.9.7 落地状态：逐条对账七类回归锁，如实记「compliance 的 stock 档未做」与「M2 变异未建立」。
+- tasks 4.4 勾到「判据与锁已在位」，剩余落点（宿主接线、compliance 档、摘要与 locale 三对键、M2 反证）拆成 4.4b 保持未勾。
+- 回归锁 12 条（含 os.tmpdir 真库往返与关闭重开）；变异 M1 两条指名红。
 # [未发布] feat(ci): 执行记录的 QM-5 行集改为"按模板派生"的结构棘轮（qm5-row-ratchet）
 
 ## 背景
