@@ -12,6 +12,11 @@ const { PLAN_IDS, getPlanEntitlement } = require('./plan-matrix')
 // 排除易混淆字符 I/O/0/1；格式 4-4-4（与 LicenseManager.activate 的输入习惯兼容）。
 const REDEEM_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
 const REDEEM_CODE_PATTERN = /^[ABCDEFGHJKMNPQRSTUVWXYZ2-9]{4}-[ABCDEFGHJKMNPQRSTUVWXYZ2-9]{4}-[ABCDEFGHJKMNPQRSTUVWXYZ2-9]{4}$/
+// 与 identity_redeem_codes.status 的 CHECK 约束同源，筛选值不得放宽于此。
+const REDEEM_STATUSES = ['active', 'used', 'disabled']
+// 碰撞补足轮数上限：库中已有 N 个码时，撞车概率极低，10 轮仍补不满说明
+// 是真故障（如 RNG 退化或库被批量预占），此时报 409 比死循环安全。
+const REDEEM_TOPUP_MAX_ROUNDS = 10
 
 class CommerceError extends Error {
   constructor(message, code, status) {
@@ -27,6 +32,23 @@ function generateRedeemCode() {
     () => REDEEM_CODE_ALPHABET[crypto.randomInt(REDEEM_CODE_ALPHABET.length)],
   ).join('')
   return `${pick()}-${pick()}-${pick()}`
+}
+
+/**
+ * 兑换码掩码：只保留首段，后两段整体打码（`ABCD-****-****`）。
+ *
+ * 为什么默认掩码：批量列表一次就能捞走全库未兑换码，而这类码的价值随时间衰减——
+ * 泄漏者拿到的是**还能立刻转卖的**资产。调用方若确需原码（发放、分发、对账），
+ * 必须在请求上显式带 reveal=true，服务层才放行完整码，且路由层会把「谁在何时
+ * 揭了哪些」写进 audit log。与 /admin/member/grant 的区别在于：grant 是有归属
+ * 的写操作，而「导出全部未用码」若无痕就没有归属。
+ *
+ * 注意：掩码**不是**加密，也不防有权限者传 reveal=true。它只挡住列表进日志、
+ * 进截图、进前端缓存这类**非刻意**暴露。真正要收口得靠独立 scope，本轮不做。
+ */
+function maskRedeemCode(code) {
+  if (typeof code !== 'string' || !REDEEM_CODE_PATTERN.test(code)) return '****-****-****'
+  return `${code.slice(0, 4)}-****-****`
 }
 
 /**
@@ -275,7 +297,16 @@ class SubscriptionService {
     })
   }
 
-  /** 批量生成兑换码（运营入口）：上限 500/批，内存去重后批量入库。 */
+  /**
+   * 批量生成兑换码（运营入口）：上限 500/批，内存去重后批量入库。
+   *
+   * 碰撞补足：createRedeemCodes 用 ON CONFLICT (code) DO NOTHING，与库中既有码
+   * 撞车的那几条会被**静默丢弃**——原实现直接返回 generated < requested，运营看不到
+   * 差额来源。这里改成按缺口重试生成，最多 REDEEM_TOPUP_MAX_ROUNDS 轮。
+   *
+   * 补不满时抛 REDEEM_BATCH_INCOMPLETE（409）并把**已签成的码**挂在异常上：
+   * 报错但不丢弃，调用方可据实交付或重试；既不静默少发，也不会因死循环挂死。
+   */
   async createRedeemBatch({ plan, durationDays, count, batch = null, expiresAt = null }) {
     if (!PLAN_IDS.includes(plan) || plan === 'free') {
       throw new CommerceError('兑换码仅支持付费档位', 'PLAN_INVALID', 400)
@@ -287,12 +318,102 @@ class SubscriptionService {
       throw new CommerceError('批量数量需在 1-500 之间', 'BATCH_COUNT_INVALID', 400)
     }
     const batchId = batch || `batch-${new Date(this.now()).toISOString().slice(0, 10)}-${crypto.randomBytes(3).toString('hex')}`
-    const codes = new Set()
-    while (codes.size < count) codes.add(generateRedeemCode())
-    const records = [...codes].map((code) => ({ code, plan, durationDays, batch: batchId, expiresAt }))
-    const created = await this.repository.createRedeemCodes(records)
+    const created = []
+    // seen 始终以已入库码打底，保证本批内不会重复投递同一个 code
+    const seen = new Set()
+    const done = new Set()
+    let rounds = 0
+    for (; created.length < count && rounds < REDEEM_TOPUP_MAX_ROUNDS; rounds++) {
+      while (seen.size < count) seen.add(generateRedeemCode())
+      const pending = [...seen].filter((code) => !done.has(code))
+      if (pending.length === 0) break
+      const records = pending.map((code) => ({ code, plan, durationDays, batch: batchId, expiresAt }))
+      const inserted = await this.repository.createRedeemCodes(records)
+      for (const code of inserted) done.add(code)
+      created.push(...inserted)
+    }
+    if (created.length < count) {
+      const error = new CommerceError('批量签发未补足，请按已签发码交付或重试', 'REDEEM_BATCH_INCOMPLETE', 409)
+      error.requested = count
+      error.generated = created.length
+      error.rounds = rounds
+      error.created = created
+      throw error
+    }
     return { batch: batchId, plan, durationDays, requested: count, generated: created.length, codes: created }
+  }
+
+  /**
+   * 运营列表（默认掩码）。reveal 必须严格等于 true 才放行完整码——字符串 "true"、
+   * 1 都不放行，避免调用方误以为已开启却拿到掩码、或误传真值意外泄漏。
+   */
+  async listRedeemCodes({ plan = null, status = null, batch = null, limit = 20, offset = 0, reveal = false } = {}) {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 200) {
+      throw new CommerceError('分页大小需在 1-200 之间', 'LIST_LIMIT_INVALID', 400)
+    }
+    if (!Number.isInteger(offset) || offset < 0) {
+      throw new CommerceError('偏移量不能为负', 'LIST_OFFSET_INVALID', 400)
+    }
+    if (status !== null && !REDEEM_STATUSES.includes(status)) {
+      throw new CommerceError('状态筛选值不合法', 'STATUS_INVALID', 400)
+    }
+    const filters = { plan: plan || null, status: status || null, batch: batch || null }
+    const rows = await this.repository.listRedeemCodes({ ...filters, limit, offset })
+    const total = await this.repository.countRedeemCodes(filters)
+    const full = reveal === true
+    return {
+      codes: rows.map((row) => ({
+        code: full ? row.code : maskRedeemCode(row.code),
+        masked: !full,
+        plan: row.plan,
+        durationDays: row.duration_days,
+        batch: row.batch,
+        status: row.status,
+        usedBy: row.used_by || null,
+        usedAt: row.used_at || null,
+        expiresAt: row.expires_at || null,
+        createdAt: row.created_at,
+      })),
+      total,
+      limit,
+      offset,
+      revealed: full,
+    }
+  }
+
+  /**
+   * 吊销（禁用）兑换码。
+   *
+   * 幂等语义与 /redeem 核销侧一致：重复操作返回 200 + idempotent:true，而不是 409。
+   * 但**已 used 的码不可吊销**（权益已发放，回滚会留下已享受服务却无记录的账），
+   * 必须 409 让调用方区分「操作没生效」与「操作重复」。
+   */
+  async disableRedeemCode({ code }) {
+    if (typeof code !== 'string' || !REDEEM_CODE_PATTERN.test(code)) {
+      throw new CommerceError('兑换码格式不合法', 'REDEEM_CODE_FORMAT', 400)
+    }
+    const disabled = await this.repository.disableRedeemCode(code)
+    if (disabled) {
+      return { code, status: 'disabled', idempotent: false }
+    }
+    // 没拿到行：区分「本来已是 disabled」与「已被兑换」——两者对调用方含义完全不同
+    const current = await this.repository.getRedeemCode(code)
+    if (!current) {
+      throw new CommerceError('兑换码不存在', 'REDEEM_CODE_NOT_FOUND', 404)
+    }
+    if (current.status === 'disabled') {
+      return { code, status: 'disabled', idempotent: true }
+    }
+    throw new CommerceError('兑换码已被使用，无法吊销', 'REDEEM_CODE_ALREADY_USED', 409)
   }
 }
 
-module.exports = { SubscriptionService, CommerceError, generateRedeemCode, REDEEM_CODE_PATTERN }
+module.exports = {
+  SubscriptionService,
+  CommerceError,
+  generateRedeemCode,
+  maskRedeemCode,
+  REDEEM_CODE_PATTERN,
+  REDEEM_STATUSES,
+  REDEEM_TOPUP_MAX_ROUNDS,
+}

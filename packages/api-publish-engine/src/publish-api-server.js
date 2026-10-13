@@ -18,6 +18,7 @@ const { LOGTO_WEBHOOK_SIGNATURE_HEADER, LogtoWebhookError } = require("./auth/lo
 const { getPlanCatalog } = require("./auth/plan-matrix")
 const { safeErrorCode } = require("./auth/safe-error-code")
 const { applyCommerceHelpers } = require("./auth/publish-api-commerce")
+const { applyRedeemCodeAdminHelpers } = require("./auth/publish-api-redeem-code-admin")
 const { applyCloudAccountHelpers, applyCloudAccountNoStore, mergeFaceHeaders } = require("./auth/publish-api-cloud-accounts")
 const { applyCapabilitiesHelpers, isCapabilitiesUrl } = require("./auth/publish-api-capabilities")
 const mediaResolver = require("./publish/resolve-request-media")
@@ -1009,40 +1010,7 @@ class PublishApiServer {
         return;
       }
 
-      if (url.indexOf("/api/v1/admin/member/") === 0) {
-        // 运营端点会花钱/发权益：只认经 scope 校验的 logto 身份，拒绝静态主密钥（api_key 分支不校验 requiredScope）。
-        if (!(req.auth && req.auth.authType === "logto")) { this._json(res, 403, { error: "AUTH_SCOPE_MISSING" }); return; }
-        if (!this._subscriptionService) { this._json(res, 503, { error: "SUBSCRIPTION_SERVICE_NOT_CONFIGURED" }); return; }
-        try {
-          if (method === "POST" && url === "/api/v1/admin/member/grant") {
-            var grantBody = await this._parseBody(req);
-            if (!grantBody || typeof grantBody.userId !== "string" || !grantBody.userId) { this._json(res, 400, { error: "USER_ID_REQUIRED" }); return; }
-            var grantResult = await this._subscriptionService.grant({
-              userId: grantBody.userId,
-              plan: grantBody.plan,
-              durationDays: grantBody.durationDays,
-              providerReference: grantBody.providerReference || null,
-              operator: grantBody.operator || null,
-            });
-            this._json(res, 200, { success: true, ...grantResult });
-            return;
-          }
-          if (method === "POST" && url === "/api/v1/admin/member/redeem-codes") {
-            var batchBody = await this._parseBody(req);
-            var batchResult = await this._subscriptionService.createRedeemBatch({
-              plan: batchBody && batchBody.plan,
-              durationDays: batchBody && batchBody.durationDays,
-              count: batchBody && batchBody.count,
-              batch: batchBody && batchBody.batch || null,
-              expiresAt: batchBody && batchBody.expiresAt || null,
-            });
-            this._json(res, 200, { success: true, ...batchResult });
-            return;
-          }
-          this._json(res, 404, { error: "ROUTE_NOT_FOUND" });
-          return;
-        } catch (error) { this._commerceFailure(req, res, error); return; }
-      }
+          if (await this._handleAdminMemberRoute(req, res, method, url)) return;
 
       // --- Key Management ---
       if (url === "/api/v1/keys") {
@@ -1428,7 +1396,9 @@ p{color:#6e6e73}
           { m: "POST", p: "/api/v1/me/sessions/revoke-others", d: "Revoke other device sessions. Requires valid X-Device-ID header to keep current device (scope profile:write)" },
           { m: "PATCH", p: "/api/v1/me/profile", d: "Update own displayName/avatarUrl. Body: { displayName?, avatarUrl? } (scope profile:write)" },
           { m: "POST", p: "/api/v1/admin/member/grant", d: "Admin grants a plan. Body: { userId, plan, durationDays } (scope admin:users)" },
-          { m: "POST", p: "/api/v1/admin/member/redeem-codes", d: "Admin batch-generates redeem codes. Body: { plan, durationDays, count } (scope admin:users)" },
+          { m: "POST", p: "/api/v1/admin/member/redeem-codes", d: "Admin batch-generates redeem codes. Body: { plan, durationDays, count, batch?, expiresAt? }. 409 REDEEM_BATCH_INCOMPLETE when collision top-up exhausts (response carries already-issued codes)" },
+          { m: "GET", p: "/api/v1/admin/member/redeem-codes", d: "List redeem codes. Query: { plan?, status?, batch?, limit?, offset?, reveal }. Codes are masked unless reveal=true (audited)" },
+          { m: "POST", p: "/api/v1/admin/member/redeem-codes/disable", d: "Disable a redeem code. Body: { code }. 200 idempotent:true when already disabled, 409 REDEEM_CODE_ALREADY_USED when used, 404 when absent (scope admin:users)" },
           { m: "GET", p: "/api/v1/platforms", d: "List all supported platforms" },
           { m: "POST", p: "/api/v1/publish", d: "Publish to one platform. Body: { platform, title, content, tags, cookie }" },
           { m: "POST", p: "/api/v1/batch-publish", d: "Batch publish to multiple platforms. Body: { platforms, title, content, tags, cookie }" },
@@ -1557,6 +1527,7 @@ p{color:#6e6e73}
 }
 
 applyCommerceHelpers(PublishApiServer);
+applyRedeemCodeAdminHelpers(PublishApiServer);
 applyCloudAccountHelpers(PublishApiServer);
 applyCapabilitiesHelpers(PublishApiServer);
 
