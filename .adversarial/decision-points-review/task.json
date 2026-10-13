@@ -1,0 +1,23 @@
+{
+  "task_slug": "decision-points-review",
+  "status": "review-in-progress",
+  "created": "2026-10-13",
+  "proposer_family": "opencode-hosted (step-5-preview)",
+  "critic_family": "claude (CCG backend primary)",
+  "object": "5 个决策点（决策点分析与建议-2026-10-13.md，已随 PR #3472 合入）",
+  "rationale": "4 文档整体已过 CCG 双轴 + 3 轮对抗循环，但决策点受审不均衡：决策 1/3/5 有 findings 命中，决策 2 零命中，决策 4 仅间接波及。本任务补缺口。",
+  "self_audit": [
+    "S1: 决策 2 论据①（桌面产品不背 Python 依赖=结构性硬伤）被项目架构部分否证——python-backend 随应用分发 + python-bridge 已存在",
+    "S2: 决策 4 触发条件缺第三条路（探针无确定结论时）"
+  ],
+  "focus": [
+    "S1 裁决：faster-whisper 不做 是否重评",
+    "S2 裁决：第三条路",
+    "决策 2/4 改判触发可证伪性",
+    "决策 1/3/5 修订后一致性",
+    "遗漏维度（成本/时序/依赖面/可回退）"
+  ],
+  "max_rounds": 2,
+  "score_threshold": 8.0,
+  "downstream": "评审结论若改变决策 2/4 → 修订 01-docs/research/oss-reinforcement-2026-10-13/决策点分析与建议-2026-10-13.md + 实施计划 v3.2 → 小 PR 合入"
+}
