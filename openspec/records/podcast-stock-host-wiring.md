@@ -2,9 +2,6 @@
 record: podcast-stock-host-wiring
 task: 把 §7.9 的存量 mime 固化接到真实调用路径（ipc-handlers/podcast.js 的 getService），并守住"旁路不伤人"
 date: 2026-10-12
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填 PR 改写 PASS + merge SHA 并整段删除本三个 sync_ 字段
-sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账 → worktree 清理）
 ---
 
 # 播客存量 mime 固化的宿主接线（podcast-stock-host-wiring，2026-10-12）
@@ -40,5 +37,5 @@ sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账 
 
 ## 远程同步
 
-| 远程同步 | PENDING | 待本 PR 合并后就地改写为 PASS + merge SHA，并在同一次提交删除 ledger 本条登记项 |
+| 远程同步 | PASS | merge SHA 8bd87f385 · 2026-10-13T18:54:27Z · 远端分支已删（ls-remote 0 行）· 同次提交删除 ledger 登记项 |
 
