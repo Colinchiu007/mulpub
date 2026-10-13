@@ -85,7 +85,7 @@
 |---|---|
 | **文件** | `scripts/import-platform-taxonomy.js`（**新增**）+ `scripts/import-platform-taxonomy.test.js`（**新增**） |
 | **依据** | 设计文 §3.4 |
-| **输入/输出** | 读**只读**目录 `rea\analysis\wemedia-data-zip\data\`（**绝不复制进本仓**）；写 `config/platform-taxonomy.json` |
+| **输入/输出** | 读**只读**目录（`rea\analysis` 下的数据集解出目录，**仓外绝对路径**，**绝不复制进本仓**）；写 `config/platform-taxonomy.json` |
 | **做什么** | ① 逐文件**双解码试探**（`utf8bad === 0 → UTF-8`，否则 `gbkbad === 0 → GBK`，两者皆非 0 ⇒ 记 `unreadable[]`，**不猜**）；② **6 种形态**无关递归遍历；③ **fail-loud**（非空文件解析出 0 节点 ⇒ 记 `unreadable[]` + **exit 1**）；④ 形态 F 的 `ids` 与 `id` 一致性自检；⑤ slug 映射表（未映射**一律跳过**并记 `unmappedPlatforms[]`，**禁止猜 slug**）；⑥ 6 条对账断言 |
 | **验收判据** | ① 退出码 0；② **连跑两次产物 SHA-256 相同**；③ `nodeCount === 11623` 且 `platformCount >= 20`；④ `variant:'id'` 平台全部节点有非空 `id`、`variant:'name-only'` 平台全部节点 `id === null`；⑤ `path` 与 `parentId` 链自洽 |
 | **依赖** | 无 |

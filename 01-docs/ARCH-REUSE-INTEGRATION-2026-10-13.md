@@ -103,8 +103,9 @@ const token = new CancelToken();  this._activeTokens[key] = token
 
 ### 2.3 规模数字为**转引**，非本次实测
 
-31 平台 / 11,623 节点 / 64 个分类映射文件 / 26 个带 ID。来源：`融媒宝-data.zip数据集拆解.md`
-§3.2–§3.3。**本文未重跑 `analyze-wemedia-taxonomy-v2.cjs`**；R-1 的转换器自带对账（§3.4 步骤 6）。
+31 平台 / 11,623 节点 / 64 个分类映射文件 / 26 个带 ID。来源：`rea/analysis` 的
+「数据集拆解报告」§3.2–§3.3。**本文未重跑 `analyze-wemedia-taxonomy-v2.cjs`**；
+R-1 的转换器自带对账（§3.4 步骤 6）。
 
 ---
 
@@ -1342,9 +1343,9 @@ packages/api-publish-engine/src/publish/capabilities/shipinhao-capabilities.js
 | `PRD-PUBLISH-HISTORY-ENGAGEMENT-2026-10-12.md` | R-2 的运行时真源（`account-metrics`）出自该 PRD，本项**不替换**它 |
 | `MP-REUSABLE-ACTUAL-PLAN.md` | §1 复核其两条缺口结论；§10.3-X-1 解释为何**不采纳**其 Task 2 |
 | `平台覆盖差距分析.md` | R-7 的优先级依据；§9.2 纠正其对视频号的误读 |
-| `融媒宝-data.zip数据集拆解.md` | §2.1/§2.2 纠正其形态与编码结论 |
-| `融媒宝-view-xhs-template拆解.md` | R-5 的算法来源；§7.5 修正其 4 个缺陷 |
-| `融媒宝-view-ai-clip拆解.md` | R-3（其 §6.1）与 R-4（其 §6.2）的来源 |
+| 数据集拆解报告（`rea/analysis` 内，文件名含参考产品字样故不在此复述） | §2.1/§2.2 纠正其形态与编码结论 |
+| 模板编辑器拆解报告（`rea/analysis` 内，同上） | R-5 的算法来源；§7.4 修正其 4 个缺陷 |
+| 一键成片拆解报告（`rea/analysis` 内，同上） | R-3（其 §6.1）与 R-4（其 §6.2）的来源 |
 
 ---
 
