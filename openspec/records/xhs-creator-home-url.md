@@ -2,9 +2,6 @@
 record: xhs-creator-home-url
 task: 创作者中心开卡首屏闪登录页——已登录账号用「路由入口 URL」开卡（小红书 `/` 而非 `/new/home`）
 date: 2026-10-13
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填 PR 改写 PASS + merge SHA 并在同一次提交整段删除本三个 sync_ 字段与 ledger 登记项
-sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账）
 ---
 
 ## 本次执行记录：创作者中心开卡首屏闪登录页（xhs-creator-home-url，2026-10-13）【混合 PR】
@@ -33,7 +30,7 @@ sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账�
 | 真机端到端（已取证部分 / 残余） | ✅ + 残余登记 | **已取证**：(a) 目标 URL 在本机真实账号分区上不闪（同一分区开 `/new/home` 连续 12s 无 `/login`）；(b) 生产构建产物含该 URL；(c) 行为锁证明点击路径会取该 URL。**残余**：以合并后代码重启应用做一次「点卡片」全链路点击复验（需重启用户的运行中实例，未在未授权情况下执行）——判据为 CDP 时间线全程不匹配 `/login` 且落点 `/new/home` |
 | QM-6 CCG 双模型深度审查 | 见提交钩子判定 | 变更行数（253 insertions / 2 deletions）触发 `scripts/ccg-gate.js` 的 DUAL 判定时，须跑 `sh scripts/deep-review.sh` 并把逐条裁决落盘；本轮结论与裁决文件路径见 `.quality-gates.md` 同名记录 |
 | OpenSpec change | 判定不建（如实记录） | 单点根因修复 + 一张新登记表，无方案级取舍、无新增 IPC 通道/存储/接口/依赖；同域先例（2026-10-09 账号标签 Cookie 恢复、2026-10-11 小红书登录二段式补跳、2026-10-11 账号标签首屏登录态）同样只产出 PRD + 执行记录 |
-| 远程同步 | PENDING | 本 PR 尚未合并；合并后由回填 PR 就地改写为 `PASS` + merge SHA，并在**同一次提交**删除本文件 frontmatter 的三个 `sync_*` 字段与 `scripts/gate-record-debt-ledger.json` 的登记项 |
+| 远程同步 | PASS（PR #3454 → `dbe8e0fa2`，2026-10-13T14:14:19+08:00） | 本行、`.quality-gates.md` 同名行回填、record frontmatter 三字段删除与 `scripts/gate-record-debt-ledger.json` 登记项删除在**同一次提交**完成
 
 ### 关联但不在本次范围（如实登记）
 
