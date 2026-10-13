@@ -3,6 +3,9 @@ record: reuse-p0-p3-wire
 task: P0-3 分类守卫 —— 让「给了非 ID 值」从静默回落默认分类变成显式失败
 date: 2026-10-14
 branch: reuse-p0-p3-wire
+sync_status: PENDING
+sync_reason: 本 PR 尚未合并，merge SHA 还不存在
+sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：P0-3 分类守卫（reuse-p0-p3-wire，2026-10-14）
