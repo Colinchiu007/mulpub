@@ -1,0 +1,72 @@
+{
+   "综合" : 
+   [
+	   {"name":"百度搜索","url":"https://www.baidu.com/s?wd=%s"},
+	   {"name":"360搜索","url":"https://www.so.com/s?q=%s"},
+	   {"name":"搜狗搜索","url":"https://www.sogou.com/web?query=%s"},
+	   {"name":"必应搜索","url":"https://cn.bing.com/search?q=%s"},
+	   {"name":"中国搜索","url":"http://www.chinaso.com/search/pagesearch.htm?q=%s"}
+   ],
+   "知识" : 
+   [ 
+	   {"name":"百度知道","url":"https://zhidao.baidu.com/search?word=%s"}, 
+	   {"name":"知乎","url":"https://www.zhihu.com/search?type=content&q=%s"},
+	   {"name":"百度百科","url":"https://baike.baidu.com/search/none?word=%s"},
+	   {"name":"百度文库","url":"https://wenku.baidu.com/search?word=%s"},
+	   {"name":"百度学术","url":"http://xueshu.baidu.com/s?wd=%s"},
+	   {"name":"必应学术","url":"https://cn.bing.com/search?q=%s"},
+	   {"name":"搜狗学术","url":"http://scholar.sogou.com/xueshu?query=%s"},
+	   {"name":"超星发现","url":"http://ss.chaoxing.com/search?sw=%s"}
+   ],
+   "自媒体" : 
+   [ 	    
+	   {"name":"今日头条","url":"https://www.toutiao.com/search/?keyword=%s"},
+	   {"name":"新浪微博","url":"https://s.weibo.com/weibo?q=%s"},
+	   {"name":"微信","url":"https://weixin.sogou.com/weixin?query=%s"},
+	   {"name":"一点资讯","url":"http://www.yidianzixun.com/channel/w/searchword=%s"},
+	   {"name":"凤凰网","url":"https://search.ifeng.com/article?q=%s"},
+	   {"name":"东方头条","url":"http://s.eastday.com/index.html?kw=%s"},
+	   {"name":"时间号","url":"https://www.btime.com/search?q=%s"},
+	   {"name":"简书","url":"https://www.jianshu.com/search?q=%s&page=1&type=note"},
+	   {"name":"快传号","url":"https://sh.qihoo.com/pc/search?q=%s"}
+   ],
+   "图片" : 
+   [ 	    
+	   {"name":"百度图片","url":"https://image.baidu.com/search/index?tn=baiduimage&word=%s"},
+	   {"name":"搜狗图片","url":"http://pic.sogou.com/pics?query=%s"},
+	   {"name":"站酷素材","url":"https://www.zcool.com.cn/search/content?&word=%s"},
+	   {"name":"360图片","url":"http://image.so.com/i?q=%s"}
+   ],
+   "视频" : 
+   [ 	    
+	   {"name":"爱奇艺","url":"http://so.iqiyi.com/so/q_%s"},
+	   {"name":"百度","url":"http://v.baidu.com/v?ct=301989888&ie=utf-8&word=%s"},
+	   {"name":"优酷","url":"https://so.youku.com/search_video/q_%s"},
+	   {"name":"腾讯","url":"http://v.qq.com/x/search/?q=%s"},
+	   {"name":"搜狐","url":"http://so.tv.sohu.com/mts?wd=%s"},
+	   {"name":"PPTV","url":"http://sou.pptv.com/s_video?kw=%s"},
+	   {"name":"央视","url":"https://search.cctv.com/search.php?qtext=%s"},
+	   {"name":"360","url":"https://video.360kan.com/v?q=%s"}
+   ],
+   "云盘" : 
+   [ 	    
+	   {"name":"西林街","url":"http://www.xilinjie.com/s?q=%s"},
+	   {"name":"盘多多","url":"http://www.panduoduo.net/s/name/%s"},
+	   {"name":"盘搜搜","url":"http://www.pansoso.com/zh/%s"}
+   ],
+   "实用" : 
+   [ 	    
+	   {"name":"百度汉语","url":"https://hanyu.baidu.com/s?device=pc&wd=%s"}, 
+	   {"name":"金山词霸","url":"http://www.iciba.com/%s"},
+	   {"name":"有道词典","url":"http://dict.youdao.com/search?q=%s"},
+	   {"name":"好豆菜谱","url":"http://www.haodou.com/s?tp=recipe&wd=%s"}
+   ],
+   "问答" : 
+   [	    
+	   {"name":"百度知道","url":"https://zhidao.baidu.com/search?word=%s"},
+	   {"name":"360问答","url":"http://wenda.so.com/search/?q=%s"},
+	   {"name":"搜狗问问","url":"https://www.sogou.com/sogou?insite=wenwen.sogou.com&query=%s"},
+	   {"name":"悟空问答","url":"https://www.wukong.com/search/?keyword=%s"},
+	   {"name":"知乎","url":"https://www.zhihu.com/search?type=content&q=%s"}
+   ]
+}

@@ -1,0 +1,22 @@
+[
+	{
+		"text":"打开账号网页空白如何解决?",
+		"url":"http://doc.mymedia123.com/helpdoc/detail?id=4"
+	},
+	{
+		"text":"无法成功添加自媒体账号?",
+		"url":"http://doc.mymedia123.com/helpdoc/detail?id=9"
+	},
+	{
+		"text":"为什么账号登陆会失效，需要重新登陆？",
+		"url":"http://doc.mymedia123.com/helpdoc/detail?id=13"
+	},
+	{
+		"text":"换电脑登录后，如何同步自媒体账号数据？",
+		"url":"http://doc.mymedia123.com/helpdoc/detail?id=3" 
+	},
+	{
+		"text":"发布内容账号设置错误如何解决?",
+		"url":"http://doc.mymedia123.com/helpdoc/detail?id=7"
+	}
+]

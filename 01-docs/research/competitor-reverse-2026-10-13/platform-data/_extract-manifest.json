@@ -1,0 +1,1741 @@
+{
+  "source": "D:\\Program Files (x86)\\融媒宝\\data.zip",
+  "sourceBytes": 780196,
+  "extractedAt": "2026-10-13T12:56:40.048Z",
+  "entries": [
+    {
+      "finalName": "data/",
+      "rawNameHex": "646174612f",
+      "rule": "ascii",
+      "method": 0,
+      "size": 0
+    },
+    {
+      "finalName": "data/acfuncategortmap.txt",
+      "rawNameHex": "646174612f616366756e63617465676f72746d61702e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 1074
+    },
+    {
+      "finalName": "data/acfunsubcategort.txt",
+      "rawNameHex": "646174612f616366756e73756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 366
+    },
+    {
+      "finalName": "data/acfunvideocategortmap.txt",
+      "rawNameHex": "646174612f616366756e766964656f63617465676f72746d61702e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 2346
+    },
+    {
+      "finalName": "data/acfunvideosubcategort.txt",
+      "rawNameHex": "646174612f616366756e766964656f73756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 800
+    },
+    {
+      "finalName": "data/aiqiyimediavideocategortmap.txt",
+      "rawNameHex": "646174612f6169716979696d65646961766964656f63617465676f72746d61702e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 1972
+    },
+    {
+      "finalName": "data/baihuasubcategort.txt",
+      "rawNameHex": "646174612f62616968756173756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 641
+    },
+    {
+      "finalName": "data/baihuavideocategortmap.txt",
+      "rawNameHex": "646174612f626169687561766964656f63617465676f72746d61702e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 3750
+    },
+    {
+      "finalName": "data/baijiavideocategortmap.txt",
+      "rawNameHex": "646174612f6261696a6961766964656f63617465676f72746d61702e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 49486
+    },
+    {
+      "finalName": "data/baijiavideosubcategort.txt",
+      "rawNameHex": "646174612f6261696a6961766964656f73756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 9799
+    },
+    {
+      "finalName": "data/bilibilicategortmap.txt",
+      "rawNameHex": "646174612f62696c6962696c6963617465676f72746d61702e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 2124
+    },
+    {
+      "finalName": "data/bilibilisubcategort.txt",
+      "rawNameHex": "646174612f62696c6962696c6973756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 363
+    },
+    {
+      "finalName": "data/bilibilivideocategortmap.txt",
+      "rawNameHex": "646174612f62696c6962696c69766964656f63617465676f72746d61702e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 8233
+    },
+    {
+      "finalName": "data/bilibilivideosubcategort.txt",
+      "rawNameHex": "646174612f62696c6962696c69766964656f73756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 1451
+    },
+    {
+      "finalName": "data/comment_media_js.json",
+      "rawNameHex": "646174612f636f6d6d656e745f6d656469615f6a732e6a736f6e",
+      "rule": "ascii",
+      "method": 8,
+      "size": 15005
+    },
+    {
+      "finalName": "data/common_question.txt",
+      "rawNameHex": "646174612f636f6d6d6f6e5f7175657374696f6e2e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 932
+    },
+    {
+      "finalName": "data/common_question_oem.txt",
+      "rawNameHex": "646174612f636f6d6d6f6e5f7175657374696f6e5f6f656d2e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 556
+    },
+    {
+      "finalName": "data/common_question_ym.txt",
+      "rawNameHex": "646174612f636f6d6d6f6e5f7175657374696f6e5f796d2e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 509
+    },
+    {
+      "finalName": "data/dafengcategortmap.txt",
+      "rawNameHex": "646174612f646166656e6763617465676f72746d61702e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 2706
+    },
+    {
+      "finalName": "data/dafengvideocategort.txt",
+      "rawNameHex": "646174612f646166656e67766964656f63617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 3676
+    },
+    {
+      "finalName": "data/dafengvideocategortmap.txt",
+      "rawNameHex": "646174612f646166656e67766964656f63617465676f72746d61702e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 26039
+    },
+    {
+      "finalName": "data/dayuvideosubcategort.txt",
+      "rawNameHex": "646174612f64617975766964656f73756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 619
+    },
+    {
+      "finalName": "data/deepsearchercat.txt",
+      "rawNameHex": "646174612f6465657073656172636865726361742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 3524
+    },
+    {
+      "finalName": "data/doc/",
+      "rawNameHex": "646174612f646f632f",
+      "rule": "ascii",
+      "method": 0,
+      "size": 0
+    },
+    {
+      "finalName": "data/doc/内容数据.csv",
+      "rawNameHex": "646174612f646f632fc4dac8ddcafdbedd2e637376",
+      "rule": "gbk",
+      "method": 8,
+      "size": 572
+    },
+    {
+      "finalName": "data/doc/平台数据.csv",
+      "rawNameHex": "646174612f646f632fc6bdcca8cafdbedd2e637376",
+      "rule": "gbk",
+      "method": 8,
+      "size": 135
+    },
+    {
+      "finalName": "data/doc/平台数据详情.csv",
+      "rawNameHex": "646174612f646f632fc6bdcca8cafdbeddcfeac7e92e637376",
+      "rule": "gbk",
+      "method": 8,
+      "size": 990
+    },
+    {
+      "finalName": "data/doc/数据总览.csv",
+      "rawNameHex": "646174612f646f632fcafdbeddd7dcc0c02e637376",
+      "rule": "gbk",
+      "method": 8,
+      "size": 157
+    },
+    {
+      "finalName": "data/doc/账号数据.csv",
+      "rawNameHex": "646174612f646f632fd5cbbac5cafdbedd2e637376",
+      "rule": "gbk",
+      "method": 8,
+      "size": 240
+    },
+    {
+      "finalName": "data/doc/账号详情-内容数据.csv",
+      "rawNameHex": "646174612f646f632fd5cbbac5cfeac7e92dc4dac8ddcafdbedd2e637376",
+      "rule": "gbk",
+      "method": 8,
+      "size": 542
+    },
+    {
+      "finalName": "data/dongfangsubcategort.txt",
+      "rawNameHex": "646174612f646f6e6766616e6773756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 796
+    },
+    {
+      "finalName": "data/dongfangvideosubcategort.txt",
+      "rawNameHex": "646174612f646f6e6766616e67766964656f73756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 302
+    },
+    {
+      "finalName": "data/douyincategortmap.txt",
+      "rawNameHex": "646174612f646f7579696e63617465676f72746d61702e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 1858
+    },
+    {
+      "finalName": "data/douyinvideocategortmap.txt",
+      "rawNameHex": "646174612f646f7579696e766964656f63617465676f72746d61702e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 21193
+    },
+    {
+      "finalName": "data/douyinvideosubcategort.txt",
+      "rawNameHex": "646174612f646f7579696e766964656f73756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 4327
+    },
+    {
+      "finalName": "data/explosivearticle/",
+      "rawNameHex": "646174612f6578706c6f7369766561727469636c652f",
+      "rule": "ascii",
+      "method": 0,
+      "size": 0
+    },
+    {
+      "finalName": "data/explosivearticle/baijia.txt",
+      "rawNameHex": "646174612f6578706c6f7369766561727469636c652f6261696a69612e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 650
+    },
+    {
+      "finalName": "data/explosivearticle/dongfang.txt",
+      "rawNameHex": "646174612f6578706c6f7369766561727469636c652f646f6e6766616e672e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 812
+    },
+    {
+      "finalName": "data/explosivearticle/fenghuang.txt",
+      "rawNameHex": "646174612f6578706c6f7369766561727469636c652f66656e676875616e672e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 610
+    },
+    {
+      "finalName": "data/explosivearticle/iqiyia.txt",
+      "rawNameHex": "646174612f6578706c6f7369766561727469636c652f6971697969612e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 4380
+    },
+    {
+      "finalName": "data/explosivearticle/jianshu.txt",
+      "rawNameHex": "646174612f6578706c6f7369766561727469636c652f6a69616e7368752e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 1675
+    },
+    {
+      "finalName": "data/explosivearticle/kelai.txt",
+      "rawNameHex": "646174612f6578706c6f7369766561727469636c652f6b656c61692e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 119
+    },
+    {
+      "finalName": "data/explosivearticle/kuaizixun.txt",
+      "rawNameHex": "646174612f6578706c6f7369766561727469636c652f6b7561697a6978756e2e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 285
+    },
+    {
+      "finalName": "data/explosivearticle/qqkandian.txt",
+      "rawNameHex": "646174612f6578706c6f7369766561727469636c652f71716b616e6469616e2e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 640
+    },
+    {
+      "finalName": "data/explosivearticle/qutoutiao.txt",
+      "rawNameHex": "646174612f6578706c6f7369766561727469636c652f7175746f757469616f2e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 453
+    },
+    {
+      "finalName": "data/explosivearticle/sina.txt",
+      "rawNameHex": "646174612f6578706c6f7369766561727469636c652f73696e612e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 117
+    },
+    {
+      "finalName": "data/explosivearticle/sohu.txt",
+      "rawNameHex": "646174612f6578706c6f7369766561727469636c652f736f68752e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 397
+    },
+    {
+      "finalName": "data/explosivearticle/tiantian.txt",
+      "rawNameHex": "646174612f6578706c6f7369766561727469636c652f7469616e7469616e2e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 843
+    },
+    {
+      "finalName": "data/explosivearticle/toutiao.txt",
+      "rawNameHex": "646174612f6578706c6f7369766561727469636c652f746f757469616f2e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 747
+    },
+    {
+      "finalName": "data/explosivearticle/uctoutiao.txt",
+      "rawNameHex": "646174612f6578706c6f7369766561727469636c652f7563746f757469616f2e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 583
+    },
+    {
+      "finalName": "data/explosivearticle/wangyi.txt",
+      "rawNameHex": "646174612f6578706c6f7369766561727469636c652f77616e6779692e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 848
+    },
+    {
+      "finalName": "data/explosivearticle/wifimasterkey.txt",
+      "rawNameHex": "646174612f6578706c6f7369766561727469636c652f776966696d61737465726b65792e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 119
+    },
+    {
+      "finalName": "data/explosivearticle/yidian.txt",
+      "rawNameHex": "646174612f6578706c6f7369766561727469636c652f79696469616e2e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 1542
+    },
+    {
+      "finalName": "data/explosivevideo/",
+      "rawNameHex": "646174612f6578706c6f73697665766964656f2f",
+      "rule": "ascii",
+      "method": 0,
+      "size": 0
+    },
+    {
+      "finalName": "data/explosivevideo/baijia.txt",
+      "rawNameHex": "646174612f6578706c6f73697665766964656f2f6261696a69612e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 567
+    },
+    {
+      "finalName": "data/explosivevideo/bilibili.txt",
+      "rawNameHex": "646174612f6578706c6f73697665766964656f2f62696c6962696c692e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 235
+    },
+    {
+      "finalName": "data/explosivevideo/douyin.txt",
+      "rawNameHex": "646174612f6578706c6f73697665766964656f2f646f7579696e2e747874",
+      "rule": "ascii",
+      "method": 0,
+      "size": 62
+    },
+    {
+      "finalName": "data/explosivevideo/fenghuang.txt",
+      "rawNameHex": "646174612f6578706c6f73697665766964656f2f66656e676875616e672e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 610
+    },
+    {
+      "finalName": "data/explosivevideo/haokan.txt",
+      "rawNameHex": "646174612f6578706c6f73697665766964656f2f68616f6b616e2e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 243
+    },
+    {
+      "finalName": "data/explosivevideo/huoshan.txt",
+      "rawNameHex": "646174612f6578706c6f73697665766964656f2f68756f7368616e2e747874",
+      "rule": "ascii",
+      "method": 0,
+      "size": 62
+    },
+    {
+      "finalName": "data/explosivevideo/iqiyiv.txt",
+      "rawNameHex": "646174612f6578706c6f73697665766964656f2f6971697969762e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 285
+    },
+    {
+      "finalName": "data/explosivevideo/kuaishou.txt",
+      "rawNameHex": "646174612f6578706c6f73697665766964656f2f6b75616973686f752e747874",
+      "rule": "ascii",
+      "method": 0,
+      "size": 62
+    },
+    {
+      "finalName": "data/explosivevideo/meipai.txt",
+      "rawNameHex": "646174612f6578706c6f73697665766964656f2f6d65697061692e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 384
+    },
+    {
+      "finalName": "data/explosivevideo/qqkandian.txt",
+      "rawNameHex": "646174612f6578706c6f73697665766964656f2f71716b616e6469616e2e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 383
+    },
+    {
+      "finalName": "data/explosivevideo/qutoutiao.txt",
+      "rawNameHex": "646174612f6578706c6f73697665766964656f2f7175746f757469616f2e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 439
+    },
+    {
+      "finalName": "data/explosivevideo/tiantian.txt",
+      "rawNameHex": "646174612f6578706c6f73697665766964656f2f7469616e7469616e2e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 719
+    },
+    {
+      "finalName": "data/explosivevideo/toutiao.txt",
+      "rawNameHex": "646174612f6578706c6f73697665766964656f2f746f757469616f2e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 701
+    },
+    {
+      "finalName": "data/explosivevideo/uctoutiao.txt",
+      "rawNameHex": "646174612f6578706c6f73697665766964656f2f7563746f757469616f2e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 474
+    },
+    {
+      "finalName": "data/explosivevideo/wangyi.txt",
+      "rawNameHex": "646174612f6578706c6f73697665766964656f2f77616e6779692e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 698
+    },
+    {
+      "finalName": "data/explosivevideo/xigua.txt",
+      "rawNameHex": "646174612f6578706c6f73697665766964656f2f78696775612e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 316
+    },
+    {
+      "finalName": "data/explosivevideo/yidian.txt",
+      "rawNameHex": "646174612f6578706c6f73697665766964656f2f79696469616e2e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 566
+    },
+    {
+      "finalName": "data/hand.gif",
+      "rawNameHex": "646174612f68616e642e676966",
+      "rule": "ascii",
+      "method": 8,
+      "size": 32988
+    },
+    {
+      "finalName": "data/huitoutiaocategortmap.txt",
+      "rawNameHex": "646174612f687569746f757469616f63617465676f72746d61702e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 2479
+    },
+    {
+      "finalName": "data/huitoutiaosubcategort.txt",
+      "rawNameHex": "646174612f687569746f757469616f73756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 798
+    },
+    {
+      "finalName": "data/huitoutiaovideocategortmap.txt",
+      "rawNameHex": "646174612f687569746f757469616f766964656f63617465676f72746d61702e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 2291
+    },
+    {
+      "finalName": "data/huitoutiaovideosubcategort.txt",
+      "rawNameHex": "646174612f687569746f757469616f766964656f73756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 692
+    },
+    {
+      "finalName": "data/kaidicategortmap.txt",
+      "rawNameHex": "646174612f6b6169646963617465676f72746d61702e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 5760
+    },
+    {
+      "finalName": "data/kaidisubcategort.txt",
+      "rawNameHex": "646174612f6b6169646973756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 993
+    },
+    {
+      "finalName": "data/kuaichuancategortmap.txt",
+      "rawNameHex": "646174612f6b756169636875616e63617465676f72746d61702e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 1401
+    },
+    {
+      "finalName": "data/kuaishouvideosubcategort.txt",
+      "rawNameHex": "646174612f6b75616973686f75766964656f73756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 5074
+    },
+    {
+      "finalName": "data/media_class_set.txt",
+      "rawNameHex": "646174612f6d656469615f636c6173735f7365742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 281
+    },
+    {
+      "finalName": "data/media_class_set_new.txt",
+      "rawNameHex": "646174612f6d656469615f636c6173735f7365745f6e65772e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 296
+    },
+    {
+      "finalName": "data/media_url_list.txt",
+      "rawNameHex": "646174612f6d656469615f75726c5f6c6973742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 7186
+    },
+    {
+      "finalName": "data/mediaactivity/",
+      "rawNameHex": "646174612f6d6564696161637469766974792f",
+      "rule": "ascii",
+      "method": 0,
+      "size": 0
+    },
+    {
+      "finalName": "data/mediaactivity/qiecat.txt",
+      "rawNameHex": "646174612f6d6564696161637469766974792f7169656361742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 588
+    },
+    {
+      "finalName": "data/mediaactivity/qievideocat.txt",
+      "rawNameHex": "646174612f6d6564696161637469766974792f716965766964656f6361742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 588
+    },
+    {
+      "finalName": "data/mediaactivity/toutiaocat.txt",
+      "rawNameHex": "646174612f6d6564696161637469766974792f746f757469616f6361742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 1115
+    },
+    {
+      "finalName": "data/mediaactivity/toutiaovideocat.txt",
+      "rawNameHex": "646174612f6d6564696161637469766974792f746f757469616f766964656f6361742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 412
+    },
+    {
+      "finalName": "data/mediadatamgr.ini",
+      "rawNameHex": "646174612f6d65646961646174616d67722e696e69",
+      "rule": "ascii",
+      "method": 8,
+      "size": 1857
+    },
+    {
+      "finalName": "data/mediahot/",
+      "rawNameHex": "646174612f6d65646961686f742f",
+      "rule": "ascii",
+      "method": 0,
+      "size": 0
+    },
+    {
+      "finalName": "data/mediahot/qiecat.txt",
+      "rawNameHex": "646174612f6d65646961686f742f7169656361742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 727
+    },
+    {
+      "finalName": "data/mediahot/qievideocat.txt",
+      "rawNameHex": "646174612f6d65646961686f742f716965766964656f6361742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 727
+    },
+    {
+      "finalName": "data/mediahot/toutiaocat.txt",
+      "rawNameHex": "646174612f6d65646961686f742f746f757469616f6361742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 632
+    },
+    {
+      "finalName": "data/mediahot/toutiaovideocat.txt",
+      "rawNameHex": "646174612f6d65646961686f742f746f757469616f766964656f6361742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 632
+    },
+    {
+      "finalName": "data/meipaisubcategort.txt",
+      "rawNameHex": "646174612f6d656970616973756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 583
+    },
+    {
+      "finalName": "data/meipaisubcategortmap.txt",
+      "rawNameHex": "646174612f6d656970616973756263617465676f72746d61702e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 2086
+    },
+    {
+      "finalName": "data/miaopaimediavideocategortmap.txt",
+      "rawNameHex": "646174612f6d69616f7061696d65646961766964656f63617465676f72746d61702e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 1386
+    },
+    {
+      "finalName": "data/miaopaimediavideosubcategort.txt",
+      "rawNameHex": "646174612f6d69616f7061696d65646961766964656f73756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 623
+    },
+    {
+      "finalName": "data/new_user_guide.txt",
+      "rawNameHex": "646174612f6e65775f757365725f67756964652e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 1030
+    },
+    {
+      "finalName": "data/new_user_guide_oem.txt",
+      "rawNameHex": "646174612f6e65775f757365725f67756964655f6f656d2e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 513
+    },
+    {
+      "finalName": "data/new_user_guide_tjj888.txt",
+      "rawNameHex": "646174612f6e65775f757365725f67756964655f746a6a3838382e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 970
+    },
+    {
+      "finalName": "data/new_user_guide_ym.txt",
+      "rawNameHex": "646174612f6e65775f757365725f67756964655f796d2e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 436
+    },
+    {
+      "finalName": "data/qievideosubcategort.txt",
+      "rawNameHex": "646174612f716965766964656f73756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 2019
+    },
+    {
+      "finalName": "data/qqkandiansubcategortmap.txt",
+      "rawNameHex": "646174612f71716b616e6469616e73756263617465676f72746d61702e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 52824
+    },
+    {
+      "finalName": "data/qqkandianvideocategortmap.txt",
+      "rawNameHex": "646174612f71716b616e6469616e766964656f63617465676f72746d61702e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 17177
+    },
+    {
+      "finalName": "data/qqkandianvideosubcategort.txt",
+      "rawNameHex": "646174612f71716b616e6469616e766964656f73756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 8925
+    },
+    {
+      "finalName": "data/qqkantiaosubcategort.txt",
+      "rawNameHex": "646174612f71716b616e7469616f73756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 5304
+    },
+    {
+      "finalName": "data/qutoutiaocategortmap.txt",
+      "rawNameHex": "646174612f7175746f757469616f63617465676f72746d61702e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 12210
+    },
+    {
+      "finalName": "data/qutoutiaosubcategort.txt",
+      "rawNameHex": "646174612f7175746f757469616f73756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 3357
+    },
+    {
+      "finalName": "data/sensitivelibrary.txt",
+      "rawNameHex": "646174612f73656e7369746976656c6962726172792e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 812056
+    },
+    {
+      "finalName": "data/sinakandiancategortmap.txt",
+      "rawNameHex": "646174612f73696e616b616e6469616e63617465676f72746d61702e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 2727
+    },
+    {
+      "finalName": "data/sinakandiansubcategort.txt",
+      "rawNameHex": "646174612f73696e616b616e6469616e73756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 1331
+    },
+    {
+      "finalName": "data/software_notify.txt",
+      "rawNameHex": "646174612f736f6674776172655f6e6f746966792e747874",
+      "rule": "ascii",
+      "method": 0,
+      "size": 125
+    },
+    {
+      "finalName": "data/software_notify_oem.txt",
+      "rawNameHex": "646174612f736f6674776172655f6e6f746966795f6f656d2e747874",
+      "rule": "ascii",
+      "method": 0,
+      "size": 125
+    },
+    {
+      "finalName": "data/software_notify_ym.txt",
+      "rawNameHex": "646174612f736f6674776172655f6e6f746966795f796d2e747874",
+      "rule": "ascii",
+      "method": 0,
+      "size": 125
+    },
+    {
+      "finalName": "data/sogouvideosubcategort.txt",
+      "rawNameHex": "646174612f736f676f75766964656f73756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 2154
+    },
+    {
+      "finalName": "data/sohumediacategortmap.txt",
+      "rawNameHex": "646174612f736f68756d6564696163617465676f72746d61702e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 7927
+    },
+    {
+      "finalName": "data/sohumediasubcategort.txt",
+      "rawNameHex": "646174612f736f68756d6564696173756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 1400
+    },
+    {
+      "finalName": "data/sohusubcategort.txt",
+      "rawNameHex": "646174612f736f687573756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 93
+    },
+    {
+      "finalName": "data/sohusubcategortmap.txt",
+      "rawNameHex": "646174612f736f687573756263617465676f72746d61702e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 8644
+    },
+    {
+      "finalName": "data/sohuvideocategortmap.txt",
+      "rawNameHex": "646174612f736f6875766964656f63617465676f72746d61702e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 355739
+    },
+    {
+      "finalName": "data/sohuvideosubcategort.txt",
+      "rawNameHex": "646174612f736f6875766964656f73756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 16093
+    },
+    {
+      "finalName": "data/tencentvideocategortmap.txt",
+      "rawNameHex": "646174612f74656e63656e74766964656f63617465676f72746d61702e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 14331
+    },
+    {
+      "finalName": "data/tencentvideosubcategort.txt",
+      "rawNameHex": "646174612f74656e63656e74766964656f73756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 2902
+    },
+    {
+      "finalName": "data/toutiaovideosubcategort.txt",
+      "rawNameHex": "646174612f746f757469616f766964656f73756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 382
+    },
+    {
+      "finalName": "data/wangyisubcategort.txt",
+      "rawNameHex": "646174612f77616e67796973756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 2069
+    },
+    {
+      "finalName": "data/wangyisubcategortmap.txt",
+      "rawNameHex": "646174612f77616e67796973756263617465676f72746d61702e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 10082
+    },
+    {
+      "finalName": "data/wangyivideosubcategort.txt",
+      "rawNameHex": "646174612f77616e677969766964656f73756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 1757
+    },
+    {
+      "finalName": "data/weibovideocategortmap.txt",
+      "rawNameHex": "646174612f776569626f766964656f63617465676f72746d61702e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 26145
+    },
+    {
+      "finalName": "data/weibovideosubcategort.txt",
+      "rawNameHex": "646174612f776569626f766964656f73756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 3110
+    },
+    {
+      "finalName": "data/weixinvideosubcategort.txt",
+      "rawNameHex": "646174612f77656978696e766964656f73756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 3991
+    },
+    {
+      "finalName": "data/wutiaosubcategort.txt",
+      "rawNameHex": "646174612f77757469616f73756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 549
+    },
+    {
+      "finalName": "data/yidiansubcategort.txt",
+      "rawNameHex": "646174612f79696469616e73756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 2730
+    },
+    {
+      "finalName": "data/yidianvideosubcategort.txt",
+      "rawNameHex": "646174612f79696469616e766964656f73756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 3271
+    },
+    {
+      "finalName": "data/zhihuvideocategortmap.txt",
+      "rawNameHex": "646174612f7a68696875766964656f63617465676f72746d61702e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 1647
+    },
+    {
+      "finalName": "data/zhihuvideosubcategort.txt",
+      "rawNameHex": "646174612f7a68696875766964656f73756263617465676f72742e747874",
+      "rule": "ascii",
+      "method": 8,
+      "size": 1541
+    }
+  ],
+  "written": [
+    {
+      "name": "data/acfuncategortmap.txt",
+      "rel": "acfuncategortmap.txt",
+      "bytes": 1074,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/acfunsubcategort.txt",
+      "rel": "acfunsubcategort.txt",
+      "bytes": 366,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/acfunvideocategortmap.txt",
+      "rel": "acfunvideocategortmap.txt",
+      "bytes": 2346,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/acfunvideosubcategort.txt",
+      "rel": "acfunvideosubcategort.txt",
+      "bytes": 800,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/aiqiyimediavideocategortmap.txt",
+      "rel": "aiqiyimediavideocategortmap.txt",
+      "bytes": 1972,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/baihuasubcategort.txt",
+      "rel": "baihuasubcategort.txt",
+      "bytes": 641,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/baihuavideocategortmap.txt",
+      "rel": "baihuavideocategortmap.txt",
+      "bytes": 3750,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/baijiavideocategortmap.txt",
+      "rel": "baijiavideocategortmap.txt",
+      "bytes": 49486,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/baijiavideosubcategort.txt",
+      "rel": "baijiavideosubcategort.txt",
+      "bytes": 9799,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/bilibilicategortmap.txt",
+      "rel": "bilibilicategortmap.txt",
+      "bytes": 2124,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/bilibilisubcategort.txt",
+      "rel": "bilibilisubcategort.txt",
+      "bytes": 363,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/bilibilivideocategortmap.txt",
+      "rel": "bilibilivideocategortmap.txt",
+      "bytes": 8233,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/bilibilivideosubcategort.txt",
+      "rel": "bilibilivideosubcategort.txt",
+      "bytes": 1451,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/comment_media_js.json",
+      "rel": "comment_media_js.json",
+      "bytes": 15005,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/common_question.txt",
+      "rel": "common_question.txt",
+      "bytes": 932,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/common_question_oem.txt",
+      "rel": "common_question_oem.txt",
+      "bytes": 556,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/common_question_ym.txt",
+      "rel": "common_question_ym.txt",
+      "bytes": 509,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/dafengcategortmap.txt",
+      "rel": "dafengcategortmap.txt",
+      "bytes": 2706,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/dafengvideocategort.txt",
+      "rel": "dafengvideocategort.txt",
+      "bytes": 3676,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/dafengvideocategortmap.txt",
+      "rel": "dafengvideocategortmap.txt",
+      "bytes": 26039,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/dayuvideosubcategort.txt",
+      "rel": "dayuvideosubcategort.txt",
+      "bytes": 619,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/deepsearchercat.txt",
+      "rel": "deepsearchercat.txt",
+      "bytes": 3524,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/doc/内容数据.csv",
+      "rel": "doc\\内容数据.csv",
+      "bytes": 572,
+      "rule": "gbk"
+    },
+    {
+      "name": "data/doc/平台数据.csv",
+      "rel": "doc\\平台数据.csv",
+      "bytes": 135,
+      "rule": "gbk"
+    },
+    {
+      "name": "data/doc/平台数据详情.csv",
+      "rel": "doc\\平台数据详情.csv",
+      "bytes": 990,
+      "rule": "gbk"
+    },
+    {
+      "name": "data/doc/数据总览.csv",
+      "rel": "doc\\数据总览.csv",
+      "bytes": 157,
+      "rule": "gbk"
+    },
+    {
+      "name": "data/doc/账号数据.csv",
+      "rel": "doc\\账号数据.csv",
+      "bytes": 240,
+      "rule": "gbk"
+    },
+    {
+      "name": "data/doc/账号详情-内容数据.csv",
+      "rel": "doc\\账号详情-内容数据.csv",
+      "bytes": 542,
+      "rule": "gbk"
+    },
+    {
+      "name": "data/dongfangsubcategort.txt",
+      "rel": "dongfangsubcategort.txt",
+      "bytes": 796,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/dongfangvideosubcategort.txt",
+      "rel": "dongfangvideosubcategort.txt",
+      "bytes": 302,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/douyincategortmap.txt",
+      "rel": "douyincategortmap.txt",
+      "bytes": 1858,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/douyinvideocategortmap.txt",
+      "rel": "douyinvideocategortmap.txt",
+      "bytes": 21193,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/douyinvideosubcategort.txt",
+      "rel": "douyinvideosubcategort.txt",
+      "bytes": 4327,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivearticle/baijia.txt",
+      "rel": "explosivearticle\\baijia.txt",
+      "bytes": 650,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivearticle/dongfang.txt",
+      "rel": "explosivearticle\\dongfang.txt",
+      "bytes": 812,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivearticle/fenghuang.txt",
+      "rel": "explosivearticle\\fenghuang.txt",
+      "bytes": 610,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivearticle/iqiyia.txt",
+      "rel": "explosivearticle\\iqiyia.txt",
+      "bytes": 4380,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivearticle/jianshu.txt",
+      "rel": "explosivearticle\\jianshu.txt",
+      "bytes": 1675,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivearticle/kelai.txt",
+      "rel": "explosivearticle\\kelai.txt",
+      "bytes": 119,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivearticle/kuaizixun.txt",
+      "rel": "explosivearticle\\kuaizixun.txt",
+      "bytes": 285,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivearticle/qqkandian.txt",
+      "rel": "explosivearticle\\qqkandian.txt",
+      "bytes": 640,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivearticle/qutoutiao.txt",
+      "rel": "explosivearticle\\qutoutiao.txt",
+      "bytes": 453,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivearticle/sina.txt",
+      "rel": "explosivearticle\\sina.txt",
+      "bytes": 117,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivearticle/sohu.txt",
+      "rel": "explosivearticle\\sohu.txt",
+      "bytes": 397,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivearticle/tiantian.txt",
+      "rel": "explosivearticle\\tiantian.txt",
+      "bytes": 843,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivearticle/toutiao.txt",
+      "rel": "explosivearticle\\toutiao.txt",
+      "bytes": 747,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivearticle/uctoutiao.txt",
+      "rel": "explosivearticle\\uctoutiao.txt",
+      "bytes": 583,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivearticle/wangyi.txt",
+      "rel": "explosivearticle\\wangyi.txt",
+      "bytes": 848,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivearticle/wifimasterkey.txt",
+      "rel": "explosivearticle\\wifimasterkey.txt",
+      "bytes": 119,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivearticle/yidian.txt",
+      "rel": "explosivearticle\\yidian.txt",
+      "bytes": 1542,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivevideo/baijia.txt",
+      "rel": "explosivevideo\\baijia.txt",
+      "bytes": 567,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivevideo/bilibili.txt",
+      "rel": "explosivevideo\\bilibili.txt",
+      "bytes": 235,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivevideo/douyin.txt",
+      "rel": "explosivevideo\\douyin.txt",
+      "bytes": 62,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivevideo/fenghuang.txt",
+      "rel": "explosivevideo\\fenghuang.txt",
+      "bytes": 610,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivevideo/haokan.txt",
+      "rel": "explosivevideo\\haokan.txt",
+      "bytes": 243,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivevideo/huoshan.txt",
+      "rel": "explosivevideo\\huoshan.txt",
+      "bytes": 62,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivevideo/iqiyiv.txt",
+      "rel": "explosivevideo\\iqiyiv.txt",
+      "bytes": 285,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivevideo/kuaishou.txt",
+      "rel": "explosivevideo\\kuaishou.txt",
+      "bytes": 62,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivevideo/meipai.txt",
+      "rel": "explosivevideo\\meipai.txt",
+      "bytes": 384,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivevideo/qqkandian.txt",
+      "rel": "explosivevideo\\qqkandian.txt",
+      "bytes": 383,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivevideo/qutoutiao.txt",
+      "rel": "explosivevideo\\qutoutiao.txt",
+      "bytes": 439,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivevideo/tiantian.txt",
+      "rel": "explosivevideo\\tiantian.txt",
+      "bytes": 719,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivevideo/toutiao.txt",
+      "rel": "explosivevideo\\toutiao.txt",
+      "bytes": 701,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivevideo/uctoutiao.txt",
+      "rel": "explosivevideo\\uctoutiao.txt",
+      "bytes": 474,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivevideo/wangyi.txt",
+      "rel": "explosivevideo\\wangyi.txt",
+      "bytes": 698,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivevideo/xigua.txt",
+      "rel": "explosivevideo\\xigua.txt",
+      "bytes": 316,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/explosivevideo/yidian.txt",
+      "rel": "explosivevideo\\yidian.txt",
+      "bytes": 566,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/hand.gif",
+      "rel": "hand.gif",
+      "bytes": 32988,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/huitoutiaocategortmap.txt",
+      "rel": "huitoutiaocategortmap.txt",
+      "bytes": 2479,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/huitoutiaosubcategort.txt",
+      "rel": "huitoutiaosubcategort.txt",
+      "bytes": 798,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/huitoutiaovideocategortmap.txt",
+      "rel": "huitoutiaovideocategortmap.txt",
+      "bytes": 2291,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/huitoutiaovideosubcategort.txt",
+      "rel": "huitoutiaovideosubcategort.txt",
+      "bytes": 692,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/kaidicategortmap.txt",
+      "rel": "kaidicategortmap.txt",
+      "bytes": 5760,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/kaidisubcategort.txt",
+      "rel": "kaidisubcategort.txt",
+      "bytes": 993,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/kuaichuancategortmap.txt",
+      "rel": "kuaichuancategortmap.txt",
+      "bytes": 1401,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/kuaishouvideosubcategort.txt",
+      "rel": "kuaishouvideosubcategort.txt",
+      "bytes": 5074,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/media_class_set.txt",
+      "rel": "media_class_set.txt",
+      "bytes": 281,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/media_class_set_new.txt",
+      "rel": "media_class_set_new.txt",
+      "bytes": 296,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/media_url_list.txt",
+      "rel": "media_url_list.txt",
+      "bytes": 7186,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/mediaactivity/qiecat.txt",
+      "rel": "mediaactivity\\qiecat.txt",
+      "bytes": 588,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/mediaactivity/qievideocat.txt",
+      "rel": "mediaactivity\\qievideocat.txt",
+      "bytes": 588,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/mediaactivity/toutiaocat.txt",
+      "rel": "mediaactivity\\toutiaocat.txt",
+      "bytes": 1115,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/mediaactivity/toutiaovideocat.txt",
+      "rel": "mediaactivity\\toutiaovideocat.txt",
+      "bytes": 412,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/mediadatamgr.ini",
+      "rel": "mediadatamgr.ini",
+      "bytes": 1857,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/mediahot/qiecat.txt",
+      "rel": "mediahot\\qiecat.txt",
+      "bytes": 727,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/mediahot/qievideocat.txt",
+      "rel": "mediahot\\qievideocat.txt",
+      "bytes": 727,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/mediahot/toutiaocat.txt",
+      "rel": "mediahot\\toutiaocat.txt",
+      "bytes": 632,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/mediahot/toutiaovideocat.txt",
+      "rel": "mediahot\\toutiaovideocat.txt",
+      "bytes": 632,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/meipaisubcategort.txt",
+      "rel": "meipaisubcategort.txt",
+      "bytes": 583,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/meipaisubcategortmap.txt",
+      "rel": "meipaisubcategortmap.txt",
+      "bytes": 2086,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/miaopaimediavideocategortmap.txt",
+      "rel": "miaopaimediavideocategortmap.txt",
+      "bytes": 1386,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/miaopaimediavideosubcategort.txt",
+      "rel": "miaopaimediavideosubcategort.txt",
+      "bytes": 623,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/new_user_guide.txt",
+      "rel": "new_user_guide.txt",
+      "bytes": 1030,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/new_user_guide_oem.txt",
+      "rel": "new_user_guide_oem.txt",
+      "bytes": 513,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/new_user_guide_tjj888.txt",
+      "rel": "new_user_guide_tjj888.txt",
+      "bytes": 970,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/new_user_guide_ym.txt",
+      "rel": "new_user_guide_ym.txt",
+      "bytes": 436,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/qievideosubcategort.txt",
+      "rel": "qievideosubcategort.txt",
+      "bytes": 2019,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/qqkandiansubcategortmap.txt",
+      "rel": "qqkandiansubcategortmap.txt",
+      "bytes": 52824,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/qqkandianvideocategortmap.txt",
+      "rel": "qqkandianvideocategortmap.txt",
+      "bytes": 17177,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/qqkandianvideosubcategort.txt",
+      "rel": "qqkandianvideosubcategort.txt",
+      "bytes": 8925,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/qqkantiaosubcategort.txt",
+      "rel": "qqkantiaosubcategort.txt",
+      "bytes": 5304,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/qutoutiaocategortmap.txt",
+      "rel": "qutoutiaocategortmap.txt",
+      "bytes": 12210,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/qutoutiaosubcategort.txt",
+      "rel": "qutoutiaosubcategort.txt",
+      "bytes": 3357,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/sensitivelibrary.txt",
+      "rel": "sensitivelibrary.txt",
+      "bytes": 812056,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/sinakandiancategortmap.txt",
+      "rel": "sinakandiancategortmap.txt",
+      "bytes": 2727,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/sinakandiansubcategort.txt",
+      "rel": "sinakandiansubcategort.txt",
+      "bytes": 1331,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/software_notify.txt",
+      "rel": "software_notify.txt",
+      "bytes": 125,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/software_notify_oem.txt",
+      "rel": "software_notify_oem.txt",
+      "bytes": 125,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/software_notify_ym.txt",
+      "rel": "software_notify_ym.txt",
+      "bytes": 125,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/sogouvideosubcategort.txt",
+      "rel": "sogouvideosubcategort.txt",
+      "bytes": 2154,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/sohumediacategortmap.txt",
+      "rel": "sohumediacategortmap.txt",
+      "bytes": 7927,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/sohumediasubcategort.txt",
+      "rel": "sohumediasubcategort.txt",
+      "bytes": 1400,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/sohusubcategort.txt",
+      "rel": "sohusubcategort.txt",
+      "bytes": 93,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/sohusubcategortmap.txt",
+      "rel": "sohusubcategortmap.txt",
+      "bytes": 8644,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/sohuvideocategortmap.txt",
+      "rel": "sohuvideocategortmap.txt",
+      "bytes": 355739,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/sohuvideosubcategort.txt",
+      "rel": "sohuvideosubcategort.txt",
+      "bytes": 16093,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/tencentvideocategortmap.txt",
+      "rel": "tencentvideocategortmap.txt",
+      "bytes": 14331,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/tencentvideosubcategort.txt",
+      "rel": "tencentvideosubcategort.txt",
+      "bytes": 2902,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/toutiaovideosubcategort.txt",
+      "rel": "toutiaovideosubcategort.txt",
+      "bytes": 382,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/wangyisubcategort.txt",
+      "rel": "wangyisubcategort.txt",
+      "bytes": 2069,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/wangyisubcategortmap.txt",
+      "rel": "wangyisubcategortmap.txt",
+      "bytes": 10082,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/wangyivideosubcategort.txt",
+      "rel": "wangyivideosubcategort.txt",
+      "bytes": 1757,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/weibovideocategortmap.txt",
+      "rel": "weibovideocategortmap.txt",
+      "bytes": 26145,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/weibovideosubcategort.txt",
+      "rel": "weibovideosubcategort.txt",
+      "bytes": 3110,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/weixinvideosubcategort.txt",
+      "rel": "weixinvideosubcategort.txt",
+      "bytes": 3991,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/wutiaosubcategort.txt",
+      "rel": "wutiaosubcategort.txt",
+      "bytes": 549,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/yidiansubcategort.txt",
+      "rel": "yidiansubcategort.txt",
+      "bytes": 2730,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/yidianvideosubcategort.txt",
+      "rel": "yidianvideosubcategort.txt",
+      "bytes": 3271,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/zhihuvideocategortmap.txt",
+      "rel": "zhihuvideocategortmap.txt",
+      "bytes": 1647,
+      "rule": "ascii"
+    },
+    {
+      "name": "data/zhihuvideosubcategort.txt",
+      "rel": "zhihuvideosubcategort.txt",
+      "bytes": 1541,
+      "rule": "ascii"
+    }
+  ]
+}
