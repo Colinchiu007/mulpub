@@ -57,10 +57,14 @@ const RISK_STRONG_RE = new RegExp([
   '安全验证',
   '验证弹层',
   '操作频繁',
-  'captcha',
-  'canvas illegal',
+  // 英文强档词一律加标识符边界（CCG 深度审查 i1）：无边界时 `captcha` 会被
+  // `recaptcha`/`hcaptcha` 命中 —— 而 reCAPTCHA/hCaptcha 是**浏览器自动化常见报错**
+  // （「recaptcha failed to load」），判 strong 就会挂起冻结账号，正是本次要消灭的
+  // 裸子串误判同类。`canvas illegal` / `risk control` 同理（防 `mycanvas illegal`）。
+  '(?<![A-Za-z0-9])captcha(?![A-Za-z0-9])',
+  '(?<![A-Za-z0-9])canvas illegal(?![A-Za-z0-9])',
   '账号存在风险',
-  'risk control',
+  '(?<![A-Za-z0-9])risk control(?![A-Za-z0-9])',
   'risk_blocked',
   'riskBlocked',
   'RISK_BLOCKED',
@@ -101,6 +105,27 @@ const RISK_ANY_RE = new RegExp(RISK_STRONG_RE.source + '|' + RISK_WEAK_RE.source
 
 const NOT_HIT = Object.freeze({ hit: false, strength: null, signal: '', suspends: false })
 
+/**
+ * 码族判定（CCG 深度审查 i2）。
+ * 必须同时接受 number 与**数字字符串**两形态：平台回传的码在不同链路上会以
+ * `601`（number）或 `'601'`（string）出现，而 `RISK_CODES` 里 601 是 number 形态 ——
+ * 旧实现 `RISK_CODES.has('601')` 直接判不中，等于「真风控漏判」，且与本文档
+ * 「两形态都收」的注释自相矛盾。非数字字符串（如 `'BILI_RISK_601'`）走字面量查表。
+ * @param {unknown} code
+ * @returns {boolean}
+ */
+function isRiskCode (code) {
+  if (code == null) return false
+  if (RISK_CODES.has(code)) return true
+  if (typeof code === 'string') {
+    const trimmed = code.trim()
+    if (trimmed === '') return false
+    const n = Number(trimmed)
+    if (Number.isFinite(n) && RISK_CODES.has(n)) return true
+  }
+  return false
+}
+
 /** 取正则第一条命中的原始子串（词表是封闭的，故该子串可安全外传）。 */
 function firstMatch (re, text) {
   const m = re.exec(text)
@@ -119,9 +144,9 @@ function classifyRisk (input) {
   if (src.riskBlocked === true || src.risk_blocked === true) {
     return { hit: true, strength: 'strong', signal: 'flag', suspends: true }
   }
-  // ② 平台风控码族（数字码与字符串枚举两形态都收）
+  // ② 平台风控码族（数字码与字符串枚举两形态都收，见 isRiskCode）
   const code = src.code
-  if (code != null && RISK_CODES.has(typeof code === 'string' ? code : Number(code))) {
+  if (isRiskCode(code)) {
     return { hit: true, strength: 'strong', signal: 'code:' + String(code), suspends: true }
   }
 
@@ -150,6 +175,27 @@ function isRiskText (text) {
   return RISK_ANY_RE.test(text)
 }
 
+/**
+ * 把发布结果里的**结构化信号**搬到抛出的 Error 上（fix-risk-hold-false-positive P0-1）。
+ *
+ * 为什么放在这里而不是各调用点：CCG 深度审查 i4 指出引擎 `publishViaApi` 与桌面
+ * `attachRiskSignals` 曾是两份**内容不同**的实现（引擎那份只认 `loginExpired`、
+ * 不认下划线的 `login_expired`）—— 这正是「同一语义两处各自解释」的漂移形态，
+ * 与本次修掉的 RISK_RE 双份是同一类缺陷。现在只有这一份。
+ *
+ * 不改变 message、不吞错误：调用方随后照常 throw 同一个对象。
+ * @param {Error} err
+ * @param {object} [result] 发布结果对象
+ * @returns {Error} 同一个 err（便于链式书写）
+ */
+function attachRiskSignals (err, result) {
+  if (!err || !result) return err
+  if (result.code !== undefined && result.code !== null) err.code = result.code
+  if (result.riskBlocked === true || result.risk_blocked === true) err.riskBlocked = true
+  if (result.loginExpired === true || result.login_expired === true) err.loginExpired = true
+  return err
+}
+
 module.exports = {
   RISK_CODES,
   RISK_STRONG_RE,
@@ -157,4 +203,6 @@ module.exports = {
   RISK_ANY_RE,
   classifyRisk,
   isRiskText,
+  isRiskCode,
+  attachRiskSignals,
 }

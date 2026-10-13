@@ -23,6 +23,8 @@
 const {
   classifyRisk,
   isRiskText,
+  isRiskCode,
+  attachRiskSignals,
   RISK_ANY_RE,
   RISK_STRONG_RE,
   RISK_WEAK_RE,
@@ -38,32 +40,16 @@ function isRiskBlocked (errorMessage) {
   return isRiskText(errorMessage)
 }
 
-/**
- * 把发布结果里的**结构化风控信号**搬到抛出的 Error 上（fix-risk-hold-false-positive P0-1）。
- *
- * 为什么必须搬运：适配器/引擎链已经算出了 `risk_blocked` 标志与风控码族（BILI_RISK_601、
- * 10000015、-1e7），但历史实现一律 `throw new Error(result.error)` —— 结构化信息丢在半路，
- * 上层的风控判定只剩「拿错误文本做关键词匹配」这一条路，而关键词匹配正是误判的来源
- * （`status code 601`、`id 6019`、`infrequent`、`身份验证失败` 都会被裸词表命中）。
- * 搬运后判定可以用「结构化优先、文本兜底」，误判面大幅收窄。
- *
- * 不改变 message、不吞错误：调用方随后照常 throw 同一个对象。
- * @param {Error} err
- * @param {object} [result] 发布结果对象
- * @returns {Error} 同一个 err（便于链式书写）
- */
-function attachRiskSignals (err, result) {
-  if (!err || !result) return err
-  if (result.code !== undefined && result.code !== null) err.code = result.code
-  if (result.riskBlocked === true || result.risk_blocked === true) err.riskBlocked = true
-  if (result.loginExpired === true || result.login_expired === true) err.loginExpired = true
-  return err
-}
+// attachRiskSignals 不在本文件实现：它已收敛到引擎单一真源 risk-signals.js。
+// 为什么必须收敛（CCG 深度审查 i4）：此前引擎 publishViaApi 内联一份、本文件另有一份，
+// 且**内容不同**（引擎那份只认 `loginExpired`、不认下划线的 `login_expired`）——
+// 这正是本次修掉的 RISK_RE 双份同类的漂移形态。本文件只做**转发**，不做第二实现。
 
 module.exports = {
   isRiskBlocked,
   classifyRisk,
   isRiskText,
+  isRiskCode,
   attachRiskSignals,
   RISK_ANY_RE,
   RISK_STRONG_RE,

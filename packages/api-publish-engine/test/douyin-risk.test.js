@@ -26,6 +26,26 @@ describe('§5.1 抖音风控信号 → outcomeOfResult 归一', () => {
   })
 })
 
+// CCG 深度审查 i3：outcomeOfResult 曾另持一张**私有码表**（只含 BILI_RISK_601 / 10000015 / -1e7，
+// 缺裸 601 与 RISK_BLOCKED），于是「code:601 + 普通文本」在引擎轨被判 transient_error →
+// 降级 DOM 且不挂起，而同一失败在桌面轨（经 task.errorCode）却判 strong 并挂起 —— 两侧分裂。
+// 本组锁钉住「路由判据也走单一真源」。
+describe('§5.1 路由判据与码族单一真源（CCG 深度审查 i3）', () => {
+  it('裸码 601 + 普通文本 → risk_blocked（旧私有码表漏判，会错误降级 DOM）', () => {
+    expect(outcomeOfResult({ success: false, platform: 'bilibili', code: 601, error: '平台拒绝了本次请求' })).toBe('risk_blocked')
+  })
+
+  it('字符串码 601 / RISK_BLOCKED → risk_blocked', () => {
+    expect(outcomeOfResult({ success: false, platform: 'bilibili', code: '601', error: '平台拒绝了本次请求' })).toBe('risk_blocked')
+    expect(outcomeOfResult({ success: false, platform: 'douyin', code: 'RISK_BLOCKED', error: '平台拒绝了本次请求' })).toBe('risk_blocked')
+  })
+
+  it('非风控码 + 普通文本 → 仍按 transient_error（不误升为风控）', () => {
+    expect(outcomeOfResult({ success: false, platform: 'douyin', code: 500, error: '服务异常请稍后重试' })).toBe('transient_error')
+    expect(outcomeOfResult({ success: false, platform: 'douyin', code: 6019, error: 'publish id 6019 not found' })).toBe('transient_error')
+  })
+})
+
 describe('§5.1 DouyinAdapter.execute 透传风控信号（链抛 → risk_blocked）', () => {
   it('链 run 抛带 risk_blocked 的异常 → 适配器结果 risk_blocked=true → outcome risk_blocked', async () => {
     const a = new DouyinAdapter()

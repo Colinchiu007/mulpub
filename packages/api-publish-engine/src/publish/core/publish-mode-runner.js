@@ -15,7 +15,7 @@ const { decideRoute, normalizeMode, ROUTES, REASON } = require('./publish-mode')
 // 2026-10-13 fix-risk-hold-false-positive：风控词表与判定收敛到单一真源 risk-signals.js。
 // 此前本文件与桌面 publish-risk.js 各持一份 RISK_RE（注释都写「保持同义」但内容已漂移），
 // 现在两处 require 同一模块，杜绝「同一文本两处结论不同」。
-const { classifyRisk, isRiskText } = require('./risk-signals')
+const { classifyRisk } = require('./risk-signals')
 
 const LOGIN_RE = /登录|未登录|登陆|cookie.*(expired|失效|过期)|login|session|auth.*(fail|expired)|未授权/i
 const UNSUPPORTED_RE = /unsupported|not.?supported|暂不支持|无.?api|no.?api/i
@@ -28,11 +28,14 @@ function outcomeOfResult (res) {
   if (res.loginExpired || res.login_expired) return 'login_expired'
   if (res.unsupported) return 'unsupported'
   const code = res.code != null ? res.code : (res.result && res.result.code)
-  if (code === 'BILI_RISK_601' || code === 10000015 || code === -1e7) return 'risk_blocked'
   const msg = String(res.error || res.errMsg || res.message || '')
-  // 路由判据用**并集**（强弱都算「像风控」）：命中即停报不降级，不换路。
-  // 注意这与「是否挂起」是两件事——挂起另由 classifyRisk(...).suspends 决定（仅强信号）。
-  if (isRiskText(msg)) return 'risk_blocked'
+  // 路由判据 = 结构化（标志/码族）+ 文本**并集**，统一走单一真源（CCG 深度审查 i3）。
+  // 此前这里另有一张私有码表（只含 BILI_RISK_601 / 10000015 / -1e7，缺裸 601 与 RISK_BLOCKED），
+  // 于是「code:601 + 普通文本」在引擎轨被判 transient_error → 降级 DOM 且不挂起，
+  // 而同一失败在桌面轨（经 task.errorCode）却判 strong 并挂起 —— 两侧分裂，
+  // 「单一真源」并没有真正落地。现在两张表合一。
+  // 注意：路由（是否停报）用 hit（强弱并集），挂起另由 suspends 决定（仅强信号），二者是两个问题。
+  if (classifyRisk({ error: msg, code }).hit) return 'risk_blocked'
   if (LOGIN_RE.test(msg)) return 'login_expired'
   if (UNSUPPORTED_RE.test(msg)) return 'unsupported'
   return 'transient_error'

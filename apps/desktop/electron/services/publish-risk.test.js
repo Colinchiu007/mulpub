@@ -36,6 +36,9 @@ describe('publish-risk — fix-risk-hold-false-positive 误判面回归', () => 
     ['英文子串', 'infrequent login detected'],
     ['英文普通词', 'low-risk content flagged'],
     ['普通验证', '身份验证失败'],
+    // CCG 深度审查 i1：`captcha` 曾无边界，`recaptcha`/`hcaptcha`（浏览器自动化常见报错）会判 strong
+    ['验证码组件名', 'recaptcha failed to load'],
+    ['验证码组件名', 'hcaptcha widget error'],
   ]
 
   for (const [label, msg] of MUST_NOT_SUSPEND) {

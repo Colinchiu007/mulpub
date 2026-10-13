@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "adjudicatedBy": "self-play",
+  "confidenceWeight": 0.6,
+  "reason": "stall/maxRounds 后自扮演裁决（引擎第三档出口）",
+  "highRiskNote": "高危域争议项不允许自扮演豁免，必须外部复核",
+  "requiresExternalReview": [
+    {
+      "id": "i4",
+      "severity": "Warning",
+      "domains": [
+        "auth"
+      ]
+    }
+  ],
+  "critiqueFingerprint": "c612aa01847f6edd",
+  "instructions": [
+    "对 items 里每一条争议，依次生成：",
+    "  1) 最强指控 —— 论证这条确实是真问题（含具体失败场景）",
+    "  2) 最强辩护 —— 论证这不是问题 / 已被别处覆盖",
+    "  3) 裁决 —— 哪一边论证更强，verdict 取 upheld（指控成立）/ dismissed（指控不成立）",
+    "裁决理由必须可验证，不得只写「看起来没问题」。"
+  ],
+  "items": [
+    {
+      "id": "i1",
+      "severity": "Warning",
+      "finding": "强档英文词 captcha/canvas illegal/risk control 未加标识符边界：recaptcha、HTML5 canvas illegal state 等自动化/浏览器常见报错会判 strong 并挂起冻结账号，复发本次要消灭的裸子串误判类（误判比漏判更有害）。",
+      "highRiskDomains": [],
+      "prosecution": null,
+      "defense": null,
+      "verdict": null,
+      "rationale": null
+    },
+    {
+      "id": "i2",
+      "severity": "Warning",
+      "finding": "classifyRisk 对字符串 code 直查 Set：RISK_CODES 数字码只有 number 形态，code:'601'/'10000015'（平台字符串回传）判不中，与 PRD§4.1『string|number 均合法』及注释『两形态都收』矛盾，真风控漏判。",
+      "highRiskDomains": [],
+      "prosecution": null,
+      "defense": null,
+      "verdict": null,
+      "rationale": null
+    },
+    {
+      "id": "i3",
+      "severity": "Warning",
+      "finding": "publish-mode-runner 的 outcomeOfResult 仍持私有码表（无 601/RISK_BLOCKED），stop 分支双重闸门（outcome==='risk_blocked' 且 suspends）。引擎轨 code:601+普通文本→transient→降级 DOM 不挂起，桌面轨却挂起，两侧分裂，G6 单一真源未真正落地。",
+      "highRiskDomains": [],
+      "prosecution": null,
+      "defense": null,
+      "verdict": null,
+      "rationale": null
+    },
+    {
+      "id": "i4",
+      "severity": "Warning",
+      "finding": "attachRiskSignals 双实现：引擎 publishViaApi 内联仅认 loginExpired（无 login_expired），桌面独立函数认双形态；且 loginExpired 到 task-queue 即丢（只搬 errorCode/riskBlocked），新字段半程管线假完备。",
+      "highRiskDomains": [
+        "auth"
+      ],
+      "prosecution": null,
+      "defense": null,
+      "verdict": null,
+      "rationale": null
+    }
+  ]
+}

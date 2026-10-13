@@ -661,5 +661,34 @@ describe('TaskQueue — 结构化风控信号落到 task（fix-risk-hold-false-p
     expect(task.errorCode).toBe(10000015)
     expect(task.riskBlocked).toBe(true)
   })
+
+  // CCG 深度审查 i4：attachRiskSignals 把 loginExpired 挂到了 Error 上，若 task-queue 不搬，
+  // 「结构化信号已贯通」就是半程假完备（字段在 Error 上、到 task 就断）。
+  it('loginExpired 也必须落到 task（双形态）', async () => {
+    for (const key of ['loginExpired', 'login_expired']) {
+      const queue = new TaskQueue({ defaultRetry: 0 })
+      const failed = new Promise(resolve => queue.once('task:failed', resolve))
+      queue.setExecutor(async () => {
+        const err = new Error('登录态已失效')
+        err[key] = true
+        throw err
+      })
+      queue.add({ platform: 'weixin', article: { title: 'T', accountId: 'acc-1' }, accountId: 'acc-1' })
+
+      const task = await failed
+      expect(task.loginExpired, key).toBe(true)
+      expect(task.riskBlocked, key).toBe(false)
+    }
+  })
+
+  it('普通失败的 loginExpired 归一为 false（不留 undefined）', async () => {
+    const queue = new TaskQueue({ defaultRetry: 0 })
+    const failed = new Promise(resolve => queue.once('task:failed', resolve))
+    queue.setExecutor(async () => { throw new Error('网络超时') })
+    queue.add({ platform: 'weixin', article: { title: 'T', accountId: 'acc-1' }, accountId: 'acc-1' })
+
+    const task = await failed
+    expect(task.loginExpired).toBe(false)
+  })
 })
 

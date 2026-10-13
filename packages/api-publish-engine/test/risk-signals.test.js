@@ -7,6 +7,8 @@
 const {
   classifyRisk,
   isRiskText,
+  isRiskCode,
+  attachRiskSignals,
   RISK_STRONG_RE,
   RISK_WEAK_RE,
   RISK_ANY_RE,
@@ -246,5 +248,91 @@ describe('risk-signals — 边界与并集判据', () => {
   it('并集正则 = 强 ∪ 弱（两者命中集合被覆盖）', () => {
     expect(RISK_ANY_RE.source).toContain(RISK_STRONG_RE.source)
     expect(RISK_ANY_RE.source).toContain(RISK_WEAK_RE.source)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CCG 深度审查（ccg-deep-4d8cc19b）四条争议的修复锁。
+// 四条**全部成立**，此处逐条钉住，避免同类缺陷复发：
+//   i1 强档英文词缺标识符边界（`captcha` ⊂ `recaptcha`）
+//   i2 数字字符串码判不中（`'601'` 漏判 = 真风控漏判）
+//   i3 引擎 outcomeOfResult 另持私有码表（两侧判定分裂）
+//   i4 attachRiskSignals 双实现 + loginExpired 半程管线
+// ─────────────────────────────────────────────────────────────────────────────
+describe('risk-signals — 深度审查 i1：强档英文词必须有标识符边界', () => {
+  it('recaptcha / hcaptcha 不是风控信号（浏览器自动化常见报错，误判会冻结账号）', () => {
+    for (const m of ['recaptcha failed to load', 'hcaptcha verification widget error', 'Error: reCAPTCHA timeout']) {
+      const v = classifyRisk({ error: m })
+      expect(v.suspends, m).toBe(false)
+      expect(v.strength, m).not.toBe('strong')
+    }
+  })
+
+  it('裸 captcha 仍是强信号（带边界的独立词）', () => {
+    for (const m of ['captcha required', 'please solve the captcha', 'CAPTCHA']) {
+      const v = classifyRisk({ error: m })
+      expect(v.strength, m).toBe('strong')
+      expect(v.suspends, m).toBe(true)
+    }
+  })
+
+  it('canvas illegal / risk control 仍为强信号，且不吃前缀粘连', () => {
+    expect(classifyRisk({ error: 'Canvas Illegal: 请先到创作者中心发布一篇内容' }).strength).toBe('strong')
+    expect(classifyRisk({ error: 'risk control detected' }).strength).toBe('strong')
+    expect(RISK_STRONG_RE.test('mycanvas illegal')).toBe(false)
+  })
+})
+
+describe('risk-signals — 深度审查 i2：码族必须同时认 number 与数字字符串', () => {
+  it('字符串形态的数字码同样命中 strong（旧实现直接漏判）', () => {
+    for (const code of ['601', '10000015', '-10000000', ' 601 ']) {
+      const v = classifyRisk({ code, error: '平台拒绝了本次请求' })
+      expect(v.hit, String(code)).toBe(true)
+      expect(v.strength, String(code)).toBe('strong')
+      expect(v.suspends, String(code)).toBe(true)
+      expect(v.signal).toBe('code:' + String(code))
+    }
+  })
+
+  it('非数字字符串走字面量查表（BILI_RISK_601 命中，普通串不命中）', () => {
+    expect(isRiskCode('BILI_RISK_601')).toBe(true)
+    expect(isRiskCode('601abc')).toBe(false)
+    expect(isRiskCode('')).toBe(false)
+    expect(isRiskCode('   ')).toBe(false)
+    expect(isRiskCode(null)).toBe(false)
+    expect(isRiskCode(undefined)).toBe(false)
+    expect(isRiskCode({})).toBe(false)
+  })
+
+  it('非码族数字不命中（500 / 110 不在表内，110 由适配器置标志覆盖）', () => {
+    for (const code of [500, '500', 110, '110']) {
+      expect(classifyRisk({ code, error: '服务异常请稍后重试' }).hit, String(code)).toBe(false)
+    }
+  })
+})
+
+describe('risk-signals — 深度审查 i4：attachRiskSignals 单一真源', () => {
+  it('同时认双形态（loginExpired / login_expired），不再有两份不同实现', () => {
+    const a = attachRiskSignals(new Error('x'), { loginExpired: true })
+    expect(a.loginExpired).toBe(true)
+    const b = attachRiskSignals(new Error('x'), { login_expired: true })
+    expect(b.loginExpired).toBe(true)
+  })
+
+  it('搬运 code / riskBlocked 双形态，且不改 message、返回同一对象', () => {
+    const err = new Error('原始消息')
+    const out = attachRiskSignals(err, { code: 601, risk_blocked: true, login_expired: true })
+    expect(out).toBe(err)
+    expect(out.message).toBe('原始消息')
+    expect(out.code).toBe(601)
+    expect(out.riskBlocked).toBe(true)
+    expect(out.loginExpired).toBe(true)
+  })
+
+  it('无结果对象 / 空值安全返回，不抛错', () => {
+    const err = new Error('x')
+    expect(attachRiskSignals(err, null)).toBe(err)
+    expect(attachRiskSignals(null, { code: 601 })).toBe(null)
+    expect(attachRiskSignals(new Error('x'), {}).code).toBeUndefined()
   })
 })

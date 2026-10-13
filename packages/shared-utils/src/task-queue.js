@@ -644,6 +644,9 @@ class TaskQueue extends EventEmitter {
       // 传输层（publisher-router / 引擎 publishViaApi）已在 Error 上挂好 code 与 riskBlocked。
       task.errorCode = e && e.code !== undefined ? e.code : null
       task.riskBlocked = !!(e && (e.riskBlocked === true || e.risk_blocked === true))
+      // loginExpired 也必须落盘（CCG 深度审查 i4）：传输层（attachRiskSignals）已把它挂在 Error 上，
+      // 若此处不搬，「结构化信号已贯通」就是半程假完备——字段在 Error 上、到 task 就断。
+      task.loginExpired = !!(e && (e.loginExpired === true || e.login_expired === true))
 
       // ── P0-1：未提交失败回滚窗口 ──
       // 判据是**提交阶段**而非错误类型：从未发起平台写尝试（submitAttempted=false），
