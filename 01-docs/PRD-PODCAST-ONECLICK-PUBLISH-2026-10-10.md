@@ -635,8 +635,12 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 - 音色残缺：`音色三段（providerId/model/voiceId）必须同存或同缺，实到 <K> 段`
 - 整期退化：`存在退化为静音的合成块，本期不发布（块号见明细）`
 
-> 以上文案当前是**主进程日志与错误 message 的字面量**，locale 键须随渲染端入口同 PR 落地，
-> 现在写会造出 AGENTS 禁止的死键（同 §3.10 的先例）。
+> **口径更正（2026-10-13，实测后改写）**：`PODCAST_TTS_BILLING_UNCONFIRMED` 的 zh/en 文案
+> **随 4.3① 一起落地**，不能等渲染端入口。原因是 `apps/desktop/src/locales/podcast-error-codes.test.js`
+> 是**按生产者文件收割领域码**的清点式守卫（扫描域含 `electron/services/podcast-episode-host.js`）：
+> 码一出现在生产者里，就该文件所要求的 zh/en 成对文案立刻生效，缺一条即 CI 红。
+> 原先写的「入口没做、现在写是死键」不成立——那条豁免只适用于**没有任何收割判据的**展示文案。
+> 4.3② 只补 `episode.*` 那批浮层显示项键。落点：`src/locales/podcast/zh.js` / `en.js` 的 `podcast.errors.*`。
 
 ### 7.10.6 本节故意不做的
 

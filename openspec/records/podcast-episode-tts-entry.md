@@ -40,4 +40,10 @@ sync_pr: pending
 
 - 双模型外部评审本会话共派 4 次，**均未拿到 findings**，两种失效形态各记现场：① 后端 claude 跑到结束报 `claude completed without agent_message output`（wrapper 日志随完成被删，stdout 只剩启动横幅）；② 前端 opencode 三次——其中一次是我自己的prompt 里带了管道符 `Critical|Warning|Info`，被 cmd 当成「管道给名为 Warning 的命令」，`opencode exited with status 255`（教训：**送给 wrapper 的提示词不得含 shell 元字符**，一律落文件再 `tr` 去引号读入）；另两次 opencode 读完文件后输出的是 `Work State / Next Move / Continue if you have next steps` 交接文本而非 findings JSON，属第 3 种形态。opencode 唯一实质量的一条：`TTS_COMPOSE_ERRORS.RUN_ID_INVALID` 的值就是 `PODCAST_EPISODE_INVALID`，所以 runId 这一码同样不能只凭码区分层。
 - **不自扮演豁免**：以上如实记为「未拿到外部评审」。本片已获使用者逐片裁决（被告知「CI 全绿只差 QM-6 ack」后回复「给你授权 推进」，2026-10-13），据此免外部评审并挂 GitHub 原生 auto-merge（SQUASH）；裁决物证在 `D:/Temp/qm6-3480-acked.txt`，其中**明写范围只给 #3480**，#3382 / #3387 / #3376 未点名、不得复用本标记。
-- CI 侧：本片 10 条 `publishFromScript` 用例在 CI 上逐条 ✓；`QG Desktop Shards (1/2)` 的红**不属本片**，失败的是 `全部初始可编辑表单字段完成输入扫描` / `Flow3.3 重读列表仅有目标唯一默认服务商` / `Flow3.5 AI 服务商配置 IPC 已调用 {count:0}` 三条与模型预设相关的用例，和 #3434（只改 `scripts/check-pr-exec-record.js`）当时红的是**同三条** ⇒ 主干既有缺陷，两个互不相关的 PR 各自复现，判据取失败用例名而非「谁最后改的」。
+- **CI 归属更正（我先判错了，这里写下改判依据）**：`QG Desktop Shards (1/2)` 的红**属本片**。前两次我从日志里看到 `✗ 全部初始可编辑表单字段完成输入扫描` 等三条就断言「与 #3434 同三条、主干既有」——那三行其实出自 **stdout 段里其他用例的 ✓ 输出**，不是 FAIL 行。剥掉 ANSI 后按 `FAIL ` 前缀取行才看到真红因：`src/locales/podcast-error-codes.test.js > 每个会走到渲染层的码，zh 与 en 都有文案` ⇒ `缺文案的码：PODCAST_TTS_BILLING_UNCONFIRMED ← electron/services/podcast-episode-host.js`。这正是 AGENTS「清点式守卫跟踪你的落地面」那条的现场：新增一个领域码，收割门禁当场要 zh/en 成对文案，**不能以「入口还没做、先写是死键」为由推迟**（我先前在 PRD §7.10.5 按 tasks 3.10 的先例留了账，判据不认这个理由）。修法见下节。方法论同「截断的输出不构成证据」：判红因一律先剥 ANSI、按 `FAIL ` 前缀取行，不拿 ✗ 片段或尾部输出当结论。
+
+## 红因修复（locale 成对文案）
+
+- `apps/desktop/src/locales/podcast/zh.js` 与 `en.js` 各补一条 `podcast.errors.PODCAST_TTS_BILLING_UNCONFIRMED`（zh：`文本出期会逐块调用语音合成服务并产生费用，请先确认用量与费用`；en 同义），与相邻的 `PODCAST_CHANNEL_BUSY` 同层同格式。
+- 本机实跑：`vitest run src/locales/podcast-error-codes.test.js src/i18n/glossary.test.js` ⇒ **2 files / 6 tests passed**（含「扫描域非空」两条反失明断言）。zh/en 成对由 Gate 7 `check-locale-sync.js --pair-base origin/main` 在 commit 之后复核。
+- PRD §7.10.5 相应改写：计费闸门的码**随 4.3① 一起进 locale**，4.3② 只补 `episode.*` 那批浮层显示项键。
