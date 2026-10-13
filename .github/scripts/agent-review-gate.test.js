@@ -243,3 +243,89 @@ test("自主审计：只有空白输出也算空结论，缺字段的旧报告�
       "报告里没有 _verdict 字段时不得凭空判成空结论（历史形状保持原行为）");
   });
 });
+
+
+// ── #46：verdict 令牌的单一实现 ────────────────────────────────────────────
+// Gate 9 原先在 workflow 里内联一份 Get-ChildItem + ConvertFrom-Json 的 verdict 探针，
+// 与 agent-review-gate.js 的 judgeVerdictMissing 构成第二份同用途实现；而且它按
+// 「目录里最新的报告」取文件、不带 started-after ⇒ 重跑或残留时会读上一轮的旧报告。
+// workflow-contract 的 doesNotMatch(gate9, /Get-ChildItem|ConvertFrom-Json/) 因此长期红。
+// 正解：令牌由门禁自己算并落盘，workflow 只读那个令牌文件。
+test("自主审计为每种「审计没有真正发生」的状态产出对应 verdict 令牌", () => {
+  withReportDir(reportDir => {
+    const missing = evaluateAutonomousGate({ reportDir, auditExitCode: 1, hasOpenAiKey: false });
+    assert.equal(missing.status, "MISSING_REPORT");
+    assert.equal(missing.verdictNote, "NO_REPORT");
+
+    fs.writeFileSync(path.join(reportDir, "autonomous-e2e-report-broken.json"), "这不是 JSON");
+    const broken = evaluateAutonomousGate({ reportDir, auditExitCode: 1, hasOpenAiKey: false });
+    assert.equal(broken.status, "INVALID_REPORT");
+    assert.equal(broken.verdictNote, "INVALID_REPORT", "报告不可解析必须与「根本没报告」区分开");
+
+    fs.rmSync(path.join(reportDir, "autonomous-e2e-report-broken.json"));
+    writeJson(reportDir, "autonomous-e2e-report-empty.json", {
+      overall: "NEED_HUMAN",
+      coverage: { _verdict: { _rawOutput: "", items: [] } },
+    });
+    const noVerdict = evaluateAutonomousGate({ reportDir, auditExitCode: 1, hasOpenAiKey: false });
+    assert.equal(noVerdict.status, "AUDIT_NO_VERDICT");
+    assert.equal(noVerdict.exitCode, 0, "阻塞化前提是端点可用性被实测证明（issue #907），本次不改判据");
+    assert.equal(noVerdict.verdictNote, "NO_VERDICT");
+
+    fs.rmSync(path.join(reportDir, "autonomous-e2e-report-empty.json"));
+    writeJson(reportDir, "autonomous-e2e-report-review.json", { overall: "NEED_HUMAN" });
+    assert.equal(evaluateAutonomousGate({ reportDir, auditExitCode: 1, hasOpenAiKey: false }).verdictNote, "", "真出了结论就不该再打「未审计」令牌");
+
+    fs.rmSync(path.join(reportDir, "autonomous-e2e-report-review.json"));
+    writeJson(reportDir, "autonomous-e2e-report-pass.json", { overall: "PASS" });
+    assert.equal(evaluateAutonomousGate({ reportDir, auditExitCode: 0, hasOpenAiKey: false }).verdictNote, "");
+  });
+});
+
+test("自主审计 CLI 的 --note-file 把令牌落盘，供 workflow 直接读（含阻塞路径也要写）", () => {
+  const scriptPath = path.join(__dirname, "agent-review-gate.js");
+  withReportDir(reportDir => {
+    const noteFile = path.join(reportDir, "..", "gate9-verdict-note.txt");
+    writeJson(reportDir, "autonomous-e2e-report-empty.json", {
+      overall: "NEED_HUMAN",
+      coverage: { _verdict: { _rawOutput: "", items: [] } },
+    });
+    const result = spawnSync(process.execPath, [
+      scriptPath,
+      "autonomous",
+      `--report-dir=${reportDir}`,
+      "--started-after=0",
+      "--audit-exit-code=1",
+      "--has-openai-key=false",
+      `--note-file=${noteFile}`,
+    ], { encoding: "utf8" });
+    try {
+      assert.equal(result.status, 0, result.stderr || result.stdout);
+      assert.equal(fs.readFileSync(noteFile, "utf8").trim(), "NO_VERDICT");
+    } finally {
+      fs.rmSync(noteFile, { force: true });
+    }
+  });
+
+  // 阻塞路径同样要写：workflow 在读令牌文件时无法区分「门禁判红」与「门禁崩了」，
+  // 只有文件总在，注解才不会在最需要它的时候缺席。
+  withReportDir(reportDir => {
+    const noteFile = path.join(reportDir, "..", "gate9-verdict-note.txt");
+    const result = spawnSync(process.execPath, [
+      scriptPath,
+      "autonomous",
+      `--report-dir=${reportDir}`,
+      "--started-after=0",
+      "--audit-exit-code=1",
+      "--has-openai-key=false",
+      `--note-file=${noteFile}`,
+    ], { encoding: "utf8" });
+    try {
+      assert.equal(result.status, 1, "无报告仍须阻塞");
+      assert.match(result.stdout, /::error::MISSING_REPORT/);
+      assert.equal(fs.readFileSync(noteFile, "utf8").trim(), "NO_REPORT");
+    } finally {
+      fs.rmSync(noteFile, { force: true });
+    }
+  });
+});

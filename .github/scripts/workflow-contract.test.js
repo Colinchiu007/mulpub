@@ -341,6 +341,10 @@ test('自主覆盖审计仅在确认是无模型 NEED_HUMAN 报告时降级为�
   assert.match(gate9, /LLM_BASE_URL: \$\{\{ secrets\.LLM_BASE_URL \}\}/);
   assert.match(gate9, /LLM_MODEL: \$\{\{ secrets\.LLM_MODEL \}\}/);
   assert.match(gate9, /AUTONOMOUS_GATE=FAIL/);
+  // 禁令的反面必须有正向锁，否则「把内联探针整条删掉」也会满足 doesNotMatch ——
+  // 那等于把「未审计不再可见」当成合规。正向锁钉的是：令牌由门禁自己算并落盘，workflow 只读令牌文件。
+  assert.match(gate9, /--note-file=\S+/);
+  assert.match(gate9, /AUTONOMOUS_VERDICT_NOTE=\$verdictNote/);
   assert.doesNotMatch(gate9, /Get-ChildItem|ConvertFrom-Json/);
   assert.match(workflow, /agent-review-gate\.test\.js/);
 });

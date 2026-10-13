@@ -495,8 +495,14 @@ jobs:
       # --- Gate 3: 硬编码密钥扫描（同时执行 CI workflow 契约测试）---
       - name: "Gate 3 - Hardcoded secrets scan"
         run: |
+          # ⛔ 本步骤原先只在最后一条命令后面写一条守卫。默认 shell 是 pwsh，中间命令非零不会中止该步骤
+          # ——于是 2026-10-13 实测 run 38339739342 里本步骤日志的 `# tests 115 / # pass 114 / # fail 1`
+          # （not ok 62 = workflow-contract 的 Gate 9 断言）被读成 step conclusion=success。
+          # 正解见 scripts/check-step-failfast.js 的逐条配对口径：每条受管命令后面各跟一条自己的检查。
           node --test .github/scripts/check-hardcoded-secrets.test.js .github/scripts/workflow-contract.test.js .github/scripts/autonomous-loop-workflow.test.js .github/scripts/agent-review-gate.test.js .github/scripts/classify-ci-failure.test.js .github/scripts/ci-failure-handler-contract.test.js scripts/gate-budget.test.js scripts/check-desktop-shard-forwarding.test.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node .github/scripts/check-hardcoded-secrets.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # 判据本体也跑一次：它把"消费者实收 argv""续行扫描命中数""真 vitest 两腿枚举的文件名"
           # 打进 CI 日志（带内现场），而不只在测试名里露一下。显式转存退出码——本步骤默认 shell 是 pwsh，
           # 中间命令非零不会自动中止该步骤（AGENTS.md「一个 run 块里塞多条命令」那条）。
@@ -532,8 +538,11 @@ jobs:
       # --- Gate 10: 前端一致性卡点（desktop-ui-consistency：IPC 单轨 + 确认原语统一）---
       - name: "Gate 10 - Frontend consistency (renderer IPC single-track + confirm primitive)"
         run: |
+          # 逐条守卫：本步骤的形状是"一条测试 + 一条门禁脚本"，旧棘轮只数测试文件，连多命令都不识别。
           node --test .github/scripts/check-frontend-consistency.test.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node .github/scripts/check-frontend-consistency.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # --- Gate 11: ESLint（error 级门禁；warning 不阻断，走 pnpm run lint:warnings 观察）---
       # 2026-09-14 接入：接入前 main 存活 17 个 error 长期无人暴露（含 4 个 no-undef 真 bug）。
@@ -1664,39 +1673,34 @@ jobs:
           $output | ForEach-Object { Write-Host $_ }
           Write-Host "Autonomous audit exit code: $exitCode"
 
-          # 缺陷②（2026-10-12）：LLM 空输出原先走 agent-review-gate.js 的 AUDIT_NO_VERDICT
-          # 静默 exit 0 —— 「没审也算过」。这里做一次显式探针：报告文件存在但 verdict 无效
-          # （decision 缺失或 score=0 且 items 为空）时，往 PR 汇总里留痕，不再静默。
-          $verdictNote = ""
-          $reportFile = Get-ChildItem "apps/desktop/tests/visual-testing/reports/autonomous-e2e-report-*.json" -ErrorAction SilentlyContinue |
-            Sort-Object LastWriteTime -Descending | Select-Object -First 1
-          if ($reportFile) {
-            try {
-              $rep = Get-Content $reportFile.FullName -Raw | ConvertFrom-Json
-              $v = $rep.coverage._verdict
-              if (-not $v -or -not $v.decision -or ($v.score -eq 0 -and @($v.items).Count -eq 0)) {
-                $verdictNote = "NO_VERDICT"
-                Write-Host "##[warning]Gate 9: 审计报告未产出有效 verdict（LLM 空输出/解析失败）——本 PR 的覆盖审计未实际执行，green 不代表已审计"
-              }
-            } catch {
-              $verdictNote = "NO_VERDICT"
-              Write-Host "##[warning]Gate 9: 审计报告不可解析（$($_.Exception.Message)）——覆盖审计未实际执行"
-            }
-          } else {
-            $verdictNote = "NO_REPORT"
-          }
-          if ($verdictNote) { echo "AUTONOMOUS_VERDICT_NOTE=$verdictNote" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append }
-
+          # ⛔ 这里原先内联了一份 verdict 探针（枚举报告文件 + 就地解析 JSON），与
+          # .github/scripts/agent-review-gate.js 的 judgeVerdictMissing 构成第二份同用途实现，
+          # 而且它按「目录里最新 mtime 的报告」取文件、不带 started-after ⇒ 重跑/残留时读到上一轮旧报告。
+          # 正解：令牌由门禁自己算（带 started-after）并经 --note-file 落盘，本步只读那个文件。
+          # 缺 --note-file 参数时下面 Test-Path 会恒走 else ⇒ 覆盖审计永远显示「未审计」，
+          # 与删掉可见性同等错误，所以由 workflow-contract 的 --note-file= 正向锁钉住。
           $gateArgs = @(
             ".github/scripts/agent-review-gate.js",
             "autonomous",
             "--report-dir=apps/desktop/tests/visual-testing/reports",
             "--started-after=$reportStart",
             "--audit-exit-code=$exitCode",
-            "--has-openai-key=$([bool]$env:OPENAI_API_KEY)"
+            "--has-openai-key=$([bool]$env:OPENAI_API_KEY)",
+            "--note-file=gate9-verdict-note.txt"
           )
           & node @gateArgs
           $gateExit = $LASTEXITCODE
+          if (Test-Path gate9-verdict-note.txt) {
+            $verdictNote = (Get-Content gate9-verdict-note.txt -Raw).Trim()
+            if ($verdictNote) {
+              Write-Host "##[warning]Gate 9: 覆盖审计未实际产出有效 verdict（令牌 $verdictNote）——green 不代表已审计"
+              echo "AUTONOMOUS_VERDICT_NOTE=$verdictNote" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            }
+          } else {
+            # 令牌文件总在（写盘发生在退出之前），所以缺文件只有一种解释：门禁进程没跑到写盘。
+            Write-Host "##[warning]Gate 9: verdict 令牌文件缺失——覆盖审计可见性未知，不得当作已审计"
+            echo "AUTONOMOUS_VERDICT_NOTE=NOTE_FILE_MISSING" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          }
           if ($gateExit -eq 0) {
             $gateStatus = if ($exitCode -eq 0) { "PASS" } else { "PROMPT_REVIEW_REQUIRED" }
             echo "AUTONOMOUS_GATE=$gateStatus" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
@@ -1754,8 +1758,11 @@ jobs:
           BUSINESS_DATABASE_URL: postgresql://mulpub_test:mulpub_test_pw@127.0.0.1:5432/mulpub_business_test
         run: |
           cd packages/api-publish-engine
+          # 逐条守卫：dry-run 失败必须中止，否则"预检没通过却在真实库上执行了迁移"仍可能被末尾那条 node -e 判成通过。
           node scripts/migrate-postgres.js --dry-run
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/migrate-postgres.js | tee /tmp/migrate.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node -e "
             const r=JSON.parse(require('fs').readFileSync('/tmp/migrate.json','utf8'));
             const hit=r.applied.concat(r.skipped).includes('005_cloud_accounts.sql');

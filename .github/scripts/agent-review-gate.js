@@ -87,7 +87,20 @@ function evaluateAgentJudgeGate({ reportDir, llmProvider, startedAfterMs, requir
   return evaluation(1, "INVALID_VERDICT", "Agent Judge verdict has an unsupported decision.");
 }
 
-function evaluateAutonomousGate({ reportDir, auditExitCode, hasOpenAiKey, startedAfterMs, requireCurrentRun = false }) {
+// 「审计没有真正发生」的三种状态 → Gate Result 用的可见性令牌。
+// 单一实现放在这里：workflow 不得再自行 Get-ChildItem/ConvertFrom-Json 读报告——那份第二实现
+// 不带 started-after，重跑或残留时会把上一轮的旧报告当成本轮结论（#46）。
+const VERDICT_NOTE_BY_STATUS = {
+  MISSING_REPORT: "NO_REPORT",
+  INVALID_REPORT: "INVALID_REPORT",
+  AUDIT_NO_VERDICT: "NO_VERDICT",
+};
+
+function verdictNoteFor(status) {
+  return VERDICT_NOTE_BY_STATUS[status] || "";
+}
+
+function evaluateAutonomousGateDecision({ reportDir, auditExitCode, hasOpenAiKey, startedAfterMs, requireCurrentRun = false }) {
   if (requiresValidReportStart(requireCurrentRun, startedAfterMs)) {
     return evaluation(1, "INVALID_REPORT_START", "A valid current-run report start time is required.");
   }
@@ -132,6 +145,12 @@ function evaluateAutonomousGate({ reportDir, auditExitCode, hasOpenAiKey, starte
   return evaluation(1, report.overall || "FAIL", "Autonomous coverage audit did not pass.");
 }
 
+// 令牌随结果一起产出：判据与"是否阻塞"解耦（AUDIT_NO_VERDICT 仍 exit 0，见 issue #907）。
+function evaluateAutonomousGate(params) {
+  const result = evaluateAutonomousGateDecision(params);
+  return { ...result, verdictNote: verdictNoteFor(result.status) };
+}
+
 function parseArgs(argv) {
   return Object.fromEntries(argv.map(arg => {
     const [key, value = ""] = arg.replace(/^--/, "").split(/=(.*)/, 2);
@@ -167,6 +186,13 @@ function main() {
     result = evaluation(2, "INVALID_MODE", "Expected mode: agent-judge or autonomous.");
   }
 
+  // --note-file：把令牌落到调用方指定的路径。刻意在打印注解与退出之前发生，
+  // 使 MISSING_REPORT / INVALID_REPORT 这些**阻塞**路径同样留痕——调用方读不到文件时
+  // 无法区分「门禁判红」与「门禁崩了」，所以缺文件必须由调用方自己报出来。
+  if (args["note-file"]) {
+    fs.writeFileSync(args["note-file"], String(result.verdictNote || ""));
+  }
+
   const annotation = result.exitCode === 0 ? "warning" : "error";
   console.log(`::${annotation}::${result.status}: ${result.message}`);
   process.exit(result.exitCode);
@@ -177,4 +203,5 @@ if (require.main === module) main();
 module.exports = {
   evaluateAgentJudgeGate,
   evaluateAutonomousGate,
+  verdictNoteFor,
 };
