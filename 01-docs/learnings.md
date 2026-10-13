@@ -18264,3 +18264,117 @@ pre-commit 以「🟠 可能存在硬编码密钥/密码」阻断提交。改名
 用户报告运营中心「应用菜单」改了不生效。真相：运营中心侧 `appMenu` 与库中改动**逐项吻合（7/7）**、验签通过，
 但应用侧 `opsCenterSync` **从未存在**、唯一运行时来源是内置占位种子（其 `"appMenu": null`）⇒ 永远回退本地默认菜单**且不报错**。
 排查顺序应是「**真源对不对 → 传输对不对 → 消费方取没取**」，而不是先怀疑渲染层。
+
+## 第 19–20 轮（2026-10-14）：P0 收官 + 进入 P1
+
+### mechanism-gap:egress-ledger-baseline-blocks-new-subprocess-tests
+
+【门禁】新增测试若会 spawn 子进程，会撞上 **egress 台账基线门禁（required）**。
+
+P1-1 的「变体反证」要 spawn 一个子进程跑被变异的模块副本，CI 的 `QG Unit Tests` 判红：
+
+```
+FAIL: 出现基线之外的运行时台账键（清单只能缩小，新增必须逐条写清
+      "为什么这里会起非 node 子进程 / 会真的试出站"）：  + child::net
+```
+
+机制：`scripts/check-test-egress-ledger.js` 把测试期**起过的子进程 / 真试过的出站**逐条落盘
+（由 `packages/shared-utils/src/network-egress-guard.js` 的 sink 写），与
+`scripts/test-egress-ledger-baseline.json` 比对，**出现基线之外的键即红**。
+
+复现口径：`MP_TEST_EGRESS_LEDGER=<file>` + `MP_TEST_EGRESS_SUITE=unit-tests`，跑完再
+`node scripts/check-test-egress-ledger.js --ledger <file>`。
+
+★ **归因不清时的正确处置**：查了 CI 日志（只有 `git` / `mp-sink-*-cmd` 的 spawn 告警，**没有 `net`**），
+本地按同口径跑只产生 3 个键、**没有 `net`**、判定 PASS ⇒ **无法有把握归因 ⇒ 不登记基线、不猜理由，
+直接移除子进程本身。** 「把不确定的东西登记进基线」等于把门禁的棘轮松开。
+
+替代方案：把变异反证换成**结构锁 + 行为锁**（断言分支文本、断言分支顺序、断言白名单、
+真做一次字符串变异证明判据不是重言式），并在注释里**如实登记它证不了什么**（顺序/语义的细微改动）。
+
+### technique:self-referential-assertions-have-two-forms
+
+【技术】**自指假阳性有两种形态** —— 断言「本文件不含 X」时必然会踩。
+
+想在测试里断言「本文件不再起子进程」时，连续踩了两次：
+
+1. 文档注释里为了记下历史坑，正文出现了 spawn 字样 ⇒ 对**整份文本**匹配会命中自己；
+2. 改成「只对代码行断言」后**仍红** —— 因为**断言里的正则字面量本身含 `spawnSync(`**，那也是一行代码。
+
+解法（两条一起用）：
+
+- 只对**代码行**断言：过滤掉 `trim()` 后以 `*`、`//`、`/*` 开头的行；
+- 针用**字符串拼接**构造：`const NEEDLE = 'spawn' + 'Sync('` —— 字面量就不出现在本文件里。
+
+更一般的教训：**「断言某个字符串不在源码里」这类测试，测试自己也是源码。**
+任何把判据写进被检查对象内部的做法，都要先问「判据本身会不会被自己的匹配捕获」。
+
+### pattern:mutation-proof-can-be-red-for-the-wrong-reason
+
+【流程】**反证（mutation test）本身也会写错** —— 两个失败模式都表现为「红」，但红得没有意义。
+
+P1-1 的变体反证写了两版，两版都红，但**红的原因都不是断言**：
+
+1. 探针文件写在 `os.tmpdir()` ⇒ 落在 vitest include 之外 ⇒ 子进程跑出
+   「No test files found」这种**环境红**，反证等于没做；
+2. 把探针改成「本测试文件的副本」⇒ **副本里包含本节自身** ⇒ 子进程里再 spawn 一层、
+   **无限递归**，实测单次 **163 秒**、留下 **8 个残留文件**。
+
+由此确立的写法（若将来仍需要子进程版）：
+
+- 探针必须落在 vitest 的 include 范围内；
+- 探针必须**剔除本节自身**（按 describe 标题切分），并加一条断言「探针文本不含本节标题」；
+- 反证的断言必须**同时**检查「子进程非零退出」+「输出里确有 `AssertionError`」+
+  「输出里没有 `No test files found` / `Failed to load` / `Startup Error`」——
+  只查非零退出会把环境错误当成反证成功。
+
+教训：**「反证变红了」不等于「反证在起作用」。必须区分「断言红」与「环境红」。**
+
+### pattern:milestone-criteria-vs-delivery
+
+【模式】**里程碑判据与交付不一致时：先分辨是实现错还是判据错，改判据并写明理由。**
+
+PLAN 的 M0 有 8 条判据，P0 落地后实跑：通过 4 / 不通过 3（另 1 条是**我自己探错**）。不通过的都在**判据侧**：
+
+- **M0-2** 期望 `nodeCount===11623` / `platformCount>=20` —— PLAN 假设导入竞品全量数据，
+  而用户明确要求「只覆盖我的项目目前支持的这些自媒体平台」⇒ 实测 6 平台 / 1601 节点；
+- **M0-5** 期望返回 `null` —— 实现恒返回结构体。`null` 会让调用方**无法区分**
+  「平台没有可提交的分类 ID」（该隐藏控件）与「分类名写错了」（该报错）；
+- **M0-8** 期望字段名 `categoryName` —— 实现用 `category`（适配器读 `taskData.category`；
+  `bilibili` 原本就用 `category`、`youtube` 用 `categoryId`；PRD §15.3 已冻结）。
+  再加一个 `categoryName` 会让同一概念有**第三个名字**。
+
+处置：按实测改写判据、逐条写明理由、**保留原判据的意图**（M0-2 的意图是「防解析退化成空集合」，
+改为锁住实测三元组），并给每条加**实测值**列。**绝不默默改实现去凑一条写错的判据**。
+
+另一条 M0-4 我首轮判「不通过」，其实**通过** —— 是我探测时传错了 `contentType`
+（`douyin` 的「动植物」`id=117` 在 **article** 链，不在 video 链）。**先怀疑自己的探测方式。**
+
+### technique:two-data-copies-decide-the-conclusion
+
+【技术】**多副本项目里，「用哪个源重生成」决定结论 —— 先确认源，再下判断。**
+
+同一份竞品数据在本机至少两份：仓库内 `01-docs/research/competitor-reverse-2026-10-13/platform-data`
+（被 git 跟踪，134 文件）与仓库外 `D:/Data/projects/rea/analysis/wemedia-data-zip/data`。
+同名文件 **SHA-256 不同**（编码不同，内容等价）。
+
+我拿**仓库外**副本重生成再与已提交产物比对，得到一堆「差异」，顺势得出「产物血缘元数据错标」的
+**错误结论**并准备开修复 PR。从**仓库内**重生成才复现出产物原样。
+
+正解：**先读项目里已有的用法**（`scripts/import-platform-taxonomy.test.js` 的 `DATA_DIR` 常量就是权威源），
+再据此重生成。任何「产物 vs 重生成」的比对，第一步是**确认产物当初是用哪个源生成的**。
+
+### mechanism-gap:powershell-pipelines-mangle-bytes
+
+【陷阱】**字节级事实必须用 Node 验证，绝不经 PowerShell 管道。**
+
+同一轮里我据 `[System.IO.File]::ReadAllBytes` 与 `git show | Out-String` 统计 CR，得出
+「9839 个 CR，产物以 CRLF 入库」，并**已提交**了 `.gitattributes` 的 `eol=lf` 规则。
+用 Node 直读 `git cat-file blob` 的字节才看清：**HEAD blob 234326 字节 CR=0 LF=9839 ⇒ 本来就是 LF**。
+那 9839 个 CR 是 **PowerShell 管道的产物**。
+
+决定性判据（全程 Node）：`execFileSync('git', ['cat-file','blob','HEAD:<path>'])` 数 `0x0D/0x0A`，
+再与 `git hash-object <file>` vs `git rev-parse HEAD:<file>` 比对。
+
+**PowerShell 会在管道、`Out-String`、重定向环节改写字节与行尾；用它做「字节级断言」会稳定地给出
+自信的错误结论。计数、哈希、编解码判定一律走 Node。**
