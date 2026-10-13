@@ -3,9 +3,6 @@
 record: qc-clock-seam
 task: quick-collect IPC 路径漏转发 deps.now —— 48h 窗口走真实时钟，夹具越窗后必然翻红
 date: 2026-10-13
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：quick-collect 时钟 seam 漏转发（qc-clock-seam，2026-10-13）【混合 PR】
@@ -22,7 +19,7 @@ sync_backfill_owner: 下一个会话
 | QM-1 打包 | PASS（启动项受限，如实登记） | `pnpm run build:vue`（渲染层 24.29s）+ `pnpm exec electron-builder --win --x64` rc=0。验证①asar 内含 `\electron\ipc-handlers\quick-collect.js` 与 `\dist\index.html`；②语法 OK + 5 个相对 require **全部解析**（`Cannot find module 'electron'` 属宿主模块，脱离 Electron 必然如此，非缺陷）；③启动 8s：进程以 **exit 0 干净退出**、stderr 空、无 `Failed to load platform config` / `PluginLoader.*mkdir failed` / `ENOTDIR.*app.asar` 特征。**早退原因已定位**：另一 worktree `mp-app-live2` 正跑着 8 个 Electron 进程持有单实例锁（`electron/main.js:73-75` 拿不到锁即 `app.quit()`）。按纪律**未终止任何他人进程**；故"窗口起来"这一项在本机**无法验证**，如实登记为受限 |
 | QM-4 视觉 | N/A | 未改渲染层/样式 |
 | QM-6 CCG 双模型外部评审 | 未执行 | 本机无 `codeagent-wrapper`，如实登记 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA；`git ls-remote --heads origin qc-clock-seam` 返回 0 行证远端分支已删；回填后删除三个 `sync_*` 字段与 ledger 登记项 |
+| 远程同步 | PASS | PR #3459 已 squash 合并：merge SHA `5552f1f0ab39739eec60e62ba0ac9061ca863335`（2026-10-13T12:41:13+08:00）；`git ls-remote --heads origin qc-clock-seam` 返回 0 行，远端分支已删 |
 
 ### 实现要点（值得留存的判断）
 
