@@ -115,12 +115,34 @@ class MultiDocParser {
     return ["implemented", "historical", "planned", "wont-do"];
   }
 
+  /**
+   * 抽取方括号标注单元（与真源 extractAnnotations 同算法）。
+   *
+   * ⛔ 必须是**独立方括号单元**，裸词不算（2026-10-13，change: gate9-annot-bracket）。
+   * 原实现在这里用 `s.includes(tag)` 裸串匹配，把「浏览历史记录」「不做长度限制」
+   * 这类**真实功能**判成排除项，静默缩小审计面（覆盖率虚高）。
+   */
+  static INLINE_EXTRACT_ANNOTATIONS(text) {
+    const s = String(text || "");
+    const out = [];
+    for (const m of s.matchAll(/【([^】]*)】/g)) {
+      out.push(m[1].trim());
+    }
+    for (const m of s.matchAll(/\[([^[\]]*)\]/g)) {
+      const after = s.slice(m.index + m[0].length);
+      if (after.startsWith("(") || after.startsWith("[")) continue; // markdown 链接/图片/引用式链接
+      out.push(m[1].trim());
+    }
+    return out;
+  }
+
   /** 用内联判据解析状态（与真源同算法，供兜底与一致性比对）。 */
   static _inlineParseItemStatus(text) {
-    const s = String(text || "");
+    const annotations = MultiDocParser.INLINE_EXTRACT_ANNOTATIONS(text).map((a) => a.toLowerCase());
+    if (annotations.length === 0) return { status: "unknown", tag: null };
     for (const status of MultiDocParser.INLINE_STATUS_ORDER()) {
       for (const tag of MultiDocParser.INLINE_STATUS_TAGS()[status]) {
-        if (s.includes(tag)) return { status, tag };
+        if (annotations.includes(tag.toLowerCase())) return { status, tag };
       }
     }
     return { status: "unknown", tag: null };

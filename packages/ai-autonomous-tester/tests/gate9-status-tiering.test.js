@@ -89,6 +89,12 @@ test('判据一致性：包内兜底判据与仓库根单一真源逐项相同',
     '一键发布【已实现】', '播客托管【规划中】', '深色模式【不做】', '旧版链路【历史】',
     '未标注项', '【已实现】与【规划中】并存', 'Dark mode [implemented]', 'x [planned] y',
     '历史【历史】项', "won't do 项",
+    // 假阳性防线（2026-10-13，change: gate9-annot-bracket）：裸词两路都必须不认，
+    // 否则「本机用真源、CI 用兜底」会在这些条目上给出不同的分层结论
+    '浏览历史记录', '不做长度限制', '不做泛化兜底，未注册时 fail-closed',
+    'future-proof 配置', 'undone 状态恢复', 'Dark mode implemented',
+    '见[历史](https://example.test/h) 页面', '![planned](img.png) 图示',
+    '兜底仅覆盖 llm 类别：等类别不做泛化兜底',
   ]
   for (const p of probes) {
     assert.deepEqual(
@@ -99,6 +105,37 @@ test('判据一致性：包内兜底判据与仓库根单一真源逐项相同',
     assert.equal(MultiDocParser._inlineShouldAudit('implemented'), truth.shouldAudit('implemented'))
     assert.equal(MultiDocParser._inlineShouldAudit('planned'), truth.shouldAudit('planned'))
   }
+
+  // 标注抽取本身也要等价（两路各自的实现形态不同，等价靠这条钉住）
+  for (const p of probes) {
+    assert.deepEqual(
+      MultiDocParser.INLINE_EXTRACT_ANNOTATIONS(p),
+      truth.extractAnnotations(p),
+      `标注抽取不一致: ${p}`
+    )
+  }
+})
+
+test('裸词不得构成标注：分层只在有方括号标注时才排除条目', async () => {
+  // 事故现场回归（2026-10-13）：真实 PRD 里 11 个被判非 unknown 的条目至少 6 个是
+  // 裸词假阳性，把**已实现**的功能当成「历史/不做」移出审计面。分层机制当时
+  // 一条合规标注都没有、纯在制造假阴性。这条锁住「裸词必须仍进审计」。
+  const { MultiDocParser } = require(require('node:path').join(__dirname, '..', 'src', 'parsers', 'multi-doc-parser.js'))
+  const bareOnly = [
+    '浏览历史记录',
+    '订单/消费历史因暂无对应后端能力，不在本次范围内',
+    '历史提示词翻译：界面语言非 en 时按场景生成翻译',
+    '不做长度限制',
+    '历史上把 OPS_JWT_SECRET 注入成仓库可复算的字面量，现已改为必填',
+  ]
+  for (const t of bareOnly) {
+    const r = MultiDocParser._inlineParseItemStatus(t)
+    assert.equal(r.status, 'unknown', `裸词被误判: ${t}`)
+    assert.equal(MultiDocParser._inlineShouldAudit(r.status), true, `被静默移出审计面: ${t}`)
+  }
+  // 合规标注仍然生效（分层没有被这条锁死成永远不排除）
+  assert.equal(MultiDocParser._inlineParseItemStatus('深色模式【不做】').status, 'wont-do')
+  assert.equal(MultiDocParser._inlineShouldAudit('wont-do'), false)
 })
 
 test('剥离仓库根后分层仍生效（内联兜底路径）', async () => {

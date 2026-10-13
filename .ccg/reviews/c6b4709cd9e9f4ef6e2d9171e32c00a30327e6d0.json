@@ -1,18 +1,18 @@
 {
   "sha": "c6b4709cd9e9f4ef6e2d9171e32c00a30327e6d0",
   "layer": "diff",
-  "mode": "single",
-  "reason": "变更 49 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "mode": "dual",
+  "reason": "变更 218 行 > 200 行阈值（对齐 §12.6 Red Team）",
   "stats": {
-    "changedLines": 49,
-    "fileCount": 6,
-    "codeFileCount": 4,
+    "changedLines": 218,
+    "fileCount": 8,
+    "codeFileCount": 5,
     "sensitivePathHits": [],
     "plannedPathHits": [],
     "sensitiveContentHits": 0
   },
-  "stagedDiffHash": "1ec4d4130fb103d5a49a501949fa3248a92fd5a96b386c6d9b1fd0f45beb0ca8",
-  "decidedAt": "2026-10-13T03:51:12.954Z",
+  "stagedDiffHash": "d3c9d64acb1724d10b13e937d42c046da9bb33757fade8d7cf766a5684fdb392",
+  "decidedAt": "2026-10-13T02:46:24.596Z",
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
