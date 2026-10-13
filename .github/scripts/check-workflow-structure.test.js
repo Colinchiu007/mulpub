@@ -179,11 +179,11 @@ test('CLI：仓库现状退 0，注入坏文件的临时目录退 1，读不到�
 
 // ---- 接线锁：判据必须落在一个"真会跑、红了真会拦"的位置 ----
 // 「写了测试」≠「接进 CI」≠「接的位置能拦住」。落点是 quality-gate.yml 的 Gate 2b；
-// 选它而不是看起来更对口的 Gate 3，理由是可执行的：Gate 3 默认 pwsh，一个 run 块里多条命令
-// 不 fail-fast，正文末尾那句 `if ($LASTEXITCODE -ne 0)` 只转存**最后一条**的退出码 ⇒
-// 第一行 node --test 红掉时步骤照绿。接进去等于接进一个装饰门禁。
-// Gate 2b 整体 shell: bash（GitHub 的 bash 默认 -e -o pipefail，任一非零即中止）。
-// 所以"必须 bash"由锁钉住，而不是由注释里的一句话约定。
+// 落点选 Gate 2b 的理由（写下时）：Gate 3 当时默认 pwsh 且不逐条 fail-fast，接进去等于接进装饰门禁。
+// 那个前提已由 gate3-failfast 收口（Gate 3 现在逐条转存退出码，见该步骤上方登记注释），
+// 所以本锁落点**不改**：改落点不在本 PR 的问题清单里，而 Gate 2b 是被实测证过的位置。
+// Gate 2b 整体 shell: bash（GitHub 的 bash 默认 -e -o pipefail，任一非零即中止）；
+// "必须 bash"由锁钉住，而不是由注释里的一句话约定。
 test('CI 接线：Gate 2b 必须 bash、必须点名测试与 CLI、不得接回 Gate 3，且所在 job 不会被 docs-only 短路', () => {
   const wfPath = path.join(REPO_ROOT, '.github', 'workflows', 'quality-gate.yml');
   const wf = yaml.load(fs.readFileSync(wfPath, 'utf8'));
@@ -199,7 +199,9 @@ test('CI 接线：Gate 2b 必须 bash、必须点名测试与 CLI、不得接回
   assert.match(String(gate2b.run), /node\s+\.github\/scripts\/check-workflow-structure\.js/,
     'CLI 本体必须被点名：只接测试等于"函数对但门禁没跑"（空白用 \\s+，不把命令写成单空格精确形状那种易碎锁）');
 
-  // 反向锁：不得被"顺手挪回去"。Gate 3 是已登记的装饰态，接进去会得到一条恒绿的假门禁。
+  // 反向锁：不得被"顺手挪回去"。它原先的理由（Gate 3 不 fail-fast）已随 gate3-failfast 收口，
+  // 现在守的是两件仍然成立的事：①同一条判据在两个步骤各跑一遍，只会让"哪一步拦的"更难归因；
+  // ②本锁的接线断言按步骤名取位置，挪落点若不同步改这里，就得到一条"接了但没人看"的假门禁。
   const gate3 = (job.steps || []).find((s) => /Gate 3 - Hardcoded secrets scan/.test(String(s.name || '')));
   assert.ok(gate3, 'Gate 3 必须存在（反向锁的前置，被改名会让这条反向锁静默失效）');
   assert.doesNotMatch(String(gate3.run || ''), /check-workflow-structure/,

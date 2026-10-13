@@ -341,8 +341,77 @@ test('自主覆盖审计仅在确认是无模型 NEED_HUMAN 报告时降级为�
   assert.match(gate9, /LLM_BASE_URL: \$\{\{ secrets\.LLM_BASE_URL \}\}/);
   assert.match(gate9, /LLM_MODEL: \$\{\{ secrets\.LLM_MODEL \}\}/);
   assert.match(gate9, /AUTONOMOUS_GATE=FAIL/);
+  // 令牌读取必须对**空文件**安全：PASS 路径下门禁写的是 0 字节文件，而 PowerShell 的
+  // Get-Content -Raw 对空文件返回 $null（不是空串）——实测 (Get-Content -Raw).Trim() 抛
+  // "You cannot call a method on a null-valued expression"，整步 rc=1（PR #3477 首轮 CI 红）。
+  assert.match(gate9, /\[string\]\(Get-Content gate9-verdict-note\.txt -Raw\)/,
+    "读令牌必须经 [string] 归一化，否则 PASS（空文件）会把整步打红");
+  assert.doesNotMatch(gate9, /\(Get-Content[^\n]*\)\.Trim\(\)/,
+    "不得直接对 Get-Content 的结果调 .Trim()（空文件时为 $null）");
+  // 禁令的反面必须有正向锁，否则「把内联探针整条删掉」也会满足 doesNotMatch ——
+  // 那等于把「未审计不再可见」当成合规。正向锁钉的是：令牌由门禁自己算并落盘，workflow 只读令牌文件。
+  assert.match(gate9, /--note-file=\S+/);
+  assert.match(gate9, /AUTONOMOUS_VERDICT_NOTE=\$verdictNote/);
   assert.doesNotMatch(gate9, /Get-ChildItem|ConvertFrom-Json/);
   assert.match(workflow, /agent-review-gate\.test\.js/);
+});
+
+test("verdict 令牌的跨 job 通路必须真的接上（Gate Result 读的 job output 要有声明与写出方）", () => {
+  const workflow = fs.readFileSync(qualityGatePath, "utf8");
+  const parsed = yaml.load(workflow);
+  const autonomous = parsed.jobs.autonomous;
+  assert.ok(autonomous, "必须存在 autonomous 作业");
+  // ① 消费侧：Gate Result 用 needs.autonomous.outputs.verdict-note —— 那必须先有声明。
+  //    本仓实测：声明此前**整块不存在**，于是 ${{ needs.autonomous.outputs.verdict-note }} 恒为空串，
+  //    `if ($env:AUTONOMOUS_VERDICT_NOTE)` 永不成立，"未实际审计"在 PR 汇总里根本打不出来（#3443 的
+  //    登记注释说"现由 verdict 探针补上可见性"，那句只在 autonomous 自己的日志里成立）。
+  const outputs = autonomous.outputs || {};
+  assert.ok(outputs["verdict-note"],
+    "autonomous 作业必须声明 outputs.verdict-note，否则 Gate Result 里那个 env 永远是空串");
+  assert.match(String(outputs["verdict-note"]), /steps\./, "声明必须取自某个步骤的 output，而不是写死的字面量");
+  const ref = String(outputs["verdict-note"]).match(/steps\.([\w-]+)\.outputs\.(\w+)/);
+  assert.ok(ref, "outputs 声明的形态必须是 steps.<id>.outputs.<name>");
+  const producer = (autonomous.steps || []).find(s => String(s.id || "") === ref[1]);
+  assert.ok(producer, `声明引用的步骤 id ${ref[1]} 必须存在（按 id 取步骤，改名即红）`);
+  // ② 产出侧：被引用的那个步骤必须真往 GITHUB_OUTPUT 写同名键。
+  assert.match(String(producer.run), new RegExp("GITHUB_OUTPUT"),
+    "产出步骤必须写 $env:GITHUB_OUTPUT，否则声明指向一个从来没人产出的键");
+  assert.match(String(producer.run), new RegExp("verdict_note=" ),
+    "GITHUB_OUTPUT 里必须有 verdict_note= 这个键（与声明的 output 名同源）");
+  // ③ 消费侧仍在原地（防止"把消费点删掉"被当成修好了）。
+  const gateResultStep = ((parsed.jobs["gate-result"] || {}).steps || []).find(s => /Gate result/.test(String(s.name || "")));
+  assert.ok(gateResultStep, "gate-result 作业必须有 Gate result 步骤");
+  assert.equal(String(gateResultStep.env.AUTONOMOUS_VERDICT_NOTE),
+    "${{ needs.autonomous.outputs.verdict-note }}",
+    "消费点必须按声明的 output 名取，删掉它等于把可见性又关掉一次");
+});
+
+test("ubuntu 作业的 run 块不得被写成 PowerShell 语法（PR #3477 首轮 CI 红的回归锁）", () => {
+  const parsed = yaml.load(fs.readFileSync(qualityGatePath, "utf8"));
+  const job = parsed.jobs["business-api-postgres"];
+  assert.ok(job, "必须存在 business-api-postgres 作业");
+  // 正向半边：这个作业跑在 ubuntu 上，且没有任何步骤自己声明 pwsh ⇒ GitHub 用 bash（带 -e -o pipefail）。
+  assert.match(String(job["runs-on"]), /ubuntu/,
+    "该作业的默认 shell 由 runs-on 决定；runs-on 变了这条必须重新推导");
+  const pwshSteps = (job.steps || []).filter(s => /pwsh|powershell/i.test(String(s.shell || "")));
+  assert.deepEqual(pwshSteps.map(s => String(s.name)), [],
+    "一旦有步骤显式声明 pwsh，下面那条禁令就要按步骤逐个重划归属");
+  for (const s of job.steps || []) {
+    if (!s.run) continue;
+    // 只看**可执行行**：禁令若按字符串出现切，会把"解释为什么不能写 PowerShell"的那句注释自己判红
+    // —— 而那条注释恰恰是防止下一次再犯的唯一现场说明。口径与 workflow-contract 里其它
+    // doesNotMatch 型断言一致：按语义/生命周期切，不按字面出现切。
+    const code = String(s.run)
+      .split("\n")
+      .filter(l => !/^\s*#/.test(l))
+      .join("\n");
+    assert.doesNotMatch(code, /\$LASTEXITCODE/,
+      `${s.name}: bash 步骤的可执行行里出现 $LASTEXITCODE 就是 PowerShell 语法，runner 会报 syntax error`);
+    assert.ok(code.length > 0, `${s.name}: 剥掉注释后正文为空，等于这条禁令对该步骤没跑（假绿）`);
+  }
+  // 这条锁自己不能是恒真的：作业里必须真有 run 块被扫到。
+  const scanned = (job.steps || []).filter(s => s.run).length;
+  assert.ok(scanned >= 2, `扫描域退化（只扫到 ${scanned} 个 run 块），禁令等于没跑`);
 });
 
 // CI_IGNORED_PATHS 真源已迁移至 scripts/classify-docs-only.js（见文件头部 import）；

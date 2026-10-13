@@ -501,21 +501,27 @@ jobs:
           pwsh -NoProfile -ExecutionPolicy Bypass -File "$ISO/scripts/session-isolation-automation.test.ps1"
 
       # --- Gate 3: 硬编码密钥扫描（同时执行 CI workflow 契约测试）---
-      # ⛔ 已知装饰态，本 PR 刻意不动它（登记 + 证据，勿读成"已修"）：默认 pwsh 下
-      # "中间命令非零不中止"，正文末尾那句显式转存只管**最后一条**命令的退出码 ⇒ 第一行
-      # node --test（含 workflow-contract 等 8 个契约测试）红掉时步骤照绿。
-      # 实测证据（2026-10-13，PR #3443 的 rebase 轮）：把本步骤整体改成 shell: bash 后
-      # gate3_bash_rc=1，而在**未改动的** origin/main tip 上单独跑 workflow-contract.test.js
-      # 同样 main_contract_rc=1 —— 即 main 现在自相矛盾（Gate 9 的正文含 PowerShell 报告读取
-      # 语句，而 workflow-contract.test.js 里一条更早的断言禁止它含那些语句；该语句由 52aeaf2ae
-      # (#3439) 引入并全绿合入，正是因为本步骤的掩盖）。
-      # 不在本 PR 一并拆掉的理由：拆掉会把 required 的 QG Static 对之后每个 PR 判红，
-      # 而"那条断言原意管到哪一段"属 #3439 作者的语义判断，不该由 CI 修复 PR 单方面定。
-      # 详见 openspec/records/gui-test-workflow-structure.md 的「未收口」行。
+      # 装饰态已由 gate3-failfast 收口（#3443 登记为"本 PR 刻意不动"的未收口项 ①②，本 PR 两笔一起关掉）：
+      # ① 默认 pwsh 下"中间命令非零不中止"，正文原先只在最后一条命令后转存退出码 ⇒ 第一行
+      #    node --test（含 workflow-contract 等 8 个契约测试）红掉时步骤照绿。现场证据：
+      #    run 38339739342 / job 115107955784 的本步骤日志 `# tests 115 / # pass 114 / # fail 1`
+      #    而 step conclusion=success。现按 scripts/check-step-failfast.js 的逐条配对口径逐条守卫。
+      # ② main 的自相矛盾（Gate 9 正文含 workflow-contract 更早那条断言禁止的报告读取语句，
+      #    由 52aeaf2ae(#3439) 引入并靠 ① 掩盖合入）取的是"把那段报告读取挪出 Gate 9"那一支：
+      #    verdict 令牌改由 .github/scripts/agent-review-gate.js 单算并经 --note-file 落盘，
+      #    断言本身一字未改。#3443 实测过"整体换 shell: bash"那一支会把既有红一次性倾倒在
+      #    required 的 QG Static 上；逐条守卫把暴露面收窄到每条命令，不改步骤的 shell。
+      # 未收口的只剩 #3443 那行第 ③ 项（xiaohongshu 两个 dom 函数从未存在），与本步骤无关。
       - name: "Gate 3 - Hardcoded secrets scan"
         run: |
+          # ⛔ 本步骤原先只在最后一条命令后面写一条守卫。默认 shell 是 pwsh，中间命令非零不会中止该步骤
+          # ——于是 2026-10-13 实测 run 38339739342 里本步骤日志的 `# tests 115 / # pass 114 / # fail 1`
+          # （not ok 62 = workflow-contract 的 Gate 9 断言）被读成 step conclusion=success。
+          # 正解见 scripts/check-step-failfast.js 的逐条配对口径：每条受管命令后面各跟一条自己的检查。
           node --test .github/scripts/check-hardcoded-secrets.test.js .github/scripts/workflow-contract.test.js .github/scripts/autonomous-loop-workflow.test.js .github/scripts/agent-review-gate.test.js .github/scripts/classify-ci-failure.test.js .github/scripts/ci-failure-handler-contract.test.js scripts/gate-budget.test.js scripts/check-desktop-shard-forwarding.test.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node .github/scripts/check-hardcoded-secrets.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # 判据本体也跑一次：它把"消费者实收 argv""续行扫描命中数""真 vitest 两腿枚举的文件名"
           # 打进 CI 日志（带内现场），而不只在测试名里露一下。显式转存退出码——本步骤默认 shell 是 pwsh，
           # 中间命令非零不会自动中止该步骤（AGENTS.md「一个 run 块里塞多条命令」那条）。
@@ -551,8 +557,11 @@ jobs:
       # --- Gate 10: 前端一致性卡点（desktop-ui-consistency：IPC 单轨 + 确认原语统一）---
       - name: "Gate 10 - Frontend consistency (renderer IPC single-track + confirm primitive)"
         run: |
+          # 逐条守卫：本步骤的形状是"一条测试 + 一条门禁脚本"，旧棘轮只数测试文件，连多命令都不识别。
           node --test .github/scripts/check-frontend-consistency.test.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node .github/scripts/check-frontend-consistency.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # --- Gate 11: ESLint（error 级门禁；warning 不阻断，走 pnpm run lint:warnings 观察）---
       # 2026-09-14 接入：接入前 main 存活 17 个 error 长期无人暴露（含 4 个 no-undef 真 bug）。
@@ -1588,6 +1597,12 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.docs-only != 'true'
     timeout-minutes: 15
+    # verdict 令牌的跨 job 通路。此前**整块声明不存在**，于是 gate-result 里的
+    # ${{ needs.autonomous.outputs.verdict-note }} 恒为空串 ⇒ `if ($env:AUTONOMOUS_VERDICT_NOTE)` 永不成立，
+    # "本次覆盖审计其实没发生"在 PR 汇总里根本打不出来（#3443 登记注释说"探针补上了可见性"，
+    # 那句只在 autonomous 自己的日志里成立）。由 workflow-contract 的同名用例钉住。
+    outputs:
+      verdict-note: ${{ steps.autonomous-gate.outputs.verdict_note }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -1683,39 +1698,44 @@ jobs:
           $output | ForEach-Object { Write-Host $_ }
           Write-Host "Autonomous audit exit code: $exitCode"
 
-          # 缺陷②（2026-10-12）：LLM 空输出原先走 agent-review-gate.js 的 AUDIT_NO_VERDICT
-          # 静默 exit 0 —— 「没审也算过」。这里做一次显式探针：报告文件存在但 verdict 无效
-          # （decision 缺失或 score=0 且 items 为空）时，往 PR 汇总里留痕，不再静默。
-          $verdictNote = ""
-          $reportFile = Get-ChildItem "apps/desktop/tests/visual-testing/reports/autonomous-e2e-report-*.json" -ErrorAction SilentlyContinue |
-            Sort-Object LastWriteTime -Descending | Select-Object -First 1
-          if ($reportFile) {
-            try {
-              $rep = Get-Content $reportFile.FullName -Raw | ConvertFrom-Json
-              $v = $rep.coverage._verdict
-              if (-not $v -or -not $v.decision -or ($v.score -eq 0 -and @($v.items).Count -eq 0)) {
-                $verdictNote = "NO_VERDICT"
-                Write-Host "##[warning]Gate 9: 审计报告未产出有效 verdict（LLM 空输出/解析失败）——本 PR 的覆盖审计未实际执行，green 不代表已审计"
-              }
-            } catch {
-              $verdictNote = "NO_VERDICT"
-              Write-Host "##[warning]Gate 9: 审计报告不可解析（$($_.Exception.Message)）——覆盖审计未实际执行"
-            }
-          } else {
-            $verdictNote = "NO_REPORT"
-          }
-          if ($verdictNote) { echo "AUTONOMOUS_VERDICT_NOTE=$verdictNote" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append }
-
+          # ⛔ 这里原先内联了一份 verdict 探针（枚举报告文件 + 就地解析 JSON），与
+          # .github/scripts/agent-review-gate.js 的 judgeVerdictMissing 构成第二份同用途实现，
+          # 而且它按「目录里最新 mtime 的报告」取文件、不带 started-after ⇒ 重跑/残留时读到上一轮旧报告。
+          # 正解：令牌由门禁自己算（带 started-after）并经 --note-file 落盘，本步只读那个文件。
+          # 缺 --note-file 参数时下面 Test-Path 会恒走 else ⇒ 覆盖审计永远显示「未审计」，
+          # 与删掉可见性同等错误，所以由 workflow-contract 的 --note-file= 正向锁钉住。
           $gateArgs = @(
             ".github/scripts/agent-review-gate.js",
             "autonomous",
             "--report-dir=apps/desktop/tests/visual-testing/reports",
             "--started-after=$reportStart",
             "--audit-exit-code=$exitCode",
-            "--has-openai-key=$([bool]$env:OPENAI_API_KEY)"
+            "--has-openai-key=$([bool]$env:OPENAI_API_KEY)",
+            "--note-file=gate9-verdict-note.txt"
           )
           & node @gateArgs
           $gateExit = $LASTEXITCODE
+          $verdictNoteOut = ""
+          if (Test-Path gate9-verdict-note.txt) {
+            # 空文件时 Get-Content -Raw 返回 $null（不是空串），直接 .Trim() 会抛
+            # "You cannot call a method on a null-valued expression" —— PASS 路径就是空文件，实测把整步打成 rc=1。
+            # [string] 归一化把 $null 变成空串，语义保持"没有令牌"。
+            $verdictNote = [string](Get-Content gate9-verdict-note.txt -Raw)
+            if ($verdictNote) {
+              Write-Host "##[warning]Gate 9: 覆盖审计未实际产出有效 verdict（令牌 $verdictNote）——green 不代表已审计"
+              $verdictNoteOut = $verdictNote
+            }
+          } else {
+            # 令牌文件总在（写盘发生在退出之前），所以缺文件只有一种解释：门禁进程没跑到写盘。
+            Write-Host "##[warning]Gate 9: verdict 令牌文件缺失——覆盖审计可见性未知，不得当作已审计"
+            $verdictNoteOut = "NOTE_FILE_MISSING"
+          }
+          if ($verdictNoteOut) {
+            # 两条都要写：GITHUB_ENV 给本作业后面的步骤，GITHUB_OUTPUT 给 gate-result 作业
+            # （作业 output 只能取自步骤 output，取不到 env —— 这是此前那条通路整条断掉的机制原因）。
+            echo "AUTONOMOUS_VERDICT_NOTE=$verdictNoteOut" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            echo "verdict_note=$verdictNoteOut" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          }
           if ($gateExit -eq 0) {
             $gateStatus = if ($exitCode -eq 0) { "PASS" } else { "PROMPT_REVIEW_REQUIRED" }
             echo "AUTONOMOUS_GATE=$gateStatus" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
@@ -1773,6 +1793,11 @@ jobs:
           BUSINESS_DATABASE_URL: postgresql://mulpub_test:mulpub_test_pw@127.0.0.1:5432/mulpub_business_test
         run: |
           cd packages/api-publish-engine
+          # ⛔ 本步骤**不要**加 PowerShell 的 if ($LASTEXITCODE...) 守卫：它所在的 business-api-postgres 作业是
+          # runs-on: ubuntu-latest，未声明 shell ⇒ 默认 bash（GitHub 给 bash 带 -e -o pipefail），本来就逐条中止。
+          # 2026-10-13 实测：加了 PowerShell 守卫后 runner 报 `syntax error near unexpected token (quote brace)`、
+          # 整步 exit 2。判据侧由 scripts/check-step-failfast.js 的 defaultShellForRunsOn 守住（把 bash 当 pwsh
+          # 是"误报合规形态"，比漏报更难自查，因为它会把坏语法推给 CI）。
           node scripts/migrate-postgres.js --dry-run
           node scripts/migrate-postgres.js | tee /tmp/migrate.json
           node -e "
