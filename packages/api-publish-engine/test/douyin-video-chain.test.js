@@ -18,14 +18,23 @@ const { DouyinVideoChain, DouyinVideoError, CSRF_POOL } = require("../src/publis
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
 
 // —— 构造含合法 EC 私钥与四类签名材料的 security-sdk cookie（clientSign 可签出）——
+// keyStyle: 'legacy'（历史假设，默认）| 'live'（2026-07 真实账号实测形态）
+// 2026-10-13：补 live 形态，避免夹具把「单一命名假设」固化进链级测试
 function encField (inner) { return encodeURIComponent(JSON.stringify({ data: JSON.stringify(inner) })); }
 function encB64 (jsonStr) { return encodeURIComponent(Buffer.from(jsonStr, "utf-8").toString("base64")); }
+function securityKeyNames (keyStyle, gen) {
+  if (keyStyle === "live") {
+    return { crypt: `__security_mc_${gen || 1}_s_sdk_crypt_sdk`, sign: `__security_mc_${gen || 1}_s_sdk_sign_data_key_web_protect` };
+  }
+  return { crypt: "security-sdk/s_sdk_crypt_sdk", sign: "security-sdk/s_sdk_sign_data_key/web_protect" };
+}
 function makeCookie (o = {}) {
   const { privateKey } = crypto.generateKeyPairSync("ec", { namedCurve: "prime256v1" });
   const pem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+  const kn = securityKeyNames(o.keyStyle, o.gen);
   const parts = [];
-  if (!o.omitCrypt) parts.push("security-sdk/s_sdk_crypt_sdk=" + encField({ ec_privateKey: pem }));
-  if (!o.omitSign) parts.push("security-sdk/s_sdk_sign_data_key/web_protect=" + encField({ ticket: o.ticket || "t_" + Date.now(), ts_sign: o.tsSign || "TSSIGN" }));
+  if (!o.omitCrypt) parts.push(kn.crypt + "=" + encField({ ec_privateKey: pem }));
+  if (!o.omitSign) parts.push(kn.sign + "=" + encField({ ticket: o.ticket || "t_" + Date.now(), ts_sign: o.tsSign || "TSSIGN" }));
   if (!o.omitRee) parts.push("bd_ticket_guard_client_data=" + encB64(JSON.stringify({ "bd-ticket-guard-ree-public-key": o.ree || "REE_PUB_KEY" })));
   if (!o.omitSid) parts.push("sid_tt=SESSID123");
   if (o.msToken) parts.push("msToken=" + o.msToken);
@@ -98,6 +107,49 @@ describe("publish/platforms/douyin-video", function () {
         "POST /",
         "POST /web/api/media/aweme/create_v2/",
       ]);
+    } finally { fs.unlinkSync(file); await srv.close(); }
+  });
+
+  // ── 2026-10-13 新增：真实账号 cookie 命名形态（__security_mc_<N>_*）走通全链 ──
+  // 事故回归锁：原实现只认 legacy 形态（含 '/'，而 cookie 名不允许 '/'），
+  // 在真实账号上 Step 0 恒 fail-closed。此用例保证真实形态可通过。
+  test("真实命名形态（__security_mc_1_*）：Step 0 通过且 create_v2 带 bd-ticket-guard-client-data", async function () {
+    const srv = await startSrv();
+    const file = writeTemp(4096);
+    try {
+      const result = await newChain(srv, makeCookie({ keyStyle: "live", gen: 1, msToken: "MSLIVE" }))
+        .run({ title: "真实形态", content: "文案", video: { path: file }, cover: { path: file } }, { draft: true });
+      expect(result.success).toBe(true);
+      expect(result.mode).toBe("api");
+      const create = srv.requestsFor(/create_v2/)[0];
+      expect(create).toBeTruthy();
+      const cd = create.headers["bd-ticket-guard-client-data"];
+      expect(typeof cd).toBe("string");
+      // base64 解出后必须是 client-data 契约（而非空串/占位）
+      const decoded = JSON.parse(Buffer.from(cd, "base64").toString("utf-8"));
+      expect(decoded.req_content).toBe("ticket,path,timestamp");
+    } finally { fs.unlinkSync(file); await srv.close(); }
+  });
+
+  test("代际号可变（gen=7）：不得硬编码 mc_1", async function () {
+    const srv = await startSrv();
+    const file = writeTemp(2048);
+    try {
+      const result = await newChain(srv, makeCookie({ keyStyle: "live", gen: 7 }))
+        .run({ title: "T", video: { path: file }, cover: { path: file } }, { draft: true });
+      expect(result.success).toBe(true);
+    } finally { fs.unlinkSync(file); await srv.close(); }
+  });
+
+  test("真实形态下缺 sign_data → Step 0 零请求 fail-closed", async function () {
+    const srv = await startSrv();
+    const file = writeTemp(1024);
+    try {
+      await expect(
+        newChain(srv, makeCookie({ keyStyle: "live", omitSign: true }))
+          .run({ title: "T", video: { path: file }, cover: { path: file } }, { draft: true })
+      ).rejects.toThrow("账号信息缺失，请重新授权此账号再试");
+      expect(srv.requests.length).toBe(0); // 零请求
     } finally { fs.unlinkSync(file); await srv.close(); }
   });
 

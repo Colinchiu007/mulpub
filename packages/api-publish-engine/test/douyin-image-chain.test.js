@@ -16,14 +16,22 @@ const { errorCode } = require('../src/error-codes')
 
 // —— 构造含合法 EC 私钥与四类签名材料的 security-sdk cookie（clientSign 可签出）——
 // 与 douyin-video-chain.test.js 的 makeCookie 同款（测试夹具不跨文件 import，复制并锚定来源）
+// keyStyle: 'legacy'（历史假设，默认）| 'live'（2026-07 真实账号实测形态）
 function encField (inner) { return encodeURIComponent(JSON.stringify({ data: JSON.stringify(inner) })) }
 function encB64 (jsonStr) { return encodeURIComponent(Buffer.from(jsonStr, 'utf-8').toString('base64')) }
+function securityKeyNames (keyStyle, gen) {
+  if (keyStyle === 'live') {
+    return { crypt: `__security_mc_${gen || 1}_s_sdk_crypt_sdk`, sign: `__security_mc_${gen || 1}_s_sdk_sign_data_key_web_protect` }
+  }
+  return { crypt: 'security-sdk/s_sdk_crypt_sdk', sign: 'security-sdk/s_sdk_sign_data_key/web_protect' }
+}
 function makeCookie (o = {}) {
   const { privateKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
   const pem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
+  const kn = securityKeyNames(o.keyStyle, o.gen)
   const parts = []
-  if (!o.omitCrypt) parts.push('security-sdk/s_sdk_crypt_sdk=' + encField({ ec_privateKey: pem }))
-  if (!o.omitSign) parts.push('security-sdk/s_sdk_sign_data_key/web_protect=' + encField({ ticket: o.ticket || 't_' + Date.now(), ts_sign: o.tsSign || 'TSSIGN' }))
+  if (!o.omitCrypt) parts.push(kn.crypt + '=' + encField({ ec_privateKey: pem }))
+  if (!o.omitSign) parts.push(kn.sign + '=' + encField({ ticket: o.ticket || 't_' + Date.now(), ts_sign: o.tsSign || 'TSSIGN' }))
   if (!o.omitRee) parts.push('bd_ticket_guard_client_data=' + encB64(JSON.stringify({ 'bd-ticket-guard-ree-public-key': o.ree || 'REE_PUB_KEY' })))
   if (!o.omitSid) parts.push('sid_tt=SESSID123')
   if (o.msToken) parts.push('msToken=' + o.msToken)
@@ -106,6 +114,37 @@ describe('publish/platforms/douyin-image — D 方案图文 API 链', () => {
     const srv = await startSrv()
     try {
       const chain = newChain(srv, makeCookie({ omitCrypt: true }))
+      await expect(chain.run({ images: [{ path: 'Z:/no/such/file.png' }] })).rejects.toMatchObject({ code: errorCode.data_error })
+      expect(srv.requests).toHaveLength(0)
+    } finally { await srv.close() }
+  })
+
+  // ── 2026-10-13 新增：真实账号 cookie 命名形态（__security_mc_<N>_*）──────
+  // 判据技巧：Step 0 通过后才会走到文件检查。
+  //   材料齐备 → io_error（证明已过 Step 0）
+  //   材料缺失 → data_error（Step 0 拦截，零请求）
+  // 事故回归锁：原实现只认 legacy 形态（含 '/'，而 cookie 名不允许 '/'），
+  // 真实账号上 Step 0 恒 fail-closed。
+  it('真实命名形态（__security_mc_1_*）→ Step 0 通过（表现为 io_error 而非 data_error）', async () => {
+    const srv = await startSrv()
+    try {
+      const chain = newChain(srv, makeCookie({ keyStyle: 'live', gen: 1 }))
+      await expect(chain.run({ images: [{ path: 'Z:/no/such/file.png' }] })).rejects.toMatchObject({ code: errorCode.io_error })
+    } finally { await srv.close() }
+  })
+
+  it('真实命名形态 + 代际号可变（gen=7）→ Step 0 同样通过', async () => {
+    const srv = await startSrv()
+    try {
+      const chain = newChain(srv, makeCookie({ keyStyle: 'live', gen: 7 }))
+      await expect(chain.run({ images: [{ path: 'Z:/no/such/file.png' }] })).rejects.toMatchObject({ code: errorCode.io_error })
+    } finally { await srv.close() }
+  })
+
+  it('真实命名形态下缺 sign_data → fail-closed data_error（零请求）', async () => {
+    const srv = await startSrv()
+    try {
+      const chain = newChain(srv, makeCookie({ keyStyle: 'live', omitSign: true }))
       await expect(chain.run({ images: [{ path: 'Z:/no/such/file.png' }] })).rejects.toMatchObject({ code: errorCode.data_error })
       expect(srv.requests).toHaveLength(0)
     } finally { await srv.close() }

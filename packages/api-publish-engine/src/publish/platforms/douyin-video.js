@@ -21,7 +21,7 @@ const zlib = require('zlib')
 const aws4 = require('aws4')
 const { createHttpClient, requestWithRetry } = require('../core/http-base')
 const { errorCode } = require('../../error-codes')
-const { clientSign, extractReePublicKey, webVersionFromTicket, CREATE_V2_PATH } = require('../../signer/douyin-ticket-guard')
+const { clientSign, extractReePublicKey, webVersionFromTicket, CREATE_V2_PATH, hasSecurityMaterials, resolveSignDataPayload } = require('../../signer/douyin-ticket-guard')
 // 话题内联描述（publish-topic-inline-description）：抖音是内联保留型平台——
 // 描述里的 `#话题` 原样保留在 content_desc，text_extra 标记话题位置段
 // （hashtag_id=0 纯文本话题，平台话题实体回填属 P2）。位置扫描用 content-formatter 单一实现。
@@ -140,7 +140,11 @@ class DouyinVideoChain {
   _assertPreconditions () {
     const c = String(this.cookie || '')
     if (!c) throw new DouyinVideoError('douyin-video: missing cookie (fail-closed)', errorCode.data_error)
-    if (!c.includes('s_sdk_crypt_sdk=') || !c.includes('s_sdk_sign_data_key/web_protect=')) {
+    // 2026-10-13：判据改走 signer 的单一事实源 hasSecurityMaterials——
+    // 此前 includes('s_sdk_sign_data_key/web_protect=') 依赖 '/'，而真实 cookie 名是
+    // __security_mc_<N>_s_sdk_sign_data_key_web_protect（'/' → '_'），
+    // 且 cookie 名不允许含 '/' ⇒ 该判据在真实账号上恒 false → Step 0 必然 fail-closed。
+    if (!hasSecurityMaterials(c)) {
       throw new DouyinVideoError(FAIL_MSG, errorCode.data_error)
     }
     if (!c.includes('bd_ticket_guard_client_data') ) {
@@ -334,10 +338,8 @@ class DouyinVideoChain {
 }
 
 function decodeSignData (cookie) {
-  try {
-    const raw = cookieValue(cookie, 'security-sdk/s_sdk_sign_data_key/web_protect=')
-    return JSON.parse(JSON.parse(decodeURIComponent(raw)).data)
-  } catch (e) { return null }
+  // 2026-10-13：改走 signer 的单一事实源（支持 __security_mc_<N>_ 新形态 + legacy 回落）
+  return resolveSignDataPayload(cookie)
 }
 
 module.exports = {
