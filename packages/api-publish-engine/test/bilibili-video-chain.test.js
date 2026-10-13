@@ -46,7 +46,10 @@ describe("publish/platforms/bilibili-video", function () {
     const file = writeTemp(1024 * 1024);
     try {
       const chain = makeChain(srv);
-      const result = await chain.run({ title: "标题", content: "正文", tags: ["热点", { name: "资讯" }], category: 21, video: { path: file } }, { draft: true });
+      // P0-5：category 取一个**非默认**值（bilibili 的默认是 21）。改前这里传的就是 21，
+      // 于是 L73 的 `tid === 21` 断言**分不清**「采纳了传入值」还是「用了兜底默认」——
+      // 而那正是 `Number(cat) || 21` 这个洞最容易藏身的地方。
+      const result = await chain.run({ title: "标题", content: "正文", tags: ["热点", { name: "资讯" }], category: 138, video: { path: file } }, { draft: true });
       expect(result.success).toBe(true);
       expect(result.draft).toBe(true);
       expect(result.publishId).toBe("BV1TEST");
@@ -70,7 +73,7 @@ describe("publish/platforms/bilibili-video", function () {
       const pub = srv.requestsFor(/draft\/add/)[0];
       expect(pub.url).toContain("csrf=TOKJCT");
       expect(pub.body.csrf).toBe("TOKJCT");
-      expect(pub.body.tid).toBe(21);
+      expect(pub.body.tid).toBe(138); // P0-5：非默认值 ⇒ 证明「采纳传入的 category」而非兜底
       expect(pub.body.videos[0].filename).toBe("n123");
       expect(pub.body.videos[0].cid).toBe(42);
     } finally { fs.unlinkSync(file); await srv.close(); }
