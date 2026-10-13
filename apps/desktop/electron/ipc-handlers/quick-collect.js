@@ -140,13 +140,23 @@ function registerHandlers (ipcMain, deps = {}) {
   }
 
   function getEngine () {
-    const keys = [deps.aiGenerator, deps.contentIntelligence, deps.hotTopicsService]
+    // deps.now 必须同时进 keys 与构造参数：engine 在构造时**捕获** 时钟
+    // （quick-collect-engine.js `const now = typeof deps.now === 'function' ? deps.now : () => Date.now()`），
+    // 换了时钟却不重建 engine，窗口过滤仍会走旧时钟。
+    const keys = [deps.aiGenerator, deps.contentIntelligence, deps.hotTopicsService, deps.now]
     if (cached && cachedKeys && cachedKeys.length === keys.length && keys.every((k, i) => cachedKeys[i] === k)) return cached
+    // ⛔ now 必须转发（2026-10-13，change: qc-clock-seam）。此前只把它交给 trendFnFor()
+    // 里的 feed fetcher，engine 这一层漏了 ⇒ 48h 窗口过滤走真实时钟，而
+    // quick-collect-trend-sources.js 的模块契约明写「全部依赖注入（fetchFn / now / log），
+    // 零直连 IO ⇒ 单测零出网、**零时钟依赖**」—— 该不变量在 IPC 路径上被打破，
+    // 于是夹具锚在固定日期的用例会随真实时间流逝**必然**翻红（2026-10-13T02:00Z 越窗后
+    // 三个用例同时红，且与本 PR 无关）。转发后注入的时钟对窗口过滤同样生效。
     cached = createQuickCollectEngine({
       searchFn: searchFnFor(),
       trendFn: trendFnFor(),
       llmFn: llmFnFor(),
       log,
+      now: deps.now,
     })
     cachedKeys = keys
     return cached

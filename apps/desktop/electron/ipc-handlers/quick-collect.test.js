@@ -42,6 +42,11 @@ function makeDeps (over = {}) {
     },
     aiGenerator: { generateWithDefault: vi.fn(async () => ({ content: '生成的正文' })) },
     log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() },
+    // 注入固定时钟（2026-10-13，change: qc-clock-seam）：本文件夹具锚在写死的 NOW，
+    // 而 48h 窗口过滤此前走真实时钟 ⇒ 夹具越窗后**必然**翻红（三个用例在
+    // 2026-10-13T02:00Z 同时红）。engine 侧已转发 deps.now（见 ipc-handlers/quick-collect.js
+    // 的 getEngine()），这里把时钟接上即恢复确定性。
+    now: () => NOW,
     ...over,
   }
 }
@@ -96,6 +101,34 @@ describe('quick-collect IPC/注册面', () => {
     const stages = send.mock.calls.map((c) => c[1].stage)
     expect(stages).toEqual(['retrieving', 'summarizing', 'done'])
     expect(send.mock.calls.every((c) => c[0] === 'quick-collect:progress' && c[1].requestId === 'req-1')).toBe(true)
+  })
+
+  it('回归锁（qc-clock-seam）：48h 窗口必须用注入的 deps.now，不得走真实时钟', async () => {
+    // 用「远在过去」的固定时钟：真实时钟的 48h 窗口必然把该素材排除，因此只有 engine
+    // 真的用了注入时钟、素材才会被判进窗口。丢掉 getEngine() 里的 now 转发 ⇒ 立刻红。
+    // 这比「夹具锚在固定日期、等它自然老化」稳：老化型只在越窗后才红（2026-10-13 实测，
+    // 三个用例在 2026-10-13T02:00Z 同时翻红）。
+    const past = Date.parse('2020-01-01T00:00:00.000Z')
+    const deps = makeDeps({
+      now: () => past,
+      contentIntelligence: {
+        search: vi.fn(async () => ({
+          results: [{
+            url: 'https://example.com/past',
+            title: '旧素材',
+            source: 'hackernews',
+            snippet: '摘要',
+            engagement: 1,
+            created_utc: Math.floor((past - 3600 * 1000) / 1000),
+          }],
+        })),
+      },
+    })
+    const { handlers: h } = await register(deps)
+    const res = await h['quick-collect:run'](TRUSTED_EVENT, { command: COMMAND })
+    expect(res.code).toBe(0)
+    // 走真实时钟 ⇒ 该素材「6 年前」，被 48h 窗口滤掉 ⇒ retrieval=empty（红）
+    expect(res.data.quickCollect.retrieval).toBe('ok')
   })
 
   it('参数非对象 → -2 且不触发任何外呼', async () => {
