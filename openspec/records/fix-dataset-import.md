@@ -2,9 +2,6 @@
 record: fix-dataset-import
 task: 补入被 .gitignore 静默吞掉的数据提取物（133 文件）—— data/ → platform-data/
 date: 2026-10-13
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：补入被 .gitignore 吞掉的数据提取物（fix-dataset-import，2026-10-13）【docs-only】
@@ -18,9 +15,9 @@ sync_backfill_owner: 下一个会话
 | 保留门禁：文档同步 | PASS | `check-text-encoding-integrity` / `check-unwired-tests` / `check-gate-record-debt` 均 exit=0 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触运行面 |
 | QM-6 CCG 双模型外部评审 | 未执行（如实登记）| 本机无 `codeagent-wrapper` |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin fix-dataset-import` 返回 0 行证远端分支已删；回填后删除上方三个 `sync_*` 字段 |
+| 远程同步 | PASS | 已合并 **#3488** = `e2d8f05917be2ed301f09da53eaff18b66706862`（squash，committer 2026-10-13T22:47:20+08:00）。取证：`git log origin/main --grep='(#3488)$'` 恰好 1 行；`git ls-remote --heads origin fix-dataset-import` 返回 0 行；主干 `platform-data/` = 134 文件、导入目录合计 181 文件，与本地对账一致 |
 
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PENDING
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PASS
 
 ### 缺陷：上一 PR（#3487）静默漏掉了用户明确要求纳入的数据
 

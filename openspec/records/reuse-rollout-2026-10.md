@@ -2,9 +2,6 @@
 record: reuse-rollout-2026-10
 task: 竞品逆向研究成果入库 + 可复用资产目录/集成设计/实施计划三件套 + 8 份旧复用计划归档
 date: 2026-10-13
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：竞品逆向研究成果入库与应用文档三件套（reuse-rollout-2026-10，2026-10-13）【docs-only】
@@ -20,9 +17,9 @@ sync_backfill_owner: 下一个会话
 | 附带修复：gitignore | PASS | `.gitignore:335` 的 `/01-docs/*analysis*.md` 命中初版文件名 `ANALYSIS-COMPETITOR-REVERSE-2026-10-13.md`（**Windows 下 gitignore 大小写不敏感**，小写 `analysis` 命中大写 `ANALYSIS`；`git check-ignore -v` 实证）。改名 `RESEARCH-*` 规避，并同步修正 8 份归档横幅里的指向 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触运行面（未改 `apps/` `packages/` `config/`）|
 | QM-6 CCG 双模型外部评审 | 未执行（如实登记）| 本机无 `codeagent-wrapper`。pre-commit 判定器全程覆盖（判定落盘 `.ccg/reviews/70ad3bd31….json`），首次提交判定为 DUAL、补提交判定为 SKIP（复杂度低）|
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin reuse-rollout-2026-10` 返回 0 行证远端分支已删；回填后删除上方三个 `sync_*` 字段 |
+| 远程同步 | PASS | 已合并 **#3487** = `f3328eb81fc8ae59060f4220791699b215f6e1dd`（squash，committer 2026-10-13T22:36:17+08:00）。取证：`git log origin/main --grep='(#3487)$'` 恰好 1 行；`git ls-remote --heads origin reuse-rollout-2026-10` 返回 0 行 |
 
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PENDING
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PASS
 
 ### 交付内容
 
