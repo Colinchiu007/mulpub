@@ -17,11 +17,14 @@
   依赖身份 `keys`（否则后到的时钟会被旧引擎冻住，与同文件"注册期不解构 deps"是同一条理由）。
 - **夹具侧接上时钟**：`ipc-handlers/quick-collect.test.js` 的 `makeDeps`、
   `services/quick-collect-cn-sources.test.js` 的 `baseDeps` 各加 `now: () => NOW`。
-- **防再犯锁**：新增 `electron/services/quick-collect-clock-determinism.test.js`（4 条，vitest 按
+- **防再犯锁**：新增 `electron/services/quick-collect-clock-determinism.test.js`（**5 条**，vitest 按
   workspace 自动收集）。判据按**语义**切而不是按字符串出现切：只有"会驱动读时钟那条路"的文件
-  （构造引擎 / 构造 feed 抓取器 / 导入 IPC 注册面）且夹具含绝对时刻时，才要求它自带时钟；
-  只把 `now: NOW` 当普通实参传给纯函数的不受约束（那批用例本来就不腐）。另含扫描域规模下界、
-  合成夹具三例（违规/合规/非驱动者，防"恒不成立"的装饰性门禁）与按调用点切的主进程接缝锁。
+  （构造引擎 / 构造 feed 抓取器 / 导入**主进程** IPC 注册面）且夹具含绝对时刻时，才要求它自带时钟；
+  只把 `now: NOW` 当普通实参传给纯函数的不受约束（那批用例本来就不腐）。两处收口是 QM-6 可维护性轴给的：
+  ①绝对时刻判据必须认全家族真实写过的形状（`Date.parse` / `Date.UTC` / ISO 串 / **RFC-822 pubDate**，
+  最后那种正是本次事故夹具自己）；②`import('@/api/quick-collect')` 是渲染端桥接层、不读主进程时钟，
+  必须用 `(?!@)` 排除，否则判据会去要求一份无法有意义注入时钟的文件。另含扫描域规模下界（实测 14 文件 /
+  5 驱动者）、合成夹具三形 + 两个负向对照（防"恒不成立"的装饰性门禁），以及按调用点切的主进程接缝锁。
 
 ## 验证
 
@@ -29,11 +32,20 @@
   ['published']`）+ `ipc-handlers/quick-collect.test.js` 2 failed；修后 `Test Files 2 passed`、
   `Tests 28 passed`。
 - 消费者并集（改的是被多文件消费的模块，验证范围取并集而非"我改过的文件"）：`quick-collect` 家族
-  + `hot-topics-quota` + `bootstrap/phase5-ipc` + `src/features/collection` ⇒ **24 文件 / 303 passed**。
-- 变异反证 6 条（`.ccg/reviews/qcclock-mutate.driver.js`，原件 `.ccg/reviews/qcc-mutations.txt`）：
-  A 摘掉 handler 的 `now: deps.now`、B/C 分别摘两个驱动者的唯一注入、D 把驱动者判据改成永不匹配、
-  E 把违规判据改成恒不成立，五条 want=red 全部点名红；F（只把夹具的绝对时刻挪一天）want=green 照绿；
-  `MUTATION_BAD=0`、FINAL 还原后 `32 passed`、逐条 `restored=bytes_equal`。
+  + `hot-topics-quota` + `bootstrap/phase5-ipc` + `src/features/collection` ⇒ **25 文件 / 312 passed / 0 failed**
+  （2026-10-13T04:44Z 实跑；可复现命令逐字记在 `openspec/records/fix-quick-collect-clock-rot.md`）。
+- 变异反证 **10 条**（`.ccg/reviews/qcclock-mutate.driver.js`，第 1 轮原件 `qcc-mutations.txt`、
+  第 2 轮 `qcc-mutations2.txt`）：A 摘 handler 透给引擎的 `now: deps.now`、B/C 摘两个**不同**驱动者的唯一
+  注入、D 驱动者判据永不匹配、E 违规判据恒不成立、G 去掉 `(?!@)`（渲染端被误算成驱动者 ⇒ 真域出现违规）、
+  H 绝对时刻判据退回只认 `Date.parse`、I 调用点窗口 800→60、J 摘掉 feed 抓取器那处 `now`；
+  9 条 want=red 全部点名到位，F（只把夹具的绝对时刻挪一天）want=green 照绿；`MUTATION_BAD=0`、
+  FINAL 还原后 `33 passed`、逐条 `restored=bytes_equal`、开工先 `PREFLIGHT_NO_RESIDUE` 查 `MUT-` 残留。
+- QM-6 双轴（替代通道）合计 1 CRITICAL + 5 MAJOR + 18 MINOR。逻辑轴那条 CRITICAL「生产不传 `now` ⇒
+  修复不生效、建议在 phase5 注入 `now: () => Date.now()`」**按证据否证**：`phase5-ipc.js` 的
+  handlerDependencies 确无 `now` 键（逐行复核），两处都落 `() => Date.now()` 兜底——而生产读真实时钟
+  正是产品语义（用户要的"最近 48 小时"），那个建议是恒等变换；这条改写成锁头注释防"顺手补全"。
+  另记一条流程事实：两个评审并发读同一 worktree，其中一个自述跑了写型电池并 `git restore`，
+  它报的"16 文件联合跑 3 个失败"我用 25 文件并集复跑不可复现 ⇒ 同一工作树上的双轴改为串行派发。
 - 电池自身三处缺陷如实记下（汇总解析照抄了 `node --test` 的 `ℹ` 格式、`split/join` 在 CRLF 文件上
   "计数命中但替换没发生"的静默空转、以及原 C 条摘错了有 7 处注入的文件从而证明不了任何事），
   修完复跑才转绿——见 `openspec/records/fix-quick-collect-clock-rot.md`。
