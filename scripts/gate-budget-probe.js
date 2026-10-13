@@ -104,10 +104,7 @@ function formOfRun (sha, cache, unknowns) {
   }
   const gb = blobOf(sha, GATE_BUDGET_PATH)
   let budgetMin = gb === null ? null : gate.budgetMinFromGateBudgetText(gb)
-  if (budgetMin == null) {
-    const lit = /WaitForExit\((\d{4,})\)/.exec(wf)
-    budgetMin = lit ? Math.round((Number(lit[1]) / 60000) * 100) / 100 : null
-  }
+  if (budgetMin == null) budgetMin = gate.waitExitBudgetMin(wf)
   const shardForm = gate.shardFormOf(wf)
   const f = budgetMin == null || shardForm === 'unknown'
     ? null
@@ -197,6 +194,9 @@ function main () {
     shardSuccessN: curShard.length,
     gate4MaxSuccessMin: maxOf(curG4),
     shardMaxSuccessMin: maxOf(curShard),
+    // 贴脸时要求的"被杀样本"证据也必须同形态：拿混池旧档的 9 条去给当前形态的贴脸作证，
+    // 等于用别的代码形态的墙来证明这堵墙还够高。
+    censoredUnderPriorBudgetN: censoredUnder(bucket.g4, priorBudgetMin).length + censoredUnder(bucket.shard, priorBudgetMin).length,
   }
 
   const fresh = {
@@ -227,20 +227,27 @@ function main () {
     console.log(`FORM ${key}: g4_ok=${b.g4.filter(okRun).length}/${b.g4.length} max=${maxOf(b.g4.filter(okRun))}` +
       ` shard_ok=${b.shard.filter(okRun).length}/${b.shard.length} max=${maxOf(b.shard.filter(okRun))}${cur}`)
   }
-  console.log('form_current=' + currentForm.key + ' form_samples(g4+shard)=' + (form.gate4SuccessN + form.shardSuccessN) +
-    ' form_max=' + Math.max(form.gate4MaxSuccessMin, form.shardMaxSuccessMin) + ' form_unknown_n=' + unknownSamples +
+  console.log('form_current=' + currentForm.key + ' form_gate4=' + form.gate4SuccessN + ' form_shard=' + form.shardSuccessN +
+    '（下限各 ' + gate.MIN_SAMPLE_CURRENT_FORM + '，两池分母不同不得加总）' +
+    ' form_max=' + Math.max(form.gate4MaxSuccessMin, form.shardMaxSuccessMin) +
+    ' form_censored=' + form.censoredUnderPriorBudgetN + ' form_unknown_n=' + unknownSamples +
     (unknowns.length ? ' unknown_why[1]=' + unknowns[0].why + ' (sha ' + String(unknowns[0].sha).slice(0, 8) + ')' : ''))
   console.log('probe_errors=' + errs.length)
-  if (errs.length) { console.log('PROBE_UNRELIABLE（有 ' + errs.length + ' 次取数失败，上面的数字不可用于定预算）: ' + errs[0]); process.exitCode = 3; return }
+  // 出口码由 gate-budget.js 的**表**决定（取数失败 > 告警 > 稀缺 > 贴脸 > 干净），
+  // 不在这里用 if 的书写顺序表达优先级 —— 换序就会把"已观测到贴脸时长"读成"还没量够、别动"。
+  const code = gate.exitCodeFor(sized, errs.length)
+  if (code === 3) { console.log('PROBE_UNRELIABLE（有 ' + errs.length + ' 次取数失败，上面的数字不可用于定预算）: ' + errs[0]); process.exitCode = 3; return }
   console.log('hugging=' + sized.hugging + ' max=' + sized.maxObs + ' budget=' + sized.budgetMin)
   console.log('sizing_ok=' + sized.ok + (sized.ok ? '' : ' reasons=' + sized.reasons.join(' ; ')))
+  console.log('alarms=' + sized.alarms.length + ' scarcity=' + sized.scarcity.length + ' exit_code=' + code)
   if (check) {
-    const insufficient = sized.reasons.some((r) => /INSUFFICIENT_CURRENT_FORM/.test(r))
-    if (insufficient) {
-      console.log('INSUFFICIENT_SAMPLES_FOR_FORM —— 当前形态样本不够：既不抬也不降，等样本攒够再采（不得改判据/改倍数让它不红）')
-      process.exitCode = 4
-    } else if (!sized.ok) { console.log('BUDGET_NO_LONGER_SIZED —— 重新采集后更新 scripts/gate-budget.js（不得改判据消化它）'); process.exitCode = 1 }
-    else if (sized.hugging) { console.log('SIZED_BUT_HUGGING：贴脸是要重测的信号，不是放宽判据的信号'); process.exitCode = 2 }
+    // 横幅复用判据码本身：日志里搜 INSUFFICIENT_CURRENT_FORM 必须同时命中判据与出口说明，
+    // 两个名字（上一版这里写的是 INSUFFICIENT_SAMPLES_FOR_FORM）会让排障者搜不到对方。
+    if (code === 1) console.log('EXIT=1 BUDGET_NO_LONGER_SIZED —— 重新采集后更新 scripts/gate-budget.js（不得改判据消化它）')
+    else if (code === 4) console.log('EXIT=4 INSUFFICIENT_CURRENT_FORM —— 当前形态样本不够：既不抬也不降，等样本攒够再采（不得改判据/改倍数让它不红）')
+    else if (code === 2) console.log('EXIT=2 SIZED_BUT_HUGGING：贴脸是要重测的信号，不是放宽判据的信号')
+    else console.log('EXIT=0 SIZED_OK')
+    process.exitCode = code
   }
 }
 

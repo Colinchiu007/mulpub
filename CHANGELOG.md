@@ -13,12 +13,23 @@ PR #3357（桌面分片修复）合并后跑 mandated 复测，`node scripts/gat
 
 ## 改动
 
-- `scripts/gate-budget.js` 新增两个纯函数：`shardFormOf(workflowText)`（**复用** `check-desktop-shard-forwarding.js`
-  的 `parseShardArgv`，不另抄一份 argv 解析；解析不到一律 `unknown`，**不得默认 fixed**）与
-  `budgetMinFromGateBudgetText(text)`（旧提交没有该文件时退到 workflow 里的 `WaitForExit(<ms>)` 字面量）。
+- `scripts/gate-budget.js` 新增纯函数 `shardFormOf(workflowText)` 与 `budgetMinFromGateBudgetText(text)`；
+  形态判定的**事实来源**收进 `check-desktop-shard-forwarding.js`（新增 `shardFormFacts` / `classifyShardForm`，
+  `check()` 与 `shardFormOf` 同消费一份）。第 1 轮 `shardFormOf` 自己另写了"裸 `--` + 缺 `--shard=`"两条，
+  漏了"续行被注释吃掉"那一支 —— 于是 CI 会把那个 run 报红、探针却把它归进 fixed 池，分档前提被第二份实现钻空子。
+  并且 `require` 挪出 try：模块缺失是装配断裂，必须炸出声，不得被洗成 unknown（那等于判据失明伪装成数据缺失）。
+  `budgetMinFromGateBudgetText` 的正则加行首锚（注释里"历史上 GATE_TEST_BUDGET_MS = 1800000 曾…"不得当成现行常量）；
+  `WaitForExit(<ms>)` 兜底收进 `waitExitBudgetMin()`，两处取值不一致时返回 null 而不是取第一个猜一个。
 - `checkSizing({…, form})`：传了就一律用当前形态的样本数与 max；不传保持旧行为（不破坏既有锁）。
-- 新增 `MIN_SAMPLE_CURRENT_FORM = 20`：同形态样本不足时唯一出口是 `INSUFFICIENT_CURRENT_FORM`，
-  并**跳过** `RULE_VIOLATED` / `NO_LONGER_SIZED` —— 样本不够只能说"判不了"，不能说"要重定数"。
+- 新增 `MIN_SAMPLE_CURRENT_FORM = 20`：同形态样本不足 ⇒ 报 `INSUFFICIENT_CURRENT_FORM`。
+  **第 1 轮这里写错过一次方向**：当时把它做成"跳过 `RULE_VIOLATED` / `NO_LONGER_SIZED`"的整块开关，
+  于是「当前形态已经观测到 44 分（预算 45）但只有 14 个样本」只剩一句"判不了"，真违规被自己的判据关掉。
+  第 2 轮改为**结论分装**：`alarms`（由观测值直接推出 ⇒ 该动数）与 `scarcity`（由样本量推出 ⇒ 别动数）
+  各自成组，稀缺只削弱"预算站得住"这个正向确认（右截尾 ⇒ 观测 max 只会低估），削弱不了"确实跑出过 44 分"。
+- 同形态样本下限**按池分别判**（`gate4 < 20 || shard < 20`）：Gate 4 与 shard 是两个 job、两种预算语义，
+  加总成 28 是个假数。
+- 出口码抽成纯函数表 `exitCodeFor()`：取数失败 3 > 告警 1 > 稀缺 4 > 贴脸 2 > 干净 0。
+  顺序即优先级，写成语句链时"换序"是静默回归（本 PR 要消灭的正是误标签）。
 - 探针按 `budget × shard` 分档逐行打印每一代的样本数与 max；新增退出码 **4 = 当前形态样本不足**。
 - `unknown` 样本（PR head 提交在 squash + 删分支后本地取不到，属结构性）**不进当前形态池、也不计入 `probe_errors`**
   —— 混进 errs 会让探针永久退 3，等于把这条新判据自己关掉（变异 E 钉住这一点）。
@@ -28,8 +39,16 @@ PR #3357（桌面分片修复）合并后跑 mandated 复测，`node scripts/gat
 - 上线后同一探针实测（`.ccg/reviews/probeform-measured.txt`）：三档现场 = `30|broken g4 4/4 max=0.23`、
   `45|broken g4 41/42 max=2.05 · shard 72/72 max=31.55`、`45|fixed（当前）g4 6/6 max=1.83 · shard 8/8 max=17.43`；
   `probe_errors=0`、`sizing_ok=false` 且理由只剩 `INSUFFICIENT_CURRENT_FORM`，**`RULE_VIOLATED` 不再出现**。
-- TDD：4 条新锁先红（含 `TypeError: gate.shardFormOf is not a function`）后绿；`scripts/gate-budget.test.js` 13 → **17 条**，`17 pass / 0 fail`。
-- 变异反证 6 条（`.ccg/reviews/probeform-mutate.driver.js` + `probeform-mutations.txt`）：5 红点名到位、1 绿照绿、`MUTATION_BAD=0`、逐条 `restored=bytes_equal`。
+- TDD：第 1 轮 6 条新锁先红（含 `TypeError: gate.shardFormOf is not a function`）后绿；QM-6 第 1 轮回信后的
+  第 2 轮再加 8 条，先红（红在 `r.alarms`/`r.scarcity` 尚不存在、`gate.exitCodeFor is not a function`、
+  `gate.waitExitBudgetMin is not a function`，以及"续行断裂仍被判 fixed"这条断言本身）后绿。
+  `scripts/gate-budget.test.js` **11 → 25 条**（`git show c6b4709cd:… | grep -c "^test("` = 11 实测），`25 pass / 0 fail`。
+  ⚠ 本条原文写的是"13 → 17"，起点是错的 —— 由可维护性轴指出、我按命令复核后改正，改而不删。
+- 变异反证 **15 条**（`.ccg/reviews/probeform-mutate.driver.js` + `probeform-mutations.txt`）：
+  13 条 want=red 全部点名到位（含第 2 轮新增的 G 回到"稀缺吃掉告警"、H 两池加总、I 出口码换序、
+  J require 挪进 try、K 去掉续行判据、L 正则去锚、M 兜底取第一个、N 探针不按形态算截尾），
+  2 条 want=green 照绿（F 抬余量 5→6、O 只改稀缺理由的尾部措辞 ⇒ 锁认判据码不认整句话），
+  `MUTATION_BAD=0`、FINAL `25/25`、逐条 `restored=bytes_equal`。
   电池顺手抓到两处我自己写的驱动缺陷：多行锚点在 CRLF 工作副本上永远 `hits=0`，以及第一版"修法"仍不生效 —— 修完必须复跑验证。
 
 ## 影响与遗留

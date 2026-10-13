@@ -1,0 +1,44 @@
+fatal: path 'scripts/gate-budget.js' exists on disk, but not in '7f640a395ee0380d0b1c35f6af3dfbb7dd447ff5'
+fatal: path '.github/workflows/quality-gate.yml' exists on disk, but not in 'fe2e968457e0513080127be1b4bdf45da25b11e3'
+fatal: path '.github/workflows/quality-gate.yml' exists on disk, but not in 'ec54667ffb7cfc4d28a386a9caff0b98dea2ab71'
+fatal: path '.github/workflows/quality-gate.yml' exists on disk, but not in '0fff3989fa3b1435091a4b1840a6b743300cdce7'
+fatal: path '.github/workflows/quality-gate.yml' exists on disk, but not in '447e6ebc8e6783fb3d75387623adecd5a2eaeeca'
+fatal: path '.github/workflows/quality-gate.yml' exists on disk, but not in '6b8c27b4665f9169b094751f66ed386f3f7d0876'
+fatal: path '.github/workflows/quality-gate.yml' exists on disk, but not in '33d05a698c5016de44d8118ef15635a8299895d7'
+fatal: path 'scripts/gate-budget.js' exists on disk, but not in 'f35abc8cd72872e351f5f44c5d4b5b408591ae9c'
+fatal: path 'scripts/gate-budget.js' exists on disk, but not in '49fbc464e33e8171204a9df2a34b228bebe1b86e'
+fatal: path '.github/workflows/quality-gate.yml' exists on disk, but not in '05e6a20386b1942d1d99e619dea9709933e97335'
+fatal: path '.github/workflows/quality-gate.yml' exists on disk, but not in 'c4ee76df57cab0baf04fe5aa07276060226a77c9'
+fatal: path '.github/workflows/quality-gate.yml' exists on disk, but not in '61cbe5ef6fb20cbab68f505dc519f26a9497388d'
+fatal: path '.github/workflows/quality-gate.yml' exists on disk, but not in '486682c3036af91672898c2503fbe5881cfa31a9'
+fatal: path '.github/workflows/quality-gate.yml' exists on disk, but not in '41ac91b5d208fa9ee4a17cc213191c2b638c230b'
+fatal: path '.github/workflows/quality-gate.yml' exists on disk, but not in 'd0b4e498a8de164ffe8319412460c7a590651d1f'
+fatal: path 'scripts/gate-budget.js' exists on disk, but not in '446bba2877f69b48b61bde0fb7d53fa522aaf613'
+{
+  "collectedAt": "2026-10-13T04:23:57Z",
+  "workflowId": "306371582",
+  "events": "push(branch=main) n=40 / pull_request n=60",
+  "priorBudgetMin": 30,
+  "currentBudgetMin": 45,
+  "gate4SuccessN": 76,
+  "gate4MaxSuccessMin": 2.05,
+  "censoredUnderPriorBudgetN": 0,
+  "censoredUnderCurrentBudgetN": 0,
+  "gate4CensoredNote": "被杀样本时长截尾，只证 ≥priorBudgetMin，不进 max；抬价后 current 档为 0 属预期",
+  "shardMaxSuccessMin": 31.55,
+  "gate4OverheadMaxMin": 1.4,
+  "shardOverheadMaxMin": 2.03,
+  "multiplier": 1.5,
+  "remeasureCmd": "node scripts/gate-budget-probe.js --check"
+}
+COORDS workflow=306371582 repo=Colinchiu007/mulpub push_n=40 pr_n=60 prior=30min current=45min overhead_sample=8/6
+FORM budget=30min|shard=broken: g4_ok=4/4 max=0.23 shard_ok=0/0 max=0
+FORM budget=45min|shard=broken: g4_ok=41/42 max=2.05 shard_ok=72/72 max=31.55
+FORM budget=45min|shard=fixed: g4_ok=19/19 max=1.83 shard_ok=8/8 max=17.43 ←当前
+form_current=budget=45min|shard=fixed form_gate4=19 form_shard=8（下限各 20，两池分母不同不得加总） form_max=17.43 form_censored=0 form_unknown_n=12 unknown_why[1]=FORM_BLOB_MISSING：本地没有该提交（PR head 分支已删？先 git fetch） (sha fe2e9684)
+probe_errors=0
+hugging=false max=17.43 budget=45
+sizing_ok=false reasons=INSUFFICIENT_CURRENT_FORM：当前形态（budget=45min|shard=fixed）两池成功样本 gate4=19 / shard=8，各自下限 20 —— 不能确认预算站得住；上面若仍有告警，告警照样算数
+alarms=0 scarcity=1 exit_code=4
+EXIT=4 INSUFFICIENT_CURRENT_FORM —— 当前形态样本不够：既不抬也不降，等样本攒够再采（不得改判据/改倍数让它不红）
+PROBE_RC=4

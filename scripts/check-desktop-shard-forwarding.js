@@ -112,6 +112,28 @@ function checkContinuations ({ root = path.resolve(__dirname, '..') } = {}) {
 }
 
 /**
+ * 分片形态的**唯一事实来源**：解析 argv（先把纯注释行挖空）、裸 "--" 计数、`--shard=` 是否存在、
+ * 续行是否被注释吃掉。`check()` 与 `scripts/gate-budget.js` 的 `shardFormOf` 都消费这一份 ——
+ * 两处各写各的判据就会出这种事：CI 把某个 run 报红的失效形态，探针却把它归进 "fixed" 池，
+ * 于是"按形态分档"的前提被自己的第二份实现钻空子。解析不到那一步一律抛错，由调用方定语义。
+ */
+function shardFormFacts (text) {
+  const argv = parseShardArgv(text)
+  return {
+    argv,
+    bareCount: argv.filter((t) => t === '--').length,
+    hasShard: argv.some((t) => String(t).startsWith('--shard=')),
+    severs: findContinuationSevers(text),
+  }
+}
+
+/** 三态里的两态在这里定（unknown 属于"读不到"，由抛错路径表达）：任一失效形态即 broken。 */
+function classifyShardForm (text) {
+  const f = shardFormFacts(text)
+  return (f.bareCount || !f.hasShard || f.severs.length) ? 'broken' : 'fixed'
+}
+
+/**
  * 语义层（QM-6 逻辑轴 MAJOR#1 的答复）：行为层只证明"旗标送到了脚本"，**不证明 vitest 真按 --shard 切文件**。
  * 这里用仓库里**已安装的** vitest 在临时目录跑 4 个平凡测试文件，比两腿实际枚举到的文件名集合：
  * 互斥且合计等于总数，才是"分片语义生效"。本机实测（vitest 随仓库安装，pwsh/node 同版本）：
@@ -165,11 +187,10 @@ function runShardSemantics ({ root = path.resolve(__dirname, '..') } = {}) {
 function check ({ root = path.resolve(__dirname, '..'), probe = runArgv, semantics = runShardSemantics } = {}) {
   const problems = []
   const text = fs.readFileSync(path.join(root, WORKFLOW), 'utf8')
-  const argv = parseShardArgv(text)
-  const bare = argv.filter((t) => t === '--')
-  const hasShard = argv.some((t) => t.startsWith('--shard='))
-  if (!hasShard) problems.push('workflow 的 shard 参数里找不到 --shard=（分片整个不见了？）')
-  if (bare.length) problems.push(`workflow 的 -ArgumentList 里有 ${bare.length} 个裸 "--"：pnpm 会原样交给脚本，vitest 到此停止解析选项 ⇒ 旗标全部静默失效`)
+  const facts = shardFormFacts(text)
+  const argv = facts.argv
+  if (!facts.hasShard) problems.push('workflow 的 shard 参数里找不到 --shard=（分片整个不见了？）')
+  if (facts.bareCount) problems.push(`workflow 的 -ArgumentList 里有 ${facts.bareCount} 个裸 "--"：pnpm 会原样交给脚本，vitest 到此停止解析选项 ⇒ 旗标全部静默失效`)
 
   // 第二落点：续行被注释吃掉（见 findContinuationSevers 的三态实测）
   const cont = checkContinuations({ root })
@@ -235,5 +256,5 @@ function main () {
   process.exitCode = r.ok ? 0 : 1
 }
 
-module.exports = { check, parseShardArgv, runArgv, findContinuationSevers, checkContinuations, runShardSemantics, resolveVitestEntry, WORKFLOW }
+module.exports = { check, parseShardArgv, runArgv, findContinuationSevers, checkContinuations, runShardSemantics, resolveVitestEntry, shardFormFacts, classifyShardForm, WORKFLOW }
 if (require.main === module) main(process.argv.slice(2))
