@@ -43,12 +43,42 @@ const EXEMPT_RE = /^openspec\/records\/_exempt\/[^_][^/]*\.md$/
 const CARRIER_RE = /^(?:openspec\/records\/[^_][^/]*\.md|\.quality-gates\.md|scripts\/gate-record-debt-ledger\.json)$/
 const DEFAULT_THRESHOLD = 3
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 钩子自动产物（2026-10-13 事故修复）
+//
+// pre-commit 自 #3396（aee1ebc9b, 2026-10-12）起自动 `git add` 判定记录
+// `.ccg/reviews/<sha>.json`（状态 **A**），作为「防 .ccg/reviews 未跟踪堆积的根治」。
+// 而本文件的出路④「纯回填」判据（#2928, e77977892, 2026-10-05）要求
+// **变更集全部是载体的 M** —— 两特性独立落地且互相矛盾：
+//
+//   ⇒ 自 2026-10-12 起，任何走 pre-commit 的 PR 都必然带一个 A 文件，
+//     出路④ **再也无法成立**（实测 #3465 / #3466 / #3470 三笔回填 PR 在
+//     `--mode=enforce` 下全部不通过；7 天无人发现，只因 CI 以 `--mode=advisory`
+//     调用，恒 exit 0 —— 判据死了但没人看得见）。
+//
+// 处置：判形态前**先剔除钩子自动产物**。这与 classify-docs-only.js 的
+// CI_IGNORED_PATHS 已把 `.ccg/**` 视为非代码是同一口径 —— 两套判据对
+// 「什么算代码」必须一致，各持一说正是本仓反复记录的失败模式。
+//
+// 豁免面刻意**只开给** `.ccg/reviews/*.json`（不放 `.ccg/**`）：范围越小，
+// 被真代码蹭到的机会越小；且该目录由 ccg-review-decider.js 独占写入。
+// 剔除后若变更集为空 ⇒ 下方 `length > 0` 兜底 fail-closed，不会让"只跑钩子"的空 PR 过关。
+// ─────────────────────────────────────────────────────────────────────────────
+const AUTO_STAGED_RE = /^\.ccg\/reviews\/[^/]+\.json$/
+
+/** 剔除钩子自动产物后的变更集（形态判据一律基于它，计数展示仍用原始集）。*/
+function excludingAutoStaged (statuses) {
+  return Array.isArray(statuses) ? statuses.filter((e) => !AUTO_STAGED_RE.test(String(e.file))) : statuses
+}
+
 // 出路④的判据核心（独立成纯函数以便直接单测，QM-6 前端 I1）：变更集非空、每条都是载体的 M、
 // 且至少一篇是记录文件（C2 收紧，理由见 evaluate 内注释）。
+// 2026-10-13：先剔除钩子自动产物再判（见 AUTO_STAGED_RE 注释），否则出路④恒不可达。
 function isPureBackfillChangeSet (statuses) {
-  return Array.isArray(statuses) && statuses.length > 0
-    && statuses.every((e) => e.status === 'M' && CARRIER_RE.test(e.file))
-    && statuses.some((e) => RECORDS_RE.test(e.file))
+  const relevant = excludingAutoStaged(statuses)
+  return Array.isArray(relevant) && relevant.length > 0
+    && relevant.every((e) => e.status === 'M' && CARRIER_RE.test(e.file))
+    && relevant.some((e) => RECORDS_RE.test(e.file))
 }
 
 // 记录/豁免的判据核心：输入全是数据，不碰 git、不碰网络 —— 这样每条规则都能单测，
@@ -144,7 +174,8 @@ function evaluate({
       + '④纯回填（定义）：变更集全部是既有记录/台账载体（openspec/records/*.md、.quality-gates.md、'
       + 'scripts/gate-record-debt-ledger.json）的 M，且至少含一篇 openspec/records/*.md 的 M ⇒ '
       + '满足此定义者直接放行（夹带任何新增/删除/非载体文件、或只改门禁清单/账本而无记录文件，'
-      + '即不符合此定义）。')
+      + '即不符合此定义）。**判形态前先剔除 pre-commit 自动 stage 的 .ccg/reviews/*.json**'
+      + '（钩子产物不算夹带；该豁免只开给这一目录，剔除后为空即 fail-closed）。')
   }
 
   // 已消费的豁免：分支已不在远端（合并即删分支）。要求"同 PR 内自删"在 squash 流程下不可实现，
@@ -325,6 +356,6 @@ function report(r, mode) {
   process.exit(r.ok ? 0 : 1)
 }
 
-module.exports = { evaluate, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD }
+module.exports = { evaluate, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, excludingAutoStaged, AUTO_STAGED_RE, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD }
 
 if (require.main === module) main(process.argv.slice(2))

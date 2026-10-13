@@ -167,6 +167,90 @@ test('出路④必须伴随至少一篇记录文件的 M：只翻 .quality-gates
     '三条载体都必须进 backfillRevised 清单（QM-6 前端 I3）')
 })
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 2026-10-13 事故回归：pre-commit 自动 stage 的 .ccg/reviews/<sha>.json 让出路④恒不可达
+//
+// 时间线（两特性独立落地后互相矛盾）：
+//   * e77977892 (#2928, 2026-10-05) 引入出路④「纯回填」，判据要求**变更集全部是载体的 M**；
+//   * aee1ebc9b (#3396, 2026-10-12) 让 pre-commit 自动 `git add .ccg/reviews/<sha>.json`
+//     （状态 A）——「防 .ccg/reviews 未跟踪堆积的根治」。
+//   ⇒ 自 2026-10-12 起，**任何走 pre-commit 的 PR 都必然带一个 A 文件**，出路④再也无法成立。
+//     实测：#3465 / #3466 / #3470 三笔回填 PR 在 --mode=enforce 下全部不通过；
+//     7 天无人发现，只因 CI 以 --mode=advisory 调用（恒 exit 0）。
+//
+// 处置口径：判形态前**先剔除钩子自动产物**。这与 classify-docs-only.js 的
+//   CI_IGNORED_PATHS 已把 `.ccg/**` 视为非代码是同一口径（两套判据不得对"什么算代码"
+//   各持一说，那正是本仓反复记录的失败模式）。
+//
+// 下列 4 条安全边界与 1 条核心回归同等重要：豁免**只**给自动产物，不得被真代码/豁免文件蹭到。
+// ─────────────────────────────────────────────────────────────────────────────
+test('回归：pre-commit 自动 stage 的 .ccg/reviews/*.json 不得让出路④恒不可达', () => {
+  const AUTO = '.ccg/reviews/93794a46ec3e4b0efac15bcbf907cbe97ecb130f.json'
+
+  // ① 核心回归：真实回填 PR 的变更集形态（载体 M + 自动产物 A）必须判为纯回填。
+  //    修复前这里是 false —— 出路④自 2026-10-12 起从未生效过。
+  assert.strictEqual(
+    mod.isPureBackfillChangeSet(st([
+      ['M', '.quality-gates.md'],
+      ['M', 'openspec/records/a.md'],
+      ['M', 'scripts/gate-record-debt-ledger.json'],
+      ['A', AUTO],
+    ])), true,
+    '钩子自动产物必须被剔除后再判形态，否则出路④恒不可达')
+
+  // ② 多个自动产物（每次 commit/amend 各追加一枚）同样不影响判定
+  assert.strictEqual(
+    mod.isPureBackfillChangeSet(st([
+      ['M', 'openspec/records/a.md'],
+      ['A', AUTO],
+      ['A', '.ccg/reviews/052d71aeceb7f8a6622b93fd678b153f8492841f.json'],
+      ['A', '.ccg/reviews/a59529bb2cb013087a7dad70b3a5b9d5d1676a53.json'],
+    ])), true,
+    '多枚自动产物不得累积成"夹带"')
+
+  // ③ 安全边界：**只有**自动产物、没有任何载体 ⇒ 仍必须是 false（fail-closed）。
+  //    否则「只跑钩子、不写记录」的空 PR 会被判成合法回填。
+  assert.strictEqual(
+    mod.isPureBackfillChangeSet(st([['A', AUTO]])), false,
+    '自动产物本身不构成回填，必须 fail-closed')
+
+  // ④ 安全边界：载体 M + 自动产物 A + **真代码 A** ⇒ 必须仍是 false。
+  //    豁免只针对自动产物，不得把真代码一起放进来（这是本次修复最危险的滑坡）。
+  assert.strictEqual(
+    mod.isPureBackfillChangeSet(st([
+      ['M', 'openspec/records/a.md'],
+      ['A', AUTO],
+      ['A', 'packages/api-publish-engine/src/x.js'],
+    ])), false,
+    '豁免不得外溢到真代码 —— 掺一个 A 代码文件就不再是纯回填')
+
+  // ⑤ 安全边界：载体 M + 自动产物 A + **豁免文件 A** ⇒ 必须仍是 false。
+  //    _exempt 是**另一条出路**（③），与出路④互斥，不得因剔除自动产物而重叠。
+  assert.strictEqual(
+    mod.isPureBackfillChangeSet(st([
+      ['M', 'openspec/records/a.md'],
+      ['A', AUTO],
+      ['A', 'openspec/records/_exempt/x.md'],
+    ])), false,
+    '豁免出路与纯回填出路不得重叠')
+
+  // ⑥ 安全边界：`.ccg/` 下**非 reviews/** 的 A 文件不豁免（保守：豁免面只开给已知自动产物）
+  assert.strictEqual(
+    mod.isPureBackfillChangeSet(st([
+      ['M', 'openspec/records/a.md'],
+      ['A', '.ccg/skills/some-tool.js'],
+    ])), false,
+    '豁免面只开给 .ccg/reviews/*.json，不得扩到整个 .ccg/')
+
+  // ⑦ 自动产物是 M（而非 A）时同样剔除 —— 形态不该因 git 的状态字母而变
+  assert.strictEqual(
+    mod.isPureBackfillChangeSet(st([
+      ['M', 'openspec/records/a.md'],
+      ['M', AUTO],
+    ])), true,
+    '自动产物的 M/A 形态都应剔除')
+})
+
 test('isPureBackfillChangeSet 判据可直接单测（QM-6 前端 I1）', () => {
   assert.strictEqual(typeof mod.isPureBackfillChangeSet, 'function', '必须导出判据函数')
   assert.strictEqual(mod.isPureBackfillChangeSet(st([['M', 'openspec/records/a.md']])), true)

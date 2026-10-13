@@ -62,6 +62,61 @@
 `check-doc-abs-paths`（改动集口径）/ `check-pr-exec-record --mode=enforce` 全绿；
 `workflow-contract` 34/35 —— 唯一那条红即上面第 2 点的 main 既有矛盾，因 Gate 3 保持原样
 而不会在本 PR 的 CI 上显形；执行记录 `openspec/records/gui-test-workflow-structure.md`。
+# [未发布] fix(gate): 出路④「纯回填」被 pre-commit 自动产物恒不可达——判形态前剔除 .ccg/reviews/*.json（fix-pure-backfill-autostaged）
+
+## 症状
+
+回填型 PR（只改 `.quality-gates.md` / `openspec/records/*.md` / `scripts/gate-record-debt-ledger.json`）
+在 `node scripts/check-pr-exec-record.js --mode=enforce` 下**一律被判「本 PR 未携带执行记录」**，
+即出路④「纯回填」**自 2026-10-12 起从未生效过**。因 CI 以 `--mode=advisory` 调用（恒 `exit 0`），
+该判据失效 7 天**零信号**。
+
+## 根因：两个特性独立落地后互相矛盾
+
+| 事件 | 提交 | 日期 |
+|---|---|---|
+| 出路④「纯回填」判据引入（要求变更集**全部**是载体的 `M`） | `e77977892` (#2928) | **2026-10-05** |
+| pre-commit 自动 `git add` 判定记录 `.ccg/reviews/<sha>.json`（状态 **A**） | `aee1ebc9b` (#3396) | **2026-10-12** |
+
+自动入库**晚 7 天**落地，此后任何走 pre-commit 的 PR 都必然带一个 A 文件，
+`statuses.every((e) => e.status === 'M' && …)` 再也无法成立。
+
+**实测影响面**：#3465 / #3466 / #3470 三笔真实回填 PR 在 `--mode=enforce` 下全部 `不通过：1 条理由`、rc=1。
+
+## 逃逸链（四层）
+
+- **单元层**：判据有独立单测，但**无一条用例带 `.ccg/reviews/` 的 A 文件**，夹具全是手搓 statuses、**不经过真实钩子** ⇒ 判据在单测里恒真
+- **CI 层**：`--mode=advisory` 恒 `exit 0`，判据死了也不出声
+- **端到端层**：CLI e2e 构造临时 git 仓库，**不经过 pre-commit**，永远产不出该目录
+- **人工层**：文档判据写着 enforce 为 OK，但没人跑过
+
+## 改动
+
+`scripts/check-pr-exec-record.js` 新增 `AUTO_STAGED_RE = /^\.ccg\/reviews\/[^/]+\.json$/` 与
+`excludingAutoStaged()`，判形态前**先剔除钩子自动产物**；剔除后为空由既有 `length > 0` 兜底 fail-closed。
+
+口径依据：`classify-docs-only.js` 的 `CI_IGNORED_PATHS` 已含 `.ccg/**` —— 两套判据对「什么算代码」必须一致。
+
+**安全边界**（5 条反向断言，与核心回归同等重要）：豁免面**只开给** `.ccg/reviews/*.json`，**不放 `.ccg/**`**；
+只有自动产物无载体 ⇒ 仍 false；载体 M + 自动产物 A + **真代码 A** ⇒ **仍 false**（防豁免外溢，本次最危险的滑坡）；
+载体 M + 自动产物 A + `_exempt` A ⇒ 仍 false（出路③与④不得重叠）；`.ccg/` 下非 reviews/ 的 A ⇒ 仍 false。
+
+## 验证
+
+| 项 | 结果 |
+|---|---|
+| 测试 | `check-pr-exec-record.test.js` **36/36**（新增 7 断言）；`classify-docs-only.test.js` **27/27** |
+| **变异反证** | `excludingAutoStaged` 改 no-op ⇒ **新增用例立红**；按字节还原 ⇒ 36/36 全绿 |
+| **真 A/B** | 同一位置、同一 commit、只换脚本：#3466 / #3465 / #3470 **修复前 `rc=1 不通过` → 修复后 `rc=0 OK`**，三笔全部翻转 |
+| 其他门禁 | `check-gate-record-debt` / `check-no-brand-residue` / `check-unwired-tests` / `check-text-encoding-integrity` 全 PASS |
+
+## 刻意未做
+
+不把 CI 从 `--mode=advisory` 改成 `enforce`（存量 PR 影响面未评估，属独立决策）；
+不改 AGENTS.md 判据正文（判据 4 在本修复后才真正可达，本 PR 是让文档与实现重新一致）。
+
+---
+
 # [未发布] fix(xiaohongshu): 草稿箱计数确认链的 dom 侧实现从未落地——调用方、用例和「已完成」声明都进了 main，只有实现半边没有（xhs-draft-box-restore）
 
 ## 症状
