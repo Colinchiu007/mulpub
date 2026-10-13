@@ -132,9 +132,11 @@ function validateJumpSources () {
     const n = (s.urlTemplate.match(/%s/g) || []).length
     if (n !== 1) problems.push(`${where}: urlTemplate 含 ${n} 个 %s（必须恰好 1 个）`)
 
-    // host 白名单
-    let host = ''
-    try { host = new URL(s.urlTemplate.replace('%s', 'x')).host } catch (e) { host = '' }
+    // host 白名单。用内层 IIFE 取 host —— `let host = ''` 的初值会被 ESLint 判为
+    // no-useless-assignment（两个分支都先赋值再使用，初值确实无用）。
+    const host = (() => {
+      try { return new URL(s.urlTemplate.replace('%s', 'x')).host } catch (e) { return '' }
+    })()
     if (!host) problems.push(`${where}: urlTemplate 无法解析出 host`)
     else if (!Array.isArray(s.hosts) || !s.hosts.includes(host)) {
       problems.push(`${where}: host ${host} 不在白名单 ${JSON.stringify(s.hosts)} 里`)
