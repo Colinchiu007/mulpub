@@ -1,0 +1,471 @@
+{
+  "rows": [
+    {
+      "slug": "qqkantiao",
+      "mapFile": "—",
+      "l1": 52,
+      "l2": 503,
+      "bytes": 5304,
+      "sameL1": null,
+      "hasId": null,
+      "sampleIds": [],
+      "layered": false
+    },
+    {
+      "slug": "weixin",
+      "mapFile": "—",
+      "l1": 39,
+      "l2": 372,
+      "bytes": 3991,
+      "sameL1": null,
+      "hasId": null,
+      "sampleIds": [],
+      "layered": false
+    },
+    {
+      "slug": "qutoutiao",
+      "mapFile": "qutoutiaocategortmap.txt",
+      "l1": 40,
+      "l2": 340,
+      "bytes": 15567,
+      "sameL1": false,
+      "hasId": true,
+      "sampleIds": [
+        "27",
+        "102700",
+        "102701",
+        "102702"
+      ],
+      "layered": false
+    },
+    {
+      "slug": "kuaishou",
+      "mapFile": "—",
+      "l1": 38,
+      "l2": 267,
+      "bytes": 5074,
+      "sameL1": null,
+      "hasId": null,
+      "sampleIds": [],
+      "layered": false
+    },
+    {
+      "slug": "yidian",
+      "mapFile": "—",
+      "l1": 39,
+      "l2": 246,
+      "bytes": 3271,
+      "sameL1": null,
+      "hasId": null,
+      "sampleIds": [],
+      "layered": false
+    },
+    {
+      "slug": "dafeng",
+      "mapFile": "dafengvideocategortmap.txt",
+      "l1": 38,
+      "l2": 204,
+      "bytes": 29715,
+      "sameL1": true,
+      "hasId": true,
+      "sampleIds": [
+        "5854cc2e10882e25d85741e3",
+        "5a65bfe26be7bf0001a64ec8",
+        "5854cc2e10882e25d85741ec",
+        "5861f33a5e843ed615dae348"
+      ],
+      "layered": false
+    },
+    {
+      "slug": "sogou",
+      "mapFile": "—",
+      "l1": 34,
+      "l2": 197,
+      "bytes": 2154,
+      "sameL1": null,
+      "hasId": null,
+      "sampleIds": [],
+      "layered": false
+    },
+    {
+      "slug": "qie",
+      "mapFile": "—",
+      "l1": 29,
+      "l2": 176,
+      "bytes": 2019,
+      "sameL1": null,
+      "hasId": null,
+      "sampleIds": [],
+      "layered": false
+    },
+    {
+      "slug": "weibo",
+      "mapFile": "weibovideocategortmap.txt",
+      "l1": 19,
+      "l2": 171,
+      "bytes": 29255,
+      "sameL1": true,
+      "hasId": true,
+      "sampleIds": [
+        "4400850324681150",
+        "4400850530203370",
+        "4400850798319183",
+        "4411013106177267"
+      ],
+      "layered": false
+    },
+    {
+      "slug": "qqkandian",
+      "mapFile": "qqkandianvideocategortmap.txt",
+      "l1": 21,
+      "l2": 139,
+      "bytes": 26102,
+      "sameL1": true,
+      "hasId": true,
+      "sampleIds": [
+        "11",
+        "21",
+        "22",
+        "23"
+      ],
+      "layered": true
+    },
+    {
+      "slug": "bilibili",
+      "mapFile": "bilibilivideocategortmap.txt",
+      "l1": 23,
+      "l2": 120,
+      "bytes": 9684,
+      "sameL1": true,
+      "hasId": true,
+      "sampleIds": [
+        "160",
+        "21",
+        "138",
+        "161"
+      ],
+      "layered": false
+    },
+    {
+      "slug": "acfun",
+      "mapFile": "acfunvideocategortmap.txt",
+      "l1": 11,
+      "l2": 63,
+      "bytes": 3146,
+      "sameL1": true,
+      "hasId": true,
+      "sampleIds": [
+        "1",
+        "190",
+        "99",
+        "133"
+      ],
+      "layered": false
+    },
+    {
+      "slug": "baihua",
+      "mapFile": "baihuavideocategortmap.txt",
+      "l1": 9,
+      "l2": 57,
+      "bytes": 4391,
+      "sameL1": true,
+      "hasId": true,
+      "sampleIds": [
+        "9",
+        "29",
+        "593",
+        "13"
+      ],
+      "layered": false
+    },
+    {
+      "slug": "kaidi",
+      "mapFile": "kaidicategortmap.txt",
+      "l1": 17,
+      "l2": 51,
+      "bytes": 6753,
+      "sameL1": true,
+      "hasId": true,
+      "sampleIds": [
+        "10024",
+        "111",
+        "142",
+        "421"
+      ],
+      "layered": false
+    },
+    {
+      "slug": "dongfang",
+      "mapFile": "—",
+      "l1": 17,
+      "l2": 8,
+      "bytes": 302,
+      "sameL1": null,
+      "hasId": null,
+      "sampleIds": [],
+      "layered": false
+    },
+    {
+      "slug": "aiqiyimedia",
+      "mapFile": "aiqiyimediavideocategortmap.txt",
+      "l1": 29,
+      "l2": 0,
+      "bytes": 1972,
+      "sameL1": null,
+      "hasId": true,
+      "sampleIds": [
+        "8",
+        "4",
+        "15",
+        "17"
+      ],
+      "layered": null
+    },
+    {
+      "slug": "baijia",
+      "mapFile": "baijiavideocategortmap.txt",
+      "l1": 44,
+      "l2": 0,
+      "bytes": 59285,
+      "sameL1": true,
+      "hasId": true,
+      "sampleIds": [
+        "军事",
+        "科技",
+        "历史",
+        "社会"
+      ],
+      "layered": true
+    },
+    {
+      "slug": "dayu",
+      "mapFile": "—",
+      "l1": 42,
+      "l2": 0,
+      "bytes": 619,
+      "sameL1": null,
+      "hasId": null,
+      "sampleIds": [],
+      "layered": false
+    },
+    {
+      "slug": "douyin",
+      "mapFile": "douyinvideocategortmap.txt",
+      "l1": 36,
+      "l2": 0,
+      "bytes": 25520,
+      "sameL1": true,
+      "hasId": true,
+      "sampleIds": [
+        "601",
+        "602",
+        "603",
+        "604"
+      ],
+      "layered": false
+    },
+    {
+      "slug": "huitoutiao",
+      "mapFile": "huitoutiaovideocategortmap.txt",
+      "l1": 22,
+      "l2": 0,
+      "bytes": 2983,
+      "sameL1": true,
+      "hasId": true,
+      "sampleIds": [
+        "161",
+        "165",
+        "100",
+        "102"
+      ],
+      "layered": false
+    },
+    {
+      "slug": "kuaichuan",
+      "mapFile": "kuaichuancategortmap.txt",
+      "l1": 50,
+      "l2": 0,
+      "bytes": 1401,
+      "sameL1": null,
+      "hasId": true,
+      "sampleIds": [
+        "4",
+        "7",
+        "8",
+        "9"
+      ],
+      "layered": null
+    },
+    {
+      "slug": "meipai",
+      "mapFile": "meipaisubcategortmap.txt",
+      "l1": 12,
+      "l2": 0,
+      "bytes": 2669,
+      "sameL1": true,
+      "hasId": true,
+      "sampleIds": [
+        "1609",
+        "1576",
+        "1547",
+        "1570"
+      ],
+      "layered": false
+    },
+    {
+      "slug": "miaopaimedia",
+      "mapFile": "miaopaimediavideocategortmap.txt",
+      "l1": 39,
+      "l2": 0,
+      "bytes": 2009,
+      "sameL1": false,
+      "hasId": true,
+      "sampleIds": [
+        "1",
+        "2",
+        "4",
+        "5"
+      ],
+      "layered": false
+    },
+    {
+      "slug": "sinakandian",
+      "mapFile": "sinakandiancategortmap.txt",
+      "l1": 40,
+      "l2": 0,
+      "bytes": 4058,
+      "sameL1": true,
+      "hasId": true,
+      "sampleIds": [
+        "1",
+        "10",
+        "11",
+        "12"
+      ],
+      "layered": false
+    },
+    {
+      "slug": "sohumedia",
+      "mapFile": "sohumediacategortmap.txt",
+      "l1": 26,
+      "l2": 0,
+      "bytes": 9327,
+      "sameL1": false,
+      "hasId": true,
+      "sampleIds": [
+        "10",
+        "12",
+        "13",
+        "15"
+      ],
+      "layered": false
+    },
+    {
+      "slug": "sohu",
+      "mapFile": "sohuvideocategortmap.txt",
+      "l1": 2,
+      "l2": 0,
+      "bytes": 371832,
+      "sameL1": false,
+      "hasId": true,
+      "sampleIds": [
+        "0",
+        "0"
+      ],
+      "layered": true
+    },
+    {
+      "slug": "tencent",
+      "mapFile": "tencentvideocategortmap.txt",
+      "l1": 20,
+      "l2": 0,
+      "bytes": 17233,
+      "sameL1": true,
+      "hasId": true,
+      "sampleIds": [
+        "8335388",
+        "8335378",
+        "8335379",
+        "8335380"
+      ],
+      "layered": false
+    },
+    {
+      "slug": "toutiao",
+      "mapFile": "—",
+      "l1": 25,
+      "l2": 0,
+      "bytes": 382,
+      "sameL1": null,
+      "hasId": null,
+      "sampleIds": [],
+      "layered": false
+    },
+    {
+      "slug": "wangyi",
+      "mapFile": "wangyisubcategortmap.txt",
+      "l1": 42,
+      "l2": 0,
+      "bytes": 11839,
+      "sameL1": true,
+      "hasId": true,
+      "sampleIds": [
+        "VC4140707641426034139",
+        "VC6572219156619835081",
+        "VC8095566634642027105",
+        "VC5426036068921030429"
+      ],
+      "layered": false
+    },
+    {
+      "slug": "wutiao",
+      "mapFile": "—",
+      "l1": 36,
+      "l2": 0,
+      "bytes": 549,
+      "sameL1": null,
+      "hasId": null,
+      "sampleIds": [],
+      "layered": false
+    },
+    {
+      "slug": "zhihu",
+      "mapFile": "zhihuvideocategortmap.txt",
+      "l1": 33,
+      "l2": 0,
+      "bytes": 3188,
+      "sameL1": false,
+      "hasId": true,
+      "sampleIds": [
+        "1000021",
+        "1000025",
+        "1000001",
+        "1000030"
+      ],
+      "layered": false
+    }
+  ],
+  "parseFail": [],
+  "extra": [
+    "acfun",
+    "aiqiyimedia",
+    "baihua",
+    "dafeng",
+    "dayu",
+    "dongfang",
+    "kaidi",
+    "meipai",
+    "miaopaimedia",
+    "qie",
+    "qqkantiao",
+    "qutoutiao",
+    "sinakandian",
+    "sogou",
+    "sohu",
+    "sohumedia",
+    "tencent",
+    "wangyi",
+    "wutiao",
+    "yidian"
+  ]
+}

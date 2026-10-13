@@ -1,0 +1,2187 @@
+[
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "军事历史",
+            "name" : "军事历史"
+         },
+         {
+            "child" : null,
+            "id" : "环球军事",
+            "name" : "环球军事"
+         },
+         {
+            "child" : null,
+            "id" : "武器装备",
+            "name" : "武器装备"
+         },
+         {
+            "child" : null,
+            "id" : "中国军情",
+            "name" : "中国军情"
+         },
+         {
+            "child" : null,
+            "id" : "军人风采",
+            "name" : "军人风采"
+         },
+         {
+            "child" : null,
+            "id" : "航空航天",
+            "name" : "航空航天"
+         },
+         {
+            "child" : null,
+            "id" : "军事综合",
+            "name" : "军事综合"
+         }
+      ],
+      "id" : "军事",
+      "name" : "军事"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "工业机械",
+            "name" : "工业机械"
+         },
+         {
+            "child" : null,
+            "id" : "互联网",
+            "name" : "互联网"
+         },
+         {
+            "child" : null,
+            "id" : "信息技术",
+            "name" : "信息技术"
+         },
+         {
+            "child" : null,
+            "id" : "软件",
+            "name" : "软件"
+         },
+         {
+            "child" : null,
+            "id" : "通信",
+            "name" : "通信"
+         },
+         {
+            "child" : null,
+            "id" : "人工智能",
+            "name" : "人工智能"
+         },
+         {
+            "child" : null,
+            "id" : "自动驾驶",
+            "name" : "自动驾驶"
+         },
+         {
+            "child" : null,
+            "id" : "交通工具",
+            "name" : "交通工具"
+         },
+         {
+            "child" : null,
+            "id" : "科技综合",
+            "name" : "科技综合"
+         }
+      ],
+      "id" : "科技",
+      "name" : "科技"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "中国古代史",
+            "name" : "中国古代史"
+         },
+         {
+            "child" : null,
+            "id" : "中国近代史",
+            "name" : "中国近代史"
+         },
+         {
+            "child" : null,
+            "id" : "中国现代史",
+            "name" : "中国现代史"
+         },
+         {
+            "child" : null,
+            "id" : "世界历史",
+            "name" : "世界历史"
+         },
+         {
+            "child" : null,
+            "id" : "考古",
+            "name" : "考古"
+         },
+         {
+            "child" : null,
+            "id" : "历史综合",
+            "name" : "历史综合"
+         }
+      ],
+      "id" : "历史",
+      "name" : "历史"
+   },
+   {
+      "child" : [
+         {
+            "child" : [
+               {
+                  "id" : "自然灾害",
+                  "name" : "自然灾害"
+               },
+               {
+                  "id" : "交通事故",
+                  "name" : "交通事故"
+               },
+               {
+                  "id" : "医患关系",
+                  "name" : "医患关系"
+               },
+               {
+                  "id" : "民事纠纷",
+                  "name" : "民事纠纷"
+               },
+               {
+                  "id" : "食品安全",
+                  "name" : "食品安全"
+               },
+               {
+                  "id" : "婚礼",
+                  "name" : "婚礼"
+               },
+               {
+                  "id" : "民生综合",
+                  "name" : "民生综合"
+               }
+            ],
+            "id" : "民生",
+            "name" : "民生"
+         },
+         {
+            "child" : null,
+            "id" : "政法",
+            "name" : "政法"
+         },
+         {
+            "child" : null,
+            "id" : "预警预报",
+            "name" : "预警预报"
+         },
+         {
+            "child" : null,
+            "id" : "文旅",
+            "name" : "文旅"
+         },
+         {
+            "child" : null,
+            "id" : "彩票",
+            "name" : "彩票"
+         },
+         {
+            "child" : null,
+            "id" : "奇闻轶事",
+            "name" : "奇闻轶事"
+         },
+         {
+            "child" : null,
+            "id" : "公益",
+            "name" : "公益"
+         },
+         {
+            "child" : null,
+            "id" : "社团",
+            "name" : "社团"
+         },
+         {
+            "child" : null,
+            "id" : "党建",
+            "name" : "党建"
+         }
+      ],
+      "id" : "社会",
+      "name" : "社会"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "明星动态",
+            "name" : "明星动态"
+         },
+         {
+            "child" : null,
+            "id" : "明星八卦",
+            "name" : "明星八卦"
+         },
+         {
+            "child" : null,
+            "id" : "明星相关综合",
+            "name" : "明星相关综合"
+         }
+      ],
+      "id" : "明星周边",
+      "name" : "明星周边"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "剧情",
+            "name" : "剧情"
+         },
+         {
+            "child" : null,
+            "id" : "喜剧",
+            "name" : "喜剧"
+         },
+         {
+            "child" : null,
+            "id" : "动作冒险",
+            "name" : "动作冒险"
+         },
+         {
+            "child" : null,
+            "id" : "爱情",
+            "name" : "爱情"
+         },
+         {
+            "child" : null,
+            "id" : "科幻",
+            "name" : "科幻"
+         },
+         {
+            "child" : null,
+            "id" : "奇魔玄幻",
+            "name" : "奇魔玄幻"
+         },
+         {
+            "child" : null,
+            "id" : "悬疑",
+            "name" : "悬疑"
+         },
+         {
+            "child" : null,
+            "id" : "惊悚",
+            "name" : "惊悚"
+         },
+         {
+            "child" : null,
+            "id" : "纪录片",
+            "name" : "纪录片"
+         },
+         {
+            "child" : null,
+            "id" : "音乐歌舞",
+            "name" : "音乐歌舞"
+         },
+         {
+            "child" : null,
+            "id" : "家庭伦理",
+            "name" : "家庭伦理"
+         },
+         {
+            "child" : null,
+            "id" : "古装历史",
+            "name" : "古装历史"
+         },
+         {
+            "child" : null,
+            "id" : "军旅战争",
+            "name" : "军旅战争"
+         },
+         {
+            "child" : null,
+            "id" : "灾难",
+            "name" : "灾难"
+         },
+         {
+            "child" : null,
+            "id" : "功夫武侠",
+            "name" : "功夫武侠"
+         },
+         {
+            "child" : null,
+            "id" : "警匪犯罪",
+            "name" : "警匪犯罪"
+         },
+         {
+            "child" : null,
+            "id" : "青春偶像",
+            "name" : "青春偶像"
+         },
+         {
+            "child" : null,
+            "id" : "都市职场",
+            "name" : "都市职场"
+         },
+         {
+            "child" : null,
+            "id" : "乡村",
+            "name" : "乡村"
+         },
+         {
+            "child" : null,
+            "id" : "动画电影",
+            "name" : "动画电影"
+         },
+         {
+            "child" : null,
+            "id" : "影视资讯",
+            "name" : "影视资讯"
+         }
+      ],
+      "id" : "影视",
+      "name" : "影视"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "相亲综艺",
+            "name" : "相亲综艺"
+         },
+         {
+            "child" : null,
+            "id" : "挑战综艺",
+            "name" : "挑战综艺"
+         },
+         {
+            "child" : null,
+            "id" : "职场综艺",
+            "name" : "职场综艺"
+         },
+         {
+            "child" : null,
+            "id" : "鉴宝综艺",
+            "name" : "鉴宝综艺"
+         },
+         {
+            "child" : null,
+            "id" : "文化综艺",
+            "name" : "文化综艺"
+         },
+         {
+            "child" : null,
+            "id" : "亲子综艺",
+            "name" : "亲子综艺"
+         },
+         {
+            "child" : null,
+            "id" : "情感综艺",
+            "name" : "情感综艺"
+         },
+         {
+            "child" : null,
+            "id" : "旅游综艺",
+            "name" : "旅游综艺"
+         },
+         {
+            "child" : null,
+            "id" : "选秀节目",
+            "name" : "选秀节目"
+         },
+         {
+            "child" : null,
+            "id" : "音乐综艺",
+            "name" : "音乐综艺"
+         },
+         {
+            "child" : null,
+            "id" : "舞蹈综艺",
+            "name" : "舞蹈综艺"
+         },
+         {
+            "child" : null,
+            "id" : "明星真人秀",
+            "name" : "明星真人秀"
+         },
+         {
+            "child" : null,
+            "id" : "时尚综艺",
+            "name" : "时尚综艺"
+         },
+         {
+            "child" : null,
+            "id" : "魔术",
+            "name" : "魔术"
+         },
+         {
+            "child" : null,
+            "id" : "喜剧综艺",
+            "name" : "喜剧综艺"
+         },
+         {
+            "child" : null,
+            "id" : "综艺综合",
+            "name" : "综艺综合"
+         }
+      ],
+      "id" : "综艺",
+      "name" : "综艺"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "美食节目",
+            "name" : "美食节目"
+         },
+         {
+            "child" : null,
+            "id" : "美食教学",
+            "name" : "美食教学"
+         },
+         {
+            "child" : null,
+            "id" : "美食展示",
+            "name" : "美食展示"
+         },
+         {
+            "child" : null,
+            "id" : "美食测评",
+            "name" : "美食测评"
+         },
+         {
+            "child" : null,
+            "id" : "探店",
+            "name" : "探店"
+         },
+         {
+            "child" : null,
+            "id" : "吃播",
+            "name" : "吃播"
+         },
+         {
+            "child" : null,
+            "id" : "美食综合",
+            "name" : "美食综合"
+         }
+      ],
+      "id" : "美食",
+      "name" : "美食"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "恶搞整蛊",
+            "name" : "恶搞整蛊"
+         },
+         {
+            "child" : null,
+            "id" : "鬼畜视频",
+            "name" : "鬼畜视频"
+         },
+         {
+            "child" : null,
+            "id" : "街头采访",
+            "name" : "街头采访"
+         },
+         {
+            "child" : null,
+            "id" : "搞笑段子",
+            "name" : "搞笑段子"
+         }
+      ],
+      "id" : "搞笑",
+      "name" : "搞笑"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "广场舞",
+            "name" : "广场舞"
+         },
+         {
+            "child" : null,
+            "id" : "宅舞",
+            "name" : "宅舞"
+         },
+         {
+            "child" : null,
+            "id" : "性感热舞",
+            "name" : "性感热舞"
+         },
+         {
+            "child" : null,
+            "id" : "艺术舞蹈",
+            "name" : "艺术舞蹈"
+         },
+         {
+            "child" : null,
+            "id" : "手指舞",
+            "name" : "手指舞"
+         },
+         {
+            "child" : null,
+            "id" : "流行编舞",
+            "name" : "流行编舞"
+         },
+         {
+            "child" : null,
+            "id" : "舞蹈综合",
+            "name" : "舞蹈综合"
+         }
+      ],
+      "id" : "舞蹈",
+      "name" : "舞蹈"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "秀颜值",
+            "name" : "秀颜值"
+         },
+         {
+            "child" : null,
+            "id" : "秀身材",
+            "name" : "秀身材"
+         },
+         {
+            "child" : null,
+            "id" : "街拍",
+            "name" : "街拍"
+         },
+         {
+            "child" : null,
+            "id" : "秀恩爱",
+            "name" : "秀恩爱"
+         }
+      ],
+      "id" : "拍人",
+      "name" : "拍人"
+   },
+   {
+      "child" : [
+         {
+            "child" : [
+               {
+                  "id" : "华语流行",
+                  "name" : "华语流行"
+               },
+               {
+                  "id" : "韩语流行",
+                  "name" : "韩语流行"
+               },
+               {
+                  "id" : "日本流行",
+                  "name" : "日本流行"
+               },
+               {
+                  "id" : "欧美流行",
+                  "name" : "欧美流行"
+               },
+               {
+                  "id" : "东南亚流行",
+                  "name" : "东南亚流行"
+               },
+               {
+                  "id" : "其他流行",
+                  "name" : "其他流行"
+               }
+            ],
+            "id" : "流行音乐",
+            "name" : "流行音乐"
+         },
+         {
+            "child" : null,
+            "id" : "古典及轻音乐",
+            "name" : "古典及轻音乐"
+         },
+         {
+            "child" : null,
+            "id" : "摇滚乐",
+            "name" : "摇滚乐"
+         },
+         {
+            "child" : null,
+            "id" : "民谣",
+            "name" : "民谣"
+         },
+         {
+            "child" : null,
+            "id" : "民俗音乐",
+            "name" : "民俗音乐"
+         },
+         {
+            "child" : null,
+            "id" : "说唱",
+            "name" : "说唱"
+         },
+         {
+            "child" : null,
+            "id" : "器乐演奏",
+            "name" : "器乐演奏"
+         },
+         {
+            "child" : null,
+            "id" : "音乐资讯",
+            "name" : "音乐资讯"
+         },
+         {
+            "child" : null,
+            "id" : "音乐教学",
+            "name" : "音乐教学"
+         },
+         {
+            "child" : null,
+            "id" : "音乐综合",
+            "name" : "音乐综合"
+         }
+      ],
+      "id" : "音乐",
+      "name" : "音乐"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "魔术",
+            "name" : "魔术"
+         },
+         {
+            "child" : null,
+            "id" : "硬功表演",
+            "name" : "硬功表演"
+         },
+         {
+            "child" : null,
+            "id" : "杂技",
+            "name" : "杂技"
+         },
+         {
+            "child" : null,
+            "id" : "空翻",
+            "name" : "空翻"
+         },
+         {
+            "child" : null,
+            "id" : "刀工",
+            "name" : "刀工"
+         },
+         {
+            "child" : null,
+            "id" : "射弹弓",
+            "name" : "射弹弓"
+         }
+      ],
+      "id" : "特技",
+      "name" : "特技"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "文玩收藏",
+            "name" : "文玩收藏"
+         },
+         {
+            "child" : null,
+            "id" : "文学",
+            "name" : "文学"
+         },
+         {
+            "child" : null,
+            "id" : "网络小说",
+            "name" : "网络小说"
+         },
+         {
+            "child" : null,
+            "id" : "宗教",
+            "name" : "宗教"
+         },
+         {
+            "child" : null,
+            "id" : "文化习俗",
+            "name" : "文化习俗"
+         },
+         {
+            "child" : null,
+            "id" : "文化产业",
+            "name" : "文化产业"
+         },
+         {
+            "child" : null,
+            "id" : "文化综合",
+            "name" : "文化综合"
+         }
+      ],
+      "id" : "文化",
+      "name" : "文化"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "编织布艺",
+            "name" : "编织布艺"
+         },
+         {
+            "child" : null,
+            "id" : "木艺",
+            "name" : "木艺"
+         },
+         {
+            "child" : null,
+            "id" : "剪纸折纸",
+            "name" : "剪纸折纸"
+         },
+         {
+            "child" : null,
+            "id" : "陶艺",
+            "name" : "陶艺"
+         },
+         {
+            "child" : null,
+            "id" : "玩泥",
+            "name" : "玩泥"
+         },
+         {
+            "child" : null,
+            "id" : "泥塑",
+            "name" : "泥塑"
+         },
+         {
+            "child" : null,
+            "id" : "手帐",
+            "name" : "手帐"
+         },
+         {
+            "child" : null,
+            "id" : "其他手工艺",
+            "name" : "其他手工艺"
+         }
+      ],
+      "id" : "手作",
+      "name" : "手作"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "美容美体",
+            "name" : "美容美体"
+         },
+         {
+            "child" : null,
+            "id" : "美发",
+            "name" : "美发"
+         },
+         {
+            "child" : null,
+            "id" : "美甲",
+            "name" : "美甲"
+         },
+         {
+            "child" : null,
+            "id" : "化妆",
+            "name" : "化妆"
+         },
+         {
+            "child" : [
+               {
+                  "id" : "中古",
+                  "name" : "中古"
+               },
+               {
+                  "id" : "其他",
+                  "name" : "其他"
+               }
+            ],
+            "id" : "奢侈品",
+            "name" : "奢侈品"
+         },
+         {
+            "child" : null,
+            "id" : "护肤",
+            "name" : "护肤"
+         },
+         {
+            "child" : null,
+            "id" : "三坑服饰",
+            "name" : "三坑服饰"
+         },
+         {
+            "child" : null,
+            "id" : "秀场",
+            "name" : "秀场"
+         },
+         {
+            "child" : null,
+            "id" : "风尚大片",
+            "name" : "风尚大片"
+         },
+         {
+            "child" : null,
+            "id" : "时尚潮流",
+            "name" : "时尚潮流"
+         },
+         {
+            "child" : null,
+            "id" : "时尚综合",
+            "name" : "时尚综合"
+         },
+         {
+            "child" : null,
+            "id" : "时尚资讯",
+            "name" : "时尚资讯"
+         }
+      ],
+      "id" : "时尚",
+      "name" : "时尚"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "moba游戏",
+            "name" : "moba游戏"
+         },
+         {
+            "child" : null,
+            "id" : "沙盒游戏",
+            "name" : "沙盒游戏"
+         },
+         {
+            "child" : null,
+            "id" : "卡牌游戏",
+            "name" : "卡牌游戏"
+         },
+         {
+            "child" : null,
+            "id" : "射击游戏",
+            "name" : "射击游戏"
+         },
+         {
+            "child" : null,
+            "id" : "RPG游戏",
+            "name" : "RPG游戏"
+         },
+         {
+            "child" : null,
+            "id" : "动作游戏",
+            "name" : "动作游戏"
+         },
+         {
+            "child" : null,
+            "id" : "音乐游戏",
+            "name" : "音乐游戏"
+         },
+         {
+            "child" : null,
+            "id" : "策略游戏",
+            "name" : "策略游戏"
+         },
+         {
+            "child" : null,
+            "id" : "休闲游戏",
+            "name" : "休闲游戏"
+         },
+         {
+            "child" : null,
+            "id" : "综合游戏",
+            "name" : "综合游戏"
+         },
+         {
+            "child" : null,
+            "id" : "竞技体育游戏",
+            "name" : "竞技体育游戏"
+         },
+         {
+            "child" : null,
+            "id" : "桌游",
+            "name" : "桌游"
+         },
+         {
+            "child" : null,
+            "id" : "电子竞技",
+            "name" : "电子竞技"
+         },
+         {
+            "child" : null,
+            "id" : "游戏资讯",
+            "name" : "游戏资讯"
+         }
+      ],
+      "id" : "游戏",
+      "name" : "游戏"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "国产动漫",
+            "name" : "国产动漫"
+         },
+         {
+            "child" : null,
+            "id" : "日韩动漫",
+            "name" : "日韩动漫"
+         },
+         {
+            "child" : null,
+            "id" : "欧美动漫",
+            "name" : "欧美动漫"
+         },
+         {
+            "child" : null,
+            "id" : "动漫资讯",
+            "name" : "动漫资讯"
+         },
+         {
+            "child" : null,
+            "id" : "动漫周边",
+            "name" : "动漫周边"
+         },
+         {
+            "child" : null,
+            "id" : "Cosplay",
+            "name" : "Cosplay"
+         },
+         {
+            "child" : null,
+            "id" : "动画短片",
+            "name" : "动画短片"
+         }
+      ],
+      "id" : "动漫",
+      "name" : "动漫"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "旅游攻略",
+            "name" : "旅游攻略"
+         },
+         {
+            "child" : null,
+            "id" : "旅游产业",
+            "name" : "旅游产业"
+         },
+         {
+            "child" : null,
+            "id" : "旅拍体验",
+            "name" : "旅拍体验"
+         },
+         {
+            "child" : null,
+            "id" : "旅途风光",
+            "name" : "旅途风光"
+         }
+      ],
+      "id" : "旅游",
+      "name" : "旅游"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "评测导购",
+            "name" : "评测导购"
+         },
+         {
+            "child" : null,
+            "id" : "用车养车",
+            "name" : "用车养车"
+         },
+         {
+            "child" : null,
+            "id" : "驾驶技巧",
+            "name" : "驾驶技巧"
+         },
+         {
+            "child" : null,
+            "id" : "发烧改装",
+            "name" : "发烧改装"
+         },
+         {
+            "child" : null,
+            "id" : "汽车展览",
+            "name" : "汽车展览"
+         },
+         {
+            "child" : null,
+            "id" : "汽车影视广告",
+            "name" : "汽车影视广告"
+         },
+         {
+            "child" : null,
+            "id" : "汽车驾考",
+            "name" : "汽车驾考"
+         },
+         {
+            "child" : null,
+            "id" : "摩托车",
+            "name" : "摩托车"
+         },
+         {
+            "child" : null,
+            "id" : "行业动态",
+            "name" : "行业动态"
+         },
+         {
+            "child" : null,
+            "id" : "新车动态",
+            "name" : "新车动态"
+         },
+         {
+            "child" : null,
+            "id" : "二手车",
+            "name" : "二手车"
+         },
+         {
+            "child" : null,
+            "id" : "新能源",
+            "name" : "新能源"
+         },
+         {
+            "child" : null,
+            "id" : "政策法规",
+            "name" : "政策法规"
+         },
+         {
+            "child" : null,
+            "id" : "车模",
+            "name" : "车模"
+         }
+      ],
+      "id" : "汽车",
+      "name" : "汽车"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "心灵鸡汤",
+            "name" : "心灵鸡汤"
+         },
+         {
+            "child" : null,
+            "id" : "人际关系",
+            "name" : "人际关系"
+         },
+         {
+            "child" : null,
+            "id" : "两性",
+            "name" : "两性"
+         }
+      ],
+      "id" : "情感",
+      "name" : "情感"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "植物",
+            "name" : "植物"
+         },
+         {
+            "child" : null,
+            "id" : "动物",
+            "name" : "动物"
+         }
+      ],
+      "id" : "自然",
+      "name" : "自然"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "萌宝",
+            "name" : "萌宝"
+         },
+         {
+            "child" : null,
+            "id" : "母婴用品",
+            "name" : "母婴用品"
+         },
+         {
+            "child" : null,
+            "id" : "家庭教育",
+            "name" : "家庭教育"
+         },
+         {
+            "child" : null,
+            "id" : "养护科普",
+            "name" : "养护科普"
+         },
+         {
+            "child" : null,
+            "id" : "孕产",
+            "name" : "孕产"
+         },
+         {
+            "child" : null,
+            "id" : "儿童时尚",
+            "name" : "儿童时尚"
+         }
+      ],
+      "id" : "母婴育儿",
+      "name" : "母婴育儿"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "园艺",
+            "name" : "园艺"
+         },
+         {
+            "child" : null,
+            "id" : "装修改造",
+            "name" : "装修改造"
+         },
+         {
+            "child" : null,
+            "id" : "家居好物",
+            "name" : "家居好物"
+         },
+         {
+            "child" : null,
+            "id" : "家居综合",
+            "name" : "家居综合"
+         },
+         {
+            "child" : null,
+            "id" : "家居产业",
+            "name" : "家居产业"
+         }
+      ],
+      "id" : "家居",
+      "name" : "家居"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "K12教育",
+            "name" : "K12教育"
+         },
+         {
+            "child" : null,
+            "id" : "高等教育",
+            "name" : "高等教育"
+         },
+         {
+            "child" : null,
+            "id" : "职业教育",
+            "name" : "职业教育"
+         },
+         {
+            "child" : null,
+            "id" : "教育资讯",
+            "name" : "教育资讯"
+         },
+         {
+            "child" : null,
+            "id" : "学习好物测评",
+            "name" : "学习好物测评"
+         },
+         {
+            "child" : null,
+            "id" : "兴趣学习",
+            "name" : "兴趣学习"
+         }
+      ],
+      "id" : "教育",
+      "name" : "教育"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "生活技巧",
+            "name" : "生活技巧"
+         },
+         {
+            "child" : null,
+            "id" : "好物推荐",
+            "name" : "好物推荐"
+         },
+         {
+            "child" : null,
+            "id" : "潮玩玩具",
+            "name" : "潮玩玩具"
+         },
+         {
+            "child" : null,
+            "id" : "制作发明",
+            "name" : "制作发明"
+         },
+         {
+            "child" : null,
+            "id" : "解压",
+            "name" : "解压"
+         },
+         {
+            "child" : null,
+            "id" : "生活vlog",
+            "name" : "生活vlog"
+         }
+      ],
+      "id" : "生活",
+      "name" : "生活"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "猫",
+            "name" : "猫"
+         },
+         {
+            "child" : null,
+            "id" : "狗",
+            "name" : "狗"
+         },
+         {
+            "child" : null,
+            "id" : "龟",
+            "name" : "龟"
+         },
+         {
+            "child" : null,
+            "id" : "鸟",
+            "name" : "鸟"
+         },
+         {
+            "child" : null,
+            "id" : "观赏鱼",
+            "name" : "观赏鱼"
+         },
+         {
+            "child" : null,
+            "id" : "鼠",
+            "name" : "鼠"
+         },
+         {
+            "child" : null,
+            "id" : "兔",
+            "name" : "兔"
+         },
+         {
+            "child" : null,
+            "id" : "其他宠物",
+            "name" : "其他宠物"
+         },
+         {
+            "child" : null,
+            "id" : "宠物用品",
+            "name" : "宠物用品"
+         },
+         {
+            "child" : null,
+            "id" : "宠物综合",
+            "name" : "宠物综合"
+         }
+      ],
+      "id" : "宠物",
+      "name" : "宠物"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "养生活动",
+            "name" : "养生活动"
+         },
+         {
+            "child" : null,
+            "id" : "中医药",
+            "name" : "中医药"
+         },
+         {
+            "child" : null,
+            "id" : "疾病治疗",
+            "name" : "疾病治疗"
+         },
+         {
+            "child" : null,
+            "id" : "健康常识",
+            "name" : "健康常识"
+         },
+         {
+            "child" : null,
+            "id" : "心理健康",
+            "name" : "心理健康"
+         },
+         {
+            "child" : null,
+            "id" : "健康综合",
+            "name" : "健康综合"
+         }
+      ],
+      "id" : "健康养生",
+      "name" : "健康养生"
+   },
+   {
+      "child" : [
+         {
+            "child" : [
+               {
+                  "id" : "资讯解读",
+                  "name" : "资讯解读"
+               },
+               {
+                  "id" : "教学",
+                  "name" : "教学"
+               },
+               {
+                  "id" : "分享",
+                  "name" : "分享"
+               }
+            ],
+            "id" : "篮球",
+            "name" : "篮球"
+         },
+         {
+            "child" : [
+               {
+                  "id" : "资讯解读",
+                  "name" : "资讯解读"
+               },
+               {
+                  "id" : "教学",
+                  "name" : "教学"
+               },
+               {
+                  "id" : "分享",
+                  "name" : "分享"
+               }
+            ],
+            "id" : "足球",
+            "name" : "足球"
+         },
+         {
+            "child" : [
+               {
+                  "id" : "资讯解读",
+                  "name" : "资讯解读"
+               },
+               {
+                  "id" : "教学",
+                  "name" : "教学"
+               },
+               {
+                  "id" : "分享",
+                  "name" : "分享"
+               }
+            ],
+            "id" : "乒乓球",
+            "name" : "乒乓球"
+         },
+         {
+            "child" : [
+               {
+                  "id" : "资讯解读",
+                  "name" : "资讯解读"
+               },
+               {
+                  "id" : "教学",
+                  "name" : "教学"
+               },
+               {
+                  "id" : "分享",
+                  "name" : "分享"
+               }
+            ],
+            "id" : "网球",
+            "name" : "网球"
+         },
+         {
+            "child" : [
+               {
+                  "id" : "资讯解读",
+                  "name" : "资讯解读"
+               },
+               {
+                  "id" : "教学",
+                  "name" : "教学"
+               },
+               {
+                  "id" : "分享",
+                  "name" : "分享"
+               }
+            ],
+            "id" : "羽毛球",
+            "name" : "羽毛球"
+         },
+         {
+            "child" : [
+               {
+                  "id" : "资讯解读",
+                  "name" : "资讯解读"
+               },
+               {
+                  "id" : "教学",
+                  "name" : "教学"
+               },
+               {
+                  "id" : "分享",
+                  "name" : "分享"
+               }
+            ],
+            "id" : "台球",
+            "name" : "台球"
+         },
+         {
+            "child" : [
+               {
+                  "id" : "资讯解读",
+                  "name" : "资讯解读"
+               },
+               {
+                  "id" : "教学",
+                  "name" : "教学"
+               },
+               {
+                  "id" : "分享",
+                  "name" : "分享"
+               }
+            ],
+            "id" : "排球",
+            "name" : "排球"
+         },
+         {
+            "child" : null,
+            "id" : "球类其他",
+            "name" : "球类其他"
+         },
+         {
+            "child" : [
+               {
+                  "id" : "资讯解读",
+                  "name" : "资讯解读"
+               },
+               {
+                  "id" : "教学",
+                  "name" : "教学"
+               },
+               {
+                  "id" : "分享",
+                  "name" : "分享"
+               }
+            ],
+            "id" : "游泳",
+            "name" : "游泳"
+         },
+         {
+            "child" : null,
+            "id" : "田径",
+            "name" : "田径"
+         },
+         {
+            "child" : [
+               {
+                  "id" : "资讯解读",
+                  "name" : "资讯解读"
+               },
+               {
+                  "id" : "教学",
+                  "name" : "教学"
+               },
+               {
+                  "id" : "分享",
+                  "name" : "分享"
+               }
+            ],
+            "id" : "棋类",
+            "name" : "棋类"
+         },
+         {
+            "child" : [
+               {
+                  "id" : "资讯解读",
+                  "name" : "资讯解读"
+               },
+               {
+                  "id" : "教学",
+                  "name" : "教学"
+               },
+               {
+                  "id" : "分享",
+                  "name" : "分享"
+               }
+            ],
+            "id" : "高尔夫",
+            "name" : "高尔夫"
+         },
+         {
+            "child" : [
+               {
+                  "id" : "教学",
+                  "name" : "教学"
+               },
+               {
+                  "id" : "分享",
+                  "name" : "分享"
+               }
+            ],
+            "id" : "滑板",
+            "name" : "滑板"
+         },
+         {
+            "child" : [
+               {
+                  "id" : "资讯解读",
+                  "name" : "资讯解读"
+               },
+               {
+                  "id" : "教学",
+                  "name" : "教学"
+               },
+               {
+                  "id" : "分享",
+                  "name" : "分享"
+               }
+            ],
+            "id" : "赛车",
+            "name" : "赛车"
+         },
+         {
+            "child" : [
+               {
+                  "id" : "资讯解读",
+                  "name" : "资讯解读"
+               },
+               {
+                  "id" : "教学",
+                  "name" : "教学"
+               },
+               {
+                  "id" : "分享",
+                  "name" : "分享"
+               }
+            ],
+            "id" : "滑雪",
+            "name" : "滑雪"
+         },
+         {
+            "child" : [
+               {
+                  "id" : "教学",
+                  "name" : "教学"
+               },
+               {
+                  "id" : "分享",
+                  "name" : "分享"
+               }
+            ],
+            "id" : "健身",
+            "name" : "健身"
+         },
+         {
+            "child" : [
+               {
+                  "id" : "教学",
+                  "name" : "教学"
+               },
+               {
+                  "id" : "分享",
+                  "name" : "分享"
+               }
+            ],
+            "id" : "户外运动",
+            "name" : "户外运动"
+         },
+         {
+            "child" : [
+               {
+                  "id" : "教学",
+                  "name" : "教学"
+               },
+               {
+                  "id" : "分享",
+                  "name" : "分享"
+               }
+            ],
+            "id" : "跑步",
+            "name" : "跑步"
+         },
+         {
+            "child" : null,
+            "id" : "短道速滑",
+            "name" : "短道速滑"
+         },
+         {
+            "child" : null,
+            "id" : "花样滑冰",
+            "name" : "花样滑冰"
+         },
+         {
+            "child" : null,
+            "id" : "冰壶",
+            "name" : "冰壶"
+         },
+         {
+            "child" : null,
+            "id" : "其他冰雪赛事",
+            "name" : "其他冰雪赛事"
+         },
+         {
+            "child" : null,
+            "id" : "潜水",
+            "name" : "潜水"
+         },
+         {
+            "child" : [
+               {
+                  "id" : "教学",
+                  "name" : "教学"
+               },
+               {
+                  "id" : "分享",
+                  "name" : "分享"
+               }
+            ],
+            "id" : "钓鱼",
+            "name" : "钓鱼"
+         },
+         {
+            "child" : [
+               {
+                  "id" : "教学",
+                  "name" : "教学"
+               },
+               {
+                  "id" : "分享",
+                  "name" : "分享"
+               }
+            ],
+            "id" : "武术",
+            "name" : "武术"
+         },
+         {
+            "child" : null,
+            "id" : "格斗",
+            "name" : "格斗"
+         },
+         {
+            "child" : null,
+            "id" : "其他体育赛事",
+            "name" : "其他体育赛事"
+         }
+      ],
+      "id" : "体育",
+      "name" : "体育"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "农业技术",
+            "name" : "农业技术"
+         },
+         {
+            "child" : null,
+            "id" : "农村赶海",
+            "name" : "农村赶海"
+         },
+         {
+            "child" : null,
+            "id" : "农业资讯",
+            "name" : "农业资讯"
+         },
+         {
+            "child" : null,
+            "id" : "农村户外",
+            "name" : "农村户外"
+         },
+         {
+            "child" : null,
+            "id" : "农民生活",
+            "name" : "农民生活"
+         },
+         {
+            "child" : null,
+            "id" : "农家美食",
+            "name" : "农家美食"
+         },
+         {
+            "child" : null,
+            "id" : "农村风俗",
+            "name" : "农村风俗"
+         },
+         {
+            "child" : null,
+            "id" : "农民工",
+            "name" : "农民工"
+         }
+      ],
+      "id" : "三农",
+      "name" : "三农"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "恋爱",
+            "name" : "恋爱"
+         },
+         {
+            "child" : null,
+            "id" : "家庭",
+            "name" : "家庭"
+         },
+         {
+            "child" : null,
+            "id" : "都市",
+            "name" : "都市"
+         },
+         {
+            "child" : null,
+            "id" : "校园",
+            "name" : "校园"
+         },
+         {
+            "child" : null,
+            "id" : "古风",
+            "name" : "古风"
+         },
+         {
+            "child" : null,
+            "id" : "乡村",
+            "name" : "乡村"
+         },
+         {
+            "child" : null,
+            "id" : "魔幻",
+            "name" : "魔幻"
+         },
+         {
+            "child" : null,
+            "id" : "悬疑",
+            "name" : "悬疑"
+         }
+      ],
+      "id" : "情景剧",
+      "name" : "情景剧"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "理财投资",
+            "name" : "理财投资"
+         },
+         {
+            "child" : null,
+            "id" : "股票",
+            "name" : "股票"
+         },
+         {
+            "child" : null,
+            "id" : "互联网金融",
+            "name" : "互联网金融"
+         },
+         {
+            "child" : null,
+            "id" : "金融市场",
+            "name" : "金融市场"
+         },
+         {
+            "child" : null,
+            "id" : "公司经管",
+            "name" : "公司经管"
+         },
+         {
+            "child" : null,
+            "id" : "国际经济",
+            "name" : "国际经济"
+         },
+         {
+            "child" : null,
+            "id" : "宏观经济",
+            "name" : "宏观经济"
+         },
+         {
+            "child" : null,
+            "id" : "创业",
+            "name" : "创业"
+         },
+         {
+            "child" : null,
+            "id" : "财经综合",
+            "name" : "财经综合"
+         }
+      ],
+      "id" : "财经",
+      "name" : "财经"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "国际时政",
+            "name" : "国际时政"
+         },
+         {
+            "child" : [
+               {
+                  "id" : "中美关系",
+                  "name" : "中美关系"
+               },
+               {
+                  "id" : "中日关系",
+                  "name" : "中日关系"
+               },
+               {
+                  "id" : "中欧关系",
+                  "name" : "中欧关系"
+               },
+               {
+                  "id" : "中俄关系",
+                  "name" : "中俄关系"
+               },
+               {
+                  "id" : "中非关系",
+                  "name" : "中非关系"
+               },
+               {
+                  "id" : "中韩关系",
+                  "name" : "中韩关系"
+               },
+               {
+                  "id" : "其他",
+                  "name" : "其他"
+               }
+            ],
+            "id" : "国际关系",
+            "name" : "国际关系"
+         },
+         {
+            "child" : null,
+            "id" : "国际社会",
+            "name" : "国际社会"
+         }
+      ],
+      "id" : "国际",
+      "name" : "国际"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "生命科学",
+            "name" : "生命科学"
+         },
+         {
+            "child" : null,
+            "id" : "空间探索",
+            "name" : "空间探索"
+         },
+         {
+            "child" : null,
+            "id" : "物质科学",
+            "name" : "物质科学"
+         },
+         {
+            "child" : null,
+            "id" : "地理知识",
+            "name" : "地理知识"
+         },
+         {
+            "child" : null,
+            "id" : "科学家",
+            "name" : "科学家"
+         },
+         {
+            "child" : null,
+            "id" : "未解之谜",
+            "name" : "未解之谜"
+         },
+         {
+            "child" : null,
+            "id" : "科学综合",
+            "name" : "科学综合"
+         }
+      ],
+      "id" : "科学",
+      "name" : "科学"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "摄影器材",
+            "name" : "摄影器材"
+         },
+         {
+            "child" : null,
+            "id" : "摄影作品",
+            "name" : "摄影作品"
+         },
+         {
+            "child" : null,
+            "id" : "摄影教学",
+            "name" : "摄影教学"
+         },
+         {
+            "child" : null,
+            "id" : "摄影综合",
+            "name" : "摄影综合"
+         }
+      ],
+      "id" : "摄影",
+      "name" : "摄影"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "台海时事",
+            "name" : "台海时事"
+         },
+         {
+            "child" : null,
+            "id" : "国内时政",
+            "name" : "国内时政"
+         }
+      ],
+      "id" : "时事",
+      "name" : "时事"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "手机",
+            "name" : "手机"
+         },
+         {
+            "child" : null,
+            "id" : "平板",
+            "name" : "平板"
+         },
+         {
+            "child" : null,
+            "id" : "电脑",
+            "name" : "电脑"
+         },
+         {
+            "child" : null,
+            "id" : "数码硬件",
+            "name" : "数码硬件"
+         },
+         {
+            "child" : null,
+            "id" : "无人机",
+            "name" : "无人机"
+         },
+         {
+            "child" : null,
+            "id" : "家电电器",
+            "name" : "家电电器"
+         },
+         {
+            "child" : null,
+            "id" : "影音娱乐设备",
+            "name" : "影音娱乐设备"
+         },
+         {
+            "child" : null,
+            "id" : "智能硬件设备",
+            "name" : "智能硬件设备"
+         },
+         {
+            "child" : null,
+            "id" : "其他数码产品",
+            "name" : "其他数码产品"
+         },
+         {
+            "child" : null,
+            "id" : "数码综合",
+            "name" : "数码综合"
+         }
+      ],
+      "id" : "数码",
+      "name" : "数码"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "星座",
+            "name" : "星座"
+         },
+         {
+            "child" : null,
+            "id" : "命理",
+            "name" : "命理"
+         },
+         {
+            "child" : null,
+            "id" : "风水",
+            "name" : "风水"
+         },
+         {
+            "child" : null,
+            "id" : "心理测试",
+            "name" : "心理测试"
+         },
+         {
+            "child" : null,
+            "id" : "运势其他",
+            "name" : "运势其他"
+         }
+      ],
+      "id" : "星座运势",
+      "name" : "星座运势"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "随手拍",
+            "name" : "随手拍"
+         }
+      ],
+      "id" : "随手拍",
+      "name" : "随手拍"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "建筑",
+            "name" : "建筑"
+         },
+         {
+            "child" : null,
+            "id" : "书法",
+            "name" : "书法"
+         },
+         {
+            "child" : null,
+            "id" : "绘画",
+            "name" : "绘画"
+         },
+         {
+            "child" : null,
+            "id" : "戏曲",
+            "name" : "戏曲"
+         },
+         {
+            "child" : null,
+            "id" : "戏剧",
+            "name" : "戏剧"
+         },
+         {
+            "child" : null,
+            "id" : "艺术产业",
+            "name" : "艺术产业"
+         },
+         {
+            "child" : null,
+            "id" : "艺术综合",
+            "name" : "艺术综合"
+         }
+      ],
+      "id" : "艺术",
+      "name" : "艺术"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "法律条例",
+            "name" : "法律条例"
+         },
+         {
+            "child" : null,
+            "id" : "案件解读",
+            "name" : "案件解读"
+         },
+         {
+            "child" : null,
+            "id" : "现象普法",
+            "name" : "现象普法"
+         },
+         {
+            "child" : null,
+            "id" : "法律综合",
+            "name" : "法律综合"
+         }
+      ],
+      "id" : "法律",
+      "name" : "法律"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "租房",
+            "name" : "租房"
+         },
+         {
+            "child" : [
+               {
+                  "id" : "住房贷款",
+                  "name" : "住房贷款"
+               },
+               {
+                  "id" : "楼市政策",
+                  "name" : "楼市政策"
+               }
+            ],
+            "id" : "购房",
+            "name" : "购房"
+         },
+         {
+            "child" : null,
+            "id" : "土拍",
+            "name" : "土拍"
+         },
+         {
+            "child" : null,
+            "id" : "房产综合",
+            "name" : "房产综合"
+         }
+      ],
+      "id" : "房产",
+      "name" : "房产"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "知识科普",
+            "name" : "知识科普"
+         },
+         {
+            "child" : null,
+            "id" : "测评分享",
+            "name" : "测评分享"
+         },
+         {
+            "child" : null,
+            "id" : "医美综合",
+            "name" : "医美综合"
+         }
+      ],
+      "id" : "医美",
+      "name" : "医美"
+   },
+   {
+      "child" : [
+         {
+            "child" : null,
+            "id" : "其他",
+            "name" : "其他"
+         }
+      ],
+      "id" : "其他",
+      "name" : "其他"
+   }
+]

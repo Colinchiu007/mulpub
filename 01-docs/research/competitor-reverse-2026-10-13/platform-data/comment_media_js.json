@@ -1,0 +1,327 @@
+{
+   "1" : {      
+      "LoadEnd" : [
+         {
+            "exactmatch" : false,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://mp.weixin.qq.com/misc/appmsgcomment"
+         },
+		 {
+            "exactmatch" : false,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://mp.weixin.qq.com/cgi-bin/message"
+         }
+      ],
+      "js" : [
+         "var x = document.getElementById('header'); if(x){x.style='display: none;';} var y = document.getElementById('js_mp_sidemenu'); if(y){y.style='display: none;';}var z=document.getElementsByClassName('weui-desktop-online-faq__wrp');if(z.length>0){z[0].style='display: none;';} var m = document.getElementById('footer');if(m){m.style='display: none;';} var n=document.getElementById('js_mp_main_content');if(n){n.style.marginLeft=0;} var k = document.getElementsByClassName('weui-desktop-layout__main__inner');if(k.length>0){k[0].style.width='100%';}"
+      ]
+   },
+   "3" : {
+	"BeforeResourceLoad" : [
+         {
+            "exactmatch" : false,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://mp.toutiao.com/mp/agw/creator_center/user_info"
+         },
+         {
+            "exactmatch" : false,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://mp.toutiao.com/api/msg/tab_list"
+         }
+      ],
+      "LoadEnd" : [
+         {
+            "exactmatch" : false,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://mp.toutiao.com/profile_v4/manage/comment/all"
+         },
+         {
+            "exactmatch" : false,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://mp.toutiao.com/profile_v4/personal/message?type=private_letter"
+         }
+      ],
+      "js" : [
+         "var x=document.getElementsByClassName('garr-header');if(x.length>0){x[0].style='display: none;';} var y=document.getElementsByClassName('byte-layout-sider byte-layout-sider-light mp-main-sider');if(y.length>0){y[0].style='display: none;';} var z=document.getElementsByClassName('pgc-feedback');if(z.length>0){z[0].style='display: none;';} var m=document.getElementsByClassName('pgc-footer');if(m.length>0){m[0].style='display: none;';} var n=document.getElementsByClassName('msg-center-sticky-comp sticky');if(n.length>0){n[0].style='display: none;';} var k=document.getElementsByClassName('msg-center');if(k.length>0){k[0].firstElementChild.style='display: none;';}"
+      ]
+   },
+   "4" : {
+      "LoadEnd" : [
+         {
+            "exactmatch" : false,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://baijiahao.baidu.com/builder/rc/commentmanage/comment/all"
+         },
+         {
+            "exactmatch" : false,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://baijiahao.baidu.com/builder/rc/fans"
+         }
+      ],
+      "js" : [
+         "var x=document.getElementsByClassName('client_layouts_header null ');if(x.length>0){x[0].style='display: none;';} var y=document.getElementById('layout-main-aside');if(y){y.style='display: none;';} var z = document.getElementById('layout-main-content');if(z){z.style.marginTop=0;z.style.marginLeft=0;} var m=document.getElementsByClassName('client_layouts_footer ');if(m.length>0){m[0].style='display: none;';} var n=document.getElementsByClassName('mp-fiexed ');if(n.length>0){n[0].style='display: none;';}"
+      ]
+   },
+   "10" : {
+      "LoadEnd" : [
+         {
+            "exactmatch" : false,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://weibo.com/comment/inbox"
+         }
+      ],
+      "js" : [
+		"var x=document.getElementsByClassName('Frame_top_2ybWw');if(x.length>0){x[0].style='display: none;';} var y=document.getElementsByClassName('Main_side_i7Vti');if(y.length>0){y[0].style='display: none;';} var z=document.getElementsByClassName('Frame_side_3G0Bf');if(z.length>0){z[0].style='display: none;';}",
+		"setTimeout(() => {var y=document.getElementsByClassName('Main_side_i7Vti');if(y.length>0){y[0].style='display: none;';}},100);"
+      ]
+   },
+   "12" : {
+	"BeforeResourceLoad" : [
+         {
+            "exactmatch" : false,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://www.zhihu.com/api/v4/me"
+         }
+      ],
+      "LoadEnd" : [
+         {
+            "exactmatch" : true,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://www.zhihu.com/creator/manage/comment/answer"
+         },
+		 {
+            "exactmatch" : true,
+            "jspos" : 1,
+            "return" : false,
+            "url" : "https://www.zhihu.com/messages"
+         }
+      ],
+      "js" : [
+		"var x = document.getElementsByClassName('Sticky AppHeader css-1x8hcdw');if(x.length>0){x[0].style='display: none;';} var y = document.getElementsByClassName('css-qwj8x9');if(y.length>0){y[0].style='display: none;';} var z = document.getElementsByClassName('CreatorIndex-BottomBox css-vurnku');if(z.length>0){z[0].parentElement.style='display: none;';}",
+		"var x = document.getElementsByClassName('Sticky AppHeader css-1x8hcdw');if(x.length>0){x[0].style='display: none;';} var y = document.getElementsByClassName('Footer');if(y.length>0){y[0].style='display: none;';}"
+     ]
+   },
+   "23" : {
+ 	"BeforeResourceLoad" : [
+         {
+            "exactmatch" : true,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://api.bilibili.com/x/web-interface/nav"
+         }
+      ],
+    "LoadEnd" : [
+         {
+            "exactmatch" : false,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://member.bilibili.com/platform/comment/article"
+         },
+		 {
+            "exactmatch" : false,
+            "jspos" : 1,
+            "return" : false,
+            "url" : "https://message.bilibili.com/#/whisper"
+         }
+      ],
+      "js" : [
+         "var x=document.getElementsByClassName('cc-header');if(x.length>0){x[0].style='display: none;';} var y=document.getElementById('cc-nav_wrap');if(y){y.style='display: none;';} var z=document.getElementsByClassName('side-utils');if(z.length>0){z[0].style='display: none;';}",
+         "var x=document.getElementById('internationalHeader');if(x){x.style='display: none;'};var y=document.getElementsByClassName('space-left');if(y.length>0){y[0].style='display: none;';}"
+    ]
+   },
+   "32" : {
+	  "LoadEnd" : [	  
+		{
+            "exactmatch" : false,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://studio.ixigua.com/comment"
+       }
+	  ],
+      "js" : [
+         "var x=document.getElementsByClassName('m-header');if(x.length>0){x[0].style='display: none;';} var y=document.getElementsByClassName('m-menu');if(y.length>0){y[0].style='display: none;';} var z=document.getElementsByClassName('feedback-creator');if(z.length>0){z[0].style='display: none;';} var m = document.getElementsByClassName('m-app-section');if(m.length>0){m[0].style.marginLeft=0;m[0].style.top=0;} var n = document.getElementsByClassName('m-interactive-header');if(n.length>0){n[0].style='display: none;';}"
+      ]
+   },
+   "33" : {
+	  "LoadEnd" : [	  
+		{
+            "exactmatch" : false,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://haokan.baidu.com/videoui/page/pc/ucenter#/message"
+       }
+	  ],
+      "js" : [
+		 "var x=document.getElementsByClassName('header');if(x.length>0){x[0].style='display: none;';} var y=document.getElementsByClassName('ant-layout-sider ant-layout-sider-dark');if(y.length>0){y[0].style='display: none;';} var z=document.getElementsByClassName('suitableaging');if(z.length>0){z[0].style='display: none;';} var m=document.getElementsByClassName('ant-tabs-bar ant-tabs-top-bar');if(m.length>0){m[0].style='display: none;';}"
+      ]
+   },
+   "35" : {
+      "BeforeResourceLoad" : [
+         {
+            "exactmatch" : false,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://cp.kuaishou.com/rest/cp/creator/comment/home"
+         },
+         {
+            "exactmatch" : false,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://cp.kuaishou.com/rest/v2/creator/pc/authority/account/current"
+         }
+      ],
+      "LoadStateChange" : [
+         {
+            "exactmatch" : false,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://cp.kuaishou.com/article/comment"
+         }
+      ],
+      "js" : [
+		 "var x=document.getElementsByClassName('el-header');if(x.length>0){x[0].style='display: none;';} var y=document.getElementsByClassName('aside');if(y.length>0){y[0].style='display: none;';} var z=document.getElementsByClassName('rising');if(z.length>0){z[0].style='display: none;';} var m=document.getElementsByClassName('com-footer-wrap');if(m.length>0){m[0].style='display: none;';} var n=document.getElementsByClassName('container');if(n.length>0){n[0].style.paddingTop=0;} var k = document.getElementsByClassName('el-main');if(k.length>0){k[0].style.marginLeft=0;k[0].style.width='100%';}"
+      ]
+   },
+   "36" : {
+      "BeforeResourceLoad" : [
+         {
+            "exactmatch" : false,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://creator.douyin.com/aweme/v1/creator/item/list/"
+         },
+         {
+            "exactmatch" : false,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://creator.douyin.com/aweme/v1/creator/im/user_token/"
+         }
+      ],
+      "LoadEnd" : [
+         {
+            "exactmatch" : true,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://creator.douyin.com/creator-micro/data/following/comment"
+         },
+		 {
+            "exactmatch" : true,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://creator.douyin.com/creator-micro/data/following/chat"
+         }
+      ],
+      "js" : [
+		 "setTimeout(() => {var x = document.getElementsByClassName('creator-help--2wLAe');if(x.length>0){x[0].style='display: none;';} var y = document.getElementsByClassName('header-wrapper--1ulkm');if(y.length>0){y[0].style='display: none;';} var z = document.getElementsByClassName('semi-navigation semi-navigation-vertical');if(z.length>0){z[0].style='display: none;';} var m = document.getElementsByClassName('content--3ncCf creator-content');if(m.length>0){m[0].style.paddingTop=0;} var n = document.getElementsByClassName('micro-wrapper--3T0Ya');if(n.length>0){n[0].style.marginLeft=0;}},1000);"
+      ]
+   },
+   "51" : {
+      "LoadEnd" : [
+         {
+            "exactmatch" : true,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://www.xiaohongshu.com/notification"
+         }
+      ],
+      "js" : [
+		 "var x=document.getElementsByClassName('header-container showSearchBoxOrHeaderFixed');if(x.length>0){x[0].style='display: none;';} var y=document.getElementsByClassName('side-bar');if(y.length>0){y[0].style='display: none;';} var z = document.getElementsByClassName('with-side-bar main-content');if(z.length>0){z[0].style.paddingLeft=0;}"
+      ]
+   },
+   "53" : {
+	"BeforeResourceLoad" : [
+         {
+            "exactmatch" : true,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://channels.weixin.qq.com/cgi-bin/mmfinderassistant-bin/private-msg/get-session-info"
+         },
+         {
+            "exactmatch" : true,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://channels.weixin.qq.com/cgi-bin/mmfinderassistant-bin/auth/get_auth_info"
+         },
+         {
+            "exactmatch" : true,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://channels.weixin.qq.com/cgi-bin/mmfinderassistant-bin/post/post_list"
+         }
+      ],
+      "LoadEnd" : [
+         {
+            "exactmatch" : true,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://channels.weixin.qq.com/platform/comment"
+         },
+         {
+            "exactmatch" : true,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://channels.weixin.qq.com/platform/private_msg"
+         }
+      ],
+      "js" : [
+		 "var x=document.getElementById('side-bar');if(x){x.style='display: none;';} var y=document.getElementById('footer');if(y){y.style='display: none;';} var z=document.getElementById('container-wrap');if(z){z.style.left=0;}"
+      ]
+   },
+   "83" : {	
+      "LoadEnd" : [
+         {
+            "exactmatch" : false,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://pro.xiaohongshu.com/im/multiCustomerService"
+         }
+      ],
+      "js" : [
+		 "var x=document.getElementsByClassName('dyn css-1e1z6t6 css-1wh8fkh');if(x.length>0){x[0].style='display: none;';} var y=document.getElementsByClassName('dyn menu-panel menu-box css-jcrvla css-1fj1zio');if(y.length>0){y[0].style='display: none;';} var z = document.getElementsByClassName('ares-footer');if(z.length>0){z[0].style='display: none;';} var m=document.getElementById('__MircoappBox');if(m){m.style.marginTop=0;m.style.marginLeft=0;}var n=document.getElementsByClassName('pro-header');if(n.length>0){n[0].style='display: none;';}"
+      ]
+   },
+   "85" : {
+      "BeforeResourceLoad" : [
+         {
+            "exactmatch" : false,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://creator.douyin.com/aweme/v1/creator/item/list/"
+         },
+         {
+            "exactmatch" : false,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://creator.douyin.com/aweme/v1/creator/im/user_token/"
+         }
+      ],
+      "LoadEnd" : [
+         {
+            "exactmatch" : true,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://creator.douyin.com/following/comment"
+         },
+		 {
+            "exactmatch" : true,
+            "jspos" : 0,
+            "return" : false,
+            "url" : "https://creator.douyin.com/following/chat"
+         }
+      ],
+      "js" : [
+		 "setTimeout(() => {var x = document.getElementsByClassName('creator-header semi-layout-header');if(x.length>0){x[0].style='display: none;';} var y = document.getElementsByClassName('semi-layout-sider');if(y.length>0){y[0].style='display: none;';} var z = document.getElementsByClassName('creator-help');if(z.length>0){z[0].style='display: none;';} var m = document.getElementsByClassName('container--2z-xy container--3HDWY');if(m.length>0){m[0].style.height='100%';}},1000);"
+      ]
+   }
+}
