@@ -2,8 +2,6 @@
 record: fix-risk-hold-false-positive
 task: 风控挂起误判修复——结构化信号优先 + 词表加边界并分强弱 + 挂起粒度收敛 + 横幅显示项
 date: 2026-10-13
-sync_reason: 本 PR 尚未合并，无法取证 merge SHA；合并后由后续 docs 回填 PR 把「远程同步」行由 PENDING 改写为 PASS + merge SHA，并删除本三字段
-sync_backfill_owner: fix-risk-hold-false-positive 会话（或后续 docs 回填 PR）
 ---
 
 ## 本次执行记录：风控挂起误判修复（fix-risk-hold-false-positive，2026-10-13）【混合 PR】
@@ -35,7 +33,7 @@ sync_backfill_owner: fix-risk-hold-false-positive 会话（或后续 docs 回填
 | QM-4 视觉 | N/A（受限项） | `RiskSuspendedBanner.vue` 有模板 + scoped 样式改动，但**横幅只在存在挂起记录时渲染**，本机无可用风控会话 ⇒ 无法在真实应用里截到该横幅。已改用源级契约测试（8 例）锁显示项接线；未录视觉基线，如实记为受限项 |
 | QM-6 CCG 双模型外部评审 | PASS（附 1 条高风险域外部复核待办） | **已执行**：`sh scripts/deep-review.sh` → 判定 `DUAL`（变更 1047 行 > 200 行阈值），跨家族校验 `proposer=opencode critic=claude` 通过；轮 1 claude 评审出 **7 条问题 / 4 维度 / 最低分 6**；进入自扮演裁决（引擎第三档出口，置信权重 0.6），4 条争议已由本会话**逐条填写指控/辩护/裁决**（`.adversarial/ccg-deep-4d8cc19b/adjudication.json`，`critiqueFingerprint=c612aa01847f6edd`）。**四条全部 upheld**，已在 `eb8a157e6` 逐条修复并补锁（引擎 +12 例 / shared-utils +2 例 / 桌面 +2 例）。⚠️ 其中 **i4 属 auth 高危域，按工具规则不允许自扮演豁免**：本轮仅按「单一真源 + 补齐管线」这两条可机械验证的判据落地，**认证协议语义级外部复核仍待办**，如实标注。另记环境坑：`deep-review.sh` 的驱动搜索第 3 顺位 `$HOME/.claude/...` 在 Git Bash 下被 MSYS 拼成 `D:\c\Users\...`（`Cannot find module`）；正解是设 `CCG_ARL_DIR` 为 **Windows 原生路径**（第 2 顺位优先），无需改脚本。 |
 | QM-6 审查发现的修复 | PASS | **i1** 强档英文词缺标识符边界（`captcha` ⊂ `recaptcha`/`hcaptcha`，浏览器自动化常见报错 ⇒ 会冻结账号，**正是本次要消灭的裸子串误判同类**）→ 给 `captcha`/`canvas illegal`/`risk control` 加边界；**i2** 字符串码漏判（`RISK_CODES` 里 601 是 number，`has('601')` 判不中 ⇒ 真风控漏判，且与本文档「两形态都收」自相矛盾）→ 抽 `isRiskCode` 认双形态；**i3** 引擎 `outcomeOfResult` 另持私有码表（缺裸 601 与 `RISK_BLOCKED`）⇒ `code:601 + 普通文本` 在引擎轨降级 DOM、桌面轨却挂起，两侧分裂 → 路由与挂起共用同一份 `classifyRisk`；**i4** `attachRiskSignals` 双实现内容不同（引擎只认 `loginExpired`）+ `loginExpired` 到 task 即断（半程假完备）→ 收敛到 `risk-signals.js` 单一实现并补齐 `task.loginExpired` |
-| 远程同步 | PENDING | 见下方回填说明 |
+| 远程同步 | PASS（PR #3455 → `93794a46`，2026-10-13T15:10:08+08:00） |
 
 ### 真机边界（不假装已闭合）
 
