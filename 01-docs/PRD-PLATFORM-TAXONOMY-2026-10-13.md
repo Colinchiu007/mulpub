@@ -834,3 +834,96 @@ toutiao 85+380+75、baijiahao 386、weibo 190、zhihu 33）。
 - 注册表里 bilibili 的 10 项下拉有 4 项标签与快照矛盾（124/231/207/251）—— 谁对未知。
 - 数据集为 **2026-07-14 冻结快照，全程未联网校验**（`source.verifiedOnline: false`）。
 
+---
+
+## 15. P0-3 后半段：「名字 → ID」的解析该放在哪一层（2026-10-14 定案）
+
+§14.1 确认了真实接线目标只有 `bilibili` + `baijiahao`，P0-3 前半段的**守卫**已落地
+（`api-publish-engine` 的 `publish/category-resolver.js`：非合法平台侧 ID 即抛 `CATEGORY_UNRESOLVED`）。
+
+但「让用户按**中文名**选分类」还需要一步：**把名字解析成 ID**。这一步放哪一层，有三条约束把它挤到同一个答案：
+
+### 15.1 三条约束（逐条实测）
+
+**① 不能放 `api-publish-engine`。**
+
+`cloud-accounts/validate-account.js:84-89` 明写本包是可独立打包的**零 workspace 依赖运行时**
+（见 `package.json` 的 `files` 与 Docker runner 的 COPY 清单）⇒ 拿不到 `shared-utils.platformTaxonomy`。
+
+**② 也不能放 desktop 的形状翻译层。**
+
+`apps/desktop/electron/services/api-task-data.js` 是**薄转发**，文件头自带禁令：
+
+> ⚠️ 权威实现在 `@multi-publish/api-publish-engine` 的 `src/publish/task-data.js`，本文件只做转发。
+> **请勿在此重新实现形状翻译。**
+
+理由是**三路共用**同一个 `taskData` 构造器：
+
+| 路径 | 位置 |
+| --- | --- |
+| API 直调 | `apps/desktop/electron/services/publisher-router.js` |
+| API-first 分支 | `apps/desktop/electron/services/rpa-view-manager.js` |
+| HTTP 发布 API | 本包 `publish-api-server` 的 `/api/v1/publish`、`/api/v1/batch-publish` |
+
+在 desktop 侧加解析 ⇒ 只覆盖前两条，HTTP 那条漏掉，**等于埋下第三份实现**（正是 2026-09-28
+形状漂移事故的同型风险）。
+
+**③ 引擎里的 `task-data.js` 只透传，不改语义。**
+
+`PASSTHROUGH_KEYS` 含 `category` / `categoryId`，`buildApiTaskData` 对它们**原样透传**。
+把解析塞进去会让一个「形状翻译器」悄悄承担语义解析，且它同样拿不到分类表。
+
+### 15.2 定案：解析放在**渲染端的分类选择处**
+
+```mermaid
+flowchart LR
+  A["用户选分类（渲染端）<br/>按中文名"] -->|"resolveCategoryId(platform, name, {contentType})"| B["得到平台侧 ID"]
+  B --> C["article.category = ID"]
+  C --> D["buildApiTaskData<br/>（引擎·三路共用·仅透传）"]
+  D --> E["平台链<br/>category-resolver 守卫：非 ID 即抛"]
+  F["HTTP API 外部调用方"] -->|"必须直接给 ID"| C
+```
+
+**为什么这是唯一不产生重复实现的位置**：
+
+1. **只有渲染端在「用户选分类」的那一刻同时知道** `platform`、`contentType`（图文/视频）、
+   以及用户看到的**中文名** —— 三者缺一不可（§1 已论证 `contentType` 不可省）。
+2. **渲染端已有 `*.browser.js` alias 先例**（`safe-http-url.browser.js`、`platform-definitions`、
+   `publish-capabilities` / `account-name-guard`），由 `apps/desktop/vite.config.js` 指过去。
+   本项照此先例加 `platform-taxonomy.browser.js` 即可，**不需要新机制**。
+3. **HTTP API 的外部调用方本就该给 ID** —— 它能拿到的是平台 API 文档里的数字，
+   不是我们的中文快照名。这条写进 §15.3 的契约。
+
+### 15.3 `article.category` 的字段契约（冻结）
+
+| 项 | 约定 |
+| --- | --- |
+| **类型** | 平台侧数字 ID 的十进制字符串（如 `"21"`）；空/未提供 ⇒ 平台默认值 |
+| **不接受** | 中文分类名、`"未分类"`、小数、十六进制 —— 传了会在平台链处**抛 `CATEGORY_UNRESOLVED`** |
+| **谁负责翻译** | 渲染端（用 `resolveCategoryId`）；HTTP API 调用方自己给 ID |
+| **失败语义** | 用户明确选了但解析不出（`not-found` / `ambiguous` / `content-type-mismatch`）⇒ **该平台发布失败并提示**，不回落默认分类 |
+| **平台无数据时** | `platform-absent` / `platform-name-only` ⇒ 该平台不渲染分类选择器，走平台默认值（**不是错误**）|
+
+### 15.4 与 §14.1 的关系（别混淆两件事）
+
+| | 前半段（已落地，PR #3505）| 后半段（本节，待做）|
+| --- | --- | --- |
+| 位置 | 平台链（`api-publish-engine`）| 渲染端（`apps/desktop/src`）|
+| 做什么 | **守卫**：给了非 ID 就抛 | **翻译**：把用户选的名字转成 ID |
+| 没有它会怎样 | 静默发到默认分类（**已在修**）| 用户只能填数字 ID（体验差，但不会错）|
+
+**⇒ 前半段是正确性问题，后半段是易用性问题。** 前半段单独上线即已消除「静默发错分类」，
+故两者可分 PR 推进，不必绑定。
+
+### 15.5 后半段的落地清单（供实施者）
+
+1. `packages/shared-utils/src/platform-taxonomy.browser.js` —— ESM 孪生 + vite alias（照
+   `safe-http-url.browser.js` 先例；CJS 版用 `require`，浏览器版必须能被打包器静态分析）。
+2. 分类选择器组件：平台不支持时**不渲染**（不是渲染成空下拉）；`ambiguous` 时**列出候选让用户选**，
+   不替用户挑。
+3. i18n 文案按 §8 的 `publish.category.*` 键写入 `apps/desktop/src/locales/{zh,en}.js`（**成对**，
+   CI Gate 7 `check-locale-sync.js` 拦截）。
+4. 回归锁：① `resolveCategoryId` 的 browser 孪生与 CJS 版**同输入同输出**（parity 锁）；
+   ② 选择器在 `platform-absent` 平台**不渲染**；③ 选中后 `article.category` 必须是纯数字串。
+
+
