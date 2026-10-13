@@ -2,9 +2,6 @@
 record: ops-menu-learnings
 task: 运营中心「应用菜单」改完不生效的教训沉淀
 date: 2026-10-14
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：运营中心「应用菜单」改完不生效的教训沉淀（ops-menu-learnings，2026-10-14）【docs-only】
@@ -20,9 +17,9 @@ sync_backfill_owner: 下一个会话
 | 编码与行尾 | PASS | 两口径 `numstat` 一致（无行尾噪音）；`check-gate-record-debt.js` rc=0（记录带登记三字段、表格行 + bullet 两形态同写） |
 | QM-1 / QM-4 | N/A | 未触 `apps/desktop/electron/` 与渲染层 |
 | QM-6 双模型外部评审 | 未执行 | 本机无 `codeagent-wrapper`，如实登记 |
-| 远程同步 | PENDING | 待本 PR 合并后回填 merge SHA 并销账（回填与销账同次提交） |
+| 远程同步 | PASS | merge `312db86df`（2026-10-14 04:43:55 +08:00）；PR 已 MERGED、远端分支已删（`git ls-remote` 0 行）；回填与销账同次提交 |
 
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PENDING
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PASS
 
 ### 备注
 
