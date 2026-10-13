@@ -26,7 +26,7 @@ class PublishApiRedeemCodeAdminHelpers {
       try {
         if (method === "POST" && url === "/api/v1/admin/member/grant") {
           var grantBody = await this._parseBody(req);
-          if (!grantBody || typeof grantBody.userId !== "string" || !grantBody.userId) { this._json(res, 400, { error: "USER_ID_REQUIRED" }); return; }
+          if (!grantBody || typeof grantBody.userId !== "string" || !grantBody.userId) { this._json(res, 400, { error: "USER_ID_REQUIRED" }); return true; }
           var grantResult = await this._subscriptionService.grant({
             userId: grantBody.userId,
             plan: grantBody.plan,

@@ -181,3 +181,29 @@ test('错误出口：其余 commerce 错误交回 _commerceFailure', () => {
   assert.strictEqual(stub._handleAdminRedeemCodeError({}, {}, err), false)
   assert.strictEqual(stub.emitted.length, 0)
 })
+
+test('回归护栏：已发响应的所有分支都必须返回 true（含 400 校验失败分支）', async () => {
+  // 真实回归：mixin 里残留过一处行内 `return;`（USER_ID_REQUIRED 分支）。
+  // 从 _handle 抽出后它只退出 mixin 方法 → 返回 undefined → 调用方误判「未处理」
+  // 而继续往下 → 对同一个 req 发出第二个响应（ERR_HTTP_HEADERS_SENT 打挂进程）。
+  // 之前只测了成功分支与鉴权守卫，恰好漏掉 400 这类校验失败分支。
+  const stub = createStub({ body: {} }) // 缺 userId → 触发 400 早退
+  const handled = await stub._handleAdminMemberRoute(
+    { url: '/api/v1/admin/member/grant', auth: { authType: 'logto' } },
+    {}, 'POST', '/api/v1/admin/member/grant'
+  )
+  assert.strictEqual(stub.emitted.length, 1, '只应发一次响应')
+  assert.strictEqual(stub.emitted[0].status, 400)
+  assert.strictEqual(handled, true, '已发响应 ⇒ 必须报告已处理，否则调用方会重复响应')
+})
+
+test('回归护栏：503 服务未配置分支同样返回 true', async () => {
+  const stub = createStub()
+  stub._subscriptionService = null
+  const handled = await stub._handleAdminMemberRoute(
+    { url: '/api/v1/admin/member/grant', auth: { authType: 'logto' } },
+    {}, 'POST', '/api/v1/admin/member/grant'
+  )
+  assert.strictEqual(handled, true)
+  assert.deepStrictEqual(stub.emitted[0], { status: 503, body: { error: 'SUBSCRIPTION_SERVICE_NOT_CONFIGURED' } })
+})
