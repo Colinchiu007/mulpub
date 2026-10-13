@@ -2,9 +2,6 @@
 record: decision-points-review
 task: 决策点专项对抗评审——5 个决策点补审（S1/S2 裁决 + 14 条 findings），决策 2 重构、决策 4 三态化、Kokoro 质量门槛、许可证据升格，文档升 v3.2
 date: 2026-10-13
-sync_status: PENDING
-sync_reason: 本 PR 待 squash 合并，merge SHA 与时间尚未可取；合并后由后续 docs PR 在同一次提交回填 PASS 并删除 sync_* 三字段
-sync_backfill_owner: 本会话（与 oss-reinforcement 研究同源维护）
 ---
 
 ## 任务执行记录：决策点专项对抗评审（decision-points-review，2026-10-13，docs-only PR）
@@ -25,7 +22,7 @@ sync_backfill_owner: 本会话（与 oss-reinforcement 研究同源维护）
 | ESLint / 测试 / 变异反证 | N/A | 无代码变更 |
 | QM-1 打包 / QM-4 视觉 | N/A | 不触及 electron/ 与 UI |
 | **QM-6 CCG 双模型外部评审** | **PASS** | 专项对抗循环 2 轮收敛（claude 独立家族）：Round 1（session dfbf38ac）S1 部分成立/S2 成立 + 7 findings，最低维 7.0 未收敛 → rebuttal 全处置 → Round 2（session 46204d21）**已收敛**：7/7 闭环，四维 8/9/8/8，2 条低severity 跟踪项已并入文档。前半段曾因文件读取式运行 25 分钟未收敛被超时杀死，改用内联式后成功——方法论：长文档评审用内联 prompt 禁读文件，从根因消除漫游与管道编码损伤 |
-| 远程同步 | PENDING | 合并后取 merge SHA；`git ls-remote` 0 行证分支已删；回填与销账同一次提交 |
+| 远程同步 | PASS（PR #3483 squash 合并 ⇒ 1a687135，2026-10-13T21:45:55+08:00；远端分支 docs/decision-points-review 已删（ls-remote 0 行）） | 合并后取 merge SHA；`git ls-remote` 0 行证分支已删；回填与销账同一次提交 |
 
 ### 关键裁决留痕
 

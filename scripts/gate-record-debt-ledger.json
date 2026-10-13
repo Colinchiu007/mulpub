@@ -49,10 +49,5 @@
     "line": 5
   },
   "本次执行记录：1 笔远程同步回填与销账（gate-backfill-3377，2026-10-13）【docs-only】": "本回填 PR 的远程同步待合并后由后续 docs PR 回填并删除本条",
-  "本次执行记录：2 笔远程同步回填与销账（gate-backfill-3426-3434，2026-10-13）【docs-only】": "本回填 PR 的远程同步待合并后由后续 docs PR 回填并删除本条",
-  "本次执行记录：决策点专项对抗评审（decision-points-review，2026-10-13）【docs-only】": {
-    "reason": "本 PR 开 PR 时远程同步未闭合：squash 合并后方可取 merge SHA 回填；合并后由后续 docs PR 在同一次提交回填 PASS + SHA 并删除本登记",
-    "status": "PENDING",
-    "line": 11020
-  }
+  "本次执行记录：2 笔远程同步回填与销账（gate-backfill-3426-3434，2026-10-13）【docs-only】": "本回填 PR 的远程同步待合并后由后续 docs PR 回填并删除本条"
 }
