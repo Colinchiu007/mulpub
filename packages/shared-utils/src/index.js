@@ -35,6 +35,8 @@ const mediaCombination = require('./media-combination')
 // 时间轴绝对时间拍平（P1-4，ARCH-REUSE-INTEGRATION R-4）：纯函数、零依赖。
 // 内部一切时间字段是**秒**；毫秒只出现在边界，且只经 toMilliseconds/fromMilliseconds。
 const timelineFlatten = require('./timeline-flatten')
+// 分页纯逻辑层（P2-1，ARCH-REUSE-INTEGRATION R-5）：无 DOM，测量经 options.measure 注入。
+const cardPaginatorCore = require('./card-paginator-core')
 
 // 平台指标矩阵读取层（P1-1，ARCH-REUSE-INTEGRATION §4.2/§4.3）：
 // 回答「这个平台能拿到哪些指标」——**参考数据，不是运行时真源**（真源是 account-metrics/adapters.js）。
@@ -65,6 +67,8 @@ module.exports = {
   // 冲突解决：两侧都保留。P1-1 的矩阵 / P1-3 的组合 / P1-4 的时间轴是三个独立新增的导出。
   // ⚠️ 每次解完冲突必须**去重** —— 两次冲突解决各带进来一份 platformMetricMatrix，
   //    重复键语法合法但属缺陷（ESLint no-dupe-keys），且「有没有冲突标记」的检查照不到它。
+  // 冲突解决：两侧都保留（P1-1 的矩阵 + P1-3 的组合），二者是独立新增的导出，无重叠
+  cardPaginatorCore,
   platformMetricMatrix,
   mediaCombination,
   timelineFlatten,
