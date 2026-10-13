@@ -375,31 +375,6 @@ class KeywordWatchlist(Base):
 
     __tablename__ = "keyword_watchlist"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    keyword = Column(String(100), unique=True, nullable=False)
-    category = Column(String(40), default="topic")
-    threshold = Column(Float, default=2.0)  # 飙升检测倍数
-    interval_minutes = Column(Integer, default=360)  # 轮询间隔（分钟）
-    enabled = Column(Integer, default=1)
-    sort_order = Column(Integer, default=0)
-    deleted_at = Column(String, nullable=True)  # 软删（不复活）
-    updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
-    updated_by = Column(String(100), default="")
-class RedemptionCode(Base):
-    """兑换码管理 — 运营后台签发（与桌面端 redemption-codes.js HMAC 格式一致），吊销/查询。"""
-
-    __tablename__ = "redemption_codes"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    code = Column(String(32), unique=True, nullable=False)  # MP-XXXX-XXXX-XXXX-SIG（列表掩码，操作按 id）
-    plan = Column(String(20), default="pro")  # free | trial | pro
-    batch_id = Column(String(32), default="")
-    status = Column(String(20), default="active")  # active | revoked
-    expires_at = Column(String, nullable=True)  # ISO 或空
-    note = Column(String(200), default="")
-    created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
-    updated_by = Column(String(100), default="")
-
 
 class PipelineDependency(Base):
     """流水线所需依赖 — 视频创作流水线 → 模型类型 + 候选供应商（运营后台维护）。"""
