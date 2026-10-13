@@ -68,12 +68,21 @@ const PLATFORM_PREFIXES = {
   baijiahao: ['baijia'],
   weibo: ['weibo'],
   zhihu: ['zhihu'],
-  tencent_video: ['tencentvideo'],
+  // ⚠️ `tencent_video` **刻意不导入**。本项目 config/platforms.yaml:93-98 明写：
+  //    「本条的 id 是 tencent_video，但 name 是「视频号」、publish_url 指向 channels.weixin.qq.com
+  //     —— 实际发布目标是微信视频号，不是腾讯视频（v.qq.com）；腾讯视频未接入」。
+  //    而数据集里的 `tencentvideocategortmap.txt` 属于**腾讯视频**（实测 mediadatamgr.ini：
+  //    21=腾讯视频、53=视频号）⇒ 把它的分类 ID 挂到视频号上就是「发错平台」。
+  //    宁可少一个平台，也不接一张别的平台的表。
 }
 
-// 本项目支持、但**本数据集里没有带 ID 的分类数据**的平台。
+// 本项目支持、但**本数据集里没有可安全使用的带 ID 分类数据**的平台。
 // 显式登记（而不是默默不出现），让读取层能区分「没有这条数据」与「忘了导入」。
-const PLATFORMS_WITHOUT_ID_DATA = ['kuaishou', 'wechat_mp']
+const PLATFORMS_WITHOUT_ID_DATA = [
+  'kuaishou',      // 数据集中只有 *subcategort（去 ID 镜像）
+  'wechat_mp',     // 同上（weixinvideosubcategort.txt 无 ID）
+  'tencent_video', // 本项目的 tencent_video 指微信视频号；数据集里只有腾讯视频的表（见上）
+]
 
 // 来源快照信息。**不写生成时间**（那会破坏「连跑两次字节相同」的确定性；
 // 何时生成由 git 历史记录）。快照日期与「未联网校验」是给读者的必要警示。

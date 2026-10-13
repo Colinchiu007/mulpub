@@ -32,13 +32,18 @@ const REPO = path.resolve(__dirname, '..')
 const SCRIPT = path.join(REPO, 'scripts', 'import-platform-taxonomy.js')
 const DATA_DIR = path.join(REPO, '01-docs', 'research', 'competitor-reverse-2026-10-13', 'platform-data')
 
-/** 建一个临时 fixture 目录：写若干分类映射文件，返回路径 */
+/**
+ * 建一个临时 fixture 目录：写若干分类映射文件，返回路径。
+ *
+ * ⚠️ GBK 夹具必须给**真实 GBK 字节**：`Buffer.from(s,'binary')` 是 **latin1**（每字符取低 8 位），
+ * 产生的是无效字节序列而非 GBK 编码 —— 拿它做「GBK 分支」等于零覆盖。
+ * 此处按十六进制给字节，例如「动植物」的 GBK = B6 AF D6 B2 CE EF。
+ */
 function makeFixture (files) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'taxo-'))
   for (const [name, content, enc] of files) {
-    if (enc === 'gbk') {
-      // 用 Node 无法直接编码 GBK；改用「已知 GBK 字节序列」写入
-      fs.writeFileSync(path.join(dir, name), Buffer.from(content, 'binary'))
+    if (enc === 'gbk-hex') {
+      fs.writeFileSync(path.join(dir, name), Buffer.from(content, 'hex'))
     } else {
       fs.writeFileSync(path.join(dir, name), content, 'utf8')
     }
@@ -49,6 +54,22 @@ function makeFixture (files) {
 function run (args) {
   return spawnSync(process.execPath, [SCRIPT, ...args], { encoding: 'utf8', cwd: REPO })
 }
+
+test('★ GBK 文件按逐文件判定被正确解码（真实 GBK 字节，不是 latin1 假夹具）', () => {
+  // `{"code":1,"text":"动植物"}` 的 GBK 字节。动植物 = B6AF D6B2 CEEF。
+  const GBK_HEX = '7B22636F6465223A312C2274657874223A22B6AFD6B2CEEF227D'
+  const dir = makeFixture([['douyincategortmap.txt', GBK_HEX, 'gbk-hex']])
+  const out = path.join(dir, 'out.json')
+  const r = run(['--source', dir, '--out', out])
+  assert.equal(r.status, 0, 'GBK 文件必须能解析：' + r.stderr)
+  const j = JSON.parse(fs.readFileSync(out, 'utf8'))
+  const n = j.platforms.douyin.article.nodes[0]
+  assert.equal(n.id, '1')
+  // 关键：解码正确 ⇒ 中文完好；若被当 latin1/UTF-8 处理，这里会是乱码或替换字符
+  assert.equal(n.name, '动植物', 'GBK 未按 GBK 解码')
+  assert.ok(!n.name.includes('\uFFFD'), '出现替换字符说明解码路径错了')
+  assert.equal(j.source.filesRead[0].encoding, 'gbk', '未如实登记该文件为 gbk')
+})
 
 test('未指定参数时以非零退出并给出用法', () => {
   const r = run([])
@@ -124,17 +145,21 @@ test('产出里不含 id 为空的节点（只导入带 ID 的映射）', () => 
   }
 })
 
-test('真实数据集：产出覆盖 7 个有 ID 的平台，且节点总数 > 0', () => {
+test('真实数据集：产出覆盖 6 个有 ID 的平台（tencent_video 刻意排除，见脚本注释）', () => {
   if (!fs.existsSync(DATA_DIR)) return // 数据集不在时跳过（不假装通过）
   const out = path.join(os.tmpdir(), 'taxo-real-' + Date.now() + '.json')
   const r = run(['--source', DATA_DIR, '--out', out])
   assert.equal(r.status, 0, '真实数据集必须解析成功：' + r.stderr)
   const j = JSON.parse(fs.readFileSync(out, 'utf8'))
   const withData = Object.keys(j.platforms).filter((p) => Object.values(j.platforms[p]).some((b) => b.nodes.length > 0))
-  assert.ok(withData.length >= 7, `带 ID 的平台应 ≥7，实际 ${withData.length}：${withData.join(',')}`)
-  // 实测基线：B站图文 38 节点、视频 143 节点
+  // 6 而非 7：`tencent_video` 在本项目指**微信视频号**，而数据集里只有**腾讯视频**的表，
+  // 挂上去等于发错平台，故刻意不导入（详见脚本 PLATFORM_PREFIXES 注释）。
+  assert.equal(withData.length, 6, `带 ID 的平台应为 6，实际 ${withData.length}：${withData.join(',')}`)
+  assert.deepEqual(withData.sort(), ['baijiahao', 'bilibili', 'douyin', 'toutiao', 'weibo', 'zhihu'])
+  assert.ok(j.platformsWithoutIdData.includes('tencent_video'), 'tencent_video 必须显式登记为无 ID 数据')
+  // 实测基线：B站图文 38 节点、视频 142 节点
   assert.equal(j.platforms.bilibili.article.nodes.length, 38, 'B站图文应为 38 节点')
-  assert.equal(j.platforms.bilibili.video.nodes.length, 142, 'B站视频应为 142 节点（源数据 1 条同 id 不同名的歧义项按两侧保留、1 条完全重复被去重）')
+  assert.equal(j.platforms.bilibili.video.nodes.length, 142, 'B站视频应为 142 节点')
   fs.unlinkSync(out)
 })
 

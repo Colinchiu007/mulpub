@@ -196,6 +196,61 @@ describe('validateTaxonomy —— 结构自检', () => {
   })
 })
 
+describe('★ 真实产物契约：转换器输出必须被读取层读得懂', () => {
+  // 这一组的存在理由：上面所有用例都吃**手写 fixture**，因此「转换器改了字段名/结构」
+  // 这类漂移**不会**让任何测试变红 —— 运行时表现是「读到空表且不报错」，最难发现。
+  // 这里强行把两者接上：直接读 scripts/import-platform-taxonomy.js 的真实产出。
+  const REAL = path.resolve(__dirname, '../../../../config/platform-taxonomy.json')
+
+  it('真实产物存在且 validateTaxonomy() 干净（判据「空数组即健康」可满足）', () => {
+    if (!fs.existsSync(REAL)) return // 产物不在时跳过，不假装通过
+    mod.setTaxonomyPathForTest?.(REAL)
+    mod.__resetTaxonomyCacheForTest?.()
+    const issues = mod.validateTaxonomy()
+    expect(issues, '真实产物不应有结构问题：\n' + issues.join('\n')).toEqual([])
+  })
+
+  it('读取层能从真实产物解出分类，且档位与数据一致', () => {
+    if (!fs.existsSync(REAL)) return
+    mod.setTaxonomyPathForTest?.(REAL)
+    mod.__resetTaxonomyCacheForTest?.()
+    // 6 个平台有可提交 ID（tencent_video 被排除：本项目它指微信视频号，
+    // 而数据集里只有腾讯视频的表 —— 挂上去是发错平台）
+    for (const p of ['bilibili', 'douyin', 'toutiao', 'baijiahao', 'weibo', 'zhihu']) {
+      expect(mod.getTaxonomyCoverage(p), `${p} 应为 id 档`).toBe('id')
+    }
+    // 已登记的无 ID 平台
+    for (const p of ['kuaishou', 'wechat_mp', 'tencent_video']) {
+      expect(mod.getTaxonomyCoverage(p), `${p} 应为 name-only`).toBe('name-only')
+    }
+    // 端到端取一个真实分类
+    const r = mod.resolveCategoryId('douyin', '动植物', { contentType: 'article' })
+    expect(r).toMatchObject({ ok: true, id: '117' })
+  })
+
+  it('★ 真实产物里的歧义项被拒绝解析（B站视频 tid=36 是「知识」也是「科技」）', () => {
+    if (!fs.existsSync(REAL)) return
+    mod.setTaxonomyPathForTest?.(REAL)
+    mod.__resetTaxonomyCacheForTest?.()
+    const r = mod.resolveCategoryId('bilibili', '36', { contentType: 'video' })
+    expect(r.ok).toBe(false)
+    expect(r.reason).toBe('ambiguous')
+    expect(r.candidates.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('转换器声明的冲突数与读取层拒绝解析的现象一致（两处不能各说各话）', () => {
+    if (!fs.existsSync(REAL)) return
+    const tax = JSON.parse(fs.readFileSync(REAL, 'utf8'))
+    if (!Array.isArray(tax.conflicts)) return
+    mod.setTaxonomyPathForTest?.(REAL)
+    mod.__resetTaxonomyCacheForTest?.()
+    for (const c of tax.conflicts) {
+      const r = mod.resolveCategoryId(c.platform, c.id, { contentType: c.contentType })
+      expect(r.reason, `冲突 ${c.platform}/${c.contentType} id=${c.id} 在读取层未被判为歧义`).toBe('ambiguous')
+    }
+  })
+})
+
 describe('健壮性：文件缺失不得炸掉调用方', () => {
   it('分类表不存在 ⇒ 全部按 absent 处理，不抛异常', () => {
     mod.setTaxonomyPathForTest?.(path.join(os.tmpdir(), 'definitely-missing-' + Date.now() + '.json'))

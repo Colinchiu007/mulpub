@@ -299,6 +299,10 @@ function validateTaxonomy (opts = {}) {
       const seen = new Set()
       for (const n of b.nodes) {
         if (n.id === null || n.id === undefined || n.id === '') issues.push(`${where}: 存在 id 为空的节点（${n.name}）`)
+        // 刻意保留的源数据歧义（n.ambiguous，已记入 source.conflicts）不算错误 ——
+        // 它们是被**承认并显式登记**的客观事实，读取层已拒绝对其解析。
+        // 若也算错误，validateTaxonomy() 将永远非空，判据「空数组即健康」不可满足。
+        else if (n.ambiguous) { /* acknowledged */ }
         else if (seen.has(n.id)) issues.push(`${where}: 重复 id ${n.id}（${n.name}）`)
         else seen.add(n.id)
         if (!n.name) issues.push(`${where}: id=${n.id} 缺 name`)
