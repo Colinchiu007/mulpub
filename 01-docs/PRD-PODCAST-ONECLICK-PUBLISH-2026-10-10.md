@@ -571,6 +571,80 @@ pickChannel → colloquialize → chunk → ttsBlock(逐块，串行) → concat
 - 不删除、不合并存量重复期（判据不足，删除不可恢复）。
 - 不把固化结果同步到云端账号镜像（§账号云同步只镜像凭证与账号元信息，与单集无关）。
 
+## 7.10 文本出期（tasks 4.3）主进程层合同 —— `createEpisodeHost().publishFromScript`
+
+> 本节是**实现前写下的合同**，实现与测试均以本节为准；任何偏离必须先改本节再改代码。
+> 刀 4 第 4 片落的是主进程层：`podcast-episode-host.js` 新增 `publishFromScript`，
+> **只替换 `extractMix` 这一站的实现**（合成层 `synthesizeEpisodeAudio`），`probe` 及之后
+> 逐字复用同一条编排链。渲染端入口（`CopyLibraryView.vue:174`、`RewriteView.vue:812`、
+> `Publish.vue:358`）与 IPC/preload 通道属第 4 片·下半，见 §7.10.6。
+
+### 7.10.1 入参与数据校验（三层，顺序不可调换）
+
+| 层 | 判据 | 唯一实现 | 失败码 |
+| --- | --- | --- | --- |
+| ① 计费同意闸门 | `payload.billingConfirmed === true`，**只认布尔字面量真** | 本宿主 | `PODCAST_TTS_BILLING_UNCONFIRMED` |
+| ② 内容/形状判据 | `channelId` 形态、`copy.content` ≥ **80 码点**、`title` 非空且 ≤ 200 码点、`runId` 形态（8–64 位 `[A-Za-z0-9_-]`）、`voiceRef` 三段同存或同缺 | `podcast-tts-compose.validateComposeInput` | 逐字转发该表（`PODCAST_TTS_COPY_TOO_SHORT` / `PODCAST_TTS_TITLE_INVALID` / `PODCAST_TTS_VOICE_REF_INCOMPLETE` / `PODCAST_TTS_RUN_ID_INVALID` …），**宿主不得重新映射** |
+| ③ 注入实现齐备 | `generateTTS` / `concatBlocks` / `probeImpl` 三个都必须是函数 | 本宿主 | `PODCAST_EPISODE_INVALID` |
+
+四条不可破：
+
+1. **闸门排在内容判据之前**，且发生在取锁与任何磁盘写之前。把「没同意」报成「正文过短」
+   会让用户去改稿件，而不是去找他从未见过的确认框。
+2. **分块/长度/音色的判据只有一份**。宿主直接转发 `validateComposeInput` 的 `code` 与 `issues`；
+   在此重写「正文非空即可」会绕过 §7.4.2 的 80 码点下限（变异 M13 实测让指名用例变红）。
+3. **注入缺席检查不得下推给合成层**。合成层自己也会拒（`ADAPTER_ERRORS.ARGS_MISSING` 同为
+   `PODCAST_EPISODE_INVALID`），所以「码相同」不构成证据；判据是**副作用缺席**：
+   宿主拦下时 `mkdir` 次数必须为 0、频道忙标记必须未被占用（变异 M12 实测让指名用例变红）。
+4. `runId` 形态判据同时是临时目录名 `episode-<runId>` 的穿越边界，属安全判据而非格式洁癖。
+
+### 7.10.2 流程（与成片链同一条）
+
+```
+计费确认 → validateComposeInput → planChunks(≤2000 码点/块) → runChain
+  pickChannel → extractMix(= 逐块 TTS + 块间静音 + concat + ffprobe 实测)
+             → probe → uploadAudio → attach → buildFeed → uploadFeed
+finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endPublish
+```
+
+- `extractMix` 站的产物形状必须与抽混音一致（`outPath / durationSec / sizeBytes / mime`），
+  因为 `probe` 及之后只读这四个字段；块级 `degraded` 由合成层汇总成**整期拒绝**
+  （`PODCAST_TTS_CHUNK_DEGRADED`，块号进 `issues`），一条静音一期比一期失败更伤。
+- 忙标记（`PODCAST_CHANNEL_BUSY`）与取消窗口闭集（`pickChannel/extractMix/probe` 可取消、
+  `uploadAudio` 起不可取消）由 `runChain` 单点持有，两种来源共用，**不得为文本链另开一套**。
+
+### 7.10.3 交互逻辑（第 4 片·下半的渲染端要照此实现）
+
+- 入口点击 → 先弹**计费二次确认**（列出块数、估算字符量、所选服务商与音色），用户确认后才发 IPC；
+  取消该确认框不得留下任何半成品（宿主侧本就没有磁盘写）。
+- 进度遮罩沿用 §6.4.2 的七相位与 `cancellable` 位（由主进程算，前端不得抄相位表）。
+- 出错时逐条展示 `issues`（按码取 locale 文案），不得只弹「失败」。
+
+### 7.10.4 显示项
+
+| 位置 | 显示内容 | 数据来源 |
+| --- | --- | --- |
+| 二次确认框 | 块数、总码点、服务商/模型/音色三段 | `planChunks` 的 `totalBlocks` + 频道 `voiceRef`（§7.4.0 三层回退，命中来源必须标注） |
+| 进度遮罩 | 当前相位 + `durationSec` / `sizeBytes` / `mime` 实测值 | `publish:progress` 富化事件（§6.4.2） |
+| 结果 | 成功给 `feedUrl`；partial 明示「公网 feed 未更新」；cancelled 明示「已回滚，未产生远端对象」 | 编排层信封 |
+
+### 7.10.5 提示文字（逐字，供 §11.5 生成器对齐）
+
+- 未同意计费：`文本出期会逐块调用 TTS 服务商并产生计费，请先确认用量与费用`
+- 正文过短：`正文 <N> 码点，短于一期口播的下限 80`
+- 音色残缺：`音色三段（providerId/model/voiceId）必须同存或同缺，实到 <K> 段`
+- 整期退化：`存在退化为静音的合成块，本期不发布（块号见明细）`
+
+> 以上文案当前是**主进程日志与错误 message 的字面量**，locale 键须随渲染端入口同 PR 落地，
+> 现在写会造出 AGENTS 禁止的死键（同 §3.10 的先例）。
+
+### 7.10.6 本节故意不做的
+
+- 不加 `podcast:episode:publishFromScript` 的 IPC/preload 通道与三个入口——**没有消费者的通道
+  属装饰性链路**，与入口、locale 成对键、浮层同 PR 落地（第 4 片·下半）。
+- 不做 `extractMix` 之外的站替换；不改 `PHASES` 闭集（改枚举必须与逐格结果态测试同 PR）。
+- 不在主进程做口语化重写（§7.6 那条链独立，且必须保持换行/终止标点的结构不变量）。
+
 ## 8. 状态机、交互逻辑、显示项
 
 **相位闭集（结构锁⑪：变更必须与 §5.2 矩阵逐格测试同 PR，且断言规模下界）**：

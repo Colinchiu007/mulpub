@@ -1,3 +1,10 @@
+# [未发布] feat(podcast): 文本出期主进程层——只换 extractMix 这一站，计费闸门与 compose 判据分层收口（podcast-episode-tts-entry）
+
+- 新增 `createEpisodeHost().publishFromScript`：口播稿 → 分块 TTS 合成 → 复用 `probe` 及之后的同一条编排链；成片链与文本链共用的持锁/取消登记/临时目录收尾/终态边界收敛为 `runChain` 单点。
+- 三条分层判据：计费同意闸门排在内容判据之前且只认真值；正文/标题/runId/音色三段的判据唯一实现仍是 `podcast-tts-compose`（宿主逐字转发码与 issues，不重新映射）；三个注入实现缺席即当场拒，且发生在取锁与任何磁盘写之前。
+- 回归锁 5 条 + 变异反证 M10–M14 各自指名变红；其中 M12 需要靠副作用缺席才能与合成层自身的同名兜底码区分——「码相同」不构成证据。
+- 文档：PRD 新增 §7.10（入参/流程/交互/显示项/逐字提示文字/故意不做）；tasks 4.3 拆为 4.3①（本片）与 4.3②（IPC/preload + 三入口 + locale 成对键）。
+
 # [未发布] fix(ci): 步骤 fail-fast 棘轮改为逐条配对，Gate 9 verdict 探针收回门禁单一实现（gate3-failfast）
 
 ## 背景
