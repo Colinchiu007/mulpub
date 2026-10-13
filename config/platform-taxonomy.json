@@ -5,6 +5,7 @@
     "kind": "competitor-data-snapshot",
     "snapshotDate": "2026-07-14",
     "verifiedOnline": false,
+    "conflictsNote": "同一 id 配多个 name：源数据自身有歧义（实测 B站视频表 tid=36 同时是「知识」与「科技」）。读取层对这些 id/名拒绝解析并列出候选，不猜。",
     "verifiedOnlineNote": "该快照取自竞品数据资产，**未经任何联网校验**。平台侧分类会变，按本表发布的分类可能已失效。",
     "filesRead": [
       {
@@ -12,87 +13,121 @@
         "contentType": "video",
         "file": "baijiavideocategortmap.txt",
         "encoding": "utf-8",
-        "nodes": 438
+        "nodes": 386,
+        "deduped": 52
       },
       {
         "platform": "bilibili",
         "contentType": "article",
         "file": "bilibilicategortmap.txt",
         "encoding": "utf-8",
-        "nodes": 38
+        "nodes": 38,
+        "deduped": 0
       },
       {
         "platform": "bilibili",
         "contentType": "video",
         "file": "bilibilivideocategortmap.txt",
         "encoding": "utf-8",
-        "nodes": 143
+        "nodes": 142,
+        "deduped": 1
       },
       {
         "platform": "douyin",
         "contentType": "article",
         "file": "douyincategortmap.txt",
         "encoding": "utf-8",
-        "nodes": 27
+        "nodes": 27,
+        "deduped": 0
       },
       {
         "platform": "douyin",
         "contentType": "video",
         "file": "douyinvideocategortmap.txt",
         "encoding": "utf-8",
-        "nodes": 245
+        "nodes": 245,
+        "deduped": 0
       },
       {
         "platform": "tencent_video",
         "contentType": "video",
         "file": "tencentvideocategortmap.txt",
         "encoding": "utf-8",
-        "nodes": 155
+        "nodes": 155,
+        "deduped": 0
       },
       {
         "platform": "toutiao",
         "contentType": "article",
         "file": "huitoutiaocategortmap.txt",
         "encoding": "utf-8",
-        "nodes": 85
+        "nodes": 85,
+        "deduped": 0
       },
       {
         "platform": "toutiao",
         "contentType": "video",
         "file": "huitoutiaovideocategortmap.txt",
         "encoding": "utf-8",
-        "nodes": 75
+        "nodes": 75,
+        "deduped": 0
       },
       {
         "platform": "toutiao",
         "contentType": "article",
         "file": "qutoutiaocategortmap.txt",
         "encoding": "utf-8",
-        "nodes": 380
+        "nodes": 380,
+        "deduped": 0
       },
       {
         "platform": "weibo",
         "contentType": "video",
         "file": "weibovideocategortmap.txt",
         "encoding": "utf-8",
-        "nodes": 190
+        "nodes": 190,
+        "deduped": 0
       },
       {
         "platform": "zhihu",
         "contentType": "video",
         "file": "zhihuvideocategortmap.txt",
         "encoding": "utf-8",
-        "nodes": 33
+        "nodes": 33,
+        "deduped": 0
       }
     ]
   },
+  "conflicts": [
+    {
+      "platform": "bilibili",
+      "contentType": "video",
+      "sourceFile": "bilibilivideocategortmap.txt",
+      "id": "36",
+      "names": [
+        "知识",
+        "科技"
+      ]
+    },
+    {
+      "platform": "bilibili",
+      "contentType": "video",
+      "sourceFile": "bilibilivideocategortmap.txt",
+      "id": "95",
+      "names": [
+        "数码",
+        "手机平板"
+      ]
+    }
+  ],
   "platformsWithoutIdData": [
     "kuaishou",
     "wechat_mp"
   ],
   "stats": {
     "platforms": 7,
-    "nodes": 1809
+    "nodes": 1756,
+    "dedupedIdenticalEntries": 53
   },
   "platforms": {
     "baijiahao": {
@@ -100,7 +135,7 @@
         "contentType": "video",
         "sourceFile": "baijiavideocategortmap.txt",
         "encoding": "utf-8",
-        "nodeCount": 438,
+        "nodeCount": 386,
         "maxDepth": 3,
         "nodes": [
           {
@@ -876,12 +911,6 @@
             "name": "特技",
             "depth": 1,
             "parentId": null
-          },
-          {
-            "id": "魔术",
-            "name": "魔术",
-            "depth": 2,
-            "parentId": "特技"
           },
           {
             "id": "硬功表演",
@@ -1712,46 +1741,10 @@
             "parentId": "体育"
           },
           {
-            "id": "资讯解读",
-            "name": "资讯解读",
-            "depth": 3,
-            "parentId": "足球"
-          },
-          {
-            "id": "教学",
-            "name": "教学",
-            "depth": 3,
-            "parentId": "足球"
-          },
-          {
-            "id": "分享",
-            "name": "分享",
-            "depth": 3,
-            "parentId": "足球"
-          },
-          {
             "id": "乒乓球",
             "name": "乒乓球",
             "depth": 2,
             "parentId": "体育"
-          },
-          {
-            "id": "资讯解读",
-            "name": "资讯解读",
-            "depth": 3,
-            "parentId": "乒乓球"
-          },
-          {
-            "id": "教学",
-            "name": "教学",
-            "depth": 3,
-            "parentId": "乒乓球"
-          },
-          {
-            "id": "分享",
-            "name": "分享",
-            "depth": 3,
-            "parentId": "乒乓球"
           },
           {
             "id": "网球",
@@ -1760,46 +1753,10 @@
             "parentId": "体育"
           },
           {
-            "id": "资讯解读",
-            "name": "资讯解读",
-            "depth": 3,
-            "parentId": "网球"
-          },
-          {
-            "id": "教学",
-            "name": "教学",
-            "depth": 3,
-            "parentId": "网球"
-          },
-          {
-            "id": "分享",
-            "name": "分享",
-            "depth": 3,
-            "parentId": "网球"
-          },
-          {
             "id": "羽毛球",
             "name": "羽毛球",
             "depth": 2,
             "parentId": "体育"
-          },
-          {
-            "id": "资讯解读",
-            "name": "资讯解读",
-            "depth": 3,
-            "parentId": "羽毛球"
-          },
-          {
-            "id": "教学",
-            "name": "教学",
-            "depth": 3,
-            "parentId": "羽毛球"
-          },
-          {
-            "id": "分享",
-            "name": "分享",
-            "depth": 3,
-            "parentId": "羽毛球"
           },
           {
             "id": "台球",
@@ -1808,46 +1765,10 @@
             "parentId": "体育"
           },
           {
-            "id": "资讯解读",
-            "name": "资讯解读",
-            "depth": 3,
-            "parentId": "台球"
-          },
-          {
-            "id": "教学",
-            "name": "教学",
-            "depth": 3,
-            "parentId": "台球"
-          },
-          {
-            "id": "分享",
-            "name": "分享",
-            "depth": 3,
-            "parentId": "台球"
-          },
-          {
             "id": "排球",
             "name": "排球",
             "depth": 2,
             "parentId": "体育"
-          },
-          {
-            "id": "资讯解读",
-            "name": "资讯解读",
-            "depth": 3,
-            "parentId": "排球"
-          },
-          {
-            "id": "教学",
-            "name": "教学",
-            "depth": 3,
-            "parentId": "排球"
-          },
-          {
-            "id": "分享",
-            "name": "分享",
-            "depth": 3,
-            "parentId": "排球"
           },
           {
             "id": "球类其他",
@@ -1862,24 +1783,6 @@
             "parentId": "体育"
           },
           {
-            "id": "资讯解读",
-            "name": "资讯解读",
-            "depth": 3,
-            "parentId": "游泳"
-          },
-          {
-            "id": "教学",
-            "name": "教学",
-            "depth": 3,
-            "parentId": "游泳"
-          },
-          {
-            "id": "分享",
-            "name": "分享",
-            "depth": 3,
-            "parentId": "游泳"
-          },
-          {
             "id": "田径",
             "name": "田径",
             "depth": 2,
@@ -1892,46 +1795,10 @@
             "parentId": "体育"
           },
           {
-            "id": "资讯解读",
-            "name": "资讯解读",
-            "depth": 3,
-            "parentId": "棋类"
-          },
-          {
-            "id": "教学",
-            "name": "教学",
-            "depth": 3,
-            "parentId": "棋类"
-          },
-          {
-            "id": "分享",
-            "name": "分享",
-            "depth": 3,
-            "parentId": "棋类"
-          },
-          {
             "id": "高尔夫",
             "name": "高尔夫",
             "depth": 2,
             "parentId": "体育"
-          },
-          {
-            "id": "资讯解读",
-            "name": "资讯解读",
-            "depth": 3,
-            "parentId": "高尔夫"
-          },
-          {
-            "id": "教学",
-            "name": "教学",
-            "depth": 3,
-            "parentId": "高尔夫"
-          },
-          {
-            "id": "分享",
-            "name": "分享",
-            "depth": 3,
-            "parentId": "高尔夫"
           },
           {
             "id": "滑板",
@@ -1940,40 +1807,10 @@
             "parentId": "体育"
           },
           {
-            "id": "教学",
-            "name": "教学",
-            "depth": 3,
-            "parentId": "滑板"
-          },
-          {
-            "id": "分享",
-            "name": "分享",
-            "depth": 3,
-            "parentId": "滑板"
-          },
-          {
             "id": "赛车",
             "name": "赛车",
             "depth": 2,
             "parentId": "体育"
-          },
-          {
-            "id": "资讯解读",
-            "name": "资讯解读",
-            "depth": 3,
-            "parentId": "赛车"
-          },
-          {
-            "id": "教学",
-            "name": "教学",
-            "depth": 3,
-            "parentId": "赛车"
-          },
-          {
-            "id": "分享",
-            "name": "分享",
-            "depth": 3,
-            "parentId": "赛车"
           },
           {
             "id": "滑雪",
@@ -1982,40 +1819,10 @@
             "parentId": "体育"
           },
           {
-            "id": "资讯解读",
-            "name": "资讯解读",
-            "depth": 3,
-            "parentId": "滑雪"
-          },
-          {
-            "id": "教学",
-            "name": "教学",
-            "depth": 3,
-            "parentId": "滑雪"
-          },
-          {
-            "id": "分享",
-            "name": "分享",
-            "depth": 3,
-            "parentId": "滑雪"
-          },
-          {
             "id": "健身",
             "name": "健身",
             "depth": 2,
             "parentId": "体育"
-          },
-          {
-            "id": "教学",
-            "name": "教学",
-            "depth": 3,
-            "parentId": "健身"
-          },
-          {
-            "id": "分享",
-            "name": "分享",
-            "depth": 3,
-            "parentId": "健身"
           },
           {
             "id": "户外运动",
@@ -2024,34 +1831,10 @@
             "parentId": "体育"
           },
           {
-            "id": "教学",
-            "name": "教学",
-            "depth": 3,
-            "parentId": "户外运动"
-          },
-          {
-            "id": "分享",
-            "name": "分享",
-            "depth": 3,
-            "parentId": "户外运动"
-          },
-          {
             "id": "跑步",
             "name": "跑步",
             "depth": 2,
             "parentId": "体育"
-          },
-          {
-            "id": "教学",
-            "name": "教学",
-            "depth": 3,
-            "parentId": "跑步"
-          },
-          {
-            "id": "分享",
-            "name": "分享",
-            "depth": 3,
-            "parentId": "跑步"
           },
           {
             "id": "短道速滑",
@@ -2090,34 +1873,10 @@
             "parentId": "体育"
           },
           {
-            "id": "教学",
-            "name": "教学",
-            "depth": 3,
-            "parentId": "钓鱼"
-          },
-          {
-            "id": "分享",
-            "name": "分享",
-            "depth": 3,
-            "parentId": "钓鱼"
-          },
-          {
             "id": "武术",
             "name": "武术",
             "depth": 2,
             "parentId": "体育"
-          },
-          {
-            "id": "教学",
-            "name": "教学",
-            "depth": 3,
-            "parentId": "武术"
-          },
-          {
-            "id": "分享",
-            "name": "分享",
-            "depth": 3,
-            "parentId": "武术"
           },
           {
             "id": "格斗",
@@ -2222,20 +1981,8 @@
             "parentId": "情景剧"
           },
           {
-            "id": "乡村",
-            "name": "乡村",
-            "depth": 2,
-            "parentId": "情景剧"
-          },
-          {
             "id": "魔幻",
             "name": "魔幻",
-            "depth": 2,
-            "parentId": "情景剧"
-          },
-          {
-            "id": "悬疑",
-            "name": "悬疑",
             "depth": 2,
             "parentId": "情景剧"
           },
@@ -2350,12 +2097,6 @@
           {
             "id": "中韩关系",
             "name": "中韩关系",
-            "depth": 3,
-            "parentId": "国际关系"
-          },
-          {
-            "id": "其他",
-            "name": "其他",
             "depth": 3,
             "parentId": "国际关系"
           },
@@ -2570,12 +2311,6 @@
             "parentId": null
           },
           {
-            "id": "随手拍",
-            "name": "随手拍",
-            "depth": 2,
-            "parentId": "随手拍"
-          },
-          {
             "id": "艺术",
             "name": "艺术",
             "depth": 1,
@@ -2718,18 +2453,6 @@
             "name": "医美综合",
             "depth": 2,
             "parentId": "医美"
-          },
-          {
-            "id": "其他",
-            "name": "其他",
-            "depth": 1,
-            "parentId": null
-          },
-          {
-            "id": "其他",
-            "name": "其他",
-            "depth": 2,
-            "parentId": "其他"
           }
         ]
       }
@@ -2976,7 +2699,7 @@
         "contentType": "video",
         "sourceFile": "bilibilivideocategortmap.txt",
         "encoding": "utf-8",
-        "nodeCount": 143,
+        "nodeCount": 142,
         "maxDepth": 2,
         "nodes": [
           {
@@ -3121,7 +2844,8 @@
             "id": "36",
             "name": "知识",
             "depth": 1,
-            "parentId": null
+            "parentId": null,
+            "ambiguous": true
           },
           {
             "id": "201",
@@ -3304,12 +3028,6 @@
             "parentId": "1"
           },
           {
-            "id": "86",
-            "name": "特摄",
-            "depth": 2,
-            "parentId": "1"
-          },
-          {
             "id": "155",
             "name": "时尚",
             "depth": 1,
@@ -3475,7 +3193,8 @@
             "id": "36",
             "name": "科技",
             "depth": 1,
-            "parentId": null
+            "parentId": null,
+            "ambiguous": true
           },
           {
             "id": "230",
@@ -3487,7 +3206,8 @@
             "id": "95",
             "name": "数码",
             "depth": 2,
-            "parentId": "36"
+            "parentId": "36",
+            "ambiguous": true
           },
           {
             "id": "231",
@@ -3793,7 +3513,8 @@
             "id": "95",
             "name": "手机平板",
             "depth": 2,
-            "parentId": "188"
+            "parentId": "188",
+            "ambiguous": true
           },
           {
             "id": "189",

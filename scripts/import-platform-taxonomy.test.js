@@ -134,7 +134,7 @@ test('真实数据集：产出覆盖 7 个有 ID 的平台，且节点总数 > 0
   assert.ok(withData.length >= 7, `带 ID 的平台应 ≥7，实际 ${withData.length}：${withData.join(',')}`)
   // 实测基线：B站图文 38 节点、视频 143 节点
   assert.equal(j.platforms.bilibili.article.nodes.length, 38, 'B站图文应为 38 节点')
-  assert.equal(j.platforms.bilibili.video.nodes.length, 143, 'B站视频应为 143 节点')
+  assert.equal(j.platforms.bilibili.video.nodes.length, 142, 'B站视频应为 142 节点（源数据 1 条同 id 不同名的歧义项按两侧保留、1 条完全重复被去重）')
   fs.unlinkSync(out)
 })
 

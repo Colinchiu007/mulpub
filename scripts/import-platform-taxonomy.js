@@ -108,15 +108,30 @@ const CHILD_KEYS = ['cates', 'child', 'children', 'childrenCate', 'sub', 'subs',
 function walkTaxonomy (root) {
   const nodes = []
   let maxDepth = 0
-  const seenIds = new Map() // id → name，用于查重
-  const duplicates = []
+  const seenIds = new Map() // id → name
+  const duplicates = []     // 同一 id 配**不同** name —— 源数据的真歧义
+  let dedupedCount = 0      // 同一 (id, name) 的重复条目 —— 源数据噪音
 
   const push = (id, name, depth, parentId) => {
-    nodes.push({ id: String(id), name: String(name), depth, parentId: parentId == null ? null : String(parentId) })
+    const sid = String(id); const sname = String(name)
+    const prev = seenIds.get(sid)
+    // 百家号源文件里同一 (id, name) 会重复几十次（实测「教学」出现 42 次、8 组共 52 条多余）。
+    // 完全相同的重复是无信息噪音，去重即可。
+    if (prev === sname) { dedupedCount++; return }
+    const ambiguous = prev !== undefined
+    if (ambiguous) {
+      // 同 id 不同 name：实测 B站视频表把 tid=36 同时给了「知识」和「科技」两个一级分类。
+      // 发 tid=36 时平台按哪个解释，**从数据里无法判断** ⇒ 两侧都保留并打标，
+      // 由读取层拒绝按该 id/名解析（返回 ambiguous 并列候选），而不是在这里丢掉一个。
+      duplicates.push({ id: sid, names: [prev, sname] })
+      for (const n of nodes) if (n.id === sid) n.ambiguous = true
+    } else {
+      seenIds.set(sid, sname)
+    }
+    const node = { id: sid, name: sname, depth, parentId: parentId == null ? null : String(parentId) }
+    if (ambiguous) node.ambiguous = true
+    nodes.push(node)
     if (depth > maxDepth) maxDepth = depth
-    const prev = seenIds.get(String(id))
-    if (prev !== undefined) duplicates.push({ id: String(id), first: prev, again: name })
-    else seenIds.set(String(id), name)
   }
 
   /** 形态：{"一级分类名": ["二级名", …] | {子名: …} | null} —— **键即分类名，无 id**。
@@ -128,7 +143,7 @@ function walkTaxonomy (root) {
     v === null
   const isNameMap = root && !Array.isArray(root) && typeof root === 'object' &&
     Object.keys(root).length > 0 && Object.values(root).every(isNameMapValue)
-  if (isNameMap) return { nodes, maxDepth: 0, shape: '键即分类名（无 id，不产出）', duplicates }
+  if (isNameMap) return { nodes, maxDepth: 0, shape: '键即分类名（无 id，不产出）', duplicates, dedupedCount: 0 }
 
   let sawAnyNodeShape = false
   function visit (node, depth, parentId) {
@@ -151,7 +166,7 @@ function walkTaxonomy (root) {
     }
   }
   visit(root, 0, null)
-  return { nodes, maxDepth, shape: sawAnyNodeShape ? 'id/name 对象' : '未识别', duplicates }
+  return { nodes, maxDepth, shape: sawAnyNodeShape ? 'id/name 对象' : '未识别', duplicates, dedupedCount }
 }
 
 // ── 主流程 ────────────────────────────────────────────────────────────────
@@ -176,6 +191,8 @@ function main () {
   const missing = []        // 非致命：该平台在本数据集里压根没有映射文件（数据不覆盖）
   const filesRead = []
   let nodesTotal = 0
+  let dedupedTotal = 0
+  const conflicts = []
 
   for (const [platform, prefixes] of Object.entries(PLATFORM_PREFIXES)) {
     const hits = allFiles.filter((f) => prefixes.some((p) => f.toLowerCase().startsWith(p)))
@@ -192,7 +209,8 @@ function main () {
       if (!j.ok) { unrecognized.push({ platform, file: f, why: 'JSON 解析失败' }); continue }
 
       const st = walkTaxonomy(j.value)
-      filesRead.push({ platform, contentType, file: f, encoding: enc, nodes: st.nodes.length })
+      filesRead.push({ platform, contentType, file: f, encoding: enc, nodes: st.nodes.length, deduped: st.dedupedCount })
+      for (const d of st.duplicates) conflicts.push({ platform, contentType, sourceFile: f, id: d.id, names: d.names })
 
       if (st.shape === '未识别') {
         unrecognized.push({ platform, file: f, why: '遍历不到任何分类节点（形态未识别）' })
@@ -215,6 +233,7 @@ function main () {
         nodes: st.nodes,
       }
       nodesTotal += st.nodes.length
+      dedupedTotal += st.dedupedCount
     }
     if (Object.keys(platforms[platform]).length === 0) delete platforms[platform]
   }
@@ -242,13 +261,16 @@ function main () {
       kind: SOURCE_KIND,
       snapshotDate: SNAPSHOT_DATE,
       verifiedOnline: false,
+      conflictsNote: '同一 id 配多个 name：源数据自身有歧义（实测 B站视频表 tid=36 同时是「知识」与「科技」）。读取层对这些 id/名拒绝解析并列出候选，不猜。',
       verifiedOnlineNote: '该快照取自竞品数据资产，**未经任何联网校验**。平台侧分类会变，按本表发布的分类可能已失效。',
       filesRead: filesRead.sort((a, b) => (a.platform + a.file).localeCompare(b.platform + b.file)),
     },
+    conflicts,
     platformsWithoutIdData: [...new Set([...PLATFORMS_WITHOUT_ID_DATA, ...missing])].sort(),
     stats: {
       platforms: Object.keys(sortedPlatforms).length,
       nodes: nodesTotal,
+      dedupedIdenticalEntries: dedupedTotal,
     },
     platforms: sortedPlatforms,
   }
@@ -267,6 +289,7 @@ function main () {
     console.log(`   ${p.padEnd(15)} ${parts.join('  ')}`)
   }
   console.log(`   无 ID 数据的平台（显式登记）: ${PLATFORMS_WITHOUT_ID_DATA.join(', ')}`)
+  console.log(`   源数据里完全重复的 (id,name) 条目已去重: ${dedupedTotal} 条`)
   console.log(`   ⌫ 快照 ${SNAPSHOT_DATE}，未联网校验`)
   if (!opts.check) console.log(`   产出 ${opts.out}  sha256=${sha.slice(0, 16)}…`)
 }
