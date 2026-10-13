@@ -119,6 +119,28 @@ jobs:
           node --test scripts/check-pr-exec-record.test.js
           node scripts/check-pr-exec-record.js --base="${EXEC_BASE:-}" --head-branch="${EXEC_HEAD_REF:-}" --head="${EXEC_HEAD_SHA:-HEAD}" --mode=advisory
 
+      # --- Gate 2c3：执行记录的 QM-5 行集棘轮 ---
+      # 动因（本会话实测）：PR #3477 的记录在多次改写中把「防止再次发生（QM-5 ⑤）」的**行标题吞掉**、
+      # 正文并入上一行末尾 ⇒ 五步只剩四步有名有姓，而 Gate 2c2 只判"记录存在与否"、不校验行集，全程全绿。
+      # 落点必须在 changes 作业：本门禁审的是记录，而 docs-only PR 会把 static-gates 整个短路
+      # —— 放在 static-gates 等于给它自己关掉校验（与 gate-record-debt-ledger.json 同一先例）。
+      # 必需步骤集**从 openspec/records/_TEMPLATE.md 派生**，不在 workflow 或脚本里手抄五个
+      # （实测模板只声明 ①②④⑤，手抄五个会让模板自身当场红）。
+      - name: "Gate 2c3 - Execution-record QM-5 row ratchet (changes job)"
+        shell: bash
+        env:
+          # 与 Gate 2c2 同源：复用 classify 的产出，不在这里第二次算 base/head，
+          # 否则两份取源一漂就会出现"同一 PR 在 2c2 判有记录、在 2c3 判错改动集"的不可归因红。
+          QM5_BASE: ${{ steps.classify.outputs.pr-base }}
+          QM5_HEAD: ${{ steps.classify.outputs.pr-head }}
+        run: |
+          if [ -n "${QM5_BASE:-}" ] && [ -z "${QM5_HEAD:-}" ]; then
+            echo "::error::classify 未产出 pr-head（取源步骤异常？），不得退回 HEAD=合并提交"
+            exit 1
+          fi
+          node --test scripts/check-record-qm5-rows.test.js
+          node scripts/check-record-qm5-rows.js --base="${QM5_BASE:-}" --head="${QM5_HEAD:-HEAD}"
+
       # --- Gate 12（同族第三处，本次一并搬入）: 品牌残留门禁 ---
       # AGENTS.md 的 docs-only 快速通道把「品牌残留」列为文档 PR 的**保留门禁**（一条不省），
       # 但它原先住在被 docs-only 短路的 static-gates，而 *.md / 01-docs/** / docs/** 全在白名单里
