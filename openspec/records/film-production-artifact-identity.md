@@ -2,9 +2,6 @@
 record: film-production-artifact-identity
 task: 影视工程全量出片产物身份加固——批次 runId 携带分镜集指纹 + 新增按台账定位的 production-retry-shot 通道
 date: 2026-10-10
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在，回填需在合并后取 git log 证据
-sync_backfill_owner: 合并后的后续 docs PR
 ---
 
 ## 本次执行记录：影视工程产物身份加固（film-production-artifact-identity，2026-10-10）
@@ -23,7 +20,7 @@ sync_backfill_owner: 合并后的后续 docs PR
 | QM-4 视觉 | N/A（已确认非跳过） | 未触碰任何 `.vue` 模板与样式。改动落在 `production-driver.js` / `ipc-handlers` / `preload` / 两个 composable 的**逻辑**与**测试**，零 UI 结构变化 |
 | 跨层白名单 | PASS | 新增通道跨**三层**（preload 暴露面 / preload PUBLIC_METHODS / 主进程 PUBLIC_CHANNELS）。**三处同时登记**——只改其中任一层都会造成「未登录可用性」前后不一致。顺带把长期漏登记的 `retry-shot` 补进 sender 契约测试的 `CHANNELS` 数组（该数组是「逐条断言 -3」的单一真源，漏登记即无统一护栏） |
 | QM-6 双模型外部评审 | **降级为 SELF-REVIEW** | `ccg-review-decider.js --input proposal.md` 判定模式 = **DUAL**（要求 claude + opencode），但 `deep-review.sh --check-deps` 实测两后端均 MISS、`plan-review.sh` 报「找不到 ccg-deep-review.js」⇒ 脚本判定降级 SELF-REVIEW。曾派独立 Verifier 做对抗评审，**因 Token Plan 用量上限（HTTP 422/code 2067）未能运行** ⇒ 评审由作者本人完成，**不具备独立性**。结论已落盘 `self-review.md`，含一条自查命中的 CRITICAL |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin codex/film-production-artifact-identity` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | **PR #3427 已 squash 合并为 `e82c1d3f797be4578339e97a859de354b9b349a2`**（`git log origin/main --grep='(#3427)$' --format=%H\|%cI` 现场读得 `2026-10-14T01:11:24+08:00`，非凭记忆）；`git ls-remote --heads origin codex/film-production-artifact-identity` 返回 **0 行**，同一次取证对 `main` 的正控返回 1 行（证「0 行」是分支确已删除，不是命令失败被静默当成空集）。合并当刻 `gh pr checks 3427` = **22 项全 pass / 0 pending / 0 fail**（`release` skipping 属预期短路）。首跑 `QG Desktop Shards (1/2)` 红在 `windows-file-lock.test.js` 的两条「真跑一次（仅 Windows）」：**45s 内 PowerShell 未报 READY、`stdout="" / stderr=""`**，判为宿主进程冷启动计时抖动 —— 依据三条：① PR 24 个变更文件零触碰锁夹具与其三个消费方；② 同文件内**第三条**真跑（14:52:27）以 `ready=10229ms` 正常通过，同 shard 的 `credential-store` / `account-state-restorer` 两条真实 PowerShell 消费方全绿；③ 项目自带复测脚本实测分布 `node scripts/lock-timing-audit.js --runs=26` → **samples=374、p50=168ms、max=15170ms、45000ms 预算 headroom=2.97×**，预算并非过紧。原样重跑该 job（`attempt=2`）即 **completed/success**，无代码改动。与 `.quality-gates.md:2160`（PR #2736）同一签名同一处置先例一致。上方三个 `sync_*` 字段已随本次回填删除 |
 
 ## 缺陷溯源（QM-5 ①，均为原始设计缺陷）
 
@@ -109,6 +106,8 @@ sync_backfill_owner: 合并后的后续 docs PR
 
 `QG Desktop Shards (1/2)`、`(2/2)`、`QG Coverage` 在最后一次推送（`7f640a3`）后仍红。上述 4 道门禁均已修复且本地验证通过，但**沙箱无法复现 CI 的完整条件**（electron 二进制 + 真实 ffmpeg 路径 + Windows），且**当前 token 无该仓 REST API 权限、取不到 job 日志**。定位这一步需要具备 CI 日志访问权的执行环境。
 
+> **2026-10-14 回填时闭合（具备 CI 日志访问权的环境中取证）**：上述三道红的真因均为 `windows-file-lock.test.js` 的两条「真跑一次（仅 Windows）」—— PowerShell 冷启动在 45s 预算内未吐出 `READY`（`stdout="" / stderr=""`），与本次改动无关，属宿主计时抖动；原样重跑 job 即 success。完整判据见本表上方「远程同步」行。该 4 道 + 本次 1 道（共 5 道）CI 红至此全部闭合，本 PR #3427 已合并。
+
 ## CI 门禁排障实录（2026-10-12 ~ 10-13）
 
 本次实现共触发 **4 道 CI 门禁红**，全部通过「读门禁脚本 → 本地复现 → 修」闭环定位，**无一依赖 CI 日志**（本仓 REST API 对当前 token 全 404，git push 通、`/repos/{owner}/{repo}` 404，属 fine-grained PAT「git 通 ≠ API 通」）。
@@ -140,6 +139,8 @@ sync_backfill_owner: 合并后的后续 docs PR
 ### 仍未闭合
 
 `QG Desktop Shards (1/2)`、`(2/2)`、`QG Coverage` 在最后一次推送（`7f640a3`）后仍红。上述 4 道门禁均已修复且本地验证通过，但**沙箱无法复现 CI 的完整条件**（electron 二进制 + 真实 ffmpeg 路径 + Windows），且**当前 token 无该仓 REST API 权限、取不到 job 日志**。定位这一步需要具备 CI 日志访问权的执行环境。
+
+> **2026-10-14 回填时闭合（具备 CI 日志访问权的环境中取证）**：同上 —— 真因是 `windows-file-lock.test.js` 的 PowerShell 冷启动抖动，与本次改动无关，重跑即绿。本 PR #3427 已合并。
 
 ## 遗留（不假装已闭合）
 
