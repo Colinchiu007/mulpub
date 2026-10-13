@@ -84,13 +84,9 @@ function buildChecks (slug) {
   add(4, 'config/platforms.yaml 该 slug 配置字段完整', () => {
     const t = yamlText()
     if (!t) return { ok: false, detail: '文件不存在' }
-    // 找 slug 段（YAML 顶层键，缩进 2 空格）
-    const re = new RegExp(`^\\s{2}${slug}:\\s*$`, 'm')
-    if (!re.test(t)) return { ok: false, detail: `platforms.yaml 无 ${slug}: 段` }
-    const idx = t.search(re)
-    const rest = t.slice(idx)
-    const next = rest.slice(1).search(/^\s{2}\S/)
-    const block = next === -1 ? rest : rest.slice(0, next + 1)
+    const blockLines = platformYamlBlock(t, slug)
+    if (!blockLines) return { ok: false, detail: `platforms.yaml 无 ${slug}: 段` }
+    const block = blockLines.join('\n')
     const need = ['type', 'content_category', 'max_title', 'max_content', 'has_api', 'publishMode', 'enabled']
     const missing = need.filter((k) => !new RegExp(`^\\s{4}${k}:`, 'm').test(block))
     return missing.length === 0
@@ -157,13 +153,16 @@ function buildChecks (slug) {
   add(9, 'has_api 与发布链/登记表一致', () => {
     const y = yamlText()
     if (!y) return { ok: false, detail: 'platforms.yaml 不存在' }
-    const re = new RegExp(`^\\s{2}${slug}:\\s*$`, 'm')
-    const idx = y.search(re)
-    if (idx === -1) return { ok: false, detail: `platforms.yaml 无 ${slug}` }
-    const rest = y.slice(idx)
-    const next = rest.slice(1).search(/^\s{2}\S/)
-    const block = next === -1 ? rest : rest.slice(0, next + 1)
-    const hasApi = /^\s{4}has_api:\s*true/m.test(block)
+    // ⚠️ 原来是 regex + slice：
+    //      const re = new RegExp(`^\\s{2}${slug}:\\s*$`, 'm'); const rest = y.slice(y.search(re))
+    //      const next = rest.slice(1).search(/^\s{2}\S/)      ← 缺 /m ⇒ 恒 -1
+    //    块退化成「文件剩余全部」⇒ 下游 has_api 判据实际问的是「该平台**之后**有没有
+    //    任何平台是 true」（文件顺序依赖）。实测 weibo / zhihu / toutiao 因此误报。
+    //    改为按行扫描（platformYamlBlock），与回归测试「块提取不能吃到别的平台」同构。
+    const blockLines = platformYamlBlock(y, slug)
+    if (!blockLines) return { ok: false, detail: `platforms.yaml 无 ${slug}` }
+    const block = blockLines.join('\n')
+    const hasApi = /^[ \t]{4}has_api:[ \t]*true/.test(block)
     if (!hasApi) return { ok: true, detail: 'has_api 非 true ⇒ 无需发布链' }
     const dir = path.join(ROOT, 'packages/api-publish-engine/src/publish/platforms')
     const chainFiles = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.startsWith(slug + '-')) : []
@@ -281,6 +280,33 @@ function buildChecks (slug) {
   })
 
   return checks
+}
+
+
+/**
+ * 取 platforms.yaml 里某个平台段的行数组。
+ *
+ * ⚠️ 这里刻意**不用 regex + slice**。原实现写成
+ *     const next = rest.slice(1).search(/^\s{2}\S/)      ← 缺 /m
+ * 无 /m 时 `^` 只匹配字符串开头，而 rest.slice(1) 从行中间开始 ⇒ 恒返回 -1
+ * ⇒ block 退化成「文件剩余全部」⇒ 下游 has_api 判据实际问的是
+ * 「**该平台之后**有没有任何平台是 true」，与平台自身无关（**文件顺序依赖**）。
+ * 实测：weibo / zhihu / toutiao 三个 has_api:false 的平台因此误报
+ * 「has_api:true 但无发布链」，而同为 false 的 xiaohongshu 因碰巧有链而通过。
+ *
+ * 按行扫描没有「行中间起始」这个陷阱：段的边界就是下一个 2 空格缩进的键。
+ * 回归：verify-platform-onboarding.test.js 的「平台块提取不能吃到别的平台」。
+ */
+function platformYamlBlock (yamlText, slug) {
+  const lines = yamlText.split(/\r?\n/)
+  let inside = false
+  const out = []
+  for (const l of lines) {
+    const m = l.match(/^[ \t]{2}([a-z][a-z0-9_]*):[ \t]*$/)
+    if (m) { inside = m[1] === slug; continue }
+    if (inside) out.push(l)
+  }
+  return out.length > 0 ? out : null
 }
 
 /** 该 slug 是否在仓库里被认知（用于「不存在的 slug 必须非零退出」） */
