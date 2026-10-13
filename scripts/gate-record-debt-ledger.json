@@ -48,7 +48,6 @@
     "status": "PENDING",
     "line": 5
   },
-  "本次执行记录：钩子安装器回归锁（hook-installer-test，2026-10-12）【混合 PR】": "本 PR（hook-installer-test）的远程同步待合并后由后续 docs PR 回填并删除本条登记项",
-  "本次执行记录：出路④允许自动入库的判定记录（exec-record-audit-carrier，2026-10-12）【混合 PR】": "本 PR（exec-record-audit-carrier）的远程同步待合并后由后续 docs PR 回填并删除本条登记项",
-  "本次执行记录：1 笔远程同步回填与销账（gate-backfill-3377，2026-10-13）【docs-only】": "本回填 PR 的远程同步待合并后由后续 docs PR 回填并删除本条"
+  "本次执行记录：1 笔远程同步回填与销账（gate-backfill-3377，2026-10-13）【docs-only】": "本回填 PR 的远程同步待合并后由后续 docs PR 回填并删除本条",
+  "本次执行记录：2 笔远程同步回填与销账（gate-backfill-3426-3434，2026-10-13）【docs-only】": "本回填 PR 的远程同步待合并后由后续 docs PR 回填并删除本条"
 }
