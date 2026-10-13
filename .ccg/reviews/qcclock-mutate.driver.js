@@ -70,10 +70,16 @@ const cases = [
     why: '本 PR 的运行时那一半：漏了它，窗口过滤读真实墙上时间，夹具红就是必然',
   },
   {
-    name: 'B 摘掉 IPC 测试夹具的时钟注入',
-    file: IPC_TEST, from: '    now: () => NOW,\n', to: '', expect: 1,
+    name: 'B 摘掉 IPC 测试夹具的**全部**两处时钟注入',
+    patches: [
+      { file: IPC_TEST, from: '    now: () => NOW,\n', to: '', expect: 1 },
+      { file: IPC_TEST, from: '      now: () => past,\n', to: '', expect: 1 },
+    ],
     want: 'red', run: [LOCK_NAME], expectFiles: [LOCK_NAME],
-    why: '结构锁真的在看守"驱动者必须注入"，不是恒绿',
+    why: '结构锁真的在看守"驱动者必须注入"，不是恒绿。⚠ 必须一次摘两处：该文件在 #3459 之后有 2 处 '
+      + 'now: () =>（我加的 makeDeps 与他们的"过去时钟行为锁"），只摘一处时文件级判据照旧通过 —— '
+      + '这不是电池写错，而是**文件级判据的盲区被并发合并当场演示了一次**（原 B 条只摘一处就静默不再测任何东西）。'
+      + '调用点级的行为锁（他们那条）与接缝锁（本锁第 ⑤ 条）才是兜得住这一类的两层。',
   },
   {
     name: 'C 摘掉引擎测试里唯一那处时钟注入（换第二个驱动者）',
@@ -133,14 +139,17 @@ const cases = [
 ]
 
 // ── 启动自检：每条 case 必须自带 run，want=red 的 run 集必须覆盖 expectFiles ──
+/** 单补丁与新写的多补丁统一成 patches[] */
+const patchesOf = (c) => c.patches || [{ file: c.file, from: c.from, to: c.to, expect: c.expect }]
 for (const c of cases) {
   if (!Array.isArray(c.run) || c.run.length === 0) throw new Error('CASE_MISSING_RUN: ' + c.name)
   if (c.want === 'red' && c.expectFiles.some((f) => !c.run.includes(f))) throw new Error('CASE_RUN_NOT_COVER_EXPECT: ' + c.name)
+  for (const p of patchesOf(c)) if (!p.file || !p.from) throw new Error('CASE_MISSING_PATCH: ' + c.name)
 }
 
 // ── 开工前残留检查：被触文件里不许有 MUT-* 记号（上一轮被杀留下的现场就是这种东西）。
 //    这里**不**要求工作树干净——本电池的被测对象就是未提交的改动，要求干净等于要求自己先提交。
-const touched = [...new Set(cases.map((c) => path.relative(ROOT, c.file).split(path.sep).join('/')))]
+const touched = [...new Set(cases.flatMap((c) => patchesOf(c).map((p) => path.relative(ROOT, p.file).split(path.sep).join('/'))))]
 const residue = touched.filter((f) => /MUT-[A-Z]/.test(fs.readFileSync(path.join(ROOT, f), 'utf8')))
 if (residue.length) throw new Error('PREFLIGHT_RESIDUE（这些文件里还有变异记号，先从 HEAD 精确还原再跑）: ' + residue.join(', '))
 console.log('PREFLIGHT_NO_RESIDUE files=' + touched.length + ' status=[' +
@@ -153,8 +162,15 @@ console.log('# collectedAt=' + new Date().toISOString() + ' cases=' + cases.leng
 let bad = 0
 for (const c of cases) {
   console.log('\n== ' + c.name)
-  let bytes
-  try { bytes = patch(c.file, c.from, c.to, c.expect) } catch (e) { console.log('   ABORTED ' + e.message); bad++; continue }
+  const backups = []
+  try {
+    for (const p of patchesOf(c)) backups.push({ file: p.file, bytes: patch(p.file, p.from, p.to, p.expect) })
+  } catch (e) {
+    for (const b of backups.reverse()) console.log('   restored=' + restore(b.file, b.bytes))
+    console.log('   ABORTED ' + e.message)
+    bad++
+    continue
+  }
   try {
     const r = runVitest(c.run)
     const got = namesOf(r.failed)
@@ -172,7 +188,7 @@ for (const c of cases) {
     }
     console.log('   tests=' + r.tests)
   } finally {
-    console.log('   restored=' + restore(c.file, bytes))
+    for (const b of backups.slice().reverse()) console.log('   restored=' + restore(b.file, b.bytes))
   }
 }
 

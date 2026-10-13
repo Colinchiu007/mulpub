@@ -1,4 +1,16 @@
-# [未发布] fix(quick-collect): 夹具写死绝对时刻而窗口判据读真实墙上时钟——CI 每过 48 小时自己变红（fix-quick-collect-clock-rot）
+# [未发布] test(quick-collect): 时钟确定性结构锁 + 变异电池（fix-quick-collect-clock-rot；运行时接缝由并发的 #3459 先落地）
+
+## 归属纠偏（先说清楚本笔的净差量）
+
+同一个"夹具写死绝对时刻、窗口过滤读真实墙上时间"的缺陷，2026-10-13 有两个会话独立发现并各自动手。
+并发会话的 **#3459（change: qc-clock-seam）先落到 main**，运行时那一半归它：
+`ipc-handlers/quick-collect.js` 的 `getEngine()` 转发 `now: deps.now` 并把它加进缓存身份 `keys`，
+外加一条比我更强的**行为锁**——用"远在过去"的固定时钟证明窗口过滤真的读注入时钟
+（`回归锁（qc-clock-seam）：48h 窗口必须用注入的 deps.now，不得走真实时钟`），而不是等夹具自然老化才红。
+我 rebase 到 main 时对这三个文件**取了 main 的版本**（`git diff origin/main HEAD` 现只剩 6 个文件、
+运行时代码 0 差量），我自己那两处重复注释被丢弃。
+
+本笔的净差量因此是**防再犯层**：结构锁 + 变异电池 + 记录，外加把这条腐化模式的判据写成可执行的东西。
 
 ## 背景
 
@@ -26,8 +38,10 @@
   必须用 `(?!@)` 排除，否则判据会去要求一份无法有意义注入时钟的文件。另含扫描域规模下界（实测 14 文件 /
   5 驱动者）、合成夹具三形 + 两个负向对照（防"恒不成立"的装饰性门禁），以及按调用点切的主进程接缝锁。
 
-## 验证
+## 验证（本笔净差量）
 
+- 结构锁 5/5；rebase 后消费者并集 25 个测试文件 / **313 passed / 0 failed**（04:57Z 实跑，
+  命令逐字见 `openspec/records/fix-quick-collect-clock-rot.md`）。
 - 行为锁红→绿：修前 `quick-collect-cn-sources.test.js` 1 failed（`expected [] to deeply equal
   ['published']`）+ `ipc-handlers/quick-collect.test.js` 2 failed；修后 `Test Files 2 passed`、
   `Tests 28 passed`。
