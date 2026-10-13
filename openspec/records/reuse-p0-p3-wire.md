@@ -3,9 +3,6 @@ record: reuse-p0-p3-wire
 task: P0-3 分类守卫 —— 让「给了非 ID 值」从静默回落默认分类变成显式失败
 date: 2026-10-14
 branch: reuse-p0-p3-wire
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：P0-3 分类守卫（reuse-p0-p3-wire，2026-10-14）
@@ -69,6 +66,6 @@ sync_backfill_owner: 下一个会话
 | QM-2 代码必检项 | ✅ | require 路径逐个核对存在；无新第三方依赖；`module.exports` 无多余逗号；注释 `/* */` 成对 |
 | QM-4 视觉 | N/A | 无 UI 变更 |
 | QM-6 双模型评审 | 未执行（如实登记）| 本机无 `codeagent-wrapper` |
-| 远程同步 | PENDING | 待 PR 合并后回填 merge SHA |
+| 远程同步 | PASS | PR #3505 已合并，merge SHA `c6d938145abcc5a5183a3bcc5cc290cec19d6fc4`（2026-10-13）|
 
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PENDING
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PASS
