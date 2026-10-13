@@ -2,9 +2,6 @@
 record: guard-startup-reconcile
 task: 共享根写保护缺启动对账——watcher 没看见的漂移永远不回头（静默盲区）
 date: 2026-10-13
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：共享根写保护缺启动对账（guard-startup-reconcile，2026-10-13）【混合 PR】
@@ -20,9 +17,9 @@ sync_backfill_owner: 下一个会话
 | 编码与行尾 | PASS | 改这两个**含中文的 .ps1** 时 BOM 被 `ReadAllText`/`WriteAllText(UTF8Encoding(false))` 剥掉，`.github/scripts/check-ps1-bom.js` **当场判红**（`missing-bom nonASCII=2505 / 3535`，rc=1）——门禁有效；按它给的一键写法前置 `EF BB BF` 后 rc=0（54 个 tracked .ps1 全部守约）。两文件 `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径一致（103/8、45/3） |
 | QM-1 / QM-4 | N/A | 未触 `apps/desktop/electron/` 与渲染层 |
 | QM-6 双模型外部评审 | 未执行 | 本机无 `codeagent-wrapper`，如实登记 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA；`git ls-remote --heads origin guard-startup-reconcile` 返回 0 行证远端分支已删；回填后删除三个 `sync_*` 字段与 ledger 登记项 |
+| 远程同步 | PASS | merge `74843fc40`（2026-10-14 01:41:17 +08:00），PR #3491 已 MERGED、远端分支 guard-startup-reconcile 已删（`git ls-remote` 0 行）；回填与销账同次提交 |
 
-- 保留门禁：TDD ✅ | 编码/行尾对账 ✅ | 品牌残留 ✅ | 债务账本 ✅ | 远程同步 PENDING
+- 保留门禁：TDD ✅ | 编码/行尾对账 ✅ | 品牌残留 ✅ | 债务账本 ✅ | 远程同步 PASS
 
 ### 现场取证（本笔的动因，如实记录）
 
