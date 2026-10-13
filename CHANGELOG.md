@@ -74,6 +74,34 @@ PR #3477 的记录在多次改写中把「防止再次发生（QM-5 ⑤）」的
 - 三条分层判据：计费同意闸门排在内容判据之前且只认真值；正文/标题/runId/音色三段的判据唯一实现仍是 `podcast-tts-compose`（宿主逐字转发码与 issues，不重新映射）；三个注入实现缺席即当场拒，且发生在取锁与任何磁盘写之前。
 - 回归锁 5 条 + 变异反证 M10–M14 各自指名变红；其中 M12 需要靠副作用缺席才能与合成层自身的同名兜底码区分——「码相同」不构成证据。
 - 文档：PRD 新增 §7.10（入参/流程/交互/显示项/逐字提示文字/故意不做）；tasks 4.3 拆为 4.3①（本片）与 4.3②（IPC/preload + 三入口 + locale 成对键）。
+# [未发布] fix(home): 移除首页主任务卡「已连续发布」streak 区块（remove-home-streak）
+
+## 背景
+
+首页「开始发布」主任务卡右侧的「已连续发布」在无数据时显示占位破折号 `—`，该字符被套用了
+大号数字样式（`--font-size-xxl` 32px + `font-weight:700` + primary 色），渲染成一条又粗又长的横杠，
+用户误判为显示错误。该 streak 指标产品价值不足，整体移除。
+
+引入点 `904662ed0`（#3446「首页 UI 视觉改版」）：占位态刻意用 `—` 并注明「禁假报 0 天」，
+但直接复用了 `.streak-num` 的排版，未做空态样式降级。
+
+## 变更
+
+1. `apps/desktop/src/views/Home.vue`：删除 hero 卡的 `.hero-streak` 模板块、`streakDays` /
+   `streakText` 两个 computed（连带移除其唯一数据源依赖），以及 `.hero-streak` /
+   `.streak-num` / `.streak-label` 三条样式。
+2. `apps/desktop/src/locales/home/{zh,en}.js`：成对删除 `hero.streakLabel` / `streakUnit` /
+   `streakEmpty` 三个 key（CI Gate 7 `--keys` 已验证 2010 个在用 key 仍齐备）。
+3. `apps/desktop/src/views/Home.test.js`：两条 streak 用例改为回归保护——断言
+   `[data-testid="home-hero-streak"]` 不存在，且 daily 数据正常返回时也不再出现
+   「已连续发布」或占位符 `—`；保留 hero 卡整卡点击跳转 `/publish` 的断言。
+
+## 验证
+
+- TDD 先红后绿：改测试后 2 红 → 改实现后 28 passed。
+- 变异反证：把 streak 区块加回 `Home.vue` ⇒ 2 红，证明新锁在跑；随后还原并确认源码 0 处残留。
+- Home 家族全量 33 passed；`check-locale-sync.js --keys` PASS；`pnpm run build:vue` rc=0，
+  产物 `Home-*.js` / `index-*.js` 中「已连续发布」0 命中、`home-publish-hero` 仍在。
 
 # [未发布] fix(ci): 步骤 fail-fast 棘轮改为逐条配对，Gate 9 verdict 探针收回门禁单一实现（gate3-failfast）
 

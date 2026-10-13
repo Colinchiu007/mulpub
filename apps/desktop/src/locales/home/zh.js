@@ -15,9 +15,6 @@ export default {
     hero: {
       title: '开始发布',
       desc: '一键发布视频、图文至各媒体平台',
-      streakLabel: '已连续发布',
-      streakUnit: '天',
-      streakEmpty: '—',
     },
     overview: {
       accounts: '已授权账号',

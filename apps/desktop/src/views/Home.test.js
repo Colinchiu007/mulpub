@@ -226,9 +226,10 @@ describe("HomeView", () => {
     expect(window.electronAPI.storeListAccounts).not.toHaveBeenCalled();
   });
 
-  it("renders primary publish hero card with streak days from daily data", async () => {
-    // streak 判据：最近 3 天（今天/昨天/前天，按运行日动态生成）都有发布 → 连续 3 天；
-    // 禁止硬编码日期：CI 与本地时区/日期不同会算出不同 streak（实测 2026-10-13 CI 恒得 2 天）
+  it("renders primary publish hero card without streak block", async () => {
+    // 回归保护：hero 卡已移除「已连续发布 / streak」区块（占位破折号「—」曾被 32px
+    // 粗体样式放大成一条粗横杠，视觉上像渲染错误；该信息无产品价值，整体删除）。
+    // daily 数据即便正常返回，也不得再出现任何 streak 文案或占位符。
     const dayKey = (offset) => {
       const d = new Date();
       d.setDate(d.getDate() - offset);
@@ -251,14 +252,15 @@ describe("HomeView", () => {
     const w = await flushMounted(mountHome());
     const hero = w.find('[data-testid="home-publish-hero"]');
     expect(hero.exists()).toBe(true);
-    expect(hero.text()).toContain("3");
-    expect(w.text()).toContain("已连续发布");
+    expect(hero.find('[data-testid="home-hero-streak"]').exists()).toBe(false);
+    expect(w.text()).not.toContain("已连续发布");
+    expect(hero.text()).not.toContain("—");
     // 主任务卡整体可点击进入发布页
     await hero.trigger("click");
     expect(pushSpy).toHaveBeenCalledWith("/publish");
   });
 
-  it("shows streak placeholder dash when daily has no recent activity", async () => {
+  it("renders hero card without streak when daily has no recent activity", async () => {
     window.electronAPI.dashboardStats = vi.fn().mockResolvedValue({
       code: 0,
       data: { total: 5, success: 5, failed: 0, perPlatform: {}, daily: [] },
@@ -266,8 +268,9 @@ describe("HomeView", () => {
     const w = await flushMounted(mountHome());
     const hero = w.find('[data-testid="home-publish-hero"]');
     expect(hero.exists()).toBe(true);
-    expect(hero.text()).toContain("—");
-    expect(w.text()).not.toContain("已连续发布 0 天");
+    expect(hero.find('[data-testid="home-hero-streak"]').exists()).toBe(false);
+    expect(hero.text()).not.toContain("—");
+    expect(w.text()).not.toContain("已连续发布");
   });
 
   it("shows overview line with account and publish counts in greeting bar", async () => {
