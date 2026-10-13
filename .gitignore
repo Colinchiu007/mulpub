@@ -352,3 +352,6 @@ shared-user-data.backups/
 
 # Git worktree 隔离目录（会话工作区，不入库）
 .worktrees/
+# P3-1 扩平台自检脚本（scripts/*.js 默认忽略，需显式白名单）
+!scripts/verify-platform-onboarding.js
+!scripts/verify-platform-onboarding.test.js
