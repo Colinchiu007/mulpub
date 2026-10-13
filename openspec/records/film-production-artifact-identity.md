@@ -77,6 +77,70 @@ sync_backfill_owner: 合并后的后续 docs PR
 
 **本环境跑不了的测试**：`electron/preload.test.js`（380 条）需要 Electron 二进制，本沙箱 `pnpm install --ignore-scripts` 跳过了下载、`node install.js` 亦下不下来。对照实验：**把我的 preload 改动完全撤掉后仍 380 挂** ⇒ 纯环境限制。已改用静态取证核验 preload 暴露面（新增 `productionRetryShot` 方法已在 preload / PUBLIC_METHODS / publisher 桥接三处齐全）。
 
+## CI 门禁排障实录（2026-10-12 ~ 10-13）
+
+本次实现共触发 **4 道 CI 门禁红**，全部通过「读门禁脚本 → 本地复现 → 修」闭环定位，**无一依赖 CI 日志**（本仓 REST API 对当前 token 全 404，git push 通、`/repos/{owner}/{repo}` 404，属 fine-grained PAT「git 通 ≠ API 通」）。
+
+| # | 门禁 | 真实原因 | 处置 |
+|---|---|---|---|
+| 1 | `QG Static`（eslint） | `production-driver.js` 的 `module.exports` 里 `defaultRunIdFor` **重复键**（`no-dupe-keys`） | 去掉重复项。教训：复制导出项时先 `diff` 原 exports |
+| 2 | `债务熔断检查` | **并非** `check-debt-budget.js` 超标——该 job 有三步，真凶是第二步 `check-max-lines.js`：主文件被撑到 **580 行 ≥ 500** 触发 `NEW_OVER_LIMIT` | 抽出 `film-engineering-production.js`（266 行）承载全量出片族 4 通道，主文件回到 **371 行**。顺带把主文件里已成死代码的 `validateProductionArgs` 删除，消除「第二份真相源」 |
+| 3 | `QG Desktop Shards` | `preload.test.js:704` 断言 `filmEngineering` 方法数 `=== 25`，新增方法后为 26 | 同步为 26，并**额外钉住方法名** `expect(...productionRetryShot).toBeTypeOf('function')`——只改数字会让下次误加时人和 CI 都失去参照 |
+| 4 | `QG Desktop Shards` | `build-preload.test.js` 断言「提交的 bundle 与源码暴露完全相同的 API 路径」：期望 513 实得 512 | 重跑 `node scripts/build-preload.js` 重打包 `index.bundle.js` + `home-shell-preload.bundle.js`。AGENTS.md 早已警告过这条 |
+
+### 拆分过程中的两个自身错误（自查发现）
+
+1. **删除范围算错**：一次替换同时删掉了两份 `defaultRunIdFor` 导出 → 5 条测试红。教训：跨行区间替换前先打印边界。
+2. **常量搬移不完整**：抽出 `validateProductionArgs` 时忘了它在原文件里还引用 `MAX_PRODUCTION_SHOTS`，导致新模块 3 条 `no-undef`。**教训**：抽取后必须做「引用符号 vs 已定义符号」的机械对账，不能靠逐个报错试错——本轮已把该对账固化为流程。
+
+### 本地验证（`/tmp` overlayfs 副本；`/workspace` 为 NFS，装依赖 5h vs 33s）
+
+| 范围 | 结果 |
+|---|---|
+| `film-engineering.e2e-int.test.js`（12 镜两批过闸 → manifest 收口 → **真实 ffmpeg 合成 final.mp4**、批内失败原因透传台账、回收链路混合出片） | ✅ **4/4 全过** |
+| `electron/ipc-handlers/` + `electron/services/film-engineering/` + `build-preload` | 1151 过 / 25 挂 |
+| 剩余 6 个失败文件的归因 | 5 个为 `Electron failed to install correctly`（沙箱装不下 electron 二进制，CI 由 `ensure-electron.js` 备好）；1 个为 `download-recycled` 既有失败 |
+
+**`download-recycled` 既有失败的对照取证**：把源文件换回 `origin/main`、同一环境变量下跑，**10 failed**（= 8 条本次新增测试在 main 源码上必然失败 + 2 条既有）；换回本次源码，**1 failed**（正是该条）。⇒ 与本次改动无关，且**在 Windows CI 上不存在**（根因是该测试 `beforeAll` 备份 `TMPDIR/TEMP/TMP` 后以 `= undefined` 恢复，被 Node 转成字符串 `"undefined"`；Windows 上三者均有值故不触发）。
+
+**未能本地验证**：`preload.test.js`（需 electron 二进制）。已改用机械核对代替：源码 26 个方法、bundle 含全部 26 个且无多无少、`productionRetryShot` 在两侧均存在。
+
+### 仍未闭合
+
+`QG Desktop Shards (1/2)`、`(2/2)`、`QG Coverage` 在最后一次推送（`7f640a3`）后仍红。上述 4 道门禁均已修复且本地验证通过，但**沙箱无法复现 CI 的完整条件**（electron 二进制 + 真实 ffmpeg 路径 + Windows），且**当前 token 无该仓 REST API 权限、取不到 job 日志**。定位这一步需要具备 CI 日志访问权的执行环境。
+
+## CI 门禁排障实录（2026-10-12 ~ 10-13）
+
+本次实现共触发 **4 道 CI 门禁红**，全部通过「读门禁脚本 → 本地复现 → 修」闭环定位，**无一依赖 CI 日志**（本仓 REST API 对当前 token 全 404，git push 通、`/repos/{owner}/{repo}` 404，属 fine-grained PAT「git 通 ≠ API 通」）。
+
+| # | 门禁 | 真实原因 | 处置 |
+|---|---|---|---|
+| 1 | `QG Static`（eslint） | `production-driver.js` 的 `module.exports` 里 `defaultRunIdFor` **重复键**（`no-dupe-keys`） | 去掉重复项。教训：复制导出项时先 `diff` 原 exports |
+| 2 | `债务熔断检查` | **并非** `check-debt-budget.js` 超标——该 job 有三步，真凶是第二步 `check-max-lines.js`：主文件被撑到 **580 行 ≥ 500** 触发 `NEW_OVER_LIMIT` | 抽出 `film-engineering-production.js`（266 行）承载全量出片族 4 通道，主文件回到 **371 行**。顺带把主文件里已成死代码的 `validateProductionArgs` 删除，消除「第二份真相源」 |
+| 3 | `QG Desktop Shards` | `preload.test.js:704` 断言 `filmEngineering` 方法数 `=== 25`，新增方法后为 26 | 同步为 26，并**额外钉住方法名** `expect(...productionRetryShot).toBeTypeOf('function')`——只改数字会让下次误加时人和 CI 都失去参照 |
+| 4 | `QG Desktop Shards` | `build-preload.test.js` 断言「提交的 bundle 与源码暴露完全相同的 API 路径」：期望 513 实得 512 | 重跑 `node scripts/build-preload.js` 重打包 `index.bundle.js` + `home-shell-preload.bundle.js`。AGENTS.md 早已警告过这条 |
+
+### 拆分过程中的两个自身错误（自查发现）
+
+1. **删除范围算错**：一次替换同时删掉了两份 `defaultRunIdFor` 导出 → 5 条测试红。教训：跨行区间替换前先打印边界。
+2. **常量搬移不完整**：抽出 `validateProductionArgs` 时忘了它在原文件里还引用 `MAX_PRODUCTION_SHOTS`，导致新模块 3 条 `no-undef`。**教训**：抽取后必须做「引用符号 vs 已定义符号」的机械对账，不能靠逐个报错试错——本轮已把该对账固化为流程。
+
+### 本地验证（`/tmp` overlayfs 副本；`/workspace` 为 NFS，装依赖 5h vs 33s）
+
+| 范围 | 结果 |
+|---|---|
+| `film-engineering.e2e-int.test.js`（12 镜两批过闸 → manifest 收口 → **真实 ffmpeg 合成 final.mp4**、批内失败原因透传台账、回收链路混合出片） | ✅ **4/4 全过** |
+| `electron/ipc-handlers/` + `electron/services/film-engineering/` + `build-preload` | 1151 过 / 25 挂 |
+| 剩余 6 个失败文件的归因 | 5 个为 `Electron failed to install correctly`（沙箱装不下 electron 二进制，CI 由 `ensure-electron.js` 备好）；1 个为 `download-recycled` 既有失败 |
+
+**`download-recycled` 既有失败的对照取证**：把源文件换回 `origin/main`、同一环境变量下跑，**10 failed**（= 8 条本次新增测试在 main 源码上必然失败 + 2 条既有）；换回本次源码，**1 failed**（正是该条）。⇒ 与本次改动无关，且**在 Windows CI 上不存在**（根因是该测试 `beforeAll` 备份 `TMPDIR/TEMP/TMP` 后以 `= undefined` 恢复，被 Node 转成字符串 `"undefined"`；Windows 上三者均有值故不触发）。
+
+**未能本地验证**：`preload.test.js`（需 electron 二进制）。已改用机械核对代替：源码 26 个方法、bundle 含全部 26 个且无多无少、`productionRetryShot` 在两侧均存在。
+
+### 仍未闭合
+
+`QG Desktop Shards (1/2)`、`(2/2)`、`QG Coverage` 在最后一次推送（`7f640a3`）后仍红。上述 4 道门禁均已修复且本地验证通过，但**沙箱无法复现 CI 的完整条件**（electron 二进制 + 真实 ffmpeg 路径 + Windows），且**当前 token 无该仓 REST API 权限、取不到 job 日志**。定位这一步需要具备 CI 日志访问权的执行环境。
+
 ## 遗留（不假装已闭合）
 
 - **auto 模式（`auto-runner.js`）的同类风险未加固**：`autoRunIdFor` 同样只按 `taskId` + 批次派生。其项目身份是否内容绑定需另行取证，本次按「爆炸半径不外扩」未动。另注：`auto-runner.js:240,252` 的 `collectMissingShots` 有自己的 `runIdFor` 默认值、**不经注入缝**，改 `autoRunIdFor` 时须留意这条内部路径。
