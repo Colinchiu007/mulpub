@@ -2,9 +2,6 @@
 record: consolidate-redeem-codes
 task: 兑换码签发收敛到 api-publish-engine，废弃 ops-center 本地 HMAC 签发与桌面端孤儿模块
 date: 2026-10-13
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 不存在；合并后由回填 PR 收口
-sync_backfill_owner: 下一会话的回填 PR
 ---
 
 ## 本次执行记录：兑换码签发收敛（consolidate-redeem-codes，2026-10-13）
@@ -104,7 +101,8 @@ token 不泄漏 / `generated < requested` 差额可见。
 | QM-4 视觉 | N/A | 仅改 ops 内部运营台文案与表单，无对外视觉面 |
 | QM-6 CCG 双模型 | **未执行（降级 SELF-REVIEW）** | 沙箱双模型后端不可用 |
 
-| 远程同步 | PENDING —— 本 PR 尚未合并，merge SHA 不存在；合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 |
+| 远程同步 | PASS —— PR #3457 squash 合并，merge SHA `ce24fc8a8`；CI 21/21 全绿；远端分支已删除 |
+| 门禁复核 | 本地 5 项全绿；U+FFFD 0；`git diff origin/main...HEAD` 仅 10 文件且 desktop 侧为 0 |
 |---|
 
 
