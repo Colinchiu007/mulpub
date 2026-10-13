@@ -3,17 +3,13 @@ record: docs-prd-p1-landing
 task: PRD §16 回填 P1-1 指标矩阵与 P1-2 账号快照能力字段的落地实测
 date: 2026-10-14
 branch: docs-prd-p1-landing
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：PRD §16 P1-1/P1-2 落地回填（docs-prd-p1-landing，2026-10-14）【docs-only】
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → `docs-only=true`（files=2：
   `01-docs/PRD-PLATFORM-TAXONOMY-2026-10-13.md`、`.ccg/reviews/*.json`）
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PENDING
-
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PASS
 ### 写了什么
 
 按 PRD 既有体例（§14「实施期实测修正」、§15「定案」）补 **§16**，四小节：
@@ -39,7 +35,7 @@ sync_backfill_owner: 下一个会话
 | QM-2 代码必检项 | **N/A** | 无代码变更（docs-only 已判）|
 | QM-4 视觉 | **N/A** | 无 UI 变更 |
 | QM-6 双模型评审 | 未执行（如实登记）| 本机无 `codeagent-wrapper` |
-| 远程同步 | PENDING | 待 PR 合并后回填 merge SHA |
+| 远程同步 | PASS | PR #3531 已合并，merge SHA `d4b1166e04eb53cc3c01c9dcdc59f45a7b33f0a0`（2026-10-14）|
 
 ### 一处纪律复述（写进 §16.1.7）
 
