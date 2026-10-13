@@ -50,5 +50,10 @@
   },
   "本次执行记录：1 笔远程同步回填与销账（gate-backfill-3377，2026-10-13）【docs-only】": "本回填 PR 的远程同步待合并后由后续 docs PR 回填并删除本条",
   "本次执行记录：2 笔远程同步回填与销账（gate-backfill-3426-3434，2026-10-13）【docs-only】": "本回填 PR 的远程同步待合并后由后续 docs PR 回填并删除本条",
-  "本次执行记录：2 笔远程同步回填与销账（gate-backfill-3492-3494，2026-10-13）【docs-only】": "本回填 PR 的远程同步待合并后由后续 docs PR 回填并删除本条"
+  "本次执行记录：2 笔远程同步回填与销账（gate-backfill-3492-3494，2026-10-13）【docs-only】": "本回填 PR 的远程同步待合并后由后续 docs PR 回填并删除本条",
+  "本次执行记录：Vite optimizeDeps 缓存过期预检（vite-deps-cache-guard，2026-10-13）【混合 PR】": {
+    "reason": "vite-deps-cache-guard 为混合 PR（代码 + workflow 接线），PR 未合并无法取 merge SHA；合并后由后续 docs PR 回填 PASS + merge SHA 并同次删除本登记项",
+    "status": "PENDING",
+    "line": 11156
+  }
 }
