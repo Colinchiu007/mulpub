@@ -347,3 +347,11 @@ shared-user-data.backups/
 
 # Git worktree 隔离目录（会话工作区，不入库）
 .worktrees/
+
+# 时钟位移 oracle（2026-10-13，clock-shift-oracle）。同族两条静默忽略坑都要显式反选：
+# ① 第 106 行 scripts/*.js 会忽略判据本体（本地在盘上、CI 上 Cannot find module，先例 #3011/#3308）。
+# ② 第 59 行 test-*.js 未锚定目录，会连 **vitest setupFiles 点名的那个 setup 文件**一起忽略掉 ——
+#    它是 apps/desktop/test-setup-clock-shift.js，缺席时 vitest 会大声失败，但根因仍是这条忽略规则。
+!scripts/check-clock-shift-oracle.js
+!scripts/check-clock-shift-oracle.test.js
+!apps/desktop/test-setup-clock-shift.js

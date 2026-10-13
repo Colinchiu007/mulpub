@@ -1,3 +1,14 @@
+# [未发布] feat(gates): 时钟位移 oracle 取代已被否证的静态形状判据，并修掉它当场抓到的 3 条引信（clock-shift-oracle）
+
+- **换判据而不是再补一条 lint**：`scripts/check-clock-shift-oracle.js` 把同一批候选用例跑两趟，第二趟经 `apps/desktop/test-setup-clock-shift.js` 按 `MP_TEST_NOW_SHIFT_MS` 把 `Date.now()` 与零参 `new Date()` 整体推到未来（默认 45 天），差集 `位移趟红 ∖ 基线趟红` 即"随墙上时钟老化的引信"。静态形状判据在当场测量中被否证：apps/desktop 全域 936 个测试文件，静态形状候选（含时间字面量 + 相对窗口 + 未注入时钟）js/ts 有 66 个需逐个人工判读，而行为判据真找到的 3 条引信**一条都不在这 66 个里**。
+- 两条反失明判据：位移趟必须自己打印 `[CLOCK-SHIFT] active`（否则第二趟只是重跑基线、"零新增红"是假绿，配 `clock-shift-oracle-control.test.js` 正控要求 `Date.now() - baseNow >= shift`）；候选集为空一律 FAIL，且 `--dry-run` 出声 `domain=936 candidates=168 forms=…`，覆盖面数字可在仓库里一句话重取。
+- 预筛从"只认日期串"（118 个）扩成五形态并集（168 个），补上实测整族漏掉的 13/10 位数字纪元与"与内核时间交换过值"两族——**扩窄后第一跑就抓到 2 条新引信且恰属新加那一族**。`KNOWN_CLOCK_DEPENDENT` 起始为空且本轮仍为空。
+- 修掉三条引信：① `visual-ci.js::validateAgentJudgeReport` 把 `Date.now()` 与 `fs.statSync().mtimeMs` 跨时钟域比大小 ⇒ 新鲜度改判产物自带的时间戳 `generatedAt`（同域，且能抓住"`cp` 保留旧内容却刷新 mtime"的报告），markdown 侧不单独判新旧而判"与主产物同一对相邻 `writeFileSync` 落盘"；②③ `story2video-paths` 的 `gcImportedMedia` 与 `story2video-compose-engine-cleanup` 的 `_cleanupOldSessions` 用例，"刚写完当然新鲜"绑在内核 mtime 上 ⇒ 夹具显式用被测方那把钟盖章（生产代码零改动）。终态：168 候选两趟零新增红（`oracle-final.log`，两趟共 11 分 24 秒）。
+- TDD 与反证：两条新鲜度锁在旧实现上先红（`2 failed / 28 passed`，红的是"该拦的没拦"方向），修后 `30 passed` 且位移档同样 `30 passed`；oracle 自身锁 8→10 条全绿。变异反证 11 条全部实跑且**红集互不相同**（新鲜度 M1/M2/M3；装配 M-A setup 摘出 setupFiles、M-B 不替换 Date、M-C 删 gitignore 反选、M-D 候选过滤器恒假、M-E 摘一个形态、M-F 加 `g` 标志、M-G 少初始化一个 byForm 键、M-H `domainTotal` 塌成候选数），每条 `anchor_hits=1`、`RESTORE_BYTES_EQUAL=true`。
+- 接线分档：10 条锁 + `--dry-run` 进每次 PR（`quality-gate.yml` Gate 2b，`shell: bash` 真 fail-fast）；完整两趟进每周 schedule（新建 `.github/workflows/clock-shift-oracle.yml`，不挂 pull_request、不进 required，理由与耗时数字写进文件头注释）。`check-workflow-structure` ⇒ `files=14 violations=0`。
+- 遗留如实登记：全域两趟（936 文件，外推 ≈ 63 分钟）未纳入 v1，预筛外只单独验过 1 个"落盘 + 相对窗 + 读时钟"的文件（`logger.test.js` 位移档 16 passed），这是抽样不是全域覆盖。
+
+
 # [未发布] feat(ci): 执行记录的 QM-5 行集改为"按模板派生"的结构棘轮（qm5-row-ratchet）
 
 ## 背景

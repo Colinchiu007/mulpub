@@ -369,6 +369,17 @@ jobs:
           # 登记注释），接进去等于接进一个装饰门禁；本步骤整体是 shell: bash，任一非零即中止。
           node --test .github/scripts/check-workflow-structure.test.js
           node .github/scripts/check-workflow-structure.js
+          # 时钟位移 oracle 的锁（2026-10-13，clock-shift-oracle）。
+          # 动因：#3459 那笔"夹具写死绝对时间戳 + 被测路径读真实时钟 + 窗口是相对量"的引信，
+          # 写下的当天绿、两天后必然红；而登记要求的"先量存量再定"做完后结论是**静态形状规则不可行**
+          # （origin/main 1326 个测试文件里 148 个含绝对时间戳，其中"含窗口参数又没注入时钟"的 6 个
+          # 逐条判读全是假阳性）⇒ 换成行为判据：同一批用例跑两遍，第二遍把进程的"现在"推到未来。
+          # 这里只接**锁本体**（秒级：域推导 / 正则正负控 / setup 接线 / 真起子进程证位移生效 /
+          # gitignore 反选）；oracle 全量跑（118 文件 ×2）另接低频次入口，不进每次 PR 的关键路径。
+          node --test scripts/check-clock-shift-oracle.test.js
+          # 判据本体也要在每次 PR 上真被执行一次（--dry-run 不起 vitest，秒级）：
+          # 否则 CLI 只有本地手动跑过，会烂成"工具还在、扫描域已经漂"那种装饰性存量。
+          node scripts/check-clock-shift-oracle.js --dry-run
 
       # --- Gate 2c: 测试收集接线棘轮 + 此前从未被 CI 收集的锁 ---
       # 本仓不自动收集 scripts/ 与 .github/scripts/ 下的测试（vitest 只管 workspace，
