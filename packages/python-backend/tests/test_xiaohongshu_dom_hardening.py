@@ -9,7 +9,9 @@
 
 from __future__ import annotations
 
+import ast
 import re
+from pathlib import Path
 
 import pytest
 from loguru import logger
@@ -1104,3 +1106,74 @@ class TestUploadReadinessPoll:
         # 静默失效守卫：等待时长常量必须真的被发布器引用，而不是只存在于选择器表里
         assert hasattr(xhs, "NAVIGATE_READY_TIMEOUT_S")
         assert hasattr(xhs, "NAVIGATE_READY_POLL_INTERVAL_S")
+
+
+class TestDomWiringContract:
+    """`dom.*` 引用必有实体——「清理冲突标记时选错侧」的回归锁。
+
+    本案的断裂形态是：调用方 `xiaohongshu.py` 保留了对草稿箱回查的调用，被调方
+    `xiaohongshu_dom.py` 里那几个函数却被删掉。Python 里这是**运行期 AttributeError**——
+    import 不炸、静态检查不炸，只有真走到那条分支的用例才红；而本仓把那批用例接在
+    `gui-test` 这条**非 required** 的检查上，于是断链可以躺在 main 上不被任何闸门拦住。
+    所以这把锁必须落在**不启动浏览器**的快速单测层，并且要覆盖两个方向：
+    发布器引用的每个 `dom.X` 存在（外部面），以及只被 `dom.py` 自己调用的助手真的被调到
+    （内部面——按调用方扫描看不见它，函数被删时 `recheck_draft_box` 里是 NameError）。
+    """
+
+    def test_publisher_dom_references_all_resolve(self):
+        source = Path(xhs.__file__).read_text(encoding="utf-8")
+        referenced = sorted({
+            node.attr
+            for node in ast.walk(ast.parse(source))
+            if isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "dom"
+        })
+        # 下界不得为 0，也不得贴着实际值写：解析退化（文件读不到、AST 形状变了、变量改名）
+        # 会让集合变空，而"零个引用 ⇒ 零个缺失"读起来完全像通过。
+        assert len(referenced) >= 5, f"发布器对 dom 的引用数异常低，锁可能已失明: {referenced}"
+        missing = [name for name in referenced if not hasattr(dom, name)]
+        assert missing == [], (
+            f"xiaohongshu.py 引用了 xiaohongshu_dom 里不存在的成员: {missing}；"
+            f"这些名字会在运行到对应分支时抛 AttributeError，且 import 期毫无痕迹"
+        )
+
+    @pytest.mark.asyncio
+    async def test_recheck_path_reaches_the_draft_box_helpers(self, monkeypatch):
+        """内部面：`await_draft_box_increment` / `draft_title_present` 只被 `dom.py` 自己调，
+        上一条按调用方扫描的锁看不见它们被删。
+
+        用**包住原实现**的 spy 真跑一次 `recheck_draft_box`：取原函数那一步在函数不存在时
+        当场 AttributeError，而调用顺序证明确认路径真的走到了两条通道（计数增量 → 标题兜底）。
+        这比一句 `hasattr` 更难绕——把助手改成恒返 False 的 no-op，`hasattr` 照样绿，
+        而这里 `seen` 仍会记录调用但既有行为用例会红，两者互为补位。
+        """
+        seen: list[str] = []
+        orig_increment = dom.await_draft_box_increment
+        orig_title = dom.draft_title_present
+
+        async def spy_increment(page, sel, **kw):
+            seen.append("increment")
+            return await orig_increment(page, sel, **kw)
+
+        async def spy_title(page, sel, title, *, scan_cap):
+            seen.append("title")
+            return await orig_title(page, sel, title, scan_cap=scan_cap)
+
+        monkeypatch.setattr(dom, "await_draft_box_increment", spy_increment)
+        monkeypatch.setattr(dom, "draft_title_present", spy_title)
+
+        # 基线 1、回查后仍是 1 ⇒ 计数没涨，必须退到标题兜底；而兜底也扫不到标题
+        page = _page_with_draft_box(1, 1)
+        confirmed = await dom.recheck_draft_box(
+            page, "测试标题", 1,
+            box_url=xhs.DRAFT_BOX_URL,
+            counter_sel=xhs.DRAFT_BOX_COUNTER_SELECTOR,
+            item_sel=xhs.DRAFT_BOX_ITEM_SELECTOR,
+            item_scan_cap=xhs.DRAFT_BOX_ITEM_SCAN_CAP,
+            timeout_s=xhs.DRAFT_BOX_WAIT_TIMEOUT_S,
+            interval_s=xhs.DRAFT_BOX_POLL_INTERVAL_S,
+            probe_cap=xhs.DRAFT_BOX_COUNTER_PROBE_CAP,
+        )
+        assert seen == ["increment", "title"], seen
+        assert confirmed is False  # 两条通道都没证据 ⇒ 未确认，绝不伪造成功
