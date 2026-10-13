@@ -3,9 +3,6 @@ record: reuse-taxonomy-browser
 task: P0-3 后半段(1/2) —— 渲染端 ESM 分类表孪生 + parity 锁
 date: 2026-10-14
 branch: reuse-taxonomy-browser
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：P0-3 后半段(1/2) 渲染端分类表孪生（reuse-taxonomy-browser，2026-10-14）
@@ -75,7 +72,7 @@ ESM **故意不实现** `validateTaxonomy`（结构性自检）。理由：渲�
 | QM-2 代码必检项 | ✅ | 新文件无 `require` 路径问题；无新第三方依赖；`export` 语法已核；注释 `/* */` 成对 |
 | QM-4 视觉 | N/A | 无 UI 变更（选择器组件在下一 PR）|
 | QM-6 双模型评审 | 未执行（如实登记）| 本机无 `codeagent-wrapper` |
-| 远程同步 | PENDING | 待 PR 合并后回填 merge SHA |
+| 远程同步 | PASS | PR #3509 已合并，merge SHA `a7f0c53e9e2d681550abce639e89286771c605e5`（2026-10-14）|
 
 #### QM-1 实测（本 PR 动了 `apps/desktop/vite.config.js`，属渲染端打包配置）
 
@@ -108,4 +105,4 @@ alias 目标文件存在性已单独验过，且边界门禁确认登记无误�
 真正的端到端视觉验证应在分类选择器组件落地（下一 PR）时补做。
 
 
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PENDING
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PASS
