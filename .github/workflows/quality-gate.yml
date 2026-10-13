@@ -339,6 +339,14 @@ jobs:
           # 脚本自带接线锁：它没挂在这里时 check-ops-seed.test.js 会直接红。
           node --test .github/scripts/check-ops-seed.test.js
           node .github/scripts/check-ops-seed.js
+          # workflow 结构门禁：抓「GitHub 在排队之前就拒绝这份文件」的空值/缺节点形态。
+          # 动因是 87e311c45 (#3200) 把 gui-test.yml 的 defaults.run 那一项删成空值，于是该
+          # workflow 从 main 上整体消失（零 job、零日志，原因只在 Actions UI 的 annotation 里），
+          # 且此后每个从 main 切出的 PR 都拿不到这条检查——连"红"都没有。
+          # 落点选本步骤而不是 Gate 3：Gate 3 默认 pwsh 且多条命令不 fail-fast（见该步骤上方的
+          # 登记注释），接进去等于接进一个装饰门禁；本步骤整体是 shell: bash，任一非零即中止。
+          node --test .github/scripts/check-workflow-structure.test.js
+          node .github/scripts/check-workflow-structure.js
 
       # --- Gate 2c: 测试收集接线棘轮 + 此前从未被 CI 收集的锁 ---
       # 本仓不自动收集 scripts/ 与 .github/scripts/ 下的测试（vitest 只管 workspace，
@@ -493,22 +501,26 @@ jobs:
           pwsh -NoProfile -ExecutionPolicy Bypass -File "$ISO/scripts/session-isolation-automation.test.ps1"
 
       # --- Gate 3: 硬编码密钥扫描（同时执行 CI workflow 契约测试）---
+      # ⛔ 已知装饰态，本 PR 刻意不动它（登记 + 证据，勿读成"已修"）：默认 pwsh 下
+      # "中间命令非零不中止"，正文末尾那句显式转存只管**最后一条**命令的退出码 ⇒ 第一行
+      # node --test（含 workflow-contract 等 8 个契约测试）红掉时步骤照绿。
+      # 实测证据（2026-10-13，PR #3443 的 rebase 轮）：把本步骤整体改成 shell: bash 后
+      # gate3_bash_rc=1，而在**未改动的** origin/main tip 上单独跑 workflow-contract.test.js
+      # 同样 main_contract_rc=1 —— 即 main 现在自相矛盾（Gate 9 的正文含 PowerShell 报告读取
+      # 语句，而 workflow-contract.test.js 里一条更早的断言禁止它含那些语句；该语句由 52aeaf2ae
+      # (#3439) 引入并全绿合入，正是因为本步骤的掩盖）。
+      # 不在本 PR 一并拆掉的理由：拆掉会把 required 的 QG Static 对之后每个 PR 判红，
+      # 而"那条断言原意管到哪一段"属 #3439 作者的语义判断，不该由 CI 修复 PR 单方面定。
+      # 详见 openspec/records/gui-test-workflow-structure.md 的「未收口」行。
       - name: "Gate 3 - Hardcoded secrets scan"
-        # 本步骤整体 shell: bash 是必需的，不是风格：默认 pwsh 下"中间命令非零不中止"，
-        # 而正文里那句 `if ($LASTEXITCODE -ne 0)` 只转存**最后一条**命令的退出码 ——
-        # 第一行的 node --test 红掉时步骤照样绿（#3357 那句注释以为已经堵住了，实际没有）。
-        # 换 bash 后该显式转存必须删除：它是 PowerShell 语法，在 bash 里是语法错误。
-        shell: bash
         run: |
-          node --test .github/scripts/check-hardcoded-secrets.test.js .github/scripts/workflow-contract.test.js .github/scripts/autonomous-loop-workflow.test.js .github/scripts/agent-review-gate.test.js .github/scripts/classify-ci-failure.test.js .github/scripts/ci-failure-handler-contract.test.js .github/scripts/check-workflow-structure.test.js scripts/gate-budget.test.js scripts/check-desktop-shard-forwarding.test.js
-          # workflow 结构门禁本体：抓「GitHub 在排队之前就拒绝这份文件」的空值/缺节点形态。
-          # 动因是 87e311c45 (#3200) 把 gui-test.yml 的 defaults.run.shell: bash 删成空值，
-          # 于是该 workflow 从 main 上整体消失（零 job），且此后每个从 main 切出的 PR 都拿不到它。
-          node .github/scripts/check-workflow-structure.js
+          node --test .github/scripts/check-hardcoded-secrets.test.js .github/scripts/workflow-contract.test.js .github/scripts/autonomous-loop-workflow.test.js .github/scripts/agent-review-gate.test.js .github/scripts/classify-ci-failure.test.js .github/scripts/ci-failure-handler-contract.test.js scripts/gate-budget.test.js scripts/check-desktop-shard-forwarding.test.js
           node .github/scripts/check-hardcoded-secrets.js
           # 判据本体也跑一次：它把"消费者实收 argv""续行扫描命中数""真 vitest 两腿枚举的文件名"
-          # 打进 CI 日志（带内现场），而不只在测试名里露一下。
+          # 打进 CI 日志（带内现场），而不只在测试名里露一下。显式转存退出码——本步骤默认 shell 是 pwsh，
+          # 中间命令非零不会自动中止该步骤（AGENTS.md「一个 run 块里塞多条命令」那条）。
           node scripts/check-desktop-shard-forwarding.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # --- Gate 6: IPC bridge completeness ---
       - name: "Gate 6 - IPC bridge completeness"

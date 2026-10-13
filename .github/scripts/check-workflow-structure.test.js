@@ -178,24 +178,32 @@ test('CLI：仓库现状退 0，注入坏文件的临时目录退 1，读不到�
 });
 
 // ---- 接线锁：判据必须落在一个"真会跑、红了真会拦"的位置 ----
-// 「写了测试」≠「接进 CI」≠「接的位置能拦住」。本锁的落点是 quality-gate.yml 的 Gate 3，
-// 而那个步骤历史上是 pwsh：一个 run 块里多条命令不 fail-fast，只有最后一条的退出码决定成败
-// （#3357 在正文末尾补的 `if ($LASTEXITCODE -ne 0)` 只转存最后一条，第一行的 node --test 红掉
-// 时步骤照样绿）。所以"必须 bash"要由锁钉住，而不是由注释里的一句话约定。
-test('CI 接线：Gate 3 必须 bash、必须点名测试与 CLI，且所在 job 不会被 docs-only 短路', () => {
+// 「写了测试」≠「接进 CI」≠「接的位置能拦住」。落点是 quality-gate.yml 的 Gate 2b；
+// 选它而不是看起来更对口的 Gate 3，理由是可执行的：Gate 3 默认 pwsh，一个 run 块里多条命令
+// 不 fail-fast，正文末尾那句 `if ($LASTEXITCODE -ne 0)` 只转存**最后一条**的退出码 ⇒
+// 第一行 node --test 红掉时步骤照绿。接进去等于接进一个装饰门禁。
+// Gate 2b 整体 shell: bash（GitHub 的 bash 默认 -e -o pipefail，任一非零即中止）。
+// 所以"必须 bash"由锁钉住，而不是由注释里的一句话约定。
+test('CI 接线：Gate 2b 必须 bash、必须点名测试与 CLI、不得接回 Gate 3，且所在 job 不会被 docs-only 短路', () => {
   const wfPath = path.join(REPO_ROOT, '.github', 'workflows', 'quality-gate.yml');
   const wf = yaml.load(fs.readFileSync(wfPath, 'utf8'));
   const job = wf.jobs['static-gates'];
   assert.ok(job, 'quality-gate.yml 必须有 static-gates 作业（本锁的宿主）');
 
-  const gate3 = (job.steps || []).find((s) => /Gate 3 - Hardcoded secrets scan/.test(String(s.name || '')));
-  assert.ok(gate3, '必须存在 Gate 3 步骤');
-  assert.equal(gate3.shell, 'bash',
-    'Gate 3 必须显式 shell: bash —— 默认 pwsh 下中间命令非零不中止，本锁会退化成装饰门禁');
-  assert.match(String(gate3.run), /check-workflow-structure\.test\.js/,
-    '测试文件必须出现在 Gate 3 的 node --test 清单里');
-  assert.match(String(gate3.run), /node\s+\.github\/scripts\/check-workflow-structure\.js/,
+  const gate2b = (job.steps || []).find((s) => /Gate 2b - Desktop dev scripts/.test(String(s.name || '')));
+  assert.ok(gate2b, '必须存在 Gate 2b 步骤（本锁的落点）');
+  assert.equal(gate2b.shell, 'bash',
+    'Gate 2b 必须显式 shell: bash —— 默认 pwsh 下中间命令非零不中止，本锁会退化成装饰门禁');
+  assert.match(String(gate2b.run), /check-workflow-structure\.test\.js/,
+    '测试文件必须出现在 Gate 2b 的 node --test 清单里');
+  assert.match(String(gate2b.run), /node\s+\.github\/scripts\/check-workflow-structure\.js/,
     'CLI 本体必须被点名：只接测试等于"函数对但门禁没跑"（空白用 \\s+，不把命令写成单空格精确形状那种易碎锁）');
+
+  // 反向锁：不得被"顺手挪回去"。Gate 3 是已登记的装饰态，接进去会得到一条恒绿的假门禁。
+  const gate3 = (job.steps || []).find((s) => /Gate 3 - Hardcoded secrets scan/.test(String(s.name || '')));
+  assert.ok(gate3, 'Gate 3 必须存在（反向锁的前置，被改名会让这条反向锁静默失效）');
+  assert.doesNotMatch(String(gate3.run || ''), /check-workflow-structure/,
+    '本锁不得接回 Gate 3：那个步骤不 fail-fast（已在该步骤上方登记），接进去等于装饰');
 
   // 触发前提：改坏 workflow 的 PR 必然改 .github/workflows/**；一旦这个前缀进了 docs-only 白名单，
   // static-gates 会被整片跳过，本锁对它唯一要防的那类 PR 反而不跑。

@@ -68,10 +68,19 @@ const MUTATIONS = [
   },
   {
     id: 'M6',
-    what: 'Gate 3 退回默认 pwsh（摘掉 shell: bash）⇒ 接线锁必须红',
+    what: '摘掉 Gate 2b 的 shell: bash（退回默认 pwsh）⇒ 接线锁必须红',
     file: QG,
-    from: J(QG, ['        # 换 bash 后该显式转存必须删除：它是 PowerShell 语法，在 bash 里是语法错误。', '        shell: bash']),
-    to: J(QG, ['        # 换 bash 后该显式转存必须删除：它是 PowerShell 语法，在 bash 里是语法错误。']),
+    from: J(QG, ['      - name: "Gate 2b - Desktop dev scripts (node --test)"', '        shell: bash']),
+    to: J(QG, ['      - name: "Gate 2b - Desktop dev scripts (node --test)"']),
+    expect: 'test'
+  },
+  {
+    id: 'M12',
+    what: '把本锁的 CLI 接回 Gate 3（那条已登记的装饰态）⇒ 反向锁必须红',
+    file: QG,
+    from: J(QG, ['          node .github/scripts/check-hardcoded-secrets.js']),
+    to: J(QG, ['          node .github/scripts/check-hardcoded-secrets.js',
+      '          node .github/scripts/check-workflow-structure.js']),
     expect: 'test'
   },
   {
@@ -137,8 +146,15 @@ const results = [];
 for (const m of MUTATIONS) {
   const file = path.join(ROOT, m.file);
   const before = fs.readFileSync(file, 'utf8');
-  if (!before.includes(m.from)) {
+  const hits = before.split(m.from).length - 1;
+  if (hits === 0) {
     results.push({ id: m.id, verdict: 'SKIPPED_ANCHOR', note: '锚点未命中，变异没有发生；from=' + JSON.stringify(m.from.slice(0, 70)) });
+    continue;
+  }
+  // String.replace(字符串锚点) 只替换**第一处**命中。锚点不唯一时，变异可能打在
+  // 另一个同形位置上——被测对象没变而驱动照跑，会把"锁没抓住"写进结论。
+  if (hits !== 1) {
+    results.push({ id: m.id, verdict: 'SKIPPED_ANCHOR', note: '锚点命中 ' + hits + ' 处，不唯一 ⇒ 注入落点不可归因' });
     continue;
   }
   fs.writeFileSync(file, before.replace(m.from, m.to));
