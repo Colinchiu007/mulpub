@@ -17944,3 +17944,76 @@ CCG 的 `HARDCODED_SECRET` 规则是「关键词 + `[:=]` + 引号内 8 字符�
 
 - **本仓 `text=auto`：编辑工具写出的 CRLF 会让行数虚涨、行尾对账两口径不一致**。处置脚本化：用 Node 把本 PR 触及文件统一 `\r\n → \n`（并剥 BOM），再 `git ls-files --eol` 复核 `w/lf`。**不要用 `Measure-Object -Line` 估行数**，一律以 `check-max-lines.js` 或 `split('\n').length` 为准。
 - **引擎测试分「vitest 组」与「direct 组」，新增测试文件必须登记**：`packages/api-publish-engine/scripts/run-tests.js` 的 `VITEST_FILES` 是白名单，不在其中的文件走 `node <file>` 直跑。新写的 vitest 风格用例（用 `describe`/`it`）不登记就报 `ReferenceError: describe is not defined`——**不是代码错，是登记缺失**。
+## 「能 parse」不等于「GitHub 收」：一条流水线可以整条消失而没有任何一层报红（2026-10-13，gui-test-workflow-structure）
+
+断点是一行 YAML：`defaults:` 下的 `run:` 被删成只有键没有值。它是**完全合法的 YAML**（值为 null），
+所以本仓所有以 `js-yaml.load` 为入口的判据全绿；而 GitHub 的 workflow 编译器在**排队之前**就拒绝整份文件
+（`(Line: 32, Col: 11): Unexpected value ''`）。以下五条与本 PR 的具体代码无关，换任何一处 CI 配置都成立。
+
+### 一、"能 parse"是语法层，"编译器收不收"是另一层——两层之间没有任何东西在守
+
+判一份 workflow 健康，`load()` 成功只证明"括号配平"。schema 层（必需节点、枚举值、键是否允许为空）
+是第二层，本仓此前**完全没有**这一层（`grep -rl actionlint` = 0）。补法不是引入第三方二进制，
+而是把"编译器会拒绝的那几类形态"写成可注入的纯函数判据（空值节点 / 必需节点缺席 / steps-uses 互斥 /
+带 steps 缺 runs-on / run 空白 / with-env 非映射）。**范围要如实划**：未知键拼写（`timeout_minutes`）
+属同一类失效但没做，因为那需要官方完整键表，手抄表会误伤合法写法（`permissions` 可写字符串简写就是现成反例）——
+留缺口比造一条会假红的锁好。
+
+### 二、"零 job 的 failure"是一类特殊故障：取数通道要按"哪一层还有产物"逐级降级
+
+这种 run 没有 job、没有日志、`/check-runs` 是空数组，REST 侧只剩 `gh run view` 的一句启发式提示
+（"likely failed because of a workflow file issue"——它只说明"没有 job"，不说明为什么）。
+唯一原文在 Actions UI 的 Annotations 区。教训：**先判"这一层有没有产物"再选工具**，
+不要在 REST 上反复换 endpoint 试；本机登录态浏览器截图一次就拿到了。
+（同一轮另一处坑：外部 browser connector 的 `evaluate_script` 恒返回 `{}`，`take_snapshot` 只给截断的
+a11y 文本 ⇒ 读整句话要用截图。）
+
+### 三、接线时必须核对落点的 shell 语义；而"拆掉掩盖"要先量它会不会烧到 required
+
+本锁最初接在 Gate 3，并把该步骤整体改 `shell: bash`——因为它默认 pwsh，正文末尾那句
+`if ($LASTEXITCODE -ne 0)` 只转存**最后一条**命令的码，第一行 `node --test`（含 8 个契约测试）
+红掉时步骤照绿：**落点自己就是装饰门禁**，而它的注释自称已经堵住了这点。
+把新锁接进去之前先问：这个位置红了拦得住吗？
+
+**但"让一条装饰门禁重新有牙"不是免费的。** re-sync 之后实测两把尺：
+`gate3_bash_rc=1`（改 bash 后 Gate 3 红），而在**未改动的** origin/main tip 上单独跑
+同一份 `workflow-contract.test.js` 也是 `main_contract_rc=1` —— 红是 main 的：
+一条更早的断言禁止 Gate 9 正文含 PowerShell 报告读取语句，而 `52aeaf2ae`(#3439) 把该语句
+加了进去并全绿合入，全绿恰恰靠的就是这层掩盖。于是"拆掩盖"会把 **required 的 `QG Static`
+对之后每一个 PR 判红**。口径三条：
+
+① **拆掩盖前，先跑一次"未改动的 main 上同一判据"对照**。没有这一步，你会把自己的改动
+   当成红的成因，或者反过来以"不是我引入的"直接放行——两个方向都错过。
+② **量爆炸半径**：这条判据所在的 job 是不是 required？如果是，"修好掩盖"和"修好被掩盖的东西"
+   必须同一次发生，否则你交付的不是修复而是全线阻塞。本 PR 因此**收缩范围**：Gate 3 正文
+   逐字退回 origin/main（按步骤名切段比对 `gate3_body_identical_to_origin_main=true`，
+   只在该步骤上方留登记注释），锁改接本来就是 `shell: bash` 的 Gate 2b，并加一条**反向锁**
+   禁止"顺手挪回 Gate 3"（变异 M12 证明它有牙）。
+③ **落点纪律要由锁表达，不由注释表达**。"必须 bash"写成 `assert.equal(gate2b.shell, 'bash')`，
+   配变异 M6（摘掉那行必须红）；`check-step-failfast.js` 认"正文出现过 `$LASTEXITCODE`"即合规
+   是**必要条件不是充分条件**（pwsh 只有最后一条决定成败），实测全仓仍有 4 处落在
+   "1 条测试 + ≥2 条命令 + 非 bash + 无转存"这一格。
+
+附带一条同族收获：这次是**一个提交同时造出缺陷与盲区**的现场——`87e311c45` 既删掉了
+gui-test 的 `defaults.run.shell`（盲区），又把带 9 行冲突标记的 `xiaohongshu_dom.py` 提交进 main
+（缺陷：4 个草稿箱函数从未落地，小红书图文草稿路径运行即抛 AttributeError，32 条 pytest 红
+两天无人知晓）。**判"某功能是不是坏的"之前，先判"跑它的那条流水线还在不在"。**
+### 四、跨页聚合的计数不得当结论；"某类事件有没有发生"要用服务端过滤器单探针
+
+我第一次翻 12 页 × 100 条自己过滤 event，得到"532 次失败 = 528 push + 4 pull_request"，
+据此几乎写下"连 PR 侧都留下了红"。改用服务端 `?event=pull_request` 重取：同窗口 PR 失败数 = **0**，
+且最后一次 PR 触发在断点**之前** 24 分钟。错因是聚合期间列表在长（别的会话在往 main 推），
+翻页窗口漂移会让同一条出现在两页或漏一屏。**口径**：关于"有没有 / 发生过几次"的结论，
+一律用服务端过滤 + 单次取数；客户端聚合只用于"逐条列举"，且必须打印 pages/seen 自证覆盖。
+
+### 五、能跑 ≠ 拦得住：required 清单是另一道独立的门
+
+本仓 main 的 required 是 ruleset(6) 与 classic protection(4) 的**并集**，`GUI Tests` 两边都不在。
+所以即使文件修好、每次 PR 都跑，它红了照样能合。修流水线"能不能跑"和修它"拦不拦得住"是两件事，
+后者属改「谁来守门」，按 AGENTS.md 必须人工过目——本 PR 只登记不擅动。
+
+### 六、可复用的取证边界（本 PR 的归属证据长什么样）
+
+断点归属用"连续失败块的最老一条"来钉：`event=push` 过滤下从新往回连续 530 次 failure，
+块内最老一条的 `head_sha` 就是引入缺陷的那次 push（时间戳仅差 3 秒），块下方第一条 success 给出上界。
+这比"我记得是那个 PR 改的"强，因为它同时排除了"另有第二个变量"的可能。

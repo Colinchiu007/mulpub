@@ -1,3 +1,67 @@
+# [未发布] fix(ci): gui-test.yml 的空值节点让整条流水线从 main 消失——补 workflow 结构门禁（gui-test-workflow-structure）
+
+## 背景
+
+`87e311c45`（PR #3200）收尾时"修 rebase 重复键"顺手删掉了 `jobs.gui-test.defaults.run.shell: bash`，
+留下一个只有键、没有值的节点。它是**完全合法的 YAML**（值为 null），所以本仓所有以 `js-yaml.load`
+为入口的判据全部照过；而 GitHub 的 workflow 编译器在**排队之前**拒绝整份文件：
+`(Line: 32, Col: 11): Unexpected value ''`。
+
+后果不是"跑挂"而是"不存在"：main 每次 push 生成一个**零 job** 的 failure run（无 job、无日志、
+`/check-runs` 空数组，原因只在 Actions UI 的 annotation 里），实测从 `87e311c45` 那次 push 起
+**连续 530 次红**；PR 侧更糟——此后**一条 PR run 都不生成**，最后一次 PR 触发停在断点前 24 分钟。
+同期 main 合并 124 个 PR，没有一个拿到过这条浏览器 E2E 门禁。
+
+## 改动
+
+- `gui-test.yml`：恢复 `defaults.run.shell: bash`（原值，`62edccb62`→`ceb998758` 全程都在），
+  并恢复被同一次提交顺手删掉的两行 pytest-asyncio 注释（"不得改回临时 pip install"的理由）。
+- 新建单一判据 `.github/scripts/check-workflow-structure.js`：抓「GitHub 排队前会拒绝」的形态——
+  空值节点（唯一豁免 `on.<事件名>`）、`jobs` 非空、作业 steps/uses 二选一、带 steps 必须有 runs-on、
+  步骤必须有 uses 或 run 且 run 非空、`with`/`env` 必须是映射、`defaults`/`defaults.run` 不得为空。
+  CLI 三档退出码：0 合规 / 1 发现违规 / 2 扫描器自身读不到目录（混档等于把"门禁瞎了"读成
+  "workflow 有问题"）。边界如实写进头注释：未知键拼写与"承载本门禁的那份 workflow 自身"不覆盖。
+- 锁 6 条：动因形态逐字复刻 + 六形态逐个红 + 三类合规正控（含复用型 workflow 调用）+
+  真实仓库扫描域下界与成员点名 + CLI 三档退出码 + 接线锁。
+- 接进 `quality-gate.yml` 的 **Gate 2b**（该步骤整体 `shell: bash`，任一非零即中止）。落点刻意不选
+  看起来更对口的 Gate 3：Gate 3 默认 pwsh，正文末尾那句 `$LASTEXITCODE` 转存只管**最后一条**命令 ⇒
+  第一行 `node --test` 红掉时步骤照绿，接进去等于接进一个装饰门禁。落点由接线锁钉住，并配一条
+  反向锁（本锁不得被"顺手挪回 Gate 3"）；M6/M12 两道变异分别证明这两条真有牙。
+- 反证 12 条全部 CAUGHT（`.ccg/reviews/workflowstructure-mutate.driver.js` + 产物），驱动带
+  「锚点命中数必须恰好为 1」守卫（`String.replace` 只换第一处，锚点不唯一时注入落点不可归因）。
+- QM-6 双模型（CC Switch :15721 实测未监听 ⇒ 降级 opencode free 模型，如实登记）独立收敛出
+  同两条缺口：缺 runs-on 判据（CRITICAL）与 steps/uses 不互斥（MAJOR），均已采纳并各配反证。
+
+## 一条修复顺出来的三处既有伤（登记，不混进本 PR）
+
+1. **Gate 3 是装饰门禁**（本 PR 刻意不动，已在该步骤上方写登记注释）。实测：把它改成
+   `shell: bash` 后 `gate3_bash_rc=1`，而在**未改动的** origin/main tip 上单独跑
+   `workflow-contract.test.js` 同样 `main_contract_rc=1` —— 红是 main 的，不是本 PR 的。
+2. **main 现存的自相矛盾**：`workflow-contract.test.js` 一条更早的断言禁止 Gate 9 正文含
+   PowerShell 报告读取语句，而 `52aeaf2ae`（#3439）把该语句加了进去并全绿合入——全绿正是靠
+   第 1 条掩盖。拆 Gate 3 会把 required 的 `QG Static` 对之后每个 PR 判红，而"那条断言原意
+   管到哪一段"属 #3439 作者的语义判断，不由一个 CI 修复 PR 单方面定。
+3. **小红书图文草稿路径在 main 上是坏的**（功能级，须独立 PR）：`xiaohongshu.py:236/390` 调用
+   `dom.await_draft_box_count` / `dom.recheck_draft_box`，而这两个函数连同 `draft_box_count` /
+   `await_draft_box_increment` **从未存在于任何源码 blob**——`87e311c45` 把带 9 行 git 冲突标记的
+   `xiaohongshu_dom.py` 提交进了 main，`8fdcec508`（#3348）清标记时选了另一侧。本机
+   `pytest tests/test_xiaohongshu_dom_hardening.py` 32 failed / 27 passed，CI 同步骤 32 failed /
+   84 passed。它两天无人知晓的原因，正是本 PR 修掉的那条死掉的 gui-test。
+
+另两条既有欠账：`GUI Tests` 不在 ruleset(6) ∪ classic protection(4) 的任一 required 清单里
+（本 PR 只让它"能跑"，没让它"拦得住"，加进 required 须人工过目）；`check-step-failfast.js`
+认「正文出现过 `$LASTEXITCODE`」即合规，实测仍有 4 处落在"1 条测试 + ≥2 条命令 + 非 bash +
+无转存"这一格（`doc-gate.yml::L47`、`ops-center-ci.yml::L44`、`quality-gate.yml::L534`、
+`quality-gate.yml::L1731`）。
+
+## 验证
+
+锁 6/6 绿；CLI `files=13 violations=0`；变异 12/12 CAUGHT、还原逐字节相同、锚点唯一性 12/12；
+`check-unwired-tests` / `check-step-failfast` / `check-gate-record-debt` / `check-no-brand-residue` /
+`check-max-lines` / `check-debt-budget` / `check-changelog-growth` / `check-text-encoding-integrity` /
+`check-doc-abs-paths`（改动集口径）/ `check-pr-exec-record --mode=enforce` 全绿；
+`workflow-contract` 34/35 —— 唯一那条红即上面第 2 点的 main 既有矛盾，因 Gate 3 保持原样
+而不会在本 PR 的 CI 上显形；执行记录 `openspec/records/gui-test-workflow-structure.md`。
 # [未发布] fix(xiaohongshu): 草稿箱计数确认链的 dom 侧实现从未落地——调用方、用例和「已完成」声明都进了 main，只有实现半边没有（xhs-draft-box-restore）
 
 ## 症状
