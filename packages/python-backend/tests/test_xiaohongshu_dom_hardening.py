@@ -9,7 +9,9 @@
 
 from __future__ import annotations
 
+import ast
 import re
+from pathlib import Path
 
 import pytest
 from loguru import logger
@@ -449,6 +451,28 @@ class TestAutosaveDraftConfirmation:
             assert await dom.draft_box_count(
                 page, COUNTER_SEL, probe_cap=xhs.DRAFT_BOX_COUNTER_PROBE_CAP
             ) == expected
+
+    @pytest.mark.asyncio
+    async def test_unparsable_counter_text_leaves_its_own_trace(self):
+        """「节点在、文本读到了、但解析不出计数」必须与「读不到节点」可区分（QM-6 前端轴）。
+
+        两种 None 的处置方向相同（都退到兜底、都不许报成功），但**排障方向相反**：前者是平台
+        改了显示形态（正则口径要跟着走），后者是时序/选择器问题。若两者在日志里同形，下一次
+        真机故障就只能靠猜。这里刻意收 DEBUG 级——它在轮询里会被重复打，出声的位置由
+        `await_draft_box_count` 在超时处承担。
+        """
+        page = FakePage()
+        page.visible.add(COUNTER_SEL)
+        page.item_texts[COUNTER_SEL] = ["草稿箱"]  # 常驻标题文案：节点在、可读、不含计数
+        messages: list[str] = []
+        sink_id = logger.add(lambda m: messages.append(str(m)), level="DEBUG")
+        try:
+            assert await dom.draft_box_count(
+                page, COUNTER_SEL, probe_cap=xhs.DRAFT_BOX_COUNTER_PROBE_CAP
+            ) is None
+        finally:
+            logger.remove(sink_id)
+        assert any("解析不出计数" in m for m in messages), messages
 
     @pytest.mark.asyncio
     async def test_autosave_path_checks_the_box_before_burning_the_xhr_wait(self, publisher, monkeypatch):
@@ -1104,3 +1128,80 @@ class TestUploadReadinessPoll:
         # 静默失效守卫：等待时长常量必须真的被发布器引用，而不是只存在于选择器表里
         assert hasattr(xhs, "NAVIGATE_READY_TIMEOUT_S")
         assert hasattr(xhs, "NAVIGATE_READY_POLL_INTERVAL_S")
+
+
+class TestDomWiringContract:
+    """`dom.*` 引用必有实体——「实现半边从未落地」的回归锁。
+
+    本案形态不是"被删了"而是**从没进来**：调用方 `xiaohongshu.py` 带着对草稿箱回查的调用
+    进了 main，被调方 `xiaohongshu_dom.py` 里那几个成员却从未作为提交对象存在
+    （`git log --all -S"async def draft_box_count" -- <该文件>` 零命中）。
+    Python 里这是**运行期 AttributeError**——import 不炸、静态检查不炸，只有真走到那条分支
+    的用例才红；而本仓把那批用例接在 `gui-test` 这条**非 required** 的检查上，于是断链可以
+    躺在 main 上不被任何闸门拦住。所以这把锁必须落在**不启动浏览器**的快速单测层。
+
+    两条锁的分工（不是重复）：外部面按**调用方**扫，看不见只被 `dom.py` 自己调用的助手；
+    内部面直接跑入口函数，钉的是**装配 + 顺序**——既有那批 monkeypatch 型用例也能在成员
+    缺失时红（`setattr` 要求属性存在），但没有一条断言"计数增量先于标题兜底"这条顺序，
+    而那正是"便宜的主判据不得被昂贵的整页兜底抢在前面"这个设计的唯一现场。
+    """
+
+    def test_publisher_dom_references_all_resolve(self):
+        source = Path(xhs.__file__).read_text(encoding="utf-8")
+        referenced = sorted({
+            node.attr
+            for node in ast.walk(ast.parse(source))
+            if isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "dom"
+        })
+        # 下界不得为 0，也不得贴着实际值写：解析退化（文件读不到、AST 形状变了、变量改名）
+        # 会让集合变空，而"零个引用 ⇒ 零个缺失"读起来完全像通过。
+        assert len(referenced) >= 5, f"发布器对 dom 的引用数异常低，锁可能已失明: {referenced}"
+        missing = [name for name in referenced if not hasattr(dom, name)]
+        assert missing == [], (
+            f"xiaohongshu.py 引用了 xiaohongshu_dom 里不存在的成员: {missing}；"
+            f"这些名字会在运行到对应分支时抛 AttributeError，且 import 期毫无痕迹"
+        )
+
+    @pytest.mark.asyncio
+    async def test_recheck_path_reaches_the_draft_box_helpers(self, monkeypatch):
+        """内部面：直接跑入口函数 `recheck_draft_box`，钉「主判据先于整页兜底」这条顺序。
+
+        `await_draft_box_increment` / `draft_title_present` 只被 `dom.py` 自己调用，上一条按
+        调用方扫描的 AST 锁看不见它们。但本条**不宣称自己是唯一能抓到成员缺失的锁**：既有那批
+        `monkeypatch.setattr(dom, ...)` 型用例在属性不存在时同样会红（setattr 要求属性存在）。
+        本条不可替代处在两点：① 它测的是**入口函数的装配**，不是助手各自的行为；② 它断言
+        `seen == ["increment", "title"]` 这条**顺序**——把顺序互换属行为等价改写，其余用例全绿，
+        只有这里会红。顺序不是实现细节：计数增量是便宜的主判据，标题兜底要在整页 goto 之后
+        按 scan_cap 逐项读文本，贵且未经活体取证，便宜的那条必须先跑。
+        """
+        seen: list[str] = []
+        orig_increment = dom.await_draft_box_increment
+        orig_title = dom.draft_title_present
+
+        async def spy_increment(page, sel, **kw):
+            seen.append("increment")
+            return await orig_increment(page, sel, **kw)
+
+        async def spy_title(page, sel, title, *, scan_cap):
+            seen.append("title")
+            return await orig_title(page, sel, title, scan_cap=scan_cap)
+
+        monkeypatch.setattr(dom, "await_draft_box_increment", spy_increment)
+        monkeypatch.setattr(dom, "draft_title_present", spy_title)
+
+        # 基线 1、回查后仍是 1 ⇒ 计数没涨，必须退到标题兜底；而兜底也扫不到标题
+        page = _page_with_draft_box(1, 1)
+        confirmed = await dom.recheck_draft_box(
+            page, "测试标题", 1,
+            box_url=xhs.DRAFT_BOX_URL,
+            counter_sel=xhs.DRAFT_BOX_COUNTER_SELECTOR,
+            item_sel=xhs.DRAFT_BOX_ITEM_SELECTOR,
+            item_scan_cap=xhs.DRAFT_BOX_ITEM_SCAN_CAP,
+            timeout_s=xhs.DRAFT_BOX_WAIT_TIMEOUT_S,
+            interval_s=xhs.DRAFT_BOX_POLL_INTERVAL_S,
+            probe_cap=xhs.DRAFT_BOX_COUNTER_PROBE_CAP,
+        )
+        assert seen == ["increment", "title"], seen
+        assert confirmed is False  # 两条通道都没证据 ⇒ 未确认，绝不伪造成功

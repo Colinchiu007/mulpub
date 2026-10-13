@@ -1,3 +1,80 @@
+# [未发布] fix(xiaohongshu): 草稿箱计数确认链的 dom 侧实现从未落地——调用方、用例和「已完成」声明都进了 main，只有实现半边没有（xhs-draft-box-restore）
+
+## 症状
+
+`packages/python-backend/tests/test_xiaohongshu_dom_hardening.py` 在 main 上 **32 failed / 27 passed**，
+错误形态统一是 `AttributeError`。它每天红一次，却不拦住任何合并——承载它的只有 `gui-test.yml` 的
+"Verify publisher RPA/DOM regressions" 步骤，而 `GUI Tests` 经实测**既不在 ruleset(6) 也不在
+classic protection(4)** 的 required 清单里。这也是 #3443 合并判据里那条「非 required 的红」的真身。
+
+## 根因：不是「删错了」，是「只落了一半」——并且我此前的归因是错的
+
+本轮此前我一直写着「`8fdcec508` 清理冲突标记时选错边，把 4 个函数删了」。逐个 ref 实测该 blob 后**否证**：
+`draft_box_count` / `await_draft_box_count` / `await_draft_box_increment` / `draft_title_present` /
+`recheck_draft_box` / `DRAFT_BOX_COUNTER_RE` 在 `87e311c45`、`8fdcec508`、`origin/main` 三个 blob 里
+出现次数**全为 0**；`git log --all -S"async def draft_box_count" -- <该文件>` **零命中**
+⇒ 这段实现**从未作为提交对象存在于任何 ref**。
+
+探针自证（否则「0 命中」只是我的采集通路坏了）：同一循环里 `visible_texts` 在三个 ref 各命中 3 次。
+
+第一性原因落在 `87e311c45`（PR #3200，一个把冲突标记直接提交进去的 merge）：它带上了
+①调用方 `xiaohongshu.py`（确有 `dom.await_draft_box_count`、`dom.recheck_draft_box`）、
+②用例（确有对 `dom.draft_box_count` 的 monkeypatch）、③`openspec/changes/rpa-xiaohongshu-dom-hardening/tasks.md:63`
+的 `[x] 2.14` 与其中「新增 `dom.draft_box_count()`…52 passed、7 道变异逐条 CAUGHT」的声明，
+而实现半边始终没进任何 blob。**那 52 passed 只在丢进 git 之前的工作树里为真——声明与字节不同源。**
+
+`8fdcec508` 只做了一件事：把该文件从 SyntaxError 修回可解析。实测 `87e311c45` 版第 60 行就是 `>>>>>>>` 标记、
+`ast.parse` 直接报错（该形态存续约 18 小时）；`8fdcec508` 版 `ast.parse` OK、218 行。
+
+## 为什么四层都没拦住
+
+1. **提交层**：merge 冲突没解决就能 commit，且任务已勾 `[x]`。
+2. **语法层**：模块级 SyntaxError 本应让任何收集到它的跑法当场报错——但它只出现在非 required 的 gui-test。
+3. **静态层**：没有任何东西检查「调用方引用的 `dom.X` 在被调方是否存在」。`check-unwired-tests.js` 管的是
+   "测试文件有没有接进 CI"，不是"接线对不对"——两件事都叫"接线"，容易互相冒充。
+4. **门禁层**：python-backend 的 pytest 全量从未进 required 清单。
+
+## 改动
+
+- `xiaohongshu_dom.py`：按调用方与用例**已声明的签名**恢复实现（不是重新设计）。
+  计数正则容忍全角/半角括号与空格（括号是**显示格式**不是协议，代价应当只是"少一条证据"）；
+  读不到节点或文本不含计数一律 `None`（"看着像 0"不得当基线）；基线与增量各自走**条件轮询**
+  （`baseline is None` 直接判未确认而不是拿 0 顶替；单次探测抛错保持上一读数继续轮询）；
+  兜底标题扫描带 `scan_cap` 成本闸且**被截断时留痕**；`recheck_draft_box` 先整页 goto、
+  计数增量为主判据、标题匹配只兜底、回查本身抛错仍 fail-closed 但落 warning。
+  fail-closed 口径未松：无 XHR 成功码、无 success URL、无计数增长、无标题命中 ⇒ `XHS_UNCONFIRMED`，绝不点公开发布。
+- `test_xiaohongshu_dom_hardening.py`：新增 `TestDomWiringContract` 两条锁，一外一内：
+  **外部面**用 AST 解析 `xiaohongshu.py`（取 `xhs.__file__`，不数 `..` 层级）收集所有 `dom.<attr>` 逐个 `hasattr`，
+  并带**规模下界 `>= 5`**——否则解析退化让集合变空，而「零个引用 ⇒ 零个缺失」读起来完全像通过；
+  **内部面**针对只被 `dom.py` 自己调用、按调用方扫描看不见的两个助手，用**包住原实现**的 spy 真跑一次
+  `recheck_draft_box`：取原函数那一步在函数不存在时当场 `AttributeError`，`seen == ["increment", "title"]`
+  证明确认路径真的按顺序走到了两条通道。选这个形态而不是 `hasattr` 名单——把助手改成恒返 False 的 no-op 时
+  `hasattr` 照样绿，而既有行为用例在那里会红，两条锁互为补位。
+
+## 验证
+
+- 红侧是**现场本身**：HEAD 上 32 failed / 27 passed；恢复实现后 59 passed；加锁后 **61 passed**。
+- CI 同口径复现（照抄那条步骤的命令与文件清单、同 `working-directory`）⇒ **118 passed**。
+- **控制对照跑**（防把既有失败认领成本 PR）：全量 pytest 两版对照，失败文件聚合清单逐行相同，
+  **只少掉那 32 条** ⇒ 本刀净减 32、零新增。做法是把两个改动文件备份到 `.tools/tmp` →
+  `git checkout HEAD -- <这两个精确路径>`（不用宽目录、不 stash）→ 跑 → 按备份还原 → 两侧 md5 唯一值各为 1。
+- 变异反证：BASELINE 先跑无变异（rc=0，2 passed）证明探针可信；M1 改名发布器直接引用的 `set_cover`
+  ⇒ 外部面锁红；M2 改名只有内部调用的 `draft_title_present` ⇒ 内部面锁红；两次 `RESTORE_BYTES_EQUAL=true`，
+  `VERDICT=ALL_CAUGHT`。驱动第一版自曝缺陷：`run_pytest` 返 3 元组、调用点按 2 个解包 ⇒ `ValueError`，
+  而 M1 的观测已经随 `finally` 还原丢失了——修好解包重跑才拿到两条结论。
+
+## 登记未收口（排除不猜）
+
+- `GUI Tests` 不在 required 清单 ⇒ 只要发布器回归继续只挂 gui-test，同类断链仍会「红着合入」。
+  这条是改「谁来守门」，按 AGENTS.md 一律人工过目，不在本刀扩。
+- `openspec/.../tasks.md:63` 的 `[x] 2.14` 及其「52 passed / 7 道变异 CAUGHT」声明与 main 字节不符；
+  该 change 目录未归档、可能仍是他会话在制品 ⇒ 只登记不擅改。
+- 本机 python 缺 `respx` ⇒ `tests/test_http_client{,_deep,_extended}.py` 无法收集（CI 用 `.[test]` extra 装齐）。
+- 全量里既有的 17 failed / 25 errors 经控制对照证明与本片面无交集，属既有失败集，未认领。
+- `packages/python-backend/code_snippet.png` 是**被跟踪的运行产物**：在该目录跑 pytest 会被
+  `video_creation/providers/image/code_snippet.py` 重写。本刀两次把它精确还原回 HEAD，但它属既有仓库卫生问题。
+
+执行记录：`openspec/records/xhs-draft-box-restore.md`
 # [未发布] fix(gate-budget): 复测探针按「形态」分档——混池让 RULE_VIOLATED 拿旧形态的时长给新形态定墙（budget-probe-form-split）
 
 ## 背景
