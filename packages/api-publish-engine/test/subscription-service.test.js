@@ -241,15 +241,44 @@ test('grant / createRedeemBatch / settleExpiry / 视图', async (t) => {
     assert.strictEqual(repository.codes.get(batch.codes[0]).durationDays, 365)
   })
 
-  await t.test('createRedeemBatch 回报真实生成条数：撞码被 DO NOTHING 丢弃时 generated<requested（F4 · M-4）', async () => {
+  await t.test('createRedeemBatch 碰撞补足：偶发撞码补齐到 requested（F4 · M-4 演进）', async () => {
     const { service, repository } = createService()
-    // 模拟其中一个码撞 UNIQUE 被 ON CONFLICT DO NOTHING 静默丢弃：真实入库条数少于请求条数
-    repository.createRedeemCodes = async (records) => records.slice(0, records.length - 1).map((r) => r.code)
+    // 前两轮各撞一个（ON CONFLICT DO NOTHING 静默丢弃），第三轮补齐
+    let round = 0
+    repository.createRedeemCodes = async (records) => {
+      round += 1
+      const drop = round <= 2 ? 1 : 0
+      return records.slice(0, records.length - drop).map((r) => r.code)
+    }
     const batch = await service.createRedeemBatch({ plan: 'pro', durationDays: 365, count: 5, batch: 'b1' })
     assert.strictEqual(batch.requested, 5)
-    assert.strictEqual(batch.generated, 4)
-    assert.strictEqual(batch.codes.length, 4)
-    assert.strictEqual(batch.generated, batch.codes.length)
+    // 关键：requested 是承诺数，generated 必须真的等于它——补足后不得再报缺口
+    assert.strictEqual(batch.generated, 5)
+    assert.strictEqual(batch.codes.length, 5)
+    assert.strictEqual(new Set(batch.codes).size, 5, '补足过程中不得向库里投递重复码')
+    assert.strictEqual(round, 3, '补足应在缺口补平后立即停止，不做空转轮次')
+  })
+
+  await t.test('createRedeemBatch 补足耗尽：抛 409 并带回已签成的码（报错但不丢弃）', async () => {
+    const { service, repository } = createService()
+    // 先成 2 条，之后永久撞码（每轮都返回空）：10 轮后仍差 3 条，必须报错
+    let round = 0
+    repository.createRedeemCodes = async (records) => {
+      round += 1
+      return round <= 2 ? records.slice(0, 1).map((r) => r.code) : []
+    }
+    let thrown = null
+    try {
+      await service.createRedeemBatch({ plan: 'pro', durationDays: 365, count: 5, batch: 'b1' })
+    } catch (e) { thrown = e }
+    assert.ok(thrown, '补足耗尽必须报错，不得静默返回少发的 200')
+    assert.strictEqual(thrown.code, 'REDEEM_BATCH_INCOMPLETE')
+    assert.strictEqual(thrown.status, 409)
+    assert.strictEqual(thrown.requested, 5)
+    assert.strictEqual(thrown.generated, 2)
+    assert.strictEqual(round, 10, '必须恰好用满轮次上限后停手，不死循环')
+    // 已签成的码必须挂在异常上——丢了它们等于白签，调用方无从交付
+    assert.ok(Array.isArray(thrown.created) && thrown.created.length === 2, '异常必须带回已签发的码')
   })
 
   await t.test('settleExpiry：有降级行→回写 free 快照+通知；无→null；三写必在同一事务', async () => {

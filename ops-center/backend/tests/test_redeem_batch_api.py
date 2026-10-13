@@ -49,8 +49,13 @@ class _FakeClient:
         self.calls = []
         self.closed = False
 
-    async def post(self, url, json=None, headers=None):
-        self.calls.append({"url": url, "json": json, "headers": headers})
+    # 对齐 httpx 的规范入口 AsyncClient.request：生产代码所有 engine 调用
+    # （POST 签发 / GET 列表 / POST 吊销）都经它收口，替身只实现 post 会
+    # 在换调用方式时静默失配成 AttributeError。
+    async def request(self, method, url, json=None, params=None, headers=None):
+        self.calls.append(
+            {"method": method, "url": url, "json": json, "params": params, "headers": headers}
+        )
         if self._exc:
             raise self._exc
         return self._resp

@@ -217,6 +217,60 @@ class CommerceMethods {
     return (result.rows || []).map((row) => row.code)
   }
 
+  /** 运营列表的 WHERE 片段与参数。三个筛选都是可选的，缺省即不过滤。 */
+  _redeemCodeFilter({ plan = null, status = null, batch = null } = {}) {
+    const clauses = []
+    const params = []
+    if (plan) { params.push(plan); clauses.push(`plan = $${params.length}`) }
+    if (status) { params.push(status); clauses.push(`status = $${params.length}`) }
+    if (batch) { params.push(batch); clauses.push(`batch = $${params.length}`) }
+    return { where: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '', params }
+  }
+
+  async listRedeemCodes({ plan = null, status = null, batch = null, limit = 20, offset = 0 } = {}) {
+    const { where, params } = this._redeemCodeFilter({ plan, status, batch })
+    const pLimit = params.length + 1
+    const pOffset = params.length + 2
+    const result = await this.pool.query(
+      `SELECT code, plan, duration_days, batch, status, used_by, used_at, expires_at, created_at
+       FROM identity_redeem_codes ${where}
+       ORDER BY created_at DESC, code ASC LIMIT $${pLimit} OFFSET $${pOffset}`,
+      [...params, limit, offset],
+    )
+    return result.rows || []
+  }
+
+  async countRedeemCodes({ plan = null, status = null, batch = null } = {}) {
+    const { where, params } = this._redeemCodeFilter({ plan, status, batch })
+    const result = await this.pool.query(
+      `SELECT COUNT(*)::int AS total FROM identity_redeem_codes ${where}`,
+      params,
+    )
+    return (result.rows && result.rows[0] && result.rows[0].total) || 0
+  }
+
+  async getRedeemCode(code) {
+    const result = await this.pool.query(
+      'SELECT * FROM identity_redeem_codes WHERE code = $1',
+      [code],
+    )
+    return (result.rows && result.rows[0]) || null
+  }
+
+  /**
+   * active → disabled 的条件更新。已 disabled / 已 used 都返回 null，
+   * 由服务层再读一次当前状态区分「幂等重放」与「已被使用」——
+   * 两者 HTTP 语义不同（200 vs 409），不能在仓储层混成一个结果。
+   */
+  async disableRedeemCode(code) {
+    const result = await this.pool.query(
+      `UPDATE identity_redeem_codes SET status = 'disabled'
+       WHERE code = $1 AND status = 'active' RETURNING *`,
+      [code],
+    )
+    return (result.rows && result.rows[0]) || null
+  }
+
   async listNotifications(userId, { limit = 20, offset = 0 } = {}) {
     const result = await this.pool.query(
       `SELECT * FROM identity_notifications WHERE user_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2 OFFSET $3`,
