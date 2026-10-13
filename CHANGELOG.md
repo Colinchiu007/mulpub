@@ -56,6 +56,67 @@ PR #3357（桌面分片修复）合并后跑 mandated 复测，`node scripts/gat
 - **45/55 这档仍未被当前形态的数据确认**：等同形态成功样本 ≥ 20 再跑 `--check`；报 `RULE_VIOLATED` 才是要重定数的信号。
 - 形态键只覆盖两个维度；`--maxWorkers` / `--no-file-parallelism`（并行度换代时长直接换代）本次未纳入，因为窗口里它没变过。
 - 执行记录：`openspec/records/budget-probe-form-split.md`（含「为什么需要人工过目」与四条遗留）。
+# [未发布] fix(douyin): 签名 cookie 名与实际账号不符——Step 0 恒 fail-closed（fix-douyin-security-cookie-names）
+
+## 症状
+
+抖音 API 发布链在**真实账号**上必然抛「账号信息缺失，请重新授权此账号再试」，
+**但账号是好的、材料也都在**——重新授权也修不好。因 `publishMode: api-then-dom` 会回退 DOM 轨，
+用户侧表现为「偶发慢 + 偶发莫名提示」而非硬故障，故自 2026-09-25 进代码后存活 18 天未被发现。
+
+## 根因
+
+实现与测试夹具都按 `security-sdk/s_sdk_crypt_sdk` 取值，而**真实账号的 cookie 名是
+`__security_mc_<N>_s_sdk_crypt_sdk`**（前缀不同 + 名字里的 `/` 变成 `_`）。
+
+关键约束：**cookie 名不允许含 `/`**（RFC 6265 token）。对三个 Electron 应用的全部分区做全量扫描，
+**948 条真实 cookie 中含 `/` 的为 0 条** ⇒ legacy 形态在实际浏览器中**不可达**，
+这个字符串**永远不可能**出现在 `document.cookie` 里。
+
+`_assertPreconditions` 用 `includes` 做**半匹配**放大了问题：第一个判据 `'s_sdk_crypt_sdk='`
+因新名恰好以该后缀结尾而**通过**，第二个含 `/` 的判据失败 ⇒ 错误表现成「材料全缺」而非「名字不对」。
+图文链（`douyin-image.js`）同缺陷，且它另有一份自抄的 `cookieValue`。
+
+命名来源可追到参考产品的 bundle 切片文件（从参考产品 bundle 提取的切片）——
+**以逆向对手产物为唯一事实源，未用真实账号 cookie 库交叉验证**；而该参考产品自己也不认识新名字
+（其 asar 全文搜 `__security_mc_1_` 为 0 处，`catch {}` 把失败静默吞掉）。
+
+## 为什么测试全绿
+
+单测与链级测试的 fixture **与实现共享同一错误假设**（三个测试文件各复制一份 `makeCookie`），
+于是测试只会**强化**错误而非暴露它；端到端同为 mock；W2 活体裁决从未执行。
+**这是「TDD 全绿 + 从未活体」的典型盲区。**
+
+## 改动
+
+- `signer/douyin-ticket-guard.js` 建立**单一事实源**：`CRYPT_KEY_RE` / `SIGN_DATA_KEY_RE`
+  （**后缀锚定 + 前缀可选**，代际号写 `\d+` **不硬编码**）、`hasSecurityMaterials()` 存在性判据、
+  `resolveCryptPayload()` / `resolveSignDataPayload()`（保序尝试全部候选直到解出可用材料）。
+  legacy 形态保留为回落，**向后兼容**。
+- `douyin-video.js` / `douyin-image.js` 的 Step 0 改调共享判据；图文链 sign_data 解析改调共享解析器
+  （消除各链自抄转换）。原有 `clientSign` / `extractReePublicKey` / `webVersionFromTicket` 导出签名不变。
+- **净增 20 例测试**：live 形态可签出且公钥可验证、代际号可变（3/7/12）、legacy 回落、bare 兜底、
+  51 条噪声夹带、两代并存取可解码者、`hasSecurityMaterials` 多形态、真实命名不含 `/`、
+  真实形态走通全链且 `create_v2` 带合法 client-data、缺材料零请求 fail-closed、脱敏不回显。
+- **防再犯结构锁**（4 例，按文件内容读、注释不算）：发布链不得内联 cookie 名裸字面量或裸 `includes`；
+  必须从 signer 导入共享解析器；signer 是唯一保留 legacy 回落的位置且代际号必须 `\d+`；两链判据表达式同源。
+
+## 验证
+
+- 引擎全量 `node scripts/run-tests.js` → **411 passed / 40 files**（同 commit 基线 391，**净增 20**，391+20=411 已对账）
+  + direct 组 **133/133**、零失败、退出码 0；桌面端受影响 5 文件 → **51 passed**。
+- **变异反证（证明锁本身在跑）**：①把 `hasSecurityMaterials(c)` 改回裸 `includes` ⇒ **2 例立红**并精确点名
+  `douyin-video.js:147`；②把正则 `__security_mc_\d+_` 改成 `__security_mc_1_` ⇒ **4 例立红**
+  （单测 + 链级 + 结构锁三层都守得住）。两变异均按字节还原并复验全绿。
+
+## 未闭合边界（不假装已闭合）
+
+本修复**只保证 Step 0 不再因命名失配而 fail-closed，不保证发布成功**。
+本机真实账号 cookie **全部已过期**（应用账号库 `accounts` 表 0 行），故
+「真实账号 → Step 0 通过 → 走到网络请求」**未在真机验证**；
+`web_protect` 载荷在新命名下**是否同步变化未知**；`_mc_1_` 的 `1` 疑似代际号，
+已用 `\d+` 与多代际用例防硬编码，但无法排除平台改用非数字代际标识。
+取证报告与 5 个只读诊断脚本置于仓库之外（`D:\Data\projects\rea\analysis\`）。
 
 # [未发布] test(quick-collect): 时钟确定性结构锁 + 变异电池（fix-quick-collect-clock-rot；运行时接缝由并发的 #3459 先落地）
 

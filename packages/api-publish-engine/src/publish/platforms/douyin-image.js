@@ -22,7 +22,7 @@ const crypto = require('crypto')
 const aws4 = require('aws4')
 const { createHttpClient } = require('../core/http-base')
 const { errorCode } = require('../../error-codes')
-const { clientSign, extractReePublicKey, webVersionFromTicket, CREATE_V2_PATH } = require('../../signer/douyin-ticket-guard')
+const { clientSign, extractReePublicKey, webVersionFromTicket, CREATE_V2_PATH, hasSecurityMaterials, resolveSignDataPayload } = require('../../signer/douyin-ticket-guard')
 const { findInlineTopicPositions, formatArticleBody } = require('../../content-formatter')
 
 const CREATOR_BASE = 'https://creator.douyin.com'
@@ -93,17 +93,17 @@ class DouyinImageChain {
   _assertPreconditions () {
     const c = String(this.cookie || '')
     if (!c) throw new DouyinImageError('douyin-image: missing cookie (fail-closed)', errorCode.data_error)
-    if (!c.includes('s_sdk_crypt_sdk=') || !c.includes('s_sdk_sign_data_key/web_protect=')) {
+    // 2026-10-13：判据与解析均改走 signer 的单一事实源（不再是各链自抄的 includes / split）
+    if (!hasSecurityMaterials(c)) {
       throw new DouyinImageError(FAIL_MSG, errorCode.data_error)
     }
     if (!c.includes('bd_ticket_guard_client_data')) throw new DouyinImageError(FAIL_MSG, errorCode.data_error)
     if (!c.includes('sid_tt=')) throw new DouyinImageError(FAIL_MSG, errorCode.data_error)
     try { this._clientData = clientSign(c) } catch (e) { throw new DouyinImageError(FAIL_MSG, errorCode.data_error) }
     this._ree = extractReePublicKey(c)
-    // webVersionFromTicket 需要解析 sign_data（与视频链 decodeSignData 同款）
+    // webVersionFromTicket 需要解析 sign_data（单一事实源：与视频链 decodeSignData 同款）
     try {
-      const raw = cookieValue(c, 'security-sdk/s_sdk_sign_data_key/web_protect=')
-      const sd = JSON.parse(JSON.parse(decodeURIComponent(raw)).data)
+      const sd = resolveSignDataPayload(c)
       this._webVersion = webVersionFromTicket(sd && sd.ticket)
     } catch (e) { this._webVersion = webVersionFromTicket(null) }
   }
