@@ -1,3 +1,66 @@
+# [未发布] fix(ci): 步骤 fail-fast 棘轮改为逐条配对，Gate 9 verdict 探针收回门禁单一实现（gate3-failfast）
+
+## 背景
+
+两处"看起来在守、实际恒绿"的门禁，且都是 #3443 当场登记为"本 PR 刻意不动"的未收口项 ①②：
+
+- `scripts/check-step-failfast.js` 的判据只问"这个 run 块的正文里出现过 `$LASTEXITCODE` 吗"，
+  于是"两条无守卫命令 + 末尾一条守卫"这种吞红形状被读成合规。现场证据：run `38339739342` /
+  job `115107955784` 的 `Gate 3 - Hardcoded secrets scan` 步骤日志里是
+  `# tests 115 / # pass 114 / # fail 1`（`not ok 62` 是 `workflow-contract.test.js` 的 Gate 9 断言），
+  而 step conclusion 为 `success`。
+- Gate 9 在 workflow 里内联了一份 verdict 探针（枚举报告文件 + 就地解析 JSON），与
+  `.github/scripts/agent-review-gate.js` 的 `judgeVerdictMissing` 构成第二份同用途实现；更糟的是它按
+  "目录里最新 mtime 的报告"取文件、**不带 started-after** ⇒ 重跑或残留时把上一轮的旧报告当本轮结论。
+  这段语句由 `52aeaf2ae`（#3439）引入，而 `workflow-contract.test.js` 里一条**更早**的断言禁止它含那些
+  语句——main 自此自相矛盾，且因为上面第一条掩盖而全绿合入。
+
+## 变更
+
+1. **棘轮判据改为逐条配对**（`scripts/check-step-failfast.js`）：每条受管命令必须被"自己"守住——
+   整步 `shell: bash`、同行 `&&` / `|| exit`、或**紧邻的下一行**是退出码检查。另两处同源纠正：
+   受管集合此前只数测试文件，`node .github/scripts/check-*.js` 这类门禁脚本不计数（⇒ Gate 10 那种
+   "一条测试 + 一条门禁脚本"连多命令步骤都不被识别）；shell 只看步骤自己、不看 job 级
+   `defaults: run: shell:`（⇒ debt-guard / electron-ci 会被误报），而空值 `shell:` 不得当成 bash。
+   窗口刻意取 1 行：放宽到 3 行时"给第 N 条写的守卫"会顺手把第 N-1 条判成已守住，
+   实测该放宽让 Gate 3 报 `uncovered=0`（假绿）。
+2. **补上逐条守卫**：`quality-gate.yml` 的 Gate 3 / Gate 10 / Gate 4p-1 三个步骤。收紧后实测
+   `含 ≥2 条受管命令的 run 步骤：32 个`，违规 3 条 ⇒ 补完后 0 条。
+3. **verdict 令牌单一实现**：`agent-review-gate.js` 新增 `VERDICT_NOTE_BY_STATUS`
+   （`MISSING_REPORT→NO_REPORT`、`INVALID_REPORT→INVALID_REPORT`、`AUDIT_NO_VERDICT→NO_VERDICT`）
+   与 `--note-file=` 落盘（写盘发生在退出之前，所以阻塞路径同样留痕）；Gate 9 步骤删掉内联探针，
+   改为读令牌文件，并在文件缺失时打出 `NOTE_FILE_MISSING`——因为"缺文件"只有一种解释：门禁没跑到写盘。
+   `workflow-contract.test.js` 那条禁令**一字未改**，改的是被禁止的那个形态；同时补两条正向锁
+   （`--note-file=` 必须存在、`AUTONOMOUS_VERDICT_NOTE=$verdictNote` 必须存在），否则"把探针整条删掉"
+   也能满足 doesNotMatch，等于把"未审计不再可见"读成合规。
+4. **归属句改写**：Gate 3 上方与 `check-workflow-structure.test.js` 里那两处"Gate 3 是装饰态"的说明
+   改成当下事实（落点不改：那条反向锁现在守的是"同一判据别在两个步骤各跑一遍"与"按步骤名取位置"）。
+
+## 验证
+
+- TDD 红→绿：棘轮侧先落 12 条锁对未修实现跑 ⇒ `tests 12 / pass 9 / fail 3`（红在"只守最后一条"、
+  "门禁脚本计入受管集合"、"真实仓库规模下界"三条），补 `||` 语义用例后 13/13 绿。
+  Gate 9 侧先落 2 条锁 ⇒ `agent-review-gate 12/pass 10/fail 2` 与 `workflow-contract 35/34/1`，
+  实现后分别 12/12 与 35/35。Gate 3 全部命令合跑 138 tests / 138 pass / 0 fail。
+- 变异反证 14 条（`M1..M7` 打棘轮判据、`N1..N5` 打令牌与落盘、`N6/N7` 打 workflow 侧锁）：
+  `MUTATIONS=14 MISSED=0`、`RESTORED_BYTES_EQUAL=true`，驱动与产物入库
+  `.ccg/reviews/gate3failfast-mutate.driver.js` / `.ccg/reviews/gate3failfast-mutations.txt`。
+  其中 M4 第 1 轮打空过：夹具里 `defaults` 与目标步骤距离不够，`stepShell` 的 12 行上溯恰好够到，
+  两条机制互相掩盖 ⇒ 把距离拉开到窗口之外才真正测到 `jobShellMap`。N2 第 1 轮把函数改名，
+  测试文件在 require 期就崩、node:test 只报 1 条文件级失败，那既不是锁抓住了也不是锁没抓住，
+  而是根本没跑到锁 ⇒ 改成"保持可加载、只把包装动作摘掉"。驱动因此加了 P1/P2 前置自检
+  （未改动就红 = 变异结果不可信，直接 ABORT）。
+
+## 影响与边界
+
+- 不改任何运行时代码，也不改步骤的 `shell`；暴露面收窄到每条命令各自的退出码。
+- `QG Static` 是 required 检查，而本 PR 恰好拆掉了它的掩盖 ⇒ 合并前必须实测 Gate 3 清单全绿
+  （已实测 138/138），否则会把之后每个 PR 判红。
+- #3443 那行的第 ③ 项（`xiaohongshu` 两个 dom 函数从未存在于任何源码 blob）**不在本 PR 范围**，
+  它是功能级 P0，与本条门禁面无关。
+
+---
+
 # [未发布] fix(ci): gui-test.yml 的空值节点让整条流水线从 main 消失——补 workflow 结构门禁（gui-test-workflow-structure）
 
 ## 背景

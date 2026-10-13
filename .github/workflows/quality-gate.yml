@@ -501,17 +501,17 @@ jobs:
           pwsh -NoProfile -ExecutionPolicy Bypass -File "$ISO/scripts/session-isolation-automation.test.ps1"
 
       # --- Gate 3: 硬编码密钥扫描（同时执行 CI workflow 契约测试）---
-      # ⛔ 已知装饰态，本 PR 刻意不动它（登记 + 证据，勿读成"已修"）：默认 pwsh 下
-      # "中间命令非零不中止"，正文末尾那句显式转存只管**最后一条**命令的退出码 ⇒ 第一行
-      # node --test（含 workflow-contract 等 8 个契约测试）红掉时步骤照绿。
-      # 实测证据（2026-10-13，PR #3443 的 rebase 轮）：把本步骤整体改成 shell: bash 后
-      # gate3_bash_rc=1，而在**未改动的** origin/main tip 上单独跑 workflow-contract.test.js
-      # 同样 main_contract_rc=1 —— 即 main 现在自相矛盾（Gate 9 的正文含 PowerShell 报告读取
-      # 语句，而 workflow-contract.test.js 里一条更早的断言禁止它含那些语句；该语句由 52aeaf2ae
-      # (#3439) 引入并全绿合入，正是因为本步骤的掩盖）。
-      # 不在本 PR 一并拆掉的理由：拆掉会把 required 的 QG Static 对之后每个 PR 判红，
-      # 而"那条断言原意管到哪一段"属 #3439 作者的语义判断，不该由 CI 修复 PR 单方面定。
-      # 详见 openspec/records/gui-test-workflow-structure.md 的「未收口」行。
+      # 装饰态已由 gate3-failfast 收口（#3443 登记为"本 PR 刻意不动"的未收口项 ①②，本 PR 两笔一起关掉）：
+      # ① 默认 pwsh 下"中间命令非零不中止"，正文原先只在最后一条命令后转存退出码 ⇒ 第一行
+      #    node --test（含 workflow-contract 等 8 个契约测试）红掉时步骤照绿。现场证据：
+      #    run 38339739342 / job 115107955784 的本步骤日志 `# tests 115 / # pass 114 / # fail 1`
+      #    而 step conclusion=success。现按 scripts/check-step-failfast.js 的逐条配对口径逐条守卫。
+      # ② main 的自相矛盾（Gate 9 正文含 workflow-contract 更早那条断言禁止的报告读取语句，
+      #    由 52aeaf2ae(#3439) 引入并靠 ① 掩盖合入）取的是"把那段报告读取挪出 Gate 9"那一支：
+      #    verdict 令牌改由 .github/scripts/agent-review-gate.js 单算并经 --note-file 落盘，
+      #    断言本身一字未改。#3443 实测过"整体换 shell: bash"那一支会把既有红一次性倾倒在
+      #    required 的 QG Static 上；逐条守卫把暴露面收窄到每条命令，不改步骤的 shell。
+      # 未收口的只剩 #3443 那行第 ③ 项（xiaohongshu 两个 dom 函数从未存在），与本步骤无关。
       - name: "Gate 3 - Hardcoded secrets scan"
         run: |
           # ⛔ 本步骤原先只在最后一条命令后面写一条守卫。默认 shell 是 pwsh，中间命令非零不会中止该步骤

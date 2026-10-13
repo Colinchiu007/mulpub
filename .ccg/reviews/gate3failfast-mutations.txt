@@ -1,0 +1,20 @@
+P1_OK     | checker | tests=13 fail=0 | 
+P1_OK     | gate | tests=12 fail=0 | 
+P1_OK     | workflow | tests=35 fail=0 | 
+PREFLIGHT_BAD=0
+CAUGHT  | M1 | checker | fail=1/13 | 命中期望锁 | ｜退回「整块正文出现过退出码检查就算合规」（原缺陷本体）
+CAUGHT  | M2 | checker | fail=1/13 | 命中期望锁 | ｜守卫窗口从紧邻 1 行放宽到 3 行（给第 N 条写的守卫会顺手盖住第 N-1 条）
+CAUGHT  | M3 | checker | fail=3/13 | 命中期望锁 | ｜受管集合退回「只数测试文件」（门禁脚本不计数）
+CAUGHT  | M4 | checker | fail=2/13 | 命中期望锁 | ｜不解析 job 级 defaults: run: shell（只看步骤自己）
+CAUGHT  | M5 | checker | fail=1/13 | 命中期望锁 | ｜把空值 shell: 读成 bash（方向相反的归因）
+CAUGHT  | M6 | checker | fail=1/13 | 命中期望锁 | ｜把 || echo / || true 也当守卫（吞失败形状得以过棘轮）
+CAUGHT  | M7 | checker | fail=8/13 | 命中期望锁 | ｜collectCheck 退化成恒空集（解析失败被读成全部合规）
+CAUGHT  | N1 | gate | fail=2/12 | 命中期望锁 | ｜令牌判据改成恒空（「审计没发生」再不可见，门禁照绿）
+CAUGHT  | N2 | gate | fail=2/12 | 命中期望锁 | ｜摘掉包装层（调用方拿到不带 verdictNote 的原始结果）
+CAUGHT  | N3 | gate | fail=1/12 | 命中期望锁 | ｜算了令牌但不落盘（workflow 读不到任何东西）
+CAUGHT  | N4 | gate | fail=1/12 | 命中期望锁 | ｜仅成功路径才写令牌文件（最需要留痕的阻塞路径反而没有）
+CAUGHT  | N5 | gate | fail=2/12 | 命中期望锁 | ｜从映射表删掉 MISSING_REPORT（「根本没报告」退化成空令牌）
+CAUGHT  | N6 | workflow | fail=1/35 | 命中期望锁 | ｜workflow 删掉 --note-file 参数（Test-Path 恒走 else 分支）
+CAUGHT  | N7 | workflow | fail=1/35 | 命中期望锁 | ｜把禁令明文禁止的那个形态本身写回 Gate 9（内联枚举报告文件 + 就地解析 JSON）
+MUTATIONS=14 MISSED=0
+RESTORED_BYTES_EQUAL=true
