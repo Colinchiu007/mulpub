@@ -231,6 +231,7 @@ describe('S1/IPC：hotTopicsService → 统一素材的映射', () => {
       BrowserWindow: { fromWebContents: () => win },
       aiGenerator: { generateWithDefault: vi.fn(async () => ({ content: '生成的正文' })) },
       log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() },
+      now: () => NOW,
       ...over,
     }
   }
