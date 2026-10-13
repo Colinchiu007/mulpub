@@ -213,6 +213,7 @@ export default {
       PODCAST_MIGRATION_DIRECTION_INVALID: '未知的迁移处置方式，请重新选择',
       PODCAST_LOCK_WAIT_TIMEOUT: '播客数据正在被其他操作占用，请稍后重试',
       PODCAST_CHANNEL_BUSY: '该频道正在一键发布，请等本次发布结束后再修改单集',
+      PODCAST_TTS_BILLING_UNCONFIRMED: '文本出期会逐块调用语音合成服务并产生费用，请先确认用量与费用',
       PODCAST_EPISODE_NOT_FOUND: '单集不存在，可能已被删除，请刷新列表',
       PODCAST_HOSTING_REQUIRED: '本地音频需先配置对象存储托管（当前支持阿里云 OSS）',
       PODCAST_HOSTING_INVALID: '托管配置不合格，请按下方逐条修正',
