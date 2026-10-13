@@ -29,6 +29,9 @@ const publishCapabilities = require('./publish-capabilities')
 // 平台分类对照表读取层（P0-2，ARCH-REUSE-INTEGRATION R-1）：
 // 回答「这个平台的分类 ID 是什么」，与 publishCapabilities 的「能不能设标题/描述」是不同问题。
 const platformTaxonomy = require('./platform-taxonomy')
+// 素材组合三级降级（P1-3，ARCH-REUSE-INTEGRATION R-3）：纯函数、零依赖。
+// 返回**下标排列**而非素材克隆；三级顺序与「够 max 即停」是硬约束，详见模块头注。
+const mediaCombination = require('./media-combination')
 
 // 平台指标矩阵读取层（P1-1，ARCH-REUSE-INTEGRATION §4.2/§4.3）：
 // 回答「这个平台能拿到哪些指标」——**参考数据，不是运行时真源**（真源是 account-metrics/adapters.js）。
@@ -56,5 +59,7 @@ module.exports = {
   publishHistory,
   publishCapabilities,
   platformTaxonomy,
+  // 冲突解决：两侧都保留（P1-1 的矩阵 + P1-3 的组合），二者是独立新增的导出，无重叠
   platformMetricMatrix,
+  mediaCombination,
 }
