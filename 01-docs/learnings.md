@@ -18047,3 +18047,24 @@ gui-test 的 `defaults.run.shell`（盲区），又把带 9 行冲突标记的 `
 - TDD 9/9（RED→GREEN 完整走过）
 - 确定性：转换器连跑两次 SHA-256 相同
 - 变异反证：把 fail-loud 改成 no-op ⇒ 测试立刻变红
+
+---
+
+## 2026-10-13/14 — P0-2 落地期：管道截断杀 git 写、写前先证伪、分类默认值共三个
+
+### pitfall:pipe-truncation-kills-git-write
+
+【陷阱】不要把 git 写操作（commit/push/merge）的输出管进 Select-Object -First N 或 head。 实测：`git commit -q -m ... 2>&1 | Select-Object -First 2` 会让 PowerShell 在读到前两行后关闭管道， 给 git 及其 pre-commit 钩子发 SIGPIPE，提交随之流产 —— 而命令的可见输出里看不出失败， 因为被截断的正是后面的钩子输出。表现是「以为提交了，git log 里没有」。 判据：git 写操作一律不接管道截断；成败只看产物（git log -1 / git status），**不看 rc、不看输出**。
+
+### technique:falsify-before-blaming-own-change
+
+【技法】看到测试失败先别认领也先别甩锅，用「还原改动再跑一次」做最小对照，一次定性。 本轮实测：shared-utils 全量跑出 network-egress-guard-child 3 个失败，而我的改动只加了 1 行 require。 做法：把被我改的文件临时 checkout 回 origin/main 跑同一测试 → 3 failed | 18 passed； 恢复我的版本再跑 → 完全相同。⇒ 预先存在，非本改动引入，且给出了可复核的对照证据。 价值：比「我的改动看起来不相关」这句推理强得多，且能在 PR 里直接引用。
+
+### architecture:three-hardcoded-category-defaults
+
+【架构事实】本项目的硬编码「分类默认值」有 **3 个**，不是 2 个： ① bilibili-video.js:77 `tid: Number(taskData.category || taskData.tid) || 21`（视频表 21 = 日常）； ② youtube.js:85 `categoryId: taskData.categoryId || "22"`； ③ baijiahao-article.js:151 `params.set("category", String(taskData.category == null ? "未分类" : taskData.category))` —— 这个最容易被漏，因为默认值是中文字符串不是数字。 要判断「哪些平台真的会用到分类 ID」，唯一可靠判据是全仓 grep `taskData.category|categoryId`： 实测只有 3 处，其中 youtube 无分类数据（出范围），故**真实接线目标只有 bilibili + baijiahao**。 注意 adapters/toutiao.js 完全不读分类字段、getPlatformOverrideFields("toutiao") 也为空 —— 「平台有分类数据」不等于「该平台的发布链会用分类」，两者要分开查。
+
+### lesson:gitignore-whitelist-for-new-scripts
+
+【本仓约定】mulpub 的 .gitignore 对 scripts/*.js 采取「忽略全部 + 逐个白名单」： L106 `scripts/*.js` 忽略整个 scripts/ 顶层新增 .js，从 L107 起是 61 条 `!scripts/xxx.js` 白名单。 ⇒ 新增任何 scripts/*.js 都必须**加白名单行**，不是 `git add -f`。 不这么做的后果：文件不进提交，而 `git status` 也不显示它（被忽略的文件连 ?? 都没有）， 表现是「测试文件和产物提交了、实现文件没提交」，CI 必红。 验证白名单是否生效的判据是「文件是否真的进了 commit」，**不是** `git check-ignore -v` 的输出 —— 命中 `!` 否定规则时它同样会打印该行，极易误读成「仍被忽略」。
+
