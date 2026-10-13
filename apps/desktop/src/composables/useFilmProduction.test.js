@@ -8,7 +8,7 @@
  *   - 批后以 production-status 双核重同步（就地 mutate，batches 数组引用不变——展开态保持）；
  *   - 进度事件计数单调不回退；batch 事件就地更新状态；
  *   - 8.3 resume 断点恢复（noLedger / pending 批恢复 / manifest 直达收口）；
- *     retryShotInBatch runId=prod-<taskId>-b<idx> 派生（不携带 prompt）；
+ *     retryShotInBatch 改走 production-retry-shot（传 taskId+batchIndex+shotIndex，**不传 runId**）；
  *     recycleAll 分片 ≤50 且 orderIndex 全局连续；
  *   - composeFinal manifest 直通 run → completed finalPath；
  *   - 8.4 dispose 清理 production/pipeline 双订阅。
@@ -29,7 +29,7 @@ const publisher = vi.hoisted(() => ({
   pipelineStartOrchestrated: vi.fn(),
   pipelineGetRunContext: vi.fn(),
   onPipelineUpdate: vi.fn(() => () => {}),
-  filmEngineeringRetryShot: vi.fn(),
+  filmEngineeringProductionRetryShot: vi.fn(),
 }))
 
 vi.mock('@/api/publisher', () => publisher)
@@ -195,19 +195,43 @@ describe('useFilmProduction', () => {
     c2.dispose()
   })
 
-  it('8.3 retryShotInBatch：runId 确定性派生 prod-<taskId>-b<idx>，不携带 prompt；成功后双核', async () => {
-    publisher.filmEngineeringRetryShot.mockResolvedValue({ code: 0, data: { success: true } })
+  /**
+   * 回归锁（2026-10-10）：渲染端 SHALL NOT 拼 runId。
+   *
+   * 原实现自行拼 `runId: 'prod-' + taskId + '-b' + batchIndex` 并走 retry-shot，
+   * 而该通道用 `pipelineEngine.getRunSnapshot()` 查流水线 run——出片批次从不注册为
+   * 流水线 run，于是本按钮恒失败；那行复刻同时是「批次 runId 派生规则的第二份真相源」。
+   *
+   * 反证纪律：把 runId 拼回 payload，本组必须变红。
+   */
+  it('8.3 retryShotInBatch：只传 taskId+batchIndex+shotIndex，**不拼 runId**；成功后双核', async () => {
+    publisher.filmEngineeringProductionRetryShot.mockResolvedValue({ code: 0, data: { success: true } })
     fe.current = makeApi()
     const c = useFilmProduction()
     await c.planProduction(IDS)
     c.begin('t1')
     const r = await c.retryShotInBatch(2, 0)
     expect(r.ok).toBe(true)
-    const p = publisher.filmEngineeringRetryShot.mock.calls[0][0]
-    expect(p.runId).toBe('prod-t1-b2')
+    const p = publisher.filmEngineeringProductionRetryShot.mock.calls[0][0]
+    expect(p.taskId).toBe('t1')
+    expect(p.batchIndex).toBe(2)
     expect(p.shotIndex).toBe(0)
-    expect(p.prompt).toBeUndefined()
+    expect(p).not.toHaveProperty('runId')     // ← 核心：不再复刻派生规则
+    expect(p).not.toHaveProperty('prompt')    // 原文由主进程按台账取
     expect(fe.current.productionStatus).toHaveBeenCalled()
+    c.dispose()
+  })
+
+  it('8.3b retryShotInBatch 失败：透传主进程 errorCode/error，不吞', async () => {
+    publisher.filmEngineeringProductionRetryShot.mockResolvedValue({ code: -1, message: '该镜提示词为空', errorCode: 'VALIDATION_ERROR' })
+    fe.current = makeApi()
+    const c = useFilmProduction()
+    await c.planProduction(IDS)
+    c.begin('t1')
+    const r = await c.retryShotInBatch(0, 1)
+    expect(r.ok).toBe(false)
+    expect(r.error).toBe('该镜提示词为空')
+    expect(r.errorCode).toBe('VALIDATION_ERROR')
     c.dispose()
   })
 

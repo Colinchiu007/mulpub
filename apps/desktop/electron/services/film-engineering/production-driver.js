@@ -5,7 +5,8 @@
  *
  * 设计依据（design D6/D9 + tasks 组 7）：
  *  - 切批：批大小 PRODUCTION_BATCH_SIZE=10（144 镜 → 15 批 = 14×10+1×4）；
- *  - 批次 runId 确定性派生 prod-<taskId>-b<batchIndex>（重入可复算）；
+ *  - 批次 runId 确定性派生 prod-<taskId>-<fp10(批次分镜集)>-b<batchIndex>（重入可复算；
+ *    指纹使「同一 taskId 换分镜集」落入不同目录，避免旧产物被新任务采纳）；
  *  - 台账 ledger.json 为断点续跑唯一事实源（userData film-engineering/production/
  *    <taskId>/，由调用方注入 ledgerDir）：批次清单 + 每镜状态；写盘 .tmp + rename
  *    崩溃安全；
@@ -22,6 +23,7 @@
  * probe（(runId, count) → {missing:[shotIndex]}）、now（时间源）、mediaRoot。
  */
 
+const crypto = require('crypto')
 const fs = require('fs')
 const path = require('path')
 const { getFilmMediaRoot } = require('./film-render')
@@ -41,9 +43,35 @@ function planBatches (shotIds, batchSize = PRODUCTION_BATCH_SIZE) {
   return batches
 }
 
-/** 默认批次 runId（既有全量出片语义：prod-<taskId>-b<N>，产物落 <mediaRoot>/<runId>/） */
-function defaultRunIdFor (taskId, batchIndex) {
-  return 'prod-' + taskId + '-b' + batchIndex
+/**
+ * 批次分镜集指纹（10 位十六进制 = 40 bit）。
+ *
+ * 为什么必须有：runId 此前只由 taskId + 批次号决定，而 taskId 是**用户手输**的。
+ * 同一 taskId 换一组分镜、恰好每批数量相同时，目录名不变 ⇒ 上一组的 shot_NNN.mp4
+ * 仍在 ⇒ 磁盘复核判「已齐」⇒ 整批跳过。台账（#3110）虽已正确比对 shotId，
+ * 但产物层没有身份，就会出现「清单声称新分镜、文件里装的是旧分镜」的反向失效。
+ *
+ * 口径：按**批次自身**的分镜序计算（非整任务），换第 1 批不影响第 0 批目录；
+ * 用 '\n' 而非 ',' 分隔以免 shotId 含分隔符时产生歧义碰撞。
+ * 位宽取 10（8 位 32bit 在万级批次下生日碰撞已不可忽略，10 位在 10^6 批次下仍约 10^-6）。
+ * 指纹仅作身份标识，不作安全用途。
+ */
+function fingerprintBatch (shotIds) {
+  const payload = (Array.isArray(shotIds) ? shotIds : []).map((s) => String(s)).join('\n')
+  return crypto.createHash('sha1').update(payload, 'utf8').digest('hex').slice(0, 10)
+}
+
+/**
+ * 默认批次 runId：`prod-<taskId>-<fp10>-b<N>`，产物落 `<mediaRoot>/<runId>/`。
+ *
+ * 存量台账零影响：断点续跑的 runId 一律取自**台账所载 `b.runId`**
+ * （见 resolveResumePlan / buildRenderManifest），SHALL NOT 在续跑路径重新派生；
+ * `createLedger` 是唯一调用派生的入口，且仅在台账缺失/损坏/分镜集不匹配时执行。
+ * 因此旧格式台账直接沿用其历史 runId，新台账才用新格式，无需任何迁移。
+ */
+function defaultRunIdFor (taskId, batchIndex, shotIds) {
+  const fp = shotIds ? fingerprintBatch(shotIds) : null
+  return 'prod-' + taskId + (fp ? '-' + fp : '') + '-b' + batchIndex
 }
 
 /** 新建台账（确定性 runId；重复调用同输入产出一致批次结构） */
@@ -58,7 +86,7 @@ function createLedger ({ taskId, shotIds, batchSize, runIdFor }) {
     createdAt: new Date().toISOString(),
     batches: plan.map((b) => ({
       batchIndex: b.batchIndex,
-      runId: String(makeRunId(String(taskId), b.batchIndex)),
+      runId: String(makeRunId(String(taskId), b.batchIndex, b.shotIds)),
       shotIds: b.shotIds.slice(),
       shots: b.shotIds.map((sid) => ({ shotId: sid, status: 'pending', error: null })),
       status: 'pending',
@@ -299,6 +327,7 @@ async function runProduction (opts) {
 
 module.exports = {
   planBatches,
+  fingerprintBatch,
   createLedger,
   defaultRunIdFor,
   saveLedger,

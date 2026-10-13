@@ -9,7 +9,7 @@
  *   → 全部批次收口自动得 renderManifest → manifest-ready
  *   → composeFinal()（manifest 直通 run：generate_videos 零调用过闸 → film_render 合成）→ done（finalPath）
  *   断点续跑：resume() 只读 production-status 恢复批/镜视图（8.3）；
- *   失败镜：retryShotInBatch() 复用 film-engineering:retry-shot（runId=prod-<taskId>-b<idx> 确定性派生）；
+ *   失败镜：retryShotInBatch() 走 film-engineering:production-retry-shot（按台账定位批次，渲染端不拼 runId）；
  *   回收引导（D10）：recycleAll() 分片（≤50/片）调 download-recycled，"先回收后精修"。
  *
  * 渲染纪律（8.4）：批/镜状态更新一律就地 mutate 字段（不整体替换数组对象），
@@ -22,7 +22,7 @@ import {
   pipelineStartOrchestrated,
   pipelineGetRunContext,
   onPipelineUpdate,
-  filmEngineeringRetryShot,
+  filmEngineeringProductionRetryShot,
 } from '@/api/publisher'
 
 const MAX_RECYCLE_BATCH = 50
@@ -266,18 +266,28 @@ export function useFilmProduction () {
     }
   }
 
-  /** 8.3 失败镜单镜重试：复用 retry-shot 通道（prompt 由主进程按 runId/shotIndex 取原文） */
+  /**
+   * 失败镜单镜重试（2026-10-10 改道 production-retry-shot）。
+   *
+   * 此前此处**自行拼接** `runId: 'prod-' + taskId + '-b' + batchIndex` 并走 retry-shot 通道，
+   * 而该通道用 `pipelineEngine.getRunSnapshot()` 查流水线 run —— 出片批次从不注册为流水线 run，
+   * 于是本按钮**恒失败**。同时这行复刻是「批次 runId 派生规则的第二份真相源」：
+   * 主端派生规则一改，这里就会以新的方式出错。
+   *
+   * 现改为只传 `taskId + batchIndex` 两个标量，批次身份与 runId 全部由主进程从台账解析。
+   */
   async function retryShotInBatch (batchIndex, shotIndex) {
     const a = api()
     if (!a || !taskId.value) return { ok: false, errorCode: 'noTask' }
     if (!Number.isInteger(batchIndex) || !Number.isInteger(shotIndex) || shotIndex < 0) return { ok: false, errorCode: 'badIndex' }
     const payload = JSON.parse(JSON.stringify({
-      runId: 'prod-' + taskId.value + '-b' + batchIndex,
+      taskId: taskId.value,
+      batchIndex,
       shotIndex,
       aspect: chosen.value.aspect,
       seconds: chosen.value.seconds,
     }))
-    const res = await filmEngineeringRetryShot(payload)
+    const res = await filmEngineeringProductionRetryShot(payload)
     if (res && res.code === 0 && res.data && res.data.success) {
       await syncStatus()
       checkConvergence()
