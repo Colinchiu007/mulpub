@@ -1,3 +1,30 @@
+# [未发布] feat(ci): 执行记录的 QM-5 行集改为"按模板派生"的结构棘轮（qm5-row-ratchet）
+
+## 背景
+
+PR #3477 的记录在多次改写中把「防止再次发生（QM-5 ⑤）」的行标题吞掉、正文并入上一行末尾，
+五步只剩四步有名有姓，而 CI 全程全绿并合入 `e81978a57`。原因是**没有任何门禁在校验记录的行集**：
+`check-pr-exec-record.js` 只判"记录存在与否"，`check-gate-record-debt.js` 只看「远程同步」行。
+摸底还发现这不是孤例 —— 用了 QM-5 标记却缺 ⑤ 的记录有 27 篇。
+
+## 变更
+
+- 新增单一判据 `scripts/check-record-qm5-rows.js`：必需步骤集**从 `openspec/records/_TEMPLATE.md` 的行题派生**
+  （实测模板只声明 ①②④⑤，手抄五个会让模板自己当场红）；只采**表格行题**里的 `（QM-5 N）`，
+  正文/注释里的同名串不算（否则一句解释就能把缺的行糊出来）；三类阻断 = 改动集内缺行 / 全仓未登记缺行 /
+  陈旧登记（清单只能缩小）。CLI rc 0/1/2，git 取证失败或模板读不到一律 2（fail closed）。
+- 欠账基线 27 条由**判据自身测量**回写源码，禁止手抄 —— 手抄的 25 条里有一条按行题口径根本不在域内，
+  被新写的锁当场判红（"登记了一条永不生效的欠账"正是这类死登记）。
+- 接线落点是 `quality-gate.yml` 的 **changes 作业新增 Gate 2c3**，不是 static-gates：docs-only PR 会把
+  static-gates 整个短路，而这条门禁审的正是文档类 PR 改的记录 —— 放那边等于给它自己关掉校验
+  （与 `gate-record-debt-ledger.json` 同一先例）。取源复用 classify 的产出，不第二次算 base/head。
+- 回归锁 `scripts/check-record-qm5-rows.test.js` 14 条（TDD：对退化桩先跑出 `12 tests / 9 fail`，  红名逐字见执行记录）；入库变异反证 `.ccg/reviews/qm5row-mutate.driver.js` 8 条，  `MISSED=0 WRONG_CAUSE=0 RESTORED_BYTES_EQUAL=true`，含一条只从进程入口才抓得到的 CLI 层变异。
+
+## 边界（不假装已闭合）
+
+结构判据只证"那一行在不在"：把 ⑤ 写成空单元格照样通过，内容属实仍需人工抽查。
+记录若完全不采用 `（QM-5 N）` 行题约定则不进域（实测历史 130 篇即如此）—— 收紧成"所有新记录必须用模板"
+需要先清点那 130 篇的影响面，不在本条变更内。
 # [未发布] fix(ci): 步骤 fail-fast 棘轮改为逐条配对，Gate 9 verdict 探针收回门禁单一实现（gate3-failfast）
 
 ## 背景

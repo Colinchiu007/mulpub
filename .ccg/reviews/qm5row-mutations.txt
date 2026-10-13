@@ -1,0 +1,9 @@
+M1 | CAUGHT | fail=1 | expect=必需步骤集从模板行题派生：模板声明什么就要求什么 | red=必需步骤集从模板行题派生：模板声明什么就要求什么|必需步骤集从模板行题派生：模板声明什么就要求什么 | restored=true
+M2 | CAUGHT | fail=1 | expect=记录里出现的步骤标记按行题采集，正文里提到的字样不算 | red=记录里出现的步骤标记按行题采集，正文里提到的字样不算|记录里出现的步骤标记按行题采集，正文里提到的字样不算 | restored=true
+M3 | CAUGHT | fail=1 | expect=全仓未登记缺行必须被点名，且不依赖改动集（否则新缺口能靠"没人改它"隐身） | red=全仓未登记缺行必须被点名，且不依赖改动集（否则新缺口能靠"没人改它"隐身）|全仓未登记缺行必须被点名，且不依赖改动集（否则新缺口能靠"没人改它"隐身） | restored=true
+M4 | CAUGHT | fail=1 | expect=欠账登记项可以免报，但登记了却不缺 ⇒ 陈旧登记必须红（清单只能缩小） | red=欠账登记项可以免报，但登记了却不缺 ⇒ 陈旧登记必须红（清单只能缩小）|欠账登记项可以免报，但登记了却不缺 ⇒ 陈旧登记必须红（清单只能缩小） | restored=true
+M5 | CAUGHT | fail=1 | expect=模板自身与豁免目录被排除（模板是判据来源，不是被审对象） | red=模板自身与豁免目录被排除（模板是判据来源，不是被审对象）|模板自身与豁免目录被排除（模板是判据来源，不是被审对象） | restored=true
+M6 | CAUGHT | fail=1 | expect=未使用 QM-5 约定的历史记录不进检查域（不误伤老格式） | red=未使用 QM-5 约定的历史记录不进检查域（不误伤老格式）|未使用 QM-5 约定的历史记录不进检查域（不误伤老格式） | restored=true
+M7 | CAUGHT | fail=1 | expect=KNOWN_MISSING_QM5 每条必须带原因，且键必须是真实存在的记录文件 | red=KNOWN_MISSING_QM5 每条必须带原因，且键必须是真实存在的记录文件|KNOWN_MISSING_QM5 每条必须带原因，且键必须是真实存在的记录文件 | restored=true
+M8 | CAUGHT | fail=1 | expect=CLI 端到端：临时 git 仓库里删掉 ⑤ 行必须 rc=1，补回必须 rc=0（正向 | red=CLI 端到端：临时 git 仓库里删掉 ⑤ 行必须 rc=1，补回必须 rc=0（正向对偶）|CLI 端到端：临时 git 仓库里删掉 ⑤ 行必须 rc=1，补回必须 rc=0（正向对偶） | restored=true
+PREFLIGHT_BAD=0 MUTATIONS=8 MISSED=0 WRONG_CAUSE=0 RESTORED_BYTES_EQUAL=true
