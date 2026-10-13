@@ -2,9 +2,6 @@
 record: oss-reinforcement-research
 task: 开源强化研究——6 赛道 46 候选扫描、25 个源码级深度分析、13 Findings 实施计划、5 决策点分析，全部经 CCG 双模型外部评审 + 对抗评审循环 3 轮收敛
 date: 2026-10-13
-sync_status: PENDING
-sync_reason: PR #3472 待 squash 合并，merge SHA 与时间尚未可取；合并后由后续 docs PR 在同一次提交回填 PASS 并删除 sync_* 三字段
-sync_backfill_owner: 本会话（决策文档与门禁记录同源维护）
 ---
 
 ## 任务执行记录：开源强化研究方案（oss-reinforcement，2026-10-13，docs-only PR）
@@ -28,7 +25,7 @@ sync_backfill_owner: 本会话（决策文档与门禁记录同源维护）
 | QM-1 打包 / QM-4 视觉 | N/A | 不触及 electron/ 与 UI |
 | **QM-6 CCG 双模型外部评审** | **PASS（主动执行）** | 前端轴 opencode 15 条 + 后端轴 claude 10 条 findings 全部采纳；对抗评审循环 3 轮：Round 2 未收敛（最低维 7.5）→ 6 项必改 + 2 项部分落实 → **Round 3 收敛（五维均 9.0 ≥ 8.0）**。全程产物 `.adversarial/oss-reinforcement-plan/`（proposal-v1/v2/v4-final、critique×4、rebuttal×2、summary）。核心修订：F1-c 注入通道经 Electron contextIsolation 语义实证证伪原 preload 方案（改 debugger+Page.addScriptToEvaluateOnNewDocument，复用本仓 utils.js:143 已验基建）；FIND-1（Critical）法务门禁入 B1 前置；RSSHub 许可复核确认 AGPL-3.0 |
 | 二进制供应链 | N/A | 无二进制捆绑（camofox/whisper.cpp 的 hash 锁定纪律已写入实施计划 F3/F5，属未来开发约束） |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 取证 merge SHA 与时间；`git ls-remote --heads origin docs/oss-reinforcement-research` 返回 0 行证远端分支已删；回填与销账同一次提交 |
+| 远程同步 | PASS（PR #3472 squash 合并 ⇒ 6021edb1c，2026-10-13T18:55:06+08:00；远端分支 docs/oss-reinforcement-research 已删（ls-remote 0 行）） | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 取证 merge SHA 与时间；`git ls-remote --heads origin docs/oss-reinforcement-research` 返回 0 行证远端分支已删；回填与销账同一次提交 |
 
 ### 关键决策留痕
 
