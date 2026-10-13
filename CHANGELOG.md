@@ -1,3 +1,9 @@
+# [未发布] docs(podcast): 一键发布入口判据落文档——三条判据与「放/不放」全量清点（podcast-entry-criteria-docs）
+
+- PRD 新增 §15：入口判据从散落的讨论收敛成「① 当场持有可发布产物 ② 能确定归属频道 ③ 重复点击不产生覆盖或重复 item」三条同时成立的形式，并给出放入口的 5 个位置（已落 2、待落 3）与不放的 6 个位置及各自理由。
+- `PublishHistory` 不放的理由写成具体后果（同 guid 重发会覆盖已上线的一期），而不是「不合适」；新增页面必须在本表追加一行，作为验收条款。
+- tasks 5.1 勾位收口，5.2（提示文字逐字表由脚本从 locales 生成）与 5.3（三处记忆同步 + glossary 收口）拆为独立未勾项，不冒充完成。
+
 # [未发布] feat(podcast): 文本出期主进程层——只换 extractMix 这一站，计费闸门与 compose 判据分层收口（podcast-episode-tts-entry）
 
 - 新增 `createEpisodeHost().publishFromScript`：口播稿 → 分块 TTS 合成 → 复用 `probe` 及之后的同一条编排链；成片链与文本链共用的持锁/取消登记/临时目录收尾/终态边界收敛为 `runChain` 单点。

@@ -1040,3 +1040,42 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 - **回归锁新增五份文件共 63 例**：`podcast-episode-host.test.js`（33 例：形状层、整链持锁、再入凭证、outBase、取消三态、三态不压平）、`podcast-episode-adapters-pass.test.js`（5 例：通行证三处、strict、heldBy 透传）、`podcast-hosting-audio-key.test.js`（11 例：id 形态六项 + 合规放行与 key 分层 + 判据唯一性结构锁 + 真 `_put` 的 URL 守卫/contentType/非 2xx）、`podcast-episode-ipc.test.js`（6 例：九键信封、subCode、取消三态、字面量注册形态）、`podcast-public-url.test.js`（8 例：判定表 + 出期链内不得出现第二份协议判据，扫描前剥注释）。最终基线：podcast 全域 78 个测试文件 **1201 passed / 0 failed**；变异反证 13 条指名变红 + 1 条如实记为防御重叠不可分辨。
 - **仍在的欠账（带承接片，不是遗漏）**：① 本节 §6.4 表里的 11 个 `episode.*` 文案键**尚未写入 locales**——它们的第一消费点是第 4 片的浮层与状态机，现在就写会造出 AGENTS.md 明令禁止的死键；第 4 片必须把 `podcast.errors.*`（新码 `PODCAST_VIDEO_NOT_FOUND`、`PODCAST_PUBLISH_CANCELLED`、`PODCAST_CANCEL_TOO_LATE`、`PODCAST_FEED_BUILD_FAILED`、`PODCAST_AUDIO_*` 四码）与 `episode.*` 一并成对补齐。当下这些码走 `podcast.errors.fallback`，不会崩，但文案不具区分度。② F9（`publish` 测试 fixture 三处常量手写耦合）仍留。③ 入口两枚（`ResultView.vue:726`、`CreateView.vue:4519`）与浮层挂起登记仍留第 4 片。
 - **一条方法论**（写进 learnings 更合适，这里先记账）：跨「模块级可变单例」做断言时必须用 `require` 而不是 `import`。本仓生产代码是 CJS `require`，vitest 下测试侧的 ESM `import` 会拿到**另一份**实例，于是 `isPassed`/`isBusy` 恒 false，红出来的是「适配层没包通行证」——指错方向的红会把人引去改生产代码。同理，既有 `podcast-hosting-service.test.js` 里直接 import `channelBusyGate` 做断言的那几条，其证据强度**低于看起来的样子**，第 4 片或后续单列 PR 应改为经被测对象的公开出口观察。
+
+## 15. 一键发布入口判据（全量位置清点，tasks 5.1）
+
+> 判据只有三条，且**三条同时成立**才放入口；任何一条不成立就明确不放，并写下不放的理由——
+> 「不放」不是遗漏，是这个产品不产生「点了只能失败」的按钮的方式。
+
+### 15.1 三条判据
+
+| # | 判据 | 为什么是它 |
+| --- | --- | --- |
+| ① | 该位置**当场持有一份可发布的产物**（成片文件，或已成形的口播稿正文） | 出期链的第一站就要读它；产物不在场，入口只能变成「先去生成」，那是另一条链的按钮 |
+| ② | 能确定**归属频道**（上下文里有 channelId，或用户可在浮层里当场选一次） | RSS 分发是「一个频道一期一期往里加」，没有频道就没有 feed 可写；`PODCAST_CHANNEL_BUSY` 与 `feedSync` 都以频道为键 |
+| ③ | **重复点击不产生覆盖或重复 item**（要么幂等，要么有显式二次确认） | 聚合端按 `<guid>` 去重；入口若落在「同一份内容可能被再次发布」的位置上，用户会以为只是重试，实际把已上线的一期改了 |
+
+### 15.2 放入口的位置（全量）
+
+| 位置 | 产物 | 频道来源 | 状态 |
+| --- | --- | --- | --- |
+| `ResultView.vue:726` | 成片（视频出期） | 上下文频道 | 已落（刀 3 第 4 片） |
+| `CreateView.vue:4519` | 项目成片 | 项目绑定频道 | 已落（刀 3 第 4 片） |
+| `CopyLibraryView.vue:174` | 文案库单条口播稿 | 当场选 | 待落（tasks 4.3②） |
+| `RewriteView.vue:812` | 改写结果区口播稿 | 当场选 | 待落（tasks 4.3②） |
+| `Publish.vue:358` | 文本类分支的当前稿 | 上下文频道 | 待落（tasks 4.3②） |
+
+### 15.3 不放的位置与理由（同样全量，避免下个会话重新讨论）
+
+| 位置 | 不满足 | 理由 |
+| --- | --- | --- |
+| `HotTopics` | ① | 那里是选题与素材，没有成片也没有成形口播稿；点它只能触发「去生成」，与一键发布不是一件事 |
+| `KeywordMonitor` | ① | 产出是关键词与抓取记录，不是可发布内容；且它没有稳定的单集概念，写进 feed 会造出无意义 item |
+| `PublishHistory` | ③ | 历史条目重发会**覆盖已上线的一期**（同 guid 换音频/换时长），用户以为只是重试；要做也得先做「重发即新期」的判据与确认，属另一刀 |
+| `Home` | ①② | 首页没有产物上下文也没有频道上下文，入口只能挂到一个空表单上 |
+| `FirstRun` | ①② | 引导期既没配托管凭证也没建频道，点开通期必然停在 `PODCAST_HOSTING_NOT_CONFIGURED` |
+| `FilmEngineering` | ① | 该页产物是视频工程与分镜资产，不是播客单集；它的发布挂载点在视频线，不在 RSS 线（见 ADR「协议型分发通道不挤进平台登记面」） |
+
+### 15.4 判据本身的验收
+
+- 判据必须能同时判「放」与「不放」：上两张表合起来覆盖 `apps/desktop/src/views` 下**所有**产出文案或成片的页面；新增一页就要在这里追加一行，写「放/不放 + 命中哪条判据」。
+- 三枚待落入口（4.3②）落地时，必须同 PR 把本节状态列从「待落」改为「已落」，并同步 `openspec/changes/podcast-oneclick-publish/tasks.md` 的 4.3② 勾位——**文档与代码的状态差**是本仓「over-claim」的老病。
