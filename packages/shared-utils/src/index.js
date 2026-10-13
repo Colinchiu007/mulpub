@@ -26,6 +26,10 @@ const publishHistory = require('./publish-history')
 // 提交内容项单一真源（titleMode/内容限制/差异化字段/语义分类）。
 const publishCapabilities = require('./publish-capabilities')
 
+// 平台分类对照表读取层（P0-2，ARCH-REUSE-INTEGRATION R-1）：
+// 回答「这个平台的分类 ID 是什么」，与 publishCapabilities 的「能不能设标题/描述」是不同问题。
+const platformTaxonomy = require('./platform-taxonomy')
+
 module.exports = {
   TaskQueue,
   AggregatorBridge,
@@ -45,4 +49,5 @@ module.exports = {
   // P1-10: 发布历史此前未从入口导出，导致调用方各自 require 内部路径、依赖治理无从下手
   publishHistory,
   publishCapabilities,
+  platformTaxonomy,
 }

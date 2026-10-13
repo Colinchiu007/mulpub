@@ -247,7 +247,7 @@ CJS，主进程 + 引擎共用（与 `publish-capabilities.js` 同形态）。**
 | `reason` | 触发 | 调用方应做什么 |
 |---|---|---|
 | `platform-absent` | 平台无任何分类数据 | 不写字段，UI 文案① |
-| `platform-name-only` | 平台仅有名称（`toutiao`/`kuaishou`/`wechat_mp`） | 不写字段，UI 文案⑤ |
+| `platform-name-only` | 平台仅有名称（实测为 **`kuaishou`/`wechat_mp`/`tencent_video`**） | 不写字段，UI 文案⑤ |
 | `not-found` | 查不到 | **若调用方显式给了名字 ⇒ 失败**（FL-9） |
 | `ambiguous` | 命中多个 | 同上，并在 `hint` 里给出候选数 |
 | **`content-type-mismatch`**（新增） | 平台有该名但不在请求的 `contentType` 里 | 同上；文案⑧给出可用分类集 |
@@ -762,3 +762,75 @@ zh/en 都不存在的 key」；**禁止**在 `.vue` 里新增中文字面量（`
 | **形态无关遍历** | 按「ID 类键 / 名称类键 / 子节点类键」的**存在性**递归，而非枚举已知形态名 |
 | **`path` 唯一性** | 产物唯一可断言的强不变量：`path` 在 `(slug, contentType)` 内唯一（实测 1,269/1,269）。`id` 与 `name` **均不唯一**，不得承担该角色 |
 | **FL-n / S-n / U-n** | fail-loud 清单项（§6.3）/ 允许静默项（§6.3）/ 待确认项（§12），`⛔` 为阻塞 |
+
+---
+
+## 14. 实施期实测修正（2026-10-13，实现 P0-1/P0-2 后回填）
+
+本节记录**实现过程中实测出来、与本文档早前假设不符**的事实。它们改变实施范围，故保留在案而不是
+悄悄改掉上文 —— 上文保留原判断，便于回溯「谁在什么时候基于什么改了它」。
+
+### 14.1 P0-3「路由接线」的真实范围只有 2 个平台（原写 `baijiahao + toutiao`）
+
+全仓 grep 实测，**只有 3 处**真正从 `taskData` 读分类：
+
+| 位置 | 代码 | 该平台有分类 ID 数据？ |
+| --- | --- | --- |
+| `packages/api-publish-engine/src/adapters/youtube.js:85` | `categoryId: taskData.categoryId \|\| "22"` | ❌ 数据集无 `youtube` ⇒ **出范围** |
+| `packages/api-publish-engine/src/publish/platforms/baijiahao-article.js:151` | `params.set('category', String(taskData.category == null ? '未分类' : taskData.category))` | ✅ 386 节点 |
+| `packages/api-publish-engine/src/publish/platforms/bilibili-video.js:77` | `tid: Number(taskData.category \|\| taskData.tid) \|\| 21` | ✅ 142 节点（视频）+ 38（图文） |
+
+⇒ **P0-3 接线目标 = `bilibili` + `baijiahao`。**
+`adapters/toutiao.js` **根本不读分类字段**，且 `getPlatformOverrideFields('toutiao')` 为空
+⇒ 原 PLAN 的 P0-5 在 toutiao 上是空转。
+
+**并纠正一处更早的漏项**：项目里共有**三个**硬编码分类默认值，不是两个 —— 除 `tid || 21` 与
+`categoryId || "22"` 外，还有 `baijiahao-article.js:151` 的 `'未分类'` 字面量。它同属
+「用户没选 ⇒ 静默落到某个值」，而「未分类」是否为百家号侧合法分类**本数据集无法判定**，须在 P0-3 一并处置。
+
+### 14.2 有 ID 数据的平台是 6 个，不是 7 个 —— `tencent_video` 刻意移除
+
+`config/platforms.yaml:93-98` 自带警示：
+
+```
+# ⚠️ 命名澄清：本条的 id 是 `tencent_video`，但 name 是「视频号」、publish_url 指向
+# channels.weixin.qq.com —— 实际发布目标是**微信视频号**，不是腾讯视频（v.qq.com）。
+# 频率策略表里 `tencent_video` 同样指视频号；腾讯视频（v.qq.com）未接入。
+```
+
+而数据集里 `tencentvideocategortmap.txt` 属于**腾讯视频**（`mediadatamgr.ini` 实测
+`21=腾讯视频`、`53=视频号`）。把腾讯视频的分类 ID 挂到微信视频号上 = **发错平台**。
+⇒ 转换器**刻意不导入** `tencent_video`，并把它登记进 `platformsWithoutIdData`。
+
+最终产出：**6 平台 / 1,601 节点**（bilibili 38+142、douyin 27+245、
+toutiao 85+380+75、baijiahao 386、weibo 190、zhihu 33）。
+
+### 14.3 源数据自身有歧义，读取层必须拒绝解析而不是猜
+
+| 现象 | 实测证据 | 处置 |
+| --- | --- | --- |
+| 同一 **id** 配不同 **name** | B站视频表 `tid=36` 同时是「知识」与「科技」（一级分类里 36 出现两次）；`tid=95` 是「数码」也是「手机平板」 | 两侧都保留 + 打 `ambiguous` 标 + 记入 `source.conflicts`；`resolveCategoryId` 返回 `reason:'ambiguous'` 并列候选 |
+| 同一 **name** 不同 **id** | B站「日常」图文 `id=15` / 视频 `id=21`，且 `path` 都是 `[生活, 日常]` | 由 `contentType` 维度隔离 —— **这是 contentType 不可省的第二重理由** |
+| 完全重复的 `(id,name)` | 百家号源文件里「教学」出现 42 次，共 53 条多余 | 去重（无信息噪音） |
+
+`source.conflicts` 与读取层判定的 `ambiguous` **必须一致**，已有契约测试锁定（两处不能各说各话）。
+
+### 14.4 逐文件解码顺序不可交换 ⇒ **必须 UTF-8 优先**（实测补强）
+
+4 个样本中 3 个「UTF-8 文件被误按 GBK 解码」时 **U+FFFD 计数同样为 0** ⇒
+「没有替换字符」**不能**用来证明「按 UTF-8 解是对的」。判定顺序固定为
+**先试严格 UTF-8（失败抛错）→ 再按 GBK**；反过来会静默产出乱码且不报错。
+
+### 14.5 读取层的失败语义（口径冻结）
+
+`loadTaxonomy` **不抛异常**（分类是增强能力，不该炸掉发布链），失败时返回空壳并把原因放进
+`__loadError`，由 `validateTaxonomy()` 报出。**这是「宽容读 + 绝不静默」，不是「宽容读 + 装作没事」** ——
+差别在于 `__loadError` 是否可达、是否被自检覆盖。已有测试锁定
+「文件缺失 ⇒ 档位 `absent` 且 `validateTaxonomy()` 含 missing 提示」。
+
+### 14.6 仍未核实的项（不假装已闭合）
+
+- `toutiao` 的 `overrideFields` 为空，是「本就不支持」还是「注册表漏登记」—— 未核，P0-4 前须定。
+- 注册表里 bilibili 的 10 项下拉有 4 项标签与快照矛盾（124/231/207/251）—— 谁对未知。
+- 数据集为 **2026-07-14 冻结快照，全程未联网校验**（`source.verifiedOnline: false`）。
+
