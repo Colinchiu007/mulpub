@@ -2,9 +2,6 @@
 record: podcast-glossary-terms
 task: 收口播客术语到 01-docs/i18n-glossary.md 并完成三处记忆同步（tasks 5.3）
 date: 2026-10-14
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填 PR 改写 PASS + merge SHA 并整段删除本三个 sync_ 字段
-sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账）
 ---
 
 # 播客术语收口 + 三处记忆同步（podcast-glossary-terms，2026-10-14）
@@ -41,4 +38,4 @@ sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账�
 
 ## 远程同步
 
-| 远程同步 | PENDING | 本 PR（podcast-glossary-terms）的远程同步待合并后由后续 docs PR 回填 PASS + merge SHA，并在同一次提交删除 ledger 本条登记项 |
+| 远程同步 | PASS | merge SHA 8c73fd9ba · 2026-10-14T03:30:30+08:00 · 远端分支已删（ls-remote 0 行）· 同次提交删除 ledger 登记项 |
