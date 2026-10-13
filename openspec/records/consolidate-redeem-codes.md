@@ -38,7 +38,8 @@ sync_backfill_owner: 下一会话的回填 PR
 2. **改造** `routers/redemption_codes.py`：只保留 `/batch`，**路径不变**，
    前端与任何已对接脚本无需改 URL。列表/吊销/删除端点下线。
 3. **删除** `redemption_code_service.py`（134 行自建 HMAC 签发）、`models.py::RedemptionCode`。
-4. **删除** 桌面端孤儿模块 `redemption-codes.js`（141 行）+ 其测试。
+4. ~~**删除** 桌面端孤儿模块 `redemption-codes.js`（141 行）+ 其测试。~~
+   **本轮暂缓，移入 A2**（见下「门禁发现」）。
 5. **前端**契约同步（破坏性变更，已在页面顶部显式告知运营）。
 
 ### 三个破坏性契约变更（必须让运营知道）
@@ -57,7 +58,7 @@ sync_backfill_owner: 下一会话的回填 PR
 - **本地前置校验不替代 engine 校验**，只是避免无谓往返
 - **`note` 显式丢弃**：透传会让 engine 收到未声明字段，违反「不整包透传」白名单原则
 - **bool 是 int 子类**：`durationDays: true` 必须显式排除，否则 `True` 会被当 1 天放行
-- 删除孤儿模块 `redemption-codes.js` 消除了「本地生成 Pro 码 + 环境变量 secret」
+- （暂缓）删除孤儿模块 `redemption-codes.js` 本可消除「本地生成 Pro 码 + 环境变量 secret」
   这条长期风险路径（#3085 已堵住提权，但留着能力本身是负债）
 
 ### 测试与变异验证
@@ -105,3 +106,33 @@ token 不泄漏 / `generated < requested` 差额可见。
 
 | 远程同步 | PENDING —— 本 PR 尚未合并，merge SHA 不存在；合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 |
 |---|
+
+
+## 门禁发现：桌面端孤儿模块删除移入 A2
+
+**现象**：首轮 CI 除 `ops-center 后端测试` 外，`QG Desktop Shards (1/2)`、
+`QG Desktop Shards (2/2)`、`QG Coverage` 同时转红。
+
+**先排除「是不是我改坏的」**：
+- 本 PR 在 `apps/desktop` 侧的改动只有两个删除，其余全在 ops-center。
+- 两个被删文件全仓零引用（`redemption-codes` 与 `redemption_codes` 两种命名均为 0）。
+- 同期 #3427（film-engineering，与本 PR **零文件重叠**）失败 job 组合完全相同，
+  #3434 亦在同一批红 —— 指向 main 级问题。
+- rebase 到最新 main 后，两个 shard 恢复全绿，佐证该批 shard 红来自 main。
+
+**再定位剩下的 `QG Coverage`**：
+- `QG Coverage` 只跑 desktop 的 `vitest run --coverage`，阈值
+  statements/branches/functions/lines = 55/40/60/55，而覆盖率 `include` 含
+  `electron/services/**/*.js`。
+- 近四个合入 PR（#3453/#3454/#3455/#3468）`QG Coverage` 均 SUCCESS，
+  说明 main 的比率是绿的。
+- 结论：删除 `redemption-codes.js` 把一个**有专属测试、覆盖率高于均值**的模块
+  移出分母，拉低全局比率，使门禁转红。
+
+**取舍**：不为凑比率去补测试。本仓库规范明确禁止恒真断言、条件性跳过与
+不覆盖目标逻辑的用例，为百分比写测试会产出无断言价值的用例，性质更差。
+该模块本就不可达——全仓零引用，且 `license:activate` 自 #3085 起在 packaged
+构建被 IPC 层拒收——**清理属卫生而非功能**，故从 A1 移出，桌面端孤儿模块删除
+并入 A2，与 engine 的 list/revoke 能力一并处理。
+
+**结果**：本 PR 的 `apps/desktop` 侧 diff 归零，desktop 覆盖率回到 main 已验证状态。
