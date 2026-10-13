@@ -2,9 +2,6 @@
 record: engine-redeem-codes-complete
 task: 系统 A 补齐兑换码运营能力（列表/吊销/碰撞补足），ops-center 恢复查询与吊销 UI
 date: 2026-10-13
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 不存在；合并后由 docs-only 回填 PR 收口
-sync_backfill_owner: 下一会话的回填 PR
 ---
 
 ## 本次执行记录：engine 兑换码运营能力补齐（engine-redeem-codes-complete，2026-10-13）
@@ -94,8 +91,8 @@ revoked 不映射、上游响应体整包透传、丢弃已签发码、本地格
 
 | 项 | 状态 |
 |---|---|
-| 远程同步 | PENDING —— 本 PR 尚未合并，merge SHA 不存在；合并后由回填 PR 收口 |
-| 门禁复核 | 本地 5 项全绿；U+FFFD 0；engine 75/75；ops-center 609 passed / 1 failed（沙箱缺 ffmpeg） |
+| 远程同步 | PASS —— PR #3479 squash 合并，merge SHA `803bb5bd0`；CI 22/22 全绿；远端分支已删除 |
+| 门禁复核 | 本地 5 项全绿；U+FFFD 0；engine 核心 5 套 78/78；ops-center 609 passed / 1 failed（沙箱缺 ffmpeg） |
 
 ## 已知债务（不在本轮）
 
