@@ -1,0 +1,21 @@
+{
+  "task_slug": "oss-reinforcement-plan",
+  "proposer_family": "opencode-hosted (step-5-preview)",
+  "artifacts": [
+    "GitHub-项目列表-2026-10-13.md",
+    "GitHub-项目分析报告-2026-10-13.md",
+    "实施计划-2026-10-13.md",
+    "决策点分析与建议-2026-10-13.md"
+  ],
+  "created": "2026-10-13",
+  "critic_family": "claude (CCG backend primary)",
+  "status": "round3-verification",
+  "score_threshold": 8.0,
+  "dual_review": {
+    "backend_axis": "claude",
+    "strategy": "parallel",
+    "frontend_axis": "opencode"
+  },
+  "max_rounds": 3
+}
+

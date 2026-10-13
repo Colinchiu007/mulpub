@@ -2,17 +2,17 @@
   "sha": "7851bd62ec6d1cd64e3d6978b58b00527d50f260",
   "layer": "diff",
   "mode": "dual",
-  "reason": "变更 412 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "reason": "变更 51 行（≤ 200）但命中 auth/数据库/加密：敏感内容 116 处",
   "stats": {
-    "changedLines": 412,
-    "fileCount": 10,
-    "codeFileCount": 7,
+    "changedLines": 51,
+    "fileCount": 31,
+    "codeFileCount": 3,
     "sensitivePathHits": [],
     "plannedPathHits": [],
-    "sensitiveContentHits": 17
+    "sensitiveContentHits": 116
   },
-  "stagedDiffHash": "a119878b83f5f682eb261bf37d31f294aa2f145a6a49d050b10e5d09401bbca5",
-  "decidedAt": "2026-10-13T07:59:48.130Z",
+  "stagedDiffHash": "efdd2a2ea219e76a8cd782bd7ecbfb96a8d6a8aac02a531e2152c2fa7c30bc4e",
+  "decidedAt": "2026-10-13T09:39:57.316Z",
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
