@@ -3,17 +3,13 @@ record: docs-m0-criteria
 task: M0 判据按实测修订（4 条原判据与交付不符）
 date: 2026-10-14
 branch: docs-m0-criteria
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：M0 判据按实测修订（docs-m0-criteria，2026-10-14）【docs-only】
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → `docs-only=true`（files=2：
   `01-docs/PLAN-REUSE-ROLLOUT-2026-10-13.md`、`.ccg/reviews/e3e8157aff…json`）
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PENDING
-
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PASS
 ### 为什么改的是判据而不是实现
 
 P0 全部落地后跑 PLAN §7 的 M0 验收，8 条里 **4 条不通过**。逐条核实后确认：**不通过的是判据，不是实现**。
@@ -38,7 +34,7 @@ M0-3 / M0-6 / M0-7 原样通过。
 | QM-2 代码必检项 | **N/A** | 无代码变更（docs-only 已判） |
 | QM-4 视觉 | **N/A** | 无 UI 变更 |
 | QM-6 双模型评审 | 未执行（如实登记）| 本机无 `codeagent-wrapper` |
-| 远程同步 | PENDING | 待 PR 合并后回填 merge SHA |
+| 远程同步 | PASS | PR #3522 已合并，merge SHA `5695459f3944da207a8d4d0a9c0f11937ef10557`（2026-10-14）|
 
 ### 一处附带说明
 
