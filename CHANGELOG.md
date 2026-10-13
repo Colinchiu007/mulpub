@@ -1,3 +1,8 @@
+# [未发布] 更正 PRD §7.9.7 的过期陈述「宿主接线未做」（prd-stock-status-correction）
+
+- 文档：PRD §7.9.7 的引导句「宿主接线未做」已被 #3387（merge SHA `8bd87f385`）否证。本片**不删原句**，只把它标成 2026-10-12 的现场，并在其前插一条带日期与 merge SHA 的更正行——合并动作不会自动改写规格，留着过期句会让下一个会话照着一份说「宿主没接线」的 PRD 再去接一遍。
+- 更正行同时写明 4.4b 的 ① 已落（`podcast-stock-freeze-host.js` 六个出口全注入 + `ipc-handlers/podcast.js` 的 `getService` 首触点、进程内恰好一次、抛错走旁路只 `warn`）与**仍未做**的 ② `compliance` 的 `stock` 档、③ 频道页摘要与 `podcast.stock.*` 三对键 zh/en、④ 真的落进文件的变异反证；tasks 的 4.4b 父项保持未勾。
+
 # [未发布] 播客存量 mime 固化的宿主接线（podcast-stock-host-wiring）
 
 - 新增 apps/desktop/electron/services/podcast-stock-freeze-host.js：createStockFreezeHost 把 §7.9 的固化判据接上真实调用路径——ipc-handlers/podcast.js 的 getService(channelId) 顺手触发一次（旁路：失败只 warn，不 await，跨进程"已做过"只看 stockStamp）。
