@@ -18068,3 +18068,28 @@ gui-test 的 `defaults.run.shell`（盲区），又把带 9 行冲突标记的 `
 
 【本仓约定】mulpub 的 .gitignore 对 scripts/*.js 采取「忽略全部 + 逐个白名单」： L106 `scripts/*.js` 忽略整个 scripts/ 顶层新增 .js，从 L107 起是 61 条 `!scripts/xxx.js` 白名单。 ⇒ 新增任何 scripts/*.js 都必须**加白名单行**，不是 `git add -f`。 不这么做的后果：文件不进提交，而 `git status` 也不显示它（被忽略的文件连 ?? 都没有）， 表现是「测试文件和产物提交了、实现文件没提交」，CI 必红。 验证白名单是否生效的判据是「文件是否真的进了 commit」，**不是** `git check-ignore -v` 的输出 —— 命中 `!` 否定规则时它同样会打印该行，极易误读成「仍被忽略」。
 
+
+---
+
+## 2026-10-14 — P0-3 落地期：「登记即生效」类缺陷（同会话三次）与 squash 后 rebase 的坑
+
+### pattern:registration-gated-artifacts
+
+【模式·本会话命中 3 次】本仓有一类缺陷：**产物看起来在工作，但从未被真正执行或登记**，只有跑机械门禁才暴露。 三次实例（同一会话内）：① 新增 scripts/*.test.js 未被任何 workflow 正文点名 ⇒ CI 里**从不执行**，且 scripts/check-unwired-tests.js 棘轮直接判红（「本仓不自动收集 scripts/ 下的测试」）； ② 新增 packages/api-publish-engine/test/*.test.js 未登记进该包 scripts/run-tests.js 的硬编码 VITEST_FILES 清单 ⇒ 被改用 node --test 跑，vitest 风格文件报 ReferenceError: describe is not defined，表现是 **runner exit=1 但测试文件数不增、411 个用例全过**； ③ 新增 openspec/records/<分支>.md 未带 sync_status/sync_reason/sync_backfill_owner 三字段 ⇒ check-gate-record-debt.js 判「缺登记字段」。 共性：**「没做」与「做了但没登记」在表面产物上不可区分**。防御：新增任何被框架发现/收集的文件后，立刻跑对应的棘轮（check-unwired-tests / 包自己的 test runner / check-gate-record-debt），不要只看「我写的测试过了」。
+
+### technique:squash-merge-then-rebase-is-wrong
+
+【技法】squash 合并后，**不要**对原 feature 分支做 rebase。 实测：7 个提交的 feature 分支被 squash 成 main 上 1 个提交后，git rebase origin/main 会把这 7 个提交挨个重放，第一个就冲突（main 上已有同样内容）。 正解：git rebase --abort → git reset --hard origin/main → git cherry-pick <新工作的提交>。 后续工作若已在该分支上提交，先把那个提交的 SHA 记下来再 reset；cherry-pick 后核对「领先 main 的提交数」与 diff --stat 应只含新工作。
+
+### technique:reproducible-before-youre-blamed
+
+【技法】看到「测试全过但退出码非 0」这类**自相矛盾**的信号，先做对照再下结论：在一个**未含本改动**的 worktree 上跑同一命令，比退出码与计数。 本轮实测价值：runner 报 411 passed 却 exit=1。若只看现象，最自然的解释是「我改坏了逻辑」； 对照后发现未改动的 worktree 是 exit=0 ⇒ 差异确实由我引入，但**根因是「新测试文件未登记进硬编码清单」而非逻辑错**。 这一步把「改坏了」变成「漏登记」——两种修法完全不同（前者要回滚，后者要加一行）。
+
+### architecture:api-publish-engine-zero-workspace-deps
+
+【架构事实】packages/api-publish-engine 是**可独立打包的零 workspace 依赖运行时**（见其 package.json 的 files 与 Docker runner 的 COPY 清单）， 因此**不得 require("@multi-publish/shared-utils")** 或任何 workspace 包，也不能深路径引别的包。 先例与依据：packages/api-publish-engine/src/cloud-accounts/validate-account.js:84-89 明写此约束，并因此「按同一批形态规则重写」了一份 shared-utils 的 CJS 孪生实现 + parity 锁。 设计含义：需要共享能力时，先问「它是不是本该由上游在组包前完成」。本轮 P0-3 起初把「中文分类名→平台侧 ID」的解析放进该包（违反约束）， 改成「上游（桌面主进程）用 shared-utils.platformTaxonomy 解析，本包只做零依赖守卫（非 ID 即抛 CATEGORY_UNRESOLVED）」后，代码量与耦合都更小。 机械锁写法：测试直接读源码，断言不得出现 /require\(['"]@multi-publish\//。
+
+### pitfall:hardcoded-file-lists-in-test-runners
+
+【陷阱】本仓 packages/api-publish-engine/scripts/run-tests.js 用**硬编码的 VITEST_FILES Set** 决定哪些测试文件用 vitest 跑，其余一律 node --test。 新增 vitest 风格测试文件若忘记登记，症状极其隐蔽：ReferenceError: describe is not defined + **runner exit=1，但 summary 里文件数与用例数都不变**（因为失败的文件根本没进入统计）。 判据：新增该包测试文件后，跑 node scripts/run-tests.js 必须 exit=0 且文件数比改动前 +1。只看「我的测试 ✓」不够——那行是 vitest 自己的输出，runner 的退出码另算。
+
