@@ -2,10 +2,6 @@
 record: fix-douyin-security-cookie-names
 task: 抖音签名 cookie 名两代形态修复——单一事实源解析 + legacy 回落 + 防再犯结构锁
 date: 2026-10-13
-# ↓ 只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除（登记随文件走，不进 gate-record-debt-ledger.json）
-sync_status: PENDING
-sync_reason: 本 PR（#3468）尚未合并，merge SHA 还不存在，无法收口
-sync_backfill_owner: 下一个会话（docs 回填 PR）
 ---
 
 ## 本次执行记录：抖音签名 cookie 名不匹配修复（fix-douyin-security-cookie-names，2026-10-13）【混合 PR】
@@ -53,11 +49,13 @@ sync_backfill_owner: 下一个会话（docs 回填 PR）
 
 ### 远程同步回填说明
 
-本 PR 合并后由后续 docs 回填 PR 完成，**同一次提交内**：
+**已完成（2026-10-13）**：本 PR #3468 已 squash 合并为 `origin/main` `994a1fa17`（2026-10-13T16:55:08+08:00）。同一次提交内完成销账：
 
-1. 本文与 `.quality-gates.md` 的 `| 远程同步 |` 行由 `PENDING` 改写为 `PASS` + merge SHA；
-2. **删除本文件 frontmatter 的 `sync_status` / `sync_reason` / `sync_backfill_owner` 三字段**（连同上方注释行）——文件源载体的未收口登记**随文件走**，**不得**往 `scripts/gate-record-debt-ledger.json` 加键（那套 JSON 键只匹配 `.quality-gates.md` 的 `## 标题`，混用会当场报「陈旧登记」红）；
-3. 若 `.quality-gates.md` 侧仍有未收口行，则按标题删除 ledger 中对应的登记项。
+1. 本文与 `.quality-gates.md` 的 `| 远程同步 |` 行 `PENDING` → `PASS` + merge SHA；
+2. **已删除本文件 frontmatter 的 `sync_status` / `sync_reason` / `sync_backfill_owner` 三字段**（文件源载体的登记随文件走，不进 `gate-record-debt-ledger.json`）；
+3. 已删除 `scripts/gate-record-debt-ledger.json` 中按 `.quality-gates.md` 记录标题登记的本条。
 
-| 远程同步 | PENDING |
+合并前判据复核：`mergeable=MERGEABLE` / `mergeStateStatus=CLEAN` / checks **19 pass、0 pending、0 fail、1 skipping** / `classify-docs-only` = `false`（混合 PR，未借道）/ `check-pr-exec-record --mode=enforce` OK。
+
+| 远程同步 | PASS（PR #3468 → `994a1fa17`，2026-10-13T16:55:08+08:00） |
 
