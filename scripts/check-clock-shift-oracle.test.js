@@ -76,6 +76,59 @@ test('预筛覆盖面必须当场出声：domain 严格大于 candidates 且两�
     assert.ok(scan.byForm[name] > 0, `形态 ${name}（${src}）在真实仓库里命中 0 个文件 —— 要么写错，要么已漂，必须当场看见`);
   }
 });
+test('CLI 参数解析：未知旗标必须 fail closed，--limit 的两种写法都要生效', () => {
+  // 本轮实测动因：旧 argv() 只认 `--limit=4`，`--limit 4` 被**静默丢弃**，
+  // 一次"只跑 4 个文件的 smoke"变成整域两趟（白跑十几分钟）。静默忽略参数=把跑什么交给运气。
+  const sp = mod.parseArgs(['--limit', '4', '--shift-days', '90']);
+  assert.equal(sp.limit, 4, '`--limit 4`（空格写法）必须生效');
+  assert.equal(sp.shiftDays, 90, '`--shift-days 90`（空格写法）必须生效');
+  const eq = mod.parseArgs(['--limit=4', '--shift-days=90']);
+  assert.deepEqual([eq.limit, eq.shiftDays], [4, 90], '两种写法必须解析出同一结果');
+  assert.deepEqual(sp.unknown, [], '合法参数不应有 unknown');
+
+  // 未知旗标：不得当成"没看见"
+  const bad = mod.parseArgs(['--limitt', '4']);
+  assert.ok(bad.unknown.includes('--limitt'), '未知旗标必须被记进 unknown：' + JSON.stringify(bad.unknown));
+  // 尾随的裸值也一并出声（它不属于任何已知旗标）——判据用"包含"而不是"长度恰好为 1"，
+  // 因为"未知旗标后面跟着什么"本就不该被猜：只要求两件事都被列出来。
+  assert.equal(bad.limit, 0, '未知旗标不得顺带把 limit 设上');
+  assert.deepEqual(mod.parseArgs([]), { dryRun: false, shiftDays: 45, limit: 0, filesArg: '', unknown: [] }, '默认档必须原样');
+  assert.equal(mod.parseArgs(['--dry-run']).dryRun, true);
+  // 非法取值同样要出声（0/负数/非整数都会把位移量悄悄吃掉）
+  assert.equal(mod.parseArgs(['--limit', '0']).unknown.length, 1, 'limit=0 必须被拒');
+  assert.equal(mod.parseArgs(['--shift-days', 'abc']).unknown.length, 1, '非数字位移必须被拒');
+  assert.equal(mod.parseArgs(['--limit']).unknown.length, 1, '缺值必须被拒，不得回退成"跑全域"');
+});
+
+test('单趟完整性判据：三种"没跑完"形态必须各自出声（没跑完不得读成零失败）', () => {
+  const mk = (over) => Object.assign({ rc: 0, collected: 3, failed: [], missing: [] }, over);
+  assert.equal(mod.judgePass(mk(), 3).ok, true, '跑齐 + rc=0 + 无失败 ⇒ 完整');
+
+  const shortRun = mod.judgePass(mk({ collected: 2, missing: ['a.test.js'] }), 3);
+  assert.equal(shortRun.ok, false, '少跑一个文件必须判不完整');
+  assert.ok(shortRun.reasons.some((r) => r.startsWith('COLLECTED_MISMATCH')), `缺 COLLECTED_MISMATCH：${shortRun.reasons}`);
+  assert.ok(shortRun.reasons.join(' ').includes('a.test.js'), '必须点名是哪个文件没跑，否则下次还得人再去比一次报告');
+
+  const rcNoFail = mod.judgePass(mk({ rc: 1, failed: [] }), 3);
+  assert.equal(rcNoFail.ok, false, 'rc≠0 而失败文件为 0 ⇒ 整趟没跑完，必须拦');
+  assert.ok(rcNoFail.reasons.some((r) => r.startsWith('RC_WITHOUT_FAILURES')), `缺 RC_WITHOUT_FAILURES：${rcNoFail.reasons}`);
+
+  const rcWithFail = mod.judgePass(mk({ rc: 1, failed: ['a.test.js'] }), 3);
+  assert.equal(rcWithFail.ok, true, 'rc≠0 且确实点出了失败文件 ⇒ 属正常差集输入，不得当“没跑完”');
+
+  assert.equal(mod.judgePass(mk({ collected: 0 }), 0).ok, true, '候选本来为空时不在这里判（由“空集 FAIL”那条负责，两条不得互相掩盖）');
+  const nothing = mod.judgePass(mk({ rc: 1, collected: 0 }), 3);
+  assert.ok(nothing.reasons.some((r) => r.startsWith('NOTHING_COLLECTED')), '候选非空而收集数为 0 必须单独出声');
+
+  // 归一化：报告里是绝对路径，候选是 DESKTOP 相对路径，两者必须能对上（对不上就是恒差集 ⇒ 天天报不完整）
+  assert.equal(mod.normalizeReportName('D:/x/y/apps/desktop/tests/a.test.js'), 'tests/a.test.js');
+  assert.equal(mod.normalizeReportName('./tests/a.test.js'), 'tests/a.test.js');
+  assert.deepEqual(
+    mod.missingCandidates(['tests/a.test.js', 'tests/b.test.js'], ['D:/x/y/apps/desktop/tests/a.test.js']),
+    ['tests/b.test.js'],
+    'missingCandidates 必须只报真没跑的那个'
+  );
+});
 test('候选形态清单：五种时间形态逐个正控，真实时钟写法一律不得命中（预筛只可多收不可漏收）', () => {
   const forms = mod.TIME_FORMS;
   assert.ok(Array.isArray(forms) && forms.length >= 5, `形态清单至少 5 条，实得 ${forms && forms.length}`);

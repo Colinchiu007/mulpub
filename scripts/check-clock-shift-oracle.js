@@ -91,6 +91,42 @@ const ABS_RE = new RegExp(TIME_FORMS.map(([, src]) => src).join('|'));
  */
 const KNOWN_CLOCK_DEPENDENT = [];
 
+// 纯函数：CLI 参数解析。**未知旗标一律报错而不是忽略** ——
+// 本轮实测：`--limit 4` 被静默丢弃（旧 argv() 只认 `--limit=4`），一次"小域 smoke"变成了整域两趟，
+// 白跑十几分钟。静默忽略参数等于把"我要求跑什么"交给运气，故这里 fail closed。
+function parseArgs(argvList) {
+  const knownValue = new Set(['shift-days', 'limit', 'files']);
+  const knownFlag = new Set(['dry-run']);
+  const out = { dryRun: false, shiftDays: 45, limit: 0, filesArg: '', unknown: [] };
+  for (let i = 0; i < argvList.length; i += 1) {
+    const a = String(argvList[i]);
+    if (!a.startsWith('--')) { out.unknown.push(a); continue; }
+    const eq = a.indexOf('=');
+    const name = eq < 0 ? a.slice(2) : a.slice(2, eq);
+    if (knownFlag.has(name) && eq < 0) { out.dryRun = true; continue; }
+    if (!knownValue.has(name)) { out.unknown.push(a); continue; }
+    // 值可以来自 `--name=v` 或 `--name v`；两种写法都必须生效（旧实现只认前者）
+    let val;
+    if (eq >= 0) { val = a.slice(eq + 1); }
+    else {
+      val = argvList[i + 1];
+      if (val === undefined || String(val).startsWith('--')) { out.unknown.push(`${a}(缺值)`); continue; }
+      i += 1;
+    }
+    if (name === 'shift-days') {
+      const n = Number(val);
+      if (!Number.isFinite(n) || n <= 0) { out.unknown.push(`--shift-days=${val}(必须为正数)`); continue; }
+      out.shiftDays = n;
+    } else if (name === 'limit') {
+      const n = Number(val);
+      if (!Number.isInteger(n) || n <= 0) { out.unknown.push(`--limit=${val}(必须为正整数)`); continue; }
+      out.limit = n;
+    } else {
+      out.filesArg = val;
+    }
+  }
+  return out;
+}
 function argv(name, fallback) {
   const pre = `--${name}=`;
   const hit = process.argv.slice(2).find((a) => a.startsWith(pre));
@@ -142,6 +178,39 @@ function collectCandidates() {
   return { hits, byForm, domainTotal: all.length };
 }
 
+// 把报告里的文件名归一到与候选清单同一种写法（候选是 DESKTOP 相对路径）。
+function normalizeReportName(name) {
+  return String(name || '')
+    .split(path.sep).join('/')
+    .replace(/^.*?apps\/desktop\//, '')
+    .replace(/^\.\//, '');
+}
+
+// 纯函数：候选清单 vs 这一趟真正收集到的文件 ⇒ 给出"哪些没跑"。
+// 动因（2026-10-14 实测缺口）：位移趟 collected=167 / candidates=168，
+// `electron/bootstrap/resume-guard.test.js` 整份没跑（该文件单独两档都绿），
+// 而旧逻辑只看"有没有失败文件"，照样打印 PASS —— 一个没跑的文件在摘要里与"跑了且绿"同形。
+function missingCandidates(files, reportNames) {
+  const got = new Set(reportNames.map(normalizeReportName));
+  return files.map((f) => normalizeReportName(f)).filter((f) => !got.has(f)).sort();
+}
+
+// 纯函数：**这一趟到底算不算跑完**。三种 fail-closed 形态各自独立成条，因为成因不同：
+//   NOTHING_COLLECTED   = 扫描/参数漂了（候选非空却一个都没收到）
+//   COLLECTED_MISMATCH  = 有文件没跑（本轮实测就是这一个）
+//   RC_WITHOUT_FAILURES = 进程级异常（worker 被杀 / 未处理错误 / 报告写坏），
+//                         这条最阴：它读起来完全像"全绿"
+function judgePass(pass, candidateCount) {
+  const reasons = [];
+  if (pass.collected === 0 && candidateCount > 0) reasons.push(`NOTHING_COLLECTED(rc=${pass.rc})`);
+  if (pass.collected !== candidateCount) {
+    reasons.push(`COLLECTED_MISMATCH collected=${pass.collected} candidates=${candidateCount} missing=${JSON.stringify((pass.missing || []).slice(0, 5))}`);
+  }
+  if (pass.rc !== 0 && pass.failed.length === 0) {
+    reasons.push(`RC_WITHOUT_FAILURES rc=${pass.rc} failing_files=0 ⇒ 整趟没跑完（进程级异常），不得读成"零失败"`);
+  }
+  return { ok: reasons.length === 0, reasons };
+}
 function runVitest(files, { shiftMs, tag }) {
   const jsonPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), `clock-${tag}-`)), 'report.json');
   const env = Object.assign({}, process.env, {
@@ -161,6 +230,7 @@ function runVitest(files, { shiftMs, tag }) {
     stdout = String(e.stdout || '') + String(e.stderr || '');
   }
   let failed = [];
+  const reported = [];
   let collected = 0;
   if (fs.existsSync(jsonPath)) {
     try {
@@ -168,6 +238,7 @@ function runVitest(files, { shiftMs, tag }) {
       for (const a of rep.testResults || []) {
         collected++;
         const rel = path.relative(DESKTOP, a.name || a.testFilePath || '').split(path.sep).join('/');
+        reported.push(rel);
         const bad = (a.assertionResults || []).filter((r) => r.status === 'failed');
         if (bad.length || a.status === 'failed') failed.push(rel);
       }
@@ -178,7 +249,8 @@ function runVitest(files, { shiftMs, tag }) {
     throw new Error(`[clock-oracle] ${tag} 那趟既无 JSON 报告也无 vitest 汇总行 ⇒ 跑没跑起来都不知道`);
   }
   failed = [...new Set(failed)].sort();
-  return { rc, stdout, failed, collected, json: jsonPath };
+  const missing = missingCandidates(files, reported);
+  return { rc, stdout, failed, collected, missing, json: jsonPath };
 }
 
 function dryRun() {
@@ -209,16 +281,16 @@ function dryRun() {
 
 function main() {
   if (hasFlag('dry-run')) return dryRun();
-  const shiftDays = Number(argv('shift-days', '45'));
-  const limitRaw = argv('limit', '');
-  const filesArg = argv('files', '');
+  const opts = parseArgs(process.argv.slice(2));
+  if (opts.unknown.length) throw new Error(`无法识别的参数：${opts.unknown.join(' , ')}（宁可不跑，也不把"我要跑什么"静默换成别的范围）`);
+  const { shiftDays, limit: limitRaw, filesArg } = opts;
   const shiftMs = Math.round(shiftDays * 86400000);
 
   const scan = collectCandidates();
   let files = filesArg ? filesArg.split(',').map((s) => s.trim()).filter(Boolean) : scan.hits;
   if (!filesArg) console.log(`[clock-oracle] 预筛覆盖面 domain=${scan.domainTotal} candidates=${scan.hits.length} forms=${TIME_FORMS.map(([n]) => `${n}=${scan.byForm[n]}`).join(' ')}`);
-  if (limitRaw) files = files.slice(0, Number(limitRaw));
-  console.log(`[clock-oracle] domain=apps/desktop(vitest) shift_days=${shiftDays} candidates=${files.length}`);
+  if (limitRaw) files = files.slice(0, limitRaw);
+  console.log(`[clock-oracle] domain=apps/desktop(vitest) shift_days=${shiftDays} candidates=${files.length}${limitRaw ? `（已按 --limit 截断，全域 ${scan.hits.length}）` : ''}`);
   if (!files.length) {
     console.log('FAIL: 候选域为空 —— 要么扫描域写错了，要么真的没有绝对时间戳夹具；两者都必须先证明再看结论');
     return 1;
@@ -233,15 +305,28 @@ function main() {
   }
 
   const base = runVitest(files, { shiftMs: 0, tag: 'base' });
-  console.log(`[clock-oracle] baseline rc=${base.rc} collected=${base.collected} failing_files=${base.failed.length}`);
+  const baseJudge = judgePass(base, files.length);
+  console.log(`[clock-oracle] baseline rc=${base.rc} collected=${base.collected} failing_files=${base.failed.length} judge=${baseJudge.ok ? 'COMPLETE' : 'INCOMPLETE'}`);
+  if (!baseJudge.ok) {
+    for (const r of baseJudge.reasons) console.log('FAIL(基线趟): ' + r);
+    console.log('  —— 基线没跑完 ⇒ 差集没有可信的参照系，直接停，不得拿"位移趟没多红"当结论');
+    return 1;
+  }
   if (base.failed.length) {
     console.log('  基线已红（与位移无关，不计入差集）：');
     for (const f of base.failed.slice(0, 20)) console.log('   - ' + f);
   }
 
   const moved = runVitest(files, { shiftMs, tag: 'moved' });
+  const movedJudge = judgePass(moved, files.length);
   const active = /\[CLOCK-SHIFT\] active/.test(moved.stdout);
-  console.log(`[clock-oracle] moved rc=${moved.rc} collected=${moved.collected} failing_files=${moved.failed.length} patch_active=${active}`);
+  console.log(`[clock-oracle] moved rc=${moved.rc} collected=${moved.collected} failing_files=${moved.failed.length} patch_active=${active} judge=${movedJudge.ok ? 'COMPLETE' : 'INCOMPLETE'}`);
+  if (!movedJudge.ok) {
+    for (const r of movedJudge.reasons) console.log('FAIL(位移趟): ' + r);
+    console.log('  —— 位移趟最后 20 行原始输出（供归因，本身不作判据）：');
+    for (const l of String(moved.stdout || '').split('\n').filter(Boolean).slice(-20)) console.log('   | ' + l.slice(0, 160));
+    return 1;
+  }
   if (!active) {
     console.log('FAIL: 位移那趟没打印 [CLOCK-SHIFT] active ⇒ 补丁没装上，"没有新增红"是假绿（本 oracle 自我失明）');
     return 1;
@@ -285,4 +370,4 @@ if (require.main === module) {
   process.exit(code);
 }
 
-module.exports = { collectCandidates, includeDirsFromConfig, ABS_RE, TIME_FORMS, KNOWN_CLOCK_DEPENDENT, TEST_SUFFIX };
+module.exports = { collectCandidates, includeDirsFromConfig, ABS_RE, TIME_FORMS, KNOWN_CLOCK_DEPENDENT, TEST_SUFFIX, judgePass, missingCandidates, normalizeReportName, parseArgs };
