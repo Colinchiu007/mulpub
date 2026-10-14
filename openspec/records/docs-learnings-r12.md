@@ -2,10 +2,6 @@
 record: docs-learnings-r12
 task: 补 2026-10-14 第 12 轮五条教训（命令成功 ≠ 意图达成）
 date: 2026-10-14
-# ↓ 三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在，无法取证收口
-sync_backfill_owner: 下一个会话（按三形态同改纪律：表格行 + bullet + 删除本段三字段，同一次提交）
 ---
 
 ## 本次执行记录：补第 12 轮五条教训（docs-learnings-r12，2026-10-14）
@@ -52,6 +48,6 @@ sync_backfill_owner: 下一个会话（按三形态同改纪律：表格行 + bu
 | 品牌残留 | PASS | `check-no-brand-residue.js` exit=0 |
 | 文档同步 | PASS | `classify-docs-only.js` → `docs-only=true` |
 | 执行记录 | PASS | 本文件即按出路①新增 |
-| 远程同步 | PENDING | 本 PR 未合并，merge SHA 尚不存在 |
+| 远程同步 | PASS | #3568 merge `6e7805a22af1396616673a31ed127e2ebccd4919` |
 
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PENDING
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PASS（#3568 @ 6e7805a22）
