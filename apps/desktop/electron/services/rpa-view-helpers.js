@@ -12,6 +12,40 @@ const fs = require('fs')
 const path = require('path')
 const log = require('./logger')
 const { buildResolveElementCode } = require('./rpa-selector-utils')
+// B1（oss-b1-rpa-hardening）：行为层引擎 + CDP 传输 + 隔离世界求值通道
+const { planClickSequence, planType } = require('./stealth/behavior-engine')
+const { createCdpInput } = require('./stealth/cdp-input')
+const { createIsolatedEvaluator } = require('./stealth/isolated-world')
+
+/**
+ * 行为层逐字打字阈值（PRD §3.2 节拍耗时预算）：超过此长度的填值直接走原生
+ * value-set（setter + input/change 合成）——逐字节拍按 ~30-120ms/键估算，
+ * 40 字符 ≈ 5s 均值 / 7.5s 最坏；content/digest 等长文本自然走原生路径。
+ * 环境开关 MP_RPA_DRIVER=native 可整体关闭行为层（排障回退通道）。
+ */
+const BEHAVIOR_TYPE_MAX_CHARS = 40
+
+/**
+ * per-webContents 隔离世界求值器缓存（evaluator 内部另有模块级 WeakMap 缓存
+ * contextId；导航失效由 isolated-world 自身的 did-navigate 监听处理）。
+ * @type {WeakMap<object, (code: string) => Promise<any>>}
+ */
+const _isoEvaluators = new WeakMap()
+
+/**
+ * 行为层驱动开关（env 纪律）：behavior（默认，走行为层 + isolated 通道）|
+ * native（整体回退旧行为：原生合成 click / value-set）。非法值回落默认
+ * 并**出声告警**——静默吞掉会让排障者以为行为层生效而实际没有。
+ * @returns {'behavior'|'native'}
+ */
+function resolveRpaDriver () {
+  const raw = process.env.MP_RPA_DRIVER
+  if (raw == null || raw === '') return 'behavior'
+  const v = String(raw).trim().toLowerCase()
+  if (v === 'behavior' || v === 'native') return v
+  log.warn('RpaView', 'MP_RPA_DRIVER 非法值 "' + String(raw).slice(0, 20) + '"，回落默认 behavior')
+  return 'behavior'
+}
 
 // session.webRequest.onCompleted 是「会话级单例」拦截器：同一 session 后一次注册会
 // 直接覆盖前一次，且前一次的 cleanup 会把它置 null。并发调用 _waitForResponse 时，
@@ -167,7 +201,23 @@ const helpersMixin = {
     // 2026-09-30 读回校验：本函数此前**无论是否生效都返回 true**，导致「填充未生效」被当成成功
     // （头条实测：走完整个流程后页面「共 0 字」，而日志毫无异常）。现在返回**页面真实读回长度**，
     // 由调用方据此判定；读回为 0 且待填值非空时打印告警（判据落在页面值上，不落在返回值上）。
-    const r = await win.webContents.executeJavaScript('(function(){var _fn=new Function("return " + ' + JSON.stringify(resolveJs) + ');let el=_fn();if(!el)throw new Error("input not found");var _ce=el.getAttribute("contenteditable")==="true";if(_ce){try{el.focus();var _r=document.createRange();_r.selectNodeContents(el);var _s=window.getSelection();_s.removeAllRanges();_s.addRange(_r);document.execCommand("delete");document.execCommand("insertText",false,'+sv+');el.dispatchEvent(new Event("input",{bubbles:true}))}catch(_e){let tmp=document.createElement("div");tmp.innerHTML='+sv+';tmp.querySelectorAll("script, iframe, object, embed").forEach(function(n){n.remove()});tmp.querySelectorAll("*").forEach(function(n){[].forEach.call(n.attributes,function(a){if(a.name.toLowerCase().indexOf("on")===0)n.removeAttribute(a.name)})});el.innerHTML=tmp.innerHTML;el.dispatchEvent(new Event("input",{bubbles:true}))}}else{var _proto=el.tagName==="TEXTAREA"?window.HTMLTextAreaElement.prototype:window.HTMLInputElement.prototype;let ns=Object.getOwnPropertyDescriptor(_proto,"value")?.set;if(ns)ns.call(el,'+sv+');else el.value='+sv+';el.dispatchEvent(new Event("input",{bubbles:true}));el.dispatchEvent(new Event("change",{bubbles:true}))}var _rb=_ce?String(el.innerText||"").replace(/\\s+/g,"").length:String(el.value||"").length;return {ok:true,readBack:_rb,ce:_ce}})()')
+    // B1 行为层接线（tasks 3.4）：短文本走行为层（focus+全选 → planType 节拍逐字
+    // insertText 走真实输入管线 → change 兜底 + 读回）；超阈值/行为层失败一律回落
+    // 原生 value-set 并**出声告警**（静默回落会让排障者误判行为层已生效）。
+    const driver = resolveRpaDriver()
+    const text = String(val == null ? '' : val)
+    let r = null
+    let usedBehavior = false
+    if (driver === 'behavior' && text.length > 0 && text.length <= BEHAVIOR_TYPE_MAX_CHARS) {
+      r = await this._behaviorFill(win, sel, val)
+      usedBehavior = r != null
+      if (!usedBehavior) log.warn('RpaView', '[fillInput] 行为层填值失败，回落原生 value-set sel=' + String(sel).slice(0, 70))
+    } else if (driver === 'behavior' && text.length > BEHAVIOR_TYPE_MAX_CHARS) {
+      log.warn('RpaView', '[fillInput] 文本超行为层阈值(' + BEHAVIOR_TYPE_MAX_CHARS + ')，走原生 value-set len=' + text.length + ' sel=' + String(sel).slice(0, 70))
+    }
+    if (!usedBehavior) {
+      r = await this._isoEval(win, '(function(){var _fn=new Function("return " + ' + JSON.stringify(resolveJs) + ');let el=_fn();if(!el)throw new Error("input not found");var _ce=el.getAttribute("contenteditable")==="true";if(_ce){try{el.focus();var _r=document.createRange();_r.selectNodeContents(el);var _s=window.getSelection();_s.removeAllRanges();_s.addRange(_r);document.execCommand("delete");document.execCommand("insertText",false,'+sv+');el.dispatchEvent(new Event("input",{bubbles:true}))}catch(_e){let tmp=document.createElement("div");tmp.innerHTML='+sv+';tmp.querySelectorAll("script, iframe, object, embed").forEach(function(n){n.remove()});tmp.querySelectorAll("*").forEach(function(n){[].forEach.call(n.attributes,function(a){if(a.name.toLowerCase().indexOf("on")===0)n.removeAttribute(a.name)})});el.innerHTML=tmp.innerHTML;el.dispatchEvent(new Event("input",{bubbles:true}))}}else{var _proto=el.tagName==="TEXTAREA"?window.HTMLTextAreaElement.prototype:window.HTMLInputElement.prototype;let ns=Object.getOwnPropertyDescriptor(_proto,"value")?.set;if(ns)ns.call(el,'+sv+');else el.value='+sv+';el.dispatchEvent(new Event("input",{bubbles:true}));el.dispatchEvent(new Event("change",{bubbles:true}))}var _rb=_ce?String(el.innerText||"").replace(/\\s+/g,"").length:String(el.value||"").length;return {ok:true,readBack:_rb,ce:_ce}})()')
+    }
     const readBack = r && typeof r.readBack === 'number' ? r.readBack : -1
     // 2026-09-30 外审 finding #2：读回校验**内建**于此（此前调用点忽略返回值并无条件 markDone，
     // 导致「填充未生效」照样进发布）。读回 0 且待填值非空即**抛错**，由调用方 catch 走重试。
@@ -180,11 +230,108 @@ const helpersMixin = {
   },
   async _click(win, sel) {
     const resolveJs = buildResolveElementCode(sel)
-    const d = await win.webContents.executeJavaScript('(function(){let el=(function(){return ' + resolveJs + '})() ;if(!el)throw new Error("not found: "+' + JSON.stringify(sel) + ');var d=el.tagName+"|"+String(el.className||"").slice(0,26)+"|"+String(el.innerText||"").replace(/\\s+/g,"").slice(0,10);el.click();return d})()')
+    // B1 行为层接线（tasks 3.4）：默认走行为层（getBounds → planClickSequence →
+    // CDP 可信事件 + 9 字段合成事件），行为层失败/MP_RPA_DRIVER=native 回落
+    // 原生合成 click——经 isolated 通道执行（tasks 4.3），失败 warn 出声。
+    const driver = resolveRpaDriver()
+    let d = null
+    if (driver === 'behavior') {
+      d = await this._behaviorClick(win, sel)
+      if (d == null) log.warn('RpaView', '[click] 行为层失败，回落原生合成 click sel=' + String(sel).slice(0, 60))
+    }
+    if (d == null) {
+      d = await this._isoEval(win, '(function(){let el=(function(){return ' + resolveJs + '})() ;if(!el)throw new Error("not found: "+' + JSON.stringify(sel) + ');var d=el.tagName+"|"+String(el.className||"").slice(0,26)+"|"+String(el.innerText||"").replace(/\\s+/g,"").slice(0,10);el.click();return d})()')
+    }
     // 2026-10-01：点击后等一拍再回读业务探针（onClick/doPublish 记录），判断异步流程走到哪一步。
     await this._sleep(2500)
-    const oc = await win.webContents.executeJavaScript('(function(){try{return JSON.stringify({ocLog:(window.__ocLog||[]).slice(-2),dpLog:(window.__dpLog||[]).slice(-4),appReq:(window.__appReq||[]).filter(function(x){return /publish|article/i.test(x)}).slice(-4),appReqN:(window.__appReq||[]).length})}catch(e){return "{}"}})()').catch(() => '{}')
+    const oc = await this._probeClickState(win)
     log.info('RpaView', '[click] ' + String(sel).slice(0, 36) + ' -> ' + String(d).slice(0, 70) + ' probe=' + String(oc).slice(0, 220)); return true
+  },
+
+  // ========== B1（oss-b1-rpa-hardening）：isolated 通道与行为层执行 ==========
+
+  /**
+   * 隔离世界求值通道（tasks 4.3）：per-webContents 复用 createIsolatedEvaluator
+   * （内部另做 contextId 缓存 + 导航失效 + 探活）。isolated 与主世界回落**都**
+   * 失败时（top-frame isolated v1 不覆盖 iframe 内部——iframe 元素由
+   * _execInFrame 路径负责；或选择器本身无命中），点名排障方向后 rethrow，
+   * 语义与旧 executeJavaScript 裸调一致（失败即抛，由调用方 catch）。
+   */
+  _isoEval(win, code) {
+    const wc = win.webContents
+    let fn = _isoEvaluators.get(wc)
+    if (!fn) {
+      fn = createIsolatedEvaluator(wc, { logger: log })
+      _isoEvaluators.set(wc, fn)
+    }
+    return fn(code).catch((e) => {
+      log.warn('RpaView', '[isoEval] 主世界回落仍失败（top-frame isolated v1 不覆盖 iframe 内部，或选择器无命中）: ' + (e && e.message))
+      throw e
+    })
+  },
+
+  /**
+   * 行为层点击（B1 F1-a/b，tasks 3.4）：getBounds → planClickSequence（贝塞尔
+   * 接近 + 异种子异节拍）→ performClickSequence（CDP 可信 mouse 事件 + 9 字段
+   * 合成事件）。返回描述串（供 _click 日志）；元素未命中/行为层异常返回 null，
+   * 由调用方回落原生合成 click（不直接抛——行为层是增强，不是硬依赖）。
+   */
+  async _behaviorClick(win, sel) {
+    try {
+      const input = createCdpInput(win)
+      const bounds = await input.getBounds(sel)
+      if (!bounds) return null
+      const seed = (Date.now() ^ Math.floor(Math.random() * 0x7fffffff)) >>> 0
+      const seq = planClickSequence(bounds.x, bounds.y, { seed })
+      await input.performClickSequence(seq)
+      const d = 'BEHAVIOR@' + Math.round(bounds.x) + ',' + Math.round(bounds.y)
+      log.info('RpaView', '[clickBehavior] ' + String(sel).slice(0, 28) + ' -> ' + d)
+      return d
+    } catch (e) {
+      log.warn('RpaView', '[clickBehavior] 行为层点击失败: ' + (e && e.message) + ' sel=' + String(sel).slice(0, 50))
+      return null
+    }
+  },
+
+  /**
+   * 点击后业务探针（tasks 4.4 范围声明：**留主世界**）：window.__ocLog/__dpLog/
+   * __appReq 是页面侧 JS 挂载状态——spike 实证隔离世界 window 属性相互隔离，
+   * 迁过去读到的恒 undefined（死探针）。此方法是迁移清单的显式豁免项，
+   * 由结构锁（rpa-view-helpers.test.js）钉住其 executeJavaScript + __ocLog 同在。
+   */
+  async _probeClickState(win) {
+    return await win.webContents.executeJavaScript('(function(){try{return JSON.stringify({ocLog:(window.__ocLog||[]).slice(-2),dpLog:(window.__dpLog||[]).slice(-4),appReq:(window.__appReq||[]).filter(function(x){return /publish|article/i.test(x)}).slice(-4),appReqN:(window.__appReq||[]).length})}catch(e){return "{}"}})()').catch(() => '{}')
+  },
+
+  /**
+   * 行为层填值（B1 F1-a/b，tasks 3.4）：① focus + 全选（帧级状态，两世界一致，
+   * 经 isolated 通道）→ ② planType 节拍逐字 typeText（CDP Input.insertText 走
+   * 浏览器输入管线，框架收到真实 beforeinput/input，非合成 value-set）→
+   * ③ change 兜底（原生契约：原实现显式 dispatch change；真实打字的 change 在
+   * blur 时才触发，此处补齐避免调用方监听 change 的分支静默收不到）+ 读回。
+   * 返回 {ok, readBack, ce}；任何一步失败返回 null（调用方回落原生 value-set——
+   * 注意回落是**全量 set 覆盖**，已打的一半字符会被整体替换，最终值仍正确）。
+   */
+  async _behaviorFill(win, sel, val) {
+    const resolveJs = buildResolveElementCode(sel)
+    const text = String(val == null ? '' : val)
+    try {
+      const focused = await this._isoEval(win, '(function(){var _fn=new Function("return " + ' + JSON.stringify(resolveJs) + ');var el=_fn();if(!el)return false;try{el.focus()}catch(e){return false};if(el.getAttribute("contenteditable")==="true"){try{var r=document.createRange();r.selectNodeContents(el);var s=window.getSelection();s.removeAllRanges();s.addRange(r)}catch(e){return false}}else if(typeof el.select==="function"){el.select()}return true})()')
+      if (focused !== true) return null
+      const input = createCdpInput(win)
+      const plan = planType(text, { seed: (Date.now() ^ Math.floor(Math.random() * 0x7fffffff)) >>> 0 })
+      for (const ev of plan.events) {
+        if (ev.delayMs) await this._sleep(ev.delayMs)
+        const ok = await input.typeText(ev.char)
+        if (!ok) return null
+      }
+      const rb = await this._isoEval(win, '(function(){var _fn=new Function("return " + ' + JSON.stringify(resolveJs) + ');var el=_fn();if(!el)return null;var _ce=el.getAttribute("contenteditable")==="true";try{el.dispatchEvent(new Event("change",{bubbles:true}))}catch(e){}var _rb=_ce?String(el.innerText||"").replace(/\\s+/g,"").length:String(el.value||"").length;return {ok:true,readBack:_rb,ce:_ce}})()')
+      if (!rb || typeof rb.readBack !== 'number') return null
+      return rb
+    } catch (e) {
+      log.warn('RpaView', '[fillBehavior] 行为层填值异常: ' + (e && e.message) + ' sel=' + String(sel).slice(0, 60))
+      return null
+    }
   },
 
   // 2026-10-01：CDP 真实鼠标点击前**先临时移除中心点的遮挡层** —— 头条发布按钮实测 5 个采样点
@@ -496,3 +643,5 @@ const helpersMixin = {
 
 module.exports = helpersMixin
 module.exports._guessMimeType = _guessMimeType
+// B1：测试与调用方引用的阈值单一来源（改阈值必须同步 PRD §3.2 耗时预算）
+module.exports.BEHAVIOR_TYPE_MAX_CHARS = BEHAVIOR_TYPE_MAX_CHARS
