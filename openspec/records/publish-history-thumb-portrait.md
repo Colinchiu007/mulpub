@@ -2,9 +2,6 @@
 record: publish-history-thumb-portrait
 task: 发布记录列表缩略图由横版改为竖屏 3:4 显示（四个断面统一 + 像素基线双通道刷新）
 date: 2026-10-14
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（回填与销账必须同一次提交）
 ---
 
 ## 本次执行记录：发布记录缩略图竖屏 3:4（publish-history-thumb-portrait，2026-10-14）【混合 PR】
@@ -28,7 +25,7 @@ sync_backfill_owner: 下一个会话（回填与销账必须同一次提交）
 | QM-4 视觉 | PASS（首轮基线来源有误，已按 CI 产物修正） | 见下方专节；修正后 PR #3570 的 `QG Visual` **pass**，全 21 项检查通过 |
 | 视觉框架自锁 | PASS | `run-pixel-tests.test.js` 13 passed + `visual-readiness-classification.test.js` 15 passed + `check-baseline-freshness.test.js` 36 passed |
 | QM-6 双模型评审 | 未执行 | 本刀为纯 CSS 尺寸调整，无跨模块逻辑，未派双模型评审；如实记录 |
-| 远程同步 | PENDING | 待本 PR 合并后回填 merge SHA 并销账（回填与销账同次提交） |
+| 远程同步 | PASS | 已合并：PR #3570，merge SHA `f5638824abf919c3e5f0135972dd7dee471b2ee1`（2026-10-14T17:14:17+08:00，squash）。取证：`git log origin/main --grep='(#3570)$' --format=%H\|%cI` 恰 1 行命中该 SHA；`git ls-remote --heads origin publish-history-thumb-portrait` 返回 **0 行**，证远端分支已删。**注意**：`gh pr merge` 的 rc=1（`fatal: 'main' is already used by worktree at <共享根>`）是 AGENTS.md 记录的已知假失败，合并成败只认上述三条产物 |
 
 ### QM-4 视觉：为什么必须刷新基线，以及刷新前做了什么
 

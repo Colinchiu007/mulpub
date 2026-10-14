@@ -76,6 +76,18 @@ const DUPLICATE_HEADINGS_ALLOWED = new Set([
 // 登记清单落在 JSON 里（与 scripts/debt-baseline.json 同形，便于逐条带原因）。
 // heading -> { reason }：为什么本 PR 不回填它。只能缩小——回填一条记录时必须顺手删掉它的条目，
 // 否则 stale 判红；这条耦合保证清单单调收敛。
+// ── 跨源一致性（2026-10-14 加）：同一条变更的旧载体块与新记录文件必须同向收口。
+//    动因：实测两次的「并发整取把已收口的回填倒退回 PENDING」，而既有判据只管**单源自洽**，
+//    对「记录 PASS / 载体 PENDING」这种跨源矛盾恒 RC=0（#3495 那次就是这么漏过去的）。
+//    身份键必须用括号定界的「（slug，」：实测「标题包含 slug」这种宽判据会把回填块
+//    「回填 …（ops-ingress-only，…）」与它回填的那篇混算成同一条（那次 2/2 全是假阳）。
+const CROSS_SLUG_RE = /（([a-z0-9][a-z0-9-]*)，/
+// 回填型块的未收口行说的是**它自己那笔回填 PR**，不是它收口的那条变更 ⇒ 不参与跨源比对，
+// 但必须打印出来（不拦截又不出声，等于把放过做成静默的）。正例是另起 slug：…-backfill。
+const CROSS_BACKFILL_RE = /^本次执行记录：(?:\d+ 笔)?回填|远程同步回填|并销账/
+// 上线时既有的真矛盾，逐条给理由；其作者回填后必须删掉本项（陈旧承认即红，清单只能缩小）。
+const CROSS_SRC_ALLOWED = new Set(['ops-ingress-only']) // 他人会话的运行时代码记录块，本仓纪律是不代改
+
 const LEDGER_FILE = path.join(__dirname, 'gate-record-debt-ledger.json')
 
 function normalize(s) {
@@ -164,7 +176,7 @@ function readRecord(recordsRoot, fileName) {
   }
 }
 
-function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowed = DUPLICATE_HEADINGS_ALLOWED, recordsRoot = path.join(root, RECORDS_REL) } = {}) {
+function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowed = DUPLICATE_HEADINGS_ALLOWED, crossSrcAllowed = CROSS_SRC_ALLOWED, recordsRoot = path.join(root, RECORDS_REL) } = {}) {
   const file = path.join(root, GATE_FILE)
   if (!fs.existsSync(file)) throw new Error(`${GATE_FILE} 不存在：${file}`)
   const lines = fs.readFileSync(file, 'utf8').split('\n')
@@ -243,6 +255,7 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
   const statusMismatchVisible = []
   const staleRecordFields = []
   let recordsFromFiles = 0
+  const closedRecordSlugs = []
   for (const fn of fileNames) {
     const rec = readRecord(recordsRoot, fn)
     recordsFromFiles++
@@ -251,6 +264,7 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
       continue
     }
     if (rec.closed) {
+      closedRecordSlugs.push({ slug: rec.fileName.replace(/\.md$/, ''), status: rec.status })
       // 表格行已收口，同篇的声明式 bullet 却仍写着未收口词 ⇒ 门禁只看得见前者、谎话无人检测
       for (const d of rec.declared.filter(x => !x.closed)) {
         statusContradictions.push({
@@ -274,6 +288,53 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
       open.push({ line: 0, status: rec.status, heading: `${rec.fileName}（${why}）`, evidence: '', source: 'records' })
     }
   }
+
+  // ── 跨源一致性：记录文件已 PASS，而**同 slug** 的旧载体块带着状态行却未收口 ⇒ 拦。
+  // 三条口径缺一不可：① 只比「两边都有状态行」（缺行走既有可见不拦截——实测历史 213 篇缺行，
+  //    并进拦截面等于把之后每个 PR 当场钉红）；② 身份括号定界；③ 回填型块排除但出声。
+  const legacyBySlug = new Map()
+  for (const b of blocks) {
+    const m = CROSS_SLUG_RE.exec(b.text)
+    if (!m) continue
+    if (!legacyBySlug.has(m[1])) legacyBySlug.set(m[1], [])
+    const rowLine = lines.slice(b.line, b.end).find((l) => ROW_RE.test(l))
+    legacyBySlug.get(m[1]).push({
+      line: b.line + 1,
+      text: b.text,
+      status: rowLine ? normalize((rowLine.split('|').map(normalize)[2] || '')) : null,
+    })
+  }
+  const crossSrcViolations = []
+  const crossSrcBackfillVisible = []
+  let crossSrcPairs = 0
+  for (const rec of closedRecordSlugs) {
+    const bs = legacyBySlug.get(rec.slug) || []
+    for (const b of bs) {
+      if (!b.status) continue
+      crossSrcPairs++
+      if (CLOSED_RE.test(b.status)) continue
+      if (CROSS_BACKFILL_RE.test(b.text)) {
+        crossSrcBackfillVisible.push({ slug: rec.slug, line: b.line, text: b.text, status: b.status })
+        continue
+      }
+      if (crossSrcAllowed.has(rec.slug)) continue
+      crossSrcViolations.push({ slug: rec.slug, recordStatus: rec.status, line: b.line, text: b.text, status: b.status })
+    }
+  }
+  // 承认清单不得变垃圾桶：清单里的 slug 若**本次仍读到它那条已收口记录**却不再构成矛盾 ⇒ 陈旧红。
+  // 范围必须限定在本次可比记录内：实测不加这层限定，任何不含该 slug 的夹具仓库都会让
+  // hasBlocking 恒真、既有 8 条测试集体红——判据越权不是夹具的错。
+  const closedSlugSet = new Set(closedRecordSlugs.map((x) => x.slug))
+  const crossSrcStaleAck = [...crossSrcAllowed].filter((slug) => {
+    if (!closedSlugSet.has(slug)) return false
+    const bs = legacyBySlug.get(slug) || []
+    return !bs.some((b) => b.status && !CLOSED_RE.test(b.status) && !CROSS_BACKFILL_RE.test(b.text))
+  })
+  // 用不上的承认项不出声就会烂在清单里 ⇒ 列成可见项（不拦截：夹具/裁剪仓库天然命中）
+  const crossSrcAcksNotApplicable = [...crossSrcAllowed].filter((slug) => !closedSlugSet.has(slug))
+  // 反失明基线不在这里抛：本仓的规模下界一律写在「读真仓」的测试里（先例：podcast-error-codes
+  // 的「扫描域非空」）。写进 collect() 会把「记录与载体本就不同源」的正常夹具判成失效，
+  // 实测冲掉 8 条合法测试——那是判据越权。配对数仍随报告打印，测试用它做下界断言。
 
   // 旧载体 .quality-gates.md 的同形态矛盾：只计数打印、不拦截——逐块核对后确认那些块属其他会话
   // 的执行记录，本仓纪律是不代他人改写其执行记录。新 PR 的记录载体已被 enforce-gate-record-presence
@@ -301,6 +362,12 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
     recordsFromFiles,
     missingRecordRows,
     statusContradictions,
+    crossSrcViolations,
+    crossSrcBackfillVisible,
+    crossSrcPairs,
+    crossSrcStaleAck,
+    crossSrcAllowedSize: crossSrcAllowed.size,
+    crossSrcAcksNotApplicable,
     statusMismatchVisible,
     legacyVisibleContradictions,
     staleRecordFields,
@@ -350,6 +417,30 @@ function format(r) {
     out.push('  处理：把该 bullet 的状态词改成与权威行一致（无损——证据已在表格行里），或按既有 PASS 口径回填权威行；'
       + '两种形态都写、且同次改写，是 docs-only 记录的安全写法。')
   }
+  if (r.crossSrcViolations.length) {
+    out.push('❌ 跨源矛盾 ' + r.crossSrcViolations.length + ' 处：记录文件已 PASS，旧载体同 slug 的 远程同步 行仍未收口')
+    out.push('   「已合并却被读成没干完」正是重复开工的入口；既有判据只看单源自洽，看不见这种跨源矛盾。')
+    for (const c of r.crossSrcViolations) {
+      out.push('  ' + c.slug + ' 记录=[' + c.recordStatus + '] 但载体 L' + c.line + '=[' + c.status + ']「' + c.text.slice(0, 60) + '」')
+    }
+    out.push('  处理：在**同一次提交**里把载体行与记录行一起改写（PASS + merge SHA）并删 ledger 登记项；'
+      + '若该块属他人会话，由其作者回填后本条自动消解，且承认清单必须同步缩小。')
+  }
+  if (r.crossSrcStaleAck.length) {
+    out.push('❌ 跨源承认清单已陈旧 ' + r.crossSrcStaleAck.length + ' 条（该 slug 已不再构成矛盾，必须从承认清单删除）：')
+    for (const a of r.crossSrcStaleAck) out.push('  ' + a)
+  }
+  if (r.crossSrcBackfillVisible.length) {
+    out.push('（可见项，不拦截：回填型载体块 ' + r.crossSrcBackfillVisible.length + ' 处的未收口行说的是它自己那笔回填 PR，不参与跨源比对）')
+    for (const b of r.crossSrcBackfillVisible) {
+      out.push('   · ' + b.slug + ' L' + b.line + ' [' + b.status + ']「' + b.text.slice(0, 46) + '」')
+    }
+  }
+  out.push('（跨源比对现场：配对 ' + r.crossSrcPairs + ' 组 / 违例 ' + r.crossSrcViolations.length +
+    ' / 承认 ' + r.crossSrcAllowedSize + ' / 回填型排除 ' + r.crossSrcBackfillVisible.length + '）')
+  if (r.crossSrcAcksNotApplicable.length) {
+    out.push('（可见项，不拦截：承认清单里 ' + r.crossSrcAcksNotApplicable.join(',') + ' 本次没读到对应的已收口记录——真仓里若长期如此就该删掉本项）')
+  }
   if (r.statusMismatchVisible.length) {
     out.push(`（可见项，不拦截：反向矛盾 ${r.statusMismatchVisible.length} 处 — 表格行未收口而 bullet 宣称完成；实测 0 篇故不扩拦截面）`)
     for (const c of r.statusMismatchVisible) out.push(`   · ${c.file} L${c.bulletLine} [bullet=${c.bulletStatus}] 行=[${c.rowStatus}]`)
@@ -358,7 +449,8 @@ function format(r) {
     out.push(`（可见项，不拦截：旧载体 .quality-gates.md 同形态矛盾 ${r.legacyVisibleContradictions} 处 — 属他人会话的记录块，不代改）`)
   }
   if (!r.open.length && !r.stale.length && !r.duplicates.length && !r.topRecordMissingRow
-    && !r.missingRecordRows.length && !r.staleRecordFields.length && !r.statusContradictions.length) {
+    && !r.missingRecordRows.length && !r.staleRecordFields.length && !r.statusContradictions.length
+    && !r.crossSrcViolations.length && !r.crossSrcStaleAck.length) {
     out.push('OK: 顶部记录带行，两源所有未收口的 远程同步 行均已登记，清单无陈旧项、记录标题无重复、记录文件登记字段无残留')
   }
   return out.join('\n')
@@ -367,7 +459,8 @@ function format(r) {
 // main 与测试共用这一条谓词：判据若被降级成「只打印」，hasBlocking 断言会当场变红。
 function hasBlocking(r) {
   return !!(r.open.length || r.stale.length || r.duplicates.length || r.topRecordMissingRow
-    || r.missingRecordRows.length || r.staleRecordFields.length || r.statusContradictions.length)
+    || r.missingRecordRows.length || r.staleRecordFields.length || r.statusContradictions.length
+    || r.crossSrcViolations.length || r.crossSrcStaleAck.length)
 }
 
 function main() {
@@ -381,6 +474,7 @@ module.exports = {
   collect, format, loadLedger, normalize, hasBlocking, statusDeclarations,
   UNCLOSED_DECL_RE, CLOSED_DECL_RE,
   listRecordFiles, readRecord, readFrontmatter,
+  CROSS_SLUG_RE, CROSS_BACKFILL_RE, CROSS_SRC_ALLOWED,
   RECORDS_REL, RECORD_FIELD_REASON, RECORD_FIELD_OWNER, RECORD_FIELD_STATUS,
   GATE_FILE, LEDGER_FILE, DUPLICATE_HEADINGS_ALLOWED,
 }
