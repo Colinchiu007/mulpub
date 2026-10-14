@@ -165,8 +165,8 @@ const sessionMixin = {
   },
 
   // ========== Window management ==========
-  _createWindow(partition) {
-    const win = new BrowserWindow({ show:false, width:1280, height:800, webPreferences:{ session:session.fromPartition(partition,{cache:true}), contextIsolation:true, nodeIntegration:false, sandbox:true, backgroundThrottling:false,preload:path.join(__dirname,'../stealth-preload.js') } })
+  _createWindow(partition, platform) {
+    const win = new BrowserWindow({ show:false, width:1280, height:800, webPreferences:{ session:session.fromPartition(partition,{cache:true}), contextIsolation:true, nodeIntegration:false, sandbox:true, backgroundThrottling:false,preload:this._resolvePreloadPath(platform) } })
     win.webContents.on('did-fail-load',function(e,code,desc){log.warn('RpaView','load fail: '+desc+' ('+code+')')})
     // 渲染进程 console 转发（logging-coverage-audit：此前空处理器吞掉页面 JS 报错）
     win.webContents.on('console-message', function (e, _level, message, line, sourceId) {
@@ -184,6 +184,27 @@ const sessionMixin = {
      
     // stealth injected via preload script
     return win
+  },
+  /**
+   * oss-b1-rpa-hardening（2026-10-14）：按平台风控映射选 stealth preload 变体。
+   * enhanced = 主世界 evasions 注入（高风控平台）；baseline = 现状。
+   * 映射表单一真源 = packages/shared-utils/src/publish-capabilities.json riskControl。
+   * 加载失败/未知平台一律回落 baseline（fail-closed 到现状，禁静默升级）。
+   */
+  _resolvePreloadPath(platform) {
+    let variant = 'baseline'
+    try {
+      const { getPreloadVariant } = require('@multi-publish/shared-utils/src/publish-capabilities')
+      variant = getPreloadVariant(platform) === 'enhanced' ? 'enhanced' : 'baseline'
+    } catch (e) {
+      this._logPreloadFallback(platform, e)
+      variant = 'baseline'
+    }
+    const file = variant === 'enhanced' ? path.join('stealth', 'stealth-preload-enhanced.js') : 'stealth-preload.js'
+    return path.join(__dirname, '..', file)
+  },
+  _logPreloadFallback(platform, e) {
+    try { log.warn('RpaView', 'preload variant resolve failed, fallback baseline: ' + platform + ' ' + (e && e.message)) } catch (_e) { /* ignore */ }
   },
   _windowKey(platform, accountId) { return 'rpa-'+platform+'-'+(accountId||'default')+'-'+(this._nextId++) },
 

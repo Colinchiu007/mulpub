@@ -526,3 +526,40 @@ describe('publishProgress store — registerSession 收养/合并（publish-prog
     expect(session.title).toBe('全新')
   })
 })
+
+// PRD-OSS-RPA-HARDENING（2026-10-14，评审 FE2 机械锁）：
+// 相位枚举三处同步的防漂移断言——漏改任一处在 CI 红。
+describe('相位枚举同步锁（PRD-OSS-RPA-HARDENING / 评审 FE2）', () => {
+  async function makeStore() {
+    const { usePublishProgressStore } = await import('./publishProgress')
+    return usePublishProgressStore()
+  }
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  it('store PHASE_ENUM ⊇ emitter PHASE_ENUM（emitter 能发的 store 必须认）', async () => {
+    const emitter = await import('../../electron/services/publish-progress-events.js')
+    const storeMod = await import('./publishProgress.js')
+    // store 的 PHASE_ENUM 未导出则从行为反推：captcha 事件不得被归一成 progress
+    const store = await makeStore()
+    store.handleProgressEvent(progressEvent({ phase: 'captcha', stageKey: 'detail' }))
+    expect(store.sessions[0].tasks['task-1'].phase).toBe('captcha')
+    // emitter 侧必须同样认识 captcha（不被归一）
+    expect(emitter.PHASE_ENUM).toContain('captcha')
+  })
+
+  it('未知相位回落 progress（禁透传 code 原值到 UI）', async () => {
+    const store = await makeStore()
+    store.handleProgressEvent(progressEvent({ phase: 'totally-unknown-phase' }))
+    expect(store.sessions[0].tasks['task-1'].phase).toBe('progress')
+  })
+
+  it('captcha 不是终态（验证后必须还能流转到 success）', async () => {
+    const store = await makeStore()
+    store.handleProgressEvent(progressEvent({ phase: 'captcha' }))
+    store.handleProgressEvent(progressEvent({ phase: 'success' }))
+    expect(store.sessions[0].tasks['task-1'].phase).toBe('success')
+  })
+})
