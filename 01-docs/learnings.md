@@ -18831,3 +18831,109 @@ P2-5/P2-6 合流时，我在 pipeline 层用 `generation` 守卫防「旧流水�
 **⇒ 与 P2-4「尺寸参数给了非法值就明确拒绝，不静默回落」是同一条纪律。**
 **⇒ 处方：`undefined` 才用默认，给了任何值都原样透传，让被调方自己判。**
 **⇒ 这次是测试抓住的，不是我自己看出来的** —— 说明写测试时锁对了方向。
+
+---
+
+## 2026-10-14 第 108–110 轮：两条 CI 红的根因都在「看不见的判据」里
+
+### 1. ★「本地四门禁全绿」不等于「CI 全绿」
+
+现场：CI 红在 `QG Static`，而本地 vitest / eslint / unwired / locale 四条全绿。
+根因：渲染层 `useArticlePagination.js` 直接 import 了 CommonJS 的
+`@multi-publish/shared-utils/src/index.js`（跨边界）。
+
+**为什么四道本地检查都看不见**：
+
+| 检查 | 结果 | 原因 |
+| --- | --- | --- |
+| `vite build` | 绿 | rollup 的 commonjs 插件在构建期做 interop |
+| `vitest` | 绿 | vite-node 自带 CJS interop |
+| `tsc --noEmit` | 绿 | JS 文件不做模块形态检查 |
+| `electron-builder` | 绿 | asar 里塞的就是 CJS，主进程 `require` 没问题 |
+| **dev server** | **红** | **只有它会红**，报错形态是「整页渲染失败 + 一条 ESM 具名导出错误」 |
+
+**⇒ 处方：改渲染层 import 后必须显式跑
+`node scripts/check-renderer-cjs-boundary.js`** —— 它对应 dev server 的真实行为。
+
+**★ 而且这个修法有 10 个既有先例**（`safe-http-url.browser.js` 等），
+AGENTS.md 也明写了「照三先例」—— 我是**照抄先例没对齐**的又一例。
+
+### 2. parity 回归要做「逐行同源」，不要做「几个行为向量」
+
+CJS 与 ESM 孪生的 parity 测试，三组判据：
+
+| 组 | 判据 |
+| --- | --- |
+| ① | 剥离模块包装与头注释后，两文件**逐行相同** |
+| ② | 导出面集合相等 + 常量取值相等 + 表元素与顺序相同 |
+| ③ | 行为向量（吸附 / 装箱页数 / fail-closed）一致 |
+
+**⇒ 第①组才是主力：向量只能覆盖想得到的分支，逐行比对覆盖全部（含想不到的）。**
+
+两个配套细节，**缺一个就会假绿**：
+- **规模下界断言**（剥离后 > 150 行）—— 防「剥离逻辑坏掉 → 空 vs 空」
+- **normalizer 必须同时剥前导与尾部空行** —— CJS 有 `'use strict'` 后跟一空行、
+  ESM 没有，那是包装的一部分不是逻辑漂移（我实际踩到：第 1 行就报漂移）
+
+### 3. ★「加了一个新域 / 新模块」这个动作本身会激活一批此前空转的判据
+
+现场：CI 红 5 个 job，其中 `QG Desktop Shards` 与 `QG Coverage` 同源于
+`src/locales/structure-lock.test.js` 的断言 ①：
+
+```
+AssertionError: zh.js cards 缺键 entryDesc: expected [] to include 'entryDesc'
+```
+
+**根因：这条判据在 main 上从未真正生效过。** 两个解析缺陷叠加让断言变成**空循环**：
+
+| # | 缺陷 | 后果 |
+| --- | --- | --- |
+| ① | `topKeysOfObject` 假设命名空间是**多行字面量**；单行 `cards: { ...cardsZh },` 同行成对花括号让 depth 立刻归 0 ⇒ **第一行就 break** ⇒ `[]` |
+| ② | `domainModuleKeys` 写死「恰好两空格缩进」，而既有 5 个域用 **4 空格**、`film-engineering` 还用**双引号键名** ⇒ 恒 `[]` |
+
+断言是 `for (const k of zhDomain) expect(zhAsmKeys).toContain(k)` ——
+**`zhDomain` 为空则一次都不跑。**
+
+**⇒ 我写探针复刻两函数跑 main 验证**：`hotTopics` / `contentCategories` /
+`emptyStates` / `automation` / `publishPage` 的键集合**全部是 `[]`**。
+
+**⇒ 我的 `cards/zh.js` 恰好用 2 空格缩进，把判据第一次激活，于是立刻红。**
+
+**★ 一般化：很多判据是遍历式的**（`readdirSync` 域目录、扫描渲染层文件）。
+**新增一个被遍历到的对象，等于把该判据第一次真正打开。**
+所以「加新域」时要**预期**：一批历史空转的判据会被激活。
+
+### 4. 修好假绿门禁会暴露既有漂移 —— 用「显式欠账登记」而不是「静默排除」
+
+修好上条的两处解析缺陷后，判据第一次真跑，立刻抓到 `story2video` 的
+zh/en 子模块键不对称：`composeSegments` 只在 zh、`composeProgress` 只在 en
+（**main 上同样存在**，非本 PR 引入；探针实测两侧各 121 键、各独有 1 键）。
+
+处置：登记为 `KNOWN_KEY_ASYMMETRY`（照该文件里既有的 `PRECEDENT_DIRS` 模式），
+**而不是**从扫描里静默剔除该域。三条设计要点：
+
+1. 登记项**要求写明 `onlyZh` / `onlyEn` 的具体键名** —— 形状变了仍然红
+   （不是「加个名字就免检」）
+2. **不顺势修**：两侧各缺一个键，补哪侧都要为该功能写原文案，归属不在本 PR；
+   **臆造翻译比留一条可见欠账更糟**
+3. 状态变化：原「判据空转 ⇒ 没人知道」→ 现「可见欠账 + 精确键名 + owner」
+
+**★ 修门禁时的正确姿势：不要为了让自己的 PR 变绿而把判据改宽；
+把假绿变真绿，把暴露出的既有问题变成可见的、带具体证据的欠账。**
+
+### 5. 反证纪律：改一处即红、还原即绿 + 逐字节还原验证
+
+两处都做了反证：
+
+- **边界门禁**：其自测 `scripts/check-renderer-cjs-boundary.test.js` 的 3 条
+  （正控 / 反证 / 还原后必须重新变绿）本地跑 **3/3**
+- **structure-lock**：把 `cards` 的展开接错模块，
+  从 `cardsZh` 改成 `automationZh`
+  ⇒ `AssertionError: zh.js cards 展开的不是本域子模块: expected 'automationZh' to be 'cardsZh'`（红）
+  还原 ⇒ 4 passed（绿）
+
+**★ 还原后必须验证「工作区未被污染」**：`git diff --numstat -- <被改文件>` 输出为空。
+本条我实际执行了（`zh.js` 零 diff），**否则反证会变成一次静默的代码改动**。
+
+**★ 修假绿门禁时，「改一处即红」这条反证尤其重要** ——
+因为它要证明的正是「这条判据现在**真的在跑**」，而不是又一次空转。
