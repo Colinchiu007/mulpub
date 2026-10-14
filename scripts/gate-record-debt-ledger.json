@@ -54,10 +54,5 @@
   "本次执行记录：更正「bootstrap 只认 X-Catalog-Key」错误结论 + 本轮 4 条教训（ops-ingress-correct，2026-10-14）【docs-only】": "本 PR（ops-ingress-correct）的远程同步待合并后由后续 docs PR 回填并删除本条登记项",
   "本次执行记录：让「运营」退出应用用户面 + 信任锚下沉部署层（ops-ingress-only，2026-10-14）【混合 PR】": "本 PR（ops-ingress-only）的远程同步待合并后由后续 docs PR 回填并删除本条登记项",
   "本次执行记录：回填 #3543 远程同步 PASS + merge SHA，并销账（ops-ingress-only）【docs-only】": "本回填 PR（bf-ops-ingress）的远程同步待合并后由后续 docs PR 回填并删除本条登记项",
-  "本次执行记录：回填 #3572 远程同步 PASS + merge SHA，并销账（prd-auth-fix）【docs-only】": "本回填 PR（bf-prd-auth）的远程同步待合并后由后续 docs PR 回填并删除本条登记项",
-  "本次执行记录：开源强化 B1 PRD 与 openspec change（oss-b1-rpa-hardening-prd，2026-10-14）【docs-only】": {
-    "reason": "本 PR 开 PR 时远程同步未闭合：squash 合并后方可取 merge SHA 回填；合并后由后续 docs PR 在同一次提交回填 PASS + SHA 并删除本登记",
-    "status": "PENDING",
-    "line": 11277
-  }
+  "本次执行记录：回填 #3572 远程同步 PASS + merge SHA，并销账（prd-auth-fix）【docs-only】": "本回填 PR（bf-prd-auth）的远程同步待合并后由后续 docs PR 回填并删除本条登记项"
 }
