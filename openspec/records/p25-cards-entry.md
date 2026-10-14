@@ -1,6 +1,6 @@
 ---
 record: p25-cards-entry
-task: P2-5 第二批 —— useCardsRender 交互状态机 + 合同测试
+task: P2-5 第三批 —— CardsRenderPanel.vue + 模板层合同测试
 date: 2026-10-14
 # ↓ 三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
 sync_status: PENDING
@@ -8,7 +8,7 @@ sync_reason: 本 PR 尚未合并，merge SHA 还不存在，无法取证收口
 sync_backfill_owner: 下一个会话（按三形态同改纪律：表格行 + bullet + 删除本段三字段，同一次提交）
 ---
 
-## 本次执行记录：P2-5 第二批 useCardsRender（p25-cards-entry，2026-10-14）
+## 本次执行记录：P2-5 第三批 CardsRenderPanel（p25-cards-entry，2026-10-14）
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → 见 CI
   —— 含 `apps/desktop/src/` ⇒ **混合 PR**，走完整质量节拍。
@@ -17,50 +17,63 @@ sync_backfill_owner: 下一个会话（按三形态同改纪律：表格行 + bu
 
 | 文件 | 类型 | 内容 |
 | --- | --- | --- |
-| `apps/desktop/src/features/cards/useCardsRender.js` | 新增 | 交互状态机（composable）|
-| `apps/desktop/src/features/cards/useCardsRender.test.js` | 新增 | 9 条合同测试 |
+| `apps/desktop/src/features/cards/CardsRenderPanel.vue` | 新增 | 面板组件 |
+| `apps/desktop/src/features/cards/CardsRenderPanel.test.js` | 新增 | 8 条模板层合同测试 |
 
-## 形态来源
+## 三条硬契约在**模板层**的落点
 
-照 `useQuickCollectCommands.js`（`src/features/collection/`）：`ref` 状态 + `computed`
-+ `async function` + `try/catch/finally` + `res.code === 0` 判成功。
+| 规格判据 | 模板落点 | 测试 |
+| --- | --- | --- |
+| ① 入口可点、进度可见、失败有明确文案 | 按钮 + `v-if="rendering"` 进度条 + `v-if="failed"` 错误条 | 3 条 |
+| ② warnings 非空时有可见提示 | `v-if="hasWarnings"` 区块 + `v-for` 逐条 | **3 条** |
+| ③ 结果展示 | `v-if="hasResult"` 张数 + 提示 | 2 条 |
 
-## ★ 三条硬契约（P2-5 规格「失败面」条）
+### ★ 测试锁住的两个非显然行为
 
-1. **warnings 非空即必须保留** —— 不得在主进程给了之后丢掉。
-   测试锁：成功带 warnings ⇒ `hasWarnings === true` 且数组**逐元素相等**。
-2. **失败必须点名原因** —— 「暂不可用」「入参非法」「页数不符」三种必须可区分，
-   且**不返回部分产物**（页数不符时 `resultFiles` 必须为空）。
-3. **「暂不可用」≠「渲染失败」** —— 桥接层 fallback 是 `CARDS_IPC_UNAVAILABLE`，
-   混成一句「生成失败」会让用户无法判断该重试还是该报障。
+**① 渲染中按钮禁用** —— 防重复点击（防重复触发主进程渲染）
 
-## 测试锁住的具体行为
+```js
+expect(w.find('[data-testid="cards-render-run"]').attributes('disabled')).toBeDefined()
+```
 
-| 用例 | 锁什么 |
-| --- | --- |
-| 成功 ⇒ resultFiles 有值、failure 空 | 基本路径 |
-| **warnings 非空必须保留** | 规格「失败面」 |
-| **warnings 缺省不留脏值** | 上次的 warnings 不得带到下次（跨调用污染）|
-| `CARDS_IPC_UNAVAILABLE` ⇒ `failedService` | 暂不可用可区分 |
-| `VALIDATION_ERROR(-2)` ⇒ `failedValidation` + 原文进 vars | 入参非法可定位 |
-| **页数不符 ⇒ `failedCount` + resultFiles 空** | 不返回部分产物 |
-| 未知领域码 ⇒ `failedUnknown` + **原文进 vars** | 不得吞掉原因 |
-| 桥接层抛错 ⇒ 被接住，不变成 unhandled rejection | 异常不外泄 |
-| `reset()` 清空四项 | 入口可重来 |
+**② 未知 warning 如实回显其标识** —— 不伪装成已知文案，也不丢弃
 
-## 为什么文案不写在 composable 里
+```js
+mockCardsRender.mockResolvedValue({ code: 0, data: [...], warnings: ['some-new-warning'] })
+expect(w.find('[data-testid="cards-warning-some-new-warning"]').text()).toBe('some-new-warning')
+```
 
-`mapFailure()` 只决定「用哪条 locale 键 + 代入哪些变量」，**不拼中文句子**。
-文案集中在 `locales/cards/{zh,en}.js`（第一批已建），由 `t()` 取。
-⇒ 新增一种失败模式只改 `CODE_TO_KEY` 和 locale，不动交互逻辑。
+**⇒ 若 `WARNING_KEYS` 缺项就静默丢一条，用户会漏看真实告警。**
+
+## ★ 途中修掉一个 Vue SFC 陷阱（8 条全红的根因）
+
+`:data-testid="cards-render-run"` 渲染出 `data-testid="NaN"`。
+
+**⇒ Vue 的 `:attr` 是 JS 表达式**，裸连字符字符串不是合法标识符 ⇒ 求值为 `NaN`。
+
+**⇒ 修**：`:data-testid="'cards-render-run'"`（加引号）。
+**⇒ 先例** `QuickCollectPanel.vue` 正是 `:data-testid="'quick-collect-run-' + c.id"`。
+
+**★ 教训（第三例同型）**：先例就在旁边（同一个目录、同一个模式），
+我凭印象写了 `:data-testid` 的裸串形态。**「读先例」必须逐字符对齐，不是对齐大意。**
+
+## 调试方法（值得记住）
+
+`Cannot call trigger on an empty DOMWrapper` 时：
+
+1. `console.log(w.html())` 看**实际渲染了什么** ⇒ 发现根 div 有、按钮没有
+2. 看 Vue warn ⇒ `Property "cards" was accessed` / `Property "run"`（误导，真正问题是 `NaN`）
+3. **看 HTML 里的属性值** ⇒ `data-testid="NaN"` 一语中的
+
+**⇒ 第 3 步才是决定性的：属性值本身就说出了根因。**
 
 ## 保留门禁
 
 | 项 | 状态 | 说明 |
 | --- | --- | --- |
-| vitest（`useCardsRender.test.js`）| PASS | **9 passed** |
+| vitest（cards 全量）| PASS | **17 passed**（9 composable + 8 组件）|
 | Gate 11 ESLint | PASS | `eslint src/features/cards/ --quiet` exit=0 |
-| 未接线测试 | PASS | `check-unwired-tests.js` exit=0；`vitest.config.js` include 首条即 `src/**/*.test.{js,ts}` ⇒ 自动收集，无需 workflow 点名 |
+| 未接线测试 | PASS | `check-unwired-tests.js` exit=0 |
 | 行尾对账 | PASS | 两口径一致 |
 | 远程同步 | PENDING | 本 PR 未合并 |
 
@@ -68,5 +81,5 @@ sync_backfill_owner: 下一个会话（按三形态同改纪律：表格行 + bu
 
 ## 未含（下一批）
 
-- Vue 组件（按钮 + 进度 + 结果/失败 + warnings 展示）
-- QM-1 打包 + 手动验证四问
+- 面板挂到选题/发布页（父组件传入 `pages`）
+- QM-1 打包 + 手动验证四问（启动/核心功能/非法输入/错误提示）
