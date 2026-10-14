@@ -2,9 +2,6 @@
 record: bf-ops-url
 task: 回填 #3608 远程同步 PASS + merge SHA，并补本体 QG 块
 date: 2026-10-15
-sync_status: PENDING
-sync_reason: 本回填 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：回填 #3608 远程同步 PASS + merge SHA，并补本体 QG 块（ops-url-split）【docs-only】
@@ -20,6 +17,5 @@ sync_backfill_owner: 下一个会话
 | 编码与行尾 | PASS | 两口径 `numstat` 一致 |
 | QM-1 / QM-4 | N/A | 未触生产代码与渲染层 |
 | QM-6 双模型外部评审 | 未执行 | 本机无 `codeagent-wrapper`，如实登记（本体 279 行 > 200 行阈值） |
-| 远程同步 | PENDING | 待本回填 PR 合并后由后续 docs PR 回填 merge SHA 并销账 |
-
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PENDING
+| 远程同步 | PASS | merge `92532864117a28e412dd461db39868c67d319276`（2026-10-15 03:33:15 +08:00）；PR 已 MERGED，远端分支 `ls-remote` 0 行 |
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PASS（merge 925328641，远端分支 0 行）
