@@ -2,9 +2,6 @@
 record: ops-url-split
 task: getConfig().url 混装「手填 / 自动发现」地址的拆分
 date: 2026-10-15
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；远程同步这一行的证据只能在合并后取
-sync_backfill_owner: 下一个会话（按 AGENTS.md「合并后收尾清单」回填并删除本段三个字段）
 ---
 
 ## 本次执行记录：getConfig().url 混装「手填 / 自动发现」地址拆分（ops-url-split，2026-10-15）【混合 PR】
@@ -23,8 +20,7 @@ sync_backfill_owner: 下一个会话（按 AGENTS.md「合并后收尾清单」�
 | locale 成对 | N/A | 未新增/修改任何用户可见文案（`saveConfig` 的拒绝 `message` 是**主进程返回给调用方的错误串**，非渲染端静态文案；渲染端无对应展示面 —— 运营中心配置入口已于 #3543 整体移出应用前端） |
 | 视觉回归 | N/A | 无前端视觉变更（纯主进程地址口径改造，零 UI 改动） |
 | QM-6 双模型外部评审 | 未执行 | 本机无 `codeagent-wrapper`，如实登记（变更 279 行 > 200 行阈值，按判据本应走 dual） |
-| 远程同步 | PENDING | 开 PR 时登记；合并后就地改写为 `PASS` + merge SHA（回填 PR 完成，含销账） |
-
+| 远程同步 | PASS | merge `325e6151617368af8cd8e90997a556de31e15fd5`（2026-10-15 03:25:55 +08:00）；PR 已 MERGED，远端分支 `ls-remote` 0 行 |
 ### 交付内容（3 文件，279 插入 / 11 删除）
 
 1. **`apps/desktop/electron/services/ops-center-sync-url.js`（新增 44 行）** — 零依赖纯函数模块：
@@ -59,4 +55,4 @@ sync_backfill_owner: 下一个会话（按 AGENTS.md「合并后收尾清单」�
 
 ### 保留门禁
 
-行尾对账 ✅（3 文件两口径一致） | 品牌残留 ✅ | locale 成对 N/A | 视觉回归 N/A | 债务熔断 ✅（`filesOver500` 计数 97 ≤ 基线 101） | QM-1 ✅（rc=0 + asar 含新模块） | 远程同步 PENDING
+行尾对账 ✅（3 文件两口径一致） | 品牌残留 ✅ | locale 成对 N/A | 视觉回归 N/A | 债务熔断 ✅（`filesOver500` 计数 97 ≤ 基线 101） | QM-1 ✅（rc=0 + asar 含新模块） | 远程同步 PASS（merge 325e61516，远端分支 0 行）
