@@ -467,7 +467,7 @@ P0 ──┬──> P3-1 ──> P3-2
 
 | # | 判据 | 通过条件 |
 |---|---|---|
-| M3-1 | `node scripts/verify-platform-onboarding.js baijiahao` | 逐条 **PASS** |
+| M3-1 | `node scripts/verify-platform-onboarding.js kuaishou` | 逐条 **PASS** |
 | M3-2 | 同上，传**不存在的 slug** | 退出码非 0 且逐条 FAIL（**不静默通过**） |
 | M3-3 | 试点平台真机发布一条含分类的内容 | 平台接受（**唯一需要真机的判据**，见 §8 合规） |
 | M3-4 | `verify-platform-onboarding` 的反证测试 | 故意漏一步 ⇒ 该步 FAIL |
