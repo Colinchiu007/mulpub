@@ -346,24 +346,34 @@
 | `dayu` | **8** | 1 / 2 / 3 / 4 / 5 / 7 / 9 / 11 |
 | `qie` | **9** | 1 / 2 / 3 / 4 / 5 / 7 / 8 / 9 / 11 |
 
-缺口集中在四类（均可由 agent 完成，属判据①范畴）：
-- `platform-definitions.js` 的 `PLATFORM_LOGIN_URLS` / `PLATFORM_DASHBOARD_URLS` / `PLATFORM_LOGIN_SUCCESS_PATTERNS`（判据 1/2/3）
-- `config/platforms.yaml` 配置字段完整性（判据 4）—— **实测两个平台在 YAML 里均无配置段**
-- `publish-capabilities.json` 元数据 + `validateRegistry()` 空数组（判据 5）
-- 三张上限表 `CONTENT_LIMITS` / `TITLE_LIMITS` / `TAG_STYLES`（判据 7/8）
-- 测试与文案（判据 11）
+缺口集中在四类，**但可完成性不同**（2026-10-14 修正，初版曾误写「均可由 agent 完成」）：
 
-**⇒ 即：agent 可把判据①从 8–9 FAIL 推到全 PASS，但②③仍卡在真机。**
+| 缺口 | 判据 | agent 能否独立完成 |
+|---|---|---|
+| `config/platforms.yaml` 配置段（实测两个平台均无配置段）| 4 | ✅ 可（字段结构照既有平台抄）|
+| `publish-capabilities.json` 元数据 + `validateRegistry()` 空数组 | 5 | ✅ 可 |
+| 三张上限表 `CONTENT_LIMITS` / `TITLE_LIMITS` / `TAG_STYLES` | 7/8 | ✅ 可 |
+| 测试与文案 | 11 | ✅ 可 |
+| **`platform-definitions.js` 的 `PLATFORM_LOGIN_URLS` / `PLATFORM_DASHBOARD_URLS` / `PLATFORM_LOGIN_SUCCESS_PATTERNS`** | 1/2/3 | ❌ **不可** —— 需真机取证 |
+
+**⇒ URL 类为什么不可猜**（`platform-definitions.js` L441-457 的既有约束）：
+
+- L447：「每个值的 host 必须与同平台 `PLATFORM_LOGIN_URLS` **同源**（**跨域＝开到别的站点**）」—— 写错是**安全问题**，不是「配置不准」
+- L449-454：小红书的 `PLATFORM_CREATOR_HOME_URLS` 是 **2026-10-13 真机取证**得来（CDP 逐帧 `/`→`/login`→`/new/home`，观察到已登录先渲染登录路由约 1.2s 再跳转 = 用户看到的登录页闪动），并单独产出 PRD `01-docs/PRD-CREATOR-CENTER-LOGIN-FLASH-2026-10-13.md`
+- `PLATFORM_LOGIN_SUCCESS_PATTERNS` 是**登录成功判据**，猜错会让「未登录」被当成「已登录」（或反之），直接影响账号态判定
+
+**⇒ 修正后的结论：判据①里也有约一半（URL/模式类）需要真机取证，不只是判据②③。**
 
 **三、开工前置条件（按优先级）**
 
-1. **用户提供 `dayu` 或 `qie` 的真实平台账号**（判据②③的唯一解锁条件）
+1. **用户提供 `dayu` 或 `qie` 的真实平台账号 + 登录一次以便取证 URL**（判据①②③的共同解锁条件）
 2. 确认该平台的分类 ID 表来源（R-1 就绪声明需复核）
-3. 由 agent 先完成判据①的四类缺口（不依赖账号，可与 1/2 并行）
+3. agent 先完成**不依赖真机**的那部分（YAML 配置段 / capabilities / 上限表 / 测试与文案），可与 1/2 并行
 
 **四、为什么先记下来再走**
 
-判据①的四类缺口是**纯本地工作**，随时可做；但判据②③的阻塞是**外部条件**。
+不依赖真机的部分（YAML / capabilities / 上限表 / 测试文案）是**纯本地工作**，随时可做；
+但 **URL/模式类 + 判据②③的阻塞是外部条件**（真实账号 + 登录取证）。
 把「哪些能做什么不能做、卡在哪个具体条件」写进计划文档，
 下一个会话（或用户）就能直接接着做，不必重新评估一遍。
 
