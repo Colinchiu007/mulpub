@@ -39,6 +39,19 @@ const MUTATIONS = [
   { id: 'N8', file: CR, from: "    fs.appendFileSync(process.env.GITHUB_OUTPUT, `gui-relevant=${relevant}\\n`, 'utf8')",
     to: '    // MUT N8: 不再写产出',
     expect: 'CLI 端到端：真 git 仓库里文档改动判否、桌面改动判是' },
+  // 聚合作业三刀 + 空变更集留痕一刀（都是本轮按实测补的防线，必须各自有牙）
+  { id: 'N9', file: WF, from: '    if: always()\n    timeout-minutes: 5',
+    to: '    timeout-minutes: 5',
+    expect: '必须有 GUI Gate Result 聚合作业' },
+  { id: 'N10', file: WF, from: 'if [ "$CHANGES_RESULT" != "success" ]; then',
+    to: 'if [ "$CHANGES_RESULT" = "definitely-never-matches" ]; then',
+    expect: '必须有 GUI Gate Result 聚合作业' },
+  { id: 'N11', file: WF, from: '          CHANGES_RESULT: ${{ needs.changes.result }}\n',
+    to: '',
+    expect: '必须有 GUI Gate Result 聚合作业' },
+  { id: 'N12', file: CR, from: '    lines.unshift(\'NOTE: EMPTY_CHANGESET',
+    to: '    if (false) lines.unshift(\'NOTE: EMPTY_CHANGESET',
+    expect: 'CLI 端到端：真 git 仓库里文档改动判否、桌面改动判是' },
 ]
 
 const backups = new Map()

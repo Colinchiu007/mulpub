@@ -267,6 +267,12 @@ describe('GUI/CI 工作流门禁契约', () => {
       expect(bad.rc).toBe(1);
       expect(fs.existsSync(outFile)).toBe(false);
 
+      // ③b 空变更集（base==head）必须**留痕**并判不相关 —— 与"取证失败"必须可区分
+      const empty = runCli(docsHead, docsHead);
+      expect(empty.rc).toBe(0);
+      expect(empty.stdout).toContain('EMPTY_CHANGESET');
+      expect(empty.stdout).toContain('gui-relevant=false');
+
       // ④ GITHUB_OUTPUT 正常路径必须真的追加（作业产出靠它，光打印不算）
       const okOut = runCli(base, docsHead, { GITHUB_OUTPUT: outFile });
       expect(okOut.rc).toBe(0);
@@ -274,6 +280,43 @@ describe('GUI/CI 工作流门禁契约', () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  // 实测反转了"依赖失败 ⇒ 检查不到来"的直觉：QG Changes 红过的 4 个历史 run 里，下游作业的
+  // check run 全部存在且 conclusion=skipped；而 skipped 满足 required ⇒ 判据作业坏了会让这条
+  // gate **静默假通过**。所以必须有 if:always() 的聚合作业把三种失败压成一个可见的红。
+  it('必须有 GUI Gate Result 聚合作业，且它同时读 changes 与 gui-test 的结果', () => {
+    const { workflow } = readWorkflow('gui-test.yml');
+    const agg = workflow.jobs['gui-gate-result'];
+
+    expect(agg, '缺 gui-gate-result 聚合作业 ⇒ 判据坏了会被读成 skipped=通过').toBeDefined();
+    expect(agg.if).toBe('always()');
+    expect(agg.needs).toEqual(expect.arrayContaining(['changes', 'gui-test']));
+    const steps = agg.steps || [];
+    const withRun = steps.find((s) => s.run);
+    expect(withRun, '聚合作业必须有一条 run 步骤，否则 verdict 无处执行').toBeDefined();
+    // 注入面单独锁：${{ needs.* }} 是写在 step.env 里的，漏一条声明 bash 就拿到空串，
+    // 于是"判据作业坏了"会被读成空值分支 —— 这是本仓记过的 env/输出接缝失效形态。
+    const env = withRun.env || {};
+    expect(String(env.CHANGES_RESULT)).toContain('needs.changes.result');
+    expect(String(env.GUI_RESULT)).toContain('needs.gui-test.result');
+    expect(String(env.GUI_RELEVANT)).toContain('needs.changes.outputs.gui-relevant');
+    expect(String(env.EVENT_NAME)).toContain('github.event_name');
+    const body = withRun.run;
+    // 裁决必须 fail closed：changes 非 success 一律红；skipped 只在「PR 且 relevant 明确为 false」时合法
+    expect(body).toMatch(/CHANGES_RESULT" != "success/);
+    expect(body).toMatch(/GUI_RELEVANT" = "false/);
+    expect(body).toMatch(/\*\)/);
+  });
+
+  it('进 required 清单的正确名字是聚合作业显示名（防止后人只收 gui-test 留下假通过）', () => {
+    const { workflow } = readWorkflow('gui-test.yml');
+    const names = Object.entries(workflow.jobs)
+      .filter(([, j]) => j.name)
+      .map(([, j]) => j.name);
+
+    expect(names).toContain('GUI Gate Result');
+    expect(names).not.toContain('Gate Result');
   });
 
   it('push 触发保持原样（本次只修 PR 侧检查缺席，不得顺手扩大 main push 的跑量）', () => {

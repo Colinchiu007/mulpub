@@ -7,5 +7,9 @@ N5 CAUGHT (2 红) 由「相关性判定按行为而非字面串」抓住
 N6 CAUGHT (2 红) 由「CLI 端到端：真 git 仓库里文档改动判否、桌面改动判是」抓住
 N7 CAUGHT (1 红) 由「CLI 端到端：真 git 仓库里文档改动判否、桌面改动判是」抓住
 N8 CAUGHT (1 红) 由「CLI 端到端：真 git 仓库里文档改动判否、桌面改动判是」抓住
-MUTATIONS=8 MISSED=0 WRONG_CAUSE=0 RESTORED_BYTES_EQUAL=true
+N9 CAUGHT (1 红) 由「必须有 GUI Gate Result 聚合作业」抓住
+N10 CAUGHT (1 红) 由「必须有 GUI Gate Result 聚合作业」抓住
+N11 CAUGHT (1 红) 由「必须有 GUI Gate Result 聚合作业」抓住
+N12 CAUGHT (1 红) 由「CLI 端到端：真 git 仓库里文档改动判否、桌面改动判是」抓住
+MUTATIONS=12 MISSED=0 WRONG_CAUSE=0 RESTORED_BYTES_EQUAL=true
 driver rc=0
