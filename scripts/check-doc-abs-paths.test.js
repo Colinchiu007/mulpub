@@ -583,7 +583,10 @@ test('本仓基线必须与现场逐文件相等（既不多也不少，防止�
 
 function baselineJson (files) {
   return JSON.stringify({
-    note: 'fixture', generated: '2026-01-01', reason: 'fixture', files
+    // base 处的账本也必须带 metric：上一节那个「换代豁免」把"base 没写 metric"读成"来自上一代"，
+    // 于是三条放宽行为锁会在**没有换代发生**的夹具里被豁免掉 —— 守卫自己的豁免分支必须先被夹具喂对。
+    note: 'fixture', generated: '2026-01-01', reason: 'fixture',
+    metric: require(SCRIPT).METRIC_VERSION, files
   }, null, 2) + '\n';
 }
 
@@ -870,7 +873,10 @@ test('计数不得依赖盘符存在：同一份夹具在两种档位下命中�
 
 test('纯函数锁：canJudge=false 时 judgeBaseline 仍必须给出 over 与 shrink', () => {
   const mod = require(SCRIPT);
-  const counts = new Map([['01-docs/a.md', [{ file: '01-docs/a.md', line: 1, path: 'Q:\\x' }]]]);
+  // over 需要「现场比账本多」：3 条命中 vs 基线 2。第一版我只放了一条，于是这条锁在
+  // 实现已经正确的情况下报红 —— 红的是夹具算错，不是判据没改（写下这条以免下一个会话重踩）。
+  const three = [1, 2, 3].map((i) => ({ file: '01-docs/a.md', line: i, path: 'Q:\\x' + i }));
+  const counts = new Map([['01-docs/a.md', three]]);
   const baseline = new Map([['01-docs/a.md', 2]]);
   const domain = new Set(['01-docs/a.md']);
   const up = mod.judgeBaseline({ counts, baseline, domain, canJudge: false });

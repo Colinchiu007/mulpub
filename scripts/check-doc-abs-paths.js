@@ -510,6 +510,7 @@ function serializeBaseline (found, prev) {
     note: BASELINE_NOTE,
     // 首次生成写当天；之后再写**保留原值**——否则每天跑一次账本就多一处无意义 diff，
     // "重写必须幂等"这条锁也就永远立不住。
+    metric: METRIC_VERSION,
     generated: (prev && prev.generated) || new Date().toISOString().slice(0, 10),
     reason: (prev && prev.reason) || BASELINE_REASON_INITIAL,
     files,
@@ -612,6 +613,9 @@ function main () {
     const added = [...found.keys()].filter((f) => !baseline.has(f));
     const gone = [...baseline.keys()].filter((f) => !found.has(f));
     const moved = [...found.keys()].filter((f) => baseline.has(f) && baseline.get(f) !== found.get(f).length);
+    // 生成的账本落在 scripts/ 下；fixture 或首次生成时那个目录可能不存在（实测 ENOENT：
+    // 取消 !canJudge 拒绝之前这段代码从没被走到过，所以这个前提一直是隐性的）。
+    fs.mkdirSync(path.dirname(baselinePath()), { recursive: true });
     fs.writeFileSync(baselinePath(), serializeBaseline(found, prev));
     process.stderr.write(
       `[check-doc-abs-paths] 基线已重写：扫描域 ${allFiles.length} 个受管文件 / ` +
