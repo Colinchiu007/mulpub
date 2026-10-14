@@ -92,15 +92,24 @@ export function useCardsRender () {
    * @param {string[][]} payload.pages 分页结果（每页是块数组）
    * @param {number} [payload.widthPx]
    * @param {number} [payload.heightPx]
-   * @returns {Promise<boolean>} 是否成功（调用方可据此决定是否展示结果区）
+   * @param {() => boolean} [payload.isStale] **过期探针**：返回 true 表示本次调用已被
+   *   更新的调用取代。给了它就在**写任何 ref 之前**先问，过期则直接返回 false 且不写。
+   *   ★ 为什么必须由底层问、不能由上层事后丢弃：`resultFiles` 等 ref 是在这里写的，
+   *     上层的 generation 守卫只能保护它自己那份状态，拦不住本函数的赋值。
+   * @returns {Promise<boolean>} 是否成功（false 也可能是「已过期被丢弃」）
    */
   async function render (payload) {
+    const isStale = payload && typeof payload.isStale === 'function' ? payload.isStale : null
+    const stale = () => (isStale ? isStale() : false)
+
     rendering.value = true
     failure.value = null
     resultFiles.value = []
     warnings.value = []
     try {
       const res = await cardsRender(payload)
+      // ★ 写 ref 之前先问：迟到的那一次不得覆盖新结果
+      if (stale()) return false
       const ok = res && res.code === 0 && Array.isArray(res.data)
       if (!ok) {
         failure.value = mapFailure(res)
@@ -111,6 +120,7 @@ export function useCardsRender () {
       warnings.value = Array.isArray(res.warnings) ? res.warnings.slice() : []
       return true
     } catch (e) {
+      if (stale()) return false
       // 桥接层只对「权限不足」兜底，其余错误照原样抛出 —— 这里接住并映射成文案
       failure.value = { key: 'failedUnknown', vars: { message: (e && e.message) || String(e) } }
       return false
