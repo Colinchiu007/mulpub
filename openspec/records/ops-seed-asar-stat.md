@@ -67,16 +67,18 @@ at extractContext (electron/bootstrap/phase1-context.js:242)
 - 先只改测试：`47 例 / 3 红`，红的正是三条新语义——结构锁（`_probeSeed` 禁 statSync）、`resolveSeedPaths` 再传 `resourcesPath` 也不得生出第二候选、构造器只认 asar 内候选（往包外写读不到、往候选那一位写才读到）。
 - 再改实现：消费者并集**全部 4 个测试文件 177 passed / 0 failed**（`ops-runtime-snapshot` / `ops-center-sync` / `ops-center-sync.resilience` / `observability-messagekey`；并集按 `git grep -l OpsRuntimeSnapshot` 取，不按"我改过的文件"取）。
 
-## 变异反证：四条全部指名红
+## 变异反证：处置后重跑六道
 
 | 变异 | 内容 | 结果 |
 | --- | --- | --- |
 | M1 | 把 `fs.statSync(candidate)` 加回**代码**（不是注释——注释里本来就有这个名字） | 指名红：结构锁 |
-| M2 | 超限判定挪到读盘之后 | 指名红：超限种子不得调用 readFileSync |
+| M2 | 超限判定挪到读盘之后（先读**候选本身**） | 指名红：按路径过滤的 spy 断言 |
+| M2b | 改成读**另一个**路径（`candidate + '.copy'`） | **非指名红**——4 条 L3 行为用例收到。按路径过滤那条抓不到"读了别的文件"，是行为锁抓的；分工如实记 |
 | M3 | 恢复第二候选 | 指名红：resolveSeedPaths 那条防"顺手加回来"的用例 |
 | M4 | 摘掉 `finally` 里的 `closeSync` | 指名红：结构锁（close 必须在 finally） |
+| M5 | 把**锁自己的**切片正则改窄，使函数体提前截断 | 指名红：新加的完整性断言（对锁本身做反证，不是只验业务改动） |
 
-四条红集互不相同；基线 47/0，全部还原后 0 红且实现文件 md5 与开工前一致。
+红集互不相同；基线 47/0，全部还原后 0 红，实现与测试两份文件 md5 均与开工前一致。
 
 **过程中结构锁自己踩了一次本仓已知的坑**：判据按源码原文匹配，而函数注释里就写着"不用 `fs.statSync`"来说明理由 ⇒ 注释被当成代码命中，改完实现那条锁照红。正解是**判据先剥行注释再匹配**（不是把注释删掉——注释是唯一能留住"为什么不能用 statSync"这个信息的地方）。这正是 [[podcast-rss-implementation-gotchas]] 记过的「结构锁不剥注释 = 幽灵通道」的同形复发，本次是**反向**触发（注释里有被禁词 ⇒ 假红，而非注释里有被允许词 ⇒ 假绿）。
 
@@ -88,11 +90,22 @@ at extractContext (electron/bootstrap/phase1-context.js:242)
 - 冷启动复测（`>out 2>err` 双流分开、进程退出后再读）：`proc_count_before=0`（上一轮遗留实例已自行退出，全程只按自己启动的 PID 收口，未按名字批量 kill）；10 秒存活=yes；stdout 24,737 字节 / 263 行（**应用日志走 stdout**，与 stderr 无关）；**stderr 0 字节 / 0 行**；四类红线命中 0、`app.asar` 内部路径命中 0、**DEP0180 命中 0**。
 - ⇒ QM-1 三层判据落到**第③层（stderr 为空）= 通过**。与 #3595 那次 163 字节的对比就是本片的收口证明：修复前 stderr 恒有一行 Node 告警，修复后为空。且这里的"空"是读到的空——同一片里已把"读被子进程占用的重定向文件失败被 `Continue` 吞成空串 ⇒ 假第③层"那条测量陷阱记进记忆并改掉了取法。
 
-## QM-6 双模型外部评审（截至本提交的状态如实记）
+## QM-6 外部评审（后端单轴成立，前端三次全败——按 critic-only 记账）
 
-- 后端 `claude`：已派发，**结论尚未返回**（本机该轴时长分布 5~70 分钟，**不得用等待时长判成败**，判据只认能否从 stdout 切出可解析的 findings）。
-- 前端 `opencode`：**第一次派发失败**——`opencode exited with status 1`，日志里那条 `Using stdin mode for task due to: length>800` 是可归因线索：提示词超过 800 字符时 wrapper 改走 stdin，本次随即退出。这是既有五种"跑完但没有 findings"之外的**新形态**。已按纪律把提示词压到阈值以下**重试第 1 次**（AGENTS.md 允许前端最多重试 2 次，3 次全败才允许跳过并降级记账）。
-- 因此本 PR **在两轴 findings 到齐并逐条处置前不合并**（不自扮演豁免，也不把"CI 绿"当"评审过"）。
+**后端 `claude`：实跑成功，5 条可解析 findings（全 Info，无 Critical/Warning）**，逐条处置：
+
+| # | 主张 | 处置 |
+| --- | --- | --- |
+| 1 | `openSync` 与原 `statSync` 只在"stat 读得开但 open 打不开"（Windows 共享占用/杀软瞬时持锁）这一边上不同：旧码报 `exists:true`、新码报 `exists:false`；降级行为完全一致，差的只是日志诊断标注 | **采纳**——在 `_probeSeed` 注释里写明该边沿并叮嘱"不要把它读成种子没打进包"。**拒绝**同一建议里的"补一次 stat 校准"：那会重新踩回 DEP0180 路径，与本修复目标直接冲突（L2 约束） |
+| 2 | fd 在所有出口（try 内 `continue` / catch 内 `continue` / 两条 `return`）都经 `finally` 归还；`finally` 只含 close，不会吞 `continue` | 确认无缺陷，无动作 |
+| 3 | spy 捕的是全局 `fs.readFileSync`，"总调用数为 0"会把运行器同进程内的无关读取算进去 ⇒ 偶发 flake；应按被读路径过滤 | **采纳**——改为 `calls.filter(c => String(c[0]) === seedPath)` 判 0，注释写明为何不用总数。为防这条新判据变成"永远过滤掉一切"的空断言，加了变异 M2（读候选本身，红）与 M2b（读别的路径，由行为锁收）双向验 |
+| 4 | 结构锁切函数体用"首个两空格缩进的 `}`"，将来若提前截断，锁会只检查半截函数体而**静默通过**；建议改花括号配对扫描 | **部分采纳**——配对扫描要正确处理字符串字面量里的括号（本仓做过，两处截断都是这么来的），成本和收益不对等，且新写的扫描器本身会成为下一个失明点（L3 权衡）。改为加一条**完整性断言** `body` 必须含 `this._seedPaths[0]`，并据此设计变异 **M5**：把锁自己的切片正则改窄 ⇒ 当场指名红。这是对锁本身做反证，不是只验业务改动 |
+| 5 | 删第二候选不会让任何打包形态读不到种子：`build.files` 含 `resources/**/*`、无 `asarUnpack`、`--dir`/portable 都内嵌 asar、历史构建从未拷到 `resourcesPath`、种子受 git 跟踪 | 独立确认本片中心论断成立（它是从反方向核"包外那份是否真的从未存在"），无动作 |
+
+**前端 `opencode`：三次全败**，已用满 AGENTS.md 允许的 2 次重试。① `exited with status 1`，线索是日志里那句 `Using stdin mode for task due to: length>800`——提示词超 800 字符被切 stdin 后随即退出，属既有五种"跑完但没有 findings"之外的**新形态**；②③ 压缩提示词并显式禁止输出进度报告后，两次都只交一份"已读/待读文件清单"的 Work State/Next Move 就停在 SESSION_ID，零 findings。
+**因此本片只能记成 critic-only（后端单模型）+ 主代理逐条处置，不得写成"双模型通过"。** 前端失败期间唯一有价值的旁证是它自己提出"确认 `ops-center-sync.js:127` 是否留下无用实参"——已由后端 #5 与本机 `git grep`（该 helper 命中 0）双向核过。
+
+处置后重跑：47 passed / 0 failed；六道变异（M1–M5 + M2b）见上一节，其中 M5 是对锁本身做的反证。
 
 ## 与相关链的接续（不虚报，也不代他人改）
 

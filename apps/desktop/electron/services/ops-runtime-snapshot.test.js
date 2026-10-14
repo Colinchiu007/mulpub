@@ -498,6 +498,9 @@ describe('§L3 种子探测不得走 Electron 的 asar Stats 兼容层（Node DE
     expect(body).not.toMatch(/fs\.statSync/)
     expect(body).not.toMatch(/fs\.lstatSync/)
     expect(body).not.toMatch(/fs\.promises\.stat/)
+    // 完整性断言：切片必须真的覆盖到函数末尾那条「所有候选都不命中」的返回。
+    // 没有它，将来若重构让 body 提前截断，锁就只检查半截函数体而照样绿（装饰性门禁）。
+    expect(body).toContain('this._seedPaths[0]')
     expect(body).toMatch(/fs\.openSync/)
     expect(body).toMatch(/fs\.fstatSync/)
     expect(body).toMatch(/finally\s*\{[\s\S]*?fs\.closeSync/)
@@ -513,7 +516,10 @@ describe('§L3 种子探测不得走 Electron 的 asar Stats 兼容层（Node DE
       const svc = new OpsRuntimeSnapshot({ store: makeStore(), log: LOG, seedPath })
       expect(svc.readSeed()).toBeNull()
       expect(svc.getSeedStatus()).toMatchObject({ exists: true, usable: false })
-      expect(spy.mock.calls.length).toBe(0)
+      // 判据按「有没有读的是这一条候选」过滤，而不是「readFileSync 总调用数为 0」：
+      // 后者会把运行器在同进程内的无关读取也算进来，变成偶发 flake（外部评审命中）。
+      const hit = spy.mock.calls.filter((c) => String(c[0]) === seedPath)
+      expect(hit.length).toBe(0)
     } finally {
       spy.mockRestore()
       fs.rmSync(dir, { recursive: true, force: true })

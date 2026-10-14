@@ -356,6 +356,9 @@ class OpsRuntimeSnapshot {
       // （asarStatsToFsStats）造 Stats 用的是 Node 已废弃的 fs.Stats 构造 ⇒ 打包版每次启动都往
       // stderr 吐一行 DEP0180。open+fstat 拿到同样的 isFile/size 且不触发那条路径（实测对照：
       // statSync/lstatSync/promises.stat 触发；existsSync/readFileSync/openSync+fstatSync 不触发）。
+      // 一处已知边沿（外部评审命中）：若某候选 stat 得开但 open 打不开（Windows 共享占用/杀软瞬时持锁），
+      // 旧码会报 exists:true，新码报 exists:false。降级行为两者完全一致（都不加载、回退内置默认），
+      // 差的只是启动日志里那个诊断标注——排查日志时按这一条对照，不要把它读成「种子没打进包」。
       let fd = null
       let size = 0
       try {
