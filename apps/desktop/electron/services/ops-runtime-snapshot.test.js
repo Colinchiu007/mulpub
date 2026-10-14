@@ -490,7 +490,7 @@ describe('§L3 种子探测不得走 Electron 的 asar Stats 兼容层（Node DE
     const start = src.indexOf('_probeSeed () {')
     expect(start).toBeGreaterThan(-1)
     const tail = src.slice(start)
-    const closing = tail.match(/\r?\n  \}\r?\n/)
+    const closing = tail.match(/\r?\n {2}\}\r?\n/)
     expect(closing).toBeTruthy()
     // 判据必须先剥注释再匹配：本函数的注释里就写着被禁 API 的名字，用来解释"为什么不用它"。
     // 不剥注释 ⇒ 注释被当成代码命中（本仓已知的「结构锁不剥注释 = 幽灵通道」形态）。

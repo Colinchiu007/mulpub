@@ -359,30 +359,31 @@ class OpsRuntimeSnapshot {
       // 一处已知边沿（外部评审命中）：若某候选 stat 得开但 open 打不开（Windows 共享占用/杀软瞬时持锁），
       // 旧码会报 exists:true，新码报 exists:false。降级行为两者完全一致（都不加载、回退内置默认），
       // 差的只是启动日志里那个诊断标注——排查日志时按这一条对照，不要把它读成「种子没打进包」。
-      let fd = null
-      let size = 0
+      // 探测与消费整段放进同一个 try：这样 fd/size 都不需要"哨兵初值"（Gate 11 的
+      // no-useless-assignment 是对的，加 disable 注释只是把死代码换个写法留下来）。
+      let fd
       try {
         fd = fs.openSync(candidate, 'r')
         const stat = fs.fstatSync(fd)
         if (!stat.isFile()) continue
-        size = stat.size
+        if (stat.size > MAX_SNAPSHOT_BYTES) {
+          this._log.notify && this._log.notify('OpsRuntimeSnapshot', 'seed-rejected', { level: 'WARN', params: { path: candidate, size: stat.size } })
+          return { path: candidate, size: stat.size, exists: true, usable: false, payload: null }
+        }
+        let raw
+        try { raw = JSON.parse(fs.readFileSync(candidate, 'utf8')) } catch (_) {
+          this._log.notify && this._log.notify('OpsRuntimeSnapshot', 'seed-parse-failed', { level: 'WARN', params: { path: candidate, size: stat.size } })
+          return { path: candidate, size: stat.size, exists: true, usable: false, payload: null }
+        }
+        if (!isPlainObject(raw)) return { path: candidate, size: stat.size, exists: true, usable: false, payload: null }
+        // 读取路径再次剔除词库：CI 是第一道防线，这里是第二道（本地/历史种子也可能是带词库的老版本）
+        return { path: candidate, size: stat.size, exists: true, usable: true, payload: stripContentWordList(raw) }
       } catch (_) {
         continue
       } finally {
-        if (fd !== null) { try { fs.closeSync(fd) } catch (_) { /* 关不上不影响探测结论 */ } }
+        // 所有出口（正常返回、!isFile 的 continue、catch 的 continue）都经这里归还句柄
+        if (typeof fd === 'number') { try { fs.closeSync(fd) } catch (_) { /* 关不上不影响探测结论 */ } }
       }
-      if (size > MAX_SNAPSHOT_BYTES) {
-        this._log.notify && this._log.notify('OpsRuntimeSnapshot', 'seed-rejected', { level: 'WARN', params: { path: candidate, size } })
-        return { path: candidate, size, exists: true, usable: false, payload: null }
-      }
-      let raw
-      try { raw = JSON.parse(fs.readFileSync(candidate, 'utf8')) } catch (_) {
-        this._log.notify && this._log.notify('OpsRuntimeSnapshot', 'seed-parse-failed', { level: 'WARN', params: { path: candidate, size } })
-        return { path: candidate, size, exists: true, usable: false, payload: null }
-      }
-      if (!isPlainObject(raw)) return { path: candidate, size, exists: true, usable: false, payload: null }
-      // 读取路径再次剔除词库：CI 是第一道防线，这里是第二道（本地/历史种子也可能是带词库的老版本）
-      return { path: candidate, size, exists: true, usable: true, payload: stripContentWordList(raw) }
     }
     return { path: this._seedPaths[0] || '', size: 0, exists: false, usable: false, payload: null }
   }

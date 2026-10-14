@@ -90,6 +90,24 @@ at extractContext (electron/bootstrap/phase1-context.js:242)
 - 冷启动复测（`>out 2>err` 双流分开、进程退出后再读）：`proc_count_before=0`（上一轮遗留实例已自行退出，全程只按自己启动的 PID 收口，未按名字批量 kill）；10 秒存活=yes；stdout 24,737 字节 / 263 行（**应用日志走 stdout**，与 stderr 无关）；**stderr 0 字节 / 0 行**；四类红线命中 0、`app.asar` 内部路径命中 0、**DEP0180 命中 0**。
 - ⇒ QM-1 三层判据落到**第③层（stderr 为空）= 通过**。与 #3595 那次 163 字节的对比就是本片的收口证明：修复前 stderr 恒有一行 Node 告警，修复后为空。且这里的"空"是读到的空——同一片里已把"读被子进程占用的重定向文件失败被 `Continue` 吞成空串 ⇒ 假第③层"那条测量陷阱记进记忆并改掉了取法。
 
+### 复测协议还要再修一次：stderr 必须在「进程存活期间」取
+
+重构后再复测，同一条命令两次读数不一致：一次 stderr 0 字节，一次 270 字节、两行 `Network service crashed or was terminated` + `GPU process exited unexpectedly: exit_code=143`。**`exit_code=143` 就是 128+SIGTERM**——这两行是**测量动作自己**（我 kill 它）产生的收尾，不是应用启动输出。取法因此改成两段快照：
+
+- **LIVE（进程仍存活 12 秒时读）**：`proc_count_before=0`、alive=yes、**stderr 0 字节 / 0 行**、DEP0180 命中 0、四类红线命中 0、stdout 22,590 字节（业务日志走 stdout，与 stderr 分道）。⇒ **判据只认这一份**。
+- **POST（收进程之后再读）**：270 字节、teardown_delta=270 ⇒ 全额归因于 SIGTERM，**不计入判据**，但必须打出来，否则下一个会话会把它读成"应用有错"。
+
+顺带解释了此前"0 字节 / 163 字节"的飘忽：**真正的启动输出只有在存活期被读到才算数**，事后读既可能漏掉（写慢了）也可能多算（把收尾话算进来）。#3595 收尾时按这个两段式协议重取。
+
+### Gate 11（ESLint）在 CI 红过一次：本机 pre-commit 不覆盖它
+
+前两笔提交都过了本机 pre-commit（日志 `CCG 门禁已执行：5 项通过`），推上去 **`QG Static` 的 `Gate 11 - ESLint` 当场红 3 条**。归因路径没靠猜：CI 在跑时 job 日志 API 只回 99 字节、`gh run view --log-failed` 直接拒绝（run 未结束），于是用 `gh api .../actions/runs/<run>/jobs` 取 **失败步骤名**，一次定位到 Gate 11，再本机跑同一条命令（`cd apps/desktop && pnpm exec eslint electron/ src/ --quiet`）复现。三条 error 与处置：
+
+- `no-useless-assignment` ×2：`let fd = null` / `let size = 0`。`size` 那条是**真死初值**；`fd` 那条规则看不穿 `finally` 会读初值。**没有用 `eslint-disable`**——把"探测 + 消费"整段收进同一个 `try`（解析失败改用**嵌套** try 保住 `seed-parse-failed` 分支），两个哨兵初值就都不必存在，`fd` 改 `let fd` + `typeof fd === 'number'` 守卫。不服一条规则时先找"让这条规则根本不该适用"的写法，disable 只是把死代码换个形式留下。
+- `no-regex-spaces` ×1：结构锁的切片正则里写了两个字面空格，改成 `{2}`。
+
+改完复跑：ESLint 全量（`electron/ src/`）**rc=0**；4 文件消费者并集 **177 passed / 0 failed**；六道变异在新结构上重跑仍是 **5 道指名红 + M2b 非指名红**，还原后 md5 一致；`build:vue` + `electron-builder --win --dir` rc=0、asar 151,629,108 字节 / 14,992 条、`ops-runtime-snapshot`=1、种子 `runtime-bootstrap`=1；`build:vue` 重生的三个 bundle 产物内容 diff=0，按精确单文件还原、不进本 PR。
+
 ## QM-6 外部评审（后端单轴成立，前端三次全败——按 critic-only 记账）
 
 **后端 `claude`：实跑成功，5 条可解析 findings（全 Info，无 Critical/Warning）**，逐条处置：
