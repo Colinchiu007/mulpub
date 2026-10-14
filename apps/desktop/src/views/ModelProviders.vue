@@ -403,11 +403,9 @@
           </template>
           <template v-if="addPresetId">
             <div class="form-hint muted-hint">{{ t('modelProviders.currentModels', { models: form.modelsText || '—' }) }}</div>
-            <div class="form-hint muted-hint">{{ t('modelProviders.opsReadonlyHint') }}</div>
           </template>
           <template v-else-if="form.models.length === 1">
             <div class="form-hint">{{ t('modelProviders.singleModelHint', { models: form.modelsText }) }}</div>
-            <div v-if="syncConfigured && isPresetEditing" class="form-hint muted-hint">{{ t('modelProviders.syncManagedModelsHint') }}</div>
           </template>
           <template v-else>
             <label class="input-label">{{ t('modelProviders.modelsLabel2') }}</label>
@@ -461,16 +459,13 @@
         <template v-if="isMiniMaxMultimodal || (isPresetEditing && form.models.length > 1)">
           <div v-if="isMiniMaxMultimodal" class="form-hint">{{ t('modelProviders.multimodalModelsHint') }}</div>
           <div class="form-hint muted-hint">{{ t('modelProviders.currentModels', { models: form.modelsText || '—' }) }}</div>
-          <div class="form-hint muted-hint">{{ t('modelProviders.opsReadonlyHint') }}</div>
         </template>
         <template v-else-if="form.models.length === 1">
           <div class="form-hint">{{ t('modelProviders.singleModelHint', { models: form.modelsText }) }}</div>
-          <div v-if="syncConfigured && isPresetEditing" class="form-hint muted-hint">{{ t('modelProviders.syncManagedModelsHint') }}</div>
         </template>
         <template v-else>
           <label class="input-label">{{ t('modelProviders.modelsLabel2') }}</label>
-          <input class="input" v-model="form.modelsText" :disabled="syncConfigured && isPresetEditing" />
-          <div v-if="syncConfigured && isPresetEditing" class="form-hint muted-hint">{{ t('modelProviders.opsReadonlyHint') }}</div>
+          <input class="input" v-model="form.modelsText" />
         </template>
         <div v-if="form.models.length > 0" class="form-field">
           <label class="input-label">{{ t('modelProviders.userDefaultModelLabel') }}</label>
@@ -519,7 +514,6 @@ import { computed, onMounted } from 'vue'
 import { Bell, Box, Connection, Cpu, Lightning, Loading, Microphone, Picture, Service, VideoCamera } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { useModelProviderCrud } from '@/composables/useModelProviderCrud'
-import { useOpsCenterSync } from '@/composables/useOpsCenterSync'
 
 const { t } = useI18n()
 
@@ -577,8 +571,6 @@ const {
   testProvider,
 } = useModelProviderCrud()
 
-// 运营同步对用户透明：配置卡片已隐藏；此处仅保留只读门控所需的 syncConfigured（同步下来的官方模型列表不可手改）
-const { syncConfigured } = useOpsCenterSync()
 
 // T1-5：分类图标改用 @element-plus/icons-vue（返回组件对象，模板 <component :is> 渲染）
 function categoryIcon (cat) {
@@ -1343,75 +1335,11 @@ onMounted(() => {
   color: var(--muted, #999);
 }
 
-/* 运营后台同步卡片 */
-.ops-sync-card {
-  margin: 0 var(--space-xxl) var(--space-lg);
-  padding: 14px 18px;
-  background: var(--surface, #fff);
-  border: 1px solid var(--hairline, var(--border));
-  border-radius: 12px;
-}
-.ops-sync-configured {
-  border-color: var(--primary, #1a73e8);
-  background: var(--primary-light, #f0f6ff);
-}
-.ops-sync-head {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-.ops-sync-title {
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  color: var(--ink, #222);
-}
-.ops-sync-meta {
-  font-size: var(--font-size-xs);
-  color: var(--muted, #666);
-}
-.ops-sync-meta.muted { color: var(--muted, #999); }
-.ops-sync-actions {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.ops-sync-fields {
-  display: grid;
-  grid-template-columns: 2fr 1fr;
-  gap: 12px;
-  margin-top: 10px;
-}
-.ops-sync-status {
-  margin-top: 10px;
-  padding: 8px 12px;
-  border-radius: 8px;
-  font-size: var(--font-size-sm);
-}
-.ops-sync-status.success {
-  background: #e6f4ea;
-  color: #137333;
-}
-.ops-sync-status.error {
-  background: #fce8e6;
-  color: #c5221f;
-}
-[data-theme="dark"] .ops-sync-status.success { background: #1a3c2a; color: #81c995; }
-[data-theme="dark"] .ops-sync-status.error { background: #3c1a1a; color: #f28b82; }
-.ops-sync-hint {
-  margin-top: 10px;
-  font-size: var(--font-size-xs);
-  color: var(--muted, #666);
-  line-height: 1.6;
-}
 .form-hint.muted-hint {
   color: var(--muted, #999);
   font-size: var(--font-size-xs);
 }
 @media (max-width: 720px) {
-  .ops-sync-fields { grid-template-columns: 1fr; }
-  .ops-sync-actions { margin-left: 0; }
 }
 
 /* ===== 多模态能力默认切换 ===== */
@@ -1465,27 +1393,6 @@ onMounted(() => {
   color: #fff;
 }
 
-/* 方案C 零配置化：自动连接只读样式 */
-.ops-sync-auto .auto-readonly-value {
-  display: inline-block;
-  padding: 4px 8px;
-  background: var(--el-fill-color-light, #f5f5f5);
-  border-radius: 4px;
-  font-size: var(--font-size-sm);
-  color: var(--el-text-color-regular, #606266);
-  font-family: monospace;
-}
-.auto-connected-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  background: var(--el-color-success-light-9, #f0f9eb);
-  color: var(--el-color-success, #67c23a);
-  border-radius: 4px;
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-}
 .login-to-enable-hint {
   font-size: var(--font-size-xs);
   color: var(--el-text-color-secondary, #909399);

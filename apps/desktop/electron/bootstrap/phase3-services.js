@@ -321,6 +321,11 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
     if (opsCenterSync && typeof opsCenterSync.setOpsCenterUrl === 'function' && identityEnv && identityEnv.OPS_CENTER_URL) {
       opsCenterSync.setOpsCenterUrl(identityEnv.OPS_CENTER_URL)
     }
+    // 部署层信任锚：打包版没有这一档就必然 NO_PRODUCTION_TRUST_ANCHOR（运行时策略整份不应用）。
+    // 来源与 URL 同机制（identity-public.json / env 覆盖），是撤下「运营中心同步」表单后的唯一配置处。
+    if (opsCenterSync && typeof opsCenterSync.setRuntimePublicKey === 'function' && identityEnv && identityEnv.RUNTIME_PUBLIC_KEY) {
+      opsCenterSync.setRuntimePublicKey(identityEnv.RUNTIME_PUBLIC_KEY)
+    }
     // 运营配置（应用菜单/公告/功能开关）落地后广播渲染端重拉：
     // 启动那次同步晚于侧边栏首帧渲染，不广播则用户要多重启一次才看到本次改动。
     // 载荷只带服务端同步时间，不带配置内容（读取仍走受验签保护的 IPC 路径）。
