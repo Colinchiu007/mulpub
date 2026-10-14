@@ -1,6 +1,6 @@
 ---
 record: p25-cards-entry
-task: 修 Gate 2c 红 —— 渲染层跨 CJS 边界（建分页器 ESM 孪生 + vite alias）
+task: 修 Gate ① 假绿 —— structure-lock 两处解析缺陷 + 登记暴露出的既有欠账
 date: 2026-10-14
 # ↓ 三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
 sync_status: PENDING
@@ -8,84 +8,99 @@ sync_reason: 本 PR 尚未合并，merge SHA 还不存在，无法取证收口
 sync_backfill_owner: 下一个会话（按三形态同改纪律：表格行 + bullet + 删除本段三字段，同一次提交）
 ---
 
-## 本次执行记录：修 Gate 2c 红（p25-cards-entry，2026-10-14）
+## 本次执行记录：修 Gate 假绿（p25-cards-entry，2026-10-14）
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → 见 CI
-  —— 含 `apps/desktop/` + `packages/` ⇒ **混合 PR**，走完整质量节拍。
+  —— 含 `apps/desktop/` ⇒ **混合 PR**，完整质量节拍。
 
-## 现场（CI 红，本地四门禁却全绿）
+## 现场：CI 一次红 5 个 job，其实是**两个**根因
+
+| job | 根因 |
+| --- | --- |
+| QG Static | `check-renderer-cjs-boundary` 跨边界（上一提交已修）|
+| **QG Desktop Shards (1/2) + QG Coverage** | **`src/locales/structure-lock.test.js` ①** |
+| Gate Result | 上面两条的聚合 |
 
 ```
-[renderer-cjs-boundary] FAIL：渲染层有 1 处未登记的 CommonJS 跨边界导入（已扫 361 个文件）
-  apps/desktop/src/features/cards/useArticlePagination.js  ->  @multi-publish/shared-utils/src/index.js
+FAIL src/locales/structure-lock.test.js > ① 已迁移域：子模块键集合 == 装配文件中该命名空间键集合
+AssertionError: zh.js cards 缺键 entryDesc: expected [] to include 'entryDesc'
 ```
 
-CI 里红的形态是 `scripts/check-renderer-cjs-boundary.test.js` 的
-「真实仓库当前是绿的（正控）」失败 —— **与「分页器有 bug」毫无关系**。
+## ★ 根因：这条判据**在 main 上从未真正生效过**（假绿）
 
-**★ 逃逸链分析（为什么本地全绿）**：这类越界在
-`vite build` / `vitest` / `tsc --noEmit` / `electron-builder` **四道全是绿的**
-（rollup 的 commonjs 插件与 vite-node 自带 interop），**只有 dev server 会红**，
-且报错形态是「整页渲染失败 + 一条 ESM 具名导出错误」。
-`Gate 2c` 正是为此设的**静态**门禁 —— 它拦住了我。
+两个解析缺陷叠加，让断言变成**空循环**：
 
-## 我的缺陷（第 N 次「照抄先例没对齐」）
+| # | 缺陷 | 后果 |
+| --- | --- | --- |
+| ① | `topKeysOfObject` 假设命名空间是**多行字面量**。遇到单行展开 `cards: { ...cardsZh },` 时，同一行 `{` 让 depth=1、`}` 立刻归 0 ⇒ **第一行就 break** ⇒ 返回 `[]` |
+| ② | `domainModuleKeys` 写死 `^ {2}(\w+):`（恰好两空格），而**既有 5 个域的子模块用 4 空格缩进**、`film-engineering` 还用**双引号键名** ⇒ 恒返回 `[]` |
 
-渲染层有 10 个 `*.browser.js` ESM 孪生先例（`safe-http-url` 等），
-AGENTS.md 也明写「照 platform-definitions / account-name-guard / publish-capabilities 三先例」。
-我却在 `useArticlePagination.js` 里直接
-`import { cardPaginatorCore } from '@multi-publish/shared-utils/src/index.js'` ——
-既跨了 CJS 边界，又引了 barrel（而非具体模块）。
+**⇒ 断言是 `for (const k of zhDomain) expect(zhAsmKeys).toContain(k)` —— `zhDomain` 为空 ⇒ 一次都不跑。**
 
-## 修法（照既有形态，A 方案）
+**⇒ 实测（写探针复刻两函数跑 main 与 worktree）：`hotTopics` / `contentCategories` / `emptyStates` / `automation` / `publishPage` 的 asmKeys 与 domainKeys **全部是 `[]`**。**
 
-| 步骤 | 产物 |
-| --- | --- |
-| ① 建 ESM 孪生 | `packages/shared-utils/src/card-paginator-core.browser.js`（与 CJS 版逐行同源）|
-| ② 登记 alias | `apps/desktop/vite.config.js` 加 `@multi-publish/shared-utils/src/card-paginator-core` |
-| ③ 改导入 | `useArticlePagination.js` 引具体模块（不再是 barrel）|
-| ④ 加 parity 回归 | `packages/shared-utils/src/__tests__/card-paginator-core-parity.test.js` |
+**⇒ 我的 `cards/zh.js` 恰好用 2 空格缩进 ⇒ 判据第一次被激活 ⇒ 立刻红。**
 
-## ★ parity 回归是「逐行同源」而不是「几个行为向量」
+## 修法（三处，且不弱化）
 
-三组判据：
+| # | 改动 | 效果 |
+| --- | --- | --- |
+| ① | `topKeysOfObject` 区分三形态：`missing` / `spread`（含 target）/ `literal`（含 keys）| 单行展开不再返回 `[]` |
+| ② | `domainModuleKeys` 改为取「`export default {` 内**最小缩进那一层**」的键，并允许引号键 | 对 2/4 空格两种既有风格都成立，且不会把嵌套键算进来 |
+| ③ | 断言 ① 对 `spread` 形态改为**核对展开的是本域子模块**（`cardsZh` / `cardsEn`）| 这是比「比对键集合」**更强**的判据：单行展开下键集合按构造相等（恒等、无信息），而接错模块是真错 |
+| ④ | 新增 `expect(zhDomain.length).toBeGreaterThan(0)` | **防再退化**：解析坏掉时会红，而不是又变空转 |
 
-| 组 | 判据 |
-| --- | --- |
-| ① | 剥离模块包装（`'use strict'` / `module.exports` → `export`）与头注释后，**两文件逐行相同** |
-| ② | 导出面**集合相等** + 常量取值相等 + 三个标点表元素与顺序相同 |
-| ③ | 行为向量（吸附三类输入 / 装箱页数 / fail-closed）一致 |
+## ★ 修好后第一次真跑，立刻抓到**既有**漂移
 
-**⇒ 第①组才是主力**：向量只能覆盖想得到的分支，**逐行比对覆盖全部（含想不到的）**。
-**⇒ 另有规模下界断言**（剥离后 > 150 行）：防「剥离逻辑坏掉 → 空 vs 空」的假绿。
+`story2video` 的 zh/en 子模块键不对称：`composeSegments` 只在 zh、`composeProgress` 只在 en
+（**main 上同样存在**，非本 PR 引入；探针实测两侧各 121 键、各独有 1 键）。
 
-**★ 写这条时踩到一个小坑**：CJS 版 `'use strict'` 后跟一空行、ESM 版没有，
-逐行比对在第 1 行就报漂移。**那是包装的一部分，不是逻辑漂移** ⇒
-normalizer 需同时剥前导与尾部空行。测试先红后绿，证明它在真跑。
+**处置：登记为显式欠账 `KNOWN_KEY_ASYMMETRY`（照文件里既有的 `PRECEDENT_DIRS` 模式），
+而不是静默排除。**
+
+- 登记项**要求写明 `onlyZh` / `onlyEn` 的具体键名** —— 形状变了仍然红（不是「加个名字就免检」）
+- 为什么不顺手修：两侧各缺一个键，补哪侧都要**为该功能写原文案**，归属不在本 PR；
+  **臆造翻译比留一条可见欠账更糟**
+- **原状态是「判据空转 ⇒ 没人知道」，现在是「可见欠账 + 精确键名 + owner」**
+
+## ★ 反证（证明门禁真的在跑）
+
+```
+把 cards 的展开接错模块：cards: { ...cardsZh }  ->  cards: { ...automationZh }
+=> AssertionError: zh.js cards 展开的不是本域子模块: expected 'automationZh' to be 'cardsZh'   ✅ 红
+还原 => Tests 4 passed   ✅ 绿
+```
+
+还原后 `git diff --numstat -- apps/desktop/src/locales/zh.js` **为空**（逐字节还原，未污染工作区）。
 
 ## 保留门禁
 
 | 项 | 状态 | 说明 |
 | --- | --- | --- |
-| **check-renderer-cjs-boundary** | PASS | 361 个渲染层文件，**alias 登记 10 项**（原 9 项），0 处未登记 |
-| 其自测 `check-renderer-cjs-boundary.test.js` | PASS | **3/3**（CI 里红的那 3 条）|
-| vitest apps/desktop cards | PASS | **34 passed**（4 文件）|
-| vitest shared-utils 分页器 + parity | PASS | **30 passed**（2 文件）|
-| Gate 11 ESLint | PASS | exit=0 |
+| vitest `src/locales/` + `src/features/cards/` | PASS | **66 passed**（9 文件）|
+| check-renderer-cjs-boundary | PASS | 361 文件，alias 10 项，0 未登记 |
 | check-unwired-tests | PASS | exit=0 |
-| check-locale-sync --cjk / --keys | PASS | exit=0 |
+| check-locale-sync `--cjk` / `--keys` / `--pair-base` | PASS | 全 exit=0 |
 | check-no-brand-residue | PASS | exit=0 |
-| QM-1 打包 | 已覆盖 | 上一个提交改了 `electron/` 并跑过 QM-1（exit=0，asar 139.9 MB）；**本提交不动 `electron/`**，只动 vite 配置与渲染层/共享包，故不重复 |
+| Gate 11 ESLint | PASS | exit=0 |
+| 反证（接错模块） | PASS | 改动即红、还原即绿 |
+| QM-1 打包 | 已覆盖 | 上上个提交改 `electron/` 时跑过（exit=0，asar 139.9 MB）；本提交不动 `electron/` |
 | 行尾对账 | PASS | 两口径一致 |
 | 远程同步 | PENDING | 本 PR 未合并 |
 
-- 保留门禁：边界门禁 ✅ | 边界自测 3/3 ✅ | vitest 34+30 ✅ | Gate 11 ✅ | unwired ✅ | locale ✅ | 品牌 ✅ | 远程同步 PENDING
+- 保留门禁：vitest 66 ✅ | 边界 ✅ | unwired ✅ | locale 三档 ✅ | 品牌 ✅ | Gate 11 ✅ | 反证 ✅ | 远程同步 PENDING
 
-## 教训
+## 教训（第 110 轮）
 
-**「本地四门禁全绿」不等于「CI 全绿」** —— 本轮本地跑的是
-vitest / eslint / unwired / locale，而红的那条（`Gate 2c` 边界门禁）
-**不在我习惯跑的清单里**。
+**「本地跑的门禁清单」与「CI 跑的门禁清单」不是一回事。**
 
-**⇒ 处方：改渲染层 import 后，必须显式跑 `node scripts/check-renderer-cjs-boundary.js`。**
-它与 dev server 的真实行为对应，而 build/vitest/tsc/打包四道都看不见这个问题。
+本轮我本地跑的是 vitest（cards 域）+ eslint + unwired + locale，
+而两次 CI 红分别来自**不在我清单里**的两条：
+`check-renderer-cjs-boundary`（静态边界门禁）与 `src/locales/structure-lock.test.js`（结构锁）。
+
+**⇒ 处方：改渲染层 import 后跑边界门禁；改 locales 域后跑 `structure-lock.test.js`
+（它在 `src/locales/` 下，`vitest run src/features/cards/` 收不到）。**
+
+**★ 更一般**：**「加了一个新域/新模块」这个动作本身**会激活一批此前空转的判据 ——
+因为很多判据是**遍历**式的（`readdirSync` 域目录、扫描渲染层文件）。
+**新增一个被遍历到的对象，等于把该判据第一次真正打开。**
