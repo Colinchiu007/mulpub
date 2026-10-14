@@ -24,6 +24,9 @@ const log = require('../logger')
 const { getAdapter, supportedPlatforms } = require('./adapters')
 const { AccountMetricsThrottle } = require('./throttle')
 const { planWorkLinks } = require('./link')
+// P1-2：平台能力描述（UI 文案用）+ 采集结果与厂商矩阵的交叉校验。
+// 见 capability.js 头注：**它不是请求门控**，矩阵是厂商的能力边界、本仓实测优先。
+const { buildPlatformCapability, checkMetrics } = require('./capability')
 const {
   resolveConfig,
   HTTP_TIMEOUT_MS,
@@ -168,6 +171,10 @@ class AccountMetricsService {
         const accountId = String(account.id || '')
         const platform = String(account.platform || '').toLowerCase()
         const entry = { accountId, platform, status: 'pending', pages: 0, items: 0, error: '' }
+        // P1-2：把平台能力描述并入快照，供 UI 区分「平台不支持」与「这次没采到」。
+        // 此前两种都显示 `-`，用户无法判断是该换个平台还是该重试。
+        // ⚠️ 这只影响**展示**；不得用它决定要不要发请求（见 capability.js 头注）。
+        entry.capability = buildPlatformCapability(platform)
         try {
           const adapter = getAdapter(platform)
           if (!adapter) {
@@ -215,6 +222,11 @@ class AccountMetricsService {
           entry.items = pageResult.items.length
           entry.error = pageResult.error || ''
           if (pageResult.truncated) { entry.truncated = true; result.counts.truncated += 1 }
+          // P1-2 判据③：与厂商矩阵交叉校验。只回传「不一致」的条目 ——
+          // `declared-but-null`（声明有、实测没有）是**值得告警**的信号：声明过期或适配器漏解析。
+          // `undeclared-but-present` 不是错误（实测优先），一并带上供排查。
+          const checks = checkMetrics(platform, pageResult.items)
+          if (checks.length > 0) entry.metricChecks = checks
           for (const work of pageResult.items) allWorks.push({ ...work, platform, accountId })
           if (pageResult.status === 'ok') { result.counts.synced += 1; throttle.recordSuccess(accountId) } else if (pageResult.status === 'failed') { result.counts.failed += 1 }
         } catch (e) {

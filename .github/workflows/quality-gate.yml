@@ -151,6 +151,20 @@ jobs:
           node --test scripts/check-no-brand-residue.test.js
           node scripts/check-no-brand-residue.js
 
+      # --- Gate 12c：平台分类转换器回归锁（与 Gate 12 同族接线到 changes job）---
+      # 为什么必须住 changes 而不是 static-gates：
+      #   本锁的**输入**是 01-docs/research/competitor-reverse-2026-10-13/platform-data/，
+      #   而 01-docs/** 在 docs-only 白名单内 ⇒ 只改数据集的 PR 会被判 docs-only、
+      #   短路整个 static-gates，于是「数据变了」这件事**没有任何锁会跑**。
+      #   这与 Gate 12 当年从 static-gates 搬进 changes 是同一个原因（见上 L123-125）。
+      # 锁什么：转换器的形态无关遍历、逐文件编码判定、fail-loud、确定性与去重/歧义处置。
+      # 另有 scripts/check-unwired-tests.js 的棘轮兜底 —— 本文件若没被任何 workflow 正文
+      # 点名，那条棘轮会直接判红（本仓不自动收集 scripts/ 下的测试）。
+      - name: "Gate 12c - Platform taxonomy converter (changes job, #2745 同族)"
+        shell: bash
+        run: |
+          node --test scripts/import-platform-taxonomy.test.js
+
       # --- Gate 12b：文本编码完整性门禁（与 Gate 12 同族接线到 changes job）---
       # 动因（2026-10-07 事故复盘）：01-docs/learnings.md 在 main 上有 7212 个字面 U+FFFD、
       # 546 行受损。溯源发现原始内容本就是 GBK 裸字节（`b5 da ce e5` = 「第五」），先有一次
@@ -187,6 +201,22 @@ jobs:
           MB="$(git merge-base "$BASE_REF" HEAD 2>/dev/null || true)"
           echo "[doc-abs-paths] base_ref=$BASE_REF merge_base=${MB:-<unresolved => fallback to base_ref>}"
           node scripts/check-doc-abs-paths.js --base="${MB:-$BASE_REF}" --head=HEAD
+
+      # --- P3-1：扩平台标准动作自检（设计文 §9.3 的 11 步 + 2 条额外判据）---
+      # 动因（2026-10-14）：本仓**不自动收集** `scripts/` 下的测试，未在 workflow 正文里点名的
+      # 测试永远不会跑 —— `scripts/check-unwired-tests.js` 就是为此设的门禁（本次实测抓到）。
+      # 放在 `changes` job（非 docs-only 门控）而非 static-gates：脚本只依赖 node 内置模块，
+      # 满足「changes job 无 Install deps」的约束，且 main push 那一档同样覆盖。
+      - name: "Gate 2x - Platform onboarding self-check (P3-1)"
+        run: |
+          node --test scripts/verify-platform-onboarding.test.js
+          # 判据②同时在此重跑：不存在的 slug 必须非零退出（不静默通过）
+          if node scripts/verify-platform-onboarding.js no_such_platform_xyz; then
+            echo "::error::verify-platform-onboarding 对不存在的 slug 返回了 0 —— 门禁静默通过"
+            exit 1
+          fi
+          # 判据①：已有平台必须全 PASS
+          node scripts/verify-platform-onboarding.js kuaishou
 
       # --- Gate 12d：主规格 Purpose 去 TBD 门禁 ---
       # 动因（2026-10-07 实测）：openspec 归档器会在 specs 文件里留下
@@ -308,6 +338,9 @@ jobs:
         shell: bash
         run: |
           node --test apps/desktop/scripts/dev-ports.test.js apps/desktop/scripts/dev-launcher.test.js apps/desktop/scripts/dev-exit-log.test.js apps/desktop/scripts/electron-runtime-env.test.js
+          # Vite optimizeDeps 预构建缓存过期预检（2026-10-13 事故收口）：workspace 源码变化
+          # 不触发 optimizeDeps 重建，旧缓存缺新导出时渲染层报 does-not-provide-an-export
+          node --test apps/desktop/scripts/vite-dep-cache.test.js
           # 打包暂存端剪枝的回归锁（#2765）：extraResources 的第二条通道把仓库树里的测试文件带进
           # app.asar 之外的松散树，判据与门禁共享同一实现（shared-utils/artifact-test-pattern）
           node --test apps/desktop/scripts/stage-remotion-runtime.test.js

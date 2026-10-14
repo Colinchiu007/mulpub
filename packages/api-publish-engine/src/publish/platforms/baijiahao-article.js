@@ -17,6 +17,8 @@ const { errorCode } = require('../../error-codes')
 // 话题内联描述（publish-topic-inline-description）：百家号是内联转换型平台——
 // 描述里的 `#话题` 发布时隐性转换成 `#话题#` 拼正文（参考产品取证口径），转换用单一实现
 const { convertInlineTopics, formatArticleBody } = require('../../content-formatter')
+// 分类守卫（P0-3）：与 bilibili 链同一实现。本层只接受平台侧 ID；中文名由上游解析。
+const { resolvePublishCategory } = require('../category-resolver')
 
 const DEFAULT_BASE_URL = 'https://baijiahao.baidu.com'
 const HOST = 'baijiahao.baidu.com'
@@ -148,7 +150,12 @@ class BaijiahaoArticleChain {
       taskData.tags || [],
     )
     params.set('content', formatArticleBody('baijiahao', withTopics))
-    params.set('category', String(taskData.category == null ? '未分类' : taskData.category))
+    // 分类守卫（P0-3）。改前是 `String(taskData.category == null ? '未分类' : taskData.category)`：
+    // 非 ID 的值（含中文分类名）会被**原样写进表单**，平台侧如何解释无从得知；
+    // 而「未分类」这个字面量是否为百家号合法分类，本项目的分类快照里**无法判定**。
+    // 现在：未提供 ⇒ 保留 '未分类'（行为不变）；提供了但不是合法平台侧 ID ⇒ 抛错。
+    const cat = resolvePublishCategory(taskData.category)
+    params.set('category', cat.ok ? String(cat.id) : '未分类')
     params.set('reward_money', '0')
     params.set('is_pay_column', '0')
     params.set('type', 'news')

@@ -96,6 +96,7 @@
       { "key": "draft", "semantic": "draft", "status": "implemented", "type": "checkbox", "label": "保存为草稿", "default": false, "uiExposed": false, "note": "公众号经保存草稿→群发两步链路实现草稿语义" }
     ],
     "zhihu": [
+      { "key": "category", "semantic": "category", "status": "implemented", "type": "select", "label": "分类", "default": "", "uiExposed": true, "optionsFrom": "platform-taxonomy" },
       { "key": "commentPermission", "semantic": "comment-control", "status": "implemented", "type": "select", "label": "评论权限", "default": "anyone", "uiExposed": true, "options": [{ "value": "anyone", "label": "允许所有人评论" }] },
       { "key": "declare", "semantic": "creation-declaration", "status": "implemented", "type": "select", "label": "创作声明", "default": 0, "uiExposed": true, "options": [
         { "value": 0, "label": "无申明" }, { "value": 1, "label": "包含剧透" }, { "value": 2, "label": "包含医疗建议" },
@@ -107,6 +108,7 @@
       { "key": "appreciate", "semantic": "appreciate", "status": "platform-capable", "type": "checkbox", "label": "允许赞赏", "default": false, "uiExposed": false, "note": "知乎 appreciate.can_reward（参考产品取证）" }
     ],
     "weibo": [
+      { "key": "category", "semantic": "category", "status": "implemented", "type": "select", "label": "分类", "default": "", "uiExposed": true, "optionsFrom": "platform-taxonomy" },
       { "key": "visible", "semantic": "visibility", "status": "implemented", "type": "select", "label": "可见性", "default": 0, "uiExposed": true, "options": [
         { "value": 0, "label": "公开" }, { "value": 1, "label": "仅自己可见" }, { "value": 6, "label": "好友圈" }
       ], "semanticValues": { "public": 0, "friends": 6, "private": 1 }, "note": "微博发布体 visible 字段（参考产品取证：weiboPublishMicroArticle $e.visible）；2026-10-09 P1-5 打通 resolver→adapter 链路后转 implemented" },
@@ -114,6 +116,7 @@
       { "key": "mblogStatement", "semantic": "mblog-statement", "status": "platform-capable", "type": "text", "label": "微博声明", "default": "", "uiExposed": false, "note": "微博发布体 mblog_statement（参考产品取证）" }
     ],
     "douyin": [
+      { "key": "category", "semantic": "category", "status": "implemented", "type": "select", "label": "分类", "default": "", "uiExposed": true, "optionsFrom": "platform-taxonomy" },
       { "key": "draft", "semantic": "draft", "status": "implemented", "type": "checkbox", "label": "保存为草稿", "default": false, "uiExposed": true },
       { "key": "goods", "semantic": "goods", "status": "implemented", "type": "object-list", "label": "商品", "default": [], "uiExposed": false, "note": "goodsInfoList 透传（publisher-router P3-1），UI 未暴露" },
       { "key": "taskId", "semantic": "platform-task", "status": "implemented", "type": "text", "label": "任务/活动", "default": "", "uiExposed": false, "note": "hot_sentence/flashMobInfo 透传（P3-2），UI 未暴露" },
@@ -156,9 +159,11 @@
       { "key": "activity", "semantic": "activity", "status": "platform-capable", "type": "object", "label": "平台活动", "default": null, "uiExposed": false, "note": "快手话题携带 activityId 时 setActivityResponse 领取活动（参考产品取证）" },
       { "key": "declareInfo", "semantic": "creation-declaration", "status": "platform-capable", "type": "object", "label": "声明", "default": null, "uiExposed": false, "note": "快手提交体 declareInfo.source（参考产品取证：source!=4 时透传）" }
     ],
-    "toutiao": [],
+    "toutiao": [
+      { "key": "category", "semantic": "category", "status": "implemented", "type": "select", "label": "分类", "default": "", "uiExposed": true, "optionsFrom": "platform-taxonomy" }
+    ],
     "bilibili": [
-      { "key": "category", "semantic": "category", "status": "implemented", "type": "select", "label": "分区", "default": 21, "uiExposed": true, "options": [
+      { "key": "category", "semantic": "category", "status": "implemented", "type": "select", "label": "分区", "default": 21, "uiExposed": true, "optionsFrom": "platform-taxonomy", "note": "⚠️ 下面 10 项 hardcoded options 是**遗留**：实测快照里 B站视频分类有 142 个节点，且这 10 项中有 4 项（124/231/207/251）的标签与快照不一致（见 PRD-PLATFORM-TAXONOMY §14.1）。选项真源已改为 platform-taxonomy（optionsFrom）；删除本 options 数组须与「渲染端分类选择器」同 PR —— 选择器未落地前删掉会让现有消费方渲染出空下拉。", "options": [
         { "value": 21, "label": "日常" }, { "value": 17, "label": "单机游戏" }, { "value": 171, "label": "电子竞技" },
         { "value": 124, "label": "影视" }, { "value": 231, "label": "科技·数码·手机" }, { "value": 138, "label": "搞笑" },
         { "value": 119, "label": "鬼畜" }, { "value": 217, "label": "动物圈" }, { "value": 207, "label": "时尚" }, { "value": 251, "label": "资讯" }
@@ -172,6 +177,7 @@
       { "key": "subtitleOpen", "semantic": "subtitle-caption", "status": "platform-capable", "type": "checkbox", "label": "字幕开关", "default": false, "uiExposed": false, "note": "B站提交体 subtitle.open（参考产品取证）" }
     ],
     "baijiahao": [
+      { "key": "category", "semantic": "category", "status": "implemented", "type": "select", "label": "分类", "default": "", "uiExposed": true, "optionsFrom": "platform-taxonomy" },
       { "key": "original", "semantic": "originality", "status": "implemented", "type": "checkbox", "label": "原创声明", "default": false, "uiExposed": true },
       { "key": "locationName", "semantic": "location", "status": "implemented", "type": "text", "label": "位置（可选，留空不声明）", "maxLen": 60, "default": "", "uiExposed": true, "placeholder": "如：北京·三里屯" },
       { "key": "collectionIdText", "semantic": "collection", "status": "implemented", "type": "collection", "label": "加入合集（可选）", "maxLen": 100, "default": "", "uiExposed": true, "placeholder": "格式：合集ID 或 合集ID:名称" },
@@ -184,7 +190,7 @@
       { "key": "reprintInfo", "semantic": "reprint-info", "status": "platform-capable", "type": "object", "label": "转载声明（原作者/原文链接）", "default": null, "uiExposed": false, "note": "百家号 original===2 时 announce_info.tp_author/tp_url（参考产品取证）" }
     ],
     "youtube": [
-      { "key": "categoryId", "semantic": "category", "status": "implemented", "type": "select", "label": "分类", "default": "22", "uiExposed": true, "options": [
+      { "key": "categoryId", "semantic": "category", "status": "implemented", "type": "select", "label": "分类", "default": "22", "uiExposed": true, "note": "⚠️ 下面的 hardcoded options 是**遗留且无数据源**：README 的 P0-1 刻意只覆盖「本项目已支持且确有分类数据」的平台，**本数据集里没有 youtube 分类表** ⇒ 本字段**不声明 optionsFrom**（没数据源就不能声明有）。它的 10 项是竞品取证时的静态快照，未经本项目校验。接入须先补 youtube 分类数据。", "options": [
         { "value": "22", "label": "人物与博客" }, { "value": "10", "label": "音乐" }, { "value": "20", "label": "游戏" },
         { "value": "24", "label": "娱乐" }, { "value": "28", "label": "科技" }, { "value": "27", "label": "教育" },
         { "value": "17", "label": "体育" }, { "value": "19", "label": "旅行" }, { "value": "23", "label": "喜剧" }, { "value": "25", "label": "新闻政治" }

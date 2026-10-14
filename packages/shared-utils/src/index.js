@@ -26,6 +26,24 @@ const publishHistory = require('./publish-history')
 // 提交内容项单一真源（titleMode/内容限制/差异化字段/语义分类）。
 const publishCapabilities = require('./publish-capabilities')
 
+// 平台分类对照表读取层（P0-2，ARCH-REUSE-INTEGRATION R-1）：
+// 回答「这个平台的分类 ID 是什么」，与 publishCapabilities 的「能不能设标题/描述」是不同问题。
+const platformTaxonomy = require('./platform-taxonomy')
+// 素材组合三级降级（P1-3，ARCH-REUSE-INTEGRATION R-3）：纯函数、零依赖。
+// 返回**下标排列**而非素材克隆；三级顺序与「够 max 即停」是硬约束，详见模块头注。
+const mediaCombination = require('./media-combination')
+// 时间轴绝对时间拍平（P1-4，ARCH-REUSE-INTEGRATION R-4）：纯函数、零依赖。
+// 内部一切时间字段是**秒**；毫秒只出现在边界，且只经 toMilliseconds/fromMilliseconds。
+const timelineFlatten = require('./timeline-flatten')
+// 分页纯逻辑层（P2-1，ARCH-REUSE-INTEGRATION R-5）：无 DOM，测量经 options.measure 注入。
+const cardPaginatorCore = require('./card-paginator-core')
+
+// 平台指标矩阵读取层（P1-1，ARCH-REUSE-INTEGRATION §4.2/§4.3）：
+// 回答「这个平台能拿到哪些指标」——**参考数据，不是运行时真源**（真源是 account-metrics/adapters.js）。
+// ⚠️ 只用于 UI 文案与测试交叉校验，**不得用于请求门控**：厂商矩阵是厂商的能力边界，
+// 本仓实测能拿到的即使厂商未声明也应采信实测（见 reconcileObservation 的 undeclared-but-present）。
+const platformMetricMatrix = require('./platform-metric-matrix')
+
 module.exports = {
   TaskQueue,
   AggregatorBridge,
@@ -45,4 +63,13 @@ module.exports = {
   // P1-10: 发布历史此前未从入口导出，导致调用方各自 require 内部路径、依赖治理无从下手
   publishHistory,
   publishCapabilities,
+  platformTaxonomy,
+  // 冲突解决：两侧都保留。P1-1 的矩阵 / P1-3 的组合 / P1-4 的时间轴是三个独立新增的导出。
+  // ⚠️ 每次解完冲突必须**去重** —— 两次冲突解决各带进来一份 platformMetricMatrix，
+  //    重复键语法合法但属缺陷（ESLint no-dupe-keys），且「有没有冲突标记」的检查照不到它。
+  // 冲突解决：两侧都保留（P1-1 的矩阵 + P1-3 的组合），二者是独立新增的导出，无重叠
+  cardPaginatorCore,
+  platformMetricMatrix,
+  mediaCombination,
+  timelineFlatten,
 }

@@ -71,6 +71,14 @@ function Invoke-Guard([hashtable]$fx, [string]$rel) {
     if ($LASTEXITCODE -ne 0) { throw "guard failed for $rel (rc=$LASTEXITCODE)" }
 }
 
+# 全量对账（-Reconcile）不逐路径调用：这正是它与 watcher 的差别 —— 它必须能看见
+# watcher **从未收到事件**的那些漂移。
+function Invoke-GuardReconcile([hashtable]$fx) {
+    $common = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $guard, '-Root', $fx.Repo, '-QuarantineRoot', $fx.Quarantine, '-Reconcile', '-Quiet')
+    & powershell.exe @common
+    if ($LASTEXITCODE -ne 0) { throw "guard reconcile failed (rc=$LASTEXITCODE)" }
+}
+
 function Invoke-GuardCases([hashtable]$fx) {
     $eol = $fx.Eol
     # 「恢复干净」在两档下都必须成立，且各自必须见到自己那一档的工作树形态；
@@ -132,15 +140,49 @@ function Invoke-GuardCases([hashtable]$fx) {
 
     $violations = @(Get-Content -LiteralPath (Join-Path $fx.Quarantine 'violations.jsonl') | ForEach-Object { $_ | ConvertFrom-Json })
     Assert (($violations | Measure-Object).Count -ge 2) "[$eol] violation log records intercepted writes"
+
+    # ── 启动全量对账（guard-startup-reconcile，2026-10-13）────────────────────────
+    # 上面每组用例都靠 `Invoke-Guard $fx <path>` 逐路径调用，等价于「watcher 看见了那次写」。
+    # 真实事故恰恰是**watcher 没看见**：本仓 2026-10-13 实测 59 个漂移的运行时文件里
+    # 56 个在 violations.jsonl 里一条记录都没有，最早的已存在 8 天，而 guard 报 Running、
+    # 健康检查一直说 clean:false —— 静默盲区。下面这组**不调用 Invoke-Guard**，
+    # 制造两处漂移后只用一次 -Reconcile 收掉，证明它能看见 watcher 从没收到的事件。
+    $beforeReconcile = ViolationCount $fx
+    Write-RepoFile $fx 'apps/tracked.js' "export const tracked = 'v3-unseen'`n"
+    Remove-Item -LiteralPath (Join-Path $fx.Repo 'apps/nested/inside.js') -Force
+    Assert ((StatusLines $fx).Count -eq 2) "[$eol] fixture holds two drifts that no guard cycle ever saw"
+    Invoke-GuardReconcile $fx
+    # 断言读工作树内容（不是 `git show HEAD:`）——后者不恢复也照样通过，是装饰性断言。
+    Assert ((Read-RepoFile $fx 'apps/tracked.js') -match "tracked = 'v1'") "[$eol] reconcile restores a modification the watcher never saw"
+    Assert (Test-Path -LiteralPath (Join-Path $fx.Repo 'apps/nested/inside.js')) "[$eol] reconcile restores a deletion the watcher never saw"
+    Assert ((StatusLines $fx).Count -eq 0) "[$eol] status is clean after startup reconcile"
+    Assert ((ViolationCount $fx) -ge ($beforeReconcile + 2)) "[$eol] reconcile records both unseen drifts as violations"
+    # 幂等：对账跑在常驻循环之前，它自己的恢复动作也会走事件流；若不幂等就会与 watcher 互相打架。
+    $afterFirstReconcile = ViolationCount $fx
+    Invoke-GuardReconcile $fx
+    Assert ((ViolationCount $fx) -eq $afterFirstReconcile) "[$eol] reconcile is idempotent on an already-clean tree"
 }
+
+# 结构锁（与 EOL 档位无关，故放在循环外，只跑一次）：常驻模式必须在进入事件循环**之前**
+# 调用全量对账。上面的行为用例只证明「对账本身是对的」，证明不了「常驻模式真的会调用它」——
+# 把启动那次调用整段删掉，那 12 条对账断言**一条都不会红**（它们走的是显式 -Reconcile）。
+# 而这正是本次要修的缺陷本体，所以必须单独钉住。
+$guardText = Get-Content -LiteralPath $guard -Raw
+$watchAnchor = $guardText.IndexOf('$watcher.EnableRaisingEvents')
+$reconcileCallAt = if ($watchAnchor -ge 0) { $guardText.IndexOf('Invoke-ReconcilePass', $watchAnchor) } else { -1 }
+$loopAt = $guardText.IndexOf('while ($true)')
+Assert ($reconcileCallAt -gt 0) "watch mode invokes the startup reconcile pass"
+Assert ($loopAt -gt 0 -and $reconcileCallAt -lt $loopAt) "the startup reconcile pass runs before the event loop, not after it"
 
 try {
     foreach ($eol in @('lf', 'crlf')) {
         Invoke-GuardCases (New-Fixture $eol)
     }
-    # 规模锁：两档 EOL 各 17 条。少跑一格（EOL 档位被删掉、或某条 Assert 被摘）都必须在这里变红，
-    # 否则"第二格其实没在跑"这种退化在日志里完全看不出来。
-    Assert ($passed -eq 36) "both EOL cells ran to completion (expect 36 checks, got $passed)"
+    # 规模锁：两档 EOL 各 24 条（原 18 条 + 2026-10-13 新增 6 条启动对账断言），
+    # 外加循环外 2 条常驻模式结构锁，共 50 条。少跑一格（EOL 档位被删掉、或某条 Assert
+    # 被摘）都必须在这里变红，否则"第二格其实没在跑"这种退化在日志里完全看不出来。
+    # 数字以**实测**为准：本行曾写 17 而实际是 18，注释与判据不一致时只有真跑一次才知道该信谁。
+    Assert ($passed -eq 50) "both EOL cells plus the structural locks ran to completion (expect 50 checks, got $passed)"
     Write-Host "PASS: $passed session write guard checks" -ForegroundColor Green
 } finally {
     Remove-Item -LiteralPath $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue

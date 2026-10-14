@@ -491,7 +491,7 @@ pickChannel → colloquialize → chunk → ttsBlock(逐块，串行) → concat
 ### 7.9 存量 `mime` 一次性固化（tasks 4.4 合同，2026-10-12）
 
 > **这一节是合同，不是实现**。落代码的那一片必须按本节做，任何偏离先改本节再改代码，
-> 不得在实现里另立口径。写本合同的原因：§7.6 的严格校验与 `compliance` 标记上线后，
+> 不得在实现里另立口径。写本合同的原因：§9 严格校验与 §8 `compliance` 标记上线后，
 > **存量单集**（早于严格校验写入 `episodes.json` 的记录）会被整批读成「不合规」，
 > 用户看到的是自己的老节目一夜之间全部 blocked——那是把校验的代价转嫁给历史数据。
 
@@ -519,7 +519,7 @@ pickChannel → colloquialize → chunk → ttsBlock(逐块，串行) → concat
   二者择一并在锁里钉死，禁止同一份库里两种写法并存）。
 - **`index.json` 侧**：写 `stockStamp = { at, channels, scanned, filled, unresolved }`（计数必须是本次实测）。
 - **不得整体判死**：固化后，`compliance` 对**存量**记录只报「存量沿用，未再校验」这一档，
-  **不得**输出 `blocked`；新增/重写路径仍走 §7.6 严格校验（严格性不因存量而放宽）。
+  **不得**输出 `blocked`；新增/重写路径仍走 §9 严格校验（严格性不因存量而放宽）。
 - **只补不改的硬界**：固化**不得**触碰 `title`/`guid`/`pubDate`/`url` 等业务字段，也不得重排数组顺序、
   不得改动键序（键序变化会把一次补字段伪装成整文件重写，并让并发写者读到错位快照）。
 
@@ -530,7 +530,7 @@ pickChannel → colloquialize → chunk → ttsBlock(逐块，串行) → concat
 | 某频道 `episodes.json` 读不出/解析失败 | 跳过该频道，其余照常；该频道计入 `unresolvedChannels` | `warn`（不冒泡） |
 | 写盘失败（含 Windows 短暂 delete-share） | 走既有 rename 有界退避；超预算 ⇒ **放弃本次固化并保留原文件**，`stockStamp` 不写（下次启动可重试） | `warn` |
 | 扩展名派生出合法值但与该期 `durationSec` 明显矛盾 | 仍按派生填（本节不引入跨字段推断），仅在 `compliance` 里如实标「存量」 | 不额外出声 |
-| 同一频道被两个写者同时打开 | 固化必须走**按 `channelId` 的串行锁**（§7.7 同一把锁），不得为它新造第二把 | — |
+| 同一频道被两个写者同时打开 | 固化必须走**按 `channelId` 的串行锁**（唯一实现 `podcast-channel-locks.js` 的 `createKeyedLocks`），不得为它新造第二把 | — |
 | 已完成固化（`stockStamp` 在位）后又改动代码重跑 | 幂等：不重复填、不重复计数、不追加第二个 `stockStamp` | — |
 
 #### 7.9.4 交互逻辑与显示项
@@ -564,6 +564,31 @@ pickChannel → colloquialize → chunk → ttsBlock(逐块，串行) → concat
    不得出现第二份 `audio/mpeg` 字面量集合），否则两层会在新增容器时漂移。
 7. **单例接缝**：若固化经模块级内存位判「恰好一次」，测试必须经被测对象的公开出口观察，
    不得 `import` 该单例（vitest 下与生产 `require` 是两份实例，会恒假绿）。
+
+#### 7.9.7 落地状态（同一天，实现片）
+
+唯一实现：`apps/desktop/electron/services/podcast-episode-stock-mime.js`。
+
+- `stockMimeTable()` 的合法 `mime` 集与 `ext -> mime` 映射**由 `planAudioCodec` 派生**
+  （分别只喂 `libmp3lame` / `aac` 取回两条计划），本文件不自带第二份字面量集合；
+  `.aac` 裸扩展名映射到 mp4 容器这一条**不属于编码计划表**，在函数内显式声明并注明出处。
+- `freezeStockMimeInArray` 是纯函数（派生 + 计数 + `changed` 位）；`freezeStockMime` 只管遍历、
+  加锁、读写与 `stockStamp` 落盘。**目录布局不在本层**：`listChannels()` 由宿主给出
+  `{channelId, episodesFile}`，因此本层对「单文件还是按频道分文件」不做假设——合同 §7.9.1 写的是
+  按频道，实现不把它硬编码进逻辑，改布局时只有宿主动。
+- §7.9.3 的失败语义按合同落地：`stockStamp.at` 在位即 `skipped:true` 且一次写都不发；
+  单频道抛错 ⇒ `warn` + 计入 `unresolvedChannels` + 其余照常；六个注入实现缺任一即抛
+  `PODCAST_EPISODE_INVALID`（不回落真实目录）。
+- 回归锁 12 条已实跑（`podcast-episode-stock-mime.test.js`）。**与合同的差集要如实记**：
+  §7.9.5 七条里第 1/2/3/5/6/7 条已建锁；第 4 条（`compliance` 增设 `stock` 档）依赖 `compliance`
+  本体，属另一处落点，本片未做；第 5 条的**变异反证**（「派生不出即填默认值」必须变红）两次尝试
+  均未把变异真正落进文件（锚点少写了 `extOf(`），所以**这条锁目前没有变异证据**，只有行为证据。
+  第 3 条的变异 M1（合法值不再原样返回）实测 **2 条指名红**（只补不改 + 键序），已还原并断言。
+
+- **2026-10-14 更正（#3387 已合并，merge SHA `8bd87f385`）**：下方那句「宿主接线未做」**已过期**，保留只作当时的现场。4.4b 的 ① 现已落地——`apps/desktop/electron/services/podcast-stock-freeze-host.js` 用注入的 `registry` / `listChannels` / `readEpisodes` / `writeEpisodes` / `readIndex` / `writeIndex` 构造，`ipc-handlers/podcast.js` 的 `getService` 在**首个需要频道数据的调用处**触发一次：进程内恰好一次（同一频道第二次调用是 no-op），固化抛错走旁路只 `warn` 不外冒、返回 `null`，**§7.9.5 的数据校验与幂等口径一字未改**（重跑必须 `filled=0` 且字节不变）。仍**未做**的三件：② `compliance` 的 `stock` 档（§7.9.5 第 4 条）、③ 频道页摘要「扫描 N · 补齐 M · 待人工 K」与 `podcast.stock.*` 三对键 zh/en 成对、④ 「缺失即填默认值」那条**真的落进文件**的变异反证；故 `openspec/changes/podcast-oneclick-publish/tasks.md` 的 4.4b 父项保持未勾。
+**（2026-10-12 的现场，其中「宿主接线未做」已被上面那条更正）**：`podcast-channel-service.js` / `podcast-channel-registry.js` 尚无调用点，
+`stockStamp` 目前只由本层的 `writeIndex` 写；`compliance` 的 `stock` 档与频道页摘要、
+locale 三对键均未落地。因此 **tasks 4.4 只勾到「固化判据与锁已在位」**，剩余落点拆成 4.4b 保持未勾。
 
 #### 7.9.6 本节故意不做的
 

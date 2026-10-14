@@ -69,14 +69,32 @@ function readDegradedFlags (project) {
  * **不得**退到 pcm/WAV：那是合法 enclosure 类型，但体积是 10 倍量级，
  * 把「因为打包里没有编码器」转成「给用户发一份 200MB 的 feed」不是兜底而是新的死法。
  */
+/**
+ * 音频容器的唯一表：`codec / ext / mime / args` 四项一起定，
+ * 既供 `planAudioCodec` 按本机编码器选型，也供存量 `mime` 固化反查扩展名
+ * （PRD §7.9.5 第 6 条：容器判据不得有第二份）。新增容器只改这里。
+ */
+const AUDIO_CONTAINER_PLANS = Object.freeze([
+  Object.freeze({ codec: 'libmp3lame', ext: '.mp3', mime: 'audio/mpeg', args: ['-c:a', 'libmp3lame', '-q:a', '2'] }),
+  Object.freeze({ codec: 'aac', ext: '.m4a', mime: 'audio/mp4', args: ['-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart'] }),
+])
+
+/** 容器表只读出口（存量固化层用它建 ext→mime 映射，不得自己复制字面量）。 */
+function ttsAudioContainers () {
+  return AUDIO_CONTAINER_PLANS.map((p) => ({
+    codec: p.codec, ext: p.ext, mime: p.mime, args: p.args.slice(),
+  }))
+}
+
 function planAudioCodec (encoderList) {
   const names = String(encoderList || '')
     .split('\n')
     .map((l) => l.trim())
     .filter(Boolean)
   const has = (n) => names.some((l) => l === n || l.endsWith(' ' + n) || new RegExp('\\b' + n + '\\b').test(l))
-  if (has('libmp3lame')) return { codec: 'libmp3lame', ext: '.mp3', mime: 'audio/mpeg', args: ['-c:a', 'libmp3lame', '-q:a', '2'] }
-  if (has('aac')) return { codec: 'aac', ext: '.m4a', mime: 'audio/mp4', args: ['-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart'] }
+  for (const p of AUDIO_CONTAINER_PLANS) {
+    if (has(p.codec)) return { codec: p.codec, ext: p.ext, mime: p.mime, args: p.args.slice() }
+  }
   return null
 }
 
@@ -140,6 +158,8 @@ function formatDuration (durationSec) {
 
 module.exports = {
   PODCAST_EPISODE_ERRORS,
+  AUDIO_CONTAINER_PLANS,
+  ttsAudioContainers,
   readDegradedFlags,
   planAudioCodec,
   buildMixArgs,

@@ -172,9 +172,13 @@ describe('publish-capabilities — 语义分类（3+ 阈值）', () => {
     expect(classifyPublishFields().semiCommon.map(f => f.semantic)).toContain('music')
   })
 
-  it('分类语义 2 平台 → semiCommon（B站/YouTube）', () => {
-    expect(getFieldSupport('category').count).toBe(2)
-    expect(classifyPublishFields().semiCommon.map(f => f.semantic)).toContain('category')
+  it('分类语义 7 平台 → common（P0-4 由 2 平台扩到 7）', () => {
+    // P0-4 前：只有 bilibili(category)/youtube(categoryId) 登记 ⇒ count=2 ⇒ semiCommon。
+    // P0-4 后：P0-1 实测有分类 ID 数据的 6 个平台全部登记 + youtube ⇒ count=7 ⇒ common。
+    // 同时锁住「不再退回 semiCommon」——否则 UI 会把它当半通用能力处理。
+    expect(getFieldSupport('category').count).toBe(7)
+    expect(classifyPublishFields().common.map(f => f.semantic)).toContain('category')
+    expect(classifyPublishFields().semiCommon.map(f => f.semantic)).not.toContain('category')
   })
 
   it('原创声明语义 2 平台 → semiCommon（B站版权/百家号原创）', () => {
@@ -251,14 +255,40 @@ describe('publish-capabilities — 差异化字段定义', () => {
     }
   })
 
-  it('select 字段必须带 options 且 default 在 options 值集内', () => {
+  it('select 字段必须带 options 且 default 在 options 值集内（**或**声明 optionsFrom 走外部数据源）', () => {
     for (const platform of ALL_PLATFORMS) {
       for (const field of getPlatformOverrideFields(platform)) {
         if (field.type !== 'select') continue
+        // P0-4 扩展：分类字段的选项来自平台分类表（142+ 节点，且随快照更新），
+        // 不可能也不应该内联。这类字段用 optionsFrom 声明来源。
+        //
+        // 并存情形（optionsFrom + 静态 options）是**允许但必须出声**的过渡态：
+        // 真源已切换，但静态 options 是既有消费方的回退，删早了会让它们渲染出空下拉。
+        // ⇒ 并存必须带 note 说明；没有 note 的并存是「两处真源且没人知道哪个对」，
+        //    正是注册表要修的债，**判红**。
+        if (field.optionsFrom) {
+          expect(typeof field.optionsFrom).toBe('string')
+          expect(field.optionsFrom.length).toBeGreaterThan(0)
+          if (Array.isArray(field.options) && field.options.length > 0) {
+            expect(typeof field.note, `${platform}.${field.key} 同时有 optionsFrom 与静态 options ⇒ 必须带 note 说明为什么并存`).toBe('string')
+            expect(field.note.length, `${platform}.${field.key} 的并存说明不能是空串`).toBeGreaterThan(0)
+          }
+          continue
+        }
         expect(Array.isArray(field.options)).toBe(true)
         expect(field.options.length).toBeGreaterThan(0)
         const values = field.options.map(o => o.value)
         expect(values).toContain(field.default)
+      }
+    }
+  })
+
+  it('optionsFrom 的值必须是已登记的数据源（防拼错成一张不存在的表）', () => {
+    const KNOWN_SOURCES = ['platform-taxonomy']
+    for (const platform of ALL_PLATFORMS) {
+      for (const field of getPlatformOverrideFields(platform)) {
+        if (!field.optionsFrom) continue
+        expect(KNOWN_SOURCES, `${platform}.${field.key} 的 optionsFrom 值 ${field.optionsFrom} 未登记`).toContain(field.optionsFrom)
       }
     }
   })
@@ -305,14 +335,15 @@ describe('publish-capabilities — 差异化字段定义', () => {
     const keysOf = platform => getPlatformOverrideFields(platform).filter(f => f.uiExposed).map(f => f.key)
     // wechat-mp-publish-track：新增 freePublish（发布，不推送粉丝），与 massSend 互斥、群发优先
     expect(keysOf('wechat_mp').sort()).toEqual(['digest', 'freePublish', 'massSend', 'openComment'])
-    expect(keysOf('zhihu').sort()).toEqual(['commentPermission', 'declare', 'draft', 'topics'])
+    // P0-4：有分类 ID 数据的平台全部登记 category（zhihu/douyin/weibo/baijiahao 各 +1）
+    expect(keysOf('zhihu').sort()).toEqual(['category', 'commentPermission', 'declare', 'draft', 'topics'])
     // P1-5：抖音/快手/微博的 visibility 打通后进 UI 渲染集（此前为空）
-    expect(keysOf('douyin').sort()).toEqual(['draft', 'visibilityType'])
+    expect(keysOf('douyin').sort()).toEqual(['category', 'draft', 'visibilityType'])
     expect(keysOf('bilibili').sort()).toEqual(['category', 'collectionId', 'copyright'])
     expect(keysOf('youtube').sort()).toEqual(['categoryId', 'playlistId', 'privacy'])
     expect(keysOf('tiktok')).toEqual(['privacyLevel'])
-    expect(keysOf('baijiahao').sort()).toEqual(['collectionIdText', 'locationName', 'original'])
-    expect(keysOf('weibo')).toEqual(['visible'])
+    expect(keysOf('baijiahao').sort()).toEqual(['category', 'collectionIdText', 'locationName', 'original'])
+    expect(keysOf('weibo').sort()).toEqual(['category', 'visible'])
     expect(keysOf('tencent_video')).toEqual([])
     expect(keysOf('kuaishou')).toEqual(['visibilityType'])
   })
@@ -320,7 +351,7 @@ describe('publish-capabilities — 差异化字段定义', () => {
   it('getPlatformOverrideFields 返回副本', () => {
     const fields = getPlatformOverrideFields('zhihu')
     fields.push({ key: 'injected' })
-    expect(getPlatformOverrideFields('zhihu').length).toBe(6)
+    expect(getPlatformOverrideFields('zhihu').length).toBe(7) // P0-4：+category
   })
 
   it('CCG W5 回归：副本深拷贝——突变 options/default 不污染注册表', () => {
@@ -600,5 +631,104 @@ describe('publish-capabilities — platforms.yaml 与注册表 max_content 对�
     // 防"解析退化成空集合即假绿"
     expect(Object.keys(YAML_PLATFORMS).length).toBeGreaterThanOrEqual(15)
     expect(Number(YAML_PLATFORMS.kuaishou.max_content)).toBe(480)
+  })
+})
+
+/**
+ * P0-4（PLAN-REUSE-ROLLOUT-2026-10-13）：注册表登记分类字段。
+ *
+ * 背景：分类此前只有 `bilibili`（key `category`）与 `youtube`（key `categoryId`）两个平台
+ * 登记了 `semantic:'category'`，故 `classifyPublishFields()` 把它归进 semiCommon（=2）。
+ * 而 P0-1 实测有 **6 个平台确有分类 ID 数据**（bilibili/douyin/toutiao/baijiahao/weibo/zhihu）。
+ *
+ * 本组锁的**快照**：`semantic:'category'` 必须进 `common`，且 platforms 覆盖那 6 个 + youtube。
+ *
+ * ⚠️ 一处与 PLAN 原文的**有意偏离**（不是漏做）：PLAN 写的是加 `{key:'categoryName', ...}`，
+ * 但 ① 适配器读的是 `taskData.category`（`baijiahao-article.js:151`）；
+ * ② 注册表里 `bilibili` 已用 `category`、`youtube` 已用 `categoryId`；
+ * ③ PRD-PLATFORM-TAXONOMY §15.3 已冻结「`article.category` = 平台侧**数字 ID**」。
+ * 再加一个 `categoryName` 会让同一概念有**第三个名字**，正是该注册表要修的债。
+ * ⇒ 统一用 `key:'category'`；「选项来自分类表」用 `optionsFrom:'platform-taxonomy'` 表达。
+ */
+describe('publish-capabilities — P0-4 分类字段登记', () => {
+  const TAXONOMY = JSON.parse(
+    fs.readFileSync(path.join(__dirname, '../../../../config/platform-taxonomy.json'), 'utf8'))
+
+  /** 确有分类 ID 数据的平台（由 P0-1 产物决定，不手写名单） */
+  const PLATFORMS_WITH_DATA = Object.keys(TAXONOMY.platforms)
+  /** 本项目支持但数据集里没有 ID 数据的平台 */
+  const PLATFORMS_WITHOUT_DATA = TAXONOMY.platformsWithoutIdData || []
+
+  it('判据① validateRegistry() 返回空数组', () => {
+    expect(validateRegistry()).toEqual([])
+  })
+
+  it('判据② 每个有分类数据的平台，uiOnly 下都有 semantic=category 且 uiExposed 的字段', () => {
+    expect(PLATFORMS_WITH_DATA.length, '有数据的平台过少 ⇒ 判据假绿').toBeGreaterThanOrEqual(6)
+    for (const pid of PLATFORMS_WITH_DATA) {
+      const hits = getPlatformOverrideFields(pid, { uiOnly: true }).filter((f) => f.semantic === 'category')
+      expect(hits, `${pid} 应有且仅有一个 uiOnly 的 category 字段`).toHaveLength(1)
+      expect(hits[0].uiExposed).toBe(true)
+      expect(hits[0].key).toBe('category')
+    }
+  })
+
+  it('判据③ classifyPublishFields() 把 category 归为 common，且 platforms 覆盖 6 个有数据的平台', () => {
+    const cat = classifyPublishFields().common.find((f) => f.semantic === 'category')
+    expect(cat, 'category 应在 common（≥3 平台）').toBeTruthy()
+    expect(cat.platforms.length).toBeGreaterThanOrEqual(3)
+    for (const pid of PLATFORMS_WITH_DATA) {
+      expect(cat.platforms, `common.platforms 应含 ${pid}`).toContain(pid)
+    }
+    // 快照：实测 7（6 个有数据 + youtube）
+    expect([...cat.platforms].sort()).toEqual(['baijiahao', 'bilibili', 'douyin', 'toutiao', 'weibo', 'youtube', 'zhihu'])
+  })
+
+  it('getFieldSupport(category) 的 count 与 common 一致（防两处口径漂移）', () => {
+    const sup = getFieldSupport('category')
+    const cat = classifyPublishFields().common.find((f) => f.semantic === 'category')
+    expect(sup.count).toBe(cat.platforms.length)
+  })
+
+  it('★ 一致性①：声明 optionsFrom=platform-taxonomy 的平台必须**确有**分类数据', () => {
+    // 防「声明了来源却没数据」→ 渲染端会拿到空选项且不报错
+    for (const pid of Object.keys(TAXONOMY.platforms)) {
+      const f = getPlatformOverrideFields(pid).find((x) => x.optionsFrom === 'platform-taxonomy')
+      expect(f, `${pid} 应声明 optionsFrom`).toBeTruthy()
+    }
+  })
+
+  it('★ 一致性②：无分类 ID 数据的平台**不得**登记 category 字段', () => {
+    // 防「给没数据的平台也渲染一个空下拉」——PRD §15.3 规定平台无数据时不渲染，不是渲染成空
+    for (const pid of PLATFORMS_WITHOUT_DATA) {
+      const f = getPlatformOverrideFields(pid).find((x) => x.semantic === 'category')
+      expect(f, `${pid} 无 ID 数据，不应有 category 字段`).toBeUndefined()
+    }
+  })
+
+  it('★ 一致性③：youtube 有 category 能力但**不得**声明 optionsFrom（本数据集无其分类表）', () => {
+    const f = getPlatformOverrideFields('youtube').find((x) => x.semantic === 'category')
+    expect(f, 'youtube 应保留 categoryId 字段').toBeTruthy()
+    expect(f.key).toBe('categoryId')
+    expect(f.optionsFrom, 'youtube 无数据源，声明 optionsFrom 会让渲染端去找一张不存在的表').toBeUndefined()
+  })
+
+  it('★ 变异反证：把某个平台的 category 字段摘掉，判据②必须变红', () => {
+    // 本组锁若只是"读一遍注册表并打印"，上面所有 expect 都会假绿。
+    // 这里用真实注册表做一次**结构断言下界**，证明数据确实被读到了。
+    const allCategoryFields = Object.keys(TAXONOMY.platforms)
+      .flatMap((pid) => getPlatformOverrideFields(pid).filter((f) => f.semantic === 'category'))
+    expect(allCategoryFields.length, '读到的 category 字段数应等于有数据的平台数').toBe(PLATFORMS_WITH_DATA.length)
+    // 逐字段必须带 key（防"字段被写成了空对象也算命中"）
+    for (const f of allCategoryFields) expect(typeof f.key).toBe('string')
+  })
+
+  it('遗留硬编码 options 已被标注（不假装已清理）', () => {
+    // bilibili 的 10 项 hardcoded options 与快照有 4 项标签矛盾（PRD §14.1）。
+    // 在渲染端选择器落地前**不能删**（会让现有消费方渲染空下拉），但必须带 note 说明它是遗留。
+    const b = getPlatformOverrideFields('bilibili').find((f) => f.semantic === 'category')
+    expect(Array.isArray(b.options), 'bilibili 的遗留 options 仍在（未到删除时机）').toBe(true)
+    expect(b.note, 'bilibili 的遗留 options 必须带 note 说明').toMatch(/遗留/)
+    expect(b.optionsFrom, '真源已改为 platform-taxonomy').toBe('platform-taxonomy')
   })
 })

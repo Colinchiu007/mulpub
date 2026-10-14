@@ -32,8 +32,12 @@
 - [x] 3.3 三处一致校验（`fs.stat` == ffprobe == `putObject` 返回 size）在 `podcast-episode-publish.js` 挂期之前收口，不等即 `PODCAST_AUDIO_SIZE_MISMATCH` 并阻断后续相位；**存储侧损坏在默认零出站路径不覆盖**仍是欠账（见 PRD §13 与 records）
 - [ ] 3.3a 下半片合同已落规格（PRD §6.4 入参/返回/错误码映射表/显示项/取消交互/校验三层 + spec 新增 Requirement）：代码实现按该节做，任何偏离必须先改本节再改代码，不得在实现里另立口径
 - [x] 3.8 **刀 3 上半（#3291）的 QM-6 后端补审结论处置清单（0 Critical / 3 Warning / 3 Info，评审在合并之后才落，见 `.adversarial/ccg-episode-publish-slices/critique-backend-v2.md`）**：① W1 `createEpisodePublisher.publish()` 全程不调 `tryBeginPublish`/`endPublish`，出期链**实际不持频道忙标记**——而 `publishAudio` 的注释与适配层模块头都写着「锁归整条出期链」，那句话现在是假的（合并前未跑完评审的代价，正是本条要记的债）；修法=编排入口取锁、`finally` 放锁，并把注释改成与实现一致。② W2 `publishAudio` 不做 `channelId` 清洗就拼进 objectKey，可逃逸出 `audio/<channelId>/` 这一层（`stem` 清洗得很干净，id 反而没洗）——修法=复用同一段白名单清洗并配一条「id 带 `../` 必须被拒或洗净」的锁。③ W3 抛出错误的相位字段名不一致（音频 https 失败与取消用 `.phases`，其余用 `.publishPhases`），排障脚本按一个键取会漏。④ I 两处：https 判据在三个文件里各写一份正则（应收成单一谓词，与仓内 `safe-http-url` 的收敛先例同源）；`partial.errorMessage` 在有 message 时丢掉 status，真 adapter 的 403 永远进不了结果契约。⑤ I 一条：`podcast-hosting-audio.test.js` 把 `_put` 整体 mock 掉，真实 `_put` 的 URL 守卫从未被真路径覆盖（「拼不出 https」那条测的是 publishAudio 自有判据）。
-- [ ] 3.4 `usePodcastEpisodePublish` 状态机（相位闭集 + 逐格驱动全部结果态）+ `PodcastPublishAction.vue` 浮层 + 挂起合同登记
-- [ ] 3.5 入口两枚：`ResultView.vue:726`、`CreateView.vue:4519`
+- [x] 3.4 `usePodcastEpisodePublish` 状态机（相位闭集 + 逐格驱动全部结果态）+ `PodcastPublishAction.vue` 浮层 + 挂起合同登记
+  - 证据（2026-10-14，读 origin/main blob 现查）：`src/composables/usePodcastEpisodePublish.js`（435 行，相位闭集 + `livePhase` / `liveTrail` 逐格驱动，`progressAvailable=false` 时走「进度不可用」显式降级文案而非画停在首相位的假进度条）+ `src/components/PodcastPublishAction.vue`（浮层本体）+ `src/overlay-view-suspension.test.js` 已登记该 owner 的挂起/释放接入断言（AGENTS.md「应用级浮层弹窗互斥合同」）。配套 `usePodcastEpisodePublish.test.js` 亦在主干。
+- [x] 3.5① 入口两枚之**第一篇**：`CreateView.vue` 已挂 `PodcastPublishAction`（原 3.5 拆出来才看得见只落了一半）
+  - 证据（2026-10-14）：`git show origin/main:apps/desktop/src/views/CreateView.vue` 命中 `PodcastPublishAction`。
+- [x] 3.5② 入口两枚之**第二篇**：`ResultView.vue` 也**已挂**出期入口——它用的是 `PodcastEpisodeEntry.vue`（`ResultView.vue:65` 挂点、`:448` import、`:479` 注册），该组件渲染 `t('podcast.episode.entry')` 并带 `project / segments / videoPath` 三个入参。**本条曾被我判成「尚未挂」**：当时只 `grep PodcastPublishAction` 一个组件名就下了结论，而同一能力在两个视图里用了两个不同的承载组件（创建页 `PodcastPublishAction` 浮层本体、结果页 `PodcastEpisodeEntry` 入口件）。教训已写进本次记录，判入口是否在位必须**按能力字面量**（`podcast.episode.entry`）而非按某个组件名扫。
+  - 证据（2026-10-14 更正）：`git show origin/main:apps/desktop/src/views/ResultView.vue` 命中 `<PodcastEpisodeEntry ` 3 处；`git show origin/main:apps/desktop/src/components/PodcastEpisodeEntry.vue` 第 4 行 `{{ t('podcast.episode.entry') }}`。
 - [x] 3.6a feedSync 读侧接线（`channel:get` 带 `feedSync` + 横幅 + 重试复用同一条 `podcast:feed:publish`）；评审后追加：切频道与 `feedSync` 同进同退、`FEED_SYNC_STATUSES` 闭集与三向对账锁、`retryFeed` 文案名实相符
 - [x] 3.6a2 刀 3 第 3 片：真实宿主接线（ffmpeg/ffprobe spawn + OSS `putObject` + `episodeSink`/`feedSink` 复用 `channelPublishPass` 与 `writeFeedSync` 忙锁口径）+ `podcast:episode:publishFromVideo` 通道 + preload 暴露；第 4 片：`usePodcastEpisodePublish` 状态机 + 浮层 + 两枚入口（3.4/3.5 不变）
 - [x] 3.6a1 修刀 1 遗留 Critical：`usePodcastChannelPicker.switchChannel` 引用页面域标识符必抛 `ReferenceError`（切频道整条路径不可用）→ 改走 `onChannelActivated` 回调；回归锁 `src/composables/usePodcastChannel-switch.test.js`，根因与逃逸链见 `01-docs/BUGFIX-PODCAST-CHANNEL-SWITCH-2026-10-11.md`
@@ -53,7 +57,10 @@
 - [ ] 4.2 分块 TTS 装配：块上限 **2000 码点**（⛔ 不是 provider 的 4000——`asset-generator.js:1031` 是 `slice(0,4000)` 的**静默截断**，超上限整篇喂进去会丢内容且不报错）；块边界只落在段落或句末终止标点，切不开即 `PODCAST_TTS_CHUNK_UNSAFE` 拒绝而非硬切；唯一合成出口 `AssetGenerator.generateTTS(text, opts)`（禁止直调各家 `synthesize`，入参键名三家不同）；逐块**串行** + 沿用 `withAssetTransientRetry` 3/4 次退避；块间 0.3–0.6s 静音由**预物化的 `anullsrc` 片段**参与 concat（`adelay`/`loudnorm` 都不在 `REQUIRED_FILTERS`，不得用）；逐块 `degraded` 汇总门禁：任一块退化为静音即整次拒绝（`PODCAST_TTS_CHUNK_DEGRADED`，块号进 issues），全失败给 `PODCAST_TTS_ALL_FAILED`
 - [x] 4.3① 复用刀 3 手柄（**只换 `extractMix` 这一站的实现**，`probe` 及之后逐字复用；不得改 `PHASES` 闭集，改枚举必须与逐格结果态测试同 PR）的**主进程层**：`createEpisodeHost().publishFromScript` 落三层判据（计费同意闸门 → `validateComposeInput` 逐字转发码 → 三个注入实现齐备）、`runChain` 单点持忙标记/取消登记/临时目录收尾，合同与显示项、提示文字见 PRD §7.10。5 条变异（M10–M14）各自让**指名**用例变红，其中 M12 需靠副作用缺席（`mkdir` 次数与忙标记）才能与合成层自身的拒绝区分——只看错误码相同不构成证据
 - [ ] 4.3② 接入 `CopyLibraryView.vue:174`、`RewriteView.vue:812`、`Publish.vue:358` 三枚入口 + `podcast:episode:publishFromScript` 的 IPC/preload 通道 + §7.10.3 的计费二次确认浮层与 `episode.*` 显示项键（zh/en 成对，Gate 7 与 glossary 锁各跑一次）；**不得先开通道再补入口**（无消费者的通道属装饰性链路）。**已闭合的一半**：`PODCAST_TTS_BILLING_UNCONFIRMED` 的 zh/en 文案随 4.3① 落地（领域码收割锁 `src/locales/podcast-error-codes.test.js` 要求码一出现就得有成对文案，不能等入口）。入口判据与刀 5 同表（HotTopics/KeywordMonitor/PublishHistory/Home/FirstRun/FilmEngineering 不放）
-- [ ] 4.4 存量 `mime` 一次性固化（`stockStamp` 标记），不得把存量整体打成 blocked
+- [x] 4.4 存量 `mime` 一次性固化（`stockStamp` 标记），不得把存量整体打成 blocked
+  - 证据（2026-10-12）：判据与锁落 `apps/desktop/electron/services/podcast-episode-stock-mime.js`（12 条锁实跑；变异 M1 两条指名红）；规格与落地状态见 PRD §7.9.1-§7.9.7
+- [ ] 4.4b **4.4 的剩余落点（拆出来才看得见没做完的部分）**：① 宿主接线——`podcast-channel-service.js` 构造 `listChannels/readEpisodes/writeEpisodes/readIndex/writeIndex` 并在首个需要频道数据的调用处触发一次；② `compliance` 增设 `stock` 档（合同 §7.9.5 第 4 条，本片未做）；③ 频道页摘要「扫描 N · 补齐 M · 待人工 K」与 locale 三对键 `podcast.stock.*` zh/en 成对；④ 给「缺失即填默认值」补一条**真的落进文件**的变异反证
+  - 进度（2026-10-14，#3387）：**① 宿主接线已落**——`podcast-stock-freeze-host.js` 用注入的 registry / listChannels / readEpisodes / writeEpisodes / readIndex / writeIndex 构造，`ipc-handlers/podcast.js` 的 `getService` 在首个需要频道数据的调用处触发一次（进程内恰好一次，抛错走旁路只 warn 不外冒）。父项保持未勾：② `compliance` 的 `stock` 档、③ 频道页摘要与 `podcast.stock.*` 三对键 zh/en 成对、④ 真的落进文件的变异反证 仍未做
 - [ ] 4.5 **音色默认值的两层事实**（PRD §7.4.0 第 1 条）：仓内**不存在**跨 provider 的"全局默认音色"，只有 capability 级 `defaultVoiceId` 与用户偏好 `tts-voice-preference:v1:<providerId>:<model>` 两层；频道 `voiceRef` 三段（providerId/model/voiceId）同存或同缺，回退顺序 ①频道 ②用户偏好 ③capability 默认 ④都无则 `PODCAST_TTS_VOICE_UNRESOLVED` 拒绝，**禁止**用"某个 provider 的第一个音色"猜。②③ 命中时界面必须标注来源三态
 - [ ] 4.6 **不做响度归一**（PRD §7.4.0 第 2 条）：`loudnorm` 不在打包媒体工具的已验证滤镜清单，引入它需同 PR 改 `media-tools-lock.json` + `before-pack` 校验 + 重打包实测，是另一条混合 PR 的体量。本期以"全期同一组 voice/rate/pitch/format 参数"换取块间一致，并在 PRD §13 明写跨 provider 降级时各块响度可能不一致这一接受项
 
@@ -62,7 +69,8 @@
 - [x] 5.1 入口判据落文档（已落 PRD §15：三条判据 + 放/不放全量两张表 + 「新增页面必须追加一行」验收条款）。理由不写成「不合适」：`PublishHistory` 的不放理由 = 同 guid 重发覆盖已上线一期
 - [ ] 5.1b 若新增产出文案/成片的页面，必须回 PRD §15.2/§15.3 追加一行（放或不放 + 命中哪条判据），4.3② 落地时同 PR 把 §15.2 状态列改「已落」
 - [ ] 5.2 PRD 提示文字逐字表由脚本从 locales 生成（禁止手工维护）
-- [ ] 5.3 三处记忆同步 + `01-docs/i18n-glossary.md` 术语收口
+- [x] 5.3 三处记忆同步 + `01-docs/i18n-glossary.md` 术语收口
+  - 证据（2026-10-14）：**三处记忆已同步**——内置记忆 4 条新写/改写（叠片旧副本、5.3 现成判据、4.4 闭合现场指针、回填通用驱动口径）且已进 `MEMORY.md` 索引；EverOS 侧 `cascade status` 实测 `pending=0 / lag=0 / done 162→166`（判据取三个产物，不看 rc）；仓库文档 = PRD §7.9.7 更正（#3514）+ 两片执行记录。**术语收口**：`01-docs/i18n-glossary.md` 补 `出期 → Publish as podcast episode`（`podcast.episode.entry`）与 `一键发布 → One-click podcast episode`（`podcast.episode.title`），两条 en 列都取 en.js 里**真实出现的逐字**（L3 判据是「locale 值包含该字面量」，上一轮把 en 写成想象中的标准译法因此当场红）；方向按 AGENTS.md「让 UI 采用 canonical 术语，而不是把词典削到已有裸词」，本片未改任何已上线文案。
 
 ## 6. 刀 1 收口：QM-6 双模型评审处置（2026-10-10）
 

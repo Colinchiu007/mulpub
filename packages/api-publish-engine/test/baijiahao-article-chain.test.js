@@ -184,4 +184,58 @@ describe("publish/platforms/baijiahao-article", function () {
     }));
     expect(params.get("content")).toBe("<p>今天探店 #美食探店# 太好吃了</p>");
   });
+
+  // ---- P0-5 分类字段落位（PLAN-REUSE-ROLLOUT-2026-10-13）----
+  // 验收判据：分类 ID 出现在请求体的**正确字段位**。
+  // 改前 `params.set('category', String(taskData.category == null ? '未分类' : taskData.category))`
+  // 有洞：非 ID 的值（含中文分类名）会被**原样写进表单**，平台侧如何解释无从得知。
+  test("★ P0-5 分类落位：给平台侧 ID → 表单 category 就是该 ID（不是默认值）", function () {
+    const chain = new BaijiahaoArticleChain({ userAgent: UA, cookie: "c" });
+    // 取一个**非默认**值，否则「采纳了传入值」与「用了兜底」不可区分
+    const params = new URLSearchParams(chain.buildArticleFormData({
+      title: "T", content: "C", category: "386",
+    }));
+    expect(params.get("category")).toBe("386");
+  });
+
+  test("★ P0-5 分类落位：数字型 ID 同样按字符串写入（表单字段恒为字符串）", function () {
+    const chain = new BaijiahaoArticleChain({ userAgent: UA, cookie: "c" });
+    const params = new URLSearchParams(chain.buildArticleFormData({
+      title: "T", content: "C", category: 386,
+    }));
+    expect(params.get("category")).toBe("386");
+  });
+
+  test("★ P0-5 分类落位：未提供 ⇒ 保留既有兜底「未分类」（行为与改前一致）", function () {
+    const chain = new BaijiahaoArticleChain({ userAgent: UA, cookie: "c" });
+    for (const v of [undefined, null, ""]) {
+      const params = new URLSearchParams(chain.buildArticleFormData({
+        title: "T", content: "C", category: v,
+      }));
+      expect(params.get("category")).toBe("未分类");
+    }
+  });
+
+  test("★ P0-5 分类守卫：给中文分类名 ⇒ **抛错**，绝不静默写成「未分类」", function () {
+    // 这是 P0-3 前半段守卫在**本平台链**上的契约锁：
+    // 静默兜底 = 用户以为按「教学」发了，实际发到「未分类」且不可察。
+    const chain = new BaijiahaoArticleChain({ userAgent: UA, cookie: "c" });
+    let caught = null;
+    try {
+      chain.buildArticleFormData({ title: "T", content: "C", category: "教学" });
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught, "传中文分类名必须抛错").not.toBeNull();
+    expect(caught.code).toBe("CATEGORY_UNRESOLVED");
+  });
+
+  test("★ P0-5 分类守卫：数字 0 是合法 ID，不得被当成「未提供」", function () {
+    // `if (!raw)` 这类写法会把 0 误判成未提供 —— 与 res/category-resolver 的用例呼应
+    const chain = new BaijiahaoArticleChain({ userAgent: UA, cookie: "c" });
+    const params = new URLSearchParams(chain.buildArticleFormData({
+      title: "T", content: "C", category: 0,
+    }));
+    expect(params.get("category")).toBe("0");
+  });
 });

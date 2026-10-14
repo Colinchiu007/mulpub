@@ -1,5 +1,4 @@
 # [未发布] feat(gates): 时钟位移 oracle 取代已被否证的静态形状判据，并修掉它当场抓到的 3 条引信（clock-shift-oracle）
-
 - **换判据而不是再补一条 lint**：`scripts/check-clock-shift-oracle.js` 把同一批候选用例跑两趟，第二趟经 `apps/desktop/test-setup-clock-shift.js` 按 `MP_TEST_NOW_SHIFT_MS` 把 `Date.now()` 与零参 `new Date()` 整体推到未来（默认 45 天），差集 `位移趟红 ∖ 基线趟红` 即"随墙上时钟老化的引信"。静态形状判据在当场测量中被否证：apps/desktop 全域 936 个测试文件，静态形状候选（含时间字面量 + 相对窗口 + 未注入时钟）js/ts 有 66 个需逐个人工判读，而行为判据真找到的 3 条引信**一条都不在这 66 个里**。
 - 两条反失明判据：位移趟必须自己打印 `[CLOCK-SHIFT] active`（否则第二趟只是重跑基线、"零新增红"是假绿，配 `clock-shift-oracle-control.test.js` 正控要求 `Date.now() - baseNow >= shift`）；候选集为空一律 FAIL，且 `--dry-run` 出声 `domain=936 candidates=168 forms=…`，覆盖面数字可在仓库里一句话重取。
 - 预筛从"只认日期串"（118 个）扩成五形态并集（168 个），补上实测整族漏掉的 13/10 位数字纪元与"与内核时间交换过值"两族——**扩窄后第一跑就抓到 2 条新引信且恰属新加那一族**。`KNOWN_CLOCK_DEPENDENT` 起始为空且本轮仍为空。
@@ -8,8 +7,39 @@
 - **巡检工具自己被重跑抓到两处失明**（同轮补的判据）：① 位移趟 `collected=167 / candidates=168`——`resume-guard.test.js` 整份没跑而旧逻辑照报 PASS，现要求 `collected` 等于候选数并点名缺谁；② `rc≠0` 而"失败文件=0"（进程级异常）现一律判"这趟没跑完"并打印该趟末 20 行；③ CLI 未知/非法参数改为抛错走"自身故障"档（退出码 2，与"发现引信"的 1 分开），且 `--limit 4` 与 `--limit=4` 两种写法都生效（旧实现只认后者，一次小 smoke 被静默放大成整域两趟）。
 - 接线分档：12 条锁 + `--dry-run` 进每次 PR（`quality-gate.yml` Gate 2b，`shell: bash` 真 fail-fast）；完整两趟进每周 schedule（新建 `.github/workflows/clock-shift-oracle.yml`，不挂 pull_request、不进 required，理由与耗时数字写进文件头注释）。`check-workflow-structure` ⇒ `files=14 violations=0`。
 - 遗留如实登记：全域两趟（936 文件，外推 ≈ 63 分钟）未纳入 v1，预筛外只单独验过 1 个"落盘 + 相对窗 + 读时钟"的文件（`logger.test.js` 位移档 16 passed），这是抽样不是全域覆盖。
+# [未发布] 运营中心「应用菜单」改完不生效——应用侧早退静默（ops-menu-diag）
 
+- 新增 apps/desktop/electron/services/ops-center-sync-autosync-guard.js：`resolveAutoSyncGuard(cfg, hasAutoContext, autoUrlRaw, hasAccessToken)` 是纯函数——把「启动自动同步该不该发起/为何不发起」的判据从 `ops-center-sync.js` 移出（该文件登记 570 行 + 容差 200 = 770，改前已 768，任何新增都会判 LEDGER_GREW）。
+- `autoSyncOnStart()` 的三道早退原先全是裸 `return`：应用可以在「运营下发配置（应用菜单/公告/功能开关）永远不会生效」的状态下常年运行而**没有任何信号**。实测现场：共享数据锚点的 settings 表里 `opsCenterSync`/`opsCenterRuntime` 各 0 行，且 `opsCenterSync` 在全部 13 个库（含 2026-09-23 起每份备份）中从未出现过；当日应用日志里 `catalog-synced`/`auto-sync-skipped`/`auto-sync-error` 一条都没有。判据本身没错（没配置不该硬发请求），错的是不发请求也不说为什么。
+- 三种原因现在**可区分**：`auto-sync-not-started-disabled` / `-unconfigured` / `-missing-api-key`，各带 `hint` 下一步。`-unconfigured` 额外带 `autoUrlConfigured` 与 `hasAccessToken`——因为 `getConfig().url` 会把自动发现地址并入（`url = 手动 url || 自动 url`），而 `_getAutoContext()` 在缺令牌回调时为 null，两者叠加会让「自动发现地址已配好、只是缺令牌」**伪装成完全未配置**。
+- 归一化不写第二份：`normalizeUrl` 仍在主文件（单一实现），调用方传入已归一化的 auto url；出声也留在主文件调用点（判据可外移，「谁负责说话」不能）。
+- 回归锁 4 条加在已接线的 `ops-center-sync.test.js`：每条同时钉「不调度」与「出声且原因可区分」，含一对 `not.toContain` 反向断言防止三种原因被合并成一条含糊的 skipped。既有用例只锁了「不调度」——不调度与不出声是两件事。
+- 变异反证：把出声口改回静默 ⇒ 4 条全红（`4 failed | 75 passed (79)`）；还原 ⇒ 79 passed。判据外移后重做，不复用外移前的结论。
+- QM-1：`electron-builder --win --dir` rc=0；asar 清单含新模块；在**打包产物内**（用 Electron 的 `ELECTRON_RUN_AS_NODE`，不抽 asar）require 链通过，新模块可解析且未配置/已配置两态行为正确；启动 stderr 无 `Failed to load platform config` / `ENOTDIR.*app.asar` 等四项禁止标记。
+- 排查中的一次实测否证（如实记录）：据 `.env` 的 `OPS_RUNTIME_SIGNING_PRIVATE_KEY` 仅 27 字符（恰为 PEM 头长度）推断「签名私钥是占位串」——实测 `GET /api/v1/runtime/bootstrap` 返回 200、含 `signature`、且用桌面端自身 `verifyRuntimeSignature(data, '')` 验签 `{"ok":true}`，该假设被否证，未据此改任何代码。
+# [未发布] 播客术语收口与三处记忆同步（podcast-glossary-terms）
 
+- 文档：`01-docs/i18n-glossary.md` 补两条播客术语 `出期 → Publish as podcast episode`（`podcast.episode.entry`）与 `一键发布 → One-click podcast episode`（`podcast.episode.title`），en 列一律取 en locale 里真实出现的逐字（L3 判据是「值包含」而非标准译法），方向按「让 UI 采用 canonical 术语、不把词典削到已有裸词」，未改动任何已上线文案。
+- 流程：tasks 5.3 勾账——三处记忆同步的现场逐条写进执行记录（内置记忆 4 条已进索引、EverOS `pending=0 lag=0 done 162→166`、仓库文档 PRD §7.9.7 更正与两片执行记录）。
+
+# [未发布] 更正 PRD §7.9.7 的过期陈述「宿主接线未做」（prd-stock-status-correction）
+
+- 文档：PRD §7.9.7 的引导句「宿主接线未做」已被 #3387（merge SHA `8bd87f385`）否证。本片**不删原句**，只把它标成 2026-10-12 的现场，并在其前插一条带日期与 merge SHA 的更正行——合并动作不会自动改写规格，留着过期句会让下一个会话照着一份说「宿主没接线」的 PRD 再去接一遍。
+- 更正行同时写明 4.4b 的 ① 已落（`podcast-stock-freeze-host.js` 六个出口全注入 + `ipc-handlers/podcast.js` 的 `getService` 首触点、进程内恰好一次、抛错走旁路只 `warn`）与**仍未做**的 ② `compliance` 的 `stock` 档、③ 频道页摘要与 `podcast.stock.*` 三对键 zh/en、④ 真的落进文件的变异反证；tasks 的 4.4b 父项保持未勾。
+
+# [未发布] 播客存量 mime 固化的宿主接线（podcast-stock-host-wiring）
+
+- 新增 apps/desktop/electron/services/podcast-stock-freeze-host.js：createStockFreezeHost 把 §7.9 的固化判据接上真实调用路径——ipc-handlers/podcast.js 的 getService(channelId) 顺手触发一次（旁路：失败只 warn，不 await，跨进程"已做过"只看 stockStamp）。
+- 写盘走 tmp + rename 原子替换；宿主可注入既有 rename 重试策略，本层不复制第二份。
+- 回归锁 7 条 + 消费者回归 20 条 = 27 passed / 0 failed；含「接线不在位即红」的结构锁（它当场抓到我把路径少写一层 ..）。
+- 依赖 #3382 的 podcast-episode-stock-mime.js（同形文件随两条 PR 并存，先合并者落地、后者 rebase 后自动消解）。
+# [未发布] 播客存量单集 `mime` 一次性固化的判据与锁（podcast-mime-stock-freeze）
+
+- 新增 apps/desktop/electron/services/podcast-episode-stock-mime.js：`freezeStockMimeInArray`（合法值原样返回、缺席或非法按扩展名派生、派生不出计入 unresolved 不猜）与 `freezeStockMime`（恰好一次、幂等、按 channelId 走注入锁、单频道抛错跳过并 warn、六个注入实现缺任一即抛）。
+- 容器判据由抽取层 `planAudioCodec` 派生，不留第二份字面量集合；目录布局不在本层假设，由宿主 `listChannels()` 给出。
+- PRD §7.9 新增 §7.9.7 落地状态：逐条对账七类回归锁，如实记「compliance 的 stock 档未做」与「M2 变异未建立」。
+- tasks 4.4 勾到「判据与锁已在位」，剩余落点（宿主接线、compliance 档、摘要与 locale 三对键、M2 反证）拆成 4.4b 保持未勾。
+- 回归锁 12 条（含 os.tmpdir 真库往返与关闭重开）；变异 M1 两条指名红。
 # [未发布] feat(ci): 执行记录的 QM-5 行集改为"按模板派生"的结构棘轮（qm5-row-ratchet）
 
 ## 背景

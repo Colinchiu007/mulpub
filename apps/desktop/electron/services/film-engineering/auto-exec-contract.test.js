@@ -43,15 +43,35 @@ function syntheticKit (shotCount) {
 }
 
 describe('production-driver.runIdFor（自动模式产物落点）', () => {
-  it('默认 runId 仍为 prod-<taskId>-b<N>（既有语义不变）', () => {
+  /**
+   * 本组保护的是**自动模式的产物落点不受影响**。
+   *
+   * 2026-10-10（film-production-artifact-identity）：默认派生已加分镜集指纹
+   * （三参），但**二参调用方必须仍拿到旧格式**——auto 模式注入的正是二参函数
+   * （`film-engineering-auto.js:336` 的 `(t, batchIndex) => autoRunIdFor(t, batchIndex)`）。
+   * 断言一律对着 `defaultRunIdFor(...)` 求值而非硬编码字面值，避免派生规则演进时
+   * 把「auto 兼容」这条真正的契约误报为回归。
+   */
+  it('二参调用（auto 模式形态）→ 仍为 prod-<taskId>-b<N>，不带指纹（兼容不变量）', () => {
     expect(defaultRunIdFor('t1', 0)).toBe('prod-t1-b0')
+    expect(defaultRunIdFor('t1', 7)).toBe('prod-t1-b7')
+  })
+
+  it('三参调用 → 带分镜集指纹，且换分镜集即换 runId', () => {
+    const a = defaultRunIdFor('t1', 0, ['a', 'b', 'c'])
+    const b = defaultRunIdFor('t1', 0, ['x', 'y', 'z'])
+    expect(a).not.toBe(b)
+    expect(a).toMatch(/^prod-t1-[0-9a-f]{10}-b0$/)
+  })
+
+  it('createLedger 未注入 runIdFor → 走默认派生（即三参形态）', () => {
     const ledger = createLedger({ taskId: 't1', shotIds: ['a', 'b', 'c'] })
-    expect(ledger.batches.map((b) => b.runId)).toEqual(['prod-t1-b0'])
+    expect(ledger.batches.map((b) => b.runId)).toEqual([defaultRunIdFor('t1', 0, ['a', 'b', 'c'])])
   })
 
   it('runIdFor 非函数 → 回落默认（fail-open，不抛）', () => {
     const ledger = createLedger({ taskId: 't1', shotIds: ['a'], runIdFor: 'not-a-function' })
-    expect(ledger.batches[0].runId).toBe('prod-t1-b0')
+    expect(ledger.batches[0].runId).toBe(defaultRunIdFor('t1', 0, ['a']))
   })
 
   it('自定义 runIdFor：批次真正执行且 manifest 路径落在 auto/<taskId>/b<N>/', async () => {

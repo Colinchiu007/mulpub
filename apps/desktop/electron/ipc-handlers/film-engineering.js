@@ -35,6 +35,7 @@ const { saveReference } = require('../services/film-engineering/reference-store'
 const {
   runProduction, planBatches, loadLedger, resolveResumePlan, buildRenderManifest, shotFileName, PRODUCTION_BATCH_SIZE,
 } = require('../services/film-engineering/production-driver')
+const { registerProductionHandlers } = require('./film-engineering-production')
 const { runBatchViaVideoGen } = require('../services/film-engineering/production-runner')
 
 const MAX_SCRIPT_LENGTH = 10000
@@ -43,10 +44,8 @@ const MAX_SHOTS_ARRAY = 50
 const MAX_GENERATE_BATCH = 20
 const MAX_RECYCLE_BATCH = 50
 const RECYCLE_CONCURRENCY = 4
-const MAX_PRODUCTION_SHOTS = 1000
+
 // 计划预览估算口径（design Risks：POC 实测单镜 4.5-8.5MB 取上限；并发 2、单镜均值 ~10min）
-const DISK_ESTIMATE_BYTES_PER_SHOT = 8 * 1024 * 1024
-const WALLCLOCK_SECONDS_PER_SHOT = 300
 
 /** 磁盘信物复核默认实现（D6）：runDir 下 shot_NNN.mp4 存在性，missing 为批内索引 */
 function defaultFilmProbe (runId, count) {
@@ -58,23 +57,8 @@ function defaultFilmProbe (runId, count) {
   return { missing }
 }
 
-function validateProductionArgs (EC, params) {
-  const taskId = params.taskId
-  if (typeof taskId !== 'string' || !taskId.trim() || taskId !== path.basename(taskId)) {
-    return { code: EC.VALIDATION_ERROR, message: 'taskId 必须为非空且路径安全的字符串' }
-  }
-  const shotIds = params.shotIds
-  if (!Array.isArray(shotIds) || shotIds.length === 0 || shotIds.length > MAX_PRODUCTION_SHOTS) {
-    return { code: EC.VALIDATION_ERROR, message: 'shotIds 必须为 1-' + MAX_PRODUCTION_SHOTS + ' 项的数组' }
-  }
-  for (const id of shotIds) {
-    if (typeof id !== 'string' || !id.trim()) {
-      return { code: EC.VALIDATION_ERROR, message: 'shotIds 含非法分镜 id' }
-    }
-  }
-  return null
-}
-
+// 注：validateProductionArgs / defaultFilmProbe 已随全量出片族通道迁至
+// film-engineering-production.js（单一真相源，主文件不再保留副本）。
 function registerHandlers (ipcMain, deps) {
   const log = deps.log || { info () {}, warn () {}, error () {} }
   const service = deps.filmEngineeringService
@@ -378,111 +362,9 @@ function registerHandlers (ipcMain, deps) {
     return { code: 0, data: { results, allOk: results.every((x) => x && x.ok), destDir } }
   }))
 
-  // ── L3 全量分批出片（任务 7.2/8.1/8.2，design D6/D9）──────────────────
-  ipcMain.handle('film-engineering:production-plan', withSenderCheck(withKit((_e, payload) => {
-    const params = payload || {}
-    const bad = validateProductionArgs(EC, { taskId: 'plan', shotIds: params.shotIds })
-    if (bad) throw Object.assign(new Error(bad.message), { code: bad.code })
-    const plan = planBatches(params.shotIds)
-    return {
-      shotCount: params.shotIds.length,
-      batchSize: PRODUCTION_BATCH_SIZE,
-      batchCount: plan.length,
-      batches: plan.map((b) => ({ batchIndex: b.batchIndex, shotCount: b.shotIds.length })),
-      diskEstimateBytes: params.shotIds.length * DISK_ESTIMATE_BYTES_PER_SHOT,
-      wallclockEstimateSeconds: params.shotIds.length * WALLCLOCK_SECONDS_PER_SHOT,
-      mediaRoot: getFilmMediaRoot(),
-    }
-  })))
-
-  // 逐批执行（D9）：renderer 每批先经计划/成本预览取得用户确认，再调本通道；
-  // 进度事件经 film-engineering:production-update 推送（driver 已节流，负载只带计数）。
-  ipcMain.handle('film-engineering:production-run-batch', withSenderCheck(async (event, payload) => {
-    const params = payload || {}
-    const bad = validateProductionArgs(EC, params)
-    if (bad) return bad
-    const batchIndex = params.batchIndex
-    if (!Number.isInteger(batchIndex) || batchIndex < 0 || batchIndex >= MAX_PRODUCTION_SHOTS) {
-      return { code: EC.VALIDATION_ERROR, message: 'batchIndex 必须为 0-999 的整数' }
-    }
-    if (!resolveFilmVideoProvider(aiGenerator)) {
-      return {
-        code: EC.REQUEST_ERROR,
-        errorCode: 'VIDEO_MODEL_NOT_CONFIGURED',
-        message: '影视工程批量出片需要视频模型（如 Seedance / Kling / Veo / CogVideo 等），请在模型设置中配置并设为默认视频 Provider 后重试',
-      }
-    }
-    const aspect = FILM_ASPECTS.includes(params.aspect) ? params.aspect : '16x9'
-    const seconds = FILM_DURATIONS.includes(Number(params.seconds)) ? Number(params.seconds) : 5
-    try {
-      const driver = deps._testRunProduction || runProduction
-      const probe = deps._testProbe || defaultFilmProbe
-      const r = await driver({
-        taskId: params.taskId,
-        shotIds: params.shotIds,
-        ledgerDir: path.join(getFilmMediaRoot(), 'production', params.taskId),
-        runOnlyBatch: batchIndex,
-        probe,
-        emit: (e) => {
-          try {
-            if (event.sender && typeof event.sender.send === 'function') event.sender.send('film-engineering:production-update', e)
-          } catch { /* 窗口已销毁：事件推送失败不影响批次执行 */ }
-        },
-        runBatch: (batch, ctx) => runBatchViaVideoGen({
-          batch, service, aiGenerator, aspect, seconds, log, deps,
-          onShotProgress: ctx.onShotProgress,
-        }),
-      })
-      const cur = (r.ledger.batches || []).find((b) => b.batchIndex === batchIndex) || null
-      return {
-        code: 0,
-        data: {
-          ok: r.ok,
-          batchIndex,
-          batchStatus: cur ? cur.status : null,
-          batchError: cur ? cur.error || null : null,
-          failedBatches: r.failedBatches,
-          renderManifest: r.renderManifest ? r.renderManifest.entries : null,
-          manifestError: r.manifestError,
-        },
-      }
-    } catch (e) {
-      const kitErr = kitError(e)
-      if (kitErr) return kitErr
-      log.warn('[film-engineering] production-run-batch error:', e instanceof Error ? e.message : String(e))
-      return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e) }
-    }
-  }))
-
-  // 断点视图（8.3）：读台账 + 磁盘双核返回批/镜状态与收口清单（只读零 provider 调用）
-  ipcMain.handle('film-engineering:production-status', withSenderCheck(withKit((_e, payload) => {
-    const params = payload || {}
-    const bad = validateProductionArgs(EC, { taskId: params.taskId, shotIds: params.shotIds })
-    if (bad) throw Object.assign(new Error(bad.message), { code: bad.code })
-    const probe = deps._testProbe || defaultFilmProbe
-    const ledgerDir = path.join(getFilmMediaRoot(), 'production', params.taskId)
-    const ledger = loadLedger(ledgerDir)
-    if (!ledger) return { exists: false, batches: [], doneCount: 0, totalCount: params.shotIds.length, renderManifest: null }
-    const plan = resolveResumePlan(ledger, { probe })
-    let doneCount = 0
-    plan.forEach((p) => { if (!p.needRun) doneCount += p.shotIds.length })
-    const manifest = buildRenderManifest(ledger, { probe })
-    return {
-      exists: true,
-      taskId: ledger.taskId,
-      batches: ledger.batches.map((b) => ({
-        batchIndex: b.batchIndex,
-        status: b.status,
-        error: b.error || null,
-        needRun: (plan[b.batchIndex] || {}).needRun === true,
-        shots: (b.shots || []).map((sh) => ({ ...sh })),
-      })),
-      doneCount,
-      totalCount: (ledger.batches || []).reduce((n, b) => n + b.shotIds.length, 0),
-      renderManifest: manifest.ok ? manifest.entries : null,
-      manifestError: manifest.ok ? null : manifest.error,
-    }
-  })))
+  // 全量出片族通道已拆至 film-engineering-production.js（maxFileLines 门禁）；
+  // withKit 仍由本文件提供，保证错误信封口径单源。
+  registerProductionHandlers(ipcMain, deps, EC, withKit, kitError)
 }
 
 module.exports = registerHandlers

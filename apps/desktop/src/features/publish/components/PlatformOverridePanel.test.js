@@ -63,6 +63,10 @@ describe('PlatformOverridePanel', () => {
       zhihu: {
         title: '',
         content: '',
+        // P0-4：知乎确有分类数据（P0-1 快照 33 个节点），注册表为它登记了
+        // semantic=category 的字段（选项来自平台分类表，见 optionsFrom）。
+        // 默认空串 = 用户未选择 ⇒ 不提交分类、走平台默认，与 PRD §15.3 一致。
+        category: '',
         commentPermission: 'anyone',
         declare: 0,
         topics: [],

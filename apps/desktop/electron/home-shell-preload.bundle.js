@@ -1052,6 +1052,7 @@ var require_film_engineering = __commonJS({
           generateSelected: (selectedShots, opts) => ipcRendererRef.invoke("film-engineering:generate-selected", selectedShots, opts),
           uploadReference: (payload) => ipcRendererRef.invoke("film-engineering:upload-reference", payload),
           retryShot: (payload) => ipcRendererRef.invoke("film-engineering:retry-shot", payload),
+          productionRetryShot: (payload) => ipcRendererRef.invoke("film-engineering:production-retry-shot", payload),
           downloadRecycled: (payload) => ipcRendererRef.invoke("film-engineering:download-recycled", payload),
           productionPlan: (payload) => ipcRendererRef.invoke("film-engineering:production-plan", payload),
           productionRunBatch: (payload) => ipcRendererRef.invoke("film-engineering:production-run-batch", payload),
@@ -1521,6 +1522,9 @@ var require_access_control = __commonJS({
       "filmEngineering.generateSelected",
       "filmEngineering.retryShot",
       "filmEngineering.downloadRecycled",
+      // 出片台账批次的单镜重试（productionRetryShot），与 retryShot 同族：批次身份由主进程
+      // 从台账解析，渲染端不参与；是否可用仍由主进程自校验（Provider 未配等）。
+      "filmEngineering.productionRetryShot",
       "filmEngineering.productionPlan",
       "filmEngineering.productionRunBatch",
       "filmEngineering.productionStatus",
