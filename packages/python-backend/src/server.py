@@ -357,6 +357,10 @@ class HealthResponse(BaseModel):
     status: str
     version: str
     platform: str
+    # 应答进程自身的 PID。桌面端用它做**端口归属校验**：端口有响应不代表
+    # 响应者是它刚 spawn 的那个子进程——2026-10-14 事故中孤儿后端占用端口并
+    # 正常应答，桌面端据此误判就绪，导致 16.5 小时 2645 次无效重启。
+    pid: int
 
 
 # ─── 简易 AccountStore（JSON 文件存储）──────────────────────
@@ -880,6 +884,7 @@ def health():
         status="ok",
         version="1.0.0",
         platform=platform_module.system(),
+        pid=os.getpid(),
     )
 
 

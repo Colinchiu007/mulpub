@@ -566,3 +566,82 @@ test('requestBackend 收到 401 但错误码不属于令牌类时不重放', asy
   expect(getAccessToken).toHaveBeenCalledTimes(1)
   expect(result).toEqual(expect.objectContaining({ status: 401, errorCode: 'AUTH_KEY_NOT_FOUND' }))
 })
+
+// ─────────────────────────────────────────────────────────────────────
+// 2026-10-14 主服务无限重启循环事故回归锁（16.5 小时 / 2645 次 spawn）
+//
+// 现场：一个孤儿后端（本应用早前实例的残留 python 进程）占着 18357 并
+//      正常应答 /api/health。本实例此后每次 spawn 的新后端都因
+//      [Errno 10048] 端口占用而 bind 失败退出；但健康探测探到的是**孤儿**
+//      的应答 ⇒ 误判 "Backend ready on port 18357" ⇒ restartCount 被清零
+//      ⇒ MAX_RESTARTS 熔断永不触发 ⇒ 无限重启（每 ~10 秒一轮）。
+//      用户可见症状：左下角「主服务已停止」（探测失败窗口）。
+//
+// 修复判据（本组锁）：**就绪必须要求「应答者就是本次 spawn 的子进程」**，
+//   /api/health 自报 pid ⇒ 与 proc.pid 比对；不匹配即判端口被他人占用，
+//   快速失败（不再等 30s 超时），且不得进入重启循环。
+//   注：刻意**不**回退到下一端口——回退会让两个后端同时写同一份 DB（见上方
+//   「真实端口占用不回退」测试所固化的既有设计决定）。
+// ─────────────────────────────────────────────────────────────────────
+
+/** 让健康探测返回指定 body（用于构造「孤儿应答」场景） */
+function mockHealthGetBody (body) {
+  httpGetSpy.mockImplementation((url, opts, cb) => {
+    const res = new EventEmitter()
+    res.statusCode = 200
+    setImmediate(() => {
+      if (cb) cb(res)
+      res.emit('data', JSON.stringify(body))
+      res.emit('end')
+    })
+    const req = new EventEmitter()
+    req.destroy = vi.fn()
+    return req
+  })
+}
+
+test('事故回归锁：健康探测由外部 pid 应答时不得判定就绪，且不得进入重启循环', async () => {
+  spawnSpy.mockImplementationOnce(() => {
+    const proc = createFakeProc(12345)
+    spawnedProcesses.push(proc)
+    return proc
+  })
+  // 端口被外来进程占用：它正常应答 /api/health，但自报 pid 不是我们 spawn 的那个
+  mockHealthGetBody({ status: 'ok', pid: 99999 })
+
+  await expect(bridge.startPythonBackend()).rejects.toThrow(/占用|FOREIGN|foreign/)
+
+  expect(bridge.isRunning()).toBe(false)
+  // 关键：单次失败后不得再 spawn（修复前会无限重启）
+  await new Promise((resolve) => setTimeout(resolve, 80))
+  expect(spawnSpy).toHaveBeenCalledTimes(1)
+})
+
+test('健康探测 pid 与本次子进程一致时正常判定就绪（归属校验正向）', async () => {
+  spawnSpy.mockImplementationOnce(() => {
+    const proc = createFakeProc(12345)
+    spawnedProcesses.push(proc)
+    return proc
+  })
+  // 应答者就是本次 spawn 的子进程
+  mockHealthGetBody({ status: 'ok', pid: 12345 })
+
+  await bridge.startPythonBackend()
+
+  expect(bridge.isRunning()).toBe(true)
+  expect(bridge.currentPort()).toBe(8299)
+})
+
+test('后端未上报 pid 时降级为不校验归属（保持对旧后端的向后兼容）', async () => {
+  spawnSpy.mockImplementationOnce(() => {
+    const proc = createFakeProc(12345)
+    spawnedProcesses.push(proc)
+    return proc
+  })
+  // 旧后端 /api/health 无 pid 字段：不得因此拒绝启动
+  mockHealthGetBody({ status: 'ok', version: '1.0.0', platform: 'Windows' })
+
+  await bridge.startPythonBackend()
+
+  expect(bridge.isRunning()).toBe(true)
+})

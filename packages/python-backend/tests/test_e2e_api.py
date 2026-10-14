@@ -1,4 +1,4 @@
-﻿"""E2E API Tests -- FastAPI backend integration tests."""
+"""E2E API Tests -- FastAPI backend integration tests."""
 
 import os
 from pathlib import Path
@@ -22,6 +22,15 @@ class TestHealth:
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "ok"
+
+    def test_health_reports_own_pid(self):
+        # 桌面端用该字段做端口归属校验：端口「有响应」不等于「响应者是它刚
+        # spawn 的子进程」。2026-10-14 事故中孤儿后端占用端口并正常应答，
+        # 被误判为「本次启动就绪」⇒ restartCount 清零 ⇒ 熔断失效 ⇒ 16.5 小时
+        # 2645 次无效重启。缺该字段会让桌面端降级为不校验，等于把事故入口留着。
+        resp = client.get("/api/health")
+        assert resp.status_code == 200
+        assert resp.json()["pid"] == os.getpid()
 
 
 class TestPlatforms:
