@@ -1197,3 +1197,81 @@ describe('PublishHistory — 真实封面缩略图（2026-10-12）', () => {
     expect(window.electronAPI.readCoverData).not.toHaveBeenCalled()
   })
 })
+
+// 2026-10-14 用户要求「发布记录列表的缩略图，目前是横版尺寸，改成竖屏的尺寸显示（3:4比例）」。
+// 本组锁**四个断面的比例契约**——只锁比例不锁具体像素，是为了将来调尺寸不必改测试：
+//   ① 列表视图（默认）     ② 网格视图（viewMode=grid）③ 窄屏 720px ④ 窄屏 460px
+// 判据读**组件自身的 scoped CSS 原文**（与「移动端记录主体使用可收缩布局」用例同一范式），
+// 因为 jsdom 不布局：width/height 的计算值在这里恒为 0，量渲染结果等于什么都没量。
+describe('PublishHistory — 缩略图竖屏 3:4 比例（2026-10-14）', () => {
+  const SOURCE = fs.readFileSync(path.resolve(process.cwd(), 'src/views/PublishHistory.vue'), 'utf8')
+
+  /** 取某段 CSS 文本里 `.record-preview { ... }` 的声明体；取不到即空串（断言随之转红） */
+  function previewRule (css) {
+    return css.match(/\.record-preview\s*\{([^}]+)\}/)?.[1] || ''
+  }
+
+  /** 从声明体里读 width / height / flex-basis 的**第一个**长度值（px 优先） */
+  function pxOf (rule, prop) {
+    const m = rule.match(new RegExp(`${prop}\\s*:\\s*([^;}]+)`))
+    if (!m) return null
+    const px = m[1].match(/(\d+(?:\.\d+)?)px/)
+    return px ? Number(px[1]) : null
+  }
+
+  /** 比例判据：3:4 ⇒ 宽/高 === 0.75；容差 1e-6（浮点误差） */
+  function expectPortraitRatio (rule, label) {
+    const w = pxOf(rule, 'width')
+    const h = pxOf(rule, 'height')
+    expect(w, `${label}: width 缺失或非 px`).not.toBeNull()
+    expect(h, `${label}: height 缺失或非 px`).not.toBeNull()
+    expect(w / h, `${label}: 宽高比应为 3:4（实际 ${w}x${h}）`).toBeCloseTo(0.75, 6)
+    // flex-basis 必须与 width 同源，否则窄容器下 flex 收缩会让实际比例漂回横版
+    const basis = pxOf(rule, 'flex-basis')
+    expect(basis, `${label}: flex-basis 缺失或非 px`).not.toBeNull()
+    expect(basis, `${label}: flex-basis 必须等于 width`).toBe(w)
+  }
+
+  it('列表视图缩略图为竖屏 3:4', () => {
+    const baseCss = SOURCE.slice(SOURCE.indexOf('.record-preview {'))
+    expectPortraitRatio(previewRule(baseCss), '列表视图')
+  })
+
+  it('网格视图缩略图同样为竖屏 3:4', () => {
+    const gridCss = SOURCE.slice(SOURCE.indexOf('.grid-view .record-preview'))
+    expectPortraitRatio(previewRule(gridCss), '网格视图')
+  })
+
+  it('720px 窄屏缩略图为竖屏 3:4', () => {
+    const narrow = SOURCE.slice(SOURCE.indexOf('@media (max-width: 720px)'))
+    expectPortraitRatio(previewRule(narrow), '720px 窄屏')
+  })
+
+  it('460px 窄屏缩略图为竖屏 3:4', () => {
+    const narrow = SOURCE.slice(SOURCE.indexOf('@media (max-width: 460px)'))
+    expectPortraitRatio(previewRule(narrow), '460px 窄屏')
+  })
+
+  it('四处断面一律不得再出现横版比例（16:9 量级）', () => {
+    // 横版判据：宽明显大于高。这是把「改成竖屏」翻译成可机械断言的补集 ——
+    // 只断言四处是 3:4 而不断言「别处没有横版」，挡不住有人在响应式块里
+    // 另起一条 .record-preview 覆盖（那会让上面四条全绿而实际仍是横版）。
+    const sections = [
+      ['列表视图', SOURCE.slice(SOURCE.indexOf('.record-preview {'))],
+      ['网格视图', SOURCE.slice(SOURCE.indexOf('.grid-view .record-preview'))],
+      ['720px 窄屏', SOURCE.slice(SOURCE.indexOf('@media (max-width: 720px)'))],
+      ['460px 窄屏', SOURCE.slice(SOURCE.indexOf('@media (max-width: 460px)'))],
+    ]
+    const ruleRe = /\.record-preview\s*\{([^}]+)\}/g
+    for (const [label, css] of sections) {
+      let m
+      while ((m = ruleRe.exec(css)) !== null) {
+        const rule = m[1]
+        const w = pxOf(rule, 'width')
+        const h = pxOf(rule, 'height')
+        if (w === null || h === null) continue
+        expect(w, `${label}: 发现横版比例 ${w}x${h}（width > height）`).toBeLessThanOrEqual(h)
+      }
+    }
+  })
+})
