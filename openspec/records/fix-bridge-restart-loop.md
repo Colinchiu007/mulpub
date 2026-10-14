@@ -2,10 +2,6 @@
 record: fix-bridge-restart-loop
 task: 主服务无限重启循环（孤儿后端占端口 + 就绪判据不校验应答者归属）——就绪必须校验 /api/health 自报 pid 等于本次 spawn 的子进程
 date: 2026-10-14
-# ↓ 三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR（fix-bridge-restart-loop）尚未合并，merge SHA 还不存在，无法取证收口
-sync_backfill_owner: 下一个会话（三形态同改：frontmatter 三字段 + 表格行 + 删 ledger 登记项，同一次提交）
 ---
 
 ## 本次执行记录：主服务无限重启循环——就绪判据补端口归属校验（fix-bridge-restart-loop，2026-10-14）【混合 PR】
@@ -28,7 +24,7 @@ sync_backfill_owner: 下一个会话（三形态同改：frontmatter 三字段 +
 | QM-4 视觉 | N/A | 无 `.vue` / 样式 / DOM 结构变更 |
 | QM-6 CCG 双模型外部评审 | 未执行 | 本机无 `codeagent-wrapper`。**如实登记为未执行，不冒充已闭合** |
 | 已知边界（不假装闭合） | ✅ | ① **不自动结束占用者**：占用端口者可能是其他 worktree 的实例或用户主动启动的后端，自动杀进程风险高于收益；改为快速失败 + 日志给出精确排查命令（`Get-NetTCPConnection -LocalPort <port> -State Listen`）；② **旧后端降级**：应答无 `pid` 字段时降级为「不校验归属」，否则前后端版本不一致会把能用的后端判成不可用——代价是旧后端仍留事故入口，已在 `_healthCheckDetail` 注释写明；③ **watchdog 未纳入归属校验**（仍用纯存活 `_healthCheck`），本次为限制影响面刻意不改；④ 同族 `base-python-bridge.js`（splitter/prompt 等桥）的 `healthCheck` 同样只表达存活，本次未改 |
-| 远程同步 | PENDING | 待本 PR 合并后由后续回填 PR 同一次提交改写 PASS + merge SHA 并销账 |
+| 远程同步 | PASS（PR #3594 squash 合并 ⇒ `db4ac8172dad15401b26c5cb5999f4731512151d`，2026-10-14T22:38:46+08:00；远端分支 `fix-bridge-restart-loop` 已删（`git ls-remote --heads` 0 行），`git log origin/main --grep='(#3594)$'` 恰好 1 行） |
 
 ### 关键取证数字
 
