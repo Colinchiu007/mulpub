@@ -8,6 +8,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 
 import * as credentialStore from './credential-store.js'
+import * as proxyStatus from './credential-proxy-status.js'
 
 const tempDirs = []
 
@@ -323,7 +324,7 @@ describe('credential-store — loadProxyStatuses 并行批量读取', () => {
     const proxy = { host: '10.0.0.7', port: 8080, type: 'socks5', username: 'u', password: 'p' }
     seedAccount(userDataDir, 'acct-parity', proxy, options)
 
-    const viaBatch = await credentialStore.loadProxyStatuses(['acct-parity'], userDataDir, options)
+    const viaBatch = await proxyStatus.loadProxyStatuses(['acct-parity'], userDataDir, options)
     // 单账号口径：走 loadCredential + toPublicProxyConfig
     const viaSingle = credentialStore.loadCredential('acct-parity', userDataDir, options)
     expect(viaBatch['acct-parity']).toBeDefined()
@@ -344,7 +345,7 @@ describe('credential-store — loadProxyStatuses 并行批量读取', () => {
     // 另一个账号：文件存在但内容不是合法密文 → 解密必失败
     fs.writeFileSync(path.join(credDir, 'acct-corrupt.json.enc'), Buffer.from('not-a-valid-ciphertext'))
 
-    const result = await credentialStore.loadProxyStatuses(['acct-ok', 'acct-corrupt'], userDataDir, options)
+    const result = await proxyStatus.loadProxyStatuses(['acct-ok', 'acct-corrupt'], userDataDir, options)
 
     expect(result['acct-ok'].configured).toBe(true)
     expect(result['acct-corrupt']).toEqual({ configured: false })
@@ -355,7 +356,7 @@ describe('credential-store — loadProxyStatuses 并行批量读取', () => {
     const safeStorage = createSafeStorage()
     const getMasterKey = vi.spyOn(credentialStore, 'getMasterKey')
 
-    const result = await credentialStore.loadProxyStatuses(['acct-missing'], userDataDir, { safeStorage })
+    const result = await proxyStatus.loadProxyStatuses(['acct-missing'], userDataDir, { safeStorage })
 
     expect(result['acct-missing']).toEqual({ configured: false })
     expect(getMasterKey).not.toHaveBeenCalled()
@@ -366,11 +367,11 @@ describe('credential-store — loadProxyStatuses 并行批量读取', () => {
     const userDataDir = createTempDir()
     const options = { safeStorage: createSafeStorage() }
 
-    expect(await credentialStore.loadProxyStatuses([], userDataDir, options)).toEqual({})
+    expect(await proxyStatus.loadProxyStatuses([], userDataDir, options)).toEqual({})
 
     // legacy 命名空间（不传 ownerSubject）
     seedAccount(userDataDir, 'acct-legacy', { host: '10.0.0.2', port: 7890 }, options)
-    const legacy = await credentialStore.loadProxyStatuses(['acct-legacy'], userDataDir, options)
+    const legacy = await proxyStatus.loadProxyStatuses(['acct-legacy'], userDataDir, options)
     expect(legacy['acct-legacy'].configured).toBe(true)
     expect(legacy['acct-legacy'].port).toBe(7890)
 
@@ -379,7 +380,7 @@ describe('credential-store — loadProxyStatuses 并行批量读取', () => {
       safeStorage: createSafeStorage(),
       ownerSubject: 'user-a',
     })
-    const scoped = await credentialStore.loadProxyStatuses(['acct-shared'], userDataDir, {
+    const scoped = await proxyStatus.loadProxyStatuses(['acct-shared'], userDataDir, {
       safeStorage: createSafeStorage(),
       ownerSubject: 'user-a',
     })
@@ -423,7 +424,7 @@ describe('credential-store — loadProxyStatuses 并行批量读取', () => {
 
     let result
     try {
-      result = await credentialStore.loadProxyStatuses(ids, userDataDir, options)
+      result = await proxyStatus.loadProxyStatuses(ids, userDataDir, options)
     } finally {
       crypto.pbkdf2 = realPbkdf2
     }

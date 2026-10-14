@@ -1369,7 +1369,7 @@ describe('account-manager — listAccounts proxy 批量并行入口', () => {
   it('L1 走批量入口 loadProxyStatuses，且不逐账号解密', async () => {
     stubBackendAccounts()
     const accountManager = loadAccountManager()
-    const loadProxyStatuses = vi.spyOn(accountManager.credentialStore, 'loadProxyStatuses')
+    const loadProxyStatuses = vi.spyOn(accountManager.proxyStatusReader, 'loadProxyStatuses')
       .mockResolvedValue({
         'acc-1': { configured: true, type: 'http', hostMasked: '10.0.*.*', port: 8080 },
         'acc-2': { configured: false },
@@ -1390,7 +1390,7 @@ describe('account-manager — listAccounts proxy 批量并行入口', () => {
   it('L2 批量入口返回的 proxy 逐字段落到每个账号上', async () => {
     stubBackendAccounts()
     const accountManager = loadAccountManager()
-    vi.spyOn(accountManager.credentialStore, 'loadProxyStatuses').mockResolvedValue({
+    vi.spyOn(accountManager.proxyStatusReader, 'loadProxyStatuses').mockResolvedValue({
       'acc-1': { configured: true, type: 'http', hostMasked: '10.0.*.*', port: 8080 },
       'acc-2': { configured: false },
       'acc-3': { configured: true, type: 'socks5', hostMasked: '10.1.*.*', port: 1080 },
@@ -1406,7 +1406,7 @@ describe('account-manager — listAccounts proxy 批量并行入口', () => {
   it('L3 批量入口漏掉某账号时回落单账号口径，proxy 字段不得消失', async () => {
     stubBackendAccounts()
     const accountManager = loadAccountManager()
-    vi.spyOn(accountManager.credentialStore, 'loadProxyStatuses').mockResolvedValue({
+    vi.spyOn(accountManager.proxyStatusReader, 'loadProxyStatuses').mockResolvedValue({
       'acc-1': { configured: true, type: 'http', hostMasked: '10.0.*.*', port: 8080 },
       // acc-2 / acc-3 缺失（例如批量入口内部跳过）
     })
@@ -1425,7 +1425,7 @@ describe('account-manager — listAccounts proxy 批量并行入口', () => {
   it('L4 批量入口抛错时整体降级，且绝不回落逐账号同步解密（否则退化成本 Bug 原形）', async () => {
     stubBackendAccounts()
     const accountManager = loadAccountManager()
-    vi.spyOn(accountManager.credentialStore, 'loadProxyStatuses').mockRejectedValue(new Error('safeStorage 不可用'))
+    vi.spyOn(accountManager.proxyStatusReader, 'loadProxyStatuses').mockRejectedValue(new Error('safeStorage 不可用'))
     // 若实现错误地在这里回落单账号口径，这个 spy 会被调到 N 次
     const getAccountProxyStatus = vi.spyOn(accountManager, 'getAccountProxyStatus')
       .mockReturnValue({ configured: false })
@@ -1441,7 +1441,7 @@ describe('account-manager — listAccounts proxy 批量并行入口', () => {
   it('L5 单账号口径自身抛错时也降级为未配置，不向上冒泡', async () => {
     stubBackendAccounts()
     const accountManager = loadAccountManager()
-    vi.spyOn(accountManager.credentialStore, 'loadProxyStatuses').mockResolvedValue({})
+    vi.spyOn(accountManager.proxyStatusReader, 'loadProxyStatuses').mockResolvedValue({})
     vi.spyOn(accountManager, 'getAccountProxyStatus').mockImplementation(() => { throw new Error('boom') })
 
     const accounts = await accountManager.listAccounts()
@@ -1454,7 +1454,7 @@ describe('account-manager — listAccounts proxy 批量并行入口', () => {
     stubBackendAccounts()
     const accountManager = loadAccountManager()
     // 正常返回（未降级），但只覆盖 acc-1
-    vi.spyOn(accountManager.credentialStore, 'loadProxyStatuses').mockResolvedValue({
+    vi.spyOn(accountManager.proxyStatusReader, 'loadProxyStatuses').mockResolvedValue({
       'acc-1': { configured: true, type: 'http', hostMasked: '10.0.*.*', port: 8080 },
     })
     const getAccountProxyStatus = vi.spyOn(accountManager, 'getAccountProxyStatus')

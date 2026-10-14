@@ -15,6 +15,10 @@ const profileRefresh = require('./account-profile-refresh')
 const pythonBridge = require('../services/python-bridge')
 const accountStateRestorer = require('../services/account-state-restorer')
 const credentialStore = require('../services/credential-store')
+// 账号代理状态的批量读取单独成模块（2026-10-14 从 credential-store 拆出：原文件
+// 加上本片内容会越过 check-max-lines 的 500 行闸）。与本文件的 credentialStore
+// 分开持有，是为了让测试能直接对「批量入口」注入桩，而不必连带桩掉整份凭证存储。
+const proxyStatusReader = require('../services/credential-proxy-status')
 const { normalizeProxyConfig, toPublicProxyConfig } = require('../services/proxy-config')
 const {
   resolveCapturedDisplayName,
@@ -539,9 +543,9 @@ async function loadProxyStatusMap (accounts) {
     const ids = accounts
       .map(a => a?.id || a?.accountId || a?.account_id)
       .filter(id => isSafePathSegment(id))
-    if (typeof credentialStore.loadProxyStatuses !== 'function' || ids.length === 0) return empty
+    if (typeof proxyStatusReader.loadProxyStatuses !== 'function' || ids.length === 0) return empty
     const options = ownerSubject === undefined ? {} : { ownerSubject }
-    const map = await credentialStore.loadProxyStatuses(ids, userDataDir, options)
+    const map = await proxyStatusReader.loadProxyStatuses(ids, userDataDir, options)
     if (!map || typeof map !== 'object') return empty
     return { map, degraded: false }
   } catch (e) {
@@ -1190,4 +1194,6 @@ module.exports = {
   setOwnerSubjectProvider,
   accountStateRestorer,
   credentialStore,
+  // 供测试对「批量 proxy 读取」单独注入桩（不必连带桩掉整份凭证存储）
+  proxyStatusReader,
 }
