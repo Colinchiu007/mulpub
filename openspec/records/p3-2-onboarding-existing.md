@@ -2,10 +2,6 @@
 record: p3-2-onboarding-existing
 task: P3-2 方案 A —— 给三个既有平台补 enabled（把「已登记缺口」改成棘轮）
 date: 2026-10-15
-# ↓ 三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在，无法取证收口
-sync_backfill_owner: 下一个会话（按三形态同改纪律：表格行 + bullet + 删除本段三字段，同一次提交）
 ---
 
 ## 本次执行记录：P3-2 方案 A（p3-2-onboarding-existing，2026-10-15）
@@ -126,9 +122,9 @@ test('真发现：缺 enabled 字段的平台（一键回滚机制失效）', ..
 | 行尾对账 | PASS | 两口径一致 |
 | Gate 11 ESLint | PASS | exit=0 |
 | **QM-1 打包** | **不适用** | 分层判据只要求 `apps/desktop/electron/` 或 `packages/rpa-engine/`；本 PR 只改 `config/` + `scripts/`。**但 `config/platforms.yaml` 会进 asar** ⇒ 故以「`PlatformConfig` 加载校验 + 判据④」作为等价证据，不冒充 QM-1 |
-| 远程同步 | PENDING | 本 PR 未合并 |
+| 远程同步 | PASS —— PR #3604 已合并为 `origin/main` `0fc916fee48f849b480199fcdc9914b5e6da80b3`（2026-10-15T02:03:13+08:00，squash merge）；远端分支随合并自动删除。合并后复核：我改的 3 个文件与 merge SHA **零差异**，主干上判据 ④ 失败 **0** |
 
-- 保留门禁：脚本自测 16/16 ✅ | 判据④ 0 失败 ✅ | 反证 ✅ | unwired ✅ | locale ✅ | 品牌 ✅ | 行尾 ✅ | Gate 11 ✅ | 远程同步 PENDING
+- 保留门禁：脚本自测 16/16 ✅ | 判据④ 0 失败 ✅ | 反证 ✅ | unwired ✅ | locale ✅ | 品牌 ✅ | 行尾 ✅ | Gate 11 ✅ | 远程同步 PASS
 
 ## 残余（未含，不假装闭合）
 
