@@ -5,6 +5,7 @@ const { buildElectronArgs, resolveUserDataDir, resolveAllowAllOrigins, resolveNo
 const { resolveDevPorts } = require('./dev-ports');
 const { appendDevExitLog } = require('./dev-exit-log');
 const { buildElectronEnv } = require('./electron-runtime-env');
+const { ensureFreshViteDepCache } = require('./vite-dep-cache');
 
 const desktopDir = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(desktopDir, '..', '..');
@@ -39,6 +40,23 @@ const electronScript = path.resolve(repoRoot, 'node_modules', 'electron', 'cli.j
 const electronBinary = path.resolve(repoRoot, 'node_modules', 'electron', 'dist', 'electron.exe');
 
 console.log(`[dev] ports: vite=${vitePort} cdp=${cdpPort} derived=${devPorts.derived}`);
+
+// Vite optimizeDeps 预构建缓存过期预检（2026-10-13 事故收口）：workspace 源码变化
+// （checkout/rebase/合并）不会触发 optimizeDeps 重建，旧缓存缺新导出时渲染层报
+// "does not provide an export named 'X'"。stale 即清 node_modules/.vite，
+// Vite 启动时自动重新 optimize。判据与边界见 vite-dep-cache.js 头注。
+// MP_VITE_DEPS_CACHE_CHECK=0 可跳过（仅排障；跳过即失去该保护，须自行承担复发风险）。
+if (process.env.MP_VITE_DEPS_CACHE_CHECK === '0') {
+  console.log('[dev] vite deps cache check skipped (MP_VITE_DEPS_CACHE_CHECK=0)');
+} else {
+  const depsCache = ensureFreshViteDepCache(repoRoot);
+  // 判出 stale 却清不掉（占用/权限）：继续启动必然复现缺导出报错，fail closed 并给出唯一修复动作
+  if (depsCache.state === 'stale' && !depsCache.cleared) {
+    console.error(`[dev] Vite 依赖缓存过期且清除失败：${depsCache.clearError} — 请手动删除 ${depsCache.viteDir} 后重试`);
+    process.exit(1);
+  }
+}
+
 const vite = spawnNodeScript(viteScript, ['--host', '0.0.0.0', '--port', String(vitePort), '--strictPort']);
 
 let electron = null;
