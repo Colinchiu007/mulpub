@@ -2,9 +2,6 @@
 record: ops-seed-asar-stat
 task: 消除打包版启动时 stderr 的 Node DEP0180（根因＝对 asar 内种子用 fs.statSync），并删掉一条永远命中不了的第二候选路径
 date: 2026-10-14
-sync_status: PENDING
-sync_reason: 本 PR 合并后由后续 docs PR 按既有 PASS 口径回填 merge SHA 与时间，并在同一次提交删除 frontmatter 三字段与本记录对应的 ledger 登记项
-sync_backfill_owner: 本会话（本片作者）
 ---
 
 # L3 种子探测改按 fd，消除打包态 DEP0180（ops-seed-asar-stat，2026-10-14）
@@ -132,4 +129,4 @@ at extractContext (electron/bootstrap/phase1-context.js:242)
 
 ## 远程同步
 
-| 远程同步 | PENDING | 本 PR 未合并，merge SHA 尚不存在 |
+| 远程同步 | PASS | merge SHA ac9c60e21 · 2026-10-14T18:42:32Z · 远端分支已删（ls-remote 0 行）· 同次提交删除 ledger 登记项 |
