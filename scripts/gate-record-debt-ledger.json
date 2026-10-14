@@ -51,6 +51,5 @@
   "本次执行记录：1 笔远程同步回填与销账（gate-backfill-3377，2026-10-13）【docs-only】": "本回填 PR 的远程同步待合并后由后续 docs PR 回填并删除本条",
   "本次执行记录：2 笔远程同步回填与销账（gate-backfill-3426-3434，2026-10-13）【docs-only】": "本回填 PR 的远程同步待合并后由后续 docs PR 回填并删除本条",
   "本次执行记录：2 笔远程同步回填与销账（gate-backfill-3492-3494，2026-10-13）【docs-only】": "本回填 PR 的远程同步待合并后由后续 docs PR 回填并删除本条",
-  "本次执行记录：PRD 逐字表生成器与漂移门禁（prd-copy-table-generator，2026-10-13）【混合 PR】": "本 PR（prd-copy-table-generator）的远程同步待合并后由后续 docs PR 回填并删除本条登记项",
   "本次执行记录：更正「bootstrap 只认 X-Catalog-Key」错误结论 + 本轮 4 条教训（ops-ingress-correct，2026-10-14）【docs-only】": "本 PR（ops-ingress-correct）的远程同步待合并后由后续 docs PR 回填并删除本条登记项"
 }
