@@ -19057,3 +19057,34 @@ CI 日志原文：
 
 **★ 处方：被中断的长时间 Git 操作，除了清理状态，还要确认发起它的进程已终止
 （`job_list` 里 `running` 但目标早已不成立的，就是僵尸）。**
+### pitfall:mock-granularity-larger-than-the-dependency-it-isolates
+
+【陷阱】为隔离磁盘 IO 而 mock 掉 `loadCredential`，结果把**唯一的 CPU 热点**也一起抹掉了 —— 测试全绿，性能缺陷在生产线性放大。
+`account-manager.test.js` 有 20+ 处 `vi.spyOn(credentialStore, 'loadCredential').mockReturnValue({...})`。
+本意是「别让测试真去读磁盘」，但那个函数内部藏着 `pbkdf2Sync`（10 万次迭代，实测 125ms/次）。
+mock 之后测试 realm 里一次 PBKDF2 都没真跑过，于是 `listAccounts()` 为每个账号解密凭证这件事
+**从来没有被测到过**，卡顿缺陷一路逃逸到用户面前（账号页首帧 N×125ms 串行阻塞）。
+**判据**：mock 的粒度必须 ≤ 你想隔离的那个依赖。判据是一条问句 ——
+「我 mock 掉的这个函数，内部还包着什么我**正在测试的东西**？」
+若答案是「一个 CPU 密集原语 / 一次真实网络往返 / 一段我正在验证的逻辑」，这个 mock 就过头了。
+本轮的正确做法（已落地）：用 `vi.spyOn(credentialStore, 'getMasterKey')` 只断言「没被调用」来验短路，
+用**真实计时**来验并行（C5），而不是把整个 `loadCredential` 换成假对象。
+
+### pitfall:slow-but-correct-defects-are-immune-to-visual-regression
+
+【陷阱】「画面完全正确，只是迟到」的缺陷，对像素级视觉回归**结构性免疫**。
+账号页卡顿的最终截图与不卡顿时**逐像素相同** —— 视觉门禁比的是「画面长什么样」，不是「什么时候长这样」。
+本轮逃逸链里最容易被忽略的一环就是它：四道测试关口（功能单测 / 集成 / 视觉回归 / 审查清单）全部绿，
+缺陷仍在生产。
+**判据**：性能类缺陷必须由**计时契约**守，不能指望视觉回归。
+凡是「结果对但可能慢」的路径（列表加载、首帧渲染、IPC 往返），都要有一条 wall-time 断言，
+并且这条断言必须做过一次「把实现改坏 → 断言立刻变红」的变异反证（本轮实测：串行化后 ratio 5.80 ≈ N=6，阈值 3.0 稳稳判红）。
+
+### lesson:per-element-cost-must-be-accounted-when-reusing-detail-functions-in-list-paths
+
+【教训】给**单条记录**写的函数，被 `map` 到列表上时，单元素成本会乘以 N —— 而单元素视角看完全合理。
+`getAccountProxyStatus(accountId, platform)` 为读一个 `proxy` 字段，解密整份凭证（cookies + localStorage + indexedDB + accountInfo）。
+单账号场景（详情页 / 代理弹窗）完全合理；放进 `listAccounts()` 就变成 N 次同步 PBKDF2。
+**判据**：复用函数到批量场景前，问「这个函数为一个元素付多少 IO / 多少 CPU？N 个元素总成本多少？」
+答不上来就不许复用。**推论**：详情函数与列表函数应当是两个入口（本轮落为 `getAccountProxyStatus` 单条 vs `loadProxyStatuses` 批量并行），
+而不是同一个函数被两个不同量级的场景共享。

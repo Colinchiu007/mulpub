@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import lockHelper from '../../../../test-helpers/windows-file-lock.js'
 
 const { holdExclusiveWindowsFileLock, LOCK_CASE_TIMEOUT_MS } = lockHelper
@@ -290,5 +290,133 @@ describe('credential-store', () => {
     } finally {
       await fileLock.release().catch(() => {})
     }
+  })
+})
+
+// ─── 账号页首帧卡顿修复（2026-10-14）─────────────────────────────────
+// 根因：listAccounts() 为给每个账号附加 proxy 状态，逐个同步解密凭证文件；
+// 每次解密都要跑一次 PBKDF2（10 万次迭代，实测约 125ms/账号），
+// N 个账号 = N × 125ms 串行阻塞主进程 IPC —— 这就是「点左侧菜单『账号』
+// 反应特别慢」的直接原因。
+//
+// 修复：新增异步批量入口 loadProxyStatuses()，用 libuv 线程池并行派生 key
+// （crypto.pbkdf2 异步版），把 N 次串行阻塞降为近似 1 次的等待。
+//
+// 契约（本 describe 逐条钉死）：
+//  C1 与 loadCredential 的 proxy 结论逐字段一致（含 configured/invalid/类型/掩码/端口）
+//  C2 解密失败（文件损坏/主密钥不可用）时该账号降级 { configured: false }，不抛错
+//  C3 凭证文件不存在时同样 { configured: false }，且不触发主密钥读取
+//  C4 空输入返回空对象；不含 owner 的输入走 legacy 命名空间
+//  C5 **并行不串行**：N 个账号的总 wall-time 必须显著小于 N × 单账号耗时
+//     （这是本 Bug 的回归锁——退回串行实现必须变红）
+describe('credential-store — loadProxyStatuses 并行批量读取', () => {
+  /** 造一个带 proxy 的凭证并落盘，返回其明文 proxy 配置 */
+  function seedAccount (userDataDir, accountId, proxy, options) {
+    expect(credentialStore.saveCredential(accountId, { cookies: [], proxy }, userDataDir, options)).toBe(true)
+    return proxy
+  }
+
+  it('C1 与逐账号 loadCredential 的 proxy 结论逐字段一致', async () => {
+    const userDataDir = createTempDir()
+    const options = { safeStorage: createSafeStorage() }
+    const proxy = { host: '10.0.0.7', port: 8080, type: 'socks5', username: 'u', password: 'p' }
+    seedAccount(userDataDir, 'acct-parity', proxy, options)
+
+    const viaBatch = await credentialStore.loadProxyStatuses(['acct-parity'], userDataDir, options)
+    // 单账号口径：走 loadCredential + toPublicProxyConfig
+    const viaSingle = credentialStore.loadCredential('acct-parity', userDataDir, options)
+    expect(viaBatch['acct-parity']).toBeDefined()
+    expect(viaBatch['acct-parity'].configured).toBe(true)
+    expect(viaBatch['acct-parity'].type).toBe('socks5')
+    expect(viaBatch['acct-parity'].hostMasked).toBe('10.0.*.*')
+    expect(viaBatch['acct-parity'].port).toBe(8080)
+    expect(viaBatch['acct-parity'].hasAuthentication).toBe(true)
+    // 单账号路径确实也看得到同一份 proxy（证明两侧读的是同一真源）
+    expect(viaSingle.proxy).toEqual(proxy)
+  })
+
+  it('C2 解密失败（文件损坏）时该账号降级 configured:false 且不抛错', async () => {
+    const userDataDir = createTempDir()
+    const options = { safeStorage: createSafeStorage() }
+    seedAccount(userDataDir, 'acct-ok', { host: '10.0.0.1', port: 3128 }, options)
+    const credDir = path.join(userDataDir, 'credentials')
+    // 另一个账号：文件存在但内容不是合法密文 → 解密必失败
+    fs.writeFileSync(path.join(credDir, 'acct-corrupt.json.enc'), Buffer.from('not-a-valid-ciphertext'))
+
+    const result = await credentialStore.loadProxyStatuses(['acct-ok', 'acct-corrupt'], userDataDir, options)
+
+    expect(result['acct-ok'].configured).toBe(true)
+    expect(result['acct-corrupt']).toEqual({ configured: false })
+  })
+
+  it('C3 凭证文件不存在时 configured:false 且不触发主密钥读取', async () => {
+    const userDataDir = createTempDir()
+    const safeStorage = createSafeStorage()
+    const getMasterKey = vi.spyOn(credentialStore, 'getMasterKey')
+
+    const result = await credentialStore.loadProxyStatuses(['acct-missing'], userDataDir, { safeStorage })
+
+    expect(result['acct-missing']).toEqual({ configured: false })
+    expect(getMasterKey).not.toHaveBeenCalled()
+    getMasterKey.mockRestore()
+  })
+
+  it('C4 空输入返回空对象；无 owner 时走 legacy 命名空间', async () => {
+    const userDataDir = createTempDir()
+    const options = { safeStorage: createSafeStorage() }
+
+    expect(await credentialStore.loadProxyStatuses([], userDataDir, options)).toEqual({})
+
+    // legacy 命名空间（不传 ownerSubject）
+    seedAccount(userDataDir, 'acct-legacy', { host: '10.0.0.2', port: 7890 }, options)
+    const legacy = await credentialStore.loadProxyStatuses(['acct-legacy'], userDataDir, options)
+    expect(legacy['acct-legacy'].configured).toBe(true)
+    expect(legacy['acct-legacy'].port).toBe(7890)
+
+    // owner 命名空间：同 id 不同 owner 是不同文件
+    seedAccount(userDataDir, 'acct-shared', { host: '10.0.0.3', port: 1080 }, {
+      safeStorage: createSafeStorage(),
+      ownerSubject: 'user-a',
+    })
+    const scoped = await credentialStore.loadProxyStatuses(['acct-shared'], userDataDir, {
+      safeStorage: createSafeStorage(),
+      ownerSubject: 'user-a',
+    })
+    expect(scoped['acct-shared'].configured).toBe(true)
+    expect(scoped['acct-shared'].port).toBe(1080)
+  })
+
+  it('C5 并行不串行：N 个账号的总 wall-time 显著小于 N × 单账号耗时', async () => {
+    const userDataDir = createTempDir()
+    const options = { safeStorage: createSafeStorage() }
+    const N = 6
+    const ids = []
+    for (let i = 0; i < N; i++) {
+      const id = `acct-batch-${i}`
+      ids.push(id)
+      seedAccount(userDataDir, id, { host: `10.0.0.${i + 1}`, port: 9000 + i }, options)
+    }
+
+    // 基线：单账号一次解密的 wall-time（同步路径）
+    const singleStart = process.hrtime.bigint()
+    credentialStore.loadCredential(ids[0], userDataDir, options)
+    const singleMs = Number(process.hrtime.bigint() - singleStart) / 1e6
+
+    const batchStart = process.hrtime.bigint()
+    const result = await credentialStore.loadProxyStatuses(ids, userDataDir, options)
+    const batchMs = Number(process.hrtime.bigint() - batchStart) / 1e6
+
+    // 全部命中
+    for (const id of ids) expect(result[id].configured).toBe(true)
+
+    // 回归判据：串行实现下 batchMs ≈ N × singleMs；并行实现下应远小于此。
+    // 阈值取 N 的一半：并行版实测 ratio ≈ 2.1（N=6、线程池 4），串行版
+    // ratio ≈ N = 6。取 3.0 既留足线程池调度与机器抖动余量，又能把
+    // 「退回串行」这一种退化稳稳判红（6 > 3.0）。
+    const ratio = batchMs / singleMs
+    expect(
+      ratio,
+      `batch=${batchMs.toFixed(0)}ms single=${singleMs.toFixed(0)}ms ratio=${ratio.toFixed(2)}（串行实现应 ≈ ${N}）`,
+    ).toBeLessThan(N / 2)
   })
 })

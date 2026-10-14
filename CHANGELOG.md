@@ -1,3 +1,12 @@
+# [未发布] 修复点左侧菜单「账号」反应特别慢——主进程 PBKDF2 串行阻塞改并行（fix-sidebar-nav-slow）
+
+- **根因**：`AccountManager.listAccounts()` 为给每个账号附加 `proxy` 代理状态，逐个调 `getAccountProxyStatus()` → `loadCredential()` → `decryptData()` → `pbkdf2Sync`（10 万次迭代，实测约 125ms/账号）。`pbkdf2Sync` 同步阻塞事件循环，N 个账号 = N×125ms 串行，IPC 全部算完才返回 —— 用户感知就是「点『账号』好几秒才加载」，且随账号数线性增长、无上界。
+- **修复**：新增 `credentialStore.loadProxyStatuses()` 批量并行入口 —— 先做存在性筛查（文件不存在的账号不读主密钥、不跑 PBKDF2），一次读主密钥，随后所有账号的 PBKDF2 经 `crypto.pbkdf2`（libuv 线程池）**同时**派生。`listAccounts()` 改走该入口，不再逐账号同步解密。
+- **实测效果**：5 账号 600ms → 170ms、10 账号 1.4s → 370ms（加速 3.5–3.7x）；账号数越多收益越大。
+- **安全强度一字未降**：`deriveKeyAsync` 与同步版参数逐字节一致（实测同 masterKey/salt 下 key 相同），KDF 迭代数维持 10 万次、AES-256-GCM 与密文格式不变。`PBKDF2_ITERATIONS` 提为单一常量并加⛔注释：openspec 对本项目 PBKDF2 的基线是 ≥200000 次（现状 100000 已低于基线），**不得为性能再往下调**。
+- **韧性**：批量入口整体失败（safeStorage 失效等）时降级为空表并回落单账号口径；单账号解密失败（密文损坏）只降级该账号，不影响同批其它账号 —— 账号页首帧绝不被凭证层故障打挂。
+- **回归锁 10 条**（credential-store C1–C5 + account-manager L1–L5）：C5 是性能契约（N=6 时 `batchMs/singleMs < N/2`），L1 是结构锁（必须走批量入口、`loadCredential` 一次都不能被调）。**变异反证**：把 `Promise.all` 改回 `for` 串行，C5 立刻打红（ratio 5.80 ≈ N=6，阈值 3.0）。
+- 修复全程与 Bug 反思 5 步产出见 `01-docs/BUGFIX-SIDEBAR-ACCOUNTS-SLOW-2026-10-14.md`；QM-2 新增「高频路径不得含同步 CPU 密集原语」与「详情函数复用到列表路径前必须核算单元素成本」两条检查项。
 # [未发布] feat(gates): 主干上的 git 冲突标记从此有人报警——全仓棘轮锁 + 机械修掉可无损清白的 2 篇（conflict-marker-sweep）
 
 - 动因是实测不是清理冲动：`git grep -a` 在**已合入 origin/main** 的文件里抓到 6 篇含冲突标记的行。两类成因不同 —— 4 篇 `openspec/records/*.md` 是 `git stash pop` 的冲突被整块提交（两侧标签正是 `Updated upstream` / `Stashed changes`），2 篇是 rebase 时只删了左侧七个尖括号那一侧、留着 `=======` 与 `>>>>>>> <sha> (提交标题)`。**没有任何现判据在看这件事**：`check-text-encoding-integrity` 管控制字节、`check-doc-abs-paths` 管绝对路径、numstat 两口径管行尾，三者对"行首七个尖括号"全部无感；git 侧也不兜底——它只拒绝**索引里**处于 `UU` 的合并，`git add` 掉标记文件即可提交，而 `stash pop` 压根不进合并状态机。

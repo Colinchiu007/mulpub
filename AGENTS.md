@@ -488,6 +488,10 @@ cd apps/desktop && pnpm exec electron-builder --win --x64
 
 Code review 时除逻辑正确性外，必须逐项检查：
 
+- **高频路径不得含同步 CPU 密集原语**：任何**每次进页面都会走**的 IPC / 列表 / 渲染路径，不得调用 `pbkdf2Sync` / `scryptSync` / 大输入 `createHash` 等**同步阻塞事件循环**的原语。判据：该路径的执行次数 × 单次耗时是否随数据量线性增长。实例（2026-10-14）：`listAccounts()` 为每个账号调 `getAccountProxyStatus()` → `decryptData()` → `pbkdf2Sync`（10 万次迭代，实测 125ms/次），N 个账号 = N×125ms 串行阻塞 IPC，用户感知「点左侧菜单『账号』好几秒才加载」。修法见 `01-docs/BUGFIX-SIDEBAR-ACCOUNTS-SLOW-2026-10-14.md`：批量入口 + 异步并行派生（`crypto.pbkdf2`），**不得用调小 KDF 迭代数换性能**（openspec 对本项目 PBKDF2 的基线是 ≥200000 次）。
+
+- **详情函数复用到列表路径前必须核算单元素成本**：给单条记录用的函数（读完整凭证、逐项网络请求、整表扫描）被 `map` 到列表上时，单元素成本会乘以 N。判据：问「这个函数为一个元素付多少 IO / 多少 CPU？列表有 N 个元素时总成本是多少？」答不上来就不许合。
+
 - **require 路径**：每个 `require('../x')` / `require('./y')` 的解析目标文件是否真实存在
 
 - **preload sandbox 兼容**：修改 preload 后必须在 sandbox:true 和 sandbox:false 两种模式下验证 `window.electronAPI` 可用
