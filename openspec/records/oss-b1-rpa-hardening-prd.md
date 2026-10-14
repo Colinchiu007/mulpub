@@ -2,9 +2,6 @@
 record: oss-b1-rpa-hardening-prd
 task: 开源强化 B1 开发入口——spike 实测、PRD v1.1（CCG 双轴 16 findings 收敛）、openspec change 三件套、评审轨迹入库
 date: 2026-10-14
-sync_status: PENDING
-sync_reason: 本 PR 待 squash 合并，merge SHA 与时间尚未可取；合并后由后续 docs PR 在同一次提交回填 PASS 并删除 sync_* 三字段
-sync_backfill_owner: 本会话（oss-reinforcement 研究同源维护）
 ---
 
 ## 任务执行记录：开源强化 B1 PRD 与 openspec change（2026-10-14，docs-only PR）
@@ -22,7 +19,7 @@ sync_backfill_owner: 本会话（oss-reinforcement 研究同源维护）
 | QM-1 打包 / QM-4 视觉 | N/A | 不触及 electron/ 与 UI（视觉基线清单已列 PR-2 任务） |
 | **QM-6 CCG 双模型外部评审** | **PASS（收敛）** | PRD v1.0 双轴 16 findings（后端 claude 8：3 严重 4 警告 1 信息；前端 opencode 8：3 高 4 中 1 低）全部采纳落 v1.1，无拒绝项；评审轨迹 `.adversarial/b1-prd-review/` |
 | 技术预研取证（spike） | PASS | 7 组运行实验（Electron 43 实机）：H1 隔离间隙确证/双通道 document_start 时序/isolated world 隔离语义/createIsolatedWorld 参数/fresh window HUNG；命令名纠正（`Runtime.evaluateInWorld` 不存在→`Runtime.evaluate+contextId`）；证据 `spike-evidence.md` |
-| 远程同步 | PENDING | 合并后取 merge SHA；`git ls-remote` 0 行；回填销账同一次提交 |
+| 远程同步 | PASS（PR #3574 squash 合并 ⇒ 5f51de9f，2026-10-14T16:17:41+08:00；远端分支 docs/oss-b1-prd 已删（ls-remote 0 行）） | 合并后取 merge SHA；`git ls-remote` 0 行；回填销账同一次提交 |
 
 ### 关键决策留痕
 
