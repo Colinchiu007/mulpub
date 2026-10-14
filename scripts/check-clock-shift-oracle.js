@@ -81,7 +81,7 @@ const TIME_FORMS = [
   // ④ Date.UTC(20NN
   ['date_utc', 'Date\\.UTC\\(\\s*20\\d\\d'],
   // ⑤ 与内核时钟交换过值的现场（跨时钟域比较的唯一可静态观察特征）
-  ['kernel_time', 'mtimeMs|\\.mtime\\b|birthtimeMs|utimesSync|lastWriteTime|LastWriteTime'],
+  ['kernel_time', 'mtimeMs|mtime\\b|birthtimeMs|atimeMs|atime\\b|utimes|lastWriteTime|LastWriteTime|stats\\('],
 ];
 const ABS_RE = new RegExp(TIME_FORMS.map(([, src]) => src).join('|'));
 

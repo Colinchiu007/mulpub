@@ -279,6 +279,9 @@ describe('SecureTokenStorage', () => {
     await fs.promises.utimes(staleTemp, oldMtime, oldMtime)
     const freshTemp = `${filePath}.8888.tmp`
     await fs.promises.writeFile(freshTemp, 'in-flight')
+    // "新鲜"必须按被测方读的那把钟来定义：默认 mtime 来自内核，位移档下刚写的临时文件会被判成过期而回收
+    const freshMtime = new Date()
+    await fs.promises.utimes(freshTemp, freshMtime, freshMtime)
     const storage = new SecureTokenStorage({ safeStorage, filePath })
 
     await storage.save({ refreshToken: 'fresh' })

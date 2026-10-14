@@ -145,6 +145,8 @@ test('候选形态清单：五种时间形态逐个正控，真实时钟写法�
     ['date_utc', 'const t = Date.UTC(2026, 0, 1)'],
     ['kernel_time', 'if (st.mtimeMs < startedAt) return false'],
     ['kernel_time', 'fs.utimesSync(f, new Date(0), new Date(0))'],
+    ['kernel_time', 'await fs.promises.utimes(fresh, m, m)'],
+    ['kernel_time', 'const age = Date.now() - (await fs.promises.stat(f)).mtimeMs'],
   ];
   for (const [form, sample] of positives) {
     const entry = forms.find(([n]) => n === form);
