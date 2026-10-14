@@ -18355,7 +18355,7 @@ PLAN 的 M0 有 8 条判据，P0 落地后实跑：通过 4 / 不通过 3（另 
 【技术】**多副本项目里，「用哪个源重生成」决定结论 —— 先确认源，再下判断。**
 
 同一份竞品数据在本机至少两份：仓库内 `01-docs/research/competitor-reverse-2026-10-13/platform-data`
-（被 git 跟踪，134 文件）与仓库外 `D:/Data/projects/rea/analysis/wemedia-data-zip/data`。
+（被 git 跟踪，134 文件）与仓库外 `D:/Data/projects/rea/analysis/<wemedia-data-zip>/data`。
 同名文件 **SHA-256 不同**（编码不同，内容等价）。
 
 我拿**仓库外**副本重生成再与已提交产物比对，得到一堆「差异」，顺势得出「产物血缘元数据错标」的
@@ -18586,7 +18586,6 @@ main e9cfc0020
 而所有文字材料都在描述一个不存在的入口。
 **判据**：配置项「可达性」= 写入函数的调用方数量（从 UI 到 IPC 全链），不是文档里的说明。
 **推论**：删界面 = 删能力。删之前先问「这个界面是不是某个配置的唯一入口」——若是，必须先给它找部署层的新家，否则等于删掉生产环境的一条链路。
-（被 git 跟踪，134 文件）与仓库外 `D:/Data/projects/rea/analysis/<wemedia-data-zip>/data`。
 ## 「先量存量」量出来的结论是判据本身不可行：时钟位移 oracle 取代静态形状扫描（2026-10-13，clock-shift-oracle）
 ### 事实
 
