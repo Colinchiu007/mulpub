@@ -436,7 +436,12 @@ test('CI 路径门控：任何 workflow 的 pull_request 都不得用 paths-igno
   // main-ci-gate 列为 required check —— 纯文档 PR 永不产生该检查，mergeStateStatus
   // 永久 BLOCKED（ruleset current_user_can_bypass=never，--admin 也绕不过）。
   // required contexts 清单只存在 GitHub ruleset、仓库内不可读，无法逐一对账，
-  // 故一律禁止 paths-ignore；正向 paths 白名单仍允许（按需触发，不影响 required 语义）。
+  // 故一律禁止 paths-ignore。**这句要按实测改宽口径**：正向 `paths` 白名单同样会让检查整体缺席
+  // （不匹配时整条 workflow 不启动，连 skipped 都没有）——实测 #3499 只改 openspec/records 的 PR 上
+  // build / electron-tests / 债务熔断检查 都以 skipping 出现，而带正向白名单的 GUI Tests 计数 0。
+  // 本条之所以只禁 paths-ignore，是因为历史上**没有任何 required 检查挂在带正向白名单的 workflow 上**；
+  // 要把某个 workflow 纳入 required，必须先把它的 PR 侧白名单下沉到作业层（gui-test.yml 即此例，
+  // 锁见 apps/desktop/tests/gui-ci-exit-contract.test.js 的「PR 触发不得再带 paths 白名单」）。
   const dir = path.join(__dirname, '..', 'workflows');
   const offenders = [];
   for (const f of fs.readdirSync(dir).filter((n) => /\.(ya?ml)$/.test(n))) {

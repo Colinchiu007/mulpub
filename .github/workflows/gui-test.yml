@@ -1,14 +1,12 @@
 name: GUI Tests
 
 on:
+  # 路径判定**不在触发层**：`on.pull_request.paths` 白名单不匹配时整条 workflow 不启动，
+  # 于是本检查在 required 语义下是"永远不到来"而不是"跳过"（实测 #3499：只改 openspec/records
+  # 的 PR 上 build / electron-tests / 债务熔断检查 都以 skipping 出现，GUI Tests 计数 0）。
+  # 白名单本身搬到 scripts/ci-gui-relevance.js，由下面的 changes 作业逐 PR 计算（同 electron-ci 先例）。
   pull_request:
     branches: [main]
-    paths:
-      - 'apps/desktop/**'
-      - 'packages/**'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - '.github/workflows/gui-test.yml'
   push:
     branches: [codex/gui-test*, main]
     tags: [v*]
@@ -25,8 +23,51 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # GUI 相关性判定（形状照 electron-ci.yml / quality-gate.yml 的 changes 作业；判据本体在
+  # scripts/ci-gui-relevance.js，diff 与 glob 复用 classify-docs-only.js，不写第二份）。
+  # 取 base/head 走 scripts/ci-pr-changeset.js 而不是直接读 github.event.*.sha：
+  # PR 打开后 main 又前进时，checkout 出来的是合并提交，直接算会把别人的提交算进本 PR。
+  changes:
+    name: GUI Changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      gui-relevant: ${{ steps.gui.outputs.gui-relevant }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # merge-base diff 需要完整历史
+
+      - name: Detect GUI-relevant changes
+        id: gui
+        shell: bash
+        env:
+          EVT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # 非 PR 事件（main push / tag / dispatch）一律照旧全量跑，绝不因这次改动被短路。
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "gui-relevant=true" >> "$GITHUB_OUTPUT"
+            echo "gui-relevant=true (non-PR event: full run)"
+            exit 0
+          fi
+          CHANGESET="$(node scripts/ci-pr-changeset.js --repo="$PWD" --evt-name="${{ github.event_name }}" --evt-base="${EVT_BASE_SHA:-}" --evt-head="${EVT_HEAD_SHA:-}")" || exit 1
+          echo "[gui-changeset] $CHANGESET"
+          BASE="$(printf '%s\n' "$CHANGESET" | sed -n 's/^base=//p')"
+          HEAD_SHA="$(printf '%s\n' "$CHANGESET" | sed -n 's/^head=//p')"
+          if [ -z "$BASE" ] || [ -z "$HEAD_SHA" ]; then
+            echo "::error::取不到本 PR 的 base/head（[${BASE}]/[${HEAD_SHA}]）；不得退回 HEAD=合并提交——那会把期间 main 的他人提交算进本 PR 而误判相关性"
+            exit 1
+          fi
+          node scripts/ci-gui-relevance.js --base="$BASE" --head="$HEAD_SHA" --repo="$PWD"
+
   gui-test:
     runs-on: windows-latest
+    needs: [changes]
+    # 相关性短路：不相关的 PR 让本 job 显示为 skipped（skipped 满足 required check 口径，
+    # 与 build / electron-tests 同形）。非 PR 事件必须留在条件里，否则 main push 与 tag
+    # 发布链路会被 changes 的 "true (non-PR)" 之外的任何漂移一并短路掉。
+    if: github.event_name != 'pull_request' || needs.changes.outputs.gui-relevant == 'true'
     timeout-minutes: 30
     defaults:
       run:
@@ -164,3 +205,51 @@ jobs:
             apps/desktop/vite-ci.log
           if-no-files-found: warn
           retention-days: 5
+
+  # GUI 门禁裁决聚合（先例：quality-gate.yml 的 gate-result）。为什么必须有它，是本轮实测出来的，
+  # 不是从 yaml 推的：`QG Changes` 红过的 4 个历史 run（38505963415 / 38504686076 / 38503759202 /
+  # 38502341883）里，下游作业的 check run **全部存在且 conclusion=skipped** —— 也就是说
+  # "判据作业坏了"不会像直觉那样把 PR 卡成"等待状态"，而是把下游变成 skipped，而 **skipped 满足
+  # required**。所以若只把 gui-test 收进 required，这条 gate 在 changes 作业坏掉的那天会
+  # **静默假通过**。本作业把三种失败压成一个可见的红：
+  #   ① changes 非 success ⇒ 红（判据坏了不许当成"不相关"）
+  #   ② gui-test 红/被取消/超时 ⇒ 红
+  #   ③ gui-test skipped ⇒ 仅当"PR 事件且判据真的产出 gui-relevant=false"才算合法跳过，否则红
+  # 将来进 required 清单时收本作业（一条即覆盖三类失败），而不是只收 gui-test。
+  gui-gate-result:
+    name: GUI Gate Result
+    runs-on: ubuntu-latest
+    needs: [changes, gui-test]
+    if: always()
+    timeout-minutes: 5
+    steps:
+      - name: Verdict
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          GUI_RESULT: ${{ needs.gui-test.result }}
+          GUI_RELEVANT: ${{ needs.changes.outputs.gui-relevant }}
+        run: |
+          echo "[gui-gate-result] event=$EVENT_NAME changes=$CHANGES_RESULT gui=$GUI_RESULT relevant=${GUI_RELEVANT:-(空)}"
+          if [ "$CHANGES_RESULT" != "success" ]; then
+            echo "::error::GUI 相关性判据作业未成功（$CHANGES_RESULT）。不得把「判据坏了」读成「这个 PR 不相关」。"
+            exit 1
+          fi
+          case "$GUI_RESULT" in
+            success)
+              echo "[gui-gate-result] PASS - gui-test 跑过且成功"
+              ;;
+            skipped)
+              if [ "$EVENT_NAME" = "pull_request" ] && [ "$GUI_RELEVANT" = "false" ]; then
+                echo "[gui-gate-result] PASS - PR 判定为与 GUI 无关，合法跳过（relevant=false 由判据产出，非缺省）"
+              else
+                echo "::error::gui-test 被跳过但理由不成立（event=$EVENT_NAME relevant=${GUI_RELEVANT:-(空)}）——skipped 满足 required，必须在这里变红，否则就是静默放行"
+                exit 1
+              fi
+              ;;
+            *)
+              echo "::error::gui-test 结论为 $GUI_RESULT（failure/cancelled/timed_out/缺失一律拦）"
+              exit 1
+              ;;
+          esac

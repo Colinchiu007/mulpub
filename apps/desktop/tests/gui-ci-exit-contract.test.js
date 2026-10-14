@@ -1,3 +1,8 @@
+// 覆盖域提醒（轴 2 外部评审的 Info，已采纳）：本文件除 GUI workflow 的结构锁外，
+// 还锁着 scripts/ci-gui-relevance.js 的**进程入口**（CLI 端到端那条用例：临时真 git 仓库 +
+// 真 GITHUB_OUTPUT）。它刻意不拆到 scripts/*.test.js —— 那里既会被 .gitignore 的 scripts/*.js
+// 吞掉，又要在 quality-gate.yml 里另点名一次，否则对 check-unwired-tests 棘轮不可见。
+// 要找"判据 CLI 的锁"，就在本文件里，不在 scripts/ 下。
 const fs = require('fs');
 const path = require('path');
 const yaml = require('js-yaml');
@@ -155,16 +160,181 @@ describe('GUI/CI 工作流门禁契约', () => {
     expect(source).not.toMatch(/e2e-smoke\.js;\s*echo/);
   });
 
-  it('GUI 工作流在自身、依赖清单和共享包变化时也会触发', () => {
+  // 2026-10-14 形状变更（change: gui-test-required-shape）。旧用例把「触发层正向 paths 白名单」
+  // 钉成契约，而实测证明这个形状恰恰是 required 的死穴：不匹配时整条 workflow 根本不启动，
+  // 于是它产生的检查是「永远不到来」而不是「跳过」。现场对照（#3499，只改 openspec/records 的 PR）：
+  //   build / electron-tests / 债务熔断检查 全部以 skipping 出现（它们的 pull_request 无 paths，
+  //   路径判定下沉到作业层 changes 作业）；GUI Tests 一条都没出现（计数 0）。
+  // 故本组锁改为钉新形状，并保留「清单搬家不缩水」的正向对偶。
+  it('GUI 工作流的 PR 触发不得再带 paths 白名单或 paths-ignore（都会让检查整体缺席）', () => {
     const { workflow } = readWorkflow('gui-test.yml');
-    const pullRequestPaths = workflow.on.pull_request.paths;
 
-    expect(pullRequestPaths).toEqual(expect.arrayContaining([
-      '.github/workflows/gui-test.yml',
+    expect(workflow.on.pull_request.paths).toBeUndefined();
+    expect(workflow.on.pull_request['paths-ignore']).toBeUndefined();
+  });
+
+  it('GUI 相关性清单搬进判据脚本后内容不得缩水（搬家不等于删需求）', () => {
+    const { GUI_PATHS } = require(path.join(PROJECT_ROOT, 'scripts', 'ci-gui-relevance.js'));
+
+    expect(GUI_PATHS).toEqual(expect.arrayContaining([
+      'apps/desktop/**',
+      'packages/**',
       'package.json',
       'pnpm-lock.yaml',
-      'packages/**',
+      '.github/workflows/gui-test.yml',
     ]));
+    expect(GUI_PATHS.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it('相关性判定按行为而非字面串：运行时路径算相关，文档与无关 CI 路径不算，空清单保守判否', () => {
+    const { isGuiRelevant } = require(path.join(PROJECT_ROOT, 'scripts', 'ci-gui-relevance.js'));
+
+    for (const f of [
+      'apps/desktop/src/App.vue',
+      'packages/shared-utils/src/login-state.js',
+      'package.json',
+      'pnpm-lock.yaml',
+      '.github/workflows/gui-test.yml',
+    ]) {
+      expect(isGuiRelevant([f])).toBe(true);
+    }
+    for (const f of [
+      'openspec/records/some-record.md',
+      'CHANGELOG.md',
+      '.github/workflows/quality-gate.yml',
+    ]) {
+      expect(isGuiRelevant([f])).toBe(false);
+    }
+    expect(isGuiRelevant([])).toBe(false);
+  });
+
+  it('gui-test 作业必须由 changes 判定作业门控，且非 PR 事件不得被短路（否则 main push / tag 不再跑）', () => {
+    const { workflow } = readWorkflow('gui-test.yml');
+    const job = workflow.jobs['gui-test'];
+
+    expect(job.needs).toEqual(expect.arrayContaining(['changes']));
+    expect(job.if).toContain("github.event_name != 'pull_request'");
+    expect(job.if).toContain('needs.changes.outputs.gui-relevant');
+  });
+
+  it('CLI 端到端：真 git 仓库里文档改动判否、桌面改动判是，取证失败必须 rc=1 且不写产出', () => {
+    // 只测导出的 isGuiRelevant 等于没测 CLI 层（#3493 的同名教训）：base/head 取源、
+    // merge-base 语义、取证失败时的 fail-closed、GITHUB_OUTPUT 追加，四件事都只存在于进程入口。
+    const { execFileSync } = require('node:child_process');
+    const os = require('os');
+    const scriptPath = path.join(PROJECT_ROOT, 'scripts', 'ci-gui-relevance.js');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gui-rel-'));
+    const g = (args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    const runCli = (base, head, env = {}) => {
+      try {
+        const stdout = execFileSync('node', [scriptPath, `--repo=${dir}`, `--base=${base}`, `--head=${head}`], {
+          cwd: dir, encoding: 'utf8', env: { ...process.env, ...env },
+        });
+        return { rc: 0, stdout };
+      } catch (e) {
+        return { rc: e.status, stdout: String(e.stdout || ''), stderr: String(e.stderr || '') };
+      }
+    };
+
+    try {
+      g(['init', '-q', '-b', 'main']);
+      g(['config', 'user.email', 't@t']);
+      g(['config', 'user.name', 't']);
+      fs.mkdirSync(path.join(dir, 'apps/desktop'), { recursive: true });
+      fs.mkdirSync(path.join(dir, 'openspec/records'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'apps/desktop/a.js'), '1\n');
+      fs.writeFileSync(path.join(dir, 'openspec/records/base.md'), '1\n');
+      g(['add', '-A']);
+      g(['commit', '-qm', 'base']);
+      const base = g(['rev-parse', 'HEAD']).trim();
+
+      // ① 文档改动 ⇒ 不相关
+      fs.writeFileSync(path.join(dir, 'openspec/records/base.md'), '2\n');
+      g(['add', '-A']);
+      g(['commit', '-qm', 'docs']);
+      const docsHead = g(['rev-parse', 'HEAD']).trim();
+      const out1 = runCli(base, docsHead);
+      expect(out1.rc).toBe(0);
+      expect(out1.stdout).toContain('gui-relevant=false');
+
+      // ② 桌面改动 ⇒ 相关（正向对偶：摘掉判据会连这条一起红，不是恒 false）
+      fs.writeFileSync(path.join(dir, 'apps/desktop/a.js'), '2\n');
+      g(['add', '-A']);
+      g(['commit', '-qm', 'desktop']);
+      const out2 = runCli(base, g(['rev-parse', 'HEAD']).trim());
+      expect(out2.rc).toBe(0);
+      expect(out2.stdout).toMatch(/gui-relevant=true/);
+      expect(out2.stdout).toContain('apps/desktop/a.js');
+
+      // ③ 取证失败 ⇒ rc=1 且不往 GITHUB_OUTPUT 写任何东西（写了就等于把"读不到"判成"不相关"）
+      const outFile = path.join(dir, 'gha-output.txt');
+      const bad = runCli('definitely-not-a-ref', 'HEAD', { GITHUB_OUTPUT: outFile });
+      expect(bad.rc).toBe(1);
+      expect(fs.existsSync(outFile)).toBe(false);
+
+      // ③b 空变更集（base==head）必须**留痕**并判不相关 —— 与"取证失败"必须可区分
+      const empty = runCli(docsHead, docsHead);
+      expect(empty.rc).toBe(0);
+      expect(empty.stdout).toContain('EMPTY_CHANGESET');
+      expect(empty.stdout).toContain('gui-relevant=false');
+
+      // ④ GITHUB_OUTPUT 正常路径必须真的追加（作业产出靠它，光打印不算）
+      const okOut = runCli(base, docsHead, { GITHUB_OUTPUT: outFile });
+      expect(okOut.rc).toBe(0);
+      expect(fs.readFileSync(outFile, 'utf8')).toContain('gui-relevant=false');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // 实测反转了"依赖失败 ⇒ 检查不到来"的直觉：QG Changes 红过的 4 个历史 run 里，下游作业的
+  // check run 全部存在且 conclusion=skipped；而 skipped 满足 required ⇒ 判据作业坏了会让这条
+  // gate **静默假通过**。所以必须有 if:always() 的聚合作业把三种失败压成一个可见的红。
+  it('必须有 GUI Gate Result 聚合作业，且它同时读 changes 与 gui-test 的结果', () => {
+    const { workflow } = readWorkflow('gui-test.yml');
+    const agg = workflow.jobs['gui-gate-result'];
+
+    expect(agg, '缺 gui-gate-result 聚合作业 ⇒ 判据坏了会被读成 skipped=通过').toBeDefined();
+    expect(agg.if).toBe('always()');
+    expect(agg.needs).toEqual(expect.arrayContaining(['changes', 'gui-test']));
+    const steps = agg.steps || [];
+    const withRun = steps.find((s) => s.run);
+    expect(withRun, '聚合作业必须有一条 run 步骤，否则 verdict 无处执行').toBeDefined();
+    // 注入面单独锁：${{ needs.* }} 是写在 step.env 里的，漏一条声明 bash 就拿到空串，
+    // 于是"判据作业坏了"会被读成空值分支 —— 这是本仓记过的 env/输出接缝失效形态。
+    const env = withRun.env || {};
+    expect(String(env.CHANGES_RESULT)).toContain('needs.changes.result');
+    expect(String(env.GUI_RESULT)).toContain('needs.gui-test.result');
+    expect(String(env.GUI_RELEVANT)).toContain('needs.changes.outputs.gui-relevant');
+    expect(String(env.EVENT_NAME)).toContain('github.event_name');
+    const body = withRun.run;
+    // 裁决必须 fail closed：changes 非 success 一律红；skipped 只在「PR 且 relevant 明确为 false」时合法
+    expect(body).toMatch(/CHANGES_RESULT" != "success/);
+    expect(body).toMatch(/GUI_RELEVANT" = "false/);
+    expect(body).toMatch(/\*\)/);
+  });
+
+  it('进 required 清单的正确名字是聚合作业显示名（防止后人只收 gui-test 留下假通过）', () => {
+    const { workflow } = readWorkflow('gui-test.yml');
+    const names = Object.entries(workflow.jobs)
+      .filter(([, j]) => j.name)
+      .map(([, j]) => j.name);
+
+    expect(names).toContain('GUI Gate Result');
+    expect(names).not.toContain('Gate Result');
+  });
+
+  it('push 触发保持原样，且 push.paths 与 GUI_PATHS 是同一份清单（防两侧相关性静默漂移）', () => {
+    const { workflow } = readWorkflow('gui-test.yml');
+    const { GUI_PATHS } = require(path.join(PROJECT_ROOT, 'scripts', 'ci-gui-relevance.js'));
+    const pushPaths = (workflow.on.push.paths || []).slice().sort();
+    const gui = GUI_PATHS.slice().sort();
+
+    // 全集相等，而不是 arrayContaining 抽查：判据（PR 侧）与 push 触发用的是同一份相关性清单，
+    // 有人只改一边就会在这里红 —— 轴 2 外部评审指出的漂移面（Warning，已采纳）。
+    expect(pushPaths).toEqual(gui);
+    expect(pushPaths.length).toBeGreaterThanOrEqual(5);
+    // 注：不另钉"字面五项清单"——那会与「清单允许合法变长、只禁缩水」的设计意图对打（轴 2 的 Q1-b 因此不采纳）。
   });
 
   it('质量门禁执行真实 E2E 和视觉测试，并且只清理自己启动的服务', () => {
