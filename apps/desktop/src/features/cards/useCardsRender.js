@@ -28,6 +28,18 @@ const CODE_TO_KEY = {
   CARDS_IPC_UNAVAILABLE: 'failedService',
 }
 
+/**
+ * 主进程「渲染页数不符」的领域码。
+ *
+ * ★ 按**码**判断，不按中文句子匹配。主进程曾在 message 里写
+ * 「渲染页数不符（期望 N，实得 M）」，渲染端靠 `includes('渲染页数不符')` 认它 ——
+ * 那是「两侧靠自然语言匹配」：主进程改一个字，渲染端静默失配。
+ * 且渲染端的中文字面量会被 `check-locale-sync --cjk` 拦（用户可见文案必须走 locale）。
+ *
+ * 数字从 `detail`（`期望 N 页，实得 M`）里取；人类可读文案由 locale 出。
+ */
+const PAGE_COUNT_MISMATCH_CODE = 'RENDER_PAGE_COUNT_MISMATCH'
+
 export function useCardsRender () {
   /** @type {import('vue').Ref<boolean>} 是否正在渲染（入口按钮 loading + 进度条可见性） */
   const rendering = ref(false)
@@ -62,12 +74,12 @@ export function useCardsRender () {
     if (typeof res.code === 'number' && res.code === -2) {
       return { key: 'failedValidation', vars: { message: res.message || '' } }
     }
-    if (typeof res.message === 'string' && res.message.includes('渲染页数不符')) {
-      // 主进程的 message 形如「渲染页数不符（期望 2，实得 1）」
-      const m = res.message.match(/期望\s*(\d+).*实得\s*(\d+)/)
+    if (typeof res.message === 'string' && res.message === PAGE_COUNT_MISMATCH_CODE) {
+      // detail 形如「期望 2 页，实得 1」
+      const m = typeof res.detail === 'string' ? res.detail.match(/(\d+)/g) : null
       return {
         key: 'failedCount',
-        vars: { expected: m ? m[1] : '?', actual: m ? m[2] : '?' },
+        vars: { expected: m && m[0] ? m[0] : '?', actual: m && m[1] ? m[1] : '?' },
       }
     }
     return { key: 'failedUnknown', vars: { message: res.message || '' } }

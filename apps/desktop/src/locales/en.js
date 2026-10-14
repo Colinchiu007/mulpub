@@ -285,6 +285,9 @@ knowledgeBase: {
 
   hotTopics: { ...hotTopicsEn },
 
+  // ── Image-card paginated rendering (P2-5): "Generate image cards" entry ──
+  cards: { ...cardsEn },
+
   // ── Automation module (2026-10-03): scheduled / app-start triggered tasks ──
   automation: { ...automationEn },
 

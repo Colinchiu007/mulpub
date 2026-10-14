@@ -73,8 +73,13 @@ describe('失败路径（三种必须可区分）', () => {
     expect(c.failure.value.vars.message).toContain('data.pages[1][0]')
   })
 
-  it('★ 页数不符 ⇒ failedCount，且 resultFiles 为空（不返回部分产物）', async () => {
-    mockCardsRender.mockResolvedValue({ code: -1, message: '渲染页数不符（期望 2，实得 1）' })
+  it('★ 页数不符（领域码 RENDER_PAGE_COUNT_MISMATCH）=> failedCount，且 resultFiles 为空', async () => {
+    // 主进程按领域码报错，数字在 detail 里（不再靠中文句子匹配）
+    mockCardsRender.mockResolvedValue({
+      code: -1,
+      message: 'RENDER_PAGE_COUNT_MISMATCH',
+      detail: '期望 2 页，实得 1',
+    })
     const c = setup()
     const ok = await c.render({ pages: [['a'], ['b']] })
     expect(ok).toBe(false)

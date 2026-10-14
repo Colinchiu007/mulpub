@@ -286,6 +286,9 @@ knowledgeBase: {
 
   hotTopics: { ...hotTopicsZh },
 
+  // ── 图文卡片分页渲染（P2-5）：选题/发布页「生成图文卡片」入口 ──
+  cards: { ...cardsZh },
+
   // ── 自动化模块（2026-10-03）：定时 / 启动触发的自动化任务 ──
   automation: { ...automationZh },
 
