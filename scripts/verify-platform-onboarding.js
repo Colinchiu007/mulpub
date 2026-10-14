@@ -162,11 +162,34 @@ function buildChecks (slug) {
     const blockLines = platformYamlBlock(y, slug)
     if (!blockLines) return { ok: false, detail: `platforms.yaml 无 ${slug}` }
     const block = blockLines.join('\n')
-    const hasApi = /^[ \t]{4}has_api:[ \t]*true/.test(block)
+    // ⚠️ `m` 标志不可省（2026-10-15 修，假绿事故）：
+    //    原写法 `/^[ \t]{4}has_api:[ \t]*true/` **没有 `m`**，`^` 只锚**字符串开头**，
+    //    于是该判据**只在「块的第一行恰好是 has_api」时才真正执行**；
+    //    其余平台一律走下面的 `if (!hasApi) return { ok: true, … }` ⇒ **判「无需发布链」而通过**。
+    //    实测 15 个平台里 **6 个是假绿**（douyin / tencent_video / kuaishou / bilibili /
+    //    baijiahao / facebook），其中 tencent_video 与 facebook 是
+    //    `has_api: true` 却 **0 个链文件** —— 真缺口被这条假绿藏住了。
+    //    只有恰好把 `has_api` 写在块首行的 youtube / twitter 被正确检查（所以当时只报出这两个）。
+    //    ⇒ 与 `structure-lock` 的 `[]` 空转、`check-doc-abs-paths` 的无盘符跳过同型：
+    //      **判据在多数输入上不执行，却一律判通过。**
+    //    回归锁：`verify-platform-onboarding.test.js` 的「判据 9 不依赖 has_api 在块中的位置」，
+    //    用真实数据 `facebook`（has_api 不在首行 + 无链 ⇒ 应 FAIL）作证伪样本。
+    const hasApi = /^[ \t]{4}has_api:[ \t]*true/m.test(block)
     if (!hasApi) return { ok: true, detail: 'has_api 非 true ⇒ 无需发布链' }
     const dir = path.join(ROOT, 'packages/api-publish-engine/src/publish/platforms')
-    const chainFiles = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.startsWith(slug + '-')) : []
-    if (chainFiles.length === 0) return { ok: false, detail: `has_api:true 但无 publish/platforms/${slug}-*.js` }
+    // ★ 链文件名前缀不等于 slug 的平台（2026-10-15 补）：
+    //   视频号的链是 `shipinhao-video.js` / `shipinhao-music.js`，而 slug 是 `tencent_video`。
+    //   证据：`config/platforms.yaml` 的 tencent_video 块自带注释
+    //   「使视频号完整链（src/publish/platforms/shipinhao-video.js，分片 + Content-MD5 +
+    //     post_draft/post_create 双分支，带链级测试）从未被触发」；
+    //   且 `shipinhao-video.js:73` 调 `formatArticleBody('tencent_video', …)`、
+    //   `shipinhao.js:2` 注释确认 `constructor 'tencent_video'` —— 即**调度 id 就是 tencent_video**，
+    //   `shipinhao` 只是**文件名**。
+    //   没有这张表时，判据会因**命名**差异报「无链」——那是判据错，不是平台错。
+    const CHAIN_NAME_ALIASES = { tencent_video: 'shipinhao' }
+    const chainPrefix = (CHAIN_NAME_ALIASES[slug] || slug) + '-'
+    const chainFiles = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.startsWith(chainPrefix)) : []
+    if (chainFiles.length === 0) return { ok: false, detail: `has_api:true 但无 publish/platforms/${chainPrefix}*.js` }
     const entries = read('packages/api-publish-engine/src/platform-entries.js') || ''
     return entries.includes(slug)
       ? { ok: true, detail: `链 ${chainFiles.length} 个 + 已被 platform-entries.js 登记` }
