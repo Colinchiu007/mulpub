@@ -17,7 +17,9 @@ module.exports = defineConfig({
     deps: { inline: ['electron', 'axios'] },
     globals: true,
     // 顺序敏感：语言确定性必须最先执行（详见 test-setup-locale.js 头注释）
-    setupFiles: ['./test-setup-locale.js', './test-setup.js'],
+    // 末位是时钟位移 oracle：`MP_TEST_NOW_SHIFT_MS` 未设时它**完全不碰 Date**（只记一条
+    // __mpClockShift.enabled=false），所以常态跑法零影响；设了才把整个进程的"现在"推后。
+    setupFiles: ['./test-setup-locale.js', './test-setup.js', './test-setup-clock-shift.js'],
     include: [
       'src/**/*.test.{js,ts}', 'src/**/*.spec.{js,ts}',
       'electron/services/**/*.test.{js,ts}',
