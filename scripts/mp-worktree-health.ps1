@@ -6,6 +6,8 @@
     权威源一致（已装钩子须以仓库源原文开头，允许其后追加第三方块，报告中的
     appendedBytes 记录追加长度；改写或前置注入仍判为不一致），
     所有 linked worktree 必须位于隔离目录（默认仓库父目录下 mp-worktrees）；
+    受管外来 worktree 走登记制（allowed-worktrees.json / MP_ALLOWED_WORKTREES），
+    登记项失效时报告 staleAllowedEntries（默认仅出声，MP_ALLOWED_WORKTREES_STRICT=1 判红）；
     可选的 -RequireWriteGuard 同时校验实时写保护任务已注册且正在运行。
 #>
 [CmdletBinding()]
@@ -154,13 +156,34 @@ $exempted = @($paths | Where-Object { (& $isOutsidePath $_) -and ($allowedKeys -
 $hooksBad = @($hookResults | Where-Object { -not $_.match }).Count -gt 0
 $rootAllowed = if ($RequirePrimary) { $isPrimary -and $branch -eq 'main' } else { $isPrimary -or $rootKey.StartsWith(($worktreeKey + '/mp-'), [StringComparison]::OrdinalIgnoreCase) }
 $writeGuardOk = [bool]$guardTask -and $guardRunning
-$ok = $rootAllowed -and -not (Test-Path $marker) -and (($RequireClean -eq $false) -or $status.Count -eq 0) -and (($RequireHooks -eq $false) -or -not $hooksBad) -and $outside.Count -eq 0 -and $allowedRegistryValid -and (($RequireWriteGuard -eq $false) -or $writeGuardOk)
+
+# 陈旧登记项检测（2026-10-14）：登记表此前无生命周期管理——登记项对应的 worktree 被删后
+# 条目永久残留，报表上看不出任何异常。实测现场：`wt-mp-ccgrecord` 已于 2026-10-07 前后
+# 消失（既不在 `git worktree list`、路径也不存在），登记项却留到 2026-10-14 才被发现。
+# 判据：登记项既不是本仓库已注册的 linked worktree、对应路径也不存在 ⇒ stale。
+# 默认只出声不拦（MP_ALLOWED_WORKTREES_STRICT=1 时判红）：登记表是机器本地文件，
+# 别的会话可能正在登记一个「即将建好」的 worktree，此刻把它判红会造成无谓阻塞；
+# 出声的形状是报告里的 staleAllowedEntries + 非 Quiet 时的一行 WARN，
+# 并由 scripts/register-allowed-worktree.ps1 在登记动作里顺手清理死项。
+$liveKeys = @($paths | ForEach-Object { $_.Replace('\','/').TrimEnd('/').ToLowerInvariant() })
+$staleAllowed = @($allowedKeys | Where-Object { $liveKeys -notcontains $_ -and -not (Test-Path -LiteralPath ($_ -replace '/','\')) } | Sort-Object)
+$staleStrict = ($env:MP_ALLOWED_WORKTREES_STRICT -eq '1')
+
+$ok = $rootAllowed -and -not (Test-Path $marker) -and (($RequireClean -eq $false) -or $status.Count -eq 0) -and (($RequireHooks -eq $false) -or -not $hooksBad) -and $outside.Count -eq 0 -and $allowedRegistryValid -and (($RequireWriteGuard -eq $false) -or $writeGuardOk) -and (-not $staleStrict -or $staleAllowed.Count -eq 0)
 
 $writeGuard = [ordered]@{ taskRegistered=[bool]$guardTask; running=$guardRunning; quarantineCount=$guardFiles.Count; violations=$violationCount; ok=$writeGuardOk }
 $allowedRegistry = [ordered]@{ path=$allowedRegistryPath; valid=$allowedRegistryValid; count=$allowedKeys.Count }
-$report = [ordered]@{ checkedAt=(Get-Date).ToUniversalTime().ToString('o'); root=$root; worktreeRoot=$worktreeRoot; primary=$isPrimary; branch=$branch; clean=($status.Count -eq 0); marker=(Test-Path $marker); hooks=$hookResults; writeGuard=$writeGuard; worktreeCount=$paths.Count; outsideWorktrees=$outside; exemptedWorktrees=$exempted; allowedRegistry=$allowedRegistry; ok=$ok }
+$report = [ordered]@{ checkedAt=(Get-Date).ToUniversalTime().ToString('o'); root=$root; worktreeRoot=$worktreeRoot; primary=$isPrimary; branch=$branch; clean=($status.Count -eq 0); marker=(Test-Path $marker); hooks=$hookResults; writeGuard=$writeGuard; worktreeCount=$paths.Count; outsideWorktrees=$outside; exemptedWorktrees=$exempted; allowedRegistry=$allowedRegistry; staleAllowedEntries=$staleAllowed; staleAllowedStrict=$staleStrict; ok=$ok }
 $parent = Split-Path -Parent $ReportPath
 New-Item -ItemType Directory -Force -Path $parent | Out-Null
 $report | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $ReportPath -Encoding UTF8
-if (-not $Quiet) { $report | ConvertTo-Json -Depth 6 | Write-Output }
+if (-not $Quiet) {
+    $report | ConvertTo-Json -Depth 6 | Write-Output
+    if ($staleAllowed.Count -gt 0) {
+        # 先算后赋：PowerShell 5.1 不支持 `$x = if (...) {...} else {...}` 这种把 if 当表达式的写法
+        # （实测 5.1 在此处报 "Unexpected token"，且 5.1 对无 BOM UTF-8 的中文按 GBK 解读出乱码 token）。
+        if ($staleStrict) { $mode = 'blocking (MP_ALLOWED_WORKTREES_STRICT=1)' } else { $mode = 'voice-only' }
+        Write-Warning ("[stale-allowed] {0} stale allowed-worktree entr(y|ies) [{1}]: {2}. Clean: pwsh -File scripts/register-allowed-worktree.ps1 -Clean" -f $staleAllowed.Count, $mode, ($staleAllowed -join ' ; '))
+    }
+}
 if (-not $ok) { exit 1 }
