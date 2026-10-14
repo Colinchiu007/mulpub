@@ -41,3 +41,27 @@ date: 2026-10-14
 - **`auto-sync-*` 只进日志，未在设置页可见**：用户不翻日志仍看不到「为什么没生效」。建议后续在「运营中心同步」设置页展示最近一次未发起原因。
 - **运维侧无同型判据**：`scripts/start-ops-center.ps1` 只校验 `/health`，不校验「桌面端依赖的 `/api/v1/runtime/bootstrap` 能否签发」——本次该端点恰好正常，但同一形态（**判据只覆盖「进程活着」，不覆盖「它能否提供桌面端要的东西」**）仍留在脚本里，建议后续补一条冒烟断言。
 - **`getConfig().url` 混装两种来源**：把自动发现地址并入 `url` 使「有自动地址但缺令牌」无法与「完全未配置」在数据上区分；本笔靠额外传 `autoUrlRaw` 绕开，但**根因未动**（拆 `url` / `autoUrl` 语义会波及设置页与多处判据，属独立改造）。
+
+### ⚠️ 更正（2026-10-14，PR #3543 / #ops-ingress-correct）
+
+本记录上述「第一性原因」一栏里有一处**技术结论是错的**，在此更正（保留原文，不静默改写）：
+
+- **原文说**：`/api/v1/runtime/bootstrap` **只认 X-Catalog-Key**，`Bearer` 不适用，因此必须手填地址 + API Key。
+- **实际是**：`ops-center/backend/routers/runtime.py::_require_catalog_key` 的实现是
+  `services/logto_verifier.verify_bearer_or_catalog_key`，优先级为
+  **Bearer(Logto JWT) → X-Catalog-Key(static fallback) → 401**；Bearer 分支要求 scope `publish:read`，
+  而 `config/identity-public.json` 的 `logtoScopes` 正含该 scope
+  ⇒ **零配置路径（部署层给地址 + 用户身份登录）可用且优先**，不需要在应用里填任何东西。
+- **另一处错**：据此让用户去应用的「模型提供商」页填 URL + API Key —— 而那个表单**早已从界面撤下**
+  （`views/ModelProviders.vue` L580 旧注释：「运营同步对用户透明：配置卡片已隐藏」，
+  `git grep` 表单文案键在非 locale 代码里 **0 处调用**）⇒ 那条出路在界面上**根本无法执行**。
+
+**失败形态**：与本记录「防止再次发生」一栏自己写下的教训第 3 条（「推断必须先否证」）**同型** ——
+我对 `.env` 里一个 27 字符的私钥做了实测否证，却对一句**模块 docstring** 直接采信。同轮写下规则、同轮违反。
+
+**已在代码侧修掉（PR #3543）**：
+1. 该错误提示文案已从代码删除，并加反向断言 `not.toContain('Bearer 不适用')` / `not.toContain('设置 → 运营中心同步')`；
+2. 信任锚改为**部署层**配置（`identity-public.json` 的 `runtimePublicKey` / env `RUNTIME_PUBLIC_KEY`）——
+   原「唯一可配处是那个已撤下的界面」是**既存生产洞**：打包版必然 `NO_PRODUCTION_TRUST_ANCHOR`，
+   整份运行时策略 fail-closed 不应用；
+3. 渲染端运营接入面（死代码 + 那句可能为假的 `opsReadonlyHint`）已清零。
