@@ -1,12 +1,12 @@
-# docs-p32-assessment — P3-2 开工前评估结论落档
-
-- record: docs-p32-assessment
-- task: P3-2 单平台试点开工前评估
-- date: 2026-10-14
+---
+record: docs-p32-assessment
+task: P3-2 单平台试点开工前评估
+date: 2026-10-14
 # ↓ 三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
 sync_status: PENDING
 sync_reason: 本 PR 尚未合并，merge SHA 还不存在，无法取证收口
 sync_backfill_owner: 下一个会话（按三形态同改纪律：表格行 + bullet + 删除本段三字段，同一次提交）
+---
 
 ## 变更内容
 
