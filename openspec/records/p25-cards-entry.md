@@ -2,10 +2,6 @@
 record: p25-cards-entry
 task: 修 Gate ① 假绿 —— structure-lock 两处解析缺陷 + 登记暴露出的既有欠账
 date: 2026-10-14
-# ↓ 三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在，无法取证收口
-sync_backfill_owner: 下一个会话（按三形态同改纪律：表格行 + bullet + 删除本段三字段，同一次提交）
 ---
 
 ## 追加：第三个根因 —— 同一个「遍历式判据被新文件激活」模式（2026-10-14）
@@ -111,9 +107,9 @@ AssertionError: zh.js cards 缺键 entryDesc: expected [] to include 'entryDesc'
 | 反证（接错模块） | PASS | 改动即红、还原即绿 |
 | QM-1 打包 | 已覆盖 | 上上个提交改 `electron/` 时跑过（exit=0，asar 139.9 MB）；本提交不动 `electron/` |
 | 行尾对账 | PASS | 两口径一致 |
-| 远程同步 | PENDING | 本 PR 未合并 |
+| 远程同步 | PASS —— PR #3577 已合并为 `origin/main` `1185e00a93e1402ca7f37f04cec4347b7928bb44`（2026-10-14T22:55:30+08:00，squash merge，CI 23 success / 0 failure）；远端分支随合并自动删除 |
 
-- 保留门禁：vitest 66 ✅ | 边界 ✅ | unwired ✅ | locale 三档 ✅ | 品牌 ✅ | Gate 11 ✅ | 反证 ✅ | 远程同步 PENDING
+- 保留门禁：vitest 66 ✅ | 边界 ✅ | unwired ✅ | locale 三档 ✅ | 品牌 ✅ | Gate 11 ✅ | 反证 ✅ | 远程同步 PASS
 
 ## 教训（第 110 轮）
 
