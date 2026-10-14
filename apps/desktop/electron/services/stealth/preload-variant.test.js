@@ -53,4 +53,45 @@ describe('RPA preload 变体选择（PRD-OSS-RPA-HARDENING §3.1）', () => {
     delete pc.riskControl.preloadVariant.bilibili
   })
 
+  it('接线断点回归锁：_acquireWindow 必须把 platform 传给 _createWindow（否则 _resolvePreloadPath(undefined) 恒选 baseline，增强 preload 静默永不生效）', () => {
+    const host = makeHost()
+    const spy = vi.fn(() => ({ webContents: {} }))
+    host._createWindow = spy
+    const r = host._acquireWindow('douyin', 'acc-1')
+    expect(r.reused).toBe(false)
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(spy.mock.calls[0][0]).toBe('persist:rpa-douyin-acc-1')
+    // 关键断言：platform 必须作为第 2 参传入（修复前缺省 → 恒 baseline）
+    expect(spy.mock.calls[0][1]).toBe('douyin')
+  })
+
+  it('接线断点回归锁（增强平台端到端）：_acquireWindow 平台为 douyin 时 _resolvePreloadPath 解析为 enhanced', () => {
+    const host = makeHost()
+    const resolved = []
+    const origResolve = host._resolvePreloadPath.bind(host)
+    host._createWindow = vi.fn(function (partition, platform) {
+      resolved.push(origResolve(platform))
+      return { webContents: {} }
+    })
+    host._acquireWindow('douyin', 'acc-2')
+    expect(resolved).toHaveLength(1)
+    expect(resolved[0]).toMatch(/stealth-preload-enhanced\.js$/)
+  })
+
+  it('任务 2.6：baseline stealth-preload.js 头注如实声明语义并指向增强版（防错误声明回退）', () => {
+    const fs = require('fs')
+    const path = require('path')
+    const src = fs.readFileSync(path.join(__dirname, '../../stealth-preload.js'), 'utf8')
+    const head = src.slice(0, src.indexOf('*/') + 2)
+    // spike E4b 实证：contextIsolation 下 sandbox preload 的 patch 不达主世界，
+    // 旧头注「在页面 JS 执行前注入反检测脚本 / 等价 addInitScript」是错误声明
+    expect(head).not.toMatch(/等价于 Playwright 的 context\.addInitScript/)
+    expect(head).not.toMatch(/在页面 JS 执行前注入反检测脚本/)
+    // 必须如实声明真实语义（patch 落隔离世界、主世界不可见）
+    expect(head).toMatch(/隔离世界/)
+    expect(head).toMatch(/主世界不可见|不达主世界/)
+    // 必须指向增强版（主世界注入的唯一入口）
+    expect(head).toMatch(/stealth-preload-enhanced/)
+  })
+
 })

@@ -140,7 +140,9 @@ const sessionMixin = {
       return { win: hit, reused: true }
     }
     const partition = 'persist:' + key
-    return { win: this._createWindow(partition), reused: false }
+    // 2026-10-14 oss-b1 接线断点修复：必须透传 platform，否则 _resolvePreloadPath(undefined)
+    // 恒选 baseline 变体，增强 preload（douyin/xiaohongshu/shipinhao 主世界注入）静默永不生效
+    return { win: this._createWindow(partition, platform), reused: false }
   },
   /** 归还窗口：healthy=true 入池（先导航 about:blank 释放页面状态），false 立即销毁。 */
   async _releaseWindow (platform, accountId, win, healthy) {
