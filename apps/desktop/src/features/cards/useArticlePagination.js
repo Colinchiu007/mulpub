@@ -25,7 +25,12 @@
  *   availableHeightPx 必填且 fail-closed；measure 必填且必须返回**数字**。
  */
 import { ref } from 'vue'
-import { cardPaginatorCore } from '@multi-publish/shared-utils/src/index.js'
+// ★ 必须引**具体模块**（而不是 shared-utils 的 barrel `index.js`），且该 specifier
+//   已在 apps/desktop/vite.config.js 的 resolve.alias 登记指向 ESM 孪生。
+//   原因：渲染层不能执行 CommonJS，`scripts/check-renderer-cjs-boundary.js` 静态拦截。
+//   这类越界在 `vite build` / `vitest` / `tsc` / 打包**全绿**，只有 dev server 会红
+//   （事故背景见该脚本头注释，2026-10-07 / PR #3011）。
+import { paginate as paginateItems } from '@multi-publish/shared-utils/src/card-paginator-core'
 
 /** 默认页高（px）：与 P2-3 的 DEFAULT_HEIGHT_PX 对齐 */
 const DEFAULT_AVAILABLE_HEIGHT_PX = 1440
@@ -83,7 +88,7 @@ export function useArticlePagination () {
       const availableHeightPx = args.availableHeightPx === undefined
         ? DEFAULT_AVAILABLE_HEIGHT_PX
         : args.availableHeightPx
-      const r = await cardPaginatorCore.paginate(items, {
+      const r = await paginateItems(items, {
         availableHeightPx,
         measure,
         ...(args.maxPages === undefined ? {} : { maxPages: args.maxPages }),

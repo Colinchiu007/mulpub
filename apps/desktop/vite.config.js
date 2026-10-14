@@ -72,6 +72,13 @@ export default defineConfig({
       // 未登记此 alias 时渲染层会拉到 CJS 主进程版而跨边界（由 scripts/check-renderer-cjs-boundary 拦截）。
       '@multi-publish/shared-utils/src/podcast-rss':
         path.resolve(__dirname, '..', '..', 'packages/shared-utils/src/podcast-rss.browser.js'),
+      // 图文卡片分页引擎（P2-1/P2-6）：渲染进程消费 ESM 孪生版。
+      // 「逐行同源」由 shared-utils 的 __tests__/card-paginator-core-parity.test.js
+      // 机械锁定（剥离模块包装后逐行比对 + 导出面相等 + 行为向量）。
+      // 未登记此 alias 时渲染层会拉到 CJS 主进程版而跨边界
+      // （由 scripts/check-renderer-cjs-boundary 静态拦截）。
+      '@multi-publish/shared-utils/src/card-paginator-core':
+        path.resolve(__dirname, '..', '..', 'packages/shared-utils/src/card-paginator-core.browser.js'),
     }
   },
   // workspace 包不在 node_modules 下，开发服务器不会默认预构建其 CommonJS 入口。
