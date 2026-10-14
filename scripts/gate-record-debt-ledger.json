@@ -59,6 +59,5 @@
     "reason": "本 PR 尚未合并，merge SHA 还不存在，无法取证收口；合并后由后续回填 PR 同一次提交内改写 PASS 并删除本登记项",
     "status": "PENDING",
     "line": 13
-  },
-  "本次执行记录：共享根 Qoder 产物归类（ignore-qoder-artifacts，2026-10-14）【docs-only】": "本 PR（ignore-qoder-artifacts）的远程同步待合并后由后续回填 PR 改写 PASS 并在同一次提交删除本条登记项"
+  }
 }
