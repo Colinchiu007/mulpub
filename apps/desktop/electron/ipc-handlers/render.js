@@ -6,9 +6,12 @@
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
   const { withSenderCheck } = require('./helpers')
-  const { renderEngine, BrowserWindow, log, modelProviderManager, generateSceneVideo: injectedGenerateSceneVideo } = deps
+  const { renderEngine, BrowserWindow, log, modelProviderManager, generateSceneVideo: injectedGenerateSceneVideo, cardCapture: injectedCardCapture } = deps
   const { generateSceneVideo: generateSceneVideoFromStages } = require('../services/story2video-stages')
   const { resolveProviderDefaultModel } = require('../services/model-provider-manager')
+  // 卡片分页渲染（P2-3）：offscreen 窗口截图。按 deps 注入以便测试替换。
+  const cardCaptureFromService = require('../services/card-capture')
+  const fsp = require('fs/promises')
   const os = require('os')
   const path = require('path')
   // 测试可注入 mock；生产环境回退到流水线 stages 的真实实现
@@ -131,6 +134,86 @@ function registerHandlers(ipcMain, deps) {
       return { code: 0, data: renderEngine.validateProps(compositionId, props) }
     } catch (e) { log.warn('[ipc:render]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
   })
+
+  /**
+   * 图文卡片分页渲染：把分页结果逐页渲染成 PNG，落临时文件，返回**路径数组**。
+   *
+   * ## 为什么这条通道的入参校验不能省（§10 X-1）
+   *
+   * 本仓没有统一的 IPC 入参中间件（X-1 说明了为何不引入）⇒ **每条通道自己校验**。
+   * 渲染层传来的东西**不可信**：可能是 undefined、字符串、或被 Vue reactive 包过的代理。
+   * 不校验的后果不是「报错」而是「崩在深处」—— `data.pages[0][0]` 对 undefined 必崩。
+   *
+   * ## 为什么入参必须是**纯 JSON**（Vue ref/reactive 要脱壳）
+   *
+   * Vue 的 `ref` / `reactive` 是 Proxy。直接经 `ipcRenderer.invoke` 传会报
+   * **"An object could not be cloned"** —— 结构化克隆不支持代理。
+   * 规则：渲染端从 ref 取出的对象一律 `JSON.parse(JSON.stringify(obj))` 后再传。
+   * 本通道在入口再做一次**形状校验**（而非尝试脱壳）——因为主进程拿到的已经是克隆后的值，
+   * 到这里的「非纯值」只可能是调用方 bug，应当明确拒绝而不是静默修补。
+   *
+   * ## 失败纪律（与 card-capture 一致）
+   *
+   * 任一步失败 ⇒ 返回 `{ code, message }`，**且不返回部分产物**
+   * —— 部分产物比没有更危险（用户会以为发全了）。
+   */
+  ipcMain.handle('render:cards', withSenderCheck(async (event, data) => {
+    try {
+      // ① 入参校验：逐层 fail-closed，每层给出可定位的提示
+      if (!data || typeof data !== 'object' || Array.isArray(data)) {
+        return { code: EC.VALIDATION_ERROR, message: '缺少 data 参数（应为对象）' }
+      }
+      const { pages } = data
+      if (!Array.isArray(pages) || pages.length === 0) {
+        return { code: EC.VALIDATION_ERROR, message: 'data.pages 必须是非空数组' }
+      }
+      for (let i = 0; i < pages.length; i++) {
+        if (!Array.isArray(pages[i])) {
+          return { code: EC.VALIDATION_ERROR, message: `data.pages[${i}] 必须是数组` }
+        }
+        for (let j = 0; j < pages[i].length; j++) {
+          if (typeof pages[i][j] !== 'string') {
+            return { code: EC.VALIDATION_ERROR, message: `data.pages[${i}][${j}] 必须是字符串` }
+          }
+        }
+      }
+      // 视口尺寸：给了就必须是正整数（0/负数/小数/字符串一律拒绝，不静默回落）
+      for (const k of ['widthPx', 'heightPx']) {
+        const v = data[k]
+        if (v !== undefined && (!Number.isInteger(v) || v <= 0)) {
+          return { code: EC.VALIDATION_ERROR, message: `data.${k} 必须是正整数` }
+        }
+      }
+
+      // ② 渲染（依赖注入，便于测试；生产回退到真实实现）
+      const capture = injectedCardCapture || cardCaptureFromService
+      if (!capture || typeof capture.renderCardsToPng !== 'function') {
+        return { code: EC.REQUEST_ERROR, message: '卡片渲染服务不可用' }
+      }
+      const pngs = await capture.renderCardsToPng({
+        pages,
+        ...(data.widthPx === undefined ? {} : { widthPx: data.widthPx }),
+        ...(data.heightPx === undefined ? {} : { heightPx: data.heightPx }),
+      })
+      if (!Array.isArray(pngs) || pngs.length !== pages.length) {
+        // 数量不符 ⇒ 视为整体失败，**不返回部分产物**
+        return { code: EC.REQUEST_ERROR, message: `渲染页数不符（期望 ${pages.length}，实得 ${Array.isArray(pngs) ? pngs.length : '非数组'}）` }
+      }
+
+      // ③ 落临时文件：每页一个 PNG，同一次调用共用一个子目录（便于整批清理）
+      const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'mp-cards-'))
+      const files = []
+      for (let i = 0; i < pngs.length; i++) {
+        const f = path.join(dir, `page-${String(i + 1).padStart(3, '0')}.png`)
+        await fsp.writeFile(f, pngs[i])
+        files.push(f)
+      }
+      return { code: 0, data: files }
+    } catch (err) {
+      log.error('[render] render:cards error:', err)
+      return { code: EC.REQUEST_ERROR, message: (err && err.message) || String(err) }
+    }
+  }))
 }
 
 module.exports = registerHandlers
