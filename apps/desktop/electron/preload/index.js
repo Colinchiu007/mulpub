@@ -47,6 +47,7 @@ const { createKnowledgeLibraryApi } = require('./knowledge-library')
 const { createPodcastApi } = require('./podcast')
 const { createQuickCollectApi } = require('./quick-collect')
 const { createSignerApi } = require('./signer')
+const { createCardsApi } = require('./cards')
 const {
   ADMIN_ONLY_METHODS,
   PUBLIC_METHODS,
@@ -118,6 +119,8 @@ const fullApi = {
   ...createQuickCollectApi(ipcRenderer),
   // 签名页桥（W3 task 2.4，authenticated）：仅白名单 command，无任何任意 JS 求值通道
   ...createSignerApi(ipcRenderer),
+  // 图文卡片分页渲染（authenticated）：长文按页切分后逐页截图成 PNG
+  ...createCardsApi(ipcRenderer),
   // P2 限流自检（authenticated，默认受限）
   rateLimitSelfCheck: (params) => ipcRenderer.invoke('rate-limit:self-check', params),
   rateLimitReport: (payload) => ipcRenderer.invoke('rate-limit:report', payload),

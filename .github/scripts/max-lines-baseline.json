@@ -5,10 +5,10 @@
   "testLimit": 1500,
   "files": {
     "apps/desktop/electron/bootstrap/phase1-context.js": 502,
-    "apps/desktop/electron/home-shell-preload.bundle.js": 1581,
+    "apps/desktop/electron/home-shell-preload.bundle.js": 1833,
     "apps/desktop/electron/ipc-handlers/account.js": 781,
     "apps/desktop/electron/ipc-handlers/story2video.js": 608,
-    "apps/desktop/electron/preload/index.bundle.js": 1538,
+    "apps/desktop/electron/preload/index.bundle.js": 1782,
     "apps/desktop/electron/publishers/account-manager.js": 1061,
     "apps/desktop/electron/services/adapters/minimax-tts.js": 594,
     "apps/desktop/electron/services/asset-generator.js": 1369,
