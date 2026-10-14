@@ -2,9 +2,6 @@
 record: preset-readonly-guard
 task: 预设服务商模型列表只读保护（数据驱动判据）
 date: 2026-10-14
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：预设服务商模型列表只读保护（改数据驱动判据，修一处从未生效的保护）（preset-readonly-guard，2026-10-14）【混合 PR】
@@ -21,9 +18,8 @@ sync_backfill_owner: 下一个会话
 | QM-1 本地打包 | PASS | `pnpm run build:dir`（= `build:vue` + `electron-builder --dir`）**rc=0**；`Multi-Publish.exe` 与 `app.asar` 均存在；**产物级证据**：`presetManagedFields` 与 `modelsReadonlyHint` 均进入 `dist/assets/index-*.js`，且该 bundle 在 **asar 内**（asar 提取后命中 1 文件）。构建曾重写 3 个生成文件（`home-shell-preload.bundle.js`/`preload/index.bundle.js`/`card-paginator.iife.js`），两口径 `numstat` 均为空（纯行尾）⇒ 按 R2 **精确恢复**，未混入本 PR |
 | QM-4 视觉回归 | N/A | 只给既有输入框加 `:disabled` 与一行提示，未新增界面元素/样式 |
 | QM-6 双模型外部评审 | 未执行 | 本机无 `codeagent-wrapper`，如实登记 |
-| 远程同步 | PENDING | 待本 PR 合并后回填 merge SHA 并销账（回填与销账同次提交） |
-
-- 保留门禁：行尾对账 ✅ | 品牌残留 PASS（9031 文件）| locale 成对 PASS | CJK 基线 PASS（1374→1224）| 键存在性 PASS（2004）| 测试接线 PASS | 债务熔断 PASS | 远程同步 PENDING
+| 远程同步 | PASS | merge `8f8a40cfe0c86ae65325a272d64ff58d6b7da8fa`（2026-10-14 23:18:11 +08:00）；PR 已 MERGED，远端分支 `ls-remote` 0 行 |
+- 保留门禁：行尾对账 ✅ | 品牌残留 PASS（9031 文件）| locale 成对 PASS | CJK 基线 PASS（1374→1224）| 键存在性 PASS（2004）| 测试接线 PASS | 债务熔断 PASS | 远程同步 PASS（merge 8f8a40cfe，远端分支 0 行）
 
 ### 备注
 
