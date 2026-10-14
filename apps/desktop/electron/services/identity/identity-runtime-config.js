@@ -19,6 +19,10 @@ const RUNTIME_ENV_KEYS = [
   'ENTITLEMENT_KEY_ID',
   'ENTITLEMENT_PUBLIC_KEY',
   'OPS_CENTER_URL',
+  // 部署层验签信任锚（2026-10-14）：打包版唯一可配处原为「运营中心同步」表单，
+  // 而该表单早已从界面撤下 ⇒ 打包版不存在可达配置路径，运行时策略必然 fail-closed。
+  // 与 OPS_CENTER_URL 同机制：identity-public.json 的 runtimePublicKey，可经此 env 覆盖。
+  'RUNTIME_PUBLIC_KEY',
 ]
 const CONFIG_ENV_OVERRIDE_KEYS = RUNTIME_ENV_KEYS.filter((key) => key !== 'IDENTITY_AUTH_ENABLED')
 const ALLOWED_FIELDS = new Set([
@@ -34,6 +38,7 @@ const ALLOWED_FIELDS = new Set([
   'entitlementKeyId',
   'entitlementPublicKey',
   'opsCenterUrl',
+  'runtimePublicKey',
 ])
 
 // 2026-10-07 安全加固：发行公钥的**不可变锚点**。
@@ -181,6 +186,10 @@ function parseIdentityPublicConfig(source) {
   validateEntitlementPublicKey(result.ENTITLEMENT_PUBLIC_KEY)
   const opsCenterUrl = optionalString(config, 'opsCenterUrl')
   if (opsCenterUrl) result.OPS_CENTER_URL = opsCenterUrl
+  // 部署层信任锚：不做 PEM 校验（不合法时由验签侧以 INVALID_PUBLIC_KEY 出声拒绝，
+  // 比在启动期抛错更可诊断，且不会因一个可选字段把应用启动打挂）。
+  const runtimePublicKey = optionalString(config, 'runtimePublicKey')
+  if (runtimePublicKey) result.RUNTIME_PUBLIC_KEY = runtimePublicKey
 
   const redirectUri = optionalString(config, 'logtoRedirectUri')
   if (redirectUri) result.LOGTO_REDIRECT_URI = redirectUri

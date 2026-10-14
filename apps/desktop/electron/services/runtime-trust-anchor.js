@@ -8,8 +8,10 @@
  * （公告 / 版本发布策略 / 敏感词 / pipelineOptions / 应用菜单），因此判据必须是：
  *
  *   - 未打包（开发/演示，`app.isPackaged === false`）：允许回落内置 DEV 公钥；
- *   - 已打包（生产发行版）：**只认用户在「运营中心同步配置」里自定义的 runtimePublicKey**；
- *     没有自定义锚 → 返回 NO_PRODUCTION_TRUST_ANCHOR，由调用方 fail-closed（整份运行时策略不应用）。
+ *   - 已打包（生产发行版）：**只认部署层配置的 runtimePublicKey**（`config/identity-public.json`
+ *     的 `runtimePublicKey`，或环境变量 `RUNTIME_PUBLIC_KEY`；历史设置项作为次优先兼容来源，
+ *     见 `resolveRuntimePublicKey`）；没有任何锚 → 返回 NO_PRODUCTION_TRUST_ANCHOR，
+ *     由调用方 fail-closed（整份运行时策略不应用）。
  *
  * 打包态判定沿用仓内唯一权威 `app.isPackaged`（QM-5 合同：`ELECTRON_IS_DEV`/`NODE_ENV` 不得提权）。
  * 取不到 electron（纯 node 脚本、vitest 无 mock）一律按「未打包」处理，与 `path-utils.js` 同口径。
@@ -47,7 +49,7 @@ function isPackagedApp () {
 
 /**
  * 解析验签应使用的公钥 PEM。
- * @param {string} configuredPem 用户配置的 runtimePublicKey（可为空串/undefined）
+ * @param {string} configuredPem 已解析出的 runtimePublicKey（来自 resolveRuntimePublicKey）
  * @param {string} devFallbackKey 内置 DEV 公钥（仅未打包态可用）
  * @returns {{ pem: string } | { error: 'NO_PUBLIC_KEY' | 'NO_PRODUCTION_TRUST_ANCHOR' }}
  */
@@ -59,4 +61,30 @@ function resolveTrustAnchor (configuredPem, devFallbackKey) {
   return { pem: devFallbackKey }
 }
 
-module.exports = { configurePackagedProbe, isPackagedApp, resolveTrustAnchor }
+/**
+ * 解析验签公钥的**来源**（优先级：部署层 > 历史设置项）。
+ *
+ * 为什么要有「部署层」这一档（2026-10-14 实测）：信任锚原先只有设置存储一个来源，
+ * 而写入只经 `ops-center-sync:save` IPC —— 该 IPC 的唯一调用方是渲染端那个
+ * 「运营中心同步」表单，而该表单**早已从界面撤下**（`views/ModelProviders.vue` 注释：
+ * 「运营同步对用户透明：配置卡片已隐藏」）。于是打包版**不存在任何可达的配置路径**，
+ * `resolveTrustAnchor` 必然返回 NO_PRODUCTION_TRUST_ANCHOR ⇒ 生产版整份运行时策略
+ * fail-closed 不应用。**这是既存的生产洞，不是新引入的问题。**
+ *
+ * 部署层来源与 `opsCenterUrl` 同机制：`config/identity-public.json` 的 `runtimePublicKey`
+ * （打包进 `resources/config/`），可经环境变量 `RUNTIME_PUBLIC_KEY` 覆盖。设置项作为
+ * **次优先**保留，仅为兼容既有安装与企业预置（已无用户界面可写）。
+ *
+ * @param {string} deploymentPem 部署层公钥（config/identity-public.json 或 env），可为空
+ * @param {string} storedPem 历史设置项里的公钥，可为空
+ * @returns {string} 选中的 PEM；都没有返回空串，交由 resolveTrustAnchor 按打包态决定回落或 fail-closed
+ */
+function resolveRuntimePublicKey (deploymentPem, storedPem) {
+  for (const candidate of [deploymentPem, storedPem]) {
+    const trimmed = candidate ? String(candidate).trim() : ''
+    if (trimmed) return trimmed
+  }
+  return ''
+}
+
+module.exports = { configurePackagedProbe, isPackagedApp, resolveTrustAnchor, resolveRuntimePublicKey }

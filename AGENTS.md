@@ -418,7 +418,18 @@ dist-electron/win-unpacked/Multi-Publish.exe &
 sleep 8 && kill $!
 ```
 
-- 启动进程存活不等于通过：必须捕获 stderr；出现 `Failed to load platform config`、`PluginLoader.*mkdir failed`、`ENOTDIR.*app.asar` 或配置/插件路径指向 ASAR 内部时，QM-1 失败。
+- 启动进程存活不等于通过：必须捕获 stderr。**判据分三层，不得只用黑名单**：
+
+  | 层 | 条件 | 判定 |
+  | --- | --- | --- |
+  | ① | 命中已知红线（`Failed to load platform config`、`PluginLoader.*mkdir failed`、`ENOTDIR.*app.asar`、`Cannot find module`）或配置/插件路径指向 ASAR 内部 | **QM-1 失败** |
+  | ② | stderr **非空但未命中①** | **不得判通过**，判 `NEEDS_REVIEW` 并把 stderr 全文交人工判断 |
+  | ③ | stderr 为空 | 才可判通过 |
+
+  **为什么不能只用黑名单**：黑名单的宽度 = 已知故障的枚举，**枚举之外一律放行**。
+  2026-10-14 实测：stderr 里躺着 `bad option: --user-data-dir=...`（隔离实例参数被应用拒绝），
+  它不在名单里，判据便打印「未命中红线」⇒ **把未知故障判成通过**。
+  脚本侧同源实现见 `scripts/qm1-scheduled-publish-verify.cjs`；改一处必须同改另一处。
 
 - Git worktree 打包或执行真实 Electron IPC 验证前，必须运行 `node scripts/verify-worktree-deps.js` 确认 `node_modules/@multi-publish/*` 链接指向当前 worktree；禁止借用指向其他分支源码的 workspace 链接（含历史整目录 Junction）生成交付产物或测试证据。
 
