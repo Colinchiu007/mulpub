@@ -64,6 +64,15 @@ jobs:
           # 放在非 PR 早退之前，所以 main push 那一档同样覆盖。
           node --test scripts/check-gate-record-debt.test.js
           node scripts/check-gate-record-debt.js
+          # 主干上真实存在过 6 个带着 git 冲突标记的文件（4 篇 stash pop 冲突被整块提交、
+          # 2 篇 rebase 只删了左侧七个尖括号那一侧），而此前没有任何判据在看这件事：
+          # check-text-encoding-integrity 管控制字节、numstat 管行尾，都对标记免疫。
+          # 落在本 job（不被 docs-only 短路）且在非 PR 早退之前 ⇒ PR 档全覆盖（pull_request 触发无 paths 过滤）。
+          # main push 档只覆盖"真的触发了本 workflow 的 push"：push 侧有 paths-ignore（含 openspec/**、*.md），
+          # 纯文档 push 不生成 run。它当前不构成漏洞，因为进 main 的唯一通路是 PR（直推被 GH011 拒、
+          # ruleset main-ci-gate 的 bypass_actors 实测为空）；若将来给 ruleset 加了旁路主体，须补 schedule 档。
+          node --test scripts/check-no-conflict-markers.test.js
+          node scripts/check-no-conflict-markers.js
           # CCG 安全扫描器自身的回归保护：扫描器一旦回退成「静默 0 文件绿灯」
           # 或把 fixtures 当真实高危，verify-security 的结论就不可信了。
           node --test .ccg/skills/tools/verify-security/scripts/security_scanner.test.js
