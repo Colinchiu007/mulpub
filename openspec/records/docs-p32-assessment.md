@@ -32,7 +32,15 @@ sync_backfill_owner: 下一个会话（按三形态同改纪律：表格行 + bu
 
 ## 保留门禁
 
-- 行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PENDING
+| 项 | 状态 | 说明 |
+| --- | --- | --- |
+| 行尾对账 | PASS | `git diff --numstat` 与 `--ignore-cr-at-eol` 两口径一致 |
+| 品牌残留 | PASS | `check-no-brand-residue.js` exit=0 |
+| 文档同步 | PASS | `classify-docs-only.js` → `docs-only=true` |
+| 执行记录 | PASS | 本文件即按出路①新增 |
+| 远程同步 | PENDING | 本 PR 未合并，merge SHA 尚不存在 |
+
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PENDING
 
 ## 备注
 
