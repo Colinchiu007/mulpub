@@ -3,9 +3,6 @@ record: gate-record-cross-src
 task: 执行记录跨源一致性门禁（记录已 PASS 而旧载体仍 PENDING 即拦）
 date: 2026-10-14
 # ↓ 三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在，无法取证收口
-sync_backfill_owner: 下一个会话（三形态同改：表格行 + bullet + 删本段三字段 + 删 ledger 登记项，同一次提交）
 ---
 
 ## 本次执行记录：门禁硬化——跨源一致性（gate-record-cross-src，2026-10-14）
@@ -46,4 +43,4 @@ sync_backfill_owner: 下一个会话（三形态同改：表格行 + bullet + �
 
 ## 远程同步
 
-| 远程同步 | PENDING | 待本 PR 合并后由后续回填 PR 改写 PASS + merge SHA，并在同一次提交删除 ledger 登记项与本段三字段 |
+| 远程同步 | PASS | merge SHA 8e3bc3416 · 2026-10-14T11:03:22Z · 远端分支已删（ls-remote 0 行）· 同次提交删除 ledger 登记项 |
