@@ -2,9 +2,6 @@
 record: vite-deps-cache-guard
 task: Vite optimizeDeps 预构建缓存过期导致渲染层 does-not-provide-an-export 报错——在 dev.js spawn vite 前加机械预检，stale 即清 node_modules/.vite
 date: 2026-10-13
-sync_status: PENDING
-sync_reason: PR 尚未合并，无法取 merge SHA；合并后由后续 docs PR 回填 PASS + merge SHA 并删除 ledger 登记项
-sync_backfill_owner: 下一会话（合并后回填）
 ---
 
 ## 本次执行记录：Vite optimizeDeps 缓存过期预检（vite-deps-cache-guard，2026-10-13）【混合 PR】
@@ -26,7 +23,7 @@ sync_backfill_owner: 下一会话（合并后回填）
 | QM-4 视觉 | N/A | 无 `.vue` / 样式 / DOM 结构变更 |
 | QM-6 CCG 双模型外部评审 | 未执行 | 本机无 `codeagent-wrapper`。**如实登记为未执行，不冒充已闭合** |
 | 已知边界（不假装闭合） | ✅ | ①时间戳保留型拷贝（同步盘 / robocopy 保留 mtime）会漏判——概率极低，已写入模块头注；②裸跑 `node node_modules/vite/bin/vite.js` 绕过 dev.js 者不受保护（仓库无此路径）；③误报（编辑后还原）最坏多一次 ~10s 冷优化，无害 |
-| 远程同步 | PENDING | PR 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 PASS + merge SHA，`git ls-remote --heads origin <branch>` 0 行证分支已删，同一次提交删除 ledger 登记项 |
+| 远程同步 | PASS | PR #3502 于 2026-10-14T09:09:08+08:00 squash 合并，merge SHA `e585922c2a9cfd123707130fb455d262e199673e`（`gh pr view` 与 `git log origin/main --grep='(#3502)$'` 两路一致）；远端分支 `vite-deps-cache-guard` 已删（`git ls-remote` 0 行）；回填与销账同次提交 |
 
 ### 关键取证数字
 - 缓存 mtime 2026-10-11 19:44（`.vite/deps` 全部条目）vs 导出引入 2026-10-13T06:14Z（`dbe8e0fa2`）；dev server PID 32496 启动 17:01:39 仍复用旧缓存
