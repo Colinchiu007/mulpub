@@ -5,6 +5,7 @@ const { holdExclusiveWindowsFileLock, LOCK_CASE_TIMEOUT_MS } = lockHelper
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import crypto from 'node:crypto'
 
 import * as credentialStore from './credential-store.js'
 
@@ -386,7 +387,17 @@ describe('credential-store — loadProxyStatuses 并行批量读取', () => {
     expect(scoped['acct-shared'].port).toBe(1080)
   })
 
-  it('C5 并行不串行：N 个账号的总 wall-time 显著小于 N × 单账号耗时', async () => {
+  // ⚠ 判据形态说明（QM-6 评审 i3，已采纳）：
+  // 本用例最初用 wall-time 比值（batchMs/singleMs < N/2）判「并行不串行」。
+  // 实测该判据**跨环境不可移植**：UV_THREADPOOL_SIZE=1 时并行版 ratio=5.49
+  // （与串行 6 几乎无异）——单线程下并行物理上退化为串行，于是**真实的并行
+  // 实现被误判红**，CI 上必成 flaky。
+  //
+  // 改为**结构性判据**：直接观测 crypto.pbkdf2 的并发调用数。
+  // 串行实现（pbkdf2Sync 或 for 循环 await）任意时刻至多 1 个 in-flight；
+  // 并行实现（Promise.all）会同时发起 N 个。这个数字与机器核心数、线程池
+  // 规模、负载无关，任何环境上都稳定。
+  it('C5 并行不串行：N 个账号的 PBKDF2 派生必须并发发起（结构性判据，跨环境稳定）', async () => {
     const userDataDir = createTempDir()
     const options = { safeStorage: createSafeStorage() }
     const N = 6
@@ -397,26 +408,35 @@ describe('credential-store — loadProxyStatuses 并行批量读取', () => {
       seedAccount(userDataDir, id, { host: `10.0.0.${i + 1}`, port: 9000 + i }, options)
     }
 
-    // 基线：单账号一次解密的 wall-time（同步路径）
-    const singleStart = process.hrtime.bigint()
-    credentialStore.loadCredential(ids[0], userDataDir, options)
-    const singleMs = Number(process.hrtime.bigint() - singleStart) / 1e6
+    // 观测 PBKDF2 的真实并发度：包一层 crypto.pbkdf2，记录最大 in-flight 数
+    const realPbkdf2 = crypto.pbkdf2
+    let inFlight = 0
+    let maxInFlight = 0
+    crypto.pbkdf2 = function (...args) {
+      inFlight += 1
+      if (inFlight > maxInFlight) maxInFlight = inFlight
+      const done = () => { inFlight -= 1 }
+      const cb = args[args.length - 1]
+      args[args.length - 1] = (...cbArgs) => { done(); cb(...cbArgs) }
+      return realPbkdf2.apply(crypto, args)
+    }
 
-    const batchStart = process.hrtime.bigint()
-    const result = await credentialStore.loadProxyStatuses(ids, userDataDir, options)
-    const batchMs = Number(process.hrtime.bigint() - batchStart) / 1e6
+    let result
+    try {
+      result = await credentialStore.loadProxyStatuses(ids, userDataDir, options)
+    } finally {
+      crypto.pbkdf2 = realPbkdf2
+    }
 
-    // 全部命中
+    // 功能面：全部命中
     for (const id of ids) expect(result[id].configured).toBe(true)
 
-    // 回归判据：串行实现下 batchMs ≈ N × singleMs；并行实现下应远小于此。
-    // 阈值取 N 的一半：并行版实测 ratio ≈ 2.1（N=6、线程池 4），串行版
-    // ratio ≈ N = 6。取 3.0 既留足线程池调度与机器抖动余量，又能把
-    // 「退回串行」这一种退化稳稳判红（6 > 3.0）。
-    const ratio = batchMs / singleMs
+    // 结构面：并行实现必须让多个派生同时在飞。
+    // 串行实现（pbkdf2Sync / for-await）maxInFlight 恒为 1 ⇒ 本断言判红，
+    // 且该结论不依赖机器核心数、UV_THREADPOOL_SIZE 或当时负载。
     expect(
-      ratio,
-      `batch=${batchMs.toFixed(0)}ms single=${singleMs.toFixed(0)}ms ratio=${ratio.toFixed(2)}（串行实现应 ≈ ${N}）`,
-    ).toBeLessThan(N / 2)
+      maxInFlight,
+      `PBKDF2 最大并发数=${maxInFlight}（串行实现应为 1）`,
+    ).toBeGreaterThan(1)
   })
 })

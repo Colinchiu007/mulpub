@@ -16,8 +16,85 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "self_play_blocked",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "domains": [
+          "crypto"
+        ]
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "domains": [
+          "crypto"
+        ]
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "finding": "批量入口仍为读一个 data.proxy 而整份解密每个账号的完整凭证(cookies/localStorage/indexedDB/accountInfo)，N 次 PBKDF2 的总 CPU 开销只被并行化而非消除。文档自认正解是『列表只返回 configured 布尔』却未实现，高频路径 CPU 欠账仍在，仅把阻塞移到线程池。",
+        "highRiskDomains": [
+          "crypto"
+        ],
+        "prosecution": "指控成立且可量化。listAccounts() 是每次进账号页都走的高频路径；本次改动把 N 次 PBKDF2 从「串行阻塞 125ms×N」变成「并行占用 125ms×N 的 CPU」，wall-time 降了但**总 CPU 开销一字未减**。实测（本机 12 核）：10 账号并行仍需 ~370ms 的线程池占用，其中 ~1.2s 的 CPU 时间被摊到多个线程——线程池默认只有 4 个槽，同时段其它 IPC（账号列表之外的任何 invoke）会排队等槽。具体失败场景：账号数上到 30-50 时，进一次账号页会让主进程线程池饱和数百毫秒，同刻的用户操作（切换标签、发布）体感变卡。而正解确实存在且代码注释自己写明了：列表场景只需 configured 布尔，详情场景才整份解密——那样 CPU 开销能降到 O(1)。指控指出的「文档自认正解却未实现」属实。",
+        "defense": "三点辩护。①**这是既有欠账，不是本次引入的回归**：改造前 10 账号就要付同样 1.2s 的 CPU，只是全部串行堵在事件循环上；本次把它从「阻塞」变成「并行占用」，净效果严格更优，没有任何场景比改造前更差。②**正解需改功能契约，已被用户显式否决**：方案 B（列表只返回 configured 布尔）会让 AccountProxyDialog 的 tooltip 拿不到 hostMasked/port/type，必须同步改渲染层文案与交互；我在动手前把 A′/B/C 三个方案连同实测数据交用户选择，用户明确选了「并行化」而非「列表只返回布尔」。未经授权擅自改功能契约，比保留一个有记录的 CPU 欠账更糟。③**欠账已登记且给了触发条件**：`.quality-gates.md` 遗留项 3 与 `01-docs/BUGFIX-SIDEBAR-ACCOUNTS-SLOW-2026-10-14.md` §5.1 都写明「账号数极大时（>50）会吃满线程池，若出现则正解是列表只返回 configured」。这不是「文档自认正解却忘了实现」——是把正解连同触发阈值一起登记为独立切片。",
+        "verdict": "upheld",
+        "rationale": "**指控在事实层面成立，予以维持**：CPU 开销确实只被并行化而未消除，指控的量化描述（N 次 PBKDF2、高频路径、线程池 4 槽）与实测一致。维持不等于本次必须实现正解——辩护的第 ②③ 点同样成立（用户已否决契约变更、欠账已登记触发条件），因此**处置是「登记为遗留项 + 保留触发阈值」，而非在本 PR 内改功能契约**。判据可验证：① 读 `.quality-gates.md` 遗留项 3 与 Bug 反思文档 §5.1，两处都写了「>50 账号时正解是列表只返回 configured」；② 读本次实现，`loadProxyStatuses` 仍整份解密，与指控描述一致；③ 读方法对比表，方案 B 被列为「备选」并注明「本次不动功能」。三条均可复核。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "degraded 路径把『全部』账号置 configured:false。一旦 safeStorage/主密钥临时失效或入参非法，所有真实已配置代理的账号都被误报为未配置——比旧版逐账号 try/catch(只降级失败账号)更宽地错误上报状态，账号页/代理入口显示错误配置信息。",
+        "highRiskDomains": [
+          "crypto"
+        ],
+        "prosecution": "指控成立。旧实现是逐账号 try/catch：`try { proxy: getAccountProxyStatus(id, platform) } catch { proxy: { configured: false } }`——失败的只有那一个账号，其余账号的状态如实返回。新实现引入 `degraded` 分支，批量入口一旦整体失败（safeStorage 失效、入参非法、loadProxyStatuses 抛错），就把**全部**账号置为 configured:false。于是「账号 A 确实配了代理」这个事实被抹掉：用户在账号页看到 A 显示「未配置代理」，打开代理弹窗也是空的，可能据此重复配置一个已存在的代理，或误以为配置丢失而重新填写。这是把局部故障放大成全局错误状态，比旧版更宽。",
+        "defense": "指控的核心前提——「旧版只降级失败账号、新版降级全部账号」——**经代码核实为假**。① `credential-store.js` 的 `loadCredential`（515-533 行）把整个函数体包在 try/catch 里，**任何**异常（含 `getMasterKey` 因 safeStorage 不可用而抛出的异常、密文损坏、JSON 非法）一律 `return null`，从不向上抛。② `account-manager.js` 的 `loadSavedCredentials`（807-816 行）在 `!credentialData` 时 `return null`。③ `getAccountProxyStatus` 在拿不到 credentials 时返回 `{ configured: false }`。因此旧版在主密钥失效时的真实行为是：**每个账号的 loadCredential 都返回 null ⇒ 每个账号都得到 `{configured: false}`** —— 主密钥是全局的，它坏了就是所有账号一起坏，不存在「只有失败的那个账号降级」。旧版那个 try/catch 的 catch 分支覆盖的场景（单账号密文损坏）在新版里由 `loadProxyStatuses` 内层逐账号 catch 覆盖，行为同样是只降级该账号（C2 用例锁定）。两边在**所有**场景下的可观测结论逐字段相同。指控把「新引入了 degraded 概念」误读成「新引入了更宽的错误上报」，但被比较的旧行为本身也是全量降级。",
+        "verdict": "dismissed",
+        "rationale": "**指控不成立，予以驳回**，判据是三条可复核的代码事实：① `credential-store.js:515-533` `loadCredential` 的 try/catch 吞掉全部异常并 `return null`；② `account-manager.js:816` `if (!credentialData) return null`；③ 主密钥（`getMasterKey`）是全局单例，其失效必然让**所有**账号的 loadCredential 同时失败 ⇒ 旧版同样是全量 `{configured:false}`。指控所称「旧版逐账号 try/catch 只降级失败账号」描述的是**单账号密文损坏**这一场景，而该场景在新实现里由 `loadProxyStatuses` 的内层逐账号 catch 保留（回归锁 C2 断言「解密失败时该账号降级且不影响同批其它账号」，实测通过）。两版行为在所有场景下等价，无回归。**但采纳其建设性内核**：『不该把「读取失败」谎报成「未配置」』的建议方向正确，已登记为遗留项 4（需要给 proxy 状态加 unknown/invalid 语义 + 渲染层配套文案，属功能契约变更，独立切片）。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "C5 阈值 batchMs/singleMs < N/2(3.0) 依赖本机线程池与机器负载：UV_THREADPOOL_SIZE 默认 4、单核/受限 CI 上并行版 ratio 仍会接近 N=6，导致真实并行实现被误判红；flaky 计时断言跨环境不可移植。",
+        "highRiskDomains": [],
+        "prosecution": "指控成立且已实测复现，是三条里最硬的一条。判据是 wall-time 比值 `batchMs/singleMs < N/2`，而 wall-time 取决于 libuv 线程池规模与当时 CPU 争用。实测：默认线程池（本机 12 核）下 ratio≈2.1 通过；设 `UV_THREADPOOL_SIZE=1` 后 ratio=5.49（`batch=410ms single=75ms`）——与串行实现的 6 几乎无异，**真实的并行实现被判红**。这不是理论风险：CI runner 常见 2 核、线程池默认仍是 4 但实际并行度受核数限制，ratio 会显著高于本机。一个会随机变红的门禁比没有门禁更糟——它会训练人忽略红灯。",
+        "defense": "无法辩护，指控完全正确。唯一可说的是原判据的**意图**（区分串行与并行）是对的，错在用了受环境支配的代理指标（wall-time）去测一个结构性属性（是否并发发起）。",
+        "verdict": "upheld",
+        "rationale": "**指控成立，已修复**。判据从「wall-time 比值」改为「结构性并发度」：包一层 `crypto.pbkdf2` 记录 in-flight 峰值，断言 `maxInFlight > 1`——串行实现（`pbkdf2Sync` 或 `for-await`）恒为 1，并行实现（`Promise.all`）同时发起 N 个，该数字与核心数、`UV_THREADPOOL_SIZE`、负载全部无关。可复核证据：① 并行实现下默认线程池与 `UV_THREADPOOL_SIZE=1` **两种环境都通过**（原判据在后一种环境判红）；② 变异反证：把 `Promise.all` 改回 `for` 串行循环后，**两种环境都判红**（原判据只在默认环境判红）。测试注释记录了这次判据形态修正的完整理由。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "reason": "high_risk_requires_external",
+        "domains": [
+          "crypto"
+        ]
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "reason": "high_risk_requires_external",
+        "domains": [
+          "crypto"
+        ]
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决：3 条指控成立或需外部复核",
+    "at": "2026-10-14T12:17:37.080Z"
   }
 }
